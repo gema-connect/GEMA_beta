@@ -24,7 +24,7 @@
   --sh:0 4px 16px rgba(0,0,0,.08),0 1px 4px rgba(0,0,0,.04);
   --sh-lg:0 16px 48px rgba(0,0,0,.13),0 4px 16px rgba(0,0,0,.06);
   --sans:"DM Sans",ui-sans-serif,system-ui,sans-serif;
-  --mono:"DM Mono",ui-monospace,monospace;
+  --mono:"DM Sans",ui-sans-serif,system-ui,sans-serif;
   --tap:44px;
 }
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -463,12 +463,13 @@ let state = { mods:{}, activity:[] };
 
 const load = () => {
   try {
+    if(typeof _GemaDB==='undefined') return;
     const s = _GemaDB.c[SK] ? JSON.parse(_GemaDB.c[SK]) : null;
     if (s) state = Object.assign({mods:{},activity:[]}, s);
   } catch(e){}
 };
 
-const save = () => { _GemaDB.save(SK, JSON.stringify(state)); };
+const save = () => { if(typeof _GemaDB!=='undefined') _GemaDB.save(SK, JSON.stringify(state)); };
 const speichern = () => { save(); toast('💾 Gespeichert'); };
 
 // Get or init module state (only status/resp/prio — comments stored separately)
@@ -480,6 +481,7 @@ const mState = (id) => {
 // Feedback from modules (read from Supabase via gema_feedback.js key)
 const getFeedback = (id) => {
   try {
+    if(typeof _GemaDB==='undefined') return [];
     const raw = _GemaDB.c['feedback_' + id];
     if (!raw) return [];
     const parsed = Array.isArray(raw) ? raw : JSON.parse(raw);
@@ -769,7 +771,7 @@ const setCommentStatus = (modId, src, idx, newStatus) => {
     const fb = getFeedback(modId);
     if (fb[idx]) {
       fb[idx].cStatus = newStatus;
-      _GemaDB.save('feedback_' + modId, JSON.stringify(fb));
+      if(typeof _GemaDB!=='undefined') _GemaDB.save('feedback_' + modId, JSON.stringify(fb));
     }
   }
   refreshCommentUI(modId);
@@ -786,7 +788,7 @@ const deleteAnyComment = (modId, src, idx) => {
   } else if (src === 'fb') {
     const fb = getFeedback(modId);
     fb.splice(idx, 1);
-    _GemaDB.save('feedback_' + modId, JSON.stringify(fb));
+    if(typeof _GemaDB!=='undefined') _GemaDB.save('feedback_' + modId, JSON.stringify(fb));
   }
   refreshCommentUI(modId);
   countAll();
@@ -888,7 +890,7 @@ const toast = (msg) => {
 document.addEventListener('DOMContentLoaded', async () => {
   const SK_COMMQ = 'gema_quiz_community_v1';
   const feedbackKeys = FEEDBACK_IDS.map(id => 'feedback_' + id);
-  await Promise.race([
+  if(typeof _GemaDB!=='undefined') await Promise.race([
     _GemaDB.init(SK, [SK, SK_COMMQ, ...feedbackKeys]),
     new Promise(function(r){ setTimeout(r, 5000); })
   ]);
@@ -899,7 +901,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   (function loadQuizReview() {
     let commQ = [];
     try {
-      const raw = _GemaDB.c && _GemaDB.c[SK_COMMQ]
+      const raw = (typeof _GemaDB!=='undefined' && _GemaDB.c && _GemaDB.c[SK_COMMQ])
         ? _GemaDB.c[SK_COMMQ]
         : localStorage.getItem(SK_COMMQ);
       if (raw) commQ = JSON.parse(raw);

@@ -45,7 +45,7 @@
   --shadow: 0 4px 12px rgba(15,23,42,.07), 0 1px 3px rgba(15,23,42,.04);
   --shadow-lg: 0 8px 30px rgba(15,23,42,.1), 0 2px 6px rgba(15,23,42,.04);
   --sans: "DM Sans", ui-sans-serif, system-ui, -apple-system, sans-serif;
-  --mono: "DM Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --mono: "DM Sans", ui-sans-serif, system-ui, -apple-system, sans-serif;
 }
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
 html{font-size:15px;scroll-behavior:smooth;}
@@ -392,7 +392,7 @@ tbody td.mono{font-family:var(--mono);font-weight:500;}
           </div>
           <div class="field">
             <label class="label">Jahrgang</label>
-            <input class="inp" id="fYear" type="number" placeholder="z. B. 2022"/>
+            <input class="inp" id="fYear" type="text" inputmode="decimal" onblur="fixLeadingZero(this)" placeholder="z. B. 2022"/>
           </div>
           <div class="field">
             <label class="label">Treibstoff</label>
@@ -483,15 +483,15 @@ tbody td.mono{font-family:var(--mono);font-weight:500;}
         <div class="form-grid col3">
           <div class="field">
             <label class="label">Aktueller km-Stand</label>
-            <input class="inp" id="fKm" type="number" placeholder="z. B. 45000"/>
+            <input class="inp" id="fKm" type="text" inputmode="decimal" onblur="fixLeadingZero(this)" placeholder="z. B. 45000"/>
           </div>
           <div class="field">
             <label class="label">Service-Intervall (km)</label>
-            <input class="inp" id="fServiceKm" type="number" placeholder="z. B. 15000"/>
+            <input class="inp" id="fServiceKm" type="text" inputmode="decimal" onblur="fixLeadingZero(this)" placeholder="z. B. 15000"/>
           </div>
           <div class="field">
             <label class="label">Service-Intervall (Monate)</label>
-            <input class="inp" id="fServiceMonths" type="number" placeholder="z. B. 12"/>
+            <input class="inp" id="fServiceMonths" type="text" inputmode="decimal" onblur="fixLeadingZero(this)" placeholder="z. B. 12"/>
           </div>
           <div class="field">
             <label class="label">Letzter Service (Datum)</label>
@@ -499,7 +499,7 @@ tbody td.mono{font-family:var(--mono);font-weight:500;}
           </div>
           <div class="field">
             <label class="label">km bei letztem Service</label>
-            <input class="inp" id="fLastServiceKm" type="number" placeholder="z. B. 30000"/>
+            <input class="inp" id="fLastServiceKm" type="text" inputmode="decimal" onblur="fixLeadingZero(this)" placeholder="z. B. 30000"/>
           </div>
           <div class="field">
             <label class="label">Nächste MFK</label>
@@ -551,6 +551,15 @@ tbody td.mono{font-family:var(--mono);font-weight:500;}
 
 <div class="toast" id="toast"></div>
 
+<script>
+function fixLeadingZero(el) {
+  let v = el.value.trim();
+  if (v === '') return;
+  if (/^\./.test(v)) v = '0' + v;
+  if (/^-\./.test(v)) v = '-0' + v.slice(1);
+  el.value = String(parseFloat(v));
+}
+</script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script src="gema_db.js"></script>
 <script src="gema_feedback.js"></script>
@@ -566,7 +575,7 @@ if(typeof _GemaDB==='undefined'){
 <script>
 (async()=>{
 await Promise.race([
-  _GemaDB.init('fahrzeugmanagement', ['gema_vehicles']),
+  typeof _GemaDB!=='undefined'?_GemaDB.init('fahrzeugmanagement', ['gema_vehicles']):Promise.resolve(),
   new Promise(function(r){ setTimeout(r, 5000); })
 ]);
 
@@ -578,9 +587,9 @@ let editId = null;
 let currentView = "cards";
 
 // Load from localStorage
-try { const d = (_GemaDB.c["gema_vehicles"]??null); if(d) vehicles = JSON.parse(d); } catch(e){}
+try { const d = (typeof _GemaDB!=='undefined'?(_GemaDB.c["gema_vehicles"]??null):null); if(d) vehicles = JSON.parse(d); } catch(e){}
 
-function persist(){ _GemaDB.save("gema_vehicles", JSON.stringify(vehicles)); }
+function persist(){ if(typeof _GemaDB!=='undefined') _GemaDB.save("gema_vehicles", JSON.stringify(vehicles)); }
 function genId(){ return 'v_'+Date.now()+'_'+Math.random().toString(36).slice(2,7); }
 
 /* ═══════════════════════════════
