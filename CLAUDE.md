@@ -2,6 +2,211 @@
 
 GEMA ist eine webbasierte Applikationssuite für Sanitäringenieurwesen und Bauprojektmanagement, gehostet auf Netlify (Schweiz). Die Suite umfasst Berechnungsmodule, Projektmanagement-Tools und Hygiene-Management.
 
+**Vision**: GEMA wird DER Marktplatz für die Baustelle — startend mit Gebäudetechnik. Alle am Bau Beteiligten (Bauherrschaft, Architekt, Sanitärplaner, Unternehmer, Behörden, Lieferanten) loggen sich täglich ein und arbeiten auf einer gemeinsamen Plattform.
+
+---
+
+## Kernprinzip: Daten einmal erfassen, überall verknüpfen
+
+Das wichtigste Architekturprinzip von GEMA: **Jeder Wert wird nur einmal eingegeben.** Alle abhängigen Module beziehen ihre Daten automatisch aus der Quelle. Der Benutzer kann übernommene Werte im Zielmodul anpassen, aber die Ersterfassung passiert nur einmal.
+
+Beispiel: Ein Verbraucher wird in der LU-Zusammenstellung erfasst mit seinem Medium (Osmosewasser). Daraus fliesst automatisch der l/s-Wert in die Osmoseberechnung. Aus der Osmoseberechnung fliessen Permeat und Konzentrat in die Enthärtungsanlage. Der Planer muss diese Werte nie manuell übertragen — sie sind vorausgefüllt und editierbar.
+
+---
+
+## Datenfluss: Berechnungsmodule
+
+### Zentrales Modul: LU-Zusammenstellung
+
+Die LU-Zusammenstellung (Leitungsführung/Verbraucher-Zusammenstellung) ist die **zentrale Datenquelle** für alle verknüpften Berechnungen. Hier werden alle Verbraucher eines Projekts erfasst.
+
+Integriert: **W3 Diagramm 1** (Spitzenvolumenstrom nach SVGW W3) — ist Teil der LU, kein separates Modul.
+
+### Vier Medien-Netze
+
+Jeder Verbraucher in der LU hat ein zugeordnetes Medium:
+
+| Medium | Leitungsnetz | Zielmodule |
+|--------|-------------|------------|
+| **Trinkwasser (kalt)** | Trinkwassernetz | Druckerhöhung (l/s) |
+| **Enthärtetes Wasser** | Trinkwassernetz | Enthärtungsanlage (l/s + Härtegrade) |
+| **Osmosewasser** | Trinkwassernetz | Osmoseberechnung (l/s) → Enthärtungsanlage (Permeat + Konzentrat) |
+| **Regenwasser** | Separates Leitungsnetz | Eigene Pumpe/Druckerhöhung (l/s) |
+
+### Datenfluss-Diagramm
+
+```
+┌─────────────────────────────────────────────────────┐
+│          LU-Zusammenstellung (+ W3 Diagramm 1)      │
+│                                                       │
+│  Verbraucher erfassen:                                │
+│  ┌──────────┬────────────┬──────────┬──────────────┐ │
+│  │ Name     │ Medium     │ l/s      │ Härtegrad    │ │
+│  ├──────────┼────────────┼──────────┼──────────────┤ │
+│  │ WC 1     │ Regenwasser│ 0.1      │ —            │ │
+│  │ Lavabo   │ Trinkwasser│ 0.1      │ —            │ │
+│  │ Labor    │ Osmose     │ 0.5      │ —            │ │
+│  │ Dusche   │ Enthärtet  │ 0.15     │ 15°fH       │ │
+│  └──────────┴────────────┴──────────┴──────────────┘ │
+└──────────┬──────────┬──────────────┬─────────────────┘
+           │          │              │
+     ┌─────┘    ┌─────┘        ┌─────┘
+     ▼          ▼              ▼
+┌─────────┐ ┌──────────┐  ┌────────────────┐
+│Druck-   │ │Osmose-   │  │Regenwasser-    │
+│erhöhung │ │berechnung│  │Druckerhöhung   │
+│         │ │          │  │(eigene Pumpe)  │
+│ l/s aus │ │ l/s aus  │  │ l/s aus LU     │
+│ LU      │ │ LU       │  │ (nur Regen-    │
+│         │ │          │  │  verbraucher)  │
+└─────────┘ │          │  └────────────────┘
+            │  Ergebnis:
+            │  Permeat + Konzentrat
+            │          │
+            └────┬─────┘
+                 ▼
+         ┌──────────────┐
+         │Enthärtungs-  │
+         │anlage        │
+         │              │
+         │ Eingänge:    │
+         │ • Permeat    │ ← aus Osmoseberechnung
+         │ • Konzentrat │ ← aus Osmoseberechnung
+         │ • Verbraucher│ ← aus LU (mit Härtegraden)
+         │   nach       │
+         │   Härtegrad  │
+         └──────────────┘
+```
+
+### Unabhängige Module
+
+Folgende Module arbeiten eigenständig und beziehen keine Daten aus der LU:
+- Warmwasserberechnung
+- Zirkulationsberechnung
+- Abwasserhebeanlage
+- Niederschlagswasser
+- Alle weiteren sb_-Module ohne LU-Bezug
+
+### Daten-Synchronisation: Regeln
+
+1. **Quelle → Ziel**: Werte fliessen automatisch, sind im Zielmodul aber editierbar
+2. **Änderungen an der Quelle**: Aktualisieren das Zielmodul (mit Hinweis an den Benutzer)
+3. **Manuelle Überschreibung im Ziel**: Wird markiert und nicht mehr automatisch überschrieben
+4. **Alle Verknüpfungen sind objektspezifisch**: Daten fliessen nur innerhalb desselben Projekts/Objekts
+
+---
+
+## Lieferanten-System
+
+### Übersicht
+
+Lieferanten sind ein zentraler Bestandteil von GEMA. Nach einer Berechnung (z.B. Enthärtungsanlage) kann der Planer direkt eine passende Anlage aus dem Lieferanten-Katalog auswählen und optional eine Offertanfrage an den Lieferanten senden.
+
+### Workflow für den Planer
+
+```
+Berechnung abgeschlossen (z.B. Enthärtung: 2.5 l/s, 15°fH)
+        │
+        ▼
+┌─────────────────────────────────┐
+│  Anlagen-Auswahl                │
+│                                  │
+│  Passende Anlagen werden         │
+│  angezeigt basierend auf         │
+│  Berechnungsergebnis             │
+│                                  │
+│  [Premium-Lieferanten oben]      │
+│  [Verifizierte Anlagen ✓]       │
+│                                  │
+│  → Anlage auswählen & speichern  │
+│    (ohne Offertanfrage)          │
+│                                  │
+│  → ODER: Offertanfrage senden   │
+│    an Lieferant                  │
+└─────────────────────────────────┘
+        │
+        ▼  (bei Offertanfrage)
+┌─────────────────────────────────┐
+│  Lieferanten-Dashboard           │
+│                                  │
+│  Neue Offertanfrage!             │
+│  Projekt: Neubau Musterstrasse   │
+│  Berechnung: Enthärtung 2.5 l/s │
+│  Planer: Ingenieurbüro XY       │
+│                                  │
+│  → Offerte erstellen & senden    │
+└─────────────────────────────────┘
+```
+
+### Lieferanten-Zugang & Dashboard
+
+- **Eigenes Login**: Jeder Lieferant hat ein eigenes Konto mit Dashboard
+- **Produktpflege**: Lieferant erfasst und pflegt seine Produkte selbst
+- **Produktkategorien**: Anlagen (Osmose, Enthärtung, Druckerhöhung, Pumpen etc.), Armaturen, Rohre, Zubehör
+- **Admin-Zugriff**: GEMA-Admin kann alle Lieferanten-Daten einsehen und Lieferanten deaktivieren (z.B. bei Zahlungsverzug)
+- **Offertanfragen**: Lieferant sieht eingehende Anfragen aus Berechnungen der Planer
+
+### Verifizierung
+
+1. GEMA erfasst Anlagen vor (Basisdaten)
+2. Lieferant loggt sich ein, prüft/ergänzt seine Anlagendaten
+3. Lieferant bestätigt die Korrektheit der Daten
+4. Anlage erhält den **"Verifiziert"-Badge** ✓
+5. Nicht-verifizierte Anlagen werden als "Nicht verifiziert" markiert
+
+### Monetarisierung
+
+**Basis-Zugang (kostenpflichtig)**:
+- Lieferant zahlt, um Zugang zum System zu erhalten
+- Eigene Produkte/Anlagen erfassen und pflegen
+- Technische Daten verifizieren
+- Offertanfragen empfangen und beantworten
+
+**Premium-Platzierung (zusätzliche Verträge)**:
+- Bevorzugte Position in der Anlagen-Auswahl (immer oben)
+- Empfehlungen/Hervorhebung bei passenden Berechnungen
+- Erweiterte Sichtbarkeit im Katalog
+- Weitere Premium-Features (nach Vereinbarung)
+
+**Admin-Kontrolle**:
+- Lieferant kann bei Zahlungsverzug deaktiviert werden
+- Deaktivierter Lieferant: Produkte nicht mehr sichtbar, keine Offertanfragen
+
+---
+
+## Rollen & Zugangssystem
+
+Jede Rolle hat ein eigenes Login mit rollenspezifischer Ansicht.
+
+### Rollenübersicht
+
+| Rolle | Sicht | Hauptfunktionen |
+|-------|-------|----------------|
+| **Sanitärplaner** | Vollzugang Berechnungen + PM | Berechnungen erstellen, Projekte verwalten, Ausschreibungen, Offertanfragen |
+| **Unternehmer** | Ausschreibungen + Offerten | CRBX-Preise ausfüllen (langfristig in GEMA, kurzfristig Datei-Upload), Offertvergleich einsehen |
+| **Bauherrschaft** | Projektübersicht + Kosten | Projektstatus, Kostenkontrolle, Freigaben |
+| **Architekt** | Projektübersicht + Koordination | Terminplanung, Sitzungsprotokolle, Dokumentation |
+| **Behörden** | Bewilligungen + Hygiene | W12-Prüfungen, Bewilligungsstatus |
+| **Lieferant** | Eigenes Dashboard | Produktpflege, Verifizierung, Offertanfragen beantworten |
+| **Admin** | Alles | Benutzer verwalten, Lieferanten aktivieren/deaktivieren, System konfigurieren |
+
+### CRBX-Workflow (Ausschreibung)
+
+**Kurzfristig (Datei-basiert)**:
+1. Planer lädt CRBX/E1S-Datei hoch
+2. Planer verteilt an Unternehmer
+3. Unternehmer füllt Preise aus (extern)
+4. Unternehmer lädt ausgefüllte Datei zurück
+5. Offertvergleich mit 0-Positions-Erkennung
+
+**Langfristig (In-GEMA)**:
+1. Planer erstellt Ausschreibung in GEMA
+2. Unternehmer füllt Preise direkt in GEMA aus
+3. Automatischer Offertvergleich
+4. Alles in einem System, keine Dateien mehr nötig
+
+CRBX = ZIP mit SIA 451 .e1s Datei (Festbreiten-Format, Satztypen A/B/C/G/Z).
+
 ---
 
 ## Projektstruktur
@@ -26,7 +231,7 @@ Hauptseite: `index.html`. Hub-Seiten: `sb_index.html`, `pm_ausschreibung.html`, 
 
 ### Modulübersicht
 
-- **16 Sanitärberechnungs-Module** (sb_)
+- **16 Sanitärberechnungs-Module** (sb_): Inkl. LU-Zusammenstellung, Druckerhöhung, Osmose, Enthärtung etc.
 - **Projektmanagement-Module** (pm_): Objekte, Terminplanung, Sitzungsprotokolle, Kostenkontrolle, Ausschreibung
 - **Hygiene-Module** (hy_): W12 Selbstkontrolle (SVGW)
 - **Zentrale Module**: `Module.html` (Hauptnavigation), `Objekte.html` (Projektverwaltung)
@@ -124,7 +329,7 @@ const _memStore = {};
 
 ### IIFE-Syntax
 
-Korrekte doppelte Klammer-Syntax für IIFEs:
+Korrekte Syntax für IIFEs:
 
 ```javascript
 (function() {
@@ -172,6 +377,11 @@ Auto-Save/Load bei Objektwechsel.
 - `GemaObjekte.getAll()` – alle Objekte
 - `GemaObjekte.getActive()` – aktives Objekt
 - `GemaObjekte.getBeteiligte()` – Beteiligte des aktiven Objekts
+
+Geplant: `gema_lu_api.js` für den Datenfluss aus der LU-Zusammenstellung:
+- `GemaLU.getVerbraucher(objektId)` – alle Verbraucher eines Projekts
+- `GemaLU.getByMedium(objektId, medium)` – Verbraucher gefiltert nach Medium
+- `GemaLU.getSpitzenvolumenstrom(objektId, medium)` – berechneter l/s-Wert
 
 ---
 
