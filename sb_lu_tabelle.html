@@ -395,7 +395,7 @@ body {
 
 /* Device list rows */
 .device-row {
-  display:grid; grid-template-columns: 1fr 60px 45px 45px 45px 55px 32px;
+  display:grid; grid-template-columns: 1fr 60px 110px 45px 45px 45px 55px 32px;
   gap:8px; padding:8px 10px;
   background:var(--surface);
   border:1.5px solid var(--border); border-top:0;
@@ -439,7 +439,7 @@ body {
   background:var(--bg2); border:1.5px solid var(--border); border-radius:var(--r-sm) var(--r-sm) 0 0;
   font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:.4px;
 }
-.list-head.devices { grid-template-columns: 1fr 60px 45px 45px 45px 55px 32px; }
+.list-head.devices { grid-template-columns: 1fr 60px 110px 45px 45px 45px 55px 32px; }
 .list-head.specials { grid-template-columns: 1fr 70px 120px 90px 36px; }
 .special-row select { padding:6px 8px; border:1.5px solid var(--border2); border-radius:10px; font-size:12px; font-family:inherit; font-weight:600; background:var(--surface); color:var(--text); width:100%; cursor:pointer; }
 .special-row select:focus { outline:none; border-color:var(--accent); box-shadow:0 0 0 2px rgba(37,99,235,.1); }
@@ -627,6 +627,7 @@ function fixLeadingZero(el){
 <script src="gema_objekte_api.js"></script>
 <script src="gema_pdf.js"></script>
 <script src="gema_autosave.js"></script>
+<script src="gema_lu_api.js"></script>
 </head>
 <body>
 <nav class="g-nav">
@@ -707,7 +708,7 @@ function fixLeadingZero(el){
         </div>
         <div class="g-card-bd">
           <div class="list-head devices">
-            <div>Apparat</div><div>Anz.</div><div>KW</div><div>WW</div><div>ND</div><div>Total</div><div></div>
+            <div>Apparat</div><div>Anz.</div><div>Medium</div><div>KW</div><div>WW</div><div>ND</div><div>Total</div><div></div>
           </div>
           <div id="deviceList"></div>
           <div class="g-info" style="margin-top:12px;">
@@ -814,6 +815,14 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
       {id:'frei', label:'Freie Eingabe', short:'Frei', cls:'medium-frei', color:'var(--text)'}
     ];
     const MEDIA_MAP = new Map(MEDIA.map(m=>[m.id,m]));
+
+    // Medien/Leitungsnetze für Standard-Apparate (gemäss Datenfluss-Architektur)
+    const DEVICE_MEDIA = [
+      {id:'trinkwasser',  label:'Trinkwasser',         short:'TW',  color:'#2563eb'},
+      {id:'enthaertet',   label:'Enthärtetes Wasser',   short:'EW',  color:'#7c3aed'},
+      {id:'osmose',       label:'Osmosewasser',          short:'OW',  color:'#0891b2'},
+      {id:'regenwasser',  label:'Regenwasser',           short:'RW',  color:'#16a34a'}
+    ];
 
     // ── Admin Stammdaten (custom overrides, persisted) ──
     const ADMIN_KEY = 'gema_lu_stammdaten_v1';
@@ -990,9 +999,9 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
       maxLU: {kw:3, ww:3, nd:5, bw:3, gw:3, frei:3},
       maxLUManual: {kw:false, ww:false, nd:false, bw:false, gw:false, frei:false},
       devices: [
-        { deviceName: "", qty: 0 },
-        { deviceName: "", qty: 0 },
-        { deviceName: "", qty: 0 }
+        { deviceName: "", qty: 0, medium: "trinkwasser" },
+        { deviceName: "", qty: 0, medium: "trinkwasser" },
+        { deviceName: "", qty: 0, medium: "trinkwasser" }
       ],
       special: [
         { label: "", medium: "kw", freiName: "", flow: 0, qty: 1 }
@@ -1096,6 +1105,14 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
         qty.type = "number"; qty.min = "0"; qty.step = "1"; qty.inputMode = "numeric";
         qty.value = String(row.qty ?? 0); qty.title = "Anzahl";
 
+        const medSel = document.createElement("select");
+        medSel.title = "Leitungsnetz / Medium";
+        medSel.innerHTML = DEVICE_MEDIA.map(m =>
+          `<option value="${m.id}" ${(row.medium||'trinkwasser')===m.id?'selected':''}>${m.short}</option>`
+        ).join('');
+        medSel.style.cssText = "font-size:11px;font-weight:700;color:" +
+          (DEVICE_MEDIA.find(m=>m.id===(row.medium||'trinkwasser'))||DEVICE_MEDIA[0]).color + ";";
+
         const dev = DEVICE_BY_NAME.get(row.deviceName);
         const q = row.qty || 0;
 
@@ -1128,6 +1145,10 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
           state.devices[idx].qty = clampNum(e.target.value, 0, 1e6);
           renderDeviceList(); applyAutoMaxLU(); calcAndRender();
         });
+        medSel.addEventListener("change", (e) => {
+          state.devices[idx].medium = e.target.value;
+          renderDeviceList(); calcAndRender();
+        });
         remove.addEventListener("click", () => {
           if (state.devices.length <= 1) return;
           state.devices.splice(idx, 1);
@@ -1136,6 +1157,7 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
 
         div.appendChild(select);
         div.appendChild(qty);
+        div.appendChild(medSel);
         div.appendChild(kwSpan);
         div.appendChild(wwSpan);
         div.appendChild(ndSpan);
@@ -1463,7 +1485,7 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
 
     // --- Aktionen ---
     function addDeviceRow(){
-      state.devices.push({ deviceName: "", qty: 0 });
+      state.devices.push({ deviceName: "", qty: 0, medium: "trinkwasser" });
       renderDeviceList();
       applyAutoMaxLU();
       calcAndRender();
@@ -1488,9 +1510,9 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
         maxLU: {kw:3, ww:3, nd:5, bw:3, gw:3, frei:3},
         maxLUManual: {kw:false, ww:false, nd:false, bw:false, gw:false, frei:false},
         devices: [
-          { deviceName: "", qty: 0 },
-          { deviceName: "", qty: 0 },
-          { deviceName: "", qty: 0 }
+          { deviceName: "", qty: 0, medium: "trinkwasser" },
+          { deviceName: "", qty: 0, medium: "trinkwasser" },
+          { deviceName: "", qty: 0, medium: "trinkwasser" }
         ],
         special: [
           { label: "", medium: "kw", freiName: "", flow: 0, qty: 1 }
@@ -1596,9 +1618,10 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
             devices: Array.isArray(obj.devices) && obj.devices.length
               ? obj.devices.map(r => ({
                   deviceName: DEVICE_BY_NAME.has(r.deviceName) ? r.deviceName : (r.deviceName||""),
-                  qty: clampNum(r.qty ?? 0, 0, 1e6)
+                  qty: clampNum(r.qty ?? 0, 0, 1e6),
+                  medium: r.medium || "trinkwasser"
                 }))
-              : [{ deviceName:"", qty:0 }],
+              : [{ deviceName:"", qty:0, medium:"trinkwasser" }],
             special: Array.isArray(obj.special) && obj.special.length
               ? obj.special.map(s => ({
                   label: s.label||"", medium: s.medium||"kw", freiName: s.freiName||"",

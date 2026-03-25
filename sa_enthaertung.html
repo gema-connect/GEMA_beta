@@ -478,6 +478,13 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important}
 .obj-combo select:focus,.obj-combo input:focus{border-color:var(--accent,#2563eb)!important;box-shadow:0 0 0 3px rgba(37,99,235,.1)}
 .obj-combo-toggle{font-size:10px;font-weight:700;color:var(--accent,#2563eb);cursor:pointer;background:none;border:none;padding:0;text-decoration:none;white-space:nowrap;margin-left:auto;text-transform:none;letter-spacing:0}
 .obj-combo-toggle:hover{opacity:.7}
+/* LU-Verknüpfung */
+.lu-linked input{border-color:#7c3aed!important;background:rgba(124,58,237,.04)!important}
+.lu-override input{border-color:#d97706!important;background:rgba(217,119,6,.04)!important}
+.lu-tag{display:inline-flex;align-items:center;gap:3px;font-size:9px;font-weight:700;padding:1px 6px;border-radius:4px;margin-left:6px;vertical-align:middle}
+.lu-tag.auto{background:rgba(124,58,237,.08);color:#7c3aed;border:1px solid rgba(124,58,237,.2);cursor:help}
+.lu-tag.manual{background:rgba(217,119,6,.08);color:#d97706;border:1px solid rgba(217,119,6,.2);cursor:pointer}
+.lu-hint{font-size:11px;color:#7c3aed;font-weight:600;padding:6px 12px;background:rgba(124,58,237,.05);border:1px solid rgba(124,58,237,.15);border-radius:6px;margin-bottom:10px;display:none}
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script>
@@ -496,6 +503,7 @@ function fixLeadingZero(el){
 <script src="gema_pdf.js"></script>
 <script src="gema_autosave.js"></script>
 <script src="gema_produktkatalog_api.js"></script>
+<script src="gema_lu_api.js"></script>
 </head>
 <body>
 <nav class="g-nav">
@@ -622,6 +630,7 @@ function fixLeadingZero(el){
           </div>
         </div>
         <div class="g-section-bd">
+          <div class="lu-hint" id="luHint">💧 EW-Verbraucher aus LU-Zusammenstellung übernommen. Überschriebene Werte werden nicht mehr automatisch aktualisiert.</div>
           <div class="g-table-wrap" style="margin-bottom:12px;">
             <table class="consumer-table">
               <thead>
@@ -1110,7 +1119,138 @@ document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('enth
       if(o){var parts=[o.name];if(o.strasse)parts.push(o.strasse);if(o.plz||o.ort)parts.push([o.plz,o.ort].filter(Boolean).join(' '));inp.value=parts.join(', ');}
     } else { inp.value=''; }
     _prevObjektId=sel.value;saveMeta();
+    _prefillFromLU(sel.value);
   }
+
+  // ── LU-Verknüpfung (Enthärtetes Wasser / EW / bw) ──
+  var _luOverrides = {};  // {'n_A': true, 'lbl_A': true, ...}
+  var _luValues = {};     // {'n_A': 0.15, 'lbl_A': 'Dusche', ...}
+  var CONSUMERS = ['A','B','C','D','E','F'];
+  var LU_FIELDS_PER_ROW = ['lbl','n']; // Felder die aus LU kommen: Name + Volumenstrom
+
+  function _prefillFromLU(objektId){
+    var hint = document.getElementById('luHint');
+    if(!hint) return;
+
+    if(typeof GemaLU==='undefined' || !objektId){
+      hint.style.display='none'; _clearLUMarkers(); return;
+    }
+    if(!GemaLU.hasData(objektId)){
+      hint.style.display='none'; _clearLUMarkers(); return;
+    }
+
+    // Get EW (enthärtetes Wasser = bw medium) consumers
+    var ewConsumers = GemaLU.getByMedium(objektId, 'enthaertet');
+    if(!ewConsumers.length){
+      hint.style.display='none'; _clearLUMarkers(); return;
+    }
+
+    hint.style.display='block';
+    hint.textContent='💧 '+ewConsumers.length+' EW-Verbraucher aus LU-Zusammenstellung übernommen. Überschriebene Werte werden nicht mehr automatisch aktualisiert.';
+
+    // Fill rows A–F (max 6)
+    var count = Math.min(ewConsumers.length, CONSUMERS.length);
+    for(var i=0; i<CONSUMERS.length; i++){
+      var c = CONSUMERS[i];
+      var lblEl = document.getElementById('lbl_'+c);
+      var nEl = document.getElementById('n_'+c);
+      var tr = lblEl ? lblEl.closest('tr') : null;
+
+      if(i < count){
+        var v = ewConsumers[i];
+        var name = v.name || ('EW-Verbraucher '+(i+1));
+        var flow = v.flow || 0; // already l/s
+
+        _luValues['lbl_'+c] = name;
+        _luValues['n_'+c] = flow;
+
+        // Prefill if not overridden
+        if(!_luOverrides['lbl_'+c] && lblEl) lblEl.value = name;
+        if(!_luOverrides['n_'+c] && nEl && flow > 0) nEl.value = String(Math.round(flow*1000)/1000);
+
+        // Mark row
+        if(tr){
+          if(!_luOverrides['n_'+c] && !_luOverrides['lbl_'+c]){
+            tr.classList.add('lu-linked'); tr.classList.remove('lu-override');
+            _setRowTag(tr, c, 'auto');
+          } else {
+            tr.classList.remove('lu-linked'); tr.classList.add('lu-override');
+            _setRowTag(tr, c, 'manual');
+          }
+        }
+      } else {
+        // Clear LU markers for unused rows
+        if(tr){ tr.classList.remove('lu-linked'); tr.classList.remove('lu-override'); _removeRowTag(tr); }
+      }
+    }
+
+    recalc();
+  }
+
+  function _setRowTag(tr, c, mode){
+    var cell = tr.cells[0];
+    var existing = cell.querySelector('.lu-tag');
+    if(!existing){
+      existing = document.createElement('span');
+      cell.appendChild(existing);
+    }
+    if(mode==='auto'){
+      existing.className='lu-tag auto';
+      existing.textContent='LU ↗';
+      existing.title='Aus LU-Zusammenstellung';
+      existing.onclick=null;
+      existing.style.cursor='help';
+    } else {
+      existing.className='lu-tag manual';
+      existing.textContent='✎ Manuell';
+      existing.title='Manuell überschrieben — klicken zum Zurücksetzen';
+      existing.style.cursor='pointer';
+      existing.onclick=function(){ _resetRow(c); };
+    }
+  }
+
+  function _removeRowTag(tr){
+    var tag = tr.cells[0].querySelector('.lu-tag');
+    if(tag) tag.remove();
+  }
+
+  function _clearLUMarkers(){
+    CONSUMERS.forEach(function(c){
+      var lblEl = document.getElementById('lbl_'+c);
+      var tr = lblEl ? lblEl.closest('tr') : null;
+      if(tr){ tr.classList.remove('lu-linked'); tr.classList.remove('lu-override'); _removeRowTag(tr); }
+    });
+  }
+
+  function _markOverride(c, field){
+    var key = field+'_'+c;
+    if(_luValues[key]===undefined) return;
+    _luOverrides[key] = true;
+    // Check if any field in this row is overridden
+    var lblEl = document.getElementById('lbl_'+c);
+    var tr = lblEl ? lblEl.closest('tr') : null;
+    if(tr){ tr.classList.remove('lu-linked'); tr.classList.add('lu-override'); _setRowTag(tr, c, 'manual'); }
+  }
+
+  function _resetRow(c){
+    delete _luOverrides['lbl_'+c];
+    delete _luOverrides['n_'+c];
+    var lblEl = document.getElementById('lbl_'+c);
+    var nEl = document.getElementById('n_'+c);
+    if(lblEl && _luValues['lbl_'+c]!==undefined) lblEl.value = _luValues['lbl_'+c];
+    if(nEl && _luValues['n_'+c]!==undefined && _luValues['n_'+c]>0) nEl.value = String(Math.round(_luValues['n_'+c]*1000)/1000);
+    var tr = lblEl ? lblEl.closest('tr') : null;
+    if(tr){ tr.classList.add('lu-linked'); tr.classList.remove('lu-override'); _setRowTag(tr, c, 'auto'); }
+    recalc();
+  }
+
+  // Listen for manual input on LU-linked fields
+  CONSUMERS.forEach(function(c){
+    var lblEl = document.getElementById('lbl_'+c);
+    var nEl = document.getElementById('n_'+c);
+    if(lblEl) lblEl.addEventListener('input', function(){ _markOverride(c,'lbl'); });
+    if(nEl) nEl.addEventListener('input', function(){ _markOverride(c,'n'); });
+  });
   function toggleObjektInput(forceManual){
     var isManual=typeof forceManual==='boolean'?forceManual:document.getElementById('objComboManual').style.display==='none';
     document.getElementById('objComboSelect').style.display=isManual?'none':'flex';
@@ -1121,8 +1261,8 @@ document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('enth
   window.onObjektSelect=onObjektSelect;
   window.toggleObjektInput=toggleObjektInput;
   window.populateObjektDropdown=populateObjektDropdown;
-  document.addEventListener('DOMContentLoaded',function(){loadMeta();populateObjektDropdown();if(typeof GemaAutoSave!=='undefined') GemaAutoSave.init('enthaertungsanlage');});
-  window.addEventListener('gema-objekte-loaded',function(){populateObjektDropdown();if(typeof GemaAutoSave!=='undefined') GemaAutoSave.init('enthaertungsanlage');});
+  document.addEventListener('DOMContentLoaded',function(){loadMeta();populateObjektDropdown();if(typeof GemaAutoSave!=='undefined') GemaAutoSave.init('enthaertungsanlage');setTimeout(function(){if(_prevObjektId)_prefillFromLU(_prevObjektId);},200);});
+  window.addEventListener('gema-objekte-loaded',function(){populateObjektDropdown();if(typeof GemaAutoSave!=='undefined') GemaAutoSave.init('enthaertungsanlage');if(_prevObjektId)_prefillFromLU(_prevObjektId);});
   ['metaProjekt','metaBearbeiter','metaDatum'].forEach(function(id){var el=document.getElementById(id);if(el)el.addEventListener('input',saveMeta);});
 })();</script>
 
@@ -1193,7 +1333,11 @@ document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('enth
     var liefs = GemaProdukte.getLieferanten('enthaertung');
     var pills = document.getElementById('liefPills');
     pills.innerHTML = '<div class="pk-pill'+ (_selLief==='alle'?' active':'') +'" onclick="window._pkSelectLief(\'alle\')">Alle</div>' +
-      liefs.map(function(l){ return '<div class="pk-pill'+ (_selLief===l.firma?' active':'') +'" onclick="window._pkSelectLief(\''+l.firma.replace(/'/g,"\\'")+'\')">'+l.firma+'</div>'; }).join('');
+      liefs.map(function(l){
+        var lief = typeof GemaProdukte.getLieferant==='function' ? GemaProdukte.getLieferant(l.id) : null;
+        var isPrem = lief && lief.premium && lief.premium.aktiv;
+        return '<div class="pk-pill'+ (_selLief===l.firma?' active':'') + (isPrem?' premium':'') +'" onclick="window._pkSelectLief(\''+l.firma.replace(/'/g,"\\'")+'\')">'+l.firma+(isPrem?' ★':'')+'</div>';
+      }).join('');
 
     var typen = GemaProdukte.getTypen('enthaertung', _selLief==='alle'? null : liefs.find(function(l){return l.firma===_selLief;})?.id);
     // Get current berechnung values
@@ -1220,6 +1364,19 @@ document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('enth
 
   window._pkSelectLief = function(f){ _selLief=f; renderAnlagenWahl(); };
 
+  window._pkOpenDoc = function(prodId, docId){
+    var docs = typeof GemaProdukte.getDokumente==='function' ? GemaProdukte.getDokumente(prodId) : [];
+    var d = docs.find(function(x){return x.id===docId;});
+    if(!d || !d.dataUrl) { alert('Datenblatt nicht verfügbar (kein Inhalt gespeichert).'); return; }
+    var w = window.open('','_blank');
+    if(!w) return;
+    if(d.format==='pdf' || d.dataUrl.indexOf('data:application/pdf')===0){
+      w.document.write('<html><body style="margin:0"><iframe src="'+d.dataUrl+'" style="width:100%;height:100vh;border:none"></iframe></body></html>');
+    } else {
+      w.document.write('<html><body style="margin:0;display:flex;align-items:center;justify-content:center;background:#111;min-height:100vh"><img src="'+d.dataUrl+'" style="max-width:100%;max-height:100vh;object-fit:contain"/></body></html>');
+    }
+  };
+
   window._pkSelectTyp = function(serie){
     var prods = GemaProdukte.getProdukte('enthaertung').filter(function(p){return p.daten?.serie===serie;});
     if(_selLief!=='alle') prods = prods.filter(function(p){return p.lieferantFirma===_selLief;});
@@ -1235,9 +1392,12 @@ document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('enth
         var fits = ve_lmin>0 && d.nenndurchfluss >= ve_lmin * 0.8;
         var isVer = p.status==='verifiziert';
         var isUnver = p.status==='nicht_verifiziert';
-        return '<div class="pk-prod-card'+(fits?' pk-fits':'')+'" onclick="window._pkOpenProd(\''+p.id+'\')">' +
+        var lief = typeof GemaProdukte.getLieferant==='function' ? GemaProdukte.getLieferant(p.lieferantId) : null;
+        var isPrem = lief && lief.premium && lief.premium.aktiv;
+        return '<div class="pk-prod-card'+(fits?' pk-fits':'')+(isPrem?' pk-premium':'')+'" onclick="window._pkOpenProd(\''+p.id+'\')">' +
           '<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">' +
             '<strong style="font-size:14px">'+d.modell+'</strong>' +
+            (isPrem ? '<span class="pk-premium-badge">'+(lief.premium.badge||'Premium')+'</span>' : '') +
             (isVer ? '<span class="pk-badge pk-ver">✓ Verifiziert</span>' : '') +
             (isUnver ? '<span class="pk-badge pk-unver">⚠ Nicht verifiziert</span>' : '') +
           '</div>' +
@@ -1257,12 +1417,16 @@ document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('enth
     var d = p.daten||{};
     var isVer = p.status==='verifiziert';
     var isUnver = p.status==='nicht_verifiziert';
+    var lief = typeof GemaProdukte.getLieferant==='function' ? GemaProdukte.getLieferant(p.lieferantId) : null;
+    var isPrem = lief && lief.premium && lief.premium.aktiv;
 
     document.getElementById('pmTitle').textContent = p.lieferantFirma + ' ' + d.serie + ' ' + d.modell;
-    document.getElementById('pmBadge').innerHTML = isVer ?
-      '<span class="pk-badge pk-ver" style="font-size:12px">✓ Verifiziert</span>' :
-      isUnver ? '<span class="pk-badge pk-unver" style="font-size:12px">⚠ Nicht verifiziert</span>' :
-      '<span class="pk-badge pk-draft" style="font-size:12px">Entwurf</span>';
+    var badgeHtml = '';
+    if(isPrem) badgeHtml += '<span class="pk-premium-badge" style="font-size:11px">'+(lief.premium.badge||'Premium-Partner')+'</span> ';
+    if(isVer) badgeHtml += '<span class="pk-badge pk-ver" style="font-size:12px">✓ Verifiziert</span>';
+    else if(isUnver) badgeHtml += '<span class="pk-badge pk-unver" style="font-size:12px">⚠ Nicht verifiziert</span>';
+    else badgeHtml += '<span class="pk-badge pk-draft" style="font-size:12px">Entwurf</span>';
+    document.getElementById('pmBadge').innerHTML = badgeHtml;
 
     var html = '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">';
     var fields = [
@@ -1280,6 +1444,21 @@ document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('enth
         '<div style="font-size:14px;font-weight:600;margin-top:2px">'+(f[1]||'—')+' '+(f[2]||'')+'</div></div>';
     });
     html += '</div>';
+
+    // Datenblätter
+    var docs = typeof GemaProdukte.getDokumente==='function' ? GemaProdukte.getDokumente(id) : (p.dokumente||[]);
+    var datenblaetter = docs.filter(function(doc){return doc.typ==='datenblatt';});
+    var bilder = docs.filter(function(doc){return doc.typ==='bild';});
+    if(datenblaetter.length || bilder.length){
+      html += '<div style="margin-top:14px;display:flex;flex-wrap:wrap;gap:8px">';
+      datenblaetter.forEach(function(doc){
+        html += '<button class="pk-datenblatt-btn" onclick="window._pkOpenDoc(\''+id+'\',\''+doc.id+'\')">📄 '+doc.name+'</button>';
+      });
+      bilder.forEach(function(doc){
+        html += '<button class="pk-datenblatt-btn" onclick="window._pkOpenDoc(\''+id+'\',\''+doc.id+'\')">🖼 '+doc.name+'</button>';
+      });
+      html += '</div>';
+    }
 
     if(isUnver){
       html += '<div style="margin-top:14px;padding:10px 14px;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;font-size:12px;color:#dc2626;line-height:1.5">' +
@@ -1358,6 +1537,12 @@ document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('enth
 .pk-ver{background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe}
 .pk-unver{background:#fef2f2;color:#dc2626;border:1px solid #fecaca}
 .pk-draft{background:#fffbeb;color:#d97706;border:1px solid #fde68a}
+.pk-premium{background:linear-gradient(135deg,#fef3c7,#fde68a);border:1.5px solid #f59e0b!important;box-shadow:0 0 0 1px rgba(245,158,11,.15)}
+.pk-premium-badge{font-size:9px;padding:2px 7px;border-radius:10px;font-weight:800;background:#fef3c7;color:#92400e;border:1px solid #fbbf24;white-space:nowrap}
+.pk-pill.premium{border-color:#f59e0b;color:#92400e;background:#fefce8}
+.pk-pill.premium.active{border-color:#f59e0b;background:#fef3c7;color:#92400e}
+.pk-datenblatt-btn{display:inline-flex;align-items:center;gap:4px;padding:6px 12px;border-radius:8px;background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;font-size:12px;font-weight:700;cursor:pointer;transition:.15s;font-family:inherit}
+.pk-datenblatt-btn:hover{background:#dbeafe}
 @media(max-width:768px){.pk-type-range{flex-direction:column;gap:4px}#typGrid{grid-template-columns:1fr}}
 @media(max-width:480px){#detailCard div[style*="grid-template-columns"]{grid-template-columns:1fr 1fr!important}}
 </style>

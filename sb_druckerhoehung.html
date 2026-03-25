@@ -515,6 +515,12 @@ canvas { max-width:100%; }
 .obj-combo select:focus,.obj-combo input:focus{border-color:var(--accent,#2563eb)!important;box-shadow:0 0 0 3px rgba(37,99,235,.1)}
 .obj-combo-toggle{font-size:10px;font-weight:700;color:var(--accent,#2563eb);cursor:pointer;background:none;border:none;padding:0;text-decoration:none;white-space:nowrap;margin-left:auto;text-transform:none;letter-spacing:0}
 .obj-combo-toggle:hover{opacity:.7}
+/* LU-Verknüpfung */
+.lu-linked{position:relative}
+.lu-linked .fg-inp{border-color:#7c3aed!important;background:rgba(124,58,237,.04)}
+.lu-linked .lu-tag{display:inline-flex;align-items:center;gap:3px;font-size:9px;font-weight:700;color:#7c3aed;background:rgba(124,58,237,.08);border:1px solid rgba(124,58,237,.2);border-radius:4px;padding:1px 6px;margin-left:6px;vertical-align:middle;cursor:help}
+.lu-override .fg-inp{border-color:var(--amber,#d97706)!important;background:rgba(217,119,6,.04)}
+.lu-override .lu-tag{color:var(--amber,#d97706);background:rgba(217,119,6,.08);border-color:rgba(217,119,6,.2)}
 </style>
 
 
@@ -525,6 +531,7 @@ canvas { max-width:100%; }
 <script src="gema_objekte_api.js"></script>
 <script src="gema_pdf.js"></script>
 <script src="gema_autosave.js"></script>
+<script src="gema_lu_api.js"></script>
 </head>
 <body>
 <nav class="g-nav">
@@ -624,13 +631,13 @@ canvas { max-width:100%; }
             </div>
             <select class="g-sel" id="vfd_kat" style="display:none"><option value="3">3</option><option value="5">5</option></select>
           </div>
-          <div class="fg">
-            <div class="fg-lbl">Total LU<br><span class="lbl-hint">Summe aller Lasteinheiten · <a href="sb_lu_tabelle.html" style="color:var(--accent);text-decoration:none;">→ LU-Zusammenstellung</a></span></div>
+          <div class="fg" id="fg_vfd_LU">
+            <div class="fg-lbl">Total LU<span class="lu-tag" id="luTag_vfd_LU" style="display:none" title="Wert aus LU-Zusammenstellung">LU ↗</span><br><span class="lbl-hint">Summe aller Lasteinheiten · <a href="sb_lu_tabelle.html" style="color:var(--accent);text-decoration:none;">→ LU-Zusammenstellung</a></span></div>
             <input class="fg-inp" onblur="fixLeadingZero(this)" id="vfd_LU" type="text" inputmode="decimal" step="0.1" min="0" placeholder="z.B. 120" oninput="calcVFD()"/>
             <span class="fg-unit">LU</span>
           </div>
-          <div class="fg">
-            <div class="fg-lbl">Dauerverbraucher<br><span class="lbl-hint">≥ 15 min Laufzeit</span></div>
+          <div class="fg" id="fg_vfd_qdv">
+            <div class="fg-lbl">Dauerverbraucher<span class="lu-tag" id="luTag_vfd_qdv" style="display:none" title="Wert aus LU-Zusammenstellung">LU ↗</span><br><span class="lbl-hint">≥ 15 min Laufzeit</span></div>
             <input class="fg-inp" onblur="fixLeadingZero(this)" id="vfd_qdv" type="text" inputmode="decimal" step="0.01" min="0" placeholder="0.00" oninput="calcVFD()"/>
             <span class="fg-unit" data-unit-label="flow">l/s</span>
           </div>
@@ -727,13 +734,13 @@ canvas { max-width:100%; }
             </div>
             <select class="g-sel" id="ves_kat" style="display:none"><option value="3">3</option><option value="5">5</option></select>
           </div>
-          <div class="fg">
-            <div class="fg-lbl">Total LU<br><span class="lbl-hint">Summe aller Lasteinheiten · <a href="sb_lu_tabelle.html" style="color:var(--accent);text-decoration:none;">→ LU-Zusammenstellung</a></span></div>
+          <div class="fg" id="fg_ves_LU">
+            <div class="fg-lbl">Total LU<span class="lu-tag" id="luTag_ves_LU" style="display:none" title="Wert aus LU-Zusammenstellung">LU ↗</span><br><span class="lbl-hint">Summe aller Lasteinheiten · <a href="sb_lu_tabelle.html" style="color:var(--accent);text-decoration:none;">→ LU-Zusammenstellung</a></span></div>
             <input class="fg-inp" onblur="fixLeadingZero(this)" id="ves_LU" type="text" inputmode="decimal" step="0.1" min="0" placeholder="z.B. 120" oninput="calcVes()"/>
             <span class="fg-unit">LU</span>
           </div>
-          <div class="fg">
-            <div class="fg-lbl">Dauerverbraucher<br><span class="lbl-hint">≥ 15 min Laufzeit</span></div>
+          <div class="fg" id="fg_ves_qdv">
+            <div class="fg-lbl">Dauerverbraucher<span class="lu-tag" id="luTag_ves_qdv" style="display:none" title="Wert aus LU-Zusammenstellung">LU ↗</span><br><span class="lbl-hint">≥ 15 min Laufzeit</span></div>
             <input class="fg-inp" onblur="fixLeadingZero(this)" id="ves_qdv" type="text" inputmode="decimal" step="0.01" min="0" placeholder="0.00" oninput="calcVes()"/>
             <span class="fg-unit" data-unit-label="flow">l/s</span>
           </div>
@@ -1353,7 +1360,119 @@ document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('druc
       if(o){var parts=[o.name];if(o.strasse)parts.push(o.strasse);if(o.plz||o.ort)parts.push([o.plz,o.ort].filter(Boolean).join(' '));inp.value=parts.join(', ');}
     } else { inp.value=''; }
     _prevObjektId=sel.value;saveMeta();
+    _prefillFromLU(sel.value);
   }
+
+  // ── LU-Verknüpfung ──
+  var _luOverrides = {}; // {fieldId: true} — manually overridden
+  var _luValues = {};    // {fieldId: value} — last LU value
+  var _LU_FIELDS = ['vfd_LU','vfd_qdv','ves_LU','ves_qdv'];
+
+  function _prefillFromLU(objektId){
+    if(typeof GemaLU==='undefined' || !objektId){ _clearLUTags(); return; }
+    if(!GemaLU.hasData(objektId)){ _clearLUTags(); return; }
+
+    var summary = GemaLU.getSummary(objektId);
+    var kwData = summary.kw || {};
+
+    // Compute total LU from Verbraucher
+    var verbraucher = GemaLU.getVerbraucher(objektId);
+    var totalLU = 0;
+    verbraucher.forEach(function(v){ if(v.typ==='standard') totalLU += v.luTotal; });
+
+    // Dauer flow (kw medium only)
+    var dauerFlow = 0;
+    verbraucher.forEach(function(v){ if(v.typ==='dauer' && v.medium==='kw') dauerFlow += v.flow; });
+
+    var luData = {
+      vfd_LU: totalLU,
+      vfd_qdv: dauerFlow,
+      ves_LU: totalLU,
+      ves_qdv: dauerFlow
+    };
+
+    _LU_FIELDS.forEach(function(fid){
+      var val = luData[fid] || 0;
+      _luValues[fid] = val;
+      var el = document.getElementById(fid);
+      var fg = document.getElementById('fg_'+fid);
+      var tag = document.getElementById('luTag_'+fid);
+
+      if(tag) tag.style.display = 'inline-flex';
+
+      if(!_luOverrides[fid] && el){
+        // Only prefill if > 0 and not manually overridden
+        if(val > 0){
+          // Convert display unit for flow fields
+          var dispVal = (fid.indexOf('qdv')>=0) ? toDispQ(val) : val;
+          el.value = String(Math.round(dispVal*1000)/1000);
+          if(fg) fg.classList.add('lu-linked');
+          if(fg) fg.classList.remove('lu-override');
+          if(tag) tag.textContent = 'LU ↗';
+          if(tag) tag.title = 'Automatisch aus LU-Zusammenstellung';
+        }
+      } else if(_luOverrides[fid]){
+        if(fg) fg.classList.remove('lu-linked');
+        if(fg) fg.classList.add('lu-override');
+        if(tag) tag.textContent = '✎ Manuell';
+        if(tag) tag.title = 'Manuell überschrieben — wird nicht mehr automatisch aktualisiert. Klicken zum Zurücksetzen.';
+        if(tag) tag.onclick = function(){ _resetLUField(fid); };
+        if(tag) tag.style.cursor = 'pointer';
+      }
+    });
+
+    // Trigger recalc
+    calcVFD();
+    calcVes();
+  }
+
+  function _clearLUTags(){
+    _LU_FIELDS.forEach(function(fid){
+      var tag = document.getElementById('luTag_'+fid);
+      var fg = document.getElementById('fg_'+fid);
+      if(tag) tag.style.display = 'none';
+      if(fg){ fg.classList.remove('lu-linked'); fg.classList.remove('lu-override'); }
+    });
+  }
+
+  function _markOverride(fid){
+    if(!_luValues[fid] && _luValues[fid]!==0) return; // no LU data → nothing to override
+    _luOverrides[fid] = true;
+    var fg = document.getElementById('fg_'+fid);
+    var tag = document.getElementById('luTag_'+fid);
+    if(fg){ fg.classList.remove('lu-linked'); fg.classList.add('lu-override'); }
+    if(tag){
+      tag.textContent = '✎ Manuell';
+      tag.title = 'Manuell überschrieben — klicken zum Zurücksetzen auf LU-Wert';
+      tag.onclick = function(){ _resetLUField(fid); };
+      tag.style.cursor = 'pointer';
+    }
+  }
+
+  function _resetLUField(fid){
+    delete _luOverrides[fid];
+    var val = _luValues[fid] || 0;
+    var el = document.getElementById(fid);
+    if(el && val > 0){
+      var dispVal = (fid.indexOf('qdv')>=0) ? toDispQ(val) : val;
+      el.value = String(Math.round(dispVal*1000)/1000);
+    }
+    var fg = document.getElementById('fg_'+fid);
+    var tag = document.getElementById('luTag_'+fid);
+    if(fg){ fg.classList.add('lu-linked'); fg.classList.remove('lu-override'); }
+    if(tag){ tag.textContent = 'LU ↗'; tag.title = 'Automatisch aus LU-Zusammenstellung'; tag.onclick = null; tag.style.cursor = 'help'; }
+    if(fid.indexOf('vfd')===0) calcVFD(); else calcVes();
+  }
+
+  // Listen for manual input on LU-linked fields
+  _LU_FIELDS.forEach(function(fid){
+    var el = document.getElementById(fid);
+    if(el){
+      el.addEventListener('input', function(){
+        if(_luValues[fid] !== undefined) _markOverride(fid);
+      });
+    }
+  });
   function toggleObjektInput(forceManual){
     var isManual=typeof forceManual==='boolean'?forceManual:document.getElementById('objComboManual').style.display==='none';
     document.getElementById('objComboSelect').style.display=isManual?'none':'flex';
@@ -1364,8 +1483,8 @@ document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('druc
   window.onObjektSelect=onObjektSelect;
   window.toggleObjektInput=toggleObjektInput;
   window.populateObjektDropdown=populateObjektDropdown;
-  document.addEventListener('DOMContentLoaded',function(){loadMeta();populateObjektDropdown();if(typeof GemaAutoSave!=='undefined') GemaAutoSave.init('druckerhoehung');});
-  window.addEventListener('gema-objekte-loaded',function(){populateObjektDropdown();if(typeof GemaAutoSave!=='undefined') GemaAutoSave.init('druckerhoehung');});
+  document.addEventListener('DOMContentLoaded',function(){loadMeta();populateObjektDropdown();if(typeof GemaAutoSave!=='undefined') GemaAutoSave.init('druckerhoehung');setTimeout(function(){if(_prevObjektId)_prefillFromLU(_prevObjektId);},200);});
+  window.addEventListener('gema-objekte-loaded',function(){populateObjektDropdown();if(typeof GemaAutoSave!=='undefined') GemaAutoSave.init('druckerhoehung');if(_prevObjektId)_prefillFromLU(_prevObjektId);});
   ['metaProjekt','metaBearbeiter','metaDatum'].forEach(function(id){var el=document.getElementById(id);if(el)el.addEventListener('input',saveMeta);});
 })();</script>
 </body>

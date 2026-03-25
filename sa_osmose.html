@@ -463,6 +463,13 @@ body {
 .g-nav-btn:hover{background:#eaecf4}
 .gema-feedback-btn{display:inline-flex;align-items:center;gap:5px;padding:6px 13px;border-radius:8px;border:none;background:#dc2626;color:#fff;font-size:12.5px;font-weight:700;cursor:pointer;transition:.15s;white-space:nowrap;font-family:inherit}
 .gema-feedback-btn:hover{background:#b91c1c}
+/* LU-Verknüpfung */
+.lu-info-bar{display:flex;align-items:center;gap:8px;padding:8px 14px;border-radius:8px;font-size:12px;font-weight:600;margin-bottom:12px}
+.lu-info-bar.linked{background:rgba(124,58,237,.06);border:1px solid rgba(124,58,237,.18);color:#7c3aed}
+.lu-info-bar.empty{background:var(--bg2,#edf0f7);border:1px solid var(--border,#e2e7f0);color:var(--muted,#6b7280)}
+.lu-row-tag{font-size:9px;font-weight:700;padding:1px 6px;border-radius:4px;margin-left:6px;vertical-align:middle;display:inline-flex;align-items:center;gap:2px}
+.lu-row-tag.auto{background:rgba(124,58,237,.08);color:#7c3aed;border:1px solid rgba(124,58,237,.2)}
+.lu-row-tag.manual{background:rgba(217,119,6,.08);color:#d97706;border:1px solid rgba(217,119,6,.2);cursor:pointer}
 .gema-hero{border-radius:18px;padding:20px 26px;margin-bottom:14px;position:relative;overflow:hidden;box-shadow:0 16px 48px rgba(0,0,0,.13),0 4px 16px rgba(0,0,0,.06)}
 .gema-hero::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse at 75% 50%,rgba(255,255,255,.1) 0%,transparent 60%)}
 .gema-hero-in{position:relative;z-index:1;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
@@ -525,6 +532,8 @@ function fixLeadingZero(el){
 <script src="gema_objekte_api.js"></script>
 <script src="gema_pdf.js"></script>
 <script src="gema_autosave.js"></script>
+<script src="gema_lu_api.js"></script>
+<script src="gema_produktkatalog_api.js"></script>
 </head>
 <body>
 <nav class="g-nav">
@@ -652,6 +661,11 @@ function fixLeadingZero(el){
           </div>
         </div>
         <div class="g-section-bd">
+          <div class="lu-info-bar empty" id="luInfoBar" style="display:none">
+            <span id="luInfoIcon">💧</span>
+            <span id="luInfoText">Keine OW-Verbraucher in der LU-Zusammenstellung.</span>
+            <button class="g-btn sm" id="luInfoBtn" style="margin-left:auto;display:none" onclick="_prefillFromLU(_prevObjektId)">↻ LU-Daten laden</button>
+          </div>
           <div class="g-table-wrap" style="margin-bottom:12px;">
             <table class="consumer-tbl">
               <thead>
@@ -780,6 +794,36 @@ function fixLeadingZero(el){
         Berechnungslogik angelehnt an Excel-Vorlage „Berechnung Gegenosmose" (VO, VW, VN &amp; Tankauslegung).
       </div>
 
+    </div>
+  </div>
+</div>
+
+<!-- Produktwahl nach Berechnung -->
+<div class="g-page no-print" style="margin-top:0;padding-top:0;">
+  <div id="pkSection" style="display:none;">
+    <div class="g-card">
+      <div class="g-card-hd"><h2>🔬 Anlage auswählen</h2></div>
+      <div class="g-card-bd">
+        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px" id="pkPills"></div>
+        <div id="typGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px"></div>
+        <div id="detailCard" style="display:none;margin-top:14px"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Produkt-Detail-Modal -->
+<div id="pkModal" style="display:none;position:fixed;inset:0;z-index:900;background:rgba(0,0,0,.5);backdrop-filter:blur(4px)">
+  <div style="position:absolute;inset:20px;max-width:740px;margin:auto;background:var(--surface,#fff);border-radius:16px;overflow-y:auto;box-shadow:0 24px 64px rgba(0,0,0,.2);display:flex;flex-direction:column;max-height:calc(100vh - 40px)">
+    <div style="padding:16px 20px;border-bottom:1.5px solid var(--border,#e2e8f0);display:flex;align-items:center;gap:10px">
+      <h3 style="flex:1;font-size:16px;margin:0" id="pmTitle">—</h3>
+      <span id="pmBadge"></span>
+      <button onclick="document.getElementById('pkModal').style.display='none'" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--muted,#6b7280);padding:4px">✕</button>
+    </div>
+    <div id="pmBody" style="padding:20px;flex:1;overflow-y:auto"></div>
+    <div style="padding:14px 20px;border-top:1.5px solid var(--border,#e2e8f0);display:flex;gap:8px;justify-content:flex-end">
+      <button class="g-btn" onclick="document.getElementById('pkModal').style.display='none'">Schliessen</button>
+      <button class="g-btn" style="background:var(--accent,#2563eb);color:#fff;border-color:var(--accent,#2563eb)" onclick="uebernehmeAnlage()">✓ Anlage übernehmen</button>
     </div>
   </div>
 </div>
@@ -984,6 +1028,9 @@ function fixLeadingZero(el){
         document.getElementById("vnRequired").textContent = formatNumber(vnRequired, 1);
         document.getElementById("vnSelected").textContent = formatNumber(vnSelected, 1);
         document.getElementById("vnStatusText").textContent = vnStatus;
+
+        // Produktkatalog: show Anlagen-Wahl if valid
+        if(typeof window._pkAfterRecalc==='function') window._pkAfterRecalc(voLh, phiPercent);
     }
 
     // Initial ein paar Zeilen anlegen
@@ -1033,6 +1080,110 @@ document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('osmo
       if(o){var parts=[o.name];if(o.strasse)parts.push(o.strasse);if(o.plz||o.ort)parts.push([o.plz,o.ort].filter(Boolean).join(' '));inp.value=parts.join(', ');}
     } else { inp.value=''; }
     _prevObjektId=sel.value;saveMeta();
+    _prefillFromLU(sel.value);
+  }
+
+  // ── LU-Verknüpfung (Osmosewasser / OW) ──
+  var _luRowOverrides = {}; // {rowIndex: true}
+
+  function _prefillFromLU(objektId){
+    var bar = document.getElementById('luInfoBar');
+    if(!bar) return;
+
+    if(typeof GemaLU==='undefined' || !objektId){
+      bar.style.display='none'; return;
+    }
+    if(!GemaLU.hasData(objektId)){
+      bar.style.display='flex';
+      bar.className='lu-info-bar empty';
+      document.getElementById('luInfoIcon').textContent='ℹ';
+      document.getElementById('luInfoText').textContent='Keine LU-Daten für dieses Objekt vorhanden. Verbraucher manuell erfassen.';
+      document.getElementById('luInfoBtn').style.display='none';
+      return;
+    }
+
+    // Get OW (Osmosewasser) consumers from LU
+    var owConsumers = GemaLU.getByMedium(objektId, 'osmose');
+    if(!owConsumers.length){
+      bar.style.display='flex';
+      bar.className='lu-info-bar empty';
+      document.getElementById('luInfoIcon').textContent='💧';
+      document.getElementById('luInfoText').textContent='Keine Osmosewasser-Verbraucher in der LU-Zusammenstellung. Verbraucher manuell erfassen oder in der LU das Medium «BW» zuweisen.';
+      document.getElementById('luInfoBtn').style.display='none';
+      return;
+    }
+
+    // Show linked bar
+    bar.style.display='flex';
+    bar.className='lu-info-bar linked';
+    document.getElementById('luInfoIcon').textContent='💧';
+    document.getElementById('luInfoText').textContent=owConsumers.length+' Osmosewasser-Verbraucher aus LU übernommen';
+    document.getElementById('luInfoBtn').style.display='';
+
+    // Clear existing rows and prefill from LU
+    var tbody = document.getElementById('consumerBody');
+    tbody.innerHTML = '';
+    _luRowOverrides = {};
+
+    owConsumers.forEach(function(v, idx){
+      // Convert l/s to l/h for the Osmose table
+      var flowLh = (v.flow || 0) * 3600;
+      addConsumerRow(v.name || ('OW-Verbraucher '+(idx+1)), flowLh > 0 ? String(Math.round(flowLh*10)/10) : '', '');
+
+      // Mark row as LU-linked
+      var row = tbody.rows[tbody.rows.length - 1];
+      if(row){
+        _markRowAsLU(row, idx);
+      }
+    });
+
+    recalc();
+  }
+
+  function _markRowAsLU(row, idx){
+    var nameCell = row.cells[0];
+    var nameInput = nameCell.querySelector('input');
+    var flowInput = row.cells[1].querySelector('input');
+    var hoursInput = row.cells[2].querySelector('input');
+
+    // Add LU tag after name input
+    var existingTag = nameCell.querySelector('.lu-row-tag');
+    if(!existingTag){
+      var tag = document.createElement('span');
+      tag.className = 'lu-row-tag auto';
+      tag.textContent = 'LU ↗';
+      tag.title = 'Aus LU-Zusammenstellung';
+      tag.dataset.rowIdx = idx;
+      nameCell.appendChild(tag);
+    }
+
+    // Track manual overrides on flow/name
+    var origFlow = flowInput.value;
+    var origName = nameInput.value;
+
+    function onManualEdit(){
+      if(_luRowOverrides[idx]) return;
+      _luRowOverrides[idx] = true;
+      var t = nameCell.querySelector('.lu-row-tag');
+      if(t){
+        t.className = 'lu-row-tag manual';
+        t.textContent = '✎ Manuell';
+        t.title = 'Manuell überschrieben — klicken zum Zurücksetzen';
+        t.onclick = function(){
+          delete _luRowOverrides[idx];
+          nameInput.value = origName;
+          flowInput.value = origFlow;
+          t.className = 'lu-row-tag auto';
+          t.textContent = 'LU ↗';
+          t.title = 'Aus LU-Zusammenstellung';
+          t.onclick = null;
+          recalc();
+        };
+      }
+    }
+
+    nameInput.addEventListener('input', onManualEdit);
+    flowInput.addEventListener('input', onManualEdit);
   }
   function toggleObjektInput(forceManual){
     var isManual=typeof forceManual==='boolean'?forceManual:document.getElementById('objComboManual').style.display==='none';
@@ -1044,9 +1195,202 @@ document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('osmo
   window.onObjektSelect=onObjektSelect;
   window.toggleObjektInput=toggleObjektInput;
   window.populateObjektDropdown=populateObjektDropdown;
-  document.addEventListener('DOMContentLoaded',function(){loadMeta();populateObjektDropdown();if(typeof GemaAutoSave!=='undefined') GemaAutoSave.init('osmose');});
-  window.addEventListener('gema-objekte-loaded',function(){populateObjektDropdown();if(typeof GemaAutoSave!=='undefined') GemaAutoSave.init('osmose');});
+  document.addEventListener('DOMContentLoaded',function(){loadMeta();populateObjektDropdown();if(typeof GemaAutoSave!=='undefined') GemaAutoSave.init('osmose');setTimeout(function(){if(_prevObjektId)_prefillFromLU(_prevObjektId);},200);});
+  window.addEventListener('gema-objekte-loaded',function(){populateObjektDropdown();if(typeof GemaAutoSave!=='undefined') GemaAutoSave.init('osmose');if(_prevObjektId)_prefillFromLU(_prevObjektId);});
   ['metaProjekt','metaBearbeiter','metaDatum'].forEach(function(id){var el=document.getElementById(id);if(el)el.addEventListener('input',saveMeta);});
 })();</script>
+
+<script>
+// ═══════════════════════════════════════════════
+// Produktkatalog Integration — Osmoseanlage
+// ═══════════════════════════════════════════════
+(function(){
+  var _selLief = 'alle';
+  var _selProdId = null;
+  var _lastVoLh = 0;
+  var _lastPhi = 75;
+
+  function E(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');}
+
+  // Show/hide section after recalc
+  window._pkAfterRecalc = function(voLh, phi){
+    _lastVoLh = voLh || 0;
+    _lastPhi = phi || 75;
+    var sec = document.getElementById('pkSection');
+    if(!sec) return;
+    if(_lastVoLh > 0 && typeof GemaProdukte !== 'undefined'){
+      sec.style.display = '';
+      renderAnlagenWahl();
+    }
+  };
+
+  function renderAnlagenWahl(){
+    if(typeof GemaProdukte === 'undefined') return;
+    var liefs = GemaProdukte.getLieferanten('osmose');
+    var pills = document.getElementById('pkPills');
+    pills.innerHTML = '<div class="pk-pill'+ (_selLief==='alle'?' active':'') +'" onclick="window._pkSelectLief(\'alle\')">Alle</div>' +
+      liefs.map(function(l){
+        var lief = typeof GemaProdukte.getLieferant==='function' ? GemaProdukte.getLieferant(l.id) : null;
+        var isPrem = lief && lief.premium && lief.premium.aktiv;
+        return '<div class="pk-pill'+ (_selLief===l.firma?' active':'') + (isPrem?' premium':'') +'" onclick="window._pkSelectLief(\''+l.firma.replace(/'/g,"\\'")+'\')">'+l.firma+(isPrem?' ★':'')+'</div>';
+      }).join('');
+
+    var typen = GemaProdukte.getTypen('osmose', _selLief==='alle'? null : liefs.find(function(l){return l.firma===_selLief;})?.id);
+    var grid = document.getElementById('typGrid');
+    if(!typen.length){
+      grid.innerHTML = '<p style="color:var(--muted,#6b7280);font-size:13px;padding:12px;">Keine Osmoseanlagen im Katalog. Produkte können im <a href="sys_produktkatalog.html" style="color:var(--accent,#2563eb)">Produktkatalog</a> erfasst werden.</p>';
+      return;
+    }
+    grid.innerHTML = typen.map(function(t){
+      return '<div class="pk-type-card" onclick="window._pkSelectTyp(\''+E(t.serie)+'\')">' +
+        '<div class="pk-type-name"><span class="pk-dot"></span>'+E(t.serie)+'</div>' +
+        '<div class="pk-type-meta">'+(t.bauart||t.bauweise||'')+' · '+t.count+' Modelle</div>' +
+        '<div class="pk-type-range">' +
+          (t.durchflussBis>0?'<span>'+t.durchflussVon+'–'+t.durchflussBis+' l/h</span>':'') +
+        '</div></div>';
+    }).join('');
+  }
+
+  window._pkSelectLief = function(f){ _selLief=f; renderAnlagenWahl(); };
+
+  window._pkOpenDoc = function(prodId, docId){
+    var docs = typeof GemaProdukte.getDokumente==='function' ? GemaProdukte.getDokumente(prodId) : [];
+    var d = docs.find(function(x){return x.id===docId;});
+    if(!d || !d.dataUrl) { alert('Datenblatt nicht verfügbar.'); return; }
+    var w = window.open('','_blank');
+    if(!w) return;
+    if(d.format==='pdf' || d.dataUrl.indexOf('data:application/pdf')===0){
+      w.document.write('<html><body style="margin:0"><iframe src="'+d.dataUrl+'" style="width:100%;height:100vh;border:none"></iframe></body></html>');
+    } else {
+      w.document.write('<html><body style="margin:0;display:flex;align-items:center;justify-content:center;background:#111;min-height:100vh"><img src="'+d.dataUrl+'" style="max-width:100%;max-height:100vh;object-fit:contain"/></body></html>');
+    }
+  };
+
+  window._pkSelectTyp = function(serie){
+    var prods = GemaProdukte.getProdukte('osmose').filter(function(p){return p.daten?.serie===serie;});
+    if(_selLief!=='alle') prods = prods.filter(function(p){return p.lieferantFirma===_selLief;});
+
+    var dc = document.getElementById('detailCard');
+    dc.style.display = '';
+    dc.innerHTML = '<div style="font-size:13px;font-weight:800;color:var(--accent,#2563eb);margin-bottom:10px">'+serie+' — Modelle wählen</div>' +
+      '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px">' +
+      prods.map(function(p){
+        var d = p.daten||{};
+        var fits = _lastVoLh>0 && d.permeatleistung >= _lastVoLh * 0.8;
+        var isVer = p.status==='verifiziert';
+        var isUnver = p.status==='nicht_verifiziert';
+        var lief = typeof GemaProdukte.getLieferant==='function' ? GemaProdukte.getLieferant(p.lieferantId) : null;
+        var isPrem = lief && lief.premium && lief.premium.aktiv;
+        return '<div class="pk-prod-card'+(fits?' pk-fits':'')+(isPrem?' pk-premium':'')+'" onclick="window._pkOpenProd(\''+p.id+'\')">' +
+          '<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">' +
+            '<strong style="font-size:14px">'+(d.modell||d.serie)+'</strong>' +
+            (isPrem ? '<span class="pk-premium-badge">'+(lief.premium.badge||'Premium')+'</span>' : '') +
+            (isVer ? '<span class="pk-badge pk-ver">✓ Verifiziert</span>' : '') +
+            (isUnver ? '<span class="pk-badge pk-unver">⚠</span>' : '') +
+          '</div>' +
+          '<div style="font-size:12px;color:var(--muted,#6b7280);line-height:1.6">' +
+            (d.permeatleistung||'—')+' l/h · '+(d.recovery||'—')+'% Recovery' +
+          '</div>' +
+        '</div>';
+      }).join('') +
+      '</div>';
+  };
+
+  window._pkOpenProd = function(id){
+    _selProdId = id;
+    var p = GemaProdukte.getProdukt(id);
+    if(!p) return;
+    var d = p.daten||{};
+    var isVer = p.status==='verifiziert';
+    var isUnver = p.status==='nicht_verifiziert';
+    var lief = typeof GemaProdukte.getLieferant==='function' ? GemaProdukte.getLieferant(p.lieferantId) : null;
+    var isPrem = lief && lief.premium && lief.premium.aktiv;
+
+    document.getElementById('pmTitle').textContent = p.lieferantFirma + ' ' + (d.serie||'') + ' ' + (d.modell||'');
+    var badgeHtml = '';
+    if(isPrem) badgeHtml += '<span class="pk-premium-badge" style="font-size:11px">'+(lief.premium.badge||'Premium-Partner')+'</span> ';
+    if(isVer) badgeHtml += '<span class="pk-badge pk-ver" style="font-size:12px">✓ Verifiziert</span>';
+    else if(isUnver) badgeHtml += '<span class="pk-badge pk-unver" style="font-size:12px">⚠ Nicht verifiziert</span>';
+    document.getElementById('pmBadge').innerHTML = badgeHtml;
+
+    var html = '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">';
+    var fields = [
+      ['Permeatleistung',d.permeatleistung,'l/h'],['Recovery',d.recovery,'%'],['Salzrückhaltung',d.salzrueckhaltung,'%'],
+      ['Feed-Druck min.',d.feedDruckMin,'bar'],['Feed-Druck max.',d.feedDruckMax,'bar'],['Druckverlust',d.druckverlust,'bar'],
+      ['Membranen',d.membranAnzahl,'Stk.'],['Membrantyp',d.membranTyp,''],['Membranfläche',d.membranFlaeche,'m²'],
+      ['Breite',d.breite,'mm'],['Tiefe',d.tiefe,'mm'],['Höhe',d.hoehe,'mm'],
+      ['Leistung',d.leistung,'W'],['Pumpenleistung',d.pumpenleistung,'W'],['Bauart',d.bauart,'']
+    ];
+    fields.forEach(function(f){
+      html += '<div style="padding:8px;background:var(--bg,#f4f6fb);border-radius:8px">' +
+        '<div style="font-size:11px;color:var(--muted,#6b7280)">'+f[0]+'</div>' +
+        '<div style="font-size:14px;font-weight:600;margin-top:2px">'+(f[1]||'—')+' '+(f[2]||'')+'</div></div>';
+    });
+    html += '</div>';
+
+    var docs = typeof GemaProdukte.getDokumente==='function' ? GemaProdukte.getDokumente(id) : (p.dokumente||[]);
+    var datenblaetter = docs.filter(function(doc){return doc.typ==='datenblatt';});
+    if(datenblaetter.length){
+      html += '<div style="margin-top:14px;display:flex;flex-wrap:wrap;gap:8px">';
+      datenblaetter.forEach(function(doc){
+        html += '<button class="pk-datenblatt-btn" onclick="window._pkOpenDoc(\''+id+'\',\''+doc.id+'\')">📄 '+E(doc.name)+'</button>';
+      });
+      html += '</div>';
+    }
+
+    if(isUnver){
+      html += '<div style="margin-top:14px;padding:10px 14px;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;font-size:12px;color:#dc2626;line-height:1.5">' +
+        '<strong>⚠ Von Lieferant nicht verifiziert</strong> — Daten aus öffentlichen Datenblättern. Bitte im Datenblatt verifizieren.</div>';
+    }
+    document.getElementById('pmBody').innerHTML = html;
+    document.getElementById('pkModal').style.display = '';
+  };
+
+  window.uebernehmeAnlage = function(){
+    if(!_selProdId) return;
+    var p = GemaProdukte.getProdukt(_selProdId);
+    if(!p) return;
+    var d = p.daten||{};
+    // Set VA (Anlageleistung) from Permeatleistung
+    var vaEl = document.getElementById('va');
+    if(vaEl && d.permeatleistung) vaEl.value = String(d.permeatleistung);
+    // Set Recovery from product
+    var phiEl = document.getElementById('phi');
+    if(phiEl && d.recovery) phiEl.value = String(d.recovery);
+    document.getElementById('pkModal').style.display = 'none';
+    if(typeof recalc==='function') recalc();
+    // Toast
+    var t=document.createElement('div');t.style.cssText='position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#059669;color:#fff;padding:10px 20px;border-radius:10px;font-size:13px;font-weight:700;z-index:999;box-shadow:0 4px 12px rgba(0,0,0,.2)';
+    t.textContent='✓ '+p.lieferantFirma+' '+(d.serie||'')+' '+(d.modell||'')+' übernommen';
+    document.body.appendChild(t);setTimeout(function(){t.remove();},3000);
+  };
+
+})();
+</script>
+
+<style>
+.pk-pill{padding:6px 14px;border-radius:20px;font-size:12px;border:1.5px solid var(--border,#e5e7eb);background:var(--surface,#fff);cursor:pointer;color:var(--muted,#6b7280);transition:.15s;font-weight:600}
+.pk-pill.active{border-color:var(--accent,#2563eb);background:#eff6ff;color:var(--accent,#2563eb)}
+.pk-pill:hover{border-color:var(--border2,#cdd4e4)}
+.pk-pill.premium{border-color:#f59e0b;color:#92400e;background:#fefce8}
+.pk-pill.premium.active{border-color:#f59e0b;background:#fef3c7;color:#92400e}
+.pk-type-card{background:var(--surface,#fff);border:1.5px solid var(--border,#e5e7eb);border-radius:12px;padding:14px;cursor:pointer;transition:.15s}
+.pk-type-card:hover{border-color:var(--border2,#cdd4e4)}
+.pk-type-name{font-size:14px;font-weight:700;margin-bottom:4px;display:flex;align-items:center;gap:6px}
+.pk-dot{width:8px;height:8px;border-radius:50%;background:var(--accent,#2563eb);flex-shrink:0}
+.pk-type-meta{font-size:12px;color:var(--muted,#6b7280);margin-bottom:8px}
+.pk-type-range span{font-size:11px;padding:3px 8px;border-radius:6px;background:var(--bg,#f4f6fb);color:var(--muted,#6b7280)}
+.pk-prod-card{background:var(--surface,#fff);border:1.5px solid var(--border,#e5e7eb);border-radius:10px;padding:12px;cursor:pointer;transition:.15s}
+.pk-prod-card:hover{border-color:var(--border2,#cdd4e4);background:var(--bg,#f4f6fb)}
+.pk-prod-card.pk-fits{border-color:var(--accent,#2563eb);border-width:2px}
+.pk-prod-card.pk-premium{background:linear-gradient(135deg,#fef3c7,#fde68a);border:1.5px solid #f59e0b!important}
+.pk-badge{font-size:10px;padding:2px 8px;border-radius:10px;font-weight:700;white-space:nowrap}
+.pk-ver{background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe}
+.pk-unver{background:#fef2f2;color:#dc2626;border:1px solid #fecaca}
+.pk-premium-badge{font-size:9px;padding:2px 7px;border-radius:10px;font-weight:800;background:#fef3c7;color:#92400e;border:1px solid #fbbf24;white-space:nowrap}
+.pk-datenblatt-btn{display:inline-flex;align-items:center;gap:4px;padding:6px 12px;border-radius:8px;background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;font-size:12px;font-weight:700;cursor:pointer;transition:.15s;font-family:inherit}
+.pk-datenblatt-btn:hover{background:#dbeafe}
+@media(max-width:768px){#typGrid{grid-template-columns:1fr!important}}
+</style>
 </body>
 </html>

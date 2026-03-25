@@ -1,34 +1,74 @@
 // ═══════════════════════════════════════════════
-// GEMA Produktkatalog API v1
-// Shared data layer for all Berechnungsmodule
+// GEMA Produktkatalog API v2
+// Shared data layer: Produkte + Lieferanten
 // ═══════════════════════════════════════════════
 
 (function(){
 'use strict';
 
 const SK = 'gema_produktkatalog_v1';
+const SK_LIEF = 'gema_lieferanten_v1';
+const SK_OA = 'gema_offertanfragen_v1';
 let _data = { produkte: [], log: [] };
+let _liefData = { lieferanten: [] };
+let _oaData = { anfragen: [] };
 
 // ── Persistence ──
+// Sync: localStorage (sofort) + Async: Supabase via _GemaDB (fire-and-forget)
+const _sbModule = 'produktkatalog';
 function save(){
   const j = JSON.stringify(_data);
   try { localStorage.setItem(SK, j); } catch(e){}
-  try { if(typeof _GemaDB !== 'undefined') _GemaDB.put(SK, j).catch(()=>{}); } catch(e){}
+  const jl = JSON.stringify(_liefData);
+  try { localStorage.setItem(SK_LIEF, jl); } catch(e){}
+  const jo = JSON.stringify(_oaData);
+  try { localStorage.setItem(SK_OA, jo); } catch(e){}
+  // Async Supabase sync (fire-and-forget)
+  try {
+    if(typeof _GemaDB !== 'undefined' && _GemaDB.saveToModule){
+      _GemaDB.saveToModule(_sbModule, SK, j).catch(function(){});
+      _GemaDB.saveToModule(_sbModule, SK_LIEF, jl).catch(function(){});
+      _GemaDB.saveToModule(_sbModule, SK_OA, jo).catch(function(){});
+    }
+  } catch(e){}
 }
+
 function load(){
+  // 1. localStorage (sofort, sync)
   try { const r = localStorage.getItem(SK); if(r) _data = JSON.parse(r); } catch(e){}
   if(!_data.produkte) _data.produkte = [];
   if(!_data.log) _data.log = [];
+  try { const r2 = localStorage.getItem(SK_LIEF); if(r2) _liefData = JSON.parse(r2); } catch(e){}
+  if(!_liefData.lieferanten) _liefData.lieferanten = [];
+  try { const r3 = localStorage.getItem(SK_OA); if(r3) _oaData = JSON.parse(r3); } catch(e){}
+  if(!_oaData.anfragen) _oaData.anfragen = [];
+}
+
+// 2. Supabase (async, nach Page-Load — aktualisiert localStorage-Daten wenn Supabase neuer)
+function loadFromSupabase(){
+  if(typeof _GemaDB === 'undefined' || !_GemaDB.loadFromModule) return Promise.resolve();
+  const keys = [
+    { key: SK, apply: function(p){ if(p.produkte){ _data=p; } } },
+    { key: SK_LIEF, apply: function(p){ if(p.lieferanten){ _liefData=p; } } },
+    { key: SK_OA, apply: function(p){ if(p.anfragen){ _oaData=p; } } }
+  ];
+  return Promise.all(keys.map(function(k){
+    return _GemaDB.loadFromModule(_sbModule, k.key).then(function(val){
+      if(!val) return;
+      try {
+        const parsed = typeof val === 'string' ? JSON.parse(val) : val;
+        if(parsed) { k.apply(parsed); try { localStorage.setItem(k.key, typeof val==='string'?val:JSON.stringify(parsed)); } catch(e){} }
+      } catch(e){}
+    }).catch(function(){});
+  }));
 }
 
 // ── Verification Status ──
-// 'entwurf'       → Lieferant arbeitet daran
-// 'pruefung'      → Eingereicht zur Prüfung
-// 'verifiziert'   → Lieferant hat selbst erfasst ODER admin-Daten bestätigt
-// 'nicht_verifiziert' → Admin hat erfasst, Lieferant hat noch nicht bestätigt
+// 'entwurf'            → Lieferant arbeitet daran / nach Änderung zurückgesetzt
+// 'verifiziert'        → Lieferant hat Verantwortlichkeit bestätigt (sofort, kein Admin-Review)
+// 'nicht_verifiziert'  → Admin hat vorerfasst, Lieferant hat noch nicht bestätigt
 const STATUS_LABELS = {
   entwurf:           { label: 'Entwurf',                icon: '📝', cls: 'st-draft' },
-  pruefung:          { label: 'In Prüfung',             icon: '🔍', cls: 'st-review' },
   verifiziert:       { label: 'Verifiziert',             icon: '✓',  cls: 'st-verified' },
   nicht_verifiziert: { label: 'Von Lieferant nicht verifiziert', icon: '⚠', cls: 'st-unverified' }
 };
@@ -123,8 +163,206 @@ KATEGORIEN.enthaertung = {
     if(b.maxDruckverlust && d.druckverlustQn){
       if(d.druckverlustQn <= b.maxDruckverlust) score += 20;
     }
-    // Anschluss passt
-    if(b.anschluss && d.anschluss && d.anschluss === b.anschluss) score += 10;
+    // Anschluss/Einbaulänge: optional Bonus (kein Ausschlusskriterium)
+    if(b.anschluss && d.anschluss && d.anschluss === b.anschluss) score += 5;
+    if(b.einbaulaenge && d.einbaulaenge && d.einbaulaenge === b.einbaulaenge) score += 5;
+    return Math.min(100, score);
+  }
+};
+
+// Osmoseanlage
+KATEGORIEN.osmose = {
+  id: 'osmose',
+  name: 'Osmoseanlage',
+  icon: '🔬',
+  felder: [
+    { id: 'serie', label: 'Typenbezeichnung / Serie', typ: 'text', gruppe: 'Allgemein', pflicht: true },
+    { id: 'modell', label: 'Modell / Grösse', typ: 'text', gruppe: 'Allgemein', pflicht: true },
+    { id: 'artikelnr', label: 'Artikelnummer', typ: 'text', gruppe: 'Allgemein' },
+    { id: 'bauart', label: 'Bauart', typ: 'select', optionen: ['Untertisch','Standgerät','Wandmontage','Industrieanlage'], gruppe: 'Allgemein', pflicht: true },
+
+    { id: 'permeatleistung', label: 'Permeatleistung', typ: 'number', einheit: 'l/h', gruppe: 'Leistungsdaten', pflicht: true },
+    { id: 'recovery', label: 'Recovery / Ausbeute', typ: 'number', einheit: '%', gruppe: 'Leistungsdaten', pflicht: true },
+    { id: 'salzrueckhaltung', label: 'Salzrückhaltung', typ: 'number', einheit: '%', gruppe: 'Leistungsdaten' },
+    { id: 'feedDruckMin', label: 'Feed-Druck min.', typ: 'number', einheit: 'bar', gruppe: 'Leistungsdaten' },
+    { id: 'feedDruckMax', label: 'Feed-Druck max.', typ: 'number', einheit: 'bar', gruppe: 'Leistungsdaten' },
+    { id: 'druckverlust', label: 'Druckverlust', typ: 'number', einheit: 'bar', gruppe: 'Leistungsdaten' },
+
+    { id: 'membranAnzahl', label: 'Anzahl Membranen', typ: 'number', gruppe: 'Membranen' },
+    { id: 'membranTyp', label: 'Membrantyp', typ: 'text', gruppe: 'Membranen' },
+    { id: 'membranFlaeche', label: 'Membranfläche gesamt', typ: 'number', einheit: 'm²', gruppe: 'Membranen' },
+    { id: 'membranStandzeit', label: 'Standzeit Membran', typ: 'text', einheit: 'Jahre', gruppe: 'Membranen' },
+
+    { id: 'anschlussFeed', label: 'Feed-Anschluss', typ: 'select', optionen: ['DN 15','DN 20','DN 25','DN 32','DN 40','DN 50'], gruppe: 'Anschlüsse' },
+    { id: 'anschlussPermeat', label: 'Permeat-Anschluss', typ: 'select', optionen: ['DN 15','DN 20','DN 25','DN 32'], gruppe: 'Anschlüsse' },
+    { id: 'anschlussKonzentrat', label: 'Konzentrat-Anschluss', typ: 'select', optionen: ['DN 15','DN 20','DN 25','DN 32'], gruppe: 'Anschlüsse' },
+
+    { id: 'breite', label: 'Breite', typ: 'number', einheit: 'mm', gruppe: 'Abmessungen', pflicht: true },
+    { id: 'tiefe', label: 'Tiefe', typ: 'number', einheit: 'mm', gruppe: 'Abmessungen', pflicht: true },
+    { id: 'hoehe', label: 'Höhe', typ: 'number', einheit: 'mm', gruppe: 'Abmessungen', pflicht: true },
+    { id: 'gewicht', label: 'Gewicht', typ: 'number', einheit: 'kg', gruppe: 'Abmessungen' },
+
+    { id: 'spannung', label: 'Spannung', typ: 'select', optionen: ['230V/50Hz','400V/50Hz'], gruppe: 'Elektro' },
+    { id: 'leistung', label: 'Leistungsaufnahme', typ: 'number', einheit: 'W', gruppe: 'Elektro' },
+    { id: 'pumpenleistung', label: 'Pumpenleistung', typ: 'number', einheit: 'W', gruppe: 'Elektro' },
+    { id: 'schutzart', label: 'Schutzart', typ: 'text', gruppe: 'Elektro' },
+
+    { id: 'svgwNr', label: 'SVGW-Zulassungsnummer', typ: 'text', gruppe: 'Normen' },
+    { id: 'ce', label: 'CE-Konformität', typ: 'checkbox', gruppe: 'Normen' },
+    { id: 'trinkwasserZugelassen', label: 'Trinkwasser zugelassen', typ: 'checkbox', gruppe: 'Normen' },
+
+    { id: 'besonderheiten', label: 'Besonderheiten', typ: 'textarea', gruppe: 'Zusatz' },
+    { id: 'zubehoer', label: 'Zubehör (inkl.)', typ: 'textarea', gruppe: 'Zusatz' }
+  ],
+  matchFn: function(produkt, berechnung){
+    let score = 0;
+    const d = produkt.daten || {};
+    const b = berechnung || {};
+    // Permeatleistung passt (Gewicht 50)
+    if(b.permeatleistung && d.permeatleistung){
+      if(d.permeatleistung >= b.permeatleistung) score += 50;
+      else if(d.permeatleistung >= b.permeatleistung * 0.8) score += 25;
+    }
+    // Recovery akzeptabel (Gewicht 30)
+    if(b.recovery && d.recovery){
+      if(d.recovery >= b.recovery) score += 30;
+      else if(d.recovery >= b.recovery * 0.9) score += 15;
+    }
+    // Druckverlust (Gewicht 20)
+    if(b.maxDruckverlust && d.druckverlust){
+      if(d.druckverlust <= b.maxDruckverlust) score += 20;
+    }
+    return Math.min(100, score);
+  }
+};
+
+// Abwasserhebeanlage
+KATEGORIEN.hebeanlage = {
+  id: 'hebeanlage',
+  name: 'Abwasserhebeanlage',
+  icon: '⬆️',
+  felder: [
+    { id: 'serie', label: 'Typenbezeichnung / Serie', typ: 'text', gruppe: 'Allgemein', pflicht: true },
+    { id: 'modell', label: 'Modell / Grösse', typ: 'text', gruppe: 'Allgemein', pflicht: true },
+    { id: 'artikelnr', label: 'Artikelnummer', typ: 'text', gruppe: 'Allgemein' },
+    { id: 'einsatz', label: 'Einsatzbereich', typ: 'select', optionen: ['Fäkalienfrei','Fäkalienhaltig','Schwarzwasser','Regenwasser'], gruppe: 'Allgemein', pflicht: true },
+
+    { id: 'foerdermenge', label: 'Fördermenge', typ: 'number', einheit: 'l/s', gruppe: 'Leistungsdaten', pflicht: true },
+    { id: 'foerderhoehe', label: 'Förderhöhe', typ: 'number', einheit: 'm', gruppe: 'Leistungsdaten', pflicht: true },
+    { id: 'freikugel', label: 'Freikugeldurchgang', typ: 'number', einheit: 'mm', gruppe: 'Leistungsdaten', pflicht: true },
+    { id: 'motorleistung', label: 'Motorleistung', typ: 'number', einheit: 'kW', gruppe: 'Leistungsdaten' },
+
+    { id: 'pumpenAnzahl', label: 'Anzahl Pumpen', typ: 'number', gruppe: 'Pumpen', pflicht: true },
+    { id: 'redundanz', label: 'Redundanz', typ: 'select', optionen: ['Keine','1+1 Reserve','2+1 Reserve'], gruppe: 'Pumpen' },
+    { id: 'pumpentyp', label: 'Pumpentyp', typ: 'select', optionen: ['Schneidradpumpe','Freistromrad','Kanalrad','Wirbel'], gruppe: 'Pumpen' },
+
+    { id: 'behaelterVolumen', label: 'Behältervolumen', typ: 'number', einheit: 'l', gruppe: 'Behälter', pflicht: true },
+    { id: 'behaelterMaterial', label: 'Material', typ: 'select', optionen: ['PE','GFK','Edelstahl','Beton'], gruppe: 'Behälter' },
+    { id: 'zulaufDN', label: 'Zulauf DN', typ: 'select', optionen: ['DN 50','DN 65','DN 80','DN 100','DN 125','DN 150'], gruppe: 'Behälter' },
+    { id: 'druckleitungDN', label: 'Druckleitung DN', typ: 'select', optionen: ['DN 32','DN 40','DN 50','DN 65','DN 80','DN 100'], gruppe: 'Behälter' },
+
+    { id: 'breite', label: 'Breite', typ: 'number', einheit: 'mm', gruppe: 'Abmessungen', pflicht: true },
+    { id: 'tiefe', label: 'Tiefe', typ: 'number', einheit: 'mm', gruppe: 'Abmessungen', pflicht: true },
+    { id: 'hoehe', label: 'Höhe', typ: 'number', einheit: 'mm', gruppe: 'Abmessungen', pflicht: true },
+    { id: 'gewicht', label: 'Gewicht', typ: 'number', einheit: 'kg', gruppe: 'Abmessungen' },
+
+    { id: 'spannung', label: 'Spannung', typ: 'select', optionen: ['230V/50Hz','400V/50Hz'], gruppe: 'Elektro' },
+    { id: 'leistung', label: 'Leistungsaufnahme', typ: 'number', einheit: 'W', gruppe: 'Elektro' },
+    { id: 'schutzart', label: 'Schutzart', typ: 'text', gruppe: 'Elektro' },
+    { id: 'steuerung', label: 'Steuerung', typ: 'text', gruppe: 'Elektro' },
+
+    { id: 'enNorm', label: 'EN-Norm', typ: 'text', gruppe: 'Normen' },
+    { id: 'ce', label: 'CE-Konformität', typ: 'checkbox', gruppe: 'Normen' },
+
+    { id: 'besonderheiten', label: 'Besonderheiten', typ: 'textarea', gruppe: 'Zusatz' },
+    { id: 'zubehoer', label: 'Zubehör (inkl.)', typ: 'textarea', gruppe: 'Zusatz' }
+  ],
+  matchFn: function(produkt, berechnung){
+    let score = 0;
+    const d = produkt.daten || {};
+    const b = berechnung || {};
+    // Fördermenge (Gewicht 40)
+    if(b.foerdermenge && d.foerdermenge){
+      if(d.foerdermenge >= b.foerdermenge) score += 40;
+      else if(d.foerdermenge >= b.foerdermenge * 0.8) score += 20;
+    }
+    // Förderhöhe (Gewicht 30)
+    if(b.foerderhoehe && d.foerderhoehe){
+      if(d.foerderhoehe >= b.foerderhoehe) score += 30;
+      else if(d.foerderhoehe >= b.foerderhoehe * 0.8) score += 15;
+    }
+    // Freikugeldurchgang (Gewicht 20)
+    if(b.freikugel && d.freikugel){
+      if(d.freikugel >= b.freikugel) score += 20;
+    }
+    // Behältervolumen Bonus (Gewicht 10)
+    if(b.volumen && d.behaelterVolumen){
+      if(d.behaelterVolumen >= b.volumen) score += 10;
+    }
+    return Math.min(100, score);
+  }
+};
+
+// Zirkulationspumpe
+KATEGORIEN.zirkulation = {
+  id: 'zirkulation',
+  name: 'Zirkulationspumpe',
+  icon: '🔄',
+  felder: [
+    { id: 'serie', label: 'Typenbezeichnung / Serie', typ: 'text', gruppe: 'Allgemein', pflicht: true },
+    { id: 'modell', label: 'Modell / Grösse', typ: 'text', gruppe: 'Allgemein', pflicht: true },
+    { id: 'artikelnr', label: 'Artikelnummer', typ: 'text', gruppe: 'Allgemein' },
+    { id: 'pumpenart', label: 'Pumpenart', typ: 'select', optionen: ['Nassläufer','Trockenläufer','Inline','Blockpumpe'], gruppe: 'Allgemein', pflicht: true },
+
+    { id: 'foerdermenge', label: 'Fördermenge max.', typ: 'number', einheit: 'l/h', gruppe: 'Leistungsdaten', pflicht: true },
+    { id: 'foerderhoehe', label: 'Förderhöhe max.', typ: 'number', einheit: 'm', gruppe: 'Leistungsdaten', pflicht: true },
+    { id: 'leistung', label: 'Leistungsaufnahme', typ: 'number', einheit: 'W', gruppe: 'Leistungsdaten', pflicht: true },
+    { id: 'tempMax', label: 'Max. Medientemperatur', typ: 'number', einheit: '°C', gruppe: 'Leistungsdaten' },
+    { id: 'druckMax', label: 'Max. Betriebsdruck', typ: 'number', einheit: 'bar', gruppe: 'Leistungsdaten' },
+
+    { id: 'drehzahlregelung', label: 'Drehzahlregelung', typ: 'select', optionen: ['Keine','Stufenschaltung','Stufenlos (EC)','Autoadapt'], gruppe: 'Regelung' },
+    { id: 'betriebsarten', label: 'Betriebsarten', typ: 'text', gruppe: 'Regelung' },
+    { id: 'thermDesinfektion', label: 'Therm. Desinfektion', typ: 'checkbox', gruppe: 'Regelung' },
+
+    { id: 'anschluss', label: 'Anschluss DN', typ: 'select', optionen: ['DN 15','DN 20','DN 25','DN 32','DN 40','DN 50'], gruppe: 'Anschlüsse', pflicht: true },
+    { id: 'einbaulaenge', label: 'Einbaulänge', typ: 'number', einheit: 'mm', gruppe: 'Anschlüsse' },
+    { id: 'anschlussTyp', label: 'Anschlusstyp', typ: 'select', optionen: ['Verschraubung','Flansch','Löt','Press'], gruppe: 'Anschlüsse' },
+
+    { id: 'breite', label: 'Breite', typ: 'number', einheit: 'mm', gruppe: 'Abmessungen' },
+    { id: 'hoehe', label: 'Höhe', typ: 'number', einheit: 'mm', gruppe: 'Abmessungen' },
+    { id: 'gewicht', label: 'Gewicht', typ: 'number', einheit: 'kg', gruppe: 'Abmessungen' },
+
+    { id: 'spannung', label: 'Spannung', typ: 'select', optionen: ['230V/50Hz','400V/50Hz'], gruppe: 'Elektro' },
+    { id: 'schutzart', label: 'Schutzart', typ: 'text', gruppe: 'Elektro' },
+    { id: 'energielabel', label: 'Energielabel (EEI)', typ: 'text', gruppe: 'Elektro' },
+
+    { id: 'svgwNr', label: 'SVGW-Zulassungsnummer', typ: 'text', gruppe: 'Normen' },
+    { id: 'ce', label: 'CE-Konformität', typ: 'checkbox', gruppe: 'Normen' },
+
+    { id: 'besonderheiten', label: 'Besonderheiten', typ: 'textarea', gruppe: 'Zusatz' },
+    { id: 'zubehoer', label: 'Zubehör (inkl.)', typ: 'textarea', gruppe: 'Zusatz' }
+  ],
+  matchFn: function(produkt, berechnung){
+    let score = 0;
+    const d = produkt.daten || {};
+    const b = berechnung || {};
+    // Fördermenge (Gewicht 40)
+    if(b.foerdermenge && d.foerdermenge){
+      if(d.foerdermenge >= b.foerdermenge) score += 40;
+      else if(d.foerdermenge >= b.foerdermenge * 0.8) score += 20;
+    }
+    // Förderhöhe (Gewicht 35)
+    if(b.foerderhoehe && d.foerderhoehe){
+      if(d.foerderhoehe >= b.foerderhoehe) score += 35;
+      else if(d.foerderhoehe >= b.foerderhoehe * 0.8) score += 18;
+    }
+    // Leistungsaufnahme (Gewicht 15, weniger = besser)
+    if(b.maxLeistung && d.leistung){
+      if(d.leistung <= b.maxLeistung) score += 15;
+    }
+    // Anschluss/Einbaulänge optional Bonus
+    if(b.anschluss && d.anschluss && d.anschluss === b.anschluss) score += 5;
+    if(b.einbaulaenge && d.einbaulaenge && d.einbaulaenge === b.einbaulaenge) score += 5;
     return Math.min(100, score);
   }
 };
@@ -150,10 +388,34 @@ function getProdukt(id){ return _data.produkte.find(p => p.id === id) || null; }
 function match(kategorie, berechnungswerte){
   const kat = KATEGORIEN[kategorie];
   if(!kat || !kat.matchFn) return [];
-  return getProdukte(kategorie, { nurFreigegeben: true })
+  const results = getProdukte(kategorie, { nurFreigegeben: true })
     .map(p => ({ ...p, _score: kat.matchFn(p, berechnungswerte) }))
-    .filter(p => p._score > 0)
-    .sort((a,b) => b._score - a._score);
+    .filter(p => p._score > 0);
+
+  // Premium-aware sorting: Premium > Verifiziert > Score
+  results.sort((a, b) => {
+    const liefA = getLieferant(a.lieferantId);
+    const liefB = getLieferant(b.lieferantId);
+    // 1. Premium-Lieferanten oben
+    const premA = (liefA && liefA.premium && liefA.premium.aktiv) ? (liefA.premium.sortPriority || 100) : 0;
+    const premB = (liefB && liefB.premium && liefB.premium.aktiv) ? (liefB.premium.sortPriority || 100) : 0;
+    if(premA !== premB) return premB - premA;
+    // 2. Verifizierte vor nicht-verifizierten
+    const verA = a.status === 'verifiziert' ? 1 : 0;
+    const verB = b.status === 'verifiziert' ? 1 : 0;
+    if(verA !== verB) return verB - verA;
+    // 3. Match-Score
+    return b._score - a._score;
+  });
+
+  // Attach premium info for UI
+  results.forEach(p => {
+    const lief = getLieferant(p.lieferantId);
+    p._premium = (lief && lief.premium && lief.premium.aktiv) ? lief.premium : null;
+    p._lieferant = lief || null;
+  });
+
+  return results;
 }
 
 function createProdukt(kategorie, lieferantId, lieferantFirma, daten, quelle){
@@ -177,12 +439,7 @@ function createProdukt(kategorie, lieferantId, lieferantFirma, daten, quelle){
     log: []
   };
   // Set creator
-  try {
-    if(typeof GemaAuth !== 'undefined'){
-      const u = GemaAuth.getCurrentUser();
-      if(u) p.erstelltVon = u.name || u.username || '';
-    }
-  } catch(e){}
+  p.erstelltVon = _getUsername();
   _data.produkte.push(p);
   addLog(p, 'erstellt', isAdmin ? 'Von Admin erfasst' : 'Von Lieferant erfasst');
   save();
@@ -195,12 +452,12 @@ function updateProdukt(id, daten, dokumente){
   if(daten) p.daten = { ...p.daten, ...daten };
   if(dokumente) p.dokumente = dokumente;
   p.geaendertAm = new Date().toISOString();
-  try {
-    if(typeof GemaAuth !== 'undefined'){
-      const u = GemaAuth.getCurrentUser();
-      if(u) p.geaendertVon = u.name || u.username || '';
-    }
-  } catch(e){}
+  p.geaendertVon = _getUsername();
+  // Re-Verifizierung: jede Änderung setzt Status zurück
+  if(p.status === 'verifiziert'){
+    p.status = 'entwurf';
+    addLog(p, 'Status', 'verifiziert → entwurf (Daten geändert, erneute Bestätigung nötig)');
+  }
   addLog(p, 'geändert', 'Daten aktualisiert');
   save();
   return p;
@@ -213,12 +470,7 @@ function setStatus(id, status){
   p.status = status;
   if(status === 'verifiziert'){
     p.verifiziertAm = new Date().toISOString();
-    try {
-      if(typeof GemaAuth !== 'undefined'){
-        const u = GemaAuth.getCurrentUser();
-        if(u) p.verifiziertVon = u.name || u.username || '';
-      }
-    } catch(e){}
+    p.verifiziertVon = _getUsername();
   }
   addLog(p, 'Status', oldStatus + ' → ' + status);
   save();
@@ -231,14 +483,281 @@ function deleteProdukt(id){
 }
 
 function getLieferanten(kategorie){
+  // New: return from lieferanten registry if available
+  if(_liefData.lieferanten.length > 0){
+    let list = _liefData.lieferanten.filter(l => l.status === 'aktiv');
+    if(kategorie){
+      const prodLiefIds = new Set(_data.produkte.filter(p => p.kategorie === kategorie).map(p => p.lieferantId));
+      list = list.filter(l => prodLiefIds.has(l.id));
+    }
+    return list;
+  }
+  // Fallback: derive from products (legacy)
   const prods = kategorie ? _data.produkte.filter(p => p.kategorie === kategorie) : _data.produkte;
   const map = {};
   prods.forEach(p => {
     if(p.lieferantFirma && !map[p.lieferantId||p.lieferantFirma]){
-      map[p.lieferantId||p.lieferantFirma] = { id: p.lieferantId, firma: p.lieferantFirma };
+      map[p.lieferantId||p.lieferantFirma] = { id: p.lieferantId, firma: p.lieferantFirma, status: 'aktiv' };
     }
   });
   return Object.values(map);
+}
+
+// ── Lieferant CRUD ──
+function getLieferant(id){
+  return _liefData.lieferanten.find(l => l.id === id) || null;
+}
+
+function getAllLieferanten(){ return _liefData.lieferanten; }
+
+function createLieferant(daten){
+  const id = 'lief_' + Date.now() + '_' + Math.random().toString(36).substring(2,6);
+  const l = {
+    id,
+    orgId: daten.orgId || 'org_default',
+    firma: daten.firma || '',
+    rechtsform: daten.rechtsform || '',
+    uid: daten.uid || '',
+    branche: daten.branche || [],
+    kontaktPerson: daten.kontaktPerson || '',
+    kontaktPersonen: daten.kontaktPersonen || [],
+    email: daten.email || '',
+    telefon: daten.telefon || '',
+    website: daten.website || '',
+    adresse: daten.adresse || { strasse:'', plz:'', ort:'', kanton:'', land:'CH' },
+    logo: daten.logo || '',
+    beschreibung: daten.beschreibung || '',
+    status: 'aktiv', // Sofort aktiv nach Registrierung
+    abo: daten.abo || {
+      typ: 'basis',
+      status: 'testphase',
+      startDatum: new Date().toISOString().split('T')[0],
+      endDatum: '',
+      testphaseEnde: _addDays(new Date(), 30).toISOString().split('T')[0],
+      zahlungsart: 'rechnung',
+      jahrespreis: 1200,
+      letzteZahlung: '',
+      mahnungen: 0
+    },
+    premium: daten.premium || { aktiv: false, platzierung: 'none', kategorien: [], badge: '', sortPriority: 0 },
+    erstelltAm: new Date().toISOString(),
+    erstelltVon: _getUsername(),
+    deaktiviertAm: '',
+    deaktiviertVon: '',
+    deaktiviertGrund: '',
+    letzterLogin: '',
+    produkteCount: 0,
+    verifizierteCount: 0
+  };
+  _liefData.lieferanten.push(l);
+  save();
+  return l;
+}
+
+function updateLieferant(id, felder){
+  const l = _liefData.lieferanten.find(x => x.id === id);
+  if(!l) return null;
+  Object.keys(felder).forEach(k => {
+    if(k !== 'id' && k !== 'erstelltAm' && k !== 'erstelltVon') l[k] = felder[k];
+  });
+  save();
+  return l;
+}
+
+function deactivateLieferant(id, grund){
+  const l = _liefData.lieferanten.find(x => x.id === id);
+  if(!l) return null;
+  l.status = 'inaktiv';
+  l.deaktiviertAm = new Date().toISOString();
+  l.deaktiviertVon = _getUsername();
+  l.deaktiviertGrund = grund || '';
+  save();
+  return l;
+}
+
+function activateLieferant(id){
+  const l = _liefData.lieferanten.find(x => x.id === id);
+  if(!l) return null;
+  l.status = 'aktiv';
+  l.deaktiviertAm = '';
+  l.deaktiviertVon = '';
+  l.deaktiviertGrund = '';
+  save();
+  return l;
+}
+
+function deleteLieferant(id){
+  _liefData.lieferanten = _liefData.lieferanten.filter(l => l.id !== id);
+  save();
+}
+
+function _refreshLieferantCounts(){
+  _liefData.lieferanten.forEach(l => {
+    const prods = _data.produkte.filter(p => p.lieferantId === l.id);
+    l.produkteCount = prods.length;
+    l.verifizierteCount = prods.filter(p => p.status === 'verifiziert').length;
+  });
+}
+
+// ── Dokumente pro Produkt ──
+function addDokument(produktId, dok){
+  const p = _data.produkte.find(x => x.id === produktId);
+  if(!p) return null;
+  if(!p.dokumente) p.dokumente = [];
+  const d = {
+    id: 'doc_' + Date.now() + '_' + Math.random().toString(36).substring(2,4),
+    name: dok.name || '',
+    typ: dok.typ || 'datenblatt',
+    format: dok.format || 'pdf',
+    datum: new Date().toISOString().split('T')[0],
+    groesse: dok.groesse || 0,
+    hochgeladenVon: _getUsername(),
+    dataUrl: dok.dataUrl || '' // base64 for localStorage (temp, migrate to Supabase later)
+  };
+  p.dokumente.push(d);
+  addLog(p, 'Dokument', 'Hochgeladen: ' + d.name);
+  save();
+  return d;
+}
+
+function removeDokument(produktId, dokId){
+  const p = _data.produkte.find(x => x.id === produktId);
+  if(!p || !p.dokumente) return false;
+  const idx = p.dokumente.findIndex(d => d.id === dokId);
+  if(idx < 0) return false;
+  const name = p.dokumente[idx].name;
+  p.dokumente.splice(idx, 1);
+  addLog(p, 'Dokument', 'Entfernt: ' + name);
+  save();
+  return true;
+}
+
+function getDokumente(produktId){
+  const p = _data.produkte.find(x => x.id === produktId);
+  return (p && p.dokumente) ? p.dokumente : [];
+}
+
+// ── Helpers ──
+function _getUsername(){
+  try { if(typeof GemaAuth !== 'undefined'){ const u = GemaAuth.getCurrentUser(); if(u) return u.name || u.username || ''; } } catch(e){}
+  return '';
+}
+function _getUserId(){
+  try { if(typeof GemaAuth !== 'undefined'){ const u = GemaAuth.getCurrentUser(); if(u) return u.id || ''; } } catch(e){}
+  return '';
+}
+function _getUserRolle(){
+  try {
+    if(typeof GemaAuth !== 'undefined'){
+      const u = GemaAuth.getCurrentUser();
+      if(u && u.roleIds){
+        if(u.roleIds.indexOf('role_unternehmer') >= 0) return 'unternehmer';
+        if(u.roleIds.indexOf('role_planer') >= 0) return 'planer';
+        if(u.roleIds.indexOf('role_admin') >= 0) return 'planer';
+      }
+    }
+  } catch(e){}
+  return 'planer';
+}
+function _getUserFirma(){
+  try { if(typeof GemaAuth !== 'undefined'){ const u = GemaAuth.getCurrentUser(); if(u) return u.firma || u.orgName || ''; } } catch(e){}
+  return '';
+}
+function _addDays(d, n){ const r = new Date(d); r.setDate(r.getDate() + n); return r; }
+
+// ── Offertanfragen ──
+const OA_STATUS = {
+  offen:       { label: 'Offen',        icon: '📨', cls: 'oa-offen' },
+  beantwortet: { label: 'Beantwortet',  icon: '✉️', cls: 'oa-beantwortet' },
+  abgelehnt:   { label: 'Abgelehnt',    icon: '✕',  cls: 'oa-abgelehnt' },
+  abgelaufen:  { label: 'Abgelaufen',   icon: '⏰', cls: 'oa-abgelaufen' }
+};
+
+function createOffertanfrage(opts){
+  const id = 'oa_' + Date.now() + '_' + Math.random().toString(36).substring(2,6);
+  const fristTage = opts.fristTage || 14;
+  const oa = {
+    id,
+    absenderId: _getUserId(),
+    absenderName: _getUsername(),
+    absenderRolle: _getUserRolle(),
+    absenderFirma: opts.absenderFirma || _getUserFirma(),
+    lieferantId: opts.lieferantId || '',
+    lieferantFirma: opts.lieferantFirma || '',
+    produktId: opts.produktId || '',
+    produktName: opts.produktName || '',
+    kategorie: opts.kategorie || '',
+    berechnungswerte: opts.berechnungswerte || {},
+    projekt: opts.projekt || { name: '', ort: '', objektId: '' },
+    nachricht: opts.nachricht || '',
+    status: 'offen',
+    frist: _addDays(new Date(), fristTage).toISOString().split('T')[0],
+    erstelltAm: new Date().toISOString(),
+    antwort: null
+  };
+  _oaData.anfragen.push(oa);
+  save();
+  return oa;
+}
+
+function getOffertanfragen(filter){
+  let list = _oaData.anfragen.slice();
+  if(filter){
+    if(filter.absenderId) list = list.filter(a => a.absenderId === filter.absenderId);
+    if(filter.lieferantId) list = list.filter(a => a.lieferantId === filter.lieferantId);
+    if(filter.produktId) list = list.filter(a => a.produktId === filter.produktId);
+    if(filter.kategorie) list = list.filter(a => a.kategorie === filter.kategorie);
+    if(filter.status) list = list.filter(a => a.status === filter.status);
+  }
+  // Check for expired
+  const today = new Date().toISOString().split('T')[0];
+  list.forEach(a => {
+    if(a.status === 'offen' && a.frist && a.frist < today) a.status = 'abgelaufen';
+  });
+  return list.sort((a,b) => b.erstelltAm.localeCompare(a.erstelltAm));
+}
+
+function getOffertanfrage(id){
+  return _oaData.anfragen.find(a => a.id === id) || null;
+}
+
+function beantworteOffertanfrage(id, antwort){
+  const oa = _oaData.anfragen.find(a => a.id === id);
+  if(!oa) return null;
+  oa.status = 'beantwortet';
+  oa.antwort = {
+    nachricht: antwort.nachricht || '',
+    pdfName: antwort.pdfName || '',
+    pdfDataUrl: antwort.pdfDataUrl || '',
+    beantwortetAm: new Date().toISOString(),
+    beantwortetVon: _getUsername()
+  };
+  save();
+  return oa;
+}
+
+function ablehnenOffertanfrage(id, grund){
+  const oa = _oaData.anfragen.find(a => a.id === id);
+  if(!oa) return null;
+  oa.status = 'abgelehnt';
+  oa.antwort = {
+    nachricht: grund || 'Offertanfrage abgelehnt.',
+    beantwortetAm: new Date().toISOString(),
+    beantwortetVon: _getUsername()
+  };
+  save();
+  return oa;
+}
+
+function deleteOffertanfrage(id){
+  _oaData.anfragen = _oaData.anfragen.filter(a => a.id !== id);
+  save();
+}
+
+function getOffertanfragenCount(lieferantId, status){
+  return _oaData.anfragen.filter(a =>
+    a.lieferantId === lieferantId && (status ? a.status === status : a.status === 'offen')
+  ).length;
 }
 
 function getTypen(kategorie, lieferantId){
@@ -270,17 +789,10 @@ function getTypen(kategorie, lieferantId){
 
 // ── Activity Log ──
 function addLog(produkt, aktion, detail){
-  let who = '';
-  try {
-    if(typeof GemaAuth !== 'undefined'){
-      const u = GemaAuth.getCurrentUser();
-      if(u) who = u.name || u.username || '';
-    }
-  } catch(e){}
   const entry = {
     aktion,
     detail: detail || '',
-    von: who,
+    von: _getUsername(),
     datum: new Date().toISOString()
   };
   if(!produkt.log) produkt.log = [];
@@ -290,12 +802,18 @@ function addLog(produkt, aktion, detail){
 
 // ── Init ──
 load();
+// Async: fetch from Supabase after page load (updates localStorage if newer data exists)
+if(typeof document !== 'undefined'){
+  document.addEventListener('DOMContentLoaded', function(){ loadFromSupabase(); });
+}
 
 // ── Expose ──
 window.GemaProdukte = {
+  // Kategorien
   getKategorien,
   getKategorie,
   registerKategorie,
+  // Produkte
   getProdukte,
   getProdukt,
   match,
@@ -303,8 +821,33 @@ window.GemaProdukte = {
   updateProdukt,
   setStatus,
   deleteProdukt,
+  // Lieferanten (legacy: derived from products)
   getLieferanten,
   getTypen,
+  // Lieferanten (v2: eigene Entität)
+  getLieferant,
+  getAllLieferanten,
+  createLieferant,
+  updateLieferant,
+  deactivateLieferant,
+  activateLieferant,
+  deleteLieferant,
+  // Dokumente
+  addDokument,
+  removeDokument,
+  getDokumente,
+  // Offertanfragen
+  createOffertanfrage,
+  getOffertanfragen,
+  getOffertanfrage,
+  beantworteOffertanfrage,
+  ablehnenOffertanfrage,
+  deleteOffertanfrage,
+  getOffertanfragenCount,
+  OA_STATUS,
+  // Persistence
+  loadFromSupabase,
+  // Meta
   STATUS_LABELS,
   KATEGORIEN,
   save,

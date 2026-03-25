@@ -265,7 +265,7 @@ function renderList(){
 
   document.getElementById('listBody').innerHTML=prods.map(p=>{
     const st=GemaProdukte.STATUS_LABELS[p.status]||{};
-    const badgeCls=p.status==='verifiziert'?'badge-verified':p.status==='nicht_verifiziert'?'badge-unverified':p.status==='pruefung'?'badge-review':'badge-draft';
+    const badgeCls=p.status==='verifiziert'?'badge-verified':p.status==='nicht_verifiziert'?'badge-unverified':'badge-draft';
     return `<div class="prod-row" onclick="openProdukt('${E(p.id)}')">
       <div style="flex:1;min-width:0">
         <div class="prod-serie">${E(p.daten?.serie||'—')} ${E(p.daten?.modell||'')}</div>
@@ -337,8 +337,6 @@ function renderEditorBadge(){
   } else if(p.status==='nicht_verifiziert'){
     el.innerHTML=`<span class="badge badge-unverified">Von Lieferant nicht verifiziert</span>
       <span class="info-ico">i<span class="info-tip">Dieses Produkt wurde von einem GEMA-Admin vorerfasst. Die Daten basieren auf öffentlich zugänglichen Datenblättern und wurden noch nicht vom Lieferanten bestätigt. Der Lieferant kann die Daten jederzeit verifizieren — dann erscheint der blaue Verifizierungshaken.</span></span>`;
-  } else if(p.status==='pruefung'){
-    el.innerHTML=`<span class="badge badge-review">In Prüfung</span>`;
   } else {
     el.innerHTML=`<span class="badge badge-draft">Entwurf</span>`;
   }
@@ -389,8 +387,6 @@ function renderStatus(){
   } else if(p.status==='nicht_verifiziert'){
     h+=`<span class="badge badge-unverified" style="font-size:13px">⚠ Nicht verifiziert</span>`;
     h+=`<span style="font-size:12px;color:var(--mut)">Von Admin vorerfasst · Lieferant muss bestätigen</span>`;
-  } else if(p.status==='pruefung'){
-    h+=`<span class="badge badge-review" style="font-size:13px">In Prüfung</span>`;
   } else {
     h+=`<span class="badge badge-draft" style="font-size:13px">Entwurf</span>`;
   }
@@ -404,35 +400,12 @@ function renderStatus(){
   let wh='';
   if(p.status==='entwurf'){
     wh+=`<div class="verify-box"><input type="checkbox" id="vfyCb"/><label for="vfyCb"><strong>Ich bestätige, dass die eingetragenen technischen Daten korrekt sind</strong> und in meiner Verantwortung als Lieferant liegen. Änderungen werden im Aktivitätslog protokolliert.</label></div>`;
-    wh+=`<div style="margin-top:10px"><button class="btn btn-s" onclick="submitForReview()">Zur Prüfung einreichen</button></div>`;
-  } else if(p.status==='pruefung' && isAdmin()){
-    wh+=`<div style="display:flex;gap:8px"><button class="btn btn-p" onclick="approveProdukt()">✓ Freigeben (verifiziert)</button><button class="btn btn-g" onclick="rejectProdukt()">← Zurück an Lieferant</button></div>`;
+    wh+=`<div style="margin-top:10px"><button class="btn btn-p" onclick="verifyProdukt()">✓ Verifizieren</button></div>`;
   } else if(p.status==='nicht_verifiziert' && (isLieferant()||isAdmin())){
     wh+=`<div class="verify-box"><input type="checkbox" id="vfyCb"/><label for="vfyCb"><strong>Ich bestätige als Lieferant, dass die vorerfassten Daten korrekt sind</strong> oder habe diese entsprechend korrigiert. Die Daten liegen ab sofort in meiner Verantwortung.</label></div>`;
     wh+=`<div style="margin-top:10px"><button class="btn btn-p" onclick="verifyProdukt()">✓ Daten verifizieren</button></div>`;
   }
   wa.innerHTML=wh;
-}
-
-function submitForReview(){
-  const cb=document.getElementById('vfyCb');
-  if(!cb||!cb.checked){toast('Bitte Checkbox bestätigen.','error');return;}
-  saveProduktFields();
-  GemaProdukte.setStatus(currentProdukt.id,'pruefung');
-  currentProdukt=GemaProdukte.getProdukt(currentProdukt.id);
-  loadEditor();toast('Zur Prüfung eingereicht');
-}
-
-function approveProdukt(){
-  GemaProdukte.setStatus(currentProdukt.id,'verifiziert');
-  currentProdukt=GemaProdukte.getProdukt(currentProdukt.id);
-  loadEditor();toast('Produkt freigegeben');
-}
-
-function rejectProdukt(){
-  GemaProdukte.setStatus(currentProdukt.id,'entwurf');
-  currentProdukt=GemaProdukte.getProdukt(currentProdukt.id);
-  loadEditor();toast('Zurück an Lieferant');
 }
 
 function verifyProdukt(){
@@ -471,32 +444,57 @@ function saveProdukt(){
 // ── Documents ──
 function renderDocs(){
   const p=currentProdukt;if(!p)return;
-  const docs=p.dokumente||[];
+  const docs=GemaProdukte.getDokumente(p.id);
   if(!docs.length){document.getElementById('docList').innerHTML='<p style="color:var(--mut);font-size:13px">Noch keine Dokumente.</p>';return;}
-  document.getElementById('docList').innerHTML=docs.map((d,i)=>
-    `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--brd)">
+  document.getElementById('docList').innerHTML=docs.map(d=>{
+    const hasData=!!d.dataUrl;
+    const previewBtn=hasData?`<button class="btn btn-s btn-sm" onclick="previewDoc('${E(d.id)}')">👁</button>`:'';
+    return `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--brd)">
       <span class="tag ${d.typ==='datenblatt'?'t-bl':d.typ==='zertifikat'?'t-gr':'t-gy'}">${E(d.typ)}</span>
       <span style="flex:1;font-size:13px">${E(d.name)}</span>
-      <span style="font-size:11px;color:var(--mut)">${d.datum||''}</span>
-      <button class="btn btn-d btn-sm" onclick="rmDoc(${i})">✕</button>
-    </div>`
-  ).join('');
+      <span style="font-size:11px;color:var(--mut)">${d.hochgeladenVon?E(d.hochgeladenVon)+' · ':''}${d.datum||''}</span>
+      ${previewBtn}
+      <button class="btn btn-d btn-sm" onclick="rmDoc('${E(d.id)}')">✕</button>
+    </div>`;
+  }).join('');
 }
 
 function addDoc(){
   const fi=document.getElementById('docFile');
   const typ=document.getElementById('docTyp').value;
   if(!fi.files?.length){toast('Datei wählen','error');return;}
-  if(!currentProdukt.dokumente)currentProdukt.dokumente=[];
-  currentProdukt.dokumente.push({name:fi.files[0].name,typ,datum:new Date().toISOString().split('T')[0]});
-  GemaProdukte.updateProdukt(currentProdukt.id,null,currentProdukt.dokumente);
-  fi.value='';renderDocs();toast('Dokument hinzugefügt');
+  const file=fi.files[0];
+  if(file.size>5*1024*1024){toast('Max. 5 MB','error');return;}
+  const reader=new FileReader();
+  reader.onload=function(){
+    const fmt=file.name.split('.').pop().toLowerCase();
+    GemaProdukte.addDokument(currentProdukt.id,{
+      name:file.name, typ:typ, format:fmt,
+      groesse:file.size, dataUrl:reader.result
+    });
+    currentProdukt=GemaProdukte.getProdukt(currentProdukt.id);
+    fi.value='';renderDocs();toast('Dokument hochgeladen');
+  };
+  reader.readAsDataURL(file);
 }
 
-function rmDoc(i){
-  currentProdukt.dokumente.splice(i,1);
-  GemaProdukte.updateProdukt(currentProdukt.id,null,currentProdukt.dokumente);
-  renderDocs();
+function rmDoc(docId){
+  GemaProdukte.removeDokument(currentProdukt.id,docId);
+  currentProdukt=GemaProdukte.getProdukt(currentProdukt.id);
+  renderDocs();toast('Dokument entfernt');
+}
+
+function previewDoc(docId){
+  const docs=GemaProdukte.getDokumente(currentProdukt.id);
+  const d=docs.find(x=>x.id===docId);
+  if(!d||!d.dataUrl) return;
+  const w=window.open('','_blank');
+  if(!w) return;
+  if(d.format==='pdf'||d.dataUrl.startsWith('data:application/pdf')){
+    w.document.write('<html><body style="margin:0"><iframe src="'+d.dataUrl+'" style="width:100%;height:100vh;border:none"></iframe></body></html>');
+  } else {
+    w.document.write('<html><body style="margin:0;display:flex;align-items:center;justify-content:center;background:#111;min-height:100vh"><img src="'+d.dataUrl+'" style="max-width:100%;max-height:100vh;object-fit:contain"/></body></html>');
+  }
 }
 
 // ── Activity Log ──
