@@ -211,7 +211,7 @@
     }
     var badge=document.createElement('div');
     badge.id='_gemaAuthBadge';
-    badge.style.cssText='display:flex;align-items:center;gap:6px;margin-left:auto;padding-right:12px;flex-shrink:0';
+    badge.style.cssText='display:flex;align-items:center;gap:6px;margin-left:16px;padding-right:12px;flex-shrink:0';
 
     badge.innerHTML=
       '<div style="text-align:right">'+
