@@ -128,7 +128,8 @@ input,select,textarea,button{font-family:inherit}
     </div>
     <div class="g2">
       <div class="fg"><label class="fl">Eingabefrist</label><input type="date" class="fc" id="naFrist"/></div>
-      <div class="fg"><label class="fl">Pläne & Beilagen</label><input type="file" class="fc" id="naFiles" multiple accept=".pdf,.dwg,.dxf,.jpg,.png,.zip" style="padding:6px"/></div>
+      <div class="fg"><label class="fl">📐 Pläne</label><input type="file" class="fc" id="naPlaene" multiple accept=".pdf,.dwg,.dxf,.jpg,.png,.zip" style="padding:6px"/><span style="font-size:10px;color:var(--mut)">DWG, DXF, PDF, ZIP</span></div>
+      <div class="fg"><label class="fl">📎 Unterlagen</label><input type="file" class="fc" id="naUnterlagen" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.zip" style="padding:6px"/><span style="font-size:10px;color:var(--mut)">PDF, DOC, XLS, ZIP</span></div>
     </div>
   </div>
   <div class="ml-ft"><button class="btn btn-g" onclick="cM('mNewA')">Abbrechen</button><button class="btn btn-p" onclick="createAusschreibung()">Erstellen</button></div>
@@ -367,7 +368,9 @@ function newAusschreibung(opts){
     materialspez:{}, // {bkpCode: [{position,lieferant,vorschlagUN}]}
     abzuege:JSON.parse(JSON.stringify(DEF_ABZUEGE)),
     crbx:{lv:null,rawE1S:null},
-    beilagen:[], // [{name,typ}]
+    beilagen:[], // legacy
+    plaene:[], // [{name,datum}]
+    unterlagen:[], // [{name,datum}]
     vorbedingungen:{typ:'standard',pdfName:''}, // standard|eigene
     vergabe:{status:null,winnerId:null,datum:null},
     created:new Date().toISOString()
@@ -519,11 +522,84 @@ VIEWS.pdet=function(){
   else{const vb=a.vorbedingungen?.kapitel||{};const filled=VB_KAPITEL.filter(k=>vb[k.id]?.trim()).length;h+=`<p style="font-size:13px;color:var(--mut)">${filled}/${VB_KAPITEL.length} Kapitel ausgefüllt</p>`;}
   h+=`</div></div>`;
 
+  // Pläne & Unterlagen
+  h+=renderDokumente(a);
+
   // Brutto-Offerten list
   h+=renderBruttoList(a);
 
   return h;
 };
+
+function renderDokumente(a){
+  if(!a.plaene)a.plaene=[];
+  if(!a.unterlagen)a.unterlagen=[];
+  var h='<div class="card" style="margin-top:16px"><div class="card-hd"><h3>📁 Pläne & Unterlagen</h3></div><div class="card-bd">';
+  // Pläne
+  h+='<div style="margin-bottom:20px">';
+  h+='<div style="font-size:12px;font-weight:800;color:var(--acc);text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px">📐 Pläne</div>';
+  h+='<div class="uz" id="dzPlaene" onclick="document.getElementById(\'fPlaene\').click()" style="padding:16px;margin-bottom:8px;border:2px dashed var(--brd2);border-radius:10px;text-align:center;cursor:pointer;transition:.15s">';
+  h+='<input type="file" id="fPlaene" multiple accept=".pdf,.dwg,.dxf,.jpg,.png,.zip" style="display:none" onchange="addDokumente(event,\'plaene\')"/>';
+  h+='<div style="font-size:13px;font-weight:700;color:var(--mut)">📐 Pläne hierher ziehen oder klicken</div>';
+  h+='<div style="font-size:11px;color:var(--mut2);margin-top:2px">DWG, DXF, PDF, ZIP</div>';
+  h+='</div>';
+  if(a.plaene.length){
+    h+='<div style="display:flex;flex-direction:column;gap:4px">';
+    a.plaene.forEach(function(p,i){
+      h+='<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:var(--bg2);border-radius:8px;font-size:12.5px">'
+        +'<span>📄</span><span style="flex:1;font-weight:600">'+E(p.name)+'</span>'
+        +'<span style="font-size:11px;color:var(--mut)">'+new Date(p.datum).toLocaleDateString('de-CH')+'</span>'
+        +'<button class="btn btn-d btn-sm" onclick="rmDokument(\'plaene\','+i+')" style="padding:2px 6px;font-size:10px">✕</button>'
+        +'</div>';
+    });
+    h+='</div>';
+  }
+  h+='</div>';
+  // Unterlagen
+  h+='<div>';
+  h+='<div style="font-size:12px;font-weight:800;color:var(--acc);text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px">📎 Sonstige Unterlagen</div>';
+  h+='<div class="uz" id="dzUnterlagen" onclick="document.getElementById(\'fUnterlagen\').click()" style="padding:16px;margin-bottom:8px;border:2px dashed var(--brd2);border-radius:10px;text-align:center;cursor:pointer;transition:.15s">';
+  h+='<input type="file" id="fUnterlagen" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.zip" style="display:none" onchange="addDokumente(event,\'unterlagen\')"/>';
+  h+='<div style="font-size:13px;font-weight:700;color:var(--mut)">📎 Unterlagen hierher ziehen oder klicken</div>';
+  h+='<div style="font-size:11px;color:var(--mut2);margin-top:2px">PDF, DOC, XLS, ZIP</div>';
+  h+='</div>';
+  if(a.unterlagen.length){
+    h+='<div style="display:flex;flex-direction:column;gap:4px">';
+    a.unterlagen.forEach(function(u,i){
+      h+='<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:var(--bg2);border-radius:8px;font-size:12.5px">'
+        +'<span>📎</span><span style="flex:1;font-weight:600">'+E(u.name)+'</span>'
+        +'<span style="font-size:11px;color:var(--mut)">'+new Date(u.datum).toLocaleDateString('de-CH')+'</span>'
+        +'<button class="btn btn-d btn-sm" onclick="rmDokument(\'unterlagen\','+i+')" style="padding:2px 6px;font-size:10px">✕</button>'
+        +'</div>';
+    });
+    h+='</div>';
+  }
+  h+='</div>';
+  h+='</div></div>';
+  return h;
+}
+
+function addDokumente(ev,typ){
+  var a=curA();if(!a)return;
+  if(!a[typ])a[typ]=[];
+  var now=new Date().toISOString();
+  var files=ev.target.files;
+  for(var i=0;i<files.length;i++){
+    a[typ].push({name:files[i].name,datum:now});
+  }
+  // Update legacy beilagen
+  a.beilagen=(a.plaene||[]).map(function(p){return p.name;}).concat((a.unterlagen||[]).map(function(u){return u.name;}));
+  sv();lg('📁','Dokument hochgeladen',files.length+' '+typ);nav('pdet');
+  toast(files.length+' '+(typ==='plaene'?'Plan/Pläne':'Unterlage(n)')+' hinzugefügt');
+}
+
+function rmDokument(typ,idx){
+  var a=curA();if(!a||!a[typ])return;
+  var name=a[typ][idx]?.name||'';
+  a[typ].splice(idx,1);
+  a.beilagen=(a.plaene||[]).map(function(p){return p.name;}).concat((a.unterlagen||[]).map(function(u){return u.name;}));
+  sv();lg('🗑','Dokument entfernt',name);nav('pdet');
+}
 
 VIEWS.pvrt=function(){
   const a=curA();if(!a)return '<div class="wp">Zuerst eine Ausschreibung wählen.</div>';
@@ -980,8 +1056,12 @@ function createAusschreibung(){
       const parts=objekt.split(',');if(parts.length>=2){const last=parts[parts.length-1].trim();region=last.replace(/^\d+\s*/,'');}}
   }
   const frist=document.getElementById('naFrist').value;
-  const files=document.getElementById('naFiles');
-  const beilagen=files?.files?[...files.files].map(f=>f.name):[];
+  const now=new Date().toISOString();
+  const plFiles=document.getElementById('naPlaene');
+  const ulFiles=document.getElementById('naUnterlagen');
+  const plaene=plFiles?.files?[...plFiles.files].map(f=>({name:f.name,datum:now})):[];
+  const unterlagen=ulFiles?.files?[...ulFiles.files].map(f=>({name:f.name,datum:now})):[];
+  const beilagen=[...plaene.map(p=>p.name),...unterlagen.map(u=>u.name)];
   const id='aus-'+Date.now();
   const stdBKP=typ==='funktional'?[
     {code:'251',name:'Allgemeine Sanitärapparate',unterpositionen:[],materialSpec:[]},
@@ -989,7 +1069,7 @@ function createAusschreibung(){
     {code:'255',name:'Dämmungen',unterpositionen:[],materialSpec:[]},
     {code:'259',name:'Übriges',unterpositionen:[],materialSpec:[]}
   ]:[];
-  S.ausschreibungen.push({id,name,typ,modelle,modell:modelle[0],objekt,region,frist,status:'entwurf',bkp:stdBKP,abzuege:JSON.parse(JSON.stringify(DEF_ABZUEGE)),crbx:{lv:null},beilagen,vorbedingungen:{modus:'gema',kapitel:{},pdfName:''},materialSpec:{},vergabe:null});
+  S.ausschreibungen.push({id,name,typ,modelle,modell:modelle[0],objekt,region,frist,status:'entwurf',bkp:stdBKP,abzuege:JSON.parse(JSON.stringify(DEF_ABZUEGE)),crbx:{lv:null},beilagen,plaene,unterlagen,vorbedingungen:{modus:'gema',kapitel:{},pdfName:''},materialSpec:{},vergabe:null});
   S.activeAusId=id;save();lg('📋','Ausschreibung erstellt',name+' ('+typ+', '+modelle.join('+')+')');
   cM('mNewA');toast('Ausschreibung erstellt');buildTabs();nav('pdet');
 }
