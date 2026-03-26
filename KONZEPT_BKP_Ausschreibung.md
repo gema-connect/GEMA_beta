@@ -113,66 +113,383 @@ Planer prüft, gibt frei → landet bei "Versenden an Unternehmer"
 }
 ```
 
-### 3.3 Standard-BKP-Baum (Sanitär 25x)
+### 3.3 Kompletter BKP-Baum (Schweizer Standard nach eBKP / BKP 2)
 
-Dieser Baum ist die VORLAGE — der Planer kann alles anpassen. Wichtig: `modulKey` definiert die Verknüpfung zum Berechnungsmodul. Wo `modulKey` gesetzt ist, handelt es sich um eine Position die eine externe Lieferanten-Offerte benötigt (= "Lieferung XXX").
+Quelle: Offizielle BKP-Zusammenfassung aus CRBX-Export (Jäggi Vollmer GmbH, 2026.0207). Der Planer kann alles anpassen (Nummern, Titel, Positionen hinzufügen/entfernen). Wo `modulKey` gesetzt ist = externe Lieferanten-Offerte nötig → Dialog öffnet sich.
+
+**WICHTIG:** Bei der ersten Nutzung wird nur das freigeschaltete Gewerk angezeigt (Standard: 25 Sanitäranlagen). Die anderen Gewerke (23, 24 etc.) sind im Baum vorhanden aber ausgegraut/gesperrt bis lizenziert.
 
 ```javascript
-var BKP_STANDARD = {
-  id: '25', titel: 'Sanitäranlagen', kinder: [
-    { id: '251', titel: 'Apparate', kinder: [
-      { id: '251.0', titel: 'Allgemeine Apparate' },
-      { id: '251.1', titel: 'Kücheneinrichtungen' },
-      { id: '251.2', titel: 'Waschtische und Lavabos' },
-      { id: '251.3', titel: 'WC-Anlagen' },
-      { id: '251.4', titel: 'Badewannen und Duschen' },
-      { id: '251.5', titel: 'Diverse Sanitärapparate' }
+var BKP_KOMPLETT = [
+  // ═══════════════════════════════════════════════════════
+  // 0 — GRUNDSTÜCK
+  // ═══════════════════════════════════════════════════════
+  { id:'0', titel:'Grundstück', kinder:[
+    { id:'00', titel:'Vorstudien', kinder:[
+      { id:'000', titel:'Übergangsposition' },
+      { id:'001', titel:'Studien zur Grundstückbeurteilung, Machbarkeitsstudie' },
+      { id:'002', titel:'Vermessung, Vermarchung' },
+      { id:'003', titel:'Geotechnische Gutachten' },
+      { id:'004', titel:'Quartierplankosten, Richtplankosten' },
+      { id:'005', titel:'Provisorische Baugespanne' },
+      { id:'006', titel:'Umweltverträglichkeitsprüfung' },
+      { id:'009', titel:'Übriges' }
     ]},
-    { id: '252', titel: 'Abwasseranlagen', kinder: [
-      { id: '252.0', titel: 'Abwasserleitungen' },
-      { id: '252.1', titel: 'Lieferung Fettabscheider', modulKey: 'fettabscheider', modulUrl: 'sa_fettabscheider.html' },
-      { id: '252.2', titel: 'Montage Fettabscheider' },
-      { id: '252.3', titel: 'Lieferung Abwasserhebeanlage', modulKey: 'hebeanlage', modulUrl: 'sa_abwasserhebeanlage.html' },
-      { id: '252.4', titel: 'Montage Abwasserhebeanlage' },
-      { id: '252.5', titel: 'Lieferung Ölabscheider', modulKey: 'oelabscheider', modulUrl: 'sa_oelabscheider.html' },
-      { id: '252.6', titel: 'Montage Ölabscheider' },
-      { id: '252.7', titel: 'Lieferung Schlammsammler', modulKey: 'schlammsammler', modulUrl: 'sa_schlammsammler.html' },
-      { id: '252.8', titel: 'Montage Schlammsammler' }
+    { id:'01', titel:'Grundstück- bzw. Baurechterwerb', kinder:[
+      { id:'011', titel:'Grundstückerwerb' },
+      { id:'012', titel:'Baurechterwerb' },
+      { id:'013', titel:'Brandmauereinkauf' },
+      { id:'018', titel:'Sanierung Altlasten' },
+      { id:'019', titel:'Übriges' }
     ]},
-    { id: '253', titel: 'Wassererwärmung', kinder: [
-      { id: '253.0', titel: 'Warmwasserleitungen' },
-      { id: '253.1', titel: 'Lieferung Frischwasserstation', modulKey: 'frischwasserstation', modulUrl: 'sa_frischwasserstation.html' },
-      { id: '253.2', titel: 'Montage Frischwasserstation' },
-      { id: '253.3', titel: 'Lieferung Zirkulationspumpe', modulKey: 'zirkulation' },
-      { id: '253.4', titel: 'Montage Zirkulationspumpe' },
-      { id: '253.5', titel: 'Lieferung Solaranlage', modulKey: 'solaranlage', modulUrl: 'sa_solaranlage.html' },
-      { id: '253.6', titel: 'Montage Solaranlage' }
+    { id:'02', titel:'Nebenkosten zu Grundstück resp. Baurechterwerb', kinder:[
+      { id:'021', titel:'Handänderungssteuer' },
+      { id:'022', titel:'Notariatskosten' },
+      { id:'023', titel:'Grundbuchgebühren' },
+      { id:'024', titel:'Anwaltskosten, Gerichtskosten' },
+      { id:'025', titel:'Vermittlungsprovisionen' },
+      { id:'029', titel:'Übriges' }
     ]},
-    { id: '254', titel: 'Wasseraufbereitung', kinder: [
-      { id: '254.0', titel: 'Kaltwasserleitungen' },
-      { id: '254.1', titel: 'Lieferung Druckerhöhungsanlage', modulKey: 'druckerhoehung', modulUrl: 'sb_druckerhoehung.html' },
-      { id: '254.2', titel: 'Montage Druckerhöhungsanlage' },
-      { id: '254.3', titel: 'Lieferung Enthärtungsanlage', modulKey: 'enthaertung', modulUrl: 'sa_enthaertung.html' },
-      { id: '254.4', titel: 'Montage Enthärtungsanlage' },
-      { id: '254.5', titel: 'Lieferung Osmoseanlage', modulKey: 'osmose', modulUrl: 'sa_osmose.html' },
-      { id: '254.6', titel: 'Montage Osmoseanlage' }
+    { id:'03', titel:'Abfindungen, Servitute, Beiträge', kinder:[
+      { id:'031', titel:'Abfindungen an Mieter und Pächter' },
+      { id:'032', titel:'Inkonvenienzentschädigungen' },
+      { id:'033', titel:'Errichtung von Servituten' },
+      { id:'034', titel:'Ablösung von Servituten' },
+      { id:'035', titel:'Wirtschaftspatente' },
+      { id:'036', titel:'Beiträge Melioration' },
+      { id:'037', titel:'Beiträge Güterzusammenlegung' },
+      { id:'038', titel:'Perimeterbeiträge' },
+      { id:'039', titel:'Übriges' }
     ]},
-    { id: '255', titel: 'Isolierungen', kinder: [
-      { id: '255.0', titel: 'Rohrisolierungen kalt' },
-      { id: '255.1', titel: 'Rohrisolierungen warm' },
-      { id: '255.2', titel: 'Armaturenisolierungen' }
+    { id:'04', titel:'Finanzierung vor Baubeginn', kinder:[
+      { id:'041', titel:'Errichten von Hypotheken auf Grundstück' },
+      { id:'042', titel:'Hypothekarzinsen' },
+      { id:'043', titel:'Baurechtszinsen' },
+      { id:'044', titel:'Bankzinsen' },
+      { id:'045', titel:'Eigenkapitalzinsen' },
+      { id:'046', titel:'Grundstücksteuern' },
+      { id:'048', titel:'Versicherungen bis Baubeginn' },
+      { id:'049', titel:'Übriges' }
     ]},
-    { id: '256', titel: 'Brandschutz Sanitär', kinder: [
-      { id: '256.0', titel: 'Brandschutzabschottungen' },
-      { id: '256.1', titel: 'Brandschutzklappen' }
+    { id:'05', titel:'Erschliessung durch Leitungen (ausserhalb Grundstück)', kinder:[
+      { id:'051', titel:'Erdarbeiten' },
+      { id:'052', titel:'Kanalisationsleitungen' },
+      { id:'053', titel:'Elektroleitungen' },
+      { id:'054', titel:'Heizungs-, Lüftungs-, Klima-, Kälteleitungen' },
+      { id:'055', titel:'Sanitärleitungen' },
+      { id:'056', titel:'Nebenarbeiten' },
+      { id:'059', titel:'Übriges' }
     ]},
-    { id: '259', titel: 'Honorare Sanitär', kinder: [
-      { id: '259.0', titel: 'Planungshonorare' },
-      { id: '259.1', titel: 'Bauleitungshonorare' }
+    { id:'06', titel:'Erschliessung durch Verkehrsanlagen ausserhalb Grundstück', kinder:[
+      { id:'061', titel:'Strassen' },
+      { id:'062', titel:'Bahn' },
+      { id:'063', titel:'Wasserwege' },
+      { id:'069', titel:'Übriges' }
+    ]},
+    { id:'07', titel:'Reserve' },
+    { id:'08', titel:'Reserve' },
+    { id:'09', titel:'Honorare', kinder:[
+      { id:'091', titel:'Architekt' },
+      { id:'092', titel:'Bauingenieur' },
+      { id:'093', titel:'Elektroingenieur' },
+      { id:'094', titel:'HLKK-Ingenieur' },
+      { id:'095', titel:'Sanitäringenieur' },
+      { id:'096', titel:'Spezialisten' },
+      { id:'099', titel:'Übriges' }
     ]}
-  ]
-};
+  ]},
+
+  // ═══════════════════════════════════════════════════════
+  // 1 — VORBEREITUNGSARBEITEN
+  // ═══════════════════════════════════════════════════════
+  { id:'1', titel:'Vorbereitungsarbeiten', kinder:[
+    { id:'10', titel:'Bestandesaufnahmen, Baugrunduntersuchungen', kinder:[
+      { id:'101', titel:'Bestandesaufnahmen' },
+      { id:'102', titel:'Baugrunduntersuchungen' },
+      { id:'103', titel:'Grundwassererhebungen' },
+      { id:'109', titel:'Übriges' }
+    ]},
+    { id:'11', titel:'Räumungen, Terrainvorbereitungen', kinder:[
+      { id:'111', titel:'Rodungen' },
+      { id:'112', titel:'Abbrüche' },
+      { id:'113', titel:'Demontagen' },
+      { id:'114', titel:'Erdbewegungen' },
+      { id:'115', titel:'Bohr- und Schneidarbeiten' },
+      { id:'119', titel:'Übriges' }
+    ]},
+    { id:'12', titel:'Sicherungen, Provisorien', kinder:[
+      { id:'121', titel:'Sicherung vorhandener Anlagen' },
+      { id:'122', titel:'Provisorien' },
+      { id:'123', titel:'Unterfangungen' },
+      { id:'124', titel:'Instandsetzungsarbeiten' },
+      { id:'129', titel:'Übriges' }
+    ]},
+    { id:'13', titel:'Gemeinsame Baustelleneinrichtung', kinder:[
+      { id:'131', titel:'Abschrankungen' },
+      { id:'132', titel:'Zufahrten, Plätze' },
+      { id:'133', titel:'Büro Bauleitung' },
+      { id:'134', titel:'Unterkünfte, Verpflegungseinrichtungen' },
+      { id:'135', titel:'Provisorische Installationen' },
+      { id:'136', titel:'Kosten für Energie, Wasser und dgl.' },
+      { id:'137', titel:'Provisorische Abschlüsse und Abdeckungen' },
+      { id:'138', titel:'Sortierung Bauabfälle' },
+      { id:'139', titel:'Übriges' }
+    ]},
+    { id:'14', titel:'Anpassungen an bestehende Bauten', kinder:[
+      { id:'141', titel:'Terraingestaltung, Rohbau 1' },
+      { id:'142', titel:'Rohbau 2' },
+      { id:'143', titel:'Elektroanlagen' },
+      { id:'144', titel:'Heizungs-, Lüftungs-, Klima und Kälteanlagen' },
+      { id:'145', titel:'Sanitäranlagen' },
+      { id:'146', titel:'Transportanlagen' },
+      { id:'147', titel:'Ausbau 1' },
+      { id:'148', titel:'Ausbau 2' },
+      { id:'149', titel:'Übriges' }
+    ]},
+    { id:'15', titel:'Anpassungen an bestehende Erschliessungsleitungen', kinder:[
+      { id:'151', titel:'Erdarbeiten' },
+      { id:'152', titel:'Kanalisationsleitungen' },
+      { id:'153', titel:'Elektroleitungen' },
+      { id:'154', titel:'Heizungs-, Lüftungs-, Klima-, Kälteleitungen' },
+      { id:'155', titel:'Sanitärleitungen' },
+      { id:'156', titel:'Nebenarbeiten' },
+      { id:'159', titel:'Übriges' }
+    ]},
+    { id:'16', titel:'Anpassungen an bestehende Verkehrsanlagen', kinder:[
+      { id:'161', titel:'Strassen' },{ id:'162', titel:'Bahn' },{ id:'163', titel:'Wasserwege' },{ id:'169', titel:'Übriges' }
+    ]},
+    { id:'17', titel:'Spez. Fundationen, Baugrubensicherung, Grundwasserabdichtung', kinder:[
+      { id:'171', titel:'Pfähle' },{ id:'172', titel:'Baugrubenabschlüsse' },{ id:'173', titel:'Aussteifungen' },
+      { id:'174', titel:'Anker' },{ id:'175', titel:'Grundwasserabdichtungen' },{ id:'176', titel:'Wasserhaltung' },
+      { id:'177', titel:'Baugrundverbesserungen' },{ id:'178', titel:'Nebenarbeiten' },{ id:'179', titel:'Übriges' }
+    ]},
+    { id:'18', titel:'Reserve' },
+    { id:'19', titel:'Honorare', kinder:[
+      { id:'191', titel:'Architekt' },{ id:'192', titel:'Bauingenieur' },{ id:'193', titel:'Elektroingenieur' },
+      { id:'194', titel:'HLKK-Ingenieur' },{ id:'195', titel:'Sanitäringenieur' },{ id:'196', titel:'Spezialisten' },{ id:'199', titel:'Übriges' }
+    ]}
+  ]},
+
+  // ═══════════════════════════════════════════════════════
+  // 2 — GEBÄUDE (Hauptgruppe für Haustechnik)
+  // ═══════════════════════════════════════════════════════
+  { id:'2', titel:'Gebäude', kinder:[
+    { id:'20', titel:'Baugrube', kinder:[
+      { id:'201', titel:'Baugrubenaushub' },{ id:'209', titel:'Übriges' }
+    ]},
+    { id:'21', titel:'Rohbau 1', kinder:[
+      { id:'211', titel:'Baumeisterarbeiten' },{ id:'212', titel:'Montagebau in Beton und vorfabriziertem Mauerwerk' },
+      { id:'213', titel:'Montagebau in Stahl' },{ id:'214', titel:'Montagebau in Holz' },
+      { id:'215', titel:'Montagebau als Leichtkonstruktionen' },{ id:'216', titel:'Natur- und Kunststeinarbeiten' },
+      { id:'217', titel:'Schutzraumabschlüsse' },{ id:'219', titel:'Übriges' }
+    ]},
+    { id:'22', titel:'Rohbau 2', kinder:[
+      { id:'221', titel:'Fenster, Aussentüren, Tore' },{ id:'222', titel:'Spenglerarbeiten' },
+      { id:'223', titel:'Blitzschutz' },{ id:'224', titel:'Bedachungsarbeiten' },
+      { id:'225', titel:'Spezielle Dichtungen und Dämmungen' },{ id:'226', titel:'Fassadenputze' },
+      { id:'227', titel:'Äussere Oberflächenbehandlungen' },{ id:'228', titel:'Äussere Abschlüsse, Sonnenschutz' },
+      { id:'229', titel:'Übriges' }
+    ]},
+
+    // ── 23 ELEKTROANLAGEN (lizenzpflichtig) ──
+    { id:'23', titel:'Elektroanlagen', lizenz:'elektro', kinder:[
+      { id:'231', titel:'Apparate Starkstrom' },{ id:'232', titel:'Starkstrominstallationen' },
+      { id:'233', titel:'Leuchten und Lampen' },{ id:'234', titel:'Energieverbraucher' },
+      { id:'235', titel:'Apparate Schwachstrom' },{ id:'236', titel:'Schwachstrominstallationen' },
+      { id:'237', titel:'Gebäudeautomation' },{ id:'238', titel:'Bauprovisorien' },{ id:'239', titel:'Übriges' }
+    ]},
+
+    // ── 24 HEIZUNGS-, LÜFTUNGS-, KLIMA UND KÄLTEANLAGEN (lizenzpflichtig) ──
+    { id:'24', titel:'Heizungs-, Lüftungs-, Klima und Kälteanlagen', lizenz:'hlkk', kinder:[
+      { id:'240', titel:'Übergangsposition' },
+      { id:'241', titel:'Zulieferung Energieträger, Lagerung' },
+      { id:'242', titel:'Wärmeerzeugung' },
+      { id:'243', titel:'Wärmeverteilung' },
+      { id:'244', titel:'Lüftungsanlagen' },
+      { id:'245', titel:'Klimaanlagen' },
+      { id:'246', titel:'Kälteanlagen' },
+      { id:'247', titel:'Spezialanlagen' },
+      { id:'248', titel:'Dämmungen HLKK-Installationen' },
+      { id:'249', titel:'Übriges' }
+    ]},
+
+    // ═══════════════════════════════════════════════════
+    // 25 SANITÄRANLAGEN (Standard, immer freigeschaltet)
+    // ═══════════════════════════════════════════════════
+    { id:'25', titel:'Sanitäranlagen', lizenz:'sanitaer', kinder:[
+      { id:'250', titel:'Übergangsposition' },
+      { id:'251', titel:'Allgemeine Sanitärapparate', kinder:[
+        { id:'251.0', titel:'Lieferung Sanitärapparate', istLieferung:true },
+        { id:'251.1', titel:'Montage Sanitärapparate' }
+      ]},
+      { id:'252', titel:'Spezielle Sanitärapparate', kinder:[
+        { id:'252.0', titel:'Lieferung Wasserzähler' },
+        { id:'252.1', titel:'Montage Wasserzähler' },
+        { id:'252.2', titel:'Lieferung Abluftventilatoren' },
+        { id:'252.3', titel:'Montage Abluftventilatoren' },
+        { id:'252.4', titel:'Lieferung Fettabscheider', modulKey:'fettabscheider', modulUrl:'sa_fettabscheider.html' },
+        { id:'252.5', titel:'Montage Fettabscheider' },
+        { id:'252.6', titel:'Lieferung Abwasserhebeanlage', modulKey:'hebeanlage', modulUrl:'sa_abwasserhebeanlage.html' },
+        { id:'252.7', titel:'Montage Abwasserhebeanlage' },
+        { id:'252.8', titel:'Lieferung Ölabscheider', modulKey:'oelabscheider', modulUrl:'sa_oelabscheider.html' },
+        { id:'252.9', titel:'Montage Ölabscheider' }
+      ]},
+      { id:'253', titel:'Sanitäre Ver- und Entsorgungsapparate', kinder:[
+        { id:'253.0', titel:'Lieferung Enthärtungsanlage', modulKey:'enthaertung', modulUrl:'sa_enthaertung.html' },
+        { id:'253.1', titel:'Montage Enthärtungsanlage' },
+        { id:'253.2', titel:'Lieferung Osmoseanlage', modulKey:'osmose', modulUrl:'sa_osmose.html' },
+        { id:'253.3', titel:'Montage Osmoseanlage' },
+        { id:'253.4', titel:'Lieferung Druckerhöhungsanlage', modulKey:'druckerhoehung', modulUrl:'sb_druckerhoehung.html' },
+        { id:'253.5', titel:'Montage Druckerhöhungsanlage' },
+        { id:'253.6', titel:'Lieferung Frischwasserstation', modulKey:'frischwasserstation', modulUrl:'sa_frischwasserstation.html' },
+        { id:'253.7', titel:'Montage Frischwasserstation' },
+        { id:'253.8', titel:'Lieferung Zirkulationspumpe', modulKey:'zirkulation' },
+        { id:'253.9', titel:'Montage Zirkulationspumpe' }
+      ]},
+      { id:'254', titel:'Sanitärleitungen', kinder:[
+        { id:'254.0', titel:'Kalt- und Warmwasser' },
+        { id:'254.1', titel:'Schmutzwasser' },
+        { id:'254.2', titel:'Regenwasser' },
+        { id:'254.3', titel:'Lüftungsleitungen' },
+        { id:'254.4', titel:'Armaturen' }
+      ]},
+      { id:'255', titel:'Dämmungen Sanitärinstallationen', kinder:[
+        { id:'255.0', titel:'Kalt- und Warmwasser' },
+        { id:'255.1', titel:'Schmutzwasser' },
+        { id:'255.2', titel:'Regenwasser' }
+      ]},
+      { id:'256', titel:'Sanitärinstallationselemente' },
+      { id:'257', titel:'Elektro- und Pneumatiktafeln' },
+      { id:'258', titel:'Kücheneinrichtungen' },
+      { id:'259', titel:'Übriges', kinder:[
+        { id:'259.0', titel:'Planungshonorar' },
+        { id:'259.1', titel:'Provisorien' },
+        { id:'259.2', titel:'Demontagen' },
+        { id:'259.3', titel:'Druckprüfung und Leitungsspülung' },
+        { id:'259.4', titel:'Unvorhergesehenes' }
+      ]}
+    ]},
+
+    // ── 26 TRANSPORTANLAGEN ──
+    { id:'26', titel:'Transportanlagen', kinder:[
+      { id:'261', titel:'Aufzüge' },{ id:'262', titel:'Fahrtreppen, Fahrsteige' },
+      { id:'263', titel:'Fassadenreinigungsanlagen' },{ id:'264', titel:'Sonstige Förderanlagen' },
+      { id:'265', titel:'Hebeeinrichtungen' },{ id:'266', titel:'Parkieranlagen' },{ id:'269', titel:'Übriges' }
+    ]},
+
+    // ── 27 AUSBAU 1 ──
+    { id:'27', titel:'Ausbau 1', kinder:[
+      { id:'271', titel:'Gipserarbeiten' },{ id:'272', titel:'Metallbauarbeiten' },
+      { id:'273', titel:'Schreinerarbeiten' },{ id:'274', titel:'Spezialverglasungen (innere)' },
+      { id:'275', titel:'Schliessanlagen' },{ id:'276', titel:'Innere Abschlüsse' },
+      { id:'277', titel:'Elementwände' },{ id:'279', titel:'Übriges' }
+    ]},
+
+    // ── 28 AUSBAU 2 ──
+    { id:'28', titel:'Ausbau 2', kinder:[
+      { id:'281', titel:'Bodenbeläge' },{ id:'282', titel:'Wandbeläge, Wandbekleidungen' },
+      { id:'283', titel:'Deckenbekleidungen' },{ id:'284', titel:'Hafnerarbeiten' },
+      { id:'285', titel:'Innere Oberflächenbehandlungen' },{ id:'286', titel:'Bauaustrocknung' },
+      { id:'287', titel:'Baureinigung' },{ id:'288', titel:'Gärtnerarbeiten (Gebäude)' },{ id:'289', titel:'Übriges' }
+    ]},
+
+    // ── 29 HONORARE ──
+    { id:'29', titel:'Honorare', kinder:[
+      { id:'291', titel:'Architekt' },{ id:'292', titel:'Bauingenieur' },{ id:'293', titel:'Elektroingenieur' },
+      { id:'294', titel:'HLKK-Ingenieur' },{ id:'295', titel:'Sanitäringenieur' },{ id:'296', titel:'Spezialisten' },
+      { id:'298', titel:'Gebäudeautomationsingenieur' },{ id:'299', titel:'Übriges' }
+    ]}
+  ]},
+
+  // ═══════════════════════════════════════════════════════
+  // 3 — BETRIEBSEINRICHTUNGEN
+  // ═══════════════════════════════════════════════════════
+  { id:'3', titel:'Betriebseinrichtungen', kinder:[
+    { id:'30', titel:'Baugrube' },
+    { id:'31', titel:'Rohbau 1' },
+    { id:'32', titel:'Rohbau 2' },
+    { id:'33', titel:'Elektroanlagen', lizenz:'elektro' },
+    { id:'34', titel:'Heizungs-, Lüftungs-, Klima und Kälteanlagen', lizenz:'hlkk' },
+    { id:'35', titel:'Sanitäranlagen', lizenz:'sanitaer', kinder:[
+      { id:'350', titel:'Übergangsposition' },
+      { id:'351', titel:'Allgemeine Sanitärapparate' },
+      { id:'352', titel:'Spezielle Sanitärapparate' },
+      { id:'353', titel:'Sanitäre Ver- und Entsorgungsapparate' },
+      { id:'354', titel:'Sanitärleitungen' },
+      { id:'355', titel:'Dämmungen Sanitärinstallationen' },
+      { id:'356', titel:'Sanitärinstallationselemente' },
+      { id:'357', titel:'Elektro- und Pneumatiktafeln' },
+      { id:'358', titel:'Kücheneinrichtungen' },
+      { id:'359', titel:'Übriges' }
+    ]},
+    { id:'36', titel:'Transportanlagen, Lageranlagen' },
+    { id:'37', titel:'Ausbau 1' },
+    { id:'38', titel:'Ausbau 2' },
+    { id:'39', titel:'Honorare' }
+  ]},
+
+  // ═══════════════════════════════════════════════════════
+  // 4 — UMGEBUNG
+  // ═══════════════════════════════════════════════════════
+  { id:'4', titel:'Umgebung', kinder:[
+    { id:'40', titel:'Terraingestaltung' },
+    { id:'41', titel:'Roh- und Ausbauarbeiten' },
+    { id:'42', titel:'Gartenanlagen' },
+    { id:'43', titel:'Reserve' },
+    { id:'44', titel:'Installationen', kinder:[
+      { id:'443', titel:'Elektroanlagen' },
+      { id:'444', titel:'Heizungs-, Lüftungs-, Klima und Kälteanlagen' },
+      { id:'445', titel:'Sanitäranlagen' },
+      { id:'446', titel:'Transportanlagen' },
+      { id:'449', titel:'Übriges' }
+    ]},
+    { id:'45', titel:'Erschliessung durch Leitungen (innerhalb Grundstück)' },
+    { id:'46', titel:'Kleinere Trassenbauten' },
+    { id:'47', titel:'Kleinere Kunstbauten' },
+    { id:'48', titel:'Kleinere Untertagbauten' },
+    { id:'49', titel:'Honorare' }
+  ]},
+
+  // ═══════════════════════════════════════════════════════
+  // 5 — BAUNEBENKOSTEN UND ÜBERGANGSKONTEN
+  // ═══════════════════════════════════════════════════════
+  { id:'5', titel:'Baunebenkosten und Übergangskonten', kinder:[
+    { id:'50', titel:'Wettbewerbskosten' },
+    { id:'51', titel:'Bewilligungen, Gebühren' },
+    { id:'52', titel:'Muster, Modelle, Vervielfältigungen, Dokumentation' },
+    { id:'53', titel:'Versicherungen' },
+    { id:'54', titel:'Finanzierung ab Baubeginn' },
+    { id:'55', titel:'Bauherrenleistungen' },
+    { id:'56', titel:'Übrige Baunebenkosten' },
+    { id:'57', titel:'Mehrwertsteuer (MWST)' },
+    { id:'58', titel:'Übergangskonten für Rückstellungen und Reserven' },
+    { id:'59', titel:'Übergangskonten für Honorare' }
+  ]},
+
+  // 6, 7, 8 — RESERVE
+  { id:'6', titel:'Reserve' },
+  { id:'7', titel:'Reserve' },
+  { id:'8', titel:'Reserve' },
+
+  // ═══════════════════════════════════════════════════════
+  // 9 — AUSSTATTUNG
+  // ═══════════════════════════════════════════════════════
+  { id:'9', titel:'Ausstattung', kinder:[
+    { id:'90', titel:'Möbel' },
+    { id:'91', titel:'Beleuchtungskörper' },
+    { id:'92', titel:'Textilien' },
+    { id:'93', titel:'Geräte, Apparate' },
+    { id:'94', titel:'Kleininventar' },
+    { id:'95', titel:'Reserve' },
+    { id:'96', titel:'Transportmittel' },
+    { id:'97', titel:'Verbrauchsmaterial' },
+    { id:'98', titel:'Künstlerischer Schmuck' },
+    { id:'99', titel:'Honorare' }
+  ]}
+];
 ```
+
+**Lizenz-Steuerung:** Jeder Knoten mit `lizenz` Property wird nur angezeigt wenn die entsprechende Lizenz aktiv ist. Standard-Freischaltung: `sanitaer`. Andere Lizenzen (`elektro`, `hlkk`) sind vorbereitet aber gesperrt → UI zeigt ausgegraut mit Schloss-Icon und "Lizenz erforderlich" Tooltip.
 
 ### 3.4 Modul-Mapping (Standard)
 
@@ -180,18 +497,20 @@ Diese Zuordnung definiert welche "Lieferung"-BKP zu welchem GEMA-Berechnungsmodu
 
 ```javascript
 var MODUL_MAP = {
-  'enthaertung':       { modul: 'sa_enthaertung.html',          label: 'Enthärtungsanlage',       kategorie: 'enthaertung' },
-  'osmose':            { modul: 'sa_osmose.html',               label: 'Osmoseanlage',            kategorie: 'osmose' },
-  'druckerhoehung':    { modul: 'sb_druckerhoehung.html',       label: 'Druckerhöhungsanlage',    kategorie: null },
-  'frischwasserstation':{ modul: 'sa_frischwasserstation.html', label: 'Frischwasserstation',     kategorie: null },
-  'hebeanlage':        { modul: 'sa_abwasserhebeanlage.html',   label: 'Abwasserhebeanlage',      kategorie: 'hebeanlage' },
-  'fettabscheider':    { modul: 'sa_fettabscheider.html',       label: 'Fettabscheider',          kategorie: null },
-  'oelabscheider':     { modul: 'sa_oelabscheider.html',        label: 'Ölabscheider',            kategorie: null },
-  'schlammsammler':    { modul: 'sa_schlammsammler.html',        label: 'Schlammsammler',          kategorie: null },
-  'solaranlage':       { modul: 'sa_solaranlage.html',          label: 'Solaranlage',             kategorie: null },
-  'zirkulation':       { modul: null,                            label: 'Zirkulationspumpe',       kategorie: 'zirkulation' }
+  // key → { modul: HTML-Datei, label: Anzeigename, kategorie: Produktkatalog-Kategorie }
+  'enthaertung':        { modul: 'sa_enthaertung.html',         label: 'Enthärtungsanlage',       kategorie: 'enthaertung',  bkp: '253.0' },
+  'osmose':             { modul: 'sa_osmose.html',              label: 'Osmoseanlage',            kategorie: 'osmose',       bkp: '253.2' },
+  'druckerhoehung':     { modul: 'sb_druckerhoehung.html',      label: 'Druckerhöhungsanlage',    kategorie: null,           bkp: '253.4' },
+  'frischwasserstation': { modul: 'sa_frischwasserstation.html', label: 'Frischwasserstation',     kategorie: null,           bkp: '253.6' },
+  'zirkulation':        { modul: null,                           label: 'Zirkulationspumpe',       kategorie: 'zirkulation',  bkp: '253.8' },
+  'hebeanlage':         { modul: 'sa_abwasserhebeanlage.html',  label: 'Abwasserhebeanlage',      kategorie: 'hebeanlage',   bkp: '252.6' },
+  'fettabscheider':     { modul: 'sa_fettabscheider.html',      label: 'Fettabscheider',          kategorie: null,           bkp: '252.4' },
+  'oelabscheider':      { modul: 'sa_oelabscheider.html',       label: 'Ölabscheider',            kategorie: null,           bkp: '252.8' },
+  'schlammsammler':     { modul: 'sa_schlammsammler.html',       label: 'Schlammsammler',          kategorie: null,           bkp: null },
+  'solaranlage':        { modul: 'sa_solaranlage.html',         label: 'Solaranlage',             kategorie: null,           bkp: null }
 };
 // `kategorie` = Produktkatalog-Kategorie (wenn vorhanden). Wenn null → keine Offerte aus Produktkatalog verfügbar, nur manueller PDF-Upload.
+// `bkp` = Standard-BKP wo dieses Modul typischerweise eingeordnet wird (kann vom Planer überschrieben werden).
 ```
 
 ---
