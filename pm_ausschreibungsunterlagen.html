@@ -386,7 +386,7 @@ function ld(){try{let r;try{r=localStorage.getItem(SK)}catch(e){r=_m[SK]||null}i
   // Set active ausschreibung
   if(!S.ausschreibung&&S.ausschreibungen.length)S.ausschreibung=S.ausschreibungen[0];
 }
-function lg(i,a,d){S.log=(S.log||[]);let who=S.currentRole;try{if(typeof GemaAuth!=='undefined'){const u=GemaAuth.getCurrentUser();if(u)who=(u.name||u.username||S.currentRole);}}catch(e){}S.log.unshift({icon:i,action:a,detail:d||'',who,when:new Date().toISOString()});if(S.log.length>100)S.log.length=100;sv();}
+function lg(i,a,d){S.log=(S.log||[]);let who=S.currentRole;try{if(typeof GemaAuth!=='undefined'){const u=GemaAuth.getCurrentUser();if(u)who=(u.name||u.username||S.currentRole);}}catch(e){}var ausId=S.activeAusId||'';var ausName='';if(ausId){var ax=S.ausschreibungen.find(function(x){return x.id===ausId;});if(ax)ausName=ax.name||'';}S.log.unshift({icon:i,action:a,detail:d||'',who,when:new Date().toISOString(),ausId:ausId,ausName:ausName});if(S.log.length>200)S.log.length=200;sv();}
 function A(){return S.ausschreibungen?.find(a=>a.id===S.activeAusId)||null;}
 function curA(){return A();}
 function save(){sv();}
@@ -424,8 +424,8 @@ VIEWS.pub=function(){
   const nA=S.ausschreibungen.length,nI=S.beteiligte.filter(b=>b.rolle==='installateur').length,nE=S.einreichungen.length;
   let h=`<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px"><button class="btn btn-p btn-sm" onclick="tutOpen()">🎓 So funktioniert's</button></div>`;
   h+=`<div class="sr"><div class="sc"><div class="sc-l">Ausschreibungen</div><div class="sc-v">${nA}</div></div><div class="sc"><div class="sc-l">Installateure</div><div class="sc-v">${nI}</div></div><div class="sc"><div class="sc-l">Offerten</div><div class="sc-v">${nE}</div></div><div class="sc"><div class="sc-l">Vergeben</div><div class="sc-v">${S.ausschreibungen.filter(a=>a.status==='vergeben').length}</div></div></div>`;
-  // Recent activity
-  if(S.log.length){h+=`<div class="card"><div class="card-hd"><h3>Letzte Aktivitäten</h3></div><div class="card-bd" style="max-height:200px;overflow-y:auto">${S.log.slice(0,10).map(l=>`<div style="display:flex;gap:8px;padding:5px 0;border-bottom:1px solid var(--brd);font-size:12px"><span>${l.icon}</span><div style="flex:1"><strong>${E(l.action)}</strong> ${E(l.detail)}<div style="font-size:10px;color:var(--mut2)">${l.who} · ${new Date(l.when).toLocaleString('de-CH')}</div></div></div>`).join('')}</div></div>`;}
+  // Activity log with filters
+  h+=renderActivityLog();
   return h;
 };
 
@@ -599,6 +599,59 @@ function rmDokument(typ,idx){
   a[typ].splice(idx,1);
   a.beilagen=(a.plaene||[]).map(function(p){return p.name;}).concat((a.unterlagen||[]).map(function(u){return u.name;}));
   sv();lg('🗑','Dokument entfernt',name);nav('pdet');
+}
+
+// ── Activity Log with filters ──
+var _logFilter={projekt:'',art:'',nutzer:''};
+function setLogFilter(key,val){_logFilter[key]=val;document.getElementById('logList').innerHTML=renderLogEntries();}
+function renderActivityLog(){
+  if(!S.log||!S.log.length)return '';
+  // Collect unique values for dropdowns
+  var projekte={},arten={},nutzer={};
+  S.log.forEach(function(l){
+    if(l.ausName)projekte[l.ausName]=1;
+    if(l.action)arten[l.action]=1;
+    if(l.who)nutzer[l.who]=1;
+  });
+  var h='<div class="card" style="margin-top:16px"><div class="card-hd"><h3>Aktivitäten</h3><span style="font-size:11px;color:var(--mut)">'+S.log.length+' Einträge</span></div><div class="card-bd">';
+  // Filter row
+  h+='<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">';
+  h+='<select onchange="setLogFilter(\'projekt\',this.value)" style="padding:5px 10px;border:1.5px solid var(--brd2);border-radius:8px;font-size:12px;font-family:var(--sans);background:var(--sur);color:var(--txt)">';
+  h+='<option value="">Alle Projekte</option>';
+  Object.keys(projekte).sort().forEach(function(p){h+='<option value="'+E(p)+'"'+(p===_logFilter.projekt?' selected':'')+'>'+E(p)+'</option>';});
+  h+='</select>';
+  h+='<select onchange="setLogFilter(\'art\',this.value)" style="padding:5px 10px;border:1.5px solid var(--brd2);border-radius:8px;font-size:12px;font-family:var(--sans);background:var(--sur);color:var(--txt)">';
+  h+='<option value="">Alle Aktivitäten</option>';
+  Object.keys(arten).sort().forEach(function(a){h+='<option value="'+E(a)+'"'+(a===_logFilter.art?' selected':'')+'>'+E(a)+'</option>';});
+  h+='</select>';
+  h+='<select onchange="setLogFilter(\'nutzer\',this.value)" style="padding:5px 10px;border:1.5px solid var(--brd2);border-radius:8px;font-size:12px;font-family:var(--sans);background:var(--sur);color:var(--txt)">';
+  h+='<option value="">Alle Nutzer</option>';
+  Object.keys(nutzer).sort().forEach(function(n){h+='<option value="'+E(n)+'"'+(n===_logFilter.nutzer?' selected':'')+'>'+E(n)+'</option>';});
+  h+='</select>';
+  h+='</div>';
+  // Log entries
+  h+='<div id="logList" style="max-height:400px;overflow-y:auto">'+renderLogEntries()+'</div>';
+  h+='</div></div>';
+  return h;
+}
+function renderLogEntries(){
+  var filtered=S.log.filter(function(l){
+    if(_logFilter.projekt&&(l.ausName||'')!==_logFilter.projekt)return false;
+    if(_logFilter.art&&(l.action||'')!==_logFilter.art)return false;
+    if(_logFilter.nutzer&&(l.who||'')!==_logFilter.nutzer)return false;
+    return true;
+  });
+  if(!filtered.length)return '<p style="color:var(--mut);font-size:13px;padding:8px 0">Keine Einträge für diesen Filter.</p>';
+  return filtered.map(function(l){
+    return '<div style="display:flex;gap:8px;padding:6px 0;border-bottom:1px solid var(--brd);font-size:12px">'
+      +'<span>'+l.icon+'</span>'
+      +'<div style="flex:1">'
+        +'<strong>'+E(l.action)+'</strong> '+E(l.detail)
+        +(l.ausName?'<span style="margin-left:6px;font-size:10px;padding:1px 6px;border-radius:4px;background:var(--bg2);color:var(--mut);font-weight:600">'+E(l.ausName)+'</span>':'')
+        +'<div style="font-size:10px;color:var(--mut2)">'+E(l.who)+' · '+new Date(l.when).toLocaleString('de-CH')+'</div>'
+      +'</div>'
+    +'</div>';
+  }).join('');
 }
 
 VIEWS.pvrt=function(){
