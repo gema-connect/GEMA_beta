@@ -347,6 +347,7 @@ let S={
     {id:'arch-1',rolle:'architekt',firma:'Architektur Muster AG',person:'Sarah Müller',email:'mueller@archmuster.ch',tel:'061 222 33 44',gewerke:'',abo:{typ:'gratis'}}
   ],
   verteilungen:[],
+  anfragen:[], // {id, ausId, installateurId, status:'angefragt'|'interessiert'|'abgelehnt', datum, antwortDatum, nachricht}
   nettoAnfragen:[],
   marktplatzOfferten:[],
   einreichungen:[],
@@ -376,7 +377,7 @@ function newAusschreibung(opts){
 function sv(){try{const j=JSON.stringify(S);if(typeof _GemaDB!=='undefined')_GemaDB.put(SK,j).catch(()=>{});try{localStorage.setItem(SK,j)}catch(e){_m[SK]=j}}catch(e){}}
 function ld(){try{let r;try{r=localStorage.getItem(SK)}catch(e){r=_m[SK]||null}if(r)Object.assign(S,JSON.parse(r))}catch(e){}
   if(!S.beteiligte)S.beteiligte=[];if(!S.ausschreibungen)S.ausschreibungen=[];
-  if(!S.verteilungen)S.verteilungen=[];if(!S.nettoAnfragen)S.nettoAnfragen=[];
+  if(!S.verteilungen)S.verteilungen=[];if(!S.anfragen)S.anfragen=[];if(!S.nettoAnfragen)S.nettoAnfragen=[];
   if(!S.marktplatzOfferten)S.marktplatzOfferten=[];if(!S.einreichungen)S.einreichungen=[];
   if(!S.emails)S.emails=[];
   // Set active ausschreibung
@@ -404,8 +405,8 @@ function defP(){return{planer:'pub',installateur:'iub',lieferant:'lub',architekt
 
 function buildTabs(){
   const b=document.getElementById('tabBar');let t=[];const nE=S.einreichungen.filter(e=>e.ausId===S.activeAusId).length;
-  if(S.currentRole==='planer'){t=[{id:'pub',ic:'◫',l:'Übersicht'},{id:'paus',ic:'📋',l:'Ausschreibungen',bg:S.ausschreibungen.length},{id:'pdet',ic:'📝',l:'Detail'},{id:'pvrt',ic:'📤',l:'Verteilen'},{id:'pein',ic:'💰',l:'Offerten',bg:nE},{id:'pvgl',ic:'📊',l:'Vergleich'},{id:'pbet',ic:'👥',l:'Beteiligte'}];}
-  else if(S.currentRole==='installateur'){t=[{id:'iub',ic:'◫',l:'Übersicht'},{id:'iaus',ic:'📋',l:'Ausschreibungen'},{id:'idet',ic:'📝',l:'Offerte ausfüllen'},{id:'ipro',ic:'👤',l:'Profil'},{id:'ina',ic:'🔄',l:'Netto-Anfragen',bg:S.nettoAnfragen.filter(x=>x.installateurId===S.currentUserId).length},{id:'iin',ic:'📨',l:'Eingegangene',bg:S.marktplatzOfferten.filter(x=>!x.installateurId||x.installateurId===S.currentUserId).length}];}
+  if(S.currentRole==='planer'){const nAnf=S.anfragen.filter(x=>x.status==='interessiert').length;t=[{id:'pub',ic:'◫',l:'Übersicht'},{id:'paus',ic:'📋',l:'Ausschreibungen',bg:S.ausschreibungen.length},{id:'pdet',ic:'📝',l:'Detail'},{id:'panf',ic:'🤝',l:'Interesse-Anfragen',bg:nAnf},{id:'pvrt',ic:'📤',l:'Verteilen'},{id:'pein',ic:'💰',l:'Offerten',bg:nE},{id:'pvgl',ic:'📊',l:'Vergleich'},{id:'pbet',ic:'👥',l:'Beteiligte'}];}
+  else if(S.currentRole==='installateur'){const nIA=S.anfragen.filter(x=>x.installateurId===S.currentUserId&&x.status==='angefragt').length;t=[{id:'iub',ic:'◫',l:'Übersicht'},{id:'ianf',ic:'🤝',l:'Interesse-Anfragen',bg:nIA},{id:'iaus',ic:'📋',l:'Ausschreibungen'},{id:'idet',ic:'📝',l:'Offerte ausfüllen'},{id:'ipro',ic:'👤',l:'Profil'},{id:'ina',ic:'🔄',l:'Netto-Anfragen',bg:S.nettoAnfragen.filter(x=>x.installateurId===S.currentUserId).length},{id:'iin',ic:'📨',l:'Eingegangene',bg:S.marktplatzOfferten.filter(x=>!x.installateurId||x.installateurId===S.currentUserId).length}];}
   else if(S.currentRole==='lieferant'){t=[{id:'lub',ic:'◫',l:'Übersicht'},{id:'lab',ic:'⭐',l:'Mein Abo'},{id:'lmk',ic:'🏪',l:'Marktplatz'},{id:'lan',ic:'📨',l:'Anfragen',bg:S.nettoAnfragen.filter(x=>x.lieferantId===S.currentUserId&&x.status==='angefragt').length}];}
   else{t=[{id:'aub',ic:'◫',l:'Projektstatus'}];}
   b.innerHTML=t.map(x=>`<button class="tab-btn" data-tab="${x.id}" onclick="nav('${x.id}')"><span>${x.ic}</span> ${x.l}${x.bg?`<span class="tab-badge">${x.bg}</span>`:''}</button>`).join('');
@@ -630,6 +631,119 @@ function renderCRBXVergleich(a,eins){
   h+=`</tbody></table></div>`;
   return h;
 }
+
+// ═══════════════════════════════════════════════
+// INTERESSE-ANFRAGEN (Planer → Unternehmer)
+// ═══════════════════════════════════════════════
+VIEWS.panf=function(){
+  const a=curA();if(!a)return '<div class="wp">Zuerst eine Ausschreibung wählen.</div>';
+  const insts=S.beteiligte.filter(b=>b.rolle==='installateur');
+  let h=`<h2 style="font-size:20px;font-weight:700;margin-bottom:16px">🤝 Interesse-Anfragen — ${E(a.name)}</h2>`;
+  h+=`<p style="font-size:13px;color:var(--mut);margin-bottom:16px;line-height:1.6">Fragen Sie Unternehmer an, ob sie Interesse haben, bei dieser Ausschreibung mitzuofferieren. Nach Zusage können Sie die Unterlagen verteilen.</p>`;
+  if(!insts.length){h+=`<div class="es"><span class="ei">👷</span><div class="et">Keine Unternehmer erfasst</div><p>Erfassen Sie zuerst Unternehmer unter «Beteiligte».</p><button class="btn btn-p btn-sm" onclick="nav('pbet')" style="margin-top:8px">→ Beteiligte</button></div>`;return h;}
+  h+=`<div class="card"><div class="card-hd"><h3>Unternehmer</h3><button class="btn btn-g btn-sm" onclick="document.getElementById('apR').value='installateur';oM('mPerson')">+ Neuer Unternehmer</button></div><div class="card-bd">`;
+  h+=insts.map(function(i){
+    var anf=S.anfragen.find(function(x){return x.ausId===a.id&&x.installateurId===i.id;});
+    var statusHtml='';
+    if(!anf){
+      statusHtml='<button class="btn btn-p btn-sm" onclick="sendeAnfrage(\''+i.id+'\')">📨 Anfrage senden</button>';
+    } else if(anf.status==='angefragt'){
+      statusHtml='<span class="tag t-bl">📨 Angefragt</span><span style="font-size:11px;color:var(--mut);margin-left:6px">'+new Date(anf.datum).toLocaleDateString('de-CH')+'</span>';
+    } else if(anf.status==='interessiert'){
+      statusHtml='<span class="tag t-gr">✓ Interessiert</span><span style="font-size:11px;color:var(--mut);margin-left:6px">'+new Date(anf.antwortDatum).toLocaleDateString('de-CH')+'</span>';
+      var schonVerteilt=S.verteilungen.find(function(v){return v.ausId===a.id&&v.installateurId===i.id;});
+      if(!schonVerteilt) statusHtml+=' <button class="btn btn-p btn-sm" onclick="vtl(\''+i.id+'\')" style="margin-left:8px">📤 Verteilen</button>';
+      else statusHtml+=' <span class="tag t-bl" style="margin-left:8px">Verteilt</span>';
+    } else if(anf.status==='abgelehnt'){
+      statusHtml='<span class="tag t-rd">✕ Kein Interesse</span>';
+      if(anf.nachricht) statusHtml+='<span style="font-size:11px;color:var(--mut);margin-left:6px">«'+E(anf.nachricht)+'»</span>';
+    }
+    return '<div class="cr"><div class="ca" style="background:var(--grn)">'+i.firma.charAt(0)+'</div><div class="ci"><div class="cn">'+E(i.firma)+'</div><div class="cd">'+E(i.person)+' · '+E(i.email)+'</div></div><div style="display:flex;align-items:center;gap:6px;flex-shrink:0">'+statusHtml+'</div></div>';
+  }).join('');
+  h+='</div></div>';
+  // Zusammenfassung
+  var total=insts.length;
+  var angefragt=S.anfragen.filter(function(x){return x.ausId===a.id&&x.status==='angefragt';}).length;
+  var interessiert=S.anfragen.filter(function(x){return x.ausId===a.id&&x.status==='interessiert';}).length;
+  var abgelehnt=S.anfragen.filter(function(x){return x.ausId===a.id&&x.status==='abgelehnt';}).length;
+  var offen=total-angefragt-interessiert-abgelehnt;
+  h+='<div class="sr" style="margin-top:16px"><div class="sc"><div class="sc-l">Noch nicht angefragt</div><div class="sc-v">'+offen+'</div></div><div class="sc"><div class="sc-l">Angefragt</div><div class="sc-v" style="color:var(--blue)">'+angefragt+'</div></div><div class="sc"><div class="sc-l">Interessiert</div><div class="sc-v" style="color:var(--grn)">'+interessiert+'</div></div><div class="sc"><div class="sc-l">Abgelehnt</div><div class="sc-v" style="color:var(--red)">'+abgelehnt+'</div></div></div>';
+  // Alle anfragen Button
+  if(offen>0) h+='<div style="margin-top:16px;text-align:center"><button class="btn btn-p" onclick="sendeAlleAnfragen()">📨 Alle '+offen+' offenen Unternehmer anfragen</button></div>';
+  return h;
+};
+
+function sendeAnfrage(instId){
+  var a=curA();if(!a)return;
+  var exists=S.anfragen.find(function(x){return x.ausId===a.id&&x.installateurId===instId;});
+  if(exists){toast('Anfrage bereits gesendet','error');return;}
+  var inst=S.beteiligte.find(function(x){return x.id===instId;});
+  S.anfragen.push({id:Date.now()+'',ausId:a.id,installateurId:instId,status:'angefragt',datum:new Date().toISOString(),antwortDatum:null,nachricht:''});
+  sv();lg('📨','Interesse-Anfrage gesendet','an '+(inst?inst.firma:''));nav('panf');
+  toast('Anfrage an '+(inst?inst.firma:'')+' gesendet');
+}
+
+function sendeAlleAnfragen(){
+  var a=curA();if(!a)return;
+  var insts=S.beteiligte.filter(function(b){return b.rolle==='installateur';});
+  var count=0;
+  insts.forEach(function(i){
+    var exists=S.anfragen.find(function(x){return x.ausId===a.id&&x.installateurId===i.id;});
+    if(!exists){
+      S.anfragen.push({id:Date.now()+'_'+count,ausId:a.id,installateurId:i.id,status:'angefragt',datum:new Date().toISOString(),antwortDatum:null,nachricht:''});
+      count++;
+    }
+  });
+  if(count>0){sv();lg('📨','Interesse-Anfragen gesendet','an '+count+' Unternehmer');nav('panf');toast(count+' Anfragen gesendet');}
+  else toast('Alle bereits angefragt','error');
+}
+
+function beantworteAnfrage(anfId,status,nachricht){
+  var anf=S.anfragen.find(function(x){return x.id===anfId;});
+  if(!anf)return;
+  anf.status=status;
+  anf.antwortDatum=new Date().toISOString();
+  anf.nachricht=nachricht||'';
+  var inst=S.beteiligte.find(function(x){return x.id===anf.installateurId;});
+  sv();lg(status==='interessiert'?'✓':'✕','Interesse '+(status==='interessiert'?'zugesagt':'abgelehnt'),(inst?inst.firma:''));
+  nav('ianf');
+  toast(status==='interessiert'?'Interesse zugesagt':'Anfrage abgelehnt');
+}
+
+// ── Unternehmer: Interesse-Anfragen View ──
+VIEWS.ianf=function(){
+  var me=S.beteiligte.find(function(b){return b.id===S.currentUserId;})||{};
+  var myAnfragen=S.anfragen.filter(function(x){return x.installateurId===S.currentUserId;});
+  var h='<h2 style="font-size:20px;font-weight:700;margin-bottom:16px">🤝 Interesse-Anfragen</h2>';
+  if(!myAnfragen.length){h+='<div class="es"><span class="ei">🤝</span><div class="et">Keine Anfragen</div><p>Sie haben noch keine Interesse-Anfragen erhalten.</p></div>';return h;}
+  h+=myAnfragen.map(function(anf){
+    var a=S.ausschreibungen.find(function(x){return x.id===anf.ausId;});
+    if(!a)return '';
+    var statusHtml='';
+    if(anf.status==='angefragt'){
+      statusHtml='<div style="display:flex;gap:8px;margin-top:10px">'
+        +'<button class="btn btn-p" onclick="beantworteAnfrage(\''+anf.id+'\',\'interessiert\')">✓ Ja, ich bin interessiert</button>'
+        +'<button class="btn btn-d" onclick="var msg=prompt(\'Grund (optional):\');beantworteAnfrage(\''+anf.id+'\',\'abgelehnt\',msg||\'\')" style="flex-shrink:0">✕ Kein Interesse</button>'
+        +'</div>';
+    } else if(anf.status==='interessiert'){
+      var verteilt=S.verteilungen.find(function(v){return v.ausId===anf.ausId&&v.installateurId===S.currentUserId;});
+      statusHtml='<div style="margin-top:8px"><span class="tag t-gr">✓ Interesse zugesagt</span>'
+        +(verteilt?' <span class="tag t-bl">Unterlagen erhalten</span> <button class="btn btn-p btn-sm" onclick="S.activeAusId=\''+a.id+'\';save();nav(\'idet\')">→ Offerte ausfüllen</button>':' <span style="font-size:12px;color:var(--mut)">Warten auf Unterlagen vom Planer…</span>')
+        +'</div>';
+    } else {
+      statusHtml='<div style="margin-top:8px"><span class="tag t-rd">✕ Abgelehnt</span></div>';
+    }
+    return '<div class="ac" style="margin-bottom:12px">'
+      +'<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px"><strong style="font-size:15px">'+E(a.name)+'</strong><span class="tag '+(a.typ==='crbx'?'t-pu':'t-ac')+'">'+((a.typ==='crbx')?'CRBX':'Funktional')+'</span></div>'
+      +'<div style="font-size:12.5px;color:var(--mut);line-height:1.6">'
+        +'<strong>Objekt:</strong> '+E(a.objekt)+' · <strong>Region:</strong> '+E(a.region)+' · <strong>Frist:</strong> '+(a.frist||'—')+'<br/>'
+        +'<strong>Modell:</strong> '+((a.modelle||[a.modell]).join(', '))+' · <strong>BKP:</strong> '+(a.bkpSelected||[]).filter(function(c){return c.length<=2;}).join(', ')
+      +'</div>'
+      +statusHtml
+      +'</div>';
+  }).join('');
+  return h;
+};
 
 // ═══════════════════════════════════════════════
 // INSTALLATEUR VIEWS
