@@ -505,6 +505,7 @@ function fixLeadingZero(el){
 <script src="gema_autosave.js"></script>
 <script src="gema_produktkatalog_api.js"></script>
 <script src="gema_lu_api.js"></script>
+<script src="gema_wasserdaten.js"></script>
 </head>
 <body>
 <nav class="g-nav">
@@ -593,9 +594,19 @@ function fixLeadingZero(el){
           </div>
         </div>
         <div class="g-section-bd">
+          <!-- Trinkwasser-Daten Hinweis -->
+          <div id="wasserHint" style="display:none;margin-bottom:14px;padding:10px 14px;border-radius:8px;font-size:12px;line-height:1.6;display:none">
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+              <span id="wasserHintIcon">💧</span>
+              <span id="wasserHintText"></span>
+              <span id="wasserHintStufe" style="padding:2px 8px;border-radius:6px;font-size:10px;font-weight:700"></span>
+              <button id="wasserHintBtn" class="g-btn sm" style="margin-left:auto;display:none;font-size:11px;padding:4px 10px" onclick="applyWasserDaten()">Werte übernehmen</button>
+            </div>
+            <div id="wasserHintMeta" style="font-size:10px;color:var(--muted,#6b7280);margin-top:4px"></div>
+          </div>
           <div class="g-grid-2" style="margin-bottom:14px;">
             <div class="g-field">
-              <label class="g-label">Rohwasserhärte HR</label>
+              <label class="g-label">Rohwasserhärte HR <span id="hrWasserTag" style="display:none;font-size:9px;font-weight:700;padding:1px 6px;border-radius:4px;margin-left:6px;vertical-align:middle;background:rgba(37,99,235,.08);color:#2563eb;border:1px solid rgba(37,99,235,.2)">trinkwasser.ch</span></label>
               <div class="g-inp-group">
                 <input class="g-inp" type="text" inputmode="decimal" id="hr_fh" placeholder="z.B. 30" oninput="recalc()" onblur="fixLeadingZero(this)"/>
                 <span class="g-inp-unit">°fH</span>
@@ -603,7 +614,7 @@ function fixLeadingZero(el){
               <span class="g-hint" id="hr_convert_note"></span>
             </div>
             <div class="g-field">
-              <label class="g-label">Natriumgehalt M</label>
+              <label class="g-label">Natriumgehalt M <span id="naWasserTag" style="display:none;font-size:9px;font-weight:700;padding:1px 6px;border-radius:4px;margin-left:6px;vertical-align:middle;background:rgba(37,99,235,.08);color:#2563eb;border:1px solid rgba(37,99,235,.2)">trinkwasser.ch</span></label>
               <div class="g-inp-group">
                 <input class="g-inp" type="text" inputmode="decimal" id="na_m" placeholder="z.B. 15" oninput="recalc()" onblur="fixLeadingZero(this)"/>
                 <span class="g-inp-unit">mg/l</span>
@@ -789,6 +800,7 @@ function fixLeadingZero(el){
     <div id="pmBody" style="padding:20px"></div>
     <div style="padding:14px 20px;border-top:1px solid var(--border,#e5e7eb);display:flex;justify-content:flex-end;gap:8px">
       <button class="g-nav-btn" onclick="document.getElementById('prodModal').style.display='none'">Schliessen</button>
+      <button class="g-nav-btn" style="background:#f59e0b;color:#fff;border-color:#f59e0b" onclick="window._pkOfferteAnfragen()">📨 Offerte anfragen</button>
       <button class="g-nav-btn" style="background:var(--accent,#2563eb);color:#fff;border-color:var(--accent,#2563eb)" onclick="uebernehmeAnlage()">✓ Anlage übernehmen</button>
     </div>
   </div>
@@ -1121,7 +1133,108 @@ document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('enth
     } else { inp.value=''; }
     _prevObjektId=sel.value;saveMeta();
     _prefillFromLU(sel.value);
+    _checkWasserDaten(sel.value);
   }
+
+  // ── Trinkwasser-Daten (via gema_wasserdaten.js) ──
+  var _wasserDaten = null; // currently found data
+  function _checkWasserDaten(objektId){
+    var hint = document.getElementById('wasserHint');
+    if(!hint || typeof GemaWasser === 'undefined') return;
+
+    _wasserDaten = null;
+    hint.style.display = 'none';
+
+    if(!objektId) return;
+    if(typeof GemaObjekte === 'undefined') return;
+    var obj = GemaObjekte.getAll().find(function(x){return x.id===objektId;});
+    if(!obj) return;
+
+    // Try PLZ first, then Ort
+    var data = null;
+    if(obj.plz) data = GemaWasser.getByPLZ(obj.plz);
+    if(!data && obj.ort){
+      var byOrt = GemaWasser.getByOrt(obj.ort);
+      if(byOrt.length) data = byOrt[0];
+    }
+    if(!data) return;
+
+    _wasserDaten = data;
+    var stufe = GemaWasser.getHaerteStufe(data.haerte_fh);
+
+    // Show hint bar
+    hint.style.display = 'block';
+    hint.style.background = stufe ? (stufe.farbe + '12') : 'var(--bg,#f4f6fb)';
+    hint.style.border = '1.5px solid ' + (stufe ? (stufe.farbe + '40') : 'var(--border,#e2e8f0)');
+
+    document.getElementById('wasserHintIcon').textContent = '💧';
+    document.getElementById('wasserHintText').innerHTML =
+      '<strong>' + data.ort + ' (' + data.plz + ')</strong> — Rohwasserhärte: <strong>' + data.haerte_fh + ' °fH</strong>' +
+      (data.natrium_mg ? ' · Natrium: <strong>' + data.natrium_mg + ' mg/l</strong>' : '');
+
+    if(stufe){
+      var el = document.getElementById('wasserHintStufe');
+      el.textContent = stufe.stufe;
+      el.style.background = stufe.farbe + '20';
+      el.style.color = stufe.farbe;
+      el.style.border = '1px solid ' + stufe.farbe + '40';
+      el.style.display = 'inline-flex';
+    }
+
+    document.getElementById('wasserHintMeta').innerHTML =
+      'Quelle: ' + data.quelle + ' · Versorger: ' + data.versorger +
+      (data.bemerkung ? ' · ' + data.bemerkung : '') +
+      ' · Stand: ' + data.stand;
+
+    // Show apply button only if fields are empty
+    var hrEmpty = !document.getElementById('hr_fh').value;
+    var naEmpty = !document.getElementById('na_m').value;
+    var btn = document.getElementById('wasserHintBtn');
+    if(hrEmpty || naEmpty){
+      btn.style.display = 'inline-flex';
+      btn.textContent = (hrEmpty && naEmpty) ? 'Werte übernehmen' :
+                        hrEmpty ? 'Härte übernehmen' : 'Natrium übernehmen';
+    } else {
+      btn.style.display = 'none';
+    }
+  }
+
+  window.applyWasserDaten = function(){
+    if(!_wasserDaten) return;
+    var hrEl = document.getElementById('hr_fh');
+    var naEl = document.getElementById('na_m');
+    var applied = [];
+
+    if(!hrEl.value && _wasserDaten.haerte_fh){
+      hrEl.value = _wasserDaten.haerte_fh;
+      document.getElementById('hrWasserTag').style.display = 'inline';
+      applied.push('Härte');
+    }
+    if(!naEl.value && _wasserDaten.natrium_mg){
+      naEl.value = _wasserDaten.natrium_mg;
+      document.getElementById('naWasserTag').style.display = 'inline';
+      applied.push('Natrium');
+    }
+
+    if(applied.length){
+      recalc();
+      // Hide apply button, show confirmation
+      document.getElementById('wasserHintBtn').style.display = 'none';
+      document.getElementById('wasserHintIcon').textContent = '✓';
+      // Toast
+      var t=document.createElement('div');t.style.cssText='position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#2563eb;color:#fff;padding:10px 20px;border-radius:10px;font-size:13px;font-weight:700;z-index:999;box-shadow:0 4px 12px rgba(0,0,0,.2)';
+      t.textContent='💧 '+applied.join(' + ')+' aus Trinkwasserdaten übernommen ('+_wasserDaten.ort+')';
+      document.body.appendChild(t);setTimeout(function(){t.remove();},4000);
+    }
+  };
+
+  // Clear tags when user manually changes values
+  document.getElementById('hr_fh').addEventListener('input', function(){
+    document.getElementById('hrWasserTag').style.display = 'none';
+  });
+  document.getElementById('na_m').addEventListener('input', function(){
+    document.getElementById('naWasserTag').style.display = 'none';
+  });
 
   // ── LU-Verknüpfung (Enthärtetes Wasser / EW / bw) ──
   var _luOverrides = {};  // {'n_A': true, 'lbl_A': true, ...}
@@ -1262,8 +1375,8 @@ document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('enth
   window.onObjektSelect=onObjektSelect;
   window.toggleObjektInput=toggleObjektInput;
   window.populateObjektDropdown=populateObjektDropdown;
-  document.addEventListener('DOMContentLoaded',function(){loadMeta();populateObjektDropdown();if(typeof GemaAutoSave!=='undefined') GemaAutoSave.init('enthaertungsanlage');setTimeout(function(){if(_prevObjektId)_prefillFromLU(_prevObjektId);},200);});
-  window.addEventListener('gema-objekte-loaded',function(){populateObjektDropdown();if(typeof GemaAutoSave!=='undefined') GemaAutoSave.init('enthaertungsanlage');if(_prevObjektId)_prefillFromLU(_prevObjektId);});
+  document.addEventListener('DOMContentLoaded',function(){loadMeta();populateObjektDropdown();if(typeof GemaAutoSave!=='undefined') GemaAutoSave.init('enthaertungsanlage');setTimeout(function(){if(_prevObjektId){_prefillFromLU(_prevObjektId);_checkWasserDaten(_prevObjektId);}},200);});
+  window.addEventListener('gema-objekte-loaded',function(){populateObjektDropdown();if(typeof GemaAutoSave!=='undefined') GemaAutoSave.init('enthaertungsanlage');if(_prevObjektId){_prefillFromLU(_prevObjektId);_checkWasserDaten(_prevObjektId);}});
   ['metaProjekt','metaBearbeiter','metaDatum'].forEach(function(id){var el=document.getElementById(id);if(el)el.addEventListener('input',saveMeta);});
 })();</script>
 
@@ -1293,6 +1406,13 @@ document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('enth
     if(typeof GemaProdukte==='undefined') return;
     if(GemaProdukte.getProdukte('enthaertung').length > 0) return;
 
+    // Ensure lieferant profiles exist
+    var liefIds = {};
+    ['BWT','Grünbeck','Judo'].forEach(function(f){
+      var existing = GemaProdukte.getAllLieferanten().find(function(l){return l.firma===f;});
+      if(existing){ liefIds[f] = existing.id; }
+    });
+
     var demos = [
       // BWT
       {lief:'BWT',serie:'AQA perla',modell:'10',bauweise:'Parallelschaltung',technologie:'Ionenaustausch',nenndurchfluss:80,spitzendurchfluss:120,druckverlustQn:0.3,kapazitaet:2.8,personenMax:12,anschluss:'DN 25',breite:360,tiefe:500,hoehe:640,salzverbrauch:0.4,wasserverbrauch:35,salzvorrat:18,svgwNr:'W-12345',ce:true,trinkwasserZugelassen:true,status:'verifiziert'},
@@ -1309,7 +1429,8 @@ document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('enth
     ];
 
     demos.forEach(function(d){
-      var p = GemaProdukte.createProdukt('enthaertung', null, d.lief, {
+      var lid = liefIds[d.lief] || '';
+      var p = GemaProdukte.createProdukt('enthaertung', lid, d.lief, {
         serie:d.serie, modell:d.modell, bauweise:d.bauweise, technologie:d.technologie,
         nenndurchfluss:d.nenndurchfluss, spitzendurchfluss:d.spitzendurchfluss||'',
         druckverlustQn:d.druckverlustQn, kapazitaet:d.kapazitaet, personenMax:d.personenMax||'',
@@ -1510,6 +1631,60 @@ document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('enth
       showAnlagenSection();
     };
   }
+
+  // ── Offertanfrage ──
+  window._pkOfferteAnfragen = function(){
+    if(!_selProdId) return;
+    var p = GemaProdukte.getProdukt(_selProdId);
+    if(!p) return;
+    var d = p.daten||{};
+    var projekt = document.getElementById('metaProjekt')?.value || '';
+    var objektId = document.getElementById('metaObjektDropdown')?.value || '';
+
+    var overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:950;background:rgba(0,0,0,.5);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;padding:20px';
+    overlay.innerHTML =
+      '<div style="background:var(--surface,#fff);border-radius:16px;max-width:520px;width:100%;box-shadow:0 24px 64px rgba(0,0,0,.2);overflow:hidden">' +
+        '<div style="padding:16px 20px;border-bottom:1.5px solid var(--border,#e2e8f0)">' +
+          '<div style="font-size:16px;font-weight:800">📨 Offertanfrage senden</div>' +
+          '<div style="font-size:12px;color:var(--muted,#6b7280);margin-top:4px">'+p.lieferantFirma+' · '+(d.serie||'')+' '+(d.modell||'')+'</div>' +
+        '</div>' +
+        '<div style="padding:16px 20px;display:flex;flex-direction:column;gap:10px">' +
+          '<div><label style="font-size:12px;font-weight:700;color:var(--muted,#6b7280);display:block;margin-bottom:4px">Projekt / Bauvorhaben</label>' +
+            '<input type="text" id="_oaProjekt" value="'+projekt.replace(/"/g,'&quot;')+'" style="width:100%;padding:8px 10px;border:1.5px solid var(--border2,#cdd4e4);border-radius:8px;font-size:13px;font-family:inherit"/></div>' +
+          '<div><label style="font-size:12px;font-weight:700;color:var(--muted,#6b7280);display:block;margin-bottom:4px">Frist (Tage)</label>' +
+            '<input type="number" id="_oaFrist" value="14" min="1" max="90" style="width:120px;padding:8px 10px;border:1.5px solid var(--border2,#cdd4e4);border-radius:8px;font-size:13px;font-family:inherit"/></div>' +
+          '<div><label style="font-size:12px;font-weight:700;color:var(--muted,#6b7280);display:block;margin-bottom:4px">Nachricht (optional)</label>' +
+            '<textarea id="_oaMsg" rows="3" placeholder="z.B. Bitte Offerte inkl. Montage, Liefertermin…" style="width:100%;padding:8px 10px;border:1.5px solid var(--border2,#cdd4e4);border-radius:8px;font-size:13px;font-family:inherit;resize:vertical"></textarea></div>' +
+          '<div style="background:var(--bg,#f4f6fb);border-radius:8px;padding:10px;font-size:12px;color:var(--muted,#6b7280);line-height:1.5">' +
+            '<strong>Berechnungsergebnis:</strong> VE = '+(document.getElementById("ve_total_ls")?.textContent||'—')+' · '+(d.nenndurchfluss||'—')+' l/min · '+(d.kapazitaet||'—')+' m³·°fH</div>' +
+        '</div>' +
+        '<div style="padding:14px 20px;border-top:1.5px solid var(--border,#e2e8f0);display:flex;gap:8px;justify-content:flex-end">' +
+          '<button id="_oaCancel" style="padding:8px 16px;border-radius:8px;border:1.5px solid var(--border2,#cdd4e4);background:var(--surface,#fff);font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;color:var(--text)">Abbrechen</button>' +
+          '<button id="_oaSend" style="padding:8px 16px;border-radius:8px;border:none;background:#f59e0b;color:#fff;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">📨 Anfrage senden</button>' +
+        '</div>' +
+      '</div>';
+    document.body.appendChild(overlay);
+    overlay.querySelector('#_oaCancel').addEventListener('click', function(){ overlay.remove(); });
+    overlay.querySelector('#_oaSend').addEventListener('click', function(){
+      var oa = GemaProdukte.createOffertanfrage({
+        lieferantId: p.lieferantId,
+        lieferantFirma: p.lieferantFirma,
+        produktId: p.id,
+        produktName: (d.serie||'')+' '+(d.modell||''),
+        kategorie: 'enthaertung',
+        berechnungswerte: { durchfluss: d.nenndurchfluss, kapazitaet: d.kapazitaet, druckverlust: d.druckverlustQn, anschluss: d.anschluss },
+        projekt: { name: document.getElementById('_oaProjekt')?.value || '', ort: '', objektId: objektId },
+        nachricht: document.getElementById('_oaMsg')?.value || '',
+        fristTage: parseInt(document.getElementById('_oaFrist')?.value) || 14
+      });
+      overlay.remove();
+      document.getElementById('prodModal').style.display = 'none';
+      var t=document.createElement('div');t.style.cssText='position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#f59e0b;color:#fff;padding:12px 24px;border-radius:10px;font-size:13px;font-weight:700;z-index:999;box-shadow:0 4px 12px rgba(0,0,0,.2)';
+      t.textContent='📨 Offertanfrage an '+p.lieferantFirma+' gesendet (Frist: '+oa.frist+')';
+      document.body.appendChild(t);setTimeout(function(){t.remove();},4000);
+    });
+  };
 
   // Init
   document.addEventListener('DOMContentLoaded', function(){
