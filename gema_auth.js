@@ -87,7 +87,10 @@
 
   var DEFAULT_ROLES = [
     {id:'role_admin',name:'Administrator',color:'#1d4ed8',permissions:_allPerms(true,true,true)},
-    {id:'role_planer',name:'Sanitärplaner',color:'#0891b2',permissions:(function(){var p=_allPerms(true,true,false);p['werkzeugmanagement']={read:true,write:false,admin:false};p['objekte']={read:true,write:true,admin:true};return p;})()},
+    {id:'role_planer',name:'Sanitärplaner',color:'#16a34a',gewerke:['sanitaer'],permissions:(function(){var p=_allPerms(true,true,false);p['werkzeugmanagement']={read:true,write:false,admin:false};p['objekte']={read:true,write:true,admin:true};return p;})()},
+    {id:'role_hlkk_planer',name:'Heizungsplaner',color:'#dc2626',gewerke:['hlkk'],permissions:(function(){var p=_allPerms(true,true,false);p['werkzeugmanagement']={read:true,write:false,admin:false};p['objekte']={read:true,write:true,admin:true};return p;})()},
+    {id:'role_lueftung_planer',name:'Lüftungsplaner',color:'#2563eb',gewerke:['lueftung'],permissions:(function(){var p=_allPerms(true,true,false);p['werkzeugmanagement']={read:true,write:false,admin:false};p['objekte']={read:true,write:true,admin:true};return p;})()},
+    {id:'role_elektro_planer',name:'Elektroplaner',color:'#d97706',gewerke:['elektro'],permissions:(function(){var p=_allPerms(true,true,false);p['werkzeugmanagement']={read:true,write:false,admin:false};p['objekte']={read:true,write:true,admin:true};return p;})()},
     {id:'role_architekt',name:'Architekt / GP',color:'#7c3aed',permissions:_somePerms(['terminplan','besprechungsprotokoll','kostenkontrolle','objekte','abnahme_sia'],true,false,false)},
     {id:'role_unternehmer',name:'Unternehmer',color:'#d97706',permissions:_somePerms(['terminplan','abnahme_sia','werkzeugmanagement','baustellencheckliste','inspektion_wartung'],true,true,false)},
     {id:'role_lieferant',name:'Lieferant / Prüfer',color:'#16a34a',permissions:_somePerms(['werkzeugmanagement'],true,true,false)},
@@ -363,6 +366,19 @@
       return user;
     },
     logout:function(){localStorage.removeItem(STORAGE_SESSION);location.href='sys_login.html';},
+
+    // Gewerke des aktuellen Users ermitteln (aus allen Rollen zusammengeführt)
+    getGewerke:function(){
+      var user=w.GemaAuth.getCurrentUser();if(!user)return['sanitaer'];
+      if(_isAdmin(user))return['sanitaer','hlkk','lueftung','elektro'];
+      var roles=_getRoles()||DEFAULT_ROLES;
+      var gewerke=[];
+      (user.roleIds||[]).forEach(function(rid){
+        var role=roles.find(function(r){return r.id===rid;});
+        if(role&&role.gewerke)role.gewerke.forEach(function(g){if(gewerke.indexOf(g)<0)gewerke.push(g);});
+      });
+      return gewerke.length?gewerke:['sanitaer'];
+    },
 
     saveOrgs:function(o){try{localStorage.setItem(STORAGE_ORGS,JSON.stringify(o));return true;}catch(e){return false;}},
     saveOrgCats:function(c){try{localStorage.setItem(STORAGE_ORG_CATS,JSON.stringify(c));return true;}catch(e){return false;}},
