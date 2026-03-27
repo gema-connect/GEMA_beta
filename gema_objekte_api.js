@@ -82,6 +82,21 @@
 
   // API
   function getAll() { return _filterByOrg(_load().objekte || []); }
+  function getAktive() { return getAll().filter(function(o){ return !o.status || o.status === 'aktiv'; }); }
+  function setObjektStatus(objektId, status) {
+    var data = _load();
+    var obj = (data.objekte || []).find(function(o){ return o.id === objektId; });
+    if (!obj) return;
+    obj.status = status;
+    _save(data);
+    _invalidate();
+  }
+  function setActiveId(objektId) {
+    var data = _load();
+    data.activeObjektId = objektId;
+    _save(data);
+    _invalidate();
+  }
   function getActive() {
     var data = _load();
     if (!data.activeObjektId) return null;
@@ -136,7 +151,8 @@
   function refresh() { _invalidate(); }
 
   w.GemaObjekte = {
-    getAll: getAll, getActive: getActive, getActiveId: getActiveId,
+    getAll: getAll, getAktive: getAktive, getActive: getActive, getActiveId: getActiveId,
+    setObjektStatus: setObjektStatus, setActiveId: setActiveId,
     getBeteiligte: getBeteiligte, getByRolle: getByRolle, getBeteiligterById: getBeteiligterById,
     getBauherrschaft: getBauherrschaft, getArchitekt: getArchitekt, getPlaner: getPlaner, getUnternehmer: getUnternehmer,
     formatKurz: formatKurz, formatAdresse: formatAdresse,
