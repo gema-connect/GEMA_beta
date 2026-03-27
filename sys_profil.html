@@ -141,6 +141,20 @@ input,select,button,textarea{font-family:var(--sans)}
     </div>
   </div>
 
+  <!-- Standard BKP-Auswahl -->
+  <div class="card">
+    <div class="card-hd"><span class="ic">☑</span><h3>Standard BKP-Auswahl</h3></div>
+    <div class="card-body">
+      <p style="font-size:12.5px;color:var(--mut);margin-bottom:12px;line-height:1.6">Wählen Sie die BKP-Positionen, die bei jeder neuen Ausschreibung automatisch angehakt sein sollen. Nur Ihre lizenzierten Gewerke werden angezeigt.</p>
+      <div id="bkpDefaultTree" style="max-height:500px;overflow-y:auto;border:1.5px solid var(--brd);border-radius:8px;padding:0"></div>
+      <div style="display:flex;gap:8px;margin-top:12px">
+        <button class="btn btn-primary" onclick="saveBKPDefaults()">✓ Standard-BKP speichern</button>
+        <button class="btn" onclick="selectAllBKP(true)">Alle auswählen</button>
+        <button class="btn" onclick="selectAllBKP(false)">Keine</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Unternehmen wird nur via Benutzerverwaltung (Admin) verwaltet -->
 </div>
 
@@ -223,7 +237,59 @@ function changePassword(){
 var _tt;
 function toast(m){var el=document.getElementById('toast');el.textContent=m;el.classList.add('show');clearTimeout(_tt);_tt=setTimeout(function(){el.classList.remove('show');},2500);}
 
-document.addEventListener('DOMContentLoaded', init);
+// ── Standard BKP-Auswahl ──
+var LIZENZ_MAP={'sanitaer':['25','35'],'hlkk':['24','34'],'lueftung':['24','34'],'elektro':['23','33']};
+var GEWERK_ICONS={'25':'💧','35':'💧','24':'🔥','34':'🔥','23':'⚡','33':'⚡'};
+var BKP_TREE=[
+  {id:'23',titel:'Elektroanlagen',lizenz:'elektro',kinder:[{id:'231',titel:'Apparate Starkstrom',kinder:[{id:'231.0',titel:'Lieferung Schaltgeräte'},{id:'231.1',titel:'Montage'}]},{id:'232',titel:'Starkstrominstallationen',kinder:[{id:'232.0',titel:'Kabeltrassen'},{id:'232.1',titel:'Kabel'},{id:'232.2',titel:'Schalter/Steckdosen'}]},{id:'233',titel:'Leuchten',kinder:[{id:'233.0',titel:'Lieferung Leuchten'},{id:'233.1',titel:'Montage'}]},{id:'235',titel:'Schwachstrom',kinder:[{id:'235.0',titel:'Telefon'},{id:'235.1',titel:'EDV'}]},{id:'237',titel:'Gebäudeautomation',kinder:[{id:'237.0',titel:'Leitsystem'},{id:'237.1',titel:'Automationsstationen'}]},{id:'239',titel:'Übriges'}]},
+  {id:'24',titel:'HLKK-Anlagen',lizenz:'hlkk',kinder:[{id:'241',titel:'Energieträger'},{id:'242',titel:'Wärmeerzeugung',kinder:[{id:'242.0',titel:'Lieferung Wärmepumpe'},{id:'242.1',titel:'Montage'},{id:'242.2',titel:'Lieferung Gaskessel'},{id:'242.3',titel:'Montage'}]},{id:'243',titel:'Wärmeverteilung',kinder:[{id:'243.0',titel:'Heizungsleitungen'},{id:'243.1',titel:'Verteiler/Pumpen'}]},{id:'244',titel:'Lüftung',kinder:[{id:'244.0',titel:'Lieferung Lüftungsgerät'},{id:'244.1',titel:'Montage'},{id:'244.2',titel:'Kanäle'}]},{id:'245',titel:'Klima',kinder:[{id:'245.0',titel:'Lieferung Kältemaschine'},{id:'245.1',titel:'Montage'}]},{id:'246',titel:'Kälte'},{id:'248',titel:'Dämmungen HLKK'},{id:'249',titel:'Übriges'}]},
+  {id:'25',titel:'Sanitäranlagen',lizenz:'sanitaer',kinder:[{id:'250',titel:'Übergangsposition'},{id:'251',titel:'Allgemeine Apparate',kinder:[{id:'251.0',titel:'Lieferung'},{id:'251.1',titel:'Montage'}]},{id:'252',titel:'Spezielle Apparate',kinder:[{id:'252.0',titel:'Wasserzähler'},{id:'252.4',titel:'Fettabscheider'},{id:'252.6',titel:'Abwasserhebeanlage'},{id:'252.8',titel:'Ölabscheider'}]},{id:'253',titel:'Ver-/Entsorgung',kinder:[{id:'253.0',titel:'Enthärtung'},{id:'253.2',titel:'Osmose'},{id:'253.4',titel:'Druckerhöhung'},{id:'253.6',titel:'Frischwasserstation'},{id:'253.8',titel:'Zirkulation'}]},{id:'254',titel:'Leitungen',kinder:[{id:'254.0',titel:'Kalt-/Warmwasser'},{id:'254.1',titel:'Schmutzwasser'},{id:'254.2',titel:'Regenwasser'},{id:'254.3',titel:'Lüftungsleitungen'},{id:'254.4',titel:'Armaturen'}]},{id:'255',titel:'Dämmungen',kinder:[{id:'255.0',titel:'Kalt-/Warmwasser'},{id:'255.1',titel:'Schmutzwasser'},{id:'255.2',titel:'Regenwasser'}]},{id:'256',titel:'Installationselemente'},{id:'259',titel:'Übriges',kinder:[{id:'259.0',titel:'Planungshonorar'},{id:'259.1',titel:'Provisorien'},{id:'259.4',titel:'Unvorhergesehenes'}]}]}
+];
+
+function renderBKPDefaultTree(){
+  var el=document.getElementById('bkpDefaultTree');if(!el)return;
+  var gewerke=['sanitaer'];try{gewerke=GemaAuth.getGewerke();}catch(e){}
+  var freiIds={};gewerke.forEach(function(g){(LIZENZ_MAP[g]||[]).forEach(function(id){freiIds[id]=true;});});
+  var saved=(_user&&_user.profile&&_user.profile.bkpDefaults)||{};
+  var h='';
+  BKP_TREE.forEach(function(gw){
+    if(!freiIds[gw.id])return;
+    var ic=GEWERK_ICONS[gw.id]||'';
+    h+='<div style="border-bottom:1.5px solid var(--brd)">';
+    h+='<div style="padding:8px 12px;background:var(--bg2);font-weight:800;font-size:12px;color:var(--txt)">'+ic+' '+gw.id+' '+gw.titel+'</div>';
+    (gw.kinder||[]).forEach(function(grp){
+      var grpChecked=saved[grp.id]!==undefined?saved[grp.id]:false;
+      h+='<div style="padding:4px 12px 4px 20px;display:flex;align-items:center;gap:6px;border-bottom:1px solid var(--brd);font-size:12.5px">';
+      h+='<input type="checkbox" data-bkp="'+grp.id+'" '+(grpChecked?'checked':'')+' style="accent-color:var(--acc)"/>';
+      h+='<strong style="color:var(--acc);min-width:28px">'+grp.id+'</strong> '+grp.titel;
+      h+='</div>';
+      (grp.kinder||[]).forEach(function(pos){
+        var posChecked=saved[pos.id]!==undefined?saved[pos.id]:false;
+        h+='<div style="padding:3px 12px 3px 44px;display:flex;align-items:center;gap:6px;border-bottom:1px solid var(--brd);font-size:12px;color:var(--txt2)">';
+        h+='<input type="checkbox" data-bkp="'+pos.id+'" '+(posChecked?'checked':'')+' style="accent-color:var(--acc)"/>';
+        h+='<span style="color:var(--acc);min-width:36px;font-weight:600">'+pos.id+'</span> '+pos.titel;
+        h+='</div>';
+      });
+    });
+    h+='</div>';
+  });
+  el.innerHTML=h||'<p style="padding:16px;color:var(--mut)">Keine Gewerke freigeschaltet.</p>';
+}
+
+function saveBKPDefaults(){
+  if(!_user)return;
+  var checks=document.querySelectorAll('#bkpDefaultTree input[type=checkbox]');
+  var defaults={};
+  checks.forEach(function(cb){defaults[cb.dataset.bkp]=cb.checked;});
+  GemaAuth.updateProfile(_user.id,{bkpDefaults:defaults});
+  toast('✓ Standard-BKP gespeichert');
+}
+
+function selectAllBKP(val){
+  document.querySelectorAll('#bkpDefaultTree input[type=checkbox]').forEach(function(cb){cb.checked=val;});
+}
+
+document.addEventListener('DOMContentLoaded', function(){init();renderBKPDefaultTree();});
 </script>
 <script src="gema_feedback.js"></script>
 <script>document.addEventListener('DOMContentLoaded',function(){if(typeof GemaFeedback!=='undefined')GemaFeedback.init('profil','Profil');});</script>
