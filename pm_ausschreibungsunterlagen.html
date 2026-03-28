@@ -798,7 +798,7 @@ function buildTabs(){
   else{t=[{id:'aub',ic:'◫',l:'Projektstatus'}];}
   b.innerHTML=t.map(x=>`<button class="tab-btn${x.disabled?' disabled':''}" data-tab="${x.id}" onclick="${x.disabled?'toast(\'Nur bei CRBX-Ausschreibungen\',\'info\')':'nav(\''+x.id+'\')'}" ${x.disabled?'style="opacity:.4;cursor:not-allowed"':''}><span>${x.ic}</span> ${x.l}${x.bg?`<span class="tab-badge">${x.bg}</span>`:''}</button>`).join('');
 }
-function nav(p){document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));document.querySelector(`.tab-btn[data-tab="${p}"]`)?.classList.add('active');const el=document.getElementById('PA');const fn=VIEWS[p];el.innerHTML=fn?fn():'<div class="es"><p>Seite nicht gefunden.</p></div>';setTimeout(initDropZones,50);if(p==='pbkp')setTimeout(restoreBKPOpenState,10);}
+function nav(p){document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));document.querySelector(`.tab-btn[data-tab="${p}"]`)?.classList.add('active');const el=document.getElementById('PA');const fn=VIEWS[p];el.innerHTML=fn?fn():'<div class="es"><p>Seite nicht gefunden.</p></div>';setTimeout(initDropZones,50);if(p==='pbkp'){setTimeout(restoreBKPOpenState,10);setTimeout(initBKPDragDrop,20);}}
 const VIEWS={};
 
 // ═══════════════════════════════════════════════
@@ -990,7 +990,11 @@ function renderBKPTree(positionen,losId){
       if(p.bkp.length===3)return; // Skip group header row
       var statusIc=p.status==='erledigt'?'✓':p.status==='in_bearbeitung'?'⟳':'?';
       var statusCl=p.status==='erledigt'?'color:var(--grn)':p.status==='in_bearbeitung'?'color:var(--amb)':'color:var(--mut2)';
-      h+='<div style="display:flex;align-items:center;gap:8px;padding:7px 16px 7px 40px;border-bottom:1px solid var(--brd);font-size:13px'+(p.checked?'':';opacity:.5')+'">';
+      // Drop target line
+      h+='<div class="bkp-drop-line" data-drop-idx="'+i+'" data-los="'+losId+'" style="height:0;border-top:0px solid transparent;transition:height .15s,border .15s"></div>';
+      h+='<div class="bkp-row" draggable="true" data-drag-idx="'+i+'" data-los="'+losId+'" style="display:flex;align-items:center;gap:8px;padding:7px 16px 7px 32px;border-bottom:1px solid var(--brd);font-size:13px'+(p.checked?'':';opacity:.5')+'">';
+      // Drag handle
+      h+='<span class="bkp-drag-handle" style="cursor:grab;color:var(--mut2);font-size:14px;flex-shrink:0;user-select:none;padding:0 2px" title="Ziehen zum Verschieben">⠿</span>';
       // Checkbox
       h+='<input type="checkbox" '+(p.checked?'checked':'')+' onchange="toggleBKP(\''+losId+'\','+i+',this.checked)" style="width:16px;height:16px;cursor:pointer;accent-color:var(--acc);flex-shrink:0"/>';
       // BKP number (inline edit)
@@ -1006,6 +1010,8 @@ function renderBKPTree(positionen,losId){
       h+='<button onclick="rmBKPPos(\''+losId+'\','+i+')" style="background:none;border:none;color:var(--mut2);cursor:pointer;font-size:12px;padding:2px" title="Entfernen">✕</button>';
       h+='</div>';
     });
+    // Final drop line
+    h+='<div class="bkp-drop-line" data-drop-idx="end-'+prefix+'" data-los="'+losId+'" style="height:0;border-top:0px solid transparent;transition:height .15s,border .15s"></div>';
     h+='</div></div>';
   });
   // CSS for accordion
@@ -1460,6 +1466,95 @@ function rmBKPPos(losId,idx){
   l.positionen.splice(idx,1);
   sv();saveBKPOpenState();nav('pbkp');
 }
+
+// ═══════════════════════════════════════════════
+// DRAG & DROP BKP-Positionen
+// ═══════════════════════════════════════════════
+var _dragIdx=null,_dragLos=null;
+
+function isDynBKP(){
+  try{var u=GemaAuth.getCurrentUser();if(u&&u.profile&&u.profile.dynamischeBKP===false)return false;}catch(e){}
+  return true;
+}
+
+function initBKPDragDrop(){
+  document.querySelectorAll('.bkp-row[draggable]').forEach(function(row){
+    row.addEventListener('dragstart',function(e){
+      _dragIdx=parseInt(row.dataset.dragIdx);_dragLos=row.dataset.los;
+      row.style.opacity='0.4';
+      e.dataTransfer.effectAllowed='move';
+      e.dataTransfer.setData('text/plain',String(_dragIdx));
+    });
+    row.addEventListener('dragend',function(){row.style.opacity='1';clearDropLines();});
+  });
+  document.querySelectorAll('.bkp-drop-line').forEach(function(line){
+    line.addEventListener('dragover',function(e){
+      e.preventDefault();e.dataTransfer.dropEffect='move';
+      clearDropLines();
+      line.style.height='4px';line.style.borderTop='3px solid #1d4ed8';
+    });
+    line.addEventListener('dragleave',function(){line.style.height='0';line.style.borderTop='0';});
+    line.addEventListener('drop',function(e){
+      e.preventDefault();clearDropLines();
+      if(_dragIdx===null||_dragLos!==line.dataset.los)return;
+      var dropTarget=line.dataset.dropIdx;
+      var a=curA();if(!a)return;
+      var l=a.lose.find(function(x){return x.id===_dragLos;});
+      if(!l)return;
+      var fromIdx=_dragIdx;
+      var toIdx;
+      if(String(dropTarget).startsWith('end-')){
+        var prefix=dropTarget.replace('end-','');
+        var lastInGroup=-1;
+        l.positionen.forEach(function(p,i){if(p.bkp.substring(0,3)===prefix)lastInGroup=i;});
+        toIdx=lastInGroup+1;
+      } else {
+        toIdx=parseInt(dropTarget);
+      }
+      if(fromIdx===toIdx||fromIdx===toIdx-1){_dragIdx=null;return;}
+      var moved=l.positionen.splice(fromIdx,1)[0];
+      if(toIdx>fromIdx)toIdx--;
+      l.positionen.splice(toIdx,0,moved);
+      if(isDynBKP()){
+        renumberBKPInGroup(l,toIdx);
+      }
+      _dragIdx=null;_dragLos=null;
+      sv();saveBKPOpenState();nav('pbkp');
+    });
+  });
+}
+
+function clearDropLines(){
+  document.querySelectorAll('.bkp-drop-line').forEach(function(l){l.style.height='0';l.style.borderTop='0';});
+}
+
+function renumberBKPInGroup(los,movedIdx){
+  var moved=los.positionen[movedIdx];
+  if(!moved||moved.bkp.length<=3)return;
+  // Find the 3-digit group prefix by looking backwards
+  var prefix=null;
+  for(var i=movedIdx-1;i>=0;i--){
+    if(los.positionen[i].bkp.length<=3){prefix=los.positionen[i].bkp;break;}
+    if(los.positionen[i].bkp.length>3){prefix=los.positionen[i].bkp.substring(0,3);break;}
+  }
+  if(!prefix)return;
+  // Renumber all 4+ digit items under this prefix
+  var counter=0;
+  for(var i=0;i<los.positionen.length;i++){
+    var p=los.positionen[i];
+    if(p.bkp.length<=3)continue;
+    // Check if belongs to this group
+    var belongsToGroup=false;
+    for(var j=i-1;j>=0;j--){
+      if(los.positionen[j].bkp.length<=3){belongsToGroup=(los.positionen[j].bkp===prefix);break;}
+    }
+    if(belongsToGroup){
+      p.bkp=prefix+'.'+counter;
+      counter++;
+    }
+  }
+}
+
 
 VIEWS.pdet=function(){
   const a=curA();if(!a)return '<div class="es"><p>Keine Ausschreibung gewählt. → <button class="btn btn-s btn-sm" onclick="nav(\'paus\')">Zurück</button></p></div>';
