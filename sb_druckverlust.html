@@ -683,6 +683,7 @@ function newRow(label){
     id:uid(), label:label||String(rowCnt),
     sysId:'optipress', dimDn:'22x1.2',
     flowMode:'lu', lu:10, grLU:5, q_direct:0.1,
+    leitungstyp:'verteil', // 'verteil'|'stockwerk'|'ausstoss'
     length_m:5, zeta_sum:0, eq_rl:0,
     fittings:{}, // {fittingName: count}
   };
@@ -823,13 +824,20 @@ function render(){
       ? Object.entries(row.fittings).filter(([k,v])=>v>0).map(([k,v])=>`<span class="fit-chip"><span class="icon">${fitIcon(k)}</span>${v}× ${k}</span>`).join('')
       : '<span class="no-fittings">Keine Fittings gewählt</span>';
 
-    const vClass=calc2.v>2?'err':calc2.v>1.5?'warn':'ok';
+    const vLim={verteil:2.0,stockwerk:3.0,ausstoss:4.0}[row.leitungstyp||'verteil']||2.0;
+    const vClass=calc2.v>vLim?'err':calc2.v>vLim*0.75?'warn':'ok';
     const reText=calc2.Re>0?fmt(calc2.Re,0):'—';
     const regClass=calc2.regime==='turbulent'?'ok':calc2.regime==='Übergang'?'warn':'';
 
     const flowCell=row.flowMode==='direct'
       ? `<label class="ts-label">Q direkt</label><input class="ts-inp" type="text" inputmode="decimal" value="${row.q_direct}" data-k="q_direct" onblur="fixLeadingZero(this)"/><label class="ts-label">l/s</label>`
       : `<label class="ts-label">Anzahl LU</label><input class="ts-inp" type="text" inputmode="decimal" value="${row.lu}" data-k="lu" onblur="fixLeadingZero(this)"/><label class="ts-label" style="background:transparent;border:none;margin-left:8px">gr. LU</label><input class="ts-inp" style="width:55px" type="text" inputmode="decimal" value="${row.grLU}" data-k="grLU" onblur="fixLeadingZero(this)"/>`;
+    const ltBtns=`<div class="lt-group" style="display:inline-flex;margin-left:8px;border:1.5px solid var(--brd2);border-radius:7px;overflow:hidden">`
+      +['verteil','stockwerk','ausstoss'].map(t=>{
+        const labels={verteil:'Verteilleitung',stockwerk:'Stockwerkvert.',ausstoss:'Ausstossleitung'};
+        const isAct=row.leitungstyp===t;
+        return `<button data-lt="${t}" style="padding:0 10px;height:30px;border:none;font-size:10px;font-weight:${isAct?'800':'600'};cursor:pointer;font-family:inherit;white-space:nowrap;background:${isAct?'#1d4ed8':'transparent'};color:${isAct?'#fff':'#64748b'};transition:.12s">${labels[t]}</button>`;
+      }).join('')+'</div>';
 
     div.innerHTML=`
       <div class="ts-head">
@@ -847,6 +855,7 @@ function render(){
         <input class="ts-inp" type="text" inputmode="decimal" value="${row.length_m}" data-k="length_m" onblur="fixLeadingZero(this)"/>
         <div class="ts-sep"></div>
         ${flowCell}
+        ${ltBtns}
         <button class="ts-del" data-del="${row.id}" title="Teilstrecke löschen">✕</button>
       </div>
       <div class="ts-results">
@@ -918,10 +927,20 @@ function render(){
 
     div.querySelector('[data-fit]').addEventListener('click',()=>openFitModal(row.id));
 
+    // Leitungstyp buttons
+    div.querySelectorAll('[data-lt]').forEach(btn=>{
+      btn.addEventListener('click',()=>{
+        row.leitungstyp=btn.dataset.lt;
+        render();
+      });
+    });
+
     container.appendChild(div);
 
-    // checks
-    if(calc2.v>2.0) checks.push({type:'warn',text:`TS ${row.label}: v=${fmt(calc2.v,2)} m/s – Dimension zu klein?`});
+    // checks — v_max abhängig vom Leitungstyp
+    const vMax={verteil:2.0,stockwerk:3.0,ausstoss:4.0}[row.leitungstyp||'verteil']||2.0;
+    const ltName={verteil:'Verteilleitung',stockwerk:'Stockwerkverteilung',ausstoss:'Ausstossleitung'}[row.leitungstyp||'verteil'];
+    if(calc2.v>vMax) checks.push({type:'warn',text:`TS ${row.label}: v=${fmt(calc2.v,2)} m/s > ${vMax} m/s (${ltName})`});
     if(calc2.v>0&&calc2.Re>0&&calc2.Re<2300) checks.push({type:'info',text:`TS ${row.label}: laminar (Re=${fmt(calc2.Re,0)})`});
   });
 
