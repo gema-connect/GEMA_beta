@@ -359,14 +359,22 @@ function fixLeadingZero(el){
     <div class="pf"><label>Bearbeiter</label><input type="text" id="metaBearbeiter" placeholder="Name"></div>
     <div class="pf"><label>Datum</label><input type="date" id="metaDatum"></div>
   </div>
-  <!-- PARAMETER (volle Breite) -->
-  <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;padding:10px 14px;background:var(--sur);border:1.5px solid var(--brd);border-radius:10px;align-items:flex-end">
-    <div class="fg" style="flex:2;min-width:180px"><label>Apparat / Strang</label><input id="inp_apparat" type="text" placeholder="z.B. Lavabo EG, Strang A" style="padding:7px 10px;border:1.5px solid var(--brd2);border-radius:8px;font-size:13px;width:100%"/></div>
-    <div class="fg" style="flex:1;min-width:100px"><label>Temperatur</label><div style="display:flex;gap:0"><input id="inp_temp" type="text" inputmode="decimal" value="10" onblur="fixLeadingZero(this)" style="border-radius:8px 0 0 8px;border-right:0;width:70px"/><span style="padding:7px 10px;background:var(--bg2);border:1.5px solid var(--brd2);border-radius:0 8px 8px 0;font-size:12px;color:var(--mut)">°C</span></div></div>
-    <div class="fg" style="flex:1;min-width:130px"><label>Durchfluss-Modus</label><select id="inp_flowmode" style="padding:7px 10px;border:1.5px solid var(--brd2);border-radius:8px;font-size:13px;width:100%"><option value="lu">LU (nach W3)</option><option value="direct">Q direkt [l/s]</option></select></div>
-    <div class="fg" style="min-width:90px"><label>ρ [kg/m³]</label><input id="out_rho" readonly style="width:90px;background:var(--bg2)"/></div>
-    <div class="fg" style="min-width:110px"><label>ν [m²/s]</label><input id="out_nu" readonly style="width:110px;background:var(--bg2)"/></div>
-    <div style="display:flex;align-items:center;gap:6px;margin-left:auto"><label style="font-size:11px;font-weight:700;color:var(--mut)">Details</label><input type="checkbox" id="togDetails" onchange="toggleDetails(this.checked)" style="width:16px;height:16px;accent-color:var(--acc)"/></div>
+  <!-- PARAMETER -->
+  <div style="display:grid;grid-template-columns:1fr auto;gap:10px;margin-bottom:14px;padding:12px 16px;background:var(--sur);border:1.5px solid var(--brd);border-radius:10px">
+    <!-- Zeile 1: Apparat + Temperatur + Modus -->
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+      <div class="fg" style="flex:2;min-width:180px"><label>Apparat / Strang</label><input id="inp_apparat" type="text" placeholder="z.B. Lavabo EG, Strang A" style="padding:7px 10px;border:1.5px solid var(--brd2);border-radius:8px;font-size:13px;width:100%"/></div>
+      <div class="fg" style="min-width:100px"><label>Temperatur</label><div style="display:flex;gap:0"><input id="inp_temp" type="text" inputmode="decimal" value="10" onblur="fixLeadingZero(this)" style="border-radius:8px 0 0 8px;border-right:0;width:60px;padding:7px 10px;border:1.5px solid var(--brd2);font-size:13px"/><span style="padding:7px 10px;background:var(--bg2);border:1.5px solid var(--brd2);border-radius:0 8px 8px 0;font-size:12px;color:var(--mut);white-space:nowrap">°C</span></div></div>
+      <div class="fg" style="min-width:130px"><label>Durchfluss</label><select id="inp_flowmode" style="padding:7px 10px;border:1.5px solid var(--brd2);border-radius:8px;font-size:13px;width:100%"><option value="lu">LU (nach W3)</option><option value="direct">Q direkt [l/s]</option></select></div>
+    </div>
+    <!-- Rechts: ρ, ν, Details-Button -->
+    <div style="display:flex;gap:8px;align-items:flex-end;flex-shrink:0">
+      <div style="text-align:center"><div style="font-size:10px;font-weight:700;color:var(--mut);margin-bottom:3px">ρ</div><div style="padding:5px 8px;background:var(--bg2);border-radius:6px;font-size:12px;font-weight:600;color:var(--txt);min-width:55px" id="out_rho_display">—</div></div>
+      <div style="text-align:center"><div style="font-size:10px;font-weight:700;color:var(--mut);margin-bottom:3px">ν</div><div style="padding:5px 8px;background:var(--bg2);border-radius:6px;font-size:12px;font-weight:600;color:var(--txt);min-width:70px" id="out_nu_display">—</div></div>
+      <button id="togDetails" onclick="toggleDetails()" style="padding:6px 12px;border-radius:8px;border:1.5px solid var(--brd2);background:var(--sur);color:var(--mut);font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;white-space:nowrap;transition:.15s">▶ Details</button>
+    </div>
+    <!-- Hidden inputs for compatibility -->
+    <input id="out_rho" type="hidden"/><input id="out_nu" type="hidden"/>
   </div>
 
   <!-- TEILSTRECKEN -->
@@ -791,6 +799,8 @@ function render(){
   const{rho,nu}=getWP();
   $('out_rho').value=fmt(rho,2);
   $('out_nu').value=(nu).toExponential(4);
+  if($('out_rho_display'))$('out_rho_display').textContent=fmt(rho,1)+' kg/m³';
+  if($('out_nu_display'))$('out_nu_display').textContent=(nu).toExponential(2)+' m²/s';
   $('s_temp').textContent=state.tempC+'°C';
   if($('inp_apparat'))$('inp_apparat').value=state.apparat||'';
   if($('inp_temp'))$('inp_temp').value=state.tempC;
@@ -1225,10 +1235,13 @@ $('fileInp').addEventListener('change',e=>{
 // TOAST
 // ═══════════════════════════════════════════════════════════
 let tT;
-function toggleDetails(show){
+var _detailsOn=false;
+function toggleDetails(){
+  _detailsOn=!_detailsOn;
   var pg=document.querySelector('.pg');
-  if(show)pg.classList.add('show-details');
-  else pg.classList.remove('show-details');
+  var btn=$('togDetails');
+  if(_detailsOn){pg.classList.add('show-details');btn.textContent='▼ Details';btn.style.background='var(--acc)';btn.style.color='#fff';btn.style.borderColor='var(--acc)';}
+  else{pg.classList.remove('show-details');btn.textContent='▶ Details';btn.style.background='var(--sur)';btn.style.color='var(--mut)';btn.style.borderColor='var(--brd2)';}
 }
 function toast(msg){const el=$('toast');el.textContent=msg;el.classList.add('show');clearTimeout(tT);tT=setTimeout(()=>el.classList.remove('show'),2200);}
 
