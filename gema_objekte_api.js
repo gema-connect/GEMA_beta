@@ -82,6 +82,21 @@
 
   // API
   function getAll() { return _filterByOrg(_load().objekte || []); }
+  function getAktive() { return getAll().filter(function(o){ return !o.status || o.status === 'aktiv'; }); }
+  function setObjektStatus(objektId, status) {
+    var data = _load();
+    var obj = (data.objekte || []).find(function(o){ return o.id === objektId; });
+    if (!obj) return;
+    obj.status = status;
+    _save(data);
+    _invalidate();
+  }
+  function setActiveId(objektId) {
+    var data = _load();
+    data.activeObjektId = objektId;
+    _save(data);
+    _invalidate();
+  }
   function getActive() {
     var data = _load();
     if (!data.activeObjektId) return null;
@@ -135,13 +150,47 @@
   }
   function refresh() { _invalidate(); }
 
+  // ── Per-Object Storage Helper ──
+  // Zentrale Funktionen für objekt-spezifische Speicherung.
+  // Pattern: baseKey + '__' + objektId
+  // Ohne aktives Objekt: nur baseKey (globaler Fallback)
+  function storageKey(baseKey) {
+    var oid = getActiveId();
+    return oid ? baseKey + '__' + oid : baseKey;
+  }
+  function savePerObjekt(baseKey, data) {
+    var key = storageKey(baseKey);
+    var json = typeof data === 'string' ? data : JSON.stringify(data);
+    try { localStorage.setItem(key, json); } catch(e) {}
+    if (typeof _GemaDB !== 'undefined') {
+      try { _GemaDB.put(key, json).catch(function(){}); } catch(e) {}
+    }
+  }
+  function loadPerObjekt(baseKey) {
+    var key = storageKey(baseKey);
+    try {
+      var r = localStorage.getItem(key);
+      if (r) return JSON.parse(r);
+    } catch(e) {}
+    // Fallback: try global key (migration path for old data)
+    if (key !== baseKey) {
+      try {
+        var g = localStorage.getItem(baseKey);
+        if (g) return JSON.parse(g);
+      } catch(e) {}
+    }
+    return null;
+  }
+
   w.GemaObjekte = {
-    getAll: getAll, getActive: getActive, getActiveId: getActiveId,
+    getAll: getAll, getAktive: getAktive, getActive: getActive, getActiveId: getActiveId,
+    setObjektStatus: setObjektStatus, setActiveId: setActiveId,
     getBeteiligte: getBeteiligte, getByRolle: getByRolle, getBeteiligterById: getBeteiligterById,
     getBauherrschaft: getBauherrschaft, getArchitekt: getArchitekt, getPlaner: getPlaner, getUnternehmer: getUnternehmer,
     formatKurz: formatKurz, formatAdresse: formatAdresse,
     renderObjektSelect: renderObjektSelect, renderBeteiligteSelect: renderBeteiligteSelect,
-    refresh: refresh, ready: _readyPromise
+    refresh: refresh, ready: _readyPromise,
+    storageKey: storageKey, savePerObjekt: savePerObjekt, loadPerObjekt: loadPerObjekt
   };
 
   // Auto-init: try sync first, then async Supabase if needed

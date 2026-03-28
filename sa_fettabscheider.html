@@ -1057,17 +1057,22 @@ function renderChecks(ns, qstot, vs) {
 }
 
 // ══════════════════════════════════════════════════════
-// PERSIST
+// PERSIST (per-object)
 // ══════════════════════════════════════════════════════
+var _FA_BASE = 'gema_fa';
+function _faKey(){var sel=document.getElementById('metaObjektDropdown');var oid=(sel&&sel.value)?sel.value:((typeof GemaObjekte!=='undefined')?GemaObjekte.getActiveId():'');return oid?_FA_BASE+'__'+oid:_FA_BASE;}
+
 function save() {
   const meta={};
   ['metaProjekt','metaObjekt','metaBearbeiter','metaDatum'].forEach(k=>{meta[k]=document.getElementById(k)?.value||'';});
-  try{if(typeof _GemaDB!=='undefined')_GemaDB.save('gema_fa', JSON.stringify({method,kitchenN,kitchenT,meatKg,eqQty,ft,fd,fr,sfType,meta}));}catch(e){}
+  var _sk=_faKey();
+  try{if(typeof _GemaDB!=='undefined')_GemaDB.save(_sk, JSON.stringify({method,kitchenN,kitchenT,meatKg,eqQty,ft,fd,fr,sfType,meta}));}catch(e){}
 }
 
 function load() {
   try {
-    if(typeof _GemaDB==='undefined')return;const d = JSON.parse((_GemaDB.c['gema_fa']??null)||'null'); if (!d) return;
+    var _sk=_faKey();
+    if(typeof _GemaDB==='undefined')return;var _raw=(_GemaDB.c[_sk]??null);if(!_raw&&_sk!==_FA_BASE)_raw=(_GemaDB.c[_FA_BASE]??null);const d = JSON.parse(_raw||'null'); if (!d) return;
     if (d.kitchenN) kitchenN=d.kitchenN;
     if (d.kitchenT) kitchenT=d.kitchenT;
     if (d.meatKg) meatKg=d.meatKg;
@@ -1098,7 +1103,7 @@ function load() {
 
 function resetAll() {
   if (!confirm('Alle Eingaben zurücksetzen?')) return;
-  try{if(typeof _GemaDB!=='undefined')_GemaDB.remove('gema_fa');}catch(e){}
+  try{if(typeof _GemaDB!=='undefined')_GemaDB.remove(_faKey());}catch(e){}
   location.reload();
 }
 
@@ -1138,8 +1143,10 @@ document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('fett
   }
   function onObjektSelect(){
     var sel=document.getElementById('metaObjektDropdown'),inp=document.getElementById('metaProjekt');if(!sel||!inp)return;
+    if(_prevObjektId&&_prevObjektId!==sel.value){try{var _nv=sel.value;sel.value=_prevObjektId;save();sel.value=_nv;}catch(e){}}
     if(sel.value&&typeof GemaObjekte!=='undefined'){var o=GemaObjekte.getAll().find(function(x){return x.id===sel.value;});if(o){var p=[o.name];if(o.strasse)p.push(o.strasse);if(o.plz||o.ort)p.push([o.plz,o.ort].filter(Boolean).join(' '));inp.value=p.join(', ');}}else{inp.value='';}
     _prevObjektId=sel.value;saveMeta();
+    load();calc();
   }
   function toggleObjektInput(f){
     var m=typeof f==='boolean'?f:document.getElementById('objComboManual').style.display==='none';

@@ -1085,10 +1085,11 @@ function toggleUnit(key, val) {
         recalc();
     }
 
-    // Label persistence
-    const LBL_KEY = 'gema_enth_labels';
-    function saveLabels(){try{const d={};['A','B','C','D','E','F'].forEach(c=>{const el=document.getElementById('lbl_'+c);if(el)d[c]=el.value;});localStorage.setItem(LBL_KEY,JSON.stringify(d));}catch(e){}}
-    function loadLabels(){try{const d=JSON.parse(localStorage.getItem(LBL_KEY));if(d){['A','B','C','D','E','F'].forEach(c=>{const el=document.getElementById('lbl_'+c);if(el&&d[c]!==undefined)el.value=d[c];});}}catch(e){}}
+    // Label persistence (per-object)
+    const LBL_BASE = 'gema_enth_labels';
+    function _lblKey(){return (typeof GemaObjekte!=='undefined') ? GemaObjekte.storageKey(LBL_BASE) : LBL_BASE;}
+    function saveLabels(){try{const d={};['A','B','C','D','E','F'].forEach(c=>{const el=document.getElementById('lbl_'+c);if(el)d[c]=el.value;});localStorage.setItem(_lblKey(),JSON.stringify(d));}catch(e){}}
+    function loadLabels(){try{var k=_lblKey();var raw=localStorage.getItem(k);if(!raw&&k!==LBL_BASE)raw=localStorage.getItem(LBL_BASE);const d=JSON.parse(raw);if(d){['A','B','C','D','E','F'].forEach(c=>{const el=document.getElementById('lbl_'+c);if(el&&d[c]!==undefined)el.value=d[c];});}}catch(e){}}
     document.addEventListener('DOMContentLoaded', loadLabels);
     ['lbl_A','lbl_B','lbl_C','lbl_D','lbl_E','lbl_F'].forEach(id=>{const el=document.getElementById(id);if(el)el.addEventListener('input',saveLabels);});
 
@@ -1127,11 +1128,13 @@ document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('enth
     var sel=document.getElementById('metaObjektDropdown');
     var inp=document.getElementById('metaProjekt');
     if(!sel||!inp) return;
+    if(_prevObjektId&&_prevObjektId!==sel.value){try{var _nv=sel.value;sel.value=_prevObjektId;saveLabels();sel.value=_nv;}catch(e){}}
     if(sel.value && typeof GemaObjekte!=='undefined'){
       var o=GemaObjekte.getAll().find(function(x){return x.id===sel.value;});
       if(o){var parts=[o.name];if(o.strasse)parts.push(o.strasse);if(o.plz||o.ort)parts.push([o.plz,o.ort].filter(Boolean).join(' '));inp.value=parts.join(', ');}
     } else { inp.value=''; }
     _prevObjektId=sel.value;saveMeta();
+    loadLabels();
     _prefillFromLU(sel.value);
     _checkWasserDaten(sel.value);
   }
@@ -1601,9 +1604,10 @@ document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('enth
     var mapping = {
       've_total_ls': d.nenndurchfluss ? (d.nenndurchfluss/60) : null
     };
-    // Store selected product info
+    // Store selected product info (per-object)
     try{
-      localStorage.setItem('gema_enthaertung_anlage', JSON.stringify({
+      var _anlKey = (typeof GemaObjekte!=='undefined') ? GemaObjekte.storageKey('gema_enthaertung_anlage') : 'gema_enthaertung_anlage';
+      localStorage.setItem(_anlKey, JSON.stringify({
         id:p.id, lieferant:p.lieferantFirma, serie:d.serie, modell:d.modell,
         nenndurchfluss:d.nenndurchfluss, druckverlustQn:d.druckverlustQn,
         kapazitaet:d.kapazitaet, anschluss:d.anschluss, status:p.status

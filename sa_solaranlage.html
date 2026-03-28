@@ -756,6 +756,10 @@ function fmt0(x){ if(!Number.isFinite(x))return'–'; return x.toLocaleString('d
 function fmtPct(x,d=0){ if(!Number.isFinite(x))return'–'; return (x*100).toLocaleString('de-CH',{minimumFractionDigits:d,maximumFractionDigits:d})+' %'; }
 function lookupApprox(x,xs,ys){ x=Number(x); if(!Number.isFinite(x))return ys[0]; let idx=0; for(let i=0;i<xs.length;i++){if(xs[i]<=x)idx=i;} return ys[idx]; }
 
+// ── per-object storage helper ──
+var _SOLAR_BASE = 'gema_solar_v2';
+function _solarKey(){var sel=document.getElementById('metaObjektDropdown');var oid=(sel&&sel.value)?sel.value:((typeof GemaObjekte!=='undefined')?GemaObjekte.getActiveId():'');return oid?_SOLAR_BASE+'__'+oid:_SOLAR_BASE;}
+
 // ── read inputs ──
 function readInputs(){
   const inp = {
@@ -903,8 +907,8 @@ function render(out,inp){
     }).join('');
   }
 
-  // persist
-  try{ if(typeof _GemaDB!=='undefined') _GemaDB.save('gema_solar_v2',JSON.stringify({...inp})); }catch(e){}
+  // persist (per-object)
+  try{ if(typeof _GemaDB!=='undefined') _GemaDB.save(_solarKey(),JSON.stringify({...inp})); }catch(e){}
 }
 
 function recalc(){
@@ -916,7 +920,9 @@ function recalc(){
 // ── load saved ──
 function loadSaved(){
   try{
-    const raw=(typeof _GemaDB!=="undefined"&&_GemaDB.c?(_GemaDB.c['gema_solar_v2']??null):null);
+    var _sk=_solarKey();
+    var raw=(typeof _GemaDB!=="undefined"&&_GemaDB.c?(_GemaDB.c[_sk]??null):null);
+    if(!raw&&_sk!==_SOLAR_BASE) raw=(typeof _GemaDB!=="undefined"&&_GemaDB.c?(_GemaDB.c[_SOLAR_BASE]??null):null);
     if(!raw)return;
     const v=JSON.parse(raw);
     const keys=['klimastation','ebf','jn','tww','tkw','jww','vLossWw','sLoss','ph','vLossH','shade','distLossSolar','targetWw','targetH','area','storePerM2','uValue','deltaT','flowPerM2'];
@@ -946,7 +952,7 @@ function initButtons(){
     toast('Druckdialog geöffnet');
   });
   document.getElementById('btn_reset').addEventListener('click',()=>{
-    try{ if(typeof _GemaDB!=='undefined') _GemaDB.remove('gema_solar_v2'); }catch(e){}
+    try{ if(typeof _GemaDB!=='undefined') _GemaDB.remove(_solarKey()); }catch(e){}
     document.querySelectorAll('input[type="text"]').forEach(el=>el.value='');
     document.getElementById('klimastation').value='';
     recalc();
@@ -1007,11 +1013,13 @@ document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('ther
     var sel=document.getElementById('metaObjektDropdown');
     var inp=document.getElementById('metaProjekt');
     if(!sel||!inp) return;
+    if(_prevObjektId&&_prevObjektId!==sel.value){try{var _nv=sel.value;sel.value=_prevObjektId;recalc();sel.value=_nv;}catch(e){}}
     if(sel.value && typeof GemaObjekte!=='undefined'){
       var o=GemaObjekte.getAll().find(function(x){return x.id===sel.value;});
       if(o){var parts=[o.name];if(o.strasse)parts.push(o.strasse);if(o.plz||o.ort)parts.push([o.plz,o.ort].filter(Boolean).join(' '));inp.value=parts.join(', ');}
     } else { inp.value=''; }
     _prevObjektId=sel.value;saveMeta();
+    loadSaved();recalc();
   }
   function toggleObjektInput(forceManual){
     var isManual=typeof forceManual==='boolean'?forceManual:document.getElementById('objComboManual').style.display==='none';

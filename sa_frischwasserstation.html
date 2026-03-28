@@ -893,13 +893,21 @@ let manualGZ = false;
 let state = {};
 
 // ══════════════════════════════════════════════════════
+// Per-object storage helper
+// ══════════════════════════════════════════════════════
+var _FWS_BASE = 'gema_fws';
+function _fwsKey(){var sel=document.getElementById('metaObjektDropdown');var oid=(sel&&sel.value)?sel.value:((typeof GemaObjekte!=='undefined')?GemaObjekte.getActiveId():'');return oid?_FWS_BASE+'__'+oid:_FWS_BASE;}
+
+// ══════════════════════════════════════════════════════
 // INIT
 // ══════════════════════════════════════════════════════
 window.addEventListener('DOMContentLoaded', async () => {
 try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('frischwasserstation',['gema_fws']),new Promise((_,r)=>setTimeout(()=>r('timeout'),3000))]);}catch(e){console.warn('GemaDB:',e);}
 
   // Load saved state
-  const saved = (typeof _GemaDB!=='undefined'&&_GemaDB.c?(_GemaDB.c['gema_fws']??null):null);
+  var _initKey = _fwsKey();
+  var saved = (typeof _GemaDB!=='undefined'&&_GemaDB.c?(_GemaDB.c[_initKey]??null):null);
+  if(!saved&&_initKey!==_FWS_BASE) saved = (typeof _GemaDB!=='undefined'&&_GemaDB.c?(_GemaDB.c[_FWS_BASE]??null):null);
   if (saved) {
     try {
       const d = JSON.parse(saved);
@@ -945,12 +953,12 @@ function saveState() {
     const el = document.getElementById(k);
     if (el) meta[k] = el.value;
   });
-  try{if(typeof _GemaDB!=='undefined')_GemaDB.save('gema_fws', JSON.stringify({wohnungstypen, inputs, meta}));}catch(e){}
+  try{if(typeof _GemaDB!=='undefined')_GemaDB.save(_fwsKey(), JSON.stringify({wohnungstypen, inputs, meta}));}catch(e){}
 }
 
 function resetAll() {
   if (!confirm('Alle Eingaben zurücksetzen?')) return;
-  try{if(typeof _GemaDB!=='undefined')_GemaDB.remove('gema_fws');}catch(e){}
+  try{if(typeof _GemaDB!=='undefined')_GemaDB.remove(_fwsKey());}catch(e){}
   location.reload();
 }
 window.resetAll = resetAll;
@@ -1299,8 +1307,13 @@ document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('fris
   }
   function onObjektSelect(){
     var sel=document.getElementById('metaObjektDropdown'),inp=document.getElementById('metaProjekt');if(!sel||!inp)return;
+    if(_prevObjektId&&_prevObjektId!==sel.value){try{var _nv=sel.value;sel.value=_prevObjektId;saveState();sel.value=_nv;}catch(e){}}
     if(sel.value&&typeof GemaObjekte!=='undefined'){var o=GemaObjekte.getAll().find(function(x){return x.id===sel.value;});if(o){var p=[o.name];if(o.strasse)p.push(o.strasse);if(o.plz||o.ort)p.push([o.plz,o.ort].filter(Boolean).join(' '));inp.value=p.join(', ');}}else{inp.value='';}
     _prevObjektId=sel.value;saveMeta();
+    // Load data for new object
+    var _sk=_fwsKey();var _raw=(typeof _GemaDB!=='undefined'&&_GemaDB.c?(_GemaDB.c[_sk]??null):null);if(!_raw&&_sk!==_FWS_BASE)_raw=(typeof _GemaDB!=='undefined'&&_GemaDB.c?(_GemaDB.c[_FWS_BASE]??null):null);
+    if(_raw){try{var d=JSON.parse(_raw);if(d.wohnungstypen)wohnungstypen=d.wohnungstypen;if(d.inputs)Object.entries(d.inputs).forEach(function(e){var el=document.getElementById(e[0]);if(el)el.value=e[1];});}catch(e){}}
+    renderWohnungenTable();calc();
   }
   function toggleObjektInput(f){
     var m=typeof f==='boolean'?f:document.getElementById('objComboManual').style.display==='none';
