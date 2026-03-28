@@ -150,6 +150,7 @@ textarea.fc{resize:vertical;min-height:60px;line-height:1.5}
 
   <!-- Tab: Übersicht -->
   <div class="tab-body active" id="tb-uebersicht">
+    <div style="margin-bottom:12px"><button class="btn btn-s btn-sm" onclick="openLiefTutorial()">🎓 So funktioniert's</button></div>
     <div id="welcomeCard"></div>
     <div class="card" style="margin-top:16px">
       <div class="card-hd"><h3>Letzte Offertanfragen</h3></div>
@@ -260,9 +261,31 @@ textarea.fc{resize:vertical;min-height:60px;line-height:1.5}
       <div style="margin-top:20px;border-top:1.5px solid var(--brd);padding-top:16px">
         <h3 style="font-size:14px;font-weight:800;margin-bottom:12px">Dokumente & Datenblätter</h3>
         <div id="peDocs"></div>
-        <div class="g2" style="margin-top:10px">
-          <select class="fc" id="peDocTyp"><option value="datenblatt">Datenblatt (PDF)</option><option value="bild">Produktbild</option><option value="zertifikat">Zertifikat</option><option value="schema">Schema / Zeichnung</option></select>
-          <div style="display:flex;gap:6px"><input type="file" class="fc" id="peDocFile" accept=".pdf,.jpg,.png,.svg" style="padding:6px"/><button class="btn btn-s btn-sm" onclick="addPeDoc()">+ Hochladen</button></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px">
+          <div style="padding:10px;border:1.5px dashed var(--brd2);border-radius:8px">
+            <div style="font-size:11px;font-weight:700;color:var(--mut);margin-bottom:6px">📄 Datenblatt</div>
+            <input type="file" class="fc" id="peDocDatenblatt" accept=".pdf" style="padding:4px;font-size:11px"/>
+            <div style="margin-top:4px;display:flex;gap:4px;align-items:center"><span style="font-size:10px;color:var(--mut)">oder URL:</span><input type="text" class="fc" id="peUrlDatenblatt" placeholder="https://..." style="font-size:11px;flex:1"/></div>
+            <button class="btn btn-s btn-sm" onclick="addPeDocTyp('datenblatt')" style="margin-top:4px;font-size:10px">+ Hinzufügen</button>
+          </div>
+          <div style="padding:10px;border:1.5px dashed var(--brd2);border-radius:8px">
+            <div style="font-size:11px;font-weight:700;color:var(--mut);margin-bottom:6px">📋 Montageanleitung</div>
+            <input type="file" class="fc" id="peDocMontage" accept=".pdf" style="padding:4px;font-size:11px"/>
+            <div style="margin-top:4px;display:flex;gap:4px;align-items:center"><span style="font-size:10px;color:var(--mut)">oder URL:</span><input type="text" class="fc" id="peUrlMontage" placeholder="https://..." style="font-size:11px;flex:1"/></div>
+            <button class="btn btn-s btn-sm" onclick="addPeDocTyp('montage')" style="margin-top:4px;font-size:10px">+ Hinzufügen</button>
+          </div>
+          <div style="padding:10px;border:1.5px dashed var(--brd2);border-radius:8px">
+            <div style="font-size:11px;font-weight:700;color:var(--mut);margin-bottom:6px">🏅 Zertifizierungen (SVGW, DVGW etc.)</div>
+            <input type="file" class="fc" id="peDocZertifikat" accept=".pdf,.jpg,.png" style="padding:4px;font-size:11px"/>
+            <div style="margin-top:4px;display:flex;gap:4px;align-items:center"><span style="font-size:10px;color:var(--mut)">oder URL:</span><input type="text" class="fc" id="peUrlZertifikat" placeholder="https://..." style="font-size:11px;flex:1"/></div>
+            <button class="btn btn-s btn-sm" onclick="addPeDocTyp('zertifikat')" style="margin-top:4px;font-size:10px">+ Hinzufügen</button>
+          </div>
+          <div style="padding:10px;border:1.5px dashed var(--brd2);border-radius:8px">
+            <div style="font-size:11px;font-weight:700;color:var(--mut);margin-bottom:6px">📜 Konformitätserklärung</div>
+            <input type="file" class="fc" id="peDocKonformitaet" accept=".pdf" style="padding:4px;font-size:11px"/>
+            <div style="margin-top:4px;display:flex;gap:4px;align-items:center"><span style="font-size:10px;color:var(--mut)">oder URL:</span><input type="text" class="fc" id="peUrlKonformitaet" placeholder="https://..." style="font-size:11px;flex:1"/></div>
+            <button class="btn btn-s btn-sm" onclick="addPeDocTyp('konformitaet')" style="margin-top:4px;font-size:10px">+ Hinzufügen</button>
+          </div>
         </div>
       </div>
 
@@ -523,31 +546,52 @@ function renderPeDocs(){
   if(!_editProd){ document.getElementById('peDocs').innerHTML='<p style="color:var(--mut);font-size:12px">Erst nach dem Speichern können Dokumente hinzugefügt werden.</p>'; return; }
   var docs = GemaProdukte.getDokumente(_editProd.id);
   if(!docs.length){ document.getElementById('peDocs').innerHTML='<p style="color:var(--mut);font-size:12px">Noch keine Dokumente.</p>'; return; }
+  var typIcons={'datenblatt':'📄','montage':'📋','zertifikat':'🏅','konformitaet':'📜','bild':'🖼','schema':'📐'};
+  var typNames={'datenblatt':'Datenblatt','montage':'Montageanleitung','zertifikat':'Zertifizierung','konformitaet':'Konformitätserklärung','bild':'Produktbild','schema':'Schema'};
   document.getElementById('peDocs').innerHTML = docs.map(function(d){
     var hasData = !!d.dataUrl;
+    var isUrl = !!d.url;
+    var icon = typIcons[d.typ]||'📄';
+    var typLabel = typNames[d.typ]||d.typ;
     return '<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--brd)">'+
-      '<span class="badge '+(d.typ==='datenblatt'?'b-ver':'b-draft')+'">'+E(d.typ)+'</span>'+
-      '<span style="flex:1;font-size:12px">'+E(d.name)+'</span>'+
-      '<span style="font-size:11px;color:var(--mut)">'+E(d.datum||'')+'</span>'+
+      '<span style="font-size:14px">'+icon+'</span>'+
+      '<span style="font-size:11px;padding:2px 6px;border-radius:4px;background:var(--bg2);color:var(--mut);font-weight:600">'+E(typLabel)+'</span>'+
+      '<span style="flex:1;font-size:12px;font-weight:600">'+E(d.name)+'</span>'+
+      (isUrl?'<a href="'+E(d.url)+'" target="_blank" style="font-size:11px;color:var(--blue);text-decoration:none" title="'+E(d.url)+'">🔗 Link</a>':'')+
       (hasData?'<button class="btn btn-s btn-sm" onclick="previewDoc(\''+E(d.id)+'\')">👁</button>':'')+
       '<button class="btn btn-d btn-sm" onclick="rmPeDoc(\''+E(d.id)+'\')">✕</button></div>';
   }).join('');
 }
 
-function addPeDoc(){
+function addPeDocTyp(typ){
   if(!_editProd){ toast('Bitte zuerst Produkt speichern.','error'); return; }
-  var fi = document.getElementById('peDocFile');
-  var typ = document.getElementById('peDocTyp').value;
-  if(!fi.files||!fi.files.length){ toast('Datei wählen','error'); return; }
+  var typNames={'datenblatt':'Datenblatt','montage':'Montageanleitung','zertifikat':'Zertifizierung','konformitaet':'Konformitätserklärung'};
+  var fi = document.getElementById('peDoc'+typ.charAt(0).toUpperCase()+typ.slice(1));
+  var urlInp = document.getElementById('peUrl'+typ.charAt(0).toUpperCase()+typ.slice(1));
+  var url = urlInp?urlInp.value.trim():'';
+
+  if(url){
+    // URL-Referenz
+    GemaProdukte.addDokument(_editProd.id, { name:(typNames[typ]||typ)+' (URL)', typ:typ, format:'url', url:url, dataUrl:null });
+    _editProd = GemaProdukte.getProdukt(_editProd.id);
+    urlInp.value=''; renderPeDocs(); toast((typNames[typ]||typ)+' URL hinzugefügt');
+    return;
+  }
+  if(!fi||!fi.files||!fi.files.length){ toast('Datei wählen oder URL eingeben','error'); return; }
   var file = fi.files[0];
   if(file.size > 5*1024*1024){ toast('Max. 5 MB','error'); return; }
   var reader = new FileReader();
   reader.onload = function(){
     GemaProdukte.addDokument(_editProd.id, { name:file.name, typ:typ, format:file.name.split('.').pop().toLowerCase(), groesse:file.size, dataUrl:reader.result });
     _editProd = GemaProdukte.getProdukt(_editProd.id);
-    fi.value=''; renderPeDocs(); toast('Dokument hochgeladen');
+    fi.value=''; renderPeDocs(); toast((typNames[typ]||typ)+' hochgeladen');
   };
   reader.readAsDataURL(file);
+}
+
+function addPeDoc(){
+  // Legacy fallback
+  addPeDocTyp('datenblatt');
 }
 
 function rmPeDoc(docId){
@@ -933,6 +977,33 @@ function switchLieferant(id){
 seedDemoLieferanten();
 init();
 renderAdminSwitcher();
+
+// ── So funktioniert's Tutorial ──
+var _ltv='font-size:11px;line-height:1.5;margin-top:10px;padding:10px 12px;background:var(--bg2);border-radius:8px;border:1px solid var(--brd)';
+var LIEF_TUT=[
+  {t:'Produkte erfassen',p:'Im Tab <strong>Meine Produkte</strong> erfassen Sie Ihre Anlagen, Rohrsysteme, Armaturen und Formstücke. Wählen Sie die passende Kategorie und füllen Sie die technischen Daten aus.<div style="'+_ltv+'"><div style="display:flex;gap:4px;font-size:10px"><span style="padding:2px 6px;border-radius:4px;background:#eff4ff;color:#2563eb;font-weight:700">Enthärtung</span><span style="padding:2px 6px;border-radius:4px;background:#eff4ff;color:#2563eb;font-weight:700">Rohrsystem</span><span style="padding:2px 6px;border-radius:4px;background:#eff4ff;color:#2563eb;font-weight:700">Armaturen</span></div></div>'},
+  {t:'Dokumente hochladen',p:'Pro Produkt können Sie 4 Dokumenttypen hochladen — jeweils als <strong>Datei (PDF)</strong> oder als <strong>URL-Referenz</strong> auf Ihre Homepage:<div style="'+_ltv+'"><div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;font-size:10px"><div style="padding:3px 6px;border:1px solid var(--brd);border-radius:4px">📄 Datenblatt</div><div style="padding:3px 6px;border:1px solid var(--brd);border-radius:4px">📋 Montageanleitung</div><div style="padding:3px 6px;border:1px solid var(--brd);border-radius:4px">🏅 Zertifizierung (SVGW/DVGW)</div><div style="padding:3px 6px;border:1px solid var(--brd);border-radius:4px">📜 Konformitätserklärung</div></div><div style="margin-top:6px;font-size:10px;color:var(--mut)">💡 URL-Referenz: Pflegen Sie das PDF auf Ihrer Homepage und geben Sie den Link ein — so müssen Sie es nur einmal aktuell halten.</div></div>'},
+  {t:'Daten verifizieren',p:'Prüfen Sie die technischen Daten Ihrer Produkte und bestätigen Sie deren Korrektheit. Verifizierte Produkte erhalten das <strong style="color:#16a34a">✓ Verifiziert</strong> Badge und werden bevorzugt angezeigt.<div style="'+_ltv+'"><div style="display:flex;gap:6px;align-items:center;font-size:10px"><input type="checkbox" checked disabled style="accent-color:#16a34a"/> <span>Ich bestätige die Korrektheit der technischen Daten</span><span style="padding:2px 6px;border-radius:10px;background:#f0fdf4;color:#16a34a;border:1px solid #bbf7d0;font-weight:700">✓ Verifiziert</span></div></div>'},
+  {t:'Rohrsysteme & Armaturen',p:'Im Tab <strong>Rohrsysteme & Armaturen</strong> sehen Sie alle Ihrem Unternehmen zugeordneten Rohrsysteme und Armaturen. Prüfen Sie Zeta-Werte und Dimensionen und verifizieren Sie die Daten.<div style="'+_ltv+'"><div style="display:flex;align-items:center;gap:6px;font-size:10px"><strong>Optipress Bogen 90°</strong><span style="color:var(--mut)">ζ=0.3</span><span style="padding:2px 6px;border-radius:10px;background:#f0fdf4;color:#16a34a;border:1px solid #bbf7d0;font-weight:700;font-size:9px">✓</span></div></div>'},
+  {t:'Offertanfragen beantworten',p:'Wenn ein Planer eine Offerte anfragt, erscheint sie im Tab <strong>Offertanfragen</strong>. Sie sehen Berechnungsdaten, Projekt und Kontaktangaben. Antworten Sie mit Preis und PDF-Offerte oder lehnen Sie ab.<div style="'+_ltv+'"><div style="display:flex;gap:4px;font-size:10px"><span style="padding:3px 10px;border-radius:6px;background:#f59e0b;color:#fff;font-weight:700">📨 Beantworten</span><span style="padding:3px 10px;border-radius:6px;border:1px solid #fecaca;color:#dc2626;font-weight:600">Ablehnen</span></div></div>'}
+];
+var _ltC=0;
+function openLiefTutorial(){
+  _ltC=0;
+  var ov=document.createElement('div');ov.id='liefTutOv';
+  ov.style.cssText='position:fixed;inset:0;z-index:900;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;padding:20px';
+  ov.innerHTML='<div style="background:var(--sur);border-radius:16px;max-width:520px;width:100%;max-height:80vh;overflow-y:auto;box-shadow:0 24px 64px rgba(0,0,0,.2)"><div style="padding:16px 20px;border-bottom:1.5px solid var(--brd);display:flex;align-items:center"><h2 style="flex:1;font-size:16px;font-weight:800">🎓 So funktioniert\'s — Lieferant</h2><button onclick="closeLiefTutorial()" style="background:none;border:none;font-size:18px;cursor:pointer;color:var(--mut)">✕</button></div><div id="liefTutBody" style="padding:20px"></div><div style="padding:12px 20px;border-top:1px solid var(--brd);display:flex;align-items:center;justify-content:space-between"><span id="liefTutCt" style="font-size:12px;color:var(--mut)">1/'+LIEF_TUT.length+'</span><div style="display:flex;gap:8px"><button id="liefTutPrev" class="btn btn-g btn-sm" onclick="navLiefTut(-1)">← Zurück</button><button id="liefTutNext" class="btn btn-p btn-sm" onclick="navLiefTut(1)">Weiter →</button></div></div></div>';
+  document.body.appendChild(ov);renderLiefTut();
+}
+function closeLiefTutorial(){var ov=document.getElementById('liefTutOv');if(ov)ov.remove();}
+function navLiefTut(d){_ltC+=d;if(_ltC>=LIEF_TUT.length){closeLiefTutorial();return;}if(_ltC<0)_ltC=0;renderLiefTut();}
+function renderLiefTut(){
+  var s=LIEF_TUT[_ltC];
+  document.getElementById('liefTutBody').innerHTML='<div style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:50%;background:#1d4ed8;color:#fff;font-size:12px;font-weight:800;margin-bottom:10px">'+(_ltC+1)+'</div><h3 style="font-size:15px;font-weight:800;margin-bottom:8px">'+s.t+'</h3><p style="font-size:13px;color:var(--txt2);line-height:1.7">'+s.p+'</p>';
+  document.getElementById('liefTutCt').textContent=(_ltC+1)+'/'+LIEF_TUT.length;
+  document.getElementById('liefTutPrev').style.display=_ltC===0?'none':'';
+  document.getElementById('liefTutNext').textContent=_ltC===LIEF_TUT.length-1?'🚀 Starten':'Weiter →';
+}
 </script>
 <script>document.addEventListener('DOMContentLoaded', function(){if(typeof GemaFeedback!=='undefined')GemaFeedback.init('lieferant_dashboard', 'Lieferanten-Dashboard');});</script>
 </body>
