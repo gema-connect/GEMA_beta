@@ -648,7 +648,8 @@ function calcRow(row, rho, nu){
   if(!dim) return null;
   const di_m = dim.di/1000;
   const k = sys.k;
-  const Q = row.flowMode==='direct' ? (row.q_direct||0) : luToQ(row.lu||0, row.grLU||5);
+  const qBase = row.flowMode==='direct' ? (row.q_direct||0) : luToQ(row.lu||0, row.grLU||5);
+  const Q = qBase + (row.qZusatz||0); // Zusatz-l/s werden 100% addiert (ohne W3-Reduktion)
   const Q_m3s = Q/1000;
   const A = Math.PI/4*di_m*di_m;
   const v = A>0 ? Q_m3s/A : 0;
@@ -682,7 +683,7 @@ function newRow(label){
   return{
     id:uid(), label:label||String(rowCnt),
     sysId:'optipress', dimDn:'22x1.2',
-    flowMode:'lu', lu:10, grLU:5, q_direct:0.1,
+    flowMode:'lu', lu:10, grLU:5, q_direct:0.1, qZusatz:0,
     leitungstyp:'verteil', // 'verteil'|'stockwerk'|'ausstoss'
     length_m:5, zeta_sum:0, eq_rl:0,
     fittings:{}, // {fittingName: count}
@@ -831,12 +832,14 @@ function render(){
 
     const flowCell=row.flowMode==='direct'
       ? `<label class="ts-label">Q direkt</label><input class="ts-inp" type="text" inputmode="decimal" value="${row.q_direct}" data-k="q_direct" onblur="fixLeadingZero(this)"/><label class="ts-label">l/s</label>`
-      : `<label class="ts-label">Anzahl LU</label><input class="ts-inp" type="text" inputmode="decimal" value="${row.lu}" data-k="lu" onblur="fixLeadingZero(this)"/><label class="ts-label" style="background:transparent;border:none;margin-left:8px">gr. LU</label><input class="ts-inp" style="width:55px" type="text" inputmode="decimal" value="${row.grLU}" data-k="grLU" onblur="fixLeadingZero(this)"/>`;
-    const ltBtns=`<div class="lt-group" style="display:inline-flex;margin-left:8px;border:1.5px solid var(--brd2);border-radius:7px;overflow:hidden">`
+      : `<label class="ts-label">Anzahl LU</label><input class="ts-inp" type="text" inputmode="decimal" value="${row.lu}" data-k="lu" onblur="fixLeadingZero(this)"/><label class="ts-label" style="background:transparent;border:none;margin-left:8px">gr. LU</label><input class="ts-inp" style="width:55px" type="text" inputmode="decimal" value="${row.grLU}" data-k="grLU" onblur="fixLeadingZero(this)"/><label class="ts-label" style="background:transparent;border:none;margin-left:8px">+ l/s</label><input class="ts-inp" style="width:60px" type="text" inputmode="decimal" value="${row.qZusatz||0}" data-k="qZusatz" onblur="fixLeadingZero(this)" title="Zusätzliche l/s (100%, ohne W3-Reduktion)"/>`;
+    const ltColors={verteil:{bg:'#16a34a',brd:'#16a34a'},stockwerk:{bg:'#d97706',brd:'#d97706'},ausstoss:{bg:'#dc2626',brd:'#dc2626'}};
+    const ltBtns=`<div class="lt-group" style="display:inline-flex;margin-left:8px;border-radius:7px;overflow:hidden">`
       +['verteil','stockwerk','ausstoss'].map(t=>{
-        const labels={verteil:'Verteilleitung',stockwerk:'Stockwerkvert.',ausstoss:'Ausstossleitung'};
+        const labels={verteil:'Verteilltg.',stockwerk:'Stockwerk',ausstoss:'Ausstoss'};
         const isAct=row.leitungstyp===t;
-        return `<button data-lt="${t}" style="padding:0 10px;height:30px;border:none;font-size:10px;font-weight:${isAct?'800':'600'};cursor:pointer;font-family:inherit;white-space:nowrap;background:${isAct?'#1d4ed8':'transparent'};color:${isAct?'#fff':'#64748b'};transition:.12s">${labels[t]}</button>`;
+        const col=ltColors[t];
+        return `<button data-lt="${t}" style="padding:0 10px;height:30px;border:1.5px solid ${isAct?col.brd:'#c8cfdf'};font-size:10px;font-weight:${isAct?'800':'600'};cursor:pointer;font-family:inherit;white-space:nowrap;background:${isAct?col.bg:'#fff'};color:${isAct?'#fff':'#64748b'};margin-left:-1px">${labels[t]}</button>`;
       }).join('')+'</div>';
 
     div.innerHTML=`
