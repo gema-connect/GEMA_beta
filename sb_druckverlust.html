@@ -331,23 +331,9 @@ function fixLeadingZero(el){
 
 
 <div class="pg">
-  <!-- HERO -->
-  <div class="hero">
-    <div class="hero-in">
-      <div style="display:flex;align-items:center;gap:12px">
-        <div class="hero-ic">💧</div>
-        <div>
-          <div class="hero-title">Druckverlustberechnung Wasser</div>
-          <div class="hero-sub">Darcy-Weisbach · Swamee-Jain · SVGW W3 2013 · Pro Teilstrecke Rohrsystem + Fittings wählen</div>
-        </div>
-      </div>
-      <div class="hero-pills">
-        <span class="hero-pill">SVGW W3</span>
-        <span class="hero-pill">DIN 1988</span>
-        <span class="hero-pill">SIA 385</span>
-      </div>
-    </div>
-  </div>
+
+  <!-- BERECHNUNGS-TABS + MEDIUM -->
+  <div id="calcTabBar" style="display:flex;align-items:center;gap:6px;margin-bottom:12px;flex-wrap:wrap"></div>
 
   <!-- STATS -->
   <div class="stats-row">
@@ -733,6 +719,93 @@ function newRow(label){
   };
 }
 
+// ── MEDIEN ──
+var MEDIEN=[
+  {id:'kw',name:'Kaltwasser',farbe:'#2563eb',icon:'💧'},
+  {id:'ww',name:'Warmwasser',farbe:'#dc2626',icon:'🌡️'},
+  {id:'ew',name:'Enthärtetes Wasser',farbe:'#7c3aed',icon:'🧂'},
+  {id:'ow',name:'Osmosewasser',farbe:'#0891b2',icon:'🔬'},
+  {id:'rw',name:'Regenwasser',farbe:'#16a34a',icon:'🌧️'},
+  {id:'zirk',name:'Zirkulation',farbe:'#d97706',icon:'🔄'}
+];
+
+// ── MULTI-BERECHNUNGS STATE ──
+var allCalcs=[];  // Array of {id, name, medium, state}
+var activeCalcId=null;
+var CALC_SK='gema_druckverlust_v2';
+
+function getCalcSK(){return(typeof GemaObjekte!=='undefined')?GemaObjekte.storageKey(CALC_SK):CALC_SK;}
+
+function saveAllCalcs(){
+  try{var json=JSON.stringify({calcs:allCalcs,activeId:activeCalcId});localStorage.setItem(getCalcSK(),json);if(typeof _GemaDB!=='undefined')_GemaDB.put(getCalcSK(),json).catch(function(){});}catch(e){}
+}
+function loadAllCalcs(){
+  try{
+    var r=localStorage.getItem(getCalcSK());
+    if(r){var d=JSON.parse(r);allCalcs=d.calcs||[];activeCalcId=d.activeId||null;}
+  }catch(e){}
+  // Fallback: try old global key
+  if(!allCalcs.length){
+    try{var g=localStorage.getItem(CALC_SK);if(g){var d=JSON.parse(g);allCalcs=d.calcs||[];activeCalcId=d.activeId||null;}}catch(e){}
+  }
+  if(!allCalcs.length){
+    // Create default calculation
+    var c=newCalc('Berechnung 1','kw');
+    allCalcs.push(c);activeCalcId=c.id;
+  }
+  if(!activeCalcId&&allCalcs.length)activeCalcId=allCalcs[0].id;
+  loadActiveCalc();
+}
+function newCalc(name,mediumId){
+  return{id:'dv_'+Date.now()+'_'+Math.random().toString(36).substring(2,5),name:name||'Neue Berechnung',medium:mediumId||'kw',state:{project:'',owner:'',tempC:mediumId==='ww'?60:mediumId==='zirk'?55:10,rows:[newRow('1'),newRow('2'),newRow('3')]}};
+}
+function loadActiveCalc(){
+  var c=allCalcs.find(function(x){return x.id===activeCalcId;});
+  if(c){state=c.state;} else if(allCalcs.length){activeCalcId=allCalcs[0].id;state=allCalcs[0].state;}
+}
+function saveActiveCalc(){
+  var c=allCalcs.find(function(x){return x.id===activeCalcId;});
+  if(c)c.state=state;
+  saveAllCalcs();
+}
+function addCalc(){
+  var med=prompt('Medium wählen:\nkw = Kaltwasser\nww = Warmwasser\new = Enthärtetes Wasser\now = Osmosewasser\nrw = Regenwasser\nzirk = Zirkulation','kw');
+  if(!med)return;
+  var m=MEDIEN.find(function(x){return x.id===med;})||MEDIEN[0];
+  var n=allCalcs.length+1;
+  var c=newCalc(m.name+' '+n,m.id);
+  saveActiveCalc();
+  allCalcs.push(c);activeCalcId=c.id;
+  loadActiveCalc();saveAllCalcs();renderCalcTabs();render();
+}
+function switchCalc(id){
+  saveActiveCalc();activeCalcId=id;loadActiveCalc();saveAllCalcs();renderCalcTabs();render();
+}
+function removeCalc(id){
+  if(allCalcs.length<=1){toast('Mindestens eine Berechnung erforderlich');return;}
+  allCalcs=allCalcs.filter(function(x){return x.id!==id;});
+  if(activeCalcId===id){activeCalcId=allCalcs[0].id;loadActiveCalc();}
+  saveAllCalcs();renderCalcTabs();render();
+}
+function renameCalc(id){
+  var c=allCalcs.find(function(x){return x.id===id;});if(!c)return;
+  var n=prompt('Name der Berechnung:',c.name);if(!n)return;
+  c.name=n;saveAllCalcs();renderCalcTabs();
+}
+function renderCalcTabs(){
+  var bar=document.getElementById('calcTabBar');if(!bar)return;
+  var h='';
+  allCalcs.forEach(function(c){
+    var m=MEDIEN.find(function(x){return x.id===c.medium;})||{icon:'💧',farbe:'#6b7280',name:'?'};
+    var isAct=c.id===activeCalcId;
+    h+='<button onclick="switchCalc(\''+c.id+'\')" ondblclick="renameCalc(\''+c.id+'\')" style="display:flex;align-items:center;gap:4px;padding:6px 14px;border-radius:8px;border:1.5px solid '+(isAct?m.farbe:'var(--brd)')+';background:'+(isAct?m.farbe+'18':'var(--sur)')+';color:'+(isAct?m.farbe:'var(--mut)')+';font-size:12px;font-weight:'+(isAct?'800':'600')+';cursor:pointer;font-family:inherit;white-space:nowrap;transition:.15s">'+m.icon+' '+c.name;
+    if(allCalcs.length>1)h+='<span onclick="event.stopPropagation();removeCalc(\''+c.id+'\')" style="margin-left:4px;font-size:10px;opacity:.5;cursor:pointer" title="Entfernen">✕</span>';
+    h+='</button>';
+  });
+  h+='<button onclick="addCalc()" style="padding:6px 12px;border-radius:8px;border:1.5px dashed var(--brd);background:transparent;color:var(--mut);font-size:12px;font-weight:600;cursor:pointer;font-family:inherit">+ Berechnung</button>';
+  bar.innerHTML=h;
+}
+
 let state={
   project:'', owner:'', tempC:10,
   rows:[newRow('1'), newRow('2'), newRow('3')],
@@ -898,6 +971,8 @@ function render(){
   } else {
     cc.innerHTML=checks.slice(0,5).map(c=>`<div class="check-item ${c.type}">${c.type==='warn'?'⚠️':'ℹ️'} ${c.text}</div>`).join('');
   }
+  // Auto-save active calculation
+  saveActiveCalc();
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1241,7 +1316,7 @@ document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('druc
   window.onObjektSelect=onObjektSelect;
   window.toggleObjektInput=toggleObjektInput;
   window.populateObjektDropdown=populateObjektDropdown;
-  document.addEventListener('DOMContentLoaded',function(){loadMeta();populateObjektDropdown();if(typeof GemaAutoSave!=='undefined') GemaAutoSave.init('druckverlust');});
+  document.addEventListener('DOMContentLoaded',function(){loadMeta();populateObjektDropdown();loadAllCalcs();renderCalcTabs();render();if(typeof GemaAutoSave!=='undefined') GemaAutoSave.init('druckverlust');});
   window.addEventListener('gema-objekte-loaded',function(){populateObjektDropdown();if(typeof GemaAutoSave!=='undefined') GemaAutoSave.init('druckverlust');});
   ['metaProjekt','metaBearbeiter','metaDatum'].forEach(function(id){var el=document.getElementById(id);if(el)el.addEventListener('input',saveMeta);});
 })();
