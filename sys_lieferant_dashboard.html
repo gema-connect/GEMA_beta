@@ -140,14 +140,8 @@ textarea.fc{resize:vertical;min-height:60px;line-height:1.5}
   <!-- KPIs -->
   <div class="kpi-row" id="kpis"></div>
 
-  <!-- Tabs -->
-  <div class="tabs" id="mainTabs">
-    <div class="tab active" data-tab="uebersicht">Übersicht</div>
-    <div class="tab" data-tab="produkte">Meine Produkte</div>
-    <div class="tab" data-tab="anfragen">Offertanfragen <span id="oaBadge" style="background:#f59e0b;color:#fff;border-radius:10px;padding:1px 7px;font-size:10px;font-weight:800;margin-left:4px;display:none">0</span></div>
-    <div class="tab" data-tab="rohrsysteme">Rohrsysteme & Armaturen</div>
-    <div class="tab" data-tab="profil">Firmenprofil</div>
-  </div>
+  <!-- Tabs (dynamisch je nach Rolle) -->
+  <div class="tabs" id="mainTabs"></div>
 
   <!-- Tab: Übersicht -->
   <div class="tab-body active" id="tb-uebersicht">
@@ -207,6 +201,23 @@ textarea.fc{resize:vertical;min-height:60px;line-height:1.5}
       <div class="card-hd"><h3>⌥ Meine Armaturen</h3></div>
       <div class="card-bd" id="armListe" style="padding:0">
         <p style="padding:16px;color:var(--mut);font-size:13px">Wird geladen...</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tab: Werkzeuge (nur Prüfer) -->
+  <div class="tab-body" id="tb-werkzeuge">
+    <div class="card">
+      <div class="card-hd"><h3>🔧 Meine Werkzeuge</h3></div>
+      <div class="card-bd" id="wzListe">
+        <p style="color:var(--mut);font-size:13px">Hier sehen Sie die Werkzeuge, die Ihnen zur Prüfung zugewiesen sind.</p>
+        <div id="wzItems" style="margin-top:12px"></div>
+      </div>
+    </div>
+    <div class="card" style="margin-top:16px">
+      <div class="card-hd"><h3>📋 Fällige Prüfungen</h3></div>
+      <div class="card-bd" id="wzPruefungen">
+        <p style="color:var(--mut);font-size:13px">Keine fälligen Prüfungen.</p>
       </div>
     </div>
   </div>
@@ -372,12 +383,44 @@ function init(){
 }
 
 function setupTabs(){
+  // Dynamische Tabs je nach Rolle
+  var user=null;
+  try{user=GemaAuth.getCurrentUser();}catch(e){}
+  var roles=user?user.roleIds||[]:[];
+  var isLief=roles.indexOf('role_lieferant')>=0;
+  var isPruefer=roles.indexOf('role_pruefer')>=0;
+  var isAdmin=roles.indexOf('role_admin')>=0;
+  if(!isLief&&!isPruefer&&isAdmin){isLief=true;isPruefer=true;} // Admin sieht alles
+
+  var tabs=[{id:'uebersicht',label:'Übersicht',show:true}];
+  if(isLief){
+    tabs.push({id:'produkte',label:'Meine Produkte',show:true});
+    tabs.push({id:'anfragen',label:'Offertanfragen',show:true,badge:'oaBadge'});
+    tabs.push({id:'rohrsysteme',label:'Rohrsysteme & Armaturen',show:true});
+  }
+  if(isPruefer){
+    tabs.push({id:'werkzeuge',label:'🔧 Werkzeuge',show:true});
+  }
+  tabs.push({id:'profil',label:'Firmenprofil',show:true});
+
+  var tabBar=document.getElementById('mainTabs');
+  tabBar.innerHTML=tabs.filter(function(t){return t.show;}).map(function(t,i){
+    return '<div class="tab'+(i===0?' active':'')+'" data-tab="'+t.id+'">'+t.label+(t.badge?' <span id="'+t.badge+'" style="background:#f59e0b;color:#fff;border-radius:10px;padding:1px 7px;font-size:10px;font-weight:800;margin-left:4px;display:none">0</span>':'')+'</div>';
+  }).join('');
+
+  // Hide tab bodies that shouldn't be visible
+  document.querySelectorAll('.tab-body').forEach(function(tb){tb.classList.remove('active');});
+  var firstTab=tabs[0];
+  if(firstTab)document.getElementById('tb-'+firstTab.id)?.classList.add('active');
+
+  // Bind click events
   document.querySelectorAll('.tab').forEach(function(t){
     t.addEventListener('click',function(){
       document.querySelectorAll('.tab').forEach(function(x){x.classList.remove('active');});
       document.querySelectorAll('.tab-body').forEach(function(x){x.classList.remove('active');});
       t.classList.add('active');
-      document.getElementById('tb-'+t.dataset.tab).classList.add('active');
+      var tb=document.getElementById('tb-'+t.dataset.tab);
+      if(tb)tb.classList.add('active');
     });
   });
 }
@@ -388,6 +431,7 @@ function renderAll(){
   renderProdukte();
   renderAnfragen();
   renderRohrsysteme();
+  renderWerkzeuge();
   fillProfil();
 }
 
@@ -782,6 +826,68 @@ function quickReject(oaId){
 }
 
 // ── Profil ──
+function renderWerkzeuge(){
+  var el=document.getElementById('wzItems');if(!el)return;
+  // Prüfe ob User role_pruefer hat
+  var user=null;try{user=GemaAuth.getCurrentUser();}catch(e){}
+  if(!user)return;
+  var roles=user.roleIds||[];
+  var isPruefer=roles.indexOf('role_pruefer')>=0||roles.indexOf('role_admin')>=0;
+  if(!isPruefer){el.innerHTML='';return;}
+
+  // Werkzeuge aus localStorage laden (if_werkzeug Modul)
+  var wzData=null;
+  try{
+    var sk=(typeof GemaObjekte!=='undefined')?GemaObjekte.storageKey('gema_werkzeug_v1'):'gema_werkzeug_v1';
+    var r=localStorage.getItem(sk);
+    if(r)wzData=JSON.parse(r);
+  }catch(e){}
+
+  if(!wzData||!wzData.werkzeuge||!wzData.werkzeuge.length){
+    el.innerHTML='<p style="color:var(--mut);font-size:12px">Noch keine Werkzeuge erfasst oder zugewiesen. Werkzeuge werden im Modul <a href="if_werkzeug.html" style="color:#1d4ed8">Werkzeugmanagement</a> verwaltet.</p>';
+    return;
+  }
+
+  // Filter: nur zugewiesene Werkzeuge für diesen Prüfer
+  var userId=user.id;
+  var liefFirma=_lief?_lief.firma:'';
+  var meineWz=wzData.werkzeuge.filter(function(w){
+    // Zugewiesen wenn pruefer-Array den User oder die Firma enthält
+    if(!w.pruefer||!w.pruefer.length)return false;
+    return w.pruefer.some(function(p){return p===userId||p===liefFirma||p===user.username;});
+  });
+
+  // Admin sieht alle
+  if(roles.indexOf('role_admin')>=0)meineWz=wzData.werkzeuge;
+
+  if(!meineWz.length){
+    el.innerHTML='<p style="color:var(--mut);font-size:12px">Ihnen sind keine Werkzeuge zur Prüfung zugewiesen. '+wzData.werkzeuge.length+' Werkzeuge im System vorhanden.</p>';
+    return;
+  }
+
+  el.innerHTML=meineWz.map(function(w){
+    var statusColor=w.status==='ok'?'#16a34a':w.status==='pruefung_faellig'?'#d97706':'#dc2626';
+    var statusText=w.status==='ok'?'✓ OK':w.status==='pruefung_faellig'?'⚠ Prüfung fällig':'✕ Gesperrt';
+    return '<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--brd)">'+
+      '<div style="width:36px;height:36px;border-radius:8px;background:#eff4ff;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">🔧</div>'+
+      '<div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:700">'+E(w.name||w.bezeichnung||'Werkzeug')+'</div><div style="font-size:11px;color:var(--mut)">'+E(w.typ||'')+(w.seriennr?' · SN: '+E(w.seriennr):'')+(w.naechstePruefung?' · Nächste Prüfung: '+E(w.naechstePruefung):'')+'</div></div>'+
+      '<span style="font-size:10px;padding:3px 8px;border-radius:6px;font-weight:700;color:'+statusColor+';background:'+statusColor+'18;border:1px solid '+statusColor+'40">'+statusText+'</span>'+
+      '<a href="if_werkzeug.html?id='+encodeURIComponent(w.id||'')+'" style="font-size:11px;color:#1d4ed8;text-decoration:none;font-weight:700">Details →</a>'+
+    '</div>';
+  }).join('');
+
+  // Fällige Prüfungen
+  var pruefEl=document.getElementById('wzPruefungen');if(!pruefEl)return;
+  var heute=new Date().toISOString().split('T')[0];
+  var faellig=meineWz.filter(function(w){return w.naechstePruefung&&w.naechstePruefung<=heute;});
+  if(faellig.length){
+    pruefEl.innerHTML='<div style="color:#d97706;font-size:13px;font-weight:700;margin-bottom:8px">⚠ '+faellig.length+' Prüfung(en) fällig</div>'+
+      faellig.map(function(w){return '<div style="padding:6px 0;border-bottom:1px solid var(--brd);font-size:12px"><strong>'+E(w.name||'Werkzeug')+'</strong> — fällig seit '+E(w.naechstePruefung)+'</div>';}).join('');
+  } else {
+    pruefEl.innerHTML='<p style="color:var(--mut);font-size:13px">✓ Keine fälligen Prüfungen.</p>';
+  }
+}
+
 function renderRohrsysteme(){
   var el=document.getElementById('rsListe');if(!el)return;
   // Rohrsystem-Produkte aus Produktkatalog
