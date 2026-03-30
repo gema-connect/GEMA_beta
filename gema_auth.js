@@ -99,8 +99,15 @@
 
   // ── Default Org + User ─────────────────────────────────────────────
   var DEFAULT_ORGS = [{
-    id:'org_default', name:'Mein Unternehmen', logo:null, kategorie:'sanitaerplaner',
-    settings:{waehrung:'CHF',land:'CH'},
+    id:'org_default', name:'Jäggi Vollmer GmbH', logo:null, kategorie:'sanitaerplaner',
+    rechtsform:'GmbH',
+    adresse:{strasse:'Rheinfelderstrasse 10',plz:'4058',ort:'Basel',kanton:'BS',land:'CH'},
+    kontakt:{email:'info@jaeggivollmer.ch',telefon:'061 692 03 11',website:''},
+    settings:{waehrung:'CHF',land:'CH',sichtbarkeit:'firma',abteilungenAktiv:false},
+    abteilungen:[],
+    lizenzen:{typ:'pool',maxUser:5,aktiveUser:2,aboStart:'2025-01-01',aboEnde:'2026-12-31',gewerke:['sanitaer']},
+    admins:['user_admin'],
+    active:true,
     createdAt:new Date().toISOString()
   }];
 
@@ -628,6 +635,121 @@
       // Mandate die ein Unternehmer vergeben hat
       return w.GemaAuth.getMandate().filter(function(m){
         return m.unternehmerOrgId===orgId||m.unternehmerFirma===firma;
+      });
+    },
+
+    // ── Unternehmens-Verwaltung ──
+    isOrgAdmin:function(userId){
+      var user=userId?(_getUsers()||[]).find(function(u){return u.id===userId;}):w.GemaAuth.getCurrentUser();
+      if(!user)return false;
+      if(_isAdmin(user))return true;
+      var orgs=_getOrgs()||[];
+      var org=orgs.find(function(o){return o.id===user.orgId;});
+      return org&&org.admins&&org.admins.indexOf(user.id)>=0;
+    },
+    getOrgUsers:function(orgId){
+      var users=_getUsers()||[];
+      return users.filter(function(u){return u.orgId===orgId&&u.active;});
+    },
+    getOrgAbteilungen:function(orgId){
+      var orgs=_getOrgs()||[];
+      var org=orgs.find(function(o){return o.id===orgId;});
+      return org?org.abteilungen||[]:[];
+    },
+    createAbteilung:function(orgId,name,farbe,gewerke){
+      var orgs=_getOrgs()||[];
+      var org=orgs.find(function(o){return o.id===orgId;});
+      if(!org)return null;
+      if(!org.abteilungen)org.abteilungen=[];
+      var abt={id:'abt_'+Date.now(),name:name,farbe:farbe||'#6b7280',gewerke:gewerke||[],leiter:null};
+      org.abteilungen.push(abt);
+      w.GemaAuth.saveOrgs(orgs);
+      return abt;
+    },
+    removeAbteilung:function(orgId,abtId){
+      var orgs=_getOrgs()||[];
+      var org=orgs.find(function(o){return o.id===orgId;});
+      if(!org)return;
+      org.abteilungen=(org.abteilungen||[]).filter(function(a){return a.id!==abtId;});
+      // User in dieser Abteilung: abteilungId auf null setzen
+      var users=_getUsers()||[];
+      users.forEach(function(u){if(u.orgId===orgId&&u.abteilungId===abtId)u.abteilungId=null;});
+      w.GemaAuth.saveOrgs(orgs);w.GemaAuth.saveUsers(users);
+    },
+    setUserAbteilung:function(userId,abtId){
+      var users=_getUsers()||[];
+      var idx=users.findIndex(function(u){return u.id===userId;});
+      if(idx<0)return false;
+      users[idx].abteilungId=abtId;
+      return w.GemaAuth.saveUsers(users);
+    },
+    ernennOrgAdmin:function(orgId,userId){
+      var orgs=_getOrgs()||[];
+      var org=orgs.find(function(o){return o.id===orgId;});
+      if(!org)return;
+      if(!org.admins)org.admins=[];
+      if(org.admins.indexOf(userId)<0)org.admins.push(userId);
+      w.GemaAuth.saveOrgs(orgs);
+    },
+    entferneOrgAdmin:function(orgId,userId){
+      var orgs=_getOrgs()||[];
+      var org=orgs.find(function(o){return o.id===orgId;});
+      if(!org)return;
+      org.admins=(org.admins||[]).filter(function(id){return id!==userId;});
+      w.GemaAuth.saveOrgs(orgs);
+    },
+    updateOrgSettings:function(orgId,settings){
+      var orgs=_getOrgs()||[];
+      var org=orgs.find(function(o){return o.id===orgId;});
+      if(!org)return false;
+      org.settings=Object.assign(org.settings||{},settings);
+      return w.GemaAuth.saveOrgs(orgs);
+    },
+    updateOrgInfo:function(orgId,info){
+      var orgs=_getOrgs()||[];
+      var org=orgs.find(function(o){return o.id===orgId;});
+      if(!org)return false;
+      Object.keys(info).forEach(function(k){org[k]=info[k];});
+      return w.GemaAuth.saveOrgs(orgs);
+    },
+
+    // ── Gastzugang ──
+    requestGastZugang:function(userId,orgId){
+      var users=_getUsers()||[];
+      var user=users.find(function(u){return u.id===userId;});
+      if(!user)return null;
+      if(!user.gastZugaenge)user.gastZugaenge=[];
+      var orgs=_getOrgs()||[];
+      var org=orgs.find(function(o){return o.id===orgId;});
+      var gast={orgId:orgId,orgName:org?org.name:'',status:'angefragt',gueltigBis:null,erstelltAm:new Date().toISOString(),bewilligtVon:null};
+      user.gastZugaenge.push(gast);
+      w.GemaAuth.saveUsers(users);
+      return gast;
+    },
+    bewilligeGast:function(userId,orgId,gueltigBis,bewilligtVon){
+      var users=_getUsers()||[];
+      var user=users.find(function(u){return u.id===userId;});
+      if(!user||!user.gastZugaenge)return;
+      var g=user.gastZugaenge.find(function(x){return x.orgId===orgId;});
+      if(g){g.status='aktiv';g.gueltigBis=gueltigBis||null;g.bewilligtVon=bewilligtVon||'';}
+      w.GemaAuth.saveUsers(users);
+    },
+    deaktivierGast:function(userId,orgId){
+      var users=_getUsers()||[];
+      var user=users.find(function(u){return u.id===userId;});
+      if(!user||!user.gastZugaenge)return;
+      var g=user.gastZugaenge.find(function(x){return x.orgId===orgId;});
+      if(g)g.status='deaktiviert';
+      w.GemaAuth.saveUsers(users);
+    },
+    getGastOrgs:function(userId){
+      // Alle Orgs wo dieser User aktiver Gast ist
+      var users=_getUsers()||[];
+      var user=users.find(function(u){return u.id===userId;});
+      if(!user||!user.gastZugaenge)return[];
+      var heute=new Date().toISOString().split('T')[0];
+      return user.gastZugaenge.filter(function(g){
+        return g.status==='aktiv'&&(!g.gueltigBis||g.gueltigBis>=heute);
       });
     },
 

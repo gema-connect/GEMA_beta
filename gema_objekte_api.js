@@ -69,15 +69,40 @@
 
   function _invalidate() { _cache = null; _loaded = false; }
 
-  // ── Tenant-Filter ─────────────────────────────────────────────────
-  // Admin sieht alle Objekte; andere User nur die ihrer eigenen Org.
+  // ── Tenant-Filter mit Abteilungen + Gastzugang ─────────────────
   function _filterByOrg(list) {
     if (typeof GemaAuth === 'undefined') return list;
     if (GemaAuth.isAdmin()) return list;
     var user = GemaAuth.getCurrentUser();
     if (!user) return [];
     var orgId = user.orgId || 'org_default';
-    return list.filter(function(o) { return (o.orgId || 'org_default') === orgId; });
+
+    // Eigene Org + Gast-Orgs
+    var sichtbareOrgs = [orgId];
+    if (typeof GemaAuth.getGastOrgs === 'function') {
+      GemaAuth.getGastOrgs(user.id).forEach(function(g) { sichtbareOrgs.push(g.orgId); });
+    }
+
+    // Filter nach Org
+    var orgFiltered = list.filter(function(o) {
+      return sichtbareOrgs.indexOf(o.orgId || 'org_default') >= 0;
+    });
+
+    // Abteilungs-Filter (wenn aktiviert)
+    var org = null;
+    try { org = GemaAuth.getCurrentOrg(); } catch(e) {}
+    if (org && org.settings && org.settings.sichtbarkeit === 'abteilung' && org.settings.abteilungenAktiv && user.abteilungId) {
+      // Unternehmens-Admin sieht alles in seiner Org
+      if (typeof GemaAuth.isOrgAdmin === 'function' && GemaAuth.isOrgAdmin(user.id)) return orgFiltered;
+      // Normaler User: nur Projekte seiner Abteilung (oder ohne Abteilung)
+      return orgFiltered.filter(function(o) {
+        if ((o.orgId || 'org_default') !== orgId) return true; // Gast-Orgs: keine Abt-Filterung
+        return !o.abteilungId || o.abteilungId === user.abteilungId
+          || (Array.isArray(o.abteilungIds) && o.abteilungIds.indexOf(user.abteilungId) >= 0);
+      });
+    }
+
+    return orgFiltered;
   }
 
   // API

@@ -289,17 +289,66 @@ Login-Light User (z.B. eingeladener Lieferant)
 
 ---
 
-## 9. Offene Fragen
+## 9. Beantwortete Fragen
 
-1. **Mehrere Unternehmen pro User?** — Kann ein User (z.B. externer Berater) mehreren Unternehmen angehören? Aktuell: nein (ein orgId pro User).
+1. **Mehrere Unternehmen pro User?** — Nein, aber **Gastzugang** möglich: User kann Gastzutritt bei einem anderen Unternehmen anfordern. Unternehmens-Admin bewilligt oder fügt direkt als Gast hinzu. Zeitlich beschränkbar, jederzeit deaktivierbar. Daten die der Gast erstellt hat bleiben beim Unternehmen sichtbar, nicht beim ehemaligen Gast.
 
-2. **Abteilungs-übergreifende Projekte?** — Kann ein Projekt mehreren Abteilungen zugeordnet werden (z.B. Sanitär + Heizung beim selben Objekt)?
+2. **Abteilungs-übergreifende Projekte?** — Ja! Ein Projekt kann mehreren Abteilungen zugeordnet werden.
 
-3. **Unternehmens-Admin Stellvertreter?** — Soll es mehrere Admins pro Unternehmen geben können? (aktuell: ja, admins ist ein Array)
+3. **Unternehmens-Admin Stellvertreter?** — Ja! Mehrere Admins pro Unternehmen möglich (admins ist Array).
 
-4. **Lizenz-Verwaltung Detail?** — Was passiert wenn alle Lizenzen verbraucht sind? Einladung blockiert? Warnung? Grace Period?
+4. **Lizenz-Verwaltung Detail?** — Gast braucht eigene Lizenz, das aufnehmende Unternehmen zahlt nichts dafür. Lizenzen: **Pool-Lizenzen** (Firma kauft X Stück, Admin verteilt) UND **Einzellizenzen** möglich. Pool-Lizenzen müssen mindestens 30 Tage bei einem User bleiben. Ohne Unternehmen: "Kein Unternehmen" Badge.
 
-5. **Migration bestehender Daten?** — Wie werden bestehende User (ohne orgId oder mit 'org_default') migriert?
+5. **Migration bestehender Daten?** — Bestehende User mit 'org_default' erhalten "Kein Unternehmen" Badge und können einem Unternehmen beitreten.
+
+### Ergänzungen
+- **Benutzer-Einstellungen**: Normaler User kann eigene Einstellungen verwalten (Standard-BKP, Passwort, Sprache etc.) — nur unternehmensweite Einstellungen sind dem Admin vorbehalten.
+- **Gastzugang**: Neues Datenmodell `gastZugaenge` auf dem User: `[{orgId, status:'aktiv'|'abgelaufen', gueltigBis, erstelltAm}]`
+
+---
+
+## 10. Gastzugang — Detail
+
+### Datenstruktur auf User
+```javascript
+{
+  // ... bestehende Felder ...
+  gastZugaenge: [
+    {
+      orgId: 'org_xxx',
+      orgName: 'Müller Engineering AG',
+      status: 'aktiv',           // 'angefragt' | 'aktiv' | 'deaktiviert' | 'abgelaufen'
+      gueltigBis: '2026-12-31',  // null = unbefristet
+      erstelltAm: '2026-03-30',
+      bewilligtVon: 'user_xxx',  // Unternehmens-Admin der bewilligt hat
+    }
+  ]
+}
+```
+
+### Sichtbarkeit für Gäste
+- Gast sieht Projekte des Gast-Unternehmens gemäss dessen Sichtbarkeits-Einstellung
+- Gast kann Daten erstellen/bearbeiten (gemäss seiner Rolle)
+- Nach Deaktivierung: Gast sieht nichts mehr, aber seine Daten bleiben beim Unternehmen
+
+### Lizenz für Gäste
+- Gast braucht eigene Lizenz (Einzellizenz oder Pool seines eigenen Unternehmens)
+- Das aufnehmende Unternehmen zahlt NICHTS für den Gast
+
+---
+
+## 11. Lizenzen — Detail
+
+### Lizenz-Typen
+| Typ | Beschreibung |
+|-----|-------------|
+| **Einzellizenz** | Pro User, direkt dem User zugeordnet |
+| **Pool-Lizenz** | Firma kauft X Stück, Admin verteilt an User |
+
+### Pool-Lizenz Regeln
+- Mindestens **30 Tage** bei einem User bevor sie umverteilt werden kann
+- Admin sieht: wer hat welche Lizenz, seit wann, wann umverteilbar
+- Bei Deaktivierung eines Users: Lizenz wird nach 30 Tagen frei
 
 ---
 
