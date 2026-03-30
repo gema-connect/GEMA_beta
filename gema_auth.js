@@ -417,6 +417,11 @@
             document.addEventListener('DOMContentLoaded',function(){
               if(!_isAdmin(user)) _applyUI(perms);
               _applyLoginLight(user);
+              // Org-Admin Button sichtbar machen
+              if(w.GemaAuth.isOrgAdmin(user.id)){
+                var oab=document.getElementById('navOrgAdmin');
+                if(oab)oab.style.display='';
+              }
               _injectBadge(user,roles,userOrg);
               _swapLogo(userOrg);
               _autoFillBearbeiter(user);
