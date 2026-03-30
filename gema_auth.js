@@ -172,6 +172,36 @@
     }
   }
 
+  // ── Login-Light Einschränkungen ─────────────────────────────────
+  function _applyLoginLight(user){
+    if(!user||user.kontotyp!=='login_light')return;
+    var aboTyp=user.abo?user.abo.typ:'light';
+    var isTest=aboTyp==='testphase';
+    var testExpired=isTest&&user.abo.testphaseEnde&&user.abo.testphaseEnde<new Date().toISOString().split('T')[0];
+    if(isTest&&!testExpired)return; // Testphase aktiv → voller Zugang
+
+    // Copy-Schutz: kein Textmarkieren auf geschützten Bereichen
+    var css=document.createElement('style');
+    css.textContent='.gema-protected{user-select:none!important;-webkit-user-select:none!important}.gema-blur{filter:blur(5px)!important;pointer-events:none!important;user-select:none!important}';
+    document.head.appendChild(css);
+
+    // Projektdaten + Planerdaten schützen
+    setTimeout(function(){
+      document.querySelectorAll('.project-bar,.pf,#metaProjekt,#metaBearbeiter').forEach(function(el){el.classList.add('gema-protected');});
+      // Download-Buttons verstecken
+      document.querySelectorAll('button[onclick*="PDF"],button[onclick*="export"],a[download]').forEach(function(el){
+        el.style.display='none';
+      });
+    },500);
+
+    // Upgrade-Banner anzeigen
+    var banner=document.createElement('div');
+    banner.style.cssText='position:fixed;bottom:0;left:0;right:0;background:linear-gradient(135deg,#1e3a5f,#0f172a);color:#fff;padding:14px 24px;font-size:13px;z-index:9998;display:flex;align-items:center;justify-content:center;gap:16px;font-family:system-ui';
+    banner.innerHTML='<span>🔒 <strong>Login-Light</strong> — PDF-Download und Textkopiermöglichkeit mit Abo freigeschaltet</span>'
+      +'<button onclick="location.href=\'sys_lieferant_dashboard.html\'" style="background:#f59e0b;color:#fff;border:none;padding:8px 18px;border-radius:8px;font-weight:700;cursor:pointer;font-size:12px;white-space:nowrap">Abo wählen →</button>';
+    document.body.appendChild(banner);
+  }
+
   // ── Logo Swap ──────────────────────────────────────────────────────
   function _swapLogo(org) {
     if (!org || !org.logo) return;
@@ -319,6 +349,7 @@
             _unblock();
             document.addEventListener('DOMContentLoaded',function(){
               if(!_isAdmin(user)) _applyUI(perms);
+              _applyLoginLight(user);
               _injectBadge(user,roles,userOrg);
               _swapLogo(userOrg);
               _autoFillBearbeiter(user);
@@ -384,6 +415,75 @@
     saveOrgCats:function(c){try{localStorage.setItem(STORAGE_ORG_CATS,JSON.stringify(c));return true;}catch(e){return false;}},
     saveUsers:function(u){try{localStorage.setItem(STORAGE_USERS,JSON.stringify(u));return true;}catch(e){return false;}},
     saveRoles:function(r){try{localStorage.setItem(STORAGE_ROLES,JSON.stringify(r));return true;}catch(e){return false;}},
+
+    // ── Einladungssystem ──
+    inviteLieferant:function(opts){
+      // Erstellt einen Login-Light User für einen Lieferanten
+      var users=_getUsers()||[];
+      var token='inv_'+Date.now()+'_'+Math.random().toString(36).substring(2,8);
+      var userId='user_lief_'+Date.now();
+      var user={
+        id:userId,
+        username:opts.email||token,
+        name:opts.firma||opts.person||'Lieferant',
+        password:null, // Wird beim ersten Login gesetzt
+        roleIds:['role_lieferant'],
+        orgId:opts.orgId||'org_default',
+        active:true,
+        createdAt:new Date().toISOString(),
+        profile:{
+          email:opts.email||'',
+          telefon:opts.tel||'',
+          firma:opts.firma||'',
+          person:opts.person||'',
+          sprache:'de',
+          benachrichtigungen:true
+        },
+        kontotyp:'login_light', // 'login_light' oder 'vollzugang'
+        einladung:{
+          token:token,
+          eingeladenVon:opts.eingeladenVon||'',
+          eingeladenAm:new Date().toISOString(),
+          angenommenAm:null,
+          passwortGesetzt:false
+        },
+        abo:{typ:'light',testphaseEnde:null}
+      };
+      users.push(user);
+      w.GemaAuth.saveUsers(users);
+      return{user:user,token:token,loginUrl:'sys_login.html?invite='+token};
+    },
+
+    // Token-basiertes Erstlogin
+    activateInvitation:function(token,password){
+      var users=_getUsers()||[];
+      var user=users.find(function(u){return u.einladung&&u.einladung.token===token;});
+      if(!user)return null;
+      user.password=_hash(password);
+      user.einladung.angenommenAm=new Date().toISOString();
+      user.einladung.passwortGesetzt=true;
+      // 30-Tage Testphase starten
+      var testEnde=new Date();testEnde.setDate(testEnde.getDate()+30);
+      user.abo={typ:'testphase',testphaseEnde:testEnde.toISOString().split('T')[0]};
+      w.GemaAuth.saveUsers(users);
+      return user;
+    },
+
+    // Prüfe ob User Login-Light ist
+    isLoginLight:function(user){
+      if(!user)user=w.GemaAuth.getCurrentUser();
+      return user&&user.kontotyp==='login_light'&&(!user.abo||user.abo.typ==='light'||user.abo.typ==='testphase');
+    },
+
+    // Abo upgraden
+    upgradeAbo:function(userId,aboTyp){
+      var users=_getUsers()||[];
+      var idx=users.findIndex(function(u){return u.id===userId;});
+      if(idx<0)return false;
+      users[idx].abo={typ:aboTyp};
+      users[idx].kontotyp='vollzugang';
+      return w.GemaAuth.saveUsers(users);
+    },
 
     updateProfile:function(userId,profile){
       var users=_getUsers()||[];

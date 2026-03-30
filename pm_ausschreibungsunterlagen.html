@@ -1884,7 +1884,11 @@ VIEWS.pbet=function(){
   let h=`<div style="display:flex;justify-content:space-between;margin-bottom:20px"><h2 style="font-size:20px;font-weight:700">Beteiligte</h2><button class="btn btn-p" onclick="oM('mPerson')">+ Hinzufügen</button></div>`;
   [{r:'installateur',ic:'👷',co:'var(--grn)',label:'Installateure'},{r:'lieferant',ic:'🏭',co:'var(--amb)',label:'Lieferanten'},{r:'architekt',ic:'🏛',co:'var(--blue)',label:'Architekten'}].forEach(({r,ic,co,label})=>{
     const ls=S.beteiligte.filter(b=>b.rolle===r);
-    h+=`<div class="card"><div class="card-hd"><h3>${ic} ${label}</h3><span class="tag t-gy">${ls.length}</span></div><div class="card-bd">${!ls.length?'<p style="color:var(--mut)">—</p>':ls.map(p=>`<div class="cr"><div class="ca" style="background:${co}">${p.firma.charAt(0)}</div><div class="ci"><div class="cn">${E(p.firma)}</div><div class="cd">${E(p.person)} · ${E(p.email)} · ${E(p.tel)}</div></div><button class="btn btn-d btn-sm" onclick="rmP('${p.id}')">✕</button></div>`).join('')}</div></div>`;
+    h+=`<div class="card"><div class="card-hd"><h3>${ic} ${label}</h3><span class="tag t-gy">${ls.length}</span></div><div class="card-bd">${!ls.length?'<p style="color:var(--mut)">—</p>':ls.map((p,pi)=>{
+      var idx=S.beteiligte.indexOf(p);
+      var invBtn=r==='lieferant'?(p._einladungGesendet?'<span class="tag t-gr" style="font-size:10px">✉ Eingeladen</span>':'<button class="btn btn-s btn-sm" onclick="inviteLieferant('+idx+')">✉ Einladen</button>'):'';
+      return `<div class="cr"><div class="ca" style="background:${co}">${p.firma.charAt(0)}</div><div class="ci"><div class="cn">${E(p.firma)}</div><div class="cd">${E(p.person)} · ${E(p.email)} · ${E(p.tel)}</div></div>${invBtn}<button class="btn btn-d btn-sm" onclick="rmP('${p.id}')">✕</button></div>`;
+    }).join('')}</div></div>`;
   });
   return h;
 };
@@ -2574,6 +2578,21 @@ function addPerson(){const r=document.getElementById('apR').value,f=document.get
   const obj={id:r.substring(0,4)+'-'+Date.now(),rolle:r,firma:f,person:document.getElementById('apP').value.trim(),email:document.getElementById('apE').value.trim(),tel:document.getElementById('apT').value.trim(),gewerke:document.getElementById('apG').value.trim(),profil:{}};
   if(r==='lieferant')obj.abo={aktiv:false,typ:'gratis',gewerke:[]};if(r==='installateur')obj.abo={typ:'gratis',aktiv:true};
   S.beteiligte.push(obj);save();lg('👥','+',f);cM('mPerson');['apF','apP','apE','apT','apG'].forEach(x=>document.getElementById(x).value='');toast(f+' ✓');buildTabs();nav(S.currentRole==='planer'?'pbet':defP());}
+function inviteLieferant(beteiligterIdx){
+  var b=S.beteiligte[beteiligterIdx];if(!b)return;
+  if(!b.email){toast('E-Mail fehlt — bitte zuerst E-Mail erfassen','error');return;}
+  if(typeof GemaAuth==='undefined'){toast('Auth nicht geladen','error');return;}
+  var result=GemaAuth.inviteLieferant({
+    firma:b.firma,person:b.person,email:b.email,tel:b.tel,
+    eingeladenVon:S.currentRole
+  });
+  b._einladungGesendet=true;b._loginUrl=result.loginUrl;
+  save();
+  lg('📨','Lieferant eingeladen',b.firma+' ('+b.email+')');
+  toast('✉ Einladung an '+b.firma+' gesendet — Login-URL: '+result.loginUrl);
+  nav('pbet');
+}
+
 function rmP(id){const p=S.beteiligte.find(b=>b.id===id);dlgConfirm(E(p?.firma)+' entfernen?','Dieser Beteiligte wird aus der Liste gelöscht.',()=>{S.beteiligte=S.beteiligte.filter(b=>b.id!==id);save();toast('Entfernt');nav('pbet');});}
 
 // ── Abo Gate ──
