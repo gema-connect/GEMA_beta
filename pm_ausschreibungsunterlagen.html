@@ -9,6 +9,8 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<link href="https://cdnjs.cloudflare.com/ajax/libs/quill/2.0.2/quill.snow.min.css" rel="stylesheet"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/quill/2.0.2/quill.min.js"></script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{--bg:#f4f6fb;--bg2:#edf0f7;--sur:#fff;--sur2:#f8faff;--brd:#e2e7f0;--brd2:#cdd4e4;--txt:#111827;--txt2:#374151;--mut:#6b7280;--mut2:#9ca3af;--blue:#2563eb;--blue-bg:#eff4ff;--blue-bd:#bfcfff;--blue-dk:#1d4ed8;--grn:#16a34a;--grn-bg:#f0fdf4;--grn-bd:#bbf7d0;--red:#dc2626;--red-bg:#fef2f2;--red-bd:#fecaca;--amb:#d97706;--amb-bg:#fffbeb;--amb-bd:#fde68a;--pur:#7c3aed;--pur-bg:#f5f3ff;--pur-bd:#ddd6fe;--acc:#b45309;--acc-bg:#fffbeb;--acc-bd:#fde68a;--r:14px;--r-sm:9px;--r-lg:20px;--sh-sm:0 1px 4px rgba(0,0,0,.07);--sh:0 4px 16px rgba(0,0,0,.08);--sh-lg:0 20px 60px rgba(0,0,0,.16);--sans:"DM Sans",ui-sans-serif,system-ui,sans-serif}
@@ -599,14 +601,16 @@ const ABOS_INST=ABOS_UN;
 const ABOS_LIEF=ABOS_LF;
 
 // ── VORBEDINGUNGEN KAPITEL ──
-const VB_KAPITEL=[
-  {id:'allg',name:'1. Allgemeiner Beschrieb',placeholder:'Projektbeschreibung, Gebäudetyp, Nutzung…'},
-  {id:'bed',name:'2. Bedingungen Fachingenieur',placeholder:'Grundlagen, objektbezogene Bedingungen, Termine, Normen (SIA 118, SIA 380, suissetec)…'},
-  {id:'ang',name:'3. Angaben Unternehmer',placeholder:'Allgemeine Angaben, Versicherungsnachweis…'},
-  {id:'pers',name:'4. Anzahl einsetzbare Mitarbeiter',placeholder:'Leitende Monteure, Servicemonteure, A/B/C-Monteure, Lernende…'},
-  {id:'regie',name:'5. Regiearbeiten',placeholder:'Lohnansätze, Zuschläge Sonderarbeitszeiten gem. SIA 118/380…'},
-  {id:'komm',name:'6. Kommerzielle Bedingungen',placeholder:'Preise, Rechtsverhältnisse, Subunternehmen, Zahlungsbedingungen, Garantie, Arbeitssicherheit, Materialwahl…'}
+const VB_STANDARD=[
+  {id:'allg',name:'Allgemeiner Beschrieb',placeholder:'Projektbeschreibung, Gebäudetyp, Nutzung…'},
+  {id:'bed',name:'Bedingungen Fachingenieur',placeholder:'Grundlagen, objektbezogene Bedingungen, Termine, Normen (SIA 118, SIA 380, suissetec)…'},
+  {id:'ang',name:'Angaben Unternehmer',placeholder:'Allgemeine Angaben, Versicherungsnachweis…'},
+  {id:'pers',name:'Anzahl einsetzbare Mitarbeiter',placeholder:'Leitende Monteure, Servicemonteure, A/B/C-Monteure, Lernende…'},
+  {id:'regie',name:'Regiearbeiten',placeholder:'Lohnansätze, Zuschläge Sonderarbeitszeiten gem. SIA 118/380…'},
+  {id:'komm',name:'Kommerzielle Bedingungen',placeholder:'Preise, Rechtsverhältnisse, Subunternehmen, Zahlungsbedingungen, Garantie, Arbeitssicherheit, Materialwahl…'}
 ];
+// Legacy compatibility
+const VB_KAPITEL=VB_STANDARD;
 
 // ── STATE ──
 let S={
@@ -2392,86 +2396,152 @@ function renderAbzModal(){const a=curA();if(!a)return;const el=document.getEleme
 function addAbzug(){const a=curA();if(!a)return;a.abzuege.push({id:'abz-'+Date.now(),name:'Neuer Abzug',typ:'prozent',aktiv:true});renderAbzModal();}
 function saveAbzug(){save();cM('mAbzug');nav('pdet');toast('Abzüge gespeichert');}
 
-// ── Vorbedingungen ──
-function editVB(){const a=curA();if(!a)return;
-  const vb=a.vorbedingungen||{};const kap=vb.kapitel||{};const struct=vb.strukturiert||{};
-  let h=`<div style="display:flex;align-items:center;gap:10px;margin-bottom:16px"><button class="btn btn-g btn-sm" onclick="nav('pdet')">← Zurück</button><h2 style="font-size:20px;font-weight:700;flex:1">📜 Vorbedingungen</h2>
-    <select class="fc" style="width:auto" id="vbModus" onchange="toggleVBModus()"><option value="gema" ${vb.modus!=='pdf'?'selected':''}>GEMA-Vorlage</option><option value="pdf" ${vb.modus==='pdf'?'selected':''}>Eigenes PDF</option></select>
-    <button class="btn btn-p" onclick="saveVB()">💾 Speichern</button>
-  </div>`;
+// ── Vorbedingungen (Rich-Text Editor mit Kapitel-Navigation) ──
+var _vbQuill=null;
+var _vbActiveKap=0;
+var _vbKapitel=[]; // [{id,name,html}] — wird pro Ausschreibung gespeichert
 
-  h+=`<div id="vbPdfArea" style="display:${vb.modus==='pdf'?'block':'none'}"><div class="fg"><label class="fl">PDF-Datei</label><input type="file" class="fc" id="vbPdf" accept=".pdf" style="padding:6px"/></div></div>`;
+function editVB(){
+  var a=curA();if(!a)return;
+  var vb=a.vorbedingungen||{};
+  // Lade Kapitel: aus gespeicherten oder Standard
+  _vbKapitel=vb.kapitelListe?JSON.parse(JSON.stringify(vb.kapitelListe)):VB_STANDARD.map(function(k){return{id:k.id,name:k.name,html:vb.kapitel?.[k.id]||''};});
+  _vbActiveKap=0;
 
-  h+=`<div id="vbKapArea" style="display:${vb.modus==='pdf'?'none':'flex'};gap:0;min-height:70vh">`;
-  // Tab sidebar
-  h+=`<div style="width:220px;flex-shrink:0;border-right:1.5px solid var(--brd);background:var(--sur);border-radius:var(--r) 0 0 var(--r);overflow:hidden">`;
-  VB_KAPITEL.forEach((k,i)=>{h+=`<button class="vb-tab${i===0?' active':''}" data-vbi="${i}" onclick="vbSwitchTab(${i})" style="display:block;width:100%;padding:12px 14px;border:none;background:none;text-align:left;font-family:var(--sans);font-size:12px;font-weight:600;color:var(--mut);cursor:pointer;border-bottom:1px solid var(--brd);transition:.12s">${E(k.name)}</button>`;});
-  // Extra tab for structured fields
-  h+=`<button class="vb-tab" data-vbi="struct" onclick="vbSwitchTab('struct')" style="display:block;width:100%;padding:12px 14px;border:none;background:var(--amb-bg);text-align:left;font-family:var(--sans);font-size:12px;font-weight:700;color:#92400e;cursor:pointer;border-bottom:1px solid var(--brd)">⚙ Regieansätze & Versicherung</button>`;
-  h+=`</div>`;
+  var h='<div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">';
+  h+='<button class="btn btn-g btn-sm" onclick="nav(\'pdet\')">← Zurück</button>';
+  h+='<h2 style="font-size:20px;font-weight:700;flex:1">📜 Vorbedingungen</h2>';
+  h+='<select class="fc" style="width:auto" id="vbModus" onchange="toggleVBModus()"><option value="gema" '+(vb.modus!=='pdf'?'selected':'')+'>GEMA-Vorlage</option><option value="pdf" '+(vb.modus==='pdf'?'selected':'')+'>Eigenes PDF</option></select>';
+  h+='<button class="btn btn-p" onclick="saveVB()">💾 Speichern</button>';
+  h+='</div>';
 
-  // Content panels
-  h+=`<div style="flex:1;overflow-y:auto;background:var(--sur);border-radius:0 var(--r) var(--r) 0">`;
-  VB_KAPITEL.forEach((k,i)=>{
-    h+=`<div class="vb-panel${i===0?' active':''}" id="vbP${i}" style="${i>0?'display:none;':''}padding:20px 24px">
-      <h3 style="font-size:15px;font-weight:800;margin-bottom:4px">${E(k.name)}</h3>
-      <p style="font-size:12px;color:var(--mut);margin-bottom:12px">${E(k.placeholder)}</p>
-      <textarea class="fc" id="vb_${k.id}" style="min-height:50vh;font-size:13px;line-height:1.7" placeholder="${E(k.placeholder)}">${E(kap[k.id]||'')}</textarea>
-    </div>`;
-  });
+  h+='<div id="vbPdfArea" style="display:'+(vb.modus==='pdf'?'block':'none')+'"><div class="fg"><label class="fl">PDF-Datei</label><input type="file" class="fc" id="vbPdf" accept=".pdf" style="padding:6px"/></div></div>';
 
-  // Structured fields panel
-  h+=`<div class="vb-panel" id="vbPstruct" style="display:none;padding:20px 24px">
-    <h3 style="font-size:15px;font-weight:800;margin-bottom:12px">⚙ Regieansätze & Versicherung</h3>
-    <div class="ip" style="margin-bottom:16px">Diese Felder werden vom Planer definiert. Der Unternehmer füllt sie mit seinen Profildaten automatisch aus (Basic-Abo).</div>
-    <h4 style="font-size:12px;font-weight:800;color:var(--acc);margin-bottom:8px">REGIEANSÄTZE (CHF/Std. — Planer definiert welche Kategorien abgefragt werden)</h4>
-    <div class="g3" style="margin-bottom:16px">
-      <label style="display:flex;align-items:center;gap:6px;font-size:12px"><input type="checkbox" id="vbR_inhaber" ${struct.regie?.inhaber!==false?'checked':''} style="accent-color:var(--acc)"/> Inhaber/Techniker</label>
-      <label style="display:flex;align-items:center;gap:6px;font-size:12px"><input type="checkbox" id="vbR_montagechef" ${struct.regie?.montagechef!==false?'checked':''} style="accent-color:var(--acc)"/> Montagechef</label>
-      <label style="display:flex;align-items:center;gap:6px;font-size:12px"><input type="checkbox" id="vbR_leitMonteur" ${struct.regie?.leitMonteur!==false?'checked':''} style="accent-color:var(--acc)"/> Leit. Monteur</label>
-      <label style="display:flex;align-items:center;gap:6px;font-size:12px"><input type="checkbox" id="vbR_aMonteur" ${struct.regie?.aMonteur!==false?'checked':''} style="accent-color:var(--acc)"/> A-Monteur</label>
-      <label style="display:flex;align-items:center;gap:6px;font-size:12px"><input type="checkbox" id="vbR_bMonteur" ${struct.regie?.bMonteur!==false?'checked':''} style="accent-color:var(--acc)"/> B-Monteur</label>
-      <label style="display:flex;align-items:center;gap:6px;font-size:12px"><input type="checkbox" id="vbR_lehrling" ${struct.regie?.lehrling!==false?'checked':''} style="accent-color:var(--acc)"/> Lehrling</label>
-    </div>
-    <h4 style="font-size:12px;font-weight:800;color:var(--acc);margin-bottom:8px">ZUSCHLÄGE SONDERARBEITSZEITEN</h4>
-    <div class="g2" style="margin-bottom:16px">
-      <label style="display:flex;align-items:center;gap:6px;font-size:12px"><input type="checkbox" id="vbZ_ueberzeit" ${struct.zuschlaege?.ueberzeit!==false?'checked':''} style="accent-color:var(--acc)"/> Überzeit</label>
-      <label style="display:flex;align-items:center;gap:6px;font-size:12px"><input type="checkbox" id="vbZ_nacht" ${struct.zuschlaege?.nacht!==false?'checked':''} style="accent-color:var(--acc)"/> Nacht-/Sa./So.-Arbeit</label>
-    </div>
-    <h4 style="font-size:12px;font-weight:800;color:var(--acc);margin-bottom:8px">VERSICHERUNG (Planer fordert an)</h4>
-    <div class="g2" style="margin-bottom:16px">
-      <label style="display:flex;align-items:center;gap:6px;font-size:12px"><input type="checkbox" id="vbV_deckung" ${struct.versicherung?.deckung!==false?'checked':''} style="accent-color:var(--acc)"/> Deckungssummen anfordern</label>
-      <label style="display:flex;align-items:center;gap:6px;font-size:12px"><input type="checkbox" id="vbV_police" ${struct.versicherung?.police!==false?'checked':''} style="accent-color:var(--acc)"/> Policen-Nr. anfordern</label>
-    </div>
-    <h4 style="font-size:12px;font-weight:800;color:var(--acc);margin-bottom:8px">PERSONAL (Planer fordert an)</h4>
-    <div class="g2">
-      <label style="display:flex;align-items:center;gap:6px;font-size:12px"><input type="checkbox" id="vbP_anzahl" ${struct.personal?.anzahl!==false?'checked':''} style="accent-color:var(--acc)"/> Personalbestand anfordern</label>
-      <label style="display:flex;align-items:center;gap:6px;font-size:12px"><input type="checkbox" id="vbP_tv" ${struct.personal?.tv!==false?'checked':''} style="accent-color:var(--acc)"/> Techn. Verantwortlicher</label>
-    </div>
-  </div>`;
+  h+='<div id="vbKapArea" style="display:'+(vb.modus==='pdf'?'none':'flex')+';gap:0;min-height:70vh;border:1.5px solid var(--brd);border-radius:var(--r);overflow:hidden">';
+  // Sidebar: Kapitel-Navigation
+  h+='<div id="vbSidebar" style="width:240px;flex-shrink:0;border-right:1.5px solid var(--brd);background:#f8faff;display:flex;flex-direction:column">';
+  h+='<div style="padding:10px 14px;border-bottom:1px solid var(--brd);display:flex;align-items:center;gap:6px">';
+  h+='<span style="font-size:11px;font-weight:800;color:var(--mut);text-transform:uppercase;letter-spacing:.4px;flex:1">Kapitel</span>';
+  h+='<button class="btn btn-sm" onclick="vbAddKapitel()" style="padding:2px 8px;font-size:11px">+</button>';
+  h+='</div>';
+  h+='<div id="vbKapList" style="flex:1;overflow-y:auto"></div>';
+  h+='</div>';
+  // Editor area
+  h+='<div style="flex:1;display:flex;flex-direction:column;background:var(--sur)">';
+  h+='<div id="vbEditorWrap" style="flex:1;display:flex;flex-direction:column"></div>';
+  h+='</div>';
+  h+='</div>';
 
-  h+=`</div></div>`;
   document.getElementById('PA').innerHTML=h;
-  // Style active tab
-  document.querySelectorAll('.vb-tab').forEach(t=>{if(t.classList.contains('active'))t.style.background='var(--acc-bg)';t.style.color=t.classList.contains('active')?'var(--acc)':'var(--mut)';});
+  renderVBKapList();
+  initVBEditor();
 }
-function vbSwitchTab(idx){
-  document.querySelectorAll('.vb-tab').forEach(t=>{const a=t.dataset.vbi==String(idx);t.classList.toggle('active',a);t.style.background=a?'var(--acc-bg)':'';t.style.color=a?'var(--acc)':'var(--mut)';});
-  document.querySelectorAll('.vb-panel').forEach(p=>p.style.display='none');
-  const panel=document.getElementById('vbP'+idx);if(panel)panel.style.display='block';
+
+function renderVBKapList(){
+  var list=document.getElementById('vbKapList');if(!list)return;
+  list.innerHTML=_vbKapitel.map(function(k,i){
+    var isAct=i===_vbActiveKap;
+    return '<div class="vb-kap-item" draggable="true" data-vbki="'+i+'" onclick="vbSelectKap('+i+')" style="display:flex;align-items:center;gap:6px;padding:10px 14px;border-bottom:1px solid var(--brd);cursor:pointer;background:'+(isAct?'var(--acc-bg)':'transparent')+';transition:.12s;font-size:12px">'
+      +'<span style="cursor:grab;color:var(--mut2);font-size:12px;flex-shrink:0">⠿</span>'
+      +'<span style="width:20px;height:20px;border-radius:50%;background:'+(isAct?'var(--acc)':'var(--brd)')+';color:'+(isAct?'#fff':'var(--mut)')+';display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;flex-shrink:0">'+(i+1)+'</span>'
+      +'<span style="flex:1;font-weight:'+(isAct?'700':'600')+';color:'+(isAct?'var(--acc)':'var(--txt)')+';overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+E(k.name)+'</span>'
+      +(_vbKapitel.length>1?'<button onclick="event.stopPropagation();vbRemoveKap('+i+')" style="background:none;border:none;color:var(--mut2);cursor:pointer;font-size:10px;padding:2px" title="Entfernen">✕</button>':'')
+      +'</div>';
+  }).join('');
+  // Drag & Drop auf Kapitel
+  list.querySelectorAll('.vb-kap-item').forEach(function(el){
+    el.addEventListener('dragstart',function(e){e.dataTransfer.setData('text/plain',el.dataset.vbki);el.style.opacity='0.4';});
+    el.addEventListener('dragend',function(){el.style.opacity='1';});
+    el.addEventListener('dragover',function(e){e.preventDefault();el.style.borderTop='3px solid #1d4ed8';});
+    el.addEventListener('dragleave',function(){el.style.borderTop='';});
+    el.addEventListener('drop',function(e){
+      e.preventDefault();el.style.borderTop='';
+      var from=parseInt(e.dataTransfer.getData('text/plain'));
+      var to=parseInt(el.dataset.vbki);
+      if(from===to)return;
+      vbSaveCurrentKap();
+      var moved=_vbKapitel.splice(from,1)[0];
+      if(to>from)to--;
+      _vbKapitel.splice(to,0,moved);
+      _vbActiveKap=to;
+      renderVBKapList();loadVBKap(to);
+    });
+  });
 }
-function toggleVBModus(){const m=document.getElementById('vbModus').value;document.getElementById('vbPdfArea').style.display=m==='pdf'?'block':'none';document.getElementById('vbKapArea').style.display=m==='pdf'?'none':'block';}
-function saveVB(){const a=curA();if(!a)return;const m=document.getElementById('vbModus').value;
-  if(m==='pdf'){const f=document.getElementById('vbPdf');a.vorbedingungen={modus:'pdf',pdfName:f?.files?.[0]?.name||a.vorbedingungen?.pdfName||'',kapitel:{},strukturiert:{}};}
-  else{const kap={};VB_KAPITEL.forEach(k=>{kap[k.id]=document.getElementById('vb_'+k.id)?.value||'';});
-    const getCb=id=>{const el=document.getElementById(id);return el?el.checked:true;};
-    const strukturiert={
-      regie:{inhaber:getCb('vbR_inhaber'),montagechef:getCb('vbR_montagechef'),leitMonteur:getCb('vbR_leitMonteur'),aMonteur:getCb('vbR_aMonteur'),bMonteur:getCb('vbR_bMonteur'),lehrling:getCb('vbR_lehrling')},
-      zuschlaege:{ueberzeit:getCb('vbZ_ueberzeit'),nacht:getCb('vbZ_nacht')},
-      versicherung:{deckung:getCb('vbV_deckung'),police:getCb('vbV_police')},
-      personal:{anzahl:getCb('vbP_anzahl'),tv:getCb('vbP_tv')}
-    };
-    a.vorbedingungen={modus:'gema',kapitel:kap,pdfName:'',strukturiert};}
+
+function initVBEditor(){
+  var wrap=document.getElementById('vbEditorWrap');
+  wrap.innerHTML='<div id="vbQuillEditor" style="flex:1;min-height:50vh"></div>';
+  if(typeof Quill!=='undefined'){
+    _vbQuill=new Quill('#vbQuillEditor',{
+      theme:'snow',
+      placeholder:'Text eingeben oder aus Word einfügen…',
+      modules:{
+        toolbar:[
+          [{header:[1,2,3,false]}],
+          ['bold','italic','underline','strike'],
+          [{list:'ordered'},{list:'bullet'}],
+          [{indent:'-1'},{indent:'+1'}],
+          ['blockquote','code-block'],
+          [{color:[]},{background:[]}],
+          ['link'],
+          ['clean']
+        ]
+      }
+    });
+    loadVBKap(0);
+  } else {
+    wrap.innerHTML='<textarea class="fc" id="vbFallback" style="flex:1;min-height:50vh;font-size:13px;line-height:1.7" placeholder="Text eingeben…"></textarea>';
+    loadVBKap(0);
+  }
+}
+
+function vbSaveCurrentKap(){
+  if(_vbActiveKap>=0&&_vbActiveKap<_vbKapitel.length){
+    if(_vbQuill){_vbKapitel[_vbActiveKap].html=_vbQuill.root.innerHTML;}
+    else{var fb=document.getElementById('vbFallback');if(fb)_vbKapitel[_vbActiveKap].html=fb.value;}
+  }
+}
+
+function loadVBKap(idx){
+  _vbActiveKap=idx;
+  var k=_vbKapitel[idx];if(!k)return;
+  if(_vbQuill){_vbQuill.root.innerHTML=k.html||'';}
+  else{var fb=document.getElementById('vbFallback');if(fb)fb.value=k.html||'';}
+}
+
+function vbSelectKap(idx){
+  vbSaveCurrentKap();
+  _vbActiveKap=idx;
+  loadVBKap(idx);
+  renderVBKapList();
+}
+
+function vbAddKapitel(){
+  vbSaveCurrentKap();
+  var name=prompt('Name des neuen Kapitels:');if(!name)return;
+  _vbKapitel.push({id:'kap_'+Date.now(),name:name,html:''});
+  _vbActiveKap=_vbKapitel.length-1;
+  renderVBKapList();loadVBKap(_vbActiveKap);
+}
+
+function vbRemoveKap(idx){
+  if(_vbKapitel.length<=1){toast('Mindestens ein Kapitel erforderlich','error');return;}
+  if(!confirm('"'+_vbKapitel[idx].name+'" entfernen?'))return;
+  _vbKapitel.splice(idx,1);
+  if(_vbActiveKap>=_vbKapitel.length)_vbActiveKap=_vbKapitel.length-1;
+  renderVBKapList();loadVBKap(_vbActiveKap);
+}
+
+function toggleVBModus(){var m=document.getElementById('vbModus').value;document.getElementById('vbPdfArea').style.display=m==='pdf'?'block':'none';document.getElementById('vbKapArea').style.display=m==='pdf'?'none':'flex';}
+
+function saveVB(){var a=curA();if(!a)return;var m=document.getElementById('vbModus').value;
+  vbSaveCurrentKap();
+  if(m==='pdf'){var f=document.getElementById('vbPdf');a.vorbedingungen={modus:'pdf',pdfName:f?.files?.[0]?.name||a.vorbedingungen?.pdfName||'',kapitel:{},kapitelListe:null,strukturiert:{}};}
+  else{
+    // Speichere als kapitelListe (HTML) + legacy kapitel (Text-Fallback)
+    var kap={};_vbKapitel.forEach(function(k){kap[k.id]=k.html.replace(/<[^>]*>/g,' ').replace(/\s+/g,' ').trim();});
+    a.vorbedingungen={modus:'gema',kapitel:kap,kapitelListe:JSON.parse(JSON.stringify(_vbKapitel)),pdfName:'',strukturiert:a.vorbedingungen?.strukturiert||{}};}
   save();toast('Gespeichert');nav('pdet');}
 
 // ── CRBX ──
