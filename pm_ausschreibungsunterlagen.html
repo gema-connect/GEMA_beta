@@ -819,7 +819,7 @@ function defP(){return{planer:'pub',installateur:'iub',lieferant:'lub',architekt
 
 function buildTabs(){
   const b=document.getElementById('tabBar');let t=[];const nE=S.einreichungen.filter(e=>e.ausId===S.activeAusId).length;
-  if(S.currentRole==='planer'){const nAnf=S.anfragen.filter(x=>x.status==='interessiert').length;var curA_=S.ausschreibungen.find(function(a){return a.id===S.activeAusId;});var isCrbx=curA_&&curA_.typ==='crbx';t=[{id:'pub',ic:'◫',l:'Übersicht'},{id:'paus',ic:'📋',l:'Ausschreibungen',bg:S.ausschreibungen.length},{id:'pbkp',ic:'☑',l:'BKP-Checkliste'},{id:'pcrbx',ic:'📦',l:'CRBX-Abgleich',disabled:!isCrbx},{id:'pdet',ic:'📝',l:'Detail'},{id:'panf',ic:'🤝',l:'Interesse-Anfragen',bg:nAnf},{id:'pvrt',ic:'📤',l:'Verteilen'},{id:'pein',ic:'💰',l:'Offerten',bg:nE},{id:'pvgl',ic:'📊',l:'Vergleich'},{id:'pbet',ic:'👥',l:'Beteiligte'}];}
+  if(S.currentRole==='planer'){const nAnf=S.anfragen.filter(x=>x.status==='interessiert').length;var curA_=S.ausschreibungen.find(function(a){return a.id===S.activeAusId;});var isCrbx=curA_&&curA_.typ==='crbx';t=[{id:'pub',ic:'◫',l:'Übersicht'},{id:'paus',ic:'📋',l:'Ausschreibungen',bg:S.ausschreibungen.length},{id:'pbkp',ic:'☑',l:'BKP-Checkliste'},{id:'pcrbx',ic:'📦',l:'CRBX-Abgleich',disabled:!isCrbx},{id:'pdet',ic:'📝',l:'Detail'},{id:'panf',ic:'🤝',l:'Interesse-Anfragen',bg:nAnf},{id:'pvrt',ic:'📤',l:'Verteilen'},{id:'pein',ic:'💰',l:'Offerten',bg:nE},{id:'pvgl',ic:'📊',l:'Vergleich'},{id:'pber',ic:'🔬',l:'Berechnungen'},{id:'pbet',ic:'👥',l:'Beteiligte'}];}
   else if(S.currentRole==='installateur'){const nIA=S.anfragen.filter(x=>x.installateurId===S.currentUserId&&x.status==='angefragt').length;t=[{id:'iub',ic:'◫',l:'Übersicht'},{id:'ianf',ic:'🤝',l:'Interesse-Anfragen',bg:nIA},{id:'iaus',ic:'📋',l:'Ausschreibungen'},{id:'idet',ic:'📝',l:'Offerte ausfüllen'},{id:'ipro',ic:'👤',l:'Profil'},{id:'ina',ic:'🔄',l:'Netto-Anfragen',bg:S.nettoAnfragen.filter(x=>x.installateurId===S.currentUserId).length},{id:'iin',ic:'📨',l:'Eingegangene',bg:S.marktplatzOfferten.filter(x=>!x.installateurId||x.installateurId===S.currentUserId).length}];}
   else if(S.currentRole==='lieferant'){t=[{id:'lub',ic:'◫',l:'Übersicht'},{id:'lab',ic:'⭐',l:'Mein Abo'},{id:'lmk',ic:'🏪',l:'Marktplatz'},{id:'lan',ic:'📨',l:'Anfragen',bg:S.nettoAnfragen.filter(x=>x.lieferantId===S.currentUserId&&x.status==='angefragt').length}];}
   else{t=[{id:'aub',ic:'◫',l:'Projektstatus'}];}
@@ -1330,7 +1330,10 @@ function openLieferungDialog(losId,idx){
   // Footer buttons
   var ft='<button class="btn btn-g" onclick="cM(\'mLieferung\')">Schliessen</button>';
   if(mm.modul)ft+='<a class="btn btn-s" href="'+mm.modul+'" target="_blank">Berechnung bearbeiten</a>';
-  if(mm.kategorie&&typeof GemaProdukte!=='undefined')ft+='<button class="btn btn-s" onclick="liefSendeAnfrage()" style="background:#f59e0b;color:#fff;border-color:#f59e0b">📨 Offerte anfragen</button>';
+  if(mm.kategorie&&typeof GemaProdukte!=='undefined'){
+    ft+='<button class="btn btn-s" onclick="liefMatchProdukte()" style="background:#7c3aed;color:#fff;border-color:#7c3aed">🔍 Passende Produkte</button>';
+    ft+='<button class="btn btn-s" onclick="liefSendeAnfrage()" style="background:#f59e0b;color:#fff;border-color:#f59e0b">📨 Offerte anfragen</button>';
+  }
   if(!p.offerte||!p.offerte.lieferantFirma){
     ft+='<button class="btn btn-p" onclick="saveLiefOfferte()">Offerte speichern</button>';
   } else {
@@ -1362,6 +1365,64 @@ function renderOffertForm(){
 }
 
 // Offertanfrage über GemaProdukte senden
+function liefMatchProdukte(){
+  var a=curA();if(!a)return;
+  var l=a.lose.find(function(x){return x.id===_liefLosId;});
+  if(!l)return;
+  var p=l.positionen[_liefIdx];
+  var mm=MODUL_MAP[p.lieferungTyp]||{};
+  if(!mm.kategorie||typeof GemaProdukte==='undefined'){toast('Kein Produktkatalog verfügbar','error');return;}
+  // Lade Berechnungsdaten
+  var calcData=readCalcData(p.lieferungTyp)||{};
+  // Match aufrufen
+  var matches=[];
+  try{matches=GemaProdukte.match(mm.kategorie,calcData)||[];}catch(e){matches=[];}
+  if(!matches.length){
+    // Fallback: alle Produkte der Kategorie zeigen
+    try{matches=GemaProdukte.getProdukte(mm.kategorie).map(function(pr){return{produkt:pr,score:0};});}catch(e){}
+  }
+  if(!matches.length){toast('Keine Produkte in Kategorie "'+mm.kategorie+'" gefunden','info');return;}
+  // Anzeige im Dialog-Body
+  var body=document.getElementById('liefBody');
+  if(!body)return;
+  var h='<div style="margin-top:14px;border-top:1.5px solid var(--brd);padding-top:14px"><div style="font-size:11px;font-weight:800;color:#7c3aed;text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px">🔍 Passende Produkte ('+matches.length+')</div>';
+  h+=matches.slice(0,8).map(function(m){
+    var pr=m.produkt||m;
+    var d=pr.daten||{};
+    var score=m.score||0;
+    var isVer=pr.status==='verifiziert';
+    return '<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1.5px solid var(--brd);border-radius:8px;margin-bottom:6px;cursor:pointer;transition:.12s" onmouseover="this.style.borderColor=\'#7c3aed\'" onmouseout="this.style.borderColor=\'var(--brd)\'" onclick="liefSelectMatch(\''+pr.id+'\')">'
+      +'<div style="flex:1"><strong style="font-size:13px">'+E(pr.lieferantFirma)+' '+E(d.serie||'')+' '+E(d.modell||'')+'</strong>'
+      +(isVer?' <span style="font-size:9px;color:#16a34a;font-weight:700">✓</span>':' <span style="font-size:9px;color:#d97706">⚠</span>')
+      +'<div style="font-size:11px;color:var(--mut)">'+Object.keys(d).filter(function(k){return typeof d[k]==='number'&&d[k]>0;}).slice(0,4).map(function(k){return k+': '+d[k];}).join(' · ')+'</div></div>'
+      +(score>0?'<div style="font-size:11px;font-weight:800;color:#7c3aed;background:#f5f3ff;padding:3px 8px;border-radius:6px">'+Math.round(score*100)+'%</div>':'')
+      +'</div>';
+  }).join('');
+  h+='</div>';
+  body.innerHTML+=h;
+}
+
+function liefSelectMatch(produktId){
+  if(typeof GemaProdukte==='undefined')return;
+  var pr=GemaProdukte.getProdukt(produktId);
+  if(!pr)return;
+  var d=pr.daten||{};
+  var a=curA();if(!a)return;
+  var l=a.lose.find(function(x){return x.id===_liefLosId;});
+  if(!l)return;
+  var p=l.positionen[_liefIdx];
+  p.offerte={
+    lieferantId:pr.lieferantId,lieferantFirma:pr.lieferantFirma,
+    produktName:(d.serie||'')+' '+(d.modell||''),bruttoPreis:null,
+    offertPdfName:'',uploadDatum:new Date().toISOString(),
+    offertanfrageId:null,berechnungsdaten:d
+  };
+  p.status='erledigt';
+  sv();lg('✓','Produkt übernommen',pr.lieferantFirma+' — '+p.titel);
+  cM('mLieferung');nav('pbkp');
+  toast('✓ '+pr.lieferantFirma+' '+d.serie+' übernommen');
+}
+
 function liefSendeAnfrage(){
   var a=curA();if(!a)return;
   var l=a.lose.find(function(x){return x.id===_liefLosId;});
@@ -1409,25 +1470,67 @@ function uebernehmeOA(oaId){
 }
 
 function readCalcData(modulKey){
-  // Try to read saved data from known localStorage keys
-  var keyMap={
-    'enthaertung':'gema_meta_sa_enthaertung',
+  // Lade echte Berechnungsdaten aus per-Objekt Storage
+  var dataKeyMap={
+    'enthaertung':'gema_enth_labels',
     'osmose':'gema_meta_sa_osmose',
     'druckerhoehung':'gema_meta_sb_druckerhoehung',
-    'frischwasserstation':'gema_meta_sa_frischwasserstation',
-    'hebeanlage':'gema_meta_sa_abwasserhebeanlage',
-    'fettabscheider':'gema_meta_sa_fettabscheider',
-    'oelabscheider':'gema_meta_sa_oelabscheider',
+    'frischwasserstation':'gema_fws',
+    'hebeanlage':'gema_abwasserhebeanlage_v2',
+    'fettabscheider':'gema_fa',
+    'oelabscheider':'gema_oel',
     'schlammsammler':'gema_meta_sa_schlammsammler',
-    'solaranlage':'gema_meta_sa_solaranlage'
+    'solaranlage':'gema_solar_v2'
   };
-  var sk=keyMap[modulKey];
-  if(!sk)return null;
+  var baseKey=dataKeyMap[modulKey];
+  if(!baseKey)return null;
+  // Per-Objekt Key versuchen
+  var sk=baseKey;
+  if(typeof GemaObjekte!=='undefined'){
+    var oid=GemaObjekte.getActiveId();
+    if(oid)sk=baseKey+'__'+oid;
+  }
   try{
-    var d=JSON.parse(localStorage.getItem(sk));
-    if(d&&d.p)return{Projekt:d.p,Bearbeiter:d.b||'',Datum:d.d||''};
-  }catch(e){}
-  return null;
+    var r=localStorage.getItem(sk);
+    if(!r)r=localStorage.getItem(baseKey); // Fallback global
+    if(!r)return null;
+    var d=JSON.parse(r);
+    // Extrahiere relevante Berechnungswerte je nach Modul
+    var result={};
+    if(modulKey==='enthaertung'){
+      if(d.ve_total_ls)result['Durchfluss']=(d.ve_total_ls||0)+' l/s';
+      if(d.hr_fh)result['Rohwasserhärte']=d.hr_fh+' °fH';
+      if(d.hw_fh)result['Ziel-Härte']=(d.hw_fh||0)+' °fH';
+      if(d.kapazitaet)result['Kapazität']=d.kapazitaet+' m³·°fH';
+      if(d.anlage)result['Gewählte Anlage']=d.anlage;
+    } else if(modulKey==='osmose'){
+      if(d.p)result['Projekt']=d.p;
+    } else if(modulKey==='druckerhoehung'){
+      if(d.p)result['Projekt']=d.p;
+    } else if(modulKey==='frischwasserstation'){
+      if(d.volProArmatur)result['Volumenstrom']=d.volProArmatur+' l/min';
+      if(d.anzahlArmaturen)result['Anzahl Armaturen']=d.anzahlArmaturen;
+    } else if(modulKey==='hebeanlage'){
+      if(d.qTotal)result['Fördermenge']=d.qTotal+' l/s';
+      if(d.hGeo)result['Förderhöhe']=d.hGeo+' m';
+    } else if(modulKey==='fettabscheider'){
+      if(d.ns)result['Nenngrösse']='NS '+d.ns;
+      if(d.portionen)result['Portionen/Tag']=d.portionen;
+    } else if(modulKey==='oelabscheider'){
+      if(d.ns)result['Nenngrösse']='NS '+d.ns;
+    } else if(modulKey==='solaranlage'){
+      if(d.area)result['Kollektorfläche']=d.area+' m²';
+      if(d.deckungsgrad)result['Deckungsgrad']=d.deckungsgrad+'%';
+    }
+    // Fallback: zeige alle Keys die Zahlen enthalten
+    if(!Object.keys(result).length){
+      Object.keys(d).forEach(function(k){
+        if(typeof d[k]==='number'&&k!=='oid')result[k]=d[k];
+        else if(typeof d[k]==='string'&&d[k].length>0&&d[k].length<50&&k!=='p'&&k!=='b'&&k!=='d'&&k!=='oid')result[k]=d[k];
+      });
+    }
+    return Object.keys(result).length?result:null;
+  }catch(e){return null;}
 }
 
 function saveLiefOfferte(){
@@ -1892,6 +1995,46 @@ VIEWS.pvgl=function(){
   return h;
 };
 
+VIEWS.pber=function(){
+  var a=curA();
+  var h='<h2 style="font-size:20px;font-weight:700;margin-bottom:16px">🔬 Berechnungen — Projektübersicht</h2>';
+  h+='<p style="font-size:13px;color:var(--mut);margin-bottom:16px;line-height:1.6">Alle verfügbaren Berechnungsmodule für das aktuelle Projekt. Grün = Daten vorhanden, Grau = noch keine Berechnung.</p>';
+  var modules=[
+    {key:'enthaertung',label:'Enthärtungsanlage',icon:'🧂',url:'sa_enthaertung.html',bkp:'253.0'},
+    {key:'osmose',label:'Osmoseanlage',icon:'🔬',url:'sa_osmose.html',bkp:'253.2'},
+    {key:'druckerhoehung',label:'Druckerhöhungsanlage',icon:'⬆️',url:'sb_druckerhoehung.html',bkp:'253.4'},
+    {key:'frischwasserstation',label:'Frischwasserstation',icon:'💧',url:'sa_frischwasserstation.html',bkp:'253.6'},
+    {key:'hebeanlage',label:'Abwasserhebeanlage',icon:'⬆️',url:'sa_abwasserhebeanlage.html',bkp:'252.6'},
+    {key:'fettabscheider',label:'Fettabscheider',icon:'🪣',url:'sa_fettabscheider.html',bkp:'252.4'},
+    {key:'oelabscheider',label:'Ölabscheider',icon:'🛢',url:'sa_oelabscheider.html',bkp:'252.8'},
+    {key:'schlammsammler',label:'Schlammsammler',icon:'🗑️',url:'sa_schlammsammler.html',bkp:'—'},
+    {key:'solaranlage',label:'Thermische Solaranlage',icon:'☀️',url:'sa_solaranlage.html',bkp:'—'},
+    {key:null,label:'Warmwasser SIA 385',icon:'🌡️',url:'sb_warmwasser.html',bkp:'—'},
+    {key:null,label:'Druckverlust',icon:'📉',url:'sb_druckverlust.html',bkp:'254'},
+    {key:null,label:'LU-Tabelle',icon:'📋',url:'sb_lu_tabelle.html',bkp:'—'},
+    {key:null,label:'Niederschlag',icon:'🌧️',url:'sb_niederschlag.html',bkp:'—'}
+  ];
+  h+='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px">';
+  modules.forEach(function(m){
+    var data=m.key?readCalcData(m.key):null;
+    var hasData=data&&Object.keys(data).length>0;
+    var statusColor=hasData?'#16a34a':'#9ca3af';
+    var statusText=hasData?'✓ Daten vorhanden':'— Keine Berechnung';
+    h+='<a href="'+m.url+'" target="_blank" style="display:flex;align-items:center;gap:10px;padding:12px 14px;border:1.5px solid '+(hasData?'#bbf7d0':'var(--brd)')+';border-radius:10px;background:'+(hasData?'#f0fdf4':'var(--sur)')+';text-decoration:none;color:var(--txt);transition:.15s" onmouseover="this.style.transform=\'translateY(-2px)\';this.style.boxShadow=\'0 4px 12px rgba(0,0,0,.08)\'" onmouseout="this.style.transform=\'\';this.style.boxShadow=\'\'">';
+    h+='<span style="font-size:20px">'+m.icon+'</span>';
+    h+='<div style="flex:1"><div style="font-size:13px;font-weight:700">'+E(m.label)+'</div>';
+    if(hasData){
+      var vals=Object.entries(data).slice(0,2).map(function(e){return e[0]+': '+e[1];}).join(' · ');
+      h+='<div style="font-size:11px;color:var(--mut)">'+E(vals)+'</div>';
+    }
+    h+='<div style="font-size:10px;color:'+statusColor+';font-weight:700;margin-top:2px">'+statusText+'</div></div>';
+    if(m.bkp!=='—')h+='<span style="font-size:10px;padding:2px 6px;border-radius:4px;background:var(--bg2);color:var(--mut);font-weight:600">BKP '+m.bkp+'</span>';
+    h+='</a>';
+  });
+  h+='</div>';
+  return h;
+};
+
 VIEWS.pbet=function(){
   let h=`<div style="display:flex;justify-content:space-between;margin-bottom:20px"><h2 style="font-size:20px;font-weight:700">Beteiligte</h2><button class="btn btn-p" onclick="oM('mPerson')">+ Hinzufügen</button></div>`;
   [{r:'installateur',ic:'👷',co:'var(--grn)',label:'Installateure'},{r:'lieferant',ic:'🏭',co:'var(--amb)',label:'Lieferanten'},{r:'architekt',ic:'🏛',co:'var(--blue)',label:'Architekten'}].forEach(({r,ic,co,label})=>{
@@ -2248,16 +2391,19 @@ function naObjektChanged(){
 function naPopulateObjekte(){
   const sel=document.getElementById('naObjektId');
   sel.innerHTML='<option value="">— Projekt wählen —</option>';
+  var activeId='';
   try{
     if(typeof GemaObjekte!=='undefined'){
       const all=GemaObjekte.getAll();
-      all.forEach(o=>{sel.innerHTML+=`<option value="${o.id}">${E(o.name||o.strasse||'Projekt '+o.id)}</option>`;});
+      activeId=GemaObjekte.getActiveId()||'';
+      all.forEach(o=>{sel.innerHTML+=`<option value="${o.id}"${o.id===activeId?' selected':''}>${E(o.name||'Projekt')}${o.ort?' · '+E(o.ort):''}</option>`;});
     }
   }catch(e){}
-  // Fallback demo entries if no GemaObjekte
   if(sel.options.length<=1){
-    sel.innerHTML+='<option value="demo-1">Umbau EFH Wolfhagweg 1, 4144 Arlesheim</option><option value="demo-2">Neubau MFH Bläsiring 153, 4057 Basel</option><option value="demo-3">Sanierung Bürogebäude Steinenvorstadt 12, 4051 Basel</option>';
+    sel.innerHTML+='<option value="demo-1">Umbau EFH Wolfhagweg 1, 4144 Arlesheim</option><option value="demo-2">Neubau MFH Bläsiring 153, 4057 Basel</option>';
   }
+  // Auto-Fill wenn aktives Objekt vorhanden
+  if(activeId&&sel.value)try{naObjektChanged();}catch(e){}
 }
 
 function createAusschreibung(){

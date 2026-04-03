@@ -121,10 +121,17 @@
     _invalidate();
   }
   function setActiveId(objektId) {
+    var oldId = _load().activeObjektId;
     var data = _load();
     data.activeObjektId = objektId;
     _save(data);
     _invalidate();
+    // Event feuern damit alle Module reagieren können
+    try {
+      window.dispatchEvent(new CustomEvent('gema-objekt-changed', {
+        detail: { oldId: oldId, newId: objektId }
+      }));
+    } catch(e) {}
   }
   function getActive() {
     var data = _load();
