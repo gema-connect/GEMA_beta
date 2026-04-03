@@ -631,12 +631,12 @@ let S={
   ],
   activeAusId:'aus-demo-1',
   beteiligte:[
-    {id:'inst-1',rolle:'installateur',firma:'Jäggi Vollmer GmbH',person:'Felix Jäggi',email:'felix.jaeggi@jaeggivollmer.ch',tel:'061 692 03 11',gewerke:'',abo:{typ:'basic'},profil:{}},
-    {id:'inst-2',rolle:'installateur',firma:'Meier Sanitär AG',person:'Peter Meier',email:'meier@meiersanitaer.ch',tel:'061 555 12 34',gewerke:'',abo:{typ:'gratis'},profil:{}},
-    {id:'lief-1',rolle:'lieferant',firma:'Sanitas Troesch AG',person:'Anna Keller',email:'keller@sanitastroesch.ch',tel:'031 999 88 77',gewerke:'251,252',abo:{typ:'basic',gewerke:['25','251','252']}},
-    {id:'lief-2',rolle:'lieferant',firma:'Geberit AG',person:'Marco Schneider',email:'schneider@geberit.ch',tel:'034 429 21 21',gewerke:'254',abo:{typ:'premium',gewerke:['254']}},
-    {id:'lief-3',rolle:'lieferant',firma:'Isopro Isolierungen AG',person:'Thomas Huber',email:'huber@isopro.ch',tel:'044 333 22 11',gewerke:'255',abo:{typ:'basic',gewerke:['255']}},
-    {id:'arch-1',rolle:'architekt',firma:'Architektur Muster AG',person:'Sarah Müller',email:'mueller@archmuster.ch',tel:'061 222 33 44',gewerke:'',abo:{typ:'gratis'}}
+    {id:'inst-1',rolle:'installateur',userId:'user_planer_1',firma:'Jäggi Vollmer GmbH',person:'Felix Jäggi',email:'felix.jaeggi@jaeggivollmer.ch',tel:'061 692 03 11',gewerke:'',abo:{typ:'basic'},profil:{}},
+    {id:'inst-2',rolle:'installateur',userId:null,firma:'Meier Sanitär AG',person:'Peter Meier',email:'meier@meiersanitaer.ch',tel:'061 555 12 34',gewerke:'',abo:{typ:'gratis'},profil:{}},
+    {id:'lief-1',rolle:'lieferant',userId:null,firma:'Sanitas Troesch AG',person:'Anna Keller',email:'keller@sanitastroesch.ch',tel:'031 999 88 77',gewerke:'251,252',abo:{typ:'basic',gewerke:['25','251','252']}},
+    {id:'lief-2',rolle:'lieferant',userId:'user_lief_bwt',firma:'Geberit AG',person:'Marco Schneider',email:'schneider@geberit.ch',tel:'034 429 21 21',gewerke:'254',abo:{typ:'premium',gewerke:['254']}},
+    {id:'lief-3',rolle:'lieferant',userId:null,firma:'Isopro Isolierungen AG',person:'Thomas Huber',email:'huber@isopro.ch',tel:'044 333 22 11',gewerke:'255',abo:{typ:'basic',gewerke:['255']}},
+    {id:'arch-1',rolle:'architekt',userId:null,firma:'Architektur Muster AG',person:'Sarah Müller',email:'mueller@archmuster.ch',tel:'061 222 33 44',gewerke:'',abo:{typ:'gratis'}}
   ],
   verteilungen:[{ausId:'aus-demo-3',installateurId:'inst-1'},{ausId:'aus-demo-3',installateurId:'inst-2'}],
   anfragen:[
@@ -1898,8 +1898,13 @@ VIEWS.pbet=function(){
     const ls=S.beteiligte.filter(b=>b.rolle===r);
     h+=`<div class="card"><div class="card-hd"><h3>${ic} ${label}</h3><span class="tag t-gy">${ls.length}</span></div><div class="card-bd">${!ls.length?'<p style="color:var(--mut)">—</p>':ls.map((p,pi)=>{
       var idx=S.beteiligte.indexOf(p);
-      var invBtn=r==='lieferant'?(p._einladungGesendet?'<span class="tag t-gr" style="font-size:10px">✉ Eingeladen</span>':'<button class="btn btn-s btn-sm" onclick="inviteLieferant('+idx+')">✉ Einladen</button>'):'';
-      return `<div class="cr"><div class="ca" style="background:${co}">${p.firma.charAt(0)}</div><div class="ci"><div class="cn">${E(p.firma)}</div><div class="cd">${E(p.person)} · ${E(p.email)} · ${E(p.tel)}</div></div>${invBtn}<button class="btn btn-d btn-sm" onclick="rmP('${p.id}')">✕</button></div>`;
+      var resolved=resolveBeteiligter(p);
+      var hasLogin=!!p.userId;
+      var loginBadge=hasLogin?'<span class="tag t-gr" style="font-size:9px">✓ Login</span>':'<span class="tag t-gy" style="font-size:9px">Kein Login</span>';
+      var invBtn='';
+      if(!hasLogin){invBtn='<button class="btn btn-s btn-sm" onclick="inviteLieferant('+idx+')">✉ Einladen</button>';}
+      else if(p._einladungGesendet&&!p.userId){invBtn='<span class="tag t-bl" style="font-size:10px">✉ Einladung ausstehend</span>';}
+      return `<div class="cr"><div class="ca" style="background:${co}">${(resolved.firma||'?').charAt(0)}</div><div class="ci"><div class="cn">${E(resolved.firma)} ${loginBadge}</div><div class="cd">${E(resolved.person)} · ${E(resolved.email)} · ${E(resolved.tel)}</div></div>${invBtn}<button class="btn btn-d btn-sm" onclick="rmP('${p.id}')">✕</button></div>`;
     }).join('')}</div></div>`;
   });
   return h;
@@ -2663,18 +2668,50 @@ function editGewerke(){const me=S.beteiligte.find(b=>b.id===S.currentUserId);if(
 function setInstAbo(typ){const me=S.beteiligte.find(b=>b.id===S.currentUserId);if(!me)return;if(!me.abo)me.abo={};me.abo.typ=typ;me.abo.aktiv=true;save();toast('Abo: '+typ);nav('ipro');}
 
 // ── Beteiligte ──
+// Beteiligte ↔ User Verknüpfung
+function resolveBeteiligter(b){
+  // Wenn userId gesetzt, Daten aus echtem User-Account lesen
+  if(!b||!b.userId||typeof GemaAuth==='undefined')return b;
+  var users=GemaAuth.getUsers()||[];
+  var u=users.find(function(x){return x.id===b.userId;});
+  if(!u)return b;
+  // Merge: User-Daten haben Priorität, Beteiligter als Fallback
+  return Object.assign({},b,{
+    firma:u.profile?.firma||b.firma,
+    person:u.name||b.person,
+    email:u.profile?.email||u.username||b.email,
+    tel:u.profile?.telefon||b.tel,
+    _user:u, // Referenz auf den echten User
+    _hasLogin:true
+  });
+}
+function findUserByEmail(email){
+  if(!email||typeof GemaAuth==='undefined')return null;
+  var users=GemaAuth.getUsers()||[];
+  return users.find(function(u){return u.username===email||u.profile?.email===email;})||null;
+}
+
 function addPerson(){const r=document.getElementById('apR').value,f=document.getElementById('apF').value.trim();if(!f){toast('Firma?','error');return;}
-  const obj={id:r.substring(0,4)+'-'+Date.now(),rolle:r,firma:f,person:document.getElementById('apP').value.trim(),email:document.getElementById('apE').value.trim(),tel:document.getElementById('apT').value.trim(),gewerke:document.getElementById('apG').value.trim(),profil:{}};
+  var email=document.getElementById('apE').value.trim();
+  var obj={id:r.substring(0,4)+'-'+Date.now(),rolle:r,userId:null,firma:f,person:document.getElementById('apP').value.trim(),email:email,tel:document.getElementById('apT').value.trim(),gewerke:document.getElementById('apG').value.trim(),profil:{}};
+  // Auto-Verknüpfung: prüfe ob ein User mit dieser Email existiert
+  var existingUser=findUserByEmail(email);
+  if(existingUser){obj.userId=existingUser.id;obj._hasLogin=true;toast(f+' ✓ (mit bestehendem Account verknüpft)');}
   if(r==='lieferant')obj.abo={aktiv:false,typ:'gratis',gewerke:[]};if(r==='installateur')obj.abo={typ:'gratis',aktiv:true};
-  S.beteiligte.push(obj);save();lg('👥','+',f);cM('mPerson');['apF','apP','apE','apT','apG'].forEach(x=>document.getElementById(x).value='');toast(f+' ✓');buildTabs();nav(S.currentRole==='planer'?'pbet':defP());}
+  S.beteiligte.push(obj);save();lg('👥','+',f);cM('mPerson');['apF','apP','apE','apT','apG'].forEach(x=>document.getElementById(x).value='');if(!existingUser)toast(f+' ✓');buildTabs();nav(S.currentRole==='planer'?'pbet':defP());}
+
 function inviteLieferant(beteiligterIdx){
   var b=S.beteiligte[beteiligterIdx];if(!b)return;
   if(!b.email){toast('E-Mail fehlt — bitte zuerst E-Mail erfassen','error');return;}
   if(typeof GemaAuth==='undefined'){toast('Auth nicht geladen','error');return;}
+  // Prüfe ob bereits ein Account mit dieser Email existiert
+  var existing=findUserByEmail(b.email);
+  if(existing){b.userId=existing.id;b._hasLogin=true;save();toast(b.firma+' hat bereits ein GEMA-Konto — verknüpft');nav('pbet');return;}
   var result=GemaAuth.inviteLieferant({
     firma:b.firma,person:b.person,email:b.email,tel:b.tel,
     eingeladenVon:S.currentRole
   });
+  b.userId=result.user.id; // Verknüpfung herstellen
   b._einladungGesendet=true;b._loginUrl=result.loginUrl;
   save();
   lg('📨','Lieferant eingeladen',b.firma+' ('+b.email+')');
