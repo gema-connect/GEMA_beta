@@ -664,7 +664,7 @@ function newAusschreibung(opts){
     plaene:[], // [{name,datum}]
     unterlagen:[], // [{name,datum}]
     vorbedingungen:{typ:'standard',pdfName:''}, // standard|eigene
-    vergabe:{status:null,winnerId:null,datum:null},
+    vergabe:{status:null,winnerId:null,datum:null,empfehlungen:[],empfehlungText:'',entscheidungsinstanz:'',empfaenger:'',frist:null,genehmigung:null,ablehnungGrund:'',zuschlagMsg:'',absageMsg:'',kostenUebertragen:false},
     created:new Date().toISOString()
   };
 }
@@ -805,10 +805,10 @@ function defP(){return{planer:'pub',installateur:'iub',lieferant:'lub',architekt
 
 function buildTabs(){
   const b=document.getElementById('tabBar');let t=[];const nE=S.einreichungen.filter(e=>e.ausId===S.activeAusId).length;
-  if(S.currentRole==='planer'){const nAnf=S.anfragen.filter(x=>x.status==='interessiert').length;var curA_=S.ausschreibungen.find(function(a){return a.id===S.activeAusId;});var isCrbx=curA_&&curA_.typ==='crbx';t=[{id:'pub',ic:'◫',l:'Übersicht'},{id:'paus',ic:'📋',l:'Ausschreibungen',bg:S.ausschreibungen.length},{id:'pbkp',ic:'☑',l:'BKP-Checkliste'},{id:'pcrbx',ic:'📦',l:'CRBX-Abgleich',disabled:!isCrbx},{id:'pdet',ic:'📝',l:'Detail'},{id:'panf',ic:'🤝',l:'Interesse-Anfragen',bg:nAnf},{id:'pvrt',ic:'📤',l:'Verteilen'},{id:'pein',ic:'💰',l:'Offerten',bg:nE},{id:'pvgl',ic:'📊',l:'Vergleich'},{id:'pber',ic:'🔬',l:'Berechnungen'},{id:'pbet',ic:'👥',l:'Beteiligte'}];}
+  if(S.currentRole==='planer'){const nAnf=S.anfragen.filter(x=>x.status==='interessiert').length;var curA_=S.ausschreibungen.find(function(a){return a.id===S.activeAusId;});var isCrbx=curA_&&curA_.typ==='crbx';t=[{id:'pub',ic:'◫',l:'Übersicht'},{id:'paus',ic:'📋',l:'Ausschreibungen',bg:S.ausschreibungen.length},{id:'pbkp',ic:'☑',l:'BKP-Checkliste'},{id:'pcrbx',ic:'📦',l:'CRBX-Abgleich',disabled:!isCrbx},{id:'pdet',ic:'📝',l:'Detail'},{id:'panf',ic:'🤝',l:'Interesse-Anfragen',bg:nAnf},{id:'pvrt',ic:'📤',l:'Verteilen'},{id:'pein',ic:'💰',l:'Offerten',bg:nE},{id:'pvgl',ic:'📊',l:'Vergleich'},{id:'pvga',ic:'📋',l:'Vergabeantrag'},{id:'pber',ic:'🔬',l:'Berechnungen'},{id:'pbet',ic:'👥',l:'Beteiligte'}];}
   else if(S.currentRole==='installateur'){const nIA=S.anfragen.filter(x=>x.installateurId===S.currentUserId&&x.status==='angefragt').length;t=[{id:'iub',ic:'◫',l:'Übersicht'},{id:'ianf',ic:'🤝',l:'Interesse-Anfragen',bg:nIA},{id:'iaus',ic:'📋',l:'Ausschreibungen'},{id:'idet',ic:'📝',l:'Offerte ausfüllen'},{id:'ipro',ic:'👤',l:'Profil'},{id:'ina',ic:'🔄',l:'Netto-Anfragen',bg:S.nettoAnfragen.filter(x=>x.installateurId===S.currentUserId).length},{id:'iin',ic:'📨',l:'Eingegangene',bg:S.marktplatzOfferten.filter(x=>!x.installateurId||x.installateurId===S.currentUserId).length}];}
   else if(S.currentRole==='lieferant'){t=[{id:'lub',ic:'◫',l:'Übersicht'},{id:'lab',ic:'⭐',l:'Mein Abo'},{id:'lmk',ic:'🏪',l:'Marktplatz'},{id:'lan',ic:'📨',l:'Anfragen',bg:S.nettoAnfragen.filter(x=>x.lieferantId===S.currentUserId&&x.status==='angefragt').length}];}
-  else{t=[{id:'aub',ic:'◫',l:'Projektstatus'}];}
+  else{var nVga=S.ausschreibungen.filter(function(x){return x.vergabe&&x.vergabe.status==='eingereicht';}).length;t=[{id:'aub',ic:'◫',l:'Projektstatus'},{id:'avga',ic:'📋',l:'Vergabeanträge',bg:nVga}];}
   b.innerHTML=t.map(x=>`<button class="tab-btn${x.disabled?' disabled':''}" data-tab="${x.id}" onclick="${x.disabled?'toast(\'Nur bei CRBX-Ausschreibungen\',\'info\')':'nav(\''+x.id+'\')'}" ${x.disabled?'style="opacity:.4;cursor:not-allowed"':''}><span>${x.ic}</span> ${x.l}${x.bg?`<span class="tab-badge">${x.bg}</span>`:''}</button>`).join('');
 }
 function nav(p){document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));document.querySelector(`.tab-btn[data-tab="${p}"]`)?.classList.add('active');const el=document.getElementById('PA');const fn=VIEWS[p];el.innerHTML=fn?fn():'<div class="es"><p>Seite nicht gefunden.</p></div>';setTimeout(initDropZones,50);if(p==='pbkp'){setTimeout(restoreBKPOpenState,10);setTimeout(initBKPDragDrop,20);}}
@@ -1981,6 +1981,341 @@ VIEWS.pvgl=function(){
   return h;
 };
 
+// ═══════════════════════════════════════════════
+// VERGABEANTRAG
+// ═══════════════════════════════════════════════
+VIEWS.pvga=function(){
+  const a=curA();if(!a)return '<div class="wp">Ausschreibung wählen.</div>';
+  const eins=S.einreichungen.filter(e=>e.ausId===a.id);
+  if(!eins.length)return '<div class="es"><p>Noch keine Offerten eingegangen. Vergabeantrag erst möglich nach Offert-Eingang.</p></div>';
+
+  const vg=a.vergabe||{};
+  let h='<h2 style="font-size:20px;font-weight:700;margin-bottom:4px">Vergabeantrag — '+E(a.name)+'</h2>';
+
+  // Status-Banner
+  if(vg.status==='eingereicht'){
+    h+='<div style="padding:12px 16px;background:#fffbeb;border:1.5px solid #fde68a;border-radius:10px;margin-bottom:16px;font-size:13px;font-weight:600;color:#92400e">⟳ Vergabeantrag eingereicht — Warten auf Genehmigung'+(vg.frist?' (Frist: '+vg.frist+')':'')+'</div>';
+  } else if(vg.status==='genehmigt'){
+    h+='<div style="padding:12px 16px;background:#f0fdf4;border:1.5px solid #bbf7d0;border-radius:10px;margin-bottom:16px;font-size:13px;font-weight:600;color:#15803d">✓ Vergabeantrag genehmigt'+(vg.genehmigung?' am '+vg.genehmigung.datum:'')+'</div>';
+  } else if(vg.status==='abgelehnt'){
+    h+='<div style="padding:12px 16px;background:#fef2f2;border:1.5px solid #fecaca;border-radius:10px;margin-bottom:16px;font-size:13px;font-weight:600;color:#991b1b">✕ Vergabeantrag abgelehnt'+(vg.ablehnungGrund?' — Grund: '+E(vg.ablehnungGrund):'')+'<br><button class="btn btn-p btn-sm" style="margin-top:8px" onclick="resetVergabeantrag()">Überarbeiten & neu einreichen</button></div>';
+  } else if(vg.status==='vergeben'){
+    const winner=S.beteiligte.find(b=>b.id===vg.winnerId);
+    h+='<div style="padding:12px 16px;background:#f0fdf4;border:1.5px solid #bbf7d0;border-radius:10px;margin-bottom:16px;font-size:13px;font-weight:600;color:#15803d">🏆 Zuschlag erteilt an '+E(winner?.firma||'–')+' am '+(vg.datum||'–')+'</div>';
+  }
+
+  // ── 1. Checkliste pro Unternehmer ──
+  h+='<div style="margin-bottom:24px"><h3 style="font-size:15px;font-weight:800;margin-bottom:10px">Checkliste — Vorbedingungen</h3>';
+  h+='<table class="dt" style="font-size:12px"><thead><tr><th>Unternehmer</th><th style="text-align:center">Positionen vollständig</th><th style="text-align:center">Vorbedingungen signiert</th><th style="text-align:center">Offerte vollständig</th><th style="text-align:center">Status</th></tr></thead><tbody>';
+  const checkStates={};
+  eins.forEach(e=>{
+    const ck=vg['check_'+e.installateurId]||{pos:false,vorbed:false,offerte:false};
+    checkStates[e.installateurId]=ck;
+    const allOk=ck.pos&&ck.vorbed&&ck.offerte;
+    h+='<tr>';
+    h+='<td style="font-weight:600">'+E(e.firma)+'</td>';
+    h+='<td style="text-align:center"><input type="checkbox" '+(ck.pos?'checked':'')+' onchange="toggleVgCheck(\''+e.installateurId+'\',\'pos\',this.checked)"/></td>';
+    h+='<td style="text-align:center"><input type="checkbox" '+(ck.vorbed?'checked':'')+' onchange="toggleVgCheck(\''+e.installateurId+'\',\'vorbed\',this.checked)"/></td>';
+    h+='<td style="text-align:center"><input type="checkbox" '+(ck.offerte?'checked':'')+' onchange="toggleVgCheck(\''+e.installateurId+'\',\'offerte\',this.checked)"/></td>';
+    h+='<td style="text-align:center">'+(allOk?'<span style="color:#15803d;font-weight:700">✓ Bereit</span>':'<span style="color:#dc2626;font-weight:700">✕ Offen</span>')+'</td>';
+    h+='</tr>';
+  });
+  h+='</tbody></table></div>';
+
+  // ── 2. Empfehlung des Planers ──
+  const empf=vg.empfehlungen||[];
+  h+='<div style="margin-bottom:24px">';
+  h+='<h3 style="font-size:15px;font-weight:800;margin-bottom:10px">Empfehlung des Planers</h3>';
+  h+='<div style="padding:16px;background:linear-gradient(135deg,#eff4ff,#ecfeff);border:2px solid #93c5fd;border-radius:12px;margin-bottom:12px">';
+  h+='<div style="font-size:12px;font-weight:700;color:#1d4ed8;margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px">Empfohlene Unternehmer</div>';
+  h+='<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px">';
+  eins.forEach(e=>{
+    const isEmpf=empf.indexOf(e.installateurId)>=0;
+    h+='<button onclick="toggleEmpfehlung(\''+e.installateurId+'\')" style="padding:6px 14px;border-radius:8px;border:2px solid '+(isEmpf?'#1d4ed8':'var(--brd)')+';background:'+(isEmpf?'#1d4ed8':'var(--sur)')+';color:'+(isEmpf?'#fff':'var(--txt)')+';font-size:12px;font-weight:700;cursor:pointer;transition:.15s">'+E(e.firma)+(isEmpf?' ✓':'')+'</button>';
+  });
+  h+='</div>';
+  h+='<div class="fg"><label style="font-size:11px;font-weight:700;color:#1d4ed8">Schriftliche Empfehlung / Begründung</label>';
+  h+='<textarea style="width:100%;min-height:60px;padding:8px 10px;border:1.5px solid #93c5fd;border-radius:8px;font-size:13px;font-family:var(--sans);resize:vertical" id="vgaEmpfText" onchange="saveEmpfText(this.value)" placeholder="z.B. Gute Erfahrungen, Referenzprojekte, regionale Nähe, Termintreue…">'+(E(vg.empfehlungText||''))+'</textarea></div>';
+  h+='</div></div>';
+
+  // ── 3. BKP-Preisvergleich (3-stellig) ──
+  h+='<div style="margin-bottom:24px">';
+  h+='<h3 style="font-size:15px;font-weight:800;margin-bottom:10px">Preisvergleich nach BKP (3-stellig)</h3>';
+  h+=_renderBKPVergleich(a,eins,empf);
+  h+='</div>';
+
+  // ── 4. Empfänger & Frist ──
+  if(!vg.status||vg.status==='entwurf'||vg.status==='abgelehnt'){
+    h+='<div style="margin-bottom:24px;padding:16px;background:var(--sur);border:1.5px solid var(--brd);border-radius:12px">';
+    h+='<h3 style="font-size:15px;font-weight:800;margin-bottom:10px">Vergabeantrag einreichen</h3>';
+    h+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">';
+    h+='<div class="fg"><label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--mut)">Empfänger (Entscheidungsinstanz)</label>';
+    h+='<select id="vgaEmpfaenger" style="padding:8px 10px;border:1.5px solid var(--brd2);border-radius:8px;font-size:13px;font-family:var(--sans)" onchange="saveVgaField(\'empfaenger\',this.value)">';
+    h+='<option value="">– Wählen –</option>';
+    // Nur BH/Architekt/GU/TU aus Beteiligte
+    const betObj=_getVergabeEmpfaenger(a);
+    betObj.forEach(b=>{
+      h+='<option value="'+b.id+'" '+(vg.empfaenger===b.id?'selected':'')+'>'+E(b.firma||'')+' — '+E(b.rolle)+(b.entscheidungsinstanz?' ('+_entscheidungLabel(b.entscheidungsinstanz)+')':'')+'</option>';
+    });
+    h+='</select></div>';
+    h+='<div class="fg"><label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--mut)">Frist (10 Arbeitstage Standard)</label>';
+    const defFrist=_defaultFrist();
+    h+='<input type="date" id="vgaFrist" value="'+(vg.frist||defFrist)+'" style="padding:8px 10px;border:1.5px solid var(--brd2);border-radius:8px;font-size:13px;font-family:var(--sans)" onchange="saveVgaField(\'frist\',this.value)"/>';
+    h+='</div></div>';
+
+    // Check if ready to submit
+    const allChecked=eins.every(e=>{const ck=vg['check_'+e.installateurId]||{};return ck.pos&&ck.vorbed&&ck.offerte;});
+    const hasEmpf=empf.length>0;
+    const hasEmpfaenger=!!vg.empfaenger;
+
+    if(!allChecked)h+='<div style="font-size:12px;color:#dc2626;margin-bottom:8px">✕ Checkliste nicht vollständig — alle Unternehmer müssen geprüft sein.</div>';
+    if(!hasEmpf)h+='<div style="font-size:12px;color:#dc2626;margin-bottom:8px">✕ Mindestens einen Unternehmer empfehlen.</div>';
+    if(!hasEmpfaenger)h+='<div style="font-size:12px;color:#dc2626;margin-bottom:8px">✕ Empfänger (Entscheidungsinstanz) wählen.</div>';
+
+    h+='<button class="btn btn-p" style="width:100%;justify-content:center;padding:12px" onclick="submitVergabeantrag()" '+(allChecked&&hasEmpf&&hasEmpfaenger?'':'disabled')+'>📋 Vergabeantrag einreichen</button>';
+    h+='</div>';
+  }
+
+  // ── 5. Genehmigungsaktionen (für Entscheider-Ansicht) ──
+  if(vg.status==='genehmigt'&&!vg.winnerId){
+    h+='<div style="padding:16px;background:#f0fdf4;border:1.5px solid #bbf7d0;border-radius:12px;margin-bottom:16px">';
+    h+='<h3 style="font-size:15px;font-weight:800;margin-bottom:10px;color:#15803d">Zuschlag & Absagen versenden</h3>';
+    h+='<p style="font-size:12px;color:var(--mut);margin-bottom:12px">Der Vergabeantrag wurde genehmigt. Wählen Sie den Gewinner und versenden Sie Zuschlag und Absagen gleichzeitig.</p>';
+    h+='<div class="fg" style="margin-bottom:12px"><label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--mut)">Zuschlag an</label>';
+    h+='<select id="vgaWinner" style="padding:8px 10px;border:1.5px solid var(--brd2);border-radius:8px;font-size:13px;font-family:var(--sans)">';
+    empf.forEach(eid=>{const e=eins.find(x=>x.installateurId===eid);if(e)h+='<option value="'+eid+'">'+E(e.firma)+' (empfohlen) — Netto '+fC(calcNetto(a,e))+'</option>';});
+    eins.filter(e=>empf.indexOf(e.installateurId)<0).forEach(e=>{h+='<option value="'+e.installateurId+'">'+E(e.firma)+' — Netto '+fC(calcNetto(a,e))+'</option>';});
+    h+='</select></div>';
+    h+='<button class="btn btn-ok" style="width:100%;justify-content:center;padding:12px" onclick="doVergabeZuschlag()">🏆 Zuschlag erteilen & Absagen senden</button>';
+    h+='</div>';
+  }
+
+  return h;
+};
+
+// ── Vergabeantrag Helper Functions ──
+
+function _entscheidungLabel(val){
+  return{'bauherr':'Bauherr','bh_vertretung':'BH-Vertretung','generalunternehmer':'GU','totalunternehmer':'TU'}[val]||val;
+}
+
+function _getVergabeEmpfaenger(a){
+  // Alle Beteiligten die als Entscheidungsinstanz in Frage kommen
+  if(typeof GemaObjekte==='undefined')return[];
+  try{
+    var objId=a.objektId;if(!objId)return[];
+    var alle=GemaObjekte.getBeteiligte?GemaObjekte.getBeteiligte(objId):[];
+    return alle.filter(function(b){
+      return b.rolle==='Bauherrschaft'||b.rolle==='Architekt / Generalplaner';
+    });
+  }catch(e){return[];}
+}
+
+function _defaultFrist(){
+  var d=new Date();var added=0;
+  while(added<10){d.setDate(d.getDate()+1);if(d.getDay()!==0&&d.getDay()!==6)added++;}
+  return d.toISOString().split('T')[0];
+}
+
+function _renderBKPVergleich(a,eins,empf){
+  var h='<div style="overflow-x:auto"><table class="dt" style="font-size:12px"><thead><tr><th>BKP</th><th>Bezeichnung</th>';
+  eins.forEach(function(e){
+    var isE=empf.indexOf(e.installateurId)>=0;
+    h+='<th class="tr" style="min-width:100px;'+(isE?'background:#eff4ff;color:#1d4ed8;font-weight:800':'')+'">'+E(e.firma)+(isE?' ★':'')+'</th>';
+  });
+  h+='</tr></thead><tbody>';
+
+  // Collect 3-digit BKP totals
+  var bkpGroups={};
+  (a.bkp||[]).forEach(function(bg){
+    var code3=bg.code.substring(0,3);
+    if(!bkpGroups[code3])bkpGroups[code3]={code:code3,name:bg.name,totals:eins.map(function(){return 0;})};
+    (bg.unterpositionen||[]).forEach(function(up){
+      eins.forEach(function(e,ei){
+        var p=e.prices?e.prices[bg.code+'_'+up.id]:0;
+        var v=p||0;
+        if(a.modell==='einheitspreise'&&up.menge)v=v*(parseFloat(up.menge)||0);
+        bkpGroups[code3].totals[ei]+=v;
+      });
+    });
+  });
+
+  // If no BKP-level data, use global totals
+  var codes=Object.keys(bkpGroups).sort();
+  if(!codes.length){
+    h+='<tr style="font-weight:800"><td>—</td><td>Gesamttotal</td>';
+    var nettos=eins.map(function(e){return calcNetto(a,e);});
+    var minN=Math.min.apply(null,nettos.filter(function(n){return n>0;}));
+    eins.forEach(function(e,i){
+      var isE=empf.indexOf(e.installateurId)>=0;
+      h+='<td class="tr" style="font-weight:800;'+(isE?'background:#eff4ff;':'')+(nettos[i]===minN&&eins.length>1?'color:#15803d':'')+'">'+fC(nettos[i])+'</td>';
+    });
+    h+='</tr>';
+  } else {
+    var grandTotals=eins.map(function(){return 0;});
+    codes.forEach(function(code){
+      var g=bkpGroups[code];
+      var minV=Math.min.apply(null,g.totals.filter(function(t){return t>0;}));
+      h+='<tr><td style="font-weight:700;color:var(--acc)">'+E(g.code)+'</td><td>'+E(g.name)+'</td>';
+      g.totals.forEach(function(t,i){
+        var isE=empf.indexOf(eins[i].installateurId)>=0;
+        grandTotals[i]+=t;
+        h+='<td class="tr" style="'+(isE?'background:#eff4ff;':'')+(t>0&&t===minV&&eins.length>1?'color:#15803d;font-weight:700':'')+'">'+fC(t)+'</td>';
+      });
+      h+='</tr>';
+    });
+    // Grand total + Netto
+    var nettos=eins.map(function(e){return calcNetto(a,e);});
+    var minN=Math.min.apply(null,nettos.filter(function(n){return n>0;}));
+    h+='<tr style="font-weight:800;border-top:3px solid var(--txt);background:var(--bg2)"><td></td><td>Brutto Total</td>';
+    eins.forEach(function(e,i){var isE=empf.indexOf(e.installateurId)>=0;h+='<td class="tr" style="'+(isE?'background:#eff4ff;':'')+'">'+fC(e.total||grandTotals[i])+'</td>';});
+    h+='</tr>';
+    h+='<tr style="font-weight:800;border-top:2px solid var(--txt)"><td></td><td>Netto inkl. MwSt</td>';
+    eins.forEach(function(e,i){
+      var isE=empf.indexOf(e.installateurId)>=0;
+      h+='<td class="tr" style="'+(isE?'background:#eff4ff;':'')+(nettos[i]===minN&&eins.length>1?'color:#15803d':'')+'">'+fC(nettos[i])+'</td>';
+    });
+    h+='</tr>';
+  }
+  h+='</tbody></table></div>';
+  return h;
+}
+
+function toggleVgCheck(instId,field,val){
+  const a=curA();if(!a)return;
+  if(!a.vergabe)a.vergabe={status:null,winnerId:null,datum:null,empfehlungen:[],empfehlungText:'',entscheidungsinstanz:'',empfaenger:'',frist:null,genehmigung:null,ablehnungGrund:'',zuschlagMsg:'',absageMsg:'',kostenUebertragen:false};
+  var key='check_'+instId;
+  if(!a.vergabe[key])a.vergabe[key]={pos:false,vorbed:false,offerte:false};
+  a.vergabe[key][field]=val;
+  sv();nav('pvga');
+}
+
+function toggleEmpfehlung(instId){
+  const a=curA();if(!a)return;
+  if(!a.vergabe.empfehlungen)a.vergabe.empfehlungen=[];
+  var idx=a.vergabe.empfehlungen.indexOf(instId);
+  if(idx>=0)a.vergabe.empfehlungen.splice(idx,1);
+  else a.vergabe.empfehlungen.push(instId);
+  sv();nav('pvga');
+}
+
+function saveEmpfText(val){
+  const a=curA();if(!a)return;
+  a.vergabe.empfehlungText=val;sv();
+}
+
+function saveVgaField(field,val){
+  const a=curA();if(!a)return;
+  a.vergabe[field]=val;sv();
+}
+
+function submitVergabeantrag(){
+  const a=curA();if(!a)return;
+  a.vergabe.status='eingereicht';
+  if(!a.vergabe.frist)a.vergabe.frist=_defaultFrist();
+  a.vergabe.eingereichAm=new Date().toISOString();
+  sv();lg('📋','Vergabeantrag eingereicht',a.name+' → '+(a.vergabe.empfaenger||'?'));
+  toast('✓ Vergabeantrag eingereicht');nav('pvga');
+}
+
+function approveVergabeantrag(){
+  const a=curA();if(!a)return;
+  a.vergabe.status='genehmigt';
+  a.vergabe.genehmigung={datum:new Date().toISOString().split('T')[0],von:S.currentUserId};
+  sv();lg('✓','Vergabeantrag genehmigt',a.name);
+  toast('✓ Vergabeantrag genehmigt');nav('pvga');
+}
+
+function rejectVergabeantrag(){
+  const a=curA();if(!a)return;
+  const grund=prompt('Begründung für die Ablehnung:');
+  if(grund===null)return;
+  a.vergabe.status='abgelehnt';
+  a.vergabe.ablehnungGrund=grund;
+  sv();lg('✕','Vergabeantrag abgelehnt',a.name+' — '+grund);
+  toast('Vergabeantrag abgelehnt');nav('pvga');
+}
+
+function resetVergabeantrag(){
+  const a=curA();if(!a)return;
+  a.vergabe.status='entwurf';
+  a.vergabe.ablehnungGrund='';
+  a.vergabe.genehmigung=null;
+  sv();nav('pvga');
+}
+
+function doVergabeZuschlag(){
+  const a=curA();if(!a)return;
+  const wid=document.getElementById('vgaWinner')?.value;
+  if(!wid){toast('Bitte Gewinner wählen','error');return;}
+  const winner=S.beteiligte.find(b=>b.id===wid)||eins_find(a,wid);
+  const eins=S.einreichungen.filter(e=>e.ausId===a.id);
+  const winEin=eins.find(e=>e.installateurId===wid);
+
+  a.status='vergeben';
+  a.vergabe.status='vergeben';
+  a.vergabe.winnerId=wid;
+  a.vergabe.datum=new Date().toISOString().split('T')[0];
+  a.vergabe.zuschlagMsg='Wir freuen uns, Ihnen den Zuschlag für die Arbeiten gemäss Ausschreibung «'+a.name+'» zu erteilen. Wir freuen uns auf die Zusammenarbeit.';
+  a.vergabe.absageMsg='Vielen Dank für Ihre Offerte zur Ausschreibung «'+a.name+'». Wir müssen Ihnen leider mitteilen, dass der Zuschlag anderweitig vergeben wurde.';
+
+  // In Kostenkontrolle übertragen
+  _uebertrageInKostenkontrolle(a,winEin);
+
+  sv();lg('🏆','Zuschlag',winner?.firma+' für '+a.name);
+  toast('🏆 Zuschlag an '+(winner?.firma||winEin?.firma)+' · Absagen an '+(eins.length-1)+' Unternehmer gesendet');
+  buildTabs();nav('pvga');
+}
+
+function eins_find(a,instId){
+  return S.einreichungen.find(function(e){return e.ausId===a.id&&e.installateurId===instId;});
+}
+
+function _uebertrageInKostenkontrolle(a,winEin){
+  if(!winEin||!a.objektId)return;
+  try{
+    var koKey='kostenkontrolle_v3';
+    // Try object-specific key
+    if(typeof GemaObjekte!=='undefined'){
+      var aktiv=GemaObjekte.getActiveId?GemaObjekte.getActiveId():'';
+      if(aktiv)koKey='kostenkontrolle_v3__'+a.objektId;
+    }
+    var raw=localStorage.getItem(koKey);
+    var ko=raw?JSON.parse(raw):{meta:{objekt:'',gewerk:'',unternehmer:'',werkvertragsdatum:'',mwst:8.1,rabatt:0,skonto:0,bauabzuege:0,pauschalabzug:0,notiz:''},werkvertrag:[],zusatz:[],regie:[],rechnungen:[],progress:0,showMwst:true};
+
+    // Meta updaten
+    ko.meta.unternehmer=winEin.firma||'';
+    ko.meta.werkvertragsdatum=new Date().toISOString().split('T')[0];
+    ko.meta.objekt=a.objekt||a.name||'';
+
+    // Werkvertrag-Positionen aus BKP-Totals
+    var bkpTotals={};
+    (a.bkp||[]).forEach(function(bg){
+      var code3=bg.code.substring(0,3);
+      if(!bkpTotals[code3])bkpTotals[code3]={pos:code3,beschr:bg.name,betrag:0};
+      (bg.unterpositionen||[]).forEach(function(up){
+        var p=winEin.prices?winEin.prices[bg.code+'_'+up.id]:0;
+        var v=p||0;
+        if(a.modell==='einheitspreise'&&up.menge)v=v*(parseFloat(up.menge)||0);
+        bkpTotals[code3].betrag+=v;
+      });
+    });
+
+    var codes=Object.keys(bkpTotals).sort();
+    if(codes.length){
+      ko.werkvertrag=codes.map(function(c){
+        return{id:'wv_'+c+'_'+Date.now(),pos:bkpTotals[c].pos,beschr:bkpTotals[c].beschr,betrag:bkpTotals[c].betrag};
+      });
+    } else {
+      // Fallback: Gesamtbetrag
+      ko.werkvertrag=[{id:'wv_total_'+Date.now(),pos:'',beschr:'Werkvertrag '+a.name,betrag:winEin.total||0}];
+    }
+
+    localStorage.setItem(koKey,JSON.stringify(ko));
+    a.vergabe.kostenUebertragen=true;
+  }catch(e){console.warn('Kostenkontrolle-Übertragung fehlgeschlagen:',e);}
+}
+
 VIEWS.pber=function(){
   var a=curA();
   var h='<h2 style="font-size:20px;font-weight:700;margin-bottom:16px">🔬 Berechnungen — Projektübersicht</h2>';
@@ -2393,7 +2728,66 @@ VIEWS.aub=function(){
   h+=`<table class="dt"><thead><tr><th>Ausschreibung</th><th>Typ</th><th>Objekt</th><th>Frist</th><th>Status</th></tr></thead><tbody>`;
   h+=S.ausschreibungen.map(a=>`<tr><td><strong>${E(a.name)}</strong></td><td><span class="tag ${a.typ==='crbx'?'t-pu':'t-ac'}">${a.typ==='crbx'?'CRBX':'Funktional'}</span></td><td>${E(a.objekt)}</td><td>${a.frist||'—'}</td><td><span class="tag ${a.status==='vergeben'?'t-gr':a.status==='aktiv'||a.status==='crbx_geprueft'?'t-bl':'t-am'}">${a.status==='vergeben'?'Vergeben':a.status==='crbx_geprueft'?'Freigegeben':a.status==='aktiv'?'Aktiv':'Entwurf'}</span></td></tr>`).join('');
   h+=`</tbody></table>`;
-  h+=`<div class="ip" style="margin-top:16px"><strong>Hinweis:</strong> Als Architekt siehst du den Status pro Gewerk. Preise und Offertdetails sind nicht einsehbar.</div>`;
+  // Hinweis zu Vergabeanträge
+  const pendingVga=S.ausschreibungen.filter(function(x){return x.vergabe&&x.vergabe.status==='eingereicht';});
+  if(pendingVga.length){
+    h+='<div style="padding:12px 16px;background:#fffbeb;border:1.5px solid #fde68a;border-radius:10px;margin-top:16px;font-size:13px;color:#92400e"><strong>'+pendingVga.length+' Vergabeantrag/anträge</strong> warten auf Ihre Genehmigung. <button class="btn btn-p btn-sm" style="margin-left:8px" onclick="nav(\'avga\')">Ansehen →</button></div>';
+  }
+  h+='<div class="ip" style="margin-top:16px"><strong>Hinweis:</strong> Preise und Offertdetails sind erst nach einem Vergabeantrag des Planers einsehbar.</div>';
+  return h;
+};
+
+// ── Architekt/BH: Vergabeanträge ──
+VIEWS.avga=function(){
+  let h='<h2 style="font-size:20px;font-weight:700;margin-bottom:16px">Vergabeanträge</h2>';
+  const pending=S.ausschreibungen.filter(function(a){return a.vergabe&&(a.vergabe.status==='eingereicht'||a.vergabe.status==='genehmigt'||a.vergabe.status==='vergeben');});
+  if(!pending.length){h+='<div class="es"><p>Keine Vergabeanträge vorhanden.</p></div>';return h;}
+
+  pending.forEach(function(a){
+    const vg=a.vergabe;
+    const eins=S.einreichungen.filter(function(e){return e.ausId===a.id;});
+    const empf=vg.empfehlungen||[];
+
+    h+='<div style="border:1.5px solid var(--brd);border-radius:12px;padding:16px;margin-bottom:16px;background:var(--sur)">';
+
+    // Header
+    var statusBg='#fffbeb';var statusColor='#92400e';var statusText='⟳ Warten auf Genehmigung';
+    if(vg.status==='genehmigt'){statusBg='#f0fdf4';statusColor='#15803d';statusText='✓ Genehmigt';}
+    if(vg.status==='vergeben'){statusBg='#f0fdf4';statusColor='#15803d';statusText='🏆 Vergeben';}
+    h+='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">';
+    h+='<h3 style="font-size:15px;font-weight:800">'+E(a.name)+'</h3>';
+    h+='<span style="padding:4px 10px;border-radius:6px;background:'+statusBg+';color:'+statusColor+';font-size:11px;font-weight:700">'+statusText+'</span>';
+    h+='</div>';
+
+    if(vg.frist)h+='<div style="font-size:12px;color:var(--mut);margin-bottom:12px">Frist: '+vg.frist+'</div>';
+
+    // Empfehlung prominent
+    if(empf.length){
+      h+='<div style="padding:14px;background:linear-gradient(135deg,#eff4ff,#ecfeff);border:2px solid #93c5fd;border-radius:10px;margin-bottom:14px">';
+      h+='<div style="font-size:11px;font-weight:700;color:#1d4ed8;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Empfehlung des Planers</div>';
+      empf.forEach(function(eid){
+        var e=eins.find(function(x){return x.installateurId===eid;});
+        if(e)h+='<div style="font-size:14px;font-weight:800;color:#1d4ed8">★ '+E(e.firma)+'</div>';
+      });
+      if(vg.empfehlungText)h+='<div style="font-size:12px;color:#374151;margin-top:6px;line-height:1.5">'+E(vg.empfehlungText)+'</div>';
+      h+='</div>';
+    }
+
+    // BKP-Preisvergleich (3-stellig)
+    h+='<h4 style="font-size:13px;font-weight:700;margin-bottom:8px">Preisvergleich (BKP 3-stellig)</h4>';
+    h+=_renderBKPVergleich(a,eins,empf);
+
+    // Aktionen
+    if(vg.status==='eingereicht'){
+      h+='<div style="display:flex;gap:8px;margin-top:14px">';
+      h+='<button class="btn btn-ok" style="flex:1;justify-content:center" onclick="S.activeAusId=\''+a.id+'\';approveVergabeantrag()">✓ Genehmigen</button>';
+      h+='<button class="btn btn-g" style="flex:1;justify-content:center;border-color:#fecaca;color:#dc2626" onclick="S.activeAusId=\''+a.id+'\';rejectVergabeantrag()">✕ Ablehnen</button>';
+      h+='</div>';
+    }
+
+    h+='</div>';
+  });
+
   return h;
 };
 
@@ -2761,18 +3155,13 @@ function vtl(iid){const a=curA();if(!a)return;if(S.verteilungen.find(v=>v.ausId=
   save();lg('📤','Eingeladen',inst?.firma+' → '+a.name);toast('📧 E-Mail an '+inst?.firma+' (Vorschau)');buildTabs();nav('pvrt');}
 
 // ── Vergabe ──
-function openVergabe(){const a=curA();if(!a)return;const eins=S.einreichungen.filter(e=>e.ausId===a.id);
-  document.getElementById('vgWinner').innerHTML=eins.map(e=>`<option value="${e.installateurId}">${E(e.firma)} — Netto ${fC(calcNetto(a,e))}</option>`).join('');
-  oM('mVergabe');}
-function doVergabe(){const a=curA();if(!a)return;const wid=document.getElementById('vgWinner').value;const winner=S.beteiligte.find(b=>b.id===wid);
-  a.status='vergeben';a.vergabe={winnerId:wid,datum:new Date().toISOString().split('T')[0],msgWin:document.getElementById('vgMsgWin').value,msgLose:document.getElementById('vgMsgLose').value};
-  save();lg('🏆','Zuschlag',winner?.firma+' für '+a.name);
-  cM('mVergabe');toast('🏆 Zuschlag an '+winner?.firma+' · Absagen gesendet');
-  // Show email previews
-  const losers=S.einreichungen.filter(e=>e.ausId===a.id&&e.installateurId!==wid);
-  let msg=`📧 E-Mails (Vorschau):\n\n✅ Zuschlag an ${winner?.firma}:\n"${a.vergabe.msgWin||'Wir freuen uns auf die Zusammenarbeit.'}"`;
-  losers.forEach(l=>{msg+=`\n\n❌ Absage an ${l.firma}:\n"${a.vergabe.msgLose||'Vielen Dank für Ihre Offerte. Leider müssen wir Ihnen mitteilen, dass der Zuschlag anderweitig vergeben wurde.'}"`;});
-  dlgConfirm('📧 E-Mails versendet','Zuschlag an '+winner?.firma+'. Absagen an '+losers.length+' weitere Unternehmer gesendet.',()=>{});buildTabs();nav('pein');
+function openVergabe(){
+  // Redirect to Vergabeantrag tab
+  nav('pvga');
+}
+function doVergabe(){
+  // Legacy — redirect to new flow
+  nav('pvga');
 }
 
 // ── Installateur Offert-Einreichung ──

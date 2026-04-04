@@ -330,7 +330,7 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important}
       <div class="frow">
         <div class="fg"><label>Objekt *</label><select id="betObjekt"></select></div>
         <div class="fg"><label>Rolle *</label>
-          <select id="betRolle">
+          <select id="betRolle" onchange="toggleEntscheidungsinstanz()">
             <option value="Bauherrschaft">Bauherrschaft</option>
             <option value="Architekt / Generalplaner">Architekt / Generalplaner</option>
             <option value="Sanitärplaner">Sanitärplaner (eigene Firma)</option>
@@ -339,6 +339,17 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important}
             <option value="Weitere">Weitere (Statiker, HLKS, Elektro…)</option>
           </select>
         </div>
+      </div>
+      <div class="fg" id="fgEntscheidung" style="display:none">
+        <label>Entscheidungsinstanz (Vergabe)</label>
+        <select id="betEntscheidung">
+          <option value="">– Keine –</option>
+          <option value="bauherr">Bauherr (entscheidet direkt)</option>
+          <option value="bh_vertretung">Bauherrenvertretung (entscheidet final)</option>
+          <option value="generalunternehmer">Generalunternehmer (vertritt Bauherr)</option>
+          <option value="totalunternehmer">Totalunternehmer (vertritt Bauherr)</option>
+        </select>
+        <span style="font-size:10px;color:var(--mut);margin-top:2px">Wer genehmigt Vergabeanträge für dieses Objekt?</span>
       </div>
       <div class="frow3">
         <div class="fg"><label>Firma</label><input id="betFirma" placeholder="Firmenname"/></div>
@@ -680,6 +691,14 @@ function renderBeteiligte(){
 }
 window.renderBeteiligte=renderBeteiligte;
 
+function toggleEntscheidungsinstanz(){
+  const rolle=$('betRolle')?.value||'';
+  const show=['Bauherrschaft','Architekt / Generalplaner'].indexOf(rolle)>=0;
+  const fg=$('fgEntscheidung');
+  if(fg)fg.style.display=show?'':'none';
+}
+window.toggleEntscheidungsinstanz=toggleEntscheidungsinstanz;
+
 function openBetModal(editId){
   populateObjFilter();
   const isEdit=typeof editId==='string'&&editId.length>3;
@@ -696,12 +715,15 @@ function openBetModal(editId){
     $('betTelefon').value=b.telefon||'';$('betMobile').value=b.mobile||'';$('betEmail').value=b.email||'';
     $('betBkp').value=(b.bkp||[]).join(', ');$('betNotizen').value=b.notizen||'';
     $('betAdrSearch').value=b.strasse?((b.strasse||'')+', '+(b.plz||'')+' '+(b.ort||'')):'';
+    if($('betEntscheidung'))$('betEntscheidung').value=b.entscheidungsinstanz||'';
   } else {
     ['betFirma','betName','betVorname','betFunktion','betStrasse','betPlz','betOrt','betTelefon','betMobile','betEmail','betBkp','betNotizen'].forEach(id=>$(id).value='');
     if($('betKanton'))$('betKanton').value='';
+    if($('betEntscheidung'))$('betEntscheidung').value='';
     $('betRolle').value='Bauherrschaft';
     $('betAdrSearch').value='';
   }
+  toggleEntscheidungsinstanz();
   openModal('betModal');
 }
 window.openBetModal=openBetModal;
@@ -716,7 +738,8 @@ function saveBet(){
     vorname:$('betVorname').value.trim(),funktion:$('betFunktion').value.trim(),strasse:$('betStrasse').value.trim(),
     plz:$('betPlz').value.trim(),ort:$('betOrt').value.trim(),kanton:($('betKanton')?$('betKanton').value:'').trim(),telefon:$('betTelefon').value.trim(),
     mobile:$('betMobile').value.trim(),email:email,
-    bkp:bkpRaw?bkpRaw.split(',').map(s=>s.trim()).filter(Boolean):[],notizen:$('betNotizen').value.trim()};
+    bkp:bkpRaw?bkpRaw.split(',').map(s=>s.trim()).filter(Boolean):[],notizen:$('betNotizen').value.trim(),
+    entscheidungsinstanz:($('betEntscheidung')?$('betEntscheidung').value:'')||''};
   if(editId){
     const idx=_mem.beteiligte.findIndex(x=>x.id===editId);
     if(idx>=0)Object.assign(_mem.beteiligte[idx],data);
