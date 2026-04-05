@@ -257,9 +257,10 @@ function fixLeadingZero(el){
     <div class="card">
       <div class="card-hd"><h2>📋 Projektangaben</h2></div>
       <div class="card-bd">
-        <div class="fld"><label class="fl">Objekt</label><input class="g-in" id="objekt" placeholder="z.B. Neubau MFH Musterstrasse"/></div>
-        <div class="fld"><label class="fl">Bauherrschaft</label><input class="g-in" id="bauherr" placeholder="Name / Firma"/></div>
-        <div class="fld"><label class="fl">Architekt</label><input class="g-in" id="architekt" placeholder="Architekturbüro"/></div>
+        <div class="fld"><label class="fl">Projekt</label><select class="g-in" id="metaObjektDropdown" onchange="onObjektSelect()" style="font-size:13px"><option value="">– Projekt wählen –</option></select></div>
+        <div class="fld"><label class="fl">Objekt</label><input class="g-in" id="objekt" placeholder="Wird automatisch ausgefüllt" style="background:#f8fafc;color:var(--txt2)"/></div>
+        <div class="fld"><label class="fl">Bauherrschaft</label><input class="g-in" id="bauherr" placeholder="Wird automatisch ausgefüllt"/></div>
+        <div class="fld"><label class="fl">Architekt</label><input class="g-in" id="architekt" placeholder="Wird automatisch ausgefüllt"/></div>
         <div class="fld"><label class="fl">Datum</label><input class="g-in" type="date" id="datum" style="flex:0 0 auto;"/><label class="fl" style="margin-left:12px;">BKP</label><input class="g-in mono" id="bkp" value="295" style="flex:0 0 60px;"/></div>
       </div>
     </div>
@@ -651,7 +652,118 @@ render();
 })();
 </script>
 <script>document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('honorar', 'Planungshonorar SIA 108');});</script>
-<script>if(typeof GemaAutoSave!=='undefined') GemaAutoSave.init('planungshonorar');</script>
+<script>
+// Projekt-Dropdown befüllen + Auto-Fill Beteiligte
+(function(){
+  var sel=document.getElementById('metaObjektDropdown');
+  if(!sel||typeof GemaObjekte==='undefined')return;
+
+  // Dropdown befüllen
+  var all=GemaObjekte.getAll();
+  var activeId=GemaObjekte.getActiveId()||'';
+  all.forEach(function(o){
+    var label=[o.name||'Projekt'];
+    if(o.strasse)label.push(o.strasse);
+    if(o.plz||o.ort)label.push([o.plz,o.ort].filter(Boolean).join(' '));
+    var opt=document.createElement('option');
+    opt.value=o.id;
+    opt.textContent=label.join(' · ');
+    if(o.id===activeId)opt.selected=true;
+    sel.appendChild(opt);
+  });
+
+  // Auto-Fill Funktion
+  window._honorarFillFromObjekt=function(objektId,isNew){
+    if(!objektId||typeof GemaObjekte==='undefined')return;
+    var o=GemaObjekte.getAll().find(function(x){return x.id===objektId;});
+    if(!o)return;
+
+    // Nur auto-fill wenn Felder leer sind oder neues Objekt gewählt
+    var objField=document.getElementById('objekt');
+    if(objField&&(isNew||!objField.value)){
+      var parts=[o.name||''];
+      if(o.strasse)parts.push(o.strasse);
+      if(o.plz||o.ort)parts.push([o.plz,o.ort].filter(Boolean).join(' '));
+      objField.value=parts.join(', ');
+    }
+
+    // Bauherrschaft
+    var bhField=document.getElementById('bauherr');
+    if(bhField&&(isNew||!bhField.value)){
+      var bh=GemaObjekte.getBauherrschaft(objektId);
+      if(bh&&bh.length){
+        var b=bh[0];
+        bhField.value=[b.firma,[b.vorname,b.name].filter(Boolean).join(' ')].filter(Boolean).join(' · ')||'';
+      }
+    }
+
+    // Architekt
+    var arField=document.getElementById('architekt');
+    if(arField&&(isNew||!arField.value)){
+      var ar=GemaObjekte.getArchitekt(objektId);
+      if(ar&&ar.length){
+        var a=ar[0];
+        arField.value=[a.firma,[a.vorname,a.name].filter(Boolean).join(' ')].filter(Boolean).join(' · ')||'';
+      }
+    }
+  };
+
+  // onObjektSelect wird von GemaAutoSave gepatcht — hier die Basis-Logik
+  window.onObjektSelect=function(){
+    var newId=sel.value;
+    if(typeof GemaObjekte!=='undefined'&&newId){
+      GemaObjekte.setActiveId(newId);
+    }
+  };
+
+  // Initial auto-fill wenn Objekt aktiv und keine gespeicherten Daten
+  if(activeId){
+    var key='gema_planungshonorar__'+activeId;
+    var hasData=false;
+    try{hasData=!!localStorage.getItem(key);}catch(e){}
+    if(!hasData){
+      setTimeout(function(){window._honorarFillFromObjekt(activeId,true);},300);
+    }
+  }
+})();
+</script>
+<script>
+if(typeof GemaAutoSave!=='undefined'){
+  // Erweitere _switchObjekt um Beteiligte-Auto-Fill
+  var _origInit=GemaAutoSave.init;
+  GemaAutoSave.init('planungshonorar');
+
+  // Nach dem Laden: Wenn keine Daten, auto-fill aus Objekt
+  var _sel=document.getElementById('metaObjektDropdown');
+  if(_sel&&_sel.value){
+    setTimeout(function(){
+      var key='gema_planungshonorar__'+_sel.value;
+      var hasData=false;
+      try{var raw=localStorage.getItem(key);if(raw){var d=JSON.parse(raw);hasData=d&&d._ts;}}catch(e){}
+      if(!hasData&&window._honorarFillFromObjekt){
+        window._honorarFillFromObjekt(_sel.value,true);
+      }
+    },500);
+  }
+
+  // Bei Objektwechsel: Auto-Fill nach dem Laden
+  var _origOnSelect=window.onObjektSelect;
+  window.onObjektSelect=function(){
+    if(typeof _origOnSelect==='function')_origOnSelect();
+    var newId=_sel?_sel.value:'';
+    if(newId){
+      setTimeout(function(){
+        var key='gema_planungshonorar__'+newId;
+        var hasData=false;
+        try{var raw=localStorage.getItem(key);if(raw){var d=JSON.parse(raw);hasData=d&&d._ts;}}catch(e){}
+        if(!hasData&&window._honorarFillFromObjekt){
+          window._honorarFillFromObjekt(newId,true);
+        }
+      },400);
+    }
+  };
+}
+</script>
 <script src="gema_scroll.js"></script>
 </body>
 </html>
