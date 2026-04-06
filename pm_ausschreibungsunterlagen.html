@@ -862,7 +862,8 @@ VIEWS.paus=function(){
     const nE=S.einreichungen.filter(e=>e.ausId===a.id).length;const nV=S.verteilungen.filter(v=>v.ausId===a.id).length;
     const nUp=(a.bkp||[]).reduce((s,b)=>s+(b.unterpositionen||[]).length,0);
     var bkpInfo='';if(a.lose&&a.lose.length){var allP=a.lose.reduce(function(s,l){return s.concat(l.positionen||[]);},[]);var ch=allP.filter(function(p){return p.checked;});var er=ch.filter(function(p){return p.status==='erledigt';});if(ch.length)bkpInfo=' · BKP '+er.length+'/'+ch.length;}
-    return `<div class="ac" onclick="selectAusschreibung('${a.id}')" style="cursor:pointer">
+    return `<div class="ac" style="cursor:pointer;position:relative">
+      <div onclick="selectAusschreibung('${a.id}')" style="flex:1">
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
         <strong style="font-size:15px">${E(a.name)}</strong>
         <span class="tag ${a.typ==='crbx'?'t-pu':'t-ac'}">${a.typ==='crbx'?'CRBX':'Funktional'}</span>
@@ -870,6 +871,8 @@ VIEWS.paus=function(){
         <span class="ml-a tag ${a.status==='vergeben'?'t-gr':a.status==='aktiv'||a.status==='crbx_geprueft'?'t-bl':'t-am'}">${a.status==='vergeben'?'Vergeben':a.status==='crbx_geprueft'?'Freigegeben':a.status==='aktiv'?'Aktiv':'Entwurf'}</span>
       </div>
       <div style="font-size:12px;color:var(--mut)">${E(a.objekt||'')} · Frist: ${a.frist||'—'} · ${nUp} Positionen · ${nV} verteilt · ${nE} Offerten${bkpInfo}</div>
+      </div>
+      <button class="btn btn-d btn-sm" onclick="event.stopPropagation();deleteAusschreibung('${a.id}')" style="position:absolute;top:10px;right:10px;opacity:.4" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=.4" title="Löschen">✕</button>
     </div>`;
   }).join('');
   h+=`</div>`;
@@ -882,6 +885,22 @@ function filterAusList(){
   items.forEach(function(el){
     el.style.display=(!q||el.textContent.toLowerCase().indexOf(q)>=0)?'':'none';
   });
+}
+
+function deleteAusschreibung(ausId){
+  var a=S.ausschreibungen.find(function(x){return x.id===ausId;});
+  if(!a)return;
+  if(a.status==='vergeben'){toast('Vergebene Ausschreibungen können nicht gelöscht werden.','error');return;}
+  if(!confirm('Ausschreibung «'+a.name+'» wirklich löschen?\n\nAlle zugehörigen Daten (BKP, Offerten, Anfragen) werden ebenfalls entfernt.'))return;
+  S.ausschreibungen=S.ausschreibungen.filter(function(x){return x.id!==ausId;});
+  S.einreichungen=S.einreichungen.filter(function(e){return e.ausId!==ausId;});
+  S.anfragen=S.anfragen.filter(function(x){return x.ausId!==ausId;});
+  S.verteilungen=S.verteilungen.filter(function(v){return v.ausId!==ausId;});
+  S.nettoAnfragen=S.nettoAnfragen.filter(function(n){return n.ausId!==ausId;});
+  if(S.activeAusId===ausId)S.activeAusId=S.ausschreibungen.length?S.ausschreibungen[0].id:'';
+  sv();lg('🗑','Ausschreibung gelöscht',a.name);
+  toast('🗑 «'+a.name+'» gelöscht');
+  buildTabs();nav('paus');
 }
 
 // ═══════════════════════════════════════════════
