@@ -1125,8 +1125,9 @@ function renderBKPTree(positionen,losId){
       h+='<input type="text" value="'+E(p.titel).replace(/"/g,'&quot;')+'" onchange="editBKPField(\''+losId+'\','+i+',\'titel\',this.value)" style="flex:1;padding:3px 6px;border:1.5px solid #c8cfdf;border-radius:5px;font-size:13px;font-weight:600;background:#fff;font-family:var(--sans)" onfocus="this.style.borderColor=\'#1d4ed8\'" onblur="this.style.borderColor=\'#c8cfdf\'"/>';
       // Status icon
       h+='<span style="font-size:14px;font-weight:900;'+statusCl+';cursor:pointer;width:20px;text-align:center" onclick="event.stopPropagation();cycleBKPStatus(\''+losId+'\','+i+',this)" title="Status wechseln">'+statusIc+'</span>';
-      // Module link if Lieferung
-      if(p.istLieferung)h+='<button onclick="event.stopPropagation();openLieferungDialog(\''+losId+'\','+i+')" style="background:none;border:none;font-size:11px;color:var(--acc);cursor:pointer;padding:2px;white-space:nowrap" title="Lieferung & Offerte">🔗 Offerte</button>';
+      // Module link if Lieferung (explizit oder Titel beginnt mit "Lieferung")
+      var isLief=p.istLieferung||/^Lieferung\b/i.test(p.titel);
+      if(isLief)h+='<button onclick="event.stopPropagation();openLieferungDialog(\''+losId+'\','+i+')" style="background:none;border:none;font-size:11px;color:var(--acc);cursor:pointer;padding:2px;white-space:nowrap" title="Lieferung & Offerte">🔗 Offerte</button>';
       else if(p.modulUrl)h+='<a href="'+p.modulUrl+'" target="_blank" style="font-size:11px;color:var(--acc);text-decoration:none;white-space:nowrap" title="Berechnungsmodul öffnen">🔗</a>';
       // Delete
       h+='<button onclick="rmBKPPos(\''+losId+'\','+i+')" style="background:none;border:none;color:var(--mut2);cursor:pointer;font-size:12px;padding:2px" title="Entfernen">✕</button>';
@@ -1654,7 +1655,19 @@ function editBKPField(losId,idx,field,val){
   var a=curA();if(!a)return;
   var l=a.lose.find(function(x){return x.id===losId;});
   if(!l)return;
-  l.positionen[idx][field]=val;
+  var p=l.positionen[idx];
+  p[field]=val;
+  // Auto-Erkennung: Titel beginnt mit "Lieferung" → istLieferung + Montage
+  if(field==='titel'&&/^Lieferung\b/i.test(val)&&!p.istLieferung){
+    p.istLieferung=true;
+    if(p.checked)autoMontage(l,p,idx);
+    sv();saveBKPOpenState();nav('pbkp');
+    return;
+  }
+  // Titel nicht mehr "Lieferung" → istLieferung zurücksetzen (nur wenn auto-gesetzt)
+  if(field==='titel'&&!/^Lieferung\b/i.test(val)&&p.istLieferung&&!p.lieferungTyp){
+    p.istLieferung=false;
+  }
   sv();
 }
 function cycleBKPStatus(losId,idx,el){
