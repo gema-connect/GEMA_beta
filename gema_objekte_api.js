@@ -43,11 +43,11 @@
     if (_cache.objekte && _cache.objekte.length) return;
     _cache.objekte = [
       {id:'obj_demo_1',name:'Neubau MFH Musterstrasse',strasse:'Musterstrasse 12',plz:'4053',ort:'Basel',gemeinde:'Basel',kanton:'BS',
-       bauvorhaben:'Neubau',status:'aktiv',orgId:'org_default',erstelltVon:'user_planer_1',createdAt:'2025-06-01T08:00:00Z'},
+       bauvorhaben:'Neubau',status:'aktiv',orgId:'org_default',abteilungId:'abt_sanitaer',erstelltVon:'user_planer_1',createdAt:'2025-06-01T08:00:00Z'},
       {id:'obj_demo_2',name:'Sanierung Schulhaus Reinach',strasse:'Schulstrasse 5',plz:'4153',ort:'Reinach',gemeinde:'Reinach',kanton:'BL',
-       bauvorhaben:'Sanierung',status:'aktiv',orgId:'org_default',erstelltVon:'user_planer_1',createdAt:'2025-09-01T08:00:00Z'},
+       bauvorhaben:'Sanierung',status:'aktiv',orgId:'org_default',abteilungId:'abt_sanitaer',erstelltVon:'user_planer_2',createdAt:'2025-09-01T08:00:00Z'},
       {id:'obj_demo_3',name:'Umbau Bürogebäude Liestal',strasse:'Rathausstrasse 8',plz:'4410',ort:'Liestal',gemeinde:'Liestal',kanton:'BL',
-       bauvorhaben:'Umbau',status:'aktiv',orgId:'org_default',erstelltVon:'user_planer_1',createdAt:'2026-01-15T08:00:00Z'}
+       bauvorhaben:'Umbau',status:'aktiv',orgId:'org_default',abteilungIds:['abt_sanitaer','abt_hlkk'],erstelltVon:'user_planer_1',createdAt:'2026-01-15T08:00:00Z'}
     ];
     _cache.beteiligte = [
       // Objekt 1: Neubau MFH — alle Rollen besetzt

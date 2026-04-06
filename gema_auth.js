@@ -103,12 +103,15 @@
     rechtsform:'GmbH',
     adresse:{strasse:'Rheinfelderstrasse 10',plz:'4058',ort:'Basel',kanton:'BS',land:'CH'},
     kontakt:{email:'info@jaeggivollmer.ch',telefon:'061 692 03 11',website:''},
-    settings:{waehrung:'CHF',land:'CH',sichtbarkeit:'firma',abteilungenAktiv:false},
-    abteilungen:[],
-    lizenzen:{typ:'pool',maxUser:5,aktiveUser:2,aboStart:'2025-01-01',aboEnde:'2026-12-31',gewerke:['sanitaer']},
-    admins:['user_admin'],
+    settings:{waehrung:'CHF',land:'CH',sichtbarkeit:'abteilung',abteilungenAktiv:true},
+    abteilungen:[
+      {id:'abt_sanitaer',name:'Sanitär',farbe:'#16a34a',gewerke:['sanitaer'],leiter:'user_planer_1'},
+      {id:'abt_hlkk',name:'Heizung / Lüftung',farbe:'#dc2626',gewerke:['hlkk','lueftung'],leiter:'user_planer_hlkk'}
+    ],
+    lizenzen:{typ:'pool',maxUser:10,aktiveUser:5,aboStart:'2025-01-01',aboEnde:'2026-12-31',gewerke:['sanitaer','hlkk','lueftung']},
+    admins:['user_admin','user_planer_1'],
     active:true,
-    createdAt:new Date().toISOString()
+    createdAt:'2025-01-01T08:00:00Z'
   }];
 
   var DEFAULT_ORG_CATS = [
@@ -137,9 +140,19 @@
     // ── Planer ──
     {id:'user_planer_1', username:'planer', name:'Felix Jäggi',
      password:_hash('planer2025'), roleIds:['role_planer'], orgId:'org_default',
-     active:true, createdAt:'2025-01-01T08:00:00Z',
+     active:true, createdAt:'2025-01-01T08:00:00Z', abteilungId:'abt_sanitaer',
      kontotyp:'vollzugang', abo:{typ:'premium'},
      profile:{email:'felix@jaeggivollmer.ch',telefon:'061 692 03 11',firma:'Jäggi Vollmer GmbH',person:'Felix Jäggi',sprache:'de',benachrichtigungen:true,dynamischeBKP:true}},
+    {id:'user_planer_2', username:'robin@jaeggivollmer.ch', name:'Robin Jäggi',
+     password:_hash('robin2025'), roleIds:['role_planer'], orgId:'org_default',
+     active:true, createdAt:'2025-03-01T08:00:00Z', abteilungId:'abt_sanitaer',
+     kontotyp:'vollzugang', abo:{typ:'premium'},
+     profile:{email:'robin@jaeggivollmer.ch',telefon:'061 692 03 12',firma:'Jäggi Vollmer GmbH',person:'Robin Jäggi',sprache:'de',benachrichtigungen:true,dynamischeBKP:true}},
+    {id:'user_planer_hlkk', username:'hlkk', name:'Marco Bühler',
+     password:_hash('hlkk2025'), roleIds:['role_hlkk_planer'], orgId:'org_default',
+     active:true, createdAt:'2025-02-01T08:00:00Z', abteilungId:'abt_hlkk',
+     kontotyp:'vollzugang', abo:{typ:'premium'},
+     profile:{email:'buehler@jaeggivollmer.ch',telefon:'061 692 03 15',firma:'Jäggi Vollmer GmbH',person:'Marco Bühler',sprache:'de',benachrichtigungen:true,dynamischeBKP:true}},
     // ── Unternehmer / Installateur ──
     {id:'user_unternehmer_1', username:'installateur', name:'Peter Meier',
      password:_hash('inst2025'), roleIds:['role_unternehmer'], orgId:'org_default',
