@@ -657,6 +657,75 @@ function deleteLieferant(id){
   save();
 }
 
+// ── Lieferanten-Suche (Duplikat-Vermeidung) ──
+function searchLieferanten(query){
+  if(!query||query.length<2)return[];
+  const q=query.toLowerCase();
+  return _liefData.lieferanten.filter(function(l){
+    return (l.firma&&l.firma.toLowerCase().indexOf(q)>=0)
+      ||(l.email&&l.email.toLowerCase().indexOf(q)>=0)
+      ||(l.kontaktPerson&&l.kontaktPerson.toLowerCase().indexOf(q)>=0);
+  });
+}
+
+// ── Schnell-Erfassung (Firma + E-Mail, minimal) ──
+function quickCreateLieferant(firma,email,erstelltVon){
+  // Prüfe Duplikat per E-Mail
+  if(email){
+    var existing=_liefData.lieferanten.find(function(l){
+      return l.email&&l.email.toLowerCase()===email.toLowerCase();
+    });
+    if(existing)return existing;
+  }
+  // Prüfe Duplikat per Firma (exakter Match)
+  if(firma){
+    var byFirma=_liefData.lieferanten.find(function(l){
+      return l.firma&&l.firma.toLowerCase()===firma.toLowerCase();
+    });
+    if(byFirma)return byFirma;
+  }
+  return createLieferant({firma:firma,email:email,erstelltVon:erstelltVon||''});
+}
+
+// ── Offertanfrage-Vormerkungen (für spätere Ausschreibung) ──
+const SK_VM='gema_offert_vormerkungen_v1';
+let _vormerkungen=[];
+function _loadVormerkungen(){try{var r=localStorage.getItem(SK_VM);if(r)_vormerkungen=JSON.parse(r);}catch(e){}_vormerkungen=_vormerkungen||[];}
+function _saveVormerkungen(){try{localStorage.setItem(SK_VM,JSON.stringify(_vormerkungen));}catch(e){}}
+_loadVormerkungen();
+
+function addVormerkung(daten){
+  // daten: {objektId, lieferantId, lieferantFirma, produktId, produktName, kategorie, modulKey, bkpCode, bruttoPreis, offertanfrageId}
+  var vm={
+    id:'vm_'+Date.now(),
+    objektId:daten.objektId||'',
+    lieferantId:daten.lieferantId||'',
+    lieferantFirma:daten.lieferantFirma||'',
+    produktId:daten.produktId||'',
+    produktName:daten.produktName||'',
+    kategorie:daten.kategorie||'',
+    modulKey:daten.modulKey||'',
+    bkpCode:daten.bkpCode||'',
+    bruttoPreis:daten.bruttoPreis||0,
+    offertanfrageId:daten.offertanfrageId||'',
+    status:'vorgemerkt',
+    erstelltAm:new Date().toISOString(),
+    uebernommenAm:null
+  };
+  _vormerkungen.push(vm);
+  _saveVormerkungen();
+  return vm;
+}
+
+function getVormerkungen(objektId){
+  return _vormerkungen.filter(function(v){return v.objektId===objektId&&v.status==='vorgemerkt';});
+}
+
+function markVormerkungUebernommen(vmId){
+  var vm=_vormerkungen.find(function(v){return v.id===vmId;});
+  if(vm){vm.status='uebernommen';vm.uebernommenAm=new Date().toISOString();_saveVormerkungen();}
+}
+
 function _refreshLieferantCounts(){
   _liefData.lieferanten.forEach(l => {
     const prods = _data.produkte.filter(p => p.lieferantId === l.id);
@@ -795,10 +864,28 @@ function beantworteOffertanfrage(id, antwort){
     nachricht: antwort.nachricht || '',
     pdfName: antwort.pdfName || '',
     pdfDataUrl: antwort.pdfDataUrl || '',
+    bruttoPreis: antwort.bruttoPreis || 0,
     beantwortetAm: new Date().toISOString(),
     beantwortetVon: _getUsername()
   };
   save();
+  // Automatische Vormerkung für Ausschreibung erstellen
+  if(oa.projekt && oa.projekt.objektId){
+    var bkpMap={enthaertung:'253.0',osmose:'253.2',druckerhoehung:'253.4',frischwasserstation:'253.6',
+      hebeanlage:'252.6',fettabscheider:'252.4',oelabscheider:'252.8',zirkulation:'253.8'};
+    addVormerkung({
+      objektId:oa.projekt.objektId,
+      lieferantId:oa.lieferantId||'',
+      lieferantFirma:oa.lieferantFirma||'',
+      produktId:oa.produktId||'',
+      produktName:oa.produktName||'',
+      kategorie:oa.kategorie||'',
+      modulKey:oa.kategorie||'',
+      bkpCode:bkpMap[oa.kategorie]||'',
+      bruttoPreis:antwort.bruttoPreis||0,
+      offertanfrageId:oa.id
+    });
+  }
   return oa;
 }
 
@@ -898,6 +985,12 @@ window.GemaProdukte = {
   deactivateLieferant,
   activateLieferant,
   deleteLieferant,
+  searchLieferanten,
+  quickCreateLieferant,
+  // Vormerkungen
+  addVormerkung,
+  getVormerkungen,
+  markVormerkungUebernommen,
   // Dokumente
   addDokument,
   removeDokument,

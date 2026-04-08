@@ -4,7 +4,7 @@
 <script src="gema_auth.js"></script>
 <meta charset="utf-8"/>
 <meta name="theme-color" content="#0f172a"/>
-<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
 <title>Lieferanten-Dashboard – GEMA</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
@@ -105,6 +105,7 @@ textarea.fc{resize:vertical;min-height:60px;line-height:1.5}
 /* Responsive */
 @media(max-width:768px){.g2,.g3{grid-template-columns:1fr}.kpi-row{grid-template-columns:1fr 1fr}.tabs{gap:0}.tab{padding:8px 12px;font-size:12px}}
 </style>
+<link rel="stylesheet" href="gema_responsive.css"/>
 </head>
 <body>
 
@@ -327,7 +328,9 @@ textarea.fc{resize:vertical;min-height:60px;line-height:1.5}
     </div>
     <div style="padding:16px 20px;display:flex;flex-direction:column;gap:12px">
       <div id="oaAnswerDetails"></div>
-      <div><label class="fl">Ihre Antwort</label><textarea class="fc" id="oaAnswerMsg" rows="4" placeholder="Offerte-Details, Preis, Lieferzeit…"></textarea></div>
+      <div><label class="fl">Produkt aus Katalog (optional)</label><select class="fc" id="oaAnswerProdukt" onchange="oaProduktChanged()"><option value="">– Produkt wählen –</option></select></div>
+      <div><label class="fl">Brutto-Preis (CHF)</label><input type="text" inputmode="decimal" class="fc" id="oaAnswerPreis" placeholder="z.B. 4850.00" onblur="fixLeadingZero(this)" style="max-width:200px"/></div>
+      <div><label class="fl">Ihre Antwort</label><textarea class="fc" id="oaAnswerMsg" rows="3" placeholder="Lieferzeit, Konditionen, Bemerkungen…"></textarea></div>
       <div><label class="fl">Offerte als PDF (optional)</label><input type="file" class="fc" id="oaAnswerPdf" accept=".pdf" style="padding:6px"/></div>
     </div>
     <div style="padding:14px 20px;border-top:1.5px solid var(--brd);display:flex;gap:8px;justify-content:flex-end">
@@ -790,18 +793,53 @@ function openOaAnswer(oaId){
       (oa.nachricht?'<strong>Nachricht:</strong> '+E(oa.nachricht):'')+
     '</div>';
   document.getElementById('oaAnswerMsg').value = '';
+  document.getElementById('oaAnswerPreis').value = '';
   document.getElementById('oaAnswerPdf').value = '';
+  // Produkt-Dropdown befüllen mit eigenen Produkten der passenden Kategorie
+  var prodSel = document.getElementById('oaAnswerProdukt');
+  prodSel.innerHTML = '<option value="">– Produkt wählen –</option>';
+  if(typeof GemaProdukte !== 'undefined' && _lief) {
+    var kat = oa.kategorie || '';
+    var meineProdukte = GemaProdukte.getProdukte(kat).filter(function(p) {
+      return p.lieferantId === _lief.id || p.lieferantFirma === _lief.firma;
+    });
+    if(!meineProdukte.length && kat) {
+      // Fallback: alle eigenen Produkte
+      meineProdukte = GemaProdukte.getProdukte().filter(function(p) {
+        return p.lieferantId === _lief.id || p.lieferantFirma === _lief.firma;
+      });
+    }
+    meineProdukte.forEach(function(p) {
+      var d = p.daten || {};
+      var label = (d.serie || d.hersteller || p.lieferantFirma || '') + ' ' + (d.modell || d.typ || '');
+      prodSel.innerHTML += '<option value="' + p.id + '">' + label.trim() + '</option>';
+    });
+  }
   document.getElementById('oaAnswerOverlay').style.display = 'flex';
 }
 
 function closeOaAnswer(){ document.getElementById('oaAnswerOverlay').style.display='none'; _answerOaId=null; }
 
+function oaProduktChanged(){
+  var prodId = document.getElementById('oaAnswerProdukt').value;
+  if(!prodId || typeof GemaProdukte === 'undefined') return;
+  var p = GemaProdukte.getProdukt(prodId);
+  if(!p) return;
+  var d = p.daten || {};
+  // Auto-fill Preis wenn vorhanden
+  if(d.listenpreis && !document.getElementById('oaAnswerPreis').value) {
+    document.getElementById('oaAnswerPreis').value = d.listenpreis;
+  }
+}
+
 function sendOaAnswer(){
   if(!_answerOaId) return;
   var msg = document.getElementById('oaAnswerMsg').value.trim();
-  if(!msg){ toast('Bitte Antwort-Text eingeben.','error'); return; }
+  var preis = parseFloat((document.getElementById('oaAnswerPreis').value||'').replace(/'/g,'')) || 0;
+  if(!msg && !preis){ toast('Bitte Preis oder Antwort-Text eingeben.','error'); return; }
   var fi = document.getElementById('oaAnswerPdf');
-  var antwort = { nachricht: msg };
+  var produktId = document.getElementById('oaAnswerProdukt').value || '';
+  var antwort = { nachricht: msg, bruttoPreis: preis, produktId: produktId };
 
   if(fi.files&&fi.files.length){
     var file = fi.files[0];

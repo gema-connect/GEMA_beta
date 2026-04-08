@@ -34,7 +34,50 @@
       }
     } catch(e) {}
     _cache = { objekte: [], beteiligte: [], activeObjektId: null };
+    // Demo-Daten initialisieren wenn leer
+    _seedDemoObjekte();
     return _cache;
+  }
+
+  function _seedDemoObjekte() {
+    if (_cache.objekte && _cache.objekte.length) return;
+    _cache.objekte = [
+      {id:'obj_demo_1',name:'Neubau MFH Musterstrasse',strasse:'Musterstrasse 12',plz:'4053',ort:'Basel',gemeinde:'Basel',kanton:'BS',
+       bauvorhaben:'Neubau',status:'aktiv',orgId:'org_default',abteilungId:'abt_sanitaer',erstelltVon:'user_planer_1',createdAt:'2025-06-01T08:00:00Z'},
+      {id:'obj_demo_2',name:'Sanierung Schulhaus Reinach',strasse:'Schulstrasse 5',plz:'4153',ort:'Reinach',gemeinde:'Reinach',kanton:'BL',
+       bauvorhaben:'Sanierung',status:'aktiv',orgId:'org_default',abteilungId:'abt_sanitaer',erstelltVon:'user_planer_2',createdAt:'2025-09-01T08:00:00Z'},
+      {id:'obj_demo_3',name:'Umbau Bürogebäude Liestal',strasse:'Rathausstrasse 8',plz:'4410',ort:'Liestal',gemeinde:'Liestal',kanton:'BL',
+       bauvorhaben:'Umbau',status:'aktiv',orgId:'org_default',abteilungIds:['abt_sanitaer','abt_hlkk'],erstelltVon:'user_planer_1',createdAt:'2026-01-15T08:00:00Z'}
+    ];
+    _cache.beteiligte = [
+      // Objekt 1: Neubau MFH — alle Rollen besetzt
+      {id:'bet_1_bh',objektId:'obj_demo_1',rolle:'Bauherrschaft',firma:'Immobilien Bâle AG',vorname:'Marc',name:'Brunner',funktion:'Geschäftsführer',
+       strasse:'Aeschenvorstadt 4',plz:'4051',ort:'Basel',kanton:'BS',telefon:'061 201 30 40',email:'brunner@immobale.ch',bkp:[],entscheidungsinstanz:'bauherr',createdAt:'2025-06-02T08:00:00Z'},
+      {id:'bet_1_ar',objektId:'obj_demo_1',rolle:'Architekt / Generalplaner',firma:'Architektur Muster AG',vorname:'Sarah',name:'Müller',funktion:'Projektleiterin',
+       strasse:'Steinenvorstadt 50',plz:'4051',ort:'Basel',kanton:'BS',telefon:'061 555 66 77',email:'mueller@archmuster.ch',bkp:[],entscheidungsinstanz:'bh_vertretung',createdAt:'2025-06-02T08:00:00Z'},
+      {id:'bet_1_pl',objektId:'obj_demo_1',rolle:'Sanitärplaner',firma:'Jäggi Vollmer GmbH',vorname:'Felix',name:'Jäggi',funktion:'Projektleiter Sanitär',
+       strasse:'Rheinfelderstrasse 10',plz:'4058',ort:'Basel',kanton:'BS',telefon:'061 692 03 11',email:'felix@jaeggivollmer.ch',bkp:['25'],createdAt:'2025-06-02T08:00:00Z'},
+      {id:'bet_1_un1',objektId:'obj_demo_1',rolle:'Unternehmer / Installateur',firma:'Meier Sanitär AG',vorname:'Peter',name:'Meier',funktion:'Geschäftsführer',
+       strasse:'Industriestrasse 22',plz:'4142',ort:'Münchenstein',kanton:'BL',telefon:'061 333 44 55',email:'meier@meiersanitaer.ch',bkp:['25','251','253'],createdAt:'2025-06-05T08:00:00Z'},
+      {id:'bet_1_un2',objektId:'obj_demo_1',rolle:'Unternehmer / Installateur',firma:'Steiner Sanitär GmbH',vorname:'Thomas',name:'Steiner',funktion:'Projektleiter',
+       strasse:'Gewerbestrasse 15',plz:'8005',ort:'Zürich',kanton:'ZH',telefon:'044 222 33 44',email:'steiner@steinersanitaer.ch',bkp:['25','251','253'],createdAt:'2025-06-05T08:00:00Z'},
+      // Objekt 2: Schulhaus — BH direkt
+      {id:'bet_2_bh',objektId:'obj_demo_2',rolle:'Bauherrschaft',firma:'Gemeinde Reinach',vorname:'Andrea',name:'Fischer',funktion:'Leiterin Hochbau',
+       strasse:'Hauptstrasse 10',plz:'4153',ort:'Reinach',kanton:'BL',telefon:'061 511 22 33',email:'fischer@reinach.bl.ch',bkp:[],entscheidungsinstanz:'bauherr',createdAt:'2025-09-02T08:00:00Z'},
+      {id:'bet_2_pl',objektId:'obj_demo_2',rolle:'Sanitärplaner',firma:'Jäggi Vollmer GmbH',vorname:'Felix',name:'Jäggi',funktion:'Projektleiter Sanitär',
+       strasse:'Rheinfelderstrasse 10',plz:'4058',ort:'Basel',kanton:'BS',telefon:'061 692 03 11',email:'felix@jaeggivollmer.ch',bkp:['25'],createdAt:'2025-09-02T08:00:00Z'},
+      {id:'bet_2_un1',objektId:'obj_demo_2',rolle:'Unternehmer / Installateur',firma:'Meier Sanitär AG',vorname:'Peter',name:'Meier',funktion:'',
+       strasse:'Industriestrasse 22',plz:'4142',ort:'Münchenstein',kanton:'BL',telefon:'061 333 44 55',email:'meier@meiersanitaer.ch',bkp:['25'],createdAt:'2025-09-05T08:00:00Z'},
+      // Objekt 3: Büro Liestal — mit Architekt als BH-Vertretung
+      {id:'bet_3_bh',objektId:'obj_demo_3',rolle:'Bauherrschaft',firma:'Roth Immobilien AG',vorname:'Daniel',name:'Roth',funktion:'Eigentümer',
+       strasse:'Bahnhofstrasse 20',plz:'4410',ort:'Liestal',kanton:'BL',telefon:'061 901 22 33',email:'roth@rothimmo.ch',bkp:[],entscheidungsinstanz:'',createdAt:'2026-01-16T08:00:00Z'},
+      {id:'bet_3_ar',objektId:'obj_demo_3',rolle:'Architekt / Generalplaner',firma:'Architektur Muster AG',vorname:'Sarah',name:'Müller',funktion:'Projektleiterin',
+       strasse:'Steinenvorstadt 50',plz:'4051',ort:'Basel',kanton:'BS',telefon:'061 555 66 77',email:'mueller@archmuster.ch',bkp:[],entscheidungsinstanz:'bh_vertretung',createdAt:'2026-01-16T08:00:00Z'},
+      {id:'bet_3_pl',objektId:'obj_demo_3',rolle:'Sanitärplaner',firma:'Jäggi Vollmer GmbH',vorname:'Felix',name:'Jäggi',funktion:'Projektleiter Sanitär',
+       strasse:'Rheinfelderstrasse 10',plz:'4058',ort:'Basel',kanton:'BS',telefon:'061 692 03 11',email:'felix@jaeggivollmer.ch',bkp:['25'],createdAt:'2026-01-16T08:00:00Z'}
+    ];
+    _cache.activeObjektId = 'obj_demo_1';
+    _save();
   }
 
   // ── Async: fetch from Supabase if empty ──
