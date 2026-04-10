@@ -69,6 +69,10 @@ textarea.fc{resize:vertical;min-height:60px;line-height:1.5}
 .prod-serie{font-size:14px;font-weight:700;flex:1;min-width:0}
 .prod-modell{font-size:12px;color:var(--mut);margin-top:2px}
 .prod-meta{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.prod-cmp-btn{font-family:inherit;font-size:11px;font-weight:700;padding:5px 11px;border-radius:7px;border:1.5px solid var(--brd2);background:var(--sur);color:var(--txt2);cursor:pointer;white-space:nowrap;transition:.15s}
+.prod-cmp-btn:hover{background:var(--acc-bg);border-color:#bfdbfe;color:var(--acc)}
+.prod-cmp-btn.active{background:var(--acc);border-color:var(--acc);color:#fff}
+.prod-cmp-btn.active:hover{background:#1d4ed8}
 .tag{display:inline-flex;padding:2px 8px;border-radius:6px;font-size:10px;font-weight:700}
 .t-gy{background:var(--bg2);color:var(--mut)}.t-bl{background:var(--acc-bg);color:var(--acc)}.t-gr{background:var(--grn-bg);color:var(--grn)}.t-rd{background:var(--red-bg);color:var(--red)}
 
@@ -227,6 +231,7 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important}
 <script src="gema_feedback.js"></script>
 <script src="gema_pdf.js"></script>
 <script src="gema_produktkatalog_api.js"></script>
+<script src="gema_vergleich.js"></script>
 <script>
 function fixLeadingZero(el){let v=el.value.trim();if(!v)return;if(v.startsWith('.'))v='0'+v;if(v.startsWith('-.'))v='-0'+v.substring(1);const n=parseFloat(v);if(!isNaN(n))el.value=n;}
 const E=s=>typeof s==='string'?s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'):'';
@@ -324,6 +329,8 @@ function renderList(){
   document.getElementById('listBody').innerHTML=prods.map(p=>{
     const st=GemaProdukte.STATUS_LABELS[p.status]||{};
     const badgeCls=p.status==='verifiziert'?'badge-verified':p.status==='nicht_verifiziert'?'badge-unverified':'badge-draft';
+    const inCart = (typeof GemaVergleich !== 'undefined') && GemaVergleich.has(p.id, currentKat);
+    const cartBtn = `<button class="prod-cmp-btn${inCart?' active':''}" onclick="event.stopPropagation();toggleVergleich('${E(p.id)}')" title="${inCart?'Aus Vergleich entfernen':'Zum Vergleich hinzufügen'}">${inCart?'⚖ ✓':'⚖ Vergleichen'}</button>`;
     return `<div class="prod-row" onclick="openProdukt('${E(p.id)}')">
       <div style="flex:1;min-width:0">
         <div class="prod-serie">${E(p.daten?.serie||'—')} ${E(p.daten?.modell||'')}</div>
@@ -332,10 +339,19 @@ function renderList(){
       <div class="prod-meta">
         ${p.daten?.anschluss?'<span class="tag t-gy">'+E(p.daten.anschluss)+'</span>':''}
         <span class="badge ${badgeCls}">${E(st.label||p.status)}</span>
+        ${cartBtn}
       </div>
     </div>`;
   }).join('');
 }
+
+// ── Vergleichs-Toggle (#32) ──
+function toggleVergleich(produktId){
+  if (typeof GemaVergleich === 'undefined') return;
+  var added = GemaVergleich.toggle(produktId, currentKat);
+  renderList(); // Re-render um Button-Status zu aktualisieren
+}
+window.toggleVergleich = toggleVergleich;
 
 // ── Open/Create ──
 function startCreate(){

@@ -1023,6 +1023,104 @@ function addLog(produkt, aktion, detail){
   if(produkt.log.length > 50) produkt.log.length = 50;
 }
 
+// ═══════════════════════════════════════════════
+// STAMMLIEFERANTEN (#31) — Favoriten & Büro-Stamm
+// ═══════════════════════════════════════════════
+// Zwei Ebenen kombiniert:
+//  1. Persönliche Favoriten (pro User) — localStorage
+//  2. Büro-Stamm (pro Organisation) — localStorage, gepflegt von Admin/Planer
+// Sortierung für Listen: [Persönliche Favs] → [Büro-Stamm] → [Rest].
+const SK_FAVS       = 'gema_lieferanten_favs_v1';     // { [userId]: [liefId, ...] }
+const SK_ORG_STAMM  = 'gema_lieferanten_orgstamm_v1'; // { [orgId]:  [liefId, ...] }
+
+function _getUserContext(){
+  var ctx = { userId: 'anonymous', orgId: 'org_default', canEditOrgStamm: false };
+  try {
+    if (typeof GemaAuth !== 'undefined') {
+      var u = GemaAuth.getCurrentUser();
+      if (u) {
+        ctx.userId = u.id || ctx.userId;
+        ctx.orgId  = u.orgId || ctx.orgId;
+        // Admins und Planer dürfen Büro-Stamm pflegen
+        var roles = u.roleIds || [];
+        ctx.canEditOrgStamm = roles.indexOf('role_admin') >= 0 || roles.indexOf('role_planer') >= 0;
+        if (typeof GemaAuth.isOrgAdmin === 'function' && GemaAuth.isOrgAdmin(u.id)) ctx.canEditOrgStamm = true;
+      }
+    }
+  } catch(e) {}
+  return ctx;
+}
+
+function _loadMap(key){
+  try { var r = localStorage.getItem(key); if (r) return JSON.parse(r) || {}; } catch(e) {}
+  return {};
+}
+function _saveMap(key, map){
+  try { localStorage.setItem(key, JSON.stringify(map || {})); } catch(e) {}
+}
+
+function getFavoriten(){
+  var ctx = _getUserContext();
+  var map = _loadMap(SK_FAVS);
+  return (map[ctx.userId] || []).slice();
+}
+function isFavorit(liefId){
+  return getFavoriten().indexOf(liefId) >= 0;
+}
+function toggleFavorit(liefId){
+  if (!liefId) return false;
+  var ctx = _getUserContext();
+  var map = _loadMap(SK_FAVS);
+  var list = (map[ctx.userId] || []).slice();
+  var i = list.indexOf(liefId);
+  if (i >= 0) list.splice(i, 1); else list.push(liefId);
+  map[ctx.userId] = list;
+  _saveMap(SK_FAVS, map);
+  return i < 0; // true wenn jetzt Favorit
+}
+
+function getOrgStamm(){
+  var ctx = _getUserContext();
+  var map = _loadMap(SK_ORG_STAMM);
+  return (map[ctx.orgId] || []).slice();
+}
+function isOrgStamm(liefId){
+  return getOrgStamm().indexOf(liefId) >= 0;
+}
+function canEditOrgStamm(){
+  return _getUserContext().canEditOrgStamm;
+}
+function toggleOrgStamm(liefId){
+  if (!liefId) return false;
+  var ctx = _getUserContext();
+  if (!ctx.canEditOrgStamm) return null; // Nicht berechtigt
+  var map = _loadMap(SK_ORG_STAMM);
+  var list = (map[ctx.orgId] || []).slice();
+  var i = list.indexOf(liefId);
+  if (i >= 0) list.splice(i, 1); else list.push(liefId);
+  map[ctx.orgId] = list;
+  _saveMap(SK_ORG_STAMM, map);
+  return i < 0;
+}
+
+// Sortiert eine Lieferantenliste nach Stamm-Priorität:
+// 1. Persönliche Favoriten (alphabetisch)
+// 2. Büro-Stammlieferanten (alphabetisch)
+// 3. Alle übrigen (alphabetisch)
+// Mutiert die Eingabe nicht, sondern gibt eine neue Liste zurück.
+function sortWithStamm(list){
+  var favs  = {}; getFavoriten().forEach(function(id){ favs[id] = true; });
+  var stamm = {}; getOrgStamm().forEach(function(id){ stamm[id] = true; });
+  var byName = function(a, b){ return (a.firma || '').localeCompare(b.firma || '', 'de'); };
+  var tierFav  = [], tierStamm = [], tierRest = [];
+  (list || []).forEach(function(l){
+    if (favs[l.id])  tierFav.push(l);
+    else if (stamm[l.id]) tierStamm.push(l);
+    else tierRest.push(l);
+  });
+  return tierFav.sort(byName).concat(tierStamm.sort(byName)).concat(tierRest.sort(byName));
+}
+
 // ── Init ──
 load();
 // Async: fetch from Supabase after page load (updates localStorage if newer data exists)
@@ -1057,6 +1155,15 @@ window.GemaProdukte = {
   deleteLieferant,
   searchLieferanten,
   quickCreateLieferant,
+  // Stammlieferanten (#31): Favoriten + Büro-Stamm
+  getFavoriten,
+  isFavorit,
+  toggleFavorit,
+  getOrgStamm,
+  isOrgStamm,
+  canEditOrgStamm,
+  toggleOrgStamm,
+  sortWithStamm,
   // Vormerkungen
   addVormerkung,
   getVormerkungen,

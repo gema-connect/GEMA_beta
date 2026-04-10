@@ -164,6 +164,78 @@ Dreiteilig:
 
 ---
 
+### Verzicht auf PDF-Versand aus GEMA
+**Quelle:** Persona-Test #30
+**Datum:** 2026-04-10
+**Status:** Entschieden — nicht umsetzen (Grundsatzentscheidung)
+
+Die Persona forderte einen Direkt-Versand von Ausschreibungen als PDF per Mail.
+
+**Entscheidung:** Ausschreibungs-Versand läuft ausschliesslich über den GEMA-internen Workflow. Ziel: Unternehmer, Bauherrschaft und Architekten sollen GEMA täglich nutzen — der «Marktplatz für die Baustelle»-Vision entsprechend. PDF-Export kann bleiben (für Archiv/Papier), aber es gibt keine eingebaute Mail-Versand-Funktion für Ausschreibungen.
+
+**Bestehende Touchpoints (geprüft, kein Handlungsbedarf):**
+- `pm_objekte.html:809` — `mailto:`-Link als Kontakt-Link (öffnet leeren Mail-Client). Kein Ausschreibungs-Versand, bleibt.
+- `pm_terminplan.html:2227` — Jour-fixe Serientermin-Export als ICS mit `mailto:`-Entwurf. Nicht Ausschreibung, bleibt.
+- Kein eingebauter PDF→Mail-Flow in `pm_ausschreibungsunterlagen.html` gefunden.
+
+**Konsequenz für zukünftige Module:** Wo immer ein Verteil-/Versand-Touchpoint entsteht, soll GEMA den Empfänger einladen, sich einzuloggen und direkt im System zu arbeiten — statt Dateien per Mail herumzuschicken.
+
+---
+
+### Stammlieferanten: Favoriten + Büro-Stamm (kombiniert)
+**Quelle:** Persona-Test #31
+**Datum:** 2026-04-10
+**Status:** Umgesetzt
+
+Zwei Ebenen kombiniert:
+
+1. **Persönliche Favoriten** (pro User)
+   - Stern-Icon ⭐ auf jeder Lieferanten-Karte togglet
+   - Gespeichert in `gema_lieferanten_favs_v1` als `{ [userId]: [liefId, …] }`
+   - Nur für den eingeloggten User sichtbar
+
+2. **Büro-Stammlieferanten** (pro Organisation)
+   - Haus-Icon 🏢 auf jeder Karte togglet — nur für Admin/Planer-Rollen sichtbar
+   - Gespeichert in `gema_lieferanten_orgstamm_v1` als `{ [orgId]: [liefId, …] }`
+   - Für alle User derselben Organisation sichtbar
+   - Berechtigungsprüfung via `GemaProdukte.canEditOrgStamm()` (Admin oder Planer)
+
+**Sortierung** (über `GemaProdukte.sortWithStamm()`):
+1. Persönliche Favoriten (alphabetisch)
+2. Büro-Stamm (alphabetisch)
+3. Rest (alphabetisch)
+
+**UI in `sys_lieferanten.html`:**
+- Neuer Stamm-Filter: «Alle / ⭐ Meine Favoriten / 🏢 Büro-Stamm» mit Count-Badges
+- Stern- und Haus-Toggles auf jeder Zeile (Haus nur für Admin/Planer)
+- Farbige Badges in der Zeile: ⭐ Favorit (gelb) / 🏢 Büro-Stamm (cyan)
+- Sortierung wird automatisch angewendet
+
+**Offen für später:** API-Integration im Ausschreibungs-Verteilen-Flow (`pm_ausschreibungsunterlagen.html`), damit Stammlieferanten auch dort oben erscheinen.
+
+---
+
+### Produkt-Vergleichskorb (Side-by-Side)
+**Quelle:** Persona-Test #32
+**Datum:** 2026-04-10
+**Status:** Umgesetzt (sys_produktkatalog.html)
+
+**Modul `gema_vergleich.js`:**
+- Globaler Korb: `gema_vergleich_korb_v1` als `{ [kategorie]: [produktId, …] }`, max. 4 Produkte pro Kategorie (ältester fällt raus bei Überschreitung)
+- API: `add(id, kat)`, `remove(id, kat)`, `toggle(id, kat)`, `has(id, kat)`, `count(kat)`, `countAll()`, `clear(kat)`, `open(kat)`, `onChange(cb)`
+- **Sticky Badge** unten rechts, erscheint sobald Korb ≥ 1 Produkt enthält: zeigt Total-Count, Klick öffnet Modal, ✕ leert den Korb
+- **Vergleichsmodal** mit Side-by-Side-Tabelle: Kopfzeile zeigt Produkt-Name/Lieferant/Entfernen-Button, Zeilen sind nach `kategorie.felder.gruppe` gruppiert, abweichende Werte werden gelb hervorgehoben, gleiche Werte sind neutral
+- Tabelle wird dynamisch aus `GemaProdukte.KATEGORIEN[kat].felder` gebaut — funktioniert automatisch mit allen bestehenden und neuen Kategorien
+
+**Integration in `sys_produktkatalog.html`:**
+- Button «⚖ Vergleichen» auf jeder Produktzeile
+- Aktiv-Zustand mit gefüllter Farbe, wenn im Korb
+- Vergleich pro Kategorie — wenn der User die Kategorie wechselt, ist der Korb dieser Kategorie persistent (Multi-Kategorie-Korb im Hintergrund)
+
+**Offen für später:** Vergleichs-Button auch im Lieferanten-Detail-Tab «Produkte» (`sys_lieferanten.html` → `renderProdukteListe`).
+
+---
+
 ### Ausschreibungs-Vorlagen pro Gebäudetyp (EFH/MFH/Schule)
 **Quelle:** Persona-Test #16
 **Datum:** 2026-04-10

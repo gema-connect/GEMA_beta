@@ -74,6 +74,17 @@ textarea.fc{resize:vertical;min-height:60px;line-height:1.5}
 .b-test{background:var(--amb-bg);color:var(--amb);border:1px solid #fde68a}
 .b-abgelaufen{background:var(--red-bg);color:var(--red);border:1px solid #fecaca}
 .b-oa{background:#fff7ed;color:#ea580c;border:1px solid #fed7aa}
+/* Stammlieferanten (#31) */
+.b-fav{background:#fef3c7;color:#92400e;border:1px solid #fbbf24}
+.b-stamm{background:#ecfeff;color:#0e7490;border:1px solid #a5f3fc}
+.lief-stars{display:flex;align-items:center;gap:4px;flex-shrink:0}
+.lief-star-btn{width:30px;height:30px;border-radius:8px;border:1.5px solid var(--brd);background:var(--sur);cursor:pointer;font-size:15px;display:flex;align-items:center;justify-content:center;transition:.15s;padding:0;line-height:1}
+.lief-star-btn:hover{background:var(--bg2);border-color:var(--brd2);transform:scale(1.08)}
+.lief-star-btn.active{background:#fef3c7;border-color:#fbbf24;color:#92400e}
+.lief-star-btn.stamm.active{background:#ecfeff;border-color:#22d3ee;color:#0e7490}
+.fb{padding:5px 12px;border-radius:8px;border:1.5px solid var(--brd2);background:var(--sur);color:var(--txt2);font-size:11.5px;font-weight:700;cursor:pointer;transition:.15s;white-space:nowrap}
+.fb:hover{background:var(--bg2)}
+.fb.active{background:var(--acc);border-color:var(--acc);color:#fff}
 
 /* Editor overlay */
 .editor-overlay{display:none;position:fixed;inset:0;z-index:300;background:rgba(0,0,0,.5);backdrop-filter:blur(4px)}
@@ -119,6 +130,15 @@ textarea.fc{resize:vertical;min-height:60px;line-height:1.5}
 <div class="g-page">
   <!-- KPIs -->
   <div class="kpi-row" id="kpis"></div>
+
+  <!-- Stamm-Filter (#31) -->
+  <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;flex-wrap:wrap">
+    <span style="font-size:11px;font-weight:700;color:var(--mut);text-transform:uppercase;letter-spacing:.05em;margin-right:4px">Stamm:</span>
+    <button class="fb active" data-stamm="all" onclick="setStammFilter('all',this)">Alle</button>
+    <button class="fb" data-stamm="fav" onclick="setStammFilter('fav',this)">⭐ Meine Favoriten <span id="cntFav" style="opacity:.7;margin-left:3px">0</span></button>
+    <button class="fb" data-stamm="stamm" onclick="setStammFilter('stamm',this)">🏢 Büro-Stamm <span id="cntStamm" style="opacity:.7;margin-left:3px">0</span></button>
+    <span style="font-size:11px;color:var(--mut);margin-left:6px">Favoriten und Büro-Stamm erscheinen in allen Listen oben.</span>
+  </div>
 
   <!-- Toolbar -->
   <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap">
@@ -361,6 +381,16 @@ function _liefKategorien(l){
   return Object.keys(kats);
 }
 
+// ── Stamm-Filter State (#31) ──
+var _stammFilter = 'all'; // 'all' | 'fav' | 'stamm'
+function setStammFilter(val, btn){
+  _stammFilter = val;
+  document.querySelectorAll('[data-stamm]').forEach(function(b){ b.classList.remove('active'); });
+  if(btn) btn.classList.add('active');
+  renderList();
+}
+window.setStammFilter = setStammFilter;
+
 // ── List ──
 function renderList(){
   populateFilters();
@@ -373,6 +403,12 @@ function renderList(){
   var fp = document.getElementById('filterPhase').value;
 
   var phaseAllow = fp ? (PHASE_KATEGORIE_MAP[fp] || []) : null;
+  // Stamm-Sets für Filter und Icons (#31)
+  var favIds = {}; GemaProdukte.getFavoriten().forEach(function(id){ favIds[id] = true; });
+  var stammIds = {}; GemaProdukte.getOrgStamm().forEach(function(id){ stammIds[id] = true; });
+  // Counts für die Filter-Pills
+  var elFav = document.getElementById('cntFav'); if(elFav) elFav.textContent = GemaProdukte.getFavoriten().length;
+  var elStamm = document.getElementById('cntStamm'); if(elStamm) elStamm.textContent = GemaProdukte.getOrgStamm().length;
 
   var list = all.filter(function(l){
     if(q && l.firma.toLowerCase().indexOf(q)<0 && (l.kontaktPerson||'').toLowerCase().indexOf(q)<0 && (l.email||'').toLowerCase().indexOf(q)<0) return false;
@@ -383,8 +419,12 @@ function renderList(){
     var liefKats = (fc || phaseAllow) ? _liefKategorien(l) : null;
     if(fc && liefKats.indexOf(fc) < 0) return false;
     if(phaseAllow && !liefKats.some(function(k){ return phaseAllow.indexOf(k) >= 0; })) return false;
+    if(_stammFilter === 'fav' && !favIds[l.id]) return false;
+    if(_stammFilter === 'stamm' && !stammIds[l.id]) return false;
     return true;
   });
+  // Sortierung: persönliche Favoriten → Büro-Stamm → Rest (alphabetisch)
+  list = GemaProdukte.sortWithStamm(list);
 
   // Filter-Stats Zeile
   var stats = document.getElementById('filterStats');
@@ -404,19 +444,31 @@ function renderList(){
     return;
   }
 
+  var canStamm = GemaProdukte.canEditOrgStamm();
   document.getElementById('listBody').innerHTML = list.map(function(l){
     var aboTyp = (l.abo||{}).typ || 'basis';
     var aboStatus = (l.abo||{}).status || 'aktiv';
     var isPrem = l.premium && l.premium.aktiv;
     var oaCount = 0;
     try { oaCount = GemaProdukte.getOffertanfragenCount(l.id); } catch(e){}
+    var isFav = !!favIds[l.id];
+    var isStamm = !!stammIds[l.id];
+    // Stern-Buttons (#31): persönlicher Favorit + (wenn berechtigt) Büro-Stamm
+    var stars =
+      '<div class="lief-stars">' +
+        '<button class="lief-star-btn'+(isFav?' active':'')+'" title="'+(isFav?'Favorit entfernen':'Als persönlichen Favoriten markieren')+'" onclick="event.stopPropagation();toggleFavLief(\''+E(l.id)+'\')">'+(isFav?'⭐':'☆')+'</button>' +
+        (canStamm ? '<button class="lief-star-btn stamm'+(isStamm?' active':'')+'" title="'+(isStamm?'Aus Büro-Stamm entfernen':'Als Büro-Stamm markieren (für alle Kollegen)')+'" onclick="event.stopPropagation();toggleStammLief(\''+E(l.id)+'\')">🏢</button>' : '') +
+      '</div>';
     return '<div class="lief-row" onclick="openLieferant(\''+E(l.id)+'\')">' +
+      stars +
       '<div class="lief-logo">'+(l.logo?'<img src="'+E(l.logo)+'"/>':E(l.firma.charAt(0)))+'</div>'+
       '<div class="lief-info">' +
         '<div class="lief-firma">'+E(l.firma)+(l.rechtsform?' '+E(l.rechtsform):'')+'</div>' +
         '<div class="lief-meta">'+E(l.kontaktPerson||'')+' · '+E(l.email||'')+' · '+E((l.adresse||{}).ort||'')+'</div>' +
       '</div>' +
       '<div class="lief-badges">' +
+        (isFav?'<span class="badge b-fav">⭐ Favorit</span>':'') +
+        (isStamm?'<span class="badge b-stamm">🏢 Büro-Stamm</span>':'') +
         '<span class="badge '+(l.status==='aktiv'?'b-aktiv':'b-inaktiv')+'">'+(l.status==='aktiv'?'● Aktiv':'● Inaktiv')+'</span>' +
         '<span class="badge '+(aboTyp==='premium'?'b-premium':aboTyp==='enterprise'?'b-enterprise':'b-basis')+'">'+aboTyp.charAt(0).toUpperCase()+aboTyp.slice(1)+'</span>' +
         (aboStatus==='testphase'?'<span class="badge b-test">Testphase</span>':'') +
@@ -427,6 +479,29 @@ function renderList(){
     '</div>';
   }).join('');
 }
+
+// ── Stamm-Toggles (#31) ──
+function toggleFavLief(id){
+  var nowFav = GemaProdukte.toggleFavorit(id);
+  toast(nowFav ? '⭐ Zu Favoriten hinzugefügt' : 'Favorit entfernt');
+  renderList();
+}
+window.toggleFavLief = toggleFavLief;
+
+function toggleStammLief(id){
+  if(!GemaProdukte.canEditOrgStamm()){
+    toast('Nur Admin und Planer können Büro-Stammlieferanten pflegen.', 'error');
+    return;
+  }
+  var nowStamm = GemaProdukte.toggleOrgStamm(id);
+  if(nowStamm === null){
+    toast('Keine Berechtigung für Büro-Stamm.', 'error');
+    return;
+  }
+  toast(nowStamm ? '🏢 Als Büro-Stamm markiert — für alle Kollegen sichtbar' : 'Aus Büro-Stamm entfernt');
+  renderList();
+}
+window.toggleStammLief = toggleStammLief;
 
 // ── Editor ──
 function openNew(){
