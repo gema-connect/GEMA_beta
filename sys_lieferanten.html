@@ -121,23 +121,38 @@ textarea.fc{resize:vertical;min-height:60px;line-height:1.5}
   <div class="kpi-row" id="kpis"></div>
 
   <!-- Toolbar -->
-  <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap">
-    <input class="fc" id="search" type="search" placeholder="Lieferant suchen…" style="max-width:280px" oninput="renderList()"/>
-    <select class="fc" id="filterStatus" style="max-width:160px" onchange="renderList()">
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap">
+    <input class="fc" id="search" type="search" placeholder="Lieferant suchen…" style="max-width:240px" oninput="renderList()"/>
+    <select class="fc" id="filterStatus" style="max-width:140px" onchange="renderList()">
       <option value="">Alle Status</option>
       <option value="aktiv">Aktiv</option>
       <option value="inaktiv">Inaktiv</option>
     </select>
-    <select class="fc" id="filterAbo" style="max-width:160px" onchange="renderList()">
+    <select class="fc" id="filterAbo" style="max-width:140px" onchange="renderList()">
       <option value="">Alle Abos</option>
       <option value="basis">Basis</option>
       <option value="premium">Premium</option>
       <option value="enterprise">Enterprise</option>
       <option value="testphase">Testphase</option>
     </select>
+    <select class="fc" id="filterKanton" style="max-width:140px" onchange="renderList()">
+      <option value="">Alle Kantone</option>
+    </select>
+    <select class="fc" id="filterKategorie" style="max-width:200px" onchange="renderList()">
+      <option value="">Alle Kategorien</option>
+    </select>
+    <select class="fc" id="filterPhase" style="max-width:170px" onchange="renderList()" title="Filter nach SIA-Phase (basierend auf Lieferanten-Tags)">
+      <option value="">Alle SIA-Phasen</option>
+      <option value="vorprojekt">SIA 32 · Vorprojekt</option>
+      <option value="bauprojekt">SIA 33 · Bauprojekt</option>
+      <option value="ausschreibung">SIA 41 · Ausschreibung</option>
+      <option value="ausfuehrung">SIA 51-53 · Ausführung</option>
+    </select>
+    <button class="btn btn-g btn-sm" onclick="resetFilters()" title="Filter zurücksetzen">↻ Reset</button>
     <div style="flex:1"></div>
     <button class="btn btn-p" onclick="openNew()">+ Neuer Lieferant</button>
   </div>
+  <div id="filterStats" style="font-size:11.5px;color:var(--mut);margin-bottom:14px;min-height:14px"></div>
 
   <!-- List -->
   <div class="card">
@@ -281,20 +296,108 @@ function renderKPIs(){
     '<div class="kpi"><div class="kpi-val" style="color:#ea580c">'+oaOffen+'</div><div class="kpi-lbl">Offene Anfragen</div></div>';
 }
 
+// ── Filter-Dropdowns initialisieren ──
+// Wird aus den effektiv vorhandenen Lieferanten-Daten dynamisch befüllt.
+function populateFilters(){
+  var all = GemaProdukte.getAllLieferanten();
+  // Kantone aus Adressen sammeln
+  var kSet = {};
+  all.forEach(function(l){
+    var k = (l.adresse||{}).kanton;
+    if(k) kSet[k] = true;
+  });
+  var kSel = document.getElementById('filterKanton');
+  if(kSel && kSel.options.length <= 1){
+    Object.keys(kSet).sort().forEach(function(k){
+      var o = document.createElement('option');
+      o.value = k; o.textContent = k;
+      kSel.appendChild(o);
+    });
+  }
+  // Kategorien aus Produktkatalog-Registry
+  var katSel = document.getElementById('filterKategorie');
+  if(katSel && katSel.options.length <= 1 && typeof GemaProdukte.getKategorien === 'function'){
+    GemaProdukte.getKategorien().forEach(function(kat){
+      var o = document.createElement('option');
+      o.value = kat.id;
+      o.textContent = (kat.icon ? kat.icon+' ' : '') + kat.name;
+      katSel.appendChild(o);
+    });
+  }
+}
+
+function resetFilters(){
+  ['search','filterStatus','filterAbo','filterKanton','filterKategorie','filterPhase'].forEach(function(id){
+    var el = document.getElementById(id);
+    if(el) el.value = '';
+  });
+  renderList();
+}
+window.resetFilters = resetFilters;
+
+// SIA-Phase → typische Lieferanten-Kategorien Mapping
+// Welche Lieferanten sind in welcher Phase relevant?
+var PHASE_KATEGORIE_MAP = {
+  vorprojekt:    ['enthaertung','osmose','warmwasser_boiler','hebeanlage','rohrsystem'], // Konzept: Hauptkomponenten
+  bauprojekt:    ['enthaertung','osmose','warmwasser_boiler','hebeanlage','zirkulation','rohrsystem','formstuecke'], // Detail: alles
+  ausschreibung: ['enthaertung','osmose','warmwasser_boiler','hebeanlage','zirkulation','rohrsystem','formstuecke','armaturen'], // Vollständig
+  ausfuehrung:   ['rohrsystem','formstuecke','armaturen','zirkulation'] // Montage: Verbrauchsmaterial
+};
+
+// Welche Kategorien führt ein Lieferant tatsächlich? (Premium-Kategorien + Produkt-Kategorien)
+function _liefKategorien(l){
+  var kats = {};
+  if(l.premium && Array.isArray(l.premium.kategorien)){
+    l.premium.kategorien.forEach(function(k){ kats[k] = true; });
+  }
+  try {
+    if(typeof GemaProdukte.getProdukte === 'function' && typeof GemaProdukte.getKategorien === 'function'){
+      GemaProdukte.getKategorien().forEach(function(kat){
+        var has = GemaProdukte.getProdukte(kat.id).some(function(p){ return p.lieferantId === l.id; });
+        if(has) kats[kat.id] = true;
+      });
+    }
+  } catch(e){}
+  return Object.keys(kats);
+}
+
 // ── List ──
 function renderList(){
+  populateFilters();
   var all = GemaProdukte.getAllLieferanten();
-  var q = (document.getElementById('search').value||'').toLowerCase();
+  var q  = (document.getElementById('search').value||'').toLowerCase();
   var fs = document.getElementById('filterStatus').value;
   var fa = document.getElementById('filterAbo').value;
+  var fk = document.getElementById('filterKanton').value;
+  var fc = document.getElementById('filterKategorie').value;
+  var fp = document.getElementById('filterPhase').value;
+
+  var phaseAllow = fp ? (PHASE_KATEGORIE_MAP[fp] || []) : null;
 
   var list = all.filter(function(l){
     if(q && l.firma.toLowerCase().indexOf(q)<0 && (l.kontaktPerson||'').toLowerCase().indexOf(q)<0 && (l.email||'').toLowerCase().indexOf(q)<0) return false;
     if(fs && l.status !== fs) return false;
     if(fa === 'testphase' && (!l.abo || l.abo.status !== 'testphase')) return false;
     if(fa && fa !== 'testphase' && (!l.abo || l.abo.typ !== fa)) return false;
+    if(fk && (l.adresse||{}).kanton !== fk) return false;
+    var liefKats = (fc || phaseAllow) ? _liefKategorien(l) : null;
+    if(fc && liefKats.indexOf(fc) < 0) return false;
+    if(phaseAllow && !liefKats.some(function(k){ return phaseAllow.indexOf(k) >= 0; })) return false;
     return true;
   });
+
+  // Filter-Stats Zeile
+  var stats = document.getElementById('filterStats');
+  if(stats){
+    var activeFilters = [];
+    if(q) activeFilters.push('Suche: "'+q+'"');
+    if(fs) activeFilters.push('Status: '+fs);
+    if(fa) activeFilters.push('Abo: '+fa);
+    if(fk) activeFilters.push('Kanton: '+fk);
+    if(fc) activeFilters.push('Kategorie: '+fc);
+    if(fp) activeFilters.push('Phase: '+fp);
+    stats.textContent = list.length+' / '+all.length+' Lieferanten' + (activeFilters.length ? '  ·  Filter: '+activeFilters.join(' · ') : '');
+  }
 
   if(!list.length){
     document.getElementById('listBody').innerHTML='<div style="padding:40px;text-align:center;color:var(--mut)"><div style="font-size:32px;margin-bottom:8px">📦</div><div>Keine Lieferanten gefunden.</div><div style="margin-top:12px"><button class="btn btn-p btn-sm" onclick="openNew()">+ Neuer Lieferant</button></div></div>';

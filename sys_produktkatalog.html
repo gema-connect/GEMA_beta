@@ -136,10 +136,25 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important}
     <div class="kat-tabs" id="katTabs"></div>
 
     <div class="card">
-      <div class="card-hd">
-        <h3 id="listTitle">Alle Produkte</h3>
-        <input class="fc" id="searchInp" placeholder="Suchen..." style="max-width:220px" oninput="renderList()"/>
+      <div class="card-hd" style="flex-wrap:wrap;gap:8px">
+        <h3 id="listTitle" style="flex:1">Alle Produkte</h3>
+        <input class="fc" id="searchInp" placeholder="Suchen..." style="max-width:200px" oninput="renderList()"/>
+        <select class="fc" id="filterKanton" style="max-width:140px" onchange="renderList()">
+          <option value="">Alle Kantone</option>
+        </select>
+        <select class="fc" id="filterStatus" style="max-width:160px" onchange="renderList()">
+          <option value="">Alle Status</option>
+          <option value="verifiziert">✓ Verifiziert</option>
+          <option value="nicht_verifiziert">⚠ Unverifiziert</option>
+          <option value="entwurf">📝 Entwurf</option>
+        </select>
+        <select class="fc" id="filterPremium" style="max-width:140px" onchange="renderList()">
+          <option value="">Alle Lieferanten</option>
+          <option value="premium">★ Nur Premium</option>
+          <option value="basis">Basis</option>
+        </select>
       </div>
+      <div id="filterStats" style="padding:6px 14px;font-size:11.5px;color:var(--mut);border-bottom:1px solid var(--brd)"></div>
       <div id="listBody" style="max-height:60vh;overflow-y:auto"></div>
     </div>
   </div>
@@ -250,17 +265,59 @@ function switchKat(id){
   renderList();
 }
 
+// ── Filter Population ──
+function _populateProdFilters(){
+  // Kantone aus Lieferanten-Adressen
+  const kSel = document.getElementById('filterKanton');
+  if(kSel && kSel.options.length <= 1){
+    const kSet = {};
+    GemaProdukte.getAllLieferanten().forEach(l => {
+      const k = (l.adresse||{}).kanton;
+      if(k) kSet[k] = true;
+    });
+    Object.keys(kSet).sort().forEach(k => {
+      const o = document.createElement('option');
+      o.value = k; o.textContent = k;
+      kSel.appendChild(o);
+    });
+  }
+}
+
 // ── Product List ──
 function renderList(){
-  const q=(document.getElementById('searchInp')?.value||'').toLowerCase();
+  _populateProdFilters();
+  const q  = (document.getElementById('searchInp')?.value||'').toLowerCase();
+  const fk = document.getElementById('filterKanton')?.value || '';
+  const fs = document.getElementById('filterStatus')?.value || '';
+  const fp = document.getElementById('filterPremium')?.value || '';
   const kat=GemaProdukte.getKategorie(currentKat);
-  document.getElementById('listTitle').textContent=(kat?.name||'Produkte')+' ('+GemaProdukte.getProdukte(currentKat).length+')';
+  const total = GemaProdukte.getProdukte(currentKat).length;
 
   let prods=GemaProdukte.getProdukte(currentKat);
   if(q) prods=prods.filter(p=>(p.daten?.serie||'').toLowerCase().includes(q)||(p.daten?.modell||'').toLowerCase().includes(q)||(p.lieferantFirma||'').toLowerCase().includes(q));
+  if(fs) prods = prods.filter(p => p.status === fs);
+  if(fk || fp){
+    prods = prods.filter(p => {
+      const lief = p.lieferantId ? GemaProdukte.getLieferant(p.lieferantId) : null;
+      if(fk && (!lief || (lief.adresse||{}).kanton !== fk)) return false;
+      if(fp === 'premium' && !(lief && lief.premium && lief.premium.aktiv)) return false;
+      if(fp === 'basis' && (lief && lief.premium && lief.premium.aktiv)) return false;
+      return true;
+    });
+  }
+  document.getElementById('listTitle').textContent = (kat?.name||'Produkte')+' ('+prods.length+' / '+total+')';
+  const stats = document.getElementById('filterStats');
+  if(stats){
+    const active = [];
+    if(q) active.push('"'+q+'"');
+    if(fk) active.push(fk);
+    if(fs) active.push(fs);
+    if(fp) active.push(fp);
+    stats.textContent = active.length ? 'Aktive Filter: '+active.join(' · ') : '';
+  }
 
   if(!prods.length){
-    document.getElementById('listBody').innerHTML='<div style="padding:40px;text-align:center;color:var(--mut)">Noch keine Produkte erfasst.<br>Klicke «+ Neues Produkt» um zu starten.</div>';
+    document.getElementById('listBody').innerHTML='<div style="padding:40px;text-align:center;color:var(--mut)">'+(total===0?'Noch keine Produkte erfasst.<br>Klicke «+ Neues Produkt» um zu starten.':'Keine Produkte erfüllen die aktiven Filter.')+'</div>';
     return;
   }
 
