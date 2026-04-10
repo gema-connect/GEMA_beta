@@ -433,6 +433,76 @@ KATEGORIEN.formstücke = {
   ]
 };
 
+// Warmwasserspeicher / Boiler
+KATEGORIEN.warmwasser_boiler = {
+  id: 'warmwasser_boiler',
+  name: 'Warmwasserspeicher / Boiler',
+  icon: '🌡️',
+  typenFelder: [
+    { id: 'beheizung', label: 'Beheizung', typ: 'select', optionen: ['Elektro','Wärmepumpe','Solar','Gas','Öl','Kombi (E+WP)','Kombi (E+Solar)','Frischwasserstation'] },
+    { id: 'volumenVon', label: 'Volumen von', typ: 'number', einheit: 'l' },
+    { id: 'volumenBis', label: 'Volumen bis', typ: 'number', einheit: 'l' }
+  ],
+  felder: [
+    { id: 'serie', label: 'Typenbezeichnung / Serie', typ: 'text', gruppe: 'Allgemein', pflicht: true },
+    { id: 'modell', label: 'Modell / Grösse', typ: 'text', gruppe: 'Allgemein', pflicht: true },
+    { id: 'artikelnr', label: 'Artikelnummer', typ: 'text', gruppe: 'Allgemein' },
+    { id: 'beheizung', label: 'Beheizung', typ: 'select', optionen: ['Elektro','Wärmepumpe','Solar','Gas','Öl','Kombi (E+WP)','Kombi (E+Solar)','Frischwasserstation'], gruppe: 'Allgemein', pflicht: true },
+
+    { id: 'volumen', label: 'Speichervolumen', typ: 'number', einheit: 'l', gruppe: 'Leistungsdaten', pflicht: true },
+    { id: 'leistungElektro', label: 'Elektro-Heizleistung', typ: 'number', einheit: 'kW', gruppe: 'Leistungsdaten' },
+    { id: 'leistungWP', label: 'Wärmepumpen-Leistung', typ: 'number', einheit: 'kW', gruppe: 'Leistungsdaten' },
+    { id: 'cop', label: 'COP (A15/W55)', typ: 'number', gruppe: 'Leistungsdaten' },
+    { id: 'tempMax', label: 'Max. Speichertemperatur', typ: 'number', einheit: '°C', gruppe: 'Leistungsdaten' },
+    { id: 'aufheizzeit', label: 'Aufheizzeit (15→55°C)', typ: 'number', einheit: 'h', gruppe: 'Leistungsdaten' },
+    { id: 'verlustzahl', label: 'Verlustzahl ζIS (24h)', typ: 'number', einheit: 'kWh/24h', gruppe: 'Leistungsdaten' },
+    { id: 'energieklasse', label: 'Energieeffizienzklasse (ErP)', typ: 'select', optionen: ['A+','A','B','C','D','E','F'], gruppe: 'Leistungsdaten' },
+
+    { id: 'register', label: 'Anzahl Wärmetauscher', typ: 'select', optionen: ['0','1','2','3'], gruppe: 'Wärmetauscher' },
+    { id: 'registerFlaeche1', label: 'Fläche WT 1', typ: 'number', einheit: 'm²', gruppe: 'Wärmetauscher' },
+    { id: 'registerFlaeche2', label: 'Fläche WT 2', typ: 'number', einheit: 'm²', gruppe: 'Wärmetauscher' },
+
+    { id: 'durchmesser', label: 'Durchmesser (mit Iso)', typ: 'number', einheit: 'mm', gruppe: 'Abmessungen', pflicht: true },
+    { id: 'hoehe', label: 'Höhe', typ: 'number', einheit: 'mm', gruppe: 'Abmessungen', pflicht: true },
+    { id: 'kippmass', label: 'Kippmass', typ: 'number', einheit: 'mm', gruppe: 'Abmessungen' },
+    { id: 'gewichtLeer', label: 'Gewicht leer', typ: 'number', einheit: 'kg', gruppe: 'Abmessungen' },
+
+    { id: 'material', label: 'Behälter-Werkstoff', typ: 'select', optionen: ['Email','Edelstahl','Kunststoff','Stahl beschichtet'], gruppe: 'Material' },
+    { id: 'isolation', label: 'Isolation', typ: 'text', gruppe: 'Material' },
+    { id: 'isolationStaerke', label: 'Isolationsstärke', typ: 'number', einheit: 'mm', gruppe: 'Material' },
+
+    { id: 'svgwNr', label: 'SVGW-Zulassungsnummer', typ: 'text', gruppe: 'Normen' },
+    { id: 'sia385', label: 'Konform SIA 385/2', typ: 'checkbox', gruppe: 'Normen' },
+    { id: 'ce', label: 'CE-Konformität', typ: 'checkbox', gruppe: 'Normen' },
+
+    { id: 'besonderheiten', label: 'Besonderheiten', typ: 'textarea', gruppe: 'Zusatz' },
+    { id: 'zubehoer', label: 'Zubehör (inkl.)', typ: 'textarea', gruppe: 'Zusatz' }
+  ],
+  matchFn: function(produkt, berechnung){
+    let score = 0;
+    const d = produkt.daten || {};
+    const b = berechnung || {};
+    // Volumen (Gewicht 50)
+    if(b.volumen && d.volumen){
+      var ratio = d.volumen / b.volumen;
+      if(ratio >= 1.0 && ratio <= 1.3) score += 50;       // ideal: 0–30% Reserve
+      else if(ratio >= 0.9 && ratio < 1.0) score += 25;   // knapp
+      else if(ratio > 1.3 && ratio <= 1.6) score += 30;   // überdimensioniert
+    }
+    // Beheizungsart Match (Gewicht 30)
+    if(b.beheizung && d.beheizung){
+      if(d.beheizung === b.beheizung) score += 30;
+      else if((b.beheizung==='Wärmepumpe' && d.beheizung.indexOf('WP')>=0)
+           || (b.beheizung==='Solar' && d.beheizung.indexOf('Solar')>=0)) score += 20;
+    }
+    // Wärmetauscher-Anzahl (Gewicht 10)
+    if(b.register && d.register && Number(d.register) >= Number(b.register)) score += 10;
+    // Energieklasse Bonus (Gewicht 10)
+    if(d.energieklasse && (d.energieklasse==='A+' || d.energieklasse==='A')) score += 10;
+    return Math.min(100, score);
+  }
+};
+
 // ── Public API ──
 function getKategorien(){ return Object.values(KATEGORIEN); }
 function getKategorie(id){ return KATEGORIEN[id] || null; }

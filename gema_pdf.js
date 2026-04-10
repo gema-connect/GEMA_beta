@@ -74,10 +74,12 @@
       var pw=doc.internal.pageSize.getWidth();
       var ph=doc.internal.pageSize.getHeight();
       var M=8;
+      var Mtop=22;   // Header-Band-H\u00f6he
+      var Mbot=12;   // Footer-Band-H\u00f6he
       var contentW=pw-M*2;
       var imgRatio=canvas.height/canvas.width;
       var totalImgH=contentW*imgRatio;
-      var pageH=ph-M*2-6;
+      var pageH=ph-Mtop-Mbot;
 
       var srcW=canvas.width, srcH=canvas.height;
       var sliceHpx=Math.floor(srcH*(pageH/totalImgH));
@@ -90,31 +92,32 @@
         sc.width=srcW; sc.height=thisH;
         sc.getContext('2d').drawImage(canvas,0,yPx,srcW,thisH,0,0,srcW,thisH);
         var sliceImgH=(thisH/srcW)*contentW;
-        doc.addImage(sc.toDataURL('image/jpeg',0.92),'JPEG',M,M,contentW,sliceImgH);
+        doc.addImage(sc.toDataURL('image/jpeg',0.92),'JPEG',M,Mtop,contentW,sliceImgH);
         yPx+=thisH; pageNum++;
       }
 
-      // Page numbers + org logo
+      // ==== Projekt-Metadaten sammeln ====
+      var meta=_collectMeta(opts);
+
+      // ==== Header + Footer auf jede Seite zeichnen ====
       var total=doc.internal.getNumberOfPages();
-      var orgLogo=null;
+      var orgLogo=null, orgName='';
       try{
         if(typeof GemaAuth!=='undefined'){
           var org=GemaAuth.getCurrentOrg();
-          if(org&&org.logo) orgLogo=org.logo;
+          if(org){ if(org.logo) orgLogo=org.logo; orgName=org.name||''; }
         }
       }catch(e){}
+
       for(var p=1;p<=total;p++){
         doc.setPage(p);
-        // Org logo top-left
-        if(orgLogo){
-          try{doc.addImage(orgLogo,'JPEG',M,2,18,18*0.6);}catch(e){}
-        }
-        doc.setFontSize(8); doc.setTextColor(160);
-        doc.text('Seite '+p+'/'+total, pw-M-18, ph-4);
+        _drawHeader(doc, pw, M, Mtop, meta, orgLogo, orgName, title);
+        _drawFooter(doc, pw, ph, M, Mbot, meta, p, total);
       }
 
-      var projekt=document.getElementById('metaProjekt')?.value||'';
+      var projekt=meta.projekt||'';
       var fn=title.replace(/[^\w\- ]+/g,'').replace(/\s+/g,'_');
+      if(meta.projektnummer) fn=meta.projektnummer.replace(/[^\w\-]+/g,'_')+'_'+fn;
       if(projekt) fn+='_'+projekt.substring(0,25).replace(/[^\w\- ]+/g,'').replace(/\s+/g,'_');
       doc.save(fn+'.pdf');
       _toast('\u2713 PDF erstellt');
@@ -125,6 +128,110 @@
       hidden.forEach(function(h){h.el.style.cssText=h.prev;});
       if(swapped){comboManual.style.display='none';comboSelect.style.display='flex';}
     }
+  }
+
+  // ==== Meta-Sammlung aus DOM + GemaObjekte ====
+  function _collectMeta(opts){
+    var m={projekt:'',projektnummer:'',revision:'',bearbeiter:'',datum:'',norm:''};
+    function val(id){ var el=document.getElementById(id); return el?(el.value||'').trim():''; }
+    // Aktives Objekt aus GemaObjekte API
+    var obj=null;
+    try{ if(typeof GemaObjekte!=='undefined') obj=GemaObjekte.getActive(); }catch(e){}
+    // Projekt-Name: Manueller Input gewinnt, sonst Objekt-Name
+    m.projekt = val('metaProjekt') || (obj?obj.name:'') || '';
+    // Projektnummer: explicit input \u00fcberschreibt, sonst aus Objekt
+    m.projektnummer = val('metaProjektnr') || (obj&&obj.projektnummer?obj.projektnummer:'') || '';
+    // Revision: explicit input, sonst aus Objekt
+    m.revision = val('metaRevision') || (obj&&obj.revision?obj.revision:'') || '';
+    // Bearbeiter
+    m.bearbeiter = val('metaBearbeiter');
+    // Datum
+    var d=val('metaDatum');
+    if(d){
+      try{
+        var parts=d.split('-');
+        if(parts.length===3) d=parts[2]+'.'+parts[1]+'.'+parts[0];
+      }catch(e){}
+      m.datum=d;
+    } else {
+      var now=new Date();
+      m.datum=String(now.getDate()).padStart(2,'0')+'.'+String(now.getMonth()+1).padStart(2,'0')+'.'+now.getFullYear();
+    }
+    // Norm: aus .gema-hero-norm oder .hero-norm Element
+    try{
+      var nEl=document.querySelector('.gema-hero-norm,.hero-norm');
+      if(nEl){
+        var t=(nEl.textContent||'').trim();
+        // \ud83d\udcd6-Emoji entfernen
+        m.norm = t.replace(/^[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]\s*/u,'').trim();
+      }
+    }catch(e){}
+    if(opts && opts.norm) m.norm = opts.norm;
+    return m;
+  }
+
+  // ==== Header-Band auf einer Seite zeichnen ====
+  function _drawHeader(doc, pw, M, Mtop, meta, orgLogo, orgName, title){
+    // Trennlinie unten am Header
+    doc.setDrawColor(220); doc.setLineWidth(0.2);
+    doc.line(M, Mtop-2, pw-M, Mtop-2);
+    // Logo links
+    var logoW=0;
+    if(orgLogo){
+      try{ doc.addImage(orgLogo,'JPEG',M,3,16,16*0.6); logoW=18; }catch(e){}
+    }
+    // Modul-Titel + Projekt center-left
+    doc.setFontSize(11); doc.setTextColor(15,23,42); doc.setFont(undefined,'bold');
+    doc.text(title||'GEMA', M+logoW, 7);
+    doc.setFontSize(8.5); doc.setTextColor(80); doc.setFont(undefined,'normal');
+    var projLine=meta.projekt||'\u2014';
+    if(meta.projektnummer) projLine='Nr. '+meta.projektnummer+'  \u00b7  '+projLine;
+    // Auf max. (pw - M - 65) Breite k\u00fcrzen f\u00fcr Meta-Spalte rechts
+    var maxLeftW = pw - M - 65 - (M+logoW);
+    projLine=_truncate(doc, projLine, maxLeftW);
+    doc.text(projLine, M+logoW, 12);
+    // Norm-Pill darunter (klein)
+    if(meta.norm){
+      doc.setFontSize(7.5); doc.setTextColor(120);
+      doc.text('\ud83d\udcd6 '+meta.norm, M+logoW, 16.5);
+    }
+    // Rechte Spalte: Bearbeiter / Datum / Revision
+    doc.setFontSize(8); doc.setTextColor(80);
+    var rx = pw - M;
+    var ry = 6;
+    if(meta.bearbeiter){ doc.text('Bearbeiter: '+_truncate(doc, meta.bearbeiter, 60), rx, ry, {align:'right'}); ry+=4; }
+    if(meta.datum){     doc.text('Datum: '+meta.datum, rx, ry, {align:'right'}); ry+=4; }
+    if(meta.revision){  doc.text('Revision: '+meta.revision, rx, ry, {align:'right'}); ry+=4; }
+    if(orgName && ry<18){
+      doc.setFontSize(7); doc.setTextColor(150);
+      doc.text(orgName, rx, ry, {align:'right'});
+    }
+    // Reset
+    doc.setFont(undefined,'normal'); doc.setTextColor(0);
+  }
+
+  // ==== Footer mit Seitenzahl + Norm ====
+  function _drawFooter(doc, pw, ph, M, Mbot, meta, p, total){
+    doc.setDrawColor(220); doc.setLineWidth(0.2);
+    doc.line(M, ph-Mbot+2, pw-M, ph-Mbot+2);
+    doc.setFontSize(7.5); doc.setTextColor(150);
+    var stamp='Erstellt mit GEMA \u00b7 gema-suite.ch';
+    if(meta.projektnummer) stamp += '  \u00b7  Projekt-Nr. '+meta.projektnummer;
+    doc.text(stamp, M, ph-5);
+    doc.text('Seite '+p+' / '+total, pw-M, ph-5, {align:'right'});
+  }
+
+  function _truncate(doc, text, maxMm){
+    if(!text) return '';
+    var w = doc.getStringUnitWidth(text) * doc.internal.getFontSize() / doc.internal.scaleFactor;
+    if(w<=maxMm) return text;
+    var t=text;
+    while(t.length>3){
+      t=t.slice(0,-1);
+      var ww=doc.getStringUnitWidth(t+'\u2026') * doc.internal.getFontSize() / doc.internal.scaleFactor;
+      if(ww<=maxMm) return t+'\u2026';
+    }
+    return t;
   }
 
   var _toastEl=null,_toastTimer;

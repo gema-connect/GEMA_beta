@@ -229,13 +229,44 @@
   }
   function refresh() { _invalidate(); }
 
+  // ── SIA-Phase Support (optional) ──
+  // Phasen: '' (keine), 'vorprojekt', 'bauprojekt', 'ausschreibung', 'ausfuehrung'
+  // Wird per-Objekt gespeichert (objekt.aktivePhase) ODER global im sessionStorage
+  // (falls kein Objekt aktiv).
+  var PHASES = [
+    { id: '',             label: '— Keine Phase —',        kurz: '' },
+    { id: 'vorprojekt',   label: 'SIA 32 · Vorprojekt',    kurz: 'VP' },
+    { id: 'bauprojekt',   label: 'SIA 33 · Bauprojekt',    kurz: 'BP' },
+    { id: 'ausschreibung',label: 'SIA 41 · Ausschreibung', kurz: 'AS' },
+    { id: 'ausfuehrung',  label: 'SIA 51-53 · Ausführung', kurz: 'AF' }
+  ];
+  function getPhases() { return PHASES.slice(); }
+  function getActivePhase() {
+    var obj = getActive();
+    if (obj && obj.aktivePhase) return obj.aktivePhase;
+    try { return sessionStorage.getItem('gema_active_phase') || ''; } catch(e) { return ''; }
+  }
+  function setActivePhase(phase) {
+    var obj = getActive();
+    if (obj) {
+      obj.aktivePhase = phase || '';
+      _save(_load());
+      _invalidate();
+    }
+    try { sessionStorage.setItem('gema_active_phase', phase || ''); } catch(e) {}
+    try { window.dispatchEvent(new CustomEvent('gema-phase-changed', { detail: { phase: phase || '' } })); } catch(e) {}
+  }
+
   // ── Per-Object Storage Helper ──
   // Zentrale Funktionen für objekt-spezifische Speicherung.
-  // Pattern: baseKey + '__' + objektId
+  // Pattern: baseKey + '__' + objektId          (ohne Phase)
+  //          baseKey + '__' + objektId + '@' + phase  (mit Phase)
   // Ohne aktives Objekt: nur baseKey (globaler Fallback)
   function storageKey(baseKey) {
     var oid = getActiveId();
-    return oid ? baseKey + '__' + oid : baseKey;
+    if (!oid) return baseKey;
+    var ph = getActivePhase();
+    return ph ? (baseKey + '__' + oid + '@' + ph) : (baseKey + '__' + oid);
   }
   function savePerObjekt(baseKey, data) {
     var key = storageKey(baseKey);
@@ -251,7 +282,18 @@
       var r = localStorage.getItem(key);
       if (r) return JSON.parse(r);
     } catch(e) {}
-    // Fallback: try global key (migration path for old data)
+    // Fallback 1: phasenloser Key (gleiches Objekt, ohne Phase)
+    var oid = getActiveId();
+    if (oid) {
+      var noPhase = baseKey + '__' + oid;
+      if (key !== noPhase) {
+        try {
+          var n = localStorage.getItem(noPhase);
+          if (n) return JSON.parse(n);
+        } catch(e) {}
+      }
+    }
+    // Fallback 2: globaler Key (Migration für Altdaten)
     if (key !== baseKey) {
       try {
         var g = localStorage.getItem(baseKey);
@@ -269,12 +311,70 @@
     formatKurz: formatKurz, formatAdresse: formatAdresse,
     renderObjektSelect: renderObjektSelect, renderBeteiligteSelect: renderBeteiligteSelect,
     refresh: refresh, ready: _readyPromise,
-    storageKey: storageKey, savePerObjekt: savePerObjekt, loadPerObjekt: loadPerObjekt
+    storageKey: storageKey, savePerObjekt: savePerObjekt, loadPerObjekt: loadPerObjekt,
+    // SIA-Phase
+    getPhases: getPhases, getActivePhase: getActivePhase, setActivePhase: setActivePhase
   };
 
   // Auto-init: try sync first, then async Supabase if needed
   _load();
   if (!_loaded) _fetchFromSupabase();
   else _readyResolve();
+
+  // ── Phase-Selector Auto-Inject ───────────────────────────────
+  // F\u00fcgt automatisch ein SIA-Phase Dropdown in die .project-bar
+  // jedes Berechnungsmoduls ein, falls vorhanden. Speichert Auswahl
+  // im aktiven Objekt (objekt.aktivePhase) bzw. in sessionStorage.
+  function _injectPhaseSelector() {
+    try {
+      var bar = document.querySelector('.project-bar');
+      if (!bar || bar.querySelector('.gema-phase-pf')) return;
+      var pf = document.createElement('div');
+      pf.className = 'pf gema-phase-pf';
+      pf.style.minWidth = '170px';
+      var current = getActivePhase();
+      var options = PHASES.map(function(p){
+        return '<option value="'+p.id+'"'+(p.id===current?' selected':'')+'>'+p.label+'</option>';
+      }).join('');
+      pf.innerHTML = '<label>SIA-Phase <span title="Optional: Berechnungen werden separat pro Phase gespeichert" style="display:inline-block;width:14px;height:14px;border-radius:50%;background:#e2e8f0;color:#475569;font-size:10px;line-height:14px;text-align:center;font-weight:700;cursor:help;margin-left:4px">?</span></label>'
+                    + '<select id="metaSiaPhase">'+options+'</select>';
+      bar.appendChild(pf);
+      var sel = pf.querySelector('#metaSiaPhase');
+      if (sel) {
+        sel.addEventListener('change', function(){
+          var newPhase = sel.value;
+          var oldPhase = getActivePhase();
+          if (newPhase === oldPhase) return;
+          setActivePhase(newPhase);
+          // Module sollen ihre Daten neu laden — Event feuern
+          // (Module die loadPerObjekt nutzen, h\u00f6ren auf gema-objekt-changed)
+          try { window.dispatchEvent(new CustomEvent('gema-objekt-changed', { detail: { oldId: getActiveId(), newId: getActiveId(), phaseChange: true } })); } catch(e){}
+          // Visuelles Feedback
+          try {
+            var t = document.createElement('div');
+            t.textContent = '✓ Phase gewechselt: ' + (PHASES.find(function(p){return p.id===newPhase;})?.label || 'Keine');
+            Object.assign(t.style,{position:'fixed',bottom:'24px',left:'50%',transform:'translateX(-50%)',background:'#0f172a',color:'#fff',padding:'10px 18px',borderRadius:'10px',fontSize:'13px',fontWeight:'600',zIndex:'9999',boxShadow:'0 4px 20px rgba(0,0,0,.3)'});
+            document.body.appendChild(t);
+            setTimeout(function(){ t.remove(); }, 2200);
+          } catch(e){}
+        });
+      }
+    } catch(e) { /* silent */ }
+  }
+  function _initPhaseInjector() {
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', _injectPhaseSelector);
+    } else {
+      _injectPhaseSelector();
+    }
+    // Re-inject if .project-bar appears later (some modules build it dynamically)
+    try {
+      var mo = new MutationObserver(function(){ _injectPhaseSelector(); });
+      mo.observe(document.documentElement, { childList: true, subtree: true });
+      // Auto-disconnect after 5s
+      setTimeout(function(){ try { mo.disconnect(); } catch(e){} }, 5000);
+    } catch(e){}
+  }
+  _initPhaseInjector();
 
 })(window);

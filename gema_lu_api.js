@@ -42,41 +42,44 @@
     return ALIAS_MAP[medium.toLowerCase()] || null;
   }
 
-  // ── Storage Key ──
-  function _storageKey(objektId) {
-    if (objektId) return BASE_KEY + '__' + objektId;
-    return BASE_KEY;
+  // ── Storage Key (phase-aware) ──
+  // Pattern: BASE_KEY + '__' + objektId + ('@' + phase, optional)
+  function _activePhase() {
+    try {
+      if (typeof GemaObjekte !== 'undefined' && GemaObjekte.getActivePhase) {
+        return GemaObjekte.getActivePhase() || '';
+      }
+    } catch(e) {}
+    return '';
+  }
+  function _storageKey(objektId, phase) {
+    if (!objektId) return BASE_KEY;
+    var ph = (phase != null) ? phase : _activePhase();
+    return ph ? (BASE_KEY + '__' + objektId + '@' + ph) : (BASE_KEY + '__' + objektId);
   }
 
   // ── Load from Storage ──
-  function _load(objektId) {
-    var key = _storageKey(objektId);
-    var raw = null;
-
-    // 1. GemaDB cache (fastest)
-    try {
-      if (typeof _GemaDB !== 'undefined' && _GemaDB.c) {
-        raw = _GemaDB.c[key] || null;
-      }
-    } catch(e) {}
-
-    // 2. localStorage fallback
-    if (!raw) {
-      try { raw = localStorage.getItem(key); } catch(e) {}
+  // Reihenfolge: phase-spezifisch → phasenlos (Objekt) → flach (BASE_KEY)
+  function _load(objektId, phase) {
+    var keys = [];
+    var primary = _storageKey(objektId, phase);
+    keys.push(primary);
+    if (objektId) {
+      var noPhase = BASE_KEY + '__' + objektId;
+      if (keys.indexOf(noPhase) < 0) keys.push(noPhase);
     }
+    if (keys.indexOf(BASE_KEY) < 0) keys.push(BASE_KEY);
 
-    // 3. Fallback: try flat key (without objektId) if per-object not found
-    if (!raw && objektId) {
+    var raw = null;
+    for (var i = 0; i < keys.length && !raw; i++) {
+      var k = keys[i];
       try {
-        if (typeof _GemaDB !== 'undefined' && _GemaDB.c) {
-          raw = _GemaDB.c[BASE_KEY] || null;
-        }
+        if (typeof _GemaDB !== 'undefined' && _GemaDB.c && _GemaDB.c[k]) raw = _GemaDB.c[k];
       } catch(e) {}
       if (!raw) {
-        try { raw = localStorage.getItem(BASE_KEY); } catch(e) {}
+        try { raw = localStorage.getItem(k); } catch(e) {}
       }
     }
-
     if (!raw) return null;
     try { return JSON.parse(raw); } catch(e) { return null; }
   }

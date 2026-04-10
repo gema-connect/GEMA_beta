@@ -32,10 +32,21 @@
    'contractorStamm','protoSelect'
   ].forEach(function(id){ SKIP[id]=1; });
 
-  // ── Key ──
+  // ── Key (phase-aware) ──
+  // Pattern: baseKey + '__' + objektId + ('@' + phase, optional)
+  function _activePhase() {
+    try {
+      if (typeof GemaObjekte !== 'undefined' && GemaObjekte.getActivePhase) {
+        return GemaObjekte.getActivePhase() || '';
+      }
+    } catch(e) {}
+    return '';
+  }
   function _key(objId) {
     var id = objId !== undefined ? objId : _objId;
-    return id ? _baseKey + '__' + id : _baseKey;
+    if (!id) return _baseKey;
+    var ph = _activePhase();
+    return ph ? (_baseKey + '__' + id + '@' + ph) : (_baseKey + '__' + id);
   }
 
   // ── Collect ──
@@ -279,6 +290,23 @@
 
     // Save on page leave
     w.addEventListener('beforeunload', function() { _save(true); });
+
+    // Phase-Change: aktuelle Daten unter ALTEM Key speichern, dann unter NEUEM Key laden
+    var _prevKey = _key();
+    w.addEventListener('gema-objekt-changed', function(ev) {
+      if (!ev || !ev.detail || !ev.detail.phaseChange) return;
+      // Speichere unter altem Key
+      try {
+        var json = JSON.stringify(_collect());
+        try { localStorage.setItem(_prevKey, json); } catch(e){}
+      } catch(e){}
+      // Lade mit neuem Key
+      _prevKey = _key();
+      _load(_objId, function(data) {
+        if (data) _restore(data);
+        else _clear();
+      });
+    });
 
     // Initial load for current object
     var sel = document.getElementById('metaObjektDropdown');

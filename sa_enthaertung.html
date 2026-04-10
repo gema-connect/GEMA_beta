@@ -541,6 +541,7 @@ function fixLeadingZero(el){
     <div class="gema-hero-ic">🧂</div>
     <div>
       <div class="gema-hero-title">Enthärtungsanlage</div>
+      <div class="gema-hero-norm" title="Berechnungsgrundlage" style="display:inline-block;font-size:11px;color:rgba(255,255,255,.92);background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.22);padding:2px 8px;border-radius:6px;margin-top:6px;font-weight:700;letter-spacing:.2px">📖 SVGW W253 + SN EN 14743</div>
       <div class="gema-hero-sub">Ionentauscher · Kapazität · Regeneration · Salzverbrauch · SVGW W5</div>
     </div>
   </div>
@@ -1412,11 +1413,19 @@ document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('enth
     if(typeof GemaProdukte==='undefined') return;
     if(GemaProdukte.getProdukte('enthaertung').length > 0) return;
 
-    // Ensure lieferant profiles exist
+    // Ensure lieferant profiles exist (lookup by short OR long name)
     var liefIds = {};
-    ['BWT','Grünbeck','Judo'].forEach(function(f){
-      var existing = GemaProdukte.getAllLieferanten().find(function(l){return l.firma===f;});
-      if(existing){ liefIds[f] = existing.id; }
+    var nameMap = {
+      'BWT': ['BWT AQUA AG','BWT'],
+      'Grünbeck': ['Grünbeck Schweiz AG','Grünbeck'],
+      'Judo': ['JUDO Wasseraufbereitung AG','Judo']
+    };
+    Object.keys(nameMap).forEach(function(short){
+      var candidates = nameMap[short];
+      var existing = GemaProdukte.getAllLieferanten().find(function(l){
+        return candidates.indexOf(l.firma) >= 0;
+      });
+      if(existing){ liefIds[short] = existing.id; }
     });
 
     var demos = [
@@ -1436,7 +1445,9 @@ document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('enth
 
     demos.forEach(function(d){
       var lid = liefIds[d.lief] || '';
-      var p = GemaProdukte.createProdukt('enthaertung', lid, d.lief, {
+      var liefObj = lid ? GemaProdukte.getLieferant(lid) : null;
+      var liefFirma = (liefObj && liefObj.firma) || d.lief;
+      var p = GemaProdukte.createProdukt('enthaertung', lid, liefFirma, {
         serie:d.serie, modell:d.modell, bauweise:d.bauweise, technologie:d.technologie,
         nenndurchfluss:d.nenndurchfluss, spitzendurchfluss:d.spitzendurchfluss||'',
         druckverlustQn:d.druckverlustQn, kapazitaet:d.kapazitaet, personenMax:d.personenMax||'',
