@@ -425,18 +425,33 @@ input,select,button,textarea{font-family:var(--sans)}
 <script>
 var users=[], roles=[], orgs=[], orgCats=[];
 var MODULES=GemaAuth.getModules();
+// Scoping: Super-Admin (role_admin) sieht alles; Org-Admin sieht nur die
+// eigene Org inkl. deren Benutzer. Wird in init() gesetzt.
+var _isSuper=false, _myOrgId=null, _myUserId=null;
 
 function init(){
-  // Check admin permission
+  // Zugriff: entweder System-Admin (role_admin) oder Org-Admin der eigenen
+  // Organisation. Alle anderen erhalten den No-Access-Screen.
   var user=GemaAuth.getCurrentUser();
-  if(!user||!user.roleIds||user.roleIds.indexOf('role_admin')<0){
-    document.body.innerHTML='<div style="display:flex;align-items:center;justify-content:center;height:100vh"><div style="text-align:center"><div style="font-size:48px">🔒</div><h2 style="margin:16px 0 8px">Kein Zugriff</h2><p style="color:#6b7280">Nur Administratoren können Benutzer verwalten.</p><a href="index.html" style="display:inline-block;margin-top:16px;padding:10px 24px;background:#1d4ed8;color:#fff;border-radius:8px;text-decoration:none;font-weight:700">← Zurück</a></div></div>';
+  var isOrgA = !!(user && typeof GemaAuth.isOrgAdmin==='function' && GemaAuth.isOrgAdmin(user.id));
+  var isSup  = !!(user && user.roleIds && user.roleIds.indexOf('role_admin')>=0);
+  if(!user || (!isSup && !isOrgA)){
+    document.body.innerHTML='<div style="display:flex;align-items:center;justify-content:center;height:100vh"><div style="text-align:center"><div style="font-size:48px">🔒</div><h2 style="margin:16px 0 8px">Kein Zugriff</h2><p style="color:#6b7280">Nur GEMA-Administratoren oder Unternehmensadmins können Benutzer verwalten.</p><a href="index.html" style="display:inline-block;margin-top:16px;padding:10px 24px;background:#1d4ed8;color:#fff;border-radius:8px;text-decoration:none;font-weight:700">← Zurück</a></div></div>';
     return;
   }
+  _isSuper  = isSup;
+  _myOrgId  = user.orgId || null;
+  _myUserId = user.id;
   users=GemaAuth.getUsers()||[];
   roles=GemaAuth.getRoles()||[];
   orgs=GemaAuth.getOrgs()||[];
   orgCats=GemaAuth.getOrgCats()||[];
+  // UI fuer Org-Admin einschraenken: Rollen-Tab ausblenden, "+ Neuer
+  // Benutzer"/"+ Neues Unternehmen"-Buttons teilweise verstecken, Titel
+  // anpassen. Fuer Super-Admin bleibt alles wie bisher.
+  if(!_isSuper){
+    _applyOrgAdminScope();
+  }
   renderUsers();
   renderRoles();
   renderOrgs();
@@ -452,15 +467,52 @@ function switchTab(tab,btn){
 }
 
 // ── USERS ─────────────────────────────────────────────────────────────
+// Einmalige UI-Anpassungen fuer den Org-Admin-Modus: Titel, Tabs,
+// Filter und Aktions-Buttons. Wird von init() nur aufgerufen, wenn der
+// aktuelle User KEIN Super-Admin ist.
+function _applyOrgAdminScope(){
+  try {
+    // Titel + Untertitel anpassen
+    var t = document.querySelector('.page-title');
+    if (t) t.textContent = '👥 Team-Verwaltung';
+    var s = document.querySelector('.page-sub');
+    if (s) s.textContent = 'Benutzer und Teammitglieder deines Unternehmens verwalten.';
+    // Rollen-Tab komplett ausblenden (System-Rollen darf nur der
+    // Super-Admin anfassen)
+    var tabs = document.querySelectorAll('.tabs .tab');
+    if (tabs[1]) tabs[1].style.display='none';
+    // Unternehmen-Tab bleibt sichtbar, zeigt aber nur die eigene Org
+    // und ohne "+ Neues Unternehmen"-Button (wird in renderOrgs behandelt)
+    var orgAddBtn = document.querySelector('#tab-orgs .btn-primary');
+    if (orgAddBtn) orgAddBtn.style.display='none';
+    // Filter-Dropdown "Unternehmen" ausblenden — die Liste ist ja auf
+    // die eigene Org beschraenkt.
+    var fOrg = document.getElementById('filterOrg');
+    if (fOrg) fOrg.style.display='none';
+  } catch(e) { console.warn('[sys_admin] scope apply failed', e); }
+}
+
+// Gibt die Nutzer-Liste gescoped nach Sichtbarkeit zurueck. Super-Admin
+// bekommt alle, Org-Admin nur die Nutzer seiner eigenen Organisation.
+function _scopedUsers(){
+  if (_isSuper) return users;
+  return users.filter(function(u){ return u.orgId === _myOrgId; });
+}
+function _scopedOrgs(){
+  if (_isSuper) return orgs;
+  return orgs.filter(function(o){ return o.id === _myOrgId; });
+}
+
 function populateFilters(){
   // Rollen-Dropdown
   var roleSel=document.getElementById('filterRolle');
   if(roleSel&&roleSel.options.length<=1){
     roles.forEach(function(r){var o=document.createElement('option');o.value=r.id;o.textContent=r.name;roleSel.appendChild(o);});
   }
-  // Org-Dropdown
+  // Org-Dropdown (nur Super-Admin; fuer Org-Admin ist das Dropdown in
+  // _applyOrgAdminScope() ausgeblendet)
   var orgSel=document.getElementById('filterOrg');
-  if(orgSel&&orgSel.options.length<=1){
+  if(_isSuper && orgSel && orgSel.options.length<=1){
     orgs.forEach(function(o){var opt=document.createElement('option');opt.value=o.id;opt.textContent=o.name;orgSel.appendChild(opt);});
     var noOrg=document.createElement('option');noOrg.value='__none__';noOrg.textContent='Kein Unternehmen';orgSel.appendChild(noOrg);
   }
@@ -468,6 +520,8 @@ function populateFilters(){
 
 function renderUsers(){
   populateFilters();
+  // Basis-Liste: Super-Admin sieht alle, Org-Admin nur die eigene Org.
+  var visible=_scopedUsers();
   // Filter anwenden
   var q=(document.getElementById('filterSearch')||{}).value||'';
   q=q.trim().toLowerCase();
@@ -475,7 +529,7 @@ function renderUsers(){
   var fOrg=(document.getElementById('filterOrg')||{}).value||'';
   var fStatus=(document.getElementById('filterStatus')||{}).value||'';
 
-  var filtered=users.filter(function(u){
+  var filtered=visible.filter(function(u){
     if(q&&(u.name||'').toLowerCase().indexOf(q)<0&&(u.username||'').toLowerCase().indexOf(q)<0&&(u.profile?.email||'').toLowerCase().indexOf(q)<0)return false;
     if(fRolle&&(!u.roleIds||u.roleIds.indexOf(fRolle)<0))return false;
     if(fOrg==='__none__'&&u.orgId&&u.orgId!=='org_default')return false;
@@ -487,9 +541,9 @@ function renderUsers(){
     return true;
   });
 
-  document.getElementById('userCount').textContent=filtered.length+'/'+users.length+' Benutzer';
+  document.getElementById('userCount').textContent=filtered.length+'/'+visible.length+' Benutzer';
   var el=document.getElementById('userList');
-  if(!users.length){el.innerHTML='<div style="text-align:center;padding:32px;color:var(--mut)">Noch keine Benutzer erfasst.</div>';return;}
+  if(!visible.length){el.innerHTML='<div style="text-align:center;padding:32px;color:var(--mut)">Noch keine Benutzer '+(_isSuper?'erfasst':'in deinem Unternehmen')+'.</div>';return;}
   el.innerHTML=filtered.map(u=>{
     var userRoles=(u.roleIds||[]).map(rid=>{
       var r=roles.find(x=>x.id===rid);
@@ -518,6 +572,11 @@ function renderUsers(){
 }
 
 function openUserModal(uid){
+  // Org-Admin darf nur User der eigenen Org bearbeiten.
+  if(uid && !_isSuper){
+    var target=users.find(function(x){return x.id===uid;});
+    if(target && target.orgId !== _myOrgId){ toast('⚠ Nur User der eigenen Organisation'); return; }
+  }
   var isEdit=!!uid;
   document.getElementById('userModalTitle').textContent=isEdit?'Benutzer bearbeiten':'Neuer Benutzer';
   document.getElementById('u_pw_label').textContent=isEdit?'Neues Passwort (leer = unverändert)':'Passwort *';
@@ -529,18 +588,29 @@ function openUserModal(uid){
   document.getElementById('u_pw').value='';
   document.getElementById('u_pw2').value='';
   document.getElementById('u_active').checked=u?u.active:true;
-  // Roles checkboxes
+  // Roles checkboxes — Org-Admin darf die System-Rolle "role_admin"
+  // weder sehen noch vergeben, damit keine Rechte-Eskalation moeglich ist.
   var el=document.getElementById('u_roles_checkboxes');
-  el.innerHTML=roles.map(r=>{
+  var visibleRoles = _isSuper ? roles : roles.filter(function(r){return r.id!=='role_admin';});
+  el.innerHTML=visibleRoles.map(r=>{
     var checked=u&&u.roleIds&&u.roleIds.indexOf(r.id)>=0;
     return '<label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;font-weight:600">'+
       '<input type="checkbox" value="'+r.id+'" '+(checked?'checked':'')+' style="width:15px;height:15px;accent-color:'+r.color+'">'+
       '<span class="role-badge" style="background:'+r.color+'">'+esc(r.name)+'</span>'+
     '</label>';
   }).join('');
-  // Org dropdown
+  // Org dropdown — Super-Admin darf die Org frei waehlen, Org-Admin
+  // bekommt nur die eigene Org und kann sie nicht aendern.
   var orgSel=document.getElementById('u_orgId');
-  orgSel.innerHTML=orgs.map(o=>'<option value="'+o.id+'"'+(u&&u.orgId===o.id?' selected':'')+'>'+esc(o.name)+'</option>').join('');
+  if(_isSuper){
+    orgSel.innerHTML=orgs.map(o=>'<option value="'+o.id+'"'+(u&&u.orgId===o.id?' selected':'')+'>'+esc(o.name)+'</option>').join('');
+    orgSel.disabled=false;
+  } else {
+    var myOrg = orgs.find(function(o){return o.id===_myOrgId;});
+    var name = myOrg ? myOrg.name : _myOrgId;
+    orgSel.innerHTML='<option value="'+_myOrgId+'" selected>'+esc(name)+'</option>';
+    orgSel.disabled=true;
+  }
   openModal('userModal');
 }
 
@@ -564,8 +634,21 @@ function saveUser(){
   var roleIds=Array.from(document.querySelectorAll('#u_roles_checkboxes input:checked')).map(cb=>cb.value);
   var orgId=document.getElementById('u_orgId').value||'org_default';
 
+  // Sicherheitscheck fuer Org-Admins: orgId darf nicht aus der eigenen
+  // Org wegschreiben, und role_admin darf nicht vergeben werden.
+  if(!_isSuper){
+    orgId = _myOrgId;
+    roleIds = roleIds.filter(function(r){return r!=='role_admin';});
+  }
+
   if(uid){
     var idx=users.findIndex(u=>u.id===uid);
+    // Org-Admin darf nur User der eigenen Org bearbeiten. Falls der
+    // existierende User einer anderen Org angehoert, abbrechen.
+    if(idx>=0 && !_isSuper && users[idx].orgId !== _myOrgId){
+      errEl.textContent='Du darfst nur Benutzer deines eigenen Unternehmens bearbeiten.';
+      return;
+    }
     if(idx>=0){
       users[idx].username=username;
       users[idx].name=name||username;
@@ -586,6 +669,8 @@ function saveUser(){
 
 function toggleOrgAdmin(uid){
   var u=users.find(function(x){return x.id===uid;});if(!u||!u.orgId)return;
+  // Org-Admin darf nur Admins seiner eigenen Org (de-)ernennen.
+  if(!_isSuper && u.orgId !== _myOrgId){ toast('⚠ Nur User der eigenen Organisation'); return; }
   var o=orgs.find(function(x){return x.id===u.orgId;});if(!o)return;
   if(!o.admins)o.admins=[];
   if(o.admins.indexOf(uid)>=0){
@@ -601,6 +686,10 @@ function toggleOrgAdmin(uid){
 }
 
 function deleteUser(uid){
+  // Org-Admin darf nur User der eigenen Org loeschen.
+  var u=users.find(function(x){return x.id===uid;});
+  if(!u)return;
+  if(!_isSuper && u.orgId !== _myOrgId){ toast('⚠ Nur User der eigenen Organisation'); return; }
   if(!confirm('Benutzer wirklich löschen?'))return;
   users=users.filter(u=>u.id!==uid);
   GemaAuth.saveUsers(users);
@@ -611,6 +700,13 @@ function deleteUser(uid){
 // ── ROLES ─────────────────────────────────────────────────────────────
 function renderRoles(){
   var el=document.getElementById('roleList');
+  // Org-Admins sehen die Rollen-Verwaltung gar nicht — der Tab ist
+  // in _applyOrgAdminScope() ausgeblendet. Defensiv: falls doch mal
+  // hier gelandet, nur einen Hinweis zeigen.
+  if(!_isSuper){
+    el.innerHTML='<div style="text-align:center;padding:32px;color:var(--mut)">Rollen werden zentral vom GEMA-Administrator verwaltet.</div>';
+    return;
+  }
   el.innerHTML=roles.map(r=>{
     var memberCount=users.filter(u=>u.roleIds&&u.roleIds.indexOf(r.id)>=0).length;
     var mods=MODULES.filter(m=>r.permissions&&r.permissions[m.key]&&r.permissions[m.key].read);
@@ -636,6 +732,7 @@ function renderRoles(){
 }
 
 function openRoleModal(rid){
+  if(!_isSuper){toast('⚠ Rollen werden zentral vom GEMA-Administrator verwaltet');return;}
   var isEdit=!!rid;
   document.getElementById('roleModalTitle').textContent=isEdit?'Rolle bearbeiten':'Neue Rolle';
   document.getElementById('roleErr').textContent='';
@@ -711,6 +808,7 @@ function _collectPerms(){
 }
 
 function saveRole(){
+  if(!_isSuper){toast('⚠ Rollen werden zentral vom GEMA-Administrator verwaltet');return;}
   var rid=document.getElementById('r_id').value;
   var name=document.getElementById('r_name').value.trim();
   var color=document.getElementById('r_color').value;
@@ -730,6 +828,7 @@ function saveRole(){
 }
 
 function deleteRole(rid){
+  if(!_isSuper){toast('⚠ Rollen werden zentral vom GEMA-Administrator verwaltet');return;}
   if(!rid)rid=document.getElementById('r_id').value;
   if(rid==='role_admin'){toast('⚠ Admin-Rolle kann nicht gelöscht werden');return;}
   if(!confirm('Rolle wirklich löschen? Benutzer mit dieser Rolle verlieren die zugehörigen Berechtigungen.'))return;
@@ -748,13 +847,17 @@ function deleteRole(rid){
 var _orgLogoBase64 = '';
 
 function renderOrgs(){
-  document.getElementById('orgCount').textContent=orgs.length+' Unternehmen';
+  // Org-Admin sieht nur die eigene Organisation, Super-Admin alle.
+  var visible=_scopedOrgs();
+  document.getElementById('orgCount').textContent=visible.length+(_isSuper?' Unternehmen':' Unternehmen (dein Unternehmen)');
   var el=document.getElementById('orgList');
-  if(!orgs.length){el.innerHTML='<div style="text-align:center;padding:32px;color:var(--mut)">Noch keine Unternehmen erfasst.</div>';return;}
-  el.innerHTML=orgs.map(o=>{
+  if(!visible.length){el.innerHTML='<div style="text-align:center;padding:32px;color:var(--mut)">Noch keine Unternehmen erfasst.</div>';return;}
+  el.innerHTML=visible.map(o=>{
     var cat=orgCats.find(c=>c.id===o.kategorie);
     var catLabel=cat?(cat.icon+' '+cat.name):'–';
     var memberCount=users.filter(u=>u.orgId===o.id).length;
+    // Loeschen-Button nur fuer Super-Admin (und nie fuer org_default)
+    var canDelete = _isSuper && o.id!=='org_default';
     return '<div class="user-item">'+
       '<div class="user-avatar" style="background:#0891b2;overflow:hidden">'+(o.logo?'<img src="'+o.logo+'" style="width:100%;height:100%;object-fit:contain">':esc((o.name||'?').substring(0,2).toUpperCase()))+'</div>'+
       '<div style="flex:1;min-width:0">'+
@@ -763,7 +866,7 @@ function renderOrgs(){
       '</div>'+
       '<div class="user-actions">'+
         '<button class="btn btn-sm" onclick="openOrgModal(\''+o.id+'\')">✏</button>'+
-        (o.id!=='org_default'?'<button class="btn btn-sm btn-danger" onclick="deleteOrg(\''+o.id+'\')">🗑</button>':'')+
+        (canDelete?'<button class="btn btn-sm btn-danger" onclick="deleteOrg(\''+o.id+'\')">🗑</button>':'')+
       '</div>'+
     '</div>';
   }).join('');
@@ -804,6 +907,10 @@ function deleteOrgCat(id){
 }
 
 function openOrgModal(oid){
+  // Org-Admin darf nur die eigene Org oeffnen und keine neuen anlegen.
+  if(!_isSuper){
+    if(!oid || oid !== _myOrgId){ toast('⚠ Du darfst nur dein eigenes Unternehmen bearbeiten'); return; }
+  }
   var isEdit=!!oid;
   document.getElementById('orgModalTitle').textContent=isEdit?'Unternehmen bearbeiten':'Neues Unternehmen';
   document.getElementById('orgErr').textContent='';
@@ -838,6 +945,10 @@ function openOrgModal(oid){
 
 function saveOrg(){
   var oid=document.getElementById('o_id').value;
+  // Org-Admin darf nur die eigene Org speichern und keine neuen anlegen.
+  if(!_isSuper){
+    if(!oid || oid !== _myOrgId){ document.getElementById('orgErr').textContent='Du darfst nur dein eigenes Unternehmen bearbeiten.'; return; }
+  }
   var name=document.getElementById('o_name').value.trim();
   if(!name){document.getElementById('orgErr').textContent='Firmenname ist Pflichtfeld.';return;}
   var data={
@@ -864,6 +975,7 @@ function saveOrg(){
 }
 
 function deleteOrg(oid){
+  if(!_isSuper){toast('⚠ Nur der GEMA-Administrator darf Unternehmen löschen');return;}
   var membersCount=users.filter(u=>u.orgId===oid).length;
   if(membersCount>0){toast('⚠ Unternehmen hat noch '+membersCount+' Benutzer — zuerst entfernen');return;}
   if(!confirm('Unternehmen wirklich löschen?'))return;
