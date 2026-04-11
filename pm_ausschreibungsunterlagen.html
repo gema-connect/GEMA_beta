@@ -114,16 +114,14 @@ input,select,textarea,button{font-family:inherit}
   <div class="g-nav-bc" style="flex:0 0 auto">
     <a class="bc-cat" href="pm_ausschreibung.html">Ausschreibung</a><span class="bc-sep">›</span><span class="bc-cur" id="topP">Ausschreibungsunterlagen</span>
   </div>
-  <!-- Projekt-Schnellwahl (Mitte) -->
-  <div class="obj-quick" id="objQuick" style="position:relative;flex:1;display:flex;justify-content:center">
-    <button type="button" id="objQuickBtn" onclick="toggleObjQuick()" style="display:flex;align-items:center;gap:8px;padding:6px 18px;border:1.5px solid var(--brd2);border-radius:8px;background:var(--sur);font-size:13px;font-weight:700;color:var(--txt);cursor:pointer;font-family:inherit;max-width:400px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
-      <span style="font-size:14px">📁</span><span id="objQuickLabel" style="overflow:hidden;text-overflow:ellipsis">Projekt wählen</span><span style="font-size:9px;color:var(--mut2)">▼</span>
-    </button>
-    <div id="objQuickDrop" style="display:none;position:absolute;top:calc(100% + 4px);left:50%;transform:translateX(-50%);min-width:380px;max-height:360px;background:var(--sur);border:1.5px solid var(--brd2);border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,.15);z-index:500;overflow:hidden">
-      <div style="padding:8px;border-bottom:1px solid var(--brd)">
-        <input type="text" id="objQuickSearch" placeholder="Projekt suchen…" oninput="filterObjQuick(this.value)" style="width:100%;padding:7px 10px;border:1.5px solid var(--brd2);border-radius:8px;font-size:13px;font-family:inherit;outline:none"/>
+  <!-- Projekt-Titel (Mitte) — wird durch die aktive Ausschreibung bestimmt -->
+  <div class="obj-title" id="objQuick" style="flex:1;display:flex;justify-content:center;align-items:center;min-width:0;padding:0 16px">
+    <div id="objTitleBox" style="display:flex;align-items:center;gap:10px;min-width:0;max-width:560px">
+      <span style="font-size:18px;flex-shrink:0">📁</span>
+      <div style="display:flex;flex-direction:column;min-width:0;line-height:1.15">
+        <span id="objQuickLabel" style="font-size:15px;font-weight:800;color:var(--txt);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Kein Projekt aktiv</span>
+        <span id="objAusLabel" style="font-size:11px;font-weight:600;color:var(--mut);white-space:nowrap;overflow:hidden;text-overflow:ellipsis"></span>
       </div>
-      <div id="objQuickList" style="max-height:280px;overflow-y:auto"></div>
     </div>
   </div>
   <div class="g-nav-right">
@@ -833,12 +831,19 @@ function renderObjQuickList(filter){
   document.getElementById('objQuickList').innerHTML=h;
 }
 function filterObjQuick(q){renderObjQuickList(q);}
-// Event delegation für Projekt-Klick im Dropdown
+// Event delegation für Projekt-Klick im (ehemaligen) Dropdown — bleibt als
+// Fallback erhalten, falls die Dropdown-Liste je wieder aktiviert wird.
 document.addEventListener('DOMContentLoaded',function(){
   var list=document.getElementById('objQuickList');
   if(list)list.addEventListener('click',function(e){
     var item=e.target.closest('[data-objid]');
     if(item)selectObjQuick(item.dataset.objid);
+  });
+  // Projekt-Titel im Header initial setzen, sobald S geladen ist und
+  // GemaObjekte verfuegbar ist. GemaObjekte laedt asynchron, daher warten.
+  try { updateObjQuickLabel(); } catch(e) {}
+  window.addEventListener('gema-objekte-loaded', function(){
+    try { updateObjQuickLabel(); } catch(e) {}
   });
 });
 function selectObjQuick(id){
@@ -866,19 +871,45 @@ function selectAusschreibung(ausId){
     var curObjId=GemaObjekte.getActiveId();
     if(curObjId!==a.objektId){
       GemaObjekte.setActiveId(a.objektId);
-      updateObjQuickLabel();
     }
   }
+  // Projekt-Titel im Header immer aktualisieren, damit der Ausschreibungs-
+  // Name als Untertitel korrekt nachgezogen wird — auch wenn das Projekt
+  // dasselbe geblieben ist.
+  updateObjQuickLabel();
   // BKP-Daten der gewählten Ausschreibung laden
   if(a)ldBKP(a);
   buildTabs();nav('pbkp');
 }
 
 function updateObjQuickLabel(){
+  // Projekt-Titel im Header aktualisieren. Zeigt den Namen des aktiven
+  // Projekts (Objekts) oben und darunter den Namen der aktuell gewaehlten
+  // Ausschreibung, damit klar ist, in welchem Kontext man arbeitet.
+  // Das Projekt ist rein textlich — es gibt kein Dropdown mehr.
   var label=document.getElementById('objQuickLabel');if(!label)return;
-  if(typeof GemaObjekte==='undefined'){label.textContent='Projekt wählen';return;}
-  var o=GemaObjekte.getActive();
-  label.textContent=o?(o.name||'Ohne Name'):'Projekt wählen';
+  var subLabel=document.getElementById('objAusLabel');
+  // Projekt-Name aus GemaObjekte
+  var projName='Kein Projekt aktiv';
+  try {
+    if (typeof GemaObjekte !== 'undefined') {
+      var o = GemaObjekte.getActive();
+      if (o) projName = o.name || 'Ohne Name';
+    }
+  } catch(e) {}
+  label.textContent = projName;
+  // Ausschreibungs-Name aus S.activeAusId
+  if (subLabel) {
+    var ausName = '';
+    try {
+      if (S && S.activeAusId && S.ausschreibungen) {
+        var ax = S.ausschreibungen.find(function(x){return x.id === S.activeAusId;});
+        if (ax && ax.name) ausName = '› ' + ax.name;
+      }
+    } catch(e) {}
+    subLabel.textContent = ausName;
+    subLabel.style.display = ausName ? '' : 'none';
+  }
 }
 // Close dropdown on outside click
 document.addEventListener('click',function(e){
