@@ -869,6 +869,10 @@ function selectObjQuick(id){
   toast('Projekt gewechselt');
 }
 
+// Guard fuer den gema-objekt-changed-Listener: waehrend selectAusschreibung
+// laeuft wollen wir keine doppelten Renders, weil die Funktion den Objekt-
+// wechsel und das Rerender selbst orchestriert.
+var _inSelectAus = false;
 function selectAusschreibung(ausId){
   // Idempotent und robust: ein einziger Klick auf eine Ausschreibung in der
   // Liste soll garantiert dazu fuehren, dass
@@ -878,6 +882,7 @@ function selectAusschreibung(ausId){
   //   (4) die BKP-Checkliste der Ausschreibung geoeffnet wird.
   // Jeder Schritt ist in try/catch gekapselt, damit ein Fehler in einem
   // spaeteren Schritt die frueheren nicht invalidiert.
+  _inSelectAus = true;
   try {
     var a = S.ausschreibungen.find(function(x){return x.id===ausId;});
     if (!a) { toast('Ausschreibung nicht gefunden','error'); return; }
@@ -910,8 +915,41 @@ function selectAusschreibung(ausId){
   } catch(err) {
     console.error('[GEMA] selectAusschreibung failed', err);
     try { toast('Ausschreibung konnte nicht geoeffnet werden: ' + (err.message||err), 'error'); } catch(e) {}
+  } finally {
+    _inSelectAus = false;
   }
 }
+
+// ── Reaktion auf Projekt-Wechsel ─────────────────────────────────────
+// Wenn das aktive Objekt (Projekt) aus einer anderen Quelle gewechselt
+// wird — z.B. durch gema_objekte_api in einem anderen Tab oder durch
+// kuenftige UI-Elemente — sollen Tab-Badges und der aktuelle View
+// automatisch aktualisiert werden. Waehrend selectAusschreibung() laeuft
+// ueberspringen wir das, weil die Funktion das Rerender selbst uebernimmt.
+window.addEventListener('gema-objekt-changed', function(){
+  if (_inSelectAus) return;
+  // Wenn die bisher aktive Ausschreibung nicht mehr zum neuen Projekt
+  // gehoert, die Auswahl auf die erste passende Ausschreibung setzen —
+  // oder auf null, wenn das Projekt keine hat.
+  try {
+    var cur = S.ausschreibungen.find(function(x){return x.id===S.activeAusId;});
+    var pid = currentObjektId();
+    if (!cur || (pid && cur.objektId !== pid)) {
+      var scoped = scopedAus();
+      S.activeAusId = scoped.length ? scoped[0].id : '';
+      try { save(); } catch(e) {}
+    }
+  } catch(e) {}
+  // Tabs + Titel neu aufbauen
+  try { buildTabs(); } catch(e) {}
+  try { updateObjQuickLabel(); } catch(e) {}
+  // Aktuellen Tab neu rendern, damit Listen und Badges synchron sind.
+  try {
+    var act = document.querySelector('#tabBar .tab-btn.active');
+    var tab = act && act.getAttribute('data-tab');
+    if (tab) nav(tab);
+  } catch(e) {}
+});
 
 function updateObjQuickLabel(){
   // Projekt-Titel im Header aktualisieren. Zeigt den Namen des aktiven
@@ -953,16 +991,66 @@ document.addEventListener('click',function(e){
 });
 
 function isAdmin(){try{if(typeof GemaAuth!=='undefined'){const u=GemaAuth.getCurrentUser();return u&&u.roleIds&&u.roleIds.indexOf('role_admin')>=0;}return true;}catch(e){return true;}}
+
+// ── Projekt-Scoping ──────────────────────────────────────────────────
+// Alle Listen und Badge-Counter im Ausschreibungsmodul sollen das aktive
+// Projekt (Objekt aus GemaObjekte) respektieren. Diese Helper stellen
+// sicher, dass der gesamte Code nur noch die Daten des aktuellen Projekts
+// sieht — Wechsel eines anderen Projekts via selectAusschreibung() oder
+// ueber das gema-objekt-changed Event zieht automatisch alles nach.
+function currentObjektId(){
+  try { if(typeof GemaObjekte!=='undefined') return GemaObjekte.getActiveId(); } catch(e) {}
+  return null;
+}
+// Ausschreibungen des aktiven Projekts. Fallback (kein aktives Objekt):
+// alle Ausschreibungen, damit das Modul auch ohne gesetztes Projekt
+// grundsaetzlich nutzbar bleibt (z.B. bei Erst-Nutzung).
+function scopedAus(){
+  var pid = currentObjektId();
+  if (!pid) return S.ausschreibungen;
+  return S.ausschreibungen.filter(function(a){ return a.objektId === pid; });
+}
+// Map { ausId: true } der sichtbaren Ausschreibungen — nuetzlich um
+// Child-Listen (Anfragen, Einreichungen, Verteilungen) performant zu
+// filtern ohne jedes Mal ueber das Array zu iterieren.
+function scopedAusIds(){
+  var m={};
+  scopedAus().forEach(function(a){ m[a.id]=true; });
+  return m;
+}
 function switchRole(r){S.currentRole=r;if(r==='planer')S.currentUserId='planer-1';else{const b=S.beteiligte.find(x=>x.rolle===r);if(b)S.currentUserId=b.id;}sv();document.querySelectorAll('.role-pill').forEach(p=>p.classList.remove('active'));document.querySelector(`.role-pill.${r==='planer'?'rp':r==='installateur'?'ri':r==='lieferant'?'rl':'ra'}`)?.classList.add('active');updRU();buildTabs();nav(defP());}
 function updRU(){const el=document.getElementById('roleUser');if(!el)return;if(S.currentRole==='planer'){el.textContent='👤 Planer';return;}const list=S.beteiligte.filter(x=>x.rolle===S.currentRole);if(!list.length){el.textContent='—';return;}el.innerHTML=`<select onchange="S.currentUserId=this.value;sv();nav(defP())" style="font-size:12px;font-weight:600;border:1px solid var(--brd);border-radius:6px;padding:2px 8px;background:var(--sur);font-family:var(--sans);cursor:pointer">${list.map(x=>`<option value="${x.id}" ${x.id===S.currentUserId?'selected':''}>${x.firma}</option>`).join('')}</select>`;}
 function defP(){return{planer:'pub',installateur:'iub',lieferant:'lub',architekt:'aub'}[S.currentRole]||'pub';}
 
 function buildTabs(){
-  const b=document.getElementById('tabBar');let t=[];const nE=S.einreichungen.filter(e=>e.ausId===S.activeAusId).length;
-  if(S.currentRole==='planer'){const nAnf=S.anfragen.filter(x=>x.status==='interessiert').length;var curA_=S.ausschreibungen.find(function(a){return a.id===S.activeAusId;});var isCrbx=curA_&&curA_.typ==='crbx';t=[{id:'pub',ic:'◫',l:'Übersicht'},{id:'paus',ic:'📋',l:'Ausschreibungen',bg:S.ausschreibungen.length},{id:'pbkp',ic:'☑',l:'BKP-Checkliste'},{id:'pcrbx',ic:'📦',l:'CRBX-Abgleich',disabled:!isCrbx},{id:'pdet',ic:'📝',l:'Detail'},{id:'panf',ic:'🤝',l:'Interesse-Anfragen',bg:nAnf},{id:'pvrt',ic:'📤',l:'Verteilen'},{id:'pein',ic:'💰',l:'Offerten',bg:nE},{id:'pvgl',ic:'📊',l:'Vergleich'},{id:'pvga',ic:'📋',l:'Vergabeantrag'},{id:'pber',ic:'🔬',l:'Berechnungen'},{id:'pbet',ic:'👥',l:'Beteiligte'}];}
-  else if(S.currentRole==='installateur'){const nIA=S.anfragen.filter(x=>x.installateurId===S.currentUserId&&x.status==='angefragt').length;t=[{id:'iub',ic:'◫',l:'Übersicht'},{id:'ianf',ic:'🤝',l:'Interesse-Anfragen',bg:nIA},{id:'iaus',ic:'📋',l:'Ausschreibungen'},{id:'idet',ic:'📝',l:'Offerte ausfüllen'},{id:'ipro',ic:'👤',l:'Profil'},{id:'ina',ic:'🔄',l:'Netto-Anfragen',bg:S.nettoAnfragen.filter(x=>x.installateurId===S.currentUserId).length},{id:'iin',ic:'📨',l:'Eingegangene',bg:S.marktplatzOfferten.filter(x=>!x.installateurId||x.installateurId===S.currentUserId).length}];}
+  const b=document.getElementById('tabBar');let t=[];
+  // Alle Counter sind auf das aktive Projekt gescoped: Wir bilden erst
+  // die Menge der Ausschreibungs-IDs des aktiven Projekts und filtern
+  // Einreichungen/Anfragen/Vergabeantraege danach.
+  var scoped=scopedAus();
+  var ausIdMap=scopedAusIds();
+  const nE=S.einreichungen.filter(function(e){return e.ausId===S.activeAusId && ausIdMap[e.ausId];}).length;
+  if(S.currentRole==='planer'){
+    // Interesse-Anfragen: nur solche die zu einer Ausschreibung des
+    // aktiven Projekts gehoeren UND den Status 'interessiert' haben.
+    const nAnf=S.anfragen.filter(function(x){return x.status==='interessiert' && ausIdMap[x.ausId];}).length;
+    var curA_=S.ausschreibungen.find(function(a){return a.id===S.activeAusId;});
+    var isCrbx=curA_&&curA_.typ==='crbx';
+    t=[{id:'pub',ic:'◫',l:'Übersicht'},{id:'paus',ic:'📋',l:'Ausschreibungen',bg:scoped.length},{id:'pbkp',ic:'☑',l:'BKP-Checkliste'},{id:'pcrbx',ic:'📦',l:'CRBX-Abgleich',disabled:!isCrbx},{id:'pdet',ic:'📝',l:'Detail'},{id:'panf',ic:'🤝',l:'Interesse-Anfragen',bg:nAnf},{id:'pvrt',ic:'📤',l:'Verteilen'},{id:'pein',ic:'💰',l:'Offerten',bg:nE},{id:'pvgl',ic:'📊',l:'Vergleich'},{id:'pvga',ic:'📋',l:'Vergabeantrag'},{id:'pber',ic:'🔬',l:'Berechnungen'},{id:'pbet',ic:'👥',l:'Beteiligte'}];
+  }
+  else if(S.currentRole==='installateur'){
+    // Installateur sieht nur Anfragen an sich selber — trotzdem aufs
+    // aktive Projekt scopen, damit Projekt-Wechsel zu sauberen Zahlen
+    // fuehrt.
+    const nIA=S.anfragen.filter(function(x){return x.installateurId===S.currentUserId && x.status==='angefragt' && ausIdMap[x.ausId];}).length;
+    t=[{id:'iub',ic:'◫',l:'Übersicht'},{id:'ianf',ic:'🤝',l:'Interesse-Anfragen',bg:nIA},{id:'iaus',ic:'📋',l:'Ausschreibungen'},{id:'idet',ic:'📝',l:'Offerte ausfüllen'},{id:'ipro',ic:'👤',l:'Profil'},{id:'ina',ic:'🔄',l:'Netto-Anfragen',bg:S.nettoAnfragen.filter(x=>x.installateurId===S.currentUserId).length},{id:'iin',ic:'📨',l:'Eingegangene',bg:S.marktplatzOfferten.filter(x=>!x.installateurId||x.installateurId===S.currentUserId).length}];
+  }
   else if(S.currentRole==='lieferant'){t=[{id:'lub',ic:'◫',l:'Übersicht'},{id:'lab',ic:'⭐',l:'Mein Abo'},{id:'lmk',ic:'🏪',l:'Marktplatz'},{id:'lan',ic:'📨',l:'Anfragen',bg:S.nettoAnfragen.filter(x=>x.lieferantId===S.currentUserId&&x.status==='angefragt').length}];}
-  else{var nVga=S.ausschreibungen.filter(function(x){return x.vergabe&&x.vergabe.status==='eingereicht';}).length;t=[{id:'aub',ic:'◫',l:'Projektstatus'},{id:'avga',ic:'📋',l:'Vergabeanträge',bg:nVga}];}
+  else{
+    // Architekt: Vergabeantraege des aktiven Projekts
+    var nVga=scoped.filter(function(x){return x.vergabe && x.vergabe.status==='eingereicht';}).length;
+    t=[{id:'aub',ic:'◫',l:'Projektstatus'},{id:'avga',ic:'📋',l:'Vergabeanträge',bg:nVga}];
+  }
   b.innerHTML=t.map(x=>`<button class="tab-btn${x.disabled?' disabled':''}" data-tab="${x.id}" onclick="${x.disabled?'toast(\'Nur bei CRBX-Ausschreibungen\',\'info\')':'nav(\''+x.id+'\')'}" ${x.disabled?'style="opacity:.4;cursor:not-allowed"':''}><span>${x.ic}</span> ${x.l}${x.bg?`<span class="tab-badge">${x.bg}</span>`:''}</button>`).join('');
 }
 function nav(p){document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));document.querySelector(`.tab-btn[data-tab="${p}"]`)?.classList.add('active');const el=document.getElementById('PA');const fn=VIEWS[p];el.innerHTML=fn?fn():'<div class="es"><p>Seite nicht gefunden.</p></div>';setTimeout(initDropZones,50);if(p==='pbkp'){setTimeout(restoreBKPOpenState,10);setTimeout(initBKPDragDrop,20);}}
@@ -972,9 +1060,16 @@ const VIEWS={};
 // PLANER VIEWS
 // ═══════════════════════════════════════════════
 VIEWS.pub=function(){
-  const nA=S.ausschreibungen.length,nI=S.beteiligte.filter(b=>b.rolle==='installateur').length,nE=S.einreichungen.length;
+  // Kennzahlen auf das aktive Projekt gescoped. Ausschreibungen kommen
+  // aus scopedAus(), Offerten/Einreichungen werden via ausIdMap gefiltert.
+  var scoped=scopedAus();
+  var ausIdMap=scopedAusIds();
+  const nA=scoped.length;
+  const nI=S.beteiligte.filter(function(b){return b.rolle==='installateur';}).length;
+  const nE=S.einreichungen.filter(function(e){return ausIdMap[e.ausId];}).length;
+  const nVergeben=scoped.filter(function(a){return a.status==='vergeben';}).length;
   let h=`<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px"><button class="btn btn-p btn-sm" onclick="tutOpen()">🎓 So funktioniert's</button><button class="btn btn-s btn-sm" onclick="showFlowchart()">📊 Prozessübersicht</button></div>`;
-  h+=`<div class="sr"><div class="sc"><div class="sc-l">Ausschreibungen</div><div class="sc-v">${nA}</div></div><div class="sc"><div class="sc-l">Installateure</div><div class="sc-v">${nI}</div></div><div class="sc"><div class="sc-l">Offerten</div><div class="sc-v">${nE}</div></div><div class="sc"><div class="sc-l">Vergeben</div><div class="sc-v">${S.ausschreibungen.filter(a=>a.status==='vergeben').length}</div></div></div>`;
+  h+=`<div class="sr"><div class="sc"><div class="sc-l">Ausschreibungen</div><div class="sc-v">${nA}</div></div><div class="sc"><div class="sc-l">Installateure</div><div class="sc-v">${nI}</div></div><div class="sc"><div class="sc-l">Offerten</div><div class="sc-v">${nE}</div></div><div class="sc"><div class="sc-l">Vergeben</div><div class="sc-v">${nVergeben}</div></div></div>`;
   // Activity log with filters
   h+=renderActivityLog();
   return h;
@@ -1019,17 +1114,17 @@ function _getAusProjekte(){
   list.sort(function(a,b){return (a.name||'').localeCompare(b.name||'','de');});
   return list;
 }
-// Wendet Filter + Sortierung auf S.ausschreibungen an und liefert ein
-// frisches Array. Nicht destruktiv.
+// Wendet Filter + Sortierung auf die Ausschreibungen des aktiven Projekts
+// an und liefert ein frisches Array. Nicht destruktiv. Basis ist
+// scopedAus() — ausserhalb des aktiven Projekts liegende Ausschreibungen
+// werden erst gar nicht beruecksichtigt.
 function _filterSortAus(){
   var f=_getAusFilter();
-  var list = S.ausschreibungen.slice();
+  var list = scopedAus().slice();
   // Status
   if(f.status) list = list.filter(function(a){return (a.status||'entwurf')===f.status;});
   // Typ
   if(f.typ) list = list.filter(function(a){return (a.typ||'funktional')===f.typ;});
-  // Projekt (Objekt)
-  if(f.projekt) list = list.filter(function(a){return a.objektId===f.projekt;});
   // Suche
   if(f.q){
     var q=f.q.trim().toLowerCase();
@@ -1094,7 +1189,9 @@ function renderAusList(){
   if(!cont)return;
   var f=_getAusFilter();
   var list=_filterSortAus();
-  var total=S.ausschreibungen.length;
+  // Gesamt-Zahl bezieht sich auf die Ausschreibungen des aktiven Projekts,
+  // nicht mehr auf S.ausschreibungen global.
+  var total=scopedAus().length;
   // Treffer-Zaehler in der Toolbar aktualisieren
   var cnt=document.getElementById('ausListCount');
   if(cnt) cnt.textContent = list.length + ' von ' + total;
@@ -1109,12 +1206,17 @@ function renderAusList(){
 VIEWS.paus=function(){
   var vlCount=getVisibleVorlagen().length;
   let h=`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;gap:8px;flex-wrap:wrap"><h2 style="font-size:20px;font-weight:700">Ausschreibungen</h2><div style="display:flex;gap:8px"><button class="btn btn-g" onclick="openVorlagenModal()" title="Vorlagen-Bibliothek">📋 Vorlagen${vlCount?' <span style="background:var(--acc);color:#fff;font-size:10px;font-weight:800;padding:1px 6px;border-radius:999px;margin-left:2px">'+vlCount+'</span>':''}</button><button class="btn btn-p" onclick="oM('mNewA')">+ Neue Ausschreibung</button></div></div>`;
-  if(!S.ausschreibungen.length){
-    h+=`<div class="es"><span class="ei">📋</span><div class="et">Noch keine Ausschreibungen</div><p>Erstelle deine erste Ausschreibung.</p></div>`;
+  // Nur Ausschreibungen des aktiven Projekts anzeigen.
+  var scoped=scopedAus();
+  if(!scoped.length){
+    var pid=currentObjektId();
+    var msg = pid
+      ? '<div class="es"><span class="ei">📋</span><div class="et">Noch keine Ausschreibungen in diesem Projekt</div><p>Erstelle die erste Ausschreibung fuer das aktuelle Projekt.</p></div>'
+      : '<div class="es"><span class="ei">📋</span><div class="et">Noch keine Ausschreibungen</div><p>Erstelle deine erste Ausschreibung.</p></div>';
+    h+=msg;
     return h;
   }
   var f=_getAusFilter();
-  var projekte=_getAusProjekte();
   // Such-Input
   h+='<div style="margin-bottom:10px"><input type="text" id="ausSearch" placeholder="Ausschreibung suchen…" value="'+E(f.q||'').replace(/"/g,'&quot;')+'" oninput="setAusFilter(\'q\',this.value)" style="width:100%;padding:10px 14px 10px 38px;border:1.5px solid var(--brd2);border-radius:10px;font-size:13px;font-family:inherit;background:var(--sur) url(\'data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22%239ca3af%22><circle cx=%2210%22 cy=%2210%22 r=%227%22 stroke=%22%239ca3af%22 stroke-width=%222%22 fill=%22none%22/><line x1=%2215%22 y1=%2215%22 x2=%2221%22 y2=%2221%22 stroke=%22%239ca3af%22 stroke-width=%222%22/></svg>\') no-repeat 10px center;background-size:18px;outline:none" onfocus="this.style.borderColor=\'#1d4ed8\'" onblur="this.style.borderColor=\'var(--brd2)\'"/></div>';
   // Filter-/Sort-Toolbar
@@ -1134,13 +1236,8 @@ VIEWS.paus=function(){
     +   '<option value="funktional"'+(f.typ==='funktional'?' selected':'')+'>Funktional</option>'
     +   '<option value="crbx"'+(f.typ==='crbx'?' selected':'')+'>CRBX / E1S</option>'
     + '</select>';
-  // Projekt (Objekt) — nur wenn es mehrere Projekte gibt
-  if(projekte.length>1){
-    h+= '<select class="aus-filter-sel" onchange="setAusFilter(\'projekt\',this.value)" title="Nach Projekt filtern">'
-      +   '<option value=""'+(f.projekt===''?' selected':'')+'>Alle Projekte</option>'
-      +   projekte.map(function(p){return '<option value="'+p.id+'"'+(f.projekt===p.id?' selected':'')+'>'+E(p.name)+'</option>';}).join('')
-      + '</select>';
-  }
+  // Kein Projekt-Filter mehr — das aktive Projekt bestimmt die Liste
+  // automatisch. Wechseln des Projekts loest ein Re-Render aus.
   // Sort
   h+= '<span style="width:1px;height:22px;background:var(--brd);margin:0 2px"></span>';
   h+= '<span style="font-size:11px;font-weight:800;color:var(--mut);text-transform:uppercase;letter-spacing:.05em">Sortieren</span>';
@@ -1154,8 +1251,8 @@ VIEWS.paus=function(){
     + '</select>';
   // Treffer-Zaehler + Reset
   h+= '<span style="flex:1"></span>';
-  h+= '<span style="font-size:11px;color:var(--mut);font-weight:600"><span id="ausListCount">'+S.ausschreibungen.length+' von '+S.ausschreibungen.length+'</span> Ausschreibungen</span>';
-  if(f.q||f.status||f.typ||f.projekt||f.sort!=='name-asc'){
+  h+= '<span style="font-size:11px;color:var(--mut);font-weight:600"><span id="ausListCount">'+scoped.length+' von '+scoped.length+'</span> Ausschreibungen</span>';
+  if(f.q||f.status||f.typ||f.sort!=='name-asc'){
     h+= '<button class="btn btn-g btn-sm" onclick="resetAusFilter()" style="font-size:11px">✕ Zuruecksetzen</button>';
   }
   h+='</div>';
