@@ -667,18 +667,70 @@
     saveRoles:function(r){try{localStorage.setItem(STORAGE_ROLES,JSON.stringify(r));return true;}catch(e){return false;}},
 
     // ── Einladungssystem ──
+    // Sucht eine existierende Org anhand des Firmennamens (case-
+    // insensitive, Trimming) oder legt eine neue mit minimalen Default-
+    // Werten an. Verhindert, dass Fremdfirmen bei inviteLieferant/
+    // inviteBeteiligter in 'org_default' einsortiert werden.
+    //
+    // kategorie: 'lieferant'|'architekt'|'sanitaerinstallateur'|...
+    // kontakt:   { email, telefon } — wird beim Neu-Anlegen uebernommen
+    // adminUserId: wird beim Neu-Anlegen als erster Org-Admin gesetzt
+    //
+    // Gibt immer eine gueltige orgId zurueck.
+    ensureOrgForFirma:function(firma, kategorie, kontakt, adminUserId){
+      firma = (firma||'').trim();
+      if(!firma) return 'org_default';
+      var orgs = _getOrgs() || [];
+      var norm = firma.toLowerCase();
+      // Suche in bestehenden Orgs (ignoriere org_default, um Treffer auf
+      // "Jaeggi Vollmer GmbH" aus Versehen zu vermeiden).
+      var found = orgs.find(function(o){
+        return o.id!=='org_default' && o.name && o.name.toLowerCase().trim()===norm;
+      });
+      if(found) return found.id;
+      // Neue Org anlegen mit minimalen Default-Werten.
+      var newId = 'org_'+Date.now()+'_'+Math.random().toString(36).substring(2,6);
+      var k = kontakt || {};
+      orgs.push({
+        id:newId,
+        name:firma,
+        logo:null,
+        kategorie:kategorie||'sonstiges',
+        rechtsform:'',
+        adresse:{strasse:'',plz:'',ort:'',kanton:'',land:'CH'},
+        kontakt:{email:k.email||'',telefon:k.telefon||'',website:''},
+        settings:{waehrung:'CHF',land:'CH',sichtbarkeit:'organisation',abteilungenAktiv:false},
+        abteilungen:[],
+        lizenzen:{typ:'pool',maxUser:5,aktiveUser:1,aboStart:new Date().toISOString().split('T')[0],aboEnde:'',gewerke:[]},
+        admins:adminUserId?[adminUserId]:[],
+        active:true,
+        autoCreated:true, // Marker: wurde per Einladung angelegt
+        createdAt:new Date().toISOString()
+      });
+      try { localStorage.setItem(STORAGE_ORGS, JSON.stringify(orgs)); } catch(e) {}
+      return newId;
+    },
+
     inviteLieferant:function(opts){
-      // Erstellt einen Login-Light User für einen Lieferanten
+      // Erstellt einen Login-Light User für einen Lieferanten.
+      // Wenn opts.orgId gesetzt ist, wird dieser genutzt; sonst wird
+      // anhand opts.firma eine existierende Org gefunden oder eine
+      // neue Lieferanten-Org angelegt. Nur als absoluter Fallback (kein
+      // opts.orgId, kein opts.firma) wird org_default genommen.
       var users=_getUsers()||[];
       var token='inv_'+Date.now()+'_'+Math.random().toString(36).substring(2,8);
       var userId='user_lief_'+Date.now();
+      var resolvedOrgId = opts.orgId
+        || (opts.firma
+            ? w.GemaAuth.ensureOrgForFirma(opts.firma, 'lieferant', {email:opts.email, telefon:opts.tel}, userId)
+            : 'org_default');
       var user={
         id:userId,
         username:opts.email||token,
         name:opts.firma||opts.person||'Lieferant',
         password:null, // Wird beim ersten Login gesetzt
         roleIds:['role_lieferant'],
-        orgId:opts.orgId||'org_default',
+        orgId:resolvedOrgId,
         active:true,
         createdAt:new Date().toISOString(),
         profile:{
@@ -719,13 +771,28 @@
       var token='inv_'+Date.now()+'_'+Math.random().toString(36).substring(2,8);
       var roleId=opts.roleId||'role_unternehmer';
       var userId='user_'+roleId.replace('role_','')+'_'+Date.now();
+      // Kategorie fuer die Org automatisch aus der Rolle ableiten, damit
+      // die neue Firma im Produktkatalog/Unternehmensfilter richtig
+      // einsortiert wird.
+      var ROLE_TO_KATEGORIE = {
+        'role_lieferant':'lieferant',
+        'role_architekt':'architekt',
+        'role_unternehmer':'sanitaerinstallateur',
+        'role_hlkk_planer':'heizungsplaner',
+        'role_planer':'sanitaerplaner'
+      };
+      var kategorie = ROLE_TO_KATEGORIE[roleId] || 'sonstiges';
+      var resolvedOrgId = opts.orgId
+        || (opts.firma
+            ? w.GemaAuth.ensureOrgForFirma(opts.firma, kategorie, {email:opts.email, telefon:opts.tel}, userId)
+            : 'org_default');
       var user={
         id:userId,
         username:opts.email||token,
         name:opts.person||opts.firma||'Eingeladener',
         password:null,
         roleIds:[roleId],
-        orgId:opts.orgId||'org_default',
+        orgId:resolvedOrgId,
         active:true,
         createdAt:new Date().toISOString(),
         profile:{

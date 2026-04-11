@@ -3283,12 +3283,19 @@ function apSuggest(q){
   var rolle=document.getElementById('apR').value;
   q=q.toLowerCase();
   var html='';var found=0;
+  // Tracking der Firmen-Namen (case-insensitive), die wir schon
+  // angezeigt haben. Verhindert doppelte Eintraege, wenn z.B. BWT
+  // sowohl als Katalog-Lieferant als auch als Org existiert.
+  var shownFirmen=new Set();
+  var shownEmails=new Set();
 
   // 1. Zentraler Lieferantenkatalog (für Lieferanten-Rolle)
   if(rolle==='lieferant'&&typeof GemaProdukte!=='undefined'){
     var katalogMatches=GemaProdukte.searchLieferanten(q).slice(0,5);
     katalogMatches.forEach(function(l){
       found++;
+      if(l.firma) shownFirmen.add(l.firma.toLowerCase().trim());
+      if(l.email) shownEmails.add(l.email.toLowerCase());
       html+='<div onclick="apSelectKatalogLief(\''+l.id+'\')" style="padding:8px 12px;cursor:pointer;border-bottom:1px solid var(--brd);font-size:12px;display:flex;align-items:center;gap:8px;transition:.1s" onmouseover="this.style.background=\'var(--bg2)\'" onmouseout="this.style.background=\'\'">'
         +'<div style="flex:1"><strong>'+E(l.firma)+'</strong><div style="font-size:11px;color:var(--mut)">'+E(l.kontaktPerson||'')+' · '+E(l.email||'')+'</div></div>'
         +'<span class="tag t-am" style="font-size:9px">Katalog</span>'
@@ -3296,18 +3303,42 @@ function apSuggest(q){
     });
   }
 
-  // 2. Bestehende Users mit Login
+  // 2. Bestehende Organisationen (alle Rollen) — so erkennt man schon
+  // existierende Firmen, auch wenn sie noch keinen User oder Katalog-
+  // Eintrag haben. Wir filtern nach passender Kategorie je nach Rolle,
+  // ignorieren aber org_default (Jaeggi Vollmer), um keine Fremd-
+  // eintraege in die Planer-Org zu bekommen.
+  var KAT_BY_ROLLE = { installateur:'sanitaerinstallateur', lieferant:'lieferant', architekt:'architekt' };
+  var wantKat = KAT_BY_ROLLE[rolle];
+  var orgs=[]; try{ orgs = (typeof GemaAuth!=='undefined' && GemaAuth.getOrgs && GemaAuth.getOrgs()) || []; }catch(e){}
+  var orgMatches = orgs.filter(function(o){
+    if(o.id==='org_default') return false;
+    if(wantKat && o.kategorie !== wantKat) return false;
+    var nameMatch = (o.name||'').toLowerCase().indexOf(q)>=0;
+    var ortMatch  = (o.adresse && o.adresse.ort||'').toLowerCase().indexOf(q)>=0;
+    return nameMatch || ortMatch;
+  }).filter(function(o){
+    return !shownFirmen.has((o.name||'').toLowerCase().trim());
+  }).slice(0,5);
+  orgMatches.forEach(function(o){
+    found++;
+    shownFirmen.add((o.name||'').toLowerCase().trim());
+    if(o.kontakt && o.kontakt.email) shownEmails.add(o.kontakt.email.toLowerCase());
+    var ort = (o.adresse && o.adresse.ort) ? o.adresse.ort : '';
+    var email = (o.kontakt && o.kontakt.email) || '';
+    html+='<div onclick="apSelectOrg(\''+o.id+'\')" style="padding:8px 12px;cursor:pointer;border-bottom:1px solid var(--brd);font-size:12px;display:flex;align-items:center;gap:8px;transition:.1s" onmouseover="this.style.background=\'var(--bg2)\'" onmouseout="this.style.background=\'\'">'
+      +'<div style="flex:1"><strong>'+E(o.name)+'</strong><div style="font-size:11px;color:var(--mut)">'+E(ort)+(email?' · '+E(email):'')+'</div></div>'
+      +'<span class="tag t-bl" style="font-size:9px">Firma</span>'
+      +'</div>';
+  });
+
+  // 3. Bestehende Users mit Login
   var users=[];try{users=GemaAuth.getUsers()||[];}catch(e){}
-  var roleMap={installateur:'role_unternehmer',lieferant:'role_lieferant',architekt:'role_architekt'};
-  var targetRole=roleMap[rolle];
-  var shownEmails=new Set();
-  if(rolle==='lieferant'&&typeof GemaProdukte!=='undefined'){
-    GemaProdukte.searchLieferanten(q).forEach(function(l){if(l.email)shownEmails.add(l.email.toLowerCase());});
-  }
   var matches=users.filter(function(u){
     if(!u.active)return false;
     if(u.profile?.email&&shownEmails.has(u.profile.email.toLowerCase()))return false;
     if(u.username&&shownEmails.has(u.username.toLowerCase()))return false;
+    if(u.profile?.firma&&shownFirmen.has(u.profile.firma.toLowerCase().trim()))return false;
     var nameMatch=(u.name||'').toLowerCase().indexOf(q)>=0;
     var firmaMatch=(u.profile?.firma||'').toLowerCase().indexOf(q)>=0;
     var emailMatch=(u.username||'').toLowerCase().indexOf(q)>=0;
@@ -3325,6 +3356,37 @@ function apSuggest(q){
   if(!found){sugEl.style.display='none';return;}
   sugEl.style.display='block';
   sugEl.innerHTML=html;
+}
+
+// Übernimmt die Daten einer vorgeschlagenen Organisation in das
+// Beteiligte-Formular. Die resultierende Beteiligten-Karte wird beim
+// spaeteren inviteLieferant/inviteBeteiligter ueber die Org-ID mit
+// der existierenden Firma verknuepft, statt eine neue anzulegen.
+function apSelectOrg(orgId){
+  if(typeof GemaAuth==='undefined') return;
+  var orgs = (GemaAuth.getOrgs && GemaAuth.getOrgs()) || [];
+  var o = orgs.find(function(x){return x.id===orgId;});
+  if(!o) return;
+  document.getElementById('apF').value=o.name||'';
+  // Kontaktperson aus dem ersten Admin-User (falls vorhanden) vorbelegen
+  var person='', email=(o.kontakt&&o.kontakt.email)||'', tel=(o.kontakt&&o.kontakt.telefon)||'';
+  if(o.admins && o.admins.length){
+    var users = (GemaAuth.getUsers && GemaAuth.getUsers()) || [];
+    var adminUser = users.find(function(u){return u.id===o.admins[0];});
+    if(adminUser){
+      person = adminUser.name || adminUser.profile?.person || '';
+      if(!email) email = adminUser.profile?.email || adminUser.username || '';
+      if(!tel)   tel   = adminUser.profile?.telefon || '';
+    }
+  }
+  document.getElementById('apP').value=person;
+  document.getElementById('apE').value=email;
+  document.getElementById('apT').value=tel;
+  document.getElementById('apSuggestions').style.display='none';
+  // orgId in einem Data-Attribut merken, damit addPerson()/inviteLieferant()
+  // die existierende Org nutzen koennen.
+  document.getElementById('apF').dataset.orgId=orgId;
+  document.getElementById('apF').dataset.katalogId='';
 }
 
 function apSelectKatalogLief(liefId){
@@ -4276,6 +4338,11 @@ function addPerson(){var r=document.getElementById('apR').value,f=document.getEl
   var person=document.getElementById('apP').value.trim();
   var tel=document.getElementById('apT').value.trim();
   var katalogId=document.getElementById('apF').dataset.katalogId||'';
+  // Org-ID aus Autocomplete-Auswahl (falls der User eine bestehende
+  // Firma aus den Vorschlaegen gewaehlt hat). Wird an den spaeteren
+  // inviteLieferant/inviteBeteiligter-Aufruf mitgegeben, damit keine
+  // neue Org angelegt wird.
+  var orgId=document.getElementById('apF').dataset.orgId||'';
 
   // Lieferant: Zentralen Katalog nutzen/erstellen
   if(r==='lieferant'&&typeof GemaProdukte!=='undefined'){
@@ -4293,16 +4360,17 @@ function addPerson(){var r=document.getElementById('apR').value,f=document.getEl
     if(zentralLief)katalogId=zentralLief.id;
   }
 
-  var obj={id:r.substring(0,4)+'-'+Date.now(),rolle:r,userId:null,firma:f,person:person,email:email,tel:tel,gewerke:'',profil:{},_loginStatus:'none',katalogLieferantId:katalogId||null};
+  var obj={id:r.substring(0,4)+'-'+Date.now(),rolle:r,userId:null,firma:f,person:person,email:email,tel:tel,gewerke:'',profil:{},_loginStatus:'none',katalogLieferantId:katalogId||null,orgId:orgId||null};
   // Auto-Verknüpfung: prüfe ob ein User mit dieser Email existiert
   var existingUser=findUserByEmail(email);
   if(existingUser){
     obj.userId=existingUser.id;
     obj._loginStatus=existingUser.einladung&&existingUser.einladung.passwortGesetzt?'active':'pending';
+    if(!obj.orgId && existingUser.orgId) obj.orgId=existingUser.orgId;
     toast(f+' ✓ (mit bestehendem Account verknüpft)');
   }
   if(r==='lieferant')obj.abo={aktiv:false,typ:'gratis',gewerke:[]};if(r==='installateur')obj.abo={typ:'gratis',aktiv:true};
-  S.beteiligte.push(obj);save();lg('👥','+',f);cM('mPerson');['apF','apP','apE','apT'].forEach(function(x){document.getElementById(x).value='';});document.getElementById('apF').dataset.katalogId='';if(!existingUser)toast(f+' ✓');buildTabs();nav(S.currentRole==='planer'?'pbet':defP());}
+  S.beteiligte.push(obj);save();lg('👥','+',f);cM('mPerson');['apF','apP','apE','apT'].forEach(function(x){document.getElementById(x).value='';});document.getElementById('apF').dataset.katalogId='';document.getElementById('apF').dataset.orgId='';if(!existingUser)toast(f+' ✓');buildTabs();nav(S.currentRole==='planer'?'pbet':defP());}
 
 function inviteLieferant(beteiligterIdx){
   var b=S.beteiligte[beteiligterIdx];if(!b)return;
@@ -4317,9 +4385,14 @@ function inviteLieferant(beteiligterIdx){
   }
   var result=GemaAuth.inviteLieferant({
     firma:b.firma,person:b.person,email:b.email,tel:b.tel,
+    orgId:b.orgId||null, // aus Autocomplete-Auswahl, falls gesetzt
     eingeladenVon:S.currentRole
   });
   b.userId=result.user.id;
+  // orgId aus dem Ergebnis zurueckschreiben, damit die Beteiligten-
+  // Karte mit der neu angelegten (oder zugeordneten) Firma verbunden
+  // bleibt und das Profil bei Login korrekt aufloest.
+  if(result.user && result.user.orgId) b.orgId=result.user.orgId;
   b._loginStatus='pending'; // Einladung gesendet, Passwort noch nicht gesetzt
   b._einladungGesendet=true;b._loginUrl=result.loginUrl;
   save();
