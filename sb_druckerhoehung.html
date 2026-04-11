@@ -532,6 +532,8 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important}
 <script src="gema_db.js"></script>
 <script src="gema_feedback.js"></script>
 <script src="gema_objekte_api.js"></script>
+<script src="gema_produktkatalog_api.js"></script>
+<script src="gema_offer_request.js"></script>
 <script src="gema_varianten.js"></script>
 <script src="gema_pdf.js"></script>
 <script src="gema_autosave.js"></script>
@@ -550,6 +552,7 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important}
       <span class="bc-cur">Druckerhöhungsanlage</span>
     </div>
     <div class="g-nav-right">
+      <button class="g-nav-btn no-print" onclick="_openExternalOffer()" style="background:#fef3c7;border-color:#fde68a;color:#92400e" title="Berechnung als Offertanfrage an einen Lieferanten senden">📨 Externe Offerte</button>
       <button class="g-nav-btn no-print" onclick="GemaPDF.export({title:'Druckerh�hung',color:'#2563eb'})">📄 PDF</button>
       <button class="g-nav-btn no-print" onclick="window.print()">🖨 Drucken</button>
       <button class="gema-feedback-btn no-print" onclick="GemaFeedback.start()">🔴 Feedback</button>
@@ -1493,6 +1496,36 @@ document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('druc
   window.addEventListener('gema-objekte-loaded',function(){populateObjektDropdown();if(typeof GemaAutoSave!=='undefined') GemaAutoSave.init('druckerhoehung');if(_prevObjektId)_prefillFromLU(_prevObjektId);});
   ['metaProjekt','metaBearbeiter','metaDatum'].forEach(function(id){var el=document.getElementById(id);if(el)el.addEventListener('input',saveMeta);});
 })();</script>
+<script>
+// ── Externe Offertanfrage (Druckerhoehung) ──
+// Liest die aktuellen Berechnungswerte aus dem DOM (VFD-Variante hat
+// Vorrang vor der VES-Variante, weil VFD moderner ist) und oeffnet
+// das wiederverwendbare GemaOfferRequest-Modal.
+function _openExternalOffer(){
+  if (typeof GemaOfferRequest === 'undefined') { alert('Offerten-Modul nicht geladen'); return; }
+  function _txt(id){ var el=document.getElementById(id); return el ? (el.textContent||'').trim() : ''; }
+  var vz = _txt('vfd_out_vz') || _txt('ves_out_vz');
+  var pN = _txt('vfd_out_pN') || _txt('ves_out_pN');
+  var pE = _txt('vfd_out_pE') || _txt('ves_out_pE');
+  var pA = _txt('ves_out_pA');
+  var variante = _txt('vfd_out_vz') ? 'VFD (Frequenzgeregelt)' : (_txt('ves_out_vz') ? 'VES (Druckkessel)' : '');
+  var projektName = (document.getElementById('metaProjekt')||{}).value || '';
+  var objektId=''; try{ if(typeof GemaObjekte!=='undefined') objektId=GemaObjekte.getActiveId()||''; }catch(e){}
+  GemaOfferRequest.open({
+    kategorie:'druckerhoehung',
+    titel:'Druckerhöhungsanlage',
+    produktName:'Druckerhöhungsanlage (Planung)',
+    berechnungswerte:{
+      variante: variante,
+      volumenstrom: vz ? vz+' l/s' : '—',
+      nachdruck: pN ? pN+' bar' : '',
+      einschaltdruck: pE ? pE+' bar' : '',
+      ausschaltdruck: pA ? pA+' bar' : ''
+    },
+    projekt:{ name:projektName, ort:'', objektId:objektId }
+  });
+}
+</script>
 <script src="gema_scroll.js"></script>
 <script src="gema_mobile_menu.js"></script>
 </body>
