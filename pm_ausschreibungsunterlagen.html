@@ -85,7 +85,9 @@ input,select,textarea,button{font-family:inherit}
 /* Contact row */
 .cr{display:flex;align-items:center;gap:12px;padding:10px 14px;background:var(--sur);border:1.5px solid var(--brd);border-radius:9px;margin-bottom:8px;transition:.12s}.cr:hover{box-shadow:var(--sh-sm)}.ca{width:36px;height:36px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0;font-weight:800;color:#fff}.ci{flex:1;min-width:0}.cn{font-weight:700;font-size:13px}.cd{font-size:11px;color:var(--mut)}
 /* Anfrage card */
-.ac{background:var(--sur);border:1.5px solid var(--brd);border-radius:var(--r);padding:16px 18px;margin-bottom:10px;transition:.12s}.ac:hover{box-shadow:var(--sh-sm)}
+.ac{background:var(--sur);border:1.5px solid var(--brd);border-radius:var(--r);padding:16px 18px;margin-bottom:10px;transition:.12s}.ac:hover{box-shadow:var(--sh-sm);border-color:var(--acc-bd)}
+.ac.is-active{border-color:var(--acc);background:var(--acc-bg);box-shadow:0 0 0 3px rgba(37,99,235,.12)}
+.ac.is-active::before{content:'✓ Aktuell geöffnet';display:inline-block;font-size:10px;font-weight:800;color:var(--acc);background:#fff;padding:2px 8px;border-radius:999px;border:1.5px solid var(--acc);margin-bottom:6px;letter-spacing:.03em;text-transform:uppercase}
 /* Abo plan */
 .abo-plan{border:2px solid var(--brd);border-radius:var(--r);padding:20px;text-align:center;transition:.2s;cursor:pointer;position:relative}.abo-plan:hover{border-color:var(--acc-bd);box-shadow:var(--sh)}.abo-plan.active{border-color:var(--acc);background:var(--acc-bg)}.abo-plan .pn{font-size:16px;font-weight:800;margin-bottom:4px}.abo-plan .pp{font-size:28px;font-weight:800;color:var(--acc);margin-bottom:4px}.abo-plan .ps{font-size:12px;color:var(--mut)}.abo-plan .pk{position:absolute;top:10px;right:10px;width:22px;height:22px;border-radius:50%;background:var(--grn);color:#fff;display:none;align-items:center;justify-content:center;font-size:12px;font-weight:800}.abo-plan.active .pk{display:flex}
 /* Abo gate overlay */
@@ -864,22 +866,47 @@ function selectObjQuick(id){
 }
 
 function selectAusschreibung(ausId){
-  S.activeAusId=ausId;save();
-  // Wenn die Ausschreibung einem Objekt zugeordnet ist, Projekt oben wechseln
-  var a=S.ausschreibungen.find(function(x){return x.id===ausId;});
-  if(a&&a.objektId&&typeof GemaObjekte!=='undefined'){
-    var curObjId=GemaObjekte.getActiveId();
-    if(curObjId!==a.objektId){
-      GemaObjekte.setActiveId(a.objektId);
+  // Idempotent und robust: ein einziger Klick auf eine Ausschreibung in der
+  // Liste soll garantiert dazu fuehren, dass
+  //   (1) S.activeAusId gesetzt ist,
+  //   (2) das Projekt oben im Header stimmt,
+  //   (3) die Tab-Leiste passend zur Rolle gebaut ist,
+  //   (4) die BKP-Checkliste der Ausschreibung geoeffnet wird.
+  // Jeder Schritt ist in try/catch gekapselt, damit ein Fehler in einem
+  // spaeteren Schritt die frueheren nicht invalidiert.
+  try {
+    var a = S.ausschreibungen.find(function(x){return x.id===ausId;});
+    if (!a) { toast('Ausschreibung nicht gefunden','error'); return; }
+
+    // 1) activeAusId setzen und speichern
+    S.activeAusId = ausId;
+    try { save(); } catch(e) {}
+
+    // 2) Projekt (Objekt) im Header umstellen, falls die Ausschreibung
+    //    einem anderen Objekt zugeordnet ist.
+    if (a.objektId && typeof GemaObjekte !== 'undefined') {
+      try {
+        if (GemaObjekte.getActiveId() !== a.objektId) {
+          GemaObjekte.setActiveId(a.objektId);
+        }
+      } catch(e) {}
     }
+
+    // 3) Titel im Header aktualisieren (Projekt + Ausschreibung)
+    try { updateObjQuickLabel(); } catch(e) {}
+
+    // 4) BKP-Daten der gewaehlten Ausschreibung aus dem per-Objekt-Storage
+    //    nachladen, damit die Checkliste korrekt angezeigt wird.
+    try { ldBKP(a); } catch(e) {}
+
+    // 5) Tabs neu bauen (u.a. wegen CRBX-Abgleich-Tab, das nur fuer crbx-
+    //    Ausschreibungen aktiv ist) und zur BKP-Checkliste navigieren.
+    try { buildTabs(); } catch(e) {}
+    try { nav('pbkp'); } catch(e) { console.error('[GEMA] nav(pbkp) failed', e); }
+  } catch(err) {
+    console.error('[GEMA] selectAusschreibung failed', err);
+    try { toast('Ausschreibung konnte nicht geoeffnet werden: ' + (err.message||err), 'error'); } catch(e) {}
   }
-  // Projekt-Titel im Header immer aktualisieren, damit der Ausschreibungs-
-  // Name als Untertitel korrekt nachgezogen wird — auch wenn das Projekt
-  // dasselbe geblieben ist.
-  updateObjQuickLabel();
-  // BKP-Daten der gewählten Ausschreibung laden
-  if(a)ldBKP(a);
-  buildTabs();nav('pbkp');
 }
 
 function updateObjQuickLabel(){
@@ -959,19 +986,36 @@ VIEWS.paus=function(){
     const nE=S.einreichungen.filter(e=>e.ausId===a.id).length;const nV=S.verteilungen.filter(v=>v.ausId===a.id).length;
     const nUp=(a.bkp||[]).reduce((s,b)=>s+(b.unterpositionen||[]).length,0);
     var bkpInfo='';if(a.lose&&a.lose.length){var allP=a.lose.reduce(function(s,l){return s.concat(l.positionen||[]);},[]);var ch=allP.filter(function(p){return p.checked;});var er=ch.filter(function(p){return p.status==='erledigt';});if(ch.length)bkpInfo=' · BKP '+er.length+'/'+ch.length;}
-    return `<div class="ac" onclick="selectAusschreibung('${a.id}')" style="cursor:pointer">
+    var isActive=(a.id===S.activeAusId);
+    return `<div class="ac${isActive?' is-active':''}" data-aus-id="${a.id}" style="cursor:pointer">
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
         <strong style="font-size:15px">${E(a.name)}</strong>
         <span class="tag ${a.typ==='crbx'?'t-pu':'t-ac'}">${a.typ==='crbx'?'CRBX':'Funktional'}</span>
         <span class="tag t-gy">${(a.modelle||[a.modell]).join(' + ')}</span>
         <span class="ml-a tag ${a.status==='vergeben'?'t-gr':a.status==='aktiv'||a.status==='crbx_geprueft'?'t-bl':'t-am'}">${a.status==='vergeben'?'Vergeben':a.status==='crbx_geprueft'?'Freigegeben':a.status==='aktiv'?'Aktiv':'Entwurf'}</span>
-        <button class="btn btn-g btn-sm" onclick="event.stopPropagation();openSaveVorlageModal('${a.id}')" style="margin-left:4px;opacity:.4;padding:2px 7px;font-size:10px" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=.4" title="Als Vorlage speichern">💾</button>
-        ${a.status!=='vergeben'?'<button class="btn btn-d btn-sm" onclick="event.stopPropagation();deleteAusschreibung(\''+a.id+'\')" style="margin-left:4px;opacity:.3;padding:2px 7px;font-size:10px" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=.3" title="Löschen">✕</button>':''}
+        <button class="btn btn-g btn-sm" data-nosel="1" onclick="event.stopPropagation();openSaveVorlageModal('${a.id}')" style="margin-left:4px;opacity:.4;padding:2px 7px;font-size:10px" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=.4" title="Als Vorlage speichern">💾</button>
+        ${a.status!=='vergeben'?'<button class="btn btn-d btn-sm" data-nosel="1" onclick="event.stopPropagation();deleteAusschreibung(\''+a.id+'\')" style="margin-left:4px;opacity:.3;padding:2px 7px;font-size:10px" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=.3" title="Löschen">✕</button>':''}
       </div>
       <div style="font-size:12px;color:var(--mut)">${E(a.objekt||'')} · Frist: ${a.frist||'—'} · ${nUp} Positionen · ${nV} verteilt · ${nE} Offerten${bkpInfo}</div>
     </div>`;
   }).join('');
   h+=`</div>`;
+  // Nach dem Rendern Event-Delegation auf den Container haengen. Wir nutzen
+  // einen Microtask, weil innerHTML erst nach dem return gesetzt wird.
+  setTimeout(function(){
+    var cont=document.getElementById('ausListContainer');
+    if(!cont||cont._delegated)return;
+    cont._delegated=true;
+    cont.addEventListener('click',function(ev){
+      // Button-Klicks mit data-nosel ignorieren (Stop-Propagation reicht nicht,
+      // falls der Event die Delegation trotzdem erreicht).
+      if(ev.target.closest('[data-nosel]'))return;
+      var card=ev.target.closest('.ac[data-aus-id]');
+      if(!card)return;
+      var id=card.getAttribute('data-aus-id');
+      if(id)selectAusschreibung(id);
+    });
+  },0);
   return h;
 };
 function filterAusList(){
