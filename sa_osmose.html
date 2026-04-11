@@ -537,6 +537,7 @@ function fixLeadingZero(el){
 <script src="gema_autosave.js"></script>
 <script src="gema_lu_api.js"></script>
 <script src="gema_produktkatalog_api.js"></script>
+<script src="gema_offer_request.js"></script>
 <script src="gema_offerten_tab.js"></script>
 <link rel="stylesheet" href="gema_responsive.css"/>
 </head>
@@ -801,7 +802,10 @@ function fixLeadingZero(el){
 <div class="g-page no-print" style="margin-top:0;padding-top:0;">
   <div id="pkSection" style="display:none;">
     <div class="g-card">
-      <div class="g-card-hd"><h2>🔬 Anlage auswählen</h2></div>
+      <div class="g-card-hd" style="display:flex;align-items:center;gap:10px">
+        <h2 style="flex:1;margin:0">🔬 Anlage auswählen</h2>
+        <button onclick="_openExternalOffer()" style="padding:7px 14px;border-radius:8px;border:1.5px solid #f59e0b;background:#fff;color:#b45309;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;white-space:nowrap" title="Offerte an einen Lieferanten schicken, der (noch) nicht im System hinterlegt ist">📨 Externe Offerte</button>
+      </div>
       <div class="g-card-bd">
         <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px" id="pkPills"></div>
         <div id="typGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px"></div>
@@ -1365,6 +1369,29 @@ document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('osmo
     var t=document.createElement('div');t.style.cssText='position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#059669;color:#fff;padding:10px 20px;border-radius:10px;font-size:13px;font-weight:700;z-index:999;box-shadow:0 4px 12px rgba(0,0,0,.2)';
     t.textContent='✓ '+p.lieferantFirma+' '+(d.serie||'')+' '+(d.modell||'')+' übernommen';
     document.body.appendChild(t);setTimeout(function(){t.remove();},3000);
+  };
+
+  // ── Externe Offertanfrage (Lieferant NICHT im System) ──
+  // Liest die aktuellen Osmose-Berechnungswerte aus dem DOM und oeffnet
+  // das wiederverwendbare GemaOfferRequest-Modal. Die Firma wird im
+  // Modal per Autocomplete verknuepft oder beim Senden neu angelegt.
+  window._openExternalOffer = function(){
+    if (typeof GemaOfferRequest === 'undefined') { alert('Offerten-Modul nicht geladen'); return; }
+    var voLh = parseFloat((document.getElementById('voLh') || {}).textContent || '0') || 0;
+    var vwLh = parseFloat((document.getElementById('vwLh') || {}).textContent || '0') || 0;
+    var projektName = (document.getElementById('metaProjekt') || {}).value || '';
+    var objektId = '';
+    try { if (typeof GemaObjekte !== 'undefined') objektId = GemaObjekte.getActiveId() || ''; } catch(e) {}
+    GemaOfferRequest.open({
+      kategorie: 'osmose',
+      titel: 'Osmoseanlage',
+      produktName: 'Osmoseanlage (Planung)',
+      berechnungswerte: {
+        permeat: voLh > 0 ? voLh.toFixed(1) + ' l/h' : '—',
+        konzentrat: vwLh > 0 ? (vwLh - voLh).toFixed(1) + ' l/h' : ''
+      },
+      projekt: { name: projektName, ort: '', objektId: objektId }
+    });
   };
 
   // ── Offertanfrage ──

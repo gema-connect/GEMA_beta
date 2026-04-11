@@ -506,6 +506,7 @@ function fixLeadingZero(el){
 <script src="gema_pdf.js"></script>
 <script src="gema_autosave.js"></script>
 <script src="gema_produktkatalog_api.js"></script>
+<script src="gema_offer_request.js"></script>
 <script src="gema_offerten_tab.js"></script>
 <script src="gema_lu_api.js"></script>
 <script src="gema_wasserdaten.js"></script>
@@ -783,6 +784,7 @@ function fixLeadingZero(el){
     <div style="display:flex;align-items:center;gap:10px;padding:14px 20px;border-bottom:1px solid var(--border,#e5e7eb);background:var(--bg,#f4f6fb)">
       <h3 style="font-size:15px;font-weight:800;flex:1">🔍 Passende Enthärtungsanlagen</h3>
       <span id="matchInfo" style="font-size:12px;color:var(--muted,#6b7280)"></span>
+      <button onclick="_openExternalOffer()" style="padding:7px 14px;border-radius:8px;border:1.5px solid #f59e0b;background:#fff;color:#b45309;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;white-space:nowrap" title="Offerte an einen Lieferanten schicken, der (noch) nicht im System hinterlegt ist">📨 Externe Offerte</button>
     </div>
     <div style="padding:16px 20px">
       <div style="font-size:12px;color:var(--muted,#6b7280);margin-bottom:8px">Lieferant</div>
@@ -1704,6 +1706,37 @@ document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('enth
       var t=document.createElement('div');t.style.cssText='position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#f59e0b;color:#fff;padding:12px 24px;border-radius:10px;font-size:13px;font-weight:700;z-index:999;box-shadow:0 4px 12px rgba(0,0,0,.2)';
       t.textContent='📨 Offertanfrage an '+p.lieferantFirma+' gesendet (Frist: '+oa.frist+')';
       document.body.appendChild(t);setTimeout(function(){t.remove();},4000);
+    });
+  };
+
+  // ── Externe Offertanfrage (Lieferant NICHT im System) ──
+  // Liest die aktuellen Berechnungswerte der Enthaertungsberechnung aus
+  // dem DOM und oeffnet das wiederverwendbare GemaOfferRequest-Modal.
+  // Der Lieferant wird beim Senden ueber die Firma-Autocomplete zuge-
+  // ordnet oder als neue Org angelegt (siehe gema_offer_request.js).
+  window._openExternalOffer = function(){
+    if (typeof GemaOfferRequest === 'undefined') { alert('Offerten-Modul nicht geladen'); return; }
+    var nenndurchfluss = '';
+    var elN = document.getElementById('ve_total_ls');
+    if (elN) {
+      var v = parseFloat((elN.textContent || '').replace(',', '.'));
+      if (!isNaN(v)) nenndurchfluss = (v * 60).toFixed(1) + ' l/min';
+    }
+    var hrFh = (document.getElementById('hr_fh') || {}).value || '';
+    var hwFh = (document.getElementById('hw_fh') || {}).value || '';
+    var projektName = (document.getElementById('metaProjekt') || {}).value || '';
+    var objektId = '';
+    try { if (typeof GemaObjekte !== 'undefined') objektId = GemaObjekte.getActiveId() || ''; } catch(e) {}
+    GemaOfferRequest.open({
+      kategorie: 'enthaertung',
+      titel: 'Enthärtungsanlage',
+      produktName: 'Enthärtungsanlage (Planung)',
+      berechnungswerte: {
+        durchfluss: nenndurchfluss || '—',
+        haerte_roh: hrFh ? hrFh + ' °fH' : '',
+        haerte_ziel: hwFh ? hwFh + ' °fH' : ''
+      },
+      projekt: { name: projektName, ort: '', objektId: objektId }
     });
   };
 
