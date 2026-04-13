@@ -790,7 +790,7 @@ function save(){sv();}
 function load(){ld();}
 
 // ── E1S Parser ──
-function parseE1S(text){const lines=text.split(/\r?\n/).filter(l=>l.length>0);const R={header:null,footer:null,toc:[],chapters:[],positions:[],werkgruppen:{}};let a={npk:'',posNr:'',chapter:'',chapterWg:'',descs:[],unit:''};var gChapters={};for(const raw of lines){const l=raw.replace(/\r$/,'');const t=l.charAt(0);if(t==='A'){const s=x=>(x||'').trim();R.header={datum:fD(s(l.substring(1,7))),offerteNr:s(l.substring(78,92)),objekt:s(l.substring(92,122))};}else if(t==='B'&&l.length>=42){const st=parseInt(l.charAt(41))||0;if(st){const b={subtype:st,code:(l.substring(73,83)||'').trim(),name:(l.substring(83)||'').trim()};R.toc.push(b);if(b.code&&b.name)R.werkgruppen[b.code]=b.name;}}else if(t==='Z'){const s=x=>(x||'').trim();R.footer={firma:s(l.substring(137,167)),email:s(l.substring(207))};}else if(t==='G'&&l.length>=42){const npk=l.substring(1,4).trim(),posNr=l.substring(7,13).trim(),st=parseInt(l.charAt(41))||0;if(st===1){a.chapter=(l.substring(75)||'').trim();a.npk=npk;var chWg=l.length>84?(l.substring(75,85)||'').trim():'';if(!chWg)chWg=npk;a.chapterWg=chWg;if(a.chapter)gChapters[chWg]=a.chapter;}else if(st===2){const txt=(l.substring(75)||'').trim();if(posNr){a.npk=npk;a.posNr=posNr;a.descs=[txt];a.unit='';}else a.descs.push(txt);}else if(st===5)a.unit=(l.substring(57,73)||'').trim();else if(st===6){const mS=l.charAt(44),mR=l.substring(45,58).trim(),pR=l.length>74?l.substring(62,75).trim():'',wg=l.length>84?l.substring(75,85).trim():'';const menge=eN(mR,mS),preis=eN(pR,'+');R.positions.push({npk:npk||a.npk,posNr:posNr||a.posNr||'–',description:a.descs.join(' '),unit:a.unit,menge,preis,total:menge*preis,werkgruppe:wg});}}}
+function parseE1S(text){const lines=text.split(/\r?\n/).filter(l=>l.length>0);const R={header:null,footer:null,toc:[],chapters:[],positions:[],werkgruppen:{}};let a={npk:'',posNr:'',chapter:'',chapterWg:'',descs:[],unit:''};var gChapters={};for(const raw of lines){const l=raw.replace(/\r$/,'');const t=l.charAt(0);if(t==='A'){const s=x=>(x||'').trim();R.header={datum:fD(s(l.substring(1,7))),offerteNr:s(l.substring(78,92)),objekt:s(l.substring(92,122))};}else if(t==='B'&&l.length>=42){const st=parseInt(l.charAt(41))||0;if(st){const b={subtype:st,code:(l.substring(73,83)||'').trim(),name:(l.substring(83)||'').trim()};R.toc.push(b);if(b.code&&b.name)R.werkgruppen[b.code]=b.name;}}else if(t==='Z'){const s=x=>(x||'').trim();R.footer={firma:s(l.substring(137,167)),email:s(l.substring(207))};}else if(t==='G'&&l.length>=42){const npk=l.substring(1,4).trim(),posNr=l.substring(7,13).trim(),st=parseInt(l.charAt(41))||0;if(st===1){a.chapter=(l.substring(75)||'').trim();a.npk=npk;var chWg=l.length>84?(l.substring(75,85)||'').trim():'';if(!chWg)chWg=npk;a.chapterWg=chWg;if(a.chapter)gChapters[chWg]=a.chapter;}else if(st===2){const txt=(l.substring(75)||'').trim();if(posNr&&posNr!==a.posNr){/* Neue Position startet */a.npk=npk;a.posNr=posNr;a.descs=txt?[txt]:[];a.unit='';}else{/* Fortsetzung der aktuellen Position (Feedback #12) — auch wenn das Format die posNr in jeder G2-Zeile wiederholt, muessen Zeilen angehaengt statt ueberschrieben werden, sonst geht die Beschreibung verloren. */if(txt)a.descs.push(txt);}}else if(st===5)a.unit=(l.substring(57,73)||'').trim();else if(st===6){const mS=l.charAt(44),mR=l.substring(45,58).trim(),pR=l.length>74?l.substring(62,75).trim():'',wg=l.length>84?l.substring(75,85).trim():'';const menge=eN(mR,mS),preis=eN(pR,'+');R.positions.push({npk:npk||a.npk,posNr:posNr||a.posNr||'–',description:a.descs.join('\n'),unit:a.unit,menge,preis,total:menge*preis,werkgruppe:wg});}}}
 // Fallback: fill werkgruppen from G-type chapter headers if B-types missed them
 for(var wgCode in gChapters){if(!R.werkgruppen[wgCode])R.werkgruppen[wgCode]=gChapters[wgCode];}
 // Also try to map werkgruppen from positions that have no title yet
@@ -1947,6 +1947,10 @@ VIEWS.pcrbx=function(){
     h+='<div class="sr" style="margin-bottom:16px"><div class="sc"><div class="sc-l">CRBX Positionen</div><div class="sc-v">'+lv.positions.length+'</div></div><div class="sc"><div class="sc-l">Werkgruppen</div><div class="sc-v">'+Object.keys(lv.werkgruppen).length+'</div></div><div class="sc"><div class="sc-l">Datei</div><div class="sc-v" style="font-size:12px">'+E(lv.filename||'—')+'</div></div></div>';
     h+='<div style="display:flex;gap:8px;margin-bottom:16px">';
     h+='<button class="btn btn-d btn-sm" onclick="dlgConfirm(\'CRBX zurücksetzen?\',\'Die importierte CRBX wird gelöscht.\',function(){var a=curA();if(a){a.crbx={lv:null};a.crbxVergleich=null;save();nav(\'pcrbx\');}})">✕ CRBX Reset</button>';
+    // Feedback #15: zweiter Bestaetigen-Button neben dem Reset-Button.
+    // Der Planer muss nicht erst ans Ende der Tabelle scrollen, sondern
+    // kann direkt oben den Abgleich bestaetigen.
+    h+='<button class="btn btn-p btn-sm" onclick="requestConfirmCRBX()">✓ Abgleich bestätigen</button>';
     h+='</div>';
 
     // Vergleich BKP-Checkliste vs. CRBX
@@ -2022,13 +2026,72 @@ function renderCRBXVergleichBKP(a){
   h+='<div class="sr" style="margin-top:16px"><div class="sc"><div class="sc-l">✓ Übereinstimmend</div><div class="sc-v" style="color:var(--grn)">'+nMatch+'</div></div><div class="sc"><div class="sc-l">⚠ Fehlt in CRBX</div><div class="sc-v" style="color:var(--amb)">'+nMissing+'</div></div><div class="sc"><div class="sc-l">➕ Nur in CRBX</div><div class="sc-v" style="color:var(--acc)">'+nExtra+'</div></div></div>';
 
   // Confirm button
-  if(nMissing===0){
-    h+='<div style="margin-top:16px;text-align:center"><button class="btn btn-p" onclick="confirmCRBX()">✓ Abgleich bestätigen — Freigeben</button></div>';
+  // Feedback #14: Wenn nicht alles exakt uebereinstimmt, muss der Planer
+  // eine Rueckfrage bestaetigen. Nur bei exakter Uebereinstimmung
+  // (keine fehlenden UND keine zusaetzlichen Positionen) wird direkt
+  // bestaetigt. Der eigentliche Button ruft requestConfirmCRBX auf.
+  if(nMissing===0 && nExtra===0){
+    h+='<div style="margin-top:16px;text-align:center"><button class="btn btn-p" onclick="requestConfirmCRBX()">✓ Abgleich bestätigen — Freigeben</button></div>';
+  } else if(nMissing===0){
+    h+='<div style="margin-top:16px;padding:12px 16px;background:var(--acc-bg,#eff4ff);border:1px solid var(--acc-bd,#bfcfff);border-radius:8px;font-size:13px;color:var(--acc);text-align:center"><strong>'+nExtra+' zusätzliche Positionen in der CRBX.</strong> Pruefen und ggf. bestaetigen.</div>';
+    h+='<div style="margin-top:8px;text-align:center"><button class="btn btn-p" onclick="requestConfirmCRBX()">Trotzdem bestätigen</button></div>';
   } else {
     h+='<div style="margin-top:16px;padding:12px 16px;background:var(--amb-bg);border:1px solid var(--amb-bd);border-radius:8px;font-size:13px;color:var(--amb);text-align:center"><strong>'+nMissing+' BKP fehlen in der CRBX.</strong> Bitte CRBX ergänzen oder BKP-Checkliste anpassen.</div>';
-    h+='<div style="margin-top:8px;text-align:center"><button class="btn btn-s" onclick="confirmCRBX()">Trotzdem bestätigen</button></div>';
+    h+='<div style="margin-top:8px;text-align:center"><button class="btn btn-s" onclick="requestConfirmCRBX()">Trotzdem bestätigen</button></div>';
   }
   return h;
+}
+
+// Feedback #14: Rueckfragen-Wrapper um confirmCRBX. Nur bei exakter
+// Uebereinstimmung (keine fehlenden und keine zusaetzlichen BKP) wird
+// der Abgleich sofort bestaetigt — sonst kommt eine Sicherheitsabfrage.
+function requestConfirmCRBX(){
+  var a=curA();if(!a)return;
+  var diff=_crbxVergleichDiff(a);
+  if(diff.nMissing===0 && diff.nExtra===0){
+    confirmCRBX();
+    return;
+  }
+  var msg='Der CRBX-Abgleich stimmt nicht exakt mit der BKP-Checkliste überein:\n\n';
+  if(diff.nMissing) msg += '• '+diff.nMissing+' BKP fehlen in der CRBX\n';
+  if(diff.nExtra)   msg += '• '+diff.nExtra+' zusätzliche Positionen nur in der CRBX\n';
+  msg += '\nTrotzdem bestätigen und Ausschreibung freigeben?';
+  dlgConfirm('CRBX-Abgleich bestätigen?', msg, confirmCRBX);
+}
+
+// Hilfsfunktion: zaehlt BKP-Abweichungen zwischen Checkliste und CRBX.
+// Wird von requestConfirmCRBX aufgerufen, damit wir dort dieselbe
+// Diff-Logik haben wie in renderCRBXVergleichBKP.
+function _crbxVergleichDiff(a){
+  var out={nMatch:0,nMissing:0,nExtra:0};
+  if(!a||!a.crbx||!a.crbx.lv)return out;
+  var lv=a.crbx.lv;
+  var bkpChecked={};
+  (a.lose||[]).forEach(function(l){
+    (l.positionen||[]).forEach(function(p){
+      if(p.checked && p.bkp.length>3) bkpChecked[p.bkp]=true;
+    });
+  });
+  var crbxBkp={};
+  lv.positions.forEach(function(p){
+    if(p.werkgruppe){
+      var code=fmtWG(p.werkgruppe);
+      crbxBkp[code]=true;
+    }
+  });
+  Object.keys(lv.werkgruppen||{}).forEach(function(wg){
+    crbxBkp[fmtWG(wg)]=true;
+  });
+  var all={};
+  Object.keys(bkpChecked).forEach(function(c){all[c]=true;});
+  Object.keys(crbxBkp).forEach(function(c){all[c]=true;});
+  Object.keys(all).forEach(function(code){
+    var inB=!!bkpChecked[code], inC=!!crbxBkp[code];
+    if(inB&&inC) out.nMatch++;
+    else if(inB) out.nMissing++;
+    else out.nExtra++;
+  });
+  return out;
 }
 
 function confirmCRBX(){
@@ -2037,7 +2100,9 @@ function confirmCRBX(){
   a.status='crbx_geprueft';
   sv();lg('✓','CRBX-Abgleich bestätigt','');
   toast('CRBX-Abgleich bestätigt — Ausschreibung freigegeben');
-  nav('pcrbx');
+  // Feedback #13: nach Bestaetigung direkt in den Detail-Reiter
+  // springen, nicht auf pcrbx bleiben.
+  nav('pdet');
 }
 
 // Schritt 6: Dialog "Lieferung BKP"
@@ -4306,7 +4371,33 @@ function vbRemoveKap(idx){
   renderVBKapList();loadVBKap(_vbActiveKap);
 }
 
-function toggleVBModus(){var m=document.getElementById('vbModus').value;document.getElementById('vbPdfArea').style.display=m==='pdf'?'block':'none';document.getElementById('vbKapArea').style.display=m==='pdf'?'none':'flex';}
+function toggleVBModus(){
+  var m=document.getElementById('vbModus').value;
+  var pdfArea=document.getElementById('vbPdfArea');
+  var kapArea=document.getElementById('vbKapArea');
+  if(!pdfArea||!kapArea)return;
+  pdfArea.style.display = m==='pdf' ? 'block' : 'none';
+  if(m==='pdf'){
+    kapArea.style.display='none';
+  } else {
+    // Feedback #11: beim Zurueckwechseln von "Eigenes PDF" auf "GEMA-
+    // Vorlage" wurde das Editorfenster teils unterhalb der Kapitel-
+    // Sidebar gerendert, statt daneben. Ursache: der Browser hat nach
+    // display:none → display:flex gelegentlich die flex-Layoutmetrik
+    // nicht neu berechnet. Wir setzen die Layout-Properties explizit
+    // und erzwingen einen Reflow.
+    kapArea.style.display='flex';
+    kapArea.style.flexDirection='row';
+    kapArea.style.alignItems='stretch';
+    // Reflow erzwingen
+    void kapArea.offsetWidth;
+    // Editor-Inhalt aus dem aktiven Kapitel neu laden, damit der
+    // contenteditable-DIV nicht in einem alten Zustand haengen bleibt.
+    if(_vbKapitel && _vbKapitel.length){
+      loadVBKap(_vbActiveKap>=0?_vbActiveKap:0);
+    }
+  }
+}
 
 function saveVB(){var a=curA();if(!a)return;var m=document.getElementById('vbModus').value;
   vbSaveCurrentKap();
