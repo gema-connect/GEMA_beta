@@ -235,6 +235,7 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
       <span class="bc-cur">Beta Prüfungen</span>
     </div>
     <div class="g-nav-right">
+      <button class="g-nav-btn" onclick="openExportModal()" title="Feedback aller Module als Markdown fuer Claude Code exportieren">📋 Markdown-Export</button>
       <button class="g-nav-btn primary" onclick="speichern()">💾 Speichern</button>
       <button class="gema-feedback-btn no-print" onclick="GemaFeedback.start()">🔴 Feedback</button>
     </div>
@@ -937,6 +938,314 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 </script>
 <script>document.addEventListener('DOMContentLoaded',function(){if(typeof GemaFeedback!=='undefined')GemaFeedback.init('beta_pruefungen','Beta & Prüfungen');});</script>
+
+<!-- ─────────────── MARKDOWN EXPORT MODAL ─────────────── -->
+<div id="exportModal" style="display:none;position:fixed;inset:0;z-index:9200;background:rgba(15,23,42,.55);backdrop-filter:blur(4px);align-items:center;justify-content:center;padding:20px">
+  <div style="background:#fff;border-radius:16px;width:100%;max-width:780px;max-height:92vh;display:flex;flex-direction:column;box-shadow:0 24px 64px rgba(0,0,0,.25);font-family:'DM Sans',ui-sans-serif,sans-serif">
+    <div style="padding:16px 22px;border-bottom:1.5px solid #e2e7f0;display:flex;align-items:center;gap:10px">
+      <div style="font-size:18px">📋</div>
+      <div style="flex:1">
+        <div style="font-size:15px;font-weight:800;color:#0f172a">Markdown-Export für Claude Code</div>
+        <div style="font-size:12px;color:#6b7280;margin-top:2px">Feedback aller Module als <code>.md</code> exportieren — sortiert nach Modul, Screenshots als Base64 eingebettet</div>
+      </div>
+      <button onclick="closeExportModal()" style="background:#f4f6fb;border:none;border-radius:8px;width:32px;height:32px;font-size:16px;cursor:pointer;color:#6b7280">✕</button>
+    </div>
+
+    <div style="padding:16px 22px;border-bottom:1px solid #e2e7f0;background:#f7f8fc">
+      <div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:#6b7280;margin-bottom:8px">Filter</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center">
+        <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;color:#0f172a;cursor:pointer">
+          <input type="checkbox" id="exFilterOpen" checked style="width:15px;height:15px;accent-color:#dc2626"> 🔴 Offen
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;color:#0f172a;cursor:pointer">
+          <input type="checkbox" id="exFilterArbeit" checked style="width:15px;height:15px;accent-color:#f59e0b"> 🟡 In Bearbeitung
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;color:#0f172a;cursor:pointer">
+          <input type="checkbox" id="exFilterErledigt" style="width:15px;height:15px;accent-color:#16a34a"> ✅ Erledigt
+        </label>
+        <span style="width:1px;height:18px;background:#cdd4e4"></span>
+        <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;color:#0f172a;cursor:pointer">
+          <input type="checkbox" id="exWithScreenshots" checked style="width:15px;height:15px;accent-color:#2563eb"> 🖼 Mit Screenshots (Base64)
+        </label>
+        <span style="width:1px;height:18px;background:#cdd4e4"></span>
+        <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;color:#0f172a;cursor:pointer">
+          <input type="checkbox" id="exAutoMarkArbeit" checked style="width:15px;height:15px;accent-color:#f59e0b"> 🟡 Exportierte automatisch auf "in Bearbeitung" setzen
+        </label>
+      </div>
+      <div style="margin-top:10px;display:flex;gap:8px;align-items:center">
+        <button onclick="refreshExportPreview()" style="padding:7px 14px;border-radius:8px;border:1.5px solid #cdd4e4;background:#fff;color:#0f172a;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit">🔄 Vorschau aktualisieren</button>
+        <span id="exStats" style="font-size:11.5px;color:#6b7280;font-weight:600"></span>
+      </div>
+    </div>
+
+    <div style="padding:14px 22px;flex:1;overflow:auto">
+      <textarea id="exPreview" readonly style="width:100%;min-height:260px;max-height:50vh;padding:12px 14px;border:1.5px solid #cdd4e4;border-radius:10px;font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace;font-size:11.5px;line-height:1.5;background:#0f172a;color:#e2e8f0;resize:vertical;outline:none;white-space:pre"></textarea>
+    </div>
+
+    <div style="padding:14px 22px;border-top:1.5px solid #e2e7f0;display:flex;gap:8px;justify-content:flex-end;background:#f7f8fc">
+      <button onclick="closeExportModal()" style="padding:9px 16px;border-radius:9px;border:1.5px solid #cdd4e4;background:#fff;color:#334155;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">Abbrechen</button>
+      <button onclick="downloadExport()" style="padding:9px 16px;border-radius:9px;border:1.5px solid #cdd4e4;background:#fff;color:#0f172a;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">💾 Download .md</button>
+      <button onclick="copyExport()" style="padding:9px 18px;border-radius:9px;border:none;background:#1d4ed8;color:#fff;font-size:13px;font-weight:800;cursor:pointer;font-family:inherit">📋 Kopieren &amp; Status setzen</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════
+// MARKDOWN-EXPORT FÜR CLAUDE CODE
+// ═══════════════════════════════════════════════════
+// Sammelt alle Feedback-Eintraege ueber alle Module, gruppiert
+// nach Modul, formatiert als Markdown (Screenshots als Base64).
+// Beim Klick auf "Kopieren & Status setzen" werden alle exportierten
+// Eintraege automatisch auf cStatus='bearbeitung' gesetzt — beim
+// naechsten Export sind sie damit nicht mehr im Default-Filter "Offen".
+
+// Modul-ID -> Anzeigename Map (aus MODULES + sub-items zusammenstellen)
+function _exModuleLabel(modId){
+  for(var c=0; c<MODULES.length; c++){
+    var cat = MODULES[c];
+    for(var i=0; i<(cat.items||[]).length; i++){
+      var it = cat.items[i];
+      if(it.id === modId) return it.name;
+      if(it.sub){
+        for(var s=0; s<it.sub.length; s++){
+          if(it.sub[s].id === modId) return it.sub[s].name;
+        }
+      }
+    }
+  }
+  return modId; // fallback: ID selbst
+}
+
+// Sammelt alle Feedback-Eintraege ueber alle FEEDBACK_IDS und liefert
+// ein Array von { modId, modName, item, idx } pro Eintrag.
+function _exCollectAll(){
+  var out = [];
+  FEEDBACK_IDS.forEach(function(modId){
+    var fb = getFeedback(modId);
+    if(!Array.isArray(fb) || !fb.length) return;
+    fb.forEach(function(item, idx){
+      out.push({ modId: modId, modName: _exModuleLabel(modId), item: item, idx: idx });
+    });
+  });
+  return out;
+}
+
+// Wendet die Status-Filter aus dem Modal an.
+function _exApplyFilter(all){
+  var fOpen     = document.getElementById('exFilterOpen').checked;
+  var fArbeit   = document.getElementById('exFilterArbeit').checked;
+  var fErledigt = document.getElementById('exFilterErledigt').checked;
+  return all.filter(function(e){
+    var s = e.item.cStatus || 'offen';
+    if(s === 'offen' && fOpen) return true;
+    if(s === 'bearbeitung' && fArbeit) return true;
+    if(s === 'erledigt' && fErledigt) return true;
+    return false;
+  });
+}
+
+// Liefert ein " > "-prefixed Quote-Block fuer eine Beschreibung.
+function _exQuote(text){
+  if(!text) return '> _(keine Beschreibung)_';
+  return text.split(/\r?\n/).map(function(l){ return '> ' + l; }).join('\n');
+}
+
+function _exTypIcon(t){
+  if(t === 'fehler')   return '🐛 Fehler / Bug';
+  if(t === 'aenderung')return '✏️ Änderungsvorschlag';
+  return '💬 Kommentar';
+}
+
+function _exStatusLabel(s){
+  if(s === 'erledigt')   return '✅ Erledigt';
+  if(s === 'bearbeitung')return '🟡 In Bearbeitung';
+  return '🔴 Offen';
+}
+
+// Generiert die komplette Markdown-Datei aus den gefilterten Eintraegen.
+function _exGenerate(filtered, withScreenshots){
+  var now = new Date();
+  var pad = function(n){ return n<10 ? '0'+n : ''+n; };
+  var ts = pad(now.getDate())+'.'+pad(now.getMonth()+1)+'.'+now.getFullYear() + ' ' + pad(now.getHours())+':'+pad(now.getMinutes());
+
+  var statusFilter = [];
+  if(document.getElementById('exFilterOpen').checked)     statusFilter.push('offen');
+  if(document.getElementById('exFilterArbeit').checked)   statusFilter.push('in bearbeitung');
+  if(document.getElementById('exFilterErledigt').checked) statusFilter.push('erledigt');
+
+  // Gruppieren nach modId
+  var byMod = {};
+  filtered.forEach(function(e){
+    if(!byMod[e.modId]) byMod[e.modId] = { name: e.modName, items: [] };
+    byMod[e.modId].items.push(e);
+  });
+  var modIds = Object.keys(byMod).sort(function(a,b){
+    return byMod[a].name.localeCompare(byMod[b].name, 'de');
+  });
+
+  var lines = [];
+  lines.push('# GEMA Feedback Export');
+  lines.push('');
+  lines.push('> **Generiert:** ' + ts);
+  lines.push('> **Filter:** ' + (statusFilter.join(' + ') || '(nichts)') + (withScreenshots ? ' · mit Screenshots' : ' · ohne Screenshots'));
+  lines.push('> **Total:** ' + filtered.length + ' Eintr' + (filtered.length===1?'ag':'äge') + ' aus ' + modIds.length + ' Modul' + (modIds.length===1?'':'en'));
+  lines.push('');
+  lines.push('---');
+  lines.push('');
+
+  if(!filtered.length){
+    lines.push('_Keine Eintraege passen auf die aktuellen Filter._');
+    return lines.join('\n');
+  }
+
+  modIds.forEach(function(modId){
+    var grp = byMod[modId];
+    lines.push('## ' + modId + ' — ' + grp.name);
+    lines.push('');
+    grp.items.forEach(function(e, n){
+      var it = e.item;
+      lines.push('### #' + (n+1) + ' — ' + _exTypIcon(it.type) + ' — ' + (it.author || 'Anonym'));
+      lines.push('- **Datum:** ' + (it.ts || '–'));
+      lines.push('- **Status:** ' + _exStatusLabel(it.cStatus));
+      lines.push('- **Modul-ID:** `' + modId + '`');
+      lines.push('');
+      lines.push('**Beschreibung:**');
+      lines.push('');
+      lines.push(_exQuote(it.text || ''));
+      lines.push('');
+      if(withScreenshots && it.screenshot){
+        lines.push('**Screenshot:**');
+        lines.push('');
+        lines.push('![Screenshot](' + it.screenshot + ')');
+        lines.push('');
+      }
+      lines.push('---');
+      lines.push('');
+    });
+  });
+
+  return lines.join('\n');
+}
+
+// ── UI-Aktionen ──────────────────────────────────────
+function openExportModal(){
+  var m = document.getElementById('exportModal');
+  if(!m) return;
+  m.style.display = 'flex';
+  refreshExportPreview();
+}
+function closeExportModal(){
+  var m = document.getElementById('exportModal');
+  if(m) m.style.display = 'none';
+}
+window.openExportModal  = openExportModal;
+window.closeExportModal = closeExportModal;
+
+function refreshExportPreview(){
+  var all = _exCollectAll();
+  var filtered = _exApplyFilter(all);
+  var withSs = document.getElementById('exWithScreenshots').checked;
+  var md = _exGenerate(filtered, withSs);
+  document.getElementById('exPreview').value = md;
+  // Statistik
+  var byMod = {};
+  filtered.forEach(function(e){ byMod[e.modId] = true; });
+  var modCount = Object.keys(byMod).length;
+  var sizeKb = Math.round(md.length / 1024 * 10) / 10;
+  document.getElementById('exStats').textContent = filtered.length + ' Eintr' + (filtered.length===1?'ag':'äge') + ' aus ' + modCount + ' Modul' + (modCount===1?'':'en') + ' · ca. ' + sizeKb + ' KB';
+}
+window.refreshExportPreview = refreshExportPreview;
+
+// Bei jedem Filter-Change Vorschau neu generieren
+document.addEventListener('DOMContentLoaded', function(){
+  ['exFilterOpen','exFilterArbeit','exFilterErledigt','exWithScreenshots'].forEach(function(id){
+    var el = document.getElementById(id);
+    if(el) el.addEventListener('change', refreshExportPreview);
+  });
+});
+
+// Markiert alle exportierten Eintraege auf cStatus='bearbeitung',
+// damit sie beim naechsten Export nicht mehr im Default-Filter "Offen"
+// auftauchen. Speichert pro Modul-ID einmal mit allen Aenderungen.
+function _exMarkAsArbeit(filtered){
+  var byMod = {};
+  filtered.forEach(function(e){ (byMod[e.modId] = byMod[e.modId] || []).push(e); });
+  Object.keys(byMod).forEach(function(modId){
+    var fb = getFeedback(modId);
+    var changed = false;
+    byMod[modId].forEach(function(e){
+      // Nur hochsetzen, nicht von erledigt zurueck
+      if(fb[e.idx] && fb[e.idx].cStatus !== 'erledigt'){
+        fb[e.idx].cStatus = 'bearbeitung';
+        changed = true;
+      }
+    });
+    if(changed && typeof _GemaDB !== 'undefined'){
+      try { _GemaDB.save('feedback_' + modId, JSON.stringify(fb)); } catch(e){}
+    }
+  });
+}
+
+function copyExport(){
+  var ta = document.getElementById('exPreview');
+  var md = ta.value;
+  if(!md){ toast('⚠ Nichts zu kopieren'); return; }
+  // In die Zwischenablage kopieren
+  var ok = false;
+  try {
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(md).then(function(){
+        toast('📋 In Zwischenablage kopiert');
+      }).catch(function(){ _exFallbackCopy(ta); });
+      ok = true;
+    } else {
+      _exFallbackCopy(ta);
+      ok = true;
+    }
+  } catch(e) { _exFallbackCopy(ta); ok = true; }
+  // Auto-Status setzen wenn Checkbox aktiv
+  if(document.getElementById('exAutoMarkArbeit').checked){
+    var all = _exCollectAll();
+    var filtered = _exApplyFilter(all);
+    _exMarkAsArbeit(filtered);
+    setTimeout(function(){
+      // Refresh preview damit die jetzt verschobenen Status sichtbar sind
+      refreshExportPreview();
+      // UI der Modul-Listen neu zeichnen
+      try { renderRows && renderRows(); } catch(e){}
+    }, 200);
+    toast('🟡 ' + filtered.length + ' Eintr' + (filtered.length===1?'ag':'äge') + ' auf "in Bearbeitung" gesetzt');
+  }
+}
+window.copyExport = copyExport;
+
+function _exFallbackCopy(ta){
+  ta.removeAttribute('readonly');
+  ta.focus();
+  ta.select();
+  try { document.execCommand('copy'); toast('📋 Kopiert'); }
+  catch(e){ toast('⚠ Kopieren fehlgeschlagen — bitte manuell markieren', 'error'); }
+  ta.setAttribute('readonly', 'readonly');
+}
+
+function downloadExport(){
+  var md = document.getElementById('exPreview').value;
+  if(!md){ toast('⚠ Nichts zu speichern'); return; }
+  var now = new Date();
+  var pad = function(n){ return n<10 ? '0'+n : ''+n; };
+  var fname = 'gema_feedback_' + now.getFullYear() + '-' + pad(now.getMonth()+1) + '-' + pad(now.getDate()) + '.md';
+  var blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url; a.download = fname;
+  document.body.appendChild(a); a.click();
+  setTimeout(function(){ document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
+  toast('💾 ' + fname + ' heruntergeladen');
+}
+window.downloadExport = downloadExport;
+</script>
+
 <script src="gema_scroll.js"></script>
 <script src="gema_mobile_menu.js"></script>
 </body>

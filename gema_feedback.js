@@ -373,8 +373,51 @@
     _annotPaths = [];
     var p = document.getElementById('gfb-preview');
     if (p) { p.src = ''; p.style.display = 'none'; }
+
+    // Touch-Device (iPhone, iPad, Tablet): Snipping funktioniert dort
+    // nicht (kein Mouse-Drag), deshalb direkt einen Fullscreen-Screenshot
+    // der aktuellen Viewport-Ansicht machen und zur Annotation weiterleiten.
+    var isTouchDevice = ('ontouchstart' in w) || (navigator.maxTouchPoints > 0);
+    if (isTouchDevice) {
+      _captureFullScreen();
+      return;
+    }
+
+    // Desktop: Snipping-Overlay oeffnen (Bereich mit Maus auswaehlen)
     var ov = document.getElementById('gfb-overlay');
     if (ov) { ov.style.display = 'block'; document.body.style.cursor = 'crosshair'; }
+  }
+
+  // Fullscreen-Screenshot fuer Touch-Devices: erfasst den sichtbaren
+  // Viewport (keine Auswahl noetig), zeigt dann die Rotstift-Annotation.
+  async function _captureFullScreen() {
+    // Kurze Verzoegerung, damit das UI sich beruhigt (z.B. Button-Ripple,
+    // Touch-Highlight verschwindet) bevor der Screenshot gemacht wird.
+    await new Promise(function(r){ setTimeout(r, 150); });
+    try {
+      if (typeof html2canvas !== 'function') {
+        _showModal(); return;
+      }
+      // Nur den sichtbaren Viewport erfassen (nicht die ganze Seite),
+      // damit der User genau sieht, was er beim Klick auf Feedback
+      // vor sich hatte.
+      var fullCanvas = await html2canvas(document.body, {
+        x: w.scrollX, y: w.scrollY,
+        width: w.innerWidth, height: w.innerHeight,
+        scrollX: -w.scrollX, scrollY: -w.scrollY,
+        scale: Math.min(2, w.devicePixelRatio || 1),
+        logging: false, useCORS: true, allowTaint: true
+      });
+      _screenshotDataUrl = fullCanvas.toDataURL('image/jpeg', 0.82);
+      if (_screenshotDataUrl) {
+        _openAnnotation(_screenshotDataUrl);
+      } else {
+        _showModal();
+      }
+    } catch(e) {
+      console.warn('[GemaFeedback] Fullscreen capture:', e);
+      _showModal();
+    }
   }
 
   function close() {
