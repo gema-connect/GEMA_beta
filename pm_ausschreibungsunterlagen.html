@@ -108,8 +108,8 @@ input,select,textarea,button{font-family:inherit}
 .pp-row{display:flex;align-items:center;gap:8px;padding:4px 8px;border-bottom:1px solid var(--brd);font-size:12px}.pp-row:hover{background:var(--bg2)}.pp-row input[type=checkbox]{width:14px;height:14px;accent-color:var(--acc)}
 /* Tutorial */
 .tut-ov{display:none;position:fixed;inset:0;z-index:600;background:rgba(0,0,0,.5);backdrop-filter:blur(6px);align-items:center;justify-content:center;padding:20px}.tut-ov.open{display:flex}.tut-ml{background:var(--sur);border-radius:20px;max-width:620px;width:100%;max-height:90vh;overflow:hidden;box-shadow:0 24px 80px rgba(0,0,0,.2)}.tut-hd{padding:18px 24px;border-bottom:1.5px solid var(--brd);display:flex;align-items:center;gap:12px}.tut-hd h2{font-size:16px;font-weight:800;flex:1}.tut-dots{display:flex;gap:5px}.tut-dot{width:8px;height:8px;border-radius:50%;background:var(--brd2);transition:.2s}.tut-dot.active{background:var(--acc);width:20px;border-radius:4px}.tut-bd{padding:24px;min-height:300px}.tut-step{display:none}.tut-step.active{display:block}.tut-step h3{font-size:17px;font-weight:800;margin-bottom:6px}.tut-step p{font-size:13px;color:var(--txt2);line-height:1.6;margin-bottom:12px}.tut-vis{border-radius:10px;border:1.5px solid var(--brd);overflow:hidden;background:var(--bg);padding:12px;margin-bottom:8px}.tut-ft{padding:14px 24px;border-top:1.5px solid var(--brd);display:flex;align-items:center;gap:8px}.tut-ft .tut-ct{font-size:12px;color:var(--mut);flex:1}.tut-ft button{padding:8px 18px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;font-family:var(--sans);border:1.5px solid var(--brd2);background:var(--sur);color:var(--txt);transition:.15s}.tut-ft button:hover{background:var(--bg2)}.tut-ft button.pri{background:var(--acc);border-color:var(--acc);color:#fff}
-@media(max-width:768px){.sr{grid-template-columns:1fr 1fr}.g2,.g3{grid-template-columns:1fr}.role-bar{flex-wrap:wrap}}
-@media print{.g-nav,.tab-bar,.role-bar,.no-print{display:none!important}.g-page{max-width:100%;padding:10px}}
+@media(max-width:768px){.sr{grid-template-columns:1fr 1fr}.g2,.g3{grid-template-columns:1fr}}
+@media print{.g-nav,.tab-bar,.no-print{display:none!important}.g-page{max-width:100%;padding:10px}}
 </style>
 <link rel="stylesheet" href="gema_responsive.css"/>
 </head>
@@ -136,14 +136,6 @@ input,select,textarea,button{font-family:inherit}
     <button class="gema-feedback-btn no-print" onclick="if(typeof GemaFeedback!=='undefined')GemaFeedback.start()">🔴 Feedback</button>
   </div>
 </div></nav>
-<div class="role-bar gema-admin-only" id="roleBar" style="display:none">
-  <span class="role-label">Rolle:</span>
-  <div class="role-pill rp active" onclick="switchRole('planer')"><span class="rd"></span> Planer</div>
-  <div class="role-pill ri" onclick="switchRole('installateur')"><span class="rd"></span> Unternehmer</div>
-  <div class="role-pill rl" onclick="switchRole('lieferant')"><span class="rd"></span> Lieferant</div>
-  <div class="role-pill ra" onclick="switchRole('architekt')"><span class="rd"></span> Architekt</div>
-  <div class="role-user" id="roleUser">—</div>
-</div>
 <div class="tab-bar" id="tabBar"></div>
 <div class="g-page"><div id="PA"></div></div>
 
@@ -1037,8 +1029,31 @@ function scopedAusIds(){
   scopedAus().forEach(function(a){ m[a.id]=true; });
   return m;
 }
-function switchRole(r){S.currentRole=r;if(r==='planer')S.currentUserId='planer-1';else{const b=S.beteiligte.find(x=>x.rolle===r);if(b)S.currentUserId=b.id;}sv();document.querySelectorAll('.role-pill').forEach(p=>p.classList.remove('active'));document.querySelector(`.role-pill.${r==='planer'?'rp':r==='installateur'?'ri':r==='lieferant'?'rl':'ra'}`)?.classList.add('active');updRU();buildTabs();nav(defP());}
-function updRU(){const el=document.getElementById('roleUser');if(!el)return;if(S.currentRole==='planer'){el.textContent='👤 Planer';return;}const list=S.beteiligte.filter(x=>x.rolle===S.currentRole);if(!list.length){el.textContent='—';return;}el.innerHTML=`<select onchange="S.currentUserId=this.value;sv();nav(defP())" style="font-size:12px;font-weight:600;border:1px solid var(--brd);border-radius:6px;padding:2px 8px;background:var(--sur);font-family:var(--sans);cursor:pointer">${list.map(x=>`<option value="${x.id}" ${x.id===S.currentUserId?'selected':''}>${x.firma}</option>`).join('')}</select>`;}
+// Setzt die Rolle ohne DOM-Switcher (role-bar wurde entfernt, die
+// Rolle kommt jetzt aus der echten Benutzer-Anmeldung via GemaAuth).
+function switchRole(r){
+  S.currentRole=r;
+  if(r==='planer')S.currentUserId='planer-1';
+  else{const b=S.beteiligte.find(x=>x.rolle===r);if(b)S.currentUserId=b.id;}
+  sv();buildTabs();nav(defP());
+}
+// Mappt die GemaAuth-Rolle des eingeloggten Users auf die internen
+// S.currentRole-Werte ('planer','installateur','lieferant','architekt').
+function _mapAuthRoleToCurrent(){
+  try{
+    if(typeof GemaAuth==='undefined') return 'planer';
+    var u=GemaAuth.getCurrentUser();
+    if(!u||!u.roleIds) return 'planer';
+    var ids=u.roleIds;
+    if(ids.indexOf('role_admin')>=0) return 'planer';        // Admin → Planer-Sicht
+    if(ids.indexOf('role_planer')>=0) return 'planer';
+    if(ids.indexOf('role_hlkk_planer')>=0) return 'planer';
+    if(ids.indexOf('role_architekt')>=0) return 'architekt';
+    if(ids.indexOf('role_unternehmer')>=0) return 'installateur';
+    if(ids.indexOf('role_lieferant')>=0) return 'lieferant';
+  }catch(e){}
+  return 'planer';
+}
 function defP(){return{planer:'pub',installateur:'iub',lieferant:'lub',architekt:'aub'}[S.currentRole]||'pub';}
 
 function buildTabs(){
@@ -2559,6 +2574,44 @@ VIEWS.pdet=function(){
   const a=curA();if(!a)return '<div class="es"><p>Keine Ausschreibung gewählt. → <button class="btn btn-s btn-sm" onclick="nav(\'paus\')">Zurück</button></p></div>';
   let h=`<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px"><div><h2 style="font-size:20px;font-weight:700">${E(a.name)}</h2><p style="font-size:13px;color:var(--mut);margin-top:4px">${E(a.objekt)} · ${a.typ==='crbx'?'CRBX':'Funktional'} · ${(a.modelle||[a.modell]).join(' + ')} · Frist: ${a.frist||'—'}</p></div><div class="flex gap-8"><button class="btn btn-s btn-sm" onclick="oM('mAbzug')">⚙ Abzüge</button><button class="btn btn-s btn-sm" onclick="editVB()">📜 Vorbedingungen</button></div></div>`;
 
+  // Info-Stats-Zeile (Feedback #3): Anzahl ausgefuellter Vorbedingungs-
+  // Kapitel, Anzahl Plaene und Anzahl sonstige Unterlagen auf einen
+  // Blick. Nuetzlich fuer den Planer, um zu sehen was fehlt.
+  var _vbKapitel = a.vorbedingungen?.kapitel || {};
+  var _vbFilled = VB_KAPITEL.filter(function(k){ return _vbKapitel[k.id] && _vbKapitel[k.id].trim(); }).length;
+  var _vbMode = a.vorbedingungen?.modus === 'pdf';
+  var _plaeneCount = (a.plaene||[]).length;
+  var _unterlagenCount = (a.unterlagen||[]).length;
+  h += '<div class="sr" style="margin-bottom:20px">'
+    + '<div class="sc"><div class="sc-l">📜 Vorbedingungen</div><div class="sc-v">'
+      + (_vbMode ? '📄 PDF' : (_vbFilled + '/' + VB_KAPITEL.length))
+      + '</div><div class="sc-s">'+(_vbMode ? 'PDF-Upload' : 'Kapitel ausgefüllt')+'</div></div>'
+    + '<div class="sc"><div class="sc-l">📐 Pläne</div><div class="sc-v">' + _plaeneCount + '</div><div class="sc-s">'+(_plaeneCount===1?'Plan':'Pläne')+' angehängt</div></div>'
+    + '<div class="sc"><div class="sc-l">📎 Sonstige Dateien</div><div class="sc-v">' + _unterlagenCount + '</div><div class="sc-s">Unterlagen angehängt</div></div>'
+    + '</div>';
+
+  // ── Vorbedingungen-Card (Feedback #4 + #5): VOR CRBX/BKP platzieren
+  //    und die Titel der ausgefuellten Kapitel zusaetzlich zum "X/Y"-
+  //    Counter als Chip-Liste anzeigen. ──
+  h += '<div class="card"><div class="card-hd"><h3>📜 Vorbedingungen</h3><button class="btn btn-g btn-sm" onclick="editVB()">Bearbeiten</button></div><div class="card-bd">';
+  if (_vbMode) {
+    h += '<p style="font-size:13px">📄 PDF-Upload: ' + E(a.vorbedingungen.pdfName || '—') + '</p>';
+  } else {
+    h += '<div style="font-size:13px;color:var(--mut);margin-bottom:10px">' + _vbFilled + '/' + VB_KAPITEL.length + ' Kapitel ausgefüllt</div>';
+    // Chip-Liste aller Kapitel: ausgefuellte grün/gefuellt, leere grau/leer
+    h += '<div style="display:flex;flex-wrap:wrap;gap:6px">';
+    VB_KAPITEL.forEach(function(k){
+      var isFilled = _vbKapitel[k.id] && _vbKapitel[k.id].trim();
+      if(isFilled){
+        h += '<span style="display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:700;padding:4px 11px;border-radius:999px;background:var(--grn-bg);color:var(--grn);border:1px solid var(--grn-bd)">✓ ' + E(k.name) + '</span>';
+      } else {
+        h += '<span style="display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;padding:4px 11px;border-radius:999px;background:var(--bg2);color:var(--mut2);border:1px dashed var(--brd2)">○ ' + E(k.name) + '</span>';
+      }
+    });
+    h += '</div>';
+  }
+  h += '</div></div>';
+
   if(a.typ==='crbx'){
     // CRBX mode
     if(!a.crbx?.lv){
@@ -2631,13 +2684,7 @@ VIEWS.pdet=function(){
   (a.abzuege||[]).filter(z=>z.aktiv).forEach(z=>{h+=`<div class="abz-row"><span style="flex:1;font-size:13px">${E(z.name)}</span><span class="tag t-gy">${z.typ==='prozent'?'%':'CHF'}</span></div>`;});
   h+=`<div class="abz-row" style="font-weight:700"><span style="flex:1">MwSt.</span><span>8.1% (fix)</span></div></div></div>`;
 
-  // Vorbedingungen summary
-  h+=`<div class="card"><div class="card-hd"><h3>📜 Vorbedingungen</h3><button class="btn btn-g btn-sm" onclick="editVB()">Bearbeiten</button></div><div class="card-bd">`;
-  if(a.vorbedingungen?.modus==='pdf')h+=`<p style="font-size:13px">📄 PDF-Upload: ${E(a.vorbedingungen.pdfName||'—')}</p>`;
-  else{const vb=a.vorbedingungen?.kapitel||{};const filled=VB_KAPITEL.filter(k=>vb[k.id]?.trim()).length;h+=`<p style="font-size:13px;color:var(--mut)">${filled}/${VB_KAPITEL.length} Kapitel ausgefüllt</p>`;}
-  h+=`</div></div>`;
-
-  // Pläne & Unterlagen
+  // Pläne & Unterlagen (Vorbedingungen sind jetzt oben, vor CRBX/BKP)
   h+=renderDokumente(a);
 
   // Brutto-Offerten list
@@ -3456,6 +3503,19 @@ VIEWS.panf=function(){
   let h=`<h2 style="font-size:20px;font-weight:700;margin-bottom:16px">🤝 Interesse-Anfragen — ${E(a.name)}</h2>`;
   h+=`<p style="font-size:13px;color:var(--mut);margin-bottom:16px;line-height:1.6">Fragen Sie Unternehmer an, ob sie Interesse haben, bei dieser Ausschreibung mitzuofferieren. Nach Zusage können Sie die Unterlagen verteilen.</p>`;
   if(!insts.length){h+=`<div class="es"><span class="ei">👷</span><div class="et">Keine Unternehmer erfasst</div><p>Erfassen Sie zuerst Unternehmer unter «Beteiligte».</p><button class="btn btn-p btn-sm" onclick="nav('pbet')" style="margin-top:8px">→ Beteiligte</button></div>`;return h;}
+  // Status-Kacheln OBERHALB des Unternehmer-Containers — geben auf
+  // einen Blick den Stand der Anfragen fuer diese Ausschreibung wieder.
+  var _total=insts.length;
+  var _ang=S.anfragen.filter(function(x){return x.ausId===a.id&&x.status==='angefragt';}).length;
+  var _int=S.anfragen.filter(function(x){return x.ausId===a.id&&x.status==='interessiert';}).length;
+  var _abg=S.anfragen.filter(function(x){return x.ausId===a.id&&x.status==='abgelehnt';}).length;
+  var _off=_total-_ang-_int-_abg;
+  h+='<div class="sr" style="margin-bottom:16px">'
+    + '<div class="sc"><div class="sc-l">Noch nicht angefragt</div><div class="sc-v">'+_off+'</div></div>'
+    + '<div class="sc"><div class="sc-l">Angefragt</div><div class="sc-v" style="color:var(--blue)">'+_ang+'</div></div>'
+    + '<div class="sc"><div class="sc-l">Interessiert</div><div class="sc-v" style="color:var(--grn)">'+_int+'</div></div>'
+    + '<div class="sc"><div class="sc-l">Abgelehnt</div><div class="sc-v" style="color:var(--red)">'+_abg+'</div></div>'
+    + '</div>';
   h+=`<div class="card"><div class="card-hd"><h3>Unternehmer</h3><button class="btn btn-g btn-sm" onclick="document.getElementById('apR').value='installateur';oM('mPerson')">+ Neuer Unternehmer</button></div><div class="card-bd">`;
   h+=insts.map(function(i){
     var anf=S.anfragen.find(function(x){return x.ausId===a.id&&x.installateurId===i.id;});
@@ -3476,15 +3536,8 @@ VIEWS.panf=function(){
     return '<div class="cr"><div class="ca" style="background:var(--grn)">'+i.firma.charAt(0)+'</div><div class="ci"><div class="cn">'+E(i.firma)+'</div><div class="cd">'+E(i.person)+' · '+E(i.email)+'</div></div><div style="display:flex;align-items:center;gap:6px;flex-shrink:0">'+statusHtml+'</div></div>';
   }).join('');
   h+='</div></div>';
-  // Zusammenfassung
-  var total=insts.length;
-  var angefragt=S.anfragen.filter(function(x){return x.ausId===a.id&&x.status==='angefragt';}).length;
-  var interessiert=S.anfragen.filter(function(x){return x.ausId===a.id&&x.status==='interessiert';}).length;
-  var abgelehnt=S.anfragen.filter(function(x){return x.ausId===a.id&&x.status==='abgelehnt';}).length;
-  var offen=total-angefragt-interessiert-abgelehnt;
-  h+='<div class="sr" style="margin-top:16px"><div class="sc"><div class="sc-l">Noch nicht angefragt</div><div class="sc-v">'+offen+'</div></div><div class="sc"><div class="sc-l">Angefragt</div><div class="sc-v" style="color:var(--blue)">'+angefragt+'</div></div><div class="sc"><div class="sc-l">Interessiert</div><div class="sc-v" style="color:var(--grn)">'+interessiert+'</div></div><div class="sc"><div class="sc-l">Abgelehnt</div><div class="sc-v" style="color:var(--red)">'+abgelehnt+'</div></div></div>';
-  // Alle anfragen Button
-  if(offen>0) h+='<div style="margin-top:16px;text-align:center"><button class="btn btn-p" onclick="sendeAlleAnfragen()">📨 Alle '+offen+' offenen Unternehmer anfragen</button></div>';
+  // Alle anfragen Button — nur wenn es noch offene gibt.
+  if(_off>0) h+='<div style="margin-top:16px;text-align:center"><button class="btn btn-p" onclick="sendeAlleAnfragen()">📨 Alle '+_off+' offenen Unternehmer anfragen</button></div>';
   return h;
 };
 
@@ -4734,8 +4787,11 @@ function initDropZones(){
 // ═══════════════════════════════════════════════
 (async()=>{
   try{if(typeof _GemaDB!=='undefined')await _GemaDB.init('ausschreibung',['gema_ausschreibung_v4']);}catch(e){}
-  ld();if(isAdmin()){const rb=document.getElementById('roleBar');if(rb)rb.style.display='flex';}
-  switchRole(S.currentRole||'planer');
+  ld();
+  // Rolle aus eingeloggtem User ableiten (statt aus der entfernten
+  // role-bar). Fallback: bisherige Rolle aus S oder 'planer'.
+  var authRole=_mapAuthRoleToCurrent();
+  switchRole(authRole||S.currentRole||'planer');
 })().catch(e=>console.error('[GEMA]',e));
 </script>
 <script>document.addEventListener("DOMContentLoaded",function(){if(typeof GemaFeedback!=="undefined")GemaFeedback.init("ausschrunterlagen","Ausschreibungsunterlagen");});</script>
