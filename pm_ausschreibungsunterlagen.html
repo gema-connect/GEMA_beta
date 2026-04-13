@@ -1976,48 +1976,32 @@ async function crbxUpForCompare(ev){
 function renderCRBXVergleichBKP(a){
   if(!a.crbx||!a.crbx.lv)return '';
   var lv=a.crbx.lv;
-  // Collect all checked BKP from all LOS
-  var bkpChecked={};
-  (a.lose||[]).forEach(function(l){
-    (l.positionen||[]).forEach(function(p){
-      if(p.checked&&p.bkp.length>3)bkpChecked[p.bkp]={titel:p.titel,status:p.status};
-    });
-  });
-  // Collect all BKP from CRBX (werkgruppen codes)
-  var crbxBkp={};
-  lv.positions.forEach(function(p){
-    if(p.werkgruppe){
-      var code=fmtWG(p.werkgruppe);
-      if(!crbxBkp[code])crbxBkp[code]={titel:lv.werkgruppen[p.werkgruppe]||'',count:0};
-      crbxBkp[code].count++;
-    }
-  });
-  // Also add werkgruppen directly
-  Object.keys(lv.werkgruppen).forEach(function(wg){
-    var code=fmtWG(wg);
-    if(!crbxBkp[code])crbxBkp[code]={titel:lv.werkgruppen[wg],count:0};
-  });
 
-  // Build comparison
-  var allCodes={};
-  Object.keys(bkpChecked).forEach(function(c){allCodes[c]=true;});
-  Object.keys(crbxBkp).forEach(function(c){allCodes[c]=true;});
-  var sorted=Object.keys(allCodes).sort();
+  var stats=_buildCRBXVergleich(a);
+  var entries=stats.entries;
+  var nMatch=stats.nMatch, nMissing=stats.nMissing, nExtra=stats.nExtra;
 
-  var nMatch=0,nMissing=0,nExtra=0;
+  // Feedback #16 + #18: Darstellung analog zur BKP-Checkliste —
+  // 3-stellige BKP als Gruppen-Header (fett, farbig), 4-stellige BKP
+  // eingerueckt darunter. Das Ganze immer noch in einer Tabelle, aber
+  // mit hierarchischer Optik.
   var h='<div class="card"><div class="card-hd"><h3>Vergleich: BKP-Checkliste vs. CRBX</h3></div><div class="card-bd" style="padding:0">';
-  h+='<table class="dt" style="font-size:12.5px"><thead><tr><th>BKP</th><th>Titel</th><th style="text-align:center">Checkliste</th><th style="text-align:center">CRBX</th><th>Status</th></tr></thead><tbody>';
-  sorted.forEach(function(code){
-    var inBKP=!!bkpChecked[code];
-    var inCRBX=!!crbxBkp[code];
-    var titel=inBKP?bkpChecked[code].titel:(inCRBX?crbxBkp[code].titel:'');
+  h+='<table class="dt" style="font-size:12.5px"><thead><tr><th style="width:90px">BKP</th><th>Titel</th><th style="width:90px;text-align:center">Checkliste</th><th style="width:110px;text-align:center">CRBX</th><th style="width:170px">Status</th></tr></thead><tbody>';
+  entries.forEach(function(e){
+    var is3=e.level===3;
     var statusHtml='',rowStyle='';
-    if(inBKP&&inCRBX){nMatch++;statusHtml='<span style="color:var(--grn);font-weight:700">✓ Übereinstimmend</span>';rowStyle='background:var(--grn-bg,#f0fdf4)';}
-    else if(inBKP&&!inCRBX){nMissing++;statusHtml='<span style="color:var(--amb);font-weight:700">⚠ Fehlt in CRBX</span>';rowStyle='background:var(--amb-bg,#fffbeb)';}
-    else{nExtra++;statusHtml='<span style="color:var(--acc);font-weight:700">➕ Nur in CRBX</span>';rowStyle='background:var(--acc-bg,#eff4ff)';}
-    h+='<tr style="'+rowStyle+'"><td style="font-weight:800;color:var(--acc)">'+E(code)+'</td><td>'+E(titel)+'</td>';
-    h+='<td style="text-align:center">'+(inBKP?'☑':'—')+'</td>';
-    h+='<td style="text-align:center">'+(inCRBX?'☑'+(crbxBkp[code]?.count?' ('+crbxBkp[code].count+' Pos.)':''):'—')+'</td>';
+    if(e.state==='match'){statusHtml='<span style="color:var(--grn);font-weight:700">✓ Übereinstimmend</span>';rowStyle='background:var(--grn-bg,#f0fdf4)';}
+    else if(e.state==='missing'){statusHtml='<span style="color:var(--amb);font-weight:700">⚠ Fehlt in CRBX</span>';rowStyle='background:var(--amb-bg,#fffbeb)';}
+    else{statusHtml='<span style="color:var(--acc);font-weight:700">➕ Nur in CRBX</span>';rowStyle='background:var(--acc-bg,#eff4ff)';}
+    var bkpStyle=is3
+      ? 'font-weight:900;color:var(--acc);font-size:14px;padding-left:10px'
+      : 'font-weight:700;color:var(--acc);font-size:12px;padding-left:32px';
+    var titelStyle=is3?'font-weight:800;font-size:13px':'font-weight:500;color:var(--txt2)';
+    h+='<tr style="'+rowStyle+'">';
+    h+='<td style="'+bkpStyle+'">'+E(e.display)+'</td>';
+    h+='<td style="'+titelStyle+'">'+E(e.titel||'')+'</td>';
+    h+='<td style="text-align:center">'+(e.inBKP?'☑':'—')+'</td>';
+    h+='<td style="text-align:center">'+(e.inCRBX?('☑'+(e.count?' ('+e.count+' Pos.)':'')):'—')+'</td>';
     h+='<td>'+statusHtml+'</td></tr>';
   });
   h+='</tbody></table></div></div>';
@@ -2030,13 +2014,18 @@ function renderCRBXVergleichBKP(a){
   // eine Rueckfrage bestaetigen. Nur bei exakter Uebereinstimmung
   // (keine fehlenden UND keine zusaetzlichen Positionen) wird direkt
   // bestaetigt. Der eigentliche Button ruft requestConfirmCRBX auf.
+  // Hinweis-Box + Confirm-Button
+  // Feedback #17: die Zahl muss zur tatsaechlichen Liste passen. Sie
+  // wird aus denselben Entries berechnet wie die Tabelle oben, nicht
+  // mehr aus einer separaten Logik.
+  function plur(n,s,p){return n===1?s:p;}
   if(nMissing===0 && nExtra===0){
     h+='<div style="margin-top:16px;text-align:center"><button class="btn btn-p" onclick="requestConfirmCRBX()">✓ Abgleich bestätigen — Freigeben</button></div>';
   } else if(nMissing===0){
-    h+='<div style="margin-top:16px;padding:12px 16px;background:var(--acc-bg,#eff4ff);border:1px solid var(--acc-bd,#bfcfff);border-radius:8px;font-size:13px;color:var(--acc);text-align:center"><strong>'+nExtra+' zusätzliche Positionen in der CRBX.</strong> Pruefen und ggf. bestaetigen.</div>';
+    h+='<div style="margin-top:16px;padding:12px 16px;background:var(--acc-bg,#eff4ff);border:1px solid var(--acc-bd,#bfcfff);border-radius:8px;font-size:13px;color:var(--acc);text-align:center"><strong>'+nExtra+' '+plur(nExtra,'zusätzliche BKP','zusätzliche BKP')+' nur in der CRBX.</strong> Prüfen und ggf. bestätigen.</div>';
     h+='<div style="margin-top:8px;text-align:center"><button class="btn btn-p" onclick="requestConfirmCRBX()">Trotzdem bestätigen</button></div>';
   } else {
-    h+='<div style="margin-top:16px;padding:12px 16px;background:var(--amb-bg);border:1px solid var(--amb-bd);border-radius:8px;font-size:13px;color:var(--amb);text-align:center"><strong>'+nMissing+' BKP fehlen in der CRBX.</strong> Bitte CRBX ergänzen oder BKP-Checkliste anpassen.</div>';
+    h+='<div style="margin-top:16px;padding:12px 16px;background:var(--amb-bg);border:1px solid var(--amb-bd);border-radius:8px;font-size:13px;color:var(--amb);text-align:center"><strong>'+nMissing+' '+plur(nMissing,'BKP fehlt','BKP fehlen')+' in der CRBX.</strong> Bitte CRBX ergänzen oder BKP-Checkliste anpassen.</div>';
     h+='<div style="margin-top:8px;text-align:center"><button class="btn btn-s" onclick="requestConfirmCRBX()">Trotzdem bestätigen</button></div>';
   }
   return h;
@@ -2047,50 +2036,131 @@ function renderCRBXVergleichBKP(a){
 // der Abgleich sofort bestaetigt — sonst kommt eine Sicherheitsabfrage.
 function requestConfirmCRBX(){
   var a=curA();if(!a)return;
-  var diff=_crbxVergleichDiff(a);
+  var diff=_buildCRBXVergleich(a);
   if(diff.nMissing===0 && diff.nExtra===0){
     confirmCRBX();
     return;
   }
   var msg='Der CRBX-Abgleich stimmt nicht exakt mit der BKP-Checkliste überein:\n\n';
-  if(diff.nMissing) msg += '• '+diff.nMissing+' BKP fehlen in der CRBX\n';
-  if(diff.nExtra)   msg += '• '+diff.nExtra+' zusätzliche Positionen nur in der CRBX\n';
+  if(diff.nMissing) msg += '• '+diff.nMissing+(diff.nMissing===1?' BKP fehlt':' BKP fehlen')+' in der CRBX\n';
+  if(diff.nExtra)   msg += '• '+diff.nExtra+' zusätzliche BKP nur in der CRBX\n';
   msg += '\nTrotzdem bestätigen und Ausschreibung freigeben?';
   dlgConfirm('CRBX-Abgleich bestätigen?', msg, confirmCRBX);
 }
 
-// Hilfsfunktion: zaehlt BKP-Abweichungen zwischen Checkliste und CRBX.
-// Wird von requestConfirmCRBX aufgerufen, damit wir dort dieselbe
-// Diff-Logik haben wie in renderCRBXVergleichBKP.
-function _crbxVergleichDiff(a){
-  var out={nMatch:0,nMissing:0,nExtra:0};
+// Hilfsfunktion: baut die komplette Vergleichs-Liste zwischen Checkliste
+// und CRBX. Liefert sowohl die Zaehler (nMatch/nMissing/nExtra, Feedback
+// #17) als auch eine sortierte Liste von Entries fuer die hierarchische
+// Darstellung (Feedback #16).
+//
+// Normalisierung: BKP-Codes werden auf reine Ziffern reduziert ("253.0"
+// -> "2530", "211" -> "211"). Ein 3-stelliger Werkgruppen-Code im CRBX
+// matcht dann mit beliebig vielen 4+-stelligen Eintraegen der Checkliste
+// mit demselben Praefix und umgekehrt. Dadurch knallen Formate wie
+// "253" (CRBX-Werkgruppe) vs. "253.0" (Checkliste) nicht mehr auseinander.
+function _buildCRBXVergleich(a){
+  var out={entries:[],nMatch:0,nMissing:0,nExtra:0};
   if(!a||!a.crbx||!a.crbx.lv)return out;
   var lv=a.crbx.lv;
-  var bkpChecked={};
+  function norm(c){return String(c||'').replace(/\D/g,'');}
+
+  // 1) Alle angekreuzten BKP aus der Checkliste (auch 3-stellige Gruppen,
+  //    damit sie als Header auftauchen).
+  var checkMap={}; // normKey -> {bkp, titel, level}
   (a.lose||[]).forEach(function(l){
     (l.positionen||[]).forEach(function(p){
-      if(p.checked && p.bkp.length>3) bkpChecked[p.bkp]=true;
+      if(!p.checked||!p.bkp) return;
+      var k=norm(p.bkp);
+      if(!k) return;
+      if(!checkMap[k]) checkMap[k]={bkp:p.bkp, titel:p.titel||'', level:k.length};
     });
   });
-  var crbxBkp={};
+
+  // 2) Alle BKP aus der CRBX: Werkgruppen-Map + tatsaechlich vorkommende
+  //    Werkgruppen aus den Positionen, plus Anzahl der Positionen.
+  var crbxMap={}; // normKey -> {bkp, titel, count}
+  function addCrbx(wg, titel){
+    var k=norm(wg);
+    if(!k) return k;
+    if(!crbxMap[k]) crbxMap[k]={bkp:fmtWG(wg), titel:titel||'', count:0};
+    return k;
+  }
+  Object.keys(lv.werkgruppen||{}).forEach(function(wg){
+    addCrbx(wg, lv.werkgruppen[wg]);
+  });
   lv.positions.forEach(function(p){
     if(p.werkgruppe){
-      var code=fmtWG(p.werkgruppe);
-      crbxBkp[code]=true;
+      var k=addCrbx(p.werkgruppe, lv.werkgruppen[p.werkgruppe]||'');
+      if(k) crbxMap[k].count++;
     }
   });
-  Object.keys(lv.werkgruppen||{}).forEach(function(wg){
-    crbxBkp[fmtWG(wg)]=true;
+
+  // 3) Matching: ein Checkliste-Key gilt als "in CRBX", wenn
+  //    - derselbe Key im crbxMap steht, ODER
+  //    - ein kuerzerer Praefix-Key (3-stellige Werkgruppe) im crbxMap
+  //      steht (z.B. Checkliste "2530" <-> CRBX "253").
+  //    - ein laengerer Key im crbxMap mit diesem Praefix existiert.
+  function hasCrbxMatch(k){
+    if(crbxMap[k]) return true;
+    for(var c in crbxMap){
+      if(c.length<k.length && k.indexOf(c)===0) return true;
+      if(c.length>k.length && c.indexOf(k)===0) return true;
+    }
+    return false;
+  }
+  function hasCheckMatch(k){
+    if(checkMap[k]) return true;
+    for(var c in checkMap){
+      if(c.length<k.length && k.indexOf(c)===0) return true;
+      if(c.length>k.length && c.indexOf(k)===0) return true;
+    }
+    return false;
+  }
+
+  // 4) Vereinigte, deduplizierte Liste bauen
+  var allKeys={};
+  Object.keys(checkMap).forEach(function(k){allKeys[k]=true;});
+  Object.keys(crbxMap).forEach(function(k){allKeys[k]=true;});
+  var keys=Object.keys(allKeys).sort();
+
+  keys.forEach(function(k){
+    var cm=checkMap[k], xm=crbxMap[k];
+    var inBKP, inCRBX, titel, display, count, level;
+    if(cm){
+      inBKP=true; titel=cm.titel; display=cm.bkp;
+      level=cm.level>=4?4:3;
+    } else if(xm){
+      inBKP=false; titel=xm.titel; display=xm.bkp;
+      level=k.length>=4?4:3;
+    } else {
+      return;
+    }
+    if(xm){ inCRBX=true; count=xm.count; titel=titel||xm.titel; }
+    else  { inCRBX=hasCrbxMatch(k); count=0; }
+    // Falls checkMap[k] fehlt, aber es einen Checkliste-Praefix/Subsatz
+    // gibt, dann ist dieser Eintrag auch "in Checkliste".
+    if(!cm) inBKP=hasCheckMatch(k);
+
+    var state;
+    if(inBKP && inCRBX){ state='match'; out.nMatch++; }
+    else if(inBKP)     { state='missing'; out.nMissing++; }
+    else               { state='extra'; out.nExtra++; }
+
+    out.entries.push({
+      key:k, display:display, titel:titel||'', level:level,
+      inBKP:inBKP, inCRBX:inCRBX, count:count, state:state
+    });
   });
-  var all={};
-  Object.keys(bkpChecked).forEach(function(c){all[c]=true;});
-  Object.keys(crbxBkp).forEach(function(c){all[c]=true;});
-  Object.keys(all).forEach(function(code){
-    var inB=!!bkpChecked[code], inC=!!crbxBkp[code];
-    if(inB&&inC) out.nMatch++;
-    else if(inB) out.nMissing++;
-    else out.nExtra++;
+
+  // 5) Hierarchische Sortierung: 3-stellige Gruppen-Header kommen vor
+  //    ihren 4-stelligen Kindern.
+  out.entries.sort(function(x,y){
+    var xg=x.key.substring(0,3), yg=y.key.substring(0,3);
+    if(xg!==yg) return xg<yg?-1:1;
+    if(x.level!==y.level) return x.level-y.level;
+    return x.key<y.key?-1:1;
   });
+
   return out;
 }
 
