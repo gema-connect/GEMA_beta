@@ -1081,7 +1081,10 @@ function buildTabs(){
     }).length;
     var curA_=S.ausschreibungen.find(function(a){return a.id===S.activeAusId;});
     var isCrbx=curA_&&curA_.typ==='crbx';
-    t=[{id:'pub',ic:'◫',l:'Übersicht'},{id:'paus',ic:'📋',l:'Ausschreibungen',bg:scoped.length},{id:'pbkp',ic:'☑',l:'BKP-Checkliste'},{id:'pcrbx',ic:'📦',l:'CRBX-Abgleich',disabled:!isCrbx},{id:'pdet',ic:'📝',l:'Detail'},{id:'panf',ic:'🤝',l:'Interesse-Anfragen',bg:nAnf},{id:'pvrt',ic:'📤',l:'Verteilen'},{id:'pein',ic:'💰',l:'Offerten',bg:nE},{id:'pvgl',ic:'📊',l:'Vergleich'},{id:'pvga',ic:'📋',l:'Vergabeantrag'},{id:'pber',ic:'🔬',l:'Berechnungen'},{id:'pbet',ic:'👥',l:'Beteiligte'}];
+    // Feedback #8: Interesse-Anfragen (panf) vor CRBX-Abgleich (pcrbx)
+    // eingefuegt, damit Unternehmer-Anfragen parallel zur Erarbeitung
+    // der Ausschreibung laufen koennen (Antwort-Wartezeit nutzen).
+    t=[{id:'pub',ic:'◫',l:'Übersicht'},{id:'paus',ic:'📋',l:'Ausschreibungen',bg:scoped.length},{id:'pbkp',ic:'☑',l:'BKP-Checkliste'},{id:'panf',ic:'🤝',l:'Interesse-Anfragen',bg:nAnf},{id:'pcrbx',ic:'📦',l:'CRBX-Abgleich',disabled:!isCrbx},{id:'pdet',ic:'📝',l:'Detail'},{id:'pvrt',ic:'📤',l:'Verteilen'},{id:'pein',ic:'💰',l:'Offerten',bg:nE},{id:'pvgl',ic:'📊',l:'Vergleich'},{id:'pvga',ic:'📋',l:'Vergabeantrag'},{id:'pber',ic:'🔬',l:'Berechnungen'},{id:'pbet',ic:'👥',l:'Beteiligte'}];
   }
   else if(S.currentRole==='installateur'){
     // Installateur sieht nur Anfragen an sich selber — trotzdem aufs
@@ -2871,14 +2874,10 @@ VIEWS.pvgl=function(){
   const eins=S.einreichungen.filter(e=>e.ausId===a.id);
   let h=`<h2 style="font-size:20px;font-weight:700;margin-bottom:16px">📊 Offertvergleich — ${E(a.name)}</h2>`;
   if(!eins.length){h+=`<div class="es"><p>Keine Offerten.</p></div>`;return h;}
-  // Erklärungs-Legende für Einsteiger (#29c)
-  h+=`<div class="gcm-legend">
-    <strong>So liest du den Vergleich:</strong>
-    <span class="gcm-legend-chip ch">Grün</span> = günstigste Offerte pro Position,
-    <span class="gcm-legend-chip z">Rot</span> = fehlende Position (Preis 0).
-    Die Info-Icons <span class="gcm-info" data-tip="Kleine Erklärungen zu jeder Kennzahl — fahre mit der Maus drüber oder tippe auf das Icon.">ℹ</span>
-    neben jeder Kennzahl zeigen beim Überfahren eine kurze Erklärung. <strong>Kartellrecht:</strong> Den nicht berücksichtigten Unternehmern werden keine Preise der Konkurrenz mitgeteilt (KG Art. 5).
-  </div>`;
+  // Feedback #9: Die blaue Erklaerungs-Legende "So liest du den Vergleich"
+  // wird fuer den Planer nicht mehr angezeigt — sie war primaer als
+  // Einstiegshilfe gedacht und stoert im taeglichen Gebrauch. Die
+  // Info-Icons (ℹ) bei den Kennzahlen bleiben als On-Demand-Erklaerung.
 
   if(a.modell==='global'){
     // Global: just totals
@@ -4061,6 +4060,7 @@ function saveAbzug(){save();cM('mAbzug');nav('pdet');toast('Abzüge gespeichert'
 var _vbQuill=null;
 var _vbActiveKap=0;
 var _vbKapitel=[]; // [{id,name,html}] — wird pro Ausschreibung gespeichert
+var _vbReturnScroll=0; // Scroll-Position vor dem Oeffnen von editVB(), wird bei saveVB() wiederhergestellt
 
 function editVB(){
   var a=curA();if(!a)return;
@@ -4068,12 +4068,17 @@ function editVB(){
   // Lade Kapitel: aus gespeicherten oder Standard
   _vbKapitel=vb.kapitelListe?JSON.parse(JSON.stringify(vb.kapitelListe)):VB_STANDARD.map(function(k){return{id:k.id,name:k.name,html:vb.kapitel?.[k.id]||''};});
   _vbActiveKap=0;
+  // Aktuelle Scroll-Position merken, damit saveVB() nach Navigation
+  // zur Detail-Seite den User zum selben Bereich zurueckbringt.
+  try { _vbReturnScroll = window.scrollY || 0; } catch(e) { _vbReturnScroll = 0; }
 
+  // Header-Zeile: Zurueck-Button wurde entfernt (Feedback #6 — ueber-
+  // fluessig). Der Speichern-Button macht jetzt beides: speichern UND
+  // zurueck zur Detail-Seite (Feedback #7).
   var h='<div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">';
-  h+='<button class="btn btn-g btn-sm" onclick="nav(\'pdet\')">← Zurück</button>';
   h+='<h2 style="font-size:20px;font-weight:700;flex:1">📜 Vorbedingungen</h2>';
   h+='<select class="fc" style="width:auto" id="vbModus" onchange="toggleVBModus()"><option value="gema" '+(vb.modus!=='pdf'?'selected':'')+'>GEMA-Vorlage</option><option value="pdf" '+(vb.modus==='pdf'?'selected':'')+'>Eigenes PDF</option></select>';
-  h+='<button class="btn btn-p" onclick="saveVB()">💾 Speichern</button>';
+  h+='<button class="btn btn-p" onclick="saveVB()">💾 Speichern &amp; übernehmen</button>';
   h+='</div>';
 
   h+='<div id="vbPdfArea" style="display:'+(vb.modus==='pdf'?'block':'none')+'"><div class="fg"><label class="fl">PDF-Datei</label><input type="file" class="fc" id="vbPdf" accept=".pdf" style="padding:6px"/></div></div>';
@@ -4153,19 +4158,115 @@ function initVBEditor(){
   // Placeholder Verhalten
   ed.addEventListener('focus',function(){if(ed.textContent.trim()==='')ed.innerHTML='';});
   ed.addEventListener('blur',function(){if(ed.textContent.trim()==='')ed.setAttribute('data-empty','true');else ed.removeAttribute('data-empty');});
-  // Word-Paste: HTML beibehalten
-  ed.addEventListener('paste',function(e){
-    // Lasse den Browser den Paste normal verarbeiten (HTML wird übernommen)
-    // Bereinige nur Microsoft-spezifische Tags nach kurzer Verzögerung
-    setTimeout(function(){
-      var html=ed.innerHTML;
-      html=html.replace(/<o:p[^>]*>.*?<\/o:p>/gi,'');
-      html=html.replace(/class="Mso[^"]*"/gi,'');
-      html=html.replace(/style="[^"]*mso-[^"]*"/gi,'');
-      ed.innerHTML=html;
-    },50);
+  // Word/PDF-Paste: HTML sanitisieren statt dem Browser-Default zu ver-
+  // trauen (Feedback #10). Das alte setTimeout-Verfahren liess oft
+  // Word-HTML zerstueckelt einfuegen, sodass nur ein Teil (z.B. nur der
+  // Titel) sichtbar war. Neu:
+  //   1. preventDefault — wir uebernehmen den Paste selbst
+  //   2. HTML aus clipboardData holen (text/html bevorzugt, sonst text/plain)
+  //   3. Word-/MSO-spezifischen Kram abbauen, script/style/link entfernen
+  //   4. Nur einen Whitelist-Satz an Tags behalten (Ueberschriften,
+  //      Absaetze, Listen, einfache Formatierung)
+  //   5. execCommand('insertHTML') fuegt den bereinigten HTML ein
+  ed.addEventListener('paste', function(e){
+    try {
+      e.preventDefault();
+      var cd = e.clipboardData || window.clipboardData;
+      if(!cd) return;
+      var html = cd.getData('text/html') || '';
+      var text = cd.getData('text/plain') || '';
+      var clean;
+      if (html) {
+        clean = _vbSanitizePastedHTML(html);
+      } else if (text) {
+        // Plain text → pro Zeile ein Absatz
+        clean = text.split(/\r?\n/).map(function(line){
+          line = line.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+          return line.trim() ? '<p>' + line + '</p>' : '<p><br></p>';
+        }).join('');
+      } else {
+        return;
+      }
+      document.execCommand('insertHTML', false, clean);
+    } catch(err) {
+      console.warn('[VB-Paste]', err);
+    }
   });
   loadVBKap(0);
+}
+
+// Bereinigt HTML aus der Zwischenablage (primaer Word/LibreOffice/PDF)
+// und liefert sauberes Whitelist-HTML zurueck. Behaelt semantische Tags
+// (Ueberschriften, Absaetze, Listen, Basis-Formatierung, Tabellen),
+// strippt Scripts, Styles, Klassen, inline-Styles, MSO-Attribute,
+// Bilder und Conditional Comments.
+function _vbSanitizePastedHTML(html){
+  if(!html) return '';
+  // 1) Conditional Comments <!--[if ...]>...<![endif]-->
+  html = html.replace(/<!--\[if[\s\S]*?<!\[endif\]-->/gi, '');
+  // 2) Komplette Block-Elemente die wir eh nicht wollen
+  html = html.replace(/<script[\s\S]*?<\/script>/gi, '');
+  html = html.replace(/<style[\s\S]*?<\/style>/gi, '');
+  html = html.replace(/<meta[^>]*>/gi, '');
+  html = html.replace(/<link[^>]*>/gi, '');
+  html = html.replace(/<\/?xml[^>]*>/gi, '');
+  html = html.replace(/<o:p[^>]*>/gi, '').replace(/<\/o:p>/gi, '');
+  // 3) DOMParser nutzen, um das HTML strukturiert zu bereinigen
+  var parser = new DOMParser();
+  var doc = parser.parseFromString('<div id="_root">' + html + '</div>', 'text/html');
+  var root = doc.getElementById('_root');
+  if(!root) return '';
+  // Whitelist der erlaubten Tags. Alles andere wird durch den Text-
+  // Inhalt ersetzt (unwrap).
+  var ALLOWED = {
+    P:1, BR:1, DIV:1, SPAN:1,
+    H1:1, H2:1, H3:1, H4:1, H5:1, H6:1,
+    STRONG:1, B:1, EM:1, I:1, U:1, S:1, STRIKE:1, SUB:1, SUP:1,
+    UL:1, OL:1, LI:1,
+    BLOCKQUOTE:1, PRE:1, CODE:1,
+    TABLE:1, THEAD:1, TBODY:1, TFOOT:1, TR:1, TH:1, TD:1,
+    HR:1, A:1
+  };
+  // Rekursive Bereinigung: nicht erlaubte Elemente werden durch ihre
+  // Kinder ersetzt (unwrap), erlaubte Elemente verlieren alle
+  // Attribute ausser href bei <a>.
+  function walk(el){
+    var children = Array.prototype.slice.call(el.childNodes);
+    children.forEach(function(child){
+      if(child.nodeType === 1){ // Element
+        var tag = child.tagName;
+        // IMG-Tags komplett entfernen (lokale Bilder aus Word sind
+        // fragmentarisch / blob-URLs, die nichts bringen)
+        if(tag === 'IMG' || tag === 'SVG' || tag === 'CANVAS' || tag === 'VIDEO' || tag === 'IFRAME'){
+          child.remove();
+          return;
+        }
+        if(ALLOWED[tag]){
+          // Attribute strippen (ausser href bei Links)
+          var attrs = Array.prototype.slice.call(child.attributes);
+          attrs.forEach(function(a){
+            if(tag === 'A' && a.name === 'href') return;
+            child.removeAttribute(a.name);
+          });
+          walk(child);
+        } else {
+          // Nicht erlaubter Tag → unwrap (Kinder behalten, Parent raus)
+          walk(child);
+          while(child.firstChild) child.parentNode.insertBefore(child.firstChild, child);
+          child.parentNode.removeChild(child);
+        }
+      } else if(child.nodeType === 8){ // Kommentar
+        child.remove();
+      }
+    });
+  }
+  walk(root);
+  // 4) Whitespace-Normalisierung: mehrfache leere Absaetze kollabieren
+  var out = root.innerHTML
+    .replace(/(&nbsp;|\s)+/g, ' ')
+    .replace(/<p>\s*<\/p>/g, '')
+    .replace(/<div>\s*<\/div>/g, '');
+  return out;
 }
 
 function vbSaveCurrentKap(){
@@ -4214,7 +4315,17 @@ function saveVB(){var a=curA();if(!a)return;var m=document.getElementById('vbMod
     // Speichere als kapitelListe (HTML) + legacy kapitel (Text-Fallback)
     var kap={};_vbKapitel.forEach(function(k){kap[k.id]=k.html.replace(/<[^>]*>/g,' ').replace(/\s+/g,' ').trim();});
     a.vorbedingungen={modus:'gema',kapitel:kap,kapitelListe:JSON.parse(JSON.stringify(_vbKapitel)),pdfName:'',strukturiert:a.vorbedingungen?.strukturiert||{}};}
-  save();toast('Gespeichert');nav('pdet');}
+  save();toast('Gespeichert');nav('pdet');
+  // Nach nav('pdet') zum letzten Scroll-Bereich zurueckkehren, wo der
+  // User vor dem Oeffnen der Vorbedingungen war (Feedback #7). Wir
+  // nutzen requestAnimationFrame, weil nav() das DOM sofort ueber-
+  // schreibt und der Scroll erst nach dem nächsten Paint sinnvoll ist.
+  try {
+    requestAnimationFrame(function(){
+      window.scrollTo({ top: _vbReturnScroll || 0, behavior: 'auto' });
+    });
+  } catch(e) {}
+}
 
 // ── CRBX ──
 async function crxUp(ev){const f=ev.target.files[0];if(!f)return;const a=curA();if(!a)return;try{toast('Parsen…','info');const t=await extractE1S(f);const p=parseE1S(t);a.crbx={lv:{filename:f.name,header:p.header,footer:p.footer,toc:p.toc,positions:p.positions,werkgruppen:p.werkgruppen}};save();lg('📦','CRBX',p.positions.length+' Pos.');toast(p.positions.length+' Pos.');nav('pdet');}catch(e){toast('Fehler: '+e.message,'error');}}
