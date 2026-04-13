@@ -392,6 +392,40 @@ Die Persona wünschte historische Preisdaten für Trendanalyse. **Entscheidung: 
 
 ---
 
+### Service-Worker Push-Benachrichtigungen (echte Pushes auch offline)
+**Quelle:** Nutzer-Feedback nach Einbau Notifikations-System
+**Datum:** 2026-04-13
+**Status:** Offen — aktuelles System (Glocke + Toast im offenen Tab) reicht für Phase 1
+
+Das aktuelle `gema_notify.js`/`gema_notify_ui.js` zeigt Benachrichtigungen **nur, solange GEMA im Browser offen ist** (Polling 30s + Cross-Tab via storage-Event). Für kritische Events (Offertfrist läuft ab, Vergabe-Entscheid, W12-Prüfung fällig) wäre ein echter Push sinnvoll, der auch dann greift, wenn die App geschlossen oder das Handy im Standby ist.
+
+**Was nötig ist:**
+1. **VAPID-Keys** generieren (einmalig, ~1 Minute). Platzhalter steht schon in `gema_push.js` (`VAPID_PUBLIC_KEY=''`).
+2. **Backend-Endpoint** (Netlify Function oder Supabase Edge Function, ~50 Zeilen mit `web-push`-Library), der Pushes serverseitig an die registrierten Endpoints versendet. Rein clientseitig ist das nicht möglich — der Browser kann keine Pushes an andere Geräte schicken.
+3. **Subscription-Storage** auf dem Server (Supabase-Tabelle `push_subscriptions`: userId, endpoint, keys, createdAt). localStorage reicht nicht, weil der Backend-Sender die Endpoints kennen muss.
+4. **Service Worker erweitern**: In `sw.js` den `push`-Event-Listener ergänzen (`self.addEventListener('push', ...)`) — zeigt die Benachrichtigung mit `self.registration.showNotification()` + `notificationclick`-Listener für Navigation zum Zielmodul.
+5. **Opt-in-UI**: Button "Push-Benachrichtigungen aktivieren" in den Settings (z. B. neben dem Abo-Preferences-Dialog). Einmalig pro Gerät, Browser fragt `Notification.requestPermission()` ab.
+6. **Integration in `GemaNotify.push()`**: Wenn ein User Pushes aktiviert hat, parallel zum localStorage-Eintrag einen Server-Call absetzen, der den Push an den registrierten Endpoint schickt.
+
+**Plattform-Hinweise:**
+- **Desktop** (Chrome, Firefox, Edge, Safari ab macOS 13): Funktioniert überall.
+- **Android**: Funktioniert in Chrome, Firefox, Samsung Internet — auch ohne PWA-Install.
+- **iOS Safari**: Erst ab iOS 16.4 (März 2023) und **nur wenn GEMA als PWA zum Homescreen hinzugefügt** ist. Im normalen Safari-Tab kein Push.
+
+**Kosten:**
+- Push-Services (Google FCM, Mozilla autopush, Apple APNs) sind kostenlos.
+- Backend: Netlify Functions / Supabase Edge Functions haben ein kostenloses Kontingent, das für den Anfang ausreicht.
+- Einziger "Kostenpunkt": Einmaliges VAPID-Keypair generieren und sicher im Backend speichern.
+
+**Zwischenschritt als Teil A (ohne Backend):**
+Web-`Notification`-API direkt aus `gema_notify_ui.js` aufrufen, wenn der User Permissions erteilt hat. Das zeigt native OS-Popups, solange GEMA im Tab offen ist — ohne Server, ohne Service Worker. Deckt nicht den "App geschlossen"-Fall, ist aber ein nützlicher Mittelweg und in ~20 Zeilen umsetzbar.
+
+**Entscheidung nötig:**
+- Wollen wir ein Backend (Supabase oder Netlify Functions)? Das ist der erste Schritt, um echte Pushes zu ermöglichen.
+- Welche Events sollen Push-tauglich werden (nicht alle, sonst nervt es)? Vorschlag: `ausschreibung_einladung` + `ausschreibung_vergabe` als "aktion" — den Rest (Offerte eingereicht, CRBX bestätigt) nur als lokale Glocke.
+
+---
+
 ### Ausschreibungs-Vorlagen pro Gebäudetyp (EFH/MFH/Schule)
 **Quelle:** Persona-Test #16
 **Datum:** 2026-04-10
