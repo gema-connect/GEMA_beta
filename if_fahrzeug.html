@@ -963,13 +963,15 @@ document.getElementById("modalOverlay").addEventListener("click",e=>{
 document.addEventListener("keydown",e=>{ if(e.key==="Escape"){ closeModal(); closeViewModal(); } });
 
 // ── QR CODE ─────────────────────────────────────────────────────
+var _currentFzgQRInstance=null; // Referenz fuer SVG-Download
+
 function openFzgQR(id){
   const v=vehicles.find(x=>x.id===id); if(!v) return;
   document.getElementById('fzgQrTitle').textContent=v.plate||v.model||'Fahrzeug';
   const url=location.href.split('?')[0]+'?view='+id;
   const canvas=document.getElementById('fzgQrCanvas');
   canvas.innerHTML='';
-  new QRCode(canvas,{text:url,width:180,height:180,colorDark:'#111827',colorLight:'#ffffff',correctLevel:QRCode.CorrectLevel.M});
+  _currentFzgQRInstance=new QRCode(canvas,{text:url,width:180,height:180,colorDark:'#111827',colorLight:'#ffffff',correctLevel:QRCode.CorrectLevel.M});
   const esc2=t=>String(t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;');
   document.getElementById('fzgQrInfo').innerHTML=[
     ['Kennzeichen',v.plate||'—'],['Modell',v.model||'—'],
@@ -993,6 +995,51 @@ function downloadFzgQR(){
   a.href=c.toDataURL(); a.click();
 }
 window.downloadFzgQR=downloadFzgQR;
+
+// Skalierbares Vektor-SVG aus der qrcodejs-Instanz erzeugen.
+// Nutzt _oQRCode.modules (2D bool), Quiet Zone 4 Module, optimiert
+// horizontale Runs zu einem <rect>, damit das SVG kompakt bleibt.
+function _fzgQrToSVG(qr){
+  if(!qr||!qr._oQRCode||!qr._oQRCode.modules)return null;
+  var modules=qr._oQRCode.modules;
+  var count=modules.length;
+  if(count<5)return null;
+  var SIZE=512, QUIET=4;
+  var total=count+2*QUIET;
+  var mod=SIZE/total;
+  var parts=['<?xml version="1.0" encoding="UTF-8" standalone="no"?>',
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 '+SIZE+' '+SIZE+'" width="'+SIZE+'" height="'+SIZE+'" shape-rendering="crispEdges">',
+    '<rect width="'+SIZE+'" height="'+SIZE+'" fill="#ffffff"/>'];
+  for(var r=0;r<count;r++){
+    var c2=0;
+    while(c2<count){
+      if(modules[r][c2]){
+        var s=c2;
+        while(c2<count && modules[r][c2]) c2++;
+        var x=((QUIET+s)*mod).toFixed(2);
+        var y=((QUIET+r)*mod).toFixed(2);
+        var w2=((c2-s)*mod).toFixed(2);
+        var h2=mod.toFixed(2);
+        parts.push('<rect x="'+x+'" y="'+y+'" width="'+w2+'" height="'+h2+'" fill="#111827"/>');
+      } else { c2++; }
+    }
+  }
+  parts.push('</svg>');
+  return parts.join('\n');
+}
+
+function downloadFzgQRSVG(){
+  var svg=_fzgQrToSVG(_currentFzgQRInstance);
+  if(!svg){ alert('SVG-Export nicht moeglich — QR-Instanz nicht verfuegbar.'); return; }
+  var blob=new Blob([svg],{type:'image/svg+xml;charset=utf-8'});
+  var url=URL.createObjectURL(blob);
+  var a=document.createElement('a');
+  a.download='QR_'+document.getElementById('fzgQrTitle').textContent.replace(/\s+/g,'_')+'.svg';
+  a.href=url;
+  document.body.appendChild(a);a.click();document.body.removeChild(a);
+  setTimeout(function(){URL.revokeObjectURL(url);},500);
+}
+window.downloadFzgQRSVG=downloadFzgQRSVG;
 
 function openViewFzg(id){
   const v=vehicles.find(x=>x.id===id);
@@ -1155,9 +1202,10 @@ render();
     <div style="padding:20px 28px 12px;display:flex;flex-direction:column;align-items:center;gap:14px;">
       <div id="fzgQrCanvas" style="background:#fff;padding:10px;border-radius:8px;border:1px solid #e5e7eb;"></div>
       <div id="fzgQrInfo" style="width:100%;font-size:12px;"></div>
-      <div style="display:flex;gap:10px;width:100%;padding-bottom:8px;">
-        <button onclick="downloadFzgQR()" style="flex:1;padding:8px;background:#111;color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;">⬇ PNG laden</button>
-        <button onclick="closeFzgQR()" style="flex:1;padding:8px;background:#f3f4f6;color:#374151;border:none;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;">Schliessen</button>
+      <div style="display:flex;gap:8px;width:100%;padding-bottom:8px;flex-wrap:wrap;">
+        <button onclick="downloadFzgQR()" style="flex:1 1 90px;padding:8px;background:#111;color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;">⬇ PNG</button>
+        <button onclick="downloadFzgQRSVG()" style="flex:1 1 90px;padding:8px;background:#1d4ed8;color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;">⬇ SVG</button>
+        <button onclick="closeFzgQR()" style="flex:1 1 90px;padding:8px;background:#f3f4f6;color:#374151;border:none;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;">Schliessen</button>
       </div>
     </div>
   </div>
