@@ -95,6 +95,14 @@
     {id:'role_unternehmer',name:'Unternehmer',color:'#d97706',permissions:_somePerms(['terminplan','abnahme_sia','werkzeugmanagement','baustellencheckliste','inspektion_wartung','ausschreibungsunterlagen'],true,true,false)},
     {id:'role_lieferant',name:'Lieferant',color:'#16a34a',permissions:_somePerms(['ausschreibungsunterlagen','produktkatalog'],true,true,false)},
     {id:'role_pruefer',name:'Prüfer',color:'#0891b2',permissions:_somePerms(['werkzeugmanagement','fahrzeugmanagement'],true,true,false)},
+    // Magaziner: verwaltet das Werkzeuglager einer Organisation. Darf
+    // Attribute aendern, Berichte hinzufuegen, Pruefungen anfordern und
+    // Werkzeug Personen zuweisen. Sieht nur Werkzeuge der eigenen Org.
+    {id:'role_magaziner',name:'Magaziner',color:'#ea580c',permissions:_somePerms(['werkzeugmanagement','fahrzeugmanagement','inspektion_wartung'],true,true,true)},
+    // Monteur: Read-only-Zugriff aufs Werkzeuglager. Kann Defekte melden,
+    // aber nichts selbst aendern oder zuweisen. Sieht Werkzeuge der
+    // eigenen Organisation.
+    {id:'role_monteur',name:'Monteur',color:'#64748b',permissions:_somePerms(['werkzeugmanagement','baustellencheckliste','inspektion_wartung'],true,false,false)},
   ];
 
   // ── Default Org + User ─────────────────────────────────────────────
@@ -282,7 +290,29 @@
      active:true, createdAt:'2026-03-01T09:00:00Z',
      profile:{email:'meier@judo.ch',telefon:'031 920 11 22',firma:'Judo',person:'Claudia Meier',sprache:'de'},
      kontotyp:'login_light', abo:{typ:'testphase',testphaseEnde:'2026-06-30'},
-     einladung:{token:'inv_judo',eingeladenVon:'user_planer_1',eingeladenAm:'2026-02-25T08:00:00Z',angenommenAm:'2026-03-01T09:00:00Z',passwortGesetzt:true}}
+     einladung:{token:'inv_judo',eingeladenVon:'user_planer_1',eingeladenAm:'2026-02-25T08:00:00Z',angenommenAm:'2026-03-01T09:00:00Z',passwortGesetzt:true}},
+    // ── Magaziner (Werkzeuglager) ──
+    {id:'user_magaziner_jv', username:'magazin', name:'Andreas Burri',
+     password:_hash('magazin2025'), roleIds:['role_magaziner'], orgId:'org_default',
+     active:true, createdAt:'2025-01-01T08:00:00Z',
+     kontotyp:'vollzugang', abo:{typ:'basic'},
+     profile:{email:'burri@jaeggivollmer.ch',telefon:'061 692 03 20',firma:'Jäggi Vollmer GmbH',person:'Andreas Burri',sprache:'de',benachrichtigungen:true}},
+    // ── Monteure (Read-only Werkzeugmanagement) ──
+    {id:'user_monteur_1', username:'monteur1', name:'Luca Rossi',
+     password:_hash('mont2025'), roleIds:['role_monteur'], orgId:'org_default',
+     active:true, createdAt:'2025-01-15T08:00:00Z',
+     kontotyp:'vollzugang', abo:{typ:'basic'},
+     profile:{email:'rossi@jaeggivollmer.ch',telefon:'061 692 03 30',firma:'Jäggi Vollmer GmbH',person:'Luca Rossi',sprache:'de',benachrichtigungen:true}},
+    {id:'user_monteur_2', username:'monteur2', name:'Daniel Schmid',
+     password:_hash('mont2025'), roleIds:['role_monteur'], orgId:'org_default',
+     active:true, createdAt:'2025-02-01T08:00:00Z',
+     kontotyp:'vollzugang', abo:{typ:'basic'},
+     profile:{email:'schmid@jaeggivollmer.ch',telefon:'061 692 03 31',firma:'Jäggi Vollmer GmbH',person:'Daniel Schmid',sprache:'de',benachrichtigungen:true}},
+    {id:'user_monteur_3', username:'monteur3', name:'Stefan Keller',
+     password:_hash('mont2025'), roleIds:['role_monteur'], orgId:'org_default',
+     active:true, createdAt:'2025-03-01T08:00:00Z',
+     kontotyp:'vollzugang', abo:{typ:'basic'},
+     profile:{email:'keller@jaeggivollmer.ch',telefon:'061 692 03 32',firma:'Jäggi Vollmer GmbH',person:'Stefan Keller',sprache:'de',benachrichtigungen:true}}
   ];
 
   // ── Storage ────────────────────────────────────────────────────────
@@ -382,6 +412,33 @@
           try{localStorage.setItem(STORAGE_ORG_CATS,JSON.stringify(newCats));}catch(e){}
         }
         try{localStorage.setItem(MIGFLAG2,'1');}catch(e){}
+      }
+    } catch(e) {}
+    // ── Migration: Rollen role_magaziner + role_monteur + Demo-User ──
+    // Bestehende Installationen haben role_magaziner/role_monteur und
+    // die zugehoerigen Demo-User noch nicht im localStorage. Wir ziehen
+    // sie einmalig nach.
+    try {
+      var MIGFLAG3='gema_auth_magaziner_monteur_v1';
+      if(!localStorage.getItem(MIGFLAG3)){
+        var roles3=_getRoles()||[];
+        ['role_magaziner','role_monteur'].forEach(function(rid){
+          if(!roles3.find(function(r){return r.id===rid;})){
+            var def=DEFAULT_ROLES.find(function(r){return r.id===rid;});
+            if(def)roles3.push(def);
+          }
+        });
+        try{localStorage.setItem(STORAGE_ROLES,JSON.stringify(roles3));}catch(e){}
+        var users3=_getUsers()||[];
+        var DEMO_IDS=['user_magaziner_jv','user_monteur_1','user_monteur_2','user_monteur_3'];
+        DEMO_IDS.forEach(function(uid){
+          if(!users3.find(function(u){return u.id===uid;})){
+            var def=DEFAULT_USERS.find(function(u){return u.id===uid;});
+            if(def)users3.push(def);
+          }
+        });
+        try{localStorage.setItem(STORAGE_USERS,JSON.stringify(users3));}catch(e){}
+        try{localStorage.setItem(MIGFLAG3,'1');}catch(e){}
       }
     } catch(e) {}
   }
@@ -948,6 +1005,8 @@
       if(!user||!user.roleIds)return'index.html';
       if(user.roleIds.indexOf('role_lieferant')>=0)return'sys_lieferant_dashboard.html';
       if(user.roleIds.indexOf('role_pruefer')>=0)return'sys_lieferant_dashboard.html';
+      if(user.roleIds.indexOf('role_magaziner')>=0)return'if_werkzeug.html';
+      if(user.roleIds.indexOf('role_monteur')>=0)return'if_werkzeug.html';
       if(user.roleIds.indexOf('role_unternehmer')>=0)return'index.html';
       if(user.roleIds.indexOf('role_architekt')>=0)return'index.html';
       return'index.html';
