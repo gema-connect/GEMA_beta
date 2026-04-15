@@ -39,6 +39,26 @@
       label:'CRBX-Abgleich bestätigt',
       modul:'ausschreibung',
       defaultOn:false
+    },
+    werkzeug_defekt: {
+      label:'Defektmeldung eines Werkzeugs',
+      modul:'werkzeug',
+      defaultOn:true
+    },
+    werkzeug_zuweisung: {
+      label:'Werkzeug wurde dir zugewiesen',
+      modul:'werkzeug',
+      defaultOn:true
+    },
+    werkzeug_pruefung_faellig: {
+      label:'Werkzeug-Prüfung wird fällig',
+      modul:'werkzeug',
+      defaultOn:true
+    },
+    werkzeug_pruefung_anfrage: {
+      label:'Prüfungs-Anfrage an Lieferant',
+      modul:'werkzeug',
+      defaultOn:true
     }
   };
 

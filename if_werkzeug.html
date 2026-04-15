@@ -359,7 +359,7 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
       <button class="vt-btn active" id="vt_cards" onclick="setView('cards')" title="Karten">⊞</button>
       <button class="vt-btn"        id="vt_table" onclick="setView('table')" title="Tabelle">☰</button>
     </div>
-    <button class="nbtn primary" onclick="openAdd()">+ Gerät hinzufügen</button>
+    <button class="nbtn primary" id="btnAddTool" onclick="openAdd()">+ Gerät hinzufügen</button>
   </div>
 
   <div class="card-grid" id="cardGrid"></div>
@@ -658,6 +658,42 @@ if(typeof _GemaDB==='undefined'){
 </script>
 <script>
 // ──────────────────────────────────────
+// ROLLEN & BERECHTIGUNGEN
+// ──────────────────────────────────────
+// Drei Stufen:
+// - Admin / Magaziner:  Vollzugriff (Edit, Delete, Zuweisung, Berichte)
+// - Monteur:            Read-only + Defektmeldung
+// - Alle anderen Rollen: wie Monteur (sichern)
+function _wzGetUser(){
+  if(typeof GemaAuth==='undefined')return null;
+  try{return GemaAuth.getCurrentUser();}catch(e){return null;}
+}
+function _wzIsAdmin(){
+  var u=_wzGetUser();
+  return !!(u&&u.roleIds&&u.roleIds.indexOf('role_admin')>=0);
+}
+function _wzIsMagaziner(){
+  var u=_wzGetUser();
+  return !!(u&&u.roleIds&&u.roleIds.indexOf('role_magaziner')>=0);
+}
+function _wzIsMonteur(){
+  var u=_wzGetUser();
+  return !!(u&&u.roleIds&&u.roleIds.indexOf('role_monteur')>=0);
+}
+// Darf aendern / loeschen / neu erfassen / Personen zuweisen / Berichte schreiben
+function _wzCanEdit(){ return _wzIsAdmin()||_wzIsMagaziner(); }
+// Darf Werkzeug einer Person zuweisen (nur Admin/Magaziner)
+function _wzCanAssign(){ return _wzCanEdit(); }
+// Darf Defektmeldungen erstellen (alle eingeloggten User mit Werkzeug-Zugriff)
+function _wzCanReportDefect(){
+  var u=_wzGetUser();
+  if(!u)return false;
+  if(_wzIsAdmin()||_wzIsMagaziner()||_wzIsMonteur())return true;
+  // andere Rollen: zurueckhaltend — nur wenn sie ueberhaupt Lese-Recht haben
+  return true;
+}
+
+// ──────────────────────────────────────
 // STATE & CONSTANTS
 // ──────────────────────────────────────
 let tools=[], currentFilter='all', currentView='cards', pruefId=null;
@@ -755,17 +791,28 @@ function renderCard(t){
       </div>
     </div>
     ${dateItems.length?`<div class="tc-dates">${dateItems.map(di=>`<div class="tcd"><div class="tcd-lbl">${di.lbl}</div><div class="tcd-val ${di.cls}">${di.val}</div><div class="tcd-sub">${di.sub}</div></div>`).join('')}</div>`:''}
+    ${t.zugewiesenAn?`<div style="padding:8px 14px;background:#eef2ff;border-top:1px solid #e0e7ff;font-size:11.5px;color:#3730a3;display:flex;align-items:center;gap:6px"><span>👷</span><strong>${esc(t.zugewiesenAn.name||'—')}</strong>${t.zugewiesenAn.seit?`<span style="color:#6366f1;margin-left:auto">seit ${fmt(t.zugewiesenAn.seit)}</span>`:''}</div>`:''}
+    ${(t.berichte&&t.berichte.length)?`<div style="padding:6px 14px;background:#fff7ed;border-top:1px solid #fed7aa;font-size:11px;color:#c2410c;display:flex;align-items:center;gap:5px"><span>📝</span>${t.berichte.length} Bericht${t.berichte.length>1?'e':''}${_wzBadDefect(t)?' · <span style="font-weight:800">⚠ Defekt offen</span>':''}</div>`:''}
     <div class="tc-foot">
       <div class="tc-actions">
-        <button class="tc-act" onclick="openQR('${t.id}')">🔲 QR-Code</button>
+        <button class="tc-act" onclick="openQR('${t.id}')">🔲 QR</button>
         ${hasPruef?`<button class="tc-act accent" onclick="openPruef('${t.id}')">📋 Prüfungen</button>`:''}
+        <button class="tc-act" onclick="openBerichte('${t.id}')">📝 Berichte${(t.berichte&&t.berichte.length)?' ('+t.berichte.length+')':''}</button>
       </div>
       <div class="tc-actions">
-        <button class="tc-act" onclick="editTool('${t.id}')">✏️</button>
-        <button class="tc-act danger" onclick="deleteTool('${t.id}')">🗑</button>
+        ${_wzCanReportDefect()?`<button class="tc-act" style="background:#fff7ed;color:#c2410c;border-color:#fed7aa" onclick="openDefektMelden('${t.id}')" title="Defekt melden">⚠</button>`:''}
+        ${_wzCanAssign()?`<button class="tc-act" style="background:#eef2ff;color:#3730a3;border-color:#e0e7ff" onclick="openZuweisung('${t.id}')" title="Person zuweisen">👷</button>`:''}
+        ${_wzCanEdit()?`<button class="tc-act" onclick="editTool('${t.id}')">✏️</button>`:''}
+        ${_wzCanEdit()?`<button class="tc-act danger" onclick="deleteTool('${t.id}')">🗑</button>`:''}
       </div>
     </div>
   </div>`;
+}
+
+// Helfer: hat das Werkzeug einen offenen (nicht erledigten) Defekt?
+function _wzBadDefect(t){
+  if(!t.berichte)return false;
+  return t.berichte.some(function(b){return b.typ==='defekt'&&!b.erledigt;});
 }
 
 function renderRow(t){
@@ -783,8 +830,11 @@ function renderRow(t){
     <td><span class="pill ${badgeC(wd)}">${wdc==='red'?'🚨 Überfällig':wdc==='amber'?'⏰ Bald fällig':'✅ OK'}</span></td>
     <td style="white-space:nowrap">
       <button class="tc-act" onclick="openQR('${t.id}')">🔲</button>
-      <button class="tc-act" onclick="editTool('${t.id}')">✏️</button>
-      <button class="tc-act danger" onclick="deleteTool('${t.id}')">🗑</button>
+      <button class="tc-act" onclick="openBerichte('${t.id}')" title="Berichte">📝</button>
+      ${_wzCanReportDefect()?`<button class="tc-act" style="background:#fff7ed;color:#c2410c;border-color:#fed7aa" onclick="openDefektMelden('${t.id}')" title="Defekt melden">⚠</button>`:''}
+      ${_wzCanAssign()?`<button class="tc-act" style="background:#eef2ff;color:#3730a3;border-color:#e0e7ff" onclick="openZuweisung('${t.id}')" title="Zuweisen">👷</button>`:''}
+      ${_wzCanEdit()?`<button class="tc-act" onclick="editTool('${t.id}')">✏️</button>`:''}
+      ${_wzCanEdit()?`<button class="tc-act danger" onclick="deleteTool('${t.id}')">🗑</button>`:''}
     </td>
   </tr>`;
 }
@@ -818,6 +868,7 @@ function setView(v){
 // MODAL – ADD / EDIT
 // ──────────────────────────────────────
 function openAdd(){
+  if(!_wzCanEdit()){alert('Keine Berechtigung — nur Magaziner/Admin dürfen neue Geräte erfassen.');return;}
   clearForm();
   setText('mhd_title','Neues Gerät erfassen');
   document.getElementById('mhd_ic').textContent='🔧';
@@ -859,6 +910,7 @@ function syncTS(name,on){
 }
 
 function submitForm(){
+  if(!_wzCanEdit()){alert('Keine Berechtigung');return;}
   const name=document.getElementById('f_name').value.trim();
   const cat=document.getElementById('f_cat').value;
   const bought=document.getElementById('f_bought').value;
@@ -890,6 +942,7 @@ function submitForm(){
 }
 
 function editTool(id){
+  if(!_wzCanEdit()){alert('Keine Berechtigung — nur Magaziner/Admin dürfen Geräte bearbeiten.');return;}
   const t=tools.find(x=>x.id===id);if(!t)return;
   clearForm();
   const sv=(fid,v)=>{const e=document.getElementById(fid);if(e&&v!=null&&v!=='')e.value=v;};
@@ -908,7 +961,276 @@ function editTool(id){
   setText('mft_lbl','Änderungen speichern');setText('mft_ico','✓');
   document.getElementById('addModal').classList.remove('hidden');
 }
-function deleteTool(id){if(!confirm('Gerät wirklich löschen?'))return;tools=tools.filter(t=>t.id!==id);save();renderList();}
+function deleteTool(id){
+  if(!_wzCanEdit()){alert('Keine Berechtigung — nur Magaziner/Admin dürfen löschen.');return;}
+  if(!confirm('Gerät wirklich löschen?'))return;
+  tools=tools.filter(t=>t.id!==id);save();renderList();
+}
+
+// ══════════════════════════════════════════════════════════════
+// BERICHTS-SYSTEM (Defekt, Pruefbericht, Wartung)
+// ══════════════════════════════════════════════════════════════
+// Ein Bericht hat: id, typ ('defekt'|'pruefbericht'), datum, autorUserId,
+// autorName, titel, beschreibung, ergebnis (nur pruefbericht), fehlendeTeile[],
+// naechstePruefung, foto (Base64), erledigt (bei defekt), erledigtAm.
+
+function _wzNewBerichtId(){return 'ber_'+Date.now().toString(36)+'_'+Math.random().toString(36).substr(2,4);}
+
+function openDefektMelden(toolId){
+  if(!_wzCanReportDefect()){alert('Keine Berechtigung');return;}
+  var t=tools.find(function(x){return x.id===toolId;});
+  if(!t)return;
+  var u=_wzGetUser()||{};
+  var html = '<div style="background:#fff;border-radius:14px;padding:24px;max-width:520px;width:100%;max-height:85vh;overflow-y:auto;box-shadow:0 20px 60px -10px rgba(0,0,0,.3)">'
+    + '<h3 style="margin:0 0 4px;font-size:17px;font-weight:800;color:#c2410c">⚠ Defekt melden</h3>'
+    + '<div style="font-size:12px;color:#64748b;margin-bottom:16px">Gerät: <strong>'+esc(t.name)+'</strong></div>'
+    + '<div style="display:flex;flex-direction:column;gap:12px">'
+    + '  <div><label style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase">Titel *</label><input id="defTitel" type="text" placeholder="z.B. Akku defekt" style="width:100%;padding:9px 12px;border:1.5px solid #c8cfdf;border-radius:8px;font-size:13px;margin-top:4px"/></div>'
+    + '  <div><label style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase">Schweregrad</label><select id="defSev" style="width:100%;padding:9px 12px;border:1.5px solid #c8cfdf;border-radius:8px;font-size:13px;margin-top:4px"><option value="leicht">Leicht (nutzbar)</option><option value="mittel" selected>Mittel (eingeschränkt)</option><option value="schwer">Schwer (nicht nutzbar)</option><option value="ausser_betrieb">Ausser Betrieb</option></select></div>'
+    + '  <div><label style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase">Beschreibung *</label><textarea id="defBeschr" rows="4" placeholder="Was ist kaputt? Wann ist es aufgefallen?" style="width:100%;padding:9px 12px;border:1.5px solid #c8cfdf;border-radius:8px;font-size:13px;margin-top:4px;font-family:inherit;resize:vertical"></textarea></div>'
+    + '</div>'
+    + '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:18px">'
+    + '  <button onclick="_wzCloseModal()" style="padding:9px 18px;border-radius:8px;border:1.5px solid #c8cfdf;background:#fff;color:#334155;cursor:pointer;font-weight:600;font-family:inherit">Abbrechen</button>'
+    + '  <button onclick="_wzSaveDefekt(\''+toolId+'\')" style="padding:9px 18px;border-radius:8px;border:none;background:#c2410c;color:#fff;cursor:pointer;font-weight:700;font-family:inherit">⚠ Melden</button>'
+    + '</div>'
+    + '</div>';
+  _wzShowModal(html);
+}
+
+function _wzSaveDefekt(toolId){
+  var t=tools.find(function(x){return x.id===toolId;});
+  if(!t)return;
+  var u=_wzGetUser()||{};
+  var titel=document.getElementById('defTitel').value.trim();
+  var beschr=document.getElementById('defBeschr').value.trim();
+  var sev=document.getElementById('defSev').value;
+  if(!titel||!beschr){alert('Bitte Titel und Beschreibung angeben');return;}
+  if(!t.berichte)t.berichte=[];
+  t.berichte.push({
+    id:_wzNewBerichtId(),typ:'defekt',datum:new Date().toISOString(),
+    autorUserId:u.id||'',autorName:u.name||'Unbekannt',
+    titel:titel,beschreibung:beschr,schweregrad:sev,
+    erledigt:false,erledigtAm:null
+  });
+  save();renderList();_wzCloseModal();
+  // Notifikation an Magaziner
+  if(typeof GemaNotify!=='undefined'){
+    GemaNotify.push({
+      eventKey:'werkzeug_defekt',
+      empfaengerRoleId:'role_magaziner',
+      empfaengerOrgId:u.orgId||'',
+      modul:'werkzeug',
+      typ:sev==='schwer'||sev==='ausser_betrieb'?'warnung':'aktion',
+      titel:'⚠ Defekt: '+t.name,
+      text:(u.name||'Monteur')+': '+titel,
+      link:'if_werkzeug.html?view='+encodeURIComponent(t.id)
+    });
+  }
+  alert('✓ Defektmeldung gespeichert');
+}
+
+function openZuweisung(toolId){
+  if(!_wzCanAssign()){alert('Keine Berechtigung');return;}
+  var t=tools.find(function(x){return x.id===toolId;});
+  if(!t)return;
+  // Monteure aus GemaAuth laden (nur eigene Org)
+  var personen=[];
+  if(typeof GemaAuth!=='undefined'){
+    try{
+      var me=_wzGetUser()||{};
+      var users=GemaAuth.getUsers()||[];
+      personen=users.filter(function(u){
+        if(!u.active)return false;
+        if(me.orgId && u.orgId!==me.orgId && !_wzIsAdmin())return false;
+        return u.roleIds && (u.roleIds.indexOf('role_monteur')>=0||u.roleIds.indexOf('role_unternehmer')>=0||u.roleIds.indexOf('role_magaziner')>=0);
+      });
+    }catch(e){}
+  }
+  var cur=t.zugewiesenAn||{};
+  var opts='<option value="">— Niemandem (im Lager) —</option>';
+  personen.forEach(function(p){
+    opts+='<option value="'+esc(p.id)+'" '+(cur.userId===p.id?'selected':'')+'>'+esc(p.name||p.username)+(p.profile&&p.profile.firma?' · '+esc(p.profile.firma):'')+'</option>';
+  });
+  var html = '<div style="background:#fff;border-radius:14px;padding:24px;max-width:480px;width:100%;box-shadow:0 20px 60px -10px rgba(0,0,0,.3)">'
+    + '<h3 style="margin:0 0 4px;font-size:17px;font-weight:800;color:#3730a3">👷 Person zuweisen</h3>'
+    + '<div style="font-size:12px;color:#64748b;margin-bottom:16px">Gerät: <strong>'+esc(t.name)+'</strong></div>'
+    + '<label style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase">Zugewiesen an</label>'
+    + '<select id="zuwUser" style="width:100%;padding:9px 12px;border:1.5px solid #c8cfdf;border-radius:8px;font-size:13px;margin-top:4px">'+opts+'</select>'
+    + (cur.userId?'<div style="font-size:11px;color:#6366f1;margin-top:8px">Aktuell bei <strong>'+esc(cur.name||'—')+'</strong>'+(cur.seit?' seit '+fmt(cur.seit):'')+'</div>':'')
+    + '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:18px">'
+    + '  <button onclick="_wzCloseModal()" style="padding:9px 18px;border-radius:8px;border:1.5px solid #c8cfdf;background:#fff;color:#334155;cursor:pointer;font-weight:600;font-family:inherit">Abbrechen</button>'
+    + '  <button onclick="_wzSaveZuweisung(\''+toolId+'\')" style="padding:9px 18px;border-radius:8px;border:none;background:#3730a3;color:#fff;cursor:pointer;font-weight:700;font-family:inherit">✓ Speichern</button>'
+    + '</div>'
+    + '</div>';
+  _wzShowModal(html);
+}
+
+function _wzSaveZuweisung(toolId){
+  var t=tools.find(function(x){return x.id===toolId;});
+  if(!t)return;
+  var sel=document.getElementById('zuwUser');
+  var uid=sel.value;
+  if(!uid){
+    delete t.zugewiesenAn;
+  } else {
+    var users=(typeof GemaAuth!=='undefined')?(GemaAuth.getUsers()||[]):[];
+    var p=users.find(function(u){return u.id===uid;});
+    t.zugewiesenAn={userId:uid,name:p?(p.name||p.username):uid,seit:today()};
+    // Notifikation an die Person
+    if(typeof GemaNotify!=='undefined' && p){
+      GemaNotify.push({
+        eventKey:'werkzeug_zuweisung',
+        empfaengerUserId:uid,
+        modul:'werkzeug',
+        typ:'info',
+        titel:'Werkzeug zugewiesen: '+t.name,
+        text:(t.brand||'')+(t.model?' '+t.model:'')+(t.serial?' · SN '+t.serial:''),
+        link:'if_werkzeug.html?view='+encodeURIComponent(t.id)
+      });
+    }
+  }
+  save();renderList();_wzCloseModal();
+}
+
+function openBerichte(toolId){
+  var t=tools.find(function(x){return x.id===toolId;});
+  if(!t)return;
+  var ber=t.berichte||[];
+  var list='';
+  if(!ber.length){
+    list='<div style="padding:30px 16px;text-align:center;color:#94a3b8;font-size:12.5px">Noch keine Berichte</div>';
+  } else {
+    list=ber.slice().reverse().map(function(b){
+      var isDef=b.typ==='defekt';
+      var bgCol=isDef?(b.erledigt?'#f0fdf4':'#fff7ed'):'#eff6ff';
+      var brdCol=isDef?(b.erledigt?'#bbf7d0':'#fed7aa'):'#bfdbfe';
+      var icon=isDef?'⚠':'📋';
+      var typLabel=isDef?('Defekt'+(b.erledigt?' ✓':'')):'Prüfbericht';
+      var teileHtml='';
+      if(b.fehlendeTeile && b.fehlendeTeile.length){
+        teileHtml='<div style="margin-top:6px;font-size:11px;color:#b91c1c"><strong>Fehlende Teile:</strong> '+b.fehlendeTeile.map(esc).join(', ')+'</div>';
+      }
+      var aktion='';
+      if(isDef && !b.erledigt && _wzCanEdit()){
+        aktion='<button onclick="_wzDefektErledigt(\''+toolId+'\',\''+b.id+'\')" style="margin-top:6px;padding:4px 10px;background:#16a34a;color:#fff;border:none;border-radius:5px;font-size:11px;font-weight:700;cursor:pointer">✓ Erledigt markieren</button>';
+      }
+      return '<div style="background:'+bgCol+';border:1.5px solid '+brdCol+';border-radius:8px;padding:10px 12px;margin-bottom:8px">'
+        +'<div style="display:flex;align-items:center;gap:6px;font-size:11px;color:#64748b"><span style="font-weight:800;color:#0f172a">'+icon+' '+typLabel+'</span><span>·</span><span>'+esc(b.autorName||'—')+'</span><span>·</span><span>'+fmt((b.datum||'').split('T')[0])+'</span></div>'
+        +'<div style="font-size:13px;font-weight:700;margin-top:4px">'+esc(b.titel||'')+'</div>'
+        +(b.beschreibung?'<div style="font-size:12px;color:#475569;margin-top:2px">'+esc(b.beschreibung)+'</div>':'')
+        +(b.ergebnis?'<div style="font-size:12px;margin-top:4px"><strong>Ergebnis:</strong> '+esc(b.ergebnis)+'</div>':'')
+        +teileHtml
+        +(b.naechstePruefung?'<div style="font-size:11px;color:#6366f1;margin-top:4px">Nächste Prüfung: '+fmt(b.naechstePruefung)+'</div>':'')
+        +aktion
+        +'</div>';
+    }).join('');
+  }
+  var addBtn = _wzCanEdit()
+    ? '<button onclick="openPruefbericht(\''+toolId+'\')" style="padding:8px 14px;border-radius:8px;border:none;background:#1d4ed8;color:#fff;cursor:pointer;font-weight:700;font-family:inherit;font-size:12px">+ Prüfbericht</button>'
+    : '';
+  var defBtn = _wzCanReportDefect()
+    ? '<button onclick="openDefektMelden(\''+toolId+'\')" style="padding:8px 14px;border-radius:8px;border:none;background:#c2410c;color:#fff;cursor:pointer;font-weight:700;font-family:inherit;font-size:12px">⚠ Defekt</button>'
+    : '';
+  var html = '<div style="background:#fff;border-radius:14px;padding:24px;max-width:560px;width:100%;max-height:85vh;display:flex;flex-direction:column;box-shadow:0 20px 60px -10px rgba(0,0,0,.3)">'
+    + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px"><h3 style="margin:0;font-size:17px;font-weight:800;flex:1">📝 Berichte</h3>'
+    + defBtn + ' ' + addBtn + '</div>'
+    + '<div style="font-size:12px;color:#64748b;margin-bottom:14px">Gerät: <strong>'+esc(t.name)+'</strong></div>'
+    + '<div style="flex:1;overflow-y:auto;padding-right:4px">'+list+'</div>'
+    + '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">'
+    + '  <button onclick="_wzCloseModal()" style="padding:9px 18px;border-radius:8px;border:1.5px solid #c8cfdf;background:#fff;color:#334155;cursor:pointer;font-weight:600;font-family:inherit">Schliessen</button>'
+    + '</div>'
+    + '</div>';
+  _wzShowModal(html);
+}
+
+function _wzDefektErledigt(toolId, berId){
+  if(!_wzCanEdit())return;
+  var t=tools.find(function(x){return x.id===toolId;});
+  if(!t||!t.berichte)return;
+  var b=t.berichte.find(function(x){return x.id===berId;});
+  if(!b)return;
+  b.erledigt=true;b.erledigtAm=new Date().toISOString();
+  save();renderList();openBerichte(toolId);
+}
+
+function openPruefbericht(toolId){
+  if(!_wzCanEdit()){alert('Keine Berechtigung');return;}
+  var t=tools.find(function(x){return x.id===toolId;});
+  if(!t)return;
+  var u=_wzGetUser()||{};
+  var html = '<div style="background:#fff;border-radius:14px;padding:24px;max-width:560px;width:100%;max-height:85vh;overflow-y:auto;box-shadow:0 20px 60px -10px rgba(0,0,0,.3)">'
+    + '<h3 style="margin:0 0 4px;font-size:17px;font-weight:800">📋 Prüfbericht erfassen</h3>'
+    + '<div style="font-size:12px;color:#64748b;margin-bottom:16px">Gerät: <strong>'+esc(t.name)+'</strong></div>'
+    + '<div style="display:flex;flex-direction:column;gap:12px">'
+    + '  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">'
+    + '    <div><label style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase">Prüfdatum *</label><input id="prDatum" type="date" value="'+today()+'" style="width:100%;padding:9px 12px;border:1.5px solid #c8cfdf;border-radius:8px;font-size:13px;margin-top:4px"/></div>'
+    + '    <div><label style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase">Ergebnis *</label><select id="prErg" style="width:100%;padding:9px 12px;border:1.5px solid #c8cfdf;border-radius:8px;font-size:13px;margin-top:4px"><option value="bestanden">✓ Bestanden</option><option value="maengel">⚠ Mit Mängeln</option><option value="nicht_bestanden">✕ Nicht bestanden</option></select></div>'
+    + '  </div>'
+    + '  <div><label style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase">Prüfer</label><input id="prPruefer" type="text" value="'+esc(u.name||'')+'" placeholder="Name des Prüfers" style="width:100%;padding:9px 12px;border:1.5px solid #c8cfdf;border-radius:8px;font-size:13px;margin-top:4px"/></div>'
+    + '  <div><label style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase">Titel</label><input id="prTitel" type="text" placeholder="z.B. Jahresprüfung" value="Jahresprüfung" style="width:100%;padding:9px 12px;border:1.5px solid #c8cfdf;border-radius:8px;font-size:13px;margin-top:4px"/></div>'
+    + '  <div><label style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase">Bemerkungen</label><textarea id="prBemerk" rows="3" placeholder="Beobachtungen, durchgeführte Arbeiten …" style="width:100%;padding:9px 12px;border:1.5px solid #c8cfdf;border-radius:8px;font-size:13px;margin-top:4px;font-family:inherit;resize:vertical"></textarea></div>'
+    + '  <div><label style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase">Fehlende / auszutauschende Teile</label><input id="prTeile" type="text" placeholder="z.B. Akku, Kohlebürsten (Komma-getrennt)" style="width:100%;padding:9px 12px;border:1.5px solid #c8cfdf;border-radius:8px;font-size:13px;margin-top:4px"/><div style="font-size:10px;color:#94a3b8;margin-top:2px">Wenn vorhanden, wird gleichzeitig ein Hinweis auf offene Wartung gesetzt.</div></div>'
+    + '  <div><label style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase">Nächste Prüfung fällig</label><input id="prNext" type="date" style="width:100%;padding:9px 12px;border:1.5px solid #c8cfdf;border-radius:8px;font-size:13px;margin-top:4px"/></div>'
+    + '</div>'
+    + '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:18px">'
+    + '  <button onclick="_wzCloseModal()" style="padding:9px 18px;border-radius:8px;border:1.5px solid #c8cfdf;background:#fff;color:#334155;cursor:pointer;font-weight:600;font-family:inherit">Abbrechen</button>'
+    + '  <button onclick="_wzSavePruefbericht(\''+toolId+'\')" style="padding:9px 18px;border-radius:8px;border:none;background:#1d4ed8;color:#fff;cursor:pointer;font-weight:700;font-family:inherit">✓ Speichern</button>'
+    + '</div>'
+    + '</div>';
+  _wzShowModal(html);
+  // 12 Monate-Default fuer naechste Pruefung
+  setTimeout(function(){
+    var n=document.getElementById('prNext');
+    if(n && !n.value) n.value=addMonths(today(),12);
+  },50);
+}
+
+function _wzSavePruefbericht(toolId){
+  var t=tools.find(function(x){return x.id===toolId;});
+  if(!t)return;
+  var u=_wzGetUser()||{};
+  var datum=document.getElementById('prDatum').value;
+  var ergebnis=document.getElementById('prErg').value;
+  var pruefer=document.getElementById('prPruefer').value.trim()||u.name||'—';
+  var titel=document.getElementById('prTitel').value.trim()||'Prüfbericht';
+  var bemerk=document.getElementById('prBemerk').value.trim();
+  var teileStr=document.getElementById('prTeile').value.trim();
+  var next=document.getElementById('prNext').value||null;
+  if(!datum){alert('Prüfdatum fehlt');return;}
+  var teile=teileStr?teileStr.split(',').map(function(x){return x.trim();}).filter(Boolean):[];
+  if(!t.berichte)t.berichte=[];
+  t.berichte.push({
+    id:_wzNewBerichtId(),typ:'pruefbericht',
+    datum:new Date(datum).toISOString(),
+    autorUserId:u.id||'',autorName:pruefer,
+    titel:titel,beschreibung:bemerk,
+    ergebnis:ergebnis==='bestanden'?'✓ Bestanden':ergebnis==='maengel'?'⚠ Mit Mängeln':'✕ Nicht bestanden',
+    fehlendeTeile:teile,
+    naechstePruefung:next
+  });
+  // Synchronisiere die "lastElec"/"lastLeiter" Felder fuer die bestehende
+  // Pruef-Logik, damit worstDays() korrekt bleibt.
+  if(t.hasElec)   t.lastElec=datum;
+  if(t.hasLeiter) t.lastLeiter=datum;
+  if(t.hasService)t.lastService=datum;
+  save();renderList();_wzCloseModal();
+  alert('✓ Prüfbericht gespeichert');
+}
+
+// ── Modal-Helper ─────────────────────────────────────────────
+function _wzShowModal(innerHtml){
+  _wzCloseModal();
+  var ov=document.createElement('div');
+  ov.id='_wzModalOverlay';
+  ov.style.cssText='position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:10500;display:flex;align-items:center;justify-content:center;padding:20px;font-family:var(--sans,"DM Sans",sans-serif)';
+  ov.innerHTML=innerHtml;
+  ov.addEventListener('click',function(e){if(e.target===ov)_wzCloseModal();});
+  document.body.appendChild(ov);
+}
+function _wzCloseModal(){
+  var ex=document.getElementById('_wzModalOverlay');
+  if(ex)ex.remove();
+}
 
 // ──────────────────────────────────────
 // QR
@@ -1173,6 +1495,27 @@ await Promise.race([
   if(p.get('view'))setTimeout(()=>openViewTool(p.get('view')),400);
     else if(p.get('edit'))setTimeout(()=>editTool(p.get('edit')),400);
     else if(p.get('tool'))setTimeout(()=>openQR(p.get('tool')),400);
+  // Rollenabhaengige UI-Anpassungen: "+ Neu"-Button nur fuer
+  // Magaziner/Admin einblenden.
+  var btnAdd=document.getElementById('btnAddTool');
+  if(btnAdd && !_wzCanEdit()) btnAdd.style.display='none';
+  // Rollen-Badge in der Navigation anzeigen (kleiner Hinweis fuer den User)
+  try{
+    var u=_wzGetUser();
+    if(u && u.roleIds){
+      var rn = u.roleIds.indexOf('role_magaziner')>=0?'Magaziner':(u.roleIds.indexOf('role_monteur')>=0?'Monteur (Read-only)':(u.roleIds.indexOf('role_admin')>=0?'Admin':''));
+      if(rn){
+        var host=document.querySelector('.g-nav-actions')||document.querySelector('.g-nav-right');
+        if(host && !host.querySelector('.wz-role-badge')){
+          var sp=document.createElement('span');
+          sp.className='wz-role-badge';
+          sp.style.cssText='font-size:11px;font-weight:700;padding:4px 10px;border-radius:6px;background:#eef2ff;color:#3730a3;border:1px solid #e0e7ff;margin-right:4px';
+          sp.textContent=rn;
+          host.insertBefore(sp, host.firstChild);
+        }
+      }
+    }
+  }catch(e){}
   renderList();
 });
 </script>
