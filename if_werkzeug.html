@@ -793,11 +793,13 @@ function renderCard(t){
     ${dateItems.length?`<div class="tc-dates">${dateItems.map(di=>`<div class="tcd"><div class="tcd-lbl">${di.lbl}</div><div class="tcd-val ${di.cls}">${di.val}</div><div class="tcd-sub">${di.sub}</div></div>`).join('')}</div>`:''}
     ${t.zugewiesenAn?`<div style="padding:8px 14px;background:#eef2ff;border-top:1px solid #e0e7ff;font-size:11.5px;color:#3730a3;display:flex;align-items:center;gap:6px"><span>👷</span><strong>${esc(t.zugewiesenAn.name||'—')}</strong>${t.zugewiesenAn.seit?`<span style="color:#6366f1;margin-left:auto">seit ${fmt(t.zugewiesenAn.seit)}</span>`:''}</div>`:''}
     ${(t.berichte&&t.berichte.length)?`<div style="padding:6px 14px;background:#fff7ed;border-top:1px solid #fed7aa;font-size:11px;color:#c2410c;display:flex;align-items:center;gap:5px"><span>📝</span>${t.berichte.length} Bericht${t.berichte.length>1?'e':''}${_wzBadDefect(t)?' · <span style="font-weight:800">⚠ Defekt offen</span>':''}</div>`:''}
+    ${t.pruefAnfrage?`<div style="padding:6px 14px;background:${t.pruefAnfrage.status==='erledigt'?'#f0fdf4':t.pruefAnfrage.status==='quittiert'?'#eff6ff':'#fff7ed'};border-top:1px solid ${t.pruefAnfrage.status==='erledigt'?'#bbf7d0':t.pruefAnfrage.status==='quittiert'?'#bfdbfe':'#fed7aa'};font-size:11px;color:${t.pruefAnfrage.status==='erledigt'?'#16a34a':t.pruefAnfrage.status==='quittiert'?'#2563eb':'#c2410c'};display:flex;align-items:center;gap:5px"><span>📋</span>${t.pruefAnfrage.status==='angefordert'?'Prüfung angefordert':t.pruefAnfrage.status==='quittiert'?'Lieferant quittiert':'Prüfung erledigt'} · ${esc(t.pruefAnfrage.lieferantFirma||'')}</div>`:''}
     <div class="tc-foot">
       <div class="tc-actions">
         <button class="tc-act" onclick="openQR('${t.id}')">🔲 QR</button>
-        ${hasPruef?`<button class="tc-act accent" onclick="openPruef('${t.id}')">📋 Prüfungen</button>`:''}
+        ${hasPruef?`<button class="tc-act accent" onclick="openPruef('${t.id}')">📋 Historie</button>`:''}
         <button class="tc-act" onclick="openBerichte('${t.id}')">📝 Berichte${(t.berichte&&t.berichte.length)?' ('+t.berichte.length+')':''}</button>
+        ${(_wzCanEdit()&&hasPruef)?`<button class="tc-act" style="background:#dbeafe;color:#1d4ed8;border-color:#bfdbfe" onclick="openPruefAnfordern('${t.id}')" title="Prüfung beim Lieferant anfordern">📤 Anfordern</button>`:''}
       </div>
       <div class="tc-actions">
         ${_wzCanReportDefect()?`<button class="tc-act" style="background:#fff7ed;color:#c2410c;border-color:#fed7aa" onclick="openDefektMelden('${t.id}')" title="Defekt melden">⚠</button>`:''}
@@ -1232,6 +1234,297 @@ function _wzCloseModal(){
   if(ex)ex.remove();
 }
 
+// ══════════════════════════════════════════════════════════════
+// PHASE 3 — PRUEFINTERVALLE & LIEFERANTEN-WORKFLOW
+// ══════════════════════════════════════════════════════════════
+
+// Ermittle das naechste Pruefdatum eines Werkzeugs ueber alle aktiven
+// Pruefungen hinweg (Service / Elektro / Leiter) und das zugehoerige
+// Label. Gibt null zurueck, wenn keine Pruefung konfiguriert ist.
+function _wzNextPruefung(t){
+  var candidates=[];
+  if(t.hasService){var d=nextService(t);if(d)candidates.push({date:d,kind:'service',label:'Service/Wartung'});}
+  if(t.hasElec){   var d=nextElec(t);   if(d)candidates.push({date:d,kind:'elec',   label:'Elektroprüfung (NIV)'});}
+  if(t.hasLeiter){ var d=nextLeiter(t); if(d)candidates.push({date:d,kind:'leiter', label:'Leiterprüfung (EKAS)'});}
+  if(!candidates.length)return null;
+  candidates.sort(function(a,b){return a.date.localeCompare(b.date);});
+  return candidates[0];
+}
+
+// Scanner: prueft alle Werkzeuge auf faellige/ueberfaellige Pruefungen
+// und erzeugt einmal pro Tag und Werkzeug eine Notifikation an den
+// Magaziner der eigenen Org. Wird beim Laden der Seite aufgerufen und
+// schiebt Benachrichtigungen fuer 30 / 7 / 1 Tage vorher + ueberfaellig.
+function _wzScanFaelligkeiten(){
+  if(typeof GemaNotify==='undefined')return;
+  var u=_wzGetUser(); if(!u)return;
+  // Einmal-pro-Tag-Lock per localStorage, getrennt pro Schwelle+Tool
+  var LOCK='gema_werkzeug_notif_lock_v1';
+  var locks={};
+  try{locks=JSON.parse(localStorage.getItem(LOCK)||'{}');}catch(e){}
+  var heute=today();
+  // Alte Eintraege aufraeumen: nur Eintraege vom heutigen Datum behalten
+  Object.keys(locks).forEach(function(k){if(locks[k]!==heute)delete locks[k];});
+  var changed=false;
+
+  tools.forEach(function(t){
+    var np=_wzNextPruefung(t);
+    if(!np)return;
+    var days=daysFrom(np.date);
+    if(days===null)return;
+    // Schwellwerte: -999 = schon ueberfaellig, 1, 7, 30
+    var schwelle=null;
+    if(days<0)      schwelle='overdue';
+    else if(days<=1) schwelle='d1';
+    else if(days<=7) schwelle='d7';
+    else if(days<=30)schwelle='d30';
+    if(!schwelle)return;
+    var key=t.id+':'+schwelle;
+    if(locks[key]===heute)return; // heute schon benachrichtigt
+    // Nachricht zusammenbauen
+    var typ=schwelle==='overdue'?'warnung':(schwelle==='d1'?'warnung':'aktion');
+    var prefix=schwelle==='overdue'
+      ? '🚨 Überfällig seit '+Math.abs(days)+' T.'
+      : schwelle==='d1'
+        ? '⏰ Morgen fällig'
+        : schwelle==='d7'
+          ? '⏰ In '+days+' Tagen fällig'
+          : '📅 In '+days+' Tagen fällig';
+    GemaNotify.push({
+      eventKey:'werkzeug_pruefung_faellig',
+      empfaengerRoleId:'role_magaziner',
+      empfaengerOrgId:u.orgId||'',
+      modul:'werkzeug',
+      typ:typ,
+      titel:prefix+': '+t.name,
+      text:np.label+' fällig am '+fmt(np.date)+(t.brand?' · '+t.brand:'')+(t.model?' '+t.model:''),
+      link:'if_werkzeug.html?view='+encodeURIComponent(t.id)
+    });
+    locks[key]=heute;
+    changed=true;
+  });
+
+  if(changed){
+    try{localStorage.setItem(LOCK,JSON.stringify(locks));}catch(e){}
+  }
+}
+
+// ── "Prüfung anfordern" Dialog ───────────────────────────────
+// Lieferanten-User ermitteln (role_lieferant). Optional gefiltert auf
+// Lieferanten, die eine Pruefleistung anbieten — wir nehmen vorerst alle.
+function _wzGetPruefLieferanten(){
+  if(typeof GemaAuth==='undefined')return [];
+  try{
+    var users=GemaAuth.getUsers()||[];
+    return users.filter(function(u){
+      return u.active && u.roleIds && u.roleIds.indexOf('role_lieferant')>=0;
+    });
+  }catch(e){return [];}
+}
+
+function openPruefAnfordern(toolId){
+  if(!_wzCanEdit()){alert('Keine Berechtigung');return;}
+  var t=tools.find(function(x){return x.id===toolId;});
+  if(!t)return;
+  var np=_wzNextPruefung(t);
+  var liefs=_wzGetPruefLieferanten();
+  var cur=t.pruefAnfrage||null;
+  var opts='<option value="">— Lieferant wählen —</option>';
+  liefs.forEach(function(l){
+    var firma=(l.profile&&l.profile.firma)||l.name||l.username;
+    opts+='<option value="'+esc(l.id)+'" '+(cur&&cur.lieferantId===l.id?'selected':'')+'>'+esc(firma)+' · '+esc(l.name||l.username)+'</option>';
+  });
+  var statusHtml='';
+  if(cur){
+    var statusColor = cur.status==='angefordert' ? '#ea580c' : (cur.status==='quittiert' ? '#2563eb' : (cur.status==='erledigt' ? '#16a34a' : '#64748b'));
+    var statusLabel = cur.status==='angefordert' ? '⏳ Angefordert — wartet auf Lieferant'
+      : cur.status==='quittiert' ? '✓ Lieferant hat quittiert'
+      : cur.status==='erledigt' ? '✓ Prüfung durchgeführt'
+      : cur.status;
+    statusHtml='<div style="background:#f8fafc;border:1.5px solid #e2e8f0;border-radius:8px;padding:10px 12px;margin-bottom:12px"><div style="font-size:11px;color:#64748b;font-weight:700;text-transform:uppercase">Aktueller Status</div><div style="font-size:13px;font-weight:700;color:'+statusColor+';margin-top:3px">'+statusLabel+'</div><div style="font-size:11px;color:#94a3b8;margin-top:2px">'+esc(cur.lieferantFirma||'')+(cur.angefordertAm?' · angefordert '+fmt(cur.angefordertAm.split('T')[0]):'')+'</div></div>';
+  }
+  var html = '<div style="background:#fff;border-radius:14px;padding:24px;max-width:520px;width:100%;max-height:85vh;overflow-y:auto;box-shadow:0 20px 60px -10px rgba(0,0,0,.3)">'
+    + '<h3 style="margin:0 0 4px;font-size:17px;font-weight:800;color:#1d4ed8">📋 Prüfung anfordern</h3>'
+    + '<div style="font-size:12px;color:#64748b;margin-bottom:14px">Gerät: <strong>'+esc(t.name)+'</strong>'+(np?' · '+esc(np.label)+' fällig am '+fmt(np.date):'')+'</div>'
+    + statusHtml
+    + '<div style="display:flex;flex-direction:column;gap:12px">'
+    + '  <div><label style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase">Prüf-Lieferant</label><select id="paLief" style="width:100%;padding:9px 12px;border:1.5px solid #c8cfdf;border-radius:8px;font-size:13px;margin-top:4px">'+opts+'</select>'+(liefs.length?'':'<div style="font-size:10px;color:#dc2626;margin-top:3px">Keine Lieferanten-User im System. Admin anlegen.</div>')+'</div>'
+    + '  <div><label style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase">Wunschtermin</label><input id="paTermin" type="date" value="'+esc(np?np.date:'')+'" style="width:100%;padding:9px 12px;border:1.5px solid #c8cfdf;border-radius:8px;font-size:13px;margin-top:4px"/></div>'
+    + '  <div><label style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase">Bemerkung</label><textarea id="paBem" rows="3" placeholder="z.B. Abholung aus Lager bitte" style="width:100%;padding:9px 12px;border:1.5px solid #c8cfdf;border-radius:8px;font-size:13px;margin-top:4px;font-family:inherit;resize:vertical"></textarea></div>'
+    + '</div>'
+    + '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:18px">'
+    + (cur?'<button onclick="_wzPruefAnfrageAbbrechen(\''+toolId+'\')" style="padding:9px 14px;border-radius:8px;border:1.5px solid #fecaca;background:#fff;color:#dc2626;cursor:pointer;font-weight:600;font-family:inherit;font-size:12px">Anfrage stornieren</button>':'')
+    + '  <button onclick="_wzCloseModal()" style="padding:9px 18px;border-radius:8px;border:1.5px solid #c8cfdf;background:#fff;color:#334155;cursor:pointer;font-weight:600;font-family:inherit">Abbrechen</button>'
+    + '  <button onclick="_wzSavePruefAnfrage(\''+toolId+'\')" style="padding:9px 18px;border-radius:8px;border:none;background:#1d4ed8;color:#fff;cursor:pointer;font-weight:700;font-family:inherit">'+(cur?'✓ Aktualisieren':'📤 Anfragen')+'</button>'
+    + '</div>'
+    + '</div>';
+  _wzShowModal(html);
+}
+
+function _wzSavePruefAnfrage(toolId){
+  var t=tools.find(function(x){return x.id===toolId;});
+  if(!t)return;
+  var sel=document.getElementById('paLief');
+  var liefId=sel.value;
+  if(!liefId){alert('Bitte Lieferant auswählen');return;}
+  var termin=document.getElementById('paTermin').value||null;
+  var bem=document.getElementById('paBem').value.trim();
+  var users=(typeof GemaAuth!=='undefined')?(GemaAuth.getUsers()||[]):[];
+  var lief=users.find(function(u){return u.id===liefId;});
+  var firma=lief?((lief.profile&&lief.profile.firma)||lief.name||lief.username):liefId;
+  var me=_wzGetUser()||{};
+  t.pruefAnfrage={
+    lieferantId:liefId,
+    lieferantFirma:firma,
+    wunschtermin:termin,
+    bemerkung:bem,
+    angefordertAm:new Date().toISOString(),
+    angefordertVon:me.id||'',
+    angefordertVonName:me.name||'Magaziner',
+    status:'angefordert'
+  };
+  save();renderList();_wzCloseModal();
+  // Notifikation an den Lieferanten
+  if(typeof GemaNotify!=='undefined'){
+    GemaNotify.push({
+      eventKey:'werkzeug_pruefung_anfrage',
+      empfaengerUserId:liefId,
+      modul:'werkzeug',
+      typ:'aktion',
+      titel:'📋 Prüfungsanfrage: '+t.name,
+      text:(me.name||'Magaziner')+' bittet um Prüfung'+(termin?' bis '+fmt(termin):'')+(bem?' · '+bem:''),
+      link:'if_werkzeug.html?pruef_lief='+encodeURIComponent(t.id)
+    });
+  }
+  alert('✓ Anfrage an '+firma+' gesendet');
+}
+
+function _wzPruefAnfrageAbbrechen(toolId){
+  var t=tools.find(function(x){return x.id===toolId;});
+  if(!t||!t.pruefAnfrage)return;
+  if(!confirm('Anfrage wirklich stornieren?'))return;
+  delete t.pruefAnfrage;
+  save();renderList();_wzCloseModal();
+}
+
+// ── Lieferanten-Ansicht: "Prüfung quittieren & Bericht hochladen" ──
+// Wird aufgerufen, wenn ein Lieferant-User aus der Notifikation kommt
+// (URL-Parameter ?pruef_lief=TOOL_ID). Er kann den Auftrag quittieren
+// und anschliessend das Prüfergebnis melden.
+function openPruefLiefAnsicht(toolId){
+  var t=tools.find(function(x){return x.id===toolId;});
+  if(!t||!t.pruefAnfrage){
+    alert('Für dieses Gerät liegt keine aktive Prüfungsanfrage vor.');
+    return;
+  }
+  var u=_wzGetUser()||{};
+  var isLief = u.roleIds && u.roleIds.indexOf('role_lieferant')>=0;
+  if(!isLief && !_wzIsAdmin()){
+    alert('Diese Ansicht ist nur für den beauftragten Lieferanten.');
+    return;
+  }
+  if(isLief && t.pruefAnfrage.lieferantId!==u.id){
+    alert('Dieses Gerät wurde einem anderen Lieferanten zugewiesen.');
+    return;
+  }
+  var pa=t.pruefAnfrage;
+  var quittBlock = pa.status==='angefordert'
+    ? '<div style="background:#fff7ed;border:1.5px solid #fed7aa;border-radius:8px;padding:12px;margin-bottom:14px"><div style="font-size:12px;font-weight:700;color:#c2410c;margin-bottom:6px">⏳ Anfrage wartet auf Bestätigung</div><button onclick="_wzPruefLiefQuittieren(\''+toolId+'\')" style="padding:8px 14px;border-radius:6px;border:none;background:#ea580c;color:#fff;cursor:pointer;font-weight:700;font-family:inherit;font-size:12px">✓ Auftrag quittieren</button></div>'
+    : '<div style="background:#eff6ff;border:1.5px solid #bfdbfe;border-radius:8px;padding:12px;margin-bottom:14px"><div style="font-size:12px;font-weight:700;color:#2563eb">✓ Auftrag quittiert '+(pa.quittiertAm?fmt(pa.quittiertAm.split('T')[0]):'')+'</div></div>';
+  var uploadBlock = pa.status!=='erledigt'
+    ? '<div style="border-top:1px solid #e2e8f0;padding-top:14px;margin-top:6px">'
+      + '<h4 style="margin:0 0 10px;font-size:13px;font-weight:800">📋 Prüfergebnis melden</h4>'
+      + '<div style="display:flex;flex-direction:column;gap:10px">'
+      + '  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">'
+      + '    <div><label style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase">Durchgeführt am *</label><input id="plDat" type="date" value="'+today()+'" style="width:100%;padding:9px 12px;border:1.5px solid #c8cfdf;border-radius:8px;font-size:13px;margin-top:4px"/></div>'
+      + '    <div><label style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase">Ergebnis *</label><select id="plErg" style="width:100%;padding:9px 12px;border:1.5px solid #c8cfdf;border-radius:8px;font-size:13px;margin-top:4px"><option value="bestanden">✓ Bestanden</option><option value="maengel">⚠ Mit Mängeln</option><option value="nicht_bestanden">✕ Nicht bestanden</option></select></div>'
+      + '  </div>'
+      + '  <div><label style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase">Bemerkungen</label><textarea id="plBem" rows="3" placeholder="Arbeiten, Messwerte, Mängel …" style="width:100%;padding:9px 12px;border:1.5px solid #c8cfdf;border-radius:8px;font-size:13px;margin-top:4px;font-family:inherit;resize:vertical"></textarea></div>'
+      + '  <div><label style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase">Nächste Prüfung</label><input id="plNext" type="date" value="'+addMonths(today(),12)+'" style="width:100%;padding:9px 12px;border:1.5px solid #c8cfdf;border-radius:8px;font-size:13px;margin-top:4px"/></div>'
+      + '</div>'
+      + '<button onclick="_wzPruefLiefBerichtEinreichen(\''+toolId+'\')" style="margin-top:12px;padding:10px 18px;border-radius:8px;border:none;background:#16a34a;color:#fff;cursor:pointer;font-weight:700;font-family:inherit;width:100%">📤 Prüfbericht einreichen</button>'
+      + '</div>'
+    : '<div style="background:#f0fdf4;border:1.5px solid #bbf7d0;border-radius:8px;padding:12px;margin-top:6px"><div style="font-size:12px;font-weight:700;color:#16a34a">✓ Prüfung abgeschlossen und Bericht übermittelt</div></div>';
+  var html = '<div style="background:#fff;border-radius:14px;padding:24px;max-width:560px;width:100%;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px -10px rgba(0,0,0,.3)">'
+    + '<h3 style="margin:0 0 4px;font-size:17px;font-weight:800">📋 Prüfungsauftrag</h3>'
+    + '<div style="font-size:12px;color:#64748b;margin-bottom:14px">Gerät: <strong>'+esc(t.name)+'</strong>'+(t.brand?' · '+esc(t.brand):'')+(t.serial?' · SN '+esc(t.serial):'')+'</div>'
+    + '<div style="background:#f8fafc;border-radius:8px;padding:10px 12px;margin-bottom:12px;font-size:12px"><div style="color:#64748b">Angefordert von <strong>'+esc(pa.angefordertVonName||'—')+'</strong>'+(pa.angefordertAm?' am '+fmt(pa.angefordertAm.split('T')[0]):'')+'</div>'+(pa.wunschtermin?'<div style="color:#64748b;margin-top:2px">Wunschtermin: <strong>'+fmt(pa.wunschtermin)+'</strong></div>':'')+(pa.bemerkung?'<div style="color:#475569;margin-top:4px;font-style:italic">„'+esc(pa.bemerkung)+'"</div>':'')+'</div>'
+    + quittBlock
+    + uploadBlock
+    + '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">'
+    + '  <button onclick="_wzCloseModal()" style="padding:9px 18px;border-radius:8px;border:1.5px solid #c8cfdf;background:#fff;color:#334155;cursor:pointer;font-weight:600;font-family:inherit">Schliessen</button>'
+    + '</div>'
+    + '</div>';
+  _wzShowModal(html);
+}
+
+function _wzPruefLiefQuittieren(toolId){
+  var t=tools.find(function(x){return x.id===toolId;});
+  if(!t||!t.pruefAnfrage)return;
+  t.pruefAnfrage.status='quittiert';
+  t.pruefAnfrage.quittiertAm=new Date().toISOString();
+  save();renderList();
+  // Notifikation zurueck an den Magaziner
+  if(typeof GemaNotify!=='undefined' && t.pruefAnfrage.angefordertVon){
+    GemaNotify.push({
+      eventKey:'werkzeug_pruefung_anfrage',
+      empfaengerUserId:t.pruefAnfrage.angefordertVon,
+      modul:'werkzeug',
+      typ:'info',
+      titel:'✓ Lieferant hat quittiert: '+t.name,
+      text:(t.pruefAnfrage.lieferantFirma||'Lieferant')+' hat die Prüfungsanfrage angenommen',
+      link:'if_werkzeug.html?view='+encodeURIComponent(t.id)
+    });
+  }
+  openPruefLiefAnsicht(toolId);
+}
+
+function _wzPruefLiefBerichtEinreichen(toolId){
+  var t=tools.find(function(x){return x.id===toolId;});
+  if(!t||!t.pruefAnfrage)return;
+  var u=_wzGetUser()||{};
+  var datum=document.getElementById('plDat').value;
+  var ergebnis=document.getElementById('plErg').value;
+  var bem=document.getElementById('plBem').value.trim();
+  var next=document.getElementById('plNext').value||null;
+  if(!datum){alert('Durchführungsdatum fehlt');return;}
+  if(!t.berichte)t.berichte=[];
+  var ergLabel=ergebnis==='bestanden'?'✓ Bestanden':(ergebnis==='maengel'?'⚠ Mit Mängeln':'✕ Nicht bestanden');
+  t.berichte.push({
+    id:_wzNewBerichtId(),typ:'pruefbericht',
+    datum:new Date(datum).toISOString(),
+    autorUserId:u.id||'',
+    autorName:(u.profile&&u.profile.firma)||u.name||'Lieferant',
+    titel:'Prüfung durch Lieferant',
+    beschreibung:bem,
+    ergebnis:ergLabel,
+    fehlendeTeile:[],
+    naechstePruefung:next,
+    vonLieferant:true
+  });
+  // Sync bestehende Felder
+  if(t.hasElec)   t.lastElec=datum;
+  if(t.hasLeiter) t.lastLeiter=datum;
+  if(t.hasService)t.lastService=datum;
+  // Anfrage auf erledigt setzen
+  t.pruefAnfrage.status='erledigt';
+  t.pruefAnfrage.erledigtAm=new Date().toISOString();
+  save();renderList();_wzCloseModal();
+  // Notifikation zurueck an den Magaziner
+  if(typeof GemaNotify!=='undefined' && t.pruefAnfrage.angefordertVon){
+    GemaNotify.push({
+      eventKey:'werkzeug_pruefung_anfrage',
+      empfaengerUserId:t.pruefAnfrage.angefordertVon,
+      modul:'werkzeug',
+      typ:ergebnis==='bestanden'?'erfolg':'warnung',
+      titel:'📋 Prüfbericht eingegangen: '+t.name,
+      text:(t.pruefAnfrage.lieferantFirma||'Lieferant')+' · '+ergLabel,
+      link:'if_werkzeug.html?view='+encodeURIComponent(t.id)
+    });
+  }
+  alert('✓ Prüfbericht übermittelt');
+}
+
 // ──────────────────────────────────────
 // QR
 // ──────────────────────────────────────
@@ -1495,6 +1788,9 @@ await Promise.race([
   if(p.get('view'))setTimeout(()=>openViewTool(p.get('view')),400);
     else if(p.get('edit'))setTimeout(()=>editTool(p.get('edit')),400);
     else if(p.get('tool'))setTimeout(()=>openQR(p.get('tool')),400);
+    else if(p.get('pruef_lief'))setTimeout(()=>openPruefLiefAnsicht(p.get('pruef_lief')),400);
+  // Einmal pro Sitzung: Faelligkeits-Scan fuer Magaziner/Admin ausloesen
+  if(_wzCanEdit()){try{_wzScanFaelligkeiten();}catch(e){console.warn('Faelligkeitsscan fehlgeschlagen:',e);}}
   // Rollenabhaengige UI-Anpassungen: "+ Neu"-Button nur fuer
   // Magaziner/Admin einblenden.
   var btnAdd=document.getElementById('btnAddTool');
