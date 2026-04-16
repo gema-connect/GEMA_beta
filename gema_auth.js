@@ -662,6 +662,15 @@
         var userOrg=orgs.find(function(o){return o.id===user.orgId;})||orgs[0]||null;
 
         if(_isLoginOnly()){
+          // Rollenspezifische Weiterleitung: Lieferant/Prüfer/Magaziner/Monteur
+          // sollen nicht auf der Modulübersicht landen, sondern auf ihrem Dashboard
+          var roleDest=w.GemaAuth.getRedirectForUser(user);
+          var curPage=thisFileLower||'index';
+          var destPage=roleDest.replace('.html','').toLowerCase();
+          if(!_isAdmin(user)&&destPage!==curPage&&destPage!=='index'){
+            location.href=roleDest;
+            return;
+          }
           _unblock();
           document.addEventListener('DOMContentLoaded',function(){
             _injectBadge(user,roles,userOrg);
@@ -782,7 +791,8 @@
       var exp=new Date();exp.setDate(exp.getDate()+1);
       var s={userId:user.id,expires:exp.toISOString()};
       try{localStorage.setItem(STORAGE_SESSION,JSON.stringify(s));}catch(e){}
-      location.reload();
+      var dest=w.GemaAuth.getRedirectForUser(user);
+      location.href=dest;
     },
     _isImpersonating:function(){
       try{return !!localStorage.getItem('_gemaAdminOrigin');}catch(e){return false;}
