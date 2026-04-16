@@ -101,9 +101,13 @@
     try { liefs = GemaProdukte.getLieferanten(cfg.kategorie) || []; } catch(e) {}
     if(!liefs.length) { pills.style.display = 'none'; return; }
     pills.style.display = '';
+    // Tier-aware Sortierung (P03): Favoriten > Stamm > Premium > Verifiziert > Rest
+    try { if(GemaProdukte.sortWithStamm) liefs = GemaProdukte.sortWithStamm(liefs); } catch(e) {}
     var html = '<div class="gaw-pill'+ (state.selLief==='alle'?' active':'') +'" data-lief="alle" style="'+_pillStyle(state.selLief==='alle', cfg.accent)+'">Alle</div>';
     liefs.forEach(function(l){
-      var isPrem = l && l.premium && l.premium.aktiv;
+      var isPrem = false;
+      try { isPrem = GemaProdukte.isLieferantPremium && GemaProdukte.isLieferantPremium(l); }
+      catch(e) { isPrem = l && l.premium && l.premium.aktiv; }
       html += '<div class="gaw-pill'+ (state.selLief===l.firma?' active':'') +'" data-lief="'+E(l.firma)+'" style="'+_pillStyle(state.selLief===l.firma, cfg.accent)+(isPrem?';border-color:#f59e0b;background:#fefce8;color:#92400e':'')+'">'+E(l.firma)+(isPrem?' ★':'')+'</div>';
     });
     pills.innerHTML = html;
@@ -372,6 +376,23 @@
     setTimeout(function(){ t.remove(); }, 3500);
   }
 
+  // Auto-Scroll zum Anlagenwahl-Bereich mit kurzem Puls-Highlight (P03).
+  // Wird vom Modul aufgerufen, sobald die Haupt-Berechnung ein valides
+  // Ergebnis hat (z.B. beim ersten Mal). Zeigt dem Planer, dass jetzt
+  // ein passendes Produkt gewaehlt werden kann.
+  function scrollToResults(containerIdOrEl){
+    var el = typeof containerIdOrEl === 'string'
+      ? document.querySelector(containerIdOrEl.charAt(0)==='#'?containerIdOrEl:'#'+containerIdOrEl)
+      : containerIdOrEl;
+    if(!el) return;
+    try { el.scrollIntoView({ behavior:'smooth', block:'start' }); } catch(e) { el.scrollIntoView(); }
+    var card = el.querySelector && el.querySelector('.gaw-card') || el;
+    var orig = card.style.boxShadow;
+    card.style.transition = 'box-shadow .6s ease';
+    card.style.boxShadow = '0 0 0 3px rgba(37,99,235,.35), 0 10px 30px rgba(37,99,235,.2)';
+    setTimeout(function(){ card.style.boxShadow = orig || ''; }, 1600);
+  }
+
   w.GemaAnlagenwahl = {
     init: init,
     // Optional: Re-Rendering von aussen triggern, wenn sich die
@@ -380,6 +401,7 @@
       var id = typeof containerIdOrEl === 'string' ? containerIdOrEl.replace('#','') : (containerIdOrEl && containerIdOrEl.id);
       var st = _instances[id];
       if(st) _renderGrid(st);
-    }
+    },
+    scrollToResults: scrollToResults
   };
 })(window);

@@ -580,15 +580,33 @@ Stack ist nicht persistiert — bei Reload weg. Nur für Same-Session-Korrekture
 
 ---
 
-## Stammlieferanten-Sortierung
+## Stammlieferanten-Sortierung (Premium-Tier)
 
-`gema_produktkatalog_api.js` enthält `sortWithStamm(produkte, options)`. Reihenfolge:
+`gema_produktkatalog_api.js` enthält `sortWithStamm(lieferanten)`. Die Reihenfolge hängt davon ab, ob der aktuelle Planer eine **Premium-Lizenz** hat:
 
-1. **Persönliche Favoriten** des aktuellen Users (`getFavoriten()` / `toggleFavorit(produktId)`)
-2. **Büro-Stammlieferanten** der eigenen Organisation
-3. **Alle anderen Lieferanten**
+**Planer ohne Premium (Standard-Lizenz):**
+Keine Favoriten/Stamm-Auflösung — Lieferanten bezahlen für Sichtbarkeit:
+1. **Premium-Lieferanten** (via Org-Abo, `GemaProdukte.isLieferantPremium()`)
+2. **Verifizierte** Lieferanten
+3. Alle anderen Lieferanten
 
-API: `getFavoriten()`, `isFavorit(id)`, `toggleFavorit(id)`.
+**Planer mit Premium-Lizenz (`GemaProdukte.isPlanerPremium()`):**
+Volle Flexibilität — bezahlt für eigene Ordnung:
+1. **Persönliche Favoriten** (`getFavoriten()` / `toggleFavorit(id)`)
+2. **Büro-Stammlieferanten** (`getOrgStamm()` / Admin setzt)
+3. **Premium-Lieferanten**
+4. **Verifizierte**
+5. Alle anderen
+
+**Commercial-Logik:** Lieferanten kaufen Premium-Platzierung (Org-Abo `typ: 'premium'`). Planer können mit Premium-Lizenz eigene Favoriten/Stammlieferanten pflegen — diese überschreiben die kommerzielle Reihenfolge.
+
+**API:**
+- `isPlanerPremium(user?)` — prüft `user.planerPremium === true` oder `user.abo.typ === 'premium'`
+- `isLieferantPremium(lief)` — Legacy-Flag `lief.premium.aktiv` ODER Org-Abo des Lieferanten
+- `getFavoriten()`, `isFavorit(id)`, `toggleFavorit(id)`
+- `getOrgStamm()`, `toggleOrgStamm(id)` (nur Admin)
+
+**Auto-Scroll nach Berechnung:** `GemaAnlagenwahl.scrollToResults(containerId)` scrollt smooth zur Anlagenauswahl + kurzer Box-Shadow-Puls. Wird vom Modul beim ersten validen Berechnungsergebnis aufgerufen.
 
 ---
 

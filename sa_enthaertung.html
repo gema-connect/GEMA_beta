@@ -1461,22 +1461,46 @@ document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('enth
     });
   }
 
-  // Show anlage section after calc
+  // Show anlage section after calc. Beim ersten Mal (P03): Auto-Scroll +
+  // Puls-Highlight, damit der Planer merkt dass jetzt ein Produkt gewaehlt
+  // werden kann. Auf weiteren Recalcs nur Liste refreshen, kein erneuter
+  // Scroll-Pull auf den User.
+  var _anlagenScrolled = false;
   function showAnlagenSection(){
     var sec = document.getElementById('anlagenSection');
     if(!sec) return;
+    var wasHidden = sec.style.display === 'none';
     sec.style.display = '';
     renderAnlagenWahl();
+    if(wasHidden && !_anlagenScrolled){
+      // Nur wenn echte Berechnungswerte vorliegen (VE > 0)
+      var ve = parseFloat(document.getElementById('ve_total_ls')?.textContent) || 0;
+      if(ve > 0){
+        _anlagenScrolled = true;
+        setTimeout(function(){
+          try { sec.scrollIntoView({ behavior:'smooth', block:'start' }); } catch(e) { sec.scrollIntoView(); }
+          var card = sec.querySelector('[style*="border-radius"]') || sec;
+          var orig = card.style.boxShadow;
+          card.style.transition = 'box-shadow .6s ease';
+          card.style.boxShadow = '0 0 0 3px rgba(37,99,235,.35), 0 10px 30px rgba(37,99,235,.2)';
+          setTimeout(function(){ card.style.boxShadow = orig || ''; }, 1600);
+        }, 180);
+      }
+    }
   }
 
   function renderAnlagenWahl(){
     if(typeof GemaProdukte==='undefined') return;
     var liefs = GemaProdukte.getLieferanten('enthaertung');
+    // Tier-aware Sortierung (P03): Favoriten > Büro-Stamm > Premium > Verifiziert > Rest
+    try { if(GemaProdukte.sortWithStamm) liefs = GemaProdukte.sortWithStamm(liefs); } catch(e) {}
     var pills = document.getElementById('liefPills');
     pills.innerHTML = '<div class="pk-pill'+ (_selLief==='alle'?' active':'') +'" onclick="window._pkSelectLief(\'alle\')">Alle</div>' +
       liefs.map(function(l){
         var lief = typeof GemaProdukte.getLieferant==='function' ? GemaProdukte.getLieferant(l.id) : null;
-        var isPrem = lief && lief.premium && lief.premium.aktiv;
+        var isPrem = false;
+        try { isPrem = GemaProdukte.isLieferantPremium && GemaProdukte.isLieferantPremium(lief||l); }
+        catch(e) { isPrem = lief && lief.premium && lief.premium.aktiv; }
         return '<div class="pk-pill'+ (_selLief===l.firma?' active':'') + (isPrem?' premium':'') +'" onclick="window._pkSelectLief(\''+l.firma.replace(/'/g,"\\'")+'\')">'+l.firma+(isPrem?' ★':'')+'</div>';
       }).join('');
 
