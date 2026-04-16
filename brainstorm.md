@@ -29,6 +29,44 @@ Das meistgenutzte Berechnungstool jedes Sanitärplaners. Strangschema, Durchflü
 
 ---
 
+## P12 — Pricing / Trial auf Startseite ✅ (bereits vorhanden + verbessert)
+
+**Status:** Fertig
+
+- `sys_preise.html` öffentlich zugänglich (3 Pakete, Addons, Team-Rabatte, Bildungslizenz)
+- `GemaAuth` unterstützt `testphase`-Abo mit 30 Tagen
+- Nach Ablauf: Login-Light-Modus (kein PDF-Export, Copy-Schutz, Upgrade-Banner)
+- **Ergänzt:** prominenter grüner CTA-Link «🎁 Kostenlos testen — 30 Tage voller Zugang» auf `sys_login.html` über dem Login-Formular
+
+---
+
+## P11 — Offertvergleich mit Excel/PDF-Rücklauf 🔴 (umfangreich, später)
+
+**Priorität:** HOCH
+
+Unternehmer schicken Offerten als Excel oder PDF zurück — nicht über GEMA. System muss damit umgehen können.
+
+**Aktueller Stand:**
+- ✓ HTML-Inputs akzeptieren .xlsx/.xls/.pdf
+- ✓ Metadaten werden gespeichert (pdfName, Datum, Uploader)
+- ✗ Keine PDF-Binary-Speicherung (pdfDataUrl-Feld bleibt leer)
+- ✗ Kein Excel-Parser (SheetJS nicht eingebunden)
+- ✗ Kein Auto-Matching Excel-Positionen ↔ CRBX
+
+**3 Ausbaustufen (wähle bei Umsetzung):**
+
+1. **Minimal** (kleiner Sprint): PDF als Base64 speichern + Vorschau-Link. User trägt Preise manuell in GEMA nach. → Grundlage für P11.
+2. **Mittel** (mittlerer Sprint): + Excel-Upload mit SheetJS, Tabellen-Preview, manuelles Spalten-Mapping (Pos.Nr., Preis).
+3. **Gross** (Sprint): + Auto-Matching: Excel-Zeilen werden über Pos.Nr./NPK mit CRBX-Positionen gematcht, Preise automatisch übernommen.
+
+**Implementation-Notizen:**
+- SheetJS (xlsx.js) CDN einbinden
+- PDF via `FileReader.readAsDataURL()` → Base64 in `offerte.pdfDataUrl`
+- Supabase Storage wäre robuster als Base64-in-JSON (grosse Dateien)
+- Matching-Heuristik: 1) Pos.Nr. exakt, 2) NPK+Menge, 3) Fuzzy-Text
+
+---
+
 ## P10 — Follow-up: Ausreisser-Erkennung auch in pm_ausschreibungsunterlagen 🟡
 
 **Status:** Teil-Follow-up
