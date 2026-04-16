@@ -567,9 +567,12 @@ tbody td.mono{font-family:var(--mono);font-weight:500;}
       </div>
     </div>
     <div class="vm-body" id="vm_body"></div>
-    <div class="vm-actions">
-      <button class="btn" style="flex:1;justify-content:center" onclick="closeViewModal()">Schliessen</button>
-      <button class="btn primary" style="flex:1;justify-content:center" id="vm_editBtn">✏️ Bearbeiten</button>
+    <div class="vm-actions" style="flex-wrap:wrap;gap:8px;">
+      <button class="btn" style="flex:1 1 120px;justify-content:center;" onclick="closeViewModal()">Schliessen</button>
+      <button class="btn" style="flex:1 1 120px;justify-content:center;" onclick="openBerichte(_lastViewId)">📋 Historie</button>
+      <button class="btn" style="flex:1 1 120px;justify-content:center;" onclick="openDefekt(_lastViewId)">🔧 Defekt</button>
+      <button class="btn" style="flex:1 1 120px;justify-content:center;" onclick="openKosten(_lastViewId)">💰 Kosten</button>
+      <button class="btn primary" style="flex:1 1 120px;justify-content:center;" id="vm_editBtn">✏️ Bearbeiten</button>
     </div>
   </div>
 </div>
@@ -986,7 +989,7 @@ document.querySelectorAll("#viewToggle .seg").forEach(el=>el.addEventListener("c
 document.getElementById("modalOverlay").addEventListener("click",e=>{
   if(e.target===e.currentTarget) closeModal();
 });
-document.addEventListener("keydown",e=>{ if(e.key==="Escape"){ closeModal(); closeViewModal(); ['mgmtZuweisungOverlay','mgmtDefektOverlay','mgmtKostenOverlay','mgmtReifenOverlay','mgmtParkkOverlay'].forEach(function(id){ closeMgmt(id); }); } });
+document.addEventListener("keydown",e=>{ if(e.key==="Escape"){ closeModal(); closeViewModal(); ['mgmtZuweisungOverlay','mgmtDefektOverlay','mgmtKostenOverlay','mgmtReifenOverlay','mgmtParkkOverlay','mgmtBerichteOverlay'].forEach(function(id){ closeMgmt(id); }); document.body.style.overflow=''; } });
 
 // ── QR CODE ─────────────────────────────────────────────────────
 var _currentFzgQRInstance=null; // Referenz fuer SVG-Download
@@ -1069,6 +1072,7 @@ window.downloadFzgQRSVG=downloadFzgQRSVG;
 
 function openViewFzg(id){
   const v=vehicles.find(x=>x.id===id);
+  window._lastViewId = id;
   const overlay=document.getElementById('viewModalOverlay');
   if(!v){
     document.getElementById('vm_name').textContent='Fahrzeug nicht gefunden';
@@ -1386,8 +1390,30 @@ function saveParkk() {
 }
 window.saveParkk = saveParkk;
 
+/* ═══ BERICHTE ═══ */
+function openBerichte(vehicleId) {
+  const v = vehicles.find(x => x.id === vehicleId); if (!v) return;
+  document.getElementById('berichteVehTag').innerHTML = vehTag(v);
+  const list = document.getElementById('berichteList');
+  const events = v.events || [];
+  if (events.length === 0) {
+    list.innerHTML = '<div class="event-empty">Noch keine Einträge vorhanden.</div>';
+  } else {
+    list.innerHTML = events.map(e => `
+      <div class="event-item ${e.type||''}">
+        <div class="event-item-hd">
+          <span class="event-item-type">${esc(e.label||e.type)}</span>
+          <span class="event-item-date">${e.date ? new Date(e.date).toLocaleDateString('de-CH', {day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}) : '—'}</span>
+        </div>
+        ${e.detail ? '<div class="event-item-body">'+esc(e.detail)+'</div>' : ''}
+      </div>`).join('');
+  }
+  openMgmt('mgmtBerichteOverlay', vehicleId);
+}
+window.openBerichte = openBerichte;
+
 // Click-outside-to-close for management overlays
-['mgmtZuweisungOverlay','mgmtDefektOverlay','mgmtKostenOverlay','mgmtReifenOverlay','mgmtParkkOverlay'].forEach(function(id) {
+['mgmtZuweisungOverlay','mgmtDefektOverlay','mgmtKostenOverlay','mgmtReifenOverlay','mgmtParkkOverlay','mgmtBerichteOverlay'].forEach(function(id) {
   document.getElementById(id).addEventListener('click', function(e) {
     if (e.target === e.currentTarget) closeMgmt(id);
   });
@@ -1604,6 +1630,24 @@ window.saveParkk = saveParkk;
     <div class="mgmt-ft">
       <button class="btn" onclick="closeMgmt('mgmtParkkOverlay')">Abbrechen</button>
       <button class="btn primary" onclick="saveParkk()">💾 Speichern</button>
+    </div>
+  </div>
+</div>
+
+<!-- BERICHTE / HISTORIE MODAL -->
+<div class="mgmt-overlay" id="mgmtBerichteOverlay">
+  <div class="mgmt-modal" style="max-width:600px;">
+    <div class="mgmt-hd">
+      <div class="mgmt-hd-icon" style="background:var(--green-bg);">📋</div>
+      <h3>Fahrzeughistorie</h3>
+      <button class="modal-close" onclick="closeMgmt('mgmtBerichteOverlay')">✕</button>
+    </div>
+    <div class="mgmt-bd">
+      <div class="mgmt-veh-tag" id="berichteVehTag">—</div>
+      <div id="berichteList" class="event-list"></div>
+    </div>
+    <div class="mgmt-ft">
+      <button class="btn" onclick="closeMgmt('mgmtBerichteOverlay')">Schliessen</button>
     </div>
   </div>
 </div>
