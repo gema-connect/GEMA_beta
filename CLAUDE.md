@@ -379,9 +379,24 @@ Auto-Save/Load bei Objektwechsel.
 ## Cross-Modul API
 
 `gema_objekte_api.js` stellt bereit:
-- `GemaObjekte.getAll()` – alle Objekte
-- `GemaObjekte.getActive()` – aktives Objekt
+- `GemaObjekte.getAll()` – alle Objekte (gefiltert nach Org)
+- `GemaObjekte.getActive()` / `getActiveId()` – aktives Objekt
+- `GemaObjekte.setActiveId(id)` – aktives Objekt wechseln (feuert `gema-objekt-changed`)
 - `GemaObjekte.getBeteiligte()` – Beteiligte des aktiven Objekts
+- `GemaObjekte.storageKey(baseKey)` – Phasen-aware Storage-Key: `baseKey__objektId[@phase]`
+
+**Berechnungs-Index (P04):** automatische Registrierung aller Berechnungen pro Projekt
+- `GemaObjekte.registerBerechnung({modul, objektId?, titel?, storageKey?})` – wird von `gema_autosave.js` bei jedem Save aufgerufen
+- `GemaObjekte.getBerechnungenForObjekt(objektId)` – alle Einträge pro Projekt
+- `GemaObjekte.getBerechnungenForCurrentOrg()` – Org-weit (wird in pm_objekte.html im Tab «Berechnungen» angezeigt)
+- Storage: `gema_berechnungen_index_v1` (Array von `{key, modul, objektId, titel, orgId, createdAt, lastModified, ...}`)
+- Empfänger-Filter: `orgId` → Team-Sichtbarkeit innerhalb der Organisation
+
+**URL-Parameter `?objekt=ID`:** setzt beim Seitenaufruf automatisch das aktive Objekt. Wird vom Berechnungen-Tab in pm_objekte.html genutzt, damit der Planer direkt in der richtigen Zuordnung landet.
+
+**Zuordnungs-Pill:** `gema_objekte_api.js` injiziert automatisch einen Status-Chip in die `.project-bar`:
+- 📋 «Zugeordnet zu: <Objekt>» (grün) wenn Objekt aktiv
+- ⚠ «Nicht zugeordnet — bitte Projekt wählen» (amber) sonst
 
 Geplant: `gema_lu_api.js` für den Datenfluss aus der LU-Zusammenstellung:
 - `GemaLU.getVerbraucher(objektId)` – alle Verbraucher eines Projekts

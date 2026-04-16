@@ -143,6 +143,17 @@
     } catch(e) {}
 
     if (!silent) _showBadge();
+
+    // P04: Berechnungs-Index aktualisieren (nur wenn Objekt gewählt)
+    try {
+      if (typeof GemaObjekte !== 'undefined' && GemaObjekte.registerBerechnung && _objId) {
+        GemaObjekte.registerBerechnung({
+          modul: _module,
+          objektId: _objId,
+          storageKey: key
+        });
+      }
+    } catch(e) {}
   }
 
   // ── Load ──

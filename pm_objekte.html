@@ -269,6 +269,7 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important}
   <div class="tab-bar">
     <button class="tab-btn active" onclick="switchTab('objekte',this)">🏗 Objekte <span class="tab-badge" id="badgeObj">0</span></button>
     <button class="tab-btn" onclick="switchTab('beteiligte',this)">👷 Beteiligte <span class="tab-badge" id="badgeBet">0</span></button>
+    <button class="tab-btn" onclick="switchTab('berechnungen',this)">🧮 Berechnungen <span class="tab-badge" id="badgeBer">0</span></button>
   </div>
 
   <!-- TAB: OBJEKTE -->
@@ -337,6 +338,35 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important}
       <div class="empty-ic">👷</div>
       <h3>Noch keine Beteiligten</h3>
       <p>Erstelle zuerst ein Objekt, dann füge Beteiligte hinzu.</p>
+    </div>
+  </div>
+
+  <!-- TAB: BERECHNUNGEN -->
+  <div class="tab-panel" id="tab-berechnungen">
+    <div class="toolbar">
+      <div class="toolbar-title">Berechnungen</div>
+      <select class="g-nav-btn" id="berObjFilter" onchange="renderBerechnungen()" style="min-width:180px;padding:6px 10px;">
+        <option value="">Alle Objekte</option>
+      </select>
+    </div>
+    <div class="tbl-wrap" id="berTableWrap" style="display:none">
+      <table class="tbl">
+        <thead>
+          <tr>
+            <th>Modul</th>
+            <th>Objekt</th>
+            <th>Letzter Bearbeiter</th>
+            <th>Zuletzt bearbeitet</th>
+            <th style="width:120px"></th>
+          </tr>
+        </thead>
+        <tbody id="berTbody"></tbody>
+      </table>
+    </div>
+    <div class="empty" id="berEmpty" style="display:none">
+      <div class="empty-ic">🧮</div>
+      <h3>Noch keine Berechnungen</h3>
+      <p>Berechnungen werden automatisch hier aufgelistet, sobald du in einem Berechnungs-Modul mit einem Objekt arbeitest.</p>
     </div>
   </div>
 
@@ -508,8 +538,101 @@ function switchTab(tab,btn){
   if(btn)btn.classList.add('active');
   if(tab==='beteiligte'){populateObjFilter();renderBeteiligte();}
   if(tab==='objekte')renderObjekte();
+  if(tab==='berechnungen'){populateBerObjFilter();renderBerechnungen();}
 }
 window.switchTab=switchTab;
+
+// ── BERECHNUNGEN-TAB (P04) ──
+// Mapping modul-Key → HTML-Datei + Label. Wird genutzt um den direkten
+// Link zur Berechnung zu bauen.
+var MODUL_MAP = {
+  'druckerhoehung':        {html:'sb_druckerhoehung.html',        label:'Druckerhöhung',        icon:'💧'},
+  'druckdispositiv':       {html:'sb_druckdispositiv.html',       label:'Druckdispositiv',      icon:'📐'},
+  'druckverlust':          {html:'sb_druckverlust.html',          label:'Druckverlust',         icon:'📉'},
+  'lu_tabelle':            {html:'sb_lu_tabelle.html',            label:'LU-Zusammenstellung',  icon:'📋'},
+  'laengenausdehnung':     {html:'sb_laengenausdehnung.html',     label:'Längenausdehnung',     icon:'📏'},
+  'du_zusammenstellung':   {html:'sb_du_zusammenstellung.html',   label:'DU-Zusammenstellung',  icon:'📋'},
+  'ausstosszeiten':        {html:'sb_ausstosszeiten.html',        label:'Ausstosszeiten',       icon:'⏱'},
+  'warmwasser_sia385':     {html:'sb_warmwasser.html',            label:'Warmwasser SIA 385',   icon:'🔥'},
+  'niederschlagsanfall':   {html:'sb_niederschlag.html',          label:'Niederschlagsanfall',  icon:'🌧'},
+  'apparateliste':         {html:'sb_apparateliste.html',         label:'Apparateliste',        icon:'📋'},
+  'grobauslegung':         {html:'sb_grobauslegung.html',         label:'Grobauslegung',        icon:'🎯'},
+  'vonroll_tabellen':      {html:'sb_vonroll.html',               label:'vonRoll-Tabellen',    icon:'🔧'},
+  'enthaertungsanlage':    {html:'sa_enthaertung.html',           label:'Enthärtungsanlage',   icon:'🧂'},
+  'osmose':                {html:'sa_osmose.html',                label:'Osmoseanlage',         icon:'💦'},
+  'frischwasserstation':   {html:'sa_frischwasserstation.html',   label:'Frischwasserstation', icon:'🚰'},
+  'fettabscheider':        {html:'sa_fettabscheider.html',        label:'Fettabscheider',       icon:'🧴'},
+  'oelabscheider':         {html:'sa_oelabscheider.html',         label:'Ölabscheider',        icon:'🛢'},
+  'schlammsammler':        {html:'sa_schlammsammler.html',        label:'Schlammsammler',       icon:'🏺'},
+  'abwasserhebeanlage':    {html:'sa_abwasserhebeanlage.html',    label:'Abwasserhebeanlage',  icon:'🚰'},
+  'thermische_solaranlage':{html:'sa_solaranlage.html',           label:'Solaranlage',          icon:'☀️'}
+};
+
+function _modulInfo(key){
+  return MODUL_MAP[key] || {html:null, label:key, icon:'🧮'};
+}
+
+function populateBerObjFilter(){
+  var sel = $('berObjFilter');
+  if(!sel) return;
+  var cur = sel.value;
+  var objs = (typeof GemaObjekte!=='undefined') ? (GemaObjekte.getAll()||[]) : [];
+  sel.innerHTML = '<option value="">Alle Objekte</option>' +
+    objs.map(function(o){
+      return '<option value="'+o.id+'">'+(o.nummer?o.nummer+' · ':'')+ (o.name||o.projekt||o.id) +'</option>';
+    }).join('');
+  if(cur) sel.value = cur;
+}
+
+function renderBerechnungen(){
+  var list = (typeof GemaObjekte!=='undefined' && GemaObjekte.getBerechnungenForCurrentOrg)
+    ? GemaObjekte.getBerechnungenForCurrentOrg() : [];
+  var fObj = $('berObjFilter') ? $('berObjFilter').value : '';
+  if(fObj) list = list.filter(function(e){ return e.objektId === fObj; });
+  var badge = $('badgeBer'); if(badge) badge.textContent = list.length;
+  var wrap = $('berTableWrap'), empty = $('berEmpty'), tbody = $('berTbody');
+  if(!list.length){
+    if(wrap) wrap.style.display='none';
+    if(empty) empty.style.display='';
+    if(tbody) tbody.innerHTML='';
+    return;
+  }
+  if(wrap) wrap.style.display='';
+  if(empty) empty.style.display='none';
+
+  var objs = (typeof GemaObjekte!=='undefined') ? (GemaObjekte.getAllUnfiltered()||[]) : [];
+  var users = (typeof GemaAuth!=='undefined' && GemaAuth.getUsers) ? (GemaAuth.getUsers()||[]) : [];
+
+  function userName(uid){
+    if(!uid) return '—';
+    var u = users.find(function(x){return x.id===uid;});
+    if(!u) return uid;
+    return (u.profile && (u.profile.person||u.profile.name)) || u.name || u.username || uid;
+  }
+  function objLabel(oid){
+    var o = objs.find(function(x){return x.id===oid;});
+    if(!o) return oid;
+    return (o.nummer?o.nummer+' · ':'') + (o.name||o.projekt||o.id);
+  }
+  function fmtDate(iso){
+    if(!iso) return '—';
+    try { return new Date(iso).toLocaleDateString('de-CH',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}); }
+    catch(e){ return iso; }
+  }
+
+  tbody.innerHTML = list.map(function(e){
+    var info = _modulInfo(e.modul);
+    var href = info.html ? (info.html + '?objekt=' + encodeURIComponent(e.objektId)) : '#';
+    return '<tr>'
+      + '<td><span style="font-size:14px;margin-right:6px">'+info.icon+'</span>'+info.label+'</td>'
+      + '<td>'+objLabel(e.objektId)+'</td>'
+      + '<td>'+userName(e.lastUserId||e.createdBy)+'</td>'
+      + '<td><span style="font-family:\'DM Sans\',ui-monospace,monospace;font-size:12px">'+fmtDate(e.lastModified)+'</span></td>'
+      + '<td>'+(info.html ? '<a class="g-nav-btn" href="'+href+'" style="padding:4px 10px;font-size:11px">Öffnen →</a>' : '')+'</td>'
+      + '</tr>';
+  }).join('');
+}
+window.renderBerechnungen = renderBerechnungen;
 
 // ── MODAL ──
 function openModal(id){$(id).classList.add('open');}
