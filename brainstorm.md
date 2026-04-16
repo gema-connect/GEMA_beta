@@ -29,6 +29,36 @@ Das meistgenutzte Berechnungstool jedes Sanitärplaners. Strangschema, Durchflü
 
 ---
 
+## P06 — PDF-Export mit Projektkopf ✅ (bereits vollständig)
+
+**Status:** Komplett fertig
+
+**gema_pdf.js** sammelt & rendert alle 5 Pflichtfelder:
+- Logo (via GemaAuth.getCurrentOrg().logo)
+- Projektname (#metaProjekt)
+- Datum (#metaDatum)
+- Bearbeiter (#metaBearbeiter)
+- Revisionsstand (#metaRevision)
+
+In 33 HTML-Dateien eingebunden, inkl. pm_ausschreibungsunterlagen.html.
+
+---
+
+## P05 — Normverweis auf Berechnungsblatt ✅ (bereits ~95% umgesetzt)
+
+**Status:** Weitgehend fertig
+
+**Existiert bereits:**
+- 20 von 21 Modulen haben Norm-Hinweis im Hero (`.gema-hero-norm` / `.hero-norm`)
+- 19 Module haben `metaBearbeiter` + `metaDatum` in `.project-bar`
+- `gema_pdf.js` druckt Norm + Bearbeiter + Datum automatisch in den PDF-Kopf
+
+**Mögliche Kleinst-Verbesserungen (optional):**
+- `sb_index.html` + `sb_grobauslegung.html`: Bearbeiter/Datum ergänzen (falls sinnvoll)
+- Design der Norm-Pill vereinheitlichen (falls Unterschiede sichtbar)
+
+---
+
 ## P03 — Follow-ups (Rest des Scopes aus P03-Umsetzung) 🟡
 
 **Priorität:** Follow-up nach Phase 1

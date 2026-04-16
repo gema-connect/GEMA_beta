@@ -302,6 +302,14 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important}
         <option value="Erweiterung">Erweiterung</option>
         <option value="Abbruch">Abbruch</option>
       </select>
+      <select class="sort-sel" id="objPhaseFilter" onchange="renderObjekte()">
+        <option value="">Alle SIA-Phasen</option>
+        <option value="vorprojekt">SIA 32 · Vorprojekt</option>
+        <option value="bauprojekt">SIA 33 · Bauprojekt</option>
+        <option value="ausschreibung">SIA 41 · Ausschreibung</option>
+        <option value="ausfuehrung">SIA 51-53 · Ausführung</option>
+        <option value="_none">Ohne Phase</option>
+      </select>
     </div>
     <div class="obj-grid" id="objGrid"></div>
     <div class="empty" id="objEmpty" style="display:none"></div>
@@ -708,6 +716,7 @@ window.setObjFilter=setObjFilter;
 function renderObjekte(){
   const q=($('objSearch')?.value||'').toLowerCase();
   const bvFilter=$('objBauvorhabenFilter')?.value||'';
+  const phFilter=$('objPhaseFilter')?.value||'';
   const sortBy=$('objSort')?.value||'name';
 
   // Tenant-Filter: Nicht-Admins sehen nur Objekte ihrer eigenen Org
@@ -727,6 +736,10 @@ function renderObjekte(){
   let list=visibleObjekte;
   if(_objFilter!=='all') list=list.filter(o=>(o.status||'aktiv')===_objFilter);
   if(bvFilter) list=list.filter(o=>(o.bauvorhaben||'')=== bvFilter);
+  if(phFilter) {
+    if(phFilter==='_none') list=list.filter(o=>!(o.aktivePhase));
+    else list=list.filter(o=>(o.aktivePhase||'')===phFilter);
+  }
   if(q) list=list.filter(o=>(o.name||'').toLowerCase().includes(q)||(o.ort||'').toLowerCase().includes(q)||(o.strasse||'').toLowerCase().includes(q)||(o.gemeinde||'').toLowerCase().includes(q));
 
   // Sort
@@ -773,6 +786,7 @@ function renderObjekte(){
         <span>🏗 ${esc(o.bauvorhaben||'–')}</span>
         <span>👷 ${betCount} Beteiligte</span>
         ${o.gemeinde?'<span>📍 '+esc(o.gemeinde)+'</span>':''}
+        ${o.aktivePhase?'<span style="background:#eff4ff;color:#1d4ed8;padding:2px 8px;border-radius:6px;font-weight:700;border:1px solid #bfdbfe">'+({vorprojekt:'SIA 32 · Vorprojekt',bauprojekt:'SIA 33 · Bauprojekt',ausschreibung:'SIA 41 · Ausschreibung',ausfuehrung:'SIA 51-53 · Ausführung'})[o.aktivePhase]+'</span>':''}
       </div>
       <div style="margin-top:8px;display:flex;gap:6px;align-items:center" class="no-print">
         <button class="btn btn-ghost btn-xs" onclick="event.stopPropagation();openObjektModal('${esc(o.id)}')">✏ Bearbeiten</button>
