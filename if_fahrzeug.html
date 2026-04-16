@@ -986,7 +986,7 @@ document.querySelectorAll("#viewToggle .seg").forEach(el=>el.addEventListener("c
 document.getElementById("modalOverlay").addEventListener("click",e=>{
   if(e.target===e.currentTarget) closeModal();
 });
-document.addEventListener("keydown",e=>{ if(e.key==="Escape"){ closeModal(); closeViewModal(); closeMgmt('mgmtZuweisungOverlay'); } });
+document.addEventListener("keydown",e=>{ if(e.key==="Escape"){ closeModal(); closeViewModal(); ['mgmtZuweisungOverlay','mgmtDefektOverlay','mgmtKostenOverlay'].forEach(function(id){ closeMgmt(id); }); } });
 
 // ── QR CODE ─────────────────────────────────────────────────────
 var _currentFzgQRInstance=null; // Referenz fuer SVG-Download
@@ -1272,9 +1272,66 @@ function saveZuweisung() {
 }
 window.saveZuweisung = saveZuweisung;
 
+/* ═══ DEFEKT ═══ */
+function openDefekt(vehicleId) {
+  const v = vehicles.find(x => x.id === vehicleId); if (!v) return;
+  document.getElementById('defektVehTag').innerHTML = vehTag(v);
+  document.getElementById('defektDesc').value = '';
+  document.getElementById('defektPrio').value = 'normal';
+  document.getElementById('defektKm').value = v.km || '';
+  openMgmt('mgmtDefektOverlay', vehicleId);
+}
+window.openDefekt = openDefekt;
+
+function saveDefekt() {
+  const desc = document.getElementById('defektDesc').value.trim();
+  if (!desc) { showToast('Bitte Defekt beschreiben.'); return; }
+  const prio = document.getElementById('defektPrio').value;
+  const km = document.getElementById('defektKm').value;
+  addVehicleEvent(_mgmtVehicleId, 'defekt', {
+    label: 'Defekt: ' + (prio === 'kritisch' ? '🚨 ' : prio === 'hoch' ? '⚠️ ' : '') + desc.slice(0, 60),
+    detail: desc + (km ? ' | ' + parseInt(km).toLocaleString('de-CH') + ' km' : ''),
+    prio
+  });
+  closeMgmt('mgmtDefektOverlay');
+  showToast('Defekt gemeldet ✓');
+}
+window.saveDefekt = saveDefekt;
+
+/* ═══ KOSTEN ═══ */
+function openKosten(vehicleId) {
+  const v = vehicles.find(x => x.id === vehicleId); if (!v) return;
+  document.getElementById('kostenVehTag').innerHTML = vehTag(v);
+  document.getElementById('kostenKat').value = 'Treibstoff';
+  document.getElementById('kostenBetrag').value = '';
+  document.getElementById('kostenDatum').value = new Date().toISOString().slice(0, 10);
+  document.getElementById('kostenKm').value = v.km || '';
+  document.getElementById('kostenNote').value = '';
+  openMgmt('mgmtKostenOverlay', vehicleId);
+}
+window.openKosten = openKosten;
+
+function saveKosten() {
+  const betrag = document.getElementById('kostenBetrag').value.trim();
+  if (!betrag) { showToast('Bitte Betrag eingeben.'); return; }
+  const kat = document.getElementById('kostenKat').value;
+  const datum = document.getElementById('kostenDatum').value;
+  const km = document.getElementById('kostenKm').value;
+  const note = document.getElementById('kostenNote').value.trim();
+  addVehicleEvent(_mgmtVehicleId, 'kosten', {
+    label: kat + ': CHF ' + parseFloat(betrag).toFixed(2),
+    detail: (datum ? fmtDate(datum) + ' | ' : '') + (km ? parseInt(km).toLocaleString('de-CH') + ' km' : '') + (note ? ' | ' + note : '')
+  });
+  closeMgmt('mgmtKostenOverlay');
+  showToast('Kosten erfasst ✓');
+}
+window.saveKosten = saveKosten;
+
 // Click-outside-to-close for management overlays
-document.getElementById('mgmtZuweisungOverlay').addEventListener('click', function(e) {
-  if (e.target === e.currentTarget) closeMgmt('mgmtZuweisungOverlay');
+['mgmtZuweisungOverlay','mgmtDefektOverlay','mgmtKostenOverlay'].forEach(function(id) {
+  document.getElementById(id).addEventListener('click', function(e) {
+    if (e.target === e.currentTarget) closeMgmt(id);
+  });
 });
 
 })().catch(e=>console.error("[GEMA] Fehler:",e));</script>
@@ -1314,6 +1371,91 @@ document.getElementById('mgmtZuweisungOverlay').addEventListener('click', functi
     <div class="mgmt-ft">
       <button class="btn" onclick="closeMgmt('mgmtZuweisungOverlay')">Abbrechen</button>
       <button class="btn primary" onclick="saveZuweisung()">💾 Speichern</button>
+    </div>
+  </div>
+</div>
+
+<!-- DEFEKT MODAL -->
+<div class="mgmt-overlay" id="mgmtDefektOverlay">
+  <div class="mgmt-modal">
+    <div class="mgmt-hd">
+      <div class="mgmt-hd-icon" style="background:var(--red-bg);">🔧</div>
+      <h3>Defekt melden</h3>
+      <button class="modal-close" onclick="closeMgmt('mgmtDefektOverlay')">✕</button>
+    </div>
+    <div class="mgmt-bd">
+      <div class="mgmt-veh-tag" id="defektVehTag">—</div>
+      <div class="form-grid">
+        <div class="field form-full">
+          <label class="label">Defekt / Problem *</label>
+          <textarea class="textarea" id="defektDesc" placeholder="Was ist defekt? Kurze Beschreibung …" style="min-height:70px;"></textarea>
+        </div>
+        <div class="field">
+          <label class="label">Priorität</label>
+          <select class="sel" id="defektPrio">
+            <option value="normal">Normal</option>
+            <option value="hoch">Hoch — baldige Reparatur</option>
+            <option value="kritisch">Kritisch — sofort</option>
+          </select>
+        </div>
+        <div class="field">
+          <label class="label">Km-Stand bei Meldung</label>
+          <input class="inp" id="defektKm" type="text" inputmode="decimal" onblur="fixLeadingZero(this)" placeholder="z. B. 47500"/>
+        </div>
+      </div>
+    </div>
+    <div class="mgmt-ft">
+      <button class="btn" onclick="closeMgmt('mgmtDefektOverlay')">Abbrechen</button>
+      <button class="btn danger" onclick="saveDefekt()">🔧 Melden</button>
+    </div>
+  </div>
+</div>
+
+<!-- KOSTEN MODAL -->
+<div class="mgmt-overlay" id="mgmtKostenOverlay">
+  <div class="mgmt-modal">
+    <div class="mgmt-hd">
+      <div class="mgmt-hd-icon" style="background:var(--amber-bg);">💰</div>
+      <h3>Kosten erfassen</h3>
+      <button class="modal-close" onclick="closeMgmt('mgmtKostenOverlay')">✕</button>
+    </div>
+    <div class="mgmt-bd">
+      <div class="mgmt-veh-tag" id="kostenVehTag">—</div>
+      <div class="form-grid">
+        <div class="field">
+          <label class="label">Kategorie</label>
+          <select class="sel" id="kostenKat">
+            <option value="Treibstoff">⛽ Treibstoff</option>
+            <option value="Service">🔧 Service / Wartung</option>
+            <option value="Reparatur">🛠 Reparatur</option>
+            <option value="Reifen">🔵 Reifen</option>
+            <option value="Versicherung">🛡 Versicherung</option>
+            <option value="Steuern">📋 Steuern / Gebühren</option>
+            <option value="Reinigung">🧹 Reinigung</option>
+            <option value="Sonstiges">📦 Sonstiges</option>
+          </select>
+        </div>
+        <div class="field">
+          <label class="label">Betrag (CHF)</label>
+          <input class="inp" id="kostenBetrag" type="text" inputmode="decimal" onblur="fixLeadingZero(this)" placeholder="z. B. 185.50"/>
+        </div>
+        <div class="field">
+          <label class="label">Datum</label>
+          <input class="inp" id="kostenDatum" type="date"/>
+        </div>
+        <div class="field">
+          <label class="label">Km-Stand</label>
+          <input class="inp" id="kostenKm" type="text" inputmode="decimal" onblur="fixLeadingZero(this)" placeholder="z. B. 47500"/>
+        </div>
+        <div class="field form-full">
+          <label class="label">Bemerkung</label>
+          <input class="inp" id="kostenNote" placeholder="Optional: Lieferant, Belegnr., …"/>
+        </div>
+      </div>
+    </div>
+    <div class="mgmt-ft">
+      <button class="btn" onclick="closeMgmt('mgmtKostenOverlay')">Abbrechen</button>
+      <button class="btn primary" onclick="saveKosten()">💾 Speichern</button>
     </div>
   </div>
 </div>
