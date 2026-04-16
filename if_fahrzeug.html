@@ -986,7 +986,7 @@ document.querySelectorAll("#viewToggle .seg").forEach(el=>el.addEventListener("c
 document.getElementById("modalOverlay").addEventListener("click",e=>{
   if(e.target===e.currentTarget) closeModal();
 });
-document.addEventListener("keydown",e=>{ if(e.key==="Escape"){ closeModal(); closeViewModal(); ['mgmtZuweisungOverlay','mgmtDefektOverlay','mgmtKostenOverlay'].forEach(function(id){ closeMgmt(id); }); } });
+document.addEventListener("keydown",e=>{ if(e.key==="Escape"){ closeModal(); closeViewModal(); ['mgmtZuweisungOverlay','mgmtDefektOverlay','mgmtKostenOverlay','mgmtReifenOverlay','mgmtParkkOverlay'].forEach(function(id){ closeMgmt(id); }); } });
 
 // ── QR CODE ─────────────────────────────────────────────────────
 var _currentFzgQRInstance=null; // Referenz fuer SVG-Download
@@ -1327,8 +1327,67 @@ function saveKosten() {
 }
 window.saveKosten = saveKosten;
 
+/* ═══ REIFEN ═══ */
+function openReifen(vehicleId) {
+  const v = vehicles.find(x => x.id === vehicleId); if (!v) return;
+  document.getElementById('reifenVehTag').innerHTML = vehTag(v);
+  document.getElementById('reifenTyp').value = 'Sommerreifen';
+  document.getElementById('reifenDatum').value = new Date().toISOString().slice(0, 10);
+  document.getElementById('reifenKm').value = v.km || '';
+  document.getElementById('reifenKosten').value = '';
+  document.getElementById('reifenDesc').value = v.tires || '';
+  document.getElementById('reifenLager').value = '';
+  openMgmt('mgmtReifenOverlay', vehicleId);
+}
+window.openReifen = openReifen;
+
+function saveReifen() {
+  const typ = document.getElementById('reifenTyp').value;
+  const datum = document.getElementById('reifenDatum').value;
+  const km = document.getElementById('reifenKm').value;
+  const kosten = document.getElementById('reifenKosten').value.trim();
+  const desc = document.getElementById('reifenDesc').value.trim();
+  const lager = document.getElementById('reifenLager').value.trim();
+  const v = vehicles.find(x => x.id === _mgmtVehicleId);
+  if (v && desc) v.tires = desc; // aktuell montierten Reifen updaten
+  addVehicleEvent(_mgmtVehicleId, 'reifen', {
+    label: 'Reifenwechsel: ' + typ,
+    detail: [desc, datum ? fmtDate(datum) : '', km ? parseInt(km).toLocaleString('de-CH') + ' km' : '', kosten ? 'CHF ' + parseFloat(kosten).toFixed(2) : '', lager ? 'Lager: ' + lager : ''].filter(Boolean).join(' | ')
+  });
+  persist(); render();
+  closeMgmt('mgmtReifenOverlay');
+  showToast('Reifenwechsel erfasst ✓');
+}
+window.saveReifen = saveReifen;
+
+/* ═══ PARKKARTE ═══ */
+function openParkk(vehicleId) {
+  const v = vehicles.find(x => x.id === vehicleId); if (!v) return;
+  document.getElementById('parkkVehTag').innerHTML = vehTag(v);
+  document.getElementById('parkkAktion').value = 'Hinzugefügt';
+  document.getElementById('parkkGueltig').value = '';
+  document.getElementById('parkkZone').value = '';
+  document.getElementById('parkkNr').value = '';
+  openMgmt('mgmtParkkOverlay', vehicleId);
+}
+window.openParkk = openParkk;
+
+function saveParkk() {
+  const aktion = document.getElementById('parkkAktion').value;
+  const gueltig = document.getElementById('parkkGueltig').value;
+  const zone = document.getElementById('parkkZone').value.trim();
+  const nr = document.getElementById('parkkNr').value.trim();
+  addVehicleEvent(_mgmtVehicleId, 'parkk', {
+    label: 'Parkkarte: ' + aktion,
+    detail: [zone, nr, gueltig ? 'bis ' + fmtDate(gueltig) : ''].filter(Boolean).join(' | ')
+  });
+  closeMgmt('mgmtParkkOverlay');
+  showToast('Parkkarte gespeichert ✓');
+}
+window.saveParkk = saveParkk;
+
 // Click-outside-to-close for management overlays
-['mgmtZuweisungOverlay','mgmtDefektOverlay','mgmtKostenOverlay'].forEach(function(id) {
+['mgmtZuweisungOverlay','mgmtDefektOverlay','mgmtKostenOverlay','mgmtReifenOverlay','mgmtParkkOverlay'].forEach(function(id) {
   document.getElementById(id).addEventListener('click', function(e) {
     if (e.target === e.currentTarget) closeMgmt(id);
   });
@@ -1456,6 +1515,95 @@ window.saveKosten = saveKosten;
     <div class="mgmt-ft">
       <button class="btn" onclick="closeMgmt('mgmtKostenOverlay')">Abbrechen</button>
       <button class="btn primary" onclick="saveKosten()">💾 Speichern</button>
+    </div>
+  </div>
+</div>
+
+<!-- REIFENWECHSEL MODAL -->
+<div class="mgmt-overlay" id="mgmtReifenOverlay">
+  <div class="mgmt-modal">
+    <div class="mgmt-hd">
+      <div class="mgmt-hd-icon" style="background:var(--cyan-bg);">🔵</div>
+      <h3>Reifenwechsel erfassen</h3>
+      <button class="modal-close" onclick="closeMgmt('mgmtReifenOverlay')">✕</button>
+    </div>
+    <div class="mgmt-bd">
+      <div class="mgmt-veh-tag" id="reifenVehTag">—</div>
+      <div class="form-grid">
+        <div class="field">
+          <label class="label">Typ</label>
+          <select class="sel" id="reifenTyp">
+            <option value="Sommerreifen">☀️ Sommerreifen</option>
+            <option value="Winterreifen">❄️ Winterreifen</option>
+            <option value="Ganzjahresreifen">🔄 Ganzjahresreifen</option>
+          </select>
+        </div>
+        <div class="field">
+          <label class="label">Datum</label>
+          <input class="inp" id="reifenDatum" type="date"/>
+        </div>
+        <div class="field">
+          <label class="label">Km-Stand</label>
+          <input class="inp" id="reifenKm" type="text" inputmode="decimal" onblur="fixLeadingZero(this)" placeholder="z. B. 47500"/>
+        </div>
+        <div class="field">
+          <label class="label">Kosten (CHF)</label>
+          <input class="inp" id="reifenKosten" type="text" inputmode="decimal" onblur="fixLeadingZero(this)" placeholder="Optional"/>
+        </div>
+        <div class="field form-full">
+          <label class="label">Reifen-Bezeichnung</label>
+          <input class="inp" id="reifenDesc" placeholder="z. B. Michelin CrossClimate 205/55 R16"/>
+        </div>
+        <div class="field form-full">
+          <label class="label">Lagerort alte Reifen</label>
+          <input class="inp" id="reifenLager" placeholder="z. B. Lager Halle 2, Regal A3"/>
+        </div>
+      </div>
+    </div>
+    <div class="mgmt-ft">
+      <button class="btn" onclick="closeMgmt('mgmtReifenOverlay')">Abbrechen</button>
+      <button class="btn primary" onclick="saveReifen()">💾 Speichern</button>
+    </div>
+  </div>
+</div>
+
+<!-- PARKKARTEN MODAL -->
+<div class="mgmt-overlay" id="mgmtParkkOverlay">
+  <div class="mgmt-modal">
+    <div class="mgmt-hd">
+      <div class="mgmt-hd-icon" style="background:var(--purple-bg);">🅿️</div>
+      <h3>Parkkarte verwalten</h3>
+      <button class="modal-close" onclick="closeMgmt('mgmtParkkOverlay')">✕</button>
+    </div>
+    <div class="mgmt-bd">
+      <div class="mgmt-veh-tag" id="parkkVehTag">—</div>
+      <div class="form-grid">
+        <div class="field">
+          <label class="label">Aktion</label>
+          <select class="sel" id="parkkAktion">
+            <option value="Hinzugefügt">➕ Parkkarte hinzugefügt</option>
+            <option value="Erneuert">🔄 Erneuert / verlängert</option>
+            <option value="Zurückgegeben">↩️ Zurückgegeben</option>
+            <option value="Verloren">⚠️ Verloren / gesperrt</option>
+          </select>
+        </div>
+        <div class="field">
+          <label class="label">Gültig bis</label>
+          <input class="inp" id="parkkGueltig" type="date"/>
+        </div>
+        <div class="field form-full">
+          <label class="label">Zone / Ort</label>
+          <input class="inp" id="parkkZone" placeholder="z. B. Blaue Zone Basel, Parkhaus XY"/>
+        </div>
+        <div class="field form-full">
+          <label class="label">Parkkarten-Nr. / Kennzeichen</label>
+          <input class="inp" id="parkkNr" placeholder="z. B. PK-2024-088"/>
+        </div>
+      </div>
+    </div>
+    <div class="mgmt-ft">
+      <button class="btn" onclick="closeMgmt('mgmtParkkOverlay')">Abbrechen</button>
+      <button class="btn primary" onclick="saveParkk()">💾 Speichern</button>
     </div>
   </div>
 </div>
