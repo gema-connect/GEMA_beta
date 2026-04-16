@@ -29,6 +29,28 @@ Das meistgenutzte Berechnungstool jedes Sanitärplaners. Strangschema, Durchflü
 
 ---
 
+## P10 — Follow-up: Ausreisser-Erkennung auch in pm_ausschreibungsunterlagen 🟡
+
+**Status:** Teil-Follow-up
+
+Die Ausreisser-Erkennung (Median + ±30%/±50%-Markierung) ist in `pm_crbx.html` umgesetzt. Die gleiche Visualisierung sollte analog auch in `pm_ausschreibungsunterlagen.html` im Offertvergleich-Tab eingebaut werden (aktuell nur 0-Pos + günstigste).
+
+Die relevante Stelle ist bei `.ov-z` / `.ov-ch` im Vergleichs-Renderer.
+
+---
+
+## P09 — CRBX/E1S Import & Export ✅ (bereits vollständig)
+
+**Status:** Komplett implementiert
+
+- `pm_crbx.html` (standalone): Import ZIP → SIA 451 Parser → Positionen → Preiseintrag → Export `.crbx`-ZIP
+- 5 Tabs: Import / Leistungsverzeichnis / Offerten / Offertvergleich / Zusammenfassung
+- Satztypen A/B/C/G/Z unterstützt (parseE1S, parseG, writeE1S)
+- Integration in `pm_ausschreibungsunterlagen.html` als CRBX-Abgleich-Tab
+- Kleine Lücke: Menu-Link zu `pm_crbx.html` nicht prominent sichtbar — User wollte nicht ergänzen
+
+---
+
 ## P06 — PDF-Export mit Projektkopf ✅ (bereits vollständig)
 
 **Status:** Komplett fertig
