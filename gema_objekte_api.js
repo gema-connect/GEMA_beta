@@ -176,6 +176,40 @@
       }));
     } catch(e) {}
   }
+  // ── Team-Zuweisung (P08) ──
+  // Projektleiter, Abteilungsleiter (Prüfer) und Team am Objekt.
+  // User-IDs zeigen auf GemaAuth-User der gleichen Organisation.
+  function getAssignedUserIds(obj) {
+    if (!obj) return [];
+    var ids = [];
+    if (obj.projektLeiterId) ids.push(obj.projektLeiterId);
+    if (obj.abteilungsLeiterId && ids.indexOf(obj.abteilungsLeiterId) < 0) ids.push(obj.abteilungsLeiterId);
+    (obj.teamUserIds || []).forEach(function(uid){ if (ids.indexOf(uid) < 0) ids.push(uid); });
+    return ids;
+  }
+  function isAssignedToCurrentUser(obj) {
+    try {
+      if (!w.GemaAuth || !w.GemaAuth.getCurrentUser) return false;
+      var me = w.GemaAuth.getCurrentUser();
+      if (!me) return false;
+      return getAssignedUserIds(obj).indexOf(me.id) >= 0;
+    } catch(e) { return false; }
+  }
+  function canEditTeam(obj) {
+    try {
+      if (!w.GemaAuth || !w.GemaAuth.getCurrentUser) return false;
+      var me = w.GemaAuth.getCurrentUser();
+      if (!me) return false;
+      // Admins dürfen immer
+      if (me.roleIds && me.roleIds.indexOf('role_admin') >= 0) return true;
+      // Projektleiter darf
+      if (obj && obj.projektLeiterId === me.id) return true;
+      // Ersteller darf (vor erster Zuweisung)
+      if (obj && (!obj.projektLeiterId) && obj.erstelltVon === me.id) return true;
+      return false;
+    } catch(e) { return false; }
+  }
+
   function getActive() {
     var data = _load();
     if (!data.activeObjektId) return null;
@@ -431,7 +465,11 @@
     registerBerechnung: registerBerechnung,
     getBerechnungenForObjekt: getBerechnungenForObjekt,
     getBerechnungenForCurrentOrg: getBerechnungenForCurrentOrg,
-    removeBerechnung: removeBerechnung
+    removeBerechnung: removeBerechnung,
+    // Team-Zuweisung (P08)
+    getAssignedUserIds: getAssignedUserIds,
+    isAssignedToCurrentUser: isAssignedToCurrentUser,
+    canEditTeam: canEditTeam
   };
 
   // Auto-init: try sync first, then async Supabase if needed

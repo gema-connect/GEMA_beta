@@ -294,6 +294,9 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important}
       <button class="fb" data-filter="abgeschlossen" onclick="setObjFilter('abgeschlossen',this)">Abgeschlossen <span class="cnt" id="cntAbgeschlossen">0</span></button>
       <button class="fb" data-filter="archiviert" onclick="setObjFilter('archiviert',this)">Archiviert <span class="cnt" id="cntArchiviert">0</span></button>
       <span style="width:1px;height:18px;background:var(--brd2);flex-shrink:0"></span>
+      <button class="fb" data-scope="meine" onclick="setObjScope('meine',this)">👤 Meine <span class="cnt" id="cntMeine">0</span></button>
+      <button class="fb active" data-scope="buero" onclick="setObjScope('buero',this)">🏢 Büro <span class="cnt" id="cntBuero">0</span></button>
+      <span style="width:1px;height:18px;background:var(--brd2);flex-shrink:0"></span>
       <select class="sort-sel" id="objBauvorhabenFilter" onchange="renderObjekte()">
         <option value="">Alle Bauvorhaben</option>
         <option value="Neubau">Neubau</option>
@@ -419,6 +422,24 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important}
       <div class="fg"><label>Status</label>
         <select id="objStatus"><option value="aktiv">✓ Aktiv</option><option value="abgeschlossen">Abgeschlossen</option><option value="archiviert">Archiviert</option></select>
       </div>
+
+      <!-- TEAM-ZUWEISUNG (P08) -->
+      <div id="objTeamSection" style="border-top:1px solid var(--brd);padding-top:14px;margin-top:14px">
+        <div style="font-size:11.5px;font-weight:800;color:var(--acc);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">👥 Team-Zuweisung</div>
+        <div class="frow">
+          <div class="fg"><label>Projektleiter</label>
+            <select id="objProjektLeiterId"><option value="">— Kein Projektleiter —</option></select>
+          </div>
+          <div class="fg"><label>Abteilungsleiter / Prüfer</label>
+            <select id="objAbteilungsLeiterId"><option value="">— Keiner —</option></select>
+          </div>
+        </div>
+        <div class="fg"><label>Team-Mitglieder <span style="font-weight:500;color:var(--mut);text-transform:none;letter-spacing:0">(zusätzliche Bearbeiter aus deiner Org)</span></label>
+          <div id="objTeamChips" style="display:flex;flex-wrap:wrap;gap:6px;padding:8px 10px;border:1.5px solid var(--brd2);border-radius:8px;background:var(--sur);min-height:44px;align-items:center"></div>
+        </div>
+        <div id="objTeamHint" style="display:none;font-size:11.5px;color:#92400e;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:6px 10px;margin-top:6px">Nur Projektleiter oder Admins können das Team ändern.</div>
+      </div>
+
       <div class="fg"><label>Notizen</label><textarea id="objNotizen" placeholder="Zusätzliche Informationen…"></textarea></div>
     </div>
     <div class="modal-ft">
@@ -705,12 +726,21 @@ function getObjektBreadcrumb(objektId){
 
 // ── RENDER OBJEKTE ──
 var _objFilter='aktiv'; // default: show only active
+var _objScope='buero';  // default: Büro-Ansicht (alle Objekte der Org)
 function setObjFilter(val,btn){
   _objFilter=val;
-  document.querySelectorAll('#objFilterBar .fb').forEach(b=>b.classList.remove('active'));
+  // Nur Status-Buttons (data-filter) togglen, Scope-Buttons unberührt lassen
+  document.querySelectorAll('#objFilterBar .fb[data-filter]').forEach(b=>b.classList.remove('active'));
   if(btn) btn.classList.add('active');
   renderObjekte();
 }
+function setObjScope(val, btn){
+  _objScope=val;
+  document.querySelectorAll('#objFilterBar .fb[data-scope]').forEach(b=>b.classList.remove('active'));
+  if(btn) btn.classList.add('active');
+  renderObjekte();
+}
+window.setObjScope = setObjScope;
 window.setObjFilter=setObjFilter;
 
 function renderObjekte(){
@@ -724,6 +754,17 @@ function renderObjekte(){
     ? _mem.objekte
     : _mem.objekte.filter(o=>(o.orgId||'org_default')===(_currentOrgId||'org_default'));
 
+  // Scope-Filter (Meine vs. Büro) — P08
+  const myId=(typeof GemaAuth!=='undefined'&&GemaAuth.getCurrentUser)?(GemaAuth.getCurrentUser()?.id):null;
+  function isMineFor(o){
+    if(!myId) return false;
+    if(o.projektLeiterId===myId) return true;
+    if(o.abteilungsLeiterId===myId) return true;
+    if((o.teamUserIds||[]).indexOf(myId)>=0) return true;
+    return false;
+  }
+  const mineList=visibleObjekte.filter(isMineFor);
+
   // Count per status (gefiltert nach Org)
   const counts={all:visibleObjekte.length, aktiv:0, abgeschlossen:0, archiviert:0};
   visibleObjekte.forEach(o=>{const s=o.status||'aktiv';if(counts[s]!==undefined)counts[s]++;});
@@ -731,9 +772,11 @@ function renderObjekte(){
   if($('cntAktiv')) $('cntAktiv').textContent=counts.aktiv;
   if($('cntAbgeschlossen')) $('cntAbgeschlossen').textContent=counts.abgeschlossen;
   if($('cntArchiviert')) $('cntArchiviert').textContent=counts.archiviert;
+  if($('cntBuero')) $('cntBuero').textContent=visibleObjekte.length;
+  if($('cntMeine')) $('cntMeine').textContent=mineList.length;
 
-  // Filter
-  let list=visibleObjekte;
+  // Filter: erst Scope (Meine vs. Büro), dann Status
+  let list = _objScope==='meine' ? mineList : visibleObjekte;
   if(_objFilter!=='all') list=list.filter(o=>(o.status||'aktiv')===_objFilter);
   if(bvFilter) list=list.filter(o=>(o.bauvorhaben||'')=== bvFilter);
   if(phFilter) {
@@ -768,6 +811,27 @@ function renderObjekte(){
     return;
   }
   $('objEmpty').style.display='none';
+  // Vorbereitung für Team-Bubbles (P08): alle Users einmal laden
+  const _allUsers = (typeof GemaAuth!=='undefined'&&GemaAuth.getUsers)?(GemaAuth.getUsers()||[]):[];
+  function _userById(id){return _allUsers.find(u=>u.id===id);}
+  function _initials(u){if(!u)return '?';var n=(u.profile&&(u.profile.person||u.profile.name))||u.name||u.username||'?';return n.split(/\s+/).map(w=>w[0]).join('').toUpperCase().slice(0,2);}
+  function _teamBubbles(o){
+    const ids=[];
+    if(o.projektLeiterId) ids.push({id:o.projektLeiterId,role:'PL',color:'#1d4ed8',bg:'#eff4ff'});
+    if(o.abteilungsLeiterId&&o.abteilungsLeiterId!==o.projektLeiterId) ids.push({id:o.abteilungsLeiterId,role:'AL',color:'#7c3aed',bg:'#f5f3ff'});
+    (o.teamUserIds||[]).forEach(uid=>{if(!ids.find(x=>x.id===uid)) ids.push({id:uid,role:'T',color:'#16a34a',bg:'#f0fdf4'});});
+    if(!ids.length) return '';
+    const shown=ids.slice(0,3);
+    const extra=ids.length-shown.length;
+    const html=shown.map(x=>{
+      const u=_userById(x.id);const i=_initials(u);
+      const title=(u?esc(u.profile?.person||u.profile?.name||u.name||u.username||u.id):x.id)+' ('+x.role+')';
+      return '<span title="'+title+'" style="width:24px;height:24px;border-radius:50%;background:'+x.bg+';border:1.5px solid '+x.color+';color:'+x.color+';font-size:10px;font-weight:800;display:inline-flex;align-items:center;justify-content:center;margin-left:-4px">'+i+'</span>';
+    }).join('');
+    const plus=extra>0?'<span title="+'+extra+' weitere" style="width:24px;height:24px;border-radius:50%;background:#f4f6fb;border:1.5px solid #cbd5e1;color:#64748b;font-size:10px;font-weight:800;display:inline-flex;align-items:center;justify-content:center;margin-left:-4px">+'+extra+'</span>':'';
+    return '<div style="display:flex;align-items:center;margin-left:4px" onclick="event.stopPropagation()">'+html+plus+'</div>';
+  }
+
   $('objGrid').innerHTML=list.map(o=>{
     const betCount=_mem.beteiligte.filter(b=>b.objektId===o.id).length;
     const isActive=o.id===_mem.activeObjektId;
@@ -788,6 +852,7 @@ function renderObjekte(){
         ${o.gemeinde?'<span>📍 '+esc(o.gemeinde)+'</span>':''}
         ${o.aktivePhase?'<span style="background:#eff4ff;color:#1d4ed8;padding:2px 8px;border-radius:6px;font-weight:700;border:1px solid #bfdbfe">'+({vorprojekt:'SIA 32 · Vorprojekt',bauprojekt:'SIA 33 · Bauprojekt',ausschreibung:'SIA 41 · Ausschreibung',ausfuehrung:'SIA 51-53 · Ausführung'})[o.aktivePhase]+'</span>':''}
       </div>
+      ${_teamBubbles(o)}
       <div style="margin-top:8px;display:flex;gap:6px;align-items:center" class="no-print">
         <button class="btn btn-ghost btn-xs" onclick="event.stopPropagation();openObjektModal('${esc(o.id)}')">✏ Bearbeiten</button>
         <button class="btn btn-ghost btn-xs" style="color:#dc2626" onclick="event.stopPropagation();deleteObjektById('${esc(o.id)}')">🗑 Löschen</button>
@@ -836,12 +901,91 @@ function populateParentSelect(currentEditId){
   sel.innerHTML=opts.join('');
 }
 
+// ── TEAM-ZUWEISUNG (P08) ──
+// Liste aller User der eigenen Org (für Dropdowns + Chips).
+var _teamChipState = [];
+function _orgUsers() {
+  try {
+    if (typeof GemaAuth === 'undefined' || !GemaAuth.getUsers) return [];
+    var me = GemaAuth.getCurrentUser && GemaAuth.getCurrentUser();
+    var myOrg = me && me.orgId;
+    return (GemaAuth.getUsers() || []).filter(function(u) {
+      return u.active !== false && (!myOrg || u.orgId === myOrg);
+    });
+  } catch(e) { return []; }
+}
+function _userLabel(u) {
+  var name = (u.profile && (u.profile.person || u.profile.name)) || u.name || u.username || u.id;
+  return name;
+}
+function _userInitials(u) {
+  var name = _userLabel(u);
+  return name.split(/\s+/).map(function(w){return w[0];}).join('').toUpperCase().slice(0,2);
+}
+function populateTeamSelects(editId) {
+  var users = _orgUsers();
+  var obj = editId ? _mem.objekte.find(function(x){return x.id===editId;}) : null;
+  var canEdit = !editId || (typeof GemaObjekte !== 'undefined' && GemaObjekte.canEditTeam ? GemaObjekte.canEditTeam(obj) : true);
+
+  ['objProjektLeiterId','objAbteilungsLeiterId'].forEach(function(selId){
+    var sel = $(selId);
+    if (!sel) return;
+    var cur = obj ? obj[selId.replace('obj','').replace('Id','Id').charAt(0).toLowerCase() + selId.replace('obj','').replace('Id','Id').slice(1)] : '';
+    // Keys: objProjektLeiterId -> projektLeiterId, objAbteilungsLeiterId -> abteilungsLeiterId
+    var fieldName = selId === 'objProjektLeiterId' ? 'projektLeiterId' : 'abteilungsLeiterId';
+    var curVal = obj ? (obj[fieldName] || '') : '';
+    sel.innerHTML = '<option value="">— Keiner —</option>' + users.map(function(u){
+      return '<option value="'+u.id+'"'+(u.id===curVal?' selected':'')+'>'+esc(_userLabel(u))+'</option>';
+    }).join('');
+    sel.disabled = !canEdit;
+  });
+
+  // Team-Chips: Multi-Select über klickbare Chips
+  _teamChipState = obj && obj.teamUserIds ? obj.teamUserIds.slice() : [];
+  _renderTeamChips(users, canEdit);
+
+  var hint = $('objTeamHint');
+  if (hint) hint.style.display = canEdit ? 'none' : '';
+}
+function _renderTeamChips(users, canEdit) {
+  var box = $('objTeamChips');
+  if (!box) return;
+  if (!users || !users.length) {
+    box.innerHTML = '<span style="font-size:12px;color:var(--mut)">Keine weiteren User in deiner Org</span>';
+    return;
+  }
+  box.innerHTML = users.map(function(u){
+    var active = _teamChipState.indexOf(u.id) >= 0;
+    var bg = active ? '#eff4ff' : '#fff';
+    var bd = active ? '#2563eb' : 'var(--brd2)';
+    var col = active ? '#1d4ed8' : 'var(--mut)';
+    var disabled = !canEdit ? 'opacity:.6;pointer-events:none' : '';
+    return '<span data-uid="'+u.id+'" style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:20px;font-size:12px;font-weight:600;cursor:pointer;background:'+bg+';border:1.5px solid '+bd+';color:'+col+';'+disabled+'">'
+      + '<span style="width:18px;height:18px;border-radius:50%;background:'+(active?'#2563eb':'#e2e8f0')+';color:'+(active?'#fff':'#64748b')+';font-size:9px;font-weight:800;display:inline-flex;align-items:center;justify-content:center">'+_userInitials(u)+'</span>'
+      + esc(_userLabel(u))
+      + (active?' ✓':' +')
+      + '</span>';
+  }).join('');
+  if (canEdit) {
+    box.querySelectorAll('[data-uid]').forEach(function(el){
+      el.addEventListener('click', function(){
+        var uid = el.getAttribute('data-uid');
+        var i = _teamChipState.indexOf(uid);
+        if (i >= 0) _teamChipState.splice(i, 1);
+        else _teamChipState.push(uid);
+        _renderTeamChips(users, canEdit);
+      });
+    });
+  }
+}
+
 function openObjektModal(editId){
   const isEdit=!!editId;
   $('objModalTitle').textContent=isEdit?'Objekt bearbeiten':'Neues Objekt';
   $('objDelBtn').style.display=isEdit?'':'none';
   $('objEditId').value=editId||'';
   populateParentSelect(editId);
+  populateTeamSelects(editId);
   const detail=$('objAdrDetail');
   if(isEdit){
     const o=_mem.objekte.find(x=>x.id===editId);
@@ -891,7 +1035,10 @@ function saveObjekt(){
   const data={name,strasse:$('objStrasse').value.trim(),plz:$('objPlz').value.trim(),ort:$('objOrt').value.trim(),
     gemeinde:$('objGemeinde').value.trim(),kanton:$('objKanton').value.trim(),bauvorhaben:$('objBauvorhaben').value,status:$('objStatus').value,notizen:$('objNotizen').value.trim(),
     projektnummer:$('objProjektnummer').value.trim(),revision:$('objRevision').value.trim(),
-    aktivePhase:$('objAktivePhase').value,parentObjektId:parentId};
+    aktivePhase:$('objAktivePhase').value,parentObjektId:parentId,
+    projektLeiterId:$('objProjektLeiterId')?$('objProjektLeiterId').value:'',
+    abteilungsLeiterId:$('objAbteilungsLeiterId')?$('objAbteilungsLeiterId').value:'',
+    teamUserIds:(_teamChipState||[]).slice()};
   if(editId){
     const idx=_mem.objekte.findIndex(x=>x.id===editId);
     if(idx>=0)Object.assign(_mem.objekte[idx],data);

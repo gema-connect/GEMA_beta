@@ -385,6 +385,14 @@ Auto-Save/Load bei Objektwechsel.
 - `GemaObjekte.getBeteiligte()` – Beteiligte des aktiven Objekts
 - `GemaObjekte.storageKey(baseKey)` – Phasen-aware Storage-Key: `baseKey__objektId[@phase]`
 
+**Team-Zuweisung (P08):** drei Rollen pro Objekt — Projektleiter, Abteilungsleiter (Prüfer), Team-Mitglieder
+- `Objekt.projektLeiterId`, `Objekt.abteilungsLeiterId`, `Objekt.teamUserIds[]` — User-IDs der eigenen Org
+- `GemaObjekte.getAssignedUserIds(obj)` — alle zugewiesenen User-IDs (dedupliziert)
+- `GemaObjekte.isAssignedToCurrentUser(obj)` — prüft ob aktueller User zugewiesen ist
+- `GemaObjekte.canEditTeam(obj)` — nur Projektleiter + Admins dürfen Team ändern (bzw. Ersteller vor erster Zuweisung)
+- UI: In `pm_objekte.html` Filter «Meine / Büro» in der Toolbar, Initialen-Bubbles (max 3 + «+X») auf Objekt-Card
+- «Meine Projekte»: Objekte wo ich Projektleiter, Abteilungsleiter oder im Team bin
+
 **Berechnungs-Index (P04):** automatische Registrierung aller Berechnungen pro Projekt
 - `GemaObjekte.registerBerechnung({modul, objektId?, titel?, storageKey?})` – wird von `gema_autosave.js` bei jedem Save aufgerufen
 - `GemaObjekte.getBerechnungenForObjekt(objektId)` – alle Einträge pro Projekt
