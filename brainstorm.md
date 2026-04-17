@@ -29,6 +29,45 @@ Das meistgenutzte Berechnungstool jedes Sanitärplaners. Strangschema, Durchflü
 
 ---
 
+## P13 — Zeitersparnis beweisen (Vorher/Nachher) 🟡
+
+**Priorität:** Marketing-Aufgabe, später
+
+Konkrete Vorher/Nachher-Vergleiche auf der Startseite fehlen. Nur generische Formulierungen.
+
+**Umzusetzen:** Sektion auf sys_preise.html oder sys_login.html mit konkreten Zahlen:
+- «Enthärtungsberechnung: Excel 25 Min → GEMA 3 Min»
+- «Offertvergleich: Manuell 2h → GEMA 15 Min»
+- «PDF-Report: Word-Vorlage 45 Min → GEMA 1 Klick»
+
+Idealerweise mit echten Messungen aus Pilotprojekten.
+
+---
+
+## P14 — Echte Daten statt Demo ✅ (bereits vorhanden)
+
+Echte Schweizer Hersteller als Demo-Daten: BWT, Geberit, Nussbaum, GF JRG, Viega, KWC, Similor. Mit SVGW-Nummern, Druckbereichen, Zulassungen. Realistisch.
+
+---
+
+## P15 — Filter im Lieferanten-Dashboard 🟡
+
+**Priorität:** MITTEL, später
+
+Aktuell nur Produktkategorie + Status als Filter. Fehlen:
+- Region / Kanton
+- SVGW-Zertifizierung (Feld `svgw:true` existiert in Daten, wird aber nicht gefiltert)
+- Preissegment
+- KTI-Zertifizierung
+
+---
+
+## P16 — Ausschreibungs-Vorlagen ✅ (Engine vorhanden)
+
+Die Vorlagen-Engine ist vollständig: «Aus Vorlage erstellen»-Dropdown, «Vorlagen-Bibliothek»-Modal, «Als Vorlage speichern». Nutzer erstellen ihre eigenen Vorlagen. Keine vordefinierten Templates (EFH, MFH etc.), aber die Infrastruktur ist da.
+
+---
+
 ## P12 — Pricing / Trial auf Startseite ✅ (bereits vorhanden + verbessert)
 
 **Status:** Fertig
