@@ -634,7 +634,7 @@
   var thisFile=location.pathname.split('/').pop()||'';
   var thisFileLower=thisFile.toLowerCase().replace('.html','');
   function _isSkip(){return thisFileLower==='sys_login';}
-  function _isLoginOnly(){return ['index','sb_index','pm_ausschreibung','ab_index','sys_admin','sys_profil','sys_preise','sys_beta',''].indexOf(thisFileLower)>=0;}
+  function _isLoginOnly(){return ['index','sb_index','pm_ausschreibung','ab_index','sys_admin','sys_profil','sys_preise','sys_beta','sys_lieferant_dashboard',''].indexOf(thisFileLower)>=0;}
 
   // ── Rollenspezifische Zielseite ─────────────────────────────────
   function _getRedirectForUser(u){
