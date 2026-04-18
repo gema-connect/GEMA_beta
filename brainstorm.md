@@ -192,3 +192,36 @@ Phase 1 wurde umgesetzt: Premium-Tier-Logik, Auto-Scroll, Stammlieferanten-Sort 
 - Einzelpositions-Erfassung bleibt in der Branchensoftware (Messerli, ProBau, Bauad etc.)
 
 ---
+
+## P26 — Freitext-Positionen neben Standardpositionen in Ausschreibung 🟡
+
+**Priorität:** Mittel (v.a. für Sanierungen relevant)
+
+**Problem:** Bei Sanierungen braucht man oft freie, projektspezifische Positionen neben den NPK-Standardpositionen. Aktuell gibt es nur BKP-Positionen aus `initBKPPositionen()` und einen «Freier Lieferant»-Eintrag, aber keine manuellen Zusatzpositionen.
+
+**Was fehlt:**
+- UI zum Einfügen einer Freitext-Position (Bezeichnung, Menge, Einheit, EP frei erfassbar)
+- Freitext-Positionen müssen in Offertvergleich + CRBX-Export mitspielen
+- Kennzeichnung als «Freie Position» vs. «Standard NPK»
+
+**Aufwand:** Mittel — neuer Positionstyp in pm_ausschreibungsunterlagen.html, CRBX-Integration
+
+---
+
+## P27 — Gleichzeitiges Arbeiten an einer Ausschreibung 🔴
+
+**Priorität:** Hoch langfristig, aber grosses Feature
+
+**Problem:** Zwei Planer sollen an verschiedenen Abschnitten derselben Ausschreibung arbeiten können. Aktuell kein Realtime/Collaboration-Support.
+
+**Was fehlt:**
+- WebSocket oder Realtime-Infrastruktur (z.B. Supabase Realtime, Firebase, oder eigener WS-Server)
+- Locking-Mechanismus auf Abschnitt-Ebene (nicht ganze Ausschreibung)
+- «In Bearbeitung von X»-Anzeige pro Abschnitt
+- Konflikterkennung und -auflösung bei gleichzeitiger Änderung
+
+**Zwischenlösung (einfach):** Simples Document-Level-Locking: «Ausschreibung wird gerade von Max bearbeitet» — verhindert gleichzeitiges Öffnen. Kein Realtime nötig, nur localStorage/DB-basierter Lock.
+
+**Aufwand:** Simples Locking = klein. Echtes Realtime-Collaboration = gross (Backend-Infrastruktur nötig).
+
+---
