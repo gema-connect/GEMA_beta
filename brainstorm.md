@@ -259,3 +259,77 @@ Phase 1 wurde umgesetzt: Premium-Tier-Logik, Auto-Scroll, Stammlieferanten-Sort 
 **Aufwand:** mailto-Workaround = klein. Echter E-Mail-Versand mit Anhang = mittel (Edge Function + Mail-Provider).
 
 ---
+
+## P35 — Materiallisten-Export aus Ausschreibung 🟡
+
+**Priorität:** Mittel
+
+**Ist-Zustand:** Einzelne Offertanfragen pro Position funktionieren. Kein gesammelter Export aller BKP-Positionen als Materialliste mit Lieferantenzuordnung.
+
+**Was fehlt:**
+- «Materialliste exportieren»-Button in pm_ausschreibungsunterlagen.html
+- Aggregation aller Positionen mit Mengen, Einheiten, Material-Spezifikationen
+- Export als CSV/PDF mit Lieferantenzuordnung
+- Optional: Direktversand an ausgewählte Lieferanten als Sammelanfrage
+
+**Aufwand:** Mittel — BKP-Positionen + materialSpec-Struktur existieren, Export-Logik muss gebaut werden.
+
+---
+
+## P37 — Preislisten-Upload pro Lieferant 🟡
+
+**Priorität:** Mittel (v.a. für Grosshändler mit vielen Artikeln)
+
+**Was fehlt:**
+- CSV/Excel-Upload-UI im Lieferanten-Dashboard (Tab «Produkte»)
+- Spalten-Mapping-Dialog: Lieferant ordnet seine CSV-Spalten den GEMA-Feldern zu
+- Validierung: Pflichtfelder, Datentypen, Duplikat-Erkennung
+- Vorschau vor Import mit Fehleranzeige
+- Bulk-Update bestehender Produkte bei Re-Import
+
+**Aufwand:** Mittel-Gross — CSV-Parsing + Mapping-UI + Validierung.
+
+---
+
+## P40 — Preisentwicklung / Historik pro Produkt 🟢
+
+**Priorität:** Nice-to-have (erst relevant bei aktiver Lieferantennutzung)
+
+**Was fehlt:**
+- `priceHistory[]`-Array pro Produkt in gema_produktkatalog_api.js
+- Bei jeder Preisänderung: alten Preis + Timestamp ins Array pushen
+- Mini-Chart oder Tabelle im Produkt-Detail (letzte 5–10 Preise)
+- Optional: Trend-Pfeil (↑↓→) neben dem aktuellen Preis
+
+**Aufwand:** Klein (Datenstruktur) bis Mittel (Chart-Darstellung).
+
+---
+
+## P43 — Modulare Ansicht für Einzelplaner 🟢
+
+**Priorität:** Nice-to-have
+
+**Was fehlt:**
+- Modul-Favoriten: User kann Module als Favorit markieren (⭐)
+- Filterbar: «Meine Module» / «Alle Module» auf index.html
+- localStorage-basiert: `gema_module_favorites_v1`
+- Drag & Drop-Reihenfolge wäre Bonus
+
+**Aufwand:** Klein — localStorage + Filter-Toggle auf der Modulübersicht.
+
+---
+
+## P44 — Dark Mode 🟢
+
+**Priorität:** Nice-to-have
+
+**Was fehlt:**
+- CSS-Variablen für Dark-Theme (--bg, --surface, --text etc. invertieren)
+- Toggle-Button in sys_profil.html oder in der Nav
+- `prefers-color-scheme: dark` Media-Query als Default
+- localStorage-Persistierung: `gema_theme_v1`
+- Alle 53 HTML-Module müssen die CSS-Variablen nutzen (teilweise schon der Fall)
+
+**Aufwand:** Mittel-Gross — viele Module, nicht alle nutzen durchgängig CSS-Variablen.
+
+---
