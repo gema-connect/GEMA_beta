@@ -225,3 +225,37 @@ Phase 1 wurde umgesetzt: Premium-Tier-Logik, Auto-Scroll, Stammlieferanten-Sort 
 **Aufwand:** Simples Locking = klein. Echtes Realtime-Collaboration = gross (Backend-Infrastruktur nötig).
 
 ---
+
+## P29 — Guided Mode / Onboarding für Einsteiger 🟡
+
+**Priorität:** Mittel
+
+**Ist-Zustand:** `gema_coachmarks.js` existiert als vollständiges Onboarding-System (Spotlight-Overlay, Step-Navigation, localStorage-Tracking). In einigen Modulen bereits integriert (Lieferanten-Dashboard, Offertvergleich, einzelne Berechnungsmodule).
+
+**Was fehlt:**
+- Coachmarks auf weiteren Kernmodulen (pm_objekte.html, sb_lu_tabelle.html, Module.html)
+- Geführter «Erstnutzer-Wizard»: beim allerersten Login eine übergreifende Tour über die wichtigsten Bereiche
+- Kontextuelle Hilfe-Tooltips an komplexen Eingabefeldern (z.B. Härtegrad, Spitzenvolumenstrom)
+- «Typische Positionen vorschlagen» bei Erstnutzung der Ausschreibung
+
+**Aufwand:** Klein pro Modul (je 1 `GemaCoachmarks.init()`-Aufruf + Step-Definitionen). Erstnutzer-Wizard = mittel.
+
+---
+
+## P30 — Direkt-Versand PDF aus GEMA 🔴
+
+**Priorität:** Hoch (aber Backend nötig)
+
+**Problem:** Aktuell: PDF exportieren → Download → Mail-Client öffnen → Anhängen → Senden. Planer wollen: 1 Klick → PDF per Mail an Empfänger.
+
+**Was fehlt:**
+- Backend für E-Mail-Versand (SMTP oder Transactional-Mail-Service wie Resend, Postmark, SendGrid)
+- Supabase Edge Function oder Netlify Function als API-Endpunkt
+- UI: «Per Mail senden»-Button neben PDF-Export mit Empfänger-Eingabe
+- Vorausfüllung: Empfänger aus Beteiligte-Liste des Projekts
+
+**Zwischenlösung:** `mailto:`-Link mit vorausgefülltem Betreff + Body, User hängt PDF manuell an. Kein Backend nötig, aber UX nicht ideal.
+
+**Aufwand:** mailto-Workaround = klein. Echter E-Mail-Versand mit Anhang = mittel (Edge Function + Mail-Provider).
+
+---
