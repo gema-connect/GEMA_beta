@@ -333,3 +333,40 @@ Phase 1 wurde umgesetzt: Premium-Tier-Logik, Auto-Scroll, Stammlieferanten-Sort 
 **Aufwand:** Mittel-Gross — viele Module, nicht alle nutzen durchgängig CSS-Variablen.
 
 ---
+
+## L02 — Lead-Dashboard für Lieferanten 🟡
+
+**Priorität:** Hoch (USP für zahlende Lieferanten)
+
+**Ist-Zustand:** KPI-Sektion im Lieferanten-Dashboard existiert, aber zeigt nur Produktanzahl und Anfragen. Keine echten Analytics.
+
+**Was fehlt:**
+- View-Tracking: Wie oft werden die Produkte des Lieferanten in Berechnungsergebnissen angezeigt?
+- Impression-Zähler pro Produkt (in gema_produktkatalog_api.js loggen)
+- Kontaktdaten des anfragenden Planers bei Offertanfragen
+- Zeitreihen: Anfragen pro Woche/Monat als Mini-Chart
+- Konversionsrate: Impressionen → Klicks → Anfragen
+
+**Technisch:** Braucht Backend-Event-Logging (Supabase oder Custom). localStorage reicht nicht — Events müssen user-übergreifend aggregiert werden.
+
+**Aufwand:** Mittel-Gross (Backend-Infrastruktur für Event-Tracking nötig).
+
+---
+
+## L04 — Massenimport (CSV/Excel) für Produkte 🟡
+
+**Priorität:** Hoch (v.a. für Grosshändler mit 40-500+ Artikeln)
+
+**Was fehlt:**
+- CSV/Excel-Upload-UI im Lieferanten-Dashboard (Tab «Produkte»)
+- Spalten-Mapping-Dialog: Lieferant ordnet seine CSV-Spalten den GEMA-Feldern zu (Produktname, Kapazität, Preis, Artikelnummer etc.)
+- Validierung: Pflichtfelder, Datentypen, Duplikat-Erkennung
+- Vorschau vor Import: Tabelle mit den ersten 10 Zeilen, Fehler rot markiert
+- Bulk-Update: bei Re-Import bestehende Produkte anhand Artikelnummer aktualisieren
+- Fehler-Report: «5 von 47 Produkten fehlgeschlagen — Details anzeigen»
+
+**Technisch:** CSV-Parsing im Browser (papaparse.js oder eigener Parser). Kein Backend nötig, aber Spalten-Mapping-UI ist komplex.
+
+**Aufwand:** Mittel-Gross.
+
+---
