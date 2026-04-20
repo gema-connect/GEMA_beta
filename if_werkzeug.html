@@ -182,6 +182,21 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
 .hint{font-size:11.5px;color:var(--mut2);padding:7px 11px;background:var(--bg2);border-radius:8px;border:1px solid var(--brd);line-height:1.5}
 .hint strong{color:var(--txt2)}
 
+/* Autocomplete */
+.ac-drop{position:fixed;background:var(--sur);border:1.5px solid var(--plan-bd);border-radius:10px;box-shadow:var(--sh-lg);z-index:9999;max-height:220px;overflow-y:auto;display:none}
+.ac-drop.open{display:block}
+.ac-drop::-webkit-scrollbar{width:5px}
+.ac-drop::-webkit-scrollbar-thumb{background:var(--brd2);border-radius:4px}
+.ac-item{padding:9px 14px;font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:8px;transition:.08s}
+.ac-item:first-child{border-radius:9px 9px 0 0}
+.ac-item:last-child{border-radius:0 0 9px 9px}
+.ac-item:hover,.ac-item.ac-active{background:var(--plan-bg);color:var(--plan)}
+.ac-item .ac-main{font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ac-item .ac-hint{font-size:11px;color:var(--mut);font-weight:500;white-space:nowrap;flex-shrink:0}
+.ac-item mark{background:rgba(124,58,237,.15);color:var(--plan);border-radius:2px;font-weight:700;padding:0 1px}
+.ac-toggle-row{display:flex;align-items:center;gap:8px;padding:2px 0 6px}
+.ac-toggle-row span{font-size:11.5px;color:var(--mut);font-weight:600}
+
 /* toggle blocks */
 .ts{background:var(--bg2);border:1.5px solid var(--brd2);border-radius:13px;overflow:hidden;transition:.2s}
 .ts.on{border-color:var(--plan-bd);background:var(--plan-bg)}
@@ -398,19 +413,26 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
           <span class="fsec-ico">📋</span>
           <div><div class="fsec-title">Grunddaten</div><div class="fsec-sub">Identifikation und Klassifizierung</div></div>
         </div>
-        <div class="fg">
+        <div class="ac-toggle-row">
+          <label class="sw" style="transform:scale(.8);transform-origin:left center" onclick="event.stopPropagation()">
+            <input type="checkbox" id="f_katalogToggle" checked>
+            <span class="sw-sl"></span>
+          </label>
+          <span>Basiskatalog anzeigen</span>
+        </div>
+        <div class="fg" style="position:relative">
           <label>Bezeichnung <span class="req">*</span></label>
-          <input type="text" id="f_name" placeholder="z.B. Winkelschleifer 125mm">
-          <div class="hint">Eindeutiger, beschreibender Name — wird im QR-Code und in der Übersicht angezeigt.</div>
+          <input type="text" id="f_name" placeholder="z.B. Winkelschleifer 125mm" autocomplete="off">
+          <div class="hint">Beschreibender Name — Vorschläge aus Katalog und bestehenden Einträgen. Gleiche Bezeichnung kann mehrfach verwendet werden.</div>
         </div>
         <div class="fg-row">
-          <div class="fg">
+          <div class="fg" style="position:relative">
             <label>Hersteller</label>
-            <input type="text" id="f_brand" placeholder="Bosch, Hilti, Festool …">
+            <input type="text" id="f_brand" placeholder="Bosch, Hilti, Festool …" autocomplete="off">
           </div>
-          <div class="fg">
+          <div class="fg" style="position:relative">
             <label>Modell / Art.-Nr.</label>
-            <input type="text" id="f_model" placeholder="GWS 18V-10">
+            <input type="text" id="f_model" placeholder="GWS 18V-10" autocomplete="off">
           </div>
         </div>
         <div class="fg">
@@ -709,6 +731,261 @@ const CATS={
 };
 
 // ──────────────────────────────────────
+// BASISKATALOG – gängige Sanitär-/Bauwerkzeuge
+// ──────────────────────────────────────
+const WERKZEUG_KATALOG=[
+  {name:'Akkuschrauber',brand:'Hilti',model:'SF 6H-A22',cat:'maschine'},
+  {name:'Akkuschrauber',brand:'Hilti',model:'SFE 2-A12',cat:'maschine'},
+  {name:'Akkuschrauber',brand:'Bosch',model:'GSR 18V-90',cat:'maschine'},
+  {name:'Akkuschrauber',brand:'Makita',model:'DDF486',cat:'maschine'},
+  {name:'Akkuschrauber',brand:'DeWalt',model:'DCD791',cat:'maschine'},
+  {name:'Akkuschrauber',brand:'Milwaukee',model:'M18 FDD2',cat:'maschine'},
+  {name:'Akkuschrauber',brand:'Festool',model:'TXS 18',cat:'maschine'},
+  {name:'Schlagschrauber',brand:'Hilti',model:'SIW 6AT-A22',cat:'maschine'},
+  {name:'Schlagschrauber',brand:'Milwaukee',model:'M18 FIW2F12',cat:'maschine'},
+  {name:'Schlagschrauber',brand:'Makita',model:'DTW300',cat:'maschine'},
+  {name:'Winkelschleifer 125mm',brand:'Bosch',model:'GWS 18V-10',cat:'maschine'},
+  {name:'Winkelschleifer 125mm',brand:'Hilti',model:'AG 125-A22',cat:'maschine'},
+  {name:'Winkelschleifer 125mm',brand:'Makita',model:'DGA504',cat:'maschine'},
+  {name:'Winkelschleifer 125mm',brand:'Milwaukee',model:'M18 FSAG125X',cat:'maschine'},
+  {name:'Winkelschleifer 230mm',brand:'Bosch',model:'GWS 24-230',cat:'maschine-kabel'},
+  {name:'Winkelschleifer 230mm',brand:'Hilti',model:'AG 230-24D',cat:'maschine-kabel'},
+  {name:'Bohrhammer SDS-Plus',brand:'Hilti',model:'TE 2-A22',cat:'maschine'},
+  {name:'Bohrhammer SDS-Plus',brand:'Hilti',model:'TE 30-A36',cat:'maschine'},
+  {name:'Bohrhammer SDS-Plus',brand:'Bosch',model:'GBH 18V-26',cat:'maschine'},
+  {name:'Bohrhammer SDS-Plus',brand:'Makita',model:'DHR243',cat:'maschine'},
+  {name:'Bohrhammer SDS-Max',brand:'Hilti',model:'TE 60-A36',cat:'maschine'},
+  {name:'Bohrhammer SDS-Max',brand:'Hilti',model:'TE 60',cat:'maschine-kabel'},
+  {name:'Bohrhammer SDS-Max',brand:'Bosch',model:'GBH 12-52 D',cat:'maschine-kabel'},
+  {name:'Pressmaschine',brand:'Geberit',model:'ACO 203',cat:'maschine'},
+  {name:'Pressmaschine',brand:'Geberit',model:'ACO 103',cat:'maschine'},
+  {name:'Pressmaschine',brand:'Viega',model:'Pressgun 6',cat:'maschine'},
+  {name:'Pressmaschine',brand:'Rems',model:'Mini-Press ACC',cat:'maschine'},
+  {name:'Pressmaschine',brand:'Rothenberger',model:'ROMAX 4000',cat:'maschine'},
+  {name:'Rohrschneider',brand:'Rems',model:'RAS Cu 8-64',cat:'handwerkzeug'},
+  {name:'Rohrschneider',brand:'Rothenberger',model:'Tube Cutter 35',cat:'handwerkzeug'},
+  {name:'Rohrschneider',brand:'Rems',model:'RAS P 10-40',cat:'handwerkzeug'},
+  {name:'Rohrabschneider Akku',brand:'Milwaukee',model:'M12 PCSS',cat:'maschine'},
+  {name:'Rohrabschneider Akku',brand:'Rems',model:'Cento ACC',cat:'maschine'},
+  {name:'Gewindeschneidkluppe',brand:'Rems',model:'Eva R 1/2-1 1/4',cat:'handwerkzeug'},
+  {name:'Gewindeschneidkluppe',brand:'Rothenberger',model:'Super Cut',cat:'handwerkzeug'},
+  {name:'Gewindeschneidmaschine',brand:'Rems',model:'Amigo 2',cat:'maschine-kabel'},
+  {name:'Gewindeschneidmaschine',brand:'Rothenberger',model:'Ropower 50R',cat:'maschine-kabel'},
+  {name:'Lötlampe',brand:'Rothenberger',model:'Super Fire 3',cat:'handwerkzeug'},
+  {name:'Lötlampe',brand:'Sievert',model:'Promatic 3366',cat:'handwerkzeug'},
+  {name:'Lötlampe',brand:'Rothenberger',model:'Allgas 2000',cat:'handwerkzeug'},
+  {name:'Druckprüfpumpe',brand:'Rothenberger',model:'RP 50-S',cat:'handwerkzeug'},
+  {name:'Druckprüfpumpe',brand:'Rems',model:'Push INOX',cat:'handwerkzeug'},
+  {name:'Druckprüfpumpe',brand:'Rothenberger',model:'RP PRO III',cat:'handwerkzeug'},
+  {name:'Kreissäge',brand:'Festool',model:'TS 55 REQ',cat:'maschine-kabel'},
+  {name:'Kreissäge',brand:'Festool',model:'TSC 55 KEB',cat:'maschine'},
+  {name:'Kreissäge',brand:'Makita',model:'DHS680',cat:'maschine'},
+  {name:'Kreissäge',brand:'Bosch',model:'GKS 18V-68',cat:'maschine'},
+  {name:'Stichsäge',brand:'Bosch',model:'GST 18V-LI',cat:'maschine'},
+  {name:'Stichsäge',brand:'Festool',model:'CARVEX PS 420',cat:'maschine-kabel'},
+  {name:'Stichsäge',brand:'Makita',model:'DJV182',cat:'maschine'},
+  {name:'Säbelsäge',brand:'Milwaukee',model:'M18 FSZ',cat:'maschine'},
+  {name:'Säbelsäge',brand:'Bosch',model:'GSA 18V-32',cat:'maschine'},
+  {name:'Säbelsäge',brand:'Hilti',model:'SR 6-A22',cat:'maschine'},
+  {name:'Kernbohrgerät',brand:'Hilti',model:'DD 150-U',cat:'maschine-kabel'},
+  {name:'Kernbohrgerät',brand:'Hilti',model:'DD 30-W',cat:'maschine-kabel'},
+  {name:'Kernbohrgerät',brand:'Rothenberger',model:'Rodiacut 131',cat:'maschine-kabel'},
+  {name:'Rohrfräser/Anfasgerät',brand:'Rems',model:'REG 10-42',cat:'handwerkzeug'},
+  {name:'Rohrfräser/Anfasgerät',brand:'Rothenberger',model:'Inox Tube Cutter',cat:'handwerkzeug'},
+  {name:'Rohrbiegegerät',brand:'Rothenberger',model:'Robend H+W Plus',cat:'handwerkzeug'},
+  {name:'Rohrbiegegerät',brand:'Rems',model:'Swing',cat:'handwerkzeug'},
+  {name:'Kanalreinigungsmaschine',brand:'Rothenberger',model:'R600',cat:'maschine-kabel'},
+  {name:'Kanalreinigungsmaschine',brand:'Rems',model:'Cobra 22',cat:'maschine-kabel'},
+  {name:'Nass-/Trockensauger',brand:'Kärcher',model:'NT 30/1',cat:'sonstige'},
+  {name:'Nass-/Trockensauger',brand:'Hilti',model:'VC 20-UM',cat:'sonstige'},
+  {name:'Nass-/Trockensauger',brand:'Festool',model:'CTL 26 E',cat:'sonstige'},
+  {name:'Digitale Wasserwaage',brand:'Stabila',model:'TECH 196',cat:'messgeraet'},
+  {name:'Digitale Wasserwaage',brand:'Bosch',model:'GIM 60',cat:'messgeraet'},
+  {name:'Laser-Nivelliergerät',brand:'Bosch',model:'GLL 3-80',cat:'messgeraet'},
+  {name:'Laser-Nivelliergerät',brand:'Hilti',model:'PM 30-MG',cat:'messgeraet'},
+  {name:'Laser-Nivelliergerät',brand:'Leica',model:'Lino L6G',cat:'messgeraet'},
+  {name:'Laser-Distanzmessgerät',brand:'Bosch',model:'GLM 50-27 CG',cat:'messgeraet'},
+  {name:'Laser-Distanzmessgerät',brand:'Hilti',model:'PD-I',cat:'messgeraet'},
+  {name:'Laser-Distanzmessgerät',brand:'Leica',model:'DISTO D2',cat:'messgeraet'},
+  {name:'Endoskopkamera',brand:'Milwaukee',model:'M12 IC AV3',cat:'messgeraet'},
+  {name:'Endoskopkamera',brand:'Bosch',model:'GIC 120 C',cat:'messgeraet'},
+  {name:'Rohrkamera',brand:'Ridgid',model:'SeeSnake microDrain',cat:'messgeraet'},
+  {name:'Rohrkamera',brand:'Rothenberger',model:'Rocam 4 Plus',cat:'messgeraet'},
+  {name:'Wärmebildkamera',brand:'Flir',model:'C5',cat:'messgeraet'},
+  {name:'Wärmebildkamera',brand:'Bosch',model:'GTC 600 C',cat:'messgeraet'},
+  {name:'Infrarot-Thermometer',brand:'Testo',model:'835-T1',cat:'messgeraet'},
+  {name:'Manometer digital',brand:'Testo',model:'549i',cat:'messgeraet'},
+  {name:'Leitungssucher',brand:'Hilti',model:'PS 85',cat:'messgeraet'},
+  {name:'Leitungssucher',brand:'Bosch',model:'D-tect 200 C',cat:'messgeraet'},
+  {name:'Aluminium-Anlegeleiter 3m',brand:'Zarges',model:'Z300',cat:'leiter'},
+  {name:'Aluminium-Anlegeleiter 4m',brand:'Zarges',model:'Z300',cat:'leiter'},
+  {name:'Aluminium-Anlegeleiter 5m',brand:'Zarges',model:'Z300',cat:'leiter'},
+  {name:'Stehleiter 6 Stufen',brand:'Zarges',model:'Z200',cat:'leiter'},
+  {name:'Stehleiter 8 Stufen',brand:'Zarges',model:'Z200',cat:'leiter'},
+  {name:'Teleskop-Anlegeleiter',brand:'Zarges',model:'Z600',cat:'leiter'},
+  {name:'Teleskop-Anlegeleiter',brand:'Hymer',model:'SC 80',cat:'leiter'},
+  {name:'Klappgerüst fahrbar',brand:'Zarges',model:'RollTec',cat:'leiter'},
+  {name:'Klappgerüst fahrbar',brand:'Hymer',model:'RS Tower 41',cat:'leiter'},
+  {name:'Ladegerät',brand:'Bosch',model:'GAL 18V-40',cat:'ladegeraet'},
+  {name:'Ladegerät',brand:'Hilti',model:'C 4/36-350',cat:'ladegeraet'},
+  {name:'Ladegerät',brand:'Makita',model:'DC18RC',cat:'ladegeraet'},
+  {name:'Ladegerät',brand:'Milwaukee',model:'M18-M12 FC',cat:'ladegeraet'},
+  {name:'Ladegerät',brand:'DeWalt',model:'DCB115',cat:'ladegeraet'},
+  {name:'Ladegerät',brand:'Festool',model:'SCA 8',cat:'ladegeraet'},
+  {name:'Baustrahler',brand:'Makita',model:'DML811',cat:'sonstige'},
+  {name:'Baustrahler',brand:'Hilti',model:'SL 10-22',cat:'sonstige'},
+  {name:'Baustrahler',brand:'Milwaukee',model:'M18 HOAL',cat:'sonstige'},
+  {name:'Bauradio',brand:'Makita',model:'DMR115',cat:'sonstige'},
+  {name:'Bauradio',brand:'Bosch',model:'GPB 18V-5',cat:'sonstige'},
+];
+
+// ──────────────────────────────────────
+// AUTOCOMPLETE ENGINE
+// ──────────────────────────────────────
+function _wzGetKatalogEntries(){
+  var useKat=document.getElementById('f_katalogToggle');
+  var entries=[];
+  if(!useKat||useKat.checked){
+    WERKZEUG_KATALOG.forEach(function(k){entries.push({name:k.name,brand:k.brand,model:k.model,cat:k.cat,src:'katalog'});});
+  }
+  tools.forEach(function(t){
+    if(t.name)entries.push({name:t.name,brand:t.brand||'',model:t.model||'',cat:t.cat||'',src:'tools'});
+  });
+  return entries;
+}
+function _wzEscRe(s){return s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');}
+function _wzHighlight(text,q){
+  if(!q)return esc(text);
+  return esc(text).replace(new RegExp('('+_wzEscRe(esc(q))+')','gi'),'<mark>$1</mark>');
+}
+
+function _wzInitAC(inputId,getSugg,onSelect){
+  var inp=document.getElementById(inputId);
+  if(!inp)return;
+  var drop=document.createElement('div');
+  drop.className='ac-drop';
+  document.body.appendChild(drop);
+  var activeIdx=-1,items=[];
+
+  function positionDrop(){
+    var r=inp.getBoundingClientRect();
+    drop.style.left=r.left+'px';
+    drop.style.top=(r.bottom+4)+'px';
+    drop.style.width=r.width+'px';
+  }
+
+  function show(){
+    var q=inp.value.trim();
+    items=getSugg(q);
+    if(!items.length){drop.classList.remove('open');return;}
+    activeIdx=-1;
+    drop.innerHTML=items.slice(0,10).map(function(it,i){
+      return '<div class="ac-item" data-idx="'+i+'"><span class="ac-main">'+_wzHighlight(it.label,q)+'</span>'+(it.hint?'<span class="ac-hint">'+esc(it.hint)+'</span>':'')+'</div>';
+    }).join('');
+    positionDrop();
+    drop.classList.add('open');
+  }
+
+  inp.addEventListener('input',show);
+  inp.addEventListener('focus',show);
+  drop.addEventListener('mousedown',function(e){
+    e.preventDefault();
+    var el=e.target.closest('.ac-item');
+    if(!el)return;
+    var idx=+el.dataset.idx;
+    if(idx>=0&&idx<items.length){inp.value=items[idx].value;drop.classList.remove('open');if(onSelect)onSelect(items[idx]);}
+  });
+  inp.addEventListener('blur',function(){setTimeout(function(){drop.classList.remove('open');},180);});
+  inp.addEventListener('keydown',function(e){
+    if(!drop.classList.contains('open'))return;
+    var max=Math.min(items.length,10);
+    if(e.key==='ArrowDown'){e.preventDefault();activeIdx=Math.min(activeIdx+1,max-1);updAc();}
+    else if(e.key==='ArrowUp'){e.preventDefault();activeIdx=Math.max(activeIdx-1,0);updAc();}
+    else if(e.key==='Enter'&&activeIdx>=0){e.preventDefault();inp.value=items[activeIdx].value;drop.classList.remove('open');if(onSelect)onSelect(items[activeIdx]);}
+    else if(e.key==='Escape'){drop.classList.remove('open');}
+  });
+  function updAc(){
+    drop.querySelectorAll('.ac-item').forEach(function(el,i){el.classList.toggle('ac-active',i===activeIdx);});
+    var act=drop.querySelector('.ac-item.ac-active');
+    if(act)act.scrollIntoView({block:'nearest'});
+  }
+}
+
+function _wzCloseAllAC(){document.querySelectorAll('.ac-drop.open').forEach(function(d){d.classList.remove('open');});}
+
+function _wzSetupAutocomplete(){
+  var mb=document.querySelector('#addModal .modal-body');
+  if(mb)mb.addEventListener('scroll',_wzCloseAllAC);
+
+  _wzInitAC('f_name',function(q){
+    var entries=_wzGetKatalogEntries();
+    var ql=q.toLowerCase(),seen={},result=[];
+    entries.forEach(function(e){
+      if(!e.name)return;
+      if(ql&&e.name.toLowerCase().indexOf(ql)<0)return;
+      if(seen[e.name])return;
+      seen[e.name]=true;
+      var brands=[];
+      entries.forEach(function(x){if(x.name===e.name&&x.brand&&brands.indexOf(x.brand)<0)brands.push(x.brand);});
+      result.push({label:e.name,value:e.name,hint:brands.length?brands.slice(0,3).join(', ')+(brands.length>3?' …':''):''});
+    });
+    return result;
+  },function(sel){
+    var entries=_wzGetKatalogEntries();
+    var matching=entries.filter(function(e){return e.name===sel.value;});
+    var brands=[],cats=[];
+    matching.forEach(function(e){
+      if(e.brand&&brands.indexOf(e.brand)<0)brands.push(e.brand);
+      if(e.cat&&cats.indexOf(e.cat)<0)cats.push(e.cat);
+    });
+    if(brands.length===1&&!document.getElementById('f_brand').value.trim())document.getElementById('f_brand').value=brands[0];
+    if(cats.length===1&&!document.getElementById('f_cat').value){document.getElementById('f_cat').value=cats[0];onCatChange();}
+  });
+
+  _wzInitAC('f_brand',function(q){
+    var entries=_wzGetKatalogEntries();
+    var curName=document.getElementById('f_name').value.trim().toLowerCase();
+    var ql=q.toLowerCase(),seen={},result=[];
+    entries.forEach(function(e){
+      if(!e.brand)return;
+      if(curName&&e.name.toLowerCase()!==curName)return;
+      if(ql&&e.brand.toLowerCase().indexOf(ql)<0)return;
+      if(seen[e.brand])return;
+      seen[e.brand]=true;
+      var count=0;
+      entries.forEach(function(x){if(x.brand===e.brand&&(!curName||x.name.toLowerCase()===curName))count++;});
+      result.push({label:e.brand,value:e.brand,hint:count>1?count+' Modelle':''});
+    });
+    return result;
+  },null);
+
+  _wzInitAC('f_model',function(q){
+    var entries=_wzGetKatalogEntries();
+    var curName=document.getElementById('f_name').value.trim().toLowerCase();
+    var curBrand=document.getElementById('f_brand').value.trim().toLowerCase();
+    var ql=q.toLowerCase(),result=[];
+    entries.forEach(function(e){
+      if(!e.model)return;
+      if(curBrand&&e.brand.toLowerCase()!==curBrand)return;
+      if(curName&&e.name.toLowerCase()!==curName)return;
+      if(ql&&e.model.toLowerCase().indexOf(ql)<0)return;
+      var hint=[];
+      if(!curBrand&&e.brand)hint.push(e.brand);
+      if(!curName&&e.name)hint.push(e.name);
+      result.push({label:e.model,value:e.model,hint:hint.join(' · '),entry:e});
+    });
+    var seen={};
+    return result.filter(function(r){var k=r.label+'|'+(r.entry?r.entry.brand:'');if(seen[k])return false;seen[k]=true;return true;});
+  },function(sel){
+    if(!sel.entry)return;
+    var e=sel.entry;
+    if(e.brand&&!document.getElementById('f_brand').value.trim())document.getElementById('f_brand').value=e.brand;
+    if(e.name&&!document.getElementById('f_name').value.trim())document.getElementById('f_name').value=e.name;
+    if(e.cat&&!document.getElementById('f_cat').value){document.getElementById('f_cat').value=e.cat;onCatChange();}
+  });
+}
+
+// ──────────────────────────────────────
 // STORAGE
 // ──────────────────────────────────────
 const save=()=>{if(typeof _GemaDB!=='undefined')_GemaDB.save('gema_werkzeug',JSON.stringify(tools));};
@@ -879,7 +1156,7 @@ function openAdd(){
   document.getElementById('f_bought').value=today();
   document.getElementById('addModal').classList.remove('hidden');
 }
-function closeAdd(){document.getElementById('addModal').classList.add('hidden');clearForm();}
+function closeAdd(){_wzCloseAllAC();document.getElementById('addModal').classList.add('hidden');clearForm();}
 function clearForm(){
   ['f_name','f_brand','f_model','f_bought','f_warranty','f_serial','f_notes','f_lastService','f_lastElec','f_lastLeiter','f_editId'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});
   document.getElementById('f_cat').value='';
@@ -1790,6 +2067,7 @@ await Promise.race([
     else if(p.get('edit'))setTimeout(()=>editTool(p.get('edit')),400);
     else if(p.get('tool'))setTimeout(()=>openQR(p.get('tool')),400);
     else if(p.get('pruef_lief'))setTimeout(()=>openPruefLiefAnsicht(p.get('pruef_lief')),400);
+  _wzSetupAutocomplete();
   // Einmal pro Sitzung: Faelligkeits-Scan fuer Magaziner/Admin ausloesen
   if(_wzCanEdit()){try{_wzScanFaelligkeiten();}catch(e){console.warn('Faelligkeitsscan fehlgeschlagen:',e);}}
   // Rollenabhaengige UI-Anpassungen: "+ Neu"-Button nur fuer
