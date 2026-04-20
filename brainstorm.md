@@ -370,3 +370,21 @@ Phase 1 wurde umgesetzt: Premium-Tier-Logik, Auto-Scroll, Stammlieferanten-Sort 
 **Aufwand:** Mittel-Gross.
 
 ---
+
+## Lieferanten-Punkte L06–L14 — Gesammelt für später
+
+Die folgenden Lieferanten-Features werden zu einem späteren Zeitpunkt angegangen. Kurze Übersicht:
+
+| # | Punkt | Status | Aufwand |
+|---|-------|--------|---------|
+| L06 | Hersteller vs. Händler vs. Dienstleister | ❌ fehlt | Mittel (Schema + UI) |
+| L07 | Dienstleister-Anbindung Werkzeug | ⚠️ Prüfanfrage da | Klein (Typ-Filter) |
+| L08 | Prüfer-Login | ✅ implementiert | — |
+| L09 | API/ERP-Schnittstelle | ❌ fehlt | Gross (Backend) |
+| L10 | Verfügbarkeit / Lieferzeit | ❌ fehlt | Klein (Felder) |
+| L11 | Spezifikation in Ausschreibung einbetten | ❌ fehlt | Mittel |
+| L12 | Materialliste → Bestellanfrage | ❌ fehlt | Mittel |
+| L13 | Regionale Sichtbarkeit / Kantonsfilter | ❌ fehlt | Klein |
+| L14 | Preisentwicklung / Historik | ❌ fehlt | Klein-Mittel |
+
+---
