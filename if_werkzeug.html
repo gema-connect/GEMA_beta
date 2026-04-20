@@ -435,6 +435,11 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
             <input type="text" id="f_model" placeholder="GWS 18V-10" autocomplete="off">
           </div>
         </div>
+        <div class="fg" style="position:relative">
+          <label>Lieferant / Grosshändler</label>
+          <input type="text" id="f_supplier" placeholder="z.B. Engel, ITAR Tools, SFS, Tobler …" autocomplete="off">
+          <div class="hint">Bezugsquelle / Grosshändler, über den das Gerät beschafft wurde — nicht der Hersteller.</div>
+        </div>
         <div class="fg">
           <label>Kategorie <span class="req">*</span></label>
           <select id="f_cat" onchange="onCatChange()">
@@ -983,6 +988,18 @@ function _wzSetupAutocomplete(){
     if(e.name&&!document.getElementById('f_name').value.trim())document.getElementById('f_name').value=e.name;
     if(e.cat&&!document.getElementById('f_cat').value){document.getElementById('f_cat').value=e.cat;onCatChange();}
   });
+
+  _wzInitAC('f_supplier',function(q){
+    var ql=q.toLowerCase(),seen={},result=[];
+    tools.forEach(function(t){
+      if(!t.supplier)return;
+      if(ql&&t.supplier.toLowerCase().indexOf(ql)<0)return;
+      if(seen[t.supplier])return;
+      seen[t.supplier]=true;
+      result.push({label:t.supplier,value:t.supplier});
+    });
+    return result;
+  },null);
 }
 
 // ──────────────────────────────────────
@@ -1016,7 +1033,7 @@ function getFiltered(){
   const q=(document.getElementById('searchInp')?.value||'').toLowerCase();
   return tools.filter(t=>{
     const cat=CATS[t.cat];
-    const ok=!q||[t.name,t.brand,t.model,cat?.label,t.notes].some(v=>(v||'').toLowerCase().includes(q));
+    const ok=!q||[t.name,t.brand,t.model,t.supplier,cat?.label,t.notes].some(v=>(v||'').toLowerCase().includes(q));
     if(!ok)return false;
     const wd=worstDays(t);
     if(currentFilter==='overdue')return wd!==null&&wd<0;
@@ -1060,7 +1077,7 @@ function renderCard(t){
       <div class="tc-icon ${cat.ico}">${cat.icon}</div>
       <div class="tc-info">
         <div class="tc-name" title="${esc(t.name)}">${esc(t.name)}</div>
-        <div class="tc-meta">${t.brand?esc(t.brand):''}${t.model?' · '+esc(t.model):''}${t.notes?' · '+esc(t.notes):''}</div>
+        <div class="tc-meta">${t.brand?esc(t.brand):''}${t.model?' · '+esc(t.model):''}${t.supplier?' · <span style="color:var(--plan-lt)">'+esc(t.supplier)+'</span>':''}${t.notes?' · '+esc(t.notes):''}</div>
         <div class="tc-badges">
           <span class="badge ${cat.cls}">${cat.icon} ${cat.label}</span>
           <span class="badge ${badgeC(wd)}">${statusEmoji} ${statusText}</span>
@@ -1101,7 +1118,7 @@ function renderRow(t){
   const pill=(d,label)=>d?`<span class="pill ${badgeC(daysFrom(d))}">${fmt(d)}</span>`:`<span style="color:var(--mut2)">—</span>`;
   const hasPruef=t.hasElec||t.hasLeiter;
   return`<tr>
-    <td><strong style="font-size:14px">${esc(t.name)}</strong><br><span style="font-size:11.5px;color:var(--mut)">${t.brand||''} ${t.model||''}</span></td>
+    <td><strong style="font-size:14px">${esc(t.name)}</strong><br><span style="font-size:11.5px;color:var(--mut)">${t.brand||''} ${t.model||''}${t.supplier?' · '+esc(t.supplier):''}</span></td>
     <td><span class="pill ${cat.cls}">${cat.icon} ${cat.label}</span></td>
     <td style="font-family:var(--mono);font-size:12.5px">${fmt(t.bought)}</td>
     <td>${pill(t.warranty)}</td>
@@ -1158,7 +1175,7 @@ function openAdd(){
 }
 function closeAdd(){_wzCloseAllAC();document.getElementById('addModal').classList.add('hidden');clearForm();}
 function clearForm(){
-  ['f_name','f_brand','f_model','f_bought','f_warranty','f_serial','f_notes','f_lastService','f_lastElec','f_lastLeiter','f_editId'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});
+  ['f_name','f_brand','f_model','f_supplier','f_bought','f_warranty','f_serial','f_notes','f_lastService','f_lastElec','f_lastLeiter','f_editId'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});
   document.getElementById('f_cat').value='';
   document.getElementById('f_serviceInterval').value='12';
   document.getElementById('f_elecInterval').value='12';
@@ -1201,6 +1218,7 @@ function submitForm(){
     id:eid||('t_'+Date.now()),name,cat,
     brand:document.getElementById('f_brand').value.trim(),
     model:document.getElementById('f_model').value.trim(),
+    supplier:document.getElementById('f_supplier').value.trim(),
     bought, warranty:document.getElementById('f_warranty').value||null,
     serial:document.getElementById('f_serial').value.trim(),
     notes:document.getElementById('f_notes').value.trim(),
@@ -1226,7 +1244,7 @@ function editTool(id){
   const t=tools.find(x=>x.id===id);if(!t)return;
   clearForm();
   const sv=(fid,v)=>{const e=document.getElementById(fid);if(e&&v!=null&&v!=='')e.value=v;};
-  sv('f_name',t.name);sv('f_brand',t.brand);sv('f_model',t.model);sv('f_cat',t.cat);
+  sv('f_name',t.name);sv('f_brand',t.brand);sv('f_model',t.model);sv('f_supplier',t.supplier);sv('f_cat',t.cat);
   sv('f_bought',t.bought);sv('f_warranty',t.warranty);sv('f_serial',t.serial);sv('f_notes',t.notes);
   sv('f_serviceInterval',t.serviceInterval);sv('f_lastService',t.lastService);
   sv('f_elecInterval',t.elecInterval);sv('f_lastElec',t.lastElec);
@@ -1819,6 +1837,7 @@ function openQR(id){
   document.getElementById('qrInfo').innerHTML=[
     ['Bezeichnung',t.name],['Kategorie',cat.icon+' '+cat.label],
     ['Hersteller / Modell',(t.brand||'—')+(t.model?' · '+t.model:'')],
+    ['Lieferant',t.supplier||'—'],
     ['Kaufdatum',fmt(t.bought)],['Garantie bis',fmt(t.warranty)],['Seriennummer',t.serial||'—']
   ].map(([l,v])=>`<div class="qi-row"><span class="qi-lbl">${l}</span><span class="qi-val">${esc(v)}</span></div>`).join('');
   document.getElementById('qrModal').classList.remove('hidden');
@@ -1920,7 +1939,7 @@ function openViewTool(id){
   iconEl.textContent=cat.icon;
   iconEl.className='tc-icon '+cat.ico;
   document.getElementById('vm_name').textContent=t.name;
-  document.getElementById('vm_sub').textContent=[t.brand,t.model,t.notes].filter(Boolean).join(' · ')||'—';
+  document.getElementById('vm_sub').textContent=[t.brand,t.model,t.supplier,t.notes].filter(Boolean).join(' · ')||'—';
 
   // Badges
   const statusEmoji=wdc==='red'?'🚨':wdc==='amber'?'⏰':'✅';
@@ -1945,6 +1964,7 @@ function openViewTool(id){
   html+=vmField('Kategorie',cat.icon+' '+cat.label);
   html+=vmField('Hersteller',t.brand||'—');
   html+=vmField('Modell',t.model||'—');
+  html+=vmField('Lieferant',t.supplier||'—');
   html+=vmField('Seriennummer',t.serial||'—');
   html+=vmField('Standort',t.notes||'—');
   html+='</div>';
@@ -2032,8 +2052,8 @@ function delPruef(idx){
 // UTILS & EXPORT
 // ──────────────────────────────────────
 function exportCSV(){
-  const rows=[['ID','Bezeichnung','Hersteller','Modell','Kategorie','Kaufdatum','Garantie','Seriennummer','Nächster Service','Nächste Elektroprüfung','Nächste Leiterprüfung','Standort']];
-  tools.forEach(t=>rows.push([t.id,t.name,t.brand,t.model,CATS[t.cat]?.label,t.bought,t.warranty,t.serial,nextService(t),nextElec(t),nextLeiter(t),t.notes].map(v=>'"'+(v||'').toString().replace(/"/g,'""')+'"')));
+  const rows=[['ID','Bezeichnung','Hersteller','Modell','Lieferant','Kategorie','Kaufdatum','Garantie','Seriennummer','Nächster Service','Nächste Elektroprüfung','Nächste Leiterprüfung','Standort']];
+  tools.forEach(t=>rows.push([t.id,t.name,t.brand,t.model,t.supplier,CATS[t.cat]?.label,t.bought,t.warranty,t.serial,nextService(t),nextElec(t),nextLeiter(t),t.notes].map(v=>'"'+(v||'').toString().replace(/"/g,'""')+'"')));
   const a=document.createElement('a');a.href='data:text/csv;charset=utf-8,\uFEFF'+encodeURIComponent(rows.map(r=>r.join(',')).join('\n'));a.download='Werkzeugmanagement_GEMA.csv';a.click();
 }
 const setText=(id,v)=>{const e=document.getElementById(id);if(e)e.textContent=v;};
