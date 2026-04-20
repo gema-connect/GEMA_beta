@@ -423,7 +423,6 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
         <div class="fg" style="position:relative">
           <label>Bezeichnung <span class="req">*</span></label>
           <input type="text" id="f_name" placeholder="z.B. Winkelschleifer 125mm" autocomplete="off">
-          <div class="hint">Beschreibender Name — Vorschläge aus Katalog und bestehenden Einträgen. Gleiche Bezeichnung kann mehrfach verwendet werden.</div>
         </div>
         <div class="fg-row">
           <div class="fg" style="position:relative">
@@ -438,7 +437,6 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
         <div class="fg" style="position:relative">
           <label>Lieferant / Grosshändler</label>
           <input type="text" id="f_supplier" placeholder="z.B. Engel, ITAR Tools, SFS, Tobler …" autocomplete="off">
-          <div class="hint">Bezugsquelle / Grosshändler, über den das Gerät beschafft wurde — nicht der Hersteller.</div>
         </div>
         <div class="fg">
           <label>Kategorie <span class="req">*</span></label>
@@ -452,16 +450,21 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
             <option value="ladegeraet">🔋 Ladegerät (für Akkus)</option>
             <option value="sonstige">📦 Sonstiges</option>
           </select>
-          <div class="hint"><strong>Kabelgebundene Maschinen</strong> und <strong>Ladegeräte</strong> benötigen eine Elektroprüfung nach NIV — wird automatisch aktiviert.</div>
+          <div class="hint" id="hintNIV" style="display:none"><strong>Kabelgebundene Maschinen</strong> und <strong>Ladegeräte</strong> benötigen eine Elektroprüfung nach NIV — wird automatisch aktiviert.</div>
         </div>
         <div class="fg">
-          <label>Seriennummer / interne ID</label>
+          <label>Seriennummer</label>
           <input type="text" id="f_serial" placeholder="SN-XXXXXXXX">
-          <div class="hint">Seriennummer des Herstellers oder eine betriebsinterne Nummer. Erscheint im QR-Code und auf dem Geräteblatt.</div>
         </div>
-        <div class="fg">
-          <label>Standort / Abteilung</label>
-          <input type="text" id="f_notes" placeholder="z.B. Lager EG, Baustelle Zürich, Fahrzeug VW-123 …">
+        <div class="fg-row">
+          <div class="fg" style="position:relative">
+            <label>Standort / Abteilung</label>
+            <input type="text" id="f_notes" placeholder="z.B. Lager EG, Baustelle Zürich …" autocomplete="off">
+          </div>
+          <div class="fg" style="position:relative">
+            <label>Zugewiesen an</label>
+            <input type="text" id="f_assignee" placeholder="Person oder Team …" autocomplete="off">
+          </div>
         </div>
       </div>
 
@@ -1069,6 +1072,73 @@ function _wzSetupAutocomplete(){
   },function(sel){
     if(sel.supplierId){document.getElementById('f_supplierId').value=sel.supplierId;}
   });
+
+  // Standort / Abteilung — Vorschläge aus bestehenden Geräten
+  _wzInitAC('f_notes',function(q){
+    var ql=q.toLowerCase(),seen={},result=[];
+    tools.forEach(function(t){
+      if(!t.notes)return;
+      if(ql&&t.notes.toLowerCase().indexOf(ql)<0)return;
+      if(seen[t.notes])return;
+      seen[t.notes]=true;
+      result.push({label:t.notes,value:t.notes});
+    });
+    return result;
+  },null);
+
+  // Zugewiesen an — Vorschläge aus GemaAuth-Users + bestehenden Einträgen
+  _wzInitAC('f_assignee',function(q){
+    var ql=q.toLowerCase(),seen={},result=[];
+    // Aus bestehenden Zuweisungen
+    tools.forEach(function(t){
+      if(!t.zugewiesenAn||!t.zugewiesenAn.name)return;
+      var n=t.zugewiesenAn.name;
+      if(ql&&n.toLowerCase().indexOf(ql)<0)return;
+      if(seen[n])return;
+      seen[n]=true;
+      result.push({label:n,value:n,hint:'Bestehend'});
+    });
+    // Aus GemaAuth-Users (eigene Org)
+    if(typeof GemaAuth!=='undefined'){
+      try{
+        var me=_wzGetUser()||{};
+        var users=GemaAuth.getUsers()||[];
+        users.forEach(function(u){
+          if(!u.active)return;
+          if(me.orgId&&u.orgId!==me.orgId&&!_wzIsAdmin())return;
+          var n=u.name||u.username||'';
+          if(!n)return;
+          if(ql&&n.toLowerCase().indexOf(ql)<0)return;
+          if(seen[n])return;
+          seen[n]=true;
+          var role='';
+          if(u.roleIds){
+            if(u.roleIds.indexOf('role_monteur')>=0)role='Monteur';
+            else if(u.roleIds.indexOf('role_magaziner')>=0)role='Magaziner';
+            else if(u.roleIds.indexOf('role_admin')>=0)role='Admin';
+          }
+          result.push({label:n,value:n,hint:role||'Mitarbeiter'});
+        });
+      }catch(e){}
+    }
+    return result;
+  },null);
+}
+
+// ──────────────────────────────────────
+// COACHMARKS (Erstnutzer-Tour)
+// ──────────────────────────────────────
+function _wzMaybeCoachmarks(){
+  if(typeof GemaCoachmarks==='undefined')return;
+  setTimeout(function(){
+    GemaCoachmarks.init('werkzeug_erfassen_v1',[
+      {selector:'#f_name',title:'Bezeichnung',text:'Tippe los — Vorschläge aus dem Basiskatalog und bestehenden Einträgen erscheinen automatisch.',placement:'bottom'},
+      {selector:'#f_brand',title:'Hersteller & Modell',text:'Wähle den Hersteller, dann werden passende Modelle vorgeschlagen. Umgekehrt füllt ein Modell den Hersteller und die Kategorie automatisch aus.',placement:'bottom'},
+      {selector:'#f_supplier',title:'Lieferant',text:'Grosshändler / Bezugsquelle (z.B. Engel, SFS). Wird mit dem Lieferanten-Login verknüpft, falls vorhanden.',placement:'bottom'},
+      {selector:'#f_cat',title:'Kategorie',text:'Bestimmt, welche Prüfungen aktiv sind. Kabelgebundene Geräte und Ladegeräte erhalten automatisch die Elektroprüfung (NIV).',placement:'bottom'},
+      {selector:'#f_assignee',title:'Zugewiesen an',text:'Weise das Gerät direkt einer Person zu. Tippe für Vorschläge aus dem Team.',placement:'top'}
+    ]);
+  },400);
 }
 
 // ──────────────────────────────────────
@@ -1088,11 +1158,14 @@ const nextService=t=>t.hasService&&t.serviceInterval?addMonths(t.lastService||t.
 const nextElec   =t=>t.hasElec&&t.elecInterval?addMonths(t.lastElec||t.bought,t.elecInterval):null;
 const nextLeiter =t=>t.hasLeiter&&t.leiterInterval?addMonths(t.lastLeiter||t.bought,t.leiterInterval):null;
 function worstDays(t){
-  const v=[t.warranty,nextService(t),nextElec(t),nextLeiter(t)].filter(Boolean).map(daysFrom).filter(d=>d!==null);
+  const v=[nextService(t),nextElec(t),nextLeiter(t)].filter(Boolean).map(daysFrom).filter(d=>d!==null);
   return v.length?Math.min(...v):null;
 }
+function warrantyDays(t){return t.warranty?daysFrom(t.warranty):null;}
 function dc(d){if(d===null)return'neutral';if(d<0)return'red';if(d<=30)return'amber';return'green';}
+function dcWarranty(d){if(d===null)return'neutral';if(d<0)return'amber';if(d<=30)return'amber';return'green';}
 function dt(d){if(d===null)return'—';if(d<0)return`${Math.abs(d)} T. überfällig`;if(d===0)return'Heute fällig!';if(d<=7)return`in ${d} Tagen`;return`in ${d} Tagen`;}
+function dtWarranty(d){if(d===null)return'—';if(d<0)return`Abgelaufen seit ${Math.abs(d)} T.`;if(d===0)return'Läuft heute ab';if(d<=30)return`noch ${d} Tage`;return`noch ${d} Tage`;}
 function badgeC(d){const c=dc(d);return c==='red'?'badge-red':c==='amber'?'badge-warn':c==='neutral'?'badge-mut':'badge-ok';}
 
 // ──────────────────────────────────────
@@ -1131,7 +1204,7 @@ function renderCard(t){
   const barCls=wdc==='red'?'red':wdc==='amber'?'amber':wdc==='neutral'?'neutral':'green';
 
   const dateItems=[];
-  if(t.warranty){const d=daysFrom(t.warranty);dateItems.push({lbl:'Garantie bis',val:fmt(t.warranty),sub:dt(d),cls:dc(d)});}
+  if(t.warranty){const d=daysFrom(t.warranty);dateItems.push({lbl:'Garantie bis',val:fmt(t.warranty),sub:dtWarranty(d),cls:dcWarranty(d)});}
   const sd=nextService(t); if(sd){const d=daysFrom(sd);dateItems.push({lbl:'Nächster Service',val:fmt(sd),sub:dt(d),cls:dc(d)});}
   const ed=nextElec(t);    if(ed){const d=daysFrom(ed);dateItems.push({lbl:'Elektroprüfung (NIV)',val:fmt(ed),sub:dt(d),cls:dc(d)});}
   const ld=nextLeiter(t);  if(ld){const d=daysFrom(ld);dateItems.push({lbl:'Leiterprüfung (EKAS)',val:fmt(ld),sub:dt(d),cls:dc(d)});}
@@ -1243,10 +1316,11 @@ function openAdd(){
   setText('mft_lbl','Gerät speichern'); setText('mft_ico','✓');
   document.getElementById('f_bought').value=today();
   document.getElementById('addModal').classList.remove('hidden');
+  _wzMaybeCoachmarks();
 }
 function closeAdd(){_wzCloseAllAC();document.getElementById('addModal').classList.add('hidden');clearForm();}
 function clearForm(){
-  ['f_name','f_brand','f_model','f_supplier','f_supplierId','f_bought','f_warranty','f_serial','f_notes','f_lastService','f_lastElec','f_lastLeiter','f_editId','f_belegNr','f_belegBetrag','f_belegBestellNr','f_belegLieferdatum'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});
+  ['f_name','f_brand','f_model','f_supplier','f_supplierId','f_bought','f_warranty','f_serial','f_notes','f_assignee','f_lastService','f_lastElec','f_lastLeiter','f_editId','f_belegNr','f_belegBetrag','f_belegBestellNr','f_belegLieferdatum'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});
   var fp=document.getElementById('f_belegPreview');if(fp)fp.innerHTML='';
   window._wzBelegFile=null;
   document.getElementById('f_cat').value='';
@@ -1265,6 +1339,8 @@ const cap=s=>s.charAt(0).toUpperCase()+s.slice(1);
 function onCatChange(){
   const v=document.getElementById('f_cat').value;
   document.getElementById('ts_leiter').style.display=v==='leiter'?'':'none';
+  var niv=document.getElementById('hintNIV');
+  if(niv)niv.style.display=['maschine-kabel','ladegeraet'].includes(v)?'':'none';
   if(['maschine-kabel','ladegeraet'].includes(v)&&!document.getElementById('f_hasElec').checked){
     syncTS('elec',true); document.getElementById('f_hasElec').checked=true;
   }
@@ -1314,6 +1390,16 @@ function _wzBuildKaufbeleg(existing){
   };
 }
 
+function _wzBuildAssignee(existing){
+  var inp=document.getElementById('f_assignee');
+  var val=inp?inp.value.trim():'';
+  if(!val)return existing?.zugewiesenAn||null;
+  var users=(typeof GemaAuth!=='undefined')?(GemaAuth.getUsers()||[]):[];
+  var match=users.find(function(u){return u.name===val||u.username===val;});
+  if(match)return{userId:match.id,name:match.name||match.username,seit:existing?.zugewiesenAn?.userId===match.id?existing.zugewiesenAn.seit:today()};
+  return{userId:'',name:val,seit:existing?.zugewiesenAn?.name===val?existing.zugewiesenAn.seit:today()};
+}
+
 function submitForm(){
   if(!_wzCanEdit()){alert('Keine Berechtigung');return;}
   const name=document.getElementById('f_name').value.trim();
@@ -1343,6 +1429,7 @@ function submitForm(){
     lastLeiter:document.getElementById('f_lastLeiter').value||null,
     leiterHistory:existing?.leiterHistory||[],
     kaufbeleg:_wzBuildKaufbeleg(existing),
+    zugewiesenAn:_wzBuildAssignee(existing),
   };
   if(eid){const i=tools.findIndex(t=>t.id===eid);if(i>=0)tools[i]=tool;else tools.unshift(tool);}
   else tools.unshift(tool);
@@ -1356,6 +1443,7 @@ function editTool(id){
   const sv=(fid,v)=>{const e=document.getElementById(fid);if(e&&v!=null&&v!=='')e.value=v;};
   sv('f_name',t.name);sv('f_brand',t.brand);sv('f_model',t.model);sv('f_supplier',t.supplier);sv('f_supplierId',t.supplierId);sv('f_cat',t.cat);
   sv('f_bought',t.bought);sv('f_warranty',t.warranty);sv('f_serial',t.serial);sv('f_notes',t.notes);
+  if(t.zugewiesenAn)sv('f_assignee',t.zugewiesenAn.name||'');
   if(t.kaufbeleg){sv('f_belegNr',t.kaufbeleg.rechnungsNr);sv('f_belegBetrag',t.kaufbeleg.betrag);sv('f_belegBestellNr',t.kaufbeleg.bestellNr);sv('f_belegLieferdatum',t.kaufbeleg.lieferdatum);if(t.kaufbeleg.datei){window._wzBelegFile=t.kaufbeleg.datei;var fp=document.getElementById('f_belegPreview');if(fp)fp.innerHTML='<span style="color:var(--grn);font-weight:700;font-size:12px">📎 '+esc(t.kaufbeleg.datei.name||'Beleg')+'</span>';}}
   sv('f_serviceInterval',t.serviceInterval);sv('f_lastService',t.lastService);
   sv('f_elecInterval',t.elecInterval);sv('f_lastElec',t.lastElec);
@@ -2227,7 +2315,7 @@ function openViewTool(id){
   html+='<div class="vm-section">Termine &amp; Fristen</div>';
   html+='<div class="vm-grid">';
   html+=vmField('Kaufdatum',fmt(t.bought));
-  if(t.warranty){const d=daysFrom(t.warranty);html+=vmField('Garantie bis',fmt(t.warranty),dc(d));}
+  if(t.warranty){const d=daysFrom(t.warranty);html+=vmField('Garantie bis',fmt(t.warranty)+' · '+dtWarranty(d),dcWarranty(d));}
   const sd=nextService(t);if(sd){const d=daysFrom(sd);html+=vmField('Nächster Service',fmt(sd),dc(d));}
   const ed=nextElec(t);if(ed){const d=daysFrom(ed);html+=vmField('Elektroprüfung (NIV)',fmt(ed),dc(d));}
   const ld=nextLeiter(t);if(ld){const d=daysFrom(ld);html+=vmField('Leiterprüfung (EKAS)',fmt(ld),dc(d));}
@@ -2370,6 +2458,7 @@ await Promise.race([
 </script>
 <script>document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('werkzeug', 'Werkzeugmanagement');});</script>
 <script>if(typeof GemaAutoSave!=='undefined') GemaAutoSave.init('werkzeugmanagement');</script>
+<script src="gema_coachmarks.js"></script>
 <script src="gema_scroll.js"></script>
 <script src="gema_mobile_menu.js"></script>
 </body>
