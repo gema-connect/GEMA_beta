@@ -485,6 +485,56 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
         </div>
       </div>
 
+      <!-- 2b. Kaufbeleg / Auftragsbestätigung -->
+      <div class="ts" id="ts_beleg">
+        <div class="ts-hd" onclick="toggleTS('beleg')">
+          <div class="ts-left">
+            <span class="ts-ico">🧾</span>
+            <div>
+              <div class="ts-title">Kaufbeleg / Auftragsbestätigung <span style="font-size:11px;font-weight:600;color:var(--mut);margin-left:5px">optional</span></div>
+              <div class="ts-sub">Rechnungsdaten und Beleg-Dokument zum Gerät hinterlegen</div>
+            </div>
+          </div>
+          <label class="sw" onclick="event.stopPropagation()">
+            <input type="checkbox" id="f_hasBeleg" onchange="syncTS('beleg',this.checked)">
+            <span class="sw-sl"></span>
+          </label>
+        </div>
+        <div class="ts-body" id="tb_beleg" style="display:none">
+          <div class="fg-row">
+            <div class="fg">
+              <label>Rechnungsnummer</label>
+              <input type="text" id="f_belegNr" placeholder="RE-2024-001234">
+            </div>
+            <div class="fg">
+              <label>Betrag (CHF)</label>
+              <input type="text" inputmode="decimal" id="f_belegBetrag" onblur="fixLeadingZero(this)" placeholder="0.00">
+            </div>
+          </div>
+          <div class="fg-row">
+            <div class="fg">
+              <label>Bestell-Nr. / Auftrags-Nr.</label>
+              <input type="text" id="f_belegBestellNr" placeholder="PO-2024-5678">
+            </div>
+            <div class="fg">
+              <label>Lieferdatum</label>
+              <input type="date" id="f_belegLieferdatum">
+            </div>
+          </div>
+          <div class="fg">
+            <label>Beleg-Dokument (PDF / Bild)</label>
+            <div style="display:flex;gap:8px;align-items:center">
+              <label style="padding:8px 16px;border-radius:9px;border:1.5px dashed var(--brd2);background:var(--bg2);cursor:pointer;font-size:12.5px;font-weight:700;color:var(--mut);transition:.15s;display:inline-flex;align-items:center;gap:5px">
+                📎 Datei wählen
+                <input type="file" id="f_belegFile" accept=".pdf,.jpg,.jpeg,.png,.webp" style="display:none" onchange="_wzBelegFileChanged(this)">
+              </label>
+              <span id="f_belegPreview" style="font-size:12px;color:var(--mut)"></span>
+            </div>
+            <div class="hint">Max. 2 MB. Wird direkt im Gerätedatensatz gespeichert (Base64). Unterstützt: PDF, JPG, PNG.</div>
+          </div>
+        </div>
+      </div>
+
       <!-- 3. Service -->
       <div class="ts" id="ts_service">
         <div class="ts-hd" onclick="toggleTS('service')">
@@ -588,6 +638,7 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
     </div>
 
     <input type="hidden" id="f_editId">
+    <input type="hidden" id="f_supplierId">
     <div class="modal-ft">
       <button class="mft-cancel" onclick="closeAdd()">Abbrechen</button>
       <button class="mft-save" onclick="submitForm()">
@@ -991,15 +1042,33 @@ function _wzSetupAutocomplete(){
 
   _wzInitAC('f_supplier',function(q){
     var ql=q.toLowerCase(),seen={},result=[];
+    // Aus bestehenden Geräten
     tools.forEach(function(t){
       if(!t.supplier)return;
       if(ql&&t.supplier.toLowerCase().indexOf(ql)<0)return;
       if(seen[t.supplier])return;
       seen[t.supplier]=true;
-      result.push({label:t.supplier,value:t.supplier});
+      result.push({label:t.supplier,value:t.supplier,hint:'Eigene Geräte',supplierId:t.supplierId||''});
     });
+    // Aus Lieferanten-Accounts (GemaAuth)
+    if(typeof GemaAuth!=='undefined'){
+      try{
+        var users=GemaAuth.getUsers()||[];
+        users.forEach(function(u){
+          if(!u.active||!u.roleIds||u.roleIds.indexOf('role_lieferant')<0)return;
+          var firma=(u.profile&&u.profile.firma)||u.name||u.username||'';
+          if(!firma)return;
+          if(ql&&firma.toLowerCase().indexOf(ql)<0)return;
+          if(seen[firma])return;
+          seen[firma]=true;
+          result.push({label:firma,value:firma,hint:'GEMA-Lieferant',supplierId:u.id});
+        });
+      }catch(e){}
+    }
     return result;
-  },null);
+  },function(sel){
+    if(sel.supplierId){document.getElementById('f_supplierId').value=sel.supplierId;}
+  });
 }
 
 // ──────────────────────────────────────
@@ -1089,12 +1158,14 @@ function renderCard(t){
     ${t.zugewiesenAn?`<div style="padding:8px 14px;background:#eef2ff;border-top:1px solid #e0e7ff;font-size:11.5px;color:#3730a3;display:flex;align-items:center;gap:6px"><span>👷</span><strong>${esc(t.zugewiesenAn.name||'—')}</strong>${t.zugewiesenAn.seit?`<span style="color:#6366f1;margin-left:auto">seit ${fmt(t.zugewiesenAn.seit)}</span>`:''}</div>`:''}
     ${(t.berichte&&t.berichte.length)?`<div style="padding:6px 14px;background:#fff7ed;border-top:1px solid #fed7aa;font-size:11px;color:#c2410c;display:flex;align-items:center;gap:5px"><span>📝</span>${t.berichte.length} Bericht${t.berichte.length>1?'e':''}${_wzBadDefect(t)?' · <span style="font-weight:800">⚠ Defekt offen</span>':''}</div>`:''}
     ${t.pruefAnfrage?`<div style="padding:6px 14px;background:${t.pruefAnfrage.status==='erledigt'?'#f0fdf4':t.pruefAnfrage.status==='quittiert'?'#eff6ff':'#fff7ed'};border-top:1px solid ${t.pruefAnfrage.status==='erledigt'?'#bbf7d0':t.pruefAnfrage.status==='quittiert'?'#bfdbfe':'#fed7aa'};font-size:11px;color:${t.pruefAnfrage.status==='erledigt'?'#16a34a':t.pruefAnfrage.status==='quittiert'?'#2563eb':'#c2410c'};display:flex;align-items:center;gap:5px"><span>📋</span>${t.pruefAnfrage.status==='angefordert'?'Prüfung angefordert':t.pruefAnfrage.status==='quittiert'?'Lieferant quittiert':'Prüfung erledigt'} · ${esc(t.pruefAnfrage.lieferantFirma||'')}</div>`:''}
+    ${(t.ersatzAnfragen&&t.ersatzAnfragen.length)?`<div style="padding:6px 14px;background:#fdf4ff;border-top:1px solid #e9d5ff;font-size:11px;color:#7c3aed;display:flex;align-items:center;gap:5px"><span>🔄</span>${t.ersatzAnfragen.filter(a=>a.status==='offen').length} Ersatzanfrage${t.ersatzAnfragen.filter(a=>a.status==='offen').length!==1?'n':''} offen</div>`:''}
     <div class="tc-foot">
       <div class="tc-actions">
         <button class="tc-act" onclick="openQR('${t.id}')">🔲 QR</button>
         ${hasPruef?`<button class="tc-act accent" onclick="openPruef('${t.id}')">📋 Historie</button>`:''}
         <button class="tc-act" onclick="openBerichte('${t.id}')">📝 Berichte${(t.berichte&&t.berichte.length)?' ('+t.berichte.length+')':''}</button>
         ${(_wzCanEdit()&&hasPruef)?`<button class="tc-act" style="background:#dbeafe;color:#1d4ed8;border-color:#bfdbfe" onclick="openPruefAnfordern('${t.id}')" title="Prüfung beim Lieferant anfordern">📤 Anfordern</button>`:''}
+        ${(_wzCanEdit()&&_wzBadDefect(t))?`<button class="tc-act" style="background:#fdf4ff;color:#7c3aed;border-color:#c4b5fd" onclick="_wzErsatzAnfragen('${t.id}')" title="Ersatz-/Nachfolger-Anfrage an Lieferant">🔄 Ersatz</button>`:''}
       </div>
       <div class="tc-actions">
         ${_wzCanReportDefect()?`<button class="tc-act" style="background:#fff7ed;color:#c2410c;border-color:#fed7aa" onclick="openDefektMelden('${t.id}')" title="Defekt melden">⚠</button>`:''}
@@ -1175,12 +1246,14 @@ function openAdd(){
 }
 function closeAdd(){_wzCloseAllAC();document.getElementById('addModal').classList.add('hidden');clearForm();}
 function clearForm(){
-  ['f_name','f_brand','f_model','f_supplier','f_bought','f_warranty','f_serial','f_notes','f_lastService','f_lastElec','f_lastLeiter','f_editId'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});
+  ['f_name','f_brand','f_model','f_supplier','f_supplierId','f_bought','f_warranty','f_serial','f_notes','f_lastService','f_lastElec','f_lastLeiter','f_editId','f_belegNr','f_belegBetrag','f_belegBestellNr','f_belegLieferdatum'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});
+  var fp=document.getElementById('f_belegPreview');if(fp)fp.innerHTML='';
+  window._wzBelegFile=null;
   document.getElementById('f_cat').value='';
   document.getElementById('f_serviceInterval').value='12';
   document.getElementById('f_elecInterval').value='12';
   document.getElementById('f_leiterInterval').value='12';
-  ['service','elec','leiter'].forEach(s=>{
+  ['service','elec','leiter','beleg'].forEach(s=>{
     const cb=document.getElementById('f_has'+cap(s));if(cb)cb.checked=false;
     const tb=document.getElementById('tb_'+s);if(tb)tb.style.display='none';
     document.getElementById('ts_'+s)?.classList.remove('on');
@@ -1206,6 +1279,41 @@ function syncTS(name,on){
   document.getElementById('f_has'+cap(name)).checked=on;
 }
 
+// Kaufbeleg File-Upload
+window._wzBelegFile=null;
+function _wzBelegFileChanged(inp){
+  var file=inp.files&&inp.files[0];
+  if(!file)return;
+  if(file.size>2*1024*1024){alert('Datei zu gross (max. 2 MB)');inp.value='';return;}
+  var reader=new FileReader();
+  reader.onload=function(e){
+    window._wzBelegFile={name:file.name,type:file.type,dataUrl:e.target.result};
+    var fp=document.getElementById('f_belegPreview');
+    if(fp)fp.innerHTML='<span style="color:var(--grn);font-weight:700;font-size:12px">📎 '+esc(file.name)+'</span> <button type="button" onclick="_wzRemoveBeleg()" style="border:none;background:none;color:var(--red);cursor:pointer;font-size:12px;font-weight:700">✕</button>';
+  };
+  reader.readAsDataURL(file);
+}
+function _wzRemoveBeleg(){
+  window._wzBelegFile=null;
+  var fp=document.getElementById('f_belegPreview');if(fp)fp.innerHTML='';
+  var fi=document.getElementById('f_belegFile');if(fi)fi.value='';
+}
+function _wzBuildKaufbeleg(existing){
+  var nr=document.getElementById('f_belegNr');
+  var bt=document.getElementById('f_belegBetrag');
+  var bn=document.getElementById('f_belegBestellNr');
+  var ld=document.getElementById('f_belegLieferdatum');
+  var hasData=(nr&&nr.value.trim())||(bt&&bt.value.trim())||(bn&&bn.value.trim())||(ld&&ld.value)||window._wzBelegFile;
+  if(!hasData)return existing?.kaufbeleg||null;
+  return {
+    rechnungsNr:(nr?nr.value.trim():''),
+    betrag:(bt?bt.value.trim():''),
+    bestellNr:(bn?bn.value.trim():''),
+    lieferdatum:(ld?ld.value:''),
+    datei:window._wzBelegFile||(existing?.kaufbeleg?.datei||null)
+  };
+}
+
 function submitForm(){
   if(!_wzCanEdit()){alert('Keine Berechtigung');return;}
   const name=document.getElementById('f_name').value.trim();
@@ -1219,6 +1327,7 @@ function submitForm(){
     brand:document.getElementById('f_brand').value.trim(),
     model:document.getElementById('f_model').value.trim(),
     supplier:document.getElementById('f_supplier').value.trim(),
+    supplierId:document.getElementById('f_supplierId').value||'',
     bought, warranty:document.getElementById('f_warranty').value||null,
     serial:document.getElementById('f_serial').value.trim(),
     notes:document.getElementById('f_notes').value.trim(),
@@ -1233,6 +1342,7 @@ function submitForm(){
     leiterInterval:+document.getElementById('f_leiterInterval').value||12,
     lastLeiter:document.getElementById('f_lastLeiter').value||null,
     leiterHistory:existing?.leiterHistory||[],
+    kaufbeleg:_wzBuildKaufbeleg(existing),
   };
   if(eid){const i=tools.findIndex(t=>t.id===eid);if(i>=0)tools[i]=tool;else tools.unshift(tool);}
   else tools.unshift(tool);
@@ -1244,8 +1354,9 @@ function editTool(id){
   const t=tools.find(x=>x.id===id);if(!t)return;
   clearForm();
   const sv=(fid,v)=>{const e=document.getElementById(fid);if(e&&v!=null&&v!=='')e.value=v;};
-  sv('f_name',t.name);sv('f_brand',t.brand);sv('f_model',t.model);sv('f_supplier',t.supplier);sv('f_cat',t.cat);
+  sv('f_name',t.name);sv('f_brand',t.brand);sv('f_model',t.model);sv('f_supplier',t.supplier);sv('f_supplierId',t.supplierId);sv('f_cat',t.cat);
   sv('f_bought',t.bought);sv('f_warranty',t.warranty);sv('f_serial',t.serial);sv('f_notes',t.notes);
+  if(t.kaufbeleg){sv('f_belegNr',t.kaufbeleg.rechnungsNr);sv('f_belegBetrag',t.kaufbeleg.betrag);sv('f_belegBestellNr',t.kaufbeleg.bestellNr);sv('f_belegLieferdatum',t.kaufbeleg.lieferdatum);if(t.kaufbeleg.datei){window._wzBelegFile=t.kaufbeleg.datei;var fp=document.getElementById('f_belegPreview');if(fp)fp.innerHTML='<span style="color:var(--grn);font-weight:700;font-size:12px">📎 '+esc(t.kaufbeleg.datei.name||'Beleg')+'</span>';}}
   sv('f_serviceInterval',t.serviceInterval);sv('f_lastService',t.lastService);
   sv('f_elecInterval',t.elecInterval);sv('f_lastElec',t.lastElec);
   sv('f_leiterInterval',t.leiterInterval);sv('f_lastLeiter',t.lastLeiter);
@@ -1254,6 +1365,7 @@ function editTool(id){
   if(t.hasService)syncTS('service',true);
   if(t.hasElec)syncTS('elec',true);
   if(t.hasLeiter)syncTS('leiter',true);
+  if(t.kaufbeleg&&(t.kaufbeleg.rechnungsNr||t.kaufbeleg.betrag||t.kaufbeleg.bestellNr||t.kaufbeleg.datei))syncTS('beleg',true);
   setText('mhd_title','Gerät bearbeiten');
   document.getElementById('mhd_ic').textContent='✏️';
   setText('mft_lbl','Änderungen speichern');setText('mft_ico','✓');
@@ -1410,7 +1522,14 @@ function openBerichte(toolId){
       }
       var aktion='';
       if(isDef && !b.erledigt && _wzCanEdit()){
-        aktion='<button onclick="_wzDefektErledigt(\''+toolId+'\',\''+b.id+'\')" style="margin-top:6px;padding:4px 10px;background:#16a34a;color:#fff;border:none;border-radius:5px;font-size:11px;font-weight:700;cursor:pointer">✓ Erledigt markieren</button>';
+        aktion='<div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">';
+        aktion+='<button onclick="_wzDefektErledigt(\''+toolId+'\',\''+b.id+'\')" style="padding:4px 10px;background:#16a34a;color:#fff;border:none;border-radius:5px;font-size:11px;font-weight:700;cursor:pointer">✓ Erledigt</button>';
+        if(t.supplierId){
+          aktion+=b.anLieferantGemeldet
+            ?'<span style="font-size:10.5px;color:#6366f1;padding:4px 8px">📤 Gemeldet am '+fmt((b.anLieferantGemeldet||'').split('T')[0])+'</span>'
+            :'<button onclick="_wzDefektAnLieferant(\''+toolId+'\',\''+b.id+'\')" style="padding:4px 10px;background:#7c3aed;color:#fff;border:none;border-radius:5px;font-size:11px;font-weight:700;cursor:pointer">📤 An Lieferant melden</button>';
+        }
+        aktion+='</div>';
       }
       return '<div style="background:'+bgCol+';border:1.5px solid '+brdCol+';border-radius:8px;padding:10px 12px;margin-bottom:8px">'
         +'<div style="display:flex;align-items:center;gap:6px;font-size:11px;color:#64748b"><span style="font-weight:800;color:#0f172a">'+icon+' '+typLabel+'</span><span>·</span><span>'+esc(b.autorName||'—')+'</span><span>·</span><span>'+fmt((b.datum||'').split('T')[0])+'</span></div>'
@@ -1513,6 +1632,127 @@ function _wzSavePruefbericht(toolId){
   if(t.hasService)t.lastService=datum;
   save();renderList();_wzCloseModal();
   alert('✓ Prüfbericht gespeichert');
+}
+
+// ══════════════════════════════════════════════════════════════
+// LIEFERANTEN-INTEGRATION (Defekt melden, Ersatz anfragen, Beleg)
+// ══════════════════════════════════════════════════════════════
+function _wzViewBeleg(toolId){
+  var t=tools.find(function(x){return x.id===toolId;});
+  if(!t||!t.kaufbeleg||!t.kaufbeleg.datei||!t.kaufbeleg.datei.dataUrl)return;
+  var d=t.kaufbeleg.datei;
+  if(d.type&&d.type.indexOf('pdf')>=0){
+    var win=window.open();
+    if(win){win.document.write('<iframe src="'+d.dataUrl+'" frameborder="0" style="width:100%;height:100%;border:none"></iframe>');}
+  } else {
+    var html='<div style="background:#fff;border-radius:14px;padding:24px;max-width:700px;width:100%;max-height:90vh;overflow:auto;box-shadow:0 20px 60px -10px rgba(0,0,0,.3)">'
+      +'<div style="display:flex;align-items:center;gap:8px;margin-bottom:16px"><h3 style="margin:0;font-size:17px;font-weight:800;flex:1">🧾 Kaufbeleg</h3><button onclick="_wzCloseModal()" style="border:none;background:none;font-size:18px;cursor:pointer">✕</button></div>'
+      +'<img src="'+d.dataUrl+'" style="max-width:100%;border-radius:8px;border:1px solid #e2e7f0" />'
+      +'</div>';
+    _wzShowModal(html);
+  }
+}
+
+function _wzDefektAnLieferant(toolId,berId){
+  var t=tools.find(function(x){return x.id===toolId;});
+  if(!t)return;
+  if(!t.supplierId){alert('Kein Lieferant verknüpft. Bitte zuerst einen Lieferant im Gerät hinterlegen.');return;}
+  var b=null;
+  if(berId&&t.berichte)b=t.berichte.find(function(x){return x.id===berId;});
+  var u=_wzGetUser()||{};
+  var text=b?b.titel+' — '+b.beschreibung:'Defekt an '+t.name;
+  if(typeof GemaNotify!=='undefined'){
+    GemaNotify.push({
+      eventKey:'werkzeug_defekt_lieferant',
+      empfaengerUserId:t.supplierId,
+      modul:'werkzeug',
+      typ:'warnung',
+      titel:'⚠ Defektmeldung: '+t.name,
+      text:(u.name||'Magaziner')+': '+(b?b.titel:'Defekt gemeldet')+' · '+(t.brand||'')+(t.model?' '+t.model:'')+(b&&b.schweregrad?' · Schweregrad: '+b.schweregrad:''),
+      link:'if_werkzeug.html?view='+encodeURIComponent(t.id)
+    });
+  }
+  if(b)b.anLieferantGemeldet=new Date().toISOString();
+  save();
+  alert('✓ Defektmeldung an '+esc(t.supplier||'Lieferant')+' gesendet');
+  openBerichte(toolId);
+}
+
+function _wzErsatzAnfragen(toolId){
+  var t=tools.find(function(x){return x.id===toolId;});
+  if(!t)return;
+  var u=_wzGetUser()||{};
+  // Lieferanten-Auswahl: verknüpfter Lieferant oder alle
+  var liefs=_wzGetPruefLieferanten();
+  var defekte=(t.berichte||[]).filter(function(b){return b.typ==='defekt'&&!b.erledigt;});
+  var defektInfo=defekte.length?defekte.map(function(b){return b.titel;}).join(', '):'';
+  var preselect=t.supplierId||'';
+  var opts='<option value="">— Lieferant wählen —</option>';
+  liefs.forEach(function(l){
+    var firma=(l.profile&&l.profile.firma)||l.name||l.username||'';
+    opts+='<option value="'+esc(l.id)+'" '+(l.id===preselect?'selected':'')+'>'+esc(firma)+'</option>';
+  });
+  if(preselect&&!liefs.find(function(l){return l.id===preselect;})){
+    opts+='<option value="'+esc(preselect)+'" selected>'+esc(t.supplier||'Verknüpfter Lieferant')+'</option>';
+  }
+  var html='<div style="background:#fff;border-radius:14px;padding:24px;max-width:560px;width:100%;max-height:85vh;overflow-y:auto;box-shadow:0 20px 60px -10px rgba(0,0,0,.3)">'
+    +'<h3 style="margin:0 0 4px;font-size:17px;font-weight:800;color:#7c3aed">🔄 Ersatz- / Nachfolger-Anfrage</h3>'
+    +'<div style="font-size:12px;color:#64748b;margin-bottom:16px">Gerät: <strong>'+esc(t.name)+'</strong>'+(t.brand?' · '+esc(t.brand):'')+(t.model?' '+esc(t.model):'')+'</div>'
+    +'<div style="background:#fef2f2;border:1.5px solid #fecaca;border-radius:10px;padding:12px 14px;margin-bottom:14px;font-size:12.5px;color:#991b1b">'
+    +'<strong>Aktuelle Defekte:</strong> '+(defektInfo?esc(defektInfo):'Keine offenen Defekte')+'</div>'
+    +'<div style="display:flex;flex-direction:column;gap:12px">'
+    +'  <div><label style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase">Lieferant *</label><select id="eaLief" style="width:100%;padding:9px 12px;border:1.5px solid #c8cfdf;border-radius:8px;font-size:13px;margin-top:4px">'+opts+'</select></div>'
+    +'  <div><label style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase">Anfrage-Typ</label><select id="eaTyp" style="width:100%;padding:9px 12px;border:1.5px solid #c8cfdf;border-radius:8px;font-size:13px;margin-top:4px"><option value="ersatz">Gleiches Modell (Ersatz)</option><option value="nachfolger" selected>Nachfolgemodell</option><option value="alternative">Alternative / Empfehlung</option></select></div>'
+    +'  <div><label style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase">Nachricht an Lieferant</label><textarea id="eaMsg" rows="4" placeholder="z.B. Gerät ist defekt, benötigen Ersatz. Bitte Nachfolgemodell mit Preis offerieren." style="width:100%;padding:9px 12px;border:1.5px solid #c8cfdf;border-radius:8px;font-size:13px;margin-top:4px;font-family:inherit;resize:vertical"></textarea></div>'
+    +'</div>'
+    +'<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:18px">'
+    +'  <button onclick="_wzCloseModal()" style="padding:9px 18px;border-radius:8px;border:1.5px solid #c8cfdf;background:#fff;color:#334155;cursor:pointer;font-weight:600;font-family:inherit">Abbrechen</button>'
+    +'  <button onclick="_wzSendErsatzAnfrage(\''+toolId+'\')" style="padding:9px 18px;border-radius:8px;border:none;background:#7c3aed;color:#fff;cursor:pointer;font-weight:700;font-family:inherit">📤 Anfrage senden</button>'
+    +'</div>'
+    +'</div>';
+  _wzShowModal(html);
+}
+
+function _wzSendErsatzAnfrage(toolId){
+  var t=tools.find(function(x){return x.id===toolId;});
+  if(!t)return;
+  var liefId=document.getElementById('eaLief').value;
+  if(!liefId){alert('Bitte einen Lieferanten wählen');return;}
+  var typ=document.getElementById('eaTyp').value;
+  var msg=document.getElementById('eaMsg').value.trim();
+  var u=_wzGetUser()||{};
+  var liefs=_wzGetPruefLieferanten();
+  var lief=liefs.find(function(l){return l.id===liefId;});
+  var liefFirma=lief?((lief.profile&&lief.profile.firma)||lief.name||''):(t.supplier||'');
+  var typLabel=typ==='ersatz'?'Gleiches Modell (Ersatz)':typ==='nachfolger'?'Nachfolgemodell':'Alternative / Empfehlung';
+  // Anfrage als Objekt im Tool speichern
+  if(!t.ersatzAnfragen)t.ersatzAnfragen=[];
+  t.ersatzAnfragen.push({
+    id:'ea_'+Date.now(),
+    lieferantId:liefId,
+    lieferantFirma:liefFirma,
+    typ:typ,
+    nachricht:msg,
+    status:'offen',
+    erstelltAm:new Date().toISOString(),
+    erstelltVon:u.id||'',
+    erstelltVonName:u.name||''
+  });
+  save();
+  if(typeof GemaNotify!=='undefined'){
+    GemaNotify.push({
+      eventKey:'werkzeug_ersatz_anfrage',
+      empfaengerUserId:liefId,
+      modul:'werkzeug',
+      typ:'aktion',
+      titel:'🔄 Ersatzanfrage: '+t.name,
+      text:(u.name||'Magaziner')+' · '+typLabel+' · '+(t.brand||'')+(t.model?' '+t.model:'')+(msg?' · '+msg.substring(0,80):''),
+      link:'if_werkzeug.html?view='+encodeURIComponent(t.id)
+    });
+  }
+  _wzCloseModal();
+  alert('✓ Ersatzanfrage an '+esc(liefFirma)+' gesendet');
+  renderList();
 }
 
 // ── Modal-Helper ─────────────────────────────────────────────
@@ -1968,6 +2208,20 @@ function openViewTool(id){
   html+=vmField('Seriennummer',t.serial||'—');
   html+=vmField('Standort',t.notes||'—');
   html+='</div>';
+
+  // Kaufbeleg
+  if(t.kaufbeleg&&(t.kaufbeleg.rechnungsNr||t.kaufbeleg.betrag||t.kaufbeleg.bestellNr||t.kaufbeleg.datei)){
+    html+='<div class="vm-section">Kaufbeleg / Auftrag</div>';
+    html+='<div class="vm-grid">';
+    if(t.kaufbeleg.rechnungsNr)html+=vmField('Rechnungs-Nr.',t.kaufbeleg.rechnungsNr);
+    if(t.kaufbeleg.betrag)html+=vmField('Betrag','CHF '+t.kaufbeleg.betrag);
+    if(t.kaufbeleg.bestellNr)html+=vmField('Bestell-Nr.',t.kaufbeleg.bestellNr);
+    if(t.kaufbeleg.lieferdatum)html+=vmField('Lieferdatum',fmt(t.kaufbeleg.lieferdatum));
+    html+='</div>';
+    if(t.kaufbeleg.datei&&t.kaufbeleg.datei.dataUrl){
+      html+='<div style="margin-top:8px"><button onclick="_wzViewBeleg(\''+t.id+'\')" style="padding:8px 14px;border-radius:8px;border:1.5px solid var(--plan-bd);background:var(--plan-bg);color:var(--plan);cursor:pointer;font-weight:700;font-size:12px">📎 '+esc(t.kaufbeleg.datei.name||'Beleg anzeigen')+'</button></div>';
+    }
+  }
 
   // Termine
   html+='<div class="vm-section">Termine &amp; Fristen</div>';

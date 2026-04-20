@@ -59,6 +59,16 @@
       label:'Prüfungs-Anfrage an Lieferant',
       modul:'werkzeug',
       defaultOn:true
+    },
+    werkzeug_defekt_lieferant: {
+      label:'Defektmeldung an Lieferant',
+      modul:'werkzeug',
+      defaultOn:true
+    },
+    werkzeug_ersatz_anfrage: {
+      label:'Ersatz-/Nachfolger-Anfrage',
+      modul:'werkzeug',
+      defaultOn:true
     }
   };
 
