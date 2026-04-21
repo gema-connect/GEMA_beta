@@ -2360,44 +2360,55 @@ function openViewTool(id){
 
   // Status bar
   const stCls=wdc==='red'?'red':wdc==='amber'?'amber':'green';
-  const stText=wdc==='red'?'🚨 Prüfung überfällig!':wdc==='amber'?'⏰ Prüfung bald fällig':'✅ Alle Prüfungen aktuell';
   html+=`<div class="vm-status-bar ${stCls}"><span class="vm-st-icon">${wdc==='red'?'🚨':wdc==='amber'?'⏰':'✅'}</span><span class="vm-st-text">${wdc==='red'?'Prüfung überfällig!':wdc==='amber'?'Prüfung bald fällig':'Alle Prüfungen aktuell'}</span></div>`;
 
-  // Grunddaten
+  // Grunddaten (gleiche Reihenfolge wie Formular)
   html+='<div class="vm-section">Grunddaten</div>';
-  html+='<div class="vm-grid">';
   html+=vmField('Bezeichnung',t.name);
-  html+=vmField('Kategorie',cat.icon+' '+cat.label);
+  html+='<div class="vm-grid">';
   html+=vmField('Hersteller',t.brand||'—');
   html+=vmField('Modell',t.model||'—');
+  html+='</div>';
   html+=vmField('Lieferant',t.supplier||'—');
+  html+=vmField('Kategorie',cat.icon+' '+cat.label);
   html+=vmField('Seriennummer',t.serial||'—');
+  html+='<div class="vm-grid">';
   html+=vmField('Standort',t.notes||'—');
+  html+=vmField('Zugewiesen an',t.zugewiesenAn?esc(t.zugewiesenAn.name||'—'):'—');
+  html+='</div>';
+
+  // Kauf & Garantie (gleiche Reihenfolge wie Formular)
+  html+='<div class="vm-section">Kauf &amp; Garantie</div>';
+  html+='<div class="vm-grid">';
+  html+=vmField('Kaufdatum',fmt(t.bought));
+  if(t.warranty){const d=daysFrom(t.warranty);html+=vmField('Garantie bis',fmt(t.warranty)+' · '+dtWarranty(d),dcWarranty(d));}
+  else{html+=vmField('Garantie bis','—');}
   html+='</div>';
 
   // Kaufbeleg
   if(t.kaufbeleg&&(t.kaufbeleg.rechnungsNr||t.kaufbeleg.betrag||t.kaufbeleg.bestellNr||t.kaufbeleg.datei)){
-    html+='<div class="vm-section">Kaufbeleg / Auftrag</div>';
+    html+='<div class="vm-section">Kaufbeleg</div>';
     html+='<div class="vm-grid">';
-    if(t.kaufbeleg.rechnungsNr)html+=vmField('Rechnungs-Nr.',t.kaufbeleg.rechnungsNr);
-    if(t.kaufbeleg.betrag)html+=vmField('Betrag','CHF '+t.kaufbeleg.betrag);
-    if(t.kaufbeleg.bestellNr)html+=vmField('Bestell-Nr.',t.kaufbeleg.bestellNr);
-    if(t.kaufbeleg.lieferdatum)html+=vmField('Lieferdatum',fmt(t.kaufbeleg.lieferdatum));
+    html+=vmField('Rechnungs-Nr.',t.kaufbeleg.rechnungsNr||'—');
+    html+=vmField('Betrag',t.kaufbeleg.betrag?'CHF '+t.kaufbeleg.betrag:'—');
+    html+=vmField('Bestell-Nr.',t.kaufbeleg.bestellNr||'—');
+    html+=vmField('Lieferdatum',t.kaufbeleg.lieferdatum?fmt(t.kaufbeleg.lieferdatum):'—');
     html+='</div>';
     if(t.kaufbeleg.datei&&t.kaufbeleg.datei.dataUrl){
-      html+='<div style="margin-top:8px"><button onclick="_wzViewBeleg(\''+t.id+'\')" style="padding:8px 14px;border-radius:8px;border:1.5px solid var(--plan-bd);background:var(--plan-bg);color:var(--plan);cursor:pointer;font-weight:700;font-size:12px">📎 '+esc(t.kaufbeleg.datei.name||'Beleg anzeigen')+'</button></div>';
+      html+='<div style="margin-top:4px"><button onclick="_wzViewBeleg(\''+t.id+'\')" style="padding:8px 14px;border-radius:8px;border:1.5px solid var(--plan-bd);background:var(--plan-bg);color:var(--plan);cursor:pointer;font-weight:700;font-size:12px">📎 '+esc(t.kaufbeleg.datei.name||'Beleg anzeigen')+'</button></div>';
     }
   }
 
-  // Termine
-  html+='<div class="vm-section">Termine &amp; Fristen</div>';
-  html+='<div class="vm-grid">';
-  html+=vmField('Kaufdatum',fmt(t.bought));
-  if(t.warranty){const d=daysFrom(t.warranty);html+=vmField('Garantie bis',fmt(t.warranty)+' · '+dtWarranty(d),dcWarranty(d));}
-  const sd=nextService(t);if(sd){const d=daysFrom(sd);html+=vmField('Nächster Service',fmt(sd),dc(d));}
-  const ed=nextElec(t);if(ed){const d=daysFrom(ed);html+=vmField('Elektroprüfung (NIV)',fmt(ed),dc(d));}
-  const ld=nextLeiter(t);if(ld){const d=daysFrom(ld);html+=vmField('Leiterprüfung (EKAS)',fmt(ld),dc(d));}
-  html+='</div>';
+  // Prüfungen & Service
+  const sd=nextService(t);const ed=nextElec(t);const ld=nextLeiter(t);
+  if(sd||ed||ld){
+    html+='<div class="vm-section">Prüfungen &amp; Service</div>';
+    html+='<div class="vm-grid">';
+    if(sd){const d=daysFrom(sd);html+=vmField('Nächster Service',fmt(sd)+' · '+dt(d),dc(d));}
+    if(ed){const d=daysFrom(ed);html+=vmField('Elektroprüfung (NIV)',fmt(ed)+' · '+dt(d),dc(d));}
+    if(ld){const d=daysFrom(ld);html+=vmField('Leiterprüfung (EKAS)',fmt(ld)+' · '+dt(d),dc(d));}
+    html+='</div>';
+  }
 
   // Letzte Prüfungen
   const allPruef=[...(t.elecHistory||[]),...(t.leiterHistory||[])].sort((a,b)=>b.date.localeCompare(a.date));
