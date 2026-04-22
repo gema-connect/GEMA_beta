@@ -1355,18 +1355,40 @@ document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('osmo
     var p = GemaProdukte.getProdukt(_selProdId);
     if(!p) return;
     var d = p.daten||{};
-    // Set VA (Anlageleistung) from Permeatleistung
+
+    // Berechnete Werte vor Rückschreibung lesen
+    var voLhEl = document.getElementById('voLh');
+    var berechnetPermeat = voLhEl ? parseFloat(voLhEl.textContent)||0 : 0;
+    var anlagePermeat = d.permeatleistung||0;
+    var anlageRecovery = d.recovery||0;
+    var anlageDruck = d.druckverlust||0;
+
+    // 1. Rückschreibung in Berechnung
     var vaEl = document.getElementById('va');
     if(vaEl && d.permeatleistung) vaEl.value = String(d.permeatleistung);
-    // Set Recovery from product
     var phiEl = document.getElementById('phi');
     if(phiEl && d.recovery) phiEl.value = String(d.recovery);
     document.getElementById('pkModal').style.display = 'none';
     if(typeof recalc==='function') recalc();
-    // Toast
-    var t=document.createElement('div');t.style.cssText='position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#059669;color:#fff;padding:10px 20px;border-radius:10px;font-size:13px;font-weight:700;z-index:999;box-shadow:0 4px 12px rgba(0,0,0,.2)';
-    t.textContent='✓ '+p.lieferantFirma+' '+(d.serie||'')+' '+(d.modell||'')+' übernommen';
-    document.body.appendChild(t);setTimeout(function(){t.remove();},3000);
+
+    // 2. Vergleichs-Box
+    var permeatOk = anlagePermeat >= berechnetPermeat;
+    var sec = document.getElementById('anlagenSection')||document.querySelector('.g-page');
+    var existing = sec.querySelector('.pk-confirm');
+    if(existing) existing.remove();
+    var info = document.createElement('div');
+    info.className = 'pk-confirm';
+    info.style.cssText = 'padding:16px 20px;background:#fff;border:1.5px solid #e2e7f0;border-radius:12px;margin:12px 0;font-size:13px;box-shadow:0 2px 8px rgba(0,0,0,.06)';
+    info.innerHTML =
+      '<div style="font-weight:800;font-size:14px;margin-bottom:10px;display:flex;align-items:center;gap:8px">✓ Gewählte Anlage: '+(p.lieferantFirma||'')+' '+(d.serie||'')+' '+(d.modell||'')+(p.status==='nicht_verifiziert'?' <span style="color:#dc2626;font-size:11px">⚠ Nicht verifiziert</span>':'')+'</div>'+
+      '<table style="width:100%;border-collapse:collapse;font-size:12.5px">'+
+      '<tr style="background:#f8fafc"><td style="padding:7px 10px;font-weight:700;color:#64748b;border-bottom:1px solid #e2e7f0">Kenngrösse</td><td style="padding:7px 10px;font-weight:700;color:#64748b;border-bottom:1px solid #e2e7f0">Berechnet</td><td style="padding:7px 10px;font-weight:700;color:#64748b;border-bottom:1px solid #e2e7f0">Anlage</td><td style="padding:7px 10px;border-bottom:1px solid #e2e7f0"></td></tr>'+
+      '<tr><td style="padding:7px 10px;border-bottom:1px solid #f1f5f9">Permeatleistung</td><td style="padding:7px 10px;border-bottom:1px solid #f1f5f9">'+(berechnetPermeat?berechnetPermeat.toFixed(1)+' l/h':'—')+'</td><td style="padding:7px 10px;border-bottom:1px solid #f1f5f9">'+anlagePermeat+' l/h</td><td style="padding:7px 10px;border-bottom:1px solid #f1f5f9;font-weight:700;color:'+(permeatOk?'#16a34a':'#dc2626')+'">'+(permeatOk?'✅ ausreichend':'⚠ zu klein')+'</td></tr>'+
+      '<tr><td style="padding:7px 10px;border-bottom:1px solid #f1f5f9">Recovery</td><td style="padding:7px 10px;border-bottom:1px solid #f1f5f9">—</td><td style="padding:7px 10px;border-bottom:1px solid #f1f5f9;font-weight:700">'+anlageRecovery+' %</td><td style="padding:7px 10px;border-bottom:1px solid #f1f5f9;color:#2563eb;font-weight:600">→ in Berechnung</td></tr>'+
+      (anlageDruck?'<tr><td style="padding:7px 10px;border-bottom:1px solid #f1f5f9">Druckverlust</td><td style="padding:7px 10px;border-bottom:1px solid #f1f5f9">—</td><td style="padding:7px 10px;border-bottom:1px solid #f1f5f9;font-weight:700">'+anlageDruck+' bar</td><td style="padding:7px 10px;border-bottom:1px solid #f1f5f9;color:#2563eb;font-weight:600">→ in Berechnung</td></tr>':'')+
+      (d.salzrueckhaltung?'<tr><td style="padding:7px 10px">Salzrückhaltung</td><td style="padding:7px 10px">—</td><td style="padding:7px 10px">'+d.salzrueckhaltung+' %</td><td style="padding:7px 10px"></td></tr>':'')+
+      '</table>';
+    sec.appendChild(info);
   };
 
   // Liefert die aktuellen Berechnungs-Eingaben der Osmoseauslegung
