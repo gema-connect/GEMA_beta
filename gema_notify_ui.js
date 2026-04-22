@@ -279,9 +279,6 @@
       +'  </div>'
       +'</div>';
     d.body.appendChild(overlay);
-    overlay.addEventListener('click',function(e){
-      if(e.target===overlay){overlay.remove();}
-    });
     overlay.querySelector('#gnPrefClose').addEventListener('click',function(){overlay.remove();});
     overlay.querySelectorAll('input[type=checkbox]').forEach(function(cb){
       cb.addEventListener('change',function(){

@@ -200,7 +200,6 @@
     + '</div>';
     document.body.appendChild(overlay);
     overlay.querySelector('.gaw-close').addEventListener('click', function(){ overlay.remove(); });
-    overlay.addEventListener('click', function(ev){ if(ev.target===overlay) overlay.remove(); });
     overlay.querySelectorAll('.gaw-prod-card').forEach(function(el){
       el.addEventListener('mouseenter', function(){ el.style.background='#f8faff'; });
       el.addEventListener('mouseleave', function(){ el.style.background='#fff'; });
@@ -258,7 +257,6 @@
     + '</div>';
     document.body.appendChild(overlay);
     overlay.querySelectorAll('.gaw-close').forEach(function(b){ b.addEventListener('click', function(){ overlay.remove(); }); });
-    overlay.addEventListener('click', function(ev){ if(ev.target===overlay) overlay.remove(); });
     overlay.querySelector('.gaw-uebernehmen').addEventListener('click', function(){
       overlay.remove();
       if(typeof cfg.onAnlageUebernommen === 'function') {
@@ -306,7 +304,6 @@
     + '</div>';
     document.body.appendChild(overlay);
     overlay.querySelector('.gaw-cancel').addEventListener('click', function(){ overlay.remove(); });
-    overlay.addEventListener('click', function(ev){ if(ev.target===overlay) overlay.remove(); });
     overlay.querySelector('.gaw-switch-extern').addEventListener('click', function(){
       var vorab = {
         projekt: overlay.querySelector('.gaw-f-projekt').value || projekt.name,
