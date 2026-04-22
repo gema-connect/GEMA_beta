@@ -108,7 +108,7 @@
       var isPrem = false;
       try { isPrem = GemaProdukte.isLieferantPremium && GemaProdukte.isLieferantPremium(l); }
       catch(e) { isPrem = l && l.premium && l.premium.aktiv; }
-      html += '<div class="gaw-pill'+ (state.selLief===l.firma?' active':'') +'" data-lief="'+E(l.firma)+'" style="'+_pillStyle(state.selLief===l.firma, cfg.accent)+(isPrem?';border-color:#f59e0b;background:#fefce8;color:#92400e':'')+'">'+E(l.firma)+(isPrem?' ★':'')+'</div>';
+      html += '<div class="gaw-pill'+ (state.selLief===l.firma?' active':'') +'" data-lief="'+E(l.firma)+'" style="'+_pillStyle(state.selLief===l.firma, cfg.accent)+(isPrem?';border-color:#f59e0b;background:#fefce8;color:#92400e':'')+'">'+E(l.firma)+(isPrem?' <svg width="14" height="14" viewBox="0 0 24 24" fill="#2563eb" style="vertical-align:-2px;flex-shrink:0"><path d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>':'')+'</div>';
     });
     pills.innerHTML = html;
     pills.querySelectorAll('.gaw-pill').forEach(function(el){
@@ -180,11 +180,11 @@
       var kennwerte = typeof cfg.formatKennwerte === 'function'
         ? cfg.formatKennwerte(d)
         : _defaultKennwerte(d);
-      return '<div class="gaw-prod-card" data-prodid="'+E(p.id)+'" style="background:#fff;border:1.5px solid #e5e7eb;border-radius:10px;padding:12px 14px;cursor:pointer;transition:.15s;margin-bottom:10px">'
-        + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">'
-        +   '<strong style="font-size:14px">'+E(d.serie||'')+' '+E(d.modell||'')+'</strong>'
+      return '<div class="gaw-prod-card" data-prodid="'+E(p.id)+'" style="background:#fff;border:1.5px solid #e5e7eb;border-radius:10px;padding:12px 14px;cursor:pointer;transition:.15s;margin-bottom:10px;overflow:hidden">'
+        + '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;flex-wrap:nowrap">'
+        +   '<strong style="font-size:14px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+E(d.serie||'')+' '+E(d.modell||'')+'</strong>'
         +   '<span style="flex:1"></span>'
-        +   (p.status==='verifiziert'?'<span style="font-size:10px;padding:2px 7px;border-radius:10px;background:#eff6ff;color:#1d4ed8;font-weight:700">✓ Verifiziert</span>':'<span style="font-size:10px;padding:2px 7px;border-radius:10px;background:#fef2f2;color:#dc2626;font-weight:700">Nicht verifiziert</span>')
+        +   (p.status==='verifiziert'?'<span style="font-size:10px;padding:2px 7px;border-radius:10px;background:#eff6ff;color:#1d4ed8;font-weight:700;white-space:nowrap;flex-shrink:0">✓ Verifiziert</span>':'<span style="font-size:10px;padding:2px 7px;border-radius:10px;background:#fef2f2;color:#dc2626;font-weight:700;white-space:nowrap;flex-shrink:0">⚠ Nicht verifiziert</span>')
         + '</div>'
         + '<div style="font-size:12px;color:#6b7280">'+E(kennwerte)+'</div>'
         + '<div style="font-size:11px;color:#9ca3af;margin-top:4px">'+E(p.lieferantFirma||'')+'</div>'
