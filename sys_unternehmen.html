@@ -213,7 +213,8 @@ function renderUsers(){
     var abt=(_org.abteilungen||[]).find(function(a){return a.id===u.abteilungId;});
     return '<div style="display:flex;align-items:center;gap:10px;padding:10px 18px;border-bottom:1px solid var(--brd)">'+
       '<div style="flex:1"><strong>'+E(u.name||u.username)+'</strong>'+(isAdmin?' <span class="badge b-blu">Admin</span>':'')+(u.kontotyp==='login_light'?' <span class="badge b-amb">Light</span>':'')+
-      '<div style="font-size:11px;color:var(--mut)">'+E(rNames)+(abt?' · '+E(abt.name):' · Keine Abteilung')+'</div></div>'+
+      '<div style="font-size:11px;color:var(--mut)">'+E(rNames||'Keine Rolle')+(abt?' · '+E(abt.name):' · Keine Abteilung')+'</div></div>'+
+      '<button class="btn btn-sm" onclick="_editUserRoles(\''+u.id+'\')" title="Rollen bearbeiten">🔑</button>'+
       '<select onchange="GemaAuth.setUserAbteilung(\''+u.id+'\',this.value);renderUsers()" style="padding:4px 8px;border:1px solid var(--brd2);border-radius:6px;font-size:11px">'+
         '<option value="">Keine Abt.</option>'+
         (_org.abteilungen||[]).map(function(a){return '<option value="'+a.id+'"'+(a.id===u.abteilungId?' selected':'')+'>'+E(a.name)+'</option>';}).join('')+
@@ -221,6 +222,50 @@ function renderUsers(){
       (u.id!==_user.id?'<button class="btn btn-d btn-sm" onclick="deaktivierUser(\''+u.id+'\')">Deaktivieren</button>':'')+
     '</div>';
   }).join('');
+}
+
+function _editUserRoles(userId){
+  var users=GemaAuth.getUsers()||[];
+  var u=users.find(function(x){return x.id===userId;});
+  if(!u)return;
+  var allRoles=GemaAuth.getRoles()||[];
+  var assignable=allRoles.filter(function(r){return r.id!=='role_admin';});
+  var currentIds=u.roleIds||[];
+  var html='<div style="background:#fff;border-radius:14px;padding:24px;max-width:420px;width:100%;box-shadow:0 20px 60px -10px rgba(0,0,0,.3)">'
+    +'<h3 style="margin:0 0 4px;font-size:17px;font-weight:900">🔑 Rollen bearbeiten</h3>'
+    +'<div style="font-size:12px;color:#64748b;margin-bottom:16px">'+E(u.name||u.username)+'</div>'
+    +'<div id="_roleCheckboxes" style="display:flex;flex-direction:column;gap:6px">'
+    +assignable.map(function(r){
+      var checked=currentIds.indexOf(r.id)>=0;
+      return '<label style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:8px;cursor:pointer;border:1.5px solid '+(checked?r.color+'40':'#e2e7f0')+';background:'+(checked?r.color+'08':'#fff')+'"><input type="checkbox" value="'+r.id+'"'+(checked?' checked':'')+' style="accent-color:'+r.color+'"/> <span style="font-size:13px;font-weight:600;color:'+(checked?r.color:'#374151')+'">'+E(r.name)+'</span></label>';
+    }).join('')
+    +'</div>'
+    +'<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">'
+    +'  <button onclick="_closeRoleModal()" style="padding:8px 16px;border-radius:8px;border:1.5px solid #c8cfdf;background:#fff;color:#334155;cursor:pointer;font-weight:600;font-family:inherit">Abbrechen</button>'
+    +'  <button onclick="_saveUserRoles(\''+userId+'\')" style="padding:8px 16px;border-radius:8px;border:none;background:var(--acc);color:#fff;cursor:pointer;font-weight:700;font-family:inherit">✓ Speichern</button>'
+    +'</div></div>';
+  var ov=document.createElement('div');
+  ov.id='_roleModalOv';
+  ov.style.cssText='position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:10500;display:flex;align-items:center;justify-content:center;padding:20px';
+  ov.innerHTML=html;
+  document.body.appendChild(ov);
+  document.body.classList.add('modal-open');
+}
+function _saveUserRoles(userId){
+  var cbs=document.querySelectorAll('#_roleCheckboxes input[type="checkbox"]');
+  var newRoles=[];
+  cbs.forEach(function(cb){if(cb.checked)newRoles.push(cb.value);});
+  var users=GemaAuth.getUsers()||[];
+  var u=users.find(function(x){return x.id===userId;});
+  if(u){u.roleIds=newRoles;GemaAuth.saveUsers(users);}
+  _closeRoleModal();
+  renderUsers();
+  toast('Rollen aktualisiert');
+}
+function _closeRoleModal(){
+  var ov=document.getElementById('_roleModalOv');
+  if(ov)ov.remove();
+  document.body.classList.remove('modal-open');
 }
 function inviteUser(){
   var email=prompt('E-Mail des neuen Benutzers:');if(!email)return;
