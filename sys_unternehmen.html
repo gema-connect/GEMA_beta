@@ -117,8 +117,10 @@ input::placeholder{color:#cbd5e1!important}
 
   <!-- Tab: Lizenzen -->
   <div class="tab-body" id="tb-lizenzen">
-    <div class="card"><div class="card-hd"><h3>Lizenzen</h3></div>
+    <div class="card"><div class="card-hd"><h3>Lizenzübersicht</h3><button class="btn btn-p btn-sm" onclick="_openLizKauf()">+ Lizenzen kaufen</button></div>
     <div class="card-bd" id="lizInfo"></div></div>
+    <div class="card"><div class="card-hd"><h3>Lizenzen pro Benutzer</h3></div>
+    <div class="card-bd" id="lizUsers" style="padding:0"></div></div>
   </div>
 
   <!-- Tab: Gäste -->
@@ -213,7 +215,8 @@ function renderUsers(){
     var abt=(_org.abteilungen||[]).find(function(a){return a.id===u.abteilungId;});
     return '<div style="display:flex;align-items:center;gap:10px;padding:10px 18px;border-bottom:1px solid var(--brd)">'+
       '<div style="flex:1"><strong>'+E(u.name||u.username)+'</strong>'+(isAdmin?' <span class="badge b-blu">Admin</span>':'')+(u.kontotyp==='login_light'?' <span class="badge b-amb">Light</span>':'')+
-      '<div style="font-size:11px;color:var(--mut)">'+E(rNames)+(abt?' · '+E(abt.name):' · Keine Abteilung')+'</div></div>'+
+      '<div style="font-size:11px;color:var(--mut)">'+E(rNames||'Keine Rolle')+(abt?' · '+E(abt.name):' · Keine Abteilung')+'</div></div>'+
+      '<button class="btn btn-sm" onclick="_editUserRoles(\''+u.id+'\')" title="Rollen bearbeiten">🔑</button>'+
       '<select onchange="GemaAuth.setUserAbteilung(\''+u.id+'\',this.value);renderUsers()" style="padding:4px 8px;border:1px solid var(--brd2);border-radius:6px;font-size:11px">'+
         '<option value="">Keine Abt.</option>'+
         (_org.abteilungen||[]).map(function(a){return '<option value="'+a.id+'"'+(a.id===u.abteilungId?' selected':'')+'>'+E(a.name)+'</option>';}).join('')+
@@ -221,6 +224,50 @@ function renderUsers(){
       (u.id!==_user.id?'<button class="btn btn-d btn-sm" onclick="deaktivierUser(\''+u.id+'\')">Deaktivieren</button>':'')+
     '</div>';
   }).join('');
+}
+
+function _editUserRoles(userId){
+  var users=GemaAuth.getUsers()||[];
+  var u=users.find(function(x){return x.id===userId;});
+  if(!u)return;
+  var allRoles=GemaAuth.getRoles()||[];
+  var assignable=allRoles.filter(function(r){return r.id!=='role_admin';});
+  var currentIds=u.roleIds||[];
+  var html='<div style="background:#fff;border-radius:14px;padding:24px;max-width:420px;width:100%;box-shadow:0 20px 60px -10px rgba(0,0,0,.3)">'
+    +'<h3 style="margin:0 0 4px;font-size:17px;font-weight:900">🔑 Rollen bearbeiten</h3>'
+    +'<div style="font-size:12px;color:#64748b;margin-bottom:16px">'+E(u.name||u.username)+'</div>'
+    +'<div id="_roleCheckboxes" style="display:flex;flex-direction:column;gap:6px">'
+    +assignable.map(function(r){
+      var checked=currentIds.indexOf(r.id)>=0;
+      return '<label style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:8px;cursor:pointer;border:1.5px solid '+(checked?r.color+'40':'#e2e7f0')+';background:'+(checked?r.color+'08':'#fff')+'"><input type="checkbox" value="'+r.id+'"'+(checked?' checked':'')+' style="accent-color:'+r.color+'"/> <span style="font-size:13px;font-weight:600;color:'+(checked?r.color:'#374151')+'">'+E(r.name)+'</span></label>';
+    }).join('')
+    +'</div>'
+    +'<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">'
+    +'  <button onclick="_closeRoleModal()" style="padding:8px 16px;border-radius:8px;border:1.5px solid #c8cfdf;background:#fff;color:#334155;cursor:pointer;font-weight:600;font-family:inherit">Abbrechen</button>'
+    +'  <button onclick="_saveUserRoles(\''+userId+'\')" style="padding:8px 16px;border-radius:8px;border:none;background:var(--acc);color:#fff;cursor:pointer;font-weight:700;font-family:inherit">✓ Speichern</button>'
+    +'</div></div>';
+  var ov=document.createElement('div');
+  ov.id='_roleModalOv';
+  ov.style.cssText='position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:10500;display:flex;align-items:center;justify-content:center;padding:20px';
+  ov.innerHTML=html;
+  document.body.appendChild(ov);
+  document.body.classList.add('modal-open');
+}
+function _saveUserRoles(userId){
+  var cbs=document.querySelectorAll('#_roleCheckboxes input[type="checkbox"]');
+  var newRoles=[];
+  cbs.forEach(function(cb){if(cb.checked)newRoles.push(cb.value);});
+  var users=GemaAuth.getUsers()||[];
+  var u=users.find(function(x){return x.id===userId;});
+  if(u){u.roleIds=newRoles;GemaAuth.saveUsers(users);}
+  _closeRoleModal();
+  renderUsers();
+  toast('Rollen aktualisiert');
+}
+function _closeRoleModal(){
+  var ov=document.getElementById('_roleModalOv');
+  if(ov)ov.remove();
+  document.body.classList.remove('modal-open');
 }
 function inviteUser(){
   var email=prompt('E-Mail des neuen Benutzers:');if(!email)return;
@@ -270,21 +317,119 @@ function rmAbteilung(id){
 }
 
 // ── Lizenzen ──
+var GEWERKE_PAKETE=[
+  {id:'sanitaer',name:'Sanitär',icon:'💧',preis:49,module:['sb_druckerhoehung','sb_warmwasser','sb_zirkulation','sa_enthaertung','sa_osmose','sb_lu_tabelle','sb_grobauslegung','sb_vonroll','sb_niederschlag','sa_abwasserhebeanlage','sa_schlammsammler']},
+  {id:'heizung',name:'Heizung',icon:'🔥',preis:49,module:['sb_heizlast','sb_heizkoerper']},
+  {id:'lueftung',name:'Lüftung',icon:'🌀',preis:49,module:['sb_lueftung','sb_kanal']},
+  {id:'elektro',name:'Elektro',icon:'⚡',preis:49,module:['sb_elektro']},
+  {id:'pm',name:'Projektmanagement',icon:'📋',preis:39,module:['pm_objekte','pm_terminplan','pm_ausschreibung','pm_abnahme','pm_baustelle','pm_goodel']},
+  {id:'hygiene',name:'Hygiene & Betrieb',icon:'🧬',preis:29,module:['hy_w12','hy_inspektion']},
+  {id:'infra',name:'Infrastruktur',icon:'🏭',preis:29,module:['if_werkzeug','if_fahrzeug']},
+  {id:'ausbildung',name:'Ausbildung',icon:'🎓',preis:19,module:['ab_sephir','ab_index']}
+];
+
 function renderLizenzen(){
   var l=_org.lizenzen||{};
+  var gekauft=l.pakete||[];
   var users=GemaAuth.getOrgUsers(_org.id);
   var el=document.getElementById('lizInfo');
-  el.innerHTML='<div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:16px">'+
-    '<div style="padding:14px;background:var(--acc-bg);border:1px solid #bfcfff;border-radius:10px;flex:1;min-width:120px;text-align:center"><div style="font-size:24px;font-weight:900;color:var(--acc)">'+users.length+'</div><div style="font-size:11px;color:var(--mut)">Aktive User</div></div>'+
-    '<div style="padding:14px;background:var(--bg2);border:1px solid var(--brd);border-radius:10px;flex:1;min-width:120px;text-align:center"><div style="font-size:24px;font-weight:900">'+(l.maxUser||'∞')+'</div><div style="font-size:11px;color:var(--mut)">Max. Lizenzen</div></div>'+
-    '<div style="padding:14px;background:'+(users.length>=(l.maxUser||999)?'var(--red-bg)':'var(--grn-bg)')+';border:1px solid '+(users.length>=(l.maxUser||999)?'#fecaca':'#bbf7d0')+';border-radius:10px;flex:1;min-width:120px;text-align:center"><div style="font-size:24px;font-weight:900;color:'+(users.length>=(l.maxUser||999)?'var(--red)':'var(--grn)')+'">'+((l.maxUser||999)-users.length)+'</div><div style="font-size:11px;color:var(--mut)">Verfügbar</div></div>'+
-  '</div>'+
-  '<div style="font-size:13px;color:var(--txt2);line-height:1.6">'+
-    '<strong>Typ:</strong> '+(l.typ==='pool'?'Pool-Lizenzen (mind. 30 Tage pro User)':'Einzellizenzen')+'<br/>'+
-    '<strong>Gewerke:</strong> '+(l.gewerke||['sanitaer']).join(', ')+'<br/>'+
-    '<strong>Laufzeit:</strong> '+(l.aboStart||'—')+' bis '+(l.aboEnde||'—')+
-  '</div>'+
-  '<div style="margin-top:16px"><a href="sys_preise.html" class="btn btn-p" style="text-decoration:none">Lizenzen erweitern →</a></div>';
+  el.innerHTML=GEWERKE_PAKETE.map(function(gw){
+    var anz=gekauft.filter(function(p){return p.paketId===gw.id;}).length;
+    var zugewiesen=0;
+    users.forEach(function(u){if(u.lizenzen&&u.lizenzen.indexOf(gw.id)>=0)zugewiesen++;});
+    return '<div style="display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--brd)">'+
+      '<span style="font-size:22px">'+gw.icon+'</span>'+
+      '<div style="flex:1"><div style="font-size:13px;font-weight:700">'+E(gw.name)+'</div><div style="font-size:11px;color:var(--mut)">'+gw.module.length+' Module · CHF '+gw.preis+'/User/Monat</div></div>'+
+      '<div style="text-align:center;min-width:60px"><div style="font-size:18px;font-weight:900;color:'+(anz>0?'var(--acc)':'var(--mut2)')+'">'+anz+'</div><div style="font-size:10px;color:var(--mut)">Lizenzen</div></div>'+
+      '<div style="text-align:center;min-width:60px"><div style="font-size:18px;font-weight:900;color:'+(zugewiesen>anz?'var(--red)':'var(--grn)')+'">'+zugewiesen+'/'+anz+'</div><div style="font-size:10px;color:var(--mut)">Zugewiesen</div></div>'+
+    '</div>';
+  }).join('');
+
+  // User-Zuweisung
+  var uel=document.getElementById('lizUsers');
+  uel.innerHTML=users.map(function(u){
+    var uLiz=u.lizenzen||[];
+    var chips=GEWERKE_PAKETE.map(function(gw){
+      var has=uLiz.indexOf(gw.id)>=0;
+      return '<span onclick="_toggleUserLiz(\''+u.id+'\',\''+gw.id+'\')" style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;border:1.5px solid '+(has?'var(--acc)':'var(--brd2)')+';background:'+(has?'var(--acc-bg)':'#fff')+';color:'+(has?'var(--acc)':'var(--mut)')+'">'+gw.icon+' '+gw.name+'</span>';
+    }).join('');
+    return '<div style="padding:12px 18px;border-bottom:1px solid var(--brd)"><div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><strong style="font-size:13px">'+E(u.name||u.username)+'</strong><span style="font-size:11px;color:var(--mut)">'+uLiz.length+' Lizenzen</span></div><div style="display:flex;gap:6px;flex-wrap:wrap">'+chips+'</div></div>';
+  }).join('');
+}
+
+function _toggleUserLiz(userId,paketId){
+  var users=GemaAuth.getUsers()||[];
+  var u=users.find(function(x){return x.id===userId;});
+  if(!u)return;
+  if(!u.lizenzen)u.lizenzen=[];
+  var idx=u.lizenzen.indexOf(paketId);
+  if(idx>=0)u.lizenzen.splice(idx,1);
+  else u.lizenzen.push(paketId);
+  GemaAuth.saveUsers(users);
+  renderLizenzen();
+}
+
+function _openLizKauf(){
+  var html='<div style="background:#fff;border-radius:16px;padding:24px;max-width:540px;width:100%;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px -10px rgba(0,0,0,.3)">'
+    +'<h3 style="margin:0 0 4px;font-size:18px;font-weight:900">🔑 Lizenzen kaufen</h3>'
+    +'<div style="font-size:12px;color:#64748b;margin-bottom:16px">Wählen Sie Gewerke-Pakete und Anzahl Lizenzen</div>'
+    +'<div style="display:flex;flex-direction:column;gap:10px" id="_lizPakete">'
+    +GEWERKE_PAKETE.map(function(gw){
+      var anz=(_org.lizenzen&&_org.lizenzen.pakete||[]).filter(function(p){return p.paketId===gw.id;}).length;
+      return '<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;border:1.5px solid var(--brd2);border-radius:10px">'
+        +'<span style="font-size:20px">'+gw.icon+'</span>'
+        +'<div style="flex:1"><div style="font-size:13px;font-weight:700">'+E(gw.name)+'</div><div style="font-size:11px;color:var(--mut)">CHF '+gw.preis+'/User/Monat</div></div>'
+        +'<div style="font-size:11px;color:var(--mut)">Aktuell: '+anz+'</div>'
+        +'<input type="number" min="0" value="0" data-paket="'+gw.id+'" data-preis="'+gw.preis+'" oninput="_lizCalcTotal()" style="width:60px;padding:6px 8px;border:1.5px solid var(--brd2);border-radius:6px;text-align:center;font-size:14px;font-weight:700"/>'
+      +'</div>';
+    }).join('')
+    +'</div>'
+    +'<div style="margin-top:14px;padding:12px;background:var(--bg2);border-radius:10px;display:flex;align-items:center;justify-content:space-between"><span style="font-size:13px;font-weight:700">Monatliche Kosten (neue):</span><span id="_lizTotal" style="font-size:18px;font-weight:900;color:var(--acc)">CHF 0.00</span></div>'
+    +'<div style="margin-top:14px"><label style="font-size:11px;font-weight:700;color:var(--mut);text-transform:uppercase">Zahlungsmethode</label>'
+    +'<div style="display:flex;gap:8px;margin-top:6px">'
+    +'<label style="flex:1;display:flex;align-items:center;gap:8px;padding:12px;border:1.5px solid var(--brd2);border-radius:10px;cursor:pointer"><input type="radio" name="lizZahlung" value="kreditkarte" checked style="accent-color:var(--acc)"/> <div><strong style="font-size:13px">💳 Kreditkarte</strong><div style="font-size:10px;color:var(--mut)">Sofort aktiv</div></div></label>'
+    +'<label style="flex:1;display:flex;align-items:center;gap:8px;padding:12px;border:1.5px solid var(--brd2);border-radius:10px;cursor:pointer"><input type="radio" name="lizZahlung" value="rechnung" style="accent-color:var(--acc)"/> <div><strong style="font-size:13px">📄 Rechnung</strong><div style="font-size:10px;color:var(--mut)">30 Tage Zahlungsfrist</div></div></label>'
+    +'</div></div>'
+    +'<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:18px">'
+    +'<button onclick="_closeLizModal()" style="padding:9px 18px;border-radius:8px;border:1.5px solid #c8cfdf;background:#fff;color:#334155;cursor:pointer;font-weight:600;font-family:inherit">Abbrechen</button>'
+    +'<button onclick="_lizKaufen()" style="padding:9px 18px;border-radius:8px;border:none;background:var(--acc);color:#fff;cursor:pointer;font-weight:700;font-family:inherit">✓ Kaufen</button>'
+    +'</div></div>';
+  var ov=document.createElement('div');
+  ov.id='_lizModalOv';
+  ov.style.cssText='position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:10500;display:flex;align-items:center;justify-content:center;padding:20px';
+  ov.innerHTML=html;
+  document.body.appendChild(ov);
+  document.body.classList.add('modal-open');
+}
+function _lizCalcTotal(){
+  var total=0;
+  document.querySelectorAll('#_lizPakete input[type="number"]').forEach(function(inp){
+    total+=(+inp.value||0)*(+inp.dataset.preis||0);
+  });
+  document.getElementById('_lizTotal').textContent='CHF '+total.toFixed(2);
+}
+function _lizKaufen(){
+  var methode=document.querySelector('[name="lizZahlung"]:checked').value;
+  if(!_org.lizenzen)_org.lizenzen={pakete:[]};
+  if(!_org.lizenzen.pakete)_org.lizenzen.pakete=[];
+  var added=0;
+  document.querySelectorAll('#_lizPakete input[type="number"]').forEach(function(inp){
+    var n=+inp.value||0;
+    for(var i=0;i<n;i++){
+      _org.lizenzen.pakete.push({paketId:inp.dataset.paket,kaufDatum:new Date().toISOString().split('T')[0],methode:methode,status:'aktiv'});
+      added++;
+    }
+  });
+  if(!added){alert('Bitte mindestens eine Lizenz auswählen.');return;}
+  GemaAuth.updateOrg(_org.id,{lizenzen:_org.lizenzen});
+  _closeLizModal();
+  renderLizenzen();
+  toast(added+' Lizenz(en) hinzugefügt — '+methode);
+}
+function _closeLizModal(){
+  var ov=document.getElementById('_lizModalOv');
+  if(ov)ov.remove();
+  document.body.classList.remove('modal-open');
 }
 
 // ── Gäste ──
