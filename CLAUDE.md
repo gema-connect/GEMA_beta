@@ -183,10 +183,14 @@ Jede Rolle hat ein eigenes Login mit rollenspezifischer Ansicht.
 | Rolle | Sicht | Hauptfunktionen |
 |-------|-------|----------------|
 | **Sanitärplaner** | Vollzugang Berechnungen + PM | Berechnungen erstellen, Projekte verwalten, Ausschreibungen, Offertanfragen |
+| **Heizungsplaner** | Vollzugang Berechnungen + PM | Wie Sanitärplaner, Gewerk: HLKK |
+| **Lüftungsplaner** | Vollzugang Berechnungen + PM | Wie Sanitärplaner, Gewerk: Lüftung |
+| **Elektroplaner** | Vollzugang Berechnungen + PM | Wie Sanitärplaner, Gewerk: Elektro |
+| **Abteilungsleiter** | Berechnungen + PM + Werkzeuge | Prüft Berechnungen, sieht alle Projekte der Abteilung, Werkzeug-Leserechte |
 | **Unternehmer** | Ausschreibungen + Offerten | CRBX-Preise ausfüllen (langfristig in GEMA, kurzfristig Datei-Upload), Offertvergleich einsehen |
-| **Bauherrschaft** | Projektübersicht + Kosten | Projektstatus, Kostenkontrolle, Freigaben |
+| **Bauherrschaft** | Projektübersicht + Kosten | Projektstatus, Kostenkontrolle, Terminplan, Freigaben (Read-only) |
 | **Architekt** | Projektübersicht + Koordination | Terminplanung, Sitzungsprotokolle, Dokumentation |
-| **Behörden** | Bewilligungen + Hygiene | W12-Prüfungen, Bewilligungsstatus |
+| **Behörde** | Bewilligungen + Hygiene | W12-Prüfungen, Bewilligungsstatus, Inspektion (Read-only) |
 | **Lieferant** | Eigenes Dashboard | Produktpflege, Verifizierung, Offertanfragen beantworten, Werkzeug-Prüfungen quittieren |
 | **Magaziner** | Werkzeug-/Fahrzeuglager der eigenen Org | Geräte erfassen + verwalten, Berichte schreiben, Personen zuweisen, Prüfungen bei Lieferanten anfordern |
 | **Monteur** | Read-only auf Werkzeuge der eigenen Org | Geräte einsehen, Defekte melden — keine Edit-Rechte |

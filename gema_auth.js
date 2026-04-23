@@ -103,6 +103,9 @@
     // aber nichts selbst aendern oder zuweisen. Sieht Werkzeuge der
     // eigenen Organisation.
     {id:'role_monteur',name:'Monteur',color:'#64748b',permissions:_somePerms(['werkzeugmanagement','baustellencheckliste','inspektion_wartung'],true,false,false)},
+    {id:'role_abteilungsleiter',name:'Abteilungsleiter',color:'#6d28d9',permissions:(function(){var p=_allPerms(true,true,false);p['werkzeugmanagement']={read:true,write:true,admin:false};p['objekte']={read:true,write:true,admin:true};return p;})()},
+    {id:'role_bauherrschaft',name:'Bauherrschaft',color:'#0284c7',permissions:_somePerms(['objekte','terminplan','kostenkontrolle','besprechungsprotokoll','abnahme_sia'],true,false,false)},
+    {id:'role_behoerde',name:'Behörde',color:'#475569',permissions:_somePerms(['w12','objekte','inspektion_wartung'],true,false,false)},
   ];
 
   // ── Default Org + User ─────────────────────────────────────────────
