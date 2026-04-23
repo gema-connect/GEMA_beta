@@ -385,6 +385,7 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
       <input type="text" id="searchInp" placeholder="Bezeichnung, Hersteller, Kategorie, Standort …" oninput="renderList()">
     </div>
     <button class="nbtn primary" id="btnAddTool" onclick="openAdd()">+ Gerät hinzufügen</button>
+    <button class="nbtn" id="btnPruefMode" onclick="_wzPruefModus()" style="display:none" title="Prüfmodus starten">📋 Prüfmodus</button>
     <div class="view-toggle">
       <button class="vt-btn active" id="vt_cards" onclick="setView('cards')" title="Karten">⊞</button>
       <button class="vt-btn"        id="vt_table" onclick="setView('table')" title="Tabelle">☰</button>
@@ -1774,6 +1775,181 @@ function _wzSavePruefbericht(toolId){
 }
 
 // ══════════════════════════════════════════════════════════════
+// PRÜFMODUS — Werkzeuge scannen & Checkliste abhaken
+// ══════════════════════════════════════════════════════════════
+var _pruefSession=null;
+function _wzPruefModus(){
+  if(!_wzCanEdit())return;
+  var monteure=[];
+  if(typeof GemaAuth!=='undefined'){
+    try{
+      var me=_wzGetUser()||{};
+      var users=GemaAuth.getUsers()||[];
+      monteure=users.filter(function(u){
+        if(!u.active)return false;
+        if(me.orgId&&u.orgId!==me.orgId&&!_wzIsAdmin())return false;
+        return u.roleIds&&(u.roleIds.indexOf('role_monteur')>=0||u.roleIds.indexOf('role_magaziner')>=0);
+      });
+    }catch(e){}
+  }
+  var opts='<option value="">— Monteur wählen —</option>';
+  monteure.forEach(function(m){opts+='<option value="'+esc(m.id)+'">'+esc(m.name||m.username)+'</option>';});
+  var html='<div style="background:#fff;border-radius:16px;padding:24px;max-width:480px;width:100%;box-shadow:0 20px 60px -10px rgba(0,0,0,.3)">'
+    +'<h3 style="margin:0 0 4px;font-size:18px;font-weight:900;color:var(--plan)">📋 Prüfmodus starten</h3>'
+    +'<div style="font-size:12px;color:#64748b;margin-bottom:16px">Werkzeuge per QR/NFC scannen und Anwesenheit prüfen</div>'
+    +'<div style="display:flex;flex-direction:column;gap:14px">'
+    +'  <label style="display:flex;align-items:center;gap:10px;padding:12px;background:#eff4ff;border:1.5px solid #bfdbfe;border-radius:10px;cursor:pointer"><input type="radio" name="pmMode" value="monteur" checked style="accent-color:var(--plan)"/> <div><strong style="font-size:13px">Monteur-Prüfung</strong><div style="font-size:11px;color:#64748b;margin-top:2px">Alle Werkzeuge eines Monteurs als Checkliste</div></div></label>'
+    +'  <label style="display:flex;align-items:center;gap:10px;padding:12px;background:#f0fdf4;border:1.5px solid #bbf7d0;border-radius:10px;cursor:pointer"><input type="radio" name="pmMode" value="sammlung" style="accent-color:var(--plan)"/> <div><strong style="font-size:13px">Sammelliste</strong><div style="font-size:11px;color:#64748b;margin-top:2px">Beliebige Werkzeuge scannen und sammeln</div></div></label>'
+    +'  <div id="pmMonteurRow"><label style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase">Monteur</label><select id="pmMonteur" style="width:100%;padding:9px 12px;border:1.5px solid #c8cfdf;border-radius:8px;font-size:16px;margin-top:4px">'+opts+'</select></div>'
+    +'</div>'
+    +'<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:18px">'
+    +'  <button onclick="_wzCloseModal()" style="padding:9px 18px;border-radius:8px;border:1.5px solid #c8cfdf;background:#fff;color:#334155;cursor:pointer;font-weight:600;font-family:inherit">Abbrechen</button>'
+    +'  <button onclick="_wzStartPruef()" style="padding:9px 18px;border-radius:8px;border:none;background:var(--plan);color:#fff;cursor:pointer;font-weight:700;font-family:inherit">▶ Starten</button>'
+    +'</div></div>';
+  _wzShowModal(html);
+  document.querySelectorAll('[name="pmMode"]').forEach(function(r){
+    r.addEventListener('change',function(){document.getElementById('pmMonteurRow').style.display=r.value==='monteur'?'':'none';});
+  });
+}
+
+function _wzStartPruef(){
+  var mode=document.querySelector('[name="pmMode"]:checked').value;
+  var monteurId='',monteurName='';
+  var checklist=[];
+  if(mode==='monteur'){
+    monteurId=document.getElementById('pmMonteur').value;
+    if(!monteurId){alert('Bitte einen Monteur wählen');return;}
+    monteurName=document.getElementById('pmMonteur').selectedOptions[0].textContent;
+    checklist=tools.filter(function(t){return t.zugewiesenAn&&t.zugewiesenAn.userId===monteurId;});
+    if(!checklist.length){alert('Diesem Monteur sind keine Werkzeuge zugewiesen.');return;}
+  }
+  _wzCloseModal();
+  _pruefSession={mode:mode,monteurId:monteurId,monteurName:monteurName,checklist:checklist,scanned:{},startedAt:new Date().toISOString()};
+  _wzRenderPruefUI();
+}
+
+function _wzRenderPruefUI(){
+  var s=_pruefSession;if(!s)return;
+  var me=_wzGetUser()||{};
+  var scannedList=Object.keys(s.scanned);
+  var isMonteur=s.mode==='monteur';
+  var total=isMonteur?s.checklist.length:scannedList.length;
+  var done=isMonteur?s.checklist.filter(function(t){return s.scanned[t.id];}).length:scannedList.length;
+
+  var listHtml='';
+  if(isMonteur){
+    listHtml=s.checklist.map(function(t){
+      var checked=!!s.scanned[t.id];
+      var cat=CATS[t.cat]||CATS.sonstige;
+      return '<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid #f1f5f9;'+(checked?'background:#f0fdf4':'')+'"><span style="font-size:20px;flex-shrink:0">'+(checked?'✅':'⬜')+'</span><div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:700;'+(checked?'color:#16a34a':'')+'">'+esc(t.name)+'</div><div style="font-size:11px;color:#64748b">'+esc(t.brand||'')+' '+(t.model||'')+' · '+cat.label+(t.serial?' · SN: '+esc(t.serial):'')+'</div></div>'+(checked?'<span style="font-size:10px;color:#16a34a;font-weight:700">'+fmt(s.scanned[t.id].split('T')[0])+'</span>':'')+'</div>';
+    }).join('');
+  } else {
+    listHtml=scannedList.map(function(id){
+      var t=tools.find(function(x){return x.id===id;});
+      if(!t)return '<div style="padding:10px 14px;font-size:12px;color:#64748b">ID: '+esc(id)+' (nicht gefunden)</div>';
+      var cat=CATS[t.cat]||CATS.sonstige;
+      return '<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid #f1f5f9;background:#f0fdf4"><span style="font-size:20px">✅</span><div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:700;color:#16a34a">'+esc(t.name)+'</div><div style="font-size:11px;color:#64748b">'+esc(t.brand||'')+' '+(t.model||'')+' · '+cat.label+'</div></div></div>';
+    }).join('');
+    if(!listHtml)listHtml='<div style="padding:30px;text-align:center;color:#94a3b8;font-size:13px">Noch keine Werkzeuge gescannt.<br/>QR-Code oder NFC-Tag scannen.</div>';
+  }
+
+  var html='<div style="background:#fff;border-radius:16px;max-width:560px;width:100%;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 20px 60px -10px rgba(0,0,0,.3)">'
+    +'<div style="padding:16px 20px;border-bottom:1px solid #e2e7f0;flex-shrink:0">'
+    +'  <div style="display:flex;align-items:center;gap:10px"><h3 style="flex:1;margin:0;font-size:17px;font-weight:900">📋 Prüfmodus'+(isMonteur?' — '+esc(s.monteurName):'')+'</h3><button onclick="_wzEndPruef()" style="background:#f4f6fb;border:none;border-radius:8px;width:32px;height:32px;font-size:16px;cursor:pointer;color:#6b7280">✕</button></div>'
+    +'  <div style="margin-top:8px;display:flex;gap:8px;align-items:center"><div style="flex:1;height:6px;background:#e2e7f0;border-radius:3px;overflow:hidden"><div style="height:100%;background:var(--plan);border-radius:3px;width:'+(total?Math.round(done/total*100):0)+'%;transition:.3s"></div></div><span style="font-size:12px;font-weight:800;color:var(--plan)">'+done+'/'+total+'</span></div>'
+    +'</div>'
+    +'<div style="flex:1;overflow-y:auto;min-height:0">'+listHtml+'</div>'
+    +'<div style="padding:14px 20px;border-top:1px solid #e2e7f0;flex-shrink:0;display:flex;gap:8px;flex-wrap:wrap">'
+    +'  <button onclick="_wzPruefScan(\'qr\')" style="flex:1;padding:10px;border-radius:10px;border:1.5px solid var(--plan);background:var(--plan);color:#fff;font-size:13px;font-weight:800;cursor:pointer;font-family:inherit">📷 QR scannen</button>'
+    +'  <button onclick="_wzPruefScan(\'nfc\')" id="pmNfcBtn" style="flex:1;padding:10px;border-radius:10px;border:1.5px solid #1d4ed8;background:#eff6ff;color:#1d4ed8;font-size:13px;font-weight:800;cursor:pointer;font-family:inherit;display:'+('NDEFReader' in window?'':'none')+'">📡 NFC scannen</button>'
+    +'  <button onclick="_wzPruefPDF()" style="flex:1;padding:10px;border-radius:10px;border:1.5px solid #16a34a;background:#f0fdf4;color:#16a34a;font-size:13px;font-weight:800;cursor:pointer;font-family:inherit"'+(done>0?'':' disabled style="opacity:.4;pointer-events:none"')+'>📄 Protokoll</button>'
+    +'</div></div>';
+  _wzShowModal(html);
+}
+
+function _wzPruefScan(method){
+  if(method==='qr'){
+    if(typeof GemaQR==='undefined'){alert('QR-Scanner nicht verfügbar');return;}
+    GemaQR.scan(function(code){
+      var id=code;
+      if(code.indexOf('?view=')>=0)id=code.split('view=')[1];
+      if(code.indexOf('GEMA:WZ:')===0)id=code.replace('GEMA:WZ:','');
+      id=decodeURIComponent(id);
+      _wzPruefRegister(id);
+    });
+  } else {
+    if(!('NDEFReader' in window)){alert('NFC nicht unterstützt (nur Android Chrome).');return;}
+    var nfcStatus=document.createElement('div');
+    nfcStatus.style.cssText='position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:#1d4ed8;color:#fff;padding:12px 24px;border-radius:12px;font-size:14px;font-weight:700;z-index:11000;box-shadow:0 4px 16px rgba(0,0,0,.2)';
+    nfcStatus.textContent='📡 NFC-Tag jetzt scannen …';
+    document.body.appendChild(nfcStatus);
+    var reader=new NDEFReader();
+    reader.scan().then(function(){
+      reader.addEventListener('reading',function(ev){
+        nfcStatus.remove();
+        var url='';
+        ev.message.records.forEach(function(r){
+          if(r.recordType==='url'){url=new TextDecoder().decode(r.data);}
+          else if(r.recordType==='text'){url=new TextDecoder().decode(r.data);}
+        });
+        if(url){
+          var id=url;
+          if(url.indexOf('?view=')>=0)id=url.split('view=')[1];
+          id=decodeURIComponent(id);
+          _wzPruefRegister(id);
+        }
+      },{once:true});
+    }).catch(function(e){
+      nfcStatus.remove();
+      alert('NFC-Fehler: '+e.message);
+    });
+  }
+}
+
+function _wzPruefRegister(id){
+  if(!_pruefSession)return;
+  var t=tools.find(function(x){return x.id===id;});
+  if(!t){alert('Werkzeug nicht gefunden: '+id);_wzRenderPruefUI();return;}
+  if(_pruefSession.scanned[id]){_wzRenderPruefUI();return;}
+  if(navigator.vibrate)navigator.vibrate([100,50,100]);
+  _pruefSession.scanned[id]=new Date().toISOString();
+  _wzRenderPruefUI();
+}
+
+function _wzPruefPDF(){
+  if(!_pruefSession)return;
+  var s=_pruefSession;
+  var me=_wzGetUser()||{};
+  var isMonteur=s.mode==='monteur';
+  var liste=isMonteur?s.checklist:Object.keys(s.scanned).map(function(id){return tools.find(function(x){return x.id===id;});}).filter(Boolean);
+  var rows=liste.map(function(t){
+    var checked=!!s.scanned[t.id];
+    var cat=CATS[t.cat]||CATS.sonstige;
+    return '<tr><td style="padding:6px 8px;border:1px solid #ddd">'+(checked?'✅':'❌')+'</td><td style="padding:6px 8px;border:1px solid #ddd">'+esc(t.name)+'</td><td style="padding:6px 8px;border:1px solid #ddd">'+esc(t.brand||'')+' '+esc(t.model||'')+'</td><td style="padding:6px 8px;border:1px solid #ddd">'+esc(t.serial||'—')+'</td><td style="padding:6px 8px;border:1px solid #ddd">'+cat.label+'</td><td style="padding:6px 8px;border:1px solid #ddd">'+(checked?fmt(s.scanned[t.id].split('T')[0]):'Fehlt')+'</td></tr>';
+  }).join('');
+  var fehlend=isMonteur?s.checklist.filter(function(t){return!s.scanned[t.id];}):[];
+  var w=window.open('','_blank');
+  if(!w)return;
+  w.document.write('<html><head><title>Prüfprotokoll</title><style>body{font-family:"DM Sans",system-ui,sans-serif;padding:32px;color:#111}table{width:100%;border-collapse:collapse;font-size:12px}th{background:#f1f5f9;padding:8px;border:1px solid #ddd;text-align:left;font-size:11px;text-transform:uppercase}h1{font-size:20px}h2{font-size:14px;color:#475569;margin-top:4px}.meta{font-size:12px;color:#64748b;margin:8px 0 20px}.warn{color:#dc2626;font-weight:700}@media print{button{display:none}}</style></head><body>'
+    +'<h1>Prüfprotokoll Werkzeuge</h1>'
+    +'<h2>'+(isMonteur?'Monteur-Prüfung: '+esc(s.monteurName):'Sammelliste')+'</h2>'
+    +'<div class="meta">Prüfer: '+esc(me.name||'—')+' · Datum: '+fmt(new Date().toISOString().split('T')[0])+' · Geprüft: '+Object.keys(s.scanned).length+'/'+liste.length+'</div>'
+    +'<table><thead><tr><th></th><th>Bezeichnung</th><th>Hersteller / Modell</th><th>Seriennummer</th><th>Kategorie</th><th>Gescannt</th></tr></thead><tbody>'+rows+'</tbody></table>'
+    +(fehlend.length?'<div style="margin-top:20px;padding:12px;background:#fef2f2;border:1.5px solid #fecaca;border-radius:8px"><div class="warn">⚠ '+fehlend.length+' Werkzeug(e) fehlen:</div><ul style="margin:8px 0 0 16px;font-size:12px">'+fehlend.map(function(t){return '<li>'+esc(t.name)+' (SN: '+esc(t.serial||'—')+')</li>';}).join('')+'</ul></div>':'')+
+    '<button onclick="window.print()" style="margin-top:24px;padding:10px 24px;background:#2563eb;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer">🖨 Drucken</button>'
+    +'<\/body><\/html>');
+  w.document.close();
+}
+
+function _wzEndPruef(){
+  if(_pruefSession&&Object.keys(_pruefSession.scanned).length>0){
+    if(!confirm('Prüfmodus beenden? Nicht gespeicherte Daten gehen verloren.'))return;
+  }
+  _pruefSession=null;
+  _wzCloseModal();
+}
+
+// ══════════════════════════════════════════════════════════════
 // LIEFERANTEN-INTEGRATION (Defekt melden, Ersatz anfragen, Beleg)
 // ══════════════════════════════════════════════════════════════
 function _wzViewBeleg(toolId){
@@ -2525,6 +2701,8 @@ await Promise.race([
   // Magaziner/Admin einblenden.
   var btnAdd=document.getElementById('btnAddTool');
   if(btnAdd && !_wzCanEdit()) btnAdd.style.display='none';
+  var btnPruef=document.getElementById('btnPruefMode');
+  if(btnPruef && _wzCanEdit()) btnPruef.style.display='';
   // Rollen-Badge in der Navigation anzeigen (kleiner Hinweis fuer den User)
   try{
     var u=_wzGetUser();
@@ -2547,6 +2725,7 @@ await Promise.race([
 </script>
 <script>document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('werkzeug', 'Werkzeugmanagement');});</script>
 <script>if(typeof GemaAutoSave!=='undefined') GemaAutoSave.init('werkzeugmanagement');</script>
+<script src="gema_qr_scanner.js"></script>
 <script src="gema_coachmarks.js"></script>
 <script src="gema_scroll.js"></script>
 <script src="gema_mobile_menu.js"></script>

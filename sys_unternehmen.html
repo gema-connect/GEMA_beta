@@ -75,15 +75,19 @@ input::placeholder{color:#cbd5e1!important}
         <div class="fg"><label>Firmenname</label><input class="fc" id="orgName"/></div>
         <div class="fg"><label>Rechtsform</label><input class="fc" id="orgRechtsform" placeholder="z.B. GmbH, AG"/></div>
       </div>
-      <div class="fg"><label>Strasse</label><input class="fc" id="orgStrasse"/></div>
-      <div class="g2">
-        <div class="fg"><label>PLZ</label><input class="fc" id="orgPlz"/></div>
-        <div class="fg"><label>Ort</label><input class="fc" id="orgOrt"/></div>
+      <div class="fg"><label>Adresse</label>
+        <div style="position:relative">
+          <input class="fc" id="orgAdrSearch" placeholder="Adresse eingeben — z.B. Bläsiring 153 Basel" oninput="_orgAdrSearch(this)" onkeydown="_orgAdrKey(event)" autocomplete="off"/>
+          <span id="orgAdrTag" style="display:none;position:absolute;right:8px;top:50%;transform:translateY(-50%);font-size:10px;font-weight:700;color:var(--grn);background:var(--grn-bg);border:1px solid #bbf7d0;padding:2px 8px;border-radius:4px">✓ Verifiziert</span>
+          <div id="orgAdrDrop" style="position:absolute;top:100%;left:0;right:0;z-index:400;background:var(--sur);border:1.5px solid var(--acc);border-top:none;border-radius:0 0 8px 8px;box-shadow:0 4px 16px rgba(0,0,0,.1);max-height:240px;overflow-y:auto;display:none"></div>
+        </div>
+        <div id="orgAdrDetail" style="display:none;gap:6px;flex-wrap:wrap;margin-top:6px"></div>
       </div>
-      <div class="g2">
-        <div class="fg"><label>Kanton</label><input class="fc" id="orgKanton"/></div>
-        <div class="fg"><label>Kategorie</label><select class="fc" id="orgKat"></select></div>
-      </div>
+      <input type="hidden" id="orgStrasse"/>
+      <input type="hidden" id="orgPlz"/>
+      <input type="hidden" id="orgOrt"/>
+      <input type="hidden" id="orgKanton"/>
+      <div class="fg"><label>Kategorie</label><select class="fc" id="orgKat"></select></div>
       <div class="g2">
         <div class="fg"><label>E-Mail</label><input class="fc" id="orgEmail" type="email"/></div>
         <div class="fg"><label>Telefon</label><input class="fc" id="orgTel"/></div>
@@ -167,6 +171,13 @@ function fillInfo(){
   document.getElementById('orgPlz').value=a.plz||'';
   document.getElementById('orgOrt').value=a.ort||'';
   document.getElementById('orgKanton').value=a.kanton||'';
+  var adrSearch=document.getElementById('orgAdrSearch');
+  if(adrSearch&&a.strasse){
+    adrSearch.value=(a.strasse||'')+', '+(a.plz||'')+' '+(a.ort||'');
+    var tag=document.getElementById('orgAdrTag');if(tag)tag.style.display='inline-flex';
+    var detail=document.getElementById('orgAdrDetail');
+    if(detail){detail.style.display='flex';detail.innerHTML='<span style="padding:3px 10px;border-radius:6px;font-size:11px;font-weight:600;background:var(--bg2);color:var(--txt2);border:1px solid var(--brd)">'+E(a.strasse)+'</span><span style="padding:3px 10px;border-radius:6px;font-size:11px;font-weight:600;background:var(--bg2);color:var(--txt2);border:1px solid var(--brd)">'+E(a.plz)+' '+E(a.ort)+'</span>'+(a.kanton?'<span style="padding:3px 10px;border-radius:6px;font-size:11px;font-weight:800;background:var(--acc-bg);color:var(--acc);border:1px solid #bfcfff">'+E(a.kanton)+'</span>':'');}
+  }
   var k=_org.kontakt||{};
   document.getElementById('orgEmail').value=k.email||'';
   document.getElementById('orgTel').value=k.telefon||'';
@@ -312,6 +323,92 @@ function addGast(){
 }
 
 document.addEventListener('DOMContentLoaded',init);
+
+// ── Adress-Autocomplete (swisstopo API) ──
+var _orgAdrTimer=null,_orgAdrCache={},_orgAdrIdx=-1;
+function _orgAdrSearch(input){
+  var q=input.value.trim();
+  var drop=document.getElementById('orgAdrDrop');
+  var tag=document.getElementById('orgAdrTag');if(tag)tag.style.display='none';
+  var detail=document.getElementById('orgAdrDetail');if(detail){detail.style.display='none';detail.innerHTML='';}
+  document.getElementById('orgStrasse').value='';
+  document.getElementById('orgPlz').value='';
+  document.getElementById('orgOrt').value='';
+  document.getElementById('orgKanton').value='';
+  if(q.length<2){drop.style.display='none';return;}
+  clearTimeout(_orgAdrTimer);
+  _orgAdrTimer=setTimeout(function(){_orgAdrFetch(q);},250);
+}
+function _orgAdrFetch(q){
+  var drop=document.getElementById('orgAdrDrop');
+  if(_orgAdrCache[q]){_orgAdrRender(_orgAdrCache[q]);return;}
+  drop.innerHTML='<div style="padding:12px;text-align:center;font-size:12px;color:var(--mut)">Suche…</div>';
+  drop.style.display='block';_orgAdrIdx=-1;
+  fetch('https://api3.geo.admin.ch/rest/services/api/SearchServer?searchText='+encodeURIComponent(q)+'&type=locations&origins=address&limit=8&lang=de')
+    .then(function(r){return r.json();})
+    .then(function(data){
+      var results=(data.results||[]).map(function(r){
+        var a=r.attrs||{};
+        var label=(a.label||'').replace(/<\/?b>/g,'');
+        var strasse='',plz='',ort='',kanton='';
+        var parts=label.split(',').map(function(s){return s.trim();});
+        if(parts.length>=2){
+          strasse=parts[0];
+          var m=parts[parts.length-1].match(/^(\d{4})\s+(.+)/);
+          if(m){plz=m[1];ort=m[2];}else ort=parts[parts.length-1];
+        }else{
+          var m2=label.match(/^(.+?\s+\d+\w?)\s+(\d{4})\s+(.+)$/);
+          if(m2){strasse=m2[1];plz=m2[2];ort=m2[3];}else strasse=label;
+        }
+        if(a.plz)plz=String(a.plz);
+        if(a.kanton)kanton=a.kanton;
+        return{strasse:strasse,plz:plz,ort:ort,kanton:kanton};
+      });
+      _orgAdrCache[q]=results;
+      _orgAdrRender(results);
+    })
+    .catch(function(){drop.innerHTML='<div style="padding:12px;text-align:center;font-size:12px;color:var(--red)">API nicht erreichbar</div>';});
+}
+function _orgAdrRender(results){
+  var drop=document.getElementById('orgAdrDrop');
+  if(!results.length){drop.innerHTML='<div style="padding:12px;text-align:center;font-size:12px;color:var(--mut)">Keine Adresse gefunden</div>';drop.style.display='block';return;}
+  drop.innerHTML=results.map(function(r,i){
+    return '<div class="_orgAdrItem" data-idx="'+i+'" style="padding:8px 12px;cursor:pointer;border-bottom:1px solid var(--brd);transition:.1s"><div style="font-weight:700;font-size:13px;color:var(--txt)">'+E(r.strasse)+'</div><div style="font-size:11px;color:var(--mut)">'+E(r.plz)+' '+E(r.ort)+(r.kanton?' · '+E(r.kanton):'')+'</div></div>';
+  }).join('');
+  drop.style.display='block';
+  drop._results=results;
+  drop.querySelectorAll('._orgAdrItem').forEach(function(el){
+    el.addEventListener('mousedown',function(e){e.preventDefault();_orgAdrSelect(+el.dataset.idx);});
+    el.addEventListener('mouseenter',function(){_orgAdrIdx=+el.dataset.idx;_orgAdrHL();});
+  });
+}
+function _orgAdrSelect(idx){
+  var drop=document.getElementById('orgAdrDrop');
+  var results=drop._results;if(!results||!results[idx])return;
+  var r=results[idx];
+  document.getElementById('orgStrasse').value=r.strasse;
+  document.getElementById('orgPlz').value=r.plz;
+  document.getElementById('orgOrt').value=r.ort;
+  document.getElementById('orgKanton').value=r.kanton||'';
+  document.getElementById('orgAdrSearch').value=r.strasse+', '+r.plz+' '+r.ort;
+  var tag=document.getElementById('orgAdrTag');if(tag)tag.style.display='inline-flex';
+  var detail=document.getElementById('orgAdrDetail');
+  if(detail){detail.style.display='flex';detail.innerHTML='<span style="padding:3px 10px;border-radius:6px;font-size:11px;font-weight:600;background:var(--bg2);color:var(--txt2);border:1px solid var(--brd)">'+E(r.strasse)+'</span><span style="padding:3px 10px;border-radius:6px;font-size:11px;font-weight:600;background:var(--bg2);color:var(--txt2);border:1px solid var(--brd)">'+E(r.plz)+' '+E(r.ort)+'</span>'+(r.kanton?'<span style="padding:3px 10px;border-radius:6px;font-size:11px;font-weight:800;background:var(--acc-bg);color:var(--acc);border:1px solid #bfcfff">'+E(r.kanton)+'</span>':'');}
+  drop.style.display='none';_orgAdrIdx=-1;
+}
+function _orgAdrKey(ev){
+  var drop=document.getElementById('orgAdrDrop');
+  var results=drop._results||[];
+  if(drop.style.display==='none'||!results.length)return;
+  if(ev.key==='ArrowDown'){ev.preventDefault();_orgAdrIdx=Math.min(_orgAdrIdx+1,results.length-1);_orgAdrHL();}
+  else if(ev.key==='ArrowUp'){ev.preventDefault();_orgAdrIdx=Math.max(_orgAdrIdx-1,0);_orgAdrHL();}
+  else if(ev.key==='Enter'){ev.preventDefault();if(_orgAdrIdx>=0)_orgAdrSelect(_orgAdrIdx);}
+  else if(ev.key==='Escape'){drop.style.display='none';}
+}
+function _orgAdrHL(){
+  var drop=document.getElementById('orgAdrDrop');
+  drop.querySelectorAll('._orgAdrItem').forEach(function(el,i){el.style.background=i===_orgAdrIdx?'var(--acc-bg)':'';});
+}
 </script>
 <script src="gema_feedback.js"></script>
 <script src="gema_scroll.js"></script>
