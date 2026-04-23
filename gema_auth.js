@@ -646,16 +646,6 @@
     return'index.html';
   }
 
-  // ── Rollenspezifische Zielseite ─────────────────────────────────
-  function _getRedirectForUser(u){
-    if(!u||!u.roleIds)return'index.html';
-    if(u.roleIds.indexOf('role_lieferant')>=0)return'sys_lieferant_dashboard.html';
-    if(u.roleIds.indexOf('role_pruefer')>=0)return'sys_lieferant_dashboard.html';
-    if(u.roleIds.indexOf('role_magaziner')>=0)return'if_werkzeug.html';
-    if(u.roleIds.indexOf('role_monteur')>=0)return'if_werkzeug.html';
-    return'index.html';
-  }
-
   // ── INIT ───────────────────────────────────────────────────────────
   _initDefaults();
 
