@@ -2,6 +2,7 @@
 <html lang="de">
 <head>
 <script src="gema_auth.js"></script>
+<script src="gema_recent.js"></script>
 <meta charset="utf-8"/>
 <meta name="theme-color" content="#0f172a"/>
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
@@ -222,6 +223,18 @@ textarea.fc{resize:vertical;min-height:60px;line-height:1.5}
       </div>
     </div>
     <div class="card" style="margin-top:16px">
+      <div class="card-hd"><h3>⚠ Defektmeldungen</h3></div>
+      <div class="card-bd" id="wzDefekte">
+        <p style="color:var(--mut);font-size:13px">Keine offenen Defektmeldungen.</p>
+      </div>
+    </div>
+    <div class="card" style="margin-top:16px">
+      <div class="card-hd"><h3>🔄 Ersatzanfragen</h3></div>
+      <div class="card-bd" id="wzErsatz">
+        <p style="color:var(--mut);font-size:13px">Keine offenen Ersatzanfragen.</p>
+      </div>
+    </div>
+    <div class="card" style="margin-top:16px">
       <div class="card-hd"><h3>🏢 Meine Auftraggeber</h3></div>
       <div class="card-bd" id="wzMandate">
         <p style="color:var(--mut);font-size:13px">Wird geladen...</p>
@@ -344,6 +357,7 @@ textarea.fc{resize:vertical;min-height:60px;line-height:1.5}
 <div class="toast-c" id="toasts"></div>
 
 <script src="gema_db.js"></script>
+<script src="gema_coachmarks.js"></script>
 <script src="gema_feedback.js"></script><script src="gema_notify.js"></script><script src="gema_notify_ui.js"></script>
 <script src="gema_produktkatalog_api.js"></script>
 <script src="gema_armaturen_api.js"></script>
@@ -407,7 +421,7 @@ function setupTabs(){
     tabs.push({id:'anfragen',label:'Offertanfragen',show:true,badge:'oaBadge'});
     tabs.push({id:'rohrsysteme',label:'Rohrsysteme & Armaturen',show:true});
   }
-  if(isPruefer){
+  if(isPruefer||isLief){
     tabs.push({id:'werkzeuge',label:'🔧 Werkzeuge',show:true});
   }
   tabs.push({id:'profil',label:'Firmenprofil',show:true});
@@ -442,6 +456,8 @@ function renderAll(){
   renderRohrsysteme();
   renderWerkzeuge();
   renderMandate();
+  renderWzDefekte();
+  renderWzErsatz();
   fillProfil();
 }
 
@@ -664,11 +680,9 @@ function previewDoc(docId){
   var w = window.open('','_blank');
   if(!w) return;
   if(d.format==='pdf'||d.dataUrl.indexOf('data:application/pdf')===0){
-    w.document.write('<html><body style="margin:0"><iframe src="'+d.dataUrl+'" style="width:100%;height:100vh;border:none"></iframe><script src="gema_mobile_menu.js"></script>
-</body></html>');
+    w.document.write('<html><body style="margin:0"><iframe src="'+d.dataUrl+'" style="width:100%;height:100vh;border:none"></iframe><\/body><\/html>');
   } else {
-    w.document.write('<html><body style="margin:0;display:flex;align-items:center;justify-content:center;background:#111;min-height:100vh"><img src="'+d.dataUrl+'" style="max-width:100%;max-height:100vh;object-fit:contain"/><script src="gema_mobile_menu.js"></script>
-</body></html>');
+    w.document.write('<html><body style="margin:0;display:flex;align-items:center;justify-content:center;background:#f4f6fb;min-height:100vh"><img src="'+d.dataUrl+'" style="max-width:100%;max-height:100vh;object-fit:contain"/><\/body><\/html>');
   }
 }
 
@@ -978,6 +992,89 @@ function aktivierMeinMandat(id){
   GemaAuth.aktivierMandat(id);
   renderMandate();renderWerkzeuge();
   toast('Zugang reaktiviert');
+}
+
+function renderWzDefekte(){
+  var el=document.getElementById('wzDefekte');if(!el)return;
+  var user=null;try{user=GemaAuth.getCurrentUser();}catch(e){}
+  if(!user)return;
+  // Lade Werkzeuge aus dem Werkzeug-Modul (gema_werkzeug via _GemaDB)
+  var allTools=[];
+  try{
+    var raw=null;
+    if(typeof _GemaDB!=='undefined'&&_GemaDB.c&&_GemaDB.c['gema_werkzeug'])raw=_GemaDB.c['gema_werkzeug'];
+    if(!raw)raw=localStorage.getItem('gema_werkzeug');
+    if(raw)allTools=JSON.parse(raw);
+  }catch(e){}
+  if(!Array.isArray(allTools))allTools=[];
+  // Finde Werkzeuge die diesen Lieferanten verknüpft haben + offene Defekte
+  var meineDefekte=[];
+  allTools.forEach(function(t){
+    if(t.supplierId!==user.id)return;
+    if(!t.berichte)return;
+    t.berichte.forEach(function(b){
+      if(b.typ==='defekt'&&!b.erledigt&&b.anLieferantGemeldet){
+        meineDefekte.push({tool:t,bericht:b});
+      }
+    });
+  });
+  if(!meineDefekte.length){
+    el.innerHTML='<p style="color:var(--mut);font-size:13px">✓ Keine offenen Defektmeldungen.</p>';
+    return;
+  }
+  el.innerHTML=meineDefekte.map(function(d){
+    var t=d.tool,b=d.bericht;
+    var sevColor=b.schweregrad==='schwer'||b.schweregrad==='ausser_betrieb'?'#dc2626':b.schweregrad==='mittel'?'#d97706':'#6b7280';
+    return '<div style="display:flex;align-items:flex-start;gap:10px;padding:10px 0;border-bottom:1px solid var(--brd)">'
+      +'<div style="width:36px;height:36px;border-radius:8px;background:#fef2f2;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">⚠</div>'
+      +'<div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:700">'+E(t.name||'Werkzeug')+'</div>'
+      +'<div style="font-size:12px;color:#991b1b;margin-top:2px">'+E(b.titel||'Defekt')+'</div>'
+      +'<div style="font-size:11px;color:var(--mut);margin-top:2px">'+(t.brand?E(t.brand)+' ':'')+(t.model?E(t.model)+' · ':'')+'Gemeldet: '+E((b.anLieferantGemeldet||'').split('T')[0])+'</div>'
+      +'</div>'
+      +'<span style="font-size:10px;padding:3px 8px;border-radius:6px;font-weight:700;color:'+sevColor+';background:'+sevColor+'18;border:1px solid '+sevColor+'40">'+E(b.schweregrad||'—')+'</span>'
+      +'<a href="if_werkzeug.html?view='+encodeURIComponent(t.id)+'" style="font-size:11px;color:#1d4ed8;text-decoration:none;font-weight:700;white-space:nowrap">Details →</a>'
+      +'</div>';
+  }).join('');
+}
+
+function renderWzErsatz(){
+  var el=document.getElementById('wzErsatz');if(!el)return;
+  var user=null;try{user=GemaAuth.getCurrentUser();}catch(e){}
+  if(!user)return;
+  var allTools=[];
+  try{
+    var raw=null;
+    if(typeof _GemaDB!=='undefined'&&_GemaDB.c&&_GemaDB.c['gema_werkzeug'])raw=_GemaDB.c['gema_werkzeug'];
+    if(!raw)raw=localStorage.getItem('gema_werkzeug');
+    if(raw)allTools=JSON.parse(raw);
+  }catch(e){}
+  if(!Array.isArray(allTools))allTools=[];
+  var meineAnfragen=[];
+  allTools.forEach(function(t){
+    if(!t.ersatzAnfragen)return;
+    t.ersatzAnfragen.forEach(function(a){
+      if(a.lieferantId===user.id&&a.status==='offen'){
+        meineAnfragen.push({tool:t,anfrage:a});
+      }
+    });
+  });
+  if(!meineAnfragen.length){
+    el.innerHTML='<p style="color:var(--mut);font-size:13px">✓ Keine offenen Ersatzanfragen.</p>';
+    return;
+  }
+  el.innerHTML=meineAnfragen.map(function(d){
+    var t=d.tool,a=d.anfrage;
+    var typLabel=a.typ==='ersatz'?'Gleiches Modell':a.typ==='nachfolger'?'Nachfolger':'Alternative';
+    return '<div style="display:flex;align-items:flex-start;gap:10px;padding:10px 0;border-bottom:1px solid var(--brd)">'
+      +'<div style="width:36px;height:36px;border-radius:8px;background:#fdf4ff;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">🔄</div>'
+      +'<div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:700">'+E(t.name||'Werkzeug')+'</div>'
+      +'<div style="font-size:12px;color:#7c3aed;margin-top:2px">'+typLabel+'</div>'
+      +'<div style="font-size:11px;color:var(--mut);margin-top:2px">'+(t.brand?E(t.brand)+' ':'')+(t.model?E(t.model)+' · ':'')+'Von: '+E(a.erstelltVonName||'—')+'</div>'
+      +(a.nachricht?'<div style="font-size:11.5px;color:#475569;margin-top:4px;padding:6px 8px;background:#f8fafc;border-radius:6px;border:1px solid #e2e8f0">'+E(a.nachricht)+'</div>':'')
+      +'</div>'
+      +'<a href="if_werkzeug.html?view='+encodeURIComponent(t.id)+'" style="font-size:11px;color:#1d4ed8;text-decoration:none;font-weight:700;white-space:nowrap">Details →</a>'
+      +'</div>';
+  }).join('');
 }
 
 function renderRohrsysteme(){
@@ -1299,6 +1396,23 @@ function renderLiefTut(){
 }
 </script>
 <script>document.addEventListener('DOMContentLoaded', function(){if(typeof GemaFeedback!=='undefined')GemaFeedback.init('lieferant_dashboard', 'Lieferanten-Dashboard');});</script>
+<script>
+document.addEventListener('DOMContentLoaded', function(){
+  if(typeof GemaCoachmarks==='undefined') return;
+  setTimeout(function(){
+    GemaCoachmarks.init('lieferant_dashboard_v1', [
+      {selector:'#kpis', title:'Ihre Kennzahlen',
+       text:'Hier sehen Sie auf einen Blick: Anzahl Produkte, offene Anfragen und Ihren Verifizierungsstatus.', placement:'bottom'},
+      {selector:'#mainTabs', title:'Navigation per Tabs',
+       text:'Wechseln Sie zwischen Übersicht, Produkten, Anfragen, Rohrsystemen, Werkzeugen und Firmenprofil.', placement:'bottom'},
+      {selector:'#tb-uebersicht .btn', title:'Tutorial starten',
+       text:'Klicken Sie hier für eine ausführliche Schritt-für-Schritt-Anleitung zum Dashboard.', placement:'bottom'},
+      {selector:'#adminSwitcher', title:'Admin: Lieferanten-Ansicht wechseln',
+       text:'Als Admin können Sie hier zwischen verschiedenen Lieferanten-Konten wechseln, um deren Ansicht zu prüfen.', placement:'bottom'}
+    ]);
+  }, 600);
+});
+</script>
 <script src="gema_mobile_menu.js"></script>
 </body>
 </html>

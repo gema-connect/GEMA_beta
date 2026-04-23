@@ -101,10 +101,14 @@
     try { liefs = GemaProdukte.getLieferanten(cfg.kategorie) || []; } catch(e) {}
     if(!liefs.length) { pills.style.display = 'none'; return; }
     pills.style.display = '';
+    // Tier-aware Sortierung (P03): Favoriten > Stamm > Premium > Verifiziert > Rest
+    try { if(GemaProdukte.sortWithStamm) liefs = GemaProdukte.sortWithStamm(liefs); } catch(e) {}
     var html = '<div class="gaw-pill'+ (state.selLief==='alle'?' active':'') +'" data-lief="alle" style="'+_pillStyle(state.selLief==='alle', cfg.accent)+'">Alle</div>';
     liefs.forEach(function(l){
-      var isPrem = l && l.premium && l.premium.aktiv;
-      html += '<div class="gaw-pill'+ (state.selLief===l.firma?' active':'') +'" data-lief="'+E(l.firma)+'" style="'+_pillStyle(state.selLief===l.firma, cfg.accent)+(isPrem?';border-color:#f59e0b;background:#fefce8;color:#92400e':'')+'">'+E(l.firma)+(isPrem?' ★':'')+'</div>';
+      var isPrem = false;
+      try { isPrem = GemaProdukte.isLieferantPremium && GemaProdukte.isLieferantPremium(l); }
+      catch(e) { isPrem = l && l.premium && l.premium.aktiv; }
+      html += '<div class="gaw-pill'+ (state.selLief===l.firma?' active':'') +'" data-lief="'+E(l.firma)+'" style="'+_pillStyle(state.selLief===l.firma, cfg.accent)+(isPrem?';border-color:#f59e0b;background:#fefce8;color:#92400e':'')+'">'+E(l.firma)+(isPrem?' <svg width="14" height="14" viewBox="0 0 24 24" fill="#2563eb" style="vertical-align:-2px;flex-shrink:0"><path d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>':'')+'</div>';
     });
     pills.innerHTML = html;
     pills.querySelectorAll('.gaw-pill').forEach(function(el){
@@ -176,11 +180,11 @@
       var kennwerte = typeof cfg.formatKennwerte === 'function'
         ? cfg.formatKennwerte(d)
         : _defaultKennwerte(d);
-      return '<div class="gaw-prod-card" data-prodid="'+E(p.id)+'" style="background:#fff;border:1.5px solid #e5e7eb;border-radius:10px;padding:12px 14px;cursor:pointer;transition:.15s;margin-bottom:10px">'
-        + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">'
-        +   '<strong style="font-size:14px">'+E(d.serie||'')+' '+E(d.modell||'')+'</strong>'
+      return '<div class="gaw-prod-card" data-prodid="'+E(p.id)+'" style="background:#fff;border:1.5px solid #e5e7eb;border-radius:10px;padding:12px 14px;cursor:pointer;transition:.15s;margin-bottom:10px;overflow:hidden">'
+        + '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;flex-wrap:nowrap">'
+        +   '<strong style="font-size:14px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+E(d.serie||'')+' '+E(d.modell||'')+'</strong>'
         +   '<span style="flex:1"></span>'
-        +   (p.status==='verifiziert'?'<span style="font-size:10px;padding:2px 7px;border-radius:10px;background:#eff6ff;color:#1d4ed8;font-weight:700">✓ Verifiziert</span>':'<span style="font-size:10px;padding:2px 7px;border-radius:10px;background:#fef2f2;color:#dc2626;font-weight:700">Nicht verifiziert</span>')
+        +   (p.status==='verifiziert'?'<span style="font-size:10px;padding:2px 7px;border-radius:10px;background:#eff6ff;color:#1d4ed8;font-weight:700;white-space:nowrap;flex-shrink:0">✓ Verifiziert</span>':'<span style="font-size:10px;padding:2px 7px;border-radius:10px;background:#fef2f2;color:#dc2626;font-weight:700;white-space:nowrap;flex-shrink:0">⚠ Nicht verifiziert</span>')
         + '</div>'
         + '<div style="font-size:12px;color:#6b7280">'+E(kennwerte)+'</div>'
         + '<div style="font-size:11px;color:#9ca3af;margin-top:4px">'+E(p.lieferantFirma||'')+'</div>'
@@ -195,14 +199,13 @@
     +   '<div style="padding:16px 20px">'+body+'</div>'
     + '</div>';
     document.body.appendChild(overlay);
-    overlay.querySelector('.gaw-close').addEventListener('click', function(){ overlay.remove(); });
-    overlay.addEventListener('click', function(ev){ if(ev.target===overlay) overlay.remove(); });
+    overlay.querySelector('.gaw-close').addEventListener('click', function(){ _removeOverlay(overlay); });
     overlay.querySelectorAll('.gaw-prod-card').forEach(function(el){
       el.addEventListener('mouseenter', function(){ el.style.background='#f8faff'; });
       el.addEventListener('mouseleave', function(){ el.style.background='#fff'; });
       el.addEventListener('click', function(){
         var prodId = el.getAttribute('data-prodid');
-        overlay.remove();
+        _removeOverlay(overlay);
         _openProduktDetail(state, prodId);
       });
     });
@@ -253,17 +256,16 @@
     +   '</div>'
     + '</div>';
     document.body.appendChild(overlay);
-    overlay.querySelectorAll('.gaw-close').forEach(function(b){ b.addEventListener('click', function(){ overlay.remove(); }); });
-    overlay.addEventListener('click', function(ev){ if(ev.target===overlay) overlay.remove(); });
+    overlay.querySelectorAll('.gaw-close').forEach(function(b){ b.addEventListener('click', function(){ _removeOverlay(overlay); }); });
     overlay.querySelector('.gaw-uebernehmen').addEventListener('click', function(){
-      overlay.remove();
+      _removeOverlay(overlay);
       if(typeof cfg.onAnlageUebernommen === 'function') {
         try { cfg.onAnlageUebernommen(p); } catch(e) { console.warn(e); }
       }
       _toast('✓ Anlage übernommen: '+(p.lieferantFirma||'')+' '+(d.serie||'')+' '+(d.modell||''), cfg.accent);
     });
     overlay.querySelector('.gaw-offerte').addEventListener('click', function(){
-      overlay.remove();
+      _removeOverlay(overlay);
       _openOfferteDialog(state, p);
     });
   }
@@ -301,15 +303,14 @@
     +   '</div>'
     + '</div>';
     document.body.appendChild(overlay);
-    overlay.querySelector('.gaw-cancel').addEventListener('click', function(){ overlay.remove(); });
-    overlay.addEventListener('click', function(ev){ if(ev.target===overlay) overlay.remove(); });
+    overlay.querySelector('.gaw-cancel').addEventListener('click', function(){ _removeOverlay(overlay); });
     overlay.querySelector('.gaw-switch-extern').addEventListener('click', function(){
       var vorab = {
         projekt: overlay.querySelector('.gaw-f-projekt').value || projekt.name,
         nachricht: overlay.querySelector('.gaw-f-msg').value || '',
         frist: parseInt(overlay.querySelector('.gaw-f-frist').value,10) || 14
       };
-      overlay.remove();
+      _removeOverlay(overlay);
       _openExternalDialog(state, { name: vorab.projekt }, vorab);
     });
     overlay.querySelector('.gaw-send').addEventListener('click', function(){
@@ -331,7 +332,7 @@
           fristTage: parseInt(overlay.querySelector('.gaw-f-frist').value,10) || 14
         });
       } catch(e) { console.warn('[GemaAnlagenwahl] createOffertanfrage', e); }
-      overlay.remove();
+      _removeOverlay(overlay);
       _toast('📨 Offertanfrage an '+(produkt.lieferantFirma||'Lieferant')+' gesendet', '#f59e0b');
     });
   }
@@ -362,7 +363,12 @@
   function _makeOverlay(){
     var ov = document.createElement('div');
     ov.style.cssText = 'position:fixed;inset:0;z-index:9400;background:rgba(15,23,42,.55);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;padding:20px';
+    document.body.classList.add('modal-open');
     return ov;
+  }
+  function _removeOverlay(ov){
+    ov.remove();
+    if(!document.querySelector('[style*="position:fixed"][style*="inset:0"]'))document.body.classList.remove('modal-open');
   }
   function _toast(msg, color){
     var t = document.createElement('div');
@@ -370,6 +376,23 @@
     t.textContent = msg;
     document.body.appendChild(t);
     setTimeout(function(){ t.remove(); }, 3500);
+  }
+
+  // Auto-Scroll zum Anlagenwahl-Bereich mit kurzem Puls-Highlight (P03).
+  // Wird vom Modul aufgerufen, sobald die Haupt-Berechnung ein valides
+  // Ergebnis hat (z.B. beim ersten Mal). Zeigt dem Planer, dass jetzt
+  // ein passendes Produkt gewaehlt werden kann.
+  function scrollToResults(containerIdOrEl){
+    var el = typeof containerIdOrEl === 'string'
+      ? document.querySelector(containerIdOrEl.charAt(0)==='#'?containerIdOrEl:'#'+containerIdOrEl)
+      : containerIdOrEl;
+    if(!el) return;
+    try { el.scrollIntoView({ behavior:'smooth', block:'start' }); } catch(e) { el.scrollIntoView(); }
+    var card = el.querySelector && el.querySelector('.gaw-card') || el;
+    var orig = card.style.boxShadow;
+    card.style.transition = 'box-shadow .6s ease';
+    card.style.boxShadow = '0 0 0 3px rgba(37,99,235,.35), 0 10px 30px rgba(37,99,235,.2)';
+    setTimeout(function(){ card.style.boxShadow = orig || ''; }, 1600);
   }
 
   w.GemaAnlagenwahl = {
@@ -380,6 +403,7 @@
       var id = typeof containerIdOrEl === 'string' ? containerIdOrEl.replace('#','') : (containerIdOrEl && containerIdOrEl.id);
       var st = _instances[id];
       if(st) _renderGrid(st);
-    }
+    },
+    scrollToResults: scrollToResults
   };
 })(window);

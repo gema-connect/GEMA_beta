@@ -1393,22 +1393,70 @@ function toggleOrgStamm(liefId){
   return i < 0;
 }
 
-// Sortiert eine Lieferantenliste nach Stamm-Priorität:
-// 1. Persönliche Favoriten (alphabetisch)
-// 2. Büro-Stammlieferanten (alphabetisch)
-// 3. Alle übrigen (alphabetisch)
+// ── Premium-Tier-Logik (P03) ──
+// Planer ohne Premium-Lizenz: sehen nur Premium-Lieferanten oben (kommerziell) +
+//   Verifiziert. Keine Favoriten/Büro-Stamm-Auflösung.
+// Planer mit Premium-Lizenz: volle Flexibilität (Favoriten > Büro-Stamm >
+//   Premium-Lief > Verifiziert > Rest).
+function isPlanerPremium(user){
+  if (!user && typeof GemaAuth !== 'undefined' && GemaAuth.getCurrentUser) {
+    user = GemaAuth.getCurrentUser();
+  }
+  if (!user) return false;
+  if (user.planerPremium === true) return true;
+  if (user.abo && user.abo.typ === 'premium') return true;
+  return false;
+}
+
+// Lieferant-Premium via Org-Abo (wenn gesetzt) ODER Legacy-Flag auf Lieferant
+function isLieferantPremium(lief){
+  if (!lief) return false;
+  // Legacy: lieferant.premium.aktiv
+  if (lief.premium && lief.premium.aktiv) return true;
+  // Neu: Org-Abo des Lieferanten
+  if (lief.orgId && typeof GemaAuth !== 'undefined' && GemaAuth.getOrgs) {
+    var orgs = GemaAuth.getOrgs() || [];
+    var org = orgs.find(function(o){ return o.id === lief.orgId; });
+    if (org && org.abo && org.abo.typ === 'premium') return true;
+  }
+  return false;
+}
+
+// Sortiert eine Lieferantenliste nach Stamm-Priorität (tier-aware):
+// Normale Planer:   [Premium-Lief] → [Verifiziert] → [Rest]
+// Premium-Planer:   [Favs] → [Büro-Stamm] → [Premium-Lief] → [Verifiziert] → [Rest]
 // Mutiert die Eingabe nicht, sondern gibt eine neue Liste zurück.
 function sortWithStamm(list){
+  var byName = function(a, b){ return (a.firma || '').localeCompare(b.firma || '', 'de'); };
+  var premium = isPlanerPremium();
+
+  if (!premium) {
+    // Ohne Premium-Lizenz: kommerzielle Reihenfolge, keine Favoriten
+    var tierPrem = [], tierVer = [], tierRest = [];
+    (list || []).forEach(function(l){
+      if (isLieferantPremium(l)) tierPrem.push(l);
+      else if (l.verifiziert || l.status === 'verifiziert') tierVer.push(l);
+      else tierRest.push(l);
+    });
+    return tierPrem.sort(byName).concat(tierVer.sort(byName)).concat(tierRest.sort(byName));
+  }
+
+  // Premium-Planer: volle Flexibilität
   var favs  = {}; getFavoriten().forEach(function(id){ favs[id] = true; });
   var stamm = {}; getOrgStamm().forEach(function(id){ stamm[id] = true; });
-  var byName = function(a, b){ return (a.firma || '').localeCompare(b.firma || '', 'de'); };
-  var tierFav  = [], tierStamm = [], tierRest = [];
+  var tierFav = [], tierStamm = [], tierPrem = [], tierVer = [], tierRest = [];
   (list || []).forEach(function(l){
-    if (favs[l.id])  tierFav.push(l);
+    if (favs[l.id]) tierFav.push(l);
     else if (stamm[l.id]) tierStamm.push(l);
+    else if (isLieferantPremium(l)) tierPrem.push(l);
+    else if (l.verifiziert || l.status === 'verifiziert') tierVer.push(l);
     else tierRest.push(l);
   });
-  return tierFav.sort(byName).concat(tierStamm.sort(byName)).concat(tierRest.sort(byName));
+  return tierFav.sort(byName)
+    .concat(tierStamm.sort(byName))
+    .concat(tierPrem.sort(byName))
+    .concat(tierVer.sort(byName))
+    .concat(tierRest.sort(byName));
 }
 
 // ── Init ──
@@ -1454,6 +1502,8 @@ window.GemaProdukte = {
   canEditOrgStamm,
   toggleOrgStamm,
   sortWithStamm,
+  isPlanerPremium,
+  isLieferantPremium,
   // Vormerkungen
   addVormerkung,
   getVormerkungen,

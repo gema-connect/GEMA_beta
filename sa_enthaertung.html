@@ -2,15 +2,19 @@
 <html lang="de">
 <head>
 <script src="gema_auth.js"></script>
+<script src="gema_recent.js"></script>
 <meta charset="utf-8"/>
 <meta name="theme-color" content="#0f172a"/>
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
 <title>Enthärtungsanlage – GEMA</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 /* ═══════════════════════════════════════════
    GEMA LIGHT DESIGN SYSTEM — shared base CSS
    ═══════════════════════════════════════════ */
 :root {
+  color-scheme: light;
   --bg:        #f4f6fb;
   --bg2:       #edf0f7;
   --surface:   #ffffff;
@@ -52,7 +56,6 @@
   --mono: "DM Sans", ui-sans-serif, system-ui, sans-serif;
 }
 
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap');
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 html { font-size: 15px; scroll-behavior: smooth; }
@@ -512,7 +515,7 @@ function fixLeadingZero(el){
 <script src="gema_wasserdaten.js"></script>
 <link rel="stylesheet" href="gema_responsive.css"/>
 </head>
-<body>
+<body style="background:#f4f6fb;color:#111827">
 <nav class="g-nav">
   <div class="g-nav-inner">
     <a class="g-nav-logo" href="index.html">
@@ -1461,23 +1464,47 @@ document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('enth
     });
   }
 
-  // Show anlage section after calc
+  // Show anlage section after calc. Beim ersten Mal (P03): Auto-Scroll +
+  // Puls-Highlight, damit der Planer merkt dass jetzt ein Produkt gewaehlt
+  // werden kann. Auf weiteren Recalcs nur Liste refreshen, kein erneuter
+  // Scroll-Pull auf den User.
+  var _anlagenScrolled = false;
   function showAnlagenSection(){
     var sec = document.getElementById('anlagenSection');
     if(!sec) return;
+    var wasHidden = sec.style.display === 'none';
     sec.style.display = '';
     renderAnlagenWahl();
+    if(wasHidden && !_anlagenScrolled){
+      // Nur wenn echte Berechnungswerte vorliegen (VE > 0)
+      var ve = parseFloat(document.getElementById('ve_total_ls')?.textContent) || 0;
+      if(ve > 0){
+        _anlagenScrolled = true;
+        setTimeout(function(){
+          try { sec.scrollIntoView({ behavior:'smooth', block:'start' }); } catch(e) { sec.scrollIntoView(); }
+          var card = sec.querySelector('[style*="border-radius"]') || sec;
+          var orig = card.style.boxShadow;
+          card.style.transition = 'box-shadow .6s ease';
+          card.style.boxShadow = '0 0 0 3px rgba(37,99,235,.35), 0 10px 30px rgba(37,99,235,.2)';
+          setTimeout(function(){ card.style.boxShadow = orig || ''; }, 1600);
+        }, 180);
+      }
+    }
   }
 
   function renderAnlagenWahl(){
     if(typeof GemaProdukte==='undefined') return;
     var liefs = GemaProdukte.getLieferanten('enthaertung');
+    // Tier-aware Sortierung (P03): Favoriten > Büro-Stamm > Premium > Verifiziert > Rest
+    try { if(GemaProdukte.sortWithStamm) liefs = GemaProdukte.sortWithStamm(liefs); } catch(e) {}
     var pills = document.getElementById('liefPills');
     pills.innerHTML = '<div class="pk-pill'+ (_selLief==='alle'?' active':'') +'" onclick="window._pkSelectLief(\'alle\')">Alle</div>' +
       liefs.map(function(l){
         var lief = typeof GemaProdukte.getLieferant==='function' ? GemaProdukte.getLieferant(l.id) : null;
-        var isPrem = lief && lief.premium && lief.premium.aktiv;
-        return '<div class="pk-pill'+ (_selLief===l.firma?' active':'') + (isPrem?' premium':'') +'" onclick="window._pkSelectLief(\''+l.firma.replace(/'/g,"\\'")+'\')">'+l.firma+(isPrem?' ★':'')+'</div>';
+        var isPrem = false;
+        try { isPrem = GemaProdukte.isLieferantPremium && GemaProdukte.isLieferantPremium(lief||l); }
+        catch(e) { isPrem = lief && lief.premium && lief.premium.aktiv; }
+        return '<div class="pk-pill'+ (_selLief===l.firma?' active':'') + (isPrem?' premium':'') +'" onclick="window._pkSelectLief(\''+l.firma.replace(/'/g,"\\'")+'\')">'+l.firma+(isPrem?' <svg width="14" height="14" viewBox="0 0 24 24" fill="#2563eb" style="vertical-align:-2px"><path d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>':'')+'</div>';
       }).join('');
 
     var typen = GemaProdukte.getTypen('enthaertung', _selLief==='alle'? null : liefs.find(function(l){return l.firma===_selLief;})?.id);
@@ -1512,11 +1539,9 @@ document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('enth
     var w = window.open('','_blank');
     if(!w) return;
     if(d.format==='pdf' || d.dataUrl.indexOf('data:application/pdf')===0){
-      w.document.write('<html><body style="margin:0"><iframe src="'+d.dataUrl+'" style="width:100%;height:100vh;border:none"></iframe><script src="gema_mobile_menu.js"></script>
-</body></html>');
+      w.document.write('<html><body style="margin:0"><iframe src="'+d.dataUrl+'" style="width:100%;height:100vh;border:none"></iframe><\/body><\/html>');
     } else {
-      w.document.write('<html><body style="margin:0;display:flex;align-items:center;justify-content:center;background:#111;min-height:100vh"><img src="'+d.dataUrl+'" style="max-width:100%;max-height:100vh;object-fit:contain"/><script src="gema_mobile_menu.js"></script>
-</body></html>');
+      w.document.write('<html><body style="margin:0;display:flex;align-items:center;justify-content:center;background:#f4f6fb;min-height:100vh"><img src="'+d.dataUrl+'" style="max-width:100%;max-height:100vh;object-fit:contain"/><\/body><\/html>');
     }
   };
 
@@ -1540,7 +1565,7 @@ document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('enth
         return '<div class="pk-prod-card'+(fits?' pk-fits':'')+(isPrem?' pk-premium':'')+'" onclick="window._pkOpenProd(\''+p.id+'\')">' +
           '<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">' +
             '<strong style="font-size:14px">'+d.modell+'</strong>' +
-            (isPrem ? '<span class="pk-premium-badge">'+(lief.premium.badge||'Premium')+'</span>' : '') +
+            
             (isVer ? '<span class="pk-badge pk-ver">✓ Verifiziert</span>' : '') +
             (isUnver ? '<span class="pk-badge pk-unver">⚠ Nicht verifiziert</span>' : '') +
           '</div>' +
@@ -1565,7 +1590,7 @@ document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('enth
 
     document.getElementById('pmTitle').textContent = p.lieferantFirma + ' ' + d.serie + ' ' + d.modell;
     var badgeHtml = '';
-    if(isPrem) badgeHtml += '<span class="pk-premium-badge" style="font-size:11px">'+(lief.premium.badge||'Premium-Partner')+'</span> ';
+    /* Premium-Badge entfernt — goldige Box reicht */
     if(isVer) badgeHtml += '<span class="pk-badge pk-ver" style="font-size:12px">✓ Verifiziert</span>';
     else if(isUnver) badgeHtml += '<span class="pk-badge pk-unver" style="font-size:12px">⚠ Nicht verifiziert</span>';
     else badgeHtml += '<span class="pk-badge pk-draft" style="font-size:12px">Entwurf</span>';
@@ -1618,10 +1643,18 @@ document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('enth
     var p = GemaProdukte.getProdukt(_selProdId);
     if(!p) return;
     var d = p.daten||{};
-    // Write values back to calculation (if fields exist)
-    var mapping = {
-      've_total_ls': d.nenndurchfluss ? (d.nenndurchfluss/60) : null
-    };
+
+    // 1. Rückschreibung: Anlagen-Werte in Berechnung einfliessen lassen
+    var veEl = document.getElementById('ve_total_ls');
+    var berechnetLs = veEl ? parseFloat(veEl.textContent)||0 : 0;
+    var anlageLs = d.nenndurchfluss ? d.nenndurchfluss/60 : 0;
+    var anlageDruck = d.druckverlustQn || 0;
+    var anlageKap = d.kapazitaet || 0;
+
+    // Druckverlust in Berechnung zurückschreiben (falls Feld existiert)
+    var dvEl = document.getElementById('druckverlust_anlage');
+    if(dvEl) dvEl.value = anlageDruck;
+
     // Store selected product info (per-object)
     try{
       var _anlKey = (typeof GemaObjekte!=='undefined') ? GemaObjekte.storageKey('gema_enthaertung_anlage') : 'gema_enthaertung_anlage';
@@ -1633,16 +1666,27 @@ document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('enth
     }catch(e){}
 
     document.getElementById('prodModal').style.display = 'none';
-    // Show confirmation
+
+    // 2. Vergleichs-Box anzeigen
     var sec = document.getElementById('anlagenSection');
-    var info = document.createElement('div');
-    info.style.cssText = 'padding:12px 20px;background:#f0fdf4;border:1.5px solid #bbf7d0;border-radius:10px;margin:12px 20px;font-size:13px;color:#16a34a;font-weight:700;display:flex;align-items:center;gap:8px';
-    info.innerHTML = '✓ Anlage übernommen: <strong>'+p.lieferantFirma+' '+d.serie+' '+d.modell+'</strong> ('+d.nenndurchfluss+' l/min, '+d.anschluss+')' +
-      (p.status==='nicht_verifiziert' ? ' <span style="color:#dc2626;font-weight:400;margin-left:8px">⚠ Nicht verifiziert</span>' : '');
     var existing = sec.querySelector('.pk-confirm');
     if(existing) existing.remove();
+
+    var durchflussOk = anlageLs >= berechnetLs;
+    var info = document.createElement('div');
     info.className = 'pk-confirm';
+    info.style.cssText = 'padding:16px 20px;background:#fff;border:1.5px solid #e2e7f0;border-radius:12px;margin:12px 0;font-size:13px;box-shadow:0 2px 8px rgba(0,0,0,.06)';
+    info.innerHTML =
+      '<div style="font-weight:800;font-size:14px;margin-bottom:10px;display:flex;align-items:center;gap:8px">✓ Gewählte Anlage: '+esc(p.lieferantFirma)+' '+esc(d.serie||'')+' '+esc(d.modell||'')+(p.status==='nicht_verifiziert'?' <span style="color:#dc2626;font-size:11px">⚠ Nicht verifiziert</span>':'')+'</div>'+
+      '<table style="width:100%;border-collapse:collapse;font-size:12.5px">'+
+      '<tr style="background:#f8fafc"><td style="padding:7px 10px;font-weight:700;color:#64748b;border-bottom:1px solid #e2e7f0">Kenngrösse</td><td style="padding:7px 10px;font-weight:700;color:#64748b;border-bottom:1px solid #e2e7f0">Berechnet</td><td style="padding:7px 10px;font-weight:700;color:#64748b;border-bottom:1px solid #e2e7f0">Anlage</td><td style="padding:7px 10px;border-bottom:1px solid #e2e7f0"></td></tr>'+
+      '<tr><td style="padding:7px 10px;border-bottom:1px solid #f1f5f9">Durchfluss</td><td style="padding:7px 10px;border-bottom:1px solid #f1f5f9">'+berechnetLs.toFixed(2)+' l/s</td><td style="padding:7px 10px;border-bottom:1px solid #f1f5f9">'+anlageLs.toFixed(2)+' l/s ('+d.nenndurchfluss+' l/min)</td><td style="padding:7px 10px;border-bottom:1px solid #f1f5f9;font-weight:700;color:'+(durchflussOk?'#16a34a':'#dc2626')+'">'+(durchflussOk?'✅ ausreichend':'⚠ zu klein')+'</td></tr>'+
+      (anlageKap?'<tr><td style="padding:7px 10px;border-bottom:1px solid #f1f5f9">Kapazität</td><td style="padding:7px 10px;border-bottom:1px solid #f1f5f9">—</td><td style="padding:7px 10px;border-bottom:1px solid #f1f5f9">'+anlageKap+' m³·°fH</td><td style="padding:7px 10px;border-bottom:1px solid #f1f5f9"></td></tr>':'')+
+      '<tr><td style="padding:7px 10px;border-bottom:1px solid #f1f5f9">Druckverlust</td><td style="padding:7px 10px;border-bottom:1px solid #f1f5f9">—</td><td style="padding:7px 10px;border-bottom:1px solid #f1f5f9;font-weight:700">'+anlageDruck+' bar</td><td style="padding:7px 10px;border-bottom:1px solid #f1f5f9;color:#2563eb;font-weight:600">→ in Berechnung</td></tr>'+
+      (d.anschluss?'<tr><td style="padding:7px 10px">Anschluss</td><td style="padding:7px 10px">—</td><td style="padding:7px 10px">'+esc(d.anschluss)+'</td><td style="padding:7px 10px"></td></tr>':'')+
+      '</table>';
     sec.appendChild(info);
+    if(typeof GemaAnlagenwahl!=='undefined'&&GemaAnlagenwahl.scrollToResults) GemaAnlagenwahl.scrollToResults('anlagenSection');
   };
 
   // Hook into recalc to show section

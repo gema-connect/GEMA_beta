@@ -2,6 +2,7 @@
 <html lang="de">
 <head>
 <script src="gema_auth.js"></script>
+<script src="gema_recent.js"></script>
   <meta charset="utf-8"/>
   <meta name="theme-color" content="#0f172a"/>
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
@@ -100,6 +101,14 @@
     .ov-table tr:hover td{background:var(--bg)}
     .ov-cheapest{background:var(--grn-bg)!important;font-weight:700;color:var(--grn)}
     .ov-zero{background:var(--red-bg)!important;color:var(--red);font-weight:700}
+    /* P10: Preis-Ausreisser (vom Median aus) — Markierung statt Überschreibung der Farben */
+    .ov-outlier-hi-soft{box-shadow:inset 0 0 0 2px #f59e0b;position:relative}
+    .ov-outlier-hi-hard{box-shadow:inset 0 0 0 2px #dc2626;position:relative}
+    .ov-outlier-lo-soft{box-shadow:inset 0 0 0 2px #f59e0b;position:relative}
+    .ov-outlier-lo-hard{box-shadow:inset 0 0 0 2px #dc2626;position:relative}
+    .ov-outlier-hi-soft::after,.ov-outlier-hi-hard::after{content:'▲';position:absolute;top:2px;right:3px;font-size:9px;color:#92400e}
+    .ov-outlier-lo-soft::after,.ov-outlier-lo-hard::after{content:'▼';position:absolute;top:2px;right:3px;font-size:9px;color:#92400e}
+    .ov-outlier-hi-hard::after,.ov-outlier-lo-hard::after{color:#991b1b}
     .ov-total-row td{font-weight:800;font-size:13px;border-top:3px solid var(--txt);background:var(--bg2)!important}
     .ov-werkgruppe td{background:var(--sur2)!important;font-weight:700}
     .price-input{width:80px;padding:3px 6px;border:1.5px solid var(--brd2);border-radius:6px;font-size:12px;font-family:var(--sans);text-align:right;font-variant-numeric:tabular-nums;background:var(--sur)}
@@ -560,10 +569,25 @@ function renderVgl(){
       const valid=rp.filter(r=>r.has&&r.ep>0);const minEP=valid.length?Math.min(...valid.map(r=>r.ep)):0;
       const hasZ=rp.some(r=>r.has&&r.ep===0&&p.menge>0);if(hasZ)tZero++;
       if(zOnly&&!hasZ)continue;
+      // P10: Median + Ausrei\u00dfer-Schwellen (\u00b130% soft, \u00b150% hard) — nur bei >=3 g\u00fcltigen Angeboten
+      let median=0;
+      if(valid.length>=3){
+        const sorted=valid.map(r=>r.ep).sort((a,b)=>a-b);
+        const m=Math.floor(sorted.length/2);
+        median=sorted.length%2?sorted[m]:(sorted[m-1]+sorted[m])/2;
+      }
       h+=`<tr><td>${esc(p.npk)}</td><td class="lv-pos-nr">${esc(p.posNr)}</td><td style="text-align:left;max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${esc(p.description)}">${esc(p.description)}</td><td style="text-align:left;white-space:nowrap">${fmtNum(p.menge)} ${esc(p.unit)}</td>`;
       for(let i=0;i<rp.length;i++){
-        let cls='';if(rp[i].has&&rp[i].ep===0&&p.menge>0)cls='ov-zero';else if(rp[i].has&&rp[i].ep===minEP&&valid.length>1)cls='ov-cheapest';
-        h+=`<td class="${cls}">${rp[i].has?fmtCHF(rp[i].ep)+'<br><span style="font-size:10px;color:var(--mut)">'+fmtCHF(rp[i].t)+'</span>':'–'}</td>`;
+        let cls='';let tip='';
+        if(rp[i].has&&rp[i].ep===0&&p.menge>0)cls='ov-zero';
+        else if(rp[i].has&&rp[i].ep===minEP&&valid.length>1)cls='ov-cheapest';
+        if(median>0&&rp[i].has&&rp[i].ep>0){
+          const dev=(rp[i].ep-median)/median;
+          const pct=Math.round(dev*100);
+          if(Math.abs(dev)>=0.5){cls+=' '+(dev>0?'ov-outlier-hi-hard':'ov-outlier-lo-hard');tip=`${pct>0?'+':''}${pct}% vs. Median (${fmtCHF(median)})`;}
+          else if(Math.abs(dev)>=0.3){cls+=' '+(dev>0?'ov-outlier-hi-soft':'ov-outlier-lo-soft');tip=`${pct>0?'+':''}${pct}% vs. Median (${fmtCHF(median)})`;}
+        }
+        h+=`<td class="${cls.trim()}" title="${esc(tip)}">${rp[i].has?fmtCHF(rp[i].ep)+'<br><span style="font-size:10px;color:var(--mut)">'+fmtCHF(rp[i].t)+'</span>':'–'}</td>`;
       }
       h+='</tr>';
     }
@@ -579,6 +603,12 @@ function renderVgl(){
   h+='</tr></tbody></table></div></div>';
 
   if(tZero>0)h=`<div class="warn-panel"><strong>⚠ ${tZero} Nullposition(en)</strong> — Positionen mit Menge ohne Preis.</div>`+h;
+  // P10: Legende der Preis-Ausrei\u00dfer
+  h=`<div class="info-panel" style="font-size:12px;padding:8px 14px;margin-bottom:10px">
+    <strong>Preis-Analyse:</strong>
+    <span style="margin-left:8px;display:inline-block;box-shadow:inset 0 0 0 2px #f59e0b;padding:1px 10px;border-radius:4px;font-weight:700;color:#92400e">\u00b130%</span> leichter Ausrei\u00dfer (vs. Median)
+    <span style="margin-left:8px;display:inline-block;box-shadow:inset 0 0 0 2px #dc2626;padding:1px 10px;border-radius:4px;font-weight:700;color:#991b1b">\u00b150%</span> starker Ausrei\u00dfer &nbsp;\u00b7 \u25b2 teurer \u00b7 \u25bc billiger (ab 3 Angeboten)
+  </div>`+h;
   el.innerHTML=h;
 }
 

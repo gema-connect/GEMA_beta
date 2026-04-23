@@ -279,10 +279,8 @@
       +'  </div>'
       +'</div>';
     d.body.appendChild(overlay);
-    overlay.addEventListener('click',function(e){
-      if(e.target===overlay){overlay.remove();}
-    });
-    overlay.querySelector('#gnPrefClose').addEventListener('click',function(){overlay.remove();});
+    d.body.classList.add('modal-open');
+    overlay.querySelector('#gnPrefClose').addEventListener('click',function(){overlay.remove();d.body.classList.remove('modal-open');});
     overlay.querySelectorAll('input[type=checkbox]').forEach(function(cb){
       cb.addEventListener('change',function(){
         w.GemaNotify.setPref(cb.getAttribute('data-ev'), cb.checked);

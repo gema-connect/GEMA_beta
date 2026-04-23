@@ -246,11 +246,11 @@
     +   '</div>'
     + '</div>';
     document.body.appendChild(ov);
+    document.body.classList.add('modal-open');
 
     // Listeners
     ov.querySelector('#_gorClose').addEventListener('click', close);
     ov.querySelector('#_gorCancel').addEventListener('click', close);
-    ov.addEventListener('click', function(ev){ if(ev.target === ov) close(); });
     // Vorbelegung aus opts.vorbelegung: Nachricht + Frist aus einem
     // zuvor laufenden Katalog-Dialog uebernehmen, damit der User nichts
     // doppelt eingeben muss, wenn er mitten im Flow auf "anderen
@@ -282,6 +282,7 @@
   function close(){
     var ov = document.getElementById(OVERLAY_ID);
     if(ov) ov.remove();
+    document.body.classList.remove('modal-open');
   }
 
   // ── Submit ──

@@ -379,9 +379,32 @@ Auto-Save/Load bei Objektwechsel.
 ## Cross-Modul API
 
 `gema_objekte_api.js` stellt bereit:
-- `GemaObjekte.getAll()` – alle Objekte
-- `GemaObjekte.getActive()` – aktives Objekt
+- `GemaObjekte.getAll()` – alle Objekte (gefiltert nach Org)
+- `GemaObjekte.getActive()` / `getActiveId()` – aktives Objekt
+- `GemaObjekte.setActiveId(id)` – aktives Objekt wechseln (feuert `gema-objekt-changed`)
 - `GemaObjekte.getBeteiligte()` – Beteiligte des aktiven Objekts
+- `GemaObjekte.storageKey(baseKey)` – Phasen-aware Storage-Key: `baseKey__objektId[@phase]`
+
+**Team-Zuweisung (P08):** drei Rollen pro Objekt — Projektleiter, Abteilungsleiter (Prüfer), Team-Mitglieder
+- `Objekt.projektLeiterId`, `Objekt.abteilungsLeiterId`, `Objekt.teamUserIds[]` — User-IDs der eigenen Org
+- `GemaObjekte.getAssignedUserIds(obj)` — alle zugewiesenen User-IDs (dedupliziert)
+- `GemaObjekte.isAssignedToCurrentUser(obj)` — prüft ob aktueller User zugewiesen ist
+- `GemaObjekte.canEditTeam(obj)` — nur Projektleiter + Admins dürfen Team ändern (bzw. Ersteller vor erster Zuweisung)
+- UI: In `pm_objekte.html` Filter «Meine / Büro» in der Toolbar, Initialen-Bubbles (max 3 + «+X») auf Objekt-Card
+- «Meine Projekte»: Objekte wo ich Projektleiter, Abteilungsleiter oder im Team bin
+
+**Berechnungs-Index (P04):** automatische Registrierung aller Berechnungen pro Projekt
+- `GemaObjekte.registerBerechnung({modul, objektId?, titel?, storageKey?})` – wird von `gema_autosave.js` bei jedem Save aufgerufen
+- `GemaObjekte.getBerechnungenForObjekt(objektId)` – alle Einträge pro Projekt
+- `GemaObjekte.getBerechnungenForCurrentOrg()` – Org-weit (wird in pm_objekte.html im Tab «Berechnungen» angezeigt)
+- Storage: `gema_berechnungen_index_v1` (Array von `{key, modul, objektId, titel, orgId, createdAt, lastModified, ...}`)
+- Empfänger-Filter: `orgId` → Team-Sichtbarkeit innerhalb der Organisation
+
+**URL-Parameter `?objekt=ID`:** setzt beim Seitenaufruf automatisch das aktive Objekt. Wird vom Berechnungen-Tab in pm_objekte.html genutzt, damit der Planer direkt in der richtigen Zuordnung landet.
+
+**Zuordnungs-Pill:** `gema_objekte_api.js` injiziert automatisch einen Status-Chip in die `.project-bar`:
+- 📋 «Zugeordnet zu: <Objekt>» (grün) wenn Objekt aktiv
+- ⚠ «Nicht zugeordnet — bitte Projekt wählen» (amber) sonst
 
 Geplant: `gema_lu_api.js` für den Datenfluss aus der LU-Zusammenstellung:
 - `GemaLU.getVerbraucher(objektId)` – alle Verbraucher eines Projekts
@@ -442,12 +465,15 @@ Storage-Key: `gema_werkzeug` via `_GemaDB`. Felder pro Werkzeug:
 | Feld | Zweck |
 |------|------|
 | `id`, `name`, `cat`, `brand`, `model`, `bought`, `warranty`, `serial`, `notes` | Stammdaten |
+| `supplier`, `supplierId` | Lieferant/Grosshändler (Freitext + verknüpfte Lieferant-ID aus GemaAuth) |
+| `kaufbeleg:{rechnungsNr,betrag,bestellNr,lieferdatum,datei:{name,type,dataUrl}}` | Kaufbeleg mit optionalem Datei-Upload (Base64, max 2 MB) |
 | `hasService`/`serviceInterval`/`lastService` | Wartungsintervall (Monate) + letzter Service |
 | `hasElec`/`elecInterval`/`lastElec`/`elecHistory[]` | Elektroprüfung NIV |
 | `hasLeiter`/`leiterInterval`/`lastLeiter`/`leiterHistory[]` | Leiterprüfung EKAS (nur Kategorie `leiter`) |
 | `zugewiesenAn:{userId,name,seit}` | Aktuell zugewiesene Person (Magaziner setzt das) |
 | `berichte:[{id,typ,datum,autorUserId,autorName,titel,beschreibung,...}]` | Defekt- und Prüfberichte als Historie |
 | `pruefAnfrage:{lieferantId,lieferantFirma,wunschtermin,bemerkung,angefordertAm,angefordertVon,status}` | Aktive Prüfungs-Anfrage an einen Lieferanten |
+| `ersatzAnfragen:[{id,lieferantId,lieferantFirma,typ,nachricht,status,erstelltAm,...}]` | Ersatz-/Nachfolger-Anfragen an Lieferanten |
 
 ### Berechtigungs-Helper (if_werkzeug.html)
 
@@ -497,6 +523,22 @@ Status-Banner auf der Karte: 🟠 Angefordert → 🔵 Quittiert → 🟢 Erledi
 
 Notifikation wird via `GemaNotify.push({eventKey:'werkzeug_pruefung_faellig', empfaengerRoleId:'role_magaziner', empfaengerOrgId:user.orgId, …})` an alle Magaziner der eigenen Org gesendet. **Deduplizierung**: localStorage-Lock `gema_werkzeug_notif_lock_v1` mit Schlüssel `tool:schwelle = heute`. Verhindert mehrfache Notifikationen pro Tag und Schwelle.
 
+### Lieferanten-Anbindung im Werkzeug
+
+Jedes Werkzeug kann über `supplier` + `supplierId` mit einem Lieferanten-Account verknüpft werden. Das Autocomplete-Feld sucht in:
+1. Bestehenden Geräten (eigene Org)
+2. GemaAuth-Users mit `role_lieferant`
+
+**Basiskatalog**: `WERKZEUG_KATALOG` (~100 Einträge) liefert Vorschläge für Bezeichnung, Hersteller und Modell. Toggle «Basiskatalog anzeigen» steuert, ob Katalog-Einträge in den Vorschlägen erscheinen. Kreuzfilterung: Hersteller filtert Modell, Modell-Auswahl füllt Hersteller + Kategorie aus.
+
+**Defektmeldung an Lieferant**: Separater Button «An Lieferant melden» pro offenem Defekt (nicht automatisch). Setzt `b.anLieferantGemeldet` und pusht `werkzeug_defekt_lieferant`-Notifikation an den verknüpften Lieferanten.
+
+**Ersatz-/Nachfolger-Anfrage**: Button «🔄 Ersatz» erscheint auf Karten mit offenem Defekt. Modal mit Lieferanten-Auswahl, Typ (Ersatz/Nachfolger/Alternative), Nachricht. Gespeichert in `t.ersatzAnfragen[]`, Notifikation via `werkzeug_ersatz_anfrage`.
+
+**Kaufbeleg**: Aufklappbare Sektion im Formular. Felder: Rechnungs-Nr., Betrag, Bestell-Nr., Lieferdatum + optionaler Datei-Upload (PDF/Bild, Base64, max 2 MB). Anzeige im View-Modal mit Beleg-Vorschau.
+
+**Dashboard-Integration**: `sys_lieferant_dashboard.html` — Werkzeuge-Tab ist für `role_lieferant` UND `role_pruefer` sichtbar. Zeigt Defektmeldungen und Ersatzanfragen, die an den eingeloggten Lieferanten gerichtet sind.
+
 ### Fahrzeugmanagement (if_fahrzeug.html)
 
 Eigenständiges Modul mit ähnlicher Struktur (Liste, QR-Code-Generierung mit SVG-Download, Service-Intervalle). Schreib-Zugriff: `role_magaziner`, `role_pruefer`. Nicht alle Werkzeug-Features (Berichte, Zuweisung, Lieferanten-Workflow) sind im Fahrzeug-Modul gespiegelt — bei Bedarf gleicher Pattern wie if_werkzeug.html anwenden.
@@ -519,6 +561,8 @@ Zentrales Modul `gema_notify.js` für In-App-Benachrichtigungen. Glocke + Toast-
 | `werkzeug_zuweisung` | werkzeug | on |
 | `werkzeug_pruefung_faellig` | werkzeug | on |
 | `werkzeug_pruefung_anfrage` | werkzeug | on |
+| `werkzeug_defekt_lieferant` | werkzeug | on |
+| `werkzeug_ersatz_anfrage` | werkzeug | on |
 
 **Neue Module fügen ihre Event-Keys hier hinzu**, sonst greift kein Preferences-Filter.
 
@@ -580,15 +624,33 @@ Stack ist nicht persistiert — bei Reload weg. Nur für Same-Session-Korrekture
 
 ---
 
-## Stammlieferanten-Sortierung
+## Stammlieferanten-Sortierung (Premium-Tier)
 
-`gema_produktkatalog_api.js` enthält `sortWithStamm(produkte, options)`. Reihenfolge:
+`gema_produktkatalog_api.js` enthält `sortWithStamm(lieferanten)`. Die Reihenfolge hängt davon ab, ob der aktuelle Planer eine **Premium-Lizenz** hat:
 
-1. **Persönliche Favoriten** des aktuellen Users (`getFavoriten()` / `toggleFavorit(produktId)`)
-2. **Büro-Stammlieferanten** der eigenen Organisation
-3. **Alle anderen Lieferanten**
+**Planer ohne Premium (Standard-Lizenz):**
+Keine Favoriten/Stamm-Auflösung — Lieferanten bezahlen für Sichtbarkeit:
+1. **Premium-Lieferanten** (via Org-Abo, `GemaProdukte.isLieferantPremium()`)
+2. **Verifizierte** Lieferanten
+3. Alle anderen Lieferanten
 
-API: `getFavoriten()`, `isFavorit(id)`, `toggleFavorit(id)`.
+**Planer mit Premium-Lizenz (`GemaProdukte.isPlanerPremium()`):**
+Volle Flexibilität — bezahlt für eigene Ordnung:
+1. **Persönliche Favoriten** (`getFavoriten()` / `toggleFavorit(id)`)
+2. **Büro-Stammlieferanten** (`getOrgStamm()` / Admin setzt)
+3. **Premium-Lieferanten**
+4. **Verifizierte**
+5. Alle anderen
+
+**Commercial-Logik:** Lieferanten kaufen Premium-Platzierung (Org-Abo `typ: 'premium'`). Planer können mit Premium-Lizenz eigene Favoriten/Stammlieferanten pflegen — diese überschreiben die kommerzielle Reihenfolge.
+
+**API:**
+- `isPlanerPremium(user?)` — prüft `user.planerPremium === true` oder `user.abo.typ === 'premium'`
+- `isLieferantPremium(lief)` — Legacy-Flag `lief.premium.aktiv` ODER Org-Abo des Lieferanten
+- `getFavoriten()`, `isFavorit(id)`, `toggleFavorit(id)`
+- `getOrgStamm()`, `toggleOrgStamm(id)` (nur Admin)
+
+**Auto-Scroll nach Berechnung:** `GemaAnlagenwahl.scrollToResults(containerId)` scrollt smooth zur Anlagenauswahl + kurzer Box-Shadow-Puls. Wird vom Modul beim ersten validen Berechnungsergebnis aufgerufen.
 
 ---
 

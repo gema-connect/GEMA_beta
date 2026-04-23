@@ -2,6 +2,7 @@
 <html lang="de">
 <head>
 <script src="gema_auth.js"></script>
+<script src="gema_recent.js"></script>
 <meta charset="utf-8"/>
 <meta name="theme-color" content="#0f172a"/>
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
@@ -269,6 +270,7 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important}
   <div class="tab-bar">
     <button class="tab-btn active" onclick="switchTab('objekte',this)">🏗 Objekte <span class="tab-badge" id="badgeObj">0</span></button>
     <button class="tab-btn" onclick="switchTab('beteiligte',this)">👷 Beteiligte <span class="tab-badge" id="badgeBet">0</span></button>
+    <button class="tab-btn" onclick="switchTab('berechnungen',this)">🧮 Berechnungen <span class="tab-badge" id="badgeBer">0</span></button>
   </div>
 
   <!-- TAB: OBJEKTE -->
@@ -293,6 +295,9 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important}
       <button class="fb" data-filter="abgeschlossen" onclick="setObjFilter('abgeschlossen',this)">Abgeschlossen <span class="cnt" id="cntAbgeschlossen">0</span></button>
       <button class="fb" data-filter="archiviert" onclick="setObjFilter('archiviert',this)">Archiviert <span class="cnt" id="cntArchiviert">0</span></button>
       <span style="width:1px;height:18px;background:var(--brd2);flex-shrink:0"></span>
+      <button class="fb" data-scope="meine" onclick="setObjScope('meine',this)">👤 Meine <span class="cnt" id="cntMeine">0</span></button>
+      <button class="fb active" data-scope="buero" onclick="setObjScope('buero',this)">🏢 Büro <span class="cnt" id="cntBuero">0</span></button>
+      <span style="width:1px;height:18px;background:var(--brd2);flex-shrink:0"></span>
       <select class="sort-sel" id="objBauvorhabenFilter" onchange="renderObjekte()">
         <option value="">Alle Bauvorhaben</option>
         <option value="Neubau">Neubau</option>
@@ -300,6 +305,14 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important}
         <option value="Sanierung">Sanierung</option>
         <option value="Erweiterung">Erweiterung</option>
         <option value="Abbruch">Abbruch</option>
+      </select>
+      <select class="sort-sel" id="objPhaseFilter" onchange="renderObjekte()">
+        <option value="">Alle SIA-Phasen</option>
+        <option value="vorprojekt">SIA 32 · Vorprojekt</option>
+        <option value="bauprojekt">SIA 33 · Bauprojekt</option>
+        <option value="ausschreibung">SIA 41 · Ausschreibung</option>
+        <option value="ausfuehrung">SIA 51-53 · Ausführung</option>
+        <option value="_none">Ohne Phase</option>
       </select>
     </div>
     <div class="obj-grid" id="objGrid"></div>
@@ -337,6 +350,35 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important}
       <div class="empty-ic">👷</div>
       <h3>Noch keine Beteiligten</h3>
       <p>Erstelle zuerst ein Objekt, dann füge Beteiligte hinzu.</p>
+    </div>
+  </div>
+
+  <!-- TAB: BERECHNUNGEN -->
+  <div class="tab-panel" id="tab-berechnungen">
+    <div class="toolbar">
+      <div class="toolbar-title">Berechnungen</div>
+      <select class="g-nav-btn" id="berObjFilter" onchange="renderBerechnungen()" style="min-width:180px;padding:6px 10px;">
+        <option value="">Alle Objekte</option>
+      </select>
+    </div>
+    <div class="tbl-wrap" id="berTableWrap" style="display:none">
+      <table class="tbl">
+        <thead>
+          <tr>
+            <th>Modul</th>
+            <th>Objekt</th>
+            <th>Letzter Bearbeiter</th>
+            <th>Zuletzt bearbeitet</th>
+            <th style="width:120px"></th>
+          </tr>
+        </thead>
+        <tbody id="berTbody"></tbody>
+      </table>
+    </div>
+    <div class="empty" id="berEmpty" style="display:none">
+      <div class="empty-ic">🧮</div>
+      <h3>Noch keine Berechnungen</h3>
+      <p>Berechnungen werden automatisch hier aufgelistet, sobald du in einem Berechnungs-Modul mit einem Objekt arbeitest.</p>
     </div>
   </div>
 
@@ -381,6 +423,24 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important}
       <div class="fg"><label>Status</label>
         <select id="objStatus"><option value="aktiv">✓ Aktiv</option><option value="abgeschlossen">Abgeschlossen</option><option value="archiviert">Archiviert</option></select>
       </div>
+
+      <!-- TEAM-ZUWEISUNG (P08) -->
+      <div id="objTeamSection" style="border-top:1px solid var(--brd);padding-top:14px;margin-top:14px">
+        <div style="font-size:11.5px;font-weight:800;color:var(--acc);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">👥 Team-Zuweisung</div>
+        <div class="frow">
+          <div class="fg"><label>Projektleiter</label>
+            <select id="objProjektLeiterId"><option value="">— Kein Projektleiter —</option></select>
+          </div>
+          <div class="fg"><label>Abteilungsleiter / Prüfer</label>
+            <select id="objAbteilungsLeiterId"><option value="">— Keiner —</option></select>
+          </div>
+        </div>
+        <div class="fg"><label>Team-Mitglieder <span style="font-weight:500;color:var(--mut);text-transform:none;letter-spacing:0">(zusätzliche Bearbeiter aus deiner Org)</span></label>
+          <div id="objTeamChips" style="display:flex;flex-wrap:wrap;gap:6px;padding:8px 10px;border:1.5px solid var(--brd2);border-radius:8px;background:var(--sur);min-height:44px;align-items:center"></div>
+        </div>
+        <div id="objTeamHint" style="display:none;font-size:11.5px;color:#92400e;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:6px 10px;margin-top:6px">Nur Projektleiter oder Admins können das Team ändern.</div>
+      </div>
+
       <div class="fg"><label>Notizen</label><textarea id="objNotizen" placeholder="Zusätzliche Informationen…"></textarea></div>
     </div>
     <div class="modal-ft">
@@ -508,8 +568,101 @@ function switchTab(tab,btn){
   if(btn)btn.classList.add('active');
   if(tab==='beteiligte'){populateObjFilter();renderBeteiligte();}
   if(tab==='objekte')renderObjekte();
+  if(tab==='berechnungen'){populateBerObjFilter();renderBerechnungen();}
 }
 window.switchTab=switchTab;
+
+// ── BERECHNUNGEN-TAB (P04) ──
+// Mapping modul-Key → HTML-Datei + Label. Wird genutzt um den direkten
+// Link zur Berechnung zu bauen.
+var MODUL_MAP = {
+  'druckerhoehung':        {html:'sb_druckerhoehung.html',        label:'Druckerhöhung',        icon:'💧'},
+  'druckdispositiv':       {html:'sb_druckdispositiv.html',       label:'Druckdispositiv',      icon:'📐'},
+  'druckverlust':          {html:'sb_druckverlust.html',          label:'Druckverlust',         icon:'📉'},
+  'lu_tabelle':            {html:'sb_lu_tabelle.html',            label:'LU-Zusammenstellung',  icon:'📋'},
+  'laengenausdehnung':     {html:'sb_laengenausdehnung.html',     label:'Längenausdehnung',     icon:'📏'},
+  'du_zusammenstellung':   {html:'sb_du_zusammenstellung.html',   label:'DU-Zusammenstellung',  icon:'📋'},
+  'ausstosszeiten':        {html:'sb_ausstosszeiten.html',        label:'Ausstosszeiten',       icon:'⏱'},
+  'warmwasser_sia385':     {html:'sb_warmwasser.html',            label:'Warmwasser SIA 385',   icon:'🔥'},
+  'niederschlagsanfall':   {html:'sb_niederschlag.html',          label:'Niederschlagsanfall',  icon:'🌧'},
+  'apparateliste':         {html:'sb_apparateliste.html',         label:'Apparateliste',        icon:'📋'},
+  'grobauslegung':         {html:'sb_grobauslegung.html',         label:'Grobauslegung',        icon:'🎯'},
+  'vonroll_tabellen':      {html:'sb_vonroll.html',               label:'vonRoll-Tabellen',    icon:'🔧'},
+  'enthaertungsanlage':    {html:'sa_enthaertung.html',           label:'Enthärtungsanlage',   icon:'🧂'},
+  'osmose':                {html:'sa_osmose.html',                label:'Osmoseanlage',         icon:'💦'},
+  'frischwasserstation':   {html:'sa_frischwasserstation.html',   label:'Frischwasserstation', icon:'🚰'},
+  'fettabscheider':        {html:'sa_fettabscheider.html',        label:'Fettabscheider',       icon:'🧴'},
+  'oelabscheider':         {html:'sa_oelabscheider.html',         label:'Ölabscheider',        icon:'🛢'},
+  'schlammsammler':        {html:'sa_schlammsammler.html',        label:'Schlammsammler',       icon:'🏺'},
+  'abwasserhebeanlage':    {html:'sa_abwasserhebeanlage.html',    label:'Abwasserhebeanlage',  icon:'🚰'},
+  'thermische_solaranlage':{html:'sa_solaranlage.html',           label:'Solaranlage',          icon:'☀️'}
+};
+
+function _modulInfo(key){
+  return MODUL_MAP[key] || {html:null, label:key, icon:'🧮'};
+}
+
+function populateBerObjFilter(){
+  var sel = $('berObjFilter');
+  if(!sel) return;
+  var cur = sel.value;
+  var objs = (typeof GemaObjekte!=='undefined') ? (GemaObjekte.getAll()||[]) : [];
+  sel.innerHTML = '<option value="">Alle Objekte</option>' +
+    objs.map(function(o){
+      return '<option value="'+o.id+'">'+(o.nummer?o.nummer+' · ':'')+ (o.name||o.projekt||o.id) +'</option>';
+    }).join('');
+  if(cur) sel.value = cur;
+}
+
+function renderBerechnungen(){
+  var list = (typeof GemaObjekte!=='undefined' && GemaObjekte.getBerechnungenForCurrentOrg)
+    ? GemaObjekte.getBerechnungenForCurrentOrg() : [];
+  var fObj = $('berObjFilter') ? $('berObjFilter').value : '';
+  if(fObj) list = list.filter(function(e){ return e.objektId === fObj; });
+  var badge = $('badgeBer'); if(badge) badge.textContent = list.length;
+  var wrap = $('berTableWrap'), empty = $('berEmpty'), tbody = $('berTbody');
+  if(!list.length){
+    if(wrap) wrap.style.display='none';
+    if(empty) empty.style.display='';
+    if(tbody) tbody.innerHTML='';
+    return;
+  }
+  if(wrap) wrap.style.display='';
+  if(empty) empty.style.display='none';
+
+  var objs = (typeof GemaObjekte!=='undefined') ? (GemaObjekte.getAllUnfiltered()||[]) : [];
+  var users = (typeof GemaAuth!=='undefined' && GemaAuth.getUsers) ? (GemaAuth.getUsers()||[]) : [];
+
+  function userName(uid){
+    if(!uid) return '—';
+    var u = users.find(function(x){return x.id===uid;});
+    if(!u) return uid;
+    return (u.profile && (u.profile.person||u.profile.name)) || u.name || u.username || uid;
+  }
+  function objLabel(oid){
+    var o = objs.find(function(x){return x.id===oid;});
+    if(!o) return oid;
+    return (o.nummer?o.nummer+' · ':'') + (o.name||o.projekt||o.id);
+  }
+  function fmtDate(iso){
+    if(!iso) return '—';
+    try { return new Date(iso).toLocaleDateString('de-CH',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}); }
+    catch(e){ return iso; }
+  }
+
+  tbody.innerHTML = list.map(function(e){
+    var info = _modulInfo(e.modul);
+    var href = info.html ? (info.html + '?objekt=' + encodeURIComponent(e.objektId)) : '#';
+    return '<tr>'
+      + '<td><span style="font-size:14px;margin-right:6px">'+info.icon+'</span>'+info.label+'</td>'
+      + '<td>'+objLabel(e.objektId)+'</td>'
+      + '<td>'+userName(e.lastUserId||e.createdBy)+'</td>'
+      + '<td><span style="font-family:\'DM Sans\',ui-monospace,monospace;font-size:12px">'+fmtDate(e.lastModified)+'</span></td>'
+      + '<td>'+(info.html ? '<a class="g-nav-btn" href="'+href+'" style="padding:4px 10px;font-size:11px">Öffnen →</a>' : '')+'</td>'
+      + '</tr>';
+  }).join('');
+}
+window.renderBerechnungen = renderBerechnungen;
 
 // ── MODAL ──
 function openModal(id){$(id).classList.add('open');}
@@ -574,23 +727,44 @@ function getObjektBreadcrumb(objektId){
 
 // ── RENDER OBJEKTE ──
 var _objFilter='aktiv'; // default: show only active
+var _objScope='buero';  // default: Büro-Ansicht (alle Objekte der Org)
 function setObjFilter(val,btn){
   _objFilter=val;
-  document.querySelectorAll('#objFilterBar .fb').forEach(b=>b.classList.remove('active'));
+  // Nur Status-Buttons (data-filter) togglen, Scope-Buttons unberührt lassen
+  document.querySelectorAll('#objFilterBar .fb[data-filter]').forEach(b=>b.classList.remove('active'));
   if(btn) btn.classList.add('active');
   renderObjekte();
 }
+function setObjScope(val, btn){
+  _objScope=val;
+  document.querySelectorAll('#objFilterBar .fb[data-scope]').forEach(b=>b.classList.remove('active'));
+  if(btn) btn.classList.add('active');
+  renderObjekte();
+}
+window.setObjScope = setObjScope;
 window.setObjFilter=setObjFilter;
 
 function renderObjekte(){
   const q=($('objSearch')?.value||'').toLowerCase();
   const bvFilter=$('objBauvorhabenFilter')?.value||'';
+  const phFilter=$('objPhaseFilter')?.value||'';
   const sortBy=$('objSort')?.value||'name';
 
   // Tenant-Filter: Nicht-Admins sehen nur Objekte ihrer eigenen Org
   const visibleObjekte = _isAdminUser
     ? _mem.objekte
     : _mem.objekte.filter(o=>(o.orgId||'org_default')===(_currentOrgId||'org_default'));
+
+  // Scope-Filter (Meine vs. Büro) — P08
+  const myId=(typeof GemaAuth!=='undefined'&&GemaAuth.getCurrentUser)?(GemaAuth.getCurrentUser()?.id):null;
+  function isMineFor(o){
+    if(!myId) return false;
+    if(o.projektLeiterId===myId) return true;
+    if(o.abteilungsLeiterId===myId) return true;
+    if((o.teamUserIds||[]).indexOf(myId)>=0) return true;
+    return false;
+  }
+  const mineList=visibleObjekte.filter(isMineFor);
 
   // Count per status (gefiltert nach Org)
   const counts={all:visibleObjekte.length, aktiv:0, abgeschlossen:0, archiviert:0};
@@ -599,11 +773,17 @@ function renderObjekte(){
   if($('cntAktiv')) $('cntAktiv').textContent=counts.aktiv;
   if($('cntAbgeschlossen')) $('cntAbgeschlossen').textContent=counts.abgeschlossen;
   if($('cntArchiviert')) $('cntArchiviert').textContent=counts.archiviert;
+  if($('cntBuero')) $('cntBuero').textContent=visibleObjekte.length;
+  if($('cntMeine')) $('cntMeine').textContent=mineList.length;
 
-  // Filter
-  let list=visibleObjekte;
+  // Filter: erst Scope (Meine vs. Büro), dann Status
+  let list = _objScope==='meine' ? mineList : visibleObjekte;
   if(_objFilter!=='all') list=list.filter(o=>(o.status||'aktiv')===_objFilter);
   if(bvFilter) list=list.filter(o=>(o.bauvorhaben||'')=== bvFilter);
+  if(phFilter) {
+    if(phFilter==='_none') list=list.filter(o=>!(o.aktivePhase));
+    else list=list.filter(o=>(o.aktivePhase||'')===phFilter);
+  }
   if(q) list=list.filter(o=>(o.name||'').toLowerCase().includes(q)||(o.ort||'').toLowerCase().includes(q)||(o.strasse||'').toLowerCase().includes(q)||(o.gemeinde||'').toLowerCase().includes(q));
 
   // Sort
@@ -632,6 +812,27 @@ function renderObjekte(){
     return;
   }
   $('objEmpty').style.display='none';
+  // Vorbereitung für Team-Bubbles (P08): alle Users einmal laden
+  const _allUsers = (typeof GemaAuth!=='undefined'&&GemaAuth.getUsers)?(GemaAuth.getUsers()||[]):[];
+  function _userById(id){return _allUsers.find(u=>u.id===id);}
+  function _initials(u){if(!u)return '?';var n=(u.profile&&(u.profile.person||u.profile.name))||u.name||u.username||'?';return n.split(/\s+/).map(w=>w[0]).join('').toUpperCase().slice(0,2);}
+  function _teamBubbles(o){
+    const ids=[];
+    if(o.projektLeiterId) ids.push({id:o.projektLeiterId,role:'PL',color:'#1d4ed8',bg:'#eff4ff'});
+    if(o.abteilungsLeiterId&&o.abteilungsLeiterId!==o.projektLeiterId) ids.push({id:o.abteilungsLeiterId,role:'AL',color:'#7c3aed',bg:'#f5f3ff'});
+    (o.teamUserIds||[]).forEach(uid=>{if(!ids.find(x=>x.id===uid)) ids.push({id:uid,role:'T',color:'#16a34a',bg:'#f0fdf4'});});
+    if(!ids.length) return '';
+    const shown=ids.slice(0,3);
+    const extra=ids.length-shown.length;
+    const html=shown.map(x=>{
+      const u=_userById(x.id);const i=_initials(u);
+      const title=(u?esc(u.profile?.person||u.profile?.name||u.name||u.username||u.id):x.id)+' ('+x.role+')';
+      return '<span title="'+title+'" style="width:24px;height:24px;border-radius:50%;background:'+x.bg+';border:1.5px solid '+x.color+';color:'+x.color+';font-size:10px;font-weight:800;display:inline-flex;align-items:center;justify-content:center;margin-left:-4px">'+i+'</span>';
+    }).join('');
+    const plus=extra>0?'<span title="+'+extra+' weitere" style="width:24px;height:24px;border-radius:50%;background:#f4f6fb;border:1.5px solid #cbd5e1;color:#64748b;font-size:10px;font-weight:800;display:inline-flex;align-items:center;justify-content:center;margin-left:-4px">+'+extra+'</span>':'';
+    return '<div style="display:flex;align-items:center;margin-left:4px" onclick="event.stopPropagation()">'+html+plus+'</div>';
+  }
+
   $('objGrid').innerHTML=list.map(o=>{
     const betCount=_mem.beteiligte.filter(b=>b.objektId===o.id).length;
     const isActive=o.id===_mem.activeObjektId;
@@ -650,9 +851,12 @@ function renderObjekte(){
         <span>🏗 ${esc(o.bauvorhaben||'–')}</span>
         <span>👷 ${betCount} Beteiligte</span>
         ${o.gemeinde?'<span>📍 '+esc(o.gemeinde)+'</span>':''}
+        ${o.aktivePhase?'<span style="background:#eff4ff;color:#1d4ed8;padding:2px 8px;border-radius:6px;font-weight:700;border:1px solid #bfdbfe">'+({vorprojekt:'SIA 32 · Vorprojekt',bauprojekt:'SIA 33 · Bauprojekt',ausschreibung:'SIA 41 · Ausschreibung',ausfuehrung:'SIA 51-53 · Ausführung'})[o.aktivePhase]+'</span>':''}
       </div>
+      ${_teamBubbles(o)}
       <div style="margin-top:8px;display:flex;gap:6px;align-items:center" class="no-print">
         <button class="btn btn-ghost btn-xs" onclick="event.stopPropagation();openObjektModal('${esc(o.id)}')">✏ Bearbeiten</button>
+        <button class="btn btn-ghost btn-xs" onclick="event.stopPropagation();duplicateObjekt('${esc(o.id)}')">📋 Duplizieren</button>
         <button class="btn btn-ghost btn-xs" style="color:#dc2626" onclick="event.stopPropagation();deleteObjektById('${esc(o.id)}')">🗑 Löschen</button>
         ${isActive?'<span style="font-size:11px;color:var(--acc);font-weight:700;padding:3px 0;margin-left:auto">● Aktives Objekt</span>':'<button class="btn btn-ghost btn-xs" style="margin-left:auto" onclick="event.stopPropagation();setActive(\''+esc(o.id)+'\')">Als aktiv setzen</button>'}
       </div>
@@ -699,12 +903,91 @@ function populateParentSelect(currentEditId){
   sel.innerHTML=opts.join('');
 }
 
+// ── TEAM-ZUWEISUNG (P08) ──
+// Liste aller User der eigenen Org (für Dropdowns + Chips).
+var _teamChipState = [];
+function _orgUsers() {
+  try {
+    if (typeof GemaAuth === 'undefined' || !GemaAuth.getUsers) return [];
+    var me = GemaAuth.getCurrentUser && GemaAuth.getCurrentUser();
+    var myOrg = me && me.orgId;
+    return (GemaAuth.getUsers() || []).filter(function(u) {
+      return u.active !== false && (!myOrg || u.orgId === myOrg);
+    });
+  } catch(e) { return []; }
+}
+function _userLabel(u) {
+  var name = (u.profile && (u.profile.person || u.profile.name)) || u.name || u.username || u.id;
+  return name;
+}
+function _userInitials(u) {
+  var name = _userLabel(u);
+  return name.split(/\s+/).map(function(w){return w[0];}).join('').toUpperCase().slice(0,2);
+}
+function populateTeamSelects(editId) {
+  var users = _orgUsers();
+  var obj = editId ? _mem.objekte.find(function(x){return x.id===editId;}) : null;
+  var canEdit = !editId || (typeof GemaObjekte !== 'undefined' && GemaObjekte.canEditTeam ? GemaObjekte.canEditTeam(obj) : true);
+
+  ['objProjektLeiterId','objAbteilungsLeiterId'].forEach(function(selId){
+    var sel = $(selId);
+    if (!sel) return;
+    var cur = obj ? obj[selId.replace('obj','').replace('Id','Id').charAt(0).toLowerCase() + selId.replace('obj','').replace('Id','Id').slice(1)] : '';
+    // Keys: objProjektLeiterId -> projektLeiterId, objAbteilungsLeiterId -> abteilungsLeiterId
+    var fieldName = selId === 'objProjektLeiterId' ? 'projektLeiterId' : 'abteilungsLeiterId';
+    var curVal = obj ? (obj[fieldName] || '') : '';
+    sel.innerHTML = '<option value="">— Keiner —</option>' + users.map(function(u){
+      return '<option value="'+u.id+'"'+(u.id===curVal?' selected':'')+'>'+esc(_userLabel(u))+'</option>';
+    }).join('');
+    sel.disabled = !canEdit;
+  });
+
+  // Team-Chips: Multi-Select über klickbare Chips
+  _teamChipState = obj && obj.teamUserIds ? obj.teamUserIds.slice() : [];
+  _renderTeamChips(users, canEdit);
+
+  var hint = $('objTeamHint');
+  if (hint) hint.style.display = canEdit ? 'none' : '';
+}
+function _renderTeamChips(users, canEdit) {
+  var box = $('objTeamChips');
+  if (!box) return;
+  if (!users || !users.length) {
+    box.innerHTML = '<span style="font-size:12px;color:var(--mut)">Keine weiteren User in deiner Org</span>';
+    return;
+  }
+  box.innerHTML = users.map(function(u){
+    var active = _teamChipState.indexOf(u.id) >= 0;
+    var bg = active ? '#eff4ff' : '#fff';
+    var bd = active ? '#2563eb' : 'var(--brd2)';
+    var col = active ? '#1d4ed8' : 'var(--mut)';
+    var disabled = !canEdit ? 'opacity:.6;pointer-events:none' : '';
+    return '<span data-uid="'+u.id+'" style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:20px;font-size:12px;font-weight:600;cursor:pointer;background:'+bg+';border:1.5px solid '+bd+';color:'+col+';'+disabled+'">'
+      + '<span style="width:18px;height:18px;border-radius:50%;background:'+(active?'#2563eb':'#e2e8f0')+';color:'+(active?'#fff':'#64748b')+';font-size:9px;font-weight:800;display:inline-flex;align-items:center;justify-content:center">'+_userInitials(u)+'</span>'
+      + esc(_userLabel(u))
+      + (active?' ✓':' +')
+      + '</span>';
+  }).join('');
+  if (canEdit) {
+    box.querySelectorAll('[data-uid]').forEach(function(el){
+      el.addEventListener('click', function(){
+        var uid = el.getAttribute('data-uid');
+        var i = _teamChipState.indexOf(uid);
+        if (i >= 0) _teamChipState.splice(i, 1);
+        else _teamChipState.push(uid);
+        _renderTeamChips(users, canEdit);
+      });
+    });
+  }
+}
+
 function openObjektModal(editId){
   const isEdit=!!editId;
   $('objModalTitle').textContent=isEdit?'Objekt bearbeiten':'Neues Objekt';
   $('objDelBtn').style.display=isEdit?'':'none';
   $('objEditId').value=editId||'';
   populateParentSelect(editId);
+  populateTeamSelects(editId);
   const detail=$('objAdrDetail');
   if(isEdit){
     const o=_mem.objekte.find(x=>x.id===editId);
@@ -754,7 +1037,10 @@ function saveObjekt(){
   const data={name,strasse:$('objStrasse').value.trim(),plz:$('objPlz').value.trim(),ort:$('objOrt').value.trim(),
     gemeinde:$('objGemeinde').value.trim(),kanton:$('objKanton').value.trim(),bauvorhaben:$('objBauvorhaben').value,status:$('objStatus').value,notizen:$('objNotizen').value.trim(),
     projektnummer:$('objProjektnummer').value.trim(),revision:$('objRevision').value.trim(),
-    aktivePhase:$('objAktivePhase').value,parentObjektId:parentId};
+    aktivePhase:$('objAktivePhase').value,parentObjektId:parentId,
+    projektLeiterId:$('objProjektLeiterId')?$('objProjektLeiterId').value:'',
+    abteilungsLeiterId:$('objAbteilungsLeiterId')?$('objAbteilungsLeiterId').value:'',
+    teamUserIds:(_teamChipState||[]).slice()};
   if(editId){
     const idx=_mem.objekte.findIndex(x=>x.id===editId);
     if(idx>=0)Object.assign(_mem.objekte[idx],data);
@@ -801,6 +1087,23 @@ function deleteObjektById(id){
 }
 window.deleteObjekt=deleteObjekt;
 window.deleteObjektById=deleteObjektById;
+
+function duplicateObjekt(id){
+  const src=_mem.objekte.find(x=>x.id===id);
+  if(!src) return;
+  const copy={...src,
+    id:uid(),
+    name:(src.name||'')+ ' (Kopie)',
+    createdAt:new Date().toISOString(),
+    status:'aktiv',
+    projektLeiterId:'',abteilungsLeiterId:'',teamUserIds:[]
+  };
+  try{copy.erstelltVon=GemaAuth.getCurrentUser()?.id;}catch(e){}
+  if(_currentOrgId) copy.orgId=_currentOrgId;
+  _mem.objekte.push(copy);save();renderObjekte();
+  toast('📋 Objekt dupliziert: «'+esc(copy.name)+'»');
+}
+window.duplicateObjekt=duplicateObjekt;
 
 // ── BETEILIGTE ──
 function populateObjFilter(){

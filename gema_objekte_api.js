@@ -176,6 +176,40 @@
       }));
     } catch(e) {}
   }
+  // ── Team-Zuweisung (P08) ──
+  // Projektleiter, Abteilungsleiter (Prüfer) und Team am Objekt.
+  // User-IDs zeigen auf GemaAuth-User der gleichen Organisation.
+  function getAssignedUserIds(obj) {
+    if (!obj) return [];
+    var ids = [];
+    if (obj.projektLeiterId) ids.push(obj.projektLeiterId);
+    if (obj.abteilungsLeiterId && ids.indexOf(obj.abteilungsLeiterId) < 0) ids.push(obj.abteilungsLeiterId);
+    (obj.teamUserIds || []).forEach(function(uid){ if (ids.indexOf(uid) < 0) ids.push(uid); });
+    return ids;
+  }
+  function isAssignedToCurrentUser(obj) {
+    try {
+      if (!w.GemaAuth || !w.GemaAuth.getCurrentUser) return false;
+      var me = w.GemaAuth.getCurrentUser();
+      if (!me) return false;
+      return getAssignedUserIds(obj).indexOf(me.id) >= 0;
+    } catch(e) { return false; }
+  }
+  function canEditTeam(obj) {
+    try {
+      if (!w.GemaAuth || !w.GemaAuth.getCurrentUser) return false;
+      var me = w.GemaAuth.getCurrentUser();
+      if (!me) return false;
+      // Admins dürfen immer
+      if (me.roleIds && me.roleIds.indexOf('role_admin') >= 0) return true;
+      // Projektleiter darf
+      if (obj && obj.projektLeiterId === me.id) return true;
+      // Ersteller darf (vor erster Zuweisung)
+      if (obj && (!obj.projektLeiterId) && obj.erstelltVon === me.id) return true;
+      return false;
+    } catch(e) { return false; }
+  }
+
   function getActive() {
     var data = _load();
     if (!data.activeObjektId) return null;
@@ -347,6 +381,74 @@
     return null;
   }
 
+  // ── Berechnungs-Index (P04) ──
+  // Zentraler Index aller Berechnungen pro Projekt. Module registrieren
+  // sich via registerBerechnung() bei jedem Auto-Save. Der Index macht
+  // Berechnungen im pm_objekte «Berechnungen»-Tab auffindbar.
+  var _BK_IDX = 'gema_berechnungen_index_v1';
+  function _loadBerIndex(){
+    try { var r = localStorage.getItem(_BK_IDX); return r ? (JSON.parse(r) || []) : []; } catch(e){ return []; }
+  }
+  function _saveBerIndex(arr){
+    try { localStorage.setItem(_BK_IDX, JSON.stringify(arr || [])); } catch(e){}
+  }
+  function _currentOrgId(){
+    try { return (w.GemaAuth && w.GemaAuth.getCurrentUser && w.GemaAuth.getCurrentUser()) ? w.GemaAuth.getCurrentUser().orgId : null; } catch(e){ return null; }
+  }
+  function _currentUserId(){
+    try { return (w.GemaAuth && w.GemaAuth.getCurrentUser && w.GemaAuth.getCurrentUser()) ? w.GemaAuth.getCurrentUser().id : null; } catch(e){ return null; }
+  }
+  // registerBerechnung({modul, objektId?, titel?, storageKey?})
+  // Erstellt oder aktualisiert den Index-Eintrag (modul+objektId ist Key).
+  function registerBerechnung(entry){
+    if (!entry || !entry.modul) return;
+    var objektId = entry.objektId || getActiveId();
+    if (!objektId) return; // Keine Zuordnung, kein Index-Eintrag
+    var idx = _loadBerIndex();
+    var key = entry.modul + '__' + objektId;
+    var now = new Date().toISOString();
+    var existing = idx.find(function(e){ return e.key === key; });
+    var orgId = entry.orgId || _currentOrgId();
+    var userId = entry.userId || _currentUserId();
+    if (existing) {
+      existing.lastModified = now;
+      existing.lastUserId = userId;
+      if (entry.titel) existing.titel = entry.titel;
+      if (entry.storageKey) existing.storageKey = entry.storageKey;
+    } else {
+      idx.push({
+        key: key,
+        modul: entry.modul,
+        objektId: objektId,
+        titel: entry.titel || entry.modul,
+        storageKey: entry.storageKey || null,
+        orgId: orgId,
+        createdAt: now,
+        createdBy: userId,
+        lastModified: now,
+        lastUserId: userId
+      });
+    }
+    _saveBerIndex(idx);
+  }
+  function getBerechnungenForObjekt(objektId){
+    if (!objektId) objektId = getActiveId();
+    if (!objektId) return [];
+    return _loadBerIndex().filter(function(e){ return e.objektId === objektId; })
+      .sort(function(a,b){ return (b.lastModified||'').localeCompare(a.lastModified||''); });
+  }
+  function getBerechnungenForCurrentOrg(){
+    var orgId = _currentOrgId();
+    if (!orgId) return _loadBerIndex();
+    return _loadBerIndex().filter(function(e){ return !e.orgId || e.orgId === orgId; })
+      .sort(function(a,b){ return (b.lastModified||'').localeCompare(a.lastModified||''); });
+  }
+  function removeBerechnung(modul, objektId){
+    var idx = _loadBerIndex();
+    var key = modul + '__' + objektId;
+    _saveBerIndex(idx.filter(function(e){ return e.key !== key; }));
+  }
+
   w.GemaObjekte = {
     getAll: getAll, getAllUnfiltered: getAllUnfiltered, getAktive: getAktive, getActive: getActive, getActiveId: getActiveId,
     setObjektStatus: setObjektStatus, setActiveId: setActiveId,
@@ -358,13 +460,37 @@
     refresh: refresh, ready: _readyPromise,
     storageKey: storageKey, savePerObjekt: savePerObjekt, loadPerObjekt: loadPerObjekt,
     // SIA-Phase
-    getPhases: getPhases, getActivePhase: getActivePhase, setActivePhase: setActivePhase
+    getPhases: getPhases, getActivePhase: getActivePhase, setActivePhase: setActivePhase,
+    // Berechnungs-Index (P04)
+    registerBerechnung: registerBerechnung,
+    getBerechnungenForObjekt: getBerechnungenForObjekt,
+    getBerechnungenForCurrentOrg: getBerechnungenForCurrentOrg,
+    removeBerechnung: removeBerechnung,
+    // Team-Zuweisung (P08)
+    getAssignedUserIds: getAssignedUserIds,
+    isAssignedToCurrentUser: isAssignedToCurrentUser,
+    canEditTeam: canEditTeam
   };
 
   // Auto-init: try sync first, then async Supabase if needed
   _load();
   if (!_loaded) _fetchFromSupabase();
   else _readyResolve();
+
+  // P04: URL-Parameter ?objekt=ID setzt das aktive Objekt beim Seitenaufruf
+  try {
+    if (typeof location !== 'undefined' && location.search) {
+      var params = new URLSearchParams(location.search);
+      var urlObj = params.get('objekt');
+      if (urlObj) {
+        _readyPromise.then(function(){
+          if (getAllUnfiltered().find(function(o){ return o.id === urlObj; })) {
+            setActiveId(urlObj);
+          }
+        });
+      }
+    }
+  } catch(e) {}
 
   // ── Phase-Selector Auto-Inject ───────────────────────────────
   // F\u00fcgt automatisch ein SIA-Phase Dropdown in die .project-bar
@@ -414,12 +540,56 @@
     }
     // Re-inject if .project-bar appears later (some modules build it dynamically)
     try {
-      var mo = new MutationObserver(function(){ _injectPhaseSelector(); });
+      var mo = new MutationObserver(function(){ _injectPhaseSelector(); _renderZuordnungsPill(); });
       mo.observe(document.documentElement, { childList: true, subtree: true });
       // Auto-disconnect after 5s
       setTimeout(function(){ try { mo.disconnect(); } catch(e){} }, 5000);
     } catch(e){}
   }
   _initPhaseInjector();
+
+  // ── Zuordnungs-Pill (P04) ───────────────────────────────────
+  // Injiziert einen kleinen Status-Chip in die .project-bar:
+  //  • Grün/gedeckt: «📋 Zugeordnet zu: <Objekt>»
+  //  • Amber:       «⚠ Nicht zugeordnet — bitte Projekt wählen»
+  // Bleibt weich (keine Pflicht), aber Planer sieht den Status sofort.
+  function _renderZuordnungsPill(){
+    try {
+      var bar = document.querySelector('.project-bar');
+      if (!bar) return;
+      var existing = bar.querySelector('.gema-zuordnung-pill');
+      var active = getActive();
+      var text, bg, bd, col;
+      if (active) {
+        var label = (active.nummer ? active.nummer + ' · ' : '') + (active.name || active.projekt || active.id);
+        text = '📋 Zugeordnet zu: ' + label;
+        bg = '#ecfdf5'; bd = '#bbf7d0'; col = '#166534';
+      } else {
+        text = '⚠ Nicht zugeordnet — bitte Projekt wählen';
+        bg = '#fffbeb'; bd = '#fde68a'; col = '#92400e';
+      }
+      if (existing) {
+        existing.style.background = bg;
+        existing.style.borderColor = bd;
+        existing.style.color = col;
+        existing.textContent = text;
+        return;
+      }
+      var pill = document.createElement('div');
+      pill.className = 'gema-zuordnung-pill';
+      pill.textContent = text;
+      pill.style.cssText = 'grid-column:1/-1;padding:6px 12px;border-radius:8px;font-size:11.5px;font-weight:700;background:'+bg+';border:1.5px solid '+bd+';color:'+col+';margin-top:6px;text-align:center;letter-spacing:.2px';
+      bar.appendChild(pill);
+    } catch(e) {}
+  }
+  // Re-render pill bei Objektwechsel
+  try {
+    w.addEventListener('gema-objekt-changed', _renderZuordnungsPill);
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', _renderZuordnungsPill);
+    } else {
+      setTimeout(_renderZuordnungsPill, 200);
+    }
+  } catch(e) {}
 
 })(window);
