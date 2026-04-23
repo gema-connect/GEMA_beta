@@ -43,12 +43,12 @@
     var hasModal=document.querySelector('.modal-bg:not(.hidden)')
       ||document.getElementById('_wzModalOverlay')
       ||document.getElementById('_gorOverlay')
-      ||document.querySelector('[style*="position:fixed"][style*="z-index:9"]');
+      ||document.getElementById('gnSettingsOverlay');
     if(hasModal)document.body.classList.add('modal-open');
     else document.body.classList.remove('modal-open');
   }
   var obs=new MutationObserver(check);
   document.addEventListener('DOMContentLoaded',function(){
-    obs.observe(document.body,{childList:true,subtree:true,attributes:true,attributeFilter:['class','style']});
+    obs.observe(document.body,{childList:true,subtree:true,attributes:true,attributeFilter:['class']});
   });
 })();
