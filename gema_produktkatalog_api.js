@@ -6,7 +6,23 @@
 (function(){
 'use strict';
 
-const SK = 'gema_produktkatalog_v1';
+// Lieferanten-Kategorien
+var LIEF_KATEGORIEN = [
+  {id:'enthaertung',label:'Enthärtungsanlagen',gruppe:'anlagen'},
+  {id:'osmose',label:'Umkehrosmoseanlagen',gruppe:'anlagen'},
+  {id:'druckerhoehung',label:'Druckerhöhungsanlagen',gruppe:'anlagen'},
+  {id:'fettabscheider',label:'Fettabscheider',gruppe:'anlagen'},
+  {id:'oelabscheider',label:'Ölabscheider',gruppe:'anlagen'},
+  {id:'schlammsammler',label:'Schlammsammler',gruppe:'anlagen'},
+  {id:'abwasserhebeanlage',label:'Abwasserhebeanlage',gruppe:'anlagen'},
+  {id:'frischwasserstation',label:'Frischwasserstation',gruppe:'anlagen'},
+  {id:'solaranlage',label:'Solaranlagen',gruppe:'anlagen'},
+  {id:'werkzeuge',label:'Werkzeuge / Maschinen / Leitern',gruppe:'infrastruktur'},
+  {id:'fahrzeuge',label:'Garagist / Fahrzeugmanagement',gruppe:'infrastruktur'},
+  {id:'rohrsysteme',label:'Rohrsysteme & Armaturen',gruppe:'material'},
+];
+
+var SK = 'gema_produktkatalog_v1';
 const SK_LIEF = 'gema_lieferanten_v1';
 const SK_OA = 'gema_offertanfragen_v1';
 let _data = { produkte: [], log: [] };
@@ -965,6 +981,7 @@ function createLieferant(daten){
       mahnungen: 0
     },
     premium: daten.premium || { aktiv: false, platzierung: 'none', kategorien: [], badge: '', sortPriority: 0 },
+    lieferantKategorien: daten.lieferantKategorien || [],
     erstelltAm: new Date().toISOString(),
     erstelltVon: _getUsername(),
     deaktiviertAm: '',
@@ -1523,6 +1540,9 @@ window.GemaProdukte = {
   OA_STATUS,
   // Persistence
   loadFromSupabase,
+  // Lieferanten-Kategorien
+  LIEF_KATEGORIEN,
+  getLieferantenByKategorie: function(kat){ return getAllLieferanten().filter(function(l){ return l.lieferantKategorien && l.lieferantKategorien.indexOf(kat)>=0; }); },
   // Meta
   STATUS_LABELS,
   KATEGORIEN,

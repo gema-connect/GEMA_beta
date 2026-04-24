@@ -1082,18 +1082,22 @@ function _wzSetupAutocomplete(){
       seen[t.supplier]=true;
       result.push({label:t.supplier,value:t.supplier,hint:'Eigene Geräte',supplierId:t.supplierId||''});
     });
-    // Aus Lieferanten-Accounts (GemaAuth)
+    // Aus Lieferanten-Accounts (GemaAuth) — nur Kategorie 'werkzeuge'
     if(typeof GemaAuth!=='undefined'){
       try{
         var users=GemaAuth.getUsers()||[];
         users.forEach(function(u){
           if(!u.active||!u.roleIds||u.roleIds.indexOf('role_lieferant')<0)return;
+          if(typeof GemaProdukte!=='undefined'&&GemaProdukte.getAllLieferanten){
+            var lief=GemaProdukte.getAllLieferanten().find(function(l){return l.orgId===u.orgId||l.firma===(u.profile&&u.profile.firma);});
+            if(lief&&lief.lieferantKategorien&&lief.lieferantKategorien.length>0&&lief.lieferantKategorien.indexOf('werkzeuge')<0)return;
+          }
           var firma=(u.profile&&u.profile.firma)||u.name||u.username||'';
           if(!firma)return;
           if(ql&&firma.toLowerCase().indexOf(ql)<0)return;
           if(seen[firma])return;
           seen[firma]=true;
-          result.push({label:firma,value:firma,hint:'GEMA-Lieferant',supplierId:u.id});
+          result.push({label:firma,value:firma,hint:'Werkzeug-Lieferant',supplierId:u.id});
         });
       }catch(e){}
     }
@@ -2167,7 +2171,10 @@ function _wzGetPruefLieferanten(){
   try{
     var users=GemaAuth.getUsers()||[];
     return users.filter(function(u){
-      return u.active && u.roleIds && u.roleIds.indexOf('role_lieferant')>=0;
+      if(!u.active)return false;
+      if(u.roleIds&&u.roleIds.indexOf('role_pruefer')>=0)return true;
+      if(u.roleIds&&u.roleIds.indexOf('role_lieferant')>=0)return true;
+      return false;
     });
   }catch(e){return [];}
 }
