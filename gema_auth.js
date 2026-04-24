@@ -164,7 +164,7 @@
   },
   // ── Lieferanten-Firmen (eigenstaendige Hersteller) ──
   {
-    id:'org_bwt', name:'BWT', logo:null, kategorie:'lieferant', kategorien:['lieferant'],
+    id:'org_bwt', name:'BWT', logo:null, kategorie:'lieferant', kategorien:['lieferant'], lieferantKategorien:['enthaertung','osmose'],
     rechtsform:'AG',
     adresse:{strasse:'Hauptstrasse 192',plz:'4147',ort:'Aesch',kanton:'BL',land:'CH'},
     kontakt:{email:'info@bwt.ch',telefon:'061 755 88 99',website:'www.bwt.ch'},
@@ -176,7 +176,7 @@
     createdAt:'2025-01-15T10:00:00Z'
   },
   {
-    id:'org_gruenbeck', name:'Grünbeck', logo:null, kategorie:'lieferant', kategorien:['lieferant'],
+    id:'org_gruenbeck', name:'Grünbeck', logo:null, kategorie:'lieferant', kategorien:['lieferant'], lieferantKategorien:['enthaertung','osmose'],
     rechtsform:'GmbH',
     adresse:{strasse:'Industriestrasse 35',plz:'8604',ort:'Volketswil',kanton:'ZH',land:'CH'},
     kontakt:{email:'info@gruenbeck.ch',telefon:'044 820 33 44',website:'www.gruenbeck.ch'},
@@ -188,7 +188,7 @@
     createdAt:'2025-06-01T08:00:00Z'
   },
   {
-    id:'org_judo', name:'Judo', logo:null, kategorie:'lieferant', kategorien:['lieferant'],
+    id:'org_judo', name:'Judo', logo:null, kategorie:'lieferant', kategorien:['lieferant'], lieferantKategorien:['enthaertung'],
     rechtsform:'GmbH',
     adresse:{strasse:'Bernstrasse 22',plz:'3011',ort:'Bern',kanton:'BE',land:'CH'},
     kontakt:{email:'info@judo.ch',telefon:'031 920 11 22',website:'www.judo.ch'},

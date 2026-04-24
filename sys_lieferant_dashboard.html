@@ -266,6 +266,10 @@ textarea.fc{resize:vertical;min-height:60px;line-height:1.5}
           <div class="fg"><label class="fl">Kanton</label><input class="fc" id="pKanton"/></div>
         </div>
         <div class="fg"><label class="fl">Beschreibung (max. 500 Zeichen)</label><textarea class="fc" id="pBeschreibung" rows="3" maxlength="500"></textarea></div>
+        <div class="fg"><label class="fl">Lieferanten-Kategorien</label>
+          <div id="pKategorien" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px"></div>
+          <div style="font-size:11px;color:var(--mut);margin-top:4px">Wählen Sie die Bereiche, in denen Ihr Unternehmen tätig ist.</div>
+        </div>
         <button class="btn btn-p" onclick="saveProfil()" style="margin-top:8px">💾 Profil speichern</button>
       </div>
     </div>
@@ -1147,10 +1151,30 @@ function fillProfil(){
   document.getElementById('pOrt').value = a.ort||'';
   document.getElementById('pKanton').value = a.kanton||'';
   document.getElementById('pBeschreibung').value = _lief.beschreibung||'';
+  // Kategorien-Chips rendern
+  var katEl=document.getElementById('pKategorien');
+  if(katEl&&typeof GemaProdukte!=='undefined'&&GemaProdukte.LIEF_KATEGORIEN){
+    var current=_lief.lieferantKategorien||[];
+    katEl.innerHTML=GemaProdukte.LIEF_KATEGORIEN.map(function(k){
+      var active=current.indexOf(k.id)>=0;
+      return '<span onclick="_toggleLiefKat(\''+k.id+'\')" style="display:inline-flex;align-items:center;gap:4px;padding:5px 12px;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;border:1.5px solid '+(active?'var(--accent)':'var(--brd2)')+';background:'+(active?'var(--accent-bg)':'#fff')+';color:'+(active?'var(--accent)':'var(--mut)')+'">'+E(k.label)+'</span>';
+    }).join('');
+  }
+}
+function _toggleLiefKat(katId){
+  if(!_lief)return;
+  var kats=_lief.lieferantKategorien||[];
+  var idx=kats.indexOf(katId);
+  if(idx>=0)kats.splice(idx,1);else kats.push(katId);
+  _lief.lieferantKategorien=kats;
+  GemaProdukte.updateLieferant(_lief.id,{lieferantKategorien:kats});
+  fillProfil();
 }
 
 function saveProfil(){
   if(!_lief) return;
+  var selKats=[];
+  if(typeof GemaProdukte!=='undefined'&&GemaProdukte.LIEF_KATEGORIEN){selKats=_lief.lieferantKategorien||[];}
   GemaProdukte.updateLieferant(_lief.id, {
     firma: document.getElementById('pFirma').value.trim(),
     rechtsform: document.getElementById('pRechtsform').value.trim(),
@@ -1165,7 +1189,8 @@ function saveProfil(){
       kanton: document.getElementById('pKanton').value.trim(),
       land: 'CH'
     },
-    beschreibung: document.getElementById('pBeschreibung').value.trim()
+    beschreibung: document.getElementById('pBeschreibung').value.trim(),
+    lieferantKategorien: selKats
   });
   _lief = GemaProdukte.getLieferant(_lief.id);
   document.getElementById('navFirma').textContent = _lief.firma + ' — Dashboard';
