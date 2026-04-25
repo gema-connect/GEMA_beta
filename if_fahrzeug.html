@@ -345,10 +345,6 @@ tbody td.mono{font-family:var(--mono);font-weight:500;}
     </select>
     <select class="filter-sel" id="filterType">
       <option value="">Alle Typen</option>
-      <option value="monteur">Monteurenfahrzeug</option>
-      <option value="pool">Pool / Sharing</option>
-      <option value="kader">Kaderfahrzeug</option>
-      <option value="lager">Lager / Transport</option>
     </select>
     <select class="filter-sel" id="filterAssignment">
       <option value="">Zuteilung</option>
@@ -440,12 +436,15 @@ tbody td.mono{font-family:var(--mono);font-weight:500;}
         <div class="form-grid">
           <div class="field">
             <label class="label">Fahrzeugtyp *</label>
-            <select class="sel" id="fType">
-              <option value="monteur">Monteurenfahrzeug</option>
-              <option value="pool">Pool / Sharing</option>
-              <option value="kader">Kaderfahrzeug</option>
-              <option value="lager">Lager / Transport</option>
-            </select>
+            <input class="sel" id="fType" list="fTypeList" placeholder="z.B. Monteurenfahrzeug, Servicefahrzeug …" autocomplete="off"/>
+            <datalist id="fTypeList">
+              <option value="Monteurenfahrzeug"/>
+              <option value="Servicefahrzeug"/>
+              <option value="Projektleiterfahrzeug"/>
+              <option value="Pool / Sharing"/>
+              <option value="Kaderfahrzeug"/>
+              <option value="Lager / Transport"/>
+            </datalist>
           </div>
           <div class="field">
             <label class="label">Zuteilung</label>
@@ -819,9 +818,14 @@ function getFiltered(){
   });
 }
 
-function typeLabel(t){
-  const m={monteur:"Monteur",pool:"Pool",kader:"Kader",lager:"Transport"};
-  return m[t]||t;
+function typeLabel(t){return t||'—';}
+function _populateTypeFilter(){
+  var sel=document.getElementById('filterType');if(!sel)return;
+  var cur=sel.value;
+  var types={};vehicles.forEach(function(v){if(v.type)types[v.type]=true;});
+  var opts='<option value="">Alle Typen</option>';
+  Object.keys(types).sort().forEach(function(t){opts+='<option value="'+t+'"'+(t===cur?' selected':'')+'>'+t+'</option>';});
+  sel.innerHTML=opts;
 }
 function typeBadge(t){
   const m={monteur:"blue",pool:"cyan",kader:"purple",lager:"amber"};
@@ -894,6 +898,7 @@ function renderCards(list){
         </div>
       </div>
       <div class="v-card-grid">
+        ${v.type?'<div class="v-card-stat"><div class="v-card-stat-label">Typ</div><div class="v-card-stat-val" style="font-size:11px">'+esc(v.type)+'</div></div>':''}
         <div class="v-card-stat"><div class="v-card-stat-label">Zuteilung</div><div class="v-card-stat-val">${v.assignment==="fix"?"Fix":"Sharing"}</div></div>
         <div class="v-card-stat"><div class="v-card-stat-label">km-Stand</div><div class="v-card-stat-val">${fmtKm(v.km)}</div></div>
         <div class="v-card-stat">
@@ -947,9 +952,17 @@ function renderTable(list){
 
 function render(){
   renderKPIs();
+  _populateTypeFilter();
+  _updateTypeDatalist();
   const list=getFiltered();
   renderCards(list);
   renderTable(list);
+}
+function _updateTypeDatalist(){
+  var dl=document.getElementById('fTypeList');if(!dl)return;
+  var types={};vehicles.forEach(function(v){if(v.type)types[v.type]=true;});
+  ['Monteurenfahrzeug','Servicefahrzeug','Projektleiterfahrzeug','Pool / Sharing','Kaderfahrzeug','Lager / Transport'].forEach(function(t){types[t]=true;});
+  dl.innerHTML=Object.keys(types).sort().map(function(t){return '<option value="'+t+'"/>';}).join('');
 }
 window.render = render;
 
