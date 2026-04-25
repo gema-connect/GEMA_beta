@@ -436,15 +436,16 @@ tbody td.mono{font-family:var(--mono);font-weight:500;}
         <div class="form-grid">
           <div class="field">
             <label class="label">Fahrzeugtyp *</label>
-            <input class="sel" id="fType" list="fTypeList" placeholder="z.B. Monteurenfahrzeug, Servicefahrzeug …" autocomplete="off"/>
-            <datalist id="fTypeList">
-              <option value="Monteurenfahrzeug"/>
-              <option value="Servicefahrzeug"/>
-              <option value="Projektleiterfahrzeug"/>
-              <option value="Pool / Sharing"/>
-              <option value="Kaderfahrzeug"/>
-              <option value="Lager / Transport"/>
-            </datalist>
+            <select class="sel" id="fType" onchange="_fzTypChange()">
+              <option value="Monteurenfahrzeug">Monteurenfahrzeug</option>
+              <option value="Servicefahrzeug">Servicefahrzeug</option>
+              <option value="Projektleiterfahrzeug">Projektleiterfahrzeug</option>
+              <option value="Pool / Sharing">Pool / Sharing</option>
+              <option value="Kaderfahrzeug">Kaderfahrzeug</option>
+              <option value="Lager / Transport">Lager / Transport</option>
+              <option value="_custom">✏ Eigener Typ …</option>
+            </select>
+            <input class="sel" id="fTypeCustom" placeholder="Eigenen Typ eingeben" style="display:none;margin-top:4px"/>
           </div>
           <div class="field">
             <label class="label">Zuteilung</label>
@@ -711,7 +712,7 @@ function saveVehicle(){
     year: document.getElementById("fYear").value||"",
     fuel: document.getElementById("fFuel").value,
     color: document.getElementById("fColor").value.trim(),
-    type: document.getElementById("fType").value,
+    type: _fzGetType(),
     assignment: document.getElementById("fAssignment").value,
     driver: document.getElementById("fDriver").value.trim(),
     dept: document.getElementById("fDept").value.trim(),
@@ -828,8 +829,13 @@ function _populateTypeFilter(){
   sel.innerHTML=opts;
 }
 function typeBadge(t){
-  const m={monteur:"blue",pool:"cyan",kader:"purple",lager:"amber"};
-  return m[t]||"neutral";
+  var tl=(t||'').toLowerCase();
+  if(tl.indexOf('monteur')>=0)return'blue';
+  if(tl.indexOf('service')>=0)return'cyan';
+  if(tl.indexOf('projektleiter')>=0||tl.indexOf('kader')>=0)return'purple';
+  if(tl.indexOf('pool')>=0||tl.indexOf('sharing')>=0)return'green';
+  if(tl.indexOf('lager')>=0||tl.indexOf('transport')>=0)return'amber';
+  return'neutral';
 }
 function typeIcon(t){
   const m={monteur:"🔧",pool:"🔄",kader:"💼",lager:"📦"};
@@ -898,7 +904,7 @@ function renderCards(list){
         </div>
       </div>
       <div class="v-card-grid">
-        ${v.type?'<div class="v-card-stat"><div class="v-card-stat-label">Typ</div><div class="v-card-stat-val" style="font-size:11px">'+esc(v.type)+'</div></div>':''}
+        ${v.type?'<div class="v-card-stat"><div class="v-card-stat-label">Typ</div><div class="v-card-stat-val"><span class="badge ${typeBadge(v.type)}">'+esc(v.type)+'</span></div></div>':''}
         <div class="v-card-stat"><div class="v-card-stat-label">Zuteilung</div><div class="v-card-stat-val">${v.assignment==="fix"?"Fix":"Sharing"}</div></div>
         <div class="v-card-stat"><div class="v-card-stat-label">km-Stand</div><div class="v-card-stat-val">${fmtKm(v.km)}</div></div>
         <div class="v-card-stat">
@@ -958,12 +964,27 @@ function render(){
   renderCards(list);
   renderTable(list);
 }
+var _FZ_STD_TYPES=['Monteurenfahrzeug','Servicefahrzeug','Projektleiterfahrzeug','Pool / Sharing','Kaderfahrzeug','Lager / Transport'];
 function _updateTypeDatalist(){
-  var dl=document.getElementById('fTypeList');if(!dl)return;
-  var types={};vehicles.forEach(function(v){if(v.type)types[v.type]=true;});
-  ['Monteurenfahrzeug','Servicefahrzeug','Projektleiterfahrzeug','Pool / Sharing','Kaderfahrzeug','Lager / Transport'].forEach(function(t){types[t]=true;});
-  dl.innerHTML=Object.keys(types).sort().map(function(t){return '<option value="'+t+'"/>';}).join('');
+  var sel=document.getElementById('fType');if(!sel)return;
+  var cur=sel.value;
+  var types={};_FZ_STD_TYPES.forEach(function(t){types[t]=true;});
+  vehicles.forEach(function(v){if(v.type&&!types[v.type])types[v.type]=true;});
+  var opts=Object.keys(types).sort().map(function(t){return '<option value="'+t+'"'+(t===cur?' selected':'')+'>'+t+'</option>';}).join('');
+  sel.innerHTML=opts+'<option value="_custom">✏ Eigener Typ …</option>';
 }
+function _fzTypChange(){
+  var sel=document.getElementById('fType');
+  var inp=document.getElementById('fTypeCustom');
+  if(sel.value==='_custom'){inp.style.display='';inp.focus();}
+  else{inp.style.display='none';inp.value='';}
+}
+function _fzGetType(){
+  var sel=document.getElementById('fType');
+  if(sel.value==='_custom')return document.getElementById('fTypeCustom').value.trim()||'';
+  return sel.value;
+}
+window._fzTypChange=_fzTypChange;
 window.render = render;
 
 function esc(s){ if(!s) return ""; const d=document.createElement("div"); d.textContent=s; return d.innerHTML; }
