@@ -334,6 +334,7 @@ canvas.sig{width:100%;height:150px;background:#fff;display:block;touch-action:no
     <button class="tab active" id="tab_abnahme"  onclick="setTab('abnahme')">📜 Abnahmeprotokoll</button>
     <button class="tab"        id="tab_maengel"  onclick="setTab('maengel')">🔍 Mängelliste</button>
     <button class="tab"        id="tab_pruefliste" onclick="setTab('pruefliste')">✅ Prüfliste</button>
+    <button class="tab"        id="tab_plaene" onclick="setTab('plaene')">📐 Pläne</button>
   </div>
 
   <!-- ══════ TAB: ABNAHMEPROTOKOLL ══════ -->
@@ -533,6 +534,57 @@ canvas.sig{width:100%;height:150px;background:#fff;display:block;touch-action:no
         <div class="hint" style="margin-top:10px">
           💡 Diese Prüfliste wird im PDF-Export als Referenz ausgegeben. Jede Zeile gilt als ein Prüfpunkt.
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════ TAB: PLÄNE & MÄNGEL ══════ -->
+  <div id="view_plaene" style="display:none">
+    <div class="card">
+      <div class="card-hd">
+        <div class="card-hd-ic">📐</div>
+        <div>
+          <div class="card-hd-title">Pläne & Mängelpunkte</div>
+          <div class="card-hd-sub">PDF-Pläne hochladen, Mängel markieren, Status verfolgen</div>
+        </div>
+        <label style="padding:7px 14px;border-radius:8px;border:1.5px dashed var(--brd2);cursor:pointer;font-size:12px;font-weight:700;color:var(--mut);display:inline-flex;align-items:center;gap:5px">
+          📎 Plan hochladen
+          <input type="file" accept=".pdf,.jpg,.jpeg,.png" style="display:none" onchange="_planUpload(this)"/>
+        </label>
+      </div>
+      <div class="card-body" id="plaeneBody">
+        <div id="planList" style="display:flex;flex-direction:column;gap:10px"></div>
+        <div id="planEmpty" style="padding:40px;text-align:center;color:var(--mut)">
+          <div style="font-size:40px;margin-bottom:10px">📐</div>
+          <div style="font-size:14px;font-weight:700;margin-bottom:4px">Keine Pläne hochgeladen</div>
+          <div style="font-size:12px">Laden Sie einen PDF-Plan hoch um Mängelpunkte darauf zu markieren.</div>
+        </div>
+      </div>
+    </div>
+    <div id="planViewer" style="display:none">
+      <div class="card">
+        <div class="card-hd">
+          <div class="card-hd-ic">🗺</div>
+          <div>
+            <div class="card-hd-title" id="pvTitle">Plan</div>
+            <div class="card-hd-sub" id="pvSub">Klicken Sie auf den Plan um einen Mängelpunkt zu setzen</div>
+          </div>
+          <button class="act-btn" onclick="_planCloseViewer()">← Zurück</button>
+        </div>
+        <div class="card-body sm" style="padding:8px;position:relative;overflow:auto;-webkit-overflow-scrolling:touch" id="pvCanvasWrap">
+          <canvas id="pvCanvas" style="width:100%;cursor:crosshair;border-radius:8px"></canvas>
+        </div>
+      </div>
+      <div class="card" style="margin-top:12px">
+        <div class="card-hd">
+          <div class="card-hd-ic">📋</div>
+          <div>
+            <div class="card-hd-title">Mängelpunkte auf diesem Plan</div>
+            <div class="card-hd-sub" id="pvPinCount">0 Punkte</div>
+          </div>
+          <button class="act-btn primary" onclick="_planAddPin()">+ Punkt setzen</button>
+        </div>
+        <div class="card-body sm" id="pvPinList" style="padding:0"></div>
       </div>
     </div>
   </div>
@@ -1028,7 +1080,7 @@ await Promise.race([
   // ── TABS ──
   function setTab(t){
     currentTab=t;
-    ['abnahme','maengel','pruefliste'].forEach(x=>{
+    ['abnahme','maengel','pruefliste','plaene'].forEach(x=>{
       $('tab_'+x).classList.toggle('active',x===t);
       $('view_'+x).style.display=x===t?'':'none';
     });
@@ -1301,7 +1353,7 @@ await Promise.race([
       abnahme:{art158:false,art161:false,bauobjekt:'',bauherr:'',bauleitung:'',_bauleitungId:'',unternehmer:'',_unternehmerId:'',arbeitsgattung:'',vertragVom:'',gepruefterTeil:'',fristMaengel:'siehe Mängelliste',ergebnis:'',docHilfsblaetter:false,docMaengelliste:true,schreibenVom:'',bemerkungen:'',entscheid:'',ort:'',datum:fmtDate(),sig:{unternehmer:{dataUrl:'',name:'',visum:''},bauherr:{dataUrl:'',name:'',visum:''},bauleitung:{dataUrl:'',name:'',visum:''},fachbauleitung:{dataUrl:'',name:'',visum:''}}},
       maengelMeta:{datum:fmtDate(),pruefer:'',objekt:'',bereich:'',standardErledigenBis:defaultDue()},
       _objektId:'',
-      pruefliste:defaultCheck, items:[]
+      pruefliste:defaultCheck, items:[], plaene:[]
     };
   }
 
@@ -1360,6 +1412,204 @@ await Promise.race([
     if(name&&name.trim()){ active.name=name.trim(); persistAll(); renderProtocolSelector(); }
   }
   window.renameProtocol=renameProtocol;
+
+  // ══════════════════════════════════════════════════════════════
+  // PLÄNE & MÄNGELPUNKTE
+  // ══════════════════════════════════════════════════════════════
+  var _planViewIdx=-1;
+  var _pdfLib=null;
+
+  function _ensurePlaene(){if(!state.plaene)state.plaene=[];return state.plaene;}
+  function _planPins(planIdx){var p=_ensurePlaene();return(p[planIdx]&&p[planIdx].pins)||[];}
+
+  window._planUpload=function(inp){
+    var file=inp.files&&inp.files[0];
+    if(!file)return;
+    if(file.size>10*1024*1024){alert('Max. 10 MB');inp.value='';return;}
+    var reader=new FileReader();
+    reader.onload=function(e){
+      var plaene=_ensurePlaene();
+      plaene.push({name:file.name,dataUrl:e.target.result,type:file.type,pins:[],uploadedAt:new Date().toISOString()});
+      persistAll();_planRenderList();
+    };
+    reader.readAsDataURL(file);
+    inp.value='';
+  };
+
+  function _planRenderList(){
+    var plaene=_ensurePlaene();
+    var el=$('planList');var empty=$('planEmpty');
+    if(!plaene.length){el.innerHTML='';empty.style.display='';return;}
+    empty.style.display='none';
+    el.innerHTML=plaene.map(function(p,i){
+      var offen=p.pins.filter(function(pin){return pin.status==='offen';}).length;
+      var arbeit=p.pins.filter(function(pin){return pin.status==='in_arbeit';}).length;
+      var erledigt=p.pins.filter(function(pin){return pin.status==='erledigt';}).length;
+      var total=p.pins.length;
+      return '<div style="display:flex;align-items:center;gap:12px;padding:12px;border:1.5px solid var(--brd);border-radius:10px;cursor:pointer;transition:.15s" onclick="_planOpen('+i+')">'
+        +'<div style="width:44px;height:44px;border-radius:10px;background:var(--blue-bg);display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0">📄</div>'
+        +'<div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:700">'+esc(p.name)+'</div>'
+        +'<div style="font-size:11px;color:var(--mut);margin-top:2px">'+total+' Punkte'
+        +(offen?' · <span style="color:var(--red)">'+offen+' offen</span>':'')
+        +(arbeit?' · <span style="color:var(--amb)">'+arbeit+' in Arbeit</span>':'')
+        +(erledigt?' · <span style="color:var(--grn)">'+erledigt+' erledigt</span>':'')
+        +'</div></div>'
+        +'<button onclick="event.stopPropagation();_planRemove('+i+')" style="border:none;background:none;color:var(--mut);cursor:pointer;font-size:16px" title="Entfernen">🗑</button>'
+        +'</div>';
+    }).join('');
+  }
+  window._planRenderList=_planRenderList;
+
+  window._planRemove=function(idx){
+    if(!confirm('Plan und alle Markierungen löschen?'))return;
+    _ensurePlaene().splice(idx,1);persistAll();_planRenderList();
+  };
+
+  window._planOpen=function(idx){
+    _planViewIdx=idx;
+    $('planViewer').style.display='';
+    $('plaeneBody').parentElement.style.display='none';
+    var p=_ensurePlaene()[idx];
+    $('pvTitle').textContent=p.name;
+    _planRenderCanvas(p);
+    _planRenderPins(p);
+  };
+
+  window._planCloseViewer=function(){
+    _planViewIdx=-1;
+    $('planViewer').style.display='none';
+    $('plaeneBody').parentElement.style.display='';
+  };
+
+  function _planRenderCanvas(p){
+    var canvas=$('pvCanvas');
+    var wrap=$('pvCanvasWrap');
+    if(p.type&&p.type.indexOf('pdf')>=0){
+      _loadPdfJs(function(){
+        var raw=atob(p.dataUrl.split(',')[1]);
+        var arr=new Uint8Array(raw.length);for(var i=0;i<raw.length;i++)arr[i]=raw.charCodeAt(i);
+        pdfjsLib.getDocument({data:arr}).promise.then(function(pdf){
+          pdf.getPage(1).then(function(page){
+            var vp=page.getViewport({scale:1.5});
+            canvas.width=vp.width;canvas.height=vp.height;
+            canvas.style.width='100%';canvas.style.height='auto';
+            var ctx=canvas.getContext('2d');
+            page.render({canvasContext:ctx,viewport:vp}).promise.then(function(){
+              _planDrawPins(p,canvas);
+            });
+          });
+        });
+      });
+    } else {
+      var img=new Image();
+      img.onload=function(){
+        canvas.width=img.width;canvas.height=img.height;
+        canvas.style.width='100%';canvas.style.height='auto';
+        canvas.getContext('2d').drawImage(img,0,0);
+        _planDrawPins(p,canvas);
+      };
+      img.src=p.dataUrl;
+    }
+    canvas.onclick=function(e){
+      var rect=canvas.getBoundingClientRect();
+      var x=(e.clientX-rect.left)/rect.width;
+      var y=(e.clientY-rect.top)/rect.height;
+      _planCreatePin(x,y);
+    };
+  }
+
+  function _planDrawPins(p,canvas){
+    var ctx=canvas.getContext('2d');
+    (p.pins||[]).forEach(function(pin,i){
+      var x=pin.x*canvas.width,y=pin.y*canvas.height;
+      var col=pin.status==='erledigt'?'#16a34a':pin.status==='in_arbeit'?'#d97706':'#dc2626';
+      ctx.beginPath();ctx.arc(x,y,14,0,Math.PI*2);ctx.fillStyle=col;ctx.fill();
+      ctx.strokeStyle='#fff';ctx.lineWidth=2.5;ctx.stroke();
+      ctx.fillStyle='#fff';ctx.font='bold 11px "DM Sans",system-ui,sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';
+      ctx.fillText(String(i+1),x,y);
+    });
+  }
+
+  function _planCreatePin(x,y){
+    var titel=prompt('Mangel / Pendenz:');
+    if(!titel)return;
+    var p=_ensurePlaene()[_planViewIdx];
+    p.pins.push({id:'pin_'+Date.now(),x:x,y:y,titel:titel,beschreibung:'',status:'offen',fotos:[],ersteller:(_getUser()||{}).name||'',erstelltAm:new Date().toISOString()});
+    persistAll();_planRenderCanvas(p);_planRenderPins(p);
+  }
+  window._planAddPin=function(){$('pvCanvas').click();};
+
+  function _planRenderPins(p){
+    var el=$('pvPinList');
+    $('pvPinCount').textContent=p.pins.length+' Punkte';
+    if(!p.pins.length){el.innerHTML='<div style="padding:20px;text-align:center;color:var(--mut);font-size:12px">Klicken Sie auf den Plan um Punkte zu setzen.</div>';return;}
+    el.innerHTML=p.pins.map(function(pin,i){
+      var col=pin.status==='erledigt'?'var(--grn)':pin.status==='in_arbeit'?'var(--amb)':'var(--red)';
+      var bg=pin.status==='erledigt'?'var(--grn-bg)':pin.status==='in_arbeit'?'var(--amb-bg)':'var(--red-bg)';
+      var statusLabel=pin.status==='erledigt'?'Erledigt':pin.status==='in_arbeit'?'In Arbeit':'Offen';
+      var fotoHtml=(pin.fotos||[]).map(function(f,fi){return '<img src="'+f+'" style="width:48px;height:48px;object-fit:cover;border-radius:6px;border:1px solid var(--brd);cursor:pointer" onclick="event.stopPropagation();_planViewFoto(\''+f.substring(0,50)+'\')" />';}).join('');
+      return '<div style="display:flex;align-items:flex-start;gap:10px;padding:12px 14px;border-bottom:1px solid var(--brd)">'
+        +'<div style="width:28px;height:28px;border-radius:50%;background:'+bg+';color:'+col+';display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:900;flex-shrink:0;border:2px solid '+col+'">'+(i+1)+'</div>'
+        +'<div style="flex:1;min-width:0">'
+        +'<div style="font-size:13px;font-weight:700">'+esc(pin.titel)+'</div>'
+        +(pin.beschreibung?'<div style="font-size:11.5px;color:var(--mut);margin-top:2px">'+esc(pin.beschreibung)+'</div>':'')
+        +'<div style="display:flex;gap:6px;align-items:center;margin-top:6px;flex-wrap:wrap">'
+        +'<span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:6px;background:'+bg+';color:'+col+'">'+statusLabel+'</span>'
+        +'<select onchange="_planPinStatus('+_planViewIdx+','+i+',this.value)" style="font-size:11px;padding:2px 6px;border:1px solid var(--brd2);border-radius:4px">'
+        +'<option value="offen"'+(pin.status==='offen'?' selected':'')+'>🔴 Offen</option>'
+        +'<option value="in_arbeit"'+(pin.status==='in_arbeit'?' selected':'')+'>🟠 In Arbeit</option>'
+        +'<option value="erledigt"'+(pin.status==='erledigt'?' selected':'')+'>🟢 Erledigt</option>'
+        +'</select>'
+        +'<label style="font-size:11px;color:var(--acc);font-weight:700;cursor:pointer">📷 Foto<input type="file" accept="image/*" capture="environment" style="display:none" onchange="_planPinFoto('+_planViewIdx+','+i+',this)"/></label>'
+        +'<button onclick="_planPinDelete('+_planViewIdx+','+i+')" style="font-size:11px;color:var(--mut);border:none;background:none;cursor:pointer">🗑</button>'
+        +'</div>'
+        +(fotoHtml?'<div style="display:flex;gap:4px;margin-top:6px;flex-wrap:wrap">'+fotoHtml+'</div>':'')
+        +'<div style="font-size:10px;color:var(--mut2);margin-top:4px">'+esc(pin.ersteller||'')+' · '+(pin.erstelltAm?new Date(pin.erstelltAm).toLocaleDateString('de-CH'):'')+'</div>'
+        +'</div></div>';
+    }).join('');
+  }
+
+  window._planPinStatus=function(planIdx,pinIdx,status){
+    var p=_ensurePlaene()[planIdx];
+    p.pins[pinIdx].status=status;
+    persistAll();_planRenderCanvas(p);_planRenderPins(p);
+  };
+  window._planPinDelete=function(planIdx,pinIdx){
+    if(!confirm('Punkt löschen?'))return;
+    var p=_ensurePlaene()[planIdx];
+    p.pins.splice(pinIdx,1);
+    persistAll();_planRenderCanvas(p);_planRenderPins(p);
+  };
+  window._planPinFoto=function(planIdx,pinIdx,inp){
+    var file=inp.files&&inp.files[0];if(!file)return;
+    if(file.size>3*1024*1024){alert('Max. 3 MB');return;}
+    var reader=new FileReader();
+    reader.onload=function(e){
+      var p=_ensurePlaene()[planIdx];
+      if(!p.pins[pinIdx].fotos)p.pins[pinIdx].fotos=[];
+      p.pins[pinIdx].fotos.push(e.target.result);
+      persistAll();_planRenderPins(p);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  function _loadPdfJs(cb){
+    if(window.pdfjsLib){cb();return;}
+    var s=document.createElement('script');
+    s.src='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+    s.onload=function(){
+      pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+      cb();
+    };
+    document.head.appendChild(s);
+  }
+
+  function _getUser(){try{return GemaAuth.getCurrentUser();}catch(e){return null;}}
+
+  // Render plan list when switching to tab
+  var _origSetTab=setTab;
+  function setTab(t){_origSetTab(t);if(t==='plaene')_planRenderList();}
+  window.setTab=setTab;
 
   function renderProtocolSelector(){
     var sel=$('protoSelect');
