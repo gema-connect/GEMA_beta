@@ -351,7 +351,8 @@ tbody td.mono{font-family:var(--mono);font-weight:500;}
       <option value="fix">Fix zugeteilt</option>
       <option value="sharing">Sharing / Pool</option>
     </select>
-    <div style="margin-left:auto;display:flex;gap:2px;">
+    <div style="margin-left:auto;display:flex;gap:6px;align-items:center">
+      <button onclick="_fzEditTypes()" style="padding:6px 10px;border-radius:8px;border:1.5px solid var(--brd2);background:var(--surface);cursor:pointer;font-size:12px;color:var(--muted);font-weight:600;font-family:inherit" title="Fahrzeugtypen verwalten">⚙ Typen</button>
       <div class="seg-group" id="viewToggle">
         <button class="seg active" data-view="cards" title="Karten">▦</button>
         <button class="seg" data-view="table" title="Tabelle">☰</button>
@@ -964,13 +965,24 @@ function render(){
   renderCards(list);
   renderTable(list);
 }
-var _FZ_STD_TYPES=['Monteurenfahrzeug','Servicefahrzeug','Projektleiterfahrzeug','Pool / Sharing','Kaderfahrzeug','Lager / Transport'];
+var _FZ_DEFAULT_TYPES=['Monteurenfahrzeug','Servicefahrzeug','Projektleiterfahrzeug','Pool / Sharing','Kaderfahrzeug','Lager / Transport'];
+var _FZ_TYPES_KEY='gema_fz_typen_v1';
+function _fzLoadTypes(){
+  try{var r=localStorage.getItem(_FZ_TYPES_KEY);if(r)return JSON.parse(r);}catch(e){}
+  return _FZ_DEFAULT_TYPES.slice();
+}
+function _fzSaveTypes(list){try{localStorage.setItem(_FZ_TYPES_KEY,JSON.stringify(list));}catch(e){}}
+function _fzGetAllTypes(){
+  var list=_fzLoadTypes();
+  vehicles.forEach(function(v){if(v.type&&list.indexOf(v.type)<0)list.push(v.type);});
+  return list;
+}
+
 function _updateTypeDatalist(){
   var sel=document.getElementById('fType');if(!sel)return;
   var cur=sel.value;
-  var types={};_FZ_STD_TYPES.forEach(function(t){types[t]=true;});
-  vehicles.forEach(function(v){if(v.type&&!types[v.type])types[v.type]=true;});
-  var opts=Object.keys(types).sort().map(function(t){return '<option value="'+t+'"'+(t===cur?' selected':'')+'>'+t+'</option>';}).join('');
+  var types=_fzGetAllTypes();
+  var opts=types.map(function(t){return '<option value="'+t+'"'+(t===cur?' selected':'')+'>'+t+'</option>';}).join('');
   sel.innerHTML=opts+'<option value="_custom">✏ Eigener Typ …</option>';
 }
 function _fzTypChange(){
@@ -981,10 +993,47 @@ function _fzTypChange(){
 }
 function _fzGetType(){
   var sel=document.getElementById('fType');
-  if(sel.value==='_custom')return document.getElementById('fTypeCustom').value.trim()||'';
+  if(sel.value==='_custom'){
+    var custom=document.getElementById('fTypeCustom').value.trim();
+    if(custom){var list=_fzLoadTypes();if(list.indexOf(custom)<0){list.push(custom);_fzSaveTypes(list);}}
+    return custom||'';
+  }
   return sel.value;
 }
-window._fzTypChange=_fzTypChange;
+function _fzEditTypes(){
+  var types=_fzLoadTypes();
+  var html='<div style="background:#fff;border-radius:14px;padding:24px;max-width:420px;width:100%;box-shadow:0 20px 60px -10px rgba(0,0,0,.3)">'
+    +'<h3 style="margin:0 0:4px;font-size:17px;font-weight:900">⚙ Fahrzeugtypen verwalten</h3>'
+    +'<div style="font-size:12px;color:#64748b;margin-bottom:14px">Typen hinzufügen, umbenennen oder entfernen</div>'
+    +'<div id="_fzTypesList" style="display:flex;flex-direction:column;gap:6px;margin-bottom:12px">'
+    +types.map(function(t,i){
+      return '<div style="display:flex;gap:6px;align-items:center"><input value="'+esc(t)+'" data-idx="'+i+'" style="flex:1;padding:7px 10px;border:1.5px solid #cdd4e4;border-radius:6px;font-size:13px;font-family:inherit"/><button onclick="this.parentElement.remove()" style="border:none;background:none;cursor:pointer;font-size:16px;color:#94a3b8">✕</button></div>';
+    }).join('')
+    +'</div>'
+    +'<button onclick="_fzAddTypeRow()" style="padding:6px 12px;border:1.5px dashed #cdd4e4;border-radius:6px;background:none;cursor:pointer;font-size:12px;font-weight:700;color:#64748b;font-family:inherit;width:100%">+ Typ hinzufügen</button>'
+    +'<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">'
+    +'<button onclick="_fzResetTypes()" style="padding:7px 14px;border-radius:8px;border:1.5px solid #fecaca;background:#fef2f2;color:#dc2626;cursor:pointer;font-weight:600;font-family:inherit;font-size:12px">Standard wiederherstellen</button>'
+    +'<button onclick="_fzCloseTypeModal()" style="padding:7px 14px;border-radius:8px;border:1.5px solid #cdd4e4;background:#fff;color:#334155;cursor:pointer;font-weight:600;font-family:inherit;font-size:12px">Abbrechen</button>'
+    +'<button onclick="_fzSaveTypeModal()" style="padding:7px 14px;border-radius:8px;border:none;background:var(--primary);color:#fff;cursor:pointer;font-weight:700;font-family:inherit;font-size:12px">✓ Speichern</button>'
+    +'</div></div>';
+  var ov=document.createElement('div');ov.id='_fzTypeModalOv';
+  ov.style.cssText='position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:10500;display:flex;align-items:center;justify-content:center;padding:20px';
+  ov.innerHTML=html;document.body.appendChild(ov);document.body.classList.add('modal-open');
+}
+function _fzAddTypeRow(){
+  var list=document.getElementById('_fzTypesList');if(!list)return;
+  var div=document.createElement('div');div.style.cssText='display:flex;gap:6px;align-items:center';
+  div.innerHTML='<input value="" placeholder="Neuer Typ" style="flex:1;padding:7px 10px;border:1.5px solid #cdd4e4;border-radius:6px;font-size:13px;font-family:inherit" autofocus/><button onclick="this.parentElement.remove()" style="border:none;background:none;cursor:pointer;font-size:16px;color:#94a3b8">✕</button>';
+  list.appendChild(div);div.querySelector('input').focus();
+}
+function _fzSaveTypeModal(){
+  var inputs=document.querySelectorAll('#_fzTypesList input');
+  var list=[];inputs.forEach(function(inp){var v=inp.value.trim();if(v&&list.indexOf(v)<0)list.push(v);});
+  _fzSaveTypes(list);_fzCloseTypeModal();render();
+}
+function _fzResetTypes(){_fzSaveTypes(_FZ_DEFAULT_TYPES.slice());_fzCloseTypeModal();render();}
+function _fzCloseTypeModal(){var ov=document.getElementById('_fzTypeModalOv');if(ov)ov.remove();document.body.classList.remove('modal-open');}
+window._fzTypChange=_fzTypChange;window._fzEditTypes=_fzEditTypes;window._fzAddTypeRow=_fzAddTypeRow;window._fzSaveTypeModal=_fzSaveTypeModal;window._fzResetTypes=_fzResetTypes;window._fzCloseTypeModal=_fzCloseTypeModal;
 window.render = render;
 
 function esc(s){ if(!s) return ""; const d=document.createElement("div"); d.textContent=s; return d.innerHTML; }
