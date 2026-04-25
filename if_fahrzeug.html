@@ -84,18 +84,18 @@ body{font-family:var(--sans);background:var(--bg);color:var(--text);min-height:1
 .hero-btn.accent{background:rgba(255,255,255,.95);color:var(--primary);border-color:transparent;}
 .hero-btn.accent:hover{background:#fff;box-shadow:var(--shadow);}
 
-/* ═══ KPI ROW ═══ */
-.kpi-row{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px;}
-@media(max-width:1100px){.kpi-row{grid-template-columns:repeat(3,1fr);}}
-@media(max-width:640px){.kpi-row{grid-template-columns:repeat(2,1fr);}}
-.kpi{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px 20px;position:relative;overflow:hidden;transition:.2s;box-shadow:var(--shadow-xs);}
-.kpi:hover{box-shadow:var(--shadow);transform:translateY(-1px);}
-.kpi::after{content:'';position:absolute;top:0;left:0;width:3px;height:100%;background:var(--border2);border-radius:0 3px 3px 0;transition:.25s;}
-.kpi.blue::after{background:var(--primary-light);} .kpi.green::after{background:var(--green);} .kpi.amber::after{background:var(--amber);} .kpi.red::after{background:var(--red);} .kpi.purple::after{background:var(--purple);}
-.kpi-label{font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px;}
-.kpi-val{font-family:var(--mono);font-size:28px;font-weight:700;color:var(--text);line-height:1;}
-.kpi.blue .kpi-val{color:var(--primary);} .kpi.green .kpi-val{color:var(--green);} .kpi.amber .kpi-val{color:var(--amber);} .kpi.red .kpi-val{color:var(--red);} .kpi.purple .kpi-val{color:var(--purple);}
-.kpi-sub{font-size:11px;color:var(--muted2);margin-top:5px;}
+/* ═══ KPI ROW (gleich wie Werkzeugmanagement) ═══ */
+.kpi-row{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px}
+@media(max-width:640px){.kpi-row{grid-template-columns:repeat(2,1fr);gap:8px}}
+.kpi{background:var(--surface);border:1.5px solid var(--border);border-radius:var(--r);padding:16px 20px;cursor:pointer;transition:.15s;position:relative;overflow:hidden;box-shadow:var(--shadow-xs)}
+.kpi:hover{transform:translateY(-2px);box-shadow:var(--shadow)}
+.kpi::after{content:'';position:absolute;top:0;left:0;width:4px;height:100%;background:transparent;border-radius:0 3px 3px 0;transition:.15s}
+.kpi.blue::after{background:var(--primary)} .kpi.green::after{background:var(--green)} .kpi.amber::after{background:var(--amber)} .kpi.red::after{background:var(--red)}
+.kpi.active-f{box-shadow:0 0 0 2px var(--primary),var(--shadow)}
+.kpi-val{font-size:34px;font-weight:900;font-family:var(--mono);line-height:1;color:var(--text)}
+.kpi.blue .kpi-val{color:var(--primary)} .kpi.green .kpi-val{color:var(--green)} .kpi.amber .kpi-val{color:var(--amber)} .kpi.red .kpi-val{color:var(--red)}
+.kpi-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-top:5px}
+.kpi-sub{display:none}
 
 /* ═══ TOOLBAR ═══ */
 .toolbar{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:12px 20px;margin-bottom:16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;box-shadow:var(--shadow-xs);}
@@ -326,10 +326,10 @@ tbody td.mono{font-family:var(--mono);font-weight:500;}
 
   <!-- KPI ROW -->
   <div class="kpi-row" id="kpiRow">
-    <div class="kpi blue"><div class="kpi-label">Fahrzeuge Total</div><div class="kpi-val" id="kTotal">0</div><div class="kpi-sub">Gesamte Flotte</div></div>
-    <div class="kpi green"><div class="kpi-label">Aktiv</div><div class="kpi-val" id="kActive">0</div><div class="kpi-sub">Im Einsatz</div></div>
-    <div class="kpi amber"><div class="kpi-label">Service fällig</div><div class="kpi-val" id="kService">0</div><div class="kpi-sub">Innerhalb 30 Tagen</div></div>
-    <div class="kpi red"><div class="kpi-label">Ausser Betrieb</div><div class="kpi-val" id="kInactive">0</div><div class="kpi-sub">Werkstatt / Stillgelegt</div></div>
+    <div class="kpi"       onclick="_fzKpiFilter('all')">   <div class="kpi-val" id="kTotal">0</div><div class="kpi-label">Fahrzeuge total</div></div>
+    <div class="kpi green" onclick="_fzKpiFilter('aktiv')">  <div class="kpi-val" id="kActive">0</div><div class="kpi-label">✅ Aktiv</div></div>
+    <div class="kpi amber" onclick="_fzKpiFilter('service')"><div class="kpi-val" id="kService">0</div><div class="kpi-label">⏰ Service fällig</div></div>
+    <div class="kpi red"   onclick="_fzKpiFilter('inactive')"><div class="kpi-val" id="kInactive">0</div><div class="kpi-label">🚨 Ausser Betrieb</div></div>
   </div>
 
   <!-- TOOLBAR -->
@@ -809,6 +809,9 @@ function getFiltered(){
   const fAssign=document.getElementById("filterAssignment").value;
 
   return vehicles.filter(v=>{
+    if(_fzKpiActive==='service'&&!isServiceSoon(v))return false;
+    if(_fzKpiActive==='inactive'&&v.status==='aktiv')return false;
+    if(_fzKpiActive==='aktiv'&&v.status!=='aktiv')return false;
     if(fStatus && v.status!==fStatus) return false;
     if(fType && v.type!==fType) return false;
     if(fAssign && v.assignment!==fAssign) return false;
@@ -863,6 +866,7 @@ function driverInitials(name){
   return name.split(" ").map(w=>w[0]).join("").toUpperCase().slice(0,2);
 }
 
+var _fzKpiActive='all';
 function renderKPIs(){
   const total=vehicles.length;
   const active=vehicles.filter(v=>v.status==="aktiv").length;
@@ -872,7 +876,16 @@ function renderKPIs(){
   document.getElementById("kActive").textContent=active;
   document.getElementById("kService").textContent=svc;
   document.getElementById("kInactive").textContent=inactive;
+  document.querySelectorAll('.kpi-row .kpi').forEach(function(el,i){
+    el.classList.toggle('active-f',['all','aktiv','service','inactive'][i]===_fzKpiActive);
+  });
 }
+function _fzKpiFilter(f){
+  _fzKpiActive=f;
+  document.getElementById('filterStatus').value=f==='aktiv'?'aktiv':f==='inactive'?'stillgelegt':'';
+  render();
+}
+window._fzKpiFilter=_fzKpiFilter;
 
 function renderCards(list){
   const wrap=document.getElementById("cardsView");
