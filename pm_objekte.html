@@ -441,6 +441,19 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important}
         <div id="objTeamHint" style="display:none;font-size:11.5px;color:#92400e;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:6px 10px;margin-top:6px">Nur Projektleiter oder Admins können das Team ändern.</div>
       </div>
 
+      <!-- BETEILIGTE (optional) -->
+      <div style="border-top:1px solid var(--brd);padding-top:14px;margin-top:14px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;cursor:pointer" onclick="document.getElementById('objBeteiligteBody').style.display=document.getElementById('objBeteiligteBody').style.display==='none'?'':'none';this.querySelector('.chevron').textContent=document.getElementById('objBeteiligteBody').style.display==='none'?'▸':'▾'">
+          <span style="font-size:11.5px;font-weight:800;color:var(--acc);text-transform:uppercase;letter-spacing:.5px">🤝 Beteiligte Firmen</span>
+          <span style="font-size:10px;color:var(--mut);font-weight:500;text-transform:none;letter-spacing:0">(optional — Übersicht der Projektbeteiligten)</span>
+          <span class="chevron" style="margin-left:auto;color:var(--mut)">▸</span>
+        </div>
+        <div id="objBeteiligteBody" style="display:none">
+          <div id="objBeteiligteList" style="display:flex;flex-direction:column;gap:6px;margin-bottom:10px"></div>
+          <button type="button" class="btn btn-ghost btn-xs" onclick="_objAddBeteiligter()">+ Beteiligten hinzufügen</button>
+        </div>
+      </div>
+
       <div class="fg"><label>Notizen</label><textarea id="objNotizen" placeholder="Zusätzliche Informationen…"></textarea></div>
     </div>
     <div class="modal-ft">
@@ -858,7 +871,7 @@ function renderObjekte(){
         <button class="btn btn-ghost btn-xs" onclick="event.stopPropagation();openObjektModal('${esc(o.id)}')">✏ Bearbeiten</button>
         <button class="btn btn-ghost btn-xs" onclick="event.stopPropagation();duplicateObjekt('${esc(o.id)}')">📋 Duplizieren</button>
         <button class="btn btn-ghost btn-xs" style="color:#dc2626" onclick="event.stopPropagation();deleteObjektById('${esc(o.id)}')">🗑 Löschen</button>
-        ${isActive?'<span style="font-size:11px;color:var(--acc);font-weight:700;padding:3px 0;margin-left:auto">● Aktives Objekt</span>':'<button class="btn btn-ghost btn-xs" style="margin-left:auto" onclick="event.stopPropagation();setActive(\''+esc(o.id)+'\')">Als aktiv setzen</button>'}
+        ${isActive?'<span style="font-size:11px;color:var(--acc);font-weight:700;padding:3px 0;margin-left:auto">● Selektiert</span>':'<button class="btn btn-ghost btn-xs" style="margin-left:auto" onclick="event.stopPropagation();setActive(\''+esc(o.id)+'\')">Selektieren</button>'}
       </div>
     </div>`;
   }).join('');
@@ -874,7 +887,7 @@ window.selectObjekt=selectObjekt;
 
 function setActive(id){
   _mem.activeObjektId=id;save();renderObjekte();
-  toast('● Aktives Objekt gesetzt');
+  toast('● Selektiertes Objekt gesetzt');
 }
 window.setActive=setActive;
 
@@ -981,6 +994,44 @@ function _renderTeamChips(users, canEdit) {
   }
 }
 
+// ── Beteiligte Firmen (optional) ──
+var _beteiligteRollen=[
+  {id:'architekt',label:'Architekt / Generalplaner'},
+  {id:'sanitaer',label:'Sanitärplaner'},
+  {id:'heizung',label:'Heizungsplaner'},
+  {id:'lueftung',label:'Lüftungsplaner'},
+  {id:'elektro',label:'Elektroplaner'},
+  {id:'bauherr',label:'Bauherrschaft'},
+  {id:'unternehmer',label:'Unternehmer / GU'},
+  {id:'bauleitung',label:'Bauleitung'},
+  {id:'andere',label:'Andere'}
+];
+var _objBeteiligte=[];
+function _objRenderBeteiligte(){
+  var el=$('objBeteiligteList');if(!el)return;
+  if(!_objBeteiligte.length){el.innerHTML='<div style="font-size:12px;color:var(--mut);padding:4px 0">Keine Beteiligten erfasst.</div>';return;}
+  el.innerHTML=_objBeteiligte.map(function(b,i){
+    return '<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--brd);border-radius:8px;background:var(--sur)">'
+      +'<span style="font-size:11px;font-weight:700;color:var(--acc);min-width:100px">'+esc((_beteiligteRollen.find(function(r){return r.id===b.rolle;})||{label:b.rolle}).label)+'</span>'
+      +'<input value="'+esc(b.firma)+'" placeholder="Firmenname" oninput="_objBeteiligte['+i+'].firma=this.value" style="flex:1;padding:5px 8px;border:1px solid var(--brd2);border-radius:6px;font-size:12px;font-family:inherit;min-width:0"/>'
+      +'<input value="'+esc(b.person||'')+'" placeholder="Kontaktperson" oninput="_objBeteiligte['+i+'].person=this.value" style="width:120px;padding:5px 8px;border:1px solid var(--brd2);border-radius:6px;font-size:12px;font-family:inherit"/>'
+      +'<button onclick="_objBeteiligte.splice('+i+',1);_objRenderBeteiligte()" style="border:none;background:none;cursor:pointer;color:var(--mut);font-size:14px">✕</button>'
+      +'</div>';
+  }).join('');
+}
+function _objAddBeteiligter(){
+  var opts=_beteiligteRollen.map(function(r){return '<option value="'+r.id+'">'+esc(r.label)+'</option>';}).join('');
+  var rolle=prompt('Rolle wählen:\n'+_beteiligteRollen.map(function(r,i){return(i+1)+'. '+r.label;}).join('\n')+'\n\nNummer eingeben:');
+  if(!rolle)return;
+  var idx=parseInt(rolle)-1;
+  var r=_beteiligteRollen[idx];
+  if(!r){alert('Ungültige Auswahl');return;}
+  _objBeteiligte.push({rolle:r.id,firma:'',person:''});
+  _objRenderBeteiligte();
+}
+function _objGetBeteiligte(){return _objBeteiligte.filter(function(b){return b.firma;});}
+window._objAddBeteiligter=_objAddBeteiligter;
+
 function openObjektModal(editId){
   const isEdit=!!editId;
   $('objModalTitle').textContent=isEdit?'Objekt bearbeiten':'Neues Objekt';
@@ -1009,7 +1060,9 @@ function openObjektModal(editId){
         (o.gemeinde&&o.gemeinde!==o.ort?`<span class="adr-chip">${esc(o.gemeinde)}</span>`:'')+
         (o.kanton?`<span class="adr-chip adr-chip-kt">${esc(o.kanton)}</span>`:'');
     } else if(detail){detail.style.display='none';detail.innerHTML='';}
+    _objBeteiligte=(o.beteiligte||[]).map(function(b){return{rolle:b.rolle,firma:b.firma,person:b.person||''};});
   } else {
+    _objBeteiligte=[];
     ['objName','objStrasse','objPlz','objOrt','objGemeinde','objKanton','objNotizen','objProjektnummer','objRevision'].forEach(id=>{if($(id))$(id).value='';});
     $('objBauvorhaben').value='Neubau';$('objStatus').value='aktiv';$('objAktivePhase').value='';
     if($('objParentId'))$('objParentId').value='';
@@ -1025,6 +1078,7 @@ function openObjektModal(editId){
     const tag=$('objAdrTag');if(tag)tag.style.display='none';
     if(detail){detail.style.display='none';detail.innerHTML='';}
   }
+  _objRenderBeteiligte();
   openModal('objModal');
 }
 window.openObjektModal=openObjektModal;
@@ -1040,7 +1094,8 @@ function saveObjekt(){
     aktivePhase:$('objAktivePhase').value,parentObjektId:parentId,
     projektLeiterId:$('objProjektLeiterId')?$('objProjektLeiterId').value:'',
     abteilungsLeiterId:$('objAbteilungsLeiterId')?$('objAbteilungsLeiterId').value:'',
-    teamUserIds:(_teamChipState||[]).slice()};
+    teamUserIds:(_teamChipState||[]).slice(),
+    beteiligte:_objGetBeteiligte()};
   if(editId){
     const idx=_mem.objekte.findIndex(x=>x.id===editId);
     if(idx>=0)Object.assign(_mem.objekte[idx],data);
