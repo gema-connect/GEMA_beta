@@ -187,15 +187,21 @@ tbody td.mono{font-family:var(--mono);font-weight:500;}
 .form-section-title{font-size:12px;font-weight:700;color:var(--primary);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px;display:flex;align-items:center;gap:8px;}
 .form-section-title::after{content:'';flex:1;height:1px;background:var(--border);}
 .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
-@media(max-width:640px){.form-grid{grid-template-columns:1fr;}}
+@media(max-width:480px){.form-grid{grid-template-columns:1fr;}}
 .form-grid.col3{grid-template-columns:1fr 1fr 1fr;}
-@media(max-width:640px){.form-grid.col3{grid-template-columns:1fr;}}
+@media(max-width:640px){.form-grid.col3{grid-template-columns:1fr 1fr;}}
+@media(max-width:480px){.form-grid.col3{grid-template-columns:1fr;}}
 .form-full{grid-column:1/-1;}
 .field{display:flex;flex-direction:column;gap:5px;}
 .label{font-size:11.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;}
-.inp,.sel,.textarea{padding:9px 12px;border:1.5px solid var(--border2);border-radius:var(--r-sm);background:var(--surface);color:var(--text);font-size:13.5px;font-family:var(--sans);transition:border-color .15s,box-shadow .15s;width:100%;}
-.inp:focus,.sel:focus,.textarea:focus{outline:none;border-color:var(--primary-light);box-shadow:0 0 0 3px rgba(59,130,246,.12);}
-.textarea{resize:vertical;min-height:60px;}
+.inp,.sel,.textarea{padding:0 12px;height:44px;line-height:42px;border:1.5px solid var(--border2);border-radius:var(--r-sm);background:var(--surface);color:var(--text);font-size:16px;font-family:var(--sans);transition:border-color .15s,box-shadow .15s;width:100%;box-sizing:border-box;min-width:0}
+.inp:focus,.sel:focus,.textarea:focus{outline:none;border-color:var(--primary-light);box-shadow:0 0 0 3px rgba(59,130,246,.12)}
+.textarea{resize:vertical;min-height:60px;height:auto;padding:10px 12px;line-height:1.5}
+.inp[type="date"]{-webkit-appearance:none;appearance:none;padding:0 10px}
+.inp[type="date"]::-webkit-datetime-edit{display:block;padding:0;line-height:42px}
+.inp[type="date"]::-webkit-datetime-edit-fields-wrapper{padding:0}
+.inp[type="date"]::-webkit-datetime-edit-text,.inp[type="date"]::-webkit-datetime-edit-day-field,.inp[type="date"]::-webkit-datetime-edit-month-field,.inp[type="date"]::-webkit-datetime-edit-year-field{padding:0}
+.inp[type="date"]::-webkit-inner-spin-button{height:auto}
 .hint{font-size:11px;color:var(--muted2);line-height:1.45;}
 .checkbox-row{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text2);cursor:pointer;}
 .checkbox-row input[type="checkbox"]{width:16px;height:16px;accent-color:var(--primary);}
@@ -510,6 +516,7 @@ tbody td.mono{font-family:var(--mono);font-weight:500;}
           <div class="field">
             <label class="label">Aktueller km-Stand</label>
             <input class="inp" id="fKm" type="text" inputmode="decimal" onblur="fixLeadingZero(this)" placeholder="z. B. 45000"/>
+            <span class="hint" id="fKmHint" style="display:none"></span>
           </div>
           <div class="field">
             <label class="label">Service-Intervall (km)</label>
@@ -707,6 +714,7 @@ function openModal(id){
     $f("fGarage",v.garage); $f("fStellplatz",v.stellplatz); $f("fFuelCard",v.fuelCard); $f("fFuelNetwork",v.fuelNetwork);
     $f("fTires",v.tires); $f("fTiresSeason",v.tiresSeason); $f("fTireStorage",v.tireStorage); $f("fTireChangeDate",v.tireChangeDate);
     $f("fNotes",v.notes);
+    var kmH=document.getElementById('fKmHint');if(kmH){kmH.style.display=v.kmUpdatedAt?'':'none';kmH.textContent=v.kmUpdatedAt?'Zuletzt aktualisiert: '+new Date(v.kmUpdatedAt).toLocaleDateString('de-CH')+' '+new Date(v.kmUpdatedAt).toLocaleTimeString('de-CH',{hour:'2-digit',minute:'2-digit'}):'';}
     document.getElementById("fHasAHK").checked=!!v.hasAHK;
     document.getElementById("fHasRoof").checked=!!v.hasRoof;
     document.getElementById("fHasNav").checked=!!v.hasNav;
@@ -782,7 +790,12 @@ function saveVehicle(){
 
   if(editId){
     const idx=vehicles.findIndex(x=>x.id===editId);
-    if(idx>=0){ data.id=editId; data.createdAt=vehicles[idx].createdAt; data.events=vehicles[idx].events||[]; vehicles[idx]=data; }
+    if(idx>=0){
+      data.id=editId; data.createdAt=vehicles[idx].createdAt; data.events=vehicles[idx].events||[];
+      if(data.km!==vehicles[idx].km) data.kmUpdatedAt=new Date().toISOString();
+      else data.kmUpdatedAt=vehicles[idx].kmUpdatedAt||'';
+      vehicles[idx]=data;
+    }
     showToast("Fahrzeug aktualisiert ✓");
   }else{
     data.id=genId();
@@ -962,7 +975,7 @@ function renderCards(list){
       <div class="v-card-grid">
         ${v.type?'<div class="v-card-stat"><div class="v-card-stat-label">Typ</div><div class="v-card-stat-val"><span class="badge ${typeBadge(v.type)}">'+esc(v.type)+'</span></div></div>':''}
         <div class="v-card-stat"><div class="v-card-stat-label">Zuteilung</div><div class="v-card-stat-val">${v.assignment==="fix"?"Fix":"Sharing"}</div></div>
-        <div class="v-card-stat"><div class="v-card-stat-label">km-Stand</div><div class="v-card-stat-val">${fmtKm(v.km)}</div></div>
+        <div class="v-card-stat"><div class="v-card-stat-label">km-Stand${v.kmUpdatedAt?' · <span style="font-weight:500;text-transform:none;letter-spacing:0">'+new Date(v.kmUpdatedAt).toLocaleDateString('de-CH')+'</span>':''}</div><div class="v-card-stat-val">${fmtKm(v.km)}</div></div>
         <div class="v-card-stat">
           <div class="v-card-stat-label">Service</div>
           <div class="v-card-stat-val"><span class="badge ${svc.badge}">${svc.label}</span></div>
