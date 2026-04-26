@@ -614,6 +614,30 @@ tbody td.mono{font-family:var(--mono);font-weight:500;}
         </div>
       </div>
 
+      <div class="form-section fz-opt" data-opt="kaufbeleg">
+        <div class="form-section-title">Kaufbeleg / Leasing</div>
+        <div class="form-grid">
+          <div class="field">
+            <label class="label">Rechnungs-Nr.</label>
+            <input class="inp" id="fBelegNr" placeholder="RE-2024-001"/>
+          </div>
+          <div class="field">
+            <label class="label">Betrag (CHF)</label>
+            <input class="inp" id="fBelegBetrag" type="text" inputmode="decimal" onblur="fixLeadingZero(this)" placeholder="0.00"/>
+          </div>
+        </div>
+        <div class="form-grid">
+          <div class="field">
+            <label class="label">Bestell-Nr.</label>
+            <input class="inp" id="fBelegBestellNr" placeholder="PO-2024-5678"/>
+          </div>
+          <div class="field">
+            <label class="label">Lieferdatum</label>
+            <input class="inp" id="fBelegLieferdatum" type="date"/>
+          </div>
+        </div>
+      </div>
+
       <div class="form-section" style="margin-bottom:0;">
         <div class="form-section-title">Notizen</div>
         <div class="field">
@@ -714,6 +738,8 @@ function showToast(msg){
    MODAL
    ═══════════════════════════════ */
 function openModal(id){
+  if(id){/* View/Edit — alle dürfen öffnen */}
+  else if(!_fzCanEdit()){alert('Keine Berechtigung — nur Magaziner/Admin dürfen Fahrzeuge erfassen.');return;}
   editId=id||null;
   const m=document.getElementById("modalOverlay");
   document.getElementById("modalTitle").textContent=id?"Fahrzeug bearbeiten":"Fahrzeug erfassen";
@@ -733,6 +759,7 @@ function openModal(id){
     $f("fLastServiceKm",v.lastServiceKm); $f("fMfk",v.mfk);
     $f("fGarage",v.garage); $f("fStellplatz",v.stellplatz); $f("fFuelCard",v.fuelCard); $f("fFuelNetwork",v.fuelNetwork);
     $f("fTires",v.tires); $f("fTiresSeason",v.tiresSeason); $f("fTireStorage",v.tireStorage); $f("fTireChangeDate",v.tireChangeDate);
+    if(v.kaufbeleg){$f("fBelegNr",v.kaufbeleg.rechnungsNr);$f("fBelegBetrag",v.kaufbeleg.betrag);$f("fBelegBestellNr",v.kaufbeleg.bestellNr);$f("fBelegLieferdatum",v.kaufbeleg.lieferdatum);}
     $f("fNotes",v.notes);
     var kmH=document.getElementById('fKmHint');if(kmH){kmH.style.display=v.kmUpdatedAt?'':'none';kmH.textContent=v.kmUpdatedAt?'Zuletzt aktualisiert: '+new Date(v.kmUpdatedAt).toLocaleDateString('de-CH')+' '+new Date(v.kmUpdatedAt).toLocaleTimeString('de-CH',{hour:'2-digit',minute:'2-digit'}):'';}
     document.getElementById("fHasAHK").checked=!!v.hasAHK;
@@ -756,14 +783,14 @@ function openModal(id){
     document.getElementById("fNr").value="FZG-"+String(next).padStart(3,"0");
   }
   m.classList.add("open");
-  document.body.style.overflow="hidden";
+  document.body.classList.add('modal-open');
   setTimeout(()=>document.getElementById("fPlate").focus(),150);
 }
 window.openModal = openModal;
 
 function closeModal(){
   document.getElementById("modalOverlay").classList.remove("open");
-  document.body.style.overflow="";
+  document.body.classList.remove('modal-open');
   editId=null;
 }
 window.closeModal = closeModal;
@@ -802,6 +829,12 @@ function saveVehicle(){
     tiresSeason: (document.getElementById("fTiresSeason")||{}).value||'',
     tireStorage: (document.getElementById("fTireStorage")||{}).value||'',
     tireChangeDate: (document.getElementById("fTireChangeDate")||{}).value||'',
+    kaufbeleg:{
+      rechnungsNr:(document.getElementById("fBelegNr")||{}).value||'',
+      betrag:(document.getElementById("fBelegBetrag")||{}).value||'',
+      bestellNr:(document.getElementById("fBelegBestellNr")||{}).value||'',
+      lieferdatum:(document.getElementById("fBelegLieferdatum")||{}).value||''
+    },
     notes: document.getElementById("fNotes").value.trim(),
     hasAHK: document.getElementById("fHasAHK").checked,
     hasRoof: document.getElementById("fHasRoof").checked,
@@ -831,6 +864,7 @@ function saveVehicle(){
 window.saveVehicle = saveVehicle;
 
 function deleteVehicle(){
+  if(!_fzCanEdit()){alert('Keine Berechtigung');return;}
   if(!editId) return;
   if(!confirm("Fahrzeug wirklich löschen?")) return;
   vehicles=vehicles.filter(x=>x.id!==editId);
@@ -1132,7 +1166,8 @@ var _FZ_OPT_DEFS=[
   {id:'einbau',label:'Ausbau & Ausstattung',desc:'Ausbau-System, Ausrüstung, Checkboxen',default:true},
   {id:'reifen',label:'Reifenmanagement',desc:'Saison, Bezeichnung, Lagerplatz, Wechseldatum',default:false},
   {id:'garage',label:'Garage & Stellplatz',desc:'Werkstatt, Stellplatz-Nr.',default:true},
-  {id:'tankkarte',label:'Tankkarte',desc:'Kartennummer, Anbieter/Netz',default:false}
+  {id:'tankkarte',label:'Tankkarte',desc:'Kartennummer, Anbieter/Netz',default:false},
+  {id:'kaufbeleg',label:'Kaufbeleg / Leasing',desc:'Rechnungs-Nr., Betrag, Bestell-Nr., Lieferdatum',default:false}
 ];
 function _fzLoadOpt(){try{var r=localStorage.getItem(_FZ_OPT_KEY);if(r)return JSON.parse(r);}catch(e){}var d={};_FZ_OPT_DEFS.forEach(function(o){d[o.id]=o.default;});return d;}
 function _fzSaveOpt(o){try{localStorage.setItem(_FZ_OPT_KEY,JSON.stringify(o));}catch(e){}}
@@ -1386,6 +1421,13 @@ window.render = render;
 
 function esc(s){ if(!s) return ""; const d=document.createElement("div"); d.textContent=s; return d.innerHTML; }
 
+// ── Permission Helpers ──
+function _fzGetUser(){try{return GemaAuth.getCurrentUser();}catch(e){return null;}}
+function _fzIsAdmin(){var u=_fzGetUser();return u&&u.roleIds&&u.roleIds.indexOf('role_admin')>=0;}
+function _fzIsMagaziner(){var u=_fzGetUser();return u&&u.roleIds&&u.roleIds.indexOf('role_magaziner')>=0;}
+function _fzCanEdit(){return _fzIsAdmin()||_fzIsMagaziner()||_fzCanSettings();}
+function _fzCanView(){return true;}
+
 /* ═══════════════════════════════
    CSV EXPORT
    ═══════════════════════════════ */
@@ -1440,7 +1482,7 @@ document.querySelectorAll("#viewToggle .seg").forEach(el=>el.addEventListener("c
 document.getElementById("modalOverlay").addEventListener("click",e=>{
   if(e.target===e.currentTarget) closeModal();
 });
-document.addEventListener("keydown",e=>{ if(e.key==="Escape"){ closeModal(); closeViewModal(); ['mgmtZuweisungOverlay','mgmtDefektOverlay','mgmtKostenOverlay','mgmtReifenOverlay','mgmtParkkOverlay','mgmtBerichteOverlay'].forEach(function(id){ closeMgmt(id); }); document.body.style.overflow=''; } });
+document.addEventListener("keydown",e=>{ if(e.key==="Escape"){ closeModal(); closeViewModal(); ['mgmtZuweisungOverlay','mgmtDefektOverlay','mgmtKostenOverlay','mgmtReifenOverlay','mgmtParkkOverlay','mgmtBerichteOverlay'].forEach(function(id){ closeMgmt(id); }); document.body.classList.remove('modal-open'); } });
 
 // ── QR CODE ─────────────────────────────────────────────────────
 var _currentFzgQRInstance=null; // Referenz fuer SVG-Download
@@ -1533,7 +1575,7 @@ function openViewFzg(id){
     document.getElementById('vm_editBtn').style.display='none';
     document.getElementById('vmTitle').textContent='Nicht gefunden';
     overlay.style.display='flex';overlay.classList.remove('hidden');
-    document.body.style.overflow='hidden';
+    document.body.classList.add('modal-open');
     return;
   }
 
@@ -1633,7 +1675,7 @@ function openViewFzg(id){
   editBtn.onclick=function(){ closeViewModal(); openModal(id); };
 
   overlay.style.display='flex';overlay.classList.remove('hidden');
-  document.body.style.overflow='hidden';
+  document.body.classList.add('modal-open');
 }
 window.openViewFzg=openViewFzg;
 
@@ -1644,7 +1686,7 @@ function vmf(label,value){
 function closeViewModal(){
   var overlay=document.getElementById('viewModalOverlay');
   overlay.style.display='none';overlay.classList.add('hidden');
-  document.body.style.overflow='';
+  document.body.classList.remove('modal-open');
 }
 window.closeViewModal=closeViewModal;
 
@@ -1661,6 +1703,10 @@ window.openView=openView;
 render();
 _fzApplyOpt();
 _fzInitSettingsBtn();
+// Rollenbasierte UI
+if(!_fzCanEdit()){
+  var addBtn=document.querySelector('.hero-btn.accent');if(addBtn)addBtn.style.display='none';
+}
   // URL parameter: open vehicle in view mode (?view=ID)
   (function(){
     const p = new URLSearchParams(location.search);
