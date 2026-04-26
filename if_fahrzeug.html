@@ -463,11 +463,15 @@ tbody td.mono{font-family:var(--mono);font-weight:500;}
           </div>
           <div class="field">
             <label class="label">Zugeteilter Fahrer</label>
-            <input class="inp" id="fDriver" placeholder="z. B. Max Muster"/>
+            <select class="sel" id="fDriver" style="font-size:16px">
+              <option value="">— Kein Fahrer —</option>
+            </select>
           </div>
           <div class="field">
             <label class="label">Abteilung</label>
-            <input class="inp" id="fDept" placeholder="z. B. Sanitär"/>
+            <select class="sel" id="fDept" style="font-size:16px">
+              <option value="">— Keine —</option>
+            </select>
           </div>
           <div class="field">
             <label class="label">Status</label>
@@ -706,6 +710,8 @@ function openModal(id){
   if(id){
     const v=vehicles.find(x=>x.id===id);
     if(!v) return;
+    _fzPopulateDriverDropdown(v.driver);
+    _fzPopulateDeptDropdown(v.dept);
     $f("fNr",v.nr); $f("fPlate",v.plate); $f("fModel",v.model); $f("fYear",v.year);
     $f("fFuel",v.fuel); $f("fColor",v.color); $f("fType",v.type); $f("fAssignment",v.assignment);
     $f("fDriver",v.driver); $f("fDept",v.dept); $f("fStatus",v.status); $f("fBuildout",v.buildout);
@@ -722,6 +728,8 @@ function openModal(id){
     document.getElementById("fHasCam").checked=!!v.hasCam;
     document.getElementById("fHasLabel").checked=!!v.hasLabel;
   }else{
+    _fzPopulateDriverDropdown('');
+    _fzPopulateDeptDropdown('');
     document.querySelectorAll(".modal .inp, .modal .sel, .modal .textarea").forEach(el=>{
       if(el.type==="checkbox") el.checked=false;
       else if(el.tagName==="SELECT") el.selectedIndex=0;
@@ -1150,6 +1158,51 @@ function _fzSaveOptModal(){
 }
 function _fzCloseOptModal(){var ov=document.getElementById('_fzOptModalOv');if(ov)ov.remove();document.body.classList.remove('modal-open');}
 window._fzEditOpt=_fzEditOpt;window._fzSaveOptModal=_fzSaveOptModal;window._fzCloseOptModal=_fzCloseOptModal;
+
+// ── Fahrer-Dropdown + Abteilungs-Dropdown ──
+var _FZ_ABT_KEY='gema_fz_abteilungen_v1';
+var _FZ_DEFAULT_ABT=['Sanitär','Heizung','Lüftung','Elektro','Bauleitung','Verwaltung'];
+function _fzLoadAbt(){try{var r=localStorage.getItem(_FZ_ABT_KEY);if(r)return JSON.parse(r);}catch(e){}return _FZ_DEFAULT_ABT.slice();}
+function _fzSaveAbt(list){try{localStorage.setItem(_FZ_ABT_KEY,JSON.stringify(list));}catch(e){}}
+
+function _fzPopulateDriverDropdown(selected){
+  var sel=document.getElementById('fDriver');if(!sel)return;
+  var opts='<option value="">— Kein Fahrer —</option>';
+  if(typeof GemaAuth!=='undefined'){
+    try{
+      var users=GemaAuth.getUsers()||[];
+      var me=null;try{me=GemaAuth.getCurrentUser();}catch(e){}
+      users.forEach(function(u){
+        if(!u.active)return;
+        if(me&&me.orgId&&u.orgId!==me.orgId)return;
+        var name=u.name||u.username||'';
+        opts+='<option value="'+esc(name)+'"'+(name===selected?' selected':'')+'>'+esc(name)+'</option>';
+      });
+    }catch(e){}
+  }
+  sel.innerHTML=opts;
+  if(selected&&!sel.value)sel.innerHTML+='<option value="'+esc(selected)+'" selected>'+esc(selected)+'</option>';
+}
+
+function _fzPopulateDeptDropdown(selected){
+  var sel=document.getElementById('fDept');if(!sel)return;
+  var abteilungen=_fzLoadAbt();
+  vehicles.forEach(function(v){if(v.dept&&abteilungen.indexOf(v.dept)<0)abteilungen.push(v.dept);});
+  var opts='<option value="">— Keine —</option>';
+  abteilungen.forEach(function(a){opts+='<option value="'+esc(a)+'"'+(a===selected?' selected':'')+'>'+esc(a)+'</option>';});
+  opts+='<option value="_custom">✏ Eigene …</option>';
+  sel.innerHTML=opts;
+  if(selected&&!sel.value)sel.innerHTML='<option value="">— Keine —</option><option value="'+esc(selected)+'" selected>'+esc(selected)+'</option>'+opts.replace('— Keine —','');
+  sel.onchange=function(){
+    if(sel.value==='_custom'){
+      var name=prompt('Neue Abteilung:');
+      if(name&&name.trim()){
+        var list=_fzLoadAbt();if(list.indexOf(name.trim())<0){list.push(name.trim());_fzSaveAbt(list);}
+        _fzPopulateDeptDropdown(name.trim());
+      } else {sel.value=selected||'';}
+    }
+  };
+}
 window.render = render;
 
 function esc(s){ if(!s) return ""; const d=document.createElement("div"); d.textContent=s; return d.innerHTML; }
