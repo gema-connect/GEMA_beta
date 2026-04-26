@@ -357,6 +357,7 @@ tbody td.mono{font-family:var(--mono);font-weight:500;}
       <option value="sharing">Sharing / Pool</option>
     </select>
     <div style="margin-left:auto;display:flex;gap:6px;align-items:center">
+      <button onclick="_fzEditGaragen()" style="padding:6px 10px;border-radius:8px;border:1.5px solid var(--brd2);background:var(--surface);cursor:pointer;font-size:12px;color:var(--muted);font-weight:600;font-family:inherit" title="Garagen verwalten">🔧 Garagen</button>
       <button onclick="_fzEditOpt()" style="padding:6px 10px;border-radius:8px;border:1.5px solid var(--brd2);background:var(--surface);cursor:pointer;font-size:12px;color:var(--muted);font-weight:600;font-family:inherit" title="Optionale Felder ein/ausschalten">⚙ Felder</button>
       <button onclick="_fzEditTypes()" style="padding:6px 10px;border-radius:8px;border:1.5px solid var(--brd2);background:var(--surface);cursor:pointer;font-size:12px;color:var(--muted);font-weight:600;font-family:inherit" title="Fahrzeugtypen verwalten">⚙ Typen</button>
       <div class="seg-group" id="viewToggle">
@@ -552,7 +553,10 @@ tbody td.mono{font-family:var(--mono);font-weight:500;}
         <div class="form-grid">
           <div class="field">
             <label class="label">Garage / Werkstatt</label>
-            <input class="inp" id="fGarage" placeholder="z. B. AMAG Zürich"/>
+            <select class="sel" id="fGarage" onchange="_fzGarageChange()" style="font-size:16px">
+              <option value="">— Keine —</option>
+            </select>
+            <input class="inp" id="fGarageCustom" placeholder="Neue Garage eingeben" style="display:none;margin-top:4px"/>
           </div>
           <div class="field">
             <label class="label">Stellplatz-Nr.</label>
@@ -712,6 +716,7 @@ function openModal(id){
     if(!v) return;
     _fzPopulateDriverDropdown(v.driver);
     _fzPopulateDeptDropdown(v.dept);
+    _fzPopulateGarageDropdown(v.garage);
     $f("fNr",v.nr); $f("fPlate",v.plate); $f("fModel",v.model); $f("fYear",v.year);
     $f("fFuel",v.fuel); $f("fColor",v.color); $f("fType",v.type); $f("fAssignment",v.assignment);
     $f("fDriver",v.driver); $f("fDept",v.dept); $f("fStatus",v.status); $f("fBuildout",v.buildout);
@@ -730,6 +735,7 @@ function openModal(id){
   }else{
     _fzPopulateDriverDropdown('');
     _fzPopulateDeptDropdown('');
+    _fzPopulateGarageDropdown('');
     document.querySelectorAll(".modal .inp, .modal .sel, .modal .textarea").forEach(el=>{
       if(el.type==="checkbox") el.checked=false;
       else if(el.tagName==="SELECT") el.selectedIndex=0;
@@ -780,7 +786,7 @@ function saveVehicle(){
     lastService: document.getElementById("fLastService").value,
     lastServiceKm: document.getElementById("fLastServiceKm").value,
     mfk: document.getElementById("fMfk").value,
-    garage: document.getElementById("fGarage").value.trim(),
+    garage: _fzGetGarage(),
     stellplatz: (document.getElementById("fStellplatz")||{}).value||'',
     fuelCard: document.getElementById("fFuelCard").value.trim(),
     fuelNetwork: (document.getElementById("fFuelNetwork")||{}).value||'',
@@ -1158,6 +1164,79 @@ function _fzSaveOptModal(){
 }
 function _fzCloseOptModal(){var ov=document.getElementById('_fzOptModalOv');if(ov)ov.remove();document.body.classList.remove('modal-open');}
 window._fzEditOpt=_fzEditOpt;window._fzSaveOptModal=_fzSaveOptModal;window._fzCloseOptModal=_fzCloseOptModal;
+
+// ── Garagen-Verwaltung ──
+var _FZ_GARAGE_KEY='gema_fz_garagen_v1';
+function _fzLoadGaragen(){try{var r=localStorage.getItem(_FZ_GARAGE_KEY);if(r)return JSON.parse(r);}catch(e){}return{list:[],standard:''};}
+function _fzSaveGaragen(d){try{localStorage.setItem(_FZ_GARAGE_KEY,JSON.stringify(d));}catch(e){}}
+
+function _fzPopulateGarageDropdown(selected){
+  var sel=document.getElementById('fGarage');if(!sel)return;
+  var data=_fzLoadGaragen();
+  var all=data.list.slice();
+  vehicles.forEach(function(v){if(v.garage&&all.indexOf(v.garage)<0)all.push(v.garage);});
+  var val=selected||data.standard||'';
+  var opts='<option value="">— Keine —</option>';
+  all.forEach(function(g){opts+='<option value="'+esc(g)+'"'+(g===val?' selected':'')+'>'+esc(g)+(g===data.standard?' ★':'')+' </option>';});
+  opts+='<option value="_custom">✏ Neue Garage …</option>';
+  sel.innerHTML=opts;
+  if(val&&!sel.value&&val!=='_custom')sel.innerHTML+='<option value="'+esc(val)+'" selected>'+esc(val)+'</option>';
+  document.getElementById('fGarageCustom').style.display='none';
+}
+function _fzGarageChange(){
+  var sel=document.getElementById('fGarage');
+  var inp=document.getElementById('fGarageCustom');
+  if(sel.value==='_custom'){inp.style.display='';inp.focus();}
+  else{inp.style.display='';inp.value='';}
+  if(sel.value==='_custom'){inp.style.display='';} else{inp.style.display='none';}
+}
+function _fzGetGarage(){
+  var sel=document.getElementById('fGarage');
+  if(sel.value==='_custom'){
+    var custom=document.getElementById('fGarageCustom').value.trim();
+    if(custom){var d=_fzLoadGaragen();if(d.list.indexOf(custom)<0){d.list.push(custom);_fzSaveGaragen(d);}}
+    return custom;
+  }
+  return sel.value;
+}
+function _fzEditGaragen(){
+  var data=_fzLoadGaragen();
+  var all=data.list.slice();
+  vehicles.forEach(function(v){if(v.garage&&all.indexOf(v.garage)<0)all.push(v.garage);});
+  var html='<div style="background:#fff;border-radius:14px;padding:24px;max-width:420px;width:100%;box-shadow:0 20px 60px -10px rgba(0,0,0,.3)">'
+    +'<h3 style="margin:0 0 4px;font-size:17px;font-weight:900">🔧 Garagen verwalten</h3>'
+    +'<div style="font-size:12px;color:#64748b;margin-bottom:14px">Standard-Garage wird bei neuen Fahrzeugen vorausgewählt</div>'
+    +'<div id="_fzGarageList" style="display:flex;flex-direction:column;gap:6px;margin-bottom:12px">'
+    +all.map(function(g,i){
+      return '<div style="display:flex;gap:6px;align-items:center"><input value="'+esc(g)+'" style="flex:1;padding:7px 10px;border:1.5px solid #cdd4e4;border-radius:6px;font-size:13px;font-family:inherit"/>'
+        +'<label style="font-size:11px;white-space:nowrap;cursor:pointer"><input type="radio" name="_fzStdGarage" value="'+esc(g)+'"'+(g===data.standard?' checked':'')+'/> Standard</label>'
+        +'<button onclick="this.parentElement.remove()" style="border:none;background:none;cursor:pointer;font-size:16px;color:#94a3b8">✕</button></div>';
+    }).join('')
+    +'</div>'
+    +'<button onclick="_fzAddGarageRow()" style="padding:6px 12px;border:1.5px dashed #cdd4e4;border-radius:6px;background:none;cursor:pointer;font-size:12px;font-weight:700;color:#64748b;font-family:inherit;width:100%">+ Garage hinzufügen</button>'
+    +'<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">'
+    +'<button onclick="_fzCloseGarageModal()" style="padding:7px 14px;border-radius:8px;border:1.5px solid #cdd4e4;background:#fff;color:#334155;cursor:pointer;font-weight:600;font-family:inherit;font-size:12px">Abbrechen</button>'
+    +'<button onclick="_fzSaveGarageModal()" style="padding:7px 14px;border-radius:8px;border:none;background:var(--primary);color:#fff;cursor:pointer;font-weight:700;font-family:inherit;font-size:12px">✓ Speichern</button>'
+    +'</div></div>';
+  var ov=document.createElement('div');ov.id='_fzGarageModalOv';
+  ov.style.cssText='position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:10500;display:flex;align-items:center;justify-content:center;padding:20px';
+  ov.innerHTML=html;document.body.appendChild(ov);document.body.classList.add('modal-open');
+}
+function _fzAddGarageRow(){
+  var list=document.getElementById('_fzGarageList');if(!list)return;
+  var div=document.createElement('div');div.style.cssText='display:flex;gap:6px;align-items:center';
+  div.innerHTML='<input value="" placeholder="Neue Garage" style="flex:1;padding:7px 10px;border:1.5px solid #cdd4e4;border-radius:6px;font-size:13px;font-family:inherit" autofocus/><label style="font-size:11px;white-space:nowrap;cursor:pointer"><input type="radio" name="_fzStdGarage" value=""/> Standard</label><button onclick="this.parentElement.remove()" style="border:none;background:none;cursor:pointer;font-size:16px;color:#94a3b8">✕</button>';
+  list.appendChild(div);div.querySelector('input').focus();
+}
+function _fzSaveGarageModal(){
+  var inputs=document.querySelectorAll('#_fzGarageList input[type="text"],#_fzGarageList input:not([type])');
+  var list=[];inputs.forEach(function(inp){var v=inp.value.trim();if(v&&list.indexOf(v)<0)list.push(v);});
+  var std=document.querySelector('input[name="_fzStdGarage"]:checked');
+  var stdVal=std?std.value.trim()||std.closest('div').querySelector('input').value.trim():'';
+  _fzSaveGaragen({list:list,standard:stdVal});_fzCloseGarageModal();
+}
+function _fzCloseGarageModal(){var ov=document.getElementById('_fzGarageModalOv');if(ov)ov.remove();document.body.classList.remove('modal-open');}
+window._fzGarageChange=_fzGarageChange;window._fzEditGaragen=_fzEditGaragen;window._fzAddGarageRow=_fzAddGarageRow;window._fzSaveGarageModal=_fzSaveGarageModal;window._fzCloseGarageModal=_fzCloseGarageModal;
 
 // ── Fahrer-Dropdown + Abteilungs-Dropdown ──
 var _FZ_ABT_KEY='gema_fz_abteilungen_v1';
