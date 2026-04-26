@@ -306,6 +306,7 @@ tbody td.mono{font-family:var(--mono);font-weight:500;}
       <span class="bc-cur">Fahrzeugmanagement</span>
     </div>
     <div class="g-nav-right">
+      <button class="g-nav-btn no-print" id="fzNavSettings" onclick="_fzOpenSettings()" style="display:none" title="Einstellungen">⚙</button>
       <button class="gema-feedback-btn no-print" onclick="GemaFeedback.start()">🔴 Feedback</button>
     </div>
   </div>
@@ -357,9 +358,7 @@ tbody td.mono{font-family:var(--mono);font-weight:500;}
       <option value="sharing">Sharing / Pool</option>
     </select>
     <div style="margin-left:auto;display:flex;gap:6px;align-items:center">
-      <button onclick="_fzEditGaragen()" style="padding:6px 10px;border-radius:8px;border:1.5px solid var(--brd2);background:var(--surface);cursor:pointer;font-size:12px;color:var(--muted);font-weight:600;font-family:inherit" title="Garagen verwalten">🔧 Garagen</button>
-      <button onclick="_fzEditOpt()" style="padding:6px 10px;border-radius:8px;border:1.5px solid var(--brd2);background:var(--surface);cursor:pointer;font-size:12px;color:var(--muted);font-weight:600;font-family:inherit" title="Optionale Felder ein/ausschalten">⚙ Felder</button>
-      <button onclick="_fzEditTypes()" style="padding:6px 10px;border-radius:8px;border:1.5px solid var(--brd2);background:var(--surface);cursor:pointer;font-size:12px;color:var(--muted);font-weight:600;font-family:inherit" title="Fahrzeugtypen verwalten">⚙ Typen</button>
+      <button id="fzSettingsBtn" onclick="_fzOpenSettings()" style="display:none;padding:6px 10px;border-radius:8px;border:1.5px solid var(--brd2);background:var(--surface);cursor:pointer;font-size:12px;color:var(--muted);font-weight:600;font-family:inherit" title="Einstellungen">⚙ Einstellungen</button>
       <div class="seg-group" id="viewToggle">
         <button class="seg active" data-view="cards" title="Karten">▦</button>
         <button class="seg" data-view="table" title="Tabelle">☰</button>
@@ -1236,7 +1235,99 @@ function _fzSaveGarageModal(){
   _fzSaveGaragen({list:list,standard:stdVal});_fzCloseGarageModal();
 }
 function _fzCloseGarageModal(){var ov=document.getElementById('_fzGarageModalOv');if(ov)ov.remove();document.body.classList.remove('modal-open');}
-window._fzGarageChange=_fzGarageChange;window._fzEditGaragen=_fzEditGaragen;window._fzAddGarageRow=_fzAddGarageRow;window._fzSaveGarageModal=_fzSaveGarageModal;window._fzCloseGarageModal=_fzCloseGarageModal;
+window._fzGarageChange=_fzGarageChange;
+
+// ── Kombinierte Einstellungen (nur Magaziner/OrgAdmin) ──
+function _fzCanSettings(){
+  if(typeof GemaAuth==='undefined')return true;
+  try{
+    var u=GemaAuth.getCurrentUser();if(!u)return false;
+    if(u.roleIds&&(u.roleIds.indexOf('role_admin')>=0||u.roleIds.indexOf('role_magaziner')>=0))return true;
+    if(GemaAuth.isOrgAdmin&&GemaAuth.isOrgAdmin(u.id))return true;
+  }catch(e){}
+  return false;
+}
+function _fzInitSettingsBtn(){
+  if(!_fzCanSettings())return;
+  var b1=document.getElementById('fzSettingsBtn');if(b1)b1.style.display='';
+  var b2=document.getElementById('fzNavSettings');if(b2)b2.style.display='';
+}
+
+function _fzOpenSettings(){
+  if(!_fzCanSettings()){alert('Keine Berechtigung');return;}
+  var optData=_fzLoadOpt();
+  var garData=_fzLoadGaragen();
+  var types=_fzLoadTypes();
+  var allGarages=garData.list.slice();
+  vehicles.forEach(function(v){if(v.garage&&allGarages.indexOf(v.garage)<0)allGarages.push(v.garage);});
+
+  var html='<div style="background:#fff;border-radius:16px;max-width:540px;width:100%;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 20px 60px -10px rgba(0,0,0,.3)">'
+    +'<div style="padding:18px 22px;border-bottom:1.5px solid var(--border);flex-shrink:0"><h3 style="margin:0;font-size:18px;font-weight:900">⚙ Fahrzeugmanagement — Einstellungen</h3><div style="font-size:12px;color:var(--muted);margin-top:4px">Nur für Magaziner und Administratoren</div></div>'
+    +'<div style="flex:1;overflow-y:auto;padding:18px 22px;display:flex;flex-direction:column;gap:20px">';
+
+  // 1. Optionale Felder
+  html+='<div><div style="font-size:12px;font-weight:800;color:var(--primary);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Optionale Felder</div>'
+    +'<div style="display:flex;flex-direction:column;gap:6px">';
+  _FZ_OPT_DEFS.forEach(function(d){
+    var on=!!optData[d.id];
+    html+='<label style="display:flex;align-items:center;gap:8px;padding:8px 12px;border:1.5px solid '+(on?'var(--primary)':'var(--border2)')+';border-radius:8px;cursor:pointer;background:'+(on?'#eff6ff':'#fff')+'"><input type="checkbox" class="_fzSettOpt" data-opt="'+d.id+'"'+(on?' checked':'')+' style="accent-color:var(--primary);width:16px;height:16px"/> <div><div style="font-size:12px;font-weight:700">'+d.label+'</div><div style="font-size:10px;color:var(--muted)">'+d.desc+'</div></div></label>';
+  });
+  html+='</div></div>';
+
+  // 2. Fahrzeugtypen
+  html+='<div><div style="font-size:12px;font-weight:800;color:var(--primary);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Fahrzeugtypen</div>'
+    +'<div id="_fzSettTypes" style="display:flex;flex-direction:column;gap:4px">';
+  types.forEach(function(t){
+    html+='<div style="display:flex;gap:6px;align-items:center"><input value="'+esc(t)+'" class="_fzSettType" style="flex:1;padding:6px 10px;border:1px solid var(--border2);border-radius:6px;font-size:12px;font-family:inherit"/><button onclick="this.parentElement.remove()" style="border:none;background:none;cursor:pointer;color:var(--muted)">✕</button></div>';
+  });
+  html+='</div><button onclick="_fzSettAddType()" style="margin-top:6px;padding:4px 10px;border:1.5px dashed var(--border2);border-radius:6px;background:none;cursor:pointer;font-size:11px;font-weight:700;color:var(--muted);font-family:inherit;width:100%">+ Typ</button></div>';
+
+  // 3. Garagen
+  html+='<div><div style="font-size:12px;font-weight:800;color:var(--primary);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Garagen / Werkstätten</div>'
+    +'<div id="_fzSettGarages" style="display:flex;flex-direction:column;gap:4px">';
+  allGarages.forEach(function(g){
+    html+='<div style="display:flex;gap:6px;align-items:center"><input value="'+esc(g)+'" class="_fzSettGarage" style="flex:1;padding:6px 10px;border:1px solid var(--border2);border-radius:6px;font-size:12px;font-family:inherit"/><label style="font-size:10px;white-space:nowrap"><input type="radio" name="_fzSettStdG" value="'+esc(g)+'"'+(g===garData.standard?' checked':'')+'/> Standard</label><button onclick="this.parentElement.remove()" style="border:none;background:none;cursor:pointer;color:var(--muted)">✕</button></div>';
+  });
+  html+='</div><button onclick="_fzSettAddGarage()" style="margin-top:6px;padding:4px 10px;border:1.5px dashed var(--border2);border-radius:6px;background:none;cursor:pointer;font-size:11px;font-weight:700;color:var(--muted);font-family:inherit;width:100%">+ Garage</button></div>';
+
+  html+='</div>';
+  html+='<div style="padding:14px 22px;border-top:1.5px solid var(--border);flex-shrink:0;display:flex;gap:8px;justify-content:flex-end">'
+    +'<button onclick="_fzCloseSettings()" style="padding:8px 16px;border-radius:8px;border:1.5px solid var(--border2);background:#fff;color:var(--text2);cursor:pointer;font-weight:600;font-family:inherit;font-size:13px">Abbrechen</button>'
+    +'<button onclick="_fzSaveSettings()" style="padding:8px 16px;border-radius:8px;border:none;background:var(--primary);color:#fff;cursor:pointer;font-weight:700;font-family:inherit;font-size:13px">✓ Speichern</button>'
+    +'</div></div>';
+
+  var ov=document.createElement('div');ov.id='_fzSettingsOv';
+  ov.style.cssText='position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:10500;display:flex;align-items:center;justify-content:center;padding:16px';
+  ov.innerHTML=html;document.body.appendChild(ov);document.body.classList.add('modal-open');
+}
+function _fzSettAddType(){
+  var list=document.getElementById('_fzSettTypes');if(!list)return;
+  var div=document.createElement('div');div.style.cssText='display:flex;gap:6px;align-items:center';
+  div.innerHTML='<input value="" placeholder="Neuer Typ" class="_fzSettType" style="flex:1;padding:6px 10px;border:1px solid var(--border2);border-radius:6px;font-size:12px;font-family:inherit"/><button onclick="this.parentElement.remove()" style="border:none;background:none;cursor:pointer;color:var(--muted)">✕</button>';
+  list.appendChild(div);div.querySelector('input').focus();
+}
+function _fzSettAddGarage(){
+  var list=document.getElementById('_fzSettGarages');if(!list)return;
+  var div=document.createElement('div');div.style.cssText='display:flex;gap:6px;align-items:center';
+  div.innerHTML='<input value="" placeholder="Neue Garage" class="_fzSettGarage" style="flex:1;padding:6px 10px;border:1px solid var(--border2);border-radius:6px;font-size:12px;font-family:inherit"/><label style="font-size:10px;white-space:nowrap"><input type="radio" name="_fzSettStdG" value=""/> Standard</label><button onclick="this.parentElement.remove()" style="border:none;background:none;cursor:pointer;color:var(--muted)">✕</button>';
+  list.appendChild(div);div.querySelector('input').focus();
+}
+function _fzSaveSettings(){
+  // Optionale Felder
+  var o={};document.querySelectorAll('._fzSettOpt').forEach(function(cb){o[cb.dataset.opt]=cb.checked;});
+  _fzSaveOpt(o);
+  // Typen
+  var typeList=[];document.querySelectorAll('._fzSettType').forEach(function(inp){var v=inp.value.trim();if(v&&typeList.indexOf(v)<0)typeList.push(v);});
+  _fzSaveTypes(typeList);
+  // Garagen
+  var garList=[];document.querySelectorAll('._fzSettGarage').forEach(function(inp){var v=inp.value.trim();if(v&&garList.indexOf(v)<0)garList.push(v);});
+  var stdRadio=document.querySelector('input[name="_fzSettStdG"]:checked');
+  var stdVal=stdRadio?stdRadio.value.trim()||stdRadio.closest('div').querySelector('input').value.trim():'';
+  _fzSaveGaragen({list:garList,standard:stdVal});
+  _fzCloseSettings();_fzApplyOpt();render();
+}
+function _fzCloseSettings(){var ov=document.getElementById('_fzSettingsOv');if(ov)ov.remove();document.body.classList.remove('modal-open');}
+window._fzOpenSettings=_fzOpenSettings;window._fzSettAddType=_fzSettAddType;window._fzSettAddGarage=_fzSettAddGarage;window._fzSaveSettings=_fzSaveSettings;window._fzCloseSettings=_fzCloseSettings;
 
 // ── Fahrer-Dropdown + Abteilungs-Dropdown ──
 var _FZ_ABT_KEY='gema_fz_abteilungen_v1';
@@ -1560,6 +1651,7 @@ window.openView=openView;
 
 render();
 _fzApplyOpt();
+_fzInitSettingsBtn();
   // URL parameter: open vehicle in view mode (?view=ID)
   (function(){
     const p = new URLSearchParams(location.search);
