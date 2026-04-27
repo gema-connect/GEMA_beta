@@ -39,6 +39,7 @@
 
   var OVERLAY_ID = 'gemaOfferReqOverlay';
   var _state = { firma:'', katalogId:'', orgId:'' };
+  var _currentKategorie = '';
 
   function E(s){
     return String(s==null?'':s).replace(/[&<>"']/g,function(m){
@@ -67,7 +68,11 @@
     // 1. Katalog-Lieferanten
     try {
       if(typeof GemaProdukte !== 'undefined' && typeof GemaProdukte.searchLieferanten === 'function'){
-        var katMatches = GemaProdukte.searchLieferanten(q).slice(0,5);
+        var katMatches = GemaProdukte.searchLieferanten(q).filter(function(l){
+          if(!_currentKategorie||_currentKategorie==='allgemein')return true;
+          if(!l.lieferantKategorien||!l.lieferantKategorien.length)return true;
+          return l.lieferantKategorien.indexOf(_currentKategorie)>=0;
+        }).slice(0,5);
         katMatches.forEach(function(l){
           found++;
           if(l.firma) shown.add(l.firma.toLowerCase().trim());
@@ -89,6 +94,7 @@
           // Fallback auf Legacy-Feld 'kategorie'.
           var orgCats = (o.kategorien && o.kategorien.length) ? o.kategorien : (o.kategorie ? [o.kategorie] : []);
           if(orgCats.indexOf('lieferant') < 0) return false;
+          if(_currentKategorie&&_currentKategorie!=='allgemein'&&o.lieferantKategorien&&o.lieferantKategorien.length>0&&o.lieferantKategorien.indexOf(_currentKategorie)<0)return false;
           var nameMatch = (o.name||'').toLowerCase().indexOf(ql) >= 0;
           var ortMatch  = (o.adresse && o.adresse.ort || '').toLowerCase().indexOf(ql) >= 0;
           return nameMatch || ortMatch;
@@ -197,6 +203,7 @@
 
     var titel = opts.titel || 'Anlage';
     var kategorie = opts.kategorie || 'allgemein';
+    _currentKategorie = kategorie;
     var werte = opts.berechnungswerte || {};
     var projekt = opts.projekt || {};
     var projektName = projekt.name || '';
