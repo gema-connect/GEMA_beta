@@ -18,6 +18,9 @@ var LIEF_KATEGORIEN = [
   {id:'frischwasserstation',label:'Frischwasserstation',gruppe:'anlagen'},
   {id:'solaranlage',label:'Solaranlagen',gruppe:'anlagen'},
   {id:'werkzeuge',label:'Werkzeuge / Maschinen / Leitern',gruppe:'infrastruktur'},
+  {id:'elektropruefung',label:'Elektroprüfung (NIV/NIN)',gruppe:'infrastruktur'},
+  {id:'leiterpruefung',label:'Leiterprüfung (EKAS)',gruppe:'infrastruktur'},
+  {id:'servicepruefung',label:'Service / Wartung',gruppe:'infrastruktur'},
   {id:'fahrzeuge',label:'Garagist / Fahrzeugmanagement',gruppe:'infrastruktur'},
   {id:'rohrsysteme',label:'Rohrsysteme & Armaturen',gruppe:'material'},
 ];
