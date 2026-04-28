@@ -245,7 +245,7 @@ textarea.fc{resize:vertical;min-height:60px;line-height:1.5}
   <!-- Tab: Mitarbeiter -->
   <div class="tab-body" id="tb-mitarbeiter">
     <div class="card">
-      <div class="card-hd"><h3>👥 Mitarbeiter</h3><button class="btn btn-p btn-sm" onclick="_liefInviteUser()">+ Mitarbeiter einladen</button></div>
+      <div class="card-hd"><h3>👥 Mitarbeiter</h3><button class="btn btn-p btn-sm" id="liefInviteBtn" onclick="_liefInviteUser()">+ Mitarbeiter einladen</button></div>
       <div class="card-bd" id="liefUserList" style="padding:0"></div>
     </div>
   </div>
@@ -436,10 +436,8 @@ function setupTabs(){
   if(isPruefer||isLief){
     tabs.push({id:'werkzeuge',label:'🔧 Werkzeuge',show:true});
   }
-  // Mitarbeiter-Tab nur für Org-Admin des Lieferanten
-  var isOrgAdm=false;
-  try{isOrgAdm=GemaAuth.isOrgAdmin&&GemaAuth.isOrgAdmin(user.id);}catch(e){}
-  if(isOrgAdm||isAdmin){
+  // Mitarbeiter-Tab für alle Lieferanten sichtbar (bearbeiten nur Org-Admin)
+  if(isLief||isPruefer||isAdmin){
     tabs.push({id:'mitarbeiter',label:'👥 Mitarbeiter',show:true});
   }
   tabs.push({id:'profil',label:'Firmenprofil',show:true});
@@ -1161,16 +1159,18 @@ function renderLiefUsers(){
   try{users=GemaAuth.getOrgUsers?GemaAuth.getOrgUsers(orgId):(GemaAuth.getUsers()||[]).filter(function(u){return u.orgId===orgId;});}catch(e){}
   if(!users.length){el.innerHTML='<div style="padding:20px;color:var(--mut);font-size:13px;text-align:center">Keine Mitarbeiter.</div>';return;}
   var roles=[];try{roles=GemaAuth.getRoles()||[];}catch(e){}
+  var me=null;try{me=GemaAuth.getCurrentUser();}catch(e){}
+  var canManage=false;try{canManage=(me&&me.roleIds&&me.roleIds.indexOf('role_admin')>=0)||(GemaAuth.isOrgAdmin&&GemaAuth.isOrgAdmin(me.id));}catch(e){}
+  var invBtn=document.getElementById('liefInviteBtn');if(invBtn)invBtn.style.display=canManage?'':'none';
   el.innerHTML=users.map(function(u){
     var rNames=(u.roleIds||[]).map(function(rid){var r=roles.find(function(x){return x.id===rid;});return r?r.name:'';}).filter(Boolean).join(', ');
-    var me=null;try{me=GemaAuth.getCurrentUser();}catch(e){}
     var isMe=me&&me.id===u.id;
     return '<div style="display:flex;align-items:center;gap:10px;padding:12px 18px;border-bottom:1px solid var(--brd,#e2e7f0)">'
       +'<div style="width:36px;height:36px;border-radius:50%;background:var(--acc-bg,#eff6ff);display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:800;color:var(--acc,#2563eb);flex-shrink:0">'+(u.name||'?').charAt(0).toUpperCase()+'</div>'
       +'<div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:700">'+E(u.name||u.username)+(isMe?' <span style="font-size:10px;color:var(--mut)">(Du)</span>':'')+'</div>'
       +'<div style="font-size:11px;color:var(--mut)">'+E(rNames||'Keine Rolle')+'</div></div>'
-      +'<button onclick="_liefEditRoles(\''+u.id+'\')" style="padding:5px 10px;border-radius:6px;border:1px solid var(--brd2,#cdd4e4);background:#fff;cursor:pointer;font-size:11px;font-weight:700;color:var(--mut);font-family:inherit">🔑 Rollen</button>'
-      +(!isMe?'<button onclick="_liefDeactivateUser(\''+u.id+'\')" style="padding:5px 10px;border-radius:6px;border:1px solid #fecaca;background:#fef2f2;cursor:pointer;font-size:11px;font-weight:700;color:#dc2626;font-family:inherit">Deaktivieren</button>':'')
+      +(canManage?'<button onclick="_liefEditRoles(\''+u.id+'\')" style="padding:5px 10px;border-radius:6px;border:1px solid var(--brd2,#cdd4e4);background:#fff;cursor:pointer;font-size:11px;font-weight:700;color:var(--mut);font-family:inherit">🔑 Rollen</button>':'')
+      +(canManage&&!isMe?'<button onclick="_liefDeactivateUser(\''+u.id+'\')" style="padding:5px 10px;border-radius:6px;border:1px solid #fecaca;background:#fef2f2;cursor:pointer;font-size:11px;font-weight:700;color:#dc2626;font-family:inherit">Deaktivieren</button>':'')
       +'</div>';
   }).join('');
 }
