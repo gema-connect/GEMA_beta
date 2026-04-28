@@ -2179,15 +2179,24 @@ function _wzScanFaelligkeiten(){
 // ── "Prüfung anfordern" Dialog ───────────────────────────────
 // Lieferanten-User ermitteln (role_lieferant). Optional gefiltert auf
 // Lieferanten, die eine Pruefleistung anbieten — wir nehmen vorerst alle.
-function _wzGetPruefLieferanten(){
+function _wzGetPruefLieferanten(pruefKat){
   if(typeof GemaAuth==='undefined')return [];
   try{
     var users=GemaAuth.getUsers()||[];
     return users.filter(function(u){
       if(!u.active)return false;
-      if(u.roleIds&&u.roleIds.indexOf('role_pruefer')>=0)return true;
-      if(u.roleIds&&u.roleIds.indexOf('role_lieferant')>=0)return true;
-      return false;
+      if(!u.roleIds)return false;
+      if(u.roleIds.indexOf('role_pruefer')<0&&u.roleIds.indexOf('role_lieferant')<0)return false;
+      // Kategorie-Filter: wenn pruefKat gesetzt, nur passende Lieferanten
+      if(pruefKat&&typeof GemaProdukte!=='undefined'&&GemaProdukte.getAllLieferanten){
+        var orgs=[];try{orgs=GemaAuth.getOrgs()||[];}catch(e){}
+        var org=orgs.find(function(o){return o.id===u.orgId;});
+        var liefKats=(org&&org.lieferantKategorien)||[];
+        var lief=GemaProdukte.getAllLieferanten().find(function(l){return l.orgId===u.orgId;});
+        if(lief&&lief.lieferantKategorien&&lief.lieferantKategorien.length)liefKats=lief.lieferantKategorien;
+        if(liefKats.length>0&&liefKats.indexOf(pruefKat)<0)return false;
+      }
+      return true;
     });
   }catch(e){return [];}
 }
@@ -2197,13 +2206,22 @@ function openPruefAnfordern(toolId){
   var t=tools.find(function(x){return x.id===toolId;});
   if(!t)return;
   var np=_wzNextPruefung(t);
-  var liefs=_wzGetPruefLieferanten();
+  // Prüfungstyp bestimmen → passende Lieferanten filtern
+  var pruefKat='servicepruefung';
+  if(t.hasElec)pruefKat='elektropruefung';
+  if(t.hasLeiter)pruefKat='leiterpruefung';
+  if(t.cat==='maschine-kabel'||t.cat==='ladegeraet')pruefKat='elektropruefung';
+  if(t.cat==='leiter')pruefKat='leiterpruefung';
+  var liefs=_wzGetPruefLieferanten(pruefKat);
   var cur=t.pruefAnfrage||null;
-  var opts='<option value="">— Lieferant wählen —</option>';
+  var pruefLabel=pruefKat==='elektropruefung'?'Elektrounternehmen':pruefKat==='leiterpruefung'?'Leiterprüfer':'Service-Partner';
+  var opts='<option value="">— '+pruefLabel+' wählen —</option>';
   liefs.forEach(function(l){
     var firma=(l.profile&&l.profile.firma)||l.name||l.username;
     opts+='<option value="'+esc(l.id)+'" '+(cur&&cur.lieferantId===l.id?'selected':'')+'>'+esc(firma)+' · '+esc(l.name||l.username)+'</option>';
   });
+  if(!liefs.length){opts+='<option value="" disabled>Keine registrierten '+pruefLabel+' gefunden</option>';}
+  opts+='<option value="_invite">✉ Neuen '+pruefLabel+' einladen …</option>';
   var statusHtml='';
   if(cur){
     var statusColor = cur.status==='angefordert' ? '#ea580c' : (cur.status==='quittiert' ? '#2563eb' : (cur.status==='erledigt' ? '#16a34a' : '#64748b'));
@@ -2231,11 +2249,30 @@ function openPruefAnfordern(toolId){
   _wzShowModal(html);
 }
 
+function _wzInvitePruefer(toolId){
+  var firma=prompt('Firmenname des Prüfers / Unternehmens:');
+  if(!firma)return;
+  var email=prompt('E-Mail:');
+  if(!email)return;
+  var name=prompt('Kontaktperson (optional):','');
+  try{
+    var me=_wzGetUser()||{};
+    var result=GemaAuth.inviteLieferant({email:email,firma:firma,person:name||'',eingeladenVon:me.name||''});
+    var users=GemaAuth.getUsers()||[];
+    var u=users.find(function(x){return x.id===result.user.id;});
+    if(u){u.roleIds=['role_pruefer'];GemaAuth.saveUsers(users);}
+    alert('✉ '+firma+' eingeladen. Sie können jetzt ausgewählt werden.');
+    _wzCloseModal();
+    openPruefAnfordern(toolId);
+  }catch(e){alert('Fehler: '+e.message);}
+}
+
 function _wzSavePruefAnfrage(toolId){
   var t=tools.find(function(x){return x.id===toolId;});
   if(!t)return;
   var sel=document.getElementById('paLief');
   var liefId=sel.value;
+  if(liefId==='_invite'){_wzInvitePruefer(toolId);return;}
   if(!liefId){alert('Bitte Lieferant auswählen');return;}
   var termin=document.getElementById('paTermin').value||null;
   var bem=document.getElementById('paBem').value.trim();
