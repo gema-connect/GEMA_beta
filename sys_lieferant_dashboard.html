@@ -242,6 +242,14 @@ textarea.fc{resize:vertical;min-height:60px;line-height:1.5}
     </div>
   </div>
 
+  <!-- Tab: Mitarbeiter -->
+  <div class="tab-body" id="tb-mitarbeiter">
+    <div class="card">
+      <div class="card-hd"><h3>👥 Mitarbeiter</h3><button class="btn btn-p btn-sm" onclick="_liefInviteUser()">+ Mitarbeiter einladen</button></div>
+      <div class="card-bd" id="liefUserList" style="padding:0"></div>
+    </div>
+  </div>
+
   <!-- Tab: Firmenprofil -->
   <div class="tab-body" id="tb-profil">
     <div class="card">
@@ -428,6 +436,12 @@ function setupTabs(){
   if(isPruefer||isLief){
     tabs.push({id:'werkzeuge',label:'🔧 Werkzeuge',show:true});
   }
+  // Mitarbeiter-Tab nur für Org-Admin des Lieferanten
+  var isOrgAdm=false;
+  try{isOrgAdm=GemaAuth.isOrgAdmin&&GemaAuth.isOrgAdmin(user.id);}catch(e){}
+  if(isOrgAdm||isAdmin){
+    tabs.push({id:'mitarbeiter',label:'👥 Mitarbeiter',show:true});
+  }
   tabs.push({id:'profil',label:'Firmenprofil',show:true});
 
   var tabBar=document.getElementById('mainTabs');
@@ -462,6 +476,7 @@ function renderAll(){
   renderMandate();
   renderWzDefekte();
   renderWzErsatz();
+  renderLiefUsers();
   fillProfil();
 }
 
@@ -1135,6 +1150,83 @@ function verifyArmatur(id){
     renderRohrsysteme();
     toast('✓ '+a.name+' verifiziert');
   }
+}
+
+// ── Mitarbeiter-Verwaltung (Lieferant Org-Admin) ──
+function renderLiefUsers(){
+  var el=document.getElementById('liefUserList');if(!el)return;
+  if(!_lief)return;
+  var orgId=_lief.orgId||'';
+  var users=[];
+  try{users=GemaAuth.getOrgUsers?GemaAuth.getOrgUsers(orgId):(GemaAuth.getUsers()||[]).filter(function(u){return u.orgId===orgId;});}catch(e){}
+  if(!users.length){el.innerHTML='<div style="padding:20px;color:var(--mut);font-size:13px;text-align:center">Keine Mitarbeiter.</div>';return;}
+  var roles=[];try{roles=GemaAuth.getRoles()||[];}catch(e){}
+  el.innerHTML=users.map(function(u){
+    var rNames=(u.roleIds||[]).map(function(rid){var r=roles.find(function(x){return x.id===rid;});return r?r.name:'';}).filter(Boolean).join(', ');
+    var me=null;try{me=GemaAuth.getCurrentUser();}catch(e){}
+    var isMe=me&&me.id===u.id;
+    return '<div style="display:flex;align-items:center;gap:10px;padding:12px 18px;border-bottom:1px solid var(--brd,#e2e7f0)">'
+      +'<div style="width:36px;height:36px;border-radius:50%;background:var(--acc-bg,#eff6ff);display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:800;color:var(--acc,#2563eb);flex-shrink:0">'+(u.name||'?').charAt(0).toUpperCase()+'</div>'
+      +'<div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:700">'+E(u.name||u.username)+(isMe?' <span style="font-size:10px;color:var(--mut)">(Du)</span>':'')+'</div>'
+      +'<div style="font-size:11px;color:var(--mut)">'+E(rNames||'Keine Rolle')+'</div></div>'
+      +'<button onclick="_liefEditRoles(\''+u.id+'\')" style="padding:5px 10px;border-radius:6px;border:1px solid var(--brd2,#cdd4e4);background:#fff;cursor:pointer;font-size:11px;font-weight:700;color:var(--mut);font-family:inherit">🔑 Rollen</button>'
+      +(!isMe?'<button onclick="_liefDeactivateUser(\''+u.id+'\')" style="padding:5px 10px;border-radius:6px;border:1px solid #fecaca;background:#fef2f2;cursor:pointer;font-size:11px;font-weight:700;color:#dc2626;font-family:inherit">Deaktivieren</button>':'')
+      +'</div>';
+  }).join('');
+}
+
+function _liefInviteUser(){
+  var email=prompt('E-Mail des neuen Mitarbeiters:');if(!email)return;
+  var name=prompt('Name:','');
+  try{
+    var result=GemaAuth.inviteLieferant({email:email,firma:_lief.firma,person:name||'',orgId:_lief.orgId,eingeladenVon:(GemaAuth.getCurrentUser()||{}).name||''});
+    var users=GemaAuth.getUsers()||[];
+    var u=users.find(function(x){return x.id===result.user.id;});
+    if(u){u.orgId=_lief.orgId;u.roleIds=['role_lieferant'];GemaAuth.saveUsers(users);}
+    toast('✉ Einladung gesendet');
+    renderLiefUsers();
+  }catch(e){alert('Fehler: '+e.message);}
+}
+
+function _liefEditRoles(userId){
+  var users=GemaAuth.getUsers()||[];
+  var u=users.find(function(x){return x.id===userId;});
+  if(!u)return;
+  var allRoles=GemaAuth.getRoles()||[];
+  var assignable=allRoles.filter(function(r){return r.id!=='role_admin';});
+  var currentIds=u.roleIds||[];
+  var html='<div style="background:#fff;border-radius:14px;padding:24px;max-width:420px;width:100%;box-shadow:0 20px 60px -10px rgba(0,0,0,.3)">'
+    +'<h3 style="margin:0 0 4px;font-size:17px;font-weight:900">🔑 Rollen bearbeiten</h3>'
+    +'<div style="font-size:12px;color:#64748b;margin-bottom:16px">'+E(u.name||u.username)+'</div>'
+    +'<div id="_liefRoleCbs" style="display:flex;flex-direction:column;gap:6px">'
+    +assignable.map(function(r){
+      var checked=currentIds.indexOf(r.id)>=0;
+      return '<label style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:8px;cursor:pointer;border:1.5px solid '+(checked?r.color+'40':'#e2e7f0')+';background:'+(checked?r.color+'08':'#fff')+'"><input type="checkbox" value="'+r.id+'"'+(checked?' checked':'')+' style="accent-color:'+r.color+'"/> <span style="font-size:13px;font-weight:600;color:'+(checked?r.color:'#374151')+'">'+E(r.name)+'</span></label>';
+    }).join('')
+    +'</div>'
+    +'<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">'
+    +'<button onclick="_liefCloseRoleModal()" style="padding:8px 16px;border-radius:8px;border:1.5px solid #c8cfdf;background:#fff;color:#334155;cursor:pointer;font-weight:600;font-family:inherit">Abbrechen</button>'
+    +'<button onclick="_liefSaveRoles(\''+userId+'\')" style="padding:8px 16px;border-radius:8px;border:none;background:#2563eb;color:#fff;cursor:pointer;font-weight:700;font-family:inherit">✓ Speichern</button>'
+    +'</div></div>';
+  var ov=document.createElement('div');ov.id='_liefRoleOv';
+  ov.style.cssText='position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:10500;display:flex;align-items:center;justify-content:center;padding:20px';
+  ov.innerHTML=html;document.body.appendChild(ov);document.body.classList.add('modal-open');
+}
+function _liefSaveRoles(userId){
+  var cbs=document.querySelectorAll('#_liefRoleCbs input[type="checkbox"]');
+  var newRoles=[];cbs.forEach(function(cb){if(cb.checked)newRoles.push(cb.value);});
+  var users=GemaAuth.getUsers()||[];
+  var u=users.find(function(x){return x.id===userId;});
+  if(u){u.roleIds=newRoles;GemaAuth.saveUsers(users);}
+  _liefCloseRoleModal();renderLiefUsers();toast('Rollen aktualisiert');
+}
+function _liefCloseRoleModal(){var ov=document.getElementById('_liefRoleOv');if(ov)ov.remove();document.body.classList.remove('modal-open');}
+function _liefDeactivateUser(userId){
+  if(!confirm('Mitarbeiter deaktivieren?'))return;
+  var users=GemaAuth.getUsers()||[];
+  var u=users.find(function(x){return x.id===userId;});
+  if(u){u.active=false;GemaAuth.saveUsers(users);}
+  renderLiefUsers();toast('Mitarbeiter deaktiviert');
 }
 
 function fillProfil(){
