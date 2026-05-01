@@ -39,7 +39,17 @@
       '.no-print','.gema-feedback-btn','.gema-nav','.nav','nav',
       '#gfb-root','#gToast','#gToast_pdf',
       '.obj-combo-toggle',
-      'button.nb','button.g-btn','button.btn'
+      'button.nb','button.g-btn','button.btn',
+      '.gema-hamburger','.gema-menu-overlay','.gema-menu-panel',
+      '.pk-confirm','.anlagen-section button',
+      '[onclick*="Offerte"]','[onclick*="offerte"]',
+      '[onclick*="GemaOfferRequest"]',
+      '.gaw-card button','.gaw-uebernehmen',
+      '.footer-bar','.tb-search-toggle','.tb-search-mob',
+      '#pwaInstallBanner','.hero-actions','.hero-pills',
+      '.stat-card','.stats-row','.kpi-row','.toolbar','.filter-bar',
+      '#feedbackBtn','.wz-role-badge',
+      '.tc-foot','.tc-actions','.v-card-footer'
     ];
     hideSelectors.forEach(function(sel){
       try{
@@ -64,9 +74,18 @@
 
     var container=document.querySelector('.g-page')||document.querySelector('.main')||document.querySelector('main')||document.body;
 
+    // Force desktop width for consistent PDF on all devices
+    var origWidth=container.style.width;
+    var origMaxWidth=container.style.maxWidth;
+    var origMinWidth=container.style.minWidth;
+    container.style.width='1100px';
+    container.style.maxWidth='1100px';
+    container.style.minWidth='1100px';
+
     try{
       var canvas=await html2canvas(container,{
-        scale:2, useCORS:true, allowTaint:true, logging:false, backgroundColor:'#ffffff'
+        scale:2.5, useCORS:true, allowTaint:true, logging:false, backgroundColor:'#ffffff',
+        width:1100, windowWidth:1200
       });
 
       var jsPDF=w.jspdf.jsPDF;
@@ -85,16 +104,29 @@
       var sliceHpx=Math.floor(srcH*(pageH/totalImgH));
       var yPx=0, pageNum=0;
 
+      // Smart page breaks: avoid cutting in the last 8% of a page (orphan prevention)
+      var orphanThreshold=Math.floor(sliceHpx*0.08);
+
       while(yPx<srcH){
         if(pageNum>0) doc.addPage();
-        var thisH=Math.min(sliceHpx,srcH-yPx);
+        var remaining=srcH-yPx;
+        var thisH=Math.min(sliceHpx,remaining);
+        // If last slice is very small (<8% of page), merge with previous
+        if(remaining>sliceHpx&&remaining-sliceHpx<orphanThreshold){
+          thisH=Math.floor(remaining/2);
+        }
         var sc=document.createElement('canvas');
         sc.width=srcW; sc.height=thisH;
         sc.getContext('2d').drawImage(canvas,0,yPx,srcW,thisH,0,0,srcW,thisH);
         var sliceImgH=(thisH/srcW)*contentW;
-        doc.addImage(sc.toDataURL('image/jpeg',0.92),'JPEG',M,Mtop,contentW,sliceImgH);
+        doc.addImage(sc.toDataURL('image/jpeg',0.95),'JPEG',M,Mtop,contentW,sliceImgH);
         yPx+=thisH; pageNum++;
       }
+
+      // Restore container width
+      container.style.width=origWidth;
+      container.style.maxWidth=origMaxWidth;
+      container.style.minWidth=origMinWidth;
 
       // ==== Projekt-Metadaten sammeln ====
       var meta=_collectMeta(opts);
@@ -125,6 +157,9 @@
       console.error('[GemaPDF]',e);
       _toast('\u26a0 PDF-Fehler: '+e.message);
     }finally{
+      container.style.width=origWidth;
+      container.style.maxWidth=origMaxWidth;
+      container.style.minWidth=origMinWidth;
       hidden.forEach(function(h){h.el.style.cssText=h.prev;});
       if(swapped){comboManual.style.display='none';comboSelect.style.display='flex';}
     }
