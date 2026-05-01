@@ -1,5 +1,5 @@
 /* GEMA Service Worker — Offline Cache + Push Vorbereitung */
-var CACHE_NAME = 'gema-v4';
+var CACHE_NAME = 'gema-v5';
 var CACHE_FILES = [
   '/', '/index.html', '/sb_index.html',
   '/sa_enthaertung.html', '/sa_osmose.html', '/sa_fettabscheider.html',
@@ -70,7 +70,7 @@ self.addEventListener('fetch', function(event) {
     return;
   }
   // HTML & JS → Network-First (immer frisch laden, Cache als Fallback)
-  if (url.indexOf('.html') >= 0 || url.indexOf('.js') >= 0) {
+  if (url.indexOf('.html') >= 0 || url.indexOf('.js') >= 0 || url.indexOf('.css') >= 0) {
     event.respondWith(
       fetch(event.request).then(function(r) {
         if (r.ok) { var c = r.clone(); caches.open(CACHE_NAME).then(function(cache) { cache.put(event.request, c); }); }
