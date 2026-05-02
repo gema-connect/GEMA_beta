@@ -39,7 +39,18 @@
       '.no-print','.gema-feedback-btn','.gema-nav','.nav','nav',
       '#gfb-root','#gToast','#gToast_pdf',
       '.obj-combo-toggle',
-      'button.nb','button.g-btn','button.btn'
+      'button.nb','button.g-btn','button.btn',
+      '.gema-hamburger','.gema-menu-overlay','.gema-menu-panel',
+      '.pk-confirm','.anlagen-section button',
+      '[onclick*="Offerte"]','[onclick*="offerte"]',
+      '[onclick*="GemaOfferRequest"]',
+      '.gaw-card button','.gaw-uebernehmen',
+      '.footer-bar','.tb-search-toggle','.tb-search-mob',
+      '#pwaInstallBanner','.hero-actions','.hero-pills',
+      '.stat-card','.stats-row','.kpi-row','.toolbar','.filter-bar',
+      '#feedbackBtn','.wz-role-badge',
+      '.tc-foot','.tc-actions','.v-card-footer',
+      '.gema-hero-norm','.gema-hero-sub','.hero','.g-ph'
     ];
     hideSelectors.forEach(function(sel){
       try{
@@ -64,9 +75,18 @@
 
     var container=document.querySelector('.g-page')||document.querySelector('.main')||document.querySelector('main')||document.body;
 
+    // Force desktop width for consistent PDF on all devices
+    var origWidth=container.style.width;
+    var origMaxWidth=container.style.maxWidth;
+    var origMinWidth=container.style.minWidth;
+    container.style.width='1100px';
+    container.style.maxWidth='1100px';
+    container.style.minWidth='1100px';
+
     try{
       var canvas=await html2canvas(container,{
-        scale:2, useCORS:true, allowTaint:true, logging:false, backgroundColor:'#ffffff'
+        scale:2.5, useCORS:true, allowTaint:true, logging:false, backgroundColor:'#ffffff',
+        width:1100, windowWidth:1200
       });
 
       var jsPDF=w.jspdf.jsPDF;
@@ -82,19 +102,60 @@
       var pageH=ph-Mtop-Mbot;
 
       var srcW=canvas.width, srcH=canvas.height;
-      var sliceHpx=Math.floor(srcH*(pageH/totalImgH));
+      var pxPerMm=srcW/contentW;
+      var sliceHpx=Math.floor(pageH*pxPerMm);
       var yPx=0, pageNum=0;
+
+      // Collect container boundaries for smart page breaks
+      var breakPoints=[];
+      try{
+        var sections=container.querySelectorAll('.g-section,.g-card,.card,.fsec,.form-section,.g-result-group,section,fieldset,table,.project-bar,.g-ph,.ts');
+        sections.forEach(function(el){
+          var r=el.getBoundingClientRect();
+          var cR=container.getBoundingClientRect();
+          var topPx=Math.round((r.top-cR.top)*(srcW/container.offsetWidth));
+          var botPx=Math.round((r.bottom-cR.top)*(srcW/container.offsetWidth));
+          breakPoints.push({top:topPx,bot:botPx});
+        });
+      }catch(e){}
+      breakPoints.sort(function(a,b){return a.top-b.top;});
 
       while(yPx<srcH){
         if(pageNum>0) doc.addPage();
-        var thisH=Math.min(sliceHpx,srcH-yPx);
+        var remaining=srcH-yPx;
+        var idealEnd=yPx+sliceHpx;
+        var cutAt=Math.min(idealEnd,srcH);
+
+        // Find best cut point: prefer cutting between containers
+        if(cutAt<srcH&&breakPoints.length){
+          var bestCut=cutAt;
+          for(var bi=0;bi<breakPoints.length;bi++){
+            var bp=breakPoints[bi];
+            if(bp.top>yPx+sliceHpx*0.3&&bp.top<=idealEnd){
+              bestCut=bp.top;
+            }
+          }
+          // If best cut would leave <10% on last page, split evenly
+          if(srcH-bestCut>0&&srcH-bestCut<sliceHpx*0.1){
+            bestCut=yPx+Math.floor(remaining/2);
+          }
+          cutAt=bestCut;
+        }
+
+        var thisH=cutAt-yPx;
+        if(thisH<=0)thisH=Math.min(sliceHpx,remaining);
         var sc=document.createElement('canvas');
         sc.width=srcW; sc.height=thisH;
         sc.getContext('2d').drawImage(canvas,0,yPx,srcW,thisH,0,0,srcW,thisH);
         var sliceImgH=(thisH/srcW)*contentW;
-        doc.addImage(sc.toDataURL('image/jpeg',0.92),'JPEG',M,Mtop,contentW,sliceImgH);
+        doc.addImage(sc.toDataURL('image/jpeg',0.95),'JPEG',M,Mtop,contentW,sliceImgH);
         yPx+=thisH; pageNum++;
       }
+
+      // Restore container width
+      container.style.width=origWidth;
+      container.style.maxWidth=origMaxWidth;
+      container.style.minWidth=origMinWidth;
 
       // ==== Projekt-Metadaten sammeln ====
       var meta=_collectMeta(opts);
@@ -125,6 +186,9 @@
       console.error('[GemaPDF]',e);
       _toast('\u26a0 PDF-Fehler: '+e.message);
     }finally{
+      container.style.width=origWidth;
+      container.style.maxWidth=origMaxWidth;
+      container.style.minWidth=origMinWidth;
       hidden.forEach(function(h){h.el.style.cssText=h.prev;});
       if(swapped){comboManual.style.display='none';comboSelect.style.display='flex';}
     }
@@ -215,7 +279,7 @@
     doc.setDrawColor(220); doc.setLineWidth(0.2);
     doc.line(M, ph-Mbot+2, pw-M, ph-Mbot+2);
     doc.setFontSize(7.5); doc.setTextColor(150);
-    var stamp='Erstellt mit GEMA \u00b7 gema-suite.ch';
+    var stamp='Erstellt mit GEMA \u00b7 www.gema-connect.ch';
     if(meta.projektnummer) stamp += '  \u00b7  Projekt-Nr. '+meta.projektnummer;
     doc.text(stamp, M, ph-5);
     doc.text('Seite '+p+' / '+total, pw-M, ph-5, {align:'right'});

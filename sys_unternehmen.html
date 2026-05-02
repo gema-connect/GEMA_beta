@@ -210,21 +210,37 @@ function renderUsers(){
   var el=document.getElementById('userList');
   if(!users.length){el.innerHTML='<p style="padding:16px;color:var(--mut)">Keine Benutzer.</p>';return;}
   var roles=GemaAuth.getRoles()||[];
+  var uLizCount=_getOrgLizCount();
   el.innerHTML=users.map(function(u){
     var rNames=(u.roleIds||[]).map(function(rid){var r=roles.find(function(x){return x.id===rid;});return r?r.name:'';}).filter(Boolean).join(', ');
+    var lizNames=(u.lizenzen||[]).map(function(lid){var gw=GEWERKE_PAKETE.find(function(g){return g.id===lid;});return gw?gw.icon+' '+gw.name:'';}).filter(Boolean).join(', ');
     var isAdmin=_org.admins&&_org.admins.indexOf(u.id)>=0;
     var abt=(_org.abteilungen||[]).find(function(a){return a.id===u.abteilungId;});
-    return '<div style="display:flex;align-items:center;gap:10px;padding:10px 18px;border-bottom:1px solid var(--brd)">'+
-      '<div style="flex:1"><strong>'+E(u.name||u.username)+'</strong>'+(isAdmin?' <span class="badge b-blu">Admin</span>':'')+(u.kontotyp==='login_light'?' <span class="badge b-amb">Light</span>':'')+
-      '<div style="font-size:11px;color:var(--mut)">'+E(rNames||'Keine Rolle')+(abt?' · '+E(abt.name):' · Keine Abteilung')+'</div></div>'+
-      '<button class="btn btn-sm" onclick="_editUserRoles(\''+u.id+'\')" title="Rollen bearbeiten">🔑</button>'+
+    return '<div style="display:flex;align-items:center;gap:8px;padding:10px 18px;border-bottom:1px solid var(--brd);flex-wrap:wrap">'+
+      '<div style="flex:1;min-width:150px"><strong>'+E(u.name||u.username)+'</strong>'+(isAdmin?' <span class="badge b-blu">Admin</span>':'')+
+      '<div style="font-size:11px;color:var(--mut)">'+E(rNames||'Keine Rolle')+'</div>'+
+      (lizNames?'<div style="font-size:10px;color:var(--acc);margin-top:2px">'+lizNames+'</div>':'')+
+      '</div>'+
+      '<button class="btn btn-sm" onclick="_editUserRoles(\''+u.id+'\')" title="Rollen">🔑</button>'+
+      '<button class="btn btn-sm" onclick="_editUserLiz(\''+u.id+'\')" title="Lizenzen">📦</button>'+
       '<select onchange="GemaAuth.setUserAbteilung(\''+u.id+'\',this.value);renderUsers()" style="padding:4px 8px;border:1px solid var(--brd2);border-radius:6px;font-size:11px">'+
-        '<option value="">Keine Abt.</option>'+
+        '<option value="">Abt.</option>'+
         (_org.abteilungen||[]).map(function(a){return '<option value="'+a.id+'"'+(a.id===u.abteilungId?' selected':'')+'>'+E(a.name)+'</option>';}).join('')+
       '</select>'+
-      (u.id!==_user.id?'<button class="btn btn-d btn-sm" onclick="deaktivierUser(\''+u.id+'\')">Deaktivieren</button>':'')+
+      (u.id!==_user.id?'<button class="btn btn-d btn-sm" onclick="deaktivierUser(\''+u.id+'\')">✕</button>':'')+
     '</div>';
   }).join('');
+}
+
+function _getOrgLizCount(){
+  var l=_org.lizenzen||{};var pakete=l.pakete||[];var counts={};
+  pakete.forEach(function(p){counts[p.paketId]=(counts[p.paketId]||0)+1;});
+  return counts;
+}
+function _getOrgAllowedRoles(){
+  var l=_org.lizenzen||{};var pakete=l.pakete||[];
+  var allowed={};pakete.forEach(function(p){allowed[p.paketId]=true;});
+  return Object.keys(allowed);
 }
 
 function _editUserRoles(userId){
@@ -232,11 +248,18 @@ function _editUserRoles(userId){
   var u=users.find(function(x){return x.id===userId;});
   if(!u)return;
   var allRoles=GemaAuth.getRoles()||[];
-  var assignable=allRoles.filter(function(r){return r.id!=='role_admin';});
+  // Nur Rollen die dem Unternehmen vom GEMA Admin zugewiesen wurden
+  var orgRollen=_org.zugewieseneRollen||[];
+  var assignable=allRoles.filter(function(r){
+    if(r.id==='role_admin')return false;
+    if(orgRollen.length>0)return orgRollen.indexOf(r.id)>=0;
+    return true;
+  });
   var currentIds=u.roleIds||[];
   var html='<div style="background:#fff;border-radius:14px;padding:24px;max-width:420px;width:100%;box-shadow:0 20px 60px -10px rgba(0,0,0,.3)">'
-    +'<h3 style="margin:0 0 4px;font-size:17px;font-weight:900">🔑 Rollen bearbeiten</h3>'
-    +'<div style="font-size:12px;color:#64748b;margin-bottom:16px">'+E(u.name||u.username)+'</div>'
+    +'<h3 style="margin:0 0 4px;font-size:17px;font-weight:900">🔑 Rollen zuweisen</h3>'
+    +'<div style="font-size:12px;color:#64748b;margin-bottom:6px">'+E(u.name||u.username)+'</div>'
+    +(orgRollen.length?'<div style="font-size:10px;color:var(--amb);margin-bottom:12px">Nur vom GEMA-Admin freigeschaltete Rollen verfügbar</div>':'<div style="font-size:10px;color:var(--mut);margin-bottom:12px">Alle Rollen verfügbar (keine Einschränkung durch GEMA-Admin)</div>')
     +'<div id="_roleCheckboxes" style="display:flex;flex-direction:column;gap:6px">'
     +assignable.map(function(r){
       var checked=currentIds.indexOf(r.id)>=0;
@@ -270,6 +293,48 @@ function _closeRoleModal(){
   if(ov)ov.remove();
   document.body.classList.remove('modal-open');
 }
+
+function _editUserLiz(userId){
+  var users=GemaAuth.getUsers()||[];
+  var u=users.find(function(x){return x.id===userId;});
+  if(!u)return;
+  var currentLiz=u.lizenzen||[];
+  var lizCounts=_getOrgLizCount();
+  var orgUsers=GemaAuth.getOrgUsers(_org.id);
+  // Nur Pakete zeigen die das Unternehmen gekauft hat
+  var available=GEWERKE_PAKETE.filter(function(gw){return(lizCounts[gw.id]||0)>0;});
+  if(!available.length){alert('Keine Lizenzen gekauft. Bitte zuerst im Tab «Lizenzen» Pakete kaufen.');return;}
+  var html='<div style="background:#fff;border-radius:14px;padding:24px;max-width:420px;width:100%;box-shadow:0 20px 60px -10px rgba(0,0,0,.3)">'
+    +'<h3 style="margin:0 0 4px;font-size:17px;font-weight:900">📦 Lizenzen zuweisen</h3>'
+    +'<div style="font-size:12px;color:#64748b;margin-bottom:14px">'+E(u.name||u.username)+'</div>'
+    +'<div id="_lizCheckboxes" style="display:flex;flex-direction:column;gap:6px">'
+    +available.map(function(gw){
+      var has=currentLiz.indexOf(gw.id)>=0;
+      var total=lizCounts[gw.id]||0;
+      var used=0;orgUsers.forEach(function(ou){if(ou.lizenzen&&ou.lizenzen.indexOf(gw.id)>=0&&ou.id!==userId)used++;});
+      var frei=total-used-(has?0:0);
+      var canAdd=has||frei>0;
+      return '<label style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:8px;cursor:'+(canAdd?'pointer':'not-allowed')+';border:1.5px solid '+(has?'var(--acc)':'#e2e7f0')+';background:'+(has?'var(--acc-bg)':'#fff')+';opacity:'+(canAdd?'1':'.5')+'"><input type="checkbox" value="'+gw.id+'"'+(has?' checked':'')+(!canAdd&&!has?' disabled':'')+' style="accent-color:var(--acc);width:16px;height:16px"/> <div style="flex:1"><div style="font-size:13px;font-weight:600;color:'+(has?'var(--acc)':'#374151')+'">'+gw.icon+' '+E(gw.name)+'</div></div><span style="font-size:10px;color:var(--mut);font-weight:700">'+(total-used)+'/'+total+' frei</span></label>';
+    }).join('')
+    +'</div>'
+    +'<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">'
+    +'<button onclick="_closeLizUserModal()" style="padding:8px 16px;border-radius:8px;border:1.5px solid #c8cfdf;background:#fff;color:#334155;cursor:pointer;font-weight:600;font-family:inherit">Abbrechen</button>'
+    +'<button onclick="_saveUserLizFromModal(\''+userId+'\')" style="padding:8px 16px;border-radius:8px;border:none;background:var(--acc);color:#fff;cursor:pointer;font-weight:700;font-family:inherit">✓ Speichern</button>'
+    +'</div></div>';
+  var ov=document.createElement('div');ov.id='_lizUserModalOv';
+  ov.style.cssText='position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:10500;display:flex;align-items:center;justify-content:center;padding:20px';
+  ov.innerHTML=html;document.body.appendChild(ov);document.body.classList.add('modal-open');
+}
+function _saveUserLizFromModal(userId){
+  var cbs=document.querySelectorAll('#_lizCheckboxes input[type="checkbox"]');
+  var newLiz=[];cbs.forEach(function(cb){if(cb.checked)newLiz.push(cb.value);});
+  var users=GemaAuth.getUsers()||[];
+  var u=users.find(function(x){return x.id===userId;});
+  if(u){u.lizenzen=newLiz;GemaAuth.saveUsers(users);}
+  _closeLizUserModal();renderUsers();renderLizenzen();toast('Lizenzen aktualisiert');
+}
+function _closeLizUserModal(){var ov=document.getElementById('_lizUserModalOv');if(ov)ov.remove();document.body.classList.remove('modal-open');}
+
 function inviteUser(){
   var email=prompt('E-Mail des neuen Benutzers:');if(!email)return;
   var name=prompt('Name:','');
