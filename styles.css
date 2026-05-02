@@ -1,0 +1,186 @@
+// Sidebar: user, org switcher, persönliche + geteilte Eimer
+const { useState } = React;
+
+function Avatar({ initials, size = 32, color, ring = false }) {
+  const bg = color || '#1e3a5f';
+  return (
+    <div className="gema-avatar" style={{
+      width: size, height: size,
+      borderRadius: '50%',
+      background: bg,
+      color: '#fff',
+      fontSize: size * 0.4,
+      fontWeight: 600,
+      display: 'inline-flex',
+      alignItems: 'center', justifyContent: 'center',
+      boxShadow: ring ? '0 0 0 2px #fff, 0 0 0 3px rgba(15,23,42,0.12)' : 'none',
+      letterSpacing: '0.02em',
+      flexShrink: 0,
+    }}>{initials}</div>
+  );
+}
+
+function AvatarCluster({ members, size = 22 }) {
+  const palette = ['#1e3a5f', '#0c4a2e', '#3B82F6', '#F59E0B', '#10B981', '#7c3aed'];
+  return (
+    <div className="gema-cluster" style={{ display: 'inline-flex' }}>
+      {members.slice(0, 3).map((m, i) => (
+        <div key={i} style={{ marginLeft: i === 0 ? 0 : -8 }}>
+          <Avatar initials={m} size={size} color={palette[i % palette.length]} ring />
+        </div>
+      ))}
+      {members.length > 3 && (
+        <div style={{
+          marginLeft: -8,
+          width: size, height: size, borderRadius: '50%',
+          background: '#E5E7EB', color: '#475569',
+          fontSize: size * 0.38, fontWeight: 600,
+          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+          boxShadow: '0 0 0 2px #fff',
+        }}>+{members.length - 3}</div>
+      )}
+    </div>
+  );
+}
+
+function BucketTypeIcon({ type, size = 16 }) {
+  const map = {
+    project: { icon: 'building', color: '#1e3a5f' },
+    training: { icon: 'grad', color: '#3B82F6' },
+    private: { icon: 'lock', color: '#64748b' },
+    shared: { icon: 'users', color: '#0c4a2e' },
+  };
+  const m = map[type] || map.project;
+  return <span style={{ color: m.color, display: 'inline-flex' }}><Icon name={m.icon} size={size} /></span>;
+}
+
+function BucketRow({ bucket, isActive, isOpen, onClick }) {
+  return (
+    <button
+      className={'gema-bucket-row' + (isActive ? ' is-active' : '') + (isOpen ? ' is-open' : '')}
+      onClick={onClick}
+      title={bucket.name}
+    >
+      <span className="gema-bucket-row__icon"><BucketTypeIcon type={bucket.type} /></span>
+      <span className="gema-bucket-row__name">{bucket.name}</span>
+      {bucket.shared && bucket.members.length > 1 && (
+        <span className="gema-bucket-row__cluster"><AvatarCluster members={bucket.members} size={18} /></span>
+      )}
+      {isOpen && <span className="gema-bucket-row__dot" aria-hidden="true" />}
+    </button>
+  );
+}
+
+function Sidebar({
+  user, orgs, activeOrg, onChangeOrg,
+  personalBuckets, sharedBuckets,
+  activeBucketId, openTabIds,
+  onOpenBucket, onNewBucket,
+}) {
+  const [expandPersonal, setExpandPersonal] = useState(false);
+  const [expandShared, setExpandShared] = useState(false);
+
+  const visiblePersonal = expandPersonal ? personalBuckets : personalBuckets.slice(0, 5);
+  const visibleShared = expandShared ? sharedBuckets : sharedBuckets.slice(0, 5);
+
+  return (
+    <aside className="gema-sidebar">
+      <div className="gema-sidebar__user">
+        <Avatar initials={user.initials} size={40} color="#0c4a2e" />
+        <div className="gema-sidebar__user-meta">
+          <div className="gema-sidebar__user-name">{user.name}</div>
+          <div className="gema-sidebar__user-role">{user.role}</div>
+        </div>
+      </div>
+
+      <div className="gema-sidebar__orgs">
+        <div className="gema-sidebar__label">Organisation</div>
+        <div className="gema-org-pills">
+          {orgs.map(o => (
+            <button
+              key={o.id}
+              className={'gema-org-pill' + (activeOrg === o.id ? ' is-active' : '')}
+              onClick={() => onChangeOrg(o.id)}
+            >
+              {o.short}
+            </button>
+          ))}
+          <button
+            className={'gema-org-pill gema-org-pill--all' + (activeOrg === 'all' ? ' is-active' : '')}
+            onClick={() => onChangeOrg('all')}
+          >Alle</button>
+        </div>
+      </div>
+
+      <div className="gema-sidebar__section">
+        <div className="gema-sidebar__section-head">
+          <span className="gema-sidebar__label">Persönliche Eimer</span>
+          <button className="gema-icon-btn" onClick={onNewBucket} title="Neuer persönlicher Eimer">
+            <Icon name="plus" size={16} />
+          </button>
+        </div>
+        <div className="gema-sidebar__list">
+          {personalBuckets.length === 0 && (
+            <div className="gema-empty-hint">Noch keine Eimer</div>
+          )}
+          {visiblePersonal.map(b => (
+            <BucketRow
+              key={b.id}
+              bucket={b}
+              isActive={activeBucketId === b.id}
+              isOpen={openTabIds.includes(b.id)}
+              onClick={() => onOpenBucket(b.id)}
+            />
+          ))}
+          {personalBuckets.length > 5 && (
+            <button className="gema-sidebar__more" onClick={() => setExpandPersonal(v => !v)}>
+              {expandPersonal ? '… weniger' : `… ${personalBuckets.length - 5} mehr`}
+            </button>
+          )}
+          <button className="gema-sidebar__new" onClick={onNewBucket}>
+            <Icon name="plus" size={14} /> Neuer Eimer
+          </button>
+        </div>
+      </div>
+
+      <div className="gema-sidebar__section">
+        <div className="gema-sidebar__section-head">
+          <span className="gema-sidebar__label">Geteilte Eimer</span>
+        </div>
+        <div className="gema-sidebar__list">
+          {sharedBuckets.length === 0 && (
+            <div className="gema-empty-hint">Noch keine geteilten Eimer</div>
+          )}
+          {visibleShared.map(b => (
+            <BucketRow
+              key={b.id}
+              bucket={b}
+              isActive={activeBucketId === b.id}
+              isOpen={openTabIds.includes(b.id)}
+              onClick={() => onOpenBucket(b.id)}
+            />
+          ))}
+          {sharedBuckets.length > 5 && (
+            <button className="gema-sidebar__more" onClick={() => setExpandShared(v => !v)}>
+              {expandShared ? '… weniger' : `… ${sharedBuckets.length - 5} mehr`}
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className="gema-sidebar__footer">
+        <span className="gema-sidebar__label">Verknüpfte Orgs</span>
+        <div className="gema-tag-row">
+          {orgs.map(o => (
+            <span key={o.id} className="gema-org-tag">{o.short}</span>
+          ))}
+        </div>
+      </div>
+    </aside>
+  );
+}
+
+window.Sidebar = Sidebar;
+window.Avatar = Avatar;
+window.AvatarCluster = AvatarCluster;
+window.BucketTypeIcon = BucketTypeIcon;
