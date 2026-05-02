@@ -49,7 +49,8 @@
       '#pwaInstallBanner','.hero-actions','.hero-pills',
       '.stat-card','.stats-row','.kpi-row','.toolbar','.filter-bar',
       '#feedbackBtn','.wz-role-badge',
-      '.tc-foot','.tc-actions','.v-card-footer'
+      '.tc-foot','.tc-actions','.v-card-footer',
+      '.gema-hero-norm','.gema-hero-sub','.hero','.g-ph'
     ];
     hideSelectors.forEach(function(sel){
       try{
@@ -101,20 +102,48 @@
       var pageH=ph-Mtop-Mbot;
 
       var srcW=canvas.width, srcH=canvas.height;
-      var sliceHpx=Math.floor(srcH*(pageH/totalImgH));
+      var pxPerMm=srcW/contentW;
+      var sliceHpx=Math.floor(pageH*pxPerMm);
       var yPx=0, pageNum=0;
 
-      // Smart page breaks: avoid cutting in the last 8% of a page (orphan prevention)
-      var orphanThreshold=Math.floor(sliceHpx*0.08);
+      // Collect container boundaries for smart page breaks
+      var breakPoints=[];
+      try{
+        var sections=container.querySelectorAll('.g-section,.g-card,.card,.fsec,.form-section,.g-result-group,section,fieldset,table,.project-bar,.g-ph,.ts');
+        sections.forEach(function(el){
+          var r=el.getBoundingClientRect();
+          var cR=container.getBoundingClientRect();
+          var topPx=Math.round((r.top-cR.top)*(srcW/container.offsetWidth));
+          var botPx=Math.round((r.bottom-cR.top)*(srcW/container.offsetWidth));
+          breakPoints.push({top:topPx,bot:botPx});
+        });
+      }catch(e){}
+      breakPoints.sort(function(a,b){return a.top-b.top;});
 
       while(yPx<srcH){
         if(pageNum>0) doc.addPage();
         var remaining=srcH-yPx;
-        var thisH=Math.min(sliceHpx,remaining);
-        // If last slice is very small (<8% of page), merge with previous
-        if(remaining>sliceHpx&&remaining-sliceHpx<orphanThreshold){
-          thisH=Math.floor(remaining/2);
+        var idealEnd=yPx+sliceHpx;
+        var cutAt=Math.min(idealEnd,srcH);
+
+        // Find best cut point: prefer cutting between containers
+        if(cutAt<srcH&&breakPoints.length){
+          var bestCut=cutAt;
+          for(var bi=0;bi<breakPoints.length;bi++){
+            var bp=breakPoints[bi];
+            if(bp.top>yPx+sliceHpx*0.3&&bp.top<=idealEnd){
+              bestCut=bp.top;
+            }
+          }
+          // If best cut would leave <10% on last page, split evenly
+          if(srcH-bestCut>0&&srcH-bestCut<sliceHpx*0.1){
+            bestCut=yPx+Math.floor(remaining/2);
+          }
+          cutAt=bestCut;
         }
+
+        var thisH=cutAt-yPx;
+        if(thisH<=0)thisH=Math.min(sliceHpx,remaining);
         var sc=document.createElement('canvas');
         sc.width=srcW; sc.height=thisH;
         sc.getContext('2d').drawImage(canvas,0,yPx,srcW,thisH,0,0,srcW,thisH);
@@ -250,7 +279,7 @@
     doc.setDrawColor(220); doc.setLineWidth(0.2);
     doc.line(M, ph-Mbot+2, pw-M, ph-Mbot+2);
     doc.setFontSize(7.5); doc.setTextColor(150);
-    var stamp='Erstellt mit GEMA \u00b7 gema-suite.ch';
+    var stamp='Erstellt mit GEMA \u00b7 www.gema-connect.ch';
     if(meta.projektnummer) stamp += '  \u00b7  Projekt-Nr. '+meta.projektnummer;
     doc.text(stamp, M, ph-5);
     doc.text('Seite '+p+' / '+total, pw-M, ph-5, {align:'right'});
