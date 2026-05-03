@@ -698,6 +698,7 @@ input::placeholder{color:#cbd5e1}
       activity:[{who:'Du',text:'hat „'+name+'” erstellt'+(tplMods.length?' mit '+tplMods.length+' Modulen aus Vorlage':''),when:'gerade eben'}],
       beteiligte:[],notes:[{id:'n1',title:'n.Seite 1',body:'<p>Erste Notiz …</p>'}],objektId:null,createdAt:new Date().toISOString()};
     buckets.push(b);
+    _wsEnsureObjekt(b);
     activeTab=b.id;
     if(openTabs.indexOf(b.id)<0)openTabs.push(b.id);
     _wsCloseModal();save();render();
@@ -713,6 +714,7 @@ input::placeholder{color:#cbd5e1}
       activity:[{who:'Du',text:'hat „'+name+'” erstellt',when:'gerade eben'}],
       beteiligte:[],notes:[{id:'n1',title:'n.Seite 1',body:'<p>Erste Notiz …</p>'}],objektId:null,createdAt:new Date().toISOString()};
     buckets.push(b);
+    _wsEnsureObjekt(b);
     activeTab=b.id;
     if(openTabs.indexOf(b.id)<0)openTabs.push(b.id);
     save();render();
@@ -1087,6 +1089,30 @@ input::placeholder{color:#cbd5e1}
     document.getElementById('wsNotesMenu').style.display='none';
   };
 
+  // ── Auto-Objekt: Jeder Eimer bekommt automatisch ein Objekt ──
+  function _wsEnsureObjekt(b){
+    if(b.objektId)return b.objektId;
+    var objId='obj_ws_'+b.id;
+    var curUser=null;
+    try{if(typeof GemaAuth!=='undefined')curUser=GemaAuth.getCurrentUser();}catch(e){}
+    var newObj={id:objId,name:b.name,strasse:'',plz:'',ort:'',
+      bauvorhaben:(TYPES[b.type]||TYPES.project).label,status:'aktiv',
+      orgId:curUser?curUser.orgId:'org_default',
+      erstelltVon:curUser?curUser.id:'',
+      createdAt:b.createdAt||new Date().toISOString()};
+    try{
+      var raw=localStorage.getItem('gema_objekte_v1');
+      var data=raw?JSON.parse(raw):{objekte:[],beteiligte:[],activeObjektId:null};
+      if(!data.objekte.find(function(o){return o.id===objId;})){
+        data.objekte.push(newObj);
+        localStorage.setItem('gema_objekte_v1',JSON.stringify(data));
+      }
+    }catch(e){}
+    b.objektId=objId;
+    save();
+    return objId;
+  }
+
   // ── Render ──
   function render(){
     renderUser();renderOrgs();renderSidebar();renderTabBar();renderMain();
@@ -1229,7 +1255,8 @@ input::placeholder{color:#cbd5e1}
         +'<div class="ws-mod-hero-title">Erstes Modul hinzufügen</div>'
         +'<div class="ws-mod-hero-sub">Wähle aus Enthärtung, Osmose, LU-Tabelle, W12, Druckerhöhung …</div></div>';
     }else{
-      var objParam=b.objektId?'?objekt='+encodeURIComponent(b.objektId):'';
+      var objId=_wsEnsureObjekt(b);
+      var objParam='?objekt='+encodeURIComponent(objId);
       modsHtml='<div class="ws-mod-grid">'+b.modules.map(function(m){
         var mod=MODULES.find(function(x){return x.id===m.mod;});if(!mod)return '';
         var isDone=m.status==='berechnet';var isWip=m.status==='in Bearbeitung';
