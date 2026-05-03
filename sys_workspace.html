@@ -430,13 +430,17 @@ input::placeholder{color:#cbd5e1}
     <div class="ws-user" id="wsUser"></div>
     <div class="ws-org-section" id="wsOrgSection"></div>
     <div class="ws-section">
-      <div class="ws-section-head"><span class="ws-label">Persönliche Eimer</span><button class="ws-icon-btn" onclick="_wsOpenNewModal()" title="Neuer Eimer"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg></button></div>
+      <div class="ws-section-head"><span class="ws-label" id="wsOrgLabel">Organisation</span><button class="ws-icon-btn" onclick="_wsOpenNewModal()" title="Neuer Eimer"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg></button></div>
+      <div class="ws-bucket-list" id="wsOrgBuckets"></div>
+    </div>
+    <div class="ws-section">
+      <div class="ws-section-head"><span class="ws-label">Meine Eimer</span></div>
       <div class="ws-bucket-list" id="wsPersonal"></div>
       <button class="ws-sidebar-new" onclick="_wsOpenNewModal()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg> Neuer Eimer</button>
     </div>
-    <div class="ws-section">
-      <div class="ws-section-head"><span class="ws-label">Geteilte Eimer</span></div>
-      <div class="ws-bucket-list" id="wsShared"></div>
+    <div class="ws-section" id="wsGuestSection" style="display:none">
+      <div class="ws-section-head"><span class="ws-label">Gast-Eimer</span></div>
+      <div class="ws-bucket-list" id="wsGuestBuckets"></div>
     </div>
     <div class="ws-sidebar-footer">
       <button class="ws-settings-btn" onclick="_wsOpenSettings()" id="wsSettingsBtn"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg> Einstellungen</button>
@@ -533,10 +537,9 @@ input::placeholder{color:#cbd5e1}
 
   // ── Bucket Type Config ──
   var TYPES={
-    project:{label:'Bauprojekt',icon:'building',color:'#1e3a5f'},
-    training:{label:'Übung',icon:'grad',color:'#3B82F6'},
-    'private':{label:'Privat',icon:'lock',color:'#64748b'},
-    shared:{label:'Geteilt',icon:'users',color:'#0c4a2e'}
+    project:{label:'Bauprojekt',icon:'building',color:'#1e3a5f',ownerType:'org'},
+    training:{label:'Übung',icon:'grad',color:'#3B82F6',ownerType:'choose'},
+    'private':{label:'Privat',icon:'lock',color:'#64748b',ownerType:'personal'}
   };
   function typeIcon(type,size){var t=TYPES[type]||TYPES.project;return '<span style="color:'+t.color+';display:inline-flex">'+icon(t.icon,size||16)+'</span>';}
 
@@ -690,12 +693,55 @@ input::placeholder{color:#cbd5e1}
     if(!orgs.length)orgs=[{id:'default',short:'Org',name:'Organisation'}];
     return orgs;
   }
+
+  // ── Current User Helper ──
+  function _curUser(){
+    try{if(typeof GemaAuth!=='undefined')return GemaAuth.getCurrentUser();}catch(e){}
+    return null;
+  }
+  function _curUserId(){var u=_curUser();return u?u.id:null;}
+  function _curOrgId(){var u=_curUser();return u?u.orgId:'org_default';}
+  function _isOrgAdmin(){
+    try{if(typeof GemaAuth!=='undefined'&&typeof GemaAuth.isOrgAdmin==='function')return GemaAuth.isOrgAdmin(_curUserId());}catch(e){}
+    var u=_curUser();return u&&u.roleIds&&u.roleIds.indexOf('role_admin')>=0;
+  }
+
+  // ── Bucket Sichtbarkeit ──
+  function _canSeeBucket(b){
+    var uid=_curUserId();var oid=_curOrgId();if(!uid)return true;
+    if(b.ownerType==='personal')return b.createdBy===uid;
+    if(b.accessControl&&b.accessControl.revokedUsers&&b.accessControl.revokedUsers.indexOf(uid)>=0)return false;
+    if(b.ownerOrgId===oid)return true;
+    if(b.accessControl&&b.accessControl.invitedUsers&&b.accessControl.invitedUsers.indexOf(uid)>=0)return true;
+    if(b.createdBy===uid)return true;
+    return false;
+  }
+  function _isGuestBucket(b){
+    var oid=_curOrgId();
+    return b.ownerType==='org'&&b.ownerOrgId&&b.ownerOrgId!==oid;
+  }
+  function _canEditBucket(b){
+    var uid=_curUserId();
+    if(b.ownerType==='personal')return b.createdBy===uid;
+    if(b.ownerOrgId===_curOrgId())return true;
+    return false;
+  }
+
+  // ── New Bucket Modal ──
+  var _newType='project';
+  var _newOrg='';
+  var _newOwner='org';
   window._wsOpenNewModal=function(){
-    _newType='project';
+    _newType='project';_newOwner='org';
     var orgs=_getOrgs();_newOrg=orgs[0].id;
-    var types=[{id:'project',icon:'building',label:'Bauprojekt'},{id:'training',icon:'grad',label:'Übung'},{id:'private',icon:'lock',label:'Privat'},{id:'shared',icon:'users',label:'Team'}];
+    var types=[{id:'project',icon:'building',label:'Bauprojekt'},{id:'training',icon:'grad',label:'Übung'},{id:'private',icon:'lock',label:'Privat'}];
     var orgHtml='<div class="ws-form-field" id="wsOrgField"><label>Organisation</label><div class="ws-org-pills" id="wsOrgPillsModal">'
       +orgs.map(function(o){return '<button class="ws-org-pill'+(o.id===_newOrg?' active':'')+'" onclick="_wsPickOrg(\''+o.id+'\')">'+esc(o.name)+'</button>';}).join('')
+      +'</div></div>';
+    var ownerHtml='<div class="ws-form-field" id="wsOwnerField" style="display:none"><label>Eigentümer</label>'
+      +'<div style="display:flex;gap:8px">'
+      +'<button class="ws-type-card active" id="wsOwnerOrg" onclick="_wsPickOwner(\'org\')" style="flex:1">'+icon('building',16)+'<span>Organisation</span></button>'
+      +'<button class="ws-type-card" id="wsOwnerPersonal" onclick="_wsPickOwner(\'personal\')" style="flex:1">'+icon('lock',16)+'<span>Persönlich</span></button>'
       +'</div></div>';
     var templates=loadTemplates();
     var tplHtml=templates.length?'<div class="ws-form-field"><label>Vorlage (optional)</label>'
@@ -707,7 +753,7 @@ input::placeholder{color:#cbd5e1}
       +'<div class="ws-form-field"><label>Typ</label><div class="ws-type-grid" id="wsTypeGrid">'
       +types.map(function(t){return '<button class="ws-type-card'+(t.id==='project'?' active':'')+'" data-type="'+t.id+'" onclick="_wsPickType(\''+t.id+'\')">'+icon(t.icon,18)+'<span>'+t.label+'</span></button>';}).join('')
       +'</div></div>'
-      +orgHtml+tplHtml
+      +ownerHtml+orgHtml+tplHtml
       +'<div class="ws-form-actions"><button class="ws-btn ws-btn-ghost" onclick="_wsCloseModal()">Abbrechen</button>'
       +'<button class="ws-btn ws-btn-primary" id="wsCreateBtn" onclick="_wsDoCreate()" disabled>Eimer erstellen</button></div></div>';
     openModal('Neuer Eimer',body);
@@ -716,10 +762,32 @@ input::placeholder{color:#cbd5e1}
   };
   window._wsPickType=function(t){
     _newType=t;
+    var tc=TYPES[t]||TYPES.project;
     var cards=document.querySelectorAll('#wsTypeGrid .ws-type-card');
     for(var i=0;i<cards.length;i++)cards[i].classList.toggle('active',cards[i].getAttribute('data-type')===t);
+    var ownerField=document.getElementById('wsOwnerField');
     var orgField=document.getElementById('wsOrgField');
-    if(orgField)orgField.style.display=t==='private'?'none':'';
+    if(tc.ownerType==='choose'){
+      if(ownerField)ownerField.style.display='';
+      if(orgField)orgField.style.display=_newOwner==='org'?'':'none';
+    }else if(tc.ownerType==='personal'){
+      _newOwner='personal';
+      if(ownerField)ownerField.style.display='none';
+      if(orgField)orgField.style.display='none';
+    }else{
+      _newOwner='org';
+      if(ownerField)ownerField.style.display='none';
+      if(orgField)orgField.style.display='';
+    }
+  };
+  window._wsPickOwner=function(o){
+    _newOwner=o;
+    var ob=document.getElementById('wsOwnerOrg');
+    var pb=document.getElementById('wsOwnerPersonal');
+    if(ob)ob.classList.toggle('active',o==='org');
+    if(pb)pb.classList.toggle('active',o==='personal');
+    var orgField=document.getElementById('wsOrgField');
+    if(orgField)orgField.style.display=o==='org'?'':'none';
   };
   window._wsPickOrg=function(id){
     _newOrg=id;
@@ -730,15 +798,23 @@ input::placeholder{color:#cbd5e1}
     var inp=document.getElementById('wsNewName');
     var name=(inp?inp.value:'').trim();
     if(!name)return;
-    var orgId=_newType==='private'?_resolveOrg():(_newOrg||_resolveOrg());
+    var isPersonal=_newOwner==='personal'||_newType==='private';
+    var orgId=isPersonal?null:(_newOrg||_resolveOrg());
+    var uid=_curUserId();
     var tplMods=[];
     var tplSel=document.getElementById('wsTplSelect');
     if(tplSel&&tplSel.value!==''){
       var tpl=loadTemplates()[parseInt(tplSel.value)];
       if(tpl)tplMods=tpl.modules.map(function(mId){return{mod:mId,status:'offen'};});
     }
-    var b={id:'ws_'+Date.now(),name:name,type:_newType,org:orgId,shared:_newType==='shared',members:['Du'],modules:tplMods,
-      activity:[{who:'Du',text:'hat „'+name+'” erstellt'+(tplMods.length?' mit '+tplMods.length+' Modulen aus Vorlage':''),when:'gerade eben'}],
+    var uName='Du';try{var cu=_curUser();if(cu)uName=cu.name||'Du';}catch(e){}
+    var b={id:'ws_'+Date.now(),name:name,type:_newType,
+      ownerType:isPersonal?'personal':'org',
+      ownerOrgId:orgId,
+      createdBy:uid,
+      accessControl:{orgVisible:true,invitedUsers:[],revokedUsers:[]},
+      org:orgId||_curOrgId(),members:[_initials(uName)],modules:tplMods,
+      activity:[{who:uName,text:'hat „'+name+'” erstellt'+(tplMods.length?' mit '+tplMods.length+' Modulen aus Vorlage':''),when:'gerade eben'}],
       beteiligte:[],notes:[{id:'n1',title:'n.Seite 1',body:''}],objektId:null,createdAt:new Date().toISOString()};
     buckets.push(b);
     _wsEnsureObjekt(b);
@@ -752,9 +828,15 @@ input::placeholder{color:#cbd5e1}
   window._wsQuickCreate=function(typeId){
     var presets={project:'Mein erstes Bauprojekt',training:'Übungsumgebung','private':'Privater Eimer'};
     var name=presets[typeId]||'Neuer Eimer';
-    var orgId=_resolveOrg();
-    var b={id:'ws_'+Date.now(),name:name,type:typeId,org:orgId,shared:false,members:['Du'],modules:[],
-      activity:[{who:'Du',text:'hat „'+name+'” erstellt',when:'gerade eben'}],
+    var isPersonal=typeId==='private';
+    var orgId=isPersonal?null:_resolveOrg();
+    var uid=_curUserId();
+    var uName='Du';try{var cu=_curUser();if(cu)uName=cu.name||'Du';}catch(e){}
+    var b={id:'ws_'+Date.now(),name:name,type:typeId,
+      ownerType:isPersonal?'personal':'org',ownerOrgId:orgId,createdBy:uid,
+      accessControl:{orgVisible:true,invitedUsers:[],revokedUsers:[]},
+      org:orgId||_curOrgId(),members:[_initials(uName)],modules:[],
+      activity:[{who:uName,text:'hat „'+name+'” erstellt',when:'gerade eben'}],
       beteiligte:[],notes:[{id:'n1',title:'n.Seite 1',body:''}],objektId:null,createdAt:new Date().toISOString()};
     buckets.push(b);
     _wsEnsureObjekt(b);
@@ -1266,18 +1348,33 @@ input::placeholder{color:#cbd5e1}
   };
 
   function renderSidebar(){
+    var visible=buckets.filter(_canSeeBucket);
+    var oid=_curOrgId();
+    var orgName='Organisation';
+    try{var co=_getOrgs()[0];if(co)orgName=co.name;}catch(e){}
+    var orgBuckets=visible.filter(function(b){return b.ownerType==='org'&&b.ownerOrgId===oid;});
+    var personal=visible.filter(function(b){return b.ownerType==='personal';});
+    var guest=visible.filter(function(b){return _isGuestBucket(b);});
+
     var filterOrg=function(list){
       if(activeOrg==='all')return list;
-      return list.filter(function(b){return b.org===activeOrg;});
+      return list.filter(function(b){return(b.ownerOrgId||b.org)===activeOrg;});
     };
-    var personal=filterOrg(buckets.filter(function(b){return!b.shared;}));
-    var shared=filterOrg(buckets.filter(function(b){return b.shared;}));
-    var visP=_expandPersonal?personal:personal.slice(0,5);
-    var visS=_expandShared?shared:shared.slice(0,5);
-    var moreP=personal.length>5?'<button style="font-size:12px;color:var(--ink-3);padding:6px 10px;text-align:left;border-radius:var(--r-sm);width:100%" onclick="_wsToggleExpand(\'personal\')" onmouseover="this.style.background=\'#F4F5F7\'" onmouseout="this.style.background=\'none\'">'+(_expandPersonal?'… weniger':'… '+(personal.length-5)+' mehr')+'</button>':'';
-    var moreS=shared.length>5?'<button style="font-size:12px;color:var(--ink-3);padding:6px 10px;text-align:left;border-radius:var(--r-sm);width:100%" onclick="_wsToggleExpand(\'shared\')" onmouseover="this.style.background=\'#F4F5F7\'" onmouseout="this.style.background=\'none\'">'+(_expandShared?'… weniger':'… '+(shared.length-5)+' mehr')+'</button>':'';
-    document.getElementById('wsPersonal').innerHTML=(visP.length?visP.map(bucketRowHtml).join(''):'<div class="ws-empty-hint">Noch keine Eimer</div>')+moreP;
-    document.getElementById('wsShared').innerHTML=(visS.length?visS.map(bucketRowHtml).join(''):'<div class="ws-empty-hint">Noch keine geteilten Eimer</div>')+moreS;
+    orgBuckets=filterOrg(orgBuckets);
+
+    function renderList(list,emptyText){
+      var vis=list.slice(0,list._expanded?999:5);
+      var html=vis.length?vis.map(bucketRowHtml).join(''):'<div class="ws-empty-hint">'+emptyText+'</div>';
+      if(list.length>5)html+='<button style="font-size:12px;color:var(--ink-3);padding:6px 10px;text-align:left;border-radius:var(--r-sm);width:100%" onclick="this.parentElement._exp=!this.parentElement._exp;render()" onmouseover="this.style.background=\'#F4F5F7\'" onmouseout="this.style.background=\'none\'">'+(list.length>5?'… '+(list.length-5)+' mehr':'')+'</button>';
+      return html;
+    }
+    var lbl=document.getElementById('wsOrgLabel');if(lbl)lbl.textContent=orgName;
+    document.getElementById('wsOrgBuckets').innerHTML=renderList(orgBuckets,'Keine Org-Eimer');
+    document.getElementById('wsPersonal').innerHTML=renderList(personal,'Keine persönlichen Eimer');
+    var guestEl=document.getElementById('wsGuestBuckets');
+    var guestSec=document.getElementById('wsGuestSection');
+    if(guestEl)guestEl.innerHTML=renderList(guest,'');
+    if(guestSec)guestSec.style.display=guest.length?'':'none';
     var sBtn=document.getElementById('wsSettingsBtn');
     if(sBtn)sBtn.classList.toggle('active',_showSettings);
   }
@@ -1932,7 +2029,10 @@ input::placeholder{color:#cbd5e1}
     try{if(typeof GemaAuth!=='undefined'){var o=GemaAuth.getCurrentOrg();if(o)orgName=o.name||o.id;}}catch(e){}
     b.members.push(_initials(u.name));
     b.beteiligte.push({userId:u.id,role:role,name:u.name,org:orgName,intern:true});
-    b.activity.unshift({who:'Du',text:'hat '+u.name+' hinzugefügt',when:'gerade eben'});
+    if(!b.accessControl)b.accessControl={orgVisible:true,invitedUsers:[],revokedUsers:[]};
+    if(b.accessControl.invitedUsers.indexOf(u.id)<0)b.accessControl.invitedUsers.push(u.id);
+    var uName='Du';try{var cu=_curUser();if(cu)uName=cu.name||'Du';}catch(e){}
+    b.activity.unshift({who:uName,text:'hat '+u.name+' hinzugefügt',when:'gerade eben'});
     _wsCloseModal();save();render();
     toast(u.name+' hinzugefügt','check');
   };
