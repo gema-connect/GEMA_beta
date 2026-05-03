@@ -122,7 +122,9 @@ input::placeholder{color:#cbd5e1}
 .ws-mod-tile:hover{transform:translateY(-2px);box-shadow:var(--shadow-2);border-color:#d4dae2}
 .ws-mod-tile-icon{width:44px;height:44px;border-radius:var(--r-sm);background:linear-gradient(135deg,#F0F4FA 0%,#E8F0EA 100%);color:var(--navy);display:grid;place-items:center;flex-shrink:0;transition:var(--t)}
 .ws-mod-tile:hover .ws-mod-tile-icon{background:var(--gradient);color:#fff}
-.ws-mod-tile-name{font-weight:600;font-size:14px;margin-bottom:4px}
+.ws-mod-tile-name{font-weight:600;font-size:14px;margin-bottom:2px}
+.ws-mod-kpi{font-size:11.5px;color:var(--navy);font-weight:600;margin-bottom:3px;line-height:1.3;letter-spacing:-.01em}
+.ws-mod-ts{font-size:10px;color:var(--ink-3);white-space:nowrap}
 .ws-mod-tile-status{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--ink-3)}
 .ws-mod-dot{width:7px;height:7px;border-radius:50%;background:var(--ink-3)}
 .ws-mod-tile-status.done{color:var(--green)}
@@ -509,6 +511,54 @@ input::placeholder{color:#cbd5e1}
     }
     if(members.length>3)html+='<div style="margin-left:-8px"><div class="ws-avatar" style="width:'+size+'px;height:'+size+'px;background:#E5E7EB;color:#475569;font-size:'+(size*.38)+'px;box-shadow:0 0 0 2px #fff">+'+String(members.length-3)+'</div></div>';
     return html+'</span>';
+  }
+
+  // ── Module KPIs ──
+  var MODULE_KPIS={
+    sa_enthaertung:{label:'Enthärtung',unit:'°fH',key:'gema_enthaertung',fields:['haerteRoh','haerteZiel','durchfluss'],format:function(d){if(!d)return null;var parts=[];if(d.haerteRoh)parts.push(d.haerteRoh+'°fH → '+(d.haerteZiel||'?')+'°fH');if(d.durchfluss)parts.push(d.durchfluss+' l/s');return parts.join(' · ')||null;}},
+    sa_osmose:{label:'Osmose',key:'gema_osmose',format:function(d){if(!d)return null;var parts=[];if(d.permeat)parts.push('Permeat '+d.permeat+' l/s');if(d.recovery)parts.push('Recovery '+d.recovery+'%');return parts.join(' · ')||null;}},
+    sb_druckerhoehung:{label:'Druck',key:'gema_druckerhoehung',format:function(d){if(!d)return null;var parts=[];if(d.volumenstrom)parts.push(d.volumenstrom+' l/s');if(d.foerderhoehe)parts.push(d.foerderhoehe+' m');return parts.join(' · ')||null;}},
+    sb_lu_tabelle:{label:'LU',key:'gema_lu',format:function(d){if(!d)return null;if(d.verbraucher&&d.verbraucher.length)return d.verbraucher.length+' Verbraucher';return null;}},
+    sb_warmwasser:{label:'WW',key:'gema_warmwasser',format:function(d){if(!d)return null;var parts=[];if(d.speichervolumen)parts.push(d.speichervolumen+' l');if(d.leistung)parts.push(d.leistung+' kW');return parts.join(' · ')||null;}},
+    sb_niederschlag:{label:'NS',key:'gema_niederschlag',format:function(d){if(!d)return null;if(d.flaeche)return d.flaeche+' m²';return null;}},
+    sb_druckverlust:{label:'DV',key:'gema_druckverlust',format:function(d){if(!d)return null;if(d.druckverlust)return d.druckverlust+' mbar';return null;}},
+    hy_w12:{label:'W12',key:'gema_w12_v1',format:function(d){if(!d)return null;if(d.checks){var done=0,total=0;for(var k in d.checks){total++;if(d.checks[k])done++;}if(total)return done+'/'+total+' Punkte';}return null;}},
+    pm_objekte:{label:'Obj',format:function(){try{if(typeof GemaObjekte!=='undefined'){var all=GemaObjekte.getAll();if(all&&all.length)return all.length+' Objekte';}}catch(e){}return null;}},
+    pm_terminplan:{label:'TP',format:function(){return null;}},
+    pm_ausschreibung:{label:'AS',format:function(){return null;}},
+    pm_abnahme:{label:'AB',format:function(){return null;}},
+    if_werkzeug:{label:'WZ',key:'gema_werkzeug',format:function(d){if(!d)return null;if(Array.isArray(d)){var defekte=d.filter(function(t){return t.berichte&&t.berichte.find(function(b){return b.typ==='defekt'&&!b.erledigt;});}).length;return d.length+' Geräte'+(defekte?' · '+defekte+' Defekte':'');}return null;}},
+    if_fahrzeug:{label:'FZ',key:'gema_fahrzeug',format:function(d){if(!d)return null;if(Array.isArray(d))return d.length+' Fahrzeuge';return null;}}
+  };
+
+  function getModuleKpi(modId,objektId){
+    var cfg=MODULE_KPIS[modId];if(!cfg)return null;
+    if(cfg.format&&!cfg.key)return cfg.format(null);
+    if(!cfg.key)return null;
+    var storageKey=cfg.key;
+    if(objektId&&typeof GemaObjekte!=='undefined'){
+      try{storageKey=cfg.key+'__'+objektId;}catch(e){}
+    }
+    var data=null;
+    try{
+      var raw=localStorage.getItem(storageKey);
+      if(!raw)raw=localStorage.getItem(cfg.key);
+      if(raw)data=JSON.parse(raw);
+    }catch(e){}
+    try{return cfg.format(data);}catch(e){return null;}
+  }
+
+  function getBerechnungTimestamp(modId,objektId){
+    try{
+      if(typeof GemaObjekte==='undefined')return null;
+      var idx=GemaObjekte.getBerechnungenForObjekt(objektId);
+      var entry=idx.find(function(e){return e.modul===modId;});
+      if(entry&&entry.lastModified){
+        var d=new Date(entry.lastModified);
+        return d.toLocaleDateString('de-CH')+' '+d.toLocaleTimeString('de-CH',{hour:'2-digit',minute:'2-digit'});
+      }
+    }catch(e){}
+    return null;
   }
 
   // ── Storage ──
@@ -1041,10 +1091,17 @@ input::placeholder{color:#cbd5e1}
         var mod=MODULES.find(function(x){return x.id===m.mod;});if(!mod)return '';
         var isDone=m.status==='berechnet';var isWip=m.status==='in Bearbeitung';
         var stCls=isDone?' done':(isWip?' wip':'');
+        var kpi=getModuleKpi(m.mod,b.objektId);
+        var ts=getBerechnungTimestamp(m.mod,b.objektId);
+        var kpiHtml=kpi?'<div class="ws-mod-kpi">'+esc(kpi)+'</div>':'';
+        var tsHtml=ts?'<div class="ws-mod-ts">'+esc(ts)+'</div>':'';
         return '<a href="'+mod.href+objParam+'" class="ws-mod-tile">'
           +'<div class="ws-mod-tile-icon">'+icon(mod.icon,22)+'</div>'
           +'<div style="flex:1;min-width:0"><div class="ws-mod-tile-name">'+esc(mod.name)+'</div>'
-          +'<button class="ws-mod-status-btn ws-mod-tile-status'+stCls+'" onclick="event.preventDefault();event.stopPropagation();_wsCycleStatus(\''+m.mod+'\')" title="Status wechseln"><span class="ws-mod-dot"></span>'+esc(m.status||'offen')+'</button></div>'
+          +kpiHtml
+          +'<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">'
+          +'<button class="ws-mod-status-btn ws-mod-tile-status'+stCls+'" onclick="event.preventDefault();event.stopPropagation();_wsCycleStatus(\''+m.mod+'\')" title="Status wechseln"><span class="ws-mod-dot"></span>'+esc(m.status||'offen')+'</button>'
+          +tsHtml+'</div></div>'
           +'<button class="ws-icon-btn" onclick="event.preventDefault();event.stopPropagation();_wsRemoveMod(\''+m.mod+'\')" title="Entfernen" style="width:22px;height:22px">'+icon('x',12,2)+'</button></a>';
       }).join('')
       +'<button class="ws-mod-tile ws-mod-tile--add" onclick="_wsOpenModulePicker()">'
