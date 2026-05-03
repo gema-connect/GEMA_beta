@@ -975,11 +975,15 @@ input::placeholder{color:#cbd5e1}
       betHtml='<div class="ws-collapse open" id="wsBeteiligte"><button class="ws-collapse-head" onclick="document.getElementById(\'wsBeteiligte\').classList.toggle(\'open\')">'
         +'<span class="ws-section-title">Beteiligte</span><span class="ws-collapse-count">'+b.beteiligte.length+'</span>'
         +'<span class="ws-collapse-chev">'+icon('chevron-down',16)+'</span></button>'
-        +'<ul class="ws-people">'+b.beteiligte.map(function(p){
-          var ini=p.name.split(' ').map(function(s){return s[0]||'';}).join('').slice(0,2);
-          return '<li class="ws-people-row">'+avatar(ini,32,'#475569')
-            +'<div><div class="ws-people-name">'+esc(p.name)+' <span class="ws-people-role">· '+esc(p.role)+'</span></div>'
-            +'<div class="ws-people-org">'+esc(p.org)+'</div></div></li>';
+        +'<ul class="ws-people">'+b.beteiligte.map(function(p,idx){
+          var ini=_initials(p.name);
+          var color=p.intern?AVATAR_COLORS[idx%AVATAR_COLORS.length]:'#475569';
+          var badge=p.intern?'<span style="font-size:10px;padding:1px 6px;border-radius:4px;background:#EFF4FB;color:#3B82F6;margin-left:6px">intern</span>'
+            :'<span style="font-size:10px;padding:1px 6px;border-radius:4px;background:#FEF3C7;color:#92400e;margin-left:6px">extern</span>';
+          return '<li class="ws-people-row">'+avatar(ini,32,color)
+            +'<div style="flex:1;min-width:0"><div class="ws-people-name">'+esc(p.name)+' <span class="ws-people-role">· '+esc(p.role)+'</span>'+badge+'</div>'
+            +(p.org?'<div class="ws-people-org">'+esc(p.org)+'</div>':'')+'</div>'
+            +'<button class="ws-icon-btn" onclick="_wsRemoveBet('+idx+')" title="Entfernen" style="width:22px;height:22px">'+icon('x',12,2)+'</button></li>';
         }).join('')+'</ul></div>';
     }
 
@@ -1330,28 +1334,95 @@ input::placeholder{color:#cbd5e1}
   save=function(){_origSave();saveTabs();};
 
   // ── Einladen Modal ──
+  function _getOrgUsers(){
+    var users=[];
+    try{if(typeof GemaAuth!=='undefined'){users=GemaAuth.getUsers()||[];}}catch(e){}
+    return users.filter(function(u){return u.active;});
+  }
+  function _initials(name){return(name||'').split(' ').map(function(s){return s[0]||'';}).join('').slice(0,2).toUpperCase()||'??';}
+
   window._wsInvite=function(){
     var b=buckets.find(function(x){return x.id===activeTab;});if(!b)return;
-    var body='<div class="ws-form">'
-      +'<div class="ws-form-field"><label>Person einladen</label>'
-      +'<input class="ws-input" id="wsInviteName" placeholder="Name oder E-Mail"></div>'
-      +'<div class="ws-form-field"><label>Rolle</label>'
-      +'<select class="ws-input" id="wsInviteRole" style="cursor:pointer">'
-      +'<option value="Mitglied">Mitglied</option><option value="Betrachter">Betrachter</option>'
-      +'<option value="Projektleiter">Projektleiter</option></select></div>'
-      +'<div class="ws-form-actions"><button class="ws-btn ws-btn-ghost" onclick="_wsCloseModal()">Abbrechen</button>'
-      +'<button class="ws-btn ws-btn-primary" onclick="_wsDoInvite()">Einladen</button></div></div>';
-    openModal('Person einladen',body,480);
+    var curUser=null;
+    try{if(typeof GemaAuth!=='undefined')curUser=GemaAuth.getCurrentUser();}catch(e){}
+    var myOrg=curUser?curUser.orgId:'org_default';
+    var allUsers=_getOrgUsers();
+    var orgUsers=allUsers.filter(function(u){return u.orgId===myOrg;});
+    var existingIds=(b.beteiligte||[]).map(function(p){return p.userId||'';}).filter(Boolean);
+
+    var orgListHtml=orgUsers.length?orgUsers.map(function(u){
+      var already=existingIds.indexOf(u.id)>=0;
+      var role=u.roleIds&&u.roleIds[0]?u.roleIds[0].replace('role_','').replace(/_/g,' '):'';
+      return '<button class="ws-modpicker-item'+(already?' disabled':'')+'" '
+        +(already?'disabled':'onclick="_wsAddOrgUser(\''+u.id+'\')"')+'>'
+        +avatar(_initials(u.name),36,AVATAR_COLORS[orgUsers.indexOf(u)%AVATAR_COLORS.length])
+        +'<div style="flex:1;min-width:0"><div class="ws-modpicker-name">'+esc(u.name)+'</div>'
+        +'<div class="ws-modpicker-desc">'+esc(role)+'</div></div>'
+        +(already?'<span class="ws-modpicker-tag">bereits hinzugefügt</span>':'')
+        +'</button>';
+    }).join(''):'<div class="ws-empty-hint">Keine Benutzer in deiner Organisation</div>';
+
+    var body='<div style="display:flex;flex-direction:column;gap:16px">'
+      +'<div><div class="ws-settings-section-title" style="margin-bottom:8px">Organisation</div>'
+      +'<div class="ws-modpicker" style="max-height:240px">'+orgListHtml+'</div></div>'
+      +'<div style="border-top:1px solid var(--line);padding-top:16px">'
+      +'<div class="ws-settings-section-title" style="margin-bottom:8px">Extern hinzufügen</div>'
+      +'<div class="ws-form">'
+      +'<div style="display:flex;gap:8px;flex-wrap:wrap">'
+      +'<input class="ws-input" id="wsExtName" placeholder="Name" style="flex:1;min-width:140px">'
+      +'<select class="ws-input" id="wsExtRole" style="width:auto;cursor:pointer">'
+      +'<option value="Architekt">Architekt</option>'
+      +'<option value="Bauherr">Bauherr</option>'
+      +'<option value="Behörde">Behörde</option>'
+      +'<option value="Berater">Berater</option>'
+      +'<option value="Elektro">Elektroplaner</option>'
+      +'<option value="HLKK">HLKK-Planer</option>'
+      +'<option value="Unternehmer">Unternehmer</option>'
+      +'<option value="Sonstige">Sonstige</option></select></div>'
+      +'<div style="display:flex;gap:8px">'
+      +'<input class="ws-input" id="wsExtOrg" placeholder="Firma (optional)" style="flex:1">'
+      +'<button class="ws-btn ws-btn-primary" onclick="_wsAddExternal()">Hinzufügen</button></div></div></div></div>';
+    openModal('Beteiligte einladen',body,560);
   };
-  window._wsDoInvite=function(){
-    var inp=document.getElementById('wsInviteName');var role=document.getElementById('wsInviteRole');
-    var name=(inp?inp.value:'').trim();if(!name)return;
+
+  window._wsAddOrgUser=function(userId){
     var b=buckets.find(function(x){return x.id===activeTab;});if(!b)return;
-    b.members.push(name.slice(0,2).toUpperCase());
-    b.beteiligte.push({role:role?role.value:'Mitglied',name:name,org:''});
-    b.activity.unshift({who:'Du',text:'hat '+name+' eingeladen',when:'gerade eben'});
+    var allUsers=_getOrgUsers();
+    var u=allUsers.find(function(x){return x.id===userId;});if(!u)return;
+    var role=u.roleIds&&u.roleIds[0]?u.roleIds[0].replace('role_','').replace(/_/g,' '):'Mitglied';
+    var orgName='';
+    try{if(typeof GemaAuth!=='undefined'){var o=GemaAuth.getCurrentOrg();if(o)orgName=o.name||o.id;}}catch(e){}
+    b.members.push(_initials(u.name));
+    b.beteiligte.push({userId:u.id,role:role,name:u.name,org:orgName,intern:true});
+    b.activity.unshift({who:'Du',text:'hat '+u.name+' hinzugefügt',when:'gerade eben'});
     _wsCloseModal();save();render();
-    toast(name+' eingeladen','check');
+    toast(u.name+' hinzugefügt','check');
+  };
+
+  window._wsAddExternal=function(){
+    var name=(document.getElementById('wsExtName')||{}).value;
+    var role=(document.getElementById('wsExtRole')||{}).value;
+    var org=(document.getElementById('wsExtOrg')||{}).value;
+    if(!name||!name.trim())return;
+    name=name.trim();
+    var b=buckets.find(function(x){return x.id===activeTab;});if(!b)return;
+    b.members.push(_initials(name));
+    b.beteiligte.push({role:role||'Sonstige',name:name,org:(org||'').trim(),intern:false});
+    b.activity.unshift({who:'Du',text:'hat '+name+' ('+role+') hinzugefügt',when:'gerade eben'});
+    _wsCloseModal();save();render();
+    toast(name+' hinzugefügt','check');
+  };
+
+  window._wsRemoveBet=function(idx){
+    var b=buckets.find(function(x){return x.id===activeTab;});if(!b)return;
+    var p=b.beteiligte[idx];if(!p)return;
+    b.beteiligte.splice(idx,1);
+    var ini=_initials(p.name);
+    var mi=b.members.indexOf(ini);
+    if(mi>=0)b.members.splice(mi,1);
+    b.activity.unshift({who:'Du',text:'hat '+p.name+' entfernt',when:'gerade eben'});
+    save();renderContent();
+    toast(p.name+' entfernt','x');
   };
 
   // ── Teilen Modal ──
