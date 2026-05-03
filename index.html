@@ -453,6 +453,15 @@ body {
   </div>
 </div>
 
+<!-- ── VIEW TOGGLE: Module vs Workspace ── -->
+<div style="max-width:1100px;margin:0 auto;padding:8px 24px 0;display:flex;align-items:center;gap:8px">
+  <div style="display:flex;border:1.5px solid #e2e7f0;border-radius:10px;overflow:hidden;background:#fff">
+    <button class="view-mode-btn active" id="vmModules" onclick="_switchView('modules')">📋 Module</button>
+    <button class="view-mode-btn" id="vmWorkspace" onclick="_switchView('workspace')">🪣 Workspace</button>
+  </div>
+  <div style="flex:1"></div>
+</div>
+
 <!-- ── FILTER BAR ── -->
 <div class="filter-bar">
   <div class="filter-inner">
@@ -1111,6 +1120,34 @@ body {
 
 </main>
 
+<!-- ══════ WORKSPACE VIEW (hidden by default) ══════ -->
+<div id="workspaceView" style="display:none;max-width:1100px;margin:0 auto;padding:16px 24px 60px">
+  <div style="display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap">
+    <!-- Sidebar: Buckets -->
+    <div style="width:280px;flex-shrink:0" id="wsBucketSidebar">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+        <h3 style="font-size:15px;font-weight:800;color:#111827">Meine Eimer</h3>
+        <button onclick="_wsCreateBucket()" style="padding:5px 12px;border-radius:8px;border:none;background:#7c3aed;color:#fff;font-size:12px;font-weight:700;cursor:pointer">+ Neu</button>
+      </div>
+      <div id="wsBucketList" style="display:flex;flex-direction:column;gap:6px"></div>
+      <div style="margin-top:16px;display:flex;align-items:center;justify-content:space-between">
+        <h3 style="font-size:15px;font-weight:800;color:#111827">Geteilte Eimer</h3>
+      </div>
+      <div id="wsSharedList" style="display:flex;flex-direction:column;gap:6px;margin-top:8px"></div>
+    </div>
+    <!-- Content: Active Bucket -->
+    <div style="flex:1;min-width:0" id="wsBucketContent">
+      <div id="wsEmpty" style="padding:60px 24px;text-align:center;color:#94a3b8">
+        <div style="font-size:48px;margin-bottom:12px">🪣</div>
+        <h2 style="font-size:20px;font-weight:800;color:#111827;margin-bottom:8px">Workspace</h2>
+        <p style="font-size:13px;margin-bottom:20px">Erstelle einen Eimer um Module, Notizen und Beteiligte zu gruppieren.</p>
+        <button onclick="_wsCreateBucket()" style="padding:10px 24px;border-radius:10px;border:none;background:#7c3aed;color:#fff;font-size:14px;font-weight:700;cursor:pointer">+ Ersten Eimer erstellen</button>
+      </div>
+      <div id="wsActiveContent" style="display:none"></div>
+    </div>
+  </div>
+</div>
+
 <!-- ── FOOTER ── -->
 <footer class="footer">
   <div style="margin-bottom:12px;">
@@ -1448,6 +1485,173 @@ document.addEventListener('DOMContentLoaded',function(){
   document.addEventListener('DOMContentLoaded',function(){
     if(window.matchMedia('(display-mode:standalone)').matches) return;
     try{if(localStorage.getItem('gema_pwa_dismissed')==='1') return;}catch(e){}
+  });
+})();
+</script>
+<style>
+.view-mode-btn{padding:7px 14px;font-size:12px;font-weight:700;cursor:pointer;border:none;background:transparent;color:#6b7280;transition:.15s;font-family:inherit}
+.view-mode-btn.active{background:#7c3aed;color:#fff}
+.view-mode-btn:hover:not(.active){background:#f4f6fb}
+.ws-bucket-row{display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:10px;border:1.5px solid #e2e7f0;background:#fff;cursor:pointer;transition:.15s}
+.ws-bucket-row:hover{border-color:#c4b5fd;background:#fdf4ff}
+.ws-bucket-row.active{border-color:#7c3aed;background:#fdf4ff;box-shadow:0 0 0 2px rgba(124,58,237,.15)}
+.ws-type-icon{width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0}
+.ws-module-tile{display:flex;align-items:center;gap:10px;padding:14px;border-radius:12px;border:1.5px solid #e2e7f0;background:#fff;cursor:pointer;transition:.15s}
+.ws-module-tile:hover{border-color:#c4b5fd;transform:translateY(-1px);box-shadow:0 4px 12px rgba(0,0,0,.06)}
+</style>
+<script>
+(function(){
+  var WS_KEY='gema_workspace_v1';
+  var _wsBuckets=[];
+  var _wsActive=null;
+
+  var BUCKET_TYPES=[
+    {id:'project',label:'Bauprojekt',icon:'🏗',color:'#1e3a5f',bg:'#eff6ff'},
+    {id:'training',label:'Übung',icon:'🎓',color:'#7c3aed',bg:'#fdf4ff'},
+    {id:'private',label:'Privat',icon:'🔒',color:'#6b7280',bg:'#f4f6fb'},
+    {id:'shared',label:'Geteilt',icon:'👥',color:'#16a34a',bg:'#f0fdf4'}
+  ];
+
+  var ALL_MODULES=[
+    {id:'sa_enthaertung',name:'Enthärtungsanlage',icon:'💧',href:'sa_enthaertung.html'},
+    {id:'sa_osmose',name:'Umkehrosmose',icon:'🔬',href:'sa_osmose.html'},
+    {id:'sb_druckerhoehung',name:'Druckerhöhung',icon:'⬆️',href:'sb_druckerhoehung.html'},
+    {id:'sb_lu_tabelle',name:'LU-Tabelle',icon:'📊',href:'sb_lu_tabelle.html'},
+    {id:'sb_warmwasser',name:'Warmwasser SIA 385',icon:'🌡️',href:'sb_warmwasser.html'},
+    {id:'sb_niederschlag',name:'Niederschlag',icon:'🌧️',href:'sb_niederschlag.html'},
+    {id:'sb_druckverlust',name:'Druckverlust',icon:'📉',href:'sb_druckverlust.html'},
+    {id:'hy_w12',name:'W12 Selbstkontrolle',icon:'🧬',href:'hy_w12.html'},
+    {id:'pm_objekte',name:'Objekte',icon:'🏢',href:'pm_objekte.html'},
+    {id:'pm_terminplan',name:'Terminplan',icon:'📅',href:'pm_terminplan.html'},
+    {id:'pm_ausschreibung',name:'Ausschreibung',icon:'📋',href:'pm_ausschreibung.html'},
+    {id:'pm_abnahme',name:'Abnahmeprotokoll',icon:'📜',href:'pm_abnahme.html'},
+    {id:'if_werkzeug',name:'Werkzeugmanagement',icon:'🔧',href:'if_werkzeug.html'},
+    {id:'if_fahrzeug',name:'Fahrzeugmanagement',icon:'🚐',href:'if_fahrzeug.html'}
+  ];
+
+  function _wsLoad(){
+    try{var r=localStorage.getItem(WS_KEY);if(r)_wsBuckets=JSON.parse(r);}catch(e){}
+  }
+  function _wsSave(){try{localStorage.setItem(WS_KEY,JSON.stringify(_wsBuckets));}catch(e){}}
+
+  window._switchView=function(mode){
+    var isWs=mode==='workspace';
+    document.getElementById('vmModules').classList.toggle('active',!isWs);
+    document.getElementById('vmWorkspace').classList.toggle('active',isWs);
+    // Hide/show module view elements
+    ['filter-bar','search-bar','mainContent'].forEach(function(c){
+      var el=document.querySelector('.'+c)||document.getElementById(c);
+      if(el)el.style.display=isWs?'none':'';
+    });
+    document.querySelectorAll('.cat-section,.fav-section').forEach(function(el){el.style.display=isWs?'none':'';});
+    document.getElementById('workspaceView').style.display=isWs?'':'none';
+    if(isWs){_wsLoad();_wsRender();}
+    try{localStorage.setItem('gema_view_mode',mode);}catch(e){}
+  };
+
+  window._wsCreateBucket=function(){
+    var name=prompt('Name des Eimers:');
+    if(!name)return;
+    var typIdx=0;
+    var typStr=prompt('Typ (1=Bauprojekt, 2=Übung, 3=Privat, 4=Geteilt):','1');
+    typIdx=Math.max(0,Math.min(3,(parseInt(typStr)||1)-1));
+    var bucket={
+      id:'ws_'+Date.now(),
+      name:name.trim(),
+      type:BUCKET_TYPES[typIdx].id,
+      shared:typIdx===3,
+      modules:[],
+      notes:[],
+      activity:[{who:'Du',text:'Eimer erstellt',when:new Date().toISOString()}],
+      createdAt:new Date().toISOString()
+    };
+    _wsBuckets.push(bucket);
+    _wsActive=bucket.id;
+    _wsSave();_wsRender();
+  };
+
+  function _wsRender(){
+    var personal=_wsBuckets.filter(function(b){return!b.shared;});
+    var shared=_wsBuckets.filter(function(b){return b.shared;});
+    document.getElementById('wsBucketList').innerHTML=personal.map(_wsRowHtml).join('')||'<div style="font-size:12px;color:#94a3b8;padding:8px 0">Noch keine Eimer</div>';
+    document.getElementById('wsSharedList').innerHTML=shared.map(_wsRowHtml).join('')||'<div style="font-size:12px;color:#94a3b8;padding:8px 0">Keine geteilten Eimer</div>';
+    if(_wsActive){
+      document.getElementById('wsEmpty').style.display='none';
+      document.getElementById('wsActiveContent').style.display='';
+      _wsRenderContent();
+    } else {
+      document.getElementById('wsEmpty').style.display='';
+      document.getElementById('wsActiveContent').style.display='none';
+    }
+  }
+
+  function _wsRowHtml(b){
+    var t=BUCKET_TYPES.find(function(x){return x.id===b.type;})||BUCKET_TYPES[0];
+    var isActive=_wsActive===b.id;
+    return '<div class="ws-bucket-row'+(isActive?' active':'')+'" onclick="_wsOpenBucket(\''+b.id+'\')">'
+      +'<div class="ws-type-icon" style="background:'+t.bg+';color:'+t.color+'">'+t.icon+'</div>'
+      +'<div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+_esc(b.name)+'</div>'
+      +'<div style="font-size:11px;color:#94a3b8">'+b.modules.length+' Module · '+t.label+'</div></div>'
+      +'<button onclick="event.stopPropagation();_wsDeleteBucket(\''+b.id+'\')" style="border:none;background:none;color:#94a3b8;cursor:pointer;font-size:14px">✕</button>'
+      +'</div>';
+  }
+
+  window._wsOpenBucket=function(id){_wsActive=id;_wsRender();};
+  window._wsDeleteBucket=function(id){
+    if(!confirm('Eimer löschen?'))return;
+    _wsBuckets=_wsBuckets.filter(function(b){return b.id!==id;});
+    if(_wsActive===id)_wsActive=_wsBuckets.length?_wsBuckets[0].id:null;
+    _wsSave();_wsRender();
+  };
+
+  function _wsRenderContent(){
+    var b=_wsBuckets.find(function(x){return x.id===_wsActive;});
+    if(!b)return;
+    var t=BUCKET_TYPES.find(function(x){return x.id===b.type;})||BUCKET_TYPES[0];
+    var modsHtml=b.modules.map(function(m){
+      var mod=ALL_MODULES.find(function(x){return x.id===m.mod;});
+      if(!mod)return '';
+      return '<a href="'+mod.href+'?objekt='+_wsActive+'" class="ws-module-tile" style="text-decoration:none;color:inherit">'
+        +'<span style="font-size:20px">'+mod.icon+'</span>'
+        +'<div><div style="font-size:13px;font-weight:700">'+_esc(mod.name)+'</div>'
+        +'<div style="font-size:11px;color:#94a3b8">'+(m.status||'offen')+'</div></div></a>';
+    }).join('');
+
+    var availMods=ALL_MODULES.filter(function(mod){return!b.modules.find(function(m){return m.mod===mod.id;});});
+    var addHtml=availMods.length?'<select id="wsAddMod" onchange="_wsAddModule()" style="padding:8px 12px;border:1.5px dashed #c4b5fd;border-radius:10px;background:#fdf4ff;color:#7c3aed;font-size:12px;font-weight:700;font-family:inherit;cursor:pointer"><option value="">+ Modul hinzufügen</option>'
+      +availMods.map(function(m){return '<option value="'+m.id+'">'+m.icon+' '+_esc(m.name)+'</option>';}).join('')+'</select>':'';
+
+    document.getElementById('wsActiveContent').innerHTML=
+      '<div style="display:flex;align-items:center;gap:12px;margin-bottom:20px">'
+      +'<div class="ws-type-icon" style="width:40px;height:40px;font-size:20px;background:'+t.bg+';color:'+t.color+'">'+t.icon+'</div>'
+      +'<div><h2 style="font-size:20px;font-weight:900;margin:0">'+_esc(b.name)+'</h2>'
+      +'<div style="font-size:12px;color:#94a3b8">'+t.label+' · '+b.modules.length+' Module · Erstellt '+new Date(b.createdAt).toLocaleDateString('de-CH')+'</div></div></div>'
+      +'<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;margin-bottom:16px">'
+      +modsHtml+addHtml+'</div>'
+      +'<div style="background:#fff;border:1px solid #e2e7f0;border-radius:12px;padding:16px;margin-top:12px">'
+      +'<h4 style="font-size:12px;font-weight:800;color:#94a3b8;text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Aktivität</h4>'
+      +b.activity.slice().reverse().slice(0,5).map(function(a){
+        return '<div style="display:flex;gap:8px;padding:6px 0;font-size:12px;border-bottom:1px solid #f1f5f9"><strong style="color:#111827">'+_esc(a.who)+'</strong><span style="color:#64748b">'+_esc(a.text)+'</span><span style="margin-left:auto;color:#94a3b8;font-size:10px;white-space:nowrap">'+new Date(a.when).toLocaleDateString('de-CH')+'</span></div>';
+      }).join('')
+      +'</div>';
+  }
+
+  window._wsAddModule=function(){
+    var sel=document.getElementById('wsAddMod');
+    if(!sel||!sel.value)return;
+    var b=_wsBuckets.find(function(x){return x.id===_wsActive;});
+    if(!b)return;
+    var mod=ALL_MODULES.find(function(x){return x.id===sel.value;});
+    b.modules.push({mod:sel.value,status:'offen'});
+    b.activity.push({who:'Du',text:mod.name+' hinzugefügt',when:new Date().toISOString()});
+    _wsSave();_wsRender();
+  };
+
+  function _esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+  // Restore last view mode on load
+  document.addEventListener('DOMContentLoaded',function(){
+    try{var m=localStorage.getItem('gema_view_mode');if(m==='workspace')_switchView('workspace');}catch(e){}
   });
 })();
 </script>
