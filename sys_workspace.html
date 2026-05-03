@@ -737,27 +737,77 @@ input::placeholder{color:#cbd5e1}
     var b=buckets.find(function(x){return x.id===activeTab;});if(!b)return;
     var objekte=[];
     try{if(typeof GemaObjekte!=='undefined')objekte=GemaObjekte.getAll()||[];}catch(e){}
-    if(!objekte.length){toast('Keine Objekte vorhanden — zuerst in Objekte erstellen','building');return;}
-    var body='<div class="ws-form"><div class="ws-form-field"><label>Objekt auswählen</label>'
+
+    var listHtml=objekte.length?'<div class="ws-form-field"><label>Bestehendes Objekt verknüpfen</label>'
       +'<select class="ws-input" id="wsObjektSel" style="cursor:pointer">'
-      +'<option value="">— Kein Objekt —</option>'
-      +objekte.map(function(o){return '<option value="'+o.id+'"'+(b.objektId===o.id?' selected':'')+'>'+esc(o.name||o.projektName||o.id)+'</option>';}).join('')
-      +'</select></div>'
-      +'<div class="ws-form-actions"><button class="ws-btn ws-btn-ghost" onclick="_wsCloseModal()">Abbrechen</button>'
-      +'<button class="ws-btn ws-btn-primary" onclick="_wsDoLinkObjekt()">Verknüpfen</button></div></div>';
-    openModal('Objekt verknüpfen',body,480);
+      +'<option value="">— Auswählen —</option>'
+      +objekte.map(function(o){return '<option value="'+o.id+'"'+(b.objektId===o.id?' selected':'')+'>'+esc(o.name||o.projektName||o.id)+' · '+esc(o.ort||'')+'</option>';}).join('')
+      +'</select></div>':'';
+
+    var body='<div style="display:flex;flex-direction:column;gap:16px">'
+      +listHtml
+      +(objekte.length?'<div style="display:flex;align-items:center;gap:12px"><div style="flex:1;height:1px;background:var(--line)"></div><span style="font-size:12px;color:var(--ink-3);font-weight:500">oder</span><div style="flex:1;height:1px;background:var(--line)"></div></div>':'')
+      +'<div style="border:1.5px dashed var(--line);border-radius:var(--r-sm);padding:16px">'
+      +'<div class="ws-settings-section-title" style="margin-bottom:10px">Neues Objekt erstellen</div>'
+      +'<div class="ws-form">'
+      +'<div style="display:flex;gap:8px"><input class="ws-input" id="wsNewObjName" placeholder="Projektname" style="flex:1">'
+      +'<select class="ws-input" id="wsNewObjTyp" style="width:auto;cursor:pointer">'
+      +'<option value="Neubau">Neubau</option><option value="Sanierung">Sanierung</option>'
+      +'<option value="Umbau">Umbau</option><option value="Erweiterung">Erweiterung</option></select></div>'
+      +'<div style="display:flex;gap:8px"><input class="ws-input" id="wsNewObjStrasse" placeholder="Strasse" style="flex:1">'
+      +'<input class="ws-input" id="wsNewObjPlz" placeholder="PLZ" style="width:80px">'
+      +'<input class="ws-input" id="wsNewObjOrt" placeholder="Ort" style="flex:1"></div>'
+      +'</div></div>'
+      +'<div class="ws-form-actions">'
+      +(b.objektId?'<button class="ws-btn ws-btn-ghost" onclick="_wsUnlinkObjekt()" style="margin-right:auto;color:#dc2626">Verknüpfung lösen</button>':'')
+      +'<button class="ws-btn ws-btn-ghost" onclick="_wsCloseModal()">Abbrechen</button>'
+      +'<button class="ws-btn ws-btn-primary" onclick="_wsDoLinkOrCreate()">Speichern</button></div></div>';
+    openModal('Objekt verknüpfen',body,560);
   };
-  window._wsDoLinkObjekt=function(){
-    var sel=document.getElementById('wsObjektSel');if(!sel)return;
+  window._wsDoLinkOrCreate=function(){
     var b=buckets.find(function(x){return x.id===activeTab;});if(!b)return;
-    var oldId=b.objektId;
-    b.objektId=sel.value||null;
-    if(b.objektId!==oldId){
-      var label=b.objektId?sel.options[sel.selectedIndex].text:'keins';
+    var sel=document.getElementById('wsObjektSel');
+    var newName=(document.getElementById('wsNewObjName')||{}).value;
+
+    if(sel&&sel.value){
+      b.objektId=sel.value;
+      var label=sel.options[sel.selectedIndex].text;
       b.activity.unshift({who:'Du',text:'Objekt verknüpft: '+label,when:'gerade eben'});
+      _wsCloseModal();save();render();
+      toast('Objekt verknüpft','building');
+    }else if(newName&&newName.trim()){
+      var typ=(document.getElementById('wsNewObjTyp')||{}).value||'Neubau';
+      var strasse=((document.getElementById('wsNewObjStrasse')||{}).value||'').trim();
+      var plz=((document.getElementById('wsNewObjPlz')||{}).value||'').trim();
+      var ort=((document.getElementById('wsNewObjOrt')||{}).value||'').trim();
+      var objId='obj_'+Date.now();
+      var curUser=null;
+      try{if(typeof GemaAuth!=='undefined')curUser=GemaAuth.getCurrentUser();}catch(e){}
+      var newObj={id:objId,name:newName.trim(),strasse:strasse,plz:plz,ort:ort,
+        bauvorhaben:typ,status:'aktiv',
+        orgId:curUser?curUser.orgId:'org_default',
+        erstelltVon:curUser?curUser.id:'',
+        createdAt:new Date().toISOString()};
+      try{
+        var raw=localStorage.getItem('gema_objekte_v1');
+        var data=raw?JSON.parse(raw):{objekte:[],beteiligte:[],activeObjektId:null};
+        data.objekte.push(newObj);
+        localStorage.setItem('gema_objekte_v1',JSON.stringify(data));
+      }catch(e){}
+      b.objektId=objId;
+      b.activity.unshift({who:'Du',text:'Objekt erstellt & verknüpft: '+newName.trim(),when:'gerade eben'});
+      _wsCloseModal();save();render();
+      toast('Objekt „'+newName.trim()+'" erstellt & verknüpft','check');
+    }else{
+      toast('Name eingeben oder Objekt auswählen','x');
     }
+  };
+  window._wsUnlinkObjekt=function(){
+    var b=buckets.find(function(x){return x.id===activeTab;});if(!b)return;
+    b.objektId=null;
+    b.activity.unshift({who:'Du',text:'Objekt-Verknüpfung gelöst',when:'gerade eben'});
     _wsCloseModal();save();render();
-    toast(b.objektId?'Objekt verknüpft':'Objekt-Verknüpfung entfernt','building');
+    toast('Verknüpfung gelöst','x');
   };
 
   // ── Notes ──
