@@ -330,16 +330,50 @@ input::placeholder{color:#cbd5e1}
 .ws-drawer-close{position:absolute;top:12px;right:12px;width:32px;height:32px;border-radius:8px;display:grid;place-items:center;color:var(--ink-2);z-index:1}
 .ws-drawer-close:hover{background:#F4F5F7;color:var(--ink)}
 
+/* ── Mobile View Toggle (Content vs Notes) ── */
+.ws-mobile-toggle{display:none;position:fixed;bottom:0;left:0;right:0;z-index:50;background:var(--card);border-top:1px solid var(--line);padding:6px 16px calc(6px + env(safe-area-inset-bottom));box-shadow:0 -2px 10px rgba(0,0,0,.06)}
+.ws-mobile-toggle-inner{display:flex;gap:4px;background:#F0F2F5;border-radius:10px;padding:3px}
+.ws-mobile-toggle-btn{flex:1;padding:9px 0;border-radius:8px;font-size:13px;font-weight:600;color:var(--ink-3);text-align:center;display:flex;align-items:center;justify-content:center;gap:6px;transition:var(--t)}
+.ws-mobile-toggle-btn.active{background:var(--card);color:var(--ink);box-shadow:var(--shadow-1)}
+
 /* ── Responsive ── */
-@media(max-width:1024px){.ws-notes-col{position:static;height:auto;width:100%!important;border-left:none;border-top:1px solid var(--line)}.ws-shell{flex-wrap:wrap}.ws-main{width:100%}.ws-resize-handle{display:none}}
+@media(max-width:1024px){
+  .ws-notes-col{position:static;height:auto;width:100%!important;border-left:none;border-top:1px solid var(--line)}
+  .ws-shell{flex-wrap:wrap}.ws-main{width:100%}.ws-resize-handle{display:none}
+}
 @media(max-width:720px){
   .ws-sidebar{display:none}
   .ws-hamburger{display:inline-flex}
-  .ws-shell{min-height:auto}
-  .ws-bucket-header{flex-direction:column}
-  .ws-bucket-actions{align-self:flex-start}
+  .ws-shell{min-height:auto;flex-wrap:nowrap;flex-direction:column}
+  .ws-main{flex:1;min-height:0}
+  .ws-bucket-header{flex-direction:column;padding:16px 16px 12px}
+  .ws-bucket-title{font-size:18px}
+  .ws-bucket-actions{align-self:stretch;display:flex;gap:6px}
+  .ws-bucket-actions .ws-btn{flex:1;justify-content:center;padding:7px 8px;font-size:12px}
+  .ws-bucket-meta{font-size:11px}
+  .ws-content-scroll{padding:0 16px 80px}
   .ws-mod-grid{grid-template-columns:1fr}
+  .ws-mod-tile{padding:12px}
+  .ws-mod-tile-icon{width:36px;height:36px}
+  .ws-mod-tile-name{font-size:13px}
   .ws-empty-cards{grid-template-columns:1fr}
+  .ws-empty-hero{font-size:24px}
+  .ws-empty-sub{font-size:13px}
+  .ws-tabbar{padding:4px 8px 0}
+  .ws-tab{padding:6px 8px;font-size:11.5px;max-width:160px}
+  .ws-mobile-toggle{display:flex}
+  .ws-notes-col{position:fixed!important;top:53px;left:0;right:0;bottom:48px;width:100%!important;height:auto!important;z-index:60;border-left:none;border-radius:0;display:none!important}
+  .ws-notes-col.mobile-show{display:flex!important}
+  .ws-notes{flex:1;min-height:0}
+  .ws-notes-editor{padding:14px 16px;font-size:13px}
+  .ws-activity{padding:12px 14px}
+  .ws-activity-item{font-size:12px}
+  .ws-section-head-content{padding:8px 0 0}
+  .ws-settings-layout{flex-direction:column}
+  .ws-settings-nav{width:100%;flex-direction:row;overflow-x:auto;border-right:none;border-bottom:1px solid var(--line-2);padding:8px}
+  .ws-settings-nav-item{white-space:nowrap;padding:8px 12px}
+  .ws-settings-body{padding:16px}
+  .ws-search-wrap{display:none}
 }
 </style>
 <script src="gema_db.js"></script>
@@ -418,6 +452,14 @@ input::placeholder{color:#cbd5e1}
   <div class="ws-section">
     <div class="ws-section-head"><span class="ws-label">Geteilte Eimer</span></div>
     <div class="ws-bucket-list" id="wsSharedDrawer"></div>
+  </div>
+</div>
+
+<!-- Mobile View Toggle -->
+<div class="ws-mobile-toggle" id="wsMobileToggle">
+  <div class="ws-mobile-toggle-inner">
+    <button class="ws-mobile-toggle-btn active" id="wsMobContent" onclick="_wsMobileView('content')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/></svg> Inhalt</button>
+    <button class="ws-mobile-toggle-btn" id="wsMobNotes" onclick="_wsMobileView('notes')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9Z"/><path d="M14 3v6h6"/></svg> Notizen</button>
   </div>
 </div>
 
@@ -1131,7 +1173,10 @@ input::placeholder{color:#cbd5e1}
     var content=document.getElementById('wsContentArea');
     var notesCol=document.getElementById('wsNotesCol');
     var notesHandle=document.getElementById('wsResizeNotes');
+    var mobToggle=document.getElementById('wsMobileToggle');
     if(_showSettings){
+      if(mobToggle)mobToggle.style.display='none';
+      if(notesCol){notesCol.classList.remove('mobile-show');}
       _renderSettings();
       return;
     }
@@ -1140,6 +1185,7 @@ input::placeholder{color:#cbd5e1}
       content.style.display='none';
       if(notesCol)notesCol.style.display='none';
       if(notesHandle)notesHandle.style.display='none';
+      if(mobToggle)mobToggle.style.display='none';
       renderEmptyState();
     }else{
       empty.style.display='none';
@@ -1250,8 +1296,15 @@ input::placeholder{color:#cbd5e1}
       +'<div class="ws-section-head-content"><span class="ws-section-title">Module</span><span class="ws-section-count">'+b.modules.length+'</span></div>'
       +modsHtml+actHtml+betHtml+'</div>';
 
-    document.getElementById('wsNotesCol').style.display='flex';
+    var nc=document.getElementById('wsNotesCol');
+    nc.style.display='flex';
+    nc.classList.remove('mobile-show');
     document.getElementById('wsResizeNotes').style.display='';
+    var mt=document.getElementById('wsMobileToggle');
+    if(mt)mt.style.display='';
+    _mobileView='content';
+    var mc=document.getElementById('wsMobContent');if(mc)mc.classList.add('active');
+    var mn=document.getElementById('wsMobNotes');if(mn)mn.classList.remove('active');
     if(!_activeNotePageId||!b.notes.find(function(n){return n.id===_activeNotePageId;})){
       _activeNotePageId=b.notes.length?b.notes[0].id:null;
     }
@@ -1283,6 +1336,25 @@ input::placeholder{color:#cbd5e1}
       +'<span class="ws-collapse-chev">'+icon('chevron-down',14)+'</span></button>'
       +'</div>';
   }
+
+  // ── Mobile View Toggle (Content ↔ Notes) ──
+  var _mobileView='content';
+  window._wsMobileView=function(view){
+    _mobileView=view;
+    var notesCol=document.getElementById('wsNotesCol');
+    var contentArea=document.getElementById('wsContentArea');
+    var btnC=document.getElementById('wsMobContent');
+    var btnN=document.getElementById('wsMobNotes');
+    if(btnC)btnC.classList.toggle('active',view==='content');
+    if(btnN)btnN.classList.toggle('active',view==='notes');
+    if(view==='notes'){
+      if(notesCol){notesCol.classList.add('mobile-show');}
+      if(contentArea)contentArea.style.display='none';
+    }else{
+      if(notesCol){notesCol.classList.remove('mobile-show');}
+      if(contentArea)contentArea.style.display='flex';
+    }
+  };
 
   // ── Mobile Drawer ──
   window._wsToggleDrawer=function(open){
