@@ -31,7 +31,7 @@
     var css = [
       '.gcm-backdrop{position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:' + Z_BASE + ';pointer-events:auto;backdrop-filter:blur(1px)}',
       '.gcm-spotlight{position:fixed;border-radius:10px;box-shadow:0 0 0 9999px rgba(15,23,42,.55),0 0 0 3px #fbbf24,0 8px 24px rgba(0,0,0,.25);z-index:' + (Z_BASE + 1) + ';pointer-events:none;transition:all .25s ease}',
-      '.gcm-card{position:fixed;max-width:340px;background:#fff;border-radius:14px;box-shadow:0 20px 50px rgba(0,0,0,.3);z-index:' + (Z_BASE + 2) + ';font-family:"DM Sans",ui-sans-serif,system-ui,sans-serif;color:#111827;overflow:hidden;transition:all .25s ease}',
+      '.gcm-card{position:fixed;max-width:min(340px, calc(100vw - 24px));background:#fff;border-radius:14px;box-shadow:0 20px 50px rgba(0,0,0,.3);z-index:' + (Z_BASE + 2) + ';font-family:"DM Sans",ui-sans-serif,system-ui,sans-serif;color:#111827;overflow:hidden;transition:all .25s ease}',
       '.gcm-card-hd{padding:14px 16px 10px;display:flex;align-items:flex-start;gap:10px}',
       '.gcm-card-hd .gcm-ic{width:32px;height:32px;border-radius:8px;background:linear-gradient(135deg,#fbbf24,#d97706);display:flex;align-items:center;justify-content:center;font-size:17px;flex-shrink:0}',
       '.gcm-card-hd h3{font-size:14px;font-weight:800;line-height:1.3;margin:0 0 2px;color:#111827}',
@@ -138,7 +138,7 @@
     }
 
     card.style.top  = top + 'px';
-    card.style.left = left + 'px';
+    card.style.left = Math.max(12, Math.min(left, vw - cw - 12)) + 'px';
 
     // Spotlight um das Ziel-Element
     spotlight.style.top    = (rect.top - 6) + 'px';
