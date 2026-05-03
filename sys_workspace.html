@@ -132,8 +132,10 @@ input::placeholder{color:#cbd5e1}
 .ws-mod-tile-status.done .ws-mod-dot{background:var(--green);box-shadow:0 0 0 3px rgba(16,185,129,.16)}
 .ws-mod-tile-status.wip{color:var(--blue)}
 .ws-mod-tile-status.wip .ws-mod-dot{background:var(--blue);box-shadow:0 0 0 3px rgba(59,130,246,.16)}
-.ws-mod-status-btn{cursor:pointer;border:none;background:none;padding:2px 6px;border-radius:6px;transition:var(--t);font-family:inherit}
-.ws-mod-status-btn:hover{background:#F4F5F7}
+.ws-mod-tile-status.anlage{color:var(--navy)}
+.ws-mod-tile-status.anlage .ws-mod-dot{background:var(--navy);box-shadow:0 0 0 3px rgba(30,58,95,.16)}
+.ws-mod-tile-status.offerte{color:#d97706}
+.ws-mod-tile-status.offerte .ws-mod-dot{background:#d97706;box-shadow:0 0 0 3px rgba(217,119,6,.16)}
 .ws-mod-tile--add{background:transparent;border:1.5px dashed var(--line);box-shadow:none;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:22px 16px;color:var(--ink-3);min-height:76px}
 .ws-mod-tile--add:hover{border-color:var(--navy);color:var(--navy);background:#F8FAFC;transform:none}
 .ws-mod-plus{width:36px;height:36px;border-radius:10px;background:var(--card);display:grid;place-items:center;margin-bottom:6px;border:1px solid var(--line)}
@@ -890,17 +892,70 @@ input::placeholder{color:#cbd5e1}
     return 'default';
   }
 
-  // ── Module Status Cycle ──
-  var STATUS_CYCLE=['offen','in Bearbeitung','berechnet'];
-  window._wsCycleStatus=function(modId){
-    var b=buckets.find(function(x){return x.id===activeTab;});if(!b)return;
-    var m=b.modules.find(function(x){return x.mod===modId;});if(!m)return;
-    var idx=STATUS_CYCLE.indexOf(m.status);
-    m.status=STATUS_CYCLE[(idx+1)%STATUS_CYCLE.length];
-    b.activity.unshift({who:'Du',text:'Status von '+(MODULES.find(function(x){return x.id===modId;})||{name:'Modul'}).name+' → '+m.status,when:'gerade eben'});
-    save();renderContent();
-    toast('Status: '+m.status,'check');
-  };
+  // ── Auto-Status: Erkennung aus localStorage ──
+  var NO_AUTO_STATUS=['hy_w12','if_werkzeug','if_fahrzeug'];
+  var ANLAGE_MODULES=['sa_enthaertung','sa_osmose','sb_druckerhoehung'];
+
+  function _wsAutoStatus(modId,objektId){
+    if(NO_AUTO_STATUS.indexOf(modId)>=0)return 'offen';
+    var baseKeys={
+      sa_enthaertung:'gema_enthaertung',sa_osmose:'gema_osmose',
+      sb_druckerhoehung:'gema_druckerhoehung',sb_lu_tabelle:'gema_lu',
+      sb_warmwasser:'gema_warmwasser',sb_niederschlag:'gema_niederschlag',
+      sb_druckverlust:'gema_druckverlust',
+      pm_objekte:null,pm_terminplan:null,pm_ausschreibung:null,pm_abnahme:null
+    };
+    var base=baseKeys[modId];if(base===undefined)return 'offen';
+    if(base===null)return 'offen';
+
+    var sk=objektId?base+'__'+objektId:base;
+    var data=null;
+    try{var raw=localStorage.getItem(sk);if(!raw)raw=localStorage.getItem(base);if(raw)data=JSON.parse(raw);}catch(e){}
+    if(!data)return 'offen';
+
+    if(ANLAGE_MODULES.indexOf(modId)>=0){
+      var anlKey=base+'_anlage';
+      var anlSk=objektId?anlKey+'__'+objektId:anlKey;
+      var hasAnlage=false;
+      try{var ar=localStorage.getItem(anlSk);if(!ar)ar=localStorage.getItem(anlKey);if(ar&&ar!=='null'&&ar!=='""')hasAnlage=true;}catch(e){}
+      var hasOfferte=false;
+      try{var ofKey=base+'_offerte';var ofSk=objektId?ofKey+'__'+objektId:ofKey;var ofr=localStorage.getItem(ofSk);if(!ofr)ofr=localStorage.getItem(ofKey);if(ofr&&ofr!=='null')hasOfferte=true;}catch(e){}
+      if(hasOfferte)return 'Offerte angefragt';
+      if(hasAnlage)return 'Anlage gewählt';
+    }
+
+    var hasValues=false;var hasResult=false;
+    if(modId==='sa_enthaertung'){
+      hasValues=!!(data.haerteRoh||data.durchfluss);
+      hasResult=!!(data.haerteRoh&&data.haerteZiel&&data.durchfluss);
+    }else if(modId==='sa_osmose'){
+      hasValues=!!(data.zulaufTDS||data.volumenstrom);
+      hasResult=!!(data.permeat||data.recovery);
+    }else if(modId==='sb_druckerhoehung'){
+      hasValues=!!(data.volumenstrom||data.geodaetisch);
+      hasResult=!!(data.volumenstrom&&data.foerderhoehe);
+    }else if(modId==='sb_lu_tabelle'){
+      hasValues=data.verbraucher&&data.verbraucher.length>0;
+      hasResult=data.verbraucher&&data.verbraucher.length>0&&!!data.spitzenvolumenstrom;
+    }else if(modId==='sb_warmwasser'){
+      hasValues=!!(data.zapfstellen||data.personen);
+      hasResult=!!(data.speichervolumen||data.leistung);
+    }else if(modId==='sb_niederschlag'){
+      hasValues=!!(data.flaeche||data.abflussbeiwert);
+      hasResult=!!(data.flaeche&&data.abflussbeiwert);
+    }else if(modId==='sb_druckverlust'){
+      hasValues=!!(data.durchmesser||data.laenge);
+      hasResult=!!(data.druckverlust);
+    }else{
+      var keys=Object.keys(data);
+      hasValues=keys.length>0;
+      hasResult=keys.length>2;
+    }
+
+    if(hasResult)return 'berechnet';
+    if(hasValues)return 'in Bearbeitung';
+    return 'offen';
+  }
 
   // ── Objekt-Verknüpfung ──
   window._wsLinkObjekt=function(){
@@ -1289,8 +1344,9 @@ input::placeholder{color:#cbd5e1}
       var objParam='?objekt='+encodeURIComponent(objId);
       modsHtml='<div class="ws-mod-grid" id="wsModGrid">'+b.modules.map(function(m,idx){
         var mod=MODULES.find(function(x){return x.id===m.mod;});if(!mod)return '';
-        var isDone=m.status==='berechnet';var isWip=m.status==='in Bearbeitung';
-        var stCls=isDone?' done':(isWip?' wip':'');
+        var autoSt=NO_AUTO_STATUS.indexOf(m.mod)>=0?null:_wsAutoStatus(m.mod,b.objektId);
+        var stLabel=autoSt||'offen';
+        var stCls=stLabel==='berechnet'?' done':stLabel==='in Bearbeitung'?' wip':stLabel==='Anlage gewählt'?' anlage':stLabel==='Offerte angefragt'?' offerte':'';
         var kpi=getModuleKpi(m.mod,b.objektId);
         var ts=getBerechnungTimestamp(m.mod,b.objektId);
         var kpiHtml=kpi?'<div class="ws-mod-kpi">'+esc(kpi)+'</div>':'';
@@ -1301,7 +1357,7 @@ input::placeholder{color:#cbd5e1}
           +'<div style="flex:1;min-width:0"><div class="ws-mod-tile-name">'+esc(mod.name)+'</div>'
           +kpiHtml
           +'<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">'
-          +'<button class="ws-mod-status-btn ws-mod-tile-status'+stCls+'" onclick="event.preventDefault();event.stopPropagation();_wsCycleStatus(\''+m.mod+'\')" title="Status wechseln"><span class="ws-mod-dot"></span>'+esc(m.status||'offen')+'</button>'
+          +'<span class="ws-mod-tile-status'+stCls+'"><span class="ws-mod-dot"></span>'+esc(stLabel)+'</span>'
           +tsHtml+'</div></div>'
           +'<button class="ws-icon-btn" onclick="event.preventDefault();event.stopPropagation();_wsRemoveMod(\''+m.mod+'\')" title="Entfernen" style="width:22px;height:22px">'+icon('x',12,2)+'</button></a>';
       }).join('')
