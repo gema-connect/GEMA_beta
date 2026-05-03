@@ -637,16 +637,16 @@
   var thisFile=location.pathname.split('/').pop()||'';
   var thisFileLower=thisFile.toLowerCase().replace('.html','');
   function _isSkip(){return thisFileLower==='sys_login';}
-  function _isLoginOnly(){return ['index','sb_index','pm_ausschreibung','ab_index','sys_admin','sys_profil','sys_preise','sys_beta','sys_lieferant_dashboard',''].indexOf(thisFileLower)>=0;}
+  function _isLoginOnly(){return ['index','sb_index','pm_ausschreibung','ab_index','sys_admin','sys_profil','sys_preise','sys_beta','sys_lieferant_dashboard','sys_workspace',''].indexOf(thisFileLower)>=0;}
 
   // ── Rollenspezifische Zielseite ─────────────────────────────────
   function _getRedirectForUser(u){
-    if(!u||!u.roleIds)return'index.html';
+    if(!u||!u.roleIds)return'sys_workspace.html';
     if(u.roleIds.indexOf('role_lieferant')>=0)return'sys_lieferant_dashboard.html';
     if(u.roleIds.indexOf('role_pruefer')>=0)return'sys_lieferant_dashboard.html';
     if(u.roleIds.indexOf('role_magaziner')>=0)return'if_werkzeug.html';
     if(u.roleIds.indexOf('role_monteur')>=0)return'if_werkzeug.html';
-    return'index.html';
+    return'sys_workspace.html';
   }
 
   // ── INIT ───────────────────────────────────────────────────────────
