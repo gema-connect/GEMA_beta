@@ -281,19 +281,17 @@ input::placeholder{color:#cbd5e1}
 
 /* ── Settings Button ── */
 .ws-settings-btn{display:flex;align-items:center;gap:8px;width:100%;padding:10px 12px;border-radius:var(--r-sm);font-size:13px;font-weight:500;color:var(--ink-2);transition:var(--t);text-align:left}
-.ws-settings-btn:hover{background:#F4F5F7;color:var(--ink)}
+.ws-settings-btn:hover,.ws-settings-btn.active{background:#EDF1F7;color:var(--navy);font-weight:600}
 .ws-settings-btn svg{flex-shrink:0}
 
-/* ── Settings Panel ── */
-.ws-settings-overlay{position:fixed;inset:0;background:rgba(15,23,42,.32);backdrop-filter:blur(3px);z-index:350;animation:ws-fade-in 180ms ease;display:flex;justify-content:center;align-items:flex-start;padding:40px 24px}
-.ws-settings-panel{width:100%;max-width:680px;max-height:calc(100vh - 80px);background:var(--card);border-radius:var(--r-card);box-shadow:var(--shadow-3);overflow:hidden;display:flex;flex-direction:column;animation:ws-modal-in 220ms cubic-bezier(.2,.7,.2,1)}
-.ws-settings-header{display:flex;align-items:center;justify-content:space-between;padding:20px 24px 0;flex-shrink:0}
-.ws-settings-title{font-size:18px;font-weight:700;margin:0}
-.ws-settings-tabs{display:flex;gap:2px;padding:12px 24px 0;border-bottom:1px solid var(--line);flex-shrink:0;overflow-x:auto}
+/* ── Settings (inline in content area) ── */
+.ws-settings-header{display:flex;align-items:center;justify-content:space-between;padding:22px 28px 0;flex-shrink:0;background:var(--card)}
+.ws-settings-title{font-size:20px;font-weight:700;margin:0;letter-spacing:-.015em}
+.ws-settings-tabs{display:flex;gap:2px;padding:8px 28px 0;border-bottom:1px solid var(--line);flex-shrink:0;overflow-x:auto;background:var(--card)}
 .ws-settings-tab{padding:10px 16px;font-size:13px;font-weight:500;color:var(--ink-3);border-bottom:2px solid transparent;transition:var(--t);white-space:nowrap}
 .ws-settings-tab:hover{color:var(--ink)}
 .ws-settings-tab.active{color:var(--navy);border-bottom-color:var(--navy);font-weight:600}
-.ws-settings-body{flex:1;overflow-y:auto;padding:20px 24px 24px}
+.ws-settings-body{flex:1;overflow-y:auto;padding:24px 28px 32px}
 .ws-settings-section{margin-bottom:24px}
 .ws-settings-section-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-3);margin-bottom:12px}
 .ws-settings-row{display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid var(--line-2)}
@@ -412,8 +410,6 @@ input::placeholder{color:#cbd5e1}
   </div>
 </div>
 
-<!-- Settings Container -->
-<div id="wsSettingsRoot"></div>
 <!-- Modal Container -->
 <div id="wsModalRoot"></div>
 <!-- Toast Container -->
@@ -428,6 +424,7 @@ input::placeholder{color:#cbd5e1}
   var activeOrg='all';
   var _toastTimer=null;
   var _activeNotePageId=null;
+  var _showSettings=false;
 
   // ── SVG Icons ──
   var ICONS={
@@ -450,7 +447,8 @@ input::placeholder{color:#cbd5e1}
     building:'<rect x="4" y="3" width="16" height="18" rx="1"/><path d="M9 9h.01M15 9h.01M9 13h.01M15 13h.01M9 17h.01M15 17h.01"/>',
     grad:'<path d="M22 9 12 4 2 9l10 5 10-5Z"/><path d="M6 11v5c0 1.5 3 3 6 3s6-1.5 6-3v-5"/>',
     share:'<circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 13.5 6.8 4M15.4 6.5l-6.8 4"/>',
-    note:'<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9Z"/><path d="M14 3v6h6"/><path d="M8 13h8M8 17h5"/>'
+    note:'<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9Z"/><path d="M14 3v6h6"/><path d="M8 13h8M8 17h5"/>',
+    settings:'<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>'
   };
   function icon(name,size,sw){
     size=size||20;sw=sw||1.6;
@@ -664,6 +662,7 @@ input::placeholder{color:#cbd5e1}
 
   // ── Tab / Open Bucket ──
   window._wsOpen=function(id){
+    _showSettings=false;
     activeTab=id;
     if(openTabs.indexOf(id)<0)openTabs.push(id);
     render();
@@ -857,6 +856,8 @@ input::placeholder{color:#cbd5e1}
     var moreS=shared.length>5?'<button style="font-size:12px;color:var(--ink-3);padding:6px 10px;text-align:left;border-radius:var(--r-sm);width:100%" onclick="_wsToggleExpand(\'shared\')" onmouseover="this.style.background=\'#F4F5F7\'" onmouseout="this.style.background=\'none\'">'+(_expandShared?'… weniger':'… '+(shared.length-5)+' mehr')+'</button>':'';
     document.getElementById('wsPersonal').innerHTML=(visP.length?visP.map(bucketRowHtml).join(''):'<div class="ws-empty-hint">Noch keine Eimer</div>')+moreP;
     document.getElementById('wsShared').innerHTML=(visS.length?visS.map(bucketRowHtml).join(''):'<div class="ws-empty-hint">Noch keine geteilten Eimer</div>')+moreS;
+    var sBtn=document.getElementById('wsSettingsBtn');
+    if(sBtn)sBtn.classList.toggle('active',_showSettings);
   }
 
   function bucketRowHtml(b){
@@ -892,6 +893,10 @@ input::placeholder{color:#cbd5e1}
     var content=document.getElementById('wsContentArea');
     var notesCol=document.getElementById('wsNotesCol');
     var notesHandle=document.getElementById('wsResizeNotes');
+    if(_showSettings){
+      _renderSettings();
+      return;
+    }
     if(!activeTab||!buckets.length){
       empty.style.display='';
       content.style.display='none';
@@ -1063,11 +1068,15 @@ input::placeholder{color:#cbd5e1}
 
   var _settingsTab='vorlagen';
   window._wsOpenSettings=function(){
+    _showSettings=true;
     _settingsTab='vorlagen';
-    _renderSettings();
+    activeTab=null;
+    render();
   };
   window._wsCloseSettings=function(){
-    document.getElementById('wsSettingsRoot').innerHTML='';
+    _showSettings=false;
+    if(openTabs.length)activeTab=openTabs[openTabs.length-1];
+    render();
   };
   window._wsSettingsTab=function(tab){
     _settingsTab=tab;
@@ -1158,16 +1167,20 @@ input::placeholder{color:#cbd5e1}
         +'</div>';
     }
 
-    var root=document.getElementById('wsSettingsRoot');
-    root.innerHTML='<div class="ws-settings-overlay" onclick="_wsCloseSettings()">'
-      +'<div class="ws-settings-panel" onclick="event.stopPropagation()">'
-      +'<div class="ws-settings-header"><h2 class="ws-settings-title">Einstellungen</h2>'
-      +'<button class="ws-icon-btn" onclick="_wsCloseSettings()">'+icon('x',18)+'</button></div>'
+    var content=document.getElementById('wsContentArea');
+    content.style.display='flex';
+    content.innerHTML=
+      '<div class="ws-settings-header"><div style="display:flex;align-items:center;gap:10px">'
+      +'<div style="width:36px;height:36px;border-radius:var(--r-sm);background:linear-gradient(135deg,#F0F4FA 0%,#E8F0EA 100%);display:grid;place-items:center;color:var(--navy)">'+icon('settings',18)+'</div>'
+      +'<h2 class="ws-settings-title">Einstellungen</h2></div>'
+      +'<button class="ws-btn ws-btn-ghost" onclick="_wsCloseSettings()">'+icon('x',14)+' Schliessen</button></div>'
       +'<div class="ws-settings-tabs">'+tabs.map(function(t){
         return '<button class="ws-settings-tab'+(_settingsTab===t.id?' active':'')+'" onclick="_wsSettingsTab(\''+t.id+'\')">'+esc(t.label)+'</button>';
       }).join('')+'</div>'
-      +'<div class="ws-settings-body">'+bodyHtml+'</div>'
-      +'</div></div>';
+      +'<div class="ws-settings-body">'+bodyHtml+'</div>';
+    document.getElementById('wsEmptyState').style.display='none';
+    document.getElementById('wsNotesCol').style.display='none';
+    document.getElementById('wsResizeNotes').style.display='none';
   }
 
   window._wsSetSetting=function(key,val){
