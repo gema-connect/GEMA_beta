@@ -284,14 +284,17 @@ input::placeholder{color:#cbd5e1}
 .ws-settings-btn:hover,.ws-settings-btn.active{background:#EDF1F7;color:var(--navy);font-weight:600}
 .ws-settings-btn svg{flex-shrink:0}
 
-/* ── Settings (inline in content area) ── */
+/* ── Settings (inline, sidebar-nav + content) ── */
 .ws-settings-header{display:flex;align-items:center;justify-content:space-between;padding:22px 28px 12px;flex-shrink:0;background:var(--card);border-bottom:1px solid var(--line-2);width:100%}
 .ws-settings-title{font-size:20px;font-weight:700;margin:0;letter-spacing:-.015em}
-.ws-settings-tabs{display:flex;gap:2px;padding:0 28px;border-bottom:1px solid var(--line);flex-shrink:0;overflow-x:auto;background:var(--card);width:100%}
-.ws-settings-tab{padding:10px 16px;font-size:13px;font-weight:500;color:var(--ink-3);border-bottom:2px solid transparent;transition:var(--t);white-space:nowrap}
-.ws-settings-tab:hover{color:var(--ink)}
-.ws-settings-tab.active{color:var(--navy);border-bottom-color:var(--navy);font-weight:600}
+.ws-settings-layout{display:flex;flex:1;min-height:0;width:100%}
+.ws-settings-nav{width:220px;flex-shrink:0;background:var(--card);border-right:1px solid var(--line-2);padding:16px 10px;overflow-y:auto;display:flex;flex-direction:column;gap:2px}
+.ws-settings-nav-item{display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:var(--r-sm);font-size:13px;font-weight:500;color:var(--ink-2);transition:var(--t);text-align:left;width:100%;cursor:pointer}
+.ws-settings-nav-item:hover{background:#F4F5F7;color:var(--ink)}
+.ws-settings-nav-item.active{background:#EDF1F7;color:var(--navy);font-weight:600}
+.ws-settings-nav-icon{display:inline-flex;flex-shrink:0;width:20px;justify-content:center}
 .ws-settings-body{flex:1;overflow-y:auto;padding:24px 28px 32px;width:100%}
+@media(max-width:720px){.ws-settings-nav{display:none}.ws-settings-layout{flex-direction:column}}
 .ws-settings-section{margin-bottom:24px}
 .ws-settings-section-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-3);margin-bottom:12px}
 .ws-settings-row{display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid var(--line-2)}
@@ -1066,10 +1069,10 @@ input::placeholder{color:#cbd5e1}
   function loadSettings(){try{return JSON.parse(localStorage.getItem(SETTINGS_KEY)||'{}');}catch(e){return {};}}
   function saveSettingsData(s){try{localStorage.setItem(SETTINGS_KEY,JSON.stringify(s));}catch(e){}}
 
-  var _settingsTab='vorlagen';
+  var _settingsTab='allgemein';
   window._wsOpenSettings=function(){
     _showSettings=true;
-    _settingsTab='vorlagen';
+    _settingsTab='allgemein';
     activeTab=null;
     render();
   };
@@ -1084,20 +1087,59 @@ input::placeholder{color:#cbd5e1}
   };
 
   function _renderSettings(){
-    var tabs=[
-      {id:'vorlagen',label:'Vorlagen'},
-      {id:'sanitaer',label:'Sanitärberechnungen'},
-      {id:'pm',label:'Projektmanagement'},
-      {id:'infra',label:'Infrastruktur'},
-      {id:'allgemein',label:'Allgemein'}
+    var navItems=[
+      {id:'allgemein',label:'Allgemein',ic:'settings'},
+      {id:'eimer',label:'Eimer & Vorlagen',ic:'bucket'},
+      {id:'pm',label:'Projektmanagement',ic:'building'},
+      {id:'sanitaer',label:'Sanitärberechnungen',ic:'droplet'},
+      {id:'infra',label:'Infrastruktur',ic:'gauge'}
     ];
     var templates=loadTemplates();
     var settings=loadSettings();
     var bodyHtml='';
 
-    if(_settingsTab==='vorlagen'){
-      bodyHtml='<div class="ws-settings-section">'
-        +'<div class="ws-settings-section-title">Modul-Vorlagen</div>'
+    if(_settingsTab==='allgemein'){
+      var lang=settings.sprache||'de';
+      var dens=settings.density||'comfortable';
+      bodyHtml='<div class="ws-settings-section"><div class="ws-settings-section-title">Darstellung</div>'
+        +'<div class="ws-settings-row"><div class="ws-settings-row-info"><div class="ws-settings-row-label">Dichte</div>'
+        +'<div class="ws-settings-row-desc">Kompakt zeigt mehr Inhalt, Komfortabel bietet mehr Weissraum</div></div>'
+        +'<select class="ws-input" style="width:auto" onchange="_wsSetSetting(\'density\',this.value)">'
+        +'<option value="comfortable"'+(dens==='comfortable'?' selected':'')+'>Komfortabel</option>'
+        +'<option value="compact"'+(dens==='compact'?' selected':'')+'>Kompakt</option></select></div>'
+        +'<div class="ws-settings-row"><div class="ws-settings-row-info"><div class="ws-settings-row-label">Sidebar-Breite merken</div>'
+        +'<div class="ws-settings-row-desc">Sidebar- und Notes-Breite werden beim nächsten Besuch wiederhergestellt</div></div>'
+        +'<div class="ws-toggle'+(settings.rememberWidths!==false?' on':'')+'" onclick="this.classList.toggle(\'on\');_wsSetSetting(\'rememberWidths\',this.classList.contains(\'on\'))"></div></div>'
+        +'</div>'
+        +'<div class="ws-settings-section"><div class="ws-settings-section-title">Sprache & Region</div>'
+        +'<div class="ws-settings-row"><div class="ws-settings-row-info"><div class="ws-settings-row-label">Sprache</div></div>'
+        +'<select class="ws-input" style="width:auto" onchange="_wsSetSetting(\'sprache\',this.value)">'
+        +'<option value="de"'+(lang==='de'?' selected':'')+'>Deutsch</option>'
+        +'<option value="fr"'+(lang==='fr'?' selected':'')+'>Français</option>'
+        +'<option value="it"'+(lang==='it'?' selected':'')+'>Italiano</option></select></div>'
+        +'</div>'
+        +'<div class="ws-settings-section"><div class="ws-settings-section-title">Benachrichtigungen</div>'
+        +'<div class="ws-settings-row"><div class="ws-settings-row-info"><div class="ws-settings-row-label">E-Mail Benachrichtigungen</div>'
+        +'<div class="ws-settings-row-desc">Bei Statusänderungen in Ausschreibungen, Mängeln etc.</div></div>'
+        +'<div class="ws-toggle'+(settings.emailNotify?' on':'')+'" onclick="this.classList.toggle(\'on\');_wsSetSetting(\'emailNotify\',this.classList.contains(\'on\'))"></div></div>'
+        +'<div class="ws-settings-row"><div class="ws-settings-row-info"><div class="ws-settings-row-label">Workspace-Aktivitäten</div>'
+        +'<div class="ws-settings-row-desc">Benachrichtigung wenn jemand in einem geteilten Eimer arbeitet</div></div>'
+        +'<div class="ws-toggle'+(settings.wsActivity!==false?' on':'')+'" onclick="this.classList.toggle(\'on\');_wsSetSetting(\'wsActivity\',this.classList.contains(\'on\'))"></div></div>'
+        +'</div>';
+    }else if(_settingsTab==='eimer'){
+      bodyHtml='<div class="ws-settings-section"><div class="ws-settings-section-title">Eimer-Grundeinstellungen</div>'
+        +'<div class="ws-settings-row"><div class="ws-settings-row-info"><div class="ws-settings-row-label">Standard-Typ für neue Eimer</div>'
+        +'<div class="ws-settings-row-desc">Wird im Erstellen-Dialog vorausgewählt</div></div>'
+        +'<select class="ws-input" style="width:auto" onchange="_wsSetSetting(\'defaultBucketType\',this.value)">'
+        +'<option value="project"'+((!settings.defaultBucketType||settings.defaultBucketType==='project')?' selected':'')+'>Bauprojekt</option>'
+        +'<option value="training"'+(settings.defaultBucketType==='training'?' selected':'')+'>Übung</option>'
+        +'<option value="private"'+(settings.defaultBucketType==='private'?' selected':'')+'>Privat</option>'
+        +'<option value="shared"'+(settings.defaultBucketType==='shared'?' selected':'')+'>Team</option></select></div>'
+        +'<div class="ws-settings-row"><div class="ws-settings-row-info"><div class="ws-settings-row-label">Notizen automatisch erstellen</div>'
+        +'<div class="ws-settings-row-desc">Neue Eimer erhalten automatisch eine erste Notizseite</div></div>'
+        +'<div class="ws-toggle'+(settings.autoNotes!==false?' on':'')+'" onclick="this.classList.toggle(\'on\');_wsSetSetting(\'autoNotes\',this.classList.contains(\'on\'))"></div></div>'
+        +'</div>'
+        +'<div class="ws-settings-section"><div class="ws-settings-section-title">Modul-Vorlagen</div>'
         +'<p style="font-size:13px;color:var(--ink-2);margin-bottom:16px">Vorlagen definieren welche Module automatisch hinzugefügt werden, wenn du einen neuen Eimer erstellst.</p>';
       if(templates.length){
         bodyHtml+=templates.map(function(tpl,i){
@@ -1113,9 +1155,22 @@ input::placeholder{color:#cbd5e1}
             +'</div></div>';
         }).join('');
       }else{
-        bodyHtml+='<div style="padding:20px 0;text-align:center;color:var(--ink-3);font-size:13px">Noch keine Vorlagen erstellt</div>';
+        bodyHtml+='<div style="padding:16px 0;color:var(--ink-3);font-size:13px;font-style:italic">Noch keine Vorlagen erstellt</div>';
       }
-      bodyHtml+='<button class="ws-btn ws-btn-primary" style="margin-top:12px" onclick="_wsNewTemplate()">'+icon('plus',14)+' Neue Vorlage</button></div>';
+      bodyHtml+='<button class="ws-btn ws-btn-primary" style="margin-top:8px" onclick="_wsNewTemplate()">'+icon('plus',14)+' Neue Vorlage</button></div>';
+    }else if(_settingsTab==='pm'){
+      bodyHtml='<div class="ws-settings-section"><div class="ws-settings-section-title">Projektmanagement</div>'
+        +'<div class="ws-settings-row"><div class="ws-settings-row-info"><div class="ws-settings-row-label">Dynamische BKP-Nummerierung</div>'
+        +'<div class="ws-settings-row-desc">Beim Verschieben von Positionen werden Nummern automatisch angepasst</div></div>'
+        +'<div class="ws-toggle'+(settings.dynBKP?' on':'')+'" onclick="this.classList.toggle(\'on\');_wsSetSetting(\'dynBKP\',this.classList.contains(\'on\'))"></div></div>'
+        +'<div class="ws-settings-row"><div class="ws-settings-row-info"><div class="ws-settings-row-label">Standard SIA-Phase</div>'
+        +'<div class="ws-settings-row-desc">Wird bei neuen Objekten vorausgewählt</div></div>'
+        +'<select class="ws-input" style="width:auto" onchange="_wsSetSetting(\'siaPhase\',this.value)">'
+        +'<option value="31"'+(settings.siaPhase==='31'?' selected':'')+'>31 Vorprojekt</option>'
+        +'<option value="32"'+(!settings.siaPhase||settings.siaPhase==='32'?' selected':'')+'>32 Bauprojekt</option>'
+        +'<option value="41"'+(settings.siaPhase==='41'?' selected':'')+'>41 Ausschreibung</option>'
+        +'<option value="51"'+(settings.siaPhase==='51'?' selected':'')+'>51 Ausführung</option></select></div>'
+        +'</div>';
     }else if(_settingsTab==='sanitaer'){
       var einh=settings.einheiten||'metrisch';
       bodyHtml='<div class="ws-settings-section"><div class="ws-settings-section-title">Berechnungs-Einstellungen</div>'
@@ -1131,19 +1186,6 @@ input::placeholder{color:#cbd5e1}
         +'<div class="ws-settings-row-desc">Standard-Kaltwassertemperatur (°C)</div></div>'
         +'<input type="text" inputmode="decimal" class="ws-input" style="width:80px;text-align:center" value="'+(settings.tempKalt||'10')+'" onblur="_wsSetSetting(\'tempKalt\',this.value)" placeholder="10"></div>'
         +'</div>';
-    }else if(_settingsTab==='pm'){
-      bodyHtml='<div class="ws-settings-section"><div class="ws-settings-section-title">Projektmanagement</div>'
-        +'<div class="ws-settings-row"><div class="ws-settings-row-info"><div class="ws-settings-row-label">Dynamische BKP-Nummerierung</div>'
-        +'<div class="ws-settings-row-desc">Beim Verschieben von Positionen werden Nummern automatisch angepasst</div></div>'
-        +'<div class="ws-toggle'+(settings.dynBKP?' on':'')+'" onclick="this.classList.toggle(\'on\');_wsSetSetting(\'dynBKP\',this.classList.contains(\'on\'))"></div></div>'
-        +'<div class="ws-settings-row"><div class="ws-settings-row-info"><div class="ws-settings-row-label">Standard SIA-Phase</div>'
-        +'<div class="ws-settings-row-desc">Wird bei neuen Objekten vorausgewählt</div></div>'
-        +'<select class="ws-input" style="width:auto" onchange="_wsSetSetting(\'siaPhase\',this.value)">'
-        +'<option value="31"'+(settings.siaPhase==='31'?' selected':'')+'>31 Vorprojekt</option>'
-        +'<option value="32"'+(!settings.siaPhase||settings.siaPhase==='32'?' selected':'')+'>32 Bauprojekt</option>'
-        +'<option value="41"'+(settings.siaPhase==='41'?' selected':'')+'>41 Ausschreibung</option>'
-        +'<option value="51"'+(settings.siaPhase==='51'?' selected':'')+'>51 Ausführung</option></select></div>'
-        +'</div>';
     }else if(_settingsTab==='infra'){
       bodyHtml='<div class="ws-settings-section"><div class="ws-settings-section-title">Infrastruktur</div>'
         +'<div class="ws-settings-row"><div class="ws-settings-row-info"><div class="ws-settings-row-label">Prüfungs-Erinnerungen</div>'
@@ -1152,18 +1194,6 @@ input::placeholder{color:#cbd5e1}
         +'<div class="ws-settings-row"><div class="ws-settings-row-info"><div class="ws-settings-row-label">Standard Prüfintervall (Monate)</div>'
         +'<div class="ws-settings-row-desc">Wird bei neuen Geräten vorausgewählt</div></div>'
         +'<input type="text" inputmode="decimal" class="ws-input" style="width:80px;text-align:center" value="'+(settings.pruefIntervall||'12')+'" onblur="_wsSetSetting(\'pruefIntervall\',this.value)" placeholder="12"></div>'
-        +'</div>';
-    }else{
-      var lang=settings.sprache||'de';
-      bodyHtml='<div class="ws-settings-section"><div class="ws-settings-section-title">Allgemein</div>'
-        +'<div class="ws-settings-row"><div class="ws-settings-row-info"><div class="ws-settings-row-label">Sprache</div></div>'
-        +'<select class="ws-input" style="width:auto" onchange="_wsSetSetting(\'sprache\',this.value)">'
-        +'<option value="de"'+(lang==='de'?' selected':'')+'>Deutsch</option>'
-        +'<option value="fr"'+(lang==='fr'?' selected':'')+'>Français</option>'
-        +'<option value="it"'+(lang==='it'?' selected':'')+'>Italiano</option></select></div>'
-        +'<div class="ws-settings-row"><div class="ws-settings-row-info"><div class="ws-settings-row-label">E-Mail Benachrichtigungen</div>'
-        +'<div class="ws-settings-row-desc">Bei Statusänderungen in Ausschreibungen, Mängeln etc.</div></div>'
-        +'<div class="ws-toggle'+(settings.emailNotify?' on':'')+'" onclick="this.classList.toggle(\'on\');_wsSetSetting(\'emailNotify\',this.classList.contains(\'on\'))"></div></div>'
         +'</div>';
     }
 
@@ -1174,10 +1204,12 @@ input::placeholder{color:#cbd5e1}
       +'<div style="width:36px;height:36px;border-radius:var(--r-sm);background:linear-gradient(135deg,#F0F4FA 0%,#E8F0EA 100%);display:grid;place-items:center;color:var(--navy)">'+icon('settings',18)+'</div>'
       +'<h2 class="ws-settings-title">Einstellungen</h2></div>'
       +'<button class="ws-btn ws-btn-ghost" onclick="_wsCloseSettings()">'+icon('x',14)+' Schliessen</button></div>'
-      +'<div class="ws-settings-tabs">'+tabs.map(function(t){
-        return '<button class="ws-settings-tab'+(_settingsTab===t.id?' active':'')+'" onclick="_wsSettingsTab(\''+t.id+'\')">'+esc(t.label)+'</button>';
-      }).join('')+'</div>'
-      +'<div class="ws-settings-body">'+bodyHtml+'</div>';
+      +'<div class="ws-settings-layout">'
+      +'<nav class="ws-settings-nav">'+navItems.map(function(n){
+        return '<button class="ws-settings-nav-item'+(_settingsTab===n.id?' active':'')+'" onclick="_wsSettingsTab(\''+n.id+'\')">'
+          +'<span class="ws-settings-nav-icon">'+icon(n.ic,16)+'</span>'+esc(n.label)+'</button>';
+      }).join('')+'</nav>'
+      +'<div class="ws-settings-body">'+bodyHtml+'</div></div>';
     document.getElementById('wsEmptyState').style.display='none';
     document.getElementById('wsNotesCol').style.display='none';
     document.getElementById('wsResizeNotes').style.display='none';
