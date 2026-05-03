@@ -494,14 +494,26 @@ input::placeholder{color:#cbd5e1}
 
   // ── New Bucket Modal ──
   var _newType='project';
+  var _newOrg='';
+  function _getOrgs(){
+    var orgs=[];
+    try{if(typeof GemaAuth!=='undefined'){var u=GemaAuth.getCurrentUser();if(u&&u.orgId)orgs=[{id:u.orgId,short:u.orgId.slice(0,3).toUpperCase(),name:u.orgId}];}}catch(e){}
+    if(!orgs.length)orgs=[{id:'default',short:'Org',name:'Organisation'}];
+    return orgs;
+  }
   window._wsOpenNewModal=function(){
     _newType='project';
+    var orgs=_getOrgs();_newOrg=orgs[0].id;
     var types=[{id:'project',icon:'building',label:'Bauprojekt'},{id:'training',icon:'grad',label:'Übung'},{id:'private',icon:'lock',label:'Privat'},{id:'shared',icon:'users',label:'Team'}];
+    var orgHtml='<div class="ws-form-field" id="wsOrgField"><label>Organisation</label><div class="ws-org-pills" id="wsOrgPillsModal">'
+      +orgs.map(function(o){return '<button class="ws-org-pill'+(o.id===_newOrg?' active':'')+'" onclick="_wsPickOrg(\''+o.id+'\')">'+esc(o.name)+'</button>';}).join('')
+      +'</div></div>';
     var body='<div class="ws-form">'
       +'<div class="ws-form-field"><label>Name</label><input class="ws-input" id="wsNewName" placeholder="z.B. Neubau Bahnhofstrasse 14"></div>'
       +'<div class="ws-form-field"><label>Typ</label><div class="ws-type-grid" id="wsTypeGrid">'
       +types.map(function(t){return '<button class="ws-type-card'+(t.id==='project'?' active':'')+'" data-type="'+t.id+'" onclick="_wsPickType(\''+t.id+'\')">'+icon(t.icon,18)+'<span>'+t.label+'</span></button>';}).join('')
       +'</div></div>'
+      +orgHtml
       +'<div class="ws-form-actions"><button class="ws-btn ws-btn-ghost" onclick="_wsCloseModal()">Abbrechen</button>'
       +'<button class="ws-btn ws-btn-primary" id="wsCreateBtn" onclick="_wsDoCreate()" disabled>Eimer erstellen</button></div></div>';
     openModal('Neuer Eimer',body);
@@ -512,12 +524,19 @@ input::placeholder{color:#cbd5e1}
     _newType=t;
     var cards=document.querySelectorAll('#wsTypeGrid .ws-type-card');
     for(var i=0;i<cards.length;i++)cards[i].classList.toggle('active',cards[i].getAttribute('data-type')===t);
+    var orgField=document.getElementById('wsOrgField');
+    if(orgField)orgField.style.display=t==='private'?'none':'';
+  };
+  window._wsPickOrg=function(id){
+    _newOrg=id;
+    var pills=document.querySelectorAll('#wsOrgPillsModal .ws-org-pill');
+    for(var i=0;i<pills.length;i++)pills[i].classList.toggle('active',pills[i].textContent===(_getOrgs().find(function(o){return o.id===id;})||{}).name);
   };
   window._wsDoCreate=function(){
     var inp=document.getElementById('wsNewName');
     var name=(inp?inp.value:'').trim();
     if(!name)return;
-    var orgId=_resolveOrg();
+    var orgId=_newType==='private'?_resolveOrg():(_newOrg||_resolveOrg());
     var b={id:'ws_'+Date.now(),name:name,type:_newType,org:orgId,shared:_newType==='shared',members:['Du'],modules:[],
       activity:[{who:'Du',text:'hat „'+name+'” erstellt',when:'gerade eben'}],
       beteiligte:[],notes:[{id:'n1',title:'n.Seite 1',body:'<p>Erste Notiz …</p>'}],objektId:null,createdAt:new Date().toISOString()};
@@ -761,6 +780,13 @@ input::placeholder{color:#cbd5e1}
   }
   window._wsSetOrg=function(id){activeOrg=id;render();};
 
+  var _expandPersonal=false, _expandShared=false;
+  window._wsToggleExpand=function(which){
+    if(which==='personal')_expandPersonal=!_expandPersonal;
+    else _expandShared=!_expandShared;
+    renderSidebar();
+  };
+
   function renderSidebar(){
     var filterOrg=function(list){
       if(activeOrg==='all')return list;
@@ -768,8 +794,12 @@ input::placeholder{color:#cbd5e1}
     };
     var personal=filterOrg(buckets.filter(function(b){return!b.shared;}));
     var shared=filterOrg(buckets.filter(function(b){return b.shared;}));
-    document.getElementById('wsPersonal').innerHTML=personal.length?personal.map(bucketRowHtml).join(''):'<div class="ws-empty-hint">Noch keine Eimer</div>';
-    document.getElementById('wsShared').innerHTML=shared.length?shared.map(bucketRowHtml).join(''):'<div class="ws-empty-hint">Noch keine geteilten Eimer</div>';
+    var visP=_expandPersonal?personal:personal.slice(0,5);
+    var visS=_expandShared?shared:shared.slice(0,5);
+    var moreP=personal.length>5?'<button style="font-size:12px;color:var(--ink-3);padding:6px 10px;text-align:left;border-radius:var(--r-sm);width:100%" onclick="_wsToggleExpand(\'personal\')" onmouseover="this.style.background=\'#F4F5F7\'" onmouseout="this.style.background=\'none\'">'+(_expandPersonal?'… weniger':'… '+(personal.length-5)+' mehr')+'</button>':'';
+    var moreS=shared.length>5?'<button style="font-size:12px;color:var(--ink-3);padding:6px 10px;text-align:left;border-radius:var(--r-sm);width:100%" onclick="_wsToggleExpand(\'shared\')" onmouseover="this.style.background=\'#F4F5F7\'" onmouseout="this.style.background=\'none\'">'+(_expandShared?'… weniger':'… '+(shared.length-5)+' mehr')+'</button>':'';
+    document.getElementById('wsPersonal').innerHTML=(visP.length?visP.map(bucketRowHtml).join(''):'<div class="ws-empty-hint">Noch keine Eimer</div>')+moreP;
+    document.getElementById('wsShared').innerHTML=(visS.length?visS.map(bucketRowHtml).join(''):'<div class="ws-empty-hint">Noch keine geteilten Eimer</div>')+moreS;
   }
 
   function bucketRowHtml(b){
