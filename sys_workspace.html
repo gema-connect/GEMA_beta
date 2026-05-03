@@ -624,7 +624,26 @@ input::placeholder{color:#cbd5e1}
   window._wsOpenModulePicker=function(){
     var b=buckets.find(function(x){return x.id===activeTab;});if(!b)return;
     var existing=b.modules.map(function(m){return m.mod;});
-    var body='<div class="ws-modpicker">'+MODULES.map(function(m){
+    var templates=loadTemplates();
+
+    var tplHtml='';
+    if(templates.length){
+      tplHtml='<div style="margin-bottom:16px"><div class="ws-settings-section-title" style="margin-bottom:8px">Vorlage anwenden</div>'
+        +templates.map(function(tpl,i){
+          var newMods=tpl.modules.filter(function(mId){return existing.indexOf(mId)<0;});
+          var allExist=newMods.length===0;
+          return '<button class="ws-modpicker-item'+(allExist?' disabled':'')+'" '+(allExist?'disabled':'onclick="_wsApplyTemplate('+i+')"')+'>'
+            +'<div class="ws-modpicker-icon" style="background:var(--gradient);color:#fff">'+icon('bucket',20)+'</div>'
+            +'<div style="flex:1;min-width:0"><div class="ws-modpicker-name">'+esc(tpl.name)+'</div>'
+            +'<div class="ws-modpicker-desc">'+tpl.modules.length+' Module'+(newMods.length&&!allExist?' · '+newMods.length+' neu':'')+'</div></div>'
+            +(allExist?'<span class="ws-modpicker-tag">alle bereits vorhanden</span>':'')
+            +'</button>';
+        }).join('')+'</div>';
+    }
+
+    var body=tplHtml
+      +'<div class="ws-settings-section-title" style="margin-bottom:8px">Einzelnes Modul</div>'
+      +'<div class="ws-modpicker">'+MODULES.map(function(m){
       var dis=existing.indexOf(m.id)>=0;
       return '<button class="ws-modpicker-item'+(dis?' disabled':'')+'" '+(dis?'disabled':' onclick="_wsPickModule(\''+m.id+'\')"')+'>'
         +'<div class="ws-modpicker-icon">'+icon(m.icon,20)+'</div>'
@@ -632,8 +651,28 @@ input::placeholder{color:#cbd5e1}
         +'<div class="ws-modpicker-desc">'+esc(m.desc)+'</div></div>'
         +(dis?'<span class="ws-modpicker-tag">bereits hinzugefügt</span>':'')
         +'</button>';
-    }).join('')+'</div>';
+    }).join('')+'</div>'
+      +'<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--line)">'
+      +'<button style="font-size:12.5px;color:var(--navy);font-weight:500;display:inline-flex;align-items:center;gap:5px" onclick="_wsCloseModal();_wsOpenSettings();_wsSettingsTab(\'eimer\')">'+icon('settings',14)+' Vorlagen verwalten</button></div>';
     openModal('Modul hinzufügen',body,560);
+  };
+  window._wsApplyTemplate=function(idx){
+    var b=buckets.find(function(x){return x.id===activeTab;});if(!b)return;
+    var tpl=loadTemplates()[idx];if(!tpl)return;
+    var existing=b.modules.map(function(m){return m.mod;});
+    var added=0;
+    tpl.modules.forEach(function(mId){
+      if(existing.indexOf(mId)>=0)return;
+      b.modules.push({mod:mId,status:'offen'});
+      added++;
+    });
+    if(added){
+      b.activity.unshift({who:'Du',text:'Vorlage „'+tpl.name+'" angewendet ('+added+' Module)',when:'gerade eben'});
+      _wsCloseModal();save();render();
+      toast(added+' Module aus Vorlage hinzugefügt','check');
+    }else{
+      toast('Alle Module dieser Vorlage sind bereits vorhanden','check');
+    }
   };
   window._wsPickModule=function(modId){
     var b=buckets.find(function(x){return x.id===activeTab;});if(!b)return;
