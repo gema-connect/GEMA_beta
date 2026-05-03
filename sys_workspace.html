@@ -258,9 +258,27 @@ input::placeholder{color:#cbd5e1}
 /* ── Avatar Cluster ── */
 .ws-cluster{display:inline-flex;flex-shrink:0}
 
+/* ── Mobile Sidebar Drawer ── */
+.ws-hamburger{display:none;align-items:center;justify-content:center;width:36px;height:36px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--ink-2);cursor:pointer;flex-shrink:0;transition:var(--t)}
+.ws-hamburger:hover{background:#F4F5F7;color:var(--ink)}
+.ws-drawer-overlay{display:none;position:fixed;inset:0;background:rgba(15,23,42,.4);backdrop-filter:blur(8px);z-index:500}
+.ws-drawer-overlay.open{display:block}
+.ws-sidebar-drawer{position:fixed;top:0;right:0;bottom:0;width:280px;max-width:85vw;z-index:501;transform:translateX(100%);transition:transform .32s cubic-bezier(.32,.72,0,1);box-shadow:-8px 0 40px rgba(0,0,0,.15)}
+.ws-sidebar-drawer.open{transform:translateX(0)}
+.ws-drawer-close{position:absolute;top:12px;right:12px;width:32px;height:32px;border-radius:8px;display:grid;place-items:center;color:var(--ink-2);z-index:1}
+.ws-drawer-close:hover{background:#F4F5F7;color:var(--ink)}
+
 /* ── Responsive ── */
 @media(max-width:1024px){.ws-workspace-grid{grid-template-columns:1fr!important}.ws-notes{border-left:none!important;border-top:1px solid var(--line);max-height:50vh}}
-@media(max-width:720px){.ws-sidebar{display:none}.ws-shell{min-height:auto}}
+@media(max-width:720px){
+  .ws-sidebar{display:none}
+  .ws-hamburger{display:inline-flex}
+  .ws-shell{min-height:auto}
+  .ws-bucket-header{flex-direction:column}
+  .ws-bucket-actions{align-self:flex-start}
+  .ws-mod-grid{grid-template-columns:1fr}
+  .ws-empty-cards{grid-template-columns:1fr}
+}
 </style>
 <script src="gema_db.js"></script>
 <script src="gema_feedback.js"></script><script src="gema_notify.js"></script><script src="gema_notify_ui.js"></script>
@@ -276,6 +294,7 @@ input::placeholder{color:#cbd5e1}
   <span style="font-size:14px;font-weight:700;color:var(--ink);display:inline-flex;align-items:center;gap:6px"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 7h14l-1.4 12.2a2 2 0 0 1-2 1.8H8.4a2 2 0 0 1-2-1.8Z"/><path d="M5 7c0-2 3-4 7-4s7 2 7 4"/></svg> Workspace</span>
   <div class="nav-right">
     <button class="gema-feedback-btn no-print" onclick="if(typeof GemaFeedback!=='undefined')GemaFeedback.start()">Feedback</button>
+    <button class="ws-hamburger" onclick="_wsToggleDrawer(true)" aria-label="Menü"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="5" x2="17" y2="5"/><line x1="3" y1="10" x2="17" y2="10"/><line x1="3" y1="15" x2="17" y2="15"/></svg></button>
   </div>
 </div></nav>
 
@@ -305,6 +324,23 @@ input::placeholder{color:#cbd5e1}
     <div id="wsTabBar" style="display:none"></div>
     <div id="wsEmptyState"></div>
     <div id="wsContentArea" style="display:none"></div>
+  </div>
+</div>
+
+<!-- Mobile Sidebar Drawer -->
+<div class="ws-drawer-overlay" id="wsDrawerOverlay" onclick="_wsToggleDrawer(false)"></div>
+<div class="ws-sidebar-drawer ws-sidebar" id="wsDrawerSidebar">
+  <button class="ws-drawer-close" onclick="_wsToggleDrawer(false)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+  <div class="ws-user" id="wsUserDrawer"></div>
+  <div class="ws-org-section" id="wsOrgSectionDrawer"></div>
+  <div class="ws-section">
+    <div class="ws-section-head"><span class="ws-label">Persönliche Eimer</span></div>
+    <div class="ws-bucket-list" id="wsPersonalDrawer"></div>
+    <button class="ws-sidebar-new" onclick="_wsOpenNewModal();_wsToggleDrawer(false)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg> Neuer Eimer</button>
+  </div>
+  <div class="ws-section">
+    <div class="ws-section-head"><span class="ws-label">Geteilte Eimer</span></div>
+    <div class="ws-bucket-list" id="wsSharedDrawer"></div>
   </div>
 </div>
 
@@ -802,6 +838,29 @@ input::placeholder{color:#cbd5e1}
       +'<span class="ws-section-title">Admin · Architekten-Hierarchie</span>'
       +'<span class="ws-collapse-chev">'+icon('chevron-down',14)+'</span></button>'
       +'</div>';
+  }
+
+  // ── Mobile Drawer ──
+  window._wsToggleDrawer=function(open){
+    document.getElementById('wsDrawerOverlay').classList.toggle('open',open);
+    document.getElementById('wsDrawerSidebar').classList.toggle('open',open);
+    if(open)renderDrawer();
+  };
+  function renderDrawer(){
+    var personal=buckets.filter(function(b){return!b.shared;});
+    var shared=buckets.filter(function(b){return b.shared;});
+    document.getElementById('wsUserDrawer').innerHTML=document.getElementById('wsUser').innerHTML;
+    document.getElementById('wsOrgSectionDrawer').innerHTML=document.getElementById('wsOrgSection').innerHTML;
+    document.getElementById('wsPersonalDrawer').innerHTML=personal.length?personal.map(function(b){
+      return '<button class="ws-bucket-row'+(activeTab===b.id?' active':'')+'" onclick="_wsOpen(\''+b.id+'\');_wsToggleDrawer(false)">'
+        +'<span class="ws-bucket-row__icon">'+typeIcon(b.type)+'</span>'
+        +'<span class="ws-bucket-row__name">'+esc(b.name)+'</span></button>';
+    }).join(''):'<div class="ws-empty-hint">Noch keine Eimer</div>';
+    document.getElementById('wsSharedDrawer').innerHTML=shared.length?shared.map(function(b){
+      return '<button class="ws-bucket-row'+(activeTab===b.id?' active':'')+'" onclick="_wsOpen(\''+b.id+'\');_wsToggleDrawer(false)">'
+        +'<span class="ws-bucket-row__icon">'+typeIcon(b.type)+'</span>'
+        +'<span class="ws-bucket-row__name">'+esc(b.name)+'</span></button>';
+    }).join(''):'<div class="ws-empty-hint">Keine geteilten Eimer</div>';
   }
 
   // ── Init ──

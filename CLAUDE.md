@@ -670,6 +670,59 @@ Objekte können hierarchisch sein: ein Hauptobjekt (z.B. „Überbauung Sonnenha
 
 ---
 
+## Workspace (sys_workspace.html)
+
+Eigenständiges Modul — erreichbar über den «Workspace öffnen»-Link auf der Modulübersicht (`index.html`).
+
+### Konzept
+
+Ein **Eimer** ist ein flexibler Arbeitsraum, der Module, Notizen und Team-Mitglieder gruppiert. Vier Typen:
+- **Bauprojekt** — reales Objekt mit Adresse und Bauherr
+- **Übung** — Sandbox zum Lernen und Testen (z.B. FHNW)
+- **Privat** — persönlicher Arbeitsraum
+- **Team/Geteilt** — geteilter Eimer mit mehreren Mitgliedern
+
+### Storage
+
+- **Key**: `gema_workspace_v1` (localStorage + `_GemaDB`-Guard)
+- **Datenmodell** pro Eimer:
+  ```
+  { id, name, type, shared, members[], modules[{mod,status}],
+    activity[{who,text,when}], beteiligte[{role,name,org}],
+    notes[{id,title,body}], createdAt }
+  ```
+
+### Features
+
+- **Tab-Bar**: Browser-Style Tabs mit Gradient-Strip, mehrere Eimer gleichzeitig offen
+- **Sidebar**: User-Block, Org-Switcher Pills, Bucket-Rows mit Avatar-Cluster, Gradient-Pill für offene Tabs
+- **Modal-System**: Neuer Eimer (Name + 4-Typ-Grid), Modul-Picker (14 Module), Eimer-Picker, Löschen-Bestätigung
+- **Empty State**: 3 Quick-Create Cards mit Gradient-Text Hero
+- **Content Header**: Editierbarer Titel (contenteditable), Meta-Zeile, Einladen/Teilen-Buttons
+- **Module Grid**: SVG-Icon-Tiles mit Status-Dot (offen/berechnet), Hover-Gradient, Entfernen
+- **Notes Panel** (360px): Amber-Design, Seiten-Tabs, Contenteditable mit Checklist-Toggle, Admin-Hierarchie-Baum
+- **Activity Feed**: Farbige Avatars mit Palette
+- **Beteiligte**: Aufklappbar mit Chevron-Rotation
+- **Toast**: Animierte Pill (2.2s auto-dismiss)
+- **Responsive**: Notes unter Content bei ≤1024px, Hamburger-Drawer bei ≤720px
+
+### Design Tokens (abweichend vom Hauptsystem)
+
+Der Workspace verwendet ein eigenes Token-Set aus dem React-Design-Handoff:
+- `--gradient: linear-gradient(135deg, #0f172a, #1e3a5f, #0c4a2e)` — Brand-Gradient
+- `--r-card: 20px` / `--r-sm: 12px` — Karten- und Control-Radien
+- 3 Shadow-Stufen (`--shadow-1/2/3`)
+- 21 SVG Icons (Lucide-Style) als `icon(name, size, strokeWidth)` Funktion
+
+### Design-Referenzdateien
+
+Im Repo liegen die React-Designdateien als Referenz (nicht für Produktion):
+- `app.jsx` — Handoff-Dokument mit vollständiger Spezifikation
+- `content.jsx`, `data.jsx`, `icons.jsx`, `modals.jsx`, `notes.jsx`, `sidebar.jsx`, `styles.css`, `tabs.jsx` — React-Komponenten
+- `tweaks-panel.jsx` — Design-Time Tweaks (nur für Prototyp)
+
+---
+
 ## PWA & Service-Worker
 
 `manifest.json` + `sw.js` — GEMA ist eine installierbare Progressive Web App. Service-Worker cached die wichtigsten HTML-Module und Assets (`/icon-192.svg`, `/icon-512.svg`, `/manifest.json`) für Offline-Erstaufruf. Beim Update einer Seite muss der Cache invalidiert werden — bei Bedarf SW-Version in `sw.js` hochziehen.
