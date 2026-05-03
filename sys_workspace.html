@@ -668,7 +668,22 @@ input::placeholder{color:#cbd5e1}
   var _newOrg='';
   function _getOrgs(){
     var orgs=[];
-    try{if(typeof GemaAuth!=='undefined'){var u=GemaAuth.getCurrentUser();if(u&&u.orgId)orgs=[{id:u.orgId,short:u.orgId.slice(0,3).toUpperCase(),name:u.orgId}];}}catch(e){}
+    try{
+      if(typeof GemaAuth!=='undefined'){
+        var u=GemaAuth.getCurrentUser();
+        if(u){
+          var curOrg=GemaAuth.getCurrentOrg();
+          if(curOrg)orgs.push({id:curOrg.id,short:(curOrg.name||'').split(' ').map(function(w){return w[0]||'';}).join('').slice(0,3).toUpperCase(),name:curOrg.name||curOrg.id});
+          if(typeof GemaAuth.getGastOrgs==='function'){
+            var gast=GemaAuth.getGastOrgs(u.id)||[];
+            gast.forEach(function(g){
+              if(orgs.find(function(o){return o.id===g.orgId;}))return;
+              orgs.push({id:g.orgId,short:(g.orgName||g.orgId||'').slice(0,3).toUpperCase(),name:g.orgName||g.orgId});
+            });
+          }
+        }
+      }
+    }catch(e){}
     if(!orgs.length)orgs=[{id:'default',short:'Org',name:'Organisation'}];
     return orgs;
   }
@@ -1206,8 +1221,8 @@ input::placeholder{color:#cbd5e1}
   function renderUser(){
     var u=null;
     try{if(typeof GemaAuth!=='undefined')u=GemaAuth.getCurrentUser();}catch(e){}
-    var name=u?((u.vorname||'')+' '+(u.nachname||'')).trim():'Benutzer';
-    var role=u&&u.roleIds?u.roleIds[0].replace('role_',''):'Planer';
+    var name=u?(u.name||((u.vorname||'')+' '+(u.nachname||'')).trim()||u.username):'Benutzer';
+    var role=u&&u.roleIds?u.roleIds[0].replace('role_','').replace(/_/g,' '):'Planer';
     var initials=name.split(' ').map(function(s){return s[0]||'';}).join('').slice(0,2).toUpperCase()||'??';
     document.getElementById('wsUser').innerHTML=avatar(initials,40,'#0c4a2e')
       +'<div class="ws-user-meta"><div class="ws-user-name">'+esc(name)+'</div><div class="ws-user-role">'+esc(role)+'</div></div>';
@@ -1216,9 +1231,7 @@ input::placeholder{color:#cbd5e1}
   function renderOrgs(){
     var section=document.getElementById('wsOrgSection');
     var tags=document.getElementById('wsOrgTags');
-    var orgs=[];
-    try{if(typeof GemaAuth!=='undefined'){var u=GemaAuth.getCurrentUser();if(u&&u.orgId)orgs=[{id:u.orgId,short:u.orgId.slice(0,3).toUpperCase()}];}}catch(e){}
-    if(!orgs.length)orgs=[{id:'default',short:'Org'}];
+    var orgs=_getOrgs();
     section.innerHTML='<span class="ws-label">Organisation</span>'
       +'<div class="ws-org-pills">'+orgs.map(function(o){
         return '<button class="ws-org-pill'+(activeOrg===o.id?' active':'')+'" onclick="_wsSetOrg(\''+o.id+'\')">'+esc(o.short)+'</button>';
