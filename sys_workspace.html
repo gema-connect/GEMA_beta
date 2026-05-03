@@ -112,6 +112,10 @@ input::placeholder{color:#cbd5e1}
 .ws-mod-dot{width:7px;height:7px;border-radius:50%;background:var(--ink-3)}
 .ws-mod-tile-status.done{color:var(--green)}
 .ws-mod-tile-status.done .ws-mod-dot{background:var(--green);box-shadow:0 0 0 3px rgba(16,185,129,.16)}
+.ws-mod-tile-status.wip{color:var(--blue)}
+.ws-mod-tile-status.wip .ws-mod-dot{background:var(--blue);box-shadow:0 0 0 3px rgba(59,130,246,.16)}
+.ws-mod-status-btn{cursor:pointer;border:none;background:none;padding:2px 6px;border-radius:6px;transition:var(--t);font-family:inherit}
+.ws-mod-status-btn:hover{background:#F4F5F7}
 .ws-mod-tile--add{background:transparent;border:1.5px dashed var(--line);box-shadow:none;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:22px 16px;color:var(--ink-3);min-height:76px}
 .ws-mod-tile--add:hover{border-color:var(--navy);color:var(--navy);background:#F8FAFC;transform:none}
 .ws-mod-plus{width:36px;height:36px;border-radius:10px;background:var(--card);display:grid;place-items:center;margin-bottom:6px;border:1px solid var(--line)}
@@ -414,6 +418,14 @@ input::placeholder{color:#cbd5e1}
     {id:'if_fahrzeug',name:'Fahrzeuge',icon:'arrow-up',desc:'Fahrzeugmanagement',href:'if_fahrzeug.html'}
   ];
 
+  // ── Objekt Chip ──
+  function objektChip(b){
+    if(!b.objektId)return '';
+    var name=b.objektId;
+    try{if(typeof GemaObjekte!=='undefined'){var o=(GemaObjekte.getAll()||[]).find(function(x){return x.id===b.objektId;});if(o)name=o.name||o.projektName||o.id;}}catch(e){}
+    return '<div style="margin-bottom:4px"><a href="pm_objekte.html?objekt='+encodeURIComponent(b.objektId)+'" style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:8px;background:#f0fdf4;border:1px solid #bbf7d0;color:#16a34a;font-size:11px;font-weight:600;text-decoration:none;transition:var(--t)" title="Objekt öffnen">'+icon('building',12)+' '+esc(name)+'</a></div>';
+  }
+
   // ── Avatar Palette ──
   var AVATAR_COLORS=['#0c4a2e','#1e3a5f','#3B82F6','#7c3aed','#F59E0B','#10B981'];
   function avatar(initials,size,color){
@@ -485,9 +497,10 @@ input::placeholder{color:#cbd5e1}
     var inp=document.getElementById('wsNewName');
     var name=(inp?inp.value:'').trim();
     if(!name)return;
-    var b={id:'ws_'+Date.now(),name:name,type:_newType,shared:_newType==='shared',members:['Du'],modules:[],
-      activity:[{who:'Du',text:'hat „'+name+'“ erstellt',when:'gerade eben'}],
-      beteiligte:[],notes:[{id:'n1',title:'n.Seite 1',body:'<p>Erste Notiz …</p>'}],createdAt:new Date().toISOString()};
+    var orgId=_resolveOrg();
+    var b={id:'ws_'+Date.now(),name:name,type:_newType,org:orgId,shared:_newType==='shared',members:['Du'],modules:[],
+      activity:[{who:'Du',text:'hat „'+name+'” erstellt',when:'gerade eben'}],
+      beteiligte:[],notes:[{id:'n1',title:'n.Seite 1',body:'<p>Erste Notiz …</p>'}],objektId:null,createdAt:new Date().toISOString()};
     buckets.push(b);
     activeTab=b.id;
     if(openTabs.indexOf(b.id)<0)openTabs.push(b.id);
@@ -499,9 +512,10 @@ input::placeholder{color:#cbd5e1}
   window._wsQuickCreate=function(typeId){
     var presets={project:'Mein erstes Bauprojekt',training:'Übungsumgebung','private':'Privater Eimer'};
     var name=presets[typeId]||'Neuer Eimer';
-    var b={id:'ws_'+Date.now(),name:name,type:typeId,shared:false,members:['Du'],modules:[],
-      activity:[{who:'Du',text:'hat „'+name+'“ erstellt',when:'gerade eben'}],
-      beteiligte:[],notes:[{id:'n1',title:'n.Seite 1',body:'<p>Erste Notiz …</p>'}],createdAt:new Date().toISOString()};
+    var orgId=_resolveOrg();
+    var b={id:'ws_'+Date.now(),name:name,type:typeId,org:orgId,shared:false,members:['Du'],modules:[],
+      activity:[{who:'Du',text:'hat „'+name+'” erstellt',when:'gerade eben'}],
+      beteiligte:[],notes:[{id:'n1',title:'n.Seite 1',body:'<p>Erste Notiz …</p>'}],objektId:null,createdAt:new Date().toISOString()};
     buckets.push(b);
     activeTab=b.id;
     if(openTabs.indexOf(b.id)<0)openTabs.push(b.id);
@@ -601,6 +615,53 @@ input::placeholder{color:#cbd5e1}
     else{el.innerText=b.name;}
   };
 
+  // ── Org Helper ──
+  function _resolveOrg(){
+    if(activeOrg!=='all')return activeOrg;
+    try{if(typeof GemaAuth!=='undefined'){var u=GemaAuth.getCurrentUser();if(u&&u.orgId)return u.orgId;}}catch(e){}
+    return 'default';
+  }
+
+  // ── Module Status Cycle ──
+  var STATUS_CYCLE=['offen','in Bearbeitung','berechnet'];
+  window._wsCycleStatus=function(modId){
+    var b=buckets.find(function(x){return x.id===activeTab;});if(!b)return;
+    var m=b.modules.find(function(x){return x.mod===modId;});if(!m)return;
+    var idx=STATUS_CYCLE.indexOf(m.status);
+    m.status=STATUS_CYCLE[(idx+1)%STATUS_CYCLE.length];
+    b.activity.unshift({who:'Du',text:'Status von '+(MODULES.find(function(x){return x.id===modId;})||{name:'Modul'}).name+' → '+m.status,when:'gerade eben'});
+    save();renderContent();
+    toast('Status: '+m.status,'check');
+  };
+
+  // ── Objekt-Verknüpfung ──
+  window._wsLinkObjekt=function(){
+    var b=buckets.find(function(x){return x.id===activeTab;});if(!b)return;
+    var objekte=[];
+    try{if(typeof GemaObjekte!=='undefined')objekte=GemaObjekte.getAll()||[];}catch(e){}
+    if(!objekte.length){toast('Keine Objekte vorhanden — zuerst in Objekte erstellen','building');return;}
+    var body='<div class="ws-form"><div class="ws-form-field"><label>Objekt auswählen</label>'
+      +'<select class="ws-input" id="wsObjektSel" style="cursor:pointer">'
+      +'<option value="">— Kein Objekt —</option>'
+      +objekte.map(function(o){return '<option value="'+o.id+'"'+(b.objektId===o.id?' selected':'')+'>'+esc(o.name||o.projektName||o.id)+'</option>';}).join('')
+      +'</select></div>'
+      +'<div class="ws-form-actions"><button class="ws-btn ws-btn-ghost" onclick="_wsCloseModal()">Abbrechen</button>'
+      +'<button class="ws-btn ws-btn-primary" onclick="_wsDoLinkObjekt()">Verknüpfen</button></div></div>';
+    openModal('Objekt verknüpfen',body,480);
+  };
+  window._wsDoLinkObjekt=function(){
+    var sel=document.getElementById('wsObjektSel');if(!sel)return;
+    var b=buckets.find(function(x){return x.id===activeTab;});if(!b)return;
+    var oldId=b.objektId;
+    b.objektId=sel.value||null;
+    if(b.objektId!==oldId){
+      var label=b.objektId?sel.options[sel.selectedIndex].text:'keins';
+      b.activity.unshift({who:'Du',text:'Objekt verknüpft: '+label,when:'gerade eben'});
+    }
+    _wsCloseModal();save();render();
+    toast(b.objektId?'Objekt verknüpft':'Objekt-Verknüpfung entfernt','building');
+  };
+
   // ── Notes ──
   window._wsNotePage=function(pageId){
     _activeNotePageId=pageId;
@@ -670,8 +731,12 @@ input::placeholder{color:#cbd5e1}
   window._wsSetOrg=function(id){activeOrg=id;render();};
 
   function renderSidebar(){
-    var personal=buckets.filter(function(b){return!b.shared;});
-    var shared=buckets.filter(function(b){return b.shared;});
+    var filterOrg=function(list){
+      if(activeOrg==='all')return list;
+      return list.filter(function(b){return b.org===activeOrg;});
+    };
+    var personal=filterOrg(buckets.filter(function(b){return!b.shared;}));
+    var shared=filterOrg(buckets.filter(function(b){return b.shared;}));
     document.getElementById('wsPersonal').innerHTML=personal.length?personal.map(bucketRowHtml).join(''):'<div class="ws-empty-hint">Noch keine Eimer</div>';
     document.getElementById('wsShared').innerHTML=shared.length?shared.map(bucketRowHtml).join(''):'<div class="ws-empty-hint">Noch keine geteilten Eimer</div>';
   }
@@ -752,13 +817,15 @@ input::placeholder{color:#cbd5e1}
         +'<div class="ws-mod-hero-title">Erstes Modul hinzufügen</div>'
         +'<div class="ws-mod-hero-sub">Wähle aus Enthärtung, Osmose, LU-Tabelle, W12, Druckerhöhung …</div></div>';
     }else{
+      var objParam=b.objektId?'?objekt='+encodeURIComponent(b.objektId):'';
       modsHtml='<div class="ws-mod-grid">'+b.modules.map(function(m){
         var mod=MODULES.find(function(x){return x.id===m.mod;});if(!mod)return '';
-        var isDone=m.status==='berechnet';
-        return '<a href="'+mod.href+'" class="ws-mod-tile">'
+        var isDone=m.status==='berechnet';var isWip=m.status==='in Bearbeitung';
+        var stCls=isDone?' done':(isWip?' wip':'');
+        return '<a href="'+mod.href+objParam+'" class="ws-mod-tile">'
           +'<div class="ws-mod-tile-icon">'+icon(mod.icon,22)+'</div>'
           +'<div style="flex:1;min-width:0"><div class="ws-mod-tile-name">'+esc(mod.name)+'</div>'
-          +'<div class="ws-mod-tile-status'+(isDone?' done':'')+'"><span class="ws-mod-dot"></span>'+(isDone?'berechnet':'offen')+'</div></div>'
+          +'<button class="ws-mod-status-btn ws-mod-tile-status'+stCls+'" onclick="event.preventDefault();event.stopPropagation();_wsCycleStatus(\''+m.mod+'\')" title="Status wechseln"><span class="ws-mod-dot"></span>'+esc(m.status||'offen')+'</button></div>'
           +'<button class="ws-icon-btn" onclick="event.preventDefault();event.stopPropagation();_wsRemoveMod(\''+m.mod+'\')" title="Entfernen" style="width:22px;height:22px">'+icon('x',12,2)+'</button></a>';
       }).join('')
       +'<button class="ws-mod-tile ws-mod-tile--add" onclick="_wsOpenModulePicker()">'
@@ -795,12 +862,14 @@ input::placeholder{color:#cbd5e1}
       +' onfocus="this.classList.add(\'editing\')" onblur="_wsRename(this)"'
       +' onkeydown="if(event.key===\'Enter\'){event.preventDefault();this.blur();}if(event.key===\'Escape\'){this.innerText=\''+esc(b.name).replace(/'/g,"\\'")+'\';this.blur();}"'
       +'>'+esc(b.name)+'</h1>'
+      +objektChip(b)
       +'<div class="ws-bucket-meta"><span class="ws-meta-chip">'+esc(t.label)+'</span>'
       +'<span class="ws-meta-sep">·</span>'
       +'<span class="ws-meta-chip">'+icon('users',12)+' '+b.members.length+' Mitglied'+(b.members.length===1?'':'er')+'</span>'
       +'<span class="ws-meta-sep">·</span>'
       +'<span class="ws-meta-chip">erstellt '+new Date(b.createdAt).toLocaleDateString('de-CH')+'</span></div></div></div>'
       +'<div class="ws-bucket-actions">'
+      +'<button class="ws-btn ws-btn-ghost" onclick="_wsLinkObjekt()">'+icon('building',14)+' '+(b.objektId?'Objekt ändern':'Objekt verknüpfen')+'</button>'
       +'<button class="ws-btn ws-btn-ghost" onclick="toast(\'Einladung versenden (kommt bald)\',\'plus\')">'+icon('plus',14)+' Einladen</button>'
       +'<button class="ws-btn ws-btn-ghost" onclick="toast(\'Teilen-Dialog (kommt bald)\',\'share\')">'+icon('share',14)+' '+(b.shared?'Geteilt: '+b.members.length+' Personen':'Teilen')+'</button></div></div>'
       +'<div class="ws-content-scroll">'
