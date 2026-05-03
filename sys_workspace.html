@@ -50,10 +50,10 @@ input::placeholder{color:#cbd5e1}
 @media(max-width:720px){.ws-search-wrap{display:none}}
 
 /* ── App Shell ── */
-.ws-shell{display:flex;flex:1;min-height:calc(100vh - 53px)}
+.ws-shell{display:flex;min-height:calc(100vh - 53px)}
 
 /* ── Sidebar ── */
-.ws-sidebar{width:280px;flex-shrink:0;background:var(--card);border-right:1px solid var(--line);padding:20px 14px 16px;display:flex;flex-direction:column;gap:18px;overflow-y:auto}
+.ws-sidebar{width:280px;flex-shrink:0;background:var(--card);border-right:1px solid var(--line);padding:20px 14px 16px;display:flex;flex-direction:column;gap:18px;overflow-y:auto;height:calc(100vh - 53px);position:sticky;top:53px}
 .ws-sidebar::-webkit-scrollbar{width:6px}
 .ws-sidebar::-webkit-scrollbar-thumb{background:#d6dade;border-radius:6px}
 .ws-user{display:flex;align-items:center;gap:10px;padding:4px 6px 12px;border-bottom:1px solid var(--line-2)}
@@ -85,7 +85,10 @@ input::placeholder{color:#cbd5e1}
 .ws-org-tag{font-size:11px;font-weight:500;padding:3px 8px;border-radius:6px;background:#EFF4FB;color:var(--blue);letter-spacing:.02em}
 
 /* ── Main Area ── */
-.ws-main{flex:1;display:flex;flex-direction:column;min-width:0;background:var(--bg)}
+.ws-main{flex:1;display:flex;flex-direction:column;min-width:0;min-height:0;background:var(--bg)}
+
+/* ── Notes Panel (Shell-level, right column) ── */
+.ws-notes-col{width:360px;flex-shrink:0;height:calc(100vh - 53px);position:sticky;top:53px;display:flex;flex-direction:column;overflow:hidden;border-left:1px solid var(--line)}
 
 /* ── Content Header ── */
 .ws-bucket-header{padding:22px 28px 18px;display:flex;align-items:flex-start;justify-content:space-between;gap:16px;background:var(--card);border-bottom:1px solid var(--line)}
@@ -233,10 +236,6 @@ input::placeholder{color:#cbd5e1}
 .ws-tab--add{background:transparent;padding:8px 10px;color:var(--ink-3)}
 .ws-tab--add:hover{background:rgba(15,23,42,.04);color:var(--ink)}
 
-/* ── Workspace Grid (content + notes) ── */
-.ws-workspace-grid{flex:1;display:grid;grid-template-columns:minmax(0,1fr) 360px;min-height:0}
-.ws-content-col{display:flex;flex-direction:column;min-width:0;background:var(--bg)}
-
 /* ── Resize Handles ── */
 .ws-resize-handle{width:6px;cursor:col-resize;background:transparent;position:relative;flex-shrink:0;z-index:10;transition:background .15s}
 .ws-resize-handle:hover,.ws-resize-handle.active{background:var(--line)}
@@ -244,7 +243,7 @@ input::placeholder{color:#cbd5e1}
 .ws-resize-handle:hover::after,.ws-resize-handle.active::after{opacity:.5}
 
 /* ── Notes Panel ── */
-.ws-notes{background:linear-gradient(180deg,#FFFBEB 0%,#FFF8E0 100%);border-left:1px solid var(--line);display:flex;flex-direction:column;min-height:0;height:100%}
+.ws-notes{background:linear-gradient(180deg,#FFFBEB 0%,#FFF8E0 100%);display:flex;flex-direction:column;flex:1;min-height:0}
 .ws-notes-header{display:flex;align-items:center;justify-content:space-between;padding:18px 20px 10px}
 .ws-notes-title-wrap{display:flex;align-items:center;gap:8px}
 .ws-notes-pen{color:var(--accent-notes);display:inline-flex}
@@ -291,7 +290,7 @@ input::placeholder{color:#cbd5e1}
 .ws-drawer-close:hover{background:#F4F5F7;color:var(--ink)}
 
 /* ── Responsive ── */
-@media(max-width:1024px){.ws-workspace-grid{grid-template-columns:1fr!important}.ws-notes{border-left:none!important;border-top:1px solid var(--line);height:auto;min-height:300px}.ws-resize-handle{display:none}}
+@media(max-width:1024px){.ws-notes-col{position:static;height:auto;width:100%!important;border-left:none;border-top:1px solid var(--line)}.ws-shell{flex-wrap:wrap}.ws-main{width:100%}.ws-resize-handle{display:none}}
 @media(max-width:720px){
   .ws-sidebar{display:none}
   .ws-hamburger{display:inline-flex}
@@ -354,6 +353,12 @@ input::placeholder{color:#cbd5e1}
     <div id="wsTabBar" style="display:none"></div>
     <div id="wsEmptyState"></div>
     <div id="wsContentArea" style="display:none"></div>
+  </div>
+
+  <!-- Notes (Shell-level, right column) -->
+  <div class="ws-resize-handle" id="wsResizeNotes" title="Notes-Breite ändern"></div>
+  <div class="ws-notes-col" id="wsNotesCol" style="display:none">
+    <div class="ws-notes" id="wsNotesPanel"></div>
   </div>
 </div>
 
@@ -839,9 +844,13 @@ input::placeholder{color:#cbd5e1}
   function renderMain(){
     var empty=document.getElementById('wsEmptyState');
     var content=document.getElementById('wsContentArea');
+    var notesCol=document.getElementById('wsNotesCol');
+    var notesHandle=document.getElementById('wsResizeNotes');
     if(!activeTab||!buckets.length){
       empty.style.display='';
       content.style.display='none';
+      if(notesCol)notesCol.style.display='none';
+      if(notesHandle)notesHandle.style.display='none';
       renderEmptyState();
     }else{
       empty.style.display='none';
@@ -921,9 +930,7 @@ input::placeholder{color:#cbd5e1}
     }
 
     document.getElementById('wsContentArea').innerHTML=
-      '<div class="ws-workspace-grid">'
-      +'<div class="ws-content-col">'
-      +'<div class="ws-bucket-header"><div class="ws-bucket-header-left">'
+      '<div class="ws-bucket-header"><div class="ws-bucket-header-left">'
       +'<div class="ws-bucket-type-icon">'+icon(t.icon,18)+'</div>'
       +'<div style="min-width:0"><h1 class="ws-bucket-title" contenteditable="true" spellcheck="false"'
       +' onfocus="this.classList.add(\'editing\')" onblur="_wsRename(this)"'
@@ -941,11 +948,10 @@ input::placeholder{color:#cbd5e1}
       +'<button class="ws-btn ws-btn-ghost" id="wsShareBtn" onclick="_wsShare()">'+icon('share',14)+' '+(b.shared?'Geteilt: '+b.members.length+' Personen':'Teilen')+'</button></div></div>'
       +'<div class="ws-content-scroll">'
       +'<div class="ws-section-head-content"><span class="ws-section-title">Module</span><span class="ws-section-count">'+b.modules.length+'</span></div>'
-      +modsHtml+actHtml+betHtml+'</div></div>'
-      +'<div class="ws-resize-handle" id="wsResizeNotes" title="Notes-Breite ändern"></div>'
-      +'<div class="ws-notes" id="wsNotesPanel" style="width:360px"></div>'
-      +'</div>';
-    initResize('wsResizeNotes',function(){return document.getElementById('wsNotesPanel');},'right');
+      +modsHtml+actHtml+betHtml+'</div>';
+
+    document.getElementById('wsNotesCol').style.display='flex';
+    document.getElementById('wsResizeNotes').style.display='';
     if(!_activeNotePageId||!b.notes.find(function(n){return n.id===_activeNotePageId;})){
       _activeNotePageId=b.notes.length?b.notes[0].id:null;
     }
@@ -1120,10 +1126,6 @@ input::placeholder{color:#cbd5e1}
       var newW=side==='left'?startW+delta:startW-delta;
       newW=Math.max(200,Math.min(500,newW));
       target.style.width=newW+'px';
-      if(side==='right'){
-        var grid=target.closest('.ws-workspace-grid');
-        if(grid)grid.style.gridTemplateColumns='minmax(0,1fr) '+newW+'px';
-      }
     });
     document.addEventListener('mouseup',function(){
       if(!dragging)return;
@@ -1135,6 +1137,7 @@ input::placeholder{color:#cbd5e1}
   // ── Init ──
   load();loadTabs();render();
   initResize('wsResizeSidebar','wsSidebar','left');
+  initResize('wsResizeNotes','wsNotesCol','right');
 })();
 </script>
 <script>
