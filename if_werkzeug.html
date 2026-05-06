@@ -1891,7 +1891,10 @@ function _wzOpenSammelAusleihe(){
     +'<div style="margin-bottom:16px;display:flex;gap:8px">'
     +'<input id="sammelInput" style="flex:1;padding:12px 14px;border:1.5px solid #E5E7EB;border-radius:10px;font-size:14px;font-family:inherit" placeholder="Werkzeug-ID oder Name eingeben" onkeydown="if(event.key===\'Enter\'){_wzSammelAdd();}">'
     +'<button onclick="_wzSammelAdd()" style="padding:12px 18px;border-radius:10px;border:none;background:#1e3a5f;color:#fff;font-weight:700;cursor:pointer;font-family:inherit;white-space:nowrap">+ Hinzufügen</button></div>'
-    +'<button onclick="_wzSammelScanQR()" style="width:100%;padding:12px;border-radius:10px;border:1.5px solid #1e3a5f;background:#fff;color:#1e3a5f;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;margin-bottom:20px;display:flex;align-items:center;justify-content:center;gap:6px">📷 QR-Code scannen</button>'
+    +'<div style="display:flex;gap:8px;margin-bottom:20px">'
+    +'<button onclick="_wzSammelScanQR()" style="flex:1;padding:12px;border-radius:10px;border:1.5px solid #1e3a5f;background:#fff;color:#1e3a5f;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;display:flex;align-items:center;justify-content:center;gap:6px">📷 QR scannen</button>'
+    +'<button onclick="_wzSammelScanNFC()" id="sammelNfcBtn" style="flex:1;padding:12px;border-radius:10px;border:1.5px solid #1d4ed8;background:#eff6ff;color:#1d4ed8;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;display:'+('NDEFReader' in window?'flex':'none')+';align-items:center;justify-content:center;gap:6px">📡 NFC scannen</button>'
+    +'</div>'
     // Liste
     +'<div id="sammelListe" style="margin-bottom:20px"></div>'
     // Zusammenfassung
@@ -1952,6 +1955,42 @@ function _wzSammelRender(){
   }).join('');
   if(sum){sum.style.display='';sum.textContent=_sammelList.length+' Werkzeug'+(_sammelList.length>1?'e':'')+' bereit zum Einbuchen';}
   if(btn){btn.style.display='';btn.textContent='✓ '+_sammelList.length+' Werkzeug'+(_sammelList.length>1?'e':'')+' einbuchen';}
+}
+
+function _wzSammelScanNFC(){
+  if(!('NDEFReader' in window)){alert('NFC wird von diesem Browser nicht unterstützt (nur Android Chrome).');return;}
+  var nfcStatus=document.createElement('div');
+  nfcStatus.id='sammelNfcStatus';
+  nfcStatus.style.cssText='position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:#1d4ed8;color:#fff;padding:12px 24px;border-radius:12px;font-size:14px;font-weight:700;z-index:11000;box-shadow:0 4px 16px rgba(0,0,0,.2)';
+  nfcStatus.textContent='📡 NFC-Tag jetzt scannen …';
+  document.body.appendChild(nfcStatus);
+  var reader=new NDEFReader();
+  reader.scan().then(function(){
+    reader.addEventListener('reading',function(ev){
+      var url='';
+      ev.message.records.forEach(function(r){
+        if(r.recordType==='url'||r.recordType==='text'){url=new TextDecoder().decode(r.data);}
+      });
+      if(url){
+        var id=url;
+        if(url.indexOf('scan=')>=0)id=url.split('scan=')[1].split('&')[0];
+        else if(url.indexOf('view=')>=0)id=url.split('view=')[1].split('&')[0];
+        id=decodeURIComponent(id);
+        _wzSammelFromScan(id);
+        nfcStatus.textContent='✅ Gescannt! Nächstes Tag scannen …';
+        setTimeout(function(){nfcStatus.textContent='📡 NFC-Tag jetzt scannen …';},1500);
+      }
+    });
+  }).catch(function(e){
+    nfcStatus.remove();
+    alert('NFC-Fehler: '+e.message);
+  });
+  var closeBtn=document.createElement('button');
+  closeBtn.textContent='NFC beenden';
+  closeBtn.style.cssText='position:fixed;bottom:130px;left:50%;transform:translateX(-50%);background:#fff;color:#1d4ed8;border:2px solid #1d4ed8;padding:8px 20px;border-radius:10px;font-size:13px;font-weight:700;z-index:11000;cursor:pointer;font-family:inherit';
+  closeBtn.id='sammelNfcClose';
+  closeBtn.onclick=function(){nfcStatus.remove();closeBtn.remove();};
+  document.body.appendChild(closeBtn);
 }
 
 function _wzSammelScanQR(){
