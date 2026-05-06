@@ -13,6 +13,36 @@
   var STORAGE_ORG_CATS= 'gema_org_cats_v1';
   var SESSION_DAYS    = 30;
 
+  // ── Supabase Sync ──
+  var SB_URL='https://fjhbqjvaygvhievjgdtm.supabase.co';
+  var SB_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZqaGJxanZheWd2aGlldmpnZHRtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI2ODk5OTUsImV4cCI6MjA4ODI2NTk5NX0.n3AbrEKTWWhI2tnDaf7-Z-QI9o9pJiP1E7BsHVuZY9k';
+  var SB_TABLE='gema_data';
+
+  function _syncToSupabase(key,data){
+    try{
+      fetch(SB_URL+'/rest/v1/'+SB_TABLE+'?on_conflict=module_key%2Cdata_key',{
+        method:'POST',
+        headers:{'Content-Type':'application/json','apikey':SB_KEY,'Authorization':'Bearer '+SB_KEY,'Prefer':'resolution=merge-duplicates,return=minimal'},
+        body:JSON.stringify({module_key:'auth',data_key:key,payload:{v:JSON.stringify(data)}})
+      });
+    }catch(e){console.warn('[GemaAuth] Supabase sync error',e);}
+  }
+
+  function _fetchAuthFromSupabase(key,callback){
+    try{
+      fetch(SB_URL+'/rest/v1/'+SB_TABLE+'?module_key=eq.auth&data_key=eq.'+encodeURIComponent(key)+'&select=payload',{
+        headers:{'apikey':SB_KEY,'Authorization':'Bearer '+SB_KEY}
+      }).then(function(r){return r.json();}).then(function(rows){
+        if(rows&&rows.length&&rows[0].payload&&rows[0].payload.v){
+          var data=typeof rows[0].payload.v==='string'?JSON.parse(rows[0].payload.v):rows[0].payload.v;
+          if(data&&Array.isArray(data)&&data.length){
+            callback(data);
+          }
+        }
+      }).catch(function(e){console.warn('[GemaAuth] Supabase fetch error',key,e);});
+    }catch(e){}
+  }
+
   // ── Modul-Definitionen ─────────────────────────────────────────────
   var MODULES = [
     {key:'druckverlust',            label:'Druckverlust',              cat:'Sanitärberechnungen'},
@@ -333,9 +363,9 @@
   }
 
   function _initDefaults() {
-    if(!_getOrgs())    try{localStorage.setItem(STORAGE_ORGS,JSON.stringify(DEFAULT_ORGS));}catch(e){}
+    if(!_getOrgs()){try{localStorage.setItem(STORAGE_ORGS,JSON.stringify(DEFAULT_ORGS));}catch(e){}_syncToSupabase(STORAGE_ORGS,DEFAULT_ORGS);}
     if(!_getOrgCats()) try{localStorage.setItem(STORAGE_ORG_CATS,JSON.stringify(DEFAULT_ORG_CATS));}catch(e){}
-    if(!_getUsers())   try{localStorage.setItem(STORAGE_USERS,JSON.stringify(DEFAULT_USERS));}catch(e){}
+    if(!_getUsers()){try{localStorage.setItem(STORAGE_USERS,JSON.stringify(DEFAULT_USERS));}catch(e){}_syncToSupabase(STORAGE_USERS,DEFAULT_USERS);}
     if(!_getRoles())   try{localStorage.setItem(STORAGE_ROLES,JSON.stringify(DEFAULT_ROLES));}catch(e){}
     // ── Migration: Demo-Orgs fuer Fremdfirmen ──
     // Bestehende Demo-Installationen hatten alle Fremdfirmen-User
@@ -444,9 +474,39 @@
         try{localStorage.setItem(MIGFLAG3,'1');}catch(e){}
       }
     } catch(e) {}
-  }
 
-  // ── Permissions ────────────────────────────────────────────────────
+    // ── Supabase → localStorage Sync (async, non-blocking) ──
+    _fetchAuthFromSupabase(STORAGE_USERS,function(remoteUsers){
+      var localUsers=_getUsers()||[];
+      var merged=localUsers.slice();
+      var changed=false;
+      remoteUsers.forEach(function(ru){
+        var idx=merged.findIndex(function(lu){return lu.id===ru.id;});
+        if(idx>=0){
+          if(ru.password&&ru.password!==merged[idx].password){merged[idx].password=ru.password;changed=true;}
+          if(ru.name&&ru.name!==merged[idx].name){merged[idx].name=ru.name;changed=true;}
+          if(ru.active!==undefined&&ru.active!==merged[idx].active){merged[idx].active=ru.active;changed=true;}
+          if(ru.roleIds)merged[idx].roleIds=ru.roleIds;
+          if(ru.orgId)merged[idx].orgId=ru.orgId;
+          if(ru.profile){merged[idx].profile=Object.assign(merged[idx].profile||{},ru.profile);changed=true;}
+        }else{
+          merged.push(ru);changed=true;
+        }
+      });
+      if(changed)try{localStorage.setItem(STORAGE_USERS,JSON.stringify(merged));}catch(e){}
+    });
+    _fetchAuthFromSupabase(STORAGE_ORGS,function(remoteOrgs){
+      var localOrgs=_getOrgs()||[];
+      var merged=localOrgs.slice();
+      var changed=false;
+      remoteOrgs.forEach(function(ro){
+        var idx=merged.findIndex(function(lo){return lo.id===ro.id;});
+        if(idx>=0){merged[idx]=ro;changed=true;}
+        else{merged.push(ro);changed=true;}
+      });
+      if(changed)try{localStorage.setItem(STORAGE_ORGS,JSON.stringify(merged));}catch(e){}
+    });
+  }
   function _getPerms(user,roles,mkey){
     var p={read:false,write:false,admin:false};
     if(!user||!user.roleIds)return p;
@@ -839,9 +899,17 @@
       return gewerke.length?gewerke:['sanitaer'];
     },
 
-    saveOrgs:function(o){try{localStorage.setItem(STORAGE_ORGS,JSON.stringify(o));return true;}catch(e){return false;}},
+    saveOrgs:function(o){
+      try{localStorage.setItem(STORAGE_ORGS,JSON.stringify(o));}catch(e){}
+      _syncToSupabase(STORAGE_ORGS,o);
+      return true;
+    },
     saveOrgCats:function(c){try{localStorage.setItem(STORAGE_ORG_CATS,JSON.stringify(c));return true;}catch(e){return false;}},
-    saveUsers:function(u){try{localStorage.setItem(STORAGE_USERS,JSON.stringify(u));return true;}catch(e){return false;}},
+    saveUsers:function(u){
+      try{localStorage.setItem(STORAGE_USERS,JSON.stringify(u));}catch(e){}
+      _syncToSupabase(STORAGE_USERS,u);
+      return true;
+    },
     saveRoles:function(r){try{localStorage.setItem(STORAGE_ROLES,JSON.stringify(r));return true;}catch(e){return false;}},
 
     // ── Einladungssystem ──
