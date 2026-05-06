@@ -328,8 +328,8 @@ input,select,button,textarea{font-family:var(--sans)}
       <input type="hidden" id="u_id">
       <div class="grid2">
         <div class="fg">
-          <label>Benutzername *</label>
-          <input id="u_username" type="text" placeholder="z.B. max.muster">
+          <label>E-Mail *</label>
+          <input id="u_username" type="email" placeholder="z.B. max@firma.ch">
         </div>
         <div class="fg">
           <label>Name (Anzeige)</label>
@@ -556,7 +556,7 @@ function renderUsers(){
       var r=roles.find(x=>x.id===rid);
       return r?'<span class="role-badge" style="background:'+r.color+'">'+esc(r.name)+'</span>':'';
     }).join('');
-    var initials=(u.name||u.username).split(' ').map(s=>s[0]).join('').substring(0,2).toUpperCase();
+    var initials=(u.name||u.username||'??').split(' ').map(s=>s[0]).join('').substring(0,2).toUpperCase();
     var color=(roles.find(r=>u.roleIds&&u.roleIds.indexOf(r.id)>=0)||{color:'#6b7280'}).color;
     var isCurrentUser=GemaAuth.getCurrentUser()?.id===u.id;
     var userOrg=orgs.find(function(x){return x.id===u.orgId;});
@@ -565,7 +565,7 @@ function renderUsers(){
       '<div class="user-avatar" style="background:'+color+'">'+esc(initials)+'</div>'+
       '<div style="flex:1;min-width:0">'+
         '<div class="user-name">'+esc(u.name||u.username)+(isCurrentUser?' <span style="font-size:10px;color:var(--acc);font-weight:700">(Ich)</span>':'')+'</div>'+
-        '<div class="user-meta">@'+esc(u.username)+orgLabel+(u.kontotyp==='login_light'?' · <span style="color:#d97706;font-weight:700">Login-Light</span>'+(u.abo&&u.abo.typ==='testphase'?' (Testphase bis '+(u.abo.testphaseEnde||'?')+')':''):'')+(u.active?'':' · Deaktiviert')+'</div>'+
+        '<div class="user-meta">'+esc(u.profile&&u.profile.email?u.profile.email:u.username)+orgLabel+(u.kontotyp==='login_light'?' · <span style="color:#d97706;font-weight:700">Login-Light</span>'+(u.abo&&u.abo.typ==='testphase'?' (Testphase bis '+(u.abo.testphaseEnde||'?')+')':''):'')+(u.active?'':' · Deaktiviert')+'</div>'+
         '<div class="user-roles">'+userRoles+'</div>'+
       '</div>'+
       '<div class="user-status '+(u.active?'active':'inactive')+'"></div>'+
@@ -630,10 +630,10 @@ function saveUser(){
   var active=document.getElementById('u_active').checked;
   var errEl=document.getElementById('userErr');
 
-  if(!username){errEl.textContent='Benutzername ist Pflichtfeld.';return;}
-  // Check username duplicate
-  var dup=users.find(u=>u.username.toLowerCase()===username.toLowerCase()&&u.id!==uid);
-  if(dup){errEl.textContent='Benutzername bereits vergeben.';return;}
+  if(!username){errEl.textContent='E-Mail ist Pflichtfeld.';return;}
+  if(username.indexOf('@')<1){errEl.textContent='Bitte eine gültige E-Mail-Adresse eingeben.';return;}
+  var dup=users.find(u=>(u.username||'').toLowerCase()===username.toLowerCase()&&u.id!==uid)||users.find(u=>u.profile&&u.profile.email&&u.profile.email.toLowerCase()===username.toLowerCase()&&u.id!==uid);
+  if(dup){errEl.textContent='E-Mail bereits vergeben.';return;}
   if(!uid&&!pw){errEl.textContent='Passwort ist Pflichtfeld.';return;}
   if(pw&&pw!==pw2){errEl.textContent='Passwörter stimmen nicht überein.';return;}
   if(pw&&pw.length<4){errEl.textContent='Passwort muss mindestens 4 Zeichen haben.';return;}
@@ -659,13 +659,15 @@ function saveUser(){
     if(idx>=0){
       users[idx].username=username;
       users[idx].name=name||username;
+      if(!users[idx].profile)users[idx].profile={};
+      users[idx].profile.email=username;
       users[idx].active=active;
       users[idx].roleIds=roleIds;
       users[idx].orgId=orgId;
       if(pw) users[idx].password=GemaAuth.hash(pw);
     }
   } else {
-    users.push({id:'u_'+Date.now(),username,name:name||username,password:GemaAuth.hash(pw),roleIds,active,orgId:orgId,profile:{email:'',telefon:'',sprache:'de',benachrichtigungen:true,einheiten:'metrisch'},createdAt:new Date().toISOString()});
+    users.push({id:'u_'+Date.now(),username:username,name:name||username,password:GemaAuth.hash(pw),roleIds:roleIds,active:active,orgId:orgId,profile:{email:username,telefon:'',sprache:'de',benachrichtigungen:true,einheiten:'metrisch'},createdAt:new Date().toISOString()});
   }
 
   GemaAuth.saveUsers(users);
