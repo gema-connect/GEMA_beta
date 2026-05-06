@@ -149,6 +149,23 @@
 
     panel.appendChild(list);
 
+    // Abmelden-Button immer hinzufügen (falls nicht schon vorhanden)
+    var hasLogout = false;
+    for (var j = 0; j < originalItems.length; j++) {
+      if (extractLabel(originalItems[j].element) === 'Abmelden') { hasLogout = true; break; }
+    }
+    if (!hasLogout) {
+      var logoutItem = document.createElement('button');
+      logoutItem.className = 'gema-menu-item gema-menu-item--logout';
+      logoutItem.innerHTML = '<span class="gema-menu-icon">🚪</span><span class="gema-menu-label">Abmelden</span>';
+      logoutItem.addEventListener('click', function() {
+        closeMenu();
+        if (typeof GemaAuth !== 'undefined') GemaAuth.logout();
+        else window.location.href = 'sys_login.html';
+      });
+      list.appendChild(logoutItem);
+    }
+
     // Version info
     var footer = document.createElement('div');
     footer.className = 'gema-menu-footer';
