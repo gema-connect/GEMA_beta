@@ -777,7 +777,13 @@
     login:function(username,password,remember){
       var users=_getUsers()||DEFAULT_USERS;
       var h=_hash(password);
-      var user=users.find(function(u){return u.username.toLowerCase()===username.toLowerCase()&&u.password===h&&u.active;});
+      var input=username.toLowerCase();
+      var user=users.find(function(u){
+        if(!u.active||u.password!==h)return false;
+        if(u.username&&u.username.toLowerCase()===input)return true;
+        if(u.profile&&u.profile.email&&u.profile.email.toLowerCase()===input)return true;
+        return false;
+      });
       if(!user)return null;
       var exp=new Date();exp.setDate(exp.getDate()+(remember?SESSION_DAYS:1));
       var s={userId:user.id,expires:exp.toISOString()};
