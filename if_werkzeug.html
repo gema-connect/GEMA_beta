@@ -1245,12 +1245,15 @@ function renderCard(t){
   const cat=CATS[t.cat]||CATS.sonstige;
   const wd=worstDays(t); const wdc=dc(wd);
   const barCls=wdc==='red'?'red':wdc==='amber'?'amber':wdc==='neutral'?'neutral':'green';
+  const isMonteur=_wzIsMonteurView();
 
   const dateItems=[];
-  if(t.warranty){const d=daysFrom(t.warranty);dateItems.push({lbl:'Garantie bis',val:fmt(t.warranty),sub:dtWarranty(d),cls:dcWarranty(d)});}
-  const sd=nextService(t); if(sd){const d=daysFrom(sd);dateItems.push({lbl:'Nächster Service',val:fmt(sd),sub:dt(d),cls:dc(d)});}
-  const ed=nextElec(t);    if(ed){const d=daysFrom(ed);dateItems.push({lbl:'Elektroprüfung (NIV)',val:fmt(ed),sub:dt(d),cls:dc(d)});}
-  const ld=nextLeiter(t);  if(ld){const d=daysFrom(ld);dateItems.push({lbl:'Leiterprüfung (EKAS)',val:fmt(ld),sub:dt(d),cls:dc(d)});}
+  if(!isMonteur){
+    if(t.warranty){const d=daysFrom(t.warranty);dateItems.push({lbl:'Garantie bis',val:fmt(t.warranty),sub:dtWarranty(d),cls:dcWarranty(d)});}
+    const sd=nextService(t); if(sd){const d=daysFrom(sd);dateItems.push({lbl:'Nächster Service',val:fmt(sd),sub:dt(d),cls:dc(d)});}
+    const ed=nextElec(t);    if(ed){const d=daysFrom(ed);dateItems.push({lbl:'Elektroprüfung (NIV)',val:fmt(ed),sub:dt(d),cls:dc(d)});}
+    const ld=nextLeiter(t);  if(ld){const d=daysFrom(ld);dateItems.push({lbl:'Leiterprüfung (EKAS)',val:fmt(ld),sub:dt(d),cls:dc(d)});}
+  }
 
   const statusEmoji=wdc==='red'?'🚨':wdc==='amber'?'⏰':'✅';
   const statusText =wd!==null?dt(wd):'Alles OK';
@@ -1262,7 +1265,7 @@ function renderCard(t){
       <div class="tc-icon ${cat.ico}">${cat.icon}</div>
       <div class="tc-info">
         <div class="tc-name" title="${esc(t.name)}">${esc(t.name)}</div>
-        <div class="tc-meta">${t.brand?esc(t.brand):''}${t.model?' · '+esc(t.model):''}${t.supplier?' · <span style="color:var(--plan-lt)">'+esc(t.supplier)+'</span>':''}${t.notes?' · '+esc(t.notes):''}</div>
+        <div class="tc-meta">${t.brand?esc(t.brand):''}${t.model?' · '+esc(t.model):''}${!isMonteur&&t.supplier?' · <span style="color:var(--plan-lt)">'+esc(t.supplier)+'</span>':''}${t.serial?' · SN '+esc(t.serial):''}${!isMonteur&&t.notes?' · '+esc(t.notes):''}</div>
         <div class="tc-badges">
           <span class="badge ${cat.cls}">${cat.icon} ${cat.label}</span>
           <span class="badge ${badgeC(wd)}">${statusEmoji} ${statusText}</span>
@@ -1273,16 +1276,17 @@ function renderCard(t){
     ${dateItems.length?`<div class="tc-dates">${dateItems.map(di=>`<div class="tcd"><div class="tcd-lbl">${di.lbl}</div><div class="tcd-val ${di.cls}">${di.val}</div><div class="tcd-sub">${di.sub}</div></div>`).join('')}</div>`:''}
     ${t.zugewiesenAn?`<div style="padding:8px 14px;background:#eef2ff;border-top:1px solid #e0e7ff;font-size:11.5px;color:#3730a3;display:flex;align-items:center;gap:6px"><span>👷</span><strong>${esc(t.zugewiesenAn.name||'—')}</strong>${t.zugewiesenAn.seit?`<span style="color:#6366f1;margin-left:auto">seit ${fmt(t.zugewiesenAn.seit)}</span>`:''}</div>`:''}
     ${t.ausgeliehenAn?`<div style="padding:8px 14px;background:#fefce8;border-top:1px solid #fde68a;font-size:11.5px;color:#92400e;display:flex;align-items:center;gap:6px;flex-wrap:wrap"><span>🔄</span>Ausgeliehen an <strong>${esc(t.ausgeliehenAn.name||'—')}</strong>${t.ausgeliehenAn.seit?`<span style="color:#b45309;margin-left:4px">seit ${fmt(t.ausgeliehenAn.seit)}</span>`:''}<span style="margin-left:auto">${_wzCanReturnTool(t)?`<button onclick="event.stopPropagation();_wzReturnTool('${t.id}')" style="padding:3px 10px;border-radius:6px;border:1px solid #16a34a;background:#f0fdf4;color:#16a34a;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit">✓ Zurück</button>`:''}</span></div>`:''}
-    ${(t.berichte&&t.berichte.length)?`<div style="padding:6px 14px;background:#fff7ed;border-top:1px solid #fed7aa;font-size:11px;color:#c2410c;display:flex;align-items:center;gap:5px"><span>📝</span>${t.berichte.length} Bericht${t.berichte.length>1?'e':''}${_wzBadDefect(t)?' · <span style="font-weight:800">⚠ Defekt offen</span>':''}</div>`:''}
-    ${t.pruefAnfrage?`<div style="padding:6px 14px;background:${t.pruefAnfrage.status==='erledigt'?'#f0fdf4':t.pruefAnfrage.status==='quittiert'?'#eff6ff':'#fff7ed'};border-top:1px solid ${t.pruefAnfrage.status==='erledigt'?'#bbf7d0':t.pruefAnfrage.status==='quittiert'?'#bfdbfe':'#fed7aa'};font-size:11px;color:${t.pruefAnfrage.status==='erledigt'?'#16a34a':t.pruefAnfrage.status==='quittiert'?'#2563eb':'#c2410c'};display:flex;align-items:center;gap:5px"><span>📋</span>${t.pruefAnfrage.status==='angefordert'?'Prüfung angefordert':t.pruefAnfrage.status==='quittiert'?'Lieferant quittiert':'Prüfung erledigt'} · ${esc(t.pruefAnfrage.lieferantFirma||'')}</div>`:''}
-    ${(t.ersatzAnfragen&&t.ersatzAnfragen.length)?`<div style="padding:6px 14px;background:#fdf4ff;border-top:1px solid #e9d5ff;font-size:11px;color:#7c3aed;display:flex;align-items:center;gap:5px"><span>🔄</span>${t.ersatzAnfragen.filter(a=>a.status==='offen').length} Ersatzanfrage${t.ersatzAnfragen.filter(a=>a.status==='offen').length!==1?'n':''} offen</div>`:''}
+    ${(t.berichte&&t.berichte.length&&_wzBadDefect(t))?`<div style="padding:6px 14px;background:#fff7ed;border-top:1px solid #fed7aa;font-size:11px;color:#c2410c;display:flex;align-items:center;gap:5px"><span>⚠</span><span style="font-weight:800">Defekt offen</span></div>`:''}
+    ${(!isMonteur&&t.berichte&&t.berichte.length)?`<div style="padding:6px 14px;background:#fff7ed;border-top:1px solid #fed7aa;font-size:11px;color:#c2410c;display:flex;align-items:center;gap:5px"><span>📝</span>${t.berichte.length} Bericht${t.berichte.length>1?'e':''}${_wzBadDefect(t)?' · <span style="font-weight:800">⚠ Defekt offen</span>':''}</div>`:''}
+    ${(!isMonteur&&t.pruefAnfrage)?`<div style="padding:6px 14px;background:${t.pruefAnfrage.status==='erledigt'?'#f0fdf4':t.pruefAnfrage.status==='quittiert'?'#eff6ff':'#fff7ed'};border-top:1px solid ${t.pruefAnfrage.status==='erledigt'?'#bbf7d0':t.pruefAnfrage.status==='quittiert'?'#bfdbfe':'#fed7aa'};font-size:11px;color:${t.pruefAnfrage.status==='erledigt'?'#16a34a':t.pruefAnfrage.status==='quittiert'?'#2563eb':'#c2410c'};display:flex;align-items:center;gap:5px"><span>📋</span>${t.pruefAnfrage.status==='angefordert'?'Prüfung angefordert':t.pruefAnfrage.status==='quittiert'?'Lieferant quittiert':'Prüfung erledigt'} · ${esc(t.pruefAnfrage.lieferantFirma||'')}</div>`:''}
+    ${(!isMonteur&&t.ersatzAnfragen&&t.ersatzAnfragen.length)?`<div style="padding:6px 14px;background:#fdf4ff;border-top:1px solid #e9d5ff;font-size:11px;color:#7c3aed;display:flex;align-items:center;gap:5px"><span>🔄</span>${t.ersatzAnfragen.filter(a=>a.status==='offen').length} Ersatzanfrage${t.ersatzAnfragen.filter(a=>a.status==='offen').length!==1?'n':''} offen</div>`:''}
     <div class="tc-foot">
       <div class="tc-actions">
         <button class="tc-act" onclick="openQR('${t.id}')">🔲 QR</button>
-        ${hasPruef?`<button class="tc-act accent" onclick="openPruef('${t.id}')">📋 Historie</button>`:''}
-        <button class="tc-act" onclick="openBerichte('${t.id}')">📝 Berichte${(t.berichte&&t.berichte.length)?' ('+t.berichte.length+')':''}</button>
-        ${(_wzCanEdit()&&hasPruef)?`<button class="tc-act" style="background:#dbeafe;color:#1d4ed8;border-color:#bfdbfe" onclick="openPruefAnfordern('${t.id}')" title="Prüfung beim Lieferant anfordern">📤 Anfordern</button>`:''}
-        ${(_wzCanEdit()&&_wzBadDefect(t))?`<button class="tc-act" style="background:#fdf4ff;color:#7c3aed;border-color:#c4b5fd" onclick="_wzErsatzAnfragen('${t.id}')" title="Ersatz-/Nachfolger-Anfrage an Lieferant">🔄 Ersatz</button>`:''}
+        ${!isMonteur&&hasPruef?`<button class="tc-act accent" onclick="openPruef('${t.id}')">📋 Historie</button>`:''}
+        ${!isMonteur?`<button class="tc-act" onclick="openBerichte('${t.id}')">📝 Berichte${(t.berichte&&t.berichte.length)?' ('+t.berichte.length+')':''}</button>`:''}
+        ${(!isMonteur&&_wzCanEdit()&&hasPruef)?`<button class="tc-act" style="background:#dbeafe;color:#1d4ed8;border-color:#bfdbfe" onclick="openPruefAnfordern('${t.id}')" title="Prüfung beim Lieferant anfordern">📤 Anfordern</button>`:''}
+        ${(!isMonteur&&_wzCanEdit()&&_wzBadDefect(t))?`<button class="tc-act" style="background:#fdf4ff;color:#7c3aed;border-color:#c4b5fd" onclick="_wzErsatzAnfragen('${t.id}')" title="Ersatz-/Nachfolger-Anfrage an Lieferant">🔄 Ersatz</button>`:''}
       </div>
       <div class="tc-actions">
         ${_wzCanReportDefect()?`<button class="tc-act" style="background:#fff7ed;color:#c2410c;border-color:#fed7aa" onclick="openDefektMelden('${t.id}')" title="Defekt melden">⚠</button>`:''}
@@ -1733,10 +1737,49 @@ function _wzReturnTool(toolId){
   delete t.ausgeliehenAn;
   save();renderList();
 }
+// QR/NFC-Scan → Direkt-Ausleihe mit aktuellem User
+function _wzScanAusleihe(toolId){
+  var t=tools.find(function(x){return x.id===toolId;});
+  if(!t){alert('Werkzeug nicht gefunden');return;}
+  var u=_wzGetUser();
+  if(!u){alert('Nicht angemeldet');return;}
+  // Wenn bereits ausgeliehen → Rückgabe anbieten falls Hauptnutzer
+  if(t.ausgeliehenAn){
+    if(_wzCanReturnTool(t)){
+      if(confirm('Werkzeug «'+t.name+'» ist ausgeliehen an '+t.ausgeliehenAn.name+'.\n\nAls zurückgegeben bestätigen?')){
+        _wzReturnTool(toolId);
+      }
+    }else{
+      alert('Werkzeug «'+t.name+'» ist bereits ausgeliehen an '+t.ausgeliehenAn.name+(t.ausgeliehenAn.seit?' (seit '+fmt(t.ausgeliehenAn.seit)+')':''));
+    }
+    return;
+  }
+  // Direkt-Ausleihe: aktueller User
+  if(confirm('Werkzeug «'+t.name+'» auf deinen Namen ausleihen?\n\n'+u.name)){
+    t.ausgeliehenAn={userId:u.id,name:u.name||u.username,seit:today()};
+    if(typeof GemaNotify!=='undefined'&&t.zugewiesenAn&&t.zugewiesenAn.userId){
+      GemaNotify.push({eventKey:'werkzeug_zuweisung',empfaengerUserId:t.zugewiesenAn.userId,modul:'werkzeug',typ:'info',
+        titel:t.name+' ausgeliehen',text:'Ausgeliehen von '+(u.name||u.username),
+        link:'if_werkzeug.html?view='+encodeURIComponent(t.id)});
+    }
+    save();renderList();
+  }
+}
+
+// Monteur-Ansicht: prüft ob aktueller User Monteur ist
+function _wzIsMonteurView(){
+  var u=_wzGetUser();if(!u)return false;
+  if(_wzIsAdmin())return false;
+  if(_wzCanEdit())return false;
+  return true;
+}
+
 window._wzOpenAusleihe=_wzOpenAusleihe;
 window._wzSaveAusleihe=_wzSaveAusleihe;
 window._wzReturnTool=_wzReturnTool;
 window._wzCanReturnTool=_wzCanReturnTool;
+window._wzScanAusleihe=_wzScanAusleihe;
+window._wzIsMonteurView=_wzIsMonteurView;
 
 function openBerichte(toolId){
   var t=tools.find(function(x){return x.id===toolId;});
@@ -2521,7 +2564,7 @@ function openQR(id){
   const t=tools.find(x=>x.id===id);if(!t)return;
   const cat=CATS[t.cat]||CATS.sonstige;
   setText('qrTitle',t.name);
-  const url=`${location.href.split('?')[0]}?view=${id}`;
+  const url=`${location.href.split('?')[0]}?scan=${id}`;
   _currentNfcUrl=url;
   const canvas=document.getElementById('qrCanvas');
   canvas.innerHTML='';
@@ -2827,6 +2870,7 @@ await Promise.race([
   }
   const p=new URLSearchParams(location.search);
   if(p.get('view'))setTimeout(()=>openViewTool(p.get('view')),400);
+    else if(p.get('scan'))setTimeout(()=>_wzScanAusleihe(p.get('scan')),400);
     else if(p.get('edit'))setTimeout(()=>editTool(p.get('edit')),400);
     else if(p.get('tool'))setTimeout(()=>openQR(p.get('tool')),400);
     else if(p.get('pruef_lief'))setTimeout(()=>openPruefLiefAnsicht(p.get('pruef_lief')),400);
