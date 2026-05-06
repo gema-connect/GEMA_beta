@@ -1737,34 +1737,121 @@ function _wzReturnTool(toolId){
   delete t.ausgeliehenAn;
   save();renderList();
 }
-// QR/NFC-Scan → Direkt-Ausleihe mit aktuellem User
+// ── Scan-View: Full-Screen Infoseite nach QR/NFC-Scan ──
 function _wzScanAusleihe(toolId){
   var t=tools.find(function(x){return x.id===toolId;});
   if(!t){alert('Werkzeug nicht gefunden');return;}
   var u=_wzGetUser();
-  if(!u){alert('Nicht angemeldet');return;}
-  // Wenn bereits ausgeliehen → Rückgabe anbieten falls Hauptnutzer
-  if(t.ausgeliehenAn){
-    if(_wzCanReturnTool(t)){
-      if(confirm('Werkzeug «'+t.name+'» ist ausgeliehen an '+t.ausgeliehenAn.name+'.\n\nAls zurückgegeben bestätigen?')){
-        _wzReturnTool(toolId);
-      }
-    }else{
-      alert('Werkzeug «'+t.name+'» ist bereits ausgeliehen an '+t.ausgeliehenAn.name+(t.ausgeliehenAn.seit?' (seit '+fmt(t.ausgeliehenAn.seit)+')':''));
-    }
-    return;
+  var cat=CATS[t.cat]||CATS.sonstige;
+  var isMyTool=t.zugewiesenAn&&u&&t.zugewiesenAn.userId===u.id;
+  var isBorrowedByMe=t.ausgeliehenAn&&u&&t.ausgeliehenAn.userId===u.id;
+  var isBorrowed=!!t.ausgeliehenAn;
+  var isFree=!isBorrowed;
+
+  var actionBtn='';
+  if(!u){
+    actionBtn='<div style="padding:16px;text-align:center;color:#dc2626;font-weight:600">Bitte anmelden um Werkzeuge auszuleihen</div>';
+  }else if(isBorrowedByMe){
+    // Ich habe es ausgeliehen → kann es zurückgeben (an Hauptnutzer)
+    actionBtn='<button onclick="_wzScanReturn(\''+toolId+'\')" style="width:100%;padding:16px;border-radius:14px;border:none;background:#16a34a;color:#fff;font-size:16px;font-weight:800;cursor:pointer;font-family:inherit;display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 4px 16px rgba(22,163,74,.3)">✓ Werkzeug zurückgeben</button>';
+  }else if(isMyTool&&isBorrowed){
+    // Mein Werkzeug, jemand hat es → Rückgabe bestätigen
+    actionBtn='<button onclick="_wzScanConfirmReturn(\''+toolId+'\')" style="width:100%;padding:16px;border-radius:14px;border:none;background:#16a34a;color:#fff;font-size:16px;font-weight:800;cursor:pointer;font-family:inherit;display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 4px 16px rgba(22,163,74,.3)">✓ Rückgabe bestätigen</button>'
+      +'<div style="text-align:center;font-size:12px;color:#64748b;margin-top:8px">Ausgeliehen an <strong>'+esc(t.ausgeliehenAn.name)+'</strong>'+(t.ausgeliehenAn.seit?' seit '+fmt(t.ausgeliehenAn.seit):'')+'</div>';
+  }else if(isBorrowed){
+    // Jemand anderes hat es → Zu mir übertragen
+    actionBtn='<div style="background:#fefce8;border:1px solid #fde68a;border-radius:12px;padding:14px;margin-bottom:12px;text-align:center">'
+      +'<div style="font-size:13px;color:#92400e;font-weight:600">Aktuell bei <strong>'+esc(t.ausgeliehenAn.name)+'</strong></div>'
+      +(t.ausgeliehenAn.seit?'<div style="font-size:11px;color:#b45309">seit '+fmt(t.ausgeliehenAn.seit)+'</div>':'')
+      +'</div>'
+      +'<button onclick="_wzScanTransfer(\''+toolId+'\')" style="width:100%;padding:16px;border-radius:14px;border:none;background:#1e3a5f;color:#fff;font-size:16px;font-weight:800;cursor:pointer;font-family:inherit;display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 4px 16px rgba(30,58,95,.3)">🔄 Zu mir übertragen</button>';
+  }else{
+    // Frei → Bei mir einbuchen
+    actionBtn='<button onclick="_wzScanBorrow(\''+toolId+'\')" style="width:100%;padding:16px;border-radius:14px;border:none;background:#1e3a5f;color:#fff;font-size:16px;font-weight:800;cursor:pointer;font-family:inherit;display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 4px 16px rgba(30,58,95,.3)">📲 Bei mir einbuchen</button>';
   }
-  // Direkt-Ausleihe: aktueller User
-  if(confirm('Werkzeug «'+t.name+'» auf deinen Namen ausleihen?\n\n'+u.name)){
-    t.ausgeliehenAn={userId:u.id,name:u.name||u.username,seit:today()};
-    if(typeof GemaNotify!=='undefined'&&t.zugewiesenAn&&t.zugewiesenAn.userId){
-      GemaNotify.push({eventKey:'werkzeug_zuweisung',empfaengerUserId:t.zugewiesenAn.userId,modul:'werkzeug',typ:'info',
-        titel:t.name+' ausgeliehen',text:'Ausgeliehen von '+(u.name||u.username),
-        link:'if_werkzeug.html?view='+encodeURIComponent(t.id)});
-    }
-    save();renderList();
-  }
+
+  var overlay=document.createElement('div');
+  overlay.id='wzScanOverlay';
+  overlay.style.cssText='position:fixed;inset:0;z-index:10000;background:#FAFAFA;overflow-y:auto;font-family:"DM Sans",system-ui,sans-serif';
+  overlay.innerHTML=
+    '<div style="max-width:480px;margin:0 auto;padding:24px 20px calc(24px + env(safe-area-inset-bottom))">'
+    +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px">'
+    +'<button onclick="_wzCloseScan()" style="padding:8px 16px;border-radius:10px;border:1px solid #E5E7EB;background:#fff;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;color:#475569">← Zurück</button>'
+    +'<span style="font-size:12px;color:#94a3b8">Werkzeug-Scan</span></div>'
+    // Hero
+    +'<div style="background:#fff;border-radius:20px;border:1px solid #E5E7EB;padding:24px;text-align:center;margin-bottom:20px;box-shadow:0 1px 2px rgba(15,23,42,.04)">'
+    +'<div style="width:56px;height:56px;border-radius:14px;background:linear-gradient(135deg,#F0F4FA,#E8F0EA);display:grid;place-items:center;margin:0 auto 14px;font-size:24px">'+cat.icon+'</div>'
+    +'<div style="font-size:22px;font-weight:800;color:#0f172a;margin-bottom:4px">'+esc(t.name)+'</div>'
+    +'<div style="font-size:14px;color:#475569">'+(t.brand||'')+' '+(t.model||'')+'</div>'
+    +(t.serial?'<div style="font-size:12px;color:#94a3b8;margin-top:6px;font-family:monospace">SN: '+esc(t.serial)+'</div>':'')
+    +'</div>'
+    // Info-Karte
+    +'<div style="background:#fff;border-radius:16px;border:1px solid #E5E7EB;padding:16px;margin-bottom:20px">'
+    +(t.zugewiesenAn?'<div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid #EEF1F4"><span style="font-size:13px;color:#94a3b8">Zugewiesen an</span><span style="font-size:13px;font-weight:600;color:#3730a3">👷 '+esc(t.zugewiesenAn.name)+'</span></div>':'')
+    +(t.ausgeliehenAn?'<div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid #EEF1F4"><span style="font-size:13px;color:#94a3b8">Ausgeliehen an</span><span style="font-size:13px;font-weight:600;color:#92400e">🔄 '+esc(t.ausgeliehenAn.name)+'</span></div>':'')
+    +(!t.ausgeliehenAn?'<div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid #EEF1F4"><span style="font-size:13px;color:#94a3b8">Status</span><span style="font-size:13px;font-weight:600;color:#16a34a">✅ Verfügbar</span></div>':'')
+    +'<div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid #EEF1F4"><span style="font-size:13px;color:#94a3b8">Kategorie</span><span style="font-size:13px;font-weight:500">'+cat.icon+' '+esc(cat.label)+'</span></div>'
+    +(_wzBadDefect(t)?'<div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid #EEF1F4"><span style="font-size:13px;color:#94a3b8">Defekt</span><span style="font-size:13px;font-weight:700;color:#dc2626">⚠ Defekt offen</span></div>':'')
+    +'</div>'
+    // Action
+    +'<div style="margin-bottom:16px">'+actionBtn+'</div>'
+    // Defekt melden
+    +'<button onclick="_wzCloseScan();setTimeout(function(){openDefektMelden(\''+toolId+'\')},200)" style="width:100%;padding:12px;border-radius:12px;border:1.5px solid #fed7aa;background:#fff7ed;color:#c2410c;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;display:flex;align-items:center;justify-content:center;gap:6px">⚠ Defekt melden</button>'
+    +'</div>';
+  document.body.appendChild(overlay);
 }
+
+function _wzCloseScan(){var o=document.getElementById('wzScanOverlay');if(o)o.remove();}
+
+function _wzScanBorrow(toolId){
+  var t=tools.find(function(x){return x.id===toolId;});if(!t)return;
+  var u=_wzGetUser();if(!u)return;
+  t.ausgeliehenAn={userId:u.id,name:u.name||u.username,seit:today()};
+  if(typeof GemaNotify!=='undefined'&&t.zugewiesenAn&&t.zugewiesenAn.userId){
+    GemaNotify.push({eventKey:'werkzeug_zuweisung',empfaengerUserId:t.zugewiesenAn.userId,modul:'werkzeug',typ:'info',
+      titel:t.name+' ausgeliehen',text:'Von '+(u.name||u.username),link:'if_werkzeug.html?view='+encodeURIComponent(t.id)});
+  }
+  save();_wzCloseScan();renderList();
+}
+
+function _wzScanTransfer(toolId){
+  var t=tools.find(function(x){return x.id===toolId;});if(!t||!t.ausgeliehenAn)return;
+  var u=_wzGetUser();if(!u)return;
+  var prev=t.ausgeliehenAn.name;
+  if(typeof GemaNotify!=='undefined'&&t.ausgeliehenAn.userId){
+    GemaNotify.push({eventKey:'werkzeug_zuweisung',empfaengerUserId:t.ausgeliehenAn.userId,modul:'werkzeug',typ:'info',
+      titel:t.name+' übertragen',text:'An '+(u.name||u.username),link:'if_werkzeug.html?view='+encodeURIComponent(t.id)});
+  }
+  t.ausgeliehenAn={userId:u.id,name:u.name||u.username,seit:today()};
+  save();_wzCloseScan();renderList();
+}
+
+function _wzScanReturn(toolId){
+  var t=tools.find(function(x){return x.id===toolId;});if(!t||!t.ausgeliehenAn)return;
+  if(typeof GemaNotify!=='undefined'&&t.zugewiesenAn&&t.zugewiesenAn.userId){
+    GemaNotify.push({eventKey:'werkzeug_zuweisung',empfaengerUserId:t.zugewiesenAn.userId,modul:'werkzeug',typ:'erfolg',
+      titel:t.name+' zurückgegeben',text:'Von '+(t.ausgeliehenAn.name||''),link:'if_werkzeug.html?view='+encodeURIComponent(t.id)});
+  }
+  delete t.ausgeliehenAn;
+  save();_wzCloseScan();renderList();
+}
+
+function _wzScanConfirmReturn(toolId){
+  var t=tools.find(function(x){return x.id===toolId;});if(!t||!t.ausgeliehenAn)return;
+  if(typeof GemaNotify!=='undefined'&&t.ausgeliehenAn.userId){
+    GemaNotify.push({eventKey:'werkzeug_zuweisung',empfaengerUserId:t.ausgeliehenAn.userId,modul:'werkzeug',typ:'erfolg',
+      titel:t.name+' Rückgabe bestätigt',text:'Von '+(_wzGetUser()?_wzGetUser().name:''),link:'if_werkzeug.html?view='+encodeURIComponent(t.id)});
+  }
+  delete t.ausgeliehenAn;
+  save();_wzCloseScan();renderList();
+}
+
+window._wzScanAusleihe=_wzScanAusleihe;
+window._wzScanBorrow=_wzScanBorrow;
+window._wzScanTransfer=_wzScanTransfer;
+window._wzScanReturn=_wzScanReturn;
+window._wzScanConfirmReturn=_wzScanConfirmReturn;
+window._wzCloseScan=_wzCloseScan;
 
 // Monteur-Ansicht: prüft ob aktueller User Monteur ist
 function _wzIsMonteurView(){
@@ -1778,7 +1865,6 @@ window._wzOpenAusleihe=_wzOpenAusleihe;
 window._wzSaveAusleihe=_wzSaveAusleihe;
 window._wzReturnTool=_wzReturnTool;
 window._wzCanReturnTool=_wzCanReturnTool;
-window._wzScanAusleihe=_wzScanAusleihe;
 window._wzIsMonteurView=_wzIsMonteurView;
 
 function openBerichte(toolId){
