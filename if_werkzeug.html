@@ -395,6 +395,7 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
       <input type="text" id="searchInp" placeholder="Bezeichnung, Hersteller, Kategorie, Standort …" oninput="renderList()">
     </div>
     <button class="nbtn primary" id="btnAddTool" onclick="openAdd()">+ Gerät hinzufügen</button>
+    <button class="nbtn" onclick="_wzOpenSammelAusleihe()" title="Mehrere Werkzeuge scannen und auf einmal ausleihen" style="background:#fefce8;color:#92400e;border-color:#fde68a">🔄 Sammel-Ausleihe</button>
     <button class="nbtn" id="btnPruefMode" onclick="_wzPruefModus()" style="display:none" title="Prüfmodus starten">📋 Prüfmodus</button>
     <div class="view-toggle">
       <button class="vt-btn active" id="vt_cards" onclick="setView('cards')" title="Karten">⊞</button>
@@ -1852,6 +1853,149 @@ window._wzScanTransfer=_wzScanTransfer;
 window._wzScanReturn=_wzScanReturn;
 window._wzScanConfirmReturn=_wzScanConfirmReturn;
 window._wzCloseScan=_wzCloseScan;
+
+// ── Sammel-Ausleihe ──
+var _sammelList=[];
+function _wzOpenSammelAusleihe(){
+  _sammelList=[];
+  var u=_wzGetUser();
+  var isMag=_wzCanEdit();
+  var personen=[];
+  if(isMag&&typeof GemaAuth!=='undefined'){
+    try{var me=u||{};var users=GemaAuth.getUsers()||[];
+      personen=users.filter(function(p){return p.active&&(!me.orgId||p.orgId===me.orgId||_wzIsAdmin());});
+    }catch(e){}
+  }
+  var targetHtml='';
+  if(isMag&&personen.length){
+    targetHtml='<div style="margin-bottom:16px"><label style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:6px">Ausleihen an</label>'
+      +'<select id="sammelTarget" style="width:100%;padding:10px 14px;border:1.5px solid #E5E7EB;border-radius:10px;font-size:14px;font-family:inherit">'
+      +'<option value="_self">Mich selbst ('+(u?esc(u.name):'')+')</option>'
+      +personen.map(function(p){return '<option value="'+p.id+'">'+esc(p.name||p.username)+'</option>';}).join('')
+      +'</select></div>';
+  }
+
+  var overlay=document.createElement('div');
+  overlay.id='wzSammelOverlay';
+  overlay.style.cssText='position:fixed;inset:0;z-index:10000;background:#FAFAFA;overflow-y:auto;font-family:"DM Sans",system-ui,sans-serif';
+  overlay.innerHTML=
+    '<div style="max-width:520px;margin:0 auto;padding:24px 20px calc(24px + env(safe-area-inset-bottom))">'
+    +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">'
+    +'<button onclick="_wzCloseSammel()" style="padding:8px 16px;border-radius:10px;border:1px solid #E5E7EB;background:#fff;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;color:#475569">← Zurück</button>'
+    +'<span style="font-size:12px;color:#94a3b8">Sammel-Ausleihe</span></div>'
+    +'<div style="background:#fff;border-radius:16px;border:1px solid #E5E7EB;padding:20px;margin-bottom:16px">'
+    +'<h2 style="font-size:18px;font-weight:800;margin:0 0 4px;color:#0f172a">🔄 Sammel-Ausleihe</h2>'
+    +'<p style="font-size:13px;color:#64748b;margin:0">Scanne mehrere Werkzeuge nacheinander und buche alle auf einmal ein.</p></div>'
+    +targetHtml
+    // Scan-Bereich
+    +'<div style="margin-bottom:16px;display:flex;gap:8px">'
+    +'<input id="sammelInput" style="flex:1;padding:12px 14px;border:1.5px solid #E5E7EB;border-radius:10px;font-size:14px;font-family:inherit" placeholder="Werkzeug-ID oder Name eingeben" onkeydown="if(event.key===\'Enter\'){_wzSammelAdd();}">'
+    +'<button onclick="_wzSammelAdd()" style="padding:12px 18px;border-radius:10px;border:none;background:#1e3a5f;color:#fff;font-weight:700;cursor:pointer;font-family:inherit;white-space:nowrap">+ Hinzufügen</button></div>'
+    +'<button onclick="_wzSammelScanQR()" style="width:100%;padding:12px;border-radius:10px;border:1.5px solid #1e3a5f;background:#fff;color:#1e3a5f;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;margin-bottom:20px;display:flex;align-items:center;justify-content:center;gap:6px">📷 QR-Code scannen</button>'
+    // Liste
+    +'<div id="sammelListe" style="margin-bottom:20px"></div>'
+    // Zusammenfassung
+    +'<div id="sammelSummary" style="display:none;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:12px;padding:14px;margin-bottom:16px;text-align:center;font-size:14px;font-weight:600;color:#16a34a"></div>'
+    // Bestätigen
+    +'<button id="sammelConfirm" onclick="_wzSammelConfirm()" style="display:none;width:100%;padding:16px;border-radius:14px;border:none;background:#16a34a;color:#fff;font-size:16px;font-weight:800;cursor:pointer;font-family:inherit;box-shadow:0 4px 16px rgba(22,163,74,.3)">✓ Alle einbuchen</button>'
+    +'</div>';
+  document.body.appendChild(overlay);
+  setTimeout(function(){var inp=document.getElementById('sammelInput');if(inp)inp.focus();},100);
+}
+
+function _wzCloseSammel(){var o=document.getElementById('wzSammelOverlay');if(o)o.remove();_sammelList=[];}
+
+function _wzSammelAdd(){
+  var inp=document.getElementById('sammelInput');if(!inp)return;
+  var val=inp.value.trim();if(!val)return;
+  // Suche nach ID oder Name
+  var t=tools.find(function(x){return x.id===val;})||tools.find(function(x){return x.name.toLowerCase().indexOf(val.toLowerCase())>=0;});
+  if(!t){alert('Werkzeug «'+val+'» nicht gefunden');return;}
+  if(_sammelList.find(function(s){return s.id===t.id;})){alert('Werkzeug «'+t.name+'» bereits in der Liste');inp.value='';return;}
+  _sammelList.push({id:t.id,name:t.name,brand:t.brand||'',model:t.model||'',cat:t.cat,current:t.ausgeliehenAn?t.ausgeliehenAn.name:null});
+  inp.value='';inp.focus();
+  _wzSammelRender();
+}
+
+function _wzSammelFromScan(toolId){
+  var t=tools.find(function(x){return x.id===toolId;});if(!t)return;
+  if(_sammelList.find(function(s){return s.id===t.id;}))return;
+  _sammelList.push({id:t.id,name:t.name,brand:t.brand||'',model:t.model||'',cat:t.cat,current:t.ausgeliehenAn?t.ausgeliehenAn.name:null});
+  _wzSammelRender();
+}
+
+function _wzSammelRemove(idx){
+  _sammelList.splice(idx,1);
+  _wzSammelRender();
+}
+
+function _wzSammelRender(){
+  var el=document.getElementById('sammelListe');
+  var sum=document.getElementById('sammelSummary');
+  var btn=document.getElementById('sammelConfirm');
+  if(!el)return;
+  if(!_sammelList.length){
+    el.innerHTML='<div style="text-align:center;padding:24px;color:#94a3b8;font-size:13px">Noch keine Werkzeuge gescannt</div>';
+    if(sum)sum.style.display='none';
+    if(btn)btn.style.display='none';
+    return;
+  }
+  var cat=CATS||{};
+  el.innerHTML=_sammelList.map(function(s,i){
+    var c=cat[s.cat]||{icon:'🔧',label:''};
+    return '<div style="display:flex;align-items:center;gap:12px;padding:12px 14px;background:#fff;border:1px solid #E5E7EB;border-radius:12px;margin-bottom:8px">'
+      +'<span style="font-size:20px">'+c.icon+'</span>'
+      +'<div style="flex:1;min-width:0"><div style="font-size:14px;font-weight:600">'+esc(s.name)+'</div>'
+      +'<div style="font-size:12px;color:#94a3b8">'+(s.brand?esc(s.brand)+' ':'')+(s.model?esc(s.model):'')
+      +(s.current?' · <span style="color:#92400e">bei '+esc(s.current)+'</span>':'')+'</div></div>'
+      +'<button onclick="_wzSammelRemove('+i+')" style="width:28px;height:28px;border-radius:8px;border:1px solid #E5E7EB;background:#fff;cursor:pointer;display:grid;place-items:center;color:#94a3b8;font-size:14px" title="Entfernen">✕</button></div>';
+  }).join('');
+  if(sum){sum.style.display='';sum.textContent=_sammelList.length+' Werkzeug'+(_sammelList.length>1?'e':'')+' bereit zum Einbuchen';}
+  if(btn){btn.style.display='';btn.textContent='✓ '+_sammelList.length+' Werkzeug'+(_sammelList.length>1?'e':'')+' einbuchen';}
+}
+
+function _wzSammelScanQR(){
+  if(typeof GemaQRScanner==='undefined'){alert('QR-Scanner nicht verfügbar');return;}
+  GemaQRScanner.scan(function(code){
+    var id=code;
+    if(code.indexOf('scan=')>=0)id=code.split('scan=')[1].split('&')[0];
+    else if(code.indexOf('view=')>=0)id=code.split('view=')[1].split('&')[0];
+    _wzSammelFromScan(decodeURIComponent(id));
+  });
+}
+
+function _wzSammelConfirm(){
+  if(!_sammelList.length)return;
+  var u=_wzGetUser();if(!u)return;
+  var targetId=u.id;var targetName=u.name||u.username;
+  var sel=document.getElementById('sammelTarget');
+  if(sel&&sel.value&&sel.value!=='_self'){
+    var users=(typeof GemaAuth!=='undefined')?(GemaAuth.getUsers()||[]):[];
+    var p=users.find(function(x){return x.id===sel.value;});
+    if(p){targetId=p.id;targetName=p.name||p.username;}
+  }
+  var count=0;
+  _sammelList.forEach(function(s){
+    var t=tools.find(function(x){return x.id===s.id;});if(!t)return;
+    t.ausgeliehenAn={userId:targetId,name:targetName,seit:today()};
+    count++;
+    if(typeof GemaNotify!=='undefined'&&t.zugewiesenAn&&t.zugewiesenAn.userId&&t.zugewiesenAn.userId!==targetId){
+      GemaNotify.push({eventKey:'werkzeug_zuweisung',empfaengerUserId:t.zugewiesenAn.userId,modul:'werkzeug',typ:'info',
+        titel:t.name+' ausgeliehen',text:'An '+targetName,link:'if_werkzeug.html?view='+encodeURIComponent(t.id)});
+    }
+  });
+  save();_wzCloseSammel();renderList();
+  alert(count+' Werkzeug'+(count>1?'e':'')+' eingebucht auf: '+targetName);
+}
+
+window._wzOpenSammelAusleihe=_wzOpenSammelAusleihe;
+window._wzCloseSammel=_wzCloseSammel;
+window._wzSammelAdd=_wzSammelAdd;
+window._wzSammelFromScan=_wzSammelFromScan;
+window._wzSammelRemove=_wzSammelRemove;
+window._wzSammelRender=_wzSammelRender;
+window._wzSammelScanQR=_wzSammelScanQR;
+window._wzSammelConfirm=_wzSammelConfirm;
 
 // Monteur-Ansicht: prüft ob aktueller User Monteur ist
 function _wzIsMonteurView(){
