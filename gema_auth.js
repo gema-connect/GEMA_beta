@@ -704,6 +704,8 @@
     if(!u||!u.roleIds)return'sys_workspace.html';
     if(u.roleIds.indexOf('role_lieferant')>=0)return'sys_lieferant_dashboard.html';
     if(u.roleIds.indexOf('role_pruefer')>=0)return'sys_lieferant_dashboard.html';
+    if(u.roleIds.indexOf('role_magaziner')>=0)return'index.html';
+    if(u.roleIds.indexOf('role_monteur')>=0)return'index.html';
     return'sys_workspace.html';
   }
 
