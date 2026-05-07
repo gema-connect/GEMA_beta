@@ -140,7 +140,10 @@
           `&data_key=in.(${csv})` +
           `&select=data_key,payload`;
 
-        const r = await fetch(url, { headers: hdrs() });
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 4000);
+        const r = await fetch(url, { headers: hdrs(), signal: controller.signal });
+        clearTimeout(timeoutId);
         if (!r.ok) {
           console.warn('[GemaDB] Lade-Fehler', r.status, await r.text());
           showBadge('⚠ Ladefehler', 'red');

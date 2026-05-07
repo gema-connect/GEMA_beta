@@ -30,16 +30,20 @@
 
   function _fetchAuthFromSupabase(key,callback){
     try{
+      var done=false;
+      var timer=setTimeout(function(){done=true;},3000);
       fetch(SB_URL+'/rest/v1/'+SB_TABLE+'?module_key=eq.auth&data_key=eq.'+encodeURIComponent(key)+'&select=payload',{
         headers:{'apikey':SB_KEY,'Authorization':'Bearer '+SB_KEY}
       }).then(function(r){return r.json();}).then(function(rows){
+        clearTimeout(timer);
+        if(done)return;
         if(rows&&rows.length&&rows[0].payload&&rows[0].payload.v){
           var data=typeof rows[0].payload.v==='string'?JSON.parse(rows[0].payload.v):rows[0].payload.v;
           if(data&&Array.isArray(data)&&data.length){
             callback(data);
           }
         }
-      }).catch(function(e){console.warn('[GemaAuth] Supabase fetch error',key,e);});
+      }).catch(function(e){clearTimeout(timer);console.warn('[GemaAuth] Supabase fetch error',key,e);});
     }catch(e){}
   }
 

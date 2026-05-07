@@ -87,24 +87,25 @@
   function _fetchFromSupabase() {
     if (_loaded) { _readyResolve(); return; }
     var url = SB_URL + '/rest/v1/gema_data?module_key=eq.objekte&data_key=eq.' + KEY + '&select=payload';
+    var timeout = setTimeout(function(){ _readyResolve(); }, 3000);
     fetch(url, {
       headers: { 'apikey': SB_KEY, 'Authorization': 'Bearer ' + SB_KEY }
     }).then(function(r) { return r.json(); })
     .then(function(rows) {
+      clearTimeout(timeout);
       if (rows && rows.length && rows[0].payload && rows[0].payload.v) {
         var data = rows[0].payload.v;
-        // data is the JSON string stored by gema_db.js
         try {
           var parsed = typeof data === 'string' ? JSON.parse(data) : data;
           _cache = parsed;
           _loaded = true;
           localStorage.setItem(KEY, typeof data === 'string' ? data : JSON.stringify(data));
-          // Notify dropdowns to re-populate
           w.dispatchEvent(new Event('gema-objekte-loaded'));
         } catch(e) { console.warn('[GemaObjekte] Parse error', e); }
       }
       _readyResolve();
     }).catch(function(e) {
+      clearTimeout(timeout);
       console.warn('[GemaObjekte] Supabase fetch failed (offline?)', e);
       _readyResolve();
     });
