@@ -30,16 +30,20 @@
 
   function _fetchAuthFromSupabase(key,callback){
     try{
+      var done=false;
+      var timer=setTimeout(function(){done=true;},3000);
       fetch(SB_URL+'/rest/v1/'+SB_TABLE+'?module_key=eq.auth&data_key=eq.'+encodeURIComponent(key)+'&select=payload',{
         headers:{'apikey':SB_KEY,'Authorization':'Bearer '+SB_KEY}
       }).then(function(r){return r.json();}).then(function(rows){
+        clearTimeout(timer);
+        if(done)return;
         if(rows&&rows.length&&rows[0].payload&&rows[0].payload.v){
           var data=typeof rows[0].payload.v==='string'?JSON.parse(rows[0].payload.v):rows[0].payload.v;
           if(data&&Array.isArray(data)&&data.length){
             callback(data);
           }
         }
-      }).catch(function(e){console.warn('[GemaAuth] Supabase fetch error',key,e);});
+      }).catch(function(e){clearTimeout(timer);console.warn('[GemaAuth] Supabase fetch error',key,e);});
     }catch(e){}
   }
 
@@ -140,94 +144,16 @@
 
   // ── Default Org + User ─────────────────────────────────────────────
   var DEFAULT_ORGS = [{
-    id:'org_default', name:'Jäggi Vollmer GmbH', logo:null, kategorie:'sanitaerplaner', kategorien:['sanitaerplaner','heizungsplaner','lueftungsplaner'],
+    id:'org_default', name:'GEMA', logo:null, kategorie:'sanitaerplaner', kategorien:['sanitaerplaner','heizungsplaner','lueftungsplaner'],
     rechtsform:'GmbH',
-    adresse:{strasse:'Rheinfelderstrasse 10',plz:'4058',ort:'Basel',kanton:'BS',land:'CH'},
-    kontakt:{email:'info@jaeggivollmer.ch',telefon:'061 692 03 11',website:''},
-    settings:{waehrung:'CHF',land:'CH',sichtbarkeit:'abteilung',abteilungenAktiv:true},
-    abteilungen:[
-      {id:'abt_sanitaer',name:'Sanitär',farbe:'#16a34a',gewerke:['sanitaer'],leiter:'user_planer_1'},
-      {id:'abt_hlkk',name:'Heizung / Lüftung',farbe:'#dc2626',gewerke:['hlkk','lueftung'],leiter:'user_planer_hlkk'}
-    ],
-    lizenzen:{typ:'pool',maxUser:10,aktiveUser:5,aboStart:'2025-01-01',aboEnde:'2026-12-31',gewerke:['sanitaer','hlkk','lueftung']},
-    admins:['user_admin','user_planer_1'],
+    adresse:{strasse:'',plz:'',ort:'',kanton:'',land:'CH'},
+    kontakt:{email:'',telefon:'',website:''},
+    settings:{waehrung:'CHF',land:'CH',sichtbarkeit:'organisation',abteilungenAktiv:false},
+    abteilungen:[],
+    lizenzen:{typ:'pool',maxUser:50,aktiveUser:1,aboStart:'2025-01-01',aboEnde:'2030-12-31',gewerke:['sanitaer','hlkk','lueftung','elektro']},
+    admins:['user_admin'],
     active:true,
     createdAt:'2025-01-01T08:00:00Z'
-  },
-  // ── Installateur-Firmen (eigenstaendige Unternehmen) ──
-  {
-    id:'org_meier_sanitaer', name:'Meier Sanitär AG', logo:null, kategorie:'sanitaerinstallateur', kategorien:['sanitaerinstallateur'],
-    rechtsform:'AG',
-    adresse:{strasse:'Industriestrasse 12',plz:'4133',ort:'Pratteln',kanton:'BL',land:'CH'},
-    kontakt:{email:'info@meiersanitaer.ch',telefon:'061 333 44 55',website:''},
-    settings:{waehrung:'CHF',land:'CH',sichtbarkeit:'organisation',abteilungenAktiv:false},
-    abteilungen:[],
-    lizenzen:{typ:'single',maxUser:3,aktiveUser:1,aboStart:'2025-03-15',aboEnde:'2026-12-31',gewerke:['sanitaer']},
-    admins:['user_unternehmer_1'],
-    active:true,
-    createdAt:'2025-03-15T08:00:00Z'
-  },
-  {
-    id:'org_steiner_sanitaer', name:'Steiner Sanitär GmbH', logo:null, kategorie:'sanitaerinstallateur', kategorien:['sanitaerinstallateur','heizungsinstallateur'],
-    rechtsform:'GmbH',
-    adresse:{strasse:'Dorfstrasse 45',plz:'8004',ort:'Zürich',kanton:'ZH',land:'CH'},
-    kontakt:{email:'info@steinersanitaer.ch',telefon:'044 222 33 44',website:''},
-    settings:{waehrung:'CHF',land:'CH',sichtbarkeit:'organisation',abteilungenAktiv:false},
-    abteilungen:[],
-    lizenzen:{typ:'single',maxUser:3,aktiveUser:1,aboStart:'2025-04-01',aboEnde:'2026-12-31',gewerke:['sanitaer']},
-    admins:['user_unternehmer_2'],
-    active:true,
-    createdAt:'2025-04-01T08:00:00Z'
-  },
-  // ── Architektur-Büro ──
-  {
-    id:'org_arch_muster', name:'Architektur Muster AG', logo:null, kategorie:'architekt', kategorien:['architekt'],
-    rechtsform:'AG',
-    adresse:{strasse:'Freie Strasse 88',plz:'4051',ort:'Basel',kanton:'BS',land:'CH'},
-    kontakt:{email:'info@archmuster.ch',telefon:'061 555 66 77',website:''},
-    settings:{waehrung:'CHF',land:'CH',sichtbarkeit:'organisation',abteilungenAktiv:false},
-    abteilungen:[],
-    lizenzen:{typ:'pool',maxUser:5,aktiveUser:1,aboStart:'2025-02-01',aboEnde:'2026-12-31',gewerke:['architektur']},
-    admins:['user_architekt_1'],
-    active:true,
-    createdAt:'2025-02-01T08:00:00Z'
-  },
-  // ── Lieferanten-Firmen (eigenstaendige Hersteller) ──
-  {
-    id:'org_bwt', name:'BWT', logo:null, kategorie:'lieferant', kategorien:['lieferant'], lieferantKategorien:['enthaertung','osmose'],
-    rechtsform:'AG',
-    adresse:{strasse:'Hauptstrasse 192',plz:'4147',ort:'Aesch',kanton:'BL',land:'CH'},
-    kontakt:{email:'info@bwt.ch',telefon:'061 755 88 99',website:'www.bwt.ch'},
-    settings:{waehrung:'CHF',land:'CH',sichtbarkeit:'organisation',abteilungenAktiv:false},
-    abteilungen:[],
-    lizenzen:{typ:'pool',maxUser:5,aktiveUser:1,aboStart:'2025-01-15',aboEnde:'2026-12-31',gewerke:['lieferant']},
-    admins:['user_lief_bwt'],
-    active:true,
-    createdAt:'2025-01-15T10:00:00Z'
-  },
-  {
-    id:'org_gruenbeck', name:'Grünbeck', logo:null, kategorie:'lieferant', kategorien:['lieferant'], lieferantKategorien:['enthaertung','osmose'],
-    rechtsform:'GmbH',
-    adresse:{strasse:'Industriestrasse 35',plz:'8604',ort:'Volketswil',kanton:'ZH',land:'CH'},
-    kontakt:{email:'info@gruenbeck.ch',telefon:'044 820 33 44',website:'www.gruenbeck.ch'},
-    settings:{waehrung:'CHF',land:'CH',sichtbarkeit:'organisation',abteilungenAktiv:false},
-    abteilungen:[],
-    lizenzen:{typ:'pool',maxUser:3,aktiveUser:1,aboStart:'2025-06-01',aboEnde:'2026-12-31',gewerke:['lieferant']},
-    admins:['user_lief_gruenbeck'],
-    active:true,
-    createdAt:'2025-06-01T08:00:00Z'
-  },
-  {
-    id:'org_judo', name:'Judo', logo:null, kategorie:'lieferant', kategorien:['lieferant'], lieferantKategorien:['enthaertung'],
-    rechtsform:'GmbH',
-    adresse:{strasse:'Bernstrasse 22',plz:'3011',ort:'Bern',kanton:'BE',land:'CH'},
-    kontakt:{email:'info@judo.ch',telefon:'031 920 11 22',website:'www.judo.ch'},
-    settings:{waehrung:'CHF',land:'CH',sichtbarkeit:'organisation',abteilungenAktiv:false},
-    abteilungen:[],
-    lizenzen:{typ:'pool',maxUser:3,aktiveUser:1,aboStart:'2026-03-01',aboEnde:'2026-06-30',gewerke:['lieferant']},
-    admins:['user_lief_judo'],
-    active:true,
-    createdAt:'2026-03-01T09:00:00Z'
   }];
 
   // Unternehmens-Kategorien. Jede Kategorie gehoert einer Gruppe an:
@@ -264,88 +190,10 @@
   ];
 
   var DEFAULT_USERS = [
-    // ── Admin ──
-    {id:'user_admin', username:'admin', name:'Administrator',
+    {id:'user_admin', username:'admin@gema.ch', name:'Administrator',
      password:_hash('gema2025'), roleIds:['role_admin'], orgId:'org_default',
      active:true, createdAt:'2025-01-01T08:00:00Z',
-     profile:{email:'admin@gema.ch',telefon:'',sprache:'de',benachrichtigungen:true,standardObjekt:'',einheiten:'metrisch'}},
-    // ── Planer ──
-    {id:'user_planer_1', username:'planer', name:'Felix Jäggi',
-     password:_hash('planer2025'), roleIds:['role_planer'], orgId:'org_default',
-     active:true, createdAt:'2025-01-01T08:00:00Z', abteilungId:'abt_sanitaer',
-     kontotyp:'vollzugang', abo:{typ:'premium'},
-     profile:{email:'felix@jaeggivollmer.ch',telefon:'061 692 03 11',firma:'Jäggi Vollmer GmbH',person:'Felix Jäggi',sprache:'de',benachrichtigungen:true,dynamischeBKP:true}},
-    {id:'user_planer_2', username:'robin@jaeggivollmer.ch', name:'Robin Jäggi',
-     password:_hash('robin2025'), roleIds:['role_planer'], orgId:'org_default',
-     active:true, createdAt:'2025-03-01T08:00:00Z', abteilungId:'abt_sanitaer',
-     kontotyp:'vollzugang', abo:{typ:'premium'},
-     profile:{email:'robin@jaeggivollmer.ch',telefon:'061 692 03 12',firma:'Jäggi Vollmer GmbH',person:'Robin Jäggi',sprache:'de',benachrichtigungen:true,dynamischeBKP:true}},
-    {id:'user_planer_hlkk', username:'hlkk', name:'Marco Bühler',
-     password:_hash('hlkk2025'), roleIds:['role_hlkk_planer'], orgId:'org_default',
-     active:true, createdAt:'2025-02-01T08:00:00Z', abteilungId:'abt_hlkk',
-     kontotyp:'vollzugang', abo:{typ:'premium'},
-     profile:{email:'buehler@jaeggivollmer.ch',telefon:'061 692 03 15',firma:'Jäggi Vollmer GmbH',person:'Marco Bühler',sprache:'de',benachrichtigungen:true,dynamischeBKP:true}},
-    // ── Unternehmer / Installateur ──
-    {id:'user_unternehmer_1', username:'installateur', name:'Peter Meier',
-     password:_hash('inst2025'), roleIds:['role_unternehmer'], orgId:'org_meier_sanitaer',
-     active:true, createdAt:'2025-03-15T08:00:00Z',
-     kontotyp:'vollzugang', abo:{typ:'basic'},
-     profile:{email:'meier@meiersanitaer.ch',telefon:'061 333 44 55',firma:'Meier Sanitär AG',person:'Peter Meier',sprache:'de',benachrichtigungen:true},
-     einladung:{token:'inv_meier',eingeladenVon:'user_planer_1',eingeladenAm:'2025-03-10T08:00:00Z',angenommenAm:'2025-03-15T08:00:00Z',passwortGesetzt:true}},
-    {id:'user_unternehmer_2', username:'steiner@steinersanitaer.ch', name:'Thomas Steiner',
-     password:_hash('steiner2025'), roleIds:['role_unternehmer'], orgId:'org_steiner_sanitaer',
-     active:true, createdAt:'2025-04-01T08:00:00Z',
-     kontotyp:'vollzugang', abo:{typ:'basic'},
-     profile:{email:'steiner@steinersanitaer.ch',telefon:'044 222 33 44',firma:'Steiner Sanitär GmbH',person:'Thomas Steiner',sprache:'de',benachrichtigungen:true},
-     einladung:{token:'inv_steiner',eingeladenVon:'user_planer_1',eingeladenAm:'2025-03-25T08:00:00Z',angenommenAm:'2025-04-01T08:00:00Z',passwortGesetzt:true}},
-    // ── Architekt ──
-    {id:'user_architekt_1', username:'architekt', name:'Sarah Müller',
-     password:_hash('arch2025'), roleIds:['role_architekt'], orgId:'org_arch_muster',
-     active:true, createdAt:'2025-02-01T08:00:00Z',
-     kontotyp:'vollzugang', abo:{typ:'basic'},
-     profile:{email:'mueller@archmuster.ch',telefon:'061 555 66 77',firma:'Architektur Muster AG',person:'Sarah Müller',sprache:'de',benachrichtigungen:true},
-     einladung:{token:'inv_arch',eingeladenVon:'user_planer_1',eingeladenAm:'2025-01-20T08:00:00Z',angenommenAm:'2025-02-01T08:00:00Z',passwortGesetzt:true}},
-    // ── Lieferanten ──
-    {id:'user_lief_bwt', username:'keller@bwt.ch', name:'Hans Keller',
-     password:_hash('bwt2025'), roleIds:['role_lieferant'], orgId:'org_bwt',
-     active:true, createdAt:'2025-01-15T10:00:00Z',
-     profile:{email:'keller@bwt.ch',telefon:'061 755 88 99',firma:'BWT',person:'Hans Keller',sprache:'de'},
-     kontotyp:'vollzugang', abo:{typ:'premium'},
-     einladung:{token:'inv_bwt',eingeladenVon:'user_planer_1',eingeladenAm:'2025-01-10T08:00:00Z',angenommenAm:'2025-01-15T10:00:00Z',passwortGesetzt:true}},
-    {id:'user_lief_gruenbeck', username:'weber@gruenbeck.ch', name:'Martin Weber',
-     password:_hash('gruen2025'), roleIds:['role_lieferant'], orgId:'org_gruenbeck',
-     active:true, createdAt:'2025-06-01T08:00:00Z',
-     profile:{email:'weber@gruenbeck.ch',telefon:'044 820 33 44',firma:'Grünbeck',person:'Martin Weber',sprache:'de'},
-     kontotyp:'vollzugang', abo:{typ:'basic'},
-     einladung:{token:'inv_gruenbeck',eingeladenVon:'user_planer_1',eingeladenAm:'2025-05-20T08:00:00Z',angenommenAm:'2025-06-01T08:00:00Z',passwortGesetzt:true}},
-    {id:'user_lief_judo', username:'meier@judo.ch', name:'Claudia Meier',
-     password:_hash('judo2025'), roleIds:['role_lieferant'], orgId:'org_judo',
-     active:true, createdAt:'2026-03-01T09:00:00Z',
-     profile:{email:'meier@judo.ch',telefon:'031 920 11 22',firma:'Judo',person:'Claudia Meier',sprache:'de'},
-     kontotyp:'login_light', abo:{typ:'testphase',testphaseEnde:'2026-06-30'},
-     einladung:{token:'inv_judo',eingeladenVon:'user_planer_1',eingeladenAm:'2026-02-25T08:00:00Z',angenommenAm:'2026-03-01T09:00:00Z',passwortGesetzt:true}},
-    // ── Magaziner (Werkzeuglager) ──
-    {id:'user_magaziner_jv', username:'magazin', name:'Andreas Burri',
-     password:_hash('magazin2025'), roleIds:['role_magaziner'], orgId:'org_default',
-     active:true, createdAt:'2025-01-01T08:00:00Z',
-     kontotyp:'vollzugang', abo:{typ:'basic'},
-     profile:{email:'burri@jaeggivollmer.ch',telefon:'061 692 03 20',firma:'Jäggi Vollmer GmbH',person:'Andreas Burri',sprache:'de',benachrichtigungen:true}},
-    // ── Monteure (Read-only Werkzeugmanagement) ──
-    {id:'user_monteur_1', username:'monteur1', name:'Luca Rossi',
-     password:_hash('mont2025'), roleIds:['role_monteur'], orgId:'org_default',
-     active:true, createdAt:'2025-01-15T08:00:00Z',
-     kontotyp:'vollzugang', abo:{typ:'basic'},
-     profile:{email:'rossi@jaeggivollmer.ch',telefon:'061 692 03 30',firma:'Jäggi Vollmer GmbH',person:'Luca Rossi',sprache:'de',benachrichtigungen:true}},
-    {id:'user_monteur_2', username:'monteur2', name:'Daniel Schmid',
-     password:_hash('mont2025'), roleIds:['role_monteur'], orgId:'org_default',
-     active:true, createdAt:'2025-02-01T08:00:00Z',
-     kontotyp:'vollzugang', abo:{typ:'basic'},
-     profile:{email:'schmid@jaeggivollmer.ch',telefon:'061 692 03 31',firma:'Jäggi Vollmer GmbH',person:'Daniel Schmid',sprache:'de',benachrichtigungen:true}},
-    {id:'user_monteur_3', username:'monteur3', name:'Stefan Keller',
-     password:_hash('mont2025'), roleIds:['role_monteur'], orgId:'org_default',
-     active:true, createdAt:'2025-03-01T08:00:00Z',
-     kontotyp:'vollzugang', abo:{typ:'basic'},
-     profile:{email:'keller@jaeggivollmer.ch',telefon:'061 692 03 32',firma:'Jäggi Vollmer GmbH',person:'Stefan Keller',sprache:'de',benachrichtigungen:true}}
+     profile:{email:'admin@gema.ch',telefon:'',sprache:'de',benachrichtigungen:true,standardObjekt:'',einheiten:'metrisch'}}
   ];
 
   // ── Storage ────────────────────────────────────────────────────────
@@ -849,6 +697,25 @@
       var s={userId:user.id,expires:exp.toISOString()};
       try{localStorage.setItem(STORAGE_SESSION,JSON.stringify(s));}catch(e){}
       return user;
+    },
+    loginAsync:function(username,password,remember){
+      var self=this;
+      return new Promise(function(resolve){
+        var local=self.login(username,password,remember);
+        if(local){resolve(local);return;}
+        _fetchAuthFromSupabase(STORAGE_USERS,function(remoteUsers){
+          if(remoteUsers&&remoteUsers.length){
+            var localU=_getUsers()||[];
+            remoteUsers.forEach(function(ru){
+              if(!localU.find(function(l){return l.id===ru.id;}))localU.push(ru);
+              else{var idx=localU.findIndex(function(l){return l.id===ru.id;});if(idx>=0)localU[idx]=ru;}
+            });
+            try{localStorage.setItem(STORAGE_USERS,JSON.stringify(localU));}catch(e){}
+          }
+          resolve(self.login(username,password,remember));
+        });
+        setTimeout(function(){resolve(null);},4000);
+      });
     },
     logout:function(){localStorage.removeItem(STORAGE_SESSION);location.href='sys_login.html';},
 
