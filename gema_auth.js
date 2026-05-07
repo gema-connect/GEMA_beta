@@ -18,13 +18,18 @@
   var SB_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZqaGJxanZheWd2aGlldmpnZHRtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI2ODk5OTUsImV4cCI6MjA4ODI2NTk5NX0.n3AbrEKTWWhI2tnDaf7-Z-QI9o9pJiP1E7BsHVuZY9k';
   var SB_TABLE='gema_data';
 
+  var _lastSyncTs={};
   function _syncToSupabase(key,data){
+    var ts=new Date().toISOString();
+    _lastSyncTs[key]=ts;
     try{
       fetch(SB_URL+'/rest/v1/'+SB_TABLE+'?on_conflict=module_key%2Cdata_key',{
         method:'POST',
         headers:{'Content-Type':'application/json','apikey':SB_KEY,'Authorization':'Bearer '+SB_KEY,'Prefer':'resolution=merge-duplicates,return=minimal'},
-        body:JSON.stringify({module_key:'auth',data_key:key,payload:{v:JSON.stringify(data)}})
-      });
+        body:JSON.stringify({module_key:'auth',data_key:key,payload:{v:JSON.stringify(data),ts:ts}})
+      }).then(function(r){
+        if(!r.ok)console.warn('[GemaAuth] Supabase write failed',key,r.status);
+      }).catch(function(e){console.warn('[GemaAuth] Supabase sync error',key,e);});
     }catch(e){console.warn('[GemaAuth] Supabase sync error',e);}
   }
 
@@ -324,35 +329,38 @@
     } catch(e) {}
 
     // ── Supabase → localStorage Sync (async, non-blocking) ──
+    // Strategie: Nur NEUE Einträge von Remote hinzufügen.
+    // Lokale Daten werden NIE überschrieben (sie sind die aktuellsten,
+    // weil jeder Save sofort lokal + async nach Supabase geht).
+    // Nur auf einem komplett neuen Gerät (leeres localStorage) werden
+    // Remote-Daten als Basis genommen.
     _fetchAuthFromSupabase(STORAGE_USERS,function(remoteUsers){
       var localUsers=_getUsers()||[];
-      var merged=localUsers.slice();
+      if(!localUsers.length&&remoteUsers.length){
+        try{localStorage.setItem(STORAGE_USERS,JSON.stringify(remoteUsers));}catch(e){}
+        return;
+      }
       var changed=false;
       remoteUsers.forEach(function(ru){
-        var idx=merged.findIndex(function(lu){return lu.id===ru.id;});
-        if(idx>=0){
-          if(ru.password&&ru.password!==merged[idx].password){merged[idx].password=ru.password;changed=true;}
-          if(ru.name&&ru.name!==merged[idx].name){merged[idx].name=ru.name;changed=true;}
-          if(ru.active!==undefined&&ru.active!==merged[idx].active){merged[idx].active=ru.active;changed=true;}
-          if(ru.roleIds)merged[idx].roleIds=ru.roleIds;
-          if(ru.orgId)merged[idx].orgId=ru.orgId;
-          if(ru.profile){merged[idx].profile=Object.assign(merged[idx].profile||{},ru.profile);changed=true;}
-        }else{
-          merged.push(ru);changed=true;
+        if(!localUsers.find(function(lu){return lu.id===ru.id;})){
+          localUsers.push(ru);changed=true;
         }
       });
-      if(changed)try{localStorage.setItem(STORAGE_USERS,JSON.stringify(merged));}catch(e){}
+      if(changed)try{localStorage.setItem(STORAGE_USERS,JSON.stringify(localUsers));}catch(e){}
     });
     _fetchAuthFromSupabase(STORAGE_ORGS,function(remoteOrgs){
       var localOrgs=_getOrgs()||[];
-      var merged=localOrgs.slice();
+      if(!localOrgs.length&&remoteOrgs.length){
+        try{localStorage.setItem(STORAGE_ORGS,JSON.stringify(remoteOrgs));}catch(e){}
+        return;
+      }
       var changed=false;
       remoteOrgs.forEach(function(ro){
-        var idx=merged.findIndex(function(lo){return lo.id===ro.id;});
-        if(idx>=0){merged[idx]=ro;changed=true;}
-        else{merged.push(ro);changed=true;}
+        if(!localOrgs.find(function(lo){return lo.id===ro.id;})){
+          localOrgs.push(ro);changed=true;
+        }
       });
-      if(changed)try{localStorage.setItem(STORAGE_ORGS,JSON.stringify(merged));}catch(e){}
+      if(changed)try{localStorage.setItem(STORAGE_ORGS,JSON.stringify(localOrgs));}catch(e){}
     });
   }
   function _getPerms(user,roles,mkey){
