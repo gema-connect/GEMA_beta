@@ -709,20 +709,24 @@
     loginAsync:function(username,password,remember){
       var self=this;
       return new Promise(function(resolve){
-        var local=self.login(username,password,remember);
-        if(local){resolve(local);return;}
+        var resolved=false;
+        function done(u){if(!resolved){resolved=true;resolve(u);}}
+        // Immer zuerst Supabase fragen (aktuelle Daten)
         _fetchAuthFromSupabase(STORAGE_USERS,function(remoteUsers){
           if(remoteUsers&&remoteUsers.length){
-            var localU=_getUsers()||[];
-            remoteUsers.forEach(function(ru){
-              if(!localU.find(function(l){return l.id===ru.id;}))localU.push(ru);
-              else{var idx=localU.findIndex(function(l){return l.id===ru.id;});if(idx>=0)localU[idx]=ru;}
-            });
-            try{localStorage.setItem(STORAGE_USERS,JSON.stringify(localU));}catch(e){}
+            try{localStorage.setItem(STORAGE_USERS,JSON.stringify(remoteUsers));}catch(e){}
           }
-          resolve(self.login(username,password,remember));
+          done(self.login(username,password,remember));
         });
-        setTimeout(function(){resolve(null);},4000);
+        // Parallel: lokaler Versuch nach 500ms (falls Supabase langsam)
+        setTimeout(function(){
+          if(!resolved){
+            var local=self.login(username,password,remember);
+            if(local)done(local);
+          }
+        },500);
+        // Timeout: nach 5s aufgeben
+        setTimeout(function(){done(null);},5000);
       });
     },
     logout:function(){localStorage.removeItem(STORAGE_SESSION);location.href='sys_login.html';},
