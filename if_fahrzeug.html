@@ -2360,6 +2360,9 @@ function openViewFzg(id){
     html+='<div class="vm-field full"><div class="vm-field-val" style="font-weight:500;font-size:13px;color:var(--text2)">'+esc(v.notes)+'</div></div>';
   }
 
+  // Kosten-Analyse (Magaziner/Admin only) — vor Service-Historie
+  html+=_fzRenderKostenAnalyse(v);
+
   // Service-Historie
   html+=_fzRenderServiceHistorie(v);
 
@@ -2377,6 +2380,72 @@ window.openViewFzg=openViewFzg;
 
 function vmf(label,value){
   return '<div class="vm-field"><div class="vm-field-lbl">'+label+'</div><div class="vm-field-val">'+esc(value||'—')+'</div></div>';
+}
+
+// Kosten-Analyse: Total, Anzahl, Durchschnitt, Max, plus 12-Monats-
+// Bar-Chart. Sichtbar nur fuer Magaziner und Admin — der Garagist
+// sieht in der Service-Historie ohnehin nur eigene Kosten.
+function _fzRenderKostenAnalyse(v){
+  if(!_fzIsAdmin()&&!_fzIsMagaziner())return '';
+  var hist=Array.isArray(v.serviceHistorie)?v.serviceHistorie.slice():[];
+  var entries=hist.filter(function(e){return e&&e.kosten&&!isNaN(parseFloat(e.kosten));});
+  if(!entries.length)return '';
+  var total=0,max=0;
+  entries.forEach(function(e){
+    var k=parseFloat(e.kosten); total+=k;
+    if(k>max)max=k;
+  });
+  var avg=total/entries.length;
+  // 12-Monats-Aggregation
+  var now=new Date();
+  var months=[];
+  for(var i=11;i>=0;i--){
+    var d=new Date(now.getFullYear(),now.getMonth()-i,1);
+    months.push({key:d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'),label:d.toLocaleDateString('de-CH',{month:'short'}),total:0});
+  }
+  entries.forEach(function(e){
+    if(!e.datum)return;
+    var k=String(e.datum).slice(0,7);
+    var m=months.find(function(x){return x.key===k;});
+    if(m)m.total+=parseFloat(e.kosten);
+  });
+  var maxMonth=Math.max.apply(null,months.map(function(m){return m.total;}).concat([1]));
+  // Kosten/km
+  var costPerKm='';
+  if(v.km && parseInt(v.km,10)>0){
+    var c=total/parseInt(v.km,10);
+    costPerKm='CHF '+c.toFixed(3)+' / km';
+  }
+  function f(x){return x.toLocaleString('de-CH',{minimumFractionDigits:2,maximumFractionDigits:2});}
+  var html='<div class="vm-section">Kosten-Analyse <span style="font-size:9.5px;font-weight:600;background:#f1f5f9;color:#475569;padding:2px 6px;border-radius:4px;margin-left:6px;text-transform:none;letter-spacing:0">nur intern</span></div>';
+  html+='<div class="vm-grid">';
+  html+='<div class="vm-field"><div class="vm-field-lbl">Total Service-Kosten</div><div class="vm-field-val" style="color:#0d9488;font-weight:700">CHF '+f(total)+'</div></div>';
+  html+='<div class="vm-field"><div class="vm-field-lbl">Einträge mit Kosten</div><div class="vm-field-val">'+entries.length+' von '+hist.length+'</div></div>';
+  html+='<div class="vm-field"><div class="vm-field-lbl">Ø pro Eintrag</div><div class="vm-field-val">CHF '+f(avg)+'</div></div>';
+  html+='<div class="vm-field"><div class="vm-field-lbl">Höchster Eintrag</div><div class="vm-field-val">CHF '+f(max)+'</div></div>';
+  if(costPerKm){
+    html+='<div class="vm-field"><div class="vm-field-lbl">Kosten / km (kumuliert)</div><div class="vm-field-val">'+costPerKm+'</div></div>';
+  }
+  html+='</div>';
+  // 12-Monats-Bar-Chart (CSS-only)
+  html+='<div style="margin-top:14px">';
+  html+='<div style="font-size:10.5px;color:var(--muted);font-weight:700;margin-bottom:6px;text-transform:uppercase;letter-spacing:.3px">Service-Kosten — letzte 12 Monate</div>';
+  html+='<div style="display:grid;grid-template-columns:repeat(12,1fr);gap:3px;height:84px;align-items:end;background:#fafbfd;border:1px solid var(--border);border-radius:8px;padding:8px 6px 4px">';
+  months.forEach(function(m){
+    var pct=maxMonth>0?(m.total/maxMonth)*100:0;
+    var lbl=m.total>0?Math.round(m.total).toLocaleString('de-CH'):'';
+    var color=m.total>0?'#0d9488':'#e5e7eb';
+    html+='<div style="display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;gap:2px" title="'+esc(m.label)+': CHF '+f(m.total)+'">';
+    html+='<div style="font-size:8.5px;color:var(--muted);font-weight:700;line-height:1;height:9px">'+esc(lbl)+'</div>';
+    html+='<div style="width:100%;background:'+color+';border-radius:3px 3px 0 0;height:'+pct+'%;min-height:'+(m.total>0?3:1)+'px;transition:all .2s"></div>';
+    html+='</div>';
+  });
+  html+='</div>';
+  html+='<div style="display:grid;grid-template-columns:repeat(12,1fr);gap:3px;margin-top:4px;padding:0 6px;font-size:9.5px;color:var(--muted);text-align:center">';
+  months.forEach(function(m){html+='<div>'+esc(m.label)+'</div>';});
+  html+='</div>';
+  html+='</div>';
+  return html;
 }
 
 // Service-Historie als chronologisch absteigende Liste plus
