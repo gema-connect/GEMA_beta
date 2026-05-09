@@ -2358,6 +2358,14 @@ function _fzRenderServiceHistorie(v){
     if(e.beschreibung){
       html+='<div style="margin-top:4px;font-size:12px;color:var(--text2);white-space:pre-wrap">'+esc(e.beschreibung)+'</div>';
     }
+    if(Array.isArray(e.photos) && e.photos.length){
+      html+='<div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:6px">';
+      e.photos.forEach(function(p,i){
+        if(!p||!p.dataUrl)return;
+        html+='<img src="'+p.dataUrl+'" alt="Service-Foto" style="width:60px;height:60px;object-fit:cover;border-radius:6px;border:1px solid var(--border);cursor:pointer" onclick="_fzPhotoLightbox(this.src)"/>';
+      });
+      html+='</div>';
+    }
     var werkstatt=e.werkstatt||'';
     var von=e.erledigtVonName||'';
     if(werkstatt||von){
@@ -2368,6 +2376,15 @@ function _fzRenderServiceHistorie(v){
   html+='</div>';
   return html;
 }
+
+// Lightbox fuer Service-Foto. Ueberlappend ueber dem View-Modal.
+window._fzPhotoLightbox=function(src){
+  var ov=document.createElement('div');
+  ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:1500;display:flex;align-items:center;justify-content:center;padding:16px;cursor:zoom-out';
+  ov.innerHTML='<img src="'+src+'" style="max-width:100%;max-height:100%;object-fit:contain;border-radius:8px;box-shadow:0 4px 30px rgba(0,0,0,.6)"/><button style="position:absolute;top:14px;right:14px;width:36px;height:36px;border-radius:50%;background:#fff;color:#111;border:none;cursor:pointer;font-size:18px;font-weight:700">✕</button>';
+  ov.addEventListener('click',function(){ov.remove();});
+  document.body.appendChild(ov);
+};
 
 // Service-Eintrags-Modal: oeffnet ueber dem View-Modal.
 var _fzServiceTargetVid='';
@@ -2395,6 +2412,10 @@ function _fzOpenServiceModal(vehicleId){
     }
   }catch(e){}
   document.getElementById('fSvcWerkstatt').value=werkstatt;
+  // Foto-State zuruecksetzen
+  _fzServicePhotos=[];
+  var fp=document.getElementById('fSvcPhotos');if(fp)fp.value='';
+  var pv=document.getElementById('fSvcPhotoPreview');if(pv)pv.innerHTML='';
   ov.style.display='flex';ov.classList.remove('hidden');
   document.body.classList.add('modal-open');
 }
@@ -2426,7 +2447,8 @@ function _fzSaveServiceEntry(){
     beschreibung:beschreibung, kosten:kosten, werkstatt:werkstatt,
     erledigtVonUserId:u.id||'',
     erledigtVonName:u.name||u.username||'',
-    erstelltAm:new Date().toISOString()
+    erstelltAm:new Date().toISOString(),
+    photos:Array.isArray(_fzServicePhotos)?_fzServicePhotos.slice(0,3):[]
   };
   if(!Array.isArray(v.serviceHistorie))v.serviceHistorie=[];
   v.serviceHistorie.push(entry);
@@ -2471,26 +2493,93 @@ function _fzCreateServiceModal(){
   ov.className='modal-overlay';
   ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1100;display:none;align-items:center;justify-content:center;padding:16px';
   ov.innerHTML=''+
-    '<div style="max-width:520px;width:100%;background:#fff;border-radius:14px;box-shadow:0 20px 60px rgba(0,0,0,.25);overflow:hidden">'+
-      '<div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid #f0f0f0">'+
+    '<div style="max-width:540px;width:100%;background:#fff;border-radius:14px;box-shadow:0 20px 60px rgba(0,0,0,.25);overflow:hidden;max-height:92vh;display:flex;flex-direction:column">'+
+      '<div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid #f0f0f0;flex-shrink:0">'+
         '<div style="display:flex;align-items:center;gap:10px"><span style="font-size:22px">🛠</span><div><div style="font-size:14px;font-weight:700">Service-Eintrag erfassen</div><div style="font-size:11px;color:#9ca3af">Wird in die Historie aufgenommen, km-Stand wird automatisch aktualisiert.</div></div></div>'+
         '<button onclick="_fzCloseServiceModal()" style="background:none;border:none;font-size:18px;cursor:pointer;color:#6b7280">✕</button>'+
       '</div>'+
-      '<div style="padding:18px 20px;display:grid;grid-template-columns:1fr 1fr;gap:12px">'+
+      '<div style="padding:18px 20px;display:grid;grid-template-columns:1fr 1fr;gap:12px;overflow-y:auto">'+
         '<div class="field"><label class="label">Datum *</label><input class="inp" type="date" id="fSvcDatum"/></div>'+
         '<div class="field"><label class="label">km-Stand</label><input class="inp" type="text" inputmode="decimal" onblur="fixLeadingZero(this)" id="fSvcKm" placeholder="z. B. 45000"/></div>'+
         '<div class="field" style="grid-column:1 / -1"><label class="label">Art *</label><select class="sel" id="fSvcArt"><option value="service">🛠 Service</option><option value="reparatur">🔧 Reparatur</option><option value="mfk">📋 MFK</option><option value="pneuwechsel">🛞 Pneuwechsel</option><option value="sonstiges">• Sonstiges</option></select></div>'+
         '<div class="field" style="grid-column:1 / -1"><label class="label">Was wurde gemacht?</label><textarea class="textarea" id="fSvcBeschreibung" placeholder="z. B. Ölwechsel, Filter, Bremsen vorne neu" style="min-height:70px"></textarea></div>'+
         '<div class="field"><label class="label">Werkstatt</label><input class="inp" id="fSvcWerkstatt" placeholder="Werkstatt-Name"/></div>'+
-        '<div class="field"><label class="label">Kosten (CHF)</label><input class="inp" type="text" inputmode="decimal" onblur="fixLeadingZero(this)" id="fSvcKosten" placeholder="0.00"/><span class="hint">Optional. Sichtbar fuer Magaziner/Admin und fuer den Erfasser selbst.</span></div>'+
+        '<div class="field"><label class="label">Kosten (CHF)</label><input class="inp" type="text" inputmode="decimal" onblur="fixLeadingZero(this)" id="fSvcKosten" placeholder="0.00"/><span class="hint">Optional. Sichtbar für Magaziner/Admin und für den Erfasser.</span></div>'+
+        '<div class="field" style="grid-column:1 / -1"><label class="label">Fotos (max 3, optional)</label>'+
+          '<input type="file" id="fSvcPhotos" accept="image/*" multiple capture="environment" style="font-size:13px"/>'+
+          '<div id="fSvcPhotoPreview" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px"></div>'+
+          '<span class="hint">Fotos werden auf max 1280 px verkleinert und als JPEG gespeichert. Praktisch z. B. für Vorher/Nachher der Bremsen.</span>'+
+        '</div>'+
       '</div>'+
-      '<div style="display:flex;justify-content:flex-end;gap:8px;padding:14px 20px;border-top:1px solid #f0f0f0">'+
+      '<div style="display:flex;justify-content:flex-end;gap:8px;padding:14px 20px;border-top:1px solid #f0f0f0;flex-shrink:0">'+
         '<button class="btn" onclick="_fzCloseServiceModal()">Abbrechen</button>'+
         '<button class="btn primary" onclick="_fzSaveServiceEntry()">Speichern</button>'+
       '</div>'+
     '</div>';
   document.body.appendChild(ov);
   ov.addEventListener('click',function(e){ if(e.target===ov)_fzCloseServiceModal(); });
+  // File-Input wirft Preview-Thumbs sofort auf
+  document.getElementById('fSvcPhotos').addEventListener('change',_fzServicePhotosChanged);
+}
+
+// Speicher fuer komprimierte Photos waehrend des Modal-Lebenszyklus
+var _fzServicePhotos=[];
+
+function _fzServicePhotosChanged(ev){
+  var files=Array.from(ev.target.files||[]).slice(0,3);
+  _fzServicePhotos=[];
+  var prev=document.getElementById('fSvcPhotoPreview');
+  if(prev)prev.innerHTML='<div style="font-size:11px;color:#6b7280">Komprimiere Bilder …</div>';
+  Promise.all(files.map(_fzCompressImage)).then(function(results){
+    _fzServicePhotos=results.filter(function(r){return r;});
+    _fzRenderServicePhotoPreview();
+  }).catch(function(e){
+    if(prev)prev.innerHTML='<div style="font-size:11px;color:#dc2626">Fehler beim Lesen: '+esc(e.message||'')+'</div>';
+  });
+}
+
+function _fzRenderServicePhotoPreview(){
+  var prev=document.getElementById('fSvcPhotoPreview');
+  if(!prev)return;
+  if(!_fzServicePhotos.length){prev.innerHTML='';return;}
+  prev.innerHTML=_fzServicePhotos.map(function(p,i){
+    return '<div style="position:relative;width:64px;height:64px;border-radius:8px;overflow:hidden;border:1.5px solid #e5e7eb"><img src="'+p.dataUrl+'" style="width:100%;height:100%;object-fit:cover"/><button onclick="_fzServicePhotoRemove('+i+')" style="position:absolute;top:2px;right:2px;width:18px;height:18px;border-radius:50%;border:none;background:rgba(0,0,0,.6);color:#fff;font-size:10px;cursor:pointer">✕</button></div>';
+  }).join('');
+}
+
+window._fzServicePhotoRemove=function(i){
+  _fzServicePhotos.splice(i,1);_fzRenderServicePhotoPreview();
+};
+
+// Komprimiert ein Image-File via Canvas auf max 1280 px lange Kante,
+// JPEG Quality 0.72. Liefert {name, type:'image/jpeg', dataUrl}.
+function _fzCompressImage(file){
+  return new Promise(function(resolve,reject){
+    if(!file||!file.type||file.type.indexOf('image/')<0){resolve(null);return;}
+    var fr=new FileReader();
+    fr.onload=function(){
+      var img=new Image();
+      img.onload=function(){
+        var maxDim=1280;
+        var w=img.width, h=img.height;
+        if(Math.max(w,h)>maxDim){
+          var s=maxDim/Math.max(w,h);
+          w=Math.round(w*s); h=Math.round(h*s);
+        }
+        var c=document.createElement('canvas');
+        c.width=w; c.height=h;
+        var ctx=c.getContext('2d');
+        ctx.fillStyle='#fff';ctx.fillRect(0,0,w,h);
+        ctx.drawImage(img,0,0,w,h);
+        var dataUrl=c.toDataURL('image/jpeg',0.72);
+        resolve({name:file.name||'foto.jpg',type:'image/jpeg',dataUrl:dataUrl});
+      };
+      img.onerror=function(){resolve(null);};
+      img.src=fr.result;
+    };
+    fr.onerror=function(){reject(new Error('Konnte Datei nicht lesen'));};
+    fr.readAsDataURL(file);
+  });
 }
 
 function closeViewModal(){
