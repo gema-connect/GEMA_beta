@@ -410,6 +410,7 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
     </div>
     <button class="nbtn primary" id="btnAddTool" onclick="openAdd()">+ Gerät hinzufügen</button>
     <button class="nbtn" id="btnBulkMode" onclick="_wzToggleBulkMode()" title="Mehrere Werkzeuge auswählen und gemeinsam bearbeiten" style="display:none;background:#eff6ff;color:#1d4ed8;border-color:#bfdbfe">☑ Auswählen</button>
+    <button class="nbtn" id="btnInventur" onclick="_wzOpenInventurModal()" title="Inventur-Lauf starten oder fortsetzen" style="display:none;background:#f0fdf4;color:#15803d;border-color:#bbf7d0">📋 Inventur</button>
     <button class="nbtn" onclick="_wzOpenSammelAusleihe()" title="Mehrere Werkzeuge scannen und auf einmal ausleihen" style="background:#fefce8;color:#92400e;border-color:#fde68a">🔄 Sammel-Ausleihe</button>
     <button class="nbtn" id="btnPruefMode" onclick="_wzPruefModus()" style="display:none" title="Prüfmodus starten">📋 Prüfmodus</button>
     <button class="nbtn" id="btnAdvFilter" onclick="_wzOpenAdvFilter()" style="display:none" title="Erweiterte Filter">🔍 Filter</button>
@@ -843,6 +844,103 @@ function _wzCanReportDefect(){
 // ──────────────────────────────────────
 let tools=[], currentFilter='all', currentLifecycle='active', currentView='cards', pruefId=null;
 window._wzSetLifecycle=function(v){currentLifecycle=v;document.querySelectorAll('.lc-pill').forEach(function(b){b.classList.toggle('active',b.dataset.lc===v);});renderList();updateStats();};
+
+// ─────────────────────────────────────────────────────────────────
+// Inventur-Modus: Magaziner startet einen Inventur-Lauf, klickt oder
+// scannt jedes Werkzeug ab. Persistiert im localStorage; kann pausiert
+// werden. Am Ende ein Report mit erfassten + missing Werkzeugen.
+// Schema: {id, gestartetAm, gestartetVonName, gestartetVonUserId,
+//          erfasst:{toolId:{ts, userId, name}}, status:'laufend'|'beendet',
+//          beendetAm, beendetReport:{erfasstIds[], missingIds[]}}
+// ─────────────────────────────────────────────────────────────────
+var _WZ_INV_KEY='gema_werkzeug_inventur_v1';
+function _wzGetActiveInventur(){
+  try{var arr=JSON.parse(localStorage.getItem(_WZ_INV_KEY)||'[]');
+    return arr.find(function(x){return x.status==='laufend';})||null;
+  }catch(e){return null;}
+}
+function _wzSaveInventur(inv){
+  try{
+    var arr=[];try{arr=JSON.parse(localStorage.getItem(_WZ_INV_KEY)||'[]');}catch(e){}
+    var idx=arr.findIndex(function(x){return x.id===inv.id;});
+    if(idx>=0)arr[idx]=inv;else arr.unshift(inv);
+    localStorage.setItem(_WZ_INV_KEY,JSON.stringify(arr.slice(0,30)));
+  }catch(e){}
+}
+window._wzStartInventur=function(){
+  if(!_wzCanEdit())return;
+  if(_wzGetActiveInventur()){_wzOpenInventurModal();return;}
+  if(!confirm('Neuen Inventur-Lauf starten?'))return;
+  var u=_wzGetUser()||{};
+  var inv={
+    id:'inv_'+Date.now(),
+    gestartetAm:new Date().toISOString(),
+    gestartetVonUserId:u.id||'',
+    gestartetVonName:u.name||u.username||'',
+    erfasst:{},status:'laufend'
+  };
+  _wzSaveInventur(inv);
+  renderList();
+  _wzOpenInventurModal();
+};
+window._wzInventurErfassen=function(toolId,ev){
+  if(ev){ev.stopPropagation();}
+  var inv=_wzGetActiveInventur();if(!inv){alert('Kein Inventur-Lauf aktiv.');return;}
+  var u=_wzGetUser()||{};
+  if(inv.erfasst[toolId])delete inv.erfasst[toolId];
+  else inv.erfasst[toolId]={ts:new Date().toISOString(),userId:u.id||'',name:u.name||u.username||''};
+  _wzSaveInventur(inv);renderList();_wzRenderInventurStats();
+};
+window._wzOpenInventurModal=function(){
+  var inv=_wzGetActiveInventur();
+  if(!inv){
+    _wzShowModal('<div class="dlg-card"><h3 style="margin:0 0 8px;font-size:17px;font-weight:800">📋 Inventur</h3><div style="font-size:13px;color:#475569;margin-bottom:14px">Aktuell läuft kein Inventur-Lauf. Beim Start werden alle Werkzeuge auf "nicht erfasst" gesetzt; durch Anklicken oder Scannen wird jedes als erfasst markiert.</div><div class="dlg-row"><button onclick="_wzCloseModal()" class="dlg-cancel">Abbrechen</button><button onclick="_wzCloseModal();_wzStartInventur()" style="padding:9px 18px;border-radius:8px;border:none;background:#2563eb;color:#fff;cursor:pointer;font-weight:700;font-family:inherit">Lauf starten</button></div></div>');
+    return;
+  }
+  var totalActive=tools.filter(function(t){return (t.lifecycleStatus||'aktiv')==='aktiv';}).length;
+  var erfasstCount=Object.keys(inv.erfasst).length;
+  var html='<div class="dlg-card" style="max-width:520px"><h3 style="margin:0 0 4px;font-size:17px;font-weight:800">📋 Inventur läuft</h3>'
+    +'<div style="font-size:12px;color:#64748b;margin-bottom:14px">Gestartet '+fmt((inv.gestartetAm||'').slice(0,10))+' von '+esc(inv.gestartetVonName||'—')+'</div>'
+    +'<div style="background:#eff6ff;border:1.5px solid #bfdbfe;border-radius:10px;padding:14px;margin-bottom:14px">'
+    +'<div style="font-size:13px;color:#1e40af;font-weight:700;margin-bottom:6px">Fortschritt</div>'
+    +'<div style="display:flex;align-items:baseline;gap:6px"><span style="font-size:28px;font-weight:800;color:#1d4ed8" id="invErfasst">'+erfasstCount+'</span><span style="font-size:14px;color:#64748b">/ '+totalActive+' aktiven Werkzeugen erfasst</span></div>'
+    +'<div style="margin-top:8px;background:#dbeafe;height:8px;border-radius:4px;overflow:hidden"><div id="invBar" style="height:100%;background:#2563eb;width:'+(totalActive>0?Math.round(erfasstCount/totalActive*100):0)+'%"></div></div>'
+    +'</div>'
+    +'<div style="font-size:12px;color:#64748b;margin-bottom:10px">Klicke auf eine Werkzeug-Karte (oder scanne mit NFC/QR), um sie als erfasst zu markieren. Der Inventur-Lauf bleibt aktiv, auch wenn du die Seite schliesst.</div>'
+    +'<div class="dlg-row"><button onclick="_wzCloseModal()" class="dlg-cancel">Schliessen / weiter erfassen</button><button onclick="_wzInventurAbschliessen()" style="padding:9px 18px;border-radius:8px;border:none;background:#16a34a;color:#fff;cursor:pointer;font-weight:700;font-family:inherit">✓ Abschliessen</button></div>'
+    +'</div>';
+  _wzShowModal(html);
+};
+function _wzRenderInventurStats(){
+  var inv=_wzGetActiveInventur();if(!inv)return;
+  var totalActive=tools.filter(function(t){return (t.lifecycleStatus||'aktiv')==='aktiv';}).length;
+  var erfasstCount=Object.keys(inv.erfasst).length;
+  var pct=totalActive>0?Math.round(erfasstCount/totalActive*100):0;
+  var e=document.getElementById('invErfasst');if(e)e.textContent=erfasstCount;
+  var b=document.getElementById('invBar');if(b)b.style.width=pct+'%';
+}
+window._wzInventurAbschliessen=function(){
+  var inv=_wzGetActiveInventur();if(!inv)return;
+  var aktivTools=tools.filter(function(t){return (t.lifecycleStatus||'aktiv')==='aktiv';});
+  var erfasstIds=Object.keys(inv.erfasst);
+  var missingIds=aktivTools.filter(function(t){return !inv.erfasst[t.id];}).map(function(t){return t.id;});
+  inv.status='beendet';
+  inv.beendetAm=new Date().toISOString();
+  inv.beendetReport={erfasstIds:erfasstIds,missingIds:missingIds};
+  _wzSaveInventur(inv);
+  renderList();
+  // Report anzeigen
+  var missingNames=missingIds.map(function(id){var t=tools.find(function(x){return x.id===id;});return t?'<li>'+esc(t.name)+(t.serial?' · SN '+esc(t.serial):'')+'</li>':'';}).join('');
+  var html='<div class="dlg-card" style="max-width:560px"><h3 style="margin:0 0 8px;font-size:17px;font-weight:800">✓ Inventur abgeschlossen</h3>'
+    +'<div style="font-size:12px;color:#64748b;margin-bottom:14px">'+esc(inv.gestartetVonName||'')+' · '+fmt((inv.gestartetAm||'').slice(0,10))+' bis '+fmt((inv.beendetAm||'').slice(0,10))+'</div>'
+    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px">'
+    +'<div style="background:#f0fdf4;border:1.5px solid #bbf7d0;border-radius:10px;padding:12px"><div style="font-size:11px;font-weight:700;color:#166534;text-transform:uppercase">Erfasst</div><div style="font-size:24px;font-weight:800;color:#15803d">'+erfasstIds.length+'</div></div>'
+    +'<div style="background:'+(missingIds.length?'#fef2f2':'#f0fdf4')+';border:1.5px solid '+(missingIds.length?'#fecaca':'#bbf7d0')+';border-radius:10px;padding:12px"><div style="font-size:11px;font-weight:700;color:'+(missingIds.length?'#991b1b':'#166534')+';text-transform:uppercase">Nicht gefunden</div><div style="font-size:24px;font-weight:800;color:'+(missingIds.length?'#dc2626':'#15803d')+'">'+missingIds.length+'</div></div>'
+    +'</div>'
+    +(missingIds.length?'<div style="font-size:12px;font-weight:700;color:#991b1b;margin-bottom:6px">Fehlende Werkzeuge:</div><ul style="margin:0;padding-left:20px;font-size:12px;color:#475569;max-height:200px;overflow-y:auto">'+missingNames+'</ul>':'<div style="font-size:13px;color:#15803d;font-weight:700">🎉 Alle aktiven Werkzeuge wurden gefunden.</div>')
+    +'<div class="dlg-row"><button onclick="_wzCloseModal()" class="dlg-cancel">Schliessen</button></div></div>';
+  _wzShowModal(html);
+};
 
 // Bulk-Auswahl-State (Set von Tool-IDs). Nur Magaziner/Admin sehen die
 // Checkboxen ueberhaupt; UI-seitig wird ueber den Auswahl-Modus
@@ -1428,9 +1526,14 @@ function renderCard(t){
   const cardOpacity=(lc==='ausgemustert'||lc==='verkauft')?'opacity:.7;':'';
   const bulkCb=_wzBulkMode?`<div class="wz-bulk-cb" onclick="_wzBulkToggle('${t.id}',event)" style="position:absolute;top:8px;left:8px;width:26px;height:26px;background:#fff;border:1.5px solid var(--brd);border-radius:6px;display:grid;place-items:center;cursor:pointer;font-size:14px;font-weight:800;color:var(--plan);z-index:5">${_wzBulkSelected[t.id]?'✓':''}</div>`:'';
   const bulkSel=_wzBulkSelected[t.id]?' wz-bulk-sel':'';
-  const cardClick=_wzBulkMode?`onclick="_wzBulkToggle('${t.id}',event)"`:`onclick="_wzCardClick(event,'${t.id}')"`;
-  return`<div class="tool-card${bulkSel}" data-bulk-id="${t.id}" ${cardClick} style="cursor:pointer;${cardOpacity}">
+  const inv=_wzGetActiveInventur();
+  const isInvErfasst=inv && inv.erfasst[t.id];
+  const invIndicator=inv?`<div onclick="_wzInventurErfassen('${t.id}',event)" title="${isInvErfasst?'Erfasst — klicke zum Aufheben':'Klicke um als erfasst zu markieren'}" style="position:absolute;top:8px;right:8px;width:32px;height:32px;border-radius:50%;background:${isInvErfasst?'#16a34a':'#fff'};border:2px solid ${isInvErfasst?'#16a34a':'#fbbf24'};color:${isInvErfasst?'#fff':'#92400e'};display:grid;place-items:center;cursor:pointer;font-size:16px;font-weight:800;z-index:5;box-shadow:0 2px 6px rgba(0,0,0,.15)">${isInvErfasst?'✓':'?'}</div>`:'';
+  const invDimmed=inv && !isInvErfasst?'border:2px dashed #fbbf24;':'';
+  const cardClick=_wzBulkMode?`onclick="_wzBulkToggle('${t.id}',event)"`:(inv?`onclick="_wzInventurErfassen('${t.id}',event)"`:`onclick="_wzCardClick(event,'${t.id}')"`);
+  return`<div class="tool-card${bulkSel}" data-bulk-id="${t.id}" ${cardClick} style="cursor:pointer;${cardOpacity}${invDimmed}">
     ${bulkCb}
+    ${invIndicator}
     ${lcMeta?`<div style="padding:4px 14px;background:${lcMeta.bg};border-bottom:1px solid ${lcMeta.brd};color:${lcMeta.color};font-size:11px;font-weight:700;letter-spacing:.3px">${lcMeta.label}</div>`:''}
     <div class="status-bar ${barCls}"></div>
     <div class="tc-head">
@@ -3704,6 +3807,17 @@ await Promise.race([
   if(btnAdvFilter && canEdit) btnAdvFilter.style.display='';
   var btnBulk=document.getElementById('btnBulkMode');
   if(btnBulk && canEdit) btnBulk.style.display='';
+  var btnInv=document.getElementById('btnInventur');
+  if(btnInv && canEdit){
+    btnInv.style.display='';
+    var inv=_wzGetActiveInventur();
+    if(inv){
+      var totalActive=tools.filter(function(t){return (t.lifecycleStatus||'aktiv')==='aktiv';}).length;
+      var erf=Object.keys(inv.erfasst).length;
+      btnInv.innerHTML='📋 Inventur läuft ('+erf+'/'+totalActive+')';
+      btnInv.style.background='#fef3c7';btnInv.style.color='#92400e';btnInv.style.borderColor='#fde68a';
+    }
+  }
 
   if(isMonteurUI){
     // Monteur: Toolbar komplett ausblenden (Suche, Buttons, View-Toggle)
