@@ -95,6 +95,7 @@
     {key:'fahrzeugmanagement',      label:'Fahrzeugmanagement',        cat:'Sonstiges'},
     {key:'vkf_formulare',           label:'VKF-Formulare',             cat:'Brandschutz'},
     {key:'vkf_formular',            label:'VKF-Formular',              cat:'Brandschutz'},
+    {key:'schadensbericht',         label:'Schadensberichte',          cat:'Schadensdokumentation'},
     {key:'lieferantenverwaltung',   label:'Lieferantenverwaltung',     cat:'System'},
     {key:'produktkatalog',          label:'Produktkatalog',            cat:'System'},
     {key:'workspace',               label:'Workspace',                 cat:'System'},
@@ -121,6 +122,7 @@
     'br_vkf_formulare':'vkf_formulare','br_vkf_formular':'vkf_formular',
     'sb_grobauslegung':'grobauslegung','sb_vonroll':'vonroll_tabellen',
     'pm_goodel':'kostenkontrolle','ab_sephir':'sephir','ab_quiz':'quiz',
+    'sd_schadensbericht':'schadensbericht',
     'pm_crbx':'crbx_offertvergleich','pm_schnellausschreibung':'schnellausschreibung',
     'sys_lieferanten':'lieferantenverwaltung','sys_produktkatalog':'produktkatalog',
     'sys_workspace':'workspace',
@@ -153,7 +155,7 @@
     // Monteur: Read-only-Zugriff aufs Werkzeuglager. Kann Defekte melden,
     // aber nichts selbst aendern oder zuweisen. Sieht Werkzeuge der
     // eigenen Organisation.
-    {id:'role_monteur',name:'Monteur',color:'#64748b',permissions:_somePerms(['werkzeugmanagement','baustellencheckliste','inspektion_wartung'],true,false,false)},
+    {id:'role_monteur',name:'Monteur',color:'#64748b',permissions:(function(){var p=_somePerms(['werkzeugmanagement','baustellencheckliste','inspektion_wartung'],true,false,false);p['schadensbericht']={read:true,write:true,admin:false};return p;})()},
     {id:'role_abteilungsleiter',name:'Abteilungsleiter',color:'#6d28d9',permissions:(function(){var p=_allPerms(true,true,false);p['werkzeugmanagement']={read:true,write:true,admin:false};p['objekte']={read:true,write:true,admin:true};return p;})()},
     {id:'role_bauherrschaft',name:'Bauherrschaft',color:'#0284c7',permissions:_somePerms(['objekte','terminplan','kostenkontrolle','besprechungsprotokoll','abnahme_sia'],true,false,false)},
     {id:'role_behoerde',name:'Behörde',color:'#475569',permissions:_somePerms(['w12','objekte','inspektion_wartung'],true,false,false)},
