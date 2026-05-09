@@ -1641,10 +1641,73 @@ function deleteTool(id){
 
 function _wzNewBerichtId(){return 'ber_'+Date.now().toString(36)+'_'+Math.random().toString(36).substr(2,4);}
 
+// Zentraler Foto-Helper fuer Berichte: bis zu 3 Bilder, jedes auto
+// auf 1280px JPEG q=0.72 komprimiert. Speichert die Ergebnisse in
+// window._wzReportPhotos und rendert eine Live-Preview im Container
+// '#wzPhotoPreview'.
+window._wzReportPhotos=[];
+window._wzReportPhotosChanged=function(inp){
+  var files=Array.from(inp.files||[]).slice(0,3);
+  window._wzReportPhotos=[];
+  var prev=document.getElementById('wzPhotoPreview');
+  if(prev)prev.innerHTML='<div style="font-size:11px;color:#64748b">Komprimiere Bilder …</div>';
+  Promise.all(files.map(_wzCompressImage)).then(function(results){
+    window._wzReportPhotos=results.filter(function(r){return r;});
+    _wzRenderReportPhotoPreview();
+  }).catch(function(e){
+    if(prev)prev.innerHTML='<div style="font-size:11px;color:#dc2626">Fehler: '+esc(e.message||'')+'</div>';
+  });
+};
+window._wzReportPhotoRemove=function(i){
+  window._wzReportPhotos.splice(i,1);_wzRenderReportPhotoPreview();
+};
+function _wzRenderReportPhotoPreview(){
+  var prev=document.getElementById('wzPhotoPreview');if(!prev)return;
+  if(!window._wzReportPhotos.length){prev.innerHTML='';return;}
+  prev.innerHTML=window._wzReportPhotos.map(function(p,i){
+    return '<div style="position:relative;width:60px;height:60px;border-radius:8px;overflow:hidden;border:1.5px solid #e5e7eb"><img src="'+p.dataUrl+'" style="width:100%;height:100%;object-fit:cover"/><button onclick="_wzReportPhotoRemove('+i+')" style="position:absolute;top:2px;right:2px;width:18px;height:18px;border-radius:50%;border:none;background:rgba(0,0,0,.6);color:#fff;font-size:10px;cursor:pointer">✕</button></div>';
+  }).join('');
+}
+function _wzCompressImage(file){
+  return new Promise(function(resolve,reject){
+    if(!file||!file.type||file.type.indexOf('image/')<0){resolve(null);return;}
+    var fr=new FileReader();
+    fr.onload=function(){
+      var img=new Image();
+      img.onload=function(){
+        var maxDim=1280, w=img.width, h=img.height;
+        if(Math.max(w,h)>maxDim){var s=maxDim/Math.max(w,h);w=Math.round(w*s);h=Math.round(h*s);}
+        var c=document.createElement('canvas');c.width=w;c.height=h;
+        var ctx=c.getContext('2d');ctx.fillStyle='#fff';ctx.fillRect(0,0,w,h);ctx.drawImage(img,0,0,w,h);
+        resolve({name:file.name||'foto.jpg',type:'image/jpeg',dataUrl:c.toDataURL('image/jpeg',0.72)});
+      };
+      img.onerror=function(){resolve(null);};
+      img.src=fr.result;
+    };
+    fr.onerror=function(){reject(new Error('Konnte Datei nicht lesen'));};
+    fr.readAsDataURL(file);
+  });
+}
+window._wzPhotoLightbox=function(src){
+  var ov=document.createElement('div');
+  ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:1500;display:flex;align-items:center;justify-content:center;padding:16px;cursor:zoom-out';
+  ov.innerHTML='<img src="'+src+'" style="max-width:100%;max-height:100%;object-fit:contain;border-radius:8px;box-shadow:0 4px 30px rgba(0,0,0,.6)"/>';
+  ov.addEventListener('click',function(){ov.remove();});
+  document.body.appendChild(ov);
+};
+
+function _wzPhotoFieldHtml(){
+  return '<div><label class="dlg-lbl">Fotos (max 3, optional)</label>'
+    +'<input type="file" accept="image/*" multiple capture="environment" onchange="_wzReportPhotosChanged(this)" style="font-size:12px;width:100%"/>'
+    +'<div id="wzPhotoPreview" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px"></div>'
+    +'<div style="font-size:10.5px;color:#64748b;margin-top:4px">Werden auf max 1280 px komprimiert.</div></div>';
+}
+
 function openDefektMelden(toolId){
   if(!_wzCanReportDefect()){alert('Keine Berechtigung');return;}
   var t=tools.find(function(x){return x.id===toolId;});
   if(!t)return;
+  window._wzReportPhotos=[];
   var u=_wzGetUser()||{};
   var html = '<div class="dlg-card">'
     + '<h3 style="margin:0 0 4px;font-size:17px;font-weight:800;color:#c2410c">⚠ Defekt melden</h3>'
@@ -1653,6 +1716,7 @@ function openDefektMelden(toolId){
     + '  <div><label class="dlg-lbl">Titel *</label><input id="defTitel" type="text" placeholder="z.B. Akku defekt" class="dlg-inp"/></div>'
     + '  <div><label class="dlg-lbl">Schweregrad</label><select id="defSev" class="dlg-inp"><option value="leicht">Leicht (nutzbar)</option><option value="mittel" selected>Mittel (eingeschränkt)</option><option value="schwer">Schwer (nicht nutzbar)</option><option value="ausser_betrieb">Ausser Betrieb</option></select></div>'
     + '  <div><label class="dlg-lbl">Beschreibung *</label><textarea id="defBeschr" rows="4" placeholder="Was ist kaputt? Wann ist es aufgefallen?" class="dlg-txt"></textarea></div>'
+    +    _wzPhotoFieldHtml()
     + '</div>'
     + '<div class="dlg-row">'
     + '  <button onclick="_wzCloseModal()" class="dlg-cancel">Abbrechen</button>'
@@ -1675,6 +1739,7 @@ function _wzSaveDefekt(toolId){
     id:_wzNewBerichtId(),typ:'defekt',datum:new Date().toISOString(),
     autorUserId:u.id||'',autorName:u.name||'Unbekannt',
     titel:titel,beschreibung:beschr,schweregrad:sev,
+    photos:Array.isArray(window._wzReportPhotos)?window._wzReportPhotos.slice(0,3):[],
     erledigt:false,erledigtAm:null
   });
   save();renderList();_wzCloseModal();
@@ -2282,6 +2347,7 @@ function openBerichte(toolId){
         +(b.beschreibung?'<div style="font-size:12px;color:#475569;margin-top:2px">'+esc(b.beschreibung)+'</div>':'')
         +(b.ergebnis?'<div style="font-size:12px;margin-top:4px"><strong>Ergebnis:</strong> '+esc(b.ergebnis)+'</div>':'')
         +teileHtml
+        +((Array.isArray(b.photos)&&b.photos.length)?'<div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:6px">'+b.photos.map(function(p){return p&&p.dataUrl?'<img src="'+p.dataUrl+'" alt="Bericht-Foto" style="width:54px;height:54px;object-fit:cover;border-radius:6px;border:1px solid #e5e7eb;cursor:pointer" onclick="_wzPhotoLightbox(this.src)"/>':'';}).join('')+'</div>':'')
         +(b.naechstePruefung?'<div style="font-size:11px;color:#6366f1;margin-top:4px">Nächste Prüfung: '+fmt(b.naechstePruefung)+'</div>':'')
         +aktion
         +'</div>';
@@ -2333,12 +2399,14 @@ function openPruefbericht(toolId){
     + '  <div><label class="dlg-lbl">Bemerkungen</label><textarea id="prBemerk" rows="3" placeholder="Beobachtungen, durchgeführte Arbeiten …" class="dlg-txt"></textarea></div>'
     + '  <div><label class="dlg-lbl">Fehlende / auszutauschende Teile</label><input id="prTeile" type="text" placeholder="z.B. Akku, Kohlebürsten (Komma-getrennt)" class="dlg-inp"/><div style="font-size:10px;color:#94a3b8;margin-top:2px">Wenn vorhanden, wird gleichzeitig ein Hinweis auf offene Wartung gesetzt.</div></div>'
     + '  <div><label class="dlg-lbl">Nächste Prüfung fällig</label><input id="prNext" type="date" class="dlg-inp"/></div>'
+    +    _wzPhotoFieldHtml()
     + '</div>'
     + '<div class="dlg-row">'
     + '  <button onclick="_wzCloseModal()" class="dlg-cancel">Abbrechen</button>'
     + '  <button onclick="_wzSavePruefbericht(\''+toolId+'\')" style="padding:9px 18px;border-radius:8px;border:none;background:#1d4ed8;color:#fff;cursor:pointer;font-weight:700;font-family:inherit">✓ Speichern</button>'
     + '</div>'
     + '</div>';
+  window._wzReportPhotos=[];
   _wzShowModal(html);
   // 12 Monate-Default fuer naechste Pruefung
   setTimeout(function(){
@@ -2368,7 +2436,8 @@ function _wzSavePruefbericht(toolId){
     titel:titel,beschreibung:bemerk,
     ergebnis:ergebnis==='bestanden'?'✓ Bestanden':ergebnis==='maengel'?'⚠ Mit Mängeln':'✕ Nicht bestanden',
     fehlendeTeile:teile,
-    naechstePruefung:next
+    naechstePruefung:next,
+    photos:Array.isArray(window._wzReportPhotos)?window._wzReportPhotos.slice(0,3):[]
   });
   // Synchronisiere die "lastElec"/"lastLeiter" Felder fuer die bestehende
   // Pruef-Logik, damit worstDays() korrekt bleibt.
