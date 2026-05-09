@@ -217,7 +217,25 @@ input,select,textarea,button{font-family:inherit}
     location.href='sys_login.html';
     return;
   }
-  var myVehicles=vehicles.filter(function(v){return v && v.garagistUserId===me.id;});
+  // Werkstatt-Sicht: alle User mit role_garagist in derselben Org wie
+  // der aktuelle User. Vehicles werden ueber den Lead-Garagist
+  // (v.garagistUserId) angekoppelt — wenn dessen orgId mit meiner
+  // identisch ist, sieht die ganze Werkstatt das Fahrzeug.
+  var werkstattUserIds=[];
+  var werkstattMembers=[];
+  try{
+    if(typeof GemaAuth!=='undefined' && me.orgId){
+      var allUsers=GemaAuth.getUsers()||[];
+      werkstattMembers=allUsers.filter(function(u){
+        return u && u.orgId===me.orgId && u.roleIds && u.roleIds.indexOf('role_garagist')>=0;
+      });
+      werkstattUserIds=werkstattMembers.map(function(u){return u.id;});
+    }
+  }catch(e){}
+  if(werkstattUserIds.indexOf(me.id)<0)werkstattUserIds.push(me.id);
+  var myVehicles=vehicles.filter(function(v){
+    return v && v.garagistUserId && werkstattUserIds.indexOf(v.garagistUserId)>=0;
+  });
 
   // ── SERVICE / MFK STATUS ─────────────────────────────────────
   function nextServiceDate(v){
@@ -281,10 +299,11 @@ input,select,textarea,button{font-family:inherit}
     return (s!==null&&s<0)||(m!==null&&m<0);
   });
   var monatStart=new Date();monatStart.setDate(monatStart.getDate()-30);
+  // Werkstatt-weit: Eintraege von allen Werkstatt-Mitgliedern
   var historieMonat=myVehicles.reduce(function(acc,v){
     if(!Array.isArray(v.serviceHistorie))return acc;
     return acc+v.serviceHistorie.filter(function(e){
-      return e.erledigtVonUserId===me.id && e.datum && new Date(e.datum)>=monatStart;
+      return e && werkstattUserIds.indexOf(e.erledigtVonUserId)>=0 && e.datum && new Date(e.datum)>=monatStart;
     }).length;
   },0);
 
@@ -297,7 +316,7 @@ input,select,textarea,button{font-family:inherit}
     '<div class="kpi-card" data-tab="uebersicht"><div class="kpi-lbl">Zugewiesen</div><div class="kpi-val">'+myVehicles.length+'</div><div class="kpi-sub">Fahrzeuge</div></div>'+
     '<div class="kpi-card '+(defectVehicles.length?'ueberfaellig':'')+'" data-tab="uebersicht"><div class="kpi-lbl">Defekte offen</div><div class="kpi-val">'+defectVehicles.length+'</div><div class="kpi-sub">'+(defectVehicles.length?'zur Bearbeitung':'alle behoben')+'</div></div>'+
     '<div class="kpi-card '+(faelligList.length?'faellig':'')+'" data-tab="anstehend"><div class="kpi-lbl">Anstehend (≤30 T)</div><div class="kpi-val">'+faelligList.length+'</div><div class="kpi-sub">'+(ueberfaelligList.length?ueberfaelligList.length+' überfällig':'inkl. Service & MFK')+'</div></div>'+
-    '<div class="kpi-card" data-tab="historie"><div class="kpi-lbl">Erfasst (30 Tage)</div><div class="kpi-val">'+historieMonat+'</div><div class="kpi-sub">eigene Service-Einträge</div></div>';
+    '<div class="kpi-card" data-tab="historie"><div class="kpi-lbl">Erfasst (30 Tage)</div><div class="kpi-val">'+historieMonat+'</div><div class="kpi-sub">Werkstatt-Einträge</div></div>';
 
   // ── TAB SWITCH ───────────────────────────────────────────────
   function showTab(name){
@@ -414,20 +433,22 @@ input,select,textarea,button{font-family:inherit}
     myVehicles.forEach(function(v){
       if(!Array.isArray(v.serviceHistorie))return;
       v.serviceHistorie.forEach(function(e){
-        if(e.erledigtVonUserId===me.id) entries.push({entry:e,vehicle:v});
+        // Werkstatt-weite Sicht: alle Eintraege von allen Mitgliedern
+        if(e && werkstattUserIds.indexOf(e.erledigtVonUserId)>=0) entries.push({entry:e,vehicle:v});
       });
     });
     entries.sort(function(a,b){return (b.entry.datum||'').localeCompare(a.entry.datum||'');});
     if(!entries.length){
-      box.innerHTML='<div class="empty"><div class="empty-ico">📋</div>Noch keine Einträge erfasst. Aus der Übersicht heraus kannst du Service-, MFK- und Reparaturarbeiten dokumentieren.</div>';
+      box.innerHTML='<div class="empty"><div class="empty-ico">📋</div>Noch keine Einträge in deiner Werkstatt. Aus der Übersicht heraus kannst du Service-, MFK- und Reparaturarbeiten dokumentieren.</div>';
       return;
     }
     box.innerHTML='<div class="hist-list">'+entries.map(function(p){
       var e=p.entry, v=p.vehicle;
       var art=ART_LABELS[e.art]||e.art||'•';
+      var ownTag=e.erledigtVonUserId===me.id?'':' · '+esc(e.erledigtVonName||'Kollege');
       var html='<div class="hist-item"><div class="hist-item-hd">';
       html+='<span class="hist-art">'+esc(art)+'</span>';
-      html+='<span class="hist-meta">'+fmtDate(e.datum)+(e.km?' · '+fmtKm(e.km):'')+' · '+esc(v.plate||v.model||'Fahrzeug')+'</span>';
+      html+='<span class="hist-meta">'+fmtDate(e.datum)+(e.km?' · '+fmtKm(e.km):'')+' · '+esc(v.plate||v.model||'Fahrzeug')+ownTag+'</span>';
       if(e.kosten)html+='<span class="hist-cost">CHF '+esc(e.kosten)+'</span>';
       html+='</div>';
       if(e.beschreibung)html+='<div class="hist-desc">'+esc(e.beschreibung)+'</div>';
@@ -451,10 +472,27 @@ input,select,textarea,button{font-family:inherit}
     html+='<div class="profile-row"><b>Name</b><span>'+esc(orgName||'—')+'</span></div>';
     if(me.orgId)html+='<div class="profile-row"><b>Werkstatt-ID</b><span style="font-size:11px;color:var(--mut)">'+esc(me.orgId)+'</span></div>';
     html+='<div class="profile-row"><b>Aktive Fahrzeuge</b><span>'+myVehicles.length+'</span></div>';
+    html+='<div class="profile-row"><b>Werkstatt-Mitglieder</b><span>'+werkstattMembers.length+'</span></div>';
     html+='</div>';
     html+='</div>';
+    // Mitglieder-Liste
+    if(werkstattMembers.length>1){
+      html+='<div class="profile-card" style="margin-top:14px"><h3>Mitarbeiter dieser Werkstatt</h3>';
+      html+='<div style="display:flex;flex-direction:column;gap:6px">';
+      werkstattMembers.forEach(function(m){
+        var isMe=m.id===me.id;
+        var initials=((m.name||m.username||'?').match(/\b[A-Z]/g)||[(m.name||'?')[0]]).slice(0,2).join('');
+        html+='<div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px dashed var(--brd)">'+
+          '<div style="width:34px;height:34px;border-radius:50%;background:var(--teal);color:#fff;display:grid;place-items:center;font-size:12px;font-weight:700;flex-shrink:0">'+esc(initials)+'</div>'+
+          '<div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:600">'+esc(m.name||m.username||'—')+(isMe?' <span style="font-size:10.5px;color:var(--teal);font-weight:700">(Du)</span>':'')+'</div>'+
+          '<div style="font-size:11.5px;color:var(--mut)">'+esc(m.username||'')+'</div></div>'+
+          (m.active===false?'<span style="font-size:10.5px;color:var(--red);font-weight:700;background:var(--red-bg);padding:2px 6px;border-radius:4px">deaktiviert</span>':'')+
+          '</div>';
+      });
+      html+='</div></div>';
+    }
     html+='<div style="margin-top:14px;padding:14px 18px;background:var(--teal-bg);border:1.5px solid var(--teal-brd);border-radius:var(--r);font-size:13px;color:#0e7490">'+
-      'ℹ Werkstatt- und Profildaten werden über das GEMA-Admin-Panel gepflegt. Bei Änderungen melde dich bei deiner Kontaktperson.'+
+      'ℹ Werkstatt- und Profildaten werden über das GEMA-Admin-Panel gepflegt. Neue Mitarbeiter werden vom Magaziner via Email-Einladung als Garagist derselben Werkstatt-Org hinzugefügt.'+
       '</div>';
     box.innerHTML=html;
   }

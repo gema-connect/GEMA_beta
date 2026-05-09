@@ -1135,13 +1135,13 @@ function getFiltered(){
   const fStatus=document.getElementById("filterStatus").value;
   const fType=document.getElementById("filterType").value;
   const fAssign=document.getElementById("filterAssignment").value;
-  // Garagist sieht nur ihm zugewiesene Fahrzeuge.
+  // Garagist sieht alle Fahrzeuge seiner Werkstatt-Org (nicht nur die
+  // ihm persoenlich zugewiesenen — Lead-Garagist ist Stellvertreter
+  // der ganzen Werkstatt).
   var isG=_fzIsGaragist();
-  var meId=null;
-  if(isG){var u=_fzGetUser();meId=u?u.id:null;}
 
   return vehicles.filter(v=>{
-    if(isG && (!meId || v.garagistUserId!==meId)) return false;
+    if(isG && !_fzCanOpenVehicle(v)) return false;
     if(_fzKpiActive==='service'&&!isServiceSoon(v))return false;
     if(_fzKpiActive==='inactive'&&v.status==='aktiv')return false;
     if(_fzKpiActive==='aktiv'&&v.status!=='aktiv')return false;
@@ -1652,6 +1652,18 @@ function _fzOpenInviteGaragist(){
   // Felder leeren
   ['fInvFirma','fInvPerson','fInvEmail','fInvTel'].forEach(function(id){var el=document.getElementById(id);if(el)el.value='';});
   var res=document.getElementById('fInvResult');if(res)res.style.display='none';
+  // Datalist mit existierenden Werkstatt-Orgs befuellen
+  try{
+    var dl=document.getElementById('fInvFirmaList');
+    if(dl && typeof GemaAuth!=='undefined'){
+      var users=GemaAuth.getUsers()||[];
+      var orgs=(GemaAuth.getOrgs&&GemaAuth.getOrgs())||[];
+      var werkstattOrgIds={};
+      users.forEach(function(u){if(u && u.roleIds && u.roleIds.indexOf('role_garagist')>=0 && u.orgId)werkstattOrgIds[u.orgId]=true;});
+      var werkstattOrgs=orgs.filter(function(o){return werkstattOrgIds[o.id]&&o.name;}).map(function(o){return o.name;}).sort();
+      dl.innerHTML=werkstattOrgs.map(function(n){return '<option value="'+esc(n)+'">';}).join('');
+    }
+  }catch(e){}
   ov.style.display='flex';ov.classList.remove('hidden');
   document.body.classList.add('modal-open');
   setTimeout(function(){var f=document.getElementById('fInvFirma');if(f)f.focus();},150);
@@ -1731,7 +1743,7 @@ function _fzCreateInviteGaragistModal(){
         '<button onclick="_fzCloseInviteGaragist()" style="background:none;border:none;font-size:18px;cursor:pointer;color:#6b7280">✕</button>'+
       '</div>'+
       '<div style="padding:18px 20px;display:flex;flex-direction:column;gap:12px">'+
-        '<div class="field"><label class="label">Werkstatt-Name *</label><input class="inp" id="fInvFirma" placeholder="z. B. Garage Müller AG"/></div>'+
+        '<div class="field"><label class="label">Werkstatt-Name *</label><input class="inp" id="fInvFirma" list="fInvFirmaList" placeholder="z. B. Garage Müller AG"/><datalist id="fInvFirmaList"></datalist><span class="hint">Tippt auf einen bestehenden Namen, wird der neue Mitarbeiter zur bestehenden Werkstatt-Org hinzugefügt (Multi-User-Werkstatt).</span></div>'+
         '<div class="field"><label class="label">Ansprechperson</label><input class="inp" id="fInvPerson" placeholder="z. B. Hans Müller"/></div>'+
         '<div class="field"><label class="label">Email (Login-Username) *</label><input class="inp" id="fInvEmail" type="email" placeholder="hans.mueller@garage-mueller.ch"/></div>'+
         '<div class="field"><label class="label">Telefon</label><input class="inp" id="fInvTel" type="tel" placeholder="+41 …"/></div>'+
@@ -1835,14 +1847,31 @@ var _FZ_GARAGIST_EDITABLE_FIELDS = [
 // freigeschaltet (versicherungFreiFuerGaragist === true).
 var _FZ_GARAGIST_HIDDEN_OPTS = ['kaufbeleg','tankkarte','garagist'];
 
+// Liefert die orgId zu einer User-ID oder leer. Wird verwendet, um
+// die Werkstatt-Zugehoerigkeit eines zugewiesenen Lead-Garagisten zu
+// ermitteln, damit alle Mitarbeiter derselben Werkstatt-Org dieselben
+// Fahrzeuge sehen koennen.
+function _fzOrgIdOfUser(userId){
+  if(!userId||typeof GemaAuth==='undefined')return '';
+  try{
+    var users=GemaAuth.getUsers()||[];
+    var u=users.find(function(x){return x.id===userId;});
+    return u?(u.orgId||''):'';
+  }catch(e){return '';}
+}
+
 // Prueft ob aktueller User dieses Fahrzeug oeffnen darf.
-// Garagist: nur wenn zugewiesen via v.garagistUserId. Andere Rollen:
-// uneingeschraenkt (UI-seitig durch Edit-Permissions reglementiert).
+// Garagist: zugewiesen via v.garagistUserId — ODER ein Mitarbeiter der
+// gleichen Werkstatt-Org wie der zugewiesene Lead-Garagist ist. Damit
+// koennen mehrere Mechaniker einer Werkstatt dieselben Fahrzeuge
+// betreuen.
 function _fzCanOpenVehicle(v){
   if(!v)return false;
   if(!_fzIsGaragist())return true;
-  var u=_fzGetUser();
-  return !!(u && v.garagistUserId && v.garagistUserId===u.id);
+  var u=_fzGetUser();if(!u||!v.garagistUserId)return false;
+  if(v.garagistUserId===u.id)return true;
+  var leadOrgId=_fzOrgIdOfUser(v.garagistUserId);
+  return !!(leadOrgId && u.orgId && leadOrgId===u.orgId);
 }
 
 // Sperrt im Edit-Formular alle Felder, die der Garagist nicht
