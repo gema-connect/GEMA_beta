@@ -2211,6 +2211,21 @@ function openViewFzg(id){
   var stText=svc.badge==='red'?'Service überfällig!':svc.badge==='amber'?'Service bald fällig':'Service aktuell';
   html+='<div class="vm-status-bar '+stCls+'"><span class="vm-st-icon">'+stIcon+'</span><span class="vm-st-text">'+stText+'</span></div>';
 
+  // Offene Defekte (events vom Typ 'defekt' ohne resolved-Flag).
+  // Fuer Garagist prominent oben, fuer andere Rollen ebenfalls.
+  var openDefs=Array.isArray(v.events)?v.events.filter(function(e){return e&&e.type==='defekt'&&!e.resolved;}):[];
+  if(openDefs.length){
+    html+='<div style="margin:8px 0;padding:12px 14px;background:#fef2f2;border:1.5px solid #fecaca;border-radius:8px;color:#b91c1c">';
+    html+='<div style="font-size:13px;font-weight:700;display:flex;align-items:center;gap:6px;margin-bottom:6px"><span>🚨</span>'+openDefs.length+' offene Defektmeldung'+(openDefs.length>1?'en':'')+'</div>';
+    openDefs.slice(0,3).forEach(function(d){
+      html+='<div style="font-size:12px;color:#991b1b;margin-top:4px"><b>'+esc((d.date?new Date(d.date).toLocaleDateString('de-CH'):''))+':</b> '+esc((d.detail||d.label||'').slice(0,200))+'</div>';
+    });
+    if(_fzCanEdit()){
+      html+='<button onclick="_fzResolveAllDefects(\''+esc(v.id)+'\')" style="margin-top:8px;padding:4px 10px;border-radius:6px;border:1.5px solid #b91c1c;background:#fff;color:#b91c1c;font-size:11.5px;font-weight:700;cursor:pointer;font-family:inherit">Alle als behoben markieren</button>';
+    }
+    html+='</div>';
+  }
+
   // Grunddaten
   html+='<div class="vm-section">Fahrzeugdaten</div>';
   html+='<div class="vm-grid">';
@@ -2686,10 +2701,50 @@ function saveDefekt() {
     detail: desc + (km ? ' | ' + parseInt(km).toLocaleString('de-CH') + ' km' : ''),
     prio
   });
+  // Notif an zugewiesenen Garagist (sofern vorhanden) + alle Magaziner.
+  try{
+    var v=vehicles.find(function(x){return x.id===_mgmtVehicleId;});
+    if(v && typeof GemaNotify!=='undefined'){
+      var pTyp=prio==='kritisch'?'warnung':(prio==='hoch'?'warnung':'aktion');
+      var titel='Defekt: '+(v.plate||v.model||'Fahrzeug');
+      var text=desc.slice(0,160)+(km?' (km '+parseInt(km).toLocaleString('de-CH')+')':'');
+      var link='if_fahrzeug.html?view='+v.id;
+      if(v.garagistUserId){
+        GemaNotify.push({eventKey:'fahrzeug_service_faellig',empfaengerUserId:v.garagistUserId,modul:'fahrzeug',typ:pTyp,titel:titel,text:text,link:link});
+      }
+      GemaNotify.push({eventKey:'fahrzeug_service_faellig',empfaengerRoleId:'role_magaziner',modul:'fahrzeug',typ:pTyp,titel:titel,text:text,link:link});
+    }
+  }catch(e){}
   closeMgmt('mgmtDefektOverlay');
   showToast('Defekt gemeldet ✓');
 }
 window.saveDefekt = saveDefekt;
+
+// Markiert alle offenen Defekt-Events eines Fahrzeugs als behoben.
+// Erfasser-Info wird zu Audit-Zwecken festgehalten.
+window._fzResolveAllDefects=function(vehicleId){
+  if(!_fzCanEdit())return;
+  var v=vehicles.find(function(x){return x.id===vehicleId;});
+  if(!v||!Array.isArray(v.events))return;
+  if(!confirm('Alle offenen Defekte als behoben markieren?'))return;
+  var u=_fzGetUser()||{};
+  var now=new Date().toISOString();
+  var changed=0;
+  v.events.forEach(function(e){
+    if(e&&e.type==='defekt'&&!e.resolved){
+      e.resolved=true;
+      e.resolvedAt=now;
+      e.resolvedByUserId=u.id||'';
+      e.resolvedByName=u.name||u.username||'';
+      changed++;
+    }
+  });
+  if(!changed)return;
+  persist();
+  openViewFzg(vehicleId);
+  render();
+  showToast(changed+' Defekt'+(changed>1?'e':'')+' als behoben markiert ✓');
+};
 
 /* ═══ KOSTEN ═══ */
 function openKosten(vehicleId) {

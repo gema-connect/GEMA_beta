@@ -50,7 +50,7 @@ input,select,textarea,button{font-family:inherit}
 .hero-meta-item b{color:#fff;font-weight:800;margin-right:4px}
 
 /* KPI ROW */
-.kpi-row{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:18px}
+.kpi-row{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:18px}
 .kpi-card{background:var(--sur);border:1.5px solid var(--brd);border-radius:var(--r);padding:16px 18px;cursor:pointer;transition:.15s}
 .kpi-card:hover{border-color:var(--teal);transform:translateY(-1px);box-shadow:var(--sh)}
 .kpi-card.active{border-color:var(--teal);background:var(--teal-bg)}
@@ -283,9 +283,14 @@ input,select,textarea,button{font-family:inherit}
     }).length;
   },0);
 
+  var defectVehicles=myVehicles.filter(function(v){
+    return Array.isArray(v.events) && v.events.some(function(e){return e && e.type==='defekt' && !e.resolved;});
+  });
+
   var kpiRow=document.getElementById('kpiRow');
   kpiRow.innerHTML=''+
     '<div class="kpi-card" data-tab="uebersicht"><div class="kpi-lbl">Zugewiesen</div><div class="kpi-val">'+myVehicles.length+'</div><div class="kpi-sub">Fahrzeuge</div></div>'+
+    '<div class="kpi-card '+(defectVehicles.length?'ueberfaellig':'')+'" data-tab="uebersicht"><div class="kpi-lbl">Defekte offen</div><div class="kpi-val">'+defectVehicles.length+'</div><div class="kpi-sub">'+(defectVehicles.length?'zur Bearbeitung':'alle behoben')+'</div></div>'+
     '<div class="kpi-card '+(faelligList.length?'faellig':'')+'" data-tab="anstehend"><div class="kpi-lbl">Anstehend (≤30 T)</div><div class="kpi-val">'+faelligList.length+'</div><div class="kpi-sub">'+(ueberfaelligList.length?ueberfaelligList.length+' überfällig':'inkl. Service & MFK')+'</div></div>'+
     '<div class="kpi-card" data-tab="historie"><div class="kpi-lbl">Erfasst (30 Tage)</div><div class="kpi-val">'+historieMonat+'</div><div class="kpi-sub">eigene Service-Einträge</div></div>';
 
@@ -340,18 +345,31 @@ input,select,textarea,button{font-family:inherit}
     var tg=document.getElementById('dashOnlyFaellig');
     if(tg)tg.addEventListener('change',function(){_dashState.onlyFaellig=tg.checked;renderUebersicht();});
   }
+  function _openDefects(v){
+    if(!Array.isArray(v.events))return [];
+    return v.events.filter(function(e){return e && e.type==='defekt' && !e.resolved;});
+  }
   function cardHtml(v){
     var s=daysUntil(nextServiceDate(v));
     var m=daysUntil(v.mfk);
+    var defects=_openDefects(v);
+    var hasDefect=defects.length>0;
     var minDays=Math.min.apply(null,[s,m].filter(function(x){return x!==null;}).concat([Infinity]));
-    var statusCls=isFinite(minDays)?(minDays<0?'red':minDays<=7?'red':minDays<=30?'amber':'green'):'green';
+    var statusCls=hasDefect?'red':(isFinite(minDays)?(minDays<0?'red':minDays<=7?'red':minDays<=30?'amber':'green'):'green');
     var sBadge=s!==null?dueBadge(s):null;
     var mBadge=m!==null?dueBadge(m):null;
     var html='<div class="fz-card"><div class="fz-status-bar '+statusCls+'"></div>';
+    if(hasDefect){
+      html+='<div style="margin:-6px -16px 4px;padding:8px 16px;background:var(--red-bg);border-bottom:1.5px solid #fecaca;color:var(--red);font-size:12px;font-weight:700;display:flex;align-items:center;gap:6px"><span>🚨</span>'+defects.length+' offene'+(defects.length>1?' Defektmeldungen':' Defektmeldung')+'</div>';
+    }
     html+='<div class="fz-card-hd"><div class="fz-icon">🚗</div><div style="flex:1;min-width:0">';
     html+='<div class="fz-name">'+esc(v.model||'Fahrzeug')+'</div>';
     html+='<div class="fz-plate">'+esc(v.plate||'—')+(v.year?' · '+esc(v.year):'')+'</div>';
     html+='</div></div>';
+    if(hasDefect){
+      var d0=defects[0];
+      html+='<div style="font-size:12px;color:var(--red);background:var(--red-bg);padding:6px 10px;border-radius:6px"><b>Letzter Defekt:</b> '+esc((d0.detail||d0.label||'').slice(0,120))+'</div>';
+    }
     html+='<div class="fz-meta">';
     html+='<div><b>km-Stand:</b> '+fmtKm(v.km)+' <button class="km-mini-btn" onclick="_dashOpenKmEdit(\''+esc(v.id)+'\')">✏ km</button></div>';
     html+='<div><b>Letzter Service:</b> '+fmtDate(v.lastService)+'</div>';
