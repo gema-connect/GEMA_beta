@@ -934,6 +934,7 @@ function saveVehicle(){
     const idx=vehicles.findIndex(x=>x.id===editId);
     if(idx>=0){
       data.id=editId; data.createdAt=vehicles[idx].createdAt; data.events=vehicles[idx].events||[];
+      data.serviceHistorie=vehicles[idx].serviceHistorie||[];
       if(data.km!==vehicles[idx].km) data.kmUpdatedAt=new Date().toISOString();
       else data.kmUpdatedAt=vehicles[idx].kmUpdatedAt||'';
       vehicles[idx]=data;
@@ -2070,6 +2071,9 @@ function openViewFzg(id){
     html+='<div class="vm-field full"><div class="vm-field-val" style="font-weight:500;font-size:13px;color:var(--text2)">'+esc(v.notes)+'</div></div>';
   }
 
+  // Service-Historie
+  html+=_fzRenderServiceHistorie(v);
+
   document.getElementById('vm_body').innerHTML=html;
 
   // Edit button
@@ -2084,6 +2088,154 @@ window.openViewFzg=openViewFzg;
 
 function vmf(label,value){
   return '<div class="vm-field"><div class="vm-field-lbl">'+label+'</div><div class="vm-field-val">'+esc(value||'—')+'</div></div>';
+}
+
+// Service-Historie als chronologisch absteigende Liste plus
+// "+ Service erfassen"-Button. Magaziner/Admin sehen Kosten immer;
+// Garagist sieht Kosten nur in eigenen Eintraegen.
+var _FZ_SERVICE_ART_LABELS={service:'🛠 Service',reparatur:'🔧 Reparatur',mfk:'📋 MFK',pneuwechsel:'🛞 Pneuwechsel',sonstiges:'• Sonstiges'};
+function _fzRenderServiceHistorie(v){
+  var hist=Array.isArray(v.serviceHistorie)?v.serviceHistorie.slice():[];
+  hist.sort(function(a,b){return (b.datum||'').localeCompare(a.datum||'');});
+  var canAdd=_fzCanEdit();
+  var canSeeAllCosts=_fzIsAdmin()||_fzIsMagaziner();
+  var meId=(_fzGetUser()||{}).id||'';
+  var html='<div class="vm-section">Service-Historie';
+  if(canAdd){
+    html+='<button onclick="_fzOpenServiceModal(\''+esc(v.id)+'\')" style="margin-left:auto;padding:4px 10px;border-radius:6px;border:1.5px solid var(--primary);background:#eff6ff;color:var(--primary);font-size:11px;font-weight:700;cursor:pointer;font-family:inherit">+ Service erfassen</button>';
+  }
+  html+='</div>';
+  if(!hist.length){
+    html+='<div class="vm-field full"><div class="vm-field-val" style="color:var(--muted);font-size:12px">Noch keine Eintraege.</div></div>';
+    return html;
+  }
+  html+='<div style="display:flex;flex-direction:column;gap:6px;margin-top:4px">';
+  hist.forEach(function(e){
+    var artLabel=_FZ_SERVICE_ART_LABELS[e.art]||e.art||'•';
+    var datum=e.datum?new Date(e.datum).toLocaleDateString('de-CH'):'—';
+    var km=e.km?parseInt(e.km).toLocaleString('de-CH')+' km':'—';
+    var showKosten=canSeeAllCosts||(e.erledigtVonUserId&&e.erledigtVonUserId===meId);
+    var kostenChip=(showKosten&&e.kosten)?('<span style="margin-left:8px;padding:1px 6px;background:#f1f5f9;border-radius:4px;font-size:10.5px;color:var(--text2)">CHF '+esc(e.kosten)+'</span>'):'';
+    html+='<div style="border:1px solid var(--border);border-radius:8px;padding:8px 10px;background:#fafbfd">';
+    html+='<div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap"><span style="font-size:12px;font-weight:700;color:var(--text)">'+esc(artLabel)+'</span><span style="font-size:11.5px;color:var(--muted)">'+datum+' · '+km+'</span>'+kostenChip+'</div>';
+    if(e.beschreibung){
+      html+='<div style="margin-top:4px;font-size:12px;color:var(--text2);white-space:pre-wrap">'+esc(e.beschreibung)+'</div>';
+    }
+    var werkstatt=e.werkstatt||'';
+    var von=e.erledigtVonName||'';
+    if(werkstatt||von){
+      html+='<div style="margin-top:4px;font-size:10.5px;color:var(--muted)">'+(werkstatt?esc(werkstatt):'')+(werkstatt&&von?' · ':'')+(von?esc(von):'')+'</div>';
+    }
+    html+='</div>';
+  });
+  html+='</div>';
+  return html;
+}
+
+// Service-Eintrags-Modal: oeffnet ueber dem View-Modal.
+var _fzServiceTargetVid='';
+function _fzOpenServiceModal(vehicleId){
+  var v=vehicles.find(function(x){return x.id===vehicleId;});
+  if(!v||!_fzCanEdit())return;
+  // Garagist nur fuer ihm zugewiesene Fahrzeuge.
+  if(_fzIsGaragist()&&!_fzCanOpenVehicle(v))return;
+  _fzServiceTargetVid=vehicleId;
+  var ov=document.getElementById('serviceModalOverlay');
+  if(!ov){ _fzCreateServiceModal(); ov=document.getElementById('serviceModalOverlay'); }
+  document.getElementById('fSvcDatum').value=new Date().toISOString().slice(0,10);
+  document.getElementById('fSvcKm').value=v.km||'';
+  document.getElementById('fSvcArt').value='service';
+  document.getElementById('fSvcBeschreibung').value='';
+  document.getElementById('fSvcKosten').value='';
+  // Werkstatt: Org-Name des aktuellen Users vorausfuellen
+  var werkstatt='';
+  try{
+    if(typeof GemaAuth!=='undefined'){
+      var u=GemaAuth.getCurrentUser();
+      var orgs=(GemaAuth.getOrgs&&GemaAuth.getOrgs())||[];
+      var org=orgs.find(function(o){return o.id===(u&&u.orgId);});
+      if(org)werkstatt=org.name||'';
+    }
+  }catch(e){}
+  document.getElementById('fSvcWerkstatt').value=werkstatt;
+  ov.style.display='flex';ov.classList.remove('hidden');
+  document.body.classList.add('modal-open');
+}
+window._fzOpenServiceModal=_fzOpenServiceModal;
+
+function _fzCloseServiceModal(){
+  var ov=document.getElementById('serviceModalOverlay');
+  if(ov){ov.style.display='none';ov.classList.add('hidden');}
+  document.body.classList.remove('modal-open');
+  _fzServiceTargetVid='';
+}
+window._fzCloseServiceModal=_fzCloseServiceModal;
+
+function _fzSaveServiceEntry(){
+  var vid=_fzServiceTargetVid;
+  var v=vehicles.find(function(x){return x.id===vid;});
+  if(!v){_fzCloseServiceModal();return;}
+  var datum=document.getElementById('fSvcDatum').value;
+  var km=document.getElementById('fSvcKm').value;
+  var art=document.getElementById('fSvcArt').value;
+  var beschreibung=document.getElementById('fSvcBeschreibung').value.trim();
+  var kosten=document.getElementById('fSvcKosten').value.trim();
+  var werkstatt=document.getElementById('fSvcWerkstatt').value.trim();
+  if(!datum){alert('Datum ist Pflicht.');return;}
+  var u=_fzGetUser()||{};
+  var entry={
+    id:'svc_'+Date.now()+'_'+Math.random().toString(36).substr(2,5),
+    datum:datum, km:km, art:art,
+    beschreibung:beschreibung, kosten:kosten, werkstatt:werkstatt,
+    erledigtVonUserId:u.id||'',
+    erledigtVonName:u.name||u.username||'',
+    erstelltAm:new Date().toISOString()
+  };
+  if(!Array.isArray(v.serviceHistorie))v.serviceHistorie=[];
+  v.serviceHistorie.push(entry);
+  // Auto-Update: lastService, lastServiceKm, km (nur wenn neuer)
+  if(!v.lastService||(datum>v.lastService))v.lastService=datum;
+  if(km){
+    var kmNum=parseInt(km,10)||0;
+    if(!v.lastServiceKm||kmNum>parseInt(v.lastServiceKm,10))v.lastServiceKm=km;
+    if(!v.km||kmNum>parseInt(v.km,10)){v.km=km;v.kmUpdatedAt=new Date().toISOString();}
+  }
+  persist();
+  _fzCloseServiceModal();
+  // View-Modal neu rendern
+  var lastId=window._lastViewId||vid;
+  openViewFzg(lastId);
+  render();
+  showToast('Service-Eintrag gespeichert ✓');
+}
+window._fzSaveServiceEntry=_fzSaveServiceEntry;
+
+function _fzCreateServiceModal(){
+  var ov=document.createElement('div');
+  ov.id='serviceModalOverlay';
+  ov.className='modal-overlay';
+  ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1100;display:none;align-items:center;justify-content:center;padding:16px';
+  ov.innerHTML=''+
+    '<div style="max-width:520px;width:100%;background:#fff;border-radius:14px;box-shadow:0 20px 60px rgba(0,0,0,.25);overflow:hidden">'+
+      '<div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid #f0f0f0">'+
+        '<div style="display:flex;align-items:center;gap:10px"><span style="font-size:22px">🛠</span><div><div style="font-size:14px;font-weight:700">Service-Eintrag erfassen</div><div style="font-size:11px;color:#9ca3af">Wird in die Historie aufgenommen, km-Stand wird automatisch aktualisiert.</div></div></div>'+
+        '<button onclick="_fzCloseServiceModal()" style="background:none;border:none;font-size:18px;cursor:pointer;color:#6b7280">✕</button>'+
+      '</div>'+
+      '<div style="padding:18px 20px;display:grid;grid-template-columns:1fr 1fr;gap:12px">'+
+        '<div class="field"><label class="label">Datum *</label><input class="inp" type="date" id="fSvcDatum"/></div>'+
+        '<div class="field"><label class="label">km-Stand</label><input class="inp" type="text" inputmode="decimal" onblur="fixLeadingZero(this)" id="fSvcKm" placeholder="z. B. 45000"/></div>'+
+        '<div class="field" style="grid-column:1 / -1"><label class="label">Art *</label><select class="sel" id="fSvcArt"><option value="service">🛠 Service</option><option value="reparatur">🔧 Reparatur</option><option value="mfk">📋 MFK</option><option value="pneuwechsel">🛞 Pneuwechsel</option><option value="sonstiges">• Sonstiges</option></select></div>'+
+        '<div class="field" style="grid-column:1 / -1"><label class="label">Was wurde gemacht?</label><textarea class="textarea" id="fSvcBeschreibung" placeholder="z. B. Ölwechsel, Filter, Bremsen vorne neu" style="min-height:70px"></textarea></div>'+
+        '<div class="field"><label class="label">Werkstatt</label><input class="inp" id="fSvcWerkstatt" placeholder="Werkstatt-Name"/></div>'+
+        '<div class="field"><label class="label">Kosten (CHF)</label><input class="inp" type="text" inputmode="decimal" onblur="fixLeadingZero(this)" id="fSvcKosten" placeholder="0.00"/><span class="hint">Optional. Sichtbar fuer Magaziner/Admin und fuer den Erfasser selbst.</span></div>'+
+      '</div>'+
+      '<div style="display:flex;justify-content:flex-end;gap:8px;padding:14px 20px;border-top:1px solid #f0f0f0">'+
+        '<button class="btn" onclick="_fzCloseServiceModal()">Abbrechen</button>'+
+        '<button class="btn primary" onclick="_fzSaveServiceEntry()">Speichern</button>'+
+      '</div>'+
+    '</div>';
+  document.body.appendChild(ov);
+  ov.addEventListener('click',function(e){ if(e.target===ov)_fzCloseServiceModal(); });
 }
 
 function closeViewModal(){
