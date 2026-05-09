@@ -242,8 +242,8 @@ Hauptseite: `index.html`. Hub-Seiten: `sb_index.html`, `pm_ausschreibung.html`, 
 - **16 Sanitärberechnungs-Module** (sb_): Inkl. LU-Zusammenstellung, Druckerhöhung, Osmose, Enthärtung etc.
 - **Projektmanagement-Module** (pm_): Objekte, Terminplanung, Sitzungsprotokolle, Kostenkontrolle, Ausschreibung
 - **Hygiene-Module** (hy_): W12 Selbstkontrolle (SVGW)
-- **Infrastruktur-Module** (if_): Werkzeugmanagement, Fahrzeugmanagement (siehe Abschnitt „Werkzeug- & Fahrzeugmanagement" weiter unten)
-- **Schadensdokumentation** (sd_): Schadensberichte (siehe Abschnitt „Schadensdokumentation" weiter unten)
+- **Infrastruktur-Module** (if_): Werkzeugmanagement, Fahrzeugmanagement, Trocknungsgeräte (siehe Abschnitte weiter unten)
+- **Schadensdokumentation** (sd_): Schadensberichte (siehe Abschnitt „Schadensdokumentation" weiter unten). Trocknungsgeräte (if_trocknung.html) liefert automatisch Gerätedaten via `GemaTrocknung`-API.
 - **Zentrale Module**: `Module.html` (Hauptnavigation), `Objekte.html` (Projektverwaltung)
 - **Lieferanten-Modul**: `sys_lieferant_dashboard.html` mit 6 Tabs (Übersicht, Produkte, Anfragen, Rohrsysteme, Werkzeuge, Firmenprofil)
 
@@ -660,12 +660,92 @@ Full-Screen-Overlay (`position:fixed`) mit 4-Phasen-Timeline und aufklappbaren A
 
 ### Modulübersicht-Integration
 
-- **index.html**: Eigene Kategorie «Schadensdokumentation» (`data-cat="schaden"`) mit rotem Farbschema, zwischen Infrastruktur und Ausbildung
-- **sw.js**: Im Cache-Array (`CACHE_FILES`), SW-Version hochgezogen bei Änderungen
+- **index.html**: Eigene Kategorie «Schadensdokumentation» (`data-cat="schaden"`) mit rotem Farbschema, zwischen Infrastruktur und Ausbildung. Trocknungsgeräte zusätzlich in der Infrastruktur-Kategorie
+- **sw.js**: Beide Module im Cache-Array (`CACHE_FILES`), SW-Version hochgezogen bei Änderungen
 
-### Phase 2 (geplant): if_trocknung.html
+---
 
-Separates Gerätemanagement für Trockner/Ventilatoren mit NFC/QR-Tags, Raum/Zone-Zuordnung pro Schadensprojekt, automatischer Datenfluss in den Schadensbericht. Gleiche Architektur wie if_werkzeug.html.
+## Trocknungsgeräte (if_trocknung.html)
+
+Phase 2 der Schadensdokumentation — separates Gerätemanagement für Trocknungsgeräte. Gleiche Architektur wie if_werkzeug.html.
+
+### Gerätetypen
+
+| Typ | Icon | Key | Farbe |
+|-----|------|-----|-------|
+| Bautrockner | 🌡️ | `bautrockner` | #dc2626 |
+| Ventilator | 🌀 | `ventilator` | #2563eb |
+| Luftentfeuchter | 💨 | `luftentfeuchter` | #7c3aed |
+| Infrarotheizung | ☀️ | `infrarot` | #d97706 |
+
+### Status
+
+| Status | Key | Farbe |
+|--------|-----|-------|
+| Verfügbar | `verfuegbar` | grün |
+| Im Einsatz | `im_einsatz` | amber |
+| In Wartung | `in_wartung` | blau |
+| Defekt | `defekt` | rot |
+
+### Datenmodell
+
+Storage-Key: `gema_trocknung_v1`
+
+```
+{
+  id, name, typ, marke, modell, serienNr, kw, notes, orgId,
+  status: 'verfuegbar'|'im_einsatz'|'in_wartung'|'defekt',
+  hasService, serviceInterval, lastService,
+  
+  einsatz: null | {
+    schadenId, schadenTitel, objektId, objektName,
+    raum,              // Raum/Zone (z.B. "Bad EG")
+    eingesetztAm, eingesetztVon:{userId,name},
+    zaehlerStart       // Stunden
+  },
+  
+  einsatzHistorie: [{
+    ...einsatz, zaehlerEnde, zurueckAm, kwhTotal, betriebsstunden
+  }]
+}
+```
+
+### Einsatz-Workflow
+
+1. **Einsetzen**: Schadensprojekt auswählen (aus `gema_schadensbericht_v1`, nur aktive Fälle), Raum/Zone, Zählerstand Start → Status wechselt auf `im_einsatz`
+2. **Zurücknehmen**: Zählerstand Ende eingeben → Auto-Berechnung kWh = (Ende − Start) × kW → Einsatz wird in `einsatzHistorie` verschoben → Status zurück auf `verfuegbar`
+
+### QR-Code
+
+- QR-Generierung pro Gerät als SVG (inline QR-Library)
+- SVG-Download + PNG-Download
+- URL: `if_trocknung.html?id=DEVICE_ID` — öffnet automatisch Detail
+
+### Cross-Module API (GemaTrocknung)
+
+```javascript
+window.GemaTrocknung = {
+  getForSchaden(schadenId),        // aktive Geräte eines Schadens
+  getHistoryForSchaden(schadenId), // abgeschlossene Einsätze mit kWh
+  getAllDevices()                  // alle Geräte
+};
+```
+
+Datenfluss: sd_schadensbericht.html kann über `GemaTrocknung.getForSchaden()` die aktuell zugewiesenen Geräte und deren kWh-Werte automatisch in den Bericht übernehmen.
+
+### Berechtigungs-Helper
+
+```javascript
+_tgCanEdit()   // Admin, Magaziner, Planer (alle Gewerke)
+_tgCanAssign() // wie _tgCanEdit
+```
+
+**gema_auth.js-Integration**:
+- `trocknungsgeraete` in MODULES-Array (Kategorie `Infrastruktur`)
+- `if_trocknung` in FILE_MAP → `trocknungsgeraete`
+- Magaziner: read+write+admin
+- Monteur: read-only
+- Planer/Admin: automatisch via `_allPerms`
 
 ---
 
