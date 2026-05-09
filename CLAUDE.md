@@ -193,7 +193,7 @@ Jede Rolle hat ein eigenes Login mit rollenspezifischer Ansicht.
 | **Behörde** | Bewilligungen + Hygiene | W12-Prüfungen, Bewilligungsstatus, Inspektion (Read-only) |
 | **Lieferant** | Eigenes Dashboard | Produktpflege, Verifizierung, Offertanfragen beantworten, Werkzeug-Prüfungen quittieren |
 | **Magaziner** | Werkzeug-/Fahrzeuglager der eigenen Org | Geräte erfassen + verwalten, Berichte schreiben, Personen zuweisen, Prüfungen bei Lieferanten anfordern |
-| **Monteur** | Read-only auf Werkzeuge der eigenen Org | Geräte einsehen, Defekte melden — keine Edit-Rechte |
+| **Monteur** | Read-only auf Werkzeuge + Schadensberichte | Geräte einsehen, Defekte melden, Schadensmessungen + Fotos erfassen — keine Edit-Rechte auf Werkzeuge |
 | **Prüfer** | Werkzeug-/Fahrzeug-Prüfungen | Quittiert Prüfungs-Aufträge, lädt Prüfberichte hoch |
 | **Admin** | Alles | Benutzer verwalten, Lieferanten aktivieren/deaktivieren, System konfigurieren |
 
@@ -555,6 +555,16 @@ Eigenständiges Modul mit ähnlicher Struktur (Liste, QR-Code-Generierung mit SV
 
 Modul zur Dokumentation von Wasserschäden, Schimmelschäden, Rohrbrüchen etc. — von der Schadensmeldung über Leckortung und Trocknung bis zum Abschlussbericht für die Versicherung.
 
+### Architektur-Entscheide
+
+- **Objekt-Zuordnung**: Jeder Schaden wird zwingend einem bestehenden GEMA-Objekt zugeordnet (mit Schnell-Anlage-Button zu `Objekte.html`)
+- **Trockner-Zuordnung**: Trocknungsgeräte werden pro Raum/Zone im Schadensprojekt zugeordnet (z.B. „Trockner A im Bad, Ventilator B im Flur")
+- **Stromberechnung**: Nur kWh berechnen (Zählerstand-Differenz × kW), kein Preis — Planer setzt Kosten manuell
+- **Messwert-Darstellung**: User wählt zwischen Tabellen-Ansicht und Canvas-Liniendiagramm (Toggle)
+- **Dashboard**: Volle Info-Karten im Werkzeug-Stil (Status-Bar, Typ-Icon, Phase-Badge, Foto-Zähler)
+- **Rollen**: Sanitärplaner (read+write), Monteur (Messungen + Fotos), Admin (alles)
+- **Phasenaufteilung**: Phase 1 = sd_schadensbericht.html (Berichte + manuelles Geräte-Tracking), Phase 2 = if_trocknung.html (separates Gerätemanagement)
+
 ### Phasen-Workflow
 
 ```
@@ -598,19 +608,39 @@ _sdCanEdit()     // Admin, Planer (alle Gewerke): voller Zugriff
 _sdCanMeasure()  // wie _sdCanEdit + Monteur: Fotos + Messwerte erfassen
 ```
 
+**gema_auth.js-Integration**:
+- `schadensbericht` in MODULES-Array (Kategorie `Schadensdokumentation`)
+- `sd_schadensbericht` in FILE_MAP → `schadensbericht`
+- Monteur-Rolle: `schadensbericht: {read:true, write:true, admin:false}` (kann Messungen + Fotos erfassen)
+- Planer-Rollen: automatisch via `_allPerms(true,true,false)`
+
+### Dashboard (Hauptansicht)
+
+- **KPI-Zeile**: 4 Stat-Cards (Total, In Analyse, In Trocknung, Abgeschlossen) — klickbar als Filter
+- **Karten-Grid**: `repeat(auto-fill, minmax(360px, 1fr))` — Status-Bar (rot/amber/grün/blau), Typ-Icon, Titel, Adresse, Phase-Badge, Foto-Zähler
+- **Toolbar**: Suche, "+ Neuer Schaden", Karten/Tabellen-Toggle, mobile Suchbutton
+- **Tabellenansicht**: Horizontal scrollbar auf Mobile
+
+### Detail-Ansicht
+
+Full-Screen-Overlay (`position:fixed`) mit 4-Phasen-Timeline und aufklappbaren Accordion-Sektionen pro Phase. Aktive Phase ist offen, abgeschlossene Phasen zeigen Summary, zukünftige sind ausgegraut.
+
 ### Foto-System
 
-- Base64, max 1600px Resize, max 2MB
-- Pro Foto: Kommentar + Checkbox «Im Bericht anzeigen»
+- Base64, max 1600px Resize, max 2MB, JPEG-Komprimierung (0.82, Fallback 0.5)
+- `capture="environment"` für Kamera auf Mobile
+- Pro Foto: Kommentar-Dialog + Checkbox «Im Bericht anzeigen»
 - Fotos sind phasenspezifisch (Analyse, Trocknung, Abschluss)
 - Lightbox-Ansicht bei Klick
+- Delete-Buttons auf Touch-Geräten immer sichtbar (kein Hover)
 
 ### Messwert-System (Trocknung)
 
 - Messpunkte definieren (z.B. „Wand links Bad")
 - Pro Messpunkt: Messungen über Zeit (Datum, Wert in %)
-- Ansicht umschaltbar: Tabelle oder Canvas-Liniendiagramm
-- Geräte-Tracking: Name, Raum, kW, Zählerstand Start/Ende → kWh-Berechnung
+- Ansicht umschaltbar: Tabelle oder Canvas-Liniendiagramm (reines Canvas, keine Library)
+- Geräte-Tracking (Phase 1 — manuell): Name, Raum/Zone, kW, Zählerstand Start/Ende → kWh-Berechnung
+- Geräte-Tabelle mit horizontalem Scroll-Wrapper auf Mobile
 
 ### Export
 
@@ -618,9 +648,24 @@ _sdCanMeasure()  // wie _sdCanEdit + Monteur: Fotos + Messwerte erfassen
 - **Word**: HTML mit Word-XML-Namespace als .doc, editierbar
 - Beide nutzen gemeinsame Funktion `sdBuildReportHtml(s)`
 
+### Responsive Design
+
+| Breakpoint | Gerät | Anpassungen |
+|-----------|-------|-------------|
+| `≤1024px` | iPad/Tablet | Stats 2-spaltig, Detail volle Breite, kompaktere Tabellen |
+| `≤640px` | Smartphone | Vertikale Timeline, Bottom-Sheet-Modals, 48px Input-Höhe, Touch-Buttons ≥44px, gestackte Formfelder, mobile Toolbar |
+| `≤380px` | iPhone SE | Weitere Komprimierung, kleinere Stats/Icons |
+| `safe-area-inset` | iPhone Notch | Padding für Notch und Home-Bar |
+| `hover:none + pointer:coarse` | Touch | Active-States statt Hover-Transforms, immer sichtbare Delete-Buttons |
+
+### Modulübersicht-Integration
+
+- **index.html**: Eigene Kategorie «Schadensdokumentation» (`data-cat="schaden"`) mit rotem Farbschema, zwischen Infrastruktur und Ausbildung
+- **sw.js**: Im Cache-Array (`CACHE_FILES`), SW-Version hochgezogen bei Änderungen
+
 ### Phase 2 (geplant): if_trocknung.html
 
-Separates Gerätemanagement für Trockner/Ventilatoren mit NFC/QR-Tags, automatischer Datenfluss in den Schadensbericht. Gleiche Architektur wie if_werkzeug.html.
+Separates Gerätemanagement für Trockner/Ventilatoren mit NFC/QR-Tags, Raum/Zone-Zuordnung pro Schadensprojekt, automatischer Datenfluss in den Schadensbericht. Gleiche Architektur wie if_werkzeug.html.
 
 ---
 
