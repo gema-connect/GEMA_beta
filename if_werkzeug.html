@@ -694,6 +694,8 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
         <button class="mft-save" style="flex:1 1 80px;justify-content:center;padding:8px 10px;font-size:12px;background:#1d4ed8" onclick="downloadQRSVG()">⬇ SVG</button>
         <button id="nfcBtn" onclick="_wzWriteNFC()" style="display:none;flex:1 1 80px;padding:8px 10px;border-radius:8px;border:1.5px solid #bfdbfe;background:#eff6ff;color:#1d4ed8;font-size:12px;font-weight:800;cursor:pointer;justify-content:center;align-items:center;gap:5px;font-family:inherit">
           📡 NFC</button>
+        <button id="nfcLockBtn" onclick="_wzMakeNFCReadOnly()" title="NFC-Tag dauerhaft schreibgeschützt machen — irreversibel" style="display:none;flex:1 1 80px;padding:8px 10px;border-radius:8px;border:1.5px solid #fecaca;background:#fef2f2;color:#b91c1c;font-size:12px;font-weight:800;cursor:pointer;justify-content:center;align-items:center;gap:5px;font-family:inherit">
+          🔒 Sperren</button>
       </div>
       <div id="nfcStatus" style="text-align:center;font-size:11px;color:var(--mut);margin-top:4px"></div>
     </div>
@@ -2849,6 +2851,8 @@ function openQR(id){
   _currentQRInstance=new QRCode(canvas,{text:url,width:190,height:190,colorDark:'#111827',colorLight:'#ffffff',correctLevel:QRCode.CorrectLevel.M});
   var nfcB=document.getElementById('nfcBtn');
   if(nfcB){nfcB.style.display=('NDEFReader' in window)?'inline-flex':'none';var ns=document.getElementById('nfcStatus');if(ns)ns.textContent='';}
+  var nfcLB=document.getElementById('nfcLockBtn');
+  if(nfcLB){nfcLB.style.display=(('NDEFReader' in window)&&_wzCanEdit())?'inline-flex':'none';}
   document.getElementById('qrInfo').innerHTML=[
     ['Bezeichnung',t.name],['Kategorie',cat.icon+' '+cat.label],
     ['Hersteller / Modell',(t.brand||'—')+(t.model?' · '+t.model:'')],
@@ -2880,6 +2884,36 @@ async function _wzWriteNFC(){
     }
   }finally{
     if(btn){btn.disabled=false;btn.style.opacity='1';}
+  }
+}
+async function _wzMakeNFCReadOnly(){
+  if(!('NDEFReader' in window)){alert('NFC wird von diesem Browser nicht unterstützt. Benötigt: Android + Chrome.');return;}
+  if(!_wzCanEdit()){alert('Keine Berechtigung — nur Magaziner und Admins dürfen Tags sperren.');return;}
+  if(!confirm('NFC-Tag dauerhaft schreibgeschützt machen?\n\n⚠ Diese Aktion ist UNWIDERRUFLICH.\nDer Tag kann anschliessend nie mehr beschrieben oder gelöscht werden.\n\nFortfahren?'))return;
+  var st=document.getElementById('nfcStatus');
+  var lockBtn=document.getElementById('nfcLockBtn');
+  var wrtBtn=document.getElementById('nfcBtn');
+  if(st)st.textContent='🔒 NFC-Tag jetzt an das Gerät halten — wird gesperrt …';
+  if(lockBtn){lockBtn.disabled=true;lockBtn.style.opacity='.6';}
+  if(wrtBtn){wrtBtn.disabled=true;wrtBtn.style.opacity='.6';}
+  try{
+    var reader=new NDEFReader();
+    if(typeof reader.makeReadOnly!=='function'){
+      throw new Error('Browser unterstützt das Sperren von NFC-Tags nicht (makeReadOnly nicht verfügbar).');
+    }
+    await reader.makeReadOnly();
+    if(st)st.innerHTML='<span style="color:#16a34a;font-weight:700">✓ NFC-Tag dauerhaft gesperrt.</span>';
+  }catch(e){
+    if(e.name==='NotAllowedError'){
+      if(st)st.innerHTML='<span style="color:#d97706">NFC-Berechtigung verweigert.</span>';
+    }else if(e.name==='AbortError'||(e.message&&e.message.indexOf('cancel')>=0)){
+      if(st)st.textContent='Abgebrochen.';
+    }else{
+      if(st)st.innerHTML='<span style="color:#dc2626">Fehler: '+esc(e.message||'Unbekannt')+'</span>';
+    }
+  }finally{
+    if(lockBtn){lockBtn.disabled=false;lockBtn.style.opacity='1';}
+    if(wrtBtn){wrtBtn.disabled=false;wrtBtn.style.opacity='1';}
   }
 }
 function downloadQR(){
