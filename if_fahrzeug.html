@@ -656,9 +656,12 @@ tbody td.mono{font-family:var(--mono);font-weight:500;}
         <div class="form-grid">
           <div class="field">
             <label class="label">Zugewiesener Garagist</label>
-            <select class="sel" id="fGaragistUserId" style="font-size:16px">
-              <option value="">— Keine Werkstatt zugewiesen —</option>
-            </select>
+            <div style="display:flex;gap:6px;align-items:stretch">
+              <select class="sel" id="fGaragistUserId" style="font-size:16px;flex:1">
+                <option value="">— Keine Werkstatt zugewiesen —</option>
+              </select>
+              <button type="button" onclick="_fzOpenInviteGaragist()" class="btn" style="flex-shrink:0;padding:0 12px;font-weight:700;font-size:13px;border:1.5px solid #0d9488;background:#ecfeff;color:#0d9488;border-radius:8px;cursor:pointer">+ Einladen</button>
+            </div>
             <span class="hint">Garagist sieht nur ihm zugewiesene Fahrzeuge. Pflegt km-Stand, Service-Historie, MFK und Reifen.</span>
           </div>
           <div class="field">
@@ -1613,6 +1616,111 @@ function _fzPopulateGaragistDropdown(selectedUserId){
     }catch(e){}
   }
   sel.innerHTML=opts;
+}
+
+// Einladungs-Modal fuer eine neue Werkstatt. Magaziner gibt
+// Werkstatt-Name, Kontakt-Person, Email an; das System legt
+// Org + Garagist-User mit Token an und gibt einen Login-Link zurueck,
+// den der Magaziner per Mail/SMS weiterleiten kann.
+function _fzOpenInviteGaragist(){
+  if(!_fzCanCreate()){alert('Nur Magaziner und Admins dürfen Werkstätten einladen.');return;}
+  var ov=document.getElementById('inviteGaragistOverlay');
+  if(!ov){_fzCreateInviteGaragistModal();ov=document.getElementById('inviteGaragistOverlay');}
+  // Felder leeren
+  ['fInvFirma','fInvPerson','fInvEmail','fInvTel'].forEach(function(id){var el=document.getElementById(id);if(el)el.value='';});
+  var res=document.getElementById('fInvResult');if(res)res.style.display='none';
+  ov.style.display='flex';ov.classList.remove('hidden');
+  document.body.classList.add('modal-open');
+  setTimeout(function(){var f=document.getElementById('fInvFirma');if(f)f.focus();},150);
+}
+window._fzOpenInviteGaragist=_fzOpenInviteGaragist;
+
+function _fzCloseInviteGaragist(){
+  var ov=document.getElementById('inviteGaragistOverlay');
+  if(ov){ov.style.display='none';ov.classList.add('hidden');}
+  document.body.classList.remove('modal-open');
+}
+window._fzCloseInviteGaragist=_fzCloseInviteGaragist;
+
+function _fzSubmitInviteGaragist(){
+  var firma=(document.getElementById('fInvFirma').value||'').trim();
+  var person=(document.getElementById('fInvPerson').value||'').trim();
+  var email=(document.getElementById('fInvEmail').value||'').trim();
+  var tel=(document.getElementById('fInvTel').value||'').trim();
+  if(!firma){alert('Werkstatt-Name ist Pflicht.');return;}
+  if(!email){alert('Email ist Pflicht — sie wird zum Login-Username.');return;}
+  if(typeof GemaAuth==='undefined'||typeof GemaAuth.inviteBeteiligter!=='function'){
+    alert('Einladungs-System nicht verfuegbar.');return;
+  }
+  try{
+    var me=_fzGetUser();
+    var resp=GemaAuth.inviteBeteiligter({
+      roleId:'role_garagist',
+      email:email, firma:firma, person:person||firma, tel:tel,
+      eingeladenVon:me?me.id:''
+    });
+    var fGaragist=document.getElementById('fGaragistUserId');
+    if(fGaragist && resp && resp.user){
+      _fzPopulateGaragistDropdown(resp.user.id);
+    }
+    var inviteUrl=resp.loginUrl||'sys_login.html?invite='+(resp.token||'');
+    // Absoluter Link, damit der Magaziner ihn per Email/SMS weitergeben kann
+    try{var base=location.href.split('?')[0].replace(/[^/]+$/,'');inviteUrl=base+inviteUrl;}catch(e){}
+    var existing=resp&&resp.existingAccount;
+    var box=document.getElementById('fInvResult');
+    if(box){
+      box.style.display='block';
+      box.innerHTML=existing?
+        '<div style="padding:12px 14px;background:#fffbeb;border:1.5px solid #fde68a;border-radius:8px;color:#92400e;font-size:13px">⚠ Diese Email hat bereits ein Konto. Wir haben den bestehenden Werkstatt-Account ausgewählt.</div>':
+        '<div style="padding:12px 14px;background:#ecfeff;border:1.5px solid #a5f3fc;border-radius:8px;color:#0e7490"><div style="font-weight:700;font-size:13px;margin-bottom:6px">✓ Einladung erstellt</div>'+
+        '<div style="font-size:12px;margin-bottom:8px">Sende diesen Link an <b>'+esc(email)+'</b>:</div>'+
+        '<div style="display:flex;gap:6px;align-items:center"><input id="fInvLink" readonly value="'+esc(inviteUrl)+'" style="flex:1;padding:7px 10px;border:1.5px solid #a5f3fc;border-radius:6px;font-size:11.5px;background:#fff;font-family:monospace"/><button onclick="_fzCopyInviteLink()" class="btn" style="padding:7px 12px;border:1.5px solid #0d9488;background:#0d9488;color:#fff;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700">Kopieren</button></div></div>';
+    }
+    showToast(existing?'Bestehende Werkstatt verknüpft':'Werkstatt eingeladen ✓');
+  }catch(e){
+    alert('Einladung fehlgeschlagen: '+(e.message||'Unbekannter Fehler'));
+  }
+}
+window._fzSubmitInviteGaragist=_fzSubmitInviteGaragist;
+
+function _fzCopyInviteLink(){
+  var inp=document.getElementById('fInvLink');if(!inp)return;
+  inp.select();inp.setSelectionRange(0,inp.value.length);
+  try{
+    if(navigator.clipboard&&navigator.clipboard.writeText){
+      navigator.clipboard.writeText(inp.value).then(function(){showToast('Link kopiert ✓');});
+    } else {
+      document.execCommand('copy');showToast('Link kopiert ✓');
+    }
+  }catch(e){showToast('Kopieren fehlgeschlagen — Link manuell auswählen');}
+}
+window._fzCopyInviteLink=_fzCopyInviteLink;
+
+function _fzCreateInviteGaragistModal(){
+  var ov=document.createElement('div');
+  ov.id='inviteGaragistOverlay';
+  ov.className='modal-overlay';
+  ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1100;display:none;align-items:center;justify-content:center;padding:16px';
+  ov.innerHTML=''+
+    '<div style="max-width:480px;width:100%;background:#fff;border-radius:14px;box-shadow:0 20px 60px rgba(0,0,0,.25);overflow:hidden;max-height:90vh;overflow-y:auto">'+
+      '<div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid #f0f0f0">'+
+        '<div style="display:flex;align-items:center;gap:10px"><span style="font-size:22px">🔧</span><div><div style="font-size:14px;font-weight:700">Werkstatt einladen</div><div style="font-size:11px;color:#9ca3af">Email-Einladung mit Login-Link für eine neue Werkstatt.</div></div></div>'+
+        '<button onclick="_fzCloseInviteGaragist()" style="background:none;border:none;font-size:18px;cursor:pointer;color:#6b7280">✕</button>'+
+      '</div>'+
+      '<div style="padding:18px 20px;display:flex;flex-direction:column;gap:12px">'+
+        '<div class="field"><label class="label">Werkstatt-Name *</label><input class="inp" id="fInvFirma" placeholder="z. B. Garage Müller AG"/></div>'+
+        '<div class="field"><label class="label">Ansprechperson</label><input class="inp" id="fInvPerson" placeholder="z. B. Hans Müller"/></div>'+
+        '<div class="field"><label class="label">Email (Login-Username) *</label><input class="inp" id="fInvEmail" type="email" placeholder="hans.mueller@garage-mueller.ch"/></div>'+
+        '<div class="field"><label class="label">Telefon</label><input class="inp" id="fInvTel" type="tel" placeholder="+41 …"/></div>'+
+        '<div id="fInvResult" style="display:none"></div>'+
+      '</div>'+
+      '<div style="display:flex;justify-content:flex-end;gap:8px;padding:14px 20px;border-top:1px solid #f0f0f0;background:#fafbfd">'+
+        '<button class="btn" onclick="_fzCloseInviteGaragist()">Schliessen</button>'+
+        '<button class="btn primary" onclick="_fzSubmitInviteGaragist()">Einladen &amp; Link generieren</button>'+
+      '</div>'+
+    '</div>';
+  document.body.appendChild(ov);
+  ov.addEventListener('click',function(e){if(e.target===ov)_fzCloseInviteGaragist();});
 }
 
 function _fzPopulateDriverDropdown(selected){
