@@ -193,7 +193,7 @@ Jede Rolle hat ein eigenes Login mit rollenspezifischer Ansicht.
 | **Behörde** | Bewilligungen + Hygiene | W12-Prüfungen, Bewilligungsstatus, Inspektion (Read-only) |
 | **Lieferant** | Eigenes Dashboard | Produktpflege, Verifizierung, Offertanfragen beantworten, Werkzeug-Prüfungen quittieren |
 | **Magaziner** | Werkzeug-/Fahrzeuglager der eigenen Org | Geräte erfassen + verwalten, Berichte schreiben, Personen zuweisen, Prüfungen bei Lieferanten anfordern |
-| **Monteur** | Read-only auf Werkzeuge der eigenen Org | Geräte einsehen, Defekte melden — keine Edit-Rechte |
+| **Monteur** | Read-only auf Werkzeuge + Schadensberichte | Geräte einsehen, Defekte melden, Schadensmessungen + Fotos erfassen — keine Edit-Rechte auf Werkzeuge |
 | **Prüfer** | Werkzeug-/Fahrzeug-Prüfungen | Quittiert Prüfungs-Aufträge, lädt Prüfberichte hoch |
 | **Admin** | Alles | Benutzer verwalten, Lieferanten aktivieren/deaktivieren, System konfigurieren |
 
@@ -231,6 +231,7 @@ Kategorie-Präfix + Kleinschreibung. **Keine Umlaute in Dateinamen** (ä→ae, �
 | `hy_` | Hygiene | `hy_w12.html` |
 | `br_` | Brandschutz | `br_index.html` |
 | `if_` | Infrastruktur (Werkzeug, Fahrzeug, Lager) | `if_werkzeug.html`, `if_fahrzeug.html` |
+| `sd_` | Schadensdokumentation | `sd_schadensbericht.html` |
 | `ab_` | Ausbildung | `ab_index.html` |
 | `sys_` | System | `sys_settings.html` |
 
@@ -241,7 +242,8 @@ Hauptseite: `index.html`. Hub-Seiten: `sb_index.html`, `pm_ausschreibung.html`, 
 - **16 Sanitärberechnungs-Module** (sb_): Inkl. LU-Zusammenstellung, Druckerhöhung, Osmose, Enthärtung etc.
 - **Projektmanagement-Module** (pm_): Objekte, Terminplanung, Sitzungsprotokolle, Kostenkontrolle, Ausschreibung
 - **Hygiene-Module** (hy_): W12 Selbstkontrolle (SVGW)
-- **Infrastruktur-Module** (if_): Werkzeugmanagement, Fahrzeugmanagement (siehe Abschnitt „Werkzeug- & Fahrzeugmanagement" weiter unten)
+- **Infrastruktur-Module** (if_): Werkzeugmanagement, Fahrzeugmanagement, Trocknungsgeräte (siehe Abschnitte weiter unten)
+- **Schadensdokumentation** (sd_): Schadensberichte (siehe Abschnitt „Schadensdokumentation" weiter unten). Trocknungsgeräte (if_trocknung.html) liefert automatisch Gerätedaten via `GemaTrocknung`-API.
 - **Zentrale Module**: `index.html` (Hauptnavigation / Modulübersicht), `pm_objekte.html` (Projektverwaltung)
 - **Lieferanten-Modul**: `sys_lieferant_dashboard.html` mit 6 Tabs (Übersicht, Produkte, Anfragen, Rohrsysteme, Werkzeuge, Firmenprofil)
 
@@ -546,6 +548,204 @@ Jedes Werkzeug kann über `supplier` + `supplierId` mit einem Lieferanten-Accoun
 ### Fahrzeugmanagement (if_fahrzeug.html)
 
 Eigenständiges Modul mit ähnlicher Struktur (Liste, QR-Code-Generierung mit SVG-Download, Service-Intervalle). Schreib-Zugriff: `role_magaziner`, `role_pruefer`. Nicht alle Werkzeug-Features (Berichte, Zuweisung, Lieferanten-Workflow) sind im Fahrzeug-Modul gespiegelt — bei Bedarf gleicher Pattern wie if_werkzeug.html anwenden.
+
+---
+
+## Schadensdokumentation (sd_schadensbericht.html)
+
+Modul zur Dokumentation von Wasserschäden, Schimmelschäden, Rohrbrüchen etc. — von der Schadensmeldung über Leckortung und Trocknung bis zum Abschlussbericht für die Versicherung.
+
+### Architektur-Entscheide
+
+- **Objekt-Zuordnung**: Jeder Schaden wird zwingend einem bestehenden GEMA-Objekt zugeordnet (mit Schnell-Anlage-Button zu `pm_objekte.html`)
+- **Trockner-Zuordnung**: Trocknungsgeräte werden pro Raum/Zone im Schadensprojekt zugeordnet (z.B. „Trockner A im Bad, Ventilator B im Flur")
+- **Stromberechnung**: Nur kWh berechnen (Zählerstand-Differenz × kW), kein Preis — Planer setzt Kosten manuell
+- **Messwert-Darstellung**: User wählt zwischen Tabellen-Ansicht und Canvas-Liniendiagramm (Toggle)
+- **Dashboard**: Volle Info-Karten im Werkzeug-Stil (Status-Bar, Typ-Icon, Phase-Badge, Foto-Zähler)
+- **Rollen**: Sanitärplaner (read+write), Monteur (Messungen + Fotos), Admin (alles)
+- **Phasenaufteilung**: Phase 1 = sd_schadensbericht.html (Berichte + manuelles Geräte-Tracking), Phase 2 = if_trocknung.html (separates Gerätemanagement)
+
+### Phasen-Workflow
+
+```
+Erfasst → Zustandsanalyse → Trocknung → Abschluss
+   │            │                │            │
+   │    Leckortung,        Messpunkte,   Zusammenfassung,
+   │    Massnahmen,        Geräte (kWh), Instandstellung,
+   │    Fotos              Messwerte,    finaler Export
+   │                       Fotos
+   │
+   Schadentyp, Objekt (zwingend),
+   Versicherung, Räume
+```
+
+### Schadentypen
+
+| Typ | Icon | Key |
+|-----|------|-----|
+| Wasserschaden | 💧 | `wasserschaden` |
+| Schimmelschaden | 🦠 | `schimmel` |
+| Rohrbruch | 🔧 | `rohrbruch` |
+| Leitungsschaden | ⚡ | `leitungsschaden` |
+| Rückstau | 🌊 | `rueckstau` |
+| Sonstiges | 📋 | `sonstiges` |
+
+### Datenmodell
+
+Storage-Key: `gema_schadensbericht_v1`
+
+Jeder Schaden hat: `id`, `typ`, `titel`, `objektId` (zwingend), `phase`, `beschreibung`, `ursache`, `raeume[]`, `versicherung{name,policeNr,schadenNr,kontakt}`, `erstelltAm`, `erstelltVon{userId,name}`.
+
+Drei Unter-Objekte pro Schaden:
+- `zustandsanalyse{leckortung, schadenausmass, massnahmen[], fotos[], abgeschlossenAm}`
+- `trocknung{gestartetAm, beendetAm, messpunkte[{name, messungen[{datum,wert}]}], geraete[{name,raum,kw,zaehlerStart,zaehlerEnde}], fotos[], notizen}`
+- `abschluss{zusammenfassung, instandstellung, weitereSchaeden, fotos[], abgeschlossenAm}`
+
+### Berechtigungs-Helper
+
+```javascript
+_sdCanEdit()     // Admin, Planer (alle Gewerke): voller Zugriff
+_sdCanMeasure()  // wie _sdCanEdit + Monteur: Fotos + Messwerte erfassen
+```
+
+**gema_auth.js-Integration**:
+- `schadensbericht` in MODULES-Array (Kategorie `Schadensdokumentation`)
+- `sd_schadensbericht` in FILE_MAP → `schadensbericht`
+- Monteur-Rolle: `schadensbericht: {read:true, write:true, admin:false}` (kann Messungen + Fotos erfassen)
+- Planer-Rollen: automatisch via `_allPerms(true,true,false)`
+
+### Dashboard (Hauptansicht)
+
+- **KPI-Zeile**: 4 Stat-Cards (Total, In Analyse, In Trocknung, Abgeschlossen) — klickbar als Filter
+- **Karten-Grid**: `repeat(auto-fill, minmax(360px, 1fr))` — Status-Bar (rot/amber/grün/blau), Typ-Icon, Titel, Adresse, Phase-Badge, Foto-Zähler
+- **Toolbar**: Suche, "+ Neuer Schaden", Karten/Tabellen-Toggle, mobile Suchbutton
+- **Tabellenansicht**: Horizontal scrollbar auf Mobile
+
+### Detail-Ansicht
+
+Full-Screen-Overlay (`position:fixed`) mit 4-Phasen-Timeline und aufklappbaren Accordion-Sektionen pro Phase. Aktive Phase ist offen, abgeschlossene Phasen zeigen Summary, zukünftige sind ausgegraut.
+
+### Foto-System
+
+- Base64, max 1600px Resize, max 2MB, JPEG-Komprimierung (0.82, Fallback 0.5)
+- `capture="environment"` für Kamera auf Mobile
+- Pro Foto: Kommentar-Dialog + Checkbox «Im Bericht anzeigen»
+- Fotos sind phasenspezifisch (Analyse, Trocknung, Abschluss)
+- Lightbox-Ansicht bei Klick
+- Delete-Buttons auf Touch-Geräten immer sichtbar (kein Hover)
+
+### Messwert-System (Trocknung)
+
+- Messpunkte definieren (z.B. „Wand links Bad")
+- Pro Messpunkt: Messungen über Zeit (Datum, Wert in %)
+- Ansicht umschaltbar: Tabelle oder Canvas-Liniendiagramm (reines Canvas, keine Library)
+- Geräte-Tracking (Phase 1 — manuell): Name, Raum/Zone, kW, Zählerstand Start/Ende → kWh-Berechnung
+- Geräte-Tabelle mit horizontalem Scroll-Wrapper auf Mobile
+
+### Export
+
+- **PDF**: via GemaPDF/html2canvas, GEMA-Branding, Fotos eingebettet
+- **Word**: HTML mit Word-XML-Namespace als .doc, editierbar
+- Beide nutzen gemeinsame Funktion `sdBuildReportHtml(s)`
+
+### Responsive Design
+
+| Breakpoint | Gerät | Anpassungen |
+|-----------|-------|-------------|
+| `≤1024px` | iPad/Tablet | Stats 2-spaltig, Detail volle Breite, kompaktere Tabellen |
+| `≤640px` | Smartphone | Vertikale Timeline, Bottom-Sheet-Modals, 48px Input-Höhe, Touch-Buttons ≥44px, gestackte Formfelder, mobile Toolbar |
+| `≤380px` | iPhone SE | Weitere Komprimierung, kleinere Stats/Icons |
+| `safe-area-inset` | iPhone Notch | Padding für Notch und Home-Bar |
+| `hover:none + pointer:coarse` | Touch | Active-States statt Hover-Transforms, immer sichtbare Delete-Buttons |
+
+### Modulübersicht-Integration
+
+- **index.html**: Eigene Kategorie «Schadensdokumentation» (`data-cat="schaden"`) mit rotem Farbschema, zwischen Infrastruktur und Ausbildung. Trocknungsgeräte zusätzlich in der Infrastruktur-Kategorie
+- **sw.js**: Beide Module im Cache-Array (`CACHE_FILES`), SW-Version hochgezogen bei Änderungen
+
+---
+
+## Trocknungsgeräte (if_trocknung.html)
+
+Phase 2 der Schadensdokumentation — separates Gerätemanagement für Trocknungsgeräte. Gleiche Architektur wie if_werkzeug.html.
+
+### Gerätetypen
+
+| Typ | Icon | Key | Farbe |
+|-----|------|-----|-------|
+| Bautrockner | 🌡️ | `bautrockner` | #dc2626 |
+| Ventilator | 🌀 | `ventilator` | #2563eb |
+| Luftentfeuchter | 💨 | `luftentfeuchter` | #7c3aed |
+| Infrarotheizung | ☀️ | `infrarot` | #d97706 |
+
+### Status
+
+| Status | Key | Farbe |
+|--------|-----|-------|
+| Verfügbar | `verfuegbar` | grün |
+| Im Einsatz | `im_einsatz` | amber |
+| In Wartung | `in_wartung` | blau |
+| Defekt | `defekt` | rot |
+
+### Datenmodell
+
+Storage-Key: `gema_trocknung_v1`
+
+```
+{
+  id, name, typ, marke, modell, serienNr, kw, notes, orgId,
+  status: 'verfuegbar'|'im_einsatz'|'in_wartung'|'defekt',
+  hasService, serviceInterval, lastService,
+  
+  einsatz: null | {
+    schadenId, schadenTitel, objektId, objektName,
+    raum,              // Raum/Zone (z.B. "Bad EG")
+    eingesetztAm, eingesetztVon:{userId,name},
+    zaehlerStart       // Stunden
+  },
+  
+  einsatzHistorie: [{
+    ...einsatz, zaehlerEnde, zurueckAm, kwhTotal, betriebsstunden
+  }]
+}
+```
+
+### Einsatz-Workflow
+
+1. **Einsetzen**: Schadensprojekt auswählen (aus `gema_schadensbericht_v1`, nur aktive Fälle), Raum/Zone, Zählerstand Start → Status wechselt auf `im_einsatz`
+2. **Zurücknehmen**: Zählerstand Ende eingeben → Auto-Berechnung kWh = (Ende − Start) × kW → Einsatz wird in `einsatzHistorie` verschoben → Status zurück auf `verfuegbar`
+
+### QR-Code
+
+- QR-Generierung pro Gerät als SVG (inline QR-Library)
+- SVG-Download + PNG-Download
+- URL: `if_trocknung.html?id=DEVICE_ID` — öffnet automatisch Detail
+
+### Cross-Module API (GemaTrocknung)
+
+```javascript
+window.GemaTrocknung = {
+  getForSchaden(schadenId),        // aktive Geräte eines Schadens
+  getHistoryForSchaden(schadenId), // abgeschlossene Einsätze mit kWh
+  getAllDevices()                  // alle Geräte
+};
+```
+
+Datenfluss: sd_schadensbericht.html kann über `GemaTrocknung.getForSchaden()` die aktuell zugewiesenen Geräte und deren kWh-Werte automatisch in den Bericht übernehmen.
+
+### Berechtigungs-Helper
+
+```javascript
+_tgCanEdit()   // Admin, Magaziner, Planer (alle Gewerke)
+_tgCanAssign() // wie _tgCanEdit
+```
+
+**gema_auth.js-Integration**:
+- `trocknungsgeraete` in MODULES-Array (Kategorie `Infrastruktur`)
+- `if_trocknung` in FILE_MAP → `trocknungsgeraete`
+- Magaziner: read+write+admin
+- Monteur: read-only
+- Planer/Admin: automatisch via `_allPerms`
 
 ---
 

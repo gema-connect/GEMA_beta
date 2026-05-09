@@ -397,6 +397,8 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
     <button class="nbtn primary" id="btnAddTool" onclick="openAdd()">+ Gerät hinzufügen</button>
     <button class="nbtn" onclick="_wzOpenSammelAusleihe()" title="Mehrere Werkzeuge scannen und auf einmal ausleihen" style="background:#fefce8;color:#92400e;border-color:#fde68a">🔄 Sammel-Ausleihe</button>
     <button class="nbtn" id="btnPruefMode" onclick="_wzPruefModus()" style="display:none" title="Prüfmodus starten">📋 Prüfmodus</button>
+    <button class="nbtn" id="btnAdvFilter" onclick="_wzOpenAdvFilter()" style="display:none" title="Erweiterte Filter">🔍 Filter</button>
+    <span class="wz-filter-badge" id="advFilterBadge" style="display:none;font-size:10px;font-weight:800;padding:2px 7px;border-radius:6px;background:var(--plan);color:#fff;cursor:pointer;margin-left:-6px" onclick="_wzClearAdvFilter()" title="Filter zurücksetzen">✕</span>
     <div class="view-toggle">
       <button class="vt-btn active" id="vt_cards" onclick="setView('cards')" title="Karten">⊞</button>
       <button class="vt-btn"        id="vt_table" onclick="setView('table')" title="Tabelle">☰</button>
@@ -816,6 +818,41 @@ function _wzCanReportDefect(){
 // STATE & CONSTANTS
 // ──────────────────────────────────────
 let tools=[], currentFilter='all', currentView='cards', pruefId=null;
+let _wzAdvFilter={};
+
+function _wzGetMyTools(list){
+  var u=_wzGetUser();if(!u)return[];
+  return list.filter(function(t){
+    return (t.zugewiesenAn&&t.zugewiesenAn.userId===u.id)||(t.ausgeliehenAn&&t.ausgeliehenAn.userId===u.id);
+  });
+}
+function _wzApplyAdvFilter(list){
+  var f=_wzAdvFilter;if(!f||!Object.keys(f).length)return list;
+  return list.filter(function(t){
+    if(f.kategorie&&t.cat!==f.kategorie)return false;
+    if(f.hersteller&&(t.brand||'').toLowerCase().indexOf(f.hersteller.toLowerCase())<0)return false;
+    if(f.modell&&(t.model||'').toLowerCase().indexOf(f.modell.toLowerCase())<0)return false;
+    if(f.lieferant&&(t.supplier||'').toLowerCase().indexOf(f.lieferant.toLowerCase())<0)return false;
+    if(f.serial&&(t.serial||'').toLowerCase().indexOf(f.serial.toLowerCase())<0)return false;
+    if(f.standort&&(t.notes||'').toLowerCase().indexOf(f.standort.toLowerCase())<0)return false;
+    if(f.zugewiesenAn){
+      if(!t.zugewiesenAn||!(t.zugewiesenAn.name||'').toLowerCase().includes(f.zugewiesenAn.toLowerCase()))return false;
+    }
+    if(f.ausgeliehenAn){
+      if(!t.ausgeliehenAn||!(t.ausgeliehenAn.name||'').toLowerCase().includes(f.ausgeliehenAn.toLowerCase()))return false;
+    }
+    if(f.defektOffen==='ja'){if(!_wzBadDefect(t))return false;}
+    if(f.defektOffen==='nein'){if(_wzBadDefect(t))return false;}
+    if(f.pruefStatus==='overdue'){var w=worstDays(t);if(w===null||w>=0)return false;}
+    if(f.pruefStatus==='soon'){var w=worstDays(t);if(w===null||w<0||w>30)return false;}
+    if(f.pruefStatus==='ok'){var w=worstDays(t);if(w!==null&&w<=30)return false;}
+    if(f.garantieStatus==='abgelaufen'){if(!t.warranty)return false;var d=daysFrom(t.warranty);if(d===null||d>=0)return false;}
+    if(f.garantieStatus==='aktiv'){if(!t.warranty)return false;var d=daysFrom(t.warranty);if(d===null||d<0)return false;}
+    if(f.kaufVon){if(!t.bought||t.bought<f.kaufVon)return false;}
+    if(f.kaufBis){if(!t.bought||t.bought>f.kaufBis)return false;}
+    return true;
+  });
+}
 const CATS={
   'maschine':        {icon:'⚙️',label:'Maschine (Akku)',   cls:'cat-maschine',    ico:'ico-maschine'},
   'maschine-kabel':  {icon:'🔌',label:'Maschine (Kabel)',  cls:'cat-kabel',       ico:'ico-kabel'},
@@ -1221,8 +1258,10 @@ function badgeC(d){const c=dc(d);return c==='red'?'badge-red':c==='amber'?'badge
 // RENDER
 // ──────────────────────────────────────
 function getFiltered(){
+  var base=_wzIsMonteurView()?_wzGetMyTools(tools):tools;
+  base=_wzApplyAdvFilter(base);
   const q=(document.getElementById('searchInp')?.value||'').toLowerCase();
-  return tools.filter(t=>{
+  return base.filter(t=>{
     const cat=CATS[t.cat];
     const ok=!q||[t.name,t.brand,t.model,t.supplier,cat?.label,t.notes].some(v=>(v||'').toLowerCase().includes(q));
     if(!ok)return false;
@@ -1239,7 +1278,10 @@ function renderList(){
   const grid=document.getElementById('cardGrid');
   const tbody=document.getElementById('toolTbody');
   if(currentView==='cards'){
-    grid.innerHTML=f.length?f.map(renderCard).join(''):`<div class="empty-state"><div class="ei">🔧</div><h3>Keine Geräte gefunden</h3><p>Passen Sie den Filter an oder erfassen Sie ein neues Gerät.</p><button class="nbtn primary" onclick="openAdd()">+ Gerät hinzufügen</button></div>`;
+    var emptyMsg=_wzIsMonteurView()
+      ?'<div class="empty-state"><div class="ei">🔧</div><h3>Keine Werkzeuge</h3><p>Dir sind aktuell keine Werkzeuge zugewiesen. Scanne einen QR-Code um ein Werkzeug einzubuchen.</p></div>'
+      :'<div class="empty-state"><div class="ei">🔧</div><h3>Keine Geräte gefunden</h3><p>Passen Sie den Filter an oder erfassen Sie ein neues Gerät.</p><button class="nbtn primary" onclick="openAdd()">+ Gerät hinzufügen</button></div>';
+    grid.innerHTML=f.length?f.map(renderCard).join(''):emptyMsg;
   } else {
     tbody.innerHTML=f.length?f.map(renderRow).join(''):`<tr><td colspan="8" style="padding:44px;text-align:center;color:var(--mut)">Keine Geräte gefunden</td></tr>`;
   }
@@ -1340,9 +1382,11 @@ function renderRow(t){
 }
 
 function updateStats(){
+  var base=_wzIsMonteurView()?_wzGetMyTools(tools):tools;
+  base=_wzApplyAdvFilter(base);
   let ov=0,so=0,ok=0;
-  tools.forEach(t=>{const w=worstDays(t);if(w!==null){if(w<0)ov++;else if(w<=30)so++;else ok++;}else ok++;});
-  ['s_total','s_overdue','s_soon','s_ok'].forEach((id,i)=>setText(id,[tools.length,ov,so,ok][i]));
+  base.forEach(t=>{const w=worstDays(t);if(w!==null){if(w<0)ov++;else if(w<=30)so++;else ok++;}else ok++;});
+  ['s_total','s_overdue','s_soon','s_ok'].forEach((id,i)=>setText(id,[base.length,ov,so,ok][i]));
   document.querySelectorAll('.stat-card').forEach((c,i)=>c.classList.toggle('active-f',['all','overdue','soon','ok'][i]===currentFilter));
 }
 
@@ -2060,6 +2104,110 @@ window._wzSaveAusleihe=_wzSaveAusleihe;
 window._wzReturnTool=_wzReturnTool;
 window._wzCanReturnTool=_wzCanReturnTool;
 window._wzIsMonteurView=_wzIsMonteurView;
+
+// ── Erweiterter Filter-Dialog (Magaziner + Admin) ──
+function _wzOpenAdvFilter(){
+  var f=_wzAdvFilter||{};
+  var catOpts='<option value="">Alle</option>';
+  Object.keys(CATS).forEach(function(k){catOpts+='<option value="'+k+'"'+(f.kategorie===k?' selected':'')+'>'+esc(CATS[k].label)+'</option>';});
+
+  var personen=[];
+  if(typeof GemaAuth!=='undefined'){
+    try{var me=_wzGetUser()||{};var users=GemaAuth.getUsers()||[];
+      personen=users.filter(function(u){return u.active&&(!me.orgId||u.orgId===me.orgId||_wzIsAdmin());});
+    }catch(e){}
+  }
+  var zuOpts='<option value="">Alle</option>';
+  var ausOpts='<option value="">Alle</option>';
+  personen.forEach(function(p){
+    var n=esc(p.name||p.username);
+    zuOpts+='<option value="'+n+'"'+(f.zugewiesenAn===n?' selected':'')+'>'+n+'</option>';
+    ausOpts+='<option value="'+n+'"'+(f.ausgeliehenAn===n?' selected':'')+'>'+n+'</option>';
+  });
+
+  var brands={};tools.forEach(function(t){if(t.brand)brands[t.brand]=1;});
+  var brandOpts='<option value="">Alle</option>';
+  Object.keys(brands).sort().forEach(function(b){brandOpts+='<option value="'+esc(b)+'"'+(f.hersteller===b?' selected':'')+'>'+esc(b)+'</option>';});
+
+  var suppliers={};tools.forEach(function(t){if(t.supplier)suppliers[t.supplier]=1;});
+  var supplierOpts='<option value="">Alle</option>';
+  Object.keys(suppliers).sort().forEach(function(s){supplierOpts+='<option value="'+esc(s)+'"'+(f.lieferant===s?' selected':'')+'>'+esc(s)+'</option>';});
+
+  var html='<div class="dlg-card" style="max-width:560px">'
+    +'<h3 style="margin:0 0 4px;font-size:17px;font-weight:800;color:var(--plan)">🔍 Erweiterte Filter</h3>'
+    +'<div style="font-size:12px;color:#64748b;margin-bottom:16px">Kombinierbar — leere Felder werden ignoriert</div>'
+    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px 14px">'
+    +'<div><label class="dlg-lbl">Kategorie</label><select id="af_kat" class="dlg-inp">'+catOpts+'</select></div>'
+    +'<div><label class="dlg-lbl">Hersteller</label><select id="af_brand" class="dlg-inp">'+brandOpts+'</select></div>'
+    +'<div><label class="dlg-lbl">Modell</label><input id="af_model" class="dlg-inp" value="'+esc(f.modell||'')+'" placeholder="z.B. SF 6H"></div>'
+    +'<div><label class="dlg-lbl">Lieferant</label><select id="af_supplier" class="dlg-inp">'+supplierOpts+'</select></div>'
+    +'<div><label class="dlg-lbl">Zugewiesen an</label><select id="af_zugewiesen" class="dlg-inp">'+zuOpts+'</select></div>'
+    +'<div><label class="dlg-lbl">Ausgeliehen an</label><select id="af_ausgeliehen" class="dlg-inp">'+ausOpts+'</select></div>'
+    +'<div><label class="dlg-lbl">Seriennummer</label><input id="af_serial" class="dlg-inp" value="'+esc(f.serial||'')+'" placeholder="SN …"></div>'
+    +'<div><label class="dlg-lbl">Standort / Notiz</label><input id="af_standort" class="dlg-inp" value="'+esc(f.standort||'')+'" placeholder="z.B. Lager 2"></div>'
+    +'<div><label class="dlg-lbl">Prüfstatus</label><select id="af_pruef" class="dlg-inp">'
+    +'<option value="">Alle</option><option value="overdue"'+(f.pruefStatus==='overdue'?' selected':'')+'>Überfällig</option>'
+    +'<option value="soon"'+(f.pruefStatus==='soon'?' selected':'')+'>Fällig ≤ 30 T.</option>'
+    +'<option value="ok"'+(f.pruefStatus==='ok'?' selected':'')+'>In Ordnung</option></select></div>'
+    +'<div><label class="dlg-lbl">Defekt offen</label><select id="af_defekt" class="dlg-inp">'
+    +'<option value="">Alle</option><option value="ja"'+(f.defektOffen==='ja'?' selected':'')+'>Ja</option>'
+    +'<option value="nein"'+(f.defektOffen==='nein'?' selected':'')+'>Nein</option></select></div>'
+    +'<div><label class="dlg-lbl">Garantie</label><select id="af_garantie" class="dlg-inp">'
+    +'<option value="">Alle</option><option value="aktiv"'+(f.garantieStatus==='aktiv'?' selected':'')+'>Aktiv</option>'
+    +'<option value="abgelaufen"'+(f.garantieStatus==='abgelaufen'?' selected':'')+'>Abgelaufen</option></select></div>'
+    +'<div><label class="dlg-lbl">Kaufdatum von</label><input type="date" id="af_kaufVon" class="dlg-inp" value="'+(f.kaufVon||'')+'"></div>'
+    +'<div><label class="dlg-lbl">Kaufdatum bis</label><input type="date" id="af_kaufBis" class="dlg-inp" value="'+(f.kaufBis||'')+'"></div>'
+    +'</div>'
+    +'<div class="dlg-row" style="margin-top:18px">'
+    +'  <button onclick="_wzClearAdvFilter()" style="padding:9px 16px;border-radius:8px;border:1.5px solid var(--brd2);background:var(--sur);color:var(--mut);cursor:pointer;font-weight:600;font-family:inherit">↻ Zurücksetzen</button>'
+    +'  <div style="flex:1"></div>'
+    +'  <button onclick="_wzCloseModal()" class="dlg-cancel">Abbrechen</button>'
+    +'  <button onclick="_wzApplyAdvFilterDialog()" style="padding:9px 18px;border-radius:8px;border:none;background:var(--plan);color:#fff;cursor:pointer;font-weight:700;font-family:inherit">✓ Anwenden</button>'
+    +'</div></div>';
+  _wzShowModal(html);
+}
+function _wzApplyAdvFilterDialog(){
+  var v=function(id){var el=document.getElementById(id);return el?el.value.trim():'';};
+  _wzAdvFilter={};
+  if(v('af_kat'))_wzAdvFilter.kategorie=v('af_kat');
+  if(v('af_brand'))_wzAdvFilter.hersteller=v('af_brand');
+  if(v('af_model'))_wzAdvFilter.modell=v('af_model');
+  if(v('af_supplier'))_wzAdvFilter.lieferant=v('af_supplier');
+  if(v('af_zugewiesen'))_wzAdvFilter.zugewiesenAn=v('af_zugewiesen');
+  if(v('af_ausgeliehen'))_wzAdvFilter.ausgeliehenAn=v('af_ausgeliehen');
+  if(v('af_serial'))_wzAdvFilter.serial=v('af_serial');
+  if(v('af_standort'))_wzAdvFilter.standort=v('af_standort');
+  if(v('af_pruef'))_wzAdvFilter.pruefStatus=v('af_pruef');
+  if(v('af_defekt'))_wzAdvFilter.defektOffen=v('af_defekt');
+  if(v('af_garantie'))_wzAdvFilter.garantieStatus=v('af_garantie');
+  if(v('af_kaufVon'))_wzAdvFilter.kaufVon=v('af_kaufVon');
+  if(v('af_kaufBis'))_wzAdvFilter.kaufBis=v('af_kaufBis');
+  _wzUpdateFilterBadge();
+  _wzCloseModal();renderList();
+}
+function _wzClearAdvFilter(){
+  _wzAdvFilter={};
+  _wzUpdateFilterBadge();
+  var m=document.querySelector('.wz-modal-overlay');
+  if(m){_wzCloseModal();}
+  renderList();
+}
+function _wzUpdateFilterBadge(){
+  var badge=document.getElementById('advFilterBadge');
+  var btn=document.getElementById('btnAdvFilter');
+  var active=Object.keys(_wzAdvFilter).length>0;
+  if(badge)badge.style.display=active?'inline-block':'none';
+  if(btn){
+    if(active){
+      btn.style.background='var(--plan-bg)';btn.style.color='var(--plan)';btn.style.borderColor='var(--plan-bd)';
+    }else{
+      btn.style.background='';btn.style.color='';btn.style.borderColor='';
+    }
+  }
+}
+window._wzOpenAdvFilter=_wzOpenAdvFilter;
+window._wzApplyAdvFilterDialog=_wzApplyAdvFilterDialog;
+window._wzClearAdvFilter=_wzClearAdvFilter;
 
 function openBerichte(toolId){
   var t=tools.find(function(x){return x.id===toolId;});
@@ -3181,17 +3329,40 @@ await Promise.race([
   _wzSetupAutocomplete();
   // Einmal pro Sitzung: Faelligkeits-Scan fuer Magaziner/Admin ausloesen
   if(_wzCanEdit()){try{_wzScanFaelligkeiten();}catch(e){console.warn('Faelligkeitsscan fehlgeschlagen:',e);}}
-  // Rollenabhaengige UI-Anpassungen: "+ Neu"-Button nur fuer
-  // Magaziner/Admin einblenden.
+  // Rollenabhaengige UI-Anpassungen
+  var isMonteurUI=_wzIsMonteurView();
+  var canEdit=_wzCanEdit();
+
   var btnAdd=document.getElementById('btnAddTool');
-  if(btnAdd && !_wzCanEdit()) btnAdd.style.display='none';
+  if(btnAdd && !canEdit) btnAdd.style.display='none';
   var btnPruef=document.getElementById('btnPruefMode');
-  if(btnPruef && _wzCanEdit()) btnPruef.style.display='';
-  // Rollen-Badge in der Navigation anzeigen (kleiner Hinweis fuer den User)
+  if(btnPruef && canEdit) btnPruef.style.display='';
+  var btnAdvFilter=document.getElementById('btnAdvFilter');
+  if(btnAdvFilter && canEdit) btnAdvFilter.style.display='';
+
+  if(isMonteurUI){
+    // Monteur: Toolbar komplett ausblenden (Suche, Buttons, View-Toggle)
+    var tb=document.querySelector('.toolbar');
+    if(tb)tb.style.display='none';
+    // KPI-Karten: onclick entfernen (kein Filtern moeglich)
+    document.querySelectorAll('.stat-card').forEach(function(c){
+      c.style.cursor='default';c.onclick=null;c.removeAttribute('onclick');
+    });
+    // Sammel-Ausleihe Button im Hero entfernen
+    var heroActions=document.querySelector('.hero-actions');
+    if(heroActions){
+      heroActions.querySelectorAll('button').forEach(function(b){
+        if(b.textContent.indexOf('Sammel')>=0)b.style.display='none';
+      });
+    }
+  }
+
+  // Rollen-Badge in der Navigation
   try{
     var u=_wzGetUser();
     if(u && u.roleIds){
-      var rn = u.roleIds.indexOf('role_magaziner')>=0?'Magaziner':(u.roleIds.indexOf('role_monteur')>=0?'Monteur (Read-only)':(u.roleIds.indexOf('role_admin')>=0?'Admin':''));
+      var rn = u.roleIds.indexOf('role_magaziner')>=0?'Magaziner':(u.roleIds.indexOf('role_monteur')>=0?'Monteur':'');
+      if(!rn && u.roleIds.indexOf('role_admin')>=0) rn='Admin';
       if(rn){
         var host=document.querySelector('.g-nav-actions')||document.querySelector('.g-nav-right');
         if(host && !host.querySelector('.wz-role-badge')){
