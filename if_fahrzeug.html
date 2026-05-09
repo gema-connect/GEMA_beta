@@ -2386,8 +2386,12 @@ function _fzRenderServiceHistorie(v){
   }
 
   html+='<div class="vm-section">Service-Historie';
+  var hasEntries=hist.length>0;
+  if(hasEntries){
+    html+='<button onclick="_fzExportServiceHistoriePDF(\''+esc(v.id)+'\')" style="margin-left:auto;padding:4px 10px;border-radius:6px;border:1.5px solid #6b7280;background:#fff;color:#374151;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit">📥 PDF</button>';
+  }
   if(canAdd){
-    html+='<button onclick="_fzOpenServiceModal(\''+esc(v.id)+'\')" style="margin-left:auto;padding:4px 10px;border-radius:6px;border:1.5px solid var(--primary);background:#eff6ff;color:var(--primary);font-size:11px;font-weight:700;cursor:pointer;font-family:inherit">+ Service erfassen</button>';
+    html+='<button onclick="_fzOpenServiceModal(\''+esc(v.id)+'\')" style="'+(hasEntries?'margin-left:6px':'margin-left:auto')+';padding:4px 10px;border-radius:6px;border:1.5px solid var(--primary);background:#eff6ff;color:var(--primary);font-size:11px;font-weight:700;cursor:pointer;font-family:inherit">+ Service erfassen</button>';
   }
   html+='</div>';
   if(!hist.length){
@@ -2424,6 +2428,133 @@ function _fzRenderServiceHistorie(v){
   html+='</div>';
   return html;
 }
+
+// Service-Historie als PDF herunterladen. Nutzt jsPDF direkt (statt
+// html2canvas-Screenshot) fuer kompakten, scharfen, durchsuchbaren
+// Output. Geeignet als Beleg fuer den Halter beim Verkauf.
+function _fzEnsureJsPDF(){
+  return new Promise(function(res){
+    if(window.jspdf && window.jspdf.jsPDF) return res();
+    var s=document.createElement('script');
+    s.src='https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+    s.onload=function(){res();};
+    s.onerror=function(){res();};
+    document.head.appendChild(s);
+  });
+}
+window._fzExportServiceHistoriePDF=async function(vehicleId){
+  var v=vehicles.find(function(x){return x.id===vehicleId;});
+  if(!v)return;
+  showToast('📄 PDF wird erstellt …');
+  await _fzEnsureJsPDF();
+  if(!(window.jspdf && window.jspdf.jsPDF)){alert('PDF-Bibliothek nicht verfügbar.');return;}
+  var jsPDF=window.jspdf.jsPDF;
+  var doc=new jsPDF({unit:'mm',format:'a4'});
+  var M=15;
+  var y=20;
+  var pageH=doc.internal.pageSize.getHeight();
+  function ensureSpace(needed){
+    if(y+needed>pageH-15){doc.addPage();y=20;_drawHeader();}
+  }
+  function _drawHeader(){
+    doc.setDrawColor(229,231,235);
+    doc.line(M,12,195,12);
+    doc.setFontSize(9);doc.setFont('helvetica','normal');doc.setTextColor(107,114,128);
+    doc.text('GEMA · Service-Historie · '+(v.plate||v.model||'Fahrzeug'),M,9);
+  }
+  // Titel + Fahrzeug-Info
+  doc.setFontSize(20);doc.setFont('helvetica','bold');doc.setTextColor(15,23,42);
+  doc.text('Service-Historie',M,y);y+=9;
+  doc.setFontSize(11);doc.setFont('helvetica','bold');doc.setTextColor(13,148,136);
+  doc.text((v.plate||'—'),M,y);
+  doc.setFont('helvetica','normal');doc.setTextColor(55,65,81);
+  doc.text('  ·  '+(v.model||'—')+(v.year?' ('+v.year+')':''),M+30,y);
+  y+=7;
+  doc.setFontSize(9);doc.setTextColor(107,114,128);
+  var infoLines=[
+    'Aktueller km-Stand: '+(v.km?parseInt(v.km,10).toLocaleString('de-CH')+' km':'—'),
+    'Treibstoff: '+(v.fuel||'—')+'  ·  Typ: '+(v.type||'—'),
+    'MFK gültig bis: '+(v.mfk?new Date(v.mfk).toLocaleDateString('de-CH'):'—'),
+    'PDF erstellt: '+new Date().toLocaleString('de-CH')
+  ];
+  infoLines.forEach(function(line){doc.text(line,M,y);y+=4.2;});
+  y+=4;
+  doc.setDrawColor(229,231,235);doc.line(M,y,195,y);y+=8;
+
+  // Folge-Termine (offene)
+  var followUps=Array.isArray(v.followUps)?v.followUps.filter(function(f){return f && !f.completed;}):[];
+  if(followUps.length){
+    doc.setFontSize(11);doc.setFont('helvetica','bold');doc.setTextColor(146,64,14);
+    doc.text('Geplante Folge-Termine',M,y);y+=6;
+    doc.setFont('helvetica','normal');doc.setFontSize(9.5);doc.setTextColor(55,65,81);
+    followUps.forEach(function(f){
+      ensureSpace(8);
+      var dt=f.dueDate?new Date(f.dueDate).toLocaleDateString('de-CH'):'—';
+      doc.text('• '+dt+' — '+(f.beschreibung||''),M,y);y+=4.5;
+    });
+    y+=4;
+    doc.setDrawColor(229,231,235);doc.line(M,y,195,y);y+=6;
+  }
+
+  // Service-Einträge
+  var hist=Array.isArray(v.serviceHistorie)?v.serviceHistorie.slice():[];
+  hist.sort(function(a,b){return (b.datum||'').localeCompare(a.datum||'');});
+  if(!hist.length){
+    doc.setFontSize(10);doc.setFont('helvetica','italic');doc.setTextColor(107,114,128);
+    doc.text('Keine Einträge erfasst.',M,y);
+  } else {
+    var ART={service:'Service',reparatur:'Reparatur',mfk:'MFK',pneuwechsel:'Pneuwechsel',sonstiges:'Sonstiges'};
+    hist.forEach(function(e){
+      ensureSpace(20);
+      // Datum + Art
+      doc.setFontSize(11);doc.setFont('helvetica','bold');doc.setTextColor(15,23,42);
+      var datum=e.datum?new Date(e.datum).toLocaleDateString('de-CH'):'—';
+      doc.text(datum,M,y);
+      doc.setTextColor(13,148,136);
+      doc.text('  '+(ART[e.art]||e.art||'-'),M+22,y);
+      y+=5;
+      // Meta
+      doc.setFont('helvetica','normal');doc.setFontSize(9);doc.setTextColor(75,85,99);
+      var meta=[];
+      if(e.km)meta.push('km '+parseInt(e.km,10).toLocaleString('de-CH'));
+      if(e.werkstatt)meta.push(e.werkstatt);
+      if(e.erledigtVonName)meta.push(e.erledigtVonName);
+      if(e.kosten)meta.push('CHF '+e.kosten);
+      if(meta.length){doc.text(meta.join('  ·  '),M,y);y+=4.5;}
+      // Beschreibung
+      if(e.beschreibung){
+        doc.setTextColor(55,65,81);
+        var lines=doc.splitTextToSize(e.beschreibung,180);
+        lines.forEach(function(line){ensureSpace(5);doc.text(line,M,y);y+=4.5;});
+      }
+      // Fotos: bis zu 4 nebeneinander, je 35×26 mm
+      if(Array.isArray(e.photos)&&e.photos.length){
+        ensureSpace(28);
+        var pX=M;
+        var perRow=4, w=35, h=26, gap=3;
+        e.photos.slice(0,8).forEach(function(p,idx){
+          if(!p||!p.dataUrl)return;
+          if(idx>0 && idx%perRow===0){pX=M;y+=h+gap;ensureSpace(h+2);}
+          try{doc.addImage(p.dataUrl,'JPEG',pX,y,w,h);}catch(_){}
+          pX+=w+gap;
+        });
+        y+=h+gap;
+      }
+      y+=2;
+      doc.setDrawColor(229,231,235);doc.line(M,y,195,y);y+=4;
+    });
+  }
+  // Page numbers
+  var totalPages=doc.internal.getNumberOfPages();
+  for(var p=1;p<=totalPages;p++){
+    doc.setPage(p);
+    doc.setFontSize(8);doc.setFont('helvetica','normal');doc.setTextColor(156,163,175);
+    doc.text('Seite '+p+' / '+totalPages,195,pageH-7,{align:'right'});
+  }
+  var fname='Service-Historie_'+(v.plate||v.id||'Fahrzeug').replace(/[^a-z0-9]+/gi,'_')+'_'+new Date().toISOString().slice(0,10)+'.pdf';
+  doc.save(fname);
+  showToast('✓ PDF heruntergeladen');
+};
 
 // Markiert einen Folge-Termin als erledigt.
 window._fzCompleteFollowUp=function(vehicleId, followUpId){
