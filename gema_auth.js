@@ -150,6 +150,12 @@
     {id:'role_unternehmer',name:'Unternehmer',color:'#d97706',permissions:_somePerms(['terminplan','abnahme_sia','werkzeugmanagement','baustellencheckliste','inspektion_wartung','ausschreibungsunterlagen','crbx_offertvergleich','schnellausschreibung'],true,true,false)},
     {id:'role_lieferant',name:'Lieferant',color:'#16a34a',permissions:_somePerms(['ausschreibungsunterlagen','produktkatalog'],true,true,false)},
     {id:'role_pruefer',name:'Prüfer',color:'#0891b2',permissions:_somePerms(['werkzeugmanagement','fahrzeugmanagement'],true,true,false)},
+    // Garagist: externe Werkstatt mit eigener Org. Kunden-Firmen verknuepfen
+    // einzelne Fahrzeuge mit dem Garagist-Account. Sieht nur diese Fahrzeuge,
+    // darf km, Service, MFK, Reifen pflegen und Service-Historie ergaenzen.
+    // Kaufbelege, Tankkarten und (per Default) Versicherungsdaten bleiben
+    // verborgen — Versicherung kann pro Fahrzeug freigeschaltet werden.
+    {id:'role_garagist',name:'Garagist',color:'#0d9488',permissions:_somePerms(['fahrzeugmanagement'],true,true,false)},
     // Magaziner: verwaltet das Werkzeuglager einer Organisation. Darf
     // Attribute aendern, Berichte hinzufuegen, Pruefungen anfordern und
     // Werkzeug Personen zuweisen. Sieht nur Werkzeuge der eigenen Org.
@@ -341,6 +347,21 @@
         });
         try{localStorage.setItem(STORAGE_USERS,JSON.stringify(users3));}catch(e){}
         try{localStorage.setItem(MIGFLAG3,'1');}catch(e){}
+      }
+    } catch(e) {}
+    // ── Migration: Rolle role_garagist ──
+    // Externe Werkstaetten als eigene Rolle. Wird einmalig in bestehende
+    // Installationen nachgezogen.
+    try {
+      var MIGFLAG_GARAGIST='gema_auth_garagist_v1';
+      if(!localStorage.getItem(MIGFLAG_GARAGIST)){
+        var rolesG=_getRoles()||[];
+        if(!rolesG.find(function(r){return r.id==='role_garagist';})){
+          var defG=DEFAULT_ROLES.find(function(r){return r.id==='role_garagist';});
+          if(defG)rolesG.push(defG);
+          try{localStorage.setItem(STORAGE_ROLES,JSON.stringify(rolesG));}catch(e){}
+        }
+        try{localStorage.setItem(MIGFLAG_GARAGIST,'1');}catch(e){}
       }
     } catch(e) {}
 
@@ -576,6 +597,7 @@
     if(!u||!u.roleIds)return'sys_workspace.html';
     if(u.roleIds.indexOf('role_lieferant')>=0)return'sys_lieferant_dashboard.html';
     if(u.roleIds.indexOf('role_pruefer')>=0)return'sys_lieferant_dashboard.html';
+    if(u.roleIds.indexOf('role_garagist')>=0)return'if_fahrzeug.html';
     if(u.roleIds.indexOf('role_magaziner')>=0)return'index.html';
     if(u.roleIds.indexOf('role_monteur')>=0)return'index.html';
     return'sys_workspace.html';
@@ -920,7 +942,8 @@
         'role_architekt':'architekt',
         'role_unternehmer':'sanitaerinstallateur',
         'role_hlkk_planer':'heizungsplaner',
-        'role_planer':'sanitaerplaner'
+        'role_planer':'sanitaerplaner',
+        'role_garagist':'garagist'
       };
       var kategorie = ROLE_TO_KATEGORIE[roleId] || 'sonstiges';
       var resolvedOrgId = opts.orgId
