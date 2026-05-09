@@ -418,7 +418,9 @@ tbody td.mono{font-family:var(--mono);font-weight:500;}
           </div>
           <div class="field">
             <label class="label">Marke / Modell *</label>
-            <input class="inp" id="fModel" placeholder="z. B. VW Caddy"/>
+            <input class="inp" id="fModel" placeholder="z. B. VW Caddy" list="fahrzeugKatalogList" oninput="_fzKatalogAutofill()"/>
+            <datalist id="fahrzeugKatalogList"></datalist>
+            <span class="hint">Tippe los — Vorschläge aus dem Basiskatalog &amp; eigenen Fahrzeugen. Treibstoff und Typ werden, wo noch nicht angepasst, automatisch ergänzt.</span>
           </div>
           <div class="field">
             <label class="label">Jahrgang</label>
@@ -861,7 +863,7 @@ function saveVehicle(){
     vehicles.push(data);
     showToast("Fahrzeug erfasst ✓");
   }
-  persist(); closeModal(); render();
+  persist(); _fzInitKatalogList(); closeModal(); render();
   return data.id;
 }
 window.saveVehicle = saveVehicle;
@@ -1459,6 +1461,107 @@ function _fzCanEdit(){
 }
 function _fzCanView(){return true;}
 
+// Basiskatalog: typische Monteurenfahrzeuge.
+// Wird beim Tippen ins Marke/Modell-Feld via <datalist> als Vorschlag
+// angeboten; bei exaktem Treffer ergänzt _fzKatalogAutofill() Treibstoff
+// und Fahrzeugtyp, sofern der User diese noch nicht selbst geändert hat.
+var FAHRZEUG_KATALOG = [
+  // Hochdachkombi / Kompakt-Lieferwagen
+  { model: 'VW Caddy',              fuel: 'Diesel',  type: 'Monteurenfahrzeug' },
+  { model: 'VW Caddy Maxi',         fuel: 'Diesel',  type: 'Monteurenfahrzeug' },
+  { model: 'Renault Kangoo',        fuel: 'Diesel',  type: 'Monteurenfahrzeug' },
+  { model: 'Citroën Berlingo',      fuel: 'Diesel',  type: 'Monteurenfahrzeug' },
+  { model: 'Peugeot Partner',       fuel: 'Diesel',  type: 'Monteurenfahrzeug' },
+  { model: 'Opel Combo',            fuel: 'Diesel',  type: 'Monteurenfahrzeug' },
+  { model: 'Fiat Doblò',            fuel: 'Diesel',  type: 'Monteurenfahrzeug' },
+  { model: 'Ford Transit Connect',  fuel: 'Diesel',  type: 'Monteurenfahrzeug' },
+  { model: 'Mercedes Citan',        fuel: 'Diesel',  type: 'Monteurenfahrzeug' },
+  { model: 'Nissan Townstar',       fuel: 'Diesel',  type: 'Monteurenfahrzeug' },
+  // Mittelklasse-Kastenwagen
+  { model: 'VW Transporter T6.1',   fuel: 'Diesel',  type: 'Monteurenfahrzeug' },
+  { model: 'VW Transporter T6',     fuel: 'Diesel',  type: 'Monteurenfahrzeug' },
+  { model: 'Mercedes Vito',         fuel: 'Diesel',  type: 'Monteurenfahrzeug' },
+  { model: 'Mercedes eVito',        fuel: 'Elektro', type: 'Monteurenfahrzeug' },
+  { model: 'Renault Trafic',        fuel: 'Diesel',  type: 'Monteurenfahrzeug' },
+  { model: 'Ford Transit Custom',   fuel: 'Diesel',  type: 'Monteurenfahrzeug' },
+  { model: 'Citroën Jumpy',         fuel: 'Diesel',  type: 'Monteurenfahrzeug' },
+  { model: 'Peugeot Expert',        fuel: 'Diesel',  type: 'Monteurenfahrzeug' },
+  { model: 'Opel Vivaro',           fuel: 'Diesel',  type: 'Monteurenfahrzeug' },
+  { model: 'Fiat Scudo',            fuel: 'Diesel',  type: 'Monteurenfahrzeug' },
+  { model: 'Toyota Proace',         fuel: 'Diesel',  type: 'Monteurenfahrzeug' },
+  // Grosse Kastenwagen
+  { model: 'VW Crafter',            fuel: 'Diesel',  type: 'Servicefahrzeug' },
+  { model: 'Mercedes Sprinter',     fuel: 'Diesel',  type: 'Servicefahrzeug' },
+  { model: 'Mercedes eSprinter',    fuel: 'Elektro', type: 'Servicefahrzeug' },
+  { model: 'Ford Transit',          fuel: 'Diesel',  type: 'Servicefahrzeug' },
+  { model: 'Renault Master',        fuel: 'Diesel',  type: 'Servicefahrzeug' },
+  { model: 'Citroën Jumper',        fuel: 'Diesel',  type: 'Servicefahrzeug' },
+  { model: 'Peugeot Boxer',         fuel: 'Diesel',  type: 'Servicefahrzeug' },
+  { model: 'Opel Movano',           fuel: 'Diesel',  type: 'Servicefahrzeug' },
+  { model: 'Fiat Ducato',           fuel: 'Diesel',  type: 'Servicefahrzeug' },
+  { model: 'Iveco Daily',           fuel: 'Diesel',  type: 'Servicefahrzeug' },
+  { model: 'MAN TGE',               fuel: 'Diesel',  type: 'Servicefahrzeug' },
+  // Pickups (Aussenmontage / Baustelle)
+  { model: 'VW Amarok',             fuel: 'Diesel',  type: 'Monteurenfahrzeug' },
+  { model: 'Toyota Hilux',          fuel: 'Diesel',  type: 'Monteurenfahrzeug' },
+  { model: 'Ford Ranger',           fuel: 'Diesel',  type: 'Monteurenfahrzeug' },
+  { model: 'Mitsubishi L200',       fuel: 'Diesel',  type: 'Monteurenfahrzeug' },
+  { model: 'Isuzu D-Max',           fuel: 'Diesel',  type: 'Monteurenfahrzeug' }
+];
+
+// Default-Werte der Selects — solange ein Feld noch auf dem Default
+// steht (= User hat nicht selbst gewechselt), darf der Katalog-Autofill
+// es überschreiben. Sonst wird die Manuelländerung respektiert.
+var _FZ_DEFAULT_FUEL = 'Diesel';
+var _FZ_DEFAULT_TYPE = 'Monteurenfahrzeug';
+
+function _fzGetKatalogEntries(){
+  var seen = {};
+  var entries = [];
+  function key(e){ return (e.model || '').toLowerCase(); }
+  FAHRZEUG_KATALOG.forEach(function(k){
+    var id = key(k); if(seen[id]) return;
+    seen[id] = true;
+    entries.push({ model: k.model, fuel: k.fuel, type: k.type, src: 'katalog' });
+  });
+  if(Array.isArray(vehicles)){
+    vehicles.forEach(function(v){
+      if(!v || !v.model) return;
+      var id = key(v); if(seen[id]) return;
+      seen[id] = true;
+      entries.push({ model: v.model, fuel: v.fuel || '', type: v.type || '', src: 'vehicles' });
+    });
+  }
+  return entries;
+}
+
+function _fzInitKatalogList(){
+  var dl = document.getElementById('fahrzeugKatalogList');
+  if(!dl) return;
+  var entries = _fzGetKatalogEntries();
+  dl.innerHTML = entries.map(function(e){
+    var meta = [e.fuel, e.type].filter(Boolean).join(' · ');
+    var srcTag = e.src === 'vehicles' ? ' (eigener Eintrag)' : '';
+    return '<option value="' + e.model + '">' + meta + srcTag + '</option>';
+  }).join('');
+}
+
+function _fzKatalogAutofill(){
+  var el = document.getElementById('fModel');
+  if(!el) return;
+  var val = el.value.trim();
+  var entry = _fzGetKatalogEntries().find(function(e){ return e.model === val; });
+  if(!entry) return;
+  var fuel = document.getElementById('fFuel');
+  if(fuel && fuel.value === _FZ_DEFAULT_FUEL && entry.fuel) fuel.value = entry.fuel;
+  var typ = document.getElementById('fType');
+  if(typ && typ.value === _FZ_DEFAULT_TYPE && entry.type){
+    var hasOpt = Array.prototype.some.call(typ.options, function(o){ return o.value === entry.type; });
+    if(hasOpt) typ.value = entry.type;
+  }
+}
+window._fzKatalogAutofill = _fzKatalogAutofill;
+
 /* ═══════════════════════════════
    CSV EXPORT
    ═══════════════════════════════ */
@@ -1796,6 +1899,7 @@ function openView(id){
 window.openView=openView;
 
 render();
+_fzInitKatalogList();
 _fzApplyOpt();
 _fzInitSettingsBtn();
 // Rollenbasierte UI
