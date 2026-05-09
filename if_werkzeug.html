@@ -389,6 +389,13 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
     <div class="stat-card ok"     onclick="setFilter('ok')">       <div class="stat-val" id="s_ok">0</div><div class="stat-lbl">✅ In Ordnung</div></div>
   </div>
 
+  <div class="lc-bar" style="display:flex;gap:6px;flex-wrap:wrap;margin:0 0 12px;font-size:12px;font-weight:700">
+    <button class="lc-pill active" data-lc="active" onclick="_wzSetLifecycle('active')" style="padding:5px 11px;border-radius:999px;border:1.5px solid var(--brd);background:#fff;color:var(--txt2);cursor:pointer;font-family:inherit">Aktive Geräte</button>
+    <button class="lc-pill" data-lc="all" onclick="_wzSetLifecycle('all')" style="padding:5px 11px;border-radius:999px;border:1.5px solid var(--brd);background:#fff;color:var(--txt2);cursor:pointer;font-family:inherit">Alle (inkl. Archiv)</button>
+    <button class="lc-pill" data-lc="archive" onclick="_wzSetLifecycle('archive')" style="padding:5px 11px;border-radius:999px;border:1.5px solid var(--brd);background:#fff;color:var(--txt2);cursor:pointer;font-family:inherit">📦 Archiv (ausgemustert / verkauft)</button>
+  </div>
+  <style>.lc-pill.active{background:var(--plan)!important;color:#fff!important;border-color:var(--plan)!important}</style>
+
   <div class="toolbar">
     <div class="tb-search">
       <span style="color:var(--mut2);font-size:16px">🔍</span>
@@ -497,6 +504,15 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
             <label>Zugewiesen an</label>
             <input type="text" id="f_assignee" placeholder="Person oder Team …" autocomplete="off">
           </div>
+        </div>
+        <div class="fg">
+          <label>Status</label>
+          <select id="f_lifecycle">
+            <option value="aktiv">✅ Aktiv (im Einsatz)</option>
+            <option value="in_reparatur">🔧 In Reparatur</option>
+            <option value="ausgemustert">📦 Ausgemustert</option>
+            <option value="verkauft">💰 Verkauft</option>
+          </select>
         </div>
       </div>
 
@@ -817,7 +833,8 @@ function _wzCanReportDefect(){
 // ──────────────────────────────────────
 // STATE & CONSTANTS
 // ──────────────────────────────────────
-let tools=[], currentFilter='all', currentView='cards', pruefId=null;
+let tools=[], currentFilter='all', currentLifecycle='active', currentView='cards', pruefId=null;
+window._wzSetLifecycle=function(v){currentLifecycle=v;document.querySelectorAll('.lc-pill').forEach(function(b){b.classList.toggle('active',b.dataset.lc===v);});renderList();updateStats();};
 let _wzAdvFilter={};
 
 function _wzGetMyTools(list){
@@ -1261,7 +1278,17 @@ function getFiltered(){
   var base=_wzIsMonteurView()?_wzGetMyTools(tools):tools;
   base=_wzApplyAdvFilter(base);
   const q=(document.getElementById('searchInp')?.value||'').toLowerCase();
+  // Lebenszyklus-Filter: Standard zeigt nur aktive + in Reparatur.
+  // Mit currentLifecycle='all' werden auch ausgemusterte/verkaufte sichtbar.
+  // Spezial-Filter wie 'archive' zeigen ausschliesslich diese.
   return base.filter(t=>{
+    const lc=t.lifecycleStatus||'aktiv';
+    if(currentLifecycle==='archive'){
+      if(lc!=='ausgemustert'&&lc!=='verkauft')return false;
+    } else if(currentLifecycle!=='all'){
+      // Default: ausgemustert + verkauft ausblenden
+      if(lc==='ausgemustert'||lc==='verkauft')return false;
+    }
     const cat=CATS[t.cat];
     const ok=!q||[t.name,t.brand,t.model,t.supplier,cat?.label,t.notes].some(v=>(v||'').toLowerCase().includes(q));
     if(!ok)return false;
@@ -1310,7 +1337,11 @@ function renderCard(t){
   const statusText =wd!==null?dt(wd):'Alles OK';
   const hasPruef=t.hasElec||t.hasLeiter;
 
-  return`<div class="tool-card" onclick="_wzCardClick(event,'${t.id}')" style="cursor:pointer">
+  const lc=t.lifecycleStatus||'aktiv';
+  const lcMeta={aktiv:null,in_reparatur:{label:'🔧 In Reparatur',bg:'#dbeafe',color:'#1d4ed8',brd:'#bfdbfe'},ausgemustert:{label:'📦 Ausgemustert',bg:'#f1f5f9',color:'#475569',brd:'#cbd5e1'},verkauft:{label:'💰 Verkauft',bg:'#f0fdf4',color:'#15803d',brd:'#bbf7d0'}}[lc];
+  const cardOpacity=(lc==='ausgemustert'||lc==='verkauft')?'opacity:.7;':'';
+  return`<div class="tool-card" onclick="_wzCardClick(event,'${t.id}')" style="cursor:pointer;${cardOpacity}">
+    ${lcMeta?`<div style="padding:4px 14px;background:${lcMeta.bg};border-bottom:1px solid ${lcMeta.brd};color:${lcMeta.color};font-size:11px;font-weight:700;letter-spacing:.3px">${lcMeta.label}</div>`:''}
     <div class="status-bar ${barCls}"></div>
     <div class="tc-head">
       <div class="tc-icon ${cat.ico}">${cat.icon}</div>
@@ -1539,6 +1570,7 @@ function submitForm(){
     bought, warranty:document.getElementById('f_warranty').value||null,
     serial:document.getElementById('f_serial').value.trim(),
     notes:document.getElementById('f_notes').value.trim(),
+    lifecycleStatus:(document.getElementById('f_lifecycle')||{}).value||'aktiv',
     hasService:document.getElementById('f_hasService').checked,
     serviceInterval:+document.getElementById('f_serviceInterval').value||12,
     lastService:document.getElementById('f_lastService').value||null,
@@ -1552,6 +1584,11 @@ function submitForm(){
     leiterHistory:existing?.leiterHistory||[],
     kaufbeleg:_wzBuildKaufbeleg(existing),
     zugewiesenAn:_wzBuildAssignee(existing),
+    // Bestandsfelder, die nicht im Form sind, beim Edit beibehalten:
+    berichte:existing?.berichte||[],
+    pruefAnfrage:existing?.pruefAnfrage||null,
+    ersatzAnfragen:existing?.ersatzAnfragen||[],
+    ausgeliehenAn:existing?.ausgeliehenAn||null
   };
   if(eid){const i=tools.findIndex(t=>t.id===eid);if(i>=0)tools[i]=tool;else tools.unshift(tool);}
   else tools.unshift(tool);
@@ -1571,6 +1608,7 @@ function editTool(id){
   const sv=(fid,v)=>{const e=document.getElementById(fid);if(e&&v!=null&&v!=='')e.value=v;};
   sv('f_name',t.name);sv('f_brand',t.brand);sv('f_model',t.model);sv('f_supplier',t.supplier);sv('f_supplierId',t.supplierId);sv('f_cat',t.cat);
   sv('f_bought',t.bought);sv('f_warranty',t.warranty);sv('f_serial',t.serial);sv('f_notes',t.notes);
+  sv('f_lifecycle',t.lifecycleStatus||'aktiv');
   if(t.zugewiesenAn)sv('f_assignee',t.zugewiesenAn.name||'');
   if(t.kaufbeleg){sv('f_belegNr',t.kaufbeleg.rechnungsNr);sv('f_belegBetrag',t.kaufbeleg.betrag);sv('f_belegBestellNr',t.kaufbeleg.bestellNr);sv('f_belegLieferdatum',t.kaufbeleg.lieferdatum);if(t.kaufbeleg.datei){window._wzBelegFile=t.kaufbeleg.datei;var fp=document.getElementById('f_belegPreview');if(fp)fp.innerHTML='<span style="color:var(--grn);font-weight:700;font-size:12px">📎 '+esc(t.kaufbeleg.datei.name||'Beleg')+'</span>';}}
   sv('f_serviceInterval',t.serviceInterval);sv('f_lastService',t.lastService);
