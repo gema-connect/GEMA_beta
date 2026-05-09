@@ -114,6 +114,17 @@ input,select,textarea,button{font-family:inherit}
 .empty{text-align:center;padding:48px 20px;color:var(--mut);font-size:14px}
 .empty-ico{font-size:42px;margin-bottom:10px;opacity:.5}
 
+/* DASH TOOLBAR */
+.dash-toolbar{display:flex;gap:10px;align-items:center;margin-bottom:14px;flex-wrap:wrap}
+.dash-toolbar input[type="search"]{flex:1;min-width:220px;padding:9px 14px;border:1.5px solid var(--brd);border-radius:10px;font-size:13.5px;font-family:inherit;background:#fff}
+.dash-toolbar input[type="search"]:focus{outline:none;border-color:var(--teal)}
+.dash-toggle{display:inline-flex;align-items:center;gap:6px;padding:8px 12px;background:#fff;border:1.5px solid var(--brd);border-radius:10px;font-size:12.5px;font-weight:600;color:var(--txt2);cursor:pointer;user-select:none}
+.dash-toggle input{accent-color:var(--teal)}
+
+/* QUICK KM MODAL */
+.km-mini-btn{background:none;border:none;cursor:pointer;color:var(--teal);font-size:13px;padding:0 4px;margin-left:4px}
+.km-mini-btn:hover{text-decoration:underline}
+
 /* RESPONSIVE */
 @media(max-width:760px){
   .g-page{padding:14px 12px 40px}
@@ -286,6 +297,25 @@ input,select,textarea,button{font-family:inherit}
   document.querySelectorAll('.tab-btn').forEach(function(b){b.addEventListener('click',function(){showTab(b.dataset.tab);});});
   document.querySelectorAll('.kpi-card[data-tab]').forEach(function(c){c.addEventListener('click',function(){showTab(c.dataset.tab);window.scrollTo({top:document.querySelector('.tabs').offsetTop-60,behavior:'smooth'});});});
 
+  // ── FILTER STATE ─────────────────────────────────────────────
+  var _dashState={query:'',onlyFaellig:false};
+  function _applyDashFilter(list){
+    var q=_dashState.query.trim().toLowerCase();
+    return list.filter(function(v){
+      if(_dashState.onlyFaellig){
+        var s=daysUntil(nextServiceDate(v));
+        var m=daysUntil(v.mfk);
+        var faellig=(s!==null&&s<=30)||(m!==null&&m<=30);
+        if(!faellig)return false;
+      }
+      if(q){
+        var hay=((v.plate||'')+' '+(v.model||'')+' '+(v.nr||'')+' '+(v.driver||'')+' '+(v.dept||'')).toLowerCase();
+        if(hay.indexOf(q)<0)return false;
+      }
+      return true;
+    });
+  }
+
   // ── RENDER: ÜBERSICHT ────────────────────────────────────────
   function renderUebersicht(){
     var box=document.getElementById('tab-uebersicht');
@@ -293,8 +323,22 @@ input,select,textarea,button{font-family:inherit}
       box.innerHTML='<div class="empty"><div class="empty-ico">🚗</div>Aktuell sind dir keine Fahrzeuge zugewiesen. Sobald ein Magaziner deine Werkstatt einem Fahrzeug zuweist, erscheinen sie hier.</div>';
       return;
     }
-    var sorted=myVehicles.slice().sort(function(a,b){return vehicleUrgency(a)-vehicleUrgency(b);});
-    box.innerHTML='<div class="card-grid">'+sorted.map(cardHtml).join('')+'</div>';
+    var bar=''+
+      '<div class="dash-toolbar">'+
+        '<input type="search" id="dashSearch" placeholder="🔍 Suche: Plate, Modell, Nr., Fahrer …" value="'+esc(_dashState.query)+'" />'+
+        '<label class="dash-toggle"><input type="checkbox" id="dashOnlyFaellig"'+(_dashState.onlyFaellig?' checked':'')+'/> nur anstehend / überfällig</label>'+
+      '</div>';
+    var filtered=_applyDashFilter(myVehicles);
+    var sorted=filtered.slice().sort(function(a,b){return vehicleUrgency(a)-vehicleUrgency(b);});
+    if(!sorted.length){
+      box.innerHTML=bar+'<div class="empty"><div class="empty-ico">🔍</div>Keine Treffer in der aktuellen Ansicht. Such-/Filter-Einstellungen anpassen.</div>';
+    } else {
+      box.innerHTML=bar+'<div class="card-grid">'+sorted.map(cardHtml).join('')+'</div>';
+    }
+    var inp=document.getElementById('dashSearch');
+    if(inp)inp.addEventListener('input',function(){_dashState.query=inp.value;renderUebersicht();var ni=document.getElementById('dashSearch');if(ni)ni.focus();});
+    var tg=document.getElementById('dashOnlyFaellig');
+    if(tg)tg.addEventListener('change',function(){_dashState.onlyFaellig=tg.checked;renderUebersicht();});
   }
   function cardHtml(v){
     var s=daysUntil(nextServiceDate(v));
@@ -309,7 +353,7 @@ input,select,textarea,button{font-family:inherit}
     html+='<div class="fz-plate">'+esc(v.plate||'—')+(v.year?' · '+esc(v.year):'')+'</div>';
     html+='</div></div>';
     html+='<div class="fz-meta">';
-    html+='<div><b>km-Stand:</b> '+fmtKm(v.km)+'</div>';
+    html+='<div><b>km-Stand:</b> '+fmtKm(v.km)+' <button class="km-mini-btn" onclick="_dashOpenKmEdit(\''+esc(v.id)+'\')">✏ km</button></div>';
     html+='<div><b>Letzter Service:</b> '+fmtDate(v.lastService)+'</div>';
     if(sBadge)html+='<div><b>Nächster Service:</b> <span class="fz-due-pill '+sBadge.cls+'">'+sBadge.label+'</span></div>';
     if(mBadge)html+='<div><b>MFK:</b> <span class="fz-due-pill '+mBadge.cls+'">'+mBadge.label+'</span></div>';
@@ -384,6 +428,34 @@ input,select,textarea,button{font-family:inherit}
       '</div>';
     box.innerHTML=html;
   }
+
+  // ── QUICK KM UPDATE ──────────────────────────────────────────
+  function _dashPersistVehicles(){
+    try{
+      if(typeof _GemaDB!=='undefined' && _GemaDB.save){_GemaDB.save('gema_vehicles',JSON.stringify(vehicles));}
+      else{localStorage.setItem('gema_vehicles',JSON.stringify(vehicles));}
+    }catch(e){}
+  }
+  window._dashOpenKmEdit=function(vid){
+    var v=vehicles.find(function(x){return x.id===vid;});
+    if(!v)return;
+    var aktuell=v.km?String(v.km):'';
+    var neu=window.prompt('Neuen km-Stand eintragen für '+(v.plate||v.model||'Fahrzeug')+'\nAktuell: '+(aktuell||'—'),aktuell);
+    if(neu===null)return; // abgebrochen
+    neu=neu.trim().replace(/[^0-9]/g,'');
+    if(!neu){alert('Ungültige Eingabe.');return;}
+    var neuNum=parseInt(neu,10);
+    var alt=parseInt(v.km||'0',10);
+    if(neuNum<alt){
+      if(!window.confirm('Achtung: Neuer km-Stand ('+neuNum.toLocaleString('de-CH')+') ist tiefer als der bisherige ('+alt.toLocaleString('de-CH')+'). Trotzdem speichern?'))return;
+    }
+    v.km=String(neuNum);
+    v.kmUpdatedAt=new Date().toISOString();
+    _dashPersistVehicles();
+    // Aktualisiere myVehicles-Referenz (gleicher Object — automatisch aktuell)
+    renderUebersicht();
+    renderAnstehend();
+  };
 
   // ── INIT ─────────────────────────────────────────────────────
   renderUebersicht();
