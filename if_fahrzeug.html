@@ -741,8 +741,14 @@ function showToast(msg){
    MODAL
    ═══════════════════════════════ */
 function openModal(id){
-  if(id){/* View/Edit — alle dürfen öffnen */}
-  else if(!_fzCanEdit()){alert('Keine Berechtigung — nur Magaziner/Admin dürfen Fahrzeuge erfassen.');return;}
+  if(id){
+    // View/Edit — Garagist nur fuer ihm zugewiesene Fahrzeuge.
+    if(_fzIsGaragist()){
+      var vCheck=vehicles.find(function(x){return x.id===id;});
+      if(!_fzCanOpenVehicle(vCheck)){alert('Dieses Fahrzeug ist Ihrer Werkstatt nicht zugewiesen.');return;}
+    }
+  }
+  else if(!_fzCanCreate()){alert('Keine Berechtigung — nur Magaziner/Admin dürfen Fahrzeuge erfassen.');return;}
   editId=id||null;
   const m=document.getElementById("modalOverlay");
   document.getElementById("modalTitle").textContent=id?"Fahrzeug bearbeiten":"Fahrzeug erfassen";
@@ -788,6 +794,15 @@ function openModal(id){
   m.classList.add("open");
   document.body.classList.add('modal-open');
   setTimeout(()=>document.getElementById("fPlate").focus(),150);
+  // Garagist-Restriktionen NACH allen $f-Populierungen anwenden, damit
+  // die Werte gesetzt sind und nur die UI gesperrt wird.
+  if(_fzIsGaragist()){
+    var vRestrict = id ? vehicles.find(function(x){return x.id===id;}) : null;
+    _fzApplyGaragistRestrictions(vRestrict);
+  } else {
+    var hintEl=document.getElementById('_fzGaragistHint');
+    if(hintEl)hintEl.style.display='none';
+  }
 }
 window.openModal = openModal;
 window.openAddVehicle = function(){ openModal(); };
@@ -930,8 +945,13 @@ function getFiltered(){
   const fStatus=document.getElementById("filterStatus").value;
   const fType=document.getElementById("filterType").value;
   const fAssign=document.getElementById("filterAssignment").value;
+  // Garagist sieht nur ihm zugewiesene Fahrzeuge.
+  var isG=_fzIsGaragist();
+  var meId=null;
+  if(isG){var u=_fzGetUser();meId=u?u.id:null;}
 
   return vehicles.filter(v=>{
+    if(isG && (!meId || v.garagistUserId!==meId)) return false;
     if(_fzKpiActive==='service'&&!isServiceSoon(v))return false;
     if(_fzKpiActive==='inactive'&&v.status==='aktiv')return false;
     if(_fzKpiActive==='aktiv'&&v.status!=='aktiv')return false;
@@ -1452,14 +1472,94 @@ function esc(s){ if(!s) return ""; const d=document.createElement("div"); d.text
 function _fzGetUser(){try{return GemaAuth.getCurrentUser();}catch(e){return null;}}
 function _fzIsAdmin(){var u=_fzGetUser();return u&&u.roleIds&&u.roleIds.indexOf('role_admin')>=0;}
 function _fzIsMagaziner(){var u=_fzGetUser();return u&&u.roleIds&&u.roleIds.indexOf('role_magaziner')>=0;}
+function _fzIsGaragist(){var u=_fzGetUser();return u&&u.roleIds&&u.roleIds.indexOf('role_garagist')>=0;}
 function _fzCanEdit(){
   if(_fzIsAdmin()||_fzIsMagaziner()||_fzCanSettings())return true;
+  // Garagist darf zugewiesene Fahrzeuge oeffnen; die Feld-Restriktionen
+  // greifen via _fzApplyGaragistRestrictions im Formular.
+  if(_fzIsGaragist())return true;
   try{if(typeof GemaAuth!=='undefined'&&typeof GemaAuth.can==='function'){
     if(GemaAuth.can('write','fahrzeugmanagement')||GemaAuth.can('admin','fahrzeugmanagement'))return true;
   }}catch(e){}
   return false;
 }
+function _fzCanCreate(){
+  // Erfassen neuer Fahrzeuge nur fuer Magaziner/Admin (nicht Garagist).
+  return _fzIsAdmin()||_fzIsMagaziner()||_fzCanSettings();
+}
 function _fzCanView(){return true;}
+
+// Felder, die ein Garagist bearbeiten darf. Alles andere wird im
+// Edit-Formular auf disabled gesetzt (Stammdaten, Zuteilung,
+// Ausstattung etc. bleiben sichtbar, sind aber gesperrt).
+var _FZ_GARAGIST_EDITABLE_FIELDS = [
+  'fKm',                                   // km-Stand
+  'fServiceKm','fServiceMonths',           // Service-Intervalle
+  'fLastService','fLastServiceKm',         // Letzter Service
+  'fMfk',                                  // MFK-Datum
+  'fTires','fTiresSeason','fTireStorage','fTireChangeDate',  // Reifen
+  'fNotes'                                 // Notizen
+];
+
+// fz-opt-Sektionen, die der Garagist nie zu Gesicht bekommt.
+// 'versicherung' wird zusaetzlich nur eingeblendet, wenn pro Fahrzeug
+// freigeschaltet (versicherungFreiFuerGaragist === true).
+var _FZ_GARAGIST_HIDDEN_OPTS = ['kaufbeleg','tankkarte'];
+
+// Prueft ob aktueller User dieses Fahrzeug oeffnen darf.
+// Garagist: nur wenn zugewiesen via v.garagistUserId. Andere Rollen:
+// uneingeschraenkt (UI-seitig durch Edit-Permissions reglementiert).
+function _fzCanOpenVehicle(v){
+  if(!v)return false;
+  if(!_fzIsGaragist())return true;
+  var u=_fzGetUser();
+  return !!(u && v.garagistUserId && v.garagistUserId===u.id);
+}
+
+// Sperrt im Edit-Formular alle Felder, die der Garagist nicht
+// veraendern darf, und blendet kritische Sektionen aus.
+function _fzApplyGaragistRestrictions(v){
+  if(!_fzIsGaragist())return;
+  var allow={};
+  _FZ_GARAGIST_EDITABLE_FIELDS.forEach(function(id){allow[id]=true;});
+  // Inputs/Selects/Textareas im Modal durchgehen und sperren.
+  var modal=document.getElementById('modalOverlay');
+  if(modal){
+    modal.querySelectorAll('.inp, .sel, .textarea').forEach(function(el){
+      if(!el.id||allow[el.id])return;
+      el.disabled=true;
+      el.style.background='#f8fafc';
+      el.style.cursor='not-allowed';
+    });
+    modal.querySelectorAll('input[type="checkbox"]').forEach(function(el){
+      if(!el.id||allow[el.id])el.disabled=true;
+    });
+    // Sektionen verbergen
+    modal.querySelectorAll('.fz-opt[data-opt]').forEach(function(sec){
+      var opt=sec.getAttribute('data-opt');
+      if(_FZ_GARAGIST_HIDDEN_OPTS.indexOf(opt)>=0){sec.style.display='none';return;}
+      if(opt==='versicherung'){
+        var freigegeben=!!(v && v.versicherungFreiFuerGaragist);
+        sec.style.display=freigegeben?'':'none';
+      }
+    });
+    // Erfass-Hinweis am Form-Top, damit der Garagist weiss, was er darf.
+    var hint=document.getElementById('_fzGaragistHint');
+    if(!hint){
+      hint=document.createElement('div');
+      hint.id='_fzGaragistHint';
+      hint.style.cssText='margin:0 0 12px;padding:10px 14px;background:#ecfeff;border:1.5px solid #a5f3fc;border-radius:8px;font-size:12px;color:#0e7490';
+      hint.textContent='ℹ Werkstatt-Modus: km-Stand, Service, MFK, Reifen und Notizen können angepasst werden. Stammdaten und finanzielle Felder sind gesperrt.';
+      var body=modal.querySelector('.modal-body, .modal');
+      if(body)body.insertBefore(hint, body.firstChild);
+    } else {
+      hint.style.display='';
+    }
+    // Loeschen-Button verstecken
+    var del=document.getElementById('deleteBtn');
+    if(del)del.style.display='none';
+  }
+}
 
 // Basiskatalog: typische Monteurenfahrzeuge.
 // Wird beim Tippen ins Marke/Modell-Feld via <datalist> als Vorschlag
@@ -1763,6 +1863,10 @@ window.downloadFzgQRSVG=downloadFzgQRSVG;
 
 function openViewFzg(id){
   const v=vehicles.find(x=>x.id===id);
+  if(_fzIsGaragist() && !_fzCanOpenVehicle(v)){
+    alert('Dieses Fahrzeug ist Ihrer Werkstatt nicht zugewiesen.');
+    return;
+  }
   window._lastViewId = id;
   const overlay=document.getElementById('viewModalOverlay');
   if(!v){
@@ -1902,10 +2006,24 @@ render();
 _fzInitKatalogList();
 _fzApplyOpt();
 _fzInitSettingsBtn();
-// Rollenbasierte UI
-if(!_fzCanEdit()){
+// Rollenbasierte UI: Erfass-Button nur fuer Magaziner/Admin (nicht
+// Garagist) sichtbar.
+if(!_fzCanCreate()){
   var addBtns=document.querySelectorAll('.hero-btn.accent,#btnAddVehicle');
   addBtns.forEach(function(b){b.style.display='none';});
+}
+// Garagist-Hinweis im Hero/Toolbar, damit klar ist, in welchem Modus er
+// arbeitet. Wird nur eingeblendet, wenn die Rolle role_garagist ist.
+if(_fzIsGaragist()){
+  try{
+    var hero=document.querySelector('.hero, .v-hero, h1');
+    if(hero){
+      var badge=document.createElement('div');
+      badge.style.cssText='display:inline-flex;align-items:center;gap:6px;margin:8px 0 0;padding:4px 10px;background:#0d9488;color:#fff;border-radius:999px;font-size:11px;font-weight:700;letter-spacing:.3px';
+      badge.innerHTML='<span>🔧</span> Werkstatt-Ansicht — nur zugewiesene Fahrzeuge';
+      hero.appendChild(badge);
+    }
+  }catch(e){}
 }
   // URL parameter: open vehicle in view mode (?view=ID)
   (function(){
