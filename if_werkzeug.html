@@ -394,7 +394,14 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
     <button class="lc-pill" data-lc="all" onclick="_wzSetLifecycle('all')" style="padding:5px 11px;border-radius:999px;border:1.5px solid var(--brd);background:#fff;color:var(--txt2);cursor:pointer;font-family:inherit">Alle (inkl. Archiv)</button>
     <button class="lc-pill" data-lc="archive" onclick="_wzSetLifecycle('archive')" style="padding:5px 11px;border-radius:999px;border:1.5px solid var(--brd);background:#fff;color:var(--txt2);cursor:pointer;font-family:inherit">📦 Archiv (ausgemustert / verkauft)</button>
   </div>
-  <style>.lc-pill.active{background:var(--plan)!important;color:#fff!important;border-color:var(--plan)!important}</style>
+  <style>
+    .lc-pill.active{background:var(--plan)!important;color:#fff!important;border-color:var(--plan)!important}
+    body.wz-bulk-on .tool-card{transition:.15s}
+    body.wz-bulk-on .tool-card:hover{box-shadow:0 0 0 2px var(--plan)}
+    .tool-card.wz-bulk-sel{box-shadow:0 0 0 2.5px var(--plan)!important;background:#eff6ff}
+    .wz-bulk-cb{transition:.15s;box-shadow:0 2px 4px rgba(0,0,0,.1)}
+    .tool-card.wz-bulk-sel .wz-bulk-cb{background:var(--plan)!important;color:#fff!important;border-color:var(--plan)!important}
+  </style>
 
   <div class="toolbar">
     <div class="tb-search">
@@ -402,6 +409,7 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
       <input type="text" id="searchInp" placeholder="Bezeichnung, Hersteller, Kategorie, Standort …" oninput="renderList()">
     </div>
     <button class="nbtn primary" id="btnAddTool" onclick="openAdd()">+ Gerät hinzufügen</button>
+    <button class="nbtn" id="btnBulkMode" onclick="_wzToggleBulkMode()" title="Mehrere Werkzeuge auswählen und gemeinsam bearbeiten" style="display:none;background:#eff6ff;color:#1d4ed8;border-color:#bfdbfe">☑ Auswählen</button>
     <button class="nbtn" onclick="_wzOpenSammelAusleihe()" title="Mehrere Werkzeuge scannen und auf einmal ausleihen" style="background:#fefce8;color:#92400e;border-color:#fde68a">🔄 Sammel-Ausleihe</button>
     <button class="nbtn" id="btnPruefMode" onclick="_wzPruefModus()" style="display:none" title="Prüfmodus starten">📋 Prüfmodus</button>
     <button class="nbtn" id="btnAdvFilter" onclick="_wzOpenAdvFilter()" style="display:none" title="Erweiterte Filter">🔍 Filter</button>
@@ -835,6 +843,84 @@ function _wzCanReportDefect(){
 // ──────────────────────────────────────
 let tools=[], currentFilter='all', currentLifecycle='active', currentView='cards', pruefId=null;
 window._wzSetLifecycle=function(v){currentLifecycle=v;document.querySelectorAll('.lc-pill').forEach(function(b){b.classList.toggle('active',b.dataset.lc===v);});renderList();updateStats();};
+
+// Bulk-Auswahl-State (Set von Tool-IDs). Nur Magaziner/Admin sehen die
+// Checkboxen ueberhaupt; UI-seitig wird ueber den Auswahl-Modus
+// freigeschaltet (_wzBulkMode).
+var _wzBulkMode=false;
+var _wzBulkSelected={};
+window._wzToggleBulkMode=function(){
+  if(!_wzCanEdit())return;
+  _wzBulkMode=!_wzBulkMode;
+  if(!_wzBulkMode)_wzBulkSelected={};
+  document.body.classList.toggle('wz-bulk-on',_wzBulkMode);
+  renderList();_wzRenderBulkBar();
+};
+window._wzBulkToggle=function(id,ev){
+  if(ev){ev.stopPropagation();}
+  if(_wzBulkSelected[id])delete _wzBulkSelected[id];
+  else _wzBulkSelected[id]=true;
+  _wzRenderBulkBar();
+  // Card-Highlight ohne Re-Render
+  var card=document.querySelector('[data-bulk-id="'+id+'"]');
+  if(card)card.classList.toggle('wz-bulk-sel',!!_wzBulkSelected[id]);
+};
+function _wzRenderBulkBar(){
+  var bar=document.getElementById('wzBulkBar');
+  var count=Object.keys(_wzBulkSelected).length;
+  if(!bar){
+    if(!_wzBulkMode)return;
+    bar=document.createElement('div');bar.id='wzBulkBar';
+    bar.style.cssText='position:fixed;bottom:16px;left:50%;transform:translateX(-50%);z-index:900;background:#0f172a;color:#fff;border-radius:14px;padding:10px 16px;display:flex;align-items:center;gap:12px;box-shadow:0 12px 32px rgba(0,0,0,.25);font-size:13px;font-weight:700;flex-wrap:wrap;max-width:calc(100% - 32px)';
+    document.body.appendChild(bar);
+  }
+  if(!_wzBulkMode){bar.remove();return;}
+  bar.innerHTML='<span>'+count+' ausgewählt</span>'
+    +'<button onclick="_wzBulkSetStatus()" '+(count?'':'disabled')+' style="padding:6px 12px;border-radius:8px;border:none;background:#2563eb;color:#fff;font-weight:700;cursor:pointer;font-family:inherit;font-size:12px;'+(count?'':'opacity:.4;cursor:not-allowed')+'">Status setzen</button>'
+    +'<button onclick="_wzBulkAssign()" '+(count?'':'disabled')+' style="padding:6px 12px;border-radius:8px;border:none;background:#3730a3;color:#fff;font-weight:700;cursor:pointer;font-family:inherit;font-size:12px;'+(count?'':'opacity:.4;cursor:not-allowed')+'">Person zuweisen</button>'
+    +'<button onclick="_wzToggleBulkMode()" style="padding:6px 12px;border-radius:8px;border:1px solid #475569;background:transparent;color:#fff;font-weight:700;cursor:pointer;font-family:inherit;font-size:12px">Abbrechen</button>';
+}
+window._wzBulkSetStatus=function(){
+  var ids=Object.keys(_wzBulkSelected);if(!ids.length)return;
+  var html='<div class="dlg-card"><h3 style="margin:0 0 8px;font-size:16px;font-weight:800">Status setzen</h3><div style="font-size:12px;color:#64748b;margin-bottom:10px">'+ids.length+' Werkzeuge</div><div class="dlg-fields"><div><label class="dlg-lbl">Neuer Status</label><select id="bulkLc" class="dlg-inp"><option value="aktiv">✅ Aktiv</option><option value="in_reparatur">🔧 In Reparatur</option><option value="ausgemustert">📦 Ausgemustert</option><option value="verkauft">💰 Verkauft</option></select></div></div><div class="dlg-row"><button onclick="_wzCloseModal()" class="dlg-cancel">Abbrechen</button><button onclick="_wzBulkApplyStatus()" style="padding:9px 18px;border-radius:8px;border:none;background:#2563eb;color:#fff;cursor:pointer;font-weight:700;font-family:inherit">Anwenden</button></div></div>';
+  _wzShowModal(html);
+};
+window._wzBulkApplyStatus=function(){
+  var v=document.getElementById('bulkLc').value;
+  var ids=Object.keys(_wzBulkSelected);var changed=0;
+  ids.forEach(function(id){var t=tools.find(function(x){return x.id===id;});if(t){t.lifecycleStatus=v;changed++;}});
+  save();_wzCloseModal();_wzToggleBulkMode();
+  if(typeof showToast==='function')showToast(changed+' Werkzeuge auf neuen Status gesetzt');
+};
+window._wzBulkAssign=function(){
+  var ids=Object.keys(_wzBulkSelected);if(!ids.length)return;
+  var personen=[];
+  if(typeof GemaAuth!=='undefined'){
+    try{
+      var me=_wzGetUser()||{};
+      var users=GemaAuth.getUsers()||[];
+      personen=users.filter(function(u){if(!u.active)return false;if(me.orgId&&u.orgId!==me.orgId&&!_wzIsAdmin())return false;return true;});
+    }catch(e){}
+  }
+  var opts='<option value="">— Niemand zuweisen (entfernen) —</option>';
+  personen.forEach(function(p){opts+='<option value="'+esc(p.id)+'">'+esc(p.name||p.username)+'</option>';});
+  var html='<div class="dlg-card"><h3 style="margin:0 0 8px;font-size:16px;font-weight:800">Person zuweisen</h3><div style="font-size:12px;color:#64748b;margin-bottom:10px">'+ids.length+' Werkzeuge</div><div class="dlg-fields"><div><label class="dlg-lbl">Zugewiesen an</label><select id="bulkAssignee" class="dlg-inp">'+opts+'</select></div></div><div class="dlg-row"><button onclick="_wzCloseModal()" class="dlg-cancel">Abbrechen</button><button onclick="_wzBulkApplyAssign()" style="padding:9px 18px;border-radius:8px;border:none;background:#3730a3;color:#fff;cursor:pointer;font-weight:700;font-family:inherit">Zuweisen</button></div></div>';
+  _wzShowModal(html);
+};
+window._wzBulkApplyAssign=function(){
+  var uid=document.getElementById('bulkAssignee').value;
+  var users=(typeof GemaAuth!=='undefined')?(GemaAuth.getUsers()||[]):[];
+  var p=uid?users.find(function(u){return u.id===uid;}):null;
+  var ids=Object.keys(_wzBulkSelected);var changed=0;
+  ids.forEach(function(id){
+    var t=tools.find(function(x){return x.id===id;});if(!t)return;
+    if(uid&&p)t.zugewiesenAn={userId:uid,name:p.name||p.username,seit:today()};
+    else delete t.zugewiesenAn;
+    changed++;
+  });
+  save();_wzCloseModal();_wzToggleBulkMode();
+  if(typeof showToast==='function')showToast(changed+' Zuweisungen aktualisiert');
+};
 let _wzAdvFilter={};
 
 function _wzGetMyTools(list){
@@ -1340,7 +1426,11 @@ function renderCard(t){
   const lc=t.lifecycleStatus||'aktiv';
   const lcMeta={aktiv:null,in_reparatur:{label:'🔧 In Reparatur',bg:'#dbeafe',color:'#1d4ed8',brd:'#bfdbfe'},ausgemustert:{label:'📦 Ausgemustert',bg:'#f1f5f9',color:'#475569',brd:'#cbd5e1'},verkauft:{label:'💰 Verkauft',bg:'#f0fdf4',color:'#15803d',brd:'#bbf7d0'}}[lc];
   const cardOpacity=(lc==='ausgemustert'||lc==='verkauft')?'opacity:.7;':'';
-  return`<div class="tool-card" onclick="_wzCardClick(event,'${t.id}')" style="cursor:pointer;${cardOpacity}">
+  const bulkCb=_wzBulkMode?`<div class="wz-bulk-cb" onclick="_wzBulkToggle('${t.id}',event)" style="position:absolute;top:8px;left:8px;width:26px;height:26px;background:#fff;border:1.5px solid var(--brd);border-radius:6px;display:grid;place-items:center;cursor:pointer;font-size:14px;font-weight:800;color:var(--plan);z-index:5">${_wzBulkSelected[t.id]?'✓':''}</div>`:'';
+  const bulkSel=_wzBulkSelected[t.id]?' wz-bulk-sel':'';
+  const cardClick=_wzBulkMode?`onclick="_wzBulkToggle('${t.id}',event)"`:`onclick="_wzCardClick(event,'${t.id}')"`;
+  return`<div class="tool-card${bulkSel}" data-bulk-id="${t.id}" ${cardClick} style="cursor:pointer;${cardOpacity}">
+    ${bulkCb}
     ${lcMeta?`<div style="padding:4px 14px;background:${lcMeta.bg};border-bottom:1px solid ${lcMeta.brd};color:${lcMeta.color};font-size:11px;font-weight:700;letter-spacing:.3px">${lcMeta.label}</div>`:''}
     <div class="status-bar ${barCls}"></div>
     <div class="tc-head">
@@ -3612,6 +3702,8 @@ await Promise.race([
   if(btnPruef && canEdit) btnPruef.style.display='';
   var btnAdvFilter=document.getElementById('btnAdvFilter');
   if(btnAdvFilter && canEdit) btnAdvFilter.style.display='';
+  var btnBulk=document.getElementById('btnBulkMode');
+  if(btnBulk && canEdit) btnBulk.style.display='';
 
   if(isMonteurUI){
     // Monteur: Toolbar komplett ausblenden (Suche, Buttons, View-Toggle)
