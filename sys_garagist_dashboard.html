@@ -241,10 +241,15 @@ input,select,textarea,button{font-family:inherit}
     if(days<=30)return {cls:'amber',label:'in '+days+' Tagen'};
     return {cls:'green',label:'in '+days+' Tagen'};
   }
+  function openFollowUps(v){
+    if(!Array.isArray(v.followUps))return [];
+    return v.followUps.filter(function(f){return f && !f.completed;});
+  }
   function vehicleUrgency(v){
     var s=daysUntil(nextServiceDate(v));
     var m=daysUntil(v.mfk);
-    var arr=[s,m].filter(function(x){return x!==null;});
+    var fups=openFollowUps(v).map(function(f){return daysUntil(f.dueDate);});
+    var arr=[s,m].concat(fups).filter(function(x){return x!==null;});
     if(!arr.length)return Infinity;
     return Math.min.apply(null,arr);
   }
@@ -375,6 +380,13 @@ input,select,textarea,button{font-family:inherit}
     html+='<div><b>Letzter Service:</b> '+fmtDate(v.lastService)+'</div>';
     if(sBadge)html+='<div><b>Nächster Service:</b> <span class="fz-due-pill '+sBadge.cls+'">'+sBadge.label+'</span></div>';
     if(mBadge)html+='<div><b>MFK:</b> <span class="fz-due-pill '+mBadge.cls+'">'+mBadge.label+'</span></div>';
+    var fups=openFollowUps(v);
+    if(fups.length){
+      var soonest=fups.slice().sort(function(a,b){return (a.dueDate||'').localeCompare(b.dueDate||'');})[0];
+      var fDays=daysUntil(soonest.dueDate);
+      var fBadge=fDays!==null?dueBadge(fDays):null;
+      html+='<div><b>📅 Folge-Termin:</b> '+esc((soonest.beschreibung||'').slice(0,40))+(fBadge?' <span class="fz-due-pill '+fBadge.cls+'">'+fBadge.label+'</span>':'')+'</div>';
+    }
     html+='</div>';
     html+='<div class="fz-actions">';
     html+='<a class="fz-act primary" href="if_fahrzeug.html?service='+esc(v.id)+'">🛠 Service erfassen</a>';

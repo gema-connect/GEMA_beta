@@ -944,6 +944,7 @@ function saveVehicle(){
     if(idx>=0){
       data.id=editId; data.createdAt=vehicles[idx].createdAt; data.events=vehicles[idx].events||[];
       data.serviceHistorie=vehicles[idx].serviceHistorie||[];
+      data.followUps=vehicles[idx].followUps||[];
       var prevGaragist=vehicles[idx].garagistUserId||'';
       if(data.km!==vehicles[idx].km) data.kmUpdatedAt=new Date().toISOString();
       else data.kmUpdatedAt=vehicles[idx].kmUpdatedAt||'';
@@ -1099,6 +1100,28 @@ function _fzScanFaelligkeiten(){
         GemaNotify.push(Object.assign({},mBase,{empfaengerRoleId:'role_magaziner'}));pushed++;
         lock[mLockKey]=today;
       }
+    }
+    // Folge-Termine (vom Garagist eingeplant)
+    if(Array.isArray(v.followUps)){
+      v.followUps.forEach(function(f){
+        if(!f||f.completed||!f.dueDate)return;
+        var fDays=_fzDaysUntil(f.dueDate);
+        var fThr=_fzThresholdOf(fDays);
+        if(!fThr)return;
+        var fLockKey=v.id+':followup:'+f.id+':'+fThr.key;
+        if(lock[fLockKey]===today)return;
+        var fBase={
+          eventKey:'fahrzeug_service_faellig',modul:'fahrzeug',typ:fThr.typ,
+          titel:'Folge-Termin '+fThr.label,
+          text:(v.plate||v.model||'Fahrzeug')+' — '+(f.beschreibung||'Folge-Termin')+' ('+fThr.label+')',
+          link:'if_fahrzeug.html?view='+v.id
+        };
+        if(v.garagistUserId){
+          GemaNotify.push(Object.assign({},fBase,{empfaengerUserId:v.garagistUserId}));pushed++;
+        }
+        GemaNotify.push(Object.assign({},fBase,{empfaengerRoleId:'role_magaziner'}));pushed++;
+        lock[fLockKey]=today;
+      });
     }
   });
   if(pushed>0)_fzWriteNotifLock(lock);
@@ -2337,7 +2360,32 @@ function _fzRenderServiceHistorie(v){
   var canAdd=_fzCanEdit();
   var canSeeAllCosts=_fzIsAdmin()||_fzIsMagaziner();
   var meId=(_fzGetUser()||{}).id||'';
-  var html='<div class="vm-section">Service-Historie';
+  var html='';
+
+  // Folge-Termine
+  var followUps=Array.isArray(v.followUps)?v.followUps.slice():[];
+  var openFups=followUps.filter(function(f){return f && !f.completed;});
+  openFups.sort(function(a,b){return (a.dueDate||'').localeCompare(b.dueDate||'');});
+  if(openFups.length){
+    html+='<div class="vm-section">Folge-Termine</div>';
+    html+='<div style="display:flex;flex-direction:column;gap:5px;margin-top:4px">';
+    var todayStr=new Date().toISOString().slice(0,10);
+    openFups.forEach(function(f){
+      var faellig=(f.dueDate||'')<=todayStr;
+      var pill=faellig?'background:#fef2f2;border-color:#fecaca;color:#b91c1c':'background:#fffbeb;border-color:#fde68a;color:#92400e';
+      html+='<div style="border:1.5px solid;'+pill+';border-radius:8px;padding:8px 10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">';
+      html+='<span style="font-size:12px;font-weight:700">'+(faellig?'⏰ Fällig':'📅 '+new Date(f.dueDate).toLocaleDateString('de-CH'))+'</span>';
+      html+='<span style="font-size:12px">'+esc(f.beschreibung||'')+'</span>';
+      if(f.plannedByName)html+='<span style="font-size:10.5px;opacity:.7">· '+esc(f.plannedByName)+'</span>';
+      if(canAdd){
+        html+='<button onclick="_fzCompleteFollowUp(\''+esc(v.id)+'\',\''+esc(f.id)+'\')" style="margin-left:auto;padding:3px 9px;border-radius:6px;border:1.5px solid currentColor;background:transparent;color:inherit;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit">Erledigt</button>';
+      }
+      html+='</div>';
+    });
+    html+='</div>';
+  }
+
+  html+='<div class="vm-section">Service-Historie';
   if(canAdd){
     html+='<button onclick="_fzOpenServiceModal(\''+esc(v.id)+'\')" style="margin-left:auto;padding:4px 10px;border-radius:6px;border:1.5px solid var(--primary);background:#eff6ff;color:var(--primary);font-size:11px;font-weight:700;cursor:pointer;font-family:inherit">+ Service erfassen</button>';
   }
@@ -2376,6 +2424,24 @@ function _fzRenderServiceHistorie(v){
   html+='</div>';
   return html;
 }
+
+// Markiert einen Folge-Termin als erledigt.
+window._fzCompleteFollowUp=function(vehicleId, followUpId){
+  if(!_fzCanEdit())return;
+  var v=vehicles.find(function(x){return x.id===vehicleId;});
+  if(!v||!Array.isArray(v.followUps))return;
+  var f=v.followUps.find(function(x){return x.id===followUpId;});
+  if(!f)return;
+  var u=_fzGetUser()||{};
+  f.completed=true;
+  f.completedAt=new Date().toISOString();
+  f.completedByUserId=u.id||'';
+  f.completedByName=u.name||u.username||'';
+  persist();
+  openViewFzg(vehicleId);
+  render();
+  showToast('Folge-Termin erledigt ✓');
+};
 
 // Lightbox fuer Service-Foto. Ueberlappend ueber dem View-Modal.
 window._fzPhotoLightbox=function(src){
@@ -2416,6 +2482,11 @@ function _fzOpenServiceModal(vehicleId){
   _fzServicePhotos=[];
   var fp=document.getElementById('fSvcPhotos');if(fp)fp.value='';
   var pv=document.getElementById('fSvcPhotoPreview');if(pv)pv.innerHTML='';
+  // Folge-Termin-State zuruecksetzen
+  var fc=document.getElementById('fSvcHasFollowUp');if(fc)fc.checked=false;
+  var fd=document.getElementById('fSvcFollowUpDatum');if(fd)fd.value='';
+  var fb=document.getElementById('fSvcFollowUpBesch');if(fb)fb.value='';
+  var ff=document.getElementById('fSvcFollowUpFields');if(ff)ff.style.display='none';
   ov.style.display='flex';ov.classList.remove('hidden');
   document.body.classList.add('modal-open');
 }
@@ -2452,6 +2523,25 @@ function _fzSaveServiceEntry(){
   };
   if(!Array.isArray(v.serviceHistorie))v.serviceHistorie=[];
   v.serviceHistorie.push(entry);
+  // Folge-Termin: optional, wenn Toggle aktiv und Datum gesetzt
+  var hasFollow=document.getElementById('fSvcHasFollowUp');
+  if(hasFollow && hasFollow.checked){
+    var followDatum=(document.getElementById('fSvcFollowUpDatum')||{}).value||'';
+    var followBesch=((document.getElementById('fSvcFollowUpBesch')||{}).value||'').trim();
+    if(followDatum){
+      if(!Array.isArray(v.followUps))v.followUps=[];
+      v.followUps.push({
+        id:'fu_'+Date.now()+'_'+Math.random().toString(36).substr(2,5),
+        dueDate:followDatum,
+        beschreibung:followBesch||'Folge-Termin',
+        plannedFromEntryId:entry.id,
+        plannedAt:new Date().toISOString(),
+        plannedByUserId:u.id||'',
+        plannedByName:u.name||u.username||'',
+        completed:false
+      });
+    }
+  }
   // Auto-Update: lastService, lastServiceKm, km (nur wenn neuer)
   if(!v.lastService||(datum>v.lastService))v.lastService=datum;
   if(km){
@@ -2510,6 +2600,17 @@ function _fzCreateServiceModal(){
           '<div id="fSvcPhotoPreview" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px"></div>'+
           '<span class="hint">Fotos werden auf max 1280 px verkleinert und als JPEG gespeichert. Praktisch z. B. für Vorher/Nachher der Bremsen.</span>'+
         '</div>'+
+        '<div class="field" style="grid-column:1 / -1;border-top:1px dashed #e5e7eb;padding-top:10px;margin-top:4px">'+
+          '<label class="label" style="display:flex;align-items:center;gap:8px;cursor:pointer">'+
+            '<input type="checkbox" id="fSvcHasFollowUp" onchange="_fzToggleFollowUp()" style="accent-color:var(--primary);width:18px;height:18px"/>'+
+            '<span>Folge-Termin vorplanen</span>'+
+          '</label>'+
+          '<span class="hint">z. B. „Bremsen in 6 Monaten checken" — wird zur Fälligkeit als Notif ausgelöst.</span>'+
+        '</div>'+
+        '<div id="fSvcFollowUpFields" style="display:none;grid-column:1 / -1;display:none;grid-template-columns:1fr 1fr;gap:12px">'+
+          '<div class="field"><label class="label">Folge-Termin Datum *</label><input class="inp" type="date" id="fSvcFollowUpDatum"/></div>'+
+          '<div class="field"><label class="label">Was soll gemacht werden?</label><input class="inp" id="fSvcFollowUpBesch" placeholder="z. B. Bremsen vorne kontrollieren"/></div>'+
+        '</div>'+
       '</div>'+
       '<div style="display:flex;justify-content:flex-end;gap:8px;padding:14px 20px;border-top:1px solid #f0f0f0;flex-shrink:0">'+
         '<button class="btn" onclick="_fzCloseServiceModal()">Abbrechen</button>'+
@@ -2549,6 +2650,13 @@ function _fzRenderServicePhotoPreview(){
 
 window._fzServicePhotoRemove=function(i){
   _fzServicePhotos.splice(i,1);_fzRenderServicePhotoPreview();
+};
+
+window._fzToggleFollowUp=function(){
+  var cb=document.getElementById('fSvcHasFollowUp');
+  var box=document.getElementById('fSvcFollowUpFields');
+  if(!cb||!box)return;
+  box.style.display=cb.checked?'grid':'none';
 };
 
 // Komprimiert ein Image-File via Canvas auf max 1280 px lange Kante,
