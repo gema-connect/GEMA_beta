@@ -1950,9 +1950,17 @@ function _wzScanAusleihe(toolId){
     +(_wzBadDefect(t)?'<div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid #EEF1F4"><span style="font-size:13px;color:#94a3b8">Defekt</span><span style="font-size:13px;font-weight:700;color:#dc2626">⚠ Defekt offen</span></div>':'')
     +'</div>'
     // Action
-    +'<div style="margin-bottom:16px">'+actionBtn+'</div>'
-    // Defekt melden
-    +'<button onclick="_wzCloseScan();setTimeout(function(){openDefektMelden(\''+toolId+'\')},200)" style="width:100%;padding:12px;border-radius:12px;border:1.5px solid #fed7aa;background:#fff7ed;color:#c2410c;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;display:flex;align-items:center;justify-content:center;gap:6px">⚠ Defekt melden</button>'
+    +'<div style="margin-bottom:14px">'+actionBtn+'</div>'
+    // Defekt melden — prominenter Sekundaer-Button (rot)
+    +(_wzCanReportDefect()?'<button onclick="_wzCloseScan();setTimeout(function(){openDefektMelden(\''+toolId+'\')},200)" style="width:100%;padding:14px;border-radius:12px;border:1.5px solid #fecaca;background:#fef2f2;color:#b91c1c;font-size:15px;font-weight:800;cursor:pointer;font-family:inherit;display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:8px">🚨 Defekt melden</button>':'')
+    // Lifecycle-Quick-Toggle fuer Magaziner/Admin
+    +(_wzCanEdit()?'<div style="display:flex;gap:6px;margin-bottom:8px">'
+       +((t.lifecycleStatus||'aktiv')==='in_reparatur'
+          ?'<button onclick="_wzScanLifecycle(\''+toolId+'\',\'aktiv\')" style="flex:1;padding:11px;border-radius:10px;border:1.5px solid #bbf7d0;background:#f0fdf4;color:#15803d;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">✅ Reparatur abschliessen</button>'
+          :'<button onclick="_wzScanLifecycle(\''+toolId+'\',\'in_reparatur\')" style="flex:1;padding:11px;border-radius:10px;border:1.5px solid #bfdbfe;background:#eff6ff;color:#1d4ed8;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">🔧 In Reparatur setzen</button>')
+       +'</div>':'')
+    // Berichte ansehen (Read-Link fuer alle, falls vorhanden)
+    +(t.berichte&&t.berichte.length?'<button onclick="_wzCloseScan();setTimeout(function(){openBerichte(\''+toolId+'\')},200)" style="width:100%;padding:11px;border-radius:10px;border:1.5px solid #e5e7eb;background:#fff;color:#475569;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;display:flex;align-items:center;justify-content:center;gap:6px">📝 Berichte ansehen ('+t.berichte.length+')</button>':'')
     +'</div>';
   document.body.appendChild(overlay);
 }
@@ -2007,6 +2015,18 @@ window._wzScanBorrow=_wzScanBorrow;
 window._wzScanTransfer=_wzScanTransfer;
 window._wzScanReturn=_wzScanReturn;
 window._wzScanConfirmReturn=_wzScanConfirmReturn;
+
+// Aus dem Scan-View heraus den Lebenszyklus-Status ein-Klick umstellen.
+// Nur Magaziner/Admin. Re-rendert das Overlay danach.
+window._wzScanLifecycle=function(toolId, newStatus){
+  if(!_wzCanEdit())return;
+  var t=tools.find(function(x){return x.id===toolId;});if(!t)return;
+  t.lifecycleStatus=newStatus;
+  save();
+  _wzCloseScan();
+  setTimeout(function(){_wzScanAusleihe(toolId);},120);
+  renderList();
+};
 window._wzCloseScan=_wzCloseScan;
 
 // ── Sammel-Ausleihe ──
