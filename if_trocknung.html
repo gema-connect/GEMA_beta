@@ -240,6 +240,8 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
 .ico-ventilator{background:#eff6ff;border-color:#bfdbfe!important}
 .ico-luftentfeuchter{background:#ede9fe;border-color:#c4b5fd!important}
 .ico-infrarot{background:#fffbeb;border-color:#fde68a!important}
+.ico-adsorption{background:#ecfeff;border-color:#a5f3fc!important}
+.ico-unterdruck{background:#f1f5f9;border-color:#cbd5e1!important}
 
 /* Summary card (kWh) */
 .kwh-card{background:var(--amb-bg);border:1.5px solid var(--amb-bd);border-radius:12px;padding:14px 18px;margin-top:8px}
@@ -402,6 +404,8 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
     <select class="filter-select" id="filterTyp" onchange="renderList()">
       <option value="">Alle Typen</option>
       <option value="bautrockner">🌡️ Bautrockner</option>
+      <option value="adsorption">🌫️ Adsorptionsentfeuchter</option>
+      <option value="unterdruck">🌪️ Unterdruckverfahren</option>
       <option value="ventilator">🌀 Ventilator</option>
       <option value="luftentfeuchter">💨 Luftentfeuchter</option>
       <option value="infrarot">☀️ Infrarotheizung</option>
@@ -453,6 +457,8 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
           <select id="f_typ">
             <option value="">— Typ wählen —</option>
             <option value="bautrockner">🌡️ Bautrockner</option>
+            <option value="adsorption">🌫️ Adsorptionsentfeuchter</option>
+            <option value="unterdruck">🌪️ Unterdruckverfahren</option>
             <option value="ventilator">🌀 Ventilator</option>
             <option value="luftentfeuchter">💨 Luftentfeuchter</option>
             <option value="infrarot">☀️ Infrarotheizung</option>
@@ -460,7 +466,9 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
         </div>
         <div class="fg">
           <label>Bezeichnung <span class="req">*</span></label>
-          <input type="text" id="f_name" placeholder="z.B. Bautrockner LGR 3500">
+          <input type="text" id="f_name" placeholder="z.B. Bautrockner LGR 3500" list="trocknungKatalogList" oninput="_tgKatalogAutofill()">
+          <datalist id="trocknungKatalogList"></datalist>
+          <div class="fg-hint" style="font-size:11px;color:#6b7280;margin-top:4px">Tippe los — Vorschläge aus dem Basiskatalog. Marke, Modell und Typ werden automatisch ergänzt.</div>
         </div>
         <div class="fg-row">
           <div class="fg">
@@ -673,10 +681,12 @@ var STORAGE_KEY = 'gema_trocknung_v1';
 var SCHADEN_KEY = 'gema_schadensbericht_v1';
 
 var GERAETE_TYPEN = {
-  bautrockner:     { label: 'Bautrockner',       icon: '🌡️', color: '#dc2626' },
-  ventilator:      { label: 'Ventilator',         icon: '🌀', color: '#2563eb' },
-  luftentfeuchter: { label: 'Luftentfeuchter',    icon: '💨', color: '#7c3aed' },
-  infrarot:        { label: 'Infrarotheizung',    icon: '☀️', color: '#d97706' }
+  bautrockner:     { label: 'Bautrockner',          icon: '🌡️', color: '#dc2626' },
+  adsorption:      { label: 'Adsorptionsentfeuchter', icon: '🌫️', color: '#0891b2' },
+  unterdruck:      { label: 'Unterdruckverfahren',  icon: '🌪️', color: '#475569' },
+  ventilator:      { label: 'Ventilator',           icon: '🌀', color: '#2563eb' },
+  luftentfeuchter: { label: 'Luftentfeuchter',      icon: '💨', color: '#7c3aed' },
+  infrarot:        { label: 'Infrarotheizung',      icon: '☀️', color: '#d97706' }
 };
 
 var STATUS_MAP = {
@@ -685,6 +695,78 @@ var STATUS_MAP = {
   in_wartung: { label: 'In Wartung',   color: '#2563eb', barClass: 'blue' },
   defekt:     { label: 'Defekt',       color: '#dc2626', barClass: 'red' }
 };
+
+// Basiskatalog: Vorschläge für die Bezeichnungs-Autocomplete (vgl. WERKZEUG_KATALOG in if_werkzeug.html).
+// Wird beim Tippen ins Bezeichnungs-Feld via <datalist> angeboten; bei exaktem Treffer
+// füllt _tgKatalogAutofill() Marke, Modell und Typ automatisch.
+var TROCKNUNG_KATALOG = [
+  // Bautrockner / Kondensationstrockner
+  { name: 'Bautrockner TTK 75 ECO',  marke: 'Trotec',   modell: 'TTK 75 ECO',  typ: 'bautrockner' },
+  { name: 'Bautrockner TTK 175 S',   marke: 'Trotec',   modell: 'TTK 175 S',   typ: 'bautrockner' },
+  { name: 'Bautrockner TTK 350 S',   marke: 'Trotec',   modell: 'TTK 350 S',   typ: 'bautrockner' },
+  { name: 'Bautrockner TTK 655 S',   marke: 'Trotec',   modell: 'TTK 655 S',   typ: 'bautrockner' },
+  { name: 'Bautrockner CDT 30',      marke: 'Dantherm', modell: 'CDT 30',      typ: 'bautrockner' },
+  { name: 'Bautrockner CDT 90',      marke: 'Dantherm', modell: 'CDT 90',      typ: 'bautrockner' },
+  { name: 'Bautrockner AD 580',      marke: 'Aerial',   modell: 'AD 580',      typ: 'bautrockner' },
+  { name: 'Bautrockner AD 780',      marke: 'Aerial',   modell: 'AD 780',      typ: 'bautrockner' },
+  { name: 'Bautrockner DH 92',       marke: 'Master',   modell: 'DH 92',       typ: 'bautrockner' },
+  // Adsorptionsentfeuchter
+  { name: 'Adsorptionstrockner TTR 160',  marke: 'Trotec',  modell: 'TTR 160',  typ: 'adsorption' },
+  { name: 'Adsorptionstrockner TTR 250',  marke: 'Trotec',  modell: 'TTR 250',  typ: 'adsorption' },
+  { name: 'Adsorptionstrockner TTR 400',  marke: 'Trotec',  modell: 'TTR 400',  typ: 'adsorption' },
+  { name: 'Adsorptionstrockner TTR 500 D',marke: 'Trotec',  modell: 'TTR 500 D',typ: 'adsorption' },
+  { name: 'Adsorptionstrockner ASE 200',  marke: 'Aerial',  modell: 'ASE 200',  typ: 'adsorption' },
+  { name: 'Adsorptionstrockner ASE 300',  marke: 'Aerial',  modell: 'ASE 300',  typ: 'adsorption' },
+  { name: 'Adsorptionstrockner MG90',     marke: 'Munters', modell: 'MG90',     typ: 'adsorption' },
+  { name: 'Adsorptionstrockner C30B',     marke: 'Cotes',   modell: 'C30B',     typ: 'adsorption' },
+  // Unterdruckverfahren / Dämmschicht-Trocknung
+  { name: 'Unterdruckhalter Qube+',         marke: 'Trotec', modell: 'Qube+',     typ: 'unterdruck' },
+  { name: 'Unterdrucksystem MultiQube',     marke: 'Trotec', modell: 'MultiQube', typ: 'unterdruck' },
+  { name: 'Seitenkanalverdichter VE 14',    marke: 'Trotec', modell: 'VE 14',     typ: 'unterdruck' },
+  { name: 'Seitenkanalverdichter VE 21',    marke: 'Trotec', modell: 'VE 21',     typ: 'unterdruck' },
+  { name: 'Wasserabscheider WSA 600',       marke: 'Aerial', modell: 'WSA 600',   typ: 'unterdruck' },
+  // Ventilator / Bauventilator
+  { name: 'Axialventilator TFV 30 S',  marke: 'Trotec', modell: 'TFV 30 S',  typ: 'ventilator' },
+  { name: 'Axialventilator TFV 100',   marke: 'Trotec', modell: 'TFV 100',   typ: 'ventilator' },
+  { name: 'Axialventilator AAR 25',    marke: 'Aerial', modell: 'AAR 25',    typ: 'ventilator' },
+  { name: 'Axialventilator AAR 35',    marke: 'Aerial', modell: 'AAR 35',    typ: 'ventilator' },
+  { name: 'Bauventilator DF 20 P',     marke: 'Master', modell: 'DF 20 P',   typ: 'ventilator' },
+  { name: 'Bauventilator TD 1000',     marke: 'Heylo',  modell: 'TD 1000',   typ: 'ventilator' },
+  // Infrarotheizung
+  { name: 'Infrarotheizung IR 1500', marke: 'Trotec', modell: 'IR 1500', typ: 'infrarot' },
+  { name: 'Infrarotheizung IR 2400', marke: 'Trotec', modell: 'IR 2400', typ: 'infrarot' },
+  { name: 'Infrarotheizung IT 1500', marke: 'Heylo',  modell: 'IT 1500', typ: 'infrarot' },
+  { name: 'Infrarotheizung TS 3 A',  marke: 'Master', modell: 'TS 3 A',  typ: 'infrarot' },
+  // Luftentfeuchter (mobile, Raumklima)
+  { name: 'Luftentfeuchter TTK 25 E',    marke: 'Trotec',  modell: 'TTK 25 E',     typ: 'luftentfeuchter' },
+  { name: 'Luftentfeuchter TTK 30 E',    marke: 'Trotec',  modell: 'TTK 30 E',     typ: 'luftentfeuchter' },
+  { name: 'Luftentfeuchter Lavari 9000', marke: 'Comedes', modell: 'Lavari 9000',  typ: 'luftentfeuchter' },
+  { name: 'Luftentfeuchter B 250',       marke: 'Brune',   modell: 'B 250',        typ: 'luftentfeuchter' },
+  { name: 'Luftentfeuchter MDC14',       marke: "Wood's",  modell: 'MDC14',        typ: 'luftentfeuchter' }
+];
+
+function _tgInitKatalogList() {
+  var dl = document.getElementById('trocknungKatalogList');
+  if (!dl) return;
+  dl.innerHTML = TROCKNUNG_KATALOG.map(function(k) {
+    var typLabel = (GERAETE_TYPEN[k.typ] && GERAETE_TYPEN[k.typ].label) || '';
+    return '<option value="' + k.name + '">' + k.marke + ' · ' + k.modell + (typLabel ? ' — ' + typLabel : '') + '</option>';
+  }).join('');
+}
+
+function _tgKatalogAutofill() {
+  var nameEl = document.getElementById('f_name');
+  if (!nameEl) return;
+  var entry = TROCKNUNG_KATALOG.find(function(k) { return k.name === nameEl.value; });
+  if (!entry) return;
+  var marke = document.getElementById('f_marke');
+  if (marke && !marke.value) marke.value = entry.marke;
+  var modell = document.getElementById('f_modell');
+  if (modell && !modell.value) modell.value = entry.modell;
+  var typ = document.getElementById('f_typ');
+  if (typ && !typ.value) typ.value = entry.typ;
+}
+window._tgKatalogAutofill = _tgKatalogAutofill;
 
 // ──────────────────────────────────────
 // STATE
@@ -1600,6 +1682,7 @@ document.addEventListener('DOMContentLoaded', function() {
     btnAdd.style.display = _tgCanEdit() ? '' : 'none';
   }
 
+  _tgInitKatalogList();
   renderList();
   checkUrlParams();
 });
