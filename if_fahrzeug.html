@@ -2083,8 +2083,10 @@ var _currentFzgNfcUrl='';        // URL fuer NFC-Schreiben
 function openFzgQR(id){
   const v=vehicles.find(x=>x.id===id); if(!v) return;
   document.getElementById('fzgQrTitle').textContent=v.plate||v.model||'Fahrzeug';
+  // QR fuehrt zur klassischen Detail-Ansicht; NFC schreibt ?nfc=ID,
+  // damit beim Scan via Phone das Mobile-Action-Sheet aufgeht.
   const url=location.href.split('?')[0]+'?view='+id;
-  _currentFzgNfcUrl=url;
+  _currentFzgNfcUrl=location.href.split('?')[0]+'?nfc='+id;
   const canvas=document.getElementById('fzgQrCanvas');
   canvas.innerHTML='';
   _currentFzgQRInstance=new QRCode(canvas,{text:url,width:180,height:180,colorDark:'#111827',colorLight:'#ffffff',correctLevel:QRCode.CorrectLevel.M});
@@ -2672,6 +2674,95 @@ window._fzCompleteFollowUp=function(vehicleId, followUpId){
   showToast('Folge-Termin erledigt ✓');
 };
 
+// ─────────────────────────────────────────────────────────────────
+// Mobile-Native NFC-Flow: nach Tag-Scan oeffnet sich ein
+// daumen-freundliches Action-Sheet mit grossen Buttons (km / Service
+// / Defekt / Detail). Reduziert die Tap-Anzahl bei NFC-Workflows in
+// der Werkstatt von 3 auf 1.
+// ─────────────────────────────────────────────────────────────────
+window._fzOpenNfcActionSheet=function(vehicleId){
+  var v=vehicles.find(function(x){return x.id===vehicleId;});
+  if(!v){alert('Fahrzeug nicht gefunden.');return;}
+  // Garagist: nur eigene zugewiesene Fahrzeuge
+  if(_fzIsGaragist() && !_fzCanOpenVehicle(v)){
+    alert('Dieses Fahrzeug ist deiner Werkstatt nicht zugewiesen.');return;
+  }
+  var ov=document.getElementById('nfcActionSheet');
+  if(!ov){_fzCreateNfcActionSheet();ov=document.getElementById('nfcActionSheet');}
+  document.getElementById('nfcAsTitle').textContent=v.plate||v.model||'Fahrzeug';
+  document.getElementById('nfcAsSub').textContent=(v.model||'')+(v.km?' · '+parseInt(v.km,10).toLocaleString('de-CH')+' km':'');
+  var canEdit=_fzCanEdit();
+  document.getElementById('nfcAsKm').style.display=canEdit?'flex':'none';
+  document.getElementById('nfcAsService').style.display=canEdit?'flex':'none';
+  document.getElementById('nfcAsDefekt').style.display=_fzCanReportDefect&&_fzCanReportDefect()||canEdit?'flex':'none';
+  // Aktions-IDs setzen
+  ov.dataset.vid=vehicleId;
+  ov.style.display='flex';ov.classList.remove('hidden');
+  document.body.classList.add('modal-open');
+};
+
+window._fzCloseNfcActionSheet=function(){
+  var ov=document.getElementById('nfcActionSheet');
+  if(ov){ov.style.display='none';ov.classList.add('hidden');}
+  document.body.classList.remove('modal-open');
+};
+
+// Quick-km-Edit per prompt() — fuer NFC-Sheet und auch general nutzbar.
+window._fzQuickKmEdit=function(vehicleId){
+  var v=vehicles.find(function(x){return x.id===vehicleId;});
+  if(!v)return;
+  if(!_fzCanEdit()){alert('Keine Berechtigung.');return;}
+  var aktuell=v.km?String(v.km):'';
+  var neu=window.prompt('Neuen km-Stand eintragen für '+(v.plate||v.model||'Fahrzeug')+'\nAktuell: '+(aktuell||'—'),aktuell);
+  if(neu===null)return;
+  neu=String(neu).trim().replace(/[^0-9]/g,'');
+  if(!neu){alert('Ungültige Eingabe.');return;}
+  var neuNum=parseInt(neu,10);
+  var alt=parseInt(v.km||'0',10);
+  if(neuNum<alt){
+    if(!window.confirm('Neuer km-Stand ('+neuNum.toLocaleString('de-CH')+') ist tiefer als bisher ('+alt.toLocaleString('de-CH')+'). Trotzdem speichern?'))return;
+  }
+  v.km=String(neuNum);
+  v.kmUpdatedAt=new Date().toISOString();
+  persist();
+  render();
+  showToast('km-Stand aktualisiert ✓');
+};
+
+function _fzCreateNfcActionSheet(){
+  var ov=document.createElement('div');
+  ov.id='nfcActionSheet';
+  ov.className='modal-overlay';
+  ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1200;display:none;align-items:flex-end;justify-content:center;padding:0';
+  ov.innerHTML=''+
+    '<div style="width:100%;max-width:560px;background:#fff;border-radius:18px 18px 0 0;box-shadow:0 -8px 30px rgba(0,0,0,.25);padding:18px 18px 24px;display:flex;flex-direction:column;gap:10px;animation:_fzNfcSheetUp .25s ease-out">'+
+      '<div style="width:40px;height:4px;background:#e5e7eb;border-radius:2px;margin:-4px auto 4px"></div>'+
+      '<div style="display:flex;align-items:center;gap:10px;padding-bottom:8px;border-bottom:1px solid #f0f0f0">'+
+        '<div style="width:40px;height:40px;background:#0d9488;color:#fff;border-radius:10px;display:grid;place-items:center;font-size:20px">📡</div>'+
+        '<div style="flex:1;min-width:0"><div id="nfcAsTitle" style="font-size:15px;font-weight:700;color:#111;line-height:1.2"></div><div id="nfcAsSub" style="font-size:11.5px;color:#6b7280;margin-top:2px"></div></div>'+
+        '<button onclick="_fzCloseNfcActionSheet()" style="background:none;border:none;font-size:22px;cursor:pointer;color:#6b7280;padding:4px">✕</button>'+
+      '</div>'+
+      '<button id="nfcAsKm" onclick="var v=document.getElementById(\'nfcActionSheet\').dataset.vid;_fzCloseNfcActionSheet();_fzQuickKmEdit(v);" style="display:flex;align-items:center;gap:14px;padding:16px 18px;background:#ecfeff;border:1.5px solid #a5f3fc;border-radius:12px;cursor:pointer;font-family:inherit;text-align:left;width:100%">'+
+        '<span style="font-size:28px">✏️</span><div style="flex:1"><div style="font-size:15px;font-weight:700;color:#0e7490">km-Stand eintragen</div><div style="font-size:12px;color:#0891b2;margin-top:2px">Schnell — nur eine Zahl</div></div>'+
+      '</button>'+
+      '<button id="nfcAsService" onclick="var v=document.getElementById(\'nfcActionSheet\').dataset.vid;_fzCloseNfcActionSheet();_fzOpenServiceModal(v);" style="display:flex;align-items:center;gap:14px;padding:16px 18px;background:#eff6ff;border:1.5px solid #bfdbfe;border-radius:12px;cursor:pointer;font-family:inherit;text-align:left;width:100%">'+
+        '<span style="font-size:28px">🛠</span><div style="flex:1"><div style="font-size:15px;font-weight:700;color:#1d4ed8">Service erfassen</div><div style="font-size:12px;color:#2563eb;margin-top:2px">Datum, Beschreibung, Fotos</div></div>'+
+      '</button>'+
+      '<button id="nfcAsDefekt" onclick="var v=document.getElementById(\'nfcActionSheet\').dataset.vid;_fzCloseNfcActionSheet();openDefekt(v);" style="display:flex;align-items:center;gap:14px;padding:16px 18px;background:#fef2f2;border:1.5px solid #fecaca;border-radius:12px;cursor:pointer;font-family:inherit;text-align:left;width:100%">'+
+        '<span style="font-size:28px">🚨</span><div style="flex:1"><div style="font-size:15px;font-weight:700;color:#b91c1c">Defekt melden</div><div style="font-size:12px;color:#dc2626;margin-top:2px">Beschreibung + Priorität</div></div>'+
+      '</button>'+
+      '<button onclick="var v=document.getElementById(\'nfcActionSheet\').dataset.vid;_fzCloseNfcActionSheet();openViewFzg(v);" style="padding:12px;background:transparent;border:1.5px solid #e2e7f0;border-radius:10px;color:#374151;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;margin-top:4px">Zur vollständigen Detail-Ansicht</button>'+
+    '</div>';
+  document.body.appendChild(ov);
+  ov.addEventListener('click',function(e){if(e.target===ov)_fzCloseNfcActionSheet();});
+  // Animation-Keyframes nur einmal injizieren
+  if(!document.getElementById('_fzNfcSheetCss')){
+    var st=document.createElement('style');st.id='_fzNfcSheetCss';
+    st.textContent='@keyframes _fzNfcSheetUp{from{transform:translateY(100%)}to{transform:translateY(0)}}';
+    document.head.appendChild(st);
+  }
+}
+
 // Lightbox fuer Service-Foto. Ueberlappend ueber dem View-Modal.
 window._fzPhotoLightbox=function(src){
   var ov=document.createElement('div');
@@ -2965,8 +3056,9 @@ if(_fzIsGaragist()){
     if(logo)logo.setAttribute('href','sys_garagist_dashboard.html');
   }catch(e){}
 }
-  // URL parameter: open vehicle in view mode (?view=ID), edit (?edit=ID)
-  // oder direkt das Service-Modal aus dem Garagist-Dashboard (?service=ID)
+  // URL parameter: open vehicle in view mode (?view=ID), edit (?edit=ID),
+  // direkt das Service-Modal (?service=ID — Garagist-Dashboard), oder
+  // das Mobile-Action-Sheet nach NFC-Scan (?nfc=ID).
   (function(){
     const p = new URLSearchParams(location.search);
     const vid = p.get('view');
@@ -2975,6 +3067,8 @@ if(_fzIsGaragist()){
     if(eid) setTimeout(function(){ openModal(eid); }, 600);
     const sid = p.get('service');
     if(sid) setTimeout(function(){ openViewFzg(sid); _fzOpenServiceModal(sid); }, 700);
+    const nfc = p.get('nfc');
+    if(nfc) setTimeout(function(){ _fzOpenNfcActionSheet(nfc); }, 500);
   })();
 
 /* ═══════════════════════════════
