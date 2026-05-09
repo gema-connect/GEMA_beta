@@ -745,26 +745,60 @@ var TROCKNUNG_KATALOG = [
   { name: 'Luftentfeuchter MDC14',       marke: "Wood's",  modell: 'MDC14',        typ: 'luftentfeuchter' }
 ];
 
+// Kombiniert den statischen Katalog mit bereits erfassten Geräten,
+// damit neu eingetragene Bezeichnungen beim nächsten Mal als
+// Vorschlag erscheinen (Lernfunktion analog zu _wzGetKatalogEntries
+// in if_werkzeug.html). Duplikate (gleicher Name + Marke + Modell)
+// werden zusammengeführt — der Eintrag aus dem Katalog gewinnt, da
+// dort die kanonische Schreibweise steht.
+function _tgGetKatalogEntries() {
+  var seen = {};
+  var entries = [];
+  function key(e) { return (e.name || '').toLowerCase() + '|' + (e.marke || '').toLowerCase() + '|' + (e.modell || '').toLowerCase(); }
+  TROCKNUNG_KATALOG.forEach(function(k) {
+    var id = key(k);
+    if (seen[id]) return;
+    seen[id] = true;
+    entries.push({ name: k.name, marke: k.marke, modell: k.modell, typ: k.typ, src: 'katalog' });
+  });
+  if (Array.isArray(devices)) {
+    devices.forEach(function(d) {
+      if (!d || !d.name) return;
+      var entry = { name: d.name, marke: d.marke || '', modell: d.modell || '', typ: d.typ || '', src: 'devices' };
+      var id = key(entry);
+      if (seen[id]) return;
+      seen[id] = true;
+      entries.push(entry);
+    });
+  }
+  return entries;
+}
+
 function _tgInitKatalogList() {
   var dl = document.getElementById('trocknungKatalogList');
   if (!dl) return;
-  dl.innerHTML = TROCKNUNG_KATALOG.map(function(k) {
-    var typLabel = (GERAETE_TYPEN[k.typ] && GERAETE_TYPEN[k.typ].label) || '';
-    return '<option value="' + k.name + '">' + k.marke + ' · ' + k.modell + (typLabel ? ' — ' + typLabel : '') + '</option>';
+  var entries = _tgGetKatalogEntries();
+  dl.innerHTML = entries.map(function(e) {
+    var typLabel = (GERAETE_TYPEN[e.typ] && GERAETE_TYPEN[e.typ].label) || '';
+    var meta = [e.marke, e.modell].filter(Boolean).join(' · ');
+    var srcTag = e.src === 'devices' ? ' (eigener Eintrag)' : '';
+    var detail = (meta || typLabel) ? (meta + (typLabel ? ' — ' + typLabel : '') + srcTag) : srcTag.replace(/^ /, '');
+    return '<option value="' + e.name + '">' + detail + '</option>';
   }).join('');
 }
 
 function _tgKatalogAutofill() {
   var nameEl = document.getElementById('f_name');
   if (!nameEl) return;
-  var entry = TROCKNUNG_KATALOG.find(function(k) { return k.name === nameEl.value; });
+  var val = nameEl.value;
+  var entry = _tgGetKatalogEntries().find(function(e) { return e.name === val; });
   if (!entry) return;
   var marke = document.getElementById('f_marke');
   if (marke && !marke.value) marke.value = entry.marke;
   var modell = document.getElementById('f_modell');
   if (modell && !modell.value) modell.value = entry.modell;
   var typ = document.getElementById('f_typ');
-  if (typ && !typ.value) typ.value = entry.typ;
+  if (typ && !typ.value && entry.typ) typ.value = entry.typ;
 }
 window._tgKatalogAutofill = _tgKatalogAutofill;
 
@@ -1165,6 +1199,7 @@ window.saveDevice = function() {
   d.lastService = document.getElementById('f_lastService').value || '';
 
   saveAll();
+  _tgInitKatalogList();
   closeAdd();
   renderList();
 };
