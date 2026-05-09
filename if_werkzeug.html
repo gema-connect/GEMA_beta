@@ -2051,28 +2051,94 @@ function _wzOpenAusleihe(toolId){
   personen.forEach(function(p){
     opts+='<option value="'+esc(p.id)+'" '+(cur.userId===p.id?'selected':'')+'>'+esc(p.name||p.username)+(p.roleIds?(' · '+p.roleIds[0].replace('role_','').replace(/_/g,' ')):'')+'</option>';
   });
-  var html='<div class="dlg-card" style="max-width:480px">'
+  var html='<div class="dlg-card" style="max-width:520px">'
     +'<h3 style="margin:0 0 4px;font-size:17px;font-weight:800;color:#92400e">🔄 Werkzeug ausleihen</h3>'
     +'<div style="font-size:12px;color:#64748b;margin-bottom:16px">Gerät: <strong>'+esc(t.name)+'</strong></div>'
     +'<label class="dlg-lbl">Ausgeliehen an</label>'
     +'<select id="ausleiheUser" class="dlg-inp">'+opts+'</select>'
     +(cur.userId?'<div style="font-size:11px;color:#b45309;margin-top:8px">Aktuell bei <strong>'+esc(cur.name||'—')+'</strong>'+(cur.seit?' seit '+fmt(cur.seit):'')+'</div>':'')
+    +'<div style="border-top:1px dashed #e5e7eb;margin-top:14px;padding-top:12px">'
+    +'<label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;font-weight:600;color:#475569"><input type="checkbox" id="aLProto" onchange="_wzToggleUebergabe()" style="width:18px;height:18px;accent-color:#92400e"/> Übergabe-Protokoll erfassen</label>'
+    +'<div style="font-size:10.5px;color:#94a3b8;margin-top:4px">Foto vom Geräte-Zustand + optionale Unterschrift des Übernehmers, gespeichert als Bericht in der Historie.</div>'
+    +'<div id="aLProtoFields" style="display:none;margin-top:10px">'
+    +  _wzPhotoFieldHtml()
+    +  '<div style="margin-top:10px"><label class="dlg-lbl">Unterschrift Übernehmer (optional)</label>'
+    +  '<canvas id="aLSig" width="460" height="120" style="width:100%;max-width:460px;border:1.5px solid #cbd5e1;border-radius:8px;background:#fff;touch-action:none;display:block"></canvas>'
+    +  '<button type="button" onclick="_wzClearSignature()" style="margin-top:6px;padding:4px 10px;border-radius:6px;border:1px solid #cbd5e1;background:#fff;color:#475569;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit">Zurücksetzen</button>'
+    +  '</div>'
+    +'</div>'
+    +'</div>'
     +'<div class="dlg-row">'
     +'  <button onclick="_wzCloseModal()" class="dlg-cancel">Abbrechen</button>'
     +'  <button onclick="_wzSaveAusleihe(\''+toolId+'\')" style="padding:9px 18px;border-radius:8px;border:none;background:#92400e;color:#fff;cursor:pointer;font-weight:700;font-family:inherit">✓ Speichern</button>'
     +'</div></div>';
+  window._wzReportPhotos=[];
   _wzShowModal(html);
+}
+
+window._wzToggleUebergabe=function(){
+  var cb=document.getElementById('aLProto');
+  var box=document.getElementById('aLProtoFields');
+  if(!cb||!box)return;
+  box.style.display=cb.checked?'block':'none';
+  if(cb.checked)setTimeout(_wzInitSignature,50);
+};
+
+// Kompakter Signatur-Pad: Mouse + Touch zeichnen schwarz, Stroke 2px.
+// Das fertige Bild wird per _wzGetSignatureDataUrl ausgelesen.
+var _wzSigDirty=false;
+window._wzInitSignature=function(){
+  var c=document.getElementById('aLSig');if(!c||c._inited)return;c._inited=true;
+  var ctx=c.getContext('2d');var drawing=false;var prev={x:0,y:0};
+  ctx.lineWidth=2;ctx.lineCap='round';ctx.strokeStyle='#0f172a';
+  function pos(e){
+    var r=c.getBoundingClientRect();
+    var x=(e.touches?e.touches[0].clientX:e.clientX)-r.left;
+    var y=(e.touches?e.touches[0].clientY:e.clientY)-r.top;
+    return {x:x*c.width/r.width, y:y*c.height/r.height};
+  }
+  function start(e){e.preventDefault();drawing=true;prev=pos(e);_wzSigDirty=true;}
+  function move(e){if(!drawing)return;e.preventDefault();var p=pos(e);ctx.beginPath();ctx.moveTo(prev.x,prev.y);ctx.lineTo(p.x,p.y);ctx.stroke();prev=p;}
+  function end(){drawing=false;}
+  c.addEventListener('mousedown',start);c.addEventListener('mousemove',move);c.addEventListener('mouseup',end);c.addEventListener('mouseleave',end);
+  c.addEventListener('touchstart',start);c.addEventListener('touchmove',move);c.addEventListener('touchend',end);
+};
+window._wzClearSignature=function(){
+  var c=document.getElementById('aLSig');if(!c)return;
+  c.getContext('2d').clearRect(0,0,c.width,c.height);_wzSigDirty=false;
+};
+function _wzGetSignatureDataUrl(){
+  var c=document.getElementById('aLSig');if(!c||!_wzSigDirty)return null;
+  return c.toDataURL('image/png');
 }
 function _wzSaveAusleihe(toolId){
   var t=tools.find(function(x){return x.id===toolId;});if(!t)return;
   var sel=document.getElementById('ausleiheUser');
   var uid=sel?sel.value:'';
+  var protoChk=document.getElementById('aLProto');
+  var withProto=protoChk&&protoChk.checked;
   if(!uid){
     delete t.ausgeliehenAn;
   }else{
     var users=(typeof GemaAuth!=='undefined')?(GemaAuth.getUsers()||[]):[];
     var p=users.find(function(u){return u.id===uid;});
-    t.ausgeliehenAn={userId:uid,name:p?(p.name||p.username):uid,seit:today()};
+    var pName=p?(p.name||p.username):uid;
+    t.ausgeliehenAn={userId:uid,name:pName,seit:today()};
+    // Optional: Uebergabe-Bericht zur Historie hinzufuegen
+    if(withProto){
+      var u=_wzGetUser()||{};
+      var sig=_wzGetSignatureDataUrl();
+      if(!t.berichte)t.berichte=[];
+      t.berichte.push({
+        id:_wzNewBerichtId(),typ:'uebergabe',datum:new Date().toISOString(),
+        autorUserId:u.id||'',autorName:u.name||'—',
+        titel:'Übergabe an '+pName,
+        beschreibung:'Werkzeug ausgehändigt'+(sig?' — Übernehmer hat unterschrieben.':'.'),
+        photos:Array.isArray(window._wzReportPhotos)?window._wzReportPhotos.slice(0,3):[],
+        signature:sig||null,
+        empfaengerUserId:uid, empfaengerName:pName
+      });
+    }
     if(typeof GemaNotify!=='undefined'&&p){
       GemaNotify.push({eventKey:'werkzeug_zuweisung',empfaengerUserId:uid,modul:'werkzeug',typ:'info',
         titel:'Werkzeug ausgeliehen: '+t.name,text:(t.brand||'')+(t.model?' '+t.model:''),
@@ -2543,10 +2609,11 @@ function openBerichte(toolId){
   } else {
     list=ber.slice().reverse().map(function(b){
       var isDef=b.typ==='defekt';
-      var bgCol=isDef?(b.erledigt?'#f0fdf4':'#fff7ed'):'#eff6ff';
-      var brdCol=isDef?(b.erledigt?'#bbf7d0':'#fed7aa'):'#bfdbfe';
-      var icon=isDef?'⚠':'📋';
-      var typLabel=isDef?('Defekt'+(b.erledigt?' ✓':'')):'Prüfbericht';
+      var isUe=b.typ==='uebergabe';
+      var bgCol=isUe?'#fefce8':isDef?(b.erledigt?'#f0fdf4':'#fff7ed'):'#eff6ff';
+      var brdCol=isUe?'#fde68a':isDef?(b.erledigt?'#bbf7d0':'#fed7aa'):'#bfdbfe';
+      var icon=isUe?'🔄':isDef?'⚠':'📋';
+      var typLabel=isUe?'Übergabe':isDef?('Defekt'+(b.erledigt?' ✓':'')):'Prüfbericht';
       var teileHtml='';
       if(b.fehlendeTeile && b.fehlendeTeile.length){
         teileHtml='<div style="margin-top:6px;font-size:11px;color:#b91c1c"><strong>Fehlende Teile:</strong> '+b.fehlendeTeile.map(esc).join(', ')+'</div>';
@@ -2569,6 +2636,7 @@ function openBerichte(toolId){
         +(b.ergebnis?'<div style="font-size:12px;margin-top:4px"><strong>Ergebnis:</strong> '+esc(b.ergebnis)+'</div>':'')
         +teileHtml
         +((Array.isArray(b.photos)&&b.photos.length)?'<div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:6px">'+b.photos.map(function(p){return p&&p.dataUrl?'<img src="'+p.dataUrl+'" alt="Bericht-Foto" style="width:54px;height:54px;object-fit:cover;border-radius:6px;border:1px solid #e5e7eb;cursor:pointer" onclick="_wzPhotoLightbox(this.src)"/>':'';}).join('')+'</div>':'')
+        +(b.signature?'<div style="margin-top:6px"><div style="font-size:10px;color:#94a3b8;font-weight:700;text-transform:uppercase;letter-spacing:.3px;margin-bottom:2px">Unterschrift</div><img src="'+b.signature+'" alt="Unterschrift" style="max-width:200px;height:auto;border:1px solid #e5e7eb;border-radius:6px;background:#fff;cursor:pointer" onclick="_wzPhotoLightbox(this.src)"/></div>':'')
         +(b.naechstePruefung?'<div style="font-size:11px;color:#6366f1;margin-top:4px">Nächste Prüfung: '+fmt(b.naechstePruefung)+'</div>':'')
         +(b.followUpDate?'<div style="margin-top:6px;padding:5px 8px;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;font-size:11px;color:#92400e"><strong>📅 Folge-Termin '+fmt(b.followUpDate)+':</strong> '+esc(b.followUpText||'pruefen')+'</div>':'')
         +aktion
