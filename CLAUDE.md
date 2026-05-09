@@ -242,7 +242,7 @@ Hauptseite: `index.html`. Hub-Seiten: `sb_index.html`, `pm_ausschreibung.html`, 
 - **Projektmanagement-Module** (pm_): Objekte, Terminplanung, Sitzungsprotokolle, Kostenkontrolle, Ausschreibung
 - **Hygiene-Module** (hy_): W12 Selbstkontrolle (SVGW)
 - **Infrastruktur-Module** (if_): Werkzeugmanagement, Fahrzeugmanagement (siehe Abschnitt „Werkzeug- & Fahrzeugmanagement" weiter unten)
-- **Zentrale Module**: `Module.html` (Hauptnavigation), `Objekte.html` (Projektverwaltung)
+- **Zentrale Module**: `index.html` (Hauptnavigation / Modulübersicht), `pm_objekte.html` (Projektverwaltung)
 - **Lieferanten-Modul**: `sys_lieferant_dashboard.html` mit 6 Tabs (Übersicht, Produkte, Anfragen, Rohrsysteme, Werkzeuge, Firmenprofil)
 
 ---
@@ -261,7 +261,7 @@ Einheitliche Klassen für alle Module:
 
 ```html
 <nav class="g-nav">
-  <a class="g-nav-logo" href="Module.html">
+  <a class="g-nav-logo" href="index.html">
     <!-- Vollständiges SVG: Icon + GEMA-Text, height="28" -->
   </a>
   <div class="g-nav-actions">
@@ -274,12 +274,12 @@ Einheitliche Klassen für alle Module:
 
 ### Navigationslogik (Breadcrumbs)
 
-- **Sanitärberechnungen (16 Module)**: GEMA-Logo → `Module.html`, Breadcrumb "Sanitärberechnungen" → `index.html`
-- **Nicht-Sanitär-Module**: Logo → `Module.html` (nur Logo-Link)
+- **Sanitärberechnungen (16 Module)**: GEMA-Logo → `index.html`, Breadcrumb "Sanitärberechnungen" → `sb_index.html`
+- **Nicht-Sanitär-Module**: Logo → `index.html` (nur Logo-Link)
 
 ### Hauptmodul-Design (index.html / Übersichtsseiten)
 
-Hero im `Module.html`-Stil:
+Hero im `index.html`-Stil:
 - Dunkler Gradient: `#0f172a → #1e3a5f → #0c4a2e`
 - Grid-Overlay, Radial-Gradients
 - `border-radius: 20px`, `padding: 48px`
@@ -374,7 +374,7 @@ Auto-Save/Load bei Objektwechsel.
 ### Combo-Widget (Projektfeld)
 
 - Dropdown aus Stammdaten
-- `[+]`-Icon verlinkt zu `Objekte.html`
+- `[+]`-Icon verlinkt zu `pm_objekte.html`
 - "Freies Objekt"-Toggle: rechts ausgerichtet via `margin-left: auto` auf `.obj-combo-toggle`
 - Bearbeiter/Datum-Felder: `border: 1.5px solid`, `padding: 7px 10px`, `height: auto`
 
@@ -751,6 +751,8 @@ Im Repo liegen die React-Designdateien als Referenz (nicht für Produktion):
 | `gema_produktkatalog_api.js` | Produkte + Stammlieferanten + Favoriten |
 | `gema_push.js` | Web-Push-Vorbereitung (Service-Worker) |
 | `gema_qr_scanner.js` | QR-Code-Scanner |
+| `gema_recent.js` | Tracking + Anzeige zuletzt genutzter Module |
+| `gema_responsive.css` | Globale Responsive-/Layout-Regeln (Mobile + Tablet) |
 | `gema_scroll.js` | Scroll-Helper |
 | `gema_undo.js` | Undo/Redo |
 | `gema_varianten.js` | Varianten-Vergleich (Berechnungen) |
