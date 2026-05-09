@@ -69,6 +69,21 @@
       label:'Ersatz-/Nachfolger-Anfrage',
       modul:'werkzeug',
       defaultOn:true
+    },
+    fahrzeug_service_faellig: {
+      label:'Fahrzeug-Service oder MFK fällig',
+      modul:'fahrzeug',
+      defaultOn:true
+    },
+    fahrzeug_service_erledigt: {
+      label:'Service-Eintrag wurde erfasst',
+      modul:'fahrzeug',
+      defaultOn:true
+    },
+    fahrzeug_garagist_zugewiesen: {
+      label:'Werkstatt wurde dir zugewiesen',
+      modul:'fahrzeug',
+      defaultOn:true
     }
   };
 

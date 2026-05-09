@@ -935,9 +935,24 @@ function saveVehicle(){
     if(idx>=0){
       data.id=editId; data.createdAt=vehicles[idx].createdAt; data.events=vehicles[idx].events||[];
       data.serviceHistorie=vehicles[idx].serviceHistorie||[];
+      var prevGaragist=vehicles[idx].garagistUserId||'';
       if(data.km!==vehicles[idx].km) data.kmUpdatedAt=new Date().toISOString();
       else data.kmUpdatedAt=vehicles[idx].kmUpdatedAt||'';
       vehicles[idx]=data;
+      // Notif an Garagist, wenn neu zugewiesen oder Werkstatt gewechselt
+      try{
+        if(typeof GemaNotify!=='undefined' && data.garagistUserId && data.garagistUserId!==prevGaragist){
+          GemaNotify.push({
+            eventKey:'fahrzeug_garagist_zugewiesen',
+            empfaengerUserId:data.garagistUserId,
+            modul:'fahrzeug',
+            typ:'aktion',
+            titel:'Fahrzeug zugewiesen',
+            text:(data.plate||data.model||'Fahrzeug')+' — '+(data.model||'')+(data.km?' · '+parseInt(data.km).toLocaleString('de-CH')+' km':''),
+            link:'if_fahrzeug.html?view='+data.id
+          });
+        }
+      }catch(e){}
     }
     showToast("Fahrzeug aktualisiert ✓");
   }else{
@@ -1003,6 +1018,81 @@ function nextServiceDate(v){
 function isServiceSoon(v){
   const s=serviceStatus(v);
   return s.badge==="red"||s.badge==="amber";
+}
+
+// Faelligkeits-Scan: einmal pro Browser-Sitzung, ausgeloest beim
+// Page-Load. Erzeugt Notifikationen fuer Service- und MFK-Faelligkeiten
+// und dedupliziert pro Tag/Schwelle ueber einen localStorage-Lock.
+// Empfaenger: zugewiesener Garagist (wenn vorhanden) + alle Magaziner.
+var _FZ_NOTIF_LOCK_KEY='gema_fz_notif_lock_v1';
+function _fzReadNotifLock(){try{var r=localStorage.getItem(_FZ_NOTIF_LOCK_KEY);return r?JSON.parse(r):{};}catch(e){return {};}}
+function _fzWriteNotifLock(o){try{localStorage.setItem(_FZ_NOTIF_LOCK_KEY,JSON.stringify(o));}catch(e){}}
+function _fzDaysUntil(dateStr){
+  if(!dateStr)return null;
+  var d=new Date(dateStr);
+  if(isNaN(d.getTime()))return null;
+  var today=new Date();today.setHours(0,0,0,0);
+  d.setHours(0,0,0,0);
+  return Math.round((d.getTime()-today.getTime())/(24*3600*1000));
+}
+function _fzThresholdOf(days){
+  if(days===null||days===undefined)return null;
+  if(days<0)return {key:'overdue',label:'überfällig',typ:'warnung'};
+  if(days<=1)return {key:'d1',label:days===0?'heute fällig':'morgen fällig',typ:'warnung'};
+  if(days<=7)return {key:'d7',label:'in '+days+' Tagen fällig',typ:'aktion'};
+  if(days<=30)return {key:'d30',label:'in '+days+' Tagen fällig',typ:'aktion'};
+  return null;
+}
+function _fzScanFaelligkeiten(){
+  if(typeof GemaNotify==='undefined')return;
+  if(!_fzIsAdmin()&&!_fzIsMagaziner())return; // nur Magaziner/Admin loest den Scan aus
+  var today=new Date().toISOString().slice(0,10);
+  var lock=_fzReadNotifLock();
+  var pushed=0;
+  vehicles.forEach(function(v){
+    if(!v||!v.id)return;
+    // Service
+    var nsd=nextServiceDate(v);
+    var nsdStr=nsd?nsd.toISOString().slice(0,10):null;
+    var sDays=nsdStr?_fzDaysUntil(nsdStr):null;
+    var sThr=_fzThresholdOf(sDays);
+    if(sThr){
+      var sLockKey=v.id+':service:'+sThr.key;
+      if(lock[sLockKey]!==today){
+        var sBase={
+          eventKey:'fahrzeug_service_faellig',modul:'fahrzeug',typ:sThr.typ,
+          titel:'Service '+sThr.label,
+          text:(v.plate||v.model||'Fahrzeug')+' — Service '+sThr.label+(sDays!==null?' (Tage: '+sDays+')':''),
+          link:'if_fahrzeug.html?view='+v.id
+        };
+        if(v.garagistUserId){
+          GemaNotify.push(Object.assign({},sBase,{empfaengerUserId:v.garagistUserId}));pushed++;
+        }
+        GemaNotify.push(Object.assign({},sBase,{empfaengerRoleId:'role_magaziner'}));pushed++;
+        lock[sLockKey]=today;
+      }
+    }
+    // MFK
+    var mfkDays=v.mfk?_fzDaysUntil(v.mfk):null;
+    var mThr=_fzThresholdOf(mfkDays);
+    if(mThr){
+      var mLockKey=v.id+':mfk:'+mThr.key;
+      if(lock[mLockKey]!==today){
+        var mBase={
+          eventKey:'fahrzeug_service_faellig',modul:'fahrzeug',typ:mThr.typ,
+          titel:'MFK '+mThr.label,
+          text:(v.plate||v.model||'Fahrzeug')+' — MFK '+mThr.label+(mfkDays!==null?' (Tage: '+mfkDays+')':''),
+          link:'if_fahrzeug.html?view='+v.id
+        };
+        if(v.garagistUserId){
+          GemaNotify.push(Object.assign({},mBase,{empfaengerUserId:v.garagistUserId}));pushed++;
+        }
+        GemaNotify.push(Object.assign({},mBase,{empfaengerRoleId:'role_magaziner'}));pushed++;
+        lock[mLockKey]=today;
+      }
+    }
+  });
+  if(pushed>0)_fzWriteNotifLock(lock);
 }
 
 /* ═══════════════════════════════
@@ -2201,6 +2291,24 @@ function _fzSaveServiceEntry(){
     if(!v.km||kmNum>parseInt(v.km,10)){v.km=km;v.kmUpdatedAt=new Date().toISOString();}
   }
   persist();
+  // Notif an Magaziner der eigenen Org, wenn ein Garagist erfasst hat.
+  // Magaziner derselben Org soll informiert sein, wenn ihre Werkstatt
+  // einen Service abgeschlossen hat. Eigeneintrag durch Magaziner selbst
+  // erzeugt keine Selbst-Notif.
+  try{
+    if(typeof GemaNotify!=='undefined' && _fzIsGaragist()){
+      var artLabel=_FZ_SERVICE_ART_LABELS[art]||art||'Service';
+      GemaNotify.push({
+        eventKey:'fahrzeug_service_erledigt',
+        empfaengerRoleId:'role_magaziner',
+        modul:'fahrzeug',
+        typ:'erfolg',
+        titel:artLabel+' erfasst',
+        text:(v.plate||v.model||'Fahrzeug')+' — '+(beschreibung||artLabel)+(km?' bei '+parseInt(km).toLocaleString('de-CH')+' km':''),
+        link:'if_fahrzeug.html?view='+v.id
+      });
+    }
+  }catch(e){}
   _fzCloseServiceModal();
   // View-Modal neu rendern
   var lastId=window._lastViewId||vid;
@@ -2259,6 +2367,7 @@ render();
 _fzInitKatalogList();
 _fzApplyOpt();
 _fzInitSettingsBtn();
+_fzScanFaelligkeiten();
 // Rollenbasierte UI: Erfass-Button nur fuer Magaziner/Admin (nicht
 // Garagist) sichtbar.
 if(!_fzCanCreate()){

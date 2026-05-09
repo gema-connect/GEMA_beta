@@ -768,6 +768,9 @@ Zentrales Modul `gema_notify.js` für In-App-Benachrichtigungen. Glocke + Toast-
 | `werkzeug_pruefung_anfrage` | werkzeug | on |
 | `werkzeug_defekt_lieferant` | werkzeug | on |
 | `werkzeug_ersatz_anfrage` | werkzeug | on |
+| `fahrzeug_service_faellig` | fahrzeug | on |
+| `fahrzeug_service_erledigt` | fahrzeug | on |
+| `fahrzeug_garagist_zugewiesen` | fahrzeug | on |
 
 **Neue Module fügen ihre Event-Keys hier hinzu**, sonst greift kein Preferences-Filter.
 
