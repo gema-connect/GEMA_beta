@@ -231,6 +231,7 @@ Kategorie-Präfix + Kleinschreibung. **Keine Umlaute in Dateinamen** (ä→ae, �
 | `hy_` | Hygiene | `hy_w12.html` |
 | `br_` | Brandschutz | `br_index.html` |
 | `if_` | Infrastruktur (Werkzeug, Fahrzeug, Lager) | `if_werkzeug.html`, `if_fahrzeug.html` |
+| `sd_` | Schadensdokumentation | `sd_schadensbericht.html` |
 | `ab_` | Ausbildung | `ab_index.html` |
 | `sys_` | System | `sys_settings.html` |
 
@@ -242,6 +243,7 @@ Hauptseite: `index.html`. Hub-Seiten: `sb_index.html`, `pm_ausschreibung.html`, 
 - **Projektmanagement-Module** (pm_): Objekte, Terminplanung, Sitzungsprotokolle, Kostenkontrolle, Ausschreibung
 - **Hygiene-Module** (hy_): W12 Selbstkontrolle (SVGW)
 - **Infrastruktur-Module** (if_): Werkzeugmanagement, Fahrzeugmanagement (siehe Abschnitt „Werkzeug- & Fahrzeugmanagement" weiter unten)
+- **Schadensdokumentation** (sd_): Schadensberichte (siehe Abschnitt „Schadensdokumentation" weiter unten)
 - **Zentrale Module**: `Module.html` (Hauptnavigation), `Objekte.html` (Projektverwaltung)
 - **Lieferanten-Modul**: `sys_lieferant_dashboard.html` mit 6 Tabs (Übersicht, Produkte, Anfragen, Rohrsysteme, Werkzeuge, Firmenprofil)
 
@@ -546,6 +548,79 @@ Jedes Werkzeug kann über `supplier` + `supplierId` mit einem Lieferanten-Accoun
 ### Fahrzeugmanagement (if_fahrzeug.html)
 
 Eigenständiges Modul mit ähnlicher Struktur (Liste, QR-Code-Generierung mit SVG-Download, Service-Intervalle). Schreib-Zugriff: `role_magaziner`, `role_pruefer`. Nicht alle Werkzeug-Features (Berichte, Zuweisung, Lieferanten-Workflow) sind im Fahrzeug-Modul gespiegelt — bei Bedarf gleicher Pattern wie if_werkzeug.html anwenden.
+
+---
+
+## Schadensdokumentation (sd_schadensbericht.html)
+
+Modul zur Dokumentation von Wasserschäden, Schimmelschäden, Rohrbrüchen etc. — von der Schadensmeldung über Leckortung und Trocknung bis zum Abschlussbericht für die Versicherung.
+
+### Phasen-Workflow
+
+```
+Erfasst → Zustandsanalyse → Trocknung → Abschluss
+   │            │                │            │
+   │    Leckortung,        Messpunkte,   Zusammenfassung,
+   │    Massnahmen,        Geräte (kWh), Instandstellung,
+   │    Fotos              Messwerte,    finaler Export
+   │                       Fotos
+   │
+   Schadentyp, Objekt (zwingend),
+   Versicherung, Räume
+```
+
+### Schadentypen
+
+| Typ | Icon | Key |
+|-----|------|-----|
+| Wasserschaden | 💧 | `wasserschaden` |
+| Schimmelschaden | 🦠 | `schimmel` |
+| Rohrbruch | 🔧 | `rohrbruch` |
+| Leitungsschaden | ⚡ | `leitungsschaden` |
+| Rückstau | 🌊 | `rueckstau` |
+| Sonstiges | 📋 | `sonstiges` |
+
+### Datenmodell
+
+Storage-Key: `gema_schadensbericht_v1`
+
+Jeder Schaden hat: `id`, `typ`, `titel`, `objektId` (zwingend), `phase`, `beschreibung`, `ursache`, `raeume[]`, `versicherung{name,policeNr,schadenNr,kontakt}`, `erstelltAm`, `erstelltVon{userId,name}`.
+
+Drei Unter-Objekte pro Schaden:
+- `zustandsanalyse{leckortung, schadenausmass, massnahmen[], fotos[], abgeschlossenAm}`
+- `trocknung{gestartetAm, beendetAm, messpunkte[{name, messungen[{datum,wert}]}], geraete[{name,raum,kw,zaehlerStart,zaehlerEnde}], fotos[], notizen}`
+- `abschluss{zusammenfassung, instandstellung, weitereSchaeden, fotos[], abgeschlossenAm}`
+
+### Berechtigungs-Helper
+
+```javascript
+_sdCanEdit()     // Admin, Planer (alle Gewerke): voller Zugriff
+_sdCanMeasure()  // wie _sdCanEdit + Monteur: Fotos + Messwerte erfassen
+```
+
+### Foto-System
+
+- Base64, max 1600px Resize, max 2MB
+- Pro Foto: Kommentar + Checkbox «Im Bericht anzeigen»
+- Fotos sind phasenspezifisch (Analyse, Trocknung, Abschluss)
+- Lightbox-Ansicht bei Klick
+
+### Messwert-System (Trocknung)
+
+- Messpunkte definieren (z.B. „Wand links Bad")
+- Pro Messpunkt: Messungen über Zeit (Datum, Wert in %)
+- Ansicht umschaltbar: Tabelle oder Canvas-Liniendiagramm
+- Geräte-Tracking: Name, Raum, kW, Zählerstand Start/Ende → kWh-Berechnung
+
+### Export
+
+- **PDF**: via GemaPDF/html2canvas, GEMA-Branding, Fotos eingebettet
+- **Word**: HTML mit Word-XML-Namespace als .doc, editierbar
+- Beide nutzen gemeinsame Funktion `sdBuildReportHtml(s)`
+
+### Phase 2 (geplant): if_trocknung.html
+
+Separates Gerätemanagement für Trockner/Ventilatoren mit NFC/QR-Tags, automatischer Datenfluss in den Schadensbericht. Gleiche Architektur wie if_werkzeug.html.
 
 ---
 
