@@ -1717,6 +1717,7 @@ function openDefektMelden(toolId){
     + '  <div><label class="dlg-lbl">Schweregrad</label><select id="defSev" class="dlg-inp"><option value="leicht">Leicht (nutzbar)</option><option value="mittel" selected>Mittel (eingeschränkt)</option><option value="schwer">Schwer (nicht nutzbar)</option><option value="ausser_betrieb">Ausser Betrieb</option></select></div>'
     + '  <div><label class="dlg-lbl">Beschreibung *</label><textarea id="defBeschr" rows="4" placeholder="Was ist kaputt? Wann ist es aufgefallen?" class="dlg-txt"></textarea></div>'
     +    _wzPhotoFieldHtml()
+    + '  <div style="border-top:1px dashed #e5e7eb;padding-top:10px;margin-top:4px"><label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;font-weight:600;color:#475569"><input type="checkbox" id="defFollowUp" onchange="document.getElementById(\'defFollowFields\').style.display=this.checked?\'block\':\'none\'" style="width:18px;height:18px;accent-color:#c2410c"/> Folge-Termin vorplanen</label><div style="font-size:10.5px;color:#94a3b8;margin-top:4px">z. B. „in 14 Tagen pruefen, ob behoben" — wird zur Faelligkeit als Notif ausgeloest.</div><div id="defFollowFields" style="display:none;margin-top:8px;display:none"><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px"><div><label class="dlg-lbl" style="font-size:11px">Datum *</label><input id="defFollowDate" type="date" class="dlg-inp"/></div><div><label class="dlg-lbl" style="font-size:11px">Was?</label><input id="defFollowText" type="text" placeholder="z. B. Pruefen ob Akku ersetzt" class="dlg-inp"/></div></div></div></div>'
     + '</div>'
     + '<div class="dlg-row">'
     + '  <button onclick="_wzCloseModal()" class="dlg-cancel">Abbrechen</button>'
@@ -1735,11 +1736,18 @@ function _wzSaveDefekt(toolId){
   var sev=document.getElementById('defSev').value;
   if(!titel||!beschr){alert('Bitte Titel und Beschreibung angeben');return;}
   if(!t.berichte)t.berichte=[];
+  // Optionaler Folge-Termin: Datum + Beschreibung. Gespeichert als
+  // followUpDate/followUpText auf dem Bericht; vom Faelligkeits-Scan
+  // ueberwacht.
+  var fuChk=document.getElementById('defFollowUp');
+  var fuDate=fuChk&&fuChk.checked?(document.getElementById('defFollowDate').value||''):'';
+  var fuText=fuChk&&fuChk.checked?(document.getElementById('defFollowText').value.trim()||''):'';
   t.berichte.push({
     id:_wzNewBerichtId(),typ:'defekt',datum:new Date().toISOString(),
     autorUserId:u.id||'',autorName:u.name||'Unbekannt',
     titel:titel,beschreibung:beschr,schweregrad:sev,
     photos:Array.isArray(window._wzReportPhotos)?window._wzReportPhotos.slice(0,3):[],
+    followUpDate:fuDate||null, followUpText:fuText||'',
     erledigt:false,erledigtAm:null
   });
   save();renderList();_wzCloseModal();
@@ -2369,6 +2377,7 @@ function openBerichte(toolId){
         +teileHtml
         +((Array.isArray(b.photos)&&b.photos.length)?'<div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:6px">'+b.photos.map(function(p){return p&&p.dataUrl?'<img src="'+p.dataUrl+'" alt="Bericht-Foto" style="width:54px;height:54px;object-fit:cover;border-radius:6px;border:1px solid #e5e7eb;cursor:pointer" onclick="_wzPhotoLightbox(this.src)"/>':'';}).join('')+'</div>':'')
         +(b.naechstePruefung?'<div style="font-size:11px;color:#6366f1;margin-top:4px">Nächste Prüfung: '+fmt(b.naechstePruefung)+'</div>':'')
+        +(b.followUpDate?'<div style="margin-top:6px;padding:5px 8px;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;font-size:11px;color:#92400e"><strong>📅 Folge-Termin '+fmt(b.followUpDate)+':</strong> '+esc(b.followUpText||'pruefen')+'</div>':'')
         +aktion
         +'</div>';
     }).join('');
@@ -2379,9 +2388,12 @@ function openBerichte(toolId){
   var defBtn = _wzCanReportDefect()
     ? '<button onclick="openDefektMelden(\''+toolId+'\')" style="padding:8px 14px;border-radius:8px;border:none;background:#c2410c;color:#fff;cursor:pointer;font-weight:700;font-family:inherit;font-size:12px">⚠ Defekt</button>'
     : '';
+  var pdfBtn = ber.length
+    ? '<button onclick="_wzExportBerichtePDF(\''+toolId+'\')" style="padding:8px 14px;border-radius:8px;border:1.5px solid #6b7280;background:#fff;color:#374151;cursor:pointer;font-weight:700;font-family:inherit;font-size:12px">📥 PDF</button>'
+    : '';
   var html = '<div style="background:#fff;border-radius:14px;padding:24px;max-width:560px;width:100%;max-height:85vh;display:flex;flex-direction:column;box-shadow:0 20px 60px -10px rgba(0,0,0,.3)">'
-    + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px"><h3 style="margin:0;font-size:17px;font-weight:800;flex:1">📝 Berichte</h3>'
-    + defBtn + ' ' + addBtn + '</div>'
+    + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap"><h3 style="margin:0;font-size:17px;font-weight:800;flex:1">📝 Berichte</h3>'
+    + pdfBtn + ' ' + defBtn + ' ' + addBtn + '</div>'
     + '<div style="font-size:12px;color:#64748b;margin-bottom:14px">Gerät: <strong>'+esc(t.name)+'</strong></div>'
     + '<div style="flex:1;overflow-y:auto;padding-right:4px">'+list+'</div>'
     + '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">'
@@ -2799,6 +2811,106 @@ function _wzNextPruefung(t){
 // und erzeugt einmal pro Tag und Werkzeug eine Notifikation an den
 // Magaziner der eigenen Org. Wird beim Laden der Seite aufgerufen und
 // schiebt Benachrichtigungen fuer 30 / 7 / 1 Tage vorher + ueberfaellig.
+// Berichte-Historie als PDF herunterladen (jsPDF on-demand). Praktisch
+// als Beleg fuer Audits, Rueckgaben oder Reklamationen beim Lieferant.
+function _wzEnsureJsPDF(){
+  return new Promise(function(res){
+    if(window.jspdf && window.jspdf.jsPDF) return res();
+    var s=document.createElement('script');
+    s.src='https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+    s.onload=function(){res();};s.onerror=function(){res();};
+    document.head.appendChild(s);
+  });
+}
+window._wzExportBerichtePDF=async function(toolId){
+  var t=tools.find(function(x){return x.id===toolId;});if(!t)return;
+  await _wzEnsureJsPDF();
+  if(!(window.jspdf && window.jspdf.jsPDF)){alert('PDF-Bibliothek nicht verfügbar.');return;}
+  var jsPDF=window.jspdf.jsPDF;
+  var doc=new jsPDF({unit:'mm',format:'a4'});
+  var M=15, y=20;
+  var pageH=doc.internal.pageSize.getHeight();
+  function ensureSpace(needed){if(y+needed>pageH-15){doc.addPage();y=20;_drawHeader();}}
+  function _drawHeader(){
+    doc.setFontSize(9);doc.setFont('helvetica','normal');doc.setTextColor(107,114,128);
+    doc.text('GEMA · Werkzeug-Berichte · '+(t.name||''),M,9);
+    doc.setDrawColor(229,231,235);doc.line(M,12,195,12);
+  }
+  // Titel
+  doc.setFontSize(20);doc.setFont('helvetica','bold');doc.setTextColor(15,23,42);
+  doc.text('Werkzeug-Berichte',M,y);y+=9;
+  doc.setFontSize(11);doc.setFont('helvetica','bold');doc.setTextColor(29,78,216);
+  doc.text(t.name||'—',M,y);y+=6;
+  doc.setFontSize(9);doc.setFont('helvetica','normal');doc.setTextColor(107,114,128);
+  var infoLines=[
+    'Hersteller / Modell: '+(t.brand||'—')+(t.model?' · '+t.model:''),
+    'Serien-Nr.: '+(t.serial||'—'),
+    'Status: '+({aktiv:'Aktiv',in_reparatur:'In Reparatur',ausgemustert:'Ausgemustert',verkauft:'Verkauft'}[t.lifecycleStatus||'aktiv']),
+    'Lieferant: '+(t.supplier||'—'),
+    'PDF erstellt: '+new Date().toLocaleString('de-CH')
+  ];
+  infoLines.forEach(function(line){doc.text(line,M,y);y+=4.2;});
+  y+=4;doc.setDrawColor(229,231,235);doc.line(M,y,195,y);y+=8;
+
+  var ber=Array.isArray(t.berichte)?t.berichte.slice():[];
+  if(!ber.length){
+    doc.setFontSize(10);doc.setFont('helvetica','italic');doc.setTextColor(107,114,128);
+    doc.text('Keine Berichte erfasst.',M,y);
+  } else {
+    ber.sort(function(a,b){return (b.datum||'').localeCompare(a.datum||'');});
+    ber.forEach(function(b){
+      ensureSpace(20);
+      var icon=b.typ==='defekt'?'⚠ Defekt':'✓ Pruefbericht';
+      var datumStr=b.datum?new Date(b.datum).toLocaleDateString('de-CH'):'—';
+      doc.setFontSize(11);doc.setFont('helvetica','bold');doc.setTextColor(15,23,42);
+      doc.text(datumStr,M,y);
+      doc.setTextColor(b.typ==='defekt'?194:29, b.typ==='defekt'?65:78, b.typ==='defekt'?12:216);
+      doc.text('   '+icon,M+22,y);y+=5;
+      doc.setFont('helvetica','normal');doc.setFontSize(9);doc.setTextColor(75,85,99);
+      var meta=[];
+      if(b.autorName)meta.push(b.autorName);
+      if(b.schweregrad)meta.push('Schweregrad '+b.schweregrad);
+      if(b.ergebnis)meta.push('Ergebnis: '+b.ergebnis.replace(/[^\x20-\x7E]/g,''));
+      if(b.erledigt)meta.push('✓ Erledigt');
+      if(meta.length){doc.text(meta.join(' · '),M,y);y+=4.5;}
+      if(b.titel){
+        doc.setFont('helvetica','bold');doc.setTextColor(55,65,81);
+        var lT=doc.splitTextToSize(b.titel,180);
+        lT.forEach(function(L){ensureSpace(5);doc.text(L,M,y);y+=4.5;});
+        doc.setFont('helvetica','normal');
+      }
+      if(b.beschreibung){
+        doc.setTextColor(75,85,99);
+        var lB=doc.splitTextToSize(b.beschreibung,180);
+        lB.forEach(function(L){ensureSpace(5);doc.text(L,M,y);y+=4.5;});
+      }
+      if(Array.isArray(b.fehlendeTeile)&&b.fehlendeTeile.length){
+        ensureSpace(5);doc.setTextColor(146,64,14);doc.text('Fehlende Teile: '+b.fehlendeTeile.join(', '),M,y);y+=4.5;
+      }
+      if(b.naechstePruefung){ensureSpace(5);doc.setTextColor(99,102,241);doc.text('Naechste Pruefung: '+new Date(b.naechstePruefung).toLocaleDateString('de-CH'),M,y);y+=4.5;}
+      if(b.followUpDate){ensureSpace(5);doc.setTextColor(146,64,14);doc.text('Folge-Termin: '+new Date(b.followUpDate).toLocaleDateString('de-CH')+(b.followUpText?' — '+b.followUpText:''),M,y);y+=4.5;}
+      if(Array.isArray(b.photos)&&b.photos.length){
+        ensureSpace(28);var pX=M, w=35, h=26, gap=3;
+        b.photos.slice(0,8).forEach(function(p,idx){
+          if(!p||!p.dataUrl)return;
+          if(idx>0&&idx%4===0){pX=M;y+=h+gap;ensureSpace(h+2);}
+          try{doc.addImage(p.dataUrl,'JPEG',pX,y,w,h);}catch(_){}
+          pX+=w+gap;
+        });
+        y+=h+gap;
+      }
+      y+=2;doc.setDrawColor(229,231,235);doc.line(M,y,195,y);y+=4;
+    });
+  }
+  var totalPages=doc.internal.getNumberOfPages();
+  for(var p=1;p<=totalPages;p++){
+    doc.setPage(p);doc.setFontSize(8);doc.setFont('helvetica','normal');doc.setTextColor(156,163,175);
+    doc.text('Seite '+p+' / '+totalPages,195,pageH-7,{align:'right'});
+  }
+  var fname='Berichte_'+(t.name||t.id||'Werkzeug').replace(/[^a-z0-9]+/gi,'_')+'_'+new Date().toISOString().slice(0,10)+'.pdf';
+  doc.save(fname);
+};
+
 function _wzScanFaelligkeiten(){
   if(typeof GemaNotify==='undefined')return;
   var u=_wzGetUser(); if(!u)return;
@@ -2846,6 +2958,40 @@ function _wzScanFaelligkeiten(){
     });
     locks[key]=heute;
     changed=true;
+  });
+
+  // Folge-Termine auf Defekt-/Pruefberichten (followUpDate). Ein offener
+  // Bericht mit Folge-Termin wird ueber dieselben Schwellen ueberwacht
+  // wie Pruef-Faelligkeiten.
+  tools.forEach(function(t){
+    if(!Array.isArray(t.berichte))return;
+    t.berichte.forEach(function(b){
+      if(!b||!b.followUpDate||b.erledigt)return;
+      var fd=daysFrom(b.followUpDate);
+      if(fd===null)return;
+      var schwelle=null;
+      if(fd<0)schwelle='overdue';
+      else if(fd<=1)schwelle='d1';
+      else if(fd<=7)schwelle='d7';
+      else if(fd<=30)schwelle='d30';
+      if(!schwelle)return;
+      var fkey=t.id+':fu:'+b.id+':'+schwelle;
+      if(locks[fkey]===heute)return;
+      var ftyp=schwelle==='overdue'?'warnung':(schwelle==='d1'?'warnung':'aktion');
+      var fprefix=schwelle==='overdue'?'🚨 Überfällig seit '+Math.abs(fd)+' T.':schwelle==='d1'?'⏰ Morgen':schwelle==='d7'?'⏰ In '+fd+' T.':'📅 In '+fd+' T.';
+      GemaNotify.push({
+        eventKey:'werkzeug_pruefung_faellig',
+        empfaengerRoleId:'role_magaziner',
+        empfaengerOrgId:u.orgId||'',
+        modul:'werkzeug',
+        typ:ftyp,
+        titel:fprefix+' Folge-Termin: '+t.name,
+        text:(b.followUpText||'Pruefen ob behoben')+' · '+fmt(b.followUpDate),
+        link:'if_werkzeug.html?view='+encodeURIComponent(t.id)
+      });
+      locks[fkey]=heute;
+      changed=true;
+    });
   });
 
   if(changed){
