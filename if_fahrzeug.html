@@ -188,6 +188,12 @@ tbody td.mono{font-family:var(--mono);font-weight:500;}
 .form-grid>.field{min-width:0;overflow:hidden}
 .form-grid.col3{grid-template-columns:1fr 1fr 1fr}
 @media(max-width:640px){.form-grid.col3{grid-template-columns:1fr 1fr}}
+@media(max-width:480px){
+  .form-grid{grid-template-columns:1fr}
+  .vm-grid{grid-template-columns:1fr}
+  .form-grid.col3{grid-template-columns:1fr}
+  #serviceModalOverlay > div > div[style*="grid-template-columns"]{grid-template-columns:1fr!important}
+}
 .form-full{grid-column:1/-1;}
 .field{display:flex;flex-direction:column;gap:5px;}
 .label{font-size:11.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;}
@@ -2146,9 +2152,27 @@ function openViewFzg(id){
   html+=vmf('Service-Intervall',(v.serviceKm?parseInt(v.serviceKm).toLocaleString('de-CH')+' km':'—')+(v.serviceMonths?' / '+v.serviceMonths+' Mt.':''));
   html+=vmf('MFK gültig bis',fmtDate(v.mfk));
   html+=vmf('Garage',v.garage||'—');
-  html+=vmf('Tankkarte',v.fuelCard||'—');
+  if(!_fzIsGaragist())html+=vmf('Tankkarte',v.fuelCard||'—');
   html+=vmf('Reifen',v.tires||'—');
   html+='</div>';
+
+  // Versicherung — fuer Magaziner/Admin immer; fuer Garagist nur wenn
+  // pro Fahrzeug freigegeben. Wenn keine Versicherungsdaten erfasst
+  // sind, wird die Sektion uebersprungen.
+  var vIns=v.versicherung||null;
+  var hasIns=vIns && (vIns.gesellschaft||vIns.policeNr||vIns.deckung||vIns.ablauf);
+  var canSeeIns=!_fzIsGaragist()||!!v.versicherungFreiFuerGaragist;
+  if(hasIns && canSeeIns){
+    html+='<div class="vm-section">Versicherung'+
+      (_fzIsGaragist()?' <span style="font-size:9.5px;font-weight:600;background:#ecfeff;color:#0e7490;padding:2px 6px;border-radius:4px;margin-left:6px;text-transform:none;letter-spacing:0">freigegeben</span>':'')+
+      '</div>';
+    html+='<div class="vm-grid">';
+    html+=vmf('Gesellschaft',vIns.gesellschaft||'—');
+    html+=vmf('Police-Nr.',vIns.policeNr||'—');
+    html+=vmf('Deckung',vIns.deckung||'—');
+    html+=vmf('Ablauf',fmtDate(vIns.ablauf));
+    html+='</div>';
+  }
 
   // Service progress
   html+='<div style="margin-top:4px"><div style="font-size:10.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.3px;margin-bottom:4px">Service-Fortschritt: '+svc.label+'</div>';
