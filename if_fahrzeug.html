@@ -1508,11 +1508,13 @@ document.addEventListener("keydown",e=>{ if(e.key==="Escape"){ closeModal(); clo
 
 // ── QR CODE ─────────────────────────────────────────────────────
 var _currentFzgQRInstance=null; // Referenz fuer SVG-Download
+var _currentFzgNfcUrl='';        // URL fuer NFC-Schreiben
 
 function openFzgQR(id){
   const v=vehicles.find(x=>x.id===id); if(!v) return;
   document.getElementById('fzgQrTitle').textContent=v.plate||v.model||'Fahrzeug';
   const url=location.href.split('?')[0]+'?view='+id;
+  _currentFzgNfcUrl=url;
   const canvas=document.getElementById('fzgQrCanvas');
   canvas.innerHTML='';
   _currentFzgQRInstance=new QRCode(canvas,{text:url,width:180,height:180,colorDark:'#111827',colorLight:'#ffffff',correctLevel:QRCode.CorrectLevel.M});
@@ -1521,10 +1523,72 @@ function openFzgQR(id){
     ['Kennzeichen',v.plate||'—'],['Modell',v.model||'—'],
     ['Typ',v.type||'—'],['Fahrer',v.driver||'—']
   ].map(([l,v2])=>`<div class="fzg-qr-row"><span class="fzg-qr-lbl">${l}</span><span class="fzg-qr-val">${esc2(v2)}</span></div>`).join('');
+  var nfcB=document.getElementById('fzgNfcBtn');
+  if(nfcB)nfcB.style.display=('NDEFReader' in window)?'inline-flex':'none';
+  var nfcLB=document.getElementById('fzgNfcLockBtn');
+  if(nfcLB)nfcLB.style.display=(('NDEFReader' in window)&&_fzCanEdit())?'inline-flex':'none';
+  var ns=document.getElementById('fzgNfcStatus');
+  if(ns)ns.textContent='';
   const m=document.getElementById('fzgQrModal');
   m.style.display='flex'; m.classList.remove('hidden');
 }
 window.openFzgQR=openFzgQR;
+
+async function _fzWriteNFC(){
+  if(!('NDEFReader' in window)){alert('NFC wird von diesem Browser nicht unterstützt. Benötigt: Android + Chrome.');return;}
+  var st=document.getElementById('fzgNfcStatus');
+  var btn=document.getElementById('fzgNfcBtn');
+  if(st)st.textContent='📡 NFC-Tag jetzt an das Gerät halten …';
+  if(btn){btn.disabled=true;btn.style.opacity='.6';}
+  try{
+    var reader=new NDEFReader();
+    await reader.write({records:[{recordType:'url',data:_currentFzgNfcUrl}]});
+    if(st)st.innerHTML='<span style="color:#16a34a;font-weight:700">✓ Erfolgreich auf NFC-Tag geschrieben!</span>';
+  }catch(e){
+    if(e.name==='NotAllowedError'){
+      if(st)st.innerHTML='<span style="color:#d97706">NFC-Berechtigung verweigert. Bitte in den Browser-Einstellungen erlauben.</span>';
+    }else if(e.name==='AbortError'||(e.message&&e.message.indexOf('cancel')>=0)){
+      if(st)st.textContent='Abgebrochen.';
+    }else{
+      if(st)st.innerHTML='<span style="color:#dc2626">Fehler: '+esc(e.message||'Unbekannt')+'</span>';
+    }
+  }finally{
+    if(btn){btn.disabled=false;btn.style.opacity='1';}
+  }
+}
+window._fzWriteNFC=_fzWriteNFC;
+
+async function _fzMakeNFCReadOnly(){
+  if(!('NDEFReader' in window)){alert('NFC wird von diesem Browser nicht unterstützt. Benötigt: Android + Chrome.');return;}
+  if(!_fzCanEdit()){alert('Keine Berechtigung — nur Magaziner und Admins dürfen Tags sperren.');return;}
+  if(!confirm('NFC-Tag dauerhaft schreibgeschützt machen?\n\n⚠ Diese Aktion ist UNWIDERRUFLICH.\nDer Tag kann anschliessend nie mehr beschrieben oder gelöscht werden.\n\nFortfahren?'))return;
+  var st=document.getElementById('fzgNfcStatus');
+  var lockBtn=document.getElementById('fzgNfcLockBtn');
+  var wrtBtn=document.getElementById('fzgNfcBtn');
+  if(st)st.textContent='🔒 NFC-Tag jetzt an das Gerät halten — wird gesperrt …';
+  if(lockBtn){lockBtn.disabled=true;lockBtn.style.opacity='.6';}
+  if(wrtBtn){wrtBtn.disabled=true;wrtBtn.style.opacity='.6';}
+  try{
+    var reader=new NDEFReader();
+    if(typeof reader.makeReadOnly!=='function'){
+      throw new Error('Browser unterstützt das Sperren von NFC-Tags nicht (makeReadOnly nicht verfügbar).');
+    }
+    await reader.makeReadOnly();
+    if(st)st.innerHTML='<span style="color:#16a34a;font-weight:700">✓ NFC-Tag dauerhaft gesperrt.</span>';
+  }catch(e){
+    if(e.name==='NotAllowedError'){
+      if(st)st.innerHTML='<span style="color:#d97706">NFC-Berechtigung verweigert.</span>';
+    }else if(e.name==='AbortError'||(e.message&&e.message.indexOf('cancel')>=0)){
+      if(st)st.textContent='Abgebrochen.';
+    }else{
+      if(st)st.innerHTML='<span style="color:#dc2626">Fehler: '+esc(e.message||'Unbekannt')+'</span>';
+    }
+  }finally{
+    if(lockBtn){lockBtn.disabled=false;lockBtn.style.opacity='1';}
+    if(wrtBtn){wrtBtn.disabled=false;wrtBtn.style.opacity='1';}
+  }
+}
+window._fzMakeNFCReadOnly=_fzMakeNFCReadOnly;
 
 function closeFzgQR(){
   const m=document.getElementById('fzgQrModal');
@@ -2262,8 +2326,11 @@ window.openBerichte = openBerichte;
       <div style="display:flex;gap:8px;width:100%;padding-bottom:8px;flex-wrap:wrap;">
         <button onclick="downloadFzgQR()" style="flex:1 1 90px;padding:8px;background:#111;color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;">⬇ PNG</button>
         <button onclick="downloadFzgQRSVG()" style="flex:1 1 90px;padding:8px;background:#1d4ed8;color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;">⬇ SVG</button>
+        <button id="fzgNfcBtn" onclick="_fzWriteNFC()" style="display:none;flex:1 1 90px;padding:8px;background:#eff6ff;color:#1d4ed8;border:1.5px solid #bfdbfe;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;justify-content:center;align-items:center;">📡 NFC</button>
+        <button id="fzgNfcLockBtn" onclick="_fzMakeNFCReadOnly()" title="NFC-Tag dauerhaft schreibgeschützt machen — irreversibel" style="display:none;flex:1 1 90px;padding:8px;background:#fef2f2;color:#b91c1c;border:1.5px solid #fecaca;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;justify-content:center;align-items:center;">🔒 Sperren</button>
         <button onclick="closeFzgQR()" style="flex:1 1 90px;padding:8px;background:#f3f4f6;color:#374151;border:none;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;">Schliessen</button>
       </div>
+      <div id="fzgNfcStatus" style="text-align:center;font-size:11px;color:#6b7280;margin-top:-4px;width:100%;"></div>
     </div>
   </div>
 </div>
