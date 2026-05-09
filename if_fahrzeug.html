@@ -616,6 +616,55 @@ tbody td.mono{font-family:var(--mono);font-weight:500;}
         </div>
       </div>
 
+      <div class="form-section fz-opt" data-opt="versicherung">
+        <div class="form-section-title">Versicherung</div>
+        <div class="form-grid">
+          <div class="field">
+            <label class="label">Gesellschaft</label>
+            <input class="inp" id="fInsurance" placeholder="z. B. AXA, Zurich, Mobiliar"/>
+          </div>
+          <div class="field">
+            <label class="label">Policen-Nr.</label>
+            <input class="inp" id="fInsurancePolicy" placeholder="z. B. 10.123.456-7"/>
+          </div>
+        </div>
+        <div class="form-grid">
+          <div class="field">
+            <label class="label">Deckung</label>
+            <select class="sel" id="fInsuranceType">
+              <option value="">— wählen —</option>
+              <option value="Vollkasko">Vollkasko</option>
+              <option value="Teilkasko">Teilkasko</option>
+              <option value="Haftpflicht">Haftpflicht</option>
+            </select>
+          </div>
+          <div class="field">
+            <label class="label">Ablauf / Verlängerung</label>
+            <input class="inp" id="fInsuranceExpiry" type="date"/>
+          </div>
+        </div>
+      </div>
+
+      <div class="form-section fz-opt" data-opt="garagist">
+        <div class="form-section-title">Werkstatt-Zugang (Garagist)</div>
+        <div class="form-grid">
+          <div class="field">
+            <label class="label">Zugewiesener Garagist</label>
+            <select class="sel" id="fGaragistUserId" style="font-size:16px">
+              <option value="">— Keine Werkstatt zugewiesen —</option>
+            </select>
+            <span class="hint">Garagist sieht nur ihm zugewiesene Fahrzeuge. Pflegt km-Stand, Service-Historie, MFK und Reifen.</span>
+          </div>
+          <div class="field">
+            <label class="label" style="display:flex;align-items:center;gap:8px;cursor:pointer">
+              <input type="checkbox" id="fInsuranceShareGaragist" style="accent-color:var(--primary);width:18px;height:18px"/>
+              <span>Versicherungsdaten für Garagist freigeben</span>
+            </label>
+            <span class="hint">Standard aus. Aktivieren, wenn die Werkstatt im Schadenfall direkt mit der Versicherung abrechnen soll.</span>
+          </div>
+        </div>
+      </div>
+
       <div class="form-section fz-opt" data-opt="kaufbeleg">
         <div class="form-section-title">Kaufbeleg / Leasing</div>
         <div class="form-grid">
@@ -769,6 +818,15 @@ function openModal(id){
     $f("fGarage",v.garage); $f("fStellplatz",v.stellplatz); $f("fFuelCard",v.fuelCard); $f("fFuelNetwork",v.fuelNetwork);
     $f("fTires",v.tires); $f("fTiresSeason",v.tiresSeason); $f("fTireStorage",v.tireStorage); $f("fTireChangeDate",v.tireChangeDate);
     if(v.kaufbeleg){$f("fBelegNr",v.kaufbeleg.rechnungsNr);$f("fBelegBetrag",v.kaufbeleg.betrag);$f("fBelegBestellNr",v.kaufbeleg.bestellNr);$f("fBelegLieferdatum",v.kaufbeleg.lieferdatum);}
+    if(v.versicherung){
+      $f("fInsurance",v.versicherung.gesellschaft);
+      $f("fInsurancePolicy",v.versicherung.policeNr);
+      $f("fInsuranceType",v.versicherung.deckung);
+      $f("fInsuranceExpiry",v.versicherung.ablauf);
+    }
+    _fzPopulateGaragistDropdown(v.garagistUserId||'');
+    var insShare=document.getElementById('fInsuranceShareGaragist');
+    if(insShare)insShare.checked=!!v.versicherungFreiFuerGaragist;
     $f("fNotes",v.notes);
     var kmH=document.getElementById('fKmHint');if(kmH){kmH.style.display=v.kmUpdatedAt?'':'none';kmH.textContent=v.kmUpdatedAt?'Zuletzt aktualisiert: '+new Date(v.kmUpdatedAt).toLocaleDateString('de-CH')+' '+new Date(v.kmUpdatedAt).toLocaleTimeString('de-CH',{hour:'2-digit',minute:'2-digit'}):'';}
     document.getElementById("fHasAHK").checked=!!v.hasAHK;
@@ -780,6 +838,7 @@ function openModal(id){
     _fzPopulateDriverDropdown('');
     _fzPopulateDeptDropdown('');
     _fzPopulateGarageDropdown('');
+    _fzPopulateGaragistDropdown('');
     document.querySelectorAll(".modal .inp, .modal .sel, .modal .textarea").forEach(el=>{
       if(el.type==="checkbox") el.checked=false;
       else if(el.tagName==="SELECT") el.selectedIndex=0;
@@ -854,6 +913,14 @@ function saveVehicle(){
       bestellNr:(document.getElementById("fBelegBestellNr")||{}).value||'',
       lieferdatum:(document.getElementById("fBelegLieferdatum")||{}).value||''
     },
+    versicherung:{
+      gesellschaft:(document.getElementById("fInsurance")||{}).value||'',
+      policeNr:(document.getElementById("fInsurancePolicy")||{}).value||'',
+      deckung:(document.getElementById("fInsuranceType")||{}).value||'',
+      ablauf:(document.getElementById("fInsuranceExpiry")||{}).value||''
+    },
+    garagistUserId:(document.getElementById("fGaragistUserId")||{}).value||'',
+    versicherungFreiFuerGaragist:!!(document.getElementById("fInsuranceShareGaragist")||{}).checked,
     notes: document.getElementById("fNotes").value.trim(),
     hasAHK: document.getElementById("fHasAHK").checked,
     hasRoof: document.getElementById("fHasRoof").checked,
@@ -1205,6 +1272,8 @@ var _FZ_OPT_DEFS=[
   {id:'reifen',label:'Reifenmanagement',desc:'Saison, Bezeichnung, Lagerplatz, Wechseldatum',default:false},
   {id:'garage',label:'Garage & Stellplatz',desc:'Werkstatt, Stellplatz-Nr.',default:true},
   {id:'tankkarte',label:'Tankkarte',desc:'Kartennummer, Anbieter/Netz',default:false},
+  {id:'versicherung',label:'Versicherung',desc:'Gesellschaft, Police, Deckung, Ablauf',default:false},
+  {id:'garagist',label:'Werkstatt-Zugang',desc:'Garagist zuweisen, Versicherungsdaten freigeben',default:false},
   {id:'kaufbeleg',label:'Kaufbeleg / Leasing',desc:'Rechnungs-Nr., Betrag, Bestell-Nr., Lieferdatum',default:false}
 ];
 function _fzLoadOpt(){try{var r=localStorage.getItem(_FZ_OPT_KEY);if(r)return JSON.parse(r);}catch(e){}var d={};_FZ_OPT_DEFS.forEach(function(o){d[o.id]=o.default;});return d;}
@@ -1417,6 +1486,38 @@ var _FZ_DEFAULT_ABT=['Sanitär','Heizung','Lüftung','Elektro','Bauleitung','Ver
 function _fzLoadAbt(){try{var r=localStorage.getItem(_FZ_ABT_KEY);if(r)return JSON.parse(r);}catch(e){}return _FZ_DEFAULT_ABT.slice();}
 function _fzSaveAbt(list){try{localStorage.setItem(_FZ_ABT_KEY,JSON.stringify(list));}catch(e){}}
 
+// Listet alle aktiven role_garagist-User aus allen Orgs auf, damit
+// Magaziner aus extern angeschlossenen Werkstaetten waehlen koennen.
+// Anzeige: Personenname + Werkstattname (Org).
+function _fzPopulateGaragistDropdown(selectedUserId){
+  var sel=document.getElementById('fGaragistUserId');if(!sel)return;
+  var opts='<option value="">— Keine Werkstatt zugewiesen —</option>';
+  if(typeof GemaAuth!=='undefined'){
+    try{
+      var users=GemaAuth.getUsers()||[];
+      var orgs=(GemaAuth.getOrgs&&GemaAuth.getOrgs())||[];
+      var orgById={};orgs.forEach(function(o){orgById[o.id]=o;});
+      var garagisten=users.filter(function(u){
+        return u.active!==false && u.roleIds && u.roleIds.indexOf('role_garagist')>=0;
+      });
+      // Sortiert: zuerst nach Werkstatt, dann nach Name
+      garagisten.sort(function(a,b){
+        var na=(orgById[a.orgId]&&orgById[a.orgId].name)||a.orgId||'';
+        var nb=(orgById[b.orgId]&&orgById[b.orgId].name)||b.orgId||'';
+        if(na!==nb)return na.localeCompare(nb);
+        return (a.name||'').localeCompare(b.name||'');
+      });
+      garagisten.forEach(function(u){
+        var name=u.name||u.username||u.id;
+        var org=(orgById[u.orgId]&&orgById[u.orgId].name)||'';
+        var label=name+(org?' — '+org:'');
+        opts+='<option value="'+esc(u.id)+'"'+(u.id===selectedUserId?' selected':'')+'>'+esc(label)+'</option>';
+      });
+    }catch(e){}
+  }
+  sel.innerHTML=opts;
+}
+
 function _fzPopulateDriverDropdown(selected){
   var sel=document.getElementById('fDriver');if(!sel)return;
   var opts='<option value="">— Kein Fahrer —</option>';
@@ -1504,7 +1605,7 @@ var _FZ_GARAGIST_EDITABLE_FIELDS = [
 // fz-opt-Sektionen, die der Garagist nie zu Gesicht bekommt.
 // 'versicherung' wird zusaetzlich nur eingeblendet, wenn pro Fahrzeug
 // freigeschaltet (versicherungFreiFuerGaragist === true).
-var _FZ_GARAGIST_HIDDEN_OPTS = ['kaufbeleg','tankkarte'];
+var _FZ_GARAGIST_HIDDEN_OPTS = ['kaufbeleg','tankkarte','garagist'];
 
 // Prueft ob aktueller User dieses Fahrzeug oeffnen darf.
 // Garagist: nur wenn zugewiesen via v.garagistUserId. Andere Rollen:
