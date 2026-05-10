@@ -3,6 +3,7 @@
 <head>
 <script src="gema_auth.js"></script>
 <script src="gema_recent.js"></script>
+<script src="gema_pwa.js"></script>
 <meta charset="utf-8"/>
 <meta name="theme-color" content="#0f172a"/>
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover"/>
@@ -1770,6 +1771,7 @@ input::placeholder{color:#cbd5e1}
     _settingsTab='allgemein';
     activeTab=null;
     render();
+    setTimeout(_wsRenderPwaState,0);
   };
   window._wsCloseSettings=function(){
     _showSettings=false;
@@ -1779,6 +1781,7 @@ input::placeholder{color:#cbd5e1}
   window._wsSettingsTab=function(tab){
     _settingsTab=tab;
     _renderSettings();
+    if(tab==='allgemein') setTimeout(_wsRenderPwaState,0);
   };
 
   function _renderSettings(){
@@ -1820,6 +1823,15 @@ input::placeholder{color:#cbd5e1}
         +'<div class="ws-settings-row"><div class="ws-settings-row-info"><div class="ws-settings-row-label">Workspace-Aktivitäten</div>'
         +'<div class="ws-settings-row-desc">Benachrichtigung wenn jemand in einem geteilten Eimer arbeitet</div></div>'
         +'<div class="ws-toggle'+(settings.wsActivity!==false?' on':'')+'" onclick="this.classList.toggle(\'on\');_wsSetSetting(\'wsActivity\',this.classList.contains(\'on\'))"></div></div>'
+        +'</div>'
+        +'<div class="ws-settings-section" id="wsPwaSection"><div class="ws-settings-section-title">App-Installation</div>'
+        +'<div class="ws-settings-row"><div class="ws-settings-row-info">'
+        +'<div class="ws-settings-row-label">GEMA als App auf diesem Gerät installieren</div>'
+        +'<div class="ws-settings-row-desc" id="wsPwaDesc">Progressive Web App — startet wie eine native App und funktioniert offline.</div></div>'
+        +'<button class="ws-btn ws-btn-primary" id="wsPwaBtn" onclick="_wsInstallPWA()">📥 Installieren</button></div>'
+        +'<div id="wsPwaIosHelp" style="display:none;margin-top:10px;padding:12px 14px;background:#EDF1F7;border:1px solid #DCE3ED;border-radius:var(--r-sm);font-size:12.5px;color:var(--ink-2);line-height:1.55">'
+        +'<strong style="color:var(--navy)">Auf iPhone/iPad:</strong> In Safari auf <strong>Teilen</strong> tippen und <strong>"Zum Home-Bildschirm"</strong> wählen.</div>'
+        +'<div id="wsPwaInstalled" style="display:none;margin-top:10px;padding:10px 14px;background:#E8F4EC;border:1px solid #BFE3CC;border-radius:var(--r-sm);font-size:12.5px;color:#1F7A3A;font-weight:600">✓ App ist bereits installiert</div>'
         +'</div>';
     }else if(_settingsTab==='eimer'){
       bodyHtml='<div class="ws-settings-section"><div class="ws-settings-section-title">Eimer-Grundeinstellungen</div>'
@@ -1913,6 +1925,54 @@ input::placeholder{color:#cbd5e1}
     var s=loadSettings();s[key]=val;saveSettingsData(s);
     toast('Einstellung gespeichert','check');
   };
+
+  // ── PWA-Installation ──
+  function _wsRenderPwaState(){
+    if(typeof GemaPWA === 'undefined') return;
+    var btn=document.getElementById('wsPwaBtn');
+    var desc=document.getElementById('wsPwaDesc');
+    var iosHelp=document.getElementById('wsPwaIosHelp');
+    var installed=document.getElementById('wsPwaInstalled');
+    if(!btn) return; // Settings-Tab ist nicht offen
+    var status=GemaPWA.getStatus();
+    if(installed) installed.style.display=(status==='installed')?'':'none';
+    if(iosHelp) iosHelp.style.display=(status==='manual_ios')?'':'none';
+    if(status==='installed'){
+      btn.style.display='none';
+      desc.textContent='GEMA ist bereits als App auf diesem Gerät installiert.';
+    }else if(status==='ready'){
+      btn.style.display='';
+      btn.disabled=false;
+      btn.style.opacity='1';
+      desc.textContent='Progressive Web App — startet wie eine native App und funktioniert offline.';
+    }else if(status==='manual_ios'){
+      btn.style.display='none';
+      desc.textContent='GEMA als App auf dem Home-Bildschirm hinzufügen — siehe Hinweis unten.';
+    }else{
+      btn.style.display='';
+      btn.disabled=true;
+      btn.style.opacity='.55';
+      desc.textContent='Dieser Browser unterstützt die direkte Installation nicht. In Chrome/Edge auf Android oder Desktop verfügbar.';
+    }
+  }
+  window._wsInstallPWA=function(){
+    if(typeof GemaPWA==='undefined') return;
+    GemaPWA.install().then(function(res){
+      if(res.outcome==='accepted'||res.outcome==='installed') toast('App wird installiert','check');
+      else if(res.outcome==='dismissed') toast('Installation abgebrochen','x');
+      else toast('Aktuell nicht verfügbar','x');
+      _wsRenderPwaState();
+    });
+  };
+  // Status nach Settings-Render und bei Aenderungen aktualisieren
+  if(typeof GemaPWA!=='undefined'){
+    GemaPWA.onChange(_wsRenderPwaState);
+    // Beim Tab-Wechsel oder Settings-Open ist der Tab-Render synchron;
+    // wir haengen den Status-Refresh in einen Microtask, damit der DOM da ist.
+    var _origRender = window._wsRenderSettings;
+    // Falls _wsRenderSettings nicht globalisiert ist, nutzen wir
+    // den setTimeout-Tick im Settings-Open-Handler.
+  }
 
   // ── Template CRUD ──
   function _tplModuleList(checked){

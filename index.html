@@ -1495,23 +1495,23 @@ document.addEventListener('DOMContentLoaded',function(){
   GemaCoachmarks.init('index',steps,{delay:1200});
 });
 </script>
+<script src="gema_pwa.js"></script>
 <script>
+// Banner-Logik nutzt GemaPWA. Der zentrale Install-Knopf liegt in
+// sys_profil.html unter "Allgemein" — dieser Banner ist nur ein
+// optionaler Ein-Klick-Shortcut auf der Hauptseite, der nach
+// "Spaeter" dauerhaft ausgeblendet wird.
 (function(){
-  var _deferredPrompt=null;
-  window.addEventListener('beforeinstallprompt',function(e){
-    e.preventDefault();
-    _deferredPrompt=e;
+  function _show(){
     var b=document.getElementById('pwaInstallBanner');
-    if(b) b.style.display='';
-  });
+    if(!b) return;
+    if(GemaPWA.isInstalled()) { b.style.display='none'; return; }
+    try{ if(localStorage.getItem('gema_pwa_dismissed')==='1'){ b.style.display='none'; return; } }catch(e){}
+    b.style.display = GemaPWA.canPrompt() ? '' : 'none';
+  }
   window._pwaInstall=function(){
-    if(!_deferredPrompt) return;
-    _deferredPrompt.prompt();
-    _deferredPrompt.userChoice.then(function(){
-      _deferredPrompt=null;
-      var b=document.getElementById('pwaInstallBanner');
-      if(b) b.style.display='none';
-    });
+    if(typeof GemaPWA==='undefined') return;
+    GemaPWA.install().then(function(){ _show(); });
   };
   window._pwaDismiss=function(){
     var b=document.getElementById('pwaInstallBanner');
@@ -1519,8 +1519,9 @@ document.addEventListener('DOMContentLoaded',function(){
     try{localStorage.setItem('gema_pwa_dismissed','1');}catch(e){}
   };
   document.addEventListener('DOMContentLoaded',function(){
-    if(window.matchMedia('(display-mode:standalone)').matches) return;
-    try{if(localStorage.getItem('gema_pwa_dismissed')==='1') return;}catch(e){}
+    if(typeof GemaPWA==='undefined') return;
+    _show();
+    GemaPWA.onChange(_show);
   });
 })();
 </script>

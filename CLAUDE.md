@@ -972,6 +972,24 @@ Im Repo liegen die React-Designdateien als Referenz (nicht für Produktion):
 
 `manifest.json` + `sw.js` — GEMA ist eine installierbare Progressive Web App. Service-Worker cached die wichtigsten HTML-Module und Assets (`/icon-192.svg`, `/icon-512.svg`, `/manifest.json`) für Offline-Erstaufruf. Beim Update einer Seite muss der Cache invalidiert werden — bei Bedarf SW-Version in `sw.js` hochziehen.
 
+### Install-Helper (`gema_pwa.js`)
+
+Globaler Singleton, der den `beforeinstallprompt`-Event abfängt (das Browser-Event feuert nur einmal — wir halten es im Speicher, damit der User die Installation jederzeit auslösen kann).
+
+```javascript
+GemaPWA.isInstalled()  // matchMedia('(display-mode:standalone)') oder iOS-standalone
+GemaPWA.canPrompt()    // Browser hat einen Prompt geliefert
+GemaPWA.isIOS()        // true → manueller Pfad „Teilen → Zum Home-Bildschirm"
+GemaPWA.getStatus()    // 'installed' | 'ready' | 'manual_ios' | 'unavailable'
+GemaPWA.install()      // Promise<{outcome: 'accepted'|'dismissed'|'unavailable'|'installed'}>
+GemaPWA.onChange(fn)   // Listener bei Status-Wechsel
+```
+
+UI-Anbindung:
+- **`sys_profil.html` → Karte „📱 Allgemein"**: Zentraler Install-Button mit Status-Anzeige (auch iOS-Anleitung). Ist jederzeit erreichbar — auch nachdem ein Banner abgewiesen wurde.
+- **`sys_workspace.html` → Einstellungen**: gleiche Karte, damit Workspace-User ohne Umweg über das Profil installieren können.
+- **`index.html`-Banner**: Kurz-Shortcut — verwendet denselben Helper, kann via „Später" dauerhaft via `gema_pwa_dismissed`-Flag ausgeblendet werden.
+
 ---
 
 ## Helper-Module Übersicht (gema_*.js)
@@ -995,6 +1013,7 @@ Im Repo liegen die React-Designdateien als Referenz (nicht für Produktion):
 | `gema_pdf.js` | PDF-Export via html2canvas |
 | `gema_produktkatalog_api.js` | Produkte + Stammlieferanten + Favoriten |
 | `gema_push.js` | Web-Push-Vorbereitung (Service-Worker) |
+| `gema_pwa.js` | PWA-Install-Helper (`beforeinstallprompt`-Capture, `GemaPWA.install()`) |
 | `gema_qr_scanner.js` | QR-Code-Scanner |
 | `gema_recent.js` | Tracking + Anzeige zuletzt genutzter Module |
 | `gema_responsive.css` | Globale Responsive-/Layout-Regeln (Mobile + Tablet) |
