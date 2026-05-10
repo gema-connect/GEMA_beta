@@ -104,6 +104,11 @@
       label:'Trocknungsgerät zurückgegeben',
       modul:'trocknung',
       defaultOn:true
+    },
+    trockner_defekt: {
+      label:'Trocknungsgerät: Defektmeldung',
+      modul:'trocknung',
+      defaultOn:true
     }
   };
 

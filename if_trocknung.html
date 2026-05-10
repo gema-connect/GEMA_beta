@@ -688,6 +688,72 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
   </div>
 </div>
 
+<!-- ═══════════════════════════════════
+  DEFEKT MELDEN MODAL
+═══════════════════════════════════ -->
+<div class="modal-bg hidden" id="defektModal">
+  <div class="modal">
+    <button class="modal-x" onclick="closeDefekt()">✕</button>
+    <div class="modal-hd">
+      <div class="mhd-ic" style="background:#fff7ed;color:#c2410c">⚠</div>
+      <div>
+        <div class="mhd-title">Defekt melden</div>
+        <div class="mhd-sub" id="def_sub">—</div>
+      </div>
+    </div>
+    <div class="modal-body">
+      <div class="fsec">
+        <div class="fsec-hd">
+          <span class="fsec-ico">📝</span>
+          <div><div class="fsec-title">Defekt-Beschreibung</div><div class="fsec-sub">Was ist kaputt?</div></div>
+        </div>
+        <div class="fg">
+          <label>Titel <span class="req">*</span></label>
+          <input type="text" id="def_titel" placeholder="z.B. Kompressor läuft nicht mehr" oninput="if(typeof _tgClearFieldErrors==='function')_tgClearFieldErrors()">
+        </div>
+        <div class="fg">
+          <label>Schweregrad</label>
+          <select id="def_sev">
+            <option value="leicht">Leicht (nutzbar)</option>
+            <option value="mittel" selected>Mittel (eingeschränkt)</option>
+            <option value="schwer">Schwer (nicht nutzbar)</option>
+            <option value="ausser_betrieb">Ausser Betrieb</option>
+          </select>
+          <div class="fg-hint" style="font-size:11px;color:#6b7280;margin-top:4px">Bei „Schwer" oder „Ausser Betrieb" wechselt das Gerät automatisch in den Status „Defekt".</div>
+        </div>
+        <div class="fg">
+          <label>Beschreibung <span class="req">*</span></label>
+          <textarea id="def_beschr" rows="4" placeholder="Was ist passiert? Wann ist es aufgefallen?"></textarea>
+        </div>
+      </div>
+    </div>
+    <div class="modal-ft">
+      <button class="mft-cancel" onclick="closeDefekt()">Abbrechen</button>
+      <button class="mft-save" onclick="saveDefekt()" style="background:#c2410c">⚠ Melden</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════
+  BERICHTE / DEFEKT-HISTORIE MODAL
+═══════════════════════════════════ -->
+<div class="modal-bg hidden" id="berichteModal">
+  <div class="modal">
+    <button class="modal-x" onclick="closeBerichte()">✕</button>
+    <div class="modal-hd">
+      <div class="mhd-ic" style="background:#fef3c7;color:#92400e">📝</div>
+      <div>
+        <div class="mhd-title">Berichte &amp; Defekte</div>
+        <div class="mhd-sub" id="ber_sub">—</div>
+      </div>
+    </div>
+    <div class="modal-body" id="ber_body"></div>
+    <div class="modal-ft">
+      <button class="mft-cancel" onclick="closeBerichte()">Schliessen</button>
+    </div>
+  </div>
+</div>
+
 <script src="gema_db.js"></script>
 <script src="gema_feedback.js"></script>
 <script src="gema_notify.js"></script>
@@ -861,6 +927,14 @@ function _tgIsAdmin() {
   var u = _tgGetUser();
   return u && u.roleIds && u.roleIds.indexOf('role_admin') >= 0;
 }
+function _tgIsMagaziner() {
+  var u = _tgGetUser();
+  return !!(u && u.roleIds && u.roleIds.indexOf('role_magaziner') >= 0);
+}
+function _tgIsMonteur() {
+  var u = _tgGetUser();
+  return !!(u && u.roleIds && u.roleIds.indexOf('role_monteur') >= 0);
+}
 function _tgCanEdit() {
   var u = _tgGetUser(); if (!u) return false;
   if (_tgIsAdmin()) return true;
@@ -872,6 +946,21 @@ function _tgCanEdit() {
   return false;
 }
 function _tgCanAssign() { return _tgCanEdit(); }
+// Defekt-Meldung darf jeder eingeloggte User mit Lese-Recht (Monteur,
+// Magaziner, Admin, Planer). Spiegelt _wzCanReportDefect aus
+// if_werkzeug.html.
+function _tgCanReportDefect() {
+  var u = _tgGetUser();
+  return !!u;
+}
+// Hat das Geraet einen offenen (nicht erledigten) Defekt-Bericht?
+function _tgHasOpenDefekt(d) {
+  if (!d || !Array.isArray(d.berichte)) return false;
+  return d.berichte.some(function(b){ return b.typ === 'defekt' && !b.erledigt; });
+}
+function _tgNewBerichtId(){
+  return 'b_' + Date.now() + '_' + Math.random().toString(36).substr(2,5);
+}
 
 // ──────────────────────────────────────
 // STORAGE
@@ -1047,10 +1136,13 @@ function renderCards(list) {
     return;
   }
   var canEdit = _tgCanEdit();
+  var canReport = _tgCanReportDefect();
   var html = '';
   list.forEach(function(d) {
     var typ = GERAETE_TYPEN[d.typ] || GERAETE_TYPEN.bautrockner;
     var st = STATUS_MAP[d.status] || STATUS_MAP.verfuegbar;
+    var hasOpenDefekt = _tgHasOpenDefekt(d);
+    var berCount = (d.berichte && d.berichte.length) || 0;
     html += '<div class="tool-card">';
     html += '<div class="status-bar ' + st.barClass + '"></div>';
     html += '<div class="tc-head">';
@@ -1063,6 +1155,11 @@ function renderCards(list) {
     html += '<span class="badge badge-mut">' + typ.icon + ' ' + typ.label + '</span>';
     if (d.serienNr) html += '<span class="badge badge-mut">SN: ' + esc(d.serienNr) + '</span>';
     html += '</div></div></div>';
+
+    // Defekt-Banner (vor dem Einsatz-Block, damit immer sichtbar)
+    if (hasOpenDefekt) {
+      html += '<div style="padding:6px 14px;background:#fff7ed;border-top:1px solid #fed7aa;font-size:11px;color:#c2410c;display:flex;align-items:center;gap:5px"><span>⚠</span><span style="font-weight:800">Defekt offen</span></div>';
+    }
 
     // Einsatz-Info
     if (d.einsatz && d.status === 'im_einsatz') {
@@ -1078,6 +1175,12 @@ function renderCards(list) {
     html += '<div class="tc-foot"><div class="tc-actions">';
     html += '<button class="tc-act" onclick="openDetail(\'' + d.id + '\')">👁️ Details</button>';
     html += '<button class="tc-act" onclick="openQR(\'' + d.id + '\')">📱 QR</button>';
+    if (berCount) {
+      html += '<button class="tc-act" onclick="openBerichte(\'' + d.id + '\')" title="Berichte ansehen">📝 Berichte (' + berCount + ')</button>';
+    }
+    if (canReport) {
+      html += '<button class="tc-act" style="background:#fff7ed;color:#c2410c;border-color:#fed7aa" onclick="openDefektMelden(\'' + d.id + '\')" title="Defekt melden">⚠ Defekt</button>';
+    }
     if (canEdit) {
       if (d.status === 'verfuegbar') {
         html += '<button class="tc-act accent" onclick="openEinsatz(\'' + d.id + '\')">🚀 Einsetzen</button>';
@@ -1117,6 +1220,9 @@ function renderTable(list) {
     html += '<td style="white-space:nowrap">';
     html += '<button class="tc-act" onclick="openDetail(\'' + d.id + '\')">👁️</button> ';
     html += '<button class="tc-act" onclick="openQR(\'' + d.id + '\')">📱</button> ';
+    if (_tgCanReportDefect()) {
+      html += '<button class="tc-act" style="background:#fff7ed;color:#c2410c;border-color:#fed7aa" onclick="openDefektMelden(\'' + d.id + '\')" title="Defekt melden">⚠</button> ';
+    }
     if (canEdit) {
       if (d.status === 'verfuegbar') html += '<button class="tc-act accent" onclick="openEinsatz(\'' + d.id + '\')">🚀</button> ';
       if (d.status === 'im_einsatz') html += '<button class="tc-act accent" onclick="openReturn(\'' + d.id + '\')">✅</button> ';
@@ -1310,6 +1416,178 @@ window.saveDevice = function() {
     _tgShowSaveError('Speichern fehlgeschlagen: ' + msg);
     try { console.error('[trocknung] saveDevice error:', err); } catch(e){}
   }
+};
+
+// ──────────────────────────────────────
+// DEFEKT MELDEN
+// ──────────────────────────────────────
+var defektId = null;
+
+window.openDefektMelden = function(id){
+  if (!_tgCanReportDefect()) { alert('Keine Berechtigung — bitte einloggen.'); return; }
+  var d = devices.find(function(x){ return x.id === id; });
+  if (!d) return;
+  defektId = id;
+  document.getElementById('def_sub').textContent = 'Gerät: ' + d.name;
+  document.getElementById('def_titel').value = '';
+  document.getElementById('def_beschr').value = '';
+  document.getElementById('def_sev').value = 'mittel';
+  // Errors zuruecksetzen (das Modal teilt sich tgFormError nicht mit
+  // dem Add-Modal — eigene Felder).
+  ['def_titel','def_beschr'].forEach(function(fid){
+    var el = document.getElementById(fid);
+    if (el) { el.style.borderColor=''; el.style.boxShadow=''; }
+  });
+  document.getElementById('defektModal').classList.remove('hidden');
+  lockScroll();
+};
+
+window.closeDefekt = function(){
+  document.getElementById('defektModal').classList.add('hidden');
+  unlockScroll();
+  defektId = null;
+};
+
+function _tgDefektFieldError(id){
+  var el = document.getElementById(id);
+  if (!el) return;
+  el.style.borderColor = '#dc2626';
+  el.style.boxShadow = '0 0 0 3px rgba(220,38,38,.12)';
+  try { el.scrollIntoView({ behavior:'smooth', block:'center' }); } catch(e){}
+  setTimeout(function(){ try { el.focus(); } catch(e){} }, 200);
+}
+
+window.saveDefekt = function(){
+  if (!defektId) return;
+  var d = devices.find(function(x){ return x.id === defektId; });
+  if (!d) return;
+  var titelEl = document.getElementById('def_titel');
+  var beschrEl = document.getElementById('def_beschr');
+  var titel = (titelEl.value || '').trim();
+  var beschr = (beschrEl.value || '').trim();
+  ['def_titel','def_beschr'].forEach(function(fid){
+    var el = document.getElementById(fid);
+    if (el) { el.style.borderColor=''; el.style.boxShadow=''; }
+  });
+  if (!titel) { _tgDefektFieldError('def_titel'); return; }
+  if (!beschr) { _tgDefektFieldError('def_beschr'); return; }
+  var sev = document.getElementById('def_sev').value || 'mittel';
+  var u = _tgGetUser() || {};
+  if (!Array.isArray(d.berichte)) d.berichte = [];
+  d.berichte.push({
+    id: _tgNewBerichtId(),
+    typ: 'defekt',
+    datum: new Date().toISOString(),
+    autorUserId: u.id || '',
+    autorName: u.name || 'Unbekannt',
+    titel: titel,
+    beschreibung: beschr,
+    schweregrad: sev,
+    erledigt: false,
+    erledigtAm: null
+  });
+  // Bei schweren Defekten Status hochziehen — Geraet ist nicht mehr
+  // einsetzbar, bis ein Magaziner den Defekt als erledigt markiert.
+  if (sev === 'schwer' || sev === 'ausser_betrieb') {
+    if (d.status !== 'im_einsatz') d.status = 'defekt';
+  }
+  saveAll();
+  closeDefekt();
+  renderList();
+  // Notifikation an alle Magaziner der Org
+  if (typeof GemaNotify !== 'undefined') {
+    try {
+      GemaNotify.push({
+        eventKey: 'trockner_defekt',
+        empfaengerRoleId: 'role_magaziner',
+        empfaengerOrgId: u.orgId || '',
+        modul: 'trocknungsgeraete',
+        typ: (sev === 'schwer' || sev === 'ausser_betrieb') ? 'warnung' : 'aktion',
+        titel: '⚠ Defekt: ' + d.name,
+        text: (u.name || 'Monteur') + ': ' + titel,
+        link: 'if_trocknung.html?id=' + encodeURIComponent(d.id)
+      });
+    } catch(e){}
+  }
+  alert('✓ Defektmeldung gespeichert');
+};
+
+// ──────────────────────────────────────
+// BERICHTE / DEFEKT-HISTORIE
+// ──────────────────────────────────────
+window.openBerichte = function(id){
+  var d = devices.find(function(x){ return x.id === id; });
+  if (!d) return;
+  document.getElementById('ber_sub').textContent = 'Gerät: ' + d.name;
+  _tgRenderBerichte(d);
+  document.getElementById('berichteModal').classList.remove('hidden');
+  lockScroll();
+};
+
+window.closeBerichte = function(){
+  document.getElementById('berichteModal').classList.add('hidden');
+  unlockScroll();
+};
+
+function _tgRenderBerichte(d){
+  var body = document.getElementById('ber_body');
+  var ber = Array.isArray(d.berichte) ? d.berichte.slice() : [];
+  if (!ber.length) {
+    body.innerHTML = '<div style="text-align:center;padding:32px 16px;color:#64748b">Noch keine Berichte vorhanden.</div>';
+    return;
+  }
+  // Neueste zuerst
+  ber.sort(function(a,b){ return (b.datum || '').localeCompare(a.datum || ''); });
+  var canEdit = _tgCanEdit();
+  var SEV_LBL = { leicht:'Leicht', mittel:'Mittel', schwer:'Schwer', ausser_betrieb:'Ausser Betrieb' };
+  var SEV_COL = { leicht:'#0891b2', mittel:'#d97706', schwer:'#dc2626', ausser_betrieb:'#7f1d1d' };
+  var html = '';
+  ber.forEach(function(b){
+    var datum = (b.datum || '').split('T')[0] || '';
+    var col = SEV_COL[b.schweregrad] || '#64748b';
+    var sevLbl = SEV_LBL[b.schweregrad] || '—';
+    var open = !b.erledigt;
+    html += '<div style="border:1.5px solid ' + (open ? '#fed7aa' : '#e2e8f0') + ';background:' + (open ? '#fff7ed' : '#f8fafc') + ';border-radius:12px;padding:14px;margin-bottom:10px">';
+    html += '<div style="display:flex;align-items:flex-start;gap:10px;justify-content:space-between;flex-wrap:wrap">';
+    html += '<div style="flex:1;min-width:0">';
+    html += '<div style="font-size:14px;font-weight:800;color:#1e293b;margin-bottom:2px">⚠ ' + esc(b.titel || '—') + '</div>';
+    html += '<div style="font-size:11px;color:#64748b">' + esc(b.autorName || 'Unbekannt') + ' · ' + datum + '</div>';
+    html += '</div>';
+    html += '<span style="background:' + col + '15;color:' + col + ';border:1px solid ' + col + '40;border-radius:999px;padding:3px 10px;font-size:11px;font-weight:700;white-space:nowrap">' + sevLbl + '</span>';
+    html += '</div>';
+    if (b.beschreibung) {
+      html += '<div style="margin-top:8px;font-size:12.5px;color:#334155;white-space:pre-wrap;line-height:1.45">' + esc(b.beschreibung) + '</div>';
+    }
+    if (b.erledigt) {
+      var erlDatum = (b.erledigtAm || '').split('T')[0] || '';
+      html += '<div style="margin-top:10px;display:inline-flex;align-items:center;gap:6px;background:#dcfce7;color:#15803d;border:1px solid #bbf7d0;border-radius:8px;padding:5px 10px;font-size:11px;font-weight:700">✓ Erledigt' + (erlDatum ? ' am ' + erlDatum : '') + '</div>';
+    } else if (canEdit) {
+      html += '<div style="margin-top:10px"><button onclick="_tgDefektErledigt(\'' + d.id + '\',\'' + b.id + '\')" style="padding:6px 12px;background:#16a34a;color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer">✓ Als erledigt markieren</button></div>';
+    }
+    html += '</div>';
+  });
+  body.innerHTML = html;
+}
+
+window._tgDefektErledigt = function(deviceId, berId){
+  if (!_tgCanEdit()) return;
+  var d = devices.find(function(x){ return x.id === deviceId; });
+  if (!d || !Array.isArray(d.berichte)) return;
+  var b = d.berichte.find(function(x){ return x.id === berId; });
+  if (!b) return;
+  b.erledigt = true;
+  b.erledigtAm = new Date().toISOString();
+  // Status zuruecksetzen, wenn keine offenen schweren Defekte mehr
+  // bestehen und das Geraet nicht im Einsatz ist.
+  if (d.status === 'defekt') {
+    var stillBad = d.berichte.some(function(x){
+      return x.typ === 'defekt' && !x.erledigt && (x.schweregrad === 'schwer' || x.schweregrad === 'ausser_betrieb');
+    });
+    if (!stillBad) d.status = 'verfuegbar';
+  }
+  saveAll();
+  _tgRenderBerichte(d);
+  renderList();
 };
 
 // ──────────────────────────────────────
@@ -1586,6 +1864,13 @@ window.openDetail = function(id) {
 
   // Footer
   var foot = '';
+  var berCount = (d.berichte && d.berichte.length) || 0;
+  if (_tgCanReportDefect()) {
+    foot += '<button class="mft-cancel" onclick="closeDetail();setTimeout(function(){openDefektMelden(\'' + d.id + '\')},120)" style="background:#fff7ed;color:#c2410c;border-color:#fed7aa">⚠ Defekt melden</button>';
+  }
+  if (berCount) {
+    foot += '<button class="mft-cancel" onclick="closeDetail();setTimeout(function(){openBerichte(\'' + d.id + '\')},120)">📝 Berichte (' + berCount + ')</button>';
+  }
   if (canEdit) {
     if (d.status !== 'verfuegbar') foot += '<button class="mft-cancel" onclick="setStatus(\'' + d.id + '\',\'verfuegbar\')" style="color:var(--grn)">✅ Verfügbar setzen</button>';
     if (d.status !== 'in_wartung') foot += '<button class="mft-cancel" onclick="setStatus(\'' + d.id + '\',\'in_wartung\')" style="color:var(--blu)">🔧 In Wartung</button>';

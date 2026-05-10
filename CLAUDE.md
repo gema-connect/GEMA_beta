@@ -738,16 +738,32 @@ Datenfluss: sd_schadensbericht.html kann über `GemaTrocknung.getForSchaden()` d
 ### Berechtigungs-Helper
 
 ```javascript
-_tgCanEdit()   // Admin, Magaziner, Planer (alle Gewerke)
-_tgCanAssign() // wie _tgCanEdit
+_tgCanEdit()         // Admin, Magaziner, Planer (alle Gewerke)
+_tgCanAssign()       // wie _tgCanEdit
+_tgCanReportDefect() // jeder eingeloggte User (inkl. Monteur)
+_tgHasOpenDefekt(d)  // true, wenn d.berichte einen offenen Defekt enthält
 ```
 
 **gema_auth.js-Integration**:
 - `trocknungsgeraete` in MODULES-Array (Kategorie `Infrastruktur`)
 - `if_trocknung` in FILE_MAP → `trocknungsgeraete`
 - Magaziner: read+write+admin
-- Monteur: read-only
+- Monteur: read-only (kann via `_tgCanReportDefect` Defekte melden, analog zu if_werkzeug)
 - Planer/Admin: automatisch via `_allPerms`
+
+### Defektmeldungen (analog if_werkzeug.html)
+
+`d.berichte[]` pro Gerät — Einträge mit `typ:'defekt'`:
+```
+{ id, typ:'defekt', datum, autorUserId, autorName,
+  titel, beschreibung, schweregrad, erledigt, erledigtAm }
+```
+
+- **`schweregrad`**: `leicht` / `mittel` / `schwer` / `ausser_betrieb`. Bei `schwer`/`ausser_betrieb` setzt `saveDefekt` automatisch `d.status='defekt'` (sofern nicht im Einsatz). Erledigt-Markierung durch Magaziner setzt Status zurück auf `verfuegbar`, falls keine offenen schweren Defekte mehr bestehen.
+- **UI**: Defekt-Banner („⚠ Defekt offen") auf der Karte, „⚠ Defekt"-Button in Karte / Tabelle / Detail-Footer (alle eingeloggten User), „📝 Berichte (N)"-Button bei vorhandenen Berichten.
+- **Berichte-Modal** (`openBerichte(id)`): Liste aller Defekte chronologisch (neueste zuerst), Schweregrad-Pill, Erledigt-Status. Magaziner/Admin sehen „✓ Als erledigt markieren"-Button (`_tgDefektErledigt`).
+- **Notifikation**: `GemaNotify.push({ eventKey:'trockner_defekt', empfaengerRoleId:'role_magaziner', empfaengerOrgId:user.orgId, … })` an alle Magaziner der eigenen Org.
+- **Event-Key**: `trockner_defekt` in `gema_notify.js` registriert (defaultOn:true).
 
 ---
 
@@ -776,6 +792,7 @@ Zentrales Modul `gema_notify.js` für In-App-Benachrichtigungen. Glocke + Toast-
 | `schaden_neu` | schadensbericht | on |
 | `schaden_phase_geaendert` | schadensbericht | on |
 | `trockner_zurueckgegeben` | trocknung | on |
+| `trockner_defekt` | trocknung | on |
 
 **Neue Module fügen ihre Event-Keys hier hinzu**, sonst greift kein Preferences-Filter.
 
