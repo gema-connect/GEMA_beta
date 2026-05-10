@@ -2209,6 +2209,109 @@ function sdRenderChart(mp) {
 // hier ein kaputter html2canvas-Fallback, der PNG mit .pdf-Endung
 // gespeichert hat).
 // ══════════════════════════════════════
+// Rendert ein Linien-Chart der Messpunkte auf ein Off-Screen-Canvas
+// und liefert die PNG-DataURL fuers PDF. Ein Linie pro Messpunkt,
+// mit verschiedenen Farben + Legende.
+function _sdRenderTrendChart(mpWithMessungen){
+  if(!mpWithMessungen || !mpWithMessungen.length) return null;
+  // Sammle alle Datum/Wert-Paare pro Messpunkt
+  var series = mpWithMessungen.map(function(m){
+    var pts = (m.messungen||[]).filter(function(me){return me.datum && me.wert!=null;}).map(function(me){
+      return { t: new Date(me.datum).getTime(), v: parseFloat(me.wert)||0 };
+    }).sort(function(a,b){return a.t-b.t;});
+    return { name: m.name||'-', pts: pts };
+  }).filter(function(s){return s.pts.length>0;});
+  if(!series.length) return null;
+
+  // Bounds
+  var allT=[],allV=[];
+  series.forEach(function(s){s.pts.forEach(function(p){allT.push(p.t);allV.push(p.v);});});
+  var minT=Math.min.apply(null,allT), maxT=Math.max.apply(null,allT);
+  var minV=Math.min.apply(null,allV), maxV=Math.max.apply(null,allV);
+  if(minT===maxT){ maxT=minT+86400000; }
+  // Y-Achse: 0 bis ceil(max+5)
+  var yMin=0, yMax=Math.max(100, Math.ceil((maxV+5)/10)*10);
+
+  var W=900, H=300, padL=50, padR=160, padT=20, padB=40;
+  var c=document.createElement('canvas'); c.width=W; c.height=H;
+  var ctx=c.getContext('2d');
+  ctx.fillStyle='#ffffff'; ctx.fillRect(0,0,W,H);
+
+  // Plot area
+  var plotW=W-padL-padR, plotH=H-padT-padB;
+  // X scale
+  function sx(t){return padL+((t-minT)/(maxT-minT))*plotW;}
+  function sy(v){return padT+plotH-((v-yMin)/(yMax-yMin))*plotH;}
+
+  // Grid + Y-Labels (alle 10%)
+  ctx.strokeStyle='#e5e7eb'; ctx.lineWidth=1;
+  ctx.fillStyle='#6b7280'; ctx.font='11px sans-serif'; ctx.textAlign='right'; ctx.textBaseline='middle';
+  for(var v=yMin;v<=yMax;v+=10){
+    var y=sy(v);
+    ctx.beginPath(); ctx.moveTo(padL,y); ctx.lineTo(padL+plotW,y); ctx.stroke();
+    ctx.fillText(v+'%',padL-6,y);
+  }
+  // X-Labels: 4-6 Datumspunkte
+  ctx.textAlign='center'; ctx.textBaseline='top';
+  var labels=4;
+  for(var i=0;i<=labels;i++){
+    var t=minT+(maxT-minT)*(i/labels);
+    var x=sx(t);
+    ctx.fillStyle='#9ca3af';
+    ctx.beginPath(); ctx.moveTo(x,padT+plotH); ctx.lineTo(x,padT+plotH+4); ctx.stroke();
+    ctx.fillStyle='#6b7280';
+    ctx.fillText(new Date(t).toLocaleDateString('de-CH'), x, padT+plotH+8);
+  }
+
+  // Achsen
+  ctx.strokeStyle='#374151'; ctx.lineWidth=1.5;
+  ctx.beginPath(); ctx.moveTo(padL,padT); ctx.lineTo(padL,padT+plotH); ctx.lineTo(padL+plotW,padT+plotH); ctx.stroke();
+
+  // Linien
+  var COLORS=['#7c3aed','#2563eb','#16a34a','#dc2626','#d97706','#0891b2','#db2777','#475569'];
+  series.forEach(function(s,idx){
+    var col=COLORS[idx%COLORS.length];
+    ctx.strokeStyle=col; ctx.fillStyle=col; ctx.lineWidth=2.2;
+    ctx.beginPath();
+    s.pts.forEach(function(p,i){
+      var x=sx(p.t), y=sy(p.v);
+      if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+    });
+    ctx.stroke();
+    // Punkte
+    s.pts.forEach(function(p){
+      var x=sx(p.t), y=sy(p.v);
+      ctx.beginPath(); ctx.arc(x,y,3.5,0,Math.PI*2); ctx.fill();
+    });
+  });
+
+  // Legende rechts
+  var lx=padL+plotW+18, ly=padT+10;
+  ctx.font='12px sans-serif'; ctx.textAlign='left'; ctx.textBaseline='middle';
+  ctx.fillStyle='#374151';
+  ctx.fillText('Messpunkte:',lx,ly); ly+=18;
+  series.forEach(function(s,idx){
+    var col=COLORS[idx%COLORS.length];
+    ctx.fillStyle=col;
+    ctx.beginPath(); ctx.arc(lx+6,ly,5,0,Math.PI*2); ctx.fill();
+    ctx.strokeStyle=col; ctx.lineWidth=2.2;
+    ctx.beginPath(); ctx.moveTo(lx-4,ly); ctx.lineTo(lx+16,ly); ctx.stroke();
+    ctx.fillStyle='#374151'; ctx.font='11.5px sans-serif';
+    var label=s.name.length>20?s.name.slice(0,20)+'…':s.name;
+    ctx.fillText(label,lx+22,ly);
+    ly+=18;
+  });
+
+  // Y-Title
+  ctx.save();
+  ctx.translate(14,padT+plotH/2); ctx.rotate(-Math.PI/2);
+  ctx.fillStyle='#374151'; ctx.font='11px sans-serif'; ctx.textAlign='center';
+  ctx.fillText('Restfeuchte (%)',0,0);
+  ctx.restore();
+
+  return c.toDataURL('image/png');
+}
+
 function _sdEnsureJsPDF(){
   return new Promise(function(res){
     if(window.jspdf && window.jspdf.jsPDF) return res();
@@ -2364,12 +2467,27 @@ function sdExportPdf(id){
           });
           y+=1;
         }
-        // Messpunkt-Trend-Chart kommt im Folgecommit — vorerst Tabelle
+        // Messpunkt-Trend-Chart + Tabelle
         var mp=Array.isArray(s.trocknung.messpunkte)?s.trocknung.messpunkte:[];
+        var mpWithMessungen = mp.filter(function(m){return Array.isArray(m.messungen) && m.messungen.length>0;});
+        if(mpWithMessungen.length){
+          ensureSpace(75);
+          doc.setFont('helvetica','bold');doc.setTextColor(15,23,42);
+          doc.text('Messpunkt-Trend (Restfeuchte über Zeit):',M,y);y+=4.5;
+          // Linienchart als Canvas → PNG
+          try {
+            var chartImg = _sdRenderTrendChart(mpWithMessungen);
+            if(chartImg){
+              doc.addImage(chartImg,'PNG',M,y,180,60);
+              y+=63;
+            }
+          } catch(e){}
+          y+=1;
+        }
         if(mp.length){
           ensureSpace(8);
-          doc.setFont('helvetica','bold');doc.text('Messpunkte:',M,y);y+=4.2;
-          doc.setFont('helvetica','normal');
+          doc.setFont('helvetica','bold');doc.setTextColor(15,23,42);doc.text('Messpunkte (Detail):',M,y);y+=4.2;
+          doc.setFont('helvetica','normal');doc.setTextColor(75,85,99);
           mp.forEach(function(m){
             ensureSpace(5);
             doc.text('• '+(m.name||'-')+(Array.isArray(m.messungen)?' ('+m.messungen.length+' Messungen)':''),M+2,y);y+=4.2;
