@@ -1400,10 +1400,12 @@ function applyHolidayShading(){
     const dayNames=["So","Mo","Di","Mi","Do","Fr","Sa"];
     const monthNames=["Jan","Feb","Mär","Apr","Mai","Jun","Jul","Aug","Sep","Okt","Nov","Dez"];
 
-    if(mode==="Month") return;
-
-    // Draw overlays for each day
-    const cur=new Date(gs);
+    // Im Monat-Modus zeigen wir keinen Day-Loop (zu dicht), aber die
+    // Today-Markierung und Holiday-Markierung wird unten weiterhin
+    // gerendert. Sie bleiben dank _ganttDayOffset taggenau.
+    if(mode!=="Month"){
+      // Draw overlays for each day
+      const cur=new Date(gs);
     let lastMonth=-1;
     while(cur<=ge){
       const day=cur.getDay();
@@ -1478,6 +1480,31 @@ function applyHolidayShading(){
 
       cur.setDate(cur.getDate()+1);
     }
+    } // /if(mode!=="Month")
+
+    // Im Month-Modus reichen Monatsgrenzen + -Label, da die Tage-Spalten
+    // sehr schmal sind und einzelne Tageslinien das Bild ueberladen.
+    if(mode==="Month"){
+      const monthNames2=["Jan","Feb","Mär","Apr","Mai","Jun","Jul","Aug","Sep","Okt","Nov","Dez"];
+      const cur2=new Date(gs.getFullYear(), gs.getMonth(), 1);
+      while(cur2<=ge){
+        const x=(opts.padding||18)+_ganttDayOffset(cur2, gs)*cw;
+        if(x>0){
+          const ml=document.createElementNS(ns,"line");
+          ml.setAttribute("x1",x); ml.setAttribute("y1",0);
+          ml.setAttribute("x2",x); ml.setAttribute("y2",fh);
+          ml.setAttribute("stroke","#cbd5e1"); ml.setAttribute("stroke-width","1");
+          g.appendChild(ml);
+        }
+        const mt=document.createElementNS(ns,"text");
+        mt.setAttribute("x",x+8); mt.setAttribute("y",24);
+        mt.setAttribute("font-size","12"); mt.setAttribute("font-weight","800");
+        mt.setAttribute("fill","#374151"); mt.setAttribute("font-family","DM Sans,sans-serif");
+        mt.textContent=monthNames2[cur2.getMonth()]+" "+cur2.getFullYear();
+        g.appendChild(mt);
+        cur2.setMonth(cur2.getMonth()+1);
+      }
+    }
 
     // ── Holiday overlays ──
     holidays.forEach(iso=>{
@@ -1485,7 +1512,10 @@ function applyHolidayShading(){
       const x=(opts.padding||18)+_ganttDayOffset(d, gs)*cw;
       const r=document.createElementNS(ns,"rect");
       r.setAttribute("x",x); r.setAttribute("y",headerH);
-      r.setAttribute("width",cw); r.setAttribute("height",fh-headerH);
+      // Im Month-Modus ist cw klein (~4px pro Tag) — voller-Breite-
+      // Holiday-Cell wuerde unsichtbar sein. Mind. 4px breit machen.
+      r.setAttribute("width", Math.max(4, cw));
+      r.setAttribute("height",fh-headerH);
       r.setAttribute("class","holiday-cell"); g.appendChild(r);
     });
 
@@ -1508,15 +1538,18 @@ function applyHolidayShading(){
     // ── Today highlight ── plus markante Today-Linie + Pin oben
     const td=parseISO(todayISO); if(td>=gs&&td<=ge){
       const x=(opts.padding||18)+_ganttDayOffset(td, gs)*cw;
+      // Im Month-Modus ist cw klein — Highlight mind. 4px breit
+      const todayW=Math.max(4, cw);
+      const todayCenter=x+todayW/2;
       // Highlight-Spalte
       const r=document.createElementNS(ns,"rect");
       r.setAttribute("x",x); r.setAttribute("y",0);
-      r.setAttribute("width",cw); r.setAttribute("height",fh);
+      r.setAttribute("width",todayW); r.setAttribute("height",fh);
       r.setAttribute("class","today-highlight"); g.appendChild(r);
       // Vertikale Linie (klar wahrnehmbar in Rot)
       const tl=document.createElementNS(ns,"line");
-      tl.setAttribute("x1",x+cw/2); tl.setAttribute("y1",headerH);
-      tl.setAttribute("x2",x+cw/2); tl.setAttribute("y2",fh);
+      tl.setAttribute("x1",todayCenter); tl.setAttribute("y1",headerH);
+      tl.setAttribute("x2",todayCenter); tl.setAttribute("y2",fh);
       tl.setAttribute("stroke","#dc2626");
       tl.setAttribute("stroke-width","1.5");
       tl.setAttribute("stroke-dasharray","3,3");
@@ -1525,12 +1558,12 @@ function applyHolidayShading(){
       // "Heute"-Pin oben
       const pinW=42, pinH=16;
       const pin=document.createElementNS(ns,"rect");
-      pin.setAttribute("x",x+cw/2-pinW/2); pin.setAttribute("y",headerH-pinH-2);
+      pin.setAttribute("x",todayCenter-pinW/2); pin.setAttribute("y",headerH-pinH-2);
       pin.setAttribute("width",pinW); pin.setAttribute("height",pinH);
       pin.setAttribute("rx","3"); pin.setAttribute("fill","#dc2626");
       g.appendChild(pin);
       const pinTxt=document.createElementNS(ns,"text");
-      pinTxt.setAttribute("x",x+cw/2); pinTxt.setAttribute("y",headerH-5);
+      pinTxt.setAttribute("x",todayCenter); pinTxt.setAttribute("y",headerH-5);
       pinTxt.setAttribute("text-anchor","middle");
       pinTxt.setAttribute("font-size","10"); pinTxt.setAttribute("font-weight","800");
       pinTxt.setAttribute("fill","#fff"); pinTxt.setAttribute("font-family","DM Sans,sans-serif");
