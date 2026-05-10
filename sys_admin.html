@@ -284,6 +284,16 @@ input,select,button,textarea{font-family:var(--sans)}
         <div id="o_kategorien_checkboxes" style="display:grid;grid-template-columns:1fr 1fr;gap:6px 12px;padding:10px 12px;border:1.5px solid var(--brd2);border-radius:var(--r-sm);max-height:260px;overflow-y:auto;background:var(--sur)"></div>
         <div id="o_kategorien_hint" style="font-size:11px;color:var(--mut);margin-top:4px">Lieferant schliesst Planer- und Installateur-Rollen aus (und umgekehrt).</div>
       </div>
+      <div class="fg">
+        <label>Adresse</label>
+        <input id="o_adrSearch" type="text" placeholder="Adresse eingeben — z.B. Bläsiring 153 Basel"
+               data-gema-adresse
+               data-target-strasse="o_strasse"
+               data-target-plz="o_plz"
+               data-target-ort="o_ort"
+               autocomplete="off">
+        <div style="font-size:11px;color:var(--mut);margin-top:4px">Tippen — Vorschläge aus dem schweizweiten Adressregister (swisstopo).</div>
+      </div>
       <div class="grid2">
         <div class="fg">
           <label>Strasse</label>
@@ -291,7 +301,10 @@ input,select,button,textarea{font-family:var(--sans)}
         </div>
         <div class="fg">
           <label>PLZ / Ort</label>
-          <input id="o_ort" type="text" placeholder="4000 Basel">
+          <div style="display:flex;gap:6px">
+            <input id="o_plz" type="text" placeholder="4000" style="width:70px;flex:0 0 70px">
+            <input id="o_ort" type="text" placeholder="Basel" style="flex:1;min-width:0">
+          </div>
         </div>
       </div>
       <div class="grid2">
@@ -1049,7 +1062,21 @@ function openOrgModal(oid){
   document.getElementById('o_id').value=oid||'';
   document.getElementById('o_name').value=o?.name||'';
   document.getElementById('o_strasse').value=o?.strasse||'';
-  document.getElementById('o_ort').value=o?.ort||'';
+  // Legacy: o.ort enthielt frueher "PLZ Ort" kombiniert. Wir splitten,
+  // falls kein o.plz vorliegt.
+  var _legacyOrt=(o?.ort||'').trim();
+  var _legacyMatch=_legacyOrt.match(/^(\d{4})\s+(.+)$/);
+  document.getElementById('o_plz').value=o?.plz||(_legacyMatch?_legacyMatch[1]:'');
+  document.getElementById('o_ort').value=o?.plz?_legacyOrt:(_legacyMatch?_legacyMatch[2]:_legacyOrt);
+  // Such-Input vorbefuellen, wenn Adresse vorhanden
+  var _adrSearch=document.getElementById('o_adrSearch');
+  if(_adrSearch && typeof GemaAdresse!=='undefined'){
+    GemaAdresse.setDisplayValue(_adrSearch,{
+      strasse:document.getElementById('o_strasse').value,
+      plz:document.getElementById('o_plz').value,
+      ort:document.getElementById('o_ort').value
+    });
+  }
   document.getElementById('o_tel').value=o?.tel||'';
   document.getElementById('o_email').value=o?.email||'';
   document.getElementById('o_waehrung').value=(o?.settings?.waehrung)||'CHF';
@@ -1085,6 +1112,7 @@ function saveOrg(){
   var data={
     name:name,
     strasse:document.getElementById('o_strasse').value.trim(),
+    plz:document.getElementById('o_plz').value.trim(),
     ort:document.getElementById('o_ort').value.trim(),
     tel:document.getElementById('o_tel').value.trim(),
     email:document.getElementById('o_email').value.trim(),
@@ -1242,5 +1270,6 @@ document.addEventListener('DOMContentLoaded', function(){ init(); _recoveryCheck
 <script>document.addEventListener('DOMContentLoaded',function(){if(typeof GemaFeedback!=='undefined')GemaFeedback.init('admin','Admin');});</script>
 <script src="gema_scroll.js"></script>
 <script src="gema_mobile_menu.js"></script>
+<script src="gema_adresse.js"></script>
 </body>
 </html>

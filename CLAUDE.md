@@ -1043,6 +1043,7 @@ UI-Anbindung:
 
 | Datei | Zweck |
 |-------|-------|
+| `gema_adresse.js` | Adress-Autocomplete (swisstopo geo.admin.ch). Auto-Init via `data-gema-adresse` + `data-target-strasse/plz/ort/kanton`-Attribute, oder programmatisch via `GemaAdresse.attach(input, opts)` |
 | `gema_anlagenwahl.js` | Anlagenauswahl-Widget für Berechnungen |
 | `gema_armaturen_api.js` | Armaturen-Stammdaten |
 | `gema_auth.js` | Auth, Rollen, Orgs, Permissions, Cloud-Recovery |
