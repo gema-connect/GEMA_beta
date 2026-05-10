@@ -1064,7 +1064,7 @@ UI-Anbindung:
 | `gema_qr_scanner.js` | QR-Code-Scanner |
 | `gema_recent.js` | Tracking + Anzeige zuletzt genutzter Module |
 | `gema_responsive.css` | Globale Responsive-/Layout-Regeln (Mobile + Tablet) |
-| `gema_scroll.js` | Scroll-Helper |
+| `gema_scroll.js` | Scroll-Position-Restore + globaler Body-Scroll-Lock fuer Modals (`GemaScroll.lock/unlock`, Auto-Hook auf `.modal-bg`) |
 | `gema_undo.js` | Undo/Redo |
 | `gema_varianten.js` | Varianten-Vergleich (Berechnungen) |
 | `gema_vergleich.js` | Produkt-/Offert-Vergleich |
