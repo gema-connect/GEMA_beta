@@ -491,7 +491,7 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
         </div>
         <div class="fg">
           <label>Gerätetyp <span class="req">*</span></label>
-          <select id="f_typ" onchange="if(typeof _tgClearFieldErrors==='function')_tgClearFieldErrors()">
+          <select id="f_typ" onchange="if(typeof _tgClearFieldErrors==='function')_tgClearFieldErrors();_tgUpdateKwVisibility();">
             <option value="">— Typ wählen —</option>
             <option value="bautrockner">🌡️ Bautrockner</option>
             <option value="adsorption">🌫️ Adsorptionsentfeuchter</option>
@@ -499,6 +499,7 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
             <option value="ventilator">🌀 Ventilator</option>
             <option value="luftentfeuchter">💨 Luftentfeuchter</option>
             <option value="infrarot">☀️ Infrarotheizung</option>
+            <option value="messgeraet">📊 Messgerät</option>
           </select>
         </div>
         <div class="fg">
@@ -522,7 +523,7 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
             <label>Serien-Nr.</label>
             <input type="text" id="f_serial" placeholder="SN-XXXXXXXX">
           </div>
-          <div class="fg">
+          <div class="fg" id="f_kw_wrap">
             <label>Leistung (kW)</label>
             <input type="text" inputmode="decimal" id="f_kw" placeholder="0.0" onblur="fixLeadingZero(this)">
           </div>
@@ -595,7 +596,7 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
         <input type="text" id="e_raum" placeholder="z.B. Bad EG, Keller, Schlafzimmer …">
       </div>
       <div class="fg-row">
-        <div class="fg">
+        <div class="fg" id="e_zaehlerStart_wrap">
           <label>Zählerstand Start (h)</label>
           <input type="text" inputmode="decimal" id="e_zaehlerStart" placeholder="0" onblur="fixLeadingZero(this)">
         </div>
@@ -627,7 +628,7 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
     </div>
     <div class="modal-body">
       <div id="return_info"></div>
-      <div class="fg">
+      <div class="fg" id="r_zaehlerEnde_wrap">
         <label>Zählerstand Ende (h) <span class="req">*</span></label>
         <input type="text" inputmode="decimal" id="r_zaehlerEnde" placeholder="0" onblur="fixLeadingZero(this);calcKwh()">
       </div>
@@ -789,7 +790,11 @@ var GERAETE_TYPEN = {
   unterdruck:      { label: 'Unterdruckverfahren',  icon: '🌪️', color: '#475569' },
   ventilator:      { label: 'Ventilator',           icon: '🌀', color: '#2563eb' },
   luftentfeuchter: { label: 'Luftentfeuchter',      icon: '💨', color: '#7c3aed' },
-  infrarot:        { label: 'Infrarotheizung',      icon: '☀️', color: '#d97706' }
+  infrarot:        { label: 'Infrarotheizung',      icon: '☀️', color: '#d97706' },
+  // Messgeraete sind Hilfsmittel zur Schadens-Diagnose und haben
+  // keinen Stromverbrauch im Sinne der Trocknungs-kWh-Berechnung —
+  // noKw:true blendet das Leistungs-Feld und den Zaehlerstand-Flow aus.
+  messgeraet:      { label: 'Messgerät',            icon: '📊', color: '#16a34a', noKw: true }
 };
 
 var STATUS_MAP = {
@@ -845,7 +850,21 @@ var TROCKNUNG_KATALOG = [
   { name: 'Luftentfeuchter TTK 30 E',    marke: 'Trotec',  modell: 'TTK 30 E',     typ: 'luftentfeuchter' },
   { name: 'Luftentfeuchter Lavari 9000', marke: 'Comedes', modell: 'Lavari 9000',  typ: 'luftentfeuchter' },
   { name: 'Luftentfeuchter B 250',       marke: 'Brune',   modell: 'B 250',        typ: 'luftentfeuchter' },
-  { name: 'Luftentfeuchter MDC14',       marke: "Wood's",  modell: 'MDC14',        typ: 'luftentfeuchter' }
+  { name: 'Luftentfeuchter MDC14',       marke: "Wood's",  modell: 'MDC14',        typ: 'luftentfeuchter' },
+  // Messgeraete (Diagnose, Bauteil-Feuchte, Klima, Datenlogger) — kein kW
+  { name: 'Feuchtemessgerät T2000',          marke: 'Trotec',   modell: 'T2000',         typ: 'messgeraet' },
+  { name: 'Feuchtemessgerät T3000',          marke: 'Trotec',   modell: 'T3000',         typ: 'messgeraet' },
+  { name: 'Material-Feuchte BM31',           marke: 'Trotec',   modell: 'BM31',          typ: 'messgeraet' },
+  { name: 'Material-Feuchte LB-79',          marke: 'Greisinger',modell: 'LB-79',        typ: 'messgeraet' },
+  { name: 'Klima-Datenlogger DL-200H',       marke: 'Trotec',   modell: 'DL-200H',       typ: 'messgeraet' },
+  { name: 'Klima-Datenlogger Saveris 2',     marke: 'Testo',    modell: 'Saveris 2',     typ: 'messgeraet' },
+  { name: 'Thermo-Hygrometer testo 605i',    marke: 'Testo',    modell: '605i',          typ: 'messgeraet' },
+  { name: 'Thermo-Hygrometer testo 625',     marke: 'Testo',    modell: '625',           typ: 'messgeraet' },
+  { name: 'Wärmebildkamera testo 868',       marke: 'Testo',    modell: '868',           typ: 'messgeraet' },
+  { name: 'Wärmebildkamera Flir E6',         marke: 'Flir',     modell: 'E6',            typ: 'messgeraet' },
+  { name: 'CM-Gerät (Calciumcarbid)',        marke: 'Riedel-de Haën', modell: 'CM',      typ: 'messgeraet' },
+  { name: 'Estrich-Feuchtemessgerät hydromette', marke: 'Gann', modell: 'M 4050',        typ: 'messgeraet' },
+  { name: 'Holzfeuchtemessgerät hydromette HT 65', marke: 'Gann', modell: 'HT 65',       typ: 'messgeraet' }
 ];
 
 // Kombiniert den statischen Katalog mit bereits erfassten Geräten,
@@ -1268,6 +1287,7 @@ window.openAdd = function() {
   editId = null;
   document.getElementById('mhd_title').textContent = 'Neues Trocknungsgerät erfassen';
   clearForm();
+  _tgUpdateKwVisibility();
   document.getElementById('addModal').classList.remove('hidden');
   lockScroll();
 };
@@ -1289,9 +1309,27 @@ window.openEdit = function(id) {
   document.getElementById('f_serviceInterval').value = d.serviceInterval || '';
   document.getElementById('f_lastService').value = d.lastService || '';
   updateServiceToggle();
+  _tgUpdateKwVisibility();
   document.getElementById('addModal').classList.remove('hidden');
   lockScroll();
 };
+
+// Blendet das Leistungs-Feld (kW) aus, wenn der gewaehlte Geraetetyp
+// kein kW-Verbraucher ist (z.B. Messgeraete). Einsatz-Zaehlerstand
+// wird in diesem Fall ebenfalls nicht abgefragt — siehe openEinsatz.
+function _tgUpdateKwVisibility(){
+  var typ = document.getElementById('f_typ').value;
+  var def = GERAETE_TYPEN[typ];
+  var wrap = document.getElementById('f_kw_wrap');
+  if(!wrap) return;
+  if(def && def.noKw){
+    wrap.style.display = 'none';
+    var kwEl = document.getElementById('f_kw');
+    if(kwEl) kwEl.value = '';
+  } else {
+    wrap.style.display = '';
+  }
+}
 
 function clearForm() {
   ['f_typ','f_name','f_marke','f_modell','f_serial','f_kw','f_notes','f_serviceInterval','f_lastService'].forEach(function(id) {
@@ -1623,6 +1661,10 @@ window.openEinsatz = function(id) {
   document.getElementById('e_raum').value = '';
   document.getElementById('e_zaehlerStart').value = '';
   document.getElementById('e_datum').value = today();
+  // Zaehlerstand-Feld ausblenden bei Messgeraeten (kein kWh-Tracking)
+  var einDef = GERAETE_TYPEN[d.typ] || {};
+  var zsWrap = document.getElementById('e_zaehlerStart_wrap');
+  if(zsWrap) zsWrap.style.display = einDef.noKw ? 'none' : '';
   document.getElementById('einsatzModal').classList.remove('hidden');
   lockScroll();
 };
@@ -1669,19 +1711,27 @@ window.openReturn = function(id) {
   returnId = id;
   document.getElementById('return_sub').textContent = d.name + ' — Einsatz beenden';
   var days = daysBetween(d.einsatz.eingesetztAm || today(), today());
+  var retDef = GERAETE_TYPEN[d.typ] || {};
+  var noKw = !!retDef.noKw;
+  var energyLine = noKw
+    ? ''
+    : ('⚡ Zählerstand Start: <strong>' + (d.einsatz.zaehlerStart || 0) + ' h</strong><br>' +
+       '💡 Leistung: <strong>' + (d.kw || 0) + ' kW</strong>');
   document.getElementById('return_info').innerHTML =
     '<div style="background:var(--bg2);border:1px solid var(--brd);border-radius:10px;padding:12px 14px;margin-bottom:8px">' +
     '<div style="font-size:12px;font-weight:800;color:var(--txt);margin-bottom:6px">Einsatz-Info</div>' +
     '<div style="font-size:12.5px;color:var(--txt2);line-height:1.8">' +
     '📋 <strong>' + esc(d.einsatz.schadenTitel || 'Schadensprojekt') + '</strong><br>' +
     '📍 Raum: <strong>' + esc(d.einsatz.raum || '—') + '</strong><br>' +
-    '📅 Seit: <strong>' + fmt(d.einsatz.eingesetztAm) + '</strong> (' + days + ' Tage)<br>' +
-    '⚡ Zählerstand Start: <strong>' + (d.einsatz.zaehlerStart || 0) + ' h</strong><br>' +
-    '💡 Leistung: <strong>' + (d.kw || 0) + ' kW</strong>' +
+    '📅 Seit: <strong>' + fmt(d.einsatz.eingesetztAm) + '</strong> (' + days + ' Tage)' +
+    (energyLine ? '<br>' + energyLine : '') +
     '</div></div>';
   document.getElementById('r_zaehlerEnde').value = '';
   document.getElementById('r_datum').value = today();
   document.getElementById('kwh_card').style.display = 'none';
+  // Zaehlerstand-Feld ausblenden bei Messgeraeten — Rueckgabe ohne kWh
+  var rWrap = document.getElementById('r_zaehlerEnde_wrap');
+  if(rWrap) rWrap.style.display = noKw ? 'none' : '';
   document.getElementById('returnModal').classList.remove('hidden');
   lockScroll();
 };
@@ -1712,12 +1762,19 @@ window.calcKwh = function() {
 window.saveReturn = function() {
   var d = devices.find(function(x) { return x.id === returnId; });
   if (!d || !d.einsatz) return;
-  var ende = parseFloat(document.getElementById('r_zaehlerEnde').value);
-  if (isNaN(ende)) { alert('Bitte den Zählerstand Ende eingeben.'); return; }
-  var start = d.einsatz.zaehlerStart || 0;
-  var hours = ende - start;
-  if (hours < 0) hours = 0;
-  var kwh = hours * (d.kw || 0);
+  var defType = GERAETE_TYPEN[d.typ] || {};
+  var ende, hours, kwh;
+  if(defType.noKw){
+    // Messgeraete: kein Zaehlerstand, keine kWh-Berechnung
+    ende = 0; hours = 0; kwh = 0;
+  } else {
+    ende = parseFloat(document.getElementById('r_zaehlerEnde').value);
+    if (isNaN(ende)) { alert('Bitte den Zählerstand Ende eingeben.'); return; }
+    var start = d.einsatz.zaehlerStart || 0;
+    hours = ende - start;
+    if (hours < 0) hours = 0;
+    kwh = hours * (d.kw || 0);
+  }
   // Move to history
   var hist = JSON.parse(JSON.stringify(d.einsatz));
   hist.zaehlerEnde = ende;
