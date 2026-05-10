@@ -584,7 +584,8 @@ Modul zur Dokumentation von Wasserschäden, Schimmelschäden, Rohrbrüchen etc. 
 - **Messwert-Darstellung**: User wählt zwischen Tabellen-Ansicht und Canvas-Liniendiagramm (Toggle)
 - **Dashboard**: Volle Info-Karten im Werkzeug-Stil (Status-Bar, Typ-Icon, Phase-Badge, Foto-Zähler)
 - **Rollen**: Sanitärplaner (read+write), Monteur (Messungen + Fotos), Admin (alles)
-- **Phasenaufteilung**: Phase 1 = sd_schadensbericht.html (Berichte + manuelles Geräte-Tracking), Phase 2 = if_trocknung.html (separates Gerätemanagement)
+- **Phasen sind jederzeit bearbeitbar**: Alle vier Phasen-Akkordeons (Erfasst / Analyse / Trocknung / Abschluss) lassen sich aufklappen und editieren, unabhängig vom aktuellen `s.phase`-Stand. Phase-Wechsel via `sdAdvancePhase` läuft ohne `confirm()`-Dialog. Status-Badge (Aktiv / Abgeschlossen / Ausstehend) bleibt rein visuell.
+- **Geräte-Picker**: `devAddModal` zeigt oben eine Auswahl aller verfügbaren Trocknungsgeräte der eigenen Org (gelesen direkt aus `gema_trocknung_v1`). Klick befüllt Name + kW automatisch und speichert `tgDeviceId` als Verknüpfung. Beim Speichern wird das Gerät in `if_trocknung.html` auf Status `im_einsatz` gesetzt (Cross-Modul-Update via `gema-trocknung-updated` Event); beim Entfernen wird es wieder freigegeben mit Einsatz-Historien-Eintrag inkl. kWh-Berechnung.
 
 ### Phasen-Workflow
 
