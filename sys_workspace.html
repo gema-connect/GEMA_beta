@@ -400,6 +400,7 @@ input::placeholder{color:#cbd5e1}
 <script src="gema_lu_api.js"></script>
 <script src="gema_osmose_api.js"></script>
 <script src="gema_apparate_api.js"></script>
+<script src="gema_schaden_api.js"></script>
 <link rel="stylesheet" href="gema_responsive.css"/>
 </head>
 <body>
@@ -641,6 +642,21 @@ input::placeholder{color:#cbd5e1}
       var c=api.apparate;if(!c||!c.apparate)return null;
       return c.rooms+' Räume · '+c.apparate+' Apparate';
     }},
+    sd_schadensbericht:{label:'Schaden',api:'schaden',format:function(api){
+      var c=api.schadenCounts;if(!c||!c.total)return null;
+      var parts=[];
+      if(c.offen>0) parts.push(c.offen+' offen');
+      if(c.abgeschlossen>0) parts.push(c.abgeschlossen+' abgeschl.');
+      if(api.schadenKwh>0) parts.push(api.schadenKwh.toFixed(1)+' kWh');
+      return parts.join(' · ')||null;
+    }},
+    if_trocknung:{label:'Trocknung',api:'trocknung',format:function(api){
+      var c=api.trocknungCounts;if(!c)return null;
+      var parts=[];
+      if(c.aktiv>0) parts.push(c.aktiv+' aktiv');
+      if(c.gesamt>0) parts.push(c.gesamt+' Geräte');
+      return parts.join(' · ')||null;
+    }},
     sb_grobauslegung:{label:'Grob',api:'lu',format:function(api){
       var ha=api.luHausanschluss;
       return ha>0?('Hausanschl. '+ha.toFixed(2)+' l/s'):null;
@@ -678,6 +694,25 @@ input::placeholder{color:#cbd5e1}
         }
         if(cfg.api==='apparate'&&typeof GemaApparate!=='undefined'&&objektId&&GemaApparate.hasData(objektId)){
           api.apparate=GemaApparate.getCounts(objektId);
+        }
+        if(cfg.api==='schaden'&&typeof GemaSchaden!=='undefined'&&objektId&&GemaSchaden.hasData(objektId)){
+          api.schadenCounts=GemaSchaden.getCountsForObjekt(objektId);
+          api.schadenKwh=GemaSchaden.getTotalEnergyForObjekt(objektId);
+        }
+        if(cfg.api==='trocknung'){
+          // GemaTrocknung ist nicht objekt-bezogen — wir muessen die
+          // Geraete der eigenen Org direkt aus localStorage lesen.
+          try{
+            var raw=null;
+            if(typeof _GemaDB!=='undefined' && _GemaDB.c) raw=_GemaDB.c['gema_trocknung_v1'];
+            if(!raw) raw=localStorage.getItem('gema_trocknung_v1');
+            var all=raw?JSON.parse(raw):[];
+            var meOrg=null; try{var u=GemaAuth.getCurrentUser(); meOrg=u?u.orgId:null;}catch(e){}
+            if(meOrg){
+              var mine=all.filter(function(d){return d&&d.orgId===meOrg;});
+              api.trocknungCounts={aktiv:mine.filter(function(d){return d.status==='im_einsatz';}).length, gesamt:mine.length};
+            }
+          }catch(e){}
         }
       }catch(e){}
       try{return cfg.format(api);}catch(e){return null;}
