@@ -778,15 +778,30 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
 
 <!-- MESSUNG ADD MODAL -->
 <div class="modal-bg hidden" id="messAddModal">
-  <div class="dlg-card" style="max-width:440px">
-    <div style="font-size:16px;font-weight:800;margin-bottom:12px">📏 Messung erfassen</div>
+  <div class="dlg-card" style="max-width:480px">
+    <div style="font-size:16px;font-weight:800;margin-bottom:4px">📏 Messung erfassen</div>
+    <div style="font-size:12px;color:var(--mut);margin-bottom:14px;line-height:1.45">Foto vom Messgerät als Beleg + Wert in Digits (Anzeige am Gerät).</div>
     <div style="margin-bottom:12px">
-      <label class="dlg-lbl">Datum</label>
-      <input type="date" class="dlg-inp" id="messDate">
+      <label class="dlg-lbl">📷 Foto Messgerät <span style="color:var(--red)">*</span></label>
+      <div id="messPhotoPreview" style="margin-top:6px;border:2px dashed var(--brd2);border-radius:10px;padding:10px;background:var(--bg2);min-height:120px;display:flex;align-items:center;justify-content:center;cursor:pointer"
+           onclick="sdMessTakePhoto()">
+        <div style="text-align:center;color:var(--mut);font-size:13px">
+          <div style="font-size:32px;line-height:1">📷</div>
+          <div style="margin-top:4px;font-weight:600">Foto aufnehmen</div>
+          <div style="font-size:11px;margin-top:2px">Klick um Kamera zu öffnen</div>
+        </div>
+      </div>
+      <input type="file" id="messPhotoInput" accept="image/*" capture="environment" style="display:none" onchange="sdMessHandlePhoto(event)">
     </div>
-    <div style="margin-bottom:12px">
-      <label class="dlg-lbl">Wert (%) <span style="color:var(--red)">*</span></label>
-      <input type="text" inputmode="decimal" class="dlg-inp" id="messVal" placeholder="z.B. 85" onblur="fixLeadingZero(this)">
+    <div class="fg-row" style="display:flex;gap:10px;margin-bottom:12px">
+      <div class="fg" style="flex:1">
+        <label class="dlg-lbl">Wert (Digits) <span style="color:var(--red)">*</span></label>
+        <input type="text" inputmode="decimal" class="dlg-inp" id="messVal" placeholder="z.B. 85" onblur="fixLeadingZero(this)">
+      </div>
+      <div class="fg" style="flex:1">
+        <label class="dlg-lbl">Datum</label>
+        <input type="date" class="dlg-inp" id="messDate">
+      </div>
     </div>
     <div class="dlg-row">
       <button class="dlg-cancel" onclick="document.getElementById('messAddModal').classList.add('hidden')">Abbrechen</button>
@@ -1583,9 +1598,21 @@ function sdRenderTrocknung(s, canEdit, canMeas) {
       if (curView === 'table') {
         // Table view
         if (mp.messungen && mp.messungen.length) {
-          h += '<div style="overflow-x:auto"><table class="meas-table"><thead><tr><th>Datum</th><th>Wert (%)</th><th></th></tr></thead><tbody>';
+          h += '<div style="overflow-x:auto"><table class="meas-table"><thead><tr><th>Datum</th><th>Wert (Digits)</th><th>Beleg</th><th></th></tr></thead><tbody>';
           mp.messungen.forEach(function(m, mi) {
-            h += '<tr><td>' + sdFmtDate(m.datum) + '</td><td style="font-weight:800">' + m.wert + '%</td>';
+            var unit = m.einheit || 'Digits';
+            h += '<tr><td>' + sdFmtDate(m.datum) + '</td><td style="font-weight:800">' + m.wert + ' ' + esc(unit) + '</td>';
+            // Foto-Beleg: Klick oeffnet Lightbox
+            h += '<td>';
+            if (m.foto) {
+              h += '<button type="button" onclick="sdOpenLightbox(\'' + esc(m.foto) + '\')" title="Foto-Beleg ansehen" '
+                + 'style="border:0;padding:0;background:none;cursor:pointer">'
+                + '<img src="' + m.foto + '" alt="" style="width:36px;height:36px;object-fit:cover;border-radius:6px;border:1.5px solid var(--brd2);display:block">'
+                + '</button>';
+            } else {
+              h += '<span style="font-size:11px;color:var(--mut)">—</span>';
+            }
+            h += '</td>';
             h += '<td>';
             if (canEdit) h += '<button class="tc-act danger" style="font-size:12px;padding:6px 10px;min-width:32px;min-height:32px" onclick="sdDelMessung(\'' + s.id + '\',\'' + mp.id + '\',' + mi + ')">✕</button>';
             h += '</td></tr>';
@@ -1766,31 +1793,92 @@ function sdDelMp(id, mpId) {
 }
 
 // ── MESSUNGEN ──
+// Aktuelles Foto-Buffer (Base64 dataUrl) fuer das messAddModal.
+// Wird beim Open zurueckgesetzt, beim Speichern in das Messung-Objekt
+// uebernommen.
+var _messPhotoBuf = null;
+
 function sdOpenMessAdd(schadenId, mpId) {
   _messSchadenId = schadenId;
   _messMpId = mpId;
+  _messPhotoBuf = null;
   document.getElementById('messDate').value = sdToday();
   document.getElementById('messVal').value = '';
+  // Foto-Preview zuruecksetzen
+  var prev = document.getElementById('messPhotoPreview');
+  if(prev){
+    prev.style.borderStyle = 'dashed';
+    prev.style.padding = '10px';
+    prev.style.background = 'var(--bg2)';
+    prev.style.minHeight = '120px';
+    prev.innerHTML = '<div style="text-align:center;color:var(--mut);font-size:13px">'
+      + '<div style="font-size:32px;line-height:1">📷</div>'
+      + '<div style="margin-top:4px;font-weight:600">Foto aufnehmen</div>'
+      + '<div style="font-size:11px;margin-top:2px">Klick um Kamera zu öffnen</div>'
+      + '</div>';
+  }
   document.getElementById('messAddModal').classList.remove('hidden');
+}
+function sdMessTakePhoto(){
+  var inp = document.getElementById('messPhotoInput');
+  if(inp) inp.click();
+}
+function sdMessHandlePhoto(ev){
+  var file = ev.target.files && ev.target.files[0];
+  ev.target.value = '';
+  if(!file) return;
+  if(file.size > 10*1024*1024){ alert('Datei zu gross (max. 10 MB Originalgrösse).'); return; }
+  var reader = new FileReader();
+  reader.onload = function(e){
+    var img = new Image();
+    img.onload = function(){
+      var maxW = 1600;
+      var w = img.width, h = img.height;
+      if(w > maxW){ h = Math.round(h*maxW/w); w = maxW; }
+      var canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      var ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, w, h);
+      var dataUrl = canvas.toDataURL('image/jpeg', 0.82);
+      if(dataUrl.length > 2*1024*1024) dataUrl = canvas.toDataURL('image/jpeg', 0.5);
+      if(dataUrl.length > 2*1024*1024){ alert('Foto ist nach Komprimierung zu gross.'); return; }
+      _messPhotoBuf = dataUrl;
+      var prev = document.getElementById('messPhotoPreview');
+      if(prev){
+        prev.style.borderStyle = 'solid';
+        prev.style.padding = '0';
+        prev.style.background = '#000';
+        prev.style.minHeight = '0';
+        prev.innerHTML = '<img src="'+dataUrl+'" alt="" style="max-width:100%;max-height:240px;display:block;border-radius:8px;margin:0 auto">'
+          + '<div style="position:absolute;top:6px;right:6px;background:rgba(0,0,0,.6);color:#fff;font-size:11px;padding:3px 8px;border-radius:4px;font-weight:700">✓ Foto aufgenommen — klick zum Ersetzen</div>';
+        prev.style.position = 'relative';
+      }
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
 }
 function sdAddMessung() {
   var s = sdGetById(_messSchadenId); if (!s || !s.trocknung) return;
   var val = document.getElementById('messVal').value.trim();
-  if (!val) { alert('Bitte Wert eingeben.'); return; }
+  if (!val) { alert('Bitte Wert in Digits eingeben.'); return; }
+  if (!_messPhotoBuf) { alert('Bitte ein Foto vom Messgerät aufnehmen — als Beleg für die Messung.'); return; }
   var mp = null;
   for (var i = 0; i < s.trocknung.messpunkte.length; i++) {
     if (s.trocknung.messpunkte[i].id === _messMpId) { mp = s.trocknung.messpunkte[i]; break; }
   }
   if (!mp) return;
   mp.messungen.push({
+    id: 'm_' + Date.now(),
     datum: document.getElementById('messDate').value || sdToday(),
     wert: parseFloat(val),
-    einheit: '%',
-    fotoId: null
+    einheit: 'Digits',
+    foto: _messPhotoBuf
   });
   // Sort by date
   mp.messungen.sort(function(a, b) { return (a.datum || '').localeCompare(b.datum || ''); });
   sdSave();
+  _messPhotoBuf = null;
   document.getElementById('messAddModal').classList.add('hidden');
   sdRenderDetail(s);
 }
@@ -2312,7 +2400,7 @@ function sdRenderChart(mp) {
     ctx.fillStyle = '#6b7280';
     ctx.font = '11px "DM Sans", sans-serif';
     ctx.textAlign = 'right';
-    ctx.fillText(val.toFixed(0) + '%', padL - 8, y + 4);
+    ctx.fillText(val.toFixed(0), padL - 8, y + 4);
   }
 
   // Points and line
@@ -2414,7 +2502,7 @@ function _sdRenderTrendChart(mpWithMessungen){
   for(var v=yMin;v<=yMax;v+=10){
     var y=sy(v);
     ctx.beginPath(); ctx.moveTo(padL,y); ctx.lineTo(padL+plotW,y); ctx.stroke();
-    ctx.fillText(v+'%',padL-6,y);
+    ctx.fillText(v,padL-6,y);
   }
   // X-Labels: 4-6 Datumspunkte
   ctx.textAlign='center'; ctx.textBaseline='top';
@@ -2660,7 +2748,7 @@ function sdExportPdf(id){
               m.messungen.forEach(function(me){
                 ensureSpace(4);
                 doc.setFontSize(8);doc.setTextColor(107,114,128);
-                doc.text('  '+(me.datum?new Date(me.datum).toLocaleDateString('de-CH'):'')+': '+(me.wert||0)+' %',M+4,y);y+=3.6;
+                doc.text('  '+(me.datum?new Date(me.datum).toLocaleDateString('de-CH'):'')+': '+(me.wert||0)+' '+(me.einheit||'Digits'),M+4,y);y+=3.6;
                 doc.setFontSize(9);doc.setTextColor(55,85,99);
               });
             }
@@ -2784,9 +2872,9 @@ function sdBuildReportHtml(s) {
       tr.messpunkte.forEach(function(mp) {
         h += '<h3 style="font-size:11pt">📍 ' + esc(mp.name) + '</h3>';
         if (mp.messungen && mp.messungen.length) {
-          h += '<table><tr><th>Datum</th><th>Wert (%)</th></tr>';
+          h += '<table><tr><th>Datum</th><th>Wert (Digits)</th></tr>';
           mp.messungen.forEach(function(m) {
-            h += '<tr><td>' + sdFmtDate(m.datum) + '</td><td>' + m.wert + '%</td></tr>';
+            h += '<tr><td>' + sdFmtDate(m.datum) + '</td><td>' + m.wert + ' ' + (m.einheit || 'Digits') + '</td></tr>';
           });
           h += '</table>';
         }
