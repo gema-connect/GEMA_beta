@@ -2389,6 +2389,8 @@ if(document.getElementById("btnShiftPlus2")) document.getElementById("btnShiftPl
 document.getElementById("objektDropdown").addEventListener("change",e=>{
   state.objektId=e.target.value;
   saveState(false); renderStats();
+  // Filter-Praeferenzen sind pro Objekt — beim Wechsel die neu laden
+  try{ restoreFilters(); }catch(_){}
 });
 document.getElementById("objektFrei").addEventListener("input",e=>{
   state.projektName=e.target.value;
@@ -2431,8 +2433,51 @@ window.addEventListener("resize",()=>{ updateGanttHeight(); requestAnimationFram
 // Auto-save every 30s
 setInterval(()=>saveState(false),30000);
 
+// ── Filter-Persistenz ──
+// Persistiert die wichtigsten Filter- und Viewport-Einstellungen pro
+// Objekt in localStorage, damit sie ueber Page-Reloads erhalten
+// bleiben. Storage-Key beinhaltet objektId, sodass jedes Projekt
+// seine eigenen Praeferenzen hat.
+function _filterPrefsKey(){
+  return 'gema_terminplan_filter_v1__'+(state.objektId||'__none__');
+}
+function persistFilters(){
+  try{
+    var ids=['filterCategory','filterOwner','search','filterCategory2','filterOwner2','search2','viewMode','windowSpan','windowStart','zoomPreset'];
+    var data={};
+    ids.forEach(function(id){var el=document.getElementById(id);if(el)data[id]=el.value;});
+    localStorage.setItem(_filterPrefsKey(),JSON.stringify(data));
+  }catch(e){}
+}
+function restoreFilters(){
+  try{
+    var raw=localStorage.getItem(_filterPrefsKey());
+    if(!raw)return;
+    var data=JSON.parse(raw);
+    Object.keys(data).forEach(function(id){
+      var el=document.getElementById(id);
+      if(el && data[id]!=null){
+        el.value=data[id];
+        // change-Event triggern, damit verbundene Render-Calls nachziehen
+        try{el.dispatchEvent(new Event('change',{bubbles:true}));}catch(e){}
+      }
+    });
+  }catch(e){}
+}
+// Lauscht auf alle relevanten Filter-Inputs, debounced damit nicht
+// jeder Tastendruck einen localStorage-Write triggert.
+var _filterPersistTimer=null;
+['filterCategory','filterOwner','search','filterCategory2','filterOwner2','search2','viewMode','windowSpan','windowStart','zoomPreset'].forEach(function(id){
+  var el=document.getElementById(id);
+  if(!el)return;
+  var fn=function(){clearTimeout(_filterPersistTimer);_filterPersistTimer=setTimeout(persistFilters,250);};
+  el.addEventListener('change',fn);
+  el.addEventListener('input',fn);
+});
+
 // ── Init ──
 hydrateInputs();
+restoreFilters();
 renderAll();
 // Auto-load Swiss holidays if none loaded
 if(!state.holidays || !state.holidays.length){ loadHolidays(); }
