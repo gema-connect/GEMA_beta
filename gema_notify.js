@@ -84,6 +84,11 @@
       label:'Werkstatt wurde dir zugewiesen',
       modul:'fahrzeug',
       defaultOn:true
+    },
+    lu_updated: {
+      label:'LU-Zusammenstellung aktualisiert',
+      modul:'lu',
+      defaultOn:false
     }
   };
 

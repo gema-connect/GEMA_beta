@@ -102,12 +102,45 @@
   }
   w.addEventListener('gema-objekt-changed', refresh);
   w.addEventListener('gema-osmose-updated', refresh);
+  w.addEventListener('gema-lu-updated', function(ev) {
+    refresh();
+    // Sanfter Toast, dass die LU-Daten sich geaendert haben — der
+    // Planer weiss dann, dass evtl. ein Recalc/Re-Prefill noetig ist.
+    showLUUpdatedToast();
+  });
   w.addEventListener('storage', function(ev) {
     if (!ev || !ev.key) return;
-    if (ev.key.indexOf('lu_spitzenvolumenstrom') === 0 ||
-        ev.key.indexOf('gema_osmose_results') === 0 ||
-        ev.key.indexOf('gema_objekte') === 0) refresh();
+    if (ev.key.indexOf('lu_spitzenvolumenstrom') === 0) {
+      refresh(); showLUUpdatedToast();
+    } else if (ev.key.indexOf('gema_osmose_results') === 0 ||
+               ev.key.indexOf('gema_objekte') === 0) {
+      refresh();
+    }
   });
+
+  function showLUUpdatedToast(){
+    // Nur zeigen, wenn das aktuelle Modul LU-verknuepft ist (nicht in
+    // der LU selbst).
+    var cfg = getCfg();
+    if (cfg.modul === 'lu' || cfg.modul === 'lu_tabelle') return;
+    if (document.getElementById('gema-lu-updated-toast')) return;
+    var t = document.createElement('div');
+    t.id = 'gema-lu-updated-toast';
+    t.style.cssText = 'position:fixed;bottom:18px;left:50%;transform:translateX(-50%);'
+      + 'z-index:1500;background:#1e293b;color:#fff;padding:10px 16px;border-radius:12px;'
+      + 'font-size:13px;font-weight:600;box-shadow:0 8px 24px rgba(0,0,0,.2);'
+      + 'display:flex;align-items:center;gap:10px;max-width:calc(100% - 32px)';
+    t.innerHTML = '<span>📊 LU-Zusammenstellung wurde aktualisiert.</span>'
+      + '<button style="background:#60a5fa;color:#fff;border:none;padding:5px 11px;border-radius:8px;font-weight:700;cursor:pointer;font-family:inherit;font-size:12px" '
+      + 'onclick="location.reload()">Neu laden</button>'
+      + '<button style="background:transparent;color:#cbd5e1;border:none;padding:5px;cursor:pointer;font-size:14px" '
+      + 'onclick="this.parentNode.remove()">✕</button>';
+    document.body.appendChild(t);
+    setTimeout(function(){
+      var el = document.getElementById('gema-lu-updated-toast');
+      if (el) { el.style.opacity='0'; el.style.transition='opacity .3s'; setTimeout(function(){el.remove();},350); }
+    }, 8000);
+  }
 
   w.GemaDataflow = { refresh: refresh };
 })(typeof window !== 'undefined' ? window : this);

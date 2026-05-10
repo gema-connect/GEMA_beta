@@ -1549,6 +1549,28 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
     function saveLocal(){
       const saveData = Object.assign({}, state, { _stammdaten: _getStammdatenSnapshot() });
       try{if(typeof _GemaDB!=='undefined')_GemaDB.save(STORAGE_KEY, JSON.stringify(saveData));}catch(e){}
+      // Cross-Modul-Sync: Custom-Event fuer Live-Updates in offenen
+      // Tab-Geschwistern + storage-Event fuer Cross-Tab. Plus optional
+      // ein GemaNotify-Eintrag, damit der Planer in anderen geoeffneten
+      // Modulen einen Hinweis bekommt, dass die LU sich aenderte.
+      try {
+        var oid = (typeof GemaObjekte!=='undefined' && GemaObjekte.getActiveId)? GemaObjekte.getActiveId(): '';
+        window.dispatchEvent(new CustomEvent('gema-lu-updated', { detail: { objektId: oid } }));
+        if (typeof GemaNotify !== 'undefined') {
+          var u = (typeof GemaAuth!=='undefined' && GemaAuth.getCurrentUser)? GemaAuth.getCurrentUser(): null;
+          if (u) {
+            GemaNotify.push({
+              eventKey:'lu_updated',
+              empfaengerUserId:u.id,
+              modul:'lu',
+              typ:'info',
+              titel:'LU aktualisiert',
+              text:'Die LU-Zusammenstellung wurde geändert. Andere Module mit Auto-Sync übernehmen die neuen Werte.',
+              link:'sb_lu_tabelle.html'
+            });
+          }
+        }
+      } catch(e) {}
       toast("Gespeichert.");
     }
 
