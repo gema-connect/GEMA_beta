@@ -466,6 +466,25 @@ Selbstkontrolle nach SVGW W12:
 
 Zwei Module: `if_werkzeug.html` und `if_fahrzeug.html`. Verwalten den Bestand an Geräten, Maschinen und Fahrzeugen einer Organisation inklusive Prüfungs-, Wartungs- und Defektzyklen.
 
+### Multi-Tenant-Storage (KRITISCH)
+
+Werkzeug und Fahrzeug teilen sich **einen** Storage-Pool (`gema_werkzeug` bzw. `gema_vehicles`) über alle Organisationen hinweg. Jeder Datensatz trägt eine `orgId` und der Loader filtert auf `u.orgId`. Beim Speichern werden fremde Orgs aus dem Storage gelesen und unverändert wieder zurückgeschrieben — sonst würde Org A die Datensätze von Org B überschreiben.
+
+**Werkzeug** (`if_werkzeug.html:1455`):
+- `_wzReadAllRaw()` / `_wzWriteAllRaw()` — gesamter Pool
+- `load()` filtert auf `u.orgId`, `save()` ersetzt nur eigene
+- Migration: `tools` ohne `orgId` werden beim ersten Load der ersten gefundenen `orgId` (oder eigener Org) zugewiesen
+- `submitForm()` setzt `tool.orgId = existing.orgId || u.orgId`
+
+**Fahrzeug** (`if_fahrzeug.html:782`):
+- `_fzReadAllRaw()` / `_fzWriteAllRaw()` / `_fzLoadVehicles()`
+- **Sonderfall Garagist**: User mit `role_garagist` sehen nur Fahrzeuge mit `v.garagistUserId === u.id` — cross-org gewollt (eine Werkstatt betreut Kunden mehrerer Firmen). `persist()` schreibt für Garagisten nur seine eigenen Fahrzeuge zurück.
+- Sonst: Filter auf `v.orgId === u.orgId`
+- Migration analog Werkzeug
+- `saveVehicle()` setzt `data.orgId = me.orgId` (beim Edit aus `vehicles[idx].orgId` erhalten)
+
+**Self-Service Onboarding**: `sys_login.html` → 3-Step Wizard legt eine neue Org plus Admin-User an. Damit kann sich ein neues Unternehmen direkt registrieren und sieht ausschliesslich seine eigenen Werkzeuge/Fahrzeuge — keine Admin-Aktion nötig.
+
 ### Tool-Schema (if_werkzeug.html)
 
 Storage-Key: `gema_werkzeug` via `_GemaDB`. Felder pro Werkzeug:

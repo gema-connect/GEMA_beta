@@ -779,10 +779,74 @@ let vehicles = [];
 let editId = null;
 let currentView = "cards";
 
-// Load from localStorage
-try { const d = (typeof _GemaDB!=='undefined'?(_GemaDB.c["gema_vehicles"]??null):null); if(d) vehicles = JSON.parse(d); } catch(e){}
+// ── Multi-Tenant Storage ──────────────────────────────────────
+// Werkstatt-Logik: Garagisten gehoeren zu ihrer eigenen Org und
+// betreuen Fahrzeuge mehrerer Kunden. Die Sichtbarkeit fuer
+// Garagisten geht ueber garagistUserId und NICHT ueber orgId.
+function _fzCurrentUser(){
+  try{ return (typeof GemaAuth!=='undefined'&&GemaAuth.getCurrentUser)?GemaAuth.getCurrentUser():null; }catch(e){ return null; }
+}
+function _fzIsGaragistRole(){
+  var u=_fzCurrentUser();
+  return !!(u&&u.roleIds&&u.roleIds.indexOf('role_garagist')>=0);
+}
+function _fzReadAllRaw(){
+  var raw=null;
+  if(typeof _GemaDB!=='undefined'&&_GemaDB.c) raw=_GemaDB.c['gema_vehicles'];
+  if(raw==null){ try{ raw=localStorage.getItem('gema_vehicles'); }catch(e){} }
+  try{ var arr=JSON.parse(raw||'[]'); return Array.isArray(arr)?arr:[]; }catch(e){ return []; }
+}
+function _fzWriteAllRaw(arr){
+  var json=JSON.stringify(arr);
+  if(typeof _GemaDB!=='undefined'&&typeof _GemaDB.save==='function') _GemaDB.save('gema_vehicles',json);
+  try{ localStorage.setItem('gema_vehicles',json); }catch(e){}
+}
+function _fzLoadVehicles(){
+  var u=_fzCurrentUser();
+  var orgId=u&&u.orgId?u.orgId:'';
+  var all=_fzReadAllRaw();
+  // Migration: vehicles ohne orgId der ersten existierenden orgId
+  // zuweisen, damit Altdaten nicht cross-org sichtbar bleiben.
+  var legacy=all.filter(function(v){ return !v.orgId; });
+  if(legacy.length){
+    var firstOrg=null;
+    all.forEach(function(v){ if(!firstOrg && v.orgId) firstOrg=v.orgId; });
+    var assignTo=firstOrg||orgId||'';
+    if(assignTo){
+      legacy.forEach(function(v){ v.orgId=assignTo; });
+      _fzWriteAllRaw(all);
+    }
+  }
+  // Garagist sieht nur ihm zugewiesene Fahrzeuge (cross-org)
+  if(_fzIsGaragistRole()){
+    return all.filter(function(v){ return v.garagistUserId===(u&&u.id); });
+  }
+  if(orgId){
+    return all.filter(function(v){ return v.orgId===orgId; });
+  }
+  return all.slice();
+}
+// Initial laden
+try { vehicles = _fzLoadVehicles(); } catch(e) { vehicles = []; }
 
-function persist(){ if(typeof _GemaDB!=='undefined') _GemaDB.save("gema_vehicles", JSON.stringify(vehicles)); }
+function persist(){
+  var u=_fzCurrentUser();
+  var orgId=u&&u.orgId?u.orgId:'';
+  var all=_fzReadAllRaw();
+  if(_fzIsGaragistRole()){
+    var meId=u&&u.id;
+    var others=all.filter(function(v){ return v.garagistUserId!==meId; });
+    _fzWriteAllRaw(others.concat(vehicles));
+    return;
+  }
+  if(!orgId){
+    if(typeof _GemaDB!=='undefined') _GemaDB.save("gema_vehicles", JSON.stringify(vehicles));
+    return;
+  }
+  vehicles.forEach(function(v){ if(!v.orgId) v.orgId=orgId; });
+  var others=all.filter(function(v){ return v.orgId && v.orgId!==orgId; });
+  _fzWriteAllRaw(others.concat(vehicles));
+}
 function genId(){ return 'v_'+Date.now()+'_'+Math.random().toString(36).slice(2,7); }
 
 /* ═══════════════════════════════
@@ -945,6 +1009,8 @@ function saveVehicle(){
       data.id=editId; data.createdAt=vehicles[idx].createdAt; data.events=vehicles[idx].events||[];
       data.serviceHistorie=vehicles[idx].serviceHistorie||[];
       data.followUps=vehicles[idx].followUps||[];
+      // orgId beim Edit erhalten (Sicherheitsnetz gegen versehentliche Re-Org-Stempelung)
+      data.orgId=vehicles[idx].orgId||data.orgId||'';
       var prevGaragist=vehicles[idx].garagistUserId||'';
       if(data.km!==vehicles[idx].km) data.kmUpdatedAt=new Date().toISOString();
       else data.kmUpdatedAt=vehicles[idx].kmUpdatedAt||'';
@@ -968,6 +1034,10 @@ function saveVehicle(){
   }else{
     data.id=genId();
     data.createdAt=new Date().toISOString();
+    // Multi-Tenant: orgId fest verdrahten (Garagist erfasst keine
+    // Fahrzeuge — _fzCanEdit verhindert das ohnehin)
+    var _fzMe=_fzCurrentUser()||{};
+    if(_fzMe.orgId) data.orgId=_fzMe.orgId;
     vehicles.push(data);
     showToast("Fahrzeug erfasst ✓");
   }

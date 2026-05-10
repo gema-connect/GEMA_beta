@@ -1450,10 +1450,65 @@ function _wzMaybeCoachmarks(){
 }
 
 // ──────────────────────────────────────
-// STORAGE
+// STORAGE — Multi-Tenant
 // ──────────────────────────────────────
-const save=()=>{if(typeof _GemaDB!=='undefined')_GemaDB.save('gema_werkzeug',JSON.stringify(tools));};
-const load=()=>{try{tools=JSON.parse((typeof _GemaDB!=='undefined'?(_GemaDB.c['gema_werkzeug']??null):null)||'[]');}catch(e){tools=[];}};
+// Speichert immer den GESAMTEN Pool (alle Orgs) ab, blendet beim
+// Laden aber nur die eigene Org ein. Fremde Orgs werden beim Save
+// unangetastet weiterleben — sonst wuerde Org A die Daten von Org B
+// ueberschreiben.
+function _wzReadAllRaw(){
+  var raw=null;
+  if(typeof _GemaDB!=='undefined' && _GemaDB.c) raw=_GemaDB.c['gema_werkzeug'];
+  if(raw==null){ try{ raw=localStorage.getItem('gema_werkzeug'); }catch(e){} }
+  try{ var arr=JSON.parse(raw||'[]'); return Array.isArray(arr)?arr:[]; }catch(e){ return []; }
+}
+function _wzWriteAllRaw(arr){
+  var json=JSON.stringify(arr);
+  if(typeof _GemaDB!=='undefined' && typeof _GemaDB.save==='function') _GemaDB.save('gema_werkzeug',json);
+  try{ localStorage.setItem('gema_werkzeug',json); }catch(e){}
+}
+const save=()=>{
+  var u=_wzGetUser();
+  var orgId=u&&u.orgId?u.orgId:'';
+  var all=_wzReadAllRaw();
+  // Fremde Orgs erhalten, eigene komplett ersetzen
+  var others=all.filter(function(t){
+    if(!orgId) return false; // ohne orgId nichts erhalten — Migration setzt orgId
+    return t.orgId && t.orgId!==orgId;
+  });
+  // Eigene Tools immer mit aktueller orgId stempeln (Sicherheitsnetz)
+  var mine=tools.map(function(t){
+    if(!t.orgId && orgId) t.orgId=orgId;
+    return t;
+  });
+  _wzWriteAllRaw(others.concat(mine));
+};
+const load=()=>{
+  var u=_wzGetUser();
+  var orgId=u&&u.orgId?u.orgId:'';
+  var all=_wzReadAllRaw();
+  // Migration: Tools ohne orgId der ersten Org zuweisen, die im
+  // Storage ueberhaupt schon orgId-Tools hat — sonst der eigenen
+  // Org. Vermeidet Cross-Org-Sichtbarkeit von Altdaten.
+  var migrated=false;
+  var legacy=all.filter(function(t){ return !t.orgId; });
+  if(legacy.length){
+    var firstOrg=null;
+    all.forEach(function(t){ if(!firstOrg && t.orgId) firstOrg=t.orgId; });
+    var assignTo=firstOrg||orgId||'';
+    if(assignTo){
+      legacy.forEach(function(t){ t.orgId=assignTo; });
+      migrated=true;
+    }
+  }
+  if(migrated) _wzWriteAllRaw(all);
+  // Filter auf eigene Org
+  if(orgId){
+    tools=all.filter(function(t){ return t.orgId===orgId; });
+  } else {
+    tools=all.slice(); // kein User → keine Filterung (Demo-Modus)
+  }
+};
 
 // ──────────────────────────────────────
 // DATE UTILS
@@ -1775,8 +1830,11 @@ function submitForm(){
   if(!name||!cat||!bought){alert('Bitte Bezeichnung, Kategorie und Kaufdatum ausfüllen.');return;}
   const eid=document.getElementById('f_editId').value;
   const existing=eid?tools.find(t=>t.id===eid):null;
+  const _wzMe=_wzGetUser()||{};
   const tool={
     id:eid||('t_'+Date.now()),name,cat,
+    // Multi-Tenant: bestehende orgId beim Edit erhalten, sonst aus User
+    orgId:(existing&&existing.orgId)||_wzMe.orgId||'',
     brand:document.getElementById('f_brand').value.trim(),
     model:document.getElementById('f_model').value.trim(),
     supplier:document.getElementById('f_supplier').value.trim(),
