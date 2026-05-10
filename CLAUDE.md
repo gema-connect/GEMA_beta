@@ -695,9 +695,14 @@ Phase 2 der Schadensdokumentation — separates Gerätemanagement für Trocknung
 | Typ | Icon | Key | Farbe |
 |-----|------|-----|-------|
 | Bautrockner | 🌡️ | `bautrockner` | #dc2626 |
+| Adsorptionsentfeuchter | 🌫️ | `adsorption` | #0891b2 |
+| Unterdruckverfahren | 🌪️ | `unterdruck` | #475569 |
 | Ventilator | 🌀 | `ventilator` | #2563eb |
 | Luftentfeuchter | 💨 | `luftentfeuchter` | #7c3aed |
 | Infrarotheizung | ☀️ | `infrarot` | #d97706 |
+| Messgerät (kein kW) | 📊 | `messgeraet` | #16a34a |
+
+Messgeräte (Feuchtemessgerät, CM-Gerät, Datenlogger, Wärmebildkamera, etc.) sind Diagnose-Hilfsmittel und tragen das Flag `noKw:true` in `GERAETE_TYPEN`. Im Erfassungs-Modal wird das Leistungs-Feld (kW) ausgeblendet, beim Einsetzen entfällt der Zählerstand-Start, beim Zurücknehmen die kWh-Berechnung. Der Einsatz-Workflow (Schadensprojekt + Raum) funktioniert ansonsten identisch.
 
 ### Status
 
