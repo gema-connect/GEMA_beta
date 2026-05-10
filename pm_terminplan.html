@@ -202,7 +202,7 @@ input::placeholder,textarea::placeholder{color:#cbd5e1 !important;}
 .gantt-empty-txt{font-size:14px;text-align:center;line-height:1.6;}
 
 /* ── FRAPPE OVERRIDES ── */
-.gantt .bar-label{font-size:11px !important;font-weight:700 !important;fill:#111827 !important;filter:none !important;text-shadow:none !important;paint-order:normal !important;}
+.gantt .bar-label{font-size:11px;font-weight:700;}
 .gantt .handle{display:none !important;}
 .gantt .bar-progress{rx:4px;ry:4px;}
 .gantt .grid-header{fill:#f8fafc !important;}
@@ -1266,34 +1266,55 @@ function snapBarsToGrid(){
         bp.setAttribute("height", parent.getAttribute("height"));
       }
     });
-    // Snap bar labels and set text color
+    // Snap bar labels and set text color depending on inside/outside.
+    // Inside-the-bar  → contrast color (weiss bei dunklen Bars, schwarz
+    //                   bei hellen Bars).
+    // Outside-the-bar → schwarzer Text mit weissem Halo (paint-order:
+    //                   stroke), damit auf Wochenende/Holiday-Cells und
+    //                   ueber den dunkleren Grid-Streifen sicher lesbar.
     svg.querySelectorAll(".bar-wrapper .bar-label").forEach(lbl=>{
       const wrapper=lbl.closest(".bar-wrapper");
       const parent=wrapper?.querySelector(".bar");
-      if(parent){
-        const bx=parseFloat(parent.getAttribute("x"));
-        const bw=parseFloat(parent.getAttribute("width"));
-        lbl.setAttribute("x", bx+bw/2);
+      if(!parent)return;
+      const bx=parseFloat(parent.getAttribute("x"));
+      const bw=parseFloat(parent.getAttribute("width"));
+      lbl.setAttribute("x", bx+bw/2);
 
-        // Determine text color: inside bar → contrast of bar color; outside → dark with white filter
-        const catClass=[...wrapper.classList].find(c=>c.startsWith("cat_"));
-        const catId=catClass?.replace("cat_","");
-        const cat=catId?state.categories.find(c=>c.id===catId):null;
-        const barColor=cat?.color||"#2563eb";
-        const textContrastColor=getContrastColor(barColor);
+      const catClass=[...wrapper.classList].find(c=>c.startsWith("cat_"));
+      const catId=catClass ? catClass.replace("cat_","") : "";
+      const cat=catId?state.categories.find(c=>c.id===catId):null;
+      const barColor=cat?.color||"#2563eb";
+      const textContrastColor=getContrastColor(barColor);
 
-        // Get label bounding box to check if it's inside the bar
-        try{
-          const labelBB=lbl.getBBox();
-          const labelCenterX=labelBB.x+labelBB.width/2;
-          const isInside=labelCenterX>=bx && labelCenterX<=(bx+bw) && labelBB.width<=bw;
-          // Always black text, no effects
-          lbl.setAttribute("fill","#111827");
-          lbl.style.filter="none";
-          lbl.style.paintOrder="";
-        }catch(e){
-          lbl.setAttribute("fill","#111827");
+      // Reset alle Label-Styles, sodass keine alten Filter/Strokes haengen bleiben
+      lbl.style.filter="none";
+      lbl.style.paintOrder="";
+      lbl.style.stroke="";
+      lbl.style.strokeWidth="";
+      lbl.style.strokeLinejoin="";
+
+      try{
+        const labelBB=lbl.getBBox();
+        // 4px-Sicherheitsrand: nur "inside", wenn der Label-Text mit
+        // mindestens 4px Abstand komplett in der Bar liegt.
+        const isFullyInside = labelBB.width>0 &&
+          labelBB.x >= bx + 4 &&
+          (labelBB.x + labelBB.width) <= (bx + bw - 4);
+        if(isFullyInside){
+          // Innen: kontraststark zur Bar-Farbe (weiss/schwarz)
+          lbl.setAttribute("fill", textContrastColor);
+        } else {
+          // Aussen / partial: schwarzer Text mit weissem Halo, damit
+          // auf jedem Hintergrund (Wochenende, Holiday, Grid-Stripes)
+          // gut lesbar bleibt.
+          lbl.setAttribute("fill", "#111827");
+          lbl.style.paintOrder = "stroke";
+          lbl.style.stroke = "rgba(255,255,255,0.9)";
+          lbl.style.strokeWidth = "3";
+          lbl.style.strokeLinejoin = "round";
         }
+      }catch(e){
+        lbl.setAttribute("fill","#111827");
       }
     });
   }catch(e){ console.warn("snapBars error:",e); }
@@ -1329,6 +1350,17 @@ function applyViewport(){
   svg.style.transformOrigin="0 0";
   svg.style.transform=`translate(${-xOffset}px,0) scale(${scale})`;
 }
+// Liefert die Anzahl ganzer Tage zwischen zwei Daten, gerundet —
+// damit Sommer-/Winterzeit-Uebergaenge (Tag mit 23 oder 25 Stunden)
+// nicht zu Bruchteilen fuehren, die Spalten und Today-Marker um eine
+// halbe Spaltenbreite verschieben. Vorher wurde (cur-gs)/(1000*60*60)
+// verwendet und durch step=24 dividiert; bei DST-Tagen ergab das z.B.
+// 23/24 = 0.958, was die x-Position um ~4% pro DST-Sprung versetzte
+// und visuell als "Termin halb auf zwei Tagen" sichtbar wurde.
+function _ganttDayOffset(date, gs){
+  return Math.round((date - gs) / 86400000);
+}
+
 function applyHolidayShading(){
   if(!gantt) return;
   try{
@@ -1376,8 +1408,8 @@ function applyHolidayShading(){
     while(cur<=ge){
       const day=cur.getDay();
       const iso=toISO(cur);
-      const diffH=(cur-gs)/(1000*60*60);
-      const x=(opts.padding||18)+(diffH/step)*cw;
+      // DST-sicher: ganze Tage rechnen, nicht Stunden/24
+      const x=(opts.padding||18)+_ganttDayOffset(cur, gs)*cw;
 
       // ── Single vertical line per day (full height) ──
       const dl=document.createElementNS(ns,"line");
@@ -1450,8 +1482,7 @@ function applyHolidayShading(){
     // ── Holiday overlays ──
     holidays.forEach(iso=>{
       const d=parseISO(iso); if(d<gs||d>ge) return;
-      const diffH=(d-gs)/(1000*60*60);
-      const x=(opts.padding||18)+(diffH/step)*cw;
+      const x=(opts.padding||18)+_ganttDayOffset(d, gs)*cw;
       const r=document.createElementNS(ns,"rect");
       r.setAttribute("x",x); r.setAttribute("y",headerH);
       r.setAttribute("width",cw); r.setAttribute("height",fh-headerH);
@@ -1474,14 +1505,37 @@ function applyHolidayShading(){
       });
     }catch(e){}
 
-    // ── Today highlight ──
+    // ── Today highlight ── plus markante Today-Linie + Pin oben
     const td=parseISO(todayISO); if(td>=gs&&td<=ge){
-      const diffH=(td-gs)/(1000*60*60);
-      const x=(opts.padding||18)+(diffH/step)*cw;
+      const x=(opts.padding||18)+_ganttDayOffset(td, gs)*cw;
+      // Highlight-Spalte
       const r=document.createElementNS(ns,"rect");
       r.setAttribute("x",x); r.setAttribute("y",0);
       r.setAttribute("width",cw); r.setAttribute("height",fh);
       r.setAttribute("class","today-highlight"); g.appendChild(r);
+      // Vertikale Linie (klar wahrnehmbar in Rot)
+      const tl=document.createElementNS(ns,"line");
+      tl.setAttribute("x1",x+cw/2); tl.setAttribute("y1",headerH);
+      tl.setAttribute("x2",x+cw/2); tl.setAttribute("y2",fh);
+      tl.setAttribute("stroke","#dc2626");
+      tl.setAttribute("stroke-width","1.5");
+      tl.setAttribute("stroke-dasharray","3,3");
+      tl.setAttribute("opacity","0.7");
+      g.appendChild(tl);
+      // "Heute"-Pin oben
+      const pinW=42, pinH=16;
+      const pin=document.createElementNS(ns,"rect");
+      pin.setAttribute("x",x+cw/2-pinW/2); pin.setAttribute("y",headerH-pinH-2);
+      pin.setAttribute("width",pinW); pin.setAttribute("height",pinH);
+      pin.setAttribute("rx","3"); pin.setAttribute("fill","#dc2626");
+      g.appendChild(pin);
+      const pinTxt=document.createElementNS(ns,"text");
+      pinTxt.setAttribute("x",x+cw/2); pinTxt.setAttribute("y",headerH-5);
+      pinTxt.setAttribute("text-anchor","middle");
+      pinTxt.setAttribute("font-size","10"); pinTxt.setAttribute("font-weight","800");
+      pinTxt.setAttribute("fill","#fff"); pinTxt.setAttribute("font-family","DM Sans,sans-serif");
+      pinTxt.textContent="Heute";
+      g.appendChild(pinTxt);
     }
   }catch(e){ console.warn("shading error:",e); }
 }
