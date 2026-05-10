@@ -8,6 +8,7 @@
 <script src="gema_auth.js"></script>
 <script src="gema_recent.js"></script>
 <script src="gema_pwa.js"></script>
+<script src="gema_avatar.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700;9..40,800;9..40,900&display=swap" rel="stylesheet">
 <style>
 :root{--bg:#f4f6fb;--bg2:#edf0f7;--sur:#fff;--brd:#e2e7f0;--brd2:#cdd4e4;--txt:#0f172a;--txt2:#334155;--mut:#64748b;--mut2:#94a3b8;--acc:#2563eb;--acc-dk:#1d4ed8;--acc-bg:#eff6ff;--grn:#16a34a;--grn-bg:#f0fdf4;--red:#dc2626;--red-bg:#fef2f2;--r:14px;--r-sm:10px;--r-lg:20px;--sh:0 4px 16px rgba(0,0,0,.08);--sh-sm:0 1px 4px rgba(0,0,0,.06);--sans:"DM Sans",ui-sans-serif,system-ui,sans-serif}
@@ -76,11 +77,17 @@ input,select,button,textarea{font-family:var(--sans)}
 </nav>
 
 <div class="page">
-  <div style="display:flex;align-items:center;gap:16px;margin-bottom:28px">
-    <div class="avatar" id="userAvatar" style="background:#2563eb">?</div>
-    <div>
+  <div style="display:flex;align-items:center;gap:16px;margin-bottom:28px;flex-wrap:wrap">
+    <div style="position:relative;flex-shrink:0">
+      <div class="avatar" id="userAvatar" style="background:#2563eb;cursor:pointer" title="Profilbild ändern" onclick="document.getElementById('avatarFile').click()">?</div>
+      <button id="avatarRemoveBtn" type="button" onclick="removeAvatar()" title="Profilbild entfernen"
+              style="display:none;position:absolute;top:-4px;right:-4px;width:24px;height:24px;border-radius:50%;border:2px solid #fff;background:#dc2626;color:#fff;font-size:11px;cursor:pointer;padding:0;display:none;align-items:center;justify-content:center">✕</button>
+      <input type="file" id="avatarFile" accept="image/*" style="display:none">
+    </div>
+    <div style="flex:1;min-width:200px">
       <div class="page-title" id="userName">—</div>
-      <div class="page-sub" id="userRole" style="margin-bottom:0">—</div>
+      <div class="page-sub" id="userRole" style="margin-bottom:6px">—</div>
+      <button class="btn btn-sm" type="button" onclick="document.getElementById('avatarFile').click()" style="font-size:11.5px;padding:5px 10px">📷 Profilbild ändern</button>
     </div>
   </div>
 
@@ -205,16 +212,9 @@ function init(){
   if(!_user) return;
   _org = GemaAuth.getCurrentOrg();
 
-  // Avatar
-  var initials = (_user.name||_user.username).split(' ').map(function(s){return s[0];}).join('').substring(0,2).toUpperCase();
+  // Avatar (Bild oder Initialen via GemaAvatar)
+  renderAvatar();
   var roles = GemaAuth.getRoles()||[];
-  var roleColor = '#6b7280';
-  if(_user.roleIds&&_user.roleIds.length){
-    var fr=roles.find(function(r){return r.id===_user.roleIds[0];});
-    if(fr) roleColor=fr.color;
-  }
-  document.getElementById('userAvatar').textContent = initials;
-  document.getElementById('userAvatar').style.background = roleColor;
   document.getElementById('userName').textContent = _user.name||_user.username;
   var roleNames = (_user.roleIds||[]).map(function(rid){var r=roles.find(function(x){return x.id===rid;});return r?r.name:'';}).filter(Boolean).join(', ');
   document.getElementById('userRole').textContent = roleNames + (_org&&_org.name!=='Mein Unternehmen'?' · '+_org.name:'');
@@ -230,6 +230,64 @@ function init(){
   if(prof.benachrichtigungen) document.getElementById('togBenachrichtigung').classList.add('on');
   if(prof.dynamischeBKP!==false) document.getElementById('togDynBKP').classList.add('on'); // Default: AN
 }
+
+// ── Profilbild (Avatar) ─────────────────────────────────────
+function renderAvatar(){
+  var box = document.getElementById('userAvatar');
+  if(!box || !_user) return;
+  var avatar = _user.avatar || (_user.profile && _user.profile.avatar);
+  // box ist der gestylte Container — wir setzen Inhalt + Hintergrund
+  if(avatar){
+    box.style.background = '#e2e7f0';
+    box.style.padding = '0';
+    box.style.overflow = 'hidden';
+    box.innerHTML = '<img src="'+avatar+'" alt="" style="width:100%;height:100%;object-fit:cover;display:block">';
+    document.getElementById('avatarRemoveBtn').style.display = 'flex';
+  } else {
+    var color = (typeof GemaAvatar!=='undefined') ? GemaAvatar.getColor(_user) : '#2563eb';
+    var initials = (typeof GemaAvatar!=='undefined') ? GemaAvatar.getInitials(_user)
+                  : (_user.name||_user.username||'?').split(' ').map(function(s){return s[0];}).join('').substring(0,2).toUpperCase();
+    box.style.background = color;
+    box.style.overflow = '';
+    box.innerHTML = '';
+    box.textContent = initials;
+    document.getElementById('avatarRemoveBtn').style.display = 'none';
+  }
+}
+
+function _saveAvatar(dataUrl){
+  if(!_user) return;
+  var users = GemaAuth.getUsers()||[];
+  var idx = users.findIndex(function(u){ return u.id === _user.id; });
+  if(idx<0) return;
+  if(dataUrl) users[idx].avatar = dataUrl;
+  else delete users[idx].avatar;
+  GemaAuth.saveUsers(users);
+  _user = users[idx]; // refresh local copy
+  renderAvatar();
+  toast(dataUrl ? '✓ Profilbild gespeichert' : '✓ Profilbild entfernt');
+}
+
+function removeAvatar(){
+  if(!confirm('Profilbild entfernen?')) return;
+  _saveAvatar(null);
+}
+
+document.addEventListener('DOMContentLoaded', function(){
+  var input = document.getElementById('avatarFile');
+  if(!input || typeof GemaAvatar === 'undefined') return;
+  input.addEventListener('change', function(){
+    var file = input.files && input.files[0];
+    if(!file) return;
+    GemaAvatar.compress(file).then(function(dataUrl){
+      _saveAvatar(dataUrl);
+    }).catch(function(err){
+      alert('Profilbild konnte nicht verarbeitet werden: ' + (err && err.message ? err.message : err));
+    }).then(function(){
+      try { input.value = ''; } catch(e){}
+    });
+  });
+});
 
 function saveProfile(){
   if(!_user) return;
