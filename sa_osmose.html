@@ -1105,6 +1105,19 @@ document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('osmo
   // ── LU-Verknüpfung (Osmosewasser / OW) ──
   var _luRowOverrides = {}; // {rowIndex: true}
 
+  // Persistenz der Override-Markierungen pro Objekt
+  function _luOverrideKey(objektId){
+    return 'gema_osmose_lu_overrides_v1__'+(objektId||'__none__');
+  }
+  function _loadLUOverrides(objektId){
+    try{ var raw=localStorage.getItem(_luOverrideKey(objektId));
+      if(raw){ _luRowOverrides=JSON.parse(raw)||{}; } else { _luRowOverrides={}; }
+    }catch(e){ _luRowOverrides={}; }
+  }
+  function _saveLUOverrides(objektId){
+    try{ localStorage.setItem(_luOverrideKey(objektId), JSON.stringify(_luRowOverrides)); }catch(e){}
+  }
+
   function _prefillFromLU(objektId){
     var bar = document.getElementById('luInfoBar');
     if(!bar) return;
@@ -1142,7 +1155,9 @@ document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('osmo
     // Clear existing rows and prefill from LU
     var tbody = document.getElementById('consumerBody');
     tbody.innerHTML = '';
-    _luRowOverrides = {};
+    // Persistierte Override-Markierungen fuer dieses Objekt laden,
+    // damit manuelle Anpassungen den Reload ueberleben.
+    _loadLUOverrides(objektId);
 
     owConsumers.forEach(function(v, idx){
       // Convert l/s to l/h for the Osmose table
@@ -1165,14 +1180,23 @@ document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('osmo
     var flowInput = row.cells[1].querySelector('input');
     var hoursInput = row.cells[2].querySelector('input');
 
-    // Add LU tag after name input
+    // Add LU tag after name input — respektiere persistierte Overrides
     var existingTag = nameCell.querySelector('.lu-row-tag');
+    var isOverridden = !!_luRowOverrides[idx];
     if(!existingTag){
       var tag = document.createElement('span');
-      tag.className = 'lu-row-tag auto';
-      tag.textContent = 'LU ↗';
-      tag.title = 'Aus LU-Zusammenstellung';
+      tag.className = 'lu-row-tag '+(isOverridden ? 'manual' : 'auto');
+      tag.textContent = isOverridden ? '✎ Manuell' : 'LU ↗';
+      tag.title = isOverridden ? 'Manuell ueberschrieben — klicken zum Zuruecksetzen' : 'Aus LU-Zusammenstellung';
       tag.dataset.rowIdx = idx;
+      if(isOverridden){
+        tag.style.cursor='pointer';
+        tag.onclick = function(){
+          delete _luRowOverrides[idx];
+          _saveLUOverrides(_prevObjektId);
+          _prefillFromLU(_prevObjektId);
+        };
+      }
       nameCell.appendChild(tag);
     }
 
@@ -1183,6 +1207,7 @@ document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('osmo
     function onManualEdit(){
       if(_luRowOverrides[idx]) return;
       _luRowOverrides[idx] = true;
+      _saveLUOverrides(_prevObjektId);
       var t = nameCell.querySelector('.lu-row-tag');
       if(t){
         t.className = 'lu-row-tag manual';
@@ -1190,6 +1215,7 @@ document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('osmo
         t.title = 'Manuell überschrieben — klicken zum Zurücksetzen';
         t.onclick = function(){
           delete _luRowOverrides[idx];
+          _saveLUOverrides(_prevObjektId);
           nameInput.value = origName;
           flowInput.value = origFlow;
           t.className = 'lu-row-tag auto';

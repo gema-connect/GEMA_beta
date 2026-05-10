@@ -1252,12 +1252,31 @@ document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('enth
   // ── LU-Verknüpfung (Enthärtetes Wasser / EW / bw) ──
   var _luOverrides = {};  // {'n_A': true, 'lbl_A': true, ...}
   var _luValues = {};     // {'n_A': 0.15, 'lbl_A': 'Dusche', ...}
+
+  // Persistenz der Override-Markierungen pro Objekt — sonst verliert
+  // sich die Information "manuell überschrieben" bei jedem Reload und
+  // LU-Daten ueberschreiben wieder die manuell angepassten Werte.
+  function _luOverrideKey(objektId){
+    return 'gema_enthaertung_lu_overrides_v1__'+(objektId||'__none__');
+  }
+  function _loadLUOverrides(objektId){
+    try{ var raw=localStorage.getItem(_luOverrideKey(objektId));
+      if(raw){ _luOverrides=JSON.parse(raw)||{}; } else { _luOverrides={}; }
+    }catch(e){ _luOverrides={}; }
+  }
+  function _saveLUOverrides(objektId){
+    try{ localStorage.setItem(_luOverrideKey(objektId), JSON.stringify(_luOverrides)); }catch(e){}
+  }
   var CONSUMERS = ['A','B','C','D','E','F'];
   var LU_FIELDS_PER_ROW = ['lbl','n']; // Felder die aus LU kommen: Name + Volumenstrom
 
   function _prefillFromLU(objektId){
     var hint = document.getElementById('luHint');
     if(!hint) return;
+
+    // Persistierte Override-Markierungen fuer dieses Objekt laden,
+    // damit manuelle Anpassungen den Reload ueberleben.
+    _loadLUOverrides(objektId);
 
     if(typeof GemaLU==='undefined' || !objektId){
       hint.style.display='none'; _clearLUMarkers(); return;
@@ -1353,6 +1372,7 @@ document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('enth
     var key = field+'_'+c;
     if(_luValues[key]===undefined) return;
     _luOverrides[key] = true;
+    _saveLUOverrides(_prevObjektId);
     // Check if any field in this row is overridden
     var lblEl = document.getElementById('lbl_'+c);
     var tr = lblEl ? lblEl.closest('tr') : null;
@@ -1362,6 +1382,7 @@ document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('enth
   function _resetRow(c){
     delete _luOverrides['lbl_'+c];
     delete _luOverrides['n_'+c];
+    _saveLUOverrides(_prevObjektId);
     var lblEl = document.getElementById('lbl_'+c);
     var nEl = document.getElementById('n_'+c);
     if(lblEl && _luValues['lbl_'+c]!==undefined) lblEl.value = _luValues['lbl_'+c];
