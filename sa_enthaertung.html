@@ -512,6 +512,7 @@ function fixLeadingZero(el){
 <script src="gema_offer_request.js"></script>
 <script src="gema_offerten_tab.js"></script>
 <script src="gema_lu_api.js"></script>
+<script src="gema_osmose_api.js"></script>
 <script src="gema_wasserdaten.js"></script>
 <link rel="stylesheet" href="gema_responsive.css"/>
 </head>
@@ -1287,12 +1288,34 @@ document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('enth
 
     // Get EW (enthärtetes Wasser = bw medium) consumers
     var ewConsumers = GemaLU.getByMedium(objektId, 'enthaertet');
+
+    // Osmose-Output (falls Osmose berechnet) als zusaetzlicher
+    // Verbraucher: die Enthaertung liefert Wasser an die Osmose, die
+    // davon Permeat + Konzentrat entnimmt. Beide muessen zuvor
+    // enthaertet sein. Eingang in die Enthaertung = Permeat + Konzentrat.
+    var osmoseFromAPI = null;
+    try{
+      if(typeof GemaOsmose!=='undefined' && GemaOsmose.hasData(objektId)){
+        var or=GemaOsmose.getResults(objektId);
+        if(or){
+          osmoseFromAPI = {
+            name:'Osmose-Anlage (Permeat + Konzentrat)',
+            flow:(or.permeat_ls||0)+(or.konzentrat_ls||0),
+            _osmose:true
+          };
+        }
+      }
+    }catch(e){}
+    if(osmoseFromAPI && osmoseFromAPI.flow>0){
+      ewConsumers = [osmoseFromAPI].concat(ewConsumers);
+    }
+
     if(!ewConsumers.length){
       hint.style.display='none'; _clearLUMarkers(); return;
     }
 
     hint.style.display='block';
-    hint.textContent='💧 '+ewConsumers.length+' EW-Verbraucher aus LU-Zusammenstellung übernommen. Überschriebene Werte werden nicht mehr automatisch aktualisiert.';
+    hint.textContent='💧 '+ewConsumers.length+' EW-Verbraucher aus LU-Zusammenstellung übernommen' + (osmoseFromAPI?' (inkl. Osmose-Anlage)':'') + '. Überschriebene Werte werden nicht mehr automatisch aktualisiert.';
 
     // Fill rows A–F (max 6)
     var count = Math.min(ewConsumers.length, CONSUMERS.length);
@@ -1411,6 +1434,13 @@ document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('enth
   window.populateObjektDropdown=populateObjektDropdown;
   document.addEventListener('DOMContentLoaded',function(){loadMeta();populateObjektDropdown();if(typeof GemaAutoSave!=='undefined') GemaAutoSave.init('enthaertungsanlage');setTimeout(function(){if(_prevObjektId){_prefillFromLU(_prevObjektId);_checkWasserDaten(_prevObjektId);}},200);});
   window.addEventListener('gema-objekte-loaded',function(){populateObjektDropdown();if(typeof GemaAutoSave!=='undefined') GemaAutoSave.init('enthaertungsanlage');if(_prevObjektId){_prefillFromLU(_prevObjektId);_checkWasserDaten(_prevObjektId);}});
+  // Live-Update: wenn Osmose im selben Tab/Fenster neu gerechnet wird,
+  // Enthärtung sofort neu prefillen, damit der Permeat+Konzentrat-
+  // Eintrag auf den frischen Wert geht.
+  window.addEventListener('gema-osmose-updated',function(ev){
+    var oid=(ev && ev.detail && ev.detail.objektId)||'';
+    if(oid && oid===_prevObjektId) _prefillFromLU(_prevObjektId);
+  });
   ['metaProjekt','metaBearbeiter','metaDatum'].forEach(function(id){var el=document.getElementById(id);if(el)el.addEventListener('input',saveMeta);});
 })();</script>
 
