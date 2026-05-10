@@ -2608,208 +2608,526 @@ function _sdEnsureJsPDF(){
   });
 }
 
+// ══════════════════════════════════════
+// PDF HELPER-FUNKTIONEN
+// ══════════════════════════════════════
+// Typ-Definitionen: Initial-Pille (statt Emojis) + Akzentfarbe.
+var _PDF_TYP_INFO = {
+  wasserschaden:   { kuerzel:'W',  label:'Wasserschaden',   color:[37,99,235]   },
+  schimmel:        { kuerzel:'S',  label:'Schimmelschaden', color:[22,163,74]   },
+  rohrbruch:       { kuerzel:'R',  label:'Rohrbruch',       color:[217,119,6]   },
+  leitungsschaden: { kuerzel:'L',  label:'Leitungsschaden', color:[202,138,4]   },
+  rueckstau:       { kuerzel:'Rü', label:'Rückstau',        color:[8,145,178]   },
+  sonstiges:       { kuerzel:'X',  label:'Sonstiges',       color:[124,58,237]  }
+};
+var _PDF_PHASE_INFO = {
+  erfasst:    { label:'Erfasst',         color:[107,114,128] },
+  analyse:    { label:'Zustandsanalyse', color:[217,119,6]   },
+  trocknung:  { label:'Trocknung',       color:[37,99,235]   },
+  abschluss:  { label:'Abschluss',       color:[22,163,74]   }
+};
+function _sdPdfGetOrg(){
+  try{
+    if(typeof GemaAuth==='undefined') return {};
+    var u=GemaAuth.getCurrentUser&&GemaAuth.getCurrentUser();
+    if(!u) return {};
+    var orgs=GemaAuth.getOrgs&&GemaAuth.getOrgs();
+    return (orgs||[]).find(function(o){return o.id===u.orgId;}) || {};
+  }catch(e){ return {}; }
+}
+function _sdPdfFmtDate(d){
+  if(!d) return '';
+  try{ return new Date(d).toLocaleDateString('de-CH'); }catch(e){ return String(d); }
+}
+function _sdPdfFmtDateTime(d){
+  if(!d) return '';
+  try{ return new Date(d).toLocaleString('de-CH'); }catch(e){ return String(d); }
+}
+
+// ══════════════════════════════════════
+// PDF EXPORT
+// ══════════════════════════════════════
 function sdExportPdf(id){
   var s=sdGetById(id); if(!s) return;
   _sdEnsureJsPDF().then(function(){
     if(!(window.jspdf && window.jspdf.jsPDF)){alert('PDF-Bibliothek nicht verfügbar.');return;}
     var jsPDF=window.jspdf.jsPDF;
     var doc=new jsPDF({unit:'mm',format:'a4'});
-    var M=15, y=20;
-    var pageH=doc.internal.pageSize.getHeight();
-    function ensureSpace(needed){if(y+needed>pageH-15){doc.addPage();y=20;_drawHeader();}}
-    function _drawHeader(){
-      doc.setFontSize(8);doc.setFont('helvetica','normal');doc.setTextColor(124,58,237);
-      doc.text('GEMA · Schadensbericht · '+(s.titel||'—'),M,9);
-      doc.setDrawColor(229,231,235);doc.line(M,12,195,12);
+    var pageW=doc.internal.pageSize.getWidth();   // 210
+    var pageH=doc.internal.pageSize.getHeight();  // 297
+    var M=15, contentW=pageW-2*M; // 180
+    var y=0;
+    var org=_sdPdfGetOrg();
+    var typInfo=_PDF_TYP_INFO[s.typ]||_PDF_TYP_INFO.sonstiges;
+    var phaseInfo=_PDF_PHASE_INFO[s.phase]||_PDF_PHASE_INFO.erfasst;
+    var pdfErstelltAt=new Date();
+    var sectionsTOC=[]; // {label, pageNum}
+
+    // ── Helper: Logo platzieren (PNG/JPEG/SVG-Best-Effort) ──
+    // Wenn org.logo als data:image/svg+xml startet, ist jsPDF
+    // ueberfordert. Wir versuchen es trotzdem; bei Fehler still
+    // skippen.
+    function _drawLogo(x, yPos, w, h){
+      if(!org || !org.logo) return false;
+      try{
+        var fmt = 'PNG';
+        if(/data:image\/jpe?g/i.test(org.logo)) fmt='JPEG';
+        else if(/data:image\/png/i.test(org.logo)) fmt='PNG';
+        else if(/data:image\/svg/i.test(org.logo)) return false; // SVG nicht direkt
+        doc.addImage(org.logo, fmt, x, yPos, w, h, undefined, 'FAST');
+        return true;
+      }catch(e){ return false; }
     }
 
-    // Titel-Block mit Lila-Akzent
-    var typIco=({wasserschaden:'💧',schimmel:'🦠',rohrbruch:'🔧',leitungsschaden:'⚡',rueckstau:'🌊',sonstiges:'📋'})[s.typ]||'📋';
-    doc.setFontSize(20);doc.setFont('helvetica','bold');doc.setTextColor(46,16,101);
-    doc.text('Schadensbericht',M,y);y+=8;
-    doc.setFontSize(13);doc.setFont('helvetica','bold');doc.setTextColor(124,58,237);
-    doc.text(typIco+'  '+(s.titel||'—'),M,y);y+=7;
+    // ── Footer fuer Inhalts-Seiten (ohne Cover) ──
+    function _drawContentFooter(pageNum, totalPages){
+      var fy = pageH - 12;
+      doc.setDrawColor(229,231,235); doc.setLineWidth(0.3);
+      doc.line(M, fy, pageW-M, fy);
+      doc.setFontSize(7.5); doc.setFont('helvetica','normal'); doc.setTextColor(107,114,128);
+      var addr=[org.name||'', (org.adresse&&[org.adresse.strasse, [org.adresse.plz,org.adresse.ort].filter(Boolean).join(' ')].filter(Boolean).join(', '))||''].filter(Boolean).join(' · ');
+      var kontakt=[org.kontakt&&org.kontakt.telefon, org.kontakt&&org.kontakt.email].filter(Boolean).join(' · ');
+      if(addr) doc.text(addr, M, fy+4);
+      if(kontakt) doc.text(kontakt, M, fy+7.5);
+      doc.setTextColor(156,163,175);
+      doc.text('PDF erstellt: '+_sdPdfFmtDateTime(pdfErstelltAt), pageW/2, fy+4, {align:'center'});
+      doc.text('Seite '+pageNum+' / '+totalPages, pageW-M, fy+4, {align:'right'});
+    }
 
-    // Stammdaten
-    doc.setFontSize(9);doc.setFont('helvetica','normal');doc.setTextColor(75,85,99);
-    var typLabel=({wasserschaden:'Wasserschaden',schimmel:'Schimmelschaden',rohrbruch:'Rohrbruch',leitungsschaden:'Leitungsschaden',rueckstau:'Rückstau',sonstiges:'Sonstiges'})[s.typ]||s.typ||'—';
-    var phaseLabel=({erfasst:'Erfasst',analyse:'Zustandsanalyse',trocknung:'Trocknung',abschluss:'Abschluss'})[s.phase]||s.phase||'—';
-    var infoLines=[
-      'Typ: '+typLabel,
-      'Aktuelle Phase: '+phaseLabel,
-      'Erstellt: '+(s.erstelltAm?new Date(s.erstelltAm).toLocaleDateString('de-CH'):'—')+(s.erstelltVon&&s.erstelltVon.name?' von '+s.erstelltVon.name:''),
-      'Objekt-ID: '+(s.objektId||'—'),
-      'PDF erstellt: '+new Date().toLocaleString('de-CH')
-    ];
-    if(s.versicherung && (s.versicherung.name || s.versicherung.policeNr || s.versicherung.schadenNr)){
-      infoLines.push('Versicherung: '+([s.versicherung.name,s.versicherung.policeNr?'Police '+s.versicherung.policeNr:'',s.versicherung.schadenNr?'Schaden-Nr. '+s.versicherung.schadenNr:''].filter(Boolean).join(' · ')));
+    // ── Header fuer Inhalts-Seiten (Logo+Firma links, Titel rechts) ──
+    function _drawContentHeader(){
+      var hy = 10;
+      // Logo links oben (max 14×14)
+      var logoOk = _drawLogo(M, 7, 14, 14);
+      // Firmenname / Schadenstitel
+      doc.setFontSize(9); doc.setFont('helvetica','bold'); doc.setTextColor(15,23,42);
+      doc.text(org.name||'GEMA', logoOk?M+18:M, hy+1);
+      doc.setFontSize(8); doc.setFont('helvetica','normal'); doc.setTextColor(124,58,237);
+      doc.text('Schadensbericht · '+(s.titel||'—'), pageW-M, hy+1, {align:'right'});
+      // Trennlinie
+      doc.setDrawColor(229,231,235); doc.setLineWidth(0.3);
+      doc.line(M, 22, pageW-M, 22);
     }
-    infoLines.forEach(function(line){doc.text(line,M,y);y+=4.2;});
-    y+=2;
-    if(s.beschreibung){
-      ensureSpace(15);
-      doc.setFont('helvetica','bold');doc.setTextColor(15,23,42);doc.text('Beschreibung',M,y);y+=4.5;
-      doc.setFont('helvetica','normal');doc.setTextColor(55,65,81);
-      doc.splitTextToSize(s.beschreibung,180).forEach(function(L){ensureSpace(5);doc.text(L,M,y);y+=4.5;});
-      y+=2;
-    }
-    if(s.ursache){
-      ensureSpace(15);
-      doc.setFont('helvetica','bold');doc.setTextColor(15,23,42);doc.text('Ursache',M,y);y+=4.5;
-      doc.setFont('helvetica','normal');doc.setTextColor(55,65,81);
-      doc.splitTextToSize(s.ursache,180).forEach(function(L){ensureSpace(5);doc.text(L,M,y);y+=4.5;});
-      y+=2;
-    }
-    if(Array.isArray(s.raeume)&&s.raeume.length){
-      ensureSpace(10);
-      doc.setFont('helvetica','bold');doc.setTextColor(15,23,42);doc.text('Betroffene Räume',M,y);y+=4.5;
-      doc.setFont('helvetica','normal');doc.setTextColor(55,65,81);
-      var raeumeStr=s.raeume.map(function(r){return typeof r==='string'?r:(r.name||r.bezeichnung||'')}).filter(Boolean).join(' · ');
-      if(raeumeStr){doc.splitTextToSize(raeumeStr,180).forEach(function(L){ensureSpace(5);doc.text(L,M,y);y+=4.5;});}
-      y+=2;
-    }
-    doc.setDrawColor(229,231,235);doc.line(M,y,195,y);y+=5;
 
-    // Phasen-Sektionen
-    function addSection(title,content){
-      ensureSpace(15);
-      doc.setFontSize(11);doc.setFont('helvetica','bold');doc.setTextColor(124,58,237);
-      doc.text(title,M,y);y+=5;
-      doc.setFontSize(9);doc.setFont('helvetica','normal');doc.setTextColor(55,65,81);
-      content();
-      y+=3;
+    // ── Inhalts-Seite starten (Header zeichnen, y zuruecksetzen) ──
+    function _startContentPage(){
+      _drawContentHeader();
+      y = 28; // ab unterhalb des Headers
     }
-    function addPhotos(arr,label){
-      arr=Array.isArray(arr)?arr.filter(function(p){return p&&p.dataUrl;}):[];
-      if(!arr.length)return;
-      doc.setFont('helvetica','bold');doc.setTextColor(75,85,99);
+
+    // ── Platz-Check + Auto-Pagebreak ──
+    function ensureSpace(needed){
+      if(y+needed > pageH-22){
+        doc.addPage();
+        _startContentPage();
+      }
+    }
+
+    // ── Farbige Pille mit Buchstaben (statt Emoji) ──
+    function _drawPill(x, y, label, rgb, w){
+      w = w || 22;
+      var h = 6;
+      doc.setFillColor(rgb[0],rgb[1],rgb[2]);
+      doc.roundedRect(x, y, w, h, 2, 2, 'F');
+      doc.setFontSize(8); doc.setFont('helvetica','bold'); doc.setTextColor(255,255,255);
+      doc.text(label, x+w/2, y+4.1, {align:'center'});
+    }
+
+    // ── Section-Header: farbiges Band ueber Voll-Breite ──
+    function drawSectionBand(num, title, rgb){
+      ensureSpace(14);
+      sectionsTOC.push({ label: num+'. '+title, pageNum: doc.internal.getCurrentPageInfo().pageNumber });
+      doc.setFillColor(rgb[0],rgb[1],rgb[2]);
+      doc.rect(M, y, contentW, 8, 'F');
+      doc.setFontSize(10.5); doc.setFont('helvetica','bold'); doc.setTextColor(255,255,255);
+      doc.text(num+'. '+title, M+3, y+5.5);
+      y += 11;
+    }
+
+    // ── Mehrzeiliger Text mit Pagebreak ──
+    function drawParagraph(label, text, maxW){
+      if(!text) return;
       ensureSpace(8);
-      doc.text((label||'Fotos')+' ('+arr.length+'):',M,y);y+=4.5;
-      doc.setFont('helvetica','normal');
-      var pX=M, w=42, h=32, gap=3, perRow=4;
-      arr.forEach(function(p,idx){
-        if(idx>0&&idx%perRow===0){pX=M;y+=h+gap;ensureSpace(h+2);}
-        try{doc.addImage(p.dataUrl,'JPEG',pX,y,w,h);}catch(_){}
-        if(p.kommentar){
-          // Kleine Bildunterschrift
-          doc.setFontSize(7);doc.setTextColor(107,114,128);
-          var caption=doc.splitTextToSize(p.kommentar.slice(0,60),w);
-          if(caption[0]){doc.text(caption[0],pX,y+h+2.5);}
-          doc.setFontSize(9);doc.setTextColor(55,65,81);
-        }
-        pX+=w+gap;
+      doc.setFont('helvetica','bold'); doc.setTextColor(15,23,42); doc.setFontSize(9.5);
+      doc.text(label, M, y); y+=4.5;
+      doc.setFont('helvetica','normal'); doc.setTextColor(55,65,81); doc.setFontSize(9.5);
+      doc.splitTextToSize(text, maxW||contentW).forEach(function(L){
+        ensureSpace(5); doc.text(L, M, y); y+=4.5;
       });
-      y+=h+gap+1;
+      y+=2;
     }
 
-    if(s.zustandsanalyse && (s.zustandsanalyse.leckortung||s.zustandsanalyse.schadenausmass||(s.zustandsanalyse.massnahmen||[]).length||(s.zustandsanalyse.fotos||[]).length)){
-      addSection('1. Zustandsanalyse',function(){
-        if(s.zustandsanalyse.leckortung){doc.setFont('helvetica','bold');doc.text('Leckortung:',M,y);y+=4.2;doc.setFont('helvetica','normal');doc.splitTextToSize(s.zustandsanalyse.leckortung,180).forEach(function(L){ensureSpace(5);doc.text(L,M,y);y+=4.2;});y+=1;}
-        if(s.zustandsanalyse.schadenausmass){doc.setFont('helvetica','bold');doc.text('Schadenausmass:',M,y);y+=4.2;doc.setFont('helvetica','normal');doc.splitTextToSize(s.zustandsanalyse.schadenausmass,180).forEach(function(L){ensureSpace(5);doc.text(L,M,y);y+=4.2;});y+=1;}
-        if(Array.isArray(s.zustandsanalyse.massnahmen)&&s.zustandsanalyse.massnahmen.length){
-          doc.setFont('helvetica','bold');doc.text('Massnahmen:',M,y);y+=4.2;doc.setFont('helvetica','normal');
-          s.zustandsanalyse.massnahmen.forEach(function(m){ensureSpace(5);doc.text('• '+(typeof m==='string'?m:(m.beschreibung||m.text||'')),M+2,y);y+=4.2;});
-          y+=1;
-        }
-        addPhotos(s.zustandsanalyse.fotos,'Analyse-Fotos');
+    // ── Tabelle mit Zebra-Streifen ──
+    function drawTable(headers, rows, colRatios){
+      var totalRatio = colRatios.reduce(function(a,b){return a+b;}, 0);
+      var cols = colRatios.map(function(r){return contentW*(r/totalRatio);});
+      var rowH = 5.6, headerH = 6.4;
+      ensureSpace(headerH+rowH+2);
+      // Header
+      doc.setFillColor(243,244,246);
+      doc.rect(M, y, contentW, headerH, 'F');
+      doc.setFont('helvetica','bold'); doc.setFontSize(8.2); doc.setTextColor(75,85,99);
+      var cx = M+1.5;
+      headers.forEach(function(h,i){
+        doc.text(String(h), cx, y+4.3);
+        cx += cols[i];
       });
+      y += headerH;
+      doc.setFont('helvetica','normal'); doc.setFontSize(8.2); doc.setTextColor(55,65,81);
+      rows.forEach(function(row, ri){
+        ensureSpace(rowH);
+        if(ri % 2 === 1){
+          doc.setFillColor(249,250,251);
+          doc.rect(M, y, contentW, rowH, 'F');
+        }
+        cx = M+1.5;
+        row.forEach(function(cell,i){
+          var txt = String(cell == null ? '' : cell);
+          // Cell-Truncation
+          while(doc.getTextWidth(txt) > cols[i]-3 && txt.length>4){ txt = txt.slice(0, txt.length-2) + '…'; }
+          doc.text(txt, cx, y+3.8);
+          cx += cols[i];
+        });
+        y += rowH;
+      });
+      doc.setDrawColor(229,231,235); doc.setLineWidth(0.2);
+      doc.line(M, y, M+contentW, y);
+      y += 3;
     }
 
-    if(s.trocknung && (s.trocknung.gestartetAm||s.trocknung.beendetAm||(s.trocknung.geraete||[]).length||(s.trocknung.messpunkte||[]).length||(s.trocknung.fotos||[]).length)){
-      addSection('2. Trocknung',function(){
-        if(s.trocknung.gestartetAm){ensureSpace(5);doc.text('Gestartet: '+new Date(s.trocknung.gestartetAm).toLocaleDateString('de-CH'),M,y);y+=4.2;}
-        if(s.trocknung.beendetAm){ensureSpace(5);doc.text('Beendet: '+new Date(s.trocknung.beendetAm).toLocaleDateString('de-CH'),M,y);y+=4.2;}
-        // Geraete-Tabelle
-        var geraete=Array.isArray(s.trocknung.geraete)?s.trocknung.geraete:[];
-        // Live-Geraete aus Trocknungs-Modul ergaenzen
-        try{
-          if(typeof GemaTrocknung!=='undefined'){
-            var live=GemaTrocknung.getForSchaden(id)||[];
-            live.forEach(function(d){
-              var inE=d.einsatz||{};
-              var kwh=null;
-              if(inE.zaehlerStart!=null && d.kw){
-                // Aktive Geraete koennen wir nicht abschliessend rechnen — Markierung
-              }
-              geraete.push({name:d.name+' (live)',raum:inE.raum||'',kw:d.kw||0,zaehlerStart:inE.zaehlerStart,zaehlerEnde:null,_live:true});
-            });
-            // History
-            (GemaTrocknung.getHistoryForSchaden(id)||[]).forEach(function(e){
-              geraete.push({name:e.name||e.schadenTitel+' (Historie)',raum:e.raum||'',kw:0,zaehlerStart:0,zaehlerEnde:0,kwhTotal:e.kwhTotal||0,_history:true});
-            });
+    // ── Foto-Galerie 3 pro Zeile mit Rahmen + Bildunterschrift ──
+    function drawPhotoGallery(arr, label){
+      arr = Array.isArray(arr) ? arr.filter(function(p){return p && p.dataUrl;}) : [];
+      if(!arr.length) return;
+      ensureSpace(8);
+      doc.setFont('helvetica','bold'); doc.setFontSize(9.5); doc.setTextColor(15,23,42);
+      doc.text((label||'Fotos')+' ('+arr.length+')', M, y); y+=5;
+      var perRow=3, gap=4;
+      var w=(contentW - gap*(perRow-1))/perRow;
+      var h=w*0.72; // 4:3 Verhaeltnis (etwas breiter)
+      for(var i=0; i<arr.length; i+=perRow){
+        ensureSpace(h+10);
+        var rowItems = arr.slice(i, i+perRow);
+        rowItems.forEach(function(p, idx){
+          var px = M + idx*(w+gap);
+          try{ doc.addImage(p.dataUrl, 'JPEG', px, y, w, h, undefined, 'FAST'); }catch(_){}
+          // Rahmen
+          doc.setDrawColor(229,231,235); doc.setLineWidth(0.3);
+          doc.rect(px, y, w, h);
+          // Caption
+          if(p.kommentar){
+            doc.setFontSize(7); doc.setFont('helvetica','normal'); doc.setTextColor(107,114,128);
+            var cap = doc.splitTextToSize(p.kommentar, w);
+            doc.text(cap[0]||'', px, y+h+3);
+            if(cap[1]) doc.text(cap[1], px, y+h+6);
           }
-        }catch(_){}
-        if(geraete.length){
-          ensureSpace(8);
-          doc.setFont('helvetica','bold');doc.text('Geräte:',M,y);y+=4.2;
-          doc.setFont('helvetica','normal');
-          geraete.forEach(function(g){
-            ensureSpace(5);
-            var kwh=null;
-            if(g.kwhTotal!=null) kwh=g.kwhTotal;
-            else if(g.zaehlerEnde!=null && g.zaehlerStart!=null && g.kw) kwh=(g.zaehlerEnde-g.zaehlerStart)*g.kw;
-            var line='• '+g.name+(g.raum?' · '+g.raum:'')+(g.kw?' · '+g.kw+' kW':'')+(kwh!=null?' · '+kwh.toFixed(1)+' kWh':'')+(g._live?' [aktuell aktiv]':'')+(g._history?' [aus Historie]':'');
-            doc.text(line,M+2,y);y+=4.2;
-          });
-          y+=1;
-        }
-        // Messpunkt-Trend-Chart + Tabelle
-        var mp=Array.isArray(s.trocknung.messpunkte)?s.trocknung.messpunkte:[];
-        var mpWithMessungen = mp.filter(function(m){return Array.isArray(m.messungen) && m.messungen.length>0;});
-        if(mpWithMessungen.length){
-          ensureSpace(75);
-          doc.setFont('helvetica','bold');doc.setTextColor(15,23,42);
-          doc.text('Messpunkt-Trend (Restfeuchte über Zeit):',M,y);y+=4.5;
-          // Linienchart als Canvas → PNG
-          try {
-            var chartImg = _sdRenderTrendChart(mpWithMessungen);
-            if(chartImg){
-              doc.addImage(chartImg,'PNG',M,y,180,60);
-              y+=63;
-            }
-          } catch(e){}
-          y+=1;
-        }
-        if(mp.length){
-          ensureSpace(8);
-          doc.setFont('helvetica','bold');doc.setTextColor(15,23,42);doc.text('Messpunkte (Detail):',M,y);y+=4.2;
-          doc.setFont('helvetica','normal');doc.setTextColor(75,85,99);
-          mp.forEach(function(m){
-            ensureSpace(5);
-            doc.text('• '+(m.name||'-')+(Array.isArray(m.messungen)?' ('+m.messungen.length+' Messungen)':''),M+2,y);y+=4.2;
-            if(Array.isArray(m.messungen)){
-              m.messungen.forEach(function(me){
-                ensureSpace(4);
-                doc.setFontSize(8);doc.setTextColor(107,114,128);
-                doc.text('  '+(me.datum?new Date(me.datum).toLocaleDateString('de-CH'):'')+': '+(me.wert||0)+' '+(me.einheit||'Digits'),M+4,y);y+=3.6;
-                doc.setFontSize(9);doc.setTextColor(55,85,99);
-              });
-            }
-          });
-          y+=1;
-        }
-        if(s.trocknung.notizen){doc.setFont('helvetica','bold');doc.text('Notizen:',M,y);y+=4.2;doc.setFont('helvetica','normal');doc.splitTextToSize(s.trocknung.notizen,180).forEach(function(L){ensureSpace(5);doc.text(L,M,y);y+=4.2;});y+=1;}
-        addPhotos(s.trocknung.fotos,'Trocknungs-Fotos');
-      });
+        });
+        y += h + (rowItems.some(function(p){return p.kommentar;}) ? 8 : 4);
+      }
+      y += 2;
     }
 
-    if(s.abschluss && (s.abschluss.zusammenfassung||s.abschluss.instandstellung||(s.abschluss.fotos||[]).length)){
-      addSection('3. Abschluss',function(){
-        if(s.abschluss.zusammenfassung){doc.setFont('helvetica','bold');doc.text('Zusammenfassung:',M,y);y+=4.2;doc.setFont('helvetica','normal');doc.splitTextToSize(s.abschluss.zusammenfassung,180).forEach(function(L){ensureSpace(5);doc.text(L,M,y);y+=4.2;});y+=1;}
-        if(s.abschluss.instandstellung){doc.setFont('helvetica','bold');doc.text('Instandstellung:',M,y);y+=4.2;doc.setFont('helvetica','normal');doc.splitTextToSize(s.abschluss.instandstellung,180).forEach(function(L){ensureSpace(5);doc.text(L,M,y);y+=4.2;});y+=1;}
-        if(s.abschluss.weitereSchaeden){doc.setFont('helvetica','bold');doc.text('Weitere Schäden:',M,y);y+=4.2;doc.setFont('helvetica','normal');doc.splitTextToSize(s.abschluss.weitereSchaeden,180).forEach(function(L){ensureSpace(5);doc.text(L,M,y);y+=4.2;});y+=1;}
-        if(s.abschluss.abgeschlossenAm){ensureSpace(5);doc.text('Abgeschlossen am: '+new Date(s.abschluss.abgeschlossenAm).toLocaleDateString('de-CH'),M,y);y+=4.2;}
-        addPhotos(s.abschluss.fotos,'Abschluss-Fotos');
-      });
+    // ═══════════════════════════════════════
+    // SEITE 1 — COVER PAGE
+    // ═══════════════════════════════════════
+    // Logo oben links
+    var coverLogoOk = _drawLogo(M, 18, 32, 32);
+    // Firmen-Briefkopf rechts
+    doc.setFontSize(10.5); doc.setFont('helvetica','bold'); doc.setTextColor(15,23,42);
+    doc.text(org.name||'GEMA', pageW-M, 22, {align:'right'});
+    doc.setFontSize(8.5); doc.setFont('helvetica','normal'); doc.setTextColor(75,85,99);
+    var briefY=27;
+    if(org.adresse){
+      if(org.adresse.strasse){ doc.text(org.adresse.strasse, pageW-M, briefY, {align:'right'}); briefY+=4; }
+      var po=[org.adresse.plz,org.adresse.ort].filter(Boolean).join(' ');
+      if(po){ doc.text(po, pageW-M, briefY, {align:'right'}); briefY+=4; }
+    }
+    if(org.kontakt){
+      if(org.kontakt.telefon){ doc.text(org.kontakt.telefon, pageW-M, briefY, {align:'right'}); briefY+=4; }
+      if(org.kontakt.email){ doc.text(org.kontakt.email, pageW-M, briefY, {align:'right'}); briefY+=4; }
+    }
+    // Trennlinie
+    doc.setDrawColor(229,231,235); doc.setLineWidth(0.4);
+    doc.line(M, 58, pageW-M, 58);
+    // Hauptblock (vertikal zentriert auf ~Y=100)
+    var titleY = 95;
+    doc.setFontSize(11); doc.setFont('helvetica','normal'); doc.setTextColor(124,58,237);
+    doc.text('SCHADENSBERICHT', pageW/2, titleY, {align:'center'});
+    titleY += 12;
+    doc.setFontSize(22); doc.setFont('helvetica','bold'); doc.setTextColor(15,23,42);
+    var titleLines = doc.splitTextToSize(s.titel||'(ohne Titel)', contentW-10);
+    titleLines.forEach(function(L){ doc.text(L, pageW/2, titleY, {align:'center'}); titleY+=10; });
+    titleY += 4;
+    // Typ + Phase als Pillen nebeneinander
+    var pillW = 50;
+    var pillsTotal = pillW*2 + 6;
+    var pillX = (pageW - pillsTotal)/2;
+    _drawPill(pillX, titleY-3, typInfo.label.toUpperCase(), typInfo.color, pillW);
+    _drawPill(pillX+pillW+6, titleY-3, phaseInfo.label.toUpperCase(), phaseInfo.color, pillW);
+    titleY += 18;
+
+    // Stammdaten-Box (zweispaltig)
+    var boxY = 165, boxH = 50;
+    doc.setFillColor(249,250,251);
+    doc.rect(M, boxY, contentW, boxH, 'F');
+    doc.setDrawColor(229,231,235);
+    doc.rect(M, boxY, contentW, boxH);
+    var col1X = M+5, col2X = pageW/2+5;
+    doc.setFontSize(8); doc.setFont('helvetica','bold'); doc.setTextColor(107,114,128);
+    var by = boxY+7;
+    doc.text('OBJEKT', col1X, by);
+    doc.text('BEARBEITER', col2X, by);
+    by+=4.5;
+    doc.setFontSize(10); doc.setFont('helvetica','normal'); doc.setTextColor(15,23,42);
+    var objName = sdObjektName(s.objektId) || '(kein Objekt zugeordnet)';
+    doc.text(objName, col1X, by);
+    var bearbeiter = (s.erstelltVon && s.erstelltVon.name) || '—';
+    doc.text(bearbeiter, col2X, by);
+    by+=10;
+    doc.setFontSize(8); doc.setFont('helvetica','bold'); doc.setTextColor(107,114,128);
+    doc.text('ERFASST AM', col1X, by);
+    doc.text('SCHADEN-ID', col2X, by);
+    by+=4.5;
+    doc.setFontSize(10); doc.setFont('helvetica','normal'); doc.setTextColor(15,23,42);
+    doc.text(_sdPdfFmtDate(s.erstelltAm), col1X, by);
+    doc.text(s.id||'—', col2X, by);
+    by+=10;
+    if(Array.isArray(s.raeume) && s.raeume.length){
+      doc.setFontSize(8); doc.setFont('helvetica','bold'); doc.setTextColor(107,114,128);
+      doc.text('BETROFFENE RÄUME', col1X, by);
+      by+=4.5;
+      doc.setFontSize(9); doc.setFont('helvetica','normal'); doc.setTextColor(15,23,42);
+      var raeumeTxt = s.raeume.map(function(r){return typeof r==='string'?r:(r.name||r.bezeichnung||'');}).filter(Boolean).join(' · ');
+      doc.text(raeumeTxt, col1X, by, {maxWidth: contentW-10});
     }
 
-    // Page numbers
-    var totalPages=doc.internal.getNumberOfPages();
-    for(var p=1;p<=totalPages;p++){
+    // Versicherungs-Box (wenn Daten vorhanden)
+    if(s.versicherung && (s.versicherung.name||s.versicherung.policeNr||s.versicherung.schadenNr||s.versicherung.kontakt)){
+      var vY = boxY + boxH + 10;
+      doc.setFillColor(238,242,255); // helles indigo
+      doc.setDrawColor(199,210,254);
+      doc.rect(M, vY, contentW, 30, 'FD');
+      doc.setFontSize(8); doc.setFont('helvetica','bold'); doc.setTextColor(67,56,202);
+      doc.text('VERSICHERUNG', M+5, vY+6);
+      doc.setFontSize(10.5); doc.setFont('helvetica','bold'); doc.setTextColor(15,23,42);
+      doc.text(s.versicherung.name||'—', M+5, vY+12);
+      doc.setFontSize(9); doc.setFont('helvetica','normal'); doc.setTextColor(55,65,81);
+      var vLine = [];
+      if(s.versicherung.policeNr) vLine.push('Police: '+s.versicherung.policeNr);
+      if(s.versicherung.schadenNr) vLine.push('Schaden-Nr.: '+s.versicherung.schadenNr);
+      if(vLine.length) doc.text(vLine.join('   ·   '), M+5, vY+18);
+      if(s.versicherung.kontakt) doc.text('Kontakt: '+s.versicherung.kontakt, M+5, vY+24);
+    }
+
+    // Cover-Footer ohne Linie
+    doc.setFontSize(7.5); doc.setFont('helvetica','normal'); doc.setTextColor(156,163,175);
+    doc.text('PDF erstellt: '+_sdPdfFmtDateTime(pdfErstelltAt), M, pageH-10);
+    doc.text('Seite 1', pageW-M, pageH-10, {align:'right'});
+
+    // ═══════════════════════════════════════
+    // SEITE 2 — INHALTSVERZEICHNIS (Platzhalter)
+    // ═══════════════════════════════════════
+    doc.addPage();
+    _startContentPage();
+    var tocStartY = y;
+    doc.setFontSize(14); doc.setFont('helvetica','bold'); doc.setTextColor(15,23,42);
+    doc.text('Inhaltsverzeichnis', M, y); y+=8;
+    doc.setDrawColor(229,231,235); doc.setLineWidth(0.4);
+    doc.line(M, y-2, pageW-M, y-2);
+    // Platzhalter: wird ganz am Ende mit echten Daten gefuellt
+    var tocReserveYStart = y;
+
+    // ═══════════════════════════════════════
+    // SEITE 3+ — INHALT
+    // ═══════════════════════════════════════
+    doc.addPage(); _startContentPage();
+
+    // Allgemeine Beschreibung / Ursache
+    if(s.beschreibung || s.ursache){
+      drawSectionBand('0', 'Übersicht', [107,114,128]);
+      if(s.beschreibung) drawParagraph('Beschreibung', s.beschreibung);
+      if(s.ursache)      drawParagraph('Ursache', s.ursache);
+    }
+
+    // Phase 1 — Zustandsanalyse
+    var za = s.zustandsanalyse;
+    if(za && (za.leckortung||za.schadenausmass||(za.massnahmen||[]).length||(za.fotos||[]).length)){
+      drawSectionBand('1', 'Zustandsanalyse', _PDF_PHASE_INFO.analyse.color);
+      if(za.leckortung)     drawParagraph('Leckortung', za.leckortung);
+      if(za.schadenausmass) drawParagraph('Schadenausmass', za.schadenausmass);
+      if(Array.isArray(za.massnahmen) && za.massnahmen.length){
+        ensureSpace(8);
+        doc.setFont('helvetica','bold'); doc.setFontSize(9.5); doc.setTextColor(15,23,42);
+        doc.text('Massnahmen', M, y); y+=5;
+        var mnRows = za.massnahmen.map(function(m){
+          var prio = (m.prioritaet||'mittel');
+          var stat = m.erledigt ? 'erledigt' : 'offen';
+          var beschr = typeof m === 'string' ? m : (m.beschreibung||m.text||'');
+          return [beschr, prio, stat];
+        });
+        drawTable(['Beschreibung','Prio','Status'], mnRows, [6, 1, 1]);
+      }
+      if(za.abgeschlossenAm){
+        ensureSpace(5);
+        doc.setFontSize(8); doc.setFont('helvetica','italic'); doc.setTextColor(107,114,128);
+        doc.text('Phase abgeschlossen am: '+_sdPdfFmtDate(za.abgeschlossenAm), M, y); y+=5;
+      }
+      drawPhotoGallery(za.fotos, 'Analyse-Fotos');
+    }
+
+    // Phase 2 — Trocknung
+    var tr = s.trocknung;
+    if(tr && (tr.gestartetAm||tr.beendetAm||(tr.geraete||[]).length||(tr.messpunkte||[]).length||(tr.fotos||[]).length||tr.notizen)){
+      drawSectionBand('2', 'Trocknung', _PDF_PHASE_INFO.trocknung.color);
+      var trMeta = [];
+      if(tr.gestartetAm) trMeta.push('Gestartet: '+_sdPdfFmtDate(tr.gestartetAm));
+      if(tr.beendetAm)   trMeta.push('Beendet: '+_sdPdfFmtDate(tr.beendetAm));
+      if(trMeta.length){
+        ensureSpace(5);
+        doc.setFont('helvetica','normal'); doc.setFontSize(9); doc.setTextColor(55,65,81);
+        doc.text(trMeta.join('     '), M, y); y+=5;
+      }
+      // Geraete sammeln (eigene + live + history)
+      var geraete=Array.isArray(tr.geraete)?tr.geraete.slice():[];
+      try{
+        if(typeof GemaTrocknung !== 'undefined'){
+          (GemaTrocknung.getForSchaden(id)||[]).forEach(function(d){
+            var inE=d.einsatz||{};
+            geraete.push({name:d.name,raum:inE.raum||'',kw:d.kw||0,zaehlerStart:inE.zaehlerStart,zaehlerEnde:null,_live:true});
+          });
+          (GemaTrocknung.getHistoryForSchaden(id)||[]).forEach(function(e){
+            geraete.push({name:e.geraetName||'-',raum:e.raum||'',kw:e.kw||0,zaehlerStart:e.zaehlerStart,zaehlerEnde:e.zaehlerEnde,kwhTotal:e.kwhTotal,betriebsstunden:e.betriebsstunden,_history:true});
+          });
+        }
+      }catch(_){}
+      if(geraete.length){
+        ensureSpace(10);
+        doc.setFont('helvetica','bold'); doc.setFontSize(9.5); doc.setTextColor(15,23,42);
+        doc.text('Geräte', M, y); y+=5;
+        var totKwh = 0, totHours = 0;
+        var rows = geraete.map(function(g){
+          var kwh=null, hours=null;
+          if(g.kwhTotal != null) kwh = g.kwhTotal;
+          else if(g.zaehlerEnde!=null && g.zaehlerStart!=null && g.kw){
+            hours = g.zaehlerEnde - g.zaehlerStart;
+            kwh = hours * g.kw;
+          }
+          if(g.betriebsstunden != null) hours = g.betriebsstunden;
+          if(kwh != null) totKwh += kwh;
+          if(hours != null) totHours += hours;
+          var statusTag = g._live ? '● aktiv' : (g._history ? 'Historie' : '');
+          return [
+            g.name||'-',
+            g.raum||'—',
+            g.kw ? g.kw.toFixed(2)+' kW' : '—',
+            hours != null ? hours.toFixed(1)+' h' : '—',
+            kwh != null ? kwh.toFixed(1)+' kWh' : '—',
+            statusTag
+          ];
+        });
+        drawTable(['Name','Raum','Leistung','Stunden','Energie','Status'], rows, [3, 2.5, 1.6, 1.4, 1.6, 1.4]);
+        if(totKwh > 0 || totHours > 0){
+          ensureSpace(7);
+          doc.setFillColor(238,242,255);
+          doc.rect(M, y, contentW, 6, 'F');
+          doc.setFont('helvetica','bold'); doc.setFontSize(9); doc.setTextColor(67,56,202);
+          doc.text('Summe', M+2, y+4);
+          doc.text(totHours.toFixed(1)+' h   ·   '+totKwh.toFixed(1)+' kWh', pageW-M-2, y+4, {align:'right'});
+          y += 9;
+        }
+      }
+      // Messpunkte
+      var mp=Array.isArray(tr.messpunkte)?tr.messpunkte:[];
+      var mpWithMessungen = mp.filter(function(m){return Array.isArray(m.messungen) && m.messungen.length>0;});
+      if(mpWithMessungen.length){
+        ensureSpace(80);
+        doc.setFont('helvetica','bold'); doc.setFontSize(9.5); doc.setTextColor(15,23,42);
+        doc.text('Messpunkt-Trend', M, y); y+=5;
+        try{
+          var chartImg = _sdRenderTrendChart(mpWithMessungen);
+          if(chartImg){
+            doc.addImage(chartImg, 'PNG', M, y, contentW, 60);
+            y += 63;
+          }
+        }catch(e){}
+      }
+      mp.forEach(function(m){
+        if(!Array.isArray(m.messungen) || !m.messungen.length) return;
+        ensureSpace(10);
+        doc.setFont('helvetica','bold'); doc.setFontSize(9); doc.setTextColor(55,65,81);
+        // Min/Max-Indikator
+        var vals = m.messungen.map(function(me){ return parseFloat(me.wert)||0; });
+        var minV = Math.min.apply(null, vals);
+        var maxV = Math.max.apply(null, vals);
+        var lastV = vals[vals.length-1];
+        var firstV = vals[0];
+        var delta = lastV - firstV;
+        doc.text('Messpunkt: '+(m.name||'—')+'   (min '+minV+' · max '+maxV+' · Δ '+(delta>=0?'+':'')+delta.toFixed(1)+' Digits)', M, y); y+=4.5;
+        var prevV = null;
+        var rows = m.messungen.map(function(me){
+          var w = parseFloat(me.wert)||0;
+          var diff = prevV==null ? '' : ((w-prevV>=0?'+':'') + (w-prevV).toFixed(1));
+          var trend = prevV==null ? '' : (w>prevV ? '↑' : (w<prevV ? '↓' : '→'));
+          prevV = w;
+          return [_sdPdfFmtDate(me.datum), w+' '+(me.einheit||'Digits'), diff, trend];
+        });
+        drawTable(['Datum','Wert','Δ','Trend'], rows, [2, 2, 1, 0.7]);
+      });
+      if(tr.notizen) drawParagraph('Notizen', tr.notizen);
+      drawPhotoGallery(tr.fotos, 'Trocknungs-Fotos');
+    }
+
+    // Phase 3 — Abschluss
+    var ab = s.abschluss;
+    if(ab && (ab.zusammenfassung||ab.instandstellung||ab.weitereSchaeden||(ab.fotos||[]).length)){
+      drawSectionBand('3', 'Abschlussbericht', _PDF_PHASE_INFO.abschluss.color);
+      if(ab.zusammenfassung)  drawParagraph('Zusammenfassung', ab.zusammenfassung);
+      if(ab.instandstellung)  drawParagraph('Instandstellung', ab.instandstellung);
+      if(ab.weitereSchaeden)  drawParagraph('Weitere Schäden / Folgekosten', ab.weitereSchaeden);
+      if(ab.abgeschlossenAm){
+        ensureSpace(5);
+        doc.setFontSize(8); doc.setFont('helvetica','italic'); doc.setTextColor(107,114,128);
+        doc.text('Phase abgeschlossen am: '+_sdPdfFmtDate(ab.abgeschlossenAm), M, y); y+=5;
+      }
+      drawPhotoGallery(ab.fotos, 'Abschluss-Fotos');
+    }
+
+    // ═══════════════════════════════════════
+    // TOC NACHTRAEGLICH AUF SEITE 2 FUELLEN
+    // ═══════════════════════════════════════
+    var totalPages = doc.internal.getNumberOfPages();
+    doc.setPage(2);
+    y = tocReserveYStart;
+    if(sectionsTOC.length){
+      sectionsTOC.forEach(function(sec){
+        doc.setFontSize(10); doc.setFont('helvetica','normal'); doc.setTextColor(15,23,42);
+        doc.text(sec.label, M, y);
+        // Punktierte Linie zum Seitenrand
+        var labelW = doc.getTextWidth(sec.label);
+        var dotsStart = M + labelW + 3;
+        var dotsEnd = pageW - M - doc.getTextWidth(String(sec.pageNum)) - 2;
+        doc.setTextColor(203,213,224);
+        var dotChar='. ';
+        var dotsW = doc.getTextWidth(dotChar);
+        var nDots = Math.max(0, Math.floor((dotsEnd-dotsStart)/dotsW));
+        if(nDots>0) doc.text(new Array(nDots+1).join(dotChar), dotsStart, y);
+        doc.setTextColor(15,23,42);
+        doc.text(String(sec.pageNum), pageW-M, y, {align:'right'});
+        y += 7;
+      });
+    } else {
+      doc.setFontSize(9); doc.setFont('helvetica','italic'); doc.setTextColor(107,114,128);
+      doc.text('(Noch keine Inhalte erfasst)', M, y);
+    }
+
+    // ═══════════════════════════════════════
+    // FOOTER + HEADER AUF ALLEN SEITEN (außer Cover)
+    // ═══════════════════════════════════════
+    for(var p=2; p<=totalPages; p++){
       doc.setPage(p);
-      doc.setFontSize(8);doc.setFont('helvetica','normal');doc.setTextColor(156,163,175);
-      doc.text('Seite '+p+' / '+totalPages,195,pageH-7,{align:'right'});
+      _drawContentFooter(p, totalPages);
     }
+
     var fname='Schadensbericht_'+(s.titel||s.id||'Schaden').replace(/[^a-z0-9]+/gi,'_')+'_'+new Date().toISOString().slice(0,10)+'.pdf';
     doc.save(fname);
   });
