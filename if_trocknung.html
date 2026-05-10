@@ -491,7 +491,7 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
         </div>
         <div class="fg">
           <label>Gerätetyp <span class="req">*</span></label>
-          <select id="f_typ">
+          <select id="f_typ" onchange="if(typeof _tgClearFieldErrors==='function')_tgClearFieldErrors()">
             <option value="">— Typ wählen —</option>
             <option value="bautrockner">🌡️ Bautrockner</option>
             <option value="adsorption">🌫️ Adsorptionsentfeuchter</option>
@@ -1208,11 +1208,46 @@ function updateServiceToggle() {
   body.style.display = on ? '' : 'none';
 }
 
+// Inline-Validation: rotes Border + Scroll zum fehlenden Feld.
+// Vorher wurden hier alert()-Dialoge verwendet; auf iOS Safari kann
+// ein alert in einem geoeffneten Modal unsichtbar bleiben — Folge:
+// Speichern-Klick wirkte ohne Reaktion.
+function _tgClearFieldErrors(){
+  ['f_typ','f_name'].forEach(function(id){
+    var el=document.getElementById(id);
+    if(el){el.style.borderColor='';el.style.boxShadow='';}
+  });
+  var existing=document.getElementById('tgFormError');
+  if(existing) existing.remove();
+}
+function _tgFieldError(id, msg){
+  var el=document.getElementById(id);
+  if(el){
+    el.style.borderColor='#dc2626';
+    el.style.boxShadow='0 0 0 3px rgba(220,38,38,.12)';
+    try{el.scrollIntoView({behavior:'smooth',block:'center'});}catch(e){}
+    setTimeout(function(){try{el.focus();}catch(e){}},250);
+  }
+  // Banner ueber dem Modal-Footer
+  var modalBody=document.querySelector('#addModal .modal-body');
+  var existing=document.getElementById('tgFormError');
+  if(!existing && modalBody){
+    var div=document.createElement('div');
+    div.id='tgFormError';
+    div.style.cssText='margin:10px 0 0;padding:10px 14px;background:#fef2f2;border:1.5px solid #fecaca;border-radius:10px;color:#991b1b;font-size:13px;font-weight:600';
+    div.textContent='⚠ '+msg;
+    modalBody.appendChild(div);
+  } else if(existing){
+    existing.textContent='⚠ '+msg;
+  }
+}
+
 window.saveDevice = function() {
+  _tgClearFieldErrors();
   var typ = document.getElementById('f_typ').value;
   var name = document.getElementById('f_name').value.trim();
-  if (!typ) { alert('Bitte einen Gerätetyp wählen.'); return; }
-  if (!name) { alert('Bitte eine Bezeichnung eingeben.'); return; }
+  if (!typ) { _tgFieldError('f_typ','Bitte einen Gerätetyp wählen.'); return; }
+  if (!name) { _tgFieldError('f_name','Bitte eine Bezeichnung eingeben.'); return; }
 
   var u = _tgGetUser();
   var d;
