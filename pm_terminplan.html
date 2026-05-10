@@ -204,6 +204,10 @@ input::placeholder,textarea::placeholder{color:#cbd5e1 !important;}
 /* ── FRAPPE OVERRIDES ── */
 .gantt .bar-label{font-size:11px;font-weight:700;}
 .gantt .handle{display:none !important;}
+/* Inline-edit cells in der Listen-Tabelle: dezenter Hover-Hint */
+td.inline-edit{transition:background .12s}
+td.inline-edit:hover{background:#fffbeb}
+td.inline-edit:hover::after{content:" ✏";opacity:.5;margin-left:4px;font-size:10px}
 .gantt .bar-progress{rx:4px;ry:4px;}
 .gantt .grid-header{fill:#f8fafc !important;}
 .gantt .header-background{fill:#f8fafc !important;}
@@ -1716,8 +1720,8 @@ function renderTable(){
         <div><div class="task-title">${nameH}</div>${notesH?`<div class="task-sub">${notesH}</div>`:""}</div>
       </div></td>
       <td><span class="cat-badge"><div class="cat-badge-dot" style="background:${cat.color};"></div>${escH(cat.name)}</span></td>
-      <td style="color:var(--muted2);font-size:12.5px;">${escH(t.owner||"—")}</td>
-      <td style="font-family:var(--mono);font-size:12px;">${t.start}<br><span style="color:var(--muted);">→ ${t.end}</span></td>
+      <td class="inline-edit" data-field="owner" data-id="${t.id}" title="Klick zum Bearbeiten" style="color:var(--muted2);font-size:12.5px;cursor:pointer">${escH(t.owner||"—")}</td>
+      <td class="inline-edit" data-field="dates" data-id="${t.id}" title="Klick zum Bearbeiten" style="font-family:var(--mono);font-size:12px;cursor:pointer">${t.start}<br><span style="color:var(--muted);">→ ${t.end}</span></td>
       <td class="r" style="font-size:12px;">${dur}</td>
       <td><span class="status-badge ${st}">${stLabel}</span></td>
       <td class="no-print">
@@ -1729,7 +1733,63 @@ function renderTable(){
     tr.querySelectorAll("button[data-act]").forEach(btn=>{
       btn.addEventListener("click",()=>{ const id=btn.dataset.id; if(btn.dataset.act==="edit") openEdit(id); else deleteTask(id); });
     });
+    tr.querySelectorAll(".inline-edit").forEach(cell=>{
+      cell.addEventListener("click", _onInlineEditClick);
+    });
     tbody.appendChild(tr);
+  });
+}
+
+// ── Inline-Edit fuer Owner und Datum-Range ──
+// Wandelt eine Tabellen-Zelle in ein Input um, speichert bei Blur/Enter,
+// abbricht bei Escape. Geht zurueck zur normalen Anzeige nach
+// renderAll(). Owner bekommt eine datalist mit allen bisherigen Owner-
+// Namen als Vorschlag.
+function _onInlineEditClick(ev){
+  ev.stopPropagation();
+  const cell=ev.currentTarget;
+  if(cell.querySelector("input")) return; // schon im Edit-Mode
+  const id=cell.dataset.id, field=cell.dataset.field;
+  const t=state.tasks.find(x=>x.id===id);
+  if(!t) return;
+  if(field==="owner") _inlineEditOwner(cell, t);
+  else if(field==="dates") _inlineEditDates(cell, t);
+}
+function _inlineEditOwner(cell, t){
+  const datalistId="owners_"+t.id;
+  const owners=[...new Set(state.tasks.map(x=>x.owner||"").filter(Boolean))].sort();
+  cell.innerHTML='<input type="text" class="inline-edit-input" list="'+datalistId+'" value="'+escH(t.owner||"")+'" style="width:100%;padding:4px 6px;border:1.5px solid var(--accent);border-radius:6px;font-size:12.5px;font-family:inherit"/><datalist id="'+datalistId+'">'+owners.map(o=>'<option value="'+escH(o)+'"></option>').join('')+'</datalist>';
+  const inp=cell.querySelector("input");
+  inp.focus(); inp.select();
+  function save(){ t.owner=inp.value.trim(); saveState(false); renderAll(); }
+  function cancel(){ renderAll(); }
+  inp.addEventListener("keydown",e=>{ if(e.key==="Enter"){save();}else if(e.key==="Escape"){cancel();} });
+  inp.addEventListener("blur",save);
+}
+function _inlineEditDates(cell, t){
+  const isMil=isMilestone(t);
+  cell.innerHTML='<div style="display:flex;flex-direction:column;gap:3px"><input type="date" class="inline-edit-input" data-which="start" value="'+t.start+'" style="padding:3px 5px;border:1.5px solid var(--accent);border-radius:6px;font-size:11px;font-family:inherit"/>'+
+    (isMil?'':'<input type="date" class="inline-edit-input" data-which="end" value="'+t.end+'" style="padding:3px 5px;border:1.5px solid var(--accent);border-radius:6px;font-size:11px;font-family:inherit"/>')+'</div>';
+  const inps=cell.querySelectorAll("input");
+  inps[0].focus();
+  function save(){
+    const sNew=inps[0].value;
+    const eNew=isMil?sNew:(inps[1]?inps[1].value:t.end);
+    if(!sNew){ renderAll(); return; }
+    if(eNew && eNew<sNew){ alert("Enddatum darf nicht vor Startdatum liegen."); return; }
+    t.start=snapStartForward(sNew);
+    t.end=isMil?t.start:snapEndBackward(eNew);
+    saveState(false); renderAll();
+  }
+  function cancel(){ renderAll(); }
+  inps.forEach(inp=>{
+    inp.addEventListener("keydown",e=>{ if(e.key==="Enter"){save();}else if(e.key==="Escape"){cancel();} });
+    inp.addEventListener("blur", function(){
+      // Wenn der Fokus zwischen den zwei Date-Inputs wechselt, nicht speichern
+      setTimeout(function(){
+        if(!cell.contains(document.activeElement)) save();
+      },50);
+    });
   });
 }
 
