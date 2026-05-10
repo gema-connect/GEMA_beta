@@ -797,8 +797,12 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
 
 <!-- GERÄT ADD MODAL -->
 <div class="modal-bg hidden" id="devAddModal">
-  <div class="dlg-card" style="max-width:500px">
+  <div class="dlg-card" style="max-width:560px">
     <div style="font-size:16px;font-weight:800;margin-bottom:12px">⚡ Trocknungsgerät hinzufügen</div>
+    <!-- Auswahl aus Geraeteverwaltung: zeigt verfuegbare Geraete der
+         eigenen Org. Klick fuellt Name/kW/Typ aus + setzt im Geraete-
+         Modul den Status auf 'im_einsatz' (mit Verknuepfung zum Schaden). -->
+    <div id="devPickerWrap" style="margin-bottom:14px"></div>
     <div style="display:flex;flex-direction:column;gap:12px">
       <div>
         <label class="dlg-lbl">Name <span style="color:var(--red)">*</span></label>
@@ -818,6 +822,7 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
           <input type="text" inputmode="decimal" class="dlg-inp" id="devStart" placeholder="0" onblur="fixLeadingZero(this)">
         </div>
       </div>
+      <input type="hidden" id="devLinkedTgId" value="">
     </div>
     <div class="dlg-row">
       <button class="dlg-cancel" onclick="document.getElementById('devAddModal').classList.add('hidden')">Abbrechen</button>
@@ -1362,9 +1367,10 @@ function sdRenderAccordion(key, icon, label, phaseIdx, contentFn) {
   var idx = (PHASEN[key] || { idx: 99 }).idx;
   var isActive = idx === phaseIdx;
   var isDone = idx < phaseIdx;
-  var isFuture = idx > phaseIdx;
+  // Alle Phasen sind klickbar — auch zukuenftige und abgeschlossene
+  // koennen aufgeklappt und bearbeitet werden. Der Status-Badge zeigt
+  // weiterhin den formalen Phasen-Stand an.
   var cls = isActive ? 'acc open' : 'acc';
-  if (isFuture) cls += ' disabled';
   var statusHtml = '';
   if (isDone) statusHtml = '<span class="acc-status badge-ok" style="background:var(--grn-bg);color:var(--grn)">✓ Abgeschlossen</span>';
   else if (isActive) statusHtml = '<span class="acc-status badge-plan" style="background:var(--plan-bg);color:var(--plan)">Aktiv</span>';
@@ -1384,9 +1390,7 @@ function sdRenderAccordion(key, icon, label, phaseIdx, contentFn) {
 
 function sdToggleAcc(key) {
   var el = document.getElementById('acc_' + key);
-  if (el && !el.classList.contains('disabled')) {
-    el.classList.toggle('open');
-  }
+  if (el) el.classList.toggle('open');
 }
 
 // ── PHASE 1: ERFASSUNG ──
@@ -1430,7 +1434,9 @@ function sdRenderErfassung(s, canEdit) {
 // ── PHASE 2: ANALYSE ──
 function sdRenderAnalyse(s, canEdit) {
   var a = s.zustandsanalyse || {};
-  var editable = canEdit && (s.phase === 'erfasst' || s.phase === 'analyse');
+  // Editierbar fuer alle Berechtigten — Phasen koennen auch nach
+  // Abschluss noch bearbeitet werden.
+  var editable = canEdit;
   var h = '';
 
   // Leckortung
@@ -1533,7 +1539,9 @@ function sdDelMn(id, idx) {
 // ── PHASE 3: TROCKNUNG ──
 function sdRenderTrocknung(s, canEdit, canMeas) {
   var tr = s.trocknung || {};
-  var editable = (canEdit || canMeas) && (s.phase === 'trocknung');
+  // Editierbar fuer alle Berechtigten unabhaengig von der aktuellen
+  // Phase — auch abgeschlossene Trocknungen lassen sich noch nachtragen.
+  var editable = (canEdit || canMeas);
   var h = '';
 
   // Dates
@@ -1805,35 +1813,189 @@ function sdSetMeasView(mpId, view, schadenId) {
 }
 
 // ── GERÄTE ──
+// Liest verfuegbare Trocknungsgeraete der eigenen Org direkt aus
+// localStorage (gema_trocknung_v1 — gleicher Storage-Pool wie
+// if_trocknung.html / GemaTrocknung-API).
+function _sdLoadAvailableTgDevices(){
+  var raw = null;
+  try {
+    if(typeof _GemaDB!=='undefined' && _GemaDB.c) raw = _GemaDB.c['gema_trocknung_v1'];
+    if(raw==null) raw = localStorage.getItem('gema_trocknung_v1');
+  } catch(e){}
+  var all = [];
+  try { all = JSON.parse(raw||'[]'); } catch(e){ all = []; }
+  if(!Array.isArray(all)) return [];
+  var u = (typeof GemaAuth!=='undefined') ? GemaAuth.getCurrentUser() : null;
+  var orgId = u && u.orgId ? u.orgId : '';
+  return all.filter(function(d){
+    if(orgId && d.orgId && d.orgId !== orgId) return false;
+    return d.status === 'verfuegbar';
+  });
+}
+function _sdRenderDevPicker(schadenId){
+  var wrap = document.getElementById('devPickerWrap');
+  if(!wrap) return;
+  var devices = _sdLoadAvailableTgDevices();
+  var TYP_ICONS = {bautrockner:'🌡️',adsorption:'🌫️',unterdruck:'🌪️',ventilator:'🌀',luftentfeuchter:'💨',infrarot:'☀️',messgeraet:'📊'};
+  var head = '<div style="font-size:11.5px;font-weight:800;text-transform:uppercase;color:var(--mut);margin-bottom:6px">📦 Aus Geräteverwaltung wählen</div>';
+  if(!devices.length){
+    wrap.innerHTML = head
+      + '<div style="padding:10px 12px;background:var(--bg2);border:1px dashed var(--brd2);border-radius:8px;font-size:12px;color:var(--mut);line-height:1.5">'
+      + 'Keine verfügbaren Geräte. Erfasse Geräte in <a href="if_trocknung.html" style="color:var(--plan);font-weight:700;text-decoration:none">Trocknungsgeräte</a> oder erfasse das Gerät unten manuell.'
+      + '</div>';
+    return;
+  }
+  var html = head
+    + '<div style="display:flex;flex-direction:column;gap:6px;max-height:200px;overflow-y:auto;border:1px solid var(--brd);border-radius:8px;padding:6px;background:var(--sur)">';
+  devices.forEach(function(d){
+    var ic = TYP_ICONS[d.typ] || '⚡';
+    var meta = [d.marke, d.modell].filter(Boolean).join(' · ');
+    var kwStr = d.kw ? d.kw + ' kW' : '—';
+    html += '<button type="button" class="sd-dev-pick" data-id="' + esc(d.id) + '" '
+         +  'style="display:flex;align-items:center;gap:10px;padding:8px 10px;border:1.5px solid var(--brd);background:var(--sur);border-radius:8px;cursor:pointer;text-align:left;transition:.12s;font-family:inherit">'
+         +  '<span style="font-size:18px;flex-shrink:0">' + ic + '</span>'
+         +  '<div style="flex:1;min-width:0;overflow:hidden">'
+         +  '<div style="font-size:13px;font-weight:700;color:var(--txt);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(d.name||'—') + '</div>'
+         +  '<div style="font-size:11px;color:var(--mut);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(meta || '—') + ' · ' + kwStr + '</div>'
+         +  '</div></button>';
+  });
+  html += '</div>';
+  wrap.innerHTML = html;
+  Array.prototype.forEach.call(wrap.querySelectorAll('.sd-dev-pick'), function(btn){
+    btn.addEventListener('click', function(){
+      var id = btn.getAttribute('data-id');
+      var dev = devices.find(function(x){ return x.id === id; });
+      if(!dev) return;
+      // Felder befuellen
+      document.getElementById('devName').value = dev.name || '';
+      document.getElementById('devKw').value = dev.kw || '';
+      // Raum bleibt frei — User vergibt den Raumnamen pro Schaden
+      document.getElementById('devLinkedTgId').value = dev.id;
+      // Visuelle Bestaetigung
+      Array.prototype.forEach.call(wrap.querySelectorAll('.sd-dev-pick'), function(b){
+        b.style.borderColor = 'var(--brd)';
+        b.style.background = 'var(--sur)';
+      });
+      btn.style.borderColor = 'var(--plan)';
+      btn.style.background = 'var(--plan-bg)';
+    });
+  });
+}
+
 function sdOpenDevAdd(id) {
   document.getElementById('devName').value = '';
   document.getElementById('devRaum').value = '';
   document.getElementById('devKw').value = '';
   document.getElementById('devStart').value = '0';
+  document.getElementById('devLinkedTgId').value = '';
+  _sdRenderDevPicker(id);
   document.getElementById('devAddModal').classList.remove('hidden');
   document.getElementById('devAddModal').dataset.schadenId = id;
 }
+
+// Setzt im Trocknungs-Modul (gema_trocknung_v1) das Geraet auf
+// 'im_einsatz' und verknuepft es mit dem Schaden — analog zu
+// if_trocknung.html → openEinsatz.
+function _sdMarkTgDeviceInUse(tgId, schaden, raum, zaehlerStart){
+  var raw = null;
+  try {
+    if(typeof _GemaDB!=='undefined' && _GemaDB.c) raw = _GemaDB.c['gema_trocknung_v1'];
+    if(raw==null) raw = localStorage.getItem('gema_trocknung_v1');
+  } catch(e){}
+  var all = [];
+  try { all = JSON.parse(raw||'[]'); } catch(e){}
+  if(!Array.isArray(all)) return;
+  var idx = all.findIndex(function(d){ return d.id === tgId; });
+  if(idx<0) return;
+  var u = (typeof GemaAuth!=='undefined') ? GemaAuth.getCurrentUser() : null;
+  all[idx].einsatz = {
+    schadenId: schaden.id,
+    schadenTitel: schaden.titel || '',
+    objektId: schaden.objektId || '',
+    objektName: sdObjektName(schaden.objektId) || '',
+    raum: raum || '',
+    eingesetztAm: sdToday(),
+    eingesetztVon: { userId: u ? u.id : '', name: u ? (u.name||'') : '' },
+    zaehlerStart: zaehlerStart || 0
+  };
+  all[idx].status = 'im_einsatz';
+  var json = JSON.stringify(all);
+  try {
+    if(typeof _GemaDB!=='undefined' && _GemaDB.save) _GemaDB.save('gema_trocknung_v1', json);
+  } catch(e){}
+  try { localStorage.setItem('gema_trocknung_v1', json); } catch(e){}
+  // Cross-Modul-Event fuer if_trocknung-Tab
+  try { window.dispatchEvent(new CustomEvent('gema-trocknung-updated', { detail:{ts:new Date().toISOString()}})); } catch(e){}
+}
+// Umgekehrt: Geraet wieder freigeben (Status verfuegbar), Einsatz-
+// Historie ergaenzen. Wird beim sdDelDev aufgerufen, wenn ein
+// verknuepftes TG-Geraet entfernt wird.
+function _sdReleaseTgDevice(tgId, geraet){
+  var raw = null;
+  try {
+    if(typeof _GemaDB!=='undefined' && _GemaDB.c) raw = _GemaDB.c['gema_trocknung_v1'];
+    if(raw==null) raw = localStorage.getItem('gema_trocknung_v1');
+  } catch(e){}
+  var all = [];
+  try { all = JSON.parse(raw||'[]'); } catch(e){}
+  if(!Array.isArray(all)) return;
+  var idx = all.findIndex(function(d){ return d.id === tgId; });
+  if(idx<0) return;
+  var d = all[idx];
+  if(d.einsatz){
+    if(!Array.isArray(d.einsatzHistorie)) d.einsatzHistorie = [];
+    var hist = JSON.parse(JSON.stringify(d.einsatz));
+    hist.zurueckAm = sdToday();
+    hist.zaehlerEnde = (geraet && geraet.zaehlerEnde) || hist.zaehlerStart || 0;
+    var hours = (hist.zaehlerEnde||0) - (hist.zaehlerStart||0); if(hours<0)hours=0;
+    var kwh = hours * (d.kw||0);
+    hist.betriebsstunden = Math.round(hours*100)/100;
+    hist.kwhTotal = Math.round(kwh*100)/100;
+    d.einsatzHistorie.push(hist);
+    d.einsatz = null;
+    d.status = 'verfuegbar';
+  }
+  var json = JSON.stringify(all);
+  try { if(typeof _GemaDB!=='undefined' && _GemaDB.save) _GemaDB.save('gema_trocknung_v1', json); } catch(e){}
+  try { localStorage.setItem('gema_trocknung_v1', json); } catch(e){}
+  try { window.dispatchEvent(new CustomEvent('gema-trocknung-updated', { detail:{ts:new Date().toISOString()}})); } catch(e){}
+}
+
 function sdAddGeraet() {
   var id = document.getElementById('devAddModal').dataset.schadenId;
   var s = sdGetById(id); if (!s) return;
   var name = document.getElementById('devName').value.trim();
   if (!name) { alert('Bitte Gerätename eingeben.'); return; }
+  var linkedTgId = (document.getElementById('devLinkedTgId')||{}).value || '';
   if (!s.trocknung) s.trocknung = { gestartetAm: null, beendetAm: null, messpunkte: [], geraete: [], fotos: [], notizen: '' };
+  var raum = document.getElementById('devRaum').value.trim();
+  var kw = parseFloat(document.getElementById('devKw').value) || 0;
+  var zaehlerStart = parseFloat(document.getElementById('devStart').value) || 0;
   s.trocknung.geraete.push({
     id: 'dev_' + Date.now(),
     name: name,
-    raum: document.getElementById('devRaum').value.trim(),
-    kw: parseFloat(document.getElementById('devKw').value) || 0,
-    zaehlerStart: parseFloat(document.getElementById('devStart').value) || 0,
-    zaehlerEnde: null
+    raum: raum,
+    kw: kw,
+    zaehlerStart: zaehlerStart,
+    zaehlerEnde: null,
+    tgDeviceId: linkedTgId || null
   });
   sdSave();
+  // Wenn aus der Geraeteverwaltung gewaehlt: dort ebenfalls einsetzen
+  if(linkedTgId){
+    try { _sdMarkTgDeviceInUse(linkedTgId, s, raum, zaehlerStart); } catch(e){ console.warn('[sd] mark in use', e); }
+  }
   document.getElementById('devAddModal').classList.add('hidden');
   sdRenderDetail(s);
 }
 function sdDelDev(id, idx) {
   if (!confirm('Gerät entfernen?')) return;
   var s = sdGetById(id); if (!s || !s.trocknung) return;
+  var g = s.trocknung.geraete[idx];
+  // Wenn Geraet aus Verwaltung kam → dort wieder freigeben
+  if(g && g.tgDeviceId){
+    try { _sdReleaseTgDevice(g.tgDeviceId, g); } catch(e){ console.warn('[sd] release', e); }
+  }
   s.trocknung.geraete.splice(idx, 1);
   sdSave();
   sdRenderDetail(s);
@@ -1842,7 +2004,8 @@ function sdDelDev(id, idx) {
 // ── PHASE 4: ABSCHLUSS ──
 function sdRenderAbschluss(s, canEdit) {
   var ab = s.abschluss || {};
-  var editable = canEdit && (s.phase === 'trocknung' || s.phase === 'abschluss');
+  // Editierbar fuer alle Berechtigten — auch nach formalem Abschluss.
+  var editable = canEdit;
   var h = '';
 
   // Zusammenfassung
@@ -1917,10 +2080,12 @@ function sdUpdateAbschluss(id, field, val) {
 // ── PHASE TRANSITIONS ──
 function sdAdvancePhase(id, target) {
   var s = sdGetById(id); if (!s) return;
-  var labels = { analyse: 'Analyse', trocknung: 'Trocknung', abschluss: 'Abschluss' };
-  if (!confirm('Phase wechseln zu «' + (labels[target] || target) + '»?')) return;
+  // Direkt durchfuehren — keine Bestaetigung mehr. Phasen lassen
+  // sich nachtraeglich beliebig wechseln, alles bleibt editierbar.
 
-  if (target === 'analyse') {
+  if (target === 'erfasst') {
+    s.phase = 'erfasst';
+  } else if (target === 'analyse') {
     s.phase = 'analyse';
   } else if (target === 'trocknung') {
     s.zustandsanalyse = s.zustandsanalyse || {};
