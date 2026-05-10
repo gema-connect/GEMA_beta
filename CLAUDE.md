@@ -659,9 +659,11 @@ Full-Screen-Overlay (`position:fixed`) mit 4-Phasen-Timeline und aufklappbaren A
 ### Messwert-System (Trocknung)
 
 - Messpunkte definieren (z.B. „Wand links Bad")
-- Pro Messpunkt: Messungen über Zeit (Datum, Wert in %)
-- Ansicht umschaltbar: Tabelle oder Canvas-Liniendiagramm (reines Canvas, keine Library)
-- Geräte-Tracking (Phase 1 — manuell): Name, Raum/Zone, kW, Zählerstand Start/Ende → kWh-Berechnung
+- Pro Messpunkt: Messungen über Zeit (Datum, Wert in **Digits**, Foto-Beleg)
+- **Foto-Pflicht beim Erfassen**: Im Mess-Add-Modal ist ein Foto vom Messgerät Pflichtfeld — als Beleg gespeichert direkt im Messung-Objekt (`m.foto` Base64). In der Tabelle erscheint das Foto als 36×36-Thumbnail; Klick öffnet die Lightbox.
+- Datenmodell: `{id, datum, wert, einheit:'Digits', foto:dataUrl}`
+- Ansicht umschaltbar: Tabelle (mit Beleg-Spalte) oder Canvas-Liniendiagramm (reines Canvas, keine Library)
+- Geräte-Tracking: Name, Raum/Zone, kW, Zählerstand Start/Ende → kWh-Berechnung. Picker im devAddModal verlinkt auf `gema_trocknung_v1` (siehe oben).
 - Geräte-Tabelle mit horizontalem Scroll-Wrapper auf Mobile
 
 ### Export
