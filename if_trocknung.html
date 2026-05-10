@@ -401,6 +401,7 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
       <input type="text" id="searchInp" placeholder="Bezeichnung, Marke, Modell, Raum …" oninput="renderList()">
     </div>
     <button class="nbtn primary" id="btnAdd" onclick="openAdd()" style="display:none">+ Neues Gerät</button>
+    <button class="nbtn" onclick="exportPDF()" title="Inventar + Einsatz-Historie als PDF">📥 PDF</button>
     <select class="filter-select" id="filterTyp" onchange="renderList()">
       <option value="">Alle Typen</option>
       <option value="bautrockner">🌡️ Bautrockner</option>
@@ -1643,6 +1644,147 @@ function lockScroll() { document.body.style.overflow = 'hidden'; }
 function unlockScroll() { document.body.style.overflow = ''; }
 
 // ──────────────────────────────────────
+// PDF-EXPORT — Werkstatt-Inventar + Einsatz-Historie + kWh-Bilanz
+// ──────────────────────────────────────
+function _tgEnsureJsPDF(){
+  return new Promise(function(res){
+    if(window.jspdf && window.jspdf.jsPDF) return res();
+    var s=document.createElement('script');
+    s.src='https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+    s.onload=function(){res();};s.onerror=function(){res();};
+    document.head.appendChild(s);
+  });
+}
+
+window.exportPDF=function(){
+  _tgEnsureJsPDF().then(function(){
+    if(!(window.jspdf && window.jspdf.jsPDF)){alert('PDF-Bibliothek nicht verfügbar.');return;}
+    var jsPDF=window.jspdf.jsPDF;
+    var doc=new jsPDF({unit:'mm',format:'a4'});
+    var M=15, y=20;
+    var pageH=doc.internal.pageSize.getHeight();
+    function ensureSpace(needed){if(y+needed>pageH-15){doc.addPage();y=20;_drawHeader();}}
+    function _drawHeader(){
+      doc.setFontSize(8);doc.setFont('helvetica','normal');doc.setTextColor(220,38,38);
+      doc.text('GEMA · Trocknungsgeräte-Inventar',M,9);
+      doc.setDrawColor(229,231,235);doc.line(M,12,195,12);
+    }
+
+    // Titel + Werkstatt-Info
+    doc.setFontSize(20);doc.setFont('helvetica','bold');doc.setTextColor(15,23,42);
+    doc.text('Trocknungsgeräte-Inventar',M,y);y+=8;
+    doc.setFontSize(11);doc.setFont('helvetica','bold');doc.setTextColor(220,38,38);
+    var orgName='—';
+    try{
+      if(typeof GemaAuth!=='undefined'){
+        var u=GemaAuth.getCurrentUser();
+        var orgs=(GemaAuth.getOrgs && GemaAuth.getOrgs())||[];
+        var o=orgs.find(function(x){return x.id===(u&&u.orgId);});
+        if(o) orgName=o.name||orgName;
+      }
+    }catch(_){}
+    doc.text('Werkstatt: '+orgName,M,y);y+=6;
+    doc.setFontSize(9);doc.setFont('helvetica','normal');doc.setTextColor(107,114,128);
+    doc.text('PDF erstellt: '+new Date().toLocaleString('de-CH'),M,y);y+=4.2;
+    doc.text('Anzahl Geräte (eigene Werkstatt): '+devices.length,M,y);y+=6;
+
+    // Bilanz nach Status
+    var stCount={verfuegbar:0,im_einsatz:0,in_wartung:0,defekt:0};
+    devices.forEach(function(d){var s=d.status||'verfuegbar';if(stCount.hasOwnProperty(s))stCount[s]++;});
+    doc.setFont('helvetica','bold');doc.setTextColor(15,23,42);
+    doc.text('Status-Bilanz',M,y);y+=4.5;
+    doc.setFont('helvetica','normal');doc.setTextColor(75,85,99);
+    [['Verfügbar',stCount.verfuegbar],['Im Einsatz',stCount.im_einsatz],['In Wartung',stCount.in_wartung],['Defekt',stCount.defekt]].forEach(function(p){
+      doc.text('• '+p[0]+': '+p[1],M+2,y);y+=4.2;
+    });
+    y+=2;
+    doc.setDrawColor(229,231,235);doc.line(M,y,195,y);y+=5;
+
+    // Pro Geraet: Stammdaten + aktueller Einsatz + History
+    devices.forEach(function(d){
+      ensureSpace(28);
+      var typ=GERAETE_TYPEN[d.typ]||GERAETE_TYPEN.bautrockner;
+      var stMap={verfuegbar:{label:'Verfügbar',color:[22,163,74]},im_einsatz:{label:'Im Einsatz',color:[217,119,6]},in_wartung:{label:'In Wartung',color:[37,99,235]},defekt:{label:'Defekt',color:[220,38,38]}};
+      var st=stMap[d.status||'verfuegbar'];
+
+      doc.setFontSize(11);doc.setFont('helvetica','bold');doc.setTextColor(15,23,42);
+      doc.text(typ.icon+' '+(d.name||'—'),M,y);
+      doc.setTextColor(st.color[0],st.color[1],st.color[2]);
+      doc.setFontSize(9);
+      doc.text('· '+st.label,M+90,y);
+      y+=5;
+
+      doc.setFont('helvetica','normal');doc.setFontSize(9);doc.setTextColor(75,85,99);
+      var meta=[];
+      if(d.marke) meta.push(d.marke+(d.modell?' '+d.modell:''));
+      if(d.serienNr) meta.push('SN '+d.serienNr);
+      if(d.kw) meta.push(d.kw+' kW');
+      if(meta.length){doc.text(meta.join('  ·  '),M,y);y+=4.2;}
+      if(d.notes){doc.text(d.notes.slice(0,140),M,y);y+=4.2;}
+
+      // Aktueller Einsatz
+      if(d.einsatz){
+        ensureSpace(8);
+        doc.setFont('helvetica','bold');doc.setTextColor(217,119,6);
+        doc.text('Aktueller Einsatz:',M+2,y);y+=4.2;
+        doc.setFont('helvetica','normal');doc.setTextColor(75,85,99);
+        var e=d.einsatz;
+        if(e.schadenTitel) {doc.text('  Schaden: '+e.schadenTitel,M+2,y);y+=4.2;}
+        if(e.objektName)   {doc.text('  Objekt: '+e.objektName,M+2,y);y+=4.2;}
+        if(e.raum)         {doc.text('  Raum: '+e.raum,M+2,y);y+=4.2;}
+        if(e.eingesetztAm) {doc.text('  Eingesetzt: '+new Date(e.eingesetztAm).toLocaleDateString('de-CH'),M+2,y);y+=4.2;}
+        if(e.zaehlerStart!=null) {doc.text('  Zähler-Start: '+e.zaehlerStart+' h',M+2,y);y+=4.2;}
+      }
+
+      // Einsatz-Historie
+      if(Array.isArray(d.einsatzHistorie) && d.einsatzHistorie.length){
+        ensureSpace(8);
+        doc.setFont('helvetica','bold');doc.setTextColor(15,23,42);
+        doc.text('Einsatz-Historie ('+d.einsatzHistorie.length+'):',M+2,y);y+=4.2;
+        doc.setFont('helvetica','normal');doc.setTextColor(75,85,99);
+        var totalKwh=0, totalH=0;
+        d.einsatzHistorie.forEach(function(h){
+          ensureSpace(5);
+          var dat=h.eingesetztAm?new Date(h.eingesetztAm).toLocaleDateString('de-CH'):'—';
+          var dEnd=h.zurueckAm?new Date(h.zurueckAm).toLocaleDateString('de-CH'):'—';
+          var line='  '+dat+' → '+dEnd+(h.schadenTitel?' · '+h.schadenTitel:'')+(h.raum?' · '+h.raum:'');
+          if(h.kwhTotal!=null) line+=' · '+Number(h.kwhTotal).toFixed(1)+' kWh';
+          doc.text(line,M+2,y);y+=4;
+          if(h.kwhTotal!=null) totalKwh+=Number(h.kwhTotal);
+          if(h.betriebsstunden!=null) totalH+=Number(h.betriebsstunden);
+        });
+        if(totalKwh>0||totalH>0){
+          ensureSpace(5);
+          doc.setFont('helvetica','bold');doc.setTextColor(220,38,38);
+          doc.text('  Σ Lebensdauer: '+totalKwh.toFixed(1)+' kWh · '+totalH.toFixed(0)+' h',M+2,y);y+=5;
+          doc.setFont('helvetica','normal');doc.setTextColor(75,85,99);
+        }
+      }
+
+      // Service-Info
+      if(d.hasService){
+        ensureSpace(5);
+        doc.setFontSize(8);doc.setTextColor(107,114,128);
+        doc.text('  Service-Intervall: '+(d.serviceInterval||'?')+' Mt.'+(d.lastService?' · letzter: '+new Date(d.lastService).toLocaleDateString('de-CH'):''),M+2,y);y+=4;
+        doc.setFontSize(9);doc.setTextColor(75,85,99);
+      }
+
+      y+=2;
+      doc.setDrawColor(229,231,235);doc.line(M,y,195,y);y+=4;
+    });
+
+    // Page numbers
+    var totalPages=doc.internal.getNumberOfPages();
+    for(var p=1;p<=totalPages;p++){
+      doc.setPage(p);
+      doc.setFontSize(8);doc.setFont('helvetica','normal');doc.setTextColor(156,163,175);
+      doc.text('Seite '+p+' / '+totalPages,195,pageH-7,{align:'right'});
+    }
+    var fname='Trocknungsgeraete_'+orgName.replace(/[^a-z0-9]+/gi,'_')+'_'+new Date().toISOString().slice(0,10)+'.pdf';
+    doc.save(fname);
+  });
+};
+
 // CROSS-MODULE API (GemaTrocknung)
 // ──────────────────────────────────────
 function _loadAllDevices() {
