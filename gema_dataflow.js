@@ -54,6 +54,17 @@
     return '';
   }
 
+  function getActivePhaseLabel() {
+    try {
+      if (typeof GemaObjekte === 'undefined') return '';
+      var ph = GemaObjekte.getActivePhase ? GemaObjekte.getActivePhase() : '';
+      if (!ph) return '';
+      var phases = GemaObjekte.getPhases ? GemaObjekte.getPhases() : [];
+      var pdef = phases.find(function(p){return p.id===ph;});
+      return pdef ? (pdef.kurz || pdef.label || ph) : ph;
+    } catch(e) { return ''; }
+  }
+
   function buildText(state) {
     if (!state.oid) return { icon: '⚪', text: 'Kein Objekt', color: '#fbbf24', href: 'pm_objekte.html' };
     if (!state.luOk) return { icon: '⚪', text: 'Keine LU-Daten', color: '#fbbf24', href: 'sb_lu_tabelle.html' };
@@ -61,7 +72,8 @@
     if (state.kwLs > 0) parts.push('KW ' + state.kwLs.toFixed(2));
     if (state.wwLs > 0) parts.push('WW ' + state.wwLs.toFixed(2));
     var counter = state.verbraucher ? (' · ' + state.verbraucher + ' Verbraucher') : '';
-    var label = parts.length ? parts.join(' / ') + ' l/s' + counter : ('LU verknüpft' + counter);
+    var phLabel = state.phaseLabel ? (' · ' + state.phaseLabel) : '';
+    var label = parts.length ? parts.join(' / ') + ' l/s' + counter + phLabel : ('LU verknüpft' + counter + phLabel);
     if (state.osmoseOk) label = '💧 ' + label;
     return { icon: '📊', text: label, color: '#a7f3d0', href: 'sb_lu_tabelle.html' };
   }
@@ -86,7 +98,7 @@
     if (cfg.sources && cfg.sources.indexOf('osmose') >= 0 && typeof GemaOsmose !== 'undefined') {
       try { if (oid && GemaOsmose.hasData(oid)) osmoseOk = true; } catch(e) {}
     }
-    var info = buildText({ oid: oid, luOk: luOk, kwLs: kwLs, wwLs: wwLs, verbraucher: verbraucher, osmoseOk: osmoseOk });
+    var info = buildText({ oid: oid, luOk: luOk, kwLs: kwLs, wwLs: wwLs, verbraucher: verbraucher, osmoseOk: osmoseOk, phaseLabel: getActivePhaseLabel() });
     pill.innerHTML = '<span aria-hidden="true">' + info.icon + '</span><span>' + info.text + '</span>';
     pill.href = info.href;
     pill.title = oid
@@ -108,6 +120,10 @@
     // Planer weiss dann, dass evtl. ein Recalc/Re-Prefill noetig ist.
     showLUUpdatedToast();
   });
+  w.addEventListener('gema-phase-changed', function(ev) {
+    refresh();
+    showPhaseChangedToast(ev && ev.detail && ev.detail.phase);
+  });
   w.addEventListener('storage', function(ev) {
     if (!ev || !ev.key) return;
     if (ev.key.indexOf('lu_spitzenvolumenstrom') === 0) {
@@ -117,6 +133,34 @@
       refresh();
     }
   });
+
+  function showPhaseChangedToast(phaseId){
+    var lbl = '';
+    try {
+      if (typeof GemaObjekte !== 'undefined' && GemaObjekte.getPhases) {
+        var phases = GemaObjekte.getPhases();
+        var p = phases.find(function(x){return x.id===phaseId;});
+        lbl = p ? (p.label || p.kurz || phaseId) : (phaseId || 'Keine Phase');
+      }
+    } catch(e) { lbl = phaseId || ''; }
+    if (document.getElementById('gema-phase-changed-toast')) return;
+    var t = document.createElement('div');
+    t.id = 'gema-phase-changed-toast';
+    t.style.cssText = 'position:fixed;bottom:18px;left:50%;transform:translateX(-50%);'
+      + 'z-index:1500;background:#7c3aed;color:#fff;padding:10px 16px;border-radius:12px;'
+      + 'font-size:13px;font-weight:600;box-shadow:0 8px 24px rgba(124,58,237,.3);'
+      + 'display:flex;align-items:center;gap:10px;max-width:calc(100% - 32px)';
+    t.innerHTML = '<span>🔄 Phase gewechselt: <b>' + (lbl || '—') + '</b></span>'
+      + '<button style="background:#a78bfa;color:#fff;border:none;padding:5px 11px;border-radius:8px;font-weight:700;cursor:pointer;font-family:inherit;font-size:12px" '
+      + 'onclick="location.reload()">Modul neu laden</button>'
+      + '<button style="background:transparent;color:#ddd6fe;border:none;padding:5px;cursor:pointer;font-size:14px" '
+      + 'onclick="this.parentNode.remove()">✕</button>';
+    document.body.appendChild(t);
+    setTimeout(function(){
+      var el = document.getElementById('gema-phase-changed-toast');
+      if (el) { el.style.opacity='0'; el.style.transition='opacity .3s'; setTimeout(function(){el.remove();},350); }
+    }, 8000);
+  }
 
   function showLUUpdatedToast(){
     // Nur zeigen, wenn das aktuelle Modul LU-verknuepft ist (nicht in
