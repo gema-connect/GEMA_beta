@@ -69,6 +69,46 @@
       label:'Ersatz-/Nachfolger-Anfrage',
       modul:'werkzeug',
       defaultOn:true
+    },
+    fahrzeug_service_faellig: {
+      label:'Fahrzeug-Service oder MFK fällig',
+      modul:'fahrzeug',
+      defaultOn:true
+    },
+    fahrzeug_service_erledigt: {
+      label:'Service-Eintrag wurde erfasst',
+      modul:'fahrzeug',
+      defaultOn:true
+    },
+    fahrzeug_garagist_zugewiesen: {
+      label:'Werkstatt wurde dir zugewiesen',
+      modul:'fahrzeug',
+      defaultOn:true
+    },
+    lu_updated: {
+      label:'LU-Zusammenstellung aktualisiert',
+      modul:'lu',
+      defaultOn:false
+    },
+    schaden_neu: {
+      label:'Neuer Schadensbericht erfasst',
+      modul:'schadensbericht',
+      defaultOn:true
+    },
+    schaden_phase_geaendert: {
+      label:'Schaden-Phase gewechselt',
+      modul:'schadensbericht',
+      defaultOn:true
+    },
+    trockner_zurueckgegeben: {
+      label:'Trocknungsgerät zurückgegeben',
+      modul:'trocknung',
+      defaultOn:true
+    },
+    trockner_defekt: {
+      label:'Trocknungsgerät: Defektmeldung',
+      modul:'trocknung',
+      defaultOn:true
     }
   };
 

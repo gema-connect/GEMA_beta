@@ -7,6 +7,7 @@
 <title>GEMA – Profil & Einstellungen</title>
 <script src="gema_auth.js"></script>
 <script src="gema_recent.js"></script>
+<script src="gema_pwa.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700;9..40,800;9..40,900&display=swap" rel="stylesheet">
 <style>
 :root{--bg:#f4f6fb;--bg2:#edf0f7;--sur:#fff;--brd:#e2e7f0;--brd2:#cdd4e4;--txt:#0f172a;--txt2:#334155;--mut:#64748b;--mut2:#94a3b8;--acc:#2563eb;--acc-dk:#1d4ed8;--acc-bg:#eff6ff;--grn:#16a34a;--grn-bg:#f0fdf4;--red:#dc2626;--red-bg:#fef2f2;--r:14px;--r-sm:10px;--r-lg:20px;--sh:0 4px 16px rgba(0,0,0,.08);--sh-sm:0 1px 4px rgba(0,0,0,.06);--sans:"DM Sans",ui-sans-serif,system-ui,sans-serif}
@@ -80,6 +81,26 @@ input,select,button,textarea{font-family:var(--sans)}
     <div>
       <div class="page-title" id="userName">—</div>
       <div class="page-sub" id="userRole" style="margin-bottom:0">—</div>
+    </div>
+  </div>
+
+  <!-- ALLGEMEIN -->
+  <div class="card">
+    <div class="card-hd"><span class="ic">📱</span><h3>Allgemein</h3></div>
+    <div class="card-body">
+      <div class="toggle-row" style="border-bottom:1px solid var(--brd);padding:14px 0">
+        <div class="toggle-row-info">
+          <div class="toggle-row-label">App auf Gerät installieren</div>
+          <div class="toggle-row-desc" id="pwaDesc">GEMA als Progressive Web App installieren — funktioniert offline und startet wie eine native App.</div>
+        </div>
+        <button class="btn btn-primary" id="pwaInstallBtn" onclick="installPWA()" style="white-space:nowrap;flex-shrink:0">📥 Installieren</button>
+      </div>
+      <div id="pwaIosHelp" style="display:none;margin-top:12px;padding:12px 14px;background:var(--acc-bg);border:1px solid #bfdbfe;border-radius:var(--r-sm);font-size:12.5px;color:var(--txt2);line-height:1.55">
+        <strong style="color:var(--acc)">Auf iPhone/iPad:</strong> Tippe in Safari auf <strong>Teilen</strong> <span style="display:inline-block;padding:1px 6px;border:1px solid var(--brd2);border-radius:4px;font-size:11px">⬆</span> und wähle <strong>"Zum Home-Bildschirm"</strong>.
+      </div>
+      <div id="pwaInstalled" style="display:none;margin-top:8px;padding:10px 14px;background:var(--grn-bg);border:1px solid #bbf7d0;border-radius:var(--r-sm);font-size:12.5px;color:#15803d;font-weight:600">
+        ✓ App ist bereits installiert
+      </div>
     </div>
   </div>
 
@@ -329,7 +350,59 @@ function selectAllBKP(val){
   document.querySelectorAll('#bkpDefaultTree input[type=checkbox]').forEach(function(cb){cb.checked=val;});
 }
 
-document.addEventListener('DOMContentLoaded', function(){init();renderBKPDefaultTree();renderOrgInfo();});
+// ── PWA-Installation ──────────────────────────────────────────
+function renderPwaState(){
+  if(typeof GemaPWA === 'undefined') return;
+  var btn = document.getElementById('pwaInstallBtn');
+  var desc = document.getElementById('pwaDesc');
+  var iosHelp = document.getElementById('pwaIosHelp');
+  var installed = document.getElementById('pwaInstalled');
+  var status = GemaPWA.getStatus();
+  if(installed) installed.style.display = (status === 'installed') ? '' : 'none';
+  if(iosHelp) iosHelp.style.display = (status === 'manual_ios') ? '' : 'none';
+  if(!btn || !desc) return;
+  if(status === 'installed'){
+    btn.style.display = 'none';
+    desc.textContent = 'GEMA ist bereits als App auf diesem Gerät installiert.';
+  } else if(status === 'ready'){
+    btn.style.display = '';
+    btn.disabled = false;
+    btn.style.opacity = '1';
+    btn.textContent = '📥 Installieren';
+    desc.textContent = 'GEMA als Progressive Web App installieren — funktioniert offline und startet wie eine native App.';
+  } else if(status === 'manual_ios'){
+    btn.style.display = 'none';
+    desc.textContent = 'GEMA als App auf dem Home-Bildschirm hinzufügen — siehe Hinweis unten.';
+  } else {
+    btn.style.display = '';
+    btn.disabled = true;
+    btn.style.opacity = '.55';
+    btn.textContent = '📥 Nicht verfügbar';
+    desc.textContent = 'Dieser Browser unterstützt die direkte Installation nicht. In Chrome/Edge auf Android oder Desktop verfügbar.';
+  }
+}
+function installPWA(){
+  if(typeof GemaPWA === 'undefined') return;
+  GemaPWA.install().then(function(res){
+    if(res.outcome === 'accepted' || res.outcome === 'installed'){
+      toast('✓ App wird installiert');
+    } else if(res.outcome === 'dismissed'){
+      toast('Installation abgebrochen');
+    } else {
+      toast('Installation aktuell nicht verfügbar');
+    }
+    renderPwaState();
+  });
+}
+window.installPWA = installPWA;
+
+document.addEventListener('DOMContentLoaded', function(){
+  init();renderBKPDefaultTree();renderOrgInfo();
+  renderPwaState();
+  if(typeof GemaPWA !== 'undefined'){
+    GemaPWA.onChange(renderPwaState);
+  }
+});
 </script>
 <script src="gema_feedback.js"></script><script src="gema_notify.js"></script><script src="gema_notify_ui.js"></script>
 <script>document.addEventListener('DOMContentLoaded',function(){if(typeof GemaFeedback!=='undefined')GemaFeedback.init('profil','Profil');});</script>

@@ -188,6 +188,12 @@ tbody td.mono{font-family:var(--mono);font-weight:500;}
 .form-grid>.field{min-width:0;overflow:hidden}
 .form-grid.col3{grid-template-columns:1fr 1fr 1fr}
 @media(max-width:640px){.form-grid.col3{grid-template-columns:1fr 1fr}}
+@media(max-width:480px){
+  .form-grid{grid-template-columns:1fr}
+  .vm-grid{grid-template-columns:1fr}
+  .form-grid.col3{grid-template-columns:1fr}
+  #serviceModalOverlay > div > div[style*="grid-template-columns"]{grid-template-columns:1fr!important}
+}
 .form-full{grid-column:1/-1;}
 .field{display:flex;flex-direction:column;gap:5px;}
 .label{font-size:11.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;}
@@ -418,7 +424,9 @@ tbody td.mono{font-family:var(--mono);font-weight:500;}
           </div>
           <div class="field">
             <label class="label">Marke / Modell *</label>
-            <input class="inp" id="fModel" placeholder="z. B. VW Caddy"/>
+            <input class="inp" id="fModel" placeholder="z. B. VW Caddy" list="fahrzeugKatalogList" oninput="_fzKatalogAutofill()"/>
+            <datalist id="fahrzeugKatalogList"></datalist>
+            <span class="hint">Tippe los — Vorschläge aus dem Basiskatalog &amp; eigenen Fahrzeugen. Treibstoff und Typ werden, wo noch nicht angepasst, automatisch ergänzt.</span>
           </div>
           <div class="field">
             <label class="label">Jahrgang</label>
@@ -614,6 +622,58 @@ tbody td.mono{font-family:var(--mono);font-weight:500;}
         </div>
       </div>
 
+      <div class="form-section fz-opt" data-opt="versicherung">
+        <div class="form-section-title">Versicherung</div>
+        <div class="form-grid">
+          <div class="field">
+            <label class="label">Gesellschaft</label>
+            <input class="inp" id="fInsurance" placeholder="z. B. AXA, Zurich, Mobiliar"/>
+          </div>
+          <div class="field">
+            <label class="label">Policen-Nr.</label>
+            <input class="inp" id="fInsurancePolicy" placeholder="z. B. 10.123.456-7"/>
+          </div>
+        </div>
+        <div class="form-grid">
+          <div class="field">
+            <label class="label">Deckung</label>
+            <select class="sel" id="fInsuranceType">
+              <option value="">— wählen —</option>
+              <option value="Vollkasko">Vollkasko</option>
+              <option value="Teilkasko">Teilkasko</option>
+              <option value="Haftpflicht">Haftpflicht</option>
+            </select>
+          </div>
+          <div class="field">
+            <label class="label">Ablauf / Verlängerung</label>
+            <input class="inp" id="fInsuranceExpiry" type="date"/>
+          </div>
+        </div>
+      </div>
+
+      <div class="form-section fz-opt" data-opt="garagist">
+        <div class="form-section-title">Werkstatt-Zugang (Garagist)</div>
+        <div class="form-grid">
+          <div class="field">
+            <label class="label">Zugewiesener Garagist</label>
+            <div style="display:flex;gap:6px;align-items:stretch">
+              <select class="sel" id="fGaragistUserId" style="font-size:16px;flex:1">
+                <option value="">— Keine Werkstatt zugewiesen —</option>
+              </select>
+              <button type="button" onclick="_fzOpenInviteGaragist()" class="btn" style="flex-shrink:0;padding:0 12px;font-weight:700;font-size:13px;border:1.5px solid #0d9488;background:#ecfeff;color:#0d9488;border-radius:8px;cursor:pointer">+ Einladen</button>
+            </div>
+            <span class="hint">Garagist sieht nur ihm zugewiesene Fahrzeuge. Pflegt km-Stand, Service-Historie, MFK und Reifen.</span>
+          </div>
+          <div class="field">
+            <label class="label" style="display:flex;align-items:center;gap:8px;cursor:pointer">
+              <input type="checkbox" id="fInsuranceShareGaragist" style="accent-color:var(--primary);width:18px;height:18px"/>
+              <span>Versicherungsdaten für Garagist freigeben</span>
+            </label>
+            <span class="hint">Standard aus. Aktivieren, wenn die Werkstatt im Schadenfall direkt mit der Versicherung abrechnen soll.</span>
+          </div>
+        </div>
+      </div>
+
       <div class="form-section fz-opt" data-opt="kaufbeleg">
         <div class="form-section-title">Kaufbeleg / Leasing</div>
         <div class="form-grid">
@@ -719,10 +779,74 @@ let vehicles = [];
 let editId = null;
 let currentView = "cards";
 
-// Load from localStorage
-try { const d = (typeof _GemaDB!=='undefined'?(_GemaDB.c["gema_vehicles"]??null):null); if(d) vehicles = JSON.parse(d); } catch(e){}
+// ── Multi-Tenant Storage ──────────────────────────────────────
+// Werkstatt-Logik: Garagisten gehoeren zu ihrer eigenen Org und
+// betreuen Fahrzeuge mehrerer Kunden. Die Sichtbarkeit fuer
+// Garagisten geht ueber garagistUserId und NICHT ueber orgId.
+function _fzCurrentUser(){
+  try{ return (typeof GemaAuth!=='undefined'&&GemaAuth.getCurrentUser)?GemaAuth.getCurrentUser():null; }catch(e){ return null; }
+}
+function _fzIsGaragistRole(){
+  var u=_fzCurrentUser();
+  return !!(u&&u.roleIds&&u.roleIds.indexOf('role_garagist')>=0);
+}
+function _fzReadAllRaw(){
+  var raw=null;
+  if(typeof _GemaDB!=='undefined'&&_GemaDB.c) raw=_GemaDB.c['gema_vehicles'];
+  if(raw==null){ try{ raw=localStorage.getItem('gema_vehicles'); }catch(e){} }
+  try{ var arr=JSON.parse(raw||'[]'); return Array.isArray(arr)?arr:[]; }catch(e){ return []; }
+}
+function _fzWriteAllRaw(arr){
+  var json=JSON.stringify(arr);
+  if(typeof _GemaDB!=='undefined'&&typeof _GemaDB.save==='function') _GemaDB.save('gema_vehicles',json);
+  try{ localStorage.setItem('gema_vehicles',json); }catch(e){}
+}
+function _fzLoadVehicles(){
+  var u=_fzCurrentUser();
+  var orgId=u&&u.orgId?u.orgId:'';
+  var all=_fzReadAllRaw();
+  // Migration: vehicles ohne orgId der ersten existierenden orgId
+  // zuweisen, damit Altdaten nicht cross-org sichtbar bleiben.
+  var legacy=all.filter(function(v){ return !v.orgId; });
+  if(legacy.length){
+    var firstOrg=null;
+    all.forEach(function(v){ if(!firstOrg && v.orgId) firstOrg=v.orgId; });
+    var assignTo=firstOrg||orgId||'';
+    if(assignTo){
+      legacy.forEach(function(v){ v.orgId=assignTo; });
+      _fzWriteAllRaw(all);
+    }
+  }
+  // Garagist sieht nur ihm zugewiesene Fahrzeuge (cross-org)
+  if(_fzIsGaragistRole()){
+    return all.filter(function(v){ return v.garagistUserId===(u&&u.id); });
+  }
+  if(orgId){
+    return all.filter(function(v){ return v.orgId===orgId; });
+  }
+  return all.slice();
+}
+// Initial laden
+try { vehicles = _fzLoadVehicles(); } catch(e) { vehicles = []; }
 
-function persist(){ if(typeof _GemaDB!=='undefined') _GemaDB.save("gema_vehicles", JSON.stringify(vehicles)); }
+function persist(){
+  var u=_fzCurrentUser();
+  var orgId=u&&u.orgId?u.orgId:'';
+  var all=_fzReadAllRaw();
+  if(_fzIsGaragistRole()){
+    var meId=u&&u.id;
+    var others=all.filter(function(v){ return v.garagistUserId!==meId; });
+    _fzWriteAllRaw(others.concat(vehicles));
+    return;
+  }
+  if(!orgId){
+    if(typeof _GemaDB!=='undefined') _GemaDB.save("gema_vehicles", JSON.stringify(vehicles));
+    return;
+  }
+  vehicles.forEach(function(v){ if(!v.orgId) v.orgId=orgId; });
+  var others=all.filter(function(v){ return v.orgId && v.orgId!==orgId; });
+  _fzWriteAllRaw(others.concat(vehicles));
+}
 function genId(){ return 'v_'+Date.now()+'_'+Math.random().toString(36).slice(2,7); }
 
 /* ═══════════════════════════════
@@ -739,8 +863,14 @@ function showToast(msg){
    MODAL
    ═══════════════════════════════ */
 function openModal(id){
-  if(id){/* View/Edit — alle dürfen öffnen */}
-  else if(!_fzCanEdit()){alert('Keine Berechtigung — nur Magaziner/Admin dürfen Fahrzeuge erfassen.');return;}
+  if(id){
+    // View/Edit — Garagist nur fuer ihm zugewiesene Fahrzeuge.
+    if(_fzIsGaragist()){
+      var vCheck=vehicles.find(function(x){return x.id===id;});
+      if(!_fzCanOpenVehicle(vCheck)){alert('Dieses Fahrzeug ist Ihrer Werkstatt nicht zugewiesen.');return;}
+    }
+  }
+  else if(!_fzCanCreate()){alert('Keine Berechtigung — nur Magaziner/Admin dürfen Fahrzeuge erfassen.');return;}
   editId=id||null;
   const m=document.getElementById("modalOverlay");
   document.getElementById("modalTitle").textContent=id?"Fahrzeug bearbeiten":"Fahrzeug erfassen";
@@ -761,6 +891,15 @@ function openModal(id){
     $f("fGarage",v.garage); $f("fStellplatz",v.stellplatz); $f("fFuelCard",v.fuelCard); $f("fFuelNetwork",v.fuelNetwork);
     $f("fTires",v.tires); $f("fTiresSeason",v.tiresSeason); $f("fTireStorage",v.tireStorage); $f("fTireChangeDate",v.tireChangeDate);
     if(v.kaufbeleg){$f("fBelegNr",v.kaufbeleg.rechnungsNr);$f("fBelegBetrag",v.kaufbeleg.betrag);$f("fBelegBestellNr",v.kaufbeleg.bestellNr);$f("fBelegLieferdatum",v.kaufbeleg.lieferdatum);}
+    if(v.versicherung){
+      $f("fInsurance",v.versicherung.gesellschaft);
+      $f("fInsurancePolicy",v.versicherung.policeNr);
+      $f("fInsuranceType",v.versicherung.deckung);
+      $f("fInsuranceExpiry",v.versicherung.ablauf);
+    }
+    _fzPopulateGaragistDropdown(v.garagistUserId||'');
+    var insShare=document.getElementById('fInsuranceShareGaragist');
+    if(insShare)insShare.checked=!!v.versicherungFreiFuerGaragist;
     $f("fNotes",v.notes);
     var kmH=document.getElementById('fKmHint');if(kmH){kmH.style.display=v.kmUpdatedAt?'':'none';kmH.textContent=v.kmUpdatedAt?'Zuletzt aktualisiert: '+new Date(v.kmUpdatedAt).toLocaleDateString('de-CH')+' '+new Date(v.kmUpdatedAt).toLocaleTimeString('de-CH',{hour:'2-digit',minute:'2-digit'}):'';}
     document.getElementById("fHasAHK").checked=!!v.hasAHK;
@@ -772,6 +911,7 @@ function openModal(id){
     _fzPopulateDriverDropdown('');
     _fzPopulateDeptDropdown('');
     _fzPopulateGarageDropdown('');
+    _fzPopulateGaragistDropdown('');
     document.querySelectorAll(".modal .inp, .modal .sel, .modal .textarea").forEach(el=>{
       if(el.type==="checkbox") el.checked=false;
       else if(el.tagName==="SELECT") el.selectedIndex=0;
@@ -786,6 +926,15 @@ function openModal(id){
   m.classList.add("open");
   document.body.classList.add('modal-open');
   setTimeout(()=>document.getElementById("fPlate").focus(),150);
+  // Garagist-Restriktionen NACH allen $f-Populierungen anwenden, damit
+  // die Werte gesetzt sind und nur die UI gesperrt wird.
+  if(_fzIsGaragist()){
+    var vRestrict = id ? vehicles.find(function(x){return x.id===id;}) : null;
+    _fzApplyGaragistRestrictions(vRestrict);
+  } else {
+    var hintEl=document.getElementById('_fzGaragistHint');
+    if(hintEl)hintEl.style.display='none';
+  }
 }
 window.openModal = openModal;
 window.openAddVehicle = function(){ openModal(); };
@@ -837,6 +986,14 @@ function saveVehicle(){
       bestellNr:(document.getElementById("fBelegBestellNr")||{}).value||'',
       lieferdatum:(document.getElementById("fBelegLieferdatum")||{}).value||''
     },
+    versicherung:{
+      gesellschaft:(document.getElementById("fInsurance")||{}).value||'',
+      policeNr:(document.getElementById("fInsurancePolicy")||{}).value||'',
+      deckung:(document.getElementById("fInsuranceType")||{}).value||'',
+      ablauf:(document.getElementById("fInsuranceExpiry")||{}).value||''
+    },
+    garagistUserId:(document.getElementById("fGaragistUserId")||{}).value||'',
+    versicherungFreiFuerGaragist:!!(document.getElementById("fInsuranceShareGaragist")||{}).checked,
     notes: document.getElementById("fNotes").value.trim(),
     hasAHK: document.getElementById("fHasAHK").checked,
     hasRoof: document.getElementById("fHasRoof").checked,
@@ -850,18 +1007,41 @@ function saveVehicle(){
     const idx=vehicles.findIndex(x=>x.id===editId);
     if(idx>=0){
       data.id=editId; data.createdAt=vehicles[idx].createdAt; data.events=vehicles[idx].events||[];
+      data.serviceHistorie=vehicles[idx].serviceHistorie||[];
+      data.followUps=vehicles[idx].followUps||[];
+      // orgId beim Edit erhalten (Sicherheitsnetz gegen versehentliche Re-Org-Stempelung)
+      data.orgId=vehicles[idx].orgId||data.orgId||'';
+      var prevGaragist=vehicles[idx].garagistUserId||'';
       if(data.km!==vehicles[idx].km) data.kmUpdatedAt=new Date().toISOString();
       else data.kmUpdatedAt=vehicles[idx].kmUpdatedAt||'';
       vehicles[idx]=data;
+      // Notif an Garagist, wenn neu zugewiesen oder Werkstatt gewechselt
+      try{
+        if(typeof GemaNotify!=='undefined' && data.garagistUserId && data.garagistUserId!==prevGaragist){
+          GemaNotify.push({
+            eventKey:'fahrzeug_garagist_zugewiesen',
+            empfaengerUserId:data.garagistUserId,
+            modul:'fahrzeug',
+            typ:'aktion',
+            titel:'Fahrzeug zugewiesen',
+            text:(data.plate||data.model||'Fahrzeug')+' — '+(data.model||'')+(data.km?' · '+parseInt(data.km).toLocaleString('de-CH')+' km':''),
+            link:'if_fahrzeug.html?view='+data.id
+          });
+        }
+      }catch(e){}
     }
     showToast("Fahrzeug aktualisiert ✓");
   }else{
     data.id=genId();
     data.createdAt=new Date().toISOString();
+    // Multi-Tenant: orgId fest verdrahten (Garagist erfasst keine
+    // Fahrzeuge — _fzCanEdit verhindert das ohnehin)
+    var _fzMe=_fzCurrentUser()||{};
+    if(_fzMe.orgId) data.orgId=_fzMe.orgId;
     vehicles.push(data);
     showToast("Fahrzeug erfasst ✓");
   }
-  persist(); closeModal(); render();
+  persist(); _fzInitKatalogList(); closeModal(); render();
   return data.id;
 }
 window.saveVehicle = saveVehicle;
@@ -920,6 +1100,103 @@ function isServiceSoon(v){
   return s.badge==="red"||s.badge==="amber";
 }
 
+// Faelligkeits-Scan: einmal pro Browser-Sitzung, ausgeloest beim
+// Page-Load. Erzeugt Notifikationen fuer Service- und MFK-Faelligkeiten
+// und dedupliziert pro Tag/Schwelle ueber einen localStorage-Lock.
+// Empfaenger: zugewiesener Garagist (wenn vorhanden) + alle Magaziner.
+var _FZ_NOTIF_LOCK_KEY='gema_fz_notif_lock_v1';
+function _fzReadNotifLock(){try{var r=localStorage.getItem(_FZ_NOTIF_LOCK_KEY);return r?JSON.parse(r):{};}catch(e){return {};}}
+function _fzWriteNotifLock(o){try{localStorage.setItem(_FZ_NOTIF_LOCK_KEY,JSON.stringify(o));}catch(e){}}
+function _fzDaysUntil(dateStr){
+  if(!dateStr)return null;
+  var d=new Date(dateStr);
+  if(isNaN(d.getTime()))return null;
+  var today=new Date();today.setHours(0,0,0,0);
+  d.setHours(0,0,0,0);
+  return Math.round((d.getTime()-today.getTime())/(24*3600*1000));
+}
+function _fzThresholdOf(days){
+  if(days===null||days===undefined)return null;
+  if(days<0)return {key:'overdue',label:'überfällig',typ:'warnung'};
+  if(days<=1)return {key:'d1',label:days===0?'heute fällig':'morgen fällig',typ:'warnung'};
+  if(days<=7)return {key:'d7',label:'in '+days+' Tagen fällig',typ:'aktion'};
+  if(days<=30)return {key:'d30',label:'in '+days+' Tagen fällig',typ:'aktion'};
+  return null;
+}
+function _fzScanFaelligkeiten(){
+  if(typeof GemaNotify==='undefined')return;
+  if(!_fzIsAdmin()&&!_fzIsMagaziner())return; // nur Magaziner/Admin loest den Scan aus
+  var today=new Date().toISOString().slice(0,10);
+  var lock=_fzReadNotifLock();
+  var pushed=0;
+  vehicles.forEach(function(v){
+    if(!v||!v.id)return;
+    // Service
+    var nsd=nextServiceDate(v);
+    var nsdStr=nsd?nsd.toISOString().slice(0,10):null;
+    var sDays=nsdStr?_fzDaysUntil(nsdStr):null;
+    var sThr=_fzThresholdOf(sDays);
+    if(sThr){
+      var sLockKey=v.id+':service:'+sThr.key;
+      if(lock[sLockKey]!==today){
+        var sBase={
+          eventKey:'fahrzeug_service_faellig',modul:'fahrzeug',typ:sThr.typ,
+          titel:'Service '+sThr.label,
+          text:(v.plate||v.model||'Fahrzeug')+' — Service '+sThr.label+(sDays!==null?' (Tage: '+sDays+')':''),
+          link:'if_fahrzeug.html?view='+v.id
+        };
+        if(v.garagistUserId){
+          GemaNotify.push(Object.assign({},sBase,{empfaengerUserId:v.garagistUserId}));pushed++;
+        }
+        GemaNotify.push(Object.assign({},sBase,{empfaengerRoleId:'role_magaziner'}));pushed++;
+        lock[sLockKey]=today;
+      }
+    }
+    // MFK
+    var mfkDays=v.mfk?_fzDaysUntil(v.mfk):null;
+    var mThr=_fzThresholdOf(mfkDays);
+    if(mThr){
+      var mLockKey=v.id+':mfk:'+mThr.key;
+      if(lock[mLockKey]!==today){
+        var mBase={
+          eventKey:'fahrzeug_service_faellig',modul:'fahrzeug',typ:mThr.typ,
+          titel:'MFK '+mThr.label,
+          text:(v.plate||v.model||'Fahrzeug')+' — MFK '+mThr.label+(mfkDays!==null?' (Tage: '+mfkDays+')':''),
+          link:'if_fahrzeug.html?view='+v.id
+        };
+        if(v.garagistUserId){
+          GemaNotify.push(Object.assign({},mBase,{empfaengerUserId:v.garagistUserId}));pushed++;
+        }
+        GemaNotify.push(Object.assign({},mBase,{empfaengerRoleId:'role_magaziner'}));pushed++;
+        lock[mLockKey]=today;
+      }
+    }
+    // Folge-Termine (vom Garagist eingeplant)
+    if(Array.isArray(v.followUps)){
+      v.followUps.forEach(function(f){
+        if(!f||f.completed||!f.dueDate)return;
+        var fDays=_fzDaysUntil(f.dueDate);
+        var fThr=_fzThresholdOf(fDays);
+        if(!fThr)return;
+        var fLockKey=v.id+':followup:'+f.id+':'+fThr.key;
+        if(lock[fLockKey]===today)return;
+        var fBase={
+          eventKey:'fahrzeug_service_faellig',modul:'fahrzeug',typ:fThr.typ,
+          titel:'Folge-Termin '+fThr.label,
+          text:(v.plate||v.model||'Fahrzeug')+' — '+(f.beschreibung||'Folge-Termin')+' ('+fThr.label+')',
+          link:'if_fahrzeug.html?view='+v.id
+        };
+        if(v.garagistUserId){
+          GemaNotify.push(Object.assign({},fBase,{empfaengerUserId:v.garagistUserId}));pushed++;
+        }
+        GemaNotify.push(Object.assign({},fBase,{empfaengerRoleId:'role_magaziner'}));pushed++;
+        lock[fLockKey]=today;
+      });
+    }
+  });
+  if(pushed>0)_fzWriteNotifLock(lock);
+}
+
 /* ═══════════════════════════════
    RENDER
    ═══════════════════════════════ */
@@ -928,8 +1205,13 @@ function getFiltered(){
   const fStatus=document.getElementById("filterStatus").value;
   const fType=document.getElementById("filterType").value;
   const fAssign=document.getElementById("filterAssignment").value;
+  // Garagist sieht alle Fahrzeuge seiner Werkstatt-Org (nicht nur die
+  // ihm persoenlich zugewiesenen — Lead-Garagist ist Stellvertreter
+  // der ganzen Werkstatt).
+  var isG=_fzIsGaragist();
 
   return vehicles.filter(v=>{
+    if(isG && !_fzCanOpenVehicle(v)) return false;
     if(_fzKpiActive==='service'&&!isServiceSoon(v))return false;
     if(_fzKpiActive==='inactive'&&v.status==='aktiv')return false;
     if(_fzKpiActive==='aktiv'&&v.status!=='aktiv')return false;
@@ -1183,6 +1465,8 @@ var _FZ_OPT_DEFS=[
   {id:'reifen',label:'Reifenmanagement',desc:'Saison, Bezeichnung, Lagerplatz, Wechseldatum',default:false},
   {id:'garage',label:'Garage & Stellplatz',desc:'Werkstatt, Stellplatz-Nr.',default:true},
   {id:'tankkarte',label:'Tankkarte',desc:'Kartennummer, Anbieter/Netz',default:false},
+  {id:'versicherung',label:'Versicherung',desc:'Gesellschaft, Police, Deckung, Ablauf',default:false},
+  {id:'garagist',label:'Werkstatt-Zugang',desc:'Garagist zuweisen, Versicherungsdaten freigeben',default:false},
   {id:'kaufbeleg',label:'Kaufbeleg / Leasing',desc:'Rechnungs-Nr., Betrag, Bestell-Nr., Lieferdatum',default:false}
 ];
 function _fzLoadOpt(){try{var r=localStorage.getItem(_FZ_OPT_KEY);if(r)return JSON.parse(r);}catch(e){}var d={};_FZ_OPT_DEFS.forEach(function(o){d[o.id]=o.default;});return d;}
@@ -1395,6 +1679,155 @@ var _FZ_DEFAULT_ABT=['Sanitär','Heizung','Lüftung','Elektro','Bauleitung','Ver
 function _fzLoadAbt(){try{var r=localStorage.getItem(_FZ_ABT_KEY);if(r)return JSON.parse(r);}catch(e){}return _FZ_DEFAULT_ABT.slice();}
 function _fzSaveAbt(list){try{localStorage.setItem(_FZ_ABT_KEY,JSON.stringify(list));}catch(e){}}
 
+// Listet alle aktiven role_garagist-User aus allen Orgs auf, damit
+// Magaziner aus extern angeschlossenen Werkstaetten waehlen koennen.
+// Anzeige: Personenname + Werkstattname (Org).
+function _fzPopulateGaragistDropdown(selectedUserId){
+  var sel=document.getElementById('fGaragistUserId');if(!sel)return;
+  var opts='<option value="">— Keine Werkstatt zugewiesen —</option>';
+  if(typeof GemaAuth!=='undefined'){
+    try{
+      var users=GemaAuth.getUsers()||[];
+      var orgs=(GemaAuth.getOrgs&&GemaAuth.getOrgs())||[];
+      var orgById={};orgs.forEach(function(o){orgById[o.id]=o;});
+      var garagisten=users.filter(function(u){
+        return u.active!==false && u.roleIds && u.roleIds.indexOf('role_garagist')>=0;
+      });
+      // Sortiert: zuerst nach Werkstatt, dann nach Name
+      garagisten.sort(function(a,b){
+        var na=(orgById[a.orgId]&&orgById[a.orgId].name)||a.orgId||'';
+        var nb=(orgById[b.orgId]&&orgById[b.orgId].name)||b.orgId||'';
+        if(na!==nb)return na.localeCompare(nb);
+        return (a.name||'').localeCompare(b.name||'');
+      });
+      garagisten.forEach(function(u){
+        var name=u.name||u.username||u.id;
+        var org=(orgById[u.orgId]&&orgById[u.orgId].name)||'';
+        var label=name+(org?' — '+org:'');
+        opts+='<option value="'+esc(u.id)+'"'+(u.id===selectedUserId?' selected':'')+'>'+esc(label)+'</option>';
+      });
+    }catch(e){}
+  }
+  sel.innerHTML=opts;
+}
+
+// Einladungs-Modal fuer eine neue Werkstatt. Magaziner gibt
+// Werkstatt-Name, Kontakt-Person, Email an; das System legt
+// Org + Garagist-User mit Token an und gibt einen Login-Link zurueck,
+// den der Magaziner per Mail/SMS weiterleiten kann.
+function _fzOpenInviteGaragist(){
+  if(!_fzCanCreate()){alert('Nur Magaziner und Admins dürfen Werkstätten einladen.');return;}
+  var ov=document.getElementById('inviteGaragistOverlay');
+  if(!ov){_fzCreateInviteGaragistModal();ov=document.getElementById('inviteGaragistOverlay');}
+  // Felder leeren
+  ['fInvFirma','fInvPerson','fInvEmail','fInvTel'].forEach(function(id){var el=document.getElementById(id);if(el)el.value='';});
+  var res=document.getElementById('fInvResult');if(res)res.style.display='none';
+  // Datalist mit existierenden Werkstatt-Orgs befuellen
+  try{
+    var dl=document.getElementById('fInvFirmaList');
+    if(dl && typeof GemaAuth!=='undefined'){
+      var users=GemaAuth.getUsers()||[];
+      var orgs=(GemaAuth.getOrgs&&GemaAuth.getOrgs())||[];
+      var werkstattOrgIds={};
+      users.forEach(function(u){if(u && u.roleIds && u.roleIds.indexOf('role_garagist')>=0 && u.orgId)werkstattOrgIds[u.orgId]=true;});
+      var werkstattOrgs=orgs.filter(function(o){return werkstattOrgIds[o.id]&&o.name;}).map(function(o){return o.name;}).sort();
+      dl.innerHTML=werkstattOrgs.map(function(n){return '<option value="'+esc(n)+'">';}).join('');
+    }
+  }catch(e){}
+  ov.style.display='flex';ov.classList.remove('hidden');
+  document.body.classList.add('modal-open');
+  setTimeout(function(){var f=document.getElementById('fInvFirma');if(f)f.focus();},150);
+}
+window._fzOpenInviteGaragist=_fzOpenInviteGaragist;
+
+function _fzCloseInviteGaragist(){
+  var ov=document.getElementById('inviteGaragistOverlay');
+  if(ov){ov.style.display='none';ov.classList.add('hidden');}
+  document.body.classList.remove('modal-open');
+}
+window._fzCloseInviteGaragist=_fzCloseInviteGaragist;
+
+function _fzSubmitInviteGaragist(){
+  var firma=(document.getElementById('fInvFirma').value||'').trim();
+  var person=(document.getElementById('fInvPerson').value||'').trim();
+  var email=(document.getElementById('fInvEmail').value||'').trim();
+  var tel=(document.getElementById('fInvTel').value||'').trim();
+  if(!firma){alert('Werkstatt-Name ist Pflicht.');return;}
+  if(!email){alert('Email ist Pflicht — sie wird zum Login-Username.');return;}
+  if(typeof GemaAuth==='undefined'||typeof GemaAuth.inviteBeteiligter!=='function'){
+    alert('Einladungs-System nicht verfuegbar.');return;
+  }
+  try{
+    var me=_fzGetUser();
+    var resp=GemaAuth.inviteBeteiligter({
+      roleId:'role_garagist',
+      email:email, firma:firma, person:person||firma, tel:tel,
+      eingeladenVon:me?me.id:''
+    });
+    var fGaragist=document.getElementById('fGaragistUserId');
+    if(fGaragist && resp && resp.user){
+      _fzPopulateGaragistDropdown(resp.user.id);
+    }
+    var inviteUrl=resp.loginUrl||'sys_login.html?invite='+(resp.token||'');
+    // Absoluter Link, damit der Magaziner ihn per Email/SMS weitergeben kann
+    try{var base=location.href.split('?')[0].replace(/[^/]+$/,'');inviteUrl=base+inviteUrl;}catch(e){}
+    var existing=resp&&resp.existingAccount;
+    var box=document.getElementById('fInvResult');
+    if(box){
+      box.style.display='block';
+      box.innerHTML=existing?
+        '<div style="padding:12px 14px;background:#fffbeb;border:1.5px solid #fde68a;border-radius:8px;color:#92400e;font-size:13px">⚠ Diese Email hat bereits ein Konto. Wir haben den bestehenden Werkstatt-Account ausgewählt.</div>':
+        '<div style="padding:12px 14px;background:#ecfeff;border:1.5px solid #a5f3fc;border-radius:8px;color:#0e7490"><div style="font-weight:700;font-size:13px;margin-bottom:6px">✓ Einladung erstellt</div>'+
+        '<div style="font-size:12px;margin-bottom:8px">Sende diesen Link an <b>'+esc(email)+'</b>:</div>'+
+        '<div style="display:flex;gap:6px;align-items:center"><input id="fInvLink" readonly value="'+esc(inviteUrl)+'" style="flex:1;padding:7px 10px;border:1.5px solid #a5f3fc;border-radius:6px;font-size:11.5px;background:#fff;font-family:monospace"/><button onclick="_fzCopyInviteLink()" class="btn" style="padding:7px 12px;border:1.5px solid #0d9488;background:#0d9488;color:#fff;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700">Kopieren</button></div></div>';
+    }
+    showToast(existing?'Bestehende Werkstatt verknüpft':'Werkstatt eingeladen ✓');
+  }catch(e){
+    alert('Einladung fehlgeschlagen: '+(e.message||'Unbekannter Fehler'));
+  }
+}
+window._fzSubmitInviteGaragist=_fzSubmitInviteGaragist;
+
+function _fzCopyInviteLink(){
+  var inp=document.getElementById('fInvLink');if(!inp)return;
+  inp.select();inp.setSelectionRange(0,inp.value.length);
+  try{
+    if(navigator.clipboard&&navigator.clipboard.writeText){
+      navigator.clipboard.writeText(inp.value).then(function(){showToast('Link kopiert ✓');});
+    } else {
+      document.execCommand('copy');showToast('Link kopiert ✓');
+    }
+  }catch(e){showToast('Kopieren fehlgeschlagen — Link manuell auswählen');}
+}
+window._fzCopyInviteLink=_fzCopyInviteLink;
+
+function _fzCreateInviteGaragistModal(){
+  var ov=document.createElement('div');
+  ov.id='inviteGaragistOverlay';
+  ov.className='modal-overlay';
+  ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1100;display:none;align-items:center;justify-content:center;padding:16px';
+  ov.innerHTML=''+
+    '<div style="max-width:480px;width:100%;background:#fff;border-radius:14px;box-shadow:0 20px 60px rgba(0,0,0,.25);overflow:hidden;max-height:90vh;overflow-y:auto">'+
+      '<div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid #f0f0f0">'+
+        '<div style="display:flex;align-items:center;gap:10px"><span style="font-size:22px">🔧</span><div><div style="font-size:14px;font-weight:700">Werkstatt einladen</div><div style="font-size:11px;color:#9ca3af">Email-Einladung mit Login-Link für eine neue Werkstatt.</div></div></div>'+
+        '<button onclick="_fzCloseInviteGaragist()" style="background:none;border:none;font-size:18px;cursor:pointer;color:#6b7280">✕</button>'+
+      '</div>'+
+      '<div style="padding:18px 20px;display:flex;flex-direction:column;gap:12px">'+
+        '<div class="field"><label class="label">Werkstatt-Name *</label><input class="inp" id="fInvFirma" list="fInvFirmaList" placeholder="z. B. Garage Müller AG"/><datalist id="fInvFirmaList"></datalist><span class="hint">Tippt auf einen bestehenden Namen, wird der neue Mitarbeiter zur bestehenden Werkstatt-Org hinzugefügt (Multi-User-Werkstatt).</span></div>'+
+        '<div class="field"><label class="label">Ansprechperson</label><input class="inp" id="fInvPerson" placeholder="z. B. Hans Müller"/></div>'+
+        '<div class="field"><label class="label">Email (Login-Username) *</label><input class="inp" id="fInvEmail" type="email" placeholder="hans.mueller@garage-mueller.ch"/></div>'+
+        '<div class="field"><label class="label">Telefon</label><input class="inp" id="fInvTel" type="tel" placeholder="+41 …"/></div>'+
+        '<div id="fInvResult" style="display:none"></div>'+
+      '</div>'+
+      '<div style="display:flex;justify-content:flex-end;gap:8px;padding:14px 20px;border-top:1px solid #f0f0f0;background:#fafbfd">'+
+        '<button class="btn" onclick="_fzCloseInviteGaragist()">Schliessen</button>'+
+        '<button class="btn primary" onclick="_fzSubmitInviteGaragist()">Einladen &amp; Link generieren</button>'+
+      '</div>'+
+    '</div>';
+  document.body.appendChild(ov);
+  ov.addEventListener('click',function(e){if(e.target===ov)_fzCloseInviteGaragist();});
+}
+
 function _fzPopulateDriverDropdown(selected){
   var sel=document.getElementById('fDriver');if(!sel)return;
   var opts='<option value="">— Kein Fahrer —</option>';
@@ -1450,14 +1883,212 @@ function esc(s){ if(!s) return ""; const d=document.createElement("div"); d.text
 function _fzGetUser(){try{return GemaAuth.getCurrentUser();}catch(e){return null;}}
 function _fzIsAdmin(){var u=_fzGetUser();return u&&u.roleIds&&u.roleIds.indexOf('role_admin')>=0;}
 function _fzIsMagaziner(){var u=_fzGetUser();return u&&u.roleIds&&u.roleIds.indexOf('role_magaziner')>=0;}
+function _fzIsGaragist(){var u=_fzGetUser();return u&&u.roleIds&&u.roleIds.indexOf('role_garagist')>=0;}
 function _fzCanEdit(){
   if(_fzIsAdmin()||_fzIsMagaziner()||_fzCanSettings())return true;
+  // Garagist darf zugewiesene Fahrzeuge oeffnen; die Feld-Restriktionen
+  // greifen via _fzApplyGaragistRestrictions im Formular.
+  if(_fzIsGaragist())return true;
   try{if(typeof GemaAuth!=='undefined'&&typeof GemaAuth.can==='function'){
     if(GemaAuth.can('write','fahrzeugmanagement')||GemaAuth.can('admin','fahrzeugmanagement'))return true;
   }}catch(e){}
   return false;
 }
+function _fzCanCreate(){
+  // Erfassen neuer Fahrzeuge nur fuer Magaziner/Admin (nicht Garagist).
+  return _fzIsAdmin()||_fzIsMagaziner()||_fzCanSettings();
+}
 function _fzCanView(){return true;}
+
+// Felder, die ein Garagist bearbeiten darf. Alles andere wird im
+// Edit-Formular auf disabled gesetzt (Stammdaten, Zuteilung,
+// Ausstattung etc. bleiben sichtbar, sind aber gesperrt).
+var _FZ_GARAGIST_EDITABLE_FIELDS = [
+  'fKm',                                   // km-Stand
+  'fServiceKm','fServiceMonths',           // Service-Intervalle
+  'fLastService','fLastServiceKm',         // Letzter Service
+  'fMfk',                                  // MFK-Datum
+  'fTires','fTiresSeason','fTireStorage','fTireChangeDate',  // Reifen
+  'fNotes'                                 // Notizen
+];
+
+// fz-opt-Sektionen, die der Garagist nie zu Gesicht bekommt.
+// 'versicherung' wird zusaetzlich nur eingeblendet, wenn pro Fahrzeug
+// freigeschaltet (versicherungFreiFuerGaragist === true).
+var _FZ_GARAGIST_HIDDEN_OPTS = ['kaufbeleg','tankkarte','garagist'];
+
+// Liefert die orgId zu einer User-ID oder leer. Wird verwendet, um
+// die Werkstatt-Zugehoerigkeit eines zugewiesenen Lead-Garagisten zu
+// ermitteln, damit alle Mitarbeiter derselben Werkstatt-Org dieselben
+// Fahrzeuge sehen koennen.
+function _fzOrgIdOfUser(userId){
+  if(!userId||typeof GemaAuth==='undefined')return '';
+  try{
+    var users=GemaAuth.getUsers()||[];
+    var u=users.find(function(x){return x.id===userId;});
+    return u?(u.orgId||''):'';
+  }catch(e){return '';}
+}
+
+// Prueft ob aktueller User dieses Fahrzeug oeffnen darf.
+// Garagist: zugewiesen via v.garagistUserId — ODER ein Mitarbeiter der
+// gleichen Werkstatt-Org wie der zugewiesene Lead-Garagist ist. Damit
+// koennen mehrere Mechaniker einer Werkstatt dieselben Fahrzeuge
+// betreuen.
+function _fzCanOpenVehicle(v){
+  if(!v)return false;
+  if(!_fzIsGaragist())return true;
+  var u=_fzGetUser();if(!u||!v.garagistUserId)return false;
+  if(v.garagistUserId===u.id)return true;
+  var leadOrgId=_fzOrgIdOfUser(v.garagistUserId);
+  return !!(leadOrgId && u.orgId && leadOrgId===u.orgId);
+}
+
+// Sperrt im Edit-Formular alle Felder, die der Garagist nicht
+// veraendern darf, und blendet kritische Sektionen aus.
+function _fzApplyGaragistRestrictions(v){
+  if(!_fzIsGaragist())return;
+  var allow={};
+  _FZ_GARAGIST_EDITABLE_FIELDS.forEach(function(id){allow[id]=true;});
+  // Inputs/Selects/Textareas im Modal durchgehen und sperren.
+  var modal=document.getElementById('modalOverlay');
+  if(modal){
+    modal.querySelectorAll('.inp, .sel, .textarea').forEach(function(el){
+      if(!el.id||allow[el.id])return;
+      el.disabled=true;
+      el.style.background='#f8fafc';
+      el.style.cursor='not-allowed';
+    });
+    modal.querySelectorAll('input[type="checkbox"]').forEach(function(el){
+      if(!el.id||allow[el.id])el.disabled=true;
+    });
+    // Sektionen verbergen
+    modal.querySelectorAll('.fz-opt[data-opt]').forEach(function(sec){
+      var opt=sec.getAttribute('data-opt');
+      if(_FZ_GARAGIST_HIDDEN_OPTS.indexOf(opt)>=0){sec.style.display='none';return;}
+      if(opt==='versicherung'){
+        var freigegeben=!!(v && v.versicherungFreiFuerGaragist);
+        sec.style.display=freigegeben?'':'none';
+      }
+    });
+    // Erfass-Hinweis am Form-Top, damit der Garagist weiss, was er darf.
+    var hint=document.getElementById('_fzGaragistHint');
+    if(!hint){
+      hint=document.createElement('div');
+      hint.id='_fzGaragistHint';
+      hint.style.cssText='margin:0 0 12px;padding:10px 14px;background:#ecfeff;border:1.5px solid #a5f3fc;border-radius:8px;font-size:12px;color:#0e7490';
+      hint.textContent='ℹ Werkstatt-Modus: km-Stand, Service, MFK, Reifen und Notizen können angepasst werden. Stammdaten und finanzielle Felder sind gesperrt.';
+      var body=modal.querySelector('.modal-body, .modal');
+      if(body)body.insertBefore(hint, body.firstChild);
+    } else {
+      hint.style.display='';
+    }
+    // Loeschen-Button verstecken
+    var del=document.getElementById('deleteBtn');
+    if(del)del.style.display='none';
+  }
+}
+
+// Basiskatalog: typische Monteurenfahrzeuge.
+// Wird beim Tippen ins Marke/Modell-Feld via <datalist> als Vorschlag
+// angeboten; bei exaktem Treffer ergänzt _fzKatalogAutofill() Treibstoff
+// und Fahrzeugtyp, sofern der User diese noch nicht selbst geändert hat.
+var FAHRZEUG_KATALOG = [
+  // Hochdachkombi / Kompakt-Lieferwagen
+  { model: 'VW Caddy',              fuel: 'Diesel',  type: 'Monteurenfahrzeug' },
+  { model: 'VW Caddy Maxi',         fuel: 'Diesel',  type: 'Monteurenfahrzeug' },
+  { model: 'Renault Kangoo',        fuel: 'Diesel',  type: 'Monteurenfahrzeug' },
+  { model: 'Citroën Berlingo',      fuel: 'Diesel',  type: 'Monteurenfahrzeug' },
+  { model: 'Peugeot Partner',       fuel: 'Diesel',  type: 'Monteurenfahrzeug' },
+  { model: 'Opel Combo',            fuel: 'Diesel',  type: 'Monteurenfahrzeug' },
+  { model: 'Fiat Doblò',            fuel: 'Diesel',  type: 'Monteurenfahrzeug' },
+  { model: 'Ford Transit Connect',  fuel: 'Diesel',  type: 'Monteurenfahrzeug' },
+  { model: 'Mercedes Citan',        fuel: 'Diesel',  type: 'Monteurenfahrzeug' },
+  { model: 'Nissan Townstar',       fuel: 'Diesel',  type: 'Monteurenfahrzeug' },
+  // Mittelklasse-Kastenwagen
+  { model: 'VW Transporter T6.1',   fuel: 'Diesel',  type: 'Monteurenfahrzeug' },
+  { model: 'VW Transporter T6',     fuel: 'Diesel',  type: 'Monteurenfahrzeug' },
+  { model: 'Mercedes Vito',         fuel: 'Diesel',  type: 'Monteurenfahrzeug' },
+  { model: 'Mercedes eVito',        fuel: 'Elektro', type: 'Monteurenfahrzeug' },
+  { model: 'Renault Trafic',        fuel: 'Diesel',  type: 'Monteurenfahrzeug' },
+  { model: 'Ford Transit Custom',   fuel: 'Diesel',  type: 'Monteurenfahrzeug' },
+  { model: 'Citroën Jumpy',         fuel: 'Diesel',  type: 'Monteurenfahrzeug' },
+  { model: 'Peugeot Expert',        fuel: 'Diesel',  type: 'Monteurenfahrzeug' },
+  { model: 'Opel Vivaro',           fuel: 'Diesel',  type: 'Monteurenfahrzeug' },
+  { model: 'Fiat Scudo',            fuel: 'Diesel',  type: 'Monteurenfahrzeug' },
+  { model: 'Toyota Proace',         fuel: 'Diesel',  type: 'Monteurenfahrzeug' },
+  // Grosse Kastenwagen
+  { model: 'VW Crafter',            fuel: 'Diesel',  type: 'Servicefahrzeug' },
+  { model: 'Mercedes Sprinter',     fuel: 'Diesel',  type: 'Servicefahrzeug' },
+  { model: 'Mercedes eSprinter',    fuel: 'Elektro', type: 'Servicefahrzeug' },
+  { model: 'Ford Transit',          fuel: 'Diesel',  type: 'Servicefahrzeug' },
+  { model: 'Renault Master',        fuel: 'Diesel',  type: 'Servicefahrzeug' },
+  { model: 'Citroën Jumper',        fuel: 'Diesel',  type: 'Servicefahrzeug' },
+  { model: 'Peugeot Boxer',         fuel: 'Diesel',  type: 'Servicefahrzeug' },
+  { model: 'Opel Movano',           fuel: 'Diesel',  type: 'Servicefahrzeug' },
+  { model: 'Fiat Ducato',           fuel: 'Diesel',  type: 'Servicefahrzeug' },
+  { model: 'Iveco Daily',           fuel: 'Diesel',  type: 'Servicefahrzeug' },
+  { model: 'MAN TGE',               fuel: 'Diesel',  type: 'Servicefahrzeug' },
+  // Pickups (Aussenmontage / Baustelle)
+  { model: 'VW Amarok',             fuel: 'Diesel',  type: 'Monteurenfahrzeug' },
+  { model: 'Toyota Hilux',          fuel: 'Diesel',  type: 'Monteurenfahrzeug' },
+  { model: 'Ford Ranger',           fuel: 'Diesel',  type: 'Monteurenfahrzeug' },
+  { model: 'Mitsubishi L200',       fuel: 'Diesel',  type: 'Monteurenfahrzeug' },
+  { model: 'Isuzu D-Max',           fuel: 'Diesel',  type: 'Monteurenfahrzeug' }
+];
+
+// Default-Werte der Selects — solange ein Feld noch auf dem Default
+// steht (= User hat nicht selbst gewechselt), darf der Katalog-Autofill
+// es überschreiben. Sonst wird die Manuelländerung respektiert.
+var _FZ_DEFAULT_FUEL = 'Diesel';
+var _FZ_DEFAULT_TYPE = 'Monteurenfahrzeug';
+
+function _fzGetKatalogEntries(){
+  var seen = {};
+  var entries = [];
+  function key(e){ return (e.model || '').toLowerCase(); }
+  FAHRZEUG_KATALOG.forEach(function(k){
+    var id = key(k); if(seen[id]) return;
+    seen[id] = true;
+    entries.push({ model: k.model, fuel: k.fuel, type: k.type, src: 'katalog' });
+  });
+  if(Array.isArray(vehicles)){
+    vehicles.forEach(function(v){
+      if(!v || !v.model) return;
+      var id = key(v); if(seen[id]) return;
+      seen[id] = true;
+      entries.push({ model: v.model, fuel: v.fuel || '', type: v.type || '', src: 'vehicles' });
+    });
+  }
+  return entries;
+}
+
+function _fzInitKatalogList(){
+  var dl = document.getElementById('fahrzeugKatalogList');
+  if(!dl) return;
+  var entries = _fzGetKatalogEntries();
+  dl.innerHTML = entries.map(function(e){
+    var meta = [e.fuel, e.type].filter(Boolean).join(' · ');
+    var srcTag = e.src === 'vehicles' ? ' (eigener Eintrag)' : '';
+    return '<option value="' + e.model + '">' + meta + srcTag + '</option>';
+  }).join('');
+}
+
+function _fzKatalogAutofill(){
+  var el = document.getElementById('fModel');
+  if(!el) return;
+  var val = el.value.trim();
+  var entry = _fzGetKatalogEntries().find(function(e){ return e.model === val; });
+  if(!entry) return;
+  var fuel = document.getElementById('fFuel');
+  if(fuel && fuel.value === _FZ_DEFAULT_FUEL && entry.fuel) fuel.value = entry.fuel;
+  var typ = document.getElementById('fType');
+  if(typ && typ.value === _FZ_DEFAULT_TYPE && entry.type){
+    var hasOpt = Array.prototype.some.call(typ.options, function(o){ return o.value === entry.type; });
+    if(hasOpt) typ.value = entry.type;
+  }
+}
+window._fzKatalogAutofill = _fzKatalogAutofill;
 
 /* ═══════════════════════════════
    CSV EXPORT
@@ -1517,11 +2148,15 @@ document.addEventListener("keydown",e=>{ if(e.key==="Escape"){ closeModal(); clo
 
 // ── QR CODE ─────────────────────────────────────────────────────
 var _currentFzgQRInstance=null; // Referenz fuer SVG-Download
+var _currentFzgNfcUrl='';        // URL fuer NFC-Schreiben
 
 function openFzgQR(id){
   const v=vehicles.find(x=>x.id===id); if(!v) return;
   document.getElementById('fzgQrTitle').textContent=v.plate||v.model||'Fahrzeug';
+  // QR fuehrt zur klassischen Detail-Ansicht; NFC schreibt ?nfc=ID,
+  // damit beim Scan via Phone das Mobile-Action-Sheet aufgeht.
   const url=location.href.split('?')[0]+'?view='+id;
+  _currentFzgNfcUrl=location.href.split('?')[0]+'?nfc='+id;
   const canvas=document.getElementById('fzgQrCanvas');
   canvas.innerHTML='';
   _currentFzgQRInstance=new QRCode(canvas,{text:url,width:180,height:180,colorDark:'#111827',colorLight:'#ffffff',correctLevel:QRCode.CorrectLevel.M});
@@ -1530,10 +2165,72 @@ function openFzgQR(id){
     ['Kennzeichen',v.plate||'—'],['Modell',v.model||'—'],
     ['Typ',v.type||'—'],['Fahrer',v.driver||'—']
   ].map(([l,v2])=>`<div class="fzg-qr-row"><span class="fzg-qr-lbl">${l}</span><span class="fzg-qr-val">${esc2(v2)}</span></div>`).join('');
+  var nfcB=document.getElementById('fzgNfcBtn');
+  if(nfcB)nfcB.style.display=('NDEFReader' in window)?'inline-flex':'none';
+  var nfcLB=document.getElementById('fzgNfcLockBtn');
+  if(nfcLB)nfcLB.style.display=(('NDEFReader' in window)&&_fzCanEdit())?'inline-flex':'none';
+  var ns=document.getElementById('fzgNfcStatus');
+  if(ns)ns.textContent='';
   const m=document.getElementById('fzgQrModal');
   m.style.display='flex'; m.classList.remove('hidden');
 }
 window.openFzgQR=openFzgQR;
+
+async function _fzWriteNFC(){
+  if(!('NDEFReader' in window)){alert('NFC wird von diesem Browser nicht unterstützt. Benötigt: Android + Chrome.');return;}
+  var st=document.getElementById('fzgNfcStatus');
+  var btn=document.getElementById('fzgNfcBtn');
+  if(st)st.textContent='📡 NFC-Tag jetzt an das Gerät halten …';
+  if(btn){btn.disabled=true;btn.style.opacity='.6';}
+  try{
+    var reader=new NDEFReader();
+    await reader.write({records:[{recordType:'url',data:_currentFzgNfcUrl}]});
+    if(st)st.innerHTML='<span style="color:#16a34a;font-weight:700">✓ Erfolgreich auf NFC-Tag geschrieben!</span>';
+  }catch(e){
+    if(e.name==='NotAllowedError'){
+      if(st)st.innerHTML='<span style="color:#d97706">NFC-Berechtigung verweigert. Bitte in den Browser-Einstellungen erlauben.</span>';
+    }else if(e.name==='AbortError'||(e.message&&e.message.indexOf('cancel')>=0)){
+      if(st)st.textContent='Abgebrochen.';
+    }else{
+      if(st)st.innerHTML='<span style="color:#dc2626">Fehler: '+esc(e.message||'Unbekannt')+'</span>';
+    }
+  }finally{
+    if(btn){btn.disabled=false;btn.style.opacity='1';}
+  }
+}
+window._fzWriteNFC=_fzWriteNFC;
+
+async function _fzMakeNFCReadOnly(){
+  if(!('NDEFReader' in window)){alert('NFC wird von diesem Browser nicht unterstützt. Benötigt: Android + Chrome.');return;}
+  if(!_fzCanEdit()){alert('Keine Berechtigung — nur Magaziner und Admins dürfen Tags sperren.');return;}
+  if(!confirm('NFC-Tag dauerhaft schreibgeschützt machen?\n\n⚠ Diese Aktion ist UNWIDERRUFLICH.\nDer Tag kann anschliessend nie mehr beschrieben oder gelöscht werden.\n\nFortfahren?'))return;
+  var st=document.getElementById('fzgNfcStatus');
+  var lockBtn=document.getElementById('fzgNfcLockBtn');
+  var wrtBtn=document.getElementById('fzgNfcBtn');
+  if(st)st.textContent='🔒 NFC-Tag jetzt an das Gerät halten — wird gesperrt …';
+  if(lockBtn){lockBtn.disabled=true;lockBtn.style.opacity='.6';}
+  if(wrtBtn){wrtBtn.disabled=true;wrtBtn.style.opacity='.6';}
+  try{
+    var reader=new NDEFReader();
+    if(typeof reader.makeReadOnly!=='function'){
+      throw new Error('Browser unterstützt das Sperren von NFC-Tags nicht (makeReadOnly nicht verfügbar).');
+    }
+    await reader.makeReadOnly();
+    if(st)st.innerHTML='<span style="color:#16a34a;font-weight:700">✓ NFC-Tag dauerhaft gesperrt.</span>';
+  }catch(e){
+    if(e.name==='NotAllowedError'){
+      if(st)st.innerHTML='<span style="color:#d97706">NFC-Berechtigung verweigert.</span>';
+    }else if(e.name==='AbortError'||(e.message&&e.message.indexOf('cancel')>=0)){
+      if(st)st.textContent='Abgebrochen.';
+    }else{
+      if(st)st.innerHTML='<span style="color:#dc2626">Fehler: '+esc(e.message||'Unbekannt')+'</span>';
+    }
+  }finally{
+    if(lockBtn){lockBtn.disabled=false;lockBtn.style.opacity='1';}
+    if(wrtBtn){wrtBtn.disabled=false;wrtBtn.style.opacity='1';}
+  }
+}
+window._fzMakeNFCReadOnly=_fzMakeNFCReadOnly;
 
 function closeFzgQR(){
   const m=document.getElementById('fzgQrModal');
@@ -1596,6 +2293,10 @@ window.downloadFzgQRSVG=downloadFzgQRSVG;
 
 function openViewFzg(id){
   const v=vehicles.find(x=>x.id===id);
+  if(_fzIsGaragist() && !_fzCanOpenVehicle(v)){
+    alert('Dieses Fahrzeug ist Ihrer Werkstatt nicht zugewiesen.');
+    return;
+  }
   window._lastViewId = id;
   const overlay=document.getElementById('viewModalOverlay');
   if(!v){
@@ -1633,6 +2334,21 @@ function openViewFzg(id){
   var stIcon=svc.badge==='red'?'🚨':svc.badge==='amber'?'⏰':'✅';
   var stText=svc.badge==='red'?'Service überfällig!':svc.badge==='amber'?'Service bald fällig':'Service aktuell';
   html+='<div class="vm-status-bar '+stCls+'"><span class="vm-st-icon">'+stIcon+'</span><span class="vm-st-text">'+stText+'</span></div>';
+
+  // Offene Defekte (events vom Typ 'defekt' ohne resolved-Flag).
+  // Fuer Garagist prominent oben, fuer andere Rollen ebenfalls.
+  var openDefs=Array.isArray(v.events)?v.events.filter(function(e){return e&&e.type==='defekt'&&!e.resolved;}):[];
+  if(openDefs.length){
+    html+='<div style="margin:8px 0;padding:12px 14px;background:#fef2f2;border:1.5px solid #fecaca;border-radius:8px;color:#b91c1c">';
+    html+='<div style="font-size:13px;font-weight:700;display:flex;align-items:center;gap:6px;margin-bottom:6px"><span>🚨</span>'+openDefs.length+' offene Defektmeldung'+(openDefs.length>1?'en':'')+'</div>';
+    openDefs.slice(0,3).forEach(function(d){
+      html+='<div style="font-size:12px;color:#991b1b;margin-top:4px"><b>'+esc((d.date?new Date(d.date).toLocaleDateString('de-CH'):''))+':</b> '+esc((d.detail||d.label||'').slice(0,200))+'</div>';
+    });
+    if(_fzCanEdit()){
+      html+='<button onclick="_fzResolveAllDefects(\''+esc(v.id)+'\')" style="margin-top:8px;padding:4px 10px;border-radius:6px;border:1.5px solid #b91c1c;background:#fff;color:#b91c1c;font-size:11.5px;font-weight:700;cursor:pointer;font-family:inherit">Alle als behoben markieren</button>';
+    }
+    html+='</div>';
+  }
 
   // Grunddaten
   html+='<div class="vm-section">Fahrzeugdaten</div>';
@@ -1683,9 +2399,27 @@ function openViewFzg(id){
   html+=vmf('Service-Intervall',(v.serviceKm?parseInt(v.serviceKm).toLocaleString('de-CH')+' km':'—')+(v.serviceMonths?' / '+v.serviceMonths+' Mt.':''));
   html+=vmf('MFK gültig bis',fmtDate(v.mfk));
   html+=vmf('Garage',v.garage||'—');
-  html+=vmf('Tankkarte',v.fuelCard||'—');
+  if(!_fzIsGaragist())html+=vmf('Tankkarte',v.fuelCard||'—');
   html+=vmf('Reifen',v.tires||'—');
   html+='</div>';
+
+  // Versicherung — fuer Magaziner/Admin immer; fuer Garagist nur wenn
+  // pro Fahrzeug freigegeben. Wenn keine Versicherungsdaten erfasst
+  // sind, wird die Sektion uebersprungen.
+  var vIns=v.versicherung||null;
+  var hasIns=vIns && (vIns.gesellschaft||vIns.policeNr||vIns.deckung||vIns.ablauf);
+  var canSeeIns=!_fzIsGaragist()||!!v.versicherungFreiFuerGaragist;
+  if(hasIns && canSeeIns){
+    html+='<div class="vm-section">Versicherung'+
+      (_fzIsGaragist()?' <span style="font-size:9.5px;font-weight:600;background:#ecfeff;color:#0e7490;padding:2px 6px;border-radius:4px;margin-left:6px;text-transform:none;letter-spacing:0">freigegeben</span>':'')+
+      '</div>';
+    html+='<div class="vm-grid">';
+    html+=vmf('Gesellschaft',vIns.gesellschaft||'—');
+    html+=vmf('Police-Nr.',vIns.policeNr||'—');
+    html+=vmf('Deckung',vIns.deckung||'—');
+    html+=vmf('Ablauf',fmtDate(vIns.ablauf));
+    html+='</div>';
+  }
 
   // Service progress
   html+='<div style="margin-top:4px"><div style="font-size:10.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.3px;margin-bottom:4px">Service-Fortschritt: '+svc.label+'</div>';
@@ -1697,6 +2431,12 @@ function openViewFzg(id){
     html+='<div class="vm-section">Notizen</div>';
     html+='<div class="vm-field full"><div class="vm-field-val" style="font-weight:500;font-size:13px;color:var(--text2)">'+esc(v.notes)+'</div></div>';
   }
+
+  // Kosten-Analyse (Magaziner/Admin only) — vor Service-Historie
+  html+=_fzRenderKostenAnalyse(v);
+
+  // Service-Historie
+  html+=_fzRenderServiceHistorie(v);
 
   document.getElementById('vm_body').innerHTML=html;
 
@@ -1712,6 +2452,632 @@ window.openViewFzg=openViewFzg;
 
 function vmf(label,value){
   return '<div class="vm-field"><div class="vm-field-lbl">'+label+'</div><div class="vm-field-val">'+esc(value||'—')+'</div></div>';
+}
+
+// Kosten-Analyse: Total, Anzahl, Durchschnitt, Max, plus 12-Monats-
+// Bar-Chart. Sichtbar nur fuer Magaziner und Admin — der Garagist
+// sieht in der Service-Historie ohnehin nur eigene Kosten.
+function _fzRenderKostenAnalyse(v){
+  if(!_fzIsAdmin()&&!_fzIsMagaziner())return '';
+  var hist=Array.isArray(v.serviceHistorie)?v.serviceHistorie.slice():[];
+  var entries=hist.filter(function(e){return e&&e.kosten&&!isNaN(parseFloat(e.kosten));});
+  if(!entries.length)return '';
+  var total=0,max=0;
+  entries.forEach(function(e){
+    var k=parseFloat(e.kosten); total+=k;
+    if(k>max)max=k;
+  });
+  var avg=total/entries.length;
+  // 12-Monats-Aggregation
+  var now=new Date();
+  var months=[];
+  for(var i=11;i>=0;i--){
+    var d=new Date(now.getFullYear(),now.getMonth()-i,1);
+    months.push({key:d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'),label:d.toLocaleDateString('de-CH',{month:'short'}),total:0});
+  }
+  entries.forEach(function(e){
+    if(!e.datum)return;
+    var k=String(e.datum).slice(0,7);
+    var m=months.find(function(x){return x.key===k;});
+    if(m)m.total+=parseFloat(e.kosten);
+  });
+  var maxMonth=Math.max.apply(null,months.map(function(m){return m.total;}).concat([1]));
+  // Kosten/km
+  var costPerKm='';
+  if(v.km && parseInt(v.km,10)>0){
+    var c=total/parseInt(v.km,10);
+    costPerKm='CHF '+c.toFixed(3)+' / km';
+  }
+  function f(x){return x.toLocaleString('de-CH',{minimumFractionDigits:2,maximumFractionDigits:2});}
+  var html='<div class="vm-section">Kosten-Analyse <span style="font-size:9.5px;font-weight:600;background:#f1f5f9;color:#475569;padding:2px 6px;border-radius:4px;margin-left:6px;text-transform:none;letter-spacing:0">nur intern</span></div>';
+  html+='<div class="vm-grid">';
+  html+='<div class="vm-field"><div class="vm-field-lbl">Total Service-Kosten</div><div class="vm-field-val" style="color:#0d9488;font-weight:700">CHF '+f(total)+'</div></div>';
+  html+='<div class="vm-field"><div class="vm-field-lbl">Einträge mit Kosten</div><div class="vm-field-val">'+entries.length+' von '+hist.length+'</div></div>';
+  html+='<div class="vm-field"><div class="vm-field-lbl">Ø pro Eintrag</div><div class="vm-field-val">CHF '+f(avg)+'</div></div>';
+  html+='<div class="vm-field"><div class="vm-field-lbl">Höchster Eintrag</div><div class="vm-field-val">CHF '+f(max)+'</div></div>';
+  if(costPerKm){
+    html+='<div class="vm-field"><div class="vm-field-lbl">Kosten / km (kumuliert)</div><div class="vm-field-val">'+costPerKm+'</div></div>';
+  }
+  html+='</div>';
+  // 12-Monats-Bar-Chart (CSS-only)
+  html+='<div style="margin-top:14px">';
+  html+='<div style="font-size:10.5px;color:var(--muted);font-weight:700;margin-bottom:6px;text-transform:uppercase;letter-spacing:.3px">Service-Kosten — letzte 12 Monate</div>';
+  html+='<div style="display:grid;grid-template-columns:repeat(12,1fr);gap:3px;height:84px;align-items:end;background:#fafbfd;border:1px solid var(--border);border-radius:8px;padding:8px 6px 4px">';
+  months.forEach(function(m){
+    var pct=maxMonth>0?(m.total/maxMonth)*100:0;
+    var lbl=m.total>0?Math.round(m.total).toLocaleString('de-CH'):'';
+    var color=m.total>0?'#0d9488':'#e5e7eb';
+    html+='<div style="display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;gap:2px" title="'+esc(m.label)+': CHF '+f(m.total)+'">';
+    html+='<div style="font-size:8.5px;color:var(--muted);font-weight:700;line-height:1;height:9px">'+esc(lbl)+'</div>';
+    html+='<div style="width:100%;background:'+color+';border-radius:3px 3px 0 0;height:'+pct+'%;min-height:'+(m.total>0?3:1)+'px;transition:all .2s"></div>';
+    html+='</div>';
+  });
+  html+='</div>';
+  html+='<div style="display:grid;grid-template-columns:repeat(12,1fr);gap:3px;margin-top:4px;padding:0 6px;font-size:9.5px;color:var(--muted);text-align:center">';
+  months.forEach(function(m){html+='<div>'+esc(m.label)+'</div>';});
+  html+='</div>';
+  html+='</div>';
+  return html;
+}
+
+// Service-Historie als chronologisch absteigende Liste plus
+// "+ Service erfassen"-Button. Magaziner/Admin sehen Kosten immer;
+// Garagist sieht Kosten nur in eigenen Eintraegen.
+var _FZ_SERVICE_ART_LABELS={service:'🛠 Service',reparatur:'🔧 Reparatur',mfk:'📋 MFK',pneuwechsel:'🛞 Pneuwechsel',sonstiges:'• Sonstiges'};
+function _fzRenderServiceHistorie(v){
+  var hist=Array.isArray(v.serviceHistorie)?v.serviceHistorie.slice():[];
+  hist.sort(function(a,b){return (b.datum||'').localeCompare(a.datum||'');});
+  var canAdd=_fzCanEdit();
+  var canSeeAllCosts=_fzIsAdmin()||_fzIsMagaziner();
+  var meId=(_fzGetUser()||{}).id||'';
+  var html='';
+
+  // Folge-Termine
+  var followUps=Array.isArray(v.followUps)?v.followUps.slice():[];
+  var openFups=followUps.filter(function(f){return f && !f.completed;});
+  openFups.sort(function(a,b){return (a.dueDate||'').localeCompare(b.dueDate||'');});
+  if(openFups.length){
+    html+='<div class="vm-section">Folge-Termine</div>';
+    html+='<div style="display:flex;flex-direction:column;gap:5px;margin-top:4px">';
+    var todayStr=new Date().toISOString().slice(0,10);
+    openFups.forEach(function(f){
+      var faellig=(f.dueDate||'')<=todayStr;
+      var pill=faellig?'background:#fef2f2;border-color:#fecaca;color:#b91c1c':'background:#fffbeb;border-color:#fde68a;color:#92400e';
+      html+='<div style="border:1.5px solid;'+pill+';border-radius:8px;padding:8px 10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">';
+      html+='<span style="font-size:12px;font-weight:700">'+(faellig?'⏰ Fällig':'📅 '+new Date(f.dueDate).toLocaleDateString('de-CH'))+'</span>';
+      html+='<span style="font-size:12px">'+esc(f.beschreibung||'')+'</span>';
+      if(f.plannedByName)html+='<span style="font-size:10.5px;opacity:.7">· '+esc(f.plannedByName)+'</span>';
+      if(canAdd){
+        html+='<button onclick="_fzCompleteFollowUp(\''+esc(v.id)+'\',\''+esc(f.id)+'\')" style="margin-left:auto;padding:3px 9px;border-radius:6px;border:1.5px solid currentColor;background:transparent;color:inherit;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit">Erledigt</button>';
+      }
+      html+='</div>';
+    });
+    html+='</div>';
+  }
+
+  html+='<div class="vm-section">Service-Historie';
+  var hasEntries=hist.length>0;
+  if(hasEntries){
+    html+='<button onclick="_fzExportServiceHistoriePDF(\''+esc(v.id)+'\')" style="margin-left:auto;padding:4px 10px;border-radius:6px;border:1.5px solid #6b7280;background:#fff;color:#374151;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit">📥 PDF</button>';
+  }
+  if(canAdd){
+    html+='<button onclick="_fzOpenServiceModal(\''+esc(v.id)+'\')" style="'+(hasEntries?'margin-left:6px':'margin-left:auto')+';padding:4px 10px;border-radius:6px;border:1.5px solid var(--primary);background:#eff6ff;color:var(--primary);font-size:11px;font-weight:700;cursor:pointer;font-family:inherit">+ Service erfassen</button>';
+  }
+  html+='</div>';
+  if(!hist.length){
+    html+='<div class="vm-field full"><div class="vm-field-val" style="color:var(--muted);font-size:12px">Noch keine Eintraege.</div></div>';
+    return html;
+  }
+  html+='<div style="display:flex;flex-direction:column;gap:6px;margin-top:4px">';
+  hist.forEach(function(e){
+    var artLabel=_FZ_SERVICE_ART_LABELS[e.art]||e.art||'•';
+    var datum=e.datum?new Date(e.datum).toLocaleDateString('de-CH'):'—';
+    var km=e.km?parseInt(e.km).toLocaleString('de-CH')+' km':'—';
+    var showKosten=canSeeAllCosts||(e.erledigtVonUserId&&e.erledigtVonUserId===meId);
+    var kostenChip=(showKosten&&e.kosten)?('<span style="margin-left:8px;padding:1px 6px;background:#f1f5f9;border-radius:4px;font-size:10.5px;color:var(--text2)">CHF '+esc(e.kosten)+'</span>'):'';
+    html+='<div style="border:1px solid var(--border);border-radius:8px;padding:8px 10px;background:#fafbfd">';
+    html+='<div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap"><span style="font-size:12px;font-weight:700;color:var(--text)">'+esc(artLabel)+'</span><span style="font-size:11.5px;color:var(--muted)">'+datum+' · '+km+'</span>'+kostenChip+'</div>';
+    if(e.beschreibung){
+      html+='<div style="margin-top:4px;font-size:12px;color:var(--text2);white-space:pre-wrap">'+esc(e.beschreibung)+'</div>';
+    }
+    if(Array.isArray(e.photos) && e.photos.length){
+      html+='<div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:6px">';
+      e.photos.forEach(function(p,i){
+        if(!p||!p.dataUrl)return;
+        html+='<img src="'+p.dataUrl+'" alt="Service-Foto" style="width:60px;height:60px;object-fit:cover;border-radius:6px;border:1px solid var(--border);cursor:pointer" onclick="_fzPhotoLightbox(this.src)"/>';
+      });
+      html+='</div>';
+    }
+    var werkstatt=e.werkstatt||'';
+    var von=e.erledigtVonName||'';
+    if(werkstatt||von){
+      html+='<div style="margin-top:4px;font-size:10.5px;color:var(--muted)">'+(werkstatt?esc(werkstatt):'')+(werkstatt&&von?' · ':'')+(von?esc(von):'')+'</div>';
+    }
+    html+='</div>';
+  });
+  html+='</div>';
+  return html;
+}
+
+// Service-Historie als PDF herunterladen. Nutzt jsPDF direkt (statt
+// html2canvas-Screenshot) fuer kompakten, scharfen, durchsuchbaren
+// Output. Geeignet als Beleg fuer den Halter beim Verkauf.
+function _fzEnsureJsPDF(){
+  return new Promise(function(res){
+    if(window.jspdf && window.jspdf.jsPDF) return res();
+    var s=document.createElement('script');
+    s.src='https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+    s.onload=function(){res();};
+    s.onerror=function(){res();};
+    document.head.appendChild(s);
+  });
+}
+window._fzExportServiceHistoriePDF=async function(vehicleId){
+  var v=vehicles.find(function(x){return x.id===vehicleId;});
+  if(!v)return;
+  showToast('📄 PDF wird erstellt …');
+  await _fzEnsureJsPDF();
+  if(!(window.jspdf && window.jspdf.jsPDF)){alert('PDF-Bibliothek nicht verfügbar.');return;}
+  var jsPDF=window.jspdf.jsPDF;
+  var doc=new jsPDF({unit:'mm',format:'a4'});
+  var M=15;
+  var y=20;
+  var pageH=doc.internal.pageSize.getHeight();
+  function ensureSpace(needed){
+    if(y+needed>pageH-15){doc.addPage();y=20;_drawHeader();}
+  }
+  function _drawHeader(){
+    doc.setDrawColor(229,231,235);
+    doc.line(M,12,195,12);
+    doc.setFontSize(9);doc.setFont('helvetica','normal');doc.setTextColor(107,114,128);
+    doc.text('GEMA · Service-Historie · '+(v.plate||v.model||'Fahrzeug'),M,9);
+  }
+  // Titel + Fahrzeug-Info
+  doc.setFontSize(20);doc.setFont('helvetica','bold');doc.setTextColor(15,23,42);
+  doc.text('Service-Historie',M,y);y+=9;
+  doc.setFontSize(11);doc.setFont('helvetica','bold');doc.setTextColor(13,148,136);
+  doc.text((v.plate||'—'),M,y);
+  doc.setFont('helvetica','normal');doc.setTextColor(55,65,81);
+  doc.text('  ·  '+(v.model||'—')+(v.year?' ('+v.year+')':''),M+30,y);
+  y+=7;
+  doc.setFontSize(9);doc.setTextColor(107,114,128);
+  var infoLines=[
+    'Aktueller km-Stand: '+(v.km?parseInt(v.km,10).toLocaleString('de-CH')+' km':'—'),
+    'Treibstoff: '+(v.fuel||'—')+'  ·  Typ: '+(v.type||'—'),
+    'MFK gültig bis: '+(v.mfk?new Date(v.mfk).toLocaleDateString('de-CH'):'—'),
+    'PDF erstellt: '+new Date().toLocaleString('de-CH')
+  ];
+  infoLines.forEach(function(line){doc.text(line,M,y);y+=4.2;});
+  y+=4;
+  doc.setDrawColor(229,231,235);doc.line(M,y,195,y);y+=8;
+
+  // Folge-Termine (offene)
+  var followUps=Array.isArray(v.followUps)?v.followUps.filter(function(f){return f && !f.completed;}):[];
+  if(followUps.length){
+    doc.setFontSize(11);doc.setFont('helvetica','bold');doc.setTextColor(146,64,14);
+    doc.text('Geplante Folge-Termine',M,y);y+=6;
+    doc.setFont('helvetica','normal');doc.setFontSize(9.5);doc.setTextColor(55,65,81);
+    followUps.forEach(function(f){
+      ensureSpace(8);
+      var dt=f.dueDate?new Date(f.dueDate).toLocaleDateString('de-CH'):'—';
+      doc.text('• '+dt+' — '+(f.beschreibung||''),M,y);y+=4.5;
+    });
+    y+=4;
+    doc.setDrawColor(229,231,235);doc.line(M,y,195,y);y+=6;
+  }
+
+  // Service-Einträge
+  var hist=Array.isArray(v.serviceHistorie)?v.serviceHistorie.slice():[];
+  hist.sort(function(a,b){return (b.datum||'').localeCompare(a.datum||'');});
+  if(!hist.length){
+    doc.setFontSize(10);doc.setFont('helvetica','italic');doc.setTextColor(107,114,128);
+    doc.text('Keine Einträge erfasst.',M,y);
+  } else {
+    var ART={service:'Service',reparatur:'Reparatur',mfk:'MFK',pneuwechsel:'Pneuwechsel',sonstiges:'Sonstiges'};
+    hist.forEach(function(e){
+      ensureSpace(20);
+      // Datum + Art
+      doc.setFontSize(11);doc.setFont('helvetica','bold');doc.setTextColor(15,23,42);
+      var datum=e.datum?new Date(e.datum).toLocaleDateString('de-CH'):'—';
+      doc.text(datum,M,y);
+      doc.setTextColor(13,148,136);
+      doc.text('  '+(ART[e.art]||e.art||'-'),M+22,y);
+      y+=5;
+      // Meta
+      doc.setFont('helvetica','normal');doc.setFontSize(9);doc.setTextColor(75,85,99);
+      var meta=[];
+      if(e.km)meta.push('km '+parseInt(e.km,10).toLocaleString('de-CH'));
+      if(e.werkstatt)meta.push(e.werkstatt);
+      if(e.erledigtVonName)meta.push(e.erledigtVonName);
+      if(e.kosten)meta.push('CHF '+e.kosten);
+      if(meta.length){doc.text(meta.join('  ·  '),M,y);y+=4.5;}
+      // Beschreibung
+      if(e.beschreibung){
+        doc.setTextColor(55,65,81);
+        var lines=doc.splitTextToSize(e.beschreibung,180);
+        lines.forEach(function(line){ensureSpace(5);doc.text(line,M,y);y+=4.5;});
+      }
+      // Fotos: bis zu 4 nebeneinander, je 35×26 mm
+      if(Array.isArray(e.photos)&&e.photos.length){
+        ensureSpace(28);
+        var pX=M;
+        var perRow=4, w=35, h=26, gap=3;
+        e.photos.slice(0,8).forEach(function(p,idx){
+          if(!p||!p.dataUrl)return;
+          if(idx>0 && idx%perRow===0){pX=M;y+=h+gap;ensureSpace(h+2);}
+          try{doc.addImage(p.dataUrl,'JPEG',pX,y,w,h);}catch(_){}
+          pX+=w+gap;
+        });
+        y+=h+gap;
+      }
+      y+=2;
+      doc.setDrawColor(229,231,235);doc.line(M,y,195,y);y+=4;
+    });
+  }
+  // Page numbers
+  var totalPages=doc.internal.getNumberOfPages();
+  for(var p=1;p<=totalPages;p++){
+    doc.setPage(p);
+    doc.setFontSize(8);doc.setFont('helvetica','normal');doc.setTextColor(156,163,175);
+    doc.text('Seite '+p+' / '+totalPages,195,pageH-7,{align:'right'});
+  }
+  var fname='Service-Historie_'+(v.plate||v.id||'Fahrzeug').replace(/[^a-z0-9]+/gi,'_')+'_'+new Date().toISOString().slice(0,10)+'.pdf';
+  doc.save(fname);
+  showToast('✓ PDF heruntergeladen');
+};
+
+// Markiert einen Folge-Termin als erledigt.
+window._fzCompleteFollowUp=function(vehicleId, followUpId){
+  if(!_fzCanEdit())return;
+  var v=vehicles.find(function(x){return x.id===vehicleId;});
+  if(!v||!Array.isArray(v.followUps))return;
+  var f=v.followUps.find(function(x){return x.id===followUpId;});
+  if(!f)return;
+  var u=_fzGetUser()||{};
+  f.completed=true;
+  f.completedAt=new Date().toISOString();
+  f.completedByUserId=u.id||'';
+  f.completedByName=u.name||u.username||'';
+  persist();
+  openViewFzg(vehicleId);
+  render();
+  showToast('Folge-Termin erledigt ✓');
+};
+
+// ─────────────────────────────────────────────────────────────────
+// Mobile-Native NFC-Flow: nach Tag-Scan oeffnet sich ein
+// daumen-freundliches Action-Sheet mit grossen Buttons (km / Service
+// / Defekt / Detail). Reduziert die Tap-Anzahl bei NFC-Workflows in
+// der Werkstatt von 3 auf 1.
+// ─────────────────────────────────────────────────────────────────
+window._fzOpenNfcActionSheet=function(vehicleId){
+  var v=vehicles.find(function(x){return x.id===vehicleId;});
+  if(!v){alert('Fahrzeug nicht gefunden.');return;}
+  // Garagist: nur eigene zugewiesene Fahrzeuge
+  if(_fzIsGaragist() && !_fzCanOpenVehicle(v)){
+    alert('Dieses Fahrzeug ist deiner Werkstatt nicht zugewiesen.');return;
+  }
+  var ov=document.getElementById('nfcActionSheet');
+  if(!ov){_fzCreateNfcActionSheet();ov=document.getElementById('nfcActionSheet');}
+  document.getElementById('nfcAsTitle').textContent=v.plate||v.model||'Fahrzeug';
+  document.getElementById('nfcAsSub').textContent=(v.model||'')+(v.km?' · '+parseInt(v.km,10).toLocaleString('de-CH')+' km':'');
+  var canEdit=_fzCanEdit();
+  document.getElementById('nfcAsKm').style.display=canEdit?'flex':'none';
+  document.getElementById('nfcAsService').style.display=canEdit?'flex':'none';
+  document.getElementById('nfcAsDefekt').style.display=_fzCanReportDefect&&_fzCanReportDefect()||canEdit?'flex':'none';
+  // Aktions-IDs setzen
+  ov.dataset.vid=vehicleId;
+  ov.style.display='flex';ov.classList.remove('hidden');
+  document.body.classList.add('modal-open');
+};
+
+window._fzCloseNfcActionSheet=function(){
+  var ov=document.getElementById('nfcActionSheet');
+  if(ov){ov.style.display='none';ov.classList.add('hidden');}
+  document.body.classList.remove('modal-open');
+};
+
+// Quick-km-Edit per prompt() — fuer NFC-Sheet und auch general nutzbar.
+window._fzQuickKmEdit=function(vehicleId){
+  var v=vehicles.find(function(x){return x.id===vehicleId;});
+  if(!v)return;
+  if(!_fzCanEdit()){alert('Keine Berechtigung.');return;}
+  var aktuell=v.km?String(v.km):'';
+  var neu=window.prompt('Neuen km-Stand eintragen für '+(v.plate||v.model||'Fahrzeug')+'\nAktuell: '+(aktuell||'—'),aktuell);
+  if(neu===null)return;
+  neu=String(neu).trim().replace(/[^0-9]/g,'');
+  if(!neu){alert('Ungültige Eingabe.');return;}
+  var neuNum=parseInt(neu,10);
+  var alt=parseInt(v.km||'0',10);
+  if(neuNum<alt){
+    if(!window.confirm('Neuer km-Stand ('+neuNum.toLocaleString('de-CH')+') ist tiefer als bisher ('+alt.toLocaleString('de-CH')+'). Trotzdem speichern?'))return;
+  }
+  v.km=String(neuNum);
+  v.kmUpdatedAt=new Date().toISOString();
+  persist();
+  render();
+  showToast('km-Stand aktualisiert ✓');
+};
+
+function _fzCreateNfcActionSheet(){
+  var ov=document.createElement('div');
+  ov.id='nfcActionSheet';
+  ov.className='modal-overlay';
+  ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1200;display:none;align-items:flex-end;justify-content:center;padding:0';
+  ov.innerHTML=''+
+    '<div style="width:100%;max-width:560px;background:#fff;border-radius:18px 18px 0 0;box-shadow:0 -8px 30px rgba(0,0,0,.25);padding:18px 18px 24px;display:flex;flex-direction:column;gap:10px;animation:_fzNfcSheetUp .25s ease-out">'+
+      '<div style="width:40px;height:4px;background:#e5e7eb;border-radius:2px;margin:-4px auto 4px"></div>'+
+      '<div style="display:flex;align-items:center;gap:10px;padding-bottom:8px;border-bottom:1px solid #f0f0f0">'+
+        '<div style="width:40px;height:40px;background:#0d9488;color:#fff;border-radius:10px;display:grid;place-items:center;font-size:20px">📡</div>'+
+        '<div style="flex:1;min-width:0"><div id="nfcAsTitle" style="font-size:15px;font-weight:700;color:#111;line-height:1.2"></div><div id="nfcAsSub" style="font-size:11.5px;color:#6b7280;margin-top:2px"></div></div>'+
+        '<button onclick="_fzCloseNfcActionSheet()" style="background:none;border:none;font-size:22px;cursor:pointer;color:#6b7280;padding:4px">✕</button>'+
+      '</div>'+
+      '<button id="nfcAsKm" onclick="var v=document.getElementById(\'nfcActionSheet\').dataset.vid;_fzCloseNfcActionSheet();_fzQuickKmEdit(v);" style="display:flex;align-items:center;gap:14px;padding:16px 18px;background:#ecfeff;border:1.5px solid #a5f3fc;border-radius:12px;cursor:pointer;font-family:inherit;text-align:left;width:100%">'+
+        '<span style="font-size:28px">✏️</span><div style="flex:1"><div style="font-size:15px;font-weight:700;color:#0e7490">km-Stand eintragen</div><div style="font-size:12px;color:#0891b2;margin-top:2px">Schnell — nur eine Zahl</div></div>'+
+      '</button>'+
+      '<button id="nfcAsService" onclick="var v=document.getElementById(\'nfcActionSheet\').dataset.vid;_fzCloseNfcActionSheet();_fzOpenServiceModal(v);" style="display:flex;align-items:center;gap:14px;padding:16px 18px;background:#eff6ff;border:1.5px solid #bfdbfe;border-radius:12px;cursor:pointer;font-family:inherit;text-align:left;width:100%">'+
+        '<span style="font-size:28px">🛠</span><div style="flex:1"><div style="font-size:15px;font-weight:700;color:#1d4ed8">Service erfassen</div><div style="font-size:12px;color:#2563eb;margin-top:2px">Datum, Beschreibung, Fotos</div></div>'+
+      '</button>'+
+      '<button id="nfcAsDefekt" onclick="var v=document.getElementById(\'nfcActionSheet\').dataset.vid;_fzCloseNfcActionSheet();openDefekt(v);" style="display:flex;align-items:center;gap:14px;padding:16px 18px;background:#fef2f2;border:1.5px solid #fecaca;border-radius:12px;cursor:pointer;font-family:inherit;text-align:left;width:100%">'+
+        '<span style="font-size:28px">🚨</span><div style="flex:1"><div style="font-size:15px;font-weight:700;color:#b91c1c">Defekt melden</div><div style="font-size:12px;color:#dc2626;margin-top:2px">Beschreibung + Priorität</div></div>'+
+      '</button>'+
+      '<button onclick="var v=document.getElementById(\'nfcActionSheet\').dataset.vid;_fzCloseNfcActionSheet();openViewFzg(v);" style="padding:12px;background:transparent;border:1.5px solid #e2e7f0;border-radius:10px;color:#374151;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;margin-top:4px">Zur vollständigen Detail-Ansicht</button>'+
+    '</div>';
+  document.body.appendChild(ov);
+  ov.addEventListener('click',function(e){if(e.target===ov)_fzCloseNfcActionSheet();});
+  // Animation-Keyframes nur einmal injizieren
+  if(!document.getElementById('_fzNfcSheetCss')){
+    var st=document.createElement('style');st.id='_fzNfcSheetCss';
+    st.textContent='@keyframes _fzNfcSheetUp{from{transform:translateY(100%)}to{transform:translateY(0)}}';
+    document.head.appendChild(st);
+  }
+}
+
+// Lightbox fuer Service-Foto. Ueberlappend ueber dem View-Modal.
+window._fzPhotoLightbox=function(src){
+  var ov=document.createElement('div');
+  ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:1500;display:flex;align-items:center;justify-content:center;padding:16px;cursor:zoom-out';
+  ov.innerHTML='<img src="'+src+'" style="max-width:100%;max-height:100%;object-fit:contain;border-radius:8px;box-shadow:0 4px 30px rgba(0,0,0,.6)"/><button style="position:absolute;top:14px;right:14px;width:36px;height:36px;border-radius:50%;background:#fff;color:#111;border:none;cursor:pointer;font-size:18px;font-weight:700">✕</button>';
+  ov.addEventListener('click',function(){ov.remove();});
+  document.body.appendChild(ov);
+};
+
+// Service-Eintrags-Modal: oeffnet ueber dem View-Modal.
+var _fzServiceTargetVid='';
+function _fzOpenServiceModal(vehicleId){
+  var v=vehicles.find(function(x){return x.id===vehicleId;});
+  if(!v||!_fzCanEdit())return;
+  // Garagist nur fuer ihm zugewiesene Fahrzeuge.
+  if(_fzIsGaragist()&&!_fzCanOpenVehicle(v))return;
+  _fzServiceTargetVid=vehicleId;
+  var ov=document.getElementById('serviceModalOverlay');
+  if(!ov){ _fzCreateServiceModal(); ov=document.getElementById('serviceModalOverlay'); }
+  document.getElementById('fSvcDatum').value=new Date().toISOString().slice(0,10);
+  document.getElementById('fSvcKm').value=v.km||'';
+  document.getElementById('fSvcArt').value='service';
+  document.getElementById('fSvcBeschreibung').value='';
+  document.getElementById('fSvcKosten').value='';
+  // Werkstatt: Org-Name des aktuellen Users vorausfuellen
+  var werkstatt='';
+  try{
+    if(typeof GemaAuth!=='undefined'){
+      var u=GemaAuth.getCurrentUser();
+      var orgs=(GemaAuth.getOrgs&&GemaAuth.getOrgs())||[];
+      var org=orgs.find(function(o){return o.id===(u&&u.orgId);});
+      if(org)werkstatt=org.name||'';
+    }
+  }catch(e){}
+  document.getElementById('fSvcWerkstatt').value=werkstatt;
+  // Foto-State zuruecksetzen
+  _fzServicePhotos=[];
+  var fp=document.getElementById('fSvcPhotos');if(fp)fp.value='';
+  var pv=document.getElementById('fSvcPhotoPreview');if(pv)pv.innerHTML='';
+  // Folge-Termin-State zuruecksetzen
+  var fc=document.getElementById('fSvcHasFollowUp');if(fc)fc.checked=false;
+  var fd=document.getElementById('fSvcFollowUpDatum');if(fd)fd.value='';
+  var fb=document.getElementById('fSvcFollowUpBesch');if(fb)fb.value='';
+  var ff=document.getElementById('fSvcFollowUpFields');if(ff)ff.style.display='none';
+  ov.style.display='flex';ov.classList.remove('hidden');
+  document.body.classList.add('modal-open');
+}
+window._fzOpenServiceModal=_fzOpenServiceModal;
+
+function _fzCloseServiceModal(){
+  var ov=document.getElementById('serviceModalOverlay');
+  if(ov){ov.style.display='none';ov.classList.add('hidden');}
+  document.body.classList.remove('modal-open');
+  _fzServiceTargetVid='';
+}
+window._fzCloseServiceModal=_fzCloseServiceModal;
+
+function _fzSaveServiceEntry(){
+  var vid=_fzServiceTargetVid;
+  var v=vehicles.find(function(x){return x.id===vid;});
+  if(!v){_fzCloseServiceModal();return;}
+  var datum=document.getElementById('fSvcDatum').value;
+  var km=document.getElementById('fSvcKm').value;
+  var art=document.getElementById('fSvcArt').value;
+  var beschreibung=document.getElementById('fSvcBeschreibung').value.trim();
+  var kosten=document.getElementById('fSvcKosten').value.trim();
+  var werkstatt=document.getElementById('fSvcWerkstatt').value.trim();
+  if(!datum){alert('Datum ist Pflicht.');return;}
+  var u=_fzGetUser()||{};
+  var entry={
+    id:'svc_'+Date.now()+'_'+Math.random().toString(36).substr(2,5),
+    datum:datum, km:km, art:art,
+    beschreibung:beschreibung, kosten:kosten, werkstatt:werkstatt,
+    erledigtVonUserId:u.id||'',
+    erledigtVonName:u.name||u.username||'',
+    erstelltAm:new Date().toISOString(),
+    photos:Array.isArray(_fzServicePhotos)?_fzServicePhotos.slice(0,3):[]
+  };
+  if(!Array.isArray(v.serviceHistorie))v.serviceHistorie=[];
+  v.serviceHistorie.push(entry);
+  // Folge-Termin: optional, wenn Toggle aktiv und Datum gesetzt
+  var hasFollow=document.getElementById('fSvcHasFollowUp');
+  if(hasFollow && hasFollow.checked){
+    var followDatum=(document.getElementById('fSvcFollowUpDatum')||{}).value||'';
+    var followBesch=((document.getElementById('fSvcFollowUpBesch')||{}).value||'').trim();
+    if(followDatum){
+      if(!Array.isArray(v.followUps))v.followUps=[];
+      v.followUps.push({
+        id:'fu_'+Date.now()+'_'+Math.random().toString(36).substr(2,5),
+        dueDate:followDatum,
+        beschreibung:followBesch||'Folge-Termin',
+        plannedFromEntryId:entry.id,
+        plannedAt:new Date().toISOString(),
+        plannedByUserId:u.id||'',
+        plannedByName:u.name||u.username||'',
+        completed:false
+      });
+    }
+  }
+  // Auto-Update: lastService, lastServiceKm, km (nur wenn neuer)
+  if(!v.lastService||(datum>v.lastService))v.lastService=datum;
+  if(km){
+    var kmNum=parseInt(km,10)||0;
+    if(!v.lastServiceKm||kmNum>parseInt(v.lastServiceKm,10))v.lastServiceKm=km;
+    if(!v.km||kmNum>parseInt(v.km,10)){v.km=km;v.kmUpdatedAt=new Date().toISOString();}
+  }
+  persist();
+  // Notif an Magaziner der eigenen Org, wenn ein Garagist erfasst hat.
+  // Magaziner derselben Org soll informiert sein, wenn ihre Werkstatt
+  // einen Service abgeschlossen hat. Eigeneintrag durch Magaziner selbst
+  // erzeugt keine Selbst-Notif.
+  try{
+    if(typeof GemaNotify!=='undefined' && _fzIsGaragist()){
+      var artLabel=_FZ_SERVICE_ART_LABELS[art]||art||'Service';
+      GemaNotify.push({
+        eventKey:'fahrzeug_service_erledigt',
+        empfaengerRoleId:'role_magaziner',
+        modul:'fahrzeug',
+        typ:'erfolg',
+        titel:artLabel+' erfasst',
+        text:(v.plate||v.model||'Fahrzeug')+' — '+(beschreibung||artLabel)+(km?' bei '+parseInt(km).toLocaleString('de-CH')+' km':''),
+        link:'if_fahrzeug.html?view='+v.id
+      });
+    }
+  }catch(e){}
+  _fzCloseServiceModal();
+  // View-Modal neu rendern
+  var lastId=window._lastViewId||vid;
+  openViewFzg(lastId);
+  render();
+  showToast('Service-Eintrag gespeichert ✓');
+}
+window._fzSaveServiceEntry=_fzSaveServiceEntry;
+
+function _fzCreateServiceModal(){
+  var ov=document.createElement('div');
+  ov.id='serviceModalOverlay';
+  ov.className='modal-overlay';
+  ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1100;display:none;align-items:center;justify-content:center;padding:16px';
+  ov.innerHTML=''+
+    '<div style="max-width:540px;width:100%;background:#fff;border-radius:14px;box-shadow:0 20px 60px rgba(0,0,0,.25);overflow:hidden;max-height:92vh;display:flex;flex-direction:column">'+
+      '<div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid #f0f0f0;flex-shrink:0">'+
+        '<div style="display:flex;align-items:center;gap:10px"><span style="font-size:22px">🛠</span><div><div style="font-size:14px;font-weight:700">Service-Eintrag erfassen</div><div style="font-size:11px;color:#9ca3af">Wird in die Historie aufgenommen, km-Stand wird automatisch aktualisiert.</div></div></div>'+
+        '<button onclick="_fzCloseServiceModal()" style="background:none;border:none;font-size:18px;cursor:pointer;color:#6b7280">✕</button>'+
+      '</div>'+
+      '<div style="padding:18px 20px;display:grid;grid-template-columns:1fr 1fr;gap:12px;overflow-y:auto">'+
+        '<div class="field"><label class="label">Datum *</label><input class="inp" type="date" id="fSvcDatum"/></div>'+
+        '<div class="field"><label class="label">km-Stand</label><input class="inp" type="text" inputmode="decimal" onblur="fixLeadingZero(this)" id="fSvcKm" placeholder="z. B. 45000"/></div>'+
+        '<div class="field" style="grid-column:1 / -1"><label class="label">Art *</label><select class="sel" id="fSvcArt"><option value="service">🛠 Service</option><option value="reparatur">🔧 Reparatur</option><option value="mfk">📋 MFK</option><option value="pneuwechsel">🛞 Pneuwechsel</option><option value="sonstiges">• Sonstiges</option></select></div>'+
+        '<div class="field" style="grid-column:1 / -1"><label class="label">Was wurde gemacht?</label><textarea class="textarea" id="fSvcBeschreibung" placeholder="z. B. Ölwechsel, Filter, Bremsen vorne neu" style="min-height:70px"></textarea></div>'+
+        '<div class="field"><label class="label">Werkstatt</label><input class="inp" id="fSvcWerkstatt" placeholder="Werkstatt-Name"/></div>'+
+        '<div class="field"><label class="label">Kosten (CHF)</label><input class="inp" type="text" inputmode="decimal" onblur="fixLeadingZero(this)" id="fSvcKosten" placeholder="0.00"/><span class="hint">Optional. Sichtbar für Magaziner/Admin und für den Erfasser.</span></div>'+
+        '<div class="field" style="grid-column:1 / -1"><label class="label">Fotos (max 3, optional)</label>'+
+          '<input type="file" id="fSvcPhotos" accept="image/*" multiple capture="environment" style="font-size:13px"/>'+
+          '<div id="fSvcPhotoPreview" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px"></div>'+
+          '<span class="hint">Fotos werden auf max 1280 px verkleinert und als JPEG gespeichert. Praktisch z. B. für Vorher/Nachher der Bremsen.</span>'+
+        '</div>'+
+        '<div class="field" style="grid-column:1 / -1;border-top:1px dashed #e5e7eb;padding-top:10px;margin-top:4px">'+
+          '<label class="label" style="display:flex;align-items:center;gap:8px;cursor:pointer">'+
+            '<input type="checkbox" id="fSvcHasFollowUp" onchange="_fzToggleFollowUp()" style="accent-color:var(--primary);width:18px;height:18px"/>'+
+            '<span>Folge-Termin vorplanen</span>'+
+          '</label>'+
+          '<span class="hint">z. B. „Bremsen in 6 Monaten checken" — wird zur Fälligkeit als Notif ausgelöst.</span>'+
+        '</div>'+
+        '<div id="fSvcFollowUpFields" style="display:none;grid-column:1 / -1;display:none;grid-template-columns:1fr 1fr;gap:12px">'+
+          '<div class="field"><label class="label">Folge-Termin Datum *</label><input class="inp" type="date" id="fSvcFollowUpDatum"/></div>'+
+          '<div class="field"><label class="label">Was soll gemacht werden?</label><input class="inp" id="fSvcFollowUpBesch" placeholder="z. B. Bremsen vorne kontrollieren"/></div>'+
+        '</div>'+
+      '</div>'+
+      '<div style="display:flex;justify-content:flex-end;gap:8px;padding:14px 20px;border-top:1px solid #f0f0f0;flex-shrink:0">'+
+        '<button class="btn" onclick="_fzCloseServiceModal()">Abbrechen</button>'+
+        '<button class="btn primary" onclick="_fzSaveServiceEntry()">Speichern</button>'+
+      '</div>'+
+    '</div>';
+  document.body.appendChild(ov);
+  ov.addEventListener('click',function(e){ if(e.target===ov)_fzCloseServiceModal(); });
+  // File-Input wirft Preview-Thumbs sofort auf
+  document.getElementById('fSvcPhotos').addEventListener('change',_fzServicePhotosChanged);
+}
+
+// Speicher fuer komprimierte Photos waehrend des Modal-Lebenszyklus
+var _fzServicePhotos=[];
+
+function _fzServicePhotosChanged(ev){
+  var files=Array.from(ev.target.files||[]).slice(0,3);
+  _fzServicePhotos=[];
+  var prev=document.getElementById('fSvcPhotoPreview');
+  if(prev)prev.innerHTML='<div style="font-size:11px;color:#6b7280">Komprimiere Bilder …</div>';
+  Promise.all(files.map(_fzCompressImage)).then(function(results){
+    _fzServicePhotos=results.filter(function(r){return r;});
+    _fzRenderServicePhotoPreview();
+  }).catch(function(e){
+    if(prev)prev.innerHTML='<div style="font-size:11px;color:#dc2626">Fehler beim Lesen: '+esc(e.message||'')+'</div>';
+  });
+}
+
+function _fzRenderServicePhotoPreview(){
+  var prev=document.getElementById('fSvcPhotoPreview');
+  if(!prev)return;
+  if(!_fzServicePhotos.length){prev.innerHTML='';return;}
+  prev.innerHTML=_fzServicePhotos.map(function(p,i){
+    return '<div style="position:relative;width:64px;height:64px;border-radius:8px;overflow:hidden;border:1.5px solid #e5e7eb"><img src="'+p.dataUrl+'" style="width:100%;height:100%;object-fit:cover"/><button onclick="_fzServicePhotoRemove('+i+')" style="position:absolute;top:2px;right:2px;width:18px;height:18px;border-radius:50%;border:none;background:rgba(0,0,0,.6);color:#fff;font-size:10px;cursor:pointer">✕</button></div>';
+  }).join('');
+}
+
+window._fzServicePhotoRemove=function(i){
+  _fzServicePhotos.splice(i,1);_fzRenderServicePhotoPreview();
+};
+
+window._fzToggleFollowUp=function(){
+  var cb=document.getElementById('fSvcHasFollowUp');
+  var box=document.getElementById('fSvcFollowUpFields');
+  if(!cb||!box)return;
+  box.style.display=cb.checked?'grid':'none';
+};
+
+// Komprimiert ein Image-File via Canvas auf max 1280 px lange Kante,
+// JPEG Quality 0.72. Liefert {name, type:'image/jpeg', dataUrl}.
+function _fzCompressImage(file){
+  return new Promise(function(resolve,reject){
+    if(!file||!file.type||file.type.indexOf('image/')<0){resolve(null);return;}
+    var fr=new FileReader();
+    fr.onload=function(){
+      var img=new Image();
+      img.onload=function(){
+        var maxDim=1280;
+        var w=img.width, h=img.height;
+        if(Math.max(w,h)>maxDim){
+          var s=maxDim/Math.max(w,h);
+          w=Math.round(w*s); h=Math.round(h*s);
+        }
+        var c=document.createElement('canvas');
+        c.width=w; c.height=h;
+        var ctx=c.getContext('2d');
+        ctx.fillStyle='#fff';ctx.fillRect(0,0,w,h);
+        ctx.drawImage(img,0,0,w,h);
+        var dataUrl=c.toDataURL('image/jpeg',0.72);
+        resolve({name:file.name||'foto.jpg',type:'image/jpeg',dataUrl:dataUrl});
+      };
+      img.onerror=function(){resolve(null);};
+      img.src=fr.result;
+    };
+    fr.onerror=function(){reject(new Error('Konnte Datei nicht lesen'));};
+    fr.readAsDataURL(file);
+  });
 }
 
 function closeViewModal(){
@@ -1732,20 +3098,47 @@ function openView(id){
 window.openView=openView;
 
 render();
+_fzInitKatalogList();
 _fzApplyOpt();
 _fzInitSettingsBtn();
-// Rollenbasierte UI
-if(!_fzCanEdit()){
+_fzScanFaelligkeiten();
+// Rollenbasierte UI: Erfass-Button nur fuer Magaziner/Admin (nicht
+// Garagist) sichtbar.
+if(!_fzCanCreate()){
   var addBtns=document.querySelectorAll('.hero-btn.accent,#btnAddVehicle');
   addBtns.forEach(function(b){b.style.display='none';});
 }
-  // URL parameter: open vehicle in view mode (?view=ID)
+// Garagist-Hinweis im Hero/Toolbar, damit klar ist, in welchem Modus er
+// arbeitet. Wird nur eingeblendet, wenn die Rolle role_garagist ist.
+if(_fzIsGaragist()){
+  try{
+    var hero=document.querySelector('.hero, .v-hero, h1');
+    if(hero){
+      var bar=document.createElement('div');
+      bar.style.cssText='display:flex;align-items:center;gap:10px;margin:8px 0 0;flex-wrap:wrap';
+      bar.innerHTML=''+
+        '<a href="sys_garagist_dashboard.html" style="display:inline-flex;align-items:center;gap:6px;padding:5px 12px;background:rgba(255,255,255,.18);color:#fff;border-radius:999px;font-size:11.5px;font-weight:700;text-decoration:none;letter-spacing:.2px">← Werkstatt-Dashboard</a>'+
+        '<span style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;background:#0d9488;color:#fff;border-radius:999px;font-size:11px;font-weight:700;letter-spacing:.3px">🔧 Werkstatt-Ansicht — nur zugewiesene Fahrzeuge</span>';
+      hero.appendChild(bar);
+    }
+    // Logo-Link auf Dashboard umlenken (statt index.html)
+    var logo=document.querySelector('.g-nav-logo');
+    if(logo)logo.setAttribute('href','sys_garagist_dashboard.html');
+  }catch(e){}
+}
+  // URL parameter: open vehicle in view mode (?view=ID), edit (?edit=ID),
+  // direkt das Service-Modal (?service=ID — Garagist-Dashboard), oder
+  // das Mobile-Action-Sheet nach NFC-Scan (?nfc=ID).
   (function(){
     const p = new URLSearchParams(location.search);
     const vid = p.get('view');
     if(vid) setTimeout(function(){ openViewFzg(vid); }, 600);
     const eid = p.get('edit');
     if(eid) setTimeout(function(){ openModal(eid); }, 600);
+    const sid = p.get('service');
+    if(sid) setTimeout(function(){ openViewFzg(sid); _fzOpenServiceModal(sid); }, 700);
+    const nfc = p.get('nfc');
+    if(nfc) setTimeout(function(){ _fzOpenNfcActionSheet(nfc); }, 500);
   })();
 
 /* ═══════════════════════════════
@@ -1898,10 +3291,50 @@ function saveDefekt() {
     detail: desc + (km ? ' | ' + parseInt(km).toLocaleString('de-CH') + ' km' : ''),
     prio
   });
+  // Notif an zugewiesenen Garagist (sofern vorhanden) + alle Magaziner.
+  try{
+    var v=vehicles.find(function(x){return x.id===_mgmtVehicleId;});
+    if(v && typeof GemaNotify!=='undefined'){
+      var pTyp=prio==='kritisch'?'warnung':(prio==='hoch'?'warnung':'aktion');
+      var titel='Defekt: '+(v.plate||v.model||'Fahrzeug');
+      var text=desc.slice(0,160)+(km?' (km '+parseInt(km).toLocaleString('de-CH')+')':'');
+      var link='if_fahrzeug.html?view='+v.id;
+      if(v.garagistUserId){
+        GemaNotify.push({eventKey:'fahrzeug_service_faellig',empfaengerUserId:v.garagistUserId,modul:'fahrzeug',typ:pTyp,titel:titel,text:text,link:link});
+      }
+      GemaNotify.push({eventKey:'fahrzeug_service_faellig',empfaengerRoleId:'role_magaziner',modul:'fahrzeug',typ:pTyp,titel:titel,text:text,link:link});
+    }
+  }catch(e){}
   closeMgmt('mgmtDefektOverlay');
   showToast('Defekt gemeldet ✓');
 }
 window.saveDefekt = saveDefekt;
+
+// Markiert alle offenen Defekt-Events eines Fahrzeugs als behoben.
+// Erfasser-Info wird zu Audit-Zwecken festgehalten.
+window._fzResolveAllDefects=function(vehicleId){
+  if(!_fzCanEdit())return;
+  var v=vehicles.find(function(x){return x.id===vehicleId;});
+  if(!v||!Array.isArray(v.events))return;
+  if(!confirm('Alle offenen Defekte als behoben markieren?'))return;
+  var u=_fzGetUser()||{};
+  var now=new Date().toISOString();
+  var changed=0;
+  v.events.forEach(function(e){
+    if(e&&e.type==='defekt'&&!e.resolved){
+      e.resolved=true;
+      e.resolvedAt=now;
+      e.resolvedByUserId=u.id||'';
+      e.resolvedByName=u.name||u.username||'';
+      changed++;
+    }
+  });
+  if(!changed)return;
+  persist();
+  openViewFzg(vehicleId);
+  render();
+  showToast(changed+' Defekt'+(changed>1?'e':'')+' als behoben markiert ✓');
+};
 
 /* ═══ KOSTEN ═══ */
 function openKosten(vehicleId) {
@@ -2272,8 +3705,11 @@ window.openBerichte = openBerichte;
       <div style="display:flex;gap:8px;width:100%;padding-bottom:8px;flex-wrap:wrap;">
         <button onclick="downloadFzgQR()" style="flex:1 1 90px;padding:8px;background:#111;color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;">⬇ PNG</button>
         <button onclick="downloadFzgQRSVG()" style="flex:1 1 90px;padding:8px;background:#1d4ed8;color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;">⬇ SVG</button>
+        <button id="fzgNfcBtn" onclick="_fzWriteNFC()" style="display:none;flex:1 1 90px;padding:8px;background:#eff6ff;color:#1d4ed8;border:1.5px solid #bfdbfe;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;justify-content:center;align-items:center;">📡 NFC</button>
+        <button id="fzgNfcLockBtn" onclick="_fzMakeNFCReadOnly()" title="NFC-Tag dauerhaft schreibgeschützt machen — irreversibel" style="display:none;flex:1 1 90px;padding:8px;background:#fef2f2;color:#b91c1c;border:1.5px solid #fecaca;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;justify-content:center;align-items:center;">🔒 Sperren</button>
         <button onclick="closeFzgQR()" style="flex:1 1 90px;padding:8px;background:#f3f4f6;color:#374151;border:none;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;">Schliessen</button>
       </div>
+      <div id="fzgNfcStatus" style="text-align:center;font-size:11px;color:#6b7280;margin-top:-4px;width:100%;"></div>
     </div>
   </div>
 </div>

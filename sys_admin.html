@@ -149,6 +149,22 @@ input,select,button,textarea{font-family:var(--sans)}
     <div class="page-sub">Benutzer, Rollen und Berechtigungen für alle GEMA-Module verwalten.</div>
   </div>
 
+  <!-- CLOUD-RECOVERY (nur sichtbar wenn lokal nur DEFAULTS) -->
+  <div id="recoveryCard" style="display:none;margin-bottom:18px;padding:16px 20px;background:linear-gradient(135deg,#fff7ed 0%,#fef3c7 100%);border:1.5px solid #fde68a;border-radius:12px">
+    <div style="display:flex;align-items:flex-start;gap:14px;flex-wrap:wrap">
+      <div style="font-size:28px;line-height:1">☁️</div>
+      <div style="flex:1;min-width:200px">
+        <div style="font-size:15px;font-weight:800;color:#92400e;margin-bottom:4px">Daten aus Cloud wiederherstellen?</div>
+        <div style="font-size:12.5px;color:#78350f;line-height:1.55">Dein lokaler Browser-Speicher enthält aktuell nur die Standard-Daten. Wenn du den Browser-Cache geleert oder das Gerät gewechselt hast, kannst du deine selbst angelegten Firmen und Benutzer aus der GEMA-Cloud zurückholen.</div>
+        <div id="recoveryStatus" style="display:none;margin-top:8px;font-size:12px;font-weight:700"></div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-primary btn-sm" onclick="recoveryRestore(false)" id="recoveryBtnMerge" style="background:#d97706;border-color:#b45309">🔄 Aus Cloud laden</button>
+        <button class="btn btn-sm" onclick="recoveryDismiss()" id="recoveryBtnDismiss">Später</button>
+      </div>
+    </div>
+  </div>
+
   <div class="tabs">
     <button class="tab active" onclick="switchTab('users',this)">👤 Benutzer</button>
     <button class="tab" onclick="switchTab('roles',this)">🎭 Rollen</button>
@@ -1164,8 +1180,52 @@ function toast(msg){
 // ── UTILS ─────────────────────────────────────────────────────────────
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 
+// ── CLOUD-RECOVERY ───────────────────────────────────────────────────
+// Zeigt eine Notfall-Karte oben auf der Seite, wenn der lokale
+// Storage nur DEFAULTS enthaelt (typisches Symptom nach Cache-Clear).
+// Holt orgs+users aus Supabase und merged sie ins localStorage.
+function _recoveryCheck(){
+  var card=document.getElementById('recoveryCard');
+  if(!card) return;
+  if(typeof GemaAuth==='undefined' || typeof GemaAuth._isOnlyDefaults!=='function') return;
+  // Manuell weggeklickt? Dann nicht erneut zeigen.
+  try{ if(localStorage.getItem('gema_recovery_dismissed')==='1') return; }catch(e){}
+  if(GemaAuth._isOnlyDefaults()){
+    card.style.display='';
+  }
+}
+function recoveryDismiss(){
+  var card=document.getElementById('recoveryCard');
+  if(card) card.style.display='none';
+  try{ localStorage.setItem('gema_recovery_dismissed','1'); }catch(e){}
+}
+function recoveryRestore(overwrite){
+  var status=document.getElementById('recoveryStatus');
+  var btn=document.getElementById('recoveryBtnMerge');
+  if(btn){ btn.disabled=true; btn.style.opacity='.6'; btn.textContent='⏳ Lade…'; }
+  if(status){ status.style.display=''; status.style.color='#78350f'; status.textContent='Verbinde mit Supabase…'; }
+  GemaAuth.restoreFromCloud({ overwrite: !!overwrite }).then(function(res){
+    if(btn){ btn.disabled=false; btn.style.opacity='1'; btn.textContent='🔄 Aus Cloud laden'; }
+    if(!res || !res.ok){
+      if(status){ status.style.color='#dc2626'; status.textContent='⚠ '+(res&&res.error?res.error:'Keine Verbindung zur Cloud — bitte spaeter erneut versuchen.'); }
+      return;
+    }
+    if(res.addedOrgs===0 && res.addedUsers===0){
+      if(status){ status.style.color='#1d4ed8'; status.textContent='ℹ Keine zusätzlichen Daten in der Cloud gefunden ('+res.totalOrgs+' Firmen, '+res.totalUsers+' Benutzer lokal vorhanden).'; }
+      return;
+    }
+    if(status){ status.style.color='#15803d'; status.textContent='✓ '+res.addedOrgs+' Firma/Firmen und '+res.addedUsers+' Benutzer wiederhergestellt — Seite wird neu geladen…'; }
+    setTimeout(function(){ try{ location.reload(); }catch(e){} }, 1200);
+  }).catch(function(err){
+    if(btn){ btn.disabled=false; btn.style.opacity='1'; btn.textContent='🔄 Aus Cloud laden'; }
+    if(status){ status.style.color='#dc2626'; status.textContent='⚠ Fehler: '+(err&&err.message?err.message:err); }
+  });
+}
+window.recoveryDismiss=recoveryDismiss;
+window.recoveryRestore=recoveryRestore;
+
 // ── INIT ──────────────────────────────────────────────────────────────
-document.addEventListener('DOMContentLoaded', init);
+document.addEventListener('DOMContentLoaded', function(){ init(); _recoveryCheck(); });
 </script>
 <script src="gema_feedback.js"></script><script src="gema_notify.js"></script><script src="gema_notify_ui.js"></script>
 <script>document.addEventListener('DOMContentLoaded',function(){if(typeof GemaFeedback!=='undefined')GemaFeedback.init('admin','Admin');});</script>

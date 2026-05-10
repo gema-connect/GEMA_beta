@@ -304,6 +304,9 @@ function fixLeadingZero(el){
 <script src="gema_db.js"></script>
 <script src="gema_feedback.js"></script><script src="gema_notify.js"></script><script src="gema_notify_ui.js"></script>
 <script src="gema_objekte_api.js"></script>
+<script src="gema_lu_api.js"></script>
+<script>window.GemaDataflowConfig={sources:['lu'],modul:'druckverlust'};</script>
+<script src="gema_dataflow.js"></script>
 <script src="gema_varianten.js"></script>
 <script src="gema_pdf.js"></script>
 <script src="gema_autosave.js"></script>
@@ -354,6 +357,15 @@ function fixLeadingZero(el){
     <div class="stat"><div class="stat-val" id="s_temp">10°C</div><div class="stat-lbl">Temperatur</div></div>
   </div>
 
+
+  <div id="luRefBar" style="display:none;margin:0 0 14px;padding:10px 14px;border-radius:10px;background:#eff6ff;border:1.5px solid #bfdbfe;color:#1e40af;font-size:12.5px;line-height:1.5">
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <span style="font-weight:800">📊 Aus LU-Zusammenstellung:</span>
+      <span id="luRefValues"></span>
+      <a href="sb_lu_tabelle.html" style="margin-left:auto;font-size:11.5px;color:#1e40af;text-decoration:underline">LU öffnen →</a>
+    </div>
+    <div style="font-size:11px;color:#1d4ed8;margin-top:4px">Spitzenvolumenströme als Referenz für die Strang-Dimensionierung. Trage den passenden Wert in V̇ pro Strang ein.</div>
+  </div>
 
   <!-- PROJECT META -->
   <div class="project-bar">
@@ -1302,6 +1314,32 @@ render();
 
 // GEMA Feedback init
 document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('druckverlust', 'Druckverlust');});
+// LU-Referenz-Bar fuer Volumenstroeme — Hilfestellung beim Eintragen
+// von V̇ pro Strang.
+(function(){
+  function f(n,d){return Number.isFinite(n)?n.toFixed(d===undefined?2:d):'0';}
+  function refresh(){
+    var bar=document.getElementById('luRefBar');
+    var box=document.getElementById('luRefValues');
+    if(!bar||!box) return;
+    var oid='';
+    try{ if(typeof GemaObjekte!=='undefined') oid=GemaObjekte.getActiveId()||''; }catch(e){}
+    if(!oid || typeof GemaLU==='undefined' || !GemaLU.hasData(oid)){ bar.style.display='none'; return; }
+    var s=GemaLU.getSummary(oid);
+    var ha=GemaLU.getHausanschluss(oid);
+    var parts=[];
+    if(s.kw && s.kw.flow_ls>0) parts.push('<b>KW:</b> '+f(s.kw.flow_ls,2)+' l/s');
+    if(s.ww && s.ww.flow_ls>0) parts.push('<b>WW:</b> '+f(s.ww.flow_ls,2)+' l/s');
+    if(s.bw && s.bw.flow_ls>0) parts.push('<b>Enthärtet:</b> '+f(s.bw.flow_ls,2)+' l/s');
+    if(s.gw && s.gw.flow_ls>0) parts.push('<b>Regenwasser:</b> '+f(s.gw.flow_ls,2)+' l/s');
+    parts.push('<b>Gesamt:</b> '+f(ha,2)+' l/s');
+    box.innerHTML=parts.join('  ·  ');
+    bar.style.display='';
+  }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',refresh);
+  else refresh();
+  window.addEventListener('gema-objekt-changed',refresh);
+})();
 </script>
 
 <script>

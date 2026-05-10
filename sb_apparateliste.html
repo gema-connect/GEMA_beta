@@ -491,7 +491,19 @@ function fixLeadingZero(el){
 (async() => {
 if(typeof _GemaDB!=='undefined'){try{await _GemaDB.init('apparateliste', ['gema_apparateliste_v6', 'gema_apparateliste_defs_v6']);}catch(e){console.warn('GemaDB:',e);}}
 
-const SK = 'gema_apparateliste_v6';
+const SK_BASE = 'gema_apparateliste_v6';
+// Phasen-/Objekt-aware Storage: pro Objekt eine eigene Apparateliste.
+// Pattern wie LU/Osmose. Ohne aktives Objekt fallback auf den flachen
+// Key — damit bestehende Daten ohne Migration sichtbar bleiben.
+function _SK(){
+  try{
+    if(typeof GemaObjekte!=='undefined' && GemaObjekte.storageKey){
+      return GemaObjekte.storageKey(SK_BASE);
+    }
+  }catch(e){}
+  return SK_BASE;
+}
+let SK = _SK();
 const DK = 'gema_apparateliste_defs_v6';
 const ICONS = {Badezimmer:'🛁',WC:'🚽',Duschraum:'🚿',Küche:'🍽️',Waschküche:'🧺',Umgebung:'🌿',Stockwerk:'🏢'};
 const uid = () => crypto?.randomUUID ? crypto.randomUUID() : (Math.random().toString(36).slice(2)+Date.now().toString(36));
@@ -510,10 +522,67 @@ let groupBy = 'room'; // 'room' | 'flat'
 const wizard = {open:false, step:0, draft:null, mode:'add', editId:null, steps:[]};
 
 // ── PERSIST ──
-function loadState(){try{const r=(typeof _GemaDB!=='undefined'&&_GemaDB.c?(_GemaDB.c[SK]??null):null);return r?{...JSON.parse(JSON.stringify(DEF_STATE)),...JSON.parse(r),rooms:JSON.parse(r).rooms||[]}:JSON.parse(JSON.stringify(DEF_STATE));}catch{return JSON.parse(JSON.stringify(DEF_STATE));}}
+function _readKey(k){
+  try{
+    if(typeof _GemaDB!=='undefined' && _GemaDB.c && _GemaDB.c[k]!=null) return _GemaDB.c[k];
+  }catch(e){}
+  try{ return localStorage.getItem(k); }catch(e){ return null; }
+}
+function loadState(){
+  try{
+    SK = _SK();
+    // Primaer: objekt-spezifischer Storage. Fallback: flacher Key, fuer
+    // bestehende Daten (vor der Migration).
+    let r = _readKey(SK);
+    if(!r && SK !== SK_BASE) r = _readKey(SK_BASE);
+    if(!r) return JSON.parse(JSON.stringify(DEF_STATE));
+    const parsed = JSON.parse(r);
+    return {...JSON.parse(JSON.stringify(DEF_STATE)), ...parsed, rooms: parsed.rooms||[]};
+  }catch{ return JSON.parse(JSON.stringify(DEF_STATE)); }
+}
 function loadDefs(){try{const r=(typeof _GemaDB!=='undefined'&&_GemaDB.c?(_GemaDB.c[DK]??null):null);return r?{...JSON.parse(JSON.stringify(DEF_DEFS)),...JSON.parse(r)}:JSON.parse(JSON.stringify(DEF_DEFS));}catch{return JSON.parse(JSON.stringify(DEF_DEFS));}}
-function saveState(){try{if(typeof _GemaDB!=='undefined')_GemaDB.save(SK,JSON.stringify(state));}catch(e){}showAutosave();}
+function saveState(){
+  try{
+    SK = _SK();
+    if(typeof _GemaDB!=='undefined') _GemaDB.save(SK, JSON.stringify(state));
+  }catch(e){}
+  // Cross-Modul-Sync: andere Module (LU) reagieren auf das Event und
+  // koennen frische Apparate-Mengen anbieten.
+  try{
+    const oid=(typeof GemaObjekte!=='undefined' && GemaObjekte.getActiveId)?GemaObjekte.getActiveId():'';
+    window.dispatchEvent(new CustomEvent('gema-apparateliste-updated', {detail:{objektId:oid}}));
+  }catch(e){}
+  showAutosave();
+}
 function saveDefs(){try{if(typeof _GemaDB!=='undefined')_GemaDB.save(DK,JSON.stringify(defs));}catch(e){}}
+
+// Beim Wechsel des aktiven Objekts: state neu laden + UI rendern.
+window.onObjektSelect = function(){
+  try{
+    const sel=document.getElementById('metaObjektDropdown');
+    const oid=sel?sel.value:'';
+    if(typeof GemaObjekte!=='undefined' && GemaObjekte.setActiveId) GemaObjekte.setActiveId(oid);
+    state = loadState();
+    SK = _SK();
+    // Top-Inputs auffrischen
+    const pn=document.getElementById('projectName'); if(pn) pn.value = state.projectName||'';
+    const bt=document.getElementById('buildingType'); if(bt) bt.value = state.buildingType||'MFH';
+    const an=document.getElementById('authorName'); if(an) an.value = state.authorName||'';
+    render();
+  }catch(e){ console.warn('onObjektSelect:', e); }
+};
+window.addEventListener('gema-objekt-changed', window.onObjektSelect);
+
+function populateObjektDropdown(){
+  const sel=document.getElementById('metaObjektDropdown');
+  if(!sel || typeof GemaObjekte==='undefined') return;
+  try{
+    const objs = GemaObjekte.getAll() || [];
+    const cur = sel.value || (GemaObjekte.getActiveId && GemaObjekte.getActiveId()) || '';
+    sel.innerHTML = '<option value="">– Objekt wählen –</option>' +
+      objs.map(o=>'<option value="'+esc(o.id)+'"'+(o.id===cur?' selected':'')+'>'+esc(o.name||o.id)+'</option>').join('');
+  }catch(e){}
+}
 
 function showAutosave(){const el=document.getElementById('autosaveInd');if(!el)return;el.classList.add('show');setTimeout(()=>el.classList.remove('show'),2200);}
 
@@ -1121,6 +1190,22 @@ window.addEventListener('keydown',e=>{if(e.key==='Escape'){closeWizard();closeSe
 console.log('[GEMA] IIFE completed successfully. All buttons should work.');
 
 // ── INIT ──
+populateObjektDropdown();
+window.addEventListener('gema-objekte-loaded', populateObjektDropdown);
+// Falls beim Laden bereits ein aktives Objekt existiert, dessen state laden
+try{
+  if(typeof GemaObjekte!=='undefined' && GemaObjekte.getActiveId){
+    const oid = GemaObjekte.getActiveId();
+    if(oid){
+      const sel=document.getElementById('metaObjektDropdown');
+      if(sel){ sel.value=oid; }
+      state = loadState();
+      const pn=document.getElementById('projectName'); if(pn) pn.value = state.projectName||'';
+      const bt=document.getElementById('buildingType'); if(bt) bt.value = state.buildingType||'MFH';
+      const an=document.getElementById('authorName'); if(an) an.value = state.authorName||'';
+    }
+  }
+}catch(e){}
 render();
 })().catch(function(e){console.error("[GEMA] Kritischer Fehler:",e),document.body.insertAdjacentHTML("beforeend","<div style='position:fixed;bottom:10px;right:10px;background:#dc2626;color:#fff;padding:10px 16px;border-radius:10px;font-size:12px;font-weight:700;z-index:9999'>⚠ Skript-Fehler: "+e.message+"</div>");});</script>
 <script>document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('apparate', 'Apparateliste');});</script>

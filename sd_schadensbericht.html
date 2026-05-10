@@ -1230,6 +1230,25 @@ function sdSaveNew() {
   };
   schaeden.push(sd);
   sdSave();
+  // Notif an alle Magaziner + Sanitaerplaner der Org, dass ein neuer
+  // Schaden erfasst wurde — sodass der Werkstattleiter weiss, dass evtl.
+  // Trockner-Einsatz folgt, und der Planer Einblick hat.
+  try{
+    if(typeof GemaNotify!=='undefined' && u && u.orgId){
+      ['role_magaziner','role_planer','role_hlkk_planer','role_lueftung_planer'].forEach(function(rid){
+        GemaNotify.push({
+          eventKey:'schaden_neu',
+          empfaengerRoleId:rid,
+          empfaengerOrgId:u.orgId,
+          modul:'schadensbericht',
+          typ:'aktion',
+          titel:'Neuer Schaden: '+titel,
+          text:({wasserschaden:'💧',schimmel:'🦠',rohrbruch:'🔧'})[typ]+' '+typ+(sd.beschreibung?' — '+sd.beschreibung.slice(0,80):''),
+          link:'sd_schadensbericht.html'
+        });
+      });
+    }
+  }catch(e){}
   sdCloseAdd();
   sdRenderList();
   sdOpenDetail(sd.id);
@@ -1269,7 +1288,9 @@ function sdCloseDetail() {
   sdRenderList();
 }
 
+var _sdCurrentDetailId = '';
 function sdRenderDetail(s) {
+  _sdCurrentDetailId = s ? s.id : '';
   var t = TYPEN[s.typ] || TYPEN.sonstiges;
   var canEdit = _sdCanEdit();
   var canMeas = _sdCanMeasure();
@@ -1621,6 +1642,63 @@ function sdRenderTrocknung(s, canEdit, canMeas) {
   }
   h += '</div>';
 
+  // ─── Live-Spiegelung aus Trocknungsmodul (read-only) ───────────
+  // Geraete, die im if_trocknung-Modul gerade fuer diesen Schaden im
+  // Einsatz sind (einsatz.schadenId === s.id) plus deren Historie.
+  // Werden NICHT in s.trocknung.geraete[] dupliziert — gespiegelt aus
+  // der GemaTrocknung-API. Damit gibt es keine Doppelpflege.
+  try{
+    if(typeof GemaTrocknung!=='undefined'){
+      var liveActive = GemaTrocknung.getForSchaden(s.id) || [];
+      var liveHistory = GemaTrocknung.getHistoryForSchaden(s.id) || [];
+      if(liveActive.length || liveHistory.length){
+        h += '<div style="margin-bottom:16px">';
+        h += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">';
+        h += '<label style="font-size:13px;font-weight:800;color:var(--txt)">🌡 Aus Trocknungsmodul (live)</label>';
+        h += '<span style="font-size:11px;color:#7c3aed;background:#f5f3ff;padding:2px 8px;border-radius:999px;font-weight:700">'+liveActive.length+' aktiv · '+liveHistory.length+' Historie</span>';
+        h += '<a href="if_trocknung.html" style="margin-left:auto;font-size:11.5px;color:#7c3aed;text-decoration:underline">Trocknungsmodul öffnen →</a>';
+        h += '</div>';
+        h += '<div style="overflow-x:auto"><table class="dev-table" style="border-color:#ddd6fe">';
+        h += '<thead style="background:#f5f3ff"><tr><th>Status</th><th>Gerät</th><th>Raum</th><th>kW</th><th>Eingesetzt</th><th>Zurück</th><th>kWh</th></tr></thead><tbody>';
+        liveActive.forEach(function(d){
+          var inE = d.einsatz || {};
+          var seitDate = inE.eingesetztAm ? new Date(inE.eingesetztAm).toLocaleDateString('de-CH') : '—';
+          h += '<tr style="background:#fafaff">';
+          h += '<td><span style="display:inline-block;padding:2px 8px;border-radius:6px;background:#fed7aa;color:#9a3412;font-size:11px;font-weight:700">aktiv</span></td>';
+          h += '<td style="font-weight:700">' + esc(d.name||'—') + '</td>';
+          h += '<td>' + esc(inE.raum || '—') + '</td>';
+          h += '<td>' + (d.kw || '—') + '</td>';
+          h += '<td style="font-size:11px">' + seitDate + '</td>';
+          h += '<td style="font-size:11px;color:var(--mut)">— läuft —</td>';
+          h += '<td style="color:var(--mut)">— läuft —</td>';
+          h += '</tr>';
+        });
+        liveHistory.forEach(function(e){
+          var aus = e.eingesetztAm ? new Date(e.eingesetztAm).toLocaleDateString('de-CH') : '—';
+          var ende = e.zurueckAm ? new Date(e.zurueckAm).toLocaleDateString('de-CH') : '—';
+          h += '<tr>';
+          h += '<td><span style="display:inline-block;padding:2px 8px;border-radius:6px;background:#dcfce7;color:#166534;font-size:11px;font-weight:700">erledigt</span></td>';
+          h += '<td style="font-weight:700">' + esc(e.name||'—') + '</td>';
+          h += '<td>' + esc(e.raum || '—') + '</td>';
+          h += '<td>' + (e.kw || '—') + '</td>';
+          h += '<td style="font-size:11px">' + aus + '</td>';
+          h += '<td style="font-size:11px">' + ende + '</td>';
+          h += '<td style="font-weight:800;color:var(--plan)">' + (e.kwhTotal!=null ? Number(e.kwhTotal).toFixed(1)+' kWh' : '—') + '</td>';
+          h += '</tr>';
+        });
+        h += '</tbody></table></div>';
+        // Total-kWh aus History
+        var liveTotal=0;
+        liveHistory.forEach(function(e){ if(e.kwhTotal) liveTotal += Number(e.kwhTotal); });
+        if(liveTotal > 0){
+          h += '<div class="sum-card" style="margin-top:8px;background:#f5f3ff;border-color:#ddd6fe"><div class="sum-row"><span class="lbl">Total kWh aus Historie</span><span class="val" style="color:#7c3aed">' + liveTotal.toFixed(1) + ' kWh</span></div></div>';
+        }
+        h += '<div style="font-size:11px;color:var(--mut);margin-top:6px;font-style:italic">Diese Eintraege werden im Trocknungsmodul gepflegt — Aenderungen wirken sofort hier.</div>';
+        h += '</div>';
+      }
+    }
+  }catch(_){}
+
   // Notizen
   h += '<div class="fg" style="margin-bottom:12px"><label style="font-size:11px;font-weight:800;text-transform:uppercase;color:var(--mut)">Notizen</label>';
   if (editable) {
@@ -1857,6 +1935,27 @@ function sdAdvancePhase(id, target) {
     s.phase = 'abschluss';
   }
   sdSave();
+  // Notif an den Erfasser des Schadens, dass die Phase gewechselt wurde —
+  // praktisch wenn Magaziner+Planer parallel arbeiten und Erfasser
+  // verfolgen will, was passiert.
+  try{
+    if(typeof GemaNotify!=='undefined' && s.erstelltVon && s.erstelltVon.userId){
+      var labels2 = { analyse: 'Zustandsanalyse', trocknung: 'Trocknung', abschluss: 'Abschluss' };
+      var u2 = (typeof GemaAuth!=='undefined')?GemaAuth.getCurrentUser():null;
+      // Nicht an sich selbst pingen
+      if(!u2 || u2.id !== s.erstelltVon.userId){
+        GemaNotify.push({
+          eventKey:'schaden_phase_geaendert',
+          empfaengerUserId:s.erstelltVon.userId,
+          modul:'schadensbericht',
+          typ:'info',
+          titel:'Schaden in Phase: '+(labels2[target]||target),
+          text:s.titel+(u2&&u2.name?' — geaendert von '+u2.name:''),
+          link:'sd_schadensbericht.html'
+        });
+      }
+    }
+  }catch(e){}
   sdRenderDetail(s);
 }
 
@@ -2106,41 +2205,328 @@ function sdRenderChart(mp) {
 }
 
 // ══════════════════════════════════════
-// EXPORT: PDF
+// EXPORT: PDF (echter, strukturierter Export via jsPDF — vorher war
+// hier ein kaputter html2canvas-Fallback, der PNG mit .pdf-Endung
+// gespeichert hat).
 // ══════════════════════════════════════
-function sdExportPdf(id) {
-  var s = sdGetById(id); if (!s) return;
-  var area = document.getElementById('printArea');
-  area.style.display = 'block';
-  area.innerHTML = sdBuildReportHtml(s);
+// Rendert ein Linien-Chart der Messpunkte auf ein Off-Screen-Canvas
+// und liefert die PNG-DataURL fuers PDF. Ein Linie pro Messpunkt,
+// mit verschiedenen Farben + Legende.
+function _sdRenderTrendChart(mpWithMessungen){
+  if(!mpWithMessungen || !mpWithMessungen.length) return null;
+  // Sammle alle Datum/Wert-Paare pro Messpunkt
+  var series = mpWithMessungen.map(function(m){
+    var pts = (m.messungen||[]).filter(function(me){return me.datum && me.wert!=null;}).map(function(me){
+      return { t: new Date(me.datum).getTime(), v: parseFloat(me.wert)||0 };
+    }).sort(function(a,b){return a.t-b.t;});
+    return { name: m.name||'-', pts: pts };
+  }).filter(function(s){return s.pts.length>0;});
+  if(!series.length) return null;
 
-  // Wait for images to load
-  setTimeout(function() {
-    if (typeof GemaPDF !== 'undefined') {
-      try {
-        GemaPDF.exportElement(area, 'Schadensbericht_' + (s.titel || s.id) + '.pdf');
-        setTimeout(function() { area.style.display = 'none'; area.innerHTML = ''; }, 2000);
-        return;
-      } catch(e) { console.warn('GemaPDF failed:', e); }
+  // Bounds
+  var allT=[],allV=[];
+  series.forEach(function(s){s.pts.forEach(function(p){allT.push(p.t);allV.push(p.v);});});
+  var minT=Math.min.apply(null,allT), maxT=Math.max.apply(null,allT);
+  var minV=Math.min.apply(null,allV), maxV=Math.max.apply(null,allV);
+  if(minT===maxT){ maxT=minT+86400000; }
+  // Y-Achse: 0 bis ceil(max+5)
+  var yMin=0, yMax=Math.max(100, Math.ceil((maxV+5)/10)*10);
+
+  var W=900, H=300, padL=50, padR=160, padT=20, padB=40;
+  var c=document.createElement('canvas'); c.width=W; c.height=H;
+  var ctx=c.getContext('2d');
+  ctx.fillStyle='#ffffff'; ctx.fillRect(0,0,W,H);
+
+  // Plot area
+  var plotW=W-padL-padR, plotH=H-padT-padB;
+  // X scale
+  function sx(t){return padL+((t-minT)/(maxT-minT))*plotW;}
+  function sy(v){return padT+plotH-((v-yMin)/(yMax-yMin))*plotH;}
+
+  // Grid + Y-Labels (alle 10%)
+  ctx.strokeStyle='#e5e7eb'; ctx.lineWidth=1;
+  ctx.fillStyle='#6b7280'; ctx.font='11px sans-serif'; ctx.textAlign='right'; ctx.textBaseline='middle';
+  for(var v=yMin;v<=yMax;v+=10){
+    var y=sy(v);
+    ctx.beginPath(); ctx.moveTo(padL,y); ctx.lineTo(padL+plotW,y); ctx.stroke();
+    ctx.fillText(v+'%',padL-6,y);
+  }
+  // X-Labels: 4-6 Datumspunkte
+  ctx.textAlign='center'; ctx.textBaseline='top';
+  var labels=4;
+  for(var i=0;i<=labels;i++){
+    var t=minT+(maxT-minT)*(i/labels);
+    var x=sx(t);
+    ctx.fillStyle='#9ca3af';
+    ctx.beginPath(); ctx.moveTo(x,padT+plotH); ctx.lineTo(x,padT+plotH+4); ctx.stroke();
+    ctx.fillStyle='#6b7280';
+    ctx.fillText(new Date(t).toLocaleDateString('de-CH'), x, padT+plotH+8);
+  }
+
+  // Achsen
+  ctx.strokeStyle='#374151'; ctx.lineWidth=1.5;
+  ctx.beginPath(); ctx.moveTo(padL,padT); ctx.lineTo(padL,padT+plotH); ctx.lineTo(padL+plotW,padT+plotH); ctx.stroke();
+
+  // Linien
+  var COLORS=['#7c3aed','#2563eb','#16a34a','#dc2626','#d97706','#0891b2','#db2777','#475569'];
+  series.forEach(function(s,idx){
+    var col=COLORS[idx%COLORS.length];
+    ctx.strokeStyle=col; ctx.fillStyle=col; ctx.lineWidth=2.2;
+    ctx.beginPath();
+    s.pts.forEach(function(p,i){
+      var x=sx(p.t), y=sy(p.v);
+      if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+    });
+    ctx.stroke();
+    // Punkte
+    s.pts.forEach(function(p){
+      var x=sx(p.t), y=sy(p.v);
+      ctx.beginPath(); ctx.arc(x,y,3.5,0,Math.PI*2); ctx.fill();
+    });
+  });
+
+  // Legende rechts
+  var lx=padL+plotW+18, ly=padT+10;
+  ctx.font='12px sans-serif'; ctx.textAlign='left'; ctx.textBaseline='middle';
+  ctx.fillStyle='#374151';
+  ctx.fillText('Messpunkte:',lx,ly); ly+=18;
+  series.forEach(function(s,idx){
+    var col=COLORS[idx%COLORS.length];
+    ctx.fillStyle=col;
+    ctx.beginPath(); ctx.arc(lx+6,ly,5,0,Math.PI*2); ctx.fill();
+    ctx.strokeStyle=col; ctx.lineWidth=2.2;
+    ctx.beginPath(); ctx.moveTo(lx-4,ly); ctx.lineTo(lx+16,ly); ctx.stroke();
+    ctx.fillStyle='#374151'; ctx.font='11.5px sans-serif';
+    var label=s.name.length>20?s.name.slice(0,20)+'…':s.name;
+    ctx.fillText(label,lx+22,ly);
+    ly+=18;
+  });
+
+  // Y-Title
+  ctx.save();
+  ctx.translate(14,padT+plotH/2); ctx.rotate(-Math.PI/2);
+  ctx.fillStyle='#374151'; ctx.font='11px sans-serif'; ctx.textAlign='center';
+  ctx.fillText('Restfeuchte (%)',0,0);
+  ctx.restore();
+
+  return c.toDataURL('image/png');
+}
+
+function _sdEnsureJsPDF(){
+  return new Promise(function(res){
+    if(window.jspdf && window.jspdf.jsPDF) return res();
+    var s=document.createElement('script');
+    s.src='https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+    s.onload=function(){res();};s.onerror=function(){res();};
+    document.head.appendChild(s);
+  });
+}
+
+function sdExportPdf(id){
+  var s=sdGetById(id); if(!s) return;
+  _sdEnsureJsPDF().then(function(){
+    if(!(window.jspdf && window.jspdf.jsPDF)){alert('PDF-Bibliothek nicht verfügbar.');return;}
+    var jsPDF=window.jspdf.jsPDF;
+    var doc=new jsPDF({unit:'mm',format:'a4'});
+    var M=15, y=20;
+    var pageH=doc.internal.pageSize.getHeight();
+    function ensureSpace(needed){if(y+needed>pageH-15){doc.addPage();y=20;_drawHeader();}}
+    function _drawHeader(){
+      doc.setFontSize(8);doc.setFont('helvetica','normal');doc.setTextColor(124,58,237);
+      doc.text('GEMA · Schadensbericht · '+(s.titel||'—'),M,9);
+      doc.setDrawColor(229,231,235);doc.line(M,12,195,12);
     }
-    // Fallback: html2canvas
-    if (typeof html2canvas !== 'undefined') {
-      html2canvas(area, { scale: 2, useCORS: true }).then(function(canvas) {
-        var link = document.createElement('a');
-        link.download = 'Schadensbericht_' + (s.titel || s.id) + '.pdf';
-        // For now, export as PNG since we don't have jsPDF
-        link.download = 'Schadensbericht_' + (s.titel || s.id) + '.png';
-        link.href = canvas.toDataURL('image/png');
-        link.click();
-        area.style.display = 'none';
-        area.innerHTML = '';
+
+    // Titel-Block mit Lila-Akzent
+    var typIco=({wasserschaden:'💧',schimmel:'🦠',rohrbruch:'🔧',leitungsschaden:'⚡',rueckstau:'🌊',sonstiges:'📋'})[s.typ]||'📋';
+    doc.setFontSize(20);doc.setFont('helvetica','bold');doc.setTextColor(46,16,101);
+    doc.text('Schadensbericht',M,y);y+=8;
+    doc.setFontSize(13);doc.setFont('helvetica','bold');doc.setTextColor(124,58,237);
+    doc.text(typIco+'  '+(s.titel||'—'),M,y);y+=7;
+
+    // Stammdaten
+    doc.setFontSize(9);doc.setFont('helvetica','normal');doc.setTextColor(75,85,99);
+    var typLabel=({wasserschaden:'Wasserschaden',schimmel:'Schimmelschaden',rohrbruch:'Rohrbruch',leitungsschaden:'Leitungsschaden',rueckstau:'Rückstau',sonstiges:'Sonstiges'})[s.typ]||s.typ||'—';
+    var phaseLabel=({erfasst:'Erfasst',analyse:'Zustandsanalyse',trocknung:'Trocknung',abschluss:'Abschluss'})[s.phase]||s.phase||'—';
+    var infoLines=[
+      'Typ: '+typLabel,
+      'Aktuelle Phase: '+phaseLabel,
+      'Erstellt: '+(s.erstelltAm?new Date(s.erstelltAm).toLocaleDateString('de-CH'):'—')+(s.erstelltVon&&s.erstelltVon.name?' von '+s.erstelltVon.name:''),
+      'Objekt-ID: '+(s.objektId||'—'),
+      'PDF erstellt: '+new Date().toLocaleString('de-CH')
+    ];
+    if(s.versicherung && (s.versicherung.name || s.versicherung.policeNr || s.versicherung.schadenNr)){
+      infoLines.push('Versicherung: '+([s.versicherung.name,s.versicherung.policeNr?'Police '+s.versicherung.policeNr:'',s.versicherung.schadenNr?'Schaden-Nr. '+s.versicherung.schadenNr:''].filter(Boolean).join(' · ')));
+    }
+    infoLines.forEach(function(line){doc.text(line,M,y);y+=4.2;});
+    y+=2;
+    if(s.beschreibung){
+      ensureSpace(15);
+      doc.setFont('helvetica','bold');doc.setTextColor(15,23,42);doc.text('Beschreibung',M,y);y+=4.5;
+      doc.setFont('helvetica','normal');doc.setTextColor(55,65,81);
+      doc.splitTextToSize(s.beschreibung,180).forEach(function(L){ensureSpace(5);doc.text(L,M,y);y+=4.5;});
+      y+=2;
+    }
+    if(s.ursache){
+      ensureSpace(15);
+      doc.setFont('helvetica','bold');doc.setTextColor(15,23,42);doc.text('Ursache',M,y);y+=4.5;
+      doc.setFont('helvetica','normal');doc.setTextColor(55,65,81);
+      doc.splitTextToSize(s.ursache,180).forEach(function(L){ensureSpace(5);doc.text(L,M,y);y+=4.5;});
+      y+=2;
+    }
+    if(Array.isArray(s.raeume)&&s.raeume.length){
+      ensureSpace(10);
+      doc.setFont('helvetica','bold');doc.setTextColor(15,23,42);doc.text('Betroffene Räume',M,y);y+=4.5;
+      doc.setFont('helvetica','normal');doc.setTextColor(55,65,81);
+      var raeumeStr=s.raeume.map(function(r){return typeof r==='string'?r:(r.name||r.bezeichnung||'')}).filter(Boolean).join(' · ');
+      if(raeumeStr){doc.splitTextToSize(raeumeStr,180).forEach(function(L){ensureSpace(5);doc.text(L,M,y);y+=4.5;});}
+      y+=2;
+    }
+    doc.setDrawColor(229,231,235);doc.line(M,y,195,y);y+=5;
+
+    // Phasen-Sektionen
+    function addSection(title,content){
+      ensureSpace(15);
+      doc.setFontSize(11);doc.setFont('helvetica','bold');doc.setTextColor(124,58,237);
+      doc.text(title,M,y);y+=5;
+      doc.setFontSize(9);doc.setFont('helvetica','normal');doc.setTextColor(55,65,81);
+      content();
+      y+=3;
+    }
+    function addPhotos(arr,label){
+      arr=Array.isArray(arr)?arr.filter(function(p){return p&&p.dataUrl;}):[];
+      if(!arr.length)return;
+      doc.setFont('helvetica','bold');doc.setTextColor(75,85,99);
+      ensureSpace(8);
+      doc.text((label||'Fotos')+' ('+arr.length+'):',M,y);y+=4.5;
+      doc.setFont('helvetica','normal');
+      var pX=M, w=42, h=32, gap=3, perRow=4;
+      arr.forEach(function(p,idx){
+        if(idx>0&&idx%perRow===0){pX=M;y+=h+gap;ensureSpace(h+2);}
+        try{doc.addImage(p.dataUrl,'JPEG',pX,y,w,h);}catch(_){}
+        if(p.kommentar){
+          // Kleine Bildunterschrift
+          doc.setFontSize(7);doc.setTextColor(107,114,128);
+          var caption=doc.splitTextToSize(p.kommentar.slice(0,60),w);
+          if(caption[0]){doc.text(caption[0],pX,y+h+2.5);}
+          doc.setFontSize(9);doc.setTextColor(55,65,81);
+        }
+        pX+=w+gap;
       });
-    } else {
-      alert('Export nicht verfügbar. Bitte drucken Sie die Seite stattdessen.');
-      area.style.display = 'none';
-      area.innerHTML = '';
+      y+=h+gap+1;
     }
-  }, 300);
+
+    if(s.zustandsanalyse && (s.zustandsanalyse.leckortung||s.zustandsanalyse.schadenausmass||(s.zustandsanalyse.massnahmen||[]).length||(s.zustandsanalyse.fotos||[]).length)){
+      addSection('1. Zustandsanalyse',function(){
+        if(s.zustandsanalyse.leckortung){doc.setFont('helvetica','bold');doc.text('Leckortung:',M,y);y+=4.2;doc.setFont('helvetica','normal');doc.splitTextToSize(s.zustandsanalyse.leckortung,180).forEach(function(L){ensureSpace(5);doc.text(L,M,y);y+=4.2;});y+=1;}
+        if(s.zustandsanalyse.schadenausmass){doc.setFont('helvetica','bold');doc.text('Schadenausmass:',M,y);y+=4.2;doc.setFont('helvetica','normal');doc.splitTextToSize(s.zustandsanalyse.schadenausmass,180).forEach(function(L){ensureSpace(5);doc.text(L,M,y);y+=4.2;});y+=1;}
+        if(Array.isArray(s.zustandsanalyse.massnahmen)&&s.zustandsanalyse.massnahmen.length){
+          doc.setFont('helvetica','bold');doc.text('Massnahmen:',M,y);y+=4.2;doc.setFont('helvetica','normal');
+          s.zustandsanalyse.massnahmen.forEach(function(m){ensureSpace(5);doc.text('• '+(typeof m==='string'?m:(m.beschreibung||m.text||'')),M+2,y);y+=4.2;});
+          y+=1;
+        }
+        addPhotos(s.zustandsanalyse.fotos,'Analyse-Fotos');
+      });
+    }
+
+    if(s.trocknung && (s.trocknung.gestartetAm||s.trocknung.beendetAm||(s.trocknung.geraete||[]).length||(s.trocknung.messpunkte||[]).length||(s.trocknung.fotos||[]).length)){
+      addSection('2. Trocknung',function(){
+        if(s.trocknung.gestartetAm){ensureSpace(5);doc.text('Gestartet: '+new Date(s.trocknung.gestartetAm).toLocaleDateString('de-CH'),M,y);y+=4.2;}
+        if(s.trocknung.beendetAm){ensureSpace(5);doc.text('Beendet: '+new Date(s.trocknung.beendetAm).toLocaleDateString('de-CH'),M,y);y+=4.2;}
+        // Geraete-Tabelle
+        var geraete=Array.isArray(s.trocknung.geraete)?s.trocknung.geraete:[];
+        // Live-Geraete aus Trocknungs-Modul ergaenzen
+        try{
+          if(typeof GemaTrocknung!=='undefined'){
+            var live=GemaTrocknung.getForSchaden(id)||[];
+            live.forEach(function(d){
+              var inE=d.einsatz||{};
+              var kwh=null;
+              if(inE.zaehlerStart!=null && d.kw){
+                // Aktive Geraete koennen wir nicht abschliessend rechnen — Markierung
+              }
+              geraete.push({name:d.name+' (live)',raum:inE.raum||'',kw:d.kw||0,zaehlerStart:inE.zaehlerStart,zaehlerEnde:null,_live:true});
+            });
+            // History
+            (GemaTrocknung.getHistoryForSchaden(id)||[]).forEach(function(e){
+              geraete.push({name:e.name||e.schadenTitel+' (Historie)',raum:e.raum||'',kw:0,zaehlerStart:0,zaehlerEnde:0,kwhTotal:e.kwhTotal||0,_history:true});
+            });
+          }
+        }catch(_){}
+        if(geraete.length){
+          ensureSpace(8);
+          doc.setFont('helvetica','bold');doc.text('Geräte:',M,y);y+=4.2;
+          doc.setFont('helvetica','normal');
+          geraete.forEach(function(g){
+            ensureSpace(5);
+            var kwh=null;
+            if(g.kwhTotal!=null) kwh=g.kwhTotal;
+            else if(g.zaehlerEnde!=null && g.zaehlerStart!=null && g.kw) kwh=(g.zaehlerEnde-g.zaehlerStart)*g.kw;
+            var line='• '+g.name+(g.raum?' · '+g.raum:'')+(g.kw?' · '+g.kw+' kW':'')+(kwh!=null?' · '+kwh.toFixed(1)+' kWh':'')+(g._live?' [aktuell aktiv]':'')+(g._history?' [aus Historie]':'');
+            doc.text(line,M+2,y);y+=4.2;
+          });
+          y+=1;
+        }
+        // Messpunkt-Trend-Chart + Tabelle
+        var mp=Array.isArray(s.trocknung.messpunkte)?s.trocknung.messpunkte:[];
+        var mpWithMessungen = mp.filter(function(m){return Array.isArray(m.messungen) && m.messungen.length>0;});
+        if(mpWithMessungen.length){
+          ensureSpace(75);
+          doc.setFont('helvetica','bold');doc.setTextColor(15,23,42);
+          doc.text('Messpunkt-Trend (Restfeuchte über Zeit):',M,y);y+=4.5;
+          // Linienchart als Canvas → PNG
+          try {
+            var chartImg = _sdRenderTrendChart(mpWithMessungen);
+            if(chartImg){
+              doc.addImage(chartImg,'PNG',M,y,180,60);
+              y+=63;
+            }
+          } catch(e){}
+          y+=1;
+        }
+        if(mp.length){
+          ensureSpace(8);
+          doc.setFont('helvetica','bold');doc.setTextColor(15,23,42);doc.text('Messpunkte (Detail):',M,y);y+=4.2;
+          doc.setFont('helvetica','normal');doc.setTextColor(75,85,99);
+          mp.forEach(function(m){
+            ensureSpace(5);
+            doc.text('• '+(m.name||'-')+(Array.isArray(m.messungen)?' ('+m.messungen.length+' Messungen)':''),M+2,y);y+=4.2;
+            if(Array.isArray(m.messungen)){
+              m.messungen.forEach(function(me){
+                ensureSpace(4);
+                doc.setFontSize(8);doc.setTextColor(107,114,128);
+                doc.text('  '+(me.datum?new Date(me.datum).toLocaleDateString('de-CH'):'')+': '+(me.wert||0)+' %',M+4,y);y+=3.6;
+                doc.setFontSize(9);doc.setTextColor(55,85,99);
+              });
+            }
+          });
+          y+=1;
+        }
+        if(s.trocknung.notizen){doc.setFont('helvetica','bold');doc.text('Notizen:',M,y);y+=4.2;doc.setFont('helvetica','normal');doc.splitTextToSize(s.trocknung.notizen,180).forEach(function(L){ensureSpace(5);doc.text(L,M,y);y+=4.2;});y+=1;}
+        addPhotos(s.trocknung.fotos,'Trocknungs-Fotos');
+      });
+    }
+
+    if(s.abschluss && (s.abschluss.zusammenfassung||s.abschluss.instandstellung||(s.abschluss.fotos||[]).length)){
+      addSection('3. Abschluss',function(){
+        if(s.abschluss.zusammenfassung){doc.setFont('helvetica','bold');doc.text('Zusammenfassung:',M,y);y+=4.2;doc.setFont('helvetica','normal');doc.splitTextToSize(s.abschluss.zusammenfassung,180).forEach(function(L){ensureSpace(5);doc.text(L,M,y);y+=4.2;});y+=1;}
+        if(s.abschluss.instandstellung){doc.setFont('helvetica','bold');doc.text('Instandstellung:',M,y);y+=4.2;doc.setFont('helvetica','normal');doc.splitTextToSize(s.abschluss.instandstellung,180).forEach(function(L){ensureSpace(5);doc.text(L,M,y);y+=4.2;});y+=1;}
+        if(s.abschluss.weitereSchaeden){doc.setFont('helvetica','bold');doc.text('Weitere Schäden:',M,y);y+=4.2;doc.setFont('helvetica','normal');doc.splitTextToSize(s.abschluss.weitereSchaeden,180).forEach(function(L){ensureSpace(5);doc.text(L,M,y);y+=4.2;});y+=1;}
+        if(s.abschluss.abgeschlossenAm){ensureSpace(5);doc.text('Abgeschlossen am: '+new Date(s.abschluss.abgeschlossenAm).toLocaleDateString('de-CH'),M,y);y+=4.2;}
+        addPhotos(s.abschluss.fotos,'Abschluss-Fotos');
+      });
+    }
+
+    // Page numbers
+    var totalPages=doc.internal.getNumberOfPages();
+    for(var p=1;p<=totalPages;p++){
+      doc.setPage(p);
+      doc.setFontSize(8);doc.setFont('helvetica','normal');doc.setTextColor(156,163,175);
+      doc.text('Seite '+p+' / '+totalPages,195,pageH-7,{align:'right'});
+    }
+    var fname='Schadensbericht_'+(s.titel||s.id||'Schaden').replace(/[^a-z0-9]+/gi,'_')+'_'+new Date().toISOString().slice(0,10)+'.pdf';
+    doc.save(fname);
+  });
 }
 
 // ══════════════════════════════════════
@@ -2314,6 +2700,19 @@ window.addEventListener('DOMContentLoaded', function() {
       sdLoad();
       sdRenderList();
     }
+
+    // Live-Sync von if_trocknung: wenn dort ein Geraet eingesetzt
+    // oder zurueckgegeben wird, re-rendern wir den aktuellen Schaden,
+    // damit die Live-Spiegelung sofort aktuell ist.
+    function _sdReRenderCurrent(){
+      if(!_sdCurrentDetailId) return;
+      var s = sdGetById(_sdCurrentDetailId);
+      if(s) sdRenderDetail(s);
+    }
+    window.addEventListener('gema-trocknung-updated', _sdReRenderCurrent);
+    window.addEventListener('storage', function(ev){
+      if(ev && ev.key === 'gema_trocknung_v1') _sdReRenderCurrent();
+    });
 
     // Permission-based UI
     if (!_sdCanEdit()) {

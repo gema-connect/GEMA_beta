@@ -248,6 +248,27 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
 .mft-cancel:hover{background:var(--brd2)}
 .mft-save{padding:11px 26px;border-radius:11px;border:none;background:var(--plan);color:#fff;font-size:14px;font-weight:800;cursor:pointer;transition:.15s;display:flex;align-items:center;gap:8px}
 .mft-save:hover{background:var(--plan-dk);box-shadow:0 4px 16px rgba(124,58,237,.4)}
+/* Mobile: alle drei Footer-Buttons (Abbrechen / QR / Speichern) bleiben
+   nebeneinander, statt durch flex-wrap:wrap aus gema_responsive.css den
+   Save-Button auf eine neue Zeile zu zwingen. Padding reduziert,
+   Schriftgroessen leicht runter, Save-Button bekommt flex:1 damit er
+   den Restplatz fuellt. */
+@media(max-width:540px){
+  .modal-ft{flex-wrap:nowrap!important;gap:6px;padding:12px 14px;justify-content:stretch}
+  .modal-ft .mft-cancel{padding:9px 11px;font-size:12px;flex-shrink:1;min-width:0;white-space:nowrap}
+  .modal-ft .mft-save{padding:10px 12px;font-size:12.5px;flex:1 1 auto;justify-content:center;min-width:0;white-space:nowrap}
+}
+/* Default: lange Variante zeigen, kurze verbergen. Auf sehr schmalen
+   Bildschirmen (iPhone SE, ~320-380px) wird umgekehrt: kurze Label
+   "Speichern" zeigen, das volle "Gerät speichern" / "Aenderungen
+   speichern" wird ausgeblendet. */
+.mft-lbl-short{display:none}
+@media(max-width:380px){
+  .mft-lbl-full{display:none}
+  .mft-lbl-short{display:inline}
+  .modal-ft .mft-save{padding:10px 10px;font-size:12px}
+  .modal-ft .mft-cancel{padding:9px 8px;font-size:11.5px}
+}
 
 /* QR modal */
 .qr-modal{max-width:400px;max-height:calc(100dvh - 24px)}
@@ -389,12 +410,28 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
     <div class="stat-card ok"     onclick="setFilter('ok')">       <div class="stat-val" id="s_ok">0</div><div class="stat-lbl">✅ In Ordnung</div></div>
   </div>
 
+  <div class="lc-bar" style="display:flex;gap:6px;flex-wrap:wrap;margin:0 0 12px;font-size:12px;font-weight:700">
+    <button class="lc-pill active" data-lc="active" onclick="_wzSetLifecycle('active')" style="padding:5px 11px;border-radius:999px;border:1.5px solid var(--brd);background:#fff;color:var(--txt2);cursor:pointer;font-family:inherit">Aktive Geräte</button>
+    <button class="lc-pill" data-lc="all" onclick="_wzSetLifecycle('all')" style="padding:5px 11px;border-radius:999px;border:1.5px solid var(--brd);background:#fff;color:var(--txt2);cursor:pointer;font-family:inherit">Alle (inkl. Archiv)</button>
+    <button class="lc-pill" data-lc="archive" onclick="_wzSetLifecycle('archive')" style="padding:5px 11px;border-radius:999px;border:1.5px solid var(--brd);background:#fff;color:var(--txt2);cursor:pointer;font-family:inherit">📦 Archiv (ausgemustert / verkauft)</button>
+  </div>
+  <style>
+    .lc-pill.active{background:var(--plan)!important;color:#fff!important;border-color:var(--plan)!important}
+    body.wz-bulk-on .tool-card{transition:.15s}
+    body.wz-bulk-on .tool-card:hover{box-shadow:0 0 0 2px var(--plan)}
+    .tool-card.wz-bulk-sel{box-shadow:0 0 0 2.5px var(--plan)!important;background:#eff6ff}
+    .wz-bulk-cb{transition:.15s;box-shadow:0 2px 4px rgba(0,0,0,.1)}
+    .tool-card.wz-bulk-sel .wz-bulk-cb{background:var(--plan)!important;color:#fff!important;border-color:var(--plan)!important}
+  </style>
+
   <div class="toolbar">
     <div class="tb-search">
       <span style="color:var(--mut2);font-size:16px">🔍</span>
       <input type="text" id="searchInp" placeholder="Bezeichnung, Hersteller, Kategorie, Standort …" oninput="renderList()">
     </div>
     <button class="nbtn primary" id="btnAddTool" onclick="openAdd()">+ Gerät hinzufügen</button>
+    <button class="nbtn" id="btnBulkMode" onclick="_wzToggleBulkMode()" title="Mehrere Werkzeuge auswählen und gemeinsam bearbeiten" style="display:none;background:#eff6ff;color:#1d4ed8;border-color:#bfdbfe">☑ Auswählen</button>
+    <button class="nbtn" id="btnInventur" onclick="_wzOpenInventurModal()" title="Inventur-Lauf starten oder fortsetzen" style="display:none;background:#f0fdf4;color:#15803d;border-color:#bbf7d0">📋 Inventur</button>
     <button class="nbtn" onclick="_wzOpenSammelAusleihe()" title="Mehrere Werkzeuge scannen und auf einmal ausleihen" style="background:#fefce8;color:#92400e;border-color:#fde68a">🔄 Sammel-Ausleihe</button>
     <button class="nbtn" id="btnPruefMode" onclick="_wzPruefModus()" style="display:none" title="Prüfmodus starten">📋 Prüfmodus</button>
     <button class="nbtn" id="btnAdvFilter" onclick="_wzOpenAdvFilter()" style="display:none" title="Erweiterte Filter">🔍 Filter</button>
@@ -497,6 +534,15 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
             <label>Zugewiesen an</label>
             <input type="text" id="f_assignee" placeholder="Person oder Team …" autocomplete="off">
           </div>
+        </div>
+        <div class="fg">
+          <label>Status</label>
+          <select id="f_lifecycle">
+            <option value="aktiv">✅ Aktiv (im Einsatz)</option>
+            <option value="in_reparatur">🔧 In Reparatur</option>
+            <option value="ausgemustert">📦 Ausgemustert</option>
+            <option value="verkauft">💰 Verkauft</option>
+          </select>
         </div>
       </div>
 
@@ -673,7 +719,7 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
       <button class="mft-cancel" onclick="closeAdd()">Abbrechen</button>
       <button class="mft-cancel" onclick="_wzSaveAndQR()" title="Speichern und QR-Code anzeigen">🔲 QR</button>
       <button class="mft-save" onclick="submitForm()">
-        <span id="mft_ico">✓</span><span id="mft_lbl">Gerät speichern</span>
+        <span id="mft_ico">✓</span><span id="mft_lbl" class="mft-lbl-full">Gerät speichern</span><span class="mft-lbl-short">Speichern</span>
       </button>
     </div>
   </div>
@@ -696,6 +742,8 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
         <button class="mft-save" style="flex:1 1 80px;justify-content:center;padding:8px 10px;font-size:12px;background:#1d4ed8" onclick="downloadQRSVG()">⬇ SVG</button>
         <button id="nfcBtn" onclick="_wzWriteNFC()" style="display:none;flex:1 1 80px;padding:8px 10px;border-radius:8px;border:1.5px solid #bfdbfe;background:#eff6ff;color:#1d4ed8;font-size:12px;font-weight:800;cursor:pointer;justify-content:center;align-items:center;gap:5px;font-family:inherit">
           📡 NFC</button>
+        <button id="nfcLockBtn" onclick="_wzMakeNFCReadOnly()" title="NFC-Tag dauerhaft schreibgeschützt machen — irreversibel" style="display:none;flex:1 1 80px;padding:8px 10px;border-radius:8px;border:1.5px solid #fecaca;background:#fef2f2;color:#b91c1c;font-size:12px;font-weight:800;cursor:pointer;justify-content:center;align-items:center;gap:5px;font-family:inherit">
+          🔒 Sperren</button>
       </div>
       <div id="nfcStatus" style="text-align:center;font-size:11px;color:var(--mut);margin-top:4px"></div>
     </div>
@@ -815,7 +863,183 @@ function _wzCanReportDefect(){
 // ──────────────────────────────────────
 // STATE & CONSTANTS
 // ──────────────────────────────────────
-let tools=[], currentFilter='all', currentView='cards', pruefId=null;
+let tools=[], currentFilter='all', currentLifecycle='active', currentView='cards', pruefId=null;
+window._wzSetLifecycle=function(v){currentLifecycle=v;document.querySelectorAll('.lc-pill').forEach(function(b){b.classList.toggle('active',b.dataset.lc===v);});renderList();updateStats();};
+
+// ─────────────────────────────────────────────────────────────────
+// Inventur-Modus: Magaziner startet einen Inventur-Lauf, klickt oder
+// scannt jedes Werkzeug ab. Persistiert im localStorage; kann pausiert
+// werden. Am Ende ein Report mit erfassten + missing Werkzeugen.
+// Schema: {id, gestartetAm, gestartetVonName, gestartetVonUserId,
+//          erfasst:{toolId:{ts, userId, name}}, status:'laufend'|'beendet',
+//          beendetAm, beendetReport:{erfasstIds[], missingIds[]}}
+// ─────────────────────────────────────────────────────────────────
+var _WZ_INV_KEY='gema_werkzeug_inventur_v1';
+function _wzGetActiveInventur(){
+  try{var arr=JSON.parse(localStorage.getItem(_WZ_INV_KEY)||'[]');
+    return arr.find(function(x){return x.status==='laufend';})||null;
+  }catch(e){return null;}
+}
+function _wzSaveInventur(inv){
+  try{
+    var arr=[];try{arr=JSON.parse(localStorage.getItem(_WZ_INV_KEY)||'[]');}catch(e){}
+    var idx=arr.findIndex(function(x){return x.id===inv.id;});
+    if(idx>=0)arr[idx]=inv;else arr.unshift(inv);
+    localStorage.setItem(_WZ_INV_KEY,JSON.stringify(arr.slice(0,30)));
+  }catch(e){}
+}
+window._wzStartInventur=function(){
+  if(!_wzCanEdit())return;
+  if(_wzGetActiveInventur()){_wzOpenInventurModal();return;}
+  if(!confirm('Neuen Inventur-Lauf starten?'))return;
+  var u=_wzGetUser()||{};
+  var inv={
+    id:'inv_'+Date.now(),
+    gestartetAm:new Date().toISOString(),
+    gestartetVonUserId:u.id||'',
+    gestartetVonName:u.name||u.username||'',
+    erfasst:{},status:'laufend'
+  };
+  _wzSaveInventur(inv);
+  renderList();
+  _wzOpenInventurModal();
+};
+window._wzInventurErfassen=function(toolId,ev){
+  if(ev){ev.stopPropagation();}
+  var inv=_wzGetActiveInventur();if(!inv){alert('Kein Inventur-Lauf aktiv.');return;}
+  var u=_wzGetUser()||{};
+  if(inv.erfasst[toolId])delete inv.erfasst[toolId];
+  else inv.erfasst[toolId]={ts:new Date().toISOString(),userId:u.id||'',name:u.name||u.username||''};
+  _wzSaveInventur(inv);renderList();_wzRenderInventurStats();
+};
+window._wzOpenInventurModal=function(){
+  var inv=_wzGetActiveInventur();
+  if(!inv){
+    _wzShowModal('<div class="dlg-card"><h3 style="margin:0 0 8px;font-size:17px;font-weight:800">📋 Inventur</h3><div style="font-size:13px;color:#475569;margin-bottom:14px">Aktuell läuft kein Inventur-Lauf. Beim Start werden alle Werkzeuge auf "nicht erfasst" gesetzt; durch Anklicken oder Scannen wird jedes als erfasst markiert.</div><div class="dlg-row"><button onclick="_wzCloseModal()" class="dlg-cancel">Abbrechen</button><button onclick="_wzCloseModal();_wzStartInventur()" style="padding:9px 18px;border-radius:8px;border:none;background:#2563eb;color:#fff;cursor:pointer;font-weight:700;font-family:inherit">Lauf starten</button></div></div>');
+    return;
+  }
+  var totalActive=tools.filter(function(t){return (t.lifecycleStatus||'aktiv')==='aktiv';}).length;
+  var erfasstCount=Object.keys(inv.erfasst).length;
+  var html='<div class="dlg-card" style="max-width:520px"><h3 style="margin:0 0 4px;font-size:17px;font-weight:800">📋 Inventur läuft</h3>'
+    +'<div style="font-size:12px;color:#64748b;margin-bottom:14px">Gestartet '+fmt((inv.gestartetAm||'').slice(0,10))+' von '+esc(inv.gestartetVonName||'—')+'</div>'
+    +'<div style="background:#eff6ff;border:1.5px solid #bfdbfe;border-radius:10px;padding:14px;margin-bottom:14px">'
+    +'<div style="font-size:13px;color:#1e40af;font-weight:700;margin-bottom:6px">Fortschritt</div>'
+    +'<div style="display:flex;align-items:baseline;gap:6px"><span style="font-size:28px;font-weight:800;color:#1d4ed8" id="invErfasst">'+erfasstCount+'</span><span style="font-size:14px;color:#64748b">/ '+totalActive+' aktiven Werkzeugen erfasst</span></div>'
+    +'<div style="margin-top:8px;background:#dbeafe;height:8px;border-radius:4px;overflow:hidden"><div id="invBar" style="height:100%;background:#2563eb;width:'+(totalActive>0?Math.round(erfasstCount/totalActive*100):0)+'%"></div></div>'
+    +'</div>'
+    +'<div style="font-size:12px;color:#64748b;margin-bottom:10px">Klicke auf eine Werkzeug-Karte (oder scanne mit NFC/QR), um sie als erfasst zu markieren. Der Inventur-Lauf bleibt aktiv, auch wenn du die Seite schliesst.</div>'
+    +'<div class="dlg-row"><button onclick="_wzCloseModal()" class="dlg-cancel">Schliessen / weiter erfassen</button><button onclick="_wzInventurAbschliessen()" style="padding:9px 18px;border-radius:8px;border:none;background:#16a34a;color:#fff;cursor:pointer;font-weight:700;font-family:inherit">✓ Abschliessen</button></div>'
+    +'</div>';
+  _wzShowModal(html);
+};
+function _wzRenderInventurStats(){
+  var inv=_wzGetActiveInventur();if(!inv)return;
+  var totalActive=tools.filter(function(t){return (t.lifecycleStatus||'aktiv')==='aktiv';}).length;
+  var erfasstCount=Object.keys(inv.erfasst).length;
+  var pct=totalActive>0?Math.round(erfasstCount/totalActive*100):0;
+  var e=document.getElementById('invErfasst');if(e)e.textContent=erfasstCount;
+  var b=document.getElementById('invBar');if(b)b.style.width=pct+'%';
+}
+window._wzInventurAbschliessen=function(){
+  var inv=_wzGetActiveInventur();if(!inv)return;
+  var aktivTools=tools.filter(function(t){return (t.lifecycleStatus||'aktiv')==='aktiv';});
+  var erfasstIds=Object.keys(inv.erfasst);
+  var missingIds=aktivTools.filter(function(t){return !inv.erfasst[t.id];}).map(function(t){return t.id;});
+  inv.status='beendet';
+  inv.beendetAm=new Date().toISOString();
+  inv.beendetReport={erfasstIds:erfasstIds,missingIds:missingIds};
+  _wzSaveInventur(inv);
+  renderList();
+  // Report anzeigen
+  var missingNames=missingIds.map(function(id){var t=tools.find(function(x){return x.id===id;});return t?'<li>'+esc(t.name)+(t.serial?' · SN '+esc(t.serial):'')+'</li>':'';}).join('');
+  var html='<div class="dlg-card" style="max-width:560px"><h3 style="margin:0 0 8px;font-size:17px;font-weight:800">✓ Inventur abgeschlossen</h3>'
+    +'<div style="font-size:12px;color:#64748b;margin-bottom:14px">'+esc(inv.gestartetVonName||'')+' · '+fmt((inv.gestartetAm||'').slice(0,10))+' bis '+fmt((inv.beendetAm||'').slice(0,10))+'</div>'
+    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px">'
+    +'<div style="background:#f0fdf4;border:1.5px solid #bbf7d0;border-radius:10px;padding:12px"><div style="font-size:11px;font-weight:700;color:#166534;text-transform:uppercase">Erfasst</div><div style="font-size:24px;font-weight:800;color:#15803d">'+erfasstIds.length+'</div></div>'
+    +'<div style="background:'+(missingIds.length?'#fef2f2':'#f0fdf4')+';border:1.5px solid '+(missingIds.length?'#fecaca':'#bbf7d0')+';border-radius:10px;padding:12px"><div style="font-size:11px;font-weight:700;color:'+(missingIds.length?'#991b1b':'#166534')+';text-transform:uppercase">Nicht gefunden</div><div style="font-size:24px;font-weight:800;color:'+(missingIds.length?'#dc2626':'#15803d')+'">'+missingIds.length+'</div></div>'
+    +'</div>'
+    +(missingIds.length?'<div style="font-size:12px;font-weight:700;color:#991b1b;margin-bottom:6px">Fehlende Werkzeuge:</div><ul style="margin:0;padding-left:20px;font-size:12px;color:#475569;max-height:200px;overflow-y:auto">'+missingNames+'</ul>':'<div style="font-size:13px;color:#15803d;font-weight:700">🎉 Alle aktiven Werkzeuge wurden gefunden.</div>')
+    +'<div class="dlg-row"><button onclick="_wzCloseModal()" class="dlg-cancel">Schliessen</button></div></div>';
+  _wzShowModal(html);
+};
+
+// Bulk-Auswahl-State (Set von Tool-IDs). Nur Magaziner/Admin sehen die
+// Checkboxen ueberhaupt; UI-seitig wird ueber den Auswahl-Modus
+// freigeschaltet (_wzBulkMode).
+var _wzBulkMode=false;
+var _wzBulkSelected={};
+window._wzToggleBulkMode=function(){
+  if(!_wzCanEdit())return;
+  _wzBulkMode=!_wzBulkMode;
+  if(!_wzBulkMode)_wzBulkSelected={};
+  document.body.classList.toggle('wz-bulk-on',_wzBulkMode);
+  renderList();_wzRenderBulkBar();
+};
+window._wzBulkToggle=function(id,ev){
+  if(ev){ev.stopPropagation();}
+  if(_wzBulkSelected[id])delete _wzBulkSelected[id];
+  else _wzBulkSelected[id]=true;
+  _wzRenderBulkBar();
+  // Card-Highlight ohne Re-Render
+  var card=document.querySelector('[data-bulk-id="'+id+'"]');
+  if(card)card.classList.toggle('wz-bulk-sel',!!_wzBulkSelected[id]);
+};
+function _wzRenderBulkBar(){
+  var bar=document.getElementById('wzBulkBar');
+  var count=Object.keys(_wzBulkSelected).length;
+  if(!bar){
+    if(!_wzBulkMode)return;
+    bar=document.createElement('div');bar.id='wzBulkBar';
+    bar.style.cssText='position:fixed;bottom:16px;left:50%;transform:translateX(-50%);z-index:900;background:#0f172a;color:#fff;border-radius:14px;padding:10px 16px;display:flex;align-items:center;gap:12px;box-shadow:0 12px 32px rgba(0,0,0,.25);font-size:13px;font-weight:700;flex-wrap:wrap;max-width:calc(100% - 32px)';
+    document.body.appendChild(bar);
+  }
+  if(!_wzBulkMode){bar.remove();return;}
+  bar.innerHTML='<span>'+count+' ausgewählt</span>'
+    +'<button onclick="_wzBulkSetStatus()" '+(count?'':'disabled')+' style="padding:6px 12px;border-radius:8px;border:none;background:#2563eb;color:#fff;font-weight:700;cursor:pointer;font-family:inherit;font-size:12px;'+(count?'':'opacity:.4;cursor:not-allowed')+'">Status setzen</button>'
+    +'<button onclick="_wzBulkAssign()" '+(count?'':'disabled')+' style="padding:6px 12px;border-radius:8px;border:none;background:#3730a3;color:#fff;font-weight:700;cursor:pointer;font-family:inherit;font-size:12px;'+(count?'':'opacity:.4;cursor:not-allowed')+'">Person zuweisen</button>'
+    +'<button onclick="_wzToggleBulkMode()" style="padding:6px 12px;border-radius:8px;border:1px solid #475569;background:transparent;color:#fff;font-weight:700;cursor:pointer;font-family:inherit;font-size:12px">Abbrechen</button>';
+}
+window._wzBulkSetStatus=function(){
+  var ids=Object.keys(_wzBulkSelected);if(!ids.length)return;
+  var html='<div class="dlg-card"><h3 style="margin:0 0 8px;font-size:16px;font-weight:800">Status setzen</h3><div style="font-size:12px;color:#64748b;margin-bottom:10px">'+ids.length+' Werkzeuge</div><div class="dlg-fields"><div><label class="dlg-lbl">Neuer Status</label><select id="bulkLc" class="dlg-inp"><option value="aktiv">✅ Aktiv</option><option value="in_reparatur">🔧 In Reparatur</option><option value="ausgemustert">📦 Ausgemustert</option><option value="verkauft">💰 Verkauft</option></select></div></div><div class="dlg-row"><button onclick="_wzCloseModal()" class="dlg-cancel">Abbrechen</button><button onclick="_wzBulkApplyStatus()" style="padding:9px 18px;border-radius:8px;border:none;background:#2563eb;color:#fff;cursor:pointer;font-weight:700;font-family:inherit">Anwenden</button></div></div>';
+  _wzShowModal(html);
+};
+window._wzBulkApplyStatus=function(){
+  var v=document.getElementById('bulkLc').value;
+  var ids=Object.keys(_wzBulkSelected);var changed=0;
+  ids.forEach(function(id){var t=tools.find(function(x){return x.id===id;});if(t){t.lifecycleStatus=v;changed++;}});
+  save();_wzCloseModal();_wzToggleBulkMode();
+  if(typeof showToast==='function')showToast(changed+' Werkzeuge auf neuen Status gesetzt');
+};
+window._wzBulkAssign=function(){
+  var ids=Object.keys(_wzBulkSelected);if(!ids.length)return;
+  var personen=[];
+  if(typeof GemaAuth!=='undefined'){
+    try{
+      var me=_wzGetUser()||{};
+      var users=GemaAuth.getUsers()||[];
+      personen=users.filter(function(u){if(!u.active)return false;if(me.orgId&&u.orgId!==me.orgId&&!_wzIsAdmin())return false;return true;});
+    }catch(e){}
+  }
+  var opts='<option value="">— Niemand zuweisen (entfernen) —</option>';
+  personen.forEach(function(p){opts+='<option value="'+esc(p.id)+'">'+esc(p.name||p.username)+'</option>';});
+  var html='<div class="dlg-card"><h3 style="margin:0 0 8px;font-size:16px;font-weight:800">Person zuweisen</h3><div style="font-size:12px;color:#64748b;margin-bottom:10px">'+ids.length+' Werkzeuge</div><div class="dlg-fields"><div><label class="dlg-lbl">Zugewiesen an</label><select id="bulkAssignee" class="dlg-inp">'+opts+'</select></div></div><div class="dlg-row"><button onclick="_wzCloseModal()" class="dlg-cancel">Abbrechen</button><button onclick="_wzBulkApplyAssign()" style="padding:9px 18px;border-radius:8px;border:none;background:#3730a3;color:#fff;cursor:pointer;font-weight:700;font-family:inherit">Zuweisen</button></div></div>';
+  _wzShowModal(html);
+};
+window._wzBulkApplyAssign=function(){
+  var uid=document.getElementById('bulkAssignee').value;
+  var users=(typeof GemaAuth!=='undefined')?(GemaAuth.getUsers()||[]):[];
+  var p=uid?users.find(function(u){return u.id===uid;}):null;
+  var ids=Object.keys(_wzBulkSelected);var changed=0;
+  ids.forEach(function(id){
+    var t=tools.find(function(x){return x.id===id;});if(!t)return;
+    if(uid&&p)t.zugewiesenAn={userId:uid,name:p.name||p.username,seit:today()};
+    else delete t.zugewiesenAn;
+    changed++;
+  });
+  save();_wzCloseModal();_wzToggleBulkMode();
+  if(typeof showToast==='function')showToast(changed+' Zuweisungen aktualisiert');
+};
 let _wzAdvFilter={};
 
 function _wzGetMyTools(list){
@@ -1226,10 +1450,65 @@ function _wzMaybeCoachmarks(){
 }
 
 // ──────────────────────────────────────
-// STORAGE
+// STORAGE — Multi-Tenant
 // ──────────────────────────────────────
-const save=()=>{if(typeof _GemaDB!=='undefined')_GemaDB.save('gema_werkzeug',JSON.stringify(tools));};
-const load=()=>{try{tools=JSON.parse((typeof _GemaDB!=='undefined'?(_GemaDB.c['gema_werkzeug']??null):null)||'[]');}catch(e){tools=[];}};
+// Speichert immer den GESAMTEN Pool (alle Orgs) ab, blendet beim
+// Laden aber nur die eigene Org ein. Fremde Orgs werden beim Save
+// unangetastet weiterleben — sonst wuerde Org A die Daten von Org B
+// ueberschreiben.
+function _wzReadAllRaw(){
+  var raw=null;
+  if(typeof _GemaDB!=='undefined' && _GemaDB.c) raw=_GemaDB.c['gema_werkzeug'];
+  if(raw==null){ try{ raw=localStorage.getItem('gema_werkzeug'); }catch(e){} }
+  try{ var arr=JSON.parse(raw||'[]'); return Array.isArray(arr)?arr:[]; }catch(e){ return []; }
+}
+function _wzWriteAllRaw(arr){
+  var json=JSON.stringify(arr);
+  if(typeof _GemaDB!=='undefined' && typeof _GemaDB.save==='function') _GemaDB.save('gema_werkzeug',json);
+  try{ localStorage.setItem('gema_werkzeug',json); }catch(e){}
+}
+const save=()=>{
+  var u=_wzGetUser();
+  var orgId=u&&u.orgId?u.orgId:'';
+  var all=_wzReadAllRaw();
+  // Fremde Orgs erhalten, eigene komplett ersetzen
+  var others=all.filter(function(t){
+    if(!orgId) return false; // ohne orgId nichts erhalten — Migration setzt orgId
+    return t.orgId && t.orgId!==orgId;
+  });
+  // Eigene Tools immer mit aktueller orgId stempeln (Sicherheitsnetz)
+  var mine=tools.map(function(t){
+    if(!t.orgId && orgId) t.orgId=orgId;
+    return t;
+  });
+  _wzWriteAllRaw(others.concat(mine));
+};
+const load=()=>{
+  var u=_wzGetUser();
+  var orgId=u&&u.orgId?u.orgId:'';
+  var all=_wzReadAllRaw();
+  // Migration: Tools ohne orgId der ersten Org zuweisen, die im
+  // Storage ueberhaupt schon orgId-Tools hat — sonst der eigenen
+  // Org. Vermeidet Cross-Org-Sichtbarkeit von Altdaten.
+  var migrated=false;
+  var legacy=all.filter(function(t){ return !t.orgId; });
+  if(legacy.length){
+    var firstOrg=null;
+    all.forEach(function(t){ if(!firstOrg && t.orgId) firstOrg=t.orgId; });
+    var assignTo=firstOrg||orgId||'';
+    if(assignTo){
+      legacy.forEach(function(t){ t.orgId=assignTo; });
+      migrated=true;
+    }
+  }
+  if(migrated) _wzWriteAllRaw(all);
+  // Filter auf eigene Org
+  if(orgId){
+    tools=all.filter(function(t){ return t.orgId===orgId; });
+  } else {
+    tools=all.slice(); // kein User → keine Filterung (Demo-Modus)
+  }
+};
 
 // ──────────────────────────────────────
 // DATE UTILS
@@ -1259,7 +1538,17 @@ function getFiltered(){
   var base=_wzIsMonteurView()?_wzGetMyTools(tools):tools;
   base=_wzApplyAdvFilter(base);
   const q=(document.getElementById('searchInp')?.value||'').toLowerCase();
+  // Lebenszyklus-Filter: Standard zeigt nur aktive + in Reparatur.
+  // Mit currentLifecycle='all' werden auch ausgemusterte/verkaufte sichtbar.
+  // Spezial-Filter wie 'archive' zeigen ausschliesslich diese.
   return base.filter(t=>{
+    const lc=t.lifecycleStatus||'aktiv';
+    if(currentLifecycle==='archive'){
+      if(lc!=='ausgemustert'&&lc!=='verkauft')return false;
+    } else if(currentLifecycle!=='all'){
+      // Default: ausgemustert + verkauft ausblenden
+      if(lc==='ausgemustert'||lc==='verkauft')return false;
+    }
     const cat=CATS[t.cat];
     const ok=!q||[t.name,t.brand,t.model,t.supplier,cat?.label,t.notes].some(v=>(v||'').toLowerCase().includes(q));
     if(!ok)return false;
@@ -1308,7 +1597,20 @@ function renderCard(t){
   const statusText =wd!==null?dt(wd):'Alles OK';
   const hasPruef=t.hasElec||t.hasLeiter;
 
-  return`<div class="tool-card" onclick="_wzCardClick(event,'${t.id}')" style="cursor:pointer">
+  const lc=t.lifecycleStatus||'aktiv';
+  const lcMeta={aktiv:null,in_reparatur:{label:'🔧 In Reparatur',bg:'#dbeafe',color:'#1d4ed8',brd:'#bfdbfe'},ausgemustert:{label:'📦 Ausgemustert',bg:'#f1f5f9',color:'#475569',brd:'#cbd5e1'},verkauft:{label:'💰 Verkauft',bg:'#f0fdf4',color:'#15803d',brd:'#bbf7d0'}}[lc];
+  const cardOpacity=(lc==='ausgemustert'||lc==='verkauft')?'opacity:.7;':'';
+  const bulkCb=_wzBulkMode?`<div class="wz-bulk-cb" onclick="_wzBulkToggle('${t.id}',event)" style="position:absolute;top:8px;left:8px;width:26px;height:26px;background:#fff;border:1.5px solid var(--brd);border-radius:6px;display:grid;place-items:center;cursor:pointer;font-size:14px;font-weight:800;color:var(--plan);z-index:5">${_wzBulkSelected[t.id]?'✓':''}</div>`:'';
+  const bulkSel=_wzBulkSelected[t.id]?' wz-bulk-sel':'';
+  const inv=_wzGetActiveInventur();
+  const isInvErfasst=inv && inv.erfasst[t.id];
+  const invIndicator=inv?`<div onclick="_wzInventurErfassen('${t.id}',event)" title="${isInvErfasst?'Erfasst — klicke zum Aufheben':'Klicke um als erfasst zu markieren'}" style="position:absolute;top:8px;right:8px;width:32px;height:32px;border-radius:50%;background:${isInvErfasst?'#16a34a':'#fff'};border:2px solid ${isInvErfasst?'#16a34a':'#fbbf24'};color:${isInvErfasst?'#fff':'#92400e'};display:grid;place-items:center;cursor:pointer;font-size:16px;font-weight:800;z-index:5;box-shadow:0 2px 6px rgba(0,0,0,.15)">${isInvErfasst?'✓':'?'}</div>`:'';
+  const invDimmed=inv && !isInvErfasst?'border:2px dashed #fbbf24;':'';
+  const cardClick=_wzBulkMode?`onclick="_wzBulkToggle('${t.id}',event)"`:(inv?`onclick="_wzInventurErfassen('${t.id}',event)"`:`onclick="_wzCardClick(event,'${t.id}')"`);
+  return`<div class="tool-card${bulkSel}" data-bulk-id="${t.id}" ${cardClick} style="cursor:pointer;${cardOpacity}${invDimmed}">
+    ${bulkCb}
+    ${invIndicator}
+    ${lcMeta?`<div style="padding:4px 14px;background:${lcMeta.bg};border-bottom:1px solid ${lcMeta.brd};color:${lcMeta.color};font-size:11px;font-weight:700;letter-spacing:.3px">${lcMeta.label}</div>`:''}
     <div class="status-bar ${barCls}"></div>
     <div class="tc-head">
       <div class="tc-icon ${cat.ico}">${cat.icon}</div>
@@ -1528,8 +1830,11 @@ function submitForm(){
   if(!name||!cat||!bought){alert('Bitte Bezeichnung, Kategorie und Kaufdatum ausfüllen.');return;}
   const eid=document.getElementById('f_editId').value;
   const existing=eid?tools.find(t=>t.id===eid):null;
+  const _wzMe=_wzGetUser()||{};
   const tool={
     id:eid||('t_'+Date.now()),name,cat,
+    // Multi-Tenant: bestehende orgId beim Edit erhalten, sonst aus User
+    orgId:(existing&&existing.orgId)||_wzMe.orgId||'',
     brand:document.getElementById('f_brand').value.trim(),
     model:document.getElementById('f_model').value.trim(),
     supplier:document.getElementById('f_supplier').value.trim(),
@@ -1537,6 +1842,7 @@ function submitForm(){
     bought, warranty:document.getElementById('f_warranty').value||null,
     serial:document.getElementById('f_serial').value.trim(),
     notes:document.getElementById('f_notes').value.trim(),
+    lifecycleStatus:(document.getElementById('f_lifecycle')||{}).value||'aktiv',
     hasService:document.getElementById('f_hasService').checked,
     serviceInterval:+document.getElementById('f_serviceInterval').value||12,
     lastService:document.getElementById('f_lastService').value||null,
@@ -1550,6 +1856,11 @@ function submitForm(){
     leiterHistory:existing?.leiterHistory||[],
     kaufbeleg:_wzBuildKaufbeleg(existing),
     zugewiesenAn:_wzBuildAssignee(existing),
+    // Bestandsfelder, die nicht im Form sind, beim Edit beibehalten:
+    berichte:existing?.berichte||[],
+    pruefAnfrage:existing?.pruefAnfrage||null,
+    ersatzAnfragen:existing?.ersatzAnfragen||[],
+    ausgeliehenAn:existing?.ausgeliehenAn||null
   };
   if(eid){const i=tools.findIndex(t=>t.id===eid);if(i>=0)tools[i]=tool;else tools.unshift(tool);}
   else tools.unshift(tool);
@@ -1569,6 +1880,7 @@ function editTool(id){
   const sv=(fid,v)=>{const e=document.getElementById(fid);if(e&&v!=null&&v!=='')e.value=v;};
   sv('f_name',t.name);sv('f_brand',t.brand);sv('f_model',t.model);sv('f_supplier',t.supplier);sv('f_supplierId',t.supplierId);sv('f_cat',t.cat);
   sv('f_bought',t.bought);sv('f_warranty',t.warranty);sv('f_serial',t.serial);sv('f_notes',t.notes);
+  sv('f_lifecycle',t.lifecycleStatus||'aktiv');
   if(t.zugewiesenAn)sv('f_assignee',t.zugewiesenAn.name||'');
   if(t.kaufbeleg){sv('f_belegNr',t.kaufbeleg.rechnungsNr);sv('f_belegBetrag',t.kaufbeleg.betrag);sv('f_belegBestellNr',t.kaufbeleg.bestellNr);sv('f_belegLieferdatum',t.kaufbeleg.lieferdatum);if(t.kaufbeleg.datei){window._wzBelegFile=t.kaufbeleg.datei;var fp=document.getElementById('f_belegPreview');if(fp)fp.innerHTML='<span style="color:var(--grn);font-weight:700;font-size:12px">📎 '+esc(t.kaufbeleg.datei.name||'Beleg')+'</span>';}}
   sv('f_serviceInterval',t.serviceInterval);sv('f_lastService',t.lastService);
@@ -1601,10 +1913,73 @@ function deleteTool(id){
 
 function _wzNewBerichtId(){return 'ber_'+Date.now().toString(36)+'_'+Math.random().toString(36).substr(2,4);}
 
+// Zentraler Foto-Helper fuer Berichte: bis zu 3 Bilder, jedes auto
+// auf 1280px JPEG q=0.72 komprimiert. Speichert die Ergebnisse in
+// window._wzReportPhotos und rendert eine Live-Preview im Container
+// '#wzPhotoPreview'.
+window._wzReportPhotos=[];
+window._wzReportPhotosChanged=function(inp){
+  var files=Array.from(inp.files||[]).slice(0,3);
+  window._wzReportPhotos=[];
+  var prev=document.getElementById('wzPhotoPreview');
+  if(prev)prev.innerHTML='<div style="font-size:11px;color:#64748b">Komprimiere Bilder …</div>';
+  Promise.all(files.map(_wzCompressImage)).then(function(results){
+    window._wzReportPhotos=results.filter(function(r){return r;});
+    _wzRenderReportPhotoPreview();
+  }).catch(function(e){
+    if(prev)prev.innerHTML='<div style="font-size:11px;color:#dc2626">Fehler: '+esc(e.message||'')+'</div>';
+  });
+};
+window._wzReportPhotoRemove=function(i){
+  window._wzReportPhotos.splice(i,1);_wzRenderReportPhotoPreview();
+};
+function _wzRenderReportPhotoPreview(){
+  var prev=document.getElementById('wzPhotoPreview');if(!prev)return;
+  if(!window._wzReportPhotos.length){prev.innerHTML='';return;}
+  prev.innerHTML=window._wzReportPhotos.map(function(p,i){
+    return '<div style="position:relative;width:60px;height:60px;border-radius:8px;overflow:hidden;border:1.5px solid #e5e7eb"><img src="'+p.dataUrl+'" style="width:100%;height:100%;object-fit:cover"/><button onclick="_wzReportPhotoRemove('+i+')" style="position:absolute;top:2px;right:2px;width:18px;height:18px;border-radius:50%;border:none;background:rgba(0,0,0,.6);color:#fff;font-size:10px;cursor:pointer">✕</button></div>';
+  }).join('');
+}
+function _wzCompressImage(file){
+  return new Promise(function(resolve,reject){
+    if(!file||!file.type||file.type.indexOf('image/')<0){resolve(null);return;}
+    var fr=new FileReader();
+    fr.onload=function(){
+      var img=new Image();
+      img.onload=function(){
+        var maxDim=1280, w=img.width, h=img.height;
+        if(Math.max(w,h)>maxDim){var s=maxDim/Math.max(w,h);w=Math.round(w*s);h=Math.round(h*s);}
+        var c=document.createElement('canvas');c.width=w;c.height=h;
+        var ctx=c.getContext('2d');ctx.fillStyle='#fff';ctx.fillRect(0,0,w,h);ctx.drawImage(img,0,0,w,h);
+        resolve({name:file.name||'foto.jpg',type:'image/jpeg',dataUrl:c.toDataURL('image/jpeg',0.72)});
+      };
+      img.onerror=function(){resolve(null);};
+      img.src=fr.result;
+    };
+    fr.onerror=function(){reject(new Error('Konnte Datei nicht lesen'));};
+    fr.readAsDataURL(file);
+  });
+}
+window._wzPhotoLightbox=function(src){
+  var ov=document.createElement('div');
+  ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:1500;display:flex;align-items:center;justify-content:center;padding:16px;cursor:zoom-out';
+  ov.innerHTML='<img src="'+src+'" style="max-width:100%;max-height:100%;object-fit:contain;border-radius:8px;box-shadow:0 4px 30px rgba(0,0,0,.6)"/>';
+  ov.addEventListener('click',function(){ov.remove();});
+  document.body.appendChild(ov);
+};
+
+function _wzPhotoFieldHtml(){
+  return '<div><label class="dlg-lbl">Fotos (max 3, optional)</label>'
+    +'<input type="file" accept="image/*" multiple capture="environment" onchange="_wzReportPhotosChanged(this)" style="font-size:12px;width:100%"/>'
+    +'<div id="wzPhotoPreview" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px"></div>'
+    +'<div style="font-size:10.5px;color:#64748b;margin-top:4px">Werden auf max 1280 px komprimiert.</div></div>';
+}
+
 function openDefektMelden(toolId){
   if(!_wzCanReportDefect()){alert('Keine Berechtigung');return;}
   var t=tools.find(function(x){return x.id===toolId;});
   if(!t)return;
+  window._wzReportPhotos=[];
   var u=_wzGetUser()||{};
   var html = '<div class="dlg-card">'
     + '<h3 style="margin:0 0 4px;font-size:17px;font-weight:800;color:#c2410c">⚠ Defekt melden</h3>'
@@ -1613,6 +1988,8 @@ function openDefektMelden(toolId){
     + '  <div><label class="dlg-lbl">Titel *</label><input id="defTitel" type="text" placeholder="z.B. Akku defekt" class="dlg-inp"/></div>'
     + '  <div><label class="dlg-lbl">Schweregrad</label><select id="defSev" class="dlg-inp"><option value="leicht">Leicht (nutzbar)</option><option value="mittel" selected>Mittel (eingeschränkt)</option><option value="schwer">Schwer (nicht nutzbar)</option><option value="ausser_betrieb">Ausser Betrieb</option></select></div>'
     + '  <div><label class="dlg-lbl">Beschreibung *</label><textarea id="defBeschr" rows="4" placeholder="Was ist kaputt? Wann ist es aufgefallen?" class="dlg-txt"></textarea></div>'
+    +    _wzPhotoFieldHtml()
+    + '  <div style="border-top:1px dashed #e5e7eb;padding-top:10px;margin-top:4px"><label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;font-weight:600;color:#475569"><input type="checkbox" id="defFollowUp" onchange="document.getElementById(\'defFollowFields\').style.display=this.checked?\'block\':\'none\'" style="width:18px;height:18px;accent-color:#c2410c"/> Folge-Termin vorplanen</label><div style="font-size:10.5px;color:#94a3b8;margin-top:4px">z. B. „in 14 Tagen pruefen, ob behoben" — wird zur Faelligkeit als Notif ausgeloest.</div><div id="defFollowFields" style="display:none;margin-top:8px;display:none"><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px"><div><label class="dlg-lbl" style="font-size:11px">Datum *</label><input id="defFollowDate" type="date" class="dlg-inp"/></div><div><label class="dlg-lbl" style="font-size:11px">Was?</label><input id="defFollowText" type="text" placeholder="z. B. Pruefen ob Akku ersetzt" class="dlg-inp"/></div></div></div></div>'
     + '</div>'
     + '<div class="dlg-row">'
     + '  <button onclick="_wzCloseModal()" class="dlg-cancel">Abbrechen</button>'
@@ -1631,10 +2008,18 @@ function _wzSaveDefekt(toolId){
   var sev=document.getElementById('defSev').value;
   if(!titel||!beschr){alert('Bitte Titel und Beschreibung angeben');return;}
   if(!t.berichte)t.berichte=[];
+  // Optionaler Folge-Termin: Datum + Beschreibung. Gespeichert als
+  // followUpDate/followUpText auf dem Bericht; vom Faelligkeits-Scan
+  // ueberwacht.
+  var fuChk=document.getElementById('defFollowUp');
+  var fuDate=fuChk&&fuChk.checked?(document.getElementById('defFollowDate').value||''):'';
+  var fuText=fuChk&&fuChk.checked?(document.getElementById('defFollowText').value.trim()||''):'';
   t.berichte.push({
     id:_wzNewBerichtId(),typ:'defekt',datum:new Date().toISOString(),
     autorUserId:u.id||'',autorName:u.name||'Unbekannt',
     titel:titel,beschreibung:beschr,schweregrad:sev,
+    photos:Array.isArray(window._wzReportPhotos)?window._wzReportPhotos.slice(0,3):[],
+    followUpDate:fuDate||null, followUpText:fuText||'',
     erledigt:false,erledigtAm:null
   });
   save();renderList();_wzCloseModal();
@@ -1745,28 +2130,94 @@ function _wzOpenAusleihe(toolId){
   personen.forEach(function(p){
     opts+='<option value="'+esc(p.id)+'" '+(cur.userId===p.id?'selected':'')+'>'+esc(p.name||p.username)+(p.roleIds?(' · '+p.roleIds[0].replace('role_','').replace(/_/g,' ')):'')+'</option>';
   });
-  var html='<div class="dlg-card" style="max-width:480px">'
+  var html='<div class="dlg-card" style="max-width:520px">'
     +'<h3 style="margin:0 0 4px;font-size:17px;font-weight:800;color:#92400e">🔄 Werkzeug ausleihen</h3>'
     +'<div style="font-size:12px;color:#64748b;margin-bottom:16px">Gerät: <strong>'+esc(t.name)+'</strong></div>'
     +'<label class="dlg-lbl">Ausgeliehen an</label>'
     +'<select id="ausleiheUser" class="dlg-inp">'+opts+'</select>'
     +(cur.userId?'<div style="font-size:11px;color:#b45309;margin-top:8px">Aktuell bei <strong>'+esc(cur.name||'—')+'</strong>'+(cur.seit?' seit '+fmt(cur.seit):'')+'</div>':'')
+    +'<div style="border-top:1px dashed #e5e7eb;margin-top:14px;padding-top:12px">'
+    +'<label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;font-weight:600;color:#475569"><input type="checkbox" id="aLProto" onchange="_wzToggleUebergabe()" style="width:18px;height:18px;accent-color:#92400e"/> Übergabe-Protokoll erfassen</label>'
+    +'<div style="font-size:10.5px;color:#94a3b8;margin-top:4px">Foto vom Geräte-Zustand + optionale Unterschrift des Übernehmers, gespeichert als Bericht in der Historie.</div>'
+    +'<div id="aLProtoFields" style="display:none;margin-top:10px">'
+    +  _wzPhotoFieldHtml()
+    +  '<div style="margin-top:10px"><label class="dlg-lbl">Unterschrift Übernehmer (optional)</label>'
+    +  '<canvas id="aLSig" width="460" height="120" style="width:100%;max-width:460px;border:1.5px solid #cbd5e1;border-radius:8px;background:#fff;touch-action:none;display:block"></canvas>'
+    +  '<button type="button" onclick="_wzClearSignature()" style="margin-top:6px;padding:4px 10px;border-radius:6px;border:1px solid #cbd5e1;background:#fff;color:#475569;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit">Zurücksetzen</button>'
+    +  '</div>'
+    +'</div>'
+    +'</div>'
     +'<div class="dlg-row">'
     +'  <button onclick="_wzCloseModal()" class="dlg-cancel">Abbrechen</button>'
     +'  <button onclick="_wzSaveAusleihe(\''+toolId+'\')" style="padding:9px 18px;border-radius:8px;border:none;background:#92400e;color:#fff;cursor:pointer;font-weight:700;font-family:inherit">✓ Speichern</button>'
     +'</div></div>';
+  window._wzReportPhotos=[];
   _wzShowModal(html);
+}
+
+window._wzToggleUebergabe=function(){
+  var cb=document.getElementById('aLProto');
+  var box=document.getElementById('aLProtoFields');
+  if(!cb||!box)return;
+  box.style.display=cb.checked?'block':'none';
+  if(cb.checked)setTimeout(_wzInitSignature,50);
+};
+
+// Kompakter Signatur-Pad: Mouse + Touch zeichnen schwarz, Stroke 2px.
+// Das fertige Bild wird per _wzGetSignatureDataUrl ausgelesen.
+var _wzSigDirty=false;
+window._wzInitSignature=function(){
+  var c=document.getElementById('aLSig');if(!c||c._inited)return;c._inited=true;
+  var ctx=c.getContext('2d');var drawing=false;var prev={x:0,y:0};
+  ctx.lineWidth=2;ctx.lineCap='round';ctx.strokeStyle='#0f172a';
+  function pos(e){
+    var r=c.getBoundingClientRect();
+    var x=(e.touches?e.touches[0].clientX:e.clientX)-r.left;
+    var y=(e.touches?e.touches[0].clientY:e.clientY)-r.top;
+    return {x:x*c.width/r.width, y:y*c.height/r.height};
+  }
+  function start(e){e.preventDefault();drawing=true;prev=pos(e);_wzSigDirty=true;}
+  function move(e){if(!drawing)return;e.preventDefault();var p=pos(e);ctx.beginPath();ctx.moveTo(prev.x,prev.y);ctx.lineTo(p.x,p.y);ctx.stroke();prev=p;}
+  function end(){drawing=false;}
+  c.addEventListener('mousedown',start);c.addEventListener('mousemove',move);c.addEventListener('mouseup',end);c.addEventListener('mouseleave',end);
+  c.addEventListener('touchstart',start);c.addEventListener('touchmove',move);c.addEventListener('touchend',end);
+};
+window._wzClearSignature=function(){
+  var c=document.getElementById('aLSig');if(!c)return;
+  c.getContext('2d').clearRect(0,0,c.width,c.height);_wzSigDirty=false;
+};
+function _wzGetSignatureDataUrl(){
+  var c=document.getElementById('aLSig');if(!c||!_wzSigDirty)return null;
+  return c.toDataURL('image/png');
 }
 function _wzSaveAusleihe(toolId){
   var t=tools.find(function(x){return x.id===toolId;});if(!t)return;
   var sel=document.getElementById('ausleiheUser');
   var uid=sel?sel.value:'';
+  var protoChk=document.getElementById('aLProto');
+  var withProto=protoChk&&protoChk.checked;
   if(!uid){
     delete t.ausgeliehenAn;
   }else{
     var users=(typeof GemaAuth!=='undefined')?(GemaAuth.getUsers()||[]):[];
     var p=users.find(function(u){return u.id===uid;});
-    t.ausgeliehenAn={userId:uid,name:p?(p.name||p.username):uid,seit:today()};
+    var pName=p?(p.name||p.username):uid;
+    t.ausgeliehenAn={userId:uid,name:pName,seit:today()};
+    // Optional: Uebergabe-Bericht zur Historie hinzufuegen
+    if(withProto){
+      var u=_wzGetUser()||{};
+      var sig=_wzGetSignatureDataUrl();
+      if(!t.berichte)t.berichte=[];
+      t.berichte.push({
+        id:_wzNewBerichtId(),typ:'uebergabe',datum:new Date().toISOString(),
+        autorUserId:u.id||'',autorName:u.name||'—',
+        titel:'Übergabe an '+pName,
+        beschreibung:'Werkzeug ausgehändigt'+(sig?' — Übernehmer hat unterschrieben.':'.'),
+        photos:Array.isArray(window._wzReportPhotos)?window._wzReportPhotos.slice(0,3):[],
+        signature:sig||null,
+        empfaengerUserId:uid, empfaengerName:pName
+      });
+    }
     if(typeof GemaNotify!=='undefined'&&p){
       GemaNotify.push({eventKey:'werkzeug_zuweisung',empfaengerUserId:uid,modul:'werkzeug',typ:'info',
         titel:'Werkzeug ausgeliehen: '+t.name,text:(t.brand||'')+(t.model?' '+t.model:''),
@@ -1845,9 +2296,17 @@ function _wzScanAusleihe(toolId){
     +(_wzBadDefect(t)?'<div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid #EEF1F4"><span style="font-size:13px;color:#94a3b8">Defekt</span><span style="font-size:13px;font-weight:700;color:#dc2626">⚠ Defekt offen</span></div>':'')
     +'</div>'
     // Action
-    +'<div style="margin-bottom:16px">'+actionBtn+'</div>'
-    // Defekt melden
-    +'<button onclick="_wzCloseScan();setTimeout(function(){openDefektMelden(\''+toolId+'\')},200)" style="width:100%;padding:12px;border-radius:12px;border:1.5px solid #fed7aa;background:#fff7ed;color:#c2410c;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;display:flex;align-items:center;justify-content:center;gap:6px">⚠ Defekt melden</button>'
+    +'<div style="margin-bottom:14px">'+actionBtn+'</div>'
+    // Defekt melden — prominenter Sekundaer-Button (rot)
+    +(_wzCanReportDefect()?'<button onclick="_wzCloseScan();setTimeout(function(){openDefektMelden(\''+toolId+'\')},200)" style="width:100%;padding:14px;border-radius:12px;border:1.5px solid #fecaca;background:#fef2f2;color:#b91c1c;font-size:15px;font-weight:800;cursor:pointer;font-family:inherit;display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:8px">🚨 Defekt melden</button>':'')
+    // Lifecycle-Quick-Toggle fuer Magaziner/Admin
+    +(_wzCanEdit()?'<div style="display:flex;gap:6px;margin-bottom:8px">'
+       +((t.lifecycleStatus||'aktiv')==='in_reparatur'
+          ?'<button onclick="_wzScanLifecycle(\''+toolId+'\',\'aktiv\')" style="flex:1;padding:11px;border-radius:10px;border:1.5px solid #bbf7d0;background:#f0fdf4;color:#15803d;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">✅ Reparatur abschliessen</button>'
+          :'<button onclick="_wzScanLifecycle(\''+toolId+'\',\'in_reparatur\')" style="flex:1;padding:11px;border-radius:10px;border:1.5px solid #bfdbfe;background:#eff6ff;color:#1d4ed8;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">🔧 In Reparatur setzen</button>')
+       +'</div>':'')
+    // Berichte ansehen (Read-Link fuer alle, falls vorhanden)
+    +(t.berichte&&t.berichte.length?'<button onclick="_wzCloseScan();setTimeout(function(){openBerichte(\''+toolId+'\')},200)" style="width:100%;padding:11px;border-radius:10px;border:1.5px solid #e5e7eb;background:#fff;color:#475569;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;display:flex;align-items:center;justify-content:center;gap:6px">📝 Berichte ansehen ('+t.berichte.length+')</button>':'')
     +'</div>';
   document.body.appendChild(overlay);
 }
@@ -1902,6 +2361,18 @@ window._wzScanBorrow=_wzScanBorrow;
 window._wzScanTransfer=_wzScanTransfer;
 window._wzScanReturn=_wzScanReturn;
 window._wzScanConfirmReturn=_wzScanConfirmReturn;
+
+// Aus dem Scan-View heraus den Lebenszyklus-Status ein-Klick umstellen.
+// Nur Magaziner/Admin. Re-rendert das Overlay danach.
+window._wzScanLifecycle=function(toolId, newStatus){
+  if(!_wzCanEdit())return;
+  var t=tools.find(function(x){return x.id===toolId;});if(!t)return;
+  t.lifecycleStatus=newStatus;
+  save();
+  _wzCloseScan();
+  setTimeout(function(){_wzScanAusleihe(toolId);},120);
+  renderList();
+};
 window._wzCloseScan=_wzCloseScan;
 
 // ── Sammel-Ausleihe ──
@@ -2217,10 +2688,11 @@ function openBerichte(toolId){
   } else {
     list=ber.slice().reverse().map(function(b){
       var isDef=b.typ==='defekt';
-      var bgCol=isDef?(b.erledigt?'#f0fdf4':'#fff7ed'):'#eff6ff';
-      var brdCol=isDef?(b.erledigt?'#bbf7d0':'#fed7aa'):'#bfdbfe';
-      var icon=isDef?'⚠':'📋';
-      var typLabel=isDef?('Defekt'+(b.erledigt?' ✓':'')):'Prüfbericht';
+      var isUe=b.typ==='uebergabe';
+      var bgCol=isUe?'#fefce8':isDef?(b.erledigt?'#f0fdf4':'#fff7ed'):'#eff6ff';
+      var brdCol=isUe?'#fde68a':isDef?(b.erledigt?'#bbf7d0':'#fed7aa'):'#bfdbfe';
+      var icon=isUe?'🔄':isDef?'⚠':'📋';
+      var typLabel=isUe?'Übergabe':isDef?('Defekt'+(b.erledigt?' ✓':'')):'Prüfbericht';
       var teileHtml='';
       if(b.fehlendeTeile && b.fehlendeTeile.length){
         teileHtml='<div style="margin-top:6px;font-size:11px;color:#b91c1c"><strong>Fehlende Teile:</strong> '+b.fehlendeTeile.map(esc).join(', ')+'</div>';
@@ -2242,7 +2714,10 @@ function openBerichte(toolId){
         +(b.beschreibung?'<div style="font-size:12px;color:#475569;margin-top:2px">'+esc(b.beschreibung)+'</div>':'')
         +(b.ergebnis?'<div style="font-size:12px;margin-top:4px"><strong>Ergebnis:</strong> '+esc(b.ergebnis)+'</div>':'')
         +teileHtml
+        +((Array.isArray(b.photos)&&b.photos.length)?'<div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:6px">'+b.photos.map(function(p){return p&&p.dataUrl?'<img src="'+p.dataUrl+'" alt="Bericht-Foto" style="width:54px;height:54px;object-fit:cover;border-radius:6px;border:1px solid #e5e7eb;cursor:pointer" onclick="_wzPhotoLightbox(this.src)"/>':'';}).join('')+'</div>':'')
+        +(b.signature?'<div style="margin-top:6px"><div style="font-size:10px;color:#94a3b8;font-weight:700;text-transform:uppercase;letter-spacing:.3px;margin-bottom:2px">Unterschrift</div><img src="'+b.signature+'" alt="Unterschrift" style="max-width:200px;height:auto;border:1px solid #e5e7eb;border-radius:6px;background:#fff;cursor:pointer" onclick="_wzPhotoLightbox(this.src)"/></div>':'')
         +(b.naechstePruefung?'<div style="font-size:11px;color:#6366f1;margin-top:4px">Nächste Prüfung: '+fmt(b.naechstePruefung)+'</div>':'')
+        +(b.followUpDate?'<div style="margin-top:6px;padding:5px 8px;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;font-size:11px;color:#92400e"><strong>📅 Folge-Termin '+fmt(b.followUpDate)+':</strong> '+esc(b.followUpText||'pruefen')+'</div>':'')
         +aktion
         +'</div>';
     }).join('');
@@ -2253,9 +2728,12 @@ function openBerichte(toolId){
   var defBtn = _wzCanReportDefect()
     ? '<button onclick="openDefektMelden(\''+toolId+'\')" style="padding:8px 14px;border-radius:8px;border:none;background:#c2410c;color:#fff;cursor:pointer;font-weight:700;font-family:inherit;font-size:12px">⚠ Defekt</button>'
     : '';
+  var pdfBtn = ber.length
+    ? '<button onclick="_wzExportBerichtePDF(\''+toolId+'\')" style="padding:8px 14px;border-radius:8px;border:1.5px solid #6b7280;background:#fff;color:#374151;cursor:pointer;font-weight:700;font-family:inherit;font-size:12px">📥 PDF</button>'
+    : '';
   var html = '<div style="background:#fff;border-radius:14px;padding:24px;max-width:560px;width:100%;max-height:85vh;display:flex;flex-direction:column;box-shadow:0 20px 60px -10px rgba(0,0,0,.3)">'
-    + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px"><h3 style="margin:0;font-size:17px;font-weight:800;flex:1">📝 Berichte</h3>'
-    + defBtn + ' ' + addBtn + '</div>'
+    + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap"><h3 style="margin:0;font-size:17px;font-weight:800;flex:1">📝 Berichte</h3>'
+    + pdfBtn + ' ' + defBtn + ' ' + addBtn + '</div>'
     + '<div style="font-size:12px;color:#64748b;margin-bottom:14px">Gerät: <strong>'+esc(t.name)+'</strong></div>'
     + '<div style="flex:1;overflow-y:auto;padding-right:4px">'+list+'</div>'
     + '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">'
@@ -2293,12 +2771,14 @@ function openPruefbericht(toolId){
     + '  <div><label class="dlg-lbl">Bemerkungen</label><textarea id="prBemerk" rows="3" placeholder="Beobachtungen, durchgeführte Arbeiten …" class="dlg-txt"></textarea></div>'
     + '  <div><label class="dlg-lbl">Fehlende / auszutauschende Teile</label><input id="prTeile" type="text" placeholder="z.B. Akku, Kohlebürsten (Komma-getrennt)" class="dlg-inp"/><div style="font-size:10px;color:#94a3b8;margin-top:2px">Wenn vorhanden, wird gleichzeitig ein Hinweis auf offene Wartung gesetzt.</div></div>'
     + '  <div><label class="dlg-lbl">Nächste Prüfung fällig</label><input id="prNext" type="date" class="dlg-inp"/></div>'
+    +    _wzPhotoFieldHtml()
     + '</div>'
     + '<div class="dlg-row">'
     + '  <button onclick="_wzCloseModal()" class="dlg-cancel">Abbrechen</button>'
     + '  <button onclick="_wzSavePruefbericht(\''+toolId+'\')" style="padding:9px 18px;border-radius:8px;border:none;background:#1d4ed8;color:#fff;cursor:pointer;font-weight:700;font-family:inherit">✓ Speichern</button>'
     + '</div>'
     + '</div>';
+  window._wzReportPhotos=[];
   _wzShowModal(html);
   // 12 Monate-Default fuer naechste Pruefung
   setTimeout(function(){
@@ -2328,7 +2808,8 @@ function _wzSavePruefbericht(toolId){
     titel:titel,beschreibung:bemerk,
     ergebnis:ergebnis==='bestanden'?'✓ Bestanden':ergebnis==='maengel'?'⚠ Mit Mängeln':'✕ Nicht bestanden',
     fehlendeTeile:teile,
-    naechstePruefung:next
+    naechstePruefung:next,
+    photos:Array.isArray(window._wzReportPhotos)?window._wzReportPhotos.slice(0,3):[]
   });
   // Synchronisiere die "lastElec"/"lastLeiter" Felder fuer die bestehende
   // Pruef-Logik, damit worstDays() korrekt bleibt.
@@ -2670,6 +3151,106 @@ function _wzNextPruefung(t){
 // und erzeugt einmal pro Tag und Werkzeug eine Notifikation an den
 // Magaziner der eigenen Org. Wird beim Laden der Seite aufgerufen und
 // schiebt Benachrichtigungen fuer 30 / 7 / 1 Tage vorher + ueberfaellig.
+// Berichte-Historie als PDF herunterladen (jsPDF on-demand). Praktisch
+// als Beleg fuer Audits, Rueckgaben oder Reklamationen beim Lieferant.
+function _wzEnsureJsPDF(){
+  return new Promise(function(res){
+    if(window.jspdf && window.jspdf.jsPDF) return res();
+    var s=document.createElement('script');
+    s.src='https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+    s.onload=function(){res();};s.onerror=function(){res();};
+    document.head.appendChild(s);
+  });
+}
+window._wzExportBerichtePDF=async function(toolId){
+  var t=tools.find(function(x){return x.id===toolId;});if(!t)return;
+  await _wzEnsureJsPDF();
+  if(!(window.jspdf && window.jspdf.jsPDF)){alert('PDF-Bibliothek nicht verfügbar.');return;}
+  var jsPDF=window.jspdf.jsPDF;
+  var doc=new jsPDF({unit:'mm',format:'a4'});
+  var M=15, y=20;
+  var pageH=doc.internal.pageSize.getHeight();
+  function ensureSpace(needed){if(y+needed>pageH-15){doc.addPage();y=20;_drawHeader();}}
+  function _drawHeader(){
+    doc.setFontSize(9);doc.setFont('helvetica','normal');doc.setTextColor(107,114,128);
+    doc.text('GEMA · Werkzeug-Berichte · '+(t.name||''),M,9);
+    doc.setDrawColor(229,231,235);doc.line(M,12,195,12);
+  }
+  // Titel
+  doc.setFontSize(20);doc.setFont('helvetica','bold');doc.setTextColor(15,23,42);
+  doc.text('Werkzeug-Berichte',M,y);y+=9;
+  doc.setFontSize(11);doc.setFont('helvetica','bold');doc.setTextColor(29,78,216);
+  doc.text(t.name||'—',M,y);y+=6;
+  doc.setFontSize(9);doc.setFont('helvetica','normal');doc.setTextColor(107,114,128);
+  var infoLines=[
+    'Hersteller / Modell: '+(t.brand||'—')+(t.model?' · '+t.model:''),
+    'Serien-Nr.: '+(t.serial||'—'),
+    'Status: '+({aktiv:'Aktiv',in_reparatur:'In Reparatur',ausgemustert:'Ausgemustert',verkauft:'Verkauft'}[t.lifecycleStatus||'aktiv']),
+    'Lieferant: '+(t.supplier||'—'),
+    'PDF erstellt: '+new Date().toLocaleString('de-CH')
+  ];
+  infoLines.forEach(function(line){doc.text(line,M,y);y+=4.2;});
+  y+=4;doc.setDrawColor(229,231,235);doc.line(M,y,195,y);y+=8;
+
+  var ber=Array.isArray(t.berichte)?t.berichte.slice():[];
+  if(!ber.length){
+    doc.setFontSize(10);doc.setFont('helvetica','italic');doc.setTextColor(107,114,128);
+    doc.text('Keine Berichte erfasst.',M,y);
+  } else {
+    ber.sort(function(a,b){return (b.datum||'').localeCompare(a.datum||'');});
+    ber.forEach(function(b){
+      ensureSpace(20);
+      var icon=b.typ==='defekt'?'⚠ Defekt':'✓ Pruefbericht';
+      var datumStr=b.datum?new Date(b.datum).toLocaleDateString('de-CH'):'—';
+      doc.setFontSize(11);doc.setFont('helvetica','bold');doc.setTextColor(15,23,42);
+      doc.text(datumStr,M,y);
+      doc.setTextColor(b.typ==='defekt'?194:29, b.typ==='defekt'?65:78, b.typ==='defekt'?12:216);
+      doc.text('   '+icon,M+22,y);y+=5;
+      doc.setFont('helvetica','normal');doc.setFontSize(9);doc.setTextColor(75,85,99);
+      var meta=[];
+      if(b.autorName)meta.push(b.autorName);
+      if(b.schweregrad)meta.push('Schweregrad '+b.schweregrad);
+      if(b.ergebnis)meta.push('Ergebnis: '+b.ergebnis.replace(/[^\x20-\x7E]/g,''));
+      if(b.erledigt)meta.push('✓ Erledigt');
+      if(meta.length){doc.text(meta.join(' · '),M,y);y+=4.5;}
+      if(b.titel){
+        doc.setFont('helvetica','bold');doc.setTextColor(55,65,81);
+        var lT=doc.splitTextToSize(b.titel,180);
+        lT.forEach(function(L){ensureSpace(5);doc.text(L,M,y);y+=4.5;});
+        doc.setFont('helvetica','normal');
+      }
+      if(b.beschreibung){
+        doc.setTextColor(75,85,99);
+        var lB=doc.splitTextToSize(b.beschreibung,180);
+        lB.forEach(function(L){ensureSpace(5);doc.text(L,M,y);y+=4.5;});
+      }
+      if(Array.isArray(b.fehlendeTeile)&&b.fehlendeTeile.length){
+        ensureSpace(5);doc.setTextColor(146,64,14);doc.text('Fehlende Teile: '+b.fehlendeTeile.join(', '),M,y);y+=4.5;
+      }
+      if(b.naechstePruefung){ensureSpace(5);doc.setTextColor(99,102,241);doc.text('Naechste Pruefung: '+new Date(b.naechstePruefung).toLocaleDateString('de-CH'),M,y);y+=4.5;}
+      if(b.followUpDate){ensureSpace(5);doc.setTextColor(146,64,14);doc.text('Folge-Termin: '+new Date(b.followUpDate).toLocaleDateString('de-CH')+(b.followUpText?' — '+b.followUpText:''),M,y);y+=4.5;}
+      if(Array.isArray(b.photos)&&b.photos.length){
+        ensureSpace(28);var pX=M, w=35, h=26, gap=3;
+        b.photos.slice(0,8).forEach(function(p,idx){
+          if(!p||!p.dataUrl)return;
+          if(idx>0&&idx%4===0){pX=M;y+=h+gap;ensureSpace(h+2);}
+          try{doc.addImage(p.dataUrl,'JPEG',pX,y,w,h);}catch(_){}
+          pX+=w+gap;
+        });
+        y+=h+gap;
+      }
+      y+=2;doc.setDrawColor(229,231,235);doc.line(M,y,195,y);y+=4;
+    });
+  }
+  var totalPages=doc.internal.getNumberOfPages();
+  for(var p=1;p<=totalPages;p++){
+    doc.setPage(p);doc.setFontSize(8);doc.setFont('helvetica','normal');doc.setTextColor(156,163,175);
+    doc.text('Seite '+p+' / '+totalPages,195,pageH-7,{align:'right'});
+  }
+  var fname='Berichte_'+(t.name||t.id||'Werkzeug').replace(/[^a-z0-9]+/gi,'_')+'_'+new Date().toISOString().slice(0,10)+'.pdf';
+  doc.save(fname);
+};
+
 function _wzScanFaelligkeiten(){
   if(typeof GemaNotify==='undefined')return;
   var u=_wzGetUser(); if(!u)return;
@@ -2717,6 +3298,40 @@ function _wzScanFaelligkeiten(){
     });
     locks[key]=heute;
     changed=true;
+  });
+
+  // Folge-Termine auf Defekt-/Pruefberichten (followUpDate). Ein offener
+  // Bericht mit Folge-Termin wird ueber dieselben Schwellen ueberwacht
+  // wie Pruef-Faelligkeiten.
+  tools.forEach(function(t){
+    if(!Array.isArray(t.berichte))return;
+    t.berichte.forEach(function(b){
+      if(!b||!b.followUpDate||b.erledigt)return;
+      var fd=daysFrom(b.followUpDate);
+      if(fd===null)return;
+      var schwelle=null;
+      if(fd<0)schwelle='overdue';
+      else if(fd<=1)schwelle='d1';
+      else if(fd<=7)schwelle='d7';
+      else if(fd<=30)schwelle='d30';
+      if(!schwelle)return;
+      var fkey=t.id+':fu:'+b.id+':'+schwelle;
+      if(locks[fkey]===heute)return;
+      var ftyp=schwelle==='overdue'?'warnung':(schwelle==='d1'?'warnung':'aktion');
+      var fprefix=schwelle==='overdue'?'🚨 Überfällig seit '+Math.abs(fd)+' T.':schwelle==='d1'?'⏰ Morgen':schwelle==='d7'?'⏰ In '+fd+' T.':'📅 In '+fd+' T.';
+      GemaNotify.push({
+        eventKey:'werkzeug_pruefung_faellig',
+        empfaengerRoleId:'role_magaziner',
+        empfaengerOrgId:u.orgId||'',
+        modul:'werkzeug',
+        typ:ftyp,
+        titel:fprefix+' Folge-Termin: '+t.name,
+        text:(b.followUpText||'Pruefen ob behoben')+' · '+fmt(b.followUpDate),
+        link:'if_werkzeug.html?view='+encodeURIComponent(t.id)
+      });
+      locks[fkey]=heute;
+      changed=true;
+    });
   });
 
   if(changed){
@@ -2997,6 +3612,8 @@ function openQR(id){
   _currentQRInstance=new QRCode(canvas,{text:url,width:190,height:190,colorDark:'#111827',colorLight:'#ffffff',correctLevel:QRCode.CorrectLevel.M});
   var nfcB=document.getElementById('nfcBtn');
   if(nfcB){nfcB.style.display=('NDEFReader' in window)?'inline-flex':'none';var ns=document.getElementById('nfcStatus');if(ns)ns.textContent='';}
+  var nfcLB=document.getElementById('nfcLockBtn');
+  if(nfcLB){nfcLB.style.display=(('NDEFReader' in window)&&_wzCanEdit())?'inline-flex':'none';}
   document.getElementById('qrInfo').innerHTML=[
     ['Bezeichnung',t.name],['Kategorie',cat.icon+' '+cat.label],
     ['Hersteller / Modell',(t.brand||'—')+(t.model?' · '+t.model:'')],
@@ -3028,6 +3645,36 @@ async function _wzWriteNFC(){
     }
   }finally{
     if(btn){btn.disabled=false;btn.style.opacity='1';}
+  }
+}
+async function _wzMakeNFCReadOnly(){
+  if(!('NDEFReader' in window)){alert('NFC wird von diesem Browser nicht unterstützt. Benötigt: Android + Chrome.');return;}
+  if(!_wzCanEdit()){alert('Keine Berechtigung — nur Magaziner und Admins dürfen Tags sperren.');return;}
+  if(!confirm('NFC-Tag dauerhaft schreibgeschützt machen?\n\n⚠ Diese Aktion ist UNWIDERRUFLICH.\nDer Tag kann anschliessend nie mehr beschrieben oder gelöscht werden.\n\nFortfahren?'))return;
+  var st=document.getElementById('nfcStatus');
+  var lockBtn=document.getElementById('nfcLockBtn');
+  var wrtBtn=document.getElementById('nfcBtn');
+  if(st)st.textContent='🔒 NFC-Tag jetzt an das Gerät halten — wird gesperrt …';
+  if(lockBtn){lockBtn.disabled=true;lockBtn.style.opacity='.6';}
+  if(wrtBtn){wrtBtn.disabled=true;wrtBtn.style.opacity='.6';}
+  try{
+    var reader=new NDEFReader();
+    if(typeof reader.makeReadOnly!=='function'){
+      throw new Error('Browser unterstützt das Sperren von NFC-Tags nicht (makeReadOnly nicht verfügbar).');
+    }
+    await reader.makeReadOnly();
+    if(st)st.innerHTML='<span style="color:#16a34a;font-weight:700">✓ NFC-Tag dauerhaft gesperrt.</span>';
+  }catch(e){
+    if(e.name==='NotAllowedError'){
+      if(st)st.innerHTML='<span style="color:#d97706">NFC-Berechtigung verweigert.</span>';
+    }else if(e.name==='AbortError'||(e.message&&e.message.indexOf('cancel')>=0)){
+      if(st)st.textContent='Abgebrochen.';
+    }else{
+      if(st)st.innerHTML='<span style="color:#dc2626">Fehler: '+esc(e.message||'Unbekannt')+'</span>';
+    }
+  }finally{
+    if(lockBtn){lockBtn.disabled=false;lockBtn.style.opacity='1';}
+    if(wrtBtn){wrtBtn.disabled=false;wrtBtn.style.opacity='1';}
   }
 }
 function downloadQR(){
@@ -3305,6 +3952,19 @@ await Promise.race([
   if(btnPruef && canEdit) btnPruef.style.display='';
   var btnAdvFilter=document.getElementById('btnAdvFilter');
   if(btnAdvFilter && canEdit) btnAdvFilter.style.display='';
+  var btnBulk=document.getElementById('btnBulkMode');
+  if(btnBulk && canEdit) btnBulk.style.display='';
+  var btnInv=document.getElementById('btnInventur');
+  if(btnInv && canEdit){
+    btnInv.style.display='';
+    var inv=_wzGetActiveInventur();
+    if(inv){
+      var totalActive=tools.filter(function(t){return (t.lifecycleStatus||'aktiv')==='aktiv';}).length;
+      var erf=Object.keys(inv.erfasst).length;
+      btnInv.innerHTML='📋 Inventur läuft ('+erf+'/'+totalActive+')';
+      btnInv.style.background='#fef3c7';btnInv.style.color='#92400e';btnInv.style.borderColor='#fde68a';
+    }
+  }
 
   if(isMonteurUI){
     // Monteur: Toolbar komplett ausblenden (Suche, Buttons, View-Toggle)

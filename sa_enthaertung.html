@@ -512,6 +512,9 @@ function fixLeadingZero(el){
 <script src="gema_offer_request.js"></script>
 <script src="gema_offerten_tab.js"></script>
 <script src="gema_lu_api.js"></script>
+<script src="gema_osmose_api.js"></script>
+<script>window.GemaDataflowConfig={sources:['lu','osmose'],modul:'enthaertung'};</script>
+<script src="gema_dataflow.js"></script>
 <script src="gema_wasserdaten.js"></script>
 <link rel="stylesheet" href="gema_responsive.css"/>
 </head>
@@ -1252,12 +1255,31 @@ document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('enth
   // ── LU-Verknüpfung (Enthärtetes Wasser / EW / bw) ──
   var _luOverrides = {};  // {'n_A': true, 'lbl_A': true, ...}
   var _luValues = {};     // {'n_A': 0.15, 'lbl_A': 'Dusche', ...}
+
+  // Persistenz der Override-Markierungen pro Objekt — sonst verliert
+  // sich die Information "manuell überschrieben" bei jedem Reload und
+  // LU-Daten ueberschreiben wieder die manuell angepassten Werte.
+  function _luOverrideKey(objektId){
+    return 'gema_enthaertung_lu_overrides_v1__'+(objektId||'__none__');
+  }
+  function _loadLUOverrides(objektId){
+    try{ var raw=localStorage.getItem(_luOverrideKey(objektId));
+      if(raw){ _luOverrides=JSON.parse(raw)||{}; } else { _luOverrides={}; }
+    }catch(e){ _luOverrides={}; }
+  }
+  function _saveLUOverrides(objektId){
+    try{ localStorage.setItem(_luOverrideKey(objektId), JSON.stringify(_luOverrides)); }catch(e){}
+  }
   var CONSUMERS = ['A','B','C','D','E','F'];
   var LU_FIELDS_PER_ROW = ['lbl','n']; // Felder die aus LU kommen: Name + Volumenstrom
 
   function _prefillFromLU(objektId){
     var hint = document.getElementById('luHint');
     if(!hint) return;
+
+    // Persistierte Override-Markierungen fuer dieses Objekt laden,
+    // damit manuelle Anpassungen den Reload ueberleben.
+    _loadLUOverrides(objektId);
 
     if(typeof GemaLU==='undefined' || !objektId){
       hint.style.display='none'; _clearLUMarkers(); return;
@@ -1268,12 +1290,34 @@ document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('enth
 
     // Get EW (enthärtetes Wasser = bw medium) consumers
     var ewConsumers = GemaLU.getByMedium(objektId, 'enthaertet');
+
+    // Osmose-Output (falls Osmose berechnet) als zusaetzlicher
+    // Verbraucher: die Enthaertung liefert Wasser an die Osmose, die
+    // davon Permeat + Konzentrat entnimmt. Beide muessen zuvor
+    // enthaertet sein. Eingang in die Enthaertung = Permeat + Konzentrat.
+    var osmoseFromAPI = null;
+    try{
+      if(typeof GemaOsmose!=='undefined' && GemaOsmose.hasData(objektId)){
+        var or=GemaOsmose.getResults(objektId);
+        if(or){
+          osmoseFromAPI = {
+            name:'Osmose-Anlage (Permeat + Konzentrat)',
+            flow:(or.permeat_ls||0)+(or.konzentrat_ls||0),
+            _osmose:true
+          };
+        }
+      }
+    }catch(e){}
+    if(osmoseFromAPI && osmoseFromAPI.flow>0){
+      ewConsumers = [osmoseFromAPI].concat(ewConsumers);
+    }
+
     if(!ewConsumers.length){
       hint.style.display='none'; _clearLUMarkers(); return;
     }
 
     hint.style.display='block';
-    hint.textContent='💧 '+ewConsumers.length+' EW-Verbraucher aus LU-Zusammenstellung übernommen. Überschriebene Werte werden nicht mehr automatisch aktualisiert.';
+    hint.textContent='💧 '+ewConsumers.length+' EW-Verbraucher aus LU-Zusammenstellung übernommen' + (osmoseFromAPI?' (inkl. Osmose-Anlage)':'') + '. Überschriebene Werte werden nicht mehr automatisch aktualisiert.';
 
     // Fill rows A–F (max 6)
     var count = Math.min(ewConsumers.length, CONSUMERS.length);
@@ -1353,6 +1397,7 @@ document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('enth
     var key = field+'_'+c;
     if(_luValues[key]===undefined) return;
     _luOverrides[key] = true;
+    _saveLUOverrides(_prevObjektId);
     // Check if any field in this row is overridden
     var lblEl = document.getElementById('lbl_'+c);
     var tr = lblEl ? lblEl.closest('tr') : null;
@@ -1362,6 +1407,7 @@ document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('enth
   function _resetRow(c){
     delete _luOverrides['lbl_'+c];
     delete _luOverrides['n_'+c];
+    _saveLUOverrides(_prevObjektId);
     var lblEl = document.getElementById('lbl_'+c);
     var nEl = document.getElementById('n_'+c);
     if(lblEl && _luValues['lbl_'+c]!==undefined) lblEl.value = _luValues['lbl_'+c];
@@ -1390,6 +1436,13 @@ document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('enth
   window.populateObjektDropdown=populateObjektDropdown;
   document.addEventListener('DOMContentLoaded',function(){loadMeta();populateObjektDropdown();if(typeof GemaAutoSave!=='undefined') GemaAutoSave.init('enthaertungsanlage');setTimeout(function(){if(_prevObjektId){_prefillFromLU(_prevObjektId);_checkWasserDaten(_prevObjektId);}},200);});
   window.addEventListener('gema-objekte-loaded',function(){populateObjektDropdown();if(typeof GemaAutoSave!=='undefined') GemaAutoSave.init('enthaertungsanlage');if(_prevObjektId){_prefillFromLU(_prevObjektId);_checkWasserDaten(_prevObjektId);}});
+  // Live-Update: wenn Osmose im selben Tab/Fenster neu gerechnet wird,
+  // Enthärtung sofort neu prefillen, damit der Permeat+Konzentrat-
+  // Eintrag auf den frischen Wert geht.
+  window.addEventListener('gema-osmose-updated',function(ev){
+    var oid=(ev && ev.detail && ev.detail.objektId)||'';
+    if(oid && oid===_prevObjektId) _prefillFromLU(_prevObjektId);
+  });
   ['metaProjekt','metaBearbeiter','metaDatum'].forEach(function(id){var el=document.getElementById(id);if(el)el.addEventListener('input',saveMeta);});
 })();</script>
 

@@ -566,6 +566,14 @@ button.danger { background: var(--red-bg); border-color: var(--red-bd); color: v
     </div>
   </div>
 </div>
+  <div id="luRefBar" style="display:none;margin:0 0 14px;padding:10px 14px;border-radius:10px;background:#f0fdf4;border:1.5px solid #bbf7d0;color:#166534;font-size:12.5px;line-height:1.5">
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <span style="font-weight:800">📊 Aus LU-Zusammenstellung:</span>
+      <span id="luRefValues"></span>
+      <a href="sb_lu_tabelle.html" style="margin-left:auto;font-size:11.5px;color:#166534;text-decoration:underline">LU öffnen →</a>
+    </div>
+    <div style="font-size:11px;color:#15803d;margin-top:4px">Werte als Referenz für die Hausanschluss-Dimensionierung. Die Grobauslegung berechnet eigenständig — vergleiche die Resultate.</div>
+  </div>
   <div class="layout">
 
     <!-- LEFT: Eingaben -->
@@ -891,6 +899,10 @@ function fixLeadingZero(el) {
 <script src="gema_db.js"></script>
 <script src="gema_feedback.js"></script><script src="gema_notify.js"></script><script src="gema_notify_ui.js"></script>
 <script src="gema_objekte_api.js"></script>
+<script src="gema_lu_api.js"></script>
+<script src="gema_osmose_api.js"></script>
+<script>window.GemaDataflowConfig={sources:['lu','osmose'],modul:'grobauslegung'};</script>
+<script src="gema_dataflow.js"></script>
 <script src="gema_varianten.js"></script>
 <script>
 var _sk = (typeof GemaObjekte!=='undefined') ? GemaObjekte.storageKey('startseite_grobauslegung_sanitaer_v2') : 'startseite_grobauslegung_sanitaer_v2';
@@ -1537,6 +1549,45 @@ if (typeof _GemaDB !== 'undefined') await _GemaDB.init('grobauslegung', [_sk]);
 
 })().catch(e=>console.error("[GEMA] Fehler:",e));</script>
 <script>document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('grobauslegung', 'Grobauslegung');});</script>
+<script>
+// LU-Referenz-Bar: zeigt Spitzenvolumenstroeme aus der LU-Zusammenstellung
+// als Vergleichswert fuer die hier durchgefuehrte Grobauslegung. Liest
+// pro aktivem Objekt KW, WW und den Hausanschluss (max(KW,WW) + andere
+// Medien). Plus Osmose-Eingang, falls Osmose berechnet wurde.
+(function(){
+  function f(n,d){return Number.isFinite(n)?n.toFixed(d===undefined?2:d):'0';}
+  function refresh(){
+    var bar=document.getElementById('luRefBar');
+    var box=document.getElementById('luRefValues');
+    if(!bar||!box) return;
+    var oid='';
+    try{ if(typeof GemaObjekte!=='undefined') oid=GemaObjekte.getActiveId()||''; }catch(e){}
+    if(!oid || typeof GemaLU==='undefined' || !GemaLU.hasData(oid)){
+      bar.style.display='none'; return;
+    }
+    var s=GemaLU.getSummary(oid);
+    var ha=GemaLU.getHausanschluss(oid);
+    var parts=[];
+    if(s.kw && s.kw.flow_ls>0) parts.push('<b>KW:</b> '+f(s.kw.flow_ls,2)+' l/s');
+    if(s.ww && s.ww.flow_ls>0) parts.push('<b>WW:</b> '+f(s.ww.flow_ls,2)+' l/s');
+    if(s.bw && s.bw.flow_ls>0) parts.push('<b>Enthärtet:</b> '+f(s.bw.flow_ls,2)+' l/s');
+    if(s.gw && s.gw.flow_ls>0) parts.push('<b>Regenwasser:</b> '+f(s.gw.flow_ls,2)+' l/s');
+    parts.push('<b>Hausanschluss (Summe):</b> '+f(ha,2)+' l/s');
+    try{
+      if(typeof GemaOsmose!=='undefined' && GemaOsmose.hasData(oid)){
+        var or=GemaOsmose.getResults(oid);
+        if(or && or.weichwasser_ls>0) parts.push('<b>Osmose-Eingang:</b> '+f(or.weichwasser_ls,3)+' l/s');
+      }
+    }catch(e){}
+    box.innerHTML=parts.join('  ·  ');
+    bar.style.display='';
+  }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',refresh);
+  else refresh();
+  window.addEventListener('gema-objekt-changed',refresh);
+  window.addEventListener('gema-osmose-updated',refresh);
+})();
+</script>
 <script src="gema_scroll.js"></script>
 <script src="gema_mobile_menu.js"></script>
 </body>

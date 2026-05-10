@@ -192,6 +192,7 @@ Jede Rolle hat ein eigenes Login mit rollenspezifischer Ansicht.
 | **Architekt** | Projektübersicht + Koordination | Terminplanung, Sitzungsprotokolle, Dokumentation |
 | **Behörde** | Bewilligungen + Hygiene | W12-Prüfungen, Bewilligungsstatus, Inspektion (Read-only) |
 | **Lieferant** | Eigenes Dashboard | Produktpflege, Verifizierung, Offertanfragen beantworten, Werkzeug-Prüfungen quittieren |
+| **Garagist** | Eigenes Konto, externe Werkstatt | Pflegt zugewiesene Fahrzeuge: km-Stand, Service-Historie, MFK, Reifen, Defekte. Sieht Kaufbelege/Tankkarten nicht; Versicherungsdaten nur bei Freigabe pro Fahrzeug. Kein Erfassen neuer Fahrzeuge. |
 | **Magaziner** | Werkzeug-/Fahrzeuglager der eigenen Org | Geräte erfassen + verwalten, Berichte schreiben, Personen zuweisen, Prüfungen bei Lieferanten anfordern |
 | **Monteur** | Read-only auf Werkzeuge + Schadensberichte | Geräte einsehen, Defekte melden, Schadensmessungen + Fotos erfassen — keine Edit-Rechte auf Werkzeuge |
 | **Prüfer** | Werkzeug-/Fahrzeug-Prüfungen | Quittiert Prüfungs-Aufträge, lädt Prüfberichte hoch |
@@ -244,8 +245,9 @@ Hauptseite: `index.html`. Hub-Seiten: `sb_index.html`, `pm_ausschreibung.html`, 
 - **Hygiene-Module** (hy_): W12 Selbstkontrolle (SVGW)
 - **Infrastruktur-Module** (if_): Werkzeugmanagement, Fahrzeugmanagement, Trocknungsgeräte (siehe Abschnitte weiter unten)
 - **Schadensdokumentation** (sd_): Schadensberichte (siehe Abschnitt „Schadensdokumentation" weiter unten). Trocknungsgeräte (if_trocknung.html) liefert automatisch Gerätedaten via `GemaTrocknung`-API.
-- **Zentrale Module**: `Module.html` (Hauptnavigation), `Objekte.html` (Projektverwaltung)
+- **Zentrale Module**: `index.html` (Hauptnavigation / Modulübersicht), `pm_objekte.html` (Projektverwaltung)
 - **Lieferanten-Modul**: `sys_lieferant_dashboard.html` mit 6 Tabs (Übersicht, Produkte, Anfragen, Rohrsysteme, Werkzeuge, Firmenprofil)
+- **Garagist-Modul**: `sys_garagist_dashboard.html` mit 4 Tabs (Übersicht, Anstehend, Service-Historie, Werkstatt-Profil). Login-Redirect für `role_garagist`. Zeigt nur Fahrzeuge, deren `garagistUserId === me.id`, mit Quick-Action `?service=ID` zurück nach `if_fahrzeug.html`, die das Service-Modal direkt öffnet.
 
 ---
 
@@ -263,7 +265,7 @@ Einheitliche Klassen für alle Module:
 
 ```html
 <nav class="g-nav">
-  <a class="g-nav-logo" href="Module.html">
+  <a class="g-nav-logo" href="index.html">
     <!-- Vollständiges SVG: Icon + GEMA-Text, height="28" -->
   </a>
   <div class="g-nav-actions">
@@ -276,12 +278,12 @@ Einheitliche Klassen für alle Module:
 
 ### Navigationslogik (Breadcrumbs)
 
-- **Sanitärberechnungen (16 Module)**: GEMA-Logo → `Module.html`, Breadcrumb "Sanitärberechnungen" → `index.html`
-- **Nicht-Sanitär-Module**: Logo → `Module.html` (nur Logo-Link)
+- **Sanitärberechnungen (16 Module)**: GEMA-Logo → `index.html`, Breadcrumb "Sanitärberechnungen" → `sb_index.html`
+- **Nicht-Sanitär-Module**: Logo → `index.html` (nur Logo-Link)
 
 ### Hauptmodul-Design (index.html / Übersichtsseiten)
 
-Hero im `Module.html`-Stil:
+Hero im `index.html`-Stil:
 - Dunkler Gradient: `#0f172a → #1e3a5f → #0c4a2e`
 - Grid-Overlay, Radial-Gradients
 - `border-radius: 20px`, `padding: 48px`
@@ -376,7 +378,7 @@ Auto-Save/Load bei Objektwechsel.
 ### Combo-Widget (Projektfeld)
 
 - Dropdown aus Stammdaten
-- `[+]`-Icon verlinkt zu `Objekte.html`
+- `[+]`-Icon verlinkt zu `pm_objekte.html`
 - "Freies Objekt"-Toggle: rechts ausgerichtet via `margin-left: auto` auf `.obj-combo-toggle`
 - Bearbeiter/Datum-Felder: `border: 1.5px solid`, `padding: 7px 10px`, `height: auto`
 
@@ -463,6 +465,25 @@ Selbstkontrolle nach SVGW W12:
 ## Werkzeug- & Fahrzeugmanagement (if_-Module)
 
 Zwei Module: `if_werkzeug.html` und `if_fahrzeug.html`. Verwalten den Bestand an Geräten, Maschinen und Fahrzeugen einer Organisation inklusive Prüfungs-, Wartungs- und Defektzyklen.
+
+### Multi-Tenant-Storage (KRITISCH)
+
+Werkzeug und Fahrzeug teilen sich **einen** Storage-Pool (`gema_werkzeug` bzw. `gema_vehicles`) über alle Organisationen hinweg. Jeder Datensatz trägt eine `orgId` und der Loader filtert auf `u.orgId`. Beim Speichern werden fremde Orgs aus dem Storage gelesen und unverändert wieder zurückgeschrieben — sonst würde Org A die Datensätze von Org B überschreiben.
+
+**Werkzeug** (`if_werkzeug.html:1455`):
+- `_wzReadAllRaw()` / `_wzWriteAllRaw()` — gesamter Pool
+- `load()` filtert auf `u.orgId`, `save()` ersetzt nur eigene
+- Migration: `tools` ohne `orgId` werden beim ersten Load der ersten gefundenen `orgId` (oder eigener Org) zugewiesen
+- `submitForm()` setzt `tool.orgId = existing.orgId || u.orgId`
+
+**Fahrzeug** (`if_fahrzeug.html:782`):
+- `_fzReadAllRaw()` / `_fzWriteAllRaw()` / `_fzLoadVehicles()`
+- **Sonderfall Garagist**: User mit `role_garagist` sehen nur Fahrzeuge mit `v.garagistUserId === u.id` — cross-org gewollt (eine Werkstatt betreut Kunden mehrerer Firmen). `persist()` schreibt für Garagisten nur seine eigenen Fahrzeuge zurück.
+- Sonst: Filter auf `v.orgId === u.orgId`
+- Migration analog Werkzeug
+- `saveVehicle()` setzt `data.orgId = me.orgId` (beim Edit aus `vehicles[idx].orgId` erhalten)
+
+**Self-Service Onboarding**: `sys_login.html` → 3-Step Wizard legt eine neue Org plus Admin-User an. Damit kann sich ein neues Unternehmen direkt registrieren und sieht ausschliesslich seine eigenen Werkzeuge/Fahrzeuge — keine Admin-Aktion nötig.
 
 ### Tool-Schema (if_werkzeug.html)
 
@@ -557,7 +578,7 @@ Modul zur Dokumentation von Wasserschäden, Schimmelschäden, Rohrbrüchen etc. 
 
 ### Architektur-Entscheide
 
-- **Objekt-Zuordnung**: Jeder Schaden wird zwingend einem bestehenden GEMA-Objekt zugeordnet (mit Schnell-Anlage-Button zu `Objekte.html`)
+- **Objekt-Zuordnung**: Jeder Schaden wird zwingend einem bestehenden GEMA-Objekt zugeordnet (mit Schnell-Anlage-Button zu `pm_objekte.html`)
 - **Trockner-Zuordnung**: Trocknungsgeräte werden pro Raum/Zone im Schadensprojekt zugeordnet (z.B. „Trockner A im Bad, Ventilator B im Flur")
 - **Stromberechnung**: Nur kWh berechnen (Zählerstand-Differenz × kW), kein Preis — Planer setzt Kosten manuell
 - **Messwert-Darstellung**: User wählt zwischen Tabellen-Ansicht und Canvas-Liniendiagramm (Toggle)
@@ -660,7 +681,7 @@ Full-Screen-Overlay (`position:fixed`) mit 4-Phasen-Timeline und aufklappbaren A
 
 ### Modulübersicht-Integration
 
-- **index.html**: Eigene Kategorie «Schadensdokumentation» (`data-cat="schaden"`) mit rotem Farbschema, zwischen Infrastruktur und Ausbildung. Trocknungsgeräte zusätzlich in der Infrastruktur-Kategorie
+- **index.html**: Eigene Kategorie «Schadensdokumentation» (`data-cat="schaden"`) mit rotem Farbschema, zwischen Infrastruktur und Ausbildung. Trocknungsgeräte sind dort als Modul-Kachel platziert (nicht in der Infrastruktur-Kategorie, um Doppelbenennung zu vermeiden)
 - **sw.js**: Beide Module im Cache-Array (`CACHE_FILES`), SW-Version hochgezogen bei Änderungen
 
 ---
@@ -736,16 +757,32 @@ Datenfluss: sd_schadensbericht.html kann über `GemaTrocknung.getForSchaden()` d
 ### Berechtigungs-Helper
 
 ```javascript
-_tgCanEdit()   // Admin, Magaziner, Planer (alle Gewerke)
-_tgCanAssign() // wie _tgCanEdit
+_tgCanEdit()         // Admin, Magaziner, Planer (alle Gewerke)
+_tgCanAssign()       // wie _tgCanEdit
+_tgCanReportDefect() // jeder eingeloggte User (inkl. Monteur)
+_tgHasOpenDefekt(d)  // true, wenn d.berichte einen offenen Defekt enthält
 ```
 
 **gema_auth.js-Integration**:
 - `trocknungsgeraete` in MODULES-Array (Kategorie `Infrastruktur`)
 - `if_trocknung` in FILE_MAP → `trocknungsgeraete`
 - Magaziner: read+write+admin
-- Monteur: read-only
+- Monteur: read-only (kann via `_tgCanReportDefect` Defekte melden, analog zu if_werkzeug)
 - Planer/Admin: automatisch via `_allPerms`
+
+### Defektmeldungen (analog if_werkzeug.html)
+
+`d.berichte[]` pro Gerät — Einträge mit `typ:'defekt'`:
+```
+{ id, typ:'defekt', datum, autorUserId, autorName,
+  titel, beschreibung, schweregrad, erledigt, erledigtAm }
+```
+
+- **`schweregrad`**: `leicht` / `mittel` / `schwer` / `ausser_betrieb`. Bei `schwer`/`ausser_betrieb` setzt `saveDefekt` automatisch `d.status='defekt'` (sofern nicht im Einsatz). Erledigt-Markierung durch Magaziner setzt Status zurück auf `verfuegbar`, falls keine offenen schweren Defekte mehr bestehen.
+- **UI**: Defekt-Banner („⚠ Defekt offen") auf der Karte, „⚠ Defekt"-Button in Karte / Tabelle / Detail-Footer (alle eingeloggten User), „📝 Berichte (N)"-Button bei vorhandenen Berichten.
+- **Berichte-Modal** (`openBerichte(id)`): Liste aller Defekte chronologisch (neueste zuerst), Schweregrad-Pill, Erledigt-Status. Magaziner/Admin sehen „✓ Als erledigt markieren"-Button (`_tgDefektErledigt`).
+- **Notifikation**: `GemaNotify.push({ eventKey:'trockner_defekt', empfaengerRoleId:'role_magaziner', empfaengerOrgId:user.orgId, … })` an alle Magaziner der eigenen Org.
+- **Event-Key**: `trockner_defekt` in `gema_notify.js` registriert (defaultOn:true).
 
 ---
 
@@ -767,6 +804,14 @@ Zentrales Modul `gema_notify.js` für In-App-Benachrichtigungen. Glocke + Toast-
 | `werkzeug_pruefung_anfrage` | werkzeug | on |
 | `werkzeug_defekt_lieferant` | werkzeug | on |
 | `werkzeug_ersatz_anfrage` | werkzeug | on |
+| `fahrzeug_service_faellig` | fahrzeug | on |
+| `fahrzeug_service_erledigt` | fahrzeug | on |
+| `fahrzeug_garagist_zugewiesen` | fahrzeug | on |
+| `lu_updated` | lu | off |
+| `schaden_neu` | schadensbericht | on |
+| `schaden_phase_geaendert` | schadensbericht | on |
+| `trockner_zurueckgegeben` | trocknung | on |
+| `trockner_defekt` | trocknung | on |
 
 **Neue Module fügen ihre Event-Keys hier hinzu**, sonst greift kein Preferences-Filter.
 
@@ -923,9 +968,56 @@ Im Repo liegen die React-Designdateien als Referenz (nicht für Produktion):
 
 ---
 
+## Cloud-Recovery (gema_auth.js)
+
+Auth-Daten (Orgs + Users) liegen in localStorage **und** in Supabase (`module_key='auth'`, `data_key='gema_orgs_v1'` / `'gema_users_v1'`). `saveOrgs` / `saveUsers` schreiben sofort lokal und pushen async nach Supabase.
+
+### Problem: Cache-Clear → DEFAULTS
+
+Wenn der User den Browser-Cache leert oder das Gerät wechselt, ist localStorage leer. `_initDefaults()` schreibt dann sofort `DEFAULT_ORGS` + `DEFAULT_USERS` rein. Der bestehende async Sync `_fetchAuthFromSupabase` greift erst danach und sieht den localStorage als „nicht leer" an, obwohl nur Demo-Daten drin sind. Die selbst-erstellten Firmen/User aus Supabase werden zwar gemerged, **aber die UI ist da längst gerendert** und zeigt nur die Defaults.
+
+### Lösung 1: Auto-Reload bei DEFAULTS-Only
+
+`_initDefaults()` setzt vor dem Sync ein Flag `_autoRestoreNeeded`, wenn nur DEFAULTS lokal sind. Sobald `_fetchAuthFromSupabase` mehr Daten von Supabase erhält und merged, triggert `_maybeAutoReload()` einen einmaligen `location.reload()` (per `sessionStorage.gema_auth_auto_reloaded` gegen Endlos-Schleife).
+
+### Lösung 2: Manuelles Recovery-UI
+
+`sys_admin.html` zeigt eine ☁️-Karte „Daten aus Cloud wiederherstellen", wenn `GemaAuth._isOnlyDefaults()` true liefert. Klick auf „🔄 Aus Cloud laden" ruft `recoveryRestore(false)` → `GemaAuth.restoreFromCloud({overwrite:false})` und macht einen Reload bei Erfolg. „Später"-Button setzt `gema_recovery_dismissed=1` in localStorage.
+
+### API
+
+```javascript
+GemaAuth.restoreFromCloud({ overwrite })
+  // overwrite=false (Default): merge-only — fügt fehlende IDs hinzu
+  // overwrite=true: ersetzt lokale Liste komplett mit Cloud-Daten
+  // → Promise<{ok, addedOrgs, addedUsers, totalOrgs, totalUsers, error?}>
+
+GemaAuth._isOnlyDefaults()  // true wenn lokal nur DEFAULT-Orgs/Users sind
+```
+
+---
+
 ## PWA & Service-Worker
 
 `manifest.json` + `sw.js` — GEMA ist eine installierbare Progressive Web App. Service-Worker cached die wichtigsten HTML-Module und Assets (`/icon-192.svg`, `/icon-512.svg`, `/manifest.json`) für Offline-Erstaufruf. Beim Update einer Seite muss der Cache invalidiert werden — bei Bedarf SW-Version in `sw.js` hochziehen.
+
+### Install-Helper (`gema_pwa.js`)
+
+Globaler Singleton, der den `beforeinstallprompt`-Event abfängt (das Browser-Event feuert nur einmal — wir halten es im Speicher, damit der User die Installation jederzeit auslösen kann).
+
+```javascript
+GemaPWA.isInstalled()  // matchMedia('(display-mode:standalone)') oder iOS-standalone
+GemaPWA.canPrompt()    // Browser hat einen Prompt geliefert
+GemaPWA.isIOS()        // true → manueller Pfad „Teilen → Zum Home-Bildschirm"
+GemaPWA.getStatus()    // 'installed' | 'ready' | 'manual_ios' | 'unavailable'
+GemaPWA.install()      // Promise<{outcome: 'accepted'|'dismissed'|'unavailable'|'installed'}>
+GemaPWA.onChange(fn)   // Listener bei Status-Wechsel
+```
+
+UI-Anbindung:
+- **`sys_profil.html` → Karte „📱 Allgemein"**: Zentraler Install-Button mit Status-Anzeige (auch iOS-Anleitung). Ist jederzeit erreichbar — auch nachdem ein Banner abgewiesen wurde.
+- **`sys_workspace.html` → Einstellungen**: gleiche Karte, damit Workspace-User ohne Umweg über das Profil installieren können.
+- **`index.html`-Banner**: Kurz-Shortcut — verwendet denselben Helper, kann via „Später" dauerhaft via `gema_pwa_dismissed`-Flag ausgeblendet werden.
 
 ---
 
@@ -935,7 +1027,7 @@ Im Repo liegen die React-Designdateien als Referenz (nicht für Produktion):
 |-------|-------|
 | `gema_anlagenwahl.js` | Anlagenauswahl-Widget für Berechnungen |
 | `gema_armaturen_api.js` | Armaturen-Stammdaten |
-| `gema_auth.js` | Auth, Rollen, Orgs, Permissions |
+| `gema_auth.js` | Auth, Rollen, Orgs, Permissions, Cloud-Recovery |
 | `gema_autosave.js` | Auto-Save in Berechnungsmodulen |
 | `gema_coachmarks.js` | Onboarding-Touren |
 | `gema_db.js` | Storage-Layer (`_GemaDB`) |
@@ -950,7 +1042,10 @@ Im Repo liegen die React-Designdateien als Referenz (nicht für Produktion):
 | `gema_pdf.js` | PDF-Export via html2canvas |
 | `gema_produktkatalog_api.js` | Produkte + Stammlieferanten + Favoriten |
 | `gema_push.js` | Web-Push-Vorbereitung (Service-Worker) |
+| `gema_pwa.js` | PWA-Install-Helper (`beforeinstallprompt`-Capture, `GemaPWA.install()`) |
 | `gema_qr_scanner.js` | QR-Code-Scanner |
+| `gema_recent.js` | Tracking + Anzeige zuletzt genutzter Module |
+| `gema_responsive.css` | Globale Responsive-/Layout-Regeln (Mobile + Tablet) |
 | `gema_scroll.js` | Scroll-Helper |
 | `gema_undo.js` | Undo/Redo |
 | `gema_varianten.js` | Varianten-Vergleich (Berechnungen) |
