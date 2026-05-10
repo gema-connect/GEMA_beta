@@ -1332,6 +1332,64 @@ function snapBarsToGrid(){
         lbl.setAttribute("fill","#111827");
       }
     });
+    // ── Owner-Avatar (Initialen-Bubble) links auf jeder Bar ──
+    // Zeigt 1-2 Buchstaben in einem kleinen Kreis, der die Bar-Farbe
+    // mit hoher Saettigung ueberlagert. Nur bei Bars mit owner und
+    // ausreichend Breite (>=40px). Bei Meilensteinen ueberspringen.
+    const ns="http://www.w3.org/2000/svg";
+    svg.querySelectorAll(".bar-wrapper").forEach(function(wrap){
+      // Vorhandene Avatare entfernen, damit Re-Render keine Duplikate erzeugt
+      wrap.querySelectorAll(".gema-owner-avatar").forEach(function(n){n.remove();});
+      if(wrap.classList.contains("milestone")) return;
+      const bar=wrap.querySelector(".bar"); if(!bar) return;
+      const taskId=wrap.getAttribute("data-id")||(wrap.querySelector("[data-id]")||{}).getAttribute?.("data-id");
+      const t=taskId?state.tasks.find(x=>x.id===taskId):null;
+      if(!t||!t.owner) return;
+      const bx=parseFloat(bar.getAttribute("x"));
+      const by=parseFloat(bar.getAttribute("y"));
+      const bw=parseFloat(bar.getAttribute("width"));
+      const bh=parseFloat(bar.getAttribute("height"));
+      if(bw<40) return;
+      const initials=(t.owner.match(/\b[\wÄÖÜ]/g)||[t.owner.charAt(0)]).slice(0,2).join("").toUpperCase();
+      const r=Math.min(9, bh/2-2);
+      const cx=bx+r+3, cy=by+bh/2;
+      const catEl=[...wrap.classList].find(c=>c.startsWith("cat_"));
+      const catId=catEl ? catEl.replace("cat_","") : "";
+      const cat=catId ? state.categories.find(c=>c.id===catId) : null;
+      const barCol=cat?.color||"#2563eb";
+      // Avatar-Hintergrund: dunkle Variante der Bar-Farbe (multiply)
+      const circ=document.createElementNS(ns,"circle");
+      circ.setAttribute("class","gema-owner-avatar");
+      circ.setAttribute("cx",cx); circ.setAttribute("cy",cy); circ.setAttribute("r",r);
+      circ.setAttribute("fill","#fff");
+      circ.setAttribute("stroke",barCol); circ.setAttribute("stroke-width","1.5");
+      wrap.appendChild(circ);
+      const txt=document.createElementNS(ns,"text");
+      txt.setAttribute("class","gema-owner-avatar");
+      txt.setAttribute("x",cx); txt.setAttribute("y",cy+r/2.6);
+      txt.setAttribute("text-anchor","middle");
+      txt.setAttribute("font-size", Math.max(7, r*1.05));
+      txt.setAttribute("font-weight","800");
+      txt.setAttribute("font-family","DM Sans,sans-serif");
+      txt.setAttribute("fill",barCol);
+      txt.textContent=initials;
+      // Tooltip per <title>
+      const tt=document.createElementNS(ns,"title");
+      tt.textContent=t.owner;
+      circ.appendChild(tt);
+      wrap.appendChild(txt);
+      // Label nach rechts schieben, damit es den Avatar nicht überdeckt
+      const lblEl=wrap.querySelector(".bar-label");
+      if(lblEl){
+        // text-anchor:middle bleibt, aber wir erhöhen x um 2*r+6 von der linken Bar-Kante
+        // nur wenn Label auf Bar-Mitte sitzt; sonst lassen
+        const lblX=parseFloat(lblEl.getAttribute("x"));
+        if(Math.abs(lblX-(bx+bw/2))<2){
+          // Label ist mittig — verschiebe es leicht nach rechts, damit Avatar Platz hat
+          lblEl.setAttribute("x", bx + Math.max(bw/2, r*2+10) );
+        }
+      }
+    });
   }catch(e){ console.warn("snapBars error:",e); }
 }
 function updateGanttHeight(){
