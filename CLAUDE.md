@@ -968,6 +968,35 @@ Im Repo liegen die React-Designdateien als Referenz (nicht für Produktion):
 
 ---
 
+## Cloud-Recovery (gema_auth.js)
+
+Auth-Daten (Orgs + Users) liegen in localStorage **und** in Supabase (`module_key='auth'`, `data_key='gema_orgs_v1'` / `'gema_users_v1'`). `saveOrgs` / `saveUsers` schreiben sofort lokal und pushen async nach Supabase.
+
+### Problem: Cache-Clear → DEFAULTS
+
+Wenn der User den Browser-Cache leert oder das Gerät wechselt, ist localStorage leer. `_initDefaults()` schreibt dann sofort `DEFAULT_ORGS` + `DEFAULT_USERS` rein. Der bestehende async Sync `_fetchAuthFromSupabase` greift erst danach und sieht den localStorage als „nicht leer" an, obwohl nur Demo-Daten drin sind. Die selbst-erstellten Firmen/User aus Supabase werden zwar gemerged, **aber die UI ist da längst gerendert** und zeigt nur die Defaults.
+
+### Lösung 1: Auto-Reload bei DEFAULTS-Only
+
+`_initDefaults()` setzt vor dem Sync ein Flag `_autoRestoreNeeded`, wenn nur DEFAULTS lokal sind. Sobald `_fetchAuthFromSupabase` mehr Daten von Supabase erhält und merged, triggert `_maybeAutoReload()` einen einmaligen `location.reload()` (per `sessionStorage.gema_auth_auto_reloaded` gegen Endlos-Schleife).
+
+### Lösung 2: Manuelles Recovery-UI
+
+`sys_admin.html` zeigt eine ☁️-Karte „Daten aus Cloud wiederherstellen", wenn `GemaAuth._isOnlyDefaults()` true liefert. Klick auf „🔄 Aus Cloud laden" ruft `recoveryRestore(false)` → `GemaAuth.restoreFromCloud({overwrite:false})` und macht einen Reload bei Erfolg. „Später"-Button setzt `gema_recovery_dismissed=1` in localStorage.
+
+### API
+
+```javascript
+GemaAuth.restoreFromCloud({ overwrite })
+  // overwrite=false (Default): merge-only — fügt fehlende IDs hinzu
+  // overwrite=true: ersetzt lokale Liste komplett mit Cloud-Daten
+  // → Promise<{ok, addedOrgs, addedUsers, totalOrgs, totalUsers, error?}>
+
+GemaAuth._isOnlyDefaults()  // true wenn lokal nur DEFAULT-Orgs/Users sind
+```
+
+---
+
 ## PWA & Service-Worker
 
 `manifest.json` + `sw.js` — GEMA ist eine installierbare Progressive Web App. Service-Worker cached die wichtigsten HTML-Module und Assets (`/icon-192.svg`, `/icon-512.svg`, `/manifest.json`) für Offline-Erstaufruf. Beim Update einer Seite muss der Cache invalidiert werden — bei Bedarf SW-Version in `sw.js` hochziehen.
@@ -998,7 +1027,7 @@ UI-Anbindung:
 |-------|-------|
 | `gema_anlagenwahl.js` | Anlagenauswahl-Widget für Berechnungen |
 | `gema_armaturen_api.js` | Armaturen-Stammdaten |
-| `gema_auth.js` | Auth, Rollen, Orgs, Permissions |
+| `gema_auth.js` | Auth, Rollen, Orgs, Permissions, Cloud-Recovery |
 | `gema_autosave.js` | Auto-Save in Berechnungsmodulen |
 | `gema_coachmarks.js` | Onboarding-Touren |
 | `gema_db.js` | Storage-Layer (`_GemaDB`) |

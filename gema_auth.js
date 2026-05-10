@@ -369,35 +369,65 @@
     // Strategie: Nur NEUE Einträge von Remote hinzufügen.
     // Lokale Daten werden NIE überschrieben (sie sind die aktuellsten,
     // weil jeder Save sofort lokal + async nach Supabase geht).
-    // Nur auf einem komplett neuen Gerät (leeres localStorage) werden
-    // Remote-Daten als Basis genommen.
+    //
+    // Auto-Recovery nach Cache-Clear: Wenn lokal NUR DEFAULTS drin sind
+    // (selbst-erstellte Orgs/User scheinbar weg) und Supabase aber mehr
+    // hat → einmaliger automatischer Reload nach erfolgreichem Sync.
+    var _autoRestoreNeeded = (function(){
+      try{
+        var oRaw=localStorage.getItem(STORAGE_ORGS);var uRaw=localStorage.getItem(STORAGE_USERS);
+        if(!oRaw||!uRaw) return false;
+        var oArr=JSON.parse(oRaw);var uArr=JSON.parse(uRaw);
+        var dOrg=DEFAULT_ORGS.map(function(o){return o.id;});
+        var dUsr=DEFAULT_USERS.map(function(u){return u.id;});
+        var customOrgs=oArr.filter(function(o){return dOrg.indexOf(o.id)<0;});
+        var customUsers=uArr.filter(function(u){return dUsr.indexOf(u.id)<0;});
+        return customOrgs.length===0 && customUsers.length===0;
+      }catch(e){ return false; }
+    })();
+    function _maybeAutoReload(addedOrgs, addedUsers){
+      if(!_autoRestoreNeeded) return;
+      if(addedOrgs===0 && addedUsers===0) return;
+      try{
+        if(sessionStorage.getItem('gema_auth_auto_reloaded')==='1') return;
+        sessionStorage.setItem('gema_auth_auto_reloaded','1');
+      }catch(e){}
+      console.info('[GemaAuth] Cloud-Daten gefunden ('+addedOrgs+' Firmen, '+addedUsers+' Benutzer) — Seite wird neu geladen.');
+      // Kurze Verzoegerung, damit beide Sync-Aufrufe schreiben koennen
+      setTimeout(function(){ try{ location.reload(); }catch(e){} }, 400);
+    }
+
     _fetchAuthFromSupabase(STORAGE_USERS,function(remoteUsers){
       var localUsers=_getUsers()||[];
       if(!localUsers.length&&remoteUsers.length){
         try{localStorage.setItem(STORAGE_USERS,JSON.stringify(remoteUsers));}catch(e){}
+        _maybeAutoReload(0, remoteUsers.length);
         return;
       }
-      var changed=false;
+      var changed=0;
       remoteUsers.forEach(function(ru){
         if(!localUsers.find(function(lu){return lu.id===ru.id;})){
-          localUsers.push(ru);changed=true;
+          localUsers.push(ru);changed++;
         }
       });
       if(changed)try{localStorage.setItem(STORAGE_USERS,JSON.stringify(localUsers));}catch(e){}
+      _maybeAutoReload(0, changed);
     });
     _fetchAuthFromSupabase(STORAGE_ORGS,function(remoteOrgs){
       var localOrgs=_getOrgs()||[];
       if(!localOrgs.length&&remoteOrgs.length){
         try{localStorage.setItem(STORAGE_ORGS,JSON.stringify(remoteOrgs));}catch(e){}
+        _maybeAutoReload(remoteOrgs.length, 0);
         return;
       }
-      var changed=false;
+      var changed=0;
       remoteOrgs.forEach(function(ro){
         if(!localOrgs.find(function(lo){return lo.id===ro.id;})){
-          localOrgs.push(ro);changed=true;
+          localOrgs.push(ro);changed++;
         }
       });
       if(changed)try{localStorage.setItem(STORAGE_ORGS,JSON.stringify(localOrgs));}catch(e){}
+      _maybeAutoReload(changed, 0);
     });
   }
   function _getPerms(user,roles,mkey){
@@ -828,6 +858,91 @@
       return true;
     },
     saveRoles:function(r){try{localStorage.setItem(STORAGE_ROLES,JSON.stringify(r));return true;}catch(e){return false;}},
+
+    /**
+     * Notfall-Recovery: holt orgs + users aus Supabase und merged sie
+     * ins localStorage. Wird gebraucht, wenn der Browser-Cache
+     * geleert wurde — _initDefaults() schreibt dann nur DEFAULTS rein,
+     * und der bestehende async-Merge greift erst, wenn die Seite neu
+     * geladen wird (UI sieht das nicht reaktiv).
+     *
+     * Optionen:
+     *   { overwrite: true }  -> Supabase-Daten ersetzen lokale komplett
+     *                           (NUR wenn lokal aktuell NUR DEFAULTS sind
+     *                            oder der User es explizit bestaetigt)
+     *   { overwrite: false } -> Merge-Modus: nur fehlende IDs hinzufuegen
+     *                           (Default — sicher, kann nichts kaputt machen)
+     *
+     * Returns: Promise<{ok, addedOrgs, addedUsers, totalOrgs, totalUsers, error?}>
+     */
+    restoreFromCloud:function(opts){
+      opts = opts || {};
+      var overwrite = !!opts.overwrite;
+      function _fetch(key){
+        return new Promise(function(resolve){
+          _fetchAuthFromSupabase(key, function(data){ resolve(data); });
+          // Fallback nach 5s falls Supabase nicht antwortet
+          setTimeout(function(){ resolve(null); }, 5000);
+        });
+      }
+      return Promise.all([_fetch(STORAGE_ORGS), _fetch(STORAGE_USERS)]).then(function(res){
+        var remoteOrgs = res[0]; var remoteUsers = res[1];
+        if(!remoteOrgs && !remoteUsers){
+          return { ok:false, error:'Keine Verbindung zu Supabase oder leere Antwort.' };
+        }
+        var addedOrgs=0, addedUsers=0;
+        if(remoteOrgs && Array.isArray(remoteOrgs) && remoteOrgs.length){
+          if(overwrite){
+            try{ localStorage.setItem(STORAGE_ORGS, JSON.stringify(remoteOrgs)); }catch(e){}
+            addedOrgs = remoteOrgs.length;
+          } else {
+            var localOrgs = _getOrgs() || [];
+            remoteOrgs.forEach(function(ro){
+              if(!localOrgs.find(function(lo){ return lo.id===ro.id; })){
+                localOrgs.push(ro); addedOrgs++;
+              }
+            });
+            if(addedOrgs) try{ localStorage.setItem(STORAGE_ORGS, JSON.stringify(localOrgs)); }catch(e){}
+          }
+        }
+        if(remoteUsers && Array.isArray(remoteUsers) && remoteUsers.length){
+          if(overwrite){
+            try{ localStorage.setItem(STORAGE_USERS, JSON.stringify(remoteUsers)); }catch(e){}
+            addedUsers = remoteUsers.length;
+          } else {
+            var localUsers = _getUsers() || [];
+            remoteUsers.forEach(function(ru){
+              if(!localUsers.find(function(lu){ return lu.id===ru.id; })){
+                localUsers.push(ru); addedUsers++;
+              }
+            });
+            if(addedUsers) try{ localStorage.setItem(STORAGE_USERS, JSON.stringify(localUsers)); }catch(e){}
+          }
+        }
+        return {
+          ok:true,
+          addedOrgs:addedOrgs, addedUsers:addedUsers,
+          totalOrgs:(_getOrgs()||[]).length, totalUsers:(_getUsers()||[]).length
+        };
+      });
+    },
+
+    /**
+     * Erkennt, ob der lokale Storage nur DEFAULTS enthaelt — also der
+     * User vermutlich nach Cache-Clear oder auf neuem Geraet sitzt
+     * und sich wundert, wo seine Firma hin ist. Wird vom Auto-Recovery-
+     * Hook aufgerufen, um stillschweigend Supabase nachzuladen.
+     */
+    _isOnlyDefaults:function(){
+      var orgs = _getOrgs() || [];
+      var users = _getUsers() || [];
+      // DEFAULTS: 1 default-Org + 5 Demo-Orgs (siehe DEFAULT_ORGS)
+      var defaultOrgIds = DEFAULT_ORGS.map(function(o){return o.id;});
+      var defaultUserIds = DEFAULT_USERS.map(function(u){return u.id;});
+      var nonDefaultOrgs = orgs.filter(function(o){ return defaultOrgIds.indexOf(o.id) < 0; });
+      var nonDefaultUsers = users.filter(function(u){ return defaultUserIds.indexOf(u.id) < 0; });
+      return nonDefaultOrgs.length === 0 && nonDefaultUsers.length === 0;
+    },
 
     // ── Einladungssystem ──
     // Sucht eine existierende Org anhand des Firmennamens (case-
