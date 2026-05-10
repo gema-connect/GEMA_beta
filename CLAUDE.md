@@ -660,7 +660,7 @@ Full-Screen-Overlay (`position:fixed`) mit 4-Phasen-Timeline und aufklappbaren A
 
 - Messpunkte definieren (z.B. „Wand links Bad")
 - Pro Messpunkt: Messungen über Zeit (Datum, Wert in **Digits**, Foto-Beleg)
-- **Foto-Pflicht beim Erfassen**: Im Mess-Add-Modal ist ein Foto vom Messgerät Pflichtfeld — als Beleg gespeichert direkt im Messung-Objekt (`m.foto` Base64). In der Tabelle erscheint das Foto als 36×36-Thumbnail; Klick öffnet die Lightbox.
+- **Schneller Erfassungs-Workflow**: Klick auf „+ Messung" öffnet sofort die Kamera (synchron im User-Gesture-Kontext, wichtig für iOS Safari). Nach dem Foto wird der Cursor automatisch ins Wert-Feld gesetzt — `inputmode="decimal"` öffnet die numerische Tastatur. Foto ist **optional**: User kann den Kamera-Dialog abbrechen und nur den Wert eintragen. Datum default = heute.
 - Datenmodell: `{id, datum, wert, einheit:'Digits', foto:dataUrl}`
 - Ansicht umschaltbar: Tabelle (mit Beleg-Spalte) oder Canvas-Liniendiagramm (reines Canvas, keine Library)
 - Geräte-Tracking: Name, Raum/Zone, kW, Zählerstand Start/Ende → kWh-Berechnung. Picker im devAddModal verlinkt auf `gema_trocknung_v1` (siehe oben).

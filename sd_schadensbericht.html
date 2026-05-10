@@ -780,28 +780,27 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
 <div class="modal-bg hidden" id="messAddModal">
   <div class="dlg-card" style="max-width:480px">
     <div style="font-size:16px;font-weight:800;margin-bottom:4px">📏 Messung erfassen</div>
-    <div style="font-size:12px;color:var(--mut);margin-bottom:14px;line-height:1.45">Foto vom Messgerät als Beleg + Wert in Digits (Anzeige am Gerät).</div>
-    <div style="margin-bottom:12px">
-      <label class="dlg-lbl">📷 Foto Messgerät <span style="color:var(--red)">*</span></label>
-      <div id="messPhotoPreview" style="margin-top:6px;border:2px dashed var(--brd2);border-radius:10px;padding:10px;background:var(--bg2);min-height:120px;display:flex;align-items:center;justify-content:center;cursor:pointer"
-           onclick="sdMessTakePhoto()">
-        <div style="text-align:center;color:var(--mut);font-size:13px">
-          <div style="font-size:32px;line-height:1">📷</div>
-          <div style="margin-top:4px;font-weight:600">Foto aufnehmen</div>
-          <div style="font-size:11px;margin-top:2px">Klick um Kamera zu öffnen</div>
-        </div>
-      </div>
-      <input type="file" id="messPhotoInput" accept="image/*" capture="environment" style="display:none" onchange="sdMessHandlePhoto(event)">
-    </div>
+    <div style="font-size:12px;color:var(--mut);margin-bottom:14px;line-height:1.45">Foto vom Messgerät als Beleg (optional) + Wert in Digits.</div>
     <div class="fg-row" style="display:flex;gap:10px;margin-bottom:12px">
       <div class="fg" style="flex:1">
         <label class="dlg-lbl">Wert (Digits) <span style="color:var(--red)">*</span></label>
-        <input type="text" inputmode="decimal" class="dlg-inp" id="messVal" placeholder="z.B. 85" onblur="fixLeadingZero(this)">
+        <input type="text" inputmode="decimal" pattern="[0-9.,]*" class="dlg-inp" id="messVal" placeholder="z.B. 85" onblur="fixLeadingZero(this)" autocomplete="off">
       </div>
       <div class="fg" style="flex:1">
         <label class="dlg-lbl">Datum</label>
         <input type="date" class="dlg-inp" id="messDate">
       </div>
+    </div>
+    <div style="margin-bottom:12px">
+      <label class="dlg-lbl">📷 Foto Messgerät <span style="font-weight:500;color:var(--mut)">(optional)</span></label>
+      <div id="messPhotoPreview" style="margin-top:6px;border:2px dashed var(--brd2);border-radius:10px;padding:10px;background:var(--bg2);min-height:96px;display:flex;align-items:center;justify-content:center;cursor:pointer"
+           onclick="sdMessTakePhoto()">
+        <div style="text-align:center;color:var(--mut);font-size:13px">
+          <div style="font-size:28px;line-height:1">📷</div>
+          <div style="margin-top:4px;font-weight:600">Foto aufnehmen</div>
+        </div>
+      </div>
+      <input type="file" id="messPhotoInput" accept="image/*" capture="environment" style="display:none" onchange="sdMessHandlePhoto(event)">
     </div>
     <div class="dlg-row">
       <button class="dlg-cancel" onclick="document.getElementById('messAddModal').classList.add('hidden')">Abbrechen</button>
@@ -1798,31 +1797,59 @@ function sdDelMp(id, mpId) {
 // uebernommen.
 var _messPhotoBuf = null;
 
+// Setzt die Foto-Preview-Box auf den leeren Standard zurueck.
+function _sdResetMessPhotoPreview(){
+  var prev = document.getElementById('messPhotoPreview');
+  if(!prev) return;
+  prev.style.borderStyle = 'dashed';
+  prev.style.padding = '10px';
+  prev.style.background = 'var(--bg2)';
+  prev.style.minHeight = '96px';
+  prev.style.position = '';
+  prev.innerHTML = '<div style="text-align:center;color:var(--mut);font-size:13px">'
+    + '<div style="font-size:28px;line-height:1">📷</div>'
+    + '<div style="margin-top:4px;font-weight:600">Foto aufnehmen</div>'
+    + '</div>';
+}
+// Fokussiert das Wert-Feld + scrollt es in die Sicht. iOS Safari
+// oeffnet die numerische Tastatur via inputmode="decimal".
+function _sdFocusMessVal(){
+  var v = document.getElementById('messVal');
+  if(!v) return;
+  try { v.focus({ preventScroll: false }); } catch(e){ try { v.focus(); } catch(_){} }
+  try { v.scrollIntoView({behavior:'smooth', block:'center'}); } catch(e){}
+}
+
 function sdOpenMessAdd(schadenId, mpId) {
   _messSchadenId = schadenId;
   _messMpId = mpId;
   _messPhotoBuf = null;
   document.getElementById('messDate').value = sdToday();
   document.getElementById('messVal').value = '';
-  // Foto-Preview zuruecksetzen
-  var prev = document.getElementById('messPhotoPreview');
-  if(prev){
-    prev.style.borderStyle = 'dashed';
-    prev.style.padding = '10px';
-    prev.style.background = 'var(--bg2)';
-    prev.style.minHeight = '120px';
-    prev.innerHTML = '<div style="text-align:center;color:var(--mut);font-size:13px">'
-      + '<div style="font-size:32px;line-height:1">📷</div>'
-      + '<div style="margin-top:4px;font-weight:600">Foto aufnehmen</div>'
-      + '<div style="font-size:11px;margin-top:2px">Klick um Kamera zu öffnen</div>'
-      + '</div>';
-  }
+  _sdResetMessPhotoPreview();
+  // Modal sichtbar machen.
   document.getElementById('messAddModal').classList.remove('hidden');
+  // Kamera SYNCHRON innerhalb des User-Gesture-Kontexts oeffnen.
+  // Auf iOS Safari muss inp.click() direkt im Event-Handler-Stack
+  // erfolgen — sonst greift das User-Activation-Token nicht und
+  // das File-Picker-Modal wird blockiert.
+  // Wenn der User die Kamera abbricht, bleibt das Modal sichtbar
+  // und das Wert-Feld wird fokussiert (siehe Fallback-Timeout).
+  var inp = document.getElementById('messPhotoInput');
+  if(inp){
+    try { inp.click(); } catch(e){}
+  }
+  // Falls Kamera nicht angeboten wird (Desktop) oder der User
+  // abbricht: nach kurzer Verzoegerung das Wert-Feld fokussieren.
+  // sdMessHandlePhoto refokussiert nochmal, sobald ein Foto da ist.
+  setTimeout(_sdFocusMessVal, 800);
 }
+
 function sdMessTakePhoto(){
   var inp = document.getElementById('messPhotoInput');
   if(inp) inp.click();
 }
+
 function sdMessHandlePhoto(ev){
   var file = ev.target.files && ev.target.files[0];
   ev.target.value = '';
@@ -1849,20 +1876,27 @@ function sdMessHandlePhoto(ev){
         prev.style.padding = '0';
         prev.style.background = '#000';
         prev.style.minHeight = '0';
-        prev.innerHTML = '<img src="'+dataUrl+'" alt="" style="max-width:100%;max-height:240px;display:block;border-radius:8px;margin:0 auto">'
-          + '<div style="position:absolute;top:6px;right:6px;background:rgba(0,0,0,.6);color:#fff;font-size:11px;padding:3px 8px;border-radius:4px;font-weight:700">✓ Foto aufgenommen — klick zum Ersetzen</div>';
         prev.style.position = 'relative';
+        prev.innerHTML = '<img src="'+dataUrl+'" alt="" style="max-width:100%;max-height:200px;display:block;border-radius:8px;margin:0 auto">'
+          + '<div style="position:absolute;top:6px;right:6px;background:rgba(0,0,0,.6);color:#fff;font-size:11px;padding:3px 8px;border-radius:4px;font-weight:700">✓ aufgenommen — Klick zum Ersetzen</div>';
       }
+      // Direkt ins Wert-Feld → Number-Pad oeffnet sich auf Mobile
+      _sdFocusMessVal();
     };
     img.src = e.target.result;
   };
   reader.readAsDataURL(file);
 }
+
 function sdAddMessung() {
   var s = sdGetById(_messSchadenId); if (!s || !s.trocknung) return;
   var val = document.getElementById('messVal').value.trim();
-  if (!val) { alert('Bitte Wert in Digits eingeben.'); return; }
-  if (!_messPhotoBuf) { alert('Bitte ein Foto vom Messgerät aufnehmen — als Beleg für die Messung.'); return; }
+  if (!val) {
+    alert('Bitte Wert in Digits eingeben.');
+    _sdFocusMessVal();
+    return;
+  }
+  // Foto ist optional — keine Pflicht-Pruefung mehr.
   var mp = null;
   for (var i = 0; i < s.trocknung.messpunkte.length; i++) {
     if (s.trocknung.messpunkte[i].id === _messMpId) { mp = s.trocknung.messpunkte[i]; break; }
@@ -1873,7 +1907,7 @@ function sdAddMessung() {
     datum: document.getElementById('messDate').value || sdToday(),
     wert: parseFloat(val),
     einheit: 'Digits',
-    foto: _messPhotoBuf
+    foto: _messPhotoBuf || null
   });
   // Sort by date
   mp.messungen.sort(function(a, b) { return (a.datum || '').localeCompare(b.datum || ''); });
