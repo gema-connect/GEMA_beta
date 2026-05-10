@@ -1230,6 +1230,25 @@ function sdSaveNew() {
   };
   schaeden.push(sd);
   sdSave();
+  // Notif an alle Magaziner + Sanitaerplaner der Org, dass ein neuer
+  // Schaden erfasst wurde — sodass der Werkstattleiter weiss, dass evtl.
+  // Trockner-Einsatz folgt, und der Planer Einblick hat.
+  try{
+    if(typeof GemaNotify!=='undefined' && u && u.orgId){
+      ['role_magaziner','role_planer','role_hlkk_planer','role_lueftung_planer'].forEach(function(rid){
+        GemaNotify.push({
+          eventKey:'schaden_neu',
+          empfaengerRoleId:rid,
+          empfaengerOrgId:u.orgId,
+          modul:'schadensbericht',
+          typ:'aktion',
+          titel:'Neuer Schaden: '+titel,
+          text:({wasserschaden:'💧',schimmel:'🦠',rohrbruch:'🔧'})[typ]+' '+typ+(sd.beschreibung?' — '+sd.beschreibung.slice(0,80):''),
+          link:'sd_schadensbericht.html'
+        });
+      });
+    }
+  }catch(e){}
   sdCloseAdd();
   sdRenderList();
   sdOpenDetail(sd.id);
@@ -1916,6 +1935,27 @@ function sdAdvancePhase(id, target) {
     s.phase = 'abschluss';
   }
   sdSave();
+  // Notif an den Erfasser des Schadens, dass die Phase gewechselt wurde —
+  // praktisch wenn Magaziner+Planer parallel arbeiten und Erfasser
+  // verfolgen will, was passiert.
+  try{
+    if(typeof GemaNotify!=='undefined' && s.erstelltVon && s.erstelltVon.userId){
+      var labels2 = { analyse: 'Zustandsanalyse', trocknung: 'Trocknung', abschluss: 'Abschluss' };
+      var u2 = (typeof GemaAuth!=='undefined')?GemaAuth.getCurrentUser():null;
+      // Nicht an sich selbst pingen
+      if(!u2 || u2.id !== s.erstelltVon.userId){
+        GemaNotify.push({
+          eventKey:'schaden_phase_geaendert',
+          empfaengerUserId:s.erstelltVon.userId,
+          modul:'schadensbericht',
+          typ:'info',
+          titel:'Schaden in Phase: '+(labels2[target]||target),
+          text:s.titel+(u2&&u2.name?' — geaendert von '+u2.name:''),
+          link:'sd_schadensbericht.html'
+        });
+      }
+    }
+  }catch(e){}
   sdRenderDetail(s);
 }
 

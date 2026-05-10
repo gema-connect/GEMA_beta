@@ -89,6 +89,21 @@
       label:'LU-Zusammenstellung aktualisiert',
       modul:'lu',
       defaultOn:false
+    },
+    schaden_neu: {
+      label:'Neuer Schadensbericht erfasst',
+      modul:'schadensbericht',
+      defaultOn:true
+    },
+    schaden_phase_geaendert: {
+      label:'Schaden-Phase gewechselt',
+      modul:'schadensbericht',
+      defaultOn:true
+    },
+    trockner_zurueckgegeben: {
+      label:'Trocknungsgerät zurückgegeben',
+      modul:'trocknung',
+      defaultOn:true
     }
   };
 
