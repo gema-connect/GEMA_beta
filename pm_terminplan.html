@@ -616,8 +616,13 @@ input::placeholder,textarea::placeholder{color:#cbd5e1 !important;}
               <div class="field" style="margin:0;">
                 <div class="field-label">Farbe</div>
                 <input type="hidden" id="catColor" value="#2563eb"/>
-                <div class="color-grid" id="colorGrid"><div class="color-sw" data-c="#2563eb" style="background:#2563eb;" onclick="pickCatColor(this)"></div><div class="color-sw" data-c="#16a34a" style="background:#16a34a;" onclick="pickCatColor(this)"></div><div class="color-sw" data-c="#d97706" style="background:#d97706;" onclick="pickCatColor(this)"></div><div class="color-sw" data-c="#dc2626" style="background:#dc2626;" onclick="pickCatColor(this)"></div><div class="color-sw" data-c="#6b7280" style="background:#6b7280;" onclick="pickCatColor(this)"></div><div class="color-sw" data-c="#7c3aed" style="background:#7c3aed;" onclick="pickCatColor(this)"></div><div class="color-sw" data-c="#db2777" style="background:#db2777;" onclick="pickCatColor(this)"></div><div class="color-sw" data-c="#0891b2" style="background:#0891b2;" onclick="pickCatColor(this)"></div><div class="color-sw" data-c="#059669" style="background:#059669;" onclick="pickCatColor(this)"></div><div class="color-sw" data-c="#ca8a04" style="background:#ca8a04;" onclick="pickCatColor(this)"></div><div class="color-sw" data-c="#e11d48" style="background:#e11d48;" onclick="pickCatColor(this)"></div><div class="color-sw" data-c="#4f46e5" style="background:#4f46e5;" onclick="pickCatColor(this)"></div><div class="color-sw" data-c="#0d9488" style="background:#0d9488;" onclick="pickCatColor(this)"></div><div class="color-sw" data-c="#ea580c" style="background:#ea580c;" onclick="pickCatColor(this)"></div><div class="color-sw" data-c="#64748b" style="background:#64748b;" onclick="pickCatColor(this)"></div><div class="color-picker-wrap" title="Eigene Farbe wählen"><input type="color" id="catColorPicker" value="#2563eb" oninput="document.getElementById('catColor').value=this.value;document.querySelectorAll('.color-sw').forEach(s=>s.classList.remove('active'))"/><span class="color-picker-label">⋯</span></div></div>
+                <div class="color-grid" id="colorGrid"><div class="color-sw" data-c="#2563eb" style="background:#2563eb;" onclick="pickCatColor(this)"></div><div class="color-sw" data-c="#16a34a" style="background:#16a34a;" onclick="pickCatColor(this)"></div><div class="color-sw" data-c="#d97706" style="background:#d97706;" onclick="pickCatColor(this)"></div><div class="color-sw" data-c="#dc2626" style="background:#dc2626;" onclick="pickCatColor(this)"></div><div class="color-sw" data-c="#6b7280" style="background:#6b7280;" onclick="pickCatColor(this)"></div><div class="color-sw" data-c="#7c3aed" style="background:#7c3aed;" onclick="pickCatColor(this)"></div><div class="color-sw" data-c="#db2777" style="background:#db2777;" onclick="pickCatColor(this)"></div><div class="color-sw" data-c="#0891b2" style="background:#0891b2;" onclick="pickCatColor(this)"></div><div class="color-sw" data-c="#059669" style="background:#059669;" onclick="pickCatColor(this)"></div><div class="color-sw" data-c="#ca8a04" style="background:#ca8a04;" onclick="pickCatColor(this)"></div><div class="color-sw" data-c="#e11d48" style="background:#e11d48;" onclick="pickCatColor(this)"></div><div class="color-sw" data-c="#4f46e5" style="background:#4f46e5;" onclick="pickCatColor(this)"></div><div class="color-sw" data-c="#0d9488" style="background:#0d9488;" onclick="pickCatColor(this)"></div><div class="color-sw" data-c="#ea580c" style="background:#ea580c;" onclick="pickCatColor(this)"></div><div class="color-sw" data-c="#64748b" style="background:#64748b;" onclick="pickCatColor(this)"></div><div class="color-picker-wrap" title="Eigene Farbe wählen"><input type="color" id="catColorPicker" value="#2563eb" oninput="document.getElementById('catColor').value=this.value;document.querySelectorAll('.color-sw').forEach(s=>s.classList.remove('active'));renderCatColorPreview()"/><span class="color-picker-label">⋯</span></div></div>
               </div>
+              <div id="catColorPreview" style="margin-top:10px;display:flex;align-items:center;gap:8px;font-size:11px;color:#6b7280">
+                <span style="flex-shrink:0">Vorschau:</span>
+                <div id="catColorPreviewBar" style="flex:1;height:24px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;background:#2563eb;color:#fff">Beispiel-Termin</div>
+              </div>
+              <div id="catColorWarn" style="display:none;margin-top:6px;padding:5px 8px;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;font-size:10.5px;color:#92400e">⚠ Diese Farbe ist sehr hell — Text auf der Bar wird kontrastarm.</div>
               <button class="g-btn primary sm full" id="btnAddCategory" style="margin-top:6px;">+ Kategorie</button>
               <button class="g-btn danger sm full" id="btnResetCategories" style="margin-top:8px;">Kategorien zurücksetzen</button>
             </div>
@@ -1765,10 +1770,32 @@ function pickCatColor(el){
   document.querySelectorAll(".color-sw").forEach(s=>s.classList.remove("active"));
   el.classList.add("active");
   document.getElementById("catColor").value=el.dataset.c;
+  renderCatColorPreview();
 }
 window.pickCatColor = pickCatColor;
-// init first swatch
-document.addEventListener("DOMContentLoaded",()=>{const f=document.querySelector(".color-sw");if(f)f.classList.add("active");});
+
+// Live-Vorschau zeigt, wie eine Bar mit dieser Farbe aussieht: Text
+// nutzt getContrastColor (genau wie der Gantt). Plus Warnung, wenn die
+// Luminanz im Grenzbereich (=schlecht lesbar) liegt.
+function renderCatColorPreview(){
+  var color=document.getElementById("catColor").value||"#2563eb";
+  var bar=document.getElementById("catColorPreviewBar");
+  if(!bar)return;
+  var fg=getContrastColor(color);
+  bar.style.background=color;
+  bar.style.color=fg;
+  // Luminanz pruefen, um Warnung anzuzeigen.
+  var hex=color.replace('#','');
+  if(hex.length===6){
+    var r=parseInt(hex.slice(0,2),16),g=parseInt(hex.slice(2,4),16),b=parseInt(hex.slice(4,6),16);
+    var lum=(0.299*r+0.587*g+0.114*b)/255;
+    var warn=document.getElementById("catColorWarn");
+    if(warn) warn.style.display=(lum>0.85)?'block':'none';
+  }
+}
+window.renderCatColorPreview=renderCatColorPreview;
+// init first swatch + preview
+document.addEventListener("DOMContentLoaded",()=>{const f=document.querySelector(".color-sw");if(f)f.classList.add("active");renderCatColorPreview();});
 
 function addCategory(){
   const name=document.getElementById("catName").value.trim(); if(!name){ toast("⚠ Name fehlt"); return; }
