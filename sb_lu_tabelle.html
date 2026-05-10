@@ -632,6 +632,7 @@ function fixLeadingZero(el){
 <script src="gema_pdf.js"></script>
 <script src="gema_autosave.js"></script>
 <script src="gema_lu_api.js"></script>
+<script src="gema_apparate_api.js"></script>
 <link rel="stylesheet" href="gema_responsive.css"/>
 </head>
 <body style="background:#f4f6fb;color:#111827">
@@ -688,6 +689,17 @@ function fixLeadingZero(el){
     </div>
     <div class="pf"><label>Bearbeiter</label><input type="text" id="metaBearbeiter" placeholder="Name"></div>
     <div class="pf"><label>Datum</label><input type="date" id="metaDatum"></div>
+  </div>
+
+  <!-- APPARATELISTE-IMPORT BANNER -->
+  <div id="apparateImportBar" style="display:none;margin:0 0 14px;padding:10px 14px;border-radius:10px;background:#f5f3ff;border:1.5px solid #ddd6fe;color:#5b21b6;font-size:12.5px;line-height:1.5">
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <span style="font-size:16px;flex-shrink:0">📋</span>
+      <span><b>Apparateliste vorhanden:</b> <span id="apparateImportMeta"></span></span>
+      <button id="btnImportApparate" style="margin-left:auto;padding:6px 14px;border-radius:8px;border:none;background:#7c3aed;color:#fff;font-weight:700;cursor:pointer;font-family:inherit;font-size:12px">Mengen übernehmen</button>
+      <a href="sb_apparateliste.html" style="font-size:11.5px;color:#5b21b6;text-decoration:underline;flex-shrink:0">Apparateliste öffnen →</a>
+    </div>
+    <div style="font-size:11px;color:#6d28d9;margin-top:4px">Apparate-Mengen aus der Apparateliste werden in passende LU-Verbraucher übertragen. Manuell überschriebene Zeilen werden nicht angetastet.</div>
   </div>
 
   <!-- UNIT TOGGLE -->
@@ -1482,6 +1494,140 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
       '</div>';
     }
 
+
+    // ── Apparateliste → LU Mapping ─────────────────────────────────
+    // Apparat-Name in der Apparateliste → Apparat-Name in den LU-DEVICES.
+    // Null = wird nicht uebernommen (z.B. Kuechenarmatur ist kein
+    // separater LU-Verbraucher, sondern Teil der Spuele).
+    const APPARATELISTE_TO_LU = {
+      'WC': 'WC-Spülkasten',
+      'Waschtisch': 'Waschtisch',
+      'Dusche': 'Dusche',
+      'Badewanne': 'Badewanne',
+      'Bidet': 'Bidet',
+      'Spüle': 'Spülbecken (Küche)',
+      'Küchenarmatur': null,
+      'GS-Anschluss': 'Haushaltgeschirrspülmaschine',
+      'Waschtrog': 'Waschtrog',
+      'Anschluss-Set': 'Haushaltwaschmaschine',
+      'Gartenventil': 'Gartenventil Netzdruck'
+    };
+
+    // Set von LU-deviceName-Strings, die durch einen frueheren
+    // Apparateliste-Import gesetzt wurden. Wir benutzen das, um zu
+    // erkennen, was noch "automatisch" ist und was der User manuell
+    // angepasst hat. Persistiert pro Objekt.
+    function _aLOverrideKey(oid){
+      return 'gema_lu_apparate_imported_v1__'+(oid||'__none__');
+    }
+    function _loadImportedSet(oid){
+      try{ var raw=localStorage.getItem(_aLOverrideKey(oid)); return raw?JSON.parse(raw):{}; }
+      catch(e){ return {}; }
+    }
+    function _saveImportedSet(oid, set){
+      try{ localStorage.setItem(_aLOverrideKey(oid), JSON.stringify(set||{})); }catch(e){}
+    }
+
+    function refreshApparateImportBar(){
+      var bar = document.getElementById('apparateImportBar');
+      var meta = document.getElementById('apparateImportMeta');
+      if(!bar || !meta) return;
+      var oid = '';
+      try{ if(typeof GemaObjekte!=='undefined') oid = GemaObjekte.getActiveId() || ''; }catch(e){}
+      if(!oid || typeof GemaApparate==='undefined' || !GemaApparate.hasData(oid)){
+        bar.style.display='none'; return;
+      }
+      var counts = GemaApparate.getCounts(oid);
+      var agg = GemaApparate.getAggregated(oid);
+      var mapped = 0, unmapped = [];
+      Object.keys(agg).forEach(function(k){
+        if(APPARATELISTE_TO_LU.hasOwnProperty(k) && APPARATELISTE_TO_LU[k]) mapped += agg[k];
+        else if(!APPARATELISTE_TO_LU.hasOwnProperty(k)) unmapped.push(k);
+      });
+      var txt = counts.rooms + ' Räume · ' + counts.apparate + ' Apparate (' + mapped + ' LU-mappbar';
+      if(unmapped.length) txt += ', ' + unmapped.length + ' ohne Mapping';
+      txt += ').';
+      meta.textContent = txt;
+      bar.style.display = '';
+    }
+
+    window.importFromApparateliste = function(){
+      var oid = '';
+      try{ if(typeof GemaObjekte!=='undefined') oid = GemaObjekte.getActiveId() || ''; }catch(e){}
+      if(!oid || typeof GemaApparate==='undefined' || !GemaApparate.hasData(oid)){
+        alert('Keine Apparateliste fuer dieses Objekt vorhanden.'); return;
+      }
+      var agg = GemaApparate.getAggregated(oid);
+      var imported = _loadImportedSet(oid);
+
+      // Pro LU-Device-Name: was bisher gemappt drin steht, was neu kommt
+      // Manuell hinzugefuegte Devices, die NICHT im imported-Set sind,
+      // bleiben unangetastet (werden nicht ueberschrieben).
+      var luTargets = {}; // luDeviceName -> totalQty
+      Object.keys(agg).forEach(function(appName){
+        var luName = APPARATELISTE_TO_LU[appName];
+        if(!luName) return;
+        luTargets[luName] = (luTargets[luName] || 0) + agg[appName];
+      });
+
+      // 1) Update bestehende Devices, die wir frueher importiert haben
+      //    (oder die exakt zu einem mapping-target passen UND qty=0 sind = leerer Slot)
+      var changes = 0;
+      state.devices.forEach(function(row){
+        if(!row.deviceName) return;
+        if(luTargets.hasOwnProperty(row.deviceName)){
+          // War's frueher importiert, oder ist der Slot leer? → ueberschreiben.
+          // Sonst: Bestaetigung. Pragmatisch: wenn imported[name]=true → ohne Frage.
+          if(imported[row.deviceName] || (Number(row.qty)||0)===0){
+            row.qty = luTargets[row.deviceName];
+            imported[row.deviceName] = true;
+            delete luTargets[row.deviceName];
+            changes++;
+          }
+        }
+      });
+
+      // 2) Restliche Targets als neue Zeilen einfuegen, ueberschreibt
+      //    leere Slots ("Apparat wählen …") falls vorhanden.
+      Object.keys(luTargets).forEach(function(luName){
+        var qty = luTargets[luName];
+        // Suche freien Slot
+        var emptyIdx = state.devices.findIndex(function(r){return !r.deviceName;});
+        if(emptyIdx>=0){
+          state.devices[emptyIdx].deviceName = luName;
+          state.devices[emptyIdx].qty = qty;
+          state.devices[emptyIdx].medium = 'trinkwasser';
+        } else {
+          state.devices.push({ deviceName: luName, qty: qty, medium: 'trinkwasser' });
+        }
+        imported[luName] = true;
+        changes++;
+      });
+
+      _saveImportedSet(oid, imported);
+      saveLocal();
+      calcAndRender();
+
+      // Toast
+      var t = document.createElement('div');
+      t.style.cssText='position:fixed;bottom:18px;left:50%;transform:translateX(-50%);z-index:1500;background:#7c3aed;color:#fff;padding:10px 16px;border-radius:12px;font-size:13px;font-weight:600;box-shadow:0 8px 24px rgba(124,58,237,.3)';
+      t.textContent = '📋 ' + changes + ' Verbraucher aus Apparateliste übernommen.';
+      document.body.appendChild(t);
+      setTimeout(function(){ t.style.opacity='0'; t.style.transition='opacity .3s'; setTimeout(function(){t.remove();},350); }, 3500);
+    };
+
+    // Listen for Apparateliste-Save aus dem gleichen Browser-Kontext
+    window.addEventListener('gema-apparateliste-updated', function(ev){
+      var oid='';try{ if(typeof GemaObjekte!=='undefined') oid=GemaObjekte.getActiveId()||''; }catch(e){}
+      if(ev && ev.detail && ev.detail.objektId && ev.detail.objektId!==oid) return;
+      refreshApparateImportBar();
+    });
+    window.addEventListener('gema-objekt-changed', refreshApparateImportBar);
+    document.addEventListener('DOMContentLoaded', function(){
+      refreshApparateImportBar();
+      var btn = document.getElementById('btnImportApparate');
+      if(btn) btn.addEventListener('click', function(){ window.importFromApparateliste(); });
+    });
 
     function calcAndRender(){
       applyAutoMaxLU();
