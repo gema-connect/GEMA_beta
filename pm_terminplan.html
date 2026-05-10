@@ -567,6 +567,7 @@ td.inline-edit:hover::after{content:" ✏";opacity:.5;margin-left:4px;font-size:
           <table class="tbl">
             <thead>
               <tr>
+                <th class="no-print" style="width:36px;text-align:center"><input type="checkbox" id="tpBulkAll" title="Alle auswählen" style="accent-color:var(--accent);width:16px;height:16px;cursor:pointer"/></th>
                 <th style="min-width:220px;">Termin</th>
                 <th style="min-width:130px;">Kategorie</th>
                 <th style="min-width:130px;">Unternehmer</th>
@@ -1663,6 +1664,95 @@ let sortMode="date";
 document.getElementById("btnSortDate").addEventListener("click",()=>{ sortMode="date"; renderTable(); });
 document.getElementById("btnSortName").addEventListener("click",()=>{ sortMode="name"; renderTable(); });
 
+// ── Bulk-Selection (mehrere Tasks auswaehlen + Aktionen anwenden) ──
+var _tpBulkSel={};
+function _onBulkCheck(ev){
+  ev.stopPropagation();
+  var id=ev.currentTarget.dataset.id;
+  if(ev.currentTarget.checked) _tpBulkSel[id]=true;
+  else delete _tpBulkSel[id];
+  _renderBulkBar();
+}
+function _renderBulkBar(){
+  var bar=document.getElementById("tpBulkBar");
+  var ids=Object.keys(_tpBulkSel);
+  if(!bar){
+    if(!ids.length) return;
+    bar=document.createElement("div");
+    bar.id="tpBulkBar";
+    bar.className="no-print";
+    bar.style.cssText="position:fixed;bottom:18px;left:50%;transform:translateX(-50%);z-index:900;background:#0f172a;color:#fff;border-radius:14px;padding:10px 16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;box-shadow:0 12px 32px rgba(0,0,0,.25);font-size:13px;font-weight:700;max-width:calc(100% - 32px)";
+    document.body.appendChild(bar);
+  }
+  if(!ids.length){ bar.remove(); return; }
+  bar.innerHTML='<span>'+ids.length+' ausgewählt</span>'+
+    '<button onclick="_tpBulkShift(-7)" style="padding:6px 10px;border-radius:8px;border:none;background:#334155;color:#fff;font-weight:700;cursor:pointer;font-family:inherit;font-size:12px">-7 T</button>'+
+    '<button onclick="_tpBulkShift(-1)" style="padding:6px 10px;border-radius:8px;border:none;background:#334155;color:#fff;font-weight:700;cursor:pointer;font-family:inherit;font-size:12px">-1 T</button>'+
+    '<button onclick="_tpBulkShift(1)" style="padding:6px 10px;border-radius:8px;border:none;background:#334155;color:#fff;font-weight:700;cursor:pointer;font-family:inherit;font-size:12px">+1 T</button>'+
+    '<button onclick="_tpBulkShift(7)" style="padding:6px 10px;border-radius:8px;border:none;background:#334155;color:#fff;font-weight:700;cursor:pointer;font-family:inherit;font-size:12px">+7 T</button>'+
+    '<button onclick="_tpBulkSetCategory()" style="padding:6px 12px;border-radius:8px;border:none;background:#2563eb;color:#fff;font-weight:700;cursor:pointer;font-family:inherit;font-size:12px">Kategorie</button>'+
+    '<button onclick="_tpBulkDelete()" style="padding:6px 12px;border-radius:8px;border:none;background:#dc2626;color:#fff;font-weight:700;cursor:pointer;font-family:inherit;font-size:12px">Löschen</button>'+
+    '<button onclick="_tpBulkClear()" style="padding:6px 12px;border-radius:8px;border:1px solid #475569;background:transparent;color:#fff;font-weight:700;cursor:pointer;font-family:inherit;font-size:12px">Abbrechen</button>';
+}
+function _shiftDate(iso, days){
+  var d=parseISO(iso); d.setDate(d.getDate()+days); return toISO(d);
+}
+window._tpBulkShift=function(days){
+  var n=0;
+  Object.keys(_tpBulkSel).forEach(function(id){
+    var t=state.tasks.find(x=>x.id===id); if(!t) return;
+    t.start=snapStartForward(_shiftDate(t.start, days));
+    t.end=isMilestone(t)?t.start:snapEndBackward(_shiftDate(t.end, days));
+    n++;
+  });
+  saveState(false); renderAll(); toast(n+' Termine um '+(days>0?'+':'')+days+' Tage verschoben');
+};
+window._tpBulkSetCategory=function(){
+  var ids=Object.keys(_tpBulkSel); if(!ids.length) return;
+  var opts=state.categories.map(c=>'<option value="'+escH(c.id)+'">'+escH(c.name)+'</option>').join('');
+  var html='<div style="background:#fff;border-radius:14px;padding:20px;max-width:380px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.25)"><h3 style="margin:0 0 12px;font-size:15px;font-weight:800">Kategorie für '+ids.length+' Termine</h3><select id="bulkCatSel" style="width:100%;padding:9px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;font-family:inherit">'+opts+'</select><div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px"><button onclick="document.getElementById(\'tpBulkCatModal\').remove()" style="padding:8px 14px;border-radius:8px;border:1.5px solid var(--border);background:#fff;color:var(--muted);font-weight:700;cursor:pointer;font-family:inherit">Abbrechen</button><button onclick="_tpBulkApplyCategory()" style="padding:8px 14px;border-radius:8px;border:none;background:#2563eb;color:#fff;font-weight:700;cursor:pointer;font-family:inherit">Anwenden</button></div></div>';
+  var ov=document.createElement("div"); ov.id="tpBulkCatModal";
+  ov.style.cssText="position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1100;display:flex;align-items:center;justify-content:center;padding:16px";
+  ov.innerHTML=html; document.body.appendChild(ov);
+  ov.addEventListener("click",function(e){ if(e.target===ov) ov.remove(); });
+};
+window._tpBulkApplyCategory=function(){
+  var catId=document.getElementById("bulkCatSel").value;
+  Object.keys(_tpBulkSel).forEach(function(id){
+    var t=state.tasks.find(x=>x.id===id); if(t) t.categoryId=catId;
+  });
+  saveState(false); document.getElementById("tpBulkCatModal").remove();
+  renderAll(); toast(Object.keys(_tpBulkSel).length+' Termine in neue Kategorie verschoben');
+};
+window._tpBulkDelete=function(){
+  var ids=Object.keys(_tpBulkSel); if(!ids.length) return;
+  if(!confirm(ids.length+" Termine endgültig löschen?")) return;
+  state.tasks=state.tasks.filter(t=>!_tpBulkSel[t.id]);
+  _tpBulkSel={};
+  saveState(false); renderAll(); toast(ids.length+' Termine gelöscht');
+};
+window._tpBulkClear=function(){
+  _tpBulkSel={};
+  document.querySelectorAll(".tp-bulk-cb").forEach(cb=>cb.checked=false);
+  var all=document.getElementById("tpBulkAll"); if(all) all.checked=false;
+  _renderBulkBar();
+};
+// "Alle auswaehlen"-Header-Checkbox
+document.addEventListener("DOMContentLoaded", function(){
+  var all=document.getElementById("tpBulkAll");
+  if(all){
+    all.addEventListener("click", function(){
+      var checked=all.checked;
+      document.querySelectorAll(".tp-bulk-cb").forEach(function(cb){
+        cb.checked=checked;
+        var id=cb.dataset.id;
+        if(checked) _tpBulkSel[id]=true; else delete _tpBulkSel[id];
+      });
+      _renderBulkBar();
+    });
+  }
+});
+
 // Zeigt einen kleinen Counter "X von Y Treffer" in der Listen-Toolbar
 function _updateListResultCounter(shown, total){
   var bar=document.querySelector('#tab-list .list-toolbar');
@@ -1702,7 +1792,7 @@ function renderTable(){
       ? `Keine Treffer fuer die aktuelle Such-/Filter-Auswahl. <button class="g-btn xs" onclick="_resetListFilters()" style="margin-left:8px;font-size:11px;padding:3px 10px;border:1.5px solid var(--accent);background:var(--accent-bg);color:var(--accent);border-radius:6px;cursor:pointer">Filter zurücksetzen</button>`
       : `Noch keine Termine vorhanden. Im Tab Terminplan oder ueber + Termin links anlegen.`;
     const tr=document.createElement("tr");
-    tr.innerHTML=`<td colspan="7" style="text-align:center;padding:32px;color:var(--muted);font-size:13px;">${msg}</td>`;
+    tr.innerHTML=`<td colspan="8" style="text-align:center;padding:32px;color:var(--muted);font-size:13px;">${msg}</td>`;
     tbody.appendChild(tr); return;
   }
   const q=(document.getElementById("search2")?.value||"").trim();
@@ -1714,7 +1804,9 @@ function renderTable(){
     const tr=document.createElement("tr");
     const nameH = q ? _highlight(t.name, q) : escH(t.name);
     const notesH = t.notes ? (q ? _highlight(t.notes.slice(0,60), q) : escH(t.notes.slice(0,60))) + (t.notes.length>60?'…':'') : '';
+    const isSel=!!_tpBulkSel[t.id];
     tr.innerHTML=`
+      <td class="no-print" style="text-align:center"><input type="checkbox" class="tp-bulk-cb" data-id="${t.id}" ${isSel?'checked':''} style="accent-color:var(--accent);width:16px;height:16px;cursor:pointer"/></td>
       <td><div class="task-name-cell">
         <div class="task-color-bar" style="background:${cat.color};"></div>
         <div><div class="task-title">${nameH}</div>${notesH?`<div class="task-sub">${notesH}</div>`:""}</div>
@@ -1736,8 +1828,12 @@ function renderTable(){
     tr.querySelectorAll(".inline-edit").forEach(cell=>{
       cell.addEventListener("click", _onInlineEditClick);
     });
+    tr.querySelectorAll(".tp-bulk-cb").forEach(cb=>{
+      cb.addEventListener("click", _onBulkCheck);
+    });
     tbody.appendChild(tr);
   });
+  _renderBulkBar();
 }
 
 // ── Inline-Edit fuer Owner und Datum-Range ──
