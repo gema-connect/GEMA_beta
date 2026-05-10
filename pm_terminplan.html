@@ -2187,22 +2187,34 @@ function shiftAll(weeks){
 // ── Holidays ──
 // Built-in Swiss holidays as fallback
 const CH_HOLIDAYS_BUILTIN = {
+  // Bundesfeiertage — gelten in der ganzen Schweiz
   fixed: [
     {m:1,d:1,name:"Neujahr"},
-    {m:1,d:2,name:"Berchtoldstag"},
-    {m:5,d:1,name:"Tag der Arbeit"},
     {m:8,d:1,name:"Bundesfeiertag"},
     {m:12,d:25,name:"Weihnachtstag"},
-    {m:12,d:26,name:"Stephanstag"},
+  ],
+  // Kantonalfeiertage (fix oder oster-basiert) mit cantons-Liste.
+  // Quelle: SECO/Kantone — bei Unsicherheit auf "weniger restriktiv"
+  // gestellt. Magaziner kann nicht-passende Tage in der Liste loeschen.
+  cantonal: [
+    {m:1,d:2,name:"Berchtoldstag",cantons:["AG","BE","FR","GL","JU","LU","NE","OW","SH","SO","TG","VD","ZG","ZH","BS","BL","SG","UR"]},
+    {m:1,d:6,name:"Heilige Drei Könige",cantons:["GR","SZ","TI","UR"]},
+    {m:3,d:19,name:"St. Joseph",cantons:["NW","SZ","TI","UR","VS"]},
+    {m:5,d:1,name:"Tag der Arbeit",cantons:["AG","BL","BS","FR","GE","JU","NE","SO","SH","TG","TI","ZH"]},
+    {m:8,d:15,name:"Maria Himmelfahrt",cantons:["AI","JU","LU","NW","OW","SZ","TI","UR","VS","ZG"]},
+    {m:11,d:1,name:"Allerheiligen",cantons:["AI","GL","JU","LU","NW","OW","SG","SZ","TI","UR","VS","ZG"]},
+    {m:12,d:8,name:"Maria Empfängnis",cantons:["AI","LU","NW","OW","SZ","TI","UR","VS","ZG"]},
+    {m:12,d:26,name:"Stephanstag",cantons:["AG","AI","AR","BE","BL","BS","FR","GL","GR","JU","LU","NW","OW","SG","SH","SO","SZ","TG","TI","UR","VS","ZG","ZH"]},
   ],
   // Easter-based offsets (days from Easter Sunday)
   easter: [
-    {off:-2, name:"Karfreitag"},
-    {off:0,  name:"Ostersonntag"},
-    {off:1,  name:"Ostermontag"},
-    {off:39, name:"Auffahrt"},
-    {off:49, name:"Pfingstsonntag"},
-    {off:50, name:"Pfingstmontag"},
+    {off:-2, name:"Karfreitag", swiss:true},
+    {off:0,  name:"Ostersonntag", swiss:true},
+    {off:1,  name:"Ostermontag", swiss:true},
+    {off:39, name:"Auffahrt", swiss:true},
+    {off:49, name:"Pfingstsonntag", swiss:true},
+    {off:50, name:"Pfingstmontag", swiss:true},
+    {off:60, name:"Fronleichnam", cantons:["AI","JU","LU","NW","OW","SZ","TI","UR","VS","ZG","FR"]},
   ]
 };
 function calcEaster(year){
@@ -2214,13 +2226,23 @@ function calcEaster(year){
   const month=Math.floor((h+l-7*m+114)/31), day=((h+l-7*m+114)%31)+1;
   return new Date(year, month-1, day);
 }
-function getSwissHolidaysBuiltin(year){
+function getSwissHolidaysBuiltin(year, subdivision){
+  // subdivision: '' = nur Bundesfeiertage; ein Kanton-Code (z.B. 'ZH')
+  // = Bundes + alle kantonalen Feiertage, wo dieser Kanton gelistet ist.
   const hols=[];
   CH_HOLIDAYS_BUILTIN.fixed.forEach(h=>{
     hols.push({date:`${year}-${String(h.m).padStart(2,"0")}-${String(h.d).padStart(2,"0")}`, name:h.name});
   });
+  if(subdivision){
+    (CH_HOLIDAYS_BUILTIN.cantonal||[]).forEach(h=>{
+      if(h.cantons && h.cantons.indexOf(subdivision)>=0){
+        hols.push({date:`${year}-${String(h.m).padStart(2,"0")}-${String(h.d).padStart(2,"0")}`, name:h.name});
+      }
+    });
+  }
   const easter=calcEaster(year);
   CH_HOLIDAYS_BUILTIN.easter.forEach(h=>{
+    if(!h.swiss && (!h.cantons || (subdivision && h.cantons.indexOf(subdivision)<0))) return;
     const d=new Date(easter); d.setDate(d.getDate()+h.off);
     hols.push({date:d.toISOString().slice(0,10), name:h.name});
   });
@@ -2250,9 +2272,11 @@ function loadHolidays(){
       }
     }
 
-    // Fallback: built-in Swiss holidays
+    // Fallback: built-in Swiss holidays — beachtet jetzt auch den
+    // gewaehlten Kanton (sub) und liefert kantonal-spezifische Tage
+    // wie Heilige Drei Koenige, Maria Himmelfahrt, Allerheiligen etc.
     if(all.length===0 && country==="CH"){
-      [y1, y1+1].forEach(y=>{ all.push(...getSwissHolidaysBuiltin(y)); });
+      [y1, y1+1].forEach(y=>{ all.push(...getSwissHolidaysBuiltin(y, sub)); });
     }
 
     const map=new Map(); all.forEach(h=>{if(!map.has(h.date))map.set(h.date,h);});
@@ -2697,7 +2721,12 @@ document.getElementById("projectEnd").addEventListener("change",e=>{
 });
 document.getElementById("taskStart").addEventListener("change",()=>{ if(document.getElementById("taskDuration").value) calcTaskEnd(); });
 document.getElementById("country").addEventListener("change",e=>{ state.country=e.target.value; saveState(false); });
-document.getElementById("subdivision").addEventListener("change",e=>{ state.subdivision=e.target.value; saveState(false); });
+document.getElementById("subdivision").addEventListener("change",e=>{
+  state.subdivision=e.target.value; saveState(false);
+  // Wenn Feiertage bereits aktiv waren, automatisch fuer den neuen
+  // Kanton neu laden — sonst bleiben falsche kantonale Tage stehen.
+  if(state.holidaysEnabled) loadHolidays();
+});
 
 ["viewMode","windowSpan","windowStart","zoomPreset"].forEach(id=>{
   document.getElementById(id).addEventListener("change",()=>{ renderGantt(); requestAnimationFrame(()=>{applyViewport();localizeHeaders();}); });
