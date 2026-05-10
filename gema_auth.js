@@ -33,6 +33,55 @@
     }catch(e){console.warn('[GemaAuth] Supabase sync error',e);}
   }
 
+  // ── Versionierte Backup-Snapshots ──
+  // Bei jedem saveOrgs/saveUsers wird eine zusaetzliche Kopie unter
+  // einem Datums-/Stunden-Schluessel abgelegt (data_key=`<key>__bak_<YYYYMMDD_HH>`).
+  // Pro Stunde wird nur einmal geschrieben (lokales Lock), damit der
+  // Snapshot-Pool nicht explodiert. Damit ist auch ein versehentliches
+  // Ueberschreiben (z.B. durch DEFAULTS-Push wie im Bug von Cache-Clear)
+  // bis 24 Stunden zurueck wiederherstellbar.
+  function _backupKey(baseKey){
+    var d=new Date();
+    var pad=function(n){return n<10?'0'+n:''+n;};
+    return baseKey+'__bak_'+d.getUTCFullYear()+pad(d.getUTCMonth()+1)+pad(d.getUTCDate())+'_'+pad(d.getUTCHours());
+  }
+  function _writeBackupSnapshot(baseKey,data){
+    if(!data||(Array.isArray(data)&&!data.length)) return; // nie leer pushen
+    var bk=_backupKey(baseKey);
+    try{
+      var lockKey='gema_auth_bak_lock_'+bk;
+      if(localStorage.getItem(lockKey)) return; // diese Stunde schon gepusht
+      localStorage.setItem(lockKey,'1');
+    }catch(e){}
+    try{
+      fetch(SB_URL+'/rest/v1/'+SB_TABLE+'?on_conflict=module_key%2Cdata_key',{
+        method:'POST',
+        headers:{'Content-Type':'application/json','apikey':SB_KEY,'Authorization':'Bearer '+SB_KEY,'Prefer':'resolution=merge-duplicates,return=minimal'},
+        body:JSON.stringify({module_key:'auth_bak',data_key:bk,payload:{v:JSON.stringify(data),ts:new Date().toISOString()}})
+      }).catch(function(){});
+    }catch(e){}
+  }
+  function _listBackupSnapshots(baseKey){
+    return new Promise(function(resolve){
+      try{
+        var prefix=baseKey+'__bak_';
+        // PostgREST `like`-Filter mit URL-encoded Wildcard
+        var url=SB_URL+'/rest/v1/'+SB_TABLE+'?module_key=eq.auth_bak&data_key=like.'+encodeURIComponent(prefix)+'*&select=data_key,payload&order=data_key.desc&limit=48';
+        fetch(url,{headers:{'apikey':SB_KEY,'Authorization':'Bearer '+SB_KEY}})
+          .then(function(r){return r.json();})
+          .then(function(rows){
+            if(!Array.isArray(rows)){ resolve([]); return; }
+            resolve(rows.map(function(r){
+              var v=r.payload&&r.payload.v;
+              try{ v=typeof v==='string'?JSON.parse(v):v; }catch(e){ v=null; }
+              return { key:r.data_key, ts:r.payload&&r.payload.ts, count:Array.isArray(v)?v.length:0, data:v };
+            }));
+          })
+          .catch(function(){ resolve([]); });
+      }catch(e){ resolve([]); }
+    });
+  }
+
   function _fetchAuthFromSupabase(key,callback){
     try{
       var done=false;
@@ -238,45 +287,16 @@
   }
 
   function _initDefaults() {
-    if(!_getOrgs()){try{localStorage.setItem(STORAGE_ORGS,JSON.stringify(DEFAULT_ORGS));}catch(e){}_syncToSupabase(STORAGE_ORGS,DEFAULT_ORGS);}
+    // KRITISCHER FIX: Bei leerem localStorage NICHT die DEFAULTS nach
+    // Supabase pushen. Sonst wuerde ein Cache-Clear die echten User-
+    // Daten in der Cloud mit DEFAULTS ueberschreiben (resolution=
+    // merge-duplicates updated das payload.v).
+    // Lokal duerfen DEFAULTS rein, weil _fetchAuthFromSupabase sie
+    // nachher mit den echten Daten merged. NIEMALS pushen!
+    if(!_getOrgs()) try{localStorage.setItem(STORAGE_ORGS,JSON.stringify(DEFAULT_ORGS));}catch(e){}
     if(!_getOrgCats()) try{localStorage.setItem(STORAGE_ORG_CATS,JSON.stringify(DEFAULT_ORG_CATS));}catch(e){}
-    if(!_getUsers()){try{localStorage.setItem(STORAGE_USERS,JSON.stringify(DEFAULT_USERS));}catch(e){}_syncToSupabase(STORAGE_USERS,DEFAULT_USERS);}
-    if(!_getRoles())   try{localStorage.setItem(STORAGE_ROLES,JSON.stringify(DEFAULT_ROLES));}catch(e){}
-    // ── Migration: Demo-Orgs fuer Fremdfirmen ──
-    // Bestehende Demo-Installationen hatten alle Fremdfirmen-User
-    // (Installateure, Architekten, Lieferanten) in org_default (Jaeggi
-    // Vollmer). Richtig ist: jede Firma hat ihre eigene Organisation.
-    // Diese Migration legt die fehlenden Demo-Orgs an und verschiebt die
-    // betroffenen Demo-User dorthin — nur einmalig pro Browser.
-    try {
-      var MIGFLAG='gema_auth_demo_orgs_v2';
-      if(!localStorage.getItem(MIGFLAG)){
-        var orgs=_getOrgs()||[];
-        DEFAULT_ORGS.forEach(function(defOrg){
-          if(defOrg.id==='org_default') return;
-          if(!orgs.find(function(o){return o.id===defOrg.id;})){
-            orgs.push(defOrg);
-          }
-        });
-        var users=_getUsers()||[];
-        var USER_ORG_MAP={
-          'user_unternehmer_1':'org_meier_sanitaer',
-          'user_unternehmer_2':'org_steiner_sanitaer',
-          'user_architekt_1':'org_arch_muster',
-          'user_lief_bwt':'org_bwt',
-          'user_lief_gruenbeck':'org_gruenbeck',
-          'user_lief_judo':'org_judo'
-        };
-        users.forEach(function(u){
-          if(USER_ORG_MAP[u.id] && u.orgId==='org_default'){
-            u.orgId=USER_ORG_MAP[u.id];
-          }
-        });
-        try{localStorage.setItem(STORAGE_ORGS,JSON.stringify(orgs));}catch(e){}
-        try{localStorage.setItem(STORAGE_USERS,JSON.stringify(users));}catch(e){}
-        try{localStorage.setItem(MIGFLAG,'1');}catch(e){}
-      }
-    } catch(e) {}
+    if(!_getUsers()) try{localStorage.setItem(STORAGE_USERS,JSON.stringify(DEFAULT_USERS));}catch(e){}
+    if(!_getRoles()) try{localStorage.setItem(STORAGE_ROLES,JSON.stringify(DEFAULT_ROLES));}catch(e){}
     // ── Migration: org.kategorie (Einzel) -> org.kategorien (Array) ──
     // Die Unternehmens-Kategorien sind jetzt Mehrfach-Auswahl. Alte Orgs
     // haben noch das Einzel-Feld 'kategorie' — wir spiegeln es einmalig
@@ -322,12 +342,11 @@
         try{localStorage.setItem(MIGFLAG2,'1');}catch(e){}
       }
     } catch(e) {}
-    // ── Migration: Rollen role_magaziner + role_monteur + Demo-User ──
-    // Bestehende Installationen haben role_magaziner/role_monteur und
-    // die zugehoerigen Demo-User noch nicht im localStorage. Wir ziehen
-    // sie einmalig nach.
+    // ── Migration: Rollen role_magaziner + role_monteur ──
+    // Bestehende Installationen haben die Rollen evtl. noch nicht.
+    // Wir ziehen sie einmalig nach (nur Rollen, KEINE Demo-User mehr).
     try {
-      var MIGFLAG3='gema_auth_magaziner_monteur_v1';
+      var MIGFLAG3='gema_auth_magaziner_monteur_v2';
       if(!localStorage.getItem(MIGFLAG3)){
         var roles3=_getRoles()||[];
         ['role_magaziner','role_monteur'].forEach(function(rid){
@@ -337,15 +356,6 @@
           }
         });
         try{localStorage.setItem(STORAGE_ROLES,JSON.stringify(roles3));}catch(e){}
-        var users3=_getUsers()||[];
-        var DEMO_IDS=['user_magaziner_jv','user_monteur_1','user_monteur_2','user_monteur_3'];
-        DEMO_IDS.forEach(function(uid){
-          if(!users3.find(function(u){return u.id===uid;})){
-            var def=DEFAULT_USERS.find(function(u){return u.id===uid;});
-            if(def)users3.push(def);
-          }
-        });
-        try{localStorage.setItem(STORAGE_USERS,JSON.stringify(users3));}catch(e){}
         try{localStorage.setItem(MIGFLAG3,'1');}catch(e){}
       }
     } catch(e) {}
@@ -849,12 +859,14 @@
     saveOrgs:function(o){
       try{localStorage.setItem(STORAGE_ORGS,JSON.stringify(o));}catch(e){}
       _syncToSupabase(STORAGE_ORGS,o);
+      _writeBackupSnapshot(STORAGE_ORGS,o);
       return true;
     },
     saveOrgCats:function(c){try{localStorage.setItem(STORAGE_ORG_CATS,JSON.stringify(c));return true;}catch(e){return false;}},
     saveUsers:function(u){
       try{localStorage.setItem(STORAGE_USERS,JSON.stringify(u));}catch(e){}
       _syncToSupabase(STORAGE_USERS,u);
+      _writeBackupSnapshot(STORAGE_USERS,u);
       return true;
     },
     saveRoles:function(r){try{localStorage.setItem(STORAGE_ROLES,JSON.stringify(r));return true;}catch(e){return false;}},
@@ -924,6 +936,65 @@
           addedOrgs:addedOrgs, addedUsers:addedUsers,
           totalOrgs:(_getOrgs()||[]).length, totalUsers:(_getUsers()||[]).length
         };
+      });
+    },
+
+    /**
+     * Listet versionierte Backup-Snapshots aus Supabase. Pro Stunde
+     * wird ein Snapshot pro Key (orgs / users) abgelegt — siehe
+     * _writeBackupSnapshot. Diese sind die Lebensversicherung gegen
+     * versehentliche Ueberschreibung der Cloud-Daten.
+     *
+     * Returns: Promise<Array<{key, ts, count, data}>> — neueste zuerst
+     */
+    listBackups:function(which){
+      var baseKey = which==='users' ? STORAGE_USERS : STORAGE_ORGS;
+      return _listBackupSnapshots(baseKey);
+    },
+
+    /**
+     * Stellt einen konkreten Backup-Snapshot wieder her. `which`:
+     * 'orgs' oder 'users'. `dataKey` ist der vollstaendige Backup-
+     * Schluessel aus listBackups(...). overwrite=true ersetzt lokal,
+     * overwrite=false merged.
+     */
+    restoreFromBackup:function(which, dataKey, opts){
+      opts = opts||{};
+      var overwrite = !!opts.overwrite;
+      var baseKey = which==='users' ? STORAGE_USERS : STORAGE_ORGS;
+      return new Promise(function(resolve){
+        try{
+          var url=SB_URL+'/rest/v1/'+SB_TABLE+'?module_key=eq.auth_bak&data_key=eq.'+encodeURIComponent(dataKey)+'&select=payload';
+          fetch(url,{headers:{'apikey':SB_KEY,'Authorization':'Bearer '+SB_KEY}})
+            .then(function(r){return r.json();})
+            .then(function(rows){
+              if(!rows||!rows.length){ resolve({ok:false,error:'Backup nicht gefunden'}); return; }
+              var v=rows[0].payload&&rows[0].payload.v;
+              try{ v=typeof v==='string'?JSON.parse(v):v; }catch(e){ v=null; }
+              if(!Array.isArray(v)||!v.length){ resolve({ok:false,error:'Backup ist leer'}); return; }
+              var addedCount=0;
+              if(overwrite){
+                try{ localStorage.setItem(baseKey,JSON.stringify(v)); }catch(e){}
+                addedCount=v.length;
+              } else {
+                var local=null;
+                try{ local=JSON.parse(localStorage.getItem(baseKey)||'[]'); }catch(e){ local=[]; }
+                v.forEach(function(rec){
+                  if(!local.find(function(l){return l.id===rec.id;})){
+                    local.push(rec); addedCount++;
+                  }
+                });
+                if(addedCount) try{ localStorage.setItem(baseKey,JSON.stringify(local)); }catch(e){}
+              }
+              // Beim Restore auch in den Live-Slot pushen, damit andere
+              // Geraete den Stand uebernehmen.
+              var live=null;
+              try{ live=JSON.parse(localStorage.getItem(baseKey)||'[]'); }catch(e){ live=[]; }
+              if(live&&live.length) _syncToSupabase(baseKey,live);
+              resolve({ok:true,addedCount:addedCount,total:(live||[]).length});
+            })
+            .catch(function(e){ resolve({ok:false,error:String(e)}); });
+        }catch(e){ resolve({ok:false,error:String(e)}); }
       });
     },
 
