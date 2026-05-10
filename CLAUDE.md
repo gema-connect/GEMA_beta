@@ -968,21 +968,33 @@ Im Repo liegen die React-Designdateien als Referenz (nicht für Produktion):
 
 ---
 
-## Cloud-Recovery (gema_auth.js)
+## Cloud-Recovery & Backup (gema_auth.js)
 
 Auth-Daten (Orgs + Users) liegen in localStorage **und** in Supabase (`module_key='auth'`, `data_key='gema_orgs_v1'` / `'gema_users_v1'`). `saveOrgs` / `saveUsers` schreiben sofort lokal und pushen async nach Supabase.
 
-### Problem: Cache-Clear → DEFAULTS
+### Kritischer Bug & Fix (Cache-Clear)
 
-Wenn der User den Browser-Cache leert oder das Gerät wechselt, ist localStorage leer. `_initDefaults()` schreibt dann sofort `DEFAULT_ORGS` + `DEFAULT_USERS` rein. Der bestehende async Sync `_fetchAuthFromSupabase` greift erst danach und sieht den localStorage als „nicht leer" an, obwohl nur Demo-Daten drin sind. Die selbst-erstellten Firmen/User aus Supabase werden zwar gemerged, **aber die UI ist da längst gerendert** und zeigt nur die Defaults.
+**Bug**: Bis zur Behebung machte `_initDefaults()` bei leerem localStorage:
+```js
+localStorage.setItem(STORAGE_ORGS, DEFAULT_ORGS);
+_syncToSupabase(STORAGE_ORGS, DEFAULT_ORGS);   // ← Cloud wird mit Bootstrap-Defaults überschrieben!
+```
+Mit `Prefer: resolution=merge-duplicates` bedeutete jeder Cache-Clear: echte Firmen/User in Supabase weg, durch GEMA-Bootstrap ersetzt. Cross-Device-Login zeigte danach „keine Daten".
 
-### Lösung 1: Auto-Reload bei DEFAULTS-Only
+**Fix**: `_syncToSupabase`-Calls aus `_initDefaults` entfernt. Bootstrap wird nur lokal geschrieben, `_fetchAuthFromSupabase` merged danach echte Cloud-Daten ein. Cloud bleibt unangetastet.
 
-`_initDefaults()` setzt vor dem Sync ein Flag `_autoRestoreNeeded`, wenn nur DEFAULTS lokal sind. Sobald `_fetchAuthFromSupabase` mehr Daten von Supabase erhält und merged, triggert `_maybeAutoReload()` einen einmaligen `location.reload()` (per `sessionStorage.gema_auth_auto_reloaded` gegen Endlos-Schleife).
+### Versionierte Backups (gegen versehentliches Überschreiben)
 
-### Lösung 2: Manuelles Recovery-UI
+Bei jedem `saveOrgs` / `saveUsers` wird zusätzlich ein Backup-Snapshot mit Datums-/Stunden-Schlüssel nach Supabase gepusht (`module_key='auth_bak'`, `data_key='<base>__bak_<YYYYMMDD_HH>'`). Lock pro Stunde via localStorage `gema_auth_bak_lock_*` gegen Spam. Damit ist bei zukünftigen Vorfällen 24+ Stunden Versionshistorie verfügbar.
 
-`sys_admin.html` zeigt eine ☁️-Karte „Daten aus Cloud wiederherstellen", wenn `GemaAuth._isOnlyDefaults()` true liefert. Klick auf „🔄 Aus Cloud laden" ruft `recoveryRestore(false)` → `GemaAuth.restoreFromCloud({overwrite:false})` und macht einen Reload bei Erfolg. „Später"-Button setzt `gema_recovery_dismissed=1` in localStorage.
+### Auto-Reload + manuelles Recovery
+
+- **Auto-Reload**: `_initDefaults` merkt sich, ob lokal nur Bootstrap-Daten sind. Wenn `_fetchAuthFromSupabase` mehr findet, triggert `_maybeAutoReload()` einmaligen `location.reload()` (`sessionStorage.gema_auth_auto_reloaded` gegen Loop).
+- **Manuelles Recovery** in `sys_admin.html`: ☁️-Karte „Daten aus Cloud wiederherstellen" wenn `GemaAuth._isOnlyDefaults()` true. Klick → `GemaAuth.restoreFromCloud()`.
+
+### Bootstrap (kein Demo-Daten)
+
+`DEFAULT_ORGS` enthält **nur** `org_default` (GEMA-Org), `DEFAULT_USERS` enthält **nur** `admin@gema.ch` (Passwort: `gema2025`). Keine Demo-Firmen, keine Demo-User mehr. Damit der Admin-Login auch nach Cache-Clear ohne Cloud funktioniert.
 
 ### API
 
@@ -992,7 +1004,13 @@ GemaAuth.restoreFromCloud({ overwrite })
   // overwrite=true: ersetzt lokale Liste komplett mit Cloud-Daten
   // → Promise<{ok, addedOrgs, addedUsers, totalOrgs, totalUsers, error?}>
 
-GemaAuth._isOnlyDefaults()  // true wenn lokal nur DEFAULT-Orgs/Users sind
+GemaAuth.listBackups('orgs' | 'users')
+  // → Promise<Array<{key, ts, count, data}>> — neueste zuerst (max 48h)
+
+GemaAuth.restoreFromBackup('orgs' | 'users', dataKey, { overwrite })
+  // → Promise<{ok, addedCount, total, error?}>
+
+GemaAuth._isOnlyDefaults()  // true wenn lokal nur Bootstrap-Org/User
 ```
 
 ---
