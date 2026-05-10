@@ -176,7 +176,6 @@
       return block;
     }
     var name = u.name || u.username || 'Benutzer';
-    var initials = (name.match(/\b[A-Z]/g) || [name.charAt(0).toUpperCase()]).slice(0, 2).join('');
     var rolle = '';
     try {
       var roles = (GemaAuth.getRoles && GemaAuth.getRoles()) || [];
@@ -191,8 +190,19 @@
       if (org) orgName = org.name || '';
     } catch (e) {}
     var meta = [rolle, orgName].filter(Boolean).join(' · ');
+    // Avatar: Bild aus user.avatar / user.profile.avatar, sonst
+    // Initialen. Inline gerechnet, damit das Mobile-Menu auf Seiten
+    // ohne gema_avatar.js ebenfalls Bilder anzeigt.
+    var avatarSrc = u.avatar || (u.profile && u.profile.avatar) || '';
+    var avatarHtml;
+    if (avatarSrc) {
+      avatarHtml = '<div class="gema-menu-avatar" style="overflow:hidden;padding:0;background:#e2e7f0"><img src="' + escapeHtml(avatarSrc) + '" alt="" style="width:100%;height:100%;object-fit:cover;display:block"></div>';
+    } else {
+      var initials = (name.match(/\b[A-Z]/g) || [name.charAt(0).toUpperCase()]).slice(0, 2).join('');
+      avatarHtml = '<div class="gema-menu-avatar">' + escapeHtml(initials) + '</div>';
+    }
     block.innerHTML =
-      '<div class="gema-menu-avatar">' + escapeHtml(initials) + '</div>' +
+      avatarHtml +
       '<div class="gema-menu-user-info">' +
         '<div class="gema-menu-user-name">' + escapeHtml(name) + '</div>' +
         (meta ? '<div class="gema-menu-user-meta">' + escapeHtml(meta) + '</div>' : '') +
