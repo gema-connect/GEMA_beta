@@ -645,7 +645,7 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
           <label>Objekt / Projekt <span class="req">*</span></label>
           <div style="display:flex;gap:8px">
             <select id="f_objekt" style="flex:1"></select>
-            <a href="Objekte.html" target="_blank" style="display:flex;align-items:center;justify-content:center;width:46px;height:46px;border-radius:10px;border:1.5px solid var(--brd2);background:var(--bg2);color:var(--plan);text-decoration:none;font-size:18px;font-weight:900;flex-shrink:0" title="Neues Objekt erstellen">[+]</a>
+            <button type="button" onclick="sdOpenNewObjekt()" style="display:flex;align-items:center;justify-content:center;width:46px;height:46px;border-radius:10px;border:1.5px solid var(--brd2);background:var(--bg2);color:var(--plan);text-decoration:none;font-size:18px;font-weight:900;flex-shrink:0;cursor:pointer" title="Neues Objekt anlegen">+</button>
           </div>
         </div>
         <div class="fg">
@@ -845,6 +845,41 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
   </div>
 </div>
 
+<!-- NEUES OBJEKT MODAL — direkt aus dem Schadens-Erfassen-Dialog -->
+<div class="modal-bg hidden" id="newObjModal">
+  <div class="dlg-card" style="max-width:520px">
+    <div style="font-size:16px;font-weight:800;margin-bottom:4px">🏢 Neues Objekt anlegen</div>
+    <div style="font-size:12px;color:var(--mut);margin-bottom:14px;line-height:1.45">Minimale Erfassung — vollständige Bearbeitung erfolgt später unter Projekte → Objekte.</div>
+    <div style="margin-bottom:12px">
+      <label class="dlg-lbl">Objektname <span style="color:var(--red)">*</span></label>
+      <input type="text" class="dlg-inp" id="nobjName" placeholder="z.B. Neubau MFH Musterstrasse" autocomplete="off">
+    </div>
+    <div style="margin-bottom:12px">
+      <label class="dlg-lbl">Adresse</label>
+      <input type="text" class="dlg-inp" id="nobjAdrSearch" placeholder="z.B. Musterstrasse 12 Basel"
+             data-gema-adresse
+             data-target-strasse="nobjStrasse"
+             data-target-plz="nobjPlz"
+             data-target-ort="nobjOrt"
+             data-target-kanton="nobjKanton"
+             autocomplete="off">
+      <div style="font-size:11px;color:var(--mut);margin-top:4px">Tippen — Vorschläge aus dem schweizweiten Adressregister.</div>
+    </div>
+    <input type="hidden" id="nobjStrasse">
+    <input type="hidden" id="nobjPlz">
+    <input type="hidden" id="nobjOrt">
+    <input type="hidden" id="nobjKanton">
+    <div style="margin-bottom:4px">
+      <label class="dlg-lbl">Bauherrschaft (optional)</label>
+      <input type="text" class="dlg-inp" id="nobjBauherr" placeholder="z.B. Hans Muster" autocomplete="off">
+    </div>
+    <div class="dlg-row">
+      <button class="dlg-cancel" onclick="sdCloseNewObjekt()">Abbrechen</button>
+      <button class="dlg-save" onclick="sdSaveNewObjekt()">✓ Anlegen</button>
+    </div>
+  </div>
+</div>
+
 <!-- HIDDEN PRINT AREA FOR PDF / WORD -->
 <div class="print-area" id="printArea"></div>
 
@@ -858,6 +893,7 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
 <script src="gema_objekte_api.js"></script>
 <script src="gema_scroll.js"></script>
 <script src="gema_mobile_menu.js"></script>
+<script src="gema_adresse.js"></script>
 
 <script>
 // ═══════════════════════════════════════════
@@ -981,6 +1017,92 @@ function sdPopulateObjekte() {
     opt.textContent = o.name || o.bezeichnung || o.id;
     sel.appendChild(opt);
   });
+}
+
+// ── NEUES OBJEKT (Inline-Modal direkt aus dem Schaden-Dialog) ──
+// Schreibt minimal in gema_objekte_v1 und ruft GemaObjekte.refresh()
+// auf, damit das Dropdown sofort aktualisiert ist. Volle Bearbeitung
+// (Beteiligte, SIA-Phase, etc.) erfolgt später in pm_objekte.html.
+function sdOpenNewObjekt(){
+  ['nobjName','nobjAdrSearch','nobjStrasse','nobjPlz','nobjOrt','nobjKanton','nobjBauherr'].forEach(function(id){
+    var el = document.getElementById(id);
+    if(el) el.value = '';
+  });
+  document.getElementById('newObjModal').classList.remove('hidden');
+  setTimeout(function(){
+    var n = document.getElementById('nobjName');
+    if(n) { try { n.focus(); } catch(e){} }
+  }, 100);
+}
+function sdCloseNewObjekt(){
+  document.getElementById('newObjModal').classList.add('hidden');
+}
+function sdSaveNewObjekt(){
+  var name = (document.getElementById('nobjName').value||'').trim();
+  if(!name){ alert('Bitte einen Objektnamen eingeben.'); return; }
+  var strasse = (document.getElementById('nobjStrasse').value||'').trim();
+  var plz = (document.getElementById('nobjPlz').value||'').trim();
+  var ort = (document.getElementById('nobjOrt').value||'').trim();
+  var kanton = (document.getElementById('nobjKanton').value||'').trim();
+  // Fallback: wenn User direkt im Such-Input getippt hat ohne
+  // Vorschlag zu wählen — den rohen Text als 'strasse' speichern.
+  if(!strasse && !plz && !ort){
+    var raw = (document.getElementById('nobjAdrSearch').value||'').trim();
+    if(raw) strasse = raw;
+  }
+  var bauherr = (document.getElementById('nobjBauherr').value||'').trim();
+
+  // Org-ID des aktuellen Users
+  var orgId = '';
+  try {
+    if(typeof GemaAuth !== 'undefined'){
+      var u = GemaAuth.getCurrentUser && GemaAuth.getCurrentUser();
+      if(u) orgId = u.orgId || '';
+    }
+  } catch(e){}
+
+  // Bestehende Objekte aus localStorage lesen (Schema kompatibel zu pm_objekte.html)
+  var KEY = 'gema_objekte_v1';
+  var pool = { liste: [], aktivId: '' };
+  try {
+    var raw = (typeof _GemaDB !== 'undefined' && _GemaDB.c && _GemaDB.c[KEY])
+              || localStorage.getItem(KEY);
+    if(raw){ var d = JSON.parse(raw); if(d && typeof d === 'object') pool = Object.assign(pool, d); }
+  } catch(e){}
+  if(!Array.isArray(pool.liste)) pool.liste = [];
+
+  var obj = {
+    id: 'obj_' + Date.now() + '_' + Math.random().toString(36).substr(2,5),
+    name: name,
+    strasse: strasse,
+    plz: plz,
+    ort: ort,
+    kanton: kanton,
+    bauherrschaft: bauherr,
+    status: 'aktiv',
+    orgId: orgId,
+    createdAt: new Date().toISOString(),
+    beteiligte: [],
+    teamUserIds: []
+  };
+  pool.liste.push(obj);
+
+  // Persistieren — sowohl _GemaDB als auch localStorage
+  var json = JSON.stringify(pool);
+  try { if(typeof _GemaDB !== 'undefined' && _GemaDB.save) _GemaDB.save(KEY, json); } catch(e){}
+  try { localStorage.setItem(KEY, json); } catch(e){}
+
+  // GemaObjekte API refresh, damit das Dropdown den neuen Eintrag sieht
+  try {
+    if(typeof GemaObjekte !== 'undefined' && GemaObjekte.refresh) GemaObjekte.refresh();
+  } catch(e){}
+
+  // Dropdown neu rendern + neues Objekt auswählen
+  sdPopulateObjekte();
+  var sel = document.getElementById('f_objekt');
+  if(sel) sel.value = obj.id;
+
+  sdCloseNewObjekt();
 }
 
 // ── FORMAT HELPERS ──
