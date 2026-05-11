@@ -779,16 +779,21 @@ function toggleOrgAdmin(uid){
   if(!_isSuper && u.orgId !== _myOrgId){ toast('⚠ Nur User der eigenen Organisation'); return; }
   var o=orgs.find(function(x){return x.id===u.orgId;});if(!o)return;
   if(!o.admins)o.admins=[];
-  if(o.admins.indexOf(uid)>=0){
-    if(!confirm(esc(u.name)+' als Org-Admin entfernen?'))return;
-    o.admins=o.admins.filter(function(id){return id!==uid;});
-  } else {
-    if(!confirm(esc(u.name)+' zum Org-Admin von "'+esc(o.name)+'" ernennen?'))return;
-    o.admins.push(uid);
-  }
-  GemaAuth.saveOrgs(orgs);
-  toast('✓ Org-Admin aktualisiert');
-  renderUsers();
+  var isAdmin = o.admins.indexOf(uid)>=0;
+  var msg = isAdmin
+    ? (u.name||u.username)+' als Org-Admin entfernen?'
+    : (u.name||u.username)+' zum Org-Admin von «'+o.name+'» ernennen?';
+  GemaDialog.confirm({title: isAdmin?'Org-Admin entfernen':'Org-Admin ernennen', message:msg, confirmLabel: isAdmin?'Entfernen':'Ernennen', danger:isAdmin}).then(function(ok){
+    if(!ok) return;
+    if(isAdmin){
+      o.admins = o.admins.filter(function(id){return id!==uid;});
+    } else {
+      o.admins.push(uid);
+    }
+    GemaAuth.saveOrgs(orgs);
+    toast('✓ Org-Admin aktualisiert');
+    renderUsers();
+  });
 }
 
 function deleteUser(uid){
@@ -796,11 +801,13 @@ function deleteUser(uid){
   var u=users.find(function(x){return x.id===uid;});
   if(!u)return;
   if(!_isSuper && u.orgId !== _myOrgId){ toast('⚠ Nur User der eigenen Organisation'); return; }
-  if(!confirm('Benutzer wirklich löschen?'))return;
-  users=users.filter(u=>u.id!==uid);
-  GemaAuth.saveUsers(users);
-  renderUsers();
-  toast('🗑 Benutzer gelöscht');
+  GemaDialog.confirm({title:'Benutzer löschen', message:'Benutzer «'+(u.name||u.username)+'» wirklich löschen?', confirmLabel:'Löschen', danger:true}).then(function(ok){
+    if(!ok) return;
+    users=users.filter(u=>u.id!==uid);
+    GemaAuth.saveUsers(users);
+    renderUsers();
+    toast('🗑 Benutzer gelöscht');
+  });
 }
 
 // ── ROLES ─────────────────────────────────────────────────────────────
@@ -937,16 +944,18 @@ function deleteRole(rid){
   if(!_isSuper){toast('⚠ Rollen werden zentral vom GEMA-Administrator verwaltet');return;}
   if(!rid)rid=document.getElementById('r_id').value;
   if(rid==='role_admin'){toast('⚠ Admin-Rolle kann nicht gelöscht werden');return;}
-  if(!confirm('Rolle wirklich löschen? Benutzer mit dieser Rolle verlieren die zugehörigen Berechtigungen.'))return;
-  roles=roles.filter(r=>r.id!==rid);
-  // Remove from users
-  users=users.map(u=>({...u,roleIds:(u.roleIds||[]).filter(id=>id!==rid)}));
-  GemaAuth.saveRoles(roles);
-  GemaAuth.saveUsers(users);
-  closeModal('roleModal');
-  renderRoles();
-  renderUsers();
-  toast('🗑 Rolle gelöscht');
+  GemaDialog.confirm({title:'Rolle löschen', message:'Rolle wirklich löschen? Benutzer mit dieser Rolle verlieren die zugehörigen Berechtigungen.', confirmLabel:'Löschen', danger:true}).then(function(ok){
+    if(!ok) return;
+    roles=roles.filter(r=>r.id!==rid);
+    // Remove from users
+    users=users.map(u=>({...u,roleIds:(u.roleIds||[]).filter(id=>id!==rid)}));
+    GemaAuth.saveRoles(roles);
+    GemaAuth.saveUsers(users);
+    closeModal('roleModal');
+    renderRoles();
+    renderUsers();
+    toast('🗑 Rolle gelöscht');
+  });
 }
 
 // ── UNTERNEHMEN ───────────────────────────────────────────────────────
@@ -1015,10 +1024,12 @@ function addOrgCat(){
 
 function deleteOrgCat(id){
   if(!_isSuper){toast('⚠ Unternehmens-Kategorien werden zentral vom GEMA-Administrator verwaltet');return;}
-  if(!confirm('Kategorie löschen?'))return;
-  orgCats=orgCats.filter(c=>c.id!==id);
-  GemaAuth.saveOrgCats(orgCats);
-  renderOrgCats();
+  GemaDialog.confirm({title:'Kategorie löschen', message:'Kategorie wirklich löschen?', confirmLabel:'Löschen', danger:true}).then(function(ok){
+    if(!ok) return;
+    orgCats=orgCats.filter(c=>c.id!==id);
+    GemaAuth.saveOrgCats(orgCats);
+    renderOrgCats();
+  });
 }
 
 // Gruppen-Reihenfolge und Labels fuer die Kategorie-Checkboxes. Inner-
@@ -1204,11 +1215,14 @@ function deleteOrg(oid){
   if(!_isSuper){toast('⚠ Nur der GEMA-Administrator darf Unternehmen löschen');return;}
   var membersCount=users.filter(u=>u.orgId===oid).length;
   if(membersCount>0){toast('⚠ Unternehmen hat noch '+membersCount+' Benutzer — zuerst entfernen');return;}
-  if(!confirm('Unternehmen wirklich löschen?'))return;
-  orgs=orgs.filter(o=>o.id!==oid);
-  GemaAuth.saveOrgs(orgs);
-  renderOrgs();renderOrgCats();
-  toast('🗑 Unternehmen gelöscht');
+  var o = orgs.find(function(x){return x.id===oid;});
+  GemaDialog.confirm({title:'Unternehmen löschen', message:'Unternehmen «'+((o&&o.name)||oid)+'» wirklich löschen?', confirmLabel:'Löschen', danger:true}).then(function(ok){
+    if(!ok) return;
+    orgs=orgs.filter(o=>o.id!==oid);
+    GemaAuth.saveOrgs(orgs);
+    renderOrgs();renderOrgCats();
+    toast('🗑 Unternehmen gelöscht');
+  });
 }
 
 function handleOrgLogoUpload(e){
@@ -1327,6 +1341,7 @@ document.addEventListener('DOMContentLoaded', function(){ init(); _recoveryCheck
 <script>document.addEventListener('DOMContentLoaded',function(){if(typeof GemaFeedback!=='undefined')GemaFeedback.init('admin','Admin');});</script>
 <script src="gema_scroll.js"></script>
 <script src="gema_mobile_menu.js"></script>
+<script src="gema_dialog.js"></script>
 <script src="gema_adresse.js"></script>
 <script src="gema_avatar.js"></script>
 </body>

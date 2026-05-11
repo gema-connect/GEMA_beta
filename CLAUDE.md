@@ -1069,6 +1069,7 @@ UI-Anbindung:
 | `gema_autosave.js` | Auto-Save in Berechnungsmodulen |
 | `gema_coachmarks.js` | Onboarding-Touren |
 | `gema_db.js` | Storage-Layer (`_GemaDB`) |
+| `gema_dialog.js` | Eigene Alert/Confirm/Prompt-Dialoge im GEMA-Style. `window.alert` global ueberschrieben. `GemaDialog.confirm({title,message,danger}).then(ok=>…)` und `GemaDialog.prompt(...)` als Promise-API. `window.confirm` bleibt nativ (sync), neue Stellen sollen GemaDialog nutzen |
 | `gema_feedback.js` | Feedback-Overlay mit Annotation |
 | `gema_lu_api.js` | LU-Zusammenstellung Cross-Modul-API |
 | `gema_mobile_menu.js` | Hamburger-Menü auf Mobile |

@@ -893,6 +893,7 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
 <script src="gema_objekte_api.js"></script>
 <script src="gema_scroll.js"></script>
 <script src="gema_mobile_menu.js"></script>
+<script src="gema_dialog.js"></script>
 <script src="gema_adresse.js"></script>
 
 <script>
@@ -1397,11 +1398,17 @@ function sdSaveNew() {
 
 // ── DELETE ──
 function sdDelete(id) {
-  if (!confirm('Diesen Schadensbericht wirklich löschen?')) return;
-  schaeden = schaeden.filter(function(s) { return s.id !== id; });
-  sdSave();
-  if (detailId === id) sdCloseDetail();
-  sdRenderList();
+  GemaDialog.confirm({
+    title:'Schadensbericht löschen',
+    message:'Diesen Schadensbericht wirklich löschen?',
+    confirmLabel:'Löschen', danger:true
+  }).then(function(ok){
+    if(!ok) return;
+    schaeden = schaeden.filter(function(s) { return s.id !== id; });
+    sdSave();
+    if (detailId === id) sdCloseDetail();
+    sdRenderList();
+  });
 }
 
 // ══════════════════════════════════════
@@ -1906,11 +1913,13 @@ function sdAddMesspunkt() {
   sdRenderDetail(s);
 }
 function sdDelMp(id, mpId) {
-  if (!confirm('Messpunkt löschen?')) return;
-  var s = sdGetById(id); if (!s || !s.trocknung) return;
-  s.trocknung.messpunkte = s.trocknung.messpunkte.filter(function(m) { return m.id !== mpId; });
-  sdSave();
-  sdRenderDetail(s);
+  GemaDialog.confirm({title:'Messpunkt löschen', message:'Messpunkt mit allen Messungen wirklich löschen?', confirmLabel:'Löschen', danger:true}).then(function(ok){
+    if(!ok) return;
+    var s = sdGetById(id); if (!s || !s.trocknung) return;
+    s.trocknung.messpunkte = s.trocknung.messpunkte.filter(function(m) { return m.id !== mpId; });
+    sdSave();
+    sdRenderDetail(s);
+  });
 }
 
 // ── MESSUNGEN ──
@@ -2232,16 +2241,18 @@ function sdAddGeraet() {
   sdRenderDetail(s);
 }
 function sdDelDev(id, idx) {
-  if (!confirm('Gerät entfernen?')) return;
-  var s = sdGetById(id); if (!s || !s.trocknung) return;
-  var g = s.trocknung.geraete[idx];
-  // Wenn Geraet aus Verwaltung kam → dort wieder freigeben
-  if(g && g.tgDeviceId){
-    try { _sdReleaseTgDevice(g.tgDeviceId, g); } catch(e){ console.warn('[sd] release', e); }
-  }
-  s.trocknung.geraete.splice(idx, 1);
-  sdSave();
-  sdRenderDetail(s);
+  GemaDialog.confirm({title:'Gerät entfernen', message:'Trocknungsgerät vom Schadensfall entfernen? (Falls aus der Verwaltung, wird es dort wieder freigegeben.)', confirmLabel:'Entfernen', danger:true}).then(function(ok){
+    if(!ok) return;
+    var s = sdGetById(id); if (!s || !s.trocknung) return;
+    var g = s.trocknung.geraete[idx];
+    // Wenn Geraet aus Verwaltung kam → dort wieder freigeben
+    if(g && g.tgDeviceId){
+      try { _sdReleaseTgDevice(g.tgDeviceId, g); } catch(e){ console.warn('[sd] release', e); }
+    }
+    s.trocknung.geraete.splice(idx, 1);
+    sdSave();
+    sdRenderDetail(s);
+  });
 }
 
 // ── PHASE 4: ABSCHLUSS ──
@@ -2484,13 +2495,15 @@ function sdStorePhoto(schadenId, phase, dataUrl, kommentar, imBericht) {
 }
 
 function sdDelPhoto(schadenId, phase, idx) {
-  if (!confirm('Foto löschen?')) return;
-  var s = sdGetById(schadenId); if (!s) return;
-  if (phase === 'analyse' && s.zustandsanalyse) s.zustandsanalyse.fotos.splice(idx, 1);
-  else if (phase === 'trocknung' && s.trocknung) s.trocknung.fotos.splice(idx, 1);
-  else if (phase === 'abschluss' && s.abschluss) s.abschluss.fotos.splice(idx, 1);
-  sdSave();
-  sdRenderDetail(s);
+  GemaDialog.confirm({title:'Foto löschen', message:'Foto wirklich entfernen?', confirmLabel:'Löschen', danger:true}).then(function(ok){
+    if(!ok) return;
+    var s = sdGetById(schadenId); if (!s) return;
+    if (phase === 'analyse' && s.zustandsanalyse) s.zustandsanalyse.fotos.splice(idx, 1);
+    else if (phase === 'trocknung' && s.trocknung) s.trocknung.fotos.splice(idx, 1);
+    else if (phase === 'abschluss' && s.abschluss) s.abschluss.fotos.splice(idx, 1);
+    sdSave();
+    sdRenderDetail(s);
+  });
 }
 
 function sdOpenLightbox(src) {
