@@ -361,6 +361,45 @@ const isAdmin = u && u.roleIds && u.roleIds.indexOf('role_admin') >= 0;
 
 **Niemals** `u.isAdmin` verwenden — das Property existiert nicht!
 
+### Dialoge (KRITISCH — kein nativer Browser-Dialog mehr)
+
+**Vorgabe**: Für alle neuen Stellen die `GemaDialog`-API statt der nativen Browser-Dialoge nutzen.
+
+```javascript
+// ✗ Nicht mehr nutzen:
+if (confirm('Wirklich löschen?')) { ... }
+alert('Fehler');
+var x = prompt('Wert:');
+
+// ✓ Stattdessen:
+GemaDialog.confirm({
+  title: 'Löschen',
+  message: 'Datensatz wirklich löschen?',
+  confirmLabel: 'Löschen',
+  danger: true
+}).then(function(ok){
+  if(!ok) return;
+  // ...
+});
+
+GemaDialog.alert({ title: 'Fehler', message: 'Datei zu gross.' });
+
+GemaDialog.prompt({
+  title: 'Wert eingeben',
+  placeholder: 'z.B. 85',
+  defaultValue: ''
+}).then(function(val){
+  if(val === null) return;  // User hat abgebrochen
+  // ...
+});
+```
+
+`window.alert` ist global überschrieben — bestehende `alert(...)`-Aufrufe zeigen automatisch den GEMA-Dialog. `window.confirm` und `window.prompt` bleiben nativ (sync-Pattern), neue Stellen sollen aber GemaDialog nutzen.
+
+**Bei Lösch-Dialogen IMMER `danger:true`** — der Confirm-Button wird dann rot, was Konsistenz herstellt.
+
+`gema_dialog.js` muss auf der Seite eingebunden sein (siehe Helper-Tabelle).
+
 ---
 
 ## Objekt-spezifisches Storage-Pattern
@@ -1142,3 +1181,6 @@ Wenn Änderungen über mehrere Module ausgerollt werden:
 13. ☐ Bei rollenabhängigen UIs: Permission-Check via Helper-Funktion (z.B. `_wzCanEdit()`), nicht direkt `u.roleIds.indexOf(...)` in der Render-Funktion?
 14. ☐ Bei neuen Notifikationen: Event-Key in `gema_notify.js` registriert?
 15. ☐ Bei neuen Modulen / Rollen / Helpers: CLAUDE.md aktualisiert?
+16. ☐ Bestätigungs-Dialoge via `GemaDialog.confirm({danger:true}).then(...)` — kein nativer `confirm(...)`?
+17. ☐ Eingabe-Dialoge via `GemaDialog.prompt(...)` — kein nativer `prompt(...)`?
+18. ☐ `gema_dialog.js` auf der Seite eingebunden?
