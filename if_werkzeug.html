@@ -1630,6 +1630,9 @@ function renderCard(t){
   const wd=worstDays(t); const wdc=dc(wd);
   const barCls=wdc==='red'?'red':wdc==='amber'?'amber':wdc==='neutral'?'neutral':'green';
   const isMonteur=_wzIsMonteurView();
+  // Ich bin Hauptnutzer dieses Werkzeugs (User-Zuweisung, nicht Platz)?
+  const _me=_wzGetUser();
+  const isMyMainTool=!!(_me && t.zugewiesenAn && t.zugewiesenAn.userId === _me.id && t.zugewiesenAn.typ!=='platz');
 
   const dateItems=[];
   if(!isMonteur){
@@ -1688,7 +1691,7 @@ function renderCard(t){
       <div class="tc-actions">
         ${_wzCanReportDefect()?`<button class="tc-act" style="background:#fff7ed;color:#c2410c;border-color:#fed7aa" onclick="openDefektMelden('${t.id}')" title="Defekt melden">⚠</button>`:''}
         ${_wzCanAssign()?`<button class="tc-act" style="background:#eef2ff;color:#3730a3;border-color:#e0e7ff" onclick="openZuweisung('${t.id}')" title="Person zuweisen">👷</button>`:''}
-        ${(_wzCanLendSelf()&&!t.ausgeliehenAn)?`<button class="tc-act" style="background:#fefce8;color:#92400e;border-color:#fde68a" onclick="_wzOpenAusleihe('${t.id}')" title="${isMonteur?'Auf mich ausleihen':'Ausleihen'}">🔄</button>`:''}
+        ${(_wzCanLendSelf()&&!t.ausgeliehenAn&&!isMyMainTool)?`<button class="tc-act" style="background:#fefce8;color:#92400e;border-color:#fde68a" onclick="_wzOpenAusleihe('${t.id}')" title="${isMonteur?'Auf mich ausleihen':'Ausleihen'}">🔄</button>`:''}
         ${_wzCanEdit()?`<button class="tc-act" onclick="editTool('${t.id}')">✏️</button>`:''}
         ${_wzCanEdit()?`<button class="tc-act danger" onclick="deleteTool('${t.id}')">🗑</button>`:''}
       </div>
@@ -2362,6 +2365,15 @@ function _wzLendToSelf(toolId){
   if(!u){ GemaDialog.alert({message:'Bitte zuerst einloggen.'}); return; }
   var t=tools.find(function(x){return x.id===toolId;});
   if(!t) return;
+  // Wenn ich bereits Hauptnutzer bin, ist eine Ausleihe sinnlos —
+  // das Werkzeug "gehoert" mir bereits. Hinweis statt Dialog.
+  if(t.zugewiesenAn && t.zugewiesenAn.typ!=='platz' && t.zugewiesenAn.userId === u.id){
+    GemaDialog.alert({
+      title:'Bereits dein Werkzeug',
+      message:'Dieses Werkzeug ist dir als Hauptnutzer zugewiesen — du musst es nicht extra ausleihen.'
+    });
+    return;
+  }
   if(t.ausgeliehenAn){
     GemaDialog.alert({title:'Bereits ausgeliehen', message:'Dieses Werkzeug ist bereits an '+(t.ausgeliehenAn.name||'jemanden')+' ausgeliehen.'});
     return;
@@ -2393,16 +2405,22 @@ function _wzScanAusleihe(toolId){
   var isBorrowed=!!t.ausgeliehenAn;
   var isFree=!isBorrowed;
 
+  // isMyTool prüft nur User-Zuweisung (Platz waere keine "meine")
+  var isMyMainTool = isMyTool && (!t.zugewiesenAn || t.zugewiesenAn.typ!=='platz');
   var actionBtn='';
   if(!u){
     actionBtn='<div style="padding:16px;text-align:center;color:#dc2626;font-weight:600">Bitte anmelden um Werkzeuge auszuleihen</div>';
   }else if(isBorrowedByMe){
     // Ich habe es ausgeliehen → kann es zurückgeben (an Hauptnutzer)
     actionBtn='<button onclick="_wzScanReturn(\''+toolId+'\')" style="width:100%;padding:16px;border-radius:14px;border:none;background:#16a34a;color:#fff;font-size:16px;font-weight:800;cursor:pointer;font-family:inherit;display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 4px 16px rgba(22,163,74,.3)">✓ Werkzeug zurückgeben</button>';
-  }else if(isMyTool&&isBorrowed){
+  }else if(isMyMainTool&&isBorrowed){
     // Mein Werkzeug, jemand hat es → Rückgabe bestätigen
     actionBtn='<button onclick="_wzScanConfirmReturn(\''+toolId+'\')" style="width:100%;padding:16px;border-radius:14px;border:none;background:#16a34a;color:#fff;font-size:16px;font-weight:800;cursor:pointer;font-family:inherit;display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 4px 16px rgba(22,163,74,.3)">✓ Rückgabe bestätigen</button>'
       +'<div style="text-align:center;font-size:12px;color:#64748b;margin-top:8px">Ausgeliehen an <strong>'+esc(t.ausgeliehenAn.name)+'</strong>'+(t.ausgeliehenAn.seit?' seit '+fmt(t.ausgeliehenAn.seit):'')+'</div>';
+  }else if(isMyMainTool&&!isBorrowed){
+    // Mein Werkzeug, im Lager → ich darf es einfach mitnehmen,
+    // muss aber nichts ausleihen (gehoert mir ohnehin).
+    actionBtn='<div style="background:#eef2ff;border:1px solid #c7d2fe;border-radius:12px;padding:14px;text-align:center;color:#3730a3;font-size:13.5px;font-weight:700">👷 Dir als Hauptnutzer zugewiesen</div>';
   }else if(isBorrowed){
     // Jemand anderes hat es → Zu mir übertragen
     actionBtn='<div style="background:#fefce8;border:1px solid #fde68a;border-radius:12px;padding:14px;margin-bottom:12px;text-align:center">'
@@ -4068,10 +4086,14 @@ function openViewTool(id){
 
   document.getElementById('vm_body').innerHTML=html;
 
-  // Edit button
+  // Edit button — nur fuer Magaziner/Admin sichtbar (Monteur=read-only)
   const editBtn=document.getElementById('vm_editBtn');
-  editBtn.style.display='';
-  editBtn.onclick=function(){ closeView(); editTool(id); };
+  if(_wzCanEdit()){
+    editBtn.style.display='';
+    editBtn.onclick=function(){ closeView(); editTool(id); };
+  } else {
+    editBtn.style.display='none';
+  }
 
   document.getElementById('viewModal').classList.remove('hidden');
   _wzLockScroll();
