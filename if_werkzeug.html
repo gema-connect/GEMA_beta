@@ -436,6 +436,7 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
     <button class="nbtn" id="btnPruefMode" onclick="_wzPruefModus()" style="display:none" title="Prüfmodus starten">📋 Prüfmodus</button>
     <button class="nbtn" id="btnAdvFilter" onclick="_wzOpenAdvFilter()" style="display:none" title="Erweiterte Filter">🔍 Filter</button>
     <span class="wz-filter-badge" id="advFilterBadge" style="display:none;font-size:10px;font-weight:800;padding:2px 7px;border-radius:6px;background:var(--plan);color:#fff;cursor:pointer;margin-left:-6px" onclick="_wzClearAdvFilter()" title="Filter zurücksetzen">✕</span>
+    <button class="nbtn" id="btnWzSettings" onclick="_wzOpenSettings()" style="display:none" title="Werkzeug-Einstellungen">⚙️ Einstellungen</button>
     <div class="view-toggle">
       <button class="vt-btn active" id="vt_cards" onclick="setView('cards')" title="Karten">⊞</button>
       <button class="vt-btn"        id="vt_table" onclick="setView('table')" title="Tabelle">☰</button>
@@ -841,8 +842,15 @@ function _wzIsMonteur(){
   var u=_wzGetUser();
   return !!(u&&u.roleIds&&u.roleIds.indexOf('role_monteur')>=0);
 }
-// Darf aendern / loeschen / neu erfassen / Personen zuweisen / Berichte schreiben
+// Darf aendern / loeschen / neu erfassen / Personen zuweisen /
+// Pruefberichte schreiben.
+// WICHTIG: Monteur ist immer eingeschraenkt — selbst wenn der Admin
+// in sys_admin.html 'write' fuer werkzeugmanagement aktiviert, soll
+// die Monteur-Rolle keine voll-Edit-Rechte bekommen (er bleibt im
+// Self-Service-Modus: eigene Werkzeuge sehen + Ausleihen + Defekt
+// melden). Voll-Edit nur durch Admin- oder Magaziner-Rolle.
 function _wzCanEdit(){
+  if(_wzIsMonteur()) return false;
   if(_wzIsAdmin()||_wzIsMagaziner())return true;
   try{if(typeof GemaAuth!=='undefined'&&typeof GemaAuth.can==='function'){
     if(GemaAuth.can('write','werkzeugmanagement')||GemaAuth.can('admin','werkzeugmanagement'))return true;
@@ -851,6 +859,44 @@ function _wzCanEdit(){
 }
 // Darf Werkzeug einer Person zuweisen (nur Admin/Magaziner)
 function _wzCanAssign(){ return _wzCanEdit(); }
+// Darf der aktuelle User selbst ein Werkzeug ausleihen?
+// Magaziner/Admin koennen es immer; Monteur ja, auch fuer sich.
+function _wzCanLendSelf(){
+  var u=_wzGetUser();
+  if(!u) return false;
+  return _wzIsAdmin() || _wzIsMagaziner() || _wzIsMonteur();
+}
+// Darf der aktuelle User ein Werkzeug selbst zurueckgeben?
+// Regel:
+//   - Magaziner/Admin: ja, immer.
+//   - Eigene Ausleihe (t.ausgeliehenAn.userId === me): ja, ausser
+//     org.settings.werkzeug.requireMagazinerReturn === true.
+//   - Eigene Zuweisung (t.zugewiesenAn.userId === me): ja (Haupt-
+//     nutzer), wieder ausser requireMagazinerReturn.
+//   - Platz-Zuweisung (zugewiesenAn.typ === 'platz'): Monteur darf,
+//     wenn er das Werkzeug aktuell ausgeliehen hat — und nur sofern
+//     requireMagazinerReturn nicht aktiv ist.
+function _wzCanReturnTool(t){
+  var u=_wzGetUser();
+  if(!u || !t) return false;
+  if(_wzIsAdmin() || _wzIsMagaziner()) return true;
+  if(_wzRequireMagazinerReturn()){
+    return false; // Setting verbietet selbststaendige Rueckgabe
+  }
+  if(t.ausgeliehenAn && t.ausgeliehenAn.userId === u.id) return true;
+  if(t.zugewiesenAn && t.zugewiesenAn.userId === u.id) return true;
+  return false;
+}
+// Org-Setting: wenn true, muss Magaziner immer die Rueckgabe
+// bestaetigen. Default: false (selbststaendige Rueckgabe erlaubt).
+function _wzRequireMagazinerReturn(){
+  try {
+    if(typeof GemaAuth === 'undefined') return false;
+    var org = GemaAuth.getCurrentOrg && GemaAuth.getCurrentOrg();
+    if(!org || !org.settings) return false;
+    return !!(org.settings.werkzeug && org.settings.werkzeug.requireMagazinerReturn);
+  } catch(e){ return false; }
+}
 // Darf Defektmeldungen erstellen (alle eingeloggten User mit Werkzeug-Zugriff)
 function _wzCanReportDefect(){
   var u=_wzGetUser();
@@ -1566,7 +1612,7 @@ function renderList(){
   const tbody=document.getElementById('toolTbody');
   if(currentView==='cards'){
     var emptyMsg=_wzIsMonteurView()
-      ?'<div class="empty-state"><div class="ei">🔧</div><h3>Keine Werkzeuge</h3><p>Dir sind aktuell keine Werkzeuge zugewiesen. Scanne einen QR-Code um ein Werkzeug einzubuchen.</p></div>'
+      ?'<div class="empty-state"><div class="ei">🔧</div><h3>Keine Werkzeuge zugewiesen</h3><p>Dir ist aktuell kein Werkzeug fest zugewiesen oder ausgeliehen.<br>Scanne den QR-Code eines Werkzeugs, um es auszuleihen.</p><button class="nbtn primary" onclick="_wzScanWithCamera()" style="margin-top:8px">📷 Werkzeug scannen</button></div>'
       :'<div class="empty-state"><div class="ei">🔧</div><h3>Keine Geräte gefunden</h3><p>Passen Sie den Filter an oder erfassen Sie ein neues Gerät.</p><button class="nbtn primary" onclick="openAdd()">+ Gerät hinzufügen</button></div>';
     grid.innerHTML=f.length?f.map(renderCard).join(''):emptyMsg;
   } else {
@@ -1642,7 +1688,7 @@ function renderCard(t){
       <div class="tc-actions">
         ${_wzCanReportDefect()?`<button class="tc-act" style="background:#fff7ed;color:#c2410c;border-color:#fed7aa" onclick="openDefektMelden('${t.id}')" title="Defekt melden">⚠</button>`:''}
         ${_wzCanAssign()?`<button class="tc-act" style="background:#eef2ff;color:#3730a3;border-color:#e0e7ff" onclick="openZuweisung('${t.id}')" title="Person zuweisen">👷</button>`:''}
-        ${_wzCanEdit()?`<button class="tc-act" style="background:#fefce8;color:#92400e;border-color:#fde68a" onclick="_wzOpenAusleihe('${t.id}')" title="Ausleihen">🔄</button>`:''}
+        ${(_wzCanLendSelf()&&!t.ausgeliehenAn)?`<button class="tc-act" style="background:#fefce8;color:#92400e;border-color:#fde68a" onclick="_wzOpenAusleihe('${t.id}')" title="${isMonteur?'Auf mich ausleihen':'Ausleihen'}">🔄</button>`:''}
         ${_wzCanEdit()?`<button class="tc-act" onclick="editTool('${t.id}')">✏️</button>`:''}
         ${_wzCanEdit()?`<button class="tc-act danger" onclick="deleteTool('${t.id}')">🗑</button>`:''}
       </div>
@@ -2060,16 +2106,33 @@ function openZuweisung(toolId){
     }catch(e){}
   }
   var cur=t.zugewiesenAn||{};
-  var opts='<option value="">— Niemandem (im Lager) —</option>';
+  var curTyp = cur.typ || (cur.userId ? 'user' : (cur.platz ? 'platz' : 'none'));
+  var opts='<option value="">— Niemandem zugewiesen —</option>';
   personen.forEach(function(p){
     opts+='<option value="'+esc(p.id)+'" '+(cur.userId===p.id?'selected':'')+'>'+esc(p.name||p.username)+(p.profile&&p.profile.firma?' · '+esc(p.profile.firma):'')+'</option>';
   });
-  var html = '<div class="dlg-card" style="max-width:480px">'
-    + '<h3 style="margin:0 0 4px;font-size:17px;font-weight:800;color:#3730a3">👷 Person zuweisen</h3>'
-    + '<div style="font-size:12px;color:#64748b;margin-bottom:16px">Gerät: <strong>'+esc(t.name)+'</strong></div>'
-    + '<label class="dlg-lbl">Zugewiesen an</label>'
-    + '<select id="zuwUser" class="dlg-inp">'+opts+'</select>'
-    + (cur.userId?'<div style="font-size:11px;color:#6366f1;margin-top:8px">Aktuell bei <strong>'+esc(cur.name||'—')+'</strong>'+(cur.seit?' seit '+fmt(cur.seit):'')+'</div>':'')
+  // Zwei Tabs: User-Zuweisung (Hauptnutzer) vs. Platz-Zuweisung (Standort)
+  // Bei Platz-Zuweisung darf jeder Monteur das Werkzeug selbststaendig
+  // ausleihen + zurueckgeben (siehe _wzCanReturnTool).
+  var html = '<div class="dlg-card" style="max-width:520px">'
+    + '<h3 style="margin:0 0 4px;font-size:17px;font-weight:800;color:#3730a3">👷 Zuweisung</h3>'
+    + '<div style="font-size:12px;color:#64748b;margin-bottom:14px">Gerät: <strong>'+esc(t.name)+'</strong></div>'
+    + '<div style="display:flex;gap:6px;margin-bottom:14px">'
+    + '  <button type="button" id="_zuwTabUser" onclick="_wzZuwTab(\'user\')" style="flex:1;padding:10px;border-radius:10px;border:1.5px solid '+(curTyp==='user'?'#3730a3':'#cdd4e4')+';background:'+(curTyp==='user'?'#eef2ff':'#fff')+';color:'+(curTyp==='user'?'#3730a3':'#475569')+';font-weight:700;font-size:13px;cursor:pointer;font-family:inherit">👤 Hauptnutzer</button>'
+    + '  <button type="button" id="_zuwTabPlatz" onclick="_wzZuwTab(\'platz\')" style="flex:1;padding:10px;border-radius:10px;border:1.5px solid '+(curTyp==='platz'?'#3730a3':'#cdd4e4')+';background:'+(curTyp==='platz'?'#eef2ff':'#fff')+';color:'+(curTyp==='platz'?'#3730a3':'#475569')+';font-weight:700;font-size:13px;cursor:pointer;font-family:inherit">📍 Platz / Standort</button>'
+    + '</div>'
+    + '<div id="_zuwPaneUser" style="display:'+(curTyp==='platz'?'none':'block')+'">'
+    + '  <label class="dlg-lbl">Hauptnutzer (verantwortlich)</label>'
+    + '  <select id="zuwUser" class="dlg-inp">'+opts+'</select>'
+    + '  <div style="font-size:11px;color:#64748b;margin-top:6px;line-height:1.45">Der Hauptnutzer muss die Rückgabe persönlich bestätigen — andere Monteure können das Werkzeug nicht selbst zurückgeben.</div>'
+    + '</div>'
+    + '<div id="_zuwPanePlatz" style="display:'+(curTyp==='platz'?'block':'none')+'">'
+    + '  <label class="dlg-lbl">Platz / Standort</label>'
+    + '  <input id="zuwPlatz" class="dlg-inp" type="text" value="'+esc(cur.platz||'')+'" placeholder="z.B. Lager Halle B, Werkstatt EG, Container 3">'
+    + '  <div style="font-size:11px;color:#64748b;margin-top:6px;line-height:1.45">Bei Platz-Zuweisung darf jeder Monteur das Werkzeug selbstständig ausleihen und zurückbringen.</div>'
+    + '</div>'
+    + (cur.userId?'<div style="font-size:11px;color:#6366f1;margin-top:10px">Aktuell bei <strong>'+esc(cur.name||'—')+'</strong>'+(cur.seit?' seit '+fmt(cur.seit):'')+'</div>':'')
+    + (cur.platz?'<div style="font-size:11px;color:#6366f1;margin-top:10px">Aktuell am Platz: <strong>'+esc(cur.platz)+'</strong></div>':'')
     + '<div class="dlg-row">'
     + '  <button onclick="_wzCloseModal()" class="dlg-cancel">Abbrechen</button>'
     + '  <button onclick="_wzSaveZuweisung(\''+toolId+'\')" style="padding:9px 18px;border-radius:8px;border:none;background:#3730a3;color:#fff;cursor:pointer;font-weight:700;font-family:inherit">✓ Speichern</button>'
@@ -2078,17 +2141,57 @@ function openZuweisung(toolId){
   _wzShowModal(html);
 }
 
+// Tab-Switch im Zuweisungs-Modal
+function _wzZuwTab(t){
+  var u=document.getElementById('_zuwPaneUser');
+  var p=document.getElementById('_zuwPanePlatz');
+  if(u) u.style.display = (t==='user'?'block':'none');
+  if(p) p.style.display = (t==='platz'?'block':'none');
+  // Tab-Styles
+  var tu=document.getElementById('_zuwTabUser'), tp=document.getElementById('_zuwTabPlatz');
+  if(tu){
+    tu.style.borderColor = (t==='user'?'#3730a3':'#cdd4e4');
+    tu.style.background  = (t==='user'?'#eef2ff':'#fff');
+    tu.style.color       = (t==='user'?'#3730a3':'#475569');
+  }
+  if(tp){
+    tp.style.borderColor = (t==='platz'?'#3730a3':'#cdd4e4');
+    tp.style.background  = (t==='platz'?'#eef2ff':'#fff');
+    tp.style.color       = (t==='platz'?'#3730a3':'#475569');
+  }
+  // aktiver Tab als data-Attribut merken
+  var card = (u && u.parentNode) || (p && p.parentNode);
+  if(card) card.dataset.activeTab = t;
+}
+window._wzZuwTab = _wzZuwTab;
+
 function _wzSaveZuweisung(toolId){
   var t=tools.find(function(x){return x.id===toolId;});
   if(!t)return;
+  // Welcher Tab ist aktiv?
   var sel=document.getElementById('zuwUser');
-  var uid=sel.value;
+  var platzInp=document.getElementById('zuwPlatz');
+  var card = sel && sel.parentNode && sel.parentNode.parentNode;
+  var activeTab = (card && card.dataset.activeTab) || (
+    platzInp && platzInp.value && (!sel || !sel.value) ? 'platz' : 'user'
+  );
+  if(activeTab === 'platz'){
+    var platzName = (platzInp && platzInp.value || '').trim();
+    if(!platzName){
+      delete t.zugewiesenAn;
+    } else {
+      t.zugewiesenAn = { typ:'platz', platz: platzName, name: platzName, seit: today() };
+    }
+    save(); _wzCloseModal(); renderList();
+    return;
+  }
+  var uid=sel ? sel.value : '';
   if(!uid){
     delete t.zugewiesenAn;
   } else {
     var users=(typeof GemaAuth!=='undefined')?(GemaAuth.getUsers()||[]):[];
     var p=users.find(function(u){return u.id===uid;});
-    t.zugewiesenAn={userId:uid,name:p?(p.name||p.username):uid,seit:today()};
+    t.zugewiesenAn={typ:'user', userId:uid, name:p?(p.name||p.username):uid, seit:today()};
     // Notifikation an die Person
     if(typeof GemaNotify!=='undefined' && p){
       GemaNotify.push({
@@ -2106,14 +2209,12 @@ function _wzSaveZuweisung(toolId){
 }
 
 // ── Ausleihe ──
-function _wzCanReturnTool(t){
-  if(!t.ausgeliehenAn)return false;
-  var u=_wzGetUser();if(!u)return false;
-  if(_wzIsAdmin()||_wzCanEdit())return true;
-  if(t.zugewiesenAn&&t.zugewiesenAn.userId===u.id)return true;
-  return false;
-}
+// _wzCanReturnTool ist oben definiert (Hard-Lock-Block).
 function _wzOpenAusleihe(toolId){
+  // Magaziner/Admin: voller Ausleihe-Dialog mit Personen-Picker.
+  // Monteur: Self-Service — leiht sich selbst aus (siehe sd_self).
+  if(!_wzCanLendSelf()) return;
+  if(_wzIsMonteur() && !_wzCanEdit()) return _wzLendToSelf(toolId);
   if(!_wzCanEdit())return;
   var t=tools.find(function(x){return x.id===toolId;});if(!t)return;
   var personen=[];
@@ -2231,17 +2332,56 @@ function _wzSaveAusleihe(toolId){
 }
 function _wzReturnTool(toolId){
   var t=tools.find(function(x){return x.id===toolId;});if(!t||!t.ausgeliehenAn)return;
-  var borrower=t.ausgeliehenAn.name||'';
-  if(!confirm('Werkzeug «'+t.name+'» als zurückgegeben bestätigen?\n\nAusgeliehen an: '+borrower))return;
-  if(typeof GemaNotify!=='undefined'&&t.ausgeliehenAn.userId){
-    var me=_wzGetUser();
-    GemaNotify.push({eventKey:'werkzeug_zuweisung',empfaengerUserId:t.ausgeliehenAn.userId,modul:'werkzeug',typ:'erfolg',
-      titel:'Werkzeug zurückgegeben: '+t.name,text:'Rückgabe bestätigt von '+(me?me.name:''),
-      link:'if_werkzeug.html?view='+encodeURIComponent(t.id)});
+  if(!_wzCanReturnTool(t)){
+    GemaDialog.alert({title:'Rückgabe nicht möglich', message:'Diese Rückgabe muss vom Magaziner bestätigt werden.'});
+    return;
   }
-  delete t.ausgeliehenAn;
-  save();renderList();
+  var borrower=t.ausgeliehenAn.name||'';
+  GemaDialog.confirm({
+    title:'Werkzeug zurückgeben',
+    message:'Werkzeug «'+t.name+'» als zurückgegeben bestätigen?'+(borrower?'\n\nAusgeliehen an: '+borrower:''),
+    confirmLabel:'Zurückgeben'
+  }).then(function(ok){
+    if(!ok) return;
+    if(typeof GemaNotify!=='undefined'&&t.ausgeliehenAn.userId){
+      var me=_wzGetUser();
+      GemaNotify.push({eventKey:'werkzeug_zuweisung',empfaengerUserId:t.ausgeliehenAn.userId,modul:'werkzeug',typ:'erfolg',
+        titel:'Werkzeug zurückgegeben: '+t.name,text:'Rückgabe bestätigt von '+(me?me.name:''),
+        link:'if_werkzeug.html?view='+encodeURIComponent(t.id)});
+    }
+    delete t.ausgeliehenAn;
+    save();renderList();
+  });
 }
+
+// Monteur leiht ein Werkzeug selbst aus — ohne Personen-Picker, ohne
+// Modal. Setzt sich selbst als Borrower. Wird vom Self-Service-Pfad
+// in _wzOpenAusleihe aufgerufen.
+function _wzLendToSelf(toolId){
+  var u=_wzGetUser();
+  if(!u){ GemaDialog.alert({message:'Bitte zuerst einloggen.'}); return; }
+  var t=tools.find(function(x){return x.id===toolId;});
+  if(!t) return;
+  if(t.ausgeliehenAn){
+    GemaDialog.alert({title:'Bereits ausgeliehen', message:'Dieses Werkzeug ist bereits an '+(t.ausgeliehenAn.name||'jemanden')+' ausgeliehen.'});
+    return;
+  }
+  GemaDialog.confirm({
+    title:'Werkzeug ausleihen',
+    message:'«'+t.name+'» auf dich selbst ausleihen?',
+    confirmLabel:'Ausleihen'
+  }).then(function(ok){
+    if(!ok) return;
+    t.ausgeliehenAn = { userId: u.id, name: u.name||u.username||'', seit: today() };
+    save();renderList();
+    // Notif an Hauptnutzer wenn jemand sich dessen Werkzeug ausleiht
+    if(typeof GemaNotify!=='undefined' && t.zugewiesenAn && t.zugewiesenAn.userId && t.zugewiesenAn.userId !== u.id){
+      GemaNotify.push({eventKey:'werkzeug_zuweisung', empfaengerUserId:t.zugewiesenAn.userId, modul:'werkzeug', typ:'info',
+        titel:t.name+' ausgeliehen', text:'Von '+(u.name||u.username), link:'if_werkzeug.html?view='+encodeURIComponent(t.id)});
+    }
+  });
+}
+window._wzLendToSelf = _wzLendToSelf;
 // ── Scan-View: Full-Screen Infoseite nach QR/NFC-Scan ──
 function _wzScanAusleihe(toolId){
   var t=tools.find(function(x){return x.id===toolId;});
@@ -2341,6 +2481,10 @@ function _wzScanTransfer(toolId){
 
 function _wzScanReturn(toolId){
   var t=tools.find(function(x){return x.id===toolId;});if(!t||!t.ausgeliehenAn)return;
+  if(!_wzCanReturnTool(t)){
+    GemaDialog.alert({title:'Rückgabe nicht möglich', message:'Dieses Werkzeug muss vom Magaziner zurückgenommen werden.'});
+    return;
+  }
   if(typeof GemaNotify!=='undefined'&&t.zugewiesenAn&&t.zugewiesenAn.userId){
     GemaNotify.push({eventKey:'werkzeug_zuweisung',empfaengerUserId:t.zugewiesenAn.userId,modul:'werkzeug',typ:'erfolg',
       titel:t.name+' zurückgegeben',text:'Von '+(t.ausgeliehenAn.name||''),link:'if_werkzeug.html?view='+encodeURIComponent(t.id)});
@@ -2529,6 +2673,25 @@ function _wzSammelScanQR(){
     _wzSammelFromScan(decodeURIComponent(id));
   });
 }
+
+// Monteur-Empty-State: oeffnet die Kamera, sucht einen QR-Code und
+// fuehrt zur Werkzeug-Detail-Ansicht (mit Ausleihe/Defekt-Aktionen).
+function _wzScanWithCamera(){
+  if(typeof GemaQRScanner==='undefined'){
+    GemaDialog.alert({title:'QR-Scanner nicht verfügbar', message:'Die Kamera-Funktion benötigt einen modernen Browser (Chrome / Safari).'});
+    return;
+  }
+  GemaQRScanner.scan(function(code){
+    var id=code;
+    if(code && code.indexOf('scan=')>=0)id=code.split('scan=')[1].split('&')[0];
+    else if(code && code.indexOf('view=')>=0)id=code.split('view=')[1].split('&')[0];
+    id = decodeURIComponent(id||'');
+    if(!id) return;
+    // Fremd-Tool: erst Detail/Scan-Ansicht oeffnen
+    if(typeof _wzScanAusleihe === 'function') _wzScanAusleihe(id);
+  });
+}
+window._wzScanWithCamera = _wzScanWithCamera;
 
 function _wzSammelConfirm(){
   if(!_sammelList.length)return;
@@ -2825,6 +2988,56 @@ function _wzSavePruefbericht(toolId){
 
 // ══════════════════════════════════════════════════════════════
 // PRÜFMODUS — Werkzeuge scannen & Checkliste abhaken
+// ══════════════════════════════════════════════════════════════
+// WERKZEUG-EINSTELLUNGEN (Org-weit, nur Magaziner/Admin)
+// ══════════════════════════════════════════════════════════════
+function _wzOpenSettings(){
+  if(!_wzCanEdit()){ GemaDialog.alert({message:'Keine Berechtigung'}); return; }
+  var org={};
+  try{ org = (GemaAuth.getCurrentOrg && GemaAuth.getCurrentOrg()) || {}; }catch(e){}
+  var s = (org.settings && org.settings.werkzeug) || {};
+  var requireMag = !!s.requireMagazinerReturn;
+  var html = '<div class="dlg-card" style="max-width:520px">'
+    + '<h3 style="margin:0 0 4px;font-size:17px;font-weight:800;color:#0f172a">⚙️ Werkzeug-Einstellungen</h3>'
+    + '<div style="font-size:12px;color:#64748b;margin-bottom:16px">Gilt für alle Werkzeuge der Organisation «'+esc(org.name||'—')+'».</div>'
+    + '<div style="padding:14px;border:1.5px solid #e2e7f0;border-radius:10px;margin-bottom:12px">'
+    + '  <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer">'
+    + '    <input type="checkbox" id="wzs_requireMagReturn" '+(requireMag?'checked':'')+' style="width:18px;height:18px;margin-top:2px;accent-color:#3730a3;flex-shrink:0">'
+    + '    <span>'
+    + '      <div style="font-size:13.5px;font-weight:700;color:#0f172a">Rückgabe nur durch Magaziner</div>'
+    + '      <div style="font-size:11.5px;color:#64748b;margin-top:3px;line-height:1.45">Wenn aktiviert: Monteure können Werkzeuge nicht selbstständig zurückgeben — ein Magaziner muss die Rückgabe physisch entgegennehmen und im System bestätigen (analog zum Bibliotheks-Modell).<br>Wenn deaktiviert: Monteure dürfen ausgeliehene und Platz-zugewiesene Werkzeuge selbst zurückgeben.</div>'
+    + '    </span>'
+    + '  </label>'
+    + '</div>'
+    + '<div class="dlg-row">'
+    + '  <button onclick="_wzCloseModal()" class="dlg-cancel">Abbrechen</button>'
+    + '  <button onclick="_wzSaveSettings()" style="padding:9px 18px;border-radius:8px;border:none;background:#3730a3;color:#fff;cursor:pointer;font-weight:700;font-family:inherit">✓ Speichern</button>'
+    + '</div>'
+    + '</div>';
+  _wzShowModal(html);
+}
+function _wzSaveSettings(){
+  try{
+    if(typeof GemaAuth === 'undefined'){ _wzCloseModal(); return; }
+    var orgs = GemaAuth.getOrgs() || [];
+    var u = GemaAuth.getCurrentUser();
+    if(!u) { _wzCloseModal(); return; }
+    var idx = orgs.findIndex(function(o){ return o.id === u.orgId; });
+    if(idx < 0){ _wzCloseModal(); return; }
+    orgs[idx].settings = orgs[idx].settings || {};
+    orgs[idx].settings.werkzeug = orgs[idx].settings.werkzeug || {};
+    orgs[idx].settings.werkzeug.requireMagazinerReturn = !!document.getElementById('wzs_requireMagReturn').checked;
+    GemaAuth.saveOrgs(orgs);
+    _wzCloseModal();
+    if(typeof showToast === 'function') showToast('✓ Einstellungen gespeichert');
+    renderList();
+  }catch(e){
+    GemaDialog.alert({title:'Fehler', message:'Konnte nicht speichern: '+(e&&e.message?e.message:e)});
+  }
+}
+window._wzOpenSettings = _wzOpenSettings;
+window._wzSaveSettings = _wzSaveSettings;
+
 // ══════════════════════════════════════════════════════════════
 var _pruefSession=null;
 function _wzPruefModus(){
@@ -3957,6 +4170,8 @@ await Promise.race([
   if(btnAdvFilter && canEdit) btnAdvFilter.style.display='';
   var btnBulk=document.getElementById('btnBulkMode');
   if(btnBulk && canEdit) btnBulk.style.display='';
+  var btnSettings=document.getElementById('btnWzSettings');
+  if(btnSettings && canEdit) btnSettings.style.display='';
   var btnInv=document.getElementById('btnInventur');
   if(btnInv && canEdit){
     btnInv.style.display='';

@@ -543,15 +543,52 @@ Storage-Key: `gema_werkzeug` via `_GemaDB`. Felder pro Werkzeug:
 
 ### Berechtigungs-Helper (if_werkzeug.html)
 
-Drei zentrale Funktionen, die alle UI-Buttons und Aktionen abfragen:
+Zentrale Funktionen, die alle UI-Buttons und Aktionen abfragen:
 
 ```javascript
 _wzCanEdit()         // Admin oder Magaziner: erfassen, ändern, löschen
 _wzCanAssign()       // wie _wzCanEdit: Personen zuweisen
 _wzCanReportDefect() // alle eingeloggten User: Defekt melden
+_wzCanLendSelf()     // Admin/Magaziner/Monteur: selbst ausleihen
+_wzCanReturnTool(t)  // siehe Regeln unten
 ```
 
-**Monteur**: sieht Geräte, kann nur Defekte melden — kein Edit, kein Delete, kein „+ Neu"-Button. Die Logik wird in den Render-Funktionen `renderCard` / `renderRow` und im `DOMContentLoaded`-Block enforced.
+**Monteur ist HARD-LOCKED**: Selbst wenn ein Admin in `sys_admin.html` der Monteur-Rolle `write` oder `admin` aktiviert, gibt `_wzCanEdit()` für Monteur **immer false** zurück — Edit-Rechte gibt's nur über Admin- oder Magaziner-Rolle.
+
+**Was der Monteur in if_werkzeug.html darf**:
+- Eigene Werkzeuge sehen (`t.zugewiesenAn.userId === me` ODER `t.ausgeliehenAn.userId === me`)
+- Fremde Werkzeuge scannen (QR/NFC) → Scan-Detail-Ansicht mit Aktionen
+- Werkzeug **auf sich selbst** ausleihen (`_wzLendToSelf`) — ohne Personen-Picker, ein Klick
+- Defekt melden (alle Werkzeuge — eigene und fremde)
+- Werkzeug zurückgeben (siehe Regeln)
+
+### Zuweisungs-Typen (`zugewiesenAn`)
+
+Neu eingeführt: `zugewiesenAn.typ`. Zwei Varianten im Zuweisungs-Modal (Tabs):
+
+```javascript
+// User-Zuweisung (Hauptnutzer, verantwortlich):
+{ typ:'user', userId, name, seit }
+
+// Platz-Zuweisung (z.B. „Lager Halle B"):
+{ typ:'platz', platz:'Lager Halle B', name:'Lager Halle B', seit }
+```
+
+Bei `typ:'user'` muss der **Hauptnutzer** die Rückgabe persönlich machen. Bei `typ:'platz'` kann **jeder Monteur** das Werkzeug selbstständig ausleihen und zurückbringen. Legacy-Daten ohne `typ` werden als `user` interpretiert (Backward-Compat).
+
+### Rückgabe-Regeln (`_wzCanReturnTool`)
+
+```
+- Admin/Magaziner:        immer
+- Selbst ausgeliehen:     ja, ausser org.settings.werkzeug.requireMagazinerReturn=true
+- Eigene User-Zuweisung:  ja, ausser requireMagazinerReturn=true
+- Platz-Zuweisung:        ja wenn aktuell selbst ausgeliehen, ausser requireMagazinerReturn=true
+- requireMagazinerReturn: setzt alles auf „nur Magaziner darf"
+```
+
+### Org-Setting `requireMagazinerReturn`
+
+In `org.settings.werkzeug.requireMagazinerReturn` (bool). UI: Werkzeug-Toolbar → „⚙️ Einstellungen" (nur Admin/Magaziner sichtbar). Wenn aktiv: Monteur kann Werkzeuge nicht selbstständig zurückgeben — Magaziner muss physisch entgegennehmen und im System bestätigen.
 
 ### Berichts-System
 
