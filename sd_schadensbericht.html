@@ -283,11 +283,9 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
 
 /* MASSNAHMEN */
 .mn-item{display:flex;align-items:flex-start;gap:10px;padding:10px 14px;background:var(--bg2);border:1px solid var(--brd);border-radius:10px}
-.mn-check{margin-top:3px;width:18px;height:18px;accent-color:var(--plan);cursor:pointer}
 .mn-body{flex:1;min-width:0}
 .mn-text{font-size:13px;color:var(--txt);line-height:1.4}
-.mn-text.done{text-decoration:line-through;color:var(--mut)}
-.mn-prio{font-size:10px;font-weight:700;padding:2px 7px;border-radius:5px;margin-top:3px;display:inline-block}
+.mn-prio{display:none}/* legacy — Prio entfernt, falls altes HTML noch existiert */
 .mn-prio.hoch{background:var(--red-bg);color:var(--red)}
 .mn-prio.mittel{background:var(--amb-bg);color:var(--amb)}
 .mn-prio.niedrig{background:var(--grn-bg);color:var(--grn)}
@@ -466,7 +464,6 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
 
   /* Massnahmen */
   .mn-item{padding:12px 14px;gap:10px}
-  .mn-check{width:22px;height:22px;margin-top:1px}
   .mn-text{font-size:14px}
   .mn-del{min-height:36px;min-width:36px;display:flex;align-items:center;justify-content:center;font-size:13px;padding:6px 10px}
 
@@ -746,15 +743,7 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
     <div style="font-size:16px;font-weight:800;margin-bottom:12px">📋 Massnahme hinzufügen</div>
     <div style="margin-bottom:12px">
       <label class="dlg-lbl">Beschreibung <span style="color:var(--red)">*</span></label>
-      <textarea class="dlg-txt" id="mnBeschr" placeholder="Beschreibung der Massnahme …" style="min-height:80px"></textarea>
-    </div>
-    <div style="margin-bottom:12px">
-      <label class="dlg-lbl">Priorität</label>
-      <select class="dlg-inp" id="mnPrio">
-        <option value="mittel">Mittel</option>
-        <option value="hoch">Hoch</option>
-        <option value="niedrig">Niedrig</option>
-      </select>
+      <textarea class="dlg-txt" id="mnBeschr" placeholder="Beschreibung der durchgeführten oder geplanten Massnahme …" style="min-height:80px"></textarea>
     </div>
     <div class="dlg-row">
       <button class="dlg-cancel" onclick="document.getElementById('mnAddModal').classList.add('hidden')">Abbrechen</button>
@@ -1623,7 +1612,9 @@ function sdRenderAnalyse(s, canEdit) {
   }
   h += '</div>';
 
-  // Massnahmen
+  // Massnahmen — nur Aufzaehlung (User-Vorgabe: keine Prio, keine Checkbox,
+  // kein Status). Massnahmen werden im Bericht als Liste der durchgefuehrten
+  // Schritte erwaehnt.
   h += '<div style="margin-bottom:12px">';
   h += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">';
   h += '<label style="font-size:11px;font-weight:800;text-transform:uppercase;color:var(--mut)">Massnahmen</label>';
@@ -1632,10 +1623,9 @@ function sdRenderAnalyse(s, canEdit) {
   if (a.massnahmen && a.massnahmen.length) {
     h += '<div style="display:flex;flex-direction:column;gap:6px">';
     a.massnahmen.forEach(function(m, i) {
+      var beschr = typeof m === 'string' ? m : (m.beschreibung || m.text || '');
       h += '<div class="mn-item">';
-      if (editable) h += '<input type="checkbox" class="mn-check" ' + (m.erledigt ? 'checked' : '') + ' onchange="sdToggleMn(\'' + s.id + '\',' + i + ',this.checked)">';
-      h += '<div class="mn-body"><div class="mn-text' + (m.erledigt ? ' done' : '') + '">' + esc(m.beschreibung) + '</div>';
-      h += '<span class="mn-prio ' + m.prioritaet + '">' + esc(m.prioritaet) + '</span></div>';
+      h += '<div class="mn-body"><div class="mn-text">' + esc(beschr) + '</div></div>';
       if (editable) h += '<button class="mn-del" onclick="sdDelMn(\'' + s.id + '\',' + i + ')">✕</button>';
       h += '</div>';
     });
@@ -1665,12 +1655,12 @@ function sdUpdateAnalyse(id, field, val) {
   sdSave();
 }
 
-// ── MASSNAHMEN ──
+// ── MASSNAHMEN ── User-Vorgabe: nur Beschreibung als Aufzaehlung.
+// Keine Prioritaet, keine Erledigt-Checkbox, kein Status.
 var _mnSchadenId = null;
 function sdOpenMnAdd(id) {
   _mnSchadenId = id;
   document.getElementById('mnBeschr').value = '';
-  document.getElementById('mnPrio').value = 'mittel';
   document.getElementById('mnAddModal').classList.remove('hidden');
 }
 function sdAddMassnahme() {
@@ -1680,21 +1670,14 @@ function sdAddMassnahme() {
   if (!s.zustandsanalyse) s.zustandsanalyse = { leckortung: '', schadenausmass: '', massnahmen: [], fotos: [], abgeschlossenAm: null };
   s.zustandsanalyse.massnahmen.push({
     id: 'mn_' + Date.now(),
-    beschreibung: b,
-    prioritaet: document.getElementById('mnPrio').value,
-    erledigt: false
+    beschreibung: b
   });
   sdSave();
   document.getElementById('mnAddModal').classList.add('hidden');
   sdRenderDetail(s);
 }
-function sdToggleMn(id, idx, checked) {
-  var s = sdGetById(id); if (!s || !s.zustandsanalyse) return;
-  if (s.zustandsanalyse.massnahmen[idx]) {
-    s.zustandsanalyse.massnahmen[idx].erledigt = checked;
-    sdSave();
-  }
-}
+// sdToggleMn bleibt als No-Op, falls alter Code die Funktion noch aufruft.
+function sdToggleMn(){ /* removed — Massnahmen haben keinen Erledigt-Status mehr */ }
 function sdDelMn(id, idx) {
   var s = sdGetById(id); if (!s || !s.zustandsanalyse) return;
   s.zustandsanalyse.massnahmen.splice(idx, 1);
@@ -2718,10 +2701,17 @@ function _sdRenderTrendChart(mpWithMessungen){
   var minT=Math.min.apply(null,allT), maxT=Math.max.apply(null,allT);
   var minV=Math.min.apply(null,allV), maxV=Math.max.apply(null,allV);
   if(minT===maxT){ maxT=minT+86400000; }
-  // Y-Achse: 0 bis ceil(max+5)
-  var yMin=0, yMax=Math.max(100, Math.ceil((maxV+5)/10)*10);
+  // Y-Achse dynamisch: min/max mit Reserve, runde auf 10er-Schritte.
+  // Untergrenze immer mind. 0, Obergrenze mind. 10 Einheiten ueber max.
+  var vRange = Math.max(10, maxV - minV);
+  var yMin = Math.max(0, Math.floor((minV - vRange*0.1)/10)*10);
+  var yMax = Math.ceil((maxV + vRange*0.1)/10)*10;
+  if(yMax <= yMin) yMax = yMin + 10;
+  // Schrittweite fuer Grid: ca. 6-8 Linien
+  var ySpan = yMax - yMin;
+  var yStep = ySpan >= 80 ? 20 : (ySpan >= 40 ? 10 : (ySpan >= 20 ? 5 : 2));
 
-  var W=900, H=300, padL=50, padR=160, padT=20, padB=40;
+  var W=900, H=300, padL=60, padR=160, padT=20, padB=40;
   var c=document.createElement('canvas'); c.width=W; c.height=H;
   var ctx=c.getContext('2d');
   ctx.fillStyle='#ffffff'; ctx.fillRect(0,0,W,H);
@@ -2732,14 +2722,21 @@ function _sdRenderTrendChart(mpWithMessungen){
   function sx(t){return padL+((t-minT)/(maxT-minT))*plotW;}
   function sy(v){return padT+plotH-((v-yMin)/(yMax-yMin))*plotH;}
 
-  // Grid + Y-Labels (alle 10%)
+  // Grid + Y-Labels
   ctx.strokeStyle='#e5e7eb'; ctx.lineWidth=1;
   ctx.fillStyle='#6b7280'; ctx.font='11px sans-serif'; ctx.textAlign='right'; ctx.textBaseline='middle';
-  for(var v=yMin;v<=yMax;v+=10){
+  for(var v=yMin;v<=yMax;v+=yStep){
     var y=sy(v);
     ctx.beginPath(); ctx.moveTo(padL,y); ctx.lineTo(padL+plotW,y); ctx.stroke();
     ctx.fillText(v,padL-6,y);
   }
+  // Y-Achsen-Titel (vertikal, rotiert)
+  ctx.save();
+  ctx.translate(16, padT + plotH/2);
+  ctx.rotate(-Math.PI/2);
+  ctx.fillStyle='#374151'; ctx.font='bold 12px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillText('Wert (Digits)', 0, 0);
+  ctx.restore();
   // X-Labels: 4-6 Datumspunkte
   ctx.textAlign='center'; ctx.textBaseline='top';
   var labels=4;
@@ -2854,6 +2851,7 @@ function sdExportPdf(id){
   var s=sdGetById(id); if(!s) return;
   _sdEnsureJsPDF().then(function(){
     if(!(window.jspdf && window.jspdf.jsPDF)){alert('PDF-Bibliothek nicht verfügbar.');return;}
+    return _sdGetLogoDims(_sdPdfGetOrg()).then(function(_logoDims){
     var jsPDF=window.jspdf.jsPDF;
     var doc=new jsPDF({unit:'mm',format:'a4'});
     var pageW=doc.internal.pageSize.getWidth();   // 210
@@ -2866,20 +2864,24 @@ function sdExportPdf(id){
     var pdfErstelltAt=new Date();
     var sectionsTOC=[]; // {label, pageNum}
 
-    // ── Helper: Logo platzieren (PNG/JPEG/SVG-Best-Effort) ──
-    // Wenn org.logo als data:image/svg+xml startet, ist jsPDF
-    // ueberfordert. Wir versuchen es trotzdem; bei Fehler still
-    // skippen.
-    function _drawLogo(x, yPos, w, h){
-      if(!org || !org.logo) return false;
+    // ── Helper: Logo platzieren mit Aspect-Ratio ──
+    // maxW/maxH definieren die maximale Box; das Logo wird darin
+    // proportional eingepasst (kein Stretchen mehr). Liefert die
+    // tatsaechlich verwendete Breite/Hoehe zurueck.
+    function _drawLogo(x, yPos, maxW, maxH){
+      if(!org || !org.logo) return null;
       try{
         var fmt = 'PNG';
         if(/data:image\/jpe?g/i.test(org.logo)) fmt='JPEG';
         else if(/data:image\/png/i.test(org.logo)) fmt='PNG';
-        else if(/data:image\/svg/i.test(org.logo)) return false; // SVG nicht direkt
+        else if(/data:image\/svg/i.test(org.logo)) return null; // SVG nicht direkt
+        var ar = (_logoDims && _logoDims.ar) || 1;
+        var w, h;
+        if(ar >= maxW/maxH){ w = maxW; h = maxW/ar; }
+        else { h = maxH; w = maxH*ar; }
         doc.addImage(org.logo, fmt, x, yPos, w, h, undefined, 'FAST');
-        return true;
-      }catch(e){ return false; }
+        return { w: w, h: h };
+      }catch(e){ return null; }
     }
 
     // ── Footer fuer Inhalts-Seiten (ohne Cover) ──
@@ -3033,13 +3035,12 @@ function sdExportPdf(id){
     // ═══════════════════════════════════════
     // SEITE 1 — COVER PAGE
     // ═══════════════════════════════════════
-    // Logo oben links
-    var coverLogoOk = _drawLogo(M, 18, 32, 32);
-    // Firmen-Briefkopf rechts
-    doc.setFontSize(10.5); doc.setFont('helvetica','bold'); doc.setTextColor(15,23,42);
-    doc.text(org.name||'GEMA', pageW-M, 22, {align:'right'});
+    // Logo oben links — gross, mit Aspect-Ratio. Kein Firmenname-Text
+    // daneben (das Logo enthaelt typischerweise schon den Schriftzug).
+    var coverLogo = _drawLogo(M, 18, 60, 35);
+    // Adresse + Kontakt rechts oben (nur wenn org.kontakt etwas hat)
     doc.setFontSize(8.5); doc.setFont('helvetica','normal'); doc.setTextColor(75,85,99);
-    var briefY=27;
+    var briefY=22;
     if(org.adresse){
       if(org.adresse.strasse){ doc.text(org.adresse.strasse, pageW-M, briefY, {align:'right'}); briefY+=4; }
       var po=[org.adresse.plz,org.adresse.ort].filter(Boolean).join(' ');
@@ -3049,28 +3050,37 @@ function sdExportPdf(id){
       if(org.kontakt.telefon){ doc.text(org.kontakt.telefon, pageW-M, briefY, {align:'right'}); briefY+=4; }
       if(org.kontakt.email){ doc.text(org.kontakt.email, pageW-M, briefY, {align:'right'}); briefY+=4; }
     }
+    // Fallback: Wenn kein Logo da ist, wenigstens Firmenname als Text
+    if(!coverLogo){
+      doc.setFontSize(13); doc.setFont('helvetica','bold'); doc.setTextColor(15,23,42);
+      doc.text(org.name||'GEMA', M, 28);
+    }
     // Trennlinie
     doc.setDrawColor(229,231,235); doc.setLineWidth(0.4);
-    doc.line(M, 58, pageW-M, 58);
-    // Hauptblock (vertikal zentriert auf ~Y=100)
-    var titleY = 95;
+    doc.line(M, 62, pageW-M, 62);
+    // Hauptblock — naeher an die Trennlinie ruecken, damit weniger
+    // Leerraum bleibt
+    var titleY = 80;
     doc.setFontSize(11); doc.setFont('helvetica','normal'); doc.setTextColor(124,58,237);
     doc.text('SCHADENSBERICHT', pageW/2, titleY, {align:'center'});
     titleY += 12;
     doc.setFontSize(22); doc.setFont('helvetica','bold'); doc.setTextColor(15,23,42);
     var titleLines = doc.splitTextToSize(s.titel||'(ohne Titel)', contentW-10);
     titleLines.forEach(function(L){ doc.text(L, pageW/2, titleY, {align:'center'}); titleY+=10; });
-    titleY += 4;
-    // Typ + Phase als Pillen nebeneinander
+    titleY += 8;
+    // Typ + Phase als Pillen mit Mini-Labels darueber ("TYP" / "STAND")
     var pillW = 50;
-    var pillsTotal = pillW*2 + 6;
+    var pillsTotal = pillW*2 + 10;
     var pillX = (pageW - pillsTotal)/2;
-    _drawPill(pillX, titleY-3, typInfo.label.toUpperCase(), typInfo.color, pillW);
-    _drawPill(pillX+pillW+6, titleY-3, phaseInfo.label.toUpperCase(), phaseInfo.color, pillW);
-    titleY += 18;
+    doc.setFontSize(7.5); doc.setFont('helvetica','bold'); doc.setTextColor(107,114,128);
+    doc.text('TYP', pillX+pillW/2, titleY-1, {align:'center'});
+    doc.text('STAND', pillX+pillW+10+pillW/2, titleY-1, {align:'center'});
+    _drawPill(pillX, titleY+2, typInfo.label.toUpperCase(), typInfo.color, pillW);
+    _drawPill(pillX+pillW+10, titleY+2, phaseInfo.label.toUpperCase(), phaseInfo.color, pillW);
+    titleY += 20;
 
-    // Stammdaten-Box (zweispaltig)
-    var boxY = 165, boxH = 50;
+    // Stammdaten-Box (zweispaltig) — direkt nach den Pills, ohne grossen Sprung
+    var boxY = titleY + 10, boxH = 50;
     doc.setFillColor(249,250,251);
     doc.rect(M, boxY, contentW, boxH, 'F');
     doc.setDrawColor(229,231,235);
@@ -3122,10 +3132,8 @@ function sdExportPdf(id){
       if(s.versicherung.kontakt) doc.text('Kontakt: '+s.versicherung.kontakt, M+5, vY+24);
     }
 
-    // Cover-Footer ohne Linie
-    doc.setFontSize(7.5); doc.setFont('helvetica','normal'); doc.setTextColor(156,163,175);
-    doc.text('PDF erstellt: '+_sdPdfFmtDateTime(pdfErstelltAt), M, pageH-10);
-    doc.text('Seite 1', pageW-M, pageH-10, {align:'right'});
+    // Cover-Footer wird am Ende mit korrektem 'Seite 1 / N' im totalPages-
+    // Loop gezeichnet (damit Seitenzahl konsistent mit Folgeseiten ist).
 
     // ═══════════════════════════════════════
     // SEITE 2 — INHALTSVERZEICHNIS (Platzhalter)
@@ -3145,43 +3153,51 @@ function sdExportPdf(id){
     // ═══════════════════════════════════════
     doc.addPage(); _startContentPage();
 
-    // Allgemeine Beschreibung / Ursache
+    // Phase 0 (Erfassung) — nur Inhalte, die nicht schon auf dem Cover
+    // stehen: Beschreibung + Ursache. Objekt, Bearbeiter, Raeume,
+    // Versicherung sind bereits auf der Titelseite.
+    var sectionCounter = 1;
     if(s.beschreibung || s.ursache){
-      drawSectionBand('0', 'Übersicht', [107,114,128]);
-      if(s.beschreibung) drawParagraph('Beschreibung', s.beschreibung);
+      drawSectionBand(String(sectionCounter++), 'Erfassung', _PDF_PHASE_INFO.erfasst.color);
+      if(s.beschreibung) drawParagraph('Beschreibung des Schadens', s.beschreibung);
       if(s.ursache)      drawParagraph('Ursache', s.ursache);
     }
 
     // Phase 1 — Zustandsanalyse
     var za = s.zustandsanalyse;
     if(za && (za.leckortung||za.schadenausmass||(za.massnahmen||[]).length||(za.fotos||[]).length)){
-      drawSectionBand('1', 'Zustandsanalyse', _PDF_PHASE_INFO.analyse.color);
+      drawSectionBand(String(sectionCounter++), 'Zustandsanalyse', _PDF_PHASE_INFO.analyse.color);
       if(za.leckortung)     drawParagraph('Leckortung', za.leckortung);
       if(za.schadenausmass) drawParagraph('Schadenausmass', za.schadenausmass);
       if(Array.isArray(za.massnahmen) && za.massnahmen.length){
         ensureSpace(8);
         doc.setFont('helvetica','bold'); doc.setFontSize(9.5); doc.setTextColor(15,23,42);
         doc.text('Massnahmen', M, y); y+=5;
-        var mnRows = za.massnahmen.map(function(m){
-          var prio = (m.prioritaet||'mittel');
-          var stat = m.erledigt ? 'erledigt' : 'offen';
+        // Einfache Aufzaehlung — keine Prio, kein Status (User-Vorgabe).
+        doc.setFont('helvetica','normal'); doc.setFontSize(9.5); doc.setTextColor(55,65,81);
+        za.massnahmen.forEach(function(m){
           var beschr = typeof m === 'string' ? m : (m.beschreibung||m.text||'');
-          return [beschr, prio, stat];
+          if(!beschr) return;
+          doc.splitTextToSize('• '+beschr, contentW-4).forEach(function(L, i){
+            ensureSpace(5);
+            doc.text(L, M + (i===0 ? 0 : 4), y);
+            y += 4.5;
+          });
         });
-        drawTable(['Beschreibung','Prio','Status'], mnRows, [6, 1, 1]);
+        y += 2;
       }
+      drawPhotoGallery(za.fotos, 'Analyse-Fotos');
       if(za.abgeschlossenAm){
         ensureSpace(5);
         doc.setFontSize(8); doc.setFont('helvetica','italic'); doc.setTextColor(107,114,128);
         doc.text('Phase abgeschlossen am: '+_sdPdfFmtDate(za.abgeschlossenAm), M, y); y+=5;
       }
-      drawPhotoGallery(za.fotos, 'Analyse-Fotos');
     }
 
     // Phase 2 — Trocknung
     var tr = s.trocknung;
     if(tr && (tr.gestartetAm||tr.beendetAm||(tr.geraete||[]).length||(tr.messpunkte||[]).length||(tr.fotos||[]).length||tr.notizen)){
-      drawSectionBand('2', 'Trocknung', _PDF_PHASE_INFO.trocknung.color);
+      drawSectionBand(String(sectionCounter++), 'Trocknung', _PDF_PHASE_INFO.trocknung.color);
       var trMeta = [];
       if(tr.gestartetAm) trMeta.push('Gestartet: '+_sdPdfFmtDate(tr.gestartetAm));
       if(tr.beendetAm)   trMeta.push('Beendet: '+_sdPdfFmtDate(tr.beendetAm));
@@ -3208,6 +3224,8 @@ function sdExportPdf(id){
         doc.setFont('helvetica','bold'); doc.setFontSize(9.5); doc.setTextColor(15,23,42);
         doc.text('Geräte', M, y); y+=5;
         var totKwh = 0, totHours = 0;
+        // Pro-Raum aggregieren — fuer die Raum-Summen-Zeilen weiter unten
+        var raumAgg = {}; // raum -> { kwh, hours, count }
         var rows = geraete.map(function(g){
           var kwh=null, hours=null;
           if(g.kwhTotal != null) kwh = g.kwhTotal;
@@ -3217,18 +3235,39 @@ function sdExportPdf(id){
           }
           if(g.betriebsstunden != null) hours = g.betriebsstunden;
           if(kwh != null) totKwh += kwh;
+          // Raum-Aggregation
+          var rmKey = (g.raum||'').trim() || '(kein Raum)';
+          if(!raumAgg[rmKey]) raumAgg[rmKey] = { kwh:0, hours:0, count:0 };
+          raumAgg[rmKey].count++;
+          if(hours != null) raumAgg[rmKey].hours += hours;
+          if(kwh   != null) raumAgg[rmKey].kwh   += kwh;
           if(hours != null) totHours += hours;
-          var statusTag = g._live ? '● aktiv' : (g._history ? 'Historie' : '');
           return [
             g.name||'-',
             g.raum||'—',
             g.kw ? g.kw.toFixed(2)+' kW' : '—',
             hours != null ? hours.toFixed(1)+' h' : '—',
-            kwh != null ? kwh.toFixed(1)+' kWh' : '—',
-            statusTag
+            kwh != null ? kwh.toFixed(1)+' kWh' : '—'
           ];
         });
-        drawTable(['Name','Raum','Leistung','Stunden','Energie','Status'], rows, [3, 2.5, 1.6, 1.4, 1.6, 1.4]);
+        drawTable(['Name','Raum','Leistung','Stunden','Energie'], rows, [3.2, 2.6, 1.6, 1.4, 1.6]);
+        // Summen pro Raum (nur wenn mehr als ein Raum mit Geraeten)
+        var raumKeys = Object.keys(raumAgg);
+        if(raumKeys.length > 1){
+          ensureSpace(7);
+          doc.setFont('helvetica','bold'); doc.setFontSize(8.5); doc.setTextColor(75,85,99);
+          doc.text('Summe pro Raum', M, y+3); y+=6;
+          doc.setFont('helvetica','normal'); doc.setFontSize(9); doc.setTextColor(55,65,81);
+          raumKeys.forEach(function(rm){
+            ensureSpace(5);
+            var a = raumAgg[rm];
+            var line = '• '+rm+' ('+a.count+' Gerät'+(a.count===1?'':'e')+'):  '
+                       + a.hours.toFixed(1) + ' h   ·   ' + a.kwh.toFixed(1) + ' kWh';
+            doc.text(line, M, y); y+=4.5;
+          });
+          y += 2;
+        }
+        // Gesamt-Summe
         if(totKwh > 0 || totHours > 0){
           ensureSpace(7);
           doc.setFillColor(238,242,255);
@@ -3265,16 +3304,17 @@ function sdExportPdf(id){
         var lastV = vals[vals.length-1];
         var firstV = vals[0];
         var delta = lastV - firstV;
-        doc.text('Messpunkt: '+(m.name||'—')+'   (min '+minV+' · max '+maxV+' · Δ '+(delta>=0?'+':'')+delta.toFixed(1)+' Digits)', M, y); y+=4.5;
+        // Helvetica kann Δ und Pfeil-Symbole nicht — ASCII-Ersatz.
+        doc.text('Messpunkt: '+(m.name||'—')+'   (min '+minV+' · max '+maxV+' · Diff '+(delta>=0?'+':'')+delta.toFixed(1)+' Digits)', M, y); y+=4.5;
         var prevV = null;
         var rows = m.messungen.map(function(me){
           var w = parseFloat(me.wert)||0;
           var diff = prevV==null ? '' : ((w-prevV>=0?'+':'') + (w-prevV).toFixed(1));
-          var trend = prevV==null ? '' : (w>prevV ? '↑' : (w<prevV ? '↓' : '→'));
+          var trend = prevV==null ? '' : (w>prevV ? 'steigend' : (w<prevV ? 'fallend' : 'gleich'));
           prevV = w;
           return [_sdPdfFmtDate(me.datum), w+' '+(me.einheit||'Digits'), diff, trend];
         });
-        drawTable(['Datum','Wert','Δ','Trend'], rows, [2, 2, 1, 0.7]);
+        drawTable(['Datum','Wert','Diff','Trend'], rows, [2, 2, 1, 1.2]);
       });
       if(tr.notizen) drawParagraph('Notizen', tr.notizen);
       drawPhotoGallery(tr.fotos, 'Trocknungs-Fotos');
@@ -3283,7 +3323,7 @@ function sdExportPdf(id){
     // Phase 3 — Abschluss
     var ab = s.abschluss;
     if(ab && (ab.zusammenfassung||ab.instandstellung||ab.weitereSchaeden||(ab.fotos||[]).length)){
-      drawSectionBand('3', 'Abschlussbericht', _PDF_PHASE_INFO.abschluss.color);
+      drawSectionBand(String(sectionCounter++), 'Abschlussbericht', _PDF_PHASE_INFO.abschluss.color);
       if(ab.zusammenfassung)  drawParagraph('Zusammenfassung', ab.zusammenfassung);
       if(ab.instandstellung)  drawParagraph('Instandstellung', ab.instandstellung);
       if(ab.weitereSchaeden)  drawParagraph('Weitere Schäden / Folgekosten', ab.weitereSchaeden);
@@ -3324,8 +3364,15 @@ function sdExportPdf(id){
     }
 
     // ═══════════════════════════════════════
-    // FOOTER + HEADER AUF ALLEN SEITEN (außer Cover)
+    // FOOTER AUF ALLEN SEITEN — fuer Cover (Seite 1) ein kompakter Stil,
+    // fuer Inhalts-Seiten der ausfuehrliche Footer mit Org-Adresse.
     // ═══════════════════════════════════════
+    // Seite 1 (Cover) — kompakter Footer mit 'Seite 1 / N'
+    doc.setPage(1);
+    doc.setFontSize(7.5); doc.setFont('helvetica','normal'); doc.setTextColor(156,163,175);
+    doc.text('PDF erstellt: '+_sdPdfFmtDateTime(pdfErstelltAt), M, pageH-10);
+    doc.text('Seite 1 / '+totalPages, pageW-M, pageH-10, {align:'right'});
+    // Seiten 2..N — ausfuehrlicher Footer
     for(var p=2; p<=totalPages; p++){
       doc.setPage(p);
       _drawContentFooter(p, totalPages);
@@ -3333,6 +3380,24 @@ function sdExportPdf(id){
 
     var fname='Schadensbericht_'+(s.titel||s.id||'Schaden').replace(/[^a-z0-9]+/gi,'_')+'_'+new Date().toISOString().slice(0,10)+'.pdf';
     doc.save(fname);
+    });
+  });
+}
+
+// Logo-Dimensionen async laden — fuer korrektes Aspect-Ratio im PDF.
+function _sdGetLogoDims(org){
+  return new Promise(function(resolve){
+    if(!org || !org.logo){ resolve(null); return; }
+    try{
+      var img = new Image();
+      img.onload = function(){
+        var w = img.naturalWidth || img.width || 1;
+        var h = img.naturalHeight || img.height || 1;
+        resolve({ w: w, h: h, ar: w/h });
+      };
+      img.onerror = function(){ resolve(null); };
+      img.src = org.logo;
+    }catch(e){ resolve(null); }
   });
 }
 
@@ -3396,11 +3461,12 @@ function sdBuildReportHtml(s) {
     if (a.leckortung) h += '<div class="info-row"><span class="info-label">Leckortung:</span>' + esc(a.leckortung) + '</div>';
     if (a.schadenausmass) h += '<div class="info-row"><span class="info-label">Schadenausmass:</span>' + esc(a.schadenausmass) + '</div>';
     if (a.massnahmen && a.massnahmen.length) {
-      h += '<h3>Massnahmen</h3><table><tr><th>Beschreibung</th><th>Priorität</th><th>Status</th></tr>';
+      h += '<h3>Massnahmen</h3><ul>';
       a.massnahmen.forEach(function(m) {
-        h += '<tr><td>' + esc(m.beschreibung) + '</td><td>' + esc(m.prioritaet) + '</td><td>' + (m.erledigt ? '✅ Erledigt' : '⬜ Offen') + '</td></tr>';
+        var beschr = typeof m === 'string' ? m : (m.beschreibung || m.text || '');
+        if(beschr) h += '<li>' + esc(beschr) + '</li>';
       });
-      h += '</table>';
+      h += '</ul>';
     }
     if (a.fotos && a.fotos.length) {
       h += '<h3>Fotos (Analyse)</h3>';
