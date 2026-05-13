@@ -1063,15 +1063,28 @@ function sdSaveNewObjekt(){
     }
   } catch(e){}
 
-  // Bestehende Objekte aus localStorage lesen (Schema kompatibel zu pm_objekte.html)
+  // Bestehende Objekte aus localStorage lesen — Schema von pm_objekte.html:
+  //   { objekte:[], beteiligte:[], activeObjektId:null }
+  // (Frueheres sd-Schema 'liste' war inkompatibel und wurde nirgends
+  //  sonst gelesen.)
   var KEY = 'gema_objekte_v1';
-  var pool = { liste: [], aktivId: '' };
+  var pool = { objekte:[], beteiligte:[], activeObjektId:null };
   try {
     var raw = (typeof _GemaDB !== 'undefined' && _GemaDB.c && _GemaDB.c[KEY])
               || localStorage.getItem(KEY);
-    if(raw){ var d = JSON.parse(raw); if(d && typeof d === 'object') pool = Object.assign(pool, d); }
+    if(raw){
+      var d = JSON.parse(raw);
+      if(d && typeof d === 'object'){
+        // Migration: altes sd-Schema 'liste' → 'objekte'
+        if(Array.isArray(d.liste) && !Array.isArray(d.objekte)){
+          d.objekte = d.liste;
+          delete d.liste;
+        }
+        pool = Object.assign(pool, d);
+      }
+    }
   } catch(e){}
-  if(!Array.isArray(pool.liste)) pool.liste = [];
+  if(!Array.isArray(pool.objekte)) pool.objekte = [];
 
   var obj = {
     id: 'obj_' + Date.now() + '_' + Math.random().toString(36).substr(2,5),
@@ -1087,7 +1100,7 @@ function sdSaveNewObjekt(){
     beteiligte: [],
     teamUserIds: []
   };
-  pool.liste.push(obj);
+  pool.objekte.push(obj);
 
   // Persistieren — sowohl _GemaDB als auch localStorage
   var json = JSON.stringify(pool);
@@ -1099,10 +1112,14 @@ function sdSaveNewObjekt(){
     if(typeof GemaObjekte !== 'undefined' && GemaObjekte.refresh) GemaObjekte.refresh();
   } catch(e){}
 
-  // Dropdown neu rendern + neues Objekt auswählen
+  // Dropdown neu rendern + neues Objekt direkt auswaehlen
   sdPopulateObjekte();
   var sel = document.getElementById('f_objekt');
-  if(sel) sel.value = obj.id;
+  if(sel){
+    sel.value = obj.id;
+    // change-Event feuern, falls Listener am Dropdown haengen
+    try { sel.dispatchEvent(new Event('change', {bubbles:true})); } catch(e){}
+  }
 
   sdCloseNewObjekt();
 }
