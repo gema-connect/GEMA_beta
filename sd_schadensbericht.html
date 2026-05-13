@@ -1129,6 +1129,52 @@ function sdToday() {
   var d = new Date();
   return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
 }
+
+// Anzahl Kalendertage zwischen zwei ISO-Daten (yyyy-mm-dd).
+// Mindestens 1 Tag, wenn beide Daten gesetzt sind (User-Sicht:
+// 'das Geraet war einen Tag dort').
+function sdDaysBetween(startISO, endISO){
+  if(!startISO || !endISO) return null;
+  var s = new Date(startISO+'T00:00:00').getTime();
+  var e = new Date(endISO  +'T00:00:00').getTime();
+  if(isNaN(s) || isNaN(e)) return null;
+  var diff = Math.ceil((e - s) / 86400000);
+  return Math.max(1, diff + 1); // +1 weil Tag-inklusiv: Start- und End-Tag zaehlen beide mit
+}
+
+// Geraet-Start-Datum: priorisiert explizit gesetztes Feld, faellt
+// auf id-Timestamp zurueck (Backwards-Compat fuer alte Geraete).
+function sdGeraetStart(g){
+  if(g.eingesetztAm) return g.eingesetztAm;
+  if(g.einsatz && g.einsatz.eingesetztAm) return g.einsatz.eingesetztAm;
+  // id Format 'dev_<timestamp>' → Datum extrahieren
+  if(typeof g.id === 'string'){
+    var m = g.id.match(/^dev_(\d{10,})/);
+    if(m){
+      var d = new Date(parseInt(m[1], 10));
+      if(!isNaN(d.getTime())){
+        return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+      }
+    }
+  }
+  return null;
+}
+
+// Geraet-End-Datum: explizit gesetzt, oder History (TG-Modul), oder
+// null bei laufendem Geraet.
+function sdGeraetEnde(g){
+  if(g.entferntAm) return g.entferntAm;
+  if(g.zurueckAm)  return g.zurueckAm; // _history aus TG-Modul
+  return null;
+}
+
+// Tage Trocknung pro Geraet. Bei laufenden Geraeten: bis heute.
+function sdGeraetTage(g){
+  var start = sdGeraetStart(g);
+  if(!start) return null;
+  var ende = sdGeraetEnde(g) || sdToday();
+  return sdDaysBetween(start, ende);
+}
 var esc = function(s) { return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); };
 
 // ── FILTER & VIEW ──
@@ -1774,9 +1820,11 @@ function sdRenderTrocknung(s, canEdit, canMeas) {
   h += '</div>';
 
   if (tr.geraete && tr.geraete.length) {
-    h += '<div style="overflow-x:auto"><table class="dev-table"><thead><tr><th>Gerät</th><th>Raum</th><th>kW</th><th>Start (h)</th><th>Ende (h)</th><th>kWh</th><th></th></tr></thead><tbody>';
+    h += '<div style="overflow-x:auto"><table class="dev-table"><thead><tr><th>Gerät</th><th>Raum</th><th>kW</th><th>Start (h)</th><th>Ende (h)</th><th>Ende am</th><th>Tage</th><th>kWh</th><th></th></tr></thead><tbody>';
     tr.geraete.forEach(function(g, gi) {
       var kwh = (g.zaehlerEnde !== null && g.zaehlerEnde !== '' && g.kw) ? ((parseFloat(g.zaehlerEnde) - parseFloat(g.zaehlerStart || 0)) * parseFloat(g.kw)).toFixed(1) : '—';
+      var tage = sdGeraetTage(g);
+      var tageStr = tage == null ? '—' : (sdGeraetEnde(g) ? (tage + ' Tag' + (tage===1?'':'e')) : (tage + ' Tg ⏵')); // ⏵ = laufend
       h += '<tr>';
       h += '<td style="font-weight:700">' + esc(g.name) + '</td>';
       h += '<td>' + esc(g.raum || '—') + '</td>';
@@ -1789,6 +1837,16 @@ function sdRenderTrocknung(s, canEdit, canMeas) {
         h += (g.zaehlerEnde || '—');
       }
       h += '</td>';
+      // Ende-am-Datum (editierbar wenn berechtigt). Default beim Setzen
+      // des Zaehlerstand-Ende = heute, hier manuell anpassbar.
+      h += '<td>';
+      if (editable) {
+        h += '<input type="date" value="' + (sdGeraetEnde(g) || '') + '" style="height:34px;padding:0 6px;border:1.5px solid var(--brd2);border-radius:6px;font-size:12px;font-family:var(--sans)" onchange="sdUpdateDevEndDate(\'' + s.id + '\',' + gi + ',this.value)">';
+      } else {
+        h += (sdGeraetEnde(g) ? sdFmtDate(sdGeraetEnde(g)) : '—');
+      }
+      h += '</td>';
+      h += '<td style="font-weight:700;color:' + (tage == null ? 'var(--mut)' : 'var(--txt)') + '">' + tageStr + '</td>';
       h += '<td style="font-weight:800;color:' + (kwh !== '—' ? 'var(--plan)' : 'var(--mut)') + '">' + kwh + '</td>';
       h += '<td>';
       if (canEdit) h += '<button class="tc-act danger" style="font-size:12px;padding:6px 10px;min-width:32px;min-height:32px" onclick="sdDelDev(\'' + s.id + '\',' + gi + ')">✕</button>';
@@ -1895,11 +1953,30 @@ function sdUpdateTrocknung(id, field, val) {
 }
 function sdUpdateDevEnd(id, idx, val) {
   var s = sdGetById(id); if (!s || !s.trocknung) return;
-  if (s.trocknung.geraete[idx]) {
-    s.trocknung.geraete[idx].zaehlerEnde = val;
-    sdSave();
-    sdRenderDetail(s);
+  var g = s.trocknung.geraete[idx];
+  if (!g) return;
+  g.zaehlerEnde = val;
+  // End-Datum automatisch auf heute setzen, sobald ein Endwert eingegeben
+  // wird (und noch kein Datum manuell gesetzt ist).
+  if (val !== '' && val != null && !g.entferntAm) {
+    g.entferntAm = sdToday();
   }
+  // Wenn der Endwert wieder geleert wird, das Datum mit zurueckziehen.
+  if (val === '' || val == null) {
+    g.entferntAm = null;
+  }
+  sdSave();
+  sdRenderDetail(s);
+}
+
+// Trocknungs-End-Datum eines Geraets manuell setzen (Datums-Input in der Tabelle).
+function sdUpdateDevEndDate(id, idx, val) {
+  var s = sdGetById(id); if (!s || !s.trocknung) return;
+  var g = s.trocknung.geraete[idx];
+  if (!g) return;
+  g.entferntAm = val || null;
+  sdSave();
+  sdRenderDetail(s);
 }
 
 // ── MESSPUNKTE ──
@@ -2281,6 +2358,8 @@ function sdAddGeraet() {
     kw: kw,
     zaehlerStart: zaehlerStart,
     zaehlerEnde: null,
+    eingesetztAm: sdToday(),
+    entferntAm: null,
     tgDeviceId: linkedTgId || null
   });
   sdSave();
@@ -3097,13 +3176,15 @@ function sdExportPdf(id){
     var bearbeiter = (s.erstelltVon && s.erstelltVon.name) || '—';
     doc.text(bearbeiter, col2X, by);
     by+=10;
+    // Adresse des Projekts (statt Schaden-ID) — aus dem zugeordneten Objekt
+    var objAdresse = _sdGetObjektAdresse(s.objektId);
     doc.setFontSize(8); doc.setFont('helvetica','bold'); doc.setTextColor(107,114,128);
     doc.text('ERFASST AM', col1X, by);
-    doc.text('SCHADEN-ID', col2X, by);
+    doc.text('ADRESSE', col2X, by);
     by+=4.5;
     doc.setFontSize(10); doc.setFont('helvetica','normal'); doc.setTextColor(15,23,42);
     doc.text(_sdPdfFmtDate(s.erstelltAm), col1X, by);
-    doc.text(s.id||'—', col2X, by);
+    doc.text(objAdresse || '—', col2X, by, {maxWidth: (pageW/2)-col2X+pageW/2-M-5});
     by+=10;
     if(Array.isArray(s.raeume) && s.raeume.length){
       doc.setFontSize(8); doc.setFont('helvetica','bold'); doc.setTextColor(107,114,128);
@@ -3201,21 +3282,30 @@ function sdExportPdf(id){
       var trMeta = [];
       if(tr.gestartetAm) trMeta.push('Gestartet: '+_sdPdfFmtDate(tr.gestartetAm));
       if(tr.beendetAm)   trMeta.push('Beendet: '+_sdPdfFmtDate(tr.beendetAm));
+      // Gesamt-Dauer in Tagen: gestartetAm → beendetAm (oder heute, falls laufend)
+      if(tr.gestartetAm){
+        var gesamtTage = sdDaysBetween(tr.gestartetAm, tr.beendetAm || sdToday());
+        if(gesamtTage){
+          trMeta.push('Dauer: '+gesamtTage+' Tag'+(gesamtTage===1?'':'e')+(tr.beendetAm?'':' (laufend)'));
+        }
+      }
       if(trMeta.length){
         ensureSpace(5);
         doc.setFont('helvetica','normal'); doc.setFontSize(9); doc.setTextColor(55,65,81);
         doc.text(trMeta.join('     '), M, y); y+=5;
       }
-      // Geraete sammeln (eigene + live + history)
+      // Geraete sammeln (eigene + live + history) — eingesetztAm/entferntAm
+      // ist Voraussetzung fuer die Tage-Spalte; bei TG-Modul-Geraeten kommt
+      // das aus einsatz.eingesetztAm bzw. zurueckAm.
       var geraete=Array.isArray(tr.geraete)?tr.geraete.slice():[];
       try{
         if(typeof GemaTrocknung !== 'undefined'){
           (GemaTrocknung.getForSchaden(id)||[]).forEach(function(d){
             var inE=d.einsatz||{};
-            geraete.push({name:d.name,raum:inE.raum||'',kw:d.kw||0,zaehlerStart:inE.zaehlerStart,zaehlerEnde:null,_live:true});
+            geraete.push({name:d.name,raum:inE.raum||'',kw:d.kw||0,zaehlerStart:inE.zaehlerStart,zaehlerEnde:null,eingesetztAm:inE.eingesetztAm,_live:true});
           });
           (GemaTrocknung.getHistoryForSchaden(id)||[]).forEach(function(e){
-            geraete.push({name:e.geraetName||'-',raum:e.raum||'',kw:e.kw||0,zaehlerStart:e.zaehlerStart,zaehlerEnde:e.zaehlerEnde,kwhTotal:e.kwhTotal,betriebsstunden:e.betriebsstunden,_history:true});
+            geraete.push({name:e.geraetName||'-',raum:e.raum||'',kw:e.kw||0,zaehlerStart:e.zaehlerStart,zaehlerEnde:e.zaehlerEnde,kwhTotal:e.kwhTotal,betriebsstunden:e.betriebsstunden,eingesetztAm:e.eingesetztAm,zurueckAm:e.zurueckAm,_history:true});
           });
         }
       }catch(_){}
@@ -3224,8 +3314,9 @@ function sdExportPdf(id){
         doc.setFont('helvetica','bold'); doc.setFontSize(9.5); doc.setTextColor(15,23,42);
         doc.text('Geräte', M, y); y+=5;
         var totKwh = 0, totHours = 0;
-        // Pro-Raum aggregieren — fuer die Raum-Summen-Zeilen weiter unten
-        var raumAgg = {}; // raum -> { kwh, hours, count }
+        // Pro-Raum aggregieren — kwh/hours/count + frueheste/spaeteste
+        // Datums-Grenze fuer Trocknungs-Tage pro Raum.
+        var raumAgg = {}; // raum -> { kwh, hours, count, minStart, maxEnd, hasOpen }
         var rows = geraete.map(function(g){
           var kwh=null, hours=null;
           if(g.kwhTotal != null) kwh = g.kwhTotal;
@@ -3235,22 +3326,34 @@ function sdExportPdf(id){
           }
           if(g.betriebsstunden != null) hours = g.betriebsstunden;
           if(kwh != null) totKwh += kwh;
+          if(hours != null) totHours += hours;
+          // Geraete-Tage
+          var gStart = sdGeraetStart(g);
+          var gEnde  = sdGeraetEnde(g);
+          var gTage  = sdGeraetTage(g);
           // Raum-Aggregation
           var rmKey = (g.raum||'').trim() || '(kein Raum)';
-          if(!raumAgg[rmKey]) raumAgg[rmKey] = { kwh:0, hours:0, count:0 };
+          if(!raumAgg[rmKey]) raumAgg[rmKey] = { kwh:0, hours:0, count:0, minStart:null, maxEnd:null, hasOpen:false };
           raumAgg[rmKey].count++;
           if(hours != null) raumAgg[rmKey].hours += hours;
           if(kwh   != null) raumAgg[rmKey].kwh   += kwh;
-          if(hours != null) totHours += hours;
+          if(gStart && (raumAgg[rmKey].minStart === null || gStart < raumAgg[rmKey].minStart)) raumAgg[rmKey].minStart = gStart;
+          if(gEnde){
+            if(raumAgg[rmKey].maxEnd === null || gEnde > raumAgg[rmKey].maxEnd) raumAgg[rmKey].maxEnd = gEnde;
+          } else if(gStart){
+            raumAgg[rmKey].hasOpen = true; // laufendes Geraet
+          }
+          var tageStr = gTage == null ? '—' : (gEnde ? String(gTage) : (gTage+' (offen)'));
           return [
             g.name||'-',
             g.raum||'—',
             g.kw ? g.kw.toFixed(2)+' kW' : '—',
             hours != null ? hours.toFixed(1)+' h' : '—',
+            tageStr,
             kwh != null ? kwh.toFixed(1)+' kWh' : '—'
           ];
         });
-        drawTable(['Name','Raum','Leistung','Stunden','Energie'], rows, [3.2, 2.6, 1.6, 1.4, 1.6]);
+        drawTable(['Name','Raum','Leistung','Stunden','Tage','Energie'], rows, [3, 2.4, 1.4, 1.3, 1.1, 1.5]);
         // Summen pro Raum (nur wenn mehr als ein Raum mit Geraeten)
         var raumKeys = Object.keys(raumAgg);
         if(raumKeys.length > 1){
@@ -3261,7 +3364,15 @@ function sdExportPdf(id){
           raumKeys.forEach(function(rm){
             ensureSpace(5);
             var a = raumAgg[rm];
+            // Raum-Trocknungs-Tage: frueheste Start bis spaeteste End (oder heute bei offen)
+            var raumTage = null;
+            if(a.minStart){
+              var endRef = a.hasOpen ? sdToday() : (a.maxEnd || sdToday());
+              raumTage = sdDaysBetween(a.minStart, endRef);
+            }
+            var tagePart = raumTage == null ? '' : (raumTage + ' Tag' + (raumTage===1?'':'e') + (a.hasOpen?' (offen)':'') + '   ·   ');
             var line = '• '+rm+' ('+a.count+' Gerät'+(a.count===1?'':'e')+'):  '
+                       + tagePart
                        + a.hours.toFixed(1) + ' h   ·   ' + a.kwh.toFixed(1) + ' kWh';
             doc.text(line, M, y); y+=4.5;
           });
@@ -3382,6 +3493,33 @@ function sdExportPdf(id){
     doc.save(fname);
     });
   });
+}
+
+// Adresse des Projekts (Objekts) als formatierten Einzeiler liefern.
+// Nutzt GemaObjekte falls verfuegbar; sonst Fallback ueber localStorage.
+function _sdGetObjektAdresse(objektId){
+  if(!objektId) return '';
+  var obj = null;
+  try{
+    if(typeof GemaObjekte !== 'undefined' && GemaObjekte.getById){
+      obj = GemaObjekte.getById(objektId);
+    } else if(typeof GemaObjekte !== 'undefined' && GemaObjekte.getAll){
+      obj = (GemaObjekte.getAll()||[]).find(function(o){ return o.id === objektId; });
+    } else {
+      var raw = localStorage.getItem('gema_objekte_v1');
+      if(raw){
+        var pool = JSON.parse(raw);
+        var list = (pool && (pool.objekte||pool.liste)) || [];
+        obj = list.find(function(o){ return o.id === objektId; });
+      }
+    }
+  }catch(e){}
+  if(!obj) return '';
+  var s = (obj.strasse||obj.adresse||'').trim();
+  var p = (obj.plz||'').trim();
+  var o = (obj.ort||'').trim();
+  var po = [p,o].filter(Boolean).join(' ');
+  return [s, po].filter(Boolean).join(', ');
 }
 
 // Logo-Dimensionen async laden — fuer korrektes Aspect-Ratio im PDF.
