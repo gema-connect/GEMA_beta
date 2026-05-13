@@ -13,92 +13,105 @@
   var STORAGE_ORG_CATS= 'gema_org_cats_v1';
   var SESSION_DAYS    = 30;
 
-  // ── Supabase Sync ──
-  var SB_URL='https://fjhbqjvaygvhievjgdtm.supabase.co';
-  var SB_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZqaGJxanZheWd2aGlldmpnZHRtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI2ODk5OTUsImV4cCI6MjA4ODI2NTk5NX0.n3AbrEKTWWhI2tnDaf7-Z-QI9o9pJiP1E7BsHVuZY9k';
-  var SB_TABLE='gema_data';
+  // ── Cloud-Sync (per-Record) ──────────────────────────────────────
+  // Single source of truth: Supabase. Pro Org/User/Rolle eine eigene
+  // Row in `gema_data` mit data_key='<entity>:<id>'. localStorage bleibt
+  // als sekundaerer In-Memory-Cache fuer synchrone Reads — wird nach
+  // jedem Cloud-Sync mit dem Cloud-Stand UEBERSCHRIEBEN (gewinnt Cloud).
+  // Saves laufen pro geaendertem Record, nie als ganzes Blob.
+  // Detail siehe gema_sync.js + CLAUDE.md.
+  function _S(){ return typeof window!=='undefined' && window.GemaSync; }
 
-  var _lastSyncTs={};
-  function _syncToSupabase(key,data){
-    var ts=new Date().toISOString();
-    _lastSyncTs[key]=ts;
-    try{
-      fetch(SB_URL+'/rest/v1/'+SB_TABLE+'?on_conflict=module_key%2Cdata_key',{
-        method:'POST',
-        headers:{'Content-Type':'application/json','apikey':SB_KEY,'Authorization':'Bearer '+SB_KEY,'Prefer':'resolution=merge-duplicates,return=minimal'},
-        body:JSON.stringify({module_key:'auth',data_key:key,payload:{v:JSON.stringify(data),ts:ts}})
-      }).then(function(r){
-        if(!r.ok)console.warn('[GemaAuth] Supabase write failed',key,r.status);
-      }).catch(function(e){console.warn('[GemaAuth] Supabase sync error',key,e);});
-    }catch(e){console.warn('[GemaAuth] Supabase sync error',e);}
+  // Mapping STORAGE_KEY -> Cloud-Prefix + idField
+  var _COLL = {};
+  _COLL[STORAGE_ORGS]  = { prefix: 'org:',  idField: 'id', legacyKey: STORAGE_ORGS  };
+  _COLL[STORAGE_USERS] = { prefix: 'user:', idField: 'id', legacyKey: STORAGE_USERS };
+  _COLL[STORAGE_ROLES] = { prefix: 'role:', idField: 'id', legacyKey: STORAGE_ROLES };
+
+  function _writeLocalCache(storageKey, arr){
+    try{ localStorage.setItem(storageKey, JSON.stringify(arr||[])); }catch(e){}
   }
 
-  // ── Versionierte Backup-Snapshots ──
-  // Bei jedem saveOrgs/saveUsers wird eine zusaetzliche Kopie unter
-  // einem Datums-/Stunden-Schluessel abgelegt (data_key=`<key>__bak_<YYYYMMDD_HH>`).
-  // Pro Stunde wird nur einmal geschrieben (lokales Lock), damit der
-  // Snapshot-Pool nicht explodiert. Damit ist auch ein versehentliches
-  // Ueberschreiben (z.B. durch DEFAULTS-Push wie im Bug von Cache-Clear)
-  // bis 24 Stunden zurueck wiederherstellbar.
-  function _backupKey(baseKey){
-    var d=new Date();
-    var pad=function(n){return n<10?'0'+n:''+n;};
-    return baseKey+'__bak_'+d.getUTCFullYear()+pad(d.getUTCMonth()+1)+pad(d.getUTCDate())+'_'+pad(d.getUTCHours());
-  }
-  function _writeBackupSnapshot(baseKey,data){
-    if(!data||(Array.isArray(data)&&!data.length)) return; // nie leer pushen
-    var bk=_backupKey(baseKey);
-    try{
-      var lockKey='gema_auth_bak_lock_'+bk;
-      if(localStorage.getItem(lockKey)) return; // diese Stunde schon gepusht
-      localStorage.setItem(lockKey,'1');
-    }catch(e){}
-    try{
-      fetch(SB_URL+'/rest/v1/'+SB_TABLE+'?on_conflict=module_key%2Cdata_key',{
-        method:'POST',
-        headers:{'Content-Type':'application/json','apikey':SB_KEY,'Authorization':'Bearer '+SB_KEY,'Prefer':'resolution=merge-duplicates,return=minimal'},
-        body:JSON.stringify({module_key:'auth_bak',data_key:bk,payload:{v:JSON.stringify(data),ts:new Date().toISOString()}})
-      }).catch(function(){});
-    }catch(e){}
-  }
-  function _listBackupSnapshots(baseKey){
-    return new Promise(function(resolve){
-      try{
-        var prefix=baseKey+'__bak_';
-        // PostgREST `like`-Filter mit URL-encoded Wildcard
-        var url=SB_URL+'/rest/v1/'+SB_TABLE+'?module_key=eq.auth_bak&data_key=like.'+encodeURIComponent(prefix)+'*&select=data_key,payload&order=data_key.desc&limit=48';
-        fetch(url,{headers:{'apikey':SB_KEY,'Authorization':'Bearer '+SB_KEY}})
-          .then(function(r){return r.json();})
-          .then(function(rows){
-            if(!Array.isArray(rows)){ resolve([]); return; }
-            resolve(rows.map(function(r){
-              var v=r.payload&&r.payload.v;
-              try{ v=typeof v==='string'?JSON.parse(v):v; }catch(e){ v=null; }
-              return { key:r.data_key, ts:r.payload&&r.payload.ts, count:Array.isArray(v)?v.length:0, data:v };
-            }));
-          })
-          .catch(function(){ resolve([]); });
-      }catch(e){ resolve([]); }
+  // Lade alle Records einer Collection aus der Cloud, schreibe Cache.
+  // Liefert Promise<Array> oder reject bei Netz-Fehler.
+  function _loadCollectionFromCloud(storageKey){
+    var def = _COLL[storageKey];
+    if(!def || !_S()) return Promise.resolve(null);
+    return _S().loadCollection('auth', def.prefix).then(function(rows){
+      if(!rows.length) return null;
+      var arr = rows.map(function(r){ return r.data; }).filter(function(d){ return d && d[def.idField]; });
+      _writeLocalCache(storageKey, arr);
+      return arr;
     });
   }
 
-  function _fetchAuthFromSupabase(key,callback){
-    try{
-      var done=false;
-      var timer=setTimeout(function(){done=true;},3000);
-      fetch(SB_URL+'/rest/v1/'+SB_TABLE+'?module_key=eq.auth&data_key=eq.'+encodeURIComponent(key)+'&select=payload',{
-        headers:{'apikey':SB_KEY,'Authorization':'Bearer '+SB_KEY}
-      }).then(function(r){return r.json();}).then(function(rows){
-        clearTimeout(timer);
-        if(done)return;
-        if(rows&&rows.length&&rows[0].payload&&rows[0].payload.v){
-          var data=typeof rows[0].payload.v==='string'?JSON.parse(rows[0].payload.v):rows[0].payload.v;
-          if(data&&Array.isArray(data)&&data.length){
-            callback(data);
-          }
+  // Holt die alte Blob-Row direkt mit Roh-Fetch (alte Payload-Struktur
+  // war {v: '<json-string>'} statt {data: ...}).
+  function _legacyBlobFetch(storageKey){
+    if(!_S()) return Promise.resolve(null);
+    var url = _S().SB_URL + '/rest/v1/' + _S().SB_TABLE
+      + '?module_key=eq.auth&data_key=eq.' + encodeURIComponent(storageKey)
+      + '&select=payload';
+    return fetch(url, { headers: { 'apikey': _S().SB_KEY, 'Authorization': 'Bearer '+_S().SB_KEY } })
+      .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
+      .then(function(rows){
+        if(!Array.isArray(rows) || !rows.length) return null;
+        var p = rows[0].payload;
+        if(!p) return null;
+        // Alt: { v: '<json>' } oder { v: <object> }
+        if(p.v != null){
+          try{ return typeof p.v === 'string' ? JSON.parse(p.v) : p.v; }catch(e){ return null; }
         }
-      }).catch(function(e){clearTimeout(timer);console.warn('[GemaAuth] Supabase fetch error',key,e);});
-    }catch(e){}
+        // Neu: { data: <object>, _lm: ... } — sollte hier nicht vorkommen,
+        // weil das die Per-Record-Form ist.
+        if(p.data != null) return p.data;
+        return null;
+      })
+      .catch(function(){ return null; });
+  }
+
+  // Migration: alte Blob-Row in einzelne Per-Record-Rows aufsplitten.
+  // Idempotent: wenn Cloud schon Records hat, geschieht nichts.
+  // User-Wahl 'Auto-Migration ohne Backup' → alte Blob-Row wird nach
+  // erfolgreichem Aufsplitten geloescht.
+  function _migrateBlobToRecordsIfNeeded(storageKey){
+    var def = _COLL[storageKey];
+    if(!def || !_S()) return Promise.resolve({migrated:false});
+    return _S().loadCollection('auth', def.prefix).then(function(existing){
+      if(existing && existing.length) return {migrated:false, reason:'records-exist'};
+      return _legacyBlobFetch(storageKey).then(function(arr){
+        if(!Array.isArray(arr) || !arr.length) return {migrated:false, reason:'no-blob'};
+        var records = arr.filter(function(it){ return it && it[def.idField]; })
+                         .map(function(it){ return { key: def.prefix + it[def.idField], data: it }; });
+        if(!records.length) return {migrated:false, reason:'no-valid-records'};
+        return _S().saveRecords('auth', records).then(function(){
+          return _S().deleteRecord('auth', storageKey).then(function(){
+            _writeLocalCache(storageKey, arr);
+            console.info('[GemaAuth] Migration: '+storageKey+' → '+records.length+' Records');
+            return {migrated:true, count: records.length};
+          });
+        });
+      });
+    });
+  }
+
+  // Per-Record-Save: Diff zwischen aktuellem lokalem Cache und neuem Array,
+  // schreibt nur geaenderte Records, loescht entfernte.
+  // localStorage wird vor dem Cloud-Push aktualisiert (sofortige UI),
+  // bei Cloud-Fehler erscheint das Offline-Banner aus gema_sync.js.
+  function _persistCollection(storageKey, newArr){
+    var def = _COLL[storageKey];
+    if(!def) return Promise.resolve(false);
+    var oldArr = JSON.parse(localStorage.getItem(storageKey) || '[]');
+    _writeLocalCache(storageKey, newArr);
+    if(!_S()) return Promise.resolve(true);
+    return _S().saveDiff('auth', def.prefix, oldArr, newArr, def.idField)
+      .catch(function(e){
+        console.warn('[GemaAuth] Cloud-Save fehlgeschlagen ('+storageKey+'):', e && e.message);
+        // Cache nicht zurueckrollen — UI wuerde flackern. User sieht das
+        // Offline-Banner und weiss, dass nicht alles geklappt hat.
+        return false;
+      });
   }
 
   // ── Modul-Definitionen ─────────────────────────────────────────────
@@ -287,12 +300,10 @@
   }
 
   function _initDefaults() {
-    // KRITISCHER FIX: Bei leerem localStorage NICHT die DEFAULTS nach
-    // Supabase pushen. Sonst wuerde ein Cache-Clear die echten User-
-    // Daten in der Cloud mit DEFAULTS ueberschreiben (resolution=
-    // merge-duplicates updated das payload.v).
-    // Lokal duerfen DEFAULTS rein, weil _fetchAuthFromSupabase sie
-    // nachher mit den echten Daten merged. NIEMALS pushen!
+    // DEFAULTS werden NUR lokal befuellt (als Cache, falls keine Cloud-
+    // Verbindung). Sie werden NIE nach Cloud gepusht — die Per-Record-
+    // Saves arbeiten mit Diff: ein Default-Eintrag, der schon in der Cloud
+    // existiert, erzeugt keinen Save (Cache stimmt nach _loadCollectionFromCloud).
     if(!_getOrgs()) try{localStorage.setItem(STORAGE_ORGS,JSON.stringify(DEFAULT_ORGS));}catch(e){}
     if(!_getOrgCats()) try{localStorage.setItem(STORAGE_ORG_CATS,JSON.stringify(DEFAULT_ORG_CATS));}catch(e){}
     if(!_getUsers()) try{localStorage.setItem(STORAGE_USERS,JSON.stringify(DEFAULT_USERS));}catch(e){}
@@ -375,70 +386,63 @@
       }
     } catch(e) {}
 
-    // ── Supabase → localStorage Sync (async, non-blocking) ──
-    // Strategie: Nur NEUE Einträge von Remote hinzufügen.
-    // Lokale Daten werden NIE überschrieben (sie sind die aktuellsten,
-    // weil jeder Save sofort lokal + async nach Supabase geht).
-    //
-    // Auto-Recovery nach Cache-Clear: Wenn lokal NUR DEFAULTS drin sind
-    // (selbst-erstellte Orgs/User scheinbar weg) und Supabase aber mehr
-    // hat → einmaliger automatischer Reload nach erfolgreichem Sync.
-    var _autoRestoreNeeded = (function(){
+    // ── Cloud-First Bootstrap (per-Record) ─────────────────────────
+    // Strategie:
+    //   1. Falls Cloud alte Blob-Rows (gema_*_v1) hat: in einzelne
+    //      Records aufsplitten, alte Row loeschen.
+    //   2. Per-Record Collection laden — bei Erfolg gewinnt Cloud
+    //      und ueberschreibt den lokalen Cache (kein additiver Merge mehr,
+    //      sonst blieben veraltete User-/Org-Daten im Cache).
+    //   3. Bei Veraenderung: einmaliger Reload, damit die UI den neuen
+    //      Stand sieht (Permissions, Org-Admin, etc.).
+    var _initialOrgsHash    = _hashArr(_getOrgs());
+    var _initialUsersHash   = _hashArr(_getUsers());
+    var _initialRolesHash   = _hashArr(_getRoles());
+    function _maybeReloadAfterSync(beforeHash, afterArr){
+      if(!afterArr) return false;
+      var afterHash = _hashArr(afterArr);
+      if(afterHash === beforeHash) return false;
       try{
-        var oRaw=localStorage.getItem(STORAGE_ORGS);var uRaw=localStorage.getItem(STORAGE_USERS);
-        if(!oRaw||!uRaw) return false;
-        var oArr=JSON.parse(oRaw);var uArr=JSON.parse(uRaw);
-        var dOrg=DEFAULT_ORGS.map(function(o){return o.id;});
-        var dUsr=DEFAULT_USERS.map(function(u){return u.id;});
-        var customOrgs=oArr.filter(function(o){return dOrg.indexOf(o.id)<0;});
-        var customUsers=uArr.filter(function(u){return dUsr.indexOf(u.id)<0;});
-        return customOrgs.length===0 && customUsers.length===0;
-      }catch(e){ return false; }
-    })();
-    function _maybeAutoReload(addedOrgs, addedUsers){
-      if(!_autoRestoreNeeded) return;
-      if(addedOrgs===0 && addedUsers===0) return;
-      try{
-        if(sessionStorage.getItem('gema_auth_auto_reloaded')==='1') return;
+        if(sessionStorage.getItem('gema_auth_auto_reloaded')==='1') return false;
         sessionStorage.setItem('gema_auth_auto_reloaded','1');
       }catch(e){}
-      console.info('[GemaAuth] Cloud-Daten gefunden ('+addedOrgs+' Firmen, '+addedUsers+' Benutzer) — Seite wird neu geladen.');
-      // Kurze Verzoegerung, damit beide Sync-Aufrufe schreiben koennen
-      setTimeout(function(){ try{ location.reload(); }catch(e){} }, 400);
+      console.info('[GemaAuth] Cloud-Stand abweichend vom Cache — Seite wird neu geladen.');
+      setTimeout(function(){ try{ location.reload(); }catch(e){} }, 250);
+      return true;
     }
 
-    _fetchAuthFromSupabase(STORAGE_USERS,function(remoteUsers){
-      var localUsers=_getUsers()||[];
-      if(!localUsers.length&&remoteUsers.length){
-        try{localStorage.setItem(STORAGE_USERS,JSON.stringify(remoteUsers));}catch(e){}
-        _maybeAutoReload(0, remoteUsers.length);
-        return;
-      }
-      var changed=0;
-      remoteUsers.forEach(function(ru){
-        if(!localUsers.find(function(lu){return lu.id===ru.id;})){
-          localUsers.push(ru);changed++;
-        }
+    if(_S()){
+      // Migration zuerst (jede Collection einzeln, idempotent).
+      Promise.all([
+        _migrateBlobToRecordsIfNeeded(STORAGE_ORGS),
+        _migrateBlobToRecordsIfNeeded(STORAGE_USERS),
+        _migrateBlobToRecordsIfNeeded(STORAGE_ROLES)
+      ]).then(function(){
+        // Danach: per-Record laden, Cache ueberschreiben.
+        return Promise.all([
+          _loadCollectionFromCloud(STORAGE_ORGS),
+          _loadCollectionFromCloud(STORAGE_USERS),
+          _loadCollectionFromCloud(STORAGE_ROLES)
+        ]);
+      }).then(function(res){
+        var changed = false;
+        if(res[0] && _maybeReloadAfterSync(_initialOrgsHash,  res[0])) changed=true;
+        if(!changed && res[1] && _maybeReloadAfterSync(_initialUsersHash, res[1])) changed=true;
+        if(!changed && res[2] && _maybeReloadAfterSync(_initialRolesHash, res[2])) changed=true;
+      }).catch(function(e){
+        console.warn('[GemaAuth] Cloud-Bootstrap fehlgeschlagen:', e && e.message);
       });
-      if(changed)try{localStorage.setItem(STORAGE_USERS,JSON.stringify(localUsers));}catch(e){}
-      _maybeAutoReload(0, changed);
-    });
-    _fetchAuthFromSupabase(STORAGE_ORGS,function(remoteOrgs){
-      var localOrgs=_getOrgs()||[];
-      if(!localOrgs.length&&remoteOrgs.length){
-        try{localStorage.setItem(STORAGE_ORGS,JSON.stringify(remoteOrgs));}catch(e){}
-        _maybeAutoReload(remoteOrgs.length, 0);
-        return;
-      }
-      var changed=0;
-      remoteOrgs.forEach(function(ro){
-        if(!localOrgs.find(function(lo){return lo.id===ro.id;})){
-          localOrgs.push(ro);changed++;
-        }
-      });
-      if(changed)try{localStorage.setItem(STORAGE_ORGS,JSON.stringify(localOrgs));}catch(e){}
-      _maybeAutoReload(changed, 0);
-    });
+    }
+  }
+
+  function _hashArr(arr){
+    if(!Array.isArray(arr)) return '';
+    try{
+      var s=JSON.stringify(arr);
+      var h=5381;
+      for(var i=0;i<s.length;i++){h=((h<<5)+h)+s.charCodeAt(i);h=h&0xffffffff;}
+      return h.toString(16);
+    }catch(e){ return ''; }
   }
   function _getPerms(user,roles,mkey){
     var p={read:false,write:false,admin:false};
@@ -789,22 +793,17 @@
       return new Promise(function(resolve){
         var resolved=false;
         function done(u){if(!resolved){resolved=true;resolve(u);}}
-        // Immer zuerst Supabase fragen (aktuelle Daten)
-        _fetchAuthFromSupabase(STORAGE_USERS,function(remoteUsers){
-          if(remoteUsers&&remoteUsers.length){
-            try{localStorage.setItem(STORAGE_USERS,JSON.stringify(remoteUsers));}catch(e){}
-          }
+        // Cloud first — User-Wahl: Login braucht Verbindung, kein Offline-Fallback.
+        // Wir laden die User-Collection per Record und ersetzen den lokalen
+        // Cache, bevor wir den Login-Versuch machen.
+        _loadCollectionFromCloud(STORAGE_USERS).then(function(){
           done(self.login(username,password,remember));
+        }).catch(function(){
+          // Cloud nicht erreichbar → kein Login moeglich (User-Wahl).
+          done(null);
         });
-        // Parallel: lokaler Versuch nach 500ms (falls Supabase langsam)
-        setTimeout(function(){
-          if(!resolved){
-            var local=self.login(username,password,remember);
-            if(local)done(local);
-          }
-        },500);
-        // Timeout: nach 5s aufgeben
-        setTimeout(function(){done(null);},5000);
+        // Hard-Timeout
+        setTimeout(function(){done(null);},6000);
       });
     },
     logout:function(){localStorage.removeItem(STORAGE_SESSION);location.href='sys_login.html';},
@@ -857,19 +856,18 @@
     },
 
     saveOrgs:function(o){
-      try{localStorage.setItem(STORAGE_ORGS,JSON.stringify(o));}catch(e){}
-      _syncToSupabase(STORAGE_ORGS,o);
-      _writeBackupSnapshot(STORAGE_ORGS,o);
+      _persistCollection(STORAGE_ORGS, o);
       return true;
     },
     saveOrgCats:function(c){try{localStorage.setItem(STORAGE_ORG_CATS,JSON.stringify(c));return true;}catch(e){return false;}},
     saveUsers:function(u){
-      try{localStorage.setItem(STORAGE_USERS,JSON.stringify(u));}catch(e){}
-      _syncToSupabase(STORAGE_USERS,u);
-      _writeBackupSnapshot(STORAGE_USERS,u);
+      _persistCollection(STORAGE_USERS, u);
       return true;
     },
-    saveRoles:function(r){try{localStorage.setItem(STORAGE_ROLES,JSON.stringify(r));return true;}catch(e){return false;}},
+    saveRoles:function(r){
+      _persistCollection(STORAGE_ROLES, r);
+      return true;
+    },
 
     /**
      * Notfall-Recovery: holt orgs + users aus Supabase und merged sie
@@ -889,114 +887,40 @@
      */
     restoreFromCloud:function(opts){
       opts = opts || {};
-      var overwrite = !!opts.overwrite;
-      function _fetch(key){
-        return new Promise(function(resolve){
-          _fetchAuthFromSupabase(key, function(data){ resolve(data); });
-          // Fallback nach 5s falls Supabase nicht antwortet
-          setTimeout(function(){ resolve(null); }, 5000);
-        });
-      }
-      return Promise.all([_fetch(STORAGE_ORGS), _fetch(STORAGE_USERS)]).then(function(res){
-        var remoteOrgs = res[0]; var remoteUsers = res[1];
-        if(!remoteOrgs && !remoteUsers){
-          return { ok:false, error:'Keine Verbindung zu Supabase oder leere Antwort.' };
-        }
-        var addedOrgs=0, addedUsers=0;
-        if(remoteOrgs && Array.isArray(remoteOrgs) && remoteOrgs.length){
-          if(overwrite){
-            try{ localStorage.setItem(STORAGE_ORGS, JSON.stringify(remoteOrgs)); }catch(e){}
-            addedOrgs = remoteOrgs.length;
-          } else {
-            var localOrgs = _getOrgs() || [];
-            remoteOrgs.forEach(function(ro){
-              if(!localOrgs.find(function(lo){ return lo.id===ro.id; })){
-                localOrgs.push(ro); addedOrgs++;
-              }
-            });
-            if(addedOrgs) try{ localStorage.setItem(STORAGE_ORGS, JSON.stringify(localOrgs)); }catch(e){}
-          }
-        }
-        if(remoteUsers && Array.isArray(remoteUsers) && remoteUsers.length){
-          if(overwrite){
-            try{ localStorage.setItem(STORAGE_USERS, JSON.stringify(remoteUsers)); }catch(e){}
-            addedUsers = remoteUsers.length;
-          } else {
-            var localUsers = _getUsers() || [];
-            remoteUsers.forEach(function(ru){
-              if(!localUsers.find(function(lu){ return lu.id===ru.id; })){
-                localUsers.push(ru); addedUsers++;
-              }
-            });
-            if(addedUsers) try{ localStorage.setItem(STORAGE_USERS, JSON.stringify(localUsers)); }catch(e){}
-          }
-        }
+      // Per-Record-Architektur: jedes Bootstrap holt automatisch alle
+      // Cloud-Records und ueberschreibt den lokalen Cache (Cloud gewinnt).
+      // restoreFromCloud loest das jetzt explizit aus, fuer Notfall-Buttons.
+      return Promise.all([
+        _migrateBlobToRecordsIfNeeded(STORAGE_ORGS),
+        _migrateBlobToRecordsIfNeeded(STORAGE_USERS),
+        _migrateBlobToRecordsIfNeeded(STORAGE_ROLES)
+      ]).then(function(){
+        return Promise.all([
+          _loadCollectionFromCloud(STORAGE_ORGS),
+          _loadCollectionFromCloud(STORAGE_USERS),
+          _loadCollectionFromCloud(STORAGE_ROLES)
+        ]);
+      }).then(function(res){
+        var orgs = res[0] || _getOrgs() || [];
+        var users = res[1] || _getUsers() || [];
         return {
           ok:true,
-          addedOrgs:addedOrgs, addedUsers:addedUsers,
-          totalOrgs:(_getOrgs()||[]).length, totalUsers:(_getUsers()||[]).length
+          addedOrgs: orgs.length, addedUsers: users.length,
+          totalOrgs: orgs.length, totalUsers: users.length
         };
+      }).catch(function(e){
+        return { ok:false, error: String(e && e.message || e) };
       });
     },
 
     /**
-     * Listet versionierte Backup-Snapshots aus Supabase. Pro Stunde
-     * wird ein Snapshot pro Key (orgs / users) abgelegt — siehe
-     * _writeBackupSnapshot. Diese sind die Lebensversicherung gegen
-     * versehentliche Ueberschreibung der Cloud-Daten.
-     *
-     * Returns: Promise<Array<{key, ts, count, data}>> — neueste zuerst
+     * Versionierte Backups gibt es seit dem Per-Record-Umbau nicht mehr.
+     * Single-Record-Saves koennen nicht mehr die ganze Liste ueberschreiben,
+     * darum sind die Hourly-Snapshots ueberfluessig. Stub bleibt fuer
+     * Aufrufer in sys_admin.html — liefert leeres Array.
      */
-    listBackups:function(which){
-      var baseKey = which==='users' ? STORAGE_USERS : STORAGE_ORGS;
-      return _listBackupSnapshots(baseKey);
-    },
-
-    /**
-     * Stellt einen konkreten Backup-Snapshot wieder her. `which`:
-     * 'orgs' oder 'users'. `dataKey` ist der vollstaendige Backup-
-     * Schluessel aus listBackups(...). overwrite=true ersetzt lokal,
-     * overwrite=false merged.
-     */
-    restoreFromBackup:function(which, dataKey, opts){
-      opts = opts||{};
-      var overwrite = !!opts.overwrite;
-      var baseKey = which==='users' ? STORAGE_USERS : STORAGE_ORGS;
-      return new Promise(function(resolve){
-        try{
-          var url=SB_URL+'/rest/v1/'+SB_TABLE+'?module_key=eq.auth_bak&data_key=eq.'+encodeURIComponent(dataKey)+'&select=payload';
-          fetch(url,{headers:{'apikey':SB_KEY,'Authorization':'Bearer '+SB_KEY}})
-            .then(function(r){return r.json();})
-            .then(function(rows){
-              if(!rows||!rows.length){ resolve({ok:false,error:'Backup nicht gefunden'}); return; }
-              var v=rows[0].payload&&rows[0].payload.v;
-              try{ v=typeof v==='string'?JSON.parse(v):v; }catch(e){ v=null; }
-              if(!Array.isArray(v)||!v.length){ resolve({ok:false,error:'Backup ist leer'}); return; }
-              var addedCount=0;
-              if(overwrite){
-                try{ localStorage.setItem(baseKey,JSON.stringify(v)); }catch(e){}
-                addedCount=v.length;
-              } else {
-                var local=null;
-                try{ local=JSON.parse(localStorage.getItem(baseKey)||'[]'); }catch(e){ local=[]; }
-                v.forEach(function(rec){
-                  if(!local.find(function(l){return l.id===rec.id;})){
-                    local.push(rec); addedCount++;
-                  }
-                });
-                if(addedCount) try{ localStorage.setItem(baseKey,JSON.stringify(local)); }catch(e){}
-              }
-              // Beim Restore auch in den Live-Slot pushen, damit andere
-              // Geraete den Stand uebernehmen.
-              var live=null;
-              try{ live=JSON.parse(localStorage.getItem(baseKey)||'[]'); }catch(e){ live=[]; }
-              if(live&&live.length) _syncToSupabase(baseKey,live);
-              resolve({ok:true,addedCount:addedCount,total:(live||[]).length});
-            })
-            .catch(function(e){ resolve({ok:false,error:String(e)}); });
-        }catch(e){ resolve({ok:false,error:String(e)}); }
-      });
-    },
+    listBackups:function(){ return Promise.resolve([]); },
+    restoreFromBackup:function(){ return Promise.resolve({ok:false, error:'Backups nicht mehr verfuegbar (per-Record-Architektur)'}); },
 
     /**
      * Erkennt, ob der lokale Storage nur DEFAULTS enthaelt — also der
