@@ -1,5 +1,5 @@
 /* GEMA Service Worker — Offline Cache + Push Vorbereitung */
-var CACHE_NAME = 'gema-v21';
+var CACHE_NAME = 'gema-v22';
 var CACHE_FILES = [
   '/', '/index.html', '/sb_index.html',
   '/sa_enthaertung.html', '/sa_osmose.html', '/sa_fettabscheider.html',
@@ -25,6 +25,7 @@ var CACHE_FILES = [
   '/gema_scroll.js', '/gema_pdf.js', '/gema_notify.js', '/gema_notify_ui.js',
   '/gema_coachmarks.js', '/gema_mobile_menu.js', '/gema_recent.js',
   '/gema_pwa.js', '/gema_adresse.js', '/gema_avatar.js', '/gema_dialog.js',
+  '/gema_qr_scanner.js', '/gema_nfc_scanner.js',
   '/icon-192.svg', '/icon-512.svg', '/manifest.json'
 ];
 

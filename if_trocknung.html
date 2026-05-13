@@ -540,6 +540,15 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
             <input type="text" inputmode="decimal" id="f_kw" placeholder="0.0" onblur="fixLeadingZero(this)">
           </div>
         </div>
+        <div class="fg" id="f_zaehlerTyp_wrap">
+          <label>Zähler-Typ</label>
+          <select id="f_zaehlerTyp">
+            <option value="kein">Kein Zähler</option>
+            <option value="stunden">Stunden-Zähler (h)</option>
+            <option value="kwh">kWh-Zähler (direkt)</option>
+          </select>
+          <div class="fg-hint" style="font-size:11px;color:#6b7280;margin-top:4px">Bei Stunden-Zählern wird kWh aus Differenz × Leistung berechnet. kWh-Zähler liefern den Verbrauch direkt.</div>
+        </div>
         <div class="fg">
           <label>Notizen</label>
           <textarea id="f_notes" placeholder="Standort, Besonderheiten …"></textarea>
@@ -1466,6 +1475,7 @@ window.openEdit = function(id) {
   document.getElementById('f_modell').value = d.modell || '';
   document.getElementById('f_serial').value = d.serienNr || '';
   document.getElementById('f_kw').value = d.kw || '';
+  document.getElementById('f_zaehlerTyp').value = d.zaehlerTyp || _tgDefaultZaehlerTyp(d.typ);
   document.getElementById('f_notes').value = d.notes || '';
   document.getElementById('f_hasService').checked = !!d.hasService;
   document.getElementById('f_serviceInterval').value = d.serviceInterval || '';
@@ -1476,25 +1486,45 @@ window.openEdit = function(id) {
   lockScroll();
 };
 
+// Default-Zaehler-Typ pro Geraetetyp: Messgeraete haben i.d.R. keinen
+// Verbrauchszaehler, andere Trockner haben klassisch einen Stunden-Zaehler.
+function _tgDefaultZaehlerTyp(typOrDevice){
+  var typ = typeof typOrDevice === 'string' ? typOrDevice : (typOrDevice && typOrDevice.typ);
+  var def = typ && GERAETE_TYPEN[typ];
+  if(def && def.noKw) return 'kein';
+  return 'stunden';
+}
+
 // Blendet das Leistungs-Feld (kW) aus, wenn der gewaehlte Geraetetyp
-// kein kW-Verbraucher ist (z.B. Messgeraete). Einsatz-Zaehlerstand
-// wird in diesem Fall ebenfalls nicht abgefragt — siehe openEinsatz.
+// kein kW-Verbraucher ist (z.B. Messgeraete). Synchronisiert ausserdem
+// das Zaehler-Typ-Select: bei noKw automatisch 'kein' (disabled), sonst
+// Default 'stunden' wenn das Feld leer ist.
 function _tgUpdateKwVisibility(){
   var typ = document.getElementById('f_typ').value;
   var def = GERAETE_TYPEN[typ];
   var wrap = document.getElementById('f_kw_wrap');
-  if(!wrap) return;
+  var zSel = document.getElementById('f_zaehlerTyp');
   if(def && def.noKw){
-    wrap.style.display = 'none';
+    if(wrap){ wrap.style.display = 'none'; }
     var kwEl = document.getElementById('f_kw');
     if(kwEl) kwEl.value = '';
+    if(zSel){
+      zSel.value = 'kein';
+      zSel.disabled = true;
+      zSel.style.opacity = '0.6';
+    }
   } else {
-    wrap.style.display = '';
+    if(wrap){ wrap.style.display = ''; }
+    if(zSel){
+      zSel.disabled = false;
+      zSel.style.opacity = '';
+      if(!zSel.value) zSel.value = 'stunden';
+    }
   }
 }
 
 function clearForm() {
-  ['f_typ','f_name','f_marke','f_modell','f_serial','f_kw','f_notes','f_serviceInterval','f_lastService'].forEach(function(id) {
+  ['f_typ','f_name','f_marke','f_modell','f_serial','f_kw','f_zaehlerTyp','f_notes','f_serviceInterval','f_lastService'].forEach(function(id) {
     var el = document.getElementById(id);
     if (el) el.value = '';
   });
@@ -1601,6 +1631,7 @@ window.saveDevice = function() {
     d.modell = g('f_modell').trim();
     d.serienNr = g('f_serial').trim();
     d.kw = parseFloat(g('f_kw')) || 0;
+    d.zaehlerTyp = g('f_zaehlerTyp') || _tgDefaultZaehlerTyp(typ);
     d.notes = g('f_notes').trim();
     var hs = document.getElementById('f_hasService');
     d.hasService = hs ? !!hs.checked : false;
@@ -1910,14 +1941,23 @@ window.calcKwh = function() {
   if (!d || !d.einsatz) return;
   var ende = parseFloat(document.getElementById('r_zaehlerEnde').value) || 0;
   var start = d.einsatz.zaehlerStart || 0;
-  var hours = ende - start;
-  if (hours < 0) hours = 0;
-  var kwh = hours * (d.kw || 0);
+  var diff = ende - start; if (diff < 0) diff = 0;
+  var typ = d.zaehlerTyp || _tgDefaultZaehlerTyp(d.typ);
+  var kwh, detail;
+  if (typ === 'kwh') {
+    kwh = diff;
+    detail = '(' + start + ' → ' + ende + ' kWh) Direktzähler = ' + kwh.toFixed(1) + ' kWh';
+  } else if (typ === 'kein') {
+    kwh = 0; detail = 'Kein Zähler';
+  } else {
+    kwh = diff * (d.kw || 0);
+    detail = '(' + start + ' → ' + ende + ' h = ' + diff.toFixed(1) + ' h) × ' + (d.kw || 0) + ' kW = ' + kwh.toFixed(1) + ' kWh';
+  }
   var card = document.getElementById('kwh_card');
-  if (ende > 0) {
+  if (ende > 0 || (typ === 'kwh' && diff > 0)) {
     card.style.display = '';
     document.getElementById('kwh_val').textContent = kwh.toFixed(1);
-    document.getElementById('kwh_detail').textContent = '(' + start + ' → ' + ende + ' h = ' + hours.toFixed(1) + ' h) × ' + (d.kw || 0) + ' kW = ' + kwh.toFixed(1) + ' kWh';
+    document.getElementById('kwh_detail').textContent = detail;
   } else {
     card.style.display = 'none';
   }
@@ -1926,25 +1966,28 @@ window.calcKwh = function() {
 window.saveReturn = function() {
   var d = devices.find(function(x) { return x.id === returnId; });
   if (!d || !d.einsatz) return;
-  var defType = GERAETE_TYPEN[d.typ] || {};
-  var ende, hours, kwh;
-  if(defType.noKw){
-    // Messgeraete: kein Zaehlerstand, keine kWh-Berechnung
-    ende = 0; hours = 0; kwh = 0;
+  var typ = d.zaehlerTyp || _tgDefaultZaehlerTyp(d.typ);
+  var ende, diff, hours, kwh;
+  if(typ === 'kein'){
+    ende = null; hours = null; kwh = null;
   } else {
     ende = parseFloat(document.getElementById('r_zaehlerEnde').value);
     if (isNaN(ende)) { alert('Bitte den Zählerstand Ende eingeben.'); return; }
     var start = d.einsatz.zaehlerStart || 0;
-    hours = ende - start;
-    if (hours < 0) hours = 0;
-    kwh = hours * (d.kw || 0);
+    diff = ende - start; if (diff < 0) diff = 0;
+    if(typ === 'kwh'){
+      kwh = diff; hours = null;
+    } else {
+      hours = diff; kwh = diff * (d.kw || 0);
+    }
   }
   // Move to history
   var hist = JSON.parse(JSON.stringify(d.einsatz));
   hist.zaehlerEnde = ende;
+  hist.zaehlerTyp  = typ;
   hist.zurueckAm = document.getElementById('r_datum').value || today();
-  hist.kwhTotal = Math.round(kwh * 100) / 100;
-  hist.betriebsstunden = Math.round(hours * 100) / 100;
+  hist.kwhTotal = kwh == null ? null : Math.round(kwh * 100) / 100;
+  hist.betriebsstunden = hours == null ? null : Math.round(hours * 100) / 100;
   if (!d.einsatzHistorie) d.einsatzHistorie = [];
   d.einsatzHistorie.push(hist);
   d.einsatz = null;

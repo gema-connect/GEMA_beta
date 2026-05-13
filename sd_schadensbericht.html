@@ -810,6 +810,11 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
     <!-- Auswahl aus Geraeteverwaltung: zeigt verfuegbare Geraete der
          eigenen Org. Klick fuellt Name/kW/Typ aus + setzt im Geraete-
          Modul den Status auf 'im_einsatz' (mit Verknuepfung zum Schaden). -->
+    <!-- NFC / QR Scan-Aktion — Monteur scannt Tag, passendes Geraet wird ausgewaehlt -->
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
+      <button type="button" class="nbtn" id="devNfcScanBtn" onclick="_sdScanForDev()" style="font-weight:700">📡 NFC-Tag scannen</button>
+      <span id="devScanStatus" style="font-size:11.5px;color:var(--mut);flex:1;min-width:0"></span>
+    </div>
     <div id="devPickerWrap" style="margin-bottom:14px"></div>
     <div style="display:flex;flex-direction:column;gap:12px">
       <div>
@@ -830,9 +835,17 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
           <input type="text" inputmode="decimal" class="dlg-inp" id="devKw" placeholder="z.B. 1.5" onblur="fixLeadingZero(this)">
         </div>
         <div class="fg">
-          <label class="dlg-lbl">Zählerstand Start (h)</label>
-          <input type="text" inputmode="decimal" class="dlg-inp" id="devStart" placeholder="0" onblur="fixLeadingZero(this)">
+          <label class="dlg-lbl">Zähler-Typ</label>
+          <select class="dlg-inp" id="devZaehlerTyp" onchange="_sdApplyZaehlerTyp(this.value)">
+            <option value="kein">Kein Zähler</option>
+            <option value="stunden" selected>Stunden-Zähler (h)</option>
+            <option value="kwh">kWh-Zähler (direkt)</option>
+          </select>
         </div>
+      </div>
+      <div class="fg" id="devStartWrap">
+        <label class="dlg-lbl" id="devStartLabel">Zählerstand Start (h)</label>
+        <input type="text" inputmode="decimal" class="dlg-inp" id="devStart" placeholder="0" onblur="fixLeadingZero(this)">
       </div>
       <input type="hidden" id="devLinkedTgId" value="">
     </div>
@@ -893,6 +906,8 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
 <script src="gema_mobile_menu.js"></script>
 <script src="gema_dialog.js"></script>
 <script src="gema_adresse.js"></script>
+<script src="gema_qr_scanner.js"></script>
+<script src="gema_nfc_scanner.js"></script>
 
 <script>
 // ═══════════════════════════════════════════
@@ -1172,6 +1187,34 @@ function sdGeraetEnde(g){
 }
 
 // Tage Trocknung pro Geraet. Bei laufenden Geraeten: bis heute.
+// kWh-Berechnung pro Geraet — respektiert den Zaehler-Typ:
+//   - 'stunden': kWh = (Ende - Start) * kw   (klassisches Trockner-Verhalten)
+//   - 'kwh':     kWh = Ende - Start          (direkt vom Verbrauchszaehler)
+//   - 'kein':    null                        (keine Zaehlerwerte)
+// Backwards-Compat: fehlendes zaehlerTyp wird als 'stunden' interpretiert.
+function sdComputeKwh(g){
+  if(!g) return null;
+  var typ = g.zaehlerTyp || 'stunden';
+  if(typ === 'kein') return null;
+  if(g.zaehlerEnde == null || g.zaehlerEnde === '') return null;
+  var diff = (parseFloat(g.zaehlerEnde)||0) - (parseFloat(g.zaehlerStart)||0);
+  if(diff < 0) diff = 0;
+  if(typ === 'kwh') return diff;
+  if(!g.kw) return null;
+  return diff * parseFloat(g.kw);
+}
+
+// Betriebsstunden pro Geraet. Nur sinnvoll bei zaehlerTyp='stunden' —
+// bei 'kwh' liefert der Zaehler den Verbrauch ohne Stunden-Information.
+function sdComputeHours(g){
+  if(!g) return null;
+  var typ = g.zaehlerTyp || 'stunden';
+  if(typ !== 'stunden') return null;
+  if(g.zaehlerEnde == null || g.zaehlerEnde === '') return null;
+  var diff = (parseFloat(g.zaehlerEnde)||0) - (parseFloat(g.zaehlerStart)||0);
+  return diff < 0 ? 0 : diff;
+}
+
 function sdGeraetTage(g){
   var start = sdGeraetStart(g);
   if(!start) return null;
@@ -1856,21 +1899,29 @@ function sdRenderTrocknung(s, canEdit, canMeas) {
   h += '</div>';
 
   if (tr.geraete && tr.geraete.length) {
-    h += '<div style="overflow-x:auto"><table class="dev-table"><thead><tr><th>Gerät</th><th>Raum</th><th>kW</th><th>Start (h)</th><th>Ende (h)</th><th>Ende am</th><th>Tage</th><th>kWh</th><th></th></tr></thead><tbody>';
+    h += '<div style="overflow-x:auto"><table class="dev-table"><thead><tr><th>Gerät</th><th>Raum</th><th>kW</th><th>Zähler</th><th>Start</th><th>Ende</th><th>Ende am</th><th>Tage</th><th>kWh</th><th></th></tr></thead><tbody>';
     tr.geraete.forEach(function(g, gi) {
-      var kwh = (g.zaehlerEnde !== null && g.zaehlerEnde !== '' && g.kw) ? ((parseFloat(g.zaehlerEnde) - parseFloat(g.zaehlerStart || 0)) * parseFloat(g.kw)).toFixed(1) : '—';
+      var kwhVal = sdComputeKwh(g);
+      var kwh = kwhVal == null ? '—' : kwhVal.toFixed(1);
       var tage = sdGeraetTage(g);
       var tageStr = tage == null ? '—' : (sdGeraetEnde(g) ? (tage + ' Tag' + (tage===1?'':'e')) : (tage + ' Tg ⏵')); // ⏵ = laufend
+      var zTyp = g.zaehlerTyp || 'stunden';
+      var zEinheit = zTyp === 'kwh' ? 'kWh' : (zTyp === 'kein' ? '' : 'h');
+      var zBadge = zTyp === 'kwh' ? '⚡ kWh' : (zTyp === 'kein' ? '–' : '⏱ h');
+      var hasZaehler = zTyp !== 'kein';
       h += '<tr>';
       h += '<td style="font-weight:700">' + esc(g.name) + '</td>';
       h += '<td>' + esc(g.raum || '—') + '</td>';
       h += '<td>' + (g.kw || '—') + '</td>';
-      h += '<td>' + (g.zaehlerStart || '0') + '</td>';
+      h += '<td style="font-size:11px;font-weight:700;color:var(--mut)">' + zBadge + '</td>';
+      h += '<td>' + (hasZaehler ? ((g.zaehlerStart != null ? g.zaehlerStart : '0') + (zEinheit ? ' '+zEinheit : '')) : '—') + '</td>';
       h += '<td>';
-      if (editable) {
+      if (editable && hasZaehler) {
         h += '<input type="text" inputmode="decimal" value="' + (g.zaehlerEnde || '') + '" placeholder="—" style="width:80px;min-height:36px" onblur="fixLeadingZero(this);sdUpdateDevEnd(\'' + s.id + '\',' + gi + ',this.value)">';
-      } else {
+      } else if(hasZaehler) {
         h += (g.zaehlerEnde || '—');
+      } else {
+        h += '—';
       }
       h += '</td>';
       // Ende-am-Datum: solange das Geraet nicht "entfernt" ist (kein
@@ -1902,12 +1953,11 @@ function sdRenderTrocknung(s, canEdit, canMeas) {
     });
     h += '</tbody></table></div>';
 
-    // Total kWh
+    // Total kWh — nutzt sdComputeKwh, respektiert zaehlerTyp pro Geraet
     var totalKwh = 0;
     tr.geraete.forEach(function(g) {
-      if (g.zaehlerEnde !== null && g.zaehlerEnde !== '' && g.kw) {
-        totalKwh += (parseFloat(g.zaehlerEnde) - parseFloat(g.zaehlerStart || 0)) * parseFloat(g.kw);
-      }
+      var v = sdComputeKwh(g);
+      if(v != null) totalKwh += v;
     });
     if (totalKwh > 0) {
       h += '<div class="sum-card" style="margin-top:8px"><div class="sum-row"><span class="lbl">Total Stromverbrauch</span><span class="val" style="color:var(--plan)">' + totalKwh.toFixed(1) + ' kWh</span></div></div>';
@@ -2254,6 +2304,8 @@ function _sdRenderDevPicker(schadenId){
       document.getElementById('devKw').value = dev.kw || '';
       // Raum bleibt frei — User vergibt den Raumnamen pro Schaden
       document.getElementById('devLinkedTgId').value = dev.id;
+      // Zaehler-Typ aus Geraeteverwaltung uebernehmen (Default-Logik bei fehlendem Feld)
+      _sdApplyZaehlerTyp(_sdDefaultZaehlerTyp(dev));
       // Visuelle Bestaetigung
       Array.prototype.forEach.call(wrap.querySelectorAll('.sd-dev-pick'), function(b){
         b.style.borderColor = 'var(--brd)';
@@ -2270,11 +2322,112 @@ function sdOpenDevAdd(id) {
   document.getElementById('devKw').value = '';
   document.getElementById('devStart').value = '0';
   document.getElementById('devLinkedTgId').value = '';
+  var typSel = document.getElementById('devZaehlerTyp');
+  if(typSel){ typSel.value = 'stunden'; _sdApplyZaehlerTyp('stunden'); }
+  var stat = document.getElementById('devScanStatus');
+  if(stat) stat.textContent = '';
+  // Scan-Button-Text je nach Verfuegbarkeit: NFC oder QR-Fallback
+  var nfcBtn = document.getElementById('devNfcScanBtn');
+  if(nfcBtn){
+    if(typeof GemaNFC !== 'undefined' && GemaNFC.isAvailable()){
+      nfcBtn.textContent = '📡 NFC-Tag scannen';
+    } else if(typeof GemaNFC !== 'undefined' && GemaNFC.isIos()){
+      nfcBtn.textContent = '📷 QR-Code scannen';
+      if(stat) stat.textContent = 'iPhone: Tag direkt ans Gerät halten — Safari öffnet die Seite. Sonst QR scannen.';
+    } else {
+      nfcBtn.textContent = '📷 QR-Code scannen';
+    }
+  }
   _sdRenderDevPicker(id);
   document.getElementById('devAddModal').dataset.schadenId = id;
   // Raum-Dropdown aus den bereits erfassten Raeumen aufbauen.
   sdRenderDevRaumSelect(id);
   document.getElementById('devAddModal').classList.remove('hidden');
+}
+
+// Default-Zaehler-Typ pro Geraet (Backwards-Compat). Identisch zur
+// Logik in if_trocknung.html _tgDefaultZaehlerTyp.
+function _sdDefaultZaehlerTyp(dev){
+  if(!dev) return 'stunden';
+  if(dev.zaehlerTyp) return dev.zaehlerTyp;
+  return dev.typ === 'messgeraet' ? 'kein' : 'stunden';
+}
+
+// Setzt den Zaehler-Typ im devAddModal und blendet das Zaehlerstand-Feld
+// entsprechend ein/aus. Label wechselt zwischen Stunden und kWh.
+function _sdApplyZaehlerTyp(typ){
+  typ = typ || 'stunden';
+  var sel = document.getElementById('devZaehlerTyp');
+  if(sel) sel.value = typ;
+  var wrap = document.getElementById('devStartWrap');
+  var label = document.getElementById('devStartLabel');
+  var input = document.getElementById('devStart');
+  if(typ === 'kein'){
+    if(wrap) wrap.style.display = 'none';
+    if(input) input.value = '';
+  } else {
+    if(wrap) wrap.style.display = '';
+    if(label) label.textContent = typ === 'kwh' ? 'Zählerstand Start (kWh)' : 'Zählerstand Start (h)';
+  }
+}
+
+// NFC/QR-Scan starten — Helper aus gema_nfc_scanner.js, auto-fallback.
+function _sdScanForDev(){
+  if(typeof GemaNFC === 'undefined'){
+    alert('NFC/QR-Scanner nicht geladen.');
+    return;
+  }
+  var stat = document.getElementById('devScanStatus');
+  GemaNFC.scan({
+    mode: 'auto',
+    statusEl: stat,
+    onScan: _sdHandleScanPayload,
+    onError: function(e){
+      if(stat) stat.textContent = 'Scan-Fehler: ' + (e && e.message || e);
+    }
+  });
+}
+
+// Nach erfolgreichem Scan: gescannte ID aus Payload extrahieren, im
+// verfuegbaren Geraete-Pool suchen und Modal-Felder befuellen (analog zum
+// Picker-Klick). Cursor springt aufs Zaehlerstand-Feld.
+function _sdHandleScanPayload(payload){
+  var id = GemaNFC.parseTgUrl(payload);
+  if(!id){
+    GemaDialog.alert({title:'Unbekannter Tag', message:'Der gescannte Tag enthält keine gültige Geräte-Kennung.'});
+    return;
+  }
+  // tg_ prefix garantieren (parseTgUrl matched auch andere Module)
+  if(id.indexOf('tg_') !== 0){
+    GemaDialog.alert({title:'Falsches Tag', message:'Dieser Tag gehört nicht zu einem Trocknungsgerät (gefunden: '+id+').'});
+    return;
+  }
+  var devices = _sdLoadAvailableTgDevices();
+  var dev = devices.find(function(d){ return d.id === id; });
+  if(!dev){
+    GemaDialog.alert({title:'Nicht verfügbar', message:'Gerät nicht in der Geräteverwaltung gefunden oder bereits im Einsatz bei einem anderen Schaden.'});
+    return;
+  }
+  // Felder befuellen (analog _sdRenderDevPicker-Click)
+  document.getElementById('devName').value = dev.name || '';
+  document.getElementById('devKw').value = dev.kw || '';
+  document.getElementById('devLinkedTgId').value = dev.id;
+  _sdApplyZaehlerTyp(_sdDefaultZaehlerTyp(dev));
+  // Picker-Karte visuell highlighten
+  var pickEl = document.querySelector('#devPickerWrap .sd-dev-pick[data-id="'+id+'"]');
+  if(pickEl){
+    document.querySelectorAll('#devPickerWrap .sd-dev-pick').forEach(function(el){
+      el.style.borderColor = 'var(--brd)'; el.style.background = 'var(--sur)';
+    });
+    pickEl.style.borderColor = 'var(--plan)';
+    pickEl.style.background = 'var(--plan-bg)';
+  }
+  // Erfolg + Fokus auf Zaehlerstand
+  if(navigator.vibrate) try{ navigator.vibrate(80); }catch(e){}
+  setTimeout(function(){
+    var f = document.getElementById('devStart');
+    if(f && f.offsetParent !== null){ try{ f.focus(); f.select(); }catch(e){} }
+  }, 80);
 }
 
 // Baut das Raum-Dropdown im devAddModal aus s.raeume[] auf. Auswahl
@@ -2374,10 +2527,20 @@ function _sdReleaseTgDevice(tgId, geraet){
     var hist = JSON.parse(JSON.stringify(d.einsatz));
     hist.zurueckAm = sdToday();
     hist.zaehlerEnde = (geraet && geraet.zaehlerEnde) || hist.zaehlerStart || 0;
-    var hours = (hist.zaehlerEnde||0) - (hist.zaehlerStart||0); if(hours<0)hours=0;
-    var kwh = hours * (d.kw||0);
-    hist.betriebsstunden = Math.round(hours*100)/100;
-    hist.kwhTotal = Math.round(kwh*100)/100;
+    // zaehlerTyp aus TG-Geraet uebernehmen — Default 'stunden' (Backwards-Compat).
+    var hZTyp = d.zaehlerTyp || (geraet && geraet.zaehlerTyp) || 'stunden';
+    hist.zaehlerTyp = hZTyp;
+    var diff = (hist.zaehlerEnde||0) - (hist.zaehlerStart||0); if(diff<0) diff=0;
+    if(hZTyp === 'kwh'){
+      hist.kwhTotal = Math.round(diff*100)/100;
+      hist.betriebsstunden = null; // kein Stunden-Wert bei direktem kWh-Zaehler
+    } else if(hZTyp === 'kein'){
+      hist.kwhTotal = null;
+      hist.betriebsstunden = null;
+    } else {
+      hist.betriebsstunden = Math.round(diff*100)/100;
+      hist.kwhTotal = Math.round(diff*(d.kw||0)*100)/100;
+    }
     d.einsatzHistorie.push(hist);
     d.einsatz = null;
     d.status = 'verfuegbar';
@@ -2398,12 +2561,15 @@ function sdAddGeraet() {
   var raumSel = document.getElementById('devRaumSelect');
   var raum = raumSel ? (raumSel.value || '').trim() : '';
   var kw = parseFloat(document.getElementById('devKw').value) || 0;
-  var zaehlerStart = parseFloat(document.getElementById('devStart').value) || 0;
+  var zTypEl = document.getElementById('devZaehlerTyp');
+  var zaehlerTyp = (zTypEl && zTypEl.value) || 'stunden';
+  var zaehlerStart = zaehlerTyp === 'kein' ? null : (parseFloat(document.getElementById('devStart').value) || 0);
   s.trocknung.geraete.push({
     id: 'dev_' + Date.now(),
     name: name,
     raum: raum,
     kw: kw,
+    zaehlerTyp: zaehlerTyp,
     zaehlerStart: zaehlerStart,
     zaehlerEnde: null,
     eingesetztAm: sdToday(),
@@ -2472,9 +2638,8 @@ function sdRenderAbschluss(s, canEdit) {
   if (tr.geraete && tr.geraete.length) {
     var totalKwh = 0;
     tr.geraete.forEach(function(g) {
-      if (g.zaehlerEnde !== null && g.zaehlerEnde !== '' && g.kw) {
-        totalKwh += (parseFloat(g.zaehlerEnde) - parseFloat(g.zaehlerStart || 0)) * parseFloat(g.kw);
-      }
+      var v = sdComputeKwh(g);
+      if(v != null) totalKwh += v;
     });
     h += '<div style="margin-bottom:12px"><label style="font-size:11px;font-weight:800;text-transform:uppercase;color:var(--mut)">Stromverbrauch (Trocknung)</label>';
     h += '<div class="sum-card" style="margin-top:6px">';
@@ -3366,13 +3531,20 @@ function sdExportPdf(id){
         // Datums-Grenze fuer Trocknungs-Tage pro Raum.
         var raumAgg = {}; // raum -> { kwh, hours, count, minStart, maxEnd, hasOpen }
         var rows = geraete.map(function(g){
-          var kwh=null, hours=null;
-          if(g.kwhTotal != null) kwh = g.kwhTotal;
-          else if(g.zaehlerEnde!=null && g.zaehlerStart!=null && g.kw){
-            hours = g.zaehlerEnde - g.zaehlerStart;
-            kwh = hours * g.kw;
+          // kWh + Stunden respektieren den zaehlerTyp (stunden/kwh/kein).
+          // Historie-Eintraege (kwhTotal/betriebsstunden vorhanden) haben Vorrang.
+          var typ = g.zaehlerTyp || 'stunden';
+          var kwh = null, hours = null;
+          if(g.kwhTotal != null){
+            kwh = g.kwhTotal;
+          } else {
+            kwh = sdComputeKwh(g);
           }
-          if(g.betriebsstunden != null) hours = g.betriebsstunden;
+          if(g.betriebsstunden != null){
+            hours = g.betriebsstunden;
+          } else {
+            hours = sdComputeHours(g);
+          }
           if(kwh != null) totKwh += kwh;
           if(hours != null) totHours += hours;
           // Geraete-Tage
@@ -3689,12 +3861,17 @@ function sdBuildReportHtml(s) {
 
     if (tr.geraete && tr.geraete.length) {
       h += '<h3>Trocknungsgeräte</h3>';
-      h += '<table><tr><th>Gerät</th><th>Raum</th><th>kW</th><th>Start (h)</th><th>Ende (h)</th><th>kWh</th></tr>';
+      h += '<table><tr><th>Gerät</th><th>Raum</th><th>kW</th><th>Zähler-Typ</th><th>Start</th><th>Ende</th><th>kWh</th></tr>';
       var totalKwh = 0;
       tr.geraete.forEach(function(g) {
-        var kwh = (g.zaehlerEnde !== null && g.zaehlerEnde !== '' && g.kw) ? ((parseFloat(g.zaehlerEnde) - parseFloat(g.zaehlerStart || 0)) * parseFloat(g.kw)) : 0;
-        totalKwh += kwh;
-        h += '<tr><td>' + esc(g.name) + '</td><td>' + esc(g.raum || '—') + '</td><td>' + (g.kw || '—') + '</td><td>' + (g.zaehlerStart || '0') + '</td><td>' + (g.zaehlerEnde || '—') + '</td><td>' + (kwh ? kwh.toFixed(1) : '—') + '</td></tr>';
+        var kwhVal = sdComputeKwh(g);
+        if(kwhVal != null) totalKwh += kwhVal;
+        var typ = g.zaehlerTyp || 'stunden';
+        var einheit = typ === 'kwh' ? 'kWh' : (typ === 'kein' ? '—' : 'h');
+        var typLabel = typ === 'kwh' ? 'kWh' : (typ === 'kein' ? '–' : 'h');
+        var startTxt = typ === 'kein' ? '—' : ((g.zaehlerStart != null ? g.zaehlerStart : '0') + ' ' + einheit);
+        var endeTxt  = typ === 'kein' ? '—' : (g.zaehlerEnde != null && g.zaehlerEnde !== '' ? (g.zaehlerEnde + ' ' + einheit) : '—');
+        h += '<tr><td>' + esc(g.name) + '</td><td>' + esc(g.raum || '—') + '</td><td>' + (g.kw || '—') + '</td><td>' + typLabel + '</td><td>' + startTxt + '</td><td>' + endeTxt + '</td><td>' + (kwhVal != null ? kwhVal.toFixed(1) : '—') + '</td></tr>';
       });
       h += '</table>';
       h += '<div class="info-row"><span class="info-label">Total Strom:</span><strong>' + totalKwh.toFixed(1) + ' kWh</strong></div>';

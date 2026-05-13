@@ -793,6 +793,26 @@ Phase 2 der Schadensdokumentation — separates Gerätemanagement für Trocknung
 
 Messgeräte (Feuchtemessgerät, CM-Gerät, Datenlogger, Wärmebildkamera, etc.) sind Diagnose-Hilfsmittel und tragen das Flag `noKw:true` in `GERAETE_TYPEN`. Im Erfassungs-Modal wird das Leistungs-Feld (kW) ausgeblendet, beim Einsetzen entfällt der Zählerstand-Start, beim Zurücknehmen die kWh-Berechnung. Der Einsatz-Workflow (Schadensprojekt + Raum) funktioniert ansonsten identisch.
 
+### Zähler-Typ (`zaehlerTyp`)
+
+Jedes Gerät hat einen Zähler-Typ — drei Werte:
+
+| Wert | Bedeutung | kWh-Berechnung |
+|------|-----------|----------------|
+| `kein` | Kein Verbrauchszähler | — |
+| `stunden` | Klassischer Stunden-Zähler | `(Ende − Start) × kW` |
+| `kwh` | Direkter kWh-Verbrauchszähler | `Ende − Start` |
+
+Default-Logik (Helper `_tgDefaultZaehlerTyp(typ)` in `if_trocknung.html`, `_sdDefaultZaehlerTyp(dev)` in `sd_schadensbericht.html`): `typ === 'messgeraet'` → `'kein'`, sonst `'stunden'`. **Lazy-Migration** — alte Geräte ohne Feld werden beim Lesen wie `'stunden'` behandelt; beim ersten Edit-Save persistiert das Feld.
+
+`sd_schadensbericht.html` exponiert zentrale Helper `sdComputeKwh(g)` und `sdComputeHours(g)`, die den Zähler-Typ respektieren — alle Live-Tabellen, PDF/Word-Exports und Cross-Modul-Historie (`_sdReleaseTgDevice` schreibt `hist.zaehlerTyp` und entweder `kwhTotal` direkt oder `betriebsstunden`+`kwhTotal`) gehen über diese Helper.
+
+### NFC-Scan beim Hinzufügen im Schadensbericht
+
+`sd_schadensbericht.html` devAddModal hat einen „📡 NFC-Tag scannen"-Button. Der Helper `gema_nfc_scanner.js` (`GemaNFC.scan({mode:'auto'})`) nutzt Web-NFC bei Android Chrome, sonst Fallback auf `GemaQR.scan()` (Kamera + html5-qrcode). Bei iPhone Safari (kein In-Browser-NFC) blendet der Helper einen Hinweis ein, dass der Tag auch direkt ans Handy gehalten werden kann (Hintergrund-Scan öffnet die geschriebene URL `if_trocknung.html?id=tg_xxx`).
+
+Nach erfolgreichem Scan: ID aus URL/Payload extrahieren, im verfügbaren Geräte-Pool suchen, Felder vorbefüllen, Picker-Karte visuell hervorheben, Vibration, Cursor springt automatisch ins Zählerstand-Feld. Bei `zaehlerTyp='kein'` (z.B. Messgeräte) entfällt die Zählerstand-Eingabe.
+
 ### Status
 
 | Status | Key | Farbe |
@@ -809,6 +829,7 @@ Storage-Key: `gema_trocknung_v1`
 ```
 {
   id, name, typ, marke, modell, serienNr, kw, notes, orgId,
+  zaehlerTyp: 'kein'|'stunden'|'kwh',
   status: 'verfuegbar'|'im_einsatz'|'in_wartung'|'defekt',
   hasService, serviceInterval, lastService,
   
@@ -816,7 +837,7 @@ Storage-Key: `gema_trocknung_v1`
     schadenId, schadenTitel, objektId, objektName,
     raum,              // Raum/Zone (z.B. "Bad EG")
     eingesetztAm, eingesetztVon:{userId,name},
-    zaehlerStart       // Stunden
+    zaehlerStart       // Stunden ODER kWh, je nach zaehlerTyp
   },
   
   einsatzHistorie: [{
@@ -1203,7 +1224,8 @@ UI-Anbindung:
 | `gema_produktkatalog_api.js` | Produkte + Stammlieferanten + Favoriten |
 | `gema_push.js` | Web-Push-Vorbereitung (Service-Worker) |
 | `gema_pwa.js` | PWA-Install-Helper (`beforeinstallprompt`-Capture, `GemaPWA.install()`) |
-| `gema_qr_scanner.js` | QR-Code-Scanner |
+| `gema_qr_scanner.js` | QR-Code-Scanner (`GemaQR.scan(cb)`) |
+| `gema_nfc_scanner.js` | Web-NFC-Reader mit automatischem QR-Fallback. `GemaNFC.scan({mode:'auto',onScan})` nutzt `NDEFReader` wenn verfügbar, sonst `GemaQR`. `GemaNFC.parseTgUrl(payload)` extrahiert Geräte-ID aus URL oder Direkt-String. iPhone-Hinweis automatisch eingeblendet (kein Browser-NFC, aber Hintergrund-Scan öffnet URL). |
 | `gema_recent.js` | Tracking + Anzeige zuletzt genutzter Module |
 | `gema_responsive.css` | Globale Responsive-/Layout-Regeln (Mobile + Tablet) |
 | `gema_scroll.js` | Scroll-Position-Restore + globaler Body-Scroll-Lock fuer Modals (`GemaScroll.lock/unlock`, Auto-Hook auf `.modal-bg`) |
