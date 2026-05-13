@@ -97,21 +97,54 @@
 
   // Per-Record-Save: Diff zwischen aktuellem lokalem Cache und neuem Array,
   // schreibt nur geaenderte Records, loescht entfernte.
-  // localStorage wird vor dem Cloud-Push aktualisiert (sofortige UI),
-  // bei Cloud-Fehler erscheint das Offline-Banner aus gema_sync.js.
+  // Offline-Verhalten (User-Wahl: 'Read-only weiter, Saves blockiert'):
+  // wenn die Cloud unerreichbar ist, wird gar nicht gespeichert — weder
+  // lokal noch remote. Aufrufer bekommt einen GemaDialog-Alert.
   function _persistCollection(storageKey, newArr){
     var def = _COLL[storageKey];
     if(!def) return Promise.resolve(false);
+    if(!_S()){
+      console.warn('[GemaAuth] gema_sync.js fehlt — Save blockiert');
+      _showOfflineAlert();
+      return Promise.resolve(false);
+    }
+    if(!_S().isReachable()){
+      // Probe einmal aktiv — vielleicht ist die Verbindung wieder da
+      return _S().probe().then(function(reachable){
+        if(!reachable){ _showOfflineAlert(); return false; }
+        return _doPersist(storageKey, newArr);
+      });
+    }
+    return _doPersist(storageKey, newArr);
+  }
+  function _doPersist(storageKey, newArr){
+    var def = _COLL[storageKey];
     var oldArr = JSON.parse(localStorage.getItem(storageKey) || '[]');
-    _writeLocalCache(storageKey, newArr);
-    if(!_S()) return Promise.resolve(true);
     return _S().saveDiff('auth', def.prefix, oldArr, newArr, def.idField)
+      .then(function(res){
+        // Erst nach erfolgreichem Cloud-Save den lokalen Cache aktualisieren.
+        _writeLocalCache(storageKey, newArr);
+        return res;
+      })
       .catch(function(e){
         console.warn('[GemaAuth] Cloud-Save fehlgeschlagen ('+storageKey+'):', e && e.message);
-        // Cache nicht zurueckrollen — UI wuerde flackern. User sieht das
-        // Offline-Banner und weiss, dass nicht alles geklappt hat.
+        _showOfflineAlert();
         return false;
       });
+  }
+  var _offlineAlertShown = false;
+  function _showOfflineAlert(){
+    if(_offlineAlertShown) return;
+    _offlineAlertShown = true;
+    setTimeout(function(){ _offlineAlertShown = false; }, 6000);
+    if(typeof window !== 'undefined' && window.GemaDialog && window.GemaDialog.alert){
+      window.GemaDialog.alert({
+        title:'Offline',
+        message:'Aenderungen koennen nicht gespeichert werden. Bitte Verbindung pruefen und erneut versuchen.'
+      });
+    } else if(typeof alert === 'function'){
+      try{ alert('Offline — Aenderungen koennen nicht gespeichert werden.'); }catch(e){}
+    }
   }
 
   // ── Modul-Definitionen ─────────────────────────────────────────────

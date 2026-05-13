@@ -1503,16 +1503,26 @@ function _wzMaybeCoachmarks(){
 // Laden aber nur die eigene Org ein. Fremde Orgs werden beim Save
 // unangetastet weiterleben — sonst wuerde Org A die Daten von Org B
 // ueberschreiben.
+// Per-Record-Storage: jede Werkzeug-Row liegt einzeln in Supabase
+// (data_key='tool:<id>') — Save eines Tools laesst alle anderen
+// unangetastet. localStorage bleibt als sync-Cache. Bootstrap macht
+// GemaSync.bindCollection und migriert alte Blob-Row falls vorhanden.
 function _wzReadAllRaw(){
-  var raw=null;
-  if(typeof _GemaDB!=='undefined' && _GemaDB.c) raw=_GemaDB.c['gema_werkzeug'];
-  if(raw==null){ try{ raw=localStorage.getItem('gema_werkzeug'); }catch(e){} }
-  try{ var arr=JSON.parse(raw||'[]'); return Array.isArray(arr)?arr:[]; }catch(e){ return []; }
+  try{ var arr=JSON.parse(localStorage.getItem('gema_werkzeug')||'[]'); return Array.isArray(arr)?arr:[]; }catch(e){ return []; }
 }
 function _wzWriteAllRaw(arr){
-  var json=JSON.stringify(arr);
-  if(typeof _GemaDB!=='undefined' && typeof _GemaDB.save==='function') _GemaDB.save('gema_werkzeug',json);
-  try{ localStorage.setItem('gema_werkzeug',json); }catch(e){}
+  if(typeof window.GemaSync !== 'undefined'){
+    window.GemaSync.persistCollection('werkzeugmanagement','gema_werkzeug','tool:','id', arr)
+      .catch(function(e){
+        console.warn('[Werkzeug] Cloud-Save fehlgeschlagen:', e && e.message);
+        if(window.GemaDialog && window.GemaDialog.alert){
+          window.GemaDialog.alert({title:'Offline', message:'Aenderungen koennen nicht gespeichert werden. Bitte Verbindung pruefen.'});
+        }
+      });
+  } else {
+    // Fallback wenn gema_sync.js fehlt: nur lokal
+    try{ localStorage.setItem('gema_werkzeug', JSON.stringify(arr)); }catch(e){}
+  }
 }
 const save=()=>{
   var u=_wzGetUser();
@@ -4163,10 +4173,13 @@ const esc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'
 // INIT
 // ──────────────────────────────────────
 window.addEventListener('DOMContentLoaded',async () => {
-await Promise.race([
-  typeof _GemaDB!=='undefined'?_GemaDB.init('werkzeugmanagement', ['gema_werkzeug']):Promise.resolve(),
-  new Promise(function(r){ setTimeout(r, 5000); })
-]);
+// Cloud-First: Per-Record laden, Cache ueberschreiben, alte Blob-Row migrieren
+if(typeof window.GemaSync !== 'undefined'){
+  await Promise.race([
+    window.GemaSync.bindCollection('werkzeugmanagement','gema_werkzeug','tool:','id'),
+    new Promise(function(r){ setTimeout(r, 5000); })
+  ]);
+}
 
   load();
   if(!tools.length){

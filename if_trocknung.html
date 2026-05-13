@@ -986,25 +986,26 @@ function _tgNewBerichtId(){
 // ──────────────────────────────────────
 // STORAGE
 // ──────────────────────────────────────
-// _GemaDB API: lesen via _GemaDB.c[key] (Cache, String oder undefined),
-// schreiben via _GemaDB.save(key, jsonString). Fallback auf localStorage,
-// falls _GemaDB (noch) nicht geladen ist.
+// Per-Record-Storage: pro Geraet eine Row in Supabase
+// (data_key='device:<id>'). localStorage bleibt als sync-Cache.
 function _tgReadRaw() {
-  var raw = null;
-  if (typeof _GemaDB !== 'undefined' && _GemaDB.c) {
-    raw = _GemaDB.c[STORAGE_KEY];
-  }
-  if (raw == null) {
-    try { raw = localStorage.getItem(STORAGE_KEY); } catch(e) { raw = null; }
-  }
-  return raw;
+  try { return localStorage.getItem(STORAGE_KEY); } catch(e) { return null; }
 }
 function _tgWriteRaw(json) {
-  if (typeof _GemaDB !== 'undefined' && typeof _GemaDB.save === 'function') {
-    _GemaDB.save(STORAGE_KEY, json);
+  var arr;
+  try { arr = JSON.parse(json); } catch(e) { arr = []; }
+  if (!Array.isArray(arr)) arr = [];
+  if (typeof window.GemaSync !== 'undefined') {
+    window.GemaSync.persistCollection('trocknungsgeraete', STORAGE_KEY, 'device:', 'id', arr)
+      .catch(function(e){
+        console.warn('[Trocknung] Cloud-Save fehlgeschlagen:', e && e.message);
+        if (window.GemaDialog && window.GemaDialog.alert) {
+          window.GemaDialog.alert({title:'Offline', message:'Aenderungen koennen nicht gespeichert werden. Bitte Verbindung pruefen.'});
+        }
+      });
+  } else {
+    try { localStorage.setItem(STORAGE_KEY, json); } catch(e) {}
   }
-  // Doppelt: lokal halten, damit Reload und Cross-Tab-Sync sofort greifen
-  try { localStorage.setItem(STORAGE_KEY, json); } catch(e) {}
 }
 
 function load() {
@@ -2319,7 +2320,14 @@ function checkUrlParams() {
 // ──────────────────────────────────────
 // INIT
 // ──────────────────────────────────────
-document.addEventListener('DOMContentLoaded', function() {
+document.addEventListener('DOMContentLoaded', async function() {
+  // Cloud-First Per-Record-Sync (siehe gema_sync.js)
+  if (typeof window.GemaSync !== 'undefined') {
+    await Promise.race([
+      window.GemaSync.bindCollection('trocknungsgeraete', STORAGE_KEY, 'device:', 'id'),
+      new Promise(function(r){ setTimeout(r, 5000); })
+    ]);
+  }
   load();
 
   // Show/hide add button based on permissions

@@ -970,24 +970,24 @@ function _sdCanMeasure() {
   return false;
 }
 
-// ── STORAGE ──
+// ── STORAGE ── Per-Record in Supabase (data_key='schaden:<id>')
 function sdSave() {
-  var json = JSON.stringify(schaeden);
-  if (typeof _GemaDB !== 'undefined') {
-    _GemaDB.save(STORAGE_KEY, json);
+  if (typeof window.GemaSync !== 'undefined') {
+    window.GemaSync.persistCollection('schadensbericht', STORAGE_KEY, 'schaden:', 'id', schaeden)
+      .catch(function(e){
+        console.warn('[Schadensbericht] Cloud-Save fehlgeschlagen:', e && e.message);
+        if (window.GemaDialog && window.GemaDialog.alert) {
+          window.GemaDialog.alert({title:'Offline', message:'Aenderungen koennen nicht gespeichert werden. Bitte Verbindung pruefen.'});
+        }
+      });
   } else {
-    _memStore[STORAGE_KEY] = json;
-    try { localStorage.setItem(STORAGE_KEY, json); } catch(e) {}
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(schaeden)); } catch(e) {}
   }
 }
 function sdLoad() {
   var raw = null;
   try {
-    if (typeof _GemaDB !== 'undefined') {
-      raw = _GemaDB.c[STORAGE_KEY] || null;
-    }
-    if (!raw) { raw = localStorage.getItem(STORAGE_KEY); }
-    if (!raw) { raw = _memStore[STORAGE_KEY] || null; }
+    raw = localStorage.getItem(STORAGE_KEY);
     schaeden = raw ? JSON.parse(raw) : [];
   } catch(e) {
     schaeden = [];
@@ -3427,12 +3427,12 @@ function sdBuildReportHtml(s) {
 // ══════════════════════════════════════
 window.addEventListener('DOMContentLoaded', function() {
   (function() {
-    // Init DB
-    if (typeof _GemaDB !== 'undefined') {
-      _GemaDB.init('schadensbericht', [STORAGE_KEY]).then(function() {
-        sdLoad();
-        sdRenderList();
-      }).catch(function() {
+    // Cloud-First Per-Record-Sync
+    if (typeof window.GemaSync !== 'undefined') {
+      Promise.race([
+        window.GemaSync.bindCollection('schadensbericht', STORAGE_KEY, 'schaden:', 'id'),
+        new Promise(function(r){ setTimeout(r, 5000); })
+      ]).then(function(){
         sdLoad();
         sdRenderList();
       });

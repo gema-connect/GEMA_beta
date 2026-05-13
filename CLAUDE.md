@@ -1062,50 +1062,94 @@ Im Repo liegen die React-Designdateien als Referenz (nicht für Produktion):
 
 ---
 
-## Cloud-Recovery & Backup (gema_auth.js)
+## Cloud-First Storage-Architektur (gema_sync.js)
 
-Auth-Daten (Orgs + Users) liegen in localStorage **und** in Supabase (`module_key='auth'`, `data_key='gema_orgs_v1'` / `'gema_users_v1'`). `saveOrgs` / `saveUsers` schreiben sofort lokal und pushen async nach Supabase.
+**Single source of truth ist Supabase.** Pro Datensatz eine eigene Row in `gema_data` mit `data_key='<entity>:<id>'` (z.B. `'user:user_admin'`, `'org:org_default'`, `'tool:wz_42'`). Saves laufen über Diff: nur geänderte Records werden gepusht, nie das ganze Array. localStorage bleibt als sekundärer sync-Cache, wird aber nach jedem Cloud-Bootstrap mit dem Cloud-Stand **überschrieben** (Cloud gewinnt).
 
-### Kritischer Bug & Fix (Cache-Clear)
+### Hintergrund — Bug-Pattern, das damit weg ist
 
-**Bug**: Bis zur Behebung machte `_initDefaults()` bei leerem localStorage:
-```js
-localStorage.setItem(STORAGE_ORGS, DEFAULT_ORGS);
-_syncToSupabase(STORAGE_ORGS, DEFAULT_ORGS);   // ← Cloud wird mit Bootstrap-Defaults überschrieben!
-```
-Mit `Prefer: resolution=merge-duplicates` bedeutete jeder Cache-Clear: echte Firmen/User in Supabase weg, durch GEMA-Bootstrap ersetzt. Cross-Device-Login zeigte danach „keine Daten".
+**Vorher** (`saveOrgs` / `saveUsers`): Das gesamte Array wurde als JSON-Blob in eine einzige Supabase-Row mit `merge-duplicates` geschrieben. Folge:
+1. **Org-Admin verschwindet am Tag danach**: Gerät A macht User X zum Admin → Cloud aktualisiert. Gerät B mit altem Cache (User X = nicht-Admin) macht eine Mini-Änderung → schreibt das ganze Array zurück → Admin-Status weg.
+2. **Alle User plötzlich in Admin-Org**: Bei leerem localStorage schrieb `_initDefaults` `DEFAULT_USERS` (1 User: `admin@gema.ch` mit `orgId='org_default'`) lokal. Wenn vor dem async Cloud-Fetch ein Save lief, ging die Default-Liste in die Cloud → alle echten User weg.
 
-**Fix**: `_syncToSupabase`-Calls aus `_initDefaults` entfernt. Bootstrap wird nur lokal geschrieben, `_fetchAuthFromSupabase` merged danach echte Cloud-Daten ein. Cloud bleibt unangetastet.
+**Jetzt**: per-Record. Gerät A speichert nur `user:userX` mit dem Admin-Flag. Andere User-Records in der Cloud sind unangetastet. Gerät B mit altem Cache hat User X immer noch nicht-Admin lokal — aber beim nächsten Bootstrap überschreibt der Cloud-Load den lokalen Cache (Cloud gewinnt). User-X-Admin bleibt.
 
-### Versionierte Backups (gegen versehentliches Überschreiben)
-
-Bei jedem `saveOrgs` / `saveUsers` wird zusätzlich ein Backup-Snapshot mit Datums-/Stunden-Schlüssel nach Supabase gepusht (`module_key='auth_bak'`, `data_key='<base>__bak_<YYYYMMDD_HH>'`). Lock pro Stunde via localStorage `gema_auth_bak_lock_*` gegen Spam. Damit ist bei zukünftigen Vorfällen 24+ Stunden Versionshistorie verfügbar.
-
-### Auto-Reload + manuelles Recovery
-
-- **Auto-Reload**: `_initDefaults` merkt sich, ob lokal nur Bootstrap-Daten sind. Wenn `_fetchAuthFromSupabase` mehr findet, triggert `_maybeAutoReload()` einmaligen `location.reload()` (`sessionStorage.gema_auth_auto_reloaded` gegen Loop).
-- **Manuelles Recovery** in `sys_admin.html`: ☁️-Karte „Daten aus Cloud wiederherstellen" wenn `GemaAuth._isOnlyDefaults()` true. Klick → `GemaAuth.restoreFromCloud()`.
-
-### Bootstrap (kein Demo-Daten)
-
-`DEFAULT_ORGS` enthält **nur** `org_default` (GEMA-Org), `DEFAULT_USERS` enthält **nur** `admin@gema.ch` (Passwort: `gema2025`). Keine Demo-Firmen, keine Demo-User mehr. Damit der Admin-Login auch nach Cache-Clear ohne Cloud funktioniert.
-
-### API
+### gema_sync.js — Public API
 
 ```javascript
-GemaAuth.restoreFromCloud({ overwrite })
-  // overwrite=false (Default): merge-only — fügt fehlende IDs hinzu
-  // overwrite=true: ersetzt lokale Liste komplett mit Cloud-Daten
-  // → Promise<{ok, addedOrgs, addedUsers, totalOrgs, totalUsers, error?}>
+GemaSync.isOnline()       // true wenn navigator.onLine UND letzte Cloud-Antwort ok
+GemaSync.isReachable()    // letzte Cloud-Erreichbarkeit (ohne navigator.onLine-Check)
+GemaSync.probe()          // aktiv probieren — Promise<bool>
+GemaSync.onConnectivityChange(cb)
 
-GemaAuth.listBackups('orgs' | 'users')
-  // → Promise<Array<{key, ts, count, data}>> — neueste zuerst (max 48h)
+// Per-Record-Primitive
+GemaSync.loadCollection(moduleKey, prefix)      // Promise<Array<{key,data,lm}>>
+GemaSync.loadRecord(moduleKey, dataKey)         // Promise<{key,data,lm} | null>
+GemaSync.saveRecord(moduleKey, dataKey, data)   // Promise<{ok,lm}>
+GemaSync.saveRecords(moduleKey, [{key,data},..])// Batch-Upsert in einer POST
+GemaSync.deleteRecord(moduleKey, dataKey)       // Hard-Delete
+GemaSync.diffArrays(oldArr, newArr, idField)    // {toUpsert, toDelete}
+GemaSync.saveDiff(moduleKey, prefix, oldArr, newArr, idField)  // High-Level
 
-GemaAuth.restoreFromBackup('orgs' | 'users', dataKey, { overwrite })
-  // → Promise<{ok, addedCount, total, error?}>
-
-GemaAuth._isOnlyDefaults()  // true wenn lokal nur Bootstrap-Org/User
+// Wiederverwendbarer Modul-Helper
+GemaSync.bindCollection(moduleKey, storageKey, prefix, idField)
+   // Beim Bootstrap: Cloud-Records laden, in localStorage[storageKey] cachen.
+   // Migriert alte Blob-Row automatisch (User-Wahl: ohne Backup).
+GemaSync.persistCollection(moduleKey, storageKey, prefix, idField, newArr)
+   // Bei jedem Save: Diff zum localStorage-Cache → nur geänderte Records pushen.
+   // Wenn offline: Reject, kein Save.
 ```
+
+Beim Verbindungsverlust erscheint ein orange Banner oben (`#gema-sync-offline-banner`). Sobald Cloud wieder erreichbar, verschwindet es.
+
+### Bootstrap — Cloud-First mit Migration
+
+Jedes Modul ruft im `DOMContentLoaded`:
+```js
+await GemaSync.bindCollection(moduleKey, storageKey, prefix, 'id');
+load();  // liest aus localStorage-Cache
+```
+
+`bindCollection` macht:
+1. Lädt alle Records mit Prefix aus Cloud
+2. Falls 0 Records: prüft ob die alte Blob-Row noch da ist und splittet sie auf — User-Wahl „Auto-Migration ohne Backup": alte Row wird nach Aufsplittung gelöscht
+3. Schreibt das resultierende Array in `localStorage[storageKey]` als sync-Cache
+
+### Save — per-Record-Diff
+
+Jedes Modul ersetzt die alte `_xxWriteAllRaw(arr)` durch:
+```js
+GemaSync.persistCollection(moduleKey, storageKey, prefix, 'id', arr)
+  .catch(e => GemaDialog.alert({title:'Offline', message:'Aenderungen koennen nicht gespeichert werden.'}));
+```
+
+`persistCollection` vergleicht `arr` mit dem aktuellen `localStorage[storageKey]`-Cache → bestimmt geänderte/entfernte Records → pusht nur diese. Bei Erfolg wird der Cache aktualisiert. Wenn offline: Reject, kein Save.
+
+### Migrierte Module (per-Record in Cloud)
+
+| Modul | moduleKey | data_key-Prefix | localStorage-Cache |
+|-------|-----------|-----------------|--------------------|
+| Auth-Orgs | `auth` | `org:`  | `gema_orgs_v1`  |
+| Auth-Users | `auth` | `user:` | `gema_users_v1` |
+| Auth-Roles | `auth` | `role:` | `gema_roles_v1` |
+| Werkzeug | `werkzeugmanagement` | `tool:` | `gema_werkzeug` |
+| Fahrzeug | `fahrzeugmanagement` | `vehicle:` | `gema_vehicles` |
+| Trocknungsgeräte | `trocknungsgeraete` | `device:` | `gema_trocknung_v1` |
+| Schadensbericht | `schadensbericht` | `schaden:` | `gema_schadensbericht_v1` |
+
+Module noch nicht migriert (kein akuter Bug, weil keine Multi-Tenant-Pools — Daten pro User oder pro Objekt): pm_objekte, sys_workspace, pm_terminplan, pm_besprechung, hy_w12, ab_*, sb_*, sa_* — können in Folge-Sessions schrittweise auf den gleichen Pattern umgestellt werden.
+
+### Login (kein Offline-Fallback)
+
+`GemaAuth.loginAsync(...)` lädt zuerst die User-Collection aus der Cloud. Wenn Cloud unerreichbar → null (kein Login). User-Wahl: GEMA ist online-pflichtig.
+
+### Bootstrap-Defaults (kein Demo-Daten)
+
+`DEFAULT_ORGS` enthält **nur** `org_default` (GEMA-Org), `DEFAULT_USERS` enthält **nur** `admin@gema.ch` (Passwort: `gema2025`). DEFAULTS werden nur lokal beim allerersten Aufruf befüllt — nie nach Cloud gepusht. Sobald die Cloud antwortet, gewinnt sie und überschreibt den lokalen Cache.
+
+### Backup-Snapshots (entfallen)
+
+Die alten stündlichen `auth_bak`-Backups waren ein Notnagel für den jetzt behobenen Last-Write-Wins-Bug. `GemaAuth.listBackups()` und `GemaAuth.restoreFromBackup()` geben jetzt leere Stubs zurück. `GemaAuth.restoreFromCloud()` löst manuell ein Bootstrap aus.
 
 ---
 
@@ -1144,7 +1188,8 @@ UI-Anbindung:
 | `gema_auth.js` | Auth, Rollen, Orgs, Permissions, Cloud-Recovery |
 | `gema_autosave.js` | Auto-Save in Berechnungsmodulen |
 | `gema_coachmarks.js` | Onboarding-Touren |
-| `gema_db.js` | Storage-Layer (`_GemaDB`) |
+| `gema_db.js` | Legacy Storage-Layer (`_GemaDB`). Cloud-First, aber Blob-pro-Modulkey. Neue Module nutzen stattdessen `gema_sync.js`. |
+| `gema_sync.js` | **Cloud-First Per-Record-Sync.** Single source of truth Supabase, eine Row pro Datensatz, Diff-Saves, Offline-Banner. `bindCollection`/`persistCollection` als Modul-Helper. Siehe „Cloud-First Storage-Architektur". |
 | `gema_dialog.js` | Eigene Alert/Confirm/Prompt-Dialoge im GEMA-Style. `window.alert` global ueberschrieben. `GemaDialog.confirm({title,message,danger}).then(ok=>…)` und `GemaDialog.prompt(...)` als Promise-API. `window.confirm` bleibt nativ (sync), neue Stellen sollen GemaDialog nutzen |
 | `gema_feedback.js` | Feedback-Overlay mit Annotation |
 | `gema_lu_api.js` | LU-Zusammenstellung Cross-Modul-API |

@@ -267,6 +267,92 @@
     });
   }
 
+  // ── Collection-Helper (wiederverwendbar fuer Module) ─────────────
+  // bindCollection: laedt eine Collection aus der Cloud, schreibt sie
+  //                 in localStorage[storageKey] als sync-Cache. Migriert
+  //                 alte Blob-Rows automatisch. Liefert Promise<Array>.
+  // persistCollection: nimmt newArr, vergleicht mit localStorage[storageKey],
+  //                    pusht nur geaenderte Records, loescht entfernte.
+  //                    Bei Erfolg wird der Cache aktualisiert. Bei Offline:
+  //                    KEIN Save, Reject mit klarer Fehlermeldung.
+  function _legacyBlobFetch(moduleKey, storageKey){
+    var url = SB_URL + '/rest/v1/' + SB_TABLE
+      + '?module_key=eq.' + encodeURIComponent(moduleKey)
+      + '&data_key=eq.' + encodeURIComponent(storageKey)
+      + '&select=payload';
+    return fetch(url, { headers: _hdrs() })
+      .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
+      .then(function(rows){
+        if(!Array.isArray(rows) || !rows.length) return null;
+        var p = rows[0].payload;
+        if(!p) return null;
+        // Alte Blob-Form: { v: '<json>' } oder { v: <object> }
+        if(p.v != null){
+          try{
+            var v = typeof p.v === 'string' ? JSON.parse(p.v) : p.v;
+            return Array.isArray(v) ? v : null;
+          }catch(e){ return null; }
+        }
+        return null;
+      })
+      .catch(function(){ return null; });
+  }
+
+  function _writeCache(storageKey, arr){
+    if(typeof localStorage === 'undefined') return;
+    try{ localStorage.setItem(storageKey, JSON.stringify(arr||[])); }catch(e){}
+  }
+  function _readCache(storageKey){
+    if(typeof localStorage === 'undefined') return [];
+    try{ return JSON.parse(localStorage.getItem(storageKey) || '[]'); }catch(e){ return []; }
+  }
+
+  function bindCollection(moduleKey, storageKey, prefix, idField){
+    if(!idField) idField = 'id';
+    return loadCollection(moduleKey, prefix).then(function(rows){
+      if(rows && rows.length){
+        var arr = rows.map(function(r){ return r.data; }).filter(function(d){ return d && d[idField] != null; });
+        _writeCache(storageKey, arr);
+        return arr;
+      }
+      // Keine Per-Record-Daten — pruefe ob alte Blob-Row da ist
+      return _legacyBlobFetch(moduleKey, storageKey).then(function(blob){
+        if(!Array.isArray(blob) || !blob.length) return _readCache(storageKey);
+        var records = blob.filter(function(it){ return it && it[idField] != null; })
+                          .map(function(it){ return { key: prefix + it[idField], data: it }; });
+        if(!records.length){ return _readCache(storageKey); }
+        return saveRecords(moduleKey, records).then(function(){
+          return deleteRecord(moduleKey, storageKey).then(function(){
+            _writeCache(storageKey, blob);
+            console.info('[GemaSync] Migration: '+moduleKey+'/'+storageKey+' → '+records.length+' Records');
+            return blob;
+          });
+        });
+      });
+    }).catch(function(e){
+      console.warn('[GemaSync] bindCollection('+moduleKey+'/'+storageKey+') fehlgeschlagen:', e && e.message);
+      return _readCache(storageKey);
+    });
+  }
+
+  function persistCollection(moduleKey, storageKey, prefix, idField, newArr){
+    if(!idField) idField = 'id';
+    if(!_lastReachable){
+      return _probeOnce().then(function(reachable){
+        if(!reachable) return Promise.reject(new Error('Offline — Save blockiert'));
+        return _doPersist(moduleKey, storageKey, prefix, idField, newArr);
+      });
+    }
+    return _doPersist(moduleKey, storageKey, prefix, idField, newArr);
+  }
+  function _doPersist(moduleKey, storageKey, prefix, idField, newArr){
+    var oldArr = _readCache(storageKey);
+    return saveDiff(moduleKey, prefix, oldArr, newArr, idField).then(function(res){
+      _writeCache(storageKey, newArr);
+      return res;
+    });
+  }
+
   // Public API
   w.GemaSync = {
     SB_URL: SB_URL,
@@ -285,7 +371,11 @@
     deleteRecord: deleteRecord,
     deleteRecords: deleteRecords,
     diffArrays: diffArrays,
-    saveDiff: saveDiff
+    saveDiff: saveDiff,
+
+    // Wiederverwendbar fuer Module
+    bindCollection: bindCollection,
+    persistCollection: persistCollection
   };
 
 })(window);

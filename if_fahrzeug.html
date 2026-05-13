@@ -768,10 +768,13 @@ if(typeof _GemaDB==='undefined'){
 </script>
 <script>
 (async()=>{
-await Promise.race([
-  typeof _GemaDB!=='undefined'?_GemaDB.init('fahrzeugmanagement', ['gema_vehicles']):Promise.resolve(),
-  new Promise(function(r){ setTimeout(r, 5000); })
-]);
+// Cloud-First Per-Record-Sync (siehe gema_sync.js)
+if(typeof window.GemaSync !== 'undefined'){
+  await Promise.race([
+    window.GemaSync.bindCollection('fahrzeugmanagement','gema_vehicles','vehicle:','id'),
+    new Promise(function(r){ setTimeout(r, 5000); })
+  ]);
+}
 
 /* ═══════════════════════════════
    STATE
@@ -791,16 +794,23 @@ function _fzIsGaragistRole(){
   var u=_fzCurrentUser();
   return !!(u&&u.roleIds&&u.roleIds.indexOf('role_garagist')>=0);
 }
+// Per-Record-Storage: pro Fahrzeug eine Row in Supabase
+// (data_key='vehicle:<id>'). localStorage bleibt als sync-Cache.
 function _fzReadAllRaw(){
-  var raw=null;
-  if(typeof _GemaDB!=='undefined'&&_GemaDB.c) raw=_GemaDB.c['gema_vehicles'];
-  if(raw==null){ try{ raw=localStorage.getItem('gema_vehicles'); }catch(e){} }
-  try{ var arr=JSON.parse(raw||'[]'); return Array.isArray(arr)?arr:[]; }catch(e){ return []; }
+  try{ var arr=JSON.parse(localStorage.getItem('gema_vehicles')||'[]'); return Array.isArray(arr)?arr:[]; }catch(e){ return []; }
 }
 function _fzWriteAllRaw(arr){
-  var json=JSON.stringify(arr);
-  if(typeof _GemaDB!=='undefined'&&typeof _GemaDB.save==='function') _GemaDB.save('gema_vehicles',json);
-  try{ localStorage.setItem('gema_vehicles',json); }catch(e){}
+  if(typeof window.GemaSync !== 'undefined'){
+    window.GemaSync.persistCollection('fahrzeugmanagement','gema_vehicles','vehicle:','id', arr)
+      .catch(function(e){
+        console.warn('[Fahrzeug] Cloud-Save fehlgeschlagen:', e && e.message);
+        if(window.GemaDialog && window.GemaDialog.alert){
+          window.GemaDialog.alert({title:'Offline', message:'Aenderungen koennen nicht gespeichert werden. Bitte Verbindung pruefen.'});
+        }
+      });
+  } else {
+    try{ localStorage.setItem('gema_vehicles', JSON.stringify(arr)); }catch(e){}
+  }
 }
 function _fzLoadVehicles(){
   var u=_fzCurrentUser();
@@ -841,7 +851,7 @@ function persist(){
     return;
   }
   if(!orgId){
-    if(typeof _GemaDB!=='undefined') _GemaDB.save("gema_vehicles", JSON.stringify(vehicles));
+    _fzWriteAllRaw(vehicles);
     return;
   }
   vehicles.forEach(function(v){ if(!v.orgId) v.orgId=orgId; });
