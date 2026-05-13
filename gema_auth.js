@@ -34,15 +34,36 @@
 
   // Lade alle Records einer Collection aus der Cloud, schreibe Cache.
   // Liefert Promise<Array> oder reject bei Netz-Fehler.
+  // Mergt DEFAULTS rein: System-Eintraege (DEFAULT_ROLES, DEFAULT_ORGS,
+  // DEFAULT_USERS), deren ID NICHT in der Cloud existiert, bleiben lokal
+  // erhalten. Cloud-Versionen einer ID gewinnen (Override moeglich).
   function _loadCollectionFromCloud(storageKey){
     var def = _COLL[storageKey];
     if(!def || !_S()) return Promise.resolve(null);
     return _S().loadCollection('auth', def.prefix).then(function(rows){
-      if(!rows.length) return null;
-      var arr = rows.map(function(r){ return r.data; }).filter(function(d){ return d && d[def.idField]; });
-      _writeLocalCache(storageKey, arr);
-      return arr;
+      var cloudArr = (rows||[]).map(function(r){ return r.data; })
+                                .filter(function(d){ return d && d[def.idField]; });
+      var merged = _mergeWithDefaults(storageKey, cloudArr);
+      _writeLocalCache(storageKey, merged);
+      return merged;
     });
+  }
+
+  // Mergt Cloud-Daten mit den lokalen DEFAULTS. Cloud-IDs gewinnen;
+  // DEFAULT-IDs, die NICHT in der Cloud sind, werden lokal ergaenzt.
+  function _mergeWithDefaults(storageKey, cloudArr){
+    cloudArr = Array.isArray(cloudArr) ? cloudArr.slice() : [];
+    var defaults = storageKey === STORAGE_ROLES ? DEFAULT_ROLES
+                : storageKey === STORAGE_ORGS  ? DEFAULT_ORGS
+                : storageKey === STORAGE_USERS ? DEFAULT_USERS
+                : null;
+    if(!defaults || !defaults.length) return cloudArr;
+    var have = {};
+    cloudArr.forEach(function(it){ if(it && it.id != null) have[it.id] = true; });
+    defaults.forEach(function(d){
+      if(d && d.id != null && !have[d.id]) cloudArr.push(d);
+    });
+    return cloudArr;
   }
 
   // Holt die alte Blob-Row direkt mit Roh-Fetch (alte Payload-Struktur
