@@ -826,7 +826,11 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
       </div>
       <div>
         <label class="dlg-lbl">Raum / Zone</label>
-        <input type="text" class="dlg-inp" id="devRaum" placeholder="z.B. Bad EG">
+        <div style="display:flex;gap:8px;align-items:stretch">
+          <select class="dlg-inp" id="devRaumSelect" style="flex:1"></select>
+          <button type="button" class="dlg-cancel" onclick="sdDevAddNewRaum()" title="Neuen betroffenen Raum erfassen" style="white-space:nowrap;padding:0 14px">+ Neuer Raum</button>
+        </div>
+        <div style="font-size:11px;color:#6b7280;margin-top:4px">Auswahl aus den betroffenen Räumen dieses Schadens. Neue Räume werden in der Erfassung ergänzt.</div>
       </div>
       <div class="fg-row">
         <div class="fg">
@@ -2155,13 +2159,57 @@ function _sdRenderDevPicker(schadenId){
 
 function sdOpenDevAdd(id) {
   document.getElementById('devName').value = '';
-  document.getElementById('devRaum').value = '';
   document.getElementById('devKw').value = '';
   document.getElementById('devStart').value = '0';
   document.getElementById('devLinkedTgId').value = '';
   _sdRenderDevPicker(id);
-  document.getElementById('devAddModal').classList.remove('hidden');
   document.getElementById('devAddModal').dataset.schadenId = id;
+  // Raum-Dropdown aus den bereits erfassten Raeumen aufbauen.
+  sdRenderDevRaumSelect(id);
+  document.getElementById('devAddModal').classList.remove('hidden');
+}
+
+// Baut das Raum-Dropdown im devAddModal aus s.raeume[] auf. Auswahl
+// vorausgewaehlt (erster Raum), sonst "leer" (— Raum wählen —).
+function sdRenderDevRaumSelect(id, preselect){
+  var s = sdGetById(id); if(!s) return;
+  var sel = document.getElementById('devRaumSelect');
+  if(!sel) return;
+  var raeume = Array.isArray(s.raeume) ? s.raeume.slice() : [];
+  var opts = ['<option value="">— Raum wählen —</option>'];
+  raeume.forEach(function(r){
+    opts.push('<option value="' + esc(r) + '">' + esc(r) + '</option>');
+  });
+  sel.innerHTML = opts.join('');
+  if(preselect && raeume.indexOf(preselect) >= 0) sel.value = preselect;
+  else if(raeume.length === 1) sel.value = raeume[0]; // Komfort: einzigen Raum auto-waehlen
+}
+
+// + Neuer Raum: schreibt sofort in s.raeume[], aktualisiert die Erfassungs-
+// Phase und das devAddModal-Dropdown. Geraet wird dem neuen Raum
+// zugewiesen, sobald der User auf Hinzufuegen klickt.
+function sdDevAddNewRaum(){
+  var id = document.getElementById('devAddModal').dataset.schadenId;
+  if(!id) return;
+  GemaDialog.prompt({
+    title: 'Neuer betroffener Raum',
+    message: 'Name des Raums oder der Zone:',
+    placeholder: 'z.B. Bad EG, Flur, Keller'
+  }).then(function(val){
+    if(val === null) return;
+    var name = String(val||'').trim();
+    if(!name) return;
+    var s = sdGetById(id); if(!s) return;
+    if(!Array.isArray(s.raeume)) s.raeume = [];
+    if(s.raeume.indexOf(name) < 0){
+      s.raeume.push(name);
+      sdSave();
+      // Falls die Detail-Ansicht offen ist, Erfassungs-Phase neu rendern,
+      // damit der neue Raum dort auch als Tag erscheint.
+      try { sdRenderDetail(s); } catch(e){}
+    }
+    sdRenderDevRaumSelect(id, name);
+  });
 }
 
 // Setzt im Trocknungs-Modul (gema_trocknung_v1) das Geraet auf
@@ -2239,7 +2287,8 @@ function sdAddGeraet() {
   if (!name) { alert('Bitte Gerätename eingeben.'); return; }
   var linkedTgId = (document.getElementById('devLinkedTgId')||{}).value || '';
   if (!s.trocknung) s.trocknung = { gestartetAm: null, beendetAm: null, messpunkte: [], geraete: [], fotos: [], notizen: '' };
-  var raum = document.getElementById('devRaum').value.trim();
+  var raumSel = document.getElementById('devRaumSelect');
+  var raum = raumSel ? (raumSel.value || '').trim() : '';
   var kw = parseFloat(document.getElementById('devKw').value) || 0;
   var zaehlerStart = parseFloat(document.getElementById('devStart').value) || 0;
   s.trocknung.geraete.push({
