@@ -3102,12 +3102,7 @@ function _sdRenderTrendChart(mpWithMessungen){
     ly+=18;
   });
 
-  // Y-Title
-  ctx.save();
-  ctx.translate(14,padT+plotH/2); ctx.rotate(-Math.PI/2);
-  ctx.fillStyle='#374151'; ctx.font='11px sans-serif'; ctx.textAlign='center';
-  ctx.fillText('Restfeuchte (%)',0,0);
-  ctx.restore();
+  // Y-Title wird oben in der Grid-Schleife rotiert gezeichnet — kein zweites Label hier.
 
   return c.toDataURL('image/png');
 }
@@ -3204,7 +3199,9 @@ function sdExportPdf(id){
       doc.setDrawColor(229,231,235); doc.setLineWidth(0.3);
       doc.line(M, fy, pageW-M, fy);
       doc.setFontSize(7.5); doc.setFont('helvetica','normal'); doc.setTextColor(107,114,128);
-      var addr=[org.name||'', (org.adresse&&[org.adresse.strasse, [org.adresse.plz,org.adresse.ort].filter(Boolean).join(' ')].filter(Boolean).join(', '))||''].filter(Boolean).join(' · ');
+      // Adresse + Kontakt im Footer — der Firmenname kommt vom Logo,
+      // muss nicht zusaetzlich als Text erscheinen.
+      var addr=((org.adresse&&[org.adresse.strasse, [org.adresse.plz,org.adresse.ort].filter(Boolean).join(' ')].filter(Boolean).join(', '))||'');
       var kontakt=[org.kontakt&&org.kontakt.telefon, org.kontakt&&org.kontakt.email].filter(Boolean).join(' · ');
       if(addr) doc.text(addr, M, fy+4);
       if(kontakt) doc.text(kontakt, M, fy+7.5);
@@ -3213,25 +3210,26 @@ function sdExportPdf(id){
       doc.text('Seite '+pageNum+' / '+totalPages, pageW-M, fy+4, {align:'right'});
     }
 
-    // ── Header fuer Inhalts-Seiten (Logo+Firma links, Titel rechts) ──
+    // ── Header fuer Inhalts-Seiten (nur Logo links, Titel rechts) ──
     function _drawContentHeader(){
       var hy = 10;
-      // Logo links oben (max 14×14)
-      var logoOk = _drawLogo(M, 7, 14, 14);
-      // Firmenname / Schadenstitel
-      doc.setFontSize(9); doc.setFont('helvetica','bold'); doc.setTextColor(15,23,42);
-      doc.text(org.name||'GEMA', logoOk?M+18:M, hy+1);
-      doc.setFontSize(8); doc.setFont('helvetica','normal'); doc.setTextColor(124,58,237);
+      // Logo links oben (groesser, mit Aspect-Ratio); Fallback nur dann Firmenname.
+      var logoBox = _drawLogo(M, 5, 30, 16);
+      if(!logoBox){
+        doc.setFontSize(10.5); doc.setFont('helvetica','bold'); doc.setTextColor(15,23,42);
+        doc.text(org.name||'GEMA', M, hy+1);
+      }
+      doc.setFontSize(8.5); doc.setFont('helvetica','normal'); doc.setTextColor(124,58,237);
       doc.text('Schadensbericht · '+(s.titel||'—'), pageW-M, hy+1, {align:'right'});
       // Trennlinie
       doc.setDrawColor(229,231,235); doc.setLineWidth(0.3);
-      doc.line(M, 22, pageW-M, 22);
+      doc.line(M, 24, pageW-M, 24);
     }
 
     // ── Inhalts-Seite starten (Header zeichnen, y zuruecksetzen) ──
     function _startContentPage(){
       _drawContentHeader();
-      y = 28; // ab unterhalb des Headers
+      y = 30; // ab unterhalb des groesseren Headers + Trennlinie + Atem
     }
 
     // ── Platz-Check + Auto-Pagebreak ──
@@ -3254,26 +3252,30 @@ function sdExportPdf(id){
 
     // ── Section-Header: farbiges Band ueber Voll-Breite ──
     function drawSectionBand(num, title, rgb){
-      ensureSpace(14);
+      ensureSpace(18);
       sectionsTOC.push({ label: num+'. '+title, pageNum: doc.internal.getCurrentPageInfo().pageNumber });
       doc.setFillColor(rgb[0],rgb[1],rgb[2]);
       doc.rect(M, y, contentW, 8, 'F');
       doc.setFontSize(10.5); doc.setFont('helvetica','bold'); doc.setTextColor(255,255,255);
       doc.text(num+'. '+title, M+3, y+5.5);
-      y += 11;
+      // Mehr Atmung nach dem farbigen Section-Band
+      y += 14;
     }
 
     // ── Mehrzeiliger Text mit Pagebreak ──
     function drawParagraph(label, text, maxW){
       if(!text) return;
-      ensureSpace(8);
+      ensureSpace(10);
       doc.setFont('helvetica','bold'); doc.setTextColor(15,23,42); doc.setFontSize(9.5);
-      doc.text(label, M, y); y+=4.5;
+      doc.text(label, M, y);
+      // Mehr Abstand zwischen Label und erster Textzeile
+      y += 5.5;
       doc.setFont('helvetica','normal'); doc.setTextColor(55,65,81); doc.setFontSize(9.5);
       doc.splitTextToSize(text, maxW||contentW).forEach(function(L){
-        ensureSpace(5); doc.text(L, M, y); y+=4.5;
+        ensureSpace(5); doc.text(L, M, y); y+=4.8;
       });
-      y+=2;
+      // Mehr Abstand zur naechsten Section
+      y += 5;
     }
 
     // ── Tabelle mit Zebra-Streifen ──
@@ -3351,7 +3353,7 @@ function sdExportPdf(id){
     // ═══════════════════════════════════════
     // Logo oben links — gross, mit Aspect-Ratio. Kein Firmenname-Text
     // daneben (das Logo enthaelt typischerweise schon den Schriftzug).
-    var coverLogo = _drawLogo(M, 18, 60, 35);
+    var coverLogo = _drawLogo(M, 15, 80, 45);
     // Adresse + Kontakt rechts oben (nur wenn org.kontakt etwas hat)
     doc.setFontSize(8.5); doc.setFont('helvetica','normal'); doc.setTextColor(75,85,99);
     var briefY=22;
@@ -3371,7 +3373,7 @@ function sdExportPdf(id){
     }
     // Trennlinie
     doc.setDrawColor(229,231,235); doc.setLineWidth(0.4);
-    doc.line(M, 62, pageW-M, 62);
+    doc.line(M, 68, pageW-M, 68);
     // Hauptblock — naeher an die Trennlinie ruecken, damit weniger
     // Leerraum bleibt
     var titleY = 80;
