@@ -171,6 +171,18 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
 .modal-body::-webkit-scrollbar-thumb{background:var(--brd2);border-radius:4px}
 .fsec{display:flex;flex-direction:column;gap:13px}
 .fsec-hd{display:flex;align-items:center;gap:10px;padding-bottom:11px;border-bottom:1.5px solid var(--brd)}
+/* Custom Autocomplete (analog if_werkzeug.html) */
+.ac-drop{position:fixed;background:var(--sur);border:1.5px solid var(--plan-bd, #c4b5fd);border-radius:10px;box-shadow:var(--sh-lg, 0 8px 20px rgba(15,23,42,.12));z-index:9999;max-height:220px;overflow-y:auto;display:none}
+.ac-drop.open{display:block}
+.ac-drop::-webkit-scrollbar{width:5px}
+.ac-drop::-webkit-scrollbar-thumb{background:var(--brd2);border-radius:4px}
+.ac-item{padding:9px 14px;font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:8px;transition:.08s}
+.ac-item:first-child{border-radius:9px 9px 0 0}
+.ac-item:last-child{border-radius:0 0 9px 9px}
+.ac-item:hover,.ac-item.ac-active{background:var(--plan-bg, #ede9fe);color:var(--plan, #7c3aed)}
+.ac-item .ac-main{font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ac-item .ac-hint{font-size:11px;color:var(--mut);font-weight:500;white-space:nowrap;flex-shrink:0}
+.ac-item mark{background:rgba(124,58,237,.15);color:var(--plan, #7c3aed);border-radius:2px;font-weight:700;padding:0 1px}
 .fsec-ico{font-size:19px}
 .fsec-title{font-size:14px;font-weight:800;color:var(--txt)}
 .fsec-sub{font-size:11.5px;color:var(--mut);margin-top:2px}
@@ -505,18 +517,17 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
         </div>
         <div class="fg">
           <label>Bezeichnung <span class="req">*</span></label>
-          <input type="text" id="f_name" placeholder="z.B. Bautrockner LGR 3500" list="trocknungKatalogList" oninput="_tgKatalogAutofill()">
-          <datalist id="trocknungKatalogList"></datalist>
-          <div class="fg-hint" style="font-size:11px;color:#6b7280;margin-top:4px">Tippe los — Vorschläge aus dem Basiskatalog. Marke, Modell und Typ werden automatisch ergänzt.</div>
+          <input type="text" id="f_name" placeholder="z.B. Bautrockner LGR 3500" autocomplete="off">
+          <div class="fg-hint" style="font-size:11px;color:#6b7280;margin-top:4px">Tippe los — Vorschläge aus dem Basiskatalog. Marke, Modell und Typ werden automatisch ergänzt. Wenn ein Typ gewählt ist, werden nur passende Geräte vorgeschlagen.</div>
         </div>
         <div class="fg-row">
           <div class="fg">
             <label>Marke</label>
-            <input type="text" id="f_marke" placeholder="z.B. Trotec, Dantherm …">
+            <input type="text" id="f_marke" placeholder="z.B. Trotec, Dantherm …" autocomplete="off">
           </div>
           <div class="fg">
             <label>Modell / Art.-Nr.</label>
-            <input type="text" id="f_modell" placeholder="TTK 175 S">
+            <input type="text" id="f_modell" placeholder="TTK 175 S" autocomplete="off">
           </div>
         </div>
         <div class="fg-row">
@@ -807,8 +818,9 @@ var STATUS_MAP = {
 };
 
 // Basiskatalog: Vorschläge für die Bezeichnungs-Autocomplete (vgl. WERKZEUG_KATALOG in if_werkzeug.html).
-// Wird beim Tippen ins Bezeichnungs-Feld via <datalist> angeboten; bei exaktem Treffer
-// füllt _tgKatalogAutofill() Marke, Modell und Typ automatisch.
+// Wird beim Tippen ins Bezeichnungs/Marke/Modell-Feld via Custom-AC-Widget angeboten
+// (_tgSetupAutocomplete). Bei gewähltem Typ werden Vorschläge nach Typ gefiltert.
+// Bei Auswahl füllt der Handler Marke, Modell und Typ automatisch.
 var TROCKNUNG_KATALOG = [
   // Bautrockner / Kondensationstrockner
   { name: 'Bautrockner TTK 75 ECO',  marke: 'Trotec',   modell: 'TTK 75 ECO',  typ: 'bautrockner' },
@@ -898,33 +910,180 @@ function _tgGetKatalogEntries() {
   return entries;
 }
 
-function _tgInitKatalogList() {
-  var dl = document.getElementById('trocknungKatalogList');
-  if (!dl) return;
-  var entries = _tgGetKatalogEntries();
-  dl.innerHTML = entries.map(function(e) {
-    var typLabel = (GERAETE_TYPEN[e.typ] && GERAETE_TYPEN[e.typ].label) || '';
-    var meta = [e.marke, e.modell].filter(Boolean).join(' · ');
-    var srcTag = e.src === 'devices' ? ' (eigener Eintrag)' : '';
-    var detail = (meta || typLabel) ? (meta + (typLabel ? ' — ' + typLabel : '') + srcTag) : srcTag.replace(/^ /, '');
-    return '<option value="' + e.name + '">' + detail + '</option>';
-  }).join('');
+// _tgInitKatalogList ist Legacy-Stub (frueher fuer <datalist>). Das Custom-
+// AC-Widget wird via _tgSetupAutocomplete einmal pro Modal aufgesetzt.
+function _tgInitKatalogList() { /* noop — replaced by _tgSetupAutocomplete */ }
+
+// ── Custom Autocomplete (gleicher Style wie if_werkzeug.html) ──
+function _tgEsc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function _tgHighlight(text, q){
+  if(!q) return _tgEsc(text);
+  var i = text.toLowerCase().indexOf(q.toLowerCase());
+  if(i < 0) return _tgEsc(text);
+  return _tgEsc(text.substring(0,i)) + '<mark>' + _tgEsc(text.substring(i, i+q.length)) + '</mark>' + _tgEsc(text.substring(i+q.length));
+}
+function _tgCloseAllAC(){ document.querySelectorAll('.ac-drop.open').forEach(function(d){ d.classList.remove('open'); }); }
+
+// _tgInitAC: bindet ein Input-Element an ein .ac-drop-Dropdown.
+//   getSugg(q) -> Array<{label, value, hint?}>
+//   onSelect(item) -> wird bei Auswahl aufgerufen
+function _tgInitAC(inputId, getSugg, onSelect){
+  var inp = document.getElementById(inputId);
+  if(!inp) return;
+  // Schon initialisiert? Dann nicht doppelt anhaengen.
+  if(inp.dataset.tgAc === '1') return;
+  inp.dataset.tgAc = '1';
+  var drop = document.createElement('div');
+  drop.className = 'ac-drop';
+  document.body.appendChild(drop);
+  var activeIdx = -1, items = [];
+
+  function positionDrop(){
+    var r = inp.getBoundingClientRect();
+    var spaceBelow = window.innerHeight - r.bottom;
+    var dropH = Math.min(220, items.length * 38);
+    drop.style.left = r.left + 'px';
+    drop.style.width = r.width + 'px';
+    drop.style.bottom = '';
+    drop.style.top = (r.bottom + 4) + 'px';
+    drop.style.maxHeight = Math.max(120, spaceBelow - 8) + 'px';
+    if(spaceBelow < dropH){
+      var mb = inp.closest('.modal-body');
+      if(mb) mb.scrollTop += dropH - spaceBelow + 16;
+    }
+  }
+  function show(){
+    var q = inp.value.trim();
+    items = getSugg(q);
+    if(!items.length){ drop.classList.remove('open'); return; }
+    activeIdx = -1;
+    drop.innerHTML = items.slice(0,10).map(function(it,i){
+      return '<div class="ac-item" data-idx="'+i+'"><span class="ac-main">'+_tgHighlight(it.label,q)+'</span>'+(it.hint?'<span class="ac-hint">'+_tgEsc(it.hint)+'</span>':'')+'</div>';
+    }).join('');
+    positionDrop();
+    drop.classList.add('open');
+  }
+  inp.addEventListener('input', show);
+  inp.addEventListener('focus', show);
+  drop.addEventListener('mousedown', function(e){
+    e.preventDefault();
+    var el = e.target.closest('.ac-item');
+    if(!el) return;
+    var idx = +el.dataset.idx;
+    if(idx >= 0 && idx < items.length){
+      inp.value = items[idx].value;
+      drop.classList.remove('open');
+      if(onSelect) onSelect(items[idx]);
+    }
+  });
+  inp.addEventListener('blur', function(){ setTimeout(function(){ drop.classList.remove('open'); }, 180); });
+  inp.addEventListener('keydown', function(e){
+    if(!drop.classList.contains('open')) return;
+    var max = Math.min(items.length, 10);
+    if(e.key === 'ArrowDown'){ e.preventDefault(); activeIdx = Math.min(activeIdx+1, max-1); updAc(); }
+    else if(e.key === 'ArrowUp'){ e.preventDefault(); activeIdx = Math.max(activeIdx-1, 0); updAc(); }
+    else if(e.key === 'Enter' && activeIdx >= 0){
+      e.preventDefault();
+      inp.value = items[activeIdx].value;
+      drop.classList.remove('open');
+      if(onSelect) onSelect(items[activeIdx]);
+    }
+    else if(e.key === 'Escape'){ drop.classList.remove('open'); }
+  });
+  function updAc(){
+    drop.querySelectorAll('.ac-item').forEach(function(el,i){ el.classList.toggle('ac-active', i === activeIdx); });
+    var act = drop.querySelector('.ac-item.ac-active');
+    if(act) act.scrollIntoView({block:'nearest'});
+  }
 }
 
-function _tgKatalogAutofill() {
-  var nameEl = document.getElementById('f_name');
-  if (!nameEl) return;
-  var val = nameEl.value;
-  var entry = _tgGetKatalogEntries().find(function(e) { return e.name === val; });
-  if (!entry) return;
-  var marke = document.getElementById('f_marke');
-  if (marke && !marke.value) marke.value = entry.marke;
-  var modell = document.getElementById('f_modell');
-  if (modell && !modell.value) modell.value = entry.modell;
-  var typ = document.getElementById('f_typ');
-  if (typ && !typ.value && entry.typ) typ.value = entry.typ;
+// Einmal pro Seite aufrufen — bindet Bezeichnung / Marke / Modell ans Custom-AC.
+// Filter: wenn ein Typ im f_typ-Dropdown gewaehlt ist, werden nur Eintraege
+// dieses Typs vorgeschlagen.
+function _tgSetupAutocomplete(){
+  var mb = document.querySelector('#addModal .modal-body');
+  if(mb) mb.addEventListener('scroll', _tgCloseAllAC);
+
+  function _curTyp(){
+    var t = document.getElementById('f_typ');
+    return (t && t.value) ? t.value : '';
+  }
+
+  // Bezeichnung
+  _tgInitAC('f_name', function(q){
+    var entries = _tgGetKatalogEntries();
+    var typFilter = _curTyp();
+    var ql = q.toLowerCase(), seen = {}, result = [];
+    entries.forEach(function(e){
+      if(!e.name) return;
+      if(typFilter && e.typ && e.typ !== typFilter) return;
+      if(ql && e.name.toLowerCase().indexOf(ql) < 0) return;
+      if(seen[e.name]) return;
+      seen[e.name] = true;
+      var typLabel = (GERAETE_TYPEN[e.typ] && GERAETE_TYPEN[e.typ].label) || '';
+      var hintParts = [];
+      if(e.marke) hintParts.push(e.marke);
+      if(typLabel && !typFilter) hintParts.push(typLabel);
+      result.push({ label: e.name, value: e.name, hint: hintParts.join(' · ') });
+    });
+    return result;
+  }, function(sel){
+    // Nach Auswahl: Marke/Modell/Typ auto-fuellen aus passendem Eintrag
+    var entries = _tgGetKatalogEntries();
+    var match = entries.find(function(e){ return e.name === sel.value && (!_curTyp() || e.typ === _curTyp()); });
+    if(!match) return;
+    var marke = document.getElementById('f_marke');
+    if(marke && !marke.value) marke.value = match.marke || '';
+    var modell = document.getElementById('f_modell');
+    if(modell && !modell.value) modell.value = match.modell || '';
+    var typ = document.getElementById('f_typ');
+    if(typ && !typ.value && match.typ){ typ.value = match.typ; if(typeof _tgUpdateKwVisibility==='function') _tgUpdateKwVisibility(); }
+  });
+
+  // Marke
+  _tgInitAC('f_marke', function(q){
+    var entries = _tgGetKatalogEntries();
+    var typFilter = _curTyp();
+    var ql = q.toLowerCase(), seen = {}, result = [];
+    entries.forEach(function(e){
+      if(!e.marke) return;
+      if(typFilter && e.typ && e.typ !== typFilter) return;
+      if(ql && e.marke.toLowerCase().indexOf(ql) < 0) return;
+      if(seen[e.marke]) return;
+      seen[e.marke] = true;
+      result.push({ label: e.marke, value: e.marke });
+    });
+    return result;
+  });
+
+  // Modell
+  _tgInitAC('f_modell', function(q){
+    var entries = _tgGetKatalogEntries();
+    var typFilter = _curTyp();
+    var curMarke = (document.getElementById('f_marke').value || '').trim().toLowerCase();
+    var ql = q.toLowerCase(), seen = {}, result = [];
+    entries.forEach(function(e){
+      if(!e.modell) return;
+      if(typFilter && e.typ && e.typ !== typFilter) return;
+      if(curMarke && e.marke && e.marke.toLowerCase() !== curMarke) return;
+      if(ql && e.modell.toLowerCase().indexOf(ql) < 0) return;
+      if(seen[e.modell]) return;
+      seen[e.modell] = true;
+      result.push({ label: e.modell, value: e.modell, hint: e.marke || '' });
+    });
+    return result;
+  }, function(sel){
+    // Modell-Auswahl ergaenzt Marke + Typ, wenn leer
+    var entries = _tgGetKatalogEntries();
+    var match = entries.find(function(e){ return e.modell === sel.value; });
+    if(!match) return;
+    var marke = document.getElementById('f_marke');
+    if(marke && !marke.value) marke.value = match.marke || '';
+    var typ = document.getElementById('f_typ');
+    if(typ && !typ.value && match.typ){ typ.value = match.typ; if(typeof _tgUpdateKwVisibility==='function') _tgUpdateKwVisibility(); }
+  });
 }
-window._tgKatalogAutofill = _tgKatalogAutofill;
+window._tgSetupAutocomplete = _tgSetupAutocomplete;
 
 // ──────────────────────────────────────
 // STATE
@@ -2337,6 +2496,7 @@ document.addEventListener('DOMContentLoaded', async function() {
   }
 
   _tgInitKatalogList();
+  _tgSetupAutocomplete();
   renderList();
   checkUrlParams();
 });
