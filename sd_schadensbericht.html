@@ -200,7 +200,7 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
 .detail-overlay{position:fixed;inset:0;z-index:600;background:var(--bg);overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;animation:slideUp .28s cubic-bezier(.16,1,.3,1)}
 @keyframes slideUp{from{opacity:0;transform:translateY(40px)}to{opacity:1;transform:none}}
 .detail-overlay.hidden{display:none!important}
-.detail-inner{max-width:900px;margin:0 auto;padding:24px 24px 80px}
+.detail-inner{max-width:1200px;margin:0 auto;padding:24px 24px 80px}
 .detail-top{display:flex;align-items:center;gap:12px;margin-bottom:20px;flex-wrap:wrap}
 .detail-back{padding:8px 16px;border-radius:10px;border:1.5px solid var(--brd2);background:var(--sur);font-size:13px;font-weight:700;color:var(--txt2);cursor:pointer;transition:.15s;display:flex;align-items:center;gap:6px}
 .detail-back:hover{background:var(--bg2)}
@@ -267,9 +267,11 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
 .chart-wrap canvas{width:100%;height:100%}
 
 /* DEVICE TABLE */
-.dev-table{width:100%;border-collapse:collapse;font-size:13px;margin-top:8px}
-.dev-table th{background:var(--sur2);padding:9px 12px;text-align:left;font-size:11px;font-weight:800;color:var(--mut);text-transform:uppercase;border-bottom:1.5px solid var(--brd)}
-.dev-table td{padding:8px 12px;border-bottom:1px solid var(--brd)}
+.dev-table{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:8px}
+.dev-table th{background:var(--sur2);padding:8px 9px;text-align:left;font-size:10.5px;font-weight:800;color:var(--mut);text-transform:uppercase;border-bottom:1.5px solid var(--brd);white-space:nowrap}
+.dev-table td{padding:7px 9px;border-bottom:1px solid var(--brd);vertical-align:middle}
+.dev-table td.dev-num{white-space:nowrap;text-align:right}
+.dev-table td.dev-tight{white-space:nowrap}
 .dev-table tr:last-child td{border-bottom:none}
 .dev-table td input{border:1px solid var(--brd2);border-radius:6px;padding:4px 8px;font-size:13px;width:100%;background:var(--bg2);font-family:var(--sans);outline:none}
 .dev-table td input:focus{border-color:var(--plan);background:var(--sur)}
@@ -1908,25 +1910,36 @@ function sdRenderTrocknung(s, canEdit, canMeas) {
   h += '</div>';
 
   if (tr.geraete && tr.geraete.length) {
-    h += '<div style="overflow-x:auto"><table class="dev-table"><thead><tr><th>Gerät</th><th>Raum</th><th>kW</th><th>Zähler</th><th>Start</th><th>Ende</th><th>Ende am</th><th>Tage</th><th>kWh</th><th></th></tr></thead><tbody>';
+    h += '<div style="overflow-x:auto"><table class="dev-table"><thead><tr>'
+       + '<th>Gerät</th>'
+       + '<th>Raum</th>'
+       + '<th style="text-align:right">kW</th>'
+       + '<th>Zähler</th>'
+       + '<th style="text-align:right">Start</th>'
+       + '<th style="text-align:right">Ende</th>'
+       + '<th>Ende am</th>'
+       + '<th style="text-align:right">Tage</th>'
+       + '<th style="text-align:right">kWh</th>'
+       + '<th style="width:32px"></th>'
+       + '</tr></thead><tbody>';
     tr.geraete.forEach(function(g, gi) {
       var kwhVal = sdComputeKwh(g);
       var kwh = kwhVal == null ? '—' : kwhVal.toFixed(1);
       var tage = sdGeraetTage(g);
-      var tageStr = tage == null ? '—' : (sdGeraetEnde(g) ? (tage + ' Tag' + (tage===1?'':'e')) : (tage + ' Tg ⏵')); // ⏵ = laufend
+      var tageStr = tage == null ? '—' : (sdGeraetEnde(g) ? String(tage) : (tage + '⏵')); // ⏵ = laufend, kein "Tage"-Suffix (Header sagt es)
       var zTyp = g.zaehlerTyp || 'stunden';
       var zEinheit = zTyp === 'kwh' ? 'kWh' : (zTyp === 'kein' ? '' : 'h');
       var zBadge = zTyp === 'kwh' ? '⚡ kWh' : (zTyp === 'kein' ? '–' : '⏱ h');
       var hasZaehler = zTyp !== 'kein';
       h += '<tr>';
-      h += '<td style="font-weight:700">' + esc(g.name) + '</td>';
-      h += '<td>' + esc(g.raum || '—') + '</td>';
-      h += '<td>' + (g.kw || '—') + '</td>';
-      h += '<td style="font-size:11px;font-weight:700;color:var(--mut)">' + zBadge + '</td>';
-      h += '<td>' + (hasZaehler ? ((g.zaehlerStart != null ? g.zaehlerStart : '0') + (zEinheit ? ' '+zEinheit : '')) : '—') + '</td>';
-      h += '<td>';
+      h += '<td style="font-weight:700;min-width:140px">' + esc(g.name) + '</td>';
+      h += '<td class="dev-tight">' + esc(g.raum || '—') + '</td>';
+      h += '<td class="dev-num">' + (g.kw || '—') + '</td>';
+      h += '<td class="dev-tight" style="font-size:11px;font-weight:700;color:var(--mut)">' + zBadge + '</td>';
+      h += '<td class="dev-num">' + (hasZaehler ? ((g.zaehlerStart != null ? g.zaehlerStart : '0') + (zEinheit ? ' '+zEinheit : '')) : '—') + '</td>';
+      h += '<td class="dev-num" style="min-width:90px">';
       if (editable && hasZaehler) {
-        h += '<input type="text" inputmode="decimal" value="' + (g.zaehlerEnde || '') + '" placeholder="—" style="width:80px;min-height:36px" onblur="fixLeadingZero(this);sdUpdateDevEnd(\'' + s.id + '\',' + gi + ',this.value)">';
+        h += '<input type="text" inputmode="decimal" value="' + (g.zaehlerEnde || '') + '" placeholder="—" style="width:74px;min-height:32px;text-align:right" onblur="fixLeadingZero(this);sdUpdateDevEnd(\'' + s.id + '\',' + gi + ',this.value)">';
       } else if(hasZaehler) {
         h += (g.zaehlerEnde || '—');
       } else {
@@ -1938,14 +1951,14 @@ function sdRenderTrocknung(s, canEdit, canMeas) {
       // angezeigt. Sobald der Zaehlerstand-Ende eingetragen wird (oder
       // der User direkt das Datum setzt), wird der Wert fix gespeichert
       // und schwarz angezeigt — bleibt aber editierbar.
-      h += '<td>';
+      h += '<td class="dev-tight" style="min-width:130px">';
       if (editable) {
         var endeIso  = sdGeraetEnde(g);
         var isFixed  = !!endeIso;
         var dispVal  = endeIso || sdToday();
         h += '<input type="date" value="' + dispVal + '" '
            + 'data-fixed="' + (isFixed?'1':'0') + '" '
-           + 'style="height:34px;padding:0 6px;border:1.5px solid var(--brd2);border-radius:6px;font-size:12px;font-family:var(--sans);'
+           + 'style="height:32px;padding:0 6px;border:1.5px solid var(--brd2);border-radius:6px;font-size:12px;font-family:var(--sans);width:auto;'
            + 'color:' + (isFixed ? 'var(--txt)' : 'var(--mut)') + ';'
            + 'background:' + (isFixed ? 'var(--sur)' : 'var(--bg2)') + ';'
            + 'font-style:' + (isFixed ? 'normal' : 'italic') + ';" '
@@ -1954,9 +1967,9 @@ function sdRenderTrocknung(s, canEdit, canMeas) {
         h += (sdGeraetEnde(g) ? sdFmtDate(sdGeraetEnde(g)) : '—');
       }
       h += '</td>';
-      h += '<td style="font-weight:700;color:' + (tage == null ? 'var(--mut)' : 'var(--txt)') + '">' + tageStr + '</td>';
-      h += '<td style="font-weight:800;color:' + (kwh !== '—' ? 'var(--plan)' : 'var(--mut)') + '">' + kwh + '</td>';
-      h += '<td>';
+      h += '<td class="dev-num" style="font-weight:700;color:' + (tage == null ? 'var(--mut)' : 'var(--txt)') + '">' + tageStr + '</td>';
+      h += '<td class="dev-num" style="font-weight:800;color:' + (kwh !== '—' ? 'var(--plan)' : 'var(--mut)') + '">' + kwh + '</td>';
+      h += '<td style="text-align:right;width:32px;padding-right:0">';
       if (canEdit) h += '<button class="btn-del-icon" title="Gerät entfernen" onclick="sdDelDev(\'' + s.id + '\',' + gi + ')">✕</button>';
       h += '</td></tr>';
     });
