@@ -3606,29 +3606,47 @@ function sdExportPdf(id){
           ];
         });
         drawTable(['Name','Raum','Leistung','Stunden','Tage','Energie'], rows, [3, 2.4, 1.4, 1.3, 1.1, 1.5]);
-        // Summen pro Raum (nur wenn mehr als ein Raum mit Geraeten)
+        // Summen pro Raum (nur wenn mehr als ein Raum mit Geraeten) —
+        // tabellarisch in Spalten, damit Werte sauber untereinander stehen.
         var raumKeys = Object.keys(raumAgg);
         if(raumKeys.length > 1){
-          ensureSpace(7);
+          y += 4; // Abstand zur Geraete-Tabelle darueber
+          ensureSpace(14);
           doc.setFont('helvetica','bold'); doc.setFontSize(8.5); doc.setTextColor(75,85,99);
-          doc.text('Summe pro Raum', M, y+3); y+=6;
+          doc.text('Summe pro Raum', M, y); y+=5;
+          // Spalten-Positionen (rechtsbuendig fuer Zahlen)
+          var colKwh  = pageW - M;            // ganz rechts
+          var colH    = pageW - M - 32;       // 32mm vor kWh
+          var colTage = pageW - M - 60;       // 28mm vor Stunden
+          var colGer  = pageW - M - 86;       // 26mm vor Tage
+          // Spalten-Header (klein, grau)
+          doc.setFont('helvetica','bold'); doc.setFontSize(7.5); doc.setTextColor(107,114,128);
+          doc.text('Geräte', colGer,  y, {align:'right'});
+          doc.text('Tage',   colTage, y, {align:'right'});
+          doc.text('Stunden',colH,    y, {align:'right'});
+          doc.text('kWh',    colKwh,  y, {align:'right'});
+          y += 4;
+          doc.setDrawColor(229,231,235); doc.setLineWidth(0.2);
+          doc.line(M, y-1, pageW-M, y-1);
+          // Daten-Zeilen
           doc.setFont('helvetica','normal'); doc.setFontSize(9); doc.setTextColor(55,65,81);
           raumKeys.forEach(function(rm){
             ensureSpace(5);
             var a = raumAgg[rm];
-            // Raum-Trocknungs-Tage: frueheste Start bis spaeteste End (oder heute bei offen)
             var raumTage = null;
             if(a.minStart){
               var endRef = a.hasOpen ? sdToday() : (a.maxEnd || sdToday());
               raumTage = sdDaysBetween(a.minStart, endRef);
             }
-            var tagePart = raumTage == null ? '' : (raumTage + ' Tag' + (raumTage===1?'':'e') + (a.hasOpen?' (offen)':'') + '   ·   ');
-            var line = '• '+rm+' ('+a.count+' Gerät'+(a.count===1?'':'e')+'):  '
-                       + tagePart
-                       + a.hours.toFixed(1) + ' h   ·   ' + a.kwh.toFixed(1) + ' kWh';
-            doc.text(line, M, y); y+=4.5;
+            doc.text('• ' + rm, M, y);
+            doc.text(String(a.count), colGer,  y, {align:'right'});
+            doc.text(raumTage == null ? '—' : (raumTage + (a.hasOpen ? '⏵' : '')),
+                                              colTage, y, {align:'right'});
+            doc.text(a.hours.toFixed(1) + ' h',   colH,   y, {align:'right'});
+            doc.text(a.kwh.toFixed(1)   + ' kWh', colKwh, y, {align:'right'});
+            y += 5;
           });
-          y += 2;
+          y += 5; // Atem zur Gesamt-Summe
         }
         // Gesamt-Summe
         if(totKwh > 0 || totHours > 0){
