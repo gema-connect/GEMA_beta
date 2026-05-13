@@ -18,26 +18,6 @@
 (function(w){
   'use strict';
 
-  // ──────────────────────────────────────────────────────────────
-  // READ-ONLY MODUS — temporaer aktivieren, wenn alle Daten aus
-  // Supabase geloescht und alle Browser-Caches geleert werden,
-  // damit kein localStorage-Rest die frisch geloeschten Records
-  // wieder hochpushen kann.
-  //
-  // Setze READ_ONLY = false, wenn der Cleanup abgeschlossen ist
-  // und neue User wieder angelegt werden duerfen.
-  //
-  // Im aktiven Zustand:
-  //   • alle Cloud-Saves (saveRecord / saveRecords / saveDiff /
-  //     persistCollection / deleteRecord) rejecten sofort
-  //   • lokale Caches werden nicht ueberschrieben
-  //   • Reads (loadCollection / loadRecord / bindCollection)
-  //     funktionieren weiter
-  //   • roter Banner oben warnt sichtbar
-  // ──────────────────────────────────────────────────────────────
-  var READ_ONLY = true;
-  var READ_ONLY_REASON = 'Cleanup laeuft — Saves bis auf Weiteres deaktiviert.';
-
   var SB_URL = 'https://fjhbqjvaygvhievjgdtm.supabase.co';
   var SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZqaGJxanZheWd2aGlldmpnZHRtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI2ODk5OTUsImV4cCI6MjA4ODI2NTk5NX0.n3AbrEKTWWhI2tnDaf7-Z-QI9o9pJiP1E7BsHVuZY9k';
   var SB_TABLE = 'gema_data';
@@ -90,35 +70,6 @@
     });
     if(document.body) document.body.appendChild(_banner);
     else document.addEventListener('DOMContentLoaded', function(){ if(_banner && !_banner.parentNode) document.body.appendChild(_banner); });
-  }
-
-  // Roter Read-only-Banner, eine Zeile hoeher als der Offline-Banner.
-  function _showReadOnlyBanner(){
-    if(typeof document === 'undefined') return;
-    function inject(){
-      if(document.getElementById('gema-sync-readonly-banner')) return;
-      var b = document.createElement('div');
-      b.id = 'gema-sync-readonly-banner';
-      b.textContent = '🔒 Read-only: ' + READ_ONLY_REASON;
-      Object.assign(b.style, {
-        position:'fixed', top:'0', left:'0', right:'0', zIndex:'10001',
-        background:'#dc2626', color:'#fff', textAlign:'center',
-        padding:'8px 14px', fontFamily:'DM Sans,system-ui,sans-serif',
-        fontSize:'13px', fontWeight:'700',
-        boxShadow:'0 2px 6px rgba(0,0,0,.22)'
-      });
-      document.body.appendChild(b);
-      // Restlicher Inhalt nach unten schieben, damit der Banner nichts verdeckt
-      document.body.style.paddingTop = (parseFloat(getComputedStyle(document.body).paddingTop)||0) + 36 + 'px';
-    }
-    if(document.body) inject();
-    else document.addEventListener('DOMContentLoaded', inject);
-  }
-  if(READ_ONLY) _showReadOnlyBanner();
-
-  // Reject-Helper fuer alle Save-Pfade
-  function _readOnlyReject(){
-    return Promise.reject(new Error('READ_ONLY: ' + READ_ONLY_REASON));
   }
 
   // Einmaliger Reachability-Check via leichter HEAD-Anfrage
@@ -195,7 +146,6 @@
    * Setzt automatisch _lm = jetzt.
    */
   function saveRecord(moduleKey, dataKey, data){
-    if(READ_ONLY) return _readOnlyReject();
     var lm = _now();
     var body = { module_key: moduleKey, data_key: dataKey, payload: { data: data, _lm: lm } };
     return fetch(SB_URL + '/rest/v1/' + SB_TABLE + '?on_conflict=module_key%2Cdata_key', {
@@ -218,7 +168,6 @@
    * (sehr selten) gibt PostgREST einen Status zurueck.
    */
   function saveRecords(moduleKey, records){
-    if(READ_ONLY) return _readOnlyReject();
     if(!records || !records.length) return Promise.resolve({ ok:true, count:0 });
     var lm = _now();
     var body = records.map(function(rec){
@@ -246,7 +195,6 @@
    * Hartes Loeschen einer einzelnen Record-Row.
    */
   function deleteRecord(moduleKey, dataKey){
-    if(READ_ONLY) return _readOnlyReject();
     var url = SB_URL + '/rest/v1/' + SB_TABLE
       + '?module_key=eq.' + encodeURIComponent(moduleKey)
       + '&data_key=eq.' + encodeURIComponent(dataKey);
@@ -303,7 +251,6 @@
   // schreibt nur die geaenderten Records, loescht die entfernten.
   // Liefert { upserted, deleted } oder reject bei Fehler.
   function saveDiff(moduleKey, prefix, oldArr, newArr, idField){
-    if(READ_ONLY) return _readOnlyReject();
     var d = diffArrays(oldArr, newArr, idField);
     if(!d.toUpsert.length && !d.toDelete.length){
       return Promise.resolve({ upserted:0, deleted:0 });
@@ -365,17 +312,10 @@
     return loadCollection(moduleKey, prefix).then(function(rows){
       if(rows && rows.length){
         var arr = rows.map(function(r){ return r.data; }).filter(function(d){ return d && d[idField] != null; });
-        if(!READ_ONLY) _writeCache(storageKey, arr);
+        _writeCache(storageKey, arr);
         return arr;
       }
-      // Keine Per-Record-Daten in Cloud. Im READ-ONLY-Modus KEINE Migration —
-      // sonst pusht die Migration alte Blob-Inhalte als neue Records zurueck.
-      if(READ_ONLY){
-        // Cache leeren, damit nichts Stale rumliegt
-        _writeCache(storageKey, []);
-        return [];
-      }
-      // Pruefe ob alte Blob-Row da ist
+      // Keine Per-Record-Daten — pruefe ob alte Blob-Row da ist
       return _legacyBlobFetch(moduleKey, storageKey).then(function(blob){
         if(!Array.isArray(blob) || !blob.length) return _readCache(storageKey);
         var records = blob.filter(function(it){ return it && it[idField] != null; })
@@ -396,7 +336,6 @@
   }
 
   function persistCollection(moduleKey, storageKey, prefix, idField, newArr){
-    if(READ_ONLY) return _readOnlyReject();
     if(!idField) idField = 'id';
     if(!_lastReachable){
       return _probeOnce().then(function(reachable){
