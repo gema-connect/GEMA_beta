@@ -3236,8 +3236,9 @@ function sdExportPdf(id){
     // ── Inhalts-Seite starten (Header zeichnen, y zuruecksetzen) ──
     function _startContentPage(){
       var lineY = _drawContentHeader();
-      // Inhalt startet 6mm unter der Trennlinie
-      y = (lineY || 22) + 6;
+      // Inhalt startet 12mm unter der Trennlinie — jsPDF text() rendert
+      // mit Baseline, daher braucht es mehr Abstand als optisch noetig.
+      y = (lineY || 22) + 12;
     }
 
     // ── Platz-Check + Auto-Pagebreak ──
@@ -3359,29 +3360,33 @@ function sdExportPdf(id){
     // ═══════════════════════════════════════
     // SEITE 1 — COVER PAGE
     // ═══════════════════════════════════════
-    // Logo oben links — gross, mit Aspect-Ratio. Kein Firmenname-Text
-    // daneben (das Logo enthaelt typischerweise schon den Schriftzug).
-    var coverLogo = _drawLogo(M, 15, 80, 45);
-    // Adresse + Kontakt rechts oben (nur wenn org.kontakt etwas hat)
-    doc.setFontSize(8.5); doc.setFont('helvetica','normal'); doc.setTextColor(75,85,99);
-    var briefY=22;
+    // Logo + Trennlinie identisch zum Folge-Seiten-Header:
+    // gleiche Position (y=6), gleiche Box (30x16mm), Trennlinie
+    // dynamisch unter dem Logo.
+    var coverLogoY = 6;
+    var coverLogo = _drawLogo(M, coverLogoY, 30, 16);
+    var coverLogoBottom = coverLogo ? (coverLogoY + coverLogo.h) : 12;
+    // Adresse + Kontakt rechts neben dem Logo (kompakt, gleiche Hoehe)
+    doc.setFontSize(8); doc.setFont('helvetica','normal'); doc.setTextColor(75,85,99);
+    var briefY = coverLogoY + 3;
     if(org.adresse){
-      if(org.adresse.strasse){ doc.text(org.adresse.strasse, pageW-M, briefY, {align:'right'}); briefY+=4; }
+      if(org.adresse.strasse){ doc.text(org.adresse.strasse, pageW-M, briefY, {align:'right'}); briefY+=3.5; }
       var po=[org.adresse.plz,org.adresse.ort].filter(Boolean).join(' ');
-      if(po){ doc.text(po, pageW-M, briefY, {align:'right'}); briefY+=4; }
+      if(po){ doc.text(po, pageW-M, briefY, {align:'right'}); briefY+=3.5; }
     }
     if(org.kontakt){
-      if(org.kontakt.telefon){ doc.text(org.kontakt.telefon, pageW-M, briefY, {align:'right'}); briefY+=4; }
-      if(org.kontakt.email){ doc.text(org.kontakt.email, pageW-M, briefY, {align:'right'}); briefY+=4; }
+      if(org.kontakt.telefon){ doc.text(org.kontakt.telefon, pageW-M, briefY, {align:'right'}); briefY+=3.5; }
+      if(org.kontakt.email){ doc.text(org.kontakt.email, pageW-M, briefY, {align:'right'}); briefY+=3.5; }
     }
     // Fallback: Wenn kein Logo da ist, wenigstens Firmenname als Text
     if(!coverLogo){
-      doc.setFontSize(13); doc.setFont('helvetica','bold'); doc.setTextColor(15,23,42);
-      doc.text(org.name||'GEMA', M, 28);
+      doc.setFontSize(11); doc.setFont('helvetica','bold'); doc.setTextColor(15,23,42);
+      doc.text(org.name||'GEMA', M, coverLogoY + 7);
     }
-    // Trennlinie
-    doc.setDrawColor(229,231,235); doc.setLineWidth(0.4);
-    doc.line(M, 68, pageW-M, 68);
+    // Trennlinie — gleiche Logik wie auf Folge-Seiten: 2mm unter Logo
+    var coverLineY = Math.max(coverLogoBottom + 2, briefY);
+    doc.setDrawColor(229,231,235); doc.setLineWidth(0.3);
+    doc.line(M, coverLineY, pageW-M, coverLineY);
     // Hauptblock — naeher an die Trennlinie ruecken, damit weniger
     // Leerraum bleibt
     var titleY = 80;
@@ -3468,9 +3473,12 @@ function sdExportPdf(id){
     _startContentPage();
     var tocStartY = y;
     doc.setFontSize(14); doc.setFont('helvetica','bold'); doc.setTextColor(15,23,42);
-    doc.text('Inhaltsverzeichnis', M, y); y+=8;
+    doc.text('Inhaltsverzeichnis', M, y);
+    // Linie unter dem Titel mit echtem Abstand zum Descender
+    y += 5;
     doc.setDrawColor(229,231,235); doc.setLineWidth(0.4);
-    doc.line(M, y-2, pageW-M, y-2);
+    doc.line(M, y, pageW-M, y);
+    y += 6; // Atem vor den Eintraegen
     // Platzhalter: wird ganz am Ende mit echten Daten gefuellt
     var tocReserveYStart = y;
 
