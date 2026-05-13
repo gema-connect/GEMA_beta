@@ -136,6 +136,9 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
 .tc-act.accent{background:var(--plan-bg);border-color:var(--plan-bd);color:var(--plan)}
 .tc-act.accent:hover{background:var(--plan-bg2)}
 .tc-act.danger:hover{background:var(--red-bg);border-color:var(--red-bd);color:var(--red)}
+/* Einheitlicher Icon-Loesch-Button — quadratisch, ueberall gleich gross. */
+.btn-del-icon{display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;padding:0;border-radius:7px;border:1.5px solid var(--brd2);background:var(--sur);color:var(--mut);font-size:13px;font-weight:700;cursor:pointer;transition:.15s;flex-shrink:0}
+.btn-del-icon:hover{background:var(--red-bg);border-color:var(--red-bd);color:var(--red)}
 
 /* TABLE */
 .table-wrap{background:var(--sur);border:1px solid var(--brd);border-radius:var(--r);overflow:auto;box-shadow:var(--sh-sm)}
@@ -1496,6 +1499,20 @@ function sdCloseDetail() {
 
 var _sdCurrentDetailId = '';
 function sdRenderDetail(s) {
+  // State vor dem Re-Render sichern, damit Edit-Aktionen (z.B.
+  // Zaehlerstand-Ende eintragen) nicht die Phase zuklappen oder die
+  // Seite nach oben scrollen lassen.
+  var _openAccIds = [];
+  try{
+    document.querySelectorAll('#detailInner .acc.open').forEach(function(el){
+      if(el.id) _openAccIds.push(el.id);
+    });
+  }catch(e){}
+  var _scrollEl = document.getElementById('detailOverlay');
+  var _scrollY  = _scrollEl ? _scrollEl.scrollTop : 0;
+  var _winScrollY = window.scrollY || window.pageYOffset || 0;
+  var _activeId   = document.activeElement && document.activeElement.id;
+
   _sdCurrentDetailId = s ? s.id : '';
   var t = TYPEN[s.typ] || TYPEN.sonstiges;
   var canEdit = _sdCanEdit();
@@ -1559,6 +1576,25 @@ function sdRenderDetail(s) {
   });
 
   document.getElementById('detailInner').innerHTML = html;
+
+  // State wiederherstellen: vorher offene Accordions wieder aufklappen,
+  // Scroll-Position behalten, Fokus auf das vorher aktive Input
+  // zurueckgeben (sonst klappt das Detail-Panel zu / scrollt zum Anfang
+  // nach jeder kleinen Edit-Aktion).
+  if(_openAccIds.length){
+    _openAccIds.forEach(function(accId){
+      var el = document.getElementById(accId);
+      if(el) el.classList.add('open');
+    });
+  }
+  if(_scrollEl){ _scrollEl.scrollTop = _scrollY; }
+  if(_winScrollY){ try{ window.scrollTo(0, _winScrollY); }catch(e){} }
+  if(_activeId){
+    var refocus = document.getElementById(_activeId);
+    if(refocus && typeof refocus.focus === 'function'){
+      try{ refocus.focus({preventScroll:true}); }catch(e){ try{ refocus.focus(); }catch(_){} }
+    }
+  }
 
   // Render charts after DOM is in place
   setTimeout(function() { sdRenderAllCharts(s); }, 100);
@@ -1672,7 +1708,7 @@ function sdRenderAnalyse(s, canEdit) {
       var beschr = typeof m === 'string' ? m : (m.beschreibung || m.text || '');
       h += '<div class="mn-item">';
       h += '<div class="mn-body"><div class="mn-text">' + esc(beschr) + '</div></div>';
-      if (editable) h += '<button class="mn-del" onclick="sdDelMn(\'' + s.id + '\',' + i + ')">✕</button>';
+      if (editable) h += '<button class="btn-del-icon" title="Löschen" onclick="sdDelMn(\'' + s.id + '\',' + i + ')">✕</button>';
       h += '</div>';
     });
     h += '</div>';
@@ -1771,8 +1807,8 @@ function sdRenderTrocknung(s, canEdit, canMeas) {
       h += '<button class="' + (curView === 'table' ? 'active' : '') + '" onclick="sdSetMeasView(\'' + viewKey + '\',\'table\',\'' + s.id + '\')">Tabelle</button>';
       h += '<button class="' + (curView === 'chart' ? 'active' : '') + '" onclick="sdSetMeasView(\'' + viewKey + '\',\'chart\',\'' + s.id + '\')">Diagramm</button>';
       h += '</div>';
-      if (editable) h += '<button class="nbtn" style="font-size:10px;padding:3px 8px" onclick="sdOpenMessAdd(\'' + s.id + '\',\'' + mp.id + '\')">+ Messung</button>';
-      if (canEdit) h += '<button class="tc-act danger" style="font-size:10px;padding:3px 8px" onclick="sdDelMp(\'' + s.id + '\',\'' + mp.id + '\')">✕</button>';
+      if (editable) h += '<button class="nbtn" style="font-size:11px;padding:4px 10px" onclick="sdOpenMessAdd(\'' + s.id + '\',\'' + mp.id + '\')">+ Messung</button>';
+      if (canEdit) h += '<button class="btn-del-icon" title="Messpunkt löschen" onclick="sdDelMp(\'' + s.id + '\',\'' + mp.id + '\')">✕</button>';
       h += '</div></div>';
 
       if (curView === 'table') {
@@ -1794,7 +1830,7 @@ function sdRenderTrocknung(s, canEdit, canMeas) {
             }
             h += '</td>';
             h += '<td>';
-            if (canEdit) h += '<button class="tc-act danger" style="font-size:12px;padding:6px 10px;min-width:32px;min-height:32px" onclick="sdDelMessung(\'' + s.id + '\',\'' + mp.id + '\',' + mi + ')">✕</button>';
+            if (canEdit) h += '<button class="btn-del-icon" title="Messung löschen" onclick="sdDelMessung(\'' + s.id + '\',\'' + mp.id + '\',' + mi + ')">✕</button>';
             h += '</td></tr>';
           });
           h += '</tbody></table></div>';
@@ -1837,11 +1873,23 @@ function sdRenderTrocknung(s, canEdit, canMeas) {
         h += (g.zaehlerEnde || '—');
       }
       h += '</td>';
-      // Ende-am-Datum (editierbar wenn berechtigt). Default beim Setzen
-      // des Zaehlerstand-Ende = heute, hier manuell anpassbar.
+      // Ende-am-Datum: solange das Geraet nicht "entfernt" ist (kein
+      // entferntAm gesetzt), wird das heutige Datum als Vorschau grau
+      // angezeigt. Sobald der Zaehlerstand-Ende eingetragen wird (oder
+      // der User direkt das Datum setzt), wird der Wert fix gespeichert
+      // und schwarz angezeigt — bleibt aber editierbar.
       h += '<td>';
       if (editable) {
-        h += '<input type="date" value="' + (sdGeraetEnde(g) || '') + '" style="height:34px;padding:0 6px;border:1.5px solid var(--brd2);border-radius:6px;font-size:12px;font-family:var(--sans)" onchange="sdUpdateDevEndDate(\'' + s.id + '\',' + gi + ',this.value)">';
+        var endeIso  = sdGeraetEnde(g);
+        var isFixed  = !!endeIso;
+        var dispVal  = endeIso || sdToday();
+        h += '<input type="date" value="' + dispVal + '" '
+           + 'data-fixed="' + (isFixed?'1':'0') + '" '
+           + 'style="height:34px;padding:0 6px;border:1.5px solid var(--brd2);border-radius:6px;font-size:12px;font-family:var(--sans);'
+           + 'color:' + (isFixed ? 'var(--txt)' : 'var(--mut)') + ';'
+           + 'background:' + (isFixed ? 'var(--sur)' : 'var(--bg2)') + ';'
+           + 'font-style:' + (isFixed ? 'normal' : 'italic') + ';" '
+           + 'onchange="sdUpdateDevEndDate(\'' + s.id + '\',' + gi + ',this.value)">';
       } else {
         h += (sdGeraetEnde(g) ? sdFmtDate(sdGeraetEnde(g)) : '—');
       }
@@ -1849,7 +1897,7 @@ function sdRenderTrocknung(s, canEdit, canMeas) {
       h += '<td style="font-weight:700;color:' + (tage == null ? 'var(--mut)' : 'var(--txt)') + '">' + tageStr + '</td>';
       h += '<td style="font-weight:800;color:' + (kwh !== '—' ? 'var(--plan)' : 'var(--mut)') + '">' + kwh + '</td>';
       h += '<td>';
-      if (canEdit) h += '<button class="tc-act danger" style="font-size:12px;padding:6px 10px;min-width:32px;min-height:32px" onclick="sdDelDev(\'' + s.id + '\',' + gi + ')">✕</button>';
+      if (canEdit) h += '<button class="btn-del-icon" title="Gerät entfernen" onclick="sdDelDev(\'' + s.id + '\',' + gi + ')">✕</button>';
       h += '</td></tr>';
     });
     h += '</tbody></table></div>';
