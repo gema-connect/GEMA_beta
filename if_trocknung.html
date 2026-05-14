@@ -542,12 +542,17 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
         </div>
         <div class="fg" id="f_zaehlerTyp_wrap">
           <label>Zähler-Typ</label>
-          <select id="f_zaehlerTyp">
+          <select id="f_zaehlerTyp" onchange="_tgUpdateZaehlerstandLabel()">
             <option value="kein">Kein Zähler</option>
             <option value="stunden">Stunden-Zähler (h)</option>
             <option value="kwh">kWh-Zähler (direkt)</option>
           </select>
           <div class="fg-hint" style="font-size:11px;color:#6b7280;margin-top:4px">Bei Stunden-Zählern wird kWh aus Differenz × Leistung berechnet. kWh-Zähler liefern den Verbrauch direkt.</div>
+        </div>
+        <div class="fg" id="f_aktuellerStand_wrap">
+          <label><span id="f_aktuellerStand_label">Aktueller Zählerstand (h)</span></label>
+          <input type="text" inputmode="decimal" id="f_aktuellerStand" placeholder="0" onblur="fixLeadingZero(this)">
+          <div class="fg-hint" style="font-size:11px;color:#6b7280;margin-top:4px">Optional — wird beim Einsetzen als Startwert vorgeschlagen und nach jedem Einsatz automatisch aktualisiert.</div>
         </div>
         <div class="fg">
           <label>Notizen</label>
@@ -1476,6 +1481,8 @@ window.openEdit = function(id) {
   document.getElementById('f_serial').value = d.serienNr || '';
   document.getElementById('f_kw').value = d.kw || '';
   document.getElementById('f_zaehlerTyp').value = d.zaehlerTyp || _tgDefaultZaehlerTyp(d.typ);
+  // Aktueller Stand: fehlendes Feld via Helper aus Historie ableiten
+  document.getElementById('f_aktuellerStand').value = d.aktuellerZaehlerstand != null ? d.aktuellerZaehlerstand : _tgGetAktuellerStand(d);
   document.getElementById('f_notes').value = d.notes || '';
   document.getElementById('f_hasService').checked = !!d.hasService;
   document.getElementById('f_serviceInterval').value = d.serviceInterval || '';
@@ -1493,6 +1500,39 @@ function _tgDefaultZaehlerTyp(typOrDevice){
   var def = typ && GERAETE_TYPEN[typ];
   if(def && def.noKw) return 'kein';
   return 'stunden';
+}
+
+// Aktueller Zaehlerstand eines Geraets — Helper mit Fallback auf
+// letzten History-Endwert, damit alte Geraete ohne neues Feld trotzdem
+// einen sinnvollen Vorschlag liefern.
+function _tgGetAktuellerStand(d){
+  if(!d) return 0;
+  if(d.aktuellerZaehlerstand != null) return parseFloat(d.aktuellerZaehlerstand) || 0;
+  if(d.einsatz && d.einsatz.zaehlerStart != null) return parseFloat(d.einsatz.zaehlerStart) || 0;
+  if(Array.isArray(d.einsatzHistorie) && d.einsatzHistorie.length){
+    var last = d.einsatzHistorie[d.einsatzHistorie.length - 1];
+    if(last && last.zaehlerEnde != null) return parseFloat(last.zaehlerEnde) || 0;
+  }
+  return 0;
+}
+window._tgGetAktuellerStand = _tgGetAktuellerStand;
+
+// Aktualisiert das Label des 'Aktueller Zaehlerstand'-Felds je nach
+// gewaehltem Zaehler-Typ (h oder kWh). Bei 'kein' wird der Wrap ausgeblendet.
+function _tgUpdateZaehlerstandLabel(){
+  var sel = document.getElementById('f_zaehlerTyp');
+  var typ = sel ? sel.value : 'stunden';
+  var wrap = document.getElementById('f_aktuellerStand_wrap');
+  var label = document.getElementById('f_aktuellerStand_label');
+  if(!wrap) return;
+  if(typ === 'kein'){
+    wrap.style.display = 'none';
+    var inp = document.getElementById('f_aktuellerStand');
+    if(inp) inp.value = '';
+  } else {
+    wrap.style.display = '';
+    if(label) label.textContent = typ === 'kwh' ? 'Aktueller Zählerstand (kWh)' : 'Aktueller Zählerstand (h)';
+  }
 }
 
 // Blendet das Leistungs-Feld (kW) aus, wenn der gewaehlte Geraetetyp
@@ -1521,10 +1561,12 @@ function _tgUpdateKwVisibility(){
       if(!zSel.value) zSel.value = 'stunden';
     }
   }
+  // Label fuer 'Aktueller Zaehlerstand' synchronisieren
+  _tgUpdateZaehlerstandLabel();
 }
 
 function clearForm() {
-  ['f_typ','f_name','f_marke','f_modell','f_serial','f_kw','f_zaehlerTyp','f_notes','f_serviceInterval','f_lastService'].forEach(function(id) {
+  ['f_typ','f_name','f_marke','f_modell','f_serial','f_kw','f_zaehlerTyp','f_aktuellerStand','f_notes','f_serviceInterval','f_lastService'].forEach(function(id) {
     var el = document.getElementById(id);
     if (el) el.value = '';
   });
@@ -1632,6 +1674,14 @@ window.saveDevice = function() {
     d.serienNr = g('f_serial').trim();
     d.kw = parseFloat(g('f_kw')) || 0;
     d.zaehlerTyp = g('f_zaehlerTyp') || _tgDefaultZaehlerTyp(typ);
+    // Aktueller Zaehlerstand (nur wenn ein Zaehler-Typ aktiv ist). Bei
+    // 'kein' bleibt das Feld leer; bestehender Wert wird zurueckgesetzt.
+    if(d.zaehlerTyp === 'kein'){
+      d.aktuellerZaehlerstand = null;
+    } else {
+      var aktVal = g('f_aktuellerStand').trim();
+      d.aktuellerZaehlerstand = aktVal === '' ? null : (parseFloat(aktVal) || 0);
+    }
     d.notes = g('f_notes').trim();
     var hs = document.getElementById('f_hasService');
     d.hasService = hs ? !!hs.checked : false;
@@ -1854,7 +1904,9 @@ window.openEinsatz = function(id) {
     sel.innerHTML += '<option value="' + esc(s.id) + '" data-titel="' + esc(s.titel || '') + '" data-objid="' + esc(s.objektId || '') + '" data-objname="' + esc(s.objektName || '') + '">' + esc(label) + '</option>';
   });
   document.getElementById('e_raum').value = '';
-  document.getElementById('e_zaehlerStart').value = '';
+  // Aktueller Zaehlerstand des Geraets als Default — User kann anpassen
+  var defStand = _tgGetAktuellerStand(d);
+  document.getElementById('e_zaehlerStart').value = defStand || '';
   document.getElementById('e_datum').value = today();
   // Zaehlerstand-Feld ausblenden bei Messgeraeten (kein kWh-Tracking)
   var einDef = GERAETE_TYPEN[d.typ] || {};
@@ -1879,6 +1931,7 @@ window.saveEinsatz = function() {
   if (!raum) { alert('Bitte einen Raum / Zone angeben.'); return; }
   var opt = sel.options[sel.selectedIndex];
   var u = _tgGetUser();
+  var zStart = parseFloat(document.getElementById('e_zaehlerStart').value) || 0;
   d.einsatz = {
     schadenId: schadenId,
     schadenTitel: opt.getAttribute('data-titel') || '',
@@ -1887,10 +1940,13 @@ window.saveEinsatz = function() {
     raum: raum,
     eingesetztAm: document.getElementById('e_datum').value || today(),
     eingesetztVon: { userId: u ? u.id : '', name: u ? (u.name || '') : '' },
-    zaehlerStart: parseFloat(document.getElementById('e_zaehlerStart').value) || 0,
+    zaehlerStart: zStart,
     zaehlerEnde: null
   };
   d.status = 'im_einsatz';
+  // Aktueller Zaehlerstand = Start des laufenden Einsatzes (Update,
+  // falls der User beim Einsetzen einen abweichenden Wert eingegeben hat).
+  if((d.zaehlerTyp || _tgDefaultZaehlerTyp(d.typ)) !== 'kein') d.aktuellerZaehlerstand = zStart;
   saveAll();
   closeEinsatz();
   renderList();
@@ -1992,6 +2048,11 @@ window.saveReturn = function() {
   d.einsatzHistorie.push(hist);
   d.einsatz = null;
   d.status = 'verfuegbar';
+  // Aktueller Zaehlerstand des Geraets aktualisieren (Endwert wird der
+  // neue Startpunkt fuer den naechsten Einsatz). Nur bei aktivem Zaehler.
+  if(typ !== 'kein' && ende != null){
+    d.aktuellerZaehlerstand = ende;
+  }
   saveAll();
   // Notif an alle Magaziner der Org: Trockner ist wieder im Lager.
   try{

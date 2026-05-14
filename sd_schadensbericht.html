@@ -2082,11 +2082,46 @@ function sdUpdateDevEnd(id, idx, val) {
     g.entferntAm = sdToday();
   }
   // Wenn der Endwert wieder geleert wird, das Datum mit zurueckziehen.
+  // (Aktueller Stand im TG-Modul bleibt aber unveraendert — User-Wahl.)
   if (val === '' || val == null) {
     g.entferntAm = null;
   }
   sdSave();
+  // Cross-Modul: aktuellen Zaehlerstand im Geraet (gema_trocknung_v1)
+  // aktualisieren, wenn das sd-Geraet mit der Verwaltung verknuepft ist.
+  if(g.tgDeviceId && val !== '' && val != null){
+    try{ _sdUpdateTgAktuellerStand(g.tgDeviceId, parseFloat(val)); }catch(e){ console.warn('[sd] sync TG aktStand', e); }
+  }
   sdRenderDetail(s);
+}
+
+// Schreibt den aktuellen Zaehlerstand zurueck ins Trocknungs-Modul
+// (gema_trocknung_v1). Wird vom sdUpdateDevEnd aufgerufen, sobald der
+// User den Endstand im Schaden eintraegt.
+function _sdUpdateTgAktuellerStand(tgId, neuerStand){
+  if(!tgId || isNaN(neuerStand)) return;
+  var raw = null;
+  try{
+    if(typeof _GemaDB!=='undefined' && _GemaDB.c) raw = _GemaDB.c['gema_trocknung_v1'];
+    if(raw==null) raw = localStorage.getItem('gema_trocknung_v1');
+  }catch(e){}
+  var all = [];
+  try{ all = JSON.parse(raw||'[]'); }catch(e){}
+  if(!Array.isArray(all)) return;
+  var idx = all.findIndex(function(d){ return d.id === tgId; });
+  if(idx < 0) return;
+  if((all[idx].zaehlerTyp || 'stunden') === 'kein') return; // bei messgeraet ignorieren
+  // Nur ueberschreiben, wenn der neue Stand > alter Stand ist — sonst
+  // koennte ein versehentlich kleinerer Endwert den Verwaltungs-Stand
+  // zurueckdrehen.
+  var alt = parseFloat(all[idx].aktuellerZaehlerstand) || 0;
+  if(neuerStand < alt) return;
+  all[idx].aktuellerZaehlerstand = neuerStand;
+  var json = JSON.stringify(all);
+  try{ if(typeof _GemaDB!=='undefined' && _GemaDB.save) _GemaDB.save('gema_trocknung_v1', json); }catch(e){}
+  try{ localStorage.setItem('gema_trocknung_v1', json); }catch(e){}
+  // Cross-Modul-Event fuer eine evtl. offene if_trocknung-Ansicht
+  try{ window.dispatchEvent(new CustomEvent('gema-trocknung-updated', { detail:{ts:new Date().toISOString()}})); }catch(e){}
 }
 
 // Trocknungs-End-Datum eines Geraets manuell setzen (Datums-Input in der Tabelle).
@@ -2327,7 +2362,12 @@ function _sdRenderDevPicker(schadenId){
       // Raum bleibt frei — User vergibt den Raumnamen pro Schaden
       document.getElementById('devLinkedTgId').value = dev.id;
       // Zaehler-Typ aus Geraeteverwaltung uebernehmen (Default-Logik bei fehlendem Feld)
-      _sdApplyZaehlerTyp(_sdDefaultZaehlerTyp(dev));
+      var devTyp = _sdDefaultZaehlerTyp(dev);
+      _sdApplyZaehlerTyp(devTyp);
+      // Aktuellen Zaehlerstand als Startwert vorschlagen (User kann anpassen)
+      if(devTyp !== 'kein'){
+        document.getElementById('devStart').value = _sdGetAktuellerStand(dev) || 0;
+      }
       // Visuelle Bestaetigung
       Array.prototype.forEach.call(wrap.querySelectorAll('.sd-dev-pick'), function(b){
         b.style.borderColor = 'var(--brd)';
@@ -2373,6 +2413,19 @@ function _sdDefaultZaehlerTyp(dev){
   if(!dev) return 'stunden';
   if(dev.zaehlerTyp) return dev.zaehlerTyp;
   return dev.typ === 'messgeraet' ? 'kein' : 'stunden';
+}
+
+// Aktueller Zaehlerstand eines TG-Geraets — Spiegelbild von
+// _tgGetAktuellerStand. Liefert 0 wenn kein Wert bekannt.
+function _sdGetAktuellerStand(dev){
+  if(!dev) return 0;
+  if(dev.aktuellerZaehlerstand != null) return parseFloat(dev.aktuellerZaehlerstand) || 0;
+  if(dev.einsatz && dev.einsatz.zaehlerStart != null) return parseFloat(dev.einsatz.zaehlerStart) || 0;
+  if(Array.isArray(dev.einsatzHistorie) && dev.einsatzHistorie.length){
+    var last = dev.einsatzHistorie[dev.einsatzHistorie.length - 1];
+    if(last && last.zaehlerEnde != null) return parseFloat(last.zaehlerEnde) || 0;
+  }
+  return 0;
 }
 
 // Setzt den Zaehler-Typ im devAddModal und blendet das Zaehlerstand-Feld
@@ -2434,7 +2487,13 @@ function _sdHandleScanPayload(payload){
   document.getElementById('devName').value = dev.name || '';
   document.getElementById('devKw').value = dev.kw || '';
   document.getElementById('devLinkedTgId').value = dev.id;
-  _sdApplyZaehlerTyp(_sdDefaultZaehlerTyp(dev));
+  var dTyp = _sdDefaultZaehlerTyp(dev);
+  _sdApplyZaehlerTyp(dTyp);
+  // Aktuellen Zaehlerstand des Geraets vorbefuellen — Monteur prueft &
+  // bestaetigt vor Ort (oder korrigiert).
+  if(dTyp !== 'kein'){
+    document.getElementById('devStart').value = _sdGetAktuellerStand(dev) || 0;
+  }
   // Picker-Karte visuell highlighten
   var pickEl = document.querySelector('#devPickerWrap .sd-dev-pick[data-id="'+id+'"]');
   if(pickEl){
