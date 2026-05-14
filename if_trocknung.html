@@ -2,6 +2,7 @@
 <html lang="de">
 <head>
 <script src="gema_sync.js"></script>
+<script src="gema_aktivitaetslog.js"></script>
 <script src="gema_auth.js"></script>
 <script src="gema_recent.js"></script>
 <meta charset="utf-8"/>
@@ -450,6 +451,7 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
       <input type="text" id="searchInp" placeholder="Bezeichnung, Marke, Modell, Raum …" oninput="renderList()">
     </div>
     <button class="nbtn primary" id="btnAdd" onclick="openAdd()" style="display:none">+ Neues Gerät</button>
+    <button class="nbtn" id="btnTgActLog" onclick="_tgOpenActLog()" style="display:none;background:#f1f5f9;color:#0f172a;border-color:#cbd5e1" title="Aktivitäten-Log (Magaziner/Admin)">📋 Aktivitäten</button>
     <button class="nbtn" onclick="exportPDF()" title="Inventar + Einsatz-Historie als PDF">📥 PDF</button>
     <select class="filter-select" id="filterTyp" onchange="renderList()">
       <option value="">Alle Typen</option>
@@ -1140,6 +1142,35 @@ function _tgCanEdit() {
   return false;
 }
 function _tgCanAssign() { return _tgCanEdit(); }
+// Aktivitaetenlog: nur Magaziner/Admin sehen den Log. Planer
+// fallen raus, auch wenn sie editieren duerfen.
+function _tgCanSeeActLog(){
+  var u = _tgGetUser(); if (!u) return false;
+  if (_tgIsAdmin()) return true;
+  return !!(u.roleIds && u.roleIds.indexOf('role_magaziner') >= 0);
+}
+function _tgActLog(aktion, beschreibung, d, details){
+  try{
+    if(typeof window.GemaActivityLog === 'undefined') return;
+    var recId = d && d.id || (details && details.id) || null;
+    var name  = d && (d.name || d.modell) || '';
+    window.GemaActivityLog.log({
+      modul:'trocknung',
+      modulRecordId: recId,
+      modulRecordName: name,
+      aktion: aktion,
+      beschreibung: beschreibung || '',
+      details: details || null
+    });
+  }catch(e){}
+}
+function _tgOpenActLog(){
+  if(!_tgCanSeeActLog()) return;
+  if(typeof window.GemaActivityLog !== 'undefined' && window.GemaActivityLog.openModal){
+    window.GemaActivityLog.openModal({ modul:'trocknung', titel:'Aktivitäten – Trocknungsgeräte' });
+  }
+}
+window._tgOpenActLog = _tgOpenActLog;
 // Defekt-Meldung darf jeder eingeloggte User mit Lese-Recht (Monteur,
 // Magaziner, Admin, Planer). Spiegelt _wzCanReportDefect aus
 // if_werkzeug.html.
@@ -1689,6 +1720,9 @@ window.saveDevice = function() {
     d.lastService = g('f_lastService');
 
     saveAll();
+    _tgActLog(editId ? 'geaendert' : 'erfasst',
+      (editId ? 'Gerät geändert' : 'Gerät erfasst') + (d.typ ? ' · ' + d.typ : ''),
+      d);
     try { _tgInitKatalogList(); } catch(e){}
     closeAdd();
     try { renderList(); } catch(e){}
@@ -1773,6 +1807,7 @@ window.saveDefekt = function(){
     if (d.status !== 'im_einsatz') d.status = 'defekt';
   }
   saveAll();
+  _tgActLog('defekt','Defekt gemeldet: '+titel+' ('+sev+')', d, {schweregrad:sev});
   closeDefekt();
   renderList();
   // Notifikation an alle Magaziner der Org
@@ -1867,6 +1902,7 @@ window._tgDefektErledigt = function(deviceId, berId){
     if (!stillBad) d.status = 'verfuegbar';
   }
   saveAll();
+  _tgActLog('defekt_erledigt','Defekt erledigt: '+(b.titel||''), d);
   _tgRenderBerichte(d);
   renderList();
 };
@@ -1880,9 +1916,11 @@ window.deleteDevice = function(id) {
   if (!d) return;
   GemaDialog.confirm({title:'Gerät löschen', message:'Gerät «'+d.name+'» wirklich löschen?', confirmLabel:'Löschen', danger:true}).then(function(ok){
     if(!ok) return;
+    var del = d;
     devices = devices.filter(function(x) { return x.id !== id; });
     saveAll();
     renderList();
+    _tgActLog('geloescht','Gerät gelöscht', del);
   });
 };
 
@@ -1948,6 +1986,7 @@ window.saveEinsatz = function() {
   // falls der User beim Einsetzen einen abweichenden Wert eingegeben hat).
   if((d.zaehlerTyp || _tgDefaultZaehlerTyp(d.typ)) !== 'kein') d.aktuellerZaehlerstand = zStart;
   saveAll();
+  _tgActLog('einsatz','Eingesetzt in «'+(d.einsatz.schadenTitel||'Schaden')+'» · Raum '+(d.einsatz.raum||'—'), d, {schadenId:schadenId});
   closeEinsatz();
   renderList();
 };
@@ -2054,6 +2093,8 @@ window.saveReturn = function() {
     d.aktuellerZaehlerstand = ende;
   }
   saveAll();
+  _tgActLog('einsatz_ende','Einsatz beendet'+(hist && hist.schadenTitel ? ' (Schaden «'+hist.schadenTitel+'»)' : '')+(hist && hist.kwhTotal != null ? ' · '+hist.kwhTotal+' kWh' : ''),
+    d, hist ? {kwhTotal:hist.kwhTotal, betriebsstunden:hist.betriebsstunden} : null);
   // Notif an alle Magaziner der Org: Trockner ist wieder im Lager.
   try{
     if(typeof GemaNotify!=='undefined' && typeof GemaAuth!=='undefined'){
@@ -2598,6 +2639,10 @@ document.addEventListener('DOMContentLoaded', async function() {
   if (btnAdd) {
     btnAdd.style.display = _tgCanEdit() ? '' : 'none';
   }
+  // Aktivitaeten-Log nur fuer Magaziner/Admin sichtbar
+  var btnTgActLog = document.getElementById('btnTgActLog');
+  if (btnTgActLog && _tgCanSeeActLog()) btnTgActLog.style.display = '';
+  try{ if(window.GemaActivityLog) window.GemaActivityLog.bootstrap(); }catch(e){}
 
   _tgInitKatalogList();
   _tgSetupAutocomplete();

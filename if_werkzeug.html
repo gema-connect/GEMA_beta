@@ -2,6 +2,7 @@
 <html lang="de">
 <head>
 <script src="gema_sync.js"></script>
+<script src="gema_aktivitaetslog.js"></script>
 <script src="gema_auth.js"></script>
 <script src="gema_recent.js"></script>
 <meta charset="utf-8"/>
@@ -437,6 +438,7 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
     <button class="nbtn" id="btnPruefMode" onclick="_wzPruefModus()" style="display:none" title="Prüfmodus starten">📋 Prüfmodus</button>
     <button class="nbtn" id="btnAdvFilter" onclick="_wzOpenAdvFilter()" style="display:none" title="Erweiterte Filter">🔍 Filter</button>
     <span class="wz-filter-badge" id="advFilterBadge" style="display:none;font-size:10px;font-weight:800;padding:2px 7px;border-radius:6px;background:var(--plan);color:#fff;cursor:pointer;margin-left:-6px" onclick="_wzClearAdvFilter()" title="Filter zurücksetzen">✕</span>
+    <button class="nbtn" id="btnWzActLog" onclick="_wzOpenActLog()" style="display:none;background:#f1f5f9;color:#0f172a;border-color:#cbd5e1" title="Aktivitäten-Log (Magaziner/Admin)">📋 Aktivitäten</button>
     <button class="nbtn" id="btnWzSettings" onclick="_wzOpenSettings()" style="display:none" title="Werkzeug-Einstellungen">⚙️ Einstellungen</button>
     <div class="view-toggle">
       <button class="vt-btn active" id="vt_cards" onclick="setView('cards')" title="Karten">⊞</button>
@@ -860,6 +862,31 @@ function _wzCanEdit(){
 }
 // Darf Werkzeug einer Person zuweisen (nur Admin/Magaziner)
 function _wzCanAssign(){ return _wzCanEdit(); }
+
+// Aktivitaetenlog-Wrapper — fire-and-forget. tool kann das Tool-Objekt
+// oder eine String-Beschreibung sein.
+function _wzActLog(aktion, beschreibung, tool, details){
+  try{
+    if(typeof window.GemaActivityLog === 'undefined') return;
+    var recId  = tool && tool.id || (details && details.id) || null;
+    var recName= (tool && (tool.name || tool.serial)) || (details && details.name) || '';
+    window.GemaActivityLog.log({
+      modul:'werkzeug',
+      modulRecordId: recId,
+      modulRecordName: recName,
+      aktion: aktion,
+      beschreibung: beschreibung || '',
+      details: details || null
+    });
+  }catch(e){ /* silent */ }
+}
+function _wzOpenActLog(){
+  if(!_wzCanEdit()) return;
+  if(typeof window.GemaActivityLog !== 'undefined' && window.GemaActivityLog.openModal){
+    window.GemaActivityLog.openModal({ modul:'werkzeug', titel:'Aktivitäten – Werkzeug' });
+  }
+}
+window._wzOpenActLog = _wzOpenActLog;
 // Darf der aktuelle User selbst ein Werkzeug ausleihen?
 // Magaziner/Admin koennen es immer; Monteur ja, auch fuer sich.
 function _wzCanLendSelf(){
@@ -1925,6 +1952,9 @@ function submitForm(){
   if(eid){const i=tools.findIndex(t=>t.id===eid);if(i>=0)tools[i]=tool;else tools.unshift(tool);}
   else tools.unshift(tool);
   save();renderList();closeAdd();
+  _wzActLog(eid?'geaendert':'erfasst',
+    (eid?'Werkzeug geändert':'Werkzeug erfasst')+(tool.cat?' · '+tool.cat:''),
+    tool);
   return tool.id;
 }
 
@@ -1963,7 +1993,9 @@ function deleteTool(id){
   var t=tools.find(function(x){return x.id===id;});
   GemaDialog.confirm({title:'Gerät löschen', message:'Gerät «'+((t&&t.name)||id)+'» wirklich löschen?', confirmLabel:'Löschen', danger:true}).then(function(ok){
     if(!ok) return;
+    var del = t;
     tools=tools.filter(t=>t.id!==id);save();renderList();
+    _wzActLog('geloescht', 'Werkzeug gelöscht', del);
   });
 }
 
@@ -2086,6 +2118,7 @@ function _wzSaveDefekt(toolId){
     erledigt:false,erledigtAm:null
   });
   save();renderList();_wzCloseModal();
+  _wzActLog('defekt','Defekt gemeldet: '+titel+' ('+sev+')', t, {schweregrad:sev});
   // Notifikation an Magaziner
   if(typeof GemaNotify!=='undefined'){
     GemaNotify.push({
@@ -2193,8 +2226,10 @@ function _wzSaveZuweisung(toolId){
     var platzName = (platzInp && platzInp.value || '').trim();
     if(!platzName){
       delete t.zugewiesenAn;
+      _wzActLog('zuweisung','Zuweisung entfernt', t);
     } else {
       t.zugewiesenAn = { typ:'platz', platz: platzName, name: platzName, seit: today() };
+      _wzActLog('zuweisung','Zugewiesen an Platz: '+platzName, t);
     }
     save(); _wzCloseModal(); renderList();
     return;
@@ -2202,10 +2237,12 @@ function _wzSaveZuweisung(toolId){
   var uid=sel ? sel.value : '';
   if(!uid){
     delete t.zugewiesenAn;
+    _wzActLog('zuweisung','Zuweisung entfernt', t);
   } else {
     var users=(typeof GemaAuth!=='undefined')?(GemaAuth.getUsers()||[]):[];
     var p=users.find(function(u){return u.id===uid;});
     t.zugewiesenAn={typ:'user', userId:uid, name:p?(p.name||p.username):uid, seit:today()};
+    _wzActLog('zuweisung','Zugewiesen an '+(t.zugewiesenAn.name||uid), t);
     // Notifikation an die Person
     if(typeof GemaNotify!=='undefined' && p){
       GemaNotify.push({
@@ -2316,11 +2353,13 @@ function _wzSaveAusleihe(toolId){
   var withProto=protoChk&&protoChk.checked;
   if(!uid){
     delete t.ausgeliehenAn;
+    _wzActLog('rueckgabe','Ausleihe aufgehoben', t);
   }else{
     var users=(typeof GemaAuth!=='undefined')?(GemaAuth.getUsers()||[]):[];
     var p=users.find(function(u){return u.id===uid;});
     var pName=p?(p.name||p.username):uid;
     t.ausgeliehenAn={userId:uid,name:pName,seit:today()};
+    _wzActLog('ausleihe','Ausgeliehen an '+pName, t);
     // Optional: Uebergabe-Bericht zur Historie hinzufuegen
     if(withProto){
       var u=_wzGetUser()||{};
@@ -2363,8 +2402,10 @@ function _wzReturnTool(toolId){
         titel:'Werkzeug zurückgegeben: '+t.name,text:'Rückgabe bestätigt von '+(me?me.name:''),
         link:'if_werkzeug.html?view='+encodeURIComponent(t.id)});
     }
+    var prev = t.ausgeliehenAn && t.ausgeliehenAn.name || '';
     delete t.ausgeliehenAn;
     save();renderList();
+    _wzActLog('rueckgabe','Rückgabe'+(prev?' von '+prev:''), t);
   });
 }
 
@@ -2397,6 +2438,7 @@ function _wzLendToSelf(toolId){
     if(!ok) return;
     t.ausgeliehenAn = { userId: u.id, name: u.name||u.username||'', seit: today() };
     save();renderList();
+    _wzActLog('ausleihe','Selbst ausgeliehen', t);
     // Notif an Hauptnutzer wenn jemand sich dessen Werkzeug ausleiht
     if(typeof GemaNotify!=='undefined' && t.zugewiesenAn && t.zugewiesenAn.userId && t.zugewiesenAn.userId !== u.id){
       GemaNotify.push({eventKey:'werkzeug_zuweisung', empfaengerUserId:t.zugewiesenAn.userId, modul:'werkzeug', typ:'info',
@@ -2946,6 +2988,7 @@ function _wzDefektErledigt(toolId, berId){
   if(!b)return;
   b.erledigt=true;b.erledigtAm=new Date().toISOString();
   save();renderList();openBerichte(toolId);
+  _wzActLog('defekt_erledigt','Defekt erledigt: '+(b.titel||''), t);
 }
 
 function openPruefbericht(toolId){
@@ -3012,6 +3055,7 @@ function _wzSavePruefbericht(toolId){
   if(t.hasLeiter) t.lastLeiter=datum;
   if(t.hasService)t.lastService=datum;
   save();renderList();_wzCloseModal();
+  _wzActLog('pruefung','Prüfbericht erfasst: '+(ergebnis||'')+(pruefer?' (Prüfer: '+pruefer+')':''), t);
   alert('✓ Prüfbericht gespeichert');
 }
 
@@ -3345,6 +3389,7 @@ function _wzSendErsatzAnfrage(toolId){
     erstelltVonName:u.name||''
   });
   save();
+  _wzActLog('ersatzanfrage','Ersatzanfrage an '+liefFirma+' ('+typLabel+')', t);
   if(typeof GemaNotify!=='undefined'){
     GemaNotify.push({
       eventKey:'werkzeug_ersatz_anfrage',
@@ -3699,6 +3744,7 @@ function _wzSavePruefAnfrage(toolId){
     status:'angefordert'
   };
   save();renderList();_wzCloseModal();
+  _wzActLog('pruefanfrage','Prüfung angefordert bei '+firma+(termin?' (Wunsch '+termin+')':''), t);
   // Notifikation an den Lieferanten
   if(typeof GemaNotify!=='undefined'){
     GemaNotify.push({
@@ -4180,6 +4226,8 @@ if(typeof window.GemaSync !== 'undefined'){
     new Promise(function(r){ setTimeout(r, 5000); })
   ]);
 }
+// Aktivitaetenlog-Collection laden (im Hintergrund, blockiert UI nicht)
+try{ if(window.GemaActivityLog) window.GemaActivityLog.bootstrap(); }catch(e){}
 
   load();
   if(!tools.length){
@@ -4208,6 +4256,8 @@ if(typeof window.GemaSync !== 'undefined'){
   if(btnBulk && canEdit) btnBulk.style.display='';
   var btnSettings=document.getElementById('btnWzSettings');
   if(btnSettings && canEdit) btnSettings.style.display='';
+  var btnActLog=document.getElementById('btnWzActLog');
+  if(btnActLog && canEdit) btnActLog.style.display='';
   var btnInv=document.getElementById('btnInventur');
   if(btnInv && canEdit){
     btnInv.style.display='';

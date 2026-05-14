@@ -917,6 +917,64 @@ _tgHasOpenDefekt(d)  // true, wenn d.berichte einen offenen Defekt enthält
 
 ---
 
+## Aktivitätenlog (gema_aktivitaetslog.js)
+
+Modul-übergreifender Aktivitätenlog für die Infrastruktur-Module **Werkzeug**, **Fahrzeug** und **Trocknungsgeräte**. Eingebunden in `if_werkzeug.html`, `if_fahrzeug.html` und `if_trocknung.html`.
+
+### Sichtbarkeit
+
+Toolbar-Button **„📋 Aktivitäten"** — nur sichtbar für `role_admin` und `role_magaziner`. Andere Rollen sehen den Button nicht (Planer/Monteur/Garagist haben keinen Zugriff auf den Log).
+
+### Storage (Cloud-First via gema_sync.js)
+
+- **storageKey**: `gema_aktivitaetslog_v1` (lokaler sync-Cache, soft-cap 2000 Einträge)
+- **moduleKey**: `aktivitaetslog`
+- **Prefix**: `log:` → eine Cloud-Row pro Eintrag (`log:log_<ts>_<rand>`)
+- **Bootstrap**: jedes Modul ruft `GemaActivityLog.bootstrap()` im DOMContentLoaded → lädt Records aus Cloud in den localStorage-Cache
+
+### Eintrag-Schema
+
+```
+{
+  id, ts,                        // 'log_<ts>_<rand>', ISO-Timestamp
+  orgId,                         // Org-Filter
+  modul,                         // 'werkzeug'|'fahrzeug'|'trocknung'
+  modulRecordId, modulRecordName,// Verknüpfung zum Datensatz
+  aktion,                        // siehe AKTION_LABEL-Tabelle unten
+  beschreibung,                  // Freitext (kurz)
+  userId, userName,              // wer hat die Aktion ausgelöst
+  details                        // optional, Aktion-spezifisch
+}
+```
+
+### Aktion-Typen (`aktion`)
+
+`erfasst`, `geaendert`, `geloescht`, `zuweisung`, `ausleihe`, `rueckgabe`, `einsatz`, `einsatz_ende`, `pruefung`, `service`, `pruefanfrage`, `defekt`, `defekt_erledigt`, `ersatzanfrage`. Jede mit farbiger Pill im Modal.
+
+### Public API
+
+```javascript
+GemaActivityLog.bootstrap()                        // Promise — beim Seitenstart
+GemaActivityLog.log({modul, modulRecordId,
+  modulRecordName, aktion, beschreibung, details}) // fire-and-forget
+GemaActivityLog.getAll(orgId?)                     // Array, neueste zuerst
+GemaActivityLog.getForModul(modul, orgId?)         // gefiltert pro Modul
+GemaActivityLog.openModal({modul, titel?})         // einheitliches Modal
+```
+
+### Modul-Integration
+
+Jedes der drei Module hat:
+- Lokalen Wrapper `_wzActLog` / `_fzActLog` / `_tgActLog` — fire-and-forget mit Modul-Stempel
+- Toolbar-Button `btnWzActLog` / `btnFzActLog` / `btnTgActLog` — Sichtbarkeit gated auf Magaziner/Admin
+- Logging-Aufrufe an Save/Delete, Zuweisung, Ausleihe/Rückgabe, Einsatz/Einsatz-Ende, Defekt/Defekt-erledigt, Prüfungen, Anfragen
+
+### UI (`openModal`)
+
+Tabellen-Modal mit fünf Spalten (Datum, Aktion-Pill, Datensatz, Beschreibung, User), Suchfeld (Datensatz/User/Beschreibung), Aktion-Filter-Dropdown und CSV-Export-Button. Auto-Refresh via `gema-activitylog-changed`-Event.
+
+---
+
 ## Notifikations-System (GemaNotify)
 
 Zentrales Modul `gema_notify.js` für In-App-Benachrichtigungen. Glocke + Toast-Anzeige via `gema_notify_ui.js`, automatisch in alle Seiten injiziert (in `.g-nav-actions` oder `.g-nav-right`).
@@ -1219,6 +1277,7 @@ UI-Anbindung:
 | Datei | Zweck |
 |-------|-------|
 | `gema_adresse.js` | Adress-Autocomplete (swisstopo geo.admin.ch). Auto-Init via `data-gema-adresse` + `data-target-strasse/plz/ort/kanton`-Attribute, oder programmatisch via `GemaAdresse.attach(input, opts)` |
+| `gema_aktivitaetslog.js` | **Aktivitätenlog** für Infrastruktur-Module. `GemaActivityLog.log({modul,modulRecordId,modulRecordName,aktion,beschreibung,details})` pusht einen Eintrag; `getForModul(modul, orgId?)` liefert die gefilterte Historie. Cloud-First via `gema_sync.js` (Collection `gema_aktivitaetslog_v1`, moduleKey `aktivitaetslog`, prefix `log:`). `openModal({modul,titel})` zeigt das einheitliche Tabellen-Modal mit Suche, Aktion-Filter und CSV-Export. |
 | `gema_anlagenwahl.js` | Anlagenauswahl-Widget für Berechnungen |
 | `gema_avatar.js` | Profilbild-Upload + Renderer. `GemaAvatar.render(user, size, opts)` liefert HTML mit `<img>` oder Initialen-Fallback. `compress(file)` resized auf 256×256 JPEG. Avatar als Base64 unter `user.avatar` |
 | `gema_armaturen_api.js` | Armaturen-Stammdaten |

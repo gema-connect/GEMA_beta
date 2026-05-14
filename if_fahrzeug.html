@@ -2,6 +2,7 @@
 <html lang="de">
 <head>
 <script src="gema_sync.js"></script>
+<script src="gema_aktivitaetslog.js"></script>
 <script src="gema_auth.js"></script>
 <script src="gema_recent.js"></script>
 <meta charset="utf-8"/>
@@ -349,6 +350,7 @@ tbody td.mono{font-family:var(--mono);font-weight:500;}
       <input type="text" id="searchInput" placeholder="Suche (Nr., Marke, Kennzeichen, Fahrer …)"/>
     </div>
     <button class="hero-btn accent" id="btnAddVehicle" onclick="openAddVehicle()" style="background:var(--plan);color:#fff;border-color:var(--plan);padding:8px 16px;border-radius:8px;font-weight:700;font-size:12.5px">+ Fahrzeug hinzufügen</button>
+    <button class="hero-btn" id="btnFzActLog" onclick="_fzOpenActLog()" style="display:none;background:#f1f5f9;color:#0f172a;border-color:#cbd5e1;padding:8px 16px;border-radius:8px;font-weight:700;font-size:12.5px" title="Aktivitäten-Log (Magaziner/Admin)">📋 Aktivitäten</button>
     <select class="filter-sel" id="filterStatus">
       <option value="">Alle Status</option>
       <option value="aktiv">Aktiv</option>
@@ -775,6 +777,7 @@ if(typeof window.GemaSync !== 'undefined'){
     new Promise(function(r){ setTimeout(r, 5000); })
   ]);
 }
+try{ if(window.GemaActivityLog) window.GemaActivityLog.bootstrap(); }catch(e){}
 
 /* ═══════════════════════════════
    STATE
@@ -1042,6 +1045,11 @@ function saveVehicle(){
       }catch(e){}
     }
     showToast("Fahrzeug aktualisiert ✓");
+    _fzActLog('geaendert','Fahrzeug geändert', data,
+      data.garagistUserId && data.garagistUserId !== prevGaragist ? { garagistUserId:data.garagistUserId } : null);
+    if(data.garagistUserId && data.garagistUserId !== prevGaragist){
+      _fzActLog('zuweisung','Garagist zugewiesen: '+(data.garagistName||data.garagistUserId), data);
+    }
   }else{
     data.id=genId();
     data.createdAt=new Date().toISOString();
@@ -1051,6 +1059,7 @@ function saveVehicle(){
     if(_fzMe.orgId) data.orgId=_fzMe.orgId;
     vehicles.push(data);
     showToast("Fahrzeug erfasst ✓");
+    _fzActLog('erfasst','Fahrzeug erfasst'+(data.model?' · '+data.model:''), data);
   }
   persist(); _fzInitKatalogList(); closeModal(); render();
   return data.id;
@@ -1069,8 +1078,10 @@ function deleteVehicle(){
   var v = vehicles.find(function(x){return x.id===editId;});
   GemaDialog.confirm({title:'Fahrzeug löschen', message:'Fahrzeug «'+((v&&(v.model||v.plate))||editId)+'» wirklich löschen?', confirmLabel:'Löschen', danger:true}).then(function(ok){
     if(!ok) return;
+    var del=v;
     vehicles=vehicles.filter(x=>x.id!==editId);
     persist(); closeModal(); render();
+    _fzActLog('geloescht','Fahrzeug gelöscht', del);
     showToast("Fahrzeug gelöscht");
   });
 }
@@ -1913,6 +1924,32 @@ function _fzCanCreate(){
   return _fzIsAdmin()||_fzIsMagaziner()||_fzCanSettings();
 }
 function _fzCanView(){return true;}
+
+// Aktivitaetenlog-Wrapper — fire-and-forget. v kann das Vehicle-Objekt
+// oder ein partial sein. Nur Magaziner/Admin sehen den Log.
+function _fzCanSeeActLog(){ return _fzIsAdmin() || _fzIsMagaziner(); }
+function _fzActLog(aktion, beschreibung, v, details){
+  try{
+    if(typeof window.GemaActivityLog === 'undefined') return;
+    var recId = v && v.id || (details && details.id) || null;
+    var name  = v && (v.kennzeichen || v.modell || v.id) || '';
+    window.GemaActivityLog.log({
+      modul:'fahrzeug',
+      modulRecordId: recId,
+      modulRecordName: name,
+      aktion: aktion,
+      beschreibung: beschreibung || '',
+      details: details || null
+    });
+  }catch(e){}
+}
+function _fzOpenActLog(){
+  if(!_fzCanSeeActLog()) return;
+  if(typeof window.GemaActivityLog !== 'undefined' && window.GemaActivityLog.openModal){
+    window.GemaActivityLog.openModal({ modul:'fahrzeug', titel:'Aktivitäten – Fahrzeug' });
+  }
+}
+window._fzOpenActLog = _fzOpenActLog;
 
 // Felder, die ein Garagist bearbeiten darf. Alles andere wird im
 // Edit-Formular auf disabled gesetzt (Stammdaten, Zuteilung,
@@ -2954,6 +2991,7 @@ function _fzSaveServiceEntry(){
     if(!v.km||kmNum>parseInt(v.km,10)){v.km=km;v.kmUpdatedAt=new Date().toISOString();}
   }
   persist();
+  _fzActLog('service','Service erledigt'+(art?' · '+art:'')+(km?' · '+km+' km':'')+(werkstatt?' · '+werkstatt:''), v);
   // Notif an Magaziner der eigenen Org, wenn ein Garagist erfasst hat.
   // Magaziner derselben Org soll informiert sein, wenn ihre Werkstatt
   // einen Service abgeschlossen hat. Eigeneintrag durch Magaziner selbst
@@ -3122,6 +3160,9 @@ if(!_fzCanCreate()){
   var addBtns=document.querySelectorAll('.hero-btn.accent,#btnAddVehicle');
   addBtns.forEach(function(b){b.style.display='none';});
 }
+// Aktivitaeten-Log nur fuer Magaziner/Admin
+var btnFzActLog=document.getElementById('btnFzActLog');
+if(btnFzActLog && _fzCanSeeActLog()) btnFzActLog.style.display='';
 // Garagist-Hinweis im Hero/Toolbar, damit klar ist, in welchem Modus er
 // arbeitet. Wird nur eingeblendet, wenn die Rolle role_garagist ist.
 if(_fzIsGaragist()){
