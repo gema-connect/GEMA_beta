@@ -2014,13 +2014,29 @@ function clearForm(){
     document.getElementById('ts_'+s)?.classList.remove('on');
   });
   document.getElementById('ts_leiter').style.display='none';
+  // Garantie-Tracking zuruecksetzen: Feld ist wieder im 'Auto'-Modus
+  var w=document.getElementById('f_warranty'); if(w) w.dataset.manual='0';
 }
 const cap=s=>s.charAt(0).toUpperCase()+s.slice(1);
 
 function _wzAutofillWarranty(){
   var b=document.getElementById('f_bought').value;
   var w=document.getElementById('f_warranty');
-  if(b&&w&&!w.value){w.value=addMonths(b,24);}
+  if(!b||!w) return;
+  // Sobald der User die Garantie manuell editiert hat, bleibt sein
+  // Wert stehen — auch wenn er das Kaufdatum nochmal aendert. Sonst
+  // laeuft die Garantie automatisch mit (+24 Monate vom Kaufdatum).
+  if(w.dataset.manual==='1') return;
+  w.value=addMonths(b,24);
+}
+// Listener: User-Editierung der Garantie sperrt das Auto-Recalc.
+// Wird beim DOMContentLoaded ueber _wzInitWarrantyTracking() gebunden.
+function _wzInitWarrantyTracking(){
+  var w=document.getElementById('f_warranty');
+  if(!w||w._wzTracked) return;
+  w._wzTracked=true;
+  w.addEventListener('input', function(){ w.dataset.manual='1'; });
+  w.addEventListener('change', function(){ w.dataset.manual='1'; });
 }
 function onCatChange(){
   const v=document.getElementById('f_cat').value;
@@ -2153,6 +2169,9 @@ function editTool(id){
   const sv=(fid,v)=>{const e=document.getElementById(fid);if(e&&v!=null&&v!=='')e.value=v;};
   sv('f_name',t.name);sv('f_brand',t.brand);sv('f_model',t.model);sv('f_supplier',t.supplier);sv('f_supplierId',t.supplierId);sv('f_cat',t.cat);
   sv('f_bought',t.bought);sv('f_warranty',t.warranty);sv('f_serial',t.serial);sv('f_notes',t.notes);
+  // Beim Edit: gespeicherte Garantie ist eine bewusste Entscheidung —
+  // Auto-Recalc bei Kaufdatums-Aenderung sperren.
+  if(t.warranty){ var _w=document.getElementById('f_warranty'); if(_w) _w.dataset.manual='1'; }
   sv('f_lifecycle',t.lifecycleStatus||'aktiv');
   if(t.zugewiesenAn)sv('f_assignee',t.zugewiesenAn.name||'');
   if(t.kaufbeleg){sv('f_belegNr',t.kaufbeleg.rechnungsNr);sv('f_belegBetrag',t.kaufbeleg.betrag);sv('f_belegBestellNr',t.kaufbeleg.bestellNr);sv('f_belegLieferdatum',t.kaufbeleg.lieferdatum);if(t.kaufbeleg.datei){window._wzBelegFile=t.kaufbeleg.datei;var fp=document.getElementById('f_belegPreview');if(fp)fp.innerHTML='<span style="color:var(--grn);font-weight:700;font-size:12px">📎 '+esc(t.kaufbeleg.datei.name||'Beleg')+'</span>';}}
@@ -4548,6 +4567,7 @@ try{ if(window.GemaActivityLog) window.GemaActivityLog.bootstrap(); }catch(e){}
     else if(p.get('tool'))setTimeout(()=>openQR(p.get('tool')),400);
     else if(p.get('pruef_lief'))setTimeout(()=>openPruefLiefAnsicht(p.get('pruef_lief')),400);
   _wzSetupAutocomplete();
+  _wzInitWarrantyTracking();
   // Einmal pro Sitzung: Faelligkeits-Scan fuer Magaziner/Admin ausloesen
   if(_wzCanEdit()){try{_wzScanFaelligkeiten();}catch(e){console.warn('Faelligkeitsscan fehlgeschlagen:',e);}}
   // Rollenabhaengige UI-Anpassungen
