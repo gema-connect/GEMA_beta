@@ -507,7 +507,7 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
             <input type="text" id="f_model" placeholder="GWS 18V-10" autocomplete="off">
           </div>
         </div>
-        <div class="fg" style="position:relative">
+        <div class="fg" style="position:relative" data-wz-opt="lieferantKaufbeleg">
           <label>Lieferant / Grosshändler</label>
           <input type="text" id="f_supplier" placeholder="z.B. Engel, ITAR Tools, SFS, Tobler …" autocomplete="off">
         </div>
@@ -515,22 +515,15 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
           <label>Kategorie <span class="req">*</span></label>
           <select id="f_cat" onchange="onCatChange()">
             <option value="">— Kategorie wählen —</option>
-            <option value="maschine">⚙️ Maschine (Akkubetrieben)</option>
-            <option value="maschine-kabel">🔌 Maschine (Kabelgebunden)</option>
-            <option value="handwerkzeug">🔨 Handwerkzeug (kein Motor)</option>
-            <option value="leiter">🪜 Leiter / Gerüst</option>
-            <option value="messgeraet">📐 Messgerät / Prüfgerät</option>
-            <option value="ladegeraet">🔋 Ladegerät (für Akkus)</option>
-            <option value="sonstige">📦 Sonstiges</option>
           </select>
           <div class="hint" id="hintNIV" style="display:none"><strong>Kabelgebundene Maschinen</strong> und <strong>Ladegeräte</strong> benötigen eine Elektroprüfung nach NIV — wird automatisch aktiviert.</div>
         </div>
-        <div class="fg">
+        <div class="fg" data-wz-opt="seriennr">
           <label>Seriennummer</label>
           <input type="text" id="f_serial" placeholder="SN-XXXXXXXX">
         </div>
         <div class="fg-row">
-          <div class="fg" style="position:relative">
+          <div class="fg" style="position:relative" data-wz-opt="notes">
             <label>Standort / Abteilung</label>
             <input type="text" id="f_notes" placeholder="z.B. Lager EG, Baustelle Zürich …" autocomplete="off">
           </div>
@@ -539,7 +532,7 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
             <input type="text" id="f_assignee" placeholder="Person oder Team …" autocomplete="off">
           </div>
         </div>
-        <div class="fg">
+        <div class="fg" data-wz-opt="lifecycle">
           <label>Status</label>
           <select id="f_lifecycle">
             <option value="aktiv">✅ Aktiv (im Einsatz)</option>
@@ -561,7 +554,7 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
             <label>Kaufdatum <span class="req">*</span></label>
             <input type="date" id="f_bought" onchange="_wzAutofillWarranty()" oninput="_wzAutofillWarranty()">
           </div>
-          <div class="fg">
+          <div class="fg" data-wz-opt="garantie">
             <label>Garantie bis</label>
             <input type="date" id="f_warranty">
           </div>
@@ -569,7 +562,7 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
       </div>
 
       <!-- 2b. Kaufbeleg / Auftragsbestätigung -->
-      <div class="ts" id="ts_beleg">
+      <div class="ts" id="ts_beleg" data-wz-opt="lieferantKaufbeleg">
         <div class="ts-hd" onclick="toggleTS('beleg')">
           <div class="ts-left">
             <span class="ts-ico">🧾</span>
@@ -619,7 +612,7 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
       </div>
 
       <!-- 3. Service -->
-      <div class="ts" id="ts_service">
+      <div class="ts" id="ts_service" data-wz-opt="service">
         <div class="ts-hd" onclick="toggleTS('service')">
           <div class="ts-left">
             <span class="ts-ico">⚙️</span>
@@ -648,7 +641,7 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
       </div>
 
       <!-- 4. Elektroprüfung -->
-      <div class="ts" id="ts_elec">
+      <div class="ts" id="ts_elec" data-wz-opt="elektro">
         <div class="ts-hd" onclick="toggleTS('elec')">
           <div class="ts-left">
             <span class="ts-ico">⚡</span>
@@ -682,7 +675,7 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
       </div>
 
       <!-- 5. Leiterprüfung -->
-      <div class="ts" id="ts_leiter" style="display:none">
+      <div class="ts" id="ts_leiter" style="display:none" data-wz-opt="leiter">
         <div class="ts-hd" onclick="toggleTS('leiter')">
           <div class="ts-left">
             <span class="ts-ico">🪜</span>
@@ -1158,6 +1151,136 @@ const CATS={
   'ladegeraet':      {icon:'🔋',label:'Ladegerät',         cls:'cat-ladegeraet',  ico:'ico-ladegeraet'},
   'sonstige':        {icon:'📦',label:'Sonstiges',         cls:'cat-sonstige',    ico:'ico-sonstige'},
 };
+// Default-Reihenfolge der eingebauten Kategorien (fuer Reset im Settings-Modal).
+var _WZ_DEFAULT_CAT_ORDER = ['maschine','maschine-kabel','handwerkzeug','leiter','messgeraet','ladegeraet','sonstige'];
+
+// ──────────────────────────────────────
+// EINSTELLUNGEN: Optionale Felder + Kategorien (org.settings.werkzeug.*)
+// ──────────────────────────────────────
+// Defaults: bestehende Tenants verlieren keine Felder.
+var _WZ_OPT_DEFS = [
+  { id:'lieferantKaufbeleg', label:'Lieferant + Kaufbeleg', desc:'Lieferant/Großhändler-Feld und Kaufbeleg-Sektion (Rechnung, Betrag, Datei).', def:true },
+  { id:'service',            label:'Service-Intervall',     desc:'Wartungsintervall und letzter Service.', def:true },
+  { id:'elektro',            label:'Elektroprüfung (NIV)',  desc:'Pflichtprüfung für kabelgebundene Maschinen + Ladegeräte. Wird bei diesen Kategorien automatisch aktiviert.', def:true },
+  { id:'leiter',             label:'Leiterprüfung (EKAS)',  desc:'Nur sichtbar bei Kategorie Leiter/Gerüst. Wenn deaktiviert, wird die Sektion auch dann ausgeblendet.', def:true },
+  { id:'garantie',           label:'Garantie-Datum',        desc:'Datum bis Garantie läuft.', def:true },
+  { id:'seriennr',           label:'Seriennummer',          desc:'Seriennummer / interne Inventar-Nr.', def:true },
+  { id:'notes',              label:'Standort / Notizen',    desc:'Freitext für Standort / Abteilung am Werkzeug.', def:true },
+  { id:'lifecycle',          label:'Lifecycle-Status',      desc:'Aktiv / In Reparatur / Ausgemustert / Verkauft.', def:true }
+];
+
+// Liest das werkzeug-Settings-Objekt der aktuellen Org (mit Fallback).
+function _wzGetOrgSettings(){
+  try{
+    if(typeof GemaAuth==='undefined') return {};
+    var org = (GemaAuth.getCurrentOrg && GemaAuth.getCurrentOrg()) || {};
+    return (org.settings && org.settings.werkzeug) || {};
+  }catch(e){ return {}; }
+}
+// Optionale Felder mit Defaults
+function _wzGetOptFelder(){
+  var s = _wzGetOrgSettings();
+  var stored = s.optFelder || {};
+  var out = {};
+  _WZ_OPT_DEFS.forEach(function(d){
+    out[d.id] = (stored[d.id] != null) ? !!stored[d.id] : d.def;
+  });
+  return out;
+}
+// DOM-Sichtbarkeit anwenden: alle Elemente mit data-wz-opt werden je
+// nach Setting ein-/ausgeblendet. Bei Kategorie 'leiter' bleibt die
+// Logik in renderForm bestehen (leiter-Sektion zeigt sich nur fuer die
+// Kategorie); wenn der Setting-Toggle off ist, wird sie hier zusaetzlich
+// ausgeblendet.
+function _wzApplyOptFelder(){
+  var o = _wzGetOptFelder();
+  document.querySelectorAll('[data-wz-opt]').forEach(function(el){
+    var key = el.getAttribute('data-wz-opt');
+    if(!key) return;
+    if(o[key] === false){
+      el.dataset._wzPrevDisplay = el.dataset._wzPrevDisplay || (el.style.display || '');
+      el.style.display = 'none';
+    } else {
+      el.style.display = el.dataset._wzPrevDisplay || '';
+    }
+  });
+}
+
+// Kategorien: kombiniert eingebaute + custom + Reihenfolge + enabled.
+// Liefert ein Array von {id, label, icon, cls, ico, enabled, custom}.
+function _wzGetCats(){
+  var s = _wzGetOrgSettings();
+  var stored = Array.isArray(s.kategorien) ? s.kategorien : null;
+  var seen = {};
+  var out = [];
+  if(stored && stored.length){
+    stored.forEach(function(c){
+      if(!c || !c.id || seen[c.id]) return;
+      seen[c.id] = true;
+      var builtin = CATS[c.id];
+      out.push({
+        id: c.id,
+        label: c.label || (builtin && builtin.label) || c.id,
+        icon: c.icon || (builtin && builtin.icon) || '📦',
+        cls: (builtin && builtin.cls) || 'cat-sonstige',
+        ico: (builtin && builtin.ico) || 'ico-sonstige',
+        enabled: c.enabled !== false,
+        custom: !builtin
+      });
+    });
+  }
+  // Eingebaute, die noch nicht in stored sind, hinten anhaengen
+  _WZ_DEFAULT_CAT_ORDER.forEach(function(id){
+    if(seen[id]) return;
+    seen[id] = true;
+    var c = CATS[id];
+    out.push({
+      id:id, label:c.label, icon:c.icon, cls:c.cls, ico:c.ico, enabled:true, custom:false
+    });
+  });
+  return out;
+}
+function _wzGetActiveCats(){
+  return _wzGetCats().filter(function(c){ return c.enabled; });
+}
+// Erweitert die globale CATS-Map zur Laufzeit mit Custom-Kategorien, damit
+// bestehender Code (CATS[t.cat]) keine Sonderbehandlung braucht. Wird
+// nach jedem Settings-Save aufgerufen.
+function _wzSyncCatsMap(){
+  _wzGetCats().forEach(function(c){
+    if(!CATS[c.id]){
+      CATS[c.id] = { icon:c.icon, label:c.label, cls:c.cls, ico:c.ico };
+    } else {
+      // Custom-Label/Icon-Overrides fuer eingebaute Kategorien zulassen
+      CATS[c.id].label = c.label || CATS[c.id].label;
+      CATS[c.id].icon  = c.icon  || CATS[c.id].icon;
+    }
+  });
+}
+// Befuellt das f_cat-Dropdown basierend auf den aktiven Kategorien.
+// Wird bei openAdd, openEdit und nach Settings-Save aufgerufen.
+function _wzPopulateCatSelect(selectedId){
+  var sel = document.getElementById('f_cat');
+  if(!sel) return;
+  var cur = selectedId || sel.value || '';
+  var html = '<option value="">— Kategorie wählen —</option>';
+  _wzGetActiveCats().forEach(function(c){
+    html += '<option value="'+c.id+'"'+(c.id===cur?' selected':'')+'>'
+         + (c.icon||'') + ' ' + c.label + '</option>';
+  });
+  // Falls das aktuelle Werkzeug eine deaktivierte/gelöschte Kategorie
+  // hat, trotzdem als Option zeigen (mit Hinweis), damit der Wert nicht
+  // verloren geht.
+  if(cur){
+    var found = _wzGetActiveCats().some(function(c){ return c.id === cur; });
+    if(!found){
+      var fallback = CATS[cur] || { icon:'📦', label:cur };
+      html += '<option value="'+cur+'" selected>'+(fallback.icon||'')+' '+fallback.label+' (deaktiviert)</option>';
+    }
+  }
+  sel.innerHTML = html;
+}
+
 
 // ──────────────────────────────────────
 // BASISKATALOG – gängige Sanitär-/Bauwerkzeuge
@@ -1813,6 +1936,8 @@ function _wzUnlockScroll(){document.body.classList.remove('modal-open');}
 function openAdd(){
   if(!_wzCanEdit()){alert('Keine Berechtigung — nur Magaziner/Admin dürfen neue Geräte erfassen.');return;}
   clearForm();
+  _wzPopulateCatSelect();
+  _wzApplyOptFelder();
   setText('mhd_title','Neues Gerät erfassen');
   document.getElementById('mhd_ic').textContent='🔧';
   setText('mft_lbl','Gerät speichern'); setText('mft_ico','✓');
@@ -1847,10 +1972,14 @@ function _wzAutofillWarranty(){
 }
 function onCatChange(){
   const v=document.getElementById('f_cat').value;
-  document.getElementById('ts_leiter').style.display=v==='leiter'?'':'none';
+  var opt=_wzGetOptFelder();
+  // Leiter-Sektion: bei Kategorie 'leiter' sichtbar, ausser der Setting-
+  // Toggle leiter:false ist gesetzt — dann bleibt sie versteckt.
+  document.getElementById('ts_leiter').style.display=(v==='leiter' && opt.leiter!==false)?'':'none';
   var niv=document.getElementById('hintNIV');
   if(niv)niv.style.display=['maschine-kabel','ladegeraet'].includes(v)?'':'none';
-  if(['maschine-kabel','ladegeraet'].includes(v)&&!document.getElementById('f_hasElec').checked){
+  if(['maschine-kabel','ladegeraet'].includes(v) && opt.elektro!==false &&
+     !document.getElementById('f_hasElec').checked){
     syncTS('elec',true); document.getElementById('f_hasElec').checked=true;
   }
 }
@@ -1967,6 +2096,8 @@ function editTool(id){
   if(!_wzCanEdit()){alert('Keine Berechtigung — nur Magaziner/Admin dürfen Geräte bearbeiten.');return;}
   const t=tools.find(x=>x.id===id);if(!t)return;
   clearForm();
+  _wzPopulateCatSelect(t.cat);
+  _wzApplyOptFelder();
   const sv=(fid,v)=>{const e=document.getElementById(fid);if(e&&v!=null&&v!=='')e.value=v;};
   sv('f_name',t.name);sv('f_brand',t.brand);sv('f_model',t.model);sv('f_supplier',t.supplier);sv('f_supplierId',t.supplierId);sv('f_cat',t.cat);
   sv('f_bought',t.bought);sv('f_warranty',t.warranty);sv('f_serial',t.serial);sv('f_notes',t.notes);
@@ -1977,7 +2108,7 @@ function editTool(id){
   sv('f_elecInterval',t.elecInterval);sv('f_lastElec',t.lastElec);
   sv('f_leiterInterval',t.leiterInterval);sv('f_lastLeiter',t.lastLeiter);
   document.getElementById('f_editId').value=t.id;
-  if(t.cat==='leiter')document.getElementById('ts_leiter').style.display='';
+  if(t.cat==='leiter' && _wzGetOptFelder().leiter!==false) document.getElementById('ts_leiter').style.display='';
   if(t.hasService)syncTS('service',true);
   if(t.hasElec)syncTS('elec',true);
   if(t.hasLeiter)syncTS('leiter',true);
@@ -3070,25 +3201,124 @@ function _wzOpenSettings(){
   try{ org = (GemaAuth.getCurrentOrg && GemaAuth.getCurrentOrg()) || {}; }catch(e){}
   var s = (org.settings && org.settings.werkzeug) || {};
   var requireMag = !!s.requireMagazinerReturn;
-  var html = '<div class="dlg-card" style="max-width:520px">'
+  var opt = _wzGetOptFelder();
+  var cats = _wzGetCats();
+
+  var optHtml = _WZ_OPT_DEFS.map(function(d){
+    var on = opt[d.id];
+    return '<label style="display:flex;align-items:flex-start;gap:10px;padding:9px 12px;border:1.5px solid '+(on?'#3730a3':'#e5e7eb')+';border-radius:9px;cursor:pointer;background:'+(on?'#eef2ff':'#fff')+'">'
+      + '<input type="checkbox" class="wzs_opt" data-opt="'+d.id+'"'+(on?' checked':'')+' style="width:16px;height:16px;margin-top:2px;accent-color:#3730a3;flex-shrink:0">'
+      + '<span><div style="font-size:13px;font-weight:700;color:#0f172a">'+esc(d.label)+'</div><div style="font-size:11.5px;color:#64748b;margin-top:2px;line-height:1.4">'+esc(d.desc)+'</div></span>'
+      + '</label>';
+  }).join('');
+
+  var html = '<div class="dlg-card" style="max-width:620px;max-height:88vh;display:flex;flex-direction:column">'
     + '<h3 style="margin:0 0 4px;font-size:17px;font-weight:800;color:#0f172a">⚙️ Werkzeug-Einstellungen</h3>'
-    + '<div style="font-size:12px;color:#64748b;margin-bottom:16px">Gilt für alle Werkzeuge der Organisation «'+esc(org.name||'—')+'».</div>'
-    + '<div style="padding:14px;border:1.5px solid #e2e7f0;border-radius:10px;margin-bottom:12px">'
-    + '  <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer">'
-    + '    <input type="checkbox" id="wzs_requireMagReturn" '+(requireMag?'checked':'')+' style="width:18px;height:18px;margin-top:2px;accent-color:#3730a3;flex-shrink:0">'
-    + '    <span>'
-    + '      <div style="font-size:13.5px;font-weight:700;color:#0f172a">Rückgabe nur durch Magaziner</div>'
-    + '      <div style="font-size:11.5px;color:#64748b;margin-top:3px;line-height:1.45">Wenn aktiviert: Monteure können Werkzeuge nicht selbstständig zurückgeben — ein Magaziner muss die Rückgabe physisch entgegennehmen und im System bestätigen (analog zum Bibliotheks-Modell).<br>Wenn deaktiviert: Monteure dürfen ausgeliehene und Platz-zugewiesene Werkzeuge selbst zurückgeben.</div>'
-    + '    </span>'
-    + '  </label>'
+    + '<div style="font-size:12px;color:#64748b;margin-bottom:14px">Gilt für alle Werkzeuge der Organisation «'+esc(org.name||'—')+'».</div>'
+    + '<div style="flex:1;overflow-y:auto;padding-right:6px;display:flex;flex-direction:column;gap:18px">'
+      // 1. Rückgabe-Regel
+      + '<section>'
+        + '<div style="font-size:12px;font-weight:800;color:#3730a3;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Rückgabe</div>'
+        + '<label style="display:flex;align-items:flex-start;gap:10px;padding:11px 13px;border:1.5px solid '+(requireMag?'#3730a3':'#e5e7eb')+';border-radius:9px;cursor:pointer;background:'+(requireMag?'#eef2ff':'#fff')+'">'
+          + '<input type="checkbox" id="wzs_requireMagReturn" '+(requireMag?'checked':'')+' style="width:16px;height:16px;margin-top:2px;accent-color:#3730a3;flex-shrink:0">'
+          + '<span><div style="font-size:13px;font-weight:700;color:#0f172a">Rückgabe nur durch Magaziner</div>'
+            + '<div style="font-size:11.5px;color:#64748b;margin-top:2px;line-height:1.4">Wenn aktiviert: Monteure können Werkzeuge nicht selbstständig zurückgeben — ein Magaziner muss die Rückgabe bestätigen.</div></span>'
+        + '</label>'
+      + '</section>'
+      // 2. Optionale Felder
+      + '<section>'
+        + '<div style="font-size:12px;font-weight:800;color:#3730a3;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Optionale Felder im Erfassungs-Formular</div>'
+        + '<div style="display:flex;flex-direction:column;gap:6px">' + optHtml + '</div>'
+      + '</section>'
+      // 3. Kategorien
+      + '<section>'
+        + '<div style="font-size:12px;font-weight:800;color:#3730a3;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Kategorien <span style="color:#64748b;font-weight:600;text-transform:none;letter-spacing:0">— sortierbar, Aktivierung und Custom-Einträge</span></div>'
+        + '<div id="wzs_catList" style="display:flex;flex-direction:column;gap:4px"></div>'
+        + '<button type="button" onclick="_wzSettAddCat()" style="margin-top:8px;padding:7px 12px;border:1.5px dashed #c7d2fe;border-radius:8px;background:#fff;cursor:pointer;font-size:12px;font-weight:700;color:#3730a3;font-family:inherit;width:100%">+ Neue Kategorie</button>'
+      + '</section>'
     + '</div>'
-    + '<div class="dlg-row">'
+    + '<div class="dlg-row" style="margin-top:14px">'
     + '  <button onclick="_wzCloseModal()" class="dlg-cancel">Abbrechen</button>'
     + '  <button onclick="_wzSaveSettings()" style="padding:9px 18px;border-radius:8px;border:none;background:#3730a3;color:#fff;cursor:pointer;font-weight:700;font-family:inherit">✓ Speichern</button>'
     + '</div>'
     + '</div>';
   _wzShowModal(html);
+  _wzSettRenderCatList(cats);
 }
+
+// Rendert die sortierbare Kategorien-Liste in #wzs_catList.
+// cats ist ein Array {id, label, icon, enabled, custom}.
+function _wzSettRenderCatList(cats){
+  var box = document.getElementById('wzs_catList');
+  if(!box) return;
+  var html = cats.map(function(c, i){
+    var rowStyle = 'display:flex;gap:6px;align-items:center;padding:7px 8px;border:1.5px solid #e5e7eb;border-radius:9px;background:'+(c.enabled?'#fff':'#f9fafb')+';opacity:'+(c.enabled?'1':'.6');
+    var upDis = (i===0) ? ' disabled' : '';
+    var dnDis = (i===cats.length-1) ? ' disabled' : '';
+    return '<div class="wzs-cat-row" data-id="'+esc(c.id)+'" data-custom="'+(c.custom?'1':'0')+'" style="'+rowStyle+'">'
+      + '<div style="display:flex;flex-direction:column;gap:1px">'
+        + '<button type="button" onclick="_wzSettCatMove(this,-1)" title="Nach oben"'+upDis+' style="border:none;background:#f1f5f9;width:24px;height:18px;border-radius:4px;cursor:pointer;font-size:10px;color:#475569">▲</button>'
+        + '<button type="button" onclick="_wzSettCatMove(this,1)" title="Nach unten"'+dnDis+' style="border:none;background:#f1f5f9;width:24px;height:18px;border-radius:4px;cursor:pointer;font-size:10px;color:#475569">▼</button>'
+      + '</div>'
+      + '<input class="wzs-cat-icon" value="'+esc(c.icon||'')+'" maxlength="3" style="width:38px;text-align:center;padding:6px 4px;border:1px solid #e5e7eb;border-radius:6px;font-size:14px;font-family:inherit" title="Icon (Emoji)">'
+      + '<input class="wzs-cat-label" value="'+esc(c.label||'')+'" placeholder="Kategorie" style="flex:1;padding:6px 10px;border:1px solid #e5e7eb;border-radius:6px;font-size:12.5px;font-family:inherit">'
+      + '<label style="font-size:11px;white-space:nowrap;display:flex;align-items:center;gap:4px;color:#475569"><input type="checkbox" class="wzs-cat-enabled"'+(c.enabled?' checked':'')+' style="accent-color:#3730a3"> aktiv</label>'
+      + (c.custom
+          ? '<button type="button" onclick="_wzSettCatRemove(this)" title="Entfernen" style="border:none;background:none;cursor:pointer;color:#dc2626;font-size:16px">✕</button>'
+          : '<span title="Eingebaute Kategorie" style="font-size:14px;color:#94a3b8;padding:0 6px">·</span>'
+        )
+    + '</div>';
+  }).join('');
+  box.innerHTML = html;
+}
+
+function _wzSettAddCat(){
+  var box = document.getElementById('wzs_catList');
+  if(!box) return;
+  // Eindeutige Custom-ID erzeugen
+  var id = 'cat_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2,5);
+  var row = document.createElement('div');
+  row.className = 'wzs-cat-row';
+  row.dataset.id = id;
+  row.dataset.custom = '1';
+  row.style.cssText = 'display:flex;gap:6px;align-items:center;padding:7px 8px;border:1.5px solid #3730a3;border-radius:9px;background:#eef2ff';
+  row.innerHTML =
+      '<div style="display:flex;flex-direction:column;gap:1px">'
+        + '<button type="button" onclick="_wzSettCatMove(this,-1)" title="Nach oben" style="border:none;background:#f1f5f9;width:24px;height:18px;border-radius:4px;cursor:pointer;font-size:10px;color:#475569">▲</button>'
+        + '<button type="button" onclick="_wzSettCatMove(this,1)" title="Nach unten" style="border:none;background:#f1f5f9;width:24px;height:18px;border-radius:4px;cursor:pointer;font-size:10px;color:#475569">▼</button>'
+      + '</div>'
+      + '<input class="wzs-cat-icon" value="📦" maxlength="3" style="width:38px;text-align:center;padding:6px 4px;border:1px solid #e5e7eb;border-radius:6px;font-size:14px;font-family:inherit">'
+      + '<input class="wzs-cat-label" value="" placeholder="Neue Kategorie …" style="flex:1;padding:6px 10px;border:1px solid #e5e7eb;border-radius:6px;font-size:12.5px;font-family:inherit">'
+      + '<label style="font-size:11px;white-space:nowrap;display:flex;align-items:center;gap:4px;color:#475569"><input type="checkbox" class="wzs-cat-enabled" checked style="accent-color:#3730a3"> aktiv</label>'
+      + '<button type="button" onclick="_wzSettCatRemove(this)" title="Entfernen" style="border:none;background:none;cursor:pointer;color:#dc2626;font-size:16px">✕</button>';
+  box.appendChild(row);
+  row.querySelector('.wzs-cat-label').focus();
+}
+
+function _wzSettCatRemove(btn){
+  var row = btn.closest('.wzs-cat-row');
+  if(row) row.remove();
+}
+
+function _wzSettCatMove(btn, dir){
+  var row = btn.closest('.wzs-cat-row');
+  if(!row) return;
+  var sibling = dir < 0 ? row.previousElementSibling : row.nextElementSibling;
+  if(!sibling) return;
+  if(dir < 0) row.parentNode.insertBefore(row, sibling);
+  else row.parentNode.insertBefore(sibling, row);
+  // Up/Down-Buttons neu rendern, damit disabled-Zustand stimmt
+  var rows = Array.from(row.parentNode.querySelectorAll('.wzs-cat-row'));
+  rows.forEach(function(r, i){
+    var btns = r.querySelectorAll('button[onclick^="_wzSettCatMove"]');
+    if(btns[0]) btns[0].disabled = (i === 0);
+    if(btns[1]) btns[1].disabled = (i === rows.length-1);
+  });
+}
+window._wzSettAddCat = _wzSettAddCat;
+window._wzSettCatRemove = _wzSettCatRemove;
+window._wzSettCatMove = _wzSettCatMove;
+
 function _wzSaveSettings(){
   try{
     if(typeof GemaAuth === 'undefined'){ _wzCloseModal(); return; }
@@ -3098,12 +3328,36 @@ function _wzSaveSettings(){
     var idx = orgs.findIndex(function(o){ return o.id === u.orgId; });
     if(idx < 0){ _wzCloseModal(); return; }
     orgs[idx].settings = orgs[idx].settings || {};
-    orgs[idx].settings.werkzeug = orgs[idx].settings.werkzeug || {};
-    orgs[idx].settings.werkzeug.requireMagazinerReturn = !!document.getElementById('wzs_requireMagReturn').checked;
+    var wz = orgs[idx].settings.werkzeug = orgs[idx].settings.werkzeug || {};
+    wz.requireMagazinerReturn = !!document.getElementById('wzs_requireMagReturn').checked;
+    // Optionale Felder einsammeln
+    var optOut = {};
+    document.querySelectorAll('.wzs_opt').forEach(function(cb){
+      optOut[cb.dataset.opt] = !!cb.checked;
+    });
+    wz.optFelder = optOut;
+    // Kategorien in DOM-Reihenfolge einsammeln
+    var catRows = document.querySelectorAll('#wzs_catList .wzs-cat-row');
+    var catOut = [];
+    var seen = {};
+    catRows.forEach(function(r){
+      var id = r.dataset.id;
+      var label = (r.querySelector('.wzs-cat-label').value || '').trim();
+      var icon = (r.querySelector('.wzs-cat-icon').value || '').trim();
+      var enabled = !!r.querySelector('.wzs-cat-enabled').checked;
+      if(!id || !label || seen[id]) return;
+      seen[id] = true;
+      catOut.push({ id:id, label:label, icon:icon, enabled:enabled });
+    });
+    wz.kategorien = catOut;
     GemaAuth.saveOrgs(orgs);
     _wzCloseModal();
-    if(typeof showToast === 'function') showToast('✓ Einstellungen gespeichert');
+    // Sofort anwenden
+    _wzSyncCatsMap();
+    _wzApplyOptFelder();
+    _wzPopulateCatSelect();
     renderList();
+    if(typeof showToast === 'function') showToast('✓ Einstellungen gespeichert');
   }catch(e){
     GemaDialog.alert({title:'Fehler', message:'Konnte nicht speichern: '+(e&&e.message?e.message:e)});
   }
@@ -4233,6 +4487,8 @@ try{ if(window.GemaActivityLog) window.GemaActivityLog.bootstrap(); }catch(e){}
   if(!tools.length){
     tools=[];
   }
+  // Org-Settings: Custom-Kategorien in CATS-Map einpflegen + optionale Felder anwenden
+  try{ _wzSyncCatsMap(); _wzApplyOptFelder(); }catch(e){ /* noop */ }
   const p=new URLSearchParams(location.search);
   if(p.get('view'))setTimeout(()=>openViewTool(p.get('view')),400);
     else if(p.get('scan'))setTimeout(()=>_wzScanAusleihe(p.get('scan')),400);
