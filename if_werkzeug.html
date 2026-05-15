@@ -1473,6 +1473,28 @@ function _wzInitAC(inputId,getSugg,onSelect){
 
 function _wzCloseAllAC(){document.querySelectorAll('.ac-drop.open').forEach(function(d){d.classList.remove('open');});}
 
+// Liefert den haeufigsten Wert aus einer Liste. Bei Gleichstand
+// gewinnt der erste. Eintraege mit src='tools' (eigene Geraete) zaehlen
+// doppelt, damit der eigene Bestand Vorrang vor dem statischen Katalog
+// hat — der Planer kennt seine Klassifizierung besser als die Vorlage.
+function _wzMostFrequent(entries, getKey){
+  var counts = {}; var firstSeen = {}; var seq = 0;
+  entries.forEach(function(e){
+    var k = getKey(e);
+    if(!k) return;
+    var w = (e.src === 'tools') ? 2 : 1;
+    counts[k] = (counts[k] || 0) + w;
+    if(firstSeen[k] == null) firstSeen[k] = seq++;
+  });
+  var best = null, bestCount = -1, bestSeen = Infinity;
+  Object.keys(counts).forEach(function(k){
+    if(counts[k] > bestCount || (counts[k] === bestCount && firstSeen[k] < bestSeen)){
+      best = k; bestCount = counts[k]; bestSeen = firstSeen[k];
+    }
+  });
+  return best;
+}
+
 function _wzSetupAutocomplete(){
   var mb=document.querySelector('#addModal .modal-body');
   if(mb)mb.addEventListener('scroll',_wzCloseAllAC);
@@ -1493,13 +1515,21 @@ function _wzSetupAutocomplete(){
   },function(sel){
     var entries=_wzGetKatalogEntries();
     var matching=entries.filter(function(e){return e.name===sel.value;});
-    var brands=[],cats=[];
-    matching.forEach(function(e){
-      if(e.brand&&brands.indexOf(e.brand)<0)brands.push(e.brand);
-      if(e.cat&&cats.indexOf(e.cat)<0)cats.push(e.cat);
-    });
-    if(brands.length===1&&!document.getElementById('f_brand').value.trim())document.getElementById('f_brand').value=brands[0];
-    if(cats.length===1&&!document.getElementById('f_cat').value){document.getElementById('f_cat').value=cats[0];onCatChange();}
+    // Haeufigste Marke + Kategorie vorschlagen (eigene Geraete priorisiert
+    // via _wzMostFrequent-Gewichtung). User kann beides ueberschreiben.
+    var bestBrand = _wzMostFrequent(matching, function(e){ return e.brand; });
+    var bestCat   = _wzMostFrequent(matching, function(e){ return e.cat; });
+    var fBrand = document.getElementById('f_brand');
+    var fCat   = document.getElementById('f_cat');
+    if(bestBrand && !fBrand.value.trim()) fBrand.value = bestBrand;
+    if(bestCat && !fCat.value){
+      // Falls die haeufigste Kategorie inzwischen deaktiviert wurde,
+      // _wzPopulateCatSelect haengt sie als '(deaktiviert)' an, damit
+      // wir sie trotzdem setzen koennen.
+      _wzPopulateCatSelect(bestCat);
+      fCat.value = bestCat;
+      onCatChange();
+    }
   });
 
   _wzInitAC('f_brand',function(q){
@@ -1517,7 +1547,27 @@ function _wzSetupAutocomplete(){
       result.push({label:e.brand,value:e.brand,hint:count>1?count+' Modelle':''});
     });
     return result;
-  },null);
+  },function(sel){
+    // Beim Klick auf eine Marke: passende Kategorie (und ggf. Bezeichnung
+    // bei eindeutigem Match) vorbefuellen. Eigene Geraete priorisiert.
+    var entries = _wzGetKatalogEntries();
+    var curName = document.getElementById('f_name').value.trim().toLowerCase();
+    var matching = entries.filter(function(e){
+      if(e.brand !== sel.value) return false;
+      if(curName && e.name.toLowerCase() !== curName) return false;
+      return true;
+    });
+    var bestCat  = _wzMostFrequent(matching, function(e){ return e.cat; });
+    var bestName = _wzMostFrequent(matching, function(e){ return e.name; });
+    var fName = document.getElementById('f_name');
+    var fCat  = document.getElementById('f_cat');
+    if(bestName && !fName.value.trim()) fName.value = bestName;
+    if(bestCat && !fCat.value){
+      _wzPopulateCatSelect(bestCat);
+      fCat.value = bestCat;
+      onCatChange();
+    }
+  });
 
   _wzInitAC('f_model',function(q){
     var entries=_wzGetKatalogEntries();
@@ -1541,7 +1591,11 @@ function _wzSetupAutocomplete(){
     var e=sel.entry;
     if(e.brand&&!document.getElementById('f_brand').value.trim())document.getElementById('f_brand').value=e.brand;
     if(e.name&&!document.getElementById('f_name').value.trim())document.getElementById('f_name').value=e.name;
-    if(e.cat&&!document.getElementById('f_cat').value){document.getElementById('f_cat').value=e.cat;onCatChange();}
+    if(e.cat&&!document.getElementById('f_cat').value){
+      _wzPopulateCatSelect(e.cat);
+      document.getElementById('f_cat').value=e.cat;
+      onCatChange();
+    }
   });
 
   _wzInitAC('f_supplier',function(q){
