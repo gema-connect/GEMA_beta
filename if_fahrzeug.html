@@ -2157,25 +2157,42 @@ function exportCSV(){
 window.exportCSV = exportCSV;
 
 /* ═══════════════════════════════
-   DEMO DATA
+   DEMO-CLEANUP
    ═══════════════════════════════ */
-function loadDemo(){
-  if(vehicles.length>0) return;
-  vehicles=[
-    {id:genId(),nr:"FZG-001",plate:"ZH 234 567",model:"VW Caddy Cargo",year:"2023",fuel:"Diesel",color:"Weiss",type:"monteur",assignment:"fix",driver:"Marco Bianchi",dept:"Sanitär",status:"aktiv",buildout:"Sortimo",equipment:"Werkzeugschrank L+R, Leiter, Kompressor",km:"32450",serviceKm:"15000",serviceMonths:"12",lastService:"2024-11-15",lastServiceKm:"28000",mfk:"2026-03-20",notes:"",hasAHK:true,hasRoof:true,hasNav:true,hasCam:true,hasLabel:true,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()},
-    {id:genId(),nr:"FZG-002",plate:"ZH 345 678",model:"Mercedes Vito 116 CDI",year:"2022",fuel:"Diesel",color:"Silber",type:"monteur",assignment:"fix",driver:"Stefan Meier",dept:"Heizung",status:"aktiv",buildout:"Bott",equipment:"Regalausbau, Dachträger, 230V Steckdose",km:"58200",serviceKm:"20000",serviceMonths:"12",lastService:"2024-06-10",lastServiceKm:"42000",mfk:"2025-09-15",notes:"Kleine Delle hinten rechts",hasAHK:true,hasRoof:true,hasNav:true,hasCam:false,hasLabel:true,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()},
-    {id:genId(),nr:"FZG-003",plate:"ZH 456 789",model:"Renault Kangoo E-Tech",year:"2024",fuel:"Elektro",color:"Weiss",type:"pool",assignment:"sharing",driver:"",dept:"",status:"aktiv",buildout:"",equipment:"Basis-Ausstattung",km:"8320",serviceKm:"30000",serviceMonths:"24",lastService:"2024-09-01",lastServiceKm:"0",mfk:"2027-09-01",notes:"Elektro-Poolfahrzeug für Kurzstrecken",hasAHK:false,hasRoof:false,hasNav:true,hasCam:true,hasLabel:false,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()},
-    {id:genId(),nr:"FZG-004",plate:"ZH 567 890",model:"Škoda Octavia Combi",year:"2023",fuel:"Benzin",color:"Schwarz",type:"kader",assignment:"fix",driver:"Thomas Brunner",dept:"Geschäftsleitung",status:"aktiv",buildout:"",equipment:"Leder, Standheizung",km:"41500",serviceKm:"15000",serviceMonths:"12",lastService:"2025-01-20",lastServiceKm:"38000",mfk:"2026-06-15",notes:"",hasAHK:false,hasRoof:false,hasNav:true,hasCam:true,hasLabel:false,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()},
-    {id:genId(),nr:"FZG-005",plate:"ZH 678 901",model:"IVECO Daily 35S16",year:"2021",fuel:"Diesel",color:"Weiss",type:"lager",assignment:"sharing",driver:"",dept:"Lager",status:"aktiv",buildout:"Individuell",equipment:"3.5t Pritsche mit Plane, Ladebordwand",km:"72100",serviceKm:"20000",serviceMonths:"12",lastService:"2024-04-05",lastServiceKm:"55000",mfk:"2025-07-30",notes:"TÜV/MFK bald fällig!",hasAHK:true,hasRoof:false,hasNav:false,hasCam:true,hasLabel:true,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()},
-    {id:genId(),nr:"FZG-006",plate:"ZH 789 012",model:"VW Transporter T6.1",year:"2020",fuel:"Diesel",color:"Grau",type:"monteur",assignment:"fix",driver:"Luca Keller",dept:"Lüftung",status:"service",buildout:"Sortimo",equipment:"Regalsystem, Schubladen, Schraubstock",km:"95400",serviceKm:"15000",serviceMonths:"12",lastService:"2024-08-20",lastServiceKm:"82000",mfk:"2025-12-01",notes:"Aktuell in Werkstatt – Getriebeproblem",hasAHK:true,hasRoof:true,hasNav:true,hasCam:false,hasLabel:true,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()}
-  ];
-  persist();
+// Frueher hat dieses Modul beim Erststart 6 Demo-Fahrzeuge erzeugt und
+// in die Cloud gepusht (loadDemo). Das ist jetzt entfernt — neue Tenants
+// starten mit leerer Liste. Bestehende Cloud-Stände werden einmalig
+// bereinigt: Wenn nr+plate+model exakt einer der ausgelieferten Demo-
+// Signaturen entsprechen, wird der Record geloescht. Angepasste
+// Datensaetze (nur ein Feld geaendert) bleiben unberuehrt.
+var _FZ_DEMO_SIGS = [
+  { nr:'FZG-001', plate:'ZH 234 567', model:'VW Caddy Cargo' },
+  { nr:'FZG-002', plate:'ZH 345 678', model:'Mercedes Vito 116 CDI' },
+  { nr:'FZG-003', plate:'ZH 456 789', model:'Renault Kangoo E-Tech' },
+  { nr:'FZG-004', plate:'ZH 567 890', model:'Škoda Octavia Combi' },
+  { nr:'FZG-005', plate:'ZH 678 901', model:'IVECO Daily 35S16' },
+  { nr:'FZG-006', plate:'ZH 789 012', model:'VW Transporter T6.1' }
+];
+function _fzIsDemoRecord(v){
+  if(!v) return false;
+  return _FZ_DEMO_SIGS.some(function(s){
+    return v.nr===s.nr && v.plate===s.plate && v.model===s.model;
+  });
+}
+function _fzCleanupDemoData(){
+  if(!Array.isArray(vehicles) || !vehicles.length) return;
+  var before = vehicles.length;
+  var removed = vehicles.filter(_fzIsDemoRecord);
+  if(!removed.length) return;
+  vehicles = vehicles.filter(function(v){ return !_fzIsDemoRecord(v); });
+  try{ persist(); }catch(e){ console.warn('[fz] demo cleanup persist', e); }
+  console.info('[fz] Demo-Daten entfernt:', before-vehicles.length+'/'+before);
 }
 
 /* ═══════════════════════════════
    INIT
    ═══════════════════════════════ */
-loadDemo();
+_fzCleanupDemoData();
 
 // View toggle
 document.querySelectorAll("#viewToggle .seg").forEach(el=>el.addEventListener("click",()=>{
