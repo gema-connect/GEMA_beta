@@ -1424,17 +1424,34 @@ function _wzInitAC(inputId,getSugg,onSelect){
   var activeIdx=-1,items=[];
 
   function positionDrop(){
-    var r=inp.getBoundingClientRect();
-    var spaceBelow=window.innerHeight-r.bottom;
-    var dropH=Math.min(220,items.length*38);
-    drop.style.left=r.left+'px';
-    drop.style.width=r.width+'px';
-    drop.style.bottom='';
-    drop.style.top=(r.bottom+4)+'px';
-    drop.style.maxHeight=Math.max(120,spaceBelow-8)+'px';
-    if(spaceBelow<dropH){
-      var mb=inp.closest('.modal-body');
-      if(mb)mb.scrollTop+=dropH-spaceBelow+16;
+    if(!drop.classList.contains('open')) return;
+    var r = inp.getBoundingClientRect();
+    // Auf iOS verkleinert die virtuelle Tastatur den visualViewport,
+    // nicht window.innerHeight. Wir nehmen den sichtbaren Bereich,
+    // damit das Dropdown nicht unter die Tastatur faellt.
+    var vv = window.visualViewport;
+    var viewTop = vv ? vv.offsetTop : 0;
+    var viewBottom = vv ? (vv.offsetTop + vv.height) : window.innerHeight;
+    var spaceBelow = viewBottom - r.bottom;
+    var spaceAbove = r.top - viewTop;
+    var prefMax = 220;
+    var minH = Math.min(120, prefMax);
+    var dropH = Math.min(prefMax, Math.max(40, items.length * 38 + 6));
+
+    drop.style.left = r.left + 'px';
+    drop.style.width = r.width + 'px';
+
+    // Standard: unter Input. Wenn dort weniger Platz als ueber Input
+    // ist und unter zu klein, zeigt das Drop oberhalb.
+    if (spaceBelow >= dropH || spaceBelow >= spaceAbove) {
+      drop.style.top = (r.bottom + 4) + 'px';
+      drop.style.bottom = '';
+      drop.style.maxHeight = Math.max(minH, spaceBelow - 8) + 'px';
+    } else {
+      // Oberhalb plazieren: bottom = Abstand vom unteren Window-Rand
+      drop.style.top = 'auto';
+      drop.style.bottom = (window.innerHeight - r.top + 4) + 'px';
+      drop.style.maxHeight = Math.max(minH, spaceAbove - 8) + 'px';
     }
   }
 
@@ -1446,8 +1463,20 @@ function _wzInitAC(inputId,getSugg,onSelect){
     drop.innerHTML=items.slice(0,10).map(function(it,i){
       return '<div class="ac-item" data-idx="'+i+'"><span class="ac-main">'+_wzHighlight(it.label,q)+'</span>'+(it.hint?'<span class="ac-hint">'+esc(it.hint)+'</span>':'')+'</div>';
     }).join('');
-    positionDrop();
     drop.classList.add('open');
+    positionDrop();
+  }
+
+  // Re-Position bei Scroll/Resize-Events. visualViewport-Resize fired
+  // beim Auf-/Zumachen der iOS-Tastatur — entscheidend, damit der Drop
+  // nicht eingefroren an alter Stelle stehen bleibt.
+  var modalBody = inp.closest('.modal-body');
+  if (modalBody) modalBody.addEventListener('scroll', positionDrop, { passive:true });
+  window.addEventListener('resize', positionDrop);
+  window.addEventListener('scroll', positionDrop, { passive:true });
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', positionDrop);
+    window.visualViewport.addEventListener('scroll', positionDrop);
   }
 
   inp.addEventListener('input',show);
