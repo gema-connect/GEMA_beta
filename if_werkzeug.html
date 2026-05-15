@@ -1426,32 +1426,42 @@ function _wzInitAC(inputId,getSugg,onSelect){
   function positionDrop(){
     if(!drop.classList.contains('open')) return;
     var r = inp.getBoundingClientRect();
-    // Auf iOS verkleinert die virtuelle Tastatur den visualViewport,
-    // nicht window.innerHeight. Wir nehmen den sichtbaren Bereich,
-    // damit das Dropdown nicht unter die Tastatur faellt.
+    var vv = window.visualViewport;
+    var viewBottom = vv ? (vv.offsetTop + vv.height) : window.innerHeight;
+    var spaceBelow = viewBottom - r.bottom;
+    drop.style.left = r.left + 'px';
+    drop.style.width = r.width + 'px';
+    drop.style.top = (r.bottom + 4) + 'px';
+    drop.style.bottom = '';
+    drop.style.maxHeight = Math.max(120, spaceBelow - 8) + 'px';
+  }
+
+  // Wenn unter dem Input zu wenig Platz fuer das Dropdown ist, scrollen
+  // wir den Modal-Body (oder die Seite) so weit nach oben, dass das
+  // Dropdown vollstaendig sichtbar wird. Position bleibt damit immer
+  // unter dem Input — Drop nach oben zu klappen verwirrt die User.
+  function scrollIntoSpace(){
+    var r = inp.getBoundingClientRect();
     var vv = window.visualViewport;
     var viewTop = vv ? vv.offsetTop : 0;
     var viewBottom = vv ? (vv.offsetTop + vv.height) : window.innerHeight;
-    var spaceBelow = viewBottom - r.bottom;
-    var spaceAbove = r.top - viewTop;
-    var prefMax = 220;
-    var minH = Math.min(120, prefMax);
-    var dropH = Math.min(prefMax, Math.max(40, items.length * 38 + 6));
-
-    drop.style.left = r.left + 'px';
-    drop.style.width = r.width + 'px';
-
-    // Standard: unter Input. Wenn dort weniger Platz als ueber Input
-    // ist und unter zu klein, zeigt das Drop oberhalb.
-    if (spaceBelow >= dropH || spaceBelow >= spaceAbove) {
-      drop.style.top = (r.bottom + 4) + 'px';
-      drop.style.bottom = '';
-      drop.style.maxHeight = Math.max(minH, spaceBelow - 8) + 'px';
-    } else {
-      // Oberhalb plazieren: bottom = Abstand vom unteren Window-Rand
-      drop.style.top = 'auto';
-      drop.style.bottom = (window.innerHeight - r.top + 4) + 'px';
-      drop.style.maxHeight = Math.max(minH, spaceAbove - 8) + 'px';
+    var dropH = Math.min(220, Math.max(40, items.length * 38 + 6));
+    var needed = r.bottom + dropH + 16;
+    var overflow = needed - viewBottom;
+    if(overflow <= 0) return;
+    var mb = inp.closest('.modal-body');
+    if(mb){
+      mb.scrollTop += overflow;
+    } else if(typeof window.scrollBy === 'function'){
+      window.scrollBy(0, overflow);
+    }
+    // Falls das Input dadurch ueber den oberen Viewport-Rand rutschen
+    // wuerde (winzige Tablets/Phones im Querformat), begrenzen wir den
+    // Scroll so, dass das Input bei ca. viewTop + 12px bleibt.
+    r = inp.getBoundingClientRect();
+    var minTop = viewTop + 12;
+    if(r.top < minTop && mb){
+      mb.scrollTop += (r.top - minTop);
     }
   }
 
@@ -1464,6 +1474,7 @@ function _wzInitAC(inputId,getSugg,onSelect){
       return '<div class="ac-item" data-idx="'+i+'"><span class="ac-main">'+_wzHighlight(it.label,q)+'</span>'+(it.hint?'<span class="ac-hint">'+esc(it.hint)+'</span>':'')+'</div>';
     }).join('');
     drop.classList.add('open');
+    scrollIntoSpace();
     positionDrop();
   }
 
