@@ -1243,6 +1243,13 @@ function _wzGetCats(){
 function _wzGetActiveCats(){
   return _wzGetCats().filter(function(c){ return c.enabled; });
 }
+// Prueft, ob eine Kategorie-ID aktuell aktiv ist. Wird vom Autocomplete-
+// Auto-Fill genutzt, damit deaktivierte Kategorien nicht ueber die
+// Hintertuer gesetzt werden.
+function _wzIsCatActive(catId){
+  if(!catId) return false;
+  return _wzGetActiveCats().some(function(c){ return c.id === catId; });
+}
 // Erweitert die globale CATS-Map zur Laufzeit mit Custom-Kategorien, damit
 // bestehender Code (CATS[t.cat]) keine Sonderbehandlung braucht. Wird
 // nach jedem Settings-Save aufgerufen.
@@ -1264,21 +1271,18 @@ function _wzPopulateCatSelect(selectedId){
   if(!sel) return;
   var cur = selectedId || sel.value || '';
   var html = '<option value="">— Kategorie wählen —</option>';
+  var hasCur = false;
   _wzGetActiveCats().forEach(function(c){
+    if(c.id === cur) hasCur = true;
     html += '<option value="'+c.id+'"'+(c.id===cur?' selected':'')+'>'
          + (c.icon||'') + ' ' + c.label + '</option>';
   });
-  // Falls das aktuelle Werkzeug eine deaktivierte/gelöschte Kategorie
-  // hat, trotzdem als Option zeigen (mit Hinweis), damit der Wert nicht
-  // verloren geht.
-  if(cur){
-    var found = _wzGetActiveCats().some(function(c){ return c.id === cur; });
-    if(!found){
-      var fallback = CATS[cur] || { icon:'📦', label:cur };
-      html += '<option value="'+cur+'" selected>'+(fallback.icon||'')+' '+fallback.label+' (deaktiviert)</option>';
-    }
-  }
   sel.innerHTML = html;
+  // Wenn der vorherige Wert eine deaktivierte/geloeschte Kategorie war,
+  // hat das Select keine selected-Option mehr und steht auf
+  // '— Kategorie wählen —'. Der User muss dann eine aktive Kategorie
+  // waehlen — submitForm wirft sonst beim Speichern den Pflichtfeld-Alert.
+  if(cur && !hasCur) sel.value = '';
 }
 
 
@@ -1522,11 +1526,7 @@ function _wzSetupAutocomplete(){
     var fBrand = document.getElementById('f_brand');
     var fCat   = document.getElementById('f_cat');
     if(bestBrand && !fBrand.value.trim()) fBrand.value = bestBrand;
-    if(bestCat && !fCat.value){
-      // Falls die haeufigste Kategorie inzwischen deaktiviert wurde,
-      // _wzPopulateCatSelect haengt sie als '(deaktiviert)' an, damit
-      // wir sie trotzdem setzen koennen.
-      _wzPopulateCatSelect(bestCat);
+    if(bestCat && _wzIsCatActive(bestCat) && !fCat.value){
       fCat.value = bestCat;
       onCatChange();
     }
@@ -1562,8 +1562,7 @@ function _wzSetupAutocomplete(){
     var fName = document.getElementById('f_name');
     var fCat  = document.getElementById('f_cat');
     if(bestName && !fName.value.trim()) fName.value = bestName;
-    if(bestCat && !fCat.value){
-      _wzPopulateCatSelect(bestCat);
+    if(bestCat && _wzIsCatActive(bestCat) && !fCat.value){
       fCat.value = bestCat;
       onCatChange();
     }
@@ -1591,8 +1590,7 @@ function _wzSetupAutocomplete(){
     var e=sel.entry;
     if(e.brand&&!document.getElementById('f_brand').value.trim())document.getElementById('f_brand').value=e.brand;
     if(e.name&&!document.getElementById('f_name').value.trim())document.getElementById('f_name').value=e.name;
-    if(e.cat&&!document.getElementById('f_cat').value){
-      _wzPopulateCatSelect(e.cat);
+    if(e.cat && _wzIsCatActive(e.cat) && !document.getElementById('f_cat').value){
       document.getElementById('f_cat').value=e.cat;
       onCatChange();
     }
@@ -3000,7 +2998,7 @@ window._wzIsMonteurView=_wzIsMonteurView;
 function _wzOpenAdvFilter(){
   var f=_wzAdvFilter||{};
   var catOpts='<option value="">Alle</option>';
-  Object.keys(CATS).forEach(function(k){catOpts+='<option value="'+k+'"'+(f.kategorie===k?' selected':'')+'>'+esc(CATS[k].label)+'</option>';});
+  _wzGetActiveCats().forEach(function(c){catOpts+='<option value="'+c.id+'"'+(f.kategorie===c.id?' selected':'')+'>'+esc(c.label)+'</option>';});
 
   var personen=[];
   if(typeof GemaAuth!=='undefined'){
