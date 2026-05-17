@@ -489,6 +489,57 @@ Bei Batch-Migrationen können verwaiste `</div>`-Tags entstehen (z.B. wenn `g-ph
 
 Diese Nav-Links wurden entfernt. Nicht wieder einfügen.
 
+### Hero-Layout in Modulen: `<div class="hero-title">` statt `<h1>`/`<p>`
+
+`gema_responsive.css` setzt im `@media(max-width:640px)` Block grosszuegige Hero-Padding-Werte (`28-40px`) und grosse Schriftgroessen (`.hero h1 { font-size: clamp(22px, 7vw, 30px) }`) — gedacht fuer den prominenten Hero auf `index.html`. Modul-Seiten brauchen einen **kompakten** Hero (14px padding, 17px Titel).
+
+**Wenn ein Modul `<h1>` und `<p>` im Hero verwendet**, schlagen die `gema_responsive.css`-Regeln durch — der Modul-Hero wird ungewollt gross. Auch `!important` im inline-style hilft nur teilweise, weil Browser-default `margin-block: 0.67em` auf `<h1>` und `1em` auf `<p>` zusaetzlich die Box aufpolstern.
+
+**Korrektes Modul-Hero-Markup** (Pattern aus `if_werkzeug.html`):
+
+```html
+<div class="hero">
+  <div class="hero-in">
+    <div class="hero-left">
+      <div class="hero-ic">🔧</div>
+      <div>
+        <div class="hero-title">Modul-Titel</div>
+        <div class="hero-sub">Untertitel · Beschreibung</div>
+      </div>
+    </div>
+    <div class="hero-pills"><!-- optional --></div>
+  </div>
+</div>
+```
+
+Klassen: `.hero-in` (Wrapper), `.hero-left` (Icon + Text), `.hero-ic` (Icon), `.hero-title` (Titel), `.hero-sub` (Untertitel). Damit greifen die `<h1>`/`<p>`-Regeln aus `gema_responsive.css` nicht.
+
+**`gema_responsive.css` schraenkt sich seit v47 selbst ein** auf `.hero:has(> .hero-inner)` (= nur Homepage). Bei aelteren Browsern ohne `:has()`-Support wird die Regel komplett ignoriert — ebenfalls Modul-sicher.
+
+### `<link rel="stylesheet">` laedt NACH `<style>` — Cascade beachten
+
+In den GEMA-HTML-Dateien wird `gema_responsive.css` typischerweise direkt nach dem inline `<style>`-Block eingebunden:
+
+```html
+<style>
+  /* module-spezifische Regeln */
+  @media (max-width: 640px) {
+    .hero { padding: 14px 16px; }
+  }
+</style>
+<link rel="stylesheet" href="gema_responsive.css"/>
+```
+
+Bei **gleicher Spezifitaet** gewinnt im Cascade die **spaeter geladene** Regel — d.h. `gema_responsive.css` ueberschreibt inline-styles. Wer also lokal Hero/Nav-Werte setzen will, muss entweder `!important` verwenden ODER (besser) eine spezifischere Selektor-Kombination wahlen ODER (am besten) das HTML-Markup so anpassen, dass die globalen Regeln gar nicht erst greifen (siehe Hero-Markup oben).
+
+### Doppelte CSS-Regelbloecke aus alten Media-Queries
+
+Wenn ein Media-Query entfernt wurde, blieben in einigen Modulen die innerhalb der `@media`-Klammer eingerueckten Regeln stehen — also als globale Regeln. Diese kollidieren dann mit den gleichen Regeln weiter oben im Stylesheet (gleiche Spezifitaet, spaetere gewinnt, Werte oft abweichend).
+
+**Beispiel-Symptom**: Header-Hoehe wird auf 72px gesetzt (Z. 38), funktioniert aber nicht — weil weiter unten (Z. 414) noch ein zweiter Block `.g-nav-inner{height:52px}` aus einem ehemaligen Media-Query steht.
+
+**Pruefung**: `grep -n 'g-nav-inner\|hero-mark\|kritische-klasse' if_modul.html` — wenn die Klasse mehrfach auftaucht, beide Stellen auf konsistente Werte pruefen.
+
 ---
 
 ## W12-Modul (hy_w12.html)
