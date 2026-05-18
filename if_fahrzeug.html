@@ -1,6 +1,8 @@
 <!doctype html>
 <html lang="de">
 <head>
+<script src="gema_sync.js"></script>
+<script src="gema_aktivitaetslog.js"></script>
 <script src="gema_auth.js"></script>
 <script src="gema_recent.js"></script>
 <meta charset="utf-8"/>
@@ -58,14 +60,17 @@ body{font-family:var(--sans);background:var(--bg);color:var(--text);min-height:1
 .page{max-width:1440px;margin:0 auto;padding:22px 24px 60px;}
 
 /* ═══ HERO ═══ */
-.hero{background:linear-gradient(135deg,#1e3a5f 0%,#1e40af 50%,#164e63 100%);border-radius:var(--r-lg);padding:18px 24px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;position:relative;overflow:hidden;box-shadow:var(--sh-lg)}
+.hero{background:linear-gradient(135deg,#1e3a5f 0%,#1e40af 50%,#164e63 100%);border-radius:var(--r-lg);padding:18px 24px;margin-bottom:16px;position:relative;overflow:hidden;box-shadow:var(--sh-lg)}
 .hero::before{content:'';position:absolute;inset:0;background:url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.04'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");pointer-events:none;}
-.hero-left{display:flex;align-items:center;gap:16px;z-index:1;}
-.hero-icon{width:42px;height:42px;border-radius:12px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:22px;background:rgba(255,255,255,.15);border:1.5px solid rgba(255,255,255,.25);}
-.hero h1{font-size:20px;font-weight:900;color:#fff;letter-spacing:-.5px;}
-.hero p{font-size:11.5px;color:rgba(255,255,255,.6);margin-top:3px;}
+.hero-in{position:relative;z-index:1;display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap}
+.hero-left{display:flex;align-items:center;gap:12px;z-index:1;}
+.hero-ic{width:42px;height:42px;border-radius:12px;background:rgba(255,255,255,.15);border:1.5px solid rgba(255,255,255,.25);display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;}
+.hero-title{font-size:20px;font-weight:900;color:#fff;letter-spacing:-.5px}
+.hero-sub{font-size:11.5px;color:rgba(255,255,255,.6);margin-top:3px;line-height:1.5}
 .hero-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;z-index:1;}
 .hero-btn{display:inline-flex;align-items:center;gap:6px;padding:9px 18px;border-radius:var(--r-sm);border:1px solid rgba(255,255,255,.25);background:rgba(255,255,255,.12);backdrop-filter:blur(8px);color:#fff;font-size:12.5px;font-weight:700;cursor:pointer;transition:.2s;font-family:var(--sans);}
+/* 'In Garage' Quick-Filter — wenn aktiv (toggled), kraeftiger einfaerben */
+#btnFzInGarage.fz-in-garage-active{background:#c2410c !important;color:#fff !important;border-color:#c2410c !important}
 .hero-btn:hover{background:rgba(255,255,255,.22);transform:translateY(-1px);}
 .hero-btn.accent{background:rgba(255,255,255,.95);color:var(--primary);border-color:transparent;}
 .hero-btn.accent:hover{background:#fff;box-shadow:var(--shadow);}
@@ -92,11 +97,49 @@ body{font-family:var(--sans);background:var(--bg);color:var(--text);min-height:1
 .fz-search-mob{display:none;width:100%;margin-top:6px}
 .fz-search-toggle{display:none}
 @media(max-width:640px){
+  .toolbar{gap:8px;justify-content:flex-start;flex-wrap:wrap}
+  /* Desktop-Suche aus, separater Lupe-Button raus, mobile Suche immer sichtbar */
   .toolbar>.search-box{display:none}
-  .fz-search-toggle{display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:10px;border:1.5px solid var(--brd2);background:var(--sur);cursor:pointer;color:var(--mut);flex-shrink:0;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
-  .fz-search-toggle.open{border-color:var(--plan);background:var(--plan-bg);color:var(--plan)}
-  .fz-search-mob.open{display:block}
-  .toolbar .hero-btn.accent{order:-1;flex:1;justify-content:center}
+  .fz-search-toggle{display:none !important}
+  /* View-Toggle (Karten/Tabelle) auf Mobile aus */
+  #viewToggle{display:none !important}
+  /* Filter-Dropdowns auf Mobile komplett aus — Quick-Filter '🔧 In Garage'
+     ersetzt sie. Andere Filter koennten ueber ein Modal-Button kommen,
+     ist hier noch nicht vorgesehen. */
+  .toolbar #filterStatus,
+  .toolbar #filterType,
+  .toolbar #filterAssignment{display:none !important}
+  /* Action-Container (Lupe/Settings/View-Toggle gruppiert) loesen wir
+     auf — jedes Item soll im Flow der Toolbar landen. */
+  .toolbar .fz-toolbar-right{display:contents !important}
+  /* '+ Fahrzeug hinzufuegen' eigene volle Zeile am Anfang */
+  .toolbar .hero-btn.accent{order:-1;flex-basis:100%;justify-content:center;padding:12px 18px}
+  /* Halftime-Items (2 pro Zeile): flex-basis = (100% - 8px) / 2.
+     Werkzeug-Button-Styling: padding 10px 8px, 12.5px, gleich gross.
+     Feste Hoehe 40px stellt sicher, dass die Action-Buttons die
+     gleiche Hoehe wie Suche-Textfeld und Einstellungen-Button haben. */
+  .toolbar #btnFzActLog,
+  .toolbar #btnFzInGarage{flex:1 1 calc((100% - 8px)/2);min-width:0;height:40px;padding:0 8px !important;font-size:12.5px;justify-content:center;box-sizing:border-box}
+  /* Reihenfolge wie Werkzeug-Toolbar:
+     Z1 (=order:-1): + Fahrzeug hinzufuegen
+     Z2: Aktivitaeten | In Garage   (orders 10/11, je 1/2)
+     Z3: Suche (2/3) | Einstellungen-Zahnrad (1/3)   (orders 20/21) */
+  .toolbar #btnFzActLog{order:10}
+  .toolbar #btnFzInGarage{order:11}
+  /* Suche-Textfeld 2/3 + Einstellungen-Zahnrad 1/3 — exakt wie Werkzeug.
+     Lupe als ::before-Pseudo-Element MIT padding-left fuer den Text,
+     damit Lupe nicht ueber den Placeholder kollidiert. Input-Hoehe
+     wird auf 40px gedrueckt, damit es exakt gleich gross wie die
+     anderen Mobile-Buttons (padding 10px 8px ≈ 40px) ist. */
+  .toolbar #fzSearchMob{order:20;display:flex !important;flex:1 1 calc(((100% - 16px)/3)*2 + 8px);min-width:0;margin-top:0}
+  .toolbar #fzSearchMob input{height:40px !important;padding:8px 12px 8px 34px !important;font-size:13px !important;border-radius:8px !important;box-sizing:border-box}
+  .toolbar #fzSearchMob::before{font-size:14px !important;left:12px !important}
+  .toolbar #fzSettingsBtn{order:21;display:flex !important;align-items:center;justify-content:center;flex:0 0 calc((100% - 16px)/3);height:40px;padding:0 10px !important;min-width:0;box-sizing:border-box}
+  /* Einstellungen-Button: nur Zahnrad auf Mobile */
+  .toolbar #fzSettingsBtn .fz-btn-lbl{display:none}
+  .toolbar #fzSettingsBtn .fz-btn-ico{font-size:16px}
+  /* Breadcrumb auf Mobile ausblenden (sonst als 'F…' abgeschnitten) */
+  .g-nav-bc{display:none}
 }
 .search-box::before{content:'🔍';position:absolute;left:10px;top:50%;transform:translateY(-50%);font-size:13px;pointer-events:none;}
 .seg-group{display:inline-flex;background:var(--bg);padding:3px;border-radius:10px;border:1.5px solid var(--border);}
@@ -228,7 +271,17 @@ tbody td.mono{font-family:var(--mono);font-weight:500;}
 @media print{.g-nav,.hero-actions,.toolbar,.no-print,.modal-overlay,.toast{display:none!important;}body{background:#fff!important;}.kpi,.v-card,.table-card{box-shadow:none!important;border-color:#ddd!important;}}
 
 /* ═══ RESPONSIVE ═══ */
-@media(max-width:640px){.page{padding:14px 12px 40px;}.hero{padding:14px 16px;border-radius:14px;}.hero h1{font-size:17px;}.hero p{display:none;}.hero-icon{width:36px;height:36px;font-size:18px;}.hero-actions{display:none;}.kpi-val{font-size:22px;}}
+@media(max-width:640px){
+  /* padding-top:0 + margin-top:0 mit !important — damit der Hero
+     direkt am Header klebt, ohne Abstand dazwischen (wie Werkzeug). */
+  .page{padding:0 12px 40px !important}
+  .hero{padding:14px 16px;border-radius:0;margin:0 -12px 16px !important}
+  .hero-ic{width:36px;height:36px;font-size:18px}
+  .hero-title{font-size:17px}
+  .hero-sub{display:none}
+  .hero-actions{display:none}
+  .kpi-val{font-size:22px;}
+}
 @media(min-width:1600px){html{font-size:16px;}.hero h1{font-size:26px;}.kpi-val{font-size:32px;}}
 
   .modal-overlay.hidden { display:none !important; }
@@ -320,17 +373,19 @@ tbody td.mono{font-family:var(--mono);font-weight:500;}
 
   <!-- HERO -->
   <div class="hero">
-    <div class="hero-left">
-      <div class="hero-icon">🚐</div>
-      <div>
-        <h1>Fahrzeugmanagement</h1>
-        <p>Flottenübersicht · Zuteilung · Ausbau · Service-Intervalle</p>
+    <div class="hero-in">
+      <div class="hero-left">
+        <div class="hero-ic">🚐</div>
+        <div>
+          <div class="hero-title">Fahrzeugmanagement</div>
+          <div class="hero-sub">Flottenübersicht · Zuteilung · Ausbau · Service-Intervalle</div>
+        </div>
       </div>
-    </div>
-    <div class="hero-actions">
-      <button class="hero-btn" onclick="exportCSV()">📥 CSV Export</button>
-      <button class="hero-btn" onclick="window.print()">🖨 Drucken</button>
-      <button class="hero-btn accent" onclick="openModal()">+ Fahrzeug erfassen</button>
+      <div class="hero-actions">
+        <button class="hero-btn" onclick="exportCSV()">📥 CSV Export</button>
+        <button class="hero-btn" onclick="window.print()">🖨 Drucken</button>
+        <button class="hero-btn accent" onclick="openModal()">+ Fahrzeug erfassen</button>
+      </div>
     </div>
   </div>
 
@@ -348,6 +403,8 @@ tbody td.mono{font-family:var(--mono);font-weight:500;}
       <input type="text" id="searchInput" placeholder="Suche (Nr., Marke, Kennzeichen, Fahrer …)"/>
     </div>
     <button class="hero-btn accent" id="btnAddVehicle" onclick="openAddVehicle()" style="background:var(--plan);color:#fff;border-color:var(--plan);padding:8px 16px;border-radius:8px;font-weight:700;font-size:12.5px">+ Fahrzeug hinzufügen</button>
+    <button class="hero-btn" id="btnFzActLog" onclick="_fzOpenActLog()" style="display:none;background:#f1f5f9;color:#0f172a;border-color:#cbd5e1;padding:8px 16px;border-radius:8px;font-weight:700;font-size:12.5px" title="Aktivitäten-Log (Magaziner/Admin)">📋 Aktivitäten</button>
+    <button class="hero-btn" id="btnFzInGarage" onclick="_fzToggleInGarage()" style="background:#fff7ed;color:#c2410c;border-color:#fed7aa;padding:8px 16px;border-radius:8px;font-weight:700;font-size:12.5px" title="Nur Fahrzeuge anzeigen, die aktuell im Service sind">🔧 In Garage <span id="fzInGarageCount" style="opacity:.7"></span></button>
     <select class="filter-sel" id="filterStatus">
       <option value="">Alle Status</option>
       <option value="aktiv">Aktiv</option>
@@ -362,19 +419,17 @@ tbody td.mono{font-family:var(--mono);font-weight:500;}
       <option value="fix">Fix zugeteilt</option>
       <option value="sharing">Sharing / Pool</option>
     </select>
-    <div style="margin-left:auto;display:flex;gap:6px;align-items:center">
+    <div class="fz-toolbar-right" style="margin-left:auto;display:flex;gap:6px;align-items:center">
       <button class="fz-search-toggle" id="fzSearchToggle" onclick="_fzToggleMobSearch()" title="Suche"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="21" y2="21"/></svg></button>
-      <button id="fzSettingsBtn" onclick="_fzOpenSettings()" style="display:none;padding:6px 10px;border-radius:8px;border:1.5px solid var(--brd2);background:var(--sur);cursor:pointer;font-size:12px;color:var(--mut);font-weight:600;font-family:inherit" title="Einstellungen">⚙ Einstellungen</button>
+      <button id="fzSettingsBtn" onclick="_fzOpenSettings()" style="display:none;padding:6px 10px;border-radius:8px;border:1.5px solid var(--brd2);background:var(--sur);cursor:pointer;font-size:12px;color:var(--mut);font-weight:600;font-family:inherit" title="Einstellungen"><span class="fz-btn-ico">⚙</span><span class="fz-btn-lbl"> Einstellungen</span></button>
       <div class="seg-group" id="viewToggle">
         <button class="seg active" data-view="cards" title="Karten">▦</button>
         <button class="seg" data-view="table" title="Tabelle">☰</button>
       </div>
     </div>
-  </div>
-
-  <!-- CONTENT -->
-  <div class="fz-search-mob search-box" id="fzSearchMob">
-    <input type="text" id="searchInputMob" placeholder="Suche …" oninput="_fzSyncSearch(this)" style="font-size:16px">
+    <div class="fz-search-mob search-box" id="fzSearchMob">
+      <input type="text" id="searchInputMob" placeholder="Suche …" oninput="_fzSyncSearch(this)" style="font-size:16px">
+    </div>
   </div>
   <div id="cardsView" class="cards-grid"></div>
   <div id="tableView" class="table-card" style="display:none;">
@@ -767,10 +822,14 @@ if(typeof _GemaDB==='undefined'){
 </script>
 <script>
 (async()=>{
-await Promise.race([
-  typeof _GemaDB!=='undefined'?_GemaDB.init('fahrzeugmanagement', ['gema_vehicles']):Promise.resolve(),
-  new Promise(function(r){ setTimeout(r, 5000); })
-]);
+// Cloud-First Per-Record-Sync (siehe gema_sync.js)
+if(typeof window.GemaSync !== 'undefined'){
+  await Promise.race([
+    window.GemaSync.bindCollection('fahrzeugmanagement','gema_vehicles','vehicle:','id'),
+    new Promise(function(r){ setTimeout(r, 5000); })
+  ]);
+}
+try{ if(window.GemaActivityLog) window.GemaActivityLog.bootstrap(); }catch(e){}
 
 /* ═══════════════════════════════
    STATE
@@ -790,16 +849,23 @@ function _fzIsGaragistRole(){
   var u=_fzCurrentUser();
   return !!(u&&u.roleIds&&u.roleIds.indexOf('role_garagist')>=0);
 }
+// Per-Record-Storage: pro Fahrzeug eine Row in Supabase
+// (data_key='vehicle:<id>'). localStorage bleibt als sync-Cache.
 function _fzReadAllRaw(){
-  var raw=null;
-  if(typeof _GemaDB!=='undefined'&&_GemaDB.c) raw=_GemaDB.c['gema_vehicles'];
-  if(raw==null){ try{ raw=localStorage.getItem('gema_vehicles'); }catch(e){} }
-  try{ var arr=JSON.parse(raw||'[]'); return Array.isArray(arr)?arr:[]; }catch(e){ return []; }
+  try{ var arr=JSON.parse(localStorage.getItem('gema_vehicles')||'[]'); return Array.isArray(arr)?arr:[]; }catch(e){ return []; }
 }
 function _fzWriteAllRaw(arr){
-  var json=JSON.stringify(arr);
-  if(typeof _GemaDB!=='undefined'&&typeof _GemaDB.save==='function') _GemaDB.save('gema_vehicles',json);
-  try{ localStorage.setItem('gema_vehicles',json); }catch(e){}
+  if(typeof window.GemaSync !== 'undefined'){
+    window.GemaSync.persistCollection('fahrzeugmanagement','gema_vehicles','vehicle:','id', arr)
+      .catch(function(e){
+        console.warn('[Fahrzeug] Cloud-Save fehlgeschlagen:', e && e.message);
+        if(window.GemaDialog && window.GemaDialog.alert){
+          window.GemaDialog.alert({title:'Offline', message:'Aenderungen koennen nicht gespeichert werden. Bitte Verbindung pruefen.'});
+        }
+      });
+  } else {
+    try{ localStorage.setItem('gema_vehicles', JSON.stringify(arr)); }catch(e){}
+  }
 }
 function _fzLoadVehicles(){
   var u=_fzCurrentUser();
@@ -840,7 +906,7 @@ function persist(){
     return;
   }
   if(!orgId){
-    if(typeof _GemaDB!=='undefined') _GemaDB.save("gema_vehicles", JSON.stringify(vehicles));
+    _fzWriteAllRaw(vehicles);
     return;
   }
   vehicles.forEach(function(v){ if(!v.orgId) v.orgId=orgId; });
@@ -1031,6 +1097,11 @@ function saveVehicle(){
       }catch(e){}
     }
     showToast("Fahrzeug aktualisiert ✓");
+    _fzActLog('geaendert','Fahrzeug geändert', data,
+      data.garagistUserId && data.garagistUserId !== prevGaragist ? { garagistUserId:data.garagistUserId } : null);
+    if(data.garagistUserId && data.garagistUserId !== prevGaragist){
+      _fzActLog('zuweisung','Garagist zugewiesen: '+(data.garagistName||data.garagistUserId), data);
+    }
   }else{
     data.id=genId();
     data.createdAt=new Date().toISOString();
@@ -1040,6 +1111,7 @@ function saveVehicle(){
     if(_fzMe.orgId) data.orgId=_fzMe.orgId;
     vehicles.push(data);
     showToast("Fahrzeug erfasst ✓");
+    _fzActLog('erfasst','Fahrzeug erfasst'+(data.model?' · '+data.model:''), data);
   }
   persist(); _fzInitKatalogList(); closeModal(); render();
   return data.id;
@@ -1058,8 +1130,10 @@ function deleteVehicle(){
   var v = vehicles.find(function(x){return x.id===editId;});
   GemaDialog.confirm({title:'Fahrzeug löschen', message:'Fahrzeug «'+((v&&(v.model||v.plate))||editId)+'» wirklich löschen?', confirmLabel:'Löschen', danger:true}).then(function(ok){
     if(!ok) return;
+    var del=v;
     vehicles=vehicles.filter(x=>x.id!==editId);
     persist(); closeModal(); render();
+    _fzActLog('geloescht','Fahrzeug gelöscht', del);
     showToast("Fahrzeug gelöscht");
   });
 }
@@ -1389,6 +1463,7 @@ function render(){
   const list=getFiltered();
   renderCards(list);
   renderTable(list);
+  if(typeof _fzUpdateInGarageCount === 'function') _fzUpdateInGarageCount();
 }
 var _FZ_DEFAULT_TYPES=['Monteurenfahrzeug','Servicefahrzeug','Projektleiterfahrzeug','Pool / Sharing','Kaderfahrzeug','Lager / Transport'];
 var _FZ_TYPES_KEY='gema_fz_typen_v1';
@@ -1903,6 +1978,62 @@ function _fzCanCreate(){
 }
 function _fzCanView(){return true;}
 
+// Aktivitaetenlog-Wrapper — fire-and-forget. v kann das Vehicle-Objekt
+// oder ein partial sein. Nur Magaziner/Admin sehen den Log.
+function _fzCanSeeActLog(){ return _fzIsAdmin() || _fzIsMagaziner(); }
+function _fzActLog(aktion, beschreibung, v, details){
+  try{
+    if(typeof window.GemaActivityLog === 'undefined') return;
+    var recId = v && v.id || (details && details.id) || null;
+    var name  = v && (v.kennzeichen || v.modell || v.id) || '';
+    window.GemaActivityLog.log({
+      modul:'fahrzeug',
+      modulRecordId: recId,
+      modulRecordName: name,
+      aktion: aktion,
+      beschreibung: beschreibung || '',
+      details: details || null
+    });
+  }catch(e){}
+}
+function _fzOpenActLog(){
+  if(!_fzCanSeeActLog()) return;
+  if(typeof window.GemaActivityLog !== 'undefined' && window.GemaActivityLog.openModal){
+    window.GemaActivityLog.openModal({ modul:'fahrzeug', titel:'Aktivitäten – Fahrzeug' });
+  }
+}
+window._fzOpenActLog = _fzOpenActLog;
+
+// Quick-Filter 'In Garage': zeigt nur Fahrzeuge mit Status 'service'.
+// Toggle: ein Klick filtert, erneuter Klick zeigt wieder alle.
+function _fzToggleInGarage(){
+  var sel = document.getElementById('filterStatus');
+  if(!sel) return;
+  var btn = document.getElementById('btnFzInGarage');
+  if(sel.value === 'service'){
+    sel.value = '';
+    if(btn) btn.classList.remove('fz-in-garage-active');
+  } else {
+    sel.value = 'service';
+    if(btn) btn.classList.add('fz-in-garage-active');
+  }
+  try{ sel.dispatchEvent(new Event('change',{bubbles:true})); }catch(e){}
+  if(typeof render === 'function') render();
+}
+window._fzToggleInGarage = _fzToggleInGarage;
+
+// Aktualisiert die Anzahl in '🔧 In Garage (N)'. Wird von render()
+// aufgerufen, damit die Zahl live mitlaeuft.
+function _fzUpdateInGarageCount(){
+  var span = document.getElementById('fzInGarageCount');
+  if(!span) return;
+  try{
+    var n = (vehicles || []).filter(function(v){ return v.status === 'service'; }).length;
+    span.textContent = n > 0 ? '(' + n + ')' : '';
+  }catch(e){ span.textContent = ''; }
+}
+window._fzUpdateInGarageCount = _fzUpdateInGarageCount;
+
 // Felder, die ein Garagist bearbeiten darf. Alles andere wird im
 // Edit-Formular auf disabled gesetzt (Stammdaten, Zuteilung,
 // Ausstattung etc. bleiben sichtbar, sind aber gesperrt).
@@ -2109,25 +2240,42 @@ function exportCSV(){
 window.exportCSV = exportCSV;
 
 /* ═══════════════════════════════
-   DEMO DATA
+   DEMO-CLEANUP
    ═══════════════════════════════ */
-function loadDemo(){
-  if(vehicles.length>0) return;
-  vehicles=[
-    {id:genId(),nr:"FZG-001",plate:"ZH 234 567",model:"VW Caddy Cargo",year:"2023",fuel:"Diesel",color:"Weiss",type:"monteur",assignment:"fix",driver:"Marco Bianchi",dept:"Sanitär",status:"aktiv",buildout:"Sortimo",equipment:"Werkzeugschrank L+R, Leiter, Kompressor",km:"32450",serviceKm:"15000",serviceMonths:"12",lastService:"2024-11-15",lastServiceKm:"28000",mfk:"2026-03-20",notes:"",hasAHK:true,hasRoof:true,hasNav:true,hasCam:true,hasLabel:true,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()},
-    {id:genId(),nr:"FZG-002",plate:"ZH 345 678",model:"Mercedes Vito 116 CDI",year:"2022",fuel:"Diesel",color:"Silber",type:"monteur",assignment:"fix",driver:"Stefan Meier",dept:"Heizung",status:"aktiv",buildout:"Bott",equipment:"Regalausbau, Dachträger, 230V Steckdose",km:"58200",serviceKm:"20000",serviceMonths:"12",lastService:"2024-06-10",lastServiceKm:"42000",mfk:"2025-09-15",notes:"Kleine Delle hinten rechts",hasAHK:true,hasRoof:true,hasNav:true,hasCam:false,hasLabel:true,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()},
-    {id:genId(),nr:"FZG-003",plate:"ZH 456 789",model:"Renault Kangoo E-Tech",year:"2024",fuel:"Elektro",color:"Weiss",type:"pool",assignment:"sharing",driver:"",dept:"",status:"aktiv",buildout:"",equipment:"Basis-Ausstattung",km:"8320",serviceKm:"30000",serviceMonths:"24",lastService:"2024-09-01",lastServiceKm:"0",mfk:"2027-09-01",notes:"Elektro-Poolfahrzeug für Kurzstrecken",hasAHK:false,hasRoof:false,hasNav:true,hasCam:true,hasLabel:false,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()},
-    {id:genId(),nr:"FZG-004",plate:"ZH 567 890",model:"Škoda Octavia Combi",year:"2023",fuel:"Benzin",color:"Schwarz",type:"kader",assignment:"fix",driver:"Thomas Brunner",dept:"Geschäftsleitung",status:"aktiv",buildout:"",equipment:"Leder, Standheizung",km:"41500",serviceKm:"15000",serviceMonths:"12",lastService:"2025-01-20",lastServiceKm:"38000",mfk:"2026-06-15",notes:"",hasAHK:false,hasRoof:false,hasNav:true,hasCam:true,hasLabel:false,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()},
-    {id:genId(),nr:"FZG-005",plate:"ZH 678 901",model:"IVECO Daily 35S16",year:"2021",fuel:"Diesel",color:"Weiss",type:"lager",assignment:"sharing",driver:"",dept:"Lager",status:"aktiv",buildout:"Individuell",equipment:"3.5t Pritsche mit Plane, Ladebordwand",km:"72100",serviceKm:"20000",serviceMonths:"12",lastService:"2024-04-05",lastServiceKm:"55000",mfk:"2025-07-30",notes:"TÜV/MFK bald fällig!",hasAHK:true,hasRoof:false,hasNav:false,hasCam:true,hasLabel:true,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()},
-    {id:genId(),nr:"FZG-006",plate:"ZH 789 012",model:"VW Transporter T6.1",year:"2020",fuel:"Diesel",color:"Grau",type:"monteur",assignment:"fix",driver:"Luca Keller",dept:"Lüftung",status:"service",buildout:"Sortimo",equipment:"Regalsystem, Schubladen, Schraubstock",km:"95400",serviceKm:"15000",serviceMonths:"12",lastService:"2024-08-20",lastServiceKm:"82000",mfk:"2025-12-01",notes:"Aktuell in Werkstatt – Getriebeproblem",hasAHK:true,hasRoof:true,hasNav:true,hasCam:false,hasLabel:true,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()}
-  ];
-  persist();
+// Frueher hat dieses Modul beim Erststart 6 Demo-Fahrzeuge erzeugt und
+// in die Cloud gepusht (loadDemo). Das ist jetzt entfernt — neue Tenants
+// starten mit leerer Liste. Bestehende Cloud-Stände werden einmalig
+// bereinigt: Wenn nr+plate+model exakt einer der ausgelieferten Demo-
+// Signaturen entsprechen, wird der Record geloescht. Angepasste
+// Datensaetze (nur ein Feld geaendert) bleiben unberuehrt.
+var _FZ_DEMO_SIGS = [
+  { nr:'FZG-001', plate:'ZH 234 567', model:'VW Caddy Cargo' },
+  { nr:'FZG-002', plate:'ZH 345 678', model:'Mercedes Vito 116 CDI' },
+  { nr:'FZG-003', plate:'ZH 456 789', model:'Renault Kangoo E-Tech' },
+  { nr:'FZG-004', plate:'ZH 567 890', model:'Škoda Octavia Combi' },
+  { nr:'FZG-005', plate:'ZH 678 901', model:'IVECO Daily 35S16' },
+  { nr:'FZG-006', plate:'ZH 789 012', model:'VW Transporter T6.1' }
+];
+function _fzIsDemoRecord(v){
+  if(!v) return false;
+  return _FZ_DEMO_SIGS.some(function(s){
+    return v.nr===s.nr && v.plate===s.plate && v.model===s.model;
+  });
+}
+function _fzCleanupDemoData(){
+  if(!Array.isArray(vehicles) || !vehicles.length) return;
+  var before = vehicles.length;
+  var removed = vehicles.filter(_fzIsDemoRecord);
+  if(!removed.length) return;
+  vehicles = vehicles.filter(function(v){ return !_fzIsDemoRecord(v); });
+  try{ persist(); }catch(e){ console.warn('[fz] demo cleanup persist', e); }
+  console.info('[fz] Demo-Daten entfernt:', before-vehicles.length+'/'+before);
 }
 
 /* ═══════════════════════════════
    INIT
    ═══════════════════════════════ */
-loadDemo();
+_fzCleanupDemoData();
 
 // View toggle
 document.querySelectorAll("#viewToggle .seg").forEach(el=>el.addEventListener("click",()=>{
@@ -2943,6 +3091,7 @@ function _fzSaveServiceEntry(){
     if(!v.km||kmNum>parseInt(v.km,10)){v.km=km;v.kmUpdatedAt=new Date().toISOString();}
   }
   persist();
+  _fzActLog('service','Service erledigt'+(art?' · '+art:'')+(km?' · '+km+' km':'')+(werkstatt?' · '+werkstatt:''), v);
   // Notif an Magaziner der eigenen Org, wenn ein Garagist erfasst hat.
   // Magaziner derselben Org soll informiert sein, wenn ihre Werkstatt
   // einen Service abgeschlossen hat. Eigeneintrag durch Magaziner selbst
@@ -3111,6 +3260,9 @@ if(!_fzCanCreate()){
   var addBtns=document.querySelectorAll('.hero-btn.accent,#btnAddVehicle');
   addBtns.forEach(function(b){b.style.display='none';});
 }
+// Aktivitaeten-Log nur fuer Magaziner/Admin
+var btnFzActLog=document.getElementById('btnFzActLog');
+if(btnFzActLog && _fzCanSeeActLog()) btnFzActLog.style.display='';
 // Garagist-Hinweis im Hero/Toolbar, damit klar ist, in welchem Modus er
 // arbeitet. Wird nur eingeblendet, wenn die Rolle role_garagist ist.
 if(_fzIsGaragist()){

@@ -489,6 +489,57 @@ Bei Batch-Migrationen können verwaiste `</div>`-Tags entstehen (z.B. wenn `g-ph
 
 Diese Nav-Links wurden entfernt. Nicht wieder einfügen.
 
+### Hero-Layout in Modulen: `<div class="hero-title">` statt `<h1>`/`<p>`
+
+`gema_responsive.css` setzt im `@media(max-width:640px)` Block grosszuegige Hero-Padding-Werte (`28-40px`) und grosse Schriftgroessen (`.hero h1 { font-size: clamp(22px, 7vw, 30px) }`) — gedacht fuer den prominenten Hero auf `index.html`. Modul-Seiten brauchen einen **kompakten** Hero (14px padding, 17px Titel).
+
+**Wenn ein Modul `<h1>` und `<p>` im Hero verwendet**, schlagen die `gema_responsive.css`-Regeln durch — der Modul-Hero wird ungewollt gross. Auch `!important` im inline-style hilft nur teilweise, weil Browser-default `margin-block: 0.67em` auf `<h1>` und `1em` auf `<p>` zusaetzlich die Box aufpolstern.
+
+**Korrektes Modul-Hero-Markup** (Pattern aus `if_werkzeug.html`):
+
+```html
+<div class="hero">
+  <div class="hero-in">
+    <div class="hero-left">
+      <div class="hero-ic">🔧</div>
+      <div>
+        <div class="hero-title">Modul-Titel</div>
+        <div class="hero-sub">Untertitel · Beschreibung</div>
+      </div>
+    </div>
+    <div class="hero-pills"><!-- optional --></div>
+  </div>
+</div>
+```
+
+Klassen: `.hero-in` (Wrapper), `.hero-left` (Icon + Text), `.hero-ic` (Icon), `.hero-title` (Titel), `.hero-sub` (Untertitel). Damit greifen die `<h1>`/`<p>`-Regeln aus `gema_responsive.css` nicht.
+
+**`gema_responsive.css` schraenkt sich seit v47 selbst ein** auf `.hero:has(> .hero-inner)` (= nur Homepage). Bei aelteren Browsern ohne `:has()`-Support wird die Regel komplett ignoriert — ebenfalls Modul-sicher.
+
+### `<link rel="stylesheet">` laedt NACH `<style>` — Cascade beachten
+
+In den GEMA-HTML-Dateien wird `gema_responsive.css` typischerweise direkt nach dem inline `<style>`-Block eingebunden:
+
+```html
+<style>
+  /* module-spezifische Regeln */
+  @media (max-width: 640px) {
+    .hero { padding: 14px 16px; }
+  }
+</style>
+<link rel="stylesheet" href="gema_responsive.css"/>
+```
+
+Bei **gleicher Spezifitaet** gewinnt im Cascade die **spaeter geladene** Regel — d.h. `gema_responsive.css` ueberschreibt inline-styles. Wer also lokal Hero/Nav-Werte setzen will, muss entweder `!important` verwenden ODER (besser) eine spezifischere Selektor-Kombination wahlen ODER (am besten) das HTML-Markup so anpassen, dass die globalen Regeln gar nicht erst greifen (siehe Hero-Markup oben).
+
+### Doppelte CSS-Regelbloecke aus alten Media-Queries
+
+Wenn ein Media-Query entfernt wurde, blieben in einigen Modulen die innerhalb der `@media`-Klammer eingerueckten Regeln stehen — also als globale Regeln. Diese kollidieren dann mit den gleichen Regeln weiter oben im Stylesheet (gleiche Spezifitaet, spaetere gewinnt, Werte oft abweichend).
+
+**Beispiel-Symptom**: Header-Hoehe wird auf 72px gesetzt (Z. 38), funktioniert aber nicht — weil weiter unten (Z. 414) noch ein zweiter Block `.g-nav-inner{height:52px}` aus einem ehemaligen Media-Query steht.
+
+**Pruefung**: `grep -n 'g-nav-inner\|hero-mark\|kritische-klasse' if_modul.html` — wenn die Klasse mehrfach auftaucht, beide Stellen auf konsistente Werte pruefen.
+
 ---
 
 ## W12-Modul (hy_w12.html)
@@ -793,6 +844,41 @@ Phase 2 der Schadensdokumentation — separates Gerätemanagement für Trocknung
 
 Messgeräte (Feuchtemessgerät, CM-Gerät, Datenlogger, Wärmebildkamera, etc.) sind Diagnose-Hilfsmittel und tragen das Flag `noKw:true` in `GERAETE_TYPEN`. Im Erfassungs-Modal wird das Leistungs-Feld (kW) ausgeblendet, beim Einsetzen entfällt der Zählerstand-Start, beim Zurücknehmen die kWh-Berechnung. Der Einsatz-Workflow (Schadensprojekt + Raum) funktioniert ansonsten identisch.
 
+### Zähler-Typ (`zaehlerTyp`)
+
+Jedes Gerät hat einen Zähler-Typ — drei Werte:
+
+| Wert | Bedeutung | kWh-Berechnung |
+|------|-----------|----------------|
+| `kein` | Kein Verbrauchszähler | — |
+| `stunden` | Klassischer Stunden-Zähler | `(Ende − Start) × kW` |
+| `kwh` | Direkter kWh-Verbrauchszähler | `Ende − Start` |
+
+Default-Logik (Helper `_tgDefaultZaehlerTyp(typ)` in `if_trocknung.html`, `_sdDefaultZaehlerTyp(dev)` in `sd_schadensbericht.html`): `typ === 'messgeraet'` → `'kein'`, sonst `'stunden'`. **Lazy-Migration** — alte Geräte ohne Feld werden beim Lesen wie `'stunden'` behandelt; beim ersten Edit-Save persistiert das Feld.
+
+### Aktueller Zählerstand (`aktuellerZaehlerstand`)
+
+Jedes Gerät führt seinen letzten bekannten Zählerstand mit. Helper:
+`_tgGetAktuellerStand(d)` (if_trocknung), `_sdGetAktuellerStand(dev)` (sd_schadensbericht) — beide mit Fallback auf den letzten Wert aus `einsatzHistorie[].zaehlerEnde`, damit alte Datensätze ohne Feld trotzdem einen sinnvollen Default liefern.
+
+Aktualisierungs-Pfade:
+- `if_trocknung.html` → `saveDevice`: Pflege des Initialstands beim Erfassen (neues Feld im Modal, optional).
+- `if_trocknung.html` → `saveEinsatz`: setzt den Stand auf `e_zaehlerStart` (falls User beim Einsetzen korrigiert).
+- `if_trocknung.html` → `saveReturn`: setzt den Stand auf `r_zaehlerEnde` nach Einsatz-Abschluss.
+- `sd_schadensbericht.html` → `sdUpdateDevEnd`: schreibt den eingegebenen Endstand zurück via `_sdUpdateTgAktuellerStand` (Cross-Modul). Nur wenn `g.tgDeviceId` gesetzt und der neue Stand ≥ alter Stand (Schutz vor versehentlichem Rückwärts-Drehen).
+
+Verwendungen:
+- `if_trocknung.html` → `openEinsatz`: `e_zaehlerStart` wird mit aktuellem Stand vorbefüllt.
+- `sd_schadensbericht.html` → Picker-Click + NFC-Scan: `devStart` wird mit aktuellem Stand vorbefüllt. Monteur prüft, korrigiert ggf., bestätigt.
+
+`sd_schadensbericht.html` exponiert zentrale Helper `sdComputeKwh(g)` und `sdComputeHours(g)`, die den Zähler-Typ respektieren — alle Live-Tabellen, PDF/Word-Exports und Cross-Modul-Historie (`_sdReleaseTgDevice` schreibt `hist.zaehlerTyp` und entweder `kwhTotal` direkt oder `betriebsstunden`+`kwhTotal`) gehen über diese Helper.
+
+### NFC-Scan beim Hinzufügen im Schadensbericht
+
+`sd_schadensbericht.html` devAddModal hat einen „📡 NFC-Tag scannen"-Button. Der Helper `gema_nfc_scanner.js` (`GemaNFC.scan({mode:'auto'})`) nutzt Web-NFC bei Android Chrome, sonst Fallback auf `GemaQR.scan()` (Kamera + html5-qrcode). Bei iPhone Safari (kein In-Browser-NFC) blendet der Helper einen Hinweis ein, dass der Tag auch direkt ans Handy gehalten werden kann (Hintergrund-Scan öffnet die geschriebene URL `if_trocknung.html?id=tg_xxx`).
+
+Nach erfolgreichem Scan: ID aus URL/Payload extrahieren, im verfügbaren Geräte-Pool suchen, Felder vorbefüllen, Picker-Karte visuell hervorheben, Vibration, Cursor springt automatisch ins Zählerstand-Feld. Bei `zaehlerTyp='kein'` (z.B. Messgeräte) entfällt die Zählerstand-Eingabe.
+
 ### Status
 
 | Status | Key | Farbe |
@@ -809,6 +895,8 @@ Storage-Key: `gema_trocknung_v1`
 ```
 {
   id, name, typ, marke, modell, serienNr, kw, notes, orgId,
+  zaehlerTyp: 'kein'|'stunden'|'kwh',
+  aktuellerZaehlerstand: number|null,  // letzter bekannter Zaehlerstand (Stunden oder kWh)
   status: 'verfuegbar'|'im_einsatz'|'in_wartung'|'defekt',
   hasService, serviceInterval, lastService,
   
@@ -816,7 +904,7 @@ Storage-Key: `gema_trocknung_v1`
     schadenId, schadenTitel, objektId, objektName,
     raum,              // Raum/Zone (z.B. "Bad EG")
     eingesetztAm, eingesetztVon:{userId,name},
-    zaehlerStart       // Stunden
+    zaehlerStart       // Stunden ODER kWh, je nach zaehlerTyp
   },
   
   einsatzHistorie: [{
@@ -877,6 +965,64 @@ _tgHasOpenDefekt(d)  // true, wenn d.berichte einen offenen Defekt enthält
 - **Berichte-Modal** (`openBerichte(id)`): Liste aller Defekte chronologisch (neueste zuerst), Schweregrad-Pill, Erledigt-Status. Magaziner/Admin sehen „✓ Als erledigt markieren"-Button (`_tgDefektErledigt`).
 - **Notifikation**: `GemaNotify.push({ eventKey:'trockner_defekt', empfaengerRoleId:'role_magaziner', empfaengerOrgId:user.orgId, … })` an alle Magaziner der eigenen Org.
 - **Event-Key**: `trockner_defekt` in `gema_notify.js` registriert (defaultOn:true).
+
+---
+
+## Aktivitätenlog (gema_aktivitaetslog.js)
+
+Modul-übergreifender Aktivitätenlog für die Infrastruktur-Module **Werkzeug**, **Fahrzeug** und **Trocknungsgeräte**. Eingebunden in `if_werkzeug.html`, `if_fahrzeug.html` und `if_trocknung.html`.
+
+### Sichtbarkeit
+
+Toolbar-Button **„📋 Aktivitäten"** — nur sichtbar für `role_admin` und `role_magaziner`. Andere Rollen sehen den Button nicht (Planer/Monteur/Garagist haben keinen Zugriff auf den Log).
+
+### Storage (Cloud-First via gema_sync.js)
+
+- **storageKey**: `gema_aktivitaetslog_v1` (lokaler sync-Cache, soft-cap 2000 Einträge)
+- **moduleKey**: `aktivitaetslog`
+- **Prefix**: `log:` → eine Cloud-Row pro Eintrag (`log:log_<ts>_<rand>`)
+- **Bootstrap**: jedes Modul ruft `GemaActivityLog.bootstrap()` im DOMContentLoaded → lädt Records aus Cloud in den localStorage-Cache
+
+### Eintrag-Schema
+
+```
+{
+  id, ts,                        // 'log_<ts>_<rand>', ISO-Timestamp
+  orgId,                         // Org-Filter
+  modul,                         // 'werkzeug'|'fahrzeug'|'trocknung'
+  modulRecordId, modulRecordName,// Verknüpfung zum Datensatz
+  aktion,                        // siehe AKTION_LABEL-Tabelle unten
+  beschreibung,                  // Freitext (kurz)
+  userId, userName,              // wer hat die Aktion ausgelöst
+  details                        // optional, Aktion-spezifisch
+}
+```
+
+### Aktion-Typen (`aktion`)
+
+`erfasst`, `geaendert`, `geloescht`, `zuweisung`, `ausleihe`, `rueckgabe`, `einsatz`, `einsatz_ende`, `pruefung`, `service`, `pruefanfrage`, `defekt`, `defekt_erledigt`, `ersatzanfrage`. Jede mit farbiger Pill im Modal.
+
+### Public API
+
+```javascript
+GemaActivityLog.bootstrap()                        // Promise — beim Seitenstart
+GemaActivityLog.log({modul, modulRecordId,
+  modulRecordName, aktion, beschreibung, details}) // fire-and-forget
+GemaActivityLog.getAll(orgId?)                     // Array, neueste zuerst
+GemaActivityLog.getForModul(modul, orgId?)         // gefiltert pro Modul
+GemaActivityLog.openModal({modul, titel?})         // einheitliches Modal
+```
+
+### Modul-Integration
+
+Jedes der drei Module hat:
+- Lokalen Wrapper `_wzActLog` / `_fzActLog` / `_tgActLog` — fire-and-forget mit Modul-Stempel
+- Toolbar-Button `btnWzActLog` / `btnFzActLog` / `btnTgActLog` — Sichtbarkeit gated auf Magaziner/Admin
+- Logging-Aufrufe an Save/Delete, Zuweisung, Ausleihe/Rückgabe, Einsatz/Einsatz-Ende, Defekt/Defekt-erledigt, Prüfungen, Anfragen
+
+### UI (`openModal`)
+
+Tabellen-Modal mit fünf Spalten (Datum, Aktion-Pill, Datensatz, Beschreibung, User), Suchfeld (Datensatz/User/Beschreibung), Aktion-Filter-Dropdown und CSV-Export-Button. Auto-Refresh via `gema-activitylog-changed`-Event.
 
 ---
 
@@ -1062,50 +1208,94 @@ Im Repo liegen die React-Designdateien als Referenz (nicht für Produktion):
 
 ---
 
-## Cloud-Recovery & Backup (gema_auth.js)
+## Cloud-First Storage-Architektur (gema_sync.js)
 
-Auth-Daten (Orgs + Users) liegen in localStorage **und** in Supabase (`module_key='auth'`, `data_key='gema_orgs_v1'` / `'gema_users_v1'`). `saveOrgs` / `saveUsers` schreiben sofort lokal und pushen async nach Supabase.
+**Single source of truth ist Supabase.** Pro Datensatz eine eigene Row in `gema_data` mit `data_key='<entity>:<id>'` (z.B. `'user:user_admin'`, `'org:org_default'`, `'tool:wz_42'`). Saves laufen über Diff: nur geänderte Records werden gepusht, nie das ganze Array. localStorage bleibt als sekundärer sync-Cache, wird aber nach jedem Cloud-Bootstrap mit dem Cloud-Stand **überschrieben** (Cloud gewinnt).
 
-### Kritischer Bug & Fix (Cache-Clear)
+### Hintergrund — Bug-Pattern, das damit weg ist
 
-**Bug**: Bis zur Behebung machte `_initDefaults()` bei leerem localStorage:
-```js
-localStorage.setItem(STORAGE_ORGS, DEFAULT_ORGS);
-_syncToSupabase(STORAGE_ORGS, DEFAULT_ORGS);   // ← Cloud wird mit Bootstrap-Defaults überschrieben!
-```
-Mit `Prefer: resolution=merge-duplicates` bedeutete jeder Cache-Clear: echte Firmen/User in Supabase weg, durch GEMA-Bootstrap ersetzt. Cross-Device-Login zeigte danach „keine Daten".
+**Vorher** (`saveOrgs` / `saveUsers`): Das gesamte Array wurde als JSON-Blob in eine einzige Supabase-Row mit `merge-duplicates` geschrieben. Folge:
+1. **Org-Admin verschwindet am Tag danach**: Gerät A macht User X zum Admin → Cloud aktualisiert. Gerät B mit altem Cache (User X = nicht-Admin) macht eine Mini-Änderung → schreibt das ganze Array zurück → Admin-Status weg.
+2. **Alle User plötzlich in Admin-Org**: Bei leerem localStorage schrieb `_initDefaults` `DEFAULT_USERS` (1 User: `admin@gema.ch` mit `orgId='org_default'`) lokal. Wenn vor dem async Cloud-Fetch ein Save lief, ging die Default-Liste in die Cloud → alle echten User weg.
 
-**Fix**: `_syncToSupabase`-Calls aus `_initDefaults` entfernt. Bootstrap wird nur lokal geschrieben, `_fetchAuthFromSupabase` merged danach echte Cloud-Daten ein. Cloud bleibt unangetastet.
+**Jetzt**: per-Record. Gerät A speichert nur `user:userX` mit dem Admin-Flag. Andere User-Records in der Cloud sind unangetastet. Gerät B mit altem Cache hat User X immer noch nicht-Admin lokal — aber beim nächsten Bootstrap überschreibt der Cloud-Load den lokalen Cache (Cloud gewinnt). User-X-Admin bleibt.
 
-### Versionierte Backups (gegen versehentliches Überschreiben)
-
-Bei jedem `saveOrgs` / `saveUsers` wird zusätzlich ein Backup-Snapshot mit Datums-/Stunden-Schlüssel nach Supabase gepusht (`module_key='auth_bak'`, `data_key='<base>__bak_<YYYYMMDD_HH>'`). Lock pro Stunde via localStorage `gema_auth_bak_lock_*` gegen Spam. Damit ist bei zukünftigen Vorfällen 24+ Stunden Versionshistorie verfügbar.
-
-### Auto-Reload + manuelles Recovery
-
-- **Auto-Reload**: `_initDefaults` merkt sich, ob lokal nur Bootstrap-Daten sind. Wenn `_fetchAuthFromSupabase` mehr findet, triggert `_maybeAutoReload()` einmaligen `location.reload()` (`sessionStorage.gema_auth_auto_reloaded` gegen Loop).
-- **Manuelles Recovery** in `sys_admin.html`: ☁️-Karte „Daten aus Cloud wiederherstellen" wenn `GemaAuth._isOnlyDefaults()` true. Klick → `GemaAuth.restoreFromCloud()`.
-
-### Bootstrap (kein Demo-Daten)
-
-`DEFAULT_ORGS` enthält **nur** `org_default` (GEMA-Org), `DEFAULT_USERS` enthält **nur** `admin@gema.ch` (Passwort: `gema2025`). Keine Demo-Firmen, keine Demo-User mehr. Damit der Admin-Login auch nach Cache-Clear ohne Cloud funktioniert.
-
-### API
+### gema_sync.js — Public API
 
 ```javascript
-GemaAuth.restoreFromCloud({ overwrite })
-  // overwrite=false (Default): merge-only — fügt fehlende IDs hinzu
-  // overwrite=true: ersetzt lokale Liste komplett mit Cloud-Daten
-  // → Promise<{ok, addedOrgs, addedUsers, totalOrgs, totalUsers, error?}>
+GemaSync.isOnline()       // true wenn navigator.onLine UND letzte Cloud-Antwort ok
+GemaSync.isReachable()    // letzte Cloud-Erreichbarkeit (ohne navigator.onLine-Check)
+GemaSync.probe()          // aktiv probieren — Promise<bool>
+GemaSync.onConnectivityChange(cb)
 
-GemaAuth.listBackups('orgs' | 'users')
-  // → Promise<Array<{key, ts, count, data}>> — neueste zuerst (max 48h)
+// Per-Record-Primitive
+GemaSync.loadCollection(moduleKey, prefix)      // Promise<Array<{key,data,lm}>>
+GemaSync.loadRecord(moduleKey, dataKey)         // Promise<{key,data,lm} | null>
+GemaSync.saveRecord(moduleKey, dataKey, data)   // Promise<{ok,lm}>
+GemaSync.saveRecords(moduleKey, [{key,data},..])// Batch-Upsert in einer POST
+GemaSync.deleteRecord(moduleKey, dataKey)       // Hard-Delete
+GemaSync.diffArrays(oldArr, newArr, idField)    // {toUpsert, toDelete}
+GemaSync.saveDiff(moduleKey, prefix, oldArr, newArr, idField)  // High-Level
 
-GemaAuth.restoreFromBackup('orgs' | 'users', dataKey, { overwrite })
-  // → Promise<{ok, addedCount, total, error?}>
-
-GemaAuth._isOnlyDefaults()  // true wenn lokal nur Bootstrap-Org/User
+// Wiederverwendbarer Modul-Helper
+GemaSync.bindCollection(moduleKey, storageKey, prefix, idField)
+   // Beim Bootstrap: Cloud-Records laden, in localStorage[storageKey] cachen.
+   // Migriert alte Blob-Row automatisch (User-Wahl: ohne Backup).
+GemaSync.persistCollection(moduleKey, storageKey, prefix, idField, newArr)
+   // Bei jedem Save: Diff zum localStorage-Cache → nur geänderte Records pushen.
+   // Wenn offline: Reject, kein Save.
 ```
+
+Beim Verbindungsverlust erscheint ein orange Banner oben (`#gema-sync-offline-banner`). Sobald Cloud wieder erreichbar, verschwindet es.
+
+### Bootstrap — Cloud-First mit Migration
+
+Jedes Modul ruft im `DOMContentLoaded`:
+```js
+await GemaSync.bindCollection(moduleKey, storageKey, prefix, 'id');
+load();  // liest aus localStorage-Cache
+```
+
+`bindCollection` macht:
+1. Lädt alle Records mit Prefix aus Cloud
+2. Falls 0 Records: prüft ob die alte Blob-Row noch da ist und splittet sie auf — User-Wahl „Auto-Migration ohne Backup": alte Row wird nach Aufsplittung gelöscht
+3. Schreibt das resultierende Array in `localStorage[storageKey]` als sync-Cache
+
+### Save — per-Record-Diff
+
+Jedes Modul ersetzt die alte `_xxWriteAllRaw(arr)` durch:
+```js
+GemaSync.persistCollection(moduleKey, storageKey, prefix, 'id', arr)
+  .catch(e => GemaDialog.alert({title:'Offline', message:'Aenderungen koennen nicht gespeichert werden.'}));
+```
+
+`persistCollection` vergleicht `arr` mit dem aktuellen `localStorage[storageKey]`-Cache → bestimmt geänderte/entfernte Records → pusht nur diese. Bei Erfolg wird der Cache aktualisiert. Wenn offline: Reject, kein Save.
+
+### Migrierte Module (per-Record in Cloud)
+
+| Modul | moduleKey | data_key-Prefix | localStorage-Cache |
+|-------|-----------|-----------------|--------------------|
+| Auth-Orgs | `auth` | `org:`  | `gema_orgs_v1`  |
+| Auth-Users | `auth` | `user:` | `gema_users_v1` |
+| Auth-Roles | `auth` | `role:` | `gema_roles_v1` |
+| Werkzeug | `werkzeugmanagement` | `tool:` | `gema_werkzeug` |
+| Fahrzeug | `fahrzeugmanagement` | `vehicle:` | `gema_vehicles` |
+| Trocknungsgeräte | `trocknungsgeraete` | `device:` | `gema_trocknung_v1` |
+| Schadensbericht | `schadensbericht` | `schaden:` | `gema_schadensbericht_v1` |
+
+Module noch nicht migriert (kein akuter Bug, weil keine Multi-Tenant-Pools — Daten pro User oder pro Objekt): pm_objekte, sys_workspace, pm_terminplan, pm_besprechung, hy_w12, ab_*, sb_*, sa_* — können in Folge-Sessions schrittweise auf den gleichen Pattern umgestellt werden.
+
+### Login (kein Offline-Fallback)
+
+`GemaAuth.loginAsync(...)` lädt zuerst die User-Collection aus der Cloud. Wenn Cloud unerreichbar → null (kein Login). User-Wahl: GEMA ist online-pflichtig.
+
+### Bootstrap-Defaults (kein Demo-Daten)
+
+`DEFAULT_ORGS` enthält **nur** `org_default` (GEMA-Org), `DEFAULT_USERS` enthält **nur** `admin@gema.ch` (Passwort: `gema2025`). DEFAULTS werden nur lokal beim allerersten Aufruf befüllt — nie nach Cloud gepusht. Sobald die Cloud antwortet, gewinnt sie und überschreibt den lokalen Cache.
+
+### Backup-Snapshots (entfallen)
+
+Die alten stündlichen `auth_bak`-Backups waren ein Notnagel für den jetzt behobenen Last-Write-Wins-Bug. `GemaAuth.listBackups()` und `GemaAuth.restoreFromBackup()` geben jetzt leere Stubs zurück. `GemaAuth.restoreFromCloud()` löst manuell ein Bootstrap aus.
 
 ---
 
@@ -1138,13 +1328,15 @@ UI-Anbindung:
 | Datei | Zweck |
 |-------|-------|
 | `gema_adresse.js` | Adress-Autocomplete (swisstopo geo.admin.ch). Auto-Init via `data-gema-adresse` + `data-target-strasse/plz/ort/kanton`-Attribute, oder programmatisch via `GemaAdresse.attach(input, opts)` |
+| `gema_aktivitaetslog.js` | **Aktivitätenlog** für Infrastruktur-Module. `GemaActivityLog.log({modul,modulRecordId,modulRecordName,aktion,beschreibung,details})` pusht einen Eintrag; `getForModul(modul, orgId?)` liefert die gefilterte Historie. Cloud-First via `gema_sync.js` (Collection `gema_aktivitaetslog_v1`, moduleKey `aktivitaetslog`, prefix `log:`). `openModal({modul,titel})` zeigt das einheitliche Tabellen-Modal mit Suche, Aktion-Filter und CSV-Export. |
 | `gema_anlagenwahl.js` | Anlagenauswahl-Widget für Berechnungen |
 | `gema_avatar.js` | Profilbild-Upload + Renderer. `GemaAvatar.render(user, size, opts)` liefert HTML mit `<img>` oder Initialen-Fallback. `compress(file)` resized auf 256×256 JPEG. Avatar als Base64 unter `user.avatar` |
 | `gema_armaturen_api.js` | Armaturen-Stammdaten |
 | `gema_auth.js` | Auth, Rollen, Orgs, Permissions, Cloud-Recovery |
 | `gema_autosave.js` | Auto-Save in Berechnungsmodulen |
 | `gema_coachmarks.js` | Onboarding-Touren |
-| `gema_db.js` | Storage-Layer (`_GemaDB`) |
+| `gema_db.js` | Legacy Storage-Layer (`_GemaDB`). Cloud-First, aber Blob-pro-Modulkey. Neue Module nutzen stattdessen `gema_sync.js`. |
+| `gema_sync.js` | **Cloud-First Per-Record-Sync.** Single source of truth Supabase, eine Row pro Datensatz, Diff-Saves, Offline-Banner. `bindCollection`/`persistCollection` als Modul-Helper. Siehe „Cloud-First Storage-Architektur". |
 | `gema_dialog.js` | Eigene Alert/Confirm/Prompt-Dialoge im GEMA-Style. `window.alert` global ueberschrieben. `GemaDialog.confirm({title,message,danger}).then(ok=>…)` und `GemaDialog.prompt(...)` als Promise-API. `window.confirm` bleibt nativ (sync), neue Stellen sollen GemaDialog nutzen |
 | `gema_feedback.js` | Feedback-Overlay mit Annotation |
 | `gema_lu_api.js` | LU-Zusammenstellung Cross-Modul-API |
@@ -1158,7 +1350,8 @@ UI-Anbindung:
 | `gema_produktkatalog_api.js` | Produkte + Stammlieferanten + Favoriten |
 | `gema_push.js` | Web-Push-Vorbereitung (Service-Worker) |
 | `gema_pwa.js` | PWA-Install-Helper (`beforeinstallprompt`-Capture, `GemaPWA.install()`) |
-| `gema_qr_scanner.js` | QR-Code-Scanner |
+| `gema_qr_scanner.js` | QR-Code-Scanner (`GemaQR.scan(cb)`) |
+| `gema_nfc_scanner.js` | Web-NFC-Reader mit automatischem QR-Fallback. `GemaNFC.scan({mode:'auto',onScan})` nutzt `NDEFReader` wenn verfügbar, sonst `GemaQR`. `GemaNFC.parseTgUrl(payload)` extrahiert Geräte-ID aus URL oder Direkt-String. iPhone-Hinweis automatisch eingeblendet (kein Browser-NFC, aber Hintergrund-Scan öffnet URL). |
 | `gema_recent.js` | Tracking + Anzeige zuletzt genutzter Module |
 | `gema_responsive.css` | Globale Responsive-/Layout-Regeln (Mobile + Tablet) |
 | `gema_scroll.js` | Scroll-Position-Restore + globaler Body-Scroll-Lock fuer Modals (`GemaScroll.lock/unlock`, Auto-Hook auf `.modal-bg`) |
