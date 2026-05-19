@@ -1,0 +1,753 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GEMA · Schadensbericht – Layout-Vorlage</title>
+<style>
+/* =========================================================================
+   GEMA · Schadensbericht – Druckvorlage
+   Layout-Referenz für Claude Code. Inhalt = Beispieldaten (Fall "Bad 2.OG").
+   Render-Ziel: A4, Puppeteer ODER window.print(). Siehe HANDOFF_ClaudeCode.md
+   ========================================================================= */
+
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&display=swap');
+
+:root{
+  --ink:        #1f2933;   /* Haupttext / Überschriften            */
+  --ink-soft:   #525d66;   /* Fliesstext sekundär                  */
+  --muted:      #8a949c;   /* Labels, Captions, Hilfstext          */
+  --accent:     #1e3a5f;   /* GEMA-Navy – EINZIGE Akzentfarbe      */
+  --accent-deep:#142a45;
+  --forest:     #0c4a2e;   /* GEMA-Grün – nur als feiner Marken-Nod*/
+  --line:       #e4e8ec;   /* Hairlines                            */
+  --line-soft:  #eef1f3;
+  --tint:       #f5f7f8;   /* Flächen-Tint hell                    */
+  --tint-blue:  #eef2f6;   /* Flächen-Tint Akzent                  */
+  --ok:         #15803d;   /* Status "abgeschlossen"               */
+  --paper:      #ffffff;
+}
+
+*{ box-sizing:border-box; margin:0; padding:0; }
+
+html,body{
+  font-family:'DM Sans', sans-serif;
+  color:var(--ink);
+  font-size:10.5pt;
+  line-height:1.55;
+  -webkit-print-color-adjust:exact;
+  print-color-adjust:exact;
+}
+
+/* ---- Bildschirm-Vorschau: Dokument auf grauem Hintergrund -------------- */
+@media screen{
+  body{ background:#dfe3e6; padding:32px 16px; }
+  .content{
+    width:210mm; margin:0 auto; background:var(--paper);
+    box-shadow:0 8px 40px rgba(20,30,45,.18);
+  }
+  .doc-header,.doc-footer{ display:none; }      /* nur im Druck sichtbar  */
+}
+
+/* ---- Druck / PDF ------------------------------------------------------- */
+@media print{
+  @page{ size:A4; margin:0; }
+  body{ background:#fff; }
+  .content{ width:auto; }
+  .report-section{ page-break-before:always; }
+  .cover{ page-break-after:always; }
+}
+
+.content{ position:relative; }
+
+/* ===================== Laufende Kopf-/Fusszeile ========================= */
+/* position:fixed wiederholt sich im Druck auf JEDER Seite (Chrome).        */
+.doc-header,.doc-footer{
+  position:fixed; left:0; right:0;
+  font-size:7.5pt; letter-spacing:.04em; color:var(--muted);
+  padding:0 15mm;
+}
+.doc-header{
+  top:0; height:16mm; display:flex; align-items:flex-end;
+  justify-content:space-between; padding-bottom:5mm;
+  border-bottom:.5pt solid var(--line);
+}
+.doc-header .dh-mark{ color:var(--accent); font-weight:700; letter-spacing:.14em; }
+.doc-footer{
+  bottom:0; height:14mm; display:flex; align-items:flex-start;
+  justify-content:space-between; padding-top:4mm;
+  border-top:.5pt solid var(--line);
+}
+
+/* Inhaltsbereich: Padding hält Text frei von fixierten Kopf-/Fusszeilen.   */
+.page-body{ padding:22mm 15mm 18mm; }
+
+/* ============================ DECKBLATT ================================= */
+.cover{ padding:0 15mm; min-height:297mm; display:flex; flex-direction:column; }
+.cover-bar{
+  height:5pt; margin:0 -15mm;
+  background:linear-gradient(90deg,var(--accent) 0%,var(--accent) 62%,var(--forest) 100%);
+}
+.cover-top{
+  display:flex; justify-content:space-between; align-items:center;
+  padding:14mm 0 0;
+}
+.brand{ display:flex; align-items:center; gap:9px; }
+.brand-mark{
+  width:26px; height:26px; border-radius:5px; background:var(--accent);
+  display:flex; align-items:center; justify-content:center;
+}
+.brand-mark span{ color:#fff; font-weight:700; font-size:13px; }
+.brand-word{ font-weight:700; font-size:17px; letter-spacing:.16em; color:var(--ink); }
+.cover-doctype{
+  font-size:8pt; letter-spacing:.22em; text-transform:uppercase;
+  color:var(--muted); font-weight:600;
+}
+
+.cover-hero{ margin-top:34mm; }
+.cover-eyebrow{
+  display:inline-block; font-size:8.5pt; letter-spacing:.2em;
+  text-transform:uppercase; color:var(--accent); font-weight:700;
+  padding-bottom:4px; border-bottom:2pt solid var(--accent); margin-bottom:14px;
+}
+.cover-title{
+  font-size:33pt; line-height:1.12; font-weight:700;
+  color:var(--ink); letter-spacing:-.01em; max-width:150mm;
+}
+.cover-sub{ margin-top:10px; font-size:11pt; color:var(--ink-soft); }
+
+.status{
+  display:inline-flex; align-items:center; gap:6px; margin-top:18px;
+  font-size:8pt; font-weight:600; letter-spacing:.08em; text-transform:uppercase;
+  padding:5px 11px; border-radius:4px;
+  background:var(--tint); color:var(--ok); border:.75pt solid #cfe6d6;
+}
+.status .dot{ width:6px; height:6px; border-radius:50%; background:var(--ok); }
+
+/* Meta-Raster */
+.cover-meta{
+  margin-top:auto; padding-top:14mm;
+  display:grid; grid-template-columns:1fr 1fr 1fr; gap:9mm 12mm;
+  border-top:.75pt solid var(--line);
+}
+.meta-k{
+  font-size:7.5pt; letter-spacing:.13em; text-transform:uppercase;
+  color:var(--muted); font-weight:600; margin-bottom:2px;
+}
+.meta-v{ font-size:10.5pt; color:var(--ink); font-weight:500; }
+.meta-v.dim{ color:var(--muted); font-weight:400; }
+
+/* Auf einen Blick – Kennzahlen */
+.kpi-strip{
+  margin-top:9mm; display:grid; grid-template-columns:repeat(4,1fr);
+  border:.75pt solid var(--line); border-radius:7px; overflow:hidden;
+}
+.kpi{ padding:11px 14px; border-right:.75pt solid var(--line); }
+.kpi:last-child{ border-right:none; }
+.kpi-v{ font-size:18pt; font-weight:700; color:var(--accent); line-height:1; }
+.kpi-v small{ font-size:9.5pt; font-weight:600; color:var(--ink-soft); }
+.kpi-k{
+  margin-top:5px; font-size:7.5pt; letter-spacing:.1em;
+  text-transform:uppercase; color:var(--muted); font-weight:600;
+}
+.cover-foot{
+  margin-top:9mm; padding-bottom:14mm;
+  font-size:8pt; color:var(--muted); letter-spacing:.03em;
+}
+
+/* ========================== SEKTIONEN =================================== */
+.report-section{ }
+.report-section + .report-section{ }
+
+/* Einheitlicher Sektionskopf – ersetzt die bunten Balken */
+.sec-head{
+  display:flex; align-items:center; gap:13px;
+  border-bottom:1.5pt solid var(--accent);
+  padding-bottom:9px; margin-bottom:20px;
+}
+.sec-num{
+  flex:0 0 auto; width:34px; height:34px; border-radius:6px;
+  background:var(--accent); color:#fff;
+  display:flex; align-items:center; justify-content:center;
+  font-weight:700; font-size:14pt;
+}
+.sec-titles .sec-eyebrow{
+  font-size:7.5pt; letter-spacing:.16em; text-transform:uppercase;
+  color:var(--muted); font-weight:600;
+}
+.sec-titles .sec-title{
+  font-size:16pt; font-weight:700; color:var(--ink); line-height:1.15;
+}
+.sec-date{
+  margin-left:auto; font-size:8pt; color:var(--muted);
+  text-align:right; letter-spacing:.03em;
+}
+
+/* Inhaltsblock (Label + Text) */
+.block{ margin-bottom:15px; break-inside:avoid; }
+.block-label{
+  font-size:8pt; letter-spacing:.1em; text-transform:uppercase;
+  color:var(--accent); font-weight:700; margin-bottom:3px;
+}
+.block-body{ color:var(--ink-soft); font-size:10.5pt; }
+.block-body ul{ list-style:none; margin-top:3px; }
+.block-body li{ position:relative; padding-left:15px; margin-bottom:2px; }
+.block-body li::before{
+  content:""; position:absolute; left:0; top:7px;
+  width:5px; height:5px; border-radius:1px; background:var(--accent);
+}
+
+/* Zwei-Spalten-Reihe für kompakte Angaben */
+.facts-row{
+  display:flex; gap:0; margin-bottom:18px;
+  border:.75pt solid var(--line); border-radius:6px; overflow:hidden;
+}
+.facts-row .fact{
+  flex:1; padding:9px 13px; border-right:.75pt solid var(--line);
+}
+.facts-row .fact:last-child{ border-right:none; }
+.fact-k{
+  font-size:7.5pt; letter-spacing:.1em; text-transform:uppercase;
+  color:var(--muted); font-weight:600;
+}
+.fact-v{ font-size:11pt; font-weight:600; color:var(--ink); margin-top:2px; }
+
+/* ============================ TABELLEN ================================== */
+.subhead{
+  font-size:9pt; font-weight:700; color:var(--ink);
+  letter-spacing:.02em; margin:18px 0 7px;
+}
+.tbl{ width:100%; border-collapse:collapse; font-size:9.5pt; }
+.tbl thead th{
+  background:var(--tint); color:var(--ink-soft);
+  font-size:7.5pt; letter-spacing:.07em; text-transform:uppercase;
+  font-weight:600; text-align:left; padding:7px 10px;
+  border-bottom:.75pt solid var(--line);
+}
+.tbl tbody td{
+  padding:7px 10px; border-bottom:.5pt solid var(--line-soft);
+  color:var(--ink-soft);
+}
+.tbl tbody tr:nth-child(even) td{ background:#fafbfc; }
+.tbl .num{ text-align:right; font-variant-numeric:tabular-nums; }
+.tbl td.lead{ color:var(--ink); font-weight:500; }
+.tbl tr.sum td{
+  background:var(--tint-blue); color:var(--accent); font-weight:700;
+  border-top:1.25pt solid var(--accent); border-bottom:none;
+}
+table{ break-inside:avoid; }
+
+/* =========================== DIAGRAMM =================================== */
+.chart-card{
+  border:.75pt solid var(--line); border-radius:7px;
+  padding:14px 14px 8px; margin:6px 0 4px; break-inside:avoid;
+}
+.chart-card svg{ display:block; width:100%; height:auto; }
+.chart-legend{
+  display:flex; gap:18px; margin-top:4px; padding-left:2px;
+  font-size:8pt; color:var(--ink-soft);
+}
+.chart-legend span{ display:inline-flex; align-items:center; gap:6px; }
+.chart-legend i{ width:14px; height:2.5px; border-radius:2px; display:inline-block; }
+
+/* ======================== FOTO-DOKUMENTATION ============================ */
+.photo-head{
+  display:flex; align-items:baseline; gap:8px; margin:20px 0 9px;
+}
+.photo-head .ph-title{ font-size:9pt; font-weight:700; color:var(--ink); }
+.photo-head .ph-count{
+  font-size:7.5pt; color:#fff; background:var(--accent);
+  padding:1px 7px; border-radius:9px; font-weight:600;
+}
+.photos{
+  display:grid; grid-template-columns:repeat(2,1fr); gap:9mm 6mm;
+}
+.photos.cols-3{ grid-template-columns:repeat(3,1fr); }
+.photo{ break-inside:avoid; }
+.photo-frame{
+  aspect-ratio:4/3; border:.75pt solid var(--line); border-radius:6px;
+  background:var(--tint); overflow:hidden; position:relative;
+  display:flex; align-items:center; justify-content:center;
+}
+.photo-frame img{ width:100%; height:100%; object-fit:cover; display:block; }
+/* Platzhalter – im Live-Betrieb durch <img> ersetzt */
+.photo-frame .ph-mark{ text-align:center; color:#b9c1c8; }
+.photo-frame .ph-mark svg{ width:30px; height:30px; }
+.photo-frame .ph-mark div{
+  font-size:7.5pt; letter-spacing:.12em; text-transform:uppercase;
+  margin-top:4px; font-weight:600;
+}
+.photo-cap{
+  margin-top:6px; display:flex; gap:7px; align-items:baseline;
+  font-size:8pt; color:var(--muted);
+}
+.photo-cap b{
+  color:var(--accent); font-weight:700; font-size:7.5pt;
+  letter-spacing:.04em;
+}
+
+/* =========================== NOTIZ-BOX ================================== */
+.note{
+  background:var(--tint); border-left:3pt solid var(--accent);
+  border-radius:0 6px 6px 0; padding:10px 14px; margin:14px 0;
+  font-size:9.5pt; color:var(--ink-soft); break-inside:avoid;
+}
+.note .note-k{
+  font-size:7.5pt; letter-spacing:.1em; text-transform:uppercase;
+  color:var(--accent); font-weight:700; margin-bottom:3px;
+}
+
+/* Unterschriftenblock */
+.sign-row{
+  display:flex; gap:14mm; margin-top:16mm; break-inside:avoid;
+}
+.sign{ flex:1; }
+.sign-line{ border-top:.75pt solid var(--ink); padding-top:5px; }
+.sign-line .sl-role{
+  font-size:7.5pt; letter-spacing:.1em; text-transform:uppercase;
+  color:var(--muted); font-weight:600;
+}
+.sign-line .sl-name{ font-size:9.5pt; color:var(--ink); font-weight:500; }
+</style>
+</head>
+<body>
+
+<!-- ============ Laufende Kopf-/Fusszeile (nur Druck, jede Seite) ======== -->
+<div class="doc-header">
+  <span><b class="dh-mark">GEMA</b></span>
+  <!-- DYNAMIC: Berichttitel -->
+  <span>Schadensbericht · Wasserschaden Bad 2.OG</span>
+</div>
+<div class="doc-footer">
+  <span>Jäggi Vollmer GmbH · GEMA</span>
+  <!-- DYNAMIC: Erstellungsdatum. Seitenzahl siehe HANDOFF (Render-Weg). -->
+  <span>Erstellt 19.05.2026</span>
+</div>
+
+<div class="content">
+
+  <!-- ====================== DECKBLATT ================================== -->
+  <section class="cover">
+    <div class="cover-bar"></div>
+
+    <div class="cover-top">
+      <div class="brand">
+        <!-- LOGO: durch offizielles GEMA-SVG ersetzen -->
+        <div class="brand-mark"><span>G</span></div>
+        <div class="brand-word">GEMA</div>
+      </div>
+      <div class="cover-doctype">Schadensbericht</div>
+    </div>
+
+    <div class="cover-hero">
+      <span class="cover-eyebrow">Wasserschaden</span>
+      <!-- DYNAMIC: Berichttitel -->
+      <h1 class="cover-title">Wasserschaden Bad 2.OG</h1>
+      <p class="cover-sub">Zustandsanalyse · Trocknung · Abschlussbericht</p>
+      <!-- DYNAMIC: Status -->
+      <div class="status"><span class="dot"></span> Abschluss</div>
+    </div>
+
+    <!-- Meta-Raster -->
+    <div class="cover-meta">
+      <div class="meta-item">
+        <div class="meta-k">Objekt</div>
+        <!-- DYNAMIC: Objektname (lesbare Bezeichnung statt interner ID) -->
+        <div class="meta-v">Liegenschaft Horburgstrasse</div>
+      </div>
+      <div class="meta-item">
+        <div class="meta-k">Adresse</div>
+        <!-- DYNAMIC: Adresse – Fallback siehe HANDOFF -->
+        <div class="meta-v">Horburgstrasse 96, 4057 Basel</div>
+      </div>
+      <div class="meta-item">
+        <div class="meta-k">Bearbeiter</div>
+        <!-- DYNAMIC: Bearbeiter -->
+        <div class="meta-v">Robin Jäggi</div>
+      </div>
+      <div class="meta-item">
+        <div class="meta-k">Schadentyp</div>
+        <div class="meta-v">Wasserschaden</div>
+      </div>
+      <div class="meta-item">
+        <div class="meta-k">Erfasst am</div>
+        <!-- DYNAMIC: Erfassungsdatum -->
+        <div class="meta-v">13.05.2026</div>
+      </div>
+      <div class="meta-item">
+        <div class="meta-k">Betroffene Räume</div>
+        <!-- DYNAMIC: Räume -->
+        <div class="meta-v">Bad 2.OG · Bad 1.OG</div>
+      </div>
+    </div>
+
+    <!-- Auf einen Blick -->
+    <div class="kpi-strip">
+      <div class="kpi">
+        <div class="kpi-v">10<small> Tage</small></div>
+        <div class="kpi-k">Trocknungsdauer</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-v">2</div>
+        <div class="kpi-k">Geräte im Einsatz</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-v">30<small> kWh</small></div>
+        <div class="kpi-k">Energiebedarf</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-v">2</div>
+        <div class="kpi-k">Messpunkte</div>
+      </div>
+    </div>
+
+    <div class="cover-foot">
+      Erstellt am 19.05.2026, 19:28 Uhr · GEMA Schadensmanagement
+    </div>
+  </section>
+
+  <!-- ================== 1 · ZUSTANDSANALYSE ============================ -->
+  <section class="report-section">
+    <div class="page-body">
+
+      <div class="sec-head">
+        <div class="sec-num">1</div>
+        <div class="sec-titles">
+          <div class="sec-eyebrow">Phase 1 von 3</div>
+          <div class="sec-title">Zustandsanalyse</div>
+        </div>
+        <!-- DYNAMIC: Phasendatum -->
+        <div class="sec-date">Abgeschlossen<br>13.05.2026</div>
+      </div>
+
+      <div class="block">
+        <div class="block-label">Leckortung</div>
+        <!-- DYNAMIC -->
+        <div class="block-body">
+          Leckortung durchgeführt. Wand im Bereich der Steigleitung
+          aufgespitzt, schadhafte Leitung lokalisiert und freigelegt.
+        </div>
+      </div>
+
+      <div class="block">
+        <div class="block-label">Schadenausmass</div>
+        <!-- DYNAMIC -->
+        <div class="block-body">
+          Wasseraustritt mit Durchfeuchtung bis in die darunterliegende
+          Wohnung (Bad 1.OG). Betroffen sind Wandaufbau und angrenzender
+          Bodenbereich.
+        </div>
+      </div>
+
+      <div class="block">
+        <div class="block-label">Massnahmen</div>
+        <!-- DYNAMIC: Liste -->
+        <div class="block-body">
+          <ul>
+            <li>Definitive Behebung der schadhaften Leitung</li>
+            <li>Instandstellung der betroffenen Bauteile</li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- LOOP: Foto-Dokumentation der Phase -->
+      <div class="photo-head">
+        <span class="ph-title">Analyse-Fotos</span>
+        <span class="ph-count">2</span>
+      </div>
+      <div class="photos">
+        <div class="photo">
+          <div class="photo-frame">
+            <!-- <img src="…"> hier einsetzen -->
+            <div class="ph-mark">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+                <rect x="2.5" y="6" width="19" height="13" rx="2"/>
+                <circle cx="12" cy="12.5" r="3.6"/>
+                <path d="M8 6l1.7-2.5h4.6L16 6"/>
+              </svg>
+              <div>Foto</div>
+            </div>
+          </div>
+          <div class="photo-cap"><b>01</b><span>Schadensbereich Steigleitung</span></div>
+        </div>
+        <div class="photo">
+          <div class="photo-frame">
+            <div class="ph-mark">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+                <rect x="2.5" y="6" width="19" height="13" rx="2"/>
+                <circle cx="12" cy="12.5" r="3.6"/>
+                <path d="M8 6l1.7-2.5h4.6L16 6"/>
+              </svg>
+              <div>Foto</div>
+            </div>
+          </div>
+          <div class="photo-cap"><b>02</b><span>Übersicht angrenzender Raum</span></div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ====================== 2 · TROCKNUNG ============================== -->
+  <section class="report-section">
+    <div class="page-body">
+
+      <div class="sec-head">
+        <div class="sec-num">2</div>
+        <div class="sec-titles">
+          <div class="sec-eyebrow">Phase 2 von 3</div>
+          <div class="sec-title">Trocknung</div>
+        </div>
+        <div class="sec-date">10 Tage<br>04.05.–13.05.2026</div>
+      </div>
+
+      <!-- Eckdaten der Trocknung -->
+      <div class="facts-row">
+        <div class="fact"><div class="fact-k">Gestartet</div><div class="fact-v">04.05.2026</div></div>
+        <div class="fact"><div class="fact-k">Beendet</div><div class="fact-v">13.05.2026</div></div>
+        <div class="fact"><div class="fact-k">Dauer</div><div class="fact-v">10 Tage</div></div>
+        <div class="fact"><div class="fact-k">Energie total</div><div class="fact-v">30.0 kWh</div></div>
+      </div>
+
+      <!-- Geräte -->
+      <div class="subhead">Eingesetzte Geräte</div>
+      <table class="tbl">
+        <thead>
+          <tr>
+            <th>Gerät</th><th>Raum</th>
+            <th class="num">Leistung</th><th class="num">Std/Tag</th>
+            <th class="num">Tage</th><th class="num">Energie</th>
+          </tr>
+        </thead>
+        <tbody>
+          <!-- LOOP: pro Gerät -->
+          <tr>
+            <td class="lead">Bautrockner AD 580</td><td>Bad 2.OG</td>
+            <td class="num">20.00 kW</td><td class="num">1.0 h</td>
+            <td class="num">8</td><td class="num">20.0 kWh</td>
+          </tr>
+          <tr>
+            <td class="lead">Axialventilator TFV 100</td><td>Bad 1.OG</td>
+            <td class="num">0.50 kW</td><td class="num">20.0 h</td>
+            <td class="num">15</td><td class="num">10.0 kWh</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <!-- Summe pro Raum -->
+      <div class="subhead">Zusammenfassung pro Raum</div>
+      <table class="tbl">
+        <thead>
+          <tr>
+            <th>Raum</th><th class="num">Geräte</th><th class="num">Tage</th>
+            <th class="num">Stunden</th><th class="num">Energie</th>
+          </tr>
+        </thead>
+        <tbody>
+          <!-- LOOP: pro Raum -->
+          <tr>
+            <td class="lead">Bad 2.OG</td><td class="num">1</td><td class="num">8</td>
+            <td class="num">1.0 h</td><td class="num">20.0 kWh</td>
+          </tr>
+          <tr>
+            <td class="lead">Bad 1.OG</td><td class="num">1</td><td class="num">15</td>
+            <td class="num">20.0 h</td><td class="num">10.0 kWh</td>
+          </tr>
+          <tr class="sum">
+            <td>Total</td><td class="num">2</td><td class="num">—</td>
+            <td class="num">21.0 h</td><td class="num">30.0 kWh</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <!-- Messpunkt-Trend: Diagramm als Inline-SVG (vektorscharf im PDF) -->
+      <div class="subhead">Messpunkt-Trend</div>
+      <div class="chart-card">
+        <!-- DYNAMIC: Pfade/Punkte aus Messwerten generieren. Skala/Achsen siehe HANDOFF -->
+        <svg viewBox="0 0 680 300" xmlns="http://www.w3.org/2000/svg">
+          <!-- Gitter -->
+          <g stroke="#e4e8ec" stroke-width="1">
+            <line x1="70" y1="40"  x2="640" y2="40"/>
+            <line x1="70" y1="90"  x2="640" y2="90"/>
+            <line x1="70" y1="140" x2="640" y2="140"/>
+            <line x1="70" y1="190" x2="640" y2="190"/>
+            <line x1="70" y1="240" x2="640" y2="240"/>
+          </g>
+          <!-- Achsen -->
+          <line x1="70" y1="40" x2="70" y2="240" stroke="#aab3ba" stroke-width="1.2"/>
+          <line x1="70" y1="240" x2="640" y2="240" stroke="#aab3ba" stroke-width="1.2"/>
+          <!-- Y-Beschriftung -->
+          <g fill="#8a949c" font-size="11" font-family="DM Sans" text-anchor="end">
+            <text x="60" y="44">90</text><text x="60" y="94">75</text>
+            <text x="60" y="144">60</text><text x="60" y="194">45</text>
+            <text x="60" y="244">30</text>
+          </g>
+          <!-- X-Beschriftung -->
+          <g fill="#8a949c" font-size="11" font-family="DM Sans" text-anchor="middle">
+            <text x="70"  y="262">04.05.</text><text x="213" y="262">06.05.</text>
+            <text x="355" y="262">08.05.</text><text x="498" y="262">10.05.</text>
+            <text x="640" y="262">13.05.</text>
+          </g>
+          <text x="22" y="145" fill="#8a949c" font-size="10" font-family="DM Sans"
+                transform="rotate(-90 22 145)" text-anchor="middle">Wert (Digits)</text>
+          <!-- Reihe 1: Messpunkt 1 -->
+          <polyline points="70,57 213,80 355,113 498,157 640,207"
+                    fill="none" stroke="#1e3a5f" stroke-width="2.4"
+                    stroke-linejoin="round" stroke-linecap="round"/>
+          <g fill="#1e3a5f">
+            <circle cx="70" cy="57" r="3.6"/><circle cx="213" cy="80" r="3.6"/>
+            <circle cx="355" cy="113" r="3.6"/><circle cx="498" cy="157" r="3.6"/>
+            <circle cx="640" cy="207" r="3.6"/>
+          </g>
+          <!-- Reihe 2: Messpunkt 2 -->
+          <polyline points="70,100 213,110 355,130 498,150 640,167"
+                    fill="none" stroke="#9aa6b0" stroke-width="2.4"
+                    stroke-dasharray="5 4" stroke-linejoin="round" stroke-linecap="round"/>
+          <g fill="#9aa6b0">
+            <circle cx="70" cy="100" r="3.4"/><circle cx="213" cy="110" r="3.4"/>
+            <circle cx="355" cy="130" r="3.4"/><circle cx="498" cy="150" r="3.4"/>
+            <circle cx="640" cy="167" r="3.4"/>
+          </g>
+        </svg>
+        <div class="chart-legend">
+          <span><i style="background:#1e3a5f"></i> Messpunkt 1 · Wand Bad 2.OG</span>
+          <span><i style="background:#9aa6b0"></i> Messpunkt 2 · Boden Bad 1.OG</span>
+        </div>
+      </div>
+
+      <!-- Messwert-Tabellen -->
+      <div class="subhead">Messpunkt 1 — Wand Bad 2.OG <span style="color:var(--muted);font-weight:400">(min 40 · max 85 · Diff −45.0 Digits)</span></div>
+      <table class="tbl">
+        <thead><tr><th>Datum</th><th class="num">Wert</th><th class="num">Differenz</th><th>Trend</th></tr></thead>
+        <tbody>
+          <!-- LOOP: pro Messung -->
+          <tr><td class="lead">04.05.2026</td><td class="num">85 Digits</td><td class="num">—</td><td>Ausgangswert</td></tr>
+          <tr><td class="lead">13.05.2026</td><td class="num">40 Digits</td><td class="num">−45.0</td><td>fallend</td></tr>
+        </tbody>
+      </table>
+
+      <div class="subhead">Messpunkt 2 — Boden Bad 1.OG <span style="color:var(--muted);font-weight:400">(min 50 · max 72 · Diff −22.0 Digits)</span></div>
+      <table class="tbl">
+        <thead><tr><th>Datum</th><th class="num">Wert</th><th class="num">Differenz</th><th>Trend</th></tr></thead>
+        <tbody>
+          <tr><td class="lead">04.05.2026</td><td class="num">72 Digits</td><td class="num">—</td><td>Ausgangswert</td></tr>
+          <tr><td class="lead">13.05.2026</td><td class="num">52 Digits</td><td class="num">−22.0</td><td>fallend</td></tr>
+        </tbody>
+      </table>
+
+      <!-- Notizen -->
+      <div class="note">
+        <div class="note-k">Notizen zur Trocknung</div>
+        <!-- DYNAMIC -->
+        Restfeuchte am 13.05.2026 im Zielbereich. Geräte demontiert,
+        Nachkontrolle nicht erforderlich.
+      </div>
+
+      <!-- LOOP: Foto-Dokumentation -->
+      <div class="photo-head">
+        <span class="ph-title">Trocknungs-Fotos</span>
+        <span class="ph-count">1</span>
+      </div>
+      <div class="photos">
+        <div class="photo">
+          <div class="photo-frame">
+            <div class="ph-mark">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+                <rect x="2.5" y="6" width="19" height="13" rx="2"/>
+                <circle cx="12" cy="12.5" r="3.6"/>
+                <path d="M8 6l1.7-2.5h4.6L16 6"/>
+              </svg>
+              <div>Foto</div>
+            </div>
+          </div>
+          <div class="photo-cap"><b>01</b><span>Geräteaufstellung Bad 2.OG</span></div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ==================== 3 · ABSCHLUSSBERICHT ========================= -->
+  <section class="report-section">
+    <div class="page-body">
+
+      <div class="sec-head">
+        <div class="sec-num">3</div>
+        <div class="sec-titles">
+          <div class="sec-eyebrow">Phase 3 von 3</div>
+          <div class="sec-title">Abschlussbericht</div>
+        </div>
+        <div class="sec-date">Abgeschlossen<br>13.05.2026</div>
+      </div>
+
+      <div class="block">
+        <div class="block-label">Zusammenfassung</div>
+        <!-- DYNAMIC -->
+        <div class="block-body">
+          Der Schaden konnte erfolgreich abgeschlossen werden. Die Badewanne
+          wurde ersetzt, die schadhafte Leitung definitiv behoben.
+        </div>
+      </div>
+
+      <div class="block">
+        <div class="block-label">Instandstellung</div>
+        <!-- DYNAMIC -->
+        <div class="block-body">
+          Alle Wände verschlossen, Platten ausgebessert und gestrichen.
+          Der Raum wurde betriebsbereit übergeben.
+        </div>
+      </div>
+
+      <div class="block">
+        <div class="block-label">Weitere Schäden / Folgekosten</div>
+        <!-- DYNAMIC -->
+        <div class="block-body">
+          Unvorhergesehen: Der Ablauf musste vollständig getauscht werden.
+        </div>
+      </div>
+
+      <!-- LOOP: Foto-Dokumentation -->
+      <div class="photo-head">
+        <span class="ph-title">Abschluss-Fotos</span>
+        <span class="ph-count">1</span>
+      </div>
+      <div class="photos">
+        <div class="photo">
+          <div class="photo-frame">
+            <div class="ph-mark">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+                <rect x="2.5" y="6" width="19" height="13" rx="2"/>
+                <circle cx="12" cy="12.5" r="3.6"/>
+                <path d="M8 6l1.7-2.5h4.6L16 6"/>
+              </svg>
+              <div>Foto</div>
+            </div>
+          </div>
+          <div class="photo-cap"><b>01</b><span>Endzustand nach Instandstellung</span></div>
+        </div>
+      </div>
+
+      <!-- Unterschriften -->
+      <div class="sign-row">
+        <div class="sign">
+          <div class="photo-frame" style="aspect-ratio:auto;height:16mm;border-style:dashed;background:transparent"></div>
+          <div class="sign-line">
+            <div class="sl-role">Bearbeiter</div>
+            <div class="sl-name">Robin Jäggi</div>
+          </div>
+        </div>
+        <div class="sign">
+          <div class="photo-frame" style="aspect-ratio:auto;height:16mm;border-style:dashed;background:transparent"></div>
+          <div class="sign-line">
+            <div class="sl-role">Ort / Datum</div>
+            <div class="sl-name">Basel, 19.05.2026</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+</div><!-- /.content -->
+</body>
+</html>
