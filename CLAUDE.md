@@ -532,6 +532,18 @@ In den GEMA-HTML-Dateien wird `gema_responsive.css` typischerweise direkt nach d
 
 Bei **gleicher Spezifitaet** gewinnt im Cascade die **spaeter geladene** Regel — d.h. `gema_responsive.css` ueberschreibt inline-styles. Wer also lokal Hero/Nav-Werte setzen will, muss entweder `!important` verwenden ODER (besser) eine spezifischere Selektor-Kombination wahlen ODER (am besten) das HTML-Markup so anpassen, dass die globalen Regeln gar nicht erst greifen (siehe Hero-Markup oben).
 
+### Berechnungsmodule haengen weiss beim Laden (gema_auth.js `_unblock`-Fail)
+
+`gema_auth.js` injiziert beim Init ein `<style id="_gaBlock">body{visibility:hidden!important}</style>` in den `<head>`, damit waehrend des Auth-Checks der Inhalt nicht aufblitzt. Am Ende eines erfolgreichen Auth-Pfades ruft die Funktion `_unblock()` auf, die das Style-Element entfernt.
+
+**Falle**: Wenn irgendein Code-Pfad `_unblock()` ueberspringt oder eine JS-Exception zwischen `appendChild(_bs)` und `_unblock()` fliegt, bleibt der `body` permanent unsichtbar — Symptom: **weisser Bildschirm beim Laden** in ALLEN Modulen (weil `gema_auth.js` ueberall geladen wird).
+
+**Schutz (seit Commit nach v51)**:
+1. Der ganze Auth-Init-Block laeuft jetzt in `try/catch` — bei Fehler wird `_unblock()` aus dem `catch`-Pfad gerufen.
+2. **Safety-Net**: Ein `setTimeout(_unblock, 4000)` entfernt das Block-Style spaetestens nach 4 Sekunden, egal was passiert. In der Console erscheint dann `[GemaAuth] Safety-Net unblock nach 4s ausgeloest`.
+
+**Bei Re-Auftreten**: Console oeffnen — wenn das Safety-Net-Log erscheint, hat ein Code-Pfad `_unblock()` vergessen. Mit Stack-Trace den Aufrufer ermitteln und an passender Stelle `_unblock()` einfuegen.
+
 ### Doppelte CSS-Regelbloecke aus alten Media-Queries
 
 Wenn ein Media-Query entfernt wurde, blieben in einigen Modulen die innerhalb der `@media`-Klammer eingerueckten Regeln stehen — also als globale Regeln. Diese kollidieren dann mit den gleichen Regeln weiter oben im Stylesheet (gleiche Spezifitaet, spaetere gewinnt, Werte oft abweichend).
