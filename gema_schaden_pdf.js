@@ -20,8 +20,22 @@
     + ':root{--ink:#1f2933;--ink-soft:#525d66;--muted:#8a949c;--accent:#1e3a5f;--accent-deep:#142a45;--forest:#0c4a2e;--line:#e4e8ec;--line-soft:#eef1f3;--tint:#f5f7f8;--tint-blue:#eef2f6;--ok:#15803d;--paper:#ffffff;}'
     + '*{box-sizing:border-box;margin:0;padding:0;}'
     + 'html,body{font-family:\'DM Sans\',sans-serif;color:var(--ink);font-size:10.5pt;line-height:1.55;-webkit-print-color-adjust:exact;print-color-adjust:exact;}'
-    + '@media screen{body{background:#dfe3e6;padding:32px 16px;}.content{width:210mm;margin:0 auto;background:var(--paper);box-shadow:0 8px 40px rgba(20,30,45,.18);}.doc-header,.doc-footer{display:none;}}'
-    + '@media print{@page{size:A4;margin:0;}body{background:#fff;padding:0;}.content{width:auto;box-shadow:none;}.report-section{page-break-before:always;}.cover{page-break-after:always;}.no-print{display:none!important;}}'
+    // ─ Bildschirm-Vorschau: jede Sektion als eigenes A4-Blatt mit Schatten,
+    //   damit der User die Seitengrenzen visuell sieht (statt fortlaufender
+    //   Strom). Cover + jede report-section ist ein eigenes Papier-Element.
+    + '@media screen{body{background:#dfe3e6;padding:32px 16px;}'
+      + '.content{width:210mm;margin:0 auto;background:transparent;}'
+      + '.content > .cover,.content > .report-section{width:210mm;min-height:297mm;background:var(--paper);box-shadow:0 8px 40px rgba(20,30,45,.18);margin:0 auto 28px;position:relative;overflow:hidden;}'
+      + '.content > .report-section{padding:0;}'
+      + '.doc-header,.doc-footer{display:none;}'
+    + '}'
+    // ─ Druck/PDF: A4, Seitenumbrueche vor jeder report-section
+    + '@media print{@page{size:A4;margin:0;}body{background:#fff;padding:0;}.content{width:auto;box-shadow:none;background:transparent;}'
+      + '.content > .cover,.content > .report-section{box-shadow:none;margin:0;background:#fff;}'
+      + '.report-section{page-break-before:always;}'
+      + '.cover{page-break-after:always;}'
+      + '.no-print{display:none!important;}'
+    + '}'
     + '.content{position:relative;}'
     + '.doc-header,.doc-footer{position:fixed;left:0;right:0;font-size:7.5pt;letter-spacing:.04em;color:var(--muted);padding:0 15mm;}'
     + '.doc-header{top:0;height:16mm;display:flex;align-items:flex-end;justify-content:space-between;padding-bottom:5mm;border-bottom:.5pt solid var(--line);}'
@@ -58,7 +72,7 @@
     + '.sec-titles .sec-eyebrow{font-size:7.5pt;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);font-weight:600;}'
     + '.sec-titles .sec-title{font-size:16pt;font-weight:700;color:var(--ink);line-height:1.15;}'
     + '.sec-date{margin-left:auto;font-size:8pt;color:var(--muted);text-align:right;letter-spacing:.03em;}'
-    + '.block{margin-bottom:15px;break-inside:avoid;}'
+    + '.block{margin-bottom:15px;break-inside:avoid;page-break-inside:avoid;}'
     + '.block-label{font-size:8pt;letter-spacing:.1em;text-transform:uppercase;color:var(--accent);font-weight:700;margin-bottom:3px;}'
     + '.block-body{color:var(--ink-soft);font-size:10.5pt;}'
     + '.block-body ul{list-style:none;margin-top:3px;}'
@@ -69,21 +83,29 @@
     + '.facts-row .fact:last-child{border-right:none;}'
     + '.fact-k{font-size:7.5pt;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:600;}'
     + '.fact-v{font-size:11pt;font-weight:600;color:var(--ink);margin-top:2px;}'
-    + '.subhead{font-size:9pt;font-weight:700;color:var(--ink);letter-spacing:.02em;margin:18px 0 7px;}'
-    + '.tbl{width:100%;border-collapse:collapse;font-size:9.5pt;}'
+    // ─ Subhead + Tabelle muessen zusammen bleiben (Header allein auf Seite = unsauber)
+    + '.subhead{font-size:9pt;font-weight:700;color:var(--ink);letter-spacing:.02em;margin:18px 0 7px;break-after:avoid;page-break-after:avoid;}'
+    + '.tbl-block{break-inside:avoid;page-break-inside:avoid;margin-bottom:6px;}'
+    + '.tbl{width:100%;border-collapse:collapse;font-size:9.5pt;break-inside:avoid;page-break-inside:avoid;}'
+    + '.tbl thead{display:table-header-group;}'
+    + '.tbl tr{break-inside:avoid;page-break-inside:avoid;}'
     + '.tbl thead th{background:var(--tint);color:var(--ink-soft);font-size:7.5pt;letter-spacing:.07em;text-transform:uppercase;font-weight:600;text-align:left;padding:7px 10px;border-bottom:.75pt solid var(--line);}'
     + '.tbl tbody td{padding:7px 10px;border-bottom:.5pt solid var(--line-soft);color:var(--ink-soft);}'
     + '.tbl tbody tr:nth-child(even) td{background:#fafbfc;}'
     + '.tbl .num{text-align:right;font-variant-numeric:tabular-nums;}'
     + '.tbl td.lead{color:var(--ink);font-weight:500;}'
     + '.tbl tr.sum td{background:var(--tint-blue);color:var(--accent);font-weight:700;border-top:1.25pt solid var(--accent);border-bottom:none;}'
-    + 'table{break-inside:avoid;}'
-    + '.chart-card{border:.75pt solid var(--line);border-radius:7px;padding:14px 14px 8px;margin:6px 0 4px;break-inside:avoid;}'
+    + 'table{break-inside:avoid;page-break-inside:avoid;}'
+    + '.chart-card{border:.75pt solid var(--line);border-radius:7px;padding:14px 14px 8px;margin:6px 0 4px;break-inside:avoid;page-break-inside:avoid;}'
     + '.chart-card svg{display:block;width:100%;height:auto;}'
     + '.chart-legend{display:flex;gap:18px;margin-top:4px;padding-left:2px;font-size:8pt;color:var(--ink-soft);flex-wrap:wrap;}'
     + '.chart-legend span{display:inline-flex;align-items:center;gap:6px;}'
     + '.chart-legend i{width:14px;height:2.5px;border-radius:2px;display:inline-block;}'
-    + '.photo-head{display:flex;align-items:baseline;gap:8px;margin:20px 0 9px;}'
+    // ─ Foto-Block (Head + Grid) als untrennbare Einheit. Foto-Gruppen
+    //   sind durch .photo-group umschlossen — Head darf nicht alleine
+    //   am Seitenende stehen.
+    + '.photo-group{break-inside:avoid;page-break-inside:avoid;margin-top:14px;}'
+    + '.photo-head{display:flex;align-items:baseline;gap:8px;margin:20px 0 9px;break-after:avoid;page-break-after:avoid;}'
     + '.photo-head .ph-title{font-size:9pt;font-weight:700;color:var(--ink);}'
     + '.photo-head .ph-count{font-size:7.5pt;color:#fff;background:var(--accent);padding:1px 7px;border-radius:9px;font-weight:600;}'
     + '.photos{display:grid;grid-template-columns:repeat(2,1fr);gap:9mm 6mm;}'
@@ -93,9 +115,12 @@
     + '.photo-frame img{width:100%;height:100%;object-fit:cover;display:block;}'
     + '.photo-cap{margin-top:6px;display:flex;gap:7px;align-items:baseline;font-size:8pt;color:var(--muted);}'
     + '.photo-cap b{color:var(--accent);font-weight:700;font-size:7.5pt;letter-spacing:.04em;}'
-    + '.note{background:var(--tint);border-left:3pt solid var(--accent);border-radius:0 6px 6px 0;padding:10px 14px;margin:14px 0;font-size:9.5pt;color:var(--ink-soft);break-inside:avoid;}'
+    + '.note{background:var(--tint);border-left:3pt solid var(--accent);border-radius:0 6px 6px 0;padding:10px 14px;margin:14px 0;font-size:9.5pt;color:var(--ink-soft);break-inside:avoid;page-break-inside:avoid;}'
     + '.note .note-k{font-size:7.5pt;letter-spacing:.1em;text-transform:uppercase;color:var(--accent);font-weight:700;margin-bottom:3px;}'
-    + '.sign-row{display:flex;gap:14mm;margin-top:16mm;break-inside:avoid;}'
+    // Unterschriften-CSS bleibt drin als Backward-Compat (falls externe
+    // Aufrufer den Block wieder einfuegen wollen) — wird im Standardfall
+    // nicht mehr generiert.
+    + '.sign-row{display:flex;gap:14mm;margin-top:16mm;break-inside:avoid;page-break-inside:avoid;}'
     + '.sign{flex:1;}'
     + '.sign-line{border-top:.75pt solid var(--ink);padding-top:5px;}'
     + '.sign-line .sl-role{font-size:7.5pt;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:600;}'
@@ -185,7 +210,12 @@
   function photoSectionHtml(title, fotos){
     var inReport = (fotos||[]).filter(function(f){ return f && f.imBericht !== false && f.dataUrl; });
     if(!inReport.length) return '';
-    var h = '<div class="photo-head">'
+    // Bei mehr als 6 Fotos lohnt sich der Wrapper-Schutz nicht (zu gross
+    // fuer eine Seite). Sonst: photo-group umschliesst Head + Grid, damit
+    // der Head nicht alleine am Seitenende stehen bleibt.
+    var wrapAll = inReport.length <= 6;
+    var h = wrapAll ? '<div class="photo-group">' : '';
+    h += '<div class="photo-head">'
       + '<span class="ph-title">'+esc(title)+'</span>'
       + '<span class="ph-count">'+inReport.length+'</span>'
       + '</div>';
@@ -199,6 +229,7 @@
         + '</div>';
     });
     h += '</div>';
+    if(wrapAll) h += '</div>';
     return h;
   }
 
@@ -449,9 +480,10 @@
       + '</div>';
     }
 
-    // Geraete-Tabelle
+    // Geraete-Tabelle — Subhead + Tabelle in einem .tbl-block (untrennbar)
     if((tr.geraete||[]).length){
-      h += '<div class="subhead">Eingesetzte Geraete</div>'
+      h += '<div class="tbl-block">'
+        + '<div class="subhead">Eingesetzte Geraete</div>'
         + '<table class="tbl"><thead><tr>'
           + '<th>Geraet</th><th>Raum</th>'
           + '<th class="num">Leistung</th><th class="num">Std/Tag</th>'
@@ -471,9 +503,9 @@
           + '<td class="num">'+(kwh != null ? (Math.round(kwh*10)/10)+' kWh' : '—')+'</td>'
         + '</tr>';
       });
-      h += '</tbody></table>';
+      h += '</tbody></table></div>';  // /tbl-block
 
-      // Summe pro Raum
+      // Summe pro Raum — eigener tbl-block
       var raumAgg = {};
       tr.geraete.forEach(function(g){
         var rm = g.raum || 'Ohne Raum';
@@ -487,7 +519,8 @@
         if(t > raumAgg[rm].tage) raumAgg[rm].tage = t;
       });
       var totH = 0, totKwh = 0, totAnz = 0;
-      h += '<div class="subhead">Zusammenfassung pro Raum</div>'
+      h += '<div class="tbl-block">'
+        + '<div class="subhead">Zusammenfassung pro Raum</div>'
         + '<table class="tbl"><thead><tr>'
           + '<th>Raum</th><th class="num">Geraete</th><th class="num">Tage</th><th class="num">Stunden</th><th class="num">Energie</th>'
         + '</tr></thead><tbody>';
@@ -503,16 +536,17 @@
         + '</tr>';
       });
       h += '<tr class="sum"><td>Total</td><td class="num">'+totAnz+'</td><td class="num">—</td><td class="num">'+(totH?totH.toFixed(1):'—')+' h</td><td class="num">'+(Math.round(totKwh*10)/10)+' kWh</td></tr>';
-      h += '</tbody></table>';
+      h += '</tbody></table></div>';  // /tbl-block
     }
 
     // Messpunkt-Trend
     if((tr.messpunkte||[]).length){
       var chart = chartSvg(tr.messpunkte);
       if(chart){
-        h += '<div class="subhead">Messpunkt-Trend</div>'+chart;
+        // Chart-Card-Block: Subhead + Chart untrennbar
+        h += '<div class="tbl-block"><div class="subhead">Messpunkt-Trend</div>'+chart+'</div>';
       }
-      // Messwert-Tabellen
+      // Messwert-Tabellen — jeder Messpunkt eigener .tbl-block
       tr.messpunkte.forEach(function(mp){
         if(!mp.messungen || !mp.messungen.length) return;
         var sorted = mp.messungen.slice().sort(function(a,b){ return a.datum < b.datum ? -1 : 1; });
@@ -521,7 +555,8 @@
         var mn = Math.min.apply(null, vals), mx = Math.max.apply(null, vals);
         var diff = sorted[sorted.length-1].wert - sorted[0].wert;
         var diffStr = (diff > 0 ? '+' : '') + diff.toFixed(1);
-        h += '<div class="subhead">'+esc(mp.name||'Messpunkt')+' <span style="color:var(--muted);font-weight:400">(min '+mn+' · max '+mx+' · Diff '+diffStr+' Digits)</span></div>'
+        h += '<div class="tbl-block">'
+          + '<div class="subhead">'+esc(mp.name||'Messpunkt')+' <span style="color:var(--muted);font-weight:400">(min '+mn+' · max '+mx+' · Diff '+diffStr+' Digits)</span></div>'
           + '<table class="tbl"><thead><tr><th>Datum</th><th class="num">Wert</th><th class="num">Differenz</th><th>Trend</th></tr></thead><tbody>';
         var prev = null;
         sorted.forEach(function(m, i){
@@ -534,7 +569,7 @@
             + '<td>'+trend+'</td></tr>';
           prev = v;
         });
-        h += '</tbody></table>';
+        h += '</tbody></table></div>';
       });
     }
 
@@ -569,23 +604,7 @@
     }
     h += photoSectionHtml('Abschluss-Fotos', ab.fotos);
 
-    // Unterschrift
-    h += '<div class="sign-row">'
-      + '<div class="sign">'
-        + '<div class="photo-frame" style="aspect-ratio:auto;height:16mm;border-style:dashed;background:transparent"></div>'
-        + '<div class="sign-line">'
-          + '<div class="sl-role">Bearbeiter</div>'
-          + '<div class="sl-name">'+esc((s.erstelltVon && s.erstelltVon.name) || (opts.user && opts.user.name) || '')+'</div>'
-        + '</div>'
-      + '</div>'
-      + '<div class="sign">'
-        + '<div class="photo-frame" style="aspect-ratio:auto;height:16mm;border-style:dashed;background:transparent"></div>'
-        + '<div class="sign-line">'
-          + '<div class="sl-role">Ort / Datum</div>'
-          + '<div class="sl-name">'+esc(fmtDate(Date.now()))+'</div>'
-        + '</div>'
-      + '</div>'
-    + '</div>';
+    // Unterschriften-Block bewusst entfernt (User-Wunsch).
 
     h += '</div></section>';
     return h;
