@@ -678,6 +678,10 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
           <label>Datum der Schadensmeldung</label>
           <input type="date" id="f_datum">
         </div>
+        <div class="fg">
+          <label>Sachbearbeiter <span class="req">*</span></label>
+          <select id="f_sachbearbeiter"></select>
+        </div>
       </div>
 
       <div class="fsec">
@@ -1418,6 +1422,8 @@ function sdOpenNew() {
     }
   } catch(e) {}
   sdRenderRaumTags();
+  // Sachbearbeiter-Dropdown: Default = aktueller User
+  sdPopulateSachbearbeiter(null);
   document.getElementById('addModal').classList.remove('hidden');
 }
 function sdCloseAdd() {
@@ -1442,6 +1448,43 @@ function sdRemoveRaum(idx) {
   sdRenderRaumTags();
 }
 
+// Fuellt das Sachbearbeiter-Dropdown mit allen aktiven Usern der eigenen
+// Org. `preselectId` (optional) selektiert einen User explizit — sonst
+// wird der aktuell eingeloggte User vorausgewaehlt.
+function sdPopulateSachbearbeiter(preselectId) {
+  var sel = document.getElementById('f_sachbearbeiter');
+  if (!sel) return;
+  var me = _sdGetUser();
+  var orgId = me && me.orgId;
+  var users = [];
+  try {
+    if (typeof GemaAuth !== 'undefined' && GemaAuth.getUsers) {
+      users = (GemaAuth.getUsers() || []).filter(function(u){
+        return u && u.active !== false && (!orgId || u.orgId === orgId);
+      });
+    }
+  } catch(e) {}
+  // Sortierung: erst der eingeloggte User, dann alphabetisch
+  users.sort(function(a, b){
+    if (me && a.id === me.id) return -1;
+    if (me && b.id === me.id) return 1;
+    return (a.name || a.email || '').localeCompare(b.name || b.email || '');
+  });
+  var html = '';
+  users.forEach(function(u){
+    var label = (u.name || u.email || u.id);
+    if (me && u.id === me.id) label += ' (ich)';
+    html += '<option value="'+esc(u.id)+'">'+esc(label)+'</option>';
+  });
+  // Falls keine User da sind (Edge-Case): aktuellen User trotzdem zeigen
+  if (!users.length && me) {
+    html = '<option value="'+esc(me.id)+'">'+esc(me.name || me.email || me.id)+' (ich)</option>';
+  }
+  sel.innerHTML = html;
+  var defaultId = preselectId || (me && me.id);
+  if (defaultId) sel.value = defaultId;
+}
+
 function sdSaveNew() {
   var typ = document.getElementById('f_typ').value;
   var titel = document.getElementById('f_titel').value.trim();
@@ -1451,6 +1494,16 @@ function sdSaveNew() {
   if (!objektId) { alert('Bitte Objekt wählen.'); return; }
 
   var u = _sdGetUser();
+  // Sachbearbeiter aus Dropdown — Default ist der aktuelle User
+  var sachbearbeiterId = document.getElementById('f_sachbearbeiter').value;
+  var sachbearbeiter = u;
+  try {
+    if (sachbearbeiterId && typeof GemaAuth !== 'undefined' && GemaAuth.getUsers) {
+      var all = GemaAuth.getUsers() || [];
+      var picked = all.find(function(x){ return x.id === sachbearbeiterId; });
+      if (picked) sachbearbeiter = picked;
+    }
+  } catch(e) {}
   var sd = {
     id: 'sd_' + Date.now(),
     typ: typ,
@@ -1467,7 +1520,9 @@ function sdSaveNew() {
     },
     raeume: _tempRaeume.slice(),
     erstelltAm: document.getElementById('f_datum').value || sdToday(),
-    erstelltVon: u ? { userId: u.id || '', name: u.name || u.email || '' } : { userId: '', name: '' },
+    erstelltVon: sachbearbeiter
+      ? { userId: sachbearbeiter.id || '', name: sachbearbeiter.name || sachbearbeiter.email || '' }
+      : { userId: '', name: '' },
     zustandsanalyse: {
       leckortung: '',
       schadenausmass: '',

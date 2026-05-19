@@ -397,7 +397,7 @@
       h += '<div class="meta-item"><div class="meta-k">Adresse</div><div class="meta-v">'+esc(opts.objektAdresse)+'</div></div>';
     }
     if(s.erstelltVon && notEmpty(s.erstelltVon.name)){
-      h += '<div class="meta-item"><div class="meta-k">Bearbeiter</div><div class="meta-v">'+esc(s.erstelltVon.name)+'</div></div>';
+      h += '<div class="meta-item"><div class="meta-k">Sachbearbeiter</div><div class="meta-v">'+esc(s.erstelltVon.name)+'</div></div>';
     }
     h += '<div class="meta-item"><div class="meta-k">Schadentyp</div><div class="meta-v">'+esc(typ)+'</div></div>';
     if(s.erstelltAm){
@@ -624,24 +624,33 @@
     opts = opts || {};
     var titel = s.titel || typLabel(s.typ);
     var org = opts.org;
-    var headerLeft = (org && org.name) ? esc(org.name) : '<span class="dh-mark">GEMA</span>';
-    var footerLeft = (org && org.name) ? esc(org.name) : 'GEMA';
+    var orgName = (org && org.name) ? org.name : 'GEMA';
+    var datum   = fmtDate(Date.now());
+    // CSS-content darf nur Strings + counter() — escapen wir " und \ im
+    // Org-Namen / Titel, damit der String nicht aufbricht.
+    function _cssStr(s){ return String(s||'').replace(/\\/g,'\\\\').replace(/"/g,'\\"'); }
+    var pageCss = '@media print{@page{size:A4;margin:14mm 0 14mm 0;'
+      + '@top-left{content:"'+_cssStr(orgName)+'";font-family:\'DM Sans\',sans-serif;font-size:7.5pt;font-weight:600;letter-spacing:.04em;color:#525d66;padding:5mm 15mm 0;}'
+      + '@top-right{content:"Schadensbericht · '+_cssStr(titel)+'";font-family:\'DM Sans\',sans-serif;font-size:7.5pt;letter-spacing:.04em;color:#8a949c;padding:5mm 15mm 0;}'
+      + '@bottom-left{content:"'+_cssStr(orgName)+' · Erstellt '+_cssStr(datum)+'";font-family:\'DM Sans\',sans-serif;font-size:7.5pt;letter-spacing:.04em;color:#8a949c;padding:0 15mm 4mm;}'
+      + '@bottom-right{content:"Seite " counter(page) " von " counter(pages);font-family:\'DM Sans\',sans-serif;font-size:7.5pt;font-weight:600;letter-spacing:.04em;color:#525d66;padding:0 15mm 4mm;}'
+      + '}'
+      // page-body braucht im Print weniger top/bottom-padding — @page
+      // bringt den Rand fuer Header/Footer mit.
+      + '.page-body{padding:6mm 15mm 6mm!important;}'
+      + '.cover{min-height:auto!important;padding-top:0!important;}'
+      + '.cover-hero{margin-top:22mm!important;}'
+      + '.cover-foot{padding-bottom:0!important;margin-top:6mm!important;}'
+      + '.doc-header,.doc-footer{display:none!important;}'
+      + '}';
 
     return '<!doctype html><html lang="de"><head><meta charset="utf-8">'
       + '<title>Schadensbericht — '+esc(titel)+'</title>'
-      + '<style>'+REPORT_CSS+'</style>'
+      + '<style>'+REPORT_CSS+pageCss+'</style>'
       + '</head><body>'
       + '<div class="print-toolbar no-print">'
         + '<button onclick="window.print()">Drucken / Als PDF speichern</button>'
         + '<button class="secondary" onclick="window.close()">Schliessen</button>'
-      + '</div>'
-      + '<div class="doc-header">'
-        + '<span>'+headerLeft+'</span>'
-        + '<span>Schadensbericht · '+esc(titel)+'</span>'
-      + '</div>'
-      + '<div class="doc-footer">'
-        + '<span>'+footerLeft+'</span>'
-        + '<span>Erstellt '+esc(fmtDate(Date.now()))+'</span>'
       + '</div>'
       + '<div class="content">'
         + coverHtml(s, opts)
