@@ -245,6 +245,14 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
 .photo-item img{width:100%;aspect-ratio:4/3;object-fit:cover;display:block}
 .photo-item .photo-del{position:absolute;top:6px;right:6px;width:24px;height:24px;border-radius:6px;background:rgba(0,0,0,.6);color:#fff;border:none;cursor:pointer;font-size:12px;display:flex;align-items:center;justify-content:center;opacity:0;transition:.15s}
 .photo-item:hover .photo-del{opacity:1}
+/* 'Im Bericht'-Toggle oben links auf dem Foto — wechselt zwischen
+   grünem Häkchen (im Bericht) und rotem Verbots-Icon (ausgeschlossen).
+   Auf Touch-Geräten immer sichtbar, auf Desktop nur bei Hover. */
+.photo-item .photo-report-toggle{position:absolute;top:6px;left:6px;width:26px;height:26px;border-radius:6px;background:rgba(220,38,38,.85);color:#fff;border:none;cursor:pointer;font-size:13px;line-height:1;display:flex;align-items:center;justify-content:center;opacity:0;transition:.15s;font-weight:700;padding:0}
+.photo-item .photo-report-toggle.on{background:rgba(22,163,74,.85)}
+.photo-item:hover .photo-report-toggle{opacity:1}
+.photo-item.photo-not-in-report{opacity:.55}
+.photo-item.photo-not-in-report img{filter:grayscale(.7)}
 .photo-item .photo-badge{position:absolute;bottom:6px;left:6px;padding:2px 7px;border-radius:5px;font-size:9px;font-weight:700;color:#fff;background:rgba(0,0,0,.5)}
 .photo-comment{margin-top:4px;font-size:11px;color:var(--mut);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 4px}
 .photo-add{display:flex;flex-direction:column;align-items:center;justify-content:center;aspect-ratio:4/3;border:2px dashed var(--brd2);border-radius:10px;cursor:pointer;color:var(--mut);transition:.15s;gap:4px;font-size:12px;font-weight:700}
@@ -444,6 +452,7 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
   /* Photos - bigger tiles, always-visible delete */
   .photo-grid{grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px}
   .photo-item .photo-del{opacity:1;width:28px;height:28px;font-size:14px;border-radius:7px}
+  .photo-item .photo-report-toggle{opacity:1;width:28px;height:28px;font-size:14px;border-radius:7px}
   .photo-add{min-height:100px;font-size:13px}
   .photo-comment{font-size:10.5px}
 
@@ -535,6 +544,7 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
    ═══════════════════════════════════════ */
 @media(hover:none) and (pointer:coarse){
   .photo-item .photo-del{opacity:1}
+  .photo-item .photo-report-toggle{opacity:1}
   .sd-card:hover{transform:none;box-shadow:var(--sh-sm)}
   .sd-card:active{transform:scale(.98);transition:.08s}
   .tc-act:active{transform:scale(.95)}
@@ -2811,11 +2821,20 @@ function sdRenderPhotoSection(schadenId, phase, fotos, editable) {
   h += '<div class="photo-grid" style="margin-top:6px">';
   if (fotos && fotos.length) {
     fotos.forEach(function(f, i) {
-      h += '<div class="photo-item">';
+      var inReport = f.imBericht !== false;
+      h += '<div class="photo-item' + (inReport ? '' : ' photo-not-in-report') + '">';
       h += '<img src="' + f.dataUrl + '" alt="Foto" onclick="event.stopPropagation();sdOpenLightbox(\'' + f.dataUrl.replace(/'/g, "\\'") + '\')">';
-      if (editable) h += '<button class="photo-del" onclick="event.stopPropagation();sdDelPhoto(\'' + schadenId + '\',\'' + phase + '\',' + i + ')">✕</button>';
+      if (editable) {
+        h += '<button class="photo-del" onclick="event.stopPropagation();sdDelPhoto(\'' + schadenId + '\',\'' + phase + '\',' + i + ')">✕</button>';
+        // Toggle 'Im Bericht' — Klick schaltet imBericht um. Gruener
+        // Haken = im Bericht, rotes Auge-zu = nicht im Bericht.
+        h += '<button class="photo-report-toggle' + (inReport ? ' on' : '') + '"'
+          + ' onclick="event.stopPropagation();sdTogglePhotoInReport(\'' + schadenId + '\',\'' + phase + '\',' + i + ')"'
+          + ' title="' + (inReport ? 'Foto im Bericht — Klick zum Ausschluss' : 'Foto NICHT im Bericht — Klick zum Einschluss') + '">'
+          + (inReport ? '✓' : '🚫') + '</button>';
+      }
       if (f.kommentar) h += '<div class="photo-comment">' + esc(f.kommentar) + '</div>';
-      if (!f.imBericht) h += '<div class="photo-badge" style="background:var(--red)">Nicht im Bericht</div>';
+      if (!inReport) h += '<div class="photo-badge" style="background:var(--red)">Nicht im Bericht</div>';
       h += '</div>';
     });
   }
@@ -2929,6 +2948,21 @@ function sdDelPhoto(schadenId, phase, idx) {
     sdRenderDetail(s);
   });
 }
+
+// Schaltet das 'imBericht'-Flag eines Fotos um. Wird ohne
+// Bestaetigungs-Dialog ausgefuehrt — Aktion ist reversibel.
+function sdTogglePhotoInReport(schadenId, phase, idx) {
+  var s = sdGetById(schadenId); if (!s) return;
+  var arr = null;
+  if (phase === 'analyse' && s.zustandsanalyse) arr = s.zustandsanalyse.fotos;
+  else if (phase === 'trocknung' && s.trocknung) arr = s.trocknung.fotos;
+  else if (phase === 'abschluss' && s.abschluss) arr = s.abschluss.fotos;
+  if (!arr || !arr[idx]) return;
+  arr[idx].imBericht = arr[idx].imBericht === false ? true : false;
+  sdSave();
+  sdRenderDetail(s);
+}
+window.sdTogglePhotoInReport = sdTogglePhotoInReport;
 
 function sdOpenLightbox(src) {
   document.getElementById('lbImg').src = src;
@@ -3695,6 +3729,11 @@ function sdExportPdf(id){
           y += 4;
           doc.setDrawColor(229,231,235); doc.setLineWidth(0.2);
           doc.line(M, y-1, pageW-M, y-1);
+          // Abstand zwischen Trennlinie und erster Daten-Zeile —
+          // doc.text rendert die Baseline bei y, der Text ragt ~3mm
+          // nach oben. Ohne diesen Versatz schneidet die Linie durch
+          // die Raum-Namen.
+          y += 3;
           // Daten-Zeilen
           doc.setFont('helvetica','normal'); doc.setFontSize(9); doc.setTextColor(55,65,81);
           raumKeys.forEach(function(rm){

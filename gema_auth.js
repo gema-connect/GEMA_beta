@@ -714,6 +714,24 @@
       (document.head||document.documentElement).appendChild(_bs);
     }catch(e){}
 
+    // ── SAFETY NET: visibility:hidden darf nie laenger als 4s aktiv
+    //    bleiben. Wenn unter dem Auth-Init irgendwo ein Error fliegt
+    //    oder ein Code-Pfad _unblock() vergisst, hat die Seite sonst
+    //    permanent einen weissen Bildschirm. Dieser Timeout greift in
+    //    den Worst-Case-Pfaden — im Normalbetrieb laeuft _unblock()
+    //    deutlich frueher und entfernt das Style-Element. ──
+    setTimeout(function(){
+      var s = document.getElementById('_gaBlock');
+      if(s){
+        try{ console.warn('[GemaAuth] Safety-Net unblock nach 4s ausgeloest'); }catch(e){}
+        s.remove();
+      }
+    }, 4000);
+
+    // Auth-Init in try/catch — wenn hier etwas crasht, soll trotzdem
+    // _unblock() laufen, damit die Page sichtbar bleibt.
+    try {
+
     var session=_getSession();
     if(!session){
       _redirectLogin();
@@ -767,6 +785,12 @@
           }
         }
       }
+    }
+    } catch (e) {
+      // Auth-Init hat einen Fehler geworfen. Damit der Bildschirm
+      // nicht weiss bleibt: unblock + Fehler in Console werfen.
+      try{ console.error('[GemaAuth] Init-Fehler:', e); }catch(_){}
+      _unblock();
     }
   }
 
