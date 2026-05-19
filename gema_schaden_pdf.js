@@ -156,11 +156,18 @@
     return Math.max(0, Math.round(t));
   }
 
+  // Pruef ob ein Wert "leer" ist (null/undef/''/whitespace-only).
+  // Wird ueberall benutzt, wo Felder bei leerem Inhalt komplett aus
+  // dem Bericht ausgeblendet werden sollen.
+  function notEmpty(v){
+    return v != null && String(v).trim() !== '';
+  }
+
   // Schadens-Typ → lesbares Label + Eyebrow-Farbe
   var TYP_LABEL = {
     wasserschaden:'Wasserschaden', schimmel:'Schimmelschaden',
     rohrbruch:'Rohrbruch', leitungsschaden:'Leitungsschaden',
-    rueckstau:'Rueckstau', sonstiges:'Sonstiges'
+    rueckstau:'Rückstau', sonstiges:'Sonstiges'
   };
   function typLabel(t){ return TYP_LABEL[t] || 'Schadensbericht'; }
 
@@ -366,9 +373,6 @@
       if(k != null) energieTotal += k;
     });
 
-    var hasObjekt = !!opts.objektName;
-    var hasAdresse = !!opts.objektAdresse;
-
     var h = '<section class="cover">'
       + '<div class="cover-bar"></div>'
       + '<div class="cover-top">'
@@ -385,21 +389,23 @@
       + '</div>'
       + '<div class="cover-meta">';
 
-    if(hasObjekt){
+    // Cover-Meta: nur Felder mit Inhalt anzeigen (leere weglassen).
+    if(notEmpty(opts.objektName)){
       h += '<div class="meta-item"><div class="meta-k">Objekt</div><div class="meta-v">'+esc(opts.objektName)+'</div></div>';
     }
-    if(hasAdresse){
+    if(notEmpty(opts.objektAdresse)){
       h += '<div class="meta-item"><div class="meta-k">Adresse</div><div class="meta-v">'+esc(opts.objektAdresse)+'</div></div>';
     }
-    if(s.erstelltVon && s.erstelltVon.name){
+    if(s.erstelltVon && notEmpty(s.erstelltVon.name)){
       h += '<div class="meta-item"><div class="meta-k">Bearbeiter</div><div class="meta-v">'+esc(s.erstelltVon.name)+'</div></div>';
     }
     h += '<div class="meta-item"><div class="meta-k">Schadentyp</div><div class="meta-v">'+esc(typ)+'</div></div>';
     if(s.erstelltAm){
       h += '<div class="meta-item"><div class="meta-k">Erfasst am</div><div class="meta-v">'+esc(fmtDate(s.erstelltAm))+'</div></div>';
     }
-    if(s.raeume && s.raeume.length){
-      h += '<div class="meta-item"><div class="meta-k">Betroffene Raeume</div><div class="meta-v">'+esc(s.raeume.join(' · '))+'</div></div>';
+    var raeume = (s.raeume||[]).filter(notEmpty);
+    if(raeume.length){
+      h += '<div class="meta-item"><div class="meta-k">Betroffene Räume</div><div class="meta-v">'+esc(raeume.join(' · '))+'</div></div>';
     }
     h += '</div>';  // /cover-meta
 
@@ -407,7 +413,7 @@
     if(tage > 0 || anzGeraete > 0 || anzMesspunkte > 0){
       h += '<div class="kpi-strip">'
         + '<div class="kpi"><div class="kpi-v">'+tage+'<small> Tage</small></div><div class="kpi-k">Trocknungsdauer</div></div>'
-        + '<div class="kpi"><div class="kpi-v">'+anzGeraete+'</div><div class="kpi-k">Geraete im Einsatz</div></div>'
+        + '<div class="kpi"><div class="kpi-v">'+anzGeraete+'</div><div class="kpi-k">Geräte im Einsatz</div></div>'
         + '<div class="kpi"><div class="kpi-v">'+(Math.round(energieTotal*10)/10)+'<small> kWh</small></div><div class="kpi-k">Energiebedarf</div></div>'
         + '<div class="kpi"><div class="kpi-v">'+anzMesspunkte+'</div><div class="kpi-k">Messpunkte</div></div>'
       + '</div>';
@@ -421,25 +427,25 @@
   // ── Sektion 1: Zustandsanalyse ─────────────────────────────────────
   function analyseHtml(s){
     var a = s.zustandsanalyse || {};
-    if(!a.leckortung && !a.schadenausmass && !(a.massnahmen||[]).length && !(a.fotos||[]).length){
-      // Sektion komplett weglassen wenn leer
-      return '';
-    }
+    var massnahmenList = (a.massnahmen||[]).filter(notEmpty);
+    var hasContent = notEmpty(a.leckortung) || notEmpty(a.schadenausmass)
+      || massnahmenList.length || (a.fotos||[]).length;
+    if(!hasContent) return '';
     var h = '<section class="report-section"><div class="page-body">'
       + '<div class="sec-head">'
         + '<div class="sec-num">1</div>'
         + '<div class="sec-titles"><div class="sec-eyebrow">Phase 1 von 3</div><div class="sec-title">Zustandsanalyse</div></div>'
         + (a.abgeschlossenAm ? '<div class="sec-date">Abgeschlossen<br>'+esc(fmtDate(a.abgeschlossenAm))+'</div>' : '')
       + '</div>';
-    if(a.leckortung){
+    if(notEmpty(a.leckortung)){
       h += '<div class="block"><div class="block-label">Leckortung</div><div class="block-body">'+esc(a.leckortung)+'</div></div>';
     }
-    if(a.schadenausmass){
+    if(notEmpty(a.schadenausmass)){
       h += '<div class="block"><div class="block-label">Schadenausmass</div><div class="block-body">'+esc(a.schadenausmass)+'</div></div>';
     }
-    if((a.massnahmen||[]).length){
+    if(massnahmenList.length){
       h += '<div class="block"><div class="block-label">Massnahmen</div><div class="block-body"><ul>';
-      a.massnahmen.forEach(function(m){ h += '<li>'+esc(m)+'</li>'; });
+      massnahmenList.forEach(function(m){ h += '<li>'+esc(m)+'</li>'; });
       h += '</ul></div></div>';
     }
     h += photoSectionHtml('Analyse-Fotos', a.fotos);
@@ -483,9 +489,9 @@
     // Geraete-Tabelle — Subhead + Tabelle in einem .tbl-block (untrennbar)
     if((tr.geraete||[]).length){
       h += '<div class="tbl-block">'
-        + '<div class="subhead">Eingesetzte Geraete</div>'
+        + '<div class="subhead">Eingesetzte Geräte</div>'
         + '<table class="tbl"><thead><tr>'
-          + '<th>Geraet</th><th>Raum</th>'
+          + '<th>Gerät</th><th>Raum</th>'
           + '<th class="num">Leistung</th><th class="num">Std/Tag</th>'
           + '<th class="num">Tage</th><th class="num">Energie</th>'
         + '</tr></thead><tbody>';
@@ -522,7 +528,7 @@
       h += '<div class="tbl-block">'
         + '<div class="subhead">Zusammenfassung pro Raum</div>'
         + '<table class="tbl"><thead><tr>'
-          + '<th>Raum</th><th class="num">Geraete</th><th class="num">Tage</th><th class="num">Stunden</th><th class="num">Energie</th>'
+          + '<th>Raum</th><th class="num">Geräte</th><th class="num">Tage</th><th class="num">Stunden</th><th class="num">Energie</th>'
         + '</tr></thead><tbody>';
       Object.keys(raumAgg).forEach(function(rm){
         var a = raumAgg[rm];
@@ -573,8 +579,11 @@
       });
     }
 
-    if(tr.notizen){
-      h += '<div class="note"><div class="note-k">Notizen zur Trocknung</div>'+esc(tr.notizen)+'</div>';
+    // Bemerkung zur Trocknung (frueher 'Notizen zur Trocknung') — nur
+    // anzeigen wenn der User wirklich Inhalt eingegeben hat, nicht bei
+    // leerem oder Whitespace-only-Feld.
+    if(notEmpty(tr.notizen)){
+      h += '<div class="note"><div class="note-k">Bemerkung zur Trocknung</div>'+esc(tr.notizen)+'</div>';
     }
     h += photoSectionHtml('Trocknungs-Fotos', tr.fotos);
     h += '</div></section>';
@@ -584,23 +593,23 @@
   // ── Sektion 3: Abschluss ───────────────────────────────────────────
   function abschlussHtml(s, opts){
     var ab = s.abschluss || {};
-    if(!ab.zusammenfassung && !ab.instandstellung && !ab.weitereSchaeden && !(ab.fotos||[]).length){
-      return '';
-    }
+    var hasContent = notEmpty(ab.zusammenfassung) || notEmpty(ab.instandstellung)
+      || notEmpty(ab.weitereSchaeden) || (ab.fotos||[]).length;
+    if(!hasContent) return '';
     var h = '<section class="report-section"><div class="page-body">'
       + '<div class="sec-head">'
         + '<div class="sec-num">3</div>'
         + '<div class="sec-titles"><div class="sec-eyebrow">Phase 3 von 3</div><div class="sec-title">Abschlussbericht</div></div>'
         + (ab.abgeschlossenAm ? '<div class="sec-date">Abgeschlossen<br>'+esc(fmtDate(ab.abgeschlossenAm))+'</div>' : '')
       + '</div>';
-    if(ab.zusammenfassung){
+    if(notEmpty(ab.zusammenfassung)){
       h += '<div class="block"><div class="block-label">Zusammenfassung</div><div class="block-body">'+esc(ab.zusammenfassung)+'</div></div>';
     }
-    if(ab.instandstellung){
+    if(notEmpty(ab.instandstellung)){
       h += '<div class="block"><div class="block-label">Instandstellung</div><div class="block-body">'+esc(ab.instandstellung)+'</div></div>';
     }
-    if(ab.weitereSchaeden){
-      h += '<div class="block"><div class="block-label">Weitere Schaeden / Folgekosten</div><div class="block-body">'+esc(ab.weitereSchaeden)+'</div></div>';
+    if(notEmpty(ab.weitereSchaeden)){
+      h += '<div class="block"><div class="block-label">Weitere Schäden / Folgekosten</div><div class="block-body">'+esc(ab.weitereSchaeden)+'</div></div>';
     }
     h += photoSectionHtml('Abschluss-Fotos', ab.fotos);
 
