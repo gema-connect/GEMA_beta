@@ -707,29 +707,24 @@
   if(_isSkip()){
     // login — no auth, just expose API
   } else {
-    // Block page
-    try{
-      var _bs=document.createElement('style');_bs.id='_gaBlock';
-      _bs.textContent='body{visibility:hidden!important}';
-      (document.head||document.documentElement).appendChild(_bs);
-    }catch(e){}
+    // FRUEHER haben wir hier ein <style id="_gaBlock">body{visibility:
+    // hidden!important}</style> injiziert, damit der Modul-Inhalt
+    // waehrend des Permission-Checks nicht aufblitzt. Das war aber
+    // die Wurzel von "Modul haengt sich beim Anklicken auf, weisser
+    // Bildschirm": wenn irgendein Code-Pfad das _unblock() ueberspringt
+    // (Exception, async-Race, Edge-Case), bleibt der Body permanent
+    // unsichtbar. Mehrere Schutzschichten (try/catch, setTimeout-Safety-
+    // Net) haben das Problem nicht zuverlaessig behoben.
+    //
+    // Neue Strategie: KEIN Block mehr. Beim Login-Redirect oder Access-
+    // Denied blitzt fuer ~30ms der Modul-Inhalt auf, bevor _redirectLogin
+    // bzw. der "Kein Zugriff"-Screen rendert. Das ist akzeptabel — ein
+    // kurzer FOUC ist allemal besser als ein permanent weisser Bildschirm.
+    //
+    // _unblock() ist noch da fuer Backward-Compat (falls irgendwer das
+    // _gaBlock-Element manuell anlegt) — macht aber nichts, wenn es
+    // kein Element zu entfernen gibt.
 
-    // ── SAFETY NET: visibility:hidden darf nie laenger als 4s aktiv
-    //    bleiben. Wenn unter dem Auth-Init irgendwo ein Error fliegt
-    //    oder ein Code-Pfad _unblock() vergisst, hat die Seite sonst
-    //    permanent einen weissen Bildschirm. Dieser Timeout greift in
-    //    den Worst-Case-Pfaden — im Normalbetrieb laeuft _unblock()
-    //    deutlich frueher und entfernt das Style-Element. ──
-    setTimeout(function(){
-      var s = document.getElementById('_gaBlock');
-      if(s){
-        try{ console.warn('[GemaAuth] Safety-Net unblock nach 4s ausgeloest'); }catch(e){}
-        s.remove();
-      }
-    }, 4000);
-
-    // Auth-Init in try/catch — wenn hier etwas crasht, soll trotzdem
-    // _unblock() laufen, damit die Page sichtbar bleibt.
     try {
 
     var session=_getSession();

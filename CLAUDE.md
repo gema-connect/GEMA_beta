@@ -532,17 +532,19 @@ In den GEMA-HTML-Dateien wird `gema_responsive.css` typischerweise direkt nach d
 
 Bei **gleicher Spezifitaet** gewinnt im Cascade die **spaeter geladene** Regel — d.h. `gema_responsive.css` ueberschreibt inline-styles. Wer also lokal Hero/Nav-Werte setzen will, muss entweder `!important` verwenden ODER (besser) eine spezifischere Selektor-Kombination wahlen ODER (am besten) das HTML-Markup so anpassen, dass die globalen Regeln gar nicht erst greifen (siehe Hero-Markup oben).
 
-### Berechnungsmodule haengen weiss beim Laden (gema_auth.js `_unblock`-Fail)
+### Berechnungsmodule haengen weiss beim Laden (BEHOBEN durch Entfernung des Block-Patterns)
 
-`gema_auth.js` injiziert beim Init ein `<style id="_gaBlock">body{visibility:hidden!important}</style>` in den `<head>`, damit waehrend des Auth-Checks der Inhalt nicht aufblitzt. Am Ende eines erfolgreichen Auth-Pfades ruft die Funktion `_unblock()` auf, die das Style-Element entfernt.
+**Frueher**: `gema_auth.js` injizierte beim Init ein `<style id="_gaBlock">body{visibility:hidden!important}</style>`, damit der Modul-Inhalt waehrend des Permission-Checks nicht aufblitzt. Am Ende der Auth-Logik rief `_unblock()` das Style-Element wieder weg.
 
-**Falle**: Wenn irgendein Code-Pfad `_unblock()` ueberspringt oder eine JS-Exception zwischen `appendChild(_bs)` und `_unblock()` fliegt, bleibt der `body` permanent unsichtbar — Symptom: **weisser Bildschirm beim Laden** in ALLEN Modulen (weil `gema_auth.js` ueberall geladen wird).
+**Bug**: Wenn IRGENDEIN Code-Pfad `_unblock()` uebersprungen hat (JS-Exception, async-Race-Condition, Edge-Case beim Login-Redirect, blockierender Promise, async Cloud-Bootstrap), blieb der `body` permanent unsichtbar — **weisser Bildschirm in ALLEN Modulen**, vor allem in Berechnungsmodulen (sb_*, sa_*).
 
-**Schutz (seit Commit nach v51)**:
-1. Der ganze Auth-Init-Block laeuft jetzt in `try/catch` — bei Fehler wird `_unblock()` aus dem `catch`-Pfad gerufen.
-2. **Safety-Net**: Ein `setTimeout(_unblock, 4000)` entfernt das Block-Style spaetestens nach 4 Sekunden, egal was passiert. In der Console erscheint dann `[GemaAuth] Safety-Net unblock nach 4s ausgeloest`.
+**Versuchter Schutz (zu schwach)**: try/catch um Init-Block + `setTimeout(_unblock, 4000)` Safety-Net. Hat den Bug nicht zuverlaessig behoben — entweder griff der Timeout auf bestimmten Geraeten nicht, oder der User wartete ohnehin nicht 4 Sekunden auf das Auto-Unblock.
 
-**Bei Re-Auftreten**: Console oeffnen — wenn das Safety-Net-Log erscheint, hat ein Code-Pfad `_unblock()` vergessen. Mit Stack-Trace den Aufrufer ermitteln und an passender Stelle `_unblock()` einfuegen.
+**Endgueltige Loesung**: Das gesamte `<style id="_gaBlock">`-Pattern wurde **komplett entfernt**. Beim Login-Redirect oder Access-Denied blitzt fuer ~30ms der Modul-Inhalt auf, bevor `_redirectLogin` bzw. der "Kein Zugriff"-Screen rendert — das ist akzeptabel. Ein kurzer FOUC ist allemal besser als ein permanenter weisser Bildschirm.
+
+**`_unblock()` ist noch im Code** als No-Op (entfernt das `_gaBlock`-Element falls vorhanden) — Backward-Compat fuer extern injiziertes Blocking, im Standardfall passiert dort nichts mehr.
+
+**Nicht wieder einbauen!** Wenn man Anti-FOUC braucht, lieber ein **leichtes Overlay** mit Loader-Spinner einblenden, das durch einen kurzen Timer (max. 500ms) wieder weg ist — kein body-Level visibility:hidden.
 ### Doppelte CSS-Regelbloecke aus alten Media-Queries
 
 Wenn ein Media-Query entfernt wurde, blieben in einigen Modulen die innerhalb der `@media`-Klammer eingerueckten Regeln stehen — also als globale Regeln. Diese kollidieren dann mit den gleichen Regeln weiter oben im Stylesheet (gleiche Spezifitaet, spaetere gewinnt, Werte oft abweichend).
