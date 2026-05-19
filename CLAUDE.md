@@ -543,7 +543,6 @@ Bei **gleicher Spezifitaet** gewinnt im Cascade die **spaeter geladene** Regel �
 2. **Safety-Net**: Ein `setTimeout(_unblock, 4000)` entfernt das Block-Style spaetestens nach 4 Sekunden, egal was passiert. In der Console erscheint dann `[GemaAuth] Safety-Net unblock nach 4s ausgeloest`.
 
 **Bei Re-Auftreten**: Console oeffnen — wenn das Safety-Net-Log erscheint, hat ein Code-Pfad `_unblock()` vergessen. Mit Stack-Trace den Aufrufer ermitteln und an passender Stelle `_unblock()` einfuegen.
-
 ### Doppelte CSS-Regelbloecke aus alten Media-Queries
 
 Wenn ein Media-Query entfernt wurde, blieben in einigen Modulen die innerhalb der `@media`-Klammer eingerueckten Regeln stehen — also als globale Regeln. Diese kollidieren dann mit den gleichen Regeln weiter oben im Stylesheet (gleiche Spezifitaet, spaetere gewinnt, Werte oft abweichend).
