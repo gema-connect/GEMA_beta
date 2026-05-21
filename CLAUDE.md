@@ -532,17 +532,20 @@ In den GEMA-HTML-Dateien wird `gema_responsive.css` typischerweise direkt nach d
 
 Bei **gleicher Spezifitaet** gewinnt im Cascade die **spaeter geladene** Regel — d.h. `gema_responsive.css` ueberschreibt inline-styles. Wer also lokal Hero/Nav-Werte setzen will, muss entweder `!important` verwenden ODER (besser) eine spezifischere Selektor-Kombination wahlen ODER (am besten) das HTML-Markup so anpassen, dass die globalen Regeln gar nicht erst greifen (siehe Hero-Markup oben).
 
-### Berechnungsmodule haengen weiss beim Laden (gema_auth.js `_unblock`-Fail)
+### Berechnungsmodule haengen weiss beim Laden (BEHOBEN durch Entfernung des Block-Patterns)
 
-`gema_auth.js` injiziert beim Init ein `<style id="_gaBlock">body{visibility:hidden!important}</style>` in den `<head>`, damit waehrend des Auth-Checks der Inhalt nicht aufblitzt. Am Ende eines erfolgreichen Auth-Pfades ruft die Funktion `_unblock()` auf, die das Style-Element entfernt.
+**Frueher**: `gema_auth.js` injizierte beim Init ein `<style id="_gaBlock">body{visibility:hidden!important}</style>`, damit der Modul-Inhalt waehrend des Permission-Checks nicht aufblitzt. Am Ende der Auth-Logik rief `_unblock()` das Style-Element wieder weg.
 
-**Falle**: Wenn irgendein Code-Pfad `_unblock()` ueberspringt oder eine JS-Exception zwischen `appendChild(_bs)` und `_unblock()` fliegt, bleibt der `body` permanent unsichtbar — Symptom: **weisser Bildschirm beim Laden** in ALLEN Modulen (weil `gema_auth.js` ueberall geladen wird).
+**Bug**: Wenn IRGENDEIN Code-Pfad `_unblock()` uebersprungen hat (JS-Exception, async-Race-Condition, Edge-Case beim Login-Redirect, blockierender Promise, async Cloud-Bootstrap), blieb der `body` permanent unsichtbar — **weisser Bildschirm in ALLEN Modulen**, vor allem in Berechnungsmodulen (sb_*, sa_*).
 
-**Schutz (seit Commit nach v51)**:
-1. Der ganze Auth-Init-Block laeuft jetzt in `try/catch` — bei Fehler wird `_unblock()` aus dem `catch`-Pfad gerufen.
-2. **Safety-Net**: Ein `setTimeout(_unblock, 4000)` entfernt das Block-Style spaetestens nach 4 Sekunden, egal was passiert. In der Console erscheint dann `[GemaAuth] Safety-Net unblock nach 4s ausgeloest`.
+**Versuchter Schutz (zu schwach)**: try/catch um Init-Block + `setTimeout(_unblock, 4000)` Safety-Net. Hat den Bug nicht zuverlaessig behoben — entweder griff der Timeout auf bestimmten Geraeten nicht, oder der User wartete ohnehin nicht 4 Sekunden auf das Auto-Unblock.
 
-**Bei Re-Auftreten**: Console oeffnen — wenn das Safety-Net-Log erscheint, hat ein Code-Pfad `_unblock()` vergessen. Mit Stack-Trace den Aufrufer ermitteln und an passender Stelle `_unblock()` einfuegen.
+**Endgueltige Loesung**: Das gesamte `<style id="_gaBlock">`-Pattern wurde **komplett entfernt**. Beim Login-Redirect oder Access-Denied blitzt fuer ~30ms der Modul-Inhalt auf, bevor `_redirectLogin` bzw. der "Kein Zugriff"-Screen rendert — das ist akzeptabel. Ein kurzer FOUC ist allemal besser als ein permanenter weisser Bildschirm.
+
+**`_unblock()` ist noch im Code** als No-Op (entfernt das `_gaBlock`-Element falls vorhanden) — Backward-Compat fuer extern injiziertes Blocking, im Standardfall passiert dort nichts mehr.
+
+**Nicht wieder einbauen!** Wenn man Anti-FOUC braucht, lieber ein **leichtes Overlay** mit Loader-Spinner einblenden, das durch einen kurzen Timer (max. 500ms) wieder weg ist — kein body-Level visibility:hidden.
+
 ### Doppelte CSS-Regelbloecke aus alten Media-Queries
 
 Wenn ein Media-Query entfernt wurde, blieben in einigen Modulen die innerhalb der `@media`-Klammer eingerueckten Regeln stehen — also als globale Regeln. Diese kollidieren dann mit den gleichen Regeln weiter oben im Stylesheet (gleiche Spezifitaet, spaetere gewinnt, Werte oft abweichend).
@@ -815,6 +818,36 @@ Full-Screen-Overlay (`position:fixed`) mit 4-Phasen-Timeline und aufklappbaren A
 - **Footer (alle Inhalts-Seiten)**: Firma + Adresse links, „PDF erstellt: …" mittig, „Seite X / Y" rechts, Trennlinie.
 - **Statt Emojis**: farbige Buchstaben-Pillen (W/S/R/L/Rü/X) — jsPDF kann Emojis nicht rendern.
 - Helper-Konstanten: `_PDF_TYP_INFO`, `_PDF_PHASE_INFO` für Farben+Labels.
+
+### Export — PDF (Vorlage, HTML/Print via gema_schaden_pdf.js)
+
+**Neuer Render-Weg** parallel zum alten jsPDF. Layout 1:1 nach `vorlagen/bericht_wasserschaden_vorlage.html` (Vorlage-Referenz im Repo, nicht editieren). Helper `gema_schaden_pdf.js` exponiert `GemaSchadenPDF.exportPrint(schaden, opts)` — öffnet ein neues Fenster mit DM-Sans-A4-Layout, der User klickt im Browser-Druckdialog auf «Als PDF speichern».
+
+**Aufrufer**: `sdExportHtmlPrint(id)` in `sd_schadensbericht.html`. Sammelt `org`, `user`, `objektName`, `objektAdresse` und übergibt sie an den Helper. Button «📄 PDF (Vorlage)» neben dem alten PDF-Button — beide bleiben verfügbar.
+
+**Logo-Branch**: Wenn `org.logo` (Base64-data-URL aus `sys_unternehmen.html`) gesetzt ist → Firmen-Logo oben links auf dem Deckblatt. Sonst → eingebettetes GEMA-Inline-SVG. Damit zeigen User ohne hochgeladenes Logo automatisch das GEMA-Branding.
+
+**Inhalt** (auto-skipping bei leeren Sektionen):
+- Cover: laufender Header/Footer mit Org-Name (oder «GEMA»), Cover-Bar (Navy → Forest), Brand-Block (Logo), Schadentitel + Eyebrow, Status-Pill, Meta-Grid (Objekt/Adresse/Bearbeiter/Schadentyp/Erfasst am/Räume), KPI-Strip (Trocknungsdauer/Geräte/Energie/Messpunkte) — KPIs nur wenn Trocknung Daten hat
+- Sektion 1 «Zustandsanalyse»: Leckortung / Schadenausmass / Massnahmen-Liste + Fotos
+- Sektion 2 «Trocknung»: Facts-Row (Start/Ende/Dauer/Energie), Geräte-Tabelle (Std/Tag berechnet aus zählerTyp), Zusammenfassung pro Raum mit Total-Zeile, **auto-skalierter Inline-SVG-Chart** (Messpunkt-Trend) + Messwert-Tabellen mit Differenz/Trend-Spalte, Notizen, Fotos
+- Sektion 3 «Abschluss»: Zusammenfassung / Instandstellung / Weitere Schäden + Fotos + Unterschriften-Zeile
+
+**Foto-Filter**: respektiert `f.imBericht !== false` — ausgeschlossene Fotos erscheinen nicht im Export (siehe «Foto-im-Bericht pro Bild umschaltbar» weiter oben).
+
+**Diagramm**: auto-Skala basierend auf min/max Wert (±10% Padding, auf 5 gerundet), max 5 X-Labels, bis zu 5 Serien mit unterschiedlichen Farben/Dash-Patterns. Bei nur einem Messpunkt komplett ausgeblendet.
+
+**Print-Toolbar**: oben rechts (nur Bildschirm, im Druck via `.no-print` weg) — «Drucken / Als PDF speichern» + «Schliessen»-Button.
+
+**Kopf-/Fusszeile auf jeder Druckseite via `@page` margin-boxes**: Chrome/Edge rendern beim Drucken `@page { @top-left @top-right @bottom-left @bottom-right }` als feste Header/Footer auf jeder Seite. Der CSS-`content` wird beim Build dynamisch zusammengesetzt (Org-Name + Berichttitel + Datum als Strings einescaped, `counter(page)` / `counter(pages)` als CSS-Counter). Layout: oben links Org-Name, oben rechts «Schadensbericht · Titel», unten links «Org-Name · Erstellt Datum», unten rechts «Seite X von Y». Im Bildschirm haben die A4-Blätter keinen Header/Footer (zu wenig Platz neben den Sektionsblöcken) — die Print-Vorschau im Browser zeigt die @page-Boxen.
+
+**Sachbearbeiter**: wird im Erfassungs-Modal (`sdOpenNew`) per Dropdown gewählt (`#f_sachbearbeiter`). Default = aktuell eingeloggter User. Auswahl alle aktiven User der eigenen Org (`GemaAuth.getUsers().filter orgId`). Speichert in `s.erstelltVon = {userId, name}` — wird im Cover unter «Sachbearbeiter» angezeigt.
+
+**Bildschirm-Vorschau zeigt Seiten als A4-Blätter**: Cover und jede `report-section` sind in der Vorschau eigene 210×297mm-Blätter mit Box-Shadow auf grauem Hintergrund — der User sieht die Sektion-Grenzen, statt eines fortlaufenden Stroms. Im Print fallen die Schatten weg und der Browser fügt physische Seiten automatisch ein.
+
+**Saubere Seitenumbrüche im Druck**: Subhead + Tabelle werden über einen `.tbl-block`-Wrapper mit `break-inside:avoid` zusammengehalten — der Tabellen-Header steht nicht alleine am Seitenende. Genauso `.photo-group` (Foto-Head + Grid bei ≤6 Fotos), `.chart-card`, `.note`, `.block` und einzelne `.tbl`-Zeilen. `display:table-header-group` auf `.tbl thead` wiederholt den Header bei einer Tabelle, die doch noch übers Seitenende läuft.
+
+**Unterschriften-Block entfernt** im Standard-Export (Bearbeiter / Ort/Datum). CSS-Klassen `.sign-row` / `.sign-line` bleiben für externe Aufrufer als Backward-Compat.
 
 ### Export — Word
 
@@ -1358,6 +1391,7 @@ UI-Anbindung:
 | `gema_offer_request.js` | Externe Offertanfragen |
 | `gema_offerten_tab.js` | Offerten-Tab in Berechnungsmodulen |
 | `gema_pdf.js` | PDF-Export via html2canvas |
+| `gema_schaden_pdf.js` | **Schadensbericht HTML/Print-Export** nach `vorlagen/bericht_wasserschaden_vorlage.html`. `GemaSchadenPDF.exportPrint(schaden, {org,user,objektName,objektAdresse})` öffnet neues Fenster mit A4-Layout (window.print()). Logo-Branch: `org.logo` wenn vorhanden, sonst eingebettetes GEMA-SVG. Filtert `f.imBericht !== false`. |
 | `gema_produktkatalog_api.js` | Produkte + Stammlieferanten + Favoriten |
 | `gema_push.js` | Web-Push-Vorbereitung (Service-Worker) |
 | `gema_pwa.js` | PWA-Install-Helper (`beforeinstallprompt`-Capture, `GemaPWA.install()`) |
