@@ -14,12 +14,28 @@
   var SB_URL = 'https://fjhbqjvaygvhievjgdtm.supabase.co';
   var SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZqaGJxanZheWd2aGlldmpnZHRtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI2ODk5OTUsImV4cCI6MjA4ODI2NTk5NX0.n3AbrEKTWWhI2tnDaf7-Z-QI9o9pJiP1E7BsHVuZY9k';
 
+  // Self-Healing: prueft, ob activeObjektId auf ein existierendes Objekt
+  // zeigt. Wenn nicht (geloescht, archiviert, falsche Org via Workspace-
+  // Eimer), wird die verwaiste ID geleert. Sonst zeigen Berechnungsmodule
+  // den Status «Zugeordnet zu: <unbekannt>» und Cross-Modul-APIs liefern
+  // keine Daten — Symptome aus dem Workspace-Bug.
+  function _healActive(cache) {
+    if (!cache || !cache.activeObjektId) return;
+    var exists = (cache.objekte || []).some(function(o){
+      return o && o.id === cache.activeObjektId;
+    });
+    if (!exists) {
+      try { console.info('[GemaObjekte] Verwaiste activeObjektId bereinigt:', cache.activeObjektId); } catch(e) {}
+      cache.activeObjektId = null;
+    }
+  }
+
   function _load() {
     if (_cache) return _cache;
     // 1. localStorage
     try {
       var raw = localStorage.getItem(KEY);
-      if (raw) { _cache = JSON.parse(raw); _loaded = true; return _cache; }
+      if (raw) { _cache = JSON.parse(raw); _loaded = true; _healActive(_cache); return _cache; }
     } catch(e) {}
     // 2. GemaDB cache
     try {
@@ -29,6 +45,7 @@
           _cache = JSON.parse(raw2);
           _loaded = true;
           try { localStorage.setItem(KEY, raw2); } catch(e) {}
+          _healActive(_cache);
           return _cache;
         }
       }

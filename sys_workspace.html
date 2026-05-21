@@ -1396,8 +1396,23 @@ input::placeholder{color:#cbd5e1}
 
   // ── Auto-Objekt: Jeder Eimer bekommt automatisch ein Objekt ──
   function _wsEnsureObjekt(b){
-    if(b.objektId)return b.objektId;
-    var objId='obj_ws_'+b.id;
+    // Wenn der Eimer bereits eine objektId hat: pruefen, ob das Objekt
+    // noch im pm_objekte-Bestand existiert. Wenn nicht (geloescht,
+    // archiviert, Org-Wechsel), legen wir es neu unter derselben ID an —
+    // sonst zeigt setActiveId auf eine tote ID und die Berechnungsmodule
+    // finden das Objekt nicht.
+    if(b.objektId){
+      try {
+        var raw0 = localStorage.getItem('gema_objekte_v1');
+        var data0 = raw0 ? JSON.parse(raw0) : null;
+        if (data0 && (data0.objekte||[]).find(function(o){ return o.id === b.objektId; })) {
+          return b.objektId;  // Objekt existiert noch → alles gut
+        }
+      } catch(e) {}
+      // b.objektId vorhanden aber Objekt fehlt → unten neu anlegen mit
+      // derselben ID, damit Cross-Modul-Referenzen weiter funktionieren.
+    }
+    var objId = b.objektId || ('obj_ws_'+b.id);
     var curUser=null;
     try{if(typeof GemaAuth!=='undefined')curUser=GemaAuth.getCurrentUser();}catch(e){}
     var newObj={id:objId,name:b.name,strasse:'',plz:'',ort:'',
@@ -1411,6 +1426,11 @@ input::placeholder{color:#cbd5e1}
       if(!data.objekte.find(function(o){return o.id===objId;})){
         data.objekte.push(newObj);
         localStorage.setItem('gema_objekte_v1',JSON.stringify(data));
+        // Cache von GemaObjekte invalidieren, damit der naechste
+        // _load() das frisch geschriebene Objekt sieht. Sonst
+        // ueberschreibt setActiveId (das _save mit altem Cache macht)
+        // unser neues Objekt wieder.
+        try { if (typeof GemaObjekte !== 'undefined' && GemaObjekte.refresh) GemaObjekte.refresh(); } catch(e) {}
       }
     }catch(e){}
     b.objektId=objId;
