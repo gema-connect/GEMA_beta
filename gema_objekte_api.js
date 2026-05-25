@@ -525,10 +525,23 @@
     }
     // Re-inject if .project-bar appears later (some modules build it dynamically)
     try {
-      var mo = new MutationObserver(function(){ _injectPhaseSelector(); _renderZuordnungsPill(); });
+      var mo = new MutationObserver(function(){
+        // Wichtig: NUR re-injecten wenn etwas fehlt. Wenn beide Pills
+        // schon da sind, gar nichts tun — sonst feuert _renderZuordnungsPill
+        // einen DOM-Write (textContent etc.), der den Observer wieder
+        // triggert → Endlosschleife, Browser-Tab haengt sich auf.
+        var bar = document.querySelector('.project-bar');
+        if (!bar) return;
+        var hasPhase = bar.querySelector('.gema-phase-pf');
+        var hasPill = bar.querySelector('.gema-zuordnung-pill');
+        if (hasPhase && hasPill) return;  // alles drin, kein Update noetig
+        if (!hasPhase) _injectPhaseSelector();
+        if (!hasPill)  _renderZuordnungsPill();
+      });
       mo.observe(document.documentElement, { childList: true, subtree: true });
-      // Auto-disconnect after 5s
-      setTimeout(function(){ try { mo.disconnect(); } catch(e){} }, 5000);
+      // Auto-disconnect after 2s (frueher 5s — der Loop unten konnte
+      // die Page so lange einfrieren, das ist viel zu lang).
+      setTimeout(function(){ try { mo.disconnect(); } catch(e){} }, 2000);
     } catch(e){}
   }
   _initPhaseInjector();
@@ -554,10 +567,13 @@
         bg = '#fffbeb'; bd = '#fde68a'; col = '#92400e';
       }
       if (existing) {
-        existing.style.background = bg;
-        existing.style.borderColor = bd;
-        existing.style.color = col;
-        existing.textContent = text;
+        // Nur ueberschreiben wenn sich was geaendert hat. Sonst
+        // triggert die DOM-Mutation einen MutationObserver der diese
+        // Funktion erneut aufruft → Endlosschleife.
+        if (existing.textContent !== text) existing.textContent = text;
+        if (existing.style.background !== bg) existing.style.background = bg;
+        if (existing.style.borderColor !== bd) existing.style.borderColor = bd;
+        if (existing.style.color !== col) existing.style.color = col;
         return;
       }
       var pill = document.createElement('div');
