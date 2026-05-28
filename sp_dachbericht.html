@@ -181,6 +181,13 @@ body{margin:0;font-family:'DM Sans',system-ui,sans-serif;background:var(--bg);co
 .mn-prio.mittel{background:#fef3c7;color:#92400e}
 .mn-prio.hoch{background:#fee2e2;color:#991b1b}
 
+/* Template-Listen (einfache String-Listen mit + / ✕) */
+.tpl-list{display:flex;flex-direction:column;gap:6px;margin-top:4px}
+.tpl-row{display:flex;gap:6px;align-items:center}
+.tpl-row input{flex:1;padding:8px 11px;border:1.5px solid var(--brd);border-radius:8px;background:#fff;font-size:13px;font-family:inherit;color:var(--ink)}
+.tpl-row input:focus{outline:none;border-color:var(--acc)}
+.tpl-row .btn{flex-shrink:0;padding:6px 10px;font-size:11.5px}
+
 /* Lightbox */
 .lb{position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:300;display:flex;align-items:center;justify-content:center;padding:20px}
 .lb.hidden{display:none}
@@ -1324,7 +1331,15 @@ function openTemplatesModal(){
   html += '<button class="btn sm" onclick="tplAdd(\'ziegelarten\')">+ Eindeckung hinzufügen</button></div>';
 
   html += '<div class="fsec"><div class="fsec-hd"><span class="fsec-ico">🧭</span><div><div class="fsec-title">Seiten-Bezeichnungen</div><div class="fsec-sub">Strassenseite, Hofseite, Gartenseite ...</div></div></div>';
-  html += '<textarea data-tpl="seitenBezeichnungen" placeholder="Eine Bezeichnung pro Zeile">'+esc((tpl.seitenBezeichnungen||[]).join('\n'))+'</textarea>';
+  html += '<div class="tpl-list" data-tpl="seitenBezeichnungen">';
+  (tpl.seitenBezeichnungen||[]).forEach(function(s, i){
+    html += '<div class="tpl-row" data-i="'+i+'">'
+      + '<input type="text" data-fld="item" value="'+esc(s)+'" placeholder="Bezeichnung">'
+      + '<button class="btn sm danger" onclick="tplListDel(\'seitenBezeichnungen\','+i+')" title="Entfernen">✕</button>'
+      + '</div>';
+  });
+  html += '</div>';
+  html += '<button class="btn sm" style="margin-top:6px" onclick="tplListAdd(\'seitenBezeichnungen\')">+ Bezeichnung hinzufügen</button>';
   html += '</div>';
 
   html += '<div class="fsec"><div class="fsec-hd"><span class="fsec-ico">🔧</span><div><div class="fsec-title">Unterkapitel-Typen</div><div class="fsec-sub">Einfassungen, Dachfenster, Rinnen ...</div></div></div>';
@@ -1339,7 +1354,15 @@ function openTemplatesModal(){
   html += '<button class="btn sm" onclick="tplAdd(\'unterkapitelTypen\')">+ Unterkapitel-Typ hinzufügen</button></div>';
 
   html += '<div class="fsec"><div class="fsec-hd"><span class="fsec-ico">☑️</span><div><div class="fsec-title">Checklisten-Items</div><div class="fsec-sub">Was kann auf dem Dach sein</div></div></div>';
-  html += '<textarea data-tpl="checklisteItems" placeholder="Ein Item pro Zeile">'+esc((tpl.checklisteItems||[]).join('\n'))+'</textarea>';
+  html += '<div class="tpl-list" data-tpl="checklisteItems">';
+  (tpl.checklisteItems||[]).forEach(function(it, i){
+    html += '<div class="tpl-row" data-i="'+i+'">'
+      + '<input type="text" data-fld="item" value="'+esc(it)+'" placeholder="Checklisten-Item">'
+      + '<button class="btn sm danger" onclick="tplListDel(\'checklisteItems\','+i+')" title="Entfernen">✕</button>'
+      + '</div>';
+  });
+  html += '</div>';
+  html += '<button class="btn sm" style="margin-top:6px" onclick="tplListAdd(\'checklisteItems\')">+ Item hinzufügen</button>';
   html += '</div>';
 
   document.getElementById('tplModalBd').innerHTML = html;
@@ -1360,20 +1383,48 @@ function tplDel(key, idx){
   saveTemplatesToOrg(tpl);
   openTemplatesModal();
 }
+// String-Listen (Seiten-Bezeichnungen, Checklisten-Items)
+function tplListAdd(key){
+  var tpl = _readTplFromModal();
+  tpl[key] = tpl[key] || [];
+  tpl[key].push('');
+  saveTemplatesToOrg(tpl);
+  openTemplatesModal();
+  // Fokus auf das neu hinzugefügte Feld setzen (letzter Input in der Liste)
+  setTimeout(function(){
+    var rows = document.querySelectorAll('.tpl-list[data-tpl="'+key+'"] .tpl-row input');
+    if(rows.length) rows[rows.length-1].focus();
+  }, 50);
+}
+function tplListDel(key, idx){
+  var tpl = _readTplFromModal();
+  tpl[key].splice(idx, 1);
+  saveTemplatesToOrg(tpl);
+  openTemplatesModal();
+}
 function _readTplFromModal(){
   var tpl = JSON.parse(JSON.stringify(getTemplates()));
+  // Strukturen mit Objekten (id/label/defaultText)
   ['dachtypen','ziegelarten','unterkapitelTypen'].forEach(function(key){
     tpl[key] = [];
     document.querySelectorAll('[data-tpl="'+key+'"]').forEach(function(el){
+      // Nur Objekt-Container, nicht die Listen-Container
+      if(el.classList && el.classList.contains('tpl-list')) return;
       var obj = {};
       el.querySelectorAll('[data-fld]').forEach(function(inp){ obj[inp.dataset.fld] = inp.value; });
       tpl[key].push(obj);
     });
   });
-  var sb = document.querySelector('[data-tpl="seitenBezeichnungen"]');
-  if(sb) tpl.seitenBezeichnungen = sb.value.split('\n').map(function(s){return s.trim();}).filter(Boolean);
-  var ci = document.querySelector('[data-tpl="checklisteItems"]');
-  if(ci) tpl.checklisteItems = ci.value.split('\n').map(function(s){return s.trim();}).filter(Boolean);
+  // String-Listen (eine Zeile = ein Eintrag)
+  ['seitenBezeichnungen','checklisteItems'].forEach(function(key){
+    var listEl = document.querySelector('.tpl-list[data-tpl="'+key+'"]');
+    if(!listEl) return;
+    tpl[key] = [];
+    listEl.querySelectorAll('.tpl-row input[data-fld="item"]').forEach(function(inp){
+      var v = inp.value.trim();
+      if(v) tpl[key].push(v);
+    });
+  });
   return tpl;
 }
 function saveTemplates(){
