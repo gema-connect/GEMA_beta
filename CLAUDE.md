@@ -186,6 +186,7 @@ Jede Rolle hat ein eigenes Login mit rollenspezifischer Ansicht.
 | **Heizungsplaner** | Vollzugang Berechnungen + PM | Wie Sanitärplaner, Gewerk: HLKK |
 | **Lüftungsplaner** | Vollzugang Berechnungen + PM | Wie Sanitärplaner, Gewerk: Lüftung |
 | **Elektroplaner** | Vollzugang Berechnungen + PM | Wie Sanitärplaner, Gewerk: Elektro |
+| **Spengler** | Dachinspektion + PM + Werkzeug | Erstellt Dachberichte (sp_dachbericht), Zugang zu Objekten + Werkzeug-Read |
 | **Abteilungsleiter** | Berechnungen + PM + Werkzeuge | Prüft Berechnungen, sieht alle Projekte der Abteilung, Werkzeug-Leserechte |
 | **Unternehmer** | Ausschreibungen + Offerten | CRBX-Preise ausfüllen (langfristig in GEMA, kurzfristig Datei-Upload), Offertvergleich einsehen |
 | **Bauherrschaft** | Projektübersicht + Kosten | Projektstatus, Kostenkontrolle, Terminplan, Freigaben (Read-only) |
@@ -233,6 +234,7 @@ Kategorie-Präfix + Kleinschreibung. **Keine Umlaute in Dateinamen** (ä→ae, �
 | `br_` | Brandschutz | `br_index.html` |
 | `if_` | Infrastruktur (Werkzeug, Fahrzeug, Lager) | `if_werkzeug.html`, `if_fahrzeug.html` |
 | `sd_` | Schadensdokumentation | `sd_schadensbericht.html` |
+| `sp_` | Spenglerei | `sp_dachbericht.html` |
 | `ab_` | Ausbildung | `ab_index.html` |
 | `sys_` | System | `sys_settings.html` |
 
@@ -870,6 +872,101 @@ Full-Screen-Overlay (`position:fixed`) mit 4-Phasen-Timeline und aufklappbaren A
 
 ---
 
+## Spenglerei – Dachinspektion (sp_dachbericht.html)
+
+Modul für Spengler zur Erstellung von Dach-Inspektionsberichten auf der Baustelle. Workflow ähnlich Schadensbericht (sd_schadensbericht.html), aber mit Spengler-spezifischer Struktur: Dachübersicht → Kapitel pro Seite (Strasse/Hof/Garten) → Unterkapitel (Einfassungen, Rinnen, Lukarnen etc.) → Massnahmen. PDF-Export im GEMA-Vorlagen-Stil mit Org-Logo bzw. GEMA-Fallback.
+
+### Datenmodell
+
+Storage-Key: `gema_dachbericht_v1` (Cloud-First via `gema_sync.js`, moduleKey `dachbericht`, prefix `dach:`).
+
+```
+{
+  id, titel, objektId, phase: 'erfassung'|'inspektion'|'abschluss',
+  erstelltAm, erstelltVon{userId,name}, orgId,
+  dachuebersicht: {
+    dachtyp, dachtypKombi[],     // bei 'kombination' zwei Dachformen
+    dachtypText,                 // editierbarer Standardtext aus Template
+    ziegelart, ziegelartText,
+    bild: {dataUrl,kommentar},   // grosses Übersichtsbild
+    bemerkung
+  },
+  kapitel: [
+    { id, name,                   // Strassenseite/Hofseite/...
+      einleitung,                 // freier Text, Claude-überarbeitbar
+      bildGross: {dataUrl,kommentar},
+      bilder: [{dataUrl,kommentar}], // Auto-Grid 1/2/4/6
+      checkliste: ['Einfassungen','Rinnen',...],
+      unterkapitel: [{id, typ, label, text, bilder:[]}]
+    }
+  ],
+  nachbaranschluesse: {text, bilder:[]},
+  massnahmen: [{id, titel, beschreibung, empfehlung, prioritaet:'niedrig'|'mittel'|'hoch'}]
+}
+```
+
+### Templates (Org-Level)
+
+Pro Org in `org.spengler_templates` gespeichert. Admin pflegt sie über das «⚙ Vorlagen»-Modal direkt in `sp_dachbericht.html`. Default-Templates kommen aus `DEFAULT_TEMPLATES` im Modul (Schweizer Hochdeutsch, keine ß) und werden gemergt wenn Org-Templates leer sind.
+
+| Template-Liste | Inhalt |
+|---|---|
+| `dachtypen` | Flachdach, Satteldach, Walmdach, Pultdach, Mansarddach, Kombination — mit Standardtext pro Eintrag |
+| `ziegelarten` | Biber, Flach-/Falzziegel, Eternit, Blech, Bitumen, Folie, Gründach — mit Standardtext |
+| `seitenBezeichnungen` | Strassenseite, Hofseite, Gartenseite, Himmelsrichtungen — Dropdown-Optionen für Kapitel-Namen |
+| `unterkapitelTypen` | Einfassungen, Dachfenster, Antennen, Lukarnen, Rinnen, Abflussrohre, Kamine, Lüftung, Schneefänge, Blitzableiter, Solar, Sicherung — mit Standardtext |
+| `checklisteItems` | Strings für die Checkliste pro Kapitel |
+
+### Claude-AI-Integration (Texthilfe)
+
+`gema_claude.js` Browser-Helper ruft die Netlify-Function `/.netlify/functions/claude-rewrite`. Die Function hält den Anthropic API-Key serverseitig (Env-Var `ANTHROPIC_API_KEY` in Netlify-Settings) — sonst läge er im Frontend.
+
+5 Modi:
+- `rewrite` — Stichpunkte/Notizen zu sauberem Berichtstext
+- `bulletpoints` — explizit Stichpunkte → Fliesstext
+- `fix` — Rechtschreib- und Grammatikkorrektur
+- `shorten` — kürzen
+- `expand` — ausführlicher machen
+
+Wird via `claudeRow()` in jedem Textfeld als Button-Reihe angezeigt («✨ KI-Verbessern», «📝 Stichpunkte → Text», «🔤 Rechtschreibung», «▸ Kürzer», «◂▸ Ausführlicher»). Modell: `claude-haiku-4-5-20251001` (schnell + günstig für Textüberarbeitung).
+
+**Wenn Function nicht deployed**: `claudeAction` zeigt einen Alert, das Modul funktioniert ohne Claude weiter — der User kann Text manuell schreiben.
+
+### PDF-Export (gema_dachbericht_pdf.js)
+
+`GemaDachberichtPDF.exportPrint(bericht, {org,user,objektName,objektAdresse,templates})` — öffnet neues Fenster mit A4-Layout, User klickt im Druckdialog auf «Als PDF speichern». Logo-Branch wie Schadensbericht (org.logo vs. eingebettetes GEMA-SVG).
+
+**Bilder-Grid-Regel (User-Anforderung):**
+- 1 Bild → volle Breite
+- 2 Bilder → 1×2 Grid
+- 3-4 Bilder → 2×2 Grid (4 füllen die Seite)
+- 5-6 Bilder → 3×2 Grid (6 füllen die Seite)
+- mehr als 6 → in 6er-Chunks, jeder neue Chunk mit `page-break-before:always`
+
+`gridHtml(bilder)` chunkt die Liste und setzt zwischen den Chunks einen Seitenumbruch.
+
+**Aufbau:** Cover (Org/GEMA-Logo, Titel, Metadaten) → Dachübersicht (Dachtyp + Eindeckung + Bild) → Kapitel (jedes ein eigener Section, Großbild + Einleitung + Bilder-Grid + Checkliste + Unterkapitel) → Nachbaranschlüsse → Maßnahmen (sortiert nach Priorität, farblich kodiert hoch/mittel/niedrig).
+
+### Berechtigungen
+
+Neue Rolle `role_spengler` (Spengler) in `gema_auth.js` — Read+Write+Admin auf `dachbericht`, plus Werkzeug-Read und Objekte. Planer-Rollen (`role_planer` etc.) und Admin haben automatisch Read+Write via `_allPerms`.
+
+### Dateien
+
+| Datei | Zweck |
+|---|---|
+| `sp_dachbericht.html` | Hauptmodul (~1100 Zeilen) — Dashboard, Erfassungs-Modal, Detail-Ansicht mit 5 Akkordeon-Sektionen, Templates-Editor |
+| `gema_dachbericht_pdf.js` | HTML/Print-Export-Helper im GEMA-Vorlagen-Stil |
+| `gema_claude.js` | Browser-Helper für Anthropic-Proxy-Function |
+| `netlify/functions/claude-rewrite.js` | Server-Proxy für Anthropic API (Env: `ANTHROPIC_API_KEY`) |
+| `netlify.toml` | Netlify-Konfiguration (functions-Dir, Redirect) |
+
+### Deployment-Hinweis
+
+Nach Deploy: In Netlify-Settings unter Environment Variables `ANTHROPIC_API_KEY` setzen (sk-ant-...). Ohne Key gibt die Function HTTP 500 zurück, das Modul funktioniert aber weiter (KI-Buttons zeigen Fehlermeldung, User kann Texte manuell schreiben).
+
+---
+
 ## Trocknungsgeräte (if_trocknung.html)
 
 Phase 2 der Schadensdokumentation — separates Gerätemanagement für Trocknungsgeräte. Gleiche Architektur wie if_werkzeug.html.
@@ -1392,6 +1489,8 @@ UI-Anbindung:
 | `gema_offerten_tab.js` | Offerten-Tab in Berechnungsmodulen |
 | `gema_pdf.js` | PDF-Export via html2canvas |
 | `gema_schaden_pdf.js` | **Schadensbericht HTML/Print-Export** nach `vorlagen/bericht_wasserschaden_vorlage.html`. `GemaSchadenPDF.exportPrint(schaden, {org,user,objektName,objektAdresse})` öffnet neues Fenster mit A4-Layout (window.print()). Logo-Branch: `org.logo` wenn vorhanden, sonst eingebettetes GEMA-SVG. Filtert `f.imBericht !== false`. |
+| `gema_dachbericht_pdf.js` | **Dachbericht HTML/Print-Export** für Spenglerei. `GemaDachberichtPDF.exportPrint(bericht, {org,user,objektName,objektAdresse,templates})` — gleicher Pattern wie Schaden-PDF. Bilder-Grid mit 4/6-Seitenfüllung in 6er-Chunks. |
+| `gema_claude.js` | **Claude-API-Client** für Texthilfe. Ruft `/.netlify/functions/claude-rewrite`. Modi: `rewrite`/`bulletpointsToText`/`fix`/`shorten`/`expand`. Eingesetzt in `sp_dachbericht.html` für KI-gestützte Textüberarbeitung. |
 | `gema_produktkatalog_api.js` | Produkte + Stammlieferanten + Favoriten |
 | `gema_push.js` | Web-Push-Vorbereitung (Service-Worker) |
 | `gema_pwa.js` | PWA-Install-Helper (`beforeinstallprompt`-Capture, `GemaPWA.install()`) |
