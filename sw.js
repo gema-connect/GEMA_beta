@@ -1,5 +1,5 @@
 /* GEMA Service Worker — Offline Cache + Push Vorbereitung */
-var CACHE_NAME = 'gema-v62';
+var CACHE_NAME = 'gema-v63';
 var CACHE_FILES = [
   '/', '/index.html', '/sb_index.html',
   '/sa_enthaertung.html', '/sa_osmose.html', '/sa_fettabscheider.html',
@@ -18,7 +18,7 @@ var CACHE_FILES = [
   '/sys_produktkatalog.html', '/sys_lieferanten.html', '/sys_lieferant_dashboard.html',
   '/sys_preise.html', '/sys_beta.html', '/sys_workspace.html', '/sys_unternehmen.html',
   '/br_vkf_formulare.html', '/br_vkf_formular.html',
-  '/el_angaben.html', '/if_fahrzeug.html', '/if_werkzeug.html', '/if_trocknung.html', '/sd_schadensbericht.html',
+  '/el_angaben.html', '/if_fahrzeug.html', '/if_werkzeug.html', '/if_trocknung.html', '/sd_schadensbericht.html', '/sp_dachbericht.html',
   '/pm_goodel.html', '/pm_schnellausschreibung.html', '/pm_crbx.html',
   '/gema_sync.js', '/gema_auth.js', '/gema_db.js', '/gema_feedback.js', '/gema_autosave.js',
   '/gema_objekte_api.js', '/gema_produktkatalog_api.js', '/gema_armaturen_api.js',
@@ -26,7 +26,7 @@ var CACHE_FILES = [
   '/gema_coachmarks.js', '/gema_mobile_menu.js', '/gema_recent.js',
   '/gema_pwa.js', '/gema_adresse.js', '/gema_avatar.js', '/gema_dialog.js',
   '/gema_qr_scanner.js', '/gema_nfc_scanner.js', '/gema_aktivitaetslog.js',
-  '/gema_schaden_pdf.js',
+  '/gema_schaden_pdf.js', '/gema_dachbericht_pdf.js', '/gema_claude.js',
   '/icon-192.svg', '/icon-512.svg', '/manifest.json'
 ];
 
