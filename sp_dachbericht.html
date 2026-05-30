@@ -160,9 +160,21 @@ body{margin:0;font-family:'DM Sans',system-ui,sans-serif;background:var(--bg);co
 .imgrid{display:grid;gap:8px;grid-template-columns:repeat(auto-fill,minmax(140px,160px));justify-content:start}
 .imgrid-item{aspect-ratio:4/3;border:1.5px solid var(--brd);border-radius:8px;overflow:hidden;position:relative;background:var(--bg2);cursor:pointer}
 .imgrid-item img{width:100%;height:100%;object-fit:cover;display:block}
-.imgrid-item .imdel{position:absolute;top:4px;right:4px;background:rgba(0,0,0,.65);color:#fff;border:none;border-radius:6px;width:22px;height:22px;cursor:pointer;font-size:10.5px;display:flex;align-items:center;justify-content:center}
-.imgrid-item .imedit{position:absolute;top:4px;left:4px;background:rgba(0,0,0,.65);color:#fff;border:none;border-radius:6px;width:22px;height:22px;cursor:pointer;font-size:11px;display:flex;align-items:center;justify-content:center}
-.imgrid-item .imedit:hover{background:var(--acc)}
+/* Toggle-Button-Gruppen: links oben ⭐ + 👁, rechts oben ✎ + ✕ */
+.imgrid-item .im-actions-l{position:absolute;top:4px;left:4px;display:flex;gap:3px}
+.imgrid-item .im-actions-r{position:absolute;top:4px;right:4px;display:flex;gap:3px}
+.imgrid-item .im-btn{background:rgba(0,0,0,.65);color:#fff;border:none;border-radius:6px;width:24px;height:24px;cursor:pointer;font-size:11.5px;line-height:1;display:flex;align-items:center;justify-content:center;padding:0;transition:.15s}
+.imgrid-item .im-btn:hover{background:var(--acc)}
+.imgrid-item .im-btn.danger:hover{background:var(--red)}
+.imgrid-item .im-btn.on{background:#f59e0b;color:#fff}                /* ⭐ Hauptbild aktiv (amber) */
+.imgrid-item .im-btn.on-eye{background:rgba(0,0,0,.4);color:#fff}     /* 👁 sichtbar (dezent) */
+.imgrid-item .im-badge{position:absolute;top:32px;left:4px;background:#f59e0b;color:#fff;font-size:9.5px;font-weight:800;padding:2px 6px;border-radius:5px;letter-spacing:.04em;text-transform:uppercase;pointer-events:none}
+.imgrid-item .im-badge.excluded-badge{background:var(--red)}
+/* Hauptbild: blau-amber-Rahmen, deutlich abgehoben */
+.imgrid-item.main{border:3px solid #f59e0b;box-shadow:0 0 0 2px #fef3c7}
+/* Ausgeschlossen aus Bericht: ausgegraut, kein Rahmen */
+.imgrid-item.excluded{opacity:.55}
+.imgrid-item.excluded img{filter:grayscale(.75)}
 .imgrid-item .imcap{position:absolute;bottom:0;left:0;right:0;background:linear-gradient(transparent,rgba(0,0,0,.75));color:#fff;padding:14px 6px 5px;font-size:10.5px;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .imadd{aspect-ratio:4/3;border:2px dashed var(--brd2);border-radius:8px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--mut);font-size:11.5px;font-weight:600;flex-direction:column;gap:4px}
 .imadd:hover{border-color:var(--acc);color:var(--acc)}
@@ -486,6 +498,8 @@ var _data = []; // Aktuelle Berichte (im Speicher)
 function loadAll(){
   try { var raw = localStorage.getItem(STORAGE_KEY); _data = raw ? JSON.parse(raw) : []; }
   catch(e) { _data = []; }
+  // Migration alter Datensaetze (bildGross -> bilder mit hauptbild)
+  _data.forEach(_migrateBilder);
   // Org-Filter
   var u = _getUser();
   if(u && !u.roleIds.includes('role_admin')){
@@ -511,6 +525,42 @@ function persist(){
   }
 }
 function getById(id){ return _data.find(function(r){ return r.id === id; }); }
+
+// Migration: alte Datenmodell-Felder (bild, bildGross) -> bilder[]
+// mit hauptbild:true. Wird beim Laden/Render aufgerufen, damit
+// bestehende Datensaetze nahtlos weiterlaufen.
+function _migrateBilder(r){
+  if(!r) return;
+  // dachuebersicht.bild -> dachuebersicht.bilder[hauptbild:true]
+  if(r.dachuebersicht){
+    r.dachuebersicht.bilder = r.dachuebersicht.bilder || [];
+    if(r.dachuebersicht.bild && r.dachuebersicht.bild.dataUrl){
+      var b = r.dachuebersicht.bild;
+      // Nur einfuegen wenn nicht schon vorhanden
+      var exists = r.dachuebersicht.bilder.some(function(x){ return x.dataUrl === b.dataUrl; });
+      if(!exists){
+        r.dachuebersicht.bilder.unshift({ dataUrl:b.dataUrl, kommentar:b.kommentar||'', hauptbild:true, imBericht:true });
+      }
+      r.dachuebersicht.bild = null;
+    }
+  }
+  // kapitel[].bildGross -> kapitel[].bilder[hauptbild:true]
+  (r.kapitel||[]).forEach(function(k){
+    k.bilder = k.bilder || [];
+    if(k.bildGross && k.bildGross.dataUrl){
+      var bg = k.bildGross;
+      var exists2 = k.bilder.some(function(x){ return x.dataUrl === bg.dataUrl; });
+      if(!exists2){
+        k.bilder.unshift({ dataUrl:bg.dataUrl, kommentar:bg.kommentar||'', hauptbild:true, imBericht:true });
+      }
+      k.bildGross = null;
+    }
+    // Unterkapitel-Bilder bekommen Default imBericht:true falls nicht gesetzt
+    (k.unterkapitel||[]).forEach(function(uk){ uk.bilder = uk.bilder || []; });
+  });
+  if(r.nachbaranschluesse) r.nachbaranschluesse.bilder = r.nachbaranschluesse.bilder || [];
+}
+
 function upsert(rec){
   var idx = _data.findIndex(function(r){ return r.id === rec.id; });
   if(idx >= 0) _data[idx] = rec;
@@ -600,9 +650,8 @@ function objektName(oid){
 }
 function countPhotos(r){
   var n = 0;
-  if(r.dachuebersicht && r.dachuebersicht.bild) n++;
+  if(r.dachuebersicht) n += (r.dachuebersicht.bilder||[]).length;
   (r.kapitel||[]).forEach(function(k){
-    if(k.bildGross) n++;
     n += (k.bilder||[]).length;
     (k.unterkapitel||[]).forEach(function(uk){ n += (uk.bilder||[]).length; });
   });
@@ -690,7 +739,7 @@ function dbSaveNew(){
     erstelltVon: sb ? { userId: sb.id||'', name: sb.name||sb.email||'' } : { userId:'', name:'' },
     orgId: me ? me.orgId : null,
     phase: 'erfassung',
-    dachuebersicht: { dachtyp:'', dachtypKombi:[], dachtypText:'', ziegelart:'', ziegelartText:'', bild:null, bemerkung:'' },
+    dachuebersicht: { dachtyp:'', dachtypKombi:[], dachtypText:'', ziegelart:'', ziegelartText:'', bilder:[], bemerkung:'' },
     kapitel: [],
     nachbaranschluesse: { text:'', bilder:[] },
     massnahmen: []
@@ -902,9 +951,9 @@ function renderUebersicht(r, canEdit){
   html += claudeRow(canEdit, '"bemerkung"', r.id, 'uebersicht_bemerkung');
   html += '</div>';
 
-  // Übersichtsbild
-  html += '<div class="fg"><label>Übersichtsbild des Dachs</label>';
-  html += renderBigImage(r.id, 'uebersicht', null, u.bild, canEdit);
+  // Fotos der Uebersicht — Hauptbild ⭐ markierbar, einzelne ausblendbar
+  html += '<div class="fg"><label>Fotos · ⭐ Hauptbild markieren · 🚫 vom Bericht ausblenden</label>';
+  html += renderImgGrid(r.id, 'uebersicht', null, null, u.bilder||[], canEdit);
   html += '</div>';
 
   return html;
@@ -954,11 +1003,7 @@ function renderKapitel(r, canEdit){
     html += claudeRow(canEdit, '"einleitung"', r.id, 'kapitel_'+k.id+'_einleitung');
     html += '</div>';
 
-    html += '<div class="fg"><label>Hauptbild (gross)</label>';
-    html += renderBigImage(r.id, 'kapitel', k.id, k.bildGross, canEdit);
-    html += '</div>';
-
-    html += '<div class="fg"><label>Weitere Bilder (Auto-Grid)</label>';
+    html += '<div class="fg"><label>Fotos · ⭐ Hauptbild markieren · 🚫 vom Bericht ausblenden</label>';
     html += renderImgGrid(r.id, 'kapitel', k.id, null, k.bilder||[], canEdit);
     html += '</div>';
 
@@ -989,7 +1034,7 @@ function renderKapitel(r, canEdit){
 function addKapitel(id){
   var r = getById(id); if(!r) return;
   r.kapitel = r.kapitel || [];
-  r.kapitel.push({ id: uid('k_'), name:'', einleitung:'', bildGross:null, bilder:[], checkliste:[], unterkapitel:[] });
+  r.kapitel.push({ id: uid('k_'), name:'', einleitung:'', bilder:[], checkliste:[], unterkapitel:[] });
   upsert(r); renderDetail(r);
 }
 function delKapitel(id, kid){
@@ -1170,73 +1215,73 @@ function setPhase(id, p){
   upsert(r); renderDetail(r);
 }
 
-// ── BILDER: Big-Image + Grid ──────────────────────────────────
-function renderBigImage(rid, scope, kid, bild, canEdit){
-  var html = '<div class="bigimg-wrap'+(bild?'':' empty')+'" '+(canEdit?'onclick="pickBigImage(\''+rid+'\',\''+scope+'\','+(kid?'\''+kid+'\'':'null')+')"':'')+'>';
-  if(bild){
-    html += '<img src="'+esc(bild.dataUrl)+'" onclick="event.stopPropagation();openLightbox(\''+esc(bild.dataUrl).replace(/'/g,"\\'")+'\')" alt="">';
-    if(canEdit) html += '<button class="bigimg-del" onclick="event.stopPropagation();delBigImage(\''+rid+'\',\''+scope+'\','+(kid?'\''+kid+'\'':'null')+')">🗑</button>';
-  } else {
-    html += '<div class="bigimg-empty-ic">📷</div><div>Klicken um Bild hinzuzufügen</div>';
-  }
-  html += '</div>';
-  if(bild){
-    html += '<input type="text" class="bigimg-cap" placeholder="Optionale Bildbeschreibung" oninput="setBigImageCap(\''+rid+'\',\''+scope+'\','+(kid?'\''+kid+'\'':'null')+',this.value)" value="'+esc(bild.kommentar||'')+'" style="width:100%;padding:7px 10px;border:1.5px solid var(--brd);border-radius:8px;font-family:inherit;font-size:12.5px"'+(canEdit?'':' disabled')+'>';
-  }
-  return html;
-}
-function pickBigImage(rid, scope, kid){
-  pickPhotoFile().then(function(dataUrl){
-    if(!dataUrl) return;
-    GemaDialog.prompt({
-      title:'Bildunterschrift (optional)',
-      message:'Wird im PDF unter dem Hauptbild angezeigt. Leer lassen zum Ueberspringen.',
-      placeholder:'z.B. Gesamtansicht Dach von Sueden',
-      defaultValue:''
-    }).then(function(kommentar){
-      var cap = (kommentar === null) ? '' : kommentar;
-      var r = getById(rid); if(!r) return;
-      var bild = { dataUrl: dataUrl, kommentar: cap };
-      if(scope==='uebersicht') r.dachuebersicht.bild = bild;
-      else if(scope==='kapitel'){
-        var k = (r.kapitel||[]).find(function(x){return x.id===kid;}); if(k) k.bildGross = bild;
-      }
-      upsert(r); renderDetail(r);
-    });
-  });
-}
-function delBigImage(rid, scope, kid){
-  var r = getById(rid); if(!r) return;
-  if(scope==='uebersicht') r.dachuebersicht.bild = null;
-  else if(scope==='kapitel'){ var k = (r.kapitel||[]).find(function(x){return x.id===kid;}); if(k) k.bildGross = null; }
-  upsert(r); renderDetail(r);
-}
-function setBigImageCap(rid, scope, kid, val){
-  var r = getById(rid); if(!r) return;
-  if(scope==='uebersicht' && r.dachuebersicht.bild) r.dachuebersicht.bild.kommentar = val;
-  else if(scope==='kapitel'){ var k = (r.kapitel||[]).find(function(x){return x.id===kid;}); if(k && k.bildGross) k.bildGross.kommentar = val; }
-  upsert(r);
-}
+// ── BILDER: einheitliches Grid mit Hauptbild-Markierung ──────
+// (Frueheres renderBigImage/pickBigImage/delBigImage/setBigImageCap
+//  ist weggefallen — alle Fotos sind jetzt im selben Pool, der User
+//  markiert eines per ⭐ als Hauptbild fuer das PDF-Bigimg.)
 
 function renderImgGrid(rid, scope, kid, ukid, bilder, canEdit){
   bilder = bilder || [];
-  // Editor-Ansicht: kompaktes Grid (CSS macht auto-fill mit max 160px
-  // pro Item). PDF-Layout (4/6 Seitenfuellung) wird im Export gemacht.
+  // Helper-Schluessel fuer Funktionsaufrufe — kompakter zu lesen
+  var args = '\''+rid+'\',\''+scope+'\','+(kid?'\''+kid+'\'':'null')+','+(ukid?'\''+ukid+'\'':'null');
+  // Unterkapitel haben kein Hauptbild — sind Detail-Sektionen. Nur die
+  // Hauptebenen (Uebersicht, Kapitel, Nachbar) zeigen den ⭐-Button.
+  var supportsHauptbild = (scope === 'uebersicht' || scope === 'kapitel' || scope === 'nachbar');
   var html = '<div class="imgrid">';
   bilder.forEach(function(b, i){
-    html += '<div class="imgrid-item" title="'+esc(b.kommentar||'')+'">';
+    var isMain = !!b.hauptbild;
+    var inReport = b.imBericht !== false;
+    var classes = 'imgrid-item';
+    if(isMain) classes += ' main';
+    if(!inReport) classes += ' excluded';
+    html += '<div class="'+classes+'" title="'+esc(b.kommentar||'')+'">';
     html += '<img src="'+esc(b.dataUrl)+'" onclick="openLightbox(\''+esc(b.dataUrl).replace(/'/g,"\\'")+'\')" alt="">';
-    if(canEdit) html += '<button class="imdel" onclick="event.stopPropagation();delGridImage(\''+rid+'\',\''+scope+'\','+(kid?'\''+kid+'\'':'null')+','+(ukid?'\''+ukid+'\'':'null')+','+i+')" title="Foto entfernen">✕</button>';
-    if(canEdit) html += '<button class="imedit" onclick="event.stopPropagation();editGridImageCap(\''+rid+'\',\''+scope+'\','+(kid?'\''+kid+'\'':'null')+','+(ukid?'\''+ukid+'\'':'null')+','+i+')" title="Bildunterschrift bearbeiten">✎</button>';
+    if(isMain) html += '<div class="im-badge">⭐ Hauptbild</div>';
+    else if(!inReport) html += '<div class="im-badge excluded-badge">🚫 nicht im Bericht</div>';
+    if(canEdit){
+      // Buttons-Reihe oben links: ⭐ Hauptbild, 👁/🚫 Bericht
+      html += '<div class="im-actions-l">';
+      if(supportsHauptbild){
+        html += '<button class="im-btn'+(isMain?' on':'')+'" onclick="event.stopPropagation();toggleHauptbild('+args+','+i+')" title="'+(isMain?'Hauptbild':'Als Hauptbild markieren')+'">⭐</button>';
+      }
+      html += '<button class="im-btn'+(inReport?' on-eye':'')+'" onclick="event.stopPropagation();toggleImBericht('+args+','+i+')" title="'+(inReport?'Erscheint im Bericht — Klick zum Ausblenden':'Versteckt — Klick zum Einschluss')+'">'+(inReport?'👁':'🚫')+'</button>';
+      html += '</div>';
+      // Buttons-Reihe oben rechts: ✎ Caption, ✕ Loeschen
+      html += '<div class="im-actions-r">';
+      html += '<button class="im-btn" onclick="event.stopPropagation();editGridImageCap('+args+','+i+')" title="Bildunterschrift">✎</button>';
+      html += '<button class="im-btn danger" onclick="event.stopPropagation();delGridImage('+args+','+i+')" title="Foto entfernen">✕</button>';
+      html += '</div>';
+    }
     if(b.kommentar) html += '<div class="imcap">'+esc(b.kommentar)+'</div>';
     html += '</div>';
   });
   if(canEdit){
-    html += '<div class="imadd" onclick="pickGridImage(\''+rid+'\',\''+scope+'\','+(kid?'\''+kid+'\'':'null')+','+(ukid?'\''+ukid+'\'':'null')+')">'
+    html += '<div class="imadd" onclick="pickGridImage('+args+')">'
       + '<div style="font-size:22px">📷</div><div>Bild hinzufügen</div></div>';
   }
   html += '</div>';
   return html;
+}
+
+// ⭐ als Hauptbild markieren — entmarkiert automatisch andere im selben
+// Bilder-Array. Erneuter Klick auf ein bereits markiertes Hauptbild
+// entfernt die Markierung (kein Hauptbild → erstes Foto wird im PDF
+// als Bigimg verwendet).
+function toggleHauptbild(rid, scope, kid, ukid, idx){
+  var r = getById(rid); if(!r) return;
+  var arr = _resolveBilderArray(r, scope, kid, ukid); if(!arr || !arr[idx]) return;
+  var wasMain = !!arr[idx].hauptbild;
+  arr.forEach(function(b){ b.hauptbild = false; });
+  if(!wasMain) arr[idx].hauptbild = true;
+  upsert(r); renderDetail(r);
+}
+
+// 👁/🚫 vom Bericht aus-/einblenden — kein Loeschen, nur ausgeblendet.
+function toggleImBericht(rid, scope, kid, ukid, idx){
+  var r = getById(rid); if(!r) return;
+  var arr = _resolveBilderArray(r, scope, kid, ukid); if(!arr || !arr[idx]) return;
+  arr[idx].imBericht = arr[idx].imBericht === false ? true : false;
+  upsert(r); renderDetail(r);
 }
 // Bildunterschrift nachtraeglich bearbeiten via Prompt-Modal.
 function editGridImageCap(rid, scope, kid, ukid, idx){
@@ -1253,6 +1298,7 @@ function editGridImageCap(rid, scope, kid, ukid, idx){
   });
 }
 function _resolveBilderArray(r, scope, kid, ukid){
+  if(scope==='uebersicht'){ r.dachuebersicht = r.dachuebersicht || {}; r.dachuebersicht.bilder = r.dachuebersicht.bilder || []; return r.dachuebersicht.bilder; }
   if(scope==='kapitel'){ var k = (r.kapitel||[]).find(function(x){return x.id===kid;}); return k && (k.bilder = k.bilder||[]); }
   if(scope==='unterkapitel'){ var k2 = (r.kapitel||[]).find(function(x){return x.id===kid;}); var uk = k2 && (k2.unterkapitel||[]).find(function(x){return x.id===ukid;}); return uk && (uk.bilder = uk.bilder||[]); }
   if(scope==='nachbar'){ r.nachbaranschluesse = r.nachbaranschluesse || {text:'',bilder:[]}; return r.nachbaranschluesse.bilder; }
@@ -1268,11 +1314,19 @@ function pickGridImage(rid, scope, kid, ukid){
       placeholder:'z.B. Lukarne Strassenseite oben links',
       defaultValue:''
     }).then(function(kommentar){
-      // null = Abbrechen → Foto trotzdem speichern, nur ohne Kommentar
       var cap = (kommentar === null) ? '' : kommentar;
       var r = getById(rid); if(!r) return;
       var arr = _resolveBilderArray(r, scope, kid, ukid); if(!arr) return;
-      arr.push({ dataUrl: dataUrl, kommentar: cap });
+      // Erstes Bild eines Pools wird automatisch Hauptbild (sofern
+      // die Sektion Hauptbilder unterstuetzt — Unterkapitel nicht).
+      var supportsHauptbild = (scope === 'uebersicht' || scope === 'kapitel' || scope === 'nachbar');
+      var hasMain = arr.some(function(b){ return b.hauptbild; });
+      arr.push({
+        dataUrl: dataUrl,
+        kommentar: cap,
+        imBericht: true,
+        hauptbild: supportsHauptbild && !hasMain
+      });
       upsert(r); renderDetail(r);
     });
   });
