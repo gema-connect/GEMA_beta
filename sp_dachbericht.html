@@ -559,6 +559,28 @@ function _migrateBilder(r){
     (k.unterkapitel||[]).forEach(function(uk){ uk.bilder = uk.bilder || []; });
   });
   if(r.nachbaranschluesse) r.nachbaranschluesse.bilder = r.nachbaranschluesse.bilder || [];
+
+  // Migration Labels: bestehende Berichte ohne dachtypLabel/ziegelartLabel
+  // einmalig aus dem aktuellen Template nachfuellen — danach sind sie
+  // gegen weitere Template-Aenderungen immun.
+  if(r.dachuebersicht){
+    var tpl = getTemplates();
+    if(r.dachuebersicht.dachtyp && !r.dachuebersicht.dachtypLabel){
+      var dt = (tpl.dachtypen||[]).find(function(x){return x.id===r.dachuebersicht.dachtyp;});
+      if(dt) r.dachuebersicht.dachtypLabel = dt.label;
+    }
+    if(r.dachuebersicht.ziegelart && !r.dachuebersicht.ziegelartLabel){
+      var zt = (tpl.ziegelarten||[]).find(function(x){return x.id===r.dachuebersicht.ziegelart;});
+      if(zt) r.dachuebersicht.ziegelartLabel = zt.label;
+    }
+    // Kombi-Labels einfrieren
+    if((r.dachuebersicht.dachtypKombi||[]).length && !(r.dachuebersicht.dachtypKombiLabels||[]).length){
+      r.dachuebersicht.dachtypKombiLabels = r.dachuebersicht.dachtypKombi.map(function(kid){
+        var k = (tpl.dachtypen||[]).find(function(x){return x.id===kid;});
+        return k ? k.label : '';
+      });
+    }
+  }
 }
 
 function upsert(rec){
@@ -961,16 +983,24 @@ function renderUebersicht(r, canEdit){
 function setUebersicht(id, key, val){
   var r = getById(id); if(!r) return;
   r.dachuebersicht = r.dachuebersicht || {};
-  // Wenn Dachtyp gewechselt → Default-Text vorbefüllen wenn leer
-  if(key==='dachtyp' && val && !notEmpty(r.dachuebersicht.dachtypText)){
+  // Wenn Dachtyp gewechselt → Default-Text vorbefuellen wenn leer.
+  // Zusaetzlich Label einfrieren, damit Aenderungen am Template
+  // (Umbenennen, Loeschen) bestehende Berichte NICHT mehr beeinflussen.
+  if(key==='dachtyp' && val){
     var tpl = getTemplates();
     var t = tpl.dachtypen.find(function(x){return x.id===val;});
-    if(t) r.dachuebersicht.dachtypText = t.defaultText;
+    if(t){
+      if(!notEmpty(r.dachuebersicht.dachtypText)) r.dachuebersicht.dachtypText = t.defaultText;
+      r.dachuebersicht.dachtypLabel = t.label;
+    }
   }
-  if(key==='ziegelart' && val && !notEmpty(r.dachuebersicht.ziegelartText)){
+  if(key==='ziegelart' && val){
     var tpl2 = getTemplates();
     var z = tpl2.ziegelarten.find(function(x){return x.id===val;});
-    if(z) r.dachuebersicht.ziegelartText = z.defaultText;
+    if(z){
+      if(!notEmpty(r.dachuebersicht.ziegelartText)) r.dachuebersicht.ziegelartText = z.defaultText;
+      r.dachuebersicht.ziegelartLabel = z.label;
+    }
   }
   r.dachuebersicht[key] = val;
   upsert(r);
@@ -980,6 +1010,15 @@ function setKombi(id, idx, val){
   var r = getById(id); if(!r) return;
   r.dachuebersicht.dachtypKombi = r.dachuebersicht.dachtypKombi || [];
   r.dachuebersicht.dachtypKombi[idx] = val;
+  // Label fuer Kombi-Teil einfrieren — analog zum Dachtyp.
+  r.dachuebersicht.dachtypKombiLabels = r.dachuebersicht.dachtypKombiLabels || [];
+  if(val){
+    var tpl3 = getTemplates();
+    var k3 = tpl3.dachtypen.find(function(x){return x.id===val;});
+    if(k3) r.dachuebersicht.dachtypKombiLabels[idx] = k3.label;
+  } else {
+    r.dachuebersicht.dachtypKombiLabels[idx] = '';
+  }
   upsert(r);
 }
 

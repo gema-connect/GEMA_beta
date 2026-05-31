@@ -235,21 +235,30 @@
     var split = splitMainAndRest(bilder);
     if(!u.dachtyp && !u.ziegelart && !notEmpty(u.dachtypText) && !notEmpty(u.ziegelartText) && !notEmpty(u.bemerkung) && !split.haupt) return '';
     var tpl = opts.templates || {};
-    var dachtypLabel = '';
-    var dt = lookupTemplate(tpl.dachtypen, u.dachtyp);
-    if(dt){
-      dachtypLabel = dt.label;
-      if(u.dachtyp === 'kombination' && u.dachtypKombi && u.dachtypKombi.length){
-        var parts = u.dachtypKombi.map(function(id){
-          var t = lookupTemplate(tpl.dachtypen, id);
-          return t ? t.label : '';
-        }).filter(Boolean);
-        if(parts.length) dachtypLabel = 'Kombination: ' + parts.join(' + ');
-      }
+    // Label-Aufloesung: eingefrorenes Label im Bericht hat Vorrang vor
+    // dem Template-Lookup. Dadurch sind aenderungen am Template (z.B.
+    // Umbenennen, Loeschen) wirken NICHT mehr auf bestehende Berichte.
+    // Fallback aufs Template gilt nur fuer Alt-Daten ohne gespeichertes Label.
+    var dachtypLabel = u.dachtypLabel || '';
+    if(!dachtypLabel){
+      var dt = lookupTemplate(tpl.dachtypen, u.dachtyp);
+      if(dt) dachtypLabel = dt.label;
     }
-    var ziegelLabel = '';
-    var zt = lookupTemplate(tpl.ziegelarten, u.ziegelart);
-    if(zt) ziegelLabel = zt.label;
+    if(u.dachtyp === 'kombination' && u.dachtypKombi && u.dachtypKombi.length){
+      var parts = u.dachtypKombi.map(function(id, i){
+        // Erst eingefrorenes Kombi-Label, dann Template-Fallback
+        var frozen = (u.dachtypKombiLabels && u.dachtypKombiLabels[i]) || '';
+        if(frozen) return frozen;
+        var t = lookupTemplate(tpl.dachtypen, id);
+        return t ? t.label : '';
+      }).filter(Boolean);
+      if(parts.length) dachtypLabel = 'Kombination: ' + parts.join(' + ');
+    }
+    var ziegelLabel = u.ziegelartLabel || '';
+    if(!ziegelLabel){
+      var zt = lookupTemplate(tpl.ziegelarten, u.ziegelart);
+      if(zt) ziegelLabel = zt.label;
+    }
 
     var h = '<section class="report-section"><div class="page-body">'
       + '<div class="sec-head"><div class="sec-num">1</div>'
