@@ -507,21 +507,34 @@ function loadAll(){
   }
 }
 function persist(){
-  // Lokal speichern
-  try {
-    var raw = localStorage.getItem(STORAGE_KEY);
-    var all = raw ? JSON.parse(raw) : [];
-    var u = _getUser();
-    // Andere Orgs unangetastet zurueckschreiben, eigene durch _data ersetzen
-    var others = u && !u.roleIds.includes('role_admin')
-      ? all.filter(function(r){ return r.orgId && r.orgId !== u.orgId; })
-      : [];
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(others.concat(_data)));
-  } catch(e){}
-  // Cloud-Sync (Diff)
+  // Cloud-First Save (Diff): GemaSync.persistCollection liest den
+  // aktuellen Cache als 'altes Array', vergleicht mit _data und
+  // pusht nur die Aenderungen. Bei Erfolg wird der Cache auf den
+  // neuen Stand geschrieben.
+  //
+  // WICHTIG: KEIN lokaler localStorage-Write vor persistCollection!
+  // Sonst waere der Cache bereits identisch zu _data, der Diff
+  // findet keine Aenderungen und es geht nichts in die Cloud
+  // hoch — Berichte erscheinen dann nicht auf anderen Geraeten.
   if(typeof window.GemaSync !== 'undefined' && window.GemaSync.persistCollection){
     window.GemaSync.persistCollection(MODULE_KEY, STORAGE_KEY, PREFIX, 'id', _data)
-      .catch(function(e){ console.warn('[Dachbericht] Cloud-Sync fehlgeschlagen:', e && e.message); });
+      .catch(function(e){
+        console.warn('[Dachbericht] Cloud-Sync fehlgeschlagen:', e && e.message);
+        if(window.GemaDialog && window.GemaDialog.alert){
+          window.GemaDialog.alert({title:'Offline', message:'Aenderungen koennen nicht gespeichert werden. Bitte Verbindung pruefen.'});
+        }
+      });
+  } else {
+    // Fallback ohne GemaSync — nur lokal
+    try {
+      var raw = localStorage.getItem(STORAGE_KEY);
+      var all = raw ? JSON.parse(raw) : [];
+      var u = _getUser();
+      var others = u && !u.roleIds.includes('role_admin')
+        ? all.filter(function(r){ return r.orgId && r.orgId !== u.orgId; })
+        : [];
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(others.concat(_data)));
+    } catch(e){}
   }
 }
 function getById(id){ return _data.find(function(r){ return r.id === id; }); }
