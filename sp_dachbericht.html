@@ -677,11 +677,18 @@ function objektName(oid){
   if(!oid) return '—';
   try {
     if(typeof GemaObjekte !== 'undefined'){
-      var o = (GemaObjekte.getAll()||[]).find(function(x){ return x.id === oid; });
+      // Auch archivierte Objekte beruecksichtigen, damit Berichte aus
+      // alten Objekten weiterhin lesbar bleiben (getAll filtert auf
+      // status=aktiv; getAllUnfiltered nicht).
+      var pool = (GemaObjekte.getAllUnfiltered ? GemaObjekte.getAllUnfiltered() : (GemaObjekte.getAll()||[]));
+      var o = pool.find(function(x){ return x.id === oid; });
       if(o) return o.name || o.projektName || o.id;
     }
   } catch(e){}
-  return oid;
+  // Wenn Objekt nicht (mehr) gefunden: User-freundlicher Hinweis statt
+  // kryptischer obj_xxxxx-ID. Tritt z.B. auf, wenn das Objekt auf einem
+  // anderen Geraet angelegt wurde und noch nicht hierher gesynct ist.
+  return '⚠ Objekt nicht gefunden';
 }
 function countPhotos(r){
   var n = 0;
@@ -849,7 +856,16 @@ function dbSaveNewObjekt(){
   };
   pool.objekte.push(newObj);
   pool.activeObjektId = newObj.id;
-  try { localStorage.setItem(KEY, JSON.stringify(pool)); } catch(e){}
+
+  // Persistieren — SOWOHL _GemaDB (Cloud-Sync via gema_db.js) ALS
+  // AUCH localStorage. Ohne _GemaDB.save bleibt das Objekt nur lokal
+  // auf diesem Geraet und erscheint auf anderen Geraeten nie (selbst
+  // wenn der referenzierende Bericht synct, wuerde der Objekt-Lookup
+  // dort fehlschlagen und nur die ID anzeigen).
+  var json = JSON.stringify(pool);
+  try { if(typeof _GemaDB !== 'undefined' && _GemaDB.save) _GemaDB.save(KEY, json); } catch(e){}
+  try { localStorage.setItem(KEY, json); } catch(e){}
+
   // GemaObjekte-Cache invalidieren, damit der naechste getAll() das
   // frisch eingefuegte Objekt sieht.
   try { if(typeof GemaObjekte !== 'undefined' && GemaObjekte.refresh) GemaObjekte.refresh(); } catch(e){}
