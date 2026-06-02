@@ -830,18 +830,51 @@ function countPhotos(r){
 }
 
 // ── NEW MODAL ──────────────────────────────────────────────────
+// Edit-Modus-Marker: null = neu anlegen, sonst die rid des bestehenden
+// Berichts. dbSaveNew prueft das und macht entweder Insert oder Update.
+var _editingId = null;
 function dbOpenNew(){
   if(!_canEdit()){
     GemaDialog.alert({title:'Keine Berechtigung', message:'Nur Spengler, Planer und Admins können Berichte erstellen.'});
     return;
   }
+  _editingId = null;
   document.getElementById('f_titel').value = '';
   document.getElementById('f_datum').value = todayISO();
   populateObjekteSelect();
   populateSachbearbeiterSelect();
+  // Modal-Titel + Speichern-Button-Beschriftung zuruecksetzen
+  var hd = document.querySelector('#newModal .modal-title');
+  if(hd) hd.textContent = 'Neuen Dachbericht erfassen';
+  var saveBtn = document.querySelector('#newModal .modal-ft .btn.primary');
+  if(saveBtn) saveBtn.innerHTML = '💾 Anlegen';
   document.getElementById('newModal').classList.remove('hidden');
 }
-function dbCloseNew(){ document.getElementById('newModal').classList.add('hidden'); }
+function dbOpenEdit(id){
+  if(!_canEdit()){
+    GemaDialog.alert({title:'Keine Berechtigung', message:'Nur Spengler, Planer und Admins können Berichte bearbeiten.'});
+    return;
+  }
+  var r = getById(id); if(!r) return;
+  _editingId = id;
+  document.getElementById('f_titel').value = r.titel || '';
+  document.getElementById('f_datum').value = r.erstelltAm || todayISO();
+  populateObjekteSelect();
+  populateSachbearbeiterSelect();
+  // Werte des bestehenden Berichts setzen (nach populate, damit das
+  // selected Element existiert)
+  var objSel = document.getElementById('f_objekt');
+  if(objSel && r.objektId) objSel.value = r.objektId;
+  var sbSel = document.getElementById('f_sachbearbeiter');
+  if(sbSel && r.erstelltVon && r.erstelltVon.userId) sbSel.value = r.erstelltVon.userId;
+  // Modal-Titel + Save-Button anpassen
+  var hd = document.querySelector('#newModal .modal-title');
+  if(hd) hd.textContent = 'Bericht-Stammdaten bearbeiten';
+  var saveBtn = document.querySelector('#newModal .modal-ft .btn.primary');
+  if(saveBtn) saveBtn.innerHTML = '💾 Speichern';
+  document.getElementById('newModal').classList.remove('hidden');
+}
+function dbCloseNew(){ document.getElementById('newModal').classList.add('hidden'); _editingId = null; }
 function populateObjekteSelect(){
   var sel = document.getElementById('f_objekt');
   var html = '<option value="">— Objekt wählen —</option>';
@@ -901,12 +934,33 @@ function dbSaveNew(){
       if(p) sb = p;
     }
   } catch(e){}
+  var datum = document.getElementById('f_datum').value || todayISO();
+  var sachbearbeiter = sb ? { userId: sb.id||'', name: sb.name||sb.email||'' } : { userId:'', name:'' };
+
+  // Edit-Modus: bestehenden Bericht updaten, alle anderen Felder
+  // (kapitel, dachuebersicht, massnahmen, fotos) bleiben unveraendert.
+  if(_editingId){
+    var existing = getById(_editingId);
+    if(existing){
+      existing.titel = titel;
+      existing.objektId = objektId;
+      existing.erstelltAm = datum;
+      existing.erstelltVon = sachbearbeiter;
+      upsert(existing);
+      dbCloseNew();
+      renderDashboard();
+      renderDetail(existing);
+      return;
+    }
+  }
+
+  // Neuer Bericht
   var rec = {
     id: uid('dach_'),
     titel: titel,
     objektId: objektId,
-    erstelltAm: document.getElementById('f_datum').value || todayISO(),
-    erstelltVon: sb ? { userId: sb.id||'', name: sb.name||sb.email||'' } : { userId:'', name:'' },
+    erstelltAm: datum,
+    erstelltVon: sachbearbeiter,
     orgId: me ? me.orgId : null,
     phase: 'erfassung',
     dachuebersicht: { dachtyp:'', dachtypKombi:[], dachtypText:'', ziegelart:'', ziegelartText:'', bilder:[], bemerkung:'' },
@@ -1029,8 +1083,9 @@ function renderDetail(r){
   var html = '';
   html += '<div class="detail-hd">'
     + '<button class="detail-back" onclick="closeDetail()">← Zurück</button>'
-    + '<div class="detail-title">'+esc(r.titel)+'</div>'
+    + '<div class="detail-title" onclick="'+(canEdit?'dbOpenEdit(\''+r.id+'\')':'')+'"'+(canEdit?' style="cursor:pointer" title="Bericht-Stammdaten bearbeiten"':'')+'>'+esc(r.titel)+'</div>'
     + '<div class="detail-actions">'
+      + (canEdit ? '<button class="btn sm" onclick="dbOpenEdit(\''+r.id+'\')">✎ Bearbeiten</button>' : '')
       + (canEdit ? '<button class="btn sm danger" onclick="delReport(\''+r.id+'\')">🗑 Löschen</button>' : '')
       + '<button class="btn sm" onclick="exportPdf(\''+r.id+'\')">📄 PDF</button>'
     + '</div></div>';
