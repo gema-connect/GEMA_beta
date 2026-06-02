@@ -506,6 +506,26 @@ function loadAll(){
     _data = _data.filter(function(r){ return !r.orgId || r.orgId === u.orgId; });
   }
 }
+// Offline-Alert-Debounce: bei schnellem Tippen feuern viele Saves
+// (oninput pro Buchstabe). Wenn EINE Anfrage scheitert (Netz-Zucker,
+// Server 503), zeigen wir den Alert hoechstens einmal pro 30s und
+// nur wenn die Verbindung danach nicht in <2s wieder da ist.
+var _lastOfflineAlertAt = 0;
+function _maybeShowOfflineAlert(){
+  var now = Date.now();
+  if(now - _lastOfflineAlertAt < 30000) return;  // Throttle
+  // Kurz warten, ob die Verbindung gleich wieder da ist
+  setTimeout(function(){
+    if(typeof window.GemaSync !== 'undefined' && window.GemaSync.isReachable && window.GemaSync.isReachable()){
+      return; // Inzwischen wieder online — kein Alert
+    }
+    _lastOfflineAlertAt = Date.now();
+    if(window.GemaDialog && window.GemaDialog.alert){
+      window.GemaDialog.alert({title:'Offline', message:'Aenderungen koennen nicht gespeichert werden. Bitte Verbindung pruefen.'});
+    }
+  }, 2000);
+}
+
 function persist(){
   // Cloud-First Save (Diff): GemaSync.persistCollection liest den
   // aktuellen Cache als 'altes Array', vergleicht mit _data und
@@ -520,9 +540,7 @@ function persist(){
     window.GemaSync.persistCollection(MODULE_KEY, STORAGE_KEY, PREFIX, 'id', _data)
       .catch(function(e){
         console.warn('[Dachbericht] Cloud-Sync fehlgeschlagen:', e && e.message);
-        if(window.GemaDialog && window.GemaDialog.alert){
-          window.GemaDialog.alert({title:'Offline', message:'Aenderungen koennen nicht gespeichert werden. Bitte Verbindung pruefen.'});
-        }
+        _maybeShowOfflineAlert();
       });
   } else {
     // Fallback ohne GemaSync — nur lokal
@@ -1068,7 +1086,7 @@ function renderKapitel(r, canEdit){
 
     html += '<div class="fg"><label>Einleitung / Beschreibung</label>';
     html += '<textarea oninput="setKapitelField(\''+r.id+'\',\''+k.id+'\',\'einleitung\',this.value)" placeholder="Stichpunkte oder Fliesstext — Claude kann verbessern"'+(canEdit?'':' disabled')+'>'+esc(k.einleitung||'')+'</textarea>';
-    html += claudeRow(canEdit, '"einleitung"', r.id, 'kapitel_'+k.id+'_einleitung');
+    html += claudeRow(canEdit, '"einleitung"', r.id, 'kapitel::'+k.id+'::einleitung');
     html += '</div>';
 
     html += '<div class="fg"><label>Fotos · ⭐ Hauptbild markieren · 🚫 vom Bericht ausblenden</label>';
@@ -1178,7 +1196,7 @@ function renderUnterkapitel(rid, kid, uk, canEdit){
   html += '</div>';
   html += '<div class="fg"><label>Beschreibung / Befund</label>';
   html += '<textarea oninput="setUKField(\''+rid+'\',\''+kid+'\',\''+uk.id+'\',\'text\',this.value)"'+(canEdit?'':' disabled')+'>'+esc(uk.text||'')+'</textarea>';
-  html += claudeRow(canEdit, '"unterkapitel"', rid, 'uk_'+uk.id+'_text');
+  html += claudeRow(canEdit, '"unterkapitel"', rid, 'uk::'+uk.id+'::text');
   html += '</div>';
   html += '<div class="fg"><label>Bilder</label>';
   html += renderImgGrid(rid, 'unterkapitel', kid, uk.id, uk.bilder||[], canEdit);
@@ -1231,11 +1249,11 @@ function renderMassnahmen(r, canEdit){
     html += '<div></div></div>';
     html += '<div class="fg"><label>Mangel / Beschreibung</label>';
     html += '<textarea oninput="setMnField(\''+r.id+'\',\''+m.id+'\',\'beschreibung\',this.value)"'+(canEdit?'':' disabled')+'>'+esc(m.beschreibung||'')+'</textarea>';
-    html += claudeRow(canEdit, '"beschreibung"', r.id, 'mn_'+m.id+'_beschreibung');
+    html += claudeRow(canEdit, '"beschreibung"', r.id, 'mn::'+m.id+'::beschreibung');
     html += '</div>';
     html += '<div class="fg"><label>Empfehlung</label>';
     html += '<textarea oninput="setMnField(\''+r.id+'\',\''+m.id+'\',\'empfehlung\',this.value)"'+(canEdit?'':' disabled')+'>'+esc(m.empfehlung||'')+'</textarea>';
-    html += claudeRow(canEdit, '"empfehlung"', r.id, 'mn_'+m.id+'_empfehlung');
+    html += claudeRow(canEdit, '"empfehlung"', r.id, 'mn::'+m.id+'::empfehlung');
     html += '</div>';
     html += '</div>';
   });
@@ -1469,29 +1487,35 @@ function claudeRow(canEdit, kontext, rid, fieldKey){
     + '<span class="claude-status" id="cs_'+fieldKey+'"></span>'
     + '</div>';
 }
+// FieldKey-Format: 'kapitel::<kid>::<field>' / 'uk::<ukid>::<field>' /
+// 'mn::<mid>::<field>'. Separator '::' weil die UIDs selbst Unterstriche
+// enthalten (z.B. uid('k_') → 'k_lab2cd_xy7z9'). Vorher mit '_'
+// Separator wurde die ID falsch zerlegt → Kapitel nicht gefunden →
+// 'Kein Text'-Meldung in claudeAction.
+function _parseFieldKey(fieldKey){
+  var parts = fieldKey.split('::');
+  if(parts.length >= 3) return { scope:parts[0], id:parts[1], field:parts.slice(2).join('::') };
+  return null;
+}
 function _getFieldValue(r, fieldKey){
   if(fieldKey==='uebersicht_dachtypText') return r.dachuebersicht && r.dachuebersicht.dachtypText;
   if(fieldKey==='uebersicht_ziegelartText') return r.dachuebersicht && r.dachuebersicht.ziegelartText;
   if(fieldKey==='uebersicht_bemerkung') return r.dachuebersicht && r.dachuebersicht.bemerkung;
   if(fieldKey==='nachbar_text') return r.nachbaranschluesse && r.nachbaranschluesse.text;
-  if(fieldKey.startsWith('kapitel_')){
-    var parts = fieldKey.split('_'); // kapitel_<kid>_<field>
-    var kid = parts[1], field = parts.slice(2).join('_');
-    var k = (r.kapitel||[]).find(function(x){return x.id===kid;});
-    return k && k[field];
+  var p = _parseFieldKey(fieldKey);
+  if(!p) return undefined;
+  if(p.scope==='kapitel'){
+    var k = (r.kapitel||[]).find(function(x){return x.id===p.id;});
+    return k && k[p.field];
   }
-  if(fieldKey.startsWith('uk_')){
-    var parts2 = fieldKey.split('_'); // uk_<ukid>_<field>
-    var ukid = parts2[1], field2 = parts2.slice(2).join('_');
-    var k2 = null, uk = null;
-    (r.kapitel||[]).some(function(kk){ uk = (kk.unterkapitel||[]).find(function(x){return x.id===ukid;}); if(uk){k2=kk; return true;} return false; });
-    return uk && uk[field2];
+  if(p.scope==='uk'){
+    var uk = null;
+    (r.kapitel||[]).some(function(kk){ uk = (kk.unterkapitel||[]).find(function(x){return x.id===p.id;}); return !!uk; });
+    return uk && uk[p.field];
   }
-  if(fieldKey.startsWith('mn_')){
-    var parts3 = fieldKey.split('_'); // mn_<mid>_<field>
-    var mid = parts3[1], field3 = parts3.slice(2).join('_');
-    var m = (r.massnahmen||[]).find(function(x){return x.id===mid;});
-    return m && m[field3];
+  if(p.scope==='mn'){
+    var m = (r.massnahmen||[]).find(function(x){return x.id===p.id;});
+    return m && m[p.field];
   }
 }
 function _setFieldValue(r, fieldKey, val){
@@ -1499,26 +1523,22 @@ function _setFieldValue(r, fieldKey, val){
   if(fieldKey==='uebersicht_ziegelartText'){ r.dachuebersicht.ziegelartText = val; return; }
   if(fieldKey==='uebersicht_bemerkung'){ r.dachuebersicht.bemerkung = val; return; }
   if(fieldKey==='nachbar_text'){ r.nachbaranschluesse.text = val; return; }
-  if(fieldKey.startsWith('kapitel_')){
-    var parts = fieldKey.split('_');
-    var kid = parts[1], field = parts.slice(2).join('_');
-    var k = (r.kapitel||[]).find(function(x){return x.id===kid;});
-    if(k) k[field] = val;
+  var p = _parseFieldKey(fieldKey);
+  if(!p) return;
+  if(p.scope==='kapitel'){
+    var k = (r.kapitel||[]).find(function(x){return x.id===p.id;});
+    if(k) k[p.field] = val;
     return;
   }
-  if(fieldKey.startsWith('uk_')){
-    var parts2 = fieldKey.split('_');
-    var ukid = parts2[1], field2 = parts2.slice(2).join('_');
+  if(p.scope==='uk'){
     var uk = null;
-    (r.kapitel||[]).some(function(kk){ uk = (kk.unterkapitel||[]).find(function(x){return x.id===ukid;}); return !!uk; });
-    if(uk) uk[field2] = val;
+    (r.kapitel||[]).some(function(kk){ uk = (kk.unterkapitel||[]).find(function(x){return x.id===p.id;}); return !!uk; });
+    if(uk) uk[p.field] = val;
     return;
   }
-  if(fieldKey.startsWith('mn_')){
-    var parts3 = fieldKey.split('_');
-    var mid = parts3[1], field3 = parts3.slice(2).join('_');
-    var m = (r.massnahmen||[]).find(function(x){return x.id===mid;});
-    if(m) m[field3] = val;
+  if(p.scope==='mn'){
+    var m = (r.massnahmen||[]).find(function(x){return x.id===p.id;});
+    if(m) m[p.field] = val;
     return;
   }
 }
