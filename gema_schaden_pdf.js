@@ -16,10 +16,10 @@
 
   // ── CSS-Block aus der freigegebenen Vorlage (1:1 uebernommen) ──────
   // Quelle: vorlagen/bericht_wasserschaden_vorlage.html
-  var REPORT_CSS = '@import url(\'https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&display=swap\');'
+  var REPORT_CSS = '@import url(\'https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap\');'
     + ':root{--ink:#1f2933;--ink-soft:#525d66;--muted:#8a949c;--accent:#1e3a5f;--accent-deep:#142a45;--forest:#0c4a2e;--line:#e4e8ec;--line-soft:#eef1f3;--tint:#f5f7f8;--tint-blue:#eef2f6;--ok:#15803d;--paper:#ffffff;}'
     + '*{box-sizing:border-box;margin:0;padding:0;}'
-    + 'html,body{font-family:\'DM Sans\',sans-serif;color:var(--ink);font-size:10.5pt;line-height:1.55;-webkit-print-color-adjust:exact;print-color-adjust:exact;}'
+    + 'html,body{font-family:\'DM Sans\',sans-serif;color:var(--ink);font-size:10.5pt;line-height:1.55;-webkit-print-color-adjust:exact;print-color-adjust:exact;font-optical-sizing:none;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;}'
     // ─ Bildschirm-Vorschau: jede Sektion als eigenes A4-Blatt mit Schatten,
     //   damit der User die Seitengrenzen visuell sieht (statt fortlaufender
     //   Strom). Cover + jede report-section ist ein eigenes Papier-Element.
