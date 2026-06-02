@@ -160,9 +160,21 @@ body{margin:0;font-family:'DM Sans',system-ui,sans-serif;background:var(--bg);co
 .imgrid{display:grid;gap:8px;grid-template-columns:repeat(auto-fill,minmax(140px,160px));justify-content:start}
 .imgrid-item{aspect-ratio:4/3;border:1.5px solid var(--brd);border-radius:8px;overflow:hidden;position:relative;background:var(--bg2);cursor:pointer}
 .imgrid-item img{width:100%;height:100%;object-fit:cover;display:block}
-.imgrid-item .imdel{position:absolute;top:4px;right:4px;background:rgba(0,0,0,.65);color:#fff;border:none;border-radius:6px;width:22px;height:22px;cursor:pointer;font-size:10.5px;display:flex;align-items:center;justify-content:center}
-.imgrid-item .imedit{position:absolute;top:4px;left:4px;background:rgba(0,0,0,.65);color:#fff;border:none;border-radius:6px;width:22px;height:22px;cursor:pointer;font-size:11px;display:flex;align-items:center;justify-content:center}
-.imgrid-item .imedit:hover{background:var(--acc)}
+/* Toggle-Button-Gruppen: links oben ⭐ + 👁, rechts oben ✎ + ✕ */
+.imgrid-item .im-actions-l{position:absolute;top:4px;left:4px;display:flex;gap:3px}
+.imgrid-item .im-actions-r{position:absolute;top:4px;right:4px;display:flex;gap:3px}
+.imgrid-item .im-btn{background:rgba(0,0,0,.65);color:#fff;border:none;border-radius:6px;width:24px;height:24px;cursor:pointer;font-size:11.5px;line-height:1;display:flex;align-items:center;justify-content:center;padding:0;transition:.15s}
+.imgrid-item .im-btn:hover{background:var(--acc)}
+.imgrid-item .im-btn.danger:hover{background:var(--red)}
+.imgrid-item .im-btn.on{background:#f59e0b;color:#fff}                /* ⭐ Hauptbild aktiv (amber) */
+.imgrid-item .im-btn.on-eye{background:rgba(0,0,0,.4);color:#fff}     /* 👁 sichtbar (dezent) */
+.imgrid-item .im-badge{position:absolute;top:32px;left:4px;background:#f59e0b;color:#fff;font-size:9.5px;font-weight:800;padding:2px 6px;border-radius:5px;letter-spacing:.04em;text-transform:uppercase;pointer-events:none}
+.imgrid-item .im-badge.excluded-badge{background:var(--red)}
+/* Hauptbild: blau-amber-Rahmen, deutlich abgehoben */
+.imgrid-item.main{border:3px solid #f59e0b;box-shadow:0 0 0 2px #fef3c7}
+/* Ausgeschlossen aus Bericht: ausgegraut, kein Rahmen */
+.imgrid-item.excluded{opacity:.55}
+.imgrid-item.excluded img{filter:grayscale(.75)}
 .imgrid-item .imcap{position:absolute;bottom:0;left:0;right:0;background:linear-gradient(transparent,rgba(0,0,0,.75));color:#fff;padding:14px 6px 5px;font-size:10.5px;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .imadd{aspect-ratio:4/3;border:2px dashed var(--brd2);border-radius:8px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--mut);font-size:11.5px;font-weight:600;flex-direction:column;gap:4px}
 .imadd:hover{border-color:var(--acc);color:var(--acc)}
@@ -207,6 +219,20 @@ body{margin:0;font-family:'DM Sans',system-ui,sans-serif;background:var(--bg);co
 .lb{position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:300;display:flex;align-items:center;justify-content:center;padding:20px}
 .lb.hidden{display:none}
 .lb img{max-width:95vw;max-height:95vh;display:block}
+
+/* OneDrive-Style Save-Indikator unten rechts */
+.save-status{position:fixed;bottom:18px;right:18px;z-index:280;display:flex;align-items:center;gap:8px;padding:8px 14px;border-radius:99px;background:#fff;border:1px solid var(--brd);box-shadow:var(--sh-md);font-size:12.5px;font-weight:600;color:var(--ink);transition:opacity .25s,transform .25s;font-family:'DM Sans',system-ui,sans-serif}
+.save-status.hidden{opacity:0;transform:translateY(8px);pointer-events:none}
+.save-status .save-dot{width:8px;height:8px;border-radius:50%;background:var(--mut2);display:inline-block}
+.save-status .save-spinner{width:14px;height:14px;border:2px solid var(--brd);border-top-color:var(--acc);border-radius:50%;animation:saveSpin 0.7s linear infinite}
+.save-status .save-check{color:var(--green);font-weight:800;font-size:14px}
+.save-status .save-err{color:var(--red);font-weight:800;font-size:14px}
+.save-status.pending{color:var(--mut)}
+.save-status.saving{color:var(--acc);border-color:var(--acc-bd)}
+.save-status.saved{color:var(--green);border-color:#bbf7d0;background:#f0fdf4}
+.save-status.error{color:var(--red);border-color:#fecaca;background:#fef2f2}
+@keyframes saveSpin{to{transform:rotate(360deg)}}
+@media(max-width:640px){.save-status{bottom:14px;right:14px;padding:6px 11px;font-size:11.5px}}
 .lb-close{position:absolute;top:20px;right:20px;color:#fff;background:rgba(255,255,255,.15);border:none;width:42px;height:42px;border-radius:50%;cursor:pointer;font-size:18px}
 
 /* Responsive */
@@ -486,41 +512,228 @@ var _data = []; // Aktuelle Berichte (im Speicher)
 function loadAll(){
   try { var raw = localStorage.getItem(STORAGE_KEY); _data = raw ? JSON.parse(raw) : []; }
   catch(e) { _data = []; }
+  // Migration alter Datensaetze (bildGross -> bilder mit hauptbild)
+  _data.forEach(_migrateBilder);
   // Org-Filter
   var u = _getUser();
   if(u && !u.roleIds.includes('role_admin')){
     _data = _data.filter(function(r){ return !r.orgId || r.orgId === u.orgId; });
   }
 }
+// Offline-Alert-Debounce: bei schnellem Tippen feuern viele Saves
+// (oninput pro Buchstabe). Wenn EINE Anfrage scheitert (Netz-Zucker,
+// Server 503), zeigen wir den Alert hoechstens einmal pro 30s und
+// nur wenn die Verbindung danach nicht in <2s wieder da ist.
+var _lastOfflineAlertAt = 0;
+function _maybeShowOfflineAlert(){
+  var now = Date.now();
+  if(now - _lastOfflineAlertAt < 30000) return;  // Throttle
+  // Kurz warten, ob die Verbindung gleich wieder da ist
+  setTimeout(function(){
+    if(typeof window.GemaSync !== 'undefined' && window.GemaSync.isReachable && window.GemaSync.isReachable()){
+      return; // Inzwischen wieder online — kein Alert
+    }
+    _lastOfflineAlertAt = Date.now();
+    if(window.GemaDialog && window.GemaDialog.alert){
+      window.GemaDialog.alert({title:'Offline', message:'Aenderungen koennen nicht gespeichert werden. Bitte Verbindung pruefen.'});
+    }
+  }, 2000);
+}
+
 function persist(){
-  // Lokal speichern
+  // Cloud-First Save (Diff): GemaSync.persistCollection liest den
+  // aktuellen Cache als 'altes Array', vergleicht mit _data und
+  // pusht nur die Aenderungen. Bei Erfolg wird der Cache auf den
+  // neuen Stand geschrieben.
+  //
+  // WICHTIG: KEIN lokaler localStorage-Write vor persistCollection!
+  // Sonst waere der Cache bereits identisch zu _data, der Diff
+  // findet keine Aenderungen und es geht nichts in die Cloud
+  // hoch — Berichte erscheinen dann nicht auf anderen Geraeten.
+  if(typeof window.GemaSync !== 'undefined' && window.GemaSync.persistCollection){
+    return window.GemaSync.persistCollection(MODULE_KEY, STORAGE_KEY, PREFIX, 'id', _data)
+      .catch(function(e){
+        console.warn('[Dachbericht] Cloud-Sync fehlgeschlagen:', e && e.message);
+        _maybeShowOfflineAlert();
+        throw e; // rethrow damit _doSave den error-Status zeigt
+      });
+  }
+  // Fallback ohne GemaSync — nur lokal
   try {
     var raw = localStorage.getItem(STORAGE_KEY);
     var all = raw ? JSON.parse(raw) : [];
     var u = _getUser();
-    // Andere Orgs unangetastet zurueckschreiben, eigene durch _data ersetzen
     var others = u && !u.roleIds.includes('role_admin')
       ? all.filter(function(r){ return r.orgId && r.orgId !== u.orgId; })
       : [];
     localStorage.setItem(STORAGE_KEY, JSON.stringify(others.concat(_data)));
   } catch(e){}
-  // Cloud-Sync (Diff)
-  if(typeof window.GemaSync !== 'undefined' && window.GemaSync.persistCollection){
-    window.GemaSync.persistCollection(MODULE_KEY, STORAGE_KEY, PREFIX, 'id', _data)
-      .catch(function(e){ console.warn('[Dachbericht] Cloud-Sync fehlgeschlagen:', e && e.message); });
-  }
+  return Promise.resolve();
 }
 function getById(id){ return _data.find(function(r){ return r.id === id; }); }
+
+// Migration: alte Datenmodell-Felder (bild, bildGross) -> bilder[]
+// mit hauptbild:true. Wird beim Laden/Render aufgerufen, damit
+// bestehende Datensaetze nahtlos weiterlaufen.
+function _migrateBilder(r){
+  if(!r) return;
+  // dachuebersicht.bild -> dachuebersicht.bilder[hauptbild:true]
+  if(r.dachuebersicht){
+    r.dachuebersicht.bilder = r.dachuebersicht.bilder || [];
+    if(r.dachuebersicht.bild && r.dachuebersicht.bild.dataUrl){
+      var b = r.dachuebersicht.bild;
+      // Nur einfuegen wenn nicht schon vorhanden
+      var exists = r.dachuebersicht.bilder.some(function(x){ return x.dataUrl === b.dataUrl; });
+      if(!exists){
+        r.dachuebersicht.bilder.unshift({ dataUrl:b.dataUrl, kommentar:b.kommentar||'', hauptbild:true, imBericht:true });
+      }
+      r.dachuebersicht.bild = null;
+    }
+  }
+  // kapitel[].bildGross -> kapitel[].bilder[hauptbild:true]
+  (r.kapitel||[]).forEach(function(k){
+    k.bilder = k.bilder || [];
+    if(k.bildGross && k.bildGross.dataUrl){
+      var bg = k.bildGross;
+      var exists2 = k.bilder.some(function(x){ return x.dataUrl === bg.dataUrl; });
+      if(!exists2){
+        k.bilder.unshift({ dataUrl:bg.dataUrl, kommentar:bg.kommentar||'', hauptbild:true, imBericht:true });
+      }
+      k.bildGross = null;
+    }
+    // Unterkapitel-Bilder bekommen Default imBericht:true falls nicht gesetzt
+    (k.unterkapitel||[]).forEach(function(uk){ uk.bilder = uk.bilder || []; });
+  });
+  if(r.nachbaranschluesse) r.nachbaranschluesse.bilder = r.nachbaranschluesse.bilder || [];
+
+  // Migration Labels: bestehende Berichte ohne dachtypLabel/ziegelartLabel
+  // einmalig aus dem aktuellen Template nachfuellen — danach sind sie
+  // gegen weitere Template-Aenderungen immun.
+  if(r.dachuebersicht){
+    var tpl = getTemplates();
+    if(r.dachuebersicht.dachtyp && !r.dachuebersicht.dachtypLabel){
+      var dt = (tpl.dachtypen||[]).find(function(x){return x.id===r.dachuebersicht.dachtyp;});
+      if(dt) r.dachuebersicht.dachtypLabel = dt.label;
+    }
+    if(r.dachuebersicht.ziegelart && !r.dachuebersicht.ziegelartLabel){
+      var zt = (tpl.ziegelarten||[]).find(function(x){return x.id===r.dachuebersicht.ziegelart;});
+      if(zt) r.dachuebersicht.ziegelartLabel = zt.label;
+    }
+    // Kombi-Labels einfrieren
+    if((r.dachuebersicht.dachtypKombi||[]).length && !(r.dachuebersicht.dachtypKombiLabels||[]).length){
+      r.dachuebersicht.dachtypKombiLabels = r.dachuebersicht.dachtypKombi.map(function(kid){
+        var k = (tpl.dachtypen||[]).find(function(x){return x.id===kid;});
+        return k ? k.label : '';
+      });
+    }
+  }
+}
+
 function upsert(rec){
   var idx = _data.findIndex(function(r){ return r.id === rec.id; });
   if(idx >= 0) _data[idx] = rec;
   else _data.push(rec);
-  persist();
+  scheduleSave();
 }
 function removeById(id){
   _data = _data.filter(function(r){ return r.id !== id; });
-  persist();
+  scheduleSave(true); // Loeschen sofort speichern (User-Aktion erwartet Feedback)
 }
+
+// ── SAVE-SCHEDULER (Debounce + Status-Indikator) ─────────────────
+// 5s Debounce nach letzter Aenderung; beforeunload und manuelles
+// 'flushSave()' speichern sofort. Status-Indikator unten rechts
+// zeigt 'wird gespeichert' (Spinner) → 'gespeichert' (Haken) →
+// blendet aus. Bei Fehler bleibt der Fehler-Status sichtbar.
+var _saveTimer = null;
+var _savePending = false;       // aenderungen warten auf debounce
+var _saveInFlight = false;      // gerade laeuft ein Cloud-Save
+function scheduleSave(immediate){
+  _savePending = true;
+  _saveSetStatus('pending');
+  if(_saveTimer){ clearTimeout(_saveTimer); _saveTimer = null; }
+  if(immediate){
+    _doSave();
+  } else {
+    _saveTimer = setTimeout(_doSave, 5000);
+  }
+}
+function flushSave(){
+  if(_saveTimer){ clearTimeout(_saveTimer); _saveTimer = null; }
+  if(_savePending || _saveInFlight) _doSave();
+}
+function _doSave(){
+  if(_saveInFlight){
+    // Doppel-Trigger: nach Abschluss wird der pending-Flag erneut
+    // gepruft und falls noetig nochmal gespeichert.
+    return;
+  }
+  _saveTimer = null;
+  _savePending = false;
+  _saveInFlight = true;
+  _saveSetStatus('saving');
+  persist().then(function(){
+    _saveInFlight = false;
+    if(_savePending){
+      // Waehrend des Saves kamen weitere Aenderungen — gleich nochmal
+      _doSave();
+    } else {
+      _saveSetStatus('saved');
+    }
+  }).catch(function(e){
+    _saveInFlight = false;
+    console.warn('[Dachbericht] Save fehlgeschlagen:', e && e.message);
+    _saveSetStatus('error');
+  });
+}
+
+// Status-Indikator unten rechts (OneDrive-Style)
+function _saveSetStatus(state){
+  var el = document.getElementById('saveStatus');
+  if(!el){
+    el = document.createElement('div');
+    el.id = 'saveStatus';
+    el.className = 'save-status hidden';
+    document.body.appendChild(el);
+  }
+  el.classList.remove('hidden','pending','saving','saved','error');
+  if(state === 'pending'){
+    el.classList.add('pending');
+    el.innerHTML = '<span class="save-dot"></span><span>Aenderungen werden gespeichert ...</span>';
+  } else if(state === 'saving'){
+    el.classList.add('saving');
+    el.innerHTML = '<span class="save-spinner"></span><span>Wird gespeichert ...</span>';
+  } else if(state === 'saved'){
+    el.classList.add('saved');
+    el.innerHTML = '<span class="save-check">✓</span><span>Gespeichert</span>';
+    // Nach 2s ausblenden
+    if(_saveStatusHideTimer) clearTimeout(_saveStatusHideTimer);
+    _saveStatusHideTimer = setTimeout(function(){
+      var e = document.getElementById('saveStatus');
+      if(e) e.classList.add('hidden');
+    }, 2000);
+  } else if(state === 'error'){
+    el.classList.add('error');
+    el.innerHTML = '<span class="save-err">⚠</span><span>Speichern fehlgeschlagen — Verbindung pruefen</span>';
+  }
+}
+var _saveStatusHideTimer = null;
+
+// Beim Verlassen der Seite noch ausstehende Aenderungen synchron
+// in die Cloud schieben (best effort — sendBeacon waere noch
+// robuster, aber persistCollection ist async-Promise, das wir hier
+// pragmatisch starten).
+window.addEventListener('beforeunload', function(){
+  if(_savePending && !_saveInFlight){
+    try { _doSave(); } catch(e){}
+  }
+});
+// Bei visibility:hidden (Tab-Wechsel auf Mobile) auch sofort speichern
+document.addEventListener('visibilitychange', function(){
+  if(document.visibilityState === 'hidden' && _savePending){
+    try { flushSave(); } catch(e){}
+  }
+});
 
 // ── DASHBOARD ──────────────────────────────────────────────────
 var _searchTerm = '';
@@ -592,17 +805,23 @@ function objektName(oid){
   if(!oid) return '—';
   try {
     if(typeof GemaObjekte !== 'undefined'){
-      var o = (GemaObjekte.getAll()||[]).find(function(x){ return x.id === oid; });
+      // Auch archivierte Objekte beruecksichtigen, damit Berichte aus
+      // alten Objekten weiterhin lesbar bleiben (getAll filtert auf
+      // status=aktiv; getAllUnfiltered nicht).
+      var pool = (GemaObjekte.getAllUnfiltered ? GemaObjekte.getAllUnfiltered() : (GemaObjekte.getAll()||[]));
+      var o = pool.find(function(x){ return x.id === oid; });
       if(o) return o.name || o.projektName || o.id;
     }
   } catch(e){}
-  return oid;
+  // Wenn Objekt nicht (mehr) gefunden: User-freundlicher Hinweis statt
+  // kryptischer obj_xxxxx-ID. Tritt z.B. auf, wenn das Objekt auf einem
+  // anderen Geraet angelegt wurde und noch nicht hierher gesynct ist.
+  return '⚠ Objekt nicht gefunden';
 }
 function countPhotos(r){
   var n = 0;
-  if(r.dachuebersicht && r.dachuebersicht.bild) n++;
+  if(r.dachuebersicht) n += (r.dachuebersicht.bilder||[]).length;
   (r.kapitel||[]).forEach(function(k){
-    if(k.bildGross) n++;
     n += (k.bilder||[]).length;
     (k.unterkapitel||[]).forEach(function(uk){ n += (uk.bilder||[]).length; });
   });
@@ -611,18 +830,51 @@ function countPhotos(r){
 }
 
 // ── NEW MODAL ──────────────────────────────────────────────────
+// Edit-Modus-Marker: null = neu anlegen, sonst die rid des bestehenden
+// Berichts. dbSaveNew prueft das und macht entweder Insert oder Update.
+var _editingId = null;
 function dbOpenNew(){
   if(!_canEdit()){
     GemaDialog.alert({title:'Keine Berechtigung', message:'Nur Spengler, Planer und Admins können Berichte erstellen.'});
     return;
   }
+  _editingId = null;
   document.getElementById('f_titel').value = '';
   document.getElementById('f_datum').value = todayISO();
   populateObjekteSelect();
   populateSachbearbeiterSelect();
+  // Modal-Titel + Speichern-Button-Beschriftung zuruecksetzen
+  var hd = document.querySelector('#newModal .modal-title');
+  if(hd) hd.textContent = 'Neuen Dachbericht erfassen';
+  var saveBtn = document.querySelector('#newModal .modal-ft .btn.primary');
+  if(saveBtn) saveBtn.innerHTML = '💾 Anlegen';
   document.getElementById('newModal').classList.remove('hidden');
 }
-function dbCloseNew(){ document.getElementById('newModal').classList.add('hidden'); }
+function dbOpenEdit(id){
+  if(!_canEdit()){
+    GemaDialog.alert({title:'Keine Berechtigung', message:'Nur Spengler, Planer und Admins können Berichte bearbeiten.'});
+    return;
+  }
+  var r = getById(id); if(!r) return;
+  _editingId = id;
+  document.getElementById('f_titel').value = r.titel || '';
+  document.getElementById('f_datum').value = r.erstelltAm || todayISO();
+  populateObjekteSelect();
+  populateSachbearbeiterSelect();
+  // Werte des bestehenden Berichts setzen (nach populate, damit das
+  // selected Element existiert)
+  var objSel = document.getElementById('f_objekt');
+  if(objSel && r.objektId) objSel.value = r.objektId;
+  var sbSel = document.getElementById('f_sachbearbeiter');
+  if(sbSel && r.erstelltVon && r.erstelltVon.userId) sbSel.value = r.erstelltVon.userId;
+  // Modal-Titel + Save-Button anpassen
+  var hd = document.querySelector('#newModal .modal-title');
+  if(hd) hd.textContent = 'Bericht-Stammdaten bearbeiten';
+  var saveBtn = document.querySelector('#newModal .modal-ft .btn.primary');
+  if(saveBtn) saveBtn.innerHTML = '💾 Speichern';
+  document.getElementById('newModal').classList.remove('hidden');
+}
+function dbCloseNew(){ document.getElementById('newModal').classList.add('hidden'); _editingId = null; }
 function populateObjekteSelect(){
   var sel = document.getElementById('f_objekt');
   var html = '<option value="">— Objekt wählen —</option>';
@@ -682,15 +934,36 @@ function dbSaveNew(){
       if(p) sb = p;
     }
   } catch(e){}
+  var datum = document.getElementById('f_datum').value || todayISO();
+  var sachbearbeiter = sb ? { userId: sb.id||'', name: sb.name||sb.email||'' } : { userId:'', name:'' };
+
+  // Edit-Modus: bestehenden Bericht updaten, alle anderen Felder
+  // (kapitel, dachuebersicht, massnahmen, fotos) bleiben unveraendert.
+  if(_editingId){
+    var existing = getById(_editingId);
+    if(existing){
+      existing.titel = titel;
+      existing.objektId = objektId;
+      existing.erstelltAm = datum;
+      existing.erstelltVon = sachbearbeiter;
+      upsert(existing);
+      dbCloseNew();
+      renderDashboard();
+      renderDetail(existing);
+      return;
+    }
+  }
+
+  // Neuer Bericht
   var rec = {
     id: uid('dach_'),
     titel: titel,
     objektId: objektId,
-    erstelltAm: document.getElementById('f_datum').value || todayISO(),
-    erstelltVon: sb ? { userId: sb.id||'', name: sb.name||sb.email||'' } : { userId:'', name:'' },
+    erstelltAm: datum,
+    erstelltVon: sachbearbeiter,
     orgId: me ? me.orgId : null,
     phase: 'erfassung',
-    dachuebersicht: { dachtyp:'', dachtypKombi:[], dachtypText:'', ziegelart:'', ziegelartText:'', bild:null, bemerkung:'' },
+    dachuebersicht: { dachtyp:'', dachtypKombi:[], dachtypText:'', ziegelart:'', ziegelartText:'', bilder:[], bemerkung:'' },
     kapitel: [],
     nachbaranschluesse: { text:'', bilder:[] },
     massnahmen: []
@@ -765,7 +1038,16 @@ function dbSaveNewObjekt(){
   };
   pool.objekte.push(newObj);
   pool.activeObjektId = newObj.id;
-  try { localStorage.setItem(KEY, JSON.stringify(pool)); } catch(e){}
+
+  // Persistieren — SOWOHL _GemaDB (Cloud-Sync via gema_db.js) ALS
+  // AUCH localStorage. Ohne _GemaDB.save bleibt das Objekt nur lokal
+  // auf diesem Geraet und erscheint auf anderen Geraeten nie (selbst
+  // wenn der referenzierende Bericht synct, wuerde der Objekt-Lookup
+  // dort fehlschlagen und nur die ID anzeigen).
+  var json = JSON.stringify(pool);
+  try { if(typeof _GemaDB !== 'undefined' && _GemaDB.save) _GemaDB.save(KEY, json); } catch(e){}
+  try { localStorage.setItem(KEY, json); } catch(e){}
+
   // GemaObjekte-Cache invalidieren, damit der naechste getAll() das
   // frisch eingefuegte Objekt sieht.
   try { if(typeof GemaObjekte !== 'undefined' && GemaObjekte.refresh) GemaObjekte.refresh(); } catch(e){}
@@ -801,8 +1083,9 @@ function renderDetail(r){
   var html = '';
   html += '<div class="detail-hd">'
     + '<button class="detail-back" onclick="closeDetail()">← Zurück</button>'
-    + '<div class="detail-title">'+esc(r.titel)+'</div>'
+    + '<div class="detail-title" onclick="'+(canEdit?'dbOpenEdit(\''+r.id+'\')':'')+'"'+(canEdit?' style="cursor:pointer" title="Bericht-Stammdaten bearbeiten"':'')+'>'+esc(r.titel)+'</div>'
     + '<div class="detail-actions">'
+      + (canEdit ? '<button class="btn sm" onclick="dbOpenEdit(\''+r.id+'\')">✎ Bearbeiten</button>' : '')
       + (canEdit ? '<button class="btn sm danger" onclick="delReport(\''+r.id+'\')">🗑 Löschen</button>' : '')
       + '<button class="btn sm" onclick="exportPdf(\''+r.id+'\')">📄 PDF</button>'
     + '</div></div>';
@@ -902,9 +1185,9 @@ function renderUebersicht(r, canEdit){
   html += claudeRow(canEdit, '"bemerkung"', r.id, 'uebersicht_bemerkung');
   html += '</div>';
 
-  // Übersichtsbild
-  html += '<div class="fg"><label>Übersichtsbild des Dachs</label>';
-  html += renderBigImage(r.id, 'uebersicht', null, u.bild, canEdit);
+  // Fotos der Uebersicht — Hauptbild ⭐ markierbar, einzelne ausblendbar
+  html += '<div class="fg"><label>Fotos · ⭐ Hauptbild markieren · 🚫 vom Bericht ausblenden</label>';
+  html += renderImgGrid(r.id, 'uebersicht', null, null, u.bilder||[], canEdit);
   html += '</div>';
 
   return html;
@@ -912,16 +1195,24 @@ function renderUebersicht(r, canEdit){
 function setUebersicht(id, key, val){
   var r = getById(id); if(!r) return;
   r.dachuebersicht = r.dachuebersicht || {};
-  // Wenn Dachtyp gewechselt → Default-Text vorbefüllen wenn leer
-  if(key==='dachtyp' && val && !notEmpty(r.dachuebersicht.dachtypText)){
+  // Wenn Dachtyp gewechselt → Default-Text vorbefuellen wenn leer.
+  // Zusaetzlich Label einfrieren, damit Aenderungen am Template
+  // (Umbenennen, Loeschen) bestehende Berichte NICHT mehr beeinflussen.
+  if(key==='dachtyp' && val){
     var tpl = getTemplates();
     var t = tpl.dachtypen.find(function(x){return x.id===val;});
-    if(t) r.dachuebersicht.dachtypText = t.defaultText;
+    if(t){
+      if(!notEmpty(r.dachuebersicht.dachtypText)) r.dachuebersicht.dachtypText = t.defaultText;
+      r.dachuebersicht.dachtypLabel = t.label;
+    }
   }
-  if(key==='ziegelart' && val && !notEmpty(r.dachuebersicht.ziegelartText)){
+  if(key==='ziegelart' && val){
     var tpl2 = getTemplates();
     var z = tpl2.ziegelarten.find(function(x){return x.id===val;});
-    if(z) r.dachuebersicht.ziegelartText = z.defaultText;
+    if(z){
+      if(!notEmpty(r.dachuebersicht.ziegelartText)) r.dachuebersicht.ziegelartText = z.defaultText;
+      r.dachuebersicht.ziegelartLabel = z.label;
+    }
   }
   r.dachuebersicht[key] = val;
   upsert(r);
@@ -931,6 +1222,15 @@ function setKombi(id, idx, val){
   var r = getById(id); if(!r) return;
   r.dachuebersicht.dachtypKombi = r.dachuebersicht.dachtypKombi || [];
   r.dachuebersicht.dachtypKombi[idx] = val;
+  // Label fuer Kombi-Teil einfrieren — analog zum Dachtyp.
+  r.dachuebersicht.dachtypKombiLabels = r.dachuebersicht.dachtypKombiLabels || [];
+  if(val){
+    var tpl3 = getTemplates();
+    var k3 = tpl3.dachtypen.find(function(x){return x.id===val;});
+    if(k3) r.dachuebersicht.dachtypKombiLabels[idx] = k3.label;
+  } else {
+    r.dachuebersicht.dachtypKombiLabels[idx] = '';
+  }
   upsert(r);
 }
 
@@ -951,14 +1251,10 @@ function renderKapitel(r, canEdit){
 
     html += '<div class="fg"><label>Einleitung / Beschreibung</label>';
     html += '<textarea oninput="setKapitelField(\''+r.id+'\',\''+k.id+'\',\'einleitung\',this.value)" placeholder="Stichpunkte oder Fliesstext — Claude kann verbessern"'+(canEdit?'':' disabled')+'>'+esc(k.einleitung||'')+'</textarea>';
-    html += claudeRow(canEdit, '"einleitung"', r.id, 'kapitel_'+k.id+'_einleitung');
+    html += claudeRow(canEdit, '"einleitung"', r.id, 'kapitel::'+k.id+'::einleitung');
     html += '</div>';
 
-    html += '<div class="fg"><label>Hauptbild (gross)</label>';
-    html += renderBigImage(r.id, 'kapitel', k.id, k.bildGross, canEdit);
-    html += '</div>';
-
-    html += '<div class="fg"><label>Weitere Bilder (Auto-Grid)</label>';
+    html += '<div class="fg"><label>Fotos · ⭐ Hauptbild markieren · 🚫 vom Bericht ausblenden</label>';
     html += renderImgGrid(r.id, 'kapitel', k.id, null, k.bilder||[], canEdit);
     html += '</div>';
 
@@ -989,7 +1285,7 @@ function renderKapitel(r, canEdit){
 function addKapitel(id){
   var r = getById(id); if(!r) return;
   r.kapitel = r.kapitel || [];
-  r.kapitel.push({ id: uid('k_'), name:'', einleitung:'', bildGross:null, bilder:[], checkliste:[], unterkapitel:[] });
+  r.kapitel.push({ id: uid('k_'), name:'', einleitung:'', bilder:[], checkliste:[], unterkapitel:[] });
   upsert(r); renderDetail(r);
 }
 function delKapitel(id, kid){
@@ -1065,7 +1361,7 @@ function renderUnterkapitel(rid, kid, uk, canEdit){
   html += '</div>';
   html += '<div class="fg"><label>Beschreibung / Befund</label>';
   html += '<textarea oninput="setUKField(\''+rid+'\',\''+kid+'\',\''+uk.id+'\',\'text\',this.value)"'+(canEdit?'':' disabled')+'>'+esc(uk.text||'')+'</textarea>';
-  html += claudeRow(canEdit, '"unterkapitel"', rid, 'uk_'+uk.id+'_text');
+  html += claudeRow(canEdit, '"unterkapitel"', rid, 'uk::'+uk.id+'::text');
   html += '</div>';
   html += '<div class="fg"><label>Bilder</label>';
   html += renderImgGrid(rid, 'unterkapitel', kid, uk.id, uk.bilder||[], canEdit);
@@ -1118,11 +1414,11 @@ function renderMassnahmen(r, canEdit){
     html += '<div></div></div>';
     html += '<div class="fg"><label>Mangel / Beschreibung</label>';
     html += '<textarea oninput="setMnField(\''+r.id+'\',\''+m.id+'\',\'beschreibung\',this.value)"'+(canEdit?'':' disabled')+'>'+esc(m.beschreibung||'')+'</textarea>';
-    html += claudeRow(canEdit, '"beschreibung"', r.id, 'mn_'+m.id+'_beschreibung');
+    html += claudeRow(canEdit, '"beschreibung"', r.id, 'mn::'+m.id+'::beschreibung');
     html += '</div>';
     html += '<div class="fg"><label>Empfehlung</label>';
     html += '<textarea oninput="setMnField(\''+r.id+'\',\''+m.id+'\',\'empfehlung\',this.value)"'+(canEdit?'':' disabled')+'>'+esc(m.empfehlung||'')+'</textarea>';
-    html += claudeRow(canEdit, '"empfehlung"', r.id, 'mn_'+m.id+'_empfehlung');
+    html += claudeRow(canEdit, '"empfehlung"', r.id, 'mn::'+m.id+'::empfehlung');
     html += '</div>';
     html += '</div>';
   });
@@ -1170,73 +1466,73 @@ function setPhase(id, p){
   upsert(r); renderDetail(r);
 }
 
-// ── BILDER: Big-Image + Grid ──────────────────────────────────
-function renderBigImage(rid, scope, kid, bild, canEdit){
-  var html = '<div class="bigimg-wrap'+(bild?'':' empty')+'" '+(canEdit?'onclick="pickBigImage(\''+rid+'\',\''+scope+'\','+(kid?'\''+kid+'\'':'null')+')"':'')+'>';
-  if(bild){
-    html += '<img src="'+esc(bild.dataUrl)+'" onclick="event.stopPropagation();openLightbox(\''+esc(bild.dataUrl).replace(/'/g,"\\'")+'\')" alt="">';
-    if(canEdit) html += '<button class="bigimg-del" onclick="event.stopPropagation();delBigImage(\''+rid+'\',\''+scope+'\','+(kid?'\''+kid+'\'':'null')+')">🗑</button>';
-  } else {
-    html += '<div class="bigimg-empty-ic">📷</div><div>Klicken um Bild hinzuzufügen</div>';
-  }
-  html += '</div>';
-  if(bild){
-    html += '<input type="text" class="bigimg-cap" placeholder="Optionale Bildbeschreibung" oninput="setBigImageCap(\''+rid+'\',\''+scope+'\','+(kid?'\''+kid+'\'':'null')+',this.value)" value="'+esc(bild.kommentar||'')+'" style="width:100%;padding:7px 10px;border:1.5px solid var(--brd);border-radius:8px;font-family:inherit;font-size:12.5px"'+(canEdit?'':' disabled')+'>';
-  }
-  return html;
-}
-function pickBigImage(rid, scope, kid){
-  pickPhotoFile().then(function(dataUrl){
-    if(!dataUrl) return;
-    GemaDialog.prompt({
-      title:'Bildunterschrift (optional)',
-      message:'Wird im PDF unter dem Hauptbild angezeigt. Leer lassen zum Ueberspringen.',
-      placeholder:'z.B. Gesamtansicht Dach von Sueden',
-      defaultValue:''
-    }).then(function(kommentar){
-      var cap = (kommentar === null) ? '' : kommentar;
-      var r = getById(rid); if(!r) return;
-      var bild = { dataUrl: dataUrl, kommentar: cap };
-      if(scope==='uebersicht') r.dachuebersicht.bild = bild;
-      else if(scope==='kapitel'){
-        var k = (r.kapitel||[]).find(function(x){return x.id===kid;}); if(k) k.bildGross = bild;
-      }
-      upsert(r); renderDetail(r);
-    });
-  });
-}
-function delBigImage(rid, scope, kid){
-  var r = getById(rid); if(!r) return;
-  if(scope==='uebersicht') r.dachuebersicht.bild = null;
-  else if(scope==='kapitel'){ var k = (r.kapitel||[]).find(function(x){return x.id===kid;}); if(k) k.bildGross = null; }
-  upsert(r); renderDetail(r);
-}
-function setBigImageCap(rid, scope, kid, val){
-  var r = getById(rid); if(!r) return;
-  if(scope==='uebersicht' && r.dachuebersicht.bild) r.dachuebersicht.bild.kommentar = val;
-  else if(scope==='kapitel'){ var k = (r.kapitel||[]).find(function(x){return x.id===kid;}); if(k && k.bildGross) k.bildGross.kommentar = val; }
-  upsert(r);
-}
+// ── BILDER: einheitliches Grid mit Hauptbild-Markierung ──────
+// (Frueheres renderBigImage/pickBigImage/delBigImage/setBigImageCap
+//  ist weggefallen — alle Fotos sind jetzt im selben Pool, der User
+//  markiert eines per ⭐ als Hauptbild fuer das PDF-Bigimg.)
 
 function renderImgGrid(rid, scope, kid, ukid, bilder, canEdit){
   bilder = bilder || [];
-  // Editor-Ansicht: kompaktes Grid (CSS macht auto-fill mit max 160px
-  // pro Item). PDF-Layout (4/6 Seitenfuellung) wird im Export gemacht.
+  // Helper-Schluessel fuer Funktionsaufrufe — kompakter zu lesen
+  var args = '\''+rid+'\',\''+scope+'\','+(kid?'\''+kid+'\'':'null')+','+(ukid?'\''+ukid+'\'':'null');
+  // Unterkapitel haben kein Hauptbild — sind Detail-Sektionen. Nur die
+  // Hauptebenen (Uebersicht, Kapitel, Nachbar) zeigen den ⭐-Button.
+  var supportsHauptbild = (scope === 'uebersicht' || scope === 'kapitel' || scope === 'nachbar');
   var html = '<div class="imgrid">';
   bilder.forEach(function(b, i){
-    html += '<div class="imgrid-item" title="'+esc(b.kommentar||'')+'">';
+    var isMain = !!b.hauptbild;
+    var inReport = b.imBericht !== false;
+    var classes = 'imgrid-item';
+    if(isMain) classes += ' main';
+    if(!inReport) classes += ' excluded';
+    html += '<div class="'+classes+'" title="'+esc(b.kommentar||'')+'">';
     html += '<img src="'+esc(b.dataUrl)+'" onclick="openLightbox(\''+esc(b.dataUrl).replace(/'/g,"\\'")+'\')" alt="">';
-    if(canEdit) html += '<button class="imdel" onclick="event.stopPropagation();delGridImage(\''+rid+'\',\''+scope+'\','+(kid?'\''+kid+'\'':'null')+','+(ukid?'\''+ukid+'\'':'null')+','+i+')" title="Foto entfernen">✕</button>';
-    if(canEdit) html += '<button class="imedit" onclick="event.stopPropagation();editGridImageCap(\''+rid+'\',\''+scope+'\','+(kid?'\''+kid+'\'':'null')+','+(ukid?'\''+ukid+'\'':'null')+','+i+')" title="Bildunterschrift bearbeiten">✎</button>';
+    if(isMain) html += '<div class="im-badge">⭐ Hauptbild</div>';
+    else if(!inReport) html += '<div class="im-badge excluded-badge">🚫 nicht im Bericht</div>';
+    if(canEdit){
+      // Buttons-Reihe oben links: ⭐ Hauptbild, 👁/🚫 Bericht
+      html += '<div class="im-actions-l">';
+      if(supportsHauptbild){
+        html += '<button class="im-btn'+(isMain?' on':'')+'" onclick="event.stopPropagation();toggleHauptbild('+args+','+i+')" title="'+(isMain?'Hauptbild':'Als Hauptbild markieren')+'">⭐</button>';
+      }
+      html += '<button class="im-btn'+(inReport?' on-eye':'')+'" onclick="event.stopPropagation();toggleImBericht('+args+','+i+')" title="'+(inReport?'Erscheint im Bericht — Klick zum Ausblenden':'Versteckt — Klick zum Einschluss')+'">'+(inReport?'👁':'🚫')+'</button>';
+      html += '</div>';
+      // Buttons-Reihe oben rechts: ✎ Caption, ✕ Loeschen
+      html += '<div class="im-actions-r">';
+      html += '<button class="im-btn" onclick="event.stopPropagation();editGridImageCap('+args+','+i+')" title="Bildunterschrift">✎</button>';
+      html += '<button class="im-btn danger" onclick="event.stopPropagation();delGridImage('+args+','+i+')" title="Foto entfernen">✕</button>';
+      html += '</div>';
+    }
     if(b.kommentar) html += '<div class="imcap">'+esc(b.kommentar)+'</div>';
     html += '</div>';
   });
   if(canEdit){
-    html += '<div class="imadd" onclick="pickGridImage(\''+rid+'\',\''+scope+'\','+(kid?'\''+kid+'\'':'null')+','+(ukid?'\''+ukid+'\'':'null')+')">'
+    html += '<div class="imadd" onclick="pickGridImage('+args+')">'
       + '<div style="font-size:22px">📷</div><div>Bild hinzufügen</div></div>';
   }
   html += '</div>';
   return html;
+}
+
+// ⭐ als Hauptbild markieren — entmarkiert automatisch andere im selben
+// Bilder-Array. Erneuter Klick auf ein bereits markiertes Hauptbild
+// entfernt die Markierung (kein Hauptbild → erstes Foto wird im PDF
+// als Bigimg verwendet).
+function toggleHauptbild(rid, scope, kid, ukid, idx){
+  var r = getById(rid); if(!r) return;
+  var arr = _resolveBilderArray(r, scope, kid, ukid); if(!arr || !arr[idx]) return;
+  var wasMain = !!arr[idx].hauptbild;
+  arr.forEach(function(b){ b.hauptbild = false; });
+  if(!wasMain) arr[idx].hauptbild = true;
+  upsert(r); renderDetail(r);
+}
+
+// 👁/🚫 vom Bericht aus-/einblenden — kein Loeschen, nur ausgeblendet.
+function toggleImBericht(rid, scope, kid, ukid, idx){
+  var r = getById(rid); if(!r) return;
+  var arr = _resolveBilderArray(r, scope, kid, ukid); if(!arr || !arr[idx]) return;
+  arr[idx].imBericht = arr[idx].imBericht === false ? true : false;
+  upsert(r); renderDetail(r);
 }
 // Bildunterschrift nachtraeglich bearbeiten via Prompt-Modal.
 function editGridImageCap(rid, scope, kid, ukid, idx){
@@ -1253,6 +1549,7 @@ function editGridImageCap(rid, scope, kid, ukid, idx){
   });
 }
 function _resolveBilderArray(r, scope, kid, ukid){
+  if(scope==='uebersicht'){ r.dachuebersicht = r.dachuebersicht || {}; r.dachuebersicht.bilder = r.dachuebersicht.bilder || []; return r.dachuebersicht.bilder; }
   if(scope==='kapitel'){ var k = (r.kapitel||[]).find(function(x){return x.id===kid;}); return k && (k.bilder = k.bilder||[]); }
   if(scope==='unterkapitel'){ var k2 = (r.kapitel||[]).find(function(x){return x.id===kid;}); var uk = k2 && (k2.unterkapitel||[]).find(function(x){return x.id===ukid;}); return uk && (uk.bilder = uk.bilder||[]); }
   if(scope==='nachbar'){ r.nachbaranschluesse = r.nachbaranschluesse || {text:'',bilder:[]}; return r.nachbaranschluesse.bilder; }
@@ -1268,11 +1565,19 @@ function pickGridImage(rid, scope, kid, ukid){
       placeholder:'z.B. Lukarne Strassenseite oben links',
       defaultValue:''
     }).then(function(kommentar){
-      // null = Abbrechen → Foto trotzdem speichern, nur ohne Kommentar
       var cap = (kommentar === null) ? '' : kommentar;
       var r = getById(rid); if(!r) return;
       var arr = _resolveBilderArray(r, scope, kid, ukid); if(!arr) return;
-      arr.push({ dataUrl: dataUrl, kommentar: cap });
+      // Erstes Bild eines Pools wird automatisch Hauptbild (sofern
+      // die Sektion Hauptbilder unterstuetzt — Unterkapitel nicht).
+      var supportsHauptbild = (scope === 'uebersicht' || scope === 'kapitel' || scope === 'nachbar');
+      var hasMain = arr.some(function(b){ return b.hauptbild; });
+      arr.push({
+        dataUrl: dataUrl,
+        kommentar: cap,
+        imBericht: true,
+        hauptbild: supportsHauptbild && !hasMain
+      });
       upsert(r); renderDetail(r);
     });
   });
@@ -1347,29 +1652,35 @@ function claudeRow(canEdit, kontext, rid, fieldKey){
     + '<span class="claude-status" id="cs_'+fieldKey+'"></span>'
     + '</div>';
 }
+// FieldKey-Format: 'kapitel::<kid>::<field>' / 'uk::<ukid>::<field>' /
+// 'mn::<mid>::<field>'. Separator '::' weil die UIDs selbst Unterstriche
+// enthalten (z.B. uid('k_') → 'k_lab2cd_xy7z9'). Vorher mit '_'
+// Separator wurde die ID falsch zerlegt → Kapitel nicht gefunden →
+// 'Kein Text'-Meldung in claudeAction.
+function _parseFieldKey(fieldKey){
+  var parts = fieldKey.split('::');
+  if(parts.length >= 3) return { scope:parts[0], id:parts[1], field:parts.slice(2).join('::') };
+  return null;
+}
 function _getFieldValue(r, fieldKey){
   if(fieldKey==='uebersicht_dachtypText') return r.dachuebersicht && r.dachuebersicht.dachtypText;
   if(fieldKey==='uebersicht_ziegelartText') return r.dachuebersicht && r.dachuebersicht.ziegelartText;
   if(fieldKey==='uebersicht_bemerkung') return r.dachuebersicht && r.dachuebersicht.bemerkung;
   if(fieldKey==='nachbar_text') return r.nachbaranschluesse && r.nachbaranschluesse.text;
-  if(fieldKey.startsWith('kapitel_')){
-    var parts = fieldKey.split('_'); // kapitel_<kid>_<field>
-    var kid = parts[1], field = parts.slice(2).join('_');
-    var k = (r.kapitel||[]).find(function(x){return x.id===kid;});
-    return k && k[field];
+  var p = _parseFieldKey(fieldKey);
+  if(!p) return undefined;
+  if(p.scope==='kapitel'){
+    var k = (r.kapitel||[]).find(function(x){return x.id===p.id;});
+    return k && k[p.field];
   }
-  if(fieldKey.startsWith('uk_')){
-    var parts2 = fieldKey.split('_'); // uk_<ukid>_<field>
-    var ukid = parts2[1], field2 = parts2.slice(2).join('_');
-    var k2 = null, uk = null;
-    (r.kapitel||[]).some(function(kk){ uk = (kk.unterkapitel||[]).find(function(x){return x.id===ukid;}); if(uk){k2=kk; return true;} return false; });
-    return uk && uk[field2];
+  if(p.scope==='uk'){
+    var uk = null;
+    (r.kapitel||[]).some(function(kk){ uk = (kk.unterkapitel||[]).find(function(x){return x.id===p.id;}); return !!uk; });
+    return uk && uk[p.field];
   }
-  if(fieldKey.startsWith('mn_')){
-    var parts3 = fieldKey.split('_'); // mn_<mid>_<field>
-    var mid = parts3[1], field3 = parts3.slice(2).join('_');
-    var m = (r.massnahmen||[]).find(function(x){return x.id===mid;});
-    return m && m[field3];
+  if(p.scope==='mn'){
+    var m = (r.massnahmen||[]).find(function(x){return x.id===p.id;});
+    return m && m[p.field];
   }
 }
 function _setFieldValue(r, fieldKey, val){
@@ -1377,26 +1688,22 @@ function _setFieldValue(r, fieldKey, val){
   if(fieldKey==='uebersicht_ziegelartText'){ r.dachuebersicht.ziegelartText = val; return; }
   if(fieldKey==='uebersicht_bemerkung'){ r.dachuebersicht.bemerkung = val; return; }
   if(fieldKey==='nachbar_text'){ r.nachbaranschluesse.text = val; return; }
-  if(fieldKey.startsWith('kapitel_')){
-    var parts = fieldKey.split('_');
-    var kid = parts[1], field = parts.slice(2).join('_');
-    var k = (r.kapitel||[]).find(function(x){return x.id===kid;});
-    if(k) k[field] = val;
+  var p = _parseFieldKey(fieldKey);
+  if(!p) return;
+  if(p.scope==='kapitel'){
+    var k = (r.kapitel||[]).find(function(x){return x.id===p.id;});
+    if(k) k[p.field] = val;
     return;
   }
-  if(fieldKey.startsWith('uk_')){
-    var parts2 = fieldKey.split('_');
-    var ukid = parts2[1], field2 = parts2.slice(2).join('_');
+  if(p.scope==='uk'){
     var uk = null;
-    (r.kapitel||[]).some(function(kk){ uk = (kk.unterkapitel||[]).find(function(x){return x.id===ukid;}); return !!uk; });
-    if(uk) uk[field2] = val;
+    (r.kapitel||[]).some(function(kk){ uk = (kk.unterkapitel||[]).find(function(x){return x.id===p.id;}); return !!uk; });
+    if(uk) uk[p.field] = val;
     return;
   }
-  if(fieldKey.startsWith('mn_')){
-    var parts3 = fieldKey.split('_');
-    var mid = parts3[1], field3 = parts3.slice(2).join('_');
-    var m = (r.massnahmen||[]).find(function(x){return x.id===mid;});
-    if(m) m[field3] = val;
+  if(p.scope==='mn'){
+    var m = (r.massnahmen||[]).find(function(x){return x.id===p.id;});
+    if(m) m[p.field] = val;
     return;
   }
 }
@@ -1472,9 +1779,8 @@ function openTemplatesModal(){
   var html = '';
   html += '<div class="fsec"><div class="fsec-hd"><span class="fsec-ico">🏠</span><div><div class="fsec-title">Dachtypen</div><div class="fsec-sub">Auswahlmöglichkeiten und Standardtexte</div></div></div>';
   tpl.dachtypen.forEach(function(d, i){
-    html += '<div class="fg" data-tpl="dachtypen" data-i="'+i+'">';
-    html += '<div class="fg-row" style="grid-template-columns:1fr 2fr"><div><label>ID (intern)</label><input type="text" value="'+esc(d.id)+'" data-fld="id"></div>';
-    html += '<div><label>Anzeigename</label><input type="text" value="'+esc(d.label)+'" data-fld="label"></div></div>';
+    html += '<div class="fg" data-tpl="dachtypen" data-i="'+i+'" data-id="'+esc(d.id||'')+'">';
+    html += '<label>Anzeigename</label><input type="text" value="'+esc(d.label)+'" data-fld="label">';
     html += '<label>Standardtext</label><textarea data-fld="defaultText">'+esc(d.defaultText)+'</textarea>';
     html += '<button class="btn sm danger" onclick="tplDel(\'dachtypen\','+i+')">Entfernen</button>';
     html += '</div>';
@@ -1483,9 +1789,8 @@ function openTemplatesModal(){
 
   html += '<div class="fsec"><div class="fsec-hd"><span class="fsec-ico">🧱</span><div><div class="fsec-title">Ziegelarten / Eindeckung</div></div></div>';
   tpl.ziegelarten.forEach(function(d, i){
-    html += '<div class="fg" data-tpl="ziegelarten" data-i="'+i+'">';
-    html += '<div class="fg-row" style="grid-template-columns:1fr 2fr"><div><label>ID</label><input type="text" value="'+esc(d.id)+'" data-fld="id"></div>';
-    html += '<div><label>Anzeigename</label><input type="text" value="'+esc(d.label)+'" data-fld="label"></div></div>';
+    html += '<div class="fg" data-tpl="ziegelarten" data-i="'+i+'" data-id="'+esc(d.id||'')+'">';
+    html += '<label>Anzeigename</label><input type="text" value="'+esc(d.label)+'" data-fld="label">';
     html += '<label>Standardtext</label><textarea data-fld="defaultText">'+esc(d.defaultText)+'</textarea>';
     html += '<button class="btn sm danger" onclick="tplDel(\'ziegelarten\','+i+')">Entfernen</button>';
     html += '</div>';
@@ -1506,9 +1811,8 @@ function openTemplatesModal(){
 
   html += '<div class="fsec"><div class="fsec-hd"><span class="fsec-ico">🔧</span><div><div class="fsec-title">Unterkapitel-Typen</div><div class="fsec-sub">Einfassungen, Dachfenster, Rinnen ...</div></div></div>';
   tpl.unterkapitelTypen.forEach(function(d, i){
-    html += '<div class="fg" data-tpl="unterkapitelTypen" data-i="'+i+'">';
-    html += '<div class="fg-row" style="grid-template-columns:1fr 2fr"><div><label>ID</label><input type="text" value="'+esc(d.id)+'" data-fld="id"></div>';
-    html += '<div><label>Anzeigename</label><input type="text" value="'+esc(d.label)+'" data-fld="label"></div></div>';
+    html += '<div class="fg" data-tpl="unterkapitelTypen" data-i="'+i+'" data-id="'+esc(d.id||'')+'">';
+    html += '<label>Anzeigename</label><input type="text" value="'+esc(d.label)+'" data-fld="label">';
     html += '<label>Standardtext</label><textarea data-fld="defaultText">'+esc(d.defaultText)+'</textarea>';
     html += '<button class="btn sm danger" onclick="tplDel(\'unterkapitelTypen\','+i+')">Entfernen</button>';
     html += '</div>';
@@ -1566,13 +1870,17 @@ function tplListDel(key, idx){
 }
 function _readTplFromModal(){
   var tpl = JSON.parse(JSON.stringify(getTemplates()));
-  // Strukturen mit Objekten (id/label/defaultText)
+  // Strukturen mit Objekten (id/label/defaultText). Die ID ist im
+  // UI nicht mehr sichtbar — sie lebt als data-id-Attribut am
+  // Wrapper, damit bestehende Berichte (die die ID referenzieren)
+  // weiter funktionieren. Neue Eintraege erhalten in tplAdd eine
+  // frische uid('t_').
   ['dachtypen','ziegelarten','unterkapitelTypen'].forEach(function(key){
     tpl[key] = [];
     document.querySelectorAll('[data-tpl="'+key+'"]').forEach(function(el){
       // Nur Objekt-Container, nicht die Listen-Container
       if(el.classList && el.classList.contains('tpl-list')) return;
-      var obj = {};
+      var obj = { id: el.dataset.id || uid('t_') };
       el.querySelectorAll('[data-fld]').forEach(function(inp){ obj[inp.dataset.fld] = inp.value; });
       tpl[key].push(obj);
     });

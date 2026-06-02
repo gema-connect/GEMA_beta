@@ -22,10 +22,10 @@
   'use strict';
 
   // ── CSS (analog gema_schaden_pdf, mit kleinen Anpassungen) ─────────
-  var REPORT_CSS = '@import url(\'https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&display=swap\');'
+  var REPORT_CSS = '@import url(\'https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap\');'
     + ':root{--ink:#1f2933;--ink-soft:#525d66;--muted:#8a949c;--accent:#0891b2;--accent-deep:#0e7490;--forest:#0c4a2e;--line:#e4e8ec;--line-soft:#eef1f3;--tint:#f5f7f8;--tint-blue:#ecfeff;--ok:#15803d;--amber:#b45309;--red:#b91c1c;--paper:#ffffff;}'
     + '*{box-sizing:border-box;margin:0;padding:0;}'
-    + 'html,body{font-family:\'DM Sans\',sans-serif;color:var(--ink);font-size:10.5pt;line-height:1.55;-webkit-print-color-adjust:exact;print-color-adjust:exact;}'
+    + 'html,body{font-family:\'DM Sans\',sans-serif;color:var(--ink);font-size:10.5pt;line-height:1.55;-webkit-print-color-adjust:exact;print-color-adjust:exact;font-optical-sizing:none;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;}'
     + '@media screen{body{background:#dfe3e6;padding:32px 16px;}'
       + '.content{width:210mm;margin:0 auto;background:transparent;}'
       + '.content > .cover,.content > .report-section{width:210mm;min-height:297mm;background:var(--paper);box-shadow:0 8px 40px rgba(20,30,45,.18);margin:0 auto 28px;position:relative;overflow:hidden;}'
@@ -138,8 +138,35 @@
   // Regel: chunks zu max. 6 — jeder Chunk in eigenen Grid; bei mehreren
   // chunks startet jeder Chunk nach dem ersten auf einer neuen Seite
   // (via page-break-before:always).
+  // Trennt einen Bilder-Pool in {haupt, rest}:
+  //   - haupt: Bild mit hauptbild===true; oder erstes Foto wenn keins
+  //     markiert ist UND mind. 2 Fotos vorhanden sind. Bei nur einem
+  //     Foto wird es immer als haupt verwendet.
+  //   - rest: alle uebrigen Fotos mit imBericht !== false.
+  // Vom Bericht ausgeschlossene Fotos (imBericht === false) werden
+  // weder als haupt noch als rest gerendert.
+  function splitMainAndRest(bilder){
+    var inReport = (bilder||[]).filter(function(b){
+      return b && b.dataUrl && b.imBericht !== false;
+    });
+    if(!inReport.length) return { haupt:null, rest:[] };
+    var hauptIdx = -1;
+    for(var i=0; i<inReport.length; i++){
+      if(inReport[i].hauptbild){ hauptIdx = i; break; }
+    }
+    // Kein explizit markiertes Hauptbild → erstes Foto als Haupt
+    if(hauptIdx < 0) hauptIdx = 0;
+    var haupt = inReport[hauptIdx];
+    var rest = inReport.slice(0, hauptIdx).concat(inReport.slice(hauptIdx+1));
+    return { haupt: haupt, rest: rest };
+  }
+
   function gridHtml(bilder){
-    bilder = (bilder||[]).filter(function(b){ return b && b.dataUrl; });
+    // Akzeptiert sowohl bereits gefiltertes Array als auch rohes
+    // Pool — filtert sicherheitshalber.
+    bilder = (bilder||[]).filter(function(b){
+      return b && b.dataUrl && b.imBericht !== false;
+    });
     if(!bilder.length) return '';
     var html = '';
     for(var i = 0; i < bilder.length; i += 6){
@@ -204,28 +231,39 @@
   // ── 1. Dach-Übersicht ─────────────────────────────────────────────
   function uebersichtHtml(b, opts){
     var u = b.dachuebersicht || {};
-    if(!u.dachtyp && !u.ziegelart && !notEmpty(u.dachtypText) && !notEmpty(u.ziegelartText) && !notEmpty(u.bemerkung) && !u.bild) return '';
+    var bilder = u.bilder || (u.bild && u.bild.dataUrl ? [u.bild] : []);
+    var split = splitMainAndRest(bilder);
+    if(!u.dachtyp && !u.ziegelart && !notEmpty(u.dachtypText) && !notEmpty(u.ziegelartText) && !notEmpty(u.bemerkung) && !split.haupt) return '';
     var tpl = opts.templates || {};
-    var dachtypLabel = '';
-    var dt = lookupTemplate(tpl.dachtypen, u.dachtyp);
-    if(dt){
-      dachtypLabel = dt.label;
-      if(u.dachtyp === 'kombination' && u.dachtypKombi && u.dachtypKombi.length){
-        var parts = u.dachtypKombi.map(function(id){
-          var t = lookupTemplate(tpl.dachtypen, id);
-          return t ? t.label : '';
-        }).filter(Boolean);
-        if(parts.length) dachtypLabel = 'Kombination: ' + parts.join(' + ');
-      }
+    // Label-Aufloesung: eingefrorenes Label im Bericht hat Vorrang vor
+    // dem Template-Lookup. Dadurch sind aenderungen am Template (z.B.
+    // Umbenennen, Loeschen) wirken NICHT mehr auf bestehende Berichte.
+    // Fallback aufs Template gilt nur fuer Alt-Daten ohne gespeichertes Label.
+    var dachtypLabel = u.dachtypLabel || '';
+    if(!dachtypLabel){
+      var dt = lookupTemplate(tpl.dachtypen, u.dachtyp);
+      if(dt) dachtypLabel = dt.label;
     }
-    var ziegelLabel = '';
-    var zt = lookupTemplate(tpl.ziegelarten, u.ziegelart);
-    if(zt) ziegelLabel = zt.label;
+    if(u.dachtyp === 'kombination' && u.dachtypKombi && u.dachtypKombi.length){
+      var parts = u.dachtypKombi.map(function(id, i){
+        // Erst eingefrorenes Kombi-Label, dann Template-Fallback
+        var frozen = (u.dachtypKombiLabels && u.dachtypKombiLabels[i]) || '';
+        if(frozen) return frozen;
+        var t = lookupTemplate(tpl.dachtypen, id);
+        return t ? t.label : '';
+      }).filter(Boolean);
+      if(parts.length) dachtypLabel = 'Kombination: ' + parts.join(' + ');
+    }
+    var ziegelLabel = u.ziegelartLabel || '';
+    if(!ziegelLabel){
+      var zt = lookupTemplate(tpl.ziegelarten, u.ziegelart);
+      if(zt) ziegelLabel = zt.label;
+    }
 
     var h = '<section class="report-section"><div class="page-body">'
       + '<div class="sec-head"><div class="sec-num">1</div>'
       + '<div class="sec-titles"><div class="sec-eyebrow">Übersicht</div><div class="sec-title">Dachübersicht</div></div></div>';
-    if(u.bild) h += bigImageHtml(u.bild);
+    if(split.haupt) h += bigImageHtml(split.haupt);
     if(dachtypLabel){
       h += '<div class="block"><div class="block-label">Dachtyp · '+esc(dachtypLabel)+'</div>';
       if(notEmpty(u.dachtypText)) h += '<div class="block-body">'+esc(u.dachtypText)+'</div>';
@@ -239,6 +277,10 @@
     if(notEmpty(u.bemerkung)){
       h += '<div class="block"><div class="block-label">Bemerkung</div><div class="block-body">'+esc(u.bemerkung)+'</div></div>';
     }
+    if(split.rest.length){
+      h += '<div class="subhead">Weitere Fotos</div>';
+      h += gridHtml(split.rest);
+    }
     h += '</div></section>';
     return h;
   }
@@ -250,21 +292,23 @@
     var tpl = opts.templates || {};
     var html = '';
     kap.forEach(function(k, ki){
+      var kBilder = k.bilder || (k.bildGross && k.bildGross.dataUrl ? [k.bildGross] : []);
+      var split = splitMainAndRest(kBilder);
       // Nur rendern wenn irgendetwas drin
-      var hasCont = notEmpty(k.name) || notEmpty(k.einleitung) || k.bildGross
-        || (k.bilder||[]).length || (k.checkliste||[]).length || (k.unterkapitel||[]).length;
+      var hasCont = notEmpty(k.name) || notEmpty(k.einleitung) || split.haupt
+        || split.rest.length || (k.checkliste||[]).length || (k.unterkapitel||[]).length;
       if(!hasCont) return;
       html += '<section class="report-section"><div class="page-body">'
         + '<div class="sec-head"><div class="sec-num">'+(2+ki)+'</div>'
         + '<div class="sec-titles"><div class="sec-eyebrow">Kapitel '+(ki+1)+'</div><div class="sec-title">'+esc(k.name||'Unbenannt')+'</div></div></div>';
-      if(k.bildGross) html += bigImageHtml(k.bildGross);
+      if(split.haupt) html += bigImageHtml(split.haupt);
       if(notEmpty(k.einleitung)){
         html += '<div class="block"><div class="block-body">'+esc(k.einleitung)+'</div></div>';
       }
-      // Bilder-Grid (Auto-Layout: 4 fuellen, 6 fuellen, >6 naechste Seite)
-      if((k.bilder||[]).length){
-        html += '<div class="subhead">Fotos</div>';
-        html += gridHtml(k.bilder);
+      // Restliche Fotos (Auto-Layout: 4 fuellen, 6 fuellen, >6 naechste Seite)
+      if(split.rest.length){
+        html += '<div class="subhead">Weitere Fotos</div>';
+        html += gridHtml(split.rest);
       }
       // Checkliste
       if((k.checkliste||[]).length){
@@ -273,16 +317,17 @@
         k.checkliste.forEach(function(it){ html += '<div class="ck">'+esc(it)+'</div>'; });
         html += '</div>';
       }
-      // Unterkapitel
+      // Unterkapitel — kein Hauptbild, alle Fotos im Grid
       (k.unterkapitel||[]).forEach(function(uk){
         var label = uk.label || (lookupTemplate(tpl.unterkapitelTypen, uk.typ) && lookupTemplate(tpl.unterkapitelTypen, uk.typ).label) || uk.typ;
-        var hasUkCont = notEmpty(uk.text) || (uk.bilder||[]).length;
+        var ukBilder = (uk.bilder||[]).filter(function(b){ return b && b.dataUrl && b.imBericht !== false; });
+        var hasUkCont = notEmpty(uk.text) || ukBilder.length;
         if(!hasUkCont) return;
         html += '<div class="uk-block">'
           + '<div class="uk-title">'+esc(label)+'</div>';
         if(notEmpty(uk.text)) html += '<div class="block-body">'+esc(uk.text)+'</div>';
         html += '</div>';
-        if((uk.bilder||[]).length) html += gridHtml(uk.bilder);
+        if(ukBilder.length) html += gridHtml(ukBilder);
       });
       html += '</div></section>';
     });
@@ -292,13 +337,18 @@
   // ── 3. Nachbaranschlüsse ──────────────────────────────────────────
   function nachbarHtml(b, opts){
     var n = b.nachbaranschluesse || {};
-    if(!notEmpty(n.text) && !(n.bilder||[]).length) return '';
+    var split = splitMainAndRest(n.bilder||[]);
+    if(!notEmpty(n.text) && !split.haupt) return '';
     var nextNum = 2 + (b.kapitel||[]).length;
     var html = '<section class="report-section"><div class="page-body">'
       + '<div class="sec-head"><div class="sec-num">'+nextNum+'</div>'
       + '<div class="sec-titles"><div class="sec-eyebrow">Übergänge</div><div class="sec-title">Nachbaranschlüsse</div></div></div>';
+    if(split.haupt) html += bigImageHtml(split.haupt);
     if(notEmpty(n.text)) html += '<div class="block"><div class="block-body">'+esc(n.text)+'</div></div>';
-    if((n.bilder||[]).length) html += gridHtml(n.bilder);
+    if(split.rest.length){
+      html += '<div class="subhead">Weitere Fotos</div>';
+      html += gridHtml(split.rest);
+    }
     html += '</div></section>';
     return html;
   }

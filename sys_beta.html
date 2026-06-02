@@ -401,11 +401,29 @@ const MODULES = [
     { id:'hygiene',         name:'Hygienemanagement',          href:null,                         defaultStatus:'live' },
     { id:'spuel',           name:'Spülmanager',                href:'hy_spuelmanager.html',          defaultStatus:'open' },
     { id:'inspektion',      name:'Inspektion & Wartung',       href:'hy_inspektion.html',    defaultStatus:'live' },
+    { id:'w12',             name:'W12 Selbstkontrolle SVGW',   href:'hy_w12.html',                   defaultStatus:'live' },
     { id:'dusch',           name:'Duschschlauch-Manager',      href:null,                         defaultStatus:'soon' },
   ]},
   { cat:'🏭 Infrastruktur', catId:'infra', items:[
     { id:'werkzeug',        name:'Werkzeugmanagement',         href:'if_werkzeug.html',    defaultStatus:'live' },
     { id:'fahrzeug',        name:'Fahrzeugmanagement',         href:'if_fahrzeug.html',defaultStatus:'live'},
+    { id:'trocknungsgeraete', name:'Trocknungsgeräte',         href:'if_trocknung.html',           defaultStatus:'live' },
+  ]},
+  { cat:'🏚️ Schadensdokumentation', catId:'schaden', items:[
+    { id:'schadensbericht', name:'Schadensberichte',           href:'sd_schadensbericht.html',     defaultStatus:'live' },
+  ]},
+  { cat:'🏠 Spenglerei', catId:'spengler', items:[
+    { id:'dachbericht',     name:'Dachinspektion',             href:'sp_dachbericht.html',          defaultStatus:'review' },
+  ]},
+  { cat:'🔥 Brandschutz & Sprinkler', catId:'brand', items:[
+    { id:'vkf_formulare',   name:'VKF-Formulare (Übersicht)',  href:'br_vkf_formulare.html',       defaultStatus:'live' },
+    { id:'vkf_formular',    name:'VKF-Formular (Einzelnes)',   href:'br_vkf_formular.html',        defaultStatus:'live' },
+  ]},
+  { cat:'⚙️ System', catId:'system', items:[
+    { id:'workspace',       name:'Workspace / Eimer',          href:'sys_workspace.html',           defaultStatus:'review' },
+    { id:'lieferantenverwaltung', name:'Lieferantenverwaltung',href:'sys_lieferanten.html',         defaultStatus:'review' },
+    { id:'produktkatalog',  name:'Produktkatalog',             href:'sys_produktkatalog.html',     defaultStatus:'review' },
+    { id:'unternehmen',     name:'Unternehmen verwalten',      href:'sys_unternehmen.html',         defaultStatus:'live' },
   ]},
   { cat:'🎓 Ausbildung', catId:'ausb', items:[
     { id:'lehrlingsaus',    name:'Lehrlingsausbildung',        href:'ab_index.html', defaultStatus:'open', sub:[
@@ -417,6 +435,81 @@ const MODULES = [
     ]},
   ]},
 ];
+
+// ── AUTO-DISCOVERY: fehlende Module aus GemaAuth.getModules() ergaenzen
+// ────────────────────────────────────────────────────────────────────
+// Pflegt sich selbst: jedes neue Modul, das in gema_auth.js MODULES
+// registriert wird (und damit auch im Berechtigungssystem auftaucht),
+// erscheint automatisch hier — auch wenn niemand die obige Liste
+// aktualisiert hat. Faellt in eine Sammel-Kategorie '🆕 Weitere Module
+// (Auto-erkannt)'. Du kannst sie dann oben einsortieren mit href und
+// passender Kategorie.
+(function autoDiscoverModules(){
+  if(typeof GemaAuth === 'undefined' || !GemaAuth.getModules) return;
+  // Reverse-Map key → filename (z.B. 'dachbericht' → 'sp_dachbericht.html')
+  var fileMap = {};
+  try {
+    var raw = GemaAuth._getFileMap ? GemaAuth._getFileMap() : null;
+    // Falls _getFileMap nicht exponiert: per Modul-Liste ableiten unten
+  } catch(e){}
+  // Gegen Doppelung: sammle alle keys die bereits in MODULES sind
+  var existingKeys = {};
+  MODULES.forEach(function(cat){
+    (cat.items||[]).forEach(function(it){
+      existingKeys[it.id] = true;
+      (it.sub||[]).forEach(function(s){ existingKeys[s.id] = true; });
+    });
+  });
+  // Alle Modul-Keys aus gema_auth.js (bereits cat-gruppiert)
+  var authMods = GemaAuth.getModules();
+  var missing = authMods.filter(function(m){ return !existingKeys[m.key]; });
+  if(!missing.length) return;
+  // Filename heuristisch raten — wir probieren gaengige Praefixe.
+  // Lieber kein href als ein kaputter Link.
+  function guessHref(key){
+    var candidates = [
+      'sb_'+key+'.html', 'sa_'+key+'.html', 'pm_'+key+'.html',
+      'hy_'+key+'.html', 'el_'+key+'.html', 'br_'+key+'.html',
+      'if_'+key+'.html', 'sd_'+key+'.html', 'sp_'+key+'.html',
+      'ab_'+key+'.html', 'sys_'+key+'.html',
+      key+'.html'
+    ];
+    // Nur Vermutungen — der User kann das oben manuell einsortieren.
+    return null; // bewusst null, sonst kommen 404-Links
+  }
+  // Nach cat gruppieren — falls mehrere Kategorien dabei, in eine
+  // Sammel-Kategorie
+  var cats = {};
+  missing.forEach(function(m){
+    var c = m.cat || 'Sonstiges';
+    cats[c] = cats[c] || [];
+    cats[c].push({
+      id: m.key,
+      name: m.label || m.key,
+      href: guessHref(m.key),
+      defaultStatus: 'open',
+      _autoDiscovered: true
+    });
+  });
+  // Eine eigene Top-Kategorie ans Ende anhaengen
+  var items = [];
+  Object.keys(cats).forEach(function(c){
+    cats[c].forEach(function(it){
+      it.name = it.name + ' · ' + c;
+      items.push(it);
+    });
+  });
+  MODULES.push({
+    cat: '🆕 Weitere Module (auto-erkannt)',
+    catId: 'auto',
+    items: items
+  });
+  // Console-Hinweis fuer Devs
+  try {
+    console.info('[sys_beta] Auto-Discovery: ' + missing.length + ' fehlende Module ergaenzt:',
+      missing.map(function(m){ return m.key; }).join(', '));
+  } catch(e){}
+})();
 
 const STATUS_OPTS = [
   {val:'live',   label:'✓ Live',          cls:'s-live'},
