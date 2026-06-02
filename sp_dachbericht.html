@@ -219,6 +219,20 @@ body{margin:0;font-family:'DM Sans',system-ui,sans-serif;background:var(--bg);co
 .lb{position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:300;display:flex;align-items:center;justify-content:center;padding:20px}
 .lb.hidden{display:none}
 .lb img{max-width:95vw;max-height:95vh;display:block}
+
+/* OneDrive-Style Save-Indikator unten rechts */
+.save-status{position:fixed;bottom:18px;right:18px;z-index:280;display:flex;align-items:center;gap:8px;padding:8px 14px;border-radius:99px;background:#fff;border:1px solid var(--brd);box-shadow:var(--sh-md);font-size:12.5px;font-weight:600;color:var(--ink);transition:opacity .25s,transform .25s;font-family:'DM Sans',system-ui,sans-serif}
+.save-status.hidden{opacity:0;transform:translateY(8px);pointer-events:none}
+.save-status .save-dot{width:8px;height:8px;border-radius:50%;background:var(--mut2);display:inline-block}
+.save-status .save-spinner{width:14px;height:14px;border:2px solid var(--brd);border-top-color:var(--acc);border-radius:50%;animation:saveSpin 0.7s linear infinite}
+.save-status .save-check{color:var(--green);font-weight:800;font-size:14px}
+.save-status .save-err{color:var(--red);font-weight:800;font-size:14px}
+.save-status.pending{color:var(--mut)}
+.save-status.saving{color:var(--acc);border-color:var(--acc-bd)}
+.save-status.saved{color:var(--green);border-color:#bbf7d0;background:#f0fdf4}
+.save-status.error{color:var(--red);border-color:#fecaca;background:#fef2f2}
+@keyframes saveSpin{to{transform:rotate(360deg)}}
+@media(max-width:640px){.save-status{bottom:14px;right:14px;padding:6px 11px;font-size:11.5px}}
 .lb-close{position:absolute;top:20px;right:20px;color:#fff;background:rgba(255,255,255,.15);border:none;width:42px;height:42px;border-radius:50%;cursor:pointer;font-size:18px}
 
 /* Responsive */
@@ -537,23 +551,24 @@ function persist(){
   // findet keine Aenderungen und es geht nichts in die Cloud
   // hoch — Berichte erscheinen dann nicht auf anderen Geraeten.
   if(typeof window.GemaSync !== 'undefined' && window.GemaSync.persistCollection){
-    window.GemaSync.persistCollection(MODULE_KEY, STORAGE_KEY, PREFIX, 'id', _data)
+    return window.GemaSync.persistCollection(MODULE_KEY, STORAGE_KEY, PREFIX, 'id', _data)
       .catch(function(e){
         console.warn('[Dachbericht] Cloud-Sync fehlgeschlagen:', e && e.message);
         _maybeShowOfflineAlert();
+        throw e; // rethrow damit _doSave den error-Status zeigt
       });
-  } else {
-    // Fallback ohne GemaSync — nur lokal
-    try {
-      var raw = localStorage.getItem(STORAGE_KEY);
-      var all = raw ? JSON.parse(raw) : [];
-      var u = _getUser();
-      var others = u && !u.roleIds.includes('role_admin')
-        ? all.filter(function(r){ return r.orgId && r.orgId !== u.orgId; })
-        : [];
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(others.concat(_data)));
-    } catch(e){}
   }
+  // Fallback ohne GemaSync — nur lokal
+  try {
+    var raw = localStorage.getItem(STORAGE_KEY);
+    var all = raw ? JSON.parse(raw) : [];
+    var u = _getUser();
+    var others = u && !u.roleIds.includes('role_admin')
+      ? all.filter(function(r){ return r.orgId && r.orgId !== u.orgId; })
+      : [];
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(others.concat(_data)));
+  } catch(e){}
+  return Promise.resolve();
 }
 function getById(id){ return _data.find(function(r){ return r.id === id; }); }
 
@@ -618,12 +633,107 @@ function upsert(rec){
   var idx = _data.findIndex(function(r){ return r.id === rec.id; });
   if(idx >= 0) _data[idx] = rec;
   else _data.push(rec);
-  persist();
+  scheduleSave();
 }
 function removeById(id){
   _data = _data.filter(function(r){ return r.id !== id; });
-  persist();
+  scheduleSave(true); // Loeschen sofort speichern (User-Aktion erwartet Feedback)
 }
+
+// ── SAVE-SCHEDULER (Debounce + Status-Indikator) ─────────────────
+// 5s Debounce nach letzter Aenderung; beforeunload und manuelles
+// 'flushSave()' speichern sofort. Status-Indikator unten rechts
+// zeigt 'wird gespeichert' (Spinner) → 'gespeichert' (Haken) →
+// blendet aus. Bei Fehler bleibt der Fehler-Status sichtbar.
+var _saveTimer = null;
+var _savePending = false;       // aenderungen warten auf debounce
+var _saveInFlight = false;      // gerade laeuft ein Cloud-Save
+function scheduleSave(immediate){
+  _savePending = true;
+  _saveSetStatus('pending');
+  if(_saveTimer){ clearTimeout(_saveTimer); _saveTimer = null; }
+  if(immediate){
+    _doSave();
+  } else {
+    _saveTimer = setTimeout(_doSave, 5000);
+  }
+}
+function flushSave(){
+  if(_saveTimer){ clearTimeout(_saveTimer); _saveTimer = null; }
+  if(_savePending || _saveInFlight) _doSave();
+}
+function _doSave(){
+  if(_saveInFlight){
+    // Doppel-Trigger: nach Abschluss wird der pending-Flag erneut
+    // gepruft und falls noetig nochmal gespeichert.
+    return;
+  }
+  _saveTimer = null;
+  _savePending = false;
+  _saveInFlight = true;
+  _saveSetStatus('saving');
+  persist().then(function(){
+    _saveInFlight = false;
+    if(_savePending){
+      // Waehrend des Saves kamen weitere Aenderungen — gleich nochmal
+      _doSave();
+    } else {
+      _saveSetStatus('saved');
+    }
+  }).catch(function(e){
+    _saveInFlight = false;
+    console.warn('[Dachbericht] Save fehlgeschlagen:', e && e.message);
+    _saveSetStatus('error');
+  });
+}
+
+// Status-Indikator unten rechts (OneDrive-Style)
+function _saveSetStatus(state){
+  var el = document.getElementById('saveStatus');
+  if(!el){
+    el = document.createElement('div');
+    el.id = 'saveStatus';
+    el.className = 'save-status hidden';
+    document.body.appendChild(el);
+  }
+  el.classList.remove('hidden','pending','saving','saved','error');
+  if(state === 'pending'){
+    el.classList.add('pending');
+    el.innerHTML = '<span class="save-dot"></span><span>Aenderungen werden gespeichert ...</span>';
+  } else if(state === 'saving'){
+    el.classList.add('saving');
+    el.innerHTML = '<span class="save-spinner"></span><span>Wird gespeichert ...</span>';
+  } else if(state === 'saved'){
+    el.classList.add('saved');
+    el.innerHTML = '<span class="save-check">✓</span><span>Gespeichert</span>';
+    // Nach 2s ausblenden
+    if(_saveStatusHideTimer) clearTimeout(_saveStatusHideTimer);
+    _saveStatusHideTimer = setTimeout(function(){
+      var e = document.getElementById('saveStatus');
+      if(e) e.classList.add('hidden');
+    }, 2000);
+  } else if(state === 'error'){
+    el.classList.add('error');
+    el.innerHTML = '<span class="save-err">⚠</span><span>Speichern fehlgeschlagen — Verbindung pruefen</span>';
+  }
+}
+var _saveStatusHideTimer = null;
+
+// Beim Verlassen der Seite noch ausstehende Aenderungen synchron
+// in die Cloud schieben (best effort — sendBeacon waere noch
+// robuster, aber persistCollection ist async-Promise, das wir hier
+// pragmatisch starten).
+window.addEventListener('beforeunload', function(){
+  if(_savePending && !_saveInFlight){
+    try { _doSave(); } catch(e){}
+  }
+});
+// Bei visibility:hidden (Tab-Wechsel auf Mobile) auch sofort speichern
+document.addEventListener('visibilitychange', function(){
+  if(document.visibilityState === 'hidden' && _savePending){
+    try { flushSave(); } catch(e){}
+  }
+});
 
 // ── DASHBOARD ──────────────────────────────────────────────────
 var _searchTerm = '';
