@@ -285,6 +285,7 @@ body{margin:0;font-family:'DM Sans',system-ui,sans-serif;background:var(--bg);co
   <div class="toolbar">
     <div class="search-wrap"><input type="text" id="searchInp" placeholder="Suche nach Titel, Objekt…" oninput="dbSearch()"></div>
     <button class="btn primary" onclick="dbOpenNew()">+ Neuer Bericht</button>
+    <button class="btn" onclick="refreshFromCloud({showIndicator:true})" title="Aus Cloud aktualisieren">⟳ Aktualisieren</button>
     <button class="btn" onclick="openTemplatesModal()">⚙ Vorlagen</button>
   </div>
   <div id="cardGrid"></div>
@@ -1070,12 +1071,14 @@ function openDetail(id){
   var r = getById(id);
   if(!r) return;
   _openAccs = {};
+  _currentDetailId = id;
   renderDetail(r);
   document.getElementById('detailOverlay').classList.remove('hidden');
   window.scrollTo(0,0);
 }
 function closeDetail(){
   document.getElementById('detailOverlay').classList.add('hidden');
+  _currentDetailId = null;
   renderDashboard();
 }
 function renderDetail(r){
@@ -1907,17 +1910,106 @@ function saveTemplates(){
   }
 }
 
+// ── CLOUD-FIRST REFRESH ──────────────────────────────────────────
+// Holt aktuelle Daten aus der Cloud, ueberschreibt den lokalen
+// Cache, rendert neu. Wird beim Boot, periodisch (60s), beim
+// Tab-Wechsel zurueck (visibilitychange) und beim manuellen
+// Refresh-Knopf ausgeloest.
+//
+// localStorage ist NUR Fallback wenn Cloud nicht erreichbar:
+// - GemaSync.bindCollection laedt frisch aus Supabase
+// - bei Erfolg: localStorage = Cloud-Stand → loadAll liest
+// - bei Fehler (offline): bindCollection returnt cache → loadAll
+//   liest, der User sieht zumindest seinen letzten Stand
+var _refreshInFlight = false;
+function refreshFromCloud(opts){
+  opts = opts || {};
+  if(_refreshInFlight) return Promise.resolve();
+  if(typeof window.GemaSync === 'undefined' || !window.GemaSync.bindCollection){
+    loadAll(); renderDashboard();
+    return Promise.resolve();
+  }
+  _refreshInFlight = true;
+  if(opts.showIndicator) _saveSetStatus('saving');
+  return window.GemaSync.bindCollection(MODULE_KEY, STORAGE_KEY, PREFIX, 'id').then(function(arr){
+    _refreshInFlight = false;
+    var n = (arr || []).length;
+    try { console.info('[Dachbericht] Cloud-Refresh: ' + n + ' Berichte geladen'); } catch(e){}
+    loadAll();
+    // Re-render: wenn Detail offen, dann nur Dashboard nicht ueberschreiben
+    var detailOpen = !document.getElementById('detailOverlay').classList.contains('hidden');
+    if(!detailOpen) renderDashboard();
+    else {
+      // Detail-Ansicht ggf. neu rendern wenn der aktuelle Bericht
+      // in der Cloud aktualisiert wurde
+      var openId = _currentDetailId;
+      if(openId){
+        var r = getById(openId);
+        if(r) renderDetail(r);
+      }
+      renderDashboard();
+    }
+    if(opts.showIndicator) _saveSetStatus('saved');
+  }).catch(function(e){
+    _refreshInFlight = false;
+    console.warn('[Dachbericht] Cloud-Refresh fehlgeschlagen:', e && e.message);
+    // bindCollection catched eigentlich intern — wenn doch ein Fehler
+    // hier ankommt, fallback auf cache.
+    loadAll();
+    renderDashboard();
+    if(opts.showIndicator) _saveSetStatus('error');
+  });
+}
+window.refreshFromCloud = refreshFromCloud;
+
+// Periodisches Polling alle 60 Sekunden
+var _periodicRefreshTimer = null;
+function _startPeriodicRefresh(){
+  if(_periodicRefreshTimer) return;
+  _periodicRefreshTimer = setInterval(function(){
+    // Nur wenn Tab sichtbar — keine Bandbreite verschwenden im Hintergrund
+    if(document.visibilityState === 'visible' && !_saveInFlight && !_savePending){
+      refreshFromCloud();
+    }
+  }, 60000);
+}
+
+// Bei Tab-Wechsel zurueck zum Modul: sofort Cloud-Refresh
+document.addEventListener('visibilitychange', function(){
+  if(document.visibilityState === 'visible'){
+    // Nicht wenn gerade ein lokaler Save läuft (sonst Race-Condition
+    // zwischen unserem persist und dem Cloud-Refresh)
+    if(!_saveInFlight && !_savePending){
+      refreshFromCloud();
+    }
+  }
+});
+
+// Bei Window-Focus auch refreshen (Desktop-Use-Case)
+window.addEventListener('focus', function(){
+  if(!_saveInFlight && !_savePending){
+    refreshFromCloud();
+  }
+});
+
+// Aktueller offener Detail-Bericht (fuer cloud-refresh re-render)
+var _currentDetailId = null;
+
 // ── INIT ──────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', function(){
-  // Bootstrap Cloud-First wenn verfügbar
+  // Bootstrap: Cloud-fresh holen, danach periodisch + bei Tab-Wechsel
   if(typeof window.GemaSync !== 'undefined' && window.GemaSync.bindCollection){
-    window.GemaSync.bindCollection(MODULE_KEY, STORAGE_KEY, PREFIX, 'id').then(function(){
+    window.GemaSync.bindCollection(MODULE_KEY, STORAGE_KEY, PREFIX, 'id').then(function(arr){
+      var n = (arr || []).length;
+      try { console.info('[Dachbericht] Boot: ' + n + ' Berichte aus Cloud geladen'); } catch(e){}
       loadAll();
       renderDashboard();
+      _startPeriodicRefresh();
     }).catch(function(e){
-      console.warn('[Dachbericht] bindCollection fehlgeschlagen:', e && e.message);
+      console.warn('[Dachbericht] Boot-Cloud-Load fehlgeschlagen:', e && e.message);
       loadAll();
       renderDashboard();
+      _startPeriodicRefresh();
     });
   } else {
     loadAll();
