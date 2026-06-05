@@ -542,16 +542,22 @@ function _maybeShowOfflineAlert(){
 
 function persist(){
   // Cloud-First Save (Diff): GemaSync.persistCollection liest den
-  // aktuellen Cache als 'altes Array', vergleicht mit _data und
-  // pusht nur die Aenderungen. Bei Erfolg wird der Cache auf den
-  // neuen Stand geschrieben.
+  // aktuellen Cache als 'altes Array', vergleicht mit dem uebergebenen
+  // Array und pusht nur die Aenderungen. Bei Erfolg wird der Cache auf
+  // den neuen Stand geschrieben.
   //
   // WICHTIG: KEIN lokaler localStorage-Write vor persistCollection!
-  // Sonst waere der Cache bereits identisch zu _data, der Diff
-  // findet keine Aenderungen und es geht nichts in die Cloud
-  // hoch — Berichte erscheinen dann nicht auf anderen Geraeten.
+  // Sonst waere der Cache bereits identisch, der Diff findet keine
+  // Aenderungen und es geht nichts in die Cloud hoch.
+  //
+  // WICHTIG 2: Wir uebergeben NICHT das org-gefilterte _data, sondern
+  // den VOLLEN Satz (fremde Orgs aus dem Cache + eigene Berichte).
+  // Der Cache enthaelt nach bindCollection ALLE Orgs. Wuerde man nur
+  // _data (eigene Org) uebergeben, interpretiert der Diff alle fremden
+  // Records als geloescht und entfernt sie aus der Cloud — fremde Orgs
+  // (und damit Berichte von Kollegen anderer Geraete) gehen verloren.
   if(typeof window.GemaSync !== 'undefined' && window.GemaSync.persistCollection){
-    return window.GemaSync.persistCollection(MODULE_KEY, STORAGE_KEY, PREFIX, 'id', _data)
+    return window.GemaSync.persistCollection(MODULE_KEY, STORAGE_KEY, PREFIX, 'id', _fullSetForPersist())
       .catch(function(e){
         console.warn('[Dachbericht] Cloud-Sync fehlgeschlagen:', e && e.message);
         _maybeShowOfflineAlert();
@@ -560,15 +566,20 @@ function persist(){
   }
   // Fallback ohne GemaSync — nur lokal
   try {
-    var raw = localStorage.getItem(STORAGE_KEY);
-    var all = raw ? JSON.parse(raw) : [];
-    var u = _getUser();
-    var others = u && !u.roleIds.includes('role_admin')
-      ? all.filter(function(r){ return r.orgId && r.orgId !== u.orgId; })
-      : [];
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(others.concat(_data)));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(_fullSetForPersist()));
   } catch(e){}
   return Promise.resolve();
+}
+// Baut den vollstaendigen Satz fuer den Cloud-/localStorage-Write:
+// fremde Orgs aus dem Cache UNVERAENDERT erhalten + eigene Berichte.
+// Admins halten in _data ohnehin schon alle Orgs (loadAll filtert nicht).
+function _fullSetForPersist(){
+  var u = _getUser();
+  if(!u || (u.roleIds && u.roleIds.includes('role_admin'))) return _data;
+  var cache = [];
+  try { cache = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); } catch(e){ cache = []; }
+  var others = cache.filter(function(r){ return r && r.orgId && r.orgId !== u.orgId; });
+  return others.concat(_data);
 }
 function getById(id){ return _data.find(function(r){ return r.id === id; }); }
 
@@ -719,16 +730,33 @@ function _saveSetStatus(state){
 }
 var _saveStatusHideTimer = null;
 
-// Beim Verlassen der Seite noch ausstehende Aenderungen synchron
-// in die Cloud schieben (best effort — sendBeacon waere noch
-// robuster, aber persistCollection ist async-Promise, das wir hier
-// pragmatisch starten).
-window.addEventListener('beforeunload', function(){
-  if(_savePending && !_saveInFlight){
-    try { _doSave(); } catch(e){}
-  }
-});
-// Bei visibility:hidden (Tab-Wechsel auf Mobile) auch sofort speichern
+// Beim Verlassen der Seite noch ausstehende Aenderungen in die Cloud
+// schieben. WICHTIG: ein normaler async-fetch wird beim Entladen der
+// Seite abgebrochen und kommt nicht mehr durch. Daher hier ein
+// keepalive-Save: der Browser garantiert, dass der Request auch nach
+// dem Unload zu Ende laeuft (wie sendBeacon, aber mit den noetigen
+// Supabase-Headern). _fullSetForPersist() erhaelt fremde Orgs.
+// Hinweis: keepalive hat ein Body-Limit von ~64 KB — sehr bildlastige
+// Berichte koennen das ueberschreiten; fuer diese Faelle greift der
+// Sofort-Save in closeDetail()/beim Anlegen, der laeuft bei lebender
+// Seite ohne Groessenlimit.
+function _flushSaveOnUnload(){
+  if(!_savePending && !_saveInFlight) return;
+  try {
+    if(typeof window.GemaSync !== 'undefined' && window.GemaSync.persistCollection){
+      window.GemaSync.persistCollection(MODULE_KEY, STORAGE_KEY, PREFIX, 'id', _fullSetForPersist(), { keepalive:true });
+      _savePending = false;
+    } else {
+      _doSave();
+    }
+  } catch(e){}
+}
+window.addEventListener('beforeunload', _flushSaveOnUnload);
+// pagehide feuert auf iOS-Safari zuverlaessiger als beforeunload
+// (beforeunload wird dort bei echten Navigationen oft uebersprungen).
+window.addEventListener('pagehide', _flushSaveOnUnload);
+// Bei visibility:hidden (Tab-/App-Wechsel auf Mobile) auch sofort
+// speichern — dort ist die Seite noch am Leben, normaler Save reicht.
 document.addEventListener('visibilitychange', function(){
   if(document.visibilityState === 'hidden' && _savePending){
     try { flushSave(); } catch(e){}
@@ -947,6 +975,7 @@ function dbSaveNew(){
       existing.erstelltAm = datum;
       existing.erstelltVon = sachbearbeiter;
       upsert(existing);
+      try { flushSave(); } catch(e){}
       dbCloseNew();
       renderDashboard();
       renderDetail(existing);
@@ -969,6 +998,10 @@ function dbSaveNew(){
     massnahmen: []
   };
   upsert(rec);
+  // Neuen Bericht sofort in die Cloud schreiben (nicht erst nach dem
+  // 5-Sek-Debounce) — sonst ist er weg, wenn der User direkt wieder
+  // zurueck navigiert, und Kollegen sehen ihn nicht.
+  try { flushSave(); } catch(e){}
   dbCloseNew();
   renderDashboard();
   openDetail(rec.id);
@@ -1076,6 +1109,12 @@ function openDetail(id){
   window.scrollTo(0,0);
 }
 function closeDetail(){
+  // Ausstehende Aenderungen SOFORT speichern, bevor der Editor verlassen
+  // wird — nicht erst nach dem 5-Sek-Debounce. Sonst geht ein gerade
+  // erstellter/bearbeiteter Bericht verloren, wenn der User danach die
+  // Seite verlaesst (Logo-Klick → index.html, beforeunload-Save kommt
+  // async oft nicht mehr durch).
+  try { flushSave(); } catch(e){}
   document.getElementById('detailOverlay').classList.add('hidden');
   _currentDetailId = null;
   renderDashboard();

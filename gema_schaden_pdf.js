@@ -127,7 +127,30 @@
     + '.sign-line .sl-name{font-size:9.5pt;color:var(--ink);font-weight:500;}'
     + '.print-toolbar{position:fixed;top:12px;right:12px;z-index:9999;display:flex;gap:8px;}'
     + '.print-toolbar button{background:var(--accent);color:#fff;border:none;padding:9px 16px;border-radius:7px;cursor:pointer;font-weight:600;font-size:13px;font-family:\'DM Sans\',sans-serif;box-shadow:0 4px 12px rgba(0,0,0,.15);}'
-    + '.print-toolbar button.secondary{background:#fff;color:var(--ink);border:1px solid var(--line);}';
+    + '.print-toolbar button.secondary{background:#fff;color:var(--ink);border:1px solid var(--line);}'
+    // ─ Mobile-Vorschau: das A4-Blatt ist mit width:210mm breiter als ein
+    //   Handy-Viewport. Mit margin:0 auto rutscht der linke Rand (und damit
+    //   das Firmenlogo oben links) aus dem Bild. Auf schmalen Screens daher
+    //   das Blatt fluid auf Geraetebreite stellen. Der Druck bleibt A4 (die
+    //   @media print-Regeln ueberschreiben das). ─────────────────────────
+    + '@media screen and (max-width:820px){'
+      + 'body{padding:14px 10px;}'
+      + '.content{width:100%;}'
+      + '.content > .cover,.content > .report-section{width:100%;min-height:auto;margin:0 auto 18px;}'
+      + '.page-body{padding:16px 16px 20px;}'
+      + '.cover{padding:0 16px;}'
+      + '.cover-bar{margin:0 -16px;}'
+      + '.cover-top{padding:16px 0 0;}'
+      + '.cover-hero{margin-top:24px;}'
+      + '.cover-title{font-size:24pt;}'
+      + '.cover-meta{grid-template-columns:1fr 1fr;gap:13px 16px;padding-top:16px;}'
+      + '.kpi-strip{grid-template-columns:repeat(2,1fr);}'
+      + '.kpi{border-bottom:.75pt solid var(--line);}'
+      + '.kpi:nth-child(2n){border-right:none;}'
+      + '.kpi:nth-child(3),.kpi:nth-child(4){border-bottom:none;}'
+      + '.facts-row{flex-wrap:wrap;}'
+      + '.facts-row .fact{flex:1 1 45%;}'
+    + '}';
 
   // ── Eingebettetes GEMA-Logo (Inline-SVG, vektorscharf) ─────────────
   var GEMA_LOGO_SVG = '<svg class="brand-svg" xmlns="http://www.w3.org/2000/svg" viewBox="80 196 415 175" preserveAspectRatio="xMidYMid meet"><defs><clipPath id="pdf_c1"><path d="M 29 17 L 145 17 L 145 151 L 29 151 Z" clip-rule="nonzero"/></clipPath><clipPath id="pdf_c2"><path d="M 58.367188 0.613281 L 173.855469 67.289062 L 116.105469 167.3125 L 0.621094 100.636719 Z" clip-rule="nonzero"/></clipPath><clipPath id="pdf_c3"><path d="M 73 47.414062 L 123.597656 47.414062 L 123.597656 98 L 73 98 Z" clip-rule="nonzero"/></clipPath><clipPath id="pdf_c4"><rect x="0" width="174" y="0" height="168"/></clipPath></defs><g transform="matrix(1,0,0,1,83,199)"><g clip-path="url(#pdf_c4)"><g clip-path="url(#pdf_c1)"><g clip-path="url(#pdf_c2)"><path fill="#1e3a5f" d="M 144.929688 50.640625 L 144.929688 117.292969 L 87.207031 150.617188 L 29.484375 117.292969 L 29.484375 50.640625 L 87.207031 17.3125 Z" fill-opacity="1" fill-rule="nonzero"/></g></g></g><path fill="#fff" d="M 98.042969 73.117188 C 96.210938 71.285156 93.945312 69.882812 91.488281 69.070312 C 85.503906 75.054688 85.019531 75.28125 84.257812 77.097656 C 90.328125 76.699219 95.191406 82.253906 93.839844 88.324219 C 93.011719 92.078125 84.535156 99.5 76.90625 107.300781 C 73.34375 110.933594 67.460938 110.898438 63.863281 107.300781 C 60.265625 103.703125 60.265625 97.855469 63.863281 94.257812 L 71.992188 86.128906 C 70.988281 82.390625 71.214844 78.445312 72.476562 74.933594 L 57.203125 90.210938 C 50.664062 96.75 50.664062 107.40625 57.203125 113.960938 C 63.757812 120.515625 74.378906 120.515625 80.953125 113.960938 L 98.042969 96.871094 C 104.550781 90.363281 104.652344 79.726562 98.042969 73.117188 Z"/><g clip-path="url(#pdf_c3)"><path fill="#fff" d="M 118.835938 76.078125 C 122.003906 72.910156 123.75 68.691406 123.75 64.210938 C 123.75 54.9375 116.242188 47.414062 106.953125 47.414062 C 102.472656 47.414062 98.253906 49.160156 95.085938 52.324219 C 90.8125 56.597656 82.269531 65.144531 77.996094 69.417969 C 71.507812 75.902344 71.371094 86.542969 77.996094 93.167969 C 79.828125 95 82.09375 96.402344 84.550781 97.214844 C 90.503906 91.265625 91.019531 91.023438 91.78125 89.1875 C 89.152344 89.363281 86.574219 88.410156 84.671875 86.507812 C 81.039062 82.875 81.109375 77.027344 84.671875 73.464844 C 87.855469 70.28125 95.882812 62.253906 99.132812 59.003906 C 102.734375 55.402344 108.578125 55.386719 112.179688 59.003906 C 115.777344 62.601562 115.777344 68.449219 112.179688 72.046875 L 104.046875 80.175781 C 105.066406 84.015625 104.824219 87.890625 103.5625 91.367188 Z"/></g></g></g><g fill="#1e3a5f"><g transform="translate(243.214799,313.539633)"><path d="M 62.46875 -35.8125 L 62.46875 -21.9375 C 60.8125 -14.34375 57.191406 -8.59375 51.609375 -4.6875 C 46.035156 -0.789062 39.8125 1.15625 32.9375 1.15625 C 24.3125 1.15625 16.960938 -2.070312 10.890625 -8.53125 C 4.816406 -14.988281 1.78125 -22.789062 1.78125 -31.9375 C 1.78125 -41.226562 4.75 -49.078125 10.6875 -55.484375 C 16.632812 -61.890625 24.050781 -65.09375 32.9375 -65.09375 C 43.320312 -65.09375 51.535156 -61.453125 57.578125 -54.171875 L 48.046875 -43.703125 C 44.640625 -49.179688 39.890625 -51.921875 33.796875 -51.921875 C 29.296875 -51.921875 25.457031 -49.96875 22.28125 -46.0625 C 19.101562 -42.164062 17.515625 -37.457031 17.515625 -31.9375 C 17.515625 -26.507812 19.101562 -21.867188 22.28125 -18.015625 C 25.457031 -14.171875 29.296875 -12.25 33.796875 -12.25 C 37.515625 -12.25 40.753906 -13.367188 43.515625 -15.609375 C 46.273438 -17.859375 47.65625 -20.84375 47.65625 -24.5625 L 32.9375 -24.5625 L 32.9375 -35.8125 Z"/></g><g transform="translate(307.462326,313.539633)"><path d="M 41.234375 -63.9375 L 41.234375 -51.15625 L 19.21875 -51.15625 L 19.21875 -38.4375 L 40.296875 -38.4375 L 40.296875 -25.65625 L 19.21875 -25.65625 L 19.21875 -12.78125 L 41.234375 -12.78125 L 41.234375 0 L 4.65625 0 L 4.65625 -63.9375 Z"/></g><g transform="translate(352.412344,313.539633)"><path d="M 57.5 0 L 54.484375 -37.890625 L 54.09375 -37.890625 L 41 -0.390625 L 32.3125 -0.390625 L 19.21875 -37.890625 L 18.828125 -37.890625 L 15.8125 0 L 1.234375 0 L 6.96875 -63.9375 L 22.46875 -63.9375 L 36.65625 -27.046875 L 50.84375 -63.9375 L 66.34375 -63.9375 L 72.078125 0 Z"/></g><g transform="translate(425.727374,313.539633)"><path d="M 37.125 -63.9375 L 62.9375 0 L 47.28125 0 L 42.546875 -12.78125 L 18.21875 -12.78125 L 13.484375 0 L -2.171875 0 L 23.640625 -63.9375 Z M 37.59375 -25.578125 L 30.453125 -44.171875 L 30.296875 -44.171875 L 23.171875 -25.578125 Z"/></g></g></svg>';
@@ -645,6 +668,7 @@
       + '}';
 
     return '<!doctype html><html lang="de"><head><meta charset="utf-8">'
+      + '<meta name="viewport" content="width=device-width, initial-scale=1">'
       + '<title>Schadensbericht — '+esc(titel)+'</title>'
       + '<style>'+REPORT_CSS+pageCss+'</style>'
       + '</head><body>'
