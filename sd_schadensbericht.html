@@ -1135,10 +1135,13 @@ function sdSaveNewObjekt(){
   };
   pool.objekte.push(obj);
 
-  // Persistieren — sowohl _GemaDB als auch localStorage
-  var json = JSON.stringify(pool);
-  try { if(typeof _GemaDB !== 'undefined' && _GemaDB.save) _GemaDB.save(KEY, json); } catch(e){}
-  try { localStorage.setItem(KEY, json); } catch(e){}
+  // Persistieren ADD-ONLY per-Record (kein Blob-Overwrite, kein Diff —
+  // damit kein noch unvollstaendig geladener Stand fremde Objekte aus der
+  // Cloud loescht). upsertObjekt schreibt localStorage + synct den Record.
+  try {
+    if(typeof GemaObjekte !== 'undefined' && GemaObjekte.upsertObjekt) GemaObjekte.upsertObjekt(obj);
+    else localStorage.setItem(KEY, JSON.stringify(pool));
+  } catch(e){ try { localStorage.setItem(KEY, JSON.stringify(pool)); } catch(_e){} }
 
   // GemaObjekte API refresh, damit das Dropdown den neuen Eintrag sieht
   try {
@@ -4194,6 +4197,12 @@ window.addEventListener('DOMContentLoaded', function() {
     window.addEventListener('gema-trocknung-updated', _sdReRenderCurrent);
     window.addEventListener('storage', function(ev){
       if(ev && ev.key === 'gema_trocknung_v1') _sdReRenderCurrent();
+    });
+    // Wenn die Objekte frisch aus der Cloud geladen sind (auch die von
+    // Kollegen), Liste + offenes Detail neu rendern — sonst bleibt
+    // "Objekt nicht gefunden" stehen.
+    window.addEventListener('gema-objekte-loaded', function(){
+      try { sdRenderList(); _sdReRenderCurrent(); } catch(e){}
     });
 
     // Permission-based UI

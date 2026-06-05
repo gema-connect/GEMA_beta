@@ -1094,9 +1094,13 @@ function dbSaveNewObjekt(){
   // auf diesem Geraet und erscheint auf anderen Geraeten nie (selbst
   // wenn der referenzierende Bericht synct, wuerde der Objekt-Lookup
   // dort fehlschlagen und nur die ID anzeigen).
-  var json = JSON.stringify(pool);
-  try { if(typeof _GemaDB !== 'undefined' && _GemaDB.save) _GemaDB.save(KEY, json); } catch(e){}
-  try { localStorage.setItem(KEY, json); } catch(e){}
+  // Persistieren ADD-ONLY per-Record (kein Blob-Overwrite, kein Diff —
+  // damit kein noch unvollstaendig geladener Stand fremde Objekte aus der
+  // Cloud loescht). upsertObjekt schreibt localStorage + synct den Record.
+  try {
+    if(typeof GemaObjekte !== 'undefined' && GemaObjekte.upsertObjekt) GemaObjekte.upsertObjekt(newObj);
+    else localStorage.setItem(KEY, JSON.stringify(pool));
+  } catch(e){ try { localStorage.setItem(KEY, JSON.stringify(pool)); } catch(_e){} }
 
   // GemaObjekte-Cache invalidieren, damit der naechste getAll() das
   // frisch eingefuegte Objekt sieht.
@@ -2049,6 +2053,16 @@ window.addEventListener('focus', function(){
   if(!_saveInFlight && !_savePending){
     refreshFromCloud();
   }
+});
+
+// Wenn die Objekte (asynchron) frisch aus der Cloud geladen sind, das
+// Dashboard/Detail neu rendern — sonst bleibt bei Berichten, die ein
+// Objekt eines Kollegen referenzieren, "Objekt nicht gefunden" stehen.
+window.addEventListener('gema-objekte-loaded', function(){
+  try {
+    renderDashboard();
+    if(_currentDetailId){ var r = getById(_currentDetailId); if(r) renderDetail(r); }
+  } catch(e){}
 });
 
 // Aktueller offener Detail-Bericht (fuer cloud-refresh re-render)

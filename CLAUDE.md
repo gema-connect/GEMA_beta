@@ -433,6 +433,11 @@ Auto-Save/Load bei Objektwechsel.
 - `GemaObjekte.setActiveId(id)` – aktives Objekt wechseln (feuert `gema-objekt-changed`)
 - `GemaObjekte.getBeteiligte()` – Beteiligte des aktiven Objekts
 - `GemaObjekte.storageKey(baseKey)` – Phasen-aware Storage-Key: `baseKey__objektId[@phase]`
+- `GemaObjekte.ready` – Promise, resolved nach dem ersten Cloud-Pull (per-Record)
+- `GemaObjekte.reload()` – erneut frisch aus der Cloud laden (per-Record)
+- `GemaObjekte.persistBlob(blob)` – vollen Stand speichern (mit Löschungen; nur pm_objekte als autoritativer Editor)
+- `GemaObjekte.upsertObjekt(obj)` – ADD-ONLY ein Objekt hinzufügen/aktualisieren (Quick-Add; kein Delete-Risiko)
+- Storage: per-Record in der Cloud (`objekt:`/`bet:`), lokaler Blob `gema_objekte_v1` bleibt als Lese-Cache; `activeObjektId` nur lokal (`gema_active_objekt_v1`). Siehe „Migrierte Module".
 
 **Team-Zuweisung (P08):** drei Rollen pro Objekt — Projektleiter, Abteilungsleiter (Prüfer), Team-Mitglieder
 - `Objekt.projektLeiterId`, `Objekt.abteilungsLeiterId`, `Objekt.teamUserIds[]` — User-IDs der eigenen Org
@@ -1423,8 +1428,18 @@ GemaSync.persistCollection(moduleKey, storageKey, prefix, 'id', arr)
 | Fahrzeug | `fahrzeugmanagement` | `vehicle:` | `gema_vehicles` |
 | Trocknungsgeräte | `trocknungsgeraete` | `device:` | `gema_trocknung_v1` |
 | Schadensbericht | `schadensbericht` | `schaden:` | `gema_schadensbericht_v1` |
+| Dachbericht | `dachbericht` | `dach:` | `gema_dachbericht_v1` |
+| Objekte | `objekte` | `objekt:` | `gema_objpool_v1` |
+| Beteiligte | `objekte` | `bet:` | `gema_betpool_v1` |
 
-Module noch nicht migriert (kein akuter Bug, weil keine Multi-Tenant-Pools — Daten pro User oder pro Objekt): pm_objekte, sys_workspace, pm_terminplan, pm_besprechung, hy_w12, ab_*, sb_*, sa_* — können in Folge-Sessions schrittweise auf den gleichen Pattern umgestellt werden.
+**Objekte (pm_objekte) — Migration & Besonderheiten:** Objekte/Beteiligte liegen jetzt per-Record in der Cloud (vorher: ein Blob `gema_objekte_v1` mit Last-Write-Wins → Objekte von Kollegen erschienen nie / wurden beim Speichern gegenseitig gelöscht). Die zentrale Sync-Logik steckt komplett in `gema_objekte_api.js`:
+- `_pullFromCloud()` lädt bei **jedem** Seitenstart objekte (`objekt:`) + beteiligte (`bet:`) frisch via `GemaSync.bindCollection`, baut daraus den lokalen Blob `gema_objekte_v1` (unverändertes Schema `{objekte, beteiligte, activeObjektId}`, damit alle bestehenden Leser weiterlaufen) und feuert das Event `gema-objekte-loaded`.
+- Legacy-Migration: ist die Per-Record-Cloud leer, wird der alte Blob (Cloud-Row `module_key=objekte,data_key=gema_objekte_v1` ODER localStorage) einmalig aufgesplittet und per-Record hochgeschrieben (idempotent per `id`).
+- **`activeObjektId` ist reine Geräte-UI** und wird NUR lokal gehalten (`gema_active_objekt_v1`), nie in die Cloud — sonst überschreibt die Objekt-Auswahl eines Users die der anderen.
+- Schreiber: `GemaObjekte.persistBlob(blob)` (voller Stand, mit Löschungen — nur `pm_objekte.html`, der autoritative Editor) bzw. **`GemaObjekte.upsertObjekt(obj)`** (ADD-ONLY, kein Diff/Delete — für Quick-Add aus `sp_dachbericht.html`, `sd_schadensbericht.html`, `sys_workspace.html`; verhindert, dass ein noch nicht fertig geladener lokaler Stand fremde Objekte aus der Cloud löscht).
+- Bericht-Module rendern bei `gema-objekte-loaded` neu (sonst bliebe „Objekt nicht gefunden" stehen, bis der Cloud-Pull durch ist).
+
+Module noch nicht migriert (kein akuter Bug, weil keine Multi-Tenant-Pools — Daten pro User oder pro Objekt): pm_terminplan, pm_besprechung, hy_w12, ab_*, sb_*, sa_* — können in Folge-Sessions schrittweise auf den gleichen Pattern umgestellt werden.
 
 ### Login (kein Offline-Fallback)
 
