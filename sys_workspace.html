@@ -1232,6 +1232,9 @@ input::placeholder{color:#cbd5e1}
         var data=raw?JSON.parse(raw):{objekte:[],beteiligte:[],activeObjektId:null};
         data.objekte.push(newObj);
         localStorage.setItem('gema_objekte_v1',JSON.stringify(data));
+        // ADD-ONLY per-Record in die Cloud (kein Diff/Delete), sonst bleibt
+        // das Objekt lokal und wird beim naechsten Cloud-Pull verworfen.
+        try{ if(typeof GemaObjekte!=='undefined'&&GemaObjekte.upsertObjekt) GemaObjekte.upsertObjekt(newObj); }catch(_e){}
       }catch(e){}
       b.objektId=objId;
       b.activity.unshift({who:(_curUser()||{}).name||'Du',text:'Objekt erstellt & verknüpft: '+newName.trim(),when:'gerade eben'});
@@ -1426,11 +1429,10 @@ input::placeholder{color:#cbd5e1}
       if(!data.objekte.find(function(o){return o.id===objId;})){
         data.objekte.push(newObj);
         localStorage.setItem('gema_objekte_v1',JSON.stringify(data));
-        // Cache von GemaObjekte invalidieren, damit der naechste
-        // _load() das frisch geschriebene Objekt sieht. Sonst
-        // ueberschreibt setActiveId (das _save mit altem Cache macht)
-        // unser neues Objekt wieder.
-        try { if (typeof GemaObjekte !== 'undefined' && GemaObjekte.refresh) GemaObjekte.refresh(); } catch(e) {}
+        // ADD-ONLY per-Record in die Cloud (kein Diff/Delete), sonst bleibt
+        // das Objekt lokal und wird beim naechsten Cloud-Pull verworfen.
+        try { if(typeof GemaObjekte!=='undefined'&&GemaObjekte.upsertObjekt) GemaObjekte.upsertObjekt(newObj);
+              else if(typeof GemaObjekte!=='undefined'&&GemaObjekte.refresh) GemaObjekte.refresh(); } catch(e) {}
       }
     }catch(e){}
     b.objektId=objId;

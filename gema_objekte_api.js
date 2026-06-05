@@ -97,6 +97,161 @@
 
   function _invalidate() { _cache = null; _loaded = false; }
 
+  // ════════════════════════════════════════════════════════════════
+  // PER-RECORD CLOUD-SYNC (ersetzt den alten Blob-Ansatz)
+  // ----------------------------------------------------------------
+  // Frueher wurde der gesamte {objekte, beteiligte, activeObjektId}-
+  // Blob als EINE Cloud-Row gespeichert (Last-Write-Wins) und nur dann
+  // aus der Cloud geholt, wenn lokal noch gar nichts existierte. Folge:
+  // Objekte von Kollegen erschienen nie ("Objekt nicht gefunden") und
+  // jeder Save konnte fremde Objekte aus der Cloud loeschen.
+  //
+  // Jetzt: pro Objekt/Beteiligtem eine eigene Row (wie Dachbericht/
+  // Werkzeug), Diff-Saves, und bei JEDEM Laden frisch aus der Cloud.
+  // activeObjektId ist reine Geraete-UI und bleibt NUR lokal.
+  // ════════════════════════════════════════════════════════════════
+  var MODULE      = 'objekte';
+  var OBJ_PREFIX  = 'objekt:';
+  var BET_PREFIX  = 'bet:';
+  var OBJ_POOL    = 'gema_objpool_v1';   // Diff-Cache der Objekt-Records
+  var BET_POOL    = 'gema_betpool_v1';   // Diff-Cache der Beteiligte-Records
+  var ACTIVE_KEY  = 'gema_active_objekt_v1'; // activeObjektId NUR lokal/Geraet
+
+  function _hasSync(){ return typeof w.GemaSync !== 'undefined' && w.GemaSync.persistCollection; }
+  function _readActiveLocal(){ try { return localStorage.getItem(ACTIVE_KEY) || null; } catch(e){ return null; } }
+  function _writeActiveLocal(id){ try { if(id) localStorage.setItem(ACTIVE_KEY, id); else localStorage.removeItem(ACTIVE_KEY); } catch(e){} }
+
+  // Schreibt den lokalen Blob (gema_objekte_v1) aus objekte/bet/active,
+  // damit ALLE bestehenden Leser unveraendert funktionieren.
+  function _writeLocalBlob(objekte, beteiligte, activeId){
+    var blob = { objekte: objekte || [], beteiligte: beteiligte || [], activeObjektId: activeId || null };
+    _cache = blob;
+    try { localStorage.setItem(KEY, JSON.stringify(blob)); } catch(e){}
+    return blob;
+  }
+
+  // Holt den alten Blob (Cloud-Row module_key=objekte,data_key=gema_objekte_v1
+  // ODER localStorage) fuer die einmalige Migration auf Per-Record.
+  function _fetchLegacyCloudBlob(){
+    var url = SB_URL + '/rest/v1/gema_data?module_key=eq.objekte&data_key=eq.' + KEY + '&select=payload';
+    return fetch(url, { headers: { 'apikey': SB_KEY, 'Authorization': 'Bearer ' + SB_KEY } })
+      .then(function(r){ return r.json(); })
+      .then(function(rows){
+        if (rows && rows.length && rows[0].payload && rows[0].payload.v){
+          var v = rows[0].payload.v;
+          try { return typeof v === 'string' ? JSON.parse(v) : v; } catch(e){ return null; }
+        }
+        return null;
+      }).catch(function(){ return null; });
+  }
+  function _migrateLegacyBlob(){
+    return _fetchLegacyCloudBlob().then(function(cloudBlob){
+      var blob = cloudBlob;
+      if (!blob || !((blob.objekte||[]).length || (blob.beteiligte||[]).length)){
+        try { var lb = JSON.parse(localStorage.getItem(KEY) || 'null'); if (lb) blob = lb; } catch(e){}
+      }
+      var objekte = (blob && Array.isArray(blob.objekte)) ? blob.objekte : [];
+      var bet     = (blob && Array.isArray(blob.beteiligte)) ? blob.beteiligte : [];
+      if (!objekte.length && !bet.length) return { objekte: [], beteiligte: [] };
+      var ops = [];
+      if (objekte.length) ops.push(w.GemaSync.persistCollection(MODULE, OBJ_POOL, OBJ_PREFIX, 'id', objekte));
+      if (bet.length)     ops.push(w.GemaSync.persistCollection(MODULE, BET_POOL, BET_PREFIX, 'id', bet));
+      return Promise.all(ops).then(function(){
+        try { console.info('[GemaObjekte] Migration Blob→Per-Record:', objekte.length, 'Objekte,', bet.length, 'Beteiligte'); } catch(e){}
+        return { objekte: objekte, beteiligte: bet };
+      }).catch(function(){ return { objekte: objekte, beteiligte: bet }; });
+    });
+  }
+
+  // Faedelt das Cloud-Ergebnis in den lokalen Blob + feuert Event.
+  function _finishPull(objekte, beteiligte){
+    var active = _readActiveLocal();
+    if (!active){ try { var b = JSON.parse(localStorage.getItem(KEY)||'{}'); active = b.activeObjektId || null; } catch(e){} }
+    _writeLocalBlob(objekte, beteiligte, active);
+    _healActive(_cache);
+    _writeActiveLocal(_cache.activeObjektId);
+    _loaded = true;
+    try { w.dispatchEvent(new Event('gema-objekte-loaded')); } catch(e){}
+    return _cache;
+  }
+
+  // Laedt Objekte + Beteiligte per-Record frisch aus der Cloud. Bei
+  // leerer Cloud: einmalige Migration aus dem alten Blob. Bei Offline/
+  // ohne GemaSync: lokaler Blob als Fallback.
+  function _pullFromCloud(){
+    if (typeof w.GemaSync === 'undefined' || !w.GemaSync.bindCollection){
+      _load(); _loaded = true; return Promise.resolve(_cache);
+    }
+    return Promise.all([
+      w.GemaSync.bindCollection(MODULE, OBJ_POOL, OBJ_PREFIX, 'id'),
+      w.GemaSync.bindCollection(MODULE, BET_POOL, BET_PREFIX, 'id')
+    ]).then(function(res){
+      var objekte = res[0] || [];
+      var bet     = res[1] || [];
+      if (!objekte.length && !bet.length){
+        return _migrateLegacyBlob().then(function(m){ return _finishPull(m.objekte, m.beteiligte); });
+      }
+      return _finishPull(objekte, bet);
+    }).catch(function(e){
+      try { console.warn('[GemaObjekte] Cloud-Pull fehlgeschlagen, lokaler Stand:', e && e.message); } catch(_e){}
+      _load(); _loaded = true; return _cache;
+    });
+  }
+  // Oeffentlicher Re-Pull (z.B. periodisch / bei Tab-Wechsel).
+  function reload(){ return _pullFromCloud(); }
+
+  // Speichert den vollen Blob: lokal sofort (alle Leser frisch) und die
+  // Cloud per-Record (Diff). activeObjektId bleibt rein lokal.
+  // Das ist auch die (frueher fehlende) _save-Implementierung.
+  function _save(data){
+    data = data || _cache || { objekte: [], beteiligte: [], activeObjektId: null };
+    var objekte = Array.isArray(data.objekte) ? data.objekte : [];
+    var bet     = Array.isArray(data.beteiligte) ? data.beteiligte : [];
+    var active  = (data.activeObjektId != null) ? data.activeObjektId : _readActiveLocal();
+    _writeLocalBlob(objekte, bet, active);
+    _writeActiveLocal(active);
+    if (_hasSync()){
+      try {
+        w.GemaSync.persistCollection(MODULE, OBJ_POOL, OBJ_PREFIX, 'id', objekte).catch(function(){});
+        w.GemaSync.persistCollection(MODULE, BET_POOL, BET_PREFIX, 'id', bet).catch(function(){});
+      } catch(e){}
+    }
+    return Promise.resolve();
+  }
+  // Oeffentlicher Save fuer den vollen Stand (pm_objekte ist autoritativ,
+  // Loeschungen erwuenscht).
+  function persistBlob(blob){ return _save(blob); }
+
+  // ADD-ONLY Upsert eines einzelnen Objekts — fuer Quick-Add aus den
+  // Bericht-/Workspace-Modulen. Nutzt saveRecord (kein Diff, KEINE
+  // Loeschung), damit ein evtl. noch unvollstaendig geladener lokaler
+  // Blob NICHT versehentlich fremde Objekte aus der Cloud entfernt.
+  function upsertObjekt(obj){
+    if (!obj || !obj.id) return Promise.resolve();
+    var data = _load() || { objekte: [], beteiligte: [], activeObjektId: null };
+    var arr = Array.isArray(data.objekte) ? data.objekte.slice() : [];
+    var idx = -1;
+    for (var i = 0; i < arr.length; i++){ if (arr[i] && arr[i].id === obj.id){ idx = i; break; } }
+    if (idx >= 0) arr[idx] = obj; else arr.push(obj);
+    var bet = Array.isArray(data.beteiligte) ? data.beteiligte : [];
+    _writeLocalBlob(arr, bet, _readActiveLocal());
+    if (typeof w.GemaSync !== 'undefined' && w.GemaSync.saveRecord){
+      try { w.GemaSync.saveRecord(MODULE, OBJ_PREFIX + obj.id, obj).catch(function(){}); } catch(e){}
+      // Pool-Diff-Cache mitziehen, damit ein spaeterer persistCollection-
+      // Diff diesen Record nicht als "neu" doppelt sieht.
+      try {
+        var pool = JSON.parse(localStorage.getItem(OBJ_POOL) || '[]');
+        if (!Array.isArray(pool)) pool = [];
+        var p = -1;
+        for (var j = 0; j < pool.length; j++){ if (pool[j] && pool[j].id === obj.id){ p = j; break; } }
+        if (p >= 0) pool[p] = obj; else pool.push(obj);
+        localStorage.setItem(OBJ_POOL, JSON.stringify(pool));
+      } catch(e){}
+    }
+    return Promise.resolve();
+  }
+
+
   // ── Tenant-Filter mit Abteilungen + Gastzugang ─────────────────
   function _filterByOrg(list) {
     if (typeof GemaAuth === 'undefined') return list;
@@ -149,11 +304,13 @@
     _invalidate();
   }
   function setActiveId(objektId) {
-    var oldId = _load().activeObjektId;
+    // activeObjektId ist reine Geraete-UI — NUR lokal, nie in die Cloud.
     var data = _load();
+    var oldId = data.activeObjektId;
     data.activeObjektId = objektId;
-    _save(data);
-    _invalidate();
+    _cache = data;
+    _writeActiveLocal(objektId);
+    try { localStorage.setItem(KEY, JSON.stringify(data)); } catch(e){}
     // Event feuern damit alle Module reagieren können
     try {
       window.dispatchEvent(new CustomEvent('gema-objekt-changed', {
@@ -442,7 +599,8 @@
     getBauherrschaft: getBauherrschaft, getArchitekt: getArchitekt, getPlaner: getPlaner, getUnternehmer: getUnternehmer,
     formatKurz: formatKurz, formatAdresse: formatAdresse,
     renderObjektSelect: renderObjektSelect, renderBeteiligteSelect: renderBeteiligteSelect,
-    refresh: refresh, ready: _readyPromise,
+    refresh: refresh, reload: reload, ready: _readyPromise,
+    persistBlob: persistBlob, upsertObjekt: upsertObjekt,
     storageKey: storageKey, savePerObjekt: savePerObjekt, loadPerObjekt: loadPerObjekt,
     // SIA-Phase
     getPhases: getPhases, getActivePhase: getActivePhase, setActivePhase: setActivePhase,
@@ -457,10 +615,11 @@
     canEditTeam: canEditTeam
   };
 
-  // Auto-init: try sync first, then async Supabase if needed
+  // Auto-init: lokalen Blob sofort fuer sync-Leser, dann IMMER frisch
+  // per-Record aus der Cloud nachladen (sonst erscheinen Kollegen-Objekte
+  // nie). _readyResolve erst nach dem Cloud-Pull.
   _load();
-  if (!_loaded) _fetchFromSupabase();
-  else _readyResolve();
+  _pullFromCloud().then(function(){ _readyResolve(); });
 
   // P04: URL-Parameter ?objekt=ID setzt das aktive Objekt beim Seitenaufruf
   try {

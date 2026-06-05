@@ -553,6 +553,7 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important}
 function fixLeadingZero(el){var v=el.value.trim();if(!v)return;if(v.charAt(0)==='.')v='0'+v;else if(v.charAt(0)==='-'&&v.charAt(1)==='.')v='-0'+v.substring(1);var n=parseFloat(v);if(isFinite(n))el.value=String(n);}
 </script>
 <script src="gema_db.js"></script>
+<script src="gema_objekte_api.js"></script>
 <script src="gema_feedback.js"></script><script src="gema_notify.js"></script><script src="gema_notify_ui.js"></script>
 <script src="gema_autosave.js"></script>
 <script>
@@ -578,23 +579,36 @@ document.addEventListener('DOMContentLoaded', function() {
   }
 });
 
-function load(){
+async function load(){
+  // Per-Record-Cloud-Sync ueber die zentrale API: wartet auf den frischen
+  // Cloud-Pull, der gema_objekte_v1 (localStorage) mit ALLEN Objekten der
+  // Org neu aufbaut — inkl. der von Kollegen. Danach lokal lesen.
+  if(typeof GemaObjekte!=='undefined' && GemaObjekte.ready){
+    try{ await GemaObjekte.ready; }catch(e){}
+  }
+  // localStorage zuerst (von der API frisch aus der Cloud aufgebaut)
+  try{
+    const raw=localStorage.getItem(KEY);
+    if(raw){const d=JSON.parse(raw);Object.assign(_mem,d);return;}
+  }catch(e){}
+  // Fallback: GemaDB-Cache
   try{
     if(typeof _GemaDB!=='undefined'&&_GemaDB.c){
       const raw=_GemaDB.c[KEY]??null;
       if(raw){const d=JSON.parse(raw);Object.assign(_mem,d);return;}
     }
   }catch(e){}
-  // Fallback: localStorage
-  try{
-    const raw=localStorage.getItem(KEY);
-    if(raw){const d=JSON.parse(raw);Object.assign(_mem,d);return;}
-  }catch(e){}
 }
 function save(){
   var json=JSON.stringify(_mem);
-  try{if(typeof _GemaDB!=='undefined')_GemaDB.save(KEY,json);}catch(e){}
+  // localStorage sofort (alle lokalen Leser frisch)
   try{localStorage.setItem(KEY,json);}catch(e){}
+  // Cloud PER-RECORD ueber die API — KEIN Blob-Overwrite mehr (sonst
+  // wuerden Objekte anderer Personen aus der Cloud geloescht).
+  try{
+    if(typeof GemaObjekte!=='undefined'&&GemaObjekte.persistBlob){ GemaObjekte.persistBlob(_mem); }
+    else if(typeof _GemaDB!=='undefined'){ _GemaDB.save(KEY,json); }
+  }catch(e){}
 }
 
 // ── TABS ──
@@ -1624,7 +1638,7 @@ window.adrHighlight=adrHighlight;
 window.adrHover=adrHover;
 
 // ── INIT ──
-load();
+await load();
 // Mirror to localStorage so other modules can read via gema_objekte_api.js
 try{localStorage.setItem(KEY,JSON.stringify(_mem));}catch(e){}
 renderObjekte();
