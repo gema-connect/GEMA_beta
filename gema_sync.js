@@ -302,7 +302,15 @@
 
   function _writeCache(storageKey, arr){
     if(typeof localStorage === 'undefined') return;
-    try{ localStorage.setItem(storageKey, JSON.stringify(arr||[])); }catch(e){}
+    try{ localStorage.setItem(storageKey, JSON.stringify(arr||[])); }
+    catch(e){
+      // Haeufigster Fall: QuotaExceededError, wenn die Collection grosse
+      // Base64-Bilder enthaelt (Dach-/Schadensberichte). Der Cache bleibt
+      // dann veraltet — Module duerfen sich fuers Anzeigen NICHT auf den
+      // Cache verlassen, sondern das frische Cloud-Array nutzen (siehe
+      // loadFromCloudArr in sp_dachbericht.html). Hier nur warnen.
+      try{ console.warn('[GemaSync] _writeCache('+storageKey+') fehlgeschlagen (Quota?):', e && e.name); }catch(_e){}
+    }
   }
   function _readCache(storageKey){
     if(typeof localStorage === 'undefined') return [];

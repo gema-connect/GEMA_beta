@@ -509,16 +509,33 @@ function saveTemplatesToOrg(tpl){
 // ── STORAGE ────────────────────────────────────────────────────
 var _data = []; // Aktuelle Berichte (im Speicher)
 
-function loadAll(){
-  try { var raw = localStorage.getItem(STORAGE_KEY); _data = raw ? JSON.parse(raw) : []; }
-  catch(e) { _data = []; }
+// Wendet Migration + Org-Filter auf ein Roh-Array an und setzt _data.
+function _setData(arr){
+  arr = Array.isArray(arr) ? arr.slice() : [];
   // Migration alter Datensaetze (bildGross -> bilder mit hauptbild)
-  _data.forEach(_migrateBilder);
+  arr.forEach(_migrateBilder);
   // Org-Filter
   var u = _getUser();
-  if(u && !u.roleIds.includes('role_admin')){
-    _data = _data.filter(function(r){ return !r.orgId || r.orgId === u.orgId; });
+  if(u && u.roleIds && !u.roleIds.includes('role_admin')){
+    arr = arr.filter(function(r){ return !r.orgId || r.orgId === u.orgId; });
   }
+  _data = arr;
+}
+function loadAll(){
+  var arr = [];
+  try { var raw = localStorage.getItem(STORAGE_KEY); arr = raw ? JSON.parse(raw) : []; }
+  catch(e) { arr = []; }
+  _setData(arr);
+}
+// Setzt _data DIREKT aus dem Cloud-Ergebnis von bindCollection — umgeht
+// den localStorage-Cache. WICHTIG: Dachberichte enthalten Base64-Bilder;
+// bei mehreren Berichten sprengt der Cache das localStorage-Quota (~5 MB),
+// _writeCache scheitert dann STILL und der Cache bleibt veraltet. Wer
+// danach via loadAll() aus dem Cache liest, sieht fremde/neue Berichte
+// NICHT (genau dieser Bug: Kollegen-Berichte fehlen, obwohl in der Cloud).
+// Deshalb beim Cloud-Refresh das frische Array verwenden, nicht den Cache.
+function loadFromCloudArr(arr){
+  _setData(arr);
 }
 // Offline-Alert-Debounce: bei schnellem Tippen feuern viele Saves
 // (oninput pro Buchstabe). Wenn EINE Anfrage scheitert (Netz-Zucker,
@@ -1973,7 +1990,9 @@ function refreshFromCloud(opts){
     _refreshInFlight = false;
     var n = (arr || []).length;
     try { console.info('[Dachbericht] Cloud-Refresh: ' + n + ' Berichte geladen'); } catch(e){}
-    loadAll();
+    // Frisches Cloud-Array direkt verwenden — NICHT loadAll() (Cache kann
+    // wegen localStorage-Quota veraltet/unvollstaendig sein).
+    loadFromCloudArr(arr);
     // Re-render: wenn Detail offen, dann nur Dashboard nicht ueberschreiben
     var detailOpen = !document.getElementById('detailOverlay').classList.contains('hidden');
     if(!detailOpen) renderDashboard();
@@ -2042,7 +2061,9 @@ document.addEventListener('DOMContentLoaded', function(){
     window.GemaSync.bindCollection(MODULE_KEY, STORAGE_KEY, PREFIX, 'id').then(function(arr){
       var n = (arr || []).length;
       try { console.info('[Dachbericht] Boot: ' + n + ' Berichte aus Cloud geladen'); } catch(e){}
-      loadAll();
+      // Frisches Cloud-Array direkt verwenden — NICHT loadAll() (Cache kann
+      // wegen localStorage-Quota veraltet/unvollstaendig sein).
+      loadFromCloudArr(arr);
       renderDashboard();
       _startPeriodicRefresh();
     }).catch(function(e){
