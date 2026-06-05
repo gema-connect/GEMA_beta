@@ -145,13 +145,14 @@
    * Schreibt einen einzelnen Record. Reject bei Netz-Fehler / non-2xx.
    * Setzt automatisch _lm = jetzt.
    */
-  function saveRecord(moduleKey, dataKey, data){
+  function saveRecord(moduleKey, dataKey, data, opts){
     var lm = _now();
     var body = { module_key: moduleKey, data_key: dataKey, payload: { data: data, _lm: lm } };
     return fetch(SB_URL + '/rest/v1/' + SB_TABLE + '?on_conflict=module_key%2Cdata_key', {
       method: 'POST',
       headers: _hdrs({ 'Prefer': 'resolution=merge-duplicates,return=minimal' }),
-      body: JSON.stringify(body)
+      body: JSON.stringify(body),
+      keepalive: !!(opts && opts.keepalive)
     }).then(function(r){
       if(!r.ok) throw new Error('HTTP ' + r.status);
       _setReachable(true);
@@ -167,7 +168,7 @@
    * Netz-Fehler. Atomar im Sinne der Anfrage; bei Teilversagen
    * (sehr selten) gibt PostgREST einen Status zurueck.
    */
-  function saveRecords(moduleKey, records){
+  function saveRecords(moduleKey, records, opts){
     if(!records || !records.length) return Promise.resolve({ ok:true, count:0 });
     var lm = _now();
     var body = records.map(function(rec){
@@ -180,7 +181,8 @@
     return fetch(SB_URL + '/rest/v1/' + SB_TABLE + '?on_conflict=module_key%2Cdata_key', {
       method: 'POST',
       headers: _hdrs({ 'Prefer': 'resolution=merge-duplicates,return=minimal' }),
-      body: JSON.stringify(body)
+      body: JSON.stringify(body),
+      keepalive: !!(opts && opts.keepalive)
     }).then(function(r){
       if(!r.ok) throw new Error('HTTP ' + r.status);
       _setReachable(true);
@@ -194,11 +196,11 @@
   /**
    * Hartes Loeschen einer einzelnen Record-Row.
    */
-  function deleteRecord(moduleKey, dataKey){
+  function deleteRecord(moduleKey, dataKey, opts){
     var url = SB_URL + '/rest/v1/' + SB_TABLE
       + '?module_key=eq.' + encodeURIComponent(moduleKey)
       + '&data_key=eq.' + encodeURIComponent(dataKey);
-    return fetch(url, { method:'DELETE', headers: _hdrs() })
+    return fetch(url, { method:'DELETE', headers: _hdrs(), keepalive: !!(opts && opts.keepalive) })
       .then(function(r){
         if(!r.ok && r.status !== 404) throw new Error('HTTP ' + r.status);
         _setReachable(true);
@@ -214,9 +216,9 @@
    * Hartes Loeschen mehrerer Rows (eine Anfrage pro Key — PostgREST kann
    * keine Bulk-Deletes ueber mehrere Schluessel in einer Anfrage).
    */
-  function deleteRecords(moduleKey, dataKeys){
+  function deleteRecords(moduleKey, dataKeys, opts){
     if(!dataKeys || !dataKeys.length) return Promise.resolve({ ok:true, count:0 });
-    return Promise.all(dataKeys.map(function(k){ return deleteRecord(moduleKey, k); }))
+    return Promise.all(dataKeys.map(function(k){ return deleteRecord(moduleKey, k, opts); }))
       .then(function(){ return { ok:true, count: dataKeys.length }; });
   }
 
@@ -250,7 +252,7 @@
   // Eine Promise-Variante des Diff-Saves: bekommt altes/neues Array,
   // schreibt nur die geaenderten Records, loescht die entfernten.
   // Liefert { upserted, deleted } oder reject bei Fehler.
-  function saveDiff(moduleKey, prefix, oldArr, newArr, idField){
+  function saveDiff(moduleKey, prefix, oldArr, newArr, idField, opts){
     var d = diffArrays(oldArr, newArr, idField);
     if(!d.toUpsert.length && !d.toDelete.length){
       return Promise.resolve({ upserted:0, deleted:0 });
@@ -258,10 +260,10 @@
     var upserts = d.toUpsert.map(function(it){
       return { key: prefix + it[idField], data: it };
     });
-    return saveRecords(moduleKey, upserts).then(function(){
+    return saveRecords(moduleKey, upserts, opts).then(function(){
       if(!d.toDelete.length) return { upserted: upserts.length, deleted: 0 };
       var keys = d.toDelete.map(function(id){ return prefix + id; });
-      return deleteRecords(moduleKey, keys).then(function(){
+      return deleteRecords(moduleKey, keys, opts).then(function(){
         return { upserted: upserts.length, deleted: keys.length };
       });
     });
@@ -335,19 +337,22 @@
     });
   }
 
-  function persistCollection(moduleKey, storageKey, prefix, idField, newArr){
+  function persistCollection(moduleKey, storageKey, prefix, idField, newArr, opts){
     if(!idField) idField = 'id';
-    if(!_lastReachable){
+    // keepalive-Saves (beim Entladen der Seite) NICHT durch einen async
+    // Probe verzoegern — der Request muss sofort raus, bevor die Seite weg
+    // ist. Bei normalem Save bleibt der Offline-Probe-Pfad erhalten.
+    if(!_lastReachable && !(opts && opts.keepalive)){
       return _probeOnce().then(function(reachable){
         if(!reachable) return Promise.reject(new Error('Offline — Save blockiert'));
-        return _doPersist(moduleKey, storageKey, prefix, idField, newArr);
+        return _doPersist(moduleKey, storageKey, prefix, idField, newArr, opts);
       });
     }
-    return _doPersist(moduleKey, storageKey, prefix, idField, newArr);
+    return _doPersist(moduleKey, storageKey, prefix, idField, newArr, opts);
   }
-  function _doPersist(moduleKey, storageKey, prefix, idField, newArr){
+  function _doPersist(moduleKey, storageKey, prefix, idField, newArr, opts){
     var oldArr = _readCache(storageKey);
-    return saveDiff(moduleKey, prefix, oldArr, newArr, idField).then(function(res){
+    return saveDiff(moduleKey, prefix, oldArr, newArr, idField, opts).then(function(res){
       _writeCache(storageKey, newArr);
       return res;
     });
