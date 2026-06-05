@@ -319,10 +319,21 @@
       }
       // Keine Per-Record-Daten — pruefe ob alte Blob-Row da ist
       return _legacyBlobFetch(moduleKey, storageKey).then(function(blob){
-        if(!Array.isArray(blob) || !blob.length) return _readCache(storageKey);
+        if(!Array.isArray(blob) || !blob.length){
+          // loadCollection war erfolgreich (Cloud erreichbar) und liefert
+          // 0 Per-Record-Rows, und es gibt keine alte Blob-Row → die
+          // Collection ist in der Cloud WIRKLICH leer (z.B. der letzte
+          // Datensatz wurde geloescht). Den lokalen Cache JETZT leeren,
+          // sonst zeigt das Geraet geloeschte/veraltete Datensaetze
+          // dauerhaft weiter (Cloud gewinnt). Bei Offline laeuft dieser
+          // Pfad nicht — dann rejected loadCollection und der aeussere
+          // .catch behaelt den Cache.
+          _writeCache(storageKey, []);
+          return [];
+        }
         var records = blob.filter(function(it){ return it && it[idField] != null; })
                           .map(function(it){ return { key: prefix + it[idField], data: it }; });
-        if(!records.length){ return _readCache(storageKey); }
+        if(!records.length){ _writeCache(storageKey, []); return []; }
         return saveRecords(moduleKey, records).then(function(){
           return deleteRecord(moduleKey, storageKey).then(function(){
             _writeCache(storageKey, blob);
