@@ -174,7 +174,7 @@ textarea.fc{resize:vertical;min-height:60px;line-height:1.5}
         <option value="nicht_verifiziert">Nicht verifiziert</option>
       </select>
       <div style="flex:1"></div>
-      <button class="btn btn-p" onclick="openProdEditor(null)">+ Neues Produkt</button>
+      <button class="btn btn-p" id="btnNewProd" onclick="openProdEditor(null)">+ Neues Produkt</button>
     </div>
     <div class="card"><div id="prodList" style="min-height:80px"></div></div>
   </div>
@@ -381,6 +381,16 @@ var _lief = null; // current lieferant
 var _editProd = null; // currently editing product
 var _answerOaId = null;
 
+// ── Lieferanten-Unterrollen: feine Rechte innerhalb der Lieferanten-Org ──
+// role_lieferant (Legacy, Vollzugang) und role_lieferant_admin = Admin-Level.
+// Die Unterrollen schalten gezielt einzelne Aktionen frei.
+function _liefRoleIds(){ var u=null; try{u=GemaAuth.getCurrentUser();}catch(e){} return (u&&u.roleIds)||[]; }
+function _liefHas(r){ return _liefRoleIds().indexOf(r)>=0; }
+function _liefIsAdmin(){ return _liefHas('role_admin')||_liefHas('role_lieferant')||_liefHas('role_lieferant_admin'); }
+function _liefCanEditProdukte(){ return _liefIsAdmin()||_liefHas('role_lieferant_produkte'); }
+function _liefCanVerify(){ return _liefIsAdmin()||_liefHas('role_lieferant_verify'); }
+function _liefCanOfferten(){ return _liefIsAdmin()||_liefHas('role_lieferant_offerten'); }
+
 function E(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');}
 function toast(msg,type){var d=document.createElement('div');d.style.cssText='padding:10px 18px;border-radius:10px;font-size:13px;font-weight:700;color:#fff;box-shadow:0 4px 12px rgba(0,0,0,.15);'+(type==='error'?'background:#dc2626':'background:#059669');d.textContent=msg;document.getElementById('toasts').appendChild(d);setTimeout(function(){d.remove()},3000);}
 
@@ -424,7 +434,7 @@ function setupTabs(){
   var user=null;
   try{user=GemaAuth.getCurrentUser();}catch(e){}
   var roles=user?user.roleIds||[]:[];
-  var isLief=roles.indexOf('role_lieferant')>=0;
+  var isLief=roles.some(function(r){return typeof r==='string'&&r.indexOf('role_lieferant')===0;});
   var isPruefer=roles.indexOf('role_pruefer')>=0;
   var isAdmin=roles.indexOf('role_admin')>=0;
   if(!isLief&&!isPruefer&&isAdmin){isLief=true;isPruefer=true;} // Admin sieht alles
@@ -575,11 +585,14 @@ function initKatFilter(){
 }
 
 function renderProdukte(){
+  // "+ Neues Produkt" nur fuer Rollen mit Produktpflege-Recht.
+  var canEdit = _liefCanEditProdukte();
+  var nb = document.getElementById('btnNewProd'); if(nb) nb.style.display = canEdit ? '' : 'none';
   var kat = document.getElementById('prodKatFilter').value;
   var st = document.getElementById('prodStatusFilter').value;
   var prods = getMyProdukte(kat||null, st||null);
   if(!prods.length){
-    document.getElementById('prodList').innerHTML='<div style="padding:32px;text-align:center;color:var(--mut)"><div style="font-size:28px;margin-bottom:8px">📦</div>Keine Produkte gefunden.<br><button class="btn btn-p btn-sm" onclick="openProdEditor(null)" style="margin-top:12px">+ Neues Produkt</button></div>';
+    document.getElementById('prodList').innerHTML='<div style="padding:32px;text-align:center;color:var(--mut)"><div style="font-size:28px;margin-bottom:8px">📦</div>Keine Produkte gefunden.'+(canEdit?'<br><button class="btn btn-p btn-sm" onclick="openProdEditor(null)" style="margin-top:12px">+ Neues Produkt</button>':'')+'</div>';
     return;
   }
   document.getElementById('prodList').innerHTML = prods.map(function(p){
@@ -727,14 +740,17 @@ function renderPeWorkflow(){
     html += '<div style="display:flex;align-items:center;gap:8px"><span class="badge b-ver" style="font-size:12px">✓ Verifiziert</span>';
     html += '<span style="font-size:12px;color:var(--mut)">'+E(p.verifiziertVon||'—')+' · '+(p.verifiziertAm?p.verifiziertAm.split('T')[0]:'—')+'</span></div>';
     html += '<p style="font-size:12px;color:var(--mut);margin-top:8px">Hinweis: Jede Änderung setzt den Status zurück auf Entwurf.</p>';
-  } else {
+  } else if(_liefCanVerify()){
     html += '<div class="verify-box"><input type="checkbox" id="peVfyCb"/><label for="peVfyCb"><strong>Ich bestätige, dass die eingetragenen technischen Daten korrekt sind</strong> und in meiner Verantwortung als Lieferant liegen.</label></div>';
     html += '<div style="margin-top:10px"><button class="btn btn-p" onclick="verifyProd()">✓ Verifizieren</button></div>';
+  } else {
+    html += '<p style="font-size:12px;color:var(--mut)">Verifizierung nur durch die Rolle «Verifizierung» (oder Lieferant-Admin).</p>';
   }
   el.innerHTML = html;
 }
 
 function saveProd(){
+  if(!_liefCanEditProdukte()){ toast('Keine Berechtigung zum Bearbeiten von Produkten.','error'); return; }
   var katId = document.getElementById('peKat').value;
   var serie = document.getElementById('peSerie').value.trim();
   var modell = document.getElementById('peModell').value.trim();
@@ -770,6 +786,7 @@ function saveProd(){
 
 function verifyProd(){
   if(!_editProd) return;
+  if(!_liefCanVerify()){ toast('Keine Berechtigung zum Verifizieren.','error'); return; }
   var cb = document.getElementById('peVfyCb');
   if(!cb||!cb.checked){ toast('Bitte Checkbox bestätigen.','error'); return; }
   // Save current fields first
@@ -821,11 +838,12 @@ function renderOaCard(a){
     (bwText?'<div style="font-size:11px;color:var(--mut);margin-bottom:6px">Berechnung: '+E(bwText)+'</div>':'')+
     (a.nachricht?'<div style="font-size:12px;color:var(--txt2);font-style:italic;margin-bottom:8px">«'+E(a.nachricht.substring(0,200))+(a.nachricht.length>200?'…':'')+'»</div>':'')+
     (a.antwort?'<div style="font-size:12px;color:var(--grn);font-weight:600;margin-bottom:8px">✉ Beantwortet: '+E((a.antwort.nachricht||'').substring(0,100))+(a.antwort.pdfName?' · 📄 '+E(a.antwort.pdfName):'')+'</div>':'')+
-    (a.status==='offen'?'<div style="display:flex;gap:8px;margin-top:8px"><button class="btn btn-p btn-sm" onclick="openOaAnswer(\''+E(a.id)+'\')">✉ Beantworten</button><button class="btn btn-d btn-sm" onclick="quickReject(\''+E(a.id)+'\')">✕ Ablehnen</button></div>':'')+
+    (a.status==='offen'&&_liefCanOfferten()?'<div style="display:flex;gap:8px;margin-top:8px"><button class="btn btn-p btn-sm" onclick="openOaAnswer(\''+E(a.id)+'\')">✉ Beantworten</button><button class="btn btn-d btn-sm" onclick="quickReject(\''+E(a.id)+'\')">✕ Ablehnen</button></div>':(a.status==='offen'?'<div style="font-size:11px;color:var(--mut);margin-top:8px">Beantworten nur durch die Rolle «Offerten» (oder Lieferant-Admin).</div>':''))+
   '</div>';
 }
 
 function openOaAnswer(oaId){
+  if(!_liefCanOfferten()){ toast('Keine Berechtigung zum Beantworten von Offertanfragen.','error'); return; }
   _answerOaId = oaId;
   var oa = GemaProdukte.getOffertanfrage(oaId);
   if(!oa) return;
@@ -913,6 +931,7 @@ function rejectOa(){
 }
 
 function quickReject(oaId){
+  if(!_liefCanOfferten()){ toast('Keine Berechtigung für Offertanfragen.','error'); return; }
   if(!confirm('Offertanfrage wirklich ablehnen?')) return;
   GemaProdukte.ablehnenOffertanfrage(oaId, 'Offertanfrage abgelehnt.');
   renderAll(); toast('Anfrage abgelehnt');
@@ -1208,7 +1227,10 @@ function _liefEditRoles(userId){
   var u=users.find(function(x){return x.id===userId;});
   if(!u)return;
   var allRoles=GemaAuth.getRoles()||[];
-  var assignable=allRoles.filter(function(r){return r.id!=='role_admin';});
+  // Nur Lieferanten-Rollen anbieten (Legacy role_lieferant + die Unterrollen
+  // role_lieferant_admin/produkte/verify/offerten/intern). Andere Rollen
+  // (Planer/Monteur …) sind fuer eine Lieferanten-Org nicht sinnvoll.
+  var assignable=allRoles.filter(function(r){return typeof r.id==='string' && r.id.indexOf('role_lieferant')===0;});
   var currentIds=u.roleIds||[];
   var html='<div style="background:#fff;border-radius:14px;padding:24px;max-width:420px;width:100%;box-shadow:0 20px 60px -10px rgba(0,0,0,.3)">'
     +'<h3 style="margin:0 0 4px;font-size:17px;font-weight:900">🔑 Rollen bearbeiten</h3>'
