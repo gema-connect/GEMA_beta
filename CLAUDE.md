@@ -1431,6 +1431,11 @@ GemaSync.persistCollection(moduleKey, storageKey, prefix, 'id', arr)
 | Dachbericht | `dachbericht` | `dach:` | `gema_dachbericht_v1` |
 | Objekte | `objekte` | `objekt:` | `gema_objpool_v1` |
 | Beteiligte | `objekte` | `bet:` | `gema_betpool_v1` |
+| Produkte | `produktkatalog` | `produkt:` | `gema_pk_prod_pool_v1` |
+| Lieferanten | `produktkatalog` | `lieferant:` | `gema_pk_lief_pool_v1` |
+| Offertanfragen | `produktkatalog` | `oa:` | `gema_pk_oa_pool_v1` |
+
+**Produktkatalog (gema_produktkatalog_api.js) — Migration & Besonderheiten:** Produkte/Lieferanten/Offertanfragen liegen jetzt per-Record in der Cloud (vorher: ein Blob pro Key `gema_produktkatalog_v1`/`gema_lieferanten_v1`/`gema_offertanfragen_v1` via `_GemaDB.saveToModule` → Last-Write-Wins, das Produkte konkurrierender Lieferanten überschreiben konnte). Die lokalen Blobs (`{produkte,log}` etc.) bleiben als Lese-Cache, alle bestehenden Getter (`getProdukte`, `getAllLieferanten`, …) laufen unverändert. `loadFromSupabase()` macht jetzt den Per-Record-Pull (mit einmaliger Legacy-Blob-Migration) und feuert `gema-produkte-loaded`; `save()` macht Diff-Saves per `GemaSync.persistCollection`. Neu: **`GemaProdukte.ready`** (Promise, resolved nach dem ersten Cloud-Pull) — Demo-Seeding (`seedDemoData`/`seedDemoLieferanten`) wartet darauf, sonst würden auf frischen Geräten Demo-Daten in die Cloud gepusht. Der `log` in `_data.log` wird nicht mehr cloud-synct (nur lokal). Fallback auf den alten `_GemaDB`-Blob, falls `gema_sync.js` nicht geladen ist.
 
 **Objekte (pm_objekte) — Migration & Besonderheiten:** Objekte/Beteiligte liegen jetzt per-Record in der Cloud (vorher: ein Blob `gema_objekte_v1` mit Last-Write-Wins → Objekte von Kollegen erschienen nie / wurden beim Speichern gegenseitig gelöscht). Die zentrale Sync-Logik steckt komplett in `gema_objekte_api.js`:
 - `_pullFromCloud()` lädt bei **jedem** Seitenstart objekte (`objekt:`) + beteiligte (`bet:`) frisch via `GemaSync.bindCollection`, baut daraus den lokalen Blob `gema_objekte_v1` (unverändertes Schema `{objekte, beteiligte, activeObjektId}`, damit alle bestehenden Leser weiterlaufen) und feuert das Event `gema-objekte-loaded`.
