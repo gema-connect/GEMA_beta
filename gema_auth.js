@@ -268,6 +268,16 @@
     {id:'role_architekt',name:'Architekt / GP',color:'#7c3aed',permissions:_somePerms(['terminplan','besprechungsprotokoll','objekte','abnahme_sia'],true,false,false)},
     {id:'role_unternehmer',name:'Unternehmer',color:'#d97706',permissions:_somePerms(['terminplan','abnahme_sia','werkzeugmanagement','baustellencheckliste','inspektion_wartung','ausschreibungsunterlagen','crbx_offertvergleich','schnellausschreibung'],true,true,false)},
     {id:'role_lieferant',name:'Lieferant',color:'#16a34a',permissions:_somePerms(['ausschreibungsunterlagen','produktkatalog'],true,true,false)},
+    // Lieferanten-Unterrollen (feinere Rechte innerhalb einer Lieferanten-Org).
+    // Der Org-Admin (role_lieferant_admin oder Legacy role_lieferant) vergibt
+    // sie im Lieferanten-Dashboard. Die Modul-Permission gibt nur Dashboard-
+    // Zugang frei; die FEINE Abgrenzung (erfassen/verifizieren/Offerten)
+    // passiert im Dashboard via roleId-Helfer.
+    {id:'role_lieferant_admin',   name:'Lieferant · Admin',         color:'#15803d', permissions:_somePerms(['ausschreibungsunterlagen','produktkatalog'],true,true,false)},
+    {id:'role_lieferant_produkte',name:'Lieferant · Produktpflege', color:'#16a34a', permissions:_somePerms(['produktkatalog'],true,true,false)},
+    {id:'role_lieferant_verify',  name:'Lieferant · Verifizierung', color:'#0891b2', permissions:_somePerms(['produktkatalog'],true,true,false)},
+    {id:'role_lieferant_offerten',name:'Lieferant · Offerten',      color:'#7c3aed', permissions:_somePerms(['ausschreibungsunterlagen','produktkatalog'],true,true,false)},
+    {id:'role_lieferant_intern',  name:'Lieferant · Intern (nur Lesen)', color:'#64748b', permissions:_somePerms(['produktkatalog'],true,false,false)},
     {id:'role_pruefer',name:'Prüfer',color:'#0891b2',permissions:_somePerms(['werkzeugmanagement','fahrzeugmanagement'],true,true,false)},
     // Garagist: externe Werkstatt mit eigener Org. Kunden-Firmen verknuepfen
     // einzelne Fahrzeuge mit dem Garagist-Account. Sieht nur diese Fahrzeuge,
@@ -696,7 +706,8 @@
   // ── Rollenspezifische Zielseite ─────────────────────────────────
   function _getRedirectForUser(u){
     if(!u||!u.roleIds)return'sys_workspace.html';
-    if(u.roleIds.indexOf('role_lieferant')>=0)return'sys_lieferant_dashboard.html';
+    // Lieferant + alle Unterrollen (role_lieferant, role_lieferant_admin, …)
+    if(u.roleIds.some(function(r){return typeof r==='string'&&r.indexOf('role_lieferant')===0;}))return'sys_lieferant_dashboard.html';
     if(u.roleIds.indexOf('role_pruefer')>=0)return'sys_lieferant_dashboard.html';
     if(u.roleIds.indexOf('role_garagist')>=0)return'sys_garagist_dashboard.html';
     if(u.roleIds.indexOf('role_magaziner')>=0)return'index.html';
@@ -1080,7 +1091,7 @@
         username:opts.email||token,
         name:opts.firma||opts.person||'Lieferant',
         password:null, // Wird beim ersten Login gesetzt
-        roleIds:['role_lieferant'],
+        roleIds:(opts.roleIds&&opts.roleIds.length)?opts.roleIds:['role_lieferant'],
         orgId:resolvedOrgId,
         active:true,
         createdAt:new Date().toISOString(),
