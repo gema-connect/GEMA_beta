@@ -33,8 +33,18 @@ let _liefData = { lieferanten: [] };
 let _oaData = { anfragen: [] };
 
 // ── Persistence ──
-// Sync: localStorage (sofort) + Async: Supabase via _GemaDB (fire-and-forget)
+// Sync: localStorage (sofort) + Cloud PER-RECORD via gema_sync.js.
+// Frueher: ein Blob pro Key via _GemaDB (Last-Write-Wins) → speicherten
+// zwei Lieferanten gleichzeitig, ueberschrieben sie sich gegenseitig den
+// ganzen Katalog. Jetzt: pro Produkt/Lieferant/Anfrage eine eigene
+// Cloud-Row (Diff-Saves), wie Objekte/Berichte.
 const _sbModule = 'produktkatalog';
+// Per-Record-Konfiguration (moduleKey = _sbModule)
+const P_PREFIX = 'produkt:',   L_PREFIX = 'lieferant:', O_PREFIX = 'oa:';
+const P_POOL   = 'gema_pk_prod_pool_v1';   // Diff-Cache (flaches Produkt-Array)
+const L_POOL   = 'gema_pk_lief_pool_v1';    // Diff-Cache (flaches Lieferanten-Array)
+const O_POOL   = 'gema_pk_oa_pool_v1';      // Diff-Cache (flaches Anfragen-Array)
+function _pkHasSync(){ return typeof window !== 'undefined' && window.GemaSync && window.GemaSync.persistCollection; }
 function save(){
   const j = JSON.stringify(_data);
   try { localStorage.setItem(SK, j); } catch(e){}
@@ -42,14 +52,21 @@ function save(){
   try { localStorage.setItem(SK_LIEF, jl); } catch(e){}
   const jo = JSON.stringify(_oaData);
   try { localStorage.setItem(SK_OA, jo); } catch(e){}
-  // Async Supabase sync (fire-and-forget)
-  try {
-    if(typeof _GemaDB !== 'undefined' && _GemaDB.saveToModule){
+  // Cloud PER-RECORD (kein Blob-Overwrite → keine gegenseitige Loeschung).
+  if(_pkHasSync()){
+    try {
+      window.GemaSync.persistCollection(_sbModule, P_POOL, P_PREFIX, 'id', _data.produkte || []).catch(function(){});
+      window.GemaSync.persistCollection(_sbModule, L_POOL, L_PREFIX, 'id', _liefData.lieferanten || []).catch(function(){});
+      window.GemaSync.persistCollection(_sbModule, O_POOL, O_PREFIX, 'id', _oaData.anfragen || []).catch(function(){});
+    } catch(e){}
+  } else if(typeof _GemaDB !== 'undefined' && _GemaDB.saveToModule){
+    // Fallback: alter Blob-Weg, falls gema_sync.js nicht geladen ist.
+    try {
       _GemaDB.saveToModule(_sbModule, SK, j).catch(function(){});
       _GemaDB.saveToModule(_sbModule, SK_LIEF, jl).catch(function(){});
       _GemaDB.saveToModule(_sbModule, SK_OA, jo).catch(function(){});
-    }
-  } catch(e){}
+    } catch(e){}
+  }
 }
 
 function load(){
@@ -63,23 +80,78 @@ function load(){
   if(!_oaData.anfragen) _oaData.anfragen = [];
 }
 
-// 2. Supabase (async, nach Page-Load — aktualisiert localStorage-Daten wenn Supabase neuer)
+// 2. Cloud-Pull (async, nach Page-Load): laedt Produkte/Lieferanten/
+//    Anfragen PER-RECORD frisch aus der Cloud und baut die lokalen
+//    Blobs neu auf. Feuert 'gema-produkte-loaded'. Name bleibt
+//    loadFromSupabase, weil mehrere Seiten ihn aufrufen.
+function _pkApplyCloud(prod, lief, oa){
+  _data.produkte = Array.isArray(prod) ? prod : [];
+  if(!_data.log) _data.log = [];
+  _liefData.lieferanten = Array.isArray(lief) ? lief : [];
+  _oaData.anfragen = Array.isArray(oa) ? oa : [];
+  try { localStorage.setItem(SK, JSON.stringify(_data)); } catch(e){}
+  try { localStorage.setItem(SK_LIEF, JSON.stringify(_liefData)); } catch(e){}
+  try { localStorage.setItem(SK_OA, JSON.stringify(_oaData)); } catch(e){}
+  try { window.dispatchEvent(new Event('gema-produkte-loaded')); } catch(e){}
+}
+// Holt eine alte Blob-Row (Cloud via _GemaDB, sonst localStorage) fuer
+// die einmalige Migration auf Per-Record.
+function _pkFetchLegacyBlob(key){
+  return new Promise(function(resolve){
+    function fromLocal(){ try { var r = localStorage.getItem(key); resolve(r ? JSON.parse(r) : null); } catch(e){ resolve(null); } }
+    if(typeof _GemaDB !== 'undefined' && _GemaDB.loadFromModule){
+      _GemaDB.loadFromModule(_sbModule, key).then(function(val){
+        if(val){ try { resolve(typeof val === 'string' ? JSON.parse(val) : val); return; } catch(e){} }
+        fromLocal();
+      }).catch(fromLocal);
+    } else { fromLocal(); }
+  });
+}
+function _pkMigrateLegacyBlobs(){
+  return Promise.all([ _pkFetchLegacyBlob(SK), _pkFetchLegacyBlob(SK_LIEF), _pkFetchLegacyBlob(SK_OA) ])
+    .then(function(blobs){
+      var pBlob = blobs[0], lBlob = blobs[1], oBlob = blobs[2];
+      var prod = (pBlob && Array.isArray(pBlob.produkte)) ? pBlob.produkte : (_data.produkte || []);
+      var lief = (lBlob && Array.isArray(lBlob.lieferanten)) ? lBlob.lieferanten : (_liefData.lieferanten || []);
+      var oa   = (oBlob && Array.isArray(oBlob.anfragen)) ? oBlob.anfragen : (_oaData.anfragen || []);
+      if(pBlob && pBlob.log && !(_data.log && _data.log.length)) _data.log = pBlob.log;
+      var ops = [];
+      if(prod.length) ops.push(window.GemaSync.persistCollection(_sbModule, P_POOL, P_PREFIX, 'id', prod));
+      if(lief.length) ops.push(window.GemaSync.persistCollection(_sbModule, L_POOL, L_PREFIX, 'id', lief));
+      if(oa.length)   ops.push(window.GemaSync.persistCollection(_sbModule, O_POOL, O_PREFIX, 'id', oa));
+      return Promise.all(ops).then(function(){
+        try { console.info('[GemaProdukte] Migration Blob→Per-Record:', prod.length, 'Produkte,', lief.length, 'Lieferanten,', oa.length, 'Anfragen'); } catch(e){}
+        _pkApplyCloud(prod, lief, oa);
+      }).catch(function(){ _pkApplyCloud(prod, lief, oa); });
+    });
+}
 function loadFromSupabase(){
-  if(typeof _GemaDB === 'undefined' || !_GemaDB.loadFromModule) return Promise.resolve();
-  const keys = [
-    { key: SK, apply: function(p){ if(p.produkte){ _data=p; } } },
-    { key: SK_LIEF, apply: function(p){ if(p.lieferanten){ _liefData=p; } } },
-    { key: SK_OA, apply: function(p){ if(p.anfragen){ _oaData=p; } } }
-  ];
-  return Promise.all(keys.map(function(k){
-    return _GemaDB.loadFromModule(_sbModule, k.key).then(function(val){
-      if(!val) return;
-      try {
-        const parsed = typeof val === 'string' ? JSON.parse(val) : val;
-        if(parsed) { k.apply(parsed); try { localStorage.setItem(k.key, typeof val==='string'?val:JSON.stringify(parsed)); } catch(e){} }
-      } catch(e){}
-    }).catch(function(){});
-  }));
+  if(!_pkHasSync()){
+    // Fallback: alter Blob-Weg, falls gema_sync.js nicht geladen ist.
+    if(typeof _GemaDB === 'undefined' || !_GemaDB.loadFromModule) return Promise.resolve();
+    const keys = [
+      { key: SK, apply: function(p){ if(p.produkte){ _data=p; } } },
+      { key: SK_LIEF, apply: function(p){ if(p.lieferanten){ _liefData=p; } } },
+      { key: SK_OA, apply: function(p){ if(p.anfragen){ _oaData=p; } } }
+    ];
+    return Promise.all(keys.map(function(k){
+      return _GemaDB.loadFromModule(_sbModule, k.key).then(function(val){
+        if(!val) return;
+        try { const parsed = typeof val === 'string' ? JSON.parse(val) : val; if(parsed){ k.apply(parsed); try { localStorage.setItem(k.key, typeof val==='string'?val:JSON.stringify(parsed)); } catch(e){} } } catch(e){}
+      }).catch(function(){});
+    }));
+  }
+  return Promise.all([
+    window.GemaSync.bindCollection(_sbModule, P_POOL, P_PREFIX, 'id'),
+    window.GemaSync.bindCollection(_sbModule, L_POOL, L_PREFIX, 'id'),
+    window.GemaSync.bindCollection(_sbModule, O_POOL, O_PREFIX, 'id')
+  ]).then(function(res){
+    var prod = res[0] || [], lief = res[1] || [], oa = res[2] || [];
+    if(!prod.length && !lief.length && !oa.length){
+      return _pkMigrateLegacyBlobs();
+    }
+    _pkApplyCloud(prod, lief, oa);
+  }).catch(function(e){ try { console.warn('[GemaProdukte] Cloud-Pull fehlgeschlagen:', e && e.message); } catch(_e){} });
 }
 
 // ── Verification Status ──
@@ -1480,11 +1552,19 @@ function sortWithStamm(list){
 }
 
 // ── Init ──
+// _pkReady resolved nach dem ersten Cloud-Pull. Demo-Seeding und alles,
+// was "ist der Katalog leer?" prueft, soll darauf warten — sonst werden
+// auf einem frischen Geraet Demo-Daten erzeugt, BEVOR der Cloud-Stand da
+// ist, und per-Record in die Cloud gepusht (Pollution).
+var _pkReadyResolve;
+var _pkReady = (typeof Promise !== 'undefined') ? new Promise(function(r){ _pkReadyResolve = r; }) : null;
 load();
-// Async: fetch from Supabase after page load (updates localStorage if newer data exists)
 if(typeof document !== 'undefined'){
-  document.addEventListener('DOMContentLoaded', function(){ loadFromSupabase(); });
-}
+  document.addEventListener('DOMContentLoaded', function(){
+    Promise.resolve(loadFromSupabase()).then(function(){ if(_pkReadyResolve) _pkReadyResolve(); })
+      .catch(function(){ if(_pkReadyResolve) _pkReadyResolve(); });
+  });
+} else if(_pkReadyResolve){ _pkReadyResolve(); }
 
 // ── Expose ──
 window.GemaProdukte = {
@@ -1543,6 +1623,7 @@ window.GemaProdukte = {
   OA_STATUS,
   // Persistence
   loadFromSupabase,
+  get ready(){ return _pkReady || Promise.resolve(); },
   // Lieferanten-Kategorien
   LIEF_KATEGORIEN,
   getLieferantenByKategorie: function(kat){ return getAllLieferanten().filter(function(l){ return l.lieferantKategorien && l.lieferantKategorien.indexOf(kat)>=0; }); },
