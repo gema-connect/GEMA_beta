@@ -47,6 +47,44 @@
   // in einem Modul). Der State ist ueber die Container-ID indiziert.
   var _instances = {};
 
+  // ── Gewählte Anlage: zentrale Persistenz (pro Objekt, pro Kategorie) ──
+  // Opt-in: nur wenn das Modul cfg.renderChosenRows(daten, werte, chosen)
+  // liefert, rendert das Widget eine PERSISTENTE «Gewählte Anlage»-Box und
+  // zeigt sie nach Reload/Objektwechsel wieder. So bleibt die Übernahme
+  // erhalten (vorher nur Live-Box, beim Neuladen weg) — und die modul-
+  // spezifische Vergleichstabelle bleibt über den Callback flexibel.
+  function _chosenKey(cfg){
+    var base = 'gema_aw_chosen_' + (cfg.kategorie || 'x');
+    try { if(typeof GemaObjekte !== 'undefined' && GemaObjekte.storageKey) return GemaObjekte.storageKey(base); } catch(e){}
+    return base;
+  }
+  function _getChosen(cfg){ try { var r = localStorage.getItem(_chosenKey(cfg)); return r ? JSON.parse(r) : null; } catch(e){ return null; } }
+  function _saveChosen(cfg, data){ try { localStorage.setItem(_chosenKey(cfg), JSON.stringify(data)); } catch(e){} }
+  function _clearChosen(cfg){ try { localStorage.removeItem(_chosenKey(cfg)); } catch(e){} }
+
+  function _renderChosen(state){
+    var cfg = state.cfg;
+    if(typeof cfg.renderChosenRows !== 'function') return; // opt-in
+    var ex = state.container.querySelector('.pk-confirm'); if(ex) ex.remove();
+    var chosen = _getChosen(cfg);
+    if(!chosen) return;
+    var werte = {}; try { werte = (cfg.getBerechnungswerte && cfg.getBerechnungswerte()) || {}; } catch(e){}
+    var rows = ''; try { rows = cfg.renderChosenRows(chosen.daten || {}, werte, chosen) || ''; } catch(e){}
+    var box = document.createElement('div');
+    box.className = 'pk-confirm';
+    box.style.cssText = 'padding:16px 20px;background:#fff;border:1.5px solid #e2e7f0;border-radius:12px;margin:12px 0;font-size:13px;box-shadow:0 2px 8px rgba(0,0,0,.06)';
+    box.innerHTML =
+      '<div style="font-weight:800;font-size:14px;margin-bottom:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">✓ Gewählte Anlage: '+E(chosen.lieferantFirma||'')+' '+E(chosen.serie||'')+' '+E(chosen.modell||'')+(chosen.status==='nicht_verifiziert'?' <span style="color:#dc2626;font-size:11px">⚠ Nicht verifiziert</span>':'')+
+        '<button class="gaw-chosen-clear" style="margin-left:auto;padding:4px 10px;border-radius:6px;border:1px solid #fecaca;background:#fef2f2;color:#dc2626;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit">✕ Entfernen</button></div>'+
+      '<table style="width:100%;border-collapse:collapse;font-size:12.5px">'+
+      '<tr style="background:#f8fafc"><td style="padding:7px 10px;font-weight:700;color:#64748b;border-bottom:1px solid #e2e7f0">Kenngrösse</td><td style="padding:7px 10px;font-weight:700;color:#64748b;border-bottom:1px solid #e2e7f0">Berechnet</td><td style="padding:7px 10px;font-weight:700;color:#64748b;border-bottom:1px solid #e2e7f0">Anlage</td><td style="padding:7px 10px;border-bottom:1px solid #e2e7f0"></td></tr>'+
+      rows +
+      '</table>';
+    state.container.appendChild(box);
+    var clr = box.querySelector('.gaw-chosen-clear');
+    if(clr) clr.addEventListener('click', function(){ _clearChosen(cfg); _renderChosen(state); });
+  }
+
   function init(config){
     if(typeof GemaProdukte === 'undefined'){
       console.warn('[GemaAnlagenwahl] GemaProdukte nicht geladen');
@@ -91,6 +129,7 @@
     + '</div>';
     _renderPills(state);
     _renderGrid(state);
+    _renderChosen(state); // persistente «Gewählte Anlage»-Box (opt-in)
   }
 
   function _renderPills(state){
@@ -262,6 +301,11 @@
       if(typeof cfg.onAnlageUebernommen === 'function') {
         try { cfg.onAnlageUebernommen(p); } catch(e) { console.warn(e); }
       }
+      // Zentrale Persistenz: gewählte Anlage pro Objekt speichern + Box rendern.
+      if(typeof cfg.renderChosenRows === 'function'){
+        _saveChosen(cfg, { id:p.id, lieferantFirma:p.lieferantFirma, serie:d.serie, modell:d.modell, status:p.status, daten:d, uebernommenAm:new Date().toISOString() });
+        _renderChosen(state);
+      }
       _toast('✓ Anlage übernommen: '+(p.lieferantFirma||'')+' '+(d.serie||'')+' '+(d.modell||''), cfg.accent);
     });
     overlay.querySelector('.gaw-offerte').addEventListener('click', function(){
@@ -402,8 +446,16 @@
     refresh: function(containerIdOrEl){
       var id = typeof containerIdOrEl === 'string' ? containerIdOrEl.replace('#','') : (containerIdOrEl && containerIdOrEl.id);
       var st = _instances[id];
-      if(st) _renderGrid(st);
+      if(st){ _renderGrid(st); _renderChosen(st); }
     },
     scrollToResults: scrollToResults
   };
+
+  // Bei Objektwechsel die (pro Objekt gespeicherte) gewählte Anlage aller
+  // Widget-Instanzen neu anzeigen.
+  try {
+    w.addEventListener('gema-objekt-changed', function(){
+      Object.keys(_instances).forEach(function(k){ try { _renderChosen(_instances[k]); } catch(e){} });
+    });
+  } catch(e){}
 })(window);
