@@ -4652,11 +4652,20 @@ const esc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'
 // INIT
 // ──────────────────────────────────────
 window.addEventListener('DOMContentLoaded',async () => {
-// Cloud-First: Per-Record laden, Cache ueberschreiben, alte Blob-Row migrieren
+// Cloud-First (DB primaer, localStorage nur Fallback): VOR dem Rendern
+// sowohl die Tools (per-Record) als auch den Org (enthaelt die Kategorie-
+// Symbole in org.settings.werkzeug.kategorien) frisch aus der Datenbank
+// ziehen. So sehen ALLE Geraete neu erfasste Geraete und geaenderte
+// Kategorie-Symbole — nicht nur das Geraet, auf dem gespeichert wurde.
 if(typeof window.GemaSync !== 'undefined'){
   await Promise.race([
-    window.GemaSync.bindCollection('werkzeugmanagement','gema_werkzeug','tool:','id'),
-    new Promise(function(r){ setTimeout(r, 5000); })
+    Promise.all([
+      window.GemaSync.bindCollection('werkzeugmanagement','gema_werkzeug','tool:','id'),
+      (typeof GemaAuth !== 'undefined' && GemaAuth.restoreFromCloud)
+        ? Promise.resolve(GemaAuth.restoreFromCloud()).catch(function(){})
+        : Promise.resolve()
+    ]),
+    new Promise(function(r){ setTimeout(r, 6000); })
   ]);
 }
 // Aktivitaetenlog-Collection laden (im Hintergrund, blockiert UI nicht)
@@ -4666,8 +4675,10 @@ try{ if(window.GemaActivityLog) window.GemaActivityLog.bootstrap(); }catch(e){}
   if(!tools.length){
     tools=[];
   }
-  // Org-Settings: Custom-Kategorien in CATS-Map einpflegen + optionale Felder anwenden
+  // Org-Settings: Custom-Kategorien (jetzt frisch aus der Cloud) in CATS-Map
+  // einpflegen + optionale Felder anwenden, dann mit frischen Daten rendern.
   try{ _wzSyncCatsMap(); _wzApplyOptFelder(); }catch(e){ /* noop */ }
+  try{ renderList(); }catch(e){}
   const p=new URLSearchParams(location.search);
   if(p.get('view'))setTimeout(()=>openViewTool(p.get('view')),400);
     else if(p.get('scan'))setTimeout(()=>_wzScanAusleihe(p.get('scan')),400);
