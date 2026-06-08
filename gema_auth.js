@@ -28,8 +28,25 @@
   _COLL[STORAGE_USERS] = { prefix: 'user:', idField: 'id', legacyKey: STORAGE_USERS };
   _COLL[STORAGE_ROLES] = { prefix: 'role:', idField: 'id', legacyKey: STORAGE_ROLES };
 
+  // In-Memory-Spiegel der Collections. Ueberlebt, auch wenn
+  // localStorage.setItem am Quota scheitert — auf iPhone-Safari ist das
+  // Limit streng, und grosse Base64-Bilder anderer Module (z.B.
+  // gema_werkzeug Kaufbelege) koennen den Storage fuellen. Reads
+  // bevorzugen diesen Spiegel, damit der frische Cloud-Stand (Orgs mit
+  // Kategorie-Settings, User, Rollen) nicht hinter veraltetem localStorage
+  // verschwindet. Schluessel: STORAGE_KEY -> JSON-String.
+  var _memCache = {};
   function _writeLocalCache(storageKey, arr){
-    try{ localStorage.setItem(storageKey, JSON.stringify(arr||[])); }catch(e){}
+    var json;
+    try{ json = JSON.stringify(arr||[]); }catch(e){ json = '[]'; }
+    _memCache[storageKey] = json;
+    try{ localStorage.setItem(storageKey, json); }catch(e){}
+  }
+  // Liest die Collection: erst der In-Memory-Spiegel (frischer Cloud-
+  // Stand, quota-sicher), sonst localStorage.
+  function _readCache(storageKey){
+    if(_memCache[storageKey] != null) return _memCache[storageKey];
+    try{ return localStorage.getItem(storageKey); }catch(e){ return null; }
   }
 
   // Lade alle Records einer Collection aus der Cloud, schreibe Cache.
@@ -353,10 +370,10 @@
   ];
 
   // ── Storage ────────────────────────────────────────────────────────
-  function _getOrgs()    {try{var r=localStorage.getItem(STORAGE_ORGS);   return r?JSON.parse(r):null;}catch(e){return null;}}
+  function _getOrgs()    {try{var r=_readCache(STORAGE_ORGS);   return r?JSON.parse(r):null;}catch(e){return null;}}
   function _getOrgCats() {try{var r=localStorage.getItem(STORAGE_ORG_CATS);return r?JSON.parse(r):null;}catch(e){return null;}}
-  function _getUsers()   {try{var r=localStorage.getItem(STORAGE_USERS);  return r?JSON.parse(r):null;}catch(e){return null;}}
-  function _getRoles()   {try{var r=localStorage.getItem(STORAGE_ROLES);  return r?JSON.parse(r):null;}catch(e){return null;}}
+  function _getUsers()   {try{var r=_readCache(STORAGE_USERS);  return r?JSON.parse(r):null;}catch(e){return null;}}
+  function _getRoles()   {try{var r=_readCache(STORAGE_ROLES);  return r?JSON.parse(r):null;}catch(e){return null;}}
   function _getSession() {
     try{
       var r=localStorage.getItem(STORAGE_SESSION);if(!r)return null;
@@ -371,10 +388,10 @@
     // Verbindung). Sie werden NIE nach Cloud gepusht — die Per-Record-
     // Saves arbeiten mit Diff: ein Default-Eintrag, der schon in der Cloud
     // existiert, erzeugt keinen Save (Cache stimmt nach _loadCollectionFromCloud).
-    if(!_getOrgs()) try{localStorage.setItem(STORAGE_ORGS,JSON.stringify(DEFAULT_ORGS));}catch(e){}
+    if(!_getOrgs()) _writeLocalCache(STORAGE_ORGS, DEFAULT_ORGS);
     if(!_getOrgCats()) try{localStorage.setItem(STORAGE_ORG_CATS,JSON.stringify(DEFAULT_ORG_CATS));}catch(e){}
-    if(!_getUsers()) try{localStorage.setItem(STORAGE_USERS,JSON.stringify(DEFAULT_USERS));}catch(e){}
-    if(!_getRoles()) try{localStorage.setItem(STORAGE_ROLES,JSON.stringify(DEFAULT_ROLES));}catch(e){}
+    if(!_getUsers()) _writeLocalCache(STORAGE_USERS, DEFAULT_USERS);
+    if(!_getRoles()) _writeLocalCache(STORAGE_ROLES, DEFAULT_ROLES);
     // ── Migration: org.kategorie (Einzel) -> org.kategorien (Array) ──
     // Die Unternehmens-Kategorien sind jetzt Mehrfach-Auswahl. Alte Orgs
     // haben noch das Einzel-Feld 'kategorie' — wir spiegeln es einmalig
@@ -394,7 +411,7 @@
           }
         });
         if(anyChange){
-          try{localStorage.setItem(STORAGE_ORGS,JSON.stringify(orgs2));}catch(e){}
+          _writeLocalCache(STORAGE_ORGS, orgs2);
         }
         // 2. Kategorien-Liste: neue Kategorien + gruppe-Metadaten
         //    nachpflegen, falls die alte Liste ohne gruppe drin ist
@@ -433,7 +450,7 @@
             if(def)roles3.push(def);
           }
         });
-        try{localStorage.setItem(STORAGE_ROLES,JSON.stringify(roles3));}catch(e){}
+        _writeLocalCache(STORAGE_ROLES, roles3);
         try{localStorage.setItem(MIGFLAG3,'1');}catch(e){}
       }
     } catch(e) {}
@@ -447,7 +464,7 @@
         if(!rolesG.find(function(r){return r.id==='role_garagist';})){
           var defG=DEFAULT_ROLES.find(function(r){return r.id==='role_garagist';});
           if(defG)rolesG.push(defG);
-          try{localStorage.setItem(STORAGE_ROLES,JSON.stringify(rolesG));}catch(e){}
+          _writeLocalCache(STORAGE_ROLES, rolesG);
         }
         try{localStorage.setItem(MIGFLAG_GARAGIST,'1');}catch(e){}
       }
@@ -1069,7 +1086,7 @@
         autoCreated:true, // Marker: wurde per Einladung angelegt
         createdAt:new Date().toISOString()
       });
-      try { localStorage.setItem(STORAGE_ORGS, JSON.stringify(orgs)); } catch(e) {}
+      _writeLocalCache(STORAGE_ORGS, orgs);
       return newId;
     },
 
