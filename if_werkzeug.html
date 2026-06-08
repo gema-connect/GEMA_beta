@@ -1847,10 +1847,15 @@ const save=()=>{
   });
   _wzWriteAllRaw(others.concat(mine));
 };
-const load=()=>{
+const load=(cloudArr)=>{
   var u=_wzGetUser();
   var orgId=u&&u.orgId?u.orgId:'';
-  var all=_wzReadAllRaw();
+  // DB primaer: wenn ein frisches Cloud-Array uebergeben wurde (von
+  // bindCollection), dieses direkt nutzen — NICHT aus localStorage neu
+  // lesen. Auf iPhone-Safari kann der localStorage-Cache-Write scheitern
+  // (strengeres Quota; Tools mit Kaufbeleg-Bildern), dann waere der
+  // localStorage-Stand veraltet/leer obwohl die Cloud die Daten liefert.
+  var all = Array.isArray(cloudArr) ? cloudArr.slice() : _wzReadAllRaw();
   // Migration: Tools ohne orgId der ersten Org zuweisen, die im
   // Storage ueberhaupt schon orgId-Tools hat — sonst der eigenen
   // Org. Vermeidet Cross-Org-Sichtbarkeit von Altdaten.
@@ -4657,10 +4662,12 @@ window.addEventListener('DOMContentLoaded',async () => {
 // Symbole in org.settings.werkzeug.kategorien) frisch aus der Datenbank
 // ziehen. So sehen ALLE Geraete neu erfasste Geraete und geaenderte
 // Kategorie-Symbole — nicht nur das Geraet, auf dem gespeichert wurde.
+var _wzCloudTools = null;
 if(typeof window.GemaSync !== 'undefined'){
   await Promise.race([
     Promise.all([
-      window.GemaSync.bindCollection('werkzeugmanagement','gema_werkzeug','tool:','id'),
+      window.GemaSync.bindCollection('werkzeugmanagement','gema_werkzeug','tool:','id')
+        .then(function(arr){ if(Array.isArray(arr)) _wzCloudTools = arr; }),
       (typeof GemaAuth !== 'undefined' && GemaAuth.restoreFromCloud)
         ? Promise.resolve(GemaAuth.restoreFromCloud()).catch(function(){})
         : Promise.resolve()
@@ -4671,7 +4678,7 @@ if(typeof window.GemaSync !== 'undefined'){
 // Aktivitaetenlog-Collection laden (im Hintergrund, blockiert UI nicht)
 try{ if(window.GemaActivityLog) window.GemaActivityLog.bootstrap(); }catch(e){}
 
-  load();
+  load(_wzCloudTools);
   if(!tools.length){
     tools=[];
   }
