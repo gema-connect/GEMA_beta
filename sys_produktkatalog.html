@@ -38,6 +38,12 @@ textarea.fc{resize:vertical;min-height:60px;line-height:1.5}
    zweizeilige Labels gleich hoch sind und die Inputs nebeneinander auf
    einer Linie liegen (z.B. Salzverbrauch / Wasserverbrauch). */
 #felderBody .fg .fl{min-height:2.4em;line-height:1.2}
+/* Einheiten-Box am Eingabefeld (wie in den Berechnungen): Input + Einheit
+   als EIN verbundenes Control. align-items:stretch macht die Box gleich
+   hoch wie den Input, dadurch schliessen die Rahmen buendig an. */
+.g-inp-group{display:flex;align-items:stretch;gap:0}
+.g-inp-group .fc{border-radius:var(--r-sm,9px) 0 0 var(--r-sm,9px);border-right:0;flex:1 1 auto;min-width:0}
+.g-inp-unit{display:flex;align-items:center;justify-content:center;padding:0 12px;background:var(--bg2,#edf0f7);border:1.5px solid var(--brd2,#cdd4e4);border-radius:0 var(--r-sm,9px) var(--r-sm,9px) 0;font-size:12px;color:var(--mut,#6b7280);white-space:nowrap}
 .g2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
 .g4{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:12px}
@@ -457,17 +463,21 @@ function renderFelder(){
     felder.filter(f=>(f.gruppe||'Allgemein')===g).forEach(f=>{
       const val=p.daten?.[f.id]||'';
       h+=`<div class="fg">`;
-      h+=`<label class="fl">${E(f.label)}${f.einheit?' <span style="font-weight:400;text-transform:none;color:var(--mut)">('+E(f.einheit)+')</span>':''}${f.pflicht?' *':''}</label>`;
+      // Einheit nicht mehr im Label (Klammer), sondern als verbundene Box am Input.
+      h+=`<label class="fl">${E(f.label)}${f.pflicht?' *':''}</label>`;
       if(f.typ==='select'){
         h+=`<select class="fc" data-fid="${f.id}"><option value="">—</option>${(f.optionen||[]).map(o=>`<option ${val===o?'selected':''}>${E(o)}</option>`).join('')}</select>`;
       } else if(f.typ==='textarea'){
         h+=`<textarea class="fc" data-fid="${f.id}" rows="3">${E(val)}</textarea>`;
       } else if(f.typ==='checkbox'){
         h+=`<label style="display:flex;align-items:center;gap:6px;font-size:13px;padding:8px 0"><input type="checkbox" data-fid="${f.id}" ${val?'checked':''} style="accent-color:var(--acc);width:16px;height:16px"/> ${E(f.label)}</label>`;
-      } else if(f.typ==='number'){
-        h+=`<input class="fc" type="text" inputmode="decimal" data-fid="${f.id}" value="${val}" onblur="fixLeadingZero(this)"/>`;
       } else {
-        h+=`<input class="fc" type="text" data-fid="${f.id}" value="${E(String(val))}"/>`;
+        const inp = (f.typ==='number')
+          ? `<input class="fc" type="text" inputmode="decimal" data-fid="${f.id}" value="${val}" onblur="fixLeadingZero(this)"/>`
+          : `<input class="fc" type="text" data-fid="${f.id}" value="${E(String(val))}"/>`;
+        h+= f.einheit
+          ? `<div class="g-inp-group">${inp}<span class="g-inp-unit">${E(f.einheit)}</span></div>`
+          : inp;
       }
       h+=`</div>`;
     });
