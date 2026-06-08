@@ -40,9 +40,10 @@
 
   function _readLocal(){
     try {
-      var raw = null;
-      if (typeof _GemaDB !== 'undefined' && _GemaDB.c) raw = _GemaDB.c[STORAGE_KEY];
-      if (raw == null) raw = localStorage.getItem(STORAGE_KEY);
+      // localStorage zuerst (von GemaSync.bindCollection + log() frisch
+      // gehalten); _GemaDB.c nur als Fallback (Legacy-Blob).
+      var raw = localStorage.getItem(STORAGE_KEY);
+      if (raw == null && typeof _GemaDB !== 'undefined' && _GemaDB.c) raw = _GemaDB.c[STORAGE_KEY];
       var arr = JSON.parse(raw || '[]');
       return Array.isArray(arr) ? arr : [];
     } catch(e){ return []; }
@@ -56,7 +57,12 @@
         arr = arr.slice(0, MAX_LOCAL);
       }
       var json = JSON.stringify(arr);
-      try { if (typeof _GemaDB !== 'undefined' && _GemaDB.save) _GemaDB.save(STORAGE_KEY, json); } catch(e){}
+      // KEIN _GemaDB.save(STORAGE_KEY, ...) mehr: das schrieb bei JEDEM log()
+      // den ganzen Aktivitaets-Blob ueber _GemaDB in die Cloud, zeigte das
+      // '● Speichert…'-Badge (gema_db.js) und konnte bei grossem Blob haengen
+      // — sah aus wie 'Werkzeug-Speichern haengt'. Der Cloud-Sync laeuft
+      // per-Record ueber GemaSync.saveRecord (siehe log()); hier nur noch der
+      // lokale Cache.
       try { localStorage.setItem(STORAGE_KEY, json); } catch(e){}
     } catch(e){ console.warn('[ActLog] writeLocal', e); }
   }
