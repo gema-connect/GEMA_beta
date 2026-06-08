@@ -823,10 +823,24 @@ if(typeof _GemaDB==='undefined'){
 <script>
 (async()=>{
 // Cloud-First Per-Record-Sync (siehe gema_sync.js)
+// DB primaer: das frische Cloud-Array von bindCollection wird direkt an
+// _fzLoadVehicles uebergeben — NICHT aus localStorage neu gelesen. Auf
+// iPhone-Safari kann der localStorage-Cache-Write am Quota scheitern
+// (andere Module mit Base64-Bildern fuellen den Storage), dann waere der
+// localStorage-Stand veraltet/leer obwohl die Cloud die Daten liefert.
+var _fzCloudVehicles = null;
 if(typeof window.GemaSync !== 'undefined'){
   await Promise.race([
-    window.GemaSync.bindCollection('fahrzeugmanagement','gema_vehicles','vehicle:','id'),
-    new Promise(function(r){ setTimeout(r, 5000); })
+    Promise.all([
+      window.GemaSync.bindCollection('fahrzeugmanagement','gema_vehicles','vehicle:','id')
+        .then(function(arr){ if(Array.isArray(arr)) _fzCloudVehicles = arr; }),
+      // Orgs frisch ziehen, damit org.settings.fahrzeug (Garagen-Liste)
+      // aktuell ist — und ueber den In-Memory-Spiegel quota-sicher.
+      (typeof GemaAuth !== 'undefined' && GemaAuth.restoreFromCloud)
+        ? Promise.resolve(GemaAuth.restoreFromCloud()).catch(function(){})
+        : Promise.resolve()
+    ]),
+    new Promise(function(r){ setTimeout(r, 6000); })
   ]);
 }
 try{ if(window.GemaActivityLog) window.GemaActivityLog.bootstrap(); }catch(e){}
@@ -867,10 +881,12 @@ function _fzWriteAllRaw(arr){
     try{ localStorage.setItem('gema_vehicles', JSON.stringify(arr)); }catch(e){}
   }
 }
-function _fzLoadVehicles(){
+function _fzLoadVehicles(cloudArr){
   var u=_fzCurrentUser();
   var orgId=u&&u.orgId?u.orgId:'';
-  var all=_fzReadAllRaw();
+  // DB primaer: frisches Cloud-Array (von bindCollection) direkt nutzen,
+  // sonst Fallback auf den localStorage-Cache.
+  var all = Array.isArray(cloudArr) ? cloudArr.slice() : _fzReadAllRaw();
   // Migration: vehicles ohne orgId der ersten existierenden orgId
   // zuweisen, damit Altdaten nicht cross-org sichtbar bleiben.
   var legacy=all.filter(function(v){ return !v.orgId; });
@@ -892,8 +908,8 @@ function _fzLoadVehicles(){
   }
   return all.slice();
 }
-// Initial laden
-try { vehicles = _fzLoadVehicles(); } catch(e) { vehicles = []; }
+// Initial laden — DB primaer (frisches Cloud-Array aus bindCollection)
+try { vehicles = _fzLoadVehicles(_fzCloudVehicles); } catch(e) { vehicles = []; }
 
 function persist(){
   var u=_fzCurrentUser();
@@ -1588,8 +1604,46 @@ window._fzEditOpt=_fzEditOpt;window._fzSaveOptModal=_fzSaveOptModal;window._fzCl
 
 // ── Garagen-Verwaltung ──
 var _FZ_GARAGE_KEY='gema_fz_garagen_v1';
-function _fzLoadGaragen(){try{var r=localStorage.getItem(_FZ_GARAGE_KEY);if(r)return JSON.parse(r);}catch(e){}return{list:[],standard:''};}
-function _fzSaveGaragen(d){try{localStorage.setItem(_FZ_GARAGE_KEY,JSON.stringify(d));}catch(e){}}
+// Garagen-Liste liegt org-weit in org.settings.fahrzeug.garagen — damit
+// cloud-synct (per-Record) und geraeteuebergreifend. Der In-Memory-Spiegel
+// in gema_auth.js macht das auch auf iPhone-Safari quota-sicher. Frueher
+// lag die Liste nur in localStorage (gema_fz_garagen_v1) und ging bei
+// vollem iOS-Storage verloren — die erfasste Garage wurde "nicht
+// gespeichert". localStorage bleibt als schneller lokaler Lese-Cache.
+function _fzLoadGaragen(){
+  try{
+    if(typeof GemaAuth!=='undefined' && GemaAuth.getCurrentOrg){
+      var org=GemaAuth.getCurrentOrg();
+      var g=org&&org.settings&&org.settings.fahrzeug&&org.settings.fahrzeug.garagen;
+      if(g&&Array.isArray(g.list)) return {list:g.list.slice(),standard:g.standard||''};
+    }
+  }catch(e){}
+  // Fallback/Migration: alter localStorage-Stand
+  try{var r=localStorage.getItem(_FZ_GARAGE_KEY);if(r)return JSON.parse(r);}catch(e){}
+  return{list:[],standard:''};
+}
+function _fzSaveGaragen(d){
+  d=d||{list:[],standard:''};
+  var clean={list:Array.isArray(d.list)?d.list:[],standard:d.standard||''};
+  // Lokaler Cache (schnelles Lesen, Offline-Fallback)
+  try{localStorage.setItem(_FZ_GARAGE_KEY,JSON.stringify(clean));}catch(e){}
+  // Primaer in die Org-Settings (cloud-synct + quota-sicher)
+  try{
+    if(typeof GemaAuth!=='undefined' && GemaAuth.getOrgs && GemaAuth.saveOrgs){
+      var u=GemaAuth.getCurrentUser&&GemaAuth.getCurrentUser();
+      if(u&&u.orgId){
+        var orgs=GemaAuth.getOrgs()||[];
+        var idx=orgs.findIndex(function(o){return o.id===u.orgId;});
+        if(idx>=0){
+          orgs[idx].settings=orgs[idx].settings||{};
+          orgs[idx].settings.fahrzeug=orgs[idx].settings.fahrzeug||{};
+          orgs[idx].settings.fahrzeug.garagen=clean;
+          GemaAuth.saveOrgs(orgs);
+        }
+      }
+    }
+  }catch(e){}
+}
 
 function _fzPopulateGarageDropdown(selected){
   var sel=document.getElementById('fGarage');if(!sel)return;
