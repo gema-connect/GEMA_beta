@@ -484,6 +484,10 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
   </div>
   <style>
     .lc-pill.active{background:var(--plan)!important;color:#fff!important;border-color:var(--plan)!important}
+    .cat-pill{padding:7px 13px;border-radius:999px;border:1.5px solid var(--brd);background:#fff;color:var(--txt2);cursor:pointer;font-family:inherit;font-size:12px;font-weight:700;display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
+    .cat-pill .cat-pill-ct{font-size:10px;font-weight:800;opacity:.6}
+    .cat-pill.active{background:var(--plan);color:#fff;border-color:var(--plan)}
+    .cat-pill.active .cat-pill-ct{opacity:.8}
     body.wz-bulk-on .tool-card{transition:.15s}
     body.wz-bulk-on .tool-card:hover{box-shadow:0 0 0 2px var(--plan)}
     .tool-card.wz-bulk-sel{box-shadow:0 0 0 2.5px var(--plan)!important;background:#eff6ff}
@@ -515,6 +519,10 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
       <input type="text" id="searchInpMob" placeholder="Suche …" oninput="_wzSyncSearch(this)" style="font-size:16px">
     </div>
   </div>
+
+  <!-- Kategorie-Schnellfilter (Chip-Leiste) — primaer fuer die Monteur-Ansicht,
+       deren Toolbar (inkl. erweitertem Filter) ausgeblendet ist. -->
+  <div class="wz-catfilter" id="catFilterBar" style="display:none;gap:7px;flex-wrap:wrap;margin:0 0 14px;font-size:12px;font-weight:700;align-items:center"></div>
 
   <div class="card-grid" id="cardGrid"></div>
   <div class="table-wrap" id="tableWrap" style="display:none">
@@ -995,7 +1003,7 @@ function _wzCanReportDefect(){
 // ──────────────────────────────────────
 // STATE & CONSTANTS
 // ──────────────────────────────────────
-let tools=[], currentFilter='all', currentLifecycle='active', currentView='cards', pruefId=null;
+let tools=[], currentFilter='all', currentLifecycle='active', currentView='cards', pruefId=null, currentCat='all';
 window._wzSetLifecycle=function(v){currentLifecycle=v;document.querySelectorAll('.lc-pill').forEach(function(b){b.classList.toggle('active',b.dataset.lc===v);});renderList();updateStats();};
 
 // ─────────────────────────────────────────────────────────────────
@@ -1918,6 +1926,8 @@ function getFiltered(){
       // Default: ausgemustert + verkauft ausblenden
       if(lc==='ausgemustert'||lc==='verkauft')return false;
     }
+    // Kategorie-Schnellfilter (Chip-Leiste, v.a. Monteur-Ansicht)
+    if(currentCat!=='all' && (t.cat||'sonstige')!==currentCat)return false;
     const cat=CATS[t.cat];
     const ok=!q||[t.name,t.brand,t.model,t.supplier,cat?.label,t.notes].some(v=>(v||'').toLowerCase().includes(q));
     if(!ok)return false;
@@ -1929,7 +1939,49 @@ function getFiltered(){
   });
 }
 
+// Kategorie-Schnellfilter (Chip-Leiste). Zeigt nur Kategorien, die im
+// aktuell sichtbaren Bestand auch wirklich vorkommen (Monteur sieht keine
+// leeren Kategorien) — plus eine "Alle"-Chip mit Gesamtzahl.
+function _wzRenderCatFilter(){
+  var bar=document.getElementById('catFilterBar');
+  if(!bar) return;
+  // Nur in der Monteur-Ansicht: dort ist die Toolbar (inkl. erweitertem
+  // Filter) ausgeblendet. Magaziner/Admin filtern Kategorien ueber den
+  // erweiterten Filter-Dialog.
+  if(!_wzIsMonteurView()){ bar.style.display='none'; bar.innerHTML=''; if(currentCat!=='all'){currentCat='all';} return; }
+  // Basis = derselbe Bestand wie renderList, aber OHNE den Kategorie-Filter,
+  // damit die Chips stabil bleiben und die Zaehler stimmen.
+  var base=_wzIsMonteurView()?_wzGetMyTools(tools):tools;
+  base=base.filter(function(t){
+    var lc=t.lifecycleStatus||'aktiv';
+    if(currentLifecycle==='archive') return lc==='ausgemustert'||lc==='verkauft';
+    if(currentLifecycle!=='all') return !(lc==='ausgemustert'||lc==='verkauft');
+    return true;
+  });
+  var counts={}; base.forEach(function(t){var c=t.cat||'sonstige';counts[c]=(counts[c]||0)+1;});
+  // Nur 1 (oder 0) Kategorie im Bestand → Filter bringt nichts, ausblenden.
+  var presentIds=Object.keys(counts);
+  if(presentIds.length<2){ bar.style.display='none'; bar.innerHTML=''; return; }
+  // Falls die aktuell gewaehlte Kategorie gar nicht mehr vorhanden ist
+  // (Bestand/Lifecycle-Wechsel), auf "Alle" zuruecksetzen.
+  if(currentCat!=='all' && !counts[currentCat]) currentCat='all';
+  var html='<button class="cat-pill'+(currentCat==='all'?' active':'')+'" onclick="_wzSetCatFilter(\'all\')">Alle <span class="cat-pill-ct">'+base.length+'</span></button>';
+  // Reihenfolge der aktiven Kategorien beibehalten, nur vorhandene zeigen.
+  _wzGetActiveCats().forEach(function(c){
+    if(!counts[c.id]) return;
+    html+='<button class="cat-pill'+(currentCat===c.id?' active':'')+'" onclick="_wzSetCatFilter(\''+c.id+'\')">'
+      +(c.icon?esc(c.icon)+' ':'')+esc(c.label)+' <span class="cat-pill-ct">'+counts[c.id]+'</span></button>';
+  });
+  bar.innerHTML=html;
+  bar.style.display='flex';
+}
+window._wzSetCatFilter=function(cat){
+  currentCat=cat||'all';
+  renderList();
+};
+
 function renderList(){
+  _wzRenderCatFilter();
   const f=getFiltered();
   const grid=document.getElementById('cardGrid');
   const tbody=document.getElementById('toolTbody');
