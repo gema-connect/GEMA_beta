@@ -145,9 +145,12 @@
   //   - rest: alle uebrigen Fotos mit imBericht !== false.
   // Vom Bericht ausgeschlossene Fotos (imBericht === false) werden
   // weder als haupt noch als rest gerendert.
+  // Bildquelle: Storage-URL bevorzugt, sonst Base64 (Backward-Compat).
+  function imgSrc(b){ return (b && (b.url || b.dataUrl)) || ''; }
+  function hasImg(b){ return !!(b && (b.url || b.dataUrl)); }
   function splitMainAndRest(bilder){
     var inReport = (bilder||[]).filter(function(b){
-      return b && b.dataUrl && b.imBericht !== false;
+      return hasImg(b) && b.imBericht !== false;
     });
     if(!inReport.length) return { haupt:null, rest:[] };
     var hauptIdx = -1;
@@ -165,7 +168,7 @@
     // Akzeptiert sowohl bereits gefiltertes Array als auch rohes
     // Pool — filtert sicherheitshalber.
     bilder = (bilder||[]).filter(function(b){
-      return b && b.dataUrl && b.imBericht !== false;
+      return hasImg(b) && b.imBericht !== false;
     });
     if(!bilder.length) return '';
     var html = '';
@@ -176,7 +179,7 @@
       chunk.forEach(function(b, idx){
         var num = (i + idx + 1) < 10 ? '0'+(i + idx + 1) : ''+(i + idx + 1);
         html += '<div class="ph">'
-          + '<img src="'+esc(b.dataUrl)+'" alt="Foto '+num+'">';
+          + '<img src="'+esc(imgSrc(b))+'" alt="Foto '+num+'">';
         if(notEmpty(b.kommentar)){
           html += '<div class="ph-cap"><span class="ph-num">'+num+'</span> · '+esc(b.kommentar)+'</div>';
         } else {
@@ -189,8 +192,8 @@
     return html;
   }
   function bigImageHtml(bild){
-    if(!bild || !bild.dataUrl) return '';
-    var h = '<div class="bigimg"><img src="'+esc(bild.dataUrl)+'" alt="">';
+    if(!hasImg(bild)) return '';
+    var h = '<div class="bigimg"><img src="'+esc(imgSrc(bild))+'" alt="">';
     if(notEmpty(bild.kommentar)) h += '<div class="bigimg-cap">'+esc(bild.kommentar)+'</div>';
     h += '</div>';
     return h;
@@ -231,7 +234,7 @@
   // ── 1. Dach-Übersicht ─────────────────────────────────────────────
   function uebersichtHtml(b, opts){
     var u = b.dachuebersicht || {};
-    var bilder = u.bilder || (u.bild && u.bild.dataUrl ? [u.bild] : []);
+    var bilder = u.bilder || (hasImg(u.bild) ? [u.bild] : []);
     var split = splitMainAndRest(bilder);
     if(!u.dachtyp && !u.ziegelart && !notEmpty(u.dachtypText) && !notEmpty(u.ziegelartText) && !notEmpty(u.bemerkung) && !split.haupt) return '';
     var tpl = opts.templates || {};
@@ -292,7 +295,7 @@
     var tpl = opts.templates || {};
     var html = '';
     kap.forEach(function(k, ki){
-      var kBilder = k.bilder || (k.bildGross && k.bildGross.dataUrl ? [k.bildGross] : []);
+      var kBilder = k.bilder || (hasImg(k.bildGross) ? [k.bildGross] : []);
       var split = splitMainAndRest(kBilder);
       // Nur rendern wenn irgendetwas drin
       var hasCont = notEmpty(k.name) || notEmpty(k.einleitung) || split.haupt
@@ -320,7 +323,7 @@
       // Unterkapitel — kein Hauptbild, alle Fotos im Grid
       (k.unterkapitel||[]).forEach(function(uk){
         var label = uk.label || (lookupTemplate(tpl.unterkapitelTypen, uk.typ) && lookupTemplate(tpl.unterkapitelTypen, uk.typ).label) || uk.typ;
-        var ukBilder = (uk.bilder||[]).filter(function(b){ return b && b.dataUrl && b.imBericht !== false; });
+        var ukBilder = (uk.bilder||[]).filter(function(b){ return hasImg(b) && b.imBericht !== false; });
         var hasUkCont = notEmpty(uk.text) || ukBilder.length;
         if(!hasUkCont) return;
         html += '<div class="uk-block">'
