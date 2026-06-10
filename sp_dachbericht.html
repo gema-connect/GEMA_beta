@@ -183,6 +183,13 @@ body{margin:0;font-family:'DM Sans',system-ui,sans-serif;background:var(--bg);co
 .imgrid-item .imcap{position:absolute;bottom:0;left:0;right:0;background:linear-gradient(transparent,rgba(0,0,0,.75));color:#fff;padding:14px 6px 5px;font-size:10.5px;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .imadd{aspect-ratio:4/3;border:2px dashed var(--brd2);border-radius:8px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--mut);font-size:11.5px;font-weight:600;flex-direction:column;gap:4px}
 .imadd:hover{border-color:var(--acc);color:var(--acc)}
+/* Drag & Drop: Bilder hochladen + Reihenfolge aendern */
+.imgrid-item.im-dragging{opacity:.4}
+.imgrid-item.im-dragover{outline:3px dashed var(--acc);outline-offset:-3px}
+.imgrid.im-filedrag{outline:3px dashed var(--acc);outline-offset:-4px;background:#eff6ff;border-radius:8px}
+.imgrid-item .im-move{position:absolute;bottom:4px;right:4px;display:flex;gap:3px;z-index:2}
+.imgrid-item[draggable="true"]{cursor:grab}
+.imgrid-item[draggable="true"]:active{cursor:grabbing}
 
 /* Claude-Verbessern Button */
 .claude-row{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
@@ -1685,16 +1692,19 @@ function renderImgGrid(rid, scope, kid, ukid, bilder, canEdit){
   // Unterkapitel haben kein Hauptbild — sind Detail-Sektionen. Nur die
   // Hauptebenen (Uebersicht, Kapitel, Nachbar) zeigen den ⭐-Button.
   var supportsHauptbild = (scope === 'uebersicht' || scope === 'kapitel' || scope === 'nachbar');
-  var html = '<div class="imgrid">';
+  // Drag&Drop am Grid: Datei-Upload (extern) ODER Reihenfolge aendern.
+  var gridDnd = canEdit ? ' ondragover="_imgGridOver(event)" ondragleave="_imgGridLeave(event)" ondrop="_imgGridDrop(event,'+args+')"' : '';
+  var html = '<div class="imgrid"'+gridDnd+'>';
   bilder.forEach(function(b, i){
     var isMain = !!b.hauptbild;
     var inReport = b.imBericht !== false;
     var classes = 'imgrid-item';
     if(isMain) classes += ' main';
     if(!inReport) classes += ' excluded';
-    html += '<div class="'+classes+'" title="'+esc(b.kommentar||'')+'">';
+    var itemDnd = canEdit ? ' draggable="true" data-idx="'+i+'" ondragstart="_imgDragStart(event,'+args+','+i+')" ondragend="_imgDragEnd(event)" ondragenter="_imgItemEnter(event)" ondragleave="_imgItemLeave(event)"' : '';
+    html += '<div class="'+classes+'"'+itemDnd+' title="'+esc(b.kommentar||'')+'">';
     var _src = _bildSrc(b);
-    html += '<img src="'+esc(_src)+'" onclick="openLightbox(\''+esc(_src).replace(/'/g,"\\'")+'\')" alt="">';
+    html += '<img draggable="false" src="'+esc(_src)+'" onclick="openLightbox(\''+esc(_src).replace(/'/g,"\\'")+'\')" alt="">';
     if(isMain) html += '<div class="im-badge">⭐ Hauptbild</div>';
     else if(!inReport) html += '<div class="im-badge excluded-badge">🚫 nicht im Bericht</div>';
     if(canEdit){
@@ -1710,13 +1720,20 @@ function renderImgGrid(rid, scope, kid, ukid, bilder, canEdit){
       html += '<button class="im-btn" onclick="event.stopPropagation();editGridImageCap('+args+','+i+')" title="Bildunterschrift">✎</button>';
       html += '<button class="im-btn danger" onclick="event.stopPropagation();delGridImage('+args+','+i+')" title="Foto entfernen">✕</button>';
       html += '</div>';
+      // Reihenfolge: ◀ ▶ (Touch-Fallback, da Drag&Drop nur am Desktop)
+      if(bilder.length > 1){
+        html += '<div class="im-move">';
+        if(i > 0) html += '<button class="im-btn" onclick="event.stopPropagation();moveGridImage('+args+','+i+',-1)" title="Nach vorne verschieben">◀</button>';
+        if(i < bilder.length-1) html += '<button class="im-btn" onclick="event.stopPropagation();moveGridImage('+args+','+i+',1)" title="Nach hinten verschieben">▶</button>';
+        html += '</div>';
+      }
     }
     if(b.kommentar) html += '<div class="imcap">'+esc(b.kommentar)+'</div>';
     html += '</div>';
   });
   if(canEdit){
     html += '<div class="imadd" onclick="pickGridImage('+args+')">'
-      + '<div style="font-size:22px">📷</div><div>Bild hinzufügen</div></div>';
+      + '<div style="font-size:22px">📷</div><div>Bild(er) hinzufügen</div><div style="font-size:9.5px;opacity:.7;font-weight:500">oder hierher ziehen</div></div>';
   }
   html += '</div>';
   return html;
@@ -1763,32 +1780,121 @@ function _resolveBilderArray(r, scope, kid, ukid){
   if(scope==='nachbar'){ r.nachbaranschluesse = r.nachbaranschluesse || {text:'',bilder:[]}; return r.nachbaranschluesse.bilder; }
   return null;
 }
+// Mehrfachauswahl: oeffnet den Datei-Dialog mit multiple=true.
 function pickGridImage(rid, scope, kid, ukid){
-  pickPhotoFile().then(function(dataUrl){
-    if(!dataUrl) return;
-    // Direkt nach dem Upload nach optionaler Bildunterschrift fragen
-    GemaDialog.prompt({
-      title:'Bildunterschrift (optional)',
-      message:'Wird im PDF unter dem Foto angezeigt. Leer lassen zum Ueberspringen.',
-      placeholder:'z.B. Lukarne Strassenseite oben links',
-      defaultValue:''
-    }).then(function(kommentar){
-      var cap = (kommentar === null) ? '' : kommentar;
-      var r = getById(rid); if(!r) return;
-      var arr = _resolveBilderArray(r, scope, kid, ukid); if(!arr) return;
-      // Erstes Bild eines Pools wird automatisch Hauptbild (sofern
-      // die Sektion Hauptbilder unterstuetzt — Unterkapitel nicht).
-      var supportsHauptbild = (scope === 'uebersicht' || scope === 'kapitel' || scope === 'nachbar');
-      var hasMain = arr.some(function(b){ return b.hauptbild; });
-      arr.push({
-        dataUrl: dataUrl,
-        kommentar: cap,
-        imBericht: true,
-        hauptbild: supportsHauptbild && !hasMain
+  var input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'image/*';
+  input.multiple = true; // mehrere Fotos gleichzeitig waehlbar
+  input.onchange = function(e){
+    var files = e.target.files;
+    if(!files || !files.length) return;
+    _addFilesToGrid(rid, scope, kid, ukid, files);
+  };
+  input.click();
+}
+// Verarbeitet 1..n Bilddateien und fuegt sie dem Bilder-Array hinzu.
+// Das Bildunterschrift-Popup oeffnet sich NUR bei genau 1 Bild; bei
+// mehreren gleichzeitig wird ohne Popup hinzugefuegt.
+function _addFilesToGrid(rid, scope, kid, ukid, files){
+  files = Array.prototype.slice.call(files).filter(function(f){ return f && f.type && f.type.indexOf('image') === 0; });
+  if(!files.length) return;
+  Promise.all(files.map(_processImageFileToDataUrl)).then(function(urls){
+    urls = urls.filter(Boolean);
+    if(!urls.length) return;
+    if(urls.length === 1){
+      GemaDialog.prompt({
+        title:'Bildunterschrift (optional)',
+        message:'Wird im PDF unter dem Foto angezeigt. Leer lassen zum Ueberspringen.',
+        placeholder:'z.B. Lukarne Strassenseite oben links',
+        defaultValue:''
+      }).then(function(kommentar){
+        var cap = (kommentar === null) ? '' : kommentar;
+        _pushBilder(rid, scope, kid, ukid, [{ dataUrl: urls[0], kommentar: cap }]);
       });
-      upsert(r); renderDetail(r);
-    });
+    } else {
+      _pushBilder(rid, scope, kid, ukid, urls.map(function(u){ return { dataUrl: u, kommentar: '' }; }));
+    }
   });
+}
+// Haengt Bilder ans Array; erstes Bild eines Pools wird Hauptbild (sofern
+// die Sektion Hauptbilder unterstuetzt — Unterkapitel nicht).
+function _pushBilder(rid, scope, kid, ukid, items){
+  var r = getById(rid); if(!r) return;
+  var arr = _resolveBilderArray(r, scope, kid, ukid); if(!arr) return;
+  var supportsHauptbild = (scope === 'uebersicht' || scope === 'kapitel' || scope === 'nachbar');
+  items.forEach(function(it){
+    var hasMain = arr.some(function(b){ return b.hauptbild; });
+    arr.push({ dataUrl: it.dataUrl, kommentar: it.kommentar || '', imBericht: true, hauptbild: supportsHauptbild && !hasMain });
+  });
+  upsert(r); renderDetail(r);
+}
+// Reihenfolge per Button (Touch-Fallback fuer Drag&Drop)
+function moveGridImage(rid, scope, kid, ukid, idx, dir){
+  var r = getById(rid); if(!r) return;
+  var arr = _resolveBilderArray(r, scope, kid, ukid); if(!arr) return;
+  var j = idx + dir;
+  if(j < 0 || j >= arr.length) return;
+  var tmp = arr[idx]; arr[idx] = arr[j]; arr[j] = tmp;
+  upsert(r); renderDetail(r);
+}
+
+// ── DRAG & DROP (Desktop): Upload + Reihenfolge ──────────────────
+var _imgDrag = null;
+function _imgKey(rid, scope, kid, ukid){ return [rid, scope, kid||'', ukid||''].join('|'); }
+function _imgDragStart(ev, rid, scope, kid, ukid, idx){
+  _imgDrag = { key: _imgKey(rid, scope, kid, ukid), idx: idx };
+  try{ ev.dataTransfer.effectAllowed = 'move'; ev.dataTransfer.setData('text/plain', String(idx)); }catch(e){}
+  if(ev.currentTarget && ev.currentTarget.classList) ev.currentTarget.classList.add('im-dragging');
+}
+function _imgDragEnd(ev){
+  if(ev.currentTarget && ev.currentTarget.classList) ev.currentTarget.classList.remove('im-dragging');
+}
+function _imgItemEnter(ev){ var it = ev.target.closest ? ev.target.closest('.imgrid-item') : null; if(it && _imgDrag) it.classList.add('im-dragover'); }
+function _imgItemLeave(ev){ var it = ev.target.closest ? ev.target.closest('.imgrid-item') : null; if(it) it.classList.remove('im-dragover'); }
+function _imgGridOver(ev){
+  ev.preventDefault();
+  var isFile = false;
+  try{ isFile = ev.dataTransfer && ev.dataTransfer.types && Array.prototype.indexOf.call(ev.dataTransfer.types, 'Files') >= 0; }catch(e){}
+  try{ ev.dataTransfer.dropEffect = isFile ? 'copy' : 'move'; }catch(e){}
+  if(isFile && ev.currentTarget && ev.currentTarget.classList) ev.currentTarget.classList.add('im-filedrag');
+}
+function _imgGridLeave(ev){
+  var g = ev.currentTarget;
+  if(g && g.classList && (!ev.relatedTarget || !g.contains(ev.relatedTarget))) g.classList.remove('im-filedrag');
+}
+function _imgGridDrop(ev, rid, scope, kid, ukid){
+  ev.preventDefault();
+  var g = ev.currentTarget;
+  if(g && g.classList) g.classList.remove('im-filedrag');
+  if(g && g.querySelectorAll) g.querySelectorAll('.im-dragover').forEach(function(el){ el.classList.remove('im-dragover'); });
+  var dt = ev.dataTransfer;
+  // 1) Externe Dateien fallengelassen → Upload (Popup nur bei 1 Bild)
+  if(dt && dt.files && dt.files.length){
+    var files = Array.prototype.slice.call(dt.files);
+    _imgDrag = null;
+    _addFilesToGrid(rid, scope, kid, ukid, files);
+    return;
+  }
+  // 2) Reihenfolge innerhalb derselben Grid
+  if(_imgDrag && _imgDrag.key === _imgKey(rid, scope, kid, ukid)){
+    var r = getById(rid);
+    if(r){
+      var arr = _resolveBilderArray(r, scope, kid, ukid);
+      if(arr){
+        var from = _imgDrag.idx;
+        var item = ev.target.closest ? ev.target.closest('.imgrid-item') : null;
+        var to = (item && item.dataset && item.dataset.idx != null) ? parseInt(item.dataset.idx, 10) : arr.length - 1;
+        if(isNaN(to)) to = arr.length - 1;
+        if(from >= 0 && from < arr.length && from !== to){
+          var moved = arr.splice(from, 1)[0];
+          arr.splice(to, 0, moved);
+          upsert(r); renderDetail(r);
+        }
+      }
+    }
+  }
+  _imgDrag = null;
 }
 function delGridImage(rid, scope, kid, ukid, idx){
   var r = getById(rid); if(!r) return;
@@ -1803,41 +1909,34 @@ function setGridImageCap(rid, scope, kid, ukid, idx, val){
   upsert(r);
 }
 
-// ── PHOTO PICKER ──────────────────────────────────────────────
-function pickPhotoFile(){
+// ── PHOTO PROCESSING ──────────────────────────────────────────
+// Liest EINE Bilddatei, skaliert sie auf max 1600px und liefert ein
+// JPEG-Data-URL. Wird fuer Datei-Auswahl UND Drag&Drop genutzt.
+function _processImageFileToDataUrl(file){
   return new Promise(function(resolve){
-    var input = document.createElement('input');
-    input.type = 'file';
-    input.accept = 'image/*';
-    input.capture = 'environment';
-    input.onchange = function(e){
-      var file = e.target.files && e.target.files[0];
-      if(!file){ resolve(null); return; }
-      var reader = new FileReader();
-      reader.onload = function(){
-        // Resize auf max 1600px
-        var img = new Image();
-        img.onload = function(){
-          var maxDim = 1600;
-          var w = img.width, h = img.height;
-          if(w > maxDim || h > maxDim){
-            if(w > h){ h = h * maxDim / w; w = maxDim; } else { w = w * maxDim / h; h = maxDim; }
-          }
-          var canvas = document.createElement('canvas');
-          canvas.width = w; canvas.height = h;
-          canvas.getContext('2d').drawImage(img, 0, 0, w, h);
-          var out = canvas.toDataURL('image/jpeg', 0.82);
-          // Falls > 2MB → 0.5 Qualitaet
-          if(out.length > 2*1024*1024) out = canvas.toDataURL('image/jpeg', 0.5);
-          resolve(out);
-        };
-        img.onerror = function(){ resolve(reader.result); };
-        img.src = reader.result;
+    if(!file || !file.type || file.type.indexOf('image') !== 0){ resolve(null); return; }
+    var reader = new FileReader();
+    reader.onload = function(){
+      var img = new Image();
+      img.onload = function(){
+        var maxDim = 1600;
+        var w = img.width, h = img.height;
+        if(w > maxDim || h > maxDim){
+          if(w > h){ h = h * maxDim / w; w = maxDim; } else { w = w * maxDim / h; h = maxDim; }
+        }
+        var canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+        var out = canvas.toDataURL('image/jpeg', 0.82);
+        // Falls > 2MB → 0.5 Qualitaet
+        if(out.length > 2*1024*1024) out = canvas.toDataURL('image/jpeg', 0.5);
+        resolve(out);
       };
-      reader.onerror = function(){ resolve(null); };
-      reader.readAsDataURL(file);
+      img.onerror = function(){ resolve(reader.result); };
+      img.src = reader.result;
     };
-    input.click();
+    reader.onerror = function(){ resolve(null); };
+    reader.readAsDataURL(file);
   });
 }
 
