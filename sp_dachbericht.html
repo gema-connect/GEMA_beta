@@ -1985,25 +1985,9 @@ function openTemplatesModal(){
   }
   var tpl = getTemplates();
   var html = '';
-  html += '<div class="fsec"><div class="fsec-hd"><span class="fsec-ico">🏠</span><div><div class="fsec-title">Dachtypen</div><div class="fsec-sub">Auswahlmöglichkeiten und Standardtexte</div></div></div>';
-  tpl.dachtypen.forEach(function(d, i){
-    html += '<div class="fg" data-tpl="dachtypen" data-i="'+i+'" data-id="'+esc(d.id||'')+'">';
-    html += '<label>Anzeigename</label><input type="text" value="'+esc(d.label)+'" data-fld="label">';
-    html += '<label>Standardtext</label><textarea data-fld="defaultText">'+esc(d.defaultText)+'</textarea>';
-    html += '<button class="btn sm danger" onclick="tplDel(\'dachtypen\','+i+')">Entfernen</button>';
-    html += '</div>';
-  });
-  html += '<button class="btn sm" onclick="tplAdd(\'dachtypen\')">+ Dachtyp hinzufügen</button></div>';
+  html += _tplObjSectionHtml('dachtypen','🏠','Dachtypen','Bezeichnung wählen, Standardtext bearbeiten');
 
-  html += '<div class="fsec"><div class="fsec-hd"><span class="fsec-ico">🧱</span><div><div class="fsec-title">Ziegelarten / Eindeckung</div></div></div>';
-  tpl.ziegelarten.forEach(function(d, i){
-    html += '<div class="fg" data-tpl="ziegelarten" data-i="'+i+'" data-id="'+esc(d.id||'')+'">';
-    html += '<label>Anzeigename</label><input type="text" value="'+esc(d.label)+'" data-fld="label">';
-    html += '<label>Standardtext</label><textarea data-fld="defaultText">'+esc(d.defaultText)+'</textarea>';
-    html += '<button class="btn sm danger" onclick="tplDel(\'ziegelarten\','+i+')">Entfernen</button>';
-    html += '</div>';
-  });
-  html += '<button class="btn sm" onclick="tplAdd(\'ziegelarten\')">+ Eindeckung hinzufügen</button></div>';
+  html += _tplObjSectionHtml('ziegelarten','🧱','Ziegelarten / Eindeckung','Bezeichnung wählen, Standardtext bearbeiten');
 
   html += '<div class="fsec"><div class="fsec-hd"><span class="fsec-ico">🧭</span><div><div class="fsec-title">Seiten-Bezeichnungen</div><div class="fsec-sub">Strassenseite, Hofseite, Gartenseite ...</div></div></div>';
   html += '<div class="tpl-list" data-tpl="seitenBezeichnungen">';
@@ -2017,15 +2001,7 @@ function openTemplatesModal(){
   html += '<button class="btn sm" style="margin-top:6px" onclick="tplListAdd(\'seitenBezeichnungen\')">+ Bezeichnung hinzufügen</button>';
   html += '</div>';
 
-  html += '<div class="fsec"><div class="fsec-hd"><span class="fsec-ico">🔧</span><div><div class="fsec-title">Unterkapitel-Typen</div><div class="fsec-sub">Einfassungen, Dachfenster, Rinnen ...</div></div></div>';
-  tpl.unterkapitelTypen.forEach(function(d, i){
-    html += '<div class="fg" data-tpl="unterkapitelTypen" data-i="'+i+'" data-id="'+esc(d.id||'')+'">';
-    html += '<label>Anzeigename</label><input type="text" value="'+esc(d.label)+'" data-fld="label">';
-    html += '<label>Standardtext</label><textarea data-fld="defaultText">'+esc(d.defaultText)+'</textarea>';
-    html += '<button class="btn sm danger" onclick="tplDel(\'unterkapitelTypen\','+i+')">Entfernen</button>';
-    html += '</div>';
-  });
-  html += '<button class="btn sm" onclick="tplAdd(\'unterkapitelTypen\')">+ Unterkapitel-Typ hinzufügen</button></div>';
+  html += _tplObjSectionHtml('unterkapitelTypen','🔧','Unterkapitel-Typen','Bezeichnung wählen, Standardtext bearbeiten');
 
   html += '<div class="fsec"><div class="fsec-hd"><span class="fsec-ico">☑️</span><div><div class="fsec-title">Checklisten-Items</div><div class="fsec-sub">Was kann auf dem Dach sein</div></div></div>';
   html += '<div class="tpl-list" data-tpl="checklisteItems">';
@@ -2043,19 +2019,98 @@ function openTemplatesModal(){
   document.getElementById('tplModal').classList.remove('hidden');
 }
 function closeTemplatesModal(){ document.getElementById('tplModal').classList.add('hidden'); }
-function tplAdd(key){
-  var tpl = _readTplFromModal();
-  if(key==='dachtypen' || key==='ziegelarten' || key==='unterkapitelTypen'){
-    tpl[key].push({ id: uid('t_'), label: 'Neu', defaultText: '' });
-  }
-  saveTemplatesToOrg(tpl);
-  openTemplatesModal();
+// Objekt-Listen (Dachtypen/Ziegelarten/Unterkapitel-Typen): EIN Dropdown
+// fuer die Bezeichnung + EINE Textbox mit dem hinterlegten Standardtext +
+// ein Speichern-Button. Auswahl im Dropdown laedt den jeweiligen Text.
+function _tplObjSectionHtml(key, icon, title, sub){
+  var tpl = getTemplates();
+  var arr = tpl[key] || [];
+  var firstText = arr.length ? (arr[0].defaultText||'') : '';
+  var opts = arr.map(function(e){ return '<option value="'+esc(e.id)+'">'+esc(e.label)+'</option>'; }).join('');
+  var taStyle = 'width:100%;min-height:120px;padding:9px 11px;border:1.5px solid var(--brd);border-radius:8px;font-family:inherit;font-size:13px;line-height:1.55;resize:vertical;box-sizing:border-box';
+  var h = '<div class="fsec"><div class="fsec-hd"><span class="fsec-ico">'+icon+'</span><div><div class="fsec-title">'+esc(title)+'</div><div class="fsec-sub">'+esc(sub)+'</div></div></div>';
+  h += '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px">';
+  h += '<select id="tplsel_'+key+'" onchange="tplSelectEntry(\''+key+'\')" style="flex:1;min-width:150px;padding:8px 10px;border-radius:8px;border:1.5px solid var(--brd);font-size:13px;font-family:inherit;background:#fff">'+opts+'</select>';
+  h += '<button class="btn sm" onclick="tplAddEntry(\''+key+'\')" title="Neue Bezeichnung hinzufügen">+ Neu</button>';
+  h += '<button class="btn sm" onclick="tplRenameEntry(\''+key+'\')" title="Bezeichnung umbenennen">✎</button>';
+  h += '<button class="btn sm danger" onclick="tplDeleteEntry(\''+key+'\')" title="Bezeichnung löschen">🗑</button>';
+  h += '</div>';
+  h += '<textarea id="tpltext_'+key+'" placeholder="Standardtext für die gewählte Bezeichnung" style="'+taStyle+'">'+esc(firstText)+'</textarea>';
+  h += '<div style="display:flex;align-items:center;gap:10px;margin-top:8px">';
+  h += '<button class="btn primary sm" onclick="tplSaveEntry(\''+key+'\')">💾 Speichern</button>';
+  h += '<span id="tplstatus_'+key+'" style="font-size:12px;font-weight:600;color:#16a34a"></span>';
+  h += '</div></div>';
+  return h;
 }
-function tplDel(key, idx){
-  var tpl = _readTplFromModal();
-  tpl[key].splice(idx, 1);
-  saveTemplatesToOrg(tpl);
-  openTemplatesModal();
+function _tplStatus(key, msg, isErr){
+  var st = document.getElementById('tplstatus_'+key); if(!st) return;
+  st.textContent = msg; st.style.color = isErr ? '#dc2626' : '#16a34a';
+  setTimeout(function(){ if(st && st.textContent===msg) st.textContent=''; }, 2200);
+}
+// Dropdown-Wechsel: Textbox mit dem Standardtext des gewaehlten Eintrags fuellen
+function tplSelectEntry(key){
+  var sel = document.getElementById('tplsel_'+key), ta = document.getElementById('tpltext_'+key);
+  if(!sel || !ta) return;
+  var tpl = getTemplates();
+  var e = (tpl[key]||[]).find(function(x){ return x.id === sel.value; });
+  ta.value = e ? (e.defaultText||'') : '';
+  var st = document.getElementById('tplstatus_'+key); if(st) st.textContent='';
+}
+// Standardtext des gewaehlten Eintrags speichern
+function tplSaveEntry(key){
+  var sel = document.getElementById('tplsel_'+key), ta = document.getElementById('tpltext_'+key);
+  if(!sel || !ta) return;
+  var tpl = JSON.parse(JSON.stringify(getTemplates()));
+  var arr = tpl[key] || (tpl[key]=[]);
+  var e = arr.find(function(x){ return x.id === sel.value; });
+  if(!e){ _tplStatus(key,'Kein Eintrag gewählt', true); return; }
+  e.defaultText = ta.value;
+  if(saveTemplatesToOrg(tpl)) _tplStatus(key,'✓ Gespeichert'); else _tplStatus(key,'⚠ Fehler', true);
+}
+// Neue Bezeichnung anlegen
+function tplAddEntry(key){
+  GemaDialog.prompt({ title:'Neue Bezeichnung', message:'Name der neuen Bezeichnung:', placeholder:'z.B. Garagenseite', defaultValue:'' }).then(function(name){
+    if(name === null) return; name = (name||'').trim(); if(!name) return;
+    var tpl = JSON.parse(JSON.stringify(getTemplates()));
+    var arr = tpl[key] || (tpl[key]=[]);
+    var id = uid('t_');
+    arr.push({ id:id, label:name, defaultText:'' });
+    if(saveTemplatesToOrg(tpl)){
+      openTemplatesModal();
+      setTimeout(function(){
+        var s = document.getElementById('tplsel_'+key);
+        if(s){ s.value = id; tplSelectEntry(key); var ta=document.getElementById('tpltext_'+key); if(ta) ta.focus(); }
+      }, 60);
+    }
+  });
+}
+// Bezeichnung umbenennen
+function tplRenameEntry(key){
+  var sel = document.getElementById('tplsel_'+key); if(!sel || !sel.value) return;
+  var cur = (getTemplates()[key]||[]).find(function(x){ return x.id === sel.value; }); if(!cur) return;
+  var id = sel.value;
+  GemaDialog.prompt({ title:'Bezeichnung umbenennen', message:'Neuer Name:', defaultValue:cur.label||'' }).then(function(name){
+    if(name === null) return; name = (name||'').trim(); if(!name) return;
+    var tpl = JSON.parse(JSON.stringify(getTemplates()));
+    var e = (tpl[key]||[]).find(function(x){ return x.id === id; }); if(!e) return;
+    e.label = name;
+    if(saveTemplatesToOrg(tpl)){
+      openTemplatesModal();
+      setTimeout(function(){ var s=document.getElementById('tplsel_'+key); if(s){ s.value=id; tplSelectEntry(key);} }, 60);
+    }
+  });
+}
+// Bezeichnung loeschen
+function tplDeleteEntry(key){
+  var sel = document.getElementById('tplsel_'+key); if(!sel || !sel.value) return;
+  var cur = (getTemplates()[key]||[]).find(function(x){ return x.id === sel.value; }); if(!cur) return;
+  var id = sel.value;
+  GemaDialog.confirm({ title:'Löschen', message:'Bezeichnung «'+(cur.label||'')+'» wirklich löschen?', confirmLabel:'Löschen', danger:true }).then(function(ok){
+    if(!ok) return;
+    var tpl = JSON.parse(JSON.stringify(getTemplates()));
+    tpl[key] = (tpl[key]||[]).filter(function(x){ return x.id !== id; });
+    if(saveTemplatesToOrg(tpl)) openTemplatesModal();
+  });
 }
 // String-Listen (Seiten-Bezeichnungen, Checklisten-Items)
 function tplListAdd(key){
@@ -2078,20 +2133,15 @@ function tplListDel(key, idx){
 }
 function _readTplFromModal(){
   var tpl = JSON.parse(JSON.stringify(getTemplates()));
-  // Strukturen mit Objekten (id/label/defaultText). Die ID ist im
-  // UI nicht mehr sichtbar — sie lebt als data-id-Attribut am
-  // Wrapper, damit bestehende Berichte (die die ID referenzieren)
-  // weiter funktionieren. Neue Eintraege erhalten in tplAdd eine
-  // frische uid('t_').
+  // Objekt-Listen (Dachtypen/Ziegelarten/Unterkapitel-Typen) werden per
+  // Eintrag ueber ihren eigenen Speichern-Button persistiert. Hier nur den
+  // aktuell sichtbaren Textbox-Stand des gewaehlten Eintrags uebernehmen,
+  // damit ein globaler Save eine offene Bearbeitung nicht verliert.
   ['dachtypen','ziegelarten','unterkapitelTypen'].forEach(function(key){
-    tpl[key] = [];
-    document.querySelectorAll('[data-tpl="'+key+'"]').forEach(function(el){
-      // Nur Objekt-Container, nicht die Listen-Container
-      if(el.classList && el.classList.contains('tpl-list')) return;
-      var obj = { id: el.dataset.id || uid('t_') };
-      el.querySelectorAll('[data-fld]').forEach(function(inp){ obj[inp.dataset.fld] = inp.value; });
-      tpl[key].push(obj);
-    });
+    var sel = document.getElementById('tplsel_'+key), ta = document.getElementById('tpltext_'+key);
+    if(!sel || !ta) return;
+    var e = (tpl[key]||[]).find(function(x){ return x.id === sel.value; });
+    if(e) e.defaultText = ta.value;
   });
   // String-Listen (eine Zeile = ein Eintrag)
   ['seitenBezeichnungen','checklisteItems'].forEach(function(key){
