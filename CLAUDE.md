@@ -1524,6 +1524,7 @@ UI-Anbindung:
 | `gema_recent.js` | Tracking + Anzeige zuletzt genutzter Module |
 | `gema_responsive.css` | Globale Responsive-/Layout-Regeln (Mobile + Tablet) |
 | `gema_scroll.js` | Scroll-Position-Restore + globaler Body-Scroll-Lock fuer Modals (`GemaScroll.lock/unlock`, Auto-Hook auf `.modal-bg`) |
+| `gema_storage.js` | **Bild-Upload in Supabase Storage** (Bucket `gema-fotos`). `GemaStorage.uploadDataUrl(dataUrl, pathHint)` laedt ein Base64-Bild als Datei hoch, verifiziert die oeffentliche Erreichbarkeit (Image-Load) und liefert `{url, path}`; im Record steht dann nur die URL statt Base64 → kleine Records, keine Request-Groessen-/localStorage-Quota-Probleme. Reject bei fehlendem/falsch konfiguriertem Bucket → Aufrufer faellt auf Base64 zurueck. **Setup (Dashboard, einmalig):** Bucket `gema-fotos` als Public anlegen + INSERT-Policy fuer Rolle `anon`. Eingesetzt in `sp_dachbericht.html` (Bilder werden beim Save nach Storage ausgelagert; Bild-Quelle via `url || dataUrl`). |
 | `gema_undo.js` | Undo/Redo |
 | `gema_varianten.js` | Varianten-Vergleich (Berechnungen) |
 | `gema_vergleich.js` | Produkt-/Offert-Vergleich |
