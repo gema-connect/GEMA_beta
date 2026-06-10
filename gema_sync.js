@@ -300,21 +300,57 @@
       .catch(function(){ return null; });
   }
 
+  // In-Memory-Spiegel der Collection-Caches. Schluessel: storageKey ->
+  // JSON-String des zuletzt synchronisierten Arrays. Ueberlebt einen
+  // fehlgeschlagenen localStorage-Write (Quota). Wird ueber getCached()
+  // bereitgestellt, damit Module ihre Diff-Baseline / fremde Records
+  // verlaesslich beziehen koennen (opts.baseline) — auch wenn der
+  // localStorage-Cache bei bildlastigen Berichten am Quota gescheitert ist.
+  // OHNE diese verlaessliche Baseline wuerde der naechste Save ALLE Records
+  // statt nur der geaenderten in EINEM riesigen POST hochladen und an der
+  // Server-Groessengrenze scheitern (413 → "Speichern fehlgeschlagen").
+  var _memCache = {};
   function _writeCache(storageKey, arr){
+    var json;
+    try{ json = JSON.stringify(arr||[]); }catch(e){ json = '[]'; }
+    _memCache[storageKey] = json;
     if(typeof localStorage === 'undefined') return;
-    try{ localStorage.setItem(storageKey, JSON.stringify(arr||[])); }
+    try{ localStorage.setItem(storageKey, json); }
     catch(e){
       // Haeufigster Fall: QuotaExceededError, wenn die Collection grosse
-      // Base64-Bilder enthaelt (Dach-/Schadensberichte). Der Cache bleibt
-      // dann veraltet — Module duerfen sich fuers Anzeigen NICHT auf den
-      // Cache verlassen, sondern das frische Cloud-Array nutzen (siehe
-      // loadFromCloudArr in sp_dachbericht.html). Hier nur warnen.
-      try{ console.warn('[GemaSync] _writeCache('+storageKey+') fehlgeschlagen (Quota?):', e && e.name); }catch(_e){}
+      // Base64-Bilder enthaelt (Dach-/Schadensberichte). Der In-Memory-
+      // Spiegel haelt den aktuellen Stand fuer diese Sitzung. Den (evtl.
+      // veralteten, nur teilweise passenden) localStorage-Eintrag JETZT
+      // entfernen, damit er nicht weiter das knappe Quota belegt — sonst
+      // koennen andere localStorage-Nutzer auf derselben Seite (Feedback,
+      // Auth, kleinere Module) ebenfalls nicht mehr schreiben. Beim
+      // naechsten Seitenstart laedt bindCollection ohnehin frisch aus der
+      // Cloud (Single Source of Truth), der Cache ist nur Beschleuniger.
+      try{ localStorage.removeItem(storageKey); }catch(_e){}
+      try{ console.warn('[GemaSync] _writeCache('+storageKey+') fehlgeschlagen (Quota?) — localStorage-Cache entfernt, In-Memory-Spiegel aktiv:', e && e.name); }catch(_e2){}
     }
   }
+  // Interne Diff-Baseline: bewusst localStorage-basiert. So bleibt sie
+  // konsistent mit dem, was Module beim Laden aus localStorage lesen
+  // (z.B. sd_schadensbericht sdLoad). Wuerde man hier den frischeren
+  // In-Memory-Spiegel erzwingen, koennte ein Modul mit veraltetem
+  // localStorage-Working-Set beim Save gueltige Cloud-Records als
+  // geloescht interpretieren. Module, die direkt aus dem Cloud-Array
+  // rendern (sp_dachbericht), uebergeben ihre Baseline explizit via
+  // opts.baseline und umgehen diesen Default.
   function _readCache(storageKey){
     if(typeof localStorage === 'undefined') return [];
     try{ return JSON.parse(localStorage.getItem(storageKey) || '[]'); }catch(e){ return []; }
+  }
+  // Liefert den zuletzt synchronisierten Vollsatz aus dem In-Memory-Spiegel
+  // (Fallback: localStorage). Fuer Module, die fremde Records (andere Orgs)
+  // beim Persistieren erhalten muessen — verlaesslich auch wenn der
+  // localStorage-Cache am Quota gescheitert/entfernt wurde.
+  function _memGet(storageKey){
+    if(_memCache[storageKey] != null){
+      try{ return JSON.parse(_memCache[storageKey]); }catch(e){ /* fallthrough */ }
+    }
+    return _readCache(storageKey);
   }
 
   function bindCollection(moduleKey, storageKey, prefix, idField){
@@ -370,7 +406,12 @@
     return _doPersist(moduleKey, storageKey, prefix, idField, newArr, opts);
   }
   function _doPersist(moduleKey, storageKey, prefix, idField, newArr, opts){
-    var oldArr = _readCache(storageKey);
+    // opts.baseline: explizite Diff-Baseline (voller zuletzt-synchronisierter
+    // Satz). Module, die aus dem Cloud-Array rendern (nicht aus localStorage),
+    // uebergeben sie, damit der Diff nicht den (evtl. leeren/veralteten)
+    // localStorage-Cache als Baseline nimmt und dann ALLE Records in einem
+    // riesigen POST hochlaedt (413) bzw. fremde Orgs loescht.
+    var oldArr = (opts && Array.isArray(opts.baseline)) ? opts.baseline : _readCache(storageKey);
     return saveDiff(moduleKey, prefix, oldArr, newArr, idField, opts).then(function(res){
       _writeCache(storageKey, newArr);
       return res;
@@ -399,7 +440,13 @@
 
     // Wiederverwendbar fuer Module
     bindCollection: bindCollection,
-    persistCollection: persistCollection
+    persistCollection: persistCollection,
+    // Liefert den zuletzt synchronisierten Stand einer Collection aus dem
+    // In-Memory-Spiegel (Fallback: localStorage). Wird gebraucht, wenn ein
+    // Modul beim Persistieren fremde Records (z.B. andere Orgs) aus dem
+    // vollen Cloud-Satz erhalten muss — verlaesslich auch wenn der
+    // localStorage-Cache am Quota gescheitert/entfernt wurde.
+    getCached: function(storageKey){ return _memGet(storageKey); }
   };
 
 })(window);
