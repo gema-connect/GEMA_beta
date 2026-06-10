@@ -579,7 +579,14 @@ function persist(){
   // Records als geloescht und entfernt sie aus der Cloud — fremde Orgs
   // (und damit Berichte von Kollegen anderer Geraete) gehen verloren.
   if(typeof window.GemaSync !== 'undefined' && window.GemaSync.persistCollection){
-    return window.GemaSync.persistCollection(MODULE_KEY, STORAGE_KEY, PREFIX, 'id', _fullSetForPersist())
+    // baseline = voller zuletzt-synchronisierter Satz aus dem In-Memory-
+    // Spiegel. Ohne explizite Baseline naehme persistCollection den
+    // localStorage-Cache — der bei bildlastigen Berichten am Quota
+    // scheitert/leer ist, wodurch der Diff ALLE Berichte in EINEM riesigen
+    // POST hochladen wuerde (413 → Speichern fehlgeschlagen).
+    var _base = window.GemaSync.getCached ? window.GemaSync.getCached(STORAGE_KEY) : null;
+    return window.GemaSync.persistCollection(MODULE_KEY, STORAGE_KEY, PREFIX, 'id', _fullSetForPersist(),
+        Array.isArray(_base) ? { baseline: _base } : undefined)
       .catch(function(e){
         console.warn('[Dachbericht] Cloud-Sync fehlgeschlagen:', e && e.message);
         _maybeShowOfflineAlert();
@@ -598,8 +605,18 @@ function persist(){
 function _fullSetForPersist(){
   var u = _getUser();
   if(!u || (u.roleIds && u.roleIds.includes('role_admin'))) return _data;
+  // Fremde Orgs aus dem zuletzt synchronisierten Cloud-Satz erhalten.
+  // WICHTIG: ueber GemaSync.getCached (In-Memory-Spiegel), NICHT direkt
+  // aus localStorage — der Cache kann bei bildlastigen Berichten am Quota
+  // gescheitert und entfernt worden sein. Der Spiegel haelt den vollen
+  // Satz (alle Orgs) aus bindCollection. Ohne das wuerde der Diff in
+  // persistCollection die fremden Orgs als geloescht interpretieren.
   var cache = [];
-  try { cache = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); } catch(e){ cache = []; }
+  if(typeof window.GemaSync !== 'undefined' && window.GemaSync.getCached){
+    try { cache = window.GemaSync.getCached(STORAGE_KEY) || []; } catch(e){ cache = []; }
+  } else {
+    try { cache = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); } catch(e){ cache = []; }
+  }
   var others = cache.filter(function(r){ return r && r.orgId && r.orgId !== u.orgId; });
   return others.concat(_data);
 }
@@ -766,7 +783,10 @@ function _flushSaveOnUnload(){
   if(!_savePending && !_saveInFlight) return;
   try {
     if(typeof window.GemaSync !== 'undefined' && window.GemaSync.persistCollection){
-      window.GemaSync.persistCollection(MODULE_KEY, STORAGE_KEY, PREFIX, 'id', _fullSetForPersist(), { keepalive:true });
+      var _baseU = window.GemaSync.getCached ? window.GemaSync.getCached(STORAGE_KEY) : null;
+      var _optU = { keepalive:true };
+      if(Array.isArray(_baseU)) _optU.baseline = _baseU;
+      window.GemaSync.persistCollection(MODULE_KEY, STORAGE_KEY, PREFIX, 'id', _fullSetForPersist(), _optU);
       _savePending = false;
     } else {
       _doSave();
