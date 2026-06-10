@@ -562,7 +562,83 @@ function _maybeShowOfflineAlert(){
   }, 2000);
 }
 
+// ── Record-Groesse begrenzen (Bilder re-komprimieren) ────────────
+// Supabase lehnt einen zu grossen Einzel-Record ab; der POST scheitert
+// und wird faelschlich als "Offline" angezeigt. Bildlastige Dachberichte
+// (viele Fotos in EINEM Record) sprengen das Limit. Vor dem Cloud-Save
+// verkleinern wir die Bilder eines zu grossen Berichts schrittweise, bis
+// der Record unter dem Budget liegt. Kleine Berichte bleiben unveraendert
+// (volle Qualitaet). Schadensberichte mit Fotos speichern problemlos —
+// das Budget liegt bewusst konservativ darunter.
+var _MAX_REC_BYTES = 1500000; // ~1.5 MB pro Bericht-Record
+function _recordBytes(rec){
+  try { return new Blob([JSON.stringify(rec)]).size; }
+  catch(e){ try { return JSON.stringify(rec).length; } catch(_e){ return 0; } }
+}
+// Alle Bild-Objekte ({dataUrl,...}) eines Berichts einsammeln.
+function _collectBilder(rec){
+  var out = [];
+  function add(arr){ if(Array.isArray(arr)) arr.forEach(function(b){ if(b && typeof b.dataUrl === 'string' && b.dataUrl.indexOf('data:image') === 0) out.push(b); }); }
+  if(rec && rec.dachuebersicht) add(rec.dachuebersicht.bilder);
+  (rec && rec.kapitel||[]).forEach(function(k){
+    add(k.bilder);
+    (k.unterkapitel||[]).forEach(function(uk){ add(uk.bilder); });
+  });
+  if(rec && rec.nachbaranschluesse) add(rec.nachbaranschluesse.bilder);
+  return out;
+}
+// Re-komprimiert ein Data-URL-Bild auf maxDim/Qualitaet. Promise<dataUrl>.
+function _recompressImage(dataUrl, maxDim, quality){
+  return new Promise(function(resolve){
+    try {
+      var img = new Image();
+      img.onload = function(){
+        try {
+          var w = img.width, h = img.height;
+          if(w > maxDim || h > maxDim){ if(w > h){ h = Math.round(h*maxDim/w); w = maxDim; } else { w = Math.round(w*maxDim/h); h = maxDim; } }
+          var c = document.createElement('canvas'); c.width = w; c.height = h;
+          c.getContext('2d').drawImage(img, 0, 0, w, h);
+          resolve(c.toDataURL('image/jpeg', quality));
+        } catch(e){ resolve(dataUrl); }
+      };
+      img.onerror = function(){ resolve(dataUrl); };
+      img.src = dataUrl;
+    } catch(e){ resolve(dataUrl); }
+  });
+}
+// Verkleinert die Bilder eines Berichts schrittweise (in-place), bis er
+// unters Budget passt. Best-effort: wenn auch die kleinste Stufe nicht
+// reicht, wird mit dem kleinstmoeglichen Stand gespeichert.
+function _shrinkRecord(rec){
+  var steps = [[1280,0.7],[1024,0.62],[820,0.55],[640,0.45]];
+  var bilder = _collectBilder(rec);
+  if(!bilder.length) return Promise.resolve();
+  var si = 0;
+  function pass(){
+    if(_recordBytes(rec) <= _MAX_REC_BYTES) return Promise.resolve();
+    if(si >= steps.length) return Promise.resolve();
+    var dim = steps[si][0], q = steps[si][1]; si++;
+    return bilder.reduce(function(p, b){
+      return p.then(function(){
+        return _recompressImage(b.dataUrl, dim, q).then(function(nu){ if(nu) b.dataUrl = nu; });
+      });
+    }, Promise.resolve()).then(pass);
+  }
+  return pass();
+}
+// Stellt sicher, dass kein Bericht in _data das Cloud-Budget sprengt.
+function _ensureDataFitsCloud(){
+  var jobs = [];
+  _data.forEach(function(r){ if(_recordBytes(r) > _MAX_REC_BYTES) jobs.push(_shrinkRecord(r)); });
+  return jobs.length ? Promise.all(jobs) : Promise.resolve();
+}
+
 function persist(){
+  // Vor dem Cloud-Save zu grosse Berichte verkleinern (sonst lehnt
+  // Supabase den POST ab → faelschliche "Offline"-Meldung).
+  return _ensureDataFitsCloud().then(_persistNow);
+}
+function _persistNow(){
   // Cloud-First Save (Diff): GemaSync.persistCollection liest den
   // aktuellen Cache als 'altes Array', vergleicht mit dem uebergebenen
   // Array und pusht nur die Aenderungen. Bei Erfolg wird der Cache auf
