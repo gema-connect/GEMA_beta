@@ -91,11 +91,19 @@
         'Authorization': 'Bearer ' + s.SB_KEY,
         'Content-Type': parsed.mime,
         'x-upsert': 'true',
-        'cache-control': '3600'
+        'cache-control': 'max-age=3600'
       },
       body: parsed.blob
     }).then(function(r){
-      if(!r.ok) throw new Error('Upload HTTP ' + r.status);
+      if(!r.ok){
+        // Supabase-Fehlertext mitliefern (z.B. {"error":"Bucket not found"}
+        // oder RLS-Hinweis) — sonst sieht man nur den HTTP-Code.
+        return r.text().then(function(t){
+          var detail = '';
+          try{ var j = JSON.parse(t); detail = j.message || j.error || j.msg || ''; }catch(e){ detail = (t||'').slice(0,200); }
+          throw new Error('Upload HTTP ' + r.status + (detail ? ' — ' + detail : ''));
+        }, function(){ throw new Error('Upload HTTP ' + r.status); });
+      }
       var pub = publicUrl(path);
       return _verifyLoadable(pub).then(function(ok){
         if(!ok) throw new Error('Upload nicht oeffentlich ladbar (Bucket/Policy pruefen)');
