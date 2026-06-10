@@ -158,6 +158,12 @@
   function _doPersist(storageKey, newArr){
     var def = _COLL[storageKey];
     var oldArr = JSON.parse(localStorage.getItem(storageKey) || '[]');
+    // Optimistisch den In-Memory-Spiegel sofort setzen, damit synchrone
+    // Reads direkt nach dem Save (z.B. getCurrentOrg nach updateOrg) den
+    // neuen Stand sehen — sonst zeigte die UI bis zur Cloud-Antwort den
+    // alten Stand. Die Diff-Baseline (oldArr) liest weiter localStorage,
+    // bleibt also unberuehrt; localStorage folgt nach Cloud-Erfolg.
+    try{ _memCache[storageKey] = JSON.stringify(newArr || []); }catch(e){}
     return _S().saveDiff('auth', def.prefix, oldArr, newArr, def.idField)
       .then(function(res){
         // Erst nach erfolgreichem Cloud-Save den lokalen Cache aktualisieren.
@@ -1386,6 +1392,20 @@
       } else if(info.kategorie !== undefined){
         org.kategorien = info.kategorie ? [info.kategorie] : [];
       }
+      return w.GemaAuth.saveOrgs(orgs);
+    },
+    // Generischer Patch: setzt beliebige Top-Level-Felder einer Org und
+    // persistiert per-Record in die Cloud (saveOrgs aktualisiert auch den
+    // In-Memory-Spiegel, sonst saehe getCurrentOrg die Aenderung nicht).
+    // Genutzt u.a. fuer org.spengler_templates (Dachbericht-Vorlagen) und
+    // org.lizenzen. WICHTIG: NICHT durch einen direkten localStorage-Write
+    // ersetzen — der wuerde vom In-Memory-Spiegel ueberschattet.
+    updateOrg:function(orgId,patch){
+      if(!patch) return false;
+      var orgs=_getOrgs()||[];
+      var org=orgs.find(function(o){return o.id===orgId;});
+      if(!org)return false;
+      Object.keys(patch).forEach(function(k){org[k]=patch[k];});
       return w.GemaAuth.saveOrgs(orgs);
     },
 
