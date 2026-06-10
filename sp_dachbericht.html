@@ -2295,6 +2295,17 @@ function refreshFromCloud(opts){
   if(opts.showIndicator) _saveSetStatus('saving');
   return window.GemaSync.bindCollection(MODULE_KEY, STORAGE_KEY, PREFIX, 'id').then(function(arr){
     _refreshInFlight = false;
+    // RACE-SCHUTZ: Der Refresh kann gestartet worden sein (z.B. window.focus
+    // beim Schliessen des Datei-Dialogs / nach einem Drag&Drop), BEVOR die
+    // gerade hinzugefuegten Bilder lokal vermerkt waren. Wenn inzwischen
+    // lokale Aenderungen anstehen, den aelteren Cloud-Stand NICHT
+    // drueberbuegeln — sonst erscheinen die neuen Bilder kurz und sind dann
+    // wieder weg. Der lokale Save (Debounce) persistiert sie; der naechste
+    // Refresh zieht danach den aktuellen Stand.
+    if(_savePending || _saveInFlight){
+      if(opts.showIndicator) _saveSetStatus('saved');
+      return;
+    }
     var n = (arr || []).length;
     try { console.info('[Dachbericht] Cloud-Refresh: ' + n + ' Berichte geladen'); } catch(e){}
     // Frisches Cloud-Array direkt verwenden — NICHT loadAll() (Cache kann
