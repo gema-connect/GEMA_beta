@@ -2084,6 +2084,36 @@ function delReport(id){
 }
 
 // ── TEMPLATES MODAL ───────────────────────────────────────────
+// Selbsttest: erzeugt ein kleines Testbild und laedt es in den Storage-
+// Bucket hoch. Zeigt Erfolg (mit URL) oder den Fehler inkl. Hinweis.
+function _dachStorageSelftest(){
+  var btn = document.getElementById('tplStorageTestBtn');
+  var out = document.getElementById('tplStorageTestOut');
+  function show(msg, color){ if(out){ out.textContent = msg; out.style.color = color || '#475569'; } }
+  if(typeof window.GemaStorage === 'undefined' || !window.GemaStorage.isConfigured || !window.GemaStorage.isConfigured()){
+    GemaDialog.alert({title:'Storage', message:'Storage-Helper ist nicht verfügbar (GemaSync/GemaStorage nicht geladen).'});
+    return;
+  }
+  if(btn) btn.disabled = true;
+  show('⏳ Teste Upload …', '#475569');
+  // kleines Testbild erzeugen
+  var c = document.createElement('canvas'); c.width = 80; c.height = 80;
+  var ctx = c.getContext('2d');
+  ctx.fillStyle = '#0c4a2e'; ctx.fillRect(0,0,80,80);
+  ctx.fillStyle = '#fff'; ctx.font = 'bold 14px sans-serif'; ctx.fillText('GEMA', 16, 46);
+  var dataUrl = c.toDataURL('image/jpeg', 0.9);
+  window.GemaStorage.uploadDataUrl(dataUrl, 'dach/_selftest').then(function(res){
+    if(btn) btn.disabled = false;
+    show('✓ Bucket funktioniert', '#16a34a');
+    GemaDialog.alert({ title:'✓ Storage funktioniert', message:'Der Bucket «gema-fotos» ist aktiv und beschreibbar. Neue Fotos werden ab jetzt in voller Qualität dorthin ausgelagert.\n\nTest-URL: ' + (res && res.url ? res.url : '—') });
+  }).catch(function(e){
+    if(btn) btn.disabled = false;
+    show('✕ Fehlgeschlagen', '#dc2626');
+    GemaDialog.alert({ title:'✕ Storage nicht erreichbar', message:'Der Upload-Test ist fehlgeschlagen:\n' + (e && e.message ? e.message : e) + '\n\nBitte im Supabase-Dashboard prüfen:\n• Bucket «gema-fotos» existiert und ist als Public markiert\n• Policy: INSERT für die Rolle «anon» erlaubt\n\nSolange greift der Base64-Fallback (Fotos werden für den Cloud-Save verkleinert).' });
+  });
+}
+window._dachStorageSelftest = _dachStorageSelftest;
+
 function openTemplatesModal(){
   var u = _getUser();
   if(!u || (u.roleIds.indexOf('role_admin')<0 && !(typeof GemaAuth!=='undefined' && GemaAuth.isOrgAdmin && GemaAuth.isOrgAdmin(u.id)))){
@@ -2092,6 +2122,14 @@ function openTemplatesModal(){
   }
   var tpl = getTemplates();
   var html = '';
+  // Foto-Speicher (Supabase Storage) — Selbsttest
+  html += '<div class="fsec"><div class="fsec-hd"><span class="fsec-ico">📁</span><div><div class="fsec-title">Foto-Speicher</div><div class="fsec-sub">Supabase Storage — für scharfe Fotos im PDF</div></div></div>';
+  html += '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">';
+  html += '<button id="tplStorageTestBtn" class="btn sm" onclick="_dachStorageSelftest()">🗄 Verbindung testen</button>';
+  html += '<span id="tplStorageTestOut" style="font-size:12px;font-weight:700;color:#475569"></span>';
+  html += '</div>';
+  html += '<div style="font-size:11px;color:#64748b;margin-top:6px">Bucket «gema-fotos» muss im Supabase-Dashboard als <b>Public</b> + mit <b>INSERT-Policy für «anon»</b> angelegt sein. Ohne Bucket werden Fotos verkleinert (Fallback).</div>';
+  html += '</div>';
   html += _tplObjSectionHtml('dachtypen','🏠','Dachtypen','Bezeichnung wählen, Standardtext bearbeiten');
 
   html += _tplObjSectionHtml('ziegelarten','🧱','Ziegelarten / Eindeckung','Bezeichnung wählen, Standardtext bearbeiten');
