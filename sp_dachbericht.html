@@ -1919,17 +1919,25 @@ function _processImageFileToDataUrl(file){
     reader.onload = function(){
       var img = new Image();
       img.onload = function(){
-        var maxDim = 1600;
+        // Hoehere Aufloesung fuer scharfen PDF-Druck: ein Vollbild laeuft
+        // im PDF ueber ~180mm Breite — bei 2400px sind das ~340 dpi (vorher
+        // 1600px ≈ 225 dpi → koernig). Dank Supabase Storage (URL statt
+        // Base64 im Record) gibt es kein Groessenlimit mehr.
+        var maxDim = 2400;
         var w = img.width, h = img.height;
         if(w > maxDim || h > maxDim){
           if(w > h){ h = h * maxDim / w; w = maxDim; } else { w = w * maxDim / h; h = maxDim; }
         }
         var canvas = document.createElement('canvas');
         canvas.width = w; canvas.height = h;
-        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
-        var out = canvas.toDataURL('image/jpeg', 0.82);
-        // Falls > 2MB → 0.5 Qualitaet
-        if(out.length > 2*1024*1024) out = canvas.toDataURL('image/jpeg', 0.5);
+        var ctx = canvas.getContext('2d');
+        if(ctx.imageSmoothingQuality) ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(img, 0, 0, w, h);
+        var out = canvas.toDataURL('image/jpeg', 0.9);
+        // Nur sehr grosse Dateien leicht staerker komprimieren. Die
+        // Record-Groesse (Fallback ohne Storage) begrenzt _ensureDataFitsCloud
+        // separat — hier NICHT aggressiv runter, sonst leidet die Qualitaet.
+        if(out.length > 4*1024*1024) out = canvas.toDataURL('image/jpeg', 0.82);
         resolve(out);
       };
       img.onerror = function(){ resolve(reader.result); };
