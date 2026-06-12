@@ -145,8 +145,9 @@ Berechnung abgeschlossen (z.B. Enthärtung: 2.5 l/s, 15°fH)
 - **Eigenes Login**: Jeder Lieferant hat ein eigenes Konto mit Dashboard
 - **Produktpflege**: Lieferant erfasst und pflegt seine Produkte selbst
 - **Produktkategorien**: Anlagen (Osmose, Enthärtung, Druckerhöhung, Pumpen etc.), Armaturen, Rohre, Zubehör
-- **Admin-Zugriff**: GEMA-Admin kann alle Lieferanten-Daten einsehen und Lieferanten deaktivieren (z.B. bei Zahlungsverzug)
+- **Admin-Zugriff**: GEMA-Admin kann alle Lieferanten-Daten einsehen und Lieferanten deaktivieren (z.B. bei Zahlungsverzug). Deaktivierter Lieferant (`status:'inaktiv'`): alle Schreib-Aktionen im Dashboard sind blockiert (`_liefBlockedInaktiv()`), nicht nur ein Banner.
 - **Offertanfragen**: Lieferant sieht eingehende Anfragen aus Berechnungen der Planer
+- **User↔Lieferant-Verknüpfung**: `user.lieferantId` verknüpft den eingeloggten Auth-User eindeutig mit dem GemaProdukte-Lieferant-Datensatz. `findMyLieferant()` bevorzugt dieses Feld; die alte Heuristik (E-Mail/Org/Firma) bleibt nur Fallback und **self-healt** (schreibt `lieferantId` beim ersten Treffer via `GemaAuth.linkUserToLieferant`). Mitarbeiter-Einladung (`_liefInviteUser`) setzt `lieferantId` direkt und startet mit `role_lieferant_intern` (Least Privilege — Admin weist Unterrolle zu). Firmenprofil-Edit nur für `_liefIsAdmin()`; Mitarbeiter-Verwaltung nur für Org-Admin **derselben** Lieferanten-Org.
 
 ### Verifizierung
 
