@@ -1737,8 +1737,9 @@ document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('enth
       '<table style="width:100%;border-collapse:collapse;font-size:12.5px">'+
       '<tr style="background:#f8fafc"><td style="padding:7px 10px;font-weight:700;color:#64748b;border-bottom:1px solid #e2e7f0">Kenngrösse</td><td style="padding:7px 10px;font-weight:700;color:#64748b;border-bottom:1px solid #e2e7f0">Berechnet</td><td style="padding:7px 10px;font-weight:700;color:#64748b;border-bottom:1px solid #e2e7f0">Anlage</td><td style="padding:7px 10px;border-bottom:1px solid #e2e7f0"></td></tr>'+
       '<tr><td style="padding:7px 10px;border-bottom:1px solid #f1f5f9">Durchfluss</td><td style="padding:7px 10px;border-bottom:1px solid #f1f5f9">'+berechnetLs.toFixed(2)+' l/s</td><td style="padding:7px 10px;border-bottom:1px solid #f1f5f9">'+anlageLs.toFixed(2)+' l/s ('+(a.nenndurchfluss||'—')+' l/min)</td><td style="padding:7px 10px;border-bottom:1px solid #f1f5f9;font-weight:700;color:'+(durchflussOk?'#16a34a':'#dc2626')+'">'+(durchflussOk?'✅ ausreichend':'⚠ zu klein')+'</td></tr>'+
-      (a.kapazitaet?'<tr><td style="padding:7px 10px;border-bottom:1px solid #f1f5f9">Kapazität</td><td style="padding:7px 10px;border-bottom:1px solid #f1f5f9">—</td><td style="padding:7px 10px;border-bottom:1px solid #f1f5f9">'+a.kapazitaet+' m³·°fH</td><td style="padding:7px 10px;border-bottom:1px solid #f1f5f9"></td></tr>':'')+
-      '<tr><td style="padding:7px 10px;border-bottom:1px solid #f1f5f9">Druckverlust</td><td style="padding:7px 10px;border-bottom:1px solid #f1f5f9">—</td><td style="padding:7px 10px;border-bottom:1px solid #f1f5f9;font-weight:700">'+(a.druckverlustQn||'—')+' bar</td><td style="padding:7px 10px;border-bottom:1px solid #f1f5f9;color:#16a34a;font-weight:600">✓ übernommen</td></tr>'+
+      (a.kapazitaet?'<tr><td style="padding:7px 10px;border-bottom:1px solid #f1f5f9">Kapazität CA</td><td style="padding:7px 10px;border-bottom:1px solid #f1f5f9">'+(parseFloat(a.kapazitaet)/10).toFixed(2)+' mol</td><td style="padding:7px 10px;border-bottom:1px solid #f1f5f9">'+a.kapazitaet+' m³·°fH</td><td style="padding:7px 10px;border-bottom:1px solid #f1f5f9;color:#16a34a;font-weight:600">✓ in Berechnung</td></tr>':'')+
+      (a.salzProRegeneration?'<tr><td style="padding:7px 10px;border-bottom:1px solid #f1f5f9">Salz / Regeneration</td><td style="padding:7px 10px;border-bottom:1px solid #f1f5f9">'+a.salzProRegeneration+' kg</td><td style="padding:7px 10px;border-bottom:1px solid #f1f5f9">'+a.salzProRegeneration+' kg</td><td style="padding:7px 10px;border-bottom:1px solid #f1f5f9;color:#16a34a;font-weight:600">✓ in Berechnung</td></tr>':'')+
+      '<tr><td style="padding:7px 10px;border-bottom:1px solid #f1f5f9">Druckverlust</td><td style="padding:7px 10px;border-bottom:1px solid #f1f5f9">—</td><td style="padding:7px 10px;border-bottom:1px solid #f1f5f9;font-weight:700">'+(a.druckverlustQn||'—')+' bar</td><td style="padding:7px 10px;border-bottom:1px solid #f1f5f9"></td></tr>'+
       (a.anschluss?'<tr><td style="padding:7px 10px">Anschluss</td><td style="padding:7px 10px">—</td><td style="padding:7px 10px">'+esc(a.anschluss)+'</td><td style="padding:7px 10px"></td></tr>':'')+
       '</table>';
     sec.appendChild(info);
@@ -1751,12 +1752,33 @@ document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('enth
     if(!p) return;
     var d = p.daten||{};
 
+    // ── Rückschreibung der Datenblattwerte in die Berechnung ──
+    // Die Enthärtung braucht zwei Datenblatt-Inputs (sonst manuell):
+    //  • CA (Enthärtungskapazität) in mol  ← Katalog: kapazitaet [m³·°fH]
+    //    Exakte Umrechnung (keine Annahme noetig): 1 °fH = 0.1 mmol/l,
+    //    also CA[mol] = Kapazität[m³·°fH] / 10.
+    //  • Salzverbrauch pro Regeneration [kg] ← Katalog: salzProRegeneration
+    // Werte werden gesetzt + als "aus Anlage" markiert, dann recalc().
+    function _markFromAnlage(el){ var g = el && el.closest ? el.closest('.g-inp-group') : null; if(g) g.classList.add('lu-override'); }
+    var caInput = document.getElementById('ca_mol');
+    if(caInput && d.kapazitaet != null && d.kapazitaet !== ''){
+      var caMol = parseFloat(d.kapazitaet) / 10;
+      if(isFinite(caMol)){ caInput.value = String(Math.round(caMol*1000)/1000); _markFromAnlage(caInput); }
+    }
+    var saltInput = document.getElementById('salt_per_reg');
+    if(saltInput && d.salzProRegeneration != null && d.salzProRegeneration !== ''){
+      var salt = parseFloat(d.salzProRegeneration);
+      if(isFinite(salt)){ saltInput.value = String(salt); _markFromAnlage(saltInput); }
+    }
+    if(typeof recalc === 'function') recalc();
+
     // Gewählte Anlage pro Objekt speichern (mit allen relevanten Werten).
     try{
       localStorage.setItem(_enthAnlKey(), JSON.stringify({
         id:p.id, lieferant:p.lieferantFirma, serie:d.serie, modell:d.modell,
         nenndurchfluss:d.nenndurchfluss, druckverlustQn:d.druckverlustQn,
-        kapazitaet:d.kapazitaet, anschluss:d.anschluss, status:p.status,
+        kapazitaet:d.kapazitaet, salzProRegeneration:d.salzProRegeneration,
+        anschluss:d.anschluss, status:p.status,
         uebernommenAm:new Date().toISOString()
       }));
     }catch(e){}
