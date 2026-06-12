@@ -16,13 +16,22 @@
 
   // ── Medium-Mapping ──
   // LU-intern → lesbare Bezeichnung + Zielmodul-Alias
+  // FACHLICHE REGEL (K2): Osmosewasser wird IMMER vorenthärtet. Verbraucher,
+  // deren Wasser durch die Osmose laeuft, werden als eigenes Medium 'ow'
+  // ("Enthärtetes Wasser für Osmose") erfasst — getrennt von 'bw'
+  // ("Enthärtetes Wasser", Apparate die NUR enthärtetes Wasser brauchen).
+  // Datenfluss: ow → Osmoseberechnung → Permeat+Konzentrat → Enthärtung.
+  // Die Enthärtung holt sich 'enthaertet' (bw) direkt UND das Osmose-
+  // Ergebnis via GemaOsmose — die ow-Verbraucher gehen also NICHT nochmal
+  // direkt in die Enthärtung (sonst Doppelzählung).
   var MEDIA = {
-    kw:   { id: 'kw',   label: 'Kaltwasser (KW)',         alias: 'trinkwasser',  color: '#16a34a' },
-    ww:   { id: 'ww',   label: 'Warmwasser (WW)',         alias: 'warmwasser',   color: '#dc2626' },
-    nd:   { id: 'nd',   label: 'Netzdruck (ND)',          alias: 'netzdruck',    color: '#2563eb' },
-    bw:   { id: 'bw',   label: 'Behandeltes Wasser (BW)', alias: 'enthaertet',   color: '#7c3aed' },
-    gw:   { id: 'gw',   label: 'Grauwasser (GW)',         alias: 'regenwasser',  color: '#0891b2' },
-    frei: { id: 'frei', label: 'Freie Eingabe',           alias: 'frei',         color: '#374151' }
+    kw:   { id: 'kw',   label: 'Kaltwasser (KW)',                     alias: 'trinkwasser',  color: '#16a34a' },
+    ww:   { id: 'ww',   label: 'Warmwasser (WW)',                     alias: 'warmwasser',   color: '#dc2626' },
+    nd:   { id: 'nd',   label: 'Netzdruck (ND)',                      alias: 'netzdruck',    color: '#2563eb' },
+    bw:   { id: 'bw',   label: 'Enthärtetes Wasser (BW)',             alias: 'enthaertet',   color: '#7c3aed' },
+    ow:   { id: 'ow',   label: 'Enthärtetes Wasser für Osmose (OW)',  alias: 'osmose',       color: '#0d9488' },
+    gw:   { id: 'gw',   label: 'Grauwasser (GW)',                     alias: 'regenwasser',  color: '#0891b2' },
+    frei: { id: 'frei', label: 'Freie Eingabe',                       alias: 'frei',         color: '#374151' }
   };
 
   // Alias → internes Medium (für Zielmodule die z.B. 'trinkwasser' sagen)
@@ -32,7 +41,6 @@
     ALIAS_MAP[MEDIA[k].alias] = k;
   });
   // Zusätzliche Alias
-  ALIAS_MAP['osmose'] = 'bw';
   ALIAS_MAP['behandelt'] = 'bw';
   ALIAS_MAP['grau'] = 'gw';
   ALIAS_MAP['regen'] = 'gw';

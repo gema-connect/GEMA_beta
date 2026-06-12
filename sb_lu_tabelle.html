@@ -447,7 +447,7 @@ body {
 .list-head.specials { grid-template-columns: 1fr 70px 120px 90px 36px; }
 .special-row select { padding:6px 8px; border:1.5px solid var(--border2); border-radius:10px; font-size:12px; font-family:inherit; font-weight:600; background:var(--surface); color:var(--text); width:100%; cursor:pointer; }
 .special-row select:focus { outline:none; border-color:var(--accent); box-shadow:0 0 0 2px rgba(37,99,235,.1); }
-.medium-kw{color:var(--green)!important}.medium-ww{color:var(--red)!important}.medium-nd{color:var(--accent)!important}.medium-bw{color:#7c3aed!important}.medium-gw{color:#0891b2!important}.medium-frei{color:var(--text)!important}
+.medium-kw{color:var(--green)!important}.medium-ww{color:var(--red)!important}.medium-nd{color:var(--accent)!important}.medium-bw{color:#7c3aed!important}.medium-ow{color:#0d9488!important}.medium-gw{color:#0891b2!important}.medium-frei{color:var(--text)!important}
 .maxlu-inline{display:inline-flex;gap:3px;margin-left:6px;vertical-align:middle}
 .maxlu-inline button{padding:2px 6px;border-radius:5px;border:1px solid var(--border2);background:var(--surface);color:var(--muted);font-size:9px;font-weight:700;cursor:pointer;font-family:inherit;transition:.15s;line-height:1.2}
 .maxlu-inline button:hover{background:var(--bg2)}
@@ -830,7 +830,12 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
       {id:'kw', label:'Kaltwasser (KW)', short:'KW', cls:'medium-kw', color:'var(--green)'},
       {id:'ww', label:'Warmwasser (WW)', short:'WW', cls:'medium-ww', color:'var(--red)'},
       {id:'nd', label:'Netzdruck (ND)', short:'ND', cls:'medium-nd', color:'var(--accent)'},
-      {id:'bw', label:'Behandeltes Wasser (BW)', short:'BW', cls:'medium-bw', color:'#7c3aed'},
+      {id:'bw', label:'Enthärtetes Wasser (BW)', short:'BW', cls:'medium-bw', color:'#7c3aed'},
+      // OW = Enthärtetes Wasser für Osmose. Fachliche Regel: Osmosewasser
+      // wird IMMER vorenthärtet — der OW-Volumenstrom fliesst in die
+      // Osmoseberechnung und von dort (Permeat+Konzentrat) in die
+      // Enthärtung. BW sind Apparate, die NUR enthärtetes Wasser brauchen.
+      {id:'ow', label:'Enthärtetes Wasser für Osmose (OW)', short:'OW', cls:'medium-ow', color:'#0d9488'},
       {id:'gw', label:'Grauwasser (GW)', short:'GW', cls:'medium-gw', color:'#0891b2'},
       {id:'frei', label:'Freie Eingabe', short:'Frei', cls:'medium-frei', color:'var(--text)'}
     ];
@@ -1016,8 +1021,8 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
     let state = {
       projekt: "",
       notizen: "",
-      maxLU: {kw:3, ww:3, nd:5, bw:3, gw:3, frei:3},
-      maxLUManual: {kw:false, ww:false, nd:false, bw:false, gw:false, frei:false},
+      maxLU: {kw:3, ww:3, nd:5, bw:3, ow:3, gw:3, frei:3},
+      maxLUManual: {kw:false, ww:false, nd:false, bw:false, ow:false, gw:false, frei:false},
       devices: [
         { deviceName: "", qty: 0, medium: "trinkwasser" },
         { deviceName: "", qty: 0, medium: "trinkwasser" },
@@ -1089,7 +1094,7 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
         if (d.lu_ww > 0) maxPerMedium.ww = Math.max(maxPerMedium.ww, d.lu_ww);
         if (d.lu_nd > 0) maxPerMedium.nd = Math.max(maxPerMedium.nd, d.lu_nd);
       }
-      for (const mid of ['kw','ww','nd','bw','gw','frei']){
+      for (const mid of ['kw','ww','nd','bw','ow','gw','frei']){
         if (state.maxLUManual[mid]) continue;
         const detected = maxPerMedium[mid] || 0;
         state.maxLU[mid] = detected >= 5 ? 5 : 3;
@@ -1437,8 +1442,8 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
           frml:"Q<sub>ND</sub> = f(LU<sub>ND</sub>)",
           maxlu: m.lu > 0 ? _maxLUButtons('nd') : "" });
       }
-      // BW, GW, Frei
-      for (const mid of ['bw','gw','frei']) {
+      // BW, OW, GW, Frei
+      for (const mid of ['bw','ow','gw','frei']) {
         if (!usedMedia.has(mid)) continue;
         const m = obj.media[mid];
         if (!m) continue;
