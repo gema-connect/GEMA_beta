@@ -196,6 +196,7 @@ KATEGORIEN.enthaertung = {
     { id: 'druckverlustQn', label: 'Druckverlust bei Qn', typ: 'number', einheit: 'bar', gruppe: 'Leistungsdaten', pflicht: true },
     { id: 'druckverlustSpitze', label: 'Druckverlust bei Spitze', typ: 'number', einheit: 'bar', gruppe: 'Leistungsdaten' },
     { id: 'kapazitaet', label: 'Enthärtungskapazität', typ: 'number', einheit: 'm³·°fH', gruppe: 'Leistungsdaten', pflicht: true },
+    { id: 'salzProRegeneration', label: 'Salzverbrauch pro Regeneration', typ: 'number', einheit: 'kg', gruppe: 'Leistungsdaten' },
     { id: 'personenMax', label: 'Max. Personenanzahl', typ: 'number', einheit: 'Pers.', gruppe: 'Leistungsdaten' },
     { id: 'haertebereichEin', label: 'Eingangshärte max.', typ: 'number', einheit: '°fH', gruppe: 'Leistungsdaten' },
     { id: 'haertebereichAus', label: 'Ausgangshärte einstellbar', typ: 'text', einheit: '°fH', gruppe: 'Leistungsdaten' },
