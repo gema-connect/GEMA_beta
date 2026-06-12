@@ -1436,13 +1436,17 @@ document.addEventListener('DOMContentLoaded', function(){
     if(typeof GemaLU==='undefined' || !objektId){ _clearLUTags(); return; }
     if(!GemaLU.hasData(objektId)){ _clearLUTags(); return; }
 
-    var summary = GemaLU.getSummary(objektId);
-    var kwData = summary.kw || {};
-
-    // Compute total LU from Verbraucher
+    // LU fuer die Druckerhoehung: KW + WW, OHNE ND (fachliche Regel).
+    // Die DEA drueckt die Gebaeude-Kaltzuleitung inkl. Speisung des
+    // Wassererwaermers -> KW- und WW-LU haengen hinter der Pumpe.
+    // Netzdruck-Verbraucher laufen per Definition OHNE Druckerhoehung
+    // (direkt am Versorgungsdruck) und duerfen nicht mitdimensioniert
+    // werden. (Frueher: v.luTotal = KW+WW+ND -> ND faelschlich drin.)
     var verbraucher = GemaLU.getVerbraucher(objektId);
     var totalLU = 0;
-    verbraucher.forEach(function(v){ if(v.typ==='standard') totalLU += v.luTotal; });
+    verbraucher.forEach(function(v){
+      if(v.typ==='standard') totalLU += (v.luKw || 0) + (v.luWw || 0);
+    });
 
     // Dauer flow (kw medium only)
     var dauerFlow = 0;
