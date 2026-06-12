@@ -39,9 +39,12 @@
   function _newId(){ return 'log_' + Date.now() + '_' + _rand(); }
 
   function _readLocal(){
+    // Kanonischer Lese-Pfad: GemaSync.getCached (localStorage-first mit
+    // In-Memory-Spiegel-Fallback bei Quota-Fehler).
+    if (typeof window.GemaSync !== 'undefined' && window.GemaSync.getCached){
+      try { var c = window.GemaSync.getCached(STORAGE_KEY); if (Array.isArray(c)) return c; } catch(e){}
+    }
     try {
-      // localStorage zuerst (von GemaSync.bindCollection + log() frisch
-      // gehalten); _GemaDB.c nur als Fallback (Legacy-Blob).
       var raw = localStorage.getItem(STORAGE_KEY);
       if (raw == null && typeof _GemaDB !== 'undefined' && _GemaDB.c) raw = _GemaDB.c[STORAGE_KEY];
       var arr = JSON.parse(raw || '[]');

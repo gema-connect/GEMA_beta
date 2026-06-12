@@ -330,27 +330,35 @@
       try{ console.warn('[GemaSync] _writeCache('+storageKey+') fehlgeschlagen (Quota?) — localStorage-Cache entfernt, In-Memory-Spiegel aktiv:', e && e.name); }catch(_e2){}
     }
   }
-  // Interne Diff-Baseline: bewusst localStorage-basiert. So bleibt sie
-  // konsistent mit dem, was Module beim Laden aus localStorage lesen
-  // (z.B. sd_schadensbericht sdLoad). Wuerde man hier den frischeren
-  // In-Memory-Spiegel erzwingen, koennte ein Modul mit veraltetem
-  // localStorage-Working-Set beim Save gueltige Cloud-Records als
-  // geloescht interpretieren. Module, die direkt aus dem Cloud-Array
-  // rendern (sp_dachbericht), uebergeben ihre Baseline explizit via
-  // opts.baseline und umgehen diesen Default.
+  // KANONISCHER Lese-Pfad fuer Collection-Caches (auch als
+  // GemaSync.getCached exponiert — Module sollen NIE direkt
+  // localStorage.getItem fuer Cloud-Collections nutzen):
+  //   1. localStorage zuerst — kann von anderen Tabs aktualisiert worden
+  //      sein und ist im Normalfall identisch mit dem Spiegel.
+  //   2. In-Memory-Spiegel als Fallback — greift, wenn der localStorage-
+  //      Eintrag fehlt (z.B. nach Quota-Fehler von _writeCache entfernt).
+  //      Der Spiegel haelt immer den zuletzt synchronisierten Cloud-Stand.
+  // Da _writeCache bei Quota-Fehler den localStorage-Eintrag ENTFERNT
+  // (statt ihn veraltet stehen zu lassen), ist localStorage entweder
+  // frisch oder abwesend — diese Reihenfolge ist daher immer korrekt.
+  // Dient auch als Diff-Baseline in _doPersist.
   function _readCache(storageKey){
-    if(typeof localStorage === 'undefined') return [];
-    try{ return JSON.parse(localStorage.getItem(storageKey) || '[]'); }catch(e){ return []; }
-  }
-  // Liefert den zuletzt synchronisierten Vollsatz aus dem In-Memory-Spiegel
-  // (Fallback: localStorage). Fuer Module, die fremde Records (andere Orgs)
-  // beim Persistieren erhalten muessen — verlaesslich auch wenn der
-  // localStorage-Cache am Quota gescheitert/entfernt wurde.
-  function _memGet(storageKey){
-    if(_memCache[storageKey] != null){
-      try{ return JSON.parse(_memCache[storageKey]); }catch(e){ /* fallthrough */ }
+    if(typeof localStorage !== 'undefined'){
+      try{
+        var raw = localStorage.getItem(storageKey);
+        if(raw != null){
+          var arr = JSON.parse(raw);
+          if(Array.isArray(arr)) return arr;
+        }
+      }catch(e){ /* fallthrough zum Spiegel */ }
     }
-    return _readCache(storageKey);
+    if(_memCache[storageKey] != null){
+      try{
+        var m = JSON.parse(_memCache[storageKey]);
+        if(Array.isArray(m)) return m;
+      }catch(e){ /* noop */ }
+    }
+    return [];
   }
 
   function bindCollection(moduleKey, storageKey, prefix, idField){
@@ -446,7 +454,7 @@
     // Modul beim Persistieren fremde Records (z.B. andere Orgs) aus dem
     // vollen Cloud-Satz erhalten muss — verlaesslich auch wenn der
     // localStorage-Cache am Quota gescheitert/entfernt wurde.
-    getCached: function(storageKey){ return _memGet(storageKey); }
+    getCached: function(storageKey){ return _readCache(storageKey); }
   };
 
 })(window);

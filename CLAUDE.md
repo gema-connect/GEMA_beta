@@ -1395,9 +1395,16 @@ GemaSync.bindCollection(moduleKey, storageKey, prefix, idField)
    // Beim Bootstrap: Cloud-Records laden, in localStorage[storageKey] cachen.
    // Migriert alte Blob-Row automatisch (User-Wahl: ohne Backup).
 GemaSync.persistCollection(moduleKey, storageKey, prefix, idField, newArr)
-   // Bei jedem Save: Diff zum localStorage-Cache → nur geänderte Records pushen.
+   // Bei jedem Save: Diff zum Cache (getCached) → nur geänderte Records pushen.
    // Wenn offline: Reject, kein Save.
+GemaSync.getCached(storageKey)
+   // KANONISCHER Lese-Pfad fuer Collection-Caches: localStorage zuerst
+   // (Cross-Tab-frisch), In-Memory-Spiegel als Fallback (greift, wenn der
+   // localStorage-Write am Quota gescheitert ist — _writeCache entfernt den
+   // Eintrag dann). Liefert immer ein Array.
 ```
+
+**KONVENTION (KRITISCH): Module lesen Cloud-Collections NIE direkt via `localStorage.getItem`, sondern immer über `GemaSync.getCached(storageKey)`** (mit localStorage-Fallback nur fuer den Fall `GemaSync` nicht geladen). Hintergrund: Auf iOS-Safari ist das localStorage-Quota streng; bildlastige Collections (Dach-/Schadensberichte, Werkzeug-Kaufbelege) lassen den Cache-Write scheitern → direkter localStorage-Read liefert dann veraltete/leere Daten, obwohl die Cloud frisch geladen wurde. Der In-Memory-Spiegel in gema_sync.js haelt immer den zuletzt synchronisierten Cloud-Stand. Umgestellt sind: if_werkzeug, if_fahrzeug, if_trocknung (inkl. GemaTrocknung-API + Schadensprojekt-Picker), sd_schadensbericht, sp_dachbericht, gema_aktivitaetslog. gema_objekte_api/gema_produktkatalog_api konsumieren die bindCollection-Return-Arrays direkt (gleichwertig). gema_auth.js hat einen eigenen In-Memory-Spiegel (`_memCache` fuer Orgs/Users/Rollen).
 
 Beim Verbindungsverlust erscheint ein orange Banner oben (`#gema-sync-offline-banner`). Sobald Cloud wieder erreichbar, verschwindet es.
 

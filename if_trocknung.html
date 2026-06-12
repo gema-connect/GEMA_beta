@@ -1200,6 +1200,12 @@ function _tgNewBerichtId(){
 // Per-Record-Storage: pro Geraet eine Row in Supabase
 // (data_key='device:<id>'). localStorage bleibt als sync-Cache.
 function _tgReadRaw() {
+  // Kanonischer Lese-Pfad: GemaSync.getCached (localStorage-first mit
+  // In-Memory-Spiegel-Fallback bei Quota-Fehler). Liefert JSON-String
+  // fuer Backward-Compat der Aufrufer.
+  if (typeof window.GemaSync !== 'undefined' && window.GemaSync.getCached) {
+    try { return JSON.stringify(window.GemaSync.getCached(STORAGE_KEY) || []); } catch(e) {}
+  }
   try { return localStorage.getItem(STORAGE_KEY); } catch(e) { return null; }
 }
 function _tgWriteRaw(json) {
@@ -1263,10 +1269,16 @@ function saveAll() {
 function loadSchaeden() {
   var schaeden = [];
   try {
-    var raw = null;
-    if (typeof _GemaDB !== 'undefined' && _GemaDB.c) raw = _GemaDB.c[SCHADEN_KEY];
-    if (raw == null) { try { raw = localStorage.getItem(SCHADEN_KEY); } catch(e) {} }
-    if (raw) schaeden = JSON.parse(raw);
+    if (typeof window.GemaSync !== 'undefined' && window.GemaSync.getCached) {
+      // Kanonischer Lese-Pfad (Quota-sicher) — Schadensberichte sind
+      // bildlastig, deren localStorage-Cache kann fehlen.
+      schaeden = window.GemaSync.getCached(SCHADEN_KEY) || [];
+    } else {
+      var raw = null;
+      if (typeof _GemaDB !== 'undefined' && _GemaDB.c) raw = _GemaDB.c[SCHADEN_KEY];
+      if (raw == null) { try { raw = localStorage.getItem(SCHADEN_KEY); } catch(e) {} }
+      if (raw) schaeden = JSON.parse(raw);
+    }
   } catch(e) { schaeden = []; }
   if (!Array.isArray(schaeden)) schaeden = [];
   // Only active cases (not completed)
@@ -2567,10 +2579,14 @@ window.exportPDF=function(){
 function _loadAllDevices() {
   var all = [];
   try {
-    var raw = null;
-    if (typeof _GemaDB !== 'undefined' && _GemaDB.c) raw = _GemaDB.c[STORAGE_KEY];
-    if (raw == null) { try { raw = localStorage.getItem(STORAGE_KEY); } catch(e) {} }
-    if (raw) all = JSON.parse(raw);
+    if (typeof window.GemaSync !== 'undefined' && window.GemaSync.getCached) {
+      all = window.GemaSync.getCached(STORAGE_KEY) || []; // Quota-sicher
+    } else {
+      var raw = null;
+      if (typeof _GemaDB !== 'undefined' && _GemaDB.c) raw = _GemaDB.c[STORAGE_KEY];
+      if (raw == null) { try { raw = localStorage.getItem(STORAGE_KEY); } catch(e) {} }
+      if (raw) all = JSON.parse(raw);
+    }
   } catch(e) { all = []; }
   if (!Array.isArray(all)) all = [];
   return all;
