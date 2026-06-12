@@ -267,13 +267,16 @@
       + '<div class="sec-head"><div class="sec-num">1</div>'
       + '<div class="sec-titles"><div class="sec-eyebrow">Übersicht</div><div class="sec-title">Dachübersicht</div></div></div>';
     if(split.haupt) h += bigImageHtml(split.haupt);
-    if(dachtypLabel){
-      h += '<div class="block"><div class="block-label">Dachtyp · '+esc(dachtypLabel)+'</div>';
+    // Text auch dann rendern, wenn kein Label aufloesbar ist (Template-
+    // Eintrag geloescht, kein eingefrorenes Label) — sonst ginge der
+    // erfasste Beschreibungstext im PDF still verloren.
+    if(dachtypLabel || notEmpty(u.dachtypText)){
+      h += '<div class="block"><div class="block-label">Dachtyp'+(dachtypLabel?' · '+esc(dachtypLabel):'')+'</div>';
       if(notEmpty(u.dachtypText)) h += '<div class="block-body">'+esc(u.dachtypText)+'</div>';
       h += '</div>';
     }
-    if(ziegelLabel){
-      h += '<div class="block"><div class="block-label">Eindeckung · '+esc(ziegelLabel)+'</div>';
+    if(ziegelLabel || notEmpty(u.ziegelartText)){
+      h += '<div class="block"><div class="block-label">Eindeckung'+(ziegelLabel?' · '+esc(ziegelLabel):'')+'</div>';
       if(notEmpty(u.ziegelartText)) h += '<div class="block-body">'+esc(u.ziegelartText)+'</div>';
       h += '</div>';
     }
@@ -360,18 +363,27 @@
   function massnahmenHtml(b){
     var mn = b.massnahmen || [];
     if(!mn.length) return '';
-    var nextNum = 2 + (b.kapitel||[]).length + ((b.nachbaranschluesse && (notEmpty(b.nachbaranschluesse.text) || (b.nachbaranschluesse.bilder||[]).length)) ? 1 : 0);
+    // Gleiche Render-Bedingung wie nachbarHtml (Text ODER mind. 1 im
+    // Bericht enthaltenes Bild) — sonst Nummern-Luecke, wenn die Nachbar-
+    // Bilder alle ausgeschlossen (imBericht===false) sind.
+    var _nb = b.nachbaranschluesse || {};
+    var _nbSplit = splitMainAndRest(_nb.bilder||[]);
+    var nextNum = 2 + (b.kapitel||[]).length + ((notEmpty(_nb.text) || _nbSplit.haupt) ? 1 : 0);
     var html = '<section class="report-section"><div class="page-body">'
       + '<div class="sec-head"><div class="sec-num">'+nextNum+'</div>'
       + '<div class="sec-titles"><div class="sec-eyebrow">Empfehlungen</div><div class="sec-title">Massnahmen & Empfehlungen</div></div></div>';
     // Sortiere nach Prio: hoch > mittel > niedrig
     var order = { hoch:0, mittel:1, niedrig:2 };
+    function _rank(p){ return (order[p] !== undefined) ? order[p] : 1; }
+    // NICHT (order[x]||1): order['hoch']=0 ist falsy -> 'hoch' wuerde wie
+    // 'mittel' gewichtet und nicht zuoberst sortiert.
     mn.slice().sort(function(a,b){
-      return (order[a.prioritaet]||1) - (order[b.prioritaet]||1);
+      return _rank(a.prioritaet) - _rank(b.prioritaet);
     }).forEach(function(m){
       var hasC = notEmpty(m.titel) || notEmpty(m.beschreibung) || notEmpty(m.empfehlung);
       if(!hasC) return;
-      var prio = m.prioritaet || 'mittel';
+      // Whitelist statt Roh-Wert im class-Attribut (Attribut-Breakout)
+      var prio = (m.prioritaet==='hoch'||m.prioritaet==='niedrig') ? m.prioritaet : 'mittel';
       html += '<div class="mn-card '+prio+'">'
         + '<div class="mn-head">'
           + '<div class="mn-title">'+esc(m.titel||'Massnahme')+'</div>'
@@ -398,7 +410,18 @@
     var org = opts.org;
     var orgName = (org && org.name) ? org.name : 'GEMA';
     var datum = fmtDate(Date.now());
-    function _cssStr(s){ return String(s||'').replace(/\\/g,'\\\\').replace(/"/g,'\\"'); }
+    // CSS-String-Escaper fuer die @page-Margin-Boxes. WICHTIG: neben
+    // Backslash/Anfuehrungszeichen auch < > { } und Zeilenumbrueche
+    // neutralisieren — ein '<' im Titel/Org-Namen konnte sonst den
+    // <style>-Block verlassen (HTML-Injection im App-Origin, da das
+    // Print-Fenster via window.open('') den Origin erbt), ein '}' brach
+    // die @page-Regel, ein Newline machte den CSS-String ungueltig.
+    function _cssStr(s){
+      return String(s||'')
+        .replace(/\\/g,'\\\\')
+        .replace(/"/g,'\\"')
+        .replace(/[<>{}\r\n]/g,' ');
+    }
     var pageCss = '@media print{@page{size:A4;margin:14mm 0 14mm 0;'
       + '@top-left{content:"'+_cssStr(orgName)+'";font-family:\'DM Sans\',sans-serif;font-size:7.5pt;font-weight:600;letter-spacing:.04em;color:#525d66;padding:5mm 15mm 0;}'
       + '@top-right{content:"Dachbericht · '+_cssStr(titel)+'";font-family:\'DM Sans\',sans-serif;font-size:7.5pt;letter-spacing:.04em;color:#8a949c;padding:5mm 15mm 0;}'
