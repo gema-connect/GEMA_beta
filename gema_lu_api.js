@@ -84,14 +84,29 @@
     try { return JSON.parse(raw); } catch(e) { return null; }
   }
 
-  // ── W3 Diagramm 1 Berechnung (identisch mit sb_lu_tabelle.html) ──
+  // ── W3 Diagramm 1 Berechnung ──
+  // Identische Logik wie sb_lu_tabelle.html (Quelle der Wahrheit), dort
+  // qDiagramm1() + _qMed():
+  //   LU <= 0 → 0
+  //   LU <= 3 → direkt LU/10
+  //   sonst   → Kurve A/B mit x = LU/10, useA = (maxLU <= 3) || (x > 15)
+  //             A: 0.459 · x^0.353    B: 0.598 · x^0.257
+  // WICHTIG: Bei Aenderungen IMMER mit sb_lu_tabelle.html abgleichen —
+  // hier standen frueher abweichende Exponenten (0.0847·x^0.677 /
+  // 0.113·x^0.637), die den Zielmodulen (Druckverlust, Grobauslegung,
+  // Warmwasser, Workspace) massiv falsche l/s-Werte lieferten.
   function _qDiagramm1(totalLU, maxLU) {
-    var x = totalLU / 10;
-    if (x <= 0) return 0;
+    if (totalLU <= 0) return 0;
     if (totalLU <= 3) return totalLU / 10;
+    var x = totalLU / 10;
     var useA = (maxLU <= 3) || (x > 15);
-    if (useA) return 0.0847 * Math.pow(x, 0.677);
-    return 0.113 * Math.pow(x, 0.637);
+    return useA ? (Math.pow(x, 0.353) * 0.459) : (Math.pow(x, 0.257) * 0.598);
+  }
+
+  // Default-maxLU pro Medium — identisch zur Tabelle (calc():
+  // maxLU.kw||3, maxLU.ww||3, maxLU.nd||5).
+  function _defaultMaxLU(med) {
+    return med === 'nd' ? 5 : 3;
   }
 
   // ── Stammverbraucher-LU-Daten lesen ──
@@ -205,7 +220,7 @@
     if (!state) return 0;
 
     var deviceLU = _getDeviceLU(state);
-    var maxLU = (state.maxLU && state.maxLU[med]) || 3;
+    var maxLU = (state.maxLU && state.maxLU[med]) || _defaultMaxLU(med);
 
     // 1. LU-basierter Flow (nur für kw, ww, nd)
     var luFlow = 0;
