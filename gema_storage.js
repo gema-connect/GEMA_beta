@@ -26,17 +26,19 @@
   function isConfigured(){ var s=_sb(); return !!(s && s.SB_URL && s.SB_KEY); }
 
   function publicUrl(path){
-    var s=_sb(); if(!s) return null;
+    var s=_sb(); if(!s || !s.SB_URL) return null;
     return s.SB_URL + '/storage/v1/object/public/' + BUCKET + '/' + path;
   }
 
   // data:image/jpeg;base64,XXXX  →  { blob, ext }
+  // Akzeptiert auch Zusatzparameter (data:image/png;charset=utf-8;base64,)
+  // und Newlines im Base64-Teil ([\s\S] statt .).
   function _dataUrlToBlob(dataUrl){
-    var m = /^data:([^;,]+)(;base64)?,(.*)$/.exec(dataUrl || '');
+    var m = /^data:([^;,]+)((?:;[^;,]+)*),([\s\S]*)$/.exec(dataUrl || '');
     if(!m) return null;
-    var mime = m[1] || 'image/jpeg';
-    var isB64 = !!m[2];
-    var data = m[3];
+    var mime = m[1];
+    var isB64 = /(^|;)base64$/i.test(m[2] || '') || /;base64(;|$)/i.test(m[2] || '');
+    var data = isB64 ? m[3].replace(/\s+/g,'') : m[3];
     var bytes;
     try {
       if(isB64){
@@ -47,7 +49,9 @@
         bytes = new TextEncoder().encode(decodeURIComponent(data));
       }
     } catch(e){ return null; }
-    var ext = mime.indexOf('png')>=0 ? 'png' : (mime.indexOf('webp')>=0 ? 'webp' : 'jpg');
+    var ext = mime.indexOf('png')>=0 ? 'png'
+      : (mime.indexOf('webp')>=0 ? 'webp'
+      : (mime.indexOf('gif')>=0 ? 'gif' : 'jpg'));
     return { blob: new Blob([bytes], { type: mime }), ext: ext, mime: mime };
   }
 
@@ -81,7 +85,12 @@
     }
     var parsed = _dataUrlToBlob(dataUrl);
     if(!parsed) return Promise.reject(new Error('Data-URL nicht lesbar'));
-    var prefix = (pathHint || 'misc').replace(/[^a-zA-Z0-9_\/-]/g,'').replace(/^\/+|\/+$/g,'');
+    // Groessen-Guard: schuetzt Bucket + Bandbreite vor Ausreissern.
+    if(parsed.blob && parsed.blob.size > 12*1024*1024){
+      return Promise.reject(new Error('Bild zu gross fuer Upload (max. 12 MB)'));
+    }
+    var prefix = (pathHint || 'misc').replace(/[^a-zA-Z0-9_\/-]/g,'').replace(/\/{2,}/g,'/').replace(/^\/+|\/+$/g,'');
+    if(!prefix) prefix = 'misc'; // Hint bestand nur aus Sonderzeichen
     var path = prefix + '/' + _rand() + '.' + parsed.ext;
     var url = s.SB_URL + '/storage/v1/object/' + BUCKET + '/' + path;
     return fetch(url, {
@@ -90,7 +99,6 @@
         'apikey': s.SB_KEY,
         'Authorization': 'Bearer ' + s.SB_KEY,
         'Content-Type': parsed.mime,
-        'x-upsert': 'true',
         'cache-control': 'max-age=3600'
       },
       body: parsed.blob
