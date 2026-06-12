@@ -627,6 +627,7 @@ function fixLeadingZero(el){
 }
 </script>
 <script src="gema_db.js"></script>
+<script src="gema_dialog.js"></script>
 <script src="gema_feedback.js"></script><script src="gema_notify.js"></script><script src="gema_notify_ui.js"></script>
 <script src="gema_objekte_api.js"></script>
 <script src="gema_varianten.js"></script>
@@ -842,6 +843,15 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
     const MEDIA_MAP = new Map(MEDIA.map(m=>[m.id,m]));
 
     // Medien/Leitungsnetze für Standard-Apparate (gemäss Datenfluss-Architektur)
+    //
+    // ACHTUNG — zwei getrennte Key-Welten (M4, bewusst so belassen):
+    //   state.devices[].medium  nutzt DEVICE_MEDIA-Keys ('trinkwasser',
+    //     'enthaertet', 'osmose', 'regenwasser') = Leitungsnetz-Zuordnung
+    //     des Apparats (Anzeige; Berechnung laeuft ueber lu_kw/ww/nd).
+    //   state.special[]/dauer[].medium nutzt MEDIA-Keys ('kw','ww','nd',
+    //     'bw','ow','gw','frei') = Berechnungsmedium.
+    // Die Arrays sind getrennt, es gibt keine Key-Kollision. Beim Lesen
+    // greift ueberall der Fallback || 'kw' bzw. || 'trinkwasser'.
     const DEVICE_MEDIA = [
       {id:'trinkwasser',  label:'Trinkwasser',         short:'TW',  color:'#2563eb'},
       {id:'enthaertet',   label:'Enthärtetes Wasser',   short:'EW',  color:'#7c3aed'},
@@ -986,7 +996,13 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
     };
 
     window._admReset = function(){
-      if (!confirm('Alle Stammdaten auf Werkseinstellungen zurücksetzen?')) return;
+      GemaDialog.confirm({
+        title: 'Werkseinstellungen',
+        message: 'Alle Stammdaten auf Werkseinstellungen zurücksetzen?',
+        confirmLabel: 'Zurücksetzen',
+        danger: true
+      }).then(function(ok){
+      if (!ok) return;
       // Restore defaults
       DEVICES.length = 0;
       DEVICES_DEFAULT.forEach(d => {
@@ -1006,6 +1022,7 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
       renderDeviceList();
       calcAndRender();
       saveLocal(); // Snapshot + gema-lu-updated (siehe _admDevChange)
+      });
     };
 
     window.openAdminData = function(){
@@ -1574,7 +1591,7 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
       var oid = '';
       try{ if(typeof GemaObjekte!=='undefined') oid = GemaObjekte.getActiveId() || ''; }catch(e){}
       if(!oid || typeof GemaApparate==='undefined' || !GemaApparate.hasData(oid)){
-        alert('Keine Apparateliste fuer dieses Objekt vorhanden.'); return;
+        GemaDialog.alert({title:'Apparateliste', message:'Keine Apparateliste für dieses Objekt vorhanden.'}); return;
       }
       var agg = GemaApparate.getAggregated(oid);
       var imported = _loadImportedSet(oid);
