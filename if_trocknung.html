@@ -388,11 +388,13 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
 
 /* ═══════════════════════════════════════
    SAFE AREA (iPhone notch / home bar)
-   ═══════════════════════════════════════ */
-@supports(padding-bottom: env(safe-area-inset-bottom)){
-  .modal-ft{padding-bottom:calc(18px + env(safe-area-inset-bottom))}
-  .modal{padding-bottom:env(safe-area-inset-bottom)}
-}
+   ═══════════════════════════════════════
+   Bewusst KEIN zusaetzliches safe-area-Padding mehr auf .modal/.modal-ft
+   (wie Werkzeugmanagement): die Home-Bar-Freiheit wird bereits einmal
+   ueber das .modal-bg-Padding (padding-bottom:max(12px,env(...))) und die
+   modal-max-height-Subtraktion abgedeckt. Das fruehere @supports stapelte
+   die Inset DREIFACH (modal-bg + modal + modal-ft) -> grosser Leerraum
+   unten in jedem Modal auf dem iPhone. */
 
 /* ═══════════════════════════════════════
    TOUCH DEVICE OVERRIDES
@@ -700,15 +702,17 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
     <div class="modal-body">
       <div class="qr-wrap" id="qrCanvas"></div>
       <div class="qr-info" id="qrInfo"></div>
+      <!-- Footer-Buttons im Body (Werkzeugmanagement-Muster): kurze Labels
+           + flex:1 1 80px pro Button -> brechen auf Mobile sauber um,
+           statt mit langen Labels in der modal-ft zu kollidieren. -->
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px">
+        <button class="mft-save" style="flex:1 1 80px;justify-content:center;padding:8px 10px;font-size:12px;background:#1d4ed8" onclick="downloadQRSVG()">⬇ SVG</button>
+        <button class="mft-save" style="flex:1 1 80px;justify-content:center;padding:8px 10px;font-size:12px" onclick="downloadQR()">⬇ PNG</button>
+        <button id="tgNfcBtn" onclick="_tgWriteNFC()" style="display:none;flex:1 1 80px;padding:8px 10px;border-radius:8px;border:1.5px solid #bfdbfe;background:#eff6ff;color:#1d4ed8;font-size:12px;font-weight:800;cursor:pointer;justify-content:center;align-items:center;gap:5px;font-family:inherit">📡 NFC</button>
+        <button id="tgNfcLockBtn" onclick="_tgMakeNFCReadOnly()" title="NFC-Tag dauerhaft schreibgeschützt machen — irreversibel" style="display:none;flex:1 1 80px;padding:8px 10px;border-radius:8px;border:1.5px solid #fecaca;background:#fef2f2;color:#b91c1c;font-size:12px;font-weight:800;cursor:pointer;justify-content:center;align-items:center;gap:5px;font-family:inherit">🔒 Sperren</button>
+      </div>
+      <div id="tgNfcStatus" style="text-align:center;font-size:11px;color:#6b7280;margin-top:8px"></div>
     </div>
-    <div class="modal-ft" style="justify-content:center;gap:8px;flex-wrap:wrap">
-      <button class="mft-cancel" onclick="downloadQRSVG()">📥 SVG herunterladen</button>
-      <button class="mft-cancel" onclick="downloadQR()">📥 PNG herunterladen</button>
-      <button id="tgNfcBtn" class="mft-cancel" onclick="_tgWriteNFC()" style="display:none;background:#eff6ff;color:#1d4ed8;border-color:#bfdbfe">📡 NFC schreiben</button>
-      <button id="tgNfcLockBtn" class="mft-cancel" onclick="_tgMakeNFCReadOnly()" title="NFC-Tag dauerhaft schreibgeschützt machen — irreversibel" style="display:none;background:#fef2f2;color:#b91c1c;border-color:#fecaca">🔒 Sperren</button>
-      <button class="mft-cancel" onclick="closeQR()">Schliessen</button>
-    </div>
-    <div id="tgNfcStatus" style="text-align:center;font-size:11px;color:#6b7280;padding:0 16px 12px"></div>
   </div>
 </div>
 
@@ -2651,7 +2655,13 @@ document.addEventListener('DOMContentLoaded', async function() {
   // Cloud-First Per-Record-Sync (siehe gema_sync.js)
   if (typeof window.GemaSync !== 'undefined') {
     await Promise.race([
-      window.GemaSync.bindCollection('trocknungsgeraete', STORAGE_KEY, 'device:', 'id'),
+      Promise.all([
+        window.GemaSync.bindCollection('trocknungsgeraete', STORAGE_KEY, 'device:', 'id'),
+        // Cross-Modul: Schadensberichte frisch ziehen, damit der Einsatz-
+        // Projekt-Picker (loadSchaeden -> gema_schadensbericht_v1) aktuelle
+        // Faelle zeigt — gleicher per-Record-Pfad wie sd_schadensbericht.
+        window.GemaSync.bindCollection('schadensbericht', SCHADEN_KEY, 'schaden:', 'id').catch(function(){})
+      ]),
       new Promise(function(r){ setTimeout(r, 5000); })
     ]);
   }
