@@ -1079,13 +1079,10 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
       return useA ? (Math.pow(x, 0.353) * 0.459) : (Math.pow(x, 0.257) * 0.598);
     }
 
-    // Sonderlogik: nur 1 Apparat aktiv, keine weiteren Verbraucher -> direkt LU/10 l/s für 2/3/5 LU
-    function singleApplianceDirectFlow(activeDeviceCount, totalLU, hasAnyOtherConsumers){
-      if (activeDeviceCount !== 1) return null;
-      if (hasAnyOtherConsumers) return null;
-      // Single appliance: always direct LU/10
-      return totalLU / 10;
-    }
+    // Einzelapparat-Regel (W3): genau 1 Apparat im Medium und keine
+    // weiteren Verbraucher (Spezial/Dauer) -> direkt LU/10, auch fuer
+    // 5-LU-Apparate. Implementiert in _qMed (calc) — frueher existierte
+    // hier nur eine tote, nie aufgerufene Funktion.
 
     // Automatik maxLU: wenn irgendwo ein Apparat mit 5 LU gewählt ist (z.B. Gartenventil / Gewerbe-GS), -> 5
     function applyAutoMaxLU(){
@@ -1300,6 +1297,8 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
       let totalUnits = 0;
       let luTotal = 0, luWw = 0, luKw = 0, luNd = 0;
       let maxSingleLU = {kw:0, ww:0, nd:0};
+      // Apparate-Stueckzahl pro Medium (fuer die Einzelapparat-Regel)
+      let unitsPerMed = {kw:0, ww:0, nd:0};
 
       for (const r of state.devices){
         if (!r.deviceName) continue;
@@ -1313,9 +1312,9 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
         luWw += d.lu_ww * q;
         luKw += d.lu_kw * q;
         luNd += d.lu_nd * q;
-        if (d.lu_kw > 0) maxSingleLU.kw = Math.max(maxSingleLU.kw, d.lu_kw);
-        if (d.lu_ww > 0) maxSingleLU.ww = Math.max(maxSingleLU.ww, d.lu_ww);
-        if (d.lu_nd > 0) maxSingleLU.nd = Math.max(maxSingleLU.nd, d.lu_nd);
+        if (d.lu_kw > 0) { maxSingleLU.kw = Math.max(maxSingleLU.kw, d.lu_kw); unitsPerMed.kw += q; }
+        if (d.lu_ww > 0) { maxSingleLU.ww = Math.max(maxSingleLU.ww, d.lu_ww); unitsPerMed.ww += q; }
+        if (d.lu_nd > 0) { maxSingleLU.nd = Math.max(maxSingleLU.nd, d.lu_nd); unitsPerMed.nd += q; }
       }
 
       const specialSums = _sumByMedium(state.special);
@@ -1324,16 +1323,20 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
       const anyOther = Object.values(specialSums).reduce((a,b)=>a+b,0) + Object.values(dauerSums).reduce((a,b)=>a+b,0) > 0;
 
       // Per-medium LU flow
-      // Regel: LU ≤ 3 → direkt LU/10, LU > 3 → Diagramm
+      // Regeln: genau 1 Apparat im Medium ohne weitere Verbraucher
+      //         (Spezial/Dauer) → direkt LU/10 (Einzelapparat-Regel W3,
+      //         gilt auch fuer 5-LU-Apparate);
+      //         LU ≤ 3 → direkt LU/10; LU > 3 → Diagramm
       const maxLU = state.maxLU || {};
-      function _qMed(lu, maxLUVal) {
+      function _qMed(lu, maxLUVal, units, otherFlow) {
         if (lu <= 0) return 0;
+        if (units === 1 && !(otherFlow > 0)) return lu / 10;
         if (lu <= 3) return lu / 10;
         return qDiagramm1(lu, maxLUVal);
       }
-      const qKwLU = _qMed(luKw, maxLU.kw||3);
-      const qWwLU = _qMed(luWw, maxLU.ww||3);
-      const qNdLU = _qMed(luNd, maxLU.nd||5);
+      const qKwLU = _qMed(luKw, maxLU.kw||3, unitsPerMed.kw, (specialSums.kw||0)+(dauerSums.kw||0));
+      const qWwLU = _qMed(luWw, maxLU.ww||3, unitsPerMed.ww, (specialSums.ww||0)+(dauerSums.ww||0));
+      const qNdLU = _qMed(luNd, maxLU.nd||5, unitsPerMed.nd, (specialSums.nd||0)+(dauerSums.nd||0));
 
       // Totals per medium (LU + special + dauer)
       const media = {};
@@ -1358,9 +1361,12 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
 
       // Curve info
       const x = luTotal / 10;
-      const direct = (luTotal > 0 && luTotal <= 3) ? luTotal/10 : null;
+      const singleAppliance = (totalUnits === 1 && !anyOther);
+      const direct = (luTotal > 0 && (luTotal <= 3 || singleAppliance)) ? luTotal/10 : null;
       const useA = ((maxLU.kw||3) <= 3) || (x > 15);
-      const curve = direct !== null ? "Direkt (LU/10)" : (useA ? "Kurve A" : "Kurve B");
+      const curve = direct !== null
+        ? (singleAppliance && luTotal > 3 ? "Direkt (1 Apparat, LU/10)" : "Direkt (LU/10)")
+        : (useA ? "Kurve A" : "Kurve B");
 
       return { devCount, totalUnits, luTotal, luWw, luKw, luNd, media, qKwTotal, qWwTotal, qHausanschluss, qSumAll, curve, maxSingleLU, specialSums, dauerSums };
     }

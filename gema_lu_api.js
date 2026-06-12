@@ -230,24 +230,8 @@
     var deviceLU = _getDeviceLU(state);
     var maxLU = (state.maxLU && state.maxLU[med]) || _defaultMaxLU(med);
 
-    // 1. LU-basierter Flow (nur für kw, ww, nd)
-    var luFlow = 0;
-    if (med === 'kw' || med === 'ww' || med === 'nd') {
-      var totalLU = 0;
-      (state.devices || []).forEach(function(r) {
-        if (!r.deviceName) return;
-        var qty = Math.max(0, Number(r.qty) || 0);
-        if (qty <= 0) return;
-        var d = deviceLU[r.deviceName];
-        if (!d) return;
-        if (med === 'kw') totalLU += d.lu_kw * qty;
-        else if (med === 'ww') totalLU += d.lu_ww * qty;
-        else if (med === 'nd') totalLU += d.lu_nd * qty;
-      });
-      luFlow = _qDiagramm1(totalLU, maxLU);
-    }
-
-    // 2. Spezial-Flow
+    // 1. Spezial-Flow (vor dem LU-Flow — die Einzelapparat-Regel
+    //    braucht die Information, ob weitere Verbraucher existieren)
     var specialFlow = 0;
     (state.special || []).forEach(function(r) {
       if ((r.medium || 'kw') !== med) return;
@@ -256,7 +240,7 @@
       specialFlow += flow * qty;
     });
 
-    // 3. Dauer-Flow
+    // 2. Dauer-Flow
     var dauerFlow = 0;
     (state.dauer || []).forEach(function(r) {
       if ((r.medium || 'kw') !== med) return;
@@ -264,6 +248,30 @@
       var flow = Math.max(0, Number(r.flow) || 0);
       dauerFlow += flow * qty;
     });
+
+    // 3. LU-basierter Flow (nur für kw, ww, nd)
+    var luFlow = 0;
+    if (med === 'kw' || med === 'ww' || med === 'nd') {
+      var totalLU = 0;
+      var units = 0; // Apparate-Stueckzahl in diesem Medium
+      (state.devices || []).forEach(function(r) {
+        if (!r.deviceName) return;
+        var qty = Math.max(0, Number(r.qty) || 0);
+        if (qty <= 0) return;
+        var d = deviceLU[r.deviceName];
+        if (!d) return;
+        var lu = (med === 'kw') ? d.lu_kw : (med === 'ww') ? d.lu_ww : d.lu_nd;
+        if (lu > 0) { totalLU += lu * qty; units += qty; }
+      });
+      // Einzelapparat-Regel (W3, identisch _qMed in sb_lu_tabelle.html):
+      // genau 1 Apparat im Medium ohne weitere Verbraucher → direkt LU/10
+      // (gilt auch fuer 5-LU-Apparate).
+      if (units === 1 && specialFlow <= 0 && dauerFlow <= 0) {
+        luFlow = totalLU / 10;
+      } else {
+        luFlow = _qDiagramm1(totalLU, maxLU);
+      }
+    }
 
     return luFlow + specialFlow + dauerFlow;
   }
