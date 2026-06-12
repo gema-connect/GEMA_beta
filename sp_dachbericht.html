@@ -489,12 +489,15 @@ function getTemplates(){
   if(org && org.spengler_templates){
     // Merge mit Defaults — wenn Org-Templates fehlen, Defaults nehmen
     var t = org.spengler_templates;
+    // Defaults greifen nur, wenn die Org-Liste FEHLT (nie gespeichert).
+    // Eine bewusst geleerte Liste ([]) bleibt leer — vorher kamen die
+    // Default-Eintraege nach dem Loeschen des letzten Eintrags wieder.
     return {
-      dachtypen: (t.dachtypen && t.dachtypen.length) ? t.dachtypen : DEFAULT_TEMPLATES.dachtypen,
-      ziegelarten: (t.ziegelarten && t.ziegelarten.length) ? t.ziegelarten : DEFAULT_TEMPLATES.ziegelarten,
-      seitenBezeichnungen: (t.seitenBezeichnungen && t.seitenBezeichnungen.length) ? t.seitenBezeichnungen : DEFAULT_TEMPLATES.seitenBezeichnungen,
-      unterkapitelTypen: (t.unterkapitelTypen && t.unterkapitelTypen.length) ? t.unterkapitelTypen : DEFAULT_TEMPLATES.unterkapitelTypen,
-      checklisteItems: (t.checklisteItems && t.checklisteItems.length) ? t.checklisteItems : DEFAULT_TEMPLATES.checklisteItems
+      dachtypen: Array.isArray(t.dachtypen) ? t.dachtypen : DEFAULT_TEMPLATES.dachtypen,
+      ziegelarten: Array.isArray(t.ziegelarten) ? t.ziegelarten : DEFAULT_TEMPLATES.ziegelarten,
+      seitenBezeichnungen: Array.isArray(t.seitenBezeichnungen) ? t.seitenBezeichnungen : DEFAULT_TEMPLATES.seitenBezeichnungen,
+      unterkapitelTypen: Array.isArray(t.unterkapitelTypen) ? t.unterkapitelTypen : DEFAULT_TEMPLATES.unterkapitelTypen,
+      checklisteItems: Array.isArray(t.checklisteItems) ? t.checklisteItems : DEFAULT_TEMPLATES.checklisteItems
     };
   }
   return DEFAULT_TEMPLATES;
@@ -503,8 +506,7 @@ function saveTemplatesToOrg(tpl){
   var org=_getOrg(); if(!org) return false;
   try {
     if(typeof GemaAuth !== 'undefined' && GemaAuth.updateOrg){
-      GemaAuth.updateOrg(org.id, { spengler_templates: tpl });
-      return true;
+      return !!GemaAuth.updateOrg(org.id, { spengler_templates: tpl });
     }
     // Fallback: direkt in localStorage gema_orgs_v1
     var raw = localStorage.getItem('gema_orgs_v1');
@@ -525,6 +527,11 @@ var _data = []; // Aktuelle Berichte (im Speicher)
 // Wendet Migration + Org-Filter auf ein Roh-Array an und setzt _data.
 function _setData(arr){
   arr = Array.isArray(arr) ? arr.slice() : [];
+  // Schutz: Record-IDs fliessen ungeescaped in onclick-Attribute der
+  // Render-Funktionen. Legitime IDs (uid()) sind [A-Za-z0-9_-]; Records
+  // mit manipulierter ID (Quote/Tag in der ID, via Cloud eingeschleust)
+  // werden verworfen statt auf allen Geraeten der Org gerendert.
+  arr = arr.filter(function(r){ return r && typeof r.id === 'string' && /^[A-Za-z0-9_-]+$/.test(r.id); });
   // Migration alter Datensaetze (bildGross -> bilder mit hauptbild)
   arr.forEach(_migrateBilder);
   // Org-Filter
@@ -737,7 +744,20 @@ function _persistNow(){
 // Admins halten in _data ohnehin schon alle Orgs (loadAll filtert nicht).
 function _fullSetForPersist(){
   var u = _getUser();
-  if(!u || (u.roleIds && u.roleIds.includes('role_admin'))) return _data;
+  if(!u || (u.roleIds && u.roleIds.includes('role_admin'))){
+    // Admin haelt alle Orgs in _data — aber auch hier koennen Records
+    // existieren, die ein uebersprungener Refresh nur in den Cache
+    // geschrieben hat (siehe unten). Diese erhalten, sonst loescht der
+    // Diff sie aus der Cloud.
+    var cacheA = [];
+    if(typeof window.GemaSync !== 'undefined' && window.GemaSync.getCached){
+      try { cacheA = window.GemaSync.getCached(STORAGE_KEY) || []; } catch(e){ cacheA = []; }
+    }
+    var haveA = {};
+    _data.forEach(function(r){ if(r && r.id != null) haveA[r.id] = true; });
+    var keepA = cacheA.filter(function(r){ return r && !haveA[r.id] && !_deletedIds[r.id]; });
+    return keepA.concat(_data);
+  }
   // Fremde Orgs aus dem zuletzt synchronisierten Cloud-Satz erhalten.
   // WICHTIG: ueber GemaSync.getCached (In-Memory-Spiegel), NICHT direkt
   // aus localStorage — der Cache kann bei bildlastigen Berichten am Quota
@@ -750,8 +770,21 @@ function _fullSetForPersist(){
   } else {
     try { cache = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); } catch(e){ cache = []; }
   }
-  var others = cache.filter(function(r){ return r && r.orgId && r.orgId !== u.orgId; });
-  return others.concat(_data);
+  var have = {};
+  _data.forEach(function(r){ if(r && r.id != null) have[r.id] = true; });
+  // K2: Erhalten werden (a) fremde Orgs IMMER und (b) Same-Org-Records,
+  // die in der Baseline stehen aber (noch) nicht in _data — z.B. ein von
+  // einem Kollegen frisch angelegter Bericht, den ein wegen _savePending
+  // uebersprungener Refresh nur in den Cache geschrieben hat. Ohne (b)
+  // wuerde der Diff diesen Record als geloescht interpretieren und aus
+  // der Cloud entfernen. Ausgenommen: explizit geloeschte (_deletedIds).
+  var keep = cache.filter(function(r){
+    if(!r || have[r.id]) return false;
+    var fremd = r.orgId && r.orgId !== u.orgId;
+    if(fremd) return true;
+    return !_deletedIds[r.id];
+  });
+  return keep.concat(_data);
 }
 function getById(id){ return _data.find(function(r){ return r.id === id; }); }
 
@@ -818,8 +851,13 @@ function upsert(rec){
   else _data.push(rec);
   scheduleSave();
 }
+// Explizit geloeschte Berichte (Tombstones): _fullSetForPersist darf
+// diese NICHT aus der Diff-Baseline zurueckholen — sonst waere Loeschen
+// unmoeglich, sobald der Same-Org-Erhalt (s.u.) greift.
+var _deletedIds = {};
 function removeById(id){
   _data = _data.filter(function(r){ return r.id !== id; });
+  _deletedIds[id] = true;
   scheduleSave(true); // Loeschen sofort speichern (User-Aktion erwartet Feedback)
 }
 
@@ -865,13 +903,25 @@ function _doSave(){
     }
   }).catch(function(e){
     _saveInFlight = false;
+    // WICHTIG (K1): pending wiederherstellen — _doSave hatte es vor dem
+    // persist() auf false gesetzt. Ohne Restore hielten flushSave/Unload-
+    // Save/Refresh-Guards die NICHT gespeicherten Aenderungen fuer
+    // gesichert: kein Retry beim Verlassen, und der naechste Cloud-
+    // Refresh haette die lokalen Edits mit dem alten Cloud-Stand
+    // ueberschrieben.
+    _savePending = true;
     console.warn('[Dachbericht] Save fehlgeschlagen:', e && e.message);
     _saveSetStatus('error');
+    // Automatischer Retry, falls kein anderer Trigger frueher kommt.
+    if(!_saveTimer) _saveTimer = setTimeout(_doSave, 10000);
   });
 }
 
 // Status-Indikator unten rechts (OneDrive-Style)
 function _saveSetStatus(state){
+  // Hide-Timer eines frueheren 'saved' canceln — sonst blendet er einen
+  // direkt danach gesetzten pending/error-Status nach <2s wieder aus.
+  if(_saveStatusHideTimer){ clearTimeout(_saveStatusHideTimer); _saveStatusHideTimer = null; }
   var el = document.getElementById('saveStatus');
   if(!el){
     el = document.createElement('div');
@@ -912,15 +962,24 @@ var _saveStatusHideTimer = null;
 // Berichte koennen das ueberschreiten; fuer diese Faelle greift der
 // Sofort-Save in closeDetail()/beim Anlegen, der laeuft bei lebender
 // Seite ohne Groessenlimit.
+var _unloadSaveAt = 0;
 function _flushSaveOnUnload(){
   if(!_savePending && !_saveInFlight) return;
+  // beforeunload UND pagehide feuern in Chrome beide — nur einmal senden.
+  var now = Date.now();
+  if(now - _unloadSaveAt < 2000) return;
+  _unloadSaveAt = now;
   try {
     if(typeof window.GemaSync !== 'undefined' && window.GemaSync.persistCollection){
       var _baseU = window.GemaSync.getCached ? window.GemaSync.getCached(STORAGE_KEY) : null;
       var _optU = { keepalive:true };
       if(Array.isArray(_baseU)) _optU.baseline = _baseU;
       window.GemaSync.persistCollection(MODULE_KEY, STORAGE_KEY, PREFIX, 'id', _fullSetForPersist(), _optU);
-      _savePending = false;
+      // _savePending bewusst NICHT zuruecksetzen: keepalive hat ein
+      // ~64KB-Body-Limit — bei bildlastigen Berichten kann der Request
+      // scheitern. Lebt die Seite doch weiter (bfcache-Restore auf iOS,
+      // abgebrochene Navigation), triggert der pending-Status den
+      // naechsten regulaeren Save statt faelschlich 'gespeichert' zu melden.
     } else {
       _doSave();
     }
@@ -1067,7 +1126,23 @@ function dbOpenEdit(id){
   // Werte des bestehenden Berichts setzen (nach populate, damit das
   // selected Element existiert)
   var objSel = document.getElementById('f_objekt');
-  if(objSel && r.objektId) objSel.value = r.objektId;
+  if(objSel && r.objektId){
+    objSel.value = r.objektId;
+    // Archiviertes Objekt fehlt im Dropdown (getAll = nur aktive) ->
+    // als Option ergaenzen, sonst blockt die Pflichtfeld-Validierung
+    // das Bearbeiten des Berichts ('Bitte ein Objekt waehlen').
+    if(objSel.value !== r.objektId && typeof GemaObjekte !== 'undefined'){
+      try {
+        var poolE = (GemaObjekte.getAllUnfiltered ? GemaObjekte.getAllUnfiltered() : []) || [];
+        var oE = poolE.find(function(x){ return x.id === r.objektId; });
+        var optE = document.createElement('option');
+        optE.value = r.objektId;
+        optE.textContent = (oE && oE.name ? oE.name : r.objektId) + ' (archiviert)';
+        objSel.appendChild(optE);
+        objSel.value = r.objektId;
+      } catch(e){}
+    }
+  }
   var sbSel = document.getElementById('f_sachbearbeiter');
   if(sbSel && r.erstelltVon && r.erstelltVon.userId) sbSel.value = r.erstelltVon.userId;
   // Modal-Titel + Save-Button anpassen
@@ -1855,6 +1930,8 @@ function _imgDragStart(ev, rid, scope, kid, ukid, idx){
 }
 function _imgDragEnd(ev){
   if(ev.currentTarget && ev.currentTarget.classList) ev.currentTarget.classList.remove('im-dragging');
+  // Abgebrochener Drag (ESC/ausserhalb): Drop-Ziel-Markierungen entfernen
+  try { document.querySelectorAll('.im-dragover').forEach(function(el){ el.classList.remove('im-dragover'); }); } catch(e){}
 }
 function _imgItemEnter(ev){ var it = ev.target.closest ? ev.target.closest('.imgrid-item') : null; if(it && _imgDrag) it.classList.add('im-dragover'); }
 function _imgItemLeave(ev){ var it = ev.target.closest ? ev.target.closest('.imgrid-item') : null; if(it) it.classList.remove('im-dragover'); }
@@ -1903,10 +1980,18 @@ function _imgGridDrop(ev, rid, scope, kid, ukid){
   _imgDrag = null;
 }
 function delGridImage(rid, scope, kid, ukid, idx){
-  var r = getById(rid); if(!r) return;
-  var arr = _resolveBilderArray(r, scope, kid, ukid); if(!arr) return;
-  arr.splice(idx, 1);
-  upsert(r); renderDetail(r);
+  GemaDialog.confirm({
+    title: 'Foto entfernen',
+    message: 'Dieses Foto wirklich aus dem Bericht entfernen?',
+    confirmLabel: 'Entfernen',
+    danger: true
+  }).then(function(ok){
+    if(!ok) return;
+    var r = getById(rid); if(!r) return;
+    var arr = _resolveBilderArray(r, scope, kid, ukid); if(!arr) return;
+    arr.splice(idx, 1);
+    upsert(r); renderDetail(r);
+  });
 }
 function setGridImageCap(rid, scope, kid, ukid, idx, val){
   var r = getById(rid); if(!r) return;
@@ -2064,18 +2149,21 @@ function exportPdf(id){
   }
   var org = _getOrg();
   var user = _getUser();
-  var objektName = '', objektAdresse = '';
+  var objName = '', objektAdresse = '';
   if(r.objektId && typeof GemaObjekte !== 'undefined'){
-    var o = (GemaObjekte.getAll()||[]).find(function(x){return x.id===r.objektId;});
+    // getAllUnfiltered: auch archivierte Objekte aufloesen — sonst hat
+    // das PDF eines Berichts mit archiviertem Objekt leeren Namen/Adresse.
+    var pool = (GemaObjekte.getAllUnfiltered ? GemaObjekte.getAllUnfiltered() : GemaObjekte.getAll()) || [];
+    var o = pool.find(function(x){return x.id===r.objektId;});
     if(o){
-      objektName = o.name || '';
+      objName = o.name || '';
       var parts = [o.strasse, (o.plz?o.plz+' ':'')+(o.ort||'')].filter(Boolean);
       objektAdresse = parts.join(', ');
     }
   }
   window.GemaDachberichtPDF.exportPrint(r, {
     org: org, user: user,
-    objektName: objektName, objektAdresse: objektAdresse,
+    objektName: objName, objektAdresse: objektAdresse,
     templates: getTemplates()
   });
 }
@@ -2110,6 +2198,11 @@ function _dachStorageSelftest(){
   var dataUrl = c.toDataURL('image/jpeg', 0.9);
   window.GemaStorage.uploadDataUrl(dataUrl, 'dach/_selftest').then(function(res){
     if(btn) btn.disabled = false;
+    // Session-Backoff aufheben: ein frueherer (z.B. transienter) Upload-
+    // Fehler hatte _spStorageDisabled gesetzt — nach erfolgreichem Test
+    // laufen neue Fotos wieder ueber Storage statt in den Shrink-Fallback.
+    _spStorageDisabled = false;
+    _spStorageOkOnce = true;
     show('✓ Bucket funktioniert', '#16a34a');
     GemaDialog.alert({ title:'✓ Storage funktioniert', message:'Der Bucket «gema-fotos» ist aktiv und beschreibbar. Neue Fotos werden ab jetzt in voller Qualität dorthin ausgelagert.\n\nTest-URL: ' + (res && res.url ? res.url : '—') });
   }).catch(function(e){
@@ -2122,7 +2215,7 @@ window._dachStorageSelftest = _dachStorageSelftest;
 
 function openTemplatesModal(){
   var u = _getUser();
-  if(!u || (u.roleIds.indexOf('role_admin')<0 && !(typeof GemaAuth!=='undefined' && GemaAuth.isOrgAdmin && GemaAuth.isOrgAdmin(u.id)))){
+  if(!u || !u.roleIds || (u.roleIds.indexOf('role_admin')<0 && !(typeof GemaAuth!=='undefined' && GemaAuth.isOrgAdmin && GemaAuth.isOrgAdmin(u.id)))){
     GemaDialog.alert({title:'Nur Admins', message:'Vorlagen können nur von Org-Admins angepasst werden.'});
     return;
   }
@@ -2352,19 +2445,30 @@ function refreshFromCloud(opts){
     }
     var n = (arr || []).length;
     try { console.info('[Dachbericht] Cloud-Refresh: ' + n + ' Berichte geladen'); } catch(e){}
+    // Snapshot des offenen Berichts VOR dem Uebernehmen des Cloud-Stands —
+    // damit wir nur bei echter Aenderung neu rendern (M7).
+    var detailOpen = !document.getElementById('detailOverlay').classList.contains('hidden');
+    var openId = detailOpen ? _currentDetailId : null;
+    var openBefore = null;
+    if(openId){ try { openBefore = JSON.stringify(getById(openId) || null); } catch(e){} }
     // Frisches Cloud-Array direkt verwenden — NICHT loadAll() (Cache kann
     // wegen localStorage-Quota veraltet/unvollstaendig sein).
     loadFromCloudArr(arr);
     // Re-render: wenn Detail offen, dann nur Dashboard nicht ueberschreiben
-    var detailOpen = !document.getElementById('detailOverlay').classList.contains('hidden');
     if(!detailOpen) renderDashboard();
     else {
-      // Detail-Ansicht ggf. neu rendern wenn der aktuelle Bericht
-      // in der Cloud aktualisiert wurde
-      var openId = _currentDetailId;
+      // Detail nur neu rendern, wenn sich der Bericht WIRKLICH geaendert
+      // hat und der User nicht gerade in einem Feld tippt — sonst gehen
+      // Fokus/Caret/Scroll bei jedem 60s-Poll verloren.
       if(openId){
         var r = getById(openId);
-        if(r) renderDetail(r);
+        var after = null;
+        try { after = JSON.stringify(r || null); } catch(e){}
+        var ae = document.activeElement;
+        var ovl = document.getElementById('detailOverlay');
+        var editing = ae && ovl && ovl.contains(ae) &&
+          (ae.tagName === 'TEXTAREA' || ae.tagName === 'INPUT' || ae.tagName === 'SELECT' || ae.isContentEditable);
+        if(r && after !== openBefore && !editing) renderDetail(r);
       }
       renderDashboard();
     }
