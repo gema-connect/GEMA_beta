@@ -26,12 +26,14 @@ Integriert: **W3 Diagramm 1** (Spitzenvolumenstrom nach SVGW W3) — ist Teil de
 
 Jeder Verbraucher in der LU hat ein zugeordnetes Medium:
 
-| Medium | Leitungsnetz | Zielmodule |
-|--------|-------------|------------|
-| **Trinkwasser (kalt)** | Trinkwassernetz | Druckerhöhung (l/s) |
-| **Enthärtetes Wasser** | Trinkwassernetz | Enthärtungsanlage (l/s + Härtegrade) |
-| **Osmosewasser** | Trinkwassernetz | Osmoseberechnung (l/s) → Enthärtungsanlage (Permeat + Konzentrat) |
-| **Regenwasser** | Separates Leitungsnetz | Eigene Pumpe/Druckerhöhung (l/s) |
+| Medium | LU-Medium-ID | Leitungsnetz | Zielmodule |
+|--------|--------------|-------------|------------|
+| **Trinkwasser (kalt)** | `kw` (Alias `trinkwasser`) | Trinkwassernetz | Druckerhöhung (l/s) |
+| **Enthärtetes Wasser** | `bw` (Alias `enthaertet`) | Trinkwassernetz | Enthärtungsanlage (l/s + Härtegrade) — Apparate die NUR enthärtetes Wasser brauchen |
+| **Enthärtetes Wasser für Osmose** | `ow` (Alias `osmose`) | Trinkwassernetz | Osmoseberechnung (l/s) → Enthärtungsanlage (Permeat + Konzentrat) |
+| **Regenwasser** | `gw` (Alias `regenwasser`) | Separates Leitungsnetz | Eigene Pumpe/Druckerhöhung (l/s) |
+
+**Fachliche Regel (Doppelzählungs-Schutz):** Osmosewasser wird IMMER vorenthärtet — der `ow`-Volumenstrom ist automatisch auch Enthärtungs-Volumenstrom, fliesst aber **nur über das Osmose-Ergebnis** (Permeat + Konzentrat via `GemaOsmose.getResults`) in die Enthärtungsanlage, nie direkt. `bw` und `ow` sind getrennte LU-Medien: `GemaLU.getByMedium(objektId,'enthaertet')` liefert nur bw-Verbraucher, `getByMedium(objektId,'osmose')` nur ow-Verbraucher. Früher zeigten beide Aliase auf dasselbe Medium → derselbe Bedarf zählte in der Enthärtung doppelt.
 
 ### Datenfluss-Diagramm
 
