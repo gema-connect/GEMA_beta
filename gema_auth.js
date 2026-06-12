@@ -1256,6 +1256,23 @@
       return w.GemaAuth.saveUsers(users);
     },
 
+    // Eindeutige Verknuepfung eingeloggter User -> Lieferant-Datensatz
+    // (GemaProdukte-Lieferant-ID). Loest die fragile Heuristik
+    // (E-Mail/Org/Firma) ab; das Dashboard self-healt beim ersten
+    // Heuristik-Treffer. userId optional (Default: aktueller User).
+    linkUserToLieferant:function(lieferantId, userId){
+      if(!lieferantId) return false;
+      var users=_getUsers()||[];
+      var uid=userId;
+      if(!uid){ var cu=w.GemaAuth.getCurrentUser(); uid=cu&&cu.id; }
+      if(!uid) return false;
+      var idx=users.findIndex(function(u){return u.id===uid;});
+      if(idx<0) return false;
+      if(users[idx].lieferantId===lieferantId) return true;
+      users[idx].lieferantId=lieferantId;
+      return w.GemaAuth.saveUsers(users);
+    },
+
     // ── Werkzeug-Mandate ──
     // Mandat = Beziehung zwischen Unternehmer-Firma und Lieferant/Prüfer
     // {id, unternehmerOrgId, unternehmerFirma, lieferantUserId, lieferantFirma,

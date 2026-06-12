@@ -399,6 +399,15 @@ function _liefIsAdmin(){ return _liefHas('role_admin')||_liefHas('role_lieferant
 function _liefCanEditProdukte(){ return _liefIsAdmin()||_liefHas('role_lieferant_produkte'); }
 function _liefCanVerify(){ return _liefIsAdmin()||_liefHas('role_lieferant_verify'); }
 function _liefCanOfferten(){ return _liefIsAdmin()||_liefHas('role_lieferant_offerten'); }
+// Deaktivierter Lieferant darf nichts mehr aendern (nur lesen). Banner
+// allein reichte nicht — die Schreib-Aktionen waren nicht blockiert.
+function _liefBlockedInaktiv(){
+  if(_lief && _lief.status==='inaktiv'){
+    toast('Dieser Lieferant ist deaktiviert — keine Änderungen möglich.','error');
+    return true;
+  }
+  return false;
+}
 
 function E(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');}
 function toast(msg,type){var d=document.createElement('div');d.style.cssText='padding:10px 18px;border-radius:10px;font-size:13px;font-weight:700;color:#fff;box-shadow:0 4px 12px rgba(0,0,0,.15);'+(type==='error'?'background:#dc2626':'background:#059669');d.textContent=msg;document.getElementById('toasts').appendChild(d);setTimeout(function(){d.remove()},3000);}
@@ -411,12 +420,26 @@ function findMyLieferant(){
   if(typeof GemaAuth!=='undefined'){
     var u = GemaAuth.getCurrentUser();
     if(u){
-      // Try matching by orgId or email
-      var match = all.find(function(l){ return l.email === u.email; }) ||
+      // 1. EXPLIZITE Verknuepfung (zuverlaessig, abloesend fuer die
+      //    fragile Heuristik). Wird beim ersten Heuristik-Treffer gesetzt.
+      if(u.lieferantId){
+        var byId = all.find(function(l){ return l.id === u.lieferantId; });
+        if(byId) return byId;
+      }
+      // 2. Heuristik (Altdaten / erstes Login): E-Mail -> Org -> Firma
+      var match = all.find(function(l){ return l.email && u.email && l.email === u.email; }) ||
                   all.find(function(l){ return l.orgId === u.orgId && l.orgId !== 'org_default'; }) ||
                   all.find(function(l){ return l.firma && u.firma && l.firma === u.firma; });
-      if(match) return match;
-      // Admin sees first lieferant as demo
+      if(match){
+        // Self-Healing: Verknuepfung dauerhaft speichern — aber nur fuer
+        // echte Lieferanten-User (nicht Pruefer/Admin-Betrachter).
+        var isLiefUser = u.roleIds && u.roleIds.some(function(r){ return typeof r==='string' && r.indexOf('role_lieferant')===0; });
+        if(isLiefUser && !u.lieferantId && GemaAuth.linkUserToLieferant){
+          try{ GemaAuth.linkUserToLieferant(match.id); }catch(e){}
+        }
+        return match;
+      }
+      // 3. Admin sieht den ersten Lieferanten als Demo (NICHT verknuepfen)
       if(GemaAuth.isAdmin() && all.length) return all[0];
     }
   }
@@ -762,6 +785,7 @@ function renderPeWorkflow(){
 }
 
 function saveProd(){
+  if(_liefBlockedInaktiv()) return;
   if(!_liefCanEditProdukte()){ toast('Keine Berechtigung zum Bearbeiten von Produkten.','error'); return; }
   var katId = document.getElementById('peKat').value;
   var serie = document.getElementById('peSerie').value.trim();
@@ -798,6 +822,7 @@ function saveProd(){
 
 function verifyProd(){
   if(!_editProd) return;
+  if(_liefBlockedInaktiv()) return;
   if(!_liefCanVerify()){ toast('Keine Berechtigung zum Verifizieren.','error'); return; }
   var cb = document.getElementById('peVfyCb');
   if(!cb||!cb.checked){ toast('Bitte Checkbox bestätigen.','error'); return; }
@@ -912,6 +937,7 @@ function oaProduktChanged(){
 
 function sendOaAnswer(){
   if(!_answerOaId) return;
+  if(_liefBlockedInaktiv()) return;
   var msg = document.getElementById('oaAnswerMsg').value.trim();
   var preis = parseFloat((document.getElementById('oaAnswerPreis').value||'').replace(/'/g,'')) || 0;
   if(!msg && !preis){ toast('Bitte Preis oder Antwort-Text eingeben.','error'); return; }
@@ -1206,7 +1232,12 @@ function renderLiefUsers(){
   if(!users.length){el.innerHTML='<div style="padding:20px;color:var(--mut);font-size:13px;text-align:center">Keine Mitarbeiter.</div>';return;}
   var roles=[];try{roles=GemaAuth.getRoles()||[];}catch(e){}
   var me=null;try{me=GemaAuth.getCurrentUser();}catch(e){}
-  var canManage=false;try{canManage=(me&&me.roleIds&&me.roleIds.indexOf('role_admin')>=0)||(GemaAuth.isOrgAdmin&&GemaAuth.isOrgAdmin(me.id));}catch(e){}
+  // Org-Admin nur fuer DIESE Lieferanten-Org (vorher: irgendeine Org).
+  var canManage=false;try{
+    var globalAdmin = me&&me.roleIds&&me.roleIds.indexOf('role_admin')>=0;
+    var sameOrgAdmin = GemaAuth.isOrgAdmin && GemaAuth.isOrgAdmin(me.id) && me.orgId && _lief && me.orgId===_lief.orgId;
+    canManage = !!(globalAdmin || sameOrgAdmin);
+  }catch(e){}
   var invBtn=document.getElementById('liefInviteBtn');if(invBtn)invBtn.style.display=canManage?'':'none';
   el.innerHTML=users.map(function(u){
     var rNames=(u.roleIds||[]).map(function(rid){var r=roles.find(function(x){return x.id===rid;});return r?r.name:'';}).filter(Boolean).join(', ');
@@ -1228,8 +1259,18 @@ function _liefInviteUser(){
     var result=GemaAuth.inviteLieferant({email:email,firma:_lief.firma,person:name||'',orgId:_lief.orgId,eingeladenVon:(GemaAuth.getCurrentUser()||{}).name||''});
     var users=GemaAuth.getUsers()||[];
     var u=users.find(function(x){return x.id===result.user.id;});
-    if(u){u.orgId=_lief.orgId;u.roleIds=['role_lieferant'];GemaAuth.saveUsers(users);}
-    toast('✉ Einladung gesendet');
+    if(u){
+      u.orgId=_lief.orgId;
+      // Explizite Verknuepfung zum selben Lieferanten-Datensatz.
+      u.lieferantId=_lief.id;
+      // Least Privilege: neuer Mitarbeiter startet schreibgeschuetzt
+      // (Intern/nur Lesen). Der Admin weist danach ueber die Rollen-
+      // Bearbeitung die passende Unterrolle zu — frueher bekam jeder Neue
+      // role_lieferant (Vollzugang), was das Rollenmodell aushebelte.
+      u.roleIds=['role_lieferant_intern'];
+      GemaAuth.saveUsers(users);
+    }
+    toast('✉ Einladung gesendet — Rolle über 🔑 Rollen zuweisen');
     renderLiefUsers();
   }catch(e){alert('Fehler: '+e.message);}
 }
@@ -1314,6 +1355,8 @@ function _toggleLiefKat(katId){
 
 function saveProfil(){
   if(!_lief) return;
+  if(!_liefIsAdmin()){ toast('Nur Lieferant-Admin darf das Firmenprofil ändern.','error'); return; }
+  if(_liefBlockedInaktiv()) return;
   var selKats=[];
   if(typeof GemaProdukte!=='undefined'&&GemaProdukte.LIEF_KATEGORIEN){selKats=_lief.lieferantKategorien||[];}
   GemaProdukte.updateLieferant(_lief.id, {
