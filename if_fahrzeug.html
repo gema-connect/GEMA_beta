@@ -638,16 +638,8 @@ tbody td.mono{font-family:var(--mono);font-weight:500;}
 
       <div class="form-section fz-opt" data-opt="tankkarte">
         <div class="form-section-title">Tankkarte</div>
-        <div class="form-grid">
-          <div class="field">
-            <label class="label">Tankkarte Nr.</label>
-            <input class="inp" id="fFuelCard" placeholder="z. B. TC-4521"/>
-          </div>
-          <div class="field">
-            <label class="label">Tanknetz / Anbieter</label>
-            <input class="inp" id="fFuelNetwork" placeholder="z. B. Migrol, Shell, Avia"/>
-          </div>
-        </div>
+        <div id="fTankkartenList"></div>
+        <button type="button" class="btn" id="fAddTankkarteBtn" onclick="_fzAddTankkarte()" style="margin-top:4px;padding:7px 12px;font-size:12.5px;font-weight:700;border:1.5px dashed var(--border2,#cdd4e4);background:none;color:var(--primary,#2563eb);border-radius:8px;cursor:pointer;font-family:inherit">+ Tankkarte hinzufügen</button>
       </div>
 
       <div class="form-section fz-opt" data-opt="reifen">
@@ -949,6 +941,63 @@ function showToast(msg){
 /* ═══════════════════════════════
    MODAL
    ═══════════════════════════════ */
+// ── Tankkarten (mehrere pro Fahrzeug) ──────────────────────────
+function _fzAttr(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+// Liefert das Tankkarten-Array eines Fahrzeugs; migriert die alte
+// Einzel-Tankkarte (v.fuelCard/v.fuelNetwork) automatisch.
+function _fzTankkartenFromVehicle(v){
+  var arr = Array.isArray(v && v.tankkarten) ? v.tankkarten.slice() : [];
+  if(!arr.length && v && (v.fuelCard || v.fuelNetwork)){
+    arr.push({ nr: v.fuelCard||'', netz: v.fuelNetwork||'' });
+  }
+  return arr;
+}
+function _fzTankkarteRowHtml(t){
+  t = t || {};
+  return '<div class="fz-tk-row form-grid" style="align-items:end">'
+    + '<div class="field"><label class="label">Tankkarte Nr.</label>'
+    +   '<input class="inp fz-tk-nr" placeholder="z. B. TC-4521" value="'+_fzAttr(t.nr)+'"/></div>'
+    + '<div class="field"><label class="label">Tanknetz / Anbieter</label>'
+    +   '<div style="display:flex;gap:6px;align-items:center">'
+    +     '<input class="inp fz-tk-netz" placeholder="z. B. Migrol, Shell, Avia" value="'+_fzAttr(t.netz)+'"/>'
+    +     '<button type="button" onclick="_fzRemoveTankkarte(this)" title="Tankkarte entfernen" style="flex-shrink:0;width:34px;height:34px;border:1.5px solid #fecaca;background:#fef2f2;color:#dc2626;border-radius:8px;cursor:pointer;font-size:14px;font-weight:700;font-family:inherit">✕</button>'
+    +   '</div></div>'
+    + '</div>';
+}
+function _fzRenderTankkarten(arr){
+  var box = document.getElementById('fTankkartenList');
+  if(!box) return;
+  if(!arr || !arr.length) arr = [{nr:'',netz:''}]; // immer mind. eine Zeile
+  box.innerHTML = arr.map(function(t){ return _fzTankkarteRowHtml(t); }).join('');
+}
+function _fzAddTankkarte(){
+  var box = document.getElementById('fTankkartenList'); if(!box) return;
+  var tmp = document.createElement('div');
+  tmp.innerHTML = _fzTankkarteRowHtml({});
+  var row = tmp.firstChild;
+  box.appendChild(row);
+  var inp = row.querySelector('.fz-tk-nr'); if(inp) inp.focus();
+}
+window._fzAddTankkarte = _fzAddTankkarte;
+function _fzRemoveTankkarte(btn){
+  var row = btn && btn.closest ? btn.closest('.fz-tk-row') : null;
+  if(row) row.remove();
+  var box = document.getElementById('fTankkartenList');
+  if(box && !box.children.length) _fzRenderTankkarten([]); // min. eine leere Zeile behalten
+}
+window._fzRemoveTankkarte = _fzRemoveTankkarte;
+function _fzCollectTankkarten(){
+  var box = document.getElementById('fTankkartenList');
+  var out = [];
+  if(!box) return out;
+  box.querySelectorAll('.fz-tk-row').forEach(function(row){
+    var nr = ((row.querySelector('.fz-tk-nr')||{}).value || '').trim();
+    var netz = ((row.querySelector('.fz-tk-netz')||{}).value || '').trim();
+    if(nr || netz) out.push({ nr: nr, netz: netz });
+  });
+  return out;
+}
+
 function openModal(id){
   if(id){
     // View/Edit — Garagist nur fuer ihm zugewiesene Fahrzeuge.
@@ -975,7 +1024,7 @@ function openModal(id){
     $f("fEquipment",v.equipment); $f("fKm",v.km); $f("fServiceKm",v.serviceKm);
     $f("fServiceMonths",v.serviceMonths); $f("fLastService",v.lastService);
     $f("fLastServiceKm",v.lastServiceKm); $f("fMfk",v.mfk);
-    $f("fGarage",v.garage); $f("fStellplatz",v.stellplatz); $f("fFuelCard",v.fuelCard); $f("fFuelNetwork",v.fuelNetwork);
+    $f("fGarage",v.garage); $f("fStellplatz",v.stellplatz); _fzRenderTankkarten(_fzTankkartenFromVehicle(v));
     $f("fTires",v.tires); $f("fTiresSeason",v.tiresSeason); $f("fTireStorage",v.tireStorage); $f("fTireChangeDate",v.tireChangeDate);
     if(v.kaufbeleg){$f("fBelegNr",v.kaufbeleg.rechnungsNr);$f("fBelegBetrag",v.kaufbeleg.betrag);$f("fBelegBestellNr",v.kaufbeleg.bestellNr);$f("fBelegLieferdatum",v.kaufbeleg.lieferdatum);}
     if(v.versicherung){
@@ -1009,6 +1058,7 @@ function openModal(id){
     const nums=vehicles.map(v=>{const m=v.nr.match(/(\d+)/);return m?parseInt(m[1]):0;});
     const next=nums.length?Math.max(...nums)+1:1;
     document.getElementById("fNr").value="FZG-"+String(next).padStart(3,"0");
+    _fzRenderTankkarten([]);
   }
   m.classList.add("open");
   document.body.classList.add('modal-open');
@@ -1041,6 +1091,7 @@ function saveVehicle(){
   const model=document.getElementById("fModel").value.trim();
   if(!nr||!plate||!model){ showToast("Bitte Nr., Kennzeichen und Marke/Modell ausfüllen."); return; }
 
+  const _tkSave=_fzCollectTankkarten();
   const data={
     nr, plate, model,
     year: document.getElementById("fYear").value||"",
@@ -1061,8 +1112,9 @@ function saveVehicle(){
     mfk: document.getElementById("fMfk").value,
     garage: _fzGetGarage(),
     stellplatz: (document.getElementById("fStellplatz")||{}).value||'',
-    fuelCard: document.getElementById("fFuelCard").value.trim(),
-    fuelNetwork: (document.getElementById("fFuelNetwork")||{}).value||'',
+    tankkarten: _tkSave,
+    fuelCard: (_tkSave[0]||{}).nr||'',
+    fuelNetwork: (_tkSave[0]||{}).netz||'',
     tires: document.getElementById("fTires").value.trim(),
     tiresSeason: (document.getElementById("fTiresSeason")||{}).value||'',
     tireStorage: (document.getElementById("fTireStorage")||{}).value||'',
@@ -2609,7 +2661,14 @@ function openViewFzg(id){
   html+=vmf('Service-Intervall',(v.serviceKm?parseInt(v.serviceKm).toLocaleString('de-CH')+' km':'—')+(v.serviceMonths?' / '+v.serviceMonths+' Mt.':''));
   html+=vmf('MFK gültig bis',fmtDate(v.mfk));
   html+=vmf('Garage',v.garage||'—');
-  if(!_fzIsGaragist())html+=vmf('Tankkarte',v.fuelCard||'—');
+  if(!_fzIsGaragist()){
+    var _tkList=_fzTankkartenFromVehicle(v).filter(function(t){return t&&(t.nr||t.netz);});
+    var _tkLabel=_tkList.length>1?'Tankkarten':'Tankkarte';
+    var _tkVal=_tkList.length
+      ? _tkList.map(function(t){ return esc(t.nr||'—')+(t.netz?' <span style="color:#64748b">('+esc(t.netz)+')</span>':''); }).join('<br>')
+      : '—';
+    html+='<div class="vm-field"><div class="vm-field-lbl">'+_tkLabel+'</div><div class="vm-field-val">'+_tkVal+'</div></div>';
+  }
   html+=vmf('Reifen',v.tires||'—');
   html+='</div>';
 
