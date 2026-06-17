@@ -640,10 +640,29 @@
   // F\u00fcgt automatisch ein SIA-Phase Dropdown in die .project-bar
   // jedes Berechnungsmoduls ein, falls vorhanden. Speichert Auswahl
   // im aktiven Objekt (objekt.aktivePhase) bzw. in sessionStorage.
+  // Stylt das injizierte SIA-Phase-<select> wie die .pf input-Felder der
+  // Berechnungsmodule. Hintergrund: die Module definieren '.pf input', aber
+  // KEIN '.pf select' — das injizierte Dropdown sah daher unformatiert
+  // (Browser-Default) neben den Eingabefeldern aus. Einmal pro Seite.
+  function _ensurePhaseStyle() {
+    if (document.getElementById('gema-phase-style')) return;
+    var st = document.createElement('style');
+    st.id = 'gema-phase-style';
+    st.textContent =
+      '.gema-phase-pf select{width:100%;border:1.5px solid var(--border2,#cdd4e4);border-radius:8px;outline:none;'
+      + 'font-size:13px;font-weight:600;color:var(--text,#0f172a);font-family:inherit;padding:7px 30px 7px 10px;'
+      + 'height:auto;line-height:1.3;cursor:pointer;-webkit-appearance:none;-moz-appearance:none;appearance:none;'
+      + 'background-color:var(--surface,#fff);'
+      + "background-image:url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E\");"
+      + 'background-repeat:no-repeat;background-position:right 10px center;background-size:11px;}'
+      + '.gema-phase-pf select:focus{border-color:var(--accent,var(--acc,#2563eb));box-shadow:0 0 0 2px rgba(37,99,235,.12);}';
+    (document.head || document.documentElement).appendChild(st);
+  }
   function _injectPhaseSelector() {
     try {
       var bar = document.querySelector('.project-bar');
       if (!bar || bar.querySelector('.gema-phase-pf')) return;
+      _ensurePhaseStyle();
       var pf = document.createElement('div');
       pf.className = 'pf gema-phase-pf';
       pf.style.minWidth = '170px';
