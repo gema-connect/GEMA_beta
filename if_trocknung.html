@@ -705,18 +705,36 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
       </div>
     </div>
     <div class="modal-body">
-      <div class="qr-wrap" id="qrCanvas"></div>
-      <div class="qr-info" id="qrInfo"></div>
-      <!-- Footer-Buttons im Body (Werkzeugmanagement-Muster): kurze Labels
-           + flex:1 1 80px pro Button -> brechen auf Mobile sauber um,
-           statt mit langen Labels in der modal-ft zu kollidieren. -->
-      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px">
-        <button class="mft-save" style="flex:1 1 80px;justify-content:center;padding:8px 10px;font-size:12px;background:#1d4ed8" onclick="downloadQRSVG()">⬇ SVG</button>
-        <button class="mft-save" style="flex:1 1 80px;justify-content:center;padding:8px 10px;font-size:12px" onclick="downloadQR()">⬇ PNG</button>
-        <button id="tgNfcBtn" onclick="_tgWriteNFC()" style="display:none;flex:1 1 80px;padding:8px 10px;border-radius:8px;border:1.5px solid #bfdbfe;background:#eff6ff;color:#1d4ed8;font-size:12px;font-weight:800;cursor:pointer;justify-content:center;align-items:center;gap:5px;font-family:inherit">📡 NFC</button>
-        <button id="tgNfcLockBtn" onclick="_tgMakeNFCReadOnly()" title="NFC-Tag dauerhaft schreibgeschützt machen — irreversibel" style="display:none;flex:1 1 80px;padding:8px 10px;border-radius:8px;border:1.5px solid #fecaca;background:#fef2f2;color:#b91c1c;font-size:12px;font-weight:800;cursor:pointer;justify-content:center;align-items:center;gap:5px;font-family:inherit">🔒 Sperren</button>
+      <!-- Umschalter: reiner QR-Code vs. Etikette (49x23mm) -->
+      <div class="view-toggle" id="qrModeToggle" style="margin:0 auto 14px;width:max-content">
+        <button class="vt-btn active" id="qm_qr" onclick="setQrMode('qr')" style="font-size:12.5px;font-weight:700;padding:7px 18px;width:auto">QR-Code</button>
+        <button class="vt-btn" id="qm_label" onclick="setQrMode('label')" style="font-size:12.5px;font-weight:700;padding:7px 18px;width:auto">Etikette</button>
       </div>
-      <div id="tgNfcStatus" style="text-align:center;font-size:11px;color:#6b7280;margin-top:8px"></div>
+
+      <!-- Ansicht: reiner QR-Code -->
+      <div id="qrViewQr">
+        <div class="qr-wrap" id="qrCanvas"></div>
+        <div class="qr-info" id="qrInfo"></div>
+        <!-- Footer-Buttons im Body (Werkzeugmanagement-Muster): kurze Labels
+             + flex:1 1 80px pro Button -> brechen auf Mobile sauber um,
+             statt mit langen Labels in der modal-ft zu kollidieren. -->
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px">
+          <button class="mft-save" style="flex:1 1 80px;justify-content:center;padding:8px 10px;font-size:12px;background:#1d4ed8" onclick="downloadQRSVG()">⬇ SVG</button>
+          <button class="mft-save" style="flex:1 1 80px;justify-content:center;padding:8px 10px;font-size:12px" onclick="downloadQR()">⬇ PNG</button>
+          <button id="tgNfcBtn" onclick="_tgWriteNFC()" style="display:none;flex:1 1 80px;padding:8px 10px;border-radius:8px;border:1.5px solid #bfdbfe;background:#eff6ff;color:#1d4ed8;font-size:12px;font-weight:800;cursor:pointer;justify-content:center;align-items:center;gap:5px;font-family:inherit">📡 NFC</button>
+          <button id="tgNfcLockBtn" onclick="_tgMakeNFCReadOnly()" title="NFC-Tag dauerhaft schreibgeschützt machen — irreversibel" style="display:none;flex:1 1 80px;padding:8px 10px;border-radius:8px;border:1.5px solid #fecaca;background:#fef2f2;color:#b91c1c;font-size:12px;font-weight:800;cursor:pointer;justify-content:center;align-items:center;gap:5px;font-family:inherit">🔒 Sperren</button>
+        </div>
+        <div id="tgNfcStatus" style="text-align:center;font-size:11px;color:#6b7280;margin-top:8px"></div>
+      </div>
+
+      <!-- Ansicht: Etikette (49 x 23 mm Querformat) -->
+      <div id="qrViewLabel" style="display:none">
+        <div style="display:flex;justify-content:center;padding:6px 0 4px">
+          <div id="qrLabelPreview"></div>
+        </div>
+        <div style="text-align:center;font-size:11px;color:#6b7280;margin-bottom:12px">Etikette 49 × 23 mm · Querformat</div>
+        <button class="mft-save" style="width:100%;justify-content:center;padding:9px 10px;font-size:12.5px" onclick="downloadEtikettePDF()">⬇ Etikette als PDF</button>
+      </div>
     </div>
   </div>
 </div>
@@ -2296,10 +2314,15 @@ function dmField(label, value, cls) {
 // ──────────────────────────────────────
 var _currentQRInstance = null;
 var _currentTgNfcUrl = '';
+var _currentQRDevice = null;
+// Etikette-Geometrie (mm) — gemeinsam fuer Vorschau + PDF
+var _TG_ETIK = { LW: 49, LH: 23, PAD: 1.6, GAP: 1.4 };
+var _tgMeasDoc = null;
 
 window.openQR = function(id) {
   var d = devices.find(function(x) { return x.id === id; });
   if (!d) return;
+  _currentQRDevice = d;
   var typ = GERAETE_TYPEN[d.typ] || GERAETE_TYPEN.bautrockner;
   setText('qrTitle', d.name);
   var url = location.href.split('?')[0] + '?id=' + id;
@@ -2322,7 +2345,143 @@ window.openQR = function(id) {
   var ns = document.getElementById('tgNfcStatus');
   if (ns) ns.textContent = '';
   document.getElementById('qrModal').classList.remove('hidden');
+  setQrMode('qr');
   lockScroll();
+};
+
+// ── Etikette (49x23mm Querformat) ────────────────────────────────
+// Liefert die QR-Grafik als PNG-DataURL aus dem gerenderten Canvas.
+function _tgGetQrDataUrl() {
+  var box = document.getElementById('qrCanvas');
+  if (!box) return '';
+  var cv = box.querySelector('canvas');
+  if (cv) { try { return cv.toDataURL('image/png'); } catch (e) {} }
+  var img = box.querySelector('img');
+  if (img && img.src) return img.src;
+  return '';
+}
+
+// Breite von text bei 10pt (mm). jsPDF wenn verfuegbar, sonst Schaetzung.
+function _tgEtiketteW10(text) {
+  if (window.jspdf && window.jspdf.jsPDF) {
+    if (!_tgMeasDoc) _tgMeasDoc = new window.jspdf.jsPDF({ unit: 'mm', format: [_TG_ETIK.LW, _TG_ETIK.LH], orientation: 'landscape' });
+    _tgMeasDoc.setFont('helvetica', 'bold');
+    _tgMeasDoc.setFontSize(10);
+    return _tgMeasDoc.getTextWidth(text) || 0.01;
+  }
+  return Math.max(String(text).length * 10 * 0.3528 * 0.55, 0.01); // Schaetzung @10pt
+}
+
+// Wort-Umbruch auf maxW (mm) bei fontPt.
+function _tgWrapText(text, maxW, fontPt) {
+  var words = String(text).split(/\s+/), lines = [], cur = '';
+  function wOf(s) { return _tgEtiketteW10(s) * fontPt / 10; }
+  for (var i = 0; i < words.length; i++) {
+    var t = cur ? cur + ' ' + words[i] : words[i];
+    if (wOf(t) <= maxW || !cur) { cur = t; } else { lines.push(cur); cur = words[i]; }
+  }
+  if (cur) lines.push(cur);
+  return lines.length ? lines : [''];
+}
+
+// Entscheidet Layout A (QR links, Text rechts) vs. B (Text laengs oben, QR darunter).
+function _tgComputeEtikette(text) {
+  var C = _TG_ETIK, LW = C.LW, LH = C.LH, PAD = C.PAD, GAP = C.GAP;
+  text = String(text == null ? '' : text).trim() || '—';
+  var w10 = _tgEtiketteW10(text);
+  // Layout A: QR links ueber volle Hoehe, Text rechts daneben (eine Zeile)
+  var qrA = LH - 2 * PAD;
+  var textX = PAD + qrA + GAP;
+  var textW = LW - textX - PAD;
+  var fitA = Math.min(10 * textW / w10, 15); // pt, das die Spalte fuellt (gedeckelt)
+  if (fitA >= 8) {
+    return { layout: 'A', font: fitA, qr: qrA, qrX: PAD, qrY: PAD, textX: textX, textW: textW, LW: LW, LH: LH, PAD: PAD, text: text };
+  }
+  // Layout B: Text laengs oben (volle Breite), QR zentriert darunter (kleiner)
+  var fullW = LW - 2 * PAD;
+  var fontB = Math.min(Math.max(10 * fullW / w10, 6), 12);
+  var lines = _tgWrapText(text, fullW, fontB);
+  if (lines.length > 2) { fontB = Math.max(fontB * 2 / lines.length, 5.5); lines = _tgWrapText(text, fullW, fontB); }
+  var lineH = fontB * 0.3528 * 1.18; // mm pro Zeile
+  var textBlockH = lines.length * lineH;
+  var gap2 = 1.0;
+  var qrB = Math.max(Math.min(LH - 2 * PAD - textBlockH - gap2, fullW), 6);
+  return { layout: 'B', font: fontB, lines: lines, lineH: lineH, textBlockH: textBlockH, qr: qrB, gap2: gap2, LW: LW, LH: LH, PAD: PAD, text: text };
+}
+
+function _tgEtiketteText(d) {
+  if (!d) return '—';
+  return (d.internKennung && d.internKennung.trim()) ? d.internKennung.trim() : (d.name || '—');
+}
+
+function _tgBuildEtikettePreview() {
+  var box = document.getElementById('qrLabelPreview');
+  if (!box) return;
+  var d = _currentQRDevice;
+  if (!d) { box.innerHTML = ''; return; }
+  var text = _tgEtiketteText(d);
+  var qrData = _tgGetQrDataUrl();
+  var spec = _tgComputeEtikette(text);
+  var PX = 6.4; // px pro mm (Vorschau-Massstab)
+  var W = spec.LW * PX, H = spec.LH * PX;
+  var fontPx = spec.font * 0.3528 * PX; // pt -> mm -> px (proportional zum Layout)
+  var html = '';
+  if (spec.layout === 'A') {
+    html += '<img alt="QR" src="' + qrData + '" style="position:absolute;left:' + (spec.qrX * PX) + 'px;top:' + (spec.qrY * PX) + 'px;width:' + (spec.qr * PX) + 'px;height:' + (spec.qr * PX) + 'px;image-rendering:pixelated"/>';
+    html += '<div style="position:absolute;left:' + (spec.textX * PX) + 'px;top:0;width:' + (spec.textW * PX) + 'px;height:' + H + 'px;display:flex;align-items:center;justify-content:center;text-align:center;font-weight:700;font-size:' + fontPx + 'px;line-height:1.05;color:#111827;overflow:hidden;white-space:nowrap">' + esc(spec.text) + '</div>';
+  } else {
+    html += '<div style="position:absolute;left:' + (spec.PAD * PX) + 'px;top:' + (spec.PAD * PX) + 'px;width:' + ((spec.LW - 2 * spec.PAD) * PX) + 'px;text-align:center;font-weight:700;font-size:' + fontPx + 'px;line-height:1.18;color:#111827">' + spec.lines.map(esc).join('<br>') + '</div>';
+    var qrX = (spec.LW - spec.qr) / 2, qrY = spec.PAD + spec.textBlockH + spec.gap2;
+    html += '<img alt="QR" src="' + qrData + '" style="position:absolute;left:' + (qrX * PX) + 'px;top:' + (qrY * PX) + 'px;width:' + (spec.qr * PX) + 'px;height:' + (spec.qr * PX) + 'px;image-rendering:pixelated"/>';
+  }
+  box.style.cssText = 'position:relative;width:' + W + 'px;height:' + H + 'px;background:#fff;border:1px solid #cbd5e1;border-radius:4px;box-shadow:0 2px 10px rgba(15,23,42,.14);overflow:hidden;font-family:Helvetica,Arial,sans-serif';
+  box.innerHTML = html;
+}
+
+window.setQrMode = function(mode) {
+  var qv = document.getElementById('qrViewQr'), lv = document.getElementById('qrViewLabel');
+  var bq = document.getElementById('qm_qr'), bl = document.getElementById('qm_label');
+  if (!qv || !lv) return;
+  if (mode === 'label') {
+    qv.style.display = 'none'; lv.style.display = '';
+    if (bq) bq.classList.remove('active');
+    if (bl) bl.classList.add('active');
+    _tgBuildEtikettePreview(); // sofort (ggf. Schaetzung)
+    _tgEnsureJsPDF().then(function() { _tgBuildEtikettePreview(); }); // praezisieren
+  } else {
+    qv.style.display = ''; lv.style.display = 'none';
+    if (bl) bl.classList.remove('active');
+    if (bq) bq.classList.add('active');
+  }
+};
+
+window.downloadEtikettePDF = function() {
+  _tgEnsureJsPDF().then(function() {
+    if (!(window.jspdf && window.jspdf.jsPDF)) { alert('PDF-Bibliothek nicht verfügbar.'); return; }
+    var d = _currentQRDevice;
+    if (!d) return;
+    var text = _tgEtiketteText(d);
+    var qrData = _tgGetQrDataUrl();
+    if (!qrData) { alert('QR-Code nicht verfügbar.'); return; }
+    var spec = _tgComputeEtikette(text);
+    var jsPDF = window.jspdf.jsPDF;
+    var doc = new jsPDF({ unit: 'mm', format: [spec.LW, spec.LH], orientation: 'landscape' });
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(17, 24, 39);
+    if (spec.layout === 'A') {
+      doc.addImage(qrData, 'PNG', spec.qrX, spec.qrY, spec.qr, spec.qr);
+      doc.setFontSize(spec.font);
+      doc.text(text, spec.textX + spec.textW / 2, spec.LH / 2, { align: 'center', baseline: 'middle' });
+    } else {
+      doc.setFontSize(spec.font);
+      var first = spec.PAD + spec.font * 0.3528 * 0.92;
+      spec.lines.forEach(function(ln, i) { doc.text(ln, spec.LW / 2, first + i * spec.lineH, { align: 'center' }); });
+      var qrX = (spec.LW - spec.qr) / 2, qrY = spec.PAD + spec.textBlockH + spec.gap2;
+      doc.addImage(qrData, 'PNG', qrX, qrY, spec.qr, spec.qr);
+    }
+    var slug = String(text || 'Etikette').replace(/[^\w\-]+/g, '_').replace(/^_+|_+$/g, '') || 'Etikette';
+    doc.save('Etikette_' + slug + '.pdf');
+  });
 };
 
 window._tgWriteNFC = async function() {
