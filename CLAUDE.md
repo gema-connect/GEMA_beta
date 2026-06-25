@@ -611,6 +611,7 @@ Storage-Key: `gema_werkzeug` via `_GemaDB`. Felder pro Werkzeug:
 | Feld | Zweck |
 |------|------|
 | `id`, `name`, `cat`, `brand`, `model`, `bought`, `warranty`, `serial`, `notes` | Stammdaten |
+| `internKennung` | Eigene betriebsinterne Bezeichnung/Nummerierung (optional, z.B. «WZ-014»). Badge (Karte/Tabelle/Detail), QR-Info, Volltextsuche, Etiketten-Beschriftung |
 | `supplier`, `supplierId` | Lieferant/Grosshändler (Freitext + verknüpfte Lieferant-ID aus GemaAuth) |
 | `kaufbeleg:{rechnungsNr,betrag,bestellNr,lieferdatum,datei:{name,type,dataUrl}}` | Kaufbeleg mit optionalem Datei-Upload (Base64, max 2 MB) |
 | `hasService`/`serviceInterval`/`lastService` | Wartungsintervall (Monate) + letzter Service |
@@ -620,6 +621,14 @@ Storage-Key: `gema_werkzeug` via `_GemaDB`. Felder pro Werkzeug:
 | `berichte:[{id,typ,datum,autorUserId,autorName,titel,beschreibung,...}]` | Defekt- und Prüfberichte als Historie |
 | `pruefAnfrage:{lieferantId,lieferantFirma,wunschtermin,bemerkung,angefordertAm,angefordertVon,status}` | Aktive Prüfungs-Anfrage an einen Lieferanten |
 | `ersatzAnfragen:[{id,lieferantId,lieferantFirma,typ,nachricht,status,erstelltAm,...}]` | Ersatz-/Nachfolger-Anfragen an Lieferanten |
+
+### QR-Code & Etiketten (if_werkzeug.html)
+
+Werkzeug hat **dasselbe Etiketten-System wie das Trocknungs-Modul** (siehe Abschnitt «Etiketten-System (komplett)» unter Trocknungsgeräte für die vollständige Logik) — portiert mit `_wz`-Prefix:
+- QR-Dialog mit Umschalter **«QR-Code | Etikette»** (`setQrMode`); `_wzCurrentQRTool` wird in `openQR` gesetzt. QR-URL = `?scan=<id>`.
+- Etikette **49×23mm Querformat**, festes Layout (QR rechts über volle Höhe, links Logo oben + interne Bezeichnung darunter). Beschriftung = `internKennung || name`. Logo = `org.logo` (via `GemaAuth.getCurrentOrg()`), sonst GEMA-Fallback, für jsPDF zu PNG gerastert. Helper analog Trocknung: `_wzComputeEtikette`, `_wzDrawEtikette`, `_wzEnsureLabelLogo`, `_wzBuildEtikettePreview`, `_wzFitText`, `_wzGetQrDataUrl`/`_wzRenderQrDataUrl`, jsPDF via `_wzEnsureJsPDF`.
+- **Einzel-Export**: `downloadEtikettePDF()` → `Etikette_<slug>.pdf`.
+- **Sammelexport (Mehrfachauswahl)**: integriert in den **bestehenden** Bulk-Modus (`_wzToggleBulkMode`, `_wzBulkSelected`). Die Bulk-Leiste (`_wzRenderBulkBar`) hat für **Magaziner/Admin** (`_wzCanBulkLabel()`) zusätzlich **«☑ Alle markieren»** (`_wzBulkSelectAllVisible` — alle aktuell gefilterten via `_wzLastFilteredIds`, toggelt zu «☐ Auswahl aufheben») und **«🏷 Etiketten»** (`_wzExportEtikettenBulk` → ein PDF mit je einer 49×23mm-Seite pro markiertem Werkzeug, `Etiketten_<N>_Stueck.pdf`). Status/Person-zuweisen bleiben wie gehabt für alle Editoren. Manuelle Checkbox-Auswahl pro Werkzeug ist Karten-Ansicht; «Alle markieren» + Export funktionieren filterbasiert auch in der Tabellenansicht.
 
 ### Berechtigungs-Helper (if_werkzeug.html)
 
