@@ -1072,14 +1072,69 @@ Storage-Key: `gema_trocknung_v1`
 1. **Einsetzen**: Schadensprojekt auswählen (aus `gema_schadensbericht_v1`, nur aktive Fälle), Raum/Zone, Zählerstand Start → Status wechselt auf `im_einsatz`
 2. **Zurücknehmen**: Zählerstand Ende eingeben → Auto-Berechnung kWh = (Ende − Start) × kW → Einsatz wird in `einsatzHistorie` verschoben → Status zurück auf `verfuegbar`
 
-### QR-Code & Etiketten
+### QR-Code
 
-- QR-Generierung pro Gerät als SVG (inline QR-Library)
+- QR-Generierung pro Gerät als SVG (inline QR-Library, `correctLevel M`, 190×190)
 - SVG-Download + PNG-Download
 - URL: `if_trocknung.html?id=DEVICE_ID` — öffnet automatisch Detail
-- **Interne Kennung** (`d.internKennung`): eigene betriebsinterne Bezeichnung/Nummerierung pro Gerät, optional. Sichtbar als Badge (Karte/Tabelle/Detail), in QR-Info und PDF; in die Volltextsuche aufgenommen.
-- **Etiketten-Modus** im QR-Dialog (Umschalter «QR-Code | Etikette»): druckfertige Etikette **49 × 23 mm Querformat** als PDF (jsPDF, mm-genau) mit Live-Vorschau. Layout: QR rechts über die volle Höhe, links die interne Bezeichnung (Fallback: Gerätename) mit dem **Firmenlogo** darüber (`org.logo`, sonst eingebettetes GEMA-Logo, für jsPDF zu PNG gerastert). Text wird automatisch eingepasst (bis 2 Zeilen). Helper: `_tgComputeEtikette(text, logo)` (festes Layout-Spec), `_tgDrawEtikette(doc, spec, qrData, logo)` (zeichnet eine Etikette, geteilt von Einzel- + Sammelexport), `_tgEnsureLabelLogo()` (rastert Logo + cached).
-- **Etiketten-Sammelexport** (nur Magaziner/Admin via `_tgCanBulkLabel()` = `_tgCanSeeActLog()`): In der Übersicht (Karten + Tabelle) lassen sich mehrere Geräte per Checkbox markieren. Mehrfachauswahl-Leiste mit «☑ Alle markieren» (markiert alle aktuell **gefilterten** Geräte via `_tgLastFilteredIds`), «Auswahl leeren», Zähler und «🏷 Etiketten als PDF». Export = ein PDF mit je einer 49×23mm-Seite pro markiertem Gerät (`exportEtikettenBulk`, QR offscreen via `_tgRenderQrDataUrl`). Auswahl-State in `_tgSelected` (id→true).
+- QR-Dialog mit Umschalter **«QR-Code | Etikette»** (`setQrMode('qr'|'label')`) — schaltet zwischen `#qrViewQr` (Canvas + Info + SVG/PNG/NFC) und `#qrViewLabel` (Etiketten-Vorschau + PDF) um. Beim Öffnen via `openQR(id)` wird `_currentQRDevice` gesetzt und immer auf den QR-Modus zurückgestellt.
+
+### Interne Kennung (`d.internKennung`)
+
+Eigene betriebsinterne Bezeichnung/Nummerierung pro Gerät (z.B. «TR-07»), **optional**. Erfassbar im Geräte-Dialog (`#f_intern`). Sichtbar als 🏷-Badge auf Karte, hinter dem Namen in der Tabelle, als Zeile in der Detail-Ansicht, in der QR-Info und im Inventar-PDF; in die Volltextsuche (`renderList`-Haystack) aufgenommen. Lazy — alte Geräte ohne Feld zeigen «—».
+
+### Etiketten-System (komplett)
+
+Druckfertige Geräte-Etikette **49 × 23 mm Querformat** als PDF (jsPDF, mm-genau, eine Seite pro Etikette). Erreichbar als Einzel-Etikette im QR-Dialog und als Sammelexport aus der Übersicht.
+
+**Format & Geometrie** — `_TG_ETIK = {LW:49, LH:23, PAD:1.6, GAP:1.4}` (mm). Festes Layout (keine A/B-Varianten mehr):
+- **QR-Code rechts** über die volle Höhe: `qr = LH−2·PAD = 19.8mm`, Position `qrX = LW−PAD−qr = 27.6`, `qrY = PAD = 1.6`.
+- **Linke Spalte** (`colX = PAD = 1.6`, `colW = qrX−GAP−PAD = 24.6mm`, Höhe `colH = 19.8`):
+  - **Logo oben**, Band-Höhe `min(8, colH·0.46) = 8mm`. Logo wird seitenverhältnistreu in das Band eingepasst (höhen- oder breitenbegrenzt je nach `ratio`), links­bündig, vertikal zentriert.
+  - **Bezeichnung darunter** (Gap 1mm): vertikal+horizontal zentriert, automatisch eingepasst (`_tgFitText`, max 12pt, min 5.5pt, **bis 2 Zeilen** Wortumbruch). Ohne Logo bekommt der Text die volle Spaltenhöhe.
+
+**Beschriftung** — `_tgEtiketteText(d)` = `d.internKennung` (getrimmt) wenn gesetzt, sonst **Fallback auf den Gerätenamen** `d.name`.
+
+**Firmenlogo** — `_tgLabelLogoSrc()` = `org.logo` der eingeloggten Org (Base64-DataURL via `GemaAuth.getCurrentUser()`+`getOrgs()`), sonst eingebettetes **GEMA-Logo** (`_TG_GEMA_LOGO_DATAURL`, URL-encoded SVG der Nav-Wortmarke in Navy `#0f172a`). jsPDF kann kein SVG einbetten → `_tgRasterizeImage(src)` lädt die Quelle in ein `Image`, zeichnet sie auf ein Canvas (600px lange Kante) und liefert `{dataUrl(PNG), ratio}`. `_tgEnsureLabelLogo()` cached das Ergebnis pro Quelle (`_tgLogoCache`).
+
+**Live-Vorschau** — `_tgBuildEtikettePreview()` rendert dasselbe Layout als HTML in `#qrLabelPreview` (Massstab `PX = 6.4 px/mm`), inkl. Logo-`<img>` und QR-`<img>`. Async (wartet auf Logo); bricht ab, wenn das Gerät inzwischen gewechselt hat.
+
+**Layout-Konsistenz** — Vorschau und PDF nutzen exakt dasselbe Spec aus `_tgComputeEtikette(text, logo)`. Textbreiten-Messung via `_tgEtiketteW10(text)` (jsPDF `getTextWidth` bei 10pt, mit Zeichen-Schätzung als Fallback, solange jsPDF noch nicht geladen ist), Wortumbruch via `_tgWrapText(text, maxW, fontPt)`.
+
+**QR-Quelle** — Einzel: `_tgGetQrDataUrl()` liest das gerenderte Modal-Canvas (`#qrCanvas`) als PNG. Sammel: `_tgRenderQrDataUrl(url)` rendert pro Gerät einen QR offscreen und liefert die PNG-DataURL.
+
+**Zeichenkern** — `_tgDrawEtikette(doc, spec, qrData, logo)` zeichnet **eine** Etikette auf die aktuelle jsPDF-Seite (QR + Logo + vertikal zentrierter Text). Wird von Einzel- **und** Sammelexport geteilt.
+
+**Helper-Übersicht:**
+
+| Helper | Zweck |
+|--------|------|
+| `_TG_ETIK` | Geometrie-Konstanten (mm) |
+| `_TG_GEMA_LOGO_SVG` / `_TG_GEMA_LOGO_DATAURL` | GEMA-Fallback-Logo (SVG → DataURL) |
+| `_tgGetOrgLogoSrc()` | `org.logo` der eigenen Org oder `''` |
+| `_tgLabelLogoSrc()` | `org.logo` || GEMA-Fallback |
+| `_tgRasterizeImage(src)` | Bildquelle → `{dataUrl(PNG), ratio}` |
+| `_tgEnsureLabelLogo()` | Logo rastern + cachen (Promise) |
+| `_tgEtiketteW10(text)` | Textbreite @10pt (mm), jsPDF oder Schätzung |
+| `_tgWrapText(text, maxW, fontPt)` | Wortumbruch |
+| `_tgFitText(text, boxW, boxH, maxFont, minFont)` | Schrift einpassen, max 2 Zeilen → `{font, lines, lineH}` |
+| `_tgComputeEtikette(text, logo)` | Festes Layout-Spec (alle mm-Koordinaten) |
+| `_tgEtiketteText(d)` | interne Kennung || Gerätename |
+| `_tgGetQrDataUrl()` | Modal-Canvas → PNG |
+| `_tgRenderQrDataUrl(url)` | Offscreen-QR → PNG |
+| `_tgDrawEtikette(doc, spec, qrData, logo)` | Eine Etikette auf die aktuelle Seite zeichnen |
+| `_tgBuildEtikettePreview()` | HTML-Live-Vorschau |
+| `downloadEtikettePDF()` | Einzel-Export → `Etikette_<slug>.pdf` |
+
+**Einzel-Export** — `downloadEtikettePDF()` (Button im Etiketten-Modus): jsPDF `{unit:'mm', format:[49,23], orientation:'landscape'}`, eine Seite, Dateiname `Etikette_<slug>.pdf`.
+
+**Sammelexport (Mehrfachauswahl)** — nur **Magaziner + Admin** via `_tgCanBulkLabel()` (= `_tgCanSeeActLog()`):
+- **Checkboxen** auf jeder Karte (oben rechts, `.tg-sel-box`) und in jeder Tabellenzeile (zusätzliche erste Spalte, Header `#tgSelTh`) — nur im Auswahl-Modus gerendert.
+- **Auswahl-Leiste** `#tgSelBar` über der Liste (nur Magaziner/Admin): **«☑ Alle markieren»** (`tgSelectAllVisible` — markiert genau die aktuell **gefilterten/sichtbaren** Geräte aus `_tgLastFilteredIds`, toggelt zu «☐ Auswahl aufheben»), **«Auswahl leeren»** (`tgClearSel`), **Zähler** `#tgSelCount`, **«🏷 Etiketten als PDF»** (`exportEtikettenBulk`, deaktiviert bei 0).
+- **State**: `_tgSelected` (id→true), `_tgLastFilteredIds` (in `renderList` gesetzt). Toggle pro Checkbox: `tgToggleSel(id, checked, el)` (aktualisiert Set + Karten/Zeilen-Highlight `.tg-row-sel` + Leiste ohne Re-Render); Bulk-Aktionen rendern neu (`renderList`). `_tgUpdateSelBar()` aktualisiert Zähler/Buttons/Sichtbarkeit; `_tgSelectedIds()`/`_tgSelectedCount()` schneiden die Auswahl gegen vorhandene Geräte. Beim Löschen eines Geräts wird die ID aus `_tgSelected` entfernt.
+- **Export** = **ein** PDF mit **je einer 49×23mm-Seite pro markiertem Gerät** (erste Seite beim Erzeugen des Docs, weitere via `doc.addPage([49,23],'landscape')`), Dateiname `Etiketten_<N>_Stueck.pdf`.
+
+**jsPDF** wird lazy via `_tgEnsureJsPDF()` (CDN) geladen; Einzel-, Sammel- und Inventar-Export teilen sich diese Funktion.
 
 ### Cross-Module API (GemaTrocknung)
 
