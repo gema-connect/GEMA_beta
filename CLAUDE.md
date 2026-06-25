@@ -1072,11 +1072,14 @@ Storage-Key: `gema_trocknung_v1`
 1. **Einsetzen**: Schadensprojekt auswählen (aus `gema_schadensbericht_v1`, nur aktive Fälle), Raum/Zone, Zählerstand Start → Status wechselt auf `im_einsatz`
 2. **Zurücknehmen**: Zählerstand Ende eingeben → Auto-Berechnung kWh = (Ende − Start) × kW → Einsatz wird in `einsatzHistorie` verschoben → Status zurück auf `verfuegbar`
 
-### QR-Code
+### QR-Code & Etiketten
 
 - QR-Generierung pro Gerät als SVG (inline QR-Library)
 - SVG-Download + PNG-Download
 - URL: `if_trocknung.html?id=DEVICE_ID` — öffnet automatisch Detail
+- **Interne Kennung** (`d.internKennung`): eigene betriebsinterne Bezeichnung/Nummerierung pro Gerät, optional. Sichtbar als Badge (Karte/Tabelle/Detail), in QR-Info und PDF; in die Volltextsuche aufgenommen.
+- **Etiketten-Modus** im QR-Dialog (Umschalter «QR-Code | Etikette»): druckfertige Etikette **49 × 23 mm Querformat** als PDF (jsPDF, mm-genau) mit Live-Vorschau. Layout: QR rechts über die volle Höhe, links die interne Bezeichnung (Fallback: Gerätename) mit dem **Firmenlogo** darüber (`org.logo`, sonst eingebettetes GEMA-Logo, für jsPDF zu PNG gerastert). Text wird automatisch eingepasst (bis 2 Zeilen). Helper: `_tgComputeEtikette(text, logo)` (festes Layout-Spec), `_tgDrawEtikette(doc, spec, qrData, logo)` (zeichnet eine Etikette, geteilt von Einzel- + Sammelexport), `_tgEnsureLabelLogo()` (rastert Logo + cached).
+- **Etiketten-Sammelexport** (nur Magaziner/Admin via `_tgCanBulkLabel()` = `_tgCanSeeActLog()`): In der Übersicht (Karten + Tabelle) lassen sich mehrere Geräte per Checkbox markieren. Mehrfachauswahl-Leiste mit «☑ Alle markieren» (markiert alle aktuell **gefilterten** Geräte via `_tgLastFilteredIds`), «Auswahl leeren», Zähler und «🏷 Etiketten als PDF». Export = ein PDF mit je einer 49×23mm-Seite pro markiertem Gerät (`exportEtikettenBulk`, QR offscreen via `_tgRenderQrDataUrl`). Auswahl-State in `_tgSelected` (id→true).
 
 ### Cross-Module API (GemaTrocknung)
 

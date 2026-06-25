@@ -108,6 +108,13 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
 .status-bar.green{background:linear-gradient(90deg,var(--grn),#4ade80)}
 .status-bar.blue{background:linear-gradient(90deg,var(--blu),#60a5fa)}
 .status-bar.neutral{background:var(--brd2)}
+/* Mehrfachauswahl (Magaziner/Admin): Etiketten-Sammelexport */
+.tg-sel-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 14px;padding:10px 14px;background:var(--plan-bg,#fdf4ff);border:1.5px solid var(--plan-bd,#c4b5fd);border-radius:14px}
+.tg-sel-box{position:absolute;top:9px;right:9px;z-index:3;background:#fff;border-radius:7px;padding:3px;line-height:0;box-shadow:0 1px 4px rgba(15,23,42,.18)}
+.tg-sel-box input{width:18px;height:18px;cursor:pointer;accent-color:var(--plan,#7c3aed);margin:0}
+.tool-card.tg-row-sel{outline:2px solid var(--plan,#7c3aed);outline-offset:-2px}
+tr.tg-row-sel{background:var(--plan-bg2,#ede9fe)}
+.tg-tcell input{width:17px;height:17px;cursor:pointer;accent-color:var(--plan,#7c3aed);margin:0}
 .tc-head{padding:16px 18px 12px;display:flex;align-items:flex-start;gap:13px}
 .tc-icon{width:46px;height:46px;border-radius:13px;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;border:1px solid var(--brd)}
 .tc-info{flex:1;min-width:0}
@@ -482,10 +489,20 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
     </div>
   </div>
 
+  <!-- Mehrfachauswahl-Leiste (nur Magaziner/Admin) -->
+  <div class="tg-sel-bar" id="tgSelBar" style="display:none">
+    <button class="nbtn" id="tgSelAllBtn" onclick="tgSelectAllVisible()" style="background:#fff;border-color:var(--plan-bd,#c4b5fd);color:var(--plan-dk,#6d28d9)">☑ Alle markieren</button>
+    <button class="nbtn" id="tgSelClear" onclick="tgClearSel()" style="background:#fff;border-color:#cbd5e1">Auswahl leeren</button>
+    <span id="tgSelCount" style="font-weight:800;color:var(--plan-dk,#6d28d9);font-size:13px">0 markiert</span>
+    <span style="font-size:11.5px;color:#64748b">basierend auf aktuellem Filter</span>
+    <button class="nbtn primary" id="tgSelExport" onclick="exportEtikettenBulk()" style="margin-left:auto" title="Markierte Geräte als Etiketten-PDF (je eine 49×23mm-Seite)">🏷 Etiketten als PDF</button>
+  </div>
+
   <div class="card-grid" id="cardGrid"></div>
   <div class="table-wrap" id="tableWrap" style="display:none">
     <table class="tool-table">
       <thead><tr>
+        <th id="tgSelTh" style="display:none;width:36px"></th>
         <th>Bezeichnung</th><th>Typ</th><th>Marke / Modell</th>
         <th>kW</th><th>Status</th><th>Einsatz</th><th></th>
       </tr></thead>
@@ -1141,6 +1158,8 @@ window._tgSetupAutocomplete = _tgSetupAutocomplete;
 var devices = [];
 var currentView = 'cards';
 var statusFilter = 'all';
+var _tgSelected = {};          // id -> true (markierte Geraete fuer Etiketten-Sammelexport)
+var _tgLastFilteredIds = [];   // IDs der aktuell sichtbaren (gefilterten) Geraete
 var editId = null;
 var einsatzId = null;
 var returnId = null;
@@ -1183,6 +1202,9 @@ function _tgCanSeeActLog(){
   if (_tgIsAdmin()) return true;
   return !!(u.roleIds && u.roleIds.indexOf('role_magaziner') >= 0);
 }
+// Mehrfachauswahl + Etiketten-Sammelexport: nur Magaziner/Admin
+// (gleiche Gruppe wie der Aktivitaetenlog).
+function _tgCanBulkLabel(){ return _tgCanSeeActLog(); }
 function _tgActLog(aktion, beschreibung, d, details){
   try{
     if(typeof window.GemaActivityLog === 'undefined') return;
@@ -1396,8 +1418,10 @@ window.renderList = function() {
     return (a.name || '').localeCompare(b.name || '');
   });
 
+  _tgLastFilteredIds = filtered.map(function(d) { return d.id; });
   renderCards(filtered);
   renderTable(filtered);
+  _tgUpdateSelBar();
 };
 
 function renderCards(list) {
@@ -1409,13 +1433,18 @@ function renderCards(list) {
   }
   var canEdit = _tgCanEdit();
   var canReport = _tgCanReportDefect();
+  var selMode = _tgCanBulkLabel();
   var html = '';
   list.forEach(function(d) {
     var typ = GERAETE_TYPEN[d.typ] || GERAETE_TYPEN.bautrockner;
     var st = STATUS_MAP[d.status] || STATUS_MAP.verfuegbar;
     var hasOpenDefekt = _tgHasOpenDefekt(d);
     var berCount = (d.berichte && d.berichte.length) || 0;
-    html += '<div class="tool-card">';
+    var isSel = !!_tgSelected[d.id];
+    html += '<div class="tool-card' + (selMode && isSel ? ' tg-row-sel' : '') + '">';
+    if (selMode) {
+      html += '<label class="tg-sel-box" title="Für Etiketten-Export markieren" onclick="event.stopPropagation()"><input type="checkbox" ' + (isSel ? 'checked' : '') + ' onchange="tgToggleSel(\'' + d.id + '\',this.checked,this)"></label>';
+    }
     html += '<div class="status-bar ' + st.barClass + '"></div>';
     html += '<div class="tc-head">';
     html += '<div class="tc-icon ico-' + esc(d.typ) + '">' + typ.icon + '</div>';
@@ -1471,13 +1500,20 @@ function renderCards(list) {
 
 function renderTable(list) {
   var tbody = document.getElementById('tBody');
-  if (!list.length) { tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:32px;color:var(--mut)">Keine Geräte gefunden</td></tr>'; return; }
+  var selMode = _tgCanBulkLabel();
+  var selTh = document.getElementById('tgSelTh');
+  if (selTh) selTh.style.display = selMode ? '' : 'none';
+  if (!list.length) { tbody.innerHTML = '<tr><td colspan="' + (selMode ? 8 : 7) + '" style="text-align:center;padding:32px;color:var(--mut)">Keine Geräte gefunden</td></tr>'; return; }
   var canEdit = _tgCanEdit();
   var html = '';
   list.forEach(function(d) {
     var typ = GERAETE_TYPEN[d.typ] || GERAETE_TYPEN.bautrockner;
     var st = STATUS_MAP[d.status] || STATUS_MAP.verfuegbar;
-    html += '<tr>';
+    var isSel = !!_tgSelected[d.id];
+    html += '<tr' + (selMode && isSel ? ' class="tg-row-sel"' : '') + '>';
+    if (selMode) {
+      html += '<td class="tg-tcell"><input type="checkbox" ' + (isSel ? 'checked' : '') + ' onclick="event.stopPropagation()" onchange="tgToggleSel(\'' + d.id + '\',this.checked,this)"></td>';
+    }
     html += '<td style="font-weight:700">' + typ.icon + ' ' + esc(d.name) + (d.internKennung ? '<span style="font-weight:600;color:var(--mut);font-size:11.5px"> · 🏷 ' + esc(d.internKennung) + '</span>' : '') + '</td>';
     html += '<td>' + typ.label + '</td>';
     html += '<td>' + esc(d.marke || '—') + (d.modell ? ' · ' + esc(d.modell) : '') + '</td>';
@@ -1967,6 +2003,7 @@ window.deleteDevice = function(id) {
     if(!ok) return;
     var del = d;
     devices = devices.filter(function(x) { return x.id !== id; });
+    delete _tgSelected[id];
     saveAll();
     renderList();
     _tgActLog('geloescht','Gerät gelöscht', del);
@@ -2510,6 +2547,40 @@ window.setQrMode = function(mode) {
   }
 };
 
+// Zeichnet EINE Etikette auf die aktuelle jsPDF-Seite (gemeinsam fuer Einzel- + Sammelexport).
+function _tgDrawEtikette(doc, spec, qrData, logo) {
+  if (qrData) doc.addImage(qrData, 'PNG', spec.qrX, spec.qrY, spec.qr, spec.qr);
+  if (spec.logoBox && logo && logo.dataUrl) {
+    try { doc.addImage(logo.dataUrl, 'PNG', spec.logoBox.x, spec.logoBox.y, spec.logoBox.w, spec.logoBox.h); } catch (e) {}
+  }
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(17, 24, 39);
+  doc.setFontSize(spec.font);
+  var totalH = spec.lines.length * spec.lineH;
+  var topPad = Math.max((spec.textH - totalH) / 2, 0);
+  var cx = spec.colX + spec.colW / 2;
+  spec.lines.forEach(function(ln, i) {
+    var baseY = spec.textTop + topPad + i * spec.lineH + spec.lineH * 0.76;
+    doc.text(ln, cx, baseY, { align: 'center' });
+  });
+}
+
+// Rendert einen QR-Code offscreen und liefert die PNG-DataURL (fuer den Sammelexport).
+function _tgRenderQrDataUrl(url) {
+  var tmp = document.createElement('div');
+  tmp.style.cssText = 'position:absolute;left:-9999px;top:-9999px';
+  document.body.appendChild(tmp);
+  var dataUrl = '';
+  try {
+    new QRCode(tmp, { text: url, width: 190, height: 190, colorDark: '#111827', colorLight: '#ffffff', correctLevel: QRCode.CorrectLevel.M });
+    var cv = tmp.querySelector('canvas');
+    if (cv) { dataUrl = cv.toDataURL('image/png'); }
+    else { var img = tmp.querySelector('img'); if (img && img.src) dataUrl = img.src; }
+  } catch (e) {}
+  document.body.removeChild(tmp);
+  return dataUrl;
+}
+
 window.downloadEtikettePDF = function() {
   _tgEnsureJsPDF().then(function() {
     if (!(window.jspdf && window.jspdf.jsPDF)) { alert('PDF-Bibliothek nicht verfügbar.'); return; }
@@ -2522,25 +2593,78 @@ window.downloadEtikettePDF = function() {
       var spec = _tgComputeEtikette(text, logo);
       var jsPDF = window.jspdf.jsPDF;
       var doc = new jsPDF({ unit: 'mm', format: [spec.LW, spec.LH], orientation: 'landscape' });
-      // QR rechts
-      doc.addImage(qrData, 'PNG', spec.qrX, spec.qrY, spec.qr, spec.qr);
-      // Logo oben links
-      if (spec.logoBox && logo && logo.dataUrl) {
-        try { doc.addImage(logo.dataUrl, 'PNG', spec.logoBox.x, spec.logoBox.y, spec.logoBox.w, spec.logoBox.h); } catch (e) {}
-      }
-      // Bezeichnung darunter (links), vertikal zentriert in der Text-Box
-      doc.setFont('helvetica', 'bold');
-      doc.setTextColor(17, 24, 39);
-      doc.setFontSize(spec.font);
-      var totalH = spec.lines.length * spec.lineH;
-      var topPad = Math.max((spec.textH - totalH) / 2, 0);
-      var cx = spec.colX + spec.colW / 2;
-      spec.lines.forEach(function(ln, i) {
-        var baseY = spec.textTop + topPad + i * spec.lineH + spec.lineH * 0.76;
-        doc.text(ln, cx, baseY, { align: 'center' });
-      });
+      _tgDrawEtikette(doc, spec, qrData, logo);
       var slug = String(text || 'Etikette').replace(/[^\w\-]+/g, '_').replace(/^_+|_+$/g, '') || 'Etikette';
       doc.save('Etikette_' + slug + '.pdf');
+    });
+  });
+};
+
+// ── Mehrfachauswahl + Etiketten-Sammelexport (Magaziner/Admin) ───
+function _tgSelectedIds() {
+  return devices.filter(function(d) { return _tgSelected[d.id]; }).map(function(d) { return d.id; });
+}
+function _tgSelectedCount() { return _tgSelectedIds().length; }
+
+function _tgUpdateSelBar() {
+  var bar = document.getElementById('tgSelBar');
+  if (!bar) return;
+  var show = _tgCanBulkLabel();
+  bar.style.display = show ? '' : 'none';
+  if (!show) return;
+  var n = _tgSelectedCount();
+  var cnt = document.getElementById('tgSelCount');
+  if (cnt) cnt.textContent = n + ' markiert';
+  var exp = document.getElementById('tgSelExport');
+  if (exp) { exp.disabled = n === 0; exp.style.opacity = n === 0 ? '.5' : ''; exp.style.pointerEvents = n === 0 ? 'none' : ''; }
+  var ids = _tgLastFilteredIds || [];
+  var allSel = ids.length > 0 && ids.every(function(id) { return _tgSelected[id]; });
+  var sa = document.getElementById('tgSelAllBtn');
+  if (sa) sa.textContent = allSel ? '☐ Auswahl aufheben' : '☑ Alle markieren';
+}
+
+window.tgToggleSel = function(id, checked, el) {
+  if (checked) _tgSelected[id] = true; else delete _tgSelected[id];
+  var row = el && el.closest ? el.closest('.tool-card, tr') : null;
+  if (row) row.classList.toggle('tg-row-sel', !!checked);
+  _tgUpdateSelBar();
+};
+
+window.tgSelectAllVisible = function() {
+  if (!_tgCanBulkLabel()) return;
+  var ids = (_tgLastFilteredIds || []).slice();
+  var allSel = ids.length > 0 && ids.every(function(id) { return _tgSelected[id]; });
+  if (allSel) { ids.forEach(function(id) { delete _tgSelected[id]; }); }
+  else { ids.forEach(function(id) { _tgSelected[id] = true; }); }
+  renderList();
+};
+
+window.tgClearSel = function() { _tgSelected = {}; renderList(); };
+
+window.exportEtikettenBulk = function() {
+  if (!_tgCanBulkLabel()) return;
+  var ids = _tgSelectedIds();
+  if (!ids.length) { alert('Bitte zuerst Geräte markieren.'); return; }
+  _tgEnsureJsPDF().then(function() {
+    if (!(window.jspdf && window.jspdf.jsPDF)) { alert('PDF-Bibliothek nicht verfügbar.'); return; }
+    _tgEnsureLabelLogo().then(function(logo) {
+      var jsPDF = window.jspdf.jsPDF;
+      var base = location.href.split('?')[0];
+      var doc = null, made = 0;
+      ids.forEach(function(id) {
+        var d = devices.find(function(x) { return x.id === id; });
+        if (!d) return;
+        var text = _tgEtiketteText(d);
+        var qrData = _tgRenderQrDataUrl(base + '?id=' + id);
+        if (!qrData) return;
+        var spec = _tgComputeEtikette(text, logo);
+        if (!doc) { doc = new jsPDF({ unit: 'mm', format: [spec.LW, spec.LH], orientation: 'landscape' }); }
+        else { doc.addPage([spec.LW, spec.LH], 'landscape'); }
+        _tgDrawEtikette(doc, spec, qrData, logo);
+        made++;
+      });
+      if (!doc || !made) { alert('Keine Etiketten erzeugt.'); return; }
+      doc.save('Etiketten_' + made + '_Stueck.pdf');
     });
   });
 };
