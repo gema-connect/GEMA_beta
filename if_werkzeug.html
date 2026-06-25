@@ -570,6 +570,11 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
           <label>Bezeichnung <span class="req">*</span></label>
           <input type="text" id="f_name" placeholder="z.B. Winkelschleifer 125mm" autocomplete="off">
         </div>
+        <div class="fg">
+          <label>Interne Kennung</label>
+          <input type="text" id="f_intern" placeholder="z.B. WZ-014 oder eigene Bezeichnung" autocomplete="off">
+          <div class="hint">Eigene Nummerierung oder Bezeichnung deines Betriebs (optional) — erscheint auf der Etikette.</div>
+        </div>
         <div class="fg-row">
           <div class="fg" style="position:relative">
             <label>Hersteller</label>
@@ -804,18 +809,36 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
       <div><div class="mhd-title" id="qrTitle">QR-Code</div><div class="mhd-sub">Scannen → direkt zu diesem Gerät springen</div></div>
     </div>
     <div style="padding:20px 28px 24px">
-      <div class="qr-wrap"><div id="qrCanvas"></div></div>
-      <div class="qr-info" id="qrInfo"></div>
-      <div style="display:flex;gap:6px;flex-wrap:wrap">
-        <button class="mft-cancel" style="flex:1 1 80px;text-align:center;padding:8px 10px;font-size:12px" onclick="printQR()">🖨 Drucken</button>
-        <button class="mft-save" style="flex:1 1 80px;justify-content:center;padding:8px 10px;font-size:12px" onclick="downloadQR()">⬇ PNG</button>
-        <button class="mft-save" style="flex:1 1 80px;justify-content:center;padding:8px 10px;font-size:12px;background:#1d4ed8" onclick="downloadQRSVG()">⬇ SVG</button>
-        <button id="nfcBtn" onclick="_wzWriteNFC()" style="display:none;flex:1 1 80px;padding:8px 10px;border-radius:8px;border:1.5px solid #bfdbfe;background:#eff6ff;color:#1d4ed8;font-size:12px;font-weight:800;cursor:pointer;justify-content:center;align-items:center;gap:5px;font-family:inherit">
-          📡 NFC</button>
-        <button id="nfcLockBtn" onclick="_wzMakeNFCReadOnly()" title="NFC-Tag dauerhaft schreibgeschützt machen — irreversibel" style="display:none;flex:1 1 80px;padding:8px 10px;border-radius:8px;border:1.5px solid #fecaca;background:#fef2f2;color:#b91c1c;font-size:12px;font-weight:800;cursor:pointer;justify-content:center;align-items:center;gap:5px;font-family:inherit">
-          🔒 Sperren</button>
+      <!-- Umschalter: reiner QR-Code vs. Etikette (49x23mm) -->
+      <div class="view-toggle" id="qrModeToggle" style="margin:0 auto 14px;width:max-content">
+        <button class="vt-btn active" id="qm_qr" onclick="setQrMode('qr')" style="font-size:12.5px;font-weight:700;padding:7px 18px;width:auto">QR-Code</button>
+        <button class="vt-btn" id="qm_label" onclick="setQrMode('label')" style="font-size:12.5px;font-weight:700;padding:7px 18px;width:auto">Etikette</button>
       </div>
-      <div id="nfcStatus" style="text-align:center;font-size:11px;color:var(--mut);margin-top:4px"></div>
+
+      <!-- Ansicht: reiner QR-Code -->
+      <div id="qrViewQr">
+        <div class="qr-wrap"><div id="qrCanvas"></div></div>
+        <div class="qr-info" id="qrInfo"></div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <button class="mft-cancel" style="flex:1 1 80px;text-align:center;padding:8px 10px;font-size:12px" onclick="printQR()">🖨 Drucken</button>
+          <button class="mft-save" style="flex:1 1 80px;justify-content:center;padding:8px 10px;font-size:12px" onclick="downloadQR()">⬇ PNG</button>
+          <button class="mft-save" style="flex:1 1 80px;justify-content:center;padding:8px 10px;font-size:12px;background:#1d4ed8" onclick="downloadQRSVG()">⬇ SVG</button>
+          <button id="nfcBtn" onclick="_wzWriteNFC()" style="display:none;flex:1 1 80px;padding:8px 10px;border-radius:8px;border:1.5px solid #bfdbfe;background:#eff6ff;color:#1d4ed8;font-size:12px;font-weight:800;cursor:pointer;justify-content:center;align-items:center;gap:5px;font-family:inherit">
+            📡 NFC</button>
+          <button id="nfcLockBtn" onclick="_wzMakeNFCReadOnly()" title="NFC-Tag dauerhaft schreibgeschützt machen — irreversibel" style="display:none;flex:1 1 80px;padding:8px 10px;border-radius:8px;border:1.5px solid #fecaca;background:#fef2f2;color:#b91c1c;font-size:12px;font-weight:800;cursor:pointer;justify-content:center;align-items:center;gap:5px;font-family:inherit">
+            🔒 Sperren</button>
+        </div>
+        <div id="nfcStatus" style="text-align:center;font-size:11px;color:var(--mut);margin-top:4px"></div>
+      </div>
+
+      <!-- Ansicht: Etikette (49 x 23 mm Querformat) -->
+      <div id="qrViewLabel" style="display:none">
+        <div style="display:flex;justify-content:center;padding:6px 0 4px">
+          <div id="qrLabelPreview"></div>
+        </div>
+        <div style="text-align:center;font-size:11px;color:var(--mut);margin-bottom:12px">Etikette 49 × 23 mm · Querformat</div>
+        <button class="mft-save" style="width:100%;justify-content:center;padding:9px 10px;font-size:12.5px" onclick="downloadEtikettePDF()">⬇ Etikette als PDF</button>
+      </div>
     </div>
   </div>
 </div>
@@ -928,6 +951,9 @@ function _wzCanEdit(){
 }
 // Darf Werkzeug einer Person zuweisen (nur Admin/Magaziner)
 function _wzCanAssign(){ return _wzCanEdit(); }
+// Mehrfachauswahl-Etiketten + "Alle markieren": strikt nur Magaziner/Admin
+// (wie das Trocknungs-Modul), unabhaengig von generischen write-Rechten.
+function _wzCanBulkLabel(){ return _wzIsAdmin() || _wzIsMagaziner(); }
 
 // Aktivitaetenlog-Wrapper — fire-and-forget. tool kann das Tool-Objekt
 // oder eine String-Beschreibung sein.
@@ -1108,6 +1134,7 @@ window._wzInventurAbschliessen=function(){
 // freigeschaltet (_wzBulkMode).
 var _wzBulkMode=false;
 var _wzBulkSelected={};
+var _wzLastFilteredIds=[];   // IDs der aktuell sichtbaren (gefilterten) Werkzeuge
 window._wzToggleBulkMode=function(){
   if(!_wzCanEdit())return;
   _wzBulkMode=!_wzBulkMode;
@@ -1134,9 +1161,14 @@ function _wzRenderBulkBar(){
     document.body.appendChild(bar);
   }
   if(!_wzBulkMode){bar.remove();return;}
-  bar.innerHTML='<span>'+count+' ausgewählt</span>'
+  var canLabel=_wzCanBulkLabel();
+  var visIds=_wzLastFilteredIds||[];
+  var allVisSel=visIds.length>0 && visIds.every(function(id){return _wzBulkSelected[id];});
+  bar.innerHTML=(canLabel?'<button onclick="_wzBulkSelectAllVisible()" title="Alle aktuell sichtbaren (gefilterten) Werkzeuge markieren" style="padding:6px 12px;border-radius:8px;border:1px solid #475569;background:transparent;color:#fff;font-weight:700;cursor:pointer;font-family:inherit;font-size:12px">'+(allVisSel?'☐ Auswahl aufheben':'☑ Alle markieren')+'</button>':'')
+    +'<span>'+count+' ausgewählt</span>'
     +'<button onclick="_wzBulkSetStatus()" '+(count?'':'disabled')+' style="padding:6px 12px;border-radius:8px;border:none;background:#2563eb;color:#fff;font-weight:700;cursor:pointer;font-family:inherit;font-size:12px;'+(count?'':'opacity:.4;cursor:not-allowed')+'">Status setzen</button>'
     +'<button onclick="_wzBulkAssign()" '+(count?'':'disabled')+' style="padding:6px 12px;border-radius:8px;border:none;background:#3730a3;color:#fff;font-weight:700;cursor:pointer;font-family:inherit;font-size:12px;'+(count?'':'opacity:.4;cursor:not-allowed')+'">Person zuweisen</button>'
+    +(canLabel?'<button onclick="_wzExportEtikettenBulk()" '+(count?'':'disabled')+' title="Markierte Werkzeuge als Etiketten-PDF (je eine 49×23mm-Seite)" style="padding:6px 12px;border-radius:8px;border:none;background:#7c3aed;color:#fff;font-weight:700;cursor:pointer;font-family:inherit;font-size:12px;'+(count?'':'opacity:.4;cursor:not-allowed')+'">🏷 Etiketten</button>':'')
     +'<button onclick="_wzToggleBulkMode()" style="padding:6px 12px;border-radius:8px;border:1px solid #475569;background:transparent;color:#fff;font-weight:700;cursor:pointer;font-family:inherit;font-size:12px">Abbrechen</button>';
 }
 window._wzBulkSetStatus=function(){
@@ -1935,7 +1967,7 @@ function getFiltered(){
     // Kategorie-Schnellfilter (Chip-Leiste, v.a. Monteur-Ansicht)
     if(currentCat!=='all' && (t.cat||'sonstige')!==currentCat)return false;
     const cat=CATS[t.cat];
-    const ok=!q||[t.name,t.brand,t.model,t.supplier,cat?.label,t.notes].some(v=>(v||'').toLowerCase().includes(q));
+    const ok=!q||[t.name,t.internKennung,t.brand,t.model,t.supplier,cat?.label,t.notes].some(v=>(v||'').toLowerCase().includes(q));
     if(!ok)return false;
     const wd=worstDays(t);
     if(currentFilter==='overdue')return wd!==null&&wd<0;
@@ -1989,6 +2021,7 @@ window._wzSetCatFilter=function(cat){
 function renderList(){
   _wzRenderCatFilter();
   const f=getFiltered();
+  _wzLastFilteredIds=f.map(t=>t.id);
   const grid=document.getElementById('cardGrid');
   const tbody=document.getElementById('toolTbody');
   if(currentView==='cards'){
@@ -2050,6 +2083,7 @@ function renderCard(t){
         <div class="tc-badges">
           <span class="badge ${cat.cls}">${cat.icon} ${cat.label}</span>
           <span class="badge ${badgeC(wd)}">${statusEmoji} ${statusText}</span>
+          ${t.internKennung?`<span class="badge badge-mut">🏷 ${esc(t.internKennung)}</span>`:''}
           ${t.serial?`<span class="badge badge-mut">SN: ${esc(t.serial)}</span>`:''}
         </div>
       </div>
@@ -2095,7 +2129,7 @@ function renderRow(t){
   const pill=(d,label)=>d?`<span class="pill ${badgeC(daysFrom(d))}">${fmt(d)}</span>`:`<span style="color:var(--mut2)">—</span>`;
   const hasPruef=t.hasElec||t.hasLeiter;
   return`<tr>
-    <td><strong style="font-size:14px">${esc(t.name)}</strong><br><span style="font-size:11.5px;color:var(--mut)">${t.brand||''} ${t.model||''}${t.supplier?' · '+esc(t.supplier):''}</span></td>
+    <td><strong style="font-size:14px">${esc(t.name)}</strong>${t.internKennung?` <span style="font-weight:600;color:var(--mut);font-size:11.5px">· 🏷 ${esc(t.internKennung)}</span>`:''}<br><span style="font-size:11.5px;color:var(--mut)">${t.brand||''} ${t.model||''}${t.supplier?' · '+esc(t.supplier):''}</span></td>
     <td><span class="pill ${cat.cls}">${cat.icon} ${cat.label}</span></td>
     <td style="font-family:var(--mono);font-size:12.5px">${fmt(t.bought)}</td>
     <td>${pill(t.warranty)}</td>
@@ -2172,7 +2206,7 @@ function openAdd(){
 }
 function closeAdd(){_wzCloseAllAC();document.getElementById('addModal').classList.add('hidden');clearForm();_wzUnlockScroll();}
 function clearForm(){
-  ['f_name','f_brand','f_model','f_supplier','f_supplierId','f_bought','f_warranty','f_serial','f_notes','f_assignee','f_lastService','f_lastElec','f_lastLeiter','f_editId','f_belegNr','f_belegBetrag','f_belegBestellNr','f_belegLieferdatum'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});
+  ['f_name','f_intern','f_brand','f_model','f_supplier','f_supplierId','f_bought','f_warranty','f_serial','f_notes','f_assignee','f_lastService','f_lastElec','f_lastLeiter','f_editId','f_belegNr','f_belegBetrag','f_belegBestellNr','f_belegLieferdatum'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});
   var fp=document.getElementById('f_belegPreview');if(fp)fp.innerHTML='';
   window._wzBelegFile=null;
   document.getElementById('f_cat').value='';
@@ -2290,6 +2324,7 @@ function submitForm(){
     id:eid||('t_'+Date.now()),name,cat,
     // Multi-Tenant: bestehende orgId beim Edit erhalten, sonst aus User
     orgId:(existing&&existing.orgId)||_wzMe.orgId||'',
+    internKennung:document.getElementById('f_intern').value.trim(),
     brand:document.getElementById('f_brand').value.trim(),
     model:document.getElementById('f_model').value.trim(),
     supplier:document.getElementById('f_supplier').value.trim(),
@@ -2338,7 +2373,7 @@ function editTool(id){
   _wzPopulateCatSelect(t.cat);
   _wzApplyOptFelder();
   const sv=(fid,v)=>{const e=document.getElementById(fid);if(e&&v!=null&&v!=='')e.value=v;};
-  sv('f_name',t.name);sv('f_brand',t.brand);sv('f_model',t.model);sv('f_supplier',t.supplier);sv('f_supplierId',t.supplierId);sv('f_cat',t.cat);
+  sv('f_name',t.name);sv('f_intern',t.internKennung);sv('f_brand',t.brand);sv('f_model',t.model);sv('f_supplier',t.supplier);sv('f_supplierId',t.supplierId);sv('f_cat',t.cat);
   sv('f_bought',t.bought);sv('f_warranty',t.warranty);sv('f_serial',t.serial);sv('f_notes',t.notes);
   // Beim Edit: gespeicherte Garantie ist eine bewusste Entscheidung —
   // Auto-Recalc bei Kaufdatums-Aenderung sperren.
@@ -4394,8 +4429,10 @@ function _wzPruefLiefBerichtEinreichen(toolId){
 var _currentQRInstance=null; // Referenz fuer SVG-Download
 
 var _currentNfcUrl='';
+var _wzCurrentQRTool=null;    // aktuell im QR-Dialog gezeigtes Werkzeug (fuer Etikette)
 function openQR(id){
   const t=tools.find(x=>x.id===id);if(!t)return;
+  _wzCurrentQRTool=t;
   const cat=CATS[t.cat]||CATS.sonstige;
   setText('qrTitle',t.name);
   const url=`${location.href.split('?')[0]}?scan=${id}`;
@@ -4408,12 +4445,13 @@ function openQR(id){
   var nfcLB=document.getElementById('nfcLockBtn');
   if(nfcLB){nfcLB.style.display=(('NDEFReader' in window)&&_wzCanEdit())?'inline-flex':'none';}
   document.getElementById('qrInfo').innerHTML=[
-    ['Bezeichnung',t.name],['Kategorie',cat.icon+' '+cat.label],
+    ['Bezeichnung',t.name],['Interne Kennung',t.internKennung||'—'],['Kategorie',cat.icon+' '+cat.label],
     ['Hersteller / Modell',(t.brand||'—')+(t.model?' · '+t.model:'')],
     ['Lieferant',t.supplier||'—'],
     ['Kaufdatum',fmt(t.bought)],['Garantie bis',fmt(t.warranty)],['Seriennummer',t.serial||'—']
   ].map(([l,v])=>`<div class="qi-row"><span class="qi-lbl">${l}</span><span class="qi-val">${esc(v)}</span></div>`).join('');
   document.getElementById('qrModal').classList.remove('hidden');
+  setQrMode('qr');
   _wzLockScroll();
 }
 function closeQR(){document.getElementById('qrModal').classList.add('hidden');_wzUnlockScroll();}
@@ -4542,6 +4580,233 @@ function downloadQRSVG(){
   setTimeout(function(){URL.revokeObjectURL(url);},500);
 }
 
+// ══════════════════════════════════════════════════════════════
+// ETIKETTEN (49x23mm Querformat) — QR rechts, links Logo + interne
+// Bezeichnung. Identische Logik wie if_trocknung.html.
+// ══════════════════════════════════════════════════════════════
+var _WZ_ETIK={LW:49,LH:23,PAD:1.6,GAP:1.4};
+var _WZ_GEMA_LOGO_SVG='<svg xmlns="http://www.w3.org/2000/svg" viewBox="80 196 415 175" width="415" height="175" preserveAspectRatio="xMidYMid meet"><defs><clipPath id="wn_c1"><path d="M 29 17 L 145 17 L 145 151 L 29 151 Z" clip-rule="nonzero"/></clipPath><clipPath id="wn_c2"><path d="M 58.367188 0.613281 L 173.855469 67.289062 L 116.105469 167.3125 L 0.621094 100.636719 Z" clip-rule="nonzero"/></clipPath><clipPath id="wn_c3"><path d="M 73 47.414062 L 123.597656 47.414062 L 123.597656 98 L 73 98 Z" clip-rule="nonzero"/></clipPath><clipPath id="wn_c4"><rect x="0" width="174" y="0" height="168"/></clipPath></defs><g transform="matrix(1,0,0,1,83,199)"><g clip-path="url(#wn_c4)"><g clip-path="url(#wn_c1)"><g clip-path="url(#wn_c2)"><path fill="#0f172a" d="M 144.929688 50.640625 L 144.929688 117.292969 L 87.207031 150.617188 L 29.484375 117.292969 L 29.484375 50.640625 L 87.207031 17.3125 Z" fill-opacity="1" fill-rule="nonzero"/></g></g></g><path fill="#fff" d="M 98.042969 73.117188 C 96.210938 71.285156 93.945312 69.882812 91.488281 69.070312 C 85.503906 75.054688 85.019531 75.28125 84.257812 77.097656 C 90.328125 76.699219 95.191406 82.253906 93.839844 88.324219 C 93.011719 92.078125 84.535156 99.5 76.90625 107.300781 C 73.34375 110.933594 67.460938 110.898438 63.863281 107.300781 C 60.265625 103.703125 60.265625 97.855469 63.863281 94.257812 L 71.992188 86.128906 C 70.988281 82.390625 71.214844 78.445312 72.476562 74.933594 L 57.203125 90.210938 C 50.664062 96.75 50.664062 107.40625 57.203125 113.960938 C 63.757812 120.515625 74.378906 120.515625 80.953125 113.960938 L 98.042969 96.871094 C 104.550781 90.363281 104.652344 79.726562 98.042969 73.117188 Z"/><g clip-path="url(#wn_c3)"><path fill="#fff" d="M 118.835938 76.078125 C 122.003906 72.910156 123.75 68.691406 123.75 64.210938 C 123.75 54.9375 116.242188 47.414062 106.953125 47.414062 C 102.472656 47.414062 98.253906 49.160156 95.085938 52.324219 C 90.8125 56.597656 82.269531 65.144531 77.996094 69.417969 C 71.507812 75.902344 71.371094 86.542969 77.996094 93.167969 C 79.828125 95 82.09375 96.402344 84.550781 97.214844 C 90.503906 91.265625 91.019531 91.023438 91.78125 89.1875 C 89.152344 89.363281 86.574219 88.410156 84.671875 86.507812 C 81.039062 82.875 81.109375 77.027344 84.671875 73.464844 C 87.855469 70.28125 95.882812 62.253906 99.132812 59.003906 C 102.734375 55.402344 108.578125 55.386719 112.179688 59.003906 C 115.777344 62.601562 115.777344 68.449219 112.179688 72.046875 L 104.046875 80.175781 C 105.066406 84.015625 104.824219 87.890625 103.5625 91.367188 Z"/></g></g><g fill="#0f172a" fill-opacity="1"><g transform="translate(243.214799,313.539633)"><path d="M 62.46875 -35.8125 L 62.46875 -21.9375 C 60.8125 -14.34375 57.191406 -8.59375 51.609375 -4.6875 C 46.035156 -0.789062 39.8125 1.15625 32.9375 1.15625 C 24.3125 1.15625 16.960938 -2.070312 10.890625 -8.53125 C 4.816406 -14.988281 1.78125 -22.789062 1.78125 -31.9375 C 1.78125 -41.226562 4.75 -49.078125 10.6875 -55.484375 C 16.632812 -61.890625 24.050781 -65.09375 32.9375 -65.09375 C 43.320312 -65.09375 51.535156 -61.453125 57.578125 -54.171875 L 48.046875 -43.703125 C 44.640625 -49.179688 39.890625 -51.921875 33.796875 -51.921875 C 29.296875 -51.921875 25.457031 -49.96875 22.28125 -46.0625 C 19.101562 -42.164062 17.515625 -37.457031 17.515625 -31.9375 C 17.515625 -26.507812 19.101562 -21.867188 22.28125 -18.015625 C 25.457031 -14.171875 29.296875 -12.25 33.796875 -12.25 C 37.515625 -12.25 40.753906 -13.367188 43.515625 -15.609375 C 46.273438 -17.859375 47.65625 -20.84375 47.65625 -24.5625 L 32.9375 -24.5625 L 32.9375 -35.8125 Z"/></g></g><g fill="#0f172a" fill-opacity="1"><g transform="translate(307.462326,313.539633)"><path d="M 41.234375 -63.9375 L 41.234375 -51.15625 L 19.21875 -51.15625 L 19.21875 -38.4375 L 40.296875 -38.4375 L 40.296875 -25.65625 L 19.21875 -25.65625 L 19.21875 -12.78125 L 41.234375 -12.78125 L 41.234375 0 L 4.65625 0 L 4.65625 -63.9375 Z"/></g></g><g fill="#0f172a" fill-opacity="1"><g transform="translate(352.412344,313.539633)"><path d="M 57.5 0 L 54.484375 -37.890625 L 54.09375 -37.890625 L 41 -0.390625 L 32.3125 -0.390625 L 19.21875 -37.890625 L 18.828125 -37.890625 L 15.8125 0 L 1.234375 0 L 6.96875 -63.9375 L 22.46875 -63.9375 L 36.65625 -27.046875 L 50.84375 -63.9375 L 66.34375 -63.9375 L 72.078125 0 Z"/></g></g><g fill="#0f172a" fill-opacity="1"><g transform="translate(425.727374,313.539633)"><path d="M 37.125 -63.9375 L 62.9375 0 L 47.28125 0 L 42.546875 -12.78125 L 18.21875 -12.78125 L 13.484375 0 L -2.171875 0 L 23.640625 -63.9375 Z M 37.59375 -25.578125 L 30.453125 -44.171875 L 30.296875 -44.171875 L 23.171875 -25.578125 Z"/></g></g></svg>';
+var _WZ_GEMA_LOGO_DATAURL='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(_WZ_GEMA_LOGO_SVG);
+var _wzLogoCache={src:null,data:null};
+
+function _wzGetOrgLogoSrc(){
+  try{
+    if(typeof GemaAuth==='undefined')return '';
+    var o=GemaAuth.getCurrentOrg&&GemaAuth.getCurrentOrg();
+    return (o&&o.logo)||'';
+  }catch(e){return '';}
+}
+function _wzLabelLogoSrc(){ return _wzGetOrgLogoSrc()||_WZ_GEMA_LOGO_DATAURL; }
+
+function _wzRasterizeImage(src){
+  return new Promise(function(resolve){
+    if(!src){resolve(null);return;}
+    var img=new Image();
+    img.onload=function(){
+      var nw=img.naturalWidth||img.width||1, nh=img.naturalHeight||img.height||1;
+      var ratio=nw/nh, TARGET=600, cw, ch;
+      if(nw>=nh){cw=TARGET;ch=Math.max(1,Math.round(TARGET/ratio));}
+      else{ch=TARGET;cw=Math.max(1,Math.round(TARGET*ratio));}
+      var cv=document.createElement('canvas');cv.width=cw;cv.height=ch;
+      try{cv.getContext('2d').drawImage(img,0,0,cw,ch);resolve({dataUrl:cv.toDataURL('image/png'),ratio:ratio});}
+      catch(e){resolve(null);}
+    };
+    img.onerror=function(){resolve(null);};
+    img.src=src;
+  });
+}
+function _wzEnsureLabelLogo(){
+  var src=_wzLabelLogoSrc();
+  if(_wzLogoCache.src===src && _wzLogoCache.data)return Promise.resolve(_wzLogoCache.data);
+  return _wzRasterizeImage(src).then(function(r){_wzLogoCache={src:src,data:r};return r;});
+}
+
+// Textbreite @10pt (mm) — jsPDF wenn geladen, sonst Schaetzung.
+var _wzEtikMeasDoc=null;
+function _wzEtiketteW10(text){
+  if(window.jspdf && window.jspdf.jsPDF){
+    if(!_wzEtikMeasDoc)_wzEtikMeasDoc=new window.jspdf.jsPDF({unit:'mm',format:[_WZ_ETIK.LW,_WZ_ETIK.LH],orientation:'landscape'});
+    _wzEtikMeasDoc.setFont('helvetica','bold');_wzEtikMeasDoc.setFontSize(10);
+    return _wzEtikMeasDoc.getTextWidth(text)||0.01;
+  }
+  return Math.max(String(text).length*10*0.3528*0.55,0.01);
+}
+function _wzWrapText(text,maxW,fontPt){
+  var words=String(text).split(/\s+/),lines=[],cur='';
+  function wOf(s){return _wzEtiketteW10(s)*fontPt/10;}
+  for(var i=0;i<words.length;i++){
+    var t=cur?cur+' '+words[i]:words[i];
+    if(wOf(t)<=maxW||!cur){cur=t;}else{lines.push(cur);cur=words[i];}
+  }
+  if(cur)lines.push(cur);
+  return lines.length?lines:[''];
+}
+function _wzFitText(text,boxW,boxH,maxFont,minFont){
+  for(var f=maxFont;f>=minFont;f-=0.5){
+    var lines=_wzWrapText(text,boxW,f);
+    if(lines.length<=2){var lh=f*0.3528*1.12;if(lines.length*lh<=boxH)return {font:f,lines:lines,lineH:lh};}
+  }
+  var fl=_wzWrapText(text,boxW,minFont);
+  return {font:minFont,lines:fl.slice(0,2),lineH:minFont*0.3528*1.12};
+}
+function _wzEtiketteText(t){
+  if(!t)return '—';
+  return (t.internKennung&&t.internKennung.trim())?t.internKennung.trim():(t.name||'—');
+}
+// Festes Layout: QR rechts ueber volle Hoehe, links Logo oben + Bezeichnung darunter.
+function _wzComputeEtikette(text,logo){
+  var C=_WZ_ETIK,LW=C.LW,LH=C.LH,PAD=C.PAD,GAP=C.GAP;
+  text=String(text==null?'':text).trim()||'—';
+  var qr=LH-2*PAD;
+  var qrX=LW-PAD-qr,qrY=PAD;
+  var colX=PAD,colW=qrX-GAP-PAD,colTop=PAD,colH=LH-2*PAD;
+  var logoBandH=logo?Math.min(8,colH*0.46):0;
+  var logoBox=null;
+  if(logo){
+    var R=logo.ratio||2,bw,bh;
+    if(colW/logoBandH>R){bh=logoBandH;bw=bh*R;}else{bw=colW;bh=bw/R;}
+    logoBox={x:colX,y:colTop+(logoBandH-bh)/2,w:bw,h:bh};
+  }
+  var gapLT=logo?1.0:0;
+  var textTop=colTop+logoBandH+gapLT;
+  var textH=colH-logoBandH-gapLT;
+  var ft=_wzFitText(text,colW,textH,12,5.5);
+  return {LW:LW,LH:LH,PAD:PAD,qr:qr,qrX:qrX,qrY:qrY,colX:colX,colW:colW,logoBox:logoBox,textTop:textTop,textH:textH,font:ft.font,lines:ft.lines,lineH:ft.lineH,text:text};
+}
+function _wzGetQrDataUrl(){
+  var box=document.getElementById('qrCanvas');
+  if(!box)return '';
+  var cv=box.querySelector('canvas');
+  if(cv){try{return cv.toDataURL('image/png');}catch(e){}}
+  var img=box.querySelector('img');
+  if(img&&img.src)return img.src;
+  return '';
+}
+function _wzRenderQrDataUrl(url){
+  var tmp=document.createElement('div');
+  tmp.style.cssText='position:absolute;left:-9999px;top:-9999px';
+  document.body.appendChild(tmp);
+  var dataUrl='';
+  try{
+    new QRCode(tmp,{text:url,width:190,height:190,colorDark:'#111827',colorLight:'#ffffff',correctLevel:QRCode.CorrectLevel.M});
+    var cv=tmp.querySelector('canvas');
+    if(cv){dataUrl=cv.toDataURL('image/png');}
+    else{var img=tmp.querySelector('img');if(img&&img.src)dataUrl=img.src;}
+  }catch(e){}
+  document.body.removeChild(tmp);
+  return dataUrl;
+}
+// Zeichnet EINE Etikette auf die aktuelle jsPDF-Seite (Einzel + Sammelexport).
+function _wzDrawEtikette(doc,spec,qrData,logo){
+  if(qrData)doc.addImage(qrData,'PNG',spec.qrX,spec.qrY,spec.qr,spec.qr);
+  if(spec.logoBox&&logo&&logo.dataUrl){
+    try{doc.addImage(logo.dataUrl,'PNG',spec.logoBox.x,spec.logoBox.y,spec.logoBox.w,spec.logoBox.h);}catch(e){}
+  }
+  doc.setFont('helvetica','bold');doc.setTextColor(17,24,39);doc.setFontSize(spec.font);
+  var totalH=spec.lines.length*spec.lineH;
+  var topPad=Math.max((spec.textH-totalH)/2,0);
+  var cx=spec.colX+spec.colW/2;
+  spec.lines.forEach(function(ln,i){
+    var baseY=spec.textTop+topPad+i*spec.lineH+spec.lineH*0.76;
+    doc.text(ln,cx,baseY,{align:'center'});
+  });
+}
+function _wzBuildEtikettePreview(){
+  var box=document.getElementById('qrLabelPreview');
+  if(!box)return;
+  var t=_wzCurrentQRTool;
+  if(!t){box.innerHTML='';return;}
+  var text=_wzEtiketteText(t);
+  var qrData=_wzGetQrDataUrl();
+  _wzEnsureLabelLogo().then(function(logo){
+    if(_wzCurrentQRTool!==t)return;
+    var spec=_wzComputeEtikette(text,logo);
+    var PX=6.4;
+    var W=spec.LW*PX,H=spec.LH*PX;
+    var fontPx=spec.font*0.3528*PX;
+    var html='';
+    html+='<img alt="QR" src="'+qrData+'" style="position:absolute;left:'+(spec.qrX*PX)+'px;top:'+(spec.qrY*PX)+'px;width:'+(spec.qr*PX)+'px;height:'+(spec.qr*PX)+'px;image-rendering:pixelated"/>';
+    if(spec.logoBox&&logo&&logo.dataUrl){
+      var lb=spec.logoBox;
+      html+='<img alt="Logo" src="'+logo.dataUrl+'" style="position:absolute;left:'+(lb.x*PX)+'px;top:'+(lb.y*PX)+'px;width:'+(lb.w*PX)+'px;height:'+(lb.h*PX)+'px;object-fit:contain"/>';
+    }
+    html+='<div style="position:absolute;left:'+(spec.colX*PX)+'px;top:'+(spec.textTop*PX)+'px;width:'+(spec.colW*PX)+'px;height:'+(spec.textH*PX)+'px;display:flex;align-items:center;justify-content:center;text-align:center;font-weight:700;font-size:'+fontPx+'px;line-height:1.12;color:#111827;overflow:hidden">'+spec.lines.map(esc).join('<br>')+'</div>';
+    box.style.cssText='position:relative;width:'+W+'px;height:'+H+'px;background:#fff;border:1px solid #cbd5e1;border-radius:4px;box-shadow:0 2px 10px rgba(15,23,42,.14);overflow:hidden;font-family:Helvetica,Arial,sans-serif';
+    box.innerHTML=html;
+  });
+}
+window.setQrMode=function(mode){
+  var qv=document.getElementById('qrViewQr'),lv=document.getElementById('qrViewLabel');
+  var bq=document.getElementById('qm_qr'),bl=document.getElementById('qm_label');
+  if(!qv||!lv)return;
+  if(mode==='label'){
+    qv.style.display='none';lv.style.display='';
+    if(bq)bq.classList.remove('active');
+    if(bl)bl.classList.add('active');
+    _wzBuildEtikettePreview();
+    _wzEnsureJsPDF().then(function(){_wzBuildEtikettePreview();});
+  }else{
+    qv.style.display='';lv.style.display='none';
+    if(bl)bl.classList.remove('active');
+    if(bq)bq.classList.add('active');
+  }
+};
+window.downloadEtikettePDF=function(){
+  _wzEnsureJsPDF().then(function(){
+    if(!(window.jspdf&&window.jspdf.jsPDF)){alert('PDF-Bibliothek nicht verfügbar.');return;}
+    var t=_wzCurrentQRTool;
+    if(!t)return;
+    var text=_wzEtiketteText(t);
+    var qrData=_wzGetQrDataUrl();
+    if(!qrData){alert('QR-Code nicht verfügbar.');return;}
+    _wzEnsureLabelLogo().then(function(logo){
+      var spec=_wzComputeEtikette(text,logo);
+      var jsPDF=window.jspdf.jsPDF;
+      var doc=new jsPDF({unit:'mm',format:[spec.LW,spec.LH],orientation:'landscape'});
+      _wzDrawEtikette(doc,spec,qrData,logo);
+      var slug=String(text||'Etikette').replace(/[^\w\-]+/g,'_').replace(/^_+|_+$/g,'')||'Etikette';
+      doc.save('Etikette_'+slug+'.pdf');
+    });
+  });
+};
+// Sammelexport der markierten Werkzeuge (Magaziner/Admin).
+window._wzExportEtikettenBulk=function(){
+  if(!_wzCanBulkLabel())return;
+  var ids=Object.keys(_wzBulkSelected).filter(function(id){return tools.some(function(t){return t.id===id;});});
+  if(!ids.length){alert('Bitte zuerst Werkzeuge markieren.');return;}
+  _wzEnsureJsPDF().then(function(){
+    if(!(window.jspdf&&window.jspdf.jsPDF)){alert('PDF-Bibliothek nicht verfügbar.');return;}
+    _wzEnsureLabelLogo().then(function(logo){
+      var jsPDF=window.jspdf.jsPDF;
+      var base=location.href.split('?')[0];
+      var doc=null,made=0;
+      ids.forEach(function(id){
+        var t=tools.find(function(x){return x.id===id;});
+        if(!t)return;
+        var text=_wzEtiketteText(t);
+        var qrData=_wzRenderQrDataUrl(base+'?scan='+id);
+        if(!qrData)return;
+        var spec=_wzComputeEtikette(text,logo);
+        if(!doc){doc=new jsPDF({unit:'mm',format:[spec.LW,spec.LH],orientation:'landscape'});}
+        else{doc.addPage([spec.LW,spec.LH],'landscape');}
+        _wzDrawEtikette(doc,spec,qrData,logo);
+        made++;
+      });
+      if(!doc||!made){alert('Keine Etiketten erzeugt.');return;}
+      doc.save('Etiketten_'+made+'_Stueck.pdf');
+    });
+  });
+};
+// Alle aktuell sichtbaren (gefilterten) Werkzeuge markieren / Auswahl aufheben.
+window._wzBulkSelectAllVisible=function(){
+  if(!_wzCanBulkLabel())return;
+  var ids=(_wzLastFilteredIds||[]).slice();
+  var allSel=ids.length>0 && ids.every(function(id){return _wzBulkSelected[id];});
+  if(allSel){ids.forEach(function(id){delete _wzBulkSelected[id];});}
+  else{ids.forEach(function(id){_wzBulkSelected[id]=true;});}
+  renderList();_wzRenderBulkBar();
+};
+
 // ──────────────────────────────────────
 // VIEW-ONLY (QR-Scan Ansicht)
 // ──────────────────────────────────────
@@ -4585,6 +4850,7 @@ function openViewTool(id){
   // Grunddaten (gleiche Reihenfolge wie Formular)
   html+='<div class="vm-section">Grunddaten</div>';
   html+=vmField('Bezeichnung',t.name);
+  html+=vmField('Interne Kennung',t.internKennung||'—');
   html+='<div class="vm-grid">';
   html+=vmField('Hersteller',t.brand||'—');
   html+=vmField('Modell',t.model||'—');
