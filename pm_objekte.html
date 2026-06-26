@@ -566,6 +566,7 @@ const esc=s=>String(s||'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&
 const uid=()=>'_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
 
 const _mem={objekte:[],beteiligte:[],activeObjektId:null};
+var _objCloudLoaded=false; // true sobald der erste Cloud-Pull durch ist (Ladeanzeige-Steuerung)
 
 // ── Tenant-Kontext ─────────────────────────────────────────────────
 // Wird nach DOMContentLoaded gesetzt, sobald GemaAuth verfügbar ist.
@@ -856,6 +857,9 @@ function renderObjekte(){
     if(visibleObjekte.length>0){
       $('objEmpty').style.display='';
       $('objEmpty').innerHTML='<div class="empty-ic">🔍</div><h3>Keine Treffer</h3><p>Keine Objekte für diesen Filter gefunden.</p><button class="btn btn-ghost" onclick="setObjFilter(\'all\',document.querySelector(\'[data-filter=all]\'))">Alle anzeigen</button>';
+    } else if(!_objCloudLoaded && (!_mem.objekte || !_mem.objekte.length)){
+      $('objEmpty').style.display='';
+      $('objEmpty').innerHTML='<svg width="30" height="30" viewBox="0 0 24 24" style="display:block;margin:0 auto 12px"><circle cx="12" cy="12" r="9" fill="none" stroke="#e2e8f0" stroke-width="3"/><path d="M12 3 a9 9 0 0 1 9 9" fill="none" stroke="#2563eb" stroke-width="3" stroke-linecap="round"><animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="0.8s" repeatCount="indefinite"/></path></svg><h3>Wird geladen …</h3><p>Objekte werden aus der Cloud geladen.</p>';
     } else {
       $('objEmpty').style.display='';
       $('objEmpty').innerHTML='<div class="empty-ic">🏗</div><h3>Noch keine Objekte</h3><p>Erstelle dein erstes Bauvorhaben.</p><button class="btn btn-primary" onclick="openObjektModal()">+ Erstes Objekt erstellen</button>';
@@ -1638,7 +1642,18 @@ window.adrHighlight=adrHighlight;
 window.adrHover=adrHover;
 
 // ── INIT ──
+// Stale-while-revalidate: SOFORT aus dem localStorage-Cache lesen + rendern,
+// damit die Objekte ohne Wartezeit sichtbar sind. Der Cloud-Pull (await load)
+// aktualisiert direkt danach. Beim ersten Aufruf (leerer Cache) zeigt
+// renderObjekte eine Ladeanzeige statt eines leeren Bestands.
+try{
+  var _objRaw = localStorage.getItem(KEY);
+  if(_objRaw){ Object.assign(_mem, JSON.parse(_objRaw)); }
+}catch(e){}
+try{ renderObjekte(); updateBadges(); }catch(e){}
+
 await load();
+_objCloudLoaded = true;
 // Mirror to localStorage so other modules can read via gema_objekte_api.js
 try{localStorage.setItem(KEY,JSON.stringify(_mem));}catch(e){}
 renderObjekte();

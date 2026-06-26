@@ -523,6 +523,7 @@ function saveTemplatesToOrg(tpl){
 
 // ── STORAGE ────────────────────────────────────────────────────
 var _data = []; // Aktuelle Berichte (im Speicher)
+var _spCloudLoaded = false; // true sobald der erste Cloud-Pull durch ist (Ladeanzeige-Steuerung)
 
 // Wendet Migration + Org-Filter auf ein Roh-Array an und setzt _data.
 function _setData(arr){
@@ -1037,7 +1038,9 @@ function renderCardGrid(){
   }
   list.sort(function(a,b){ return (b.erstelltAm||'').localeCompare(a.erstelltAm||''); });
   var html = '';
-  if(!list.length){
+  if(!list.length && !_spCloudLoaded && !_data.length){
+    html = '<div class="empty"><svg width="30" height="30" viewBox="0 0 24 24" style="display:block;margin:0 auto 12px"><circle cx="12" cy="12" r="9" fill="none" stroke="#e2e8f0" stroke-width="3"/><path d="M12 3 a9 9 0 0 1 9 9" fill="none" stroke="#0891b2" stroke-width="3" stroke-linecap="round"><animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="0.8s" repeatCount="indefinite"/></path></svg><div><strong>Wird geladen …</strong></div><div style="margin-top:6px">Dachberichte werden aus der Cloud geladen.</div></div>';
+  } else if(!list.length){
     html = '<div class="empty"><div class="empty-ic">🏠</div><div><strong>Noch keine Dachberichte</strong></div><div style="margin-top:6px">Klick auf «+ Neuer Bericht» um zu starten.</div></div>';
   } else {
     html = '<div class="sp-grid">';
@@ -2532,9 +2535,14 @@ var _currentDetailId = null;
 
 // ── INIT ──────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', function(){
+  // Stale-while-revalidate: SOFORT aus dem lokalen Cache rendern (kein Warten);
+  // der Cloud-Pull aktualisiert direkt danach. Beim ersten Aufruf (leerer
+  // Cache) zeigt renderCardGrid eine Ladeanzeige statt eines leeren Bestands.
+  try { loadAll(); renderDashboard(); } catch(e) { /* noop */ }
   // Bootstrap: Cloud-fresh holen, danach periodisch + bei Tab-Wechsel
   if(typeof window.GemaSync !== 'undefined' && window.GemaSync.bindCollection){
     window.GemaSync.bindCollection(MODULE_KEY, STORAGE_KEY, PREFIX, 'id').then(function(arr){
+      _spCloudLoaded = true;
       var n = (arr || []).length;
       try { console.info('[Dachbericht] Boot: ' + n + ' Berichte aus Cloud geladen'); } catch(e){}
       // Frisches Cloud-Array direkt verwenden — NICHT loadAll() (Cache kann
@@ -2543,12 +2551,14 @@ document.addEventListener('DOMContentLoaded', function(){
       renderDashboard();
       _startPeriodicRefresh();
     }).catch(function(e){
+      _spCloudLoaded = true;
       console.warn('[Dachbericht] Boot-Cloud-Load fehlgeschlagen:', e && e.message);
       loadAll();
       renderDashboard();
       _startPeriodicRefresh();
     });
   } else {
+    _spCloudLoaded = true;
     loadAll();
     renderDashboard();
   }

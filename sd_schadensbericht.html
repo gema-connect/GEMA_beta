@@ -965,6 +965,7 @@ var PHASEN = {
 
 // ── STATE ──
 var schaeden = [];
+var _sdCloudLoaded = false;   // true sobald der erste Cloud-Pull durch ist (Ladeanzeige-Steuerung)
 var currentFilter = 'all';
 var currentView = 'cards';
 var editId = null;
@@ -1356,6 +1357,10 @@ function sdPhotoCount(s) {
 
 function sdRenderCards(list) {
   var g = document.getElementById('cardGrid');
+  if (!list.length && !_sdCloudLoaded && !schaeden.length) {
+    g.innerHTML = '<div class="empty-state"><svg width="30" height="30" viewBox="0 0 24 24" style="display:block;margin:0 auto 12px"><circle cx="12" cy="12" r="9" fill="none" stroke="#e2e8f0" stroke-width="3"/><path d="M12 3 a9 9 0 0 1 9 9" fill="none" stroke="#dc2626" stroke-width="3" stroke-linecap="round"><animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="0.8s" repeatCount="indefinite"/></path></svg><h3>Wird geladen …</h3><p>Schadensberichte werden aus der Cloud geladen.</p></div>';
+    return;
+  }
   if (!list.length) {
     g.innerHTML = '<div class="empty-state"><div class="ei">🏚️</div><h3>Keine Schadensberichte</h3><p>Erfassen Sie den ersten Schaden mit dem Button oben.</p>' +
       (_sdCanEdit() ? '<button class="nbtn primary" onclick="sdOpenNew()">+ Neuer Schaden</button>' : '') + '</div>';
@@ -1396,6 +1401,10 @@ function sdRenderCards(list) {
 
 function sdRenderTable(list) {
   var tbody = document.getElementById('sdTbody');
+  if (!list.length && !_sdCloudLoaded && !schaeden.length) {
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:32px;color:var(--mut)">Wird geladen …</td></tr>';
+    return;
+  }
   if (!list.length) {
     tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:32px;color:var(--mut)">Keine Schadensberichte gefunden</td></tr>';
     return;
@@ -4174,6 +4183,11 @@ function sdBuildReportHtml(s) {
 // ══════════════════════════════════════
 window.addEventListener('DOMContentLoaded', function() {
   (function() {
+    // Stale-while-revalidate: SOFORT aus dem lokalen Cache rendern, damit die
+    // Schadensberichte ohne Wartezeit sichtbar sind; der Cloud-Pull
+    // aktualisiert direkt danach. Beim ersten Aufruf (leerer Cache) zeigt
+    // sdRenderList eine Ladeanzeige statt eines leeren Bestands.
+    try { sdLoad(); sdRenderList(); } catch(e) { /* noop */ }
     // Cloud-First Per-Record-Sync
     if (typeof window.GemaSync !== 'undefined') {
       Promise.race([
@@ -4186,10 +4200,12 @@ window.addEventListener('DOMContentLoaded', function() {
         ]),
         new Promise(function(r){ setTimeout(r, 5000); })
       ]).then(function(){
+        _sdCloudLoaded = true;
         sdLoad();
         sdRenderList();
       });
     } else {
+      _sdCloudLoaded = true;
       sdLoad();
       sdRenderList();
     }

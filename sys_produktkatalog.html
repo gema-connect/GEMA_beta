@@ -354,7 +354,13 @@ function renderList(){
   }
 
   if(!prods.length){
-    document.getElementById('listBody').innerHTML='<div style="padding:40px;text-align:center;color:var(--mut)">'+(total===0?'Noch keine Produkte erfasst.<br>Klicke «+ Neues Produkt» um zu starten.':'Keine Produkte erfüllen die aktiven Filter.')+'</div>';
+    var _emptyMsg;
+    if(total===0 && !_pkCloudLoaded){
+      _emptyMsg='<svg width="28" height="28" viewBox="0 0 24 24" style="display:block;margin:0 auto 10px"><circle cx="12" cy="12" r="9" fill="none" stroke="#e2e8f0" stroke-width="3"/><path d="M12 3 a9 9 0 0 1 9 9" fill="none" stroke="#2563eb" stroke-width="3" stroke-linecap="round"><animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="0.8s" repeatCount="indefinite"/></path></svg>Wird geladen …';
+    } else {
+      _emptyMsg=(total===0?'Noch keine Produkte erfasst.<br>Klicke «+ Neues Produkt» um zu starten.':'Keine Produkte erfüllen die aktiven Filter.');
+    }
+    document.getElementById('listBody').innerHTML='<div style="padding:40px;text-align:center;color:var(--mut)">'+_emptyMsg+'</div>';
     return;
   }
 
@@ -666,10 +672,17 @@ function renderLog(){
 }
 
 // ── Init ──
+// Stale-while-revalidate: init() rendert sofort den lokalen Cache; sobald der
+// per-Record-Cloud-Pull durch ist, feuert 'gema-produkte-loaded' und wir
+// rendern neu. _pkCloudLoaded steuert die Ladeanzeige beim allerersten Aufruf.
+var _pkCloudLoaded = false;
 init();
 // Re-Render, sobald Produkte/Lieferanten frisch aus der Cloud (per-Record)
 // geladen sind — sonst zeigt der Katalog nur den lokalen Stand.
-window.addEventListener('gema-produkte-loaded', function(){ try { renderKatTabs(); renderList(); } catch(e){} });
+window.addEventListener('gema-produkte-loaded', function(){ _pkCloudLoaded = true; try { renderKatTabs(); renderList(); } catch(e){} });
+// Sicherheitsnetz: falls das Event nicht feuert (offline), nach 6s die
+// Ladeanzeige aufloesen, damit nicht ewig "Wird geladen" steht.
+setTimeout(function(){ if(!_pkCloudLoaded){ _pkCloudLoaded = true; try { renderList(); } catch(e){} } }, 6000);
 </script>
 <script src="gema_scroll.js"></script>
 <script src="gema_mobile_menu.js"></script>
