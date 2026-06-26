@@ -238,7 +238,7 @@
 
   // ── Foto-Block (filtert imBericht !== false) ───────────────────────
   function photoSectionHtml(title, fotos){
-    var inReport = (fotos||[]).filter(function(f){ return f && f.imBericht !== false && f.dataUrl; });
+    var inReport = (fotos||[]).filter(function(f){ return f && f.imBericht !== false && (f.url || f.dataUrl); });
     if(!inReport.length) return '';
     // Bei mehr als 6 Fotos lohnt sich der Wrapper-Schutz nicht (zu gross
     // fuer eine Seite). Sonst: photo-group umschliesst Head + Grid, damit
@@ -254,7 +254,7 @@
     inReport.forEach(function(f, i){
       var num = (i+1) < 10 ? '0'+(i+1) : ''+(i+1);
       h += '<div class="photo">'
-        + '<div class="photo-frame"><img src="'+esc(f.dataUrl)+'" alt="Foto '+num+'"></div>'
+        + '<div class="photo-frame"><img src="'+esc(f.url || f.dataUrl)+'" alt="Foto '+num+'"></div>'
         + '<div class="photo-cap"><b>'+num+'</b><span>'+esc(f.kommentar||'')+'</span></div>'
         + '</div>';
     });

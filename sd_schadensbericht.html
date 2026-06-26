@@ -2,6 +2,7 @@
 <html lang="de">
 <head>
 <script src="gema_sync.js"></script>
+<script src="gema_storage.js"></script>
 <script src="gema_auth.js"></script>
 <script src="gema_recent.js"></script>
 <meta charset="utf-8"/>
@@ -1004,28 +1005,110 @@ function _sdCanMeasure() {
   return false;
 }
 
+// ── BILD-AUSLAGERUNG (GemaStorage) ──
+// Schadensbericht-Records sind durch Base64-Fotos sehr gross → der Cloud-POST
+// scheitert (413 Payload zu gross) UND der localStorage-Cache scheitert am
+// Quota → der Bericht kann nirgends dauerhaft gesichert werden und geht
+// verloren. Daher werden Fotos beim Speichern in den Supabase-Storage-Bucket
+// ausgelagert; im Record steht dann nur noch eine kleine URL. Best-effort:
+// ist der Bucket nicht eingerichtet, bleibt das Base64 erhalten (Fallback).
+var _sdStorageDisabled = false, _sdStorageOkOnce = false;
+function _sdImgSrc(b){ return (b && (b.url || b.dataUrl)) || ''; }
+function _sdCollectFotoObjects(s){
+  var out = [];
+  function add(arr){ if(Array.isArray(arr)) arr.forEach(function(f){ if(f && typeof f === 'object') out.push(f); }); }
+  if(s.zustandsanalyse) add(s.zustandsanalyse.fotos);
+  if(s.trocknung) add(s.trocknung.fotos);
+  if(s.abschluss) add(s.abschluss.fotos);
+  return out;
+}
+// URL → DataURL (fuer den jsPDF-Export, der Base64 braucht).
+function _sdUrlToDataUrl(url){
+  return fetch(url).then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.blob(); })
+    .then(function(b){ return new Promise(function(res, rej){
+      var fr = new FileReader(); fr.onload = function(){ res(fr.result); }; fr.onerror = rej; fr.readAsDataURL(b);
+    }); });
+}
+// Temp-Map (Foto-Objekt → DataURL) nur fuer den jsPDF-Export, damit
+// ausgelagerte (nur-url) Fotos eingebettet werden koennen, OHNE den Record
+// dauerhaft mit Base64 zu re-bloaten.
+var _sdRehydMap = null;
+function _sdRehydrateFotosForExport(s){
+  var map = (typeof Map !== 'undefined') ? new Map() : null;
+  if(!map) return Promise.resolve(null);
+  var objs = _sdCollectFotoObjects(s).filter(function(f){ return f && !f.dataUrl && f.url; });
+  if(!objs.length) return Promise.resolve(map);
+  return objs.reduce(function(p, f){
+    return p.then(function(){
+      return _sdUrlToDataUrl(f.url).then(function(d){ map.set(f, d); }, function(){});
+    });
+  }, Promise.resolve()).then(function(){ return map; });
+}
+// Laedt alle noch als Base64 vorliegenden Fotos in den Bucket; ersetzt
+// dataUrl→url (Foto-Objekte) bzw. den String (Messpunkt-Foto m.foto).
+function _sdUploadFotosToStorage(){
+  if(_sdStorageDisabled) return Promise.resolve();
+  if(typeof window.GemaStorage === 'undefined' || !window.GemaStorage.isConfigured || !window.GemaStorage.isConfigured()) return Promise.resolve();
+  var u = _sdGetUser();
+  var orgId = (u && u.orgId) ? String(u.orgId).replace(/[^a-zA-Z0-9_-]/g,'') : 'org';
+  var tasks = [];
+  schaeden.forEach(function(s){
+    _sdCollectFotoObjects(s).forEach(function(f){
+      if(f && !f.url && typeof f.dataUrl === 'string' && f.dataUrl.indexOf('data:image') === 0) tasks.push({ kind:'obj', f:f });
+    });
+    if(s.trocknung && Array.isArray(s.trocknung.messpunkte)){
+      s.trocknung.messpunkte.forEach(function(mp){
+        (mp.messungen || []).forEach(function(m){
+          if(m && typeof m.foto === 'string' && m.foto.indexOf('data:image') === 0) tasks.push({ kind:'mess', m:m });
+        });
+      });
+    }
+  });
+  if(!tasks.length) return Promise.resolve();
+  return tasks.reduce(function(p, t){
+    return p.then(function(){
+      if(_sdStorageDisabled) return;
+      var src = t.kind === 'obj' ? t.f.dataUrl : t.m.foto;
+      if(typeof src !== 'string' || src.indexOf('data:image') !== 0) return;
+      return window.GemaStorage.uploadDataUrl(src, 'schaden/' + orgId).then(function(res){
+        if(res && res.url){
+          _sdStorageOkOnce = true;
+          if(t.kind === 'obj'){ t.f.url = res.url; delete t.f.dataUrl; }
+          else { t.m.foto = res.url; }
+        }
+      }).catch(function(e){
+        if(!_sdStorageOkOnce){ _sdStorageDisabled = true; console.warn('[Schadensbericht] Storage-Upload nicht moeglich — Base64-Fallback:', e && e.message); }
+      });
+    });
+  }, Promise.resolve());
+}
+
 // ── STORAGE ── Per-Record in Supabase (data_key='schaden:<id>')
 var _sdSyncHintShownAt = 0;
 function sdSave() {
   if (typeof window.GemaSync !== 'undefined') {
-    // persistCollection sichert die Aenderung IMMER zuerst lokal (durable)
-    // und reiht einen fehlgeschlagenen Cloud-Push in die Outbox ein, die
-    // automatisch nachgesendet wird (Reconnect/Intervall/Seitenstart/Unload).
-    // Ein Reject bedeutet daher NICHT mehr Datenverlust — die Eingaben sind
-    // lokal gespeichert. Wir zeigen nur einen dezenten Hinweis (max. 1x/Min.)
-    // statt der frueheren, irrefuehrenden "nicht gespeichert"-Meldung.
-    window.GemaSync.persistCollection('schadensbericht', STORAGE_KEY, 'schaden:', 'id', schaeden)
-      .catch(function(e){
-        console.warn('[Schadensbericht] Cloud-Sync verzoegert (lokal gesichert):', e && e.message);
-        var now = Date.now();
-        if (window.GemaDialog && window.GemaDialog.alert && (now - _sdSyncHintShownAt > 60000)) {
-          _sdSyncHintShownAt = now;
-          window.GemaDialog.alert({title:'Wird synchronisiert', message:'Die Eingaben sind lokal gespeichert und werden automatisch in die Cloud uebertragen, sobald die Verbindung wieder steht.'});
-        }
-      });
+    // Erst die Fotos in den Storage auslagern (Records bleiben klein), DANN
+    // per-Record persistieren. So kann der Cloud-POST nicht mehr am 413
+    // scheitern und der localStorage-Cache nicht mehr am Quota.
+    _sdUploadFotosToStorage().then(_sdPersistSchaeden, _sdPersistSchaeden);
   } else {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(schaeden)); } catch(e) {}
   }
+}
+function _sdPersistSchaeden() {
+  // persistCollection sichert die Aenderung IMMER zuerst lokal (durable) und
+  // reiht einen fehlgeschlagenen Cloud-Push in die Outbox ein → kein
+  // Datenverlust. Dezenter Hinweis (max. 1x/Min.) statt der frueheren,
+  // irrefuehrenden "nicht gespeichert"-Meldung.
+  window.GemaSync.persistCollection('schadensbericht', STORAGE_KEY, 'schaden:', 'id', schaeden)
+    .catch(function(e){
+      console.warn('[Schadensbericht] Cloud-Sync verzoegert (lokal gesichert):', e && e.message);
+      var now = Date.now();
+      if (window.GemaDialog && window.GemaDialog.alert && (now - _sdSyncHintShownAt > 60000)) {
+        _sdSyncHintShownAt = now;
+        window.GemaDialog.alert({title:'Wird synchronisiert', message:'Die Eingaben sind lokal gespeichert und werden automatisch in die Cloud uebertragen, sobald die Verbindung wieder steht.'});
+      }
+    });
 }
 function sdLoad() {
   // Kanonischer Lese-Pfad: GemaSync.getCached (localStorage-first mit
@@ -2895,7 +2978,8 @@ function sdRenderPhotoSection(schadenId, phase, fotos, editable) {
     fotos.forEach(function(f, i) {
       var inReport = f.imBericht !== false;
       h += '<div class="photo-item' + (inReport ? '' : ' photo-not-in-report') + '">';
-      h += '<img src="' + f.dataUrl + '" alt="Foto" onclick="event.stopPropagation();sdOpenLightbox(\'' + f.dataUrl.replace(/'/g, "\\'") + '\')">';
+      var _fsrc = _sdImgSrc(f);
+      h += '<img src="' + _fsrc + '" alt="Foto" onclick="event.stopPropagation();sdOpenLightbox(\'' + _fsrc.replace(/'/g, "\\'") + '\')">';
       if (editable) {
         h += '<button class="photo-del" onclick="event.stopPropagation();sdDelPhoto(\'' + schadenId + '\',\'' + phase + '\',' + i + ')">✕</button>';
         // Toggle 'Im Bericht' — Klick schaltet imBericht um. Gruener
@@ -3357,6 +3441,8 @@ function sdExportPdf(id){
   var s=sdGetById(id); if(!s) return;
   _sdEnsureJsPDF().then(function(){
     if(!(window.jspdf && window.jspdf.jsPDF)){alert('PDF-Bibliothek nicht verfügbar.');return;}
+    return _sdRehydrateFotosForExport(s).then(function(_rehyd){
+    _sdRehydMap = _rehyd;
     return _sdGetLogoDims(_sdPdfGetOrg()).then(function(_logoDims){
     var jsPDF=window.jspdf.jsPDF;
     var doc=new jsPDF({unit:'mm',format:'a4'});
@@ -3524,7 +3610,7 @@ function sdExportPdf(id){
 
     // ── Foto-Galerie 3 pro Zeile mit Rahmen + Bildunterschrift ──
     function drawPhotoGallery(arr, label){
-      arr = Array.isArray(arr) ? arr.filter(function(p){return p && p.dataUrl;}) : [];
+      arr = Array.isArray(arr) ? arr.filter(function(p){return p && (p.dataUrl || (_sdRehydMap && _sdRehydMap.get(p)));}) : [];
       if(!arr.length) return;
       ensureSpace(8);
       doc.setFont('helvetica','bold'); doc.setFontSize(9.5); doc.setTextColor(15,23,42);
@@ -3537,7 +3623,8 @@ function sdExportPdf(id){
         var rowItems = arr.slice(i, i+perRow);
         rowItems.forEach(function(p, idx){
           var px = M + idx*(w+gap);
-          try{ doc.addImage(p.dataUrl, 'JPEG', px, y, w, h, undefined, 'FAST'); }catch(_){}
+          var _psrc = p.dataUrl || (_sdRehydMap && _sdRehydMap.get(p));
+          try{ doc.addImage(_psrc, 'JPEG', px, y, w, h, undefined, 'FAST'); }catch(_){}
           // Rahmen
           doc.setDrawColor(229,231,235); doc.setLineWidth(0.3);
           doc.rect(px, y, w, h);
@@ -3971,8 +4058,10 @@ function sdExportPdf(id){
 
     var fname='Schadensbericht_'+(s.titel||s.id||'Schaden').replace(/[^a-z0-9]+/gi,'_')+'_'+new Date().toISOString().slice(0,10)+'.pdf';
     doc.save(fname);
+    _sdRehydMap = null;
     });
-  });
+    });
+  }).catch(function(){ _sdRehydMap = null; });
 }
 
 // Adresse des Projekts (Objekts) als formatierten Einzeiler liefern.
@@ -4090,7 +4179,7 @@ function sdBuildReportHtml(s) {
       h += '<h3>Fotos (Analyse)</h3>';
       a.fotos.forEach(function(f) {
         if (f.imBericht !== false) {
-          h += '<div style="margin:8px 0"><img src="' + f.dataUrl + '" style="max-width:280px">';
+          h += '<div style="margin:8px 0"><img src="' + _sdImgSrc(f) + '" style="max-width:280px">';
           if (f.kommentar) h += '<br><em>' + esc(f.kommentar) + '</em>';
           h += '</div>';
         }
@@ -4143,7 +4232,7 @@ function sdBuildReportHtml(s) {
       h += '<h3>Fotos (Trocknung)</h3>';
       tr.fotos.forEach(function(f) {
         if (f.imBericht !== false) {
-          h += '<div style="margin:8px 0"><img src="' + f.dataUrl + '" style="max-width:280px">';
+          h += '<div style="margin:8px 0"><img src="' + _sdImgSrc(f) + '" style="max-width:280px">';
           if (f.kommentar) h += '<br><em>' + esc(f.kommentar) + '</em>';
           h += '</div>';
         }
@@ -4164,7 +4253,7 @@ function sdBuildReportHtml(s) {
       h += '<h3>Fotos (Abschluss)</h3>';
       ab.fotos.forEach(function(f) {
         if (f.imBericht !== false) {
-          h += '<div style="margin:8px 0"><img src="' + f.dataUrl + '" style="max-width:280px">';
+          h += '<div style="margin:8px 0"><img src="' + _sdImgSrc(f) + '" style="max-width:280px">';
           if (f.kommentar) h += '<br><em>' + esc(f.kommentar) + '</em>';
           h += '</div>';
         }
