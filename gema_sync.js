@@ -25,11 +25,33 @@
   var _online = (typeof navigator !== 'undefined' && 'onLine' in navigator) ? navigator.onLine : true;
   var _lastReachable = _online; // Echte Cloud-Erreichbarkeit (nicht nur navigator.onLine)
   var _connListeners = [];
+  var _failStreak = 0;          // aufeinanderfolgende echte Netz-/Server-Fehler
   function _setReachable(state){
     if(state === _lastReachable) return;
     _lastReachable = state;
     _connListeners.forEach(function(cb){ try{ cb(state); }catch(e){} });
     _broadcastBanner(state);
+    // Verbindung zurueck → die Outbox (nicht synchronisierte Saves) leeren.
+    if(state) _scheduleFlush(400);
+  }
+  // Erfolgreiche Cloud-Antwort: Fehlerzaehler zuruecksetzen, online.
+  function _noteSuccess(){ _failStreak = 0; _setReachable(true); }
+  // Fehlerklassifikation (Punkt E): Ein 4xx (ausser 408/429) ist KEIN
+  // Verbindungsproblem, sondern eine abgelehnte Anfrage — typisch 413
+  // (Payload zu gross, bei bildlastigen Records). Das darf NICHT auf
+  // "offline" schalten, sonst sieht der User faelschlich "Offline", obwohl
+  // das Internet einwandfrei laeuft. Echte Netz-/Server-Fehler (fetch wirft,
+  // 5xx, 408, 429) schalten erst nach ZWEI Fehlern in Folge auf offline —
+  // ein einzelner Aussetzer soll das Banner nicht ausloesen.
+  function _noteFailure(e){
+    var msg = (e && e.message) || '';
+    var m = /HTTP (\d+)/.exec(msg);
+    if(m){
+      var code = +m[1];
+      if(code >= 400 && code < 500 && code !== 408 && code !== 429) return;
+    }
+    _failStreak++;
+    if(_failStreak >= 2) _setReachable(false);
   }
   if(typeof window !== 'undefined'){
     window.addEventListener('online',  function(){ _online = true;  _probeOnce(); });
@@ -80,7 +102,7 @@
     return fetch(SB_URL + '/rest/v1/' + SB_TABLE + '?select=module_key&limit=1', {
       headers: _hdrs(), method: 'GET'
     }).then(function(r){
-      _setReachable(r.ok);
+      if(r.ok){ _noteSuccess(); } else { _setReachable(false); }
       return r.ok;
     }).catch(function(){
       _setReachable(false);
@@ -100,7 +122,7 @@
     return fetch(url, { headers: _hdrs() })
       .then(function(r){
         if(!r.ok) throw new Error('HTTP ' + r.status);
-        _setReachable(true);
+        _noteSuccess();
         return r.json();
       })
       .then(function(rows){
@@ -111,7 +133,7 @@
         });
       })
       .catch(function(e){
-        _setReachable(false);
+        _noteFailure(e);
         throw e;
       });
   }
@@ -127,7 +149,7 @@
     return fetch(url, { headers: _hdrs() })
       .then(function(r){
         if(!r.ok) throw new Error('HTTP ' + r.status);
-        _setReachable(true);
+        _noteSuccess();
         return r.json();
       })
       .then(function(rows){
@@ -136,7 +158,7 @@
         return { key: dataKey, data: p.data, lm: p._lm || null };
       })
       .catch(function(e){
-        _setReachable(false);
+        _noteFailure(e);
         throw e;
       });
   }
@@ -145,9 +167,10 @@
    * Schreibt einen einzelnen Record. Reject bei Netz-Fehler / non-2xx.
    * Setzt automatisch _lm = jetzt.
    */
-  function saveRecord(moduleKey, dataKey, data, opts){
-    var lm = _now();
-    var body = { module_key: moduleKey, data_key: dataKey, payload: { data: data, _lm: lm } };
+  // Low-Level: schreibt ein fertiges Body-Array (jeder Eintrag traegt sein
+  // eigenes payload inkl. _lm). Wird von saveRecord/saveRecords UND vom
+  // Outbox-Flush genutzt. Zentrale Stelle fuer Reachability-Buchhaltung.
+  function _postRecords(body, opts){
     return fetch(SB_URL + '/rest/v1/' + SB_TABLE + '?on_conflict=module_key%2Cdata_key', {
       method: 'POST',
       headers: _hdrs({ 'Prefer': 'resolution=merge-duplicates,return=minimal' }),
@@ -155,12 +178,18 @@
       keepalive: !!(opts && opts.keepalive)
     }).then(function(r){
       if(!r.ok) throw new Error('HTTP ' + r.status);
-      _setReachable(true);
-      return { ok:true, lm: lm };
+      _noteSuccess();
+      return true;
     }).catch(function(e){
-      _setReachable(false);
+      _noteFailure(e);
       throw e;
     });
+  }
+
+  function saveRecord(moduleKey, dataKey, data, opts){
+    var lm = _now();
+    var body = [{ module_key: moduleKey, data_key: dataKey, payload: { data: data, _lm: lm } }];
+    return _postRecords(body, opts).then(function(){ return { ok:true, lm: lm }; });
   }
 
   /**
@@ -178,18 +207,8 @@
         payload: { data: rec.data, _lm: lm }
       };
     });
-    return fetch(SB_URL + '/rest/v1/' + SB_TABLE + '?on_conflict=module_key%2Cdata_key', {
-      method: 'POST',
-      headers: _hdrs({ 'Prefer': 'resolution=merge-duplicates,return=minimal' }),
-      body: JSON.stringify(body),
-      keepalive: !!(opts && opts.keepalive)
-    }).then(function(r){
-      if(!r.ok) throw new Error('HTTP ' + r.status);
-      _setReachable(true);
+    return _postRecords(body, opts).then(function(){
       return { ok:true, count: records.length, lm: lm };
-    }).catch(function(e){
-      _setReachable(false);
-      throw e;
     });
   }
 
@@ -203,11 +222,11 @@
     return fetch(url, { method:'DELETE', headers: _hdrs(), keepalive: !!(opts && opts.keepalive) })
       .then(function(r){
         if(!r.ok && r.status !== 404) throw new Error('HTTP ' + r.status);
-        _setReachable(true);
+        _noteSuccess();
         return { ok:true };
       })
       .catch(function(e){
-        _setReachable(false);
+        _noteFailure(e);
         throw e;
       });
   }
@@ -366,6 +385,9 @@
     return loadCollection(moduleKey, prefix).then(function(rows){
       if(rows && rows.length){
         var arr = rows.map(function(r){ return r.data; }).filter(function(d){ return d && d[idField] != null; });
+        // Noch nicht synchronisierte (Outbox-)Aenderungen ueberlagern den
+        // Cloud-Stand → lokal gesicherte Eintraege bleiben nach Reload sichtbar.
+        arr = _outboxApplyTo(moduleKey, prefix, idField, arr);
         _writeCache(storageKey, arr);
         return arr;
       }
@@ -380,8 +402,9 @@
           // dauerhaft weiter (Cloud gewinnt). Bei Offline laeuft dieser
           // Pfad nicht — dann rejected loadCollection und der aeussere
           // .catch behaelt den Cache.
-          _writeCache(storageKey, []);
-          return [];
+          var emptied = _outboxApplyTo(moduleKey, prefix, idField, []);
+          _writeCache(storageKey, emptied);
+          return emptied;
         }
         var records = blob.filter(function(it){ return it && it[idField] != null; })
                           .map(function(it){ return { key: prefix + it[idField], data: it }; });
@@ -400,30 +423,167 @@
     });
   }
 
+  // ── Outbox: verlustfreie Warteschlange fuer nicht synchronisierte Saves ──
+  // Jeder fehlgeschlagene Cloud-Push landet hier dauerhaft (localStorage) und
+  // wird automatisch nachgesendet — bei Reconnect, periodisch, beim Seiten-
+  // start und vor dem Entladen. Schluessel: moduleKey|dataKey, neueste
+  // Operation gewinnt. Dadurch geht eine Aenderung NIE verloren, selbst wenn
+  // der Cloud-POST scheitert (Netz, 413, Timeout) oder die Seite neu laedt.
+  var OUTBOX_KEY = 'gema_sync_outbox_v1';
+  var _outboxMem = null;
+  function _outboxLoad(){
+    if(_outboxMem) return _outboxMem;
+    _outboxMem = {};
+    try{
+      if(typeof localStorage !== 'undefined'){
+        var raw = localStorage.getItem(OUTBOX_KEY);
+        if(raw){ var o = JSON.parse(raw); if(o && o.ops) _outboxMem = o.ops; }
+      }
+    }catch(e){ _outboxMem = {}; }
+    return _outboxMem;
+  }
+  function _outboxPersist(){
+    if(typeof localStorage === 'undefined') return;
+    try{ localStorage.setItem(OUTBOX_KEY, JSON.stringify({ ops: _outboxMem || {} })); }
+    catch(e){ /* In-Memory-Spiegel haelt den Stand fuer diese Sitzung */ }
+  }
+  function _outboxEnqueue(moduleKey, upserts, delKeys){
+    var ob = _outboxLoad();
+    var lm = _now();
+    (upserts || []).forEach(function(rec){
+      ob[moduleKey + '|' + rec.key] = { m: moduleKey, key: rec.key, type: 'up', data: rec.data, lm: lm };
+    });
+    (delKeys || []).forEach(function(k){
+      ob[moduleKey + '|' + k] = { m: moduleKey, key: k, type: 'del', lm: lm };
+    });
+    _outboxPersist();
+  }
+  function _outboxCount(){ return Object.keys(_outboxLoad()).length; }
+  // Entfernt Eintraege fuer bereits erfolgreich gepushte Records — sonst
+  // koennte ein spaeter geflushter, veralteter Outbox-Eintrag den frischen
+  // Cloud-Stand desselben Records ueberschreiben (Regression).
+  function _outboxClear(moduleKey, keys){
+    var ob = _outboxLoad(), changed = false;
+    (keys || []).forEach(function(k){ var kk = moduleKey + '|' + k; if(ob[kk]){ delete ob[kk]; changed = true; } });
+    if(changed) _outboxPersist();
+  }
+
+  var _flushTimer = null, _flushing = false;
+  function _scheduleFlush(delay){
+    if(_flushTimer || _flushing) return;
+    if(typeof setTimeout === 'undefined') return;
+    if(!_outboxCount()) return;
+    _flushTimer = setTimeout(function(){ _flushTimer = null; _outboxFlush(); }, delay || 4000);
+  }
+  // Sendet alle eingereihten Operationen, gruppiert nach Modul. Erfolgreich
+  // gesendete Eintraege werden aus der Outbox entfernt; fehlgeschlagene
+  // bleiben fuer den naechsten Versuch. opts.keepalive fuer den Unload-Pfad.
+  function _outboxFlush(opts){
+    if(_flushing) return Promise.resolve();
+    var ob = _outboxLoad();
+    var keys = Object.keys(ob);
+    if(!keys.length) return Promise.resolve();
+    _flushing = true;
+    var byModule = {};
+    keys.forEach(function(k){ var op = ob[k]; (byModule[op.m] = byModule[op.m] || []).push(op); });
+    var chain = Promise.resolve();
+    Object.keys(byModule).forEach(function(m){
+      chain = chain.then(function(){
+        var ops = byModule[m];
+        var ups = ops.filter(function(o){ return o.type === 'up'; });
+        var dels = ops.filter(function(o){ return o.type === 'del'; });
+        var step = Promise.resolve();
+        if(ups.length){
+          var body = ups.map(function(o){ return { module_key: m, data_key: o.key, payload: { data: o.data, _lm: o.lm } }; });
+          step = step.then(function(){ return _postRecords(body, opts); }).then(function(){
+            ups.forEach(function(o){ delete _outboxMem[m + '|' + o.key]; });
+          });
+        }
+        if(dels.length){
+          step = step.then(function(){ return deleteRecords(m, dels.map(function(o){ return o.key; }), opts); }).then(function(){
+            dels.forEach(function(o){ delete _outboxMem[m + '|' + o.key]; });
+          });
+        }
+        return step;
+      });
+    });
+    return chain.then(function(){
+      _flushing = false; _outboxPersist();
+    }, function(e){
+      // Teilerfolg moeglich — bereits gesendete Eintraege sind raus.
+      _flushing = false; _outboxPersist();
+      if(_outboxCount()) _scheduleFlush(15000); // spaeter erneut versuchen
+    });
+  }
+  // Legt ausstehende (noch nicht synchronisierte) Outbox-Operationen ueber ein
+  // frisch aus der Cloud geladenes Array — so bleiben lokal gespeicherte, aber
+  // noch nicht hochgeladene Aenderungen nach einem Reload sichtbar, bis der
+  // Flush sie in die Cloud bringt.
+  function _outboxApplyTo(moduleKey, prefix, idField, arr){
+    var ob = _outboxLoad();
+    var keys = Object.keys(ob).filter(function(k){ return ob[k].m === moduleKey; });
+    if(!keys.length) return arr || [];
+    var byId = {};
+    (arr || []).forEach(function(it){ if(it && it[idField] != null) byId[it[idField]] = it; });
+    keys.forEach(function(k){
+      var op = ob[k];
+      var id = (op.key.indexOf(prefix) === 0) ? op.key.slice(prefix.length) : op.key;
+      if(op.type === 'del'){ delete byId[id]; }
+      else if(op.type === 'up' && op.data){ byId[id] = op.data; }
+    });
+    return Object.keys(byId).map(function(id){ return byId[id]; });
+  }
+
   function persistCollection(moduleKey, storageKey, prefix, idField, newArr, opts){
     if(!idField) idField = 'id';
-    // keepalive-Saves (beim Entladen der Seite) NICHT durch einen async
-    // Probe verzoegern — der Request muss sofort raus, bevor die Seite weg
-    // ist. Bei normalem Save bleibt der Offline-Probe-Pfad erhalten.
-    if(!_lastReachable && !(opts && opts.keepalive)){
-      return _probeOnce().then(function(reachable){
-        if(!reachable) return Promise.reject(new Error('Offline — Save blockiert'));
-        return _doPersist(moduleKey, storageKey, prefix, idField, newArr, opts);
+    // opts.baseline: explizite Diff-Baseline (voller zuletzt-synchronisierter
+    // Satz). Module, die aus dem Cloud-Array rendern, uebergeben sie, damit
+    // der Diff nicht den (evtl. leeren) localStorage-Cache als Baseline nimmt.
+    var oldArr = (opts && Array.isArray(opts.baseline)) ? opts.baseline : _readCache(storageKey);
+    var d = diffArrays(oldArr, newArr, idField);
+
+    // ── A: Lokale Persistenz IMMER zuerst ──────────────────────────────
+    // Der neue Stand ist sofort dauerhaft (localStorage + In-Memory-Spiegel),
+    // unabhaengig davon ob der Cloud-Push gleich klappt. Damit geht bei einem
+    // fehlgeschlagenen POST (Netz, 413, Timeout) oder einem Reload NIE etwas
+    // verloren — die fehlenden Records holt die Outbox spaeter nach.
+    _writeCache(storageKey, newArr);
+
+    if(!d.toUpsert.length && !d.toDelete.length){
+      return Promise.resolve({ upserted:0, deleted:0, queued:false });
+    }
+    var upserts = d.toUpsert.map(function(it){ return { key: prefix + it[idField], data: it }; });
+    var delKeys = d.toDelete.map(function(id){ return prefix + id; });
+
+    function _push(){
+      return saveRecords(moduleKey, upserts, opts).then(function(){
+        if(!delKeys.length) return null;
+        return deleteRecords(moduleKey, delKeys, opts);
+      }).then(function(){
+        // Erfolgreich in der Cloud → evtl. aeltere Outbox-Eintraege fuer
+        // dieselben Records verwerfen, damit sie den frischen Stand nicht
+        // spaeter ueberschreiben.
+        _outboxClear(moduleKey, upserts.map(function(r){ return r.key; }).concat(delKeys));
+        return { upserted: upserts.length, deleted: delKeys.length, queued:false };
       });
     }
-    return _doPersist(moduleKey, storageKey, prefix, idField, newArr, opts);
-  }
-  function _doPersist(moduleKey, storageKey, prefix, idField, newArr, opts){
-    // opts.baseline: explizite Diff-Baseline (voller zuletzt-synchronisierter
-    // Satz). Module, die aus dem Cloud-Array rendern (nicht aus localStorage),
-    // uebergeben sie, damit der Diff nicht den (evtl. leeren/veralteten)
-    // localStorage-Cache als Baseline nimmt und dann ALLE Records in einem
-    // riesigen POST hochlaedt (413) bzw. fremde Orgs loescht.
-    var oldArr = (opts && Array.isArray(opts.baseline)) ? opts.baseline : _readCache(storageKey);
-    return saveDiff(moduleKey, prefix, oldArr, newArr, idField, opts).then(function(res){
-      _writeCache(storageKey, newArr);
-      return res;
-    });
+    // ── B: Cloud-Push scheitert → in die Outbox (verlustfrei nachsenden) ──
+    function _queueAndReject(e){
+      _outboxEnqueue(moduleKey, upserts, delKeys);
+      _scheduleFlush(2000);
+      var err = new Error('Sync verzoegert — lokal gespeichert, wird automatisch nachgeholt');
+      err.queued = true; err.cause = e;
+      return Promise.reject(err);
+    }
+
+    // keepalive-Saves (Seite wird entladen) nicht durch einen Probe verzoegern.
+    if(!_lastReachable && !(opts && opts.keepalive)){
+      return _probeOnce().then(function(reachable){
+        if(!reachable) return _queueAndReject(new Error('offline'));
+        return _push().catch(_queueAndReject);
+      });
+    }
+    return _push().catch(_queueAndReject);
   }
 
   // Public API
@@ -454,7 +614,34 @@
     // Modul beim Persistieren fremde Records (z.B. andere Orgs) aus dem
     // vollen Cloud-Satz erhalten muss — verlaesslich auch wenn der
     // localStorage-Cache am Quota gescheitert/entfernt wurde.
-    getCached: function(storageKey){ return _readCache(storageKey); }
+    getCached: function(storageKey){ return _readCache(storageKey); },
+
+    // Outbox: nicht synchronisierte Saves manuell nachsenden / Anzahl abfragen.
+    flushOutbox: function(opts){ return _outboxFlush(opts); },
+    pendingCount: _outboxCount
   };
+
+  // ── C: Flush-Ausloeser ──────────────────────────────────────────────
+  // Outbox bei jeder Gelegenheit leeren, damit nicht synchronisierte Saves
+  // verlaesslich in die Cloud kommen — Webhooks/Events decken nicht alles ab.
+  if(typeof window !== 'undefined'){
+    // Beim Verlassen/Verstecken der Seite: keepalive-Flush, damit der letzte
+    // Save eine Navigation ueberlebt (fetch keepalive laeuft nach Unload weiter).
+    var _flushOnHide = function(){ try{ _outboxFlush({ keepalive:true }); }catch(e){} };
+    window.addEventListener('pagehide', _flushOnHide);
+    document.addEventListener('visibilitychange', function(){
+      if(document.visibilityState === 'hidden') _flushOnHide();
+    });
+    // Sichtbar/aktiv geworden → erneut versuchen.
+    document.addEventListener('visibilitychange', function(){
+      if(document.visibilityState === 'visible') _scheduleFlush(800);
+    });
+    // Periodisches Sicherheitsnetz.
+    if(typeof setInterval !== 'undefined'){
+      setInterval(function(){ if(_outboxCount() && (_online || _lastReachable)) _outboxFlush(); }, 60000);
+    }
+    // Seitenstart: evtl. liegt noch etwas aus einer fruerheren Sitzung herum.
+    _scheduleFlush(2500);
+  }
 
 })(window);

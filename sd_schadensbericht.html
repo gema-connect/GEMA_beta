@@ -1004,13 +1004,22 @@ function _sdCanMeasure() {
 }
 
 // ── STORAGE ── Per-Record in Supabase (data_key='schaden:<id>')
+var _sdSyncHintShownAt = 0;
 function sdSave() {
   if (typeof window.GemaSync !== 'undefined') {
+    // persistCollection sichert die Aenderung IMMER zuerst lokal (durable)
+    // und reiht einen fehlgeschlagenen Cloud-Push in die Outbox ein, die
+    // automatisch nachgesendet wird (Reconnect/Intervall/Seitenstart/Unload).
+    // Ein Reject bedeutet daher NICHT mehr Datenverlust — die Eingaben sind
+    // lokal gespeichert. Wir zeigen nur einen dezenten Hinweis (max. 1x/Min.)
+    // statt der frueheren, irrefuehrenden "nicht gespeichert"-Meldung.
     window.GemaSync.persistCollection('schadensbericht', STORAGE_KEY, 'schaden:', 'id', schaeden)
       .catch(function(e){
-        console.warn('[Schadensbericht] Cloud-Save fehlgeschlagen:', e && e.message);
-        if (window.GemaDialog && window.GemaDialog.alert) {
-          window.GemaDialog.alert({title:'Offline', message:'Aenderungen koennen nicht gespeichert werden. Bitte Verbindung pruefen.'});
+        console.warn('[Schadensbericht] Cloud-Sync verzoegert (lokal gesichert):', e && e.message);
+        var now = Date.now();
+        if (window.GemaDialog && window.GemaDialog.alert && (now - _sdSyncHintShownAt > 60000)) {
+          _sdSyncHintShownAt = now;
+          window.GemaDialog.alert({title:'Wird synchronisiert', message:'Die Eingaben sind lokal gespeichert und werden automatisch in die Cloud uebertragen, sobald die Verbindung wieder steht.'});
         }
       });
   } else {

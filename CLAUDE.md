@@ -1489,15 +1489,27 @@ load();  // liest aus localStorage-Cache
 2. Falls 0 Records: prüft ob die alte Blob-Row noch da ist und splittet sie auf — User-Wahl „Auto-Migration ohne Backup": alte Row wird nach Aufsplittung gelöscht
 3. Schreibt das resultierende Array in `localStorage[storageKey]` als sync-Cache
 
-### Save — per-Record-Diff
+### Save — per-Record-Diff (local-first + Outbox, verlustfrei)
 
 Jedes Modul ersetzt die alte `_xxWriteAllRaw(arr)` durch:
 ```js
 GemaSync.persistCollection(moduleKey, storageKey, prefix, 'id', arr)
-  .catch(e => GemaDialog.alert({title:'Offline', message:'Aenderungen koennen nicht gespeichert werden.'}));
+  .catch(e => {/* e.queued === true → lokal gesichert, wird nachgeholt */});
 ```
 
-`persistCollection` vergleicht `arr` mit dem aktuellen `localStorage[storageKey]`-Cache → bestimmt geänderte/entfernte Records → pusht nur diese. Bei Erfolg wird der Cache aktualisiert. Wenn offline: Reject, kein Save.
+`persistCollection` vergleicht `arr` mit dem aktuellen Cache → bestimmt geänderte/entfernte Records → pusht nur diese.
+
+**KRITISCH — verlustfreies Speichern (kein Datenverlust mehr, auch nicht bei Offline/413/Timeout/Reload):**
+1. **Local-first**: `persistCollection` schreibt den neuen Stand **IMMER zuerst** in den Cache (`_writeCache`), **bevor/unabhängig davon** ob der Cloud-Push klappt. Der neue Stand ist damit sofort dauerhaft (localStorage + In-Memory-Spiegel).
+2. **Outbox**: Scheitert der Cloud-Push, werden die betroffenen Records in eine dauerhafte Warteschlange gelegt (`localStorage['gema_sync_outbox_v1']`, In-Memory-Spiegel als Fallback). `persistCollection` rejected dann mit `err.queued === true` — die Daten sind aber sicher.
+3. **Automatischer Flush**: Die Outbox wird nachgesendet bei Reconnect (`_setReachable(true)`), beim `visibilitychange`/`pagehide` (keepalive-fetch, überlebt Navigation), periodisch (60s) und beim Seitenstart. Erfolgreich gepushte Records werden aus der Outbox entfernt; ein erfolgreicher Direkt-Push verwirft veraltete Outbox-Einträge desselben Records (kein Überschreiben mit Altstand).
+4. **Overlay nach Reload**: `bindCollection` legt offene Outbox-Operationen über den frisch geladenen Cloud-Stand (`_outboxApplyTo`) → lokal gesicherte, noch nicht synchronisierte Einträge bleiben nach einem Reload sichtbar, bis der Flush sie hochlädt.
+
+**Reachability / Offline-Erkennung (Punkt E):** `_lastReachable` wird **nicht** mehr bei jedem einzelnen Fehler auf offline gesetzt. Ein **HTTP 4xx** (ausser 408/429) — typisch **413 Payload zu gross** bei bildlastigen Records — ist KEIN Verbindungsproblem und schaltet NICHT auf offline. Echte Netz-/Server-Fehler (fetch wirft, 5xx, 408, 429) schalten erst nach **zwei Fehlern in Folge** auf offline. Damit erscheint das «Offline»-Banner nicht mehr fälschlich bei bestehendem Internet.
+
+**Public API neu:** `GemaSync.flushOutbox(opts)` (manuell nachsenden), `GemaSync.pendingCount()` (Anzahl offener Operationen).
+
+**Offen (separater Schritt):** `sd_schadensbericht` speichert Fotos noch als Base64 im Record → sehr grosse Records, die dauerhaft 413 erzeugen können und dann zwar lokal+Outbox sicher sind, aber nie in die Cloud kommen. Fix = Bild-Auslagerung nach `GemaStorage` (wie `sp_dachbericht`), erfordert aber Anpassung der jsPDF-/Word-Exporte (die Base64 brauchen → URL→DataURL-Rehydrierung beim Export).
 
 ### Migrierte Module (per-Record in Cloud)
 
