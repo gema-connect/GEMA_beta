@@ -1518,7 +1518,7 @@ GemaSync.persistCollection(moduleKey, storageKey, prefix, 'id', arr)
 
 **Public API neu:** `GemaSync.flushOutbox(opts)` (manuell nachsenden), `GemaSync.pendingCount()` (Anzahl offener Operationen).
 
-**Offen (separater Schritt):** `sd_schadensbericht` speichert Fotos noch als Base64 im Record → sehr grosse Records, die dauerhaft 413 erzeugen können und dann zwar lokal+Outbox sicher sind, aber nie in die Cloud kommen. Fix = Bild-Auslagerung nach `GemaStorage` (wie `sp_dachbericht`), erfordert aber Anpassung der jsPDF-/Word-Exporte (die Base64 brauchen → URL→DataURL-Rehydrierung beim Export).
+**Bild-Auslagerung in `sd_schadensbericht` (umgesetzt):** Fotos werden beim Speichern nach `GemaStorage` (Bucket `gema-fotos`) ausgelagert — `_sdUploadFotosToStorage()` läuft VOR `persistCollection` (`sdSave` → `_sdUploadFotosToStorage().then(_sdPersistSchaeden)`), ersetzt `dataUrl`→`url` bei Foto-Objekten und den String bei Messpunkt-Fotos (`m.foto`). Records bleiben dadurch klein → kein 413 / kein localStorage-Quota-Verlust mehr. Best-effort: ohne Bucket bleibt das Base64 erhalten (Fallback). Anzeige via `_sdImgSrc(f)` = `url||dataUrl`. **Exporte:** HTML/Print (`gema_schaden_pdf.js`) + Word nutzen die URL direkt im `<img>`; der **jsPDF-Export** braucht Base64 → `_sdRehydrateFotosForExport(s)` holt ausgelagerte Fotos vor dem Bauen via `fetch`→DataURL in eine temporäre `_sdRehydMap` (Foto-Objekt→DataURL, re-bloatet den Record NICHT). **Setup nötig:** Supabase-Bucket `gema-fotos` public + anon-INSERT-Policy (derselbe wie `sp_dachbericht`).
 
 ### Migrierte Module (per-Record in Cloud)
 
