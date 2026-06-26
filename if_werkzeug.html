@@ -1135,6 +1135,7 @@ window._wzInventurAbschliessen=function(){
 var _wzBulkMode=false;
 var _wzBulkSelected={};
 var _wzLastFilteredIds=[];   // IDs der aktuell sichtbaren (gefilterten) Werkzeuge
+var _wzCloudLoaded=false;    // true sobald der erste Cloud-Pull durch ist (Ladeanzeige-Steuerung)
 window._wzToggleBulkMode=function(){
   if(!_wzCanEdit())return;
   _wzBulkMode=!_wzBulkMode;
@@ -2018,19 +2019,29 @@ window._wzSetCatFilter=function(cat){
   renderList();
 };
 
+// Ladeanzeige (SMIL-Spinner, kein CSS noetig) — wird nur gezeigt, solange die
+// Cloud beim allerersten Aufruf (leerer Cache) noch laedt. Bei vorhandenem
+// Cache rendert die Seite sofort die zuletzt bekannten Daten (kein Spinner).
+var _WZ_LOADING_HTML='<div class="empty-state"><svg width="30" height="30" viewBox="0 0 24 24" style="display:block;margin:0 auto 12px"><circle cx="12" cy="12" r="9" fill="none" stroke="#e2e8f0" stroke-width="3"/><path d="M12 3 a9 9 0 0 1 9 9" fill="none" stroke="#7c3aed" stroke-width="3" stroke-linecap="round"><animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="0.8s" repeatCount="indefinite"/></path></svg><h3>Wird geladen …</h3><p>Werkzeuge werden aus der Cloud geladen.</p></div>';
 function renderList(){
   _wzRenderCatFilter();
   const f=getFiltered();
   _wzLastFilteredIds=f.map(t=>t.id);
   const grid=document.getElementById('cardGrid');
   const tbody=document.getElementById('toolTbody');
+  // Stale-while-revalidate: solange die Cloud noch laedt UND lokal noch nichts
+  // da ist, eine Ladeanzeige statt des "keine Geraete"-Zustands zeigen — sonst
+  // wirkt es faelschlich wie ein leerer Bestand.
+  var showLoading = !_wzCloudLoaded && !tools.length;
   if(currentView==='cards'){
     var emptyMsg=_wzIsMonteurView()
       ?'<div class="empty-state"><div class="ei">🔧</div><h3>Keine Werkzeuge zugewiesen</h3><p>Dir ist aktuell kein Werkzeug fest zugewiesen oder ausgeliehen.<br>Scanne den QR-Code eines Werkzeugs, um es auszuleihen.</p><button class="nbtn primary" onclick="_wzScanWithCamera()" style="margin-top:8px">📷 Werkzeug scannen</button></div>'
       :'<div class="empty-state"><div class="ei">🔧</div><h3>Keine Geräte gefunden</h3><p>Passen Sie den Filter an oder erfassen Sie ein neues Gerät.</p><button class="nbtn primary" onclick="openAdd()">+ Gerät hinzufügen</button></div>';
-    grid.innerHTML=f.length?f.map(renderCard).join(''):emptyMsg;
+    grid.innerHTML = showLoading ? _WZ_LOADING_HTML : (f.length?f.map(renderCard).join(''):emptyMsg);
   } else {
-    tbody.innerHTML=f.length?f.map(renderRow).join(''):`<tr><td colspan="8" style="padding:44px;text-align:center;color:var(--mut)">Keine Geräte gefunden</td></tr>`;
+    tbody.innerHTML = showLoading
+      ? `<tr><td colspan="8" style="padding:44px;text-align:center;color:var(--mut)">Wird geladen …</td></tr>`
+      : (f.length?f.map(renderRow).join(''):`<tr><td colspan="8" style="padding:44px;text-align:center;color:var(--mut)">Keine Geräte gefunden</td></tr>`);
   }
   updateStats();
 }
@@ -5017,11 +5028,16 @@ const esc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'
 // INIT
 // ──────────────────────────────────────
 window.addEventListener('DOMContentLoaded',async () => {
-// Cloud-First (DB primaer, localStorage nur Fallback): VOR dem Rendern
-// sowohl die Tools (per-Record) als auch den Org (enthaelt die Kategorie-
-// Symbole in org.settings.werkzeug.kategorien) frisch aus der Datenbank
-// ziehen. So sehen ALLE Geraete neu erfasste Geraete und geaenderte
-// Kategorie-Symbole — nicht nur das Geraet, auf dem gespeichert wurde.
+// Stale-while-revalidate: SOFORT den zuletzt bekannten Stand aus dem lokalen
+// Cache rendern, damit der Nutzer seine Werkzeuge ohne Wartezeit sieht. Der
+// Cloud-Pull laeuft direkt danach und aktualisiert die Ansicht (frische Daten
+// von anderen Geraeten). Beim allerersten Aufruf (leerer Cache) zeigt
+// renderList eine Ladeanzeige statt eines leeren Bestands.
+try{ load(); _wzSyncCatsMap(); _wzApplyOptFelder(); renderList(); }catch(e){ /* noop */ }
+
+// Cloud-First (DB primaer, localStorage nur Fallback): sowohl die Tools
+// (per-Record) als auch den Org (enthaelt die Kategorie-Symbole in
+// org.settings.werkzeug.kategorien) frisch aus der Datenbank ziehen.
 var _wzCloudTools = null;
 if(typeof window.GemaSync !== 'undefined'){
   await Promise.race([
@@ -5035,6 +5051,7 @@ if(typeof window.GemaSync !== 'undefined'){
     new Promise(function(r){ setTimeout(r, 6000); })
   ]);
 }
+_wzCloudLoaded = true; // ab jetzt: echter "keine Geraete"-Zustand statt Spinner
 // Aktivitaetenlog-Collection laden (im Hintergrund, blockiert UI nicht)
 try{ if(window.GemaActivityLog) window.GemaActivityLog.bootstrap(); }catch(e){}
 

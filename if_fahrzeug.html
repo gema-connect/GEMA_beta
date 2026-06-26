@@ -814,27 +814,25 @@ if(typeof _GemaDB==='undefined'){
 </script>
 <script>
 (async()=>{
-// Cloud-First Per-Record-Sync (siehe gema_sync.js)
-// DB primaer: das frische Cloud-Array von bindCollection wird direkt an
-// _fzLoadVehicles uebergeben — NICHT aus localStorage neu gelesen. Auf
-// iPhone-Safari kann der localStorage-Cache-Write am Quota scheitern
-// (andere Module mit Base64-Bildern fuellen den Storage), dann waere der
-// localStorage-Stand veraltet/leer obwohl die Cloud die Daten liefert.
+// Stale-while-revalidate: Der Cloud-Pull blockiert NICHT mehr den Seitenaufbau.
+// Die Seite rendert sofort aus dem lokalen Cache (siehe render() am Ende der
+// Bootstrap) und aktualisiert sich, sobald _fzCloudPromise aufloest.
 var _fzCloudVehicles = null;
-if(typeof window.GemaSync !== 'undefined'){
-  await Promise.race([
-    Promise.all([
-      window.GemaSync.bindCollection('fahrzeugmanagement','gema_vehicles','vehicle:','id')
-        .then(function(arr){ if(Array.isArray(arr)) _fzCloudVehicles = arr; }),
-      // Orgs frisch ziehen, damit org.settings.fahrzeug (Garagen-Liste)
-      // aktuell ist — und ueber den In-Memory-Spiegel quota-sicher.
-      (typeof GemaAuth !== 'undefined' && GemaAuth.restoreFromCloud)
-        ? Promise.resolve(GemaAuth.restoreFromCloud()).catch(function(){})
-        : Promise.resolve()
-    ]),
-    new Promise(function(r){ setTimeout(r, 6000); })
-  ]);
-}
+var _fzCloudLoaded = false;
+var _fzCloudPromise = (typeof window.GemaSync !== 'undefined')
+  ? Promise.race([
+      Promise.all([
+        window.GemaSync.bindCollection('fahrzeugmanagement','gema_vehicles','vehicle:','id')
+          .then(function(arr){ if(Array.isArray(arr)) _fzCloudVehicles = arr; }),
+        // Orgs frisch ziehen, damit org.settings.fahrzeug (Garagen-Liste)
+        // aktuell ist — und ueber den In-Memory-Spiegel quota-sicher.
+        (typeof GemaAuth !== 'undefined' && GemaAuth.restoreFromCloud)
+          ? Promise.resolve(GemaAuth.restoreFromCloud()).catch(function(){})
+          : Promise.resolve()
+      ]),
+      new Promise(function(r){ setTimeout(r, 6000); })
+    ])
+  : Promise.resolve();
 try{ if(window.GemaActivityLog) window.GemaActivityLog.bootstrap(); }catch(e){}
 
 /* ═══════════════════════════════
@@ -1448,6 +1446,10 @@ window._fzKpiFilter=_fzKpiFilter;
 
 function renderCards(list){
   const wrap=document.getElementById("cardsView");
+  if(list.length===0 && !_fzCloudLoaded && !vehicles.length){
+    wrap.innerHTML=`<div class="empty-state" style="grid-column:1/-1;"><svg width="30" height="30" viewBox="0 0 24 24" style="display:block;margin:0 auto 12px"><circle cx="12" cy="12" r="9" fill="none" stroke="#e2e8f0" stroke-width="3"/><path d="M12 3 a9 9 0 0 1 9 9" fill="none" stroke="#2563eb" stroke-width="3" stroke-linecap="round"><animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="0.8s" repeatCount="indefinite"/></path></svg><div class="em-title">Wird geladen …</div><div class="em-sub">Fahrzeuge werden aus der Cloud geladen.</div></div>`;
+    return;
+  }
   if(list.length===0){
     wrap.innerHTML=`<div class="empty-state" style="grid-column:1/-1;"><div class="em-icon">🚐</div><div class="em-title">Keine Fahrzeuge gefunden</div><div class="em-sub">Passe die Filter an oder erfasse ein neues Fahrzeug.</div></div>`;
     return;
@@ -1503,6 +1505,10 @@ function renderCards(list){
 
 function renderTable(list){
   const tbody=document.getElementById("tableBody");
+  if(list.length===0 && !_fzCloudLoaded && !vehicles.length){
+    tbody.innerHTML=`<tr><td colspan="11" class="center" style="padding:40px;color:var(--muted);">Wird geladen …</td></tr>`;
+    return;
+  }
   if(list.length===0){
     tbody.innerHTML=`<tr><td colspan="11" class="center" style="padding:40px;color:var(--muted);">Keine Fahrzeuge gefunden.</td></tr>`;
     return;
@@ -3367,11 +3373,18 @@ function openView(id){
 }
 window.openView=openView;
 
-render();
+render();  // SOFORT aus dem lokalen Cache (stale-while-revalidate)
 _fzInitKatalogList();
 _fzApplyOpt();
 _fzInitSettingsBtn();
-_fzScanFaelligkeiten();
+// Sobald der Cloud-Pull durch ist: mit frischen Daten neu rendern.
+_fzCloudPromise.then(function(){
+  _fzCloudLoaded = true;
+  try{ vehicles = _fzLoadVehicles(_fzCloudVehicles); }catch(e){}
+  try{ _fzApplyOpt(); }catch(e){}
+  try{ render(); }catch(e){}
+  try{ _fzScanFaelligkeiten(); }catch(e){}
+}, function(){ _fzCloudLoaded = true; try{ render(); }catch(e){} });
 // Rollenbasierte UI: Erfass-Button nur fuer Magaziner/Admin (nicht
 // Garagist) sichtbar.
 if(!_fzCanCreate()){

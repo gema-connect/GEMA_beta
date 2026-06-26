@@ -1477,18 +1477,26 @@ GemaSync.getCached(storageKey)
 
 Beim Verbindungsverlust erscheint ein orange Banner oben (`#gema-sync-offline-banner`). Sobald Cloud wieder erreichbar, verschwindet es.
 
-### Bootstrap — Cloud-First mit Migration
+### Bootstrap — Cloud-First mit Migration + Stale-while-revalidate
 
-Jedes Modul ruft im `DOMContentLoaded`:
+**KRITISCH — Render-Reihenfolge (kein „leerer Bestand"-Flash):** Module rendern im `DOMContentLoaded` **SOFORT aus dem lokalen Cache** und aktualisieren erst danach mit dem Cloud-Stand. Nicht auf den Cloud-Pull warten, bevor irgendetwas erscheint — sonst sieht der Nutzer ~2s lang einen scheinbar leeren Bestand, der dann „aufploppt".
 ```js
-await GemaSync.bindCollection(moduleKey, storageKey, prefix, 'id');
-load();  // liest aus localStorage-Cache
+// 1) Sofort aus Cache rendern (instant)
+try { load(); renderList(); } catch(e){}
+// 2) Cloud-Pull (blockiert die Anzeige NICHT)
+if (window.GemaSync) await Promise.race([ bindCollection(...), timeout ]);
+_xxCloudLoaded = true;          // Flag steuert die Ladeanzeige
+// 3) Mit frischen Daten neu rendern
+load(); renderList();
 ```
+**Ladeanzeige-Flag** (`_xxCloudLoaded`, default false → true nach dem ersten Pull): In der Render-Funktion wird der „keine Daten"-Empty-State NUR gezeigt, wenn `_xxCloudLoaded` true ist. Solange der erste Cloud-Pull bei **leerem Cache** läuft (`!loaded && !data.length`), erscheint stattdessen eine Ladeanzeige (selbst-animierter Inline-SVG-Spinner via SMIL `<animateTransform>`, kein CSS nötig) — sonst wirkt es fälschlich wie ein leerer Bestand. Bei vorhandenem Cache (Normalfall für wiederkehrende Nutzer) rendert die Seite die zuletzt bekannten Daten ohne Spinner.
+
+Umgesetzt in: `if_werkzeug`, `if_fahrzeug`, `if_trocknung`, `sd_schadensbericht`, `sp_dachbericht`, `pm_objekte` (`_objCloudLoaded`, Cache-Read vor `await load()`), `sys_produktkatalog` (`_pkCloudLoaded`, Flag via `gema-produkte-loaded`-Event + 6s-Fallback). Module mit IIFE-Bootstrap und `await` ganz oben (`if_fahrzeug`) wurden auf einen nicht-blockierenden `_xxCloudPromise` umgestellt, der nach dem Sofort-Render `.then()` neu rendert.
 
 `bindCollection` macht:
 1. Lädt alle Records mit Prefix aus Cloud
 2. Falls 0 Records: prüft ob die alte Blob-Row noch da ist und splittet sie auf — User-Wahl „Auto-Migration ohne Backup": alte Row wird nach Aufsplittung gelöscht
-3. Schreibt das resultierende Array in `localStorage[storageKey]` als sync-Cache
+3. Legt offene Outbox-Operationen über den Cloud-Stand (`_outboxApplyTo`) und schreibt das resultierende Array in `localStorage[storageKey]` als sync-Cache
 
 ### Save — per-Record-Diff (local-first + Outbox, verlustfrei)
 

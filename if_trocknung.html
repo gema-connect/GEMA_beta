@@ -1156,6 +1156,7 @@ window._tgSetupAutocomplete = _tgSetupAutocomplete;
 // STATE
 // ──────────────────────────────────────
 var devices = [];
+var _tgCloudLoaded = false;   // true sobald der erste Cloud-Pull durch ist (Ladeanzeige-Steuerung)
 var currentView = 'cards';
 var statusFilter = 'all';
 var _tgSelected = {};          // id -> true (markierte Geraete fuer Etiketten-Sammelexport)
@@ -1426,6 +1427,10 @@ window.renderList = function() {
 
 function renderCards(list) {
   var grid = document.getElementById('cardGrid');
+  if (!list.length && !_tgCloudLoaded && !devices.length) {
+    grid.innerHTML = '<div class="empty-state"><svg width="30" height="30" viewBox="0 0 24 24" style="display:block;margin:0 auto 12px"><circle cx="12" cy="12" r="9" fill="none" stroke="#e2e8f0" stroke-width="3"/><path d="M12 3 a9 9 0 0 1 9 9" fill="none" stroke="#dc2626" stroke-width="3" stroke-linecap="round"><animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="0.8s" repeatCount="indefinite"/></path></svg><h3>Wird geladen …</h3><p>Geräte werden aus der Cloud geladen.</p></div>';
+    return;
+  }
   if (!list.length) {
     grid.innerHTML = '<div class="empty-state"><div class="ei">🌡️</div><h3>Keine Trocknungsgeräte</h3><p>Erfassen Sie Ihr erstes Gerät, um mit dem Tracking zu beginnen.</p>'
       + (_tgCanEdit() ? '<button class="nbtn primary" onclick="openAdd()">+ Neues Gerät</button>' : '') + '</div>';
@@ -1503,6 +1508,7 @@ function renderTable(list) {
   var selMode = _tgCanBulkLabel();
   var selTh = document.getElementById('tgSelTh');
   if (selTh) selTh.style.display = selMode ? '' : 'none';
+  if (!list.length && !_tgCloudLoaded && !devices.length) { tbody.innerHTML = '<tr><td colspan="' + (selMode ? 8 : 7) + '" style="text-align:center;padding:32px;color:var(--mut)">Wird geladen …</td></tr>'; return; }
   if (!list.length) { tbody.innerHTML = '<tr><td colspan="' + (selMode ? 8 : 7) + '" style="text-align:center;padding:32px;color:var(--mut)">Keine Geräte gefunden</td></tr>'; return; }
   var canEdit = _tgCanEdit();
   var html = '';
@@ -3044,6 +3050,12 @@ function checkUrlParams() {
 // INIT
 // ──────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async function() {
+  // Stale-while-revalidate: SOFORT aus dem lokalen Cache rendern, damit die
+  // Geraete ohne Wartezeit sichtbar sind; der Cloud-Pull aktualisiert direkt
+  // danach. Beim allerersten Aufruf (leerer Cache) zeigt renderList eine
+  // Ladeanzeige statt eines leeren Bestands.
+  try { load(); renderList(); } catch(e) { /* noop */ }
+
   // Cloud-First Per-Record-Sync (siehe gema_sync.js)
   if (typeof window.GemaSync !== 'undefined') {
     await Promise.race([
@@ -3057,6 +3069,7 @@ document.addEventListener('DOMContentLoaded', async function() {
       new Promise(function(r){ setTimeout(r, 5000); })
     ]);
   }
+  _tgCloudLoaded = true;
   load();
 
   // Show/hide add button based on permissions
