@@ -1104,15 +1104,15 @@ Druckfertige Geräte-Etikette **49 × 23 mm Querformat** als PDF (jsPDF, mm-gena
 
 **Beschriftung** — `_tgEtiketteText(d)` = `d.internKennung` (getrimmt) wenn gesetzt, sonst **Fallback auf den Gerätenamen** `d.name`.
 
-**Firmenlogo** — `_tgLabelLogoSrc()` = `org.logo` der eingeloggten Org (Base64-DataURL via `GemaAuth.getCurrentUser()`+`getOrgs()`), sonst eingebettetes **GEMA-Logo** (`_TG_GEMA_LOGO_DATAURL`, URL-encoded SVG der Nav-Wortmarke in Navy `#0f172a`). jsPDF kann kein SVG einbetten → `_tgRasterizeImage(src)` lädt die Quelle in ein `Image`, zeichnet sie auf ein Canvas (600px lange Kante) und liefert `{dataUrl(PNG), ratio}`. `_tgEnsureLabelLogo()` cached das Ergebnis pro Quelle (`_tgLogoCache`).
+**Firmenlogo** — `_tgLabelLogoSrc()` = `org.logo` der eingeloggten Org (Base64-DataURL via `GemaAuth.getCurrentUser()`+`getOrgs()`), sonst eingebettetes **GEMA-Logo** (`_TG_GEMA_LOGO_DATAURL`, URL-encoded SVG der Nav-Wortmarke in Navy `#0f172a`, intrinsische Grösse 1660×700 für scharfe Rasterung). jsPDF kann kein SVG einbetten → `_tgRasterizeImage(src)` lädt die Quelle in ein `Image` und zeichnet sie hochaufgelöst auf ein Canvas: **Vektor-Quellen (SVG)** mit langer Kante 1400px, **Raster-Quellen** (hochgeladene Logos) **nicht hochskaliert** (max. Originalgrösse, gedeckelt 1600px) → kein Upscale-Blur. Liefert `{dataUrl(PNG), ratio}`. `_tgEnsureLabelLogo()` cached das Ergebnis pro Quelle (`_tgLogoCache`).
 
 **Live-Vorschau** — `_tgBuildEtikettePreview()` rendert dasselbe Layout als HTML in `#qrLabelPreview` (Massstab `PX = 6.4 px/mm`), inkl. Logo-`<img>` und QR-`<img>`. Async (wartet auf Logo); bricht ab, wenn das Gerät inzwischen gewechselt hat.
 
 **Layout-Konsistenz** — Vorschau und PDF nutzen exakt dasselbe Spec aus `_tgComputeEtikette(text, logo)`. Textbreiten-Messung via `_tgEtiketteW10(text)` (jsPDF `getTextWidth` bei 10pt, mit Zeichen-Schätzung als Fallback, solange jsPDF noch nicht geladen ist), Wortumbruch via `_tgWrapText(text, maxW, fontPt)`.
 
-**QR-Quelle** — Einzel: `_tgGetQrDataUrl()` liest das gerenderte Modal-Canvas (`#qrCanvas`) als PNG. Sammel: `_tgRenderQrDataUrl(url)` rendert pro Gerät einen QR offscreen und liefert die PNG-DataURL.
+**QR-Quelle (Druck = Vektor, scharf + scanbar)** — `_tgQrForUrl(url)` baut pro Gerät einen QR offscreen und liefert `{modules, dataUrl}` (modules = 2D-Bool-Matrix aus `qr._oQRCode.modules`). Einzel- **und** Sammelexport nutzen dieselbe Funktion (URL = `?id=<deviceId>`). Im PDF wird der QR als **Vektor** gezeichnet (`_tgDrawQrVector` — dunkle Module als horizontale Run-Rechtecke via `doc.rect(...,'F')`), NICHT als gerastertes PNG → auf kleinen Etiketten gestochen scharf und zuverlässig scanbar. PNG-`dataUrl` nur als Fallback, falls die Modul-Matrix fehlt. Die Live-Vorschau (Bildschirm) nutzt weiterhin das Modal-Canvas-PNG (`_tgGetQrDataUrl`).
 
-**Zeichenkern** — `_tgDrawEtikette(doc, spec, qrData, logo)` zeichnet **eine** Etikette auf die aktuelle jsPDF-Seite (QR + Logo + vertikal zentrierter Text). Wird von Einzel- **und** Sammelexport geteilt.
+**Zeichenkern** — `_tgDrawEtikette(doc, spec, qr, logo)` (`qr = {modules, dataUrl}`) zeichnet **eine** Etikette auf die aktuelle jsPDF-Seite (Vektor-QR + Logo + vertikal zentrierter Text). Wird von Einzel- **und** Sammelexport geteilt.
 
 **Helper-Übersicht:**
 
@@ -1122,7 +1122,7 @@ Druckfertige Geräte-Etikette **49 × 23 mm Querformat** als PDF (jsPDF, mm-gena
 | `_TG_GEMA_LOGO_SVG` / `_TG_GEMA_LOGO_DATAURL` | GEMA-Fallback-Logo (SVG → DataURL) |
 | `_tgGetOrgLogoSrc()` | `org.logo` der eigenen Org oder `''` |
 | `_tgLabelLogoSrc()` | `org.logo` || GEMA-Fallback |
-| `_tgRasterizeImage(src)` | Bildquelle → `{dataUrl(PNG), ratio}` |
+| `_tgRasterizeImage(src)` | Bildquelle → `{dataUrl(PNG), ratio}`, hochaufgelöst (SVG gross, Raster ohne Upscale) |
 | `_tgEnsureLabelLogo()` | Logo rastern + cachen (Promise) |
 | `_tgEtiketteW10(text)` | Textbreite @10pt (mm), jsPDF oder Schätzung |
 | `_tgWrapText(text, maxW, fontPt)` | Wortumbruch |
@@ -1130,7 +1130,8 @@ Druckfertige Geräte-Etikette **49 × 23 mm Querformat** als PDF (jsPDF, mm-gena
 | `_tgComputeEtikette(text, logo)` | Festes Layout-Spec (alle mm-Koordinaten) |
 | `_tgEtiketteText(d)` | interne Kennung || Gerätename |
 | `_tgGetQrDataUrl()` | Modal-Canvas → PNG |
-| `_tgRenderQrDataUrl(url)` | Offscreen-QR → PNG |
+| `_tgQrForUrl(url)` | Offscreen-QR → `{modules, dataUrl}` |
+| `_tgDrawQrVector(doc, modules, x, y, size)` | QR als Vektor-Rechtecke auf die Seite zeichnen |
 | `_tgDrawEtikette(doc, spec, qrData, logo)` | Eine Etikette auf die aktuelle Seite zeichnen |
 | `_tgBuildEtikettePreview()` | HTML-Live-Vorschau |
 | `downloadEtikettePDF()` | Einzel-Export → `Etikette_<slug>.pdf` |
