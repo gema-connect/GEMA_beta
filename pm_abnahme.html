@@ -2,6 +2,7 @@
 <html lang="de">
 <head>
 <script src="gema_sync.js"></script>
+<script src="gema_storage.js"></script>
 <script src="gema_auth.js"></script>
 <script src="gema_recent.js"></script>
 <meta charset="utf-8"/>
@@ -891,7 +892,7 @@ await Promise.race([
         <div class="foto-row" id="fotos_${it.id}">
           ${it.photos.map((ph,pi)=>`
             <div class="foto-wrap">
-              <img class="foto-thumb" src="${ph.dataUrl}" title="${esc(ph.name)}" onclick="openLightbox(this.src);event.stopPropagation()"/>
+              <img class="foto-thumb" src="${_abImgSrc(ph)}" title="${esc(ph.name)}" onclick="openLightbox(this.src);event.stopPropagation()"/>
               <button class="foto-del" onclick="deletePhoto('${it.id}',${pi});event.stopPropagation()" title="Foto löschen">✕</button>
             </div>`).join('')}
         </div>` : '';
@@ -1294,11 +1295,79 @@ await Promise.race([
   $safe('addTop').addEventListener('click',()=>{ const it=createItem({akzeptiert:'Ja'}); state.items.push(it); openItemId=it.id; setTab('maengel'); render(); });
 
   // ── SAVE / LOAD ──
-  function persistAll(){
+  // ── BILD-AUSLAGERUNG (GemaStorage) ──
+  // Abnahmeprotokolle mit Base64-Fotos werden gross → der _GemaDB-Blob (alle
+  // Protokolle in EINER Cloud-Row) sprengt das Request-/Quota-Limit und kann
+  // verloren gehen. Daher werden Foto-Bilder (Mangel-Fotos + Plan-Pin-Fotos)
+  // beim Speichern in den Supabase-Bucket gema-fotos ausgelagert; im Datensatz
+  // steht dann nur noch eine URL. Best-effort: ohne Bucket bleibt das Base64
+  // erhalten (Fallback). (Plan-Dateien/PDFs werden NICHT ausgelagert — der
+  // Storage-Helper akzeptiert nur Bilder, und der Plan wird per pdf.js auf
+  // Canvas gerendert.)
+  var _abStorageDisabled = false, _abStorageOkOnce = false;
+  function _abImgSrc(o){ return (o && (o.url || o.dataUrl)) || ''; }
+  function _abUrlToDataUrl(url){
+    return fetch(url).then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.blob(); })
+      .then(function(b){ return new Promise(function(res,rej){ var fr=new FileReader(); fr.onload=function(){res(fr.result);}; fr.onerror=rej; fr.readAsDataURL(b); }); });
+  }
+  // Sammelt Auslagerungs-Tasks (Foto-Bilder) aus einem state-Objekt.
+  function _abCollectPhotoTasks(st, tasks){
+    if(!st) return;
+    (st.items||[]).forEach(function(it){
+      (it.photos||[]).forEach(function(ph){
+        if(ph && !ph.url && typeof ph.dataUrl==='string' && ph.dataUrl.indexOf('data:image')===0){
+          tasks.push({ src:ph.dataUrl, set:function(u){ ph.url=u; delete ph.dataUrl; } });
+        }
+      });
+    });
+    (st.plaene||[]).forEach(function(pl){
+      (pl.pins||[]).forEach(function(pin){
+        var arr=pin.fotos; if(!Array.isArray(arr)) return;
+        arr.forEach(function(f,fi){
+          if(typeof f==='string' && f.indexOf('data:image')===0){
+            tasks.push({ src:f, set:function(u){ arr[fi]=u; } });
+          }
+        });
+      });
+    });
+  }
+  // Liefert die Anzahl tatsaechlich ausgelagerter Bilder (0 = nichts geaendert).
+  function _abUploadFotosToStorage(){
+    if(_abStorageDisabled) return Promise.resolve(0);
+    if(typeof window.GemaStorage==='undefined' || !window.GemaStorage.isConfigured || !window.GemaStorage.isConfigured()) return Promise.resolve(0);
+    var u=_getUser();
+    var orgId=(u&&u.orgId)?String(u.orgId).replace(/[^a-zA-Z0-9_-]/g,''):'org';
+    var tasks=[];
+    _abCollectPhotoTasks(state, tasks);
+    (protocols||[]).forEach(function(pr){ if(pr && pr.state && pr.id!==activeProtocolId) _abCollectPhotoTasks(pr.state, tasks); });
+    if(!tasks.length) return Promise.resolve(0);
+    var n=0;
+    return tasks.reduce(function(p,t){
+      return p.then(function(){
+        if(_abStorageDisabled) return;
+        if(typeof t.src!=='string' || t.src.indexOf('data:image')!==0) return;
+        return window.GemaStorage.uploadDataUrl(t.src,'abnahme/'+orgId).then(function(res){
+          if(res&&res.url){ _abStorageOkOnce=true; t.set(res.url); n++; }
+        }).catch(function(e){
+          if(!_abStorageOkOnce){ _abStorageDisabled=true; console.warn('[Abnahme] Storage-Upload nicht moeglich — Base64-Fallback:', e && e.message); }
+        });
+      });
+    }, Promise.resolve()).then(function(){ return n; });
+  }
+  function _abPersistCore(){
     // Save current state into active protocol
     var idx=protocols.findIndex(p=>p.id===activeProtocolId);
     if(idx>=0) protocols[idx].state=JSON.parse(JSON.stringify(state));
     try{if(typeof _GemaDB!=='undefined')_GemaDB.save(STORAGE_KEY,JSON.stringify({protocols:protocols,activeProtocolId:activeProtocolId}));}catch(e){}
+  }
+  function persistAll(){
+    // Sofort speichern (synchron, unveraenderte Semantik), dann im Hintergrund
+    // die Fotos auslagern und — nur wenn dabei etwas verkleinert wurde — den
+    // jetzt kleinen Blob nachspeichern. So bleibt der Datensatz klein genug
+    // fuer Cloud + localStorage (kein Verlust), ohne den Speichern-Pfad zu
+    // verzoegern.
+    _abPersistCore();
+    _abUploadFotosToStorage().then(function(n){ if(n>0) _abPersistCore(); }).catch(function(){});
   }
   function persist(){ persistAll(); }
 
@@ -1720,12 +1789,17 @@ await Promise.race([
           const descL=doc.splitTextToSize(`Mangel: ${(it.mangel||'-').slice(0,140)}`,515); doc.text(descL,M,y2); y2+=descL.length*11+6;
           for(let p=0;p<it.photos.length;p++){
             const ph=it.photos[p];
-            const info=await new Promise(res=>{ const img=new Image(); img.onload=()=>res({w:img.width,h:img.height}); img.src=ph.dataUrl; });
+            // Ausgelagerte Fotos (nur url) fuer den PDF-Embed zurueck zu
+            // DataURL holen — jsPDF braucht Base64.
+            let _src = ph.dataUrl || '';
+            if(!_src && ph.url){ try{ _src = await _abUrlToDataUrl(ph.url); }catch(_e){ _src=''; } }
+            if(!_src) continue;
+            const info=await new Promise(res=>{ const img=new Image(); img.onload=()=>res({w:img.width,h:img.height}); img.onerror=()=>res({w:4,h:3}); img.src=_src; });
             const scale=Math.min(515/info.w,330/info.h,1);
             const w=Math.round(info.w*scale), h=Math.round(info.h*scale);
             if(y2+h>780){doc.addPage();y2=46;}
             doc.setFontSize(8); doc.text(`Foto ${p+1}: ${(ph.name||'').slice(0,70)}`,M,y2); y2+=10;
-            doc.addImage(ph.dataUrl,'JPEG',M,y2,w,h); y2+=h+14;
+            doc.addImage(_src,'JPEG',M,y2,w,h); y2+=h+14;
           }
           y2+=6;
         }
