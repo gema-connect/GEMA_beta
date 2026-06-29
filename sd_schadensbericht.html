@@ -1875,9 +1875,19 @@ function sdRenderErfassung(s, canEdit) {
     h += '<div style="margin-top:12px"><label style="font-size:11px;font-weight:800;text-transform:uppercase;color:var(--mut)">Ursache</label>';
     h += '<div style="margin-top:4px;font-size:13px;color:var(--txt);line-height:1.5;background:var(--bg2);padding:10px 14px;border-radius:8px;border:1px solid var(--brd)">' + esc(s.ursache).replace(/\n/g, '<br>') + '</div></div>';
   }
-  if (s.raeume && s.raeume.length) {
+  // Betroffene Räume — jederzeit nachtragbar (canEdit), unabhaengig von der Phase.
+  if ((s.raeume && s.raeume.length) || canEdit) {
     h += '<div style="margin-top:12px"><label style="font-size:11px;font-weight:800;text-transform:uppercase;color:var(--mut)">Betroffene Räume</label>';
-    h += '<div class="tag-wrap" style="margin-top:6px">' + s.raeume.map(function(r) { return '<span class="tag">' + esc(r) + '</span>'; }).join('') + '</div></div>';
+    h += '<div class="tag-wrap" style="margin-top:6px">';
+    if (s.raeume && s.raeume.length) {
+      h += s.raeume.map(function(r, i) { return '<span class="tag">' + esc(r) + (canEdit ? '<span class="tag-x" onclick="sdErfRemRaum(\'' + s.id + '\',' + i + ')">✕</span>' : '') + '</span>'; }).join('');
+    } else if (!canEdit) {
+      h += '<span style="font-size:12.5px;color:var(--mut)">—</span>';
+    }
+    if (canEdit) {
+      h += '<button type="button" class="tag" onclick="sdErfAddRaum(\'' + s.id + '\')" style="border-style:dashed;cursor:pointer;background:none;font-weight:700;color:var(--acc,#2563eb)">+ Raum hinzufügen</button>';
+    }
+    h += '</div></div>';
   }
   if (s.versicherung && (s.versicherung.name || s.versicherung.policeNr || s.versicherung.schadenNr)) {
     h += '<div style="margin-top:16px"><label style="font-size:11px;font-weight:800;text-transform:uppercase;color:var(--mut)">Versicherung</label>';
@@ -2737,6 +2747,38 @@ function sdDevAddNewRaum(){
     sdRenderDevRaumSelect(id, name);
   });
 }
+
+// Betroffene Räume in der Erfassung-Sektion jederzeit nachtragen / entfernen.
+function sdErfAddRaum(schadenId){
+  GemaDialog.prompt({
+    title: 'Betroffener Raum',
+    message: 'Name des Raums oder der Zone:',
+    placeholder: 'z.B. Bad EG, Flur, Keller'
+  }).then(function(val){
+    if(val === null) return;
+    var name = String(val||'').trim();
+    if(!name) return;
+    var s = sdGetById(schadenId); if(!s) return;
+    if(!Array.isArray(s.raeume)) s.raeume = [];
+    if(s.raeume.indexOf(name) < 0){
+      s.raeume.push(name);
+      sdSave();
+    }
+    try { sdRenderDetail(s); } catch(e){}
+  });
+}
+window.sdErfAddRaum = sdErfAddRaum;
+function sdErfRemRaum(schadenId, idx){
+  var s = sdGetById(schadenId); if(!s || !Array.isArray(s.raeume)) return;
+  var name = s.raeume[idx];
+  GemaDialog.confirm({ title:'Raum entfernen', message:'«'+(name||'')+'» aus den betroffenen Räumen entfernen?', confirmLabel:'Entfernen', danger:true }).then(function(ok){
+    if(!ok) return;
+    s.raeume.splice(idx, 1);
+    sdSave();
+    try { sdRenderDetail(s); } catch(e){}
+  });
+}
+window.sdErfRemRaum = sdErfRemRaum;
 
 // Setzt im Trocknungs-Modul (gema_trocknung_v1) das Geraet auf
 // 'im_einsatz' und verknuepft es mit dem Schaden — analog zu
