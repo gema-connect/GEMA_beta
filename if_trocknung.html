@@ -415,6 +415,19 @@ tr.tg-row-sel{background:var(--plan-bg2,#ede9fe)}
 }
 
 @media print{.g-nav,.toolbar,.tc-actions,.modal-bg{display:none!important}}
+/* Speicher-Status-Indikator (OneDrive-Style, wie Dachbericht) */
+.save-status{position:fixed;bottom:18px;right:18px;z-index:280;display:flex;align-items:center;gap:8px;padding:8px 14px;border-radius:99px;background:#fff;border:1px solid #e5e7eb;box-shadow:0 8px 24px rgba(15,23,42,.14);font-size:12.5px;font-weight:600;color:#0f172a;transition:opacity .25s,transform .25s;font-family:'DM Sans',system-ui,sans-serif}
+.save-status.hidden{opacity:0;transform:translateY(8px);pointer-events:none}
+.save-status .save-dot{width:8px;height:8px;border-radius:50%;background:#94a3b8;display:inline-block}
+.save-status .save-spinner{width:14px;height:14px;border:2px solid #e5e7eb;border-top-color:#2563eb;border-radius:50%;animation:saveSpin .7s linear infinite}
+.save-status .save-check{color:#16a34a;font-weight:800;font-size:14px}
+.save-status .save-err{color:#dc2626;font-weight:800;font-size:14px}
+.save-status.pending{color:#64748b}
+.save-status.saving{color:#2563eb;border-color:#bfdbfe}
+.save-status.saved{color:#16a34a;border-color:#bbf7d0;background:#f0fdf4}
+.save-status.error{color:#dc2626;border-color:#fecaca;background:#fef2f2}
+@keyframes saveSpin{to{transform:rotate(360deg)}}
+@media(max-width:640px){.save-status{bottom:14px;right:14px;padding:6px 11px;font-size:11.5px}}
 </style>
 <link rel="stylesheet" href="gema_responsive.css"/>
 </head>
@@ -1258,22 +1271,104 @@ function _tgReadRaw() {
   }
   try { return localStorage.getItem(STORAGE_KEY); } catch(e) { return null; }
 }
-function _tgWriteRaw(json) {
-  var arr;
-  try { arr = JSON.parse(json); } catch(e) { arr = []; }
-  if (!Array.isArray(arr)) arr = [];
-  if (typeof window.GemaSync !== 'undefined') {
-    window.GemaSync.persistCollection('trocknungsgeraete', STORAGE_KEY, 'device:', 'id', arr)
-      .catch(function(e){
-        console.warn('[Trocknung] Cloud-Save fehlgeschlagen:', e && e.message);
-        if (window.GemaDialog && window.GemaDialog.alert) {
-          window.GemaDialog.alert({title:'Offline', message:'Aenderungen koennen nicht gespeichert werden. Bitte Verbindung pruefen.'});
-        }
-      });
-  } else {
-    try { localStorage.setItem(STORAGE_KEY, json); } catch(e) {}
+// Vollen Satz (eigene Org + fremde Orgs unveraendert) fuer den Save bauen.
+function _tgBuildFullSet() {
+  var all = [];
+  try { var raw = _tgReadRaw(); if (raw) all = JSON.parse(raw); } catch(e) { all = []; }
+  if (!Array.isArray(all)) all = [];
+  var u = _tgGetUser();
+  var orgId = u && u.orgId ? u.orgId : '';
+  all = all.filter(function(d) { return d.orgId && d.orgId !== orgId; });
+  return all.concat(devices);
+}
+// Reiner Persist-Schritt — liefert ein Promise (fuer die Status-Logik).
+function _tgPersist() {
+  if (typeof window.GemaSync !== 'undefined' && window.GemaSync.persistCollection) {
+    var arr = _tgBuildFullSet();
+    // Explizite Baseline aus dem In-Memory-Spiegel — sonst koennte der Diff
+    // bei leerem/Quota-losem localStorage-Cache ALLE Records hochladen.
+    var base = window.GemaSync.getCached ? window.GemaSync.getCached(STORAGE_KEY) : null;
+    var opts = Array.isArray(base) ? { baseline: base } : undefined;
+    return window.GemaSync.persistCollection('trocknungsgeraete', STORAGE_KEY, 'device:', 'id', arr, opts);
+  }
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(_tgBuildFullSet())); } catch(e) {}
+  return Promise.resolve();
+}
+
+// ── SPEICHERN mit Status-Anzeige (gleiche Logik wie Dachbericht) ──
+var _tgSaveTimer = null, _tgSavePending = false, _tgSaveInFlight = false, _tgSaveHideTimer = null;
+function scheduleSave(immediate) {
+  _tgSavePending = true;
+  _tgSaveSetStatus('pending');
+  if (_tgSaveTimer) { clearTimeout(_tgSaveTimer); _tgSaveTimer = null; }
+  if (immediate) { _doSave(); }
+  else { _tgSaveTimer = setTimeout(_doSave, 3000); }
+}
+function flushSave() {
+  if (_tgSaveTimer) { clearTimeout(_tgSaveTimer); _tgSaveTimer = null; }
+  if (_tgSavePending || _tgSaveInFlight) _doSave();
+}
+function _doSave() {
+  if (_tgSaveInFlight) return; // nach Abschluss wird pending erneut geprueft
+  _tgSaveTimer = null;
+  _tgSavePending = false;
+  _tgSaveInFlight = true;
+  _tgSaveSetStatus('saving');
+  _tgPersist().then(function() {
+    _tgSaveInFlight = false;
+    if (_tgSavePending) { _doSave(); } // waehrenddessen kamen Aenderungen
+    else { _tgSaveSetStatus('saved'); }
+  }).catch(function(e) {
+    _tgSaveInFlight = false;
+    _tgSavePending = true; // NICHT als gespeichert markieren — Retry sichern
+    console.warn('[Trocknung] Save fehlgeschlagen:', e && e.message);
+    _tgSaveSetStatus('error');
+    if (!_tgSaveTimer) _tgSaveTimer = setTimeout(_doSave, 10000);
+  });
+}
+// Status-Indikator unten rechts (pending → saving → saved/error).
+function _tgSaveSetStatus(stateName) {
+  if (_tgSaveHideTimer) { clearTimeout(_tgSaveHideTimer); _tgSaveHideTimer = null; }
+  var el = document.getElementById('saveStatus');
+  if (!el) { el = document.createElement('div'); el.id = 'saveStatus'; el.className = 'save-status hidden'; document.body.appendChild(el); }
+  el.classList.remove('hidden', 'pending', 'saving', 'saved', 'error');
+  if (stateName === 'pending') {
+    el.classList.add('pending');
+    el.innerHTML = '<span class="save-dot"></span><span>Änderungen werden gespeichert …</span>';
+  } else if (stateName === 'saving') {
+    el.classList.add('saving');
+    el.innerHTML = '<span class="save-spinner"></span><span>Wird gespeichert …</span>';
+  } else if (stateName === 'saved') {
+    el.classList.add('saved');
+    el.innerHTML = '<span class="save-check">✓</span><span>Gespeichert</span>';
+    _tgSaveHideTimer = setTimeout(function() { var e = document.getElementById('saveStatus'); if (e) e.classList.add('hidden'); }, 2000);
+  } else if (stateName === 'error') {
+    el.classList.add('error');
+    el.innerHTML = '<span class="save-err">⚠</span><span>Speichern fehlgeschlagen — Verbindung prüfen</span>';
   }
 }
+// Beim Verlassen der Seite ausstehende Aenderungen per keepalive sichern.
+var _tgUnloadSaveAt = 0;
+function _tgFlushSaveOnUnload() {
+  if (!_tgSavePending && !_tgSaveInFlight) return;
+  var now = Date.now();
+  if (now - _tgUnloadSaveAt < 2000) return;
+  _tgUnloadSaveAt = now;
+  try {
+    if (typeof window.GemaSync !== 'undefined' && window.GemaSync.persistCollection) {
+      var arr = _tgBuildFullSet();
+      var base = window.GemaSync.getCached ? window.GemaSync.getCached(STORAGE_KEY) : null;
+      var opts = { keepalive: true };
+      if (Array.isArray(base)) opts.baseline = base;
+      window.GemaSync.persistCollection('trocknungsgeraete', STORAGE_KEY, 'device:', 'id', arr, opts);
+    } else { _doSave(); }
+  } catch(e) {}
+}
+window.addEventListener('beforeunload', _tgFlushSaveOnUnload);
+window.addEventListener('pagehide', _tgFlushSaveOnUnload);
+document.addEventListener('visibilitychange', function() {
+  if (document.visibilityState === 'hidden' && _tgSavePending) { try { flushSave(); } catch(e) {} }
+});
 
 function load() {
   devices = [];
@@ -1290,24 +1385,13 @@ function load() {
 }
 
 function saveAll() {
-  var all = [];
-  // Load all devices (including other orgs) so we don't lose them
-  try {
-    var raw = _tgReadRaw();
-    if (raw) all = JSON.parse(raw);
-  } catch(e) { all = []; }
-  if (!Array.isArray(all)) all = [];
-  var u = _tgGetUser();
-  var orgId = u && u.orgId ? u.orgId : '';
-  // Remove this org's devices from all
-  all = all.filter(function(d) { return d.orgId && d.orgId !== orgId; });
-  // Add current org's devices
-  all = all.concat(devices);
-  _tgWriteRaw(JSON.stringify(all));
-  // Cross-Modul-Sync: Schadensbericht-Modul lauscht auf dieses Event
-  // und re-rendert den Detail-View mit den frischen Live-Geraeten.
-  // Plus storage-Event fuer Cross-Tab-Sync (browser triggert das
-  // automatisch bei localStorage.setItem in anderen Tabs).
+  // Sofort speichern mit Status-Anzeige (wird gespeichert → gespeichert).
+  // persistCollection schreibt den Cache local-first synchron, der Cloud-
+  // Push laeuft im Hintergrund; daher ist der Cache fuer das Cross-Modul-
+  // Event bereits aktuell.
+  scheduleSave(true);
+  // Cross-Modul-Sync: Schadensbericht-Modul lauscht auf dieses Event und
+  // re-rendert den Detail-View mit den frischen Live-Geraeten.
   try{
     window.dispatchEvent(new CustomEvent('gema-trocknung-updated', { detail: { ts: new Date().toISOString() } }));
   }catch(e){}

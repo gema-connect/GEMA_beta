@@ -1055,6 +1055,8 @@ Nach erfolgreichem Scan: ID aus URL/Payload extrahieren, im verfügbaren Geräte
 
 Storage-Key: `gema_trocknung_v1`
 
+**Speichern mit Status-Anzeige (wie Dachbericht):** `saveAll()` ruft `scheduleSave(true)` → `_doSave()` → `_tgPersist()` (per-Record `GemaSync.persistCollection` mit expliziter Baseline aus `getCached`). Der OneDrive-Style-Indikator unten rechts (`#saveStatus`, `_tgSaveSetStatus`) zeigt `pending → saving → saved` (blendet nach 2s aus) bzw. `error` (statt der frueheren blockierenden «Offline»-Dialogbox). State-Maschine: `_tgSavePending`/`_tgSaveInFlight` mit Retry bei Fehler; `flushSave()` + keepalive-Save auf `beforeunload`/`pagehide`/`visibilitychange`. `_tgBuildFullSet()` erhaelt fremde Orgs.
+
 ```
 {
   id, name, typ, marke, modell, serienNr, kw, notes, orgId,
