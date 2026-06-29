@@ -233,8 +233,10 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
 .acc-hd{padding:16px 20px;display:flex;align-items:center;gap:12px;cursor:pointer;transition:.15s;user-select:none}
 .acc-hd:hover{background:var(--bg2)}
 .acc-ico{font-size:20px;flex-shrink:0}
-.acc-title{font-size:15px;font-weight:800;color:var(--txt);flex:1}
-.acc-status{font-size:11.5px;font-weight:700;padding:3px 10px;border-radius:7px}
+.acc-title{font-size:15px;font-weight:800;color:var(--txt);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.acc-status{font-size:11.5px;font-weight:700;padding:3px 10px;border-radius:7px;flex-shrink:0}
+.acc-reopen{font-size:11px;font-weight:800;padding:4px 9px;border-radius:7px;border:1.5px solid var(--brd2);background:var(--sur);color:var(--txt2);cursor:pointer;font-family:var(--sans);flex-shrink:0}
+.acc-reopen:hover{background:var(--bg2);border-color:var(--plan-bd,var(--brd2))}
 .acc-chev{font-size:14px;color:var(--mut);transition:.2s;flex-shrink:0}
 .acc.open .acc-chev{transform:rotate(180deg)}
 .acc-body{display:none;padding:18px 20px 20px;border-top:1px solid var(--brd)}
@@ -1800,22 +1802,22 @@ function sdRenderDetail(s) {
   // Phase 1: Erfassung
   html += sdRenderAccordion('erfasst', '📋', 'Erfassung', phaseIdx, function() {
     return sdRenderErfassung(s, canEdit);
-  });
+  }, s.id, canEdit);
 
   // Phase 2: Zustandsanalyse
   html += sdRenderAccordion('analyse', '🔍', 'Zustandsanalyse', phaseIdx, function() {
     return sdRenderAnalyse(s, canEdit);
-  });
+  }, s.id, canEdit);
 
   // Phase 3: Trocknung
   html += sdRenderAccordion('trocknung', '🌡️', 'Trocknung', phaseIdx, function() {
     return sdRenderTrocknung(s, canEdit, canMeas);
-  });
+  }, s.id, canEdit);
 
   // Phase 4: Abschluss
   html += sdRenderAccordion('abschluss', '✅', 'Abschlussbericht', phaseIdx, function() {
     return sdRenderAbschluss(s, canEdit);
-  });
+  }, s.id, canEdit);
 
   document.getElementById('detailInner').innerHTML = html;
 
@@ -1842,7 +1844,7 @@ function sdRenderDetail(s) {
   setTimeout(function() { sdRenderAllCharts(s); }, 100);
 }
 
-function sdRenderAccordion(key, icon, label, phaseIdx, contentFn) {
+function sdRenderAccordion(key, icon, label, phaseIdx, contentFn, sid, canEdit) {
   var idx = (PHASEN[key] || { idx: 99 }).idx;
   var isActive = idx === phaseIdx;
   var isDone = idx < phaseIdx;
@@ -1851,7 +1853,11 @@ function sdRenderAccordion(key, icon, label, phaseIdx, contentFn) {
   // weiterhin den formalen Phasen-Stand an.
   var cls = isActive ? 'acc open' : 'acc';
   var statusHtml = '';
-  if (isDone) statusHtml = '<span class="acc-status badge-ok" style="background:var(--grn-bg);color:var(--grn)">✓ Abgeschlossen</span>';
+  if (isDone) {
+    statusHtml = '<span class="acc-status badge-ok" style="background:var(--grn-bg);color:var(--grn)">✓ Abgeschlossen</span>';
+    // Abgeschlossene Phase wieder aktiv setzen (z.B. nach Fehlklick).
+    if (canEdit && sid) statusHtml += '<button class="acc-reopen" title="Phase wieder aktiv setzen" onclick="event.stopPropagation();sdReopenPhase(\'' + sid + '\',\'' + key + '\')">↩ Aktiv</button>';
+  }
   else if (isActive) statusHtml = '<span class="acc-status badge-plan" style="background:var(--plan-bg);color:var(--plan)">Aktiv</span>';
   else statusHtml = '<span class="acc-status badge-mut" style="background:var(--bg2);color:var(--mut)">Ausstehend</span>';
 
@@ -1952,16 +1958,21 @@ function sdRenderAnalyse(s, canEdit) {
   h += '<div style="margin-bottom:12px">';
   h += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">';
   h += '<label style="font-size:11px;font-weight:800;text-transform:uppercase;color:var(--mut)">Massnahmen</label>';
-  if (editable) h += '<button class="nbtn" onclick="sdOpenMnAdd(\'' + s.id + '\')">+ Hinzufügen</button>';
+  if (editable) h += '<button class="nbtn" onclick="sdAddMnInline(\'' + s.id + '\')">+ Massnahme</button>';
   h += '</div>';
   if (a.massnahmen && a.massnahmen.length) {
     h += '<div style="display:flex;flex-direction:column;gap:6px">';
     a.massnahmen.forEach(function(m, i) {
       var beschr = typeof m === 'string' ? m : (m.beschreibung || m.text || '');
-      h += '<div class="mn-item">';
-      h += '<div class="mn-body"><div class="mn-text">' + esc(beschr) + '</div></div>';
-      if (editable) h += '<button class="btn-del-icon" title="Löschen" onclick="sdDelMn(\'' + s.id + '\',' + i + ')">✕</button>';
-      h += '</div>';
+      if (editable) {
+        // Jede Massnahme ist direkt editierbar (Textfeld), speichert beim Verlassen.
+        h += '<div class="mn-item" style="align-items:flex-start;gap:8px">';
+        h += '<textarea class="mn-edit" rows="2" placeholder="Massnahme beschreiben …" onblur="sdUpdateMn(\'' + s.id + '\',' + i + ',this.value)" style="flex:1;min-width:0;width:100%;box-sizing:border-box;border:1.5px solid var(--brd2);border-radius:8px;padding:8px 11px;font-size:13.5px;font-family:var(--sans);background:var(--bg2);color:var(--txt);outline:none;resize:vertical;line-height:1.45">' + esc(beschr) + '</textarea>';
+        h += '<button class="btn-del-icon" title="Löschen" onclick="sdDelMn(\'' + s.id + '\',' + i + ')">✕</button>';
+        h += '</div>';
+      } else {
+        h += '<div class="mn-item"><div class="mn-body"><div class="mn-text">' + esc(beschr) + '</div></div></div>';
+      }
     });
     h += '</div>';
   } else {
@@ -2018,6 +2029,31 @@ function sdDelMn(id, idx) {
   sdSave();
   sdRenderDetail(s);
 }
+// Massnahme inline anpassen (Textfeld onblur) — speichert, ohne neu zu rendern
+// (Cursor/Fokus bleiben erhalten).
+function sdUpdateMn(id, idx, val) {
+  var s = sdGetById(id);
+  if (!s || !s.zustandsanalyse || !Array.isArray(s.zustandsanalyse.massnahmen)) return;
+  var arr = s.zustandsanalyse.massnahmen;
+  var newVal = String(val == null ? '' : val).trim();
+  var m = arr[idx];
+  if (typeof m === 'string') arr[idx] = newVal;
+  else if (m && typeof m === 'object') m.beschreibung = newVal;
+  else return;
+  sdSave();
+}
+window.sdUpdateMn = sdUpdateMn;
+// Neue (leere) Massnahme inline hinzufuegen + direkt fokussieren.
+function sdAddMnInline(id) {
+  var s = sdGetById(id); if (!s) return;
+  if (!s.zustandsanalyse) s.zustandsanalyse = { leckortung: '', schadenausmass: '', massnahmen: [], fotos: [], abgeschlossenAm: null };
+  if (!Array.isArray(s.zustandsanalyse.massnahmen)) s.zustandsanalyse.massnahmen = [];
+  s.zustandsanalyse.massnahmen.push({ id: 'mn_' + Date.now(), beschreibung: '' });
+  sdSave();
+  sdRenderDetail(s);
+  setTimeout(function() { var a = document.querySelectorAll('.mn-edit'); if (a.length) a[a.length - 1].focus(); }, 60);
+}
+window.sdAddMnInline = sdAddMnInline;
 
 // ── PHASE 3: TROCKNUNG ──
 // Geräte-Ansicht: 'table' | 'cards'. Default: Kacheln auf schmalen Screens
@@ -3095,6 +3131,22 @@ function sdAdvancePhase(id, target) {
   sdRenderDetail(s);
 }
 
+// Eine abgeschlossene Phase wieder aktiv setzen (Fehlklick rueckgaengig).
+// Setzt s.phase auf die Phase zurueck und entfernt die Abschluss-Marker
+// dieser + aller spaeteren Phasen.
+function sdReopenPhase(id, key) {
+  var s = sdGetById(id); if (!s) return;
+  var k = (PHASEN[key] || { idx: 0 }).idx;
+  if (s.zustandsanalyse && PHASEN.analyse.idx >= k)   s.zustandsanalyse.abgeschlossenAm = null;
+  if (s.trocknung      && PHASEN.trocknung.idx >= k)  s.trocknung.beendetAm = null;
+  if (s.abschluss      && PHASEN.abschluss.idx >= k)  s.abschluss.abgeschlossenAm = null;
+  s.phase = key;
+  sdSave();
+  sdRenderDetail(s);
+  try { sdRenderList(); } catch(e) {}
+}
+window.sdReopenPhase = sdReopenPhase;
+
 // ══════════════════════════════════════
 // PHOTO SYSTEM
 // ══════════════════════════════════════
@@ -3545,7 +3597,13 @@ var _sdExpSel = {}, _sdExpCb = null;
 function sdOpenPhasePicker(s, cb){
   _sdExpCb = cb;
   var active = s.phase || 'erfasst';
-  _sdExpSel = {}; _sdExpSel[active] = true; // Default: aktuell aktive Phase
+  // Default: alle Phasen BIS UND MIT der aktuellen (z.B. aktiv 'trocknung'
+  // → Erfassung + Analyse + Trocknung vorausgewählt).
+  var activeIdx = (PHASEN[active] || { idx: 0 }).idx;
+  _sdExpSel = {};
+  _SD_EXP_PHASES.forEach(function(p){
+    if ((PHASEN[p.key] || { idx: 99 }).idx <= activeIdx) _sdExpSel[p.key] = true;
+  });
   var ov = document.getElementById('sdPhaseOv'); if(ov) ov.remove();
   ov = document.createElement('div'); ov.id = 'sdPhaseOv'; ov.className = 'modal-bg';
   ov.innerHTML = '<div class="modal" style="max-width:460px">'
