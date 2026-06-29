@@ -30,7 +30,7 @@
       + '.doc-header,.doc-footer{display:none;}'
     + '}'
     // ─ Druck/PDF: A4, Seitenumbrueche vor jeder report-section
-    + '@media print{@page{size:A4;margin:0;}body{background:#fff;padding:0;}.content{width:auto;box-shadow:none;background:transparent;}'
+    + '@media print{@page{size:A4 portrait;margin:0;}body{background:#fff;padding:0;}.content{width:auto;box-shadow:none;background:transparent;}'
       + '.content > .cover,.content > .report-section{box-shadow:none;margin:0;background:#fff;}'
       + '.report-section{page-break-before:always;}'
       + '.cover{page-break-after:always;}'
@@ -652,7 +652,7 @@
     // CSS-content darf nur Strings + counter() — escapen wir " und \ im
     // Org-Namen / Titel, damit der String nicht aufbricht.
     function _cssStr(s){ return String(s||'').replace(/\\/g,'\\\\').replace(/"/g,'\\"'); }
-    var pageCss = '@media print{@page{size:A4;margin:14mm 0 14mm 0;'
+    var pageCss = '@media print{@page{size:A4 portrait;margin:14mm 0 14mm 0;'
       + '@top-left{content:"'+_cssStr(orgName)+'";font-family:\'DM Sans\',sans-serif;font-size:7.5pt;font-weight:600;letter-spacing:.04em;color:#525d66;padding:5mm 15mm 0;}'
       + '@top-right{content:"Schadensbericht · '+_cssStr(titel)+'";font-family:\'DM Sans\',sans-serif;font-size:7.5pt;letter-spacing:.04em;color:#8a949c;padding:5mm 15mm 0;}'
       + '@bottom-left{content:"'+_cssStr(orgName)+' · Erstellt '+_cssStr(datum)+'";font-family:\'DM Sans\',sans-serif;font-size:7.5pt;letter-spacing:.04em;color:#8a949c;padding:0 15mm 4mm;}'
