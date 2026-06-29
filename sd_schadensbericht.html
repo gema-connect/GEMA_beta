@@ -284,6 +284,17 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
 .dev-table tr:last-child td{border-bottom:none}
 .dev-table td input{border:1px solid var(--brd2);border-radius:6px;padding:4px 8px;font-size:13px;width:100%;background:var(--bg2);font-family:var(--sans);outline:none}
 .dev-table td input:focus{border-color:var(--plan);background:var(--sur)}
+/* Geräte-Kachel-Ansicht (kein horizontales Scrollen, v.a. iPad) */
+.dev-card{background:var(--sur);border:1px solid var(--brd);border-radius:10px;padding:12px 14px;margin-bottom:8px;box-shadow:var(--sh-sm)}
+.dev-card-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px}
+.dev-card-name{font-weight:800;font-size:13.5px;color:var(--txt);min-width:0;overflow-wrap:anywhere}
+.dev-card-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px 14px}
+.dc-row{display:flex;flex-direction:column;gap:3px;min-width:0}
+.dc-lbl{font-size:10px;font-weight:800;text-transform:uppercase;color:var(--mut);letter-spacing:.3px}
+.dc-val{font-size:13px;color:var(--txt);min-width:0}
+.dc-val input{width:100%;box-sizing:border-box;min-height:34px;border:1.5px solid var(--brd2);border-radius:6px;font-family:var(--sans);background:var(--bg2);outline:none}
+.dc-val input:focus{border-color:var(--plan);background:var(--sur)}
+@media(max-width:380px){.dev-card-grid{grid-template-columns:1fr}}
 
 /* ROOMS TAGS */
 .tag-wrap{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
@@ -2005,6 +2016,66 @@ function sdDelMn(id, idx) {
 }
 
 // ── PHASE 3: TROCKNUNG ──
+// Geräte-Ansicht: 'table' | 'cards'. Default: Kacheln auf schmalen Screens
+// (iPad/Mobile, kein horizontales Scrollen), Tabelle auf Desktop. Manuell
+// umschaltbar (persistiert in localStorage).
+function _sdGetDevView(){
+  var v = null;
+  try { v = localStorage.getItem('gema_sd_devview'); } catch(e){}
+  if (v === 'table' || v === 'cards') return v;
+  return (typeof window !== 'undefined' && window.innerWidth <= 1024) ? 'cards' : 'table';
+}
+function sdToggleDevView(){
+  var next = _sdGetDevView() === 'cards' ? 'table' : 'cards';
+  try { localStorage.setItem('gema_sd_devview', next); } catch(e){}
+  if (_sdCurrentDetailId){ var s = sdGetById(_sdCurrentDetailId); if(s) sdRenderDetail(s); }
+}
+window.sdToggleDevView = sdToggleDevView;
+function _sdDcRow(lbl, valHtml){
+  return '<div class="dc-row"><span class="dc-lbl">' + lbl + '</span><span class="dc-val">' + valHtml + '</span></div>';
+}
+// Geräte als Kacheln rendern (gleiche Felder + editierbare Inputs wie die Tabelle).
+function _sdGeraeteCardsHtml(s, tr, editable, canEdit){
+  var h = '';
+  tr.geraete.forEach(function(g, gi){
+    var kwhVal = sdComputeKwh(g);
+    var kwh = kwhVal == null ? '—' : kwhVal.toFixed(1);
+    var tage = sdGeraetTage(g);
+    var tageStr = tage == null ? '—' : (sdGeraetEnde(g) ? String(tage) : (tage + '⏵'));
+    var zTyp = g.zaehlerTyp || 'stunden';
+    var zEinheit = zTyp === 'kwh' ? 'kWh' : (zTyp === 'kein' ? '' : 'h');
+    var zBadge = zTyp === 'kwh' ? '⚡ kWh' : (zTyp === 'kein' ? '–' : '⏱ h');
+    var hasZaehler = zTyp !== 'kein';
+    h += '<div class="dev-card">';
+    h += '<div class="dev-card-head"><div class="dev-card-name">⚡ ' + esc(g.name) + '</div>';
+    if (canEdit) h += '<button class="btn-del-icon" title="Gerät entfernen" onclick="sdDelDev(\'' + s.id + '\',' + gi + ')">✕</button>';
+    h += '</div>';
+    h += '<div class="dev-card-grid">';
+    h += _sdDcRow('Raum', esc(g.raum || '—'));
+    h += _sdDcRow('Leistung', (g.kw ? esc(String(g.kw)) + ' kW' : '—'));
+    h += _sdDcRow('Zähler', zBadge);
+    h += _sdDcRow('Start', hasZaehler ? (esc(String(g.zaehlerStart != null ? g.zaehlerStart : '0')) + (zEinheit ? ' ' + zEinheit : '')) : '—');
+    var endeHtml;
+    if (editable && hasZaehler) {
+      endeHtml = '<input type="text" inputmode="decimal" value="' + (g.zaehlerEnde || '') + '" placeholder="—" style="text-align:left;padding:4px 8px" onblur="fixLeadingZero(this);sdUpdateDevEnd(\'' + s.id + '\',' + gi + ',this.value)">';
+    } else if (hasZaehler) { endeHtml = esc(String(g.zaehlerEnde || '—')); }
+    else { endeHtml = '—'; }
+    h += _sdDcRow('Ende' + (zEinheit ? ' (' + zEinheit + ')' : ''), endeHtml);
+    var endeAmHtml;
+    if (editable) {
+      var endeIso = sdGeraetEnde(g);
+      var isFixed = !!endeIso;
+      var dispVal = endeIso || sdToday();
+      endeAmHtml = '<input type="date" value="' + dispVal + '" data-fixed="' + (isFixed ? '1' : '0') + '" style="padding:0 8px;color:' + (isFixed ? 'var(--txt)' : 'var(--mut)') + ';background:' + (isFixed ? 'var(--sur)' : 'var(--bg2)') + ';font-style:' + (isFixed ? 'normal' : 'italic') + '" onchange="sdUpdateDevEndDate(\'' + s.id + '\',' + gi + ',this.value)">';
+    } else { endeAmHtml = (sdGeraetEnde(g) ? sdFmtDate(sdGeraetEnde(g)) : '—'); }
+    h += _sdDcRow('Ende am', endeAmHtml);
+    h += _sdDcRow('Tage', tageStr);
+    h += _sdDcRow('kWh', '<span style="font-weight:800;color:' + (kwh !== '—' ? 'var(--plan)' : 'var(--mut)') + '">' + kwh + '</span>');
+    h += '</div></div>';
+  });
+  return h;
+}
+
 function sdRenderTrocknung(s, canEdit, canMeas) {
   var tr = s.trocknung || {};
   // Editierbar fuer alle Berechtigten unabhaengig von der aktuellen
@@ -2091,13 +2162,18 @@ function sdRenderTrocknung(s, canEdit, canMeas) {
   h += '</div>';
 
   // Geräte
+  var _devView = _sdGetDevView();
   h += '<div style="margin-bottom:16px">';
-  h += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">';
+  h += '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:12px;flex-wrap:wrap">';
   h += '<label style="font-size:13px;font-weight:800;color:var(--txt)">⚡ Trocknungsgeräte</label>';
+  h += '<div style="display:flex;align-items:center;gap:8px">';
+  if (tr.geraete && tr.geraete.length) h += '<button class="nbtn" onclick="sdToggleDevView()" title="Ansicht umschalten (Tabelle / Kacheln)" style="padding:6px 11px">' + (_devView === 'cards' ? '☰ Tabelle' : '▦ Kacheln') + '</button>';
   if (editable) h += '<button class="nbtn" onclick="sdOpenDevAdd(\'' + s.id + '\')">+ Gerät</button>';
-  h += '</div>';
+  h += '</div></div>';
 
-  if (tr.geraete && tr.geraete.length) {
+  if (tr.geraete && tr.geraete.length && _devView === 'cards') {
+    h += _sdGeraeteCardsHtml(s, tr, editable, canEdit);
+  } else if (tr.geraete && tr.geraete.length) {
     h += '<div style="overflow-x:auto"><table class="dev-table"><thead><tr>'
        + '<th>Gerät</th>'
        + '<th>Raum</th>'
@@ -2162,8 +2238,11 @@ function sdRenderTrocknung(s, canEdit, canMeas) {
       h += '</td></tr>';
     });
     h += '</tbody></table></div>';
-
-    // Total kWh — nutzt sdComputeKwh, respektiert zaehlerTyp pro Geraet
+  } else {
+    h += '<div style="font-size:12px;color:var(--mut);padding:12px;text-align:center;background:var(--bg2);border-radius:8px">Keine Geräte erfasst</div>';
+  }
+  // Total kWh — fuer Tabelle UND Kacheln; nutzt sdComputeKwh (respektiert zaehlerTyp).
+  if (tr.geraete && tr.geraete.length) {
     var totalKwh = 0;
     tr.geraete.forEach(function(g) {
       var v = sdComputeKwh(g);
@@ -2172,8 +2251,6 @@ function sdRenderTrocknung(s, canEdit, canMeas) {
     if (totalKwh > 0) {
       h += '<div class="sum-card" style="margin-top:8px"><div class="sum-row"><span class="lbl">Total Stromverbrauch</span><span class="val" style="color:var(--plan)">' + totalKwh.toFixed(1) + ' kWh</span></div></div>';
     }
-  } else {
-    h += '<div style="font-size:12px;color:var(--mut);padding:12px;text-align:center;background:var(--bg2);border-radius:8px">Keine Geräte erfasst</div>';
   }
   h += '</div>';
 

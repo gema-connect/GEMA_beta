@@ -829,7 +829,7 @@ Full-Screen-Overlay (`position:fixed`) mit 4-Phasen-Timeline und aufklappbaren A
 - Datenmodell: `{id, datum, wert, einheit:'Digits', foto:dataUrl}`
 - Ansicht umschaltbar: Tabelle (mit Beleg-Spalte) oder Canvas-Liniendiagramm (reines Canvas, keine Library)
 - Geräte-Tracking: Name, Raum/Zone, kW, Zählerstand Start/Ende → kWh-Berechnung. Picker im devAddModal verlinkt auf `gema_trocknung_v1` (siehe oben).
-- Geräte-Tabelle mit horizontalem Scroll-Wrapper auf Mobile
+- Geräte-Darstellung umschaltbar **Tabelle ↔ Kacheln** (`sdToggleDevView`, Pref in `gema_sd_devview`). Default: Kacheln auf ≤1024px (iPad/Mobile — kein horizontales Scrollen), Tabelle auf Desktop. Kachel-Render: `_sdGeraeteCardsHtml` (gleiche Felder + editierbare Ende-/Datum-Inputs wie die Tabelle, 2-spaltiges `.dev-card-grid`).
 
 ### Export — PDF
 
