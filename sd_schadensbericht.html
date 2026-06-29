@@ -285,16 +285,20 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
 .dev-table td input{border:1px solid var(--brd2);border-radius:6px;padding:4px 8px;font-size:13px;width:100%;background:var(--bg2);font-family:var(--sans);outline:none}
 .dev-table td input:focus{border-color:var(--plan);background:var(--sur)}
 /* Geräte-Kachel-Ansicht (kein horizontales Scrollen, v.a. iPad) */
-.dev-card{background:var(--sur);border:1px solid var(--brd);border-radius:10px;padding:12px 14px;margin-bottom:8px;box-shadow:var(--sh-sm)}
-.dev-card-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px}
-.dev-card-name{font-weight:800;font-size:13.5px;color:var(--txt);min-width:0;overflow-wrap:anywhere}
-.dev-card-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px 14px}
-.dc-row{display:flex;flex-direction:column;gap:3px;min-width:0}
-.dc-lbl{font-size:10px;font-weight:800;text-transform:uppercase;color:var(--mut);letter-spacing:.3px}
-.dc-val{font-size:13px;color:var(--txt);min-width:0}
-.dc-val input{width:100%;box-sizing:border-box;min-height:34px;border:1.5px solid var(--brd2);border-radius:6px;font-family:var(--sans);background:var(--bg2);outline:none}
+.dev-card{background:var(--sur);border:1px solid var(--brd);border-radius:14px;padding:14px 16px;margin-bottom:10px;box-shadow:var(--sh-sm)}
+.dev-card-head{display:flex;align-items:center;gap:10px;margin-bottom:12px;padding-bottom:11px;border-bottom:1px solid var(--brd)}
+.dev-card-name{font-weight:800;font-size:14.5px;color:var(--txt);min-width:0;overflow-wrap:anywhere;flex:1}
+.dev-card-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:11px 16px}
+/* Editierbare Felder (Ende / Ende am) ueber die volle Breite, optisch
+   abgesetzt — so ist klar, was eingegeben werden kann. */
+.dc-row.dc-edit{grid-column:1 / -1}
+.dc-row{display:flex;flex-direction:column;gap:4px;min-width:0}
+.dc-lbl{font-size:9.5px;font-weight:800;text-transform:uppercase;color:var(--mut);letter-spacing:.4px}
+.dc-val{font-size:13.5px;font-weight:600;color:var(--txt);min-width:0}
+.dc-val input{width:100%;box-sizing:border-box;min-height:38px;padding:6px 11px;font-size:14px;border:1.5px solid var(--brd2);border-radius:8px;font-family:var(--sans);background:var(--bg2);outline:none;color:var(--txt)}
 .dc-val input:focus{border-color:var(--plan);background:var(--sur)}
-@media(max-width:380px){.dev-card-grid{grid-template-columns:1fr}}
+.dc-run{display:inline-block;font-size:9.5px;font-weight:800;color:var(--plan);background:var(--bg2);padding:1px 7px;border-radius:6px;margin-left:6px;text-transform:uppercase;letter-spacing:.3px;vertical-align:middle}
+@media(max-width:380px){.dev-card-grid{grid-template-columns:1fr}.dc-row.dc-edit{grid-column:auto}}
 
 /* ROOMS TAGS */
 .tag-wrap{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
@@ -2031,8 +2035,8 @@ function sdToggleDevView(){
   if (_sdCurrentDetailId){ var s = sdGetById(_sdCurrentDetailId); if(s) sdRenderDetail(s); }
 }
 window.sdToggleDevView = sdToggleDevView;
-function _sdDcRow(lbl, valHtml){
-  return '<div class="dc-row"><span class="dc-lbl">' + lbl + '</span><span class="dc-val">' + valHtml + '</span></div>';
+function _sdDcRow(lbl, valHtml, cls){
+  return '<div class="dc-row' + (cls ? ' ' + cls : '') + '"><span class="dc-lbl">' + lbl + '</span><span class="dc-val">' + valHtml + '</span></div>';
 }
 // Geräte als Kacheln rendern (gleiche Felder + editierbare Inputs wie die Tabelle).
 function _sdGeraeteCardsHtml(s, tr, editable, canEdit){
@@ -2055,21 +2059,25 @@ function _sdGeraeteCardsHtml(s, tr, editable, canEdit){
     h += _sdDcRow('Leistung', (g.kw ? esc(String(g.kw)) + ' kW' : '—'));
     h += _sdDcRow('Zähler', zBadge);
     h += _sdDcRow('Start', hasZaehler ? (esc(String(g.zaehlerStart != null ? g.zaehlerStart : '0')) + (zEinheit ? ' ' + zEinheit : '')) : '—');
+    var editCls = editable ? 'dc-edit' : '';
     var endeHtml;
     if (editable && hasZaehler) {
-      endeHtml = '<input type="text" inputmode="decimal" value="' + (g.zaehlerEnde || '') + '" placeholder="—" style="text-align:left;padding:4px 8px" onblur="fixLeadingZero(this);sdUpdateDevEnd(\'' + s.id + '\',' + gi + ',this.value)">';
+      endeHtml = '<input type="text" inputmode="decimal" value="' + (g.zaehlerEnde || '') + '" placeholder="—" style="text-align:left" onblur="fixLeadingZero(this);sdUpdateDevEnd(\'' + s.id + '\',' + gi + ',this.value)">';
     } else if (hasZaehler) { endeHtml = esc(String(g.zaehlerEnde || '—')); }
     else { endeHtml = '—'; }
-    h += _sdDcRow('Ende' + (zEinheit ? ' (' + zEinheit + ')' : ''), endeHtml);
+    h += _sdDcRow('Ende' + (zEinheit ? ' (' + zEinheit + ')' : ''), endeHtml, editable && hasZaehler ? editCls : '');
     var endeAmHtml;
     if (editable) {
       var endeIso = sdGeraetEnde(g);
       var isFixed = !!endeIso;
       var dispVal = endeIso || sdToday();
-      endeAmHtml = '<input type="date" value="' + dispVal + '" data-fixed="' + (isFixed ? '1' : '0') + '" style="padding:0 8px;color:' + (isFixed ? 'var(--txt)' : 'var(--mut)') + ';background:' + (isFixed ? 'var(--sur)' : 'var(--bg2)') + ';font-style:' + (isFixed ? 'normal' : 'italic') + '" onchange="sdUpdateDevEndDate(\'' + s.id + '\',' + gi + ',this.value)">';
+      endeAmHtml = '<input type="date" value="' + dispVal + '" data-fixed="' + (isFixed ? '1' : '0') + '" style="color:' + (isFixed ? 'var(--txt)' : 'var(--mut)') + ';background:' + (isFixed ? 'var(--sur)' : 'var(--bg2)') + ';font-style:' + (isFixed ? 'normal' : 'italic') + '" onchange="sdUpdateDevEndDate(\'' + s.id + '\',' + gi + ',this.value)">';
     } else { endeAmHtml = (sdGeraetEnde(g) ? sdFmtDate(sdGeraetEnde(g)) : '—'); }
-    h += _sdDcRow('Ende am', endeAmHtml);
-    h += _sdDcRow('Tage', tageStr);
+    h += _sdDcRow('Ende am', endeAmHtml, editCls);
+    var tageHtml = (tage == null) ? '—'
+      : (sdGeraetEnde(g) ? (tage + ' Tag' + (tage !== 1 ? 'e' : ''))
+                         : (tage + ' Tag' + (tage !== 1 ? 'e' : '') + '<span class="dc-run">läuft</span>'));
+    h += _sdDcRow('Tage', tageHtml);
     h += _sdDcRow('kWh', '<span style="font-weight:800;color:' + (kwh !== '—' ? 'var(--plan)' : 'var(--mut)') + '">' + kwh + '</span>');
     h += '</div></div>';
   });
