@@ -448,16 +448,21 @@
   }
 
   // ── Sektion 1: Zustandsanalyse ─────────────────────────────────────
-  function analyseHtml(s){
+  function analyseHtml(s, num, total){
+    num = num || 1; total = total || 3;
     var a = s.zustandsanalyse || {};
-    var massnahmenList = (a.massnahmen||[]).filter(notEmpty);
+    // Massnahmen koennen Strings ODER Objekte ({beschreibung}) sein → auf Text
+    // normalisieren, sonst landet "[object Object]" im Bericht.
+    var massnahmenList = (a.massnahmen||[]).map(function(m){
+      return (typeof m === 'string') ? m : (m && (m.beschreibung || m.text) || '');
+    }).filter(notEmpty);
     var hasContent = notEmpty(a.leckortung) || notEmpty(a.schadenausmass)
       || massnahmenList.length || (a.fotos||[]).length;
     if(!hasContent) return '';
     var h = '<section class="report-section"><div class="page-body">'
       + '<div class="sec-head">'
-        + '<div class="sec-num">1</div>'
-        + '<div class="sec-titles"><div class="sec-eyebrow">Phase 1 von 3</div><div class="sec-title">Zustandsanalyse</div></div>'
+        + '<div class="sec-num">'+num+'</div>'
+        + '<div class="sec-titles"><div class="sec-eyebrow">Phase '+num+' von '+total+'</div><div class="sec-title">Zustandsanalyse</div></div>'
         + (a.abgeschlossenAm ? '<div class="sec-date">Abgeschlossen<br>'+esc(fmtDate(a.abgeschlossenAm))+'</div>' : '')
       + '</div>';
     if(notEmpty(a.leckortung)){
@@ -477,7 +482,8 @@
   }
 
   // ── Sektion 2: Trocknung ───────────────────────────────────────────
-  function trocknungHtml(s){
+  function trocknungHtml(s, num, total){
+    num = num || 2; total = total || 3;
     var tr = s.trocknung || {};
     var hasContent = tr.gestartetAm || tr.beendetAm || (tr.geraete||[]).length || (tr.messpunkte||[]).length || tr.notizen || (tr.fotos||[]).length;
     if(!hasContent) return '';
@@ -495,8 +501,8 @@
 
     var h = '<section class="report-section"><div class="page-body">'
       + '<div class="sec-head">'
-        + '<div class="sec-num">2</div>'
-        + '<div class="sec-titles"><div class="sec-eyebrow">Phase 2 von 3</div><div class="sec-title">Trocknung</div></div>'
+        + '<div class="sec-num">'+num+'</div>'
+        + '<div class="sec-titles"><div class="sec-eyebrow">Phase '+num+' von '+total+'</div><div class="sec-title">Trocknung</div></div>'
         + (dateRange ? '<div class="sec-date">'+(tage?tage+' Tage<br>':'')+esc(dateRange)+'</div>' : '')
       + '</div>';
 
@@ -614,15 +620,16 @@
   }
 
   // ── Sektion 3: Abschluss ───────────────────────────────────────────
-  function abschlussHtml(s, opts){
+  function abschlussHtml(s, opts, num, total){
+    num = num || 3; total = total || 3;
     var ab = s.abschluss || {};
     var hasContent = notEmpty(ab.zusammenfassung) || notEmpty(ab.instandstellung)
       || notEmpty(ab.weitereSchaeden) || (ab.fotos||[]).length;
     if(!hasContent) return '';
     var h = '<section class="report-section"><div class="page-body">'
       + '<div class="sec-head">'
-        + '<div class="sec-num">3</div>'
-        + '<div class="sec-titles"><div class="sec-eyebrow">Phase 3 von 3</div><div class="sec-title">Abschlussbericht</div></div>'
+        + '<div class="sec-num">'+num+'</div>'
+        + '<div class="sec-titles"><div class="sec-eyebrow">Phase '+num+' von '+total+'</div><div class="sec-title">Abschlussbericht</div></div>'
         + (ab.abgeschlossenAm ? '<div class="sec-date">Abgeschlossen<br>'+esc(fmtDate(ab.abgeschlossenAm))+'</div>' : '')
       + '</div>';
     if(notEmpty(ab.zusammenfassung)){
@@ -678,11 +685,23 @@
       + '</div>'
       + '<div class="content">'
         + coverHtml(s, opts)
-        + analyseHtml(s)
-        + trocknungHtml(s)
-        + abschlussHtml(s, opts)
+        + _sectionsHtml(s, opts)
       + '</div>'
       + '</body></html>';
+  }
+
+  // Inhalts-Sektionen nach opts.phases filtern (Cover wird immer gezeigt; die
+  // Phase 'erfasst' = nur Cover). Ohne opts.phases erscheinen alle Sektionen.
+  // Sichtbare Sektionen werden fortlaufend neu nummeriert (Phase X von Y).
+  function _sectionsHtml(s, opts){
+    var ph = (opts && opts.phases && opts.phases.length) ? opts.phases : null;
+    function inc(k){ return !ph || ph.indexOf(k) >= 0; }
+    var visible = ['analyse','trocknung','abschluss'].filter(inc);
+    var total = visible.length, num = 0, out = '';
+    if(inc('analyse'))   out += analyseHtml(s, ++num, total);
+    if(inc('trocknung')) out += trocknungHtml(s, ++num, total);
+    if(inc('abschluss')) out += abschlussHtml(s, opts, ++num, total);
+    return out;
   }
 
   // ── Public API ──────────────────────────────────────────────────────

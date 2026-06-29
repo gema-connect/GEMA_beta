@@ -847,7 +847,9 @@ Full-Screen-Overlay (`position:fixed`) mit 4-Phasen-Timeline und aufklappbaren A
 
 **Neuer Render-Weg** parallel zum alten jsPDF. Layout 1:1 nach `vorlagen/bericht_wasserschaden_vorlage.html` (Vorlage-Referenz im Repo, nicht editieren). Helper `gema_schaden_pdf.js` exponiert `GemaSchadenPDF.exportPrint(schaden, opts)` — öffnet ein neues Fenster mit DM-Sans-A4-Layout, der User klickt im Browser-Druckdialog auf «Als PDF speichern».
 
-**Aufrufer**: `sdExportHtmlPrint(id)` in `sd_schadensbericht.html`. Sammelt `org`, `user`, `objektName`, `objektAdresse` und übergibt sie an den Helper. Button «📄 PDF (Vorlage)» neben dem alten PDF-Button — beide bleiben verfügbar.
+**Aufrufer**: `sdExportHtmlPrint(id)` in `sd_schadensbericht.html`. Öffnet zuerst eine **Phasen-Auswahl** (`sdOpenPhasePicker` — Toggle-Buttons Erfassung/Analyse/Trocknung/Abschluss, Default = aktuell aktive `s.phase`, kein Dropdown), übergibt die gewählten Keys als `opts.phases` und sammelt `org`/`user`/`objektName`/`objektAdresse`. In `gema_schaden_pdf.js` filtert `_sectionsHtml(s, opts)` die Inhalts-Sektionen nach `opts.phases` (Deckblatt immer; «erfasst» = nur Deckblatt) und nummeriert die sichtbaren Sektionen fortlaufend neu («Phase X von Y»). Button «📄 PDF (Vorlage)» neben dem alten PDF-Button — beide bleiben verfügbar. **Massnahmen** können String ODER `{beschreibung}`-Objekt sein → werden vor dem Render auf Text normalisiert (sonst «[object Object]»).
+
+A4 **Hochformat** erzwungen: beide `@page`-Regeln `size:A4 portrait`, jsPDF `orientation:'portrait'`.
 
 **Logo-Branch**: Wenn `org.logo` (Base64-data-URL aus `sys_unternehmen.html`) gesetzt ist → Firmen-Logo oben links auf dem Deckblatt. Sonst → eingebettetes GEMA-Inline-SVG. Damit zeigen User ohne hochgeladenes Logo automatisch das GEMA-Branding.
 
