@@ -494,6 +494,14 @@ Geplant: `gema_lu_api.js` für den Datenfluss aus der LU-Zusammenstellung:
 
 ## Häufige Fehlerquellen
 
+### DM-Sans „l" wird zu dick im PDF-Export (Optical-Sizing)
+
+**Symptom**: Im HTML/Print-PDF (Schaden-/Dachbericht) erscheint das kleine „l" (und ähnliche dünne Glyphen) **fetter/dicker** als der Rest — v.a. in Listen/Fliesstext.
+
+**Ursache**: `gema_schaden_pdf.js` / `gema_dachbericht_pdf.js` setzten im Body `font-optical-sizing:none`. Das zwingt die **DM-Sans-Variable-Font** auf ihre Default-Optical-Size (kräftigere Striche, für Display gedacht) → bei kleinem Fliesstext (10.5pt) wirken die Striche zu schwer.
+
+**Fix**: `font-optical-sizing:auto;font-variation-settings:"opsz" 14;` im Body-CSS (statt `none`). `opsz 14` = Text-Optische-Grösse → saubere, gleichmässige Striche. **In BEIDEN PDF-Helfern gleich halten** (Schaden + Dach), da das Problem in beiden auftritt.
+
 ### Orphaned </div>-Tags
 
 Bei Batch-Migrationen können verwaiste `</div>`-Tags entstehen (z.B. wenn `g-ph`-Elemente entfernt werden). Diese verursachen, dass Content ausserhalb des `.g-page`-Containers rendert und die max-width-Begrenzung verliert.

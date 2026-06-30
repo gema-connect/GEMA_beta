@@ -25,7 +25,7 @@
   var REPORT_CSS = '@import url(\'https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap\');'
     + ':root{--ink:#1f2933;--ink-soft:#525d66;--muted:#8a949c;--accent:#0891b2;--accent-deep:#0e7490;--forest:#0c4a2e;--line:#e4e8ec;--line-soft:#eef1f3;--tint:#f5f7f8;--tint-blue:#ecfeff;--ok:#15803d;--amber:#b45309;--red:#b91c1c;--paper:#ffffff;}'
     + '*{box-sizing:border-box;margin:0;padding:0;}'
-    + 'html,body{font-family:\'DM Sans\',sans-serif;color:var(--ink);font-size:10.5pt;line-height:1.55;-webkit-print-color-adjust:exact;print-color-adjust:exact;font-optical-sizing:none;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;}'
+    + 'html,body{font-family:\'DM Sans\',sans-serif;color:var(--ink);font-size:10.5pt;line-height:1.55;-webkit-print-color-adjust:exact;print-color-adjust:exact;font-optical-sizing:auto;font-variation-settings:"opsz" 14;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;}'
     + '@media screen{body{background:#dfe3e6;padding:32px 16px;}'
       + '.content{width:210mm;margin:0 auto;background:transparent;}'
       + '.content > .cover,.content > .report-section{width:210mm;min-height:297mm;background:var(--paper);box-shadow:0 8px 40px rgba(20,30,45,.18);margin:0 auto 28px;position:relative;overflow:hidden;}'
