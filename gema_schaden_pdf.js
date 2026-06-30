@@ -19,7 +19,7 @@
   var REPORT_CSS = '@import url(\'https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap\');'
     + ':root{--ink:#1f2933;--ink-soft:#525d66;--muted:#8a949c;--accent:#1e3a5f;--accent-deep:#142a45;--forest:#0c4a2e;--line:#e4e8ec;--line-soft:#eef1f3;--tint:#f5f7f8;--tint-blue:#eef2f6;--ok:#15803d;--paper:#ffffff;}'
     + '*{box-sizing:border-box;margin:0;padding:0;}'
-    + 'html,body{font-family:\'DM Sans\',sans-serif;color:var(--ink);font-size:10.5pt;line-height:1.55;-webkit-print-color-adjust:exact;print-color-adjust:exact;font-optical-sizing:none;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;}'
+    + 'html,body{font-family:\'DM Sans\',sans-serif;color:var(--ink);font-size:10.5pt;line-height:1.55;-webkit-print-color-adjust:exact;print-color-adjust:exact;font-optical-sizing:auto;font-variation-settings:"opsz" 14;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;}'
     // ─ Bildschirm-Vorschau: jede Sektion als eigenes A4-Blatt mit Schatten,
     //   damit der User die Seitengrenzen visuell sieht (statt fortlaufender
     //   Strom). Cover + jede report-section ist ein eigenes Papier-Element.
@@ -60,6 +60,9 @@
     + '.meta-k{font-size:7.5pt;letter-spacing:.13em;text-transform:uppercase;color:var(--muted);font-weight:600;margin-bottom:2px;}'
     + '.meta-v{font-size:10.5pt;color:var(--ink);font-weight:500;}'
     + '.meta-v.dim{color:var(--muted);font-weight:400;}'
+    + '.meta-list{list-style:none;margin:3px 0 0;padding:0;}'
+    + '.meta-list li{position:relative;padding-left:13px;font-size:10.5pt;color:var(--ink);font-weight:500;line-height:1.5;}'
+    + '.meta-list li::before{content:"";position:absolute;left:0;top:6px;width:4px;height:4px;border-radius:1px;background:var(--accent);}'
     + '.kpi-strip{margin-top:9mm;display:grid;grid-template-columns:repeat(4,1fr);border:.75pt solid var(--line);border-radius:7px;overflow:hidden;}'
     + '.kpi{padding:11px 14px;border-right:.75pt solid var(--line);}'
     + '.kpi:last-child{border-right:none;}'
@@ -428,12 +431,17 @@
     }
     var raeume = (s.raeume||[]).filter(notEmpty);
     if(raeume.length){
-      h += '<div class="meta-item"><div class="meta-k">Betroffene Räume</div><div class="meta-v">'+esc(raeume.join(' · '))+'</div></div>';
+      h += '<div class="meta-item"><div class="meta-k">Betroffene Räume</div><ul class="meta-list">'
+        + raeume.map(function(r){ return '<li>'+esc(r)+'</li>'; }).join('')
+        + '</ul></div>';
     }
     h += '</div>';  // /cover-meta
 
-    // KPIs nur wenn Trocknung Daten hat
-    if(tage > 0 || anzGeraete > 0 || anzMesspunkte > 0){
+    // KPIs (Trocknungsdauer / Geräte / Energie / Messpunkte) nur zeigen, wenn
+    // die Trocknungs-Phase auch exportiert wird — sonst stehen sie z.B. bei
+    // einem reinen Zustandsanalyse-Export faelschlich schon auf dem Deckblatt.
+    var _showTrKpi = !(opts && opts.phases && opts.phases.length) || opts.phases.indexOf('trocknung') >= 0;
+    if(_showTrKpi && (tage > 0 || anzGeraete > 0 || anzMesspunkte > 0)){
       h += '<div class="kpi-strip">'
         + '<div class="kpi"><div class="kpi-v">'+tage+'<small> Tage</small></div><div class="kpi-k">Trocknungsdauer</div></div>'
         + '<div class="kpi"><div class="kpi-v">'+anzGeraete+'</div><div class="kpi-k">Geräte im Einsatz</div></div>'
