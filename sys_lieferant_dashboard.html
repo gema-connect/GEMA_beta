@@ -218,17 +218,23 @@ textarea.fc{resize:vertical;min-height:60px;line-height:1.5}
     </div>
   </div>
 
-  <!-- Tab: Werkzeuge (nur Prüfer) -->
+  <!-- Tab: Werkzeuge (Prüfer + Lieferanten) -->
   <div class="tab-body" id="tb-werkzeuge">
     <div class="card">
+      <div class="card-hd"><h3>📋 Prüfaufträge</h3></div>
+      <div class="card-bd" id="wzPruefAuftraege">
+        <p style="color:var(--mut);font-size:13px">Wird geladen…</p>
+      </div>
+    </div>
+    <div class="card" style="margin-top:16px">
       <div class="card-hd"><h3>🔧 Meine Werkzeuge</h3></div>
       <div class="card-bd" id="wzListe">
-        <p style="color:var(--mut);font-size:13px">Hier sehen Sie die Werkzeuge, die Ihnen zur Prüfung zugewiesen sind.</p>
+        <p style="color:var(--mut);font-size:13px">Werkzeuge Ihrer Auftraggeber, die mit Ihnen verknüpft sind (als Lieferant oder Prüfer).</p>
         <div id="wzItems" style="margin-top:12px"></div>
       </div>
     </div>
     <div class="card" style="margin-top:16px">
-      <div class="card-hd"><h3>📋 Fällige Prüfungen</h3></div>
+      <div class="card-hd"><h3>⏰ Fällige Prüfungen</h3></div>
       <div class="card-bd" id="wzPruefungen">
         <p style="color:var(--mut);font-size:13px">Keine fälligen Prüfungen.</p>
       </div>
@@ -460,6 +466,18 @@ function init(){
   initKatFilter();
   renderAll();
   setupTabs();
+  // Werkzeug-Pool frisch aus der Cloud ziehen (alle Orgs — die Prüf-/
+  // Defekt-/Ersatz-Aufträge kommen von FREMDEN Auftraggeber-Orgs, der
+  // lokale Cache des Lieferanten kennt sie sonst nicht). Danach die
+  // Werkzeug-Sektionen mit den frischen Daten neu rendern.
+  if(typeof GemaSync!=='undefined'&&GemaSync.bindCollection){
+    GemaSync.bindCollection('werkzeugmanagement','gema_werkzeug','tool:','id').then(function(){
+      _dwzLoaded=true;
+      renderWzPruefauftraege();renderWerkzeuge();renderWzDefekte();renderWzErsatz();
+    }).catch(function(){ _dwzLoaded=true; renderWzPruefauftraege();renderWerkzeuge();renderWzDefekte();renderWzErsatz(); });
+  } else {
+    _dwzLoaded=true;
+  }
 }
 
 function setupTabs(){
@@ -510,6 +528,15 @@ function setupTabs(){
   // Nav-Mitarbeiter-Button sichtbar machen
   var navMit=document.getElementById('navMitarbeiter');
   if(navMit&&(isLief||isPruefer||isAdmin))navMit.style.display='';
+
+  // Deep-Link ?tab=<id> (z.B. aus Werkzeug-Notifikationen: ?tab=werkzeuge)
+  try{
+    var wantTab=new URLSearchParams(location.search).get('tab');
+    if(wantTab){
+      var tabBtn=document.querySelector('.tab[data-tab="'+wantTab+'"]');
+      if(tabBtn)tabBtn.click();
+    }
+  }catch(e){}
 }
 
 function switchToTab(tabId){
@@ -528,6 +555,7 @@ function renderAll(){
   renderProdukte();
   renderAnfragen();
   renderRohrsysteme();
+  renderWzPruefauftraege();
   renderWerkzeuge();
   renderMandate();
   renderWzDefekte();
@@ -1086,69 +1114,389 @@ function quickReject(oaId){
   renderAll(); toast('Anfrage abgelehnt');
 }
 
-// ── Profil ──
+// ── Werkzeuge-Tab: Arbeitsplatz für externe Lieferanten & Prüfer ──
+// Datenquelle ist der cloud-synchronisierte Multi-Tenant-Pool 'gema_werkzeug'
+// (Werkzeuge ALLER Orgs, eine Cloud-Row pro Tool 'tool:<id>'). Der frische
+// Pull passiert in init() via GemaSync.bindCollection — noetig, weil die
+// Auftraege cross-org sind (Auftraggeber-Org ≠ Lieferanten-Org).
+var _dwzLoaded=false;
+function _dwzAllTools(){
+  if(typeof GemaSync!=='undefined'&&GemaSync.getCached){
+    try{var c=GemaSync.getCached('gema_werkzeug');if(Array.isArray(c))return c;}catch(e){}
+  }
+  try{var a=JSON.parse(localStorage.getItem('gema_werkzeug')||'[]');return Array.isArray(a)?a:[];}catch(e){return [];}
+}
+// Eigene User-ID + alle Team-User desselben Lieferanten-Datensatzes —
+// Auftraege an einen Kollegen sind fuer das ganze Team sichtbar.
+function _dwzMyIds(){
+  var u=null;try{u=GemaAuth.getCurrentUser();}catch(e){}
+  if(!u)return [];
+  var ids=[u.id];
+  try{
+    if(u.lieferantId&&GemaAuth.getUsers){
+      (GemaAuth.getUsers()||[]).forEach(function(x){
+        if(x&&x.lieferantId===u.lieferantId&&ids.indexOf(x.id)<0)ids.push(x.id);
+      });
+    }
+  }catch(e){}
+  return ids;
+}
+function _dwzOrgName(orgId){
+  if(!orgId)return '—';
+  try{var o=(GemaAuth.getOrgs()||[]).find(function(x){return x.id===orgId;});if(o)return o.name||orgId;}catch(e){}
+  return orgId;
+}
+function _dwzFirma(){
+  var u=null;try{u=GemaAuth.getCurrentUser();}catch(e){}
+  return (_lief&&_lief.firma)||(u&&u.profile&&u.profile.firma)||(u&&u.name)||'Lieferant';
+}
+function _dwzToolById(id){ return _dwzAllTools().find(function(t){return t.id===id;})||null; }
+function _dwzFmtD(d){ if(!d)return '—'; var p=String(d).split('T')[0].split('-'); return p.length===3?(p[2]+'.'+p[1]+'.'+p[0]):String(d); }
+// Einzelnes Tool sichern: lokalen Cache aktualisieren + genau EINE Cloud-Row
+// schreiben (GemaSync.saveRecord) — kein Diff ueber den ganzen Pool, damit
+// ein unvollstaendiger Cache nie fremde Records loeschen kann.
+function _dwzSaveTool(tool){
+  try{
+    var all=_dwzAllTools().map(function(t){return t.id===tool.id?tool:t;});
+    localStorage.setItem('gema_werkzeug',JSON.stringify(all));
+  }catch(e){}
+  if(typeof GemaSync!=='undefined'&&GemaSync.saveRecord){
+    return GemaSync.saveRecord('werkzeugmanagement','tool:'+tool.id,tool).catch(function(e){
+      toast('Cloud-Speichern fehlgeschlagen — bitte Verbindung prüfen.','error');
+    });
+  }
+  return Promise.resolve();
+}
+var _DWZ_PRUEF_LABEL={servicepruefung:'Service / Wartung',elektropruefung:'Elektroprüfung (NIV)',leiterpruefung:'Leiterprüfung (EKAS)'};
+function _dwzPruefTyp(t){
+  var pa=t.pruefAnfrage||{};
+  if(pa.typ)return pa.typ;
+  // Altdaten ohne typ: gleiche Heuristik wie if_werkzeug.openPruefAnfordern
+  if(t.cat==='leiter'||t.hasLeiter)return 'leiterpruefung';
+  if(t.hasElec||t.cat==='maschine-kabel'||t.cat==='ladegeraet')return 'elektropruefung';
+  return 'servicepruefung';
+}
+// Naechster faelliger Prueftermin (vereinfachte Variante der Modul-Logik)
+function _dwzNextDue(t){
+  var ds=[];
+  function add(last,intM){
+    if(!last||!intM)return;
+    var d=new Date(last);d.setMonth(d.getMonth()+parseInt(intM,10));
+    if(!isNaN(d.getTime()))ds.push(d.toISOString().split('T')[0]);
+  }
+  if(t.hasService)add(t.lastService,t.serviceInterval);
+  if(t.hasElec)add(t.lastElec,t.elecInterval);
+  if(t.hasLeiter)add(t.lastLeiter,t.leiterInterval);
+  ds.sort();return ds[0]||null;
+}
+// Generisches Mini-Modal (Overlay) fuer die Werkzeug-Aktionen
+function _dwzModal(inner){
+  _dwzCloseModal();
+  var ov=document.createElement('div');ov.id='_dwzOv';
+  ov.style.cssText='position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:10600;display:flex;align-items:center;justify-content:center;padding:20px';
+  ov.innerHTML='<div style="background:#fff;border-radius:14px;padding:24px;max-width:460px;width:100%;max-height:85vh;overflow-y:auto;box-shadow:0 20px 60px -10px rgba(0,0,0,.3)">'+inner+'</div>';
+  document.body.appendChild(ov);
+}
+function _dwzCloseModal(){var ov=document.getElementById('_dwzOv');if(ov)ov.remove();}
+window._dwzCloseModal=_dwzCloseModal;
+
+// ── Prüfaufträge (Service / Elektro / Leiter) ──
+function renderWzPruefauftraege(){
+  var el=document.getElementById('wzPruefAuftraege');if(!el)return;
+  var myIds=_dwzMyIds();
+  if(!myIds.length){el.innerHTML='';return;}
+  var items=_dwzAllTools().filter(function(t){
+    return t.pruefAnfrage&&myIds.indexOf(t.pruefAnfrage.lieferantId)>=0&&t.pruefAnfrage.status!=='erledigt';
+  });
+  if(!items.length){
+    el.innerHTML='<p style="color:var(--mut);font-size:13px">'+(_dwzLoaded?'✓ Keine offenen Prüfaufträge.':'Wird geladen…')+'</p>';
+    return;
+  }
+  el.innerHTML=items.map(function(t){
+    var pa=t.pruefAnfrage;
+    var typ=_dwzPruefTyp(t);
+    var stBadge=pa.status==='quittiert'
+      ?'<span style="font-size:10px;font-weight:700;padding:3px 8px;border-radius:6px;background:#eff6ff;color:#2563eb">✓ Quittiert</span>'
+      :'<span style="font-size:10px;font-weight:700;padding:3px 8px;border-radius:6px;background:#fff7ed;color:#ea580c">🟠 Angefordert</span>';
+    var aktion=pa.status==='angefordert'
+      ?'<button onclick="_dwzQuittieren(\''+E(t.id)+'\')" class="btn btn-p btn-sm">✓ Quittieren</button>'
+      :'<button onclick="_dwzOpenPruefbericht(\''+E(t.id)+'\')" class="btn btn-p btn-sm">📝 Prüfbericht</button>';
+    return '<div style="display:flex;align-items:flex-start;gap:10px;padding:12px 0;border-bottom:1px solid var(--brd);flex-wrap:wrap">'
+      +'<div style="width:36px;height:36px;border-radius:8px;background:#fff7ed;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">📋</div>'
+      +'<div style="flex:1;min-width:200px">'
+      +'<div style="font-size:13px;font-weight:700">'+E(t.name||'Werkzeug')+(t.internKennung?' <span style="font-size:10px;color:var(--mut)">🏷 '+E(t.internKennung)+'</span>':'')+'</div>'
+      +'<div style="font-size:11px;color:var(--mut);margin-top:2px">'+E(_DWZ_PRUEF_LABEL[typ]||typ)+' · '+(t.brand?E(t.brand)+' ':'')+(t.model?E(t.model)+' · ':'')+'Auftraggeber: <strong>'+E(_dwzOrgName(t.orgId))+'</strong></div>'
+      +'<div style="font-size:11px;color:var(--mut);margin-top:2px">Angefordert: '+_dwzFmtD(pa.angefordertAm)+(pa.wunschtermin?' · Wunschtermin: '+_dwzFmtD(pa.wunschtermin):'')+(pa.bemerkung?' · «'+E(pa.bemerkung)+'»':'')+'</div>'
+      +'</div>'
+      +'<div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end">'+stBadge+aktion
+      +'<a href="if_werkzeug.html?pruef_lief='+encodeURIComponent(t.id)+'" style="font-size:11px;color:#1d4ed8;text-decoration:none;font-weight:700">Details →</a></div>'
+      +'</div>';
+  }).join('');
+}
+
+window._dwzQuittieren=function(toolId){
+  if(_liefBlockedInaktiv())return;
+  var t=_dwzToolById(toolId);if(!t||!t.pruefAnfrage)return;
+  t.pruefAnfrage.status='quittiert';
+  t.pruefAnfrage.quittiertAm=new Date().toISOString();
+  _dwzSaveTool(t);
+  if(typeof GemaNotify!=='undefined'&&t.pruefAnfrage.angefordertVon){
+    GemaNotify.push({eventKey:'werkzeug_pruefung_anfrage',empfaengerUserId:t.pruefAnfrage.angefordertVon,modul:'werkzeug',typ:'info',
+      titel:'✓ Lieferant hat quittiert: '+t.name,
+      text:_dwzFirma()+' hat den Prüfauftrag angenommen.'+(t.pruefAnfrage.wunschtermin?' Wunschtermin: '+_dwzFmtD(t.pruefAnfrage.wunschtermin):''),
+      link:'if_werkzeug.html?view='+encodeURIComponent(t.id)});
+  }
+  renderWzPruefauftraege();toast('✓ Auftrag quittiert');
+};
+
+window._dwzOpenPruefbericht=function(toolId){
+  if(_liefBlockedInaktiv())return;
+  var t=_dwzToolById(toolId);if(!t)return;
+  var heute=new Date().toISOString().split('T')[0];
+  _dwzModal('<h3 style="margin:0 0 4px;font-size:17px;font-weight:900">📝 Prüfbericht einreichen</h3>'
+    +'<div style="font-size:12px;color:#64748b;margin-bottom:14px">'+E(t.name||'')+' · '+E(_dwzOrgName(t.orgId))+' · '+E(_DWZ_PRUEF_LABEL[_dwzPruefTyp(t)]||'')+'</div>'
+    +'<div style="display:flex;flex-direction:column;gap:10px">'
+    +'<div><label class="fl">Durchführungsdatum</label><input class="fc" type="date" id="dwzPbDatum" value="'+heute+'"/></div>'
+    +'<div><label class="fl">Ergebnis</label><select class="fc" id="dwzPbErgebnis"><option value="bestanden">✓ Bestanden</option><option value="maengel">⚠ Mit Mängeln</option><option value="nicht_bestanden">✕ Nicht bestanden</option></select></div>'
+    +'<div><label class="fl">Bemerkungen</label><textarea class="fc" id="dwzPbBem" rows="3" placeholder="Befunde, ersetzte Teile…"></textarea></div>'
+    +'<div><label class="fl">Nächste Prüfung (optional)</label><input class="fc" type="date" id="dwzPbNext"/></div>'
+    +'</div>'
+    +'<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">'
+    +'<button class="btn btn-g" onclick="_dwzCloseModal()">Abbrechen</button>'
+    +'<button class="btn btn-p" onclick="_dwzSubmitPruefbericht(\''+E(t.id)+'\')">📝 Bericht einreichen</button>'
+    +'</div>');
+};
+
+window._dwzSubmitPruefbericht=function(toolId){
+  if(_liefBlockedInaktiv())return;
+  var t=_dwzToolById(toolId);if(!t||!t.pruefAnfrage)return;
+  var datum=document.getElementById('dwzPbDatum').value;
+  if(!datum){toast('Bitte Durchführungsdatum angeben.','error');return;}
+  var erg=document.getElementById('dwzPbErgebnis').value;
+  var bem=(document.getElementById('dwzPbBem').value||'').trim();
+  var next=document.getElementById('dwzPbNext').value||'';
+  var ergLabel=erg==='bestanden'?'✓ Bestanden':erg==='maengel'?'⚠ Mit Mängeln':'✕ Nicht bestanden';
+  var u=null;try{u=GemaAuth.getCurrentUser();}catch(e){}
+  var firma=_dwzFirma();
+  t.berichte=t.berichte||[];
+  t.berichte.push({
+    id:'ber_'+Date.now()+'_'+Math.random().toString(36).slice(2,6),
+    typ:'pruefbericht', datum:datum,
+    autorUserId:(u&&u.id)||'', autorName:firma,
+    titel:'Prüfung durch Lieferant',
+    beschreibung:bem, ergebnis:ergLabel,
+    fehlendeTeile:[], naechstePruefung:next,
+    vonLieferant:true
+  });
+  // Letzte Pruefdaten nachfuehren — gleiche Logik wie
+  // _wzPruefLiefBerichtEinreichen in if_werkzeug.html.
+  if(t.hasElec)t.lastElec=datum;
+  if(t.hasLeiter)t.lastLeiter=datum;
+  if(t.hasService)t.lastService=datum;
+  t.pruefAnfrage.status='erledigt';
+  t.pruefAnfrage.erledigtAm=new Date().toISOString();
+  _dwzSaveTool(t);
+  if(typeof GemaNotify!=='undefined'){
+    var notif={eventKey:'werkzeug_pruefung_anfrage',modul:'werkzeug',
+      typ:(erg==='bestanden'?'erfolg':'warnung'),
+      titel:(erg==='bestanden'?'✓':'⚠')+' Prüfbericht: '+t.name,
+      text:firma+' · '+ergLabel+(next?' · Nächste Prüfung: '+_dwzFmtD(next):''),
+      link:'if_werkzeug.html?view='+encodeURIComponent(t.id)};
+    if(t.pruefAnfrage.angefordertVon){notif.empfaengerUserId=t.pruefAnfrage.angefordertVon;}
+    else{notif.empfaengerRoleId='role_magaziner';notif.empfaengerOrgId=t.orgId||'';}
+    GemaNotify.push(notif);
+  }
+  _dwzCloseModal();renderWzPruefauftraege();renderWerkzeuge();
+  toast('📝 Prüfbericht eingereicht');
+};
+
+// ── Offerte (Defekt / Ersatzanfrage) — extern erstellt, PDF-Upload ──
+var _dwzOffCtx=null;
+window._dwzOpenOfferte=function(toolId,kind,refId){
+  if(_liefBlockedInaktiv())return;
+  var t=_dwzToolById(toolId);if(!t)return;
+  _dwzOffCtx={toolId:toolId,kind:kind,refId:refId};
+  _dwzModal('<h3 style="margin:0 0 4px;font-size:17px;font-weight:900">📄 Offerte senden</h3>'
+    +'<div style="font-size:12px;color:#64748b;margin-bottom:14px">'+E(t.name||'')+' · '+E(_dwzOrgName(t.orgId))+' · '+(kind==='ersatz'?'Ersatz / Neugerät':'Zu Defektmeldung')+'</div>'
+    +'<div style="display:flex;flex-direction:column;gap:10px">'
+    +'<div><label class="fl">Brutto-Preis (CHF)</label><input class="fc" type="text" inputmode="decimal" id="dwzOffPreis" placeholder="z.B. 1450.00" onblur="fixLeadingZero(this)" style="max-width:200px"/></div>'
+    +'<div><label class="fl">Nachricht</label><textarea class="fc" id="dwzOffMsg" rows="3" placeholder="Lieferfrist, Konditionen, empfohlenes Modell…"></textarea></div>'
+    +'<div><label class="fl">Offerte als PDF (optional)</label><input class="fc" type="file" id="dwzOffPdf" accept=".pdf" style="padding:6px"/></div>'
+    +'</div>'
+    +'<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">'
+    +'<button class="btn btn-g" onclick="_dwzCloseModal()">Abbrechen</button>'
+    +'<button class="btn btn-p" onclick="_dwzSendOfferte()">✉ Offerte senden</button>'
+    +'</div>');
+};
+
+window._dwzSendOfferte=function(){
+  var ctx=_dwzOffCtx;if(!ctx)return;
+  if(_liefBlockedInaktiv())return;
+  var t=_dwzToolById(ctx.toolId);if(!t)return;
+  var preis=parseFloat((document.getElementById('dwzOffPreis').value||'').replace(/'/g,''))||0;
+  var msg=(document.getElementById('dwzOffMsg').value||'').trim();
+  if(!preis&&!msg){toast('Bitte Preis oder Nachricht eingeben.','error');return;}
+  var antwort={preis:preis,nachricht:msg};
+  var fi=document.getElementById('dwzOffPdf');
+
+  function apply(){
+    var firma=_dwzFirma();var now=new Date().toISOString();
+    if(ctx.kind==='ersatz'){
+      var a=(t.ersatzAnfragen||[]).find(function(x){return x.id===ctx.refId;});
+      if(!a){toast('Anfrage nicht gefunden.','error');return;}
+      a.antwort={preis:antwort.preis,nachricht:antwort.nachricht,pdfName:antwort.pdfName||'',pdfUrl:antwort.pdfUrl||'',pdfDataUrl:antwort.pdfDataUrl||'',beantwortetAm:now,beantwortetVon:firma};
+      a.status='beantwortet';
+    } else {
+      var b=(t.berichte||[]).find(function(x){return x.id===ctx.refId;});
+      if(!b){toast('Defektmeldung nicht gefunden.','error');return;}
+      b.lieferantAntwort={preis:antwort.preis,nachricht:antwort.nachricht,pdfName:antwort.pdfName||'',pdfUrl:antwort.pdfUrl||'',pdfDataUrl:antwort.pdfDataUrl||'',ts:now,von:firma};
+    }
+    _dwzSaveTool(t);
+    if(typeof GemaNotify!=='undefined'){
+      GemaNotify.push({eventKey:'werkzeug_offerte_lieferant',empfaengerRoleId:'role_magaziner',empfaengerOrgId:t.orgId||'',modul:'werkzeug',typ:'aktion',
+        titel:'✉ Offerte von '+_dwzFirma()+': '+t.name,
+        text:(antwort.preis?'CHF '+antwort.preis+' · ':'')+(ctx.kind==='ersatz'?'Ersatz/Neugerät':'Zu Defektmeldung')+(antwort.pdfName?' · 📄 '+antwort.pdfName:''),
+        link:'if_werkzeug.html?view='+encodeURIComponent(t.id)});
+    }
+    _dwzCloseModal();renderWzDefekte();renderWzErsatz();toast('✉ Offerte gesendet');
+  }
+
+  if(fi&&fi.files&&fi.files.length){
+    var file=fi.files[0];
+    if(file.size>10*1024*1024){toast('PDF zu gross (max. 10 MB).','error');return;}
+    antwort.pdfName=file.name;
+    var reader=new FileReader();
+    reader.onload=function(){
+      var dataUrl=reader.result;
+      if(typeof GemaStorage!=='undefined'&&GemaStorage.isConfigured()){
+        toast('PDF wird hochgeladen…');
+        GemaStorage.uploadDataUrl(dataUrl,'offerten/'+(_lief?_lief.id:'unbekannt')+'/werkzeug').then(function(res){
+          antwort.pdfUrl=res.url;apply();
+        }).catch(function(err){
+          if(file.size>2.5*1024*1024){toast('Upload fehlgeschlagen ('+(err&&err.message||'Fehler')+') — bitte PDF unter 2.5 MB wählen.','error');return;}
+          antwort.pdfDataUrl=dataUrl;apply();
+        });
+      } else {
+        if(file.size>2.5*1024*1024){toast('PDF zu gross (max. 2.5 MB ohne Cloud-Storage).','error');return;}
+        antwort.pdfDataUrl=dataUrl;apply();
+      }
+    };
+    reader.readAsDataURL(file);
+  } else { apply(); }
+};
+
+// ── Reparatur eröffnen / abschliessen ──
+var _dwzRepCtx=null;
+window._dwzOpenReparatur=function(toolId,berId){
+  if(_liefBlockedInaktiv())return;
+  var t=_dwzToolById(toolId);if(!t)return;
+  _dwzRepCtx={toolId:toolId,berId:berId||''};
+  _dwzModal('<h3 style="margin:0 0 4px;font-size:17px;font-weight:900">🔧 Reparatur eröffnen</h3>'
+    +'<div style="font-size:12px;color:#64748b;margin-bottom:14px">'+E(t.name||'')+' · '+E(_dwzOrgName(t.orgId))+' — das Werkzeug wird auf «In Reparatur» gesetzt.</div>'
+    +'<div style="display:flex;flex-direction:column;gap:10px">'
+    +'<div><label class="fl">Voraussichtliche Fertigstellung (optional)</label><input class="fc" type="date" id="dwzRepTermin"/></div>'
+    +'<div><label class="fl">Bemerkung</label><textarea class="fc" id="dwzRepBem" rows="3" placeholder="z.B. Gerät wird abgeholt, Ersatzteil bestellt…"></textarea></div>'
+    +'</div>'
+    +'<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">'
+    +'<button class="btn btn-g" onclick="_dwzCloseModal()">Abbrechen</button>'
+    +'<button class="btn btn-p" onclick="_dwzStartReparatur()">🔧 Reparatur eröffnen</button>'
+    +'</div>');
+};
+
+window._dwzStartReparatur=function(){
+  var ctx=_dwzRepCtx;if(!ctx)return;
+  if(_liefBlockedInaktiv())return;
+  var t=_dwzToolById(ctx.toolId);if(!t)return;
+  var termin=document.getElementById('dwzRepTermin').value||'';
+  var bem=(document.getElementById('dwzRepBem').value||'').trim();
+  var u=null;try{u=GemaAuth.getCurrentUser();}catch(e){}
+  var firma=_dwzFirma();var now=new Date().toISOString();
+  t.lifecycleStatus='in_reparatur';
+  t.reparatur={offen:true,lieferantId:(u&&u.id)||'',lieferantFirma:firma,defektBerichtId:ctx.berId,termin:termin,bemerkung:bem,gestartetAm:now};
+  t.berichte=t.berichte||[];
+  t.berichte.push({id:'ber_'+Date.now()+'_'+Math.random().toString(36).slice(2,6),typ:'reparatur',datum:now,autorUserId:(u&&u.id)||'',autorName:firma,titel:'Reparatur eröffnet',beschreibung:(bem||'')+(termin?(bem?' · ':'')+'Fertigstellung bis '+_dwzFmtD(termin):''),vonLieferant:true});
+  _dwzSaveTool(t);
+  if(typeof GemaNotify!=='undefined'){
+    GemaNotify.push({eventKey:'werkzeug_reparatur',empfaengerRoleId:'role_magaziner',empfaengerOrgId:t.orgId||'',modul:'werkzeug',typ:'info',
+      titel:'🔧 Reparatur eröffnet: '+t.name,
+      text:firma+(termin?' · Fertigstellung bis '+_dwzFmtD(termin):'')+(bem?' · '+bem.substring(0,80):''),
+      link:'if_werkzeug.html?view='+encodeURIComponent(t.id)});
+  }
+  _dwzCloseModal();renderWzDefekte();renderWerkzeuge();
+  toast('🔧 Reparatur eröffnet');
+};
+
+window._dwzReparaturAbschliessen=function(toolId){
+  if(_liefBlockedInaktiv())return;
+  var t=_dwzToolById(toolId);if(!t||!t.reparatur)return;
+  if(!confirm('Reparatur als abgeschlossen melden? Das Werkzeug wird wieder auf «Aktiv» gesetzt.'))return;
+  var u=null;try{u=GemaAuth.getCurrentUser();}catch(e){}
+  var firma=_dwzFirma();var now=new Date().toISOString();
+  t.reparatur.offen=false;
+  t.reparatur.abgeschlossenAm=now;
+  t.lifecycleStatus='aktiv';
+  t.berichte=t.berichte||[];
+  t.berichte.push({id:'ber_'+Date.now()+'_'+Math.random().toString(36).slice(2,6),typ:'reparatur',datum:now,autorUserId:(u&&u.id)||'',autorName:firma,titel:'Reparatur abgeschlossen',beschreibung:'Bitte Werkzeug prüfen und den zugehörigen Defekt als erledigt markieren.',vonLieferant:true});
+  _dwzSaveTool(t);
+  if(typeof GemaNotify!=='undefined'){
+    GemaNotify.push({eventKey:'werkzeug_reparatur',empfaengerRoleId:'role_magaziner',empfaengerOrgId:t.orgId||'',modul:'werkzeug',typ:'erfolg',
+      titel:'✓ Reparatur abgeschlossen: '+t.name,
+      text:firma+' — bitte prüfen und Defekt als erledigt markieren.',
+      link:'if_werkzeug.html?view='+encodeURIComponent(t.id)});
+  }
+  renderWzDefekte();renderWerkzeuge();
+  toast('✓ Reparatur abgeschlossen');
+};
+
+// ── Meine Werkzeuge (mit mir verknüpfte Werkzeuge aller Auftraggeber) ──
 function renderWerkzeuge(){
   var el=document.getElementById('wzItems');if(!el)return;
-  // Prüfe ob User role_pruefer hat
   var user=null;try{user=GemaAuth.getCurrentUser();}catch(e){}
   if(!user)return;
   var roles=user.roleIds||[];
-  var isPruefer=roles.indexOf('role_pruefer')>=0||roles.indexOf('role_admin')>=0;
-  if(!isPruefer){el.innerHTML='';return;}
+  var relevant=roles.indexOf('role_pruefer')>=0||roles.indexOf('role_admin')>=0
+    ||roles.some(function(r){return typeof r==='string'&&r.indexOf('role_lieferant')===0;});
+  if(!relevant){el.innerHTML='';return;}
 
-  // Werkzeuge aus localStorage laden (if_werkzeug Modul)
-  var wzData=null;
-  try{
-    var sk=(typeof GemaObjekte!=='undefined')?GemaObjekte.storageKey('gema_werkzeug_v1'):'gema_werkzeug_v1';
-    var r=localStorage.getItem(sk);
-    if(r)wzData=JSON.parse(r);
-  }catch(e){}
-
-  if(!wzData||!wzData.werkzeuge||!wzData.werkzeuge.length){
-    el.innerHTML='<p style="color:var(--mut);font-size:12px">Noch keine Werkzeuge erfasst oder zugewiesen. Werkzeuge werden im Modul <a href="if_werkzeug.html" style="color:#1d4ed8">Werkzeugmanagement</a> verwaltet.</p>';
-    return;
-  }
-
-  // Filter: nur zugewiesene Werkzeuge für diesen Prüfer + nur aktive Mandate
-  var userId=user.id;
-  var liefFirma=_lief?_lief.firma:'';
-  var aktiveMandatFirmen={};
-  GemaAuth.getMeineMandate(userId,liefFirma).forEach(function(m){aktiveMandatFirmen[m.unternehmerFirma]=true;});
-  var meineWz=wzData.werkzeuge.filter(function(w){
-    if(!w.pruefer||!w.pruefer.length)return false;
-    var zugewiesen=w.pruefer.some(function(p){return p===userId||p===liefFirma||p===user.username;});
-    if(!zugewiesen)return false;
-    // Prüfe ob Mandat aktiv ist (wenn Werkzeug einer Firma zugeordnet)
-    if(w.firma&&Object.keys(aktiveMandatFirmen).length>0&&!aktiveMandatFirmen[w.firma])return false;
-    return true;
+  var myIds=_dwzMyIds();
+  var mine=_dwzAllTools().filter(function(t){
+    if(t.supplierId&&myIds.indexOf(t.supplierId)>=0)return true;
+    if(t.pruefAnfrage&&myIds.indexOf(t.pruefAnfrage.lieferantId)>=0)return true;
+    if((t.ersatzAnfragen||[]).some(function(a){return myIds.indexOf(a.lieferantId)>=0;}))return true;
+    return false;
   });
 
-  // Admin sieht alle
-  if(roles.indexOf('role_admin')>=0)meineWz=wzData.werkzeuge;
-
-  if(!meineWz.length){
-    el.innerHTML='<p style="color:var(--mut);font-size:12px">Ihnen sind keine Werkzeuge zur Prüfung zugewiesen. '+wzData.werkzeuge.length+' Werkzeuge im System vorhanden.</p>';
+  var pruefEl=document.getElementById('wzPruefungen');
+  if(!mine.length){
+    el.innerHTML='<p style="color:var(--mut);font-size:12px">'+(_dwzLoaded
+      ?'Ihnen sind noch keine Werkzeuge zugewiesen. Auftraggeber verknüpfen Sie im Modul Werkzeugmanagement als Lieferant oder fordern Prüfungen an.'
+      :'Wird geladen…')+'</p>';
+    if(pruefEl)pruefEl.innerHTML='<p style="color:var(--mut);font-size:13px">✓ Keine fälligen Prüfungen.</p>';
     return;
   }
 
-  el.innerHTML=meineWz.map(function(w){
-    var statusColor=w.status==='ok'?'#16a34a':w.status==='pruefung_faellig'?'#d97706':'#dc2626';
-    var statusText=w.status==='ok'?'✓ OK':w.status==='pruefung_faellig'?'⚠ Prüfung fällig':'✕ Gesperrt';
-    return '<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--brd)">'+
+  el.innerHTML=mine.map(function(t){
+    var rep=t.reparatur&&t.reparatur.offen;
+    var lcBadge=rep||(t.lifecycleStatus==='in_reparatur')
+      ?'<span style="font-size:10px;padding:3px 8px;border-radius:6px;font-weight:700;color:#6366f1;background:#eef2ff;border:1px solid #c7d2fe">🔧 In Reparatur</span>'
+      :'';
+    var due=_dwzNextDue(t);
+    return '<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--brd);flex-wrap:wrap">'+
       '<div style="width:36px;height:36px;border-radius:8px;background:#eff4ff;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">🔧</div>'+
-      '<div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:700">'+E(w.name||w.bezeichnung||'Werkzeug')+'</div><div style="font-size:11px;color:var(--mut)">'+E(w.typ||'')+(w.seriennr?' · SN: '+E(w.seriennr):'')+(w.naechstePruefung?' · Nächste Prüfung: '+E(w.naechstePruefung):'')+'</div></div>'+
-      '<span style="font-size:10px;padding:3px 8px;border-radius:6px;font-weight:700;color:'+statusColor+';background:'+statusColor+'18;border:1px solid '+statusColor+'40">'+statusText+'</span>'+
-      '<a href="if_werkzeug.html?id='+encodeURIComponent(w.id||'')+'" style="font-size:11px;color:#1d4ed8;text-decoration:none;font-weight:700">Details →</a>'+
+      '<div style="flex:1;min-width:180px"><div style="font-size:13px;font-weight:700">'+E(t.name||'Werkzeug')+(t.internKennung?' <span style="font-size:10px;color:var(--mut)">🏷 '+E(t.internKennung)+'</span>':'')+'</div>'+
+      '<div style="font-size:11px;color:var(--mut)">'+(t.brand?E(t.brand)+' ':'')+(t.model?E(t.model)+' · ':'')+'Auftraggeber: <strong>'+E(_dwzOrgName(t.orgId))+'</strong>'+(due?' · Nächste Prüfung: '+_dwzFmtD(due):'')+'</div></div>'+
+      lcBadge+
+      '<a href="if_werkzeug.html?view='+encodeURIComponent(t.id||'')+'" style="font-size:11px;color:#1d4ed8;text-decoration:none;font-weight:700">Details →</a>'+
     '</div>';
   }).join('');
 
-  // Fällige Prüfungen
-  var pruefEl=document.getElementById('wzPruefungen');if(!pruefEl)return;
+  // Fällige Prüfungen (aus Intervallen der verknüpften Werkzeuge)
+  if(!pruefEl)return;
   var heute=new Date().toISOString().split('T')[0];
-  var faellig=meineWz.filter(function(w){return w.naechstePruefung&&w.naechstePruefung<=heute;});
+  var faellig=mine.map(function(t){return {t:t,due:_dwzNextDue(t)};}).filter(function(x){return x.due&&x.due<=heute;});
   if(faellig.length){
     pruefEl.innerHTML='<div style="color:#d97706;font-size:13px;font-weight:700;margin-bottom:8px">⚠ '+faellig.length+' Prüfung(en) fällig</div>'+
-      faellig.map(function(w){return '<div style="padding:6px 0;border-bottom:1px solid var(--brd);font-size:12px"><strong>'+E(w.name||'Werkzeug')+'</strong> — fällig seit '+E(w.naechstePruefung)+'</div>';}).join('');
+      faellig.map(function(x){return '<div style="padding:6px 0;border-bottom:1px solid var(--brd);font-size:12px"><strong>'+E(x.t.name||'Werkzeug')+'</strong> ('+E(_dwzOrgName(x.t.orgId))+') — fällig seit '+_dwzFmtD(x.due)+'</div>';}).join('');
   } else {
     pruefEl.innerHTML='<p style="color:var(--mut);font-size:13px">✓ Keine fälligen Prüfungen.</p>';
   }
@@ -1196,40 +1544,47 @@ function aktivierMeinMandat(id){
 
 function renderWzDefekte(){
   var el=document.getElementById('wzDefekte');if(!el)return;
-  var user=null;try{user=GemaAuth.getCurrentUser();}catch(e){}
-  if(!user)return;
-  // Lade Werkzeuge aus dem Werkzeug-Modul (gema_werkzeug via _GemaDB)
-  var allTools=[];
-  try{
-    var raw=null;
-    if(typeof _GemaDB!=='undefined'&&_GemaDB.c&&_GemaDB.c['gema_werkzeug'])raw=_GemaDB.c['gema_werkzeug'];
-    if(!raw)raw=localStorage.getItem('gema_werkzeug');
-    if(raw)allTools=JSON.parse(raw);
-  }catch(e){}
-  if(!Array.isArray(allTools))allTools=[];
-  // Finde Werkzeuge die diesen Lieferanten verknüpft haben + offene Defekte
+  var myIds=_dwzMyIds();
+  if(!myIds.length){el.innerHTML='';return;}
+  // An mich gemeldete, offene Defekte auf Werkzeugen mit meiner Verknuepfung
   var meineDefekte=[];
-  allTools.forEach(function(t){
-    if(t.supplierId!==user.id)return;
-    if(!t.berichte)return;
-    t.berichte.forEach(function(b){
+  _dwzAllTools().forEach(function(t){
+    if(!t.supplierId||myIds.indexOf(t.supplierId)<0)return;
+    (t.berichte||[]).forEach(function(b){
       if(b.typ==='defekt'&&!b.erledigt&&b.anLieferantGemeldet){
         meineDefekte.push({tool:t,bericht:b});
       }
     });
   });
   if(!meineDefekte.length){
-    el.innerHTML='<p style="color:var(--mut);font-size:13px">✓ Keine offenen Defektmeldungen.</p>';
+    el.innerHTML='<p style="color:var(--mut);font-size:13px">'+(_dwzLoaded?'✓ Keine offenen Defektmeldungen.':'Wird geladen…')+'</p>';
     return;
   }
   el.innerHTML=meineDefekte.map(function(d){
     var t=d.tool,b=d.bericht;
     var sevColor=b.schweregrad==='schwer'||b.schweregrad==='ausser_betrieb'?'#dc2626':b.schweregrad==='mittel'?'#d97706':'#6b7280';
+    var rep=t.reparatur;
+    var repMine=rep&&rep.offen&&myIds.indexOf(rep.lieferantId)>=0;
+    var aktionen='<div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">';
+    if(b.lieferantAntwort){
+      aktionen+='<span style="font-size:11px;color:#16a34a;font-weight:700;padding:4px 0">✉ Offerte gesendet'+(b.lieferantAntwort.preis?' (CHF '+E(String(b.lieferantAntwort.preis))+')':'')+'</span>';
+    } else {
+      aktionen+='<button onclick="_dwzOpenOfferte(\''+E(t.id)+'\',\'defekt\',\''+E(b.id)+'\')" class="btn btn-p btn-sm">📄 Offerte senden</button>';
+    }
+    if(repMine){
+      aktionen+='<button onclick="_dwzReparaturAbschliessen(\''+E(t.id)+'\')" class="btn btn-s btn-sm">✓ Reparatur abschliessen</button>';
+    } else if(!rep||!rep.offen){
+      aktionen+='<button onclick="_dwzOpenReparatur(\''+E(t.id)+'\',\''+E(b.id)+'\')" class="btn btn-s btn-sm">🔧 Reparatur eröffnen</button>';
+    } else {
+      aktionen+='<span style="font-size:11px;color:#6366f1;font-weight:700;padding:4px 0">🔧 In Reparatur</span>';
+    }
+    aktionen+='</div>';
     return '<div style="display:flex;align-items:flex-start;gap:10px;padding:10px 0;border-bottom:1px solid var(--brd)">'
       +'<div style="width:36px;height:36px;border-radius:8px;background:#fef2f2;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">⚠</div>'
       +'<div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:700">'+E(t.name||'Werkzeug')+'</div>'
-      +'<div style="font-size:12px;color:#991b1b;margin-top:2px">'+E(b.titel||'Defekt')+'</div>'
-      +'<div style="font-size:11px;color:var(--mut);margin-top:2px">'+(t.brand?E(t.brand)+' ':'')+(t.model?E(t.model)+' · ':'')+'Gemeldet: '+E((b.anLieferantGemeldet||'').split('T')[0])+'</div>'
+      +'<div style="font-size:12px;color:#991b1b;margin-top:2px">'+E(b.titel||'Defekt')+(b.beschreibung?' — '+E(b.beschreibung.substring(0,120)):'')+'</div>'
+      +'<div style="font-size:11px;color:var(--mut);margin-top:2px">'+(t.brand?E(t.brand)+' ':'')+(t.model?E(t.model)+' · ':'')+'Auftraggeber: <strong>'+E(_dwzOrgName(t.orgId))+'</strong> · Gemeldet: '+E((b.anLieferantGemeldet||'').split('T')[0])+'</div>'
+      +aktionen
       +'</div>'
       +'<span style="font-size:10px;padding:3px 8px;border-radius:6px;font-weight:700;color:'+sevColor+';background:'+sevColor+'18;border:1px solid '+sevColor+'40">'+E(b.schweregrad||'—')+'</span>'
       +'<a href="if_werkzeug.html?view='+encodeURIComponent(t.id)+'" style="font-size:11px;color:#1d4ed8;text-decoration:none;font-weight:700;white-space:nowrap">Details →</a>'
@@ -1239,38 +1594,43 @@ function renderWzDefekte(){
 
 function renderWzErsatz(){
   var el=document.getElementById('wzErsatz');if(!el)return;
-  var user=null;try{user=GemaAuth.getCurrentUser();}catch(e){}
-  if(!user)return;
-  var allTools=[];
-  try{
-    var raw=null;
-    if(typeof _GemaDB!=='undefined'&&_GemaDB.c&&_GemaDB.c['gema_werkzeug'])raw=_GemaDB.c['gema_werkzeug'];
-    if(!raw)raw=localStorage.getItem('gema_werkzeug');
-    if(raw)allTools=JSON.parse(raw);
-  }catch(e){}
-  if(!Array.isArray(allTools))allTools=[];
+  var myIds=_dwzMyIds();
+  if(!myIds.length){el.innerHTML='';return;}
   var meineAnfragen=[];
-  allTools.forEach(function(t){
+  _dwzAllTools().forEach(function(t){
     if(!t.ersatzAnfragen)return;
     t.ersatzAnfragen.forEach(function(a){
-      if(a.lieferantId===user.id&&a.status==='offen'){
+      if(myIds.indexOf(a.lieferantId)>=0&&(a.status==='offen'||a.status==='beantwortet')){
         meineAnfragen.push({tool:t,anfrage:a});
       }
     });
   });
   if(!meineAnfragen.length){
-    el.innerHTML='<p style="color:var(--mut);font-size:13px">✓ Keine offenen Ersatzanfragen.</p>';
+    el.innerHTML='<p style="color:var(--mut);font-size:13px">'+(_dwzLoaded?'✓ Keine offenen Ersatzanfragen.':'Wird geladen…')+'</p>';
     return;
   }
+  // Offene zuerst
+  meineAnfragen.sort(function(a,b){
+    var oa=a.anfrage.status==='offen'?0:1, ob=b.anfrage.status==='offen'?0:1;
+    if(oa!==ob)return oa-ob;
+    return (b.anfrage.erstelltAm||'').localeCompare(a.anfrage.erstelltAm||'');
+  });
   el.innerHTML=meineAnfragen.map(function(d){
     var t=d.tool,a=d.anfrage;
     var typLabel=a.typ==='ersatz'?'Gleiches Modell':a.typ==='nachfolger'?'Nachfolger':'Alternative';
+    var aktion;
+    if(a.status==='beantwortet'&&a.antwort){
+      aktion='<span style="font-size:11px;color:#16a34a;font-weight:700;padding:4px 0">✉ Offerte gesendet'+(a.antwort.preis?' (CHF '+E(String(a.antwort.preis))+')':'')+'</span>';
+    } else {
+      aktion='<button onclick="_dwzOpenOfferte(\''+E(t.id)+'\',\'ersatz\',\''+E(a.id)+'\')" class="btn btn-p btn-sm">📄 Offerte senden</button>';
+    }
     return '<div style="display:flex;align-items:flex-start;gap:10px;padding:10px 0;border-bottom:1px solid var(--brd)">'
       +'<div style="width:36px;height:36px;border-radius:8px;background:#fdf4ff;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">🔄</div>'
       +'<div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:700">'+E(t.name||'Werkzeug')+'</div>'
       +'<div style="font-size:12px;color:#7c3aed;margin-top:2px">'+typLabel+'</div>'
-      +'<div style="font-size:11px;color:var(--mut);margin-top:2px">'+(t.brand?E(t.brand)+' ':'')+(t.model?E(t.model)+' · ':'')+'Von: '+E(a.erstelltVonName||'—')+'</div>'
+      +'<div style="font-size:11px;color:var(--mut);margin-top:2px">'+(t.brand?E(t.brand)+' ':'')+(t.model?E(t.model)+' · ':'')+'Auftraggeber: <strong>'+E(_dwzOrgName(t.orgId))+'</strong> · Von: '+E(a.erstelltVonName||'—')+'</div>'
       +(a.nachricht?'<div style="font-size:11.5px;color:#475569;margin-top:4px;padding:6px 8px;background:#f8fafc;border-radius:6px;border:1px solid #e2e8f0">'+E(a.nachricht)+'</div>':'')
+      +'<div style="margin-top:8px">'+aktion+'</div>'
       +'</div>'
       +'<a href="if_werkzeug.html?view='+encodeURIComponent(t.id)+'" style="font-size:11px;color:#1d4ed8;text-decoration:none;font-weight:700;white-space:nowrap">Details →</a>'
       +'</div>';

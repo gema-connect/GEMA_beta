@@ -70,6 +70,16 @@
       modul:'werkzeug',
       defaultOn:true
     },
+    werkzeug_offerte_lieferant: {
+      label:'Offerte vom Lieferanten (Werkzeug)',
+      modul:'werkzeug',
+      defaultOn:true
+    },
+    werkzeug_reparatur: {
+      label:'Reparatur-Status durch Lieferant',
+      modul:'werkzeug',
+      defaultOn:true
+    },
     fahrzeug_service_faellig: {
       label:'Fahrzeug-Service oder MFK fällig',
       modul:'fahrzeug',
@@ -208,12 +218,18 @@
   }
 
   // Prueft, ob eine Notifikation fuer den aktuellen User bestimmt ist.
-  // Matching: userId ODER eine der roleIds ODER orgId
+  // Matching: userId ODER Rolle ODER Org. WICHTIG: Sind Rolle UND Org
+  // gesetzt (z.B. 'alle Magaziner der Org X'), muessen BEIDE passen —
+  // sonst saehe jeder Magaziner jeder Org die Notifikation (seit dem
+  // Cloud-Sync waeren Rollen-Pushes org-uebergreifend geleakt).
   function _matchesUser(n,u){
     if(!u)return false;
     if(n.empfaengerUserId && n.empfaengerUserId===u.id) return true;
-    if(n.empfaengerRoleId && u.roleIds && u.roleIds.indexOf(n.empfaengerRoleId)>=0) return true;
-    if(n.empfaengerOrgId  && n.empfaengerOrgId===u.orgId) return true;
+    var roleOk = !!(n.empfaengerRoleId && u.roleIds && u.roleIds.indexOf(n.empfaengerRoleId)>=0);
+    var orgOk  = !!(n.empfaengerOrgId && n.empfaengerOrgId===u.orgId);
+    if(n.empfaengerRoleId && n.empfaengerOrgId) return roleOk && orgOk;
+    if(n.empfaengerRoleId) return roleOk;
+    if(n.empfaengerOrgId)  return orgOk;
     return false;
   }
 

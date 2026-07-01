@@ -638,8 +638,9 @@ Storage-Key: `gema_werkzeug` via `_GemaDB`. Felder pro Werkzeug:
 | `hasLeiter`/`leiterInterval`/`lastLeiter`/`leiterHistory[]` | Leiterprüfung EKAS (nur Kategorie `leiter`) |
 | `zugewiesenAn:{userId,name,seit}` | Aktuell zugewiesene Person (Magaziner setzt das) |
 | `berichte:[{id,typ,datum,autorUserId,autorName,titel,beschreibung,...}]` | Defekt- und Prüfberichte als Historie |
-| `pruefAnfrage:{lieferantId,lieferantFirma,wunschtermin,bemerkung,angefordertAm,angefordertVon,status}` | Aktive Prüfungs-Anfrage an einen Lieferanten |
-| `ersatzAnfragen:[{id,lieferantId,lieferantFirma,typ,nachricht,status,erstelltAm,...}]` | Ersatz-/Nachfolger-Anfragen an Lieferanten |
+| `pruefAnfrage:{lieferantId,lieferantFirma,typ,wunschtermin,bemerkung,angefordertAm,angefordertVon,status}` | Aktive Prüfungs-Anfrage an einen Lieferanten (`typ`: servicepruefung/elektropruefung/leiterpruefung) |
+| `ersatzAnfragen:[{id,lieferantId,lieferantFirma,typ,nachricht,status,erstelltAm,antwort?,...}]` | Ersatz-/Nachfolger-Anfragen an Lieferanten; `antwort` = Offerte des Lieferanten (preis, nachricht, pdfUrl/pdfDataUrl) |
+| `reparatur:{offen,lieferantId,lieferantFirma,defektBerichtId,termin,bemerkung,gestartetAm,abgeschlossenAm?}` | Vom Lieferanten eröffnete Reparatur (koppelt `lifecycleStatus:'in_reparatur'`) |
 
 ### QR-Code & Etiketten (if_werkzeug.html)
 
@@ -700,9 +701,10 @@ In `org.settings.werkzeug.requireMagazinerReturn` (bool). UI: Werkzeug-Toolbar �
 
 ### Berichts-System
 
-`t.berichte[]` enthält zwei Bericht-Typen, zusammen in einer Liste:
+`t.berichte[]` enthält drei Bericht-Typen, zusammen in einer Liste:
 
-- **`typ:'defekt'`**: Defektmeldung mit `titel`, `beschreibung`, `schweregrad` (`leicht`/`mittel`/`schwer`/`ausser_betrieb`), `erledigt`, `erledigtAm`. Erfassung via `openDefektMelden(toolId)`. Magaziner markiert Defekte als erledigt via `_wzDefektErledigt`.
+- **`typ:'defekt'`**: Defektmeldung mit `titel`, `beschreibung`, `schweregrad` (`leicht`/`mittel`/`schwer`/`ausser_betrieb`), `erledigt`, `erledigtAm`. Erfassung via `openDefektMelden(toolId)`. Magaziner markiert Defekte als erledigt via `_wzDefektErledigt`. Optional `lieferantAntwort` = Offerte des Lieferanten (siehe «Lieferanten-Reaktion»).
+- **`typ:'reparatur'`**: Vom Lieferanten via Dashboard erzeugte Einträge «Reparatur eröffnet» / «Reparatur abgeschlossen» (`vonLieferant:true`).
 - **`typ:'pruefbericht'`**: Prüfbericht mit `ergebnis`, `fehlendeTeile[]`, `naechstePruefung`. Erfassung via `openPruefbericht(toolId)`. Synchronisiert gleichzeitig `lastService`/`lastElec`/`lastLeiter`, damit `worstDays()` weiterläuft.
 
 Die komplette Historie ist via `openBerichte(toolId)` einsehbar (alle Rollen). Defekt-Banner auf der Karte: solange ein Defekt nicht erledigt ist, erscheint „⚠ Defekt offen".
@@ -715,11 +717,25 @@ Die komplette Historie ist via `openBerichte(toolId)` einsehbar (alle Rollen). D
 
 Drei-stufiger Workflow zwischen Magaziner und externem Prüf-Lieferanten:
 
-1. **Anfordern** — `openPruefAnfordern(toolId)` (nur Magaziner/Admin). Dropdown aller `role_lieferant`-User, Wunschtermin, Bemerkung. Speichert `t.pruefAnfrage = {…, status:'angefordert'}` und pusht `werkzeug_pruefung_anfrage` an den Lieferanten mit Link `if_werkzeug.html?pruef_lief=TOOL_ID`.
-2. **Quittieren** — `_wzPruefLiefQuittieren(toolId)`. Lieferant öffnet die Notifikation → die Lieferanten-Ansicht `openPruefLiefAnsicht(toolId)` öffnet sich → Klick auf „✓ Auftrag quittieren" → Status wechselt auf `quittiert`, Notifikation zurück an den Magaziner.
-3. **Bericht einreichen** — `_wzPruefLiefBerichtEinreichen(toolId)`. Lieferant trägt Datum, Ergebnis, Bemerkungen, nächste Prüfung ein. Erzeugt einen `typ:'pruefbericht'`-Eintrag in `t.berichte[]` mit `vonLieferant:true`, aktualisiert `lastService`/`lastElec`/`lastLeiter`, setzt Status auf `erledigt` und benachrichtigt den Magaziner mit `typ:'erfolg'` (bei Bestanden) oder `typ:'warnung'` (bei Mängeln).
+1. **Anfordern** — `openPruefAnfordern(toolId)` (nur Magaziner/Admin). Dropdown der `role_lieferant`/`role_pruefer`-User, **gefiltert nach Prüf-Kategorie** (`lieferantKategorien`: `elektropruefung` für Elektro-Geräte, `leiterpruefung` für Leitern, sonst `servicepruefung`) — Elektriker sehen nur Elektro-Aufträge etc. Speichert `t.pruefAnfrage = {…, typ:'<pruefKat>', status:'angefordert'}` (das Feld `typ` sagt dem Lieferanten-Dashboard, WELCHE Prüfung verlangt ist; Altdaten ohne `typ` werden per Heuristik abgeleitet) und pusht `werkzeug_pruefung_anfrage` an den Lieferanten mit Link `if_werkzeug.html?pruef_lief=TOOL_ID`.
+2. **Quittieren** — `_wzPruefLiefQuittieren(toolId)` in if_werkzeug ODER `_dwzQuittieren` im Lieferanten-Dashboard. Status → `quittiert`, Notifikation zurück an den Magaziner.
+3. **Bericht einreichen** — `_wzPruefLiefBerichtEinreichen(toolId)` ODER `_dwzSubmitPruefbericht` im Dashboard. Erzeugt einen `typ:'pruefbericht'`-Eintrag in `t.berichte[]` mit `vonLieferant:true`, aktualisiert `lastService`/`lastElec`/`lastLeiter`, setzt Status auf `erledigt` und benachrichtigt den Magaziner mit `typ:'erfolg'` (bei Bestanden) oder `typ:'warnung'` (bei Mängeln).
 
 Status-Banner auf der Karte: 🟠 Angefordert → 🔵 Quittiert → 🟢 Erledigt.
+
+**Cross-Org-Zugriff (KRITISCH)**: `load()` filtert auf die eigene Org, lädt aber für User mit `role_lieferant*`/`role_pruefer` zusätzlich die Fremd-Org-Werkzeuge, an denen sie beauftragt sind (`_wzIsBeauftragt`: `pruefAnfrage.lieferantId`, `supplierId` oder `ersatzAnfragen[].lieferantId` ∈ `_wzMyLiefUserIds()`) — analog Garagist im Fahrzeugmodul. `save()` schliesst diese Fremd-Tools per ID aus dem `others`-Erhalt aus (sonst Duplikate). `_wzMyLiefUserIds()` = eigene User-ID + alle User desselben `user.lieferantId` (Team-Sichtbarkeit). Ohne diesen Pfad liefen die Deep-Links (`?pruef_lief=…`) für externe Partner ins Leere.
+
+### Lieferanten-Reaktion: Offerte & Reparatur (Dashboard als Arbeitsplatz)
+
+Der **Werkzeuge-Tab in `sys_lieferant_dashboard.html`** ist der Arbeitsvorrat des externen Lieferanten/Prüfers (Deep-Link `?tab=werkzeuge` aus den Notifikationen). Datenquelle: voller Multi-Tenant-Pool via `GemaSync.bindCollection('werkzeugmanagement','gema_werkzeug','tool:','id')` beim Init (cross-org!); Einzel-Saves via `GemaSync.saveRecord` (`_dwzSaveTool` — bewusst KEIN persistCollection, damit ein unvollständiger Cache nie fremde Records löscht). Matching überall team-tolerant via `_dwzMyIds()`.
+
+Sektionen: **📋 Prüfaufträge** (Prüftyp, Auftraggeber-Org, Wunschtermin; Aktionen Quittieren + Prüfbericht-Modal), **🔧 Meine Werkzeuge** (alle verknüpften Werkzeuge mit Auftraggeber), **⏰ Fällige Prüfungen** (`_dwzNextDue` aus Intervallen), **⚠ Defektmeldungen**, **🔄 Ersatzanfragen**, **🏢 Meine Auftraggeber** (Mandate).
+
+Reaktion auf Defekt-/Ersatzmeldung:
+- **📄 Offerte senden** (`_dwzOpenOfferte`): Preis, Nachricht, PDF-Upload (GemaStorage `offerten/<lieferantId>/werkzeug`, Fallback Base64 ≤ 2.5 MB). Gespeichert als `b.lieferantAntwort = {preis, nachricht, pdfName, pdfUrl|pdfDataUrl, ts, von}` (Defekt) bzw. `a.antwort = {…, beantwortetAm, beantwortetVon}` + `a.status='beantwortet'` (Ersatzanfrage). Notifikation `werkzeug_offerte_lieferant` an `role_magaziner` + Org des Werkzeugs.
+- **🔧 Reparatur eröffnen** (`_dwzOpenReparatur`): setzt `t.lifecycleStatus='in_reparatur'` + `t.reparatur = {offen:true, lieferantId, lieferantFirma, defektBerichtId, termin, bemerkung, gestartetAm}` + `typ:'reparatur'`-Eintrag in `t.berichte[]`. **Reparatur abschliessen** setzt zurück auf `aktiv` (`reparatur.offen=false`) — der Defekt bleibt offen, der Magaziner prüft und markiert ihn selbst als erledigt. Notifikationen `werkzeug_reparatur` (info/erfolg).
+
+Der Magaziner sieht alles im **Berichte-Modal** von if_werkzeug: `typ:'reparatur'`-Einträge (🔧), die Lieferanten-Offerte unter dem Defekt (`b.lieferantAntwort`, PDF klickbar) und eine Ersatzanfragen-Sektion mit Antworten/Offerten.
 
 ### Fälligkeits-Scan
 
@@ -1297,6 +1313,8 @@ Zentrales Modul `gema_notify.js` für In-App-Benachrichtigungen. Glocke + Toast-
 | `werkzeug_pruefung_anfrage` | werkzeug | on |
 | `werkzeug_defekt_lieferant` | werkzeug | on |
 | `werkzeug_ersatz_anfrage` | werkzeug | on |
+| `werkzeug_offerte_lieferant` | werkzeug | on |
+| `werkzeug_reparatur` | werkzeug | on |
 | `fahrzeug_service_faellig` | fahrzeug | on |
 | `fahrzeug_service_erledigt` | fahrzeug | on |
 | `fahrzeug_garagist_zugewiesen` | fahrzeug | on |
@@ -1314,6 +1332,8 @@ Zentrales Modul `gema_notify.js` für In-App-Benachrichtigungen. Glocke + Toast-
 ### Cloud-Sync (Cross-Device-Zustellung)
 
 Notifikationen lagen früher NUR im localStorage — sie erreichten damit nie ein anderes Gerät (Planer → Lieferant funktionierte nicht). Jetzt spiegelt `gema_notify.js` jede Notifikation best-effort als eigene Cloud-Row via `gema_sync.js` (moduleKey `notify`, prefix `notif:`): `push()` → `saveRecord`, `markRead`/`markAllRead` → Update, `remove`/`clearForCurrentUser` → `deleteRecord` (nur bei persönlich adressierten — Rollen-/Org-Notifikationen haben mehrere Empfänger und werden nur lokal entfernt). Merge-Pull beim Seitenstart (2.5s verzögert), alle 60s und bei Tab-Fokus (`visibilitychange`); beim Merge gewinnt der Gelesen-Status. Ohne `gema_sync.js`/Cloud funktioniert alles lokal weiter. Demo-Seeds bleiben lokal (kein Cloud-Push).
+
+**Matching-Regel (KRITISCH seit Cloud-Sync):** Sind `empfaengerRoleId` UND `empfaengerOrgId` gesetzt, müssen BEIDE passen (früher ODER — damit hätte z.B. ein `role_magaziner`-Push jeder Org alle Magaziner aller Orgs erreicht, sobald Notifikationen cloud-synced sind).
 
 ### Public API
 
