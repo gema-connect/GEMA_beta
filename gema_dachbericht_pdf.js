@@ -109,6 +109,50 @@
       .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
       .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
   }
+
+  // ── Firmenfarben (org.settings.pdfFarben) ──────────────────────────
+  // Siehe gema_schaden_pdf.js fuer die ausfuehrliche Erklaerung. Kurz:
+  // --accent (Text/Linien/Flaechen) + --forest (Verlauf-Tail) aus den
+  // Firmenfarben ableiten. Eine Firmenfarbe wird Richtung Schwarz
+  // abgedunkelt, bis der Kontrast gegen Weiss >= 4.5:1 ist — symmetrisch,
+  // also gleichzeitig lesbar als Text auf Weiss UND als Flaeche unter
+  // weisser Schrift. Gelb wird so zu dunklem Gold, nie zu gelber Schrift.
+  function _hexToRgb(hex){
+    hex = String(hex||'').trim().replace(/^#/,'');
+    if(hex.length === 3) hex = hex.charAt(0)+hex.charAt(0)+hex.charAt(1)+hex.charAt(1)+hex.charAt(2)+hex.charAt(2);
+    if(!/^[0-9a-fA-F]{6}$/.test(hex)) return null;
+    return { r:parseInt(hex.slice(0,2),16), g:parseInt(hex.slice(2,4),16), b:parseInt(hex.slice(4,6),16) };
+  }
+  function _rgbToHex(r,g,b){
+    function h(n){ n = Math.max(0,Math.min(255,Math.round(n))); return (n<16?'0':'')+n.toString(16); }
+    return '#'+h(r)+h(g)+h(b);
+  }
+  function _relLum(rgb){
+    var a = [rgb.r,rgb.g,rgb.b].map(function(v){ v/=255; return v<=0.03928 ? v/12.92 : Math.pow((v+0.055)/1.055,2.4); });
+    return 0.2126*a[0]+0.7152*a[1]+0.0722*a[2];
+  }
+  function _contrastVsWhite(rgb){ return (1.05)/(_relLum(rgb)+0.05); }
+  function _darkenForWhiteBg(hex, target){
+    var rgb = _hexToRgb(hex);
+    if(!rgb) return null;
+    if(_contrastVsWhite(rgb) >= target) return _rgbToHex(rgb.r,rgb.g,rgb.b);
+    var f = 1.0;
+    for(var i=0;i<40;i++){
+      f -= 0.025;
+      var c = { r:rgb.r*f, g:rgb.g*f, b:rgb.b*f };
+      if(_contrastVsWhite(c) >= target) return _rgbToHex(c.r,c.g,c.b);
+    }
+    return '#1f2933';
+  }
+  function _brandRootCss(org){
+    var pf = org && org.settings && org.settings.pdfFarben;
+    if(!pf || !pf.primary) return '';
+    var accent = _darkenForWhiteBg(pf.primary, 4.5);
+    if(!accent) return '';
+    var accentDeep = _darkenForWhiteBg(pf.primary, 7) || accent;
+    var forest = pf.secondary ? (_darkenForWhiteBg(pf.secondary, 4.5) || accentDeep) : accentDeep;
+    return ':root{--accent:'+accent+';--accent-deep:'+accentDeep+';--forest:'+forest+';}';
+  }
   function fmtDate(iso){
     if(!iso) return '';
     var d = new Date(iso);
@@ -431,7 +475,7 @@
 
     return '<!doctype html><html lang="de"><head><meta charset="utf-8">'
       + '<title>Dachbericht — '+esc(titel)+'</title>'
-      + '<style>'+REPORT_CSS+pageCss+'</style>'
+      + '<style>'+REPORT_CSS+_brandRootCss(org)+pageCss+'</style>'
       + '</head><body>'
       + '<div class="print-toolbar no-print">'
         + '<button onclick="window.print()">Drucken / Als PDF speichern</button>'

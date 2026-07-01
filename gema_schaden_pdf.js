@@ -164,6 +164,65 @@
       .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
       .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
   }
+
+  // ── Firmenfarben (org.settings.pdfFarben) ──────────────────────────
+  // Der Bericht ist standardmaessig navy/forest gebrandet. Hat die Org
+  // eigene PDF-Farben gesetzt, werden --accent (Text/Linien/Flaechen) und
+  // --forest (Verlauf-Tail) daraus abgeleitet. KRITISCH — Kontrastschutz:
+  // eine Firmenfarbe wird NIE 1:1 als Textfarbe verwendet. Sie wird so weit
+  // abgedunkelt, bis der Kontrast gegen Weiss >= 4.5:1 ist. Da der
+  // WCAG-Kontrast symmetrisch ist, ist die so gewonnene Farbe gleichzeitig
+  // als Text auf Weiss UND als Flaeche unter weisser Schrift lesbar — d.h.
+  // Gelb wird zu einem dunklen, lesbaren Gold, nie zu gelber Schrift.
+  var _curAccent = null;  // pro Export gesetzt, fuer den Diagramm-Erstton
+  function _hexToRgb(hex){
+    hex = String(hex||'').trim().replace(/^#/,'');
+    if(hex.length === 3) hex = hex.charAt(0)+hex.charAt(0)+hex.charAt(1)+hex.charAt(1)+hex.charAt(2)+hex.charAt(2);
+    if(!/^[0-9a-fA-F]{6}$/.test(hex)) return null;
+    return { r:parseInt(hex.slice(0,2),16), g:parseInt(hex.slice(2,4),16), b:parseInt(hex.slice(4,6),16) };
+  }
+  function _rgbToHex(r,g,b){
+    function h(n){ n = Math.max(0,Math.min(255,Math.round(n))); return (n<16?'0':'')+n.toString(16); }
+    return '#'+h(r)+h(g)+h(b);
+  }
+  function _relLum(rgb){
+    var a = [rgb.r,rgb.g,rgb.b].map(function(v){ v/=255; return v<=0.03928 ? v/12.92 : Math.pow((v+0.055)/1.055,2.4); });
+    return 0.2126*a[0]+0.7152*a[1]+0.0722*a[2];
+  }
+  function _contrastVsWhite(rgb){
+    var l = _relLum(rgb);
+    return (1.05)/(l+0.05);  // Weiss hat Luminanz 1
+  }
+  // Farbe Richtung Schwarz skalieren (Hue bleibt erhalten), bis der Kontrast
+  // gegen Weiss das Ziel erreicht.
+  function _darkenForWhiteBg(hex, target){
+    var rgb = _hexToRgb(hex);
+    if(!rgb) return null;
+    if(_contrastVsWhite(rgb) >= target) return _rgbToHex(rgb.r,rgb.g,rgb.b);
+    var f = 1.0;
+    for(var i=0;i<40;i++){
+      f -= 0.025;
+      var c = { r:rgb.r*f, g:rgb.g*f, b:rgb.b*f };
+      if(_contrastVsWhite(c) >= target) return _rgbToHex(c.r,c.g,c.b);
+    }
+    return '#1f2933';
+  }
+  // Liefert ein :root{}-Override oder '' (dann bleiben die Template-Defaults).
+  function _brandRootCss(org){
+    var pf = org && org.settings && org.settings.pdfFarben;
+    if(!pf || !pf.primary) { _curAccent = null; return ''; }
+    var accent = _darkenForWhiteBg(pf.primary, 4.5);
+    if(!accent) { _curAccent = null; return ''; }
+    var accentDeep = _darkenForWhiteBg(pf.primary, 7) || accent;
+    var forest;
+    if(pf.secondary){
+      forest = _darkenForWhiteBg(pf.secondary, 4.5) || accentDeep;
+    } else {
+      forest = accentDeep;
+    }
+    _curAccent = accent;
+    return ':root{--accent:'+accent+';--accent-deep:'+accentDeep+';--forest:'+forest+';}';
+  }
   function fmtDate(iso){
     if(!iso) return '';
     var d = new Date(iso);
@@ -317,7 +376,7 @@
       return Y1 - (Y1-Y0) * ((v-yMin)/(yMax-yMin));
     }
 
-    var colors = ['#1e3a5f','#9aa6b0','#0c4a2e','#b45309','#7c3aed'];
+    var colors = [(_curAccent||'#1e3a5f'),'#9aa6b0','#0c4a2e','#b45309','#7c3aed'];
     var dashes = ['','5 4','3 2','7 3','2 3'];
 
     var svg = '<svg viewBox="0 0 680 300" xmlns="http://www.w3.org/2000/svg">';
@@ -685,7 +744,7 @@
     return '<!doctype html><html lang="de"><head><meta charset="utf-8">'
       + '<meta name="viewport" content="width=device-width, initial-scale=1">'
       + '<title>Schadensbericht — '+esc(titel)+'</title>'
-      + '<style>'+REPORT_CSS+pageCss+'</style>'
+      + '<style>'+REPORT_CSS+_brandRootCss(org)+pageCss+'</style>'
       + '</head><body>'
       + '<div class="print-toolbar no-print">'
         + '<button onclick="window.print()">Drucken / Als PDF speichern</button>'
