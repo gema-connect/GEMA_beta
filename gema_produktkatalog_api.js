@@ -1311,6 +1311,23 @@ function _notifyAbsender(oa, opts){
 function createOffertanfrage(opts){
   const id = 'oa_' + Date.now() + '_' + Math.random().toString(36).substring(2,6);
   const fristTage = opts.fristTage || 14;
+  // Projekt-Infos aus dem GEMA-Objekt anreichern (Name, Nummer, Adresse).
+  // WICHTIG: Der Lieferant hat KEINEN Zugriff auf die Objekte fremder Orgs
+  // (GemaObjekte filtert auf die eigene Org) — alles, was er zum Erstellen
+  // der Offerte braucht, muss deshalb hier in den OA-Record kopiert werden.
+  const projekt = Object.assign({ name:'', ort:'', objektId:'' }, opts.projekt || {});
+  if(projekt.objektId && typeof window !== 'undefined' && window.GemaObjekte && window.GemaObjekte.getAll){
+    try{
+      const obj = (window.GemaObjekte.getAll() || []).find(o => o.id === projekt.objektId);
+      if(obj){
+        if(!projekt.name) projekt.name = obj.name || obj.projekt || '';
+        if(obj.nummer && !projekt.nummer) projekt.nummer = obj.nummer;
+        const adr = [obj.strasse, [obj.plz, obj.ort].filter(Boolean).join(' ')].filter(Boolean).join(', ');
+        if(adr && !projekt.adresse) projekt.adresse = adr;
+        if(!projekt.ort && obj.ort) projekt.ort = obj.ort;
+      }
+    }catch(e){}
+  }
   const oa = {
     id,
     absenderId: _getUserId(),
@@ -1323,7 +1340,7 @@ function createOffertanfrage(opts){
     produktName: opts.produktName || '',
     kategorie: opts.kategorie || '',
     berechnungswerte: opts.berechnungswerte || {},
-    projekt: opts.projekt || { name: '', ort: '', objektId: '' },
+    projekt: projekt,
     nachricht: opts.nachricht || '',
     status: 'offen',
     frist: _addDays(new Date(), fristTage).toISOString().split('T')[0],

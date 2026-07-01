@@ -858,11 +858,67 @@ function renderAnfragen(){
   document.getElementById('oaList').innerHTML = list.map(renderOaCard).join('');
 }
 
+// ── Anzeige-Helper: Berechnungswerte, Projekt und gewählte Anlage ──
+// Der Lieferant muss die Anfrage vollstaendig gegenpruefen koennen, bevor er
+// (extern, z.B. im SAP) die Offerte erstellt: berechneter Bedarf, Projekt
+// mit Adresse und die vom Planer gewaehlte Anlage inkl. Kennwerten.
+var _OA_BW_LABELS = {
+  durchfluss:'Durchfluss', kapazitaet:'Kapazität', druckverlust:'Druckverlust',
+  maxDruckverlust:'max. Druckverlust', anschluss:'Anschluss',
+  haerte_roh:'Rohwasserhärte', haerte_ziel:'Zielhärte (Resthärte)',
+  permeat:'Permeat (Bedarf)', permeatleistung:'Permeatleistung', konzentrat:'Konzentrat',
+  recovery:'Recovery / Ausbeute', volumenstrom:'Volumenstrom', nachdruck:'Nachdruck',
+  bauart:'Bauart', leistung:'Leistung', zapfleistung:'Zapfleistung',
+  foerdermenge:'Fördermenge', foerderhoehe:'Förderhöhe', freikugel:'Freikugel-Durchgang',
+  volumen:'Volumen', ns:'Nenngrösse (NS)', schlammraum:'Schlammraum', flaeche:'Fläche',
+  groesse:'Grösse'
+};
+function _oaBwLabel(k){ return _OA_BW_LABELS[k] || (k.charAt(0).toUpperCase()+k.slice(1).replace(/_/g,' ')); }
+function _oaBwRowsHtml(bw){
+  var keys = Object.keys(bw||{}).filter(function(k){ return bw[k]!=='' && bw[k]!=null; });
+  if(!keys.length) return '<span style="color:var(--mut)">—</span>';
+  return keys.map(function(k){
+    return '<div style="display:flex;justify-content:space-between;gap:12px"><span style="color:var(--mut)">'+E(_oaBwLabel(k))+'</span><span style="font-weight:700;text-align:right">'+E(String(bw[k]))+'</span></div>';
+  }).join('');
+}
+function _oaBwInlineText(bw){
+  var keys = Object.keys(bw||{}).filter(function(k){ return bw[k]!=='' && bw[k]!=null; });
+  return keys.map(function(k){ return _oaBwLabel(k)+': '+bw[k]; }).join(' · ');
+}
+function _oaProjektText(a){
+  var p = a.projekt||{};
+  var parts = [];
+  if(p.name) parts.push((p.nummer?p.nummer+' · ':'')+p.name);
+  if(p.adresse) parts.push(p.adresse);
+  else if(p.ort) parts.push(p.ort);
+  return parts.join(' — ');
+}
+// Gewaehlte Anlage aus dem eigenen Katalog aufloesen (produktId) und die
+// Kennwerte (Allgemein + Leistungsdaten) zum Gegenpruefen anzeigen.
+function _oaAnlageSpecsHtml(a){
+  var p = null;
+  try{ p = a.produktId ? GemaProdukte.getProdukt(a.produktId) : null; }catch(e){}
+  if(!p) return '';
+  var d = p.daten||{};
+  var kat = GemaProdukte.getKategorie(p.kategorie);
+  if(!kat||!kat.felder) return '';
+  var felder = kat.felder.filter(function(f){
+    var g = f.gruppe||'Allgemein';
+    return (g==='Allgemein'||g==='Leistungsdaten') && f.id!=='serie' && f.id!=='modell' && f.id!=='artikelnr'
+      && d[f.id]!=null && d[f.id]!=='';
+  }).slice(0,8);
+  return felder.map(function(f){
+    var v = d[f.id]; if(v===true) v='✓';
+    return '<div style="display:flex;justify-content:space-between;gap:12px"><span style="color:var(--mut)">'+E(f.label)+'</span><span style="font-weight:700;text-align:right">'+E(String(v))+(f.einheit?' '+E(f.einheit):'')+'</span></div>';
+  }).join('');
+}
+
 function renderOaCard(a){
   var stCls = 'oa-'+a.status;
   var badgeCls = a.status==='offen'?'b-offen':a.status==='beantwortet'?'b-beantwortet':a.status==='abgelehnt'?'b-abgelehnt':'b-abgelaufen';
   var bw = a.berechnungswerte||{};
-  var bwText = Object.keys(bw).map(function(k){return k+': '+bw[k];}).join(' · ');
+  var bwText = _oaBwInlineText(bw);
+  var projektText = _oaProjektText(a);
   return '<div class="oa-card '+stCls+'">'+
     '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">'+
       '<span class="badge '+badgeCls+'">'+E(a.status)+'</span>'+
@@ -871,9 +927,10 @@ function renderOaCard(a){
     '</div>'+
     '<div style="font-size:12px;color:var(--txt2);margin-bottom:6px">'+
       '<strong>Von:</strong> '+E(a.absenderName||'—')+' ('+E(a.absenderRolle||'')+') · '+E(a.absenderFirma||'')+
-      (a.projekt&&a.projekt.name?' · <strong>Projekt:</strong> '+E(a.projekt.name):'')+
     '</div>'+
-    (bwText?'<div style="font-size:11px;color:var(--mut);margin-bottom:6px">Berechnung: '+E(bwText)+'</div>':'')+
+    (projektText?'<div style="font-size:12px;color:var(--txt2);margin-bottom:6px"><strong>📋 Projekt:</strong> '+E(projektText)+'</div>':'')+
+    (bwText?'<div style="font-size:11px;color:var(--mut);margin-bottom:6px"><strong>🧮 Berechneter Bedarf:</strong> '+E(bwText)+'</div>':'')+
+    (a.produktName?'<div style="font-size:11px;color:var(--mut);margin-bottom:6px"><strong>🏭 Gewählte Anlage:</strong> '+E(a.produktName)+'</div>':'')+
     (a.nachricht?'<div style="font-size:12px;color:var(--txt2);font-style:italic;margin-bottom:8px">«'+E(a.nachricht.substring(0,200))+(a.nachricht.length>200?'…':'')+'»</div>':'')+
     (a.antwort?'<div style="font-size:12px;color:var(--grn);font-weight:600;margin-bottom:8px">✉ Beantwortet: '+E((a.antwort.nachricht||'').substring(0,100))+_oaPdfLinkHtml(a.antwort)+'</div>':'')+
     (a.status==='offen'&&_liefCanOfferten()?'<div style="display:flex;gap:8px;margin-top:8px"><button class="btn btn-p btn-sm" onclick="openOaAnswer(\''+E(a.id)+'\')">✉ Beantworten</button><button class="btn btn-d btn-sm" onclick="quickReject(\''+E(a.id)+'\')">✕ Ablehnen</button></div>':(a.status==='offen'?'<div style="font-size:11px;color:var(--mut);margin-top:8px">Beantworten nur durch die Rolle «Offerten» (oder Lieferant-Admin).</div>':''))+
@@ -898,15 +955,30 @@ function openOaAnswer(oaId){
   if(!oa) return;
   document.getElementById('oaAnswerSub').textContent = (oa.absenderName||'—')+' · '+(oa.produktName||oa.kategorie||'');
   var bw = oa.berechnungswerte||{};
+  var projektText = _oaProjektText(oa);
+  var anlageSpecs = _oaAnlageSpecsHtml(oa);
+  // Gegenpruefungs-Ansicht: Projekt, berechneter Bedarf und die vom Planer
+  // gewaehlte Anlage nebeneinander — der Lieferant prueft, ob die Anlage
+  // zum Bedarf passt, und erstellt die Offerte danach extern (z.B. SAP).
   document.getElementById('oaAnswerDetails').innerHTML =
     '<div style="background:var(--bg);border-radius:8px;padding:12px;font-size:12px;line-height:1.6">'+
-      '<strong>Absender:</strong> '+E(oa.absenderName||'—')+' ('+E(oa.absenderRolle||'')+') · '+E(oa.absenderFirma||'')+'<br>'+
-      (oa.projekt&&oa.projekt.name?'<strong>Projekt:</strong> '+E(oa.projekt.name)+'<br>':'')+
-      '<strong>Produkt:</strong> '+E(oa.produktName||'—')+'<br>'+
-      '<strong>Berechnungswerte:</strong> '+E(Object.keys(bw).map(function(k){return k+': '+bw[k];}).join(' · '))+'<br>'+
-      '<strong>Frist:</strong> '+E(oa.frist||'—')+'<br>'+
-      (oa.nachricht?'<strong>Nachricht:</strong> '+E(oa.nachricht):'')+
-    '</div>';
+      '<div style="font-weight:800;margin-bottom:2px">📋 Projekt</div>'+
+      '<div>'+(projektText?E(projektText):'—')+'</div>'+
+      '<div style="color:var(--mut);margin-top:2px">Anfrage von '+E(oa.absenderName||'—')+' ('+E(oa.absenderRolle||'')+') · '+E(oa.absenderFirma||'')+' · Frist: '+E(oa.frist||'—')+'</div>'+
+      (oa.nachricht?'<div style="font-style:italic;margin-top:4px">«'+E(oa.nachricht)+'»</div>':'')+
+    '</div>'+
+    '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin-top:10px">'+
+      '<div style="background:var(--bg);border-radius:8px;padding:12px;font-size:12px;line-height:1.7">'+
+        '<div style="font-weight:800;margin-bottom:4px">🧮 Berechneter Bedarf</div>'+
+        _oaBwRowsHtml(bw)+
+      '</div>'+
+      '<div style="background:var(--bg);border-radius:8px;padding:12px;font-size:12px;line-height:1.7">'+
+        '<div style="font-weight:800;margin-bottom:4px">🏭 Gewählte Anlage</div>'+
+        (oa.produktName?'<div style="font-weight:700;margin-bottom:4px">'+E(oa.produktName)+'</div>':'<div style="color:var(--mut)">Keine Anlage gewählt</div>')+
+        anlageSpecs+
+      '</div>'+
+    '</div>'+
+    '<div style="font-size:11px;color:var(--mut);margin-top:8px">Bitte gegenprüfen, ob die gewählte Anlage zum berechneten Bedarf passt. Die Offerte können Sie extern (z.B. in Ihrem ERP/SAP) erstellen und unten als PDF anhängen.</div>';
   document.getElementById('oaAnswerMsg').value = '';
   document.getElementById('oaAnswerPreis').value = '';
   document.getElementById('oaAnswerPdf').value = '';
@@ -929,6 +1001,9 @@ function openOaAnswer(oaId){
       var label = (d.serie || d.hersteller || p.lieferantFirma || '') + ' ' + (d.modell || d.typ || '');
       prodSel.innerHTML += '<option value="' + p.id + '">' + label.trim() + '</option>';
     });
+    // Die vom Planer angefragte Anlage vorauswaehlen (falls es ein eigenes
+    // Katalog-Produkt ist) — der Lieferant kann sie im Dropdown wechseln.
+    if(oa.produktId) prodSel.value = oa.produktId;
   }
   document.getElementById('oaAnswerOverlay').style.display = 'flex';
 }
