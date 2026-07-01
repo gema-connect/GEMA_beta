@@ -14,9 +14,9 @@ var LIEF_KATEGORIEN = [
   {id:'fettabscheider',label:'Fettabscheider',gruppe:'anlagen'},
   {id:'oelabscheider',label:'Ölabscheider',gruppe:'anlagen'},
   {id:'schlammsammler',label:'Schlammsammler',gruppe:'anlagen'},
-  {id:'abwasserhebeanlage',label:'Abwasserhebeanlage',gruppe:'anlagen'},
+  {id:'hebeanlage',label:'Abwasserhebeanlage',gruppe:'anlagen'},
   {id:'frischwasserstation',label:'Frischwasserstation',gruppe:'anlagen'},
-  {id:'solaranlage',label:'Solaranlagen',gruppe:'anlagen'},
+  {id:'thermische_solaranlage',label:'Solaranlagen',gruppe:'anlagen'},
   {id:'werkzeuge',label:'Werkzeuge / Maschinen / Leitern',gruppe:'infrastruktur'},
   {id:'elektropruefung',label:'Elektroprüfung (NIV/NIN)',gruppe:'infrastruktur'},
   {id:'leiterpruefung',label:'Leiterprüfung (EKAS)',gruppe:'infrastruktur'},
@@ -24,6 +24,13 @@ var LIEF_KATEGORIEN = [
   {id:'fahrzeuge',label:'Garagist / Fahrzeugmanagement',gruppe:'infrastruktur'},
   {id:'rohrsysteme',label:'Rohrsysteme & Armaturen',gruppe:'material'},
 ];
+
+// Alias-Normalisierung: LIEF_KATEGORIEN nutzte frueher eigene IDs
+// ('abwasserhebeanlage', 'solaranlage'), waehrend KATEGORIEN und die
+// Berechnungsmodule 'hebeanlage' bzw. 'thermische_solaranlage' verwenden.
+// Bestehende Lieferanten-Profile koennen die Alt-IDs noch gespeichert haben.
+var KAT_ALIAS = { abwasserhebeanlage:'hebeanlage', solaranlage:'thermische_solaranlage' };
+function normKatId(id){ return KAT_ALIAS[id] || id; }
 
 var SK = 'gema_produktkatalog_v1';
 const SK_LIEF = 'gema_lieferanten_v1';
@@ -1261,6 +1268,46 @@ const OA_STATUS = {
   abgelaufen:  { label: 'Abgelaufen',   icon: '⏰', cls: 'oa-abgelaufen' }
 };
 
+// ── Notifikations-Helper (best-effort, nur wenn gema_notify.js geladen) ──
+// An den Lieferanten: bevorzugt alle User mit expliziter lieferantId-
+// Verknuepfung; Fallback auf die Lieferanten-Org (nie org_default, sonst
+// wuerde die ganze GEMA-Org benachrichtigt).
+function _notifyLieferant(oa, opts){
+  if(typeof window === 'undefined' || typeof window.GemaNotify === 'undefined') return;
+  try{
+    var pushed = false;
+    if(oa.lieferantId && typeof window.GemaAuth !== 'undefined' && window.GemaAuth.getUsers){
+      (window.GemaAuth.getUsers() || []).forEach(function(u){
+        if(u && u.lieferantId === oa.lieferantId && u.active !== false){
+          window.GemaNotify.push(Object.assign({ empfaengerUserId: u.id }, opts));
+          pushed = true;
+        }
+      });
+    }
+    if(!pushed){
+      var lief = getLieferant(oa.lieferantId);
+      if(lief && lief.orgId && lief.orgId !== 'org_default'){
+        window.GemaNotify.push(Object.assign({ empfaengerOrgId: lief.orgId }, opts));
+      }
+    }
+  }catch(e){}
+}
+
+// An den anfragenden Planer (Absender der Offertanfrage).
+function _notifyAbsender(oa, opts){
+  if(typeof window === 'undefined' || typeof window.GemaNotify === 'undefined') return;
+  if(!oa.absenderId) return;
+  try{
+    var link = 'pm_objekte.html?tab=offerten';
+    if(oa.projekt && oa.projekt.objektId) link += '&objekt=' + encodeURIComponent(oa.projekt.objektId);
+    window.GemaNotify.push(Object.assign({
+      empfaengerUserId: oa.absenderId,
+      link: link,
+      objektId: (oa.projekt && oa.projekt.objektId) || ''
+    }, opts));
+  }catch(e){}
+}
+
 function createOffertanfrage(opts){
   const id = 'oa_' + Date.now() + '_' + Math.random().toString(36).substring(2,6);
   const fristTage = opts.fristTage || 14;
@@ -1285,6 +1332,17 @@ function createOffertanfrage(opts){
   };
   _oaData.anfragen.push(oa);
   save();
+  _notifyLieferant(oa, {
+    eventKey: 'offertanfrage_neu',
+    modul: 'produktkatalog',
+    typ: 'aktion',
+    titel: '📨 Neue Offertanfrage: ' + (oa.produktName || oa.kategorie || 'Anlage'),
+    text: 'Von ' + (oa.absenderName || '—') + (oa.absenderFirma ? ' · ' + oa.absenderFirma : '')
+      + (oa.projekt && oa.projekt.name ? ' · Projekt: ' + oa.projekt.name : '')
+      + ' · Frist: ' + oa.frist,
+    link: 'sys_lieferant_dashboard.html',
+    objektId: (oa.projekt && oa.projekt.objektId) || ''
+  });
   return oa;
 }
 
@@ -1316,12 +1374,24 @@ function beantworteOffertanfrage(id, antwort){
   oa.antwort = {
     nachricht: antwort.nachricht || '',
     pdfName: antwort.pdfName || '',
-    pdfDataUrl: antwort.pdfDataUrl || '',
+    pdfUrl: antwort.pdfUrl || '',           // Supabase-Storage-URL (bevorzugt)
+    pdfDataUrl: antwort.pdfDataUrl || '',   // Base64-Fallback (nur wenn Upload fehlschlug)
+    produktId: antwort.produktId || '',
     bruttoPreis: antwort.bruttoPreis || 0,
     beantwortetAm: new Date().toISOString(),
     beantwortetVon: _getUsername()
   };
   save();
+  _notifyAbsender(oa, {
+    eventKey: 'offertanfrage_beantwortet',
+    modul: 'produktkatalog',
+    typ: 'erfolg',
+    titel: '✉ Offerte erhalten: ' + (oa.lieferantFirma || '—'),
+    text: (oa.produktName || oa.kategorie || 'Anlage')
+      + (oa.antwort.bruttoPreis ? ' · CHF ' + oa.antwort.bruttoPreis : '')
+      + (oa.antwort.pdfName ? ' · 📄 ' + oa.antwort.pdfName : '')
+      + (oa.projekt && oa.projekt.name ? ' · Projekt: ' + oa.projekt.name : '')
+  });
   // Automatische Vormerkung für Ausschreibung erstellen
   if(oa.projekt && oa.projekt.objektId){
     var bkpMap={enthaertung:'253.0',osmose:'253.2',druckerhoehung:'253.4',frischwasserstation:'253.6',
@@ -1352,6 +1422,15 @@ function ablehnenOffertanfrage(id, grund){
     beantwortetVon: _getUsername()
   };
   save();
+  _notifyAbsender(oa, {
+    eventKey: 'offertanfrage_abgelehnt',
+    modul: 'produktkatalog',
+    typ: 'warnung',
+    titel: '✕ Offertanfrage abgelehnt: ' + (oa.lieferantFirma || '—'),
+    text: (oa.produktName || oa.kategorie || 'Anlage')
+      + (grund ? ' · «' + grund + '»' : '')
+      + (oa.projekt && oa.projekt.name ? ' · Projekt: ' + oa.projekt.name : '')
+  });
   return oa;
 }
 
@@ -1627,7 +1706,13 @@ window.GemaProdukte = {
   get ready(){ return _pkReady || Promise.resolve(); },
   // Lieferanten-Kategorien
   LIEF_KATEGORIEN,
-  getLieferantenByKategorie: function(kat){ return getAllLieferanten().filter(function(l){ return l.lieferantKategorien && l.lieferantKategorien.indexOf(kat)>=0; }); },
+  normKatId,
+  getLieferantenByKategorie: function(kat){
+    var k = normKatId(kat);
+    return getAllLieferanten().filter(function(l){
+      return l.lieferantKategorien && l.lieferantKategorien.some(function(x){ return normKatId(x) === k; });
+    });
+  },
   // Meta
   STATUS_LABELS,
   KATEGORIEN,

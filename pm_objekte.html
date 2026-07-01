@@ -279,6 +279,7 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important}
     <button class="tab-btn active" onclick="switchTab('objekte',this)">🏗 Objekte <span class="tab-badge" id="badgeObj">0</span></button>
     <button class="tab-btn" onclick="switchTab('beteiligte',this)">👷 Beteiligte <span class="tab-badge" id="badgeBet">0</span></button>
     <button class="tab-btn" onclick="switchTab('berechnungen',this)">🧮 Berechnungen <span class="tab-badge" id="badgeBer">0</span></button>
+    <button class="tab-btn" id="tabBtnOfferten" onclick="switchTab('offerten',this)">📨 Offerten <span class="tab-badge" id="badgeOff">0</span></button>
   </div>
 
   <!-- TAB: OBJEKTE -->
@@ -387,6 +388,38 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important}
       <div class="empty-ic">🧮</div>
       <h3>Noch keine Berechnungen</h3>
       <p>Berechnungen werden automatisch hier aufgelistet, sobald du in einem Berechnungs-Modul mit einem Objekt arbeitest.</p>
+    </div>
+  </div>
+
+  <!-- TAB: OFFERTEN (zentrales Postfach für Offertanfragen/Antworten) -->
+  <div class="tab-panel" id="tab-offerten">
+    <div class="toolbar">
+      <div class="toolbar-title">Offertanfragen &amp; Offerten</div>
+      <select class="g-nav-btn" id="offObjFilter" onchange="renderOfferten()" style="min-width:180px;padding:6px 10px;">
+        <option value="">Alle Objekte</option>
+      </select>
+    </div>
+    <div class="tbl-wrap" id="offTableWrap" style="display:none">
+      <table class="tbl">
+        <thead>
+          <tr>
+            <th>Datum</th>
+            <th>Berechnung / Anlage</th>
+            <th>Lieferant</th>
+            <th>Objekt</th>
+            <th>Status</th>
+            <th style="text-align:right">Preis (CHF)</th>
+            <th>Offerte</th>
+            <th style="width:110px"></th>
+          </tr>
+        </thead>
+        <tbody id="offTbody"></tbody>
+      </table>
+    </div>
+    <div class="empty" id="offEmpty" style="display:none">
+      <div class="empty-ic">📨</div>
+      <h3>Noch keine Offertanfragen</h3>
+      <p>Offertanfragen werden aus den Berechnungsmodulen (z.B. Enthärtung, Osmose, Druckerhöhung) an Lieferanten gesendet. Eingehende Offerten erscheinen hier pro Projekt.</p>
     </div>
   </div>
 
@@ -554,6 +587,7 @@ function fixLeadingZero(el){var v=el.value.trim();if(!v)return;if(v.charAt(0)===
 </script>
 <script src="gema_db.js"></script>
 <script src="gema_objekte_api.js"></script>
+<script src="gema_produktkatalog_api.js"></script>
 <script src="gema_feedback.js"></script><script src="gema_notify.js"></script><script src="gema_notify_ui.js"></script>
 <script src="gema_autosave.js"></script>
 <script>
@@ -621,6 +655,7 @@ function switchTab(tab,btn){
   if(tab==='beteiligte'){populateObjFilter();renderBeteiligte();}
   if(tab==='objekte')renderObjekte();
   if(tab==='berechnungen'){populateBerObjFilter();renderBerechnungen();}
+  if(tab==='offerten'){populateOffObjFilter();renderOfferten();}
 }
 window.switchTab=switchTab;
 
@@ -715,6 +750,116 @@ function renderBerechnungen(){
   }).join('');
 }
 window.renderBerechnungen = renderBerechnungen;
+
+// ── OFFERTEN-TAB (zentrales Postfach) ──
+// Sammelt alle Offertanfragen der eigenen Org (Objekt-Bezug) bzw. die
+// selbst gesendeten und zeigt Status + Lieferanten-Antwort inkl. PDF.
+// Mapping Offertanfrage-Kategorie → Berechnungsmodul (fuer den Direktlink).
+var OA_KAT_MAP = {
+  'enthaertung':            {html:'sa_enthaertung.html',        label:'Enthärtung',          icon:'🧂'},
+  'osmose':                 {html:'sa_osmose.html',             label:'Osmose',               icon:'💦'},
+  'druckerhoehung':         {html:'sb_druckerhoehung.html',     label:'Druckerhöhung',       icon:'💧'},
+  'hebeanlage':             {html:'sa_abwasserhebeanlage.html', label:'Abwasserhebeanlage',  icon:'⬆️'},
+  'abwasserhebeanlage':     {html:'sa_abwasserhebeanlage.html', label:'Abwasserhebeanlage',  icon:'⬆️'},
+  'fettabscheider':         {html:'sa_fettabscheider.html',     label:'Fettabscheider',       icon:'🧴'},
+  'oelabscheider':          {html:'sa_oelabscheider.html',      label:'Ölabscheider',        icon:'🛢'},
+  'schlammsammler':         {html:'sa_schlammsammler.html',     label:'Schlammsammler',       icon:'🏺'},
+  'frischwasserstation':    {html:'sa_frischwasserstation.html',label:'Frischwasserstation', icon:'🚰'},
+  'thermische_solaranlage': {html:'sa_solaranlage.html',        label:'Solaranlage',          icon:'☀️'},
+  'warmwasser_boiler':      {html:'sb_warmwasser.html',         label:'Warmwasserspeicher',   icon:'🔥'}
+};
+
+function _offVisible(){
+  if(typeof GemaProdukte==='undefined') return [];
+  var alle = GemaProdukte.getOffertanfragen() || [];
+  var meId = null;
+  try{ var u=GemaAuth.getCurrentUser(); meId=u?u.id:null; }catch(e){}
+  var orgObjIds = {};
+  try{ (GemaObjekte.getAll()||[]).forEach(function(o){ orgObjIds[o.id]=true; }); }catch(e){}
+  return alle.filter(function(oa){
+    if(oa.projekt && oa.projekt.objektId && orgObjIds[oa.projekt.objektId]) return true;
+    return meId && oa.absenderId === meId;
+  });
+}
+
+function populateOffObjFilter(){
+  var sel = $('offObjFilter');
+  if(!sel) return;
+  var cur = sel.value;
+  var objs = (typeof GemaObjekte!=='undefined') ? (GemaObjekte.getAll()||[]) : [];
+  sel.innerHTML = '<option value="">Alle Objekte</option>' +
+    objs.map(function(o){
+      return '<option value="'+o.id+'">'+(o.nummer?o.nummer+' · ':'')+ (o.name||o.projekt||o.id) +'</option>';
+    }).join('');
+  if(cur) sel.value = cur;
+}
+
+function _offUpdateBadge(){
+  var badge = $('badgeOff');
+  if(!badge) return;
+  try{ badge.textContent = _offVisible().length; }catch(e){}
+}
+
+function renderOfferten(){
+  var list = _offVisible();
+  var fObj = $('offObjFilter') ? $('offObjFilter').value : '';
+  if(fObj) list = list.filter(function(oa){ return oa.projekt && oa.projekt.objektId === fObj; });
+  list.sort(function(a,b){ return (b.erstelltAm||'').localeCompare(a.erstelltAm||''); });
+  _offUpdateBadge();
+
+  var wrap = $('offTableWrap'), empty = $('offEmpty'), tbody = $('offTbody');
+  if(!list.length){
+    if(wrap) wrap.style.display='none';
+    if(empty) empty.style.display='';
+    if(tbody) tbody.innerHTML='';
+    return;
+  }
+  if(wrap) wrap.style.display='';
+  if(empty) empty.style.display='none';
+
+  var objs = (typeof GemaObjekte!=='undefined') ? (GemaObjekte.getAllUnfiltered()||[]) : [];
+  function objLabel(oid){
+    if(!oid) return '—';
+    var o = objs.find(function(x){return x.id===oid;});
+    if(!o) return oid;
+    return (o.nummer?o.nummer+' · ':'') + (o.name||o.projekt||o.id);
+  }
+  var ST = {
+    offen:       {label:'⟳ Offen',       bg:'#fffbeb', fg:'#d97706'},
+    beantwortet: {label:'✓ Beantwortet', bg:'#f0fdf4', fg:'#16a34a'},
+    abgelehnt:   {label:'✕ Abgelehnt',   bg:'#fef2f2', fg:'#dc2626'},
+    abgelaufen:  {label:'⏰ Abgelaufen',  bg:'#f4f6fb', fg:'#6b7280'}
+  };
+
+  tbody.innerHTML = list.map(function(oa){
+    var info = OA_KAT_MAP[oa.kategorie] || {html:null, label:oa.kategorie||'—', icon:'📨'};
+    var st = ST[oa.status] || ST.offen;
+    var datum = oa.erstelltAm ? new Date(oa.erstelltAm).toLocaleDateString('de-CH') : '—';
+    var preis = (oa.antwort && oa.antwort.bruttoPreis)
+      ? Number(oa.antwort.bruttoPreis).toLocaleString('de-CH',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—';
+    var pdf = '—';
+    if(oa.antwort && oa.antwort.pdfUrl){
+      pdf = '<a href="'+esc(oa.antwort.pdfUrl)+'" target="_blank" rel="noopener" style="color:var(--acc,#2563eb);font-weight:600;text-decoration:none">📄 PDF</a>';
+    } else if(oa.antwort && oa.antwort.pdfDataUrl){
+      pdf = '<a href="'+oa.antwort.pdfDataUrl+'" download="'+esc(oa.antwort.pdfName||'Offerte.pdf')+'" style="color:var(--acc,#2563eb);font-weight:600;text-decoration:none">📄 PDF</a>';
+    }
+    var objektId = oa.projekt ? oa.projekt.objektId : '';
+    var href = (info.html && objektId) ? (info.html + '?objekt=' + encodeURIComponent(objektId)) : (info.html || '');
+    return '<tr>'
+      + '<td><span style="font-size:12px">'+datum+'</span>'+(oa.frist?'<div style="font-size:10px;color:#9ca3af">Frist: '+esc(oa.frist)+'</div>':'')+'</td>'
+      + '<td><span style="font-size:14px;margin-right:6px">'+info.icon+'</span>'+esc(info.label)
+        + (oa.produktName?'<div style="font-size:11px;color:#6b7280">'+esc(oa.produktName)+'</div>':'')+'</td>'
+      + '<td>'+esc(oa.lieferantFirma||'—')+'</td>'
+      + '<td>'+esc(objektId?objLabel(objektId):(oa.projekt&&oa.projekt.name||'—'))+'</td>'
+      + '<td><span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:6px;background:'+st.bg+';color:'+st.fg+'">'+st.label+'</span></td>'
+      + '<td style="text-align:right;font-weight:700">'+preis+'</td>'
+      + '<td>'+pdf+'</td>'
+      + '<td>'+(href?'<a class="g-nav-btn" href="'+href+'" style="padding:4px 10px;font-size:11px">Öffnen →</a>':'')+'</td>'
+      + '</tr>';
+  }).join('');
+}
+window.renderOfferten = renderOfferten;
+window.populateOffObjFilter = populateOffObjFilter;
 
 // ── MODAL ──
 function openModal(id){$(id).classList.add('open');}
@@ -1658,6 +1803,30 @@ _objCloudLoaded = true;
 try{localStorage.setItem(KEY,JSON.stringify(_mem));}catch(e){}
 renderObjekte();
 updateBadges();
+
+// ── Offerten-Tab: Badge nach Produktkatalog-Cloud-Pull + Deep-Link ──
+// ?tab=offerten (z.B. aus der Offerten-Notifikation) oeffnet den Tab direkt.
+try{
+  var _urlParams = new URLSearchParams(location.search);
+  var _wantOfferten = _urlParams.get('tab') === 'offerten';
+  var _offInit = function(){
+    _offUpdateBadge();
+    var activeTab = document.querySelector('.tab-panel.active');
+    if(activeTab && activeTab.id === 'tab-offerten') renderOfferten();
+  };
+  if(typeof GemaProdukte !== 'undefined' && GemaProdukte.ready){
+    GemaProdukte.ready.then(_offInit).catch(function(){ _offInit(); });
+  } else { _offInit(); }
+  if(_wantOfferten){
+    switchTab('offerten', document.getElementById('tabBtnOfferten'));
+    // ?objekt=ID zusaetzlich: Filter direkt auf das Projekt setzen.
+    var _offObj = _urlParams.get('objekt');
+    if(_offObj){
+      var _offSel = document.getElementById('offObjFilter');
+      if(_offSel){ _offSel.value = _offObj; renderOfferten(); }
+    }
+  }
+}catch(e){}
 
 })().catch(e=>{console.error('[GEMA] Objekte Fehler:',e);});
 </script>

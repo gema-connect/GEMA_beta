@@ -384,6 +384,7 @@ textarea.fc{resize:vertical;min-height:60px;line-height:1.5}
 <script src="gema_feedback.js"></script><script src="gema_notify.js"></script><script src="gema_notify_ui.js"></script>
 <script src="gema_produktkatalog_api.js"></script>
 <script src="gema_armaturen_api.js"></script>
+<script src="gema_storage.js"></script>
 <script>
 'use strict';
 var _lief = null; // current lieferant
@@ -874,9 +875,20 @@ function renderOaCard(a){
     '</div>'+
     (bwText?'<div style="font-size:11px;color:var(--mut);margin-bottom:6px">Berechnung: '+E(bwText)+'</div>':'')+
     (a.nachricht?'<div style="font-size:12px;color:var(--txt2);font-style:italic;margin-bottom:8px">«'+E(a.nachricht.substring(0,200))+(a.nachricht.length>200?'…':'')+'»</div>':'')+
-    (a.antwort?'<div style="font-size:12px;color:var(--grn);font-weight:600;margin-bottom:8px">✉ Beantwortet: '+E((a.antwort.nachricht||'').substring(0,100))+(a.antwort.pdfName?' · 📄 '+E(a.antwort.pdfName):'')+'</div>':'')+
+    (a.antwort?'<div style="font-size:12px;color:var(--grn);font-weight:600;margin-bottom:8px">✉ Beantwortet: '+E((a.antwort.nachricht||'').substring(0,100))+_oaPdfLinkHtml(a.antwort)+'</div>':'')+
     (a.status==='offen'&&_liefCanOfferten()?'<div style="display:flex;gap:8px;margin-top:8px"><button class="btn btn-p btn-sm" onclick="openOaAnswer(\''+E(a.id)+'\')">✉ Beantworten</button><button class="btn btn-d btn-sm" onclick="quickReject(\''+E(a.id)+'\')">✕ Ablehnen</button></div>':(a.status==='offen'?'<div style="font-size:11px;color:var(--mut);margin-top:8px">Beantworten nur durch die Rolle «Offerten» (oder Lieferant-Admin).</div>':''))+
   '</div>';
+}
+
+// PDF der Offerten-Antwort als klickbaren Link rendern: Storage-URL oeffnet
+// im neuen Tab, Base64-Fallback als Download-Anchor.
+function _oaPdfLinkHtml(antwort){
+  if(!antwort) return '';
+  var name = E(antwort.pdfName||'Offerte.pdf');
+  if(antwort.pdfUrl) return ' · <a href="'+E(antwort.pdfUrl)+'" target="_blank" rel="noopener" style="color:var(--acc,#2563eb)">📄 '+name+'</a>';
+  if(antwort.pdfDataUrl) return ' · <a href="'+antwort.pdfDataUrl+'" download="'+name+'" style="color:var(--acc,#2563eb)">📄 '+name+'</a>';
+  if(antwort.pdfName) return ' · 📄 '+name;
+  return '';
 }
 
 function openOaAnswer(oaId){
@@ -945,19 +957,43 @@ function sendOaAnswer(){
   var produktId = document.getElementById('oaAnswerProdukt').value || '';
   var antwort = { nachricht: msg, bruttoPreis: preis, produktId: produktId };
 
+  function _finishAnswer(){
+    GemaProdukte.beantworteOffertanfrage(_answerOaId, antwort);
+    closeOaAnswer(); renderAll(); toast('✉ Offerte gesendet');
+  }
+
   if(fi.files&&fi.files.length){
     var file = fi.files[0];
+    if(file.size > 10*1024*1024){ toast('PDF zu gross (max. 10 MB).','error'); return; }
     antwort.pdfName = file.name;
     var reader = new FileReader();
     reader.onload = function(){
-      antwort.pdfDataUrl = reader.result;
-      GemaProdukte.beantworteOffertanfrage(_answerOaId, antwort);
-      closeOaAnswer(); renderAll(); toast('✉ Offerte gesendet');
+      var dataUrl = reader.result;
+      // Bevorzugt: PDF in Supabase Storage auslagern — im Record steht dann
+      // nur die URL (kleine Records, kein 413-/Quota-Risiko). Fallback:
+      // Base64 inline, aber nur bei kleinen Dateien.
+      if(typeof GemaStorage!=='undefined' && GemaStorage.isConfigured()){
+        toast('PDF wird hochgeladen…');
+        GemaStorage.uploadDataUrl(dataUrl, 'offerten/'+(_lief?_lief.id:'unbekannt')).then(function(res){
+          antwort.pdfUrl = res.url;
+          _finishAnswer();
+        }).catch(function(err){
+          if(file.size > 2.5*1024*1024){
+            toast('Upload fehlgeschlagen ('+(err&&err.message||'Fehler')+') — bitte PDF unter 2.5 MB wählen.','error');
+            return;
+          }
+          antwort.pdfDataUrl = dataUrl;
+          _finishAnswer();
+        });
+      } else {
+        if(file.size > 2.5*1024*1024){ toast('PDF zu gross (max. 2.5 MB ohne Cloud-Storage).','error'); return; }
+        antwort.pdfDataUrl = dataUrl;
+        _finishAnswer();
+      }
     };
     reader.readAsDataURL(file);
   } else {
-    GemaProdukte.beantworteOffertanfrage(_answerOaId, antwort);
-    closeOaAnswer(); renderAll(); toast('✉ Offerte gesendet');
+    _finishAnswer();
   }
 }
 
@@ -1238,7 +1274,9 @@ function renderLiefUsers(){
     var sameOrgAdmin = GemaAuth.isOrgAdmin && GemaAuth.isOrgAdmin(me.id) && me.orgId && _lief && me.orgId===_lief.orgId;
     canManage = !!(globalAdmin || sameOrgAdmin);
   }catch(e){}
-  var invBtn=document.getElementById('liefInviteBtn');if(invBtn)invBtn.style.display=canManage?'':'none';
+  // Deaktivierter Lieferant: keine Mitarbeiter-Verwaltung (Einladen/Rollen).
+  var inaktiv=_lief&&_lief.status==='inaktiv';
+  var invBtn=document.getElementById('liefInviteBtn');if(invBtn)invBtn.style.display=(canManage&&!inaktiv)?'':'none';
   el.innerHTML=users.map(function(u){
     var rNames=(u.roleIds||[]).map(function(rid){var r=roles.find(function(x){return x.id===rid;});return r?r.name:'';}).filter(Boolean).join(', ');
     var isMe=me&&me.id===u.id;
@@ -1253,10 +1291,11 @@ function renderLiefUsers(){
 }
 
 function _liefInviteUser(){
+  if(_liefBlockedInaktiv())return;
   var email=prompt('E-Mail des neuen Mitarbeiters:');if(!email)return;
   var name=prompt('Name:','');
   try{
-    var result=GemaAuth.inviteLieferant({email:email,firma:_lief.firma,person:name||'',orgId:_lief.orgId,eingeladenVon:(GemaAuth.getCurrentUser()||{}).name||''});
+    var result=GemaAuth.inviteLieferant({email:email,firma:_lief.firma,person:name||'',orgId:_lief.orgId,lieferantId:_lief.id,eingeladenVon:(GemaAuth.getCurrentUser()||{}).name||''});
     var users=GemaAuth.getUsers()||[];
     var u=users.find(function(x){return x.id===result.user.id;});
     if(u){
@@ -1303,6 +1342,7 @@ function _liefEditRoles(userId){
   ov.innerHTML=html;document.body.appendChild(ov);document.body.classList.add('modal-open');
 }
 function _liefSaveRoles(userId){
+  if(_liefBlockedInaktiv()){_liefCloseRoleModal();return;}
   var cbs=document.querySelectorAll('#_liefRoleCbs input[type="checkbox"]');
   var newRoles=[];cbs.forEach(function(cb){if(cb.checked)newRoles.push(cb.value);});
   var users=GemaAuth.getUsers()||[];
@@ -1312,6 +1352,7 @@ function _liefSaveRoles(userId){
 }
 function _liefCloseRoleModal(){var ov=document.getElementById('_liefRoleOv');if(ov)ov.remove();document.body.classList.remove('modal-open');}
 function _liefDeactivateUser(userId){
+  if(_liefBlockedInaktiv())return;
   if(!confirm('Mitarbeiter deaktivieren?'))return;
   var users=GemaAuth.getUsers()||[];
   var u=users.find(function(x){return x.id===userId;});

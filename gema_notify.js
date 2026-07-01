@@ -109,6 +109,21 @@
       label:'Trocknungsgerät: Defektmeldung',
       modul:'trocknung',
       defaultOn:true
+    },
+    offertanfrage_neu: {
+      label:'Neue Offertanfrage (Lieferant)',
+      modul:'produktkatalog',
+      defaultOn:true
+    },
+    offertanfrage_beantwortet: {
+      label:'Offerte vom Lieferanten erhalten',
+      modul:'produktkatalog',
+      defaultOn:true
+    },
+    offertanfrage_abgelehnt: {
+      label:'Offertanfrage abgelehnt',
+      modul:'produktkatalog',
+      defaultOn:true
     }
   };
 
@@ -129,6 +144,62 @@
   }
   function _uid(){ return 'n_'+Date.now().toString(36)+'_'+Math.random().toString(36).substr(2,6); }
   function _now(){ return new Date().toISOString(); }
+
+  // ── Cloud-Sync (per-Record via gema_sync.js, best-effort) ────────
+  // Notifikationen lagen bisher NUR im localStorage — sie erreichten damit
+  // nie ein anderes Geraet (z.B. Planer → Lieferant). Jetzt wird jede
+  // Notifikation zusaetzlich als eigene Cloud-Row gespiegelt
+  // (moduleKey 'notify', prefix 'notif:') und periodisch gemerged.
+  // Faellt gema_sync.js/Cloud aus, funktioniert alles lokal weiter.
+  var SYNC_MODULE = 'notify';
+  var SYNC_PREFIX = 'notif:';
+  var CLOUD_PULL_MS = 60000;
+
+  function _syncApi(){
+    return (typeof w.GemaSync !== 'undefined' && w.GemaSync.saveRecord) ? w.GemaSync : null;
+  }
+  function _cloudSave(n){
+    var s=_syncApi(); if(!s || !n || !n.id) return;
+    try{ s.saveRecord(SYNC_MODULE, SYNC_PREFIX+n.id, n).catch(function(){}); }catch(e){}
+  }
+  function _cloudSaveMany(list){
+    var s=_syncApi(); if(!s || !list || !list.length) return;
+    try{
+      s.saveRecords(SYNC_MODULE, list.map(function(n){ return {key:SYNC_PREFIX+n.id, data:n}; })).catch(function(){});
+    }catch(e){}
+  }
+  function _cloudDelete(id){
+    var s=_syncApi(); if(!s || !id) return;
+    try{ s.deleteRecord(SYNC_MODULE, SYNC_PREFIX+id).catch(function(){}); }catch(e){}
+  }
+  function _cloudPull(){
+    var s=_syncApi(); if(!s || !s.loadCollection) return;
+    try{
+      s.loadCollection(SYNC_MODULE, SYNC_PREFIX).then(function(recs){
+        if(!recs || !recs.length) return;
+        var arr=_readAll(), byId={}, changed=false;
+        arr.forEach(function(n){ byId[n.id]=n; });
+        recs.forEach(function(r){
+          var n = r && r.data;
+          if(!n || !n.id) return;
+          var loc = byId[n.id];
+          if(!loc){ arr.push(n); byId[n.id]=n; changed=true; }
+          else if(!loc.gelesen && n.gelesen){
+            // Auf einem anderen Geraet gelesen — Status uebernehmen.
+            loc.gelesen=true; loc.gelesenAt=n.gelesenAt||loc.gelesenAt; changed=true;
+          }
+        });
+        if(changed){ _writeAll(_cleanup(arr)); _notifyListeners(); }
+      }).catch(function(){});
+    }catch(e){}
+  }
+  // Initial-Pull (verzoegert, damit gema_sync.js sein Bootstrap machen kann)
+  // + periodischer Merge + Pull beim Tab-Fokus.
+  setTimeout(_cloudPull, 2500);
+  setInterval(_cloudPull, CLOUD_PULL_MS);
+  d.addEventListener('visibilitychange', function(){
+    if(d.visibilityState==='visible') _cloudPull();
+  });
 
   // ── Current-User-Helper ───────────────────────────────────────
   function _me(){
@@ -207,6 +278,7 @@
       }
       arr.push(n);
       _writeAll(_cleanup(arr));
+      _cloudSave(n);
       _notifyListeners();
       return n;
     },
@@ -228,30 +300,42 @@
       var hit=arr.find(function(n){return n.id===id;});
       if(hit && !hit.gelesen){
         hit.gelesen=true; hit.gelesenAt=_now();
-        _writeAll(arr); _notifyListeners();
+        _writeAll(arr); _cloudSave(hit); _notifyListeners();
       }
     },
 
     markAllRead: function(){
       var u=_me(); if(!u)return;
-      var arr=_readAll(),ch=false;
+      var arr=_readAll(),ch=[],changed=false;
       arr.forEach(function(n){
         if(!n.gelesen && _matchesUser(n,u)){
-          n.gelesen=true; n.gelesenAt=_now(); ch=true;
+          n.gelesen=true; n.gelesenAt=_now(); ch.push(n); changed=true;
         }
       });
-      if(ch){ _writeAll(arr); _notifyListeners(); }
+      if(changed){ _writeAll(arr); _cloudSaveMany(ch); _notifyListeners(); }
     },
 
     remove: function(id){
-      var arr=_readAll().filter(function(n){return n.id!==id;});
-      _writeAll(arr); _notifyListeners();
+      var all=_readAll();
+      var hit=all.find(function(n){return n.id===id;});
+      var arr=all.filter(function(n){return n.id!==id;});
+      _writeAll(arr);
+      // Cloud-Delete nur bei persoenlich adressierten Notifikationen —
+      // Rollen-/Org-Notifikationen haben mehrere Empfaenger und duerfen
+      // durch einen einzelnen User nicht global geloescht werden.
+      var u=_me();
+      if(hit && u && hit.empfaengerUserId===u.id) _cloudDelete(id);
+      _notifyListeners();
     },
 
     clearForCurrentUser: function(){
       var u=_me(); if(!u)return;
-      var arr=_readAll().filter(function(n){return !_matchesUser(n,u);});
-      _writeAll(arr); _notifyListeners();
+      var all=_readAll();
+      var mine=all.filter(function(n){return _matchesUser(n,u);});
+      var arr=all.filter(function(n){return !_matchesUser(n,u);});
+      _writeAll(arr);
+      mine.forEach(function(n){ if(n.empfaengerUserId===u.id) _cloudDelete(n.id); });
+      _notifyListeners();
     },
 
     // ── User-Preferences ───────────────────────────────────────

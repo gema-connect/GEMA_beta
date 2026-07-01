@@ -145,9 +145,10 @@ Berechnung abgeschlossen (z.B. Enthärtung: 2.5 l/s, 15°fH)
 - **Eigenes Login**: Jeder Lieferant hat ein eigenes Konto mit Dashboard
 - **Produktpflege**: Lieferant erfasst und pflegt seine Produkte selbst
 - **Produktkategorien**: Anlagen (Osmose, Enthärtung, Druckerhöhung, Pumpen etc.), Armaturen, Rohre, Zubehör
-- **Admin-Zugriff**: GEMA-Admin kann alle Lieferanten-Daten einsehen und Lieferanten deaktivieren (z.B. bei Zahlungsverzug). Deaktivierter Lieferant (`status:'inaktiv'`): alle Schreib-Aktionen im Dashboard sind blockiert (`_liefBlockedInaktiv()`), nicht nur ein Banner.
+- **Admin-Zugriff**: GEMA-Admin kann alle Lieferanten-Daten einsehen und Lieferanten deaktivieren (z.B. bei Zahlungsverzug). Deaktivierter Lieferant (`status:'inaktiv'`): alle Schreib-Aktionen im Dashboard sind blockiert (`_liefBlockedInaktiv()`), nicht nur ein Banner — inkl. Mitarbeiter-Einladung, Rollen-Zuweisung und Mitarbeiter-Deaktivierung (Invite-Button wird ausgeblendet).
 - **Offertanfragen**: Lieferant sieht eingehende Anfragen aus Berechnungen der Planer
-- **User↔Lieferant-Verknüpfung**: `user.lieferantId` verknüpft den eingeloggten Auth-User eindeutig mit dem GemaProdukte-Lieferant-Datensatz. `findMyLieferant()` bevorzugt dieses Feld; die alte Heuristik (E-Mail/Org/Firma) bleibt nur Fallback und **self-healt** (schreibt `lieferantId` beim ersten Treffer via `GemaAuth.linkUserToLieferant`). Mitarbeiter-Einladung (`_liefInviteUser`) setzt `lieferantId` direkt und startet mit `role_lieferant_intern` (Least Privilege — Admin weist Unterrolle zu). Firmenprofil-Edit nur für `_liefIsAdmin()`; Mitarbeiter-Verwaltung nur für Org-Admin **derselben** Lieferanten-Org.
+- **User↔Lieferant-Verknüpfung**: `user.lieferantId` verknüpft den eingeloggten Auth-User eindeutig mit dem GemaProdukte-Lieferant-Datensatz. `findMyLieferant()` bevorzugt dieses Feld; die alte Heuristik (E-Mail/Org/Firma) bleibt nur Fallback und **self-healt** (schreibt `lieferantId` beim ersten Treffer via `GemaAuth.linkUserToLieferant`). `GemaAuth.inviteLieferant(opts)` akzeptiert `opts.lieferantId` und setzt das Feld direkt beim Anlegen (Aufrufer: `_liefInviteUser` im Dashboard, `GemaOfferRequest._submit`). Mitarbeiter-Einladung (`_liefInviteUser`) startet mit `role_lieferant_intern` (Least Privilege — Admin weist Unterrolle zu). Firmenprofil-Edit nur für `_liefIsAdmin()`; Mitarbeiter-Verwaltung nur für Org-Admin **derselben** Lieferanten-Org.
+- **Kategorie-IDs (KRITISCH)**: `LIEF_KATEGORIEN` (Firmenprofil-Kategorien) und `KATEGORIEN` (Produkt-Schemas/Matching) nutzen DIESELBEN IDs — `hebeanlage` und `thermische_solaranlage` (nicht mehr `abwasserhebeanlage`/`solaranlage`). Für Altdaten gibt es `GemaProdukte.normKatId(id)` (Alias-Map), genutzt in `getLieferantenByKategorie` und im Kategorien-Filter von `gema_offer_request.js`.
 
 ### Verifizierung
 
@@ -156,6 +157,14 @@ Berechnung abgeschlossen (z.B. Enthärtung: 2.5 l/s, 15°fH)
 3. Lieferant bestätigt die Korrektheit der Daten
 4. Anlage erhält den **"Verifiziert"-Badge** ✓
 5. Nicht-verifizierte Anlagen werden als "Nicht verifiziert" markiert
+
+### Offertanfrage-Workflow (End-to-End)
+
+1. **Planer** sendet aus einem Berechnungsmodul (Enthärtung, Osmose, Druckerhöhung …) eine Offertanfrage. **KRITISCH — Payload-Regel**: `berechnungswerte` enthält IMMER die **berechneten Projektwerte** (z.B. `_enthaertungBerechnungswerte()` / `_osmoseBerechnungswerte()`), NIE die Datenblatt-Werte der gewählten Anlage — die gewählte Anlage geht separat via `produktId`/`produktName` mit. (Früherer Bug: `d.nenndurchfluss` etc. aus dem Produkt wurde als «Berechnung» mitgeschickt.)
+2. `GemaProdukte.createOffertanfrage()` speichert die Anfrage (per-Record `oa:`) und **benachrichtigt den Lieferanten** (`offertanfrage_neu`): bevorzugt alle User mit passender `user.lieferantId`, Fallback Lieferanten-Org (nie `org_default`).
+3. **Lieferant** beantwortet im Dashboard (Rolle «Offerten» oder Admin): Preis, Nachricht, optional **Offerte als PDF**. Das PDF wird via `GemaStorage.uploadDataUrl` in den Bucket `gema-fotos` (Pfad `offerten/<lieferantId>`) ausgelagert → `antwort.pdfUrl`; Base64-Fallback (`antwort.pdfDataUrl`) nur bei Upload-Fehler und ≤ 2.5 MB. Max. 10 MB.
+4. `beantworteOffertanfrage()` **benachrichtigt den Planer** (`offertanfrage_beantwortet`, Link `pm_objekte.html?tab=offerten&objekt=…`) und legt die Vormerkung fürs Objekt an. Ablehnung analog (`offertanfrage_abgelehnt`).
+5. **Postfach des Planers**: der «📨 Offerten»-Tab im Berechnungsmodul (`gema_offerten_tab.js`, objektbezogen, PDF klickbar) UND der zentrale **Offerten-Tab in `pm_objekte.html`** (alle Anfragen der Org über alle Berechnungen, Filter pro Objekt, Deep-Link `?tab=offerten[&objekt=ID]`, Direktlink zurück ins Berechnungsmodul).
 
 ### Monetarisierung
 
@@ -463,6 +472,8 @@ Auto-Save/Load bei Objektwechsel.
 - Empfänger-Filter: `orgId` → Team-Sichtbarkeit innerhalb der Organisation
 
 **URL-Parameter `?objekt=ID`:** setzt beim Seitenaufruf automatisch das aktive Objekt. Wird vom Berechnungen-Tab in pm_objekte.html genutzt, damit der Planer direkt in der richtigen Zuordnung landet.
+
+**Offerten-Tab (pm_objekte.html):** vierter Tab «📨 Offerten» — zentrales Postfach für alle Offertanfragen/Lieferanten-Offerten der Org (Quelle: `GemaProdukte.getOffertanfragen()`, sichtbar wenn `projekt.objektId` zu einem Org-Objekt gehört oder man selbst Absender ist). Tabelle mit Status, Brutto-Preis, klickbarem Offerten-PDF und Direktlink ins Berechnungsmodul (`OA_KAT_MAP`). Deep-Link `pm_objekte.html?tab=offerten[&objekt=ID]` — wird von den `offertanfrage_beantwortet`-Notifikationen verwendet. `gema_produktkatalog_api.js` ist dafür in pm_objekte.html eingebunden.
 
 **Zuordnungs-Pill:** `gema_objekte_api.js` injiziert automatisch einen Status-Chip in die `.project-bar`:
 - 📋 «Zugeordnet zu: <Objekt>» (grün) wenn Objekt aktiv
@@ -1294,8 +1305,15 @@ Zentrales Modul `gema_notify.js` für In-App-Benachrichtigungen. Glocke + Toast-
 | `schaden_phase_geaendert` | schadensbericht | on |
 | `trockner_zurueckgegeben` | trocknung | on |
 | `trockner_defekt` | trocknung | on |
+| `offertanfrage_neu` | produktkatalog | on |
+| `offertanfrage_beantwortet` | produktkatalog | on |
+| `offertanfrage_abgelehnt` | produktkatalog | on |
 
 **Neue Module fügen ihre Event-Keys hier hinzu**, sonst greift kein Preferences-Filter.
+
+### Cloud-Sync (Cross-Device-Zustellung)
+
+Notifikationen lagen früher NUR im localStorage — sie erreichten damit nie ein anderes Gerät (Planer → Lieferant funktionierte nicht). Jetzt spiegelt `gema_notify.js` jede Notifikation best-effort als eigene Cloud-Row via `gema_sync.js` (moduleKey `notify`, prefix `notif:`): `push()` → `saveRecord`, `markRead`/`markAllRead` → Update, `remove`/`clearForCurrentUser` → `deleteRecord` (nur bei persönlich adressierten — Rollen-/Org-Notifikationen haben mehrere Empfänger und werden nur lokal entfernt). Merge-Pull beim Seitenstart (2.5s verzögert), alle 60s und bei Tab-Fokus (`visibilitychange`); beim Merge gewinnt der Gelesen-Status. Ohne `gema_sync.js`/Cloud funktioniert alles lokal weiter. Demo-Seeds bleiben lokal (kein Cloud-Push).
 
 ### Public API
 
@@ -1642,7 +1660,7 @@ UI-Anbindung:
 | `gema_recent.js` | Tracking + Anzeige zuletzt genutzter Module |
 | `gema_responsive.css` | Globale Responsive-/Layout-Regeln (Mobile + Tablet) |
 | `gema_scroll.js` | Scroll-Position-Restore + globaler Body-Scroll-Lock fuer Modals (`GemaScroll.lock/unlock`, Auto-Hook auf `.modal-bg`) |
-| `gema_storage.js` | **Bild-Upload in Supabase Storage** (Bucket `gema-fotos`). `GemaStorage.uploadDataUrl(dataUrl, pathHint)` laedt ein Base64-Bild als Datei hoch, verifiziert die oeffentliche Erreichbarkeit (Image-Load) und liefert `{url, path}`; im Record steht dann nur die URL statt Base64 → kleine Records, keine Request-Groessen-/localStorage-Quota-Probleme. Reject bei fehlendem/falsch konfiguriertem Bucket → Aufrufer faellt auf Base64 zurueck. **Setup (Dashboard, einmalig):** Bucket `gema-fotos` als Public anlegen + INSERT-Policy fuer Rolle `anon`. **Akzeptiert nur `data:image/*`** (keine PDFs). Eingesetzt in `sp_dachbericht.html`, `sd_schadensbericht.html` und `pm_abnahme.html` (Mangel-Fotos + Plan-Pin-Fotos via `_abUploadFotosToStorage`; Plan-Dateien/PDFs werden NICHT ausgelagert — Helper akzeptiert nur Bilder + Canvas/pdf.js-Kopplung). Bilder werden beim Save nach Storage ausgelagert; Bild-Quelle via `url || dataUrl`, jsPDF-Export rehydriert `url`→DataURL. |
+| `gema_storage.js` | **Bild-Upload in Supabase Storage** (Bucket `gema-fotos`). `GemaStorage.uploadDataUrl(dataUrl, pathHint)` laedt ein Base64-Bild als Datei hoch, verifiziert die oeffentliche Erreichbarkeit (Image-Load) und liefert `{url, path}`; im Record steht dann nur die URL statt Base64 → kleine Records, keine Request-Groessen-/localStorage-Quota-Probleme. Reject bei fehlendem/falsch konfiguriertem Bucket → Aufrufer faellt auf Base64 zurueck. **Setup (Dashboard, einmalig):** Bucket `gema-fotos` als Public anlegen + INSERT-Policy fuer Rolle `anon`. **Akzeptiert `data:image/*` UND `data:application/pdf`** (PDF-Verifikation via HEAD/Range-fetch statt Image-Load; genutzt fuer Lieferanten-Offerten-PDFs, Pfad `offerten/<lieferantId>`). Eingesetzt in `sp_dachbericht.html`, `sd_schadensbericht.html`, `sys_lieferant_dashboard.html` (Offerten-PDF) und `pm_abnahme.html` (Mangel-Fotos + Plan-Pin-Fotos via `_abUploadFotosToStorage`; Plan-Dateien/PDFs werden NICHT ausgelagert — Helper akzeptiert nur Bilder + Canvas/pdf.js-Kopplung). Bilder werden beim Save nach Storage ausgelagert; Bild-Quelle via `url || dataUrl`, jsPDF-Export rehydriert `url`→DataURL. |
 | `gema_undo.js` | Undo/Redo |
 | `gema_varianten.js` | Varianten-Vergleich (Berechnungen) |
 | `gema_vergleich.js` | Produkt-/Offert-Vergleich |

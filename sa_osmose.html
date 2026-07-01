@@ -1470,9 +1470,13 @@ document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('osmo
   function _osmoseBerechnungswerte(){
     var voLh = parseFloat((document.getElementById('voLh') || {}).textContent || '0') || 0;
     var vwLh = parseFloat((document.getElementById('vwLh') || {}).textContent || '0') || 0;
+    // phiDisplay zeigt den FAKTOR (z.B. "0.750"), nicht Prozent.
+    var phi = parseFloat(((document.getElementById('phiDisplay') || {}).textContent || '').replace(',', '.')) || 0;
+    if (phi > 0 && phi <= 1) phi = phi * 100;
     return {
       permeat: voLh > 0 ? voLh.toFixed(1) + ' l/h' : '—',
-      konzentrat: vwLh > 0 ? (vwLh - voLh).toFixed(1) + ' l/h' : ''
+      konzentrat: vwLh > 0 ? (vwLh - voLh).toFixed(1) + ' l/h' : '',
+      recovery: phi > 0 ? phi.toFixed(0) + ' %' : ''
     };
   }
 
@@ -1487,6 +1491,10 @@ document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('osmo
     var d = p.daten||{};
     var projekt = document.getElementById('metaProjekt')?.value || '';
     var objektId = document.getElementById('metaObjektDropdown')?.value || '';
+    // KRITISCH: In die Anfrage gehoeren die BERECHNETEN Projektwerte —
+    // nicht die Datenblatt-Werte der gewaehlten Anlage. Die Anlage selbst
+    // wird via produktId/produktName mitgeschickt.
+    var bw = _osmoseBerechnungswerte();
 
     var overlay = document.createElement('div');
     overlay.style.cssText = 'position:fixed;inset:0;z-index:950;background:rgba(0,0,0,.5);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;padding:20px';
@@ -1508,7 +1516,7 @@ document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('osmo
           '<div><label style="font-size:12px;font-weight:700;color:var(--muted,#6b7280);display:block;margin-bottom:4px">Nachricht (optional)</label>' +
             '<textarea id="_oaMsg" rows="3" placeholder="z.B. Bitte Offerte inkl. Montage, Liefertermin..." style="width:100%;padding:8px 10px;border:1.5px solid var(--border2,#cdd4e4);border-radius:8px;font-size:13px;font-family:inherit;resize:vertical"></textarea></div>' +
           '<div style="background:var(--bg,#f4f6fb);border-radius:8px;padding:10px;font-size:12px;color:var(--muted,#6b7280);line-height:1.5">' +
-            '<strong>Berechnungsergebnis:</strong> Permeat = '+(d.permeatleistung||'—')+' l/h · Recovery = '+(d.recovery||'—')+'%</div>' +
+            '<strong>Berechnungsergebnis:</strong> Permeat = '+(bw.permeat||'—')+(bw.konzentrat?' · Konzentrat = '+bw.konzentrat:'')+(bw.recovery?' · Recovery = '+bw.recovery:'')+'<br><strong>Gewählte Anlage:</strong> '+(d.serie||'')+' '+(d.modell||'')+' ('+(d.permeatleistung||'—')+' l/h · '+(d.recovery||'—')+'%)</div>' +
         '</div>' +
         '<div style="padding:14px 20px;border-top:1.5px solid var(--border,#e2e8f0);display:flex;gap:8px;justify-content:flex-end">' +
           '<button id="_oaCancel" style="padding:8px 16px;border-radius:8px;border:1.5px solid var(--border2,#cdd4e4);background:var(--surface,#fff);font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;color:var(--text)">Abbrechen</button>' +
@@ -1542,7 +1550,7 @@ document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('osmo
         produktId: p.id,
         produktName: (d.serie||'')+' '+(d.modell||''),
         kategorie: 'osmose',
-        berechnungswerte: { permeatleistung: d.permeatleistung, recovery: d.recovery },
+        berechnungswerte: _osmoseBerechnungswerte(),
         projekt: { name: document.getElementById('_oaProjekt')?.value || '', ort: '', objektId: objektId },
         nachricht: document.getElementById('_oaMsg')?.value || '',
         fristTage: parseInt(document.getElementById('_oaFrist')?.value) || 14

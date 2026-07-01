@@ -63,7 +63,14 @@
         h += '<div style="margin-top:8px;padding:10px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;font-size:12px">';
         if (oa.antwort.bruttoPreis) h += '<div style="font-weight:700;color:#15803d;font-size:14px">CHF ' + _fC(oa.antwort.bruttoPreis) + ' (brutto)</div>';
         if (oa.antwort.nachricht) h += '<div style="color:#374151;margin-top:4px">' + _esc(oa.antwort.nachricht) + '</div>';
-        if (oa.antwort.pdfName) h += '<div style="margin-top:4px;color:#2563eb;font-weight:600">📄 ' + _esc(oa.antwort.pdfName) + '</div>';
+        // PDF klickbar: Storage-URL im neuen Tab, Base64-Fallback als Download.
+        if (oa.antwort.pdfUrl) {
+          h += '<div style="margin-top:4px"><a href="' + _esc(oa.antwort.pdfUrl) + '" target="_blank" rel="noopener" style="color:#2563eb;font-weight:600;text-decoration:none">📄 ' + _esc(oa.antwort.pdfName || 'Offerte.pdf') + '</a></div>';
+        } else if (oa.antwort.pdfDataUrl) {
+          h += '<div style="margin-top:4px"><a href="' + oa.antwort.pdfDataUrl + '" download="' + _esc(oa.antwort.pdfName || 'Offerte.pdf') + '" style="color:#2563eb;font-weight:600;text-decoration:none">📄 ' + _esc(oa.antwort.pdfName || 'Offerte.pdf') + ' (herunterladen)</a></div>';
+        } else if (oa.antwort.pdfName) {
+          h += '<div style="margin-top:4px;color:#2563eb;font-weight:600">📄 ' + _esc(oa.antwort.pdfName) + '</div>';
+        }
         h += '</div>';
       }
 
