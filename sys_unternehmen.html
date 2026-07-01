@@ -104,6 +104,29 @@ input::placeholder{color:#cbd5e1!important}
       </div>
       <button class="btn btn-p" onclick="saveOrgInfo()" style="margin-top:8px">💾 Speichern</button>
     </div></div>
+
+    <div class="card"><div class="card-hd"><h3>Berichts-Farben (PDF)</h3></div><div class="card-bd">
+      <p style="font-size:12px;color:var(--mut);margin:-4px 0 14px;line-height:1.5">Wähle eine oder zwei typische Firmenfarben. Sie werden im PDF-Export von Schadens- und Dachberichten für Überschriften, Trennstriche, Abschnitte und Akzente verwendet (statt dem GEMA-Blau). Zu helle Farben (z.B. Gelb) werden für Text automatisch abgedunkelt, damit sie immer gut lesbar bleiben — es wird nie Text in einer hellen Farbe dargestellt.</p>
+      <div class="g2">
+        <div class="fg"><label>Primärfarbe (Hauptakzent)</label>
+          <div style="display:flex;align-items:center;gap:10px">
+            <input type="color" id="pdfFarbePrimary" value="#1e3a5f" oninput="_syncFarbeHex('Primary');_updateFarbePreview()" style="width:52px;height:40px;padding:2px;border:1.5px solid var(--brd2);border-radius:8px;cursor:pointer;background:#fff"/>
+            <input class="fc" id="pdfFarbePrimaryHex" placeholder="#1e3a5f" style="max-width:130px" oninput="_syncFarbePicker('Primary');_updateFarbePreview()"/>
+          </div>
+        </div>
+        <div class="fg"><label style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="pdfFarbeSecondaryOn" onchange="_toggleFarbeSecondary();_updateFarbePreview()" style="accent-color:var(--acc);width:15px;height:15px"/> Sekundärfarbe (optional)</label>
+          <div style="display:flex;align-items:center;gap:10px">
+            <input type="color" id="pdfFarbeSecondary" value="#0c4a2e" oninput="_syncFarbeHex('Secondary');_updateFarbePreview()" disabled style="width:52px;height:40px;padding:2px;border:1.5px solid var(--brd2);border-radius:8px;cursor:pointer;background:#fff"/>
+            <input class="fc" id="pdfFarbeSecondaryHex" placeholder="#0c4a2e" disabled style="max-width:130px" oninput="_syncFarbePicker('Secondary');_updateFarbePreview()"/>
+          </div>
+        </div>
+      </div>
+      <div id="pdfFarbePreview" style="margin:6px 0 14px;border:1px solid var(--brd);border-radius:10px;overflow:hidden"></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-p" onclick="savePdfFarben()">💾 Farben speichern</button>
+        <button class="btn" onclick="resetPdfFarben()">↺ Auf GEMA-Standard zurücksetzen</button>
+      </div>
+    </div></div>
   </div>
 
   <!-- Tab: Benutzer -->
@@ -191,6 +214,7 @@ function fillInfo(){
   var cats=GemaAuth.getOrgCats?GemaAuth.getOrgCats():[];
   var sel=document.getElementById('orgKat');
   sel.innerHTML=cats.map(function(c){return '<option value="'+c.id+'"'+(c.id===_org.kategorie?' selected':'')+'>'+c.icon+' '+c.name+'</option>';}).join('');
+  loadPdfFarben();
 }
 function saveOrgInfo(){
   GemaAuth.updateOrgInfo(_org.id,{
@@ -203,6 +227,88 @@ function saveOrgInfo(){
   GemaAuth.updateOrgSettings(_org.id,{sichtbarkeit:document.getElementById('orgSichtbarkeit').value});
   _org=GemaAuth.getCurrentOrg();
   toast('✓ Firmendaten gespeichert');
+}
+
+// ── Berichts-Farben (PDF) ──
+// Kontrastschutz-Vorschau: dieselbe Abdunkel-Logik wie in den PDF-Helfern,
+// damit der User sofort sieht, wie eine helle Farbe (z.B. Gelb) als lesbarer
+// Textton erscheint.
+function _fbHexToRgb(hex){hex=String(hex||'').trim().replace(/^#/,'');if(hex.length===3)hex=hex.charAt(0)+hex.charAt(0)+hex.charAt(1)+hex.charAt(1)+hex.charAt(2)+hex.charAt(2);if(!/^[0-9a-fA-F]{6}$/.test(hex))return null;return{r:parseInt(hex.slice(0,2),16),g:parseInt(hex.slice(2,4),16),b:parseInt(hex.slice(4,6),16)};}
+function _fbRgbToHex(r,g,b){function h(n){n=Math.max(0,Math.min(255,Math.round(n)));return(n<16?'0':'')+n.toString(16);}return'#'+h(r)+h(g)+h(b);}
+function _fbLum(c){var a=[c.r,c.g,c.b].map(function(v){v/=255;return v<=0.03928?v/12.92:Math.pow((v+0.055)/1.055,2.4);});return 0.2126*a[0]+0.7152*a[1]+0.0722*a[2];}
+function _fbContrast(c){return 1.05/(_fbLum(c)+0.05);}
+function _fbDarken(hex,target){var rgb=_fbHexToRgb(hex);if(!rgb)return null;if(_fbContrast(rgb)>=target)return _fbRgbToHex(rgb.r,rgb.g,rgb.b);var f=1;for(var i=0;i<40;i++){f-=0.025;var c={r:rgb.r*f,g:rgb.g*f,b:rgb.b*f};if(_fbContrast(c)>=target)return _fbRgbToHex(c.r,c.g,c.b);}return'#1f2933';}
+function _validHex(v){return /^#?[0-9a-fA-F]{6}$/.test(String(v||'').trim());}
+function _normHex(v){v=String(v||'').trim();if(v&&v.charAt(0)!=='#')v='#'+v;return v;}
+
+function _syncFarbeHex(which){ // Picker → Hex-Textfeld
+  var pick=document.getElementById('pdfFarbe'+which);
+  document.getElementById('pdfFarbe'+which+'Hex').value=pick.value;
+}
+function _syncFarbePicker(which){ // Hex-Textfeld → Picker
+  var hx=document.getElementById('pdfFarbe'+which+'Hex').value;
+  if(_validHex(hx)) document.getElementById('pdfFarbe'+which).value=_normHex(hx);
+}
+function _toggleFarbeSecondary(){
+  var on=document.getElementById('pdfFarbeSecondaryOn').checked;
+  document.getElementById('pdfFarbeSecondary').disabled=!on;
+  document.getElementById('pdfFarbeSecondaryHex').disabled=!on;
+}
+function _updateFarbePreview(){
+  var prim=_normHex(document.getElementById('pdfFarbePrimaryHex').value)||'#1e3a5f';
+  if(!_validHex(prim))prim='#1e3a5f';
+  var secOn=document.getElementById('pdfFarbeSecondaryOn').checked;
+  var sec=_normHex(document.getElementById('pdfFarbeSecondaryHex').value);
+  var accent=_fbDarken(prim,4.5)||'#1e3a5f';
+  var accentDeep=_fbDarken(prim,7)||accent;
+  var forest=(secOn&&_validHex(sec))?(_fbDarken(sec,4.5)||accentDeep):accentDeep;
+  var el=document.getElementById('pdfFarbePreview');
+  el.innerHTML=''
+    +'<div style="height:6px;background:linear-gradient(90deg,'+accent+' 0%,'+accent+' 62%,'+forest+' 100%)"></div>'
+    +'<div style="padding:14px 16px;background:#fff">'
+      +'<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">'
+        +'<span style="width:30px;height:30px;border-radius:6px;background:'+accent+';color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px">1</span>'
+        +'<span style="font-size:14px;font-weight:700;color:#1f2933">Musterbericht</span>'
+        +'<span style="margin-left:auto;font-size:9px;font-weight:700;color:#fff;background:'+accent+';padding:2px 8px;border-radius:9px">AKZENT</span>'
+      +'</div>'
+      +'<div style="font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:'+accent+';margin-bottom:2px">Abschnitt</div>'
+      +'<div style="font-size:12px;color:#525d66;border-left:3px solid '+accent+';padding-left:9px">So erscheinen Überschriften, Trennstriche und Aufzählungspunkte im Bericht.</div>'
+    +'</div>';
+}
+function loadPdfFarben(){
+  var pf=(_org.settings||{}).pdfFarben||{};
+  var prim=_validHex(pf.primary)?_normHex(pf.primary):'#1e3a5f';
+  document.getElementById('pdfFarbePrimary').value=prim;
+  document.getElementById('pdfFarbePrimaryHex').value=prim;
+  var secOn=!!(pf.secondary&&_validHex(pf.secondary));
+  document.getElementById('pdfFarbeSecondaryOn').checked=secOn;
+  var sec=secOn?_normHex(pf.secondary):'#0c4a2e';
+  document.getElementById('pdfFarbeSecondary').value=sec;
+  document.getElementById('pdfFarbeSecondaryHex').value=sec;
+  _toggleFarbeSecondary();
+  _updateFarbePreview();
+}
+function savePdfFarben(){
+  var prim=_normHex(document.getElementById('pdfFarbePrimaryHex').value);
+  if(!_validHex(prim)){ GemaDialog.alert({title:'Ungültige Farbe',message:'Bitte eine gültige Primärfarbe im Format #RRGGBB angeben.'}); return; }
+  var pf={primary:prim};
+  if(document.getElementById('pdfFarbeSecondaryOn').checked){
+    var sec=_normHex(document.getElementById('pdfFarbeSecondaryHex').value);
+    if(!_validHex(sec)){ GemaDialog.alert({title:'Ungültige Farbe',message:'Bitte eine gültige Sekundärfarbe angeben oder die Sekundärfarbe deaktivieren.'}); return; }
+    pf.secondary=sec;
+  }
+  GemaAuth.updateOrgSettings(_org.id,{pdfFarben:pf});
+  _org=GemaAuth.getCurrentOrg();
+  toast('✓ Berichts-Farben gespeichert');
+}
+function resetPdfFarben(){
+  GemaDialog.confirm({title:'Zurücksetzen',message:'Berichts-Farben auf das GEMA-Standard-Blau zurücksetzen?',confirmLabel:'Zurücksetzen'}).then(function(ok){
+    if(!ok)return;
+    GemaAuth.updateOrgSettings(_org.id,{pdfFarben:null});
+    _org=GemaAuth.getCurrentOrg();
+    loadPdfFarben();
+    toast('✓ Auf GEMA-Standard zurückgesetzt');
+  });
 }
 
 // ── Benutzer ──
@@ -544,6 +650,7 @@ document.addEventListener('DOMContentLoaded',init);
 <script src="gema_scroll.js"></script>
 <script src="gema_mobile_menu.js"></script>
 <script src="gema_adresse.js"></script>
+<script src="gema_dialog.js"></script>
 <script>document.addEventListener('DOMContentLoaded',function(){if(typeof GemaFeedback!=='undefined')GemaFeedback.init('unternehmen','Unternehmen');});</script>
 </body>
 </html>

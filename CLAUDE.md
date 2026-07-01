@@ -863,6 +863,10 @@ A4 **Hochformat** erzwungen: beide `@page`-Regeln `size:A4 portrait`, jsPDF `ori
 
 **Logo-Branch**: Wenn `org.logo` (Base64-data-URL aus `sys_unternehmen.html`) gesetzt ist → Firmen-Logo oben links auf dem Deckblatt. Sonst → eingebettetes GEMA-Inline-SVG. Damit zeigen User ohne hochgeladenes Logo automatisch das GEMA-Branding.
 
+**Firmenfarben-Branding (`org.settings.pdfFarben`)**: Die Org kann in `sys_unternehmen.html` → Firmendaten → «Berichts-Farben (PDF)» eine **Primärfarbe** (Pflicht) und optional eine **Sekundärfarbe** wählen (gespeichert als `org.settings.pdfFarben = {primary, secondary?}` via `GemaAuth.updateOrgSettings`). Beide PDF-Helfer (`gema_schaden_pdf.js` + `gema_dachbericht_pdf.js`) leiten daraus per `_brandRootCss(org)` ein `:root{}`-Override ab, das NACH dem statischen `REPORT_CSS` in den `<style>` gehängt wird (spätere Regel gewinnt → überschreibt `--accent`/`--accent-deep`/`--forest`). Ohne `pdfFarben` bleibt das GEMA-Default (Navy/Forest bzw. Cyan). **Rollen** (User-Entscheid): Primär = Hauptakzent (Überschriften, Abschnittsnummern, Labels, Aufzählungspunkte, KPI-Werte, Trennstriche, Tabellen-Summen, erster Diagramm-Ton via `_curAccent`); Sekundär = Verlauf-Tail der Cover-Bar (`--forest`). Ohne Sekundärfarbe = dunklerer Ton der Primärfarbe.
+
+**KRITISCH — Kontrastschutz (kein Text in heller Farbe)**: `--accent` wird für Text/Linien AUF Weiss UND als Fläche UNTER weisser Schrift verwendet. Eine Firmenfarbe wird deshalb NIE 1:1 als Textfarbe genutzt, sondern über `_darkenForWhiteBg(hex, 4.5)` Richtung Schwarz skaliert (Hue bleibt erhalten), bis der WCAG-Kontrast gegen Weiss ≥ 4.5:1 ist. Da der Kontrast **symmetrisch** ist, ist die so gewonnene Farbe gleichzeitig als dunkler Text auf Weiss UND als Flächenfarbe mit weisser Schrift lesbar. Beispiel: Gelb `#f5c518` → dunkles Gold `#8d710e`; reines Gelb `#ffff00` → Olivgold `#797900`. Der Farb-Picker in `sys_unternehmen.html` zeigt dieselbe Abdunkel-Logik als Live-Vorschau (`_fbDarken`), damit der User sofort sieht, wie eine helle Farbe als lesbarer Textton erscheint. Die Helper (`_hexToRgb`/`_relLum`/`_contrastVsWhite`/`_darkenForWhiteBg`/`_brandRootCss`) sind in beiden PDF-Helfern dupliziert (standalone IIFEs).
+
 **Inhalt** (auto-skipping bei leeren Sektionen):
 - Cover: laufender Header/Footer mit Org-Name (oder «GEMA»), Cover-Bar (Navy → Forest), Brand-Block (Logo), Schadentitel + Eyebrow, Status-Pill, Meta-Grid (Objekt/Adresse/Bearbeiter/Schadentyp/Erfasst am/Räume), KPI-Strip (Trocknungsdauer/Geräte/Energie/Messpunkte) — KPIs nur wenn Trocknung Daten hat
 - Sektion 1 «Zustandsanalyse»: Leckortung / Schadenausmass / Massnahmen-Liste + Fotos
@@ -968,7 +972,7 @@ Wird via `claudeRow()` in jedem Textfeld als Button-Reihe angezeigt («✨ KI-Ve
 
 ### PDF-Export (gema_dachbericht_pdf.js)
 
-`GemaDachberichtPDF.exportPrint(bericht, {org,user,objektName,objektAdresse,templates})` — öffnet neues Fenster mit A4-Layout, User klickt im Druckdialog auf «Als PDF speichern». Logo-Branch wie Schadensbericht (org.logo vs. eingebettetes GEMA-SVG).
+`GemaDachberichtPDF.exportPrint(bericht, {org,user,objektName,objektAdresse,templates})` — öffnet neues Fenster mit A4-Layout, User klickt im Druckdialog auf «Als PDF speichern». Logo-Branch wie Schadensbericht (org.logo vs. eingebettetes GEMA-SVG). **Firmenfarben-Branding identisch** zum Schadensbericht: `_brandRootCss(org)` leitet `--accent`/`--forest` aus `org.settings.pdfFarben` ab, mit demselben Kontrastschutz (`_darkenForWhiteBg`, ≥ 4.5:1 gegen Weiss). Siehe Schadensbericht-Vorlage-Abschnitt für Details.
 
 **Bilder-Grid-Regel (User-Anforderung):**
 - 1 Bild → volle Breite
