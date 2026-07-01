@@ -77,7 +77,8 @@
     + '.sec-date{margin-left:auto;font-size:8pt;color:var(--muted);text-align:right;letter-spacing:.03em;}'
     + '.block{margin-bottom:15px;break-inside:avoid;page-break-inside:avoid;}'
     + '.block-label{font-size:8pt;letter-spacing:.1em;text-transform:uppercase;color:var(--accent);font-weight:700;margin-bottom:3px;}'
-    + '.block-body{color:var(--ink-soft);font-size:10.5pt;}'
+    // Fliesstext IMMER schwarz (User-Vorgabe) — wird nie von Brandfarben eingefaerbt
+    + '.block-body{color:#000;font-size:10.5pt;}'
     + '.block-body ul{list-style:none;margin-top:3px;}'
     + '.block-body li{position:relative;padding-left:15px;margin-bottom:2px;}'
     + '.block-body li::before{content:"";position:absolute;left:0;top:7px;width:5px;height:5px;border-radius:1px;background:var(--accent);}'
@@ -118,7 +119,7 @@
     + '.photo-frame img{width:100%;height:100%;object-fit:cover;display:block;}'
     + '.photo-cap{margin-top:6px;display:flex;gap:7px;align-items:baseline;font-size:8pt;color:var(--muted);}'
     + '.photo-cap b{color:var(--accent);font-weight:700;font-size:7.5pt;letter-spacing:.04em;}'
-    + '.note{background:var(--tint);border-left:3pt solid var(--accent);border-radius:0 6px 6px 0;padding:10px 14px;margin:14px 0;font-size:9.5pt;color:var(--ink-soft);break-inside:avoid;page-break-inside:avoid;}'
+    + '.note{background:var(--tint);border-left:3pt solid var(--accent);border-radius:0 6px 6px 0;padding:10px 14px;margin:14px 0;font-size:9.5pt;color:#000;break-inside:avoid;page-break-inside:avoid;}'
     + '.note .note-k{font-size:7.5pt;letter-spacing:.1em;text-transform:uppercase;color:var(--accent);font-weight:700;margin-bottom:3px;}'
     // Unterschriften-CSS bleibt drin als Backward-Compat (falls externe
     // Aufrufer den Block wieder einfuegen wollen) — wird im Standardfall
@@ -207,6 +208,14 @@
     }
     return '#1f2933';
   }
+  // Sehr heller Ton der Primaerfarbe (fuer Flaechen wie die Tabellen-Summenzeile) —
+  // Original-Hue mit ~92% Weiss gemischt, damit dunkle Brand-Schrift darauf liegt.
+  function _lightTint(hex, whiteMix){
+    var rgb = _hexToRgb(hex);
+    if(!rgb) return null;
+    var m = whiteMix == null ? 0.92 : whiteMix;
+    return _rgbToHex(rgb.r + (255-rgb.r)*m, rgb.g + (255-rgb.g)*m, rgb.b + (255-rgb.b)*m);
+  }
   // Liefert ein :root{}-Override oder '' (dann bleiben die Template-Defaults).
   function _brandRootCss(org){
     var pf = org && org.settings && org.settings.pdfFarben;
@@ -221,7 +230,8 @@
       forest = accentDeep;
     }
     _curAccent = accent;
-    return ':root{--accent:'+accent+';--accent-deep:'+accentDeep+';--forest:'+forest+';}';
+    var tint = _lightTint(pf.primary) || '#eef2f6';
+    return ':root{--accent:'+accent+';--accent-deep:'+accentDeep+';--forest:'+forest+';--tint-blue:'+tint+';}';
   }
   function fmtDate(iso){
     if(!iso) return '';

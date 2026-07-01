@@ -63,7 +63,8 @@
     + '.sec-titles .sec-title{font-size:16pt;font-weight:700;color:var(--ink);line-height:1.15;}'
     + '.block{margin-bottom:15px;break-inside:avoid;page-break-inside:avoid;}'
     + '.block-label{font-size:8pt;letter-spacing:.1em;text-transform:uppercase;color:var(--accent);font-weight:700;margin-bottom:3px;}'
-    + '.block-body{color:var(--ink-soft);font-size:10.5pt;}'
+    // Fliesstext IMMER schwarz (User-Vorgabe) — wird nie von Brandfarben eingefaerbt
+    + '.block-body{color:#000;font-size:10.5pt;}'
     + '.subhead{font-size:11pt;font-weight:700;color:var(--ink);margin:18px 0 8px;break-after:avoid;page-break-after:avoid;border-bottom:.5pt solid var(--line);padding-bottom:4px;}'
     + '.subhead-2{font-size:9.5pt;font-weight:700;color:var(--accent);margin:14px 0 6px;break-after:avoid;}'
     // Bilder-Grid: 1=full, 2=1x2, 3-4=2x2, 5-6=3x2
@@ -95,7 +96,7 @@
     + '.mn-prio.mittel{background:#fef3c7;color:#92400e;}'
     + '.mn-prio.niedrig{background:#dbeafe;color:#1e40af;}'
     + '.mn-label{font-size:7.5pt;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:700;margin:5px 0 1px;}'
-    + '.mn-text{font-size:10pt;color:var(--ink-soft);}'
+    + '.mn-text{font-size:10pt;color:#000;}'
     + '.print-toolbar{position:fixed;top:12px;right:12px;z-index:9999;display:flex;gap:8px;}'
     + '.print-toolbar button{background:var(--accent);color:#fff;border:none;padding:9px 16px;border-radius:7px;cursor:pointer;font-weight:600;font-size:13px;font-family:\'DM Sans\',sans-serif;box-shadow:0 4px 12px rgba(0,0,0,.15);}'
     + '.print-toolbar button.secondary{background:#fff;color:var(--ink);border:1px solid var(--line);}';
@@ -144,6 +145,12 @@
     }
     return '#1f2933';
   }
+  function _lightTint(hex, whiteMix){
+    var rgb = _hexToRgb(hex);
+    if(!rgb) return null;
+    var m = whiteMix == null ? 0.92 : whiteMix;
+    return _rgbToHex(rgb.r + (255-rgb.r)*m, rgb.g + (255-rgb.g)*m, rgb.b + (255-rgb.b)*m);
+  }
   function _brandRootCss(org){
     var pf = org && org.settings && org.settings.pdfFarben;
     if(!pf || !pf.primary) return '';
@@ -151,7 +158,8 @@
     if(!accent) return '';
     var accentDeep = _darkenForWhiteBg(pf.primary, 7) || accent;
     var forest = pf.secondary ? (_darkenForWhiteBg(pf.secondary, 4.5) || accentDeep) : accentDeep;
-    return ':root{--accent:'+accent+';--accent-deep:'+accentDeep+';--forest:'+forest+';}';
+    var tint = _lightTint(pf.primary) || '#ecfeff';
+    return ':root{--accent:'+accent+';--accent-deep:'+accentDeep+';--forest:'+forest+';--tint-blue:'+tint+';}';
   }
   function fmtDate(iso){
     if(!iso) return '';
