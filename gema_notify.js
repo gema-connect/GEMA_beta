@@ -95,6 +95,11 @@
       modul:'fahrzeug',
       defaultOn:true
     },
+    fahrzeug_garage: {
+      label:'Fahrzeug in Garage ein-/ausgebucht',
+      modul:'fahrzeug',
+      defaultOn:true
+    },
     lu_updated: {
       label:'LU-Zusammenstellung aktualisiert',
       modul:'lu',

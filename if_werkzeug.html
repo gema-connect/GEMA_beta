@@ -964,6 +964,9 @@ function _wzActLog(aktion, beschreibung, tool, details){
     var recName= (tool && (tool.name || tool.serial)) || (details && details.name) || '';
     window.GemaActivityLog.log({
       modul:'werkzeug',
+      // Eintrag gehoert zur Org des WERKZEUGS — bei Cross-Org-Aktionen
+      // (externer Lieferant/Pruefer) sonst falsch der Bearbeiter-Org zugeordnet.
+      orgId: (tool && tool.orgId) || undefined,
       modulRecordId: recId,
       modulRecordName: recName,
       aktion: aktion,
@@ -3969,6 +3972,7 @@ function _wzDefektAnLieferant(toolId,berId){
   }
   if(b)b.anLieferantGemeldet=new Date().toISOString();
   save();
+  _wzActLog('defekt','Defekt an Lieferant gemeldet ('+(t.supplier||'Lieferant')+')'+(b?': '+(b.titel||'').slice(0,60):''), t);
   alert('✓ Defektmeldung an '+esc(t.supplier||'Lieferant')+' gesendet');
   openBerichte(toolId);
 }
@@ -4418,8 +4422,10 @@ function _wzPruefAnfrageAbbrechen(toolId){
   var t=tools.find(function(x){return x.id===toolId;});
   if(!t||!t.pruefAnfrage)return;
   if(!confirm('Anfrage wirklich stornieren?'))return;
+  var _paFirma=(t.pruefAnfrage&&t.pruefAnfrage.lieferantFirma)||'';
   delete t.pruefAnfrage;
   save();renderList();_wzCloseModal();
+  _wzActLog('pruefanfrage','Prüfanfrage storniert'+(_paFirma?' ('+_paFirma+')':''), t);
 }
 
 // ── Lieferanten-Ansicht: "Prüfung quittieren & Bericht hochladen" ──
@@ -4484,6 +4490,7 @@ function _wzPruefLiefQuittieren(toolId){
   t.pruefAnfrage.status='quittiert';
   t.pruefAnfrage.quittiertAm=new Date().toISOString();
   save();renderList();
+  _wzActLog('pruefanfrage','Prüfauftrag quittiert durch '+((_wzGetUser()||{}).name||'Lieferant'), t);
   // Notifikation zurueck an den Magaziner
   if(typeof GemaNotify!=='undefined' && t.pruefAnfrage.angefordertVon){
     GemaNotify.push({
@@ -4530,6 +4537,7 @@ function _wzPruefLiefBerichtEinreichen(toolId){
   t.pruefAnfrage.status='erledigt';
   t.pruefAnfrage.erledigtAm=new Date().toISOString();
   save();renderList();_wzCloseModal();
+  _wzActLog('pruefung','Prüfbericht eingereicht durch '+(t.pruefAnfrage.lieferantFirma||'Lieferant')+' · '+ergLabel, t);
   // Notifikation zurueck an den Magaziner
   if(typeof GemaNotify!=='undefined' && t.pruefAnfrage.angefordertVon){
     GemaNotify.push({

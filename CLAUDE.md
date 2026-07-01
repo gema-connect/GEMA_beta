@@ -266,7 +266,7 @@ Hauptseite: `index.html`. Hub-Seiten: `sb_index.html`, `pm_ausschreibung.html`, 
 - **Schadensdokumentation** (sd_): Schadensberichte (siehe Abschnitt „Schadensdokumentation" weiter unten). Trocknungsgeräte (if_trocknung.html) liefert automatisch Gerätedaten via `GemaTrocknung`-API.
 - **Zentrale Module**: `index.html` (Hauptnavigation / Modulübersicht), `pm_objekte.html` (Projektverwaltung)
 - **Lieferanten-Modul**: `sys_lieferant_dashboard.html` mit 6 Tabs (Übersicht, Produkte, Anfragen, Rohrsysteme, Werkzeuge, Firmenprofil)
-- **Garagist-Modul**: `sys_garagist_dashboard.html` mit 4 Tabs (Übersicht, Anstehend, Service-Historie, Werkstatt-Profil). Login-Redirect für `role_garagist`. Zeigt nur Fahrzeuge, deren `garagistUserId === me.id`, mit Quick-Action `?service=ID` zurück nach `if_fahrzeug.html`, die das Service-Modal direkt öffnet.
+- **Garagist-Modul**: `sys_garagist_dashboard.html` mit 4 Tabs (Übersicht, Anstehend, Service-Historie, Werkstatt-Profil). Login-Redirect für `role_garagist`. Werkstatt-Team-Sicht (`garagistUserId` ∈ Garagisten derselben Org), Quick-Actions: `?service=ID` (Service-Modal in `if_fahrzeug.html`), «✏ km» (km-Update), «🏭 Einbuchen / ✓ Ausbuchen» (Garage-Status, mit Reparatur-Doku bei offenen Defekten). Daten per-Record via GemaSync, Aktionen geloggt + notifiziert.
 
 ---
 
@@ -770,6 +770,16 @@ Jedes Werkzeug kann über `supplier` + `supplierId` mit einem Lieferanten-Accoun
 
 Eigenständiges Modul mit ähnlicher Struktur (Liste, QR-Code-Generierung mit SVG-Download, Service-Intervalle). Schreib-Zugriff: `role_magaziner`, `role_pruefer`. Nicht alle Werkzeug-Features (Berichte, Zuweisung, Lieferanten-Workflow) sind im Fahrzeug-Modul gespiegelt — bei Bedarf gleicher Pattern wie if_werkzeug.html anwenden.
 
+**Garagist-Rechte**: Feld-Whitelist `_FZ_GARAGIST_EDITABLE_FIELDS` (km, Service-Intervalle/-Daten, MFK, Reifen, Notizen); kein Erfassen/Löschen. km-Update via Formular, `_fzQuickKmEdit` (NFC/Detail) oder Garagisten-Dashboard.
+
+**Garage-Einbuchen (Werkstatt-Status)**: `_fzGarageToggle/_fzGarageEinbuchen/_fzGarageAusbuchen` (+ «🏭 Garage»-Button im View-Modal) — Einbuchen setzt den bestehenden Status `service` («Im Service») + `v.garage = {eingebuchtAm, eingebuchtVonName, werkstatt, grund, ausgebuchtAm?}`; Ausbuchen zurück auf `aktiv`. Notifikation `fahrzeug_garage` an `role_magaziner` + Fahrzeug-Org. Gleiche Buttons im Garagisten-Dashboard (`_dashGarageEin/_dashGarageAus`).
+
+**Defekt beheben = Reparatur dokumentieren (User-Vorgabe)**: `_fzResolveAllDefects` öffnet die **Reparatur-Doku** (`_fzOpenReparaturDoku`): Pflichtfeld «Was war das Problem / was wurde gemacht?», optional km/Kosten → erzeugt einen `serviceHistorie`-Eintrag (Art `reparatur`), markiert alle offenen Defekt-Events als behoben (`resolvedNote`) und benachrichtigt die Magaziner (`fahrzeug_service_erledigt`). Das Garage-**Ausbuchen** verlangt bei offenen Defekten zuerst dieselbe Doku (Dashboard: `_dashOpenRepDoku`).
+
+**Garagisten-Dashboard (sys_garagist_dashboard.html)**: liest den Pool via `GemaSync.getCached('gema_vehicles')` + frischer Pull via `bindCollection` beim Start; Einzel-Saves via `GemaSync.saveRecord` (`_dashSaveVehicle` — vorher roher Blob-Write an der per-Record-Pipeline vorbei). Loggt km-Update/Garage/Reparatur ins zentrale Aktivitätslog (Org des Fahrzeugs).
+
+**Zentrale Log-Abdeckung**: `_fzActLog` zusätzlich bei Defekt melden, Defekt behoben, Kosten, Reifen, km-Update, Fahrer-Zuweisung, Ausleihe/Rückgabe, Garage ein/aus, Reparatur (vorher nur erfasst/geändert/gelöscht/Garagist-Zuweisung/Service). `persist()` im Garagist-Zweig schliesst geladene Fahrzeuge per ID aus dem Erhalt aus (keine Duplikate bei Werkstatt-Team-Sicht). Alle `role_magaziner`-Notifikationen setzen `empfaengerOrgId` (Matching-Regel Rolle+Org).
+
 ---
 
 ## Schadensdokumentation (sd_schadensbericht.html)
@@ -1269,7 +1279,9 @@ Toolbar-Button **„📋 Aktivitäten"** — nur sichtbar für `role_admin` und 
 
 ### Aktion-Typen (`aktion`)
 
-`erfasst`, `geaendert`, `geloescht`, `zuweisung`, `ausleihe`, `rueckgabe`, `einsatz`, `einsatz_ende`, `pruefung`, `service`, `pruefanfrage`, `defekt`, `defekt_erledigt`, `ersatzanfrage`. Jede mit farbiger Pill im Modal.
+`erfasst`, `geaendert`, `geloescht`, `zuweisung`, `ausleihe`, `rueckgabe`, `einsatz`, `einsatz_ende`, `pruefung`, `service`, `pruefanfrage`, `defekt`, `defekt_erledigt`, `ersatzanfrage`, `km_update`, `kosten`, `reifen`, `offerte`, `reparatur`, `garage_ein`, `garage_aus`. Jede mit farbiger Pill im Modal.
+
+**Org-Regel (KRITISCH bei Cross-Org-Aktionen):** `log()` akzeptiert `opts.orgId` — der Eintrag gehört zur Org des DATENSATZES (Werkzeug/Fahrzeug), nicht zur Org des Bearbeiters. Externe Lieferanten/Prüfer/Garagisten loggen so ins Log der Auftraggeber-Org (Wrapper `_wzActLog`/`_fzActLog` übergeben `tool.orgId`/`v.orgId`; Dashboards nutzen `_dwzLog`/`_dashLog`). Geloggt wird auch aus `sys_lieferant_dashboard.html` (Quittieren, Prüfbericht, Offerte, Reparatur) und `sys_garagist_dashboard.html` (km-Update, Garage ein/aus, Reparatur-Doku) — beide laden `gema_aktivitaetslog.js`.
 
 ### Public API
 
@@ -1318,6 +1330,7 @@ Zentrales Modul `gema_notify.js` für In-App-Benachrichtigungen. Glocke + Toast-
 | `fahrzeug_service_faellig` | fahrzeug | on |
 | `fahrzeug_service_erledigt` | fahrzeug | on |
 | `fahrzeug_garagist_zugewiesen` | fahrzeug | on |
+| `fahrzeug_garage` | fahrzeug | on |
 | `lu_updated` | lu | off |
 | `schaden_neu` | schadensbericht | on |
 | `schaden_phase_geaendert` | schadensbericht | on |

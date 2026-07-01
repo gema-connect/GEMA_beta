@@ -391,6 +391,7 @@ textarea.fc{resize:vertical;min-height:60px;line-height:1.5}
 <script src="gema_produktkatalog_api.js"></script>
 <script src="gema_armaturen_api.js"></script>
 <script src="gema_storage.js"></script>
+<script src="gema_aktivitaetslog.js"></script>
 <script>
 'use strict';
 var _lief = null; // current lieferant
@@ -1167,6 +1168,14 @@ function _dwzSaveTool(tool){
   }
   return Promise.resolve();
 }
+// Aktivitätslog — Eintrag gehört zur Org des WERKZEUGS (Auftraggeber),
+// damit der Magaziner die Lieferanten-Aktion in seinem Log sieht.
+function _dwzLog(aktion,beschreibung,t){
+  try{
+    if(typeof GemaActivityLog==='undefined')return;
+    GemaActivityLog.log({modul:'werkzeug',orgId:(t&&t.orgId)||undefined,modulRecordId:t?t.id:null,modulRecordName:(t&&t.name)||'',aktion:aktion,beschreibung:beschreibung||''});
+  }catch(e){}
+}
 var _DWZ_PRUEF_LABEL={servicepruefung:'Service / Wartung',elektropruefung:'Elektroprüfung (NIV)',leiterpruefung:'Leiterprüfung (EKAS)'};
 function _dwzPruefTyp(t){
   var pa=t.pruefAnfrage||{};
@@ -1240,6 +1249,7 @@ window._dwzQuittieren=function(toolId){
   t.pruefAnfrage.status='quittiert';
   t.pruefAnfrage.quittiertAm=new Date().toISOString();
   _dwzSaveTool(t);
+  _dwzLog('pruefanfrage','Prüfauftrag quittiert durch '+_dwzFirma(),t);
   if(typeof GemaNotify!=='undefined'&&t.pruefAnfrage.angefordertVon){
     GemaNotify.push({eventKey:'werkzeug_pruefung_anfrage',empfaengerUserId:t.pruefAnfrage.angefordertVon,modul:'werkzeug',typ:'info',
       titel:'✓ Lieferant hat quittiert: '+t.name,
@@ -1296,6 +1306,7 @@ window._dwzSubmitPruefbericht=function(toolId){
   t.pruefAnfrage.status='erledigt';
   t.pruefAnfrage.erledigtAm=new Date().toISOString();
   _dwzSaveTool(t);
+  _dwzLog('pruefung','Prüfbericht eingereicht durch '+firma+' · '+ergLabel+(next?' · Nächste Prüfung: '+_dwzFmtD(next):''),t);
   if(typeof GemaNotify!=='undefined'){
     var notif={eventKey:'werkzeug_pruefung_anfrage',modul:'werkzeug',
       typ:(erg==='bestanden'?'erfolg':'warnung'),
@@ -1352,6 +1363,7 @@ window._dwzSendOfferte=function(){
       b.lieferantAntwort={preis:antwort.preis,nachricht:antwort.nachricht,pdfName:antwort.pdfName||'',pdfUrl:antwort.pdfUrl||'',pdfDataUrl:antwort.pdfDataUrl||'',ts:now,von:firma};
     }
     _dwzSaveTool(t);
+    _dwzLog('offerte','Offerte gesendet von '+firma+(antwort.preis?' · CHF '+antwort.preis:'')+' ('+(ctx.kind==='ersatz'?'Ersatz/Neugerät':'zu Defektmeldung')+')',t);
     if(typeof GemaNotify!=='undefined'){
       GemaNotify.push({eventKey:'werkzeug_offerte_lieferant',empfaengerRoleId:'role_magaziner',empfaengerOrgId:t.orgId||'',modul:'werkzeug',typ:'aktion',
         titel:'✉ Offerte von '+_dwzFirma()+': '+t.name,
@@ -1416,6 +1428,7 @@ window._dwzStartReparatur=function(){
   t.berichte=t.berichte||[];
   t.berichte.push({id:'ber_'+Date.now()+'_'+Math.random().toString(36).slice(2,6),typ:'reparatur',datum:now,autorUserId:(u&&u.id)||'',autorName:firma,titel:'Reparatur eröffnet',beschreibung:(bem||'')+(termin?(bem?' · ':'')+'Fertigstellung bis '+_dwzFmtD(termin):''),vonLieferant:true});
   _dwzSaveTool(t);
+  _dwzLog('reparatur','Reparatur eröffnet durch '+firma+(termin?' · Fertigstellung bis '+_dwzFmtD(termin):''),t);
   if(typeof GemaNotify!=='undefined'){
     GemaNotify.push({eventKey:'werkzeug_reparatur',empfaengerRoleId:'role_magaziner',empfaengerOrgId:t.orgId||'',modul:'werkzeug',typ:'info',
       titel:'🔧 Reparatur eröffnet: '+t.name,
@@ -1438,6 +1451,7 @@ window._dwzReparaturAbschliessen=function(toolId){
   t.berichte=t.berichte||[];
   t.berichte.push({id:'ber_'+Date.now()+'_'+Math.random().toString(36).slice(2,6),typ:'reparatur',datum:now,autorUserId:(u&&u.id)||'',autorName:firma,titel:'Reparatur abgeschlossen',beschreibung:'Bitte Werkzeug prüfen und den zugehörigen Defekt als erledigt markieren.',vonLieferant:true});
   _dwzSaveTool(t);
+  _dwzLog('reparatur','Reparatur abgeschlossen durch '+firma,t);
   if(typeof GemaNotify!=='undefined'){
     GemaNotify.push({eventKey:'werkzeug_reparatur',empfaengerRoleId:'role_magaziner',empfaengerOrgId:t.orgId||'',modul:'werkzeug',typ:'erfolg',
       titel:'✓ Reparatur abgeschlossen: '+t.name,
