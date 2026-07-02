@@ -2451,6 +2451,7 @@ var _currentFzgNfcUrl='';        // URL fuer NFC-Schreiben
 
 function openFzgQR(id){
   const v=vehicles.find(x=>x.id===id); if(!v) return;
+  _currentFzgQRVehicle=v;
   document.getElementById('fzgQrTitle').textContent=v.plate||v.model||'Fahrzeug';
   // QR fuehrt zur klassischen Detail-Ansicht; NFC schreibt ?nfc=ID,
   // damit beim Scan via Phone das Mobile-Action-Sheet aufgeht.
@@ -2470,6 +2471,8 @@ function openFzgQR(id){
   if(nfcLB)nfcLB.style.display=(('NDEFReader' in window)&&_fzCanEdit())?'inline-flex':'none';
   var ns=document.getElementById('fzgNfcStatus');
   if(ns)ns.textContent='';
+  // Beim Oeffnen immer auf den QR-Modus zurueckstellen
+  if(typeof setFzgQrMode==='function')setFzgQrMode('qr');
   const m=document.getElementById('fzgQrModal');
   m.style.display='flex'; m.classList.remove('hidden');
 }
@@ -2530,6 +2533,258 @@ async function _fzMakeNFCReadOnly(){
   }
 }
 window._fzMakeNFCReadOnly=_fzMakeNFCReadOnly;
+
+
+// ══════════════════════════════════════════════════════════════
+// ETIKETTE 49×23mm — Port des Etiketten-Systems aus if_trocknung
+// (QR rechts als Vektor, Logo oben links, Kennzeichen/Nr darunter).
+// Logo-Pipeline druckoptimiert fuer 300dpi-Thermo-Etikettendrucker:
+// HQ-Rasterung (1400px) + 1-Bit-Schwellwert — siehe CLAUDE.md
+// «Logo-Druckoptimierung».
+// ══════════════════════════════════════════════════════════════
+var _FZ_GEMA_LOGO_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="80 196 415 175" width="1660" height="700" preserveAspectRatio="xMidYMid meet"><defs><clipPath id="gn_c1"><path d="M 29 17 L 145 17 L 145 151 L 29 151 Z" clip-rule="nonzero"/></clipPath><clipPath id="gn_c2"><path d="M 58.367188 0.613281 L 173.855469 67.289062 L 116.105469 167.3125 L 0.621094 100.636719 Z" clip-rule="nonzero"/></clipPath><clipPath id="gn_c3"><path d="M 73 47.414062 L 123.597656 47.414062 L 123.597656 98 L 73 98 Z" clip-rule="nonzero"/></clipPath><clipPath id="gn_c4"><rect x="0" width="174" y="0" height="168"/></clipPath></defs><g transform="matrix(1,0,0,1,83,199)"><g clip-path="url(#gn_c4)"><g clip-path="url(#gn_c1)"><g clip-path="url(#gn_c2)"><path fill="#0f172a" d="M 144.929688 50.640625 L 144.929688 117.292969 L 87.207031 150.617188 L 29.484375 117.292969 L 29.484375 50.640625 L 87.207031 17.3125 Z" fill-opacity="1" fill-rule="nonzero"/></g></g></g><path fill="#fff" d="M 98.042969 73.117188 C 96.210938 71.285156 93.945312 69.882812 91.488281 69.070312 C 85.503906 75.054688 85.019531 75.28125 84.257812 77.097656 C 90.328125 76.699219 95.191406 82.253906 93.839844 88.324219 C 93.011719 92.078125 84.535156 99.5 76.90625 107.300781 C 73.34375 110.933594 67.460938 110.898438 63.863281 107.300781 C 60.265625 103.703125 60.265625 97.855469 63.863281 94.257812 L 71.992188 86.128906 C 70.988281 82.390625 71.214844 78.445312 72.476562 74.933594 L 57.203125 90.210938 C 50.664062 96.75 50.664062 107.40625 57.203125 113.960938 C 63.757812 120.515625 74.378906 120.515625 80.953125 113.960938 L 98.042969 96.871094 C 104.550781 90.363281 104.652344 79.726562 98.042969 73.117188 Z"/><g clip-path="url(#gn_c3)"><path fill="#fff" d="M 118.835938 76.078125 C 122.003906 72.910156 123.75 68.691406 123.75 64.210938 C 123.75 54.9375 116.242188 47.414062 106.953125 47.414062 C 102.472656 47.414062 98.253906 49.160156 95.085938 52.324219 C 90.8125 56.597656 82.269531 65.144531 77.996094 69.417969 C 71.507812 75.902344 71.371094 86.542969 77.996094 93.167969 C 79.828125 95 82.09375 96.402344 84.550781 97.214844 C 90.503906 91.265625 91.019531 91.023438 91.78125 89.1875 C 89.152344 89.363281 86.574219 88.410156 84.671875 86.507812 C 81.039062 82.875 81.109375 77.027344 84.671875 73.464844 C 87.855469 70.28125 95.882812 62.253906 99.132812 59.003906 C 102.734375 55.402344 108.578125 55.386719 112.179688 59.003906 C 115.777344 62.601562 115.777344 68.449219 112.179688 72.046875 L 104.046875 80.175781 C 105.066406 84.015625 104.824219 87.890625 103.5625 91.367188 Z"/></g></g><g fill="#0f172a" fill-opacity="1"><g transform="translate(243.214799,313.539633)"><path d="M 62.46875 -35.8125 L 62.46875 -21.9375 C 60.8125 -14.34375 57.191406 -8.59375 51.609375 -4.6875 C 46.035156 -0.789062 39.8125 1.15625 32.9375 1.15625 C 24.3125 1.15625 16.960938 -2.070312 10.890625 -8.53125 C 4.816406 -14.988281 1.78125 -22.789062 1.78125 -31.9375 C 1.78125 -41.226562 4.75 -49.078125 10.6875 -55.484375 C 16.632812 -61.890625 24.050781 -65.09375 32.9375 -65.09375 C 43.320312 -65.09375 51.535156 -61.453125 57.578125 -54.171875 L 48.046875 -43.703125 C 44.640625 -49.179688 39.890625 -51.921875 33.796875 -51.921875 C 29.296875 -51.921875 25.457031 -49.96875 22.28125 -46.0625 C 19.101562 -42.164062 17.515625 -37.457031 17.515625 -31.9375 C 17.515625 -26.507812 19.101562 -21.867188 22.28125 -18.015625 C 25.457031 -14.171875 29.296875 -12.25 33.796875 -12.25 C 37.515625 -12.25 40.753906 -13.367188 43.515625 -15.609375 C 46.273438 -17.859375 47.65625 -20.84375 47.65625 -24.5625 L 32.9375 -24.5625 L 32.9375 -35.8125 Z"/></g></g><g fill="#0f172a" fill-opacity="1"><g transform="translate(307.462326,313.539633)"><path d="M 41.234375 -63.9375 L 41.234375 -51.15625 L 19.21875 -51.15625 L 19.21875 -38.4375 L 40.296875 -38.4375 L 40.296875 -25.65625 L 19.21875 -25.65625 L 19.21875 -12.78125 L 41.234375 -12.78125 L 41.234375 0 L 4.65625 0 L 4.65625 -63.9375 Z"/></g></g><g fill="#0f172a" fill-opacity="1"><g transform="translate(352.412344,313.539633)"><path d="M 57.5 0 L 54.484375 -37.890625 L 54.09375 -37.890625 L 41 -0.390625 L 32.3125 -0.390625 L 19.21875 -37.890625 L 18.828125 -37.890625 L 15.8125 0 L 1.234375 0 L 6.96875 -63.9375 L 22.46875 -63.9375 L 36.65625 -27.046875 L 50.84375 -63.9375 L 66.34375 -63.9375 L 72.078125 0 Z"/></g></g><g fill="#0f172a" fill-opacity="1"><g transform="translate(425.727374,313.539633)"><path d="M 37.125 -63.9375 L 62.9375 0 L 47.28125 0 L 42.546875 -12.78125 L 18.21875 -12.78125 L 13.484375 0 L -2.171875 0 L 23.640625 -63.9375 Z M 37.59375 -25.578125 L 30.453125 -44.171875 L 30.296875 -44.171875 L 23.171875 -25.578125 Z"/></g></g></svg>';
+var _FZ_GEMA_LOGO_DATAURL = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(_FZ_GEMA_LOGO_SVG);
+var _FZ_ETIK = { LW: 49, LH: 23, PAD: 1.6, GAP: 1.4 };
+var _fzEtLogoCache = { src: null, data: null };
+var _fzEtMeasDoc = null;
+var _currentFzgQRVehicle = null;
+
+function _fzEtOrgLogoSrc(){
+  try{
+    if(typeof GemaAuth==='undefined')return '';
+    var u=GemaAuth.getCurrentUser();
+    var orgs=(GemaAuth.getOrgs&&GemaAuth.getOrgs())||[];
+    var org=u?orgs.find(function(o){return o.id===u.orgId;}):null;
+    return (org&&org.logo)||'';
+  }catch(e){return '';}
+}
+function _fzEtLabelLogoSrc(){ return _fzEtOrgLogoSrc()||_FZ_GEMA_LOGO_DATAURL; }
+
+// 1-Bit-Schwarz/Weiss fuer Thermo-Etikettendrucker (identisch _tg/_wz).
+function _fzMonochromeForLabel(ctx,cw,ch){
+  var idata=ctx.getImageData(0,0,cw,ch),d=idata.data;
+  function pass(threshold){
+    var black=0;
+    for(var i=0;i<d.length;i+=4){
+      var a=d[i+3]/255;
+      var r=d[i]*a+255*(1-a);
+      var g=d[i+1]*a+255*(1-a);
+      var b=d[i+2]*a+255*(1-a);
+      var lum=0.299*r+0.587*g+0.114*b;
+      var v=lum<threshold?0:255;
+      d[i]=d[i+1]=d[i+2]=v;d[i+3]=255;
+      if(v===0)black++;
+    }
+    return black/(cw*ch);
+  }
+  var srcCopy=new Uint8ClampedArray(d);
+  var share=pass(176);
+  if(share<0.015){d.set(srcCopy);pass(235);}
+  ctx.putImageData(idata,0,0);
+}
+function _fzEtRasterizeImage(src){
+  return new Promise(function(resolve){
+    if(!src){resolve(null);return;}
+    var img=new Image();
+    img.onload=function(){
+      var nw=img.naturalWidth||img.width||1, nh=img.naturalHeight||img.height||1;
+      var ratio=nw/nh;
+      var longEdge=1400;
+      var cw, ch;
+      if(ratio>=1){cw=longEdge;ch=Math.max(1,Math.round(longEdge/ratio));}
+      else{ch=longEdge;cw=Math.max(1,Math.round(longEdge*ratio));}
+      var cv=document.createElement('canvas');cv.width=cw;cv.height=ch;
+      try{
+        var ctx=cv.getContext('2d');
+        ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality='high';
+        ctx.drawImage(img,0,0,cw,ch);
+        try{_fzMonochromeForLabel(ctx,cw,ch);}catch(e){}
+        resolve({dataUrl:cv.toDataURL('image/png'),ratio:ratio});
+      }catch(e){resolve(null);}
+    };
+    img.onerror=function(){resolve(null);};
+    img.src=src;
+  });
+}
+function _fzEnsureLabelLogo(){
+  var src=_fzEtLabelLogoSrc();
+  if(_fzEtLogoCache.src===src && _fzEtLogoCache.data)return Promise.resolve(_fzEtLogoCache.data);
+  return _fzEtRasterizeImage(src).then(function(r){_fzEtLogoCache={src:src,data:r};return r;});
+}
+function _fzEtW10(text){
+  if(window.jspdf && window.jspdf.jsPDF){
+    if(!_fzEtMeasDoc)_fzEtMeasDoc=new window.jspdf.jsPDF({unit:'mm',format:[_FZ_ETIK.LW,_FZ_ETIK.LH],orientation:'landscape'});
+    _fzEtMeasDoc.setFont('helvetica','bold');
+    _fzEtMeasDoc.setFontSize(10);
+    return _fzEtMeasDoc.getTextWidth(text)||0.01;
+  }
+  return Math.max(String(text).length*10*0.3528*0.55,0.01);
+}
+function _fzEtWrapText(text,maxW,fontPt){
+  var words=String(text).split(/\s+/),lines=[],cur='';
+  function wOf(s){return _fzEtW10(s)*fontPt/10;}
+  for(var i=0;i<words.length;i++){
+    var t=cur?cur+' '+words[i]:words[i];
+    if(wOf(t)<=maxW||!cur){cur=t;}else{lines.push(cur);cur=words[i];}
+  }
+  if(cur)lines.push(cur);
+  return lines.length?lines:[''];
+}
+function _fzEtFitText(text,boxW,boxH,maxFont,minFont){
+  for(var f=maxFont;f>=minFont;f-=0.5){
+    var lines=_fzEtWrapText(text,boxW,f);
+    if(lines.length<=2){
+      var lh=f*0.3528*1.12;
+      if(lines.length*lh<=boxH)return{font:f,lines:lines,lineH:lh};
+    }
+  }
+  var fl=_fzEtWrapText(text,boxW,minFont);
+  return{font:minFont,lines:fl.slice(0,2),lineH:minFont*0.3528*1.12};
+}
+function _fzComputeEtikette(text,logo){
+  var C=_FZ_ETIK,LW=C.LW,LH=C.LH,PAD=C.PAD,GAP=C.GAP;
+  text=String(text==null?'':text).trim()||'—';
+  var qr=LH-2*PAD;
+  var qrX=LW-PAD-qr,qrY=PAD;
+  var colX=PAD,colW=qrX-GAP-PAD,colTop=PAD,colH=LH-2*PAD;
+  var logoBandH=logo?Math.min(8,colH*0.46):0;
+  var logoBox=null;
+  if(logo){
+    var R=logo.ratio||2,bw,bh;
+    if(colW/logoBandH>R){bh=logoBandH;bw=bh*R;}else{bw=colW;bh=bw/R;}
+    logoBox={x:colX,y:colTop+(logoBandH-bh)/2,w:bw,h:bh};
+  }
+  var gapLT=logo?1.0:0;
+  var textTop=colTop+logoBandH+gapLT;
+  var textH=colH-logoBandH-gapLT;
+  var ft=_fzEtFitText(text,colW,textH,12,5.5);
+  return{LW:LW,LH:LH,PAD:PAD,qr:qr,qrX:qrX,qrY:qrY,colX:colX,colW:colW,logoBox:logoBox,textTop:textTop,textH:textH,font:ft.font,lines:ft.lines,lineH:ft.lineH,text:text};
+}
+// Beschriftung: Kennzeichen (+ interne Nr), sonst Modell.
+function _fzEtiketteText(v){
+  if(!v)return '—';
+  var plate=(v.plate||'').trim(), nr=(v.nr||'').trim();
+  if(plate&&nr)return plate+' · '+nr;
+  return plate||nr||v.model||'Fahrzeug';
+}
+function _fzQrForUrlEt(url){
+  var tmp=document.createElement('div');
+  tmp.style.cssText='position:absolute;left:-9999px;top:-9999px';
+  document.body.appendChild(tmp);
+  var out={modules:null,dataUrl:''};
+  try{
+    var qr=new QRCode(tmp,{text:url,width:240,height:240,colorDark:'#111827',colorLight:'#ffffff',correctLevel:QRCode.CorrectLevel.M});
+    if(qr&&qr._oQRCode&&qr._oQRCode.modules)out.modules=qr._oQRCode.modules;
+    var cv=tmp.querySelector('canvas');
+    if(cv){try{out.dataUrl=cv.toDataURL('image/png');}catch(e){}}
+    else{var img=tmp.querySelector('img');if(img&&img.src)out.dataUrl=img.src;}
+  }catch(e){}
+  document.body.removeChild(tmp);
+  return out;
+}
+function _fzDrawQrVector(doc,modules,x,y,size){
+  var count=modules.length;
+  var m=size/count;
+  doc.setFillColor(17,24,39);
+  for(var r=0;r<count;r++){
+    var c=0;
+    while(c<count){
+      if(modules[r][c]){
+        var s=c;
+        while(c<count&&modules[r][c])c++;
+        doc.rect(x+s*m,y+r*m,(c-s)*m,m+0.02,'F');
+      }else{c++;}
+    }
+  }
+}
+function _fzDrawEtikette(doc,spec,qr,logo){
+  if(qr&&qr.modules){_fzDrawQrVector(doc,qr.modules,spec.qrX,spec.qrY,spec.qr);}
+  else if(qr&&qr.dataUrl){try{doc.addImage(qr.dataUrl,'PNG',spec.qrX,spec.qrY,spec.qr,spec.qr);}catch(e){}}
+  if(spec.logoBox&&logo&&logo.dataUrl){
+    try{doc.addImage(logo.dataUrl,'PNG',spec.logoBox.x,spec.logoBox.y,spec.logoBox.w,spec.logoBox.h);}catch(e){}
+  }
+  doc.setFont('helvetica','bold');
+  doc.setTextColor(17,24,39);
+  doc.setFontSize(spec.font);
+  var totalH=spec.lines.length*spec.lineH;
+  var topPad=Math.max((spec.textH-totalH)/2,0);
+  var cx=spec.colX+spec.colW/2;
+  spec.lines.forEach(function(ln,i){
+    var baseY=spec.textTop+topPad+i*spec.lineH+spec.lineH*0.76;
+    doc.text(ln,cx,baseY,{align:'center'});
+  });
+}
+function _fzGetQrDataUrlEt(){
+  var box=document.getElementById('fzgQrCanvas');
+  if(!box)return '';
+  var cv=box.querySelector('canvas');
+  if(cv){try{return cv.toDataURL('image/png');}catch(e){}}
+  var img=box.querySelector('img');
+  if(img&&img.src)return img.src;
+  return '';
+}
+function _fzBuildEtikettePreview(){
+  var box=document.getElementById('fzgQrLabelPreview');
+  if(!box)return;
+  var v=_currentFzgQRVehicle;
+  if(!v){box.innerHTML='';return;}
+  var text=_fzEtiketteText(v);
+  var qrData=_fzGetQrDataUrlEt();
+  _fzEnsureLabelLogo().then(function(logo){
+    if(_currentFzgQRVehicle!==v)return;
+    var spec=_fzComputeEtikette(text,logo);
+    var PX=6.4;
+    var W=spec.LW*PX,H=spec.LH*PX;
+    var fontPx=spec.font*0.3528*PX;
+    var html='';
+    html+='<img alt="QR" src="'+qrData+'" style="position:absolute;left:'+(spec.qrX*PX)+'px;top:'+(spec.qrY*PX)+'px;width:'+(spec.qr*PX)+'px;height:'+(spec.qr*PX)+'px;image-rendering:pixelated"/>';
+    if(spec.logoBox&&logo&&logo.dataUrl){
+      var lb=spec.logoBox;
+      html+='<img alt="Logo" src="'+logo.dataUrl+'" style="position:absolute;left:'+(lb.x*PX)+'px;top:'+(lb.y*PX)+'px;width:'+(lb.w*PX)+'px;height:'+(lb.h*PX)+'px;object-fit:contain"/>';
+    }
+    html+='<div style="position:absolute;left:'+(spec.colX*PX)+'px;top:'+(spec.textTop*PX)+'px;width:'+(spec.colW*PX)+'px;height:'+(spec.textH*PX)+'px;display:flex;align-items:center;justify-content:center;text-align:center;font-weight:700;font-size:'+fontPx+'px;line-height:1.12;color:#111827;overflow:hidden">'+spec.lines.map(esc).join('<br>')+'</div>';
+    box.style.cssText='position:relative;width:'+W+'px;height:'+H+'px;background:#fff;border:1px solid #cbd5e1;border-radius:4px;box-shadow:0 2px 10px rgba(15,23,42,.14);overflow:hidden;font-family:Helvetica,Arial,sans-serif;margin:0 auto';
+    box.innerHTML=html;
+  });
+}
+window.setFzgQrMode=function(mode){
+  var qv=document.getElementById('fzgQrViewQr'),lv=document.getElementById('fzgQrViewLabel');
+  var bq=document.getElementById('fzqm_qr'),bl=document.getElementById('fzqm_label');
+  if(!qv||!lv)return;
+  function act(btn,on){
+    if(!btn)return;
+    btn.style.background=on?'#111':'#f3f4f6';
+    btn.style.color=on?'#fff':'#374151';
+  }
+  if(mode==='label'){
+    qv.style.display='none';lv.style.display='';
+    act(bq,false);act(bl,true);
+    _fzBuildEtikettePreview();
+    _fzEnsureJsPDF().then(function(){_fzBuildEtikettePreview();});
+  }else{
+    qv.style.display='';lv.style.display='none';
+    act(bl,false);act(bq,true);
+  }
+};
+window.downloadFzgEtikettePDF=function(){
+  _fzEnsureJsPDF().then(function(){
+    if(!(window.jspdf&&window.jspdf.jsPDF)){alert('PDF-Bibliothek nicht verfügbar.');return;}
+    var v=_currentFzgQRVehicle;
+    if(!v)return;
+    var text=_fzEtiketteText(v);
+    // Gleiche URL wie der Modal-QR — bestehende Fahrzeug-Tags bleiben konsistent.
+    var qr=_fzQrForUrlEt(location.href.split('?')[0]+'?view='+v.id);
+    if(!qr.modules&&!qr.dataUrl){alert('QR-Code nicht verfügbar.');return;}
+    _fzEnsureLabelLogo().then(function(logo){
+      var spec=_fzComputeEtikette(text,logo);
+      var jsPDF=window.jspdf.jsPDF;
+      var doc=new jsPDF({unit:'mm',format:[spec.LW,spec.LH],orientation:'landscape'});
+      _fzDrawEtikette(doc,spec,qr,logo);
+      var slug=String(text||'Etikette').replace(/[^\w\-]+/g,'_').replace(/^_+|_+$/g,'')||'Etikette';
+      doc.save('Etikette_'+slug+'.pdf');
+    });
+  });
+};
 
 function closeFzgQR(){
   const m=document.getElementById('fzgQrModal');
@@ -4169,17 +4424,32 @@ window.openBerichte = openBerichte;
       </div>
       <button onclick="closeFzgQR()" style="background:none;border:none;font-size:18px;cursor:pointer;color:#6b7280;padding:4px;">✕</button>
     </div>
-    <div style="padding:20px 28px 12px;display:flex;flex-direction:column;align-items:center;gap:14px;">
-      <div id="fzgQrCanvas" style="background:#fff;padding:10px;border-radius:8px;border:1px solid #e5e7eb;"></div>
-      <div id="fzgQrInfo" style="width:100%;font-size:12px;"></div>
-      <div style="display:flex;gap:8px;width:100%;padding-bottom:8px;flex-wrap:wrap;">
-        <button onclick="downloadFzgQR()" style="flex:1 1 90px;padding:8px;background:#111;color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;">⬇ PNG</button>
-        <button onclick="downloadFzgQRSVG()" style="flex:1 1 90px;padding:8px;background:#1d4ed8;color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;">⬇ SVG</button>
-        <button id="fzgNfcBtn" onclick="_fzWriteNFC()" style="display:none;flex:1 1 90px;padding:8px;background:#eff6ff;color:#1d4ed8;border:1.5px solid #bfdbfe;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;justify-content:center;align-items:center;">📡 NFC</button>
-        <button id="fzgNfcLockBtn" onclick="_fzMakeNFCReadOnly()" title="NFC-Tag dauerhaft schreibgeschützt machen — irreversibel" style="display:none;flex:1 1 90px;padding:8px;background:#fef2f2;color:#b91c1c;border:1.5px solid #fecaca;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;justify-content:center;align-items:center;">🔒 Sperren</button>
-        <button onclick="closeFzgQR()" style="flex:1 1 90px;padding:8px;background:#f3f4f6;color:#374151;border:none;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;">Schliessen</button>
+    <div style="padding:14px 28px 12px;display:flex;flex-direction:column;align-items:center;gap:14px;">
+      <!-- Umschalter QR-Code | Etikette (49×23mm, wie Trocknung/Werkzeug) -->
+      <div style="display:flex;gap:6px;width:100%;">
+        <button id="fzqm_qr" onclick="setFzgQrMode('qr')" style="flex:1;padding:8px;background:#111;color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;">🔲 QR-Code</button>
+        <button id="fzqm_label" onclick="setFzgQrMode('label')" style="flex:1;padding:8px;background:#f3f4f6;color:#374151;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;">🏷 Etikette</button>
       </div>
-      <div id="fzgNfcStatus" style="text-align:center;font-size:11px;color:#6b7280;margin-top:-4px;width:100%;"></div>
+      <div id="fzgQrViewQr" style="width:100%;display:flex;flex-direction:column;align-items:center;gap:14px;">
+        <div id="fzgQrCanvas" style="background:#fff;padding:10px;border-radius:8px;border:1px solid #e5e7eb;"></div>
+        <div id="fzgQrInfo" style="width:100%;font-size:12px;"></div>
+        <div style="display:flex;gap:8px;width:100%;padding-bottom:8px;flex-wrap:wrap;">
+          <button onclick="downloadFzgQR()" style="flex:1 1 90px;padding:8px;background:#111;color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;">⬇ PNG</button>
+          <button onclick="downloadFzgQRSVG()" style="flex:1 1 90px;padding:8px;background:#1d4ed8;color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;">⬇ SVG</button>
+          <button id="fzgNfcBtn" onclick="_fzWriteNFC()" style="display:none;flex:1 1 90px;padding:8px;background:#eff6ff;color:#1d4ed8;border:1.5px solid #bfdbfe;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;justify-content:center;align-items:center;">📡 NFC</button>
+          <button id="fzgNfcLockBtn" onclick="_fzMakeNFCReadOnly()" title="NFC-Tag dauerhaft schreibgeschützt machen — irreversibel" style="display:none;flex:1 1 90px;padding:8px;background:#fef2f2;color:#b91c1c;border:1.5px solid #fecaca;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;justify-content:center;align-items:center;">🔒 Sperren</button>
+          <button onclick="closeFzgQR()" style="flex:1 1 90px;padding:8px;background:#f3f4f6;color:#374151;border:none;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;">Schliessen</button>
+        </div>
+        <div id="fzgNfcStatus" style="text-align:center;font-size:11px;color:#6b7280;margin-top:-4px;width:100%;"></div>
+      </div>
+      <div id="fzgQrViewLabel" style="width:100%;display:none;flex-direction:column;align-items:center;gap:14px;">
+        <div id="fzgQrLabelPreview"></div>
+        <div style="font-size:11px;color:#9ca3af;text-align:center;">Druckfertige Etikette 49×23 mm — Logo druckoptimiert für 300dpi-Etikettendrucker.</div>
+        <div style="display:flex;gap:8px;width:100%;padding-bottom:8px;flex-wrap:wrap;">
+          <button onclick="downloadFzgEtikettePDF()" style="flex:1 1 120px;padding:8px;background:#111;color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;">⬇ Etikette als PDF</button>
+          <button onclick="closeFzgQR()" style="flex:1 1 90px;padding:8px;background:#f3f4f6;color:#374151;border:none;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;">Schliessen</button>
+        </div>
+      </div>
     </div>
   </div>
 </div>
