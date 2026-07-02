@@ -5161,17 +5161,42 @@ function _wzGetOrgLogoSrc(){
 }
 function _wzLabelLogoSrc(){ return _wzGetOrgLogoSrc()||_WZ_GEMA_LOGO_DATAURL; }
 
+// 1-Bit-Schwarz/Weiss-Konvertierung fuer 300dpi-Thermo-Etikettendrucker:
+// Graustufen/AA-Kanten wuerden gedithert (fleckig) — harter Schwellwert
+// ergibt gestochen scharfe Kanten. Details siehe _tgMonochromeForLabel
+// in if_trocknung.html (identische Logik) + CLAUDE.md «Etiketten-System».
+function _wzMonochromeForLabel(ctx,cw,ch){
+  var idata=ctx.getImageData(0,0,cw,ch),d=idata.data;
+  function pass(threshold){
+    var black=0;
+    for(var i=0;i<d.length;i+=4){
+      var a=d[i+3]/255;
+      var r=d[i]*a+255*(1-a);
+      var g=d[i+1]*a+255*(1-a);
+      var b=d[i+2]*a+255*(1-a);
+      var lum=0.299*r+0.587*g+0.114*b;
+      var v=lum<threshold?0:255;
+      d[i]=d[i+1]=d[i+2]=v;d[i+3]=255;
+      if(v===0)black++;
+    }
+    return black/(cw*ch);
+  }
+  var src=new Uint8ClampedArray(d);
+  var share=pass(176);
+  if(share<0.015){d.set(src);pass(235);}
+  ctx.putImageData(idata,0,0);
+}
 function _wzRasterizeImage(src){
   return new Promise(function(resolve){
     if(!src){resolve(null);return;}
-    // Vektor-Quellen (SVG, GEMA-Logo) hochaufgeloest rendern; Raster-Quellen
-    // (hochgeladene Firmenlogos) NICHT hochskalieren (wuerde nur unschaerfer).
-    var isVec=/^data:image\/svg|\.svg(\?|#|$)/i.test(src);
     var img=new Image();
     img.onload=function(){
       var nw=img.naturalWidth||img.width||1, nh=img.naturalHeight||img.height||1;
       var ratio=nw/nh;
-      var longEdge=isVec?1400:Math.min(1600,Math.max(nw,nh));
+      // IMMER hochaufloesend rastern (lange Kante 1400px) — auch kleine
+      // Raster-Logos werden EINMAL hochwertig hochskaliert, statt dass
+      // der Drucker-RIP grob auf die 8mm-Logobox zieht (Pixelkloetze).
+      var longEdge=1400;
       var cw, ch;
       if(ratio>=1){cw=longEdge;ch=Math.max(1,Math.round(longEdge/ratio));}
       else{ch=longEdge;cw=Math.max(1,Math.round(longEdge*ratio));}
@@ -5180,6 +5205,7 @@ function _wzRasterizeImage(src){
         var ctx=cv.getContext('2d');
         ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality='high';
         ctx.drawImage(img,0,0,cw,ch);
+        try{_wzMonochromeForLabel(ctx,cw,ch);}catch(e){/* tainted canvas — Graustufen belassen */}
         resolve({dataUrl:cv.toDataURL('image/png'),ratio:ratio});
       }catch(e){resolve(null);}
     };
