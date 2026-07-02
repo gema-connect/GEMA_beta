@@ -642,6 +642,16 @@ Storage-Key: `gema_werkzeug` via `_GemaDB`. Felder pro Werkzeug:
 | `ersatzAnfragen:[{id,lieferantId,lieferantFirma,typ,nachricht,status,erstelltAm,antwort?,...}]` | Ersatz-/Nachfolger-Anfragen an Lieferanten; `antwort` = Offerte des Lieferanten (preis, nachricht, pdfUrl/pdfDataUrl) |
 | `reparatur:{offen,lieferantId,lieferantFirma,defektBerichtId,termin,bemerkung,gestartetAm,abgeschlossenAm?}` | Vom Lieferanten eröffnete Reparatur (koppelt `lifecycleStatus:'in_reparatur'`) |
 
+### Koffer (Werkzeug-Sets, if_werkzeug.html)
+
+Ein **Koffer** bündelt mehrere Werkzeuge (z.B. Bohrhammer + Akku + Ladegerät) und ist ein **normaler Tool-Datensatz** mit Kategorie `koffer` (`_wzIsKoffer(t)` = `cat==='koffer' || istKoffer===true`) und geordneter Inhaltsliste `kofferInhalt:[toolId,…]`. Dadurch erbt er QR-Code (`?scan=<id>` für den Kofferdeckel), Etikette, Suche und Ausleihe-Historie vom bestehenden System.
+
+- **Erstellen**: «🧰 Koffer»-Toolbar-Button (nur Magaziner/Admin) → `openNeuerKoffer()` → kompakter Dialog → öffnet direkt den Inhalt-Editor.
+- **Inhalt/Reihenfolge** (`openKofferInhalt`): Teile hinzufügen (Suche über eigene Werkzeuge; ein Werkzeug kann nur in EINEM Koffer sein, `_wzKofferOf`), entfernen, ↑↓-Reihenfolge. Berechtigung `_wzCanEditKoffer(k)`: Magaziner/Admin ODER der **zugeteilte Monteur** (`zugewiesenAn.userId === me`, typ user) — einzige Ausnahme vom Monteur-Editier-Verbot, nur für SEINE Koffer.
+- **Ausleihen** (`_wzKofferAusleihe`, Hook in `_wzOpenAusleihe`/`_wzLendToSelf`): Checkliste mit allen Standard-Teilen **vorausgewählt**; bereits einzeln ausgeliehene Teile sind abgewählt+gesperrt («bereits ausgeliehen an X»). Alle angehakten Teile werden mit `ausgeliehenAn={…, viaKoffer:<kofferId>}` an dieselbe Person ausgeliehen. Einzel-Ausleihe von Koffer-Teilen bleibt möglich.
+- **Rückgabe** (`_wzKofferRueckgabe`, Hook in `_wzReturnTool`): Vollständigkeitskontrolle — alle via Koffer ausgeliehenen Teile vorausgewählt; **abgewählte (fehlende) Teile bleiben einzeln ausgeliehen** (`viaKoffer` wird entfernt) und der Magaziner bekommt `werkzeug_koffer_fehlteil` (Notify, role+org).
+- `deleteTool` räumt gelöschte IDs aus allen `kofferInhalt`-Listen. Karten zeigen «🧰 N Teile + Inhalt-Button» (Koffer) bzw. «🧰 Im Koffer <Name>» (Teil).
+
 ### QR-Code & Etiketten (if_werkzeug.html)
 
 Werkzeug hat **dasselbe Etiketten-System wie das Trocknungs-Modul** (siehe Abschnitt «Etiketten-System (komplett)» unter Trocknungsgeräte für die vollständige Logik) — portiert mit `_wz`-Prefix:
@@ -1327,6 +1337,7 @@ Zentrales Modul `gema_notify.js` für In-App-Benachrichtigungen. Glocke + Toast-
 | `werkzeug_ersatz_anfrage` | werkzeug | on |
 | `werkzeug_offerte_lieferant` | werkzeug | on |
 | `werkzeug_reparatur` | werkzeug | on |
+| `werkzeug_koffer_fehlteil` | werkzeug | on |
 | `fahrzeug_service_faellig` | fahrzeug | on |
 | `fahrzeug_service_erledigt` | fahrzeug | on |
 | `fahrzeug_garagist_zugewiesen` | fahrzeug | on |

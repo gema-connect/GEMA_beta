@@ -80,6 +80,11 @@
       modul:'werkzeug',
       defaultOn:true
     },
+    werkzeug_koffer_fehlteil: {
+      label:'Koffer unvollständig zurückgegeben',
+      modul:'werkzeug',
+      defaultOn:true
+    },
     fahrzeug_service_faellig: {
       label:'Fahrzeug-Service oder MFK fällig',
       modul:'fahrzeug',
