@@ -22,7 +22,10 @@
       // Overlay
       _overlay=document.createElement('div');
       _overlay.id='gemaQrOverlay';
-      _overlay.style.cssText='position:fixed;inset:0;z-index:9000;background:rgba(0,0,0,.9);display:flex;flex-direction:column;align-items:center;justify-content:center';
+      // z-index ueber den Modul-Modals (z.B. _wzShowModal: 10500) — der
+      // Scanner wird auch aus offenen Dialogen heraus gestartet (Koffer-
+      // Sammelscan) und muss dann zuoberst liegen.
+      _overlay.style.cssText='position:fixed;inset:0;z-index:12000;background:rgba(0,0,0,.9);display:flex;flex-direction:column;align-items:center;justify-content:center';
       _overlay.innerHTML='<div style="color:#fff;font-size:18px;font-weight:800;margin-bottom:16px">📷 QR-Code scannen</div>'
         +'<div id="gemaQrReader" style="width:300px;height:300px;border-radius:16px;overflow:hidden"></div>'
         +'<button onclick="GemaQR.stop()" style="margin-top:16px;padding:10px 24px;border-radius:10px;border:none;background:#dc2626;color:#fff;font-size:14px;font-weight:700;cursor:pointer">✕ Abbrechen</button>';

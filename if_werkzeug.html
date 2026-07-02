@@ -3040,7 +3040,11 @@ window.openKofferInhalt=function(kofferId){
   var addHtml=canEdit
     ?('<div style="border-top:1px dashed #e5e7eb;margin-top:14px;padding-top:12px">'
       +'<label class="dlg-lbl">+ Werkzeug hinzufügen</label>'
-      +'<input id="kofSearch" class="dlg-inp" placeholder="Suchen (Name, Marke, Kennung) …" oninput="_wzKofferSearch(\''+esc(k.id)+'\')"/>'
+      +'<div style="display:flex;gap:8px;margin-bottom:8px">'
+      +'<button onclick="_wzKofferScanQR(\''+esc(k.id)+'\')" style="flex:1;padding:11px;border-radius:10px;border:1.5px solid #854d0e;background:#fff;color:#854d0e;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;display:flex;align-items:center;justify-content:center;gap:6px;min-height:44px">📷 QR-Sammelscan</button>'
+      +'<button onclick="_wzKofferScanNFC(\''+esc(k.id)+'\')" style="flex:1;padding:11px;border-radius:10px;border:1.5px solid #1d4ed8;background:#eff6ff;color:#1d4ed8;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;display:flex;align-items:center;justify-content:center;gap:6px;min-height:44px">📡 NFC-Sammelscan</button>'
+      +'</div>'
+      +'<input id="kofSearch" class="dlg-inp" placeholder="Oder suchen (Name, Marke, Kennung) …" oninput="_wzKofferSearch(\''+esc(k.id)+'\')"/>'
       +'<div id="kofSearchRes" style="display:flex;flex-direction:column;gap:6px;margin-top:8px;max-height:220px;overflow-y:auto"></div>'
       +'</div>')
     :'<div style="font-size:11px;color:#94a3b8;margin-top:12px">Inhalt kann nur vom zugeteilten Monteur oder Magaziner/Admin angepasst werden.</div>';
@@ -3113,6 +3117,96 @@ window._wzKofferMove=function(kofferId,toolId,dir){
   arr[i]=arr[j];arr[j]=toolId;
   save();
   openKofferInhalt(kofferId);
+};
+
+// ── Sammelscan (QR/NFC): Werkzeuge direkt in den Koffer scannen ──
+// Kurzes, nicht-blockierendes Feedback-Pill (Alerts wuerden die
+// Scan-Schleife unterbrechen).
+function _wzKofferScanFeedback(msg,ok){
+  var old=document.getElementById('kofScanFb');if(old)old.remove();
+  var d=document.createElement('div');
+  d.id='kofScanFb';
+  d.style.cssText='position:fixed;bottom:calc(150px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);z-index:12500;padding:10px 18px;border-radius:10px;font-size:13px;font-weight:700;color:#fff;box-shadow:0 4px 16px rgba(0,0,0,.25);background:'+(ok?'#16a34a':'#dc2626')+';max-width:calc(100% - 32px);text-align:center';
+  d.textContent=msg;
+  document.body.appendChild(d);
+  setTimeout(function(){d.remove();},2200);
+}
+// Gescannte ID (aus ?scan=-URL oder Roh-ID) validieren und in den Koffer
+// legen. Gibt true bei Erfolg zurueck.
+function _wzKofferAddFromScan(kofferId,rawId){
+  var k=tools.find(function(x){return x.id===kofferId;});
+  if(!k||!_wzCanEditKoffer(k)){_wzKofferScanFeedback('Keine Berechtigung.',false);return false;}
+  var id=(rawId||'').trim();
+  if(!id)return false;
+  var t=tools.find(function(x){return x.id===id;});
+  if(!t){_wzKofferScanFeedback('Werkzeug nicht gefunden.',false);return false;}
+  if(t.id===k.id){_wzKofferScanFeedback('Das ist der Koffer selbst.',false);return false;}
+  if(_wzIsKoffer(t)){_wzKofferScanFeedback('Koffer können nicht in Koffer gelegt werden.',false);return false;}
+  var already=_wzKofferOf(t.id);
+  if(already&&already.id===k.id){_wzKofferScanFeedback('«'+t.name+'» ist bereits in diesem Koffer.',false);return false;}
+  if(already){_wzKofferScanFeedback('«'+t.name+'» ist bereits im Koffer «'+already.name+'».',false);return false;}
+  if(!Array.isArray(k.kofferInhalt))k.kofferInhalt=[];
+  k.kofferInhalt.push(t.id);
+  save();renderList();
+  _wzActLog('geaendert','Koffer-Inhalt: + '+t.name+' (per Scan)',k);
+  if(navigator.vibrate)try{navigator.vibrate(80);}catch(e){}
+  _wzKofferScanFeedback('✅ '+t.name+' hinzugefügt ('+(k.kofferInhalt.length)+' Teile)',true);
+  // Inhalt-Editor im Hintergrund aktualisieren, falls er offen ist
+  if(document.getElementById('_wzModalOverlay'))openKofferInhalt(kofferId);
+  return true;
+}
+// QR-Sammelscan: nach jedem Treffer oeffnet sich der Scanner erneut —
+// beenden ueber den Abbrechen-Button des Scanners.
+window._wzKofferScanQR=function(kofferId){
+  if(typeof GemaQR==='undefined'){alert('QR-Scanner nicht verfügbar');return;}
+  GemaQR.scan(function(code){
+    var id=code||'';
+    if(id.indexOf('scan=')>=0)id=id.split('scan=')[1].split('&')[0];
+    else if(id.indexOf('view=')>=0)id=id.split('view=')[1].split('&')[0];
+    _wzKofferAddFromScan(kofferId,decodeURIComponent(id));
+    setTimeout(function(){_wzKofferScanQR(kofferId);},350);
+  });
+};
+// NFC-Sammelscan: kontinuierlicher Lese-Loop (Android Chrome, Web-NFC),
+// gleiche Mechanik wie die Sammel-Ausleihe.
+window._wzKofferScanNFC=function(kofferId){
+  if(!('NDEFReader' in window)){
+    alert('Web-NFC ist auf diesem Gerät nicht verfügbar.\n\niPhone: Nutze den 📷 QR-Sammelscan.\n\nAndroid: Verwende Chrome für den NFC-Scan.');
+    return;
+  }
+  var old=document.getElementById('kofNfcStatus');if(old)old.remove();
+  var oldBtn=document.getElementById('kofNfcClose');if(oldBtn)oldBtn.remove();
+  var nfcStatus=document.createElement('div');
+  nfcStatus.id='kofNfcStatus';
+  nfcStatus.style.cssText='position:fixed;bottom:calc(80px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);background:#1d4ed8;color:#fff;padding:12px 24px;border-radius:12px;font-size:14px;font-weight:700;z-index:11000;box-shadow:0 4px 16px rgba(0,0,0,.2)';
+  nfcStatus.textContent='📡 Werkzeug-Tag scannen …';
+  document.body.appendChild(nfcStatus);
+  var reader=new NDEFReader();
+  reader.scan().then(function(){
+    reader.addEventListener('reading',function(ev){
+      var url='';
+      ev.message.records.forEach(function(r){
+        if(r.recordType==='url'||r.recordType==='text'){url=new TextDecoder().decode(r.data);}
+      });
+      if(!url)return;
+      var id=url;
+      if(url.indexOf('scan=')>=0)id=url.split('scan=')[1].split('&')[0];
+      else if(url.indexOf('view=')>=0)id=url.split('view=')[1].split('&')[0];
+      var ok=_wzKofferAddFromScan(kofferId,decodeURIComponent(id));
+      nfcStatus.textContent=ok?'✅ Hinzugefügt! Nächstes Tag scannen …':'📡 Werkzeug-Tag scannen …';
+      setTimeout(function(){if(document.getElementById('kofNfcStatus'))nfcStatus.textContent='📡 Werkzeug-Tag scannen …';},1500);
+    });
+  }).catch(function(e){
+    nfcStatus.remove();
+    var cb=document.getElementById('kofNfcClose');if(cb)cb.remove();
+    alert('NFC-Fehler: '+e.message);
+  });
+  var closeBtn=document.createElement('button');
+  closeBtn.textContent='NFC beenden';
+  closeBtn.id='kofNfcClose';
+  closeBtn.style.cssText='position:fixed;bottom:calc(130px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);background:#fff;color:#1d4ed8;border:2px solid #1d4ed8;padding:8px 20px;border-radius:10px;font-size:13px;font-weight:700;z-index:11000;cursor:pointer;font-family:inherit';
+  closeBtn.onclick=function(){nfcStatus.remove();closeBtn.remove();};
+  document.body.appendChild(closeBtn);
 };
 
 // ── Koffer ausleihen: Checkliste, Standard-Teile vorausgewaehlt ──
@@ -3550,23 +3644,28 @@ function _wzSammelScanNFC(){
 }
 
 function _wzSammelScanQR(){
-  if(typeof GemaQRScanner==='undefined'){alert('QR-Scanner nicht verfügbar');return;}
-  GemaQRScanner.scan(function(code){
+  // BUGFIX: der Helper exportiert GemaQR (nicht GemaQRScanner) — der alte
+  // Check schlug immer fehl und der Scan-Button war funktionslos.
+  if(typeof GemaQR==='undefined'){alert('QR-Scanner nicht verfügbar');return;}
+  GemaQR.scan(function(code){
     var id=code;
     if(code.indexOf('scan=')>=0)id=code.split('scan=')[1].split('&')[0];
     else if(code.indexOf('view=')>=0)id=code.split('view=')[1].split('&')[0];
     _wzSammelFromScan(decodeURIComponent(id));
+    // Sammelscan: Scanner nach kurzem Feedback erneut oeffnen, bis der
+    // User im Scanner auf Abbrechen tippt.
+    setTimeout(_wzSammelScanQR,350);
   });
 }
 
 // Monteur-Empty-State: oeffnet die Kamera, sucht einen QR-Code und
 // fuehrt zur Werkzeug-Detail-Ansicht (mit Ausleihe/Defekt-Aktionen).
 function _wzScanWithCamera(){
-  if(typeof GemaQRScanner==='undefined'){
+  if(typeof GemaQR==='undefined'){
     GemaDialog.alert({title:'QR-Scanner nicht verfügbar', message:'Die Kamera-Funktion benötigt einen modernen Browser (Chrome / Safari).'});
     return;
   }
-  GemaQRScanner.scan(function(code){
+  GemaQR.scan(function(code){
     var id=code;
     if(code && code.indexOf('scan=')>=0)id=code.split('scan=')[1].split('&')[0];
     else if(code && code.indexOf('view=')>=0)id=code.split('view=')[1].split('&')[0];
