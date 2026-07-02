@@ -360,7 +360,8 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
 .apb{background:var(--plan-bg);border:1.5px solid var(--plan-bd);border-radius:13px;padding:16px 18px}
 .apb-title{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--plan);margin-bottom:13px}
 .apb-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-.apb-inp{padding:8px 12px;border:1.5px solid var(--brd2);border-radius:9px;font-size:13px;font-family:var(--sans);outline:none;background:var(--sur);color:var(--txt);width:100%;transition:.15s}
+/* 16px verhindert den iOS-Auto-Zoom beim Fokussieren (Safari zoomt bei <16px). */
+.apb-inp{padding:10px 12px;border:1.5px solid var(--brd2);border-radius:9px;font-size:16px;font-family:var(--sans);outline:none;background:var(--sur);color:var(--txt);width:100%;transition:.15s}
 .apb-inp:focus{border-color:var(--plan);box-shadow:0 0 0 3px rgba(124,58,237,.1)}
 .apb-btn{grid-column:1/-1;padding:10px;border-radius:10px;border:none;background:var(--plan);color:#fff;font-size:13.5px;font-weight:800;cursor:pointer;transition:.15s}
 .apb-btn:hover{background:var(--plan-dk)}
@@ -411,6 +412,24 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
 
 @media(max-width:1000px){.stats-row{grid-template-columns:repeat(3,1fr)}}
 @media(max-width:640px){.stats-row{grid-template-columns:1fr 1fr}.card-grid{grid-template-columns:1fr}.tc-dates{grid-template-columns:1fr}}
+/* Phone: gepaarte Formularfelder untereinander statt nebeneinander.
+   (Die generische Regel in gema_responsive.css greift nicht — .fg-row ist
+   flex, nicht grid.) width:0 aus der Desktop-Regel zuruecksetzen! */
+@media(max-width:640px){
+  .fg-row{flex-direction:column;gap:14px}
+  .fg-row>.fg{flex:1 1 auto;width:100%}
+  .apb-grid{grid-template-columns:1fr}
+}
+/* Touch-Geraete: Mindestgroessen fuer die Buttons dieses Moduls — der
+   globale Touch-Block in gema_responsive.css kennt nur .btn/.g-btn etc.
+   und verfehlt .tc-act/.pl-del/.modal-x/.vt-btn komplett. */
+@media(hover:none) and (pointer:coarse){
+  .tc-act{min-height:40px;padding:9px 12px;font-size:12px;display:inline-flex;align-items:center}
+  .pl-del{min-height:40px;padding:8px 12px;display:inline-flex;align-items:center}
+  .modal-x{width:40px;height:40px}
+  .vt-btn{min-height:40px}
+  .apb-btn{min-height:44px}
+}
 @media print{.g-nav,.toolbar,.tc-actions,.modal-bg{display:none!important}}
 
   /* ── Nav Breadcrumb ── (DUPLIKAT-Block aus altem Media-Query, jetzt global) */
@@ -964,6 +983,9 @@ function _wzActLog(aktion, beschreibung, tool, details){
     var recName= (tool && (tool.name || tool.serial)) || (details && details.name) || '';
     window.GemaActivityLog.log({
       modul:'werkzeug',
+      // Eintrag gehoert zur Org des WERKZEUGS — bei Cross-Org-Aktionen
+      // (externer Lieferant/Pruefer) sonst falsch der Bearbeiter-Org zugeordnet.
+      orgId: (tool && tool.orgId) || undefined,
       modulRecordId: recId,
       modulRecordName: recName,
       aktion: aktion,
@@ -1158,7 +1180,7 @@ function _wzRenderBulkBar(){
   if(!bar){
     if(!_wzBulkMode)return;
     bar=document.createElement('div');bar.id='wzBulkBar';
-    bar.style.cssText='position:fixed;bottom:16px;left:50%;transform:translateX(-50%);z-index:900;background:#0f172a;color:#fff;border-radius:14px;padding:10px 16px;display:flex;align-items:center;gap:12px;box-shadow:0 12px 32px rgba(0,0,0,.25);font-size:13px;font-weight:700;flex-wrap:wrap;max-width:calc(100% - 32px)';
+    bar.style.cssText='position:fixed;bottom:calc(16px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);z-index:900;background:#0f172a;color:#fff;border-radius:14px;padding:10px 16px;display:flex;align-items:center;gap:12px;box-shadow:0 12px 32px rgba(0,0,0,.25);font-size:13px;font-weight:700;flex-wrap:wrap;max-width:calc(100% - 32px)';
     document.body.appendChild(bar);
   }
   if(!_wzBulkMode){bar.remove();return;}
@@ -1878,16 +1900,46 @@ function _wzWriteAllRaw(arr){
     try{ localStorage.setItem('gema_werkzeug', JSON.stringify(arr)); }catch(e){}
   }
 }
+// Meine Lieferanten-Team-IDs: eigene User-ID plus alle User desselben
+// Lieferanten-Datensatzes (user.lieferantId) — damit Auftraege, die an einen
+// Kollegen adressiert wurden, fuer das ganze Lieferanten-Team sichtbar sind.
+function _wzMyLiefUserIds(){
+  var u=_wzGetUser(); if(!u) return [];
+  var ids=[u.id];
+  try{
+    if(u.lieferantId && typeof GemaAuth!=='undefined' && GemaAuth.getUsers){
+      (GemaAuth.getUsers()||[]).forEach(function(x){
+        if(x && x.lieferantId===u.lieferantId && ids.indexOf(x.id)<0) ids.push(x.id);
+      });
+    }
+  }catch(e){}
+  return ids;
+}
+// Ist der User als externer Lieferant/Pruefer an diesem Tool beauftragt?
+function _wzIsBeauftragt(t, myIds){
+  if(!t) return false;
+  if(t.pruefAnfrage && myIds.indexOf(t.pruefAnfrage.lieferantId)>=0) return true;
+  if(t.supplierId && myIds.indexOf(t.supplierId)>=0) return true;
+  if((t.ersatzAnfragen||[]).some(function(a){ return myIds.indexOf(a.lieferantId)>=0; })) return true;
+  return false;
+}
 const save=()=>{
   var u=_wzGetUser();
   var orgId=u&&u.orgId?u.orgId:'';
   var all=_wzReadAllRaw();
-  // Fremde Orgs erhalten, eigene komplett ersetzen
+  // Fremde Orgs erhalten, eigene komplett ersetzen. Cross-Org-Sonderfall
+  // Lieferant/Pruefer: beauftragte Fremd-Org-Tools sind in `tools` geladen
+  // (siehe load) — diese per ID aus `others` ausschliessen, sonst wuerden
+  // sie doppelt geschrieben bzw. Aenderungen ueberschrieben.
+  var mineIds={};
+  tools.forEach(function(t){ if(t&&t.id) mineIds[t.id]=true; });
   var others=all.filter(function(t){
+    if(mineIds[t.id]) return false;
     if(!orgId) return false; // ohne orgId nichts erhalten — Migration setzt orgId
     return t.orgId && t.orgId!==orgId;
   });
-  // Eigene Tools immer mit aktueller orgId stempeln (Sicherheitsnetz)
+  // Eigene Tools immer mit aktueller orgId stempeln (Sicherheitsnetz).
+  // Fremd-Org-Tools (Beauftragung) behalten ihre orgId unveraendert.
   var mine=tools.map(function(t){
     if(!t.orgId && orgId) t.orgId=orgId;
     return t;
@@ -1924,6 +1976,27 @@ const load=(cloudArr)=>{
   } else {
     tools=all.slice(); // kein User → keine Filterung (Demo-Modus)
   }
+  // Cross-Org-Sonderfall (analog Garagist im Fahrzeugmodul): externe
+  // Lieferanten/Pruefer sehen zusaetzlich die Fremd-Org-Werkzeuge, an denen
+  // sie beauftragt sind (Pruefanfrage, Lieferant-Verknuepfung, Ersatzanfrage).
+  // Ohne diesen Pfad liefen die Notifikations-Deep-Links (?pruef_lief=…)
+  // fuer externe Partner ins Leere.
+  try{
+    var roles=(u&&u.roleIds)||[];
+    var isExternPartner=roles.some(function(r){
+      return typeof r==='string' && (r.indexOf('role_lieferant')===0 || r==='role_pruefer');
+    });
+    if(isExternPartner){
+      var myIds=_wzMyLiefUserIds();
+      var haveIds={};
+      tools.forEach(function(t){ if(t&&t.id) haveIds[t.id]=true; });
+      all.forEach(function(t){
+        if(t && !haveIds[t.id] && t.orgId && t.orgId!==orgId && _wzIsBeauftragt(t,myIds)){
+          tools.push(t);
+        }
+      });
+    }
+  }catch(e){}
 };
 
 // ──────────────────────────────────────
@@ -3356,13 +3429,26 @@ function openBerichte(toolId){
     list=ber.slice().reverse().map(function(b){
       var isDef=b.typ==='defekt';
       var isUe=b.typ==='uebergabe';
-      var bgCol=isUe?'#fefce8':isDef?(b.erledigt?'#f0fdf4':'#fff7ed'):'#eff6ff';
-      var brdCol=isUe?'#fde68a':isDef?(b.erledigt?'#bbf7d0':'#fed7aa'):'#bfdbfe';
-      var icon=isUe?'🔄':isDef?'⚠':'📋';
-      var typLabel=isUe?'Übergabe':isDef?('Defekt'+(b.erledigt?' ✓':'')):'Prüfbericht';
+      var isRep=b.typ==='reparatur';
+      var bgCol=isRep?'#eef2ff':isUe?'#fefce8':isDef?(b.erledigt?'#f0fdf4':'#fff7ed'):'#eff6ff';
+      var brdCol=isRep?'#c7d2fe':isUe?'#fde68a':isDef?(b.erledigt?'#bbf7d0':'#fed7aa'):'#bfdbfe';
+      var icon=isRep?'🔧':isUe?'🔄':isDef?'⚠':'📋';
+      var typLabel=isRep?'Reparatur (Lieferant)':isUe?'Übergabe':isDef?('Defekt'+(b.erledigt?' ✓':'')):'Prüfbericht';
       var teileHtml='';
       if(b.fehlendeTeile && b.fehlendeTeile.length){
         teileHtml='<div style="margin-top:6px;font-size:11px;color:#b91c1c"><strong>Fehlende Teile:</strong> '+b.fehlendeTeile.map(esc).join(', ')+'</div>';
+      }
+      // Antwort des Lieferanten auf eine Defektmeldung (Offerte mit PDF)
+      var liefAntwortHtml='';
+      if(b.lieferantAntwort){
+        var la=b.lieferantAntwort;
+        liefAntwortHtml='<div style="margin-top:6px;padding:8px 10px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;font-size:12px">'
+          +'<strong>✉ Offerte von '+esc(la.von||'Lieferant')+'</strong>'
+          +(la.preis?' · <strong>CHF '+esc(String(la.preis))+'</strong>':'')
+          +(la.nachricht?'<div style="color:#374151;margin-top:2px">'+esc(la.nachricht)+'</div>':'')
+          +(la.pdfUrl?'<div style="margin-top:2px"><a href="'+esc(la.pdfUrl)+'" target="_blank" rel="noopener" style="color:#2563eb;font-weight:700">📄 '+esc(la.pdfName||'Offerte.pdf')+'</a></div>'
+            :(la.pdfDataUrl?'<div style="margin-top:2px"><a href="'+la.pdfDataUrl+'" download="'+esc(la.pdfName||'Offerte.pdf')+'" style="color:#2563eb;font-weight:700">📄 '+esc(la.pdfName||'Offerte.pdf')+'</a></div>':''))
+          +'</div>';
       }
       var aktion='';
       if(isDef && !b.erledigt && _wzCanEdit()){
@@ -3385,7 +3471,35 @@ function openBerichte(toolId){
         +(b.signature?'<div style="margin-top:6px"><div style="font-size:10px;color:#94a3b8;font-weight:700;text-transform:uppercase;letter-spacing:.3px;margin-bottom:2px">Unterschrift</div><img src="'+b.signature+'" alt="Unterschrift" style="max-width:200px;height:auto;border:1px solid #e5e7eb;border-radius:6px;background:#fff;cursor:pointer" onclick="_wzPhotoLightbox(this.src)"/></div>':'')
         +(b.naechstePruefung?'<div style="font-size:11px;color:#6366f1;margin-top:4px">Nächste Prüfung: '+fmt(b.naechstePruefung)+'</div>':'')
         +(b.followUpDate?'<div style="margin-top:6px;padding:5px 8px;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;font-size:11px;color:#92400e"><strong>📅 Folge-Termin '+fmt(b.followUpDate)+':</strong> '+esc(b.followUpText||'pruefen')+'</div>':'')
+        +liefAntwortHtml
         +aktion
+        +'</div>';
+    }).join('');
+  }
+  // Ersatzanfragen inkl. Lieferanten-Antworten (Offerten) — Historie fuer
+  // den Magaziner an derselben Stelle wie die Berichte.
+  var ea=t.ersatzAnfragen||[];
+  if(ea.length){
+    list+='<div style="font-size:11px;font-weight:800;color:#64748b;text-transform:uppercase;letter-spacing:.3px;margin:10px 0 6px">🔄 Ersatzanfragen</div>';
+    list+=ea.slice().reverse().map(function(a){
+      var typLabel=a.typ==='ersatz'?'Gleiches Modell':a.typ==='nachfolger'?'Nachfolger':'Alternative';
+      var stBadge=a.status==='beantwortet'
+        ?'<span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:6px;background:#f0fdf4;color:#16a34a">✓ Beantwortet</span>'
+        :'<span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:6px;background:#fffbeb;color:#d97706">⟳ Offen</span>';
+      var antHtml='';
+      if(a.antwort){
+        antHtml='<div style="margin-top:6px;padding:8px 10px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;font-size:12px">'
+          +'<strong>✉ Offerte von '+esc(a.antwort.beantwortetVon||a.lieferantFirma||'Lieferant')+'</strong>'
+          +(a.antwort.preis?' · <strong>CHF '+esc(String(a.antwort.preis))+'</strong>':'')
+          +(a.antwort.nachricht?'<div style="color:#374151;margin-top:2px">'+esc(a.antwort.nachricht)+'</div>':'')
+          +(a.antwort.pdfUrl?'<div style="margin-top:2px"><a href="'+esc(a.antwort.pdfUrl)+'" target="_blank" rel="noopener" style="color:#2563eb;font-weight:700">📄 '+esc(a.antwort.pdfName||'Offerte.pdf')+'</a></div>'
+            :(a.antwort.pdfDataUrl?'<div style="margin-top:2px"><a href="'+a.antwort.pdfDataUrl+'" download="'+esc(a.antwort.pdfName||'Offerte.pdf')+'" style="color:#2563eb;font-weight:700">📄 '+esc(a.antwort.pdfName||'Offerte.pdf')+'</a></div>':''))
+          +'</div>';
+      }
+      return '<div style="background:#fdf4ff;border:1.5px solid #e9d5ff;border-radius:8px;padding:10px 12px;margin-bottom:8px">'
+        +'<div style="display:flex;align-items:center;gap:6px;font-size:11px;color:#64748b;flex-wrap:wrap"><span style="font-weight:800;color:#0f172a">🔄 '+typLabel+'</span><span>·</span><span>'+esc(a.lieferantFirma||'—')+'</span><span>·</span><span>'+fmt((a.erstelltAm||'').split('T')[0])+'</span><span style="margin-left:auto">'+stBadge+'</span></div>'
+        +(a.nachricht?'<div style="font-size:12px;color:#475569;margin-top:4px">'+esc(a.nachricht)+'</div>':'')
+        +antHtml
         +'</div>';
     }).join('');
   }
@@ -3872,11 +3986,12 @@ function _wzDefektAnLieferant(toolId,berId){
       typ:'warnung',
       titel:'⚠ Defektmeldung: '+t.name,
       text:(u.name||'Magaziner')+': '+(b?b.titel:'Defekt gemeldet')+' · '+(t.brand||'')+(t.model?' '+t.model:'')+(b&&b.schweregrad?' · Schweregrad: '+b.schweregrad:''),
-      link:'if_werkzeug.html?view='+encodeURIComponent(t.id)
+      link:'sys_lieferant_dashboard.html?tab=werkzeuge'
     });
   }
   if(b)b.anLieferantGemeldet=new Date().toISOString();
   save();
+  _wzActLog('defekt','Defekt an Lieferant gemeldet ('+(t.supplier||'Lieferant')+')'+(b?': '+(b.titel||'').slice(0,60):''), t);
   alert('✓ Defektmeldung an '+esc(t.supplier||'Lieferant')+' gesendet');
   openBerichte(toolId);
 }
@@ -3951,7 +4066,7 @@ function _wzSendErsatzAnfrage(toolId){
       typ:'aktion',
       titel:'🔄 Ersatzanfrage: '+t.name,
       text:(u.name||'Magaziner')+' · '+typLabel+' · '+(t.brand||'')+(t.model?' '+t.model:'')+(msg?' · '+msg.substring(0,80):''),
-      link:'if_werkzeug.html?view='+encodeURIComponent(t.id)
+      link:'sys_lieferant_dashboard.html?tab=werkzeuge'
     });
   }
   _wzCloseModal();
@@ -3964,7 +4079,11 @@ function _wzShowModal(innerHtml){
   _wzCloseModal();
   var ov=document.createElement('div');
   ov.id='_wzModalOverlay';
-  ov.style.cssText='position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:10500;display:flex;align-items:center;justify-content:center;padding:20px;font-family:var(--sans,"DM Sans",sans-serif);overflow:auto';
+  // Safe-Area-Padding: dynamische Modals nutzen nicht .modal-bg und
+  // bekommen die responsive-CSS-Regeln nicht — Insets hier direkt setzen,
+  // sonst liegt der Inhalt auf iPhones unter Notch/Home-Indikator.
+  ov.style.cssText='position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:10500;display:flex;align-items:center;justify-content:center;font-family:var(--sans,"DM Sans",sans-serif);overflow:auto;'
+    +'padding:max(16px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) max(16px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left))';
   ov.innerHTML=innerHtml;
   document.body.appendChild(ov);
 }
@@ -4286,9 +4405,18 @@ function _wzSavePruefAnfrage(toolId){
   var lief=users.find(function(u){return u.id===liefId;});
   var firma=lief?((lief.profile&&lief.profile.firma)||lief.name||lief.username):liefId;
   var me=_wzGetUser()||{};
+  // Prueftyp erneut bestimmen (gleiche Heuristik wie beim Oeffnen des
+  // Dialogs) und in der Anfrage speichern — das Lieferanten-Dashboard
+  // zeigt damit an, WELCHE Pruefung verlangt ist (Service/Elektro/Leiter).
+  var pruefTyp='servicepruefung';
+  if(t.hasElec)pruefTyp='elektropruefung';
+  if(t.hasLeiter)pruefTyp='leiterpruefung';
+  if(t.cat==='maschine-kabel'||t.cat==='ladegeraet')pruefTyp='elektropruefung';
+  if(t.cat==='leiter')pruefTyp='leiterpruefung';
   t.pruefAnfrage={
     lieferantId:liefId,
     lieferantFirma:firma,
+    typ:pruefTyp,
     wunschtermin:termin,
     bemerkung:bem,
     angefordertAm:new Date().toISOString(),
@@ -4317,8 +4445,10 @@ function _wzPruefAnfrageAbbrechen(toolId){
   var t=tools.find(function(x){return x.id===toolId;});
   if(!t||!t.pruefAnfrage)return;
   if(!confirm('Anfrage wirklich stornieren?'))return;
+  var _paFirma=(t.pruefAnfrage&&t.pruefAnfrage.lieferantFirma)||'';
   delete t.pruefAnfrage;
   save();renderList();_wzCloseModal();
+  _wzActLog('pruefanfrage','Prüfanfrage storniert'+(_paFirma?' ('+_paFirma+')':''), t);
 }
 
 // ── Lieferanten-Ansicht: "Prüfung quittieren & Bericht hochladen" ──
@@ -4332,12 +4462,17 @@ function openPruefLiefAnsicht(toolId){
     return;
   }
   var u=_wzGetUser()||{};
-  var isLief = u.roleIds && u.roleIds.indexOf('role_lieferant')>=0;
+  // Beauftragter Partner: role_lieferant (inkl. Unterrollen) ODER role_pruefer.
+  var isLief = u.roleIds && u.roleIds.some(function(r){
+    return typeof r==='string' && (r.indexOf('role_lieferant')===0 || r==='role_pruefer');
+  });
   if(!isLief && !_wzIsAdmin()){
     alert('Diese Ansicht ist nur für den beauftragten Lieferanten.');
     return;
   }
-  if(isLief && t.pruefAnfrage.lieferantId!==u.id){
+  // Team-tolerant: jeder User desselben Lieferanten-Datensatzes darf den
+  // Auftrag bearbeiten (nicht nur der urspruenglich adressierte Kollege).
+  if(isLief && !_wzIsAdmin() && _wzMyLiefUserIds().indexOf(t.pruefAnfrage.lieferantId)<0){
     alert('Dieses Gerät wurde einem anderen Lieferanten zugewiesen.');
     return;
   }
@@ -4378,6 +4513,7 @@ function _wzPruefLiefQuittieren(toolId){
   t.pruefAnfrage.status='quittiert';
   t.pruefAnfrage.quittiertAm=new Date().toISOString();
   save();renderList();
+  _wzActLog('pruefanfrage','Prüfauftrag quittiert durch '+((_wzGetUser()||{}).name||'Lieferant'), t);
   // Notifikation zurueck an den Magaziner
   if(typeof GemaNotify!=='undefined' && t.pruefAnfrage.angefordertVon){
     GemaNotify.push({
@@ -4424,6 +4560,7 @@ function _wzPruefLiefBerichtEinreichen(toolId){
   t.pruefAnfrage.status='erledigt';
   t.pruefAnfrage.erledigtAm=new Date().toISOString();
   save();renderList();_wzCloseModal();
+  _wzActLog('pruefung','Prüfbericht eingereicht durch '+(t.pruefAnfrage.lieferantFirma||'Lieferant')+' · '+ergLabel, t);
   // Notifikation zurueck an den Magaziner
   if(typeof GemaNotify!=='undefined' && t.pruefAnfrage.angefordertVon){
     GemaNotify.push({

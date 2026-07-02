@@ -7,6 +7,9 @@
  * Storage-Bucket hoch und liefert eine oeffentliche URL zurueck. Im Record
  * steht dann nur noch die URL.
  *
+ * Akzeptiert Bilder (data:image/*) UND PDFs (data:application/pdf) —
+ * letztere fuer Lieferanten-Offerten (sys_lieferant_dashboard.html).
+ *
  * SETUP (einmalig im Supabase-Dashboard noetig — kann der Client nicht):
  *   1. Storage → New bucket → Name: "gema-fotos" → Public bucket: AN
  *   2. Policies → fuer den Bucket eine INSERT-Policy fuer die Rolle "anon"
@@ -49,13 +52,28 @@
         bytes = new TextEncoder().encode(decodeURIComponent(data));
       }
     } catch(e){ return null; }
-    var ext = mime.indexOf('png')>=0 ? 'png'
+    var ext = mime.indexOf('pdf')>=0 ? 'pdf'
+      : (mime.indexOf('png')>=0 ? 'png'
       : (mime.indexOf('webp')>=0 ? 'webp'
-      : (mime.indexOf('gif')>=0 ? 'gif' : 'jpg'));
+      : (mime.indexOf('gif')>=0 ? 'gif' : 'jpg')));
     return { blob: new Blob([bytes], { type: mime }), ext: ext, mime: mime };
   }
 
   function _rand(){ return Date.now().toString(36) + '_' + Math.random().toString(36).slice(2,9); }
+
+  // Verifikation fuer Nicht-Bilder (PDF): HEAD-Request auf die Public-URL.
+  // Supabase-Storage liefert fuer Public-Buckets CORS-Header (*), damit
+  // klappt fetch. Fallback GET mit Range, falls HEAD blockiert ist.
+  function _verifyFetchable(url){
+    return fetch(url, { method:'HEAD' }).then(function(r){
+      if(r.ok) return true;
+      return fetch(url, { method:'GET', headers:{ 'Range':'bytes=0-0' } })
+        .then(function(r2){ return r2.ok; }, function(){ return false; });
+    }, function(){
+      return fetch(url, { method:'GET', headers:{ 'Range':'bytes=0-0' } })
+        .then(function(r2){ return r2.ok; }, function(){ return false; });
+    });
+  }
 
   // Prueft, ob die oeffentliche URL wirklich ladbar ist (Bucket public +
   // Policy ok). Bild-Load umgeht CORS-Restriktionen (anders als fetch).
@@ -80,8 +98,10 @@
   function uploadDataUrl(dataUrl, pathHint){
     var s=_sb();
     if(!s || !s.SB_URL || !s.SB_KEY) return Promise.reject(new Error('Storage nicht konfiguriert'));
-    if(typeof dataUrl !== 'string' || dataUrl.indexOf('data:image') !== 0){
-      return Promise.reject(new Error('Kein Bild-Data-URL'));
+    var isImage = typeof dataUrl === 'string' && dataUrl.indexOf('data:image') === 0;
+    var isPdf   = typeof dataUrl === 'string' && dataUrl.indexOf('data:application/pdf') === 0;
+    if(!isImage && !isPdf){
+      return Promise.reject(new Error('Kein Bild-/PDF-Data-URL'));
     }
     var parsed = _dataUrlToBlob(dataUrl);
     if(!parsed) return Promise.reject(new Error('Data-URL nicht lesbar'));
@@ -113,7 +133,8 @@
         }, function(){ throw new Error('Upload HTTP ' + r.status); });
       }
       var pub = publicUrl(path);
-      return _verifyLoadable(pub).then(function(ok){
+      var verify = isPdf ? _verifyFetchable(pub) : _verifyLoadable(pub);
+      return verify.then(function(ok){
         if(!ok) throw new Error('Upload nicht oeffentlich ladbar (Bucket/Policy pruefen)');
         return { url: pub, path: path };
       });

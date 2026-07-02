@@ -284,6 +284,25 @@ tbody td.mono{font-family:var(--mono);font-weight:500;}
 }
 @media(min-width:1600px){html{font-size:16px;}.hero h1{font-size:26px;}.kpi-val{font-size:32px;}}
 
+/* Phone: Safe-Area unten (Home-Indikator) + mgmt-Overlays kompakter.
+   Die mgmt-Overlays nutzen nicht .modal-bg und bekommen die responsive-
+   CSS-Insets deshalb nicht automatisch. */
+@media(max-width:640px){
+  .page{padding-bottom:calc(40px + env(safe-area-inset-bottom)) !important}
+  .mgmt-overlay{padding:max(16px,env(safe-area-inset-top)) 12px max(16px,env(safe-area-inset-bottom))}
+}
+/* Touch: Fingergroesse fuer die Buttons dieses Moduls — der globale
+   Touch-Block in gema_responsive.css kennt nur .btn/.g-btn und verfehlt
+   die Karten-Aktionen (.g-nav-btn mit Inline-Padding) und die
+   Schliessen-Buttons. 16px im Filter-Select verhindert iOS-Zoom. */
+@media(hover:none) and (pointer:coarse){
+  .v-card .g-nav-btn{min-height:40px}
+  .modal-close{width:40px;height:40px}
+  .mgmt-hd .modal-close{width:40px;height:40px}
+  .filter-sel{font-size:16px}
+  .seg{min-height:40px}
+}
+
   .modal-overlay.hidden { display:none !important; }
   .fzg-qr-row{display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #f3f4f6;font-size:11px;}
   .fzg-qr-row:last-child{border:none;}
@@ -784,6 +803,7 @@ tbody td.mono{font-family:var(--mono);font-weight:500;}
       <button class="btn" style="flex:1 1 120px;justify-content:center;" onclick="openBerichte(_lastViewId)">📋 Historie</button>
       <button class="btn" style="flex:1 1 120px;justify-content:center;" onclick="openDefekt(_lastViewId)">🔧 Defekt</button>
       <button class="btn" style="flex:1 1 120px;justify-content:center;" onclick="openKosten(_lastViewId)">💰 Kosten</button>
+      <button class="btn" style="flex:1 1 120px;justify-content:center;" onclick="_fzGarageToggle(_lastViewId)">🏭 Garage</button>
       <button class="btn primary" style="flex:1 1 120px;justify-content:center;" id="vm_editBtn">✏️ Bearbeiten</button>
     </div>
   </div>
@@ -911,8 +931,13 @@ function persist(){
   var orgId=u&&u.orgId?u.orgId:'';
   var all=_fzReadAllRaw();
   if(_fzIsGaragistRole()){
-    var meId=u&&u.id;
-    var others=all.filter(function(v){ return v.garagistUserId!==meId; });
+    // Nur die geladenen (eigenen/Werkstatt-)Fahrzeuge zurueckschreiben.
+    // Ausschluss per ID statt nur per garagistUserId — sonst entstehen
+    // Duplikate, wenn die Lesesicht breiter ist (Werkstatt-Team) als
+    // die persoenliche Zuweisung.
+    var mineIds={};
+    vehicles.forEach(function(v){ if(v&&v.id) mineIds[v.id]=true; });
+    var others=all.filter(function(v){ return !mineIds[v.id]; });
     _fzWriteAllRaw(others.concat(vehicles));
     return;
   }
@@ -1296,7 +1321,7 @@ function _fzScanFaelligkeiten(){
         if(v.garagistUserId){
           GemaNotify.push(Object.assign({},sBase,{empfaengerUserId:v.garagistUserId}));pushed++;
         }
-        GemaNotify.push(Object.assign({},sBase,{empfaengerRoleId:'role_magaziner'}));pushed++;
+        GemaNotify.push(Object.assign({},sBase,{empfaengerRoleId:'role_magaziner',empfaengerOrgId:v.orgId||''}));pushed++;
         lock[sLockKey]=today;
       }
     }
@@ -1315,7 +1340,7 @@ function _fzScanFaelligkeiten(){
         if(v.garagistUserId){
           GemaNotify.push(Object.assign({},mBase,{empfaengerUserId:v.garagistUserId}));pushed++;
         }
-        GemaNotify.push(Object.assign({},mBase,{empfaengerRoleId:'role_magaziner'}));pushed++;
+        GemaNotify.push(Object.assign({},mBase,{empfaengerRoleId:'role_magaziner',empfaengerOrgId:v.orgId||''}));pushed++;
         lock[mLockKey]=today;
       }
     }
@@ -1337,7 +1362,7 @@ function _fzScanFaelligkeiten(){
         if(v.garagistUserId){
           GemaNotify.push(Object.assign({},fBase,{empfaengerUserId:v.garagistUserId}));pushed++;
         }
-        GemaNotify.push(Object.assign({},fBase,{empfaengerRoleId:'role_magaziner'}));pushed++;
+        GemaNotify.push(Object.assign({},fBase,{empfaengerRoleId:'role_magaziner',empfaengerOrgId:v.orgId||''}));pushed++;
         lock[fLockKey]=today;
       });
     }
@@ -1746,7 +1771,7 @@ function _fzEditGaragen(){
     +'<div style="font-size:12px;color:#64748b;margin-bottom:14px">Standard-Garage wird bei neuen Fahrzeugen vorausgewählt</div>'
     +'<div id="_fzGarageList" style="display:flex;flex-direction:column;gap:6px;margin-bottom:12px">'
     +all.map(function(g,i){
-      return '<div style="display:flex;gap:6px;align-items:center"><input value="'+esc(g)+'" style="flex:1;padding:7px 10px;border:1.5px solid #cdd4e4;border-radius:6px;font-size:13px;font-family:inherit"/>'
+      return '<div style="display:flex;gap:6px;align-items:center"><input value="'+esc(g)+'" style="flex:1;padding:7px 10px;border:1.5px solid #cdd4e4;border-radius:6px;font-size:16px;font-family:inherit"/>'
         +'<label style="font-size:11px;white-space:nowrap;cursor:pointer"><input type="radio" name="_fzStdGarage" value="'+esc(g)+'"'+(g===data.standard?' checked':'')+'/> Standard</label>'
         +'<button onclick="this.parentElement.remove()" style="border:none;background:none;cursor:pointer;font-size:16px;color:#94a3b8">✕</button></div>';
     }).join('')
@@ -1763,7 +1788,7 @@ function _fzEditGaragen(){
 function _fzAddGarageRow(){
   var list=document.getElementById('_fzGarageList');if(!list)return;
   var div=document.createElement('div');div.style.cssText='display:flex;gap:6px;align-items:center';
-  div.innerHTML='<input value="" placeholder="Neue Garage" style="flex:1;padding:7px 10px;border:1.5px solid #cdd4e4;border-radius:6px;font-size:13px;font-family:inherit" autofocus/><label style="font-size:11px;white-space:nowrap;cursor:pointer"><input type="radio" name="_fzStdGarage" value=""/> Standard</label><button onclick="this.parentElement.remove()" style="border:none;background:none;cursor:pointer;font-size:16px;color:#94a3b8">✕</button>';
+  div.innerHTML='<input value="" placeholder="Neue Garage" style="flex:1;padding:7px 10px;border:1.5px solid #cdd4e4;border-radius:6px;font-size:16px;font-family:inherit" autofocus/><label style="font-size:11px;white-space:nowrap;cursor:pointer"><input type="radio" name="_fzStdGarage" value=""/> Standard</label><button onclick="this.parentElement.remove()" style="border:none;background:none;cursor:pointer;font-size:16px;color:#94a3b8">✕</button>';
   list.appendChild(div);div.querySelector('input').focus();
 }
 function _fzSaveGarageModal(){
@@ -2094,6 +2119,9 @@ function _fzCanCreate(){
   return _fzIsAdmin()||_fzIsMagaziner()||_fzCanSettings();
 }
 function _fzCanView(){return true;}
+// Defekt melden darf jeder eingeloggte User (analog if_werkzeug) —
+// wurde vorher referenziert, war aber nie definiert.
+function _fzCanReportDefect(){ return !!_fzGetUser(); }
 
 // Aktivitaetenlog-Wrapper — fire-and-forget. v kann das Vehicle-Objekt
 // oder ein partial sein. Nur Magaziner/Admin sehen den Log.
@@ -2102,9 +2130,12 @@ function _fzActLog(aktion, beschreibung, v, details){
   try{
     if(typeof window.GemaActivityLog === 'undefined') return;
     var recId = v && v.id || (details && details.id) || null;
-    var name  = v && (v.kennzeichen || v.modell || v.id) || '';
+    var name  = v && (v.plate || v.model || v.kennzeichen || v.modell || v.id) || '';
     window.GemaActivityLog.log({
       modul:'fahrzeug',
+      // Eintrag gehoert zur Org des FAHRZEUGS (nicht des Bearbeiters):
+      // Garagisten-Aktionen muessen im Log der Auftraggeber-Org erscheinen.
+      orgId: (v && v.orgId) || undefined,
       modulRecordId: recId,
       modulRecordName: name,
       aktion: aktion,
@@ -3070,6 +3101,7 @@ window._fzQuickKmEdit=function(vehicleId){
   v.km=String(neuNum);
   v.kmUpdatedAt=new Date().toISOString();
   persist();
+  _fzActLog('km_update','km-Stand aktualisiert: '+(alt?alt.toLocaleString('de-CH')+' → ':'')+neuNum.toLocaleString('de-CH')+' km', v);
   render();
   showToast('km-Stand aktualisiert ✓');
 };
@@ -3080,7 +3112,7 @@ function _fzCreateNfcActionSheet(){
   ov.className='modal-overlay';
   ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1200;display:none;align-items:flex-end;justify-content:center;padding:0';
   ov.innerHTML=''+
-    '<div style="width:100%;max-width:560px;background:#fff;border-radius:18px 18px 0 0;box-shadow:0 -8px 30px rgba(0,0,0,.25);padding:18px 18px 24px;display:flex;flex-direction:column;gap:10px;animation:_fzNfcSheetUp .25s ease-out">'+
+    '<div style="width:100%;max-width:560px;background:#fff;border-radius:18px 18px 0 0;box-shadow:0 -8px 30px rgba(0,0,0,.25);padding:18px 18px calc(24px + env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:10px;animation:_fzNfcSheetUp .25s ease-out">'+
       '<div style="width:40px;height:4px;background:#e5e7eb;border-radius:2px;margin:-4px auto 4px"></div>'+
       '<div style="display:flex;align-items:center;gap:10px;padding-bottom:8px;border-bottom:1px solid #f0f0f0">'+
         '<div style="width:40px;height:40px;background:#0d9488;color:#fff;border-radius:10px;display:grid;place-items:center;font-size:20px">📡</div>'+
@@ -3226,6 +3258,7 @@ function _fzSaveServiceEntry(){
       GemaNotify.push({
         eventKey:'fahrzeug_service_erledigt',
         empfaengerRoleId:'role_magaziner',
+        empfaengerOrgId:v.orgId||'',
         modul:'fahrzeug',
         typ:'erfolg',
         titel:artLabel+' erfasst',
@@ -3483,6 +3516,7 @@ function saveZuweisung() {
     label: 'Zuweisung geändert',
     detail: (oldDriver ? oldDriver + ' → ' : '') + (v.driver || 'Kein Fahrer') + (note ? ' | ' + note : '')
   });
+  _fzActLog('zuweisung','Fahrer-Zuweisung: '+(oldDriver?oldDriver+' → ':'')+(v.driver||'Kein Fahrer'), v);
   persist(); render();
   closeMgmt('mgmtZuweisungOverlay');
   showToast('Zuweisung gespeichert ✓');
@@ -3515,7 +3549,7 @@ function _fzOpenAusleihe(vehicleId){
     +'<h3 style="margin:0 0 4px;font-size:17px;font-weight:800;color:#92400e">🔄 Fahrzeug ausleihen</h3>'
     +'<div style="font-size:12px;color:#64748b;margin-bottom:16px">'+esc(v.model)+' · '+esc(v.plate)+'</div>'
     +'<label style="font-size:11px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:6px">Ausgeliehen an</label>'
-    +'<select id="fzAusleiheUser" style="width:100%;padding:10px 14px;border:1.5px solid #e2e7f0;border-radius:10px;font-size:14px;font-family:inherit;margin-bottom:12px">'+opts+'</select>'
+    +'<select id="fzAusleiheUser" style="width:100%;padding:10px 14px;border:1.5px solid #e2e7f0;border-radius:10px;font-size:16px;font-family:inherit;margin-bottom:12px">'+opts+'</select>'
     +(cur.userId?'<div style="font-size:11px;color:#b45309;margin-bottom:12px">Aktuell bei <strong>'+esc(cur.name||'—')+'</strong>'+(cur.seit?' seit '+fmtDate(cur.seit):'')+'</div>':'')
     +'<div style="display:flex;gap:8px;justify-content:flex-end">'
     +'<button onclick="_fzCloseMgmt()" style="padding:9px 18px;border-radius:8px;border:1px solid #e2e7f0;background:#fff;cursor:pointer;font-weight:600;font-family:inherit">Abbrechen</button>'
@@ -3539,6 +3573,7 @@ function _fzSaveAusleihe(vehicleId){
     var p=users.find(function(u){return u.id===uid;});
     v.ausgeliehenAn={userId:uid,name:p?(p.name||p.username):uid,seit:new Date().toISOString().slice(0,10)};
     addVehicleEvent(vehicleId,'ausleihe',{label:'Ausgeliehen an '+v.ausgeliehenAn.name,detail:''});
+    _fzActLog('ausleihe','Ausgeliehen an '+v.ausgeliehenAn.name, v);
   }
   persist();render();_fzCloseMgmt();
   showToast(uid?'Fahrzeug ausgeliehen ✓':'Ausleihe aufgehoben ✓');
@@ -3547,6 +3582,7 @@ function _fzReturnVehicle(vehicleId){
   var v=vehicles.find(function(x){return x.id===vehicleId;});if(!v||!v.ausgeliehenAn)return;
   if(!confirm('Fahrzeug «'+v.model+'» als zurückgegeben bestätigen?\n\nAusgeliehen an: '+v.ausgeliehenAn.name))return;
   addVehicleEvent(vehicleId,'rueckgabe',{label:'Zurückgegeben von '+v.ausgeliehenAn.name,detail:''});
+  _fzActLog('rueckgabe','Zurückgegeben von '+v.ausgeliehenAn.name, v);
   delete v.ausgeliehenAn;
   persist();render();
   showToast('Fahrzeug zurückgegeben ✓');
@@ -3588,39 +3624,185 @@ function saveDefekt() {
       if(v.garagistUserId){
         GemaNotify.push({eventKey:'fahrzeug_service_faellig',empfaengerUserId:v.garagistUserId,modul:'fahrzeug',typ:pTyp,titel:titel,text:text,link:link});
       }
-      GemaNotify.push({eventKey:'fahrzeug_service_faellig',empfaengerRoleId:'role_magaziner',modul:'fahrzeug',typ:pTyp,titel:titel,text:text,link:link});
+      GemaNotify.push({eventKey:'fahrzeug_service_faellig',empfaengerRoleId:'role_magaziner',empfaengerOrgId:v.orgId||'',modul:'fahrzeug',typ:pTyp,titel:titel,text:text,link:link});
     }
+  }catch(e){}
+  try{
+    var _vDef=vehicles.find(function(x){return x.id===_mgmtVehicleId;});
+    _fzActLog('defekt','Defekt gemeldet: '+desc.slice(0,80)+(prio!=='normal'?' ('+prio+')':''), _vDef);
   }catch(e){}
   closeMgmt('mgmtDefektOverlay');
   showToast('Defekt gemeldet ✓');
 }
 window.saveDefekt = saveDefekt;
 
-// Markiert alle offenen Defekt-Events eines Fahrzeugs als behoben.
-// Erfasser-Info wird zu Audit-Zwecken festgehalten.
+// Defekte beheben — mit Pflicht-Dokumentation: «Was war das Problem /
+// was wurde gemacht?» erzeugt einen Service-Eintrag (Art «Reparatur»)
+// in der Service-Historie und markiert die offenen Defekte als behoben.
+// Wird auch vom Garage-Ausbuchen genutzt (onDone-Callback).
 window._fzResolveAllDefects=function(vehicleId){
   if(!_fzCanEdit())return;
   var v=vehicles.find(function(x){return x.id===vehicleId;});
   if(!v||!Array.isArray(v.events))return;
-  if(!confirm('Alle offenen Defekte als behoben markieren?'))return;
+  var offen=v.events.filter(function(e){return e&&e.type==='defekt'&&!e.resolved;});
+  if(!offen.length)return;
+  _fzOpenReparaturDoku(vehicleId,function(){ openViewFzg(vehicleId); });
+};
+
+function _fzOpenReparaturDoku(vehicleId,onDone){
+  var v=vehicles.find(function(x){return x.id===vehicleId;});if(!v)return;
+  var offen=(v.events||[]).filter(function(e){return e&&e.type==='defekt'&&!e.resolved;});
+  var defListe=offen.map(function(e){return '<li style="margin:2px 0">'+esc((e.detail||e.label||'').slice(0,100))+'</li>';}).join('');
+  var html='<div style="background:#fff;border-radius:16px;padding:24px;max-width:480px;width:100%;max-height:85vh;overflow-y:auto;box-shadow:0 20px 50px rgba(0,0,0,.2)">'
+    +'<h3 style="margin:0 0 4px;font-size:17px;font-weight:800;color:#065f46">🔧 Reparatur dokumentieren</h3>'
+    +'<div style="font-size:12px;color:#64748b;margin-bottom:12px">'+esc(v.model||'')+' · '+esc(v.plate||'')+'</div>'
+    +(defListe?'<div style="font-size:12px;color:#991b1b;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:8px 12px;margin-bottom:12px"><strong>Offene Defekte:</strong><ul style="margin:4px 0 0;padding-left:18px">'+defListe+'</ul></div>':'')
+    +'<label style="font-size:11px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:6px">Was war das Problem / was wurde gemacht? *</label>'
+    +'<textarea id="fzRepDokuText" rows="4" placeholder="z.B. Bremsbeläge vorne verschlissen — ersetzt, Bremsflüssigkeit gewechselt" style="width:100%;padding:10px 14px;border:1.5px solid #e2e7f0;border-radius:10px;font-size:16px;font-family:inherit;margin-bottom:12px;resize:vertical"></textarea>'
+    +'<div style="display:flex;gap:10px;margin-bottom:12px">'
+    +'<div style="flex:1"><label style="font-size:11px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:6px">km-Stand</label>'
+    +'<input type="text" inputmode="numeric" id="fzRepDokuKm" value="'+esc(v.km||'')+'" style="width:100%;padding:10px 14px;border:1.5px solid #e2e7f0;border-radius:10px;font-size:16px;font-family:inherit"/></div>'
+    +'<div style="flex:1"><label style="font-size:11px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:6px">Kosten (CHF, optional)</label>'
+    +'<input type="text" inputmode="decimal" id="fzRepDokuKosten" placeholder="z.B. 480.00" style="width:100%;padding:10px 14px;border:1.5px solid #e2e7f0;border-radius:10px;font-size:16px;font-family:inherit"/></div>'
+    +'</div>'
+    +'<div style="display:flex;gap:8px;justify-content:flex-end">'
+    +'<button onclick="_fzCloseRepDoku()" style="padding:9px 18px;border-radius:8px;border:1px solid #e2e7f0;background:#fff;cursor:pointer;font-weight:600;font-family:inherit">Abbrechen</button>'
+    +'<button onclick="_fzSaveReparaturDoku(\''+vehicleId+'\')" style="padding:9px 18px;border-radius:8px;border:none;background:#065f46;color:#fff;cursor:pointer;font-weight:700;font-family:inherit">✓ Reparatur speichern</button>'
+    +'</div></div>';
+  var overlay=document.createElement('div');
+  overlay.id='fzRepDokuOverlay';
+  overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:9999;display:flex;align-items:center;justify-content:center;padding:24px';
+  overlay.innerHTML=html;
+  overlay.onclick=function(e){if(e.target===overlay)_fzCloseRepDoku();};
+  document.body.appendChild(overlay);
+  window._fzRepDokuOnDone=onDone||null;
+}
+window._fzOpenReparaturDoku=_fzOpenReparaturDoku;
+window._fzCloseRepDoku=function(){var o=document.getElementById('fzRepDokuOverlay');if(o)o.remove();window._fzRepDokuOnDone=null;};
+
+window._fzSaveReparaturDoku=function(vehicleId){
+  var v=vehicles.find(function(x){return x.id===vehicleId;});if(!v)return;
+  var text=(document.getElementById('fzRepDokuText').value||'').trim();
+  if(!text){showToast('Bitte beschreiben, was das Problem war / gemacht wurde.');return;}
+  var km=(document.getElementById('fzRepDokuKm').value||'').trim().replace(/[^0-9]/g,'');
+  var kosten=(document.getElementById('fzRepDokuKosten').value||'').trim();
   var u=_fzGetUser()||{};
   var now=new Date().toISOString();
+  var heute=now.split('T')[0];
+  // Service-Eintrag (Art Reparatur) in der Historie — die eigentliche Doku
+  if(!Array.isArray(v.serviceHistorie))v.serviceHistorie=[];
+  var entry={
+    datum:heute, km:km||'', art:'reparatur',
+    beschreibung:text,
+    kosten:kosten||'',
+    werkstatt:(_fzIsGaragist()?(u.profile&&u.profile.firma)||u.name||'':''),
+    erledigtVonUserId:u.id||'', erledigtVonName:u.name||u.username||'',
+    erstelltAm:now
+  };
+  v.serviceHistorie.push(entry);
+  if(!v.lastService||heute>v.lastService)v.lastService=heute;
+  if(km){
+    var kmNum=parseInt(km,10)||0;
+    if(!v.lastServiceKm||kmNum>parseInt(v.lastServiceKm,10))v.lastServiceKm=km;
+    if(!v.km||kmNum>parseInt(v.km,10)){v.km=km;v.kmUpdatedAt=now;}
+  }
+  // Offene Defekte als behoben markieren, mit Verweis auf die Doku
   var changed=0;
-  v.events.forEach(function(e){
+  (v.events||[]).forEach(function(e){
     if(e&&e.type==='defekt'&&!e.resolved){
       e.resolved=true;
       e.resolvedAt=now;
       e.resolvedByUserId=u.id||'';
       e.resolvedByName=u.name||u.username||'';
+      e.resolvedNote=text.slice(0,200);
       changed++;
     }
   });
-  if(!changed)return;
+  addVehicleEvent(vehicleId,'reparatur',{label:'Reparatur: '+text.slice(0,60),detail:text+(kosten?' | CHF '+kosten:'')});
   persist();
-  openViewFzg(vehicleId);
+  _fzActLog('reparatur','Reparatur dokumentiert: '+text.slice(0,100)+(kosten?' · CHF '+kosten:''), v);
+  if(changed)_fzActLog('defekt_erledigt',changed+' Defekt'+(changed>1?'e':'')+' behoben', v);
+  // Magaziner der Fahrzeug-Org informieren
+  try{
+    if(typeof GemaNotify!=='undefined'){
+      GemaNotify.push({eventKey:'fahrzeug_service_erledigt',empfaengerRoleId:'role_magaziner',empfaengerOrgId:v.orgId||'',modul:'fahrzeug',typ:'erfolg',
+        titel:'🔧 Reparatur erledigt: '+(v.plate||v.model||'Fahrzeug'),
+        text:text.slice(0,140)+(changed?' · '+changed+' Defekt'+(changed>1?'e':'')+' behoben':''),
+        link:'if_fahrzeug.html?view='+v.id});
+    }
+  }catch(e){}
+  var done=window._fzRepDokuOnDone;
+  _fzCloseRepDoku();
   render();
-  showToast(changed+' Defekt'+(changed>1?'e':'')+' als behoben markiert ✓');
+  if(typeof done==='function'){try{done();}catch(e){}}
+  showToast('Reparatur dokumentiert'+(changed?' · '+changed+' Defekt'+(changed>1?'e':'')+' behoben':'')+' ✓');
 };
+
+/* ═══ GARAGE EIN-/AUSBUCHEN (Garagist) ═══ */
+// Der Garagist bucht ein Fahrzeug bei sich in der Werkstatt ein —
+// Status wechselt auf «Im Service» (bestehender Statuswert), mit
+// Vermerk (Grund, Zeitstempel). Ausbuchen setzt zurueck auf «Aktiv»;
+// sind Defekte offen, verlangt der Flow zuerst die Reparatur-Doku.
+window._fzGarageToggle=function(vehicleId){
+  var v=vehicles.find(function(x){return x.id===vehicleId;});if(!v)return;
+  if(!_fzCanEdit()){alert('Keine Berechtigung.');return;}
+  if(v.status==='service')_fzGarageAusbuchen(vehicleId);
+  else _fzGarageEinbuchen(vehicleId);
+};
+function _fzGarageEinbuchen(vehicleId){
+  var v=vehicles.find(function(x){return x.id===vehicleId;});if(!v)return;
+  var grund=window.prompt('Fahrzeug «'+(v.plate||v.model||'')+'» in der Garage einbuchen.\nGrund (optional):','');
+  if(grund===null)return;
+  var u=_fzGetUser()||{};
+  var now=new Date().toISOString();
+  v.status='service';
+  v.garage={eingebuchtAm:now,eingebuchtVonUserId:u.id||'',eingebuchtVonName:u.name||u.username||'',werkstatt:(u.profile&&u.profile.firma)||'',grund:(grund||'').trim()};
+  addVehicleEvent(vehicleId,'garage',{label:'In Garage eingebucht',detail:(grund||'').trim()});
+  persist();
+  _fzActLog('garage_ein','In Garage eingebucht'+(grund?' · '+grund.trim().slice(0,80):''), v);
+  try{
+    if(typeof GemaNotify!=='undefined'){
+      GemaNotify.push({eventKey:'fahrzeug_garage',empfaengerRoleId:'role_magaziner',empfaengerOrgId:v.orgId||'',modul:'fahrzeug',typ:'info',
+        titel:'🏭 In Garage: '+(v.plate||v.model||'Fahrzeug'),
+        text:(u.name||'Garagist')+(grund?' · '+grund.trim().slice(0,100):''),
+        link:'if_fahrzeug.html?view='+v.id});
+    }
+  }catch(e){}
+  render();try{openViewFzg(vehicleId);}catch(e){}
+  showToast('🏭 In Garage eingebucht ✓');
+}
+function _fzGarageAusbuchen(vehicleId){
+  var v=vehicles.find(function(x){return x.id===vehicleId;});if(!v)return;
+  var offen=(v.events||[]).filter(function(e){return e&&e.type==='defekt'&&!e.resolved;});
+  var finish=function(){
+    var u=_fzGetUser()||{};
+    var now=new Date().toISOString();
+    v.status='aktiv';
+    if(v.garage){v.garage.ausgebuchtAm=now;v.garage.ausgebuchtVonName=u.name||u.username||'';}
+    addVehicleEvent(vehicleId,'garage',{label:'Aus Garage ausgebucht',detail:''});
+    persist();
+    _fzActLog('garage_aus','Aus Garage ausgebucht', v);
+    try{
+      if(typeof GemaNotify!=='undefined'){
+        GemaNotify.push({eventKey:'fahrzeug_garage',empfaengerRoleId:'role_magaziner',empfaengerOrgId:v.orgId||'',modul:'fahrzeug',typ:'erfolg',
+          titel:'✓ Aus Garage: '+(v.plate||v.model||'Fahrzeug'),
+          text:(u.name||'Garagist')+' hat das Fahrzeug ausgebucht — wieder verfügbar.',
+          link:'if_fahrzeug.html?view='+v.id});
+      }
+    }catch(e){}
+    render();try{openViewFzg(vehicleId);}catch(e){}
+    showToast('✓ Aus Garage ausgebucht');
+  };
+  if(offen.length){
+    // Erst Problem/Behebung dokumentieren (Service-Eintrag), dann ausbuchen.
+    _fzOpenReparaturDoku(vehicleId,finish);
+  } else {
+    if(!confirm('Fahrzeug «'+(v.plate||v.model||'')+'» aus der Garage ausbuchen (Status wieder «Aktiv»)?'))return;
+    finish();
+  }
+}
+window._fzGarageEinbuchen=_fzGarageEinbuchen;
+window._fzGarageAusbuchen=_fzGarageAusbuchen;
 
 /* ═══ KOSTEN ═══ */
 function openKosten(vehicleId) {
@@ -3646,6 +3828,7 @@ function saveKosten() {
     label: kat + ': CHF ' + parseFloat(betrag).toFixed(2),
     detail: (datum ? fmtDate(datum) + ' | ' : '') + (km ? parseInt(km).toLocaleString('de-CH') + ' km' : '') + (note ? ' | ' + note : '')
   });
+  try{ _fzActLog('kosten',kat+': CHF '+parseFloat(betrag).toFixed(2)+(note?' · '+note.slice(0,60):''), vehicles.find(function(x){return x.id===_mgmtVehicleId;})); }catch(e){}
   closeMgmt('mgmtKostenOverlay');
   showToast('Kosten erfasst ✓');
 }
@@ -3678,6 +3861,7 @@ function saveReifen() {
     label: 'Reifenwechsel: ' + typ,
     detail: [desc, datum ? fmtDate(datum) : '', km ? parseInt(km).toLocaleString('de-CH') + ' km' : '', kosten ? 'CHF ' + parseFloat(kosten).toFixed(2) : '', lager ? 'Lager: ' + lager : ''].filter(Boolean).join(' | ')
   });
+  try{ _fzActLog('reifen','Reifenwechsel: '+typ+(desc?' · '+desc.slice(0,60):''), v); }catch(e){}
   persist(); render();
   closeMgmt('mgmtReifenOverlay');
   showToast('Reifenwechsel erfasst ✓');

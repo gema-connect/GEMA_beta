@@ -117,7 +117,8 @@ input,select,textarea,button{font-family:inherit}
 
 /* DASH TOOLBAR */
 .dash-toolbar{display:flex;gap:10px;align-items:center;margin-bottom:14px;flex-wrap:wrap}
-.dash-toolbar input[type="search"]{flex:1;min-width:220px;padding:9px 14px;border:1.5px solid var(--brd);border-radius:10px;font-size:13.5px;font-family:inherit;background:#fff}
+/* 16px verhindert den iOS-Auto-Zoom beim Fokussieren des Suchfelds */
+.dash-toolbar input[type="search"]{flex:1;min-width:220px;padding:9px 14px;border:1.5px solid var(--brd);border-radius:10px;font-size:16px;font-family:inherit;background:#fff}
 .dash-toolbar input[type="search"]:focus{outline:none;border-color:var(--teal)}
 .dash-toggle{display:inline-flex;align-items:center;gap:6px;padding:8px 12px;background:#fff;border:1.5px solid var(--brd);border-radius:10px;font-size:12.5px;font-weight:600;color:var(--txt2);cursor:pointer;user-select:none}
 .dash-toggle input{accent-color:var(--teal)}
@@ -191,6 +192,7 @@ input,select,textarea,button{font-family:inherit}
 <script src="gema_db.js"></script>
 <script src="gema_notify.js"></script>
 <script src="gema_notify_ui.js"></script>
+<script src="gema_aktivitaetslog.js"></script>
 <script src="gema_mobile_menu.js"></script>
 <script>
 (function(){
@@ -200,18 +202,23 @@ input,select,textarea,button{font-family:inherit}
   function getMe(){try{return GemaAuth.getCurrentUser();}catch(e){return null;}}
 
   // ── DATA LOAD ────────────────────────────────────────────────
-  var vehicles=[];
-  try{
-    if(typeof _GemaDB!=='undefined'){
-      // _GemaDB ist async; im Standardpfad ist die Cache bereits in c[..].
-      // Fallback auf localStorage, falls c noch leer.
-      var raw=(_GemaDB.c&&_GemaDB.c['gema_vehicles'])||null;
-      if(!raw){try{raw=localStorage.getItem('gema_vehicles');}catch(e){}}
-      if(raw)vehicles=JSON.parse(raw);
-    } else {
-      try{var raw2=localStorage.getItem('gema_vehicles');if(raw2)vehicles=JSON.parse(raw2);}catch(e){}
-    }
-  }catch(e){vehicles=[];}
+  // Kanonischer Lese-Pfad: GemaSync.getCached (per-Record-Pool 'gema_vehicles',
+  // gecacht von bindCollection). _GemaDB/localStorage nur als Fallback.
+  function _dashReadVehicles(){
+    try{
+      if(typeof GemaSync!=='undefined'&&GemaSync.getCached){
+        var c=GemaSync.getCached('gema_vehicles');
+        if(Array.isArray(c))return c;
+      }
+    }catch(e){}
+    try{
+      var raw=(typeof _GemaDB!=='undefined'&&_GemaDB.c&&_GemaDB.c['gema_vehicles'])||null;
+      if(!raw)raw=localStorage.getItem('gema_vehicles');
+      if(raw){var a=JSON.parse(raw);if(Array.isArray(a))return a;}
+    }catch(e){}
+    return [];
+  }
+  var vehicles=_dashReadVehicles();
 
   var me=getMe();
   if(!me){
@@ -234,9 +241,12 @@ input,select,textarea,button{font-family:inherit}
     }
   }catch(e){}
   if(werkstattUserIds.indexOf(me.id)<0)werkstattUserIds.push(me.id);
-  var myVehicles=vehicles.filter(function(v){
-    return v && v.garagistUserId && werkstattUserIds.indexOf(v.garagistUserId)>=0;
-  });
+  function _dashMyVehicles(){
+    return vehicles.filter(function(v){
+      return v && v.garagistUserId && werkstattUserIds.indexOf(v.garagistUserId)>=0;
+    });
+  }
+  var myVehicles=_dashMyVehicles();
 
   // ── SERVICE / MFK STATUS ─────────────────────────────────────
   function nextServiceDate(v){
@@ -289,35 +299,41 @@ input,select,textarea,button{font-family:inherit}
   heroMetaParts.push('<div class="hero-meta-item"><b>Heute:</b>'+new Date().toLocaleDateString('de-CH',{weekday:'long',day:'numeric',month:'long'})+'</div>');
   heroMeta.innerHTML=heroMetaParts.join('');
 
-  var faelligList=myVehicles.filter(function(v){
-    var s=daysUntil(nextServiceDate(v));
-    var m=daysUntil(v.mfk);
-    return (s!==null&&s<=30)||(m!==null&&m<=30);
-  });
-  var ueberfaelligList=myVehicles.filter(function(v){
-    var s=daysUntil(nextServiceDate(v));
-    var m=daysUntil(v.mfk);
-    return (s!==null&&s<0)||(m!==null&&m<0);
-  });
-  var monatStart=new Date();monatStart.setDate(monatStart.getDate()-30);
-  // Werkstatt-weit: Eintraege von allen Werkstatt-Mitgliedern
-  var historieMonat=myVehicles.reduce(function(acc,v){
-    if(!Array.isArray(v.serviceHistorie))return acc;
-    return acc+v.serviceHistorie.filter(function(e){
-      return e && werkstattUserIds.indexOf(e.erledigtVonUserId)>=0 && e.datum && new Date(e.datum)>=monatStart;
-    }).length;
-  },0);
-
-  var defectVehicles=myVehicles.filter(function(v){
-    return Array.isArray(v.events) && v.events.some(function(e){return e && e.type==='defekt' && !e.resolved;});
-  });
-
-  var kpiRow=document.getElementById('kpiRow');
-  kpiRow.innerHTML=''+
-    '<div class="kpi-card" data-tab="uebersicht"><div class="kpi-lbl">Zugewiesen</div><div class="kpi-val">'+myVehicles.length+'</div><div class="kpi-sub">Fahrzeuge</div></div>'+
-    '<div class="kpi-card '+(defectVehicles.length?'ueberfaellig':'')+'" data-tab="uebersicht"><div class="kpi-lbl">Defekte offen</div><div class="kpi-val">'+defectVehicles.length+'</div><div class="kpi-sub">'+(defectVehicles.length?'zur Bearbeitung':'alle behoben')+'</div></div>'+
-    '<div class="kpi-card '+(faelligList.length?'faellig':'')+'" data-tab="anstehend"><div class="kpi-lbl">Anstehend (≤30 T)</div><div class="kpi-val">'+faelligList.length+'</div><div class="kpi-sub">'+(ueberfaelligList.length?ueberfaelligList.length+' überfällig':'inkl. Service & MFK')+'</div></div>'+
-    '<div class="kpi-card" data-tab="historie"><div class="kpi-lbl">Erfasst (30 Tage)</div><div class="kpi-val">'+historieMonat+'</div><div class="kpi-sub">Werkstatt-Einträge</div></div>';
+  // Abgeleitete Listen + KPIs — als Funktion, damit sie nach dem
+  // Cloud-Pull (bindCollection) und nach Schreib-Aktionen neu berechnet
+  // werden koennen.
+  var faelligList=[],ueberfaelligList=[],historieMonat=0,defectVehicles=[];
+  function _dashRecompute(){
+    myVehicles=_dashMyVehicles();
+    faelligList=myVehicles.filter(function(v){
+      var s=daysUntil(nextServiceDate(v));
+      var m=daysUntil(v.mfk);
+      return (s!==null&&s<=30)||(m!==null&&m<=30);
+    });
+    ueberfaelligList=myVehicles.filter(function(v){
+      var s=daysUntil(nextServiceDate(v));
+      var m=daysUntil(v.mfk);
+      return (s!==null&&s<0)||(m!==null&&m<0);
+    });
+    var monatStart=new Date();monatStart.setDate(monatStart.getDate()-30);
+    // Werkstatt-weit: Eintraege von allen Werkstatt-Mitgliedern
+    historieMonat=myVehicles.reduce(function(acc,v){
+      if(!Array.isArray(v.serviceHistorie))return acc;
+      return acc+v.serviceHistorie.filter(function(e){
+        return e && werkstattUserIds.indexOf(e.erledigtVonUserId)>=0 && e.datum && new Date(e.datum)>=monatStart;
+      }).length;
+    },0);
+    defectVehicles=myVehicles.filter(function(v){
+      return Array.isArray(v.events) && v.events.some(function(e){return e && e.type==='defekt' && !e.resolved;});
+    });
+    var kpiRow=document.getElementById('kpiRow');
+    kpiRow.innerHTML=''+
+      '<div class="kpi-card" data-tab="uebersicht"><div class="kpi-lbl">Zugewiesen</div><div class="kpi-val">'+myVehicles.length+'</div><div class="kpi-sub">Fahrzeuge</div></div>'+
+      '<div class="kpi-card '+(defectVehicles.length?'ueberfaellig':'')+'" data-tab="uebersicht"><div class="kpi-lbl">Defekte offen</div><div class="kpi-val">'+defectVehicles.length+'</div><div class="kpi-sub">'+(defectVehicles.length?'zur Bearbeitung':'alle behoben')+'</div></div>'+
+      '<div class="kpi-card '+(faelligList.length?'faellig':'')+'" data-tab="anstehend"><div class="kpi-lbl">Anstehend (≤30 T)</div><div class="kpi-val">'+faelligList.length+'</div><div class="kpi-sub">'+(ueberfaelligList.length?ueberfaelligList.length+' überfällig':'inkl. Service & MFK')+'</div></div>'+
+      '<div class="kpi-card" data-tab="historie"><div class="kpi-lbl">Erfasst (30 Tage)</div><div class="kpi-val">'+historieMonat+'</div><div class="kpi-sub">Werkstatt-Einträge</div></div>';
+  }
+  _dashRecompute();
 
   // ── TAB SWITCH ───────────────────────────────────────────────
   function showTab(name){
@@ -325,7 +341,18 @@ input,select,textarea,button{font-family:inherit}
     document.querySelectorAll('.tab-panel').forEach(function(p){p.classList.toggle('active',p.id==='tab-'+name);});
   }
   document.querySelectorAll('.tab-btn').forEach(function(b){b.addEventListener('click',function(){showTab(b.dataset.tab);});});
-  document.querySelectorAll('.kpi-card[data-tab]').forEach(function(c){c.addEventListener('click',function(){showTab(c.dataset.tab);window.scrollTo({top:document.querySelector('.tabs').offsetTop-60,behavior:'smooth'});});});
+  // Delegation statt Direkt-Binding: die KPI-Karten werden bei jedem
+  // _dashRecompute() neu gerendert (innerHTML) — direkte Listener gingen
+  // dabei verloren.
+  (function(){
+    var kpiRowEl=document.getElementById('kpiRow');
+    if(kpiRowEl)kpiRowEl.addEventListener('click',function(ev){
+      var c=ev.target&&ev.target.closest?ev.target.closest('.kpi-card[data-tab]'):null;
+      if(!c)return;
+      showTab(c.dataset.tab);
+      window.scrollTo({top:document.querySelector('.tabs').offsetTop-60,behavior:'smooth'});
+    });
+  })();
 
   // ── FILTER STATE ─────────────────────────────────────────────
   var _dashState={query:'',onlyFaellig:false};
@@ -390,7 +417,11 @@ input,select,textarea,button{font-family:inherit}
     html+='<div class="fz-card-hd"><div class="fz-icon">🚗</div><div style="flex:1;min-width:0">';
     html+='<div class="fz-name">'+esc(v.model||'Fahrzeug')+'</div>';
     html+='<div class="fz-plate">'+esc(v.plate||'—')+(v.year?' · '+esc(v.year):'')+'</div>';
-    html+='</div></div>';
+    html+='</div>';
+    if(v.status==='service'){
+      html+='<span style="font-size:10.5px;font-weight:700;padding:3px 9px;border-radius:6px;background:#ffedd5;color:#7c2d12;border:1px solid #fed7aa;white-space:nowrap">🏭 In der Garage</span>';
+    }
+    html+='</div>';
     if(hasDefect){
       var d0=defects[0];
       html+='<div style="font-size:12px;color:var(--red);background:var(--red-bg);padding:6px 10px;border-radius:6px"><b>Letzter Defekt:</b> '+esc((d0.detail||d0.label||'').slice(0,120))+'</div>';
@@ -410,6 +441,11 @@ input,select,textarea,button{font-family:inherit}
     html+='</div>';
     html+='<div class="fz-actions">';
     html+='<a class="fz-act primary" href="if_fahrzeug.html?service='+esc(v.id)+'">🛠 Service erfassen</a>';
+    if(v.status==='service'){
+      html+='<button class="fz-act" style="cursor:pointer;font-family:inherit" onclick="_dashGarageAus(\''+esc(v.id)+'\')">✓ Ausbuchen</button>';
+    } else {
+      html+='<button class="fz-act" style="cursor:pointer;font-family:inherit" onclick="_dashGarageEin(\''+esc(v.id)+'\')">🏭 Einbuchen</button>';
+    }
     html+='<a class="fz-act" href="if_fahrzeug.html?view='+esc(v.id)+'">Details →</a>';
     html+='</div></div>';
     return html;
@@ -498,13 +534,40 @@ input,select,textarea,button{font-family:inherit}
     box.innerHTML=html;
   }
 
-  // ── QUICK KM UPDATE ──────────────────────────────────────────
-  function _dashPersistVehicles(){
+  // ── SPEICHERN / LOGGING / NOTIFIKATION ───────────────────────
+  // Einzelnes Fahrzeug sichern: lokalen Cache aktualisieren + genau EINE
+  // Cloud-Row (GemaSync.saveRecord) — vorher schrieb das Dashboard den
+  // ganzen Bestand als Blob an der per-Record-Pipeline vorbei.
+  function _dashSaveVehicle(v){
     try{
-      if(typeof _GemaDB!=='undefined' && _GemaDB.save){_GemaDB.save('gema_vehicles',JSON.stringify(vehicles));}
-      else{localStorage.setItem('gema_vehicles',JSON.stringify(vehicles));}
+      var all=_dashReadVehicles().map(function(x){return x.id===v.id?v:x;});
+      localStorage.setItem('gema_vehicles',JSON.stringify(all));
+    }catch(e){}
+    if(typeof GemaSync!=='undefined'&&GemaSync.saveRecord){
+      GemaSync.saveRecord('fahrzeugmanagement','vehicle:'+v.id,v).catch(function(e){
+        alert('Cloud-Speichern fehlgeschlagen — bitte Verbindung prüfen.');
+      });
+    } else if(typeof _GemaDB!=='undefined'&&_GemaDB.save){
+      try{_GemaDB.save('gema_vehicles',JSON.stringify(vehicles));}catch(e){}
+    }
+  }
+  // Aktivitätslog — Eintrag gehört zur Org des FAHRZEUGS (Auftraggeber),
+  // damit der Magaziner ihn in seinem org-gefilterten Log sieht.
+  function _dashLog(aktion,beschreibung,v){
+    try{
+      if(typeof GemaActivityLog==='undefined')return;
+      GemaActivityLog.log({modul:'fahrzeug',orgId:v.orgId||undefined,modulRecordId:v.id,modulRecordName:v.plate||v.model||v.id,aktion:aktion,beschreibung:beschreibung||''});
     }catch(e){}
   }
+  function _dashNotifyMagaziner(v,eventKey,typ,titel,text){
+    try{
+      if(typeof GemaNotify==='undefined')return;
+      GemaNotify.push({eventKey:eventKey,empfaengerRoleId:'role_magaziner',empfaengerOrgId:v.orgId||'',modul:'fahrzeug',typ:typ,titel:titel,text:text,link:'if_fahrzeug.html?view='+v.id});
+    }catch(e){}
+  }
+  function _dashRerender(){_dashRecompute();renderUebersicht();renderAnstehend();renderHistorie();}
+
+  // ── QUICK KM UPDATE ──────────────────────────────────────────
   window._dashOpenKmEdit=function(vid){
     var v=vehicles.find(function(x){return x.id===vid;});
     if(!v)return;
@@ -520,10 +583,114 @@ input,select,textarea,button{font-family:inherit}
     }
     v.km=String(neuNum);
     v.kmUpdatedAt=new Date().toISOString();
-    _dashPersistVehicles();
-    // Aktualisiere myVehicles-Referenz (gleicher Object — automatisch aktuell)
-    renderUebersicht();
-    renderAnstehend();
+    _dashSaveVehicle(v);
+    _dashLog('km_update','km-Stand aktualisiert: '+(alt?alt.toLocaleString('de-CH')+' → ':'')+neuNum.toLocaleString('de-CH')+' km',v);
+    _dashRerender();
+  };
+
+  // ── GARAGE EIN-/AUSBUCHEN ────────────────────────────────────
+  // Einbuchen setzt den bestehenden Status «Im Service» ('service') +
+  // Vermerk; Ausbuchen zurück auf «Aktiv». Sind Defekte offen, verlangt
+  // das Ausbuchen zuerst die Reparatur-Doku (Service-Eintrag Art
+  // «Reparatur», Defekte werden als behoben markiert).
+  function _openDefectsOf(v){return (v.events||[]).filter(function(e){return e&&e.type==='defekt'&&!e.resolved;});}
+  function _dashAddEvent(v,type,label,detail){
+    if(!Array.isArray(v.events))v.events=[];
+    v.events.unshift({type:type,date:new Date().toISOString(),label:label,detail:detail||''});
+  }
+  window._dashGarageEin=function(vid){
+    var v=vehicles.find(function(x){return x.id===vid;});if(!v)return;
+    var grund=window.prompt('Fahrzeug «'+(v.plate||v.model||'')+'» in der Garage einbuchen.\nGrund (optional):','');
+    if(grund===null)return;
+    var now=new Date().toISOString();
+    v.status='service';
+    v.garage={eingebuchtAm:now,eingebuchtVonUserId:me.id||'',eingebuchtVonName:me.name||me.username||'',werkstatt:orgName||'',grund:(grund||'').trim()};
+    _dashAddEvent(v,'garage','In Garage eingebucht',(grund||'').trim());
+    _dashSaveVehicle(v);
+    _dashLog('garage_ein','In Garage eingebucht'+(grund?' · '+grund.trim().slice(0,80):''),v);
+    _dashNotifyMagaziner(v,'fahrzeug_garage','info','🏭 In Garage: '+(v.plate||v.model||'Fahrzeug'),(me.name||'Garagist')+(grund?' · '+grund.trim().slice(0,100):''));
+    _dashRerender();
+  };
+  window._dashGarageAus=function(vid){
+    var v=vehicles.find(function(x){return x.id===vid;});if(!v)return;
+    var offen=_openDefectsOf(v);
+    if(offen.length){ _dashOpenRepDoku(vid); return; }
+    if(!window.confirm('Fahrzeug «'+(v.plate||v.model||'')+'» aus der Garage ausbuchen (Status wieder «Aktiv»)?'))return;
+    _dashFinishAusbuchen(v,'');
+  };
+  function _dashFinishAusbuchen(v,repText){
+    var now=new Date().toISOString();
+    v.status='aktiv';
+    if(v.garage){v.garage.ausgebuchtAm=now;v.garage.ausgebuchtVonName=me.name||me.username||'';}
+    _dashAddEvent(v,'garage','Aus Garage ausgebucht','');
+    _dashSaveVehicle(v);
+    _dashLog('garage_aus','Aus Garage ausgebucht',v);
+    _dashNotifyMagaziner(v,'fahrzeug_garage','erfolg','✓ Aus Garage: '+(v.plate||v.model||'Fahrzeug'),(me.name||'Garagist')+' hat das Fahrzeug ausgebucht — wieder verfügbar.'+(repText?' · '+repText.slice(0,80):''));
+    _dashRerender();
+  }
+  // Reparatur-Doku-Overlay: «Was war das Problem / was wurde gemacht?»
+  // → Service-Eintrag (Art Reparatur) + offene Defekte als behoben.
+  window._dashOpenRepDoku=function(vid){
+    var v=vehicles.find(function(x){return x.id===vid;});if(!v)return;
+    var offen=_openDefectsOf(v);
+    var defListe=offen.map(function(e){return '<li style="margin:2px 0">'+esc((e.detail||e.label||'').slice(0,100))+'</li>';}).join('');
+    var old=document.getElementById('dashRepOv');if(old)old.remove();
+    var ov=document.createElement('div');ov.id='dashRepOv';
+    ov.style.cssText='position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px';
+    ov.innerHTML='<div style="background:#fff;border-radius:16px;padding:24px;max-width:480px;width:100%;max-height:85vh;overflow-y:auto;box-shadow:0 20px 50px rgba(0,0,0,.25)">'
+      +'<h3 style="margin:0 0 4px;font-size:17px;font-weight:800;color:#065f46">🔧 Reparatur dokumentieren & ausbuchen</h3>'
+      +'<div style="font-size:12px;color:#64748b;margin-bottom:12px">'+esc(v.model||'')+' · '+esc(v.plate||'')+'</div>'
+      +(defListe?'<div style="font-size:12px;color:#991b1b;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:8px 12px;margin-bottom:12px"><strong>Offene Defekte:</strong><ul style="margin:4px 0 0;padding-left:18px">'+defListe+'</ul></div>':'')
+      +'<label style="font-size:11px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:6px">Was war das Problem / was wurde gemacht? *</label>'
+      +'<textarea id="dashRepText" rows="4" placeholder="z.B. Anlasser defekt — ersetzt, Probefahrt i.O." style="width:100%;padding:10px 14px;border:1.5px solid #e2e7f0;border-radius:10px;font-size:14px;font-family:inherit;margin-bottom:12px;resize:vertical"></textarea>'
+      +'<div style="display:flex;gap:10px;margin-bottom:12px">'
+      +'<div style="flex:1"><label style="font-size:11px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:6px">km-Stand</label>'
+      +'<input type="text" inputmode="numeric" id="dashRepKm" value="'+esc(v.km||'')+'" style="width:100%;padding:10px 14px;border:1.5px solid #e2e7f0;border-radius:10px;font-size:14px;font-family:inherit"/></div>'
+      +'<div style="flex:1"><label style="font-size:11px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:6px">Kosten (CHF, optional)</label>'
+      +'<input type="text" inputmode="decimal" id="dashRepKosten" placeholder="z.B. 480.00" style="width:100%;padding:10px 14px;border:1.5px solid #e2e7f0;border-radius:10px;font-size:14px;font-family:inherit"/></div>'
+      +'</div>'
+      +'<div style="display:flex;gap:8px;justify-content:flex-end">'
+      +'<button onclick="document.getElementById(\'dashRepOv\').remove()" style="padding:9px 18px;border-radius:8px;border:1px solid #e2e7f0;background:#fff;cursor:pointer;font-weight:600;font-family:inherit">Abbrechen</button>'
+      +'<button onclick="_dashSaveRepDoku(\''+esc(vid)+'\')" style="padding:9px 18px;border-radius:8px;border:none;background:#065f46;color:#fff;cursor:pointer;font-weight:700;font-family:inherit">✓ Speichern & ausbuchen</button>'
+      +'</div></div>';
+    ov.onclick=function(e){if(e.target===ov)ov.remove();};
+    document.body.appendChild(ov);
+  };
+  window._dashSaveRepDoku=function(vid){
+    var v=vehicles.find(function(x){return x.id===vid;});if(!v)return;
+    var text=(document.getElementById('dashRepText').value||'').trim();
+    if(!text){alert('Bitte beschreiben, was das Problem war / gemacht wurde.');return;}
+    var km=(document.getElementById('dashRepKm').value||'').trim().replace(/[^0-9]/g,'');
+    var kosten=(document.getElementById('dashRepKosten').value||'').trim();
+    var now=new Date().toISOString();
+    var heute=now.split('T')[0];
+    if(!Array.isArray(v.serviceHistorie))v.serviceHistorie=[];
+    v.serviceHistorie.push({
+      datum:heute, km:km||'', art:'reparatur', beschreibung:text, kosten:kosten||'',
+      werkstatt:orgName||'', erledigtVonUserId:me.id||'', erledigtVonName:me.name||me.username||'',
+      erstelltAm:now
+    });
+    if(!v.lastService||heute>v.lastService)v.lastService=heute;
+    if(km){
+      var kmNum=parseInt(km,10)||0;
+      if(!v.lastServiceKm||kmNum>parseInt(v.lastServiceKm,10))v.lastServiceKm=km;
+      if(!v.km||kmNum>parseInt(v.km,10)){v.km=km;v.kmUpdatedAt=now;}
+    }
+    var changed=0;
+    (v.events||[]).forEach(function(e){
+      if(e&&e.type==='defekt'&&!e.resolved){
+        e.resolved=true;e.resolvedAt=now;
+        e.resolvedByUserId=me.id||'';e.resolvedByName=me.name||me.username||'';
+        e.resolvedNote=text.slice(0,200);
+        changed++;
+      }
+    });
+    _dashAddEvent(v,'reparatur','Reparatur: '+text.slice(0,60),text+(kosten?' | CHF '+kosten:''));
+    _dashLog('reparatur','Reparatur dokumentiert: '+text.slice(0,100)+(kosten?' · CHF '+kosten:''),v);
+    if(changed)_dashLog('defekt_erledigt',changed+' Defekt'+(changed>1?'e':'')+' behoben',v);
+    _dashNotifyMagaziner(v,'fahrzeug_service_erledigt','erfolg','🔧 Reparatur erledigt: '+(v.plate||v.model||'Fahrzeug'),text.slice(0,140)+(changed?' · '+changed+' Defekt'+(changed>1?'e':'')+' behoben':''));
+    var ovEl=document.getElementById('dashRepOv');if(ovEl)ovEl.remove();
+    _dashFinishAusbuchen(v,text);
   };
 
   // ── INIT ─────────────────────────────────────────────────────
@@ -531,6 +698,16 @@ input,select,textarea,button{font-family:inherit}
   renderAnstehend();
   renderHistorie();
   renderProfil();
+
+  // Fahrzeug-Pool frisch aus der Cloud ziehen (per-Record) — der lokale
+  // Cache kann veraltet sein (Aenderungen des Magaziners auf anderem
+  // Geraet). Danach alles neu berechnen und rendern.
+  if(typeof GemaSync!=='undefined'&&GemaSync.bindCollection){
+    GemaSync.bindCollection('fahrzeugmanagement','gema_vehicles','vehicle:','id').then(function(){
+      vehicles=_dashReadVehicles();
+      _dashRerender();
+    }).catch(function(){});
+  }
 
   // URL-Param: ?tab=anstehend o.ä.
   try{

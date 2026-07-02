@@ -145,9 +145,10 @@ Berechnung abgeschlossen (z.B. Enthärtung: 2.5 l/s, 15°fH)
 - **Eigenes Login**: Jeder Lieferant hat ein eigenes Konto mit Dashboard
 - **Produktpflege**: Lieferant erfasst und pflegt seine Produkte selbst
 - **Produktkategorien**: Anlagen (Osmose, Enthärtung, Druckerhöhung, Pumpen etc.), Armaturen, Rohre, Zubehör
-- **Admin-Zugriff**: GEMA-Admin kann alle Lieferanten-Daten einsehen und Lieferanten deaktivieren (z.B. bei Zahlungsverzug). Deaktivierter Lieferant (`status:'inaktiv'`): alle Schreib-Aktionen im Dashboard sind blockiert (`_liefBlockedInaktiv()`), nicht nur ein Banner.
+- **Admin-Zugriff**: GEMA-Admin kann alle Lieferanten-Daten einsehen und Lieferanten deaktivieren (z.B. bei Zahlungsverzug). Deaktivierter Lieferant (`status:'inaktiv'`): alle Schreib-Aktionen im Dashboard sind blockiert (`_liefBlockedInaktiv()`), nicht nur ein Banner — inkl. Mitarbeiter-Einladung, Rollen-Zuweisung und Mitarbeiter-Deaktivierung (Invite-Button wird ausgeblendet).
 - **Offertanfragen**: Lieferant sieht eingehende Anfragen aus Berechnungen der Planer
-- **User↔Lieferant-Verknüpfung**: `user.lieferantId` verknüpft den eingeloggten Auth-User eindeutig mit dem GemaProdukte-Lieferant-Datensatz. `findMyLieferant()` bevorzugt dieses Feld; die alte Heuristik (E-Mail/Org/Firma) bleibt nur Fallback und **self-healt** (schreibt `lieferantId` beim ersten Treffer via `GemaAuth.linkUserToLieferant`). Mitarbeiter-Einladung (`_liefInviteUser`) setzt `lieferantId` direkt und startet mit `role_lieferant_intern` (Least Privilege — Admin weist Unterrolle zu). Firmenprofil-Edit nur für `_liefIsAdmin()`; Mitarbeiter-Verwaltung nur für Org-Admin **derselben** Lieferanten-Org.
+- **User↔Lieferant-Verknüpfung**: `user.lieferantId` verknüpft den eingeloggten Auth-User eindeutig mit dem GemaProdukte-Lieferant-Datensatz. `findMyLieferant()` bevorzugt dieses Feld; die alte Heuristik (E-Mail/Org/Firma) bleibt nur Fallback und **self-healt** (schreibt `lieferantId` beim ersten Treffer via `GemaAuth.linkUserToLieferant`). `GemaAuth.inviteLieferant(opts)` akzeptiert `opts.lieferantId` und setzt das Feld direkt beim Anlegen (Aufrufer: `_liefInviteUser` im Dashboard, `GemaOfferRequest._submit`). Mitarbeiter-Einladung (`_liefInviteUser`) startet mit `role_lieferant_intern` (Least Privilege — Admin weist Unterrolle zu). Firmenprofil-Edit nur für `_liefIsAdmin()`; Mitarbeiter-Verwaltung nur für Org-Admin **derselben** Lieferanten-Org.
+- **Kategorie-IDs (KRITISCH)**: `LIEF_KATEGORIEN` (Firmenprofil-Kategorien) und `KATEGORIEN` (Produkt-Schemas/Matching) nutzen DIESELBEN IDs — `hebeanlage` und `thermische_solaranlage` (nicht mehr `abwasserhebeanlage`/`solaranlage`). Für Altdaten gibt es `GemaProdukte.normKatId(id)` (Alias-Map), genutzt in `getLieferantenByKategorie` und im Kategorien-Filter von `gema_offer_request.js`.
 
 ### Verifizierung
 
@@ -156,6 +157,14 @@ Berechnung abgeschlossen (z.B. Enthärtung: 2.5 l/s, 15°fH)
 3. Lieferant bestätigt die Korrektheit der Daten
 4. Anlage erhält den **"Verifiziert"-Badge** ✓
 5. Nicht-verifizierte Anlagen werden als "Nicht verifiziert" markiert
+
+### Offertanfrage-Workflow (End-to-End)
+
+1. **Planer** sendet aus einem Berechnungsmodul (Enthärtung, Osmose, Druckerhöhung …) eine Offertanfrage. **KRITISCH — Payload-Regel**: `berechnungswerte` enthält IMMER die **berechneten Projektwerte** (z.B. `_enthaertungBerechnungswerte()` / `_osmoseBerechnungswerte()`), NIE die Datenblatt-Werte der gewählten Anlage — die gewählte Anlage geht separat via `produktId`/`produktName` mit. (Früherer Bug: `d.nenndurchfluss` etc. aus dem Produkt wurde als «Berechnung» mitgeschickt.)
+2. `GemaProdukte.createOffertanfrage()` **reichert `projekt` aus dem GEMA-Objekt an** (Name, `nummer`, `adresse` aus `strasse/plz/ort`) — der Lieferant hat keinen Zugriff auf fremde Org-Objekte, alles Nötige muss im OA-Record stehen. Danach speichern (per-Record `oa:`) und **Lieferant benachrichtigen** (`offertanfrage_neu`): bevorzugt alle User mit passender `user.lieferantId`, Fallback Lieferanten-Org (nie `org_default`).
+3. **Lieferant** prüft die Anfrage im Dashboard: Anfragen-Karte und Beantworten-Modal zeigen **Projekt (mit Adresse), berechneten Bedarf (`_oaBwRowsHtml`, Label-Map `_OA_BW_LABELS`) und die vom Planer gewählte Anlage inkl. Kennwerten** (`_oaAnlageSpecsHtml` — löst `produktId` im eigenen Katalog auf, zeigt Allgemein-+Leistungsdaten-Felder) nebeneinander zur **Gegenprüfung**. Die angefragte Anlage ist im Antwort-Dropdown vorausgewählt. Die Offerte erstellt der Lieferant extern (ERP/SAP) und hängt sie an: Preis, Nachricht, optional **Offerte als PDF**. Das PDF wird via `GemaStorage.uploadDataUrl` in den Bucket `gema-fotos` (Pfad `offerten/<lieferantId>`) ausgelagert → `antwort.pdfUrl`; Base64-Fallback (`antwort.pdfDataUrl`) nur bei Upload-Fehler und ≤ 2.5 MB. Max. 10 MB.
+4. `beantworteOffertanfrage()` **benachrichtigt den Planer** (`offertanfrage_beantwortet`, Link `pm_objekte.html?tab=offerten&objekt=…`) und legt die Vormerkung fürs Objekt an. Ablehnung analog (`offertanfrage_abgelehnt`).
+5. **Postfach des Planers**: der «📨 Offerten»-Tab im Berechnungsmodul (`gema_offerten_tab.js`, objektbezogen, PDF klickbar) UND der zentrale **Offerten-Tab in `pm_objekte.html`** (alle Anfragen der Org über alle Berechnungen, Filter pro Objekt, Deep-Link `?tab=offerten[&objekt=ID]`, Direktlink zurück ins Berechnungsmodul).
 
 ### Monetarisierung
 
@@ -257,7 +266,7 @@ Hauptseite: `index.html`. Hub-Seiten: `sb_index.html`, `pm_ausschreibung.html`, 
 - **Schadensdokumentation** (sd_): Schadensberichte (siehe Abschnitt „Schadensdokumentation" weiter unten). Trocknungsgeräte (if_trocknung.html) liefert automatisch Gerätedaten via `GemaTrocknung`-API.
 - **Zentrale Module**: `index.html` (Hauptnavigation / Modulübersicht), `pm_objekte.html` (Projektverwaltung)
 - **Lieferanten-Modul**: `sys_lieferant_dashboard.html` mit 6 Tabs (Übersicht, Produkte, Anfragen, Rohrsysteme, Werkzeuge, Firmenprofil)
-- **Garagist-Modul**: `sys_garagist_dashboard.html` mit 4 Tabs (Übersicht, Anstehend, Service-Historie, Werkstatt-Profil). Login-Redirect für `role_garagist`. Zeigt nur Fahrzeuge, deren `garagistUserId === me.id`, mit Quick-Action `?service=ID` zurück nach `if_fahrzeug.html`, die das Service-Modal direkt öffnet.
+- **Garagist-Modul**: `sys_garagist_dashboard.html` mit 4 Tabs (Übersicht, Anstehend, Service-Historie, Werkstatt-Profil). Login-Redirect für `role_garagist`. Werkstatt-Team-Sicht (`garagistUserId` ∈ Garagisten derselben Org), Quick-Actions: `?service=ID` (Service-Modal in `if_fahrzeug.html`), «✏ km» (km-Update), «🏭 Einbuchen / ✓ Ausbuchen» (Garage-Status, mit Reparatur-Doku bei offenen Defekten). Daten per-Record via GemaSync, Aktionen geloggt + notifiziert.
 
 ---
 
@@ -464,6 +473,8 @@ Auto-Save/Load bei Objektwechsel.
 
 **URL-Parameter `?objekt=ID`:** setzt beim Seitenaufruf automatisch das aktive Objekt. Wird vom Berechnungen-Tab in pm_objekte.html genutzt, damit der Planer direkt in der richtigen Zuordnung landet.
 
+**Offerten-Tab (pm_objekte.html):** vierter Tab «📨 Offerten» — zentrales Postfach für alle Offertanfragen/Lieferanten-Offerten der Org (Quelle: `GemaProdukte.getOffertanfragen()`, sichtbar wenn `projekt.objektId` zu einem Org-Objekt gehört oder man selbst Absender ist). Tabelle mit Status, Brutto-Preis, klickbarem Offerten-PDF und Direktlink ins Berechnungsmodul (`OA_KAT_MAP`). Deep-Link `pm_objekte.html?tab=offerten[&objekt=ID]` — wird von den `offertanfrage_beantwortet`-Notifikationen verwendet. `gema_produktkatalog_api.js` ist dafür in pm_objekte.html eingebunden.
+
 **Zuordnungs-Pill:** `gema_objekte_api.js` injiziert automatisch einen Status-Chip in die `.project-bar`:
 - 📋 «Zugeordnet zu: <Objekt>» (grün) wenn Objekt aktiv
 - ⚠ «Nicht zugeordnet — bitte Projekt wählen» (amber) sonst
@@ -627,8 +638,9 @@ Storage-Key: `gema_werkzeug` via `_GemaDB`. Felder pro Werkzeug:
 | `hasLeiter`/`leiterInterval`/`lastLeiter`/`leiterHistory[]` | Leiterprüfung EKAS (nur Kategorie `leiter`) |
 | `zugewiesenAn:{userId,name,seit}` | Aktuell zugewiesene Person (Magaziner setzt das) |
 | `berichte:[{id,typ,datum,autorUserId,autorName,titel,beschreibung,...}]` | Defekt- und Prüfberichte als Historie |
-| `pruefAnfrage:{lieferantId,lieferantFirma,wunschtermin,bemerkung,angefordertAm,angefordertVon,status}` | Aktive Prüfungs-Anfrage an einen Lieferanten |
-| `ersatzAnfragen:[{id,lieferantId,lieferantFirma,typ,nachricht,status,erstelltAm,...}]` | Ersatz-/Nachfolger-Anfragen an Lieferanten |
+| `pruefAnfrage:{lieferantId,lieferantFirma,typ,wunschtermin,bemerkung,angefordertAm,angefordertVon,status}` | Aktive Prüfungs-Anfrage an einen Lieferanten (`typ`: servicepruefung/elektropruefung/leiterpruefung) |
+| `ersatzAnfragen:[{id,lieferantId,lieferantFirma,typ,nachricht,status,erstelltAm,antwort?,...}]` | Ersatz-/Nachfolger-Anfragen an Lieferanten; `antwort` = Offerte des Lieferanten (preis, nachricht, pdfUrl/pdfDataUrl) |
+| `reparatur:{offen,lieferantId,lieferantFirma,defektBerichtId,termin,bemerkung,gestartetAm,abgeschlossenAm?}` | Vom Lieferanten eröffnete Reparatur (koppelt `lifecycleStatus:'in_reparatur'`) |
 
 ### QR-Code & Etiketten (if_werkzeug.html)
 
@@ -689,9 +701,10 @@ In `org.settings.werkzeug.requireMagazinerReturn` (bool). UI: Werkzeug-Toolbar �
 
 ### Berichts-System
 
-`t.berichte[]` enthält zwei Bericht-Typen, zusammen in einer Liste:
+`t.berichte[]` enthält drei Bericht-Typen, zusammen in einer Liste:
 
-- **`typ:'defekt'`**: Defektmeldung mit `titel`, `beschreibung`, `schweregrad` (`leicht`/`mittel`/`schwer`/`ausser_betrieb`), `erledigt`, `erledigtAm`. Erfassung via `openDefektMelden(toolId)`. Magaziner markiert Defekte als erledigt via `_wzDefektErledigt`.
+- **`typ:'defekt'`**: Defektmeldung mit `titel`, `beschreibung`, `schweregrad` (`leicht`/`mittel`/`schwer`/`ausser_betrieb`), `erledigt`, `erledigtAm`. Erfassung via `openDefektMelden(toolId)`. Magaziner markiert Defekte als erledigt via `_wzDefektErledigt`. Optional `lieferantAntwort` = Offerte des Lieferanten (siehe «Lieferanten-Reaktion»).
+- **`typ:'reparatur'`**: Vom Lieferanten via Dashboard erzeugte Einträge «Reparatur eröffnet» / «Reparatur abgeschlossen» (`vonLieferant:true`).
 - **`typ:'pruefbericht'`**: Prüfbericht mit `ergebnis`, `fehlendeTeile[]`, `naechstePruefung`. Erfassung via `openPruefbericht(toolId)`. Synchronisiert gleichzeitig `lastService`/`lastElec`/`lastLeiter`, damit `worstDays()` weiterläuft.
 
 Die komplette Historie ist via `openBerichte(toolId)` einsehbar (alle Rollen). Defekt-Banner auf der Karte: solange ein Defekt nicht erledigt ist, erscheint „⚠ Defekt offen".
@@ -704,11 +717,25 @@ Die komplette Historie ist via `openBerichte(toolId)` einsehbar (alle Rollen). D
 
 Drei-stufiger Workflow zwischen Magaziner und externem Prüf-Lieferanten:
 
-1. **Anfordern** — `openPruefAnfordern(toolId)` (nur Magaziner/Admin). Dropdown aller `role_lieferant`-User, Wunschtermin, Bemerkung. Speichert `t.pruefAnfrage = {…, status:'angefordert'}` und pusht `werkzeug_pruefung_anfrage` an den Lieferanten mit Link `if_werkzeug.html?pruef_lief=TOOL_ID`.
-2. **Quittieren** — `_wzPruefLiefQuittieren(toolId)`. Lieferant öffnet die Notifikation → die Lieferanten-Ansicht `openPruefLiefAnsicht(toolId)` öffnet sich → Klick auf „✓ Auftrag quittieren" → Status wechselt auf `quittiert`, Notifikation zurück an den Magaziner.
-3. **Bericht einreichen** — `_wzPruefLiefBerichtEinreichen(toolId)`. Lieferant trägt Datum, Ergebnis, Bemerkungen, nächste Prüfung ein. Erzeugt einen `typ:'pruefbericht'`-Eintrag in `t.berichte[]` mit `vonLieferant:true`, aktualisiert `lastService`/`lastElec`/`lastLeiter`, setzt Status auf `erledigt` und benachrichtigt den Magaziner mit `typ:'erfolg'` (bei Bestanden) oder `typ:'warnung'` (bei Mängeln).
+1. **Anfordern** — `openPruefAnfordern(toolId)` (nur Magaziner/Admin). Dropdown der `role_lieferant`/`role_pruefer`-User, **gefiltert nach Prüf-Kategorie** (`lieferantKategorien`: `elektropruefung` für Elektro-Geräte, `leiterpruefung` für Leitern, sonst `servicepruefung`) — Elektriker sehen nur Elektro-Aufträge etc. Speichert `t.pruefAnfrage = {…, typ:'<pruefKat>', status:'angefordert'}` (das Feld `typ` sagt dem Lieferanten-Dashboard, WELCHE Prüfung verlangt ist; Altdaten ohne `typ` werden per Heuristik abgeleitet) und pusht `werkzeug_pruefung_anfrage` an den Lieferanten mit Link `if_werkzeug.html?pruef_lief=TOOL_ID`.
+2. **Quittieren** — `_wzPruefLiefQuittieren(toolId)` in if_werkzeug ODER `_dwzQuittieren` im Lieferanten-Dashboard. Status → `quittiert`, Notifikation zurück an den Magaziner.
+3. **Bericht einreichen** — `_wzPruefLiefBerichtEinreichen(toolId)` ODER `_dwzSubmitPruefbericht` im Dashboard. Erzeugt einen `typ:'pruefbericht'`-Eintrag in `t.berichte[]` mit `vonLieferant:true`, aktualisiert `lastService`/`lastElec`/`lastLeiter`, setzt Status auf `erledigt` und benachrichtigt den Magaziner mit `typ:'erfolg'` (bei Bestanden) oder `typ:'warnung'` (bei Mängeln).
 
 Status-Banner auf der Karte: 🟠 Angefordert → 🔵 Quittiert → 🟢 Erledigt.
+
+**Cross-Org-Zugriff (KRITISCH)**: `load()` filtert auf die eigene Org, lädt aber für User mit `role_lieferant*`/`role_pruefer` zusätzlich die Fremd-Org-Werkzeuge, an denen sie beauftragt sind (`_wzIsBeauftragt`: `pruefAnfrage.lieferantId`, `supplierId` oder `ersatzAnfragen[].lieferantId` ∈ `_wzMyLiefUserIds()`) — analog Garagist im Fahrzeugmodul. `save()` schliesst diese Fremd-Tools per ID aus dem `others`-Erhalt aus (sonst Duplikate). `_wzMyLiefUserIds()` = eigene User-ID + alle User desselben `user.lieferantId` (Team-Sichtbarkeit). Ohne diesen Pfad liefen die Deep-Links (`?pruef_lief=…`) für externe Partner ins Leere.
+
+### Lieferanten-Reaktion: Offerte & Reparatur (Dashboard als Arbeitsplatz)
+
+Der **Werkzeuge-Tab in `sys_lieferant_dashboard.html`** ist der Arbeitsvorrat des externen Lieferanten/Prüfers (Deep-Link `?tab=werkzeuge` aus den Notifikationen). Datenquelle: voller Multi-Tenant-Pool via `GemaSync.bindCollection('werkzeugmanagement','gema_werkzeug','tool:','id')` beim Init (cross-org!); Einzel-Saves via `GemaSync.saveRecord` (`_dwzSaveTool` — bewusst KEIN persistCollection, damit ein unvollständiger Cache nie fremde Records löscht). Matching überall team-tolerant via `_dwzMyIds()`.
+
+Sektionen: **📋 Prüfaufträge** (Prüftyp, Auftraggeber-Org, Wunschtermin; Aktionen Quittieren + Prüfbericht-Modal), **🔧 Meine Werkzeuge** (alle verknüpften Werkzeuge mit Auftraggeber), **⏰ Fällige Prüfungen** (`_dwzNextDue` aus Intervallen), **⚠ Defektmeldungen**, **🔄 Ersatzanfragen**, **🏢 Meine Auftraggeber** (Mandate).
+
+Reaktion auf Defekt-/Ersatzmeldung:
+- **📄 Offerte senden** (`_dwzOpenOfferte`): Preis, Nachricht, PDF-Upload (GemaStorage `offerten/<lieferantId>/werkzeug`, Fallback Base64 ≤ 2.5 MB). Gespeichert als `b.lieferantAntwort = {preis, nachricht, pdfName, pdfUrl|pdfDataUrl, ts, von}` (Defekt) bzw. `a.antwort = {…, beantwortetAm, beantwortetVon}` + `a.status='beantwortet'` (Ersatzanfrage). Notifikation `werkzeug_offerte_lieferant` an `role_magaziner` + Org des Werkzeugs.
+- **🔧 Reparatur eröffnen** (`_dwzOpenReparatur`): setzt `t.lifecycleStatus='in_reparatur'` + `t.reparatur = {offen:true, lieferantId, lieferantFirma, defektBerichtId, termin, bemerkung, gestartetAm}` + `typ:'reparatur'`-Eintrag in `t.berichte[]`. **Reparatur abschliessen** setzt zurück auf `aktiv` (`reparatur.offen=false`) — der Defekt bleibt offen, der Magaziner prüft und markiert ihn selbst als erledigt. Notifikationen `werkzeug_reparatur` (info/erfolg).
+
+Der Magaziner sieht alles im **Berichte-Modal** von if_werkzeug: `typ:'reparatur'`-Einträge (🔧), die Lieferanten-Offerte unter dem Defekt (`b.lieferantAntwort`, PDF klickbar) und eine Ersatzanfragen-Sektion mit Antworten/Offerten.
 
 ### Fälligkeits-Scan
 
@@ -742,6 +769,16 @@ Jedes Werkzeug kann über `supplier` + `supplierId` mit einem Lieferanten-Accoun
 ### Fahrzeugmanagement (if_fahrzeug.html)
 
 Eigenständiges Modul mit ähnlicher Struktur (Liste, QR-Code-Generierung mit SVG-Download, Service-Intervalle). Schreib-Zugriff: `role_magaziner`, `role_pruefer`. Nicht alle Werkzeug-Features (Berichte, Zuweisung, Lieferanten-Workflow) sind im Fahrzeug-Modul gespiegelt — bei Bedarf gleicher Pattern wie if_werkzeug.html anwenden.
+
+**Garagist-Rechte**: Feld-Whitelist `_FZ_GARAGIST_EDITABLE_FIELDS` (km, Service-Intervalle/-Daten, MFK, Reifen, Notizen); kein Erfassen/Löschen. km-Update via Formular, `_fzQuickKmEdit` (NFC/Detail) oder Garagisten-Dashboard.
+
+**Garage-Einbuchen (Werkstatt-Status)**: `_fzGarageToggle/_fzGarageEinbuchen/_fzGarageAusbuchen` (+ «🏭 Garage»-Button im View-Modal) — Einbuchen setzt den bestehenden Status `service` («Im Service») + `v.garage = {eingebuchtAm, eingebuchtVonName, werkstatt, grund, ausgebuchtAm?}`; Ausbuchen zurück auf `aktiv`. Notifikation `fahrzeug_garage` an `role_magaziner` + Fahrzeug-Org. Gleiche Buttons im Garagisten-Dashboard (`_dashGarageEin/_dashGarageAus`).
+
+**Defekt beheben = Reparatur dokumentieren (User-Vorgabe)**: `_fzResolveAllDefects` öffnet die **Reparatur-Doku** (`_fzOpenReparaturDoku`): Pflichtfeld «Was war das Problem / was wurde gemacht?», optional km/Kosten → erzeugt einen `serviceHistorie`-Eintrag (Art `reparatur`), markiert alle offenen Defekt-Events als behoben (`resolvedNote`) und benachrichtigt die Magaziner (`fahrzeug_service_erledigt`). Das Garage-**Ausbuchen** verlangt bei offenen Defekten zuerst dieselbe Doku (Dashboard: `_dashOpenRepDoku`).
+
+**Garagisten-Dashboard (sys_garagist_dashboard.html)**: liest den Pool via `GemaSync.getCached('gema_vehicles')` + frischer Pull via `bindCollection` beim Start; Einzel-Saves via `GemaSync.saveRecord` (`_dashSaveVehicle` — vorher roher Blob-Write an der per-Record-Pipeline vorbei). Loggt km-Update/Garage/Reparatur ins zentrale Aktivitätslog (Org des Fahrzeugs).
+
+**Zentrale Log-Abdeckung**: `_fzActLog` zusätzlich bei Defekt melden, Defekt behoben, Kosten, Reifen, km-Update, Fahrer-Zuweisung, Ausleihe/Rückgabe, Garage ein/aus, Reparatur (vorher nur erfasst/geändert/gelöscht/Garagist-Zuweisung/Service). `persist()` im Garagist-Zweig schliesst geladene Fahrzeuge per ID aus dem Erhalt aus (keine Duplikate bei Werkstatt-Team-Sicht). Alle `role_magaziner`-Notifikationen setzen `empfaengerOrgId` (Matching-Regel Rolle+Org).
 
 ---
 
@@ -1242,7 +1279,9 @@ Toolbar-Button **„📋 Aktivitäten"** — nur sichtbar für `role_admin` und 
 
 ### Aktion-Typen (`aktion`)
 
-`erfasst`, `geaendert`, `geloescht`, `zuweisung`, `ausleihe`, `rueckgabe`, `einsatz`, `einsatz_ende`, `pruefung`, `service`, `pruefanfrage`, `defekt`, `defekt_erledigt`, `ersatzanfrage`. Jede mit farbiger Pill im Modal.
+`erfasst`, `geaendert`, `geloescht`, `zuweisung`, `ausleihe`, `rueckgabe`, `einsatz`, `einsatz_ende`, `pruefung`, `service`, `pruefanfrage`, `defekt`, `defekt_erledigt`, `ersatzanfrage`, `km_update`, `kosten`, `reifen`, `offerte`, `reparatur`, `garage_ein`, `garage_aus`. Jede mit farbiger Pill im Modal.
+
+**Org-Regel (KRITISCH bei Cross-Org-Aktionen):** `log()` akzeptiert `opts.orgId` — der Eintrag gehört zur Org des DATENSATZES (Werkzeug/Fahrzeug), nicht zur Org des Bearbeiters. Externe Lieferanten/Prüfer/Garagisten loggen so ins Log der Auftraggeber-Org (Wrapper `_wzActLog`/`_fzActLog` übergeben `tool.orgId`/`v.orgId`; Dashboards nutzen `_dwzLog`/`_dashLog`). Geloggt wird auch aus `sys_lieferant_dashboard.html` (Quittieren, Prüfbericht, Offerte, Reparatur) und `sys_garagist_dashboard.html` (km-Update, Garage ein/aus, Reparatur-Doku) — beide laden `gema_aktivitaetslog.js`.
 
 ### Public API
 
@@ -1286,16 +1325,28 @@ Zentrales Modul `gema_notify.js` für In-App-Benachrichtigungen. Glocke + Toast-
 | `werkzeug_pruefung_anfrage` | werkzeug | on |
 | `werkzeug_defekt_lieferant` | werkzeug | on |
 | `werkzeug_ersatz_anfrage` | werkzeug | on |
+| `werkzeug_offerte_lieferant` | werkzeug | on |
+| `werkzeug_reparatur` | werkzeug | on |
 | `fahrzeug_service_faellig` | fahrzeug | on |
 | `fahrzeug_service_erledigt` | fahrzeug | on |
 | `fahrzeug_garagist_zugewiesen` | fahrzeug | on |
+| `fahrzeug_garage` | fahrzeug | on |
 | `lu_updated` | lu | off |
 | `schaden_neu` | schadensbericht | on |
 | `schaden_phase_geaendert` | schadensbericht | on |
 | `trockner_zurueckgegeben` | trocknung | on |
 | `trockner_defekt` | trocknung | on |
+| `offertanfrage_neu` | produktkatalog | on |
+| `offertanfrage_beantwortet` | produktkatalog | on |
+| `offertanfrage_abgelehnt` | produktkatalog | on |
 
 **Neue Module fügen ihre Event-Keys hier hinzu**, sonst greift kein Preferences-Filter.
+
+### Cloud-Sync (Cross-Device-Zustellung)
+
+Notifikationen lagen früher NUR im localStorage — sie erreichten damit nie ein anderes Gerät (Planer → Lieferant funktionierte nicht). Jetzt spiegelt `gema_notify.js` jede Notifikation best-effort als eigene Cloud-Row via `gema_sync.js` (moduleKey `notify`, prefix `notif:`): `push()` → `saveRecord`, `markRead`/`markAllRead` → Update, `remove`/`clearForCurrentUser` → `deleteRecord` (nur bei persönlich adressierten — Rollen-/Org-Notifikationen haben mehrere Empfänger und werden nur lokal entfernt). Merge-Pull beim Seitenstart (2.5s verzögert), alle 60s und bei Tab-Fokus (`visibilitychange`); beim Merge gewinnt der Gelesen-Status. Ohne `gema_sync.js`/Cloud funktioniert alles lokal weiter. Demo-Seeds bleiben lokal (kein Cloud-Push).
+
+**Matching-Regel (KRITISCH seit Cloud-Sync):** Sind `empfaengerRoleId` UND `empfaengerOrgId` gesetzt, müssen BEIDE passen (früher ODER — damit hätte z.B. ein `role_magaziner`-Push jeder Org alle Magaziner aller Orgs erreicht, sobald Notifikationen cloud-synced sind).
 
 ### Public API
 
@@ -1642,7 +1693,7 @@ UI-Anbindung:
 | `gema_recent.js` | Tracking + Anzeige zuletzt genutzter Module |
 | `gema_responsive.css` | Globale Responsive-/Layout-Regeln (Mobile + Tablet) |
 | `gema_scroll.js` | Scroll-Position-Restore + globaler Body-Scroll-Lock fuer Modals (`GemaScroll.lock/unlock`, Auto-Hook auf `.modal-bg`) |
-| `gema_storage.js` | **Bild-Upload in Supabase Storage** (Bucket `gema-fotos`). `GemaStorage.uploadDataUrl(dataUrl, pathHint)` laedt ein Base64-Bild als Datei hoch, verifiziert die oeffentliche Erreichbarkeit (Image-Load) und liefert `{url, path}`; im Record steht dann nur die URL statt Base64 → kleine Records, keine Request-Groessen-/localStorage-Quota-Probleme. Reject bei fehlendem/falsch konfiguriertem Bucket → Aufrufer faellt auf Base64 zurueck. **Setup (Dashboard, einmalig):** Bucket `gema-fotos` als Public anlegen + INSERT-Policy fuer Rolle `anon`. **Akzeptiert nur `data:image/*`** (keine PDFs). Eingesetzt in `sp_dachbericht.html`, `sd_schadensbericht.html` und `pm_abnahme.html` (Mangel-Fotos + Plan-Pin-Fotos via `_abUploadFotosToStorage`; Plan-Dateien/PDFs werden NICHT ausgelagert — Helper akzeptiert nur Bilder + Canvas/pdf.js-Kopplung). Bilder werden beim Save nach Storage ausgelagert; Bild-Quelle via `url || dataUrl`, jsPDF-Export rehydriert `url`→DataURL. |
+| `gema_storage.js` | **Bild-Upload in Supabase Storage** (Bucket `gema-fotos`). `GemaStorage.uploadDataUrl(dataUrl, pathHint)` laedt ein Base64-Bild als Datei hoch, verifiziert die oeffentliche Erreichbarkeit (Image-Load) und liefert `{url, path}`; im Record steht dann nur die URL statt Base64 → kleine Records, keine Request-Groessen-/localStorage-Quota-Probleme. Reject bei fehlendem/falsch konfiguriertem Bucket → Aufrufer faellt auf Base64 zurueck. **Setup (Dashboard, einmalig):** Bucket `gema-fotos` als Public anlegen + INSERT-Policy fuer Rolle `anon`. **Akzeptiert `data:image/*` UND `data:application/pdf`** (PDF-Verifikation via HEAD/Range-fetch statt Image-Load; genutzt fuer Lieferanten-Offerten-PDFs, Pfad `offerten/<lieferantId>`). Eingesetzt in `sp_dachbericht.html`, `sd_schadensbericht.html`, `sys_lieferant_dashboard.html` (Offerten-PDF) und `pm_abnahme.html` (Mangel-Fotos + Plan-Pin-Fotos via `_abUploadFotosToStorage`; Plan-Dateien/PDFs werden NICHT ausgelagert — Helper akzeptiert nur Bilder + Canvas/pdf.js-Kopplung). Bilder werden beim Save nach Storage ausgelagert; Bild-Quelle via `url || dataUrl`, jsPDF-Export rehydriert `url`→DataURL. |
 | `gema_undo.js` | Undo/Redo |
 | `gema_varianten.js` | Varianten-Vergleich (Berechnungen) |
 | `gema_vergleich.js` | Produkt-/Offert-Vergleich |

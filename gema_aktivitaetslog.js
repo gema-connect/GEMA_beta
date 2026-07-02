@@ -174,7 +174,14 @@
     pruefanfrage: { l:'Prüfanfrage', c:'#3730a3', bg:'#e0e7ff' },
     defekt: { l:'Defekt', c:'#991b1b', bg:'#fee2e2' },
     defekt_erledigt: { l:'Defekt erledigt', c:'#065f46', bg:'#d1fae5' },
-    ersatzanfrage: { l:'Ersatzanfrage', c:'#3730a3', bg:'#e0e7ff' }
+    ersatzanfrage: { l:'Ersatzanfrage', c:'#3730a3', bg:'#e0e7ff' },
+    km_update: { l:'km-Stand', c:'#1e3a5f', bg:'#dbeafe' },
+    kosten: { l:'Kosten', c:'#7c2d12', bg:'#ffedd5' },
+    reifen: { l:'Reifen', c:'#1e3a5f', bg:'#dbeafe' },
+    offerte: { l:'Offerte', c:'#0e7490', bg:'#cffafe' },
+    reparatur: { l:'Reparatur', c:'#3730a3', bg:'#e0e7ff' },
+    garage_ein: { l:'In Garage', c:'#7c2d12', bg:'#ffedd5' },
+    garage_aus: { l:'Aus Garage', c:'#065f46', bg:'#d1fae5' }
   };
 
   function _esc(s){

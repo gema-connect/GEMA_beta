@@ -68,10 +68,14 @@
     // 1. Katalog-Lieferanten
     try {
       if(typeof GemaProdukte !== 'undefined' && typeof GemaProdukte.searchLieferanten === 'function'){
+        // Alias-tolerant vergleichen (Alt-IDs wie 'abwasserhebeanlage' /
+        // 'solaranlage' in bestehenden Profilen).
+        var _nk = GemaProdukte.normKatId || function(x){return x;};
+        var _curKat = _nk(_currentKategorie);
         var katMatches = GemaProdukte.searchLieferanten(q).filter(function(l){
           if(!_currentKategorie||_currentKategorie==='allgemein')return true;
           if(!l.lieferantKategorien||!l.lieferantKategorien.length)return true;
-          return l.lieferantKategorien.indexOf(_currentKategorie)>=0;
+          return l.lieferantKategorien.some(function(x){return _nk(x)===_curKat;});
         }).slice(0,5);
         katMatches.forEach(function(l){
           found++;
@@ -94,7 +98,10 @@
           // Fallback auf Legacy-Feld 'kategorie'.
           var orgCats = (o.kategorien && o.kategorien.length) ? o.kategorien : (o.kategorie ? [o.kategorie] : []);
           if(orgCats.indexOf('lieferant') < 0) return false;
-          if(_currentKategorie&&_currentKategorie!=='allgemein'&&o.lieferantKategorien&&o.lieferantKategorien.length>0&&o.lieferantKategorien.indexOf(_currentKategorie)<0)return false;
+          if(_currentKategorie&&_currentKategorie!=='allgemein'&&o.lieferantKategorien&&o.lieferantKategorien.length>0){
+            var _nk2 = (typeof GemaProdukte!=='undefined'&&GemaProdukte.normKatId)||function(x){return x;};
+            if(!o.lieferantKategorien.some(function(x){return _nk2(x)===_nk2(_currentKategorie);}))return false;
+          }
           var nameMatch = (o.name||'').toLowerCase().indexOf(ql) >= 0;
           var ortMatch  = (o.adresse && o.adresse.ort || '').toLowerCase().indexOf(ql) >= 0;
           return nameMatch || ortMatch;
@@ -340,6 +347,7 @@
           inviteResult = GemaAuth.inviteLieferant({
             firma: firma, person: person, email: email, tel: tel,
             orgId: orgId || null,
+            lieferantId: katalogId || '',
             eingeladenVon: 'berechnung_' + (opts.kategorie || '')
           });
           if(inviteResult && inviteResult.user) orgId = inviteResult.user.orgId || orgId;

@@ -415,7 +415,7 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
   .tc-name{font-size:14px}
   .tc-body{padding:0 14px 12px}
   .tc-foot{padding:8px 12px}
-  .tc-act{padding:7px 12px;font-size:12px;min-height:36px}
+  .tc-act{padding:9px 12px;font-size:12px;min-height:40px;display:inline-flex;align-items:center}
 
   /* Timeline - vertical on mobile */
   .timeline{flex-direction:column;align-items:stretch;padding:12px;gap:0}
@@ -501,7 +501,7 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
   /* Massnahmen */
   .mn-item{padding:12px 14px;gap:10px}
   .mn-text{font-size:14px}
-  .mn-del{min-height:36px;min-width:36px;display:flex;align-items:center;justify-content:center;font-size:13px;padding:6px 10px}
+  .mn-del{min-height:40px;min-width:40px;display:flex;align-items:center;justify-content:center;font-size:13px;padding:6px 10px}
 
   /* Add row */
   .add-row{flex-direction:column;gap:10px}
@@ -555,6 +555,24 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
   .detail-inner{padding-bottom:calc(70px + env(safe-area-inset-bottom))}
   .modal-ft{padding-bottom:calc(18px + env(safe-area-inset-bottom))}
   .modal{padding-bottom:env(safe-area-inset-bottom)}
+  /* Notch/Statusleiste: Vollbild-Detail nicht unter die Safe-Area oben schieben */
+  .detail-overlay{padding-top:env(safe-area-inset-top)}
+}
+
+/* iOS-Zoom-Schutz: Safari zoomt beim Fokussieren von Feldern <16px.
+   Die Inline-Editierfelder der Detail-Ansicht (Geraete-Tabelle/-Karten,
+   Datums-Inputs, Textareas, Raum-Tags, Messwert-Zeile) sind inline auf
+   13.5-15px gestylt — hier fuer Mobile/Tablet zentral auf 16px heben. */
+@media(max-width:1024px){
+  .detail-overlay input:not([type=checkbox]):not([type=radio]),
+  .detail-overlay select,
+  .detail-overlay textarea{font-size:16px!important}
+}
+
+/* Abschluss-Export-Buttons: auf dem Handy volle Breite statt rechtsbuendig gequetscht */
+@media(max-width:640px){
+  .export-row{justify-content:stretch!important}
+  .export-row .nbtn{flex:1 1 100%;min-height:48px;justify-content:center}
 }
 
 /* ═══════════════════════════════════════
@@ -3062,7 +3080,7 @@ function sdRenderAbschluss(s, canEdit) {
 
   // Actions
   if (canEdit && s.phase === 'abschluss') {
-    h += '<div style="margin-top:16px;display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap">';
+    h += '<div class="export-row" style="margin-top:16px;display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap">';
     h += '<button class="nbtn" onclick="sdExportPdf(\'' + s.id + '\')">📄 Abschlussbericht PDF (alt)</button>';
     h += '<button class="nbtn" onclick="sdExportHtmlPrint(\'' + s.id + '\')" style="background:#1e3a5f;color:#fff;border-color:#1e3a5f">📄 Abschlussbericht PDF (Vorlage)</button>';
     h += '<button class="nbtn" onclick="sdExportWord(\'' + s.id + '\')">📝 Abschlussbericht Word</button>';
@@ -3311,6 +3329,20 @@ function sdCloseLightbox() {
 // ══════════════════════════════════════
 // CHART RENDERING (Canvas)
 // ══════════════════════════════════════
+// Bei Rotation/Resize (iPad quer<->hoch) die Canvas-Diagramme neu zeichnen —
+// sonst wird die einmal gerenderte Bitmap per CSS gestreckt (unscharf/verzerrt).
+var _sdResizeTimer = null;
+window.addEventListener('resize', function() {
+  clearTimeout(_sdResizeTimer);
+  _sdResizeTimer = setTimeout(function() {
+    try {
+      if (!_sdCurrentDetailId) return;
+      var s = schaeden.find(function(x) { return x.id === _sdCurrentDetailId; });
+      if (s) sdRenderAllCharts(s);
+    } catch(e) {}
+  }, 250);
+});
+
 function sdRenderAllCharts(s) {
   if (!s.trocknung || !s.trocknung.messpunkte) return;
   s.trocknung.messpunkte.forEach(function(mp) {

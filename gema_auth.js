@@ -1116,6 +1116,9 @@
         password:null, // Wird beim ersten Login gesetzt
         roleIds:(opts.roleIds&&opts.roleIds.length)?opts.roleIds:['role_lieferant'],
         orgId:resolvedOrgId,
+        // Explizite Verknuepfung zum GemaProdukte-Lieferant-Datensatz —
+        // sonst muss findMyLieferant() auf die fragile Heuristik zurueckfallen.
+        lieferantId:opts.lieferantId||'',
         active:true,
         createdAt:new Date().toISOString(),
         profile:{
