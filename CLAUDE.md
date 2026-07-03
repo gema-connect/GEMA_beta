@@ -295,6 +295,15 @@ Komplett NEU nach Excel-Vorlage «Frischwasserstation.xlsm» (ersetzt die alte B
 5. **Leistung**: `P = ṁ·cp·ΔT` mit Dichte aus `FW_DICHTE` (0–100 °C, floor-LOOKUP), massgebender Volumenstrom = max(berechnet, Override), minus Zirkulationsabzug (`ṁ_zirk·cp·ΔT_zirk`, Warnung T_Zirk < 52 °C).
 - Persistenz: Parameter via GemaAutoSave (`frischwasserstation`), die 4 dynamischen Tabellen als JSON im hidden `#fw_rows`-Textarea (Pattern wie `#zk_rows`).
 - Anlagenwahl/Offertanfrage: Kategorie `frischwasserstation` (bestehend), Payload `leistung` (kW netto), `zapfleistung` (l/min), `tagesbedarf`, `wwTemp` — Projektwerte, nie Datenblatt-Werte.
+
+### Warmwasser SIA 385 (sb_warmwasser.html)
+
+Komplett NEU nach Excel-Vorlage «WarmwasserGesamt385_251125_v3.xlsm» (SIA 385/1+2:2025; ersetzt die alte Version; gleicher Aufbau/Validierung wie sb_zirkulation/sa_frischwasserstation — Playwright: Grobauslegung gegen Excel-Cached-Werte, Feinplanung gegen unabhängig berechnete Formelwerte). 4 Tabs:
+1. **Grobauslegung**: Nutzungseinheiten (`WW_GROB_NUTZUNG`, 14 SIA-Normwerte l/d) → Tagesbedarf à 60 °C; `Q'W = V·ΔT·cp/3600`; Personenzahl-Rechner `nP = (3.3−2/(1+(ANF/100)³))·nWhg`.
+2. **Verlustzahl ϛIS**: Speicherverluste `0.11·√V(+Stutzen)`, Leitungsverluste (konv. 0.12 / RaR+WHB 0.15 kWh/m·d), Hilfsenergie Pumpe `(5+0.16·L)·24·10⁻³` (Grenzwert `8+0.2·L`), WHB `⅔·Q`, WP `2Q/(3·COP)`, Ausstoss (15/20/25 % der Speicherverluste) → `ϛIS = (ΣVerluste+2.5·ΣHilfsenergie)/Q'W·100`, Grenzwert 50 %. **ϛIS = Verlustzahl-Input der Frischwasserstation.**
+3. **Feinplanung**: Bedarf mit σ (`WW_FEIN_NUTZUNG` = dieselbe Tabelle wie FWS); **Stundenspitzen** je Zeile mit Profil-Auswahl — Wohnbau per Formel `kWh/d·(0.09+0.66/√n+1.98/n)`, andere fix (`WW_SPITZE_PROFIL`: Hotel 12.5 / Altersheim 19.3 / Spital 14 / Studentenheim 6.6 / Büro 20 / Restaurant 13.5 %) → Σ = Spitzendeckungsvolumen; Wohnungs-/Heizlast-Rechner (`WW_HEIZLAST_TYPEN` W/m², Fläche/0.85); Leitungsverluste je Aussen-ø (`WW_ROHR_FAKTOR`·ΔT — gleiche Faktoren wie Zirkulations-Vordimensionierung); Ausstosswärmeverluste über Entnahme-Matrix (`WW_ENTNAHME`: Kategorie×Ausstosszeit, Wohnungen: Entnahmen = Ø-Belegung·5+2).
+4. **Speicher & Leistung**: `QW,gen,out` = Ausstoss+Leitungen+Bedarf+Speicherverluste; Ladezeit bei Vorrangschaltung; Steuervolumen `(V/100)·(100−Spitzenanteil%)/Ladungen`; Bereitschafts-/Speichervolumen ·fsto(1.25); effektives Steuervolumen-Override (aus Speicheroptimierung); Umsatz-Check (>1 sonst «Speicher zu gross»-Warnung).
+- Persistenz: AutoSave `warmwasser_sia385` + 4 dynamische Tabellen als JSON im hidden `#ww_rows`-Textarea. Keine Anlagenwahl (wie bisher — keine Speicher-Produktkategorie).
 - **Projektmanagement-Module** (pm_): Objekte, Terminplanung, Sitzungsprotokolle, Kostenkontrolle, Ausschreibung
 - **Hygiene-Module** (hy_): W12 Selbstkontrolle (SVGW)
 - **Infrastruktur-Module** (if_): Werkzeugmanagement, Fahrzeugmanagement, Trocknungsgeräte (siehe Abschnitte weiter unten)
