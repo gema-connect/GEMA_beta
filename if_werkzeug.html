@@ -922,6 +922,7 @@ function fixLeadingZero(el) {
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script src="gema_db.js"></script>
 <script src="gema_feedback.js"></script><script src="gema_notify.js"></script><script src="gema_notify_ui.js"></script>
+<script src="gema_produktkatalog_api.js"></script>
 <script src="gema_autosave.js"></script>
 <script>
 if(typeof _GemaDB==='undefined'){
@@ -1529,6 +1530,9 @@ const WERKZEUG_KATALOG=[
 // ──────────────────────────────────────
 // AUTOCOMPLETE ENGINE
 // ──────────────────────────────────────
+// Mapping Lieferanten-Katalog-Kategorie (Klartext im Produkt-Schema
+// 'werkzeuge' aus gema_produktkatalog_api.js) → interne CATS-Keys.
+var _WZ_PRODKAT_MAP={'Maschine (Akku)':'maschine','Maschine (Kabel)':'maschine-kabel','Handwerkzeug':'handwerkzeug','Leiter / Gerüst':'leiter','Messgerät':'messgeraet','Ladegerät':'ladegeraet','Zubehör':'sonstige','Sonstiges':'sonstige'};
 function _wzGetKatalogEntries(){
   var useKat=document.getElementById('f_katalogToggle');
   var entries=[];
@@ -1538,7 +1542,42 @@ function _wzGetKatalogEntries(){
   tools.forEach(function(t){
     if(t.name)entries.push({name:t.name,brand:t.brand||'',model:t.model||'',cat:t.cat||'',src:'tools'});
   });
+  // Lieferanten-Produktkatalog (Kategorie 'werkzeuge'): Produkte, die
+  // Lieferanten in ihrem Dashboard gepflegt haben — inkl. Bild. Bei
+  // Auswahl fliessen Bild + Produkt-Verknuepfung + Lieferant mit ins
+  // neue Werkzeug (siehe _wzApplyKatalogPick / submitForm).
+  if(typeof GemaProdukte!=='undefined'&&GemaProdukte.getProdukte){
+    try{
+      GemaProdukte.getProdukte('werkzeuge',{nurFreigegeben:true}).forEach(function(p){
+        var d=p.daten||{};
+        if(!d.bezeichnung)return;
+        entries.push({name:d.bezeichnung,brand:d.serie||'',model:d.modell||'',
+          cat:_WZ_PRODKAT_MAP[d.werkzeugKategorie]||'sonstige',src:'lieferant',
+          bild:d.bild||'',prodId:p.id,lieferantId:p.lieferantId||'',lieferantFirma:p.lieferantFirma||''});
+      });
+    }catch(e){}
+  }
   return entries;
+}
+// Merkt sich die zuletzt gewaehlte Lieferanten-Katalog-Auswahl aus dem
+// Autocomplete. Wird in submitForm auf das neue Werkzeug gemergt, sofern
+// Name/Modell noch zum Pick passen (User kann nach dem Pick umtippen).
+window._wzKatalogPick=null;
+function _wzApplyKatalogPick(e){
+  if(!e||e.src!=='lieferant')return;
+  window._wzKatalogPick={name:e.name||'',model:e.model||'',bildUrl:e.bild||'',katalogProduktId:e.prodId||'',lieferantFirma:e.lieferantFirma||'',lieferantId:e.lieferantId||''};
+  // Lieferant-Feld vorbefuellen (supplierId = GemaAuth-User des Lieferanten)
+  var fs=document.getElementById('f_supplier');
+  if(fs&&!fs.value.trim()&&e.lieferantFirma){
+    fs.value=e.lieferantFirma;
+    var fid=document.getElementById('f_supplierId');
+    if(fid&&typeof GemaAuth!=='undefined'){
+      try{
+        var su=(GemaAuth.getUsers()||[]).find(function(x){return x.active&&x.lieferantId===e.lieferantId;});
+        if(su)fid.value=su.id;
+      }catch(err){}
+    }
+  }
 }
 function _wzEscRe(s){return s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');}
 function _wzHighlight(text,q){
@@ -1701,6 +1740,9 @@ function _wzSetupAutocomplete(){
       fCat.value = bestCat;
       onCatChange();
     }
+    // Lieferanten-Katalog-Treffer? → Bild + Produkt-Link uebernehmen
+    var liefE = matching.find(function(e){ return e.src==='lieferant'; });
+    if(liefE) _wzApplyKatalogPick(liefE);
   });
 
   _wzInitAC('f_brand',function(q){
@@ -1752,6 +1794,7 @@ function _wzSetupAutocomplete(){
       var hint=[];
       if(!curBrand&&e.brand)hint.push(e.brand);
       if(!curName&&e.name)hint.push(e.name);
+      if(e.src==='lieferant'&&e.lieferantFirma)hint.push('🏷 '+e.lieferantFirma);
       result.push({label:e.model,value:e.model,hint:hint.join(' · '),entry:e});
     });
     var seen={};
@@ -1765,6 +1808,7 @@ function _wzSetupAutocomplete(){
       document.getElementById('f_cat').value=e.cat;
       onCatChange();
     }
+    _wzApplyKatalogPick(e);
   });
 
   _wzInitAC('f_supplier',function(q){
@@ -2163,7 +2207,7 @@ function renderCard(t){
     ${lcMeta?`<div style="padding:4px 14px;background:${lcMeta.bg};border-bottom:1px solid ${lcMeta.brd};color:${lcMeta.color};font-size:11px;font-weight:700;letter-spacing:.3px">${lcMeta.label}</div>`:''}
     <div class="status-bar ${barCls}"></div>
     <div class="tc-head">
-      <div class="tc-icon ${cat.ico}">${cat.icon}</div>
+      ${t.bildUrl?`<div class="tc-icon" style="padding:0;overflow:hidden;background:#fff"><img src="${esc(t.bildUrl)}" alt="" style="width:100%;height:100%;object-fit:cover" onerror="this.parentNode.textContent='${cat.icon}'"/></div>`:`<div class="tc-icon ${cat.ico}">${cat.icon}</div>`}
       <div class="tc-info">
         <div class="tc-name" title="${esc(t.name)}">${esc(t.name)}</div>
         <div class="tc-meta">${t.brand?esc(t.brand):''}${t.model?' · '+esc(t.model):''}${!isMonteur&&t.supplier?' · <span style="color:var(--plan-lt)">'+esc(t.supplier)+'</span>':''}${t.serial?' · SN '+esc(t.serial):''}${!isMonteur&&t.notes?' · '+esc(t.notes):''}</div>
@@ -2187,6 +2231,7 @@ function renderCard(t){
          unten sein wie bei der rechten Kachel'). -->
     ${t.ausgeliehenAn?`<div style="padding:8px 14px;background:#fefce8;border-top:1px solid #fde68a;font-size:11.5px;color:#92400e;display:flex;align-items:center;gap:6px;flex-wrap:wrap"><span>🔄</span>Ausgeliehen an <strong>${esc(t.ausgeliehenAn.name||'—')}</strong>${t.ausgeliehenAn.seit?`<span style="color:#b45309;margin-left:4px">seit ${fmt(t.ausgeliehenAn.seit)}</span>`:''}${t.ausgeliehenAn.viaKoffer?`<span style="font-size:10px;color:#a16207">🧰 via Koffer</span>`:''}<span style="margin-left:auto">${_wzCanReturnTool(t)?`<button onclick="event.stopPropagation();_wzReturnTool('${t.id}')" style="padding:3px 10px;border-radius:6px;border:1px solid #16a34a;background:#f0fdf4;color:#16a34a;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit">✓ Zurück</button>`:''}</span></div>`:''}
     ${t.zugewiesenAn?`<div style="padding:8px 14px;background:#eef2ff;border-top:1px solid #e0e7ff;font-size:11.5px;color:#3730a3;display:flex;align-items:center;gap:6px"><span>👷</span><strong>${esc(t.zugewiesenAn.name||'—')}</strong>${t.zugewiesenAn.seit?`<span style="color:#6366f1;margin-left:auto">seit ${fmt(t.zugewiesenAn.seit)}</span>`:''}</div>`:''}
+    ${_wzIsPendingEinbuchung(t)?`<div style="padding:8px 14px;background:#fffbeb;border-top:1px solid #fcd34d;font-size:11.5px;color:#92400e;display:flex;align-items:center;gap:6px;flex-wrap:wrap"><span>📥</span><span>Vom Lieferanten <strong>${esc(t.einbuchung.lieferantFirma||'—')}</strong> eingebucht — <strong>Bestätigung ausstehend</strong></span>${_wzCanEdit()?`<span style="margin-left:auto;display:flex;gap:6px"><button onclick="event.stopPropagation();_wzEinbuchungAkzeptieren('${t.id}')" style="padding:4px 12px;border-radius:6px;border:1px solid #16a34a;background:#f0fdf4;color:#16a34a;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit">✓ Akzeptieren</button><button onclick="event.stopPropagation();_wzEinbuchungAblehnen('${t.id}')" style="padding:4px 12px;border-radius:6px;border:1px solid #dc2626;background:#fef2f2;color:#dc2626;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit">✕ Ablehnen</button></span>`:''}</div>`:''}
     <div class="tc-foot">
       <div class="tc-actions">
         <button class="tc-act" onclick="openQR('${t.id}')">🔲 QR</button>
@@ -2197,8 +2242,8 @@ function renderCard(t){
       </div>
       <div class="tc-actions">
         ${_wzCanReportDefect()?`<button class="tc-act" style="background:#fff7ed;color:#c2410c;border-color:#fed7aa" onclick="openDefektMelden('${t.id}')" title="Defekt melden">⚠</button>`:''}
-        ${_wzCanAssign()?`<button class="tc-act" style="background:#eef2ff;color:#3730a3;border-color:#e0e7ff" onclick="openZuweisung('${t.id}')" title="Person zuweisen">👷</button>`:''}
-        ${(_wzCanLendSelf()&&!t.ausgeliehenAn&&!isMyMainTool)?`<button class="tc-act" style="background:#fefce8;color:#92400e;border-color:#fde68a" onclick="_wzOpenAusleihe('${t.id}')" title="${isMonteur?'Auf mich ausleihen':'Ausleihen'}">🔄</button>`:''}
+        ${(_wzCanAssign()&&!_wzIsPendingEinbuchung(t))?`<button class="tc-act" style="background:#eef2ff;color:#3730a3;border-color:#e0e7ff" onclick="openZuweisung('${t.id}')" title="Person zuweisen">👷</button>`:''}
+        ${(_wzCanLendSelf()&&!t.ausgeliehenAn&&!isMyMainTool&&!_wzIsPendingEinbuchung(t))?`<button class="tc-act" style="background:#fefce8;color:#92400e;border-color:#fde68a" onclick="_wzOpenAusleihe('${t.id}')" title="${isMonteur?'Auf mich ausleihen':'Ausleihen'}">🔄</button>`:''}
         ${_wzCanEdit()?`<button class="tc-act" onclick="editTool('${t.id}')">✏️</button>`:''}
         ${_wzCanEdit()?`<button class="tc-act danger" onclick="deleteTool('${t.id}')">🗑</button>`:''}
       </div>
@@ -2210,6 +2255,65 @@ function renderCard(t){
 function _wzBadDefect(t){
   if(!t.berichte)return false;
   return t.berichte.some(function(b){return b.typ==='defekt'&&!b.erledigt;});
+}
+
+// ── DIREKTEINBUCHUNG durch Lieferant ──────────────────────────
+// Ein Lieferant kann ein neu verkauftes Werkzeug direkt beim Kunden
+// einbuchen (sys_lieferant_dashboard → «Bei Kunde einbuchen»). Der
+// Datensatz traegt dann einbuchung:{status:'vorgeschlagen', lieferantId,
+// lieferantFirma, eingebuchtAm, bemerkung}. Solange die Einbuchung
+// ausstehend ist, sind Ausleihe und Zuweisung gesperrt — der Magaziner/
+// Admin akzeptiert oder lehnt ab (Ablehnung loescht den Datensatz).
+function _wzIsPendingEinbuchung(t){
+  return !!(t && t.einbuchung && t.einbuchung.status==='vorgeschlagen');
+}
+function _wzEinbuchungAkzeptieren(id){
+  if(!_wzCanEdit()){alert('Keine Berechtigung — nur Magaziner/Admin dürfen Einbuchungen akzeptieren.');return;}
+  var t=tools.find(function(x){return x.id===id;});
+  if(!t||!_wzIsPendingEinbuchung(t))return;
+  var u=_wzGetUser()||{};
+  GemaDialog.confirm({
+    title:'Einbuchung akzeptieren',
+    message:'Werkzeug «'+t.name+'» von '+(t.einbuchung.lieferantFirma||'Lieferant')+' in den Bestand übernehmen?',
+    confirmLabel:'✓ Akzeptieren'
+  }).then(function(ok){
+    if(!ok)return;
+    t.einbuchung.status='akzeptiert';
+    t.einbuchung.akzeptiertAm=new Date().toISOString();
+    t.einbuchung.akzeptiertVon={userId:u.id||'',name:u.name||u.username||''};
+    save();renderList();
+    _wzActLog('erfasst','Einbuchung von '+(t.einbuchung.lieferantFirma||'Lieferant')+' akzeptiert',t);
+    if(typeof GemaNotify!=='undefined'&&t.einbuchung.lieferantId){
+      GemaNotify.push({eventKey:'werkzeug_einbuchung',empfaengerUserId:t.einbuchung.lieferantId,modul:'werkzeug',typ:'erfolg',
+        titel:'✓ Einbuchung akzeptiert: '+t.name,
+        text:(u.name||'Der Kunde')+' hat die Einbuchung von «'+t.name+'» akzeptiert.',
+        link:'sys_lieferant_dashboard.html?tab=werkzeuge'});
+    }
+  });
+}
+function _wzEinbuchungAblehnen(id){
+  if(!_wzCanEdit()){alert('Keine Berechtigung — nur Magaziner/Admin dürfen Einbuchungen ablehnen.');return;}
+  var t=tools.find(function(x){return x.id===id;});
+  if(!t||!_wzIsPendingEinbuchung(t))return;
+  var u=_wzGetUser()||{};
+  GemaDialog.prompt({
+    title:'Einbuchung ablehnen',
+    message:'Werkzeug «'+t.name+'» ablehnen? Der Datensatz wird gelöscht und der Lieferant informiert.',
+    placeholder:'Grund (optional, geht an den Lieferanten)',
+    defaultValue:''
+  }).then(function(grund){
+    if(grund===null)return; // abgebrochen
+    var eb=t.einbuchung||{};
+    tools=tools.filter(function(x){return x.id!==id;});
+    save();renderList();
+    _wzActLog('geloescht','Einbuchung von '+(eb.lieferantFirma||'Lieferant')+' abgelehnt'+(grund?' · '+grund:''),t);
+    if(typeof GemaNotify!=='undefined'&&eb.lieferantId){
+      GemaNotify.push({eventKey:'werkzeug_einbuchung',empfaengerUserId:eb.lieferantId,modul:'werkzeug',typ:'warnung',
+        titel:'✕ Einbuchung abgelehnt: '+t.name,
+        text:(u.name||'Der Kunde')+' hat die Einbuchung von «'+t.name+'» abgelehnt.'+(grund?' Grund: '+grund:''),
+        link:'sys_lieferant_dashboard.html?tab=werkzeuge'});
+    }
+  });
 }
 
 // ── KOFFER-Helper (Werkzeug-Sets: Maschine + Akku + Ladegeraet …) ──
@@ -2238,7 +2342,7 @@ function renderRow(t){
   const pill=(d,label)=>d?`<span class="pill ${badgeC(daysFrom(d))}">${fmt(d)}</span>`:`<span style="color:var(--mut2)">—</span>`;
   const hasPruef=t.hasElec||t.hasLeiter;
   return`<tr>
-    <td><strong style="font-size:14px">${esc(t.name)}</strong>${t.internKennung?` <span style="font-weight:600;color:var(--mut);font-size:11.5px">· 🏷 ${esc(t.internKennung)}</span>`:''}<br><span style="font-size:11.5px;color:var(--mut)">${t.brand||''} ${t.model||''}${t.supplier?' · '+esc(t.supplier):''}</span></td>
+    <td><strong style="font-size:14px">${esc(t.name)}</strong>${t.internKennung?` <span style="font-weight:600;color:var(--mut);font-size:11.5px">· 🏷 ${esc(t.internKennung)}</span>`:''}${_wzIsPendingEinbuchung(t)?` <span class="pill" style="background:#fffbeb;color:#92400e;border:1px solid #fcd34d">📥 Ausstehend</span>`:''}<br><span style="font-size:11.5px;color:var(--mut)">${t.brand||''} ${t.model||''}${t.supplier?' · '+esc(t.supplier):''}</span></td>
     <td><span class="pill ${cat.cls}">${cat.icon} ${cat.label}</span></td>
     <td style="font-family:var(--mono);font-size:12.5px">${fmt(t.bought)}</td>
     <td>${pill(t.warranty)}</td>
@@ -2249,8 +2353,8 @@ function renderRow(t){
       <button class="tc-act" onclick="openQR('${t.id}')">🔲</button>
       <button class="tc-act" onclick="openBerichte('${t.id}')" title="Berichte">📝</button>
       ${_wzCanReportDefect()?`<button class="tc-act" style="background:#fff7ed;color:#c2410c;border-color:#fed7aa" onclick="openDefektMelden('${t.id}')" title="Defekt melden">⚠</button>`:''}
-      ${_wzCanAssign()?`<button class="tc-act" style="background:#eef2ff;color:#3730a3;border-color:#e0e7ff" onclick="openZuweisung('${t.id}')" title="Zuweisen">👷</button>`:''}
-      ${_wzCanEdit()?`<button class="tc-act" style="background:#fefce8;color:#92400e;border-color:#fde68a" onclick="_wzOpenAusleihe('${t.id}')" title="Ausleihen">🔄</button>`:''}
+      ${(_wzCanAssign()&&!_wzIsPendingEinbuchung(t))?`<button class="tc-act" style="background:#eef2ff;color:#3730a3;border-color:#e0e7ff" onclick="openZuweisung('${t.id}')" title="Zuweisen">👷</button>`:''}
+      ${(_wzCanEdit()&&!_wzIsPendingEinbuchung(t))?`<button class="tc-act" style="background:#fefce8;color:#92400e;border-color:#fde68a" onclick="_wzOpenAusleihe('${t.id}')" title="Ausleihen">🔄</button>`:''}
       ${_wzCanEdit()?`<button class="tc-act" onclick="editTool('${t.id}')">✏️</button>`:''}
       ${_wzCanEdit()?`<button class="tc-act danger" onclick="deleteTool('${t.id}')">🗑</button>`:''}
     </td>
@@ -2318,6 +2422,7 @@ function clearForm(){
   ['f_name','f_intern','f_brand','f_model','f_supplier','f_supplierId','f_bought','f_warranty','f_serial','f_notes','f_assignee','f_lastService','f_lastElec','f_lastLeiter','f_editId','f_belegNr','f_belegBetrag','f_belegBestellNr','f_belegLieferdatum'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});
   var fp=document.getElementById('f_belegPreview');if(fp)fp.innerHTML='';
   window._wzBelegFile=null;
+  window._wzKatalogPick=null;
   document.getElementById('f_cat').value='';
   document.getElementById('f_serviceInterval').value='12';
   document.getElementById('f_elecInterval').value='12';
@@ -2459,8 +2564,20 @@ function submitForm(){
     berichte:existing?.berichte||[],
     pruefAnfrage:existing?.pruefAnfrage||null,
     ersatzAnfragen:existing?.ersatzAnfragen||[],
-    ausgeliehenAn:existing?.ausgeliehenAn||null
+    ausgeliehenAn:existing?.ausgeliehenAn||null,
+    bildUrl:existing?.bildUrl||'',
+    katalogProduktId:existing?.katalogProduktId||'',
+    einbuchung:existing?.einbuchung||null
   };
+  // Lieferanten-Katalog-Pick aus dem Autocomplete uebernehmen (nur wenn
+  // Name/Modell noch zum gewaehlten Produkt passen — User kann umtippen)
+  if(window._wzKatalogPick){
+    var kp=window._wzKatalogPick;
+    if(kp.name===tool.name||(kp.model&&kp.model===tool.model)){
+      if(kp.bildUrl&&!tool.bildUrl)tool.bildUrl=kp.bildUrl;
+      if(kp.katalogProduktId&&!tool.katalogProduktId)tool.katalogProduktId=kp.katalogProduktId;
+    }
+  }
   if(eid){const i=tools.findIndex(t=>t.id===eid);if(i>=0)tools[i]=tool;else tools.unshift(tool);}
   else tools.unshift(tool);
   save();renderList();closeAdd();
@@ -2663,6 +2780,7 @@ function openZuweisung(toolId){
   if(!_wzCanAssign()){alert('Keine Berechtigung');return;}
   var t=tools.find(function(x){return x.id===toolId;});
   if(!t)return;
+  if(_wzIsPendingEinbuchung(t)){GemaDialog.alert({title:'Einbuchung ausstehend',message:'Dieses Werkzeug wurde vom Lieferanten eingebucht und muss zuerst akzeptiert werden, bevor es zugewiesen werden kann.'});return;}
   // Monteure aus GemaAuth laden (nur eigene Org)
   var personen=[];
   if(typeof GemaAuth!=='undefined'){
@@ -2792,6 +2910,7 @@ function _wzOpenAusleihe(toolId){
   // Koffer: eigener Dialog mit Inhalt-Checkliste (alle Standard-Teile
   // vorausgewaehlt, bereits ausgeliehene abgewaehlt).
   var _tK=tools.find(function(x){return x.id===toolId;});
+  if(_tK && _wzIsPendingEinbuchung(_tK)){GemaDialog.alert({title:'Einbuchung ausstehend',message:'Dieses Werkzeug wurde vom Lieferanten eingebucht und muss zuerst akzeptiert werden, bevor es ausgeliehen werden kann.'});return;}
   if(_tK && _wzIsKoffer(_tK)) return _wzKofferAusleihe(toolId);
   if(_wzIsMonteur() && !_wzCanEdit()) return _wzLendToSelf(toolId);
   if(!_wzCanEdit())return;
@@ -2947,6 +3066,7 @@ function _wzLendToSelf(toolId){
   if(!u){ GemaDialog.alert({message:'Bitte zuerst einloggen.'}); return; }
   var t=tools.find(function(x){return x.id===toolId;});
   if(!t) return;
+  if(_wzIsPendingEinbuchung(t)){GemaDialog.alert({title:'Einbuchung ausstehend',message:'Dieses Werkzeug wurde vom Lieferanten eingebucht und muss zuerst akzeptiert werden, bevor es ausgeliehen werden kann.'});return;}
   if(_wzIsKoffer(t)) return _wzKofferAusleihe(toolId);
   // Wenn ich bereits Hauptnutzer bin, ist eine Ausleihe sinnlos —
   // das Werkzeug "gehoert" mir bereits. Hinweis statt Dialog.
@@ -5156,7 +5276,9 @@ function _wzGetOrgLogoSrc(){
   try{
     if(typeof GemaAuth==='undefined')return '';
     var o=GemaAuth.getCurrentOrg&&GemaAuth.getCurrentOrg();
-    return (o&&o.logo)||'';
+    // logoVector (SVG-Original) bevorzugen — bleibt beim 1-Bit-Rastern
+    // gestochen scharf; o.logo ist nur das JPEG-Raster.
+    return (o&&(o.logoVector||o.logo))||'';
   }catch(e){return '';}
 }
 function _wzLabelLogoSrc(){ return _wzGetOrgLogoSrc()||_WZ_GEMA_LOGO_DATAURL; }
@@ -5444,10 +5566,18 @@ function openViewTool(id){
   const cat=CATS[t.cat]||CATS.sonstige;
   const wd=worstDays(t); const wdc=dc(wd);
 
-  // Hero
+  // Hero — Produktbild aus dem Lieferanten-Katalog, sonst Kategorie-Icon
   const iconEl=document.getElementById('vm_icon');
-  iconEl.textContent=cat.icon;
-  iconEl.className='tc-icon '+cat.ico;
+  if(t.bildUrl){
+    iconEl.textContent='';
+    iconEl.className='tc-icon';
+    iconEl.style.cssText='padding:0;overflow:hidden;background:#fff';
+    iconEl.innerHTML='<img src="'+esc(t.bildUrl)+'" alt="" style="width:100%;height:100%;object-fit:cover"/>';
+  }else{
+    iconEl.style.cssText='';
+    iconEl.textContent=cat.icon;
+    iconEl.className='tc-icon '+cat.ico;
+  }
   document.getElementById('vm_name').textContent=t.name;
   document.getElementById('vm_sub').textContent=[t.brand,t.model,t.supplier,t.notes].filter(Boolean).join(' · ')||'—';
 
@@ -5465,6 +5595,20 @@ function openViewTool(id){
   // Status bar
   const stCls=wdc==='red'?'red':wdc==='amber'?'amber':'green';
   html+=`<div class="vm-status-bar ${stCls}"><span class="vm-st-icon">${wdc==='red'?'🚨':wdc==='amber'?'⏰':'✅'}</span><span class="vm-st-text">${wdc==='red'?'Prüfung überfällig!':wdc==='amber'?'Prüfung bald fällig':'Alle Prüfungen aktuell'}</span></div>`;
+
+  // Ausstehende Lieferanten-Einbuchung: Akzeptieren/Ablehnen direkt hier
+  // (Notifikations-Deep-Link ?view=ID landet in diesem Modal)
+  if(_wzIsPendingEinbuchung(t)){
+    html+='<div style="margin:10px 0;padding:12px 14px;background:#fffbeb;border:1.5px solid #fcd34d;border-radius:10px">'
+      +'<div style="font-size:12.5px;color:#92400e;font-weight:700;margin-bottom:4px">📥 Einbuchung durch Lieferant</div>'
+      +'<div style="font-size:12px;color:#a16207">Vom Lieferanten <strong>'+esc(t.einbuchung.lieferantFirma||'—')+'</strong> am '+fmt((t.einbuchung.eingebuchtAm||'').slice(0,10))+' eingebucht.'
+      +(t.einbuchung.bemerkung?'<br>Bemerkung: '+esc(t.einbuchung.bemerkung):'')+'</div>'
+      +(_wzCanEdit()?'<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">'
+        +'<button onclick="closeView();_wzEinbuchungAkzeptieren(\''+t.id+'\')" style="padding:8px 16px;border-radius:8px;border:1px solid #16a34a;background:#f0fdf4;color:#16a34a;font-size:12.5px;font-weight:700;cursor:pointer;font-family:inherit">✓ Akzeptieren</button>'
+        +'<button onclick="closeView();_wzEinbuchungAblehnen(\''+t.id+'\')" style="padding:8px 16px;border-radius:8px;border:1px solid #dc2626;background:#fef2f2;color:#dc2626;font-size:12.5px;font-weight:700;cursor:pointer;font-family:inherit">✕ Ablehnen</button>'
+        +'</div>':'')
+      +'</div>';
+  }
 
   // Grunddaten (gleiche Reihenfolge wie Formular)
   html+='<div class="vm-section">Grunddaten</div>';

@@ -85,6 +85,11 @@
       modul:'werkzeug',
       defaultOn:true
     },
+    werkzeug_einbuchung: {
+      label:'Werkzeug-Einbuchung durch Lieferant',
+      modul:'werkzeug',
+      defaultOn:true
+    },
     fahrzeug_service_faellig: {
       label:'Fahrzeug-Service oder MFK fällig',
       modul:'fahrzeug',

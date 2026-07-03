@@ -294,10 +294,13 @@
   }
 
   // ── Logo-Branch: Org-Logo oder eingebettetes GEMA-SVG ──────────────
+  // logoVector (SVG-Original) bevorzugen — rendert im Browser-Druck
+  // gestochen scharf; org.logo ist nur das JPEG-Raster.
   function brandHtml(org){
-    if(org && org.logo && /^data:image\//i.test(org.logo)){
+    var logoSrc = org && (org.logoVector || org.logo);
+    if(logoSrc && /^data:image\//i.test(logoSrc)){
       return '<div class="brand">'
-        + '<img class="brand-logo-img" src="'+esc(org.logo)+'" alt="'+esc(org.name||'')+'">'
+        + '<img class="brand-logo-img" src="'+esc(logoSrc)+'" alt="'+esc(org.name||'')+'">'
         + '</div>';
     }
     // Kein Logo hochgeladen → eingebettetes GEMA-Logo

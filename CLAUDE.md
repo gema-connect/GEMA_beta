@@ -641,6 +641,23 @@ Storage-Key: `gema_werkzeug` via `_GemaDB`. Felder pro Werkzeug:
 | `pruefAnfrage:{lieferantId,lieferantFirma,typ,wunschtermin,bemerkung,angefordertAm,angefordertVon,status}` | Aktive Prüfungs-Anfrage an einen Lieferanten (`typ`: servicepruefung/elektropruefung/leiterpruefung) |
 | `ersatzAnfragen:[{id,lieferantId,lieferantFirma,typ,nachricht,status,erstelltAm,antwort?,...}]` | Ersatz-/Nachfolger-Anfragen an Lieferanten; `antwort` = Offerte des Lieferanten (preis, nachricht, pdfUrl/pdfDataUrl) |
 | `reparatur:{offen,lieferantId,lieferantFirma,defektBerichtId,termin,bemerkung,gestartetAm,abgeschlossenAm?}` | Vom Lieferanten eröffnete Reparatur (koppelt `lifecycleStatus:'in_reparatur'`) |
+| `bildUrl` | Produktbild-URL aus dem Lieferanten-Katalog (GemaStorage-URL oder Base64). Karte/Detail-Modal zeigen das Bild statt des Kategorie-Emojis |
+| `katalogProduktId` | Verknüpfung zum GemaProdukte-Katalogprodukt (Kategorie `werkzeuge`) |
+| `einbuchung:{status,lieferantId,lieferantFirma,eingebuchtAm,bemerkung,akzeptiertAm?,akzeptiertVon?}` | Direkteinbuchung durch Lieferant (`status`: `vorgeschlagen`→`akzeptiert`; Ablehnung löscht den Datensatz). Siehe «Werkzeug-Produktkatalog & Direkteinbuchung» |
+
+### Werkzeug-Produktkatalog & Direkteinbuchung (Lieferant)
+
+**Katalog**: `KATEGORIEN.werkzeuge` in `gema_produktkatalog_api.js` — Produkt-Schema für Werkzeuge/Maschinen/Leitern mit `werkzeugKategorie`-Select (Klartext-Labels, Map auf CATS-Keys via `_WZ_PRODKAT_MAP` in if_werkzeug bzw. `_DWZ_WZKAT_MAP` im Dashboard) und **Feldtyp `bild`** (Produktbild). Der Dashboard-Produkteditor (`renderPeFelder`) rendert `typ:'bild'` als Datei-Upload mit Vorschau: `_pePickBild` resized auf max 800px JPEG → `GemaStorage.uploadDataUrl(dataUrl,'produkte/<lieferantId>')` → URL im hidden `data-fid`-Input; Base64-Fallback bei Upload-Fehler. Produktliste im Dashboard zeigt Thumbnail.
+
+**Bild beim Unternehmer**: `_wzGetKatalogEntries()` in if_werkzeug mischt zusätzlich `GemaProdukte.getProdukte('werkzeuge',{nurFreigegeben:true})` ins Autocomplete (`src:'lieferant'`, Hint «🏷 Firma»). Bei Auswahl merkt `_wzApplyKatalogPick(e)` den Pick (`window._wzKatalogPick`), befüllt Lieferant-Feld (+`f_supplierId` via `user.lieferantId`-Match) und `submitForm` mergt `bildUrl` + `katalogProduktId` aufs neue Werkzeug (nur wenn Name/Modell noch zum Pick passen). Karte (`renderCard`), Detail-Modal (`vm_icon`) und Lieferanten-Dashboard zeigen `t.bildUrl` als `<img>` statt Emoji.
+
+**Direkteinbuchung** (Einbuchungsaufwand liegt beim Lieferanten):
+1. **Lieferant** → Werkzeuge-Tab → «📥 Bei Kunde einbuchen» (`_dwzOpenEinbuchen`). Kundenkreis = NUR **verknüpfte Auftraggeber** (`_dwzKundenOrgs()`: Orgs mit Werkzeugen, die via `supplierId`/`pruefAnfrage`/`ersatzAnfragen` auf `_dwzMyIds()` zeigen). Produkt aus eigenem Katalog vorausfüllbar (`_dwzEbProduktChanged`: Bezeichnung/Hersteller/Modell/Bild; NIV-Empfehlung → `hasElec`/`elecInterval`, Garantie-Monate → `warranty`).
+2. `_dwzEinbuchenSave` erzeugt den Tool-Datensatz mit `orgId=<Kunde>`, `einbuchung:{status:'vorgeschlagen',…}` — Save per `GemaSync.saveRecord` (Einzel-Record, kein persistCollection), `_dwzLog('erfasst')`, Notifikation `werkzeug_einbuchung` an `role_magaziner`+Kunden-Org mit Link `if_werkzeug.html?view=<id>`.
+3. **Unternehmer** (Magaziner/Admin) sieht das Werkzeug **im Bestand mit Ausstehend-Banner** (Karte, Tabellen-Pill, Detail-Modal-Box) mit «✓ Akzeptieren / ✕ Ablehnen». Solange `_wzIsPendingEinbuchung(t)` (status `vorgeschlagen`): **Ausleihe + Zuweisung gesperrt** (Buttons ausgeblendet + Hard-Guards in `_wzOpenAusleihe`/`_wzLendToSelf`/`openZuweisung`).
+4. `_wzEinbuchungAkzeptieren`: status→`akzeptiert` + `akzeptiertAm/Von`, Log, Notify `werkzeug_einbuchung` (typ `erfolg`) an `einbuchung.lieferantId`. `_wzEinbuchungAblehnen`: GemaDialog.prompt für optionalen Grund, **löscht den Datensatz**, Log `geloescht`, Notify (typ `warnung`, mit Grund) an den Lieferanten. Lieferanten-Dashboard zeigt bei eigenen Werkzeugen den Badge «📥 Einbuchung ausstehend».
+
+`gema_produktkatalog_api.js` ist dafür in `if_werkzeug.html` eingebunden.
 
 ### Koffer (Werkzeug-Sets, if_werkzeug.html)
 
@@ -910,7 +927,7 @@ Full-Screen-Overlay (`position:fixed`) mit 4-Phasen-Timeline und aufklappbaren A
 
 A4 **Hochformat** erzwungen: beide `@page`-Regeln `size:A4 portrait`, jsPDF `orientation:'portrait'`.
 
-**Logo-Branch**: Wenn `org.logo` (Base64-data-URL aus `sys_unternehmen.html`) gesetzt ist → Firmen-Logo oben links auf dem Deckblatt. Sonst → eingebettetes GEMA-Inline-SVG. Damit zeigen User ohne hochgeladenes Logo automatisch das GEMA-Branding.
+**Logo-Branch**: Wenn `org.logoVector` (SVG) oder `org.logo` (JPEG-Raster, Upload in `sys_admin.html`) gesetzt ist → Firmen-Logo oben links auf dem Deckblatt (Vektor bevorzugt, druckt gestochen scharf). Sonst → eingebettetes GEMA-Inline-SVG. Damit zeigen User ohne hochgeladenes Logo automatisch das GEMA-Branding.
 
 **Firmenfarben-Branding (`org.settings.pdfFarben`)**: Die Org kann in `sys_unternehmen.html` → Firmendaten → «Berichts-Farben (PDF)» eine **Primärfarbe** (Pflicht) und optional eine **Sekundärfarbe** wählen (gespeichert als `org.settings.pdfFarben = {primary, secondary?}` via `GemaAuth.updateOrgSettings`). Beide PDF-Helfer (`gema_schaden_pdf.js` + `gema_dachbericht_pdf.js`) leiten daraus per `_brandRootCss(org)` ein `:root{}`-Override ab, das NACH dem statischen `REPORT_CSS` in den `<style>` gehängt wird (spätere Regel gewinnt → überschreibt `--accent`/`--accent-deep`/`--forest`). Ohne `pdfFarben` bleibt das GEMA-Default (Navy/Forest bzw. Cyan). **Rollen** (User-Entscheid): Primär = Hauptakzent (Überschriften, Abschnittsnummern, Labels, Aufzählungspunkte, KPI-Werte, Trennstriche, Tabellen-Summen, erster Diagramm-Ton via `_curAccent`); Sekundär = Verlauf-Tail der Cover-Bar (`--forest`). Ohne Sekundärfarbe = dunklerer Ton der Primärfarbe.
 
@@ -1179,6 +1196,7 @@ Druckfertige Geräte-Etikette **49 × 23 mm Querformat** als PDF (jsPDF, mm-gena
 1. **Immer hochauflösend rastern** (lange Kante 1400px, bicubic `imageSmoothingQuality:'high'`) — auch kleine hochgeladene Raster-Logos. Früher wurden Raster-Quellen nie hochskaliert; der Drucker-RIP zog das kleine Bild dann selbst grob auf die ~8mm-Logobox → Pixelklötze («Logo in sehr schlechter Qualität»).
 2. **1-Bit-Schwellwert-Konvertierung** (auf Weiss alpha-kompositieren → Luminanz < 176 ⇒ reines Schwarz, sonst reines Weiss): Thermo-Etikettendrucker drucken NUR Schwarz — Graustufen und Anti-Aliasing-Kanten werden vom Treiber **gedithert** (fleckiger, «unsauberer» Druck; betraf auch das navy-farbene GEMA-Logo). Harter Schwellwert nach dem HQ-Upscale ergibt gestochen scharfe Kanten. **Fallback für sehr helle Logos**: bleibt nach dem Schwellwert < 1.5% Schwarzanteil, wird mit Schwellwert 235 erneut konvertiert (Silhouette statt leerem Band). Farbige Logos erscheinen auf der Etikette bewusst schwarz-weiss.
 3. Die Live-Vorschau nutzt dieselbe Pipeline (WYSIWYG). QR wird weiterhin als **Vektor** gezeichnet, Text als PDF-Font — beide sind druckscharf. Bei tainted Canvas (externe URL) bleibt die Konvertierung aus (try/catch).
+4. **`org.logoVector` (SVG-Original) bevorzugen**: Der Logo-Upload in `sys_admin.html` (`handleOrgLogoUpload`) speichert seit dem SVG-Support ZWEI Felder — `org.logo` = IMMER ein JPEG-Raster (max 1000px, ≤200 KB; für jsPDF `addImage`, Nav, Legacy-Konsumenten) und `org.logoVector` = das unveränderte SVG als data-URL (nur bei SVG-Upload; width/height werden aus der viewBox injiziert, falls sie fehlen — sonst liefert Firefox `naturalWidth 0`). Alle Etiketten-Logo-Helper (`_tgGetOrgLogoSrc`/`_wzGetOrgLogoSrc`/`_fzEtOrgLogoSrc`) und die Print-PDF-Helfer (`brandHtml` in `gema_schaden_pdf.js`/`gema_dachbericht_pdf.js`) lesen `logoVector || logo`. **Hintergrund**: Ein JPEG-Raster (früher sogar nur 400px) zerlegt kleine, dünne Logo-Schriftzüge (Taglines) nach dem 1-Bit-Schwellwert in Fragmente («wird nur teilweise gedruckt») — ein SVG rastert bei 1400px verlustfrei und bleibt auf der Etikette gestochen scharf. Physikalische Grenze bleibt: eine Tagline im ~8mm-Logoband ist ~0.7mm hoch (≈8 Punkte bei 300dpi).
 
 **Live-Vorschau** — `_tgBuildEtikettePreview()` rendert dasselbe Layout als HTML in `#qrLabelPreview` (Massstab `PX = 6.4 px/mm`), inkl. Logo-`<img>` und QR-`<img>`. Async (wartet auf Logo); bricht ab, wenn das Gerät inzwischen gewechselt hat.
 
@@ -1195,7 +1213,7 @@ Druckfertige Geräte-Etikette **49 × 23 mm Querformat** als PDF (jsPDF, mm-gena
 | `_TG_ETIK` | Geometrie-Konstanten (mm) |
 | `_TG_GEMA_LOGO_SVG` / `_TG_GEMA_LOGO_DATAURL` | GEMA-Fallback-Logo (SVG → DataURL) |
 | `_tgGetOrgLogoSrc()` | `org.logo` der eigenen Org oder `''` |
-| `_tgLabelLogoSrc()` | `org.logo` || GEMA-Fallback |
+| `_tgLabelLogoSrc()` | `org.logoVector` || `org.logo` || GEMA-Fallback |
 | `_tgRasterizeImage(src)` | Bildquelle → `{dataUrl(PNG), ratio}`, immer 1400px lange Kante + 1-Bit-Schwellwert (siehe «Logo-Druckoptimierung») |
 | `_tgMonochromeForLabel(ctx,w,h)` | Canvas → reines Schwarz/Weiss (Thermodrucker-Dithering vermeiden) |
 | `_tgEnsureLabelLogo()` | Logo rastern + cachen (Promise) |
@@ -1346,6 +1364,7 @@ Zentrales Modul `gema_notify.js` für In-App-Benachrichtigungen. Glocke + Toast-
 | `werkzeug_offerte_lieferant` | werkzeug | on |
 | `werkzeug_reparatur` | werkzeug | on |
 | `werkzeug_koffer_fehlteil` | werkzeug | on |
+| `werkzeug_einbuchung` | werkzeug | on |
 | `fahrzeug_service_faellig` | fahrzeug | on |
 | `fahrzeug_service_erledigt` | fahrzeug | on |
 | `fahrzeug_garagist_zugewiesen` | fahrzeug | on |
@@ -1701,7 +1720,7 @@ UI-Anbindung:
 | `gema_offer_request.js` | Externe Offertanfragen |
 | `gema_offerten_tab.js` | Offerten-Tab in Berechnungsmodulen |
 | `gema_pdf.js` | PDF-Export via html2canvas |
-| `gema_schaden_pdf.js` | **Schadensbericht HTML/Print-Export** nach `vorlagen/bericht_wasserschaden_vorlage.html`. `GemaSchadenPDF.exportPrint(schaden, {org,user,objektName,objektAdresse})` öffnet neues Fenster mit A4-Layout (window.print()). Logo-Branch: `org.logo` wenn vorhanden, sonst eingebettetes GEMA-SVG. Filtert `f.imBericht !== false`. |
+| `gema_schaden_pdf.js` | **Schadensbericht HTML/Print-Export** nach `vorlagen/bericht_wasserschaden_vorlage.html`. `GemaSchadenPDF.exportPrint(schaden, {org,user,objektName,objektAdresse})` öffnet neues Fenster mit A4-Layout (window.print()). Logo-Branch: `org.logoVector || org.logo` wenn vorhanden, sonst eingebettetes GEMA-SVG. Filtert `f.imBericht !== false`. |
 | `gema_dachbericht_pdf.js` | **Dachbericht HTML/Print-Export** für Spenglerei. `GemaDachberichtPDF.exportPrint(bericht, {org,user,objektName,objektAdresse,templates})` — gleicher Pattern wie Schaden-PDF. Bilder-Grid mit 4/6-Seitenfüllung in 6er-Chunks. |
 | `gema_claude.js` | **Claude-API-Client** für Texthilfe. Ruft `/.netlify/functions/claude-rewrite`. Modi: `rewrite`/`bulletpointsToText`/`fix`/`shorten`/`expand`. Eingesetzt in `sp_dachbericht.html` für KI-gestützte Textüberarbeitung. |
 | `gema_produktkatalog_api.js` | Produkte + Stammlieferanten + Favoriten |

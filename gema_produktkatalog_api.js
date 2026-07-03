@@ -891,6 +891,39 @@ KATEGORIEN.thermische_solaranlage = {
   }
 };
 
+// Werkzeuge & Maschinen — Lieferanten-Produktkatalog fuers Werkzeug-
+// management (if_werkzeug.html). KEIN matchFn (kein Berechnungs-Matching);
+// die Produkte speisen das Erfassungs-Autocomplete des Unternehmers und
+// die Direkteinbuchung durch den Lieferanten. Feldtyp 'bild' wird vom
+// Dashboard-Editor als Upload mit Vorschau gerendert (GemaStorage,
+// Fallback Base64) — echtes Produktbild statt Emoji.
+KATEGORIEN.werkzeuge = {
+  id: 'werkzeuge',
+  name: 'Werkzeuge & Maschinen',
+  icon: '🔧',
+  felder: [
+    { id:'serie',  label:'Hersteller', typ:'text', pflicht:true,  gruppe:'Allgemein' },
+    { id:'modell', label:'Modell',     typ:'text', pflicht:true,  gruppe:'Allgemein' },
+    { id:'bezeichnung', label:'Geräte-Bezeichnung', typ:'text', pflicht:true, gruppe:'Allgemein' },
+    { id:'artikelnr', label:'Artikel-Nr.', typ:'text', gruppe:'Allgemein' },
+    { id:'werkzeugKategorie', label:'Werkzeug-Kategorie', typ:'select',
+      optionen:['Maschine (Akku)','Maschine (Kabel)','Handwerkzeug','Leiter / Gerüst','Messgerät','Ladegerät','Zubehör','Sonstiges'],
+      pflicht:true, gruppe:'Allgemein' },
+    { id:'bild', label:'Produktbild', typ:'bild', gruppe:'Allgemein' },
+    { id:'beschreibung', label:'Beschreibung', typ:'textarea', gruppe:'Allgemein' },
+    { id:'leistung',  label:'Leistung', einheit:'W', typ:'number', gruppe:'Leistungsdaten' },
+    { id:'spannung',  label:'Akku-/Netzspannung', einheit:'V', typ:'text', gruppe:'Leistungsdaten' },
+    { id:'gewicht',   label:'Gewicht', einheit:'kg', typ:'number', gruppe:'Leistungsdaten' },
+    { id:'masse',     label:'Masse (L×B×H)', einheit:'mm', typ:'text', gruppe:'Leistungsdaten' },
+    { id:'pruefpflichtNiv', label:'Elektroprüfung (NIV) erforderlich', typ:'checkbox', gruppe:'Prüfungen' },
+    { id:'pruefintervall',  label:'Empf. Prüfintervall', einheit:'Monate', typ:'number', gruppe:'Prüfungen' },
+    { id:'listenpreis', label:'Listenpreis (CHF)', typ:'number', gruppe:'Bestellung' },
+    { id:'lieferzeit',  label:'Lieferzeit', typ:'text', gruppe:'Bestellung' },
+    { id:'garantie',    label:'Garantie', einheit:'Monate', typ:'number', gruppe:'Bestellung' },
+    { id:'zubehoer',    label:'Lieferumfang / Zubehör', typ:'textarea', gruppe:'Zusatz' }
+  ]
+};
+
 // ── Public API ──
 function getKategorien(){ return Object.values(KATEGORIEN); }
 function getKategorie(id){ return KATEGORIEN[id] || null; }
