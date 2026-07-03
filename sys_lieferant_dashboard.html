@@ -399,14 +399,21 @@ var _editProd = null; // currently editing product
 var _answerOaId = null;
 
 // ── Lieferanten-Unterrollen: feine Rechte innerhalb der Lieferanten-Org ──
-// role_lieferant (Legacy, Vollzugang) und role_lieferant_admin = Admin-Level.
-// Die Unterrollen schalten gezielt einzelne Aktionen frei.
+// ZWEI Lieferanten-Typen (User-Entscheid):
+//   ANLAGENLIEFERANT  role_lieferant (Legacy, Vollzugang) + role_lieferant_admin/
+//                     _produkte/_verify/_offerten/_intern — Anlagen fuer die
+//                     Berechnungsmodule, mit Verifizierung.
+//   PRODUKTLIEFERANT  role_produktlieferant_admin/_produkte/_offerten/_intern —
+//                     Werkzeuge/Maschinen fuers Werkzeugmanagement, OHNE
+//                     Verifizierung. Kombinierbar mit role_leiterpruefer.
 function _liefRoleIds(){ var u=null; try{u=GemaAuth.getCurrentUser();}catch(e){} return (u&&u.roleIds)||[]; }
 function _liefHas(r){ return _liefRoleIds().indexOf(r)>=0; }
-function _liefIsAdmin(){ return _liefHas('role_admin')||_liefHas('role_lieferant')||_liefHas('role_lieferant_admin'); }
-function _liefCanEditProdukte(){ return _liefIsAdmin()||_liefHas('role_lieferant_produkte'); }
-function _liefCanVerify(){ return _liefIsAdmin()||_liefHas('role_lieferant_verify'); }
-function _liefCanOfferten(){ return _liefIsAdmin()||_liefHas('role_lieferant_offerten'); }
+function _liefIsAnlagenLief(){ return _liefRoleIds().some(function(r){return typeof r==='string'&&r.indexOf('role_lieferant')===0;}); }
+function _liefIsProduktLief(){ return _liefRoleIds().some(function(r){return typeof r==='string'&&r.indexOf('role_produktlieferant')===0;}); }
+function _liefIsAdmin(){ return _liefHas('role_admin')||_liefHas('role_lieferant')||_liefHas('role_lieferant_admin')||_liefHas('role_produktlieferant_admin'); }
+function _liefCanEditProdukte(){ return _liefIsAdmin()||_liefHas('role_lieferant_produkte')||_liefHas('role_produktlieferant_produkte'); }
+function _liefCanVerify(){ return _liefHas('role_admin')||_liefHas('role_lieferant')||_liefHas('role_lieferant_admin')||_liefHas('role_lieferant_verify'); } // nur Anlagenlieferant — Produktlieferant hat keine Verifizierung
+function _liefCanOfferten(){ return _liefIsAdmin()||_liefHas('role_lieferant_offerten')||_liefHas('role_produktlieferant_offerten'); }
 // Deaktivierter Lieferant darf nichts mehr aendern (nur lesen). Banner
 // allein reichte nicht — die Schreib-Aktionen waren nicht blockiert.
 function _liefBlockedInaktiv(){
@@ -441,19 +448,30 @@ function findMyLieferant(){
       if(match){
         // Self-Healing: Verknuepfung dauerhaft speichern — aber nur fuer
         // echte Lieferanten-User (nicht Pruefer/Admin-Betrachter).
-        var isLiefUser = u.roleIds && u.roleIds.some(function(r){ return typeof r==='string' && r.indexOf('role_lieferant')===0; });
+        var isLiefUser = u.roleIds && u.roleIds.some(function(r){ return typeof r==='string' && (r.indexOf('role_lieferant')===0 || r.indexOf('role_produktlieferant')===0); });
         if(isLiefUser && !u.lieferantId && GemaAuth.linkUserToLieferant){
           try{ GemaAuth.linkUserToLieferant(match.id); }catch(e){}
         }
         return match;
       }
-      // 3. Admin sieht den ersten Lieferanten als Demo (NICHT verknuepfen)
-      if(GemaAuth.isAdmin() && all.length) return all[0];
+      // 3. GEMA-Admin: explizite Vorschau mit Auswahl (?lief=<id> aus dem
+      //    Picker) — KEIN stilles all[0] mehr, das zeigte kommentarlos
+      //    eine fremde Firma («bwt aqua»-Bug).
+      if(GemaAuth.isAdmin() && all.length){
+        var pick=null;
+        try{ pick=new URLSearchParams(location.search).get('lief'); }catch(e){}
+        var byPick=pick?all.find(function(l){return l.id===pick;}):null;
+        _liefAdminPreview=true;
+        return byPick||all[0];
+      }
     }
   }
-  // Fallback: first active lieferant
-  return all.find(function(l){return l.status==='aktiv';}) || (all.length ? all[0] : null);
+  // KEIN blinder Fallback auf den ersten aktiven Lieferanten mehr — der
+  // zeigte einem nicht zugeordneten User die Daten einer FREMDEN Firma.
+  return null;
 }
+// Admin-Vorschau-Flag (gesetzt in findMyLieferant, ausgewertet in init)
+var _liefAdminPreview=false;
 
 // ── Init ──
 function init(){
@@ -464,6 +482,21 @@ function init(){
   }
   document.getElementById('navFirma').textContent = _lief.firma + ' — Dashboard';
   if(_lief.status==='inaktiv') document.getElementById('deaktBanner').style.display='';
+  // GEMA-Admin-Vorschau: klar gekennzeichnet, mit Firmen-Auswahl statt
+  // stillschweigend die erste Firma anzuzeigen.
+  if(_liefAdminPreview){
+    try{
+      var allL=GemaProdukte.getAllLieferanten();
+      var bar=document.createElement('div');
+      bar.style.cssText='background:#fef3c7;border-bottom:1.5px solid #fcd34d;color:#92400e;font-size:12.5px;font-weight:700;padding:8px 24px;display:flex;align-items:center;gap:10px;flex-wrap:wrap';
+      bar.innerHTML='👁 Admin-Vorschau — du betrachtest das Dashboard von: '
+        +'<select onchange="location.search=\'?lief=\'+encodeURIComponent(this.value)" style="padding:4px 8px;border:1.5px solid #fcd34d;border-radius:6px;font-family:inherit;font-size:12px;font-weight:700;color:#92400e;background:#fff">'
+        +allL.map(function(l){return '<option value="'+E(l.id)+'"'+(l.id===_lief.id?' selected':'')+'>'+E(l.firma||l.id)+'</option>';}).join('')
+        +'</select>';
+      var nav=document.querySelector('.g-nav');
+      if(nav)nav.insertAdjacentElement('afterend',bar);
+    }catch(e){}
+  }
   initKatFilter();
   renderAll();
   setupTabs();
@@ -482,18 +515,25 @@ function init(){
 }
 
 function setupTabs(){
-  // Dynamische Tabs je nach Rolle
+  // Dynamische Tabs je nach Rolle und Lieferanten-Typ:
+  //   Anlagenlieferant → Produkte, Offertanfragen (Berechnungen), Rohrsysteme
+  //   Produktlieferant → Werkzeug-Sicht (Produkte Kategorie Werkzeuge + 🔧 Werkzeuge)
+  //   Pruefer/Leiternpruefer → nur 🔧 Werkzeuge
   var user=null;
   try{user=GemaAuth.getCurrentUser();}catch(e){}
   var roles=user?user.roleIds||[]:[];
-  var isLief=roles.some(function(r){return typeof r==='string'&&r.indexOf('role_lieferant')===0;});
-  var isPruefer=roles.indexOf('role_pruefer')>=0;
+  var isAnlagen=roles.some(function(r){return typeof r==='string'&&r.indexOf('role_lieferant')===0;});
+  var isProdukt=roles.some(function(r){return typeof r==='string'&&r.indexOf('role_produktlieferant')===0;});
+  var isPruefer=roles.indexOf('role_pruefer')>=0||roles.indexOf('role_leiterpruefer')>=0;
   var isAdmin=roles.indexOf('role_admin')>=0;
-  if(!isLief&&!isPruefer&&isAdmin){isLief=true;isPruefer=true;} // Admin sieht alles
+  if(!isAnlagen&&!isProdukt&&!isPruefer&&isAdmin){isAnlagen=true;isProdukt=true;isPruefer=true;} // Admin sieht alles
+  var isLief=isAnlagen||isProdukt;
 
   var tabs=[{id:'uebersicht',label:'Übersicht',show:true}];
   if(isLief){
     tabs.push({id:'produkte',label:'Meine Produkte',show:true});
+  }
+  if(isAnlagen){
     tabs.push({id:'anfragen',label:'Offertanfragen',show:true,badge:'oaBadge'});
     tabs.push({id:'rohrsysteme',label:'Rohrsysteme & Armaturen',show:true});
   }
@@ -635,13 +675,20 @@ function renderUebersicht(){
 
 // ── Produkte ──
 function initKatFilter(){
+  // Reiner Produktlieferant (Werkzeugmanagement): nur die Kategorie
+  // «Werkzeuge & Maschinen» — Anlagen-Kategorien gehoeren zum
+  // Anlagenlieferanten. Kombinierte Accounts (beide Typen) sehen alles.
+  var nurWerkzeuge=_liefIsProduktLief()&&!_liefIsAnlagenLief()&&!_liefHas('role_admin');
+  var kats=GemaProdukte.getKategorien().filter(function(k){
+    return !nurWerkzeuge||k.id==='werkzeuge';
+  });
   var sel = document.getElementById('prodKatFilter');
-  GemaProdukte.getKategorien().forEach(function(k){
+  kats.forEach(function(k){
     sel.innerHTML += '<option value="'+E(k.id)+'">'+E(k.icon)+' '+E(k.name)+'</option>';
   });
   // Also populate editor kategorie
   var peSel = document.getElementById('peKat');
-  peSel.innerHTML = GemaProdukte.getKategorien().map(function(k){
+  peSel.innerHTML = kats.map(function(k){
     return '<option value="'+E(k.id)+'">'+E(k.icon)+' '+E(k.name)+'</option>';
   }).join('');
 }
@@ -1678,8 +1725,8 @@ function renderWerkzeuge(){
   var user=null;try{user=GemaAuth.getCurrentUser();}catch(e){}
   if(!user)return;
   var roles=user.roleIds||[];
-  var relevant=roles.indexOf('role_pruefer')>=0||roles.indexOf('role_admin')>=0
-    ||roles.some(function(r){return typeof r==='string'&&r.indexOf('role_lieferant')===0;});
+  var relevant=roles.indexOf('role_pruefer')>=0||roles.indexOf('role_leiterpruefer')>=0||roles.indexOf('role_admin')>=0
+    ||roles.some(function(r){return typeof r==='string'&&(r.indexOf('role_lieferant')===0||r.indexOf('role_produktlieferant')===0);});
   if(!relevant){el.innerHTML='';return;}
   var ebBtn=document.getElementById('dwzEinbuchenBtn');
   if(ebBtn)ebBtn.style.display='';
@@ -1973,7 +2020,9 @@ function _liefInviteUser(){
       // (Intern/nur Lesen). Der Admin weist danach ueber die Rollen-
       // Bearbeitung die passende Unterrolle zu — frueher bekam jeder Neue
       // role_lieferant (Vollzugang), was das Rollenmodell aushebelte.
-      u.roleIds=['role_lieferant_intern'];
+      // Typ folgt der eigenen Org: Produktlieferant laedt Produktlieferant-
+      // Mitarbeiter ein, Anlagenlieferant Anlagen-Mitarbeiter.
+      u.roleIds=[(_liefIsProduktLief()&&!_liefIsAnlagenLief())?'role_produktlieferant_intern':'role_lieferant_intern'];
       GemaAuth.saveUsers(users);
     }
     toast('✉ Einladung gesendet — Rolle über 🔑 Rollen zuweisen');
@@ -1986,10 +2035,19 @@ function _liefEditRoles(userId){
   var u=users.find(function(x){return x.id===userId;});
   if(!u)return;
   var allRoles=GemaAuth.getRoles()||[];
-  // Nur Lieferanten-Rollen anbieten (Legacy role_lieferant + die Unterrollen
-  // role_lieferant_admin/produkte/verify/offerten/intern). Andere Rollen
-  // (Planer/Monteur …) sind fuer eine Lieferanten-Org nicht sinnvoll.
-  var assignable=allRoles.filter(function(r){return typeof r.id==='string' && r.id.indexOf('role_lieferant')===0;});
+  // Nur Lieferanten-Rollen anbieten — passend zum TYP der eigenen Org:
+  // Anlagenlieferant sieht role_lieferant_*, Produktlieferant sieht
+  // role_produktlieferant_* (+ Leiternpruefer, kombinierbar). Andere
+  // Rollen (Planer/Monteur …) sind fuer eine Lieferanten-Org nicht sinnvoll.
+  var offerAnlagen=_liefIsAnlagenLief()||_liefHas('role_admin');
+  var offerProdukt=_liefIsProduktLief()||_liefHas('role_admin');
+  var assignable=allRoles.filter(function(r){
+    if(typeof r.id!=='string')return false;
+    if(offerAnlagen && r.id.indexOf('role_lieferant')===0)return true;
+    if(offerProdukt && r.id.indexOf('role_produktlieferant')===0)return true;
+    if(offerProdukt && r.id==='role_leiterpruefer')return true; // Produktlieferant kann zugleich Leiternpruefer sein
+    return false;
+  });
   var currentIds=u.roleIds||[];
   var html='<div style="background:#fff;border-radius:14px;padding:24px;max-width:420px;width:100%;box-shadow:0 20px 60px -10px rgba(0,0,0,.3)">'
     +'<h3 style="margin:0 0 4px;font-size:17px;font-weight:900">🔑 Rollen bearbeiten</h3>'

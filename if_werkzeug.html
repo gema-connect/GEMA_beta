@@ -1826,7 +1826,7 @@ function _wzSetupAutocomplete(){
       try{
         var users=GemaAuth.getUsers()||[];
         users.forEach(function(u){
-          if(!u.active||!u.roleIds||u.roleIds.indexOf('role_lieferant')<0)return;
+          if(!u.active||!u.roleIds||!u.roleIds.some(function(r){return typeof r==='string'&&(r.indexOf('role_lieferant')===0||r.indexOf('role_produktlieferant')===0);}))return;
           if(typeof GemaProdukte!=='undefined'&&GemaProdukte.getAllLieferanten){
             var lief=GemaProdukte.getAllLieferanten().find(function(l){return l.orgId===u.orgId||l.firma===(u.profile&&u.profile.firma);});
             if(lief&&lief.lieferantKategorien&&lief.lieferantKategorien.length>0&&lief.lieferantKategorien.indexOf('werkzeuge')<0)return;
@@ -2031,7 +2031,7 @@ const load=(cloudArr)=>{
   try{
     var roles=(u&&u.roleIds)||[];
     var isExternPartner=roles.some(function(r){
-      return typeof r==='string' && (r.indexOf('role_lieferant')===0 || r==='role_pruefer');
+      return typeof r==='string' && (r.indexOf('role_lieferant')===0 || r.indexOf('role_produktlieferant')===0 || r==='role_pruefer' || r==='role_leiterpruefer');
     });
     if(isExternPartner){
       var myIds=_wzMyLiefUserIds();
@@ -4832,8 +4832,9 @@ function _wzScanFaelligkeiten(){
 }
 
 // ── "Prüfung anfordern" Dialog ───────────────────────────────
-// Lieferanten-User ermitteln (role_lieferant). Optional gefiltert auf
-// Lieferanten, die eine Pruefleistung anbieten — wir nehmen vorerst alle.
+// Prüf-Partner ermitteln: Prüfer, Leiternprüfer (EKAS, nur für
+// Leiterprüfungen), Anlagen- und Produktlieferanten. Gefiltert auf
+// die passende Prüf-Kategorie (lieferantKategorien).
 function _wzGetPruefLieferanten(pruefKat){
   if(typeof GemaAuth==='undefined')return [];
   try{
@@ -4841,7 +4842,12 @@ function _wzGetPruefLieferanten(pruefKat){
     return users.filter(function(u){
       if(!u.active)return false;
       if(!u.roleIds)return false;
-      if(u.roleIds.indexOf('role_pruefer')<0&&u.roleIds.indexOf('role_lieferant')<0)return false;
+      var isPruefer=u.roleIds.indexOf('role_pruefer')>=0;
+      var isLeiterpruefer=u.roleIds.indexOf('role_leiterpruefer')>=0;
+      var isLief=u.roleIds.some(function(r){return typeof r==='string'&&(r.indexOf('role_lieferant')===0||r.indexOf('role_produktlieferant')===0);});
+      if(!isPruefer&&!isLeiterpruefer&&!isLief)return false;
+      // Reiner Leiternpruefer: NUR fuer Leiterpruefungen anbieten
+      if(isLeiterpruefer&&!isPruefer&&!isLief&&pruefKat&&pruefKat!=='leiterpruefung')return false;
       // Kategorie-Filter: wenn pruefKat gesetzt, nur passende Lieferanten
       if(pruefKat&&typeof GemaProdukte!=='undefined'&&GemaProdukte.getAllLieferanten){
         var orgs=[];try{orgs=GemaAuth.getOrgs()||[];}catch(e){}
@@ -4915,7 +4921,10 @@ function _wzInvitePruefer(toolId){
     var result=GemaAuth.inviteLieferant({email:email,firma:firma,person:name||'',eingeladenVon:me.name||''});
     var users=GemaAuth.getUsers()||[];
     var u=users.find(function(x){return x.id===result.user.id;});
-    if(u){u.roleIds=['role_pruefer'];GemaAuth.saveUsers(users);}
+    // Leiterpruefungen → dedizierte Rolle Leiternpruefer (EKAS)
+    var tInv=tools.find(function(x){return x.id===toolId;});
+    var invRole=(tInv&&(tInv.hasLeiter||tInv.cat==='leiter'))?'role_leiterpruefer':'role_pruefer';
+    if(u){u.roleIds=[invRole];GemaAuth.saveUsers(users);}
     alert('✉ '+firma+' eingeladen. Sie können jetzt ausgewählt werden.');
     _wzCloseModal();
     openPruefAnfordern(toolId);
@@ -4994,7 +5003,7 @@ function openPruefLiefAnsicht(toolId){
   var u=_wzGetUser()||{};
   // Beauftragter Partner: role_lieferant (inkl. Unterrollen) ODER role_pruefer.
   var isLief = u.roleIds && u.roleIds.some(function(r){
-    return typeof r==='string' && (r.indexOf('role_lieferant')===0 || r==='role_pruefer');
+    return typeof r==='string' && (r.indexOf('role_lieferant')===0 || r.indexOf('role_produktlieferant')===0 || r==='role_pruefer' || r==='role_leiterpruefer');
   });
   if(!isLief && !_wzIsAdmin()){
     alert('Diese Ansicht ist nur für den beauftragten Lieferanten.');
