@@ -441,10 +441,21 @@ function findMyLieferant(){
         var byId = all.find(function(l){ return l.id === u.lieferantId; });
         if(byId) return byId;
       }
-      // 2. Heuristik (Altdaten / erstes Login): E-Mail -> Org -> Firma
-      var match = all.find(function(l){ return l.email && u.email && l.email === u.email; }) ||
+      // 2. Heuristik (Altdaten / erstes Login): E-Mail -> Org -> Firma ->
+      //    Org-NAME (Admin legt Org «Meier AG» an, Lieferant-Record traegt
+      //    dieselbe Firma — haeufigster Fall nach manueller Rollen-Vergabe).
+      var uEmail=(u.profile&&u.profile.email)||u.email||u.username||'';
+      var uFirma=(u.profile&&u.profile.firma)||u.firma||'';
+      var orgName='';
+      try{
+        var myOrg=(GemaAuth.getOrgs()||[]).find(function(o){return o.id===u.orgId;});
+        orgName=(myOrg&&myOrg.name)?String(myOrg.name).trim().toLowerCase():'';
+      }catch(e){}
+      var norm=function(s){return String(s||'').trim().toLowerCase();};
+      var match = all.find(function(l){ return l.email && uEmail && norm(l.email) === norm(uEmail); }) ||
                   all.find(function(l){ return l.orgId === u.orgId && l.orgId !== 'org_default'; }) ||
-                  all.find(function(l){ return l.firma && u.firma && l.firma === u.firma; });
+                  all.find(function(l){ return l.firma && uFirma && norm(l.firma) === norm(uFirma); }) ||
+                  all.find(function(l){ return l.firma && orgName && norm(l.firma) === orgName; });
       if(match){
         // Self-Healing: Verknuepfung dauerhaft speichern — aber nur fuer
         // echte Lieferanten-User (nicht Pruefer/Admin-Betrachter).
@@ -473,13 +484,73 @@ function findMyLieferant(){
 // Admin-Vorschau-Flag (gesetzt in findMyLieferant, ausgewertet in init)
 var _liefAdminPreview=false;
 
+// ── Auto-Provisionierung ─────────────────────────────────────────
+// User hat eine Lieferanten-Rolle (Anlagen ODER Produkt), aber es gibt
+// keinen passenden Lieferanten-Datensatz: Profil automatisch aus der
+// eigenen Org anlegen und verknuepfen. Genau dieser Fall trat nach
+// manueller Rollen-Vergabe im Admin auf («Kein Lieferanten-Profil
+// gefunden», obwohl Rolle + Firma existieren). Laeuft erst NACH dem
+// Cloud-Pull (GemaProdukte.ready), sonst entstuenden Duplikate.
+function _liefAutoProvision(){
+  try{
+    if(typeof GemaAuth==='undefined'||typeof GemaProdukte==='undefined')return null;
+    var u=GemaAuth.getCurrentUser();
+    if(!u)return null;
+    var roles=u.roleIds||[];
+    var isAnlagen=roles.some(function(r){return typeof r==='string'&&r.indexOf('role_lieferant')===0;});
+    var isProdukt=roles.some(function(r){return typeof r==='string'&&r.indexOf('role_produktlieferant')===0;});
+    if(!isAnlagen&&!isProdukt)return null; // Pruefer/Leiternpruefer brauchen kein Firmen-Profil
+    if(!u.orgId||u.orgId==='org_default')return null;
+    var org=(GemaAuth.getOrgs()||[]).find(function(o){return o.id===u.orgId;});
+    if(!org||!org.name)return null;
+    var l=GemaProdukte.createLieferant({
+      firma:org.name,
+      orgId:u.orgId,
+      email:(u.profile&&u.profile.email)||u.username||org.email||'',
+      telefon:org.tel||'',
+      adresse:{strasse:org.strasse||'',plz:org.plz||'',ort:org.ort||'',kanton:'',land:'CH'},
+      kontaktPerson:u.name||'',
+      // Produktlieferant startet mit Kategorie Werkzeuge; Anlagenlieferant
+      // waehlt seine Anlagen-Kategorien selbst im Firmenprofil.
+      lieferantKategorien:(isProdukt&&!isAnlagen)?['werkzeuge']:[]
+    });
+    if(l&&GemaAuth.linkUserToLieferant){try{GemaAuth.linkUserToLieferant(l.id);}catch(e){}}
+    if(l){try{toast('✓ Lieferanten-Profil für «'+org.name+'» angelegt — bitte Firmenprofil vervollständigen');}catch(e){}}
+    return l||null;
+  }catch(e){return null;}
+}
+
+function _liefShowNoProfile(){
+  document.querySelector('.g-page').innerHTML = '<div style="padding:60px;text-align:center;color:var(--mut)"><div style="font-size:48px;margin-bottom:16px">📦</div><h2 style="margin-bottom:8px">Kein Lieferanten-Profil gefunden</h2><p>Ihr Konto ist keinem Lieferanten-Profil zugeordnet.<br>Bitte prüfen Sie im Admin-Dashboard, dass Ihr Benutzer der richtigen Firma (Organisation) zugeteilt ist,<br>oder kontaktieren Sie den GEMA-Administrator.</p><a href="index.html" class="btn btn-p" style="margin-top:20px;text-decoration:none">← Zurück</a></div>';
+}
+function _liefShowLoading(){
+  document.querySelector('.g-page').insertAdjacentHTML('afterbegin','<div id="liefLoadingHint" style="padding:40px;text-align:center;color:var(--mut);font-size:13px">⏳ Lieferanten-Profil wird geladen …</div>');
+}
+
 // ── Init ──
 function init(){
   _lief = findMyLieferant();
   if(!_lief){
-    document.querySelector('.g-page').innerHTML = '<div style="padding:60px;text-align:center;color:var(--mut)"><div style="font-size:48px;margin-bottom:16px">📦</div><h2 style="margin-bottom:8px">Kein Lieferanten-Profil gefunden</h2><p>Ihr Konto ist keinem Lieferanten-Profil zugeordnet. Bitte kontaktieren Sie den GEMA-Administrator.</p><a href="index.html" class="btn btn-p" style="margin-top:20px;text-decoration:none">← Zurück</a></div>';
-    return;
+    // NICHT sofort «Kein Profil» zeigen: der lokale Cache kann leer sein,
+    // solange der Per-Record-Cloud-Pull (GemaProdukte.ready) noch laeuft.
+    // Erst nach dem Pull erneut suchen — und falls immer noch nichts da
+    // ist, das Profil automatisch aus der eigenen Org anlegen.
+    if(window.GemaProdukte && GemaProdukte.ready){
+      _liefShowLoading();
+      GemaProdukte.ready.then(function(){
+        var h=document.getElementById('liefLoadingHint');if(h)h.remove();
+        _lief=findMyLieferant()||_liefAutoProvision();
+        if(!_lief){_liefShowNoProfile();return;}
+        _initWithLief();
+      });
+      return;
+    }
+    _lief=_liefAutoProvision();
+    if(!_lief){_liefShowNoProfile();return;}
   }
+  _initWithLief();
+}
+function _initWithLief(){
   document.getElementById('navFirma').textContent = _lief.firma + ' — Dashboard';
   if(_lief.status==='inaktiv') document.getElementById('deaktBanner').style.display='';
   // GEMA-Admin-Vorschau: klar gekennzeichnet, mit Firmen-Auswahl statt
