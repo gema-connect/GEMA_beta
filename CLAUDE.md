@@ -285,6 +285,16 @@ Hauptseite: `index.html`. Hub-Seiten: `sb_index.html`, `pm_ausschreibung.html`, 
 - **Persistenz**: Parameter via GemaAutoSave (`zirkulation`); TS-Zeilen als JSON im hidden `#zk_rows`-Textarea (Restore über autosave-`change`-Event, `_zkInternal`-Guard gegen Loops).
 - **Anlagenwahl + Offertanfrage**: `GemaAnlagenwahl.init({kategorie:'zirkulationspumpe'})` — neue Produktkategorie `KATEGORIEN.zirkulationspumpe` (Förderhöhe mbar + Volumenstrom l/h + Medientemp, matchFn) + `LIEF_KATEGORIEN`-Eintrag. Berechnungswerte-Payload: `volumenstrom` (l/h), `foerderhoehe` (mbar), `tempRl`, `waermeverlust` (W) — Projektwerte, nie Datenblatt-Werte.
 - Registriert in gema_auth (MODULES `zirkulation`, FILE_MAP `sb_zirkulation`), sb_index (Warmwasser), sw.js.
+
+### Frischwasserstation (sa_frischwasserstation.html)
+
+Komplett NEU nach Excel-Vorlage «Frischwasserstation.xlsm» (ersetzt die alte Berechnung; gleicher Aufbau/Validierungs-Ansatz wie sb_zirkulation, per Playwright gegen die Original-Excel geprüft):
+1. **Nutzwarmwasserbedarf** (SIA 385/2): Nutzungseinheiten-Tabelle (`FW_NUTZUNG`, 28 Einträge mit `avg`+`σ` Normliter/d) — `V = n>10 ? avg+2σ/√n : avg+2σ`; Verlustzahl % (aus sb_warmwasser) → Tagesbedarf à 60 °C.
+2. **Spitzenvolumenstrom Wohnungsbau**: Duschen/Badewannen je Wohnungstyp, l/min pro Armatur, Druck-Umrechnungshelfer `v·√(p₂/p₁)`, Gleichzeitigkeits-Vorschlag (`FW_GZ`-Stufen nach Anzahl, «Wohnungen 30–35 %») + gewählter Wert; **Mischkreuz** (WW/KW/MW → WW-Anteil `(MW−KW)/(WW−KW)`).
+3./4. **Gastroanlage + Spezielle Anlage**: Geräte-Zeilen (Katalog `FW_GERAETE` als datalist, l/min@1.5 bar auto), Checkbox «gleichz.» → gewählter Volumenstrom = Σ markierte (manuelle Gleichzeitigkeit wie Excel).
+5. **Leistung**: `P = ṁ·cp·ΔT` mit Dichte aus `FW_DICHTE` (0–100 °C, floor-LOOKUP), massgebender Volumenstrom = max(berechnet, Override), minus Zirkulationsabzug (`ṁ_zirk·cp·ΔT_zirk`, Warnung T_Zirk < 52 °C).
+- Persistenz: Parameter via GemaAutoSave (`frischwasserstation`), die 4 dynamischen Tabellen als JSON im hidden `#fw_rows`-Textarea (Pattern wie `#zk_rows`).
+- Anlagenwahl/Offertanfrage: Kategorie `frischwasserstation` (bestehend), Payload `leistung` (kW netto), `zapfleistung` (l/min), `tagesbedarf`, `wwTemp` — Projektwerte, nie Datenblatt-Werte.
 - **Projektmanagement-Module** (pm_): Objekte, Terminplanung, Sitzungsprotokolle, Kostenkontrolle, Ausschreibung
 - **Hygiene-Module** (hy_): W12 Selbstkontrolle (SVGW)
 - **Infrastruktur-Module** (if_): Werkzeugmanagement, Fahrzeugmanagement, Trocknungsgeräte (siehe Abschnitte weiter unten)
