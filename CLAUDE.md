@@ -642,6 +642,16 @@ Storage-Key: `gema_werkzeug` via `_GemaDB`. Felder pro Werkzeug:
 | `ersatzAnfragen:[{id,lieferantId,lieferantFirma,typ,nachricht,status,erstelltAm,antwort?,...}]` | Ersatz-/Nachfolger-Anfragen an Lieferanten; `antwort` = Offerte des Lieferanten (preis, nachricht, pdfUrl/pdfDataUrl) |
 | `reparatur:{offen,lieferantId,lieferantFirma,defektBerichtId,termin,bemerkung,gestartetAm,abgeschlossenAm?}` | Vom Lieferanten eröffnete Reparatur (koppelt `lifecycleStatus:'in_reparatur'`) |
 
+### Koffer (Werkzeug-Sets, if_werkzeug.html)
+
+Ein **Koffer** bündelt mehrere Werkzeuge (z.B. Bohrhammer + Akku + Ladegerät) und ist ein **normaler Tool-Datensatz** mit Kategorie `koffer` (`_wzIsKoffer(t)` = `cat==='koffer' || istKoffer===true`) und geordneter Inhaltsliste `kofferInhalt:[toolId,…]`. Dadurch erbt er QR-Code (`?scan=<id>` für den Kofferdeckel), Etikette, Suche und Ausleihe-Historie vom bestehenden System.
+
+- **Erstellen**: «🧰 Koffer»-Toolbar-Button (nur Magaziner/Admin) → `openNeuerKoffer()` → kompakter Dialog → öffnet direkt den Inhalt-Editor.
+- **Inhalt/Reihenfolge** (`openKofferInhalt`): Teile hinzufügen per Suche ODER per **📷 QR-Sammelscan / 📡 NFC-Sammelscan** (`_wzKofferScanQR` — Scan-Schleife, Scanner öffnet nach jedem Treffer erneut, beenden via Abbrechen; `_wzKofferScanNFC` — kontinuierlicher NDEFReader-Loop, Android Chrome; Validierung + nicht-blockierendes Feedback-Pill in `_wzKofferAddFromScan`). Ein Werkzeug kann nur in EINEM Koffer sein (`_wzKofferOf`); entfernen, ↑↓-Reihenfolge. Berechtigung `_wzCanEditKoffer(k)`: Magaziner/Admin ODER der **zugeteilte Monteur** (`zugewiesenAn.userId === me`, typ user) — einzige Ausnahme vom Monteur-Editier-Verbot, nur für SEINE Koffer. **Hinweis**: `gema_qr_scanner.js` exportiert `GemaQR` (Overlay z-index 12000, damit der Scanner ÜBER `_wzShowModal` liegt) — der frühere Aufruf `GemaQRScanner` in der Sammel-Ausleihe war ein toter Verweis (behoben).
+- **Ausleihen** (`_wzKofferAusleihe`, Hook in `_wzOpenAusleihe`/`_wzLendToSelf`): Checkliste mit allen Standard-Teilen **vorausgewählt**; bereits einzeln ausgeliehene Teile sind abgewählt+gesperrt («bereits ausgeliehen an X»). Alle angehakten Teile werden mit `ausgeliehenAn={…, viaKoffer:<kofferId>}` an dieselbe Person ausgeliehen. Einzel-Ausleihe von Koffer-Teilen bleibt möglich.
+- **Rückgabe** (`_wzKofferRueckgabe`, Hook in `_wzReturnTool`): Vollständigkeitskontrolle — alle via Koffer ausgeliehenen Teile vorausgewählt; **abgewählte (fehlende) Teile bleiben einzeln ausgeliehen** (`viaKoffer` wird entfernt) und der Magaziner bekommt `werkzeug_koffer_fehlteil` (Notify, role+org).
+- `deleteTool` räumt gelöschte IDs aus allen `kofferInhalt`-Listen. Karten zeigen «🧰 N Teile + Inhalt-Button» (Koffer) bzw. «🧰 Im Koffer <Name>» (Teil).
+
 ### QR-Code & Etiketten (if_werkzeug.html)
 
 Werkzeug hat **dasselbe Etiketten-System wie das Trocknungs-Modul** (siehe Abschnitt «Etiketten-System (komplett)» unter Trocknungsgeräte für die vollständige Logik) — portiert mit `_wz`-Prefix:
@@ -771,6 +781,8 @@ Jedes Werkzeug kann über `supplier` + `supplierId` mit einem Lieferanten-Accoun
 Eigenständiges Modul mit ähnlicher Struktur (Liste, QR-Code-Generierung mit SVG-Download, Service-Intervalle). Schreib-Zugriff: `role_magaziner`, `role_pruefer`. Nicht alle Werkzeug-Features (Berichte, Zuweisung, Lieferanten-Workflow) sind im Fahrzeug-Modul gespiegelt — bei Bedarf gleicher Pattern wie if_werkzeug.html anwenden.
 
 **Garagist-Rechte**: Feld-Whitelist `_FZ_GARAGIST_EDITABLE_FIELDS` (km, Service-Intervalle/-Daten, MFK, Reifen, Notizen); kein Erfassen/Löschen. km-Update via Formular, `_fzQuickKmEdit` (NFC/Detail) oder Garagisten-Dashboard.
+
+**Etikette (49×23mm)**: Der QR-Dialog (`openFzgQR` → `#fzgQrModal`) hat den Umschalter **«🔲 QR-Code | 🏷 Etikette»** (`setFzgQrMode`) — Port des Etiketten-Systems aus if_trocknung mit `_fzEt*`-/`_fz*`-Helpern (`_fzComputeEtikette`, `_fzDrawEtikette`, `_fzEnsureLabelLogo`, `_fzBuildEtikettePreview`, `downloadFzgEtikettePDF`; inkl. **Logo-Druckoptimierung** `_fzMonochromeForLabel`, siehe Trocknung-Abschnitt). Beschriftung = `Kennzeichen · interne Nr` (Fallback Modell), QR-URL = `?view=<id>` (identisch mit Modal-QR/bestehenden Tags), QR im PDF als Vektor.
 
 **Garage-Einbuchen (Werkstatt-Status)**: `_fzGarageToggle/_fzGarageEinbuchen/_fzGarageAusbuchen` (+ «🏭 Garage»-Button im View-Modal) — Einbuchen setzt den bestehenden Status `service` («Im Service») + `v.garage = {eingebuchtAm, eingebuchtVonName, werkstatt, grund, ausgebuchtAm?}`; Ausbuchen zurück auf `aktiv`. Notifikation `fahrzeug_garage` an `role_magaziner` + Fahrzeug-Org. Gleiche Buttons im Garagisten-Dashboard (`_dashGarageEin/_dashGarageAus`).
 
@@ -1161,7 +1173,12 @@ Druckfertige Geräte-Etikette **49 × 23 mm Querformat** als PDF (jsPDF, mm-gena
 
 **Beschriftung** — `_tgEtiketteText(d)` = `d.internKennung` (getrimmt) wenn gesetzt, sonst **Fallback auf den Gerätenamen** `d.name`.
 
-**Firmenlogo** — `_tgLabelLogoSrc()` = `org.logo` der eingeloggten Org (Base64-DataURL via `GemaAuth.getCurrentUser()`+`getOrgs()`), sonst eingebettetes **GEMA-Logo** (`_TG_GEMA_LOGO_DATAURL`, URL-encoded SVG der Nav-Wortmarke in Navy `#0f172a`, intrinsische Grösse 1660×700 für scharfe Rasterung). jsPDF kann kein SVG einbetten → `_tgRasterizeImage(src)` lädt die Quelle in ein `Image` und zeichnet sie hochaufgelöst auf ein Canvas: **Vektor-Quellen (SVG)** mit langer Kante 1400px, **Raster-Quellen** (hochgeladene Logos) **nicht hochskaliert** (max. Originalgrösse, gedeckelt 1600px) → kein Upscale-Blur. Liefert `{dataUrl(PNG), ratio}`. `_tgEnsureLabelLogo()` cached das Ergebnis pro Quelle (`_tgLogoCache`).
+**Firmenlogo** — `_tgLabelLogoSrc()` = `org.logo` der eingeloggten Org (Base64-DataURL via `GemaAuth.getCurrentUser()`+`getOrgs()`), sonst eingebettetes **GEMA-Logo** (`_TG_GEMA_LOGO_DATAURL`, URL-encoded SVG der Nav-Wortmarke in Navy `#0f172a`, intrinsische Grösse 1660×700 für scharfe Rasterung). jsPDF kann kein SVG einbetten → `_tgRasterizeImage(src)` lädt die Quelle in ein `Image` und zeichnet sie auf ein Canvas. Liefert `{dataUrl(PNG), ratio}`. `_tgEnsureLabelLogo()` cached das Ergebnis pro Quelle (`_tgLogoCache`).
+
+**KRITISCH — Logo-Druckoptimierung für 300dpi-Thermo-Etikettendrucker** (`_tgRasterizeImage` + `_tgMonochromeForLabel`, identisch als `_wzRasterizeImage`/`_wzMonochromeForLabel` in if_werkzeug):
+1. **Immer hochauflösend rastern** (lange Kante 1400px, bicubic `imageSmoothingQuality:'high'`) — auch kleine hochgeladene Raster-Logos. Früher wurden Raster-Quellen nie hochskaliert; der Drucker-RIP zog das kleine Bild dann selbst grob auf die ~8mm-Logobox → Pixelklötze («Logo in sehr schlechter Qualität»).
+2. **1-Bit-Schwellwert-Konvertierung** (auf Weiss alpha-kompositieren → Luminanz < 176 ⇒ reines Schwarz, sonst reines Weiss): Thermo-Etikettendrucker drucken NUR Schwarz — Graustufen und Anti-Aliasing-Kanten werden vom Treiber **gedithert** (fleckiger, «unsauberer» Druck; betraf auch das navy-farbene GEMA-Logo). Harter Schwellwert nach dem HQ-Upscale ergibt gestochen scharfe Kanten. **Fallback für sehr helle Logos**: bleibt nach dem Schwellwert < 1.5% Schwarzanteil, wird mit Schwellwert 235 erneut konvertiert (Silhouette statt leerem Band). Farbige Logos erscheinen auf der Etikette bewusst schwarz-weiss.
+3. Die Live-Vorschau nutzt dieselbe Pipeline (WYSIWYG). QR wird weiterhin als **Vektor** gezeichnet, Text als PDF-Font — beide sind druckscharf. Bei tainted Canvas (externe URL) bleibt die Konvertierung aus (try/catch).
 
 **Live-Vorschau** — `_tgBuildEtikettePreview()` rendert dasselbe Layout als HTML in `#qrLabelPreview` (Massstab `PX = 6.4 px/mm`), inkl. Logo-`<img>` und QR-`<img>`. Async (wartet auf Logo); bricht ab, wenn das Gerät inzwischen gewechselt hat.
 
@@ -1179,7 +1196,8 @@ Druckfertige Geräte-Etikette **49 × 23 mm Querformat** als PDF (jsPDF, mm-gena
 | `_TG_GEMA_LOGO_SVG` / `_TG_GEMA_LOGO_DATAURL` | GEMA-Fallback-Logo (SVG → DataURL) |
 | `_tgGetOrgLogoSrc()` | `org.logo` der eigenen Org oder `''` |
 | `_tgLabelLogoSrc()` | `org.logo` || GEMA-Fallback |
-| `_tgRasterizeImage(src)` | Bildquelle → `{dataUrl(PNG), ratio}`, hochaufgelöst (SVG gross, Raster ohne Upscale) |
+| `_tgRasterizeImage(src)` | Bildquelle → `{dataUrl(PNG), ratio}`, immer 1400px lange Kante + 1-Bit-Schwellwert (siehe «Logo-Druckoptimierung») |
+| `_tgMonochromeForLabel(ctx,w,h)` | Canvas → reines Schwarz/Weiss (Thermodrucker-Dithering vermeiden) |
 | `_tgEnsureLabelLogo()` | Logo rastern + cachen (Promise) |
 | `_tgEtiketteW10(text)` | Textbreite @10pt (mm), jsPDF oder Schätzung |
 | `_tgWrapText(text, maxW, fontPt)` | Wortumbruch |
@@ -1327,6 +1345,7 @@ Zentrales Modul `gema_notify.js` für In-App-Benachrichtigungen. Glocke + Toast-
 | `werkzeug_ersatz_anfrage` | werkzeug | on |
 | `werkzeug_offerte_lieferant` | werkzeug | on |
 | `werkzeug_reparatur` | werkzeug | on |
+| `werkzeug_koffer_fehlteil` | werkzeug | on |
 | `fahrzeug_service_faellig` | fahrzeug | on |
 | `fahrzeug_service_erledigt` | fahrzeug | on |
 | `fahrzeug_garagist_zugewiesen` | fahrzeug | on |

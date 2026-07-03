@@ -2551,15 +2551,48 @@ function _tgLabelLogoSrc() { return _tgGetOrgLogoSrc() || _TG_GEMA_LOGO_DATAURL;
 // gross gerendert (scharf bei jeder Druckgroesse). Raster-Quellen (hoch-
 // geladene Firmenlogos) werden NICHT hochskaliert (das macht sie nur
 // unschaerfer) — hoechstens auf die Originalgroesse, gedeckelt bei 1600px.
+// Wandelt das Canvas in reines 1-Bit-Schwarz/Weiss um (Druckoptimierung
+// fuer 300dpi-Thermo-Etikettendrucker): diese Drucker kennen nur Schwarz —
+// Graustufen und Anti-Aliasing-Kanten werden vom Treiber GEDITHERT
+// (fleckiger, unsauberer Druck). Harter Schwellwert = gestochen scharfe
+// Kanten. Alpha wird vorher auf Weiss kompositiert. Fallback: erscheint
+// nach dem Schwellwert (fast) nichts Schwarzes (sehr helles Logo), wird
+// mit deutlich hoeherem Schwellwert erneut konvertiert (Silhouette).
+function _tgMonochromeForLabel(ctx, cw, ch) {
+  var idata = ctx.getImageData(0, 0, cw, ch), d = idata.data;
+  function pass(threshold) {
+    var black = 0;
+    for (var i = 0; i < d.length; i += 4) {
+      var a = d[i + 3] / 255;
+      var r = d[i] * a + 255 * (1 - a);
+      var g = d[i + 1] * a + 255 * (1 - a);
+      var b = d[i + 2] * a + 255 * (1 - a);
+      var lum = 0.299 * r + 0.587 * g + 0.114 * b;
+      var v = lum < threshold ? 0 : 255;
+      d[i] = d[i + 1] = d[i + 2] = v; d[i + 3] = 255;
+      if (v === 0) black++;
+    }
+    return black / (cw * ch);
+  }
+  var src = new Uint8ClampedArray(d); // Original sichern fuer 2. Pass
+  var share = pass(176);
+  if (share < 0.015) { d.set(src); pass(235); }
+  ctx.putImageData(idata, 0, 0);
+}
+
 function _tgRasterizeImage(src) {
   return new Promise(function(resolve) {
     if (!src) { resolve(null); return; }
-    var isVec = /^data:image\/svg|\.svg(\?|#|$)/i.test(src);
     var img = new Image();
     img.onload = function() {
       var nw = img.naturalWidth || img.width || 1, nh = img.naturalHeight || img.height || 1;
       var ratio = nw / nh;
-      var longEdge = isVec ? 1400 : Math.min(1600, Math.max(nw, nh));
+      // IMMER hochaufloesend rastern (lange Kante 1400px) — auch kleine
+      // hochgeladene Raster-Logos werden hier EINMAL hochwertig (bicubic)
+      // hochskaliert. Vorher wurden Raster-Quellen nie hochskaliert; der
+      // Drucker-RIP zog das kleine Bild dann grob auf die 8mm-Logobox
+      // (Pixelkloetze). HQ-Upscale + Schwellwert ergibt saubere Kanten.
+      var longEdge = 1400;
       var cw, ch;
       if (ratio >= 1) { cw = longEdge; ch = Math.max(1, Math.round(longEdge / ratio)); }
       else { ch = longEdge; cw = Math.max(1, Math.round(longEdge * ratio)); }
@@ -2568,6 +2601,7 @@ function _tgRasterizeImage(src) {
         var ctx = cv.getContext('2d');
         ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
         ctx.drawImage(img, 0, 0, cw, ch);
+        try { _tgMonochromeForLabel(ctx, cw, ch); } catch (e) { /* z.B. tainted canvas — dann Graustufen belassen */ }
         resolve({ dataUrl: cv.toDataURL('image/png'), ratio: ratio });
       } catch (e) { resolve(null); }
     };

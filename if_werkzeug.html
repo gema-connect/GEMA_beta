@@ -408,6 +408,7 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
 .cat-leiter      {background:#fff7ed;color:#c2410c;border:1px solid #fed7aa}
 .cat-messgeraet  {background:#ecfeff;color:#0891b2;border:1px solid #a5f3fc}
 .cat-ladegeraet  {background:#fdf2f8;color:#9d174d;border:1px solid #fbcfe8}
+.cat-koffer      {background:#fef9c3;color:#854d0e;border:1px solid #fde047}
 .cat-sonstige    {background:var(--bg2);color:var(--mut);border:1px solid var(--brd2)}
 
 @media(max-width:1000px){.stats-row{grid-template-columns:repeat(3,1fr)}}
@@ -523,6 +524,7 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
     <button class="nbtn" id="btnBulkMode" onclick="_wzToggleBulkMode()" title="Mehrere Werkzeuge auswählen und gemeinsam bearbeiten" style="display:none;background:#eff6ff;color:#1d4ed8;border-color:#bfdbfe">☑ Auswählen</button>
     <button class="nbtn" id="btnInventur" onclick="_wzOpenInventurModal()" title="Inventur-Lauf starten oder fortsetzen" style="display:none;background:#f0fdf4;color:#15803d;border-color:#bbf7d0">📋 Inventur</button>
     <button class="nbtn" id="btnWzSammel" onclick="_wzOpenSammelAusleihe()" title="Mehrere Werkzeuge scannen und auf einmal ausleihen" style="background:#fefce8;color:#92400e;border-color:#fde68a">🔄 Ausleihen</button>
+    <button class="nbtn" id="btnNeuKoffer" onclick="openNeuerKoffer()" style="display:none;background:#fef9c3;color:#854d0e;border-color:#fde047" title="Koffer erstellen (Set aus mehreren Werkzeugen mit eigenem QR-Code)">🧰 Koffer</button>
     <button class="nbtn" id="btnPruefMode" onclick="_wzPruefModus()" style="display:none" title="Prüfmodus starten">📋 Prüfmodus</button>
     <button class="nbtn" id="btnAdvFilter" onclick="_wzOpenAdvFilter()" style="display:none" title="Erweiterte Filter">🔍 Filter</button>
     <span class="wz-filter-badge" id="advFilterBadge" style="display:none;font-size:10px;font-weight:800;padding:2px 7px;border-radius:6px;background:var(--plan);color:#fff;cursor:pointer;margin-left:-6px" onclick="_wzClearAdvFilter()" title="Filter zurücksetzen">✕</span>
@@ -1277,10 +1279,11 @@ const CATS={
   'leiter':          {icon:'🪜',label:'Leiter / Gerüst',   cls:'cat-leiter',      ico:'ico-leiter'},
   'messgeraet':      {icon:'📐',label:'Messgerät',         cls:'cat-messgeraet',  ico:'ico-messgeraet'},
   'ladegeraet':      {icon:'🔋',label:'Ladegerät',         cls:'cat-ladegeraet',  ico:'ico-ladegeraet'},
+  'koffer':          {icon:'🧰',label:'Koffer / Set',      cls:'cat-koffer',      ico:'ico-sonstige'},
   'sonstige':        {icon:'📦',label:'Sonstiges',         cls:'cat-sonstige',    ico:'ico-sonstige'},
 };
 // Default-Reihenfolge der eingebauten Kategorien (fuer Reset im Settings-Modal).
-var _WZ_DEFAULT_CAT_ORDER = ['maschine','maschine-kabel','handwerkzeug','leiter','messgeraet','ladegeraet','sonstige'];
+var _WZ_DEFAULT_CAT_ORDER = ['maschine','maschine-kabel','handwerkzeug','leiter','messgeraet','ladegeraet','koffer','sonstige'];
 
 // ──────────────────────────────────────
 // EINSTELLUNGEN: Optionale Felder + Kategorien (org.settings.werkzeug.*)
@@ -2177,10 +2180,12 @@ function renderCard(t){
     ${(!isMonteur&&t.berichte&&t.berichte.length)?`<div style="padding:6px 14px;background:#fff7ed;border-top:1px solid #fed7aa;font-size:11px;color:#c2410c;display:flex;align-items:center;gap:5px"><span>📝</span>${t.berichte.length} Bericht${t.berichte.length>1?'e':''}${_wzBadDefect(t)?' · <span style="font-weight:800">⚠ Defekt offen</span>':''}</div>`:''}
     ${(!isMonteur&&t.pruefAnfrage)?`<div style="padding:6px 14px;background:${t.pruefAnfrage.status==='erledigt'?'#f0fdf4':t.pruefAnfrage.status==='quittiert'?'#eff6ff':'#fff7ed'};border-top:1px solid ${t.pruefAnfrage.status==='erledigt'?'#bbf7d0':t.pruefAnfrage.status==='quittiert'?'#bfdbfe':'#fed7aa'};font-size:11px;color:${t.pruefAnfrage.status==='erledigt'?'#16a34a':t.pruefAnfrage.status==='quittiert'?'#2563eb':'#c2410c'};display:flex;align-items:center;gap:5px"><span>📋</span>${t.pruefAnfrage.status==='angefordert'?'Prüfung angefordert':t.pruefAnfrage.status==='quittiert'?'Lieferant quittiert':'Prüfung erledigt'} · ${esc(t.pruefAnfrage.lieferantFirma||'')}</div>`:''}
     ${(!isMonteur&&t.ersatzAnfragen&&t.ersatzAnfragen.length)?`<div style="padding:6px 14px;background:#fdf4ff;border-top:1px solid #e9d5ff;font-size:11px;color:#7c3aed;display:flex;align-items:center;gap:5px"><span>🔄</span>${t.ersatzAnfragen.filter(a=>a.status==='offen').length} Ersatzanfrage${t.ersatzAnfragen.filter(a=>a.status==='offen').length!==1?'n':''} offen</div>`:''}
+    ${_wzIsKoffer(t)?(function(){var ki=_wzKofferItems(t);return `<div style="padding:8px 14px;background:#fefce8;border-top:1px solid #fde047;font-size:11.5px;color:#854d0e;display:flex;align-items:center;gap:6px;min-width:0"><span>🧰</span><strong style="flex-shrink:0">${ki.length} Teil${ki.length!==1?'e':''}</strong>${ki.length?`<span style="color:#a16207;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0">· ${esc(ki.slice(0,3).map(function(x){return x.name;}).join(', '))}${ki.length>3?' …':''}</span>`:''}<button onclick="event.stopPropagation();openKofferInhalt('${t.id}')" style="margin-left:auto;padding:4px 10px;border-radius:6px;border:1px solid #fde047;background:#fff;color:#854d0e;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;flex-shrink:0">🧰 Inhalt</button></div>`;})():''}
+    ${(!_wzIsKoffer(t)&&_wzKofferOf(t.id))?`<div style="padding:6px 14px;background:#fefce8;border-top:1px solid #fde047;font-size:11px;color:#a16207;display:flex;align-items:center;gap:5px"><span>🧰</span>Im Koffer <strong>${esc(_wzKofferOf(t.id).name)}</strong></div>`:''}
     <!-- Personen-Banner immer ganz unten direkt vor tc-foot, damit die
          Position einheitlich ist (siehe Issue: 'Zugewiesener soll immer
          unten sein wie bei der rechten Kachel'). -->
-    ${t.ausgeliehenAn?`<div style="padding:8px 14px;background:#fefce8;border-top:1px solid #fde68a;font-size:11.5px;color:#92400e;display:flex;align-items:center;gap:6px;flex-wrap:wrap"><span>🔄</span>Ausgeliehen an <strong>${esc(t.ausgeliehenAn.name||'—')}</strong>${t.ausgeliehenAn.seit?`<span style="color:#b45309;margin-left:4px">seit ${fmt(t.ausgeliehenAn.seit)}</span>`:''}<span style="margin-left:auto">${_wzCanReturnTool(t)?`<button onclick="event.stopPropagation();_wzReturnTool('${t.id}')" style="padding:3px 10px;border-radius:6px;border:1px solid #16a34a;background:#f0fdf4;color:#16a34a;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit">✓ Zurück</button>`:''}</span></div>`:''}
+    ${t.ausgeliehenAn?`<div style="padding:8px 14px;background:#fefce8;border-top:1px solid #fde68a;font-size:11.5px;color:#92400e;display:flex;align-items:center;gap:6px;flex-wrap:wrap"><span>🔄</span>Ausgeliehen an <strong>${esc(t.ausgeliehenAn.name||'—')}</strong>${t.ausgeliehenAn.seit?`<span style="color:#b45309;margin-left:4px">seit ${fmt(t.ausgeliehenAn.seit)}</span>`:''}${t.ausgeliehenAn.viaKoffer?`<span style="font-size:10px;color:#a16207">🧰 via Koffer</span>`:''}<span style="margin-left:auto">${_wzCanReturnTool(t)?`<button onclick="event.stopPropagation();_wzReturnTool('${t.id}')" style="padding:3px 10px;border-radius:6px;border:1px solid #16a34a;background:#f0fdf4;color:#16a34a;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit">✓ Zurück</button>`:''}</span></div>`:''}
     ${t.zugewiesenAn?`<div style="padding:8px 14px;background:#eef2ff;border-top:1px solid #e0e7ff;font-size:11.5px;color:#3730a3;display:flex;align-items:center;gap:6px"><span>👷</span><strong>${esc(t.zugewiesenAn.name||'—')}</strong>${t.zugewiesenAn.seit?`<span style="color:#6366f1;margin-left:auto">seit ${fmt(t.zugewiesenAn.seit)}</span>`:''}</div>`:''}
     <div class="tc-foot">
       <div class="tc-actions">
@@ -2205,6 +2210,26 @@ function renderCard(t){
 function _wzBadDefect(t){
   if(!t.berichte)return false;
   return t.berichte.some(function(b){return b.typ==='defekt'&&!b.erledigt;});
+}
+
+// ── KOFFER-Helper (Werkzeug-Sets: Maschine + Akku + Ladegeraet …) ──
+// Ein Koffer ist ein normaler Tool-Datensatz (cat 'koffer') mit einer
+// geordneten Inhaltsliste kofferInhalt:[toolId,…]. Dadurch bekommt er
+// QR-Code, Etikette, Scan, Suche und Ausleihe-Historie gratis.
+function _wzIsKoffer(t){ return !!t && (t.cat==='koffer' || t.istKoffer===true); }
+function _wzKofferOf(toolId){
+  return tools.find(function(k){ return _wzIsKoffer(k) && Array.isArray(k.kofferInhalt) && k.kofferInhalt.indexOf(toolId)>=0; }) || null;
+}
+function _wzKofferItems(k){
+  return (k.kofferInhalt||[]).map(function(id){ return tools.find(function(t){return t.id===id;}); }).filter(Boolean);
+}
+// Inhalt/Reihenfolge pflegen: Magaziner/Admin ODER der zugeteilte Monteur
+// (User-Vorgabe: der Monteur, dem der Koffer gehoert, pflegt ihn selbst —
+// einzige Ausnahme vom Monteur-Editier-Verbot, nur fuer SEINE Koffer).
+function _wzCanEditKoffer(k){
+  if(_wzCanEdit()) return true;
+  var u=_wzGetUser();
+  return !!(u && k && k.zugewiesenAn && k.zugewiesenAn.typ!=='platz' && k.zugewiesenAn.userId===u.id);
 }
 
 function renderRow(t){
@@ -2486,7 +2511,14 @@ function deleteTool(id){
   GemaDialog.confirm({title:'Gerät löschen', message:'Gerät «'+((t&&t.name)||id)+'» wirklich löschen?', confirmLabel:'Löschen', danger:true}).then(function(ok){
     if(!ok) return;
     var del = t;
-    tools=tools.filter(t=>t.id!==id);save();renderList();
+    tools=tools.filter(t=>t.id!==id);
+    // Aus allen Koffer-Inhaltslisten entfernen (keine toten Referenzen)
+    tools.forEach(function(k){
+      if(_wzIsKoffer(k)&&Array.isArray(k.kofferInhalt)){
+        k.kofferInhalt=k.kofferInhalt.filter(function(x){return x!==id;});
+      }
+    });
+    save();renderList();
     _wzActLog('geloescht', 'Werkzeug gelöscht', del);
   });
 }
@@ -2757,6 +2789,10 @@ function _wzOpenAusleihe(toolId){
   // Magaziner/Admin: voller Ausleihe-Dialog mit Personen-Picker.
   // Monteur: Self-Service — leiht sich selbst aus (siehe sd_self).
   if(!_wzCanLendSelf()) return;
+  // Koffer: eigener Dialog mit Inhalt-Checkliste (alle Standard-Teile
+  // vorausgewaehlt, bereits ausgeliehene abgewaehlt).
+  var _tK=tools.find(function(x){return x.id===toolId;});
+  if(_tK && _wzIsKoffer(_tK)) return _wzKofferAusleihe(toolId);
   if(_wzIsMonteur() && !_wzCanEdit()) return _wzLendToSelf(toolId);
   if(!_wzCanEdit())return;
   var t=tools.find(function(x){return x.id===toolId;});if(!t)return;
@@ -2881,6 +2917,8 @@ function _wzReturnTool(toolId){
     GemaDialog.alert({title:'Rückgabe nicht möglich', message:'Diese Rückgabe muss vom Magaziner bestätigt werden.'});
     return;
   }
+  // Koffer: Rueckgabe mit Vollstaendigkeits-Checkliste
+  if(_wzIsKoffer(t)) return _wzKofferRueckgabe(toolId);
   var borrower=t.ausgeliehenAn.name||'';
   GemaDialog.confirm({
     title:'Werkzeug zurückgeben',
@@ -2909,6 +2947,7 @@ function _wzLendToSelf(toolId){
   if(!u){ GemaDialog.alert({message:'Bitte zuerst einloggen.'}); return; }
   var t=tools.find(function(x){return x.id===toolId;});
   if(!t) return;
+  if(_wzIsKoffer(t)) return _wzKofferAusleihe(toolId);
   // Wenn ich bereits Hauptnutzer bin, ist eine Ausleihe sinnlos —
   // das Werkzeug "gehoert" mir bereits. Hinweis statt Dialog.
   if(t.zugewiesenAn && t.zugewiesenAn.typ!=='platz' && t.zugewiesenAn.userId === u.id){
@@ -2938,6 +2977,372 @@ function _wzLendToSelf(toolId){
     }
   });
 }
+
+// ══════════════════════════════════════════════════════════════
+// KOFFER — Werkzeug-Sets mit eigenem QR-Code
+// Ein Koffer buendelt mehrere Werkzeuge (z.B. Maschine + Akku +
+// Ladegeraet). Beim Ausleihen sind alle Standard-Teile vorausgewaehlt
+// (bereits einzeln ausgeliehene abgewaehlt), bei der Rueckgabe laeuft
+// eine Vollstaendigkeitskontrolle. Inhalt/Reihenfolge pflegt der
+// zugeteilte Monteur oder Magaziner/Admin (_wzCanEditKoffer).
+// ══════════════════════════════════════════════════════════════
+window.openNeuerKoffer=function(){
+  if(!_wzCanEdit()){alert('Keine Berechtigung — nur Magaziner/Admin dürfen Koffer erstellen.');return;}
+  var html='<div class="dlg-card" style="max-width:460px">'
+    +'<h3 style="margin:0 0 4px;font-size:17px;font-weight:800;color:#854d0e">🧰 Neuer Koffer</h3>'
+    +'<div style="font-size:12px;color:#64748b;margin-bottom:14px">Ein Koffer bündelt mehrere Werkzeuge und hat einen eigenen QR-Code für den Deckel — beim Scannen wird der ganze Inhalt ausgeliehen.</div>'
+    +'<label class="dlg-lbl">Bezeichnung *</label>'
+    +'<input id="kofName" class="dlg-inp" placeholder="z.B. Bohrhammer-Koffer Hilti TE 30"/>'
+    +'<label class="dlg-lbl" style="margin-top:10px;display:block">Interne Kennung (optional)</label>'
+    +'<input id="kofKennung" class="dlg-inp" placeholder="z.B. KO-01"/>'
+    +'<div class="dlg-row">'
+    +'  <button onclick="_wzCloseModal()" class="dlg-cancel">Abbrechen</button>'
+    +'  <button onclick="_wzSaveNeuerKoffer()" style="padding:9px 18px;border-radius:8px;border:none;background:#854d0e;color:#fff;cursor:pointer;font-weight:700;font-family:inherit">✓ Erstellen &amp; befüllen</button>'
+    +'</div></div>';
+  _wzShowModal(html);
+};
+window._wzSaveNeuerKoffer=function(){
+  var name=(document.getElementById('kofName').value||'').trim();
+  if(!name){alert('Bitte Bezeichnung eingeben.');return;}
+  var kennung=(document.getElementById('kofKennung').value||'').trim();
+  var u=_wzGetUser()||{};
+  var k={id:'t_'+Date.now(),name:name,cat:'koffer',istKoffer:true,internKennung:kennung,
+    kofferInhalt:[],brand:'',model:'',bought:'',warranty:'',serial:'',notes:'',
+    hasService:false,hasElec:false,hasLeiter:false,orgId:u.orgId||''};
+  tools.push(k);
+  save();renderList();
+  _wzActLog('erfasst','Koffer erstellt',k);
+  _wzCloseModal();
+  openKofferInhalt(k.id);
+};
+
+// ── Inhalt-Editor: Reihenfolge + Teile hinzufuegen/entfernen ──
+window.openKofferInhalt=function(kofferId){
+  var k=tools.find(function(x){return x.id===kofferId;});
+  if(!k||!_wzIsKoffer(k))return;
+  var canEdit=_wzCanEditKoffer(k);
+  var items=_wzKofferItems(k);
+  var btnS='padding:0;width:40px;height:40px;border-radius:8px;border:1px solid #e5e7eb;background:#fff;cursor:pointer;font-size:14px;color:#475569;font-family:inherit;flex-shrink:0';
+  var rows=items.length?items.map(function(t,i){
+    var cat=CATS[t.cat]||CATS.sonstige;
+    var lent=t.ausgeliehenAn?' <span style="font-size:10px;color:#92400e;background:#fefce8;border:1px solid #fde68a;border-radius:6px;padding:1px 6px">🔄 '+esc(t.ausgeliehenAn.name||'')+'</span>':'';
+    return '<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid #e5e7eb;border-radius:9px;background:#fff">'
+      +'<span style="font-size:16px;flex-shrink:0">'+cat.icon+'</span>'
+      +'<div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(t.name)+lent+'</div>'
+      +'<div style="font-size:11px;color:#64748b">'+esc(t.brand||'')+(t.model?' '+esc(t.model):'')+(t.internKennung?' · 🏷 '+esc(t.internKennung):'')+'</div></div>'
+      +(canEdit?(
+        '<button onclick="_wzKofferMove(\''+esc(k.id)+'\',\''+esc(t.id)+'\',-1)" '+(i===0?'disabled style="'+btnS+';opacity:.3"':'style="'+btnS+'"')+' title="Nach oben">↑</button>'
+        +'<button onclick="_wzKofferMove(\''+esc(k.id)+'\',\''+esc(t.id)+'\',1)" '+(i===items.length-1?'disabled style="'+btnS+';opacity:.3"':'style="'+btnS+'"')+' title="Nach unten">↓</button>'
+        +'<button onclick="_wzKofferRemove(\''+esc(k.id)+'\',\''+esc(t.id)+'\')" style="'+btnS+';color:#dc2626;border-color:#fecaca" title="Aus Koffer entfernen">✕</button>'
+      ):'')
+      +'</div>';
+  }).join(''):'<div style="padding:20px;text-align:center;color:#94a3b8;font-size:12.5px">Noch keine Werkzeuge im Koffer.</div>';
+  var addHtml=canEdit
+    ?('<div style="border-top:1px dashed #e5e7eb;margin-top:14px;padding-top:12px">'
+      +'<label class="dlg-lbl">+ Werkzeug hinzufügen</label>'
+      +'<div style="display:flex;gap:8px;margin-bottom:8px">'
+      +'<button onclick="_wzKofferScanQR(\''+esc(k.id)+'\')" style="flex:1;padding:11px;border-radius:10px;border:1.5px solid #854d0e;background:#fff;color:#854d0e;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;display:flex;align-items:center;justify-content:center;gap:6px;min-height:44px">📷 QR-Sammelscan</button>'
+      +'<button onclick="_wzKofferScanNFC(\''+esc(k.id)+'\')" style="flex:1;padding:11px;border-radius:10px;border:1.5px solid #1d4ed8;background:#eff6ff;color:#1d4ed8;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;display:flex;align-items:center;justify-content:center;gap:6px;min-height:44px">📡 NFC-Sammelscan</button>'
+      +'</div>'
+      +'<input id="kofSearch" class="dlg-inp" placeholder="Oder suchen (Name, Marke, Kennung) …" oninput="_wzKofferSearch(\''+esc(k.id)+'\')"/>'
+      +'<div id="kofSearchRes" style="display:flex;flex-direction:column;gap:6px;margin-top:8px;max-height:220px;overflow-y:auto"></div>'
+      +'</div>')
+    :'<div style="font-size:11px;color:#94a3b8;margin-top:12px">Inhalt kann nur vom zugeteilten Monteur oder Magaziner/Admin angepasst werden.</div>';
+  var html='<div class="dlg-card" style="max-width:560px;max-height:88vh;overflow-y:auto">'
+    +'<h3 style="margin:0 0 4px;font-size:17px;font-weight:800;color:#854d0e">🧰 '+esc(k.name)+'</h3>'
+    +'<div style="font-size:12px;color:#64748b;margin-bottom:12px">'+items.length+' Teil'+(items.length!==1?'e':'')
+    +(k.zugewiesenAn?' · Zugeteilt: <strong>'+esc(k.zugewiesenAn.name||'')+'</strong>':'')
+    +(canEdit?' · Reihenfolge mit ↑↓ anpassen':'')+'</div>'
+    +'<div style="display:flex;flex-direction:column;gap:6px">'+rows+'</div>'
+    +addHtml
+    +'<div class="dlg-row">'
+    +'  <button onclick="_wzCloseModal()" class="dlg-cancel">Schliessen</button>'
+    +'</div></div>';
+  _wzShowModal(html);
+};
+window._wzKofferSearch=function(kofferId){
+  var k=tools.find(function(x){return x.id===kofferId;});if(!k)return;
+  var box=document.getElementById('kofSearchRes');if(!box)return;
+  var q=(document.getElementById('kofSearch').value||'').trim().toLowerCase();
+  // Kandidaten: eigene Werkzeuge, keine Koffer, noch in keinem Koffer,
+  // nicht ausgemustert/verkauft.
+  var cands=tools.filter(function(t){
+    if(_wzIsKoffer(t))return false;
+    var lc=t.lifecycleStatus||'aktiv';
+    if(lc==='ausgemustert'||lc==='verkauft')return false;
+    if(_wzKofferOf(t.id))return false;
+    if(!q)return true;
+    var hay=((t.name||'')+' '+(t.brand||'')+' '+(t.model||'')+' '+(t.internKennung||'')+' '+(t.serial||'')).toLowerCase();
+    return hay.indexOf(q)>=0;
+  }).slice(0,20);
+  if(!cands.length){box.innerHTML='<div style="font-size:11.5px;color:#94a3b8;padding:6px 2px">'+(q?'Keine Treffer.':'Keine verfügbaren Werkzeuge (alle bereits in einem Koffer?).')+'</div>';return;}
+  box.innerHTML=cands.map(function(t){
+    var cat=CATS[t.cat]||CATS.sonstige;
+    return '<div style="display:flex;align-items:center;gap:8px;padding:7px 10px;border:1px solid #e5e7eb;border-radius:9px;background:#fafafa">'
+      +'<span style="font-size:15px;flex-shrink:0">'+cat.icon+'</span>'
+      +'<div style="flex:1;min-width:0;font-size:12.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(t.name)
+      +'<span style="color:#94a3b8;font-weight:400"> '+esc(t.brand||'')+(t.internKennung?' · 🏷 '+esc(t.internKennung):'')+'</span></div>'
+      +'<button onclick="_wzKofferAdd(\''+esc(k.id)+'\',\''+esc(t.id)+'\')" style="padding:0;width:40px;height:40px;border-radius:8px;border:none;background:#854d0e;color:#fff;cursor:pointer;font-size:16px;font-weight:800;font-family:inherit;flex-shrink:0">+</button>'
+      +'</div>';
+  }).join('');
+};
+window._wzKofferAdd=function(kofferId,toolId){
+  var k=tools.find(function(x){return x.id===kofferId;});if(!k)return;
+  if(!_wzCanEditKoffer(k)){alert('Keine Berechtigung.');return;}
+  var already=_wzKofferOf(toolId);
+  if(already){alert('Dieses Werkzeug ist bereits im Koffer «'+already.name+'».');return;}
+  var t=tools.find(function(x){return x.id===toolId;});if(!t)return;
+  if(!Array.isArray(k.kofferInhalt))k.kofferInhalt=[];
+  k.kofferInhalt.push(toolId);
+  save();renderList();
+  _wzActLog('geaendert','Koffer-Inhalt: + '+t.name,k);
+  openKofferInhalt(kofferId);
+};
+window._wzKofferRemove=function(kofferId,toolId){
+  var k=tools.find(function(x){return x.id===kofferId;});if(!k)return;
+  if(!_wzCanEditKoffer(k)){alert('Keine Berechtigung.');return;}
+  var t=tools.find(function(x){return x.id===toolId;});
+  k.kofferInhalt=(k.kofferInhalt||[]).filter(function(x){return x!==toolId;});
+  save();renderList();
+  _wzActLog('geaendert','Koffer-Inhalt: − '+((t&&t.name)||toolId),k);
+  openKofferInhalt(kofferId);
+};
+window._wzKofferMove=function(kofferId,toolId,dir){
+  var k=tools.find(function(x){return x.id===kofferId;});if(!k)return;
+  if(!_wzCanEditKoffer(k)){alert('Keine Berechtigung.');return;}
+  var arr=k.kofferInhalt||[];
+  var i=arr.indexOf(toolId);
+  var j=i+dir;
+  if(i<0||j<0||j>=arr.length)return;
+  arr[i]=arr[j];arr[j]=toolId;
+  save();
+  openKofferInhalt(kofferId);
+};
+
+// ── Sammelscan (QR/NFC): Werkzeuge direkt in den Koffer scannen ──
+// Kurzes, nicht-blockierendes Feedback-Pill (Alerts wuerden die
+// Scan-Schleife unterbrechen).
+function _wzKofferScanFeedback(msg,ok){
+  var old=document.getElementById('kofScanFb');if(old)old.remove();
+  var d=document.createElement('div');
+  d.id='kofScanFb';
+  d.style.cssText='position:fixed;bottom:calc(150px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);z-index:12500;padding:10px 18px;border-radius:10px;font-size:13px;font-weight:700;color:#fff;box-shadow:0 4px 16px rgba(0,0,0,.25);background:'+(ok?'#16a34a':'#dc2626')+';max-width:calc(100% - 32px);text-align:center';
+  d.textContent=msg;
+  document.body.appendChild(d);
+  setTimeout(function(){d.remove();},2200);
+}
+// Gescannte ID (aus ?scan=-URL oder Roh-ID) validieren und in den Koffer
+// legen. Gibt true bei Erfolg zurueck.
+function _wzKofferAddFromScan(kofferId,rawId){
+  var k=tools.find(function(x){return x.id===kofferId;});
+  if(!k||!_wzCanEditKoffer(k)){_wzKofferScanFeedback('Keine Berechtigung.',false);return false;}
+  var id=(rawId||'').trim();
+  if(!id)return false;
+  var t=tools.find(function(x){return x.id===id;});
+  if(!t){_wzKofferScanFeedback('Werkzeug nicht gefunden.',false);return false;}
+  if(t.id===k.id){_wzKofferScanFeedback('Das ist der Koffer selbst.',false);return false;}
+  if(_wzIsKoffer(t)){_wzKofferScanFeedback('Koffer können nicht in Koffer gelegt werden.',false);return false;}
+  var already=_wzKofferOf(t.id);
+  if(already&&already.id===k.id){_wzKofferScanFeedback('«'+t.name+'» ist bereits in diesem Koffer.',false);return false;}
+  if(already){_wzKofferScanFeedback('«'+t.name+'» ist bereits im Koffer «'+already.name+'».',false);return false;}
+  if(!Array.isArray(k.kofferInhalt))k.kofferInhalt=[];
+  k.kofferInhalt.push(t.id);
+  save();renderList();
+  _wzActLog('geaendert','Koffer-Inhalt: + '+t.name+' (per Scan)',k);
+  if(navigator.vibrate)try{navigator.vibrate(80);}catch(e){}
+  _wzKofferScanFeedback('✅ '+t.name+' hinzugefügt ('+(k.kofferInhalt.length)+' Teile)',true);
+  // Inhalt-Editor im Hintergrund aktualisieren, falls er offen ist
+  if(document.getElementById('_wzModalOverlay'))openKofferInhalt(kofferId);
+  return true;
+}
+// QR-Sammelscan: nach jedem Treffer oeffnet sich der Scanner erneut —
+// beenden ueber den Abbrechen-Button des Scanners.
+window._wzKofferScanQR=function(kofferId){
+  if(typeof GemaQR==='undefined'){alert('QR-Scanner nicht verfügbar');return;}
+  GemaQR.scan(function(code){
+    var id=code||'';
+    if(id.indexOf('scan=')>=0)id=id.split('scan=')[1].split('&')[0];
+    else if(id.indexOf('view=')>=0)id=id.split('view=')[1].split('&')[0];
+    _wzKofferAddFromScan(kofferId,decodeURIComponent(id));
+    setTimeout(function(){_wzKofferScanQR(kofferId);},350);
+  });
+};
+// NFC-Sammelscan: kontinuierlicher Lese-Loop (Android Chrome, Web-NFC),
+// gleiche Mechanik wie die Sammel-Ausleihe.
+window._wzKofferScanNFC=function(kofferId){
+  if(!('NDEFReader' in window)){
+    alert('Web-NFC ist auf diesem Gerät nicht verfügbar.\n\niPhone: Nutze den 📷 QR-Sammelscan.\n\nAndroid: Verwende Chrome für den NFC-Scan.');
+    return;
+  }
+  var old=document.getElementById('kofNfcStatus');if(old)old.remove();
+  var oldBtn=document.getElementById('kofNfcClose');if(oldBtn)oldBtn.remove();
+  var nfcStatus=document.createElement('div');
+  nfcStatus.id='kofNfcStatus';
+  nfcStatus.style.cssText='position:fixed;bottom:calc(80px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);background:#1d4ed8;color:#fff;padding:12px 24px;border-radius:12px;font-size:14px;font-weight:700;z-index:11000;box-shadow:0 4px 16px rgba(0,0,0,.2)';
+  nfcStatus.textContent='📡 Werkzeug-Tag scannen …';
+  document.body.appendChild(nfcStatus);
+  var reader=new NDEFReader();
+  reader.scan().then(function(){
+    reader.addEventListener('reading',function(ev){
+      var url='';
+      ev.message.records.forEach(function(r){
+        if(r.recordType==='url'||r.recordType==='text'){url=new TextDecoder().decode(r.data);}
+      });
+      if(!url)return;
+      var id=url;
+      if(url.indexOf('scan=')>=0)id=url.split('scan=')[1].split('&')[0];
+      else if(url.indexOf('view=')>=0)id=url.split('view=')[1].split('&')[0];
+      var ok=_wzKofferAddFromScan(kofferId,decodeURIComponent(id));
+      nfcStatus.textContent=ok?'✅ Hinzugefügt! Nächstes Tag scannen …':'📡 Werkzeug-Tag scannen …';
+      setTimeout(function(){if(document.getElementById('kofNfcStatus'))nfcStatus.textContent='📡 Werkzeug-Tag scannen …';},1500);
+    });
+  }).catch(function(e){
+    nfcStatus.remove();
+    var cb=document.getElementById('kofNfcClose');if(cb)cb.remove();
+    alert('NFC-Fehler: '+e.message);
+  });
+  var closeBtn=document.createElement('button');
+  closeBtn.textContent='NFC beenden';
+  closeBtn.id='kofNfcClose';
+  closeBtn.style.cssText='position:fixed;bottom:calc(130px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);background:#fff;color:#1d4ed8;border:2px solid #1d4ed8;padding:8px 20px;border-radius:10px;font-size:13px;font-weight:700;z-index:11000;cursor:pointer;font-family:inherit';
+  closeBtn.onclick=function(){nfcStatus.remove();closeBtn.remove();};
+  document.body.appendChild(closeBtn);
+};
+
+// ── Koffer ausleihen: Checkliste, Standard-Teile vorausgewaehlt ──
+function _wzKofferAusleihe(kofferId){
+  var k=tools.find(function(x){return x.id===kofferId;});
+  if(!k)return;
+  if(k.ausgeliehenAn){
+    GemaDialog.alert({title:'Bereits ausgeliehen', message:'Dieser Koffer ist bereits an '+(k.ausgeliehenAn.name||'jemanden')+' ausgeliehen.'});
+    return;
+  }
+  var u=_wzGetUser()||{};
+  var selfOnly=_wzIsMonteur()&&!_wzCanEdit();
+  var persHtml='';
+  if(selfOnly){
+    persHtml='<div style="font-size:12.5px;color:#475569;margin-bottom:10px">Ausleihen auf: <strong>'+esc(u.name||u.username||'mich')+'</strong></div>';
+  } else {
+    var opts='<option value="">— Person wählen —</option>';
+    try{
+      (GemaAuth.getUsers()||[]).filter(function(p){
+        if(!p.active)return false;
+        if(u.orgId&&p.orgId!==u.orgId&&!_wzIsAdmin())return false;
+        return true;
+      }).forEach(function(p){
+        opts+='<option value="'+esc(p.id)+'"'+(p.id===u.id?' selected':'')+'>'+esc(p.name||p.username)+'</option>';
+      });
+    }catch(e){}
+    persHtml='<label class="dlg-lbl">Ausgeliehen an</label><select id="kofLendUser" class="dlg-inp">'+opts+'</select>';
+  }
+  var items=_wzKofferItems(k);
+  var list=items.length?items.map(function(t){
+    var blocked=!!t.ausgeliehenAn;
+    return '<label style="display:flex;align-items:center;gap:10px;padding:9px 10px;border:1px solid #e5e7eb;border-radius:9px;background:'+(blocked?'#f8fafc':'#fff')+';cursor:'+(blocked?'not-allowed':'pointer')+'">'
+      +'<input type="checkbox" class="kofLendItem" value="'+esc(t.id)+'" '+(blocked?'disabled':'checked')+' style="width:22px;height:22px;accent-color:#854d0e;flex-shrink:0"/>'
+      +'<span style="flex:1;min-width:0;font-size:13px;font-weight:600;'+(blocked?'color:#94a3b8':'')+'">'+esc(t.name)
+      +(blocked?' <span style="font-size:10.5px;color:#92400e;font-weight:400">· bereits ausgeliehen an '+esc(t.ausgeliehenAn.name||'—')+'</span>':'')
+      +'</span></label>';
+  }).join(''):'<div style="font-size:12px;color:#94a3b8;padding:6px 0">Der Koffer hat keinen hinterlegten Inhalt — es wird nur der Koffer selbst ausgeliehen.</div>';
+  var html='<div class="dlg-card" style="max-width:520px;max-height:88vh;overflow-y:auto">'
+    +'<h3 style="margin:0 0 4px;font-size:17px;font-weight:800;color:#92400e">🧰 Koffer ausleihen</h3>'
+    +'<div style="font-size:12px;color:#64748b;margin-bottom:12px"><strong>'+esc(k.name)+'</strong> — alle Standard-Teile sind vorausgewählt. Abwählen, was gerade nicht im Koffer ist.</div>'
+    +persHtml
+    +'<div style="display:flex;flex-direction:column;gap:6px;margin-top:10px">'+list+'</div>'
+    +'<div class="dlg-row">'
+    +'  <button onclick="_wzCloseModal()" class="dlg-cancel">Abbrechen</button>'
+    +'  <button onclick="_wzKofferAusleiheSave(\''+esc(k.id)+'\','+(selfOnly?'true':'false')+')" style="padding:9px 18px;border-radius:8px;border:none;background:#92400e;color:#fff;cursor:pointer;font-weight:700;font-family:inherit">🔄 Ausleihen</button>'
+    +'</div></div>';
+  _wzShowModal(html);
+}
+window._wzKofferAusleiheSave=function(kofferId,selfOnly){
+  var k=tools.find(function(x){return x.id===kofferId;});
+  if(!k||k.ausgeliehenAn)return;
+  var u=_wzGetUser()||{};
+  var uid,pName;
+  if(selfOnly){
+    uid=u.id;pName=u.name||u.username||'';
+  } else {
+    var sel=document.getElementById('kofLendUser');
+    uid=sel?sel.value:'';
+    if(!uid){alert('Bitte Person wählen.');return;}
+    var p=(typeof GemaAuth!=='undefined'?(GemaAuth.getUsers()||[]):[]).find(function(x){return x.id===uid;});
+    pName=p?(p.name||p.username):uid;
+  }
+  var checked=[];
+  document.querySelectorAll('.kofLendItem:checked').forEach(function(cb){checked.push(cb.value);});
+  var seit=today();
+  k.ausgeliehenAn={userId:uid,name:pName,seit:seit};
+  var n=0;
+  checked.forEach(function(id){
+    var t=tools.find(function(x){return x.id===id;});
+    if(!t||t.ausgeliehenAn)return;
+    t.ausgeliehenAn={userId:uid,name:pName,seit:seit,viaKoffer:k.id};
+    n++;
+  });
+  save();renderList();_wzCloseModal();
+  _wzActLog('ausleihe','Koffer ausgeliehen an '+pName+' ('+n+' Teil'+(n!==1?'e':'')+')',k);
+  if(typeof GemaNotify!=='undefined'&&uid&&uid!==u.id){
+    GemaNotify.push({eventKey:'werkzeug_zuweisung',empfaengerUserId:uid,modul:'werkzeug',typ:'info',
+      titel:'Koffer ausgeliehen: '+k.name,text:n+' Teil'+(n!==1?'e':'')+' inklusive',
+      link:'if_werkzeug.html?view='+encodeURIComponent(k.id)});
+  }
+};
+
+// ── Koffer zurueckgeben: Vollstaendigkeitskontrolle ──
+function _wzKofferRueckgabe(kofferId){
+  var k=tools.find(function(x){return x.id===kofferId;});
+  if(!k||!k.ausgeliehenAn)return;
+  var lentItems=tools.filter(function(t){return t.ausgeliehenAn&&t.ausgeliehenAn.viaKoffer===k.id;});
+  var list=lentItems.length?lentItems.map(function(t){
+    return '<label style="display:flex;align-items:center;gap:10px;padding:9px 10px;border:1px solid #e5e7eb;border-radius:9px;background:#fff;cursor:pointer">'
+      +'<input type="checkbox" class="kofRetItem" value="'+esc(t.id)+'" checked style="width:22px;height:22px;accent-color:#16a34a;flex-shrink:0"/>'
+      +'<span style="flex:1;min-width:0;font-size:13px;font-weight:600">'+esc(t.name)+'</span></label>';
+  }).join(''):'<div style="font-size:12px;color:#94a3b8;padding:6px 0">Keine Teile via Koffer ausgeliehen — es wird nur der Koffer zurückgegeben.</div>';
+  var html='<div class="dlg-card" style="max-width:520px;max-height:88vh;overflow-y:auto">'
+    +'<h3 style="margin:0 0 4px;font-size:17px;font-weight:800;color:#15803d">🧰 Koffer zurückgeben</h3>'
+    +'<div style="font-size:12px;color:#64748b;margin-bottom:12px"><strong>'+esc(k.name)+'</strong> · von '+esc(k.ausgeliehenAn.name||'—')
+    +'<br>Vollständigkeit prüfen: <strong>abwählen, was fehlt</strong> — fehlende Teile bleiben als ausgeliehen markiert und der Magaziner wird informiert.</div>'
+    +'<div style="display:flex;flex-direction:column;gap:6px">'+list+'</div>'
+    +'<div class="dlg-row">'
+    +'  <button onclick="_wzCloseModal()" class="dlg-cancel">Abbrechen</button>'
+    +'  <button onclick="_wzKofferRueckgabeSave(\''+esc(k.id)+'\')" style="padding:9px 18px;border-radius:8px;border:none;background:#16a34a;color:#fff;cursor:pointer;font-weight:700;font-family:inherit">✓ Zurückgeben</button>'
+    +'</div></div>';
+  _wzShowModal(html);
+}
+window._wzKofferRueckgabeSave=function(kofferId){
+  var k=tools.find(function(x){return x.id===kofferId;});
+  if(!k||!k.ausgeliehenAn)return;
+  var borrower=k.ausgeliehenAn;
+  var checkedIds={};
+  document.querySelectorAll('.kofRetItem:checked').forEach(function(cb){checkedIds[cb.value]=true;});
+  var fehlend=[];
+  tools.forEach(function(t){
+    if(!(t.ausgeliehenAn&&t.ausgeliehenAn.viaKoffer===k.id))return;
+    if(checkedIds[t.id]){
+      delete t.ausgeliehenAn;
+    } else {
+      // Fehlendes Teil: bleibt (einzeln) ausgeliehen an den Borrower
+      delete t.ausgeliehenAn.viaKoffer;
+      fehlend.push(t);
+    }
+  });
+  delete k.ausgeliehenAn;
+  save();renderList();_wzCloseModal();
+  _wzActLog('rueckgabe','Koffer zurück von '+(borrower.name||'')+(fehlend.length?' — '+fehlend.length+' Teil(e) fehlen: '+fehlend.map(function(x){return x.name;}).join(', '):' (vollständig)'),k);
+  if(fehlend.length&&typeof GemaNotify!=='undefined'){
+    GemaNotify.push({eventKey:'werkzeug_koffer_fehlteil',empfaengerRoleId:'role_magaziner',empfaengerOrgId:k.orgId||'',modul:'werkzeug',typ:'warnung',
+      titel:'⚠ Koffer unvollständig zurück: '+k.name,
+      text:'Fehlt: '+fehlend.map(function(x){return x.name;}).join(', ')+' — weiterhin ausgeliehen an '+(borrower.name||'—'),
+      link:'if_werkzeug.html?view='+encodeURIComponent(k.id)});
+  }
+  if(typeof GemaNotify!=='undefined'&&borrower.userId){
+    var me=_wzGetUser();
+    GemaNotify.push({eventKey:'werkzeug_zuweisung',empfaengerUserId:borrower.userId,modul:'werkzeug',typ:'erfolg',
+      titel:'Koffer zurückgegeben: '+k.name,text:'Rückgabe bestätigt von '+(me?me.name:'')+(fehlend.length?' · '+fehlend.length+' Teil(e) noch bei dir':''),
+      link:'if_werkzeug.html?view='+encodeURIComponent(k.id)});
+  }
+};
 window._wzLendToSelf = _wzLendToSelf;
 // ── Scan-View: Full-Screen Infoseite nach QR/NFC-Scan ──
 function _wzScanAusleihe(toolId){
@@ -3239,23 +3644,28 @@ function _wzSammelScanNFC(){
 }
 
 function _wzSammelScanQR(){
-  if(typeof GemaQRScanner==='undefined'){alert('QR-Scanner nicht verfügbar');return;}
-  GemaQRScanner.scan(function(code){
+  // BUGFIX: der Helper exportiert GemaQR (nicht GemaQRScanner) — der alte
+  // Check schlug immer fehl und der Scan-Button war funktionslos.
+  if(typeof GemaQR==='undefined'){alert('QR-Scanner nicht verfügbar');return;}
+  GemaQR.scan(function(code){
     var id=code;
     if(code.indexOf('scan=')>=0)id=code.split('scan=')[1].split('&')[0];
     else if(code.indexOf('view=')>=0)id=code.split('view=')[1].split('&')[0];
     _wzSammelFromScan(decodeURIComponent(id));
+    // Sammelscan: Scanner nach kurzem Feedback erneut oeffnen, bis der
+    // User im Scanner auf Abbrechen tippt.
+    setTimeout(_wzSammelScanQR,350);
   });
 }
 
 // Monteur-Empty-State: oeffnet die Kamera, sucht einen QR-Code und
 // fuehrt zur Werkzeug-Detail-Ansicht (mit Ausleihe/Defekt-Aktionen).
 function _wzScanWithCamera(){
-  if(typeof GemaQRScanner==='undefined'){
+  if(typeof GemaQR==='undefined'){
     GemaDialog.alert({title:'QR-Scanner nicht verfügbar', message:'Die Kamera-Funktion benötigt einen modernen Browser (Chrome / Safari).'});
     return;
   }
-  GemaQRScanner.scan(function(code){
+  GemaQR.scan(function(code){
     var id=code;
     if(code && code.indexOf('scan=')>=0)id=code.split('scan=')[1].split('&')[0];
     else if(code && code.indexOf('view=')>=0)id=code.split('view=')[1].split('&')[0];
@@ -4751,17 +5161,42 @@ function _wzGetOrgLogoSrc(){
 }
 function _wzLabelLogoSrc(){ return _wzGetOrgLogoSrc()||_WZ_GEMA_LOGO_DATAURL; }
 
+// 1-Bit-Schwarz/Weiss-Konvertierung fuer 300dpi-Thermo-Etikettendrucker:
+// Graustufen/AA-Kanten wuerden gedithert (fleckig) — harter Schwellwert
+// ergibt gestochen scharfe Kanten. Details siehe _tgMonochromeForLabel
+// in if_trocknung.html (identische Logik) + CLAUDE.md «Etiketten-System».
+function _wzMonochromeForLabel(ctx,cw,ch){
+  var idata=ctx.getImageData(0,0,cw,ch),d=idata.data;
+  function pass(threshold){
+    var black=0;
+    for(var i=0;i<d.length;i+=4){
+      var a=d[i+3]/255;
+      var r=d[i]*a+255*(1-a);
+      var g=d[i+1]*a+255*(1-a);
+      var b=d[i+2]*a+255*(1-a);
+      var lum=0.299*r+0.587*g+0.114*b;
+      var v=lum<threshold?0:255;
+      d[i]=d[i+1]=d[i+2]=v;d[i+3]=255;
+      if(v===0)black++;
+    }
+    return black/(cw*ch);
+  }
+  var src=new Uint8ClampedArray(d);
+  var share=pass(176);
+  if(share<0.015){d.set(src);pass(235);}
+  ctx.putImageData(idata,0,0);
+}
 function _wzRasterizeImage(src){
   return new Promise(function(resolve){
     if(!src){resolve(null);return;}
-    // Vektor-Quellen (SVG, GEMA-Logo) hochaufgeloest rendern; Raster-Quellen
-    // (hochgeladene Firmenlogos) NICHT hochskalieren (wuerde nur unschaerfer).
-    var isVec=/^data:image\/svg|\.svg(\?|#|$)/i.test(src);
     var img=new Image();
     img.onload=function(){
       var nw=img.naturalWidth||img.width||1, nh=img.naturalHeight||img.height||1;
       var ratio=nw/nh;
-      var longEdge=isVec?1400:Math.min(1600,Math.max(nw,nh));
+      // IMMER hochaufloesend rastern (lange Kante 1400px) — auch kleine
+      // Raster-Logos werden EINMAL hochwertig hochskaliert, statt dass
+      // der Drucker-RIP grob auf die 8mm-Logobox zieht (Pixelkloetze).
+      var longEdge=1400;
       var cw, ch;
       if(ratio>=1){cw=longEdge;ch=Math.max(1,Math.round(longEdge/ratio));}
       else{ch=longEdge;cw=Math.max(1,Math.round(longEdge*ratio));}
@@ -4770,6 +5205,7 @@ function _wzRasterizeImage(src){
         var ctx=cv.getContext('2d');
         ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality='high';
         ctx.drawImage(img,0,0,cw,ch);
+        try{_wzMonochromeForLabel(ctx,cw,ch);}catch(e){/* tainted canvas — Graustufen belassen */}
         resolve({dataUrl:cv.toDataURL('image/png'),ratio:ratio});
       }catch(e){resolve(null);}
     };
@@ -5231,6 +5667,8 @@ try{ if(window.GemaActivityLog) window.GemaActivityLog.bootstrap(); }catch(e){}
   if(btnSettings && canEdit) btnSettings.style.display='';
   var btnActLog=document.getElementById('btnWzActLog');
   if(btnActLog && canEdit) btnActLog.style.display='';
+  var btnKoffer=document.getElementById('btnNeuKoffer');
+  if(btnKoffer && canEdit) btnKoffer.style.display='';
   var btnInv=document.getElementById('btnInventur');
   if(btnInv && canEdit){
     btnInv.style.display='';
