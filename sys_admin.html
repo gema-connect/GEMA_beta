@@ -380,13 +380,13 @@ input,select,button,textarea{font-family:var(--sans)}
         </div>
       </div>
       <div class="fg">
-        <label>Firmenlogo (wird automatisch zu JPEG konvertiert)</label>
+        <label>Firmenlogo — SVG empfohlen (bleibt vektorbasiert, gestochen scharf auf Etiketten); PNG/JPG wird zu JPEG konvertiert</label>
         <div style="display:flex;align-items:center;gap:12px;margin-top:4px">
           <div id="o_logo_preview" style="width:56px;height:56px;border-radius:8px;border:2px dashed var(--brd2);display:flex;align-items:center;justify-content:center;overflow:hidden;background:var(--bg);cursor:pointer;flex-shrink:0" onclick="document.getElementById('o_logo_file').click()">
             <span id="o_logo_ph" style="font-size:20px;color:var(--mut2)">📷</span>
             <img id="o_logo_img" style="display:none;width:100%;height:100%;object-fit:contain">
           </div>
-          <input type="file" id="o_logo_file" accept="image/*" style="display:none" onchange="handleOrgLogoUpload(event)">
+          <input type="file" id="o_logo_file" accept="image/*,.svg" style="display:none" onchange="handleOrgLogoUpload(event)">
           <button class="btn btn-sm" onclick="document.getElementById('o_logo_file').click()">📎 Hochladen</button>
           <button class="btn btn-sm" onclick="removeOrgLogo()" id="o_logo_remove" style="display:none">✕</button>
         </div>
@@ -961,6 +961,11 @@ function deleteRole(rid){
 
 // ── UNTERNEHMEN ───────────────────────────────────────────────────────
 var _orgLogoBase64 = '';
+// SVG-Original des Logos (org.logoVector) — bleibt vektorbasiert fuer
+// gestochen scharfe Etiketten/Print-PDFs. org.logo bleibt IMMER ein
+// Raster (JPEG), damit jsPDF-Exporte (addImage kann kein SVG) und alle
+// bestehenden Konsumenten weiterlaufen.
+var _orgLogoVector = '';
 
 function renderOrgs(){
   // Org-Admin sieht nur die eigene Organisation, Super-Admin alle.
@@ -1127,6 +1132,7 @@ function openOrgModal(oid){
   document.getElementById('orgModalTitle').textContent=isEdit?'Unternehmen bearbeiten':'Neues Unternehmen';
   document.getElementById('orgErr').textContent='';
   _orgLogoBase64='';
+  _orgLogoVector='';
   var o=oid?orgs.find(x=>x.id===oid):null;
   document.getElementById('o_id').value=oid||'';
   document.getElementById('o_name').value=o?.name||'';
@@ -1156,11 +1162,12 @@ function openOrgModal(oid){
   _renderKategorieCheckboxes(selectedCats);
   // Logo
   if(o&&o.logo){
-    document.getElementById('o_logo_img').src=o.logo;
+    document.getElementById('o_logo_img').src=o.logoVector||o.logo;
     document.getElementById('o_logo_img').style.display='block';
     document.getElementById('o_logo_ph').style.display='none';
     document.getElementById('o_logo_remove').style.display='';
     _orgLogoBase64=o.logo;
+    _orgLogoVector=o.logoVector||'';
   } else {
     document.getElementById('o_logo_img').style.display='none';
     document.getElementById('o_logo_ph').style.display='';
@@ -1178,6 +1185,10 @@ function saveOrg(){
   }
   var name=document.getElementById('o_name').value.trim();
   if(!name){document.getElementById('orgErr').textContent='Firmenname ist Pflichtfeld.';return;}
+  // Bestehende settings (pdfFarben, werkzeug, …) beim Speichern ERHALTEN —
+  // frueher wurde settings komplett ueberschrieben und z.B. die in
+  // sys_unternehmen gesetzten Berichts-Farben gingen verloren.
+  var _existingOrg = oid ? orgs.find(function(x){return x.id===oid;}) : null;
   var data={
     name:name,
     strasse:document.getElementById('o_strasse').value.trim(),
@@ -1186,7 +1197,8 @@ function saveOrg(){
     tel:document.getElementById('o_tel').value.trim(),
     email:document.getElementById('o_email').value.trim(),
     logo:_orgLogoBase64||null,
-    settings:{waehrung:document.getElementById('o_waehrung').value,land:document.getElementById('o_land').value,hideName:document.getElementById('o_hideName').checked}
+    logoVector:_orgLogoVector||null,
+    settings:Object.assign({},(_existingOrg&&_existingOrg.settings)||{},{waehrung:document.getElementById('o_waehrung').value,land:document.getElementById('o_land').value,hideName:document.getElementById('o_hideName').checked})
   };
   // Kategorien aus der Multi-Checkbox-Gruppe einlesen und als Array
   // speichern. Das Legacy-Feld 'kategorie' wird auf den ersten Eintrag
@@ -1229,48 +1241,95 @@ function deleteOrg(oid){
 function handleOrgLogoUpload(e){
   var file=e.target.files[0];if(!file)return;
   if(file.size>2097152){toast('⚠ Datei zu gross (max. 2 MB Originalgrösse)');return;}
-  // Convert any image to JPEG via Canvas
+  var isSvg=/svg/i.test(file.type)||/\.svg$/i.test(file.name||'');
+  if(isSvg){
+    // SVG: Original UNVERAENDERT als logoVector behalten (vektorbasiert →
+    // gestochen scharf auf Etiketten + Print-PDFs). Zusaetzlich wird unten
+    // ein JPEG-Raster fuer org.logo erzeugt (jsPDF/Legacy-Konsumenten).
+    var txtReader=new FileReader();
+    txtReader.onload=function(tev){
+      var svgTxt=String(tev.target.result||'');
+      // width/height aus viewBox injizieren, falls sie fehlen — sonst
+      // liefert das Image-Element in Firefox naturalWidth 0 und die
+      // Etiketten-Rasterizer koennen das Seitenverhaeltnis nicht bestimmen.
+      try{
+        if(!/<svg[^>]*\swidth\s*=/i.test(svgTxt)){
+          var vb=svgTxt.match(/<svg[^>]*\sviewBox\s*=\s*["']\s*[\d.+-]+[\s,]+[\d.+-]+[\s,]+([\d.]+)[\s,]+([\d.]+)/i);
+          if(vb){svgTxt=svgTxt.replace(/<svg/i,'<svg width="'+vb[1]+'" height="'+vb[2]+'"');}
+        }
+      }catch(err){}
+      var svgUrl='data:image/svg+xml;base64,'+btoa(unescape(encodeURIComponent(svgTxt)));
+      var img=new Image();
+      img.onload=function(){
+        _orgLogoVector=svgUrl;
+        _rasterizeOrgLogo(img,function(jpeg){
+          _orgLogoBase64=jpeg||'';
+          document.getElementById('o_logo_img').src=svgUrl;
+          document.getElementById('o_logo_img').style.display='block';
+          document.getElementById('o_logo_ph').style.display='none';
+          document.getElementById('o_logo_remove').style.display='';
+          toast('✓ Logo hochgeladen (SVG, bleibt vektorbasiert)');
+        });
+      };
+      img.onerror=function(){toast('⚠ SVG konnte nicht gelesen werden');};
+      img.src=svgUrl;
+    };
+    txtReader.readAsText(file);
+    return;
+  }
+  // Raster (PNG/JPG/…): zu JPEG konvertieren, Vektor-Feld leeren
   var reader=new FileReader();
   reader.onload=function(ev){
     var img=new Image();
     img.onload=function(){
-      var canvas=document.createElement('canvas');
-      // Max 400px on longest side for nav logo
-      var maxDim=400;
-      var w=img.width, h=img.height;
-      if(w>maxDim||h>maxDim){
-        if(w>h){h=Math.round(h*(maxDim/w));w=maxDim;}
-        else{w=Math.round(w*(maxDim/h));h=maxDim;}
-      }
-      canvas.width=w;canvas.height=h;
-      var ctx=canvas.getContext('2d');
-      // White background (for transparent PNGs)
-      ctx.fillStyle='#ffffff';
-      ctx.fillRect(0,0,w,h);
-      ctx.drawImage(img,0,0,w,h);
-      // Compress to JPEG, quality 0.85
-      var quality=0.85;
-      var jpeg=canvas.toDataURL('image/jpeg',quality);
-      // If still > 200KB, reduce quality
-      while(jpeg.length>273000&&quality>0.3){
-        quality-=0.1;
-        jpeg=canvas.toDataURL('image/jpeg',quality);
-      }
-      if(jpeg.length>273000){toast('⚠ Logo konnte nicht unter 200 KB komprimiert werden');return;}
-      _orgLogoBase64=jpeg;
-      document.getElementById('o_logo_img').src=jpeg;
-      document.getElementById('o_logo_img').style.display='block';
-      document.getElementById('o_logo_ph').style.display='none';
-      document.getElementById('o_logo_remove').style.display='';
-      toast('✓ Logo hochgeladen (JPEG, '+Math.round(jpeg.length*0.75/1024)+' KB)');
+      _orgLogoVector='';
+      _rasterizeOrgLogo(img,function(jpeg){
+        if(!jpeg){toast('⚠ Logo konnte nicht unter 200 KB komprimiert werden');return;}
+        _orgLogoBase64=jpeg;
+        document.getElementById('o_logo_img').src=jpeg;
+        document.getElementById('o_logo_img').style.display='block';
+        document.getElementById('o_logo_ph').style.display='none';
+        document.getElementById('o_logo_remove').style.display='';
+        toast('✓ Logo hochgeladen (JPEG, '+Math.round(jpeg.length*0.75/1024)+' KB)');
+      });
     };
     img.onerror=function(){toast('⚠ Bild konnte nicht geladen werden');};
     img.src=ev.target.result;
   };
   reader.readAsDataURL(file);
 }
+// Image → JPEG-DataURL (weisser Grund, max 1000px lange Kante, ≤200 KB).
+// 1000px statt frueher 400px: die Etikette rastert das Logo mit 1-Bit-
+// Schwellwert — bei 400px zerfielen duenne Glyphen (kleine Taglines)
+// nach dem Upscale in Fragmente und wurden nur teilweise gedruckt.
+function _rasterizeOrgLogo(img,cb){
+  try{
+    var canvas=document.createElement('canvas');
+    var maxDim=1000;
+    var w=img.naturalWidth||img.width, h=img.naturalHeight||img.height;
+    if(!w||!h){cb(null);return;}
+    if(w>maxDim||h>maxDim){
+      if(w>h){h=Math.round(h*(maxDim/w));w=maxDim;}
+      else{w=Math.round(w*(maxDim/h));h=maxDim;}
+    }
+    canvas.width=w;canvas.height=h;
+    var ctx=canvas.getContext('2d');
+    ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality='high';
+    ctx.fillStyle='#ffffff';
+    ctx.fillRect(0,0,w,h);
+    ctx.drawImage(img,0,0,w,h);
+    var quality=0.85;
+    var jpeg=canvas.toDataURL('image/jpeg',quality);
+    while(jpeg.length>273000&&quality>0.3){
+      quality-=0.1;
+      jpeg=canvas.toDataURL('image/jpeg',quality);
+    }
+    cb(jpeg.length>273000?null:jpeg);
+  }catch(err){cb(null);}
+}
 function removeOrgLogo(){
   _orgLogoBase64='';
+  _orgLogoVector='';
   document.getElementById('o_logo_img').src='';
   document.getElementById('o_logo_img').style.display='none';
   document.getElementById('o_logo_ph').style.display='';

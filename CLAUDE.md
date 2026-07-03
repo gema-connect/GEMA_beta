@@ -927,7 +927,7 @@ Full-Screen-Overlay (`position:fixed`) mit 4-Phasen-Timeline und aufklappbaren A
 
 A4 **Hochformat** erzwungen: beide `@page`-Regeln `size:A4 portrait`, jsPDF `orientation:'portrait'`.
 
-**Logo-Branch**: Wenn `org.logo` (Base64-data-URL aus `sys_unternehmen.html`) gesetzt ist → Firmen-Logo oben links auf dem Deckblatt. Sonst → eingebettetes GEMA-Inline-SVG. Damit zeigen User ohne hochgeladenes Logo automatisch das GEMA-Branding.
+**Logo-Branch**: Wenn `org.logoVector` (SVG) oder `org.logo` (JPEG-Raster, Upload in `sys_admin.html`) gesetzt ist → Firmen-Logo oben links auf dem Deckblatt (Vektor bevorzugt, druckt gestochen scharf). Sonst → eingebettetes GEMA-Inline-SVG. Damit zeigen User ohne hochgeladenes Logo automatisch das GEMA-Branding.
 
 **Firmenfarben-Branding (`org.settings.pdfFarben`)**: Die Org kann in `sys_unternehmen.html` → Firmendaten → «Berichts-Farben (PDF)» eine **Primärfarbe** (Pflicht) und optional eine **Sekundärfarbe** wählen (gespeichert als `org.settings.pdfFarben = {primary, secondary?}` via `GemaAuth.updateOrgSettings`). Beide PDF-Helfer (`gema_schaden_pdf.js` + `gema_dachbericht_pdf.js`) leiten daraus per `_brandRootCss(org)` ein `:root{}`-Override ab, das NACH dem statischen `REPORT_CSS` in den `<style>` gehängt wird (spätere Regel gewinnt → überschreibt `--accent`/`--accent-deep`/`--forest`). Ohne `pdfFarben` bleibt das GEMA-Default (Navy/Forest bzw. Cyan). **Rollen** (User-Entscheid): Primär = Hauptakzent (Überschriften, Abschnittsnummern, Labels, Aufzählungspunkte, KPI-Werte, Trennstriche, Tabellen-Summen, erster Diagramm-Ton via `_curAccent`); Sekundär = Verlauf-Tail der Cover-Bar (`--forest`). Ohne Sekundärfarbe = dunklerer Ton der Primärfarbe.
 
@@ -1196,6 +1196,7 @@ Druckfertige Geräte-Etikette **49 × 23 mm Querformat** als PDF (jsPDF, mm-gena
 1. **Immer hochauflösend rastern** (lange Kante 1400px, bicubic `imageSmoothingQuality:'high'`) — auch kleine hochgeladene Raster-Logos. Früher wurden Raster-Quellen nie hochskaliert; der Drucker-RIP zog das kleine Bild dann selbst grob auf die ~8mm-Logobox → Pixelklötze («Logo in sehr schlechter Qualität»).
 2. **1-Bit-Schwellwert-Konvertierung** (auf Weiss alpha-kompositieren → Luminanz < 176 ⇒ reines Schwarz, sonst reines Weiss): Thermo-Etikettendrucker drucken NUR Schwarz — Graustufen und Anti-Aliasing-Kanten werden vom Treiber **gedithert** (fleckiger, «unsauberer» Druck; betraf auch das navy-farbene GEMA-Logo). Harter Schwellwert nach dem HQ-Upscale ergibt gestochen scharfe Kanten. **Fallback für sehr helle Logos**: bleibt nach dem Schwellwert < 1.5% Schwarzanteil, wird mit Schwellwert 235 erneut konvertiert (Silhouette statt leerem Band). Farbige Logos erscheinen auf der Etikette bewusst schwarz-weiss.
 3. Die Live-Vorschau nutzt dieselbe Pipeline (WYSIWYG). QR wird weiterhin als **Vektor** gezeichnet, Text als PDF-Font — beide sind druckscharf. Bei tainted Canvas (externe URL) bleibt die Konvertierung aus (try/catch).
+4. **`org.logoVector` (SVG-Original) bevorzugen**: Der Logo-Upload in `sys_admin.html` (`handleOrgLogoUpload`) speichert seit dem SVG-Support ZWEI Felder — `org.logo` = IMMER ein JPEG-Raster (max 1000px, ≤200 KB; für jsPDF `addImage`, Nav, Legacy-Konsumenten) und `org.logoVector` = das unveränderte SVG als data-URL (nur bei SVG-Upload; width/height werden aus der viewBox injiziert, falls sie fehlen — sonst liefert Firefox `naturalWidth 0`). Alle Etiketten-Logo-Helper (`_tgGetOrgLogoSrc`/`_wzGetOrgLogoSrc`/`_fzEtOrgLogoSrc`) und die Print-PDF-Helfer (`brandHtml` in `gema_schaden_pdf.js`/`gema_dachbericht_pdf.js`) lesen `logoVector || logo`. **Hintergrund**: Ein JPEG-Raster (früher sogar nur 400px) zerlegt kleine, dünne Logo-Schriftzüge (Taglines) nach dem 1-Bit-Schwellwert in Fragmente («wird nur teilweise gedruckt») — ein SVG rastert bei 1400px verlustfrei und bleibt auf der Etikette gestochen scharf. Physikalische Grenze bleibt: eine Tagline im ~8mm-Logoband ist ~0.7mm hoch (≈8 Punkte bei 300dpi).
 
 **Live-Vorschau** — `_tgBuildEtikettePreview()` rendert dasselbe Layout als HTML in `#qrLabelPreview` (Massstab `PX = 6.4 px/mm`), inkl. Logo-`<img>` und QR-`<img>`. Async (wartet auf Logo); bricht ab, wenn das Gerät inzwischen gewechselt hat.
 
@@ -1212,7 +1213,7 @@ Druckfertige Geräte-Etikette **49 × 23 mm Querformat** als PDF (jsPDF, mm-gena
 | `_TG_ETIK` | Geometrie-Konstanten (mm) |
 | `_TG_GEMA_LOGO_SVG` / `_TG_GEMA_LOGO_DATAURL` | GEMA-Fallback-Logo (SVG → DataURL) |
 | `_tgGetOrgLogoSrc()` | `org.logo` der eigenen Org oder `''` |
-| `_tgLabelLogoSrc()` | `org.logo` || GEMA-Fallback |
+| `_tgLabelLogoSrc()` | `org.logoVector` || `org.logo` || GEMA-Fallback |
 | `_tgRasterizeImage(src)` | Bildquelle → `{dataUrl(PNG), ratio}`, immer 1400px lange Kante + 1-Bit-Schwellwert (siehe «Logo-Druckoptimierung») |
 | `_tgMonochromeForLabel(ctx,w,h)` | Canvas → reines Schwarz/Weiss (Thermodrucker-Dithering vermeiden) |
 | `_tgEnsureLabelLogo()` | Logo rastern + cachen (Promise) |
@@ -1719,7 +1720,7 @@ UI-Anbindung:
 | `gema_offer_request.js` | Externe Offertanfragen |
 | `gema_offerten_tab.js` | Offerten-Tab in Berechnungsmodulen |
 | `gema_pdf.js` | PDF-Export via html2canvas |
-| `gema_schaden_pdf.js` | **Schadensbericht HTML/Print-Export** nach `vorlagen/bericht_wasserschaden_vorlage.html`. `GemaSchadenPDF.exportPrint(schaden, {org,user,objektName,objektAdresse})` öffnet neues Fenster mit A4-Layout (window.print()). Logo-Branch: `org.logo` wenn vorhanden, sonst eingebettetes GEMA-SVG. Filtert `f.imBericht !== false`. |
+| `gema_schaden_pdf.js` | **Schadensbericht HTML/Print-Export** nach `vorlagen/bericht_wasserschaden_vorlage.html`. `GemaSchadenPDF.exportPrint(schaden, {org,user,objektName,objektAdresse})` öffnet neues Fenster mit A4-Layout (window.print()). Logo-Branch: `org.logoVector || org.logo` wenn vorhanden, sonst eingebettetes GEMA-SVG. Filtert `f.imBericht !== false`. |
 | `gema_dachbericht_pdf.js` | **Dachbericht HTML/Print-Export** für Spenglerei. `GemaDachberichtPDF.exportPrint(bericht, {org,user,objektName,objektAdresse,templates})` — gleicher Pattern wie Schaden-PDF. Bilder-Grid mit 4/6-Seitenfüllung in 6er-Chunks. |
 | `gema_claude.js` | **Claude-API-Client** für Texthilfe. Ruft `/.netlify/functions/claude-rewrite`. Modi: `rewrite`/`bulletpointsToText`/`fix`/`shorten`/`expand`. Eingesetzt in `sp_dachbericht.html` für KI-gestützte Textüberarbeitung. |
 | `gema_produktkatalog_api.js` | Produkte + Stammlieferanten + Favoriten |

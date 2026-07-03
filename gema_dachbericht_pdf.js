@@ -176,8 +176,11 @@
   function notEmpty(v){ return v != null && String(v).trim() !== ''; }
 
   function brandHtml(org){
-    if(org && org.logo && /^data:image\//i.test(org.logo)){
-      return '<div class="brand"><img class="brand-logo-img" src="'+esc(org.logo)+'" alt="'+esc(org.name||'')+'"></div>';
+    // logoVector (SVG-Original) bevorzugen — rendert im Browser-Druck
+    // gestochen scharf; org.logo ist nur das JPEG-Raster.
+    var logoSrc = org && (org.logoVector || org.logo);
+    if(logoSrc && /^data:image\//i.test(logoSrc)){
+      return '<div class="brand"><img class="brand-logo-img" src="'+esc(logoSrc)+'" alt="'+esc(org.name||'')+'"></div>';
     }
     return '<div class="brand">'+GEMA_LOGO_SVG+'</div>';
   }
