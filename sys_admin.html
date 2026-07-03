@@ -693,17 +693,6 @@ function openUserModal(uid){
   document.getElementById('u_pw').value='';
   document.getElementById('u_pw2').value='';
   document.getElementById('u_active').checked=u?u.active:true;
-  // Roles checkboxes — Org-Admin darf die System-Rolle "role_admin"
-  // weder sehen noch vergeben, damit keine Rechte-Eskalation moeglich ist.
-  var el=document.getElementById('u_roles_checkboxes');
-  var visibleRoles = _isSuper ? roles : roles.filter(function(r){return r.id!=='role_admin';});
-  el.innerHTML=visibleRoles.map(r=>{
-    var checked=u&&u.roleIds&&u.roleIds.indexOf(r.id)>=0;
-    return '<label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;font-weight:600">'+
-      '<input type="checkbox" value="'+r.id+'" '+(checked?'checked':'')+' style="width:15px;height:15px;accent-color:'+r.color+'">'+
-      '<span class="role-badge" style="background:'+r.color+'">'+esc(r.name)+'</span>'+
-    '</label>';
-  }).join('');
   // Org dropdown — Super-Admin darf die Org frei waehlen, Org-Admin
   // bekommt nur die eigene Org und kann sie nicht aendern.
   var orgSel=document.getElementById('u_orgId');
@@ -716,7 +705,40 @@ function openUserModal(uid){
     orgSel.innerHTML='<option value="'+_myOrgId+'" selected>'+esc(name)+'</option>';
     orgSel.disabled=true;
   }
+  // Rollen-Checkboxen — gefiltert nach der Kategorie der gewaehlten Firma
+  // (Lieferanten-Firma → nur Lieferanten-Rollen, Planer-Buero → keine
+  // Lieferanten-Rollen). Re-Render bei Org-Wechsel im Modal.
+  _renderUserRoleCheckboxes(u);
+  orgSel.onchange=function(){ _renderUserRoleCheckboxes(u); };
   openModal('userModal');
+}
+
+// Rollen-Checkboxen im User-Modal, strikt gekoppelt an die Firmen-
+// Kategorie (GemaAuth.getAssignableRoleIdsForOrg). Bereits zugewiesene,
+// aber unpassende Rollen (Altdaten) bleiben sichtbar + abwaehlbar und
+// werden mit ⚠ markiert — kein stiller Rechteverlust.
+function _renderUserRoleCheckboxes(u){
+  var el=document.getElementById('u_roles_checkboxes');
+  var orgId=(document.getElementById('u_orgId')||{}).value||'';
+  var allowed=null;
+  try{ allowed=GemaAuth.getAssignableRoleIdsForOrg?GemaAuth.getAssignableRoleIdsForOrg(orgId):null; }catch(e){}
+  // role_admin: nur Super-Admin sieht/vergibt sie (unabhaengig von der Kategorie)
+  var visibleRoles = _isSuper ? roles : roles.filter(function(r){return r.id!=='role_admin';});
+  var currentIds=(u&&u.roleIds)||[];
+  var rows=visibleRoles.map(function(r){
+    var checked=currentIds.indexOf(r.id)>=0;
+    var fits = r.id==='role_admin' || !allowed || allowed.indexOf(r.id)>=0;
+    if(!fits && !checked) return ''; // unpassend + nicht zugewiesen → ausblenden
+    var warn = (!fits && checked) ? ' <span title="Passt nicht zur Kategorie dieser Firma — abwählen empfohlen" style="font-size:11px">⚠</span>' : '';
+    return '<label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;font-weight:600">'+
+      '<input type="checkbox" value="'+r.id+'" '+(checked?'checked':'')+' style="width:15px;height:15px;accent-color:'+r.color+'">'+
+      '<span class="role-badge" style="background:'+r.color+'">'+esc(r.name)+'</span>'+warn+
+    '</label>';
+  }).filter(Boolean);
+  var hint = allowed
+    ? '<div style="grid-column:1/-1;font-size:10.5px;color:var(--mut);margin-bottom:2px">Rollen gefiltert nach Firmen-Kategorie — Kategorie im Unternehmen ändern, um andere Rollen zu sehen.</div>'
+    : '';
+  el.innerHTML=hint+rows.join('');
 }
 
 function saveUser(){

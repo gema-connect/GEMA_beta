@@ -551,7 +551,21 @@ function init(){
   _initWithLief();
 }
 function _initWithLief(){
-  document.getElementById('navFirma').textContent = _lief.firma + ' — Dashboard';
+  // Erkannten Typ + Berechtigungs-Stufe sichtbar machen — damit ist
+  // sofort nachvollziehbar, WARUM welche Tabs/Buttons erscheinen
+  // (Admin-Konto erzwingt z.B. die Voll-Ansicht «alle Tabs»).
+  var typ=(function(){
+    if(_liefHas('role_admin'))return '👁 Admin-Ansicht (alle Tabs)';
+    var t=[];
+    if(_liefIsAnlagenLief())t.push('🏭 Anlagenlieferant');
+    if(_liefIsProduktLief())t.push('🔧 Produktlieferant');
+    if(_liefHas('role_leiterpruefer'))t.push('🪜 Leiternprüfer');
+    if(!t.length&&_liefHas('role_pruefer'))t.push('📋 Prüfer');
+    var s=t.join(' + ')||'—';
+    if(!_liefIsAdmin()&&!_liefCanEditProdukte()&&!_liefCanOfferten()&&!_liefCanVerify())s+=' · 🔒 nur Lesen';
+    return s;
+  })();
+  document.getElementById('navFirma').textContent = _lief.firma + ' — Dashboard · ' + typ;
   if(_lief.status==='inaktiv') document.getElementById('deaktBanner').style.display='';
   // GEMA-Admin-Vorschau: klar gekennzeichnet, mit Firmen-Auswahl statt
   // stillschweigend die erste Firma anzuzeigen.
@@ -569,8 +583,10 @@ function _initWithLief(){
     }catch(e){}
   }
   initKatFilter();
-  renderAll();
+  // setupTabs VOR renderAll: die Renderer greifen auf Tab-Elemente zu
+  // (z.B. #oaBadge) — die muessen zuerst existieren.
   setupTabs();
+  renderAll();
   // Werkzeug-Pool frisch aus der Cloud ziehen (alle Orgs — die Prüf-/
   // Defekt-/Ersatz-Aufträge kommen von FREMDEN Auftraggeber-Orgs, der
   // lokale Cache des Lieferanten kennt sie sonst nicht). Danach die
@@ -662,18 +678,13 @@ function switchToTab(tabId){
 window.switchToTab=switchToTab;
 
 function renderAll(){
-  renderKPIs();
-  renderUebersicht();
-  renderProdukte();
-  renderAnfragen();
-  renderRohrsysteme();
-  renderWzPruefauftraege();
-  renderWerkzeuge();
-  renderMandate();
-  renderWzDefekte();
-  renderWzErsatz();
-  renderLiefUsers();
-  fillProfil();
+  // Jede Sektion einzeln absichern: ein Fehler in EINEM Renderer darf
+  // nie die restlichen Sektionen (und damit das ganze Dashboard) killen.
+  [renderKPIs,renderUebersicht,renderProdukte,renderAnfragen,renderRohrsysteme,
+   renderWzPruefauftraege,renderWerkzeuge,renderMandate,renderWzDefekte,
+   renderWzErsatz,renderLiefUsers,fillProfil].forEach(function(fn){
+    try{ fn(); }catch(e){ try{console.warn('[lief-dashboard]',fn.name,e);}catch(_){} }
+  });
 }
 
 // ── KPIs ──
@@ -689,9 +700,14 @@ function renderKPIs(){
     '<div class="kpi"><div class="kpi-val" style="color:var(--amb)">'+draft+'</div><div class="kpi-lbl">Entwurf</div></div>'+
     '<div class="kpi"><div class="kpi-val" style="color:#ea580c">'+oaOffen+'</div><div class="kpi-lbl">Offene Anfragen</div></div>'+
     '<div class="kpi"><div class="kpi-val" style="color:var(--mut)">'+oaTotal+'</div><div class="kpi-lbl">Anfragen total</div></div>';
-  // Update tab badge
+  // Update tab badge — existiert NUR wenn der Offertanfragen-Tab
+  // gerendert wurde (Anlagenlieferant). Beim Produktlieferanten gibt es
+  // ihn nicht — ohne Guard warf das hier und riss das ganze Dashboard
+  // ab (keine Tabs, nichts klickbar).
   var badge = document.getElementById('oaBadge');
-  if(oaOffen > 0){ badge.style.display='inline'; badge.textContent=oaOffen; } else { badge.style.display='none'; }
+  if(badge){
+    if(oaOffen > 0){ badge.style.display='inline'; badge.textContent=oaOffen; } else { badge.style.display='none'; }
+  }
 }
 
 function getMyProdukte(katFilter, statusFilter){
