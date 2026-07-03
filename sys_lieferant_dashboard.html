@@ -227,7 +227,7 @@ textarea.fc{resize:vertical;min-height:60px;line-height:1.5}
       </div>
     </div>
     <div class="card" style="margin-top:16px">
-      <div class="card-hd"><h3>🔧 Meine Werkzeuge</h3></div>
+      <div class="card-hd"><h3>🔧 Meine Werkzeuge</h3><button class="btn btn-p btn-sm" id="dwzEinbuchenBtn" onclick="_dwzOpenEinbuchen()" style="display:none">📥 Bei Kunde einbuchen</button></div>
       <div class="card-bd" id="wzListe">
         <p style="color:var(--mut);font-size:13px">Werkzeuge Ihrer Auftraggeber, die mit Ihnen verknüpft sind (als Lieferant oder Prüfer).</p>
         <div id="wzItems" style="margin-top:12px"></div>
@@ -663,7 +663,8 @@ function renderProdukte(){
     var cls = p.status==='verifiziert'?'b-ver':p.status==='nicht_verifiziert'?'b-unver':'b-draft';
     var docs = (p.dokumente||[]).length;
     return '<div class="prod-row" onclick="openProdEditor(\''+E(p.id)+'\')" style="padding:14px 20px">'+
-      '<div style="flex:1;min-width:0"><div style="font-size:14px;font-weight:700">'+E(d.serie||'—')+' '+E(d.modell||'')+'</div>'+
+      (d.bild?'<img src="'+E(d.bild)+'" alt="" style="width:44px;height:44px;object-fit:contain;border-radius:8px;border:1px solid var(--brd);background:#fff;flex-shrink:0"/>':'')+
+      '<div style="flex:1;min-width:0"><div style="font-size:14px;font-weight:700">'+E(d.serie||'—')+' '+E(d.modell||'')+(d.bezeichnung?' <span style="font-weight:600;color:var(--mut);font-size:12px">· '+E(d.bezeichnung)+'</span>':'')+'</div>'+
       '<div style="font-size:12px;color:var(--mut);margin-top:2px">'+E(p.kategorie)+' · '+(d.nenndurchfluss||d.permeatleistung||d.foerdermenge||'—')+' '+(d.nenndurchfluss?'l/min':d.permeatleistung?'l/h':d.foerdermenge?'l/s':'')+(docs?' · '+docs+' Dok.':'')+'</div></div>'+
       '<span class="badge '+cls+'">'+E(st.icon||'')+' '+E(st.label||p.status)+'</span></div>';
   }).join('');
@@ -707,6 +708,16 @@ function renderPeFelder(){
       var val = _editProd ? ((_editProd.daten||{})[f.id]||'') : '';
       if(f.typ==='select'){
         html += '<div class="fg"><label class="fl">'+E(f.label)+(f.pflicht?' *':'')+'</label><select class="fc" data-fid="'+E(f.id)+'"><option value="">—</option>'+(f.optionen||[]).map(function(o){return '<option'+(o===val?' selected':'')+'>'+E(o)+'</option>';}).join('')+'</select></div>';
+      } else if(f.typ==='bild'){
+        // Produktbild: Upload → GemaStorage (URL im Feldwert), Vorschau.
+        html += '<div class="fg" style="grid-column:1/-1"><label class="fl">'+E(f.label)+(f.pflicht?' *':'')+'</label>'
+          +'<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">'
+          +'<img id="peBildPrev_'+E(f.id)+'" src="'+E(val||'')+'" alt="" style="width:84px;height:84px;object-fit:contain;border-radius:10px;border:1.5px solid var(--brd);background:#fff;'+(val?'':'display:none')+'"/>'
+          +'<input type="hidden" data-fid="'+E(f.id)+'" id="peBildVal_'+E(f.id)+'" value="'+E(val)+'"/>'
+          +'<input type="file" accept="image/*" onchange="_pePickBild(this,\''+E(f.id)+'\')" style="font-size:11px;max-width:220px"/>'
+          +(val?'<button type="button" onclick="_peClearBild(\''+E(f.id)+'\')" class="btn btn-s btn-sm">✕ Entfernen</button>':'')
+          +'<span id="peBildStatus_'+E(f.id)+'" style="font-size:11px;color:var(--mut)"></span>'
+          +'</div></div>';
       } else if(f.typ==='checkbox'){
         html += '<div class="fg"><label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer"><input type="checkbox" data-fid="'+E(f.id)+'"'+(val?' checked':'')+' style="width:16px;height:16px;accent-color:var(--acc)"/> '+E(f.label)+'</label></div>';
       } else if(f.typ==='textarea'){
@@ -722,6 +733,57 @@ function renderPeFelder(){
   });
   document.getElementById('peFelder').innerHTML = html;
 }
+
+// Produktbild waehlen: auf max. 800px verkleinern (JPEG), dann nach
+// GemaStorage hochladen (Pfad produkte/<lieferantId>) — im Feld steht nur
+// die URL. Fallback: komprimiertes Base64 (nur wenn Storage fehlt/scheitert).
+window._pePickBild=function(input,fid){
+  if(!input.files||!input.files.length)return;
+  var file=input.files[0];
+  var status=document.getElementById('peBildStatus_'+fid);
+  if(status)status.textContent='Bild wird verarbeitet …';
+  var reader=new FileReader();
+  reader.onload=function(){
+    var img=new Image();
+    img.onload=function(){
+      var max=800;
+      var w=img.naturalWidth||img.width, h=img.naturalHeight||img.height;
+      var scale=Math.min(1,max/Math.max(w,h));
+      var cv=document.createElement('canvas');
+      cv.width=Math.max(1,Math.round(w*scale));cv.height=Math.max(1,Math.round(h*scale));
+      var ctx=cv.getContext('2d');
+      ctx.fillStyle='#fff';ctx.fillRect(0,0,cv.width,cv.height);
+      ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality='high';
+      ctx.drawImage(img,0,0,cv.width,cv.height);
+      var dataUrl=cv.toDataURL('image/jpeg',0.85);
+      function apply(src){
+        var valEl=document.getElementById('peBildVal_'+fid);
+        var prev=document.getElementById('peBildPrev_'+fid);
+        if(valEl)valEl.value=src;
+        if(prev){prev.src=src;prev.style.display='';}
+        if(status)status.textContent='✓ Bild bereit — Speichern nicht vergessen';
+      }
+      if(typeof GemaStorage!=='undefined'&&GemaStorage.isConfigured()){
+        if(status)status.textContent='Bild wird hochgeladen …';
+        GemaStorage.uploadDataUrl(dataUrl,'produkte/'+(_lief?_lief.id:'unbekannt')).then(function(res){
+          apply(res.url);
+        }).catch(function(){
+          apply(dataUrl); // Fallback Base64 (komprimiert, ≤800px)
+        });
+      } else {
+        apply(dataUrl);
+      }
+    };
+    img.src=reader.result;
+  };
+  reader.readAsDataURL(file);
+};
+window._peClearBild=function(fid){
+  var valEl=document.getElementById('peBildVal_'+fid);
+  var prev=document.getElementById('peBildPrev_'+fid);
+  if(valEl)valEl.value='';
+  if(prev){prev.src='';prev.style.display='none';}
+};
 
 function renderPeDocs(){
   if(!_editProd){ document.getElementById('peDocs').innerHTML='<p style="color:var(--mut);font-size:12px">Erst nach dem Speichern können Dokumente hinzugefügt werden.</p>'; return; }
@@ -1462,6 +1524,154 @@ window._dwzReparaturAbschliessen=function(toolId){
   toast('✓ Reparatur abgeschlossen');
 };
 
+// ── Direkteinbuchung: Lieferant bucht verkauftes Werkzeug beim Kunden ein ──
+// Der Kunde (Magaziner) erhaelt eine Notifikation und akzeptiert die
+// Einbuchung in if_werkzeug.html (oder lehnt sie ab). Bis zur Annahme
+// traegt der Datensatz einbuchung.status='vorgeschlagen'.
+var _DWZ_WZKAT_MAP={'Maschine (Akku)':'maschine','Maschine (Kabel)':'maschine-kabel','Handwerkzeug':'handwerkzeug','Leiter / Gerüst':'leiter','Messgerät':'messgeraet','Ladegerät':'ladegeraet','Zubehör':'sonstige','Sonstiges':'sonstige'};
+// Verknuepfte Auftraggeber-Orgs: alle Orgs, deren Werkzeuge mit mir
+// verbunden sind (supplierId, Pruefanfrage, Ersatzanfrage) — User-Entscheid:
+// Einbuchen NUR bei bestehenden Auftraggebern.
+function _dwzKundenOrgs(){
+  var myIds=_dwzMyIds();
+  var orgIds={};
+  _dwzAllTools().forEach(function(t){
+    if(!t||!t.orgId)return;
+    var linked=(t.supplierId&&myIds.indexOf(t.supplierId)>=0)
+      ||(t.pruefAnfrage&&myIds.indexOf(t.pruefAnfrage.lieferantId)>=0)
+      ||((t.ersatzAnfragen||[]).some(function(a){return myIds.indexOf(a.lieferantId)>=0;}));
+    if(linked)orgIds[t.orgId]=true;
+  });
+  var me=null;try{me=GemaAuth.getCurrentUser();}catch(e){}
+  return Object.keys(orgIds).filter(function(id){return !me||id!==me.orgId;})
+    .map(function(id){return {id:id,name:_dwzOrgName(id)};})
+    .sort(function(a,b){return a.name.localeCompare(b.name);});
+}
+window._dwzOpenEinbuchen=function(){
+  if(_liefBlockedInaktiv())return;
+  var kunden=_dwzKundenOrgs();
+  if(!kunden.length){
+    _dwzModal('<h3 style="margin:0 0 8px;font-size:17px;font-weight:900">📥 Werkzeug einbuchen</h3>'
+      +'<div style="font-size:13px;color:#64748b">Noch keine verknüpften Auftraggeber. Die Direkteinbuchung ist möglich, sobald ein Unternehmen Sie als Lieferant an einem Werkzeug hinterlegt oder Ihnen einen Prüf-/Ersatzauftrag erteilt hat.</div>'
+      +'<div style="display:flex;justify-content:flex-end;margin-top:16px"><button class="btn btn-g" onclick="_dwzCloseModal()">Schliessen</button></div>');
+    return;
+  }
+  var kOpts=kunden.map(function(k){return '<option value="'+E(k.id)+'">'+E(k.name)+'</option>';}).join('');
+  var prods=[];
+  try{
+    prods=GemaProdukte.getProdukte('werkzeuge').filter(function(p){
+      return _lief&&(p.lieferantId===_lief.id||p.lieferantFirma===_lief.firma);
+    });
+  }catch(e){}
+  var pOpts='<option value="">— Frei erfassen (ohne Katalog) —</option>'
+    +prods.map(function(p){
+      var d=p.daten||{};
+      return '<option value="'+E(p.id)+'">'+E(d.bezeichnung||((d.serie||'')+' '+(d.modell||'')))+' · '+E(d.serie||'')+' '+E(d.modell||'')+'</option>';
+    }).join('');
+  var heute=new Date().toISOString().split('T')[0];
+  _dwzModal('<h3 style="margin:0 0 4px;font-size:17px;font-weight:900">📥 Werkzeug bei Kunde einbuchen</h3>'
+    +'<div style="font-size:12px;color:#64748b;margin-bottom:14px">Das Werkzeug erscheint beim Kunden als «ausstehend» — der Magaziner akzeptiert die Einbuchung oder lehnt sie ab.</div>'
+    +'<div style="display:flex;flex-direction:column;gap:10px">'
+    +'<div><label class="fl">Kunde (Auftraggeber) *</label><select class="fc" id="dwzEbKunde">'+kOpts+'</select></div>'
+    +'<div><label class="fl">Produkt aus meinem Katalog</label><select class="fc" id="dwzEbProdukt" onchange="_dwzEbProduktChanged()">'+pOpts+'</select></div>'
+    +'<div id="dwzEbBildPrev" style="display:none"><img src="" alt="" style="width:72px;height:72px;object-fit:contain;border-radius:10px;border:1.5px solid var(--brd);background:#fff"/></div>'
+    +'<div><label class="fl">Bezeichnung *</label><input class="fc" id="dwzEbName" placeholder="z.B. Akku-Bohrhammer 18V"/></div>'
+    +'<div style="display:flex;gap:10px;flex-wrap:wrap">'
+    +'<div style="flex:1;min-width:140px"><label class="fl">Hersteller</label><input class="fc" id="dwzEbBrand"/></div>'
+    +'<div style="flex:1;min-width:140px"><label class="fl">Modell</label><input class="fc" id="dwzEbModel"/></div>'
+    +'</div>'
+    +'<div style="display:flex;gap:10px;flex-wrap:wrap">'
+    +'<div style="flex:1;min-width:140px"><label class="fl">Seriennummer</label><input class="fc" id="dwzEbSerial"/></div>'
+    +'<div style="flex:1;min-width:140px"><label class="fl">Kaufdatum</label><input class="fc" type="date" id="dwzEbBought" value="'+heute+'"/></div>'
+    +'</div>'
+    +'<div><label class="fl">Bemerkung (optional)</label><textarea class="fc" id="dwzEbBem" rows="2" placeholder="z.B. Rechnung Nr. 4711, Ersatz für defektes Gerät"></textarea></div>'
+    +'</div>'
+    +'<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">'
+    +'<button class="btn btn-g" onclick="_dwzCloseModal()">Abbrechen</button>'
+    +'<button class="btn btn-p" onclick="_dwzEinbuchenSave()">📥 Einbuchen</button>'
+    +'</div>');
+};
+window._dwzEbProduktChanged=function(){
+  var pid=document.getElementById('dwzEbProdukt').value;
+  var prev=document.getElementById('dwzEbBildPrev');
+  if(!pid){if(prev)prev.style.display='none';return;}
+  var p=null;try{p=GemaProdukte.getProdukt(pid);}catch(e){}
+  if(!p)return;
+  var d=p.daten||{};
+  var set=function(id,v){var el=document.getElementById(id);if(el&&v)el.value=v;};
+  set('dwzEbName',d.bezeichnung||'');
+  set('dwzEbBrand',d.serie||'');
+  set('dwzEbModel',d.modell||'');
+  if(prev){
+    var img=prev.querySelector('img');
+    if(d.bild&&img){img.src=d.bild;prev.style.display='';}
+    else prev.style.display='none';
+  }
+}
+window._dwzEinbuchenSave=function(){
+  if(_liefBlockedInaktiv())return;
+  var orgId=document.getElementById('dwzEbKunde').value;
+  var name=(document.getElementById('dwzEbName').value||'').trim();
+  if(!orgId||!name){toast('Bitte Kunde und Bezeichnung angeben.','error');return;}
+  var pid=document.getElementById('dwzEbProdukt').value||'';
+  var p=null;try{p=pid?GemaProdukte.getProdukt(pid):null;}catch(e){}
+  var d=(p&&p.daten)||{};
+  var me=null;try{me=GemaAuth.getCurrentUser();}catch(e){}
+  var firma=_dwzFirma();
+  var now=new Date().toISOString();
+  var cat=_DWZ_WZKAT_MAP[d.werkzeugKategorie]||'sonstige';
+  var tool={
+    id:'t_'+Date.now(),
+    name:name,
+    brand:(document.getElementById('dwzEbBrand').value||'').trim(),
+    model:(document.getElementById('dwzEbModel').value||'').trim(),
+    serial:(document.getElementById('dwzEbSerial').value||'').trim(),
+    bought:document.getElementById('dwzEbBought').value||'',
+    cat:cat,
+    notes:(document.getElementById('dwzEbBem').value||'').trim(),
+    orgId:orgId,
+    supplier:firma,
+    supplierId:(me&&me.id)||'',
+    katalogProduktId:pid,
+    bildUrl:d.bild||'',
+    // NIV-Empfehlung aus dem Katalogprodukt uebernehmen
+    hasElec:!!d.pruefpflichtNiv,
+    elecInterval:d.pruefpflichtNiv?(parseInt(d.pruefintervall,10)||12):'',
+    hasService:false,hasLeiter:false,
+    warranty:(d.garantie&&document.getElementById('dwzEbBought').value)?(function(){
+      var dt=new Date(document.getElementById('dwzEbBought').value);
+      dt.setMonth(dt.getMonth()+(parseInt(d.garantie,10)||0));
+      return dt.toISOString().split('T')[0];
+    })():'',
+    einbuchung:{
+      status:'vorgeschlagen',
+      lieferantId:(me&&me.id)||'',
+      lieferantFirma:firma,
+      eingebuchtAm:now,
+      bemerkung:(document.getElementById('dwzEbBem').value||'').trim()
+    }
+  };
+  // In den Pool schreiben (eine Cloud-Row, lokaler Cache nachgefuehrt)
+  try{
+    var all=_dwzAllTools().slice();all.push(tool);
+    localStorage.setItem('gema_werkzeug',JSON.stringify(all));
+  }catch(e){}
+  if(typeof GemaSync!=='undefined'&&GemaSync.saveRecord){
+    GemaSync.saveRecord('werkzeugmanagement','tool:'+tool.id,tool).catch(function(){
+      toast('Cloud-Speichern fehlgeschlagen — bitte Verbindung prüfen.','error');
+    });
+  }
+  _dwzLog('erfasst','Werkzeug eingebucht durch '+firma+' (ausstehend): '+name,tool);
+  if(typeof GemaNotify!=='undefined'){
+    GemaNotify.push({eventKey:'werkzeug_einbuchung',empfaengerRoleId:'role_magaziner',empfaengerOrgId:orgId,modul:'werkzeug',typ:'aktion',
+      titel:'📥 Neues Werkzeug von '+firma+': '+name,
+      text:(tool.brand||'')+(tool.model?' '+tool.model:'')+(tool.serial?' · SN '+tool.serial:'')+' — bitte Einbuchung prüfen und akzeptieren.',
+      link:'if_werkzeug.html?view='+encodeURIComponent(tool.id)});
+  }
+  _dwzCloseModal();renderWerkzeuge();
+  toast('📥 Werkzeug eingebucht — wartet auf Annahme durch den Kunden');
+};
+
 // ── Meine Werkzeuge (mit mir verknüpfte Werkzeuge aller Auftraggeber) ──
 function renderWerkzeuge(){
   var el=document.getElementById('wzItems');if(!el)return;
@@ -1471,6 +1681,8 @@ function renderWerkzeuge(){
   var relevant=roles.indexOf('role_pruefer')>=0||roles.indexOf('role_admin')>=0
     ||roles.some(function(r){return typeof r==='string'&&r.indexOf('role_lieferant')===0;});
   if(!relevant){el.innerHTML='';return;}
+  var ebBtn=document.getElementById('dwzEinbuchenBtn');
+  if(ebBtn)ebBtn.style.display='';
 
   var myIds=_dwzMyIds();
   var mine=_dwzAllTools().filter(function(t){
@@ -1494,9 +1706,15 @@ function renderWerkzeuge(){
     var lcBadge=rep||(t.lifecycleStatus==='in_reparatur')
       ?'<span style="font-size:10px;padding:3px 8px;border-radius:6px;font-weight:700;color:#6366f1;background:#eef2ff;border:1px solid #c7d2fe">🔧 In Reparatur</span>'
       :'';
+    if(t.einbuchung&&t.einbuchung.status==='vorgeschlagen'){
+      lcBadge+='<span style="font-size:10px;padding:3px 8px;border-radius:6px;font-weight:700;color:#92400e;background:#fffbeb;border:1px solid #fcd34d">📥 Einbuchung ausstehend</span>';
+    }
     var due=_dwzNextDue(t);
+    var ico=t.bildUrl
+      ?'<div style="width:36px;height:36px;border-radius:8px;overflow:hidden;background:#fff;border:1px solid var(--brd);flex-shrink:0"><img src="'+E(t.bildUrl)+'" alt="" style="width:100%;height:100%;object-fit:cover"/></div>'
+      :'<div style="width:36px;height:36px;border-radius:8px;background:#eff4ff;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">🔧</div>';
     return '<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--brd);flex-wrap:wrap">'+
-      '<div style="width:36px;height:36px;border-radius:8px;background:#eff4ff;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">🔧</div>'+
+      ico+
       '<div style="flex:1;min-width:180px"><div style="font-size:13px;font-weight:700">'+E(t.name||'Werkzeug')+(t.internKennung?' <span style="font-size:10px;color:var(--mut)">🏷 '+E(t.internKennung)+'</span>':'')+'</div>'+
       '<div style="font-size:11px;color:var(--mut)">'+(t.brand?E(t.brand)+' ':'')+(t.model?E(t.model)+' · ':'')+'Auftraggeber: <strong>'+E(_dwzOrgName(t.orgId))+'</strong>'+(due?' · Nächste Prüfung: '+_dwzFmtD(due):'')+'</div></div>'+
       lcBadge+

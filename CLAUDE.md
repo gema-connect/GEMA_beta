@@ -641,6 +641,23 @@ Storage-Key: `gema_werkzeug` via `_GemaDB`. Felder pro Werkzeug:
 | `pruefAnfrage:{lieferantId,lieferantFirma,typ,wunschtermin,bemerkung,angefordertAm,angefordertVon,status}` | Aktive Prüfungs-Anfrage an einen Lieferanten (`typ`: servicepruefung/elektropruefung/leiterpruefung) |
 | `ersatzAnfragen:[{id,lieferantId,lieferantFirma,typ,nachricht,status,erstelltAm,antwort?,...}]` | Ersatz-/Nachfolger-Anfragen an Lieferanten; `antwort` = Offerte des Lieferanten (preis, nachricht, pdfUrl/pdfDataUrl) |
 | `reparatur:{offen,lieferantId,lieferantFirma,defektBerichtId,termin,bemerkung,gestartetAm,abgeschlossenAm?}` | Vom Lieferanten eröffnete Reparatur (koppelt `lifecycleStatus:'in_reparatur'`) |
+| `bildUrl` | Produktbild-URL aus dem Lieferanten-Katalog (GemaStorage-URL oder Base64). Karte/Detail-Modal zeigen das Bild statt des Kategorie-Emojis |
+| `katalogProduktId` | Verknüpfung zum GemaProdukte-Katalogprodukt (Kategorie `werkzeuge`) |
+| `einbuchung:{status,lieferantId,lieferantFirma,eingebuchtAm,bemerkung,akzeptiertAm?,akzeptiertVon?}` | Direkteinbuchung durch Lieferant (`status`: `vorgeschlagen`→`akzeptiert`; Ablehnung löscht den Datensatz). Siehe «Werkzeug-Produktkatalog & Direkteinbuchung» |
+
+### Werkzeug-Produktkatalog & Direkteinbuchung (Lieferant)
+
+**Katalog**: `KATEGORIEN.werkzeuge` in `gema_produktkatalog_api.js` — Produkt-Schema für Werkzeuge/Maschinen/Leitern mit `werkzeugKategorie`-Select (Klartext-Labels, Map auf CATS-Keys via `_WZ_PRODKAT_MAP` in if_werkzeug bzw. `_DWZ_WZKAT_MAP` im Dashboard) und **Feldtyp `bild`** (Produktbild). Der Dashboard-Produkteditor (`renderPeFelder`) rendert `typ:'bild'` als Datei-Upload mit Vorschau: `_pePickBild` resized auf max 800px JPEG → `GemaStorage.uploadDataUrl(dataUrl,'produkte/<lieferantId>')` → URL im hidden `data-fid`-Input; Base64-Fallback bei Upload-Fehler. Produktliste im Dashboard zeigt Thumbnail.
+
+**Bild beim Unternehmer**: `_wzGetKatalogEntries()` in if_werkzeug mischt zusätzlich `GemaProdukte.getProdukte('werkzeuge',{nurFreigegeben:true})` ins Autocomplete (`src:'lieferant'`, Hint «🏷 Firma»). Bei Auswahl merkt `_wzApplyKatalogPick(e)` den Pick (`window._wzKatalogPick`), befüllt Lieferant-Feld (+`f_supplierId` via `user.lieferantId`-Match) und `submitForm` mergt `bildUrl` + `katalogProduktId` aufs neue Werkzeug (nur wenn Name/Modell noch zum Pick passen). Karte (`renderCard`), Detail-Modal (`vm_icon`) und Lieferanten-Dashboard zeigen `t.bildUrl` als `<img>` statt Emoji.
+
+**Direkteinbuchung** (Einbuchungsaufwand liegt beim Lieferanten):
+1. **Lieferant** → Werkzeuge-Tab → «📥 Bei Kunde einbuchen» (`_dwzOpenEinbuchen`). Kundenkreis = NUR **verknüpfte Auftraggeber** (`_dwzKundenOrgs()`: Orgs mit Werkzeugen, die via `supplierId`/`pruefAnfrage`/`ersatzAnfragen` auf `_dwzMyIds()` zeigen). Produkt aus eigenem Katalog vorausfüllbar (`_dwzEbProduktChanged`: Bezeichnung/Hersteller/Modell/Bild; NIV-Empfehlung → `hasElec`/`elecInterval`, Garantie-Monate → `warranty`).
+2. `_dwzEinbuchenSave` erzeugt den Tool-Datensatz mit `orgId=<Kunde>`, `einbuchung:{status:'vorgeschlagen',…}` — Save per `GemaSync.saveRecord` (Einzel-Record, kein persistCollection), `_dwzLog('erfasst')`, Notifikation `werkzeug_einbuchung` an `role_magaziner`+Kunden-Org mit Link `if_werkzeug.html?view=<id>`.
+3. **Unternehmer** (Magaziner/Admin) sieht das Werkzeug **im Bestand mit Ausstehend-Banner** (Karte, Tabellen-Pill, Detail-Modal-Box) mit «✓ Akzeptieren / ✕ Ablehnen». Solange `_wzIsPendingEinbuchung(t)` (status `vorgeschlagen`): **Ausleihe + Zuweisung gesperrt** (Buttons ausgeblendet + Hard-Guards in `_wzOpenAusleihe`/`_wzLendToSelf`/`openZuweisung`).
+4. `_wzEinbuchungAkzeptieren`: status→`akzeptiert` + `akzeptiertAm/Von`, Log, Notify `werkzeug_einbuchung` (typ `erfolg`) an `einbuchung.lieferantId`. `_wzEinbuchungAblehnen`: GemaDialog.prompt für optionalen Grund, **löscht den Datensatz**, Log `geloescht`, Notify (typ `warnung`, mit Grund) an den Lieferanten. Lieferanten-Dashboard zeigt bei eigenen Werkzeugen den Badge «📥 Einbuchung ausstehend».
+
+`gema_produktkatalog_api.js` ist dafür in `if_werkzeug.html` eingebunden.
 
 ### Koffer (Werkzeug-Sets, if_werkzeug.html)
 
@@ -1346,6 +1363,7 @@ Zentrales Modul `gema_notify.js` für In-App-Benachrichtigungen. Glocke + Toast-
 | `werkzeug_offerte_lieferant` | werkzeug | on |
 | `werkzeug_reparatur` | werkzeug | on |
 | `werkzeug_koffer_fehlteil` | werkzeug | on |
+| `werkzeug_einbuchung` | werkzeug | on |
 | `fahrzeug_service_faellig` | fahrzeug | on |
 | `fahrzeug_service_erledigt` | fahrzeug | on |
 | `fahrzeug_garagist_zugewiesen` | fahrzeug | on |
