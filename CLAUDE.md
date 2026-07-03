@@ -274,7 +274,17 @@ Hauptseite: `index.html`. Hub-Seiten: `sb_index.html`, `pm_ausschreibung.html`, 
 
 ### Modulübersicht
 
-- **16 Sanitärberechnungs-Module** (sb_): Inkl. LU-Zusammenstellung, Druckerhöhung, Osmose, Enthärtung etc.
+- **17 Sanitärberechnungs-Module** (sb_): Inkl. LU-Zusammenstellung, Druckerhöhung, Zirkulationsberechnung, Osmose, Enthärtung etc.
+
+### Zirkulationsberechnung (sb_zirkulation.html)
+
+1:1-Umsetzung der Excel-Vorlage «Zirkulationsberechnung_neu.xlsm» (Teilstrecken-Verfahren, per Playwright-Test auf 4 Nachkommastellen gegen die Original-Excel validiert):
+- **Teilstrecken-Netz**: dynamische Tabelle, jede TS mit Länge, bis zu 2 angeschlossenen TS (Baum), Art (`kon.` = VL+RL getrennt / `RaR` = Rohr-an-Rohr), Einbauort (Keller n.b./Räume b./Schacht/ESH kalt → Umgebungstemperatur), ø VL (Aussen-ø für Dämm-Auslegung), DN RL (Rohrtabellen-Lookup), Werkstoff (Kupfer/PE-X/Edelstahl/PVC 16), Dämmstärken auto (MuKEn-Tabelle nach λ ≤/> 0.031) mit «opt.»-Override.
+- **Engine** (`zkCalc`): W/m-Verlust über U-Wert-Formel `2π/(ln((r+s)/r)/λ + 1/(8·(r+s)))` mit Norm-ΔT 1000/24 (wie Excel); ΣQ bottom-up übers Netz; Temperaturen top-down (`H`=T_RL Anfang, `I`=Rest-ΔT gegen `tref` 60 °C, `K`=Anteil, `L`=T_Ende); Massenstrom `J=ΣQ/(1.163·I)`; v/R aus den 11 Original-Rohrtabellen (`ZK_PIPES`, Lookup «nächstgrössere Zeile» wie Excel MATCH+1); RaR-Verluste über BM/BN-Tabelle (erste TS temperaturabhängig via AV-Formel → 3 Durchläufe).
+- **Strang-Auswertung automatisch**: jede End-TS = ein Strang (Pfad zur Pumpe); Δp = ΣR·l + Einzelwiderstände% + Regulierventil `(m/Kvs)²/1000` + RV; höchster Strang = erforderliche Förderhöhe; Drosselventil-KV je Strang `m·√(1000/Δp_Drossel)` gegen «Förderhöhe Pumpe eff.».
+- **Persistenz**: Parameter via GemaAutoSave (`zirkulation`); TS-Zeilen als JSON im hidden `#zk_rows`-Textarea (Restore über autosave-`change`-Event, `_zkInternal`-Guard gegen Loops).
+- **Anlagenwahl + Offertanfrage**: `GemaAnlagenwahl.init({kategorie:'zirkulationspumpe'})` — neue Produktkategorie `KATEGORIEN.zirkulationspumpe` (Förderhöhe mbar + Volumenstrom l/h + Medientemp, matchFn) + `LIEF_KATEGORIEN`-Eintrag. Berechnungswerte-Payload: `volumenstrom` (l/h), `foerderhoehe` (mbar), `tempRl`, `waermeverlust` (W) — Projektwerte, nie Datenblatt-Werte.
+- Registriert in gema_auth (MODULES `zirkulation`, FILE_MAP `sb_zirkulation`), sb_index (Warmwasser), sw.js.
 - **Projektmanagement-Module** (pm_): Objekte, Terminplanung, Sitzungsprotokolle, Kostenkontrolle, Ausschreibung
 - **Hygiene-Module** (hy_): W12 Selbstkontrolle (SVGW)
 - **Infrastruktur-Module** (if_): Werkzeugmanagement, Fahrzeugmanagement, Trocknungsgeräte (siehe Abschnitte weiter unten)

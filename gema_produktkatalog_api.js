@@ -11,6 +11,7 @@ var LIEF_KATEGORIEN = [
   {id:'enthaertung',label:'Enthärtungsanlagen',gruppe:'anlagen'},
   {id:'osmose',label:'Umkehrosmoseanlagen',gruppe:'anlagen'},
   {id:'druckerhoehung',label:'Druckerhöhungsanlagen',gruppe:'anlagen'},
+  {id:'zirkulationspumpe',label:'Zirkulationspumpen',gruppe:'anlagen'},
   {id:'fettabscheider',label:'Fettabscheider',gruppe:'anlagen'},
   {id:'oelabscheider',label:'Ölabscheider',gruppe:'anlagen'},
   {id:'schlammsammler',label:'Schlammsammler',gruppe:'anlagen'},
@@ -656,6 +657,56 @@ KATEGORIEN.druckerhoehung = {
       else if(d.druckMax >= b.nachdruck * 0.9) score += 20;
     }
     if(b.bauart && d.bauart && d.bauart === b.bauart) score += 10;
+    return Math.min(100, score);
+  }
+};
+
+// ── Zirkulationspumpe (Warmwasser-Zirkulation) ──
+// Lieferanten erfassen ihre Pumpen; sb_zirkulation.html matcht auf
+// Foerderhoehe (mbar) + Volumenstrom (l/h) aus der Netzberechnung.
+KATEGORIEN.zirkulationspumpe = {
+  id: 'zirkulationspumpe',
+  name: 'Zirkulationspumpe',
+  icon: '🔄',
+  felder: [
+    { id: 'serie', label: 'Typenbezeichnung / Serie', typ: 'text', gruppe: 'Allgemein', pflicht: true },
+    { id: 'modell', label: 'Modell / Grösse', typ: 'text', gruppe: 'Allgemein', pflicht: true },
+    { id: 'artikelnr', label: 'Artikelnummer', typ: 'text', gruppe: 'Allgemein' },
+    { id: 'regelungsart', label: 'Regelungsart', typ: 'select', optionen: ['Konstantdrehzahl','Drehzahlgeregelt (Δp konstant)','Drehzahlgeregelt (Δp variabel)','Temperaturgeführt'], gruppe: 'Allgemein', pflicht: true },
+
+    { id: 'foerderhoeheMax', label: 'Max. Förderhöhe', typ: 'number', einheit: 'mbar', gruppe: 'Leistungsdaten', pflicht: true },
+    { id: 'volumenstromMax', label: 'Max. Volumenstrom', typ: 'number', einheit: 'l/h', gruppe: 'Leistungsdaten', pflicht: true },
+    { id: 'medienTempMax', label: 'Max. Medientemperatur', typ: 'number', einheit: '°C', gruppe: 'Leistungsdaten' },
+    { id: 'leistungMax', label: 'Leistungsaufnahme max.', typ: 'number', einheit: 'W', gruppe: 'Leistungsdaten' },
+    { id: 'eei', label: 'Energieeffizienzindex EEI', typ: 'number', gruppe: 'Leistungsdaten' },
+
+    { id: 'anschluss', label: 'Anschluss', typ: 'select', optionen: ['DN 15','DN 20','DN 25','DN 32','DN 40'], gruppe: 'Anschlüsse', pflicht: true },
+    { id: 'einbaulaenge', label: 'Einbaulänge', typ: 'number', einheit: 'mm', gruppe: 'Anschlüsse' },
+    { id: 'rvIntegriert', label: 'Rückflussverhinderer integriert', typ: 'checkbox', gruppe: 'Anschlüsse' },
+    { id: 'absperrungIntegriert', label: 'Absperrungen integriert', typ: 'checkbox', gruppe: 'Anschlüsse' },
+
+    { id: 'spannung', label: 'Spannung', typ: 'select', optionen: ['230V/50Hz','400V/50Hz'], gruppe: 'Elektro' },
+    { id: 'schutzart', label: 'Schutzart', typ: 'text', gruppe: 'Elektro' },
+
+    { id: 'svgwNr', label: 'SVGW-Zulassungsnummer', typ: 'text', gruppe: 'Normen' },
+    { id: 'ce', label: 'CE-Konformität', typ: 'checkbox', gruppe: 'Normen' },
+    { id: 'besonderheiten', label: 'Besonderheiten', typ: 'textarea', gruppe: 'Zusatz' }
+  ],
+  matchFn: function(produkt, berechnung){
+    let score = 0;
+    const d = produkt.daten || {};
+    const b = berechnung || {};
+    if(b.foerderhoehe && d.foerderhoeheMax){
+      if(d.foerderhoeheMax >= b.foerderhoehe) score += 45;
+      else if(d.foerderhoeheMax >= b.foerderhoehe * 0.9) score += 20;
+    }
+    if(b.volumenstrom && d.volumenstromMax){
+      if(d.volumenstromMax >= b.volumenstrom) score += 45;
+      else if(d.volumenstromMax >= b.volumenstrom * 0.85) score += 20;
+    }
+    if(b.tempRl && d.medienTempMax){
+      if(d.medienTempMax >= b.tempRl) score += 10;
+    }
     return Math.min(100, score);
   }
 };
@@ -1445,7 +1496,7 @@ function beantworteOffertanfrage(id, antwort){
   // Automatische Vormerkung für Ausschreibung erstellen
   if(oa.projekt && oa.projekt.objektId){
     var bkpMap={enthaertung:'253.0',osmose:'253.2',druckerhoehung:'253.4',frischwasserstation:'253.6',
-      hebeanlage:'252.6',fettabscheider:'252.4',oelabscheider:'252.8',zirkulation:'253.8'};
+      hebeanlage:'252.6',fettabscheider:'252.4',oelabscheider:'252.8',zirkulation:'253.8',zirkulationspumpe:'253.8'};
     addVormerkung({
       objektId:oa.projekt.objektId,
       lieferantId:oa.lieferantId||'',
