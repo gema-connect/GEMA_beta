@@ -80,6 +80,19 @@
     defaults.forEach(function(d){
       if(d && d.id != null && !have[d.id]) cloudArr.push(d);
     });
+    // System-Rollen-Labels folgen IMMER den DEFAULTS (idempotent, kein
+    // Cloud-Write noetig): Cloud-Records aus der Zeit vor der Umbenennung
+    // «Lieferant» → «Anlagenlieferant» tragen sonst dauerhaft alte Namen.
+    if(storageKey === STORAGE_ROLES){
+      var defById = {};
+      defaults.forEach(function(d){ if(d && d.id) defById[d.id] = d; });
+      cloudArr = cloudArr.map(function(r){
+        if(r && r.id && defById[r.id] && /^role_(lieferant|produktlieferant|leiterpruefer)/.test(r.id)){
+          return Object.assign({}, r, { name: defById[r.id].name, color: defById[r.id].color });
+        }
+        return r;
+      });
+    }
     return cloudArr;
   }
 
@@ -290,18 +303,35 @@
     {id:'role_spengler',name:'Spengler',color:'#0891b2',gewerke:['spenglerei'],permissions:(function(){var p=_somePerms(['dachbericht','objekte','baustellencheckliste','werkzeugmanagement'],true,true,false);p['dachbericht']={read:true,write:true,admin:true};p['objekte']={read:true,write:true,admin:true};return p;})()},
     {id:'role_architekt',name:'Architekt / GP',color:'#7c3aed',permissions:_somePerms(['terminplan','besprechungsprotokoll','objekte','abnahme_sia'],true,false,false)},
     {id:'role_unternehmer',name:'Unternehmer',color:'#d97706',permissions:_somePerms(['terminplan','abnahme_sia','werkzeugmanagement','baustellencheckliste','inspektion_wartung','ausschreibungsunterlagen','crbx_offertvergleich','schnellausschreibung'],true,true,false)},
-    {id:'role_lieferant',name:'Lieferant',color:'#16a34a',permissions:_somePerms(['ausschreibungsunterlagen','produktkatalog'],true,true,false)},
-    // Lieferanten-Unterrollen (feinere Rechte innerhalb einer Lieferanten-Org).
+    // ── Lieferanten-Rollen: ZWEI Typen (User-Entscheid) ──
+    // ANLAGENLIEFERANT (role_lieferant*): liefert Anlagen fuer die
+    // Berechnungsmodule (Enthaertung, Druckerhoehung, Osmose, …) —
+    // mit Verifizierungs-Workflow.
+    // PRODUKTLIEFERANT (role_produktlieferant*): liefert Werkzeuge/
+    // Maschinen fuers Werkzeugmanagement — KEINE Verifizierung.
+    // Beide kombinierbar mit role_leiterpruefer (z.B. Produktlieferant,
+    // der auch EKAS-Leiterpruefungen macht).
+    {id:'role_lieferant',name:'Anlagenlieferant',color:'#16a34a',permissions:_somePerms(['ausschreibungsunterlagen','produktkatalog'],true,true,false)},
+    // Unterrollen (feinere Rechte innerhalb einer Lieferanten-Org).
     // Der Org-Admin (role_lieferant_admin oder Legacy role_lieferant) vergibt
     // sie im Lieferanten-Dashboard. Die Modul-Permission gibt nur Dashboard-
     // Zugang frei; die FEINE Abgrenzung (erfassen/verifizieren/Offerten)
     // passiert im Dashboard via roleId-Helfer.
-    {id:'role_lieferant_admin',   name:'Lieferant · Admin',         color:'#15803d', permissions:_somePerms(['ausschreibungsunterlagen','produktkatalog'],true,true,false)},
-    {id:'role_lieferant_produkte',name:'Lieferant · Produktpflege', color:'#16a34a', permissions:_somePerms(['produktkatalog'],true,true,false)},
-    {id:'role_lieferant_verify',  name:'Lieferant · Verifizierung', color:'#0891b2', permissions:_somePerms(['produktkatalog'],true,true,false)},
-    {id:'role_lieferant_offerten',name:'Lieferant · Offerten',      color:'#7c3aed', permissions:_somePerms(['ausschreibungsunterlagen','produktkatalog'],true,true,false)},
-    {id:'role_lieferant_intern',  name:'Lieferant · Intern (nur Lesen)', color:'#64748b', permissions:_somePerms(['produktkatalog'],true,false,false)},
+    {id:'role_lieferant_admin',   name:'Anlagenlieferant · Admin',         color:'#15803d', permissions:_somePerms(['ausschreibungsunterlagen','produktkatalog'],true,true,false)},
+    {id:'role_lieferant_produkte',name:'Anlagenlieferant · Produktpflege', color:'#16a34a', permissions:_somePerms(['produktkatalog'],true,true,false)},
+    {id:'role_lieferant_verify',  name:'Anlagenlieferant · Verifizierung', color:'#0891b2', permissions:_somePerms(['produktkatalog'],true,true,false)},
+    {id:'role_lieferant_offerten',name:'Anlagenlieferant · Offerten',      color:'#7c3aed', permissions:_somePerms(['ausschreibungsunterlagen','produktkatalog'],true,true,false)},
+    {id:'role_lieferant_intern',  name:'Anlagenlieferant · Intern (nur Lesen)', color:'#64748b', permissions:_somePerms(['produktkatalog'],true,false,false)},
+    // Produktlieferant (Werkzeugmanagement) — keine Verifizierungs-Unterrolle
+    {id:'role_produktlieferant_admin',   name:'Produktlieferant · Admin',         color:'#b45309', permissions:_somePerms(['produktkatalog'],true,true,false)},
+    {id:'role_produktlieferant_produkte',name:'Produktlieferant · Produktpflege', color:'#d97706', permissions:_somePerms(['produktkatalog'],true,true,false)},
+    {id:'role_produktlieferant_offerten',name:'Produktlieferant · Offerten',      color:'#9333ea', permissions:_somePerms(['produktkatalog'],true,true,false)},
+    {id:'role_produktlieferant_intern',  name:'Produktlieferant · Intern (nur Lesen)', color:'#64748b', permissions:_somePerms(['produktkatalog'],true,false,false)},
     {id:'role_pruefer',name:'Prüfer',color:'#0891b2',permissions:_somePerms(['werkzeugmanagement','fahrzeugmanagement'],true,true,false)},
+    // Leiternpruefer (EKAS): externe Fachperson fuer Leiterpruefungen.
+    // Kombinierbar mit Produktlieferant-Rollen (derselbe Account kann
+    // Werkzeuge liefern UND Leitern pruefen).
+    {id:'role_leiterpruefer',name:'Leiternprüfer (EKAS)',color:'#0e7490',permissions:_somePerms(['werkzeugmanagement'],true,true,false)},
     // Garagist: externe Werkstatt mit eigener Org. Kunden-Firmen verknuepfen
     // einzelne Fahrzeuge mit dem Garagist-Account. Sieht nur diese Fahrzeuge,
     // darf km, Service, MFK, Reifen pflegen und Service-Historie ergaenzen.
@@ -729,9 +759,9 @@
   // ── Rollenspezifische Zielseite ─────────────────────────────────
   function _getRedirectForUser(u){
     if(!u||!u.roleIds)return'sys_workspace.html';
-    // Lieferant + alle Unterrollen (role_lieferant, role_lieferant_admin, …)
-    if(u.roleIds.some(function(r){return typeof r==='string'&&r.indexOf('role_lieferant')===0;}))return'sys_lieferant_dashboard.html';
-    if(u.roleIds.indexOf('role_pruefer')>=0)return'sys_lieferant_dashboard.html';
+    // Anlagen-/Produktlieferant + alle Unterrollen, Pruefer + Leiternpruefer
+    if(u.roleIds.some(function(r){return typeof r==='string'&&(r.indexOf('role_lieferant')===0||r.indexOf('role_produktlieferant')===0);}))return'sys_lieferant_dashboard.html';
+    if(u.roleIds.indexOf('role_pruefer')>=0||u.roleIds.indexOf('role_leiterpruefer')>=0)return'sys_lieferant_dashboard.html';
     if(u.roleIds.indexOf('role_garagist')>=0)return'sys_garagist_dashboard.html';
     if(u.roleIds.indexOf('role_magaziner')>=0)return'index.html';
     if(u.roleIds.indexOf('role_monteur')>=0)return'index.html';
@@ -776,7 +806,10 @@
       var user=users.find(function(u){return u.id===session.userId&&u.active;});
       if(!user){localStorage.removeItem(STORAGE_SESSION);_redirectLogin();}
       else {
-        var userOrg=orgs.find(function(o){return o.id===user.orgId;})||orgs[0]||null;
+        // KEIN ||orgs[0]-Fallback: wenn die Org des Users nicht aufloesbar
+        // ist, zeigte die Nav sonst Logo+Name einer FREMDEN Firma (der
+        // ersten im Pool — «bwt aqua»-Bug). Ohne Org bleibt das GEMA-Logo.
+        var userOrg=orgs.find(function(o){return o.id===user.orgId;})||null;
 
         if(_isLoginOnly()){
           // Rollenspezifische Weiterleitung: Lieferant/Prüfer/Magaziner/Monteur
@@ -874,9 +907,12 @@
       var u=_getUsers()||[];return u.find(function(x){return x.id===s.userId;})||null;
     },
     getCurrentOrg:function(){
+      // KEIN ||orgs[0]-Fallback (siehe userOrg im Init): eine nicht
+      // aufloesbare Org darf nie stillschweigend zur ersten fremden
+      // Firma werden — Konsumenten behandeln null korrekt.
       var user=w.GemaAuth.getCurrentUser();if(!user)return null;
       var orgs=_getOrgs()||[];
-      return orgs.find(function(o){return o.id===user.orgId;})||orgs[0]||null;
+      return orgs.find(function(o){return o.id===user.orgId;})||null;
     },
     can:function(action,mkey){
       var user=w.GemaAuth.getCurrentUser();if(!user)return false;
@@ -1164,6 +1200,8 @@
       // einsortiert wird.
       var ROLE_TO_KATEGORIE = {
         'role_lieferant':'lieferant',
+        'role_produktlieferant_admin':'lieferant',
+        'role_leiterpruefer':'lieferant',
         'role_architekt':'architekt',
         'role_unternehmer':'sanitaerinstallateur',
         'role_hlkk_planer':'heizungsplaner',

@@ -140,6 +140,14 @@ Berechnung abgeschlossen (z.B. Enthärtung: 2.5 l/s, 15°fH)
 └─────────────────────────────────┘
 ```
 
+### Zwei Lieferanten-Typen (KRITISCH)
+
+- **Anlagenlieferant** (`role_lieferant*`): liefert Anlagen für die Berechnungsmodule (Enthärtung, Druckerhöhung, Osmose …) — mit Verifizierungs-Workflow. Dashboard-Tabs: Übersicht, Meine Produkte, Offertanfragen, Rohrsysteme, Werkzeuge, Mitarbeiter, Firmenprofil.
+- **Produktlieferant** (`role_produktlieferant_admin/_produkte/_offerten/_intern`): liefert Werkzeuge/Maschinen fürs Werkzeugmanagement — KEINE Verifizierungs-Unterrolle. Dashboard = Werkzeug-Sicht: Übersicht, Meine Produkte (nur Kategorie `werkzeuge` für reine Produktlieferanten), 🔧 Werkzeuge, Mitarbeiter, Firmenprofil (keine Anlagen-Offertanfragen/Rohrsysteme).
+- **Leiternprüfer** (`role_leiterpruefer`): EKAS-Leiterprüfungen — erscheint in `openPruefAnfordern` NUR bei `pruefKat='leiterpruefung'` (reiner Leiternprüfer). Kombinierbar mit Produktlieferant-Rollen auf demselben Account. `_wzInvitePruefer` vergibt bei Leiter-Werkzeugen automatisch `role_leiterpruefer` statt `role_pruefer`.
+- **Rollen-Checks**: Dashboard-Helper `_liefIsAnlagenLief()`/`_liefIsProduktLief()`; `_liefIsAdmin`/`_liefCanEditProdukte`/`_liefCanOfferten` decken beide Typen ab, `_liefCanVerify` nur Anlagen. Partner-Checks in if_werkzeug (`_wzIsBeauftragt`, cross-org load, Prüf-Dropdown, Supplier-Autocomplete) prüfen BEIDE Prefixe (`role_lieferant`, `role_produktlieferant`) + `role_pruefer`/`role_leiterpruefer`. Mitarbeiter-Einladung im Dashboard startet typ-abhängig (`role_produktlieferant_intern` bzw. `role_lieferant_intern`); Rollen-Zuweisung bietet nur die Rollen des eigenen Typs an (+ Leiternprüfer bei Produktlieferanten).
+- **Labels folgen den DEFAULTS**: `_mergeWithDefaults` in gema_auth.js normalisiert Name+Farbe aller `role_(lieferant|produktlieferant|leiterpruefer)*`-Records beim Cloud-Load — Umbenennungen (z.B. «Lieferant» → «Anlagenlieferant») greifen so auch für bestehende Cloud-Installationen, ohne Cloud-Write.
+
 ### Lieferanten-Zugang & Dashboard
 
 - **Eigenes Login**: Jeder Lieferant hat ein eigenes Konto mit Dashboard
@@ -204,12 +212,17 @@ Jede Rolle hat ein eigenes Login mit rollenspezifischer Ansicht.
 | **Bauherrschaft** | Projektübersicht + Kosten | Projektstatus, Kostenkontrolle, Terminplan, Freigaben (Read-only) |
 | **Architekt** | Projektübersicht + Koordination | Terminplanung, Sitzungsprotokolle, Dokumentation |
 | **Behörde** | Bewilligungen + Hygiene | W12-Prüfungen, Bewilligungsstatus, Inspektion (Read-only) |
-| **Lieferant** | Eigenes Dashboard | Vollzugang Lieferant (Legacy/Org-Admin-Level): Produktpflege, Verifizierung, Offertanfragen, Werkzeug-Prüfungen quittieren |
-| **Lieferant · Admin** (`role_lieferant_admin`) | Eigenes Dashboard | Wie Lieferant + vergibt die Unterrollen an Team (Mitarbeiter-Tab) |
-| **Lieferant · Produktpflege** (`role_lieferant_produkte`) | Eigenes Dashboard | NUR Produktdaten erfassen/bearbeiten (kein Verifizieren, keine Offerten) |
-| **Lieferant · Verifizierung** (`role_lieferant_verify`) | Eigenes Dashboard | NUR Produkte verifizieren (Qualitätskontrolle) |
-| **Lieferant · Offerten** (`role_lieferant_offerten`) | Eigenes Dashboard | NUR Offertanfragen beantworten/ablehnen |
-| **Lieferant · Intern** (`role_lieferant_intern`) | Eigenes Dashboard | Nur Lesen (Betrachter) |
+| **Anlagenlieferant** (`role_lieferant`, Legacy) | Eigenes Dashboard | Liefert Anlagen für Berechnungsmodule (Enthärtung, Druckerhöhung, Osmose …). Vollzugang (Org-Admin-Level): Produktpflege, Verifizierung, Offertanfragen, Werkzeug-Prüfungen quittieren |
+| **Anlagenlieferant · Admin** (`role_lieferant_admin`) | Eigenes Dashboard | Wie Anlagenlieferant + vergibt die Unterrollen an Team (Mitarbeiter-Tab) |
+| **Anlagenlieferant · Produktpflege** (`role_lieferant_produkte`) | Eigenes Dashboard | NUR Produktdaten erfassen/bearbeiten (kein Verifizieren, keine Offerten) |
+| **Anlagenlieferant · Verifizierung** (`role_lieferant_verify`) | Eigenes Dashboard | NUR Produkte verifizieren (Qualitätskontrolle) — gibt es NUR beim Anlagenlieferanten |
+| **Anlagenlieferant · Offerten** (`role_lieferant_offerten`) | Eigenes Dashboard | NUR Offertanfragen beantworten/ablehnen |
+| **Anlagenlieferant · Intern** (`role_lieferant_intern`) | Eigenes Dashboard | Nur Lesen (Betrachter) |
+| **Produktlieferant · Admin** (`role_produktlieferant_admin`) | Eigenes Dashboard (Werkzeug-Sicht) | Liefert Werkzeuge/Maschinen fürs Werkzeugmanagement (KEINE Verifizierung). Admin-Level + vergibt Unterrollen |
+| **Produktlieferant · Produktpflege** (`role_produktlieferant_produkte`) | Eigenes Dashboard (Werkzeug-Sicht) | NUR Werkzeug-Produktdaten erfassen/bearbeiten |
+| **Produktlieferant · Offerten** (`role_produktlieferant_offerten`) | Eigenes Dashboard (Werkzeug-Sicht) | NUR Werkzeug-Offerten (Defekt/Ersatz) beantworten |
+| **Produktlieferant · Intern** (`role_produktlieferant_intern`) | Eigenes Dashboard (Werkzeug-Sicht) | Nur Lesen (Betrachter) |
+| **Leiternprüfer** (`role_leiterpruefer`) | Werkzeug-Prüfaufträge | EKAS-Leiterprüfungen quittieren + Prüfberichte hochladen. Kombinierbar mit Produktlieferant-Rollen (derselbe Account liefert Werkzeuge UND prüft Leitern) |
 | **Garagist** | Eigenes Konto, externe Werkstatt | Pflegt zugewiesene Fahrzeuge: km-Stand, Service-Historie, MFK, Reifen, Defekte. Sieht Kaufbelege/Tankkarten nicht; Versicherungsdaten nur bei Freigabe pro Fahrzeug. Kein Erfassen neuer Fahrzeuge. |
 | **Magaziner** | Werkzeug-/Fahrzeuglager der eigenen Org | Geräte erfassen + verwalten, Berichte schreiben, Personen zuweisen, Prüfungen bei Lieferanten anfordern |
 | **Monteur** | Read-only auf Werkzeuge + Schadensberichte | Geräte einsehen, Defekte melden, Schadensmessungen + Fotos erfassen — keine Edit-Rechte auf Werkzeuge |
@@ -504,6 +517,14 @@ Geplant: `gema_lu_api.js` für den Datenfluss aus der LU-Zusammenstellung:
 ---
 
 ## Häufige Fehlerquellen
+
+### Fremde Firma erscheint oben links / im Lieferanten-Dashboard («bwt aqua»-Bug, BEHOBEN)
+
+**Symptom**: Nav-Logo/Brand oben links oder das Lieferanten-Dashboard zeigt eine FREMDE Firma, obwohl der eingeloggte User gar nicht dort Mitglied ist.
+
+**Ursache (zwei Stellen, beide entfernt)**: (1) `gema_auth.js` — `userOrg`/`getCurrentOrg()` hatten einen `||orgs[0]`-Fallback: war die `user.orgId` nicht auflösbar, wurde stillschweigend die ERSTE Org im Pool ins Nav-Branding (`_swapLogo`) gesetzt. (2) `sys_lieferant_dashboard.html` — `findMyLieferant()` fiel bei fehlender Zuordnung blind auf den ersten aktiven Lieferanten zurück (Datenleck: fremde Produkte/Anfragen sichtbar).
+
+**Jetzt**: Ohne auflösbare Org bleibt das GEMA-Logo; ohne Lieferanten-Zuordnung zeigt das Dashboard «Kein Lieferanten-Profil gefunden». GEMA-Admins bekommen eine **explizite Vorschau** mit Firmen-Auswahl (`?lief=<id>`, amber Banner «👁 Admin-Vorschau») statt stillschweigend `all[0]`. **Keine `||orgs[0]` / `all[0]`-Fallbacks wieder einbauen!**
 
 ### DM-Sans „l" wird zu dick im PDF-Export (Optical-Sizing)
 
