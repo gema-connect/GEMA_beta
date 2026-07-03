@@ -647,6 +647,7 @@ tbody td.mono{font-family:var(--mono);font-weight:500;}
               <option value="">— Keine —</option>
             </select>
             <input class="inp" id="fGarageCustom" placeholder="Neue Garage eingeben" style="display:none;margin-top:4px"/>
+            <span class="hint" id="fGarageHint" style="display:none;color:#0d9488">🔗 GEMA-Garage — Werkstatt-Zugang wird beim Speichern automatisch verknüpft</span>
           </div>
           <div class="field">
             <label class="label">Stellplatz-Nr.</label>
@@ -1040,14 +1041,17 @@ function openModal(id){
     if(!v) return;
     _fzPopulateDriverDropdown(v.driver);
     _fzPopulateDeptDropdown(v.dept);
-    _fzPopulateGarageDropdown(v.garage);
+    _fzPopulateGarageDropdown(v.garage, v.garagistUserId||'');
     $f("fNr",v.nr); $f("fPlate",v.plate); $f("fModel",v.model); $f("fYear",v.year);
     $f("fFuel",v.fuel); $f("fColor",v.color); $f("fType",v.type); $f("fAssignment",v.assignment);
     $f("fDriver",v.driver); $f("fDept",v.dept); $f("fStatus",v.status); $f("fBuildout",v.buildout);
     $f("fEquipment",v.equipment); $f("fKm",v.km); $f("fServiceKm",v.serviceKm);
     $f("fServiceMonths",v.serviceMonths); $f("fLastService",v.lastService);
     $f("fLastServiceKm",v.lastServiceKm); $f("fMfk",v.mfk);
-    $f("fGarage",v.garage); $f("fStellplatz",v.stellplatz); _fzRenderTankkarten(_fzTankkartenFromVehicle(v));
+    /* fGarage NICHT via $f setzen — _fzPopulateGarageDropdown hat die
+       Auswahl bereits gesetzt (inkl. gema:-Vorauswahl bei verknuepftem
+       Garagisten; ein $f mit dem Namens-String wuerde sie ueberschreiben) */
+    $f("fStellplatz",v.stellplatz); _fzRenderTankkarten(_fzTankkartenFromVehicle(v));
     $f("fTires",v.tires); $f("fTiresSeason",v.tiresSeason); $f("fTireStorage",v.tireStorage); $f("fTireChangeDate",v.tireChangeDate);
     if(v.kaufbeleg){$f("fBelegNr",v.kaufbeleg.rechnungsNr);$f("fBelegBetrag",v.kaufbeleg.betrag);$f("fBelegBestellNr",v.kaufbeleg.bestellNr);$f("fBelegLieferdatum",v.kaufbeleg.lieferdatum);}
     if(v.versicherung){
@@ -1733,25 +1737,78 @@ function _fzSaveGaragen(d){
   }catch(e){}
 }
 
-function _fzPopulateGarageDropdown(selected){
+// Aktive GEMA-Garagen: alle registrierten Garagist-Accounts, gruppiert
+// nach Werkstatt-Org. Auswahl einer GEMA-Garage verknuepft beim Speichern
+// automatisch den Werkstatt-Zugang (garagistUserId) — eigene (Freitext-)
+// Garagen bleiben rein informativ ohne Funktion (User-Entscheid).
+function _fzGemaGaragen(){
+  var out=[];
+  if(typeof GemaAuth==='undefined')return out;
+  try{
+    var users=GemaAuth.getUsers()||[];
+    var orgs=(GemaAuth.getOrgs&&GemaAuth.getOrgs())||[];
+    var orgById={};orgs.forEach(function(o){orgById[o.id]=o;});
+    var garagisten=users.filter(function(u){
+      return u.active!==false && u.roleIds && u.roleIds.indexOf('role_garagist')>=0;
+    });
+    // Mehrere Garagisten derselben Werkstatt → Kontaktname im Label
+    var perOrg={};garagisten.forEach(function(u){perOrg[u.orgId]=(perOrg[u.orgId]||0)+1;});
+    garagisten.forEach(function(u){
+      var werkstatt=(orgById[u.orgId]&&orgById[u.orgId].name)||(u.profile&&u.profile.firma)||u.name||u.username||'';
+      var label=werkstatt+(perOrg[u.orgId]>1?' · '+(u.name||u.username||''):'');
+      out.push({userId:u.id,werkstatt:werkstatt,label:label});
+    });
+    out.sort(function(a,b){return a.label.localeCompare(b.label);});
+  }catch(e){}
+  return out;
+}
+function _fzPopulateGarageDropdown(selected,garagistUserId){
   var sel=document.getElementById('fGarage');if(!sel)return;
   var data=_fzLoadGaragen();
   var all=data.list.slice();
-  vehicles.forEach(function(v){if(v.garage&&all.indexOf(v.garage)<0)all.push(v.garage);});
-  var val=selected||data.standard||'';
+  vehicles.forEach(function(v){if(v.garage&&typeof v.garage==='string'&&all.indexOf(v.garage)<0)all.push(v.garage);});
+  var gema=_fzGemaGaragen();
+  // Vorauswahl: verknuepfter Garagist gewinnt (funktionale GEMA-Garage),
+  // sonst der gespeicherte Freitext-Name, sonst die Standard-Garage.
+  var gemaSel=garagistUserId&&gema.some(function(g){return g.userId===garagistUserId;})?'gema:'+garagistUserId:'';
+  var val=gemaSel||(typeof selected==='string'?selected:'')||data.standard||'';
   var opts='<option value="">— Keine —</option>';
-  all.forEach(function(g){opts+='<option value="'+esc(g)+'"'+(g===val?' selected':'')+'>'+esc(g)+(g===data.standard?' ★':'')+' </option>';});
-  opts+='<option value="_custom">✏ Neue Garage …</option>';
+  if(gema.length){
+    opts+='<optgroup label="🔗 GEMA-Garagen (aktiv, mit Werkstatt-Zugang)">';
+    gema.forEach(function(g){
+      var v='gema:'+g.userId;
+      opts+='<option value="'+esc(v)+'"'+(v===val?' selected':'')+'>🔗 '+esc(g.label)+'</option>';
+    });
+    opts+='</optgroup>';
+  }
+  if(all.length){
+    opts+='<optgroup label="Eigene Garagen (ohne Funktion)">';
+    all.forEach(function(g){opts+='<option value="'+esc(g)+'"'+(g===val?' selected':'')+'>'+esc(g)+(g===data.standard?' ★':'')+' </option>';});
+    opts+='</optgroup>';
+  }
+  opts+='<option value="_custom">✏ Neue eigene Garage …</option>';
   sel.innerHTML=opts;
   if(val&&!sel.value&&val!=='_custom')sel.innerHTML+='<option value="'+esc(val)+'" selected>'+esc(val)+'</option>';
   document.getElementById('fGarageCustom').style.display='none';
+  var hint=document.getElementById('fGarageHint');
+  if(hint)hint.style.display=/^gema:/.test(sel.value)?'':'none';
 }
 function _fzGarageChange(){
   var sel=document.getElementById('fGarage');
   var inp=document.getElementById('fGarageCustom');
-  if(sel.value==='_custom'){inp.style.display='';inp.focus();}
-  else{inp.style.display='';inp.value='';}
-  if(sel.value==='_custom'){inp.style.display='';} else{inp.style.display='none';}
+  if(sel.value==='_custom'){inp.style.display='';inp.focus();} else{inp.style.display='none';inp.value='';}
+  var isGema=/^gema:/.test(sel.value);
+  var hint=document.getElementById('fGarageHint');
+  if(hint)hint.style.display=isGema?'':'none';
+  // GEMA-Garage gewaehlt → Werkstatt-Zugang (Garagist-Select) mitziehen.
+  // Bewusst NUR in diese Richtung: Wechsel auf eine eigene Garage entzieht
+  // einen bestehenden Zugang nicht automatisch (kein versehentlicher
+  // Rechte-Entzug) — der Abschnitt «Werkstatt-Zugang» bleibt autoritativ.
+  if(isGema){
+    var uid=sel.value.slice(5);
+    var gSel=document.getElementById('fGaragistUserId');
+    if(gSel)gSel.value=uid;
+  }
 }
 function _fzGetGarage(){
   var sel=document.getElementById('fGarage');
@@ -1760,12 +1817,19 @@ function _fzGetGarage(){
     if(custom){var d=_fzLoadGaragen();if(d.list.indexOf(custom)<0){d.list.push(custom);_fzSaveGaragen(d);}}
     return custom;
   }
+  if(/^gema:/.test(sel.value)){
+    // Gespeichert wird der Werkstatt-Name (String); die funktionale
+    // Verknuepfung laeuft ueber garagistUserId (via _fzGarageChange gesetzt).
+    var uid=sel.value.slice(5);
+    var g=_fzGemaGaragen().find(function(x){return x.userId===uid;});
+    return (g&&g.werkstatt)||'';
+  }
   return sel.value;
 }
 function _fzEditGaragen(){
   var data=_fzLoadGaragen();
   var all=data.list.slice();
-  vehicles.forEach(function(v){if(v.garage&&all.indexOf(v.garage)<0)all.push(v.garage);});
+  vehicles.forEach(function(v){if(v.garage&&typeof v.garage==='string'&&all.indexOf(v.garage)<0)all.push(v.garage);});
   var html='<div style="background:#fff;border-radius:14px;padding:24px;max-width:420px;width:100%;box-shadow:0 20px 60px -10px rgba(0,0,0,.3)">'
     +'<h3 style="margin:0 0 4px;font-size:17px;font-weight:900">🔧 Garagen verwalten</h3>'
     +'<div style="font-size:12px;color:#64748b;margin-bottom:14px">Standard-Garage wird bei neuen Fahrzeugen vorausgewählt</div>'
@@ -1823,7 +1887,7 @@ function _fzOpenSettings(){
   var garData=_fzLoadGaragen();
   var types=_fzLoadTypes();
   var allGarages=garData.list.slice();
-  vehicles.forEach(function(v){if(v.garage&&allGarages.indexOf(v.garage)<0)allGarages.push(v.garage);});
+  vehicles.forEach(function(v){if(v.garage&&typeof v.garage==='string'&&allGarages.indexOf(v.garage)<0)allGarages.push(v.garage);});
 
   var html='<div style="background:#fff;border-radius:16px;max-width:540px;width:100%;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 20px 60px -10px rgba(0,0,0,.3)">'
     +'<div style="padding:18px 22px;border-bottom:1.5px solid var(--border);flex-shrink:0"><h3 style="margin:0;font-size:18px;font-weight:900">⚙ Fahrzeugmanagement — Einstellungen</h3><div style="font-size:12px;color:var(--muted);margin-top:4px">Nur für Magaziner und Administratoren</div></div>'
@@ -2954,7 +3018,7 @@ function openViewFzg(id){
   html+=vmf('Service-km bei letztem Svc.',fmtKm(v.lastServiceKm));
   html+=vmf('Service-Intervall',(v.serviceKm?parseInt(v.serviceKm).toLocaleString('de-CH')+' km':'—')+(v.serviceMonths?' / '+v.serviceMonths+' Mt.':''));
   html+=vmf('MFK gültig bis',fmtDate(v.mfk));
-  html+=vmf('Garage',v.garage||'—');
+  html+=vmf('Garage',(typeof v.garage==='string'&&v.garage)||(v.garage&&v.garage.werkstatt)||'—');
   if(!_fzIsGaragist()){
     var _tkList=_fzTankkartenFromVehicle(v).filter(function(t){return t&&(t.nr||t.netz);});
     var _tkLabel=_tkList.length>1?'Tankkarten':'Tankkarte';
@@ -4013,7 +4077,11 @@ function _fzGarageEinbuchen(vehicleId){
   var u=_fzGetUser()||{};
   var now=new Date().toISOString();
   v.status='service';
-  v.garage={eingebuchtAm:now,eingebuchtVonUserId:u.id||'',eingebuchtVonName:u.name||u.username||'',werkstatt:(u.profile&&u.profile.firma)||'',grund:(grund||'').trim()};
+  // Einbuchungs-Status liegt in v.garageStatus — v.garage ist der
+  // Garage-NAME (String, Formular) und darf nicht ueberschrieben werden
+  // (frueherer Bug: Einbuchen zerstoerte den erfassten Garage-Namen).
+  if(typeof v.garage==='object')v.garage=(v.garage&&v.garage.werkstatt)||'';
+  v.garageStatus={eingebuchtAm:now,eingebuchtVonUserId:u.id||'',eingebuchtVonName:u.name||u.username||'',werkstatt:(typeof v.garage==='string'&&v.garage)||(u.profile&&u.profile.firma)||'',grund:(grund||'').trim()};
   addVehicleEvent(vehicleId,'garage',{label:'In Garage eingebucht',detail:(grund||'').trim()});
   persist();
   _fzActLog('garage_ein','In Garage eingebucht'+(grund?' · '+grund.trim().slice(0,80):''), v);
@@ -4035,7 +4103,8 @@ function _fzGarageAusbuchen(vehicleId){
     var u=_fzGetUser()||{};
     var now=new Date().toISOString();
     v.status='aktiv';
-    if(v.garage){v.garage.ausgebuchtAm=now;v.garage.ausgebuchtVonName=u.name||u.username||'';}
+    if(typeof v.garage==='object'&&v.garage){v.garageStatus=v.garage;v.garage=v.garageStatus.werkstatt||'';} // Legacy-Migration
+    if(v.garageStatus){v.garageStatus.ausgebuchtAm=now;v.garageStatus.ausgebuchtVonName=u.name||u.username||'';}
     addVehicleEvent(vehicleId,'garage',{label:'Aus Garage ausgebucht',detail:''});
     persist();
     _fzActLog('garage_aus','Aus Garage ausgebucht', v);
