@@ -147,6 +147,8 @@ Berechnung abgeschlossen (z.B. Enthärtung: 2.5 l/s, 15°fH)
 - **Leiternprüfer** (`role_leiterpruefer`): EKAS-Leiterprüfungen — erscheint in `openPruefAnfordern` NUR bei `pruefKat='leiterpruefung'` (reiner Leiternprüfer). Kombinierbar mit Produktlieferant-Rollen auf demselben Account. `_wzInvitePruefer` vergibt bei Leiter-Werkzeugen automatisch `role_leiterpruefer` statt `role_pruefer`.
 - **Rollen-Checks**: Dashboard-Helper `_liefIsAnlagenLief()`/`_liefIsProduktLief()`; `_liefIsAdmin`/`_liefCanEditProdukte`/`_liefCanOfferten` decken beide Typen ab, `_liefCanVerify` nur Anlagen. Partner-Checks in if_werkzeug (`_wzIsBeauftragt`, cross-org load, Prüf-Dropdown, Supplier-Autocomplete) prüfen BEIDE Prefixe (`role_lieferant`, `role_produktlieferant`) + `role_pruefer`/`role_leiterpruefer`. Mitarbeiter-Einladung im Dashboard startet typ-abhängig (`role_produktlieferant_intern` bzw. `role_lieferant_intern`); Rollen-Zuweisung bietet nur die Rollen des eigenen Typs an (+ Leiternprüfer bei Produktlieferanten).
 - **Labels folgen den DEFAULTS**: `_mergeWithDefaults` in gema_auth.js normalisiert Name+Farbe aller `role_(lieferant|produktlieferant|leiterpruefer)*`-Records beim Cloud-Load — Umbenennungen (z.B. «Lieferant» → «Anlagenlieferant») greifen so auch für bestehende Cloud-Installationen, ohne Cloud-Write.
+- **Firmen-Kategorie → Mitarbeiter-Rollen (KRITISCH, strikt gekoppelt)**: `KATEGORIE_ROLLEN` in gema_auth.js + `GemaAuth.getAssignableRoleIdsForOrg(orgId)` (null = keine Einschränkung; `role_admin` NIE enthalten — nur Super-Admin vergibt sie). Org-Kategorien der Gruppe Lieferant: `lieferant` («Anlagenlieferant / Hersteller») und `produktlieferant` («Produktlieferant (Werkzeuge)»); dazu `garagist`. Das User-Modal in `sys_admin.html` (`_renderUserRoleCheckboxes`) zeigt NUR die zur gewählten Firma passenden Rollen (Lieferanten-Firma → keine Planer-Rollen und umgekehrt), rendert bei Org-Wechsel im Modal neu; bereits zugewiesene, unpassende Rollen (Altdaten) bleiben sichtbar + abwählbar mit ⚠-Marker — kein stiller Rechteverlust. Migration `gema_auth_orgcats_lieftypen_v1` zieht die neuen Kategorien in bestehende Installationen nach.
+- **Dashboard-Transparenz**: `#navFirma` zeigt neben der Firma den erkannten Typ («🏭 Anlagenlieferant», «🔧 Produktlieferant», «🪜 Leiternprüfer», «👁 Admin-Ansicht (alle Tabs)» — ein role_admin-Konto erzwingt IMMER die Voll-Ansicht!) und «🔒 nur Lesen» bei Intern-Rollen. **Robustheit (KRITISCH)**: `setupTabs()` läuft VOR `renderAll()` (Renderer greifen auf Tab-Elemente wie `#oaBadge` zu — beim Produktlieferanten existiert der Offertanfragen-Tab nicht; der ungeguardete Zugriff riss früher das ganze Dashboard ab: keine Tabs, nichts klickbar). `renderAll()` kapselt jeden Sektions-Renderer einzeln in try/catch. Browser-Smoke-Test für die Rollen-Sichten: Playwright-Script (localStorage-Seeding, externe Hosts geblockt) — Muster im Repo-Verlauf (#163).
 
 ### Lieferanten-Zugang & Dashboard
 
@@ -261,6 +263,7 @@ Kategorie-Präfix + Kleinschreibung. **Keine Umlaute in Dateinamen** (ä→ae, �
 | `sa_` | Sanitäranlagen | `sa_enthaertung.html` |
 | `el_` | Elektro | `el_index.html` |
 | `hy_` | Hygiene | `hy_w12.html` |
+| `hz_` | Heizungsberechnungen | `hz_ausdehnungsgefaess.html` |
 | `br_` | Brandschutz | `br_index.html` |
 | `if_` | Infrastruktur (Werkzeug, Fahrzeug, Lager) | `if_werkzeug.html`, `if_fahrzeug.html` |
 | `sd_` | Schadensdokumentation | `sd_schadensbericht.html` |
@@ -272,7 +275,89 @@ Hauptseite: `index.html`. Hub-Seiten: `sb_index.html`, `pm_ausschreibung.html`, 
 
 ### Modulübersicht
 
-- **16 Sanitärberechnungs-Module** (sb_): Inkl. LU-Zusammenstellung, Druckerhöhung, Osmose, Enthärtung etc.
+- **17 Sanitärberechnungs-Module** (sb_): Inkl. LU-Zusammenstellung, Druckerhöhung, Zirkulationsberechnung, Osmose, Enthärtung etc.
+
+### Zirkulationsberechnung (sb_zirkulation.html)
+
+1:1-Umsetzung der Excel-Vorlage «Zirkulationsberechnung_neu.xlsm» (Teilstrecken-Verfahren, per Playwright-Test auf 4 Nachkommastellen gegen die Original-Excel validiert):
+- **Teilstrecken-Netz**: dynamische Tabelle, jede TS mit Länge, bis zu 2 angeschlossenen TS (Baum), Art (`kon.` = VL+RL getrennt / `RaR` = Rohr-an-Rohr), Einbauort (Keller n.b./Räume b./Schacht/ESH kalt → Umgebungstemperatur), ø VL (Aussen-ø für Dämm-Auslegung), DN RL (Rohrtabellen-Lookup), Werkstoff (Kupfer/PE-X/Edelstahl/PVC 16), Dämmstärken auto (MuKEn-Tabelle nach λ ≤/> 0.031) mit «opt.»-Override.
+- **Engine** (`zkCalc`): W/m-Verlust über U-Wert-Formel `2π/(ln((r+s)/r)/λ + 1/(8·(r+s)))` mit Norm-ΔT 1000/24 (wie Excel); ΣQ bottom-up übers Netz; Temperaturen top-down (`H`=T_RL Anfang, `I`=Rest-ΔT gegen `tref` 60 °C, `K`=Anteil, `L`=T_Ende); Massenstrom `J=ΣQ/(1.163·I)`; v/R aus den 11 Original-Rohrtabellen (`ZK_PIPES`, Lookup «nächstgrössere Zeile» wie Excel MATCH+1); RaR-Verluste über BM/BN-Tabelle (erste TS temperaturabhängig via AV-Formel → 3 Durchläufe).
+- **Strang-Auswertung automatisch**: jede End-TS = ein Strang (Pfad zur Pumpe); Δp = ΣR·l + Einzelwiderstände% + Regulierventil `(m/Kvs)²/1000` + RV; höchster Strang = erforderliche Förderhöhe; Drosselventil-KV je Strang `m·√(1000/Δp_Drossel)` gegen «Förderhöhe Pumpe eff.».
+- **Persistenz**: Parameter via GemaAutoSave (`zirkulation`); TS-Zeilen als JSON im hidden `#zk_rows`-Textarea (Restore über autosave-`change`-Event, `_zkInternal`-Guard gegen Loops).
+- **Anlagenwahl + Offertanfrage**: `GemaAnlagenwahl.init({kategorie:'zirkulationspumpe'})` — neue Produktkategorie `KATEGORIEN.zirkulationspumpe` (Förderhöhe mbar + Volumenstrom l/h + Medientemp, matchFn) + `LIEF_KATEGORIEN`-Eintrag. Berechnungswerte-Payload: `volumenstrom` (l/h), `foerderhoehe` (mbar), `tempRl`, `waermeverlust` (W) — Projektwerte, nie Datenblatt-Werte.
+- Registriert in gema_auth (MODULES `zirkulation`, FILE_MAP `sb_zirkulation`), sb_index (Warmwasser), sw.js.
+
+### Frischwasserstation (sa_frischwasserstation.html)
+
+Komplett NEU nach Excel-Vorlage «Frischwasserstation.xlsm» (ersetzt die alte Berechnung; gleicher Aufbau/Validierungs-Ansatz wie sb_zirkulation, per Playwright gegen die Original-Excel geprüft):
+1. **Nutzwarmwasserbedarf** (SIA 385/2): Nutzungseinheiten-Tabelle (`FW_NUTZUNG`, 28 Einträge mit `avg`+`σ` Normliter/d) — `V = n>10 ? avg+2σ/√n : avg+2σ`; Verlustzahl % (aus sb_warmwasser) → Tagesbedarf à 60 °C.
+2. **Spitzenvolumenstrom Wohnungsbau**: Duschen/Badewannen je Wohnungstyp, l/min pro Armatur, Druck-Umrechnungshelfer `v·√(p₂/p₁)`, Gleichzeitigkeits-Vorschlag (`FW_GZ`-Stufen nach Anzahl, «Wohnungen 30–35 %») + gewählter Wert; **Mischkreuz** (WW/KW/MW → WW-Anteil `(MW−KW)/(WW−KW)`).
+3./4. **Gastroanlage + Spezielle Anlage**: Geräte-Zeilen (Katalog `FW_GERAETE` als datalist, l/min@1.5 bar auto), Checkbox «gleichz.» → gewählter Volumenstrom = Σ markierte (manuelle Gleichzeitigkeit wie Excel).
+5. **Leistung**: `P = ṁ·cp·ΔT` mit Dichte aus `FW_DICHTE` (0–100 °C, floor-LOOKUP), massgebender Volumenstrom = max(berechnet, Override), minus Zirkulationsabzug (`ṁ_zirk·cp·ΔT_zirk`, Warnung T_Zirk < 52 °C).
+- Persistenz: Parameter via GemaAutoSave (`frischwasserstation`), die 4 dynamischen Tabellen als JSON im hidden `#fw_rows`-Textarea (Pattern wie `#zk_rows`).
+- Anlagenwahl/Offertanfrage: Kategorie `frischwasserstation` (bestehend), Payload `leistung` (kW netto), `zapfleistung` (l/min), `tagesbedarf`, `wwTemp` — Projektwerte, nie Datenblatt-Werte.
+
+### Warmwasser SIA 385 (sb_warmwasser.html)
+
+Komplett NEU nach Excel-Vorlage «WarmwasserGesamt385_251125_v3.xlsm» (SIA 385/1+2:2025; ersetzt die alte Version; gleicher Aufbau/Validierung wie sb_zirkulation/sa_frischwasserstation — Playwright: Grobauslegung gegen Excel-Cached-Werte, Feinplanung gegen unabhängig berechnete Formelwerte). 4 Tabs:
+1. **Grobauslegung**: Nutzungseinheiten (`WW_GROB_NUTZUNG`, 14 SIA-Normwerte l/d) → Tagesbedarf à 60 °C; `Q'W = V·ΔT·cp/3600`; Personenzahl-Rechner `nP = (3.3−2/(1+(ANF/100)³))·nWhg`.
+2. **Verlustzahl ϛIS**: Speicherverluste `0.11·√V(+Stutzen)`, Leitungsverluste (konv. 0.12 / RaR+WHB 0.15 kWh/m·d), Hilfsenergie Pumpe `(5+0.16·L)·24·10⁻³` (Grenzwert `8+0.2·L`), WHB `⅔·Q`, WP `2Q/(3·COP)`, Ausstoss (15/20/25 % der Speicherverluste) → `ϛIS = (ΣVerluste+2.5·ΣHilfsenergie)/Q'W·100`, Grenzwert 50 %. **ϛIS = Verlustzahl-Input der Frischwasserstation.**
+3. **Feinplanung**: Bedarf mit σ (`WW_FEIN_NUTZUNG` = dieselbe Tabelle wie FWS); **Stundenspitzen** je Zeile mit Profil-Auswahl — Wohnbau per Formel `kWh/d·(0.09+0.66/√n+1.98/n)`, andere fix (`WW_SPITZE_PROFIL`: Hotel 12.5 / Altersheim 19.3 / Spital 14 / Studentenheim 6.6 / Büro 20 / Restaurant 13.5 %) → Σ = Spitzendeckungsvolumen; Wohnungs-/Heizlast-Rechner (`WW_HEIZLAST_TYPEN` W/m², Fläche/0.85); Leitungsverluste je Aussen-ø (`WW_ROHR_FAKTOR`·ΔT — gleiche Faktoren wie Zirkulations-Vordimensionierung); Ausstosswärmeverluste über Entnahme-Matrix (`WW_ENTNAHME`: Kategorie×Ausstosszeit, Wohnungen: Entnahmen = Ø-Belegung·5+2).
+4. **Speicher & Leistung**: `QW,gen,out` = Ausstoss+Leitungen+Bedarf+Speicherverluste; Ladezeit bei Vorrangschaltung; Steuervolumen `(V/100)·(100−Spitzenanteil%)/Ladungen`; Bereitschafts-/Speichervolumen ·fsto(1.25); effektives Steuervolumen-Override (aus Speicheroptimierung); Umsatz-Check (>1 sonst «Speicher zu gross»-Warnung).
+- Persistenz: AutoSave `warmwasser_sia385` + 4 dynamische Tabellen als JSON im hidden `#ww_rows`-Textarea. Keine Anlagenwahl (wie bisher — keine Speicher-Produktkategorie).
+
+### Druckanstieg bei Temperaturänderung (sb_druckanstieg.html)
+
+1:1-Umsetzung der Excel «SP_Druckanstieg_aufgrund_Volumenänderung» (Blatt Statisch_Dynamisch; per Playwright gegen die Excel-Cached-Werte validiert). Statischer Überdruck in der abgesperrten Trinkwasser-Installation bei Erwärmung — 7 Schritte auf einer Seite (Kaltwasser-Gruppe in sb_index):
+1. Vordruck p1 → 2. Höhendruck `pHgeo = 0.0981·hv` → 3. Fülltemperatur/Maximaltemperatur mit Wasser-Dichte-Näherungsfunktion (`SP_DICHTE`: Polynom 5. Grades / (1+b·t); Dichten sind Anzeige, die Rechnung läuft über β) → 4. Volumenausdehnung: Rohr-ø-Select aus `SP_ROHRE` (CNS Nussbaum, di = da−2·Wandstärke), `v0 = (di²·π/4)·l`, `ΔV = v0·β·ΔT` (β editierbar, Default 0.21·10⁻³ 1/K wie Excel) → 5. Druckanstieg: Rohrausdehnung `ΔV_Rohr = v0·3·α·ΔT` (α Default 16.5·10⁻⁶), `Δp = (ΔV_eff/v0)·K` mit Bulkmodul K Default 22000 bar (2.2 GPa) → 6. Gesamtdruck tiefste Stelle `pÜmax = p1+pHgeo+Δp` mit **Warnbox > 10 bar** («Massnahmen treffen») → 7. Ansprechdruck Sicherheitsventil `pSV = (p1+pHgeo)·(1+Schliessdruck)`, Faktor Default 0.3.
+- Kernaussage (aus der Excel übernommen, als Hinweis im UI): die Installationslänge ist irrelevant — nur ΔT ist massgebend (ΔV/v0 kürzt das Volumen heraus).
+- Persistenz: reine Input-Felder via GemaAutoSave (`druckanstieg`), keine dynamischen Tabellen.
+- Anlagenwahl + Offertanfrage: **neue Produktkategorie `KATEGORIEN.sicherheitsventil`** (Ansprechdruck bar + Abblaseleistung + Anschluss; matchFn scored Nähe zum berechneten pSV) + `LIEF_KATEGORIEN`-Eintrag + bkpMap `254.0`. Payload: `ansprechdruck`, `ruhedruck`, `gesamtdruck`, `druckanstieg`, `rohrDa` — Projektwerte, nie Datenblatt-Werte.
+- Registriert in gema_auth (MODULES `druckanstieg`, FILE_MAP `sb_druckanstieg`), sb_index (Kaltwasser, «8 Module» + ALL_MODULES), sw.js.
+
+### Ausdehnungsgefäss & Sicherheitsventil (hz_ausdehnungsgefaess.html) — erste Heizungsberechnung
+
+1:1-Umsetzung der Excel «Auslegung_Ausdehnungsgefässe_HE301_01_Var2.xlsm» (SWKI HE301-01, Betriebstemperatur < 100 °C; per Playwright gegen die Excel-Cached-Werte validiert). **Neues Präfix `hz_` (Heizungsberechnungen) + neue Gruppe «Heizung» auf sb_index** (cat-icon.hz/mod.hz orange, eigener Jump-Link).
+- **VBA-UDFs der Excel repliziert**: `Dichte_Wasser(t)` (identisches Polynom wie sb_druckanstieg), `X_Zuschlagsfaktor(FN)` (≥150 kW→1.5, ≤10 kW→3.0, sonst `(150−FN)·0.010714+1.5`), `spez_Volumen(Art,ΔT)` dm³/kW (Radiatoren `1200·ΔT⁻¹·⁰⁹`, Flachrohrrad `440·ΔT⁻⁰·⁹⁵`, Heizwände `195·ΔT⁻⁰·⁸`, Konvektoren `400·ΔT⁻⁰·⁹⁷`, FBH `200·ΔT⁻⁰·⁸⁷`, Lüftung `75·ΔT⁻⁰·⁶³`).
+- **Ablauf**: p0 = hst/10+Überlagerung, pfin = pSV/1.3 (pSV als Select 3–10 barü — die DGH-Tabelle matcht exakt); Ausdehnungsfaktor je Teil `e = ρmin/ρ(qm)−1` für Wärmeerzeuger, Speicher und **dynamische Heizgruppen-Tabelle** (eff. Wasserinhalt als Override, sonst Abschätzung über spez_Volumen; **Vex der Gruppen nutzt den WE-Zuschlagsfaktor**, wie Excel `$C$32`); `VN,min = Vex,tot·(Pfin+1)/(Pfin−Po)` → Gefässvorschlag aus SU/SD-Reihe (`HE_GEFAESSE` 18–800 l, Typ + Gefässdruck PS z.B. «SU 800.3»), Fülldruck, P·V ≥ 3000-Pflicht-Check; **Sicherheitsventil DGH**: Nennweite aus Abblaseleistungs-Tabelle (`HE_SV`, DN 15–32 je pSV), Schliessdruck/Druckmittelbeiwert/Verdampfungsenthalpie-Polynome, engster Querschnitt d0,ber/d0,eff, theoretische Abblaseleistung.
+- Warnungen: pfin ≤ p0 (SV-Druck zu klein für Anlagehöhe), VN,min > 800 l (Parallelgefässe), Leistung über DN-32-Kapazität.
+- Persistenz: Parameter via GemaAutoSave (`ausdehnungsgefaess`), Heizgruppen als JSON im hidden `#he_rows`-Textarea (Pattern `#zk_rows`).
+- Anlagenwahl + Offertanfrage: **neue Produktkategorie `KATEGORIEN.ausdehnungsgefaess`** (Nennvolumen + zul. Betriebsdruck PS + Bauart, matchFn auf VN ≥ VN,min) + `LIEF_KATEGORIEN` + bkpMap `242.0`. Payload: `vnMin`, `nennvolumen` (Vorschlag), `vordruck`, `enddruck`, `gefaessdruck`, `anlageinhalt`, `ausdehnungsvolumen` — Projektwerte, nie Datenblatt-Werte.
+- Registriert in gema_auth (MODULES `ausdehnungsgefaess`, cat **Heizungsberechnungen**, FILE_MAP `hz_ausdehnungsgefaess`), sb_index (Gruppe Heizung), sw.js.
+- **Permission-Backfill (KRITISCH, gilt für ALLE neuen Module)**: `_mergeWithDefaults` in gema_auth.js ergänzt bei Rollen mit Default-Pendant **fehlende** Modul-Permission-Keys aus den DEFAULT_ROLES (idempotent, kein Cloud-Write, vorhandene Einträge werden nie überschrieben) — sonst zeigten neue Module bei bestehenden Cloud-Installationen «Kein Zugriff», weil die Cloud-Rolle den neuen Key nicht kennt.
+
+### Dimensionierung Heizungsleitungen (hz_heizungsleitungen.html)
+
+1:1-Umsetzung der Excel «Dimensionierung_Heizungsleitungen.xlsm» (per Playwright gegen die Excel-Cached-Werte des Beispielprojekts validiert). 4 Tabs analog der Blattstruktur:
+1. **Strang-Teilstrecken**: Temperaturen VL/RL + Medium-Select (Wasser / Antifrogen N 20/27/34 % — Stoffwerte cp/ρ/ν als Polynome der Mitteltemperatur, `HL_MEDIEN` exakt aus dem Daten-Blatt); dynamische TS-Tabelle (Material Stahl/CNS/Kunststoff → DN-Select aus `HL_ROHRE`; CNS-«DN» = Aussen-ø). Hydraulik je TS: `ṁ = P·3.6/(cp·ΔT)`, v, **R = (Re/10⁵)/(di/1000)·(v²/2)·ρ** — die Excel setzt λ = Re·10⁻⁵ in die Darcy-Formel ein (bewusste Vereinfachung des Erstellers, exakt repliziert); Total = R·L + Hersteller-Pa + Zuschlag·R·L (UI in %, Excel-Bruch); Warnung R > 100 Pa/m rot.
+2. **Stränge & Ventile**: Strang = Kommaliste von TS-Nummern → DV/ṁ/P/L-Summen (Excel summiert auch die Massenströme der seriellen TS — repliziert). Grösster Strang = **Referenz**; übrige: Δp Ventil = maxDV − DV, `KV = 0.01·ṁ/√Δp[Pa]` (Formel der propagierten Excel-Zeilen; Zeile 9 hatte eine nicht nachgezogene Alt-Variante — vereinheitlicht), **Einstellung in Umdrehungen** via KV-Tabelle `HL_VENTIL_KV` (0.5–4 Umdr. × DN 10–50; STAD-IMI und Oventrop HydroCom V haben in der Excel identische Tabellen → EIN Abschnitt). Kein Treffer → Badge «DN zu klein».
+3. **Verteilleitung**: TS-Tabelle mit bis zu 4 Lasten [W] je Abschnitt (Q = Σ), gleiche Hydraulik.
+4. **Heizgruppen & Ergebnis**: Gruppe = Kommaliste von Verteil-TS → Pumpen-Duty (Σ Pa → mbar/kPa; Σ kg/h → l/s / m³/h; Σ W → kW). Massgebende Gruppe (max Δp) in KPIs.
+- Persistenz: Parameter via GemaAutoSave (`heizungsleitungen`), die 4 dynamischen Tabellen als EIN JSON (`hlState={ts,str,vts,grp}`) im hidden `#hl_rows`-Textarea.
+- Anlagenwahl + Offertanfrage: **neue Produktkategorie `KATEGORIEN.heizungspumpe`** (Förderhöhe kPa + Volumenstrom m³/h + Medientemp, matchFn wie Zirkulationspumpe) + `LIEF_KATEGORIEN` + bkpMap `243.0`. Payload = massgebende Heizgruppe: `foerderhoehe` (kPa), `volumenstrom` (m³/h), `leistung` (kW), `vlTemp` — Projektwerte, nie Datenblatt-Werte.
+- Registriert in gema_auth (MODULES `heizungsleitungen`, cat Heizungsberechnungen, FILE_MAP `hz_heizungsleitungen`), sb_index (Heizung, «2 Module»), sw.js.
+
+### Wärmegruppen & Wärmeerzeugerleistung (hz_waermegruppen.html)
+
+1:1-Umsetzung der Excel «Dimensionierung_Waermegruppe_WW_Berechnung_mit_Verlustzuschlag.xlsx» (SIA 384/1+2; per Playwright gegen die Excel-Cached-Werte validiert). 4 Tabs:
+1. **Raumliste**: Räume mit Heizlast [W] (inkl. allfälligem Zuschlag direkt erfassen, z.B. `10900·1.15`) + Zuordnung Abgabesystem/Wärmegruppe/Gebäudeteil (Freitext + datalists aus dem Auswahllisten-Blatt).
+2. **Wärmegruppen**: pro Zeile eine Gruppe je Abgabesystem — Fläche + Leistung als SUMIFS über die Raumliste (**Matching exakt auf System UND Gruppe UND Gebäudeteil**, Hinweis bei 0 kW); separate Tabelle «Verbundene Systeme» (Lufterhitzer → ΦAS); «Total pro Abgabesystem» dynamisch über alle vorkommenden Systeme (die Excel-Vorlage listete nur 4 fixe — gleiche Formeln, vollständig).
+3. **Wassererwärmung**: `Q = m·c·ΔT/3600` (c=4.187), **`P = Q·(1+Verlustzuschlag)/Ladezeit`** → ΦW.
+4. **Wärmeerzeuger SIA 384/1**: `Φgen,out = (ΦHL,b − Φg,b) + Φoff + ΦW + ΦAS`; ΦHL,b-Input (0 = auto aus Total Abgabesysteme), Sperrzeit-Input (Excel hardcodierte 6 h) → `Φoff = ΦHL,b·24/(24−toff) − ΦHL,b`; Kontrolle + Differenz.
+- Persistenz: AutoSave `waermegruppen` + 4 dynamische Tabellen als EIN JSON (`wgState={raeume,gruppen,verbunden,ww}`) im hidden `#wg_rows`-Textarea.
+- Anlagenwahl + Offertanfrage: **neue Produktkategorie `KATEGORIEN.waermeerzeuger`** (Heizleistung kW + Bauart WP/Kessel + COP/max. VL; matchFn auf Heizleistung ≥ Φgen,out, ideal ≤ 1.5×) + `LIEF_KATEGORIEN` + bkpMap `242.0`. Payload: `leistungGenOut`, `heizlast`, `warmwasser`, `sperrzuschlag` — Projektwerte, nie Datenblatt-Werte.
+- Registriert in gema_auth (MODULES `waermegruppen`, cat Heizungsberechnungen, FILE_MAP `hz_waermegruppen`), sb_index (Heizung, «3 Module»), sw.js.
+
+### Heizlast aus Jahresenergieverbrauch (hz_heizlast.html)
+
+1:1-Umsetzung der Excel «Heizlastbestimmung V6.1 2023» (Gabathuler; Sanierungs-Tool — Kesselleistung aus Abrechnungsperioden; per Playwright validiert: Zwischenwerte gegen Excel-Cached, Endresultate gegen unabhängige Formelwerte, weil die Beispiel-Cached-Werte #DIV/0! sind). 4 Tabs:
+1. **Gebäude & Warmwasser**: Kategorie (Miete/Eigentum/EFH) × Standard → WW-Verbrauch/Person (`HZL_VERBRAUCH` 35–55 dm³/P·d); Bauweise → Cwirk (`HZL_BAUWEISE`); Wohnungstypen-Tabelle: `Pers/WE = 3.3−2/(1+(F/100)³)` (+Override), `kWh/a·P = INT(ROUND(F·(1+z%)·gz·21.226/50))·50` (**Zeile-1-Formel inkl. Gleichzeitigkeitsfaktor für ALLE Zeilen — Excel-Zeilen 2–4 hatten gz vergessen**), QWW, `EBF = Fläche·WE/(ANF/EBF)` + Nebenräume·b-Faktor.
+2. **Klima & Verbrauch**: **36 SMA-Klimastationen inline** (`HZL_STATIONEN`: müM, ta, tam, HGT 2011–2022, b/m50/m90); `ta,Geb = ta,St+ROUND(−0.005·Δh)`; `fcor = 1+(9.4−tam)·0.06`; `QH,li = (EFH?16:13+15·Ath/AE)·fcor`; **Perioden-Tabelle**: Tag-im-Jahr → HGT-%-Saisonpolynom (3 Äste, gerundet), QWW-Anteil über Tage, `QH100 = QH/(D%/100)` (Jahreswechsel: +100; >365 d: ·365/Tage); Ø nur über Perioden mit QH100 > 0. Effizienzklasse A+–G (`HZL_EFFKLASSEN`, 100·qh/QH,li).
+3. **Heizleistung**: Hauptmethode Hottinger — Methode `A wenn 55·h·müM⁻⁰·³⁸⁵ ≥ qh sonst B`; `A: (qh/(h·müM^0.215))^0.6 · B: 0.4+qh/((5.3·h)+0.035·müM)` W/m²K; ·Faktor Ath/AE ·ΔT → W/m² → kW; WW-Zuschlag (EFH 2 / sonst 3 W/m²); Wiederaufheizfaktor `((24/(24−Sperr))−1)·0.5+1`; **3 Vergleichsmethoden** (Hottinger HGT-korrigiert mit f_HGT-Polynom; Betriebstundenkoeffizient `27·ln(qh)−32` bzw. Höhenvariante; SIA 384/1 b/m50/m90-Werte).
+4. **WW-Speicher & Heizkurve**: Speicherauslegung (tz = Cwirk·ΔqRH/spez. Leistung, Ladungen, Steuer-/Spitzen-/Bereitschaftsvolumen ·(1+z%), Boilervorrang-Check) + **neue Betriebstemperaturen nach Sanierung** (Steilheit, log. Übertemperatur, `ÜTneu = (Pneu/Palt)^(1/n)·ÜTalt`, JVL/JRL neu — WP-Tauglichkeit).
+- Persistenz: AutoSave `heizlast_verbrauch` + 2 dynamische Tabellen (`hzlState={whg,per}`) im hidden `#zl_rows`; Perioden-Daten als `<input type="date">`.
+- Anlagenwahl + Offertanfrage: BESTEHENDE Kategorie `waermeerzeuger` (Payload: `leistungGenOut` = Total Kessel, `heizlast`, `warmwasser`, `qh100` — Projektwerte).
+- Registriert in gema_auth (MODULES `heizlast_verbrauch`, FILE_MAP `hz_heizlast`), sb_index (Heizung, «4 Module»), sw.js.
 - **Projektmanagement-Module** (pm_): Objekte, Terminplanung, Sitzungsprotokolle, Kostenkontrolle, Ausschreibung
 - **Hygiene-Module** (hy_): W12 Selbstkontrolle (SVGW)
 - **Infrastruktur-Module** (if_): Werkzeugmanagement, Fahrzeugmanagement, Trocknungsgeräte (siehe Abschnitte weiter unten)

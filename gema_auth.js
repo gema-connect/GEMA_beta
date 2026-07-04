@@ -87,10 +87,28 @@
       var defById = {};
       defaults.forEach(function(d){ if(d && d.id) defById[d.id] = d; });
       cloudArr = cloudArr.map(function(r){
-        if(r && r.id && defById[r.id] && /^role_(lieferant|produktlieferant|leiterpruefer)/.test(r.id)){
-          return Object.assign({}, r, { name: defById[r.id].name, color: defById[r.id].color });
+        if(!(r && r.id && defById[r.id])) return r;
+        var d = defById[r.id];
+        var out = r;
+        if(/^role_(lieferant|produktlieferant|leiterpruefer)/.test(r.id)){
+          out = Object.assign({}, out, { name: d.name, color: d.color });
         }
-        return r;
+        // Fehlende Modul-Permissions aus den DEFAULTS ergaenzen (idempotent,
+        // kein Cloud-Write): Cloud-Rollen aus der Zeit VOR einem neuen Modul
+        // kennen dessen Key nicht — ohne Backfill zeigt das neue Modul fuer
+        // bestehende Installationen «Kein Zugriff». Vorhandene (auch bewusst
+        // deaktivierte) Eintraege werden NIE ueberschrieben.
+        if(d.permissions && out.permissions){
+          var missing = null;
+          Object.keys(d.permissions).forEach(function(k){
+            if(!out.permissions[k]){ (missing = missing || {})[k] = d.permissions[k]; }
+          });
+          if(missing){
+            if(out === r) out = Object.assign({}, r);
+            out.permissions = Object.assign({}, out.permissions, missing);
+          }
+        }
+        return out;
       });
     }
     return cloudArr;
@@ -213,6 +231,8 @@
     {key:'du_zusammenstellung',     label:'DU-Zusammenstellung',       cat:'Sanitärberechnungen'},
     {key:'enthaertungsanlage',      label:'Enthärtungsanlage',         cat:'Sanitärberechnungen'},
     {key:'druckerhoehung',          label:'Druckerhöhung',             cat:'Sanitärberechnungen'},
+    {key:'zirkulation',             label:'Zirkulationsberechnung',    cat:'Sanitärberechnungen'},
+    {key:'druckanstieg',            label:'Druckanstieg Temperatur',   cat:'Sanitärberechnungen'},
     {key:'osmose',                  label:'Osmose',                    cat:'Sanitärberechnungen'},
     {key:'frischwasserstation',     label:'Frischwasserstation',       cat:'Sanitärberechnungen'},
     {key:'laengenausdehnung',       label:'Längenausdehnung',          cat:'Sanitärberechnungen'},
@@ -225,6 +245,10 @@
     {key:'abwasserhebeanlage',      label:'Abwasserhebeanlage',        cat:'Sanitärberechnungen'},
     {key:'grobauslegung',           label:'Grobauslegung',             cat:'Sanitärberechnungen'},
     {key:'vonroll_tabellen',        label:'Von Roll Tabellen',         cat:'Sanitärberechnungen'},
+    {key:'ausdehnungsgefaess',      label:'Ausdehnungsgefäss HE301',   cat:'Heizungsberechnungen'},
+    {key:'heizungsleitungen',       label:'Heizungsleitungen',         cat:'Heizungsberechnungen'},
+    {key:'waermegruppen',           label:'Wärmegruppen SIA 384',      cat:'Heizungsberechnungen'},
+    {key:'heizlast_verbrauch',      label:'Heizlast aus Verbrauch',    cat:'Heizungsberechnungen'},
     {key:'objekte',                 label:'Objekte & Beteiligte',      cat:'Projektmanagement'},
     {key:'terminplan',              label:'Terminplan',                cat:'Projektmanagement'},
     {key:'besprechungsprotokoll',   label:'Besprechungsprotokoll',     cat:'Projektmanagement'},
@@ -260,12 +284,12 @@
     'sb_druckverlust':'druckverlust','sb_druckdispositiv':'druckdispositiv',
     'sb_lu_tabelle':'lu_tabelle','sb_ausstosszeiten':'ausstosszeiten',
     'sb_du_zusammenstellung':'du_zusammenstellung','sa_enthaertung':'enthaertungsanlage',
-    'sb_druckerhoehung':'druckerhoehung','sa_osmose':'osmose',
+    'sb_druckerhoehung':'druckerhoehung','sb_zirkulation':'zirkulation','sb_druckanstieg':'druckanstieg','sa_osmose':'osmose',
     'sa_frischwasserstation':'frischwasserstation','sb_laengenausdehnung':'laengenausdehnung',
     'sa_solaranlage':'thermische_solaranlage','sb_warmwasser':'warmwasser_sia385',
     'sb_niederschlag':'niederschlagsanfall','sa_fettabscheider':'fettabscheider',
     'sa_oelabscheider':'oelabscheider','sa_schlammsammler':'schlammsammler',
-    'sa_abwasserhebeanlage':'abwasserhebeanlage','pm_objekte':'objekte',
+    'sa_abwasserhebeanlage':'abwasserhebeanlage','hz_ausdehnungsgefaess':'ausdehnungsgefaess','hz_heizungsleitungen':'heizungsleitungen','hz_waermegruppen':'waermegruppen','hz_heizlast':'heizlast_verbrauch','pm_objekte':'objekte',
     'pm_terminplan':'terminplan','pm_besprechung':'besprechungsprotokoll',
     'pm_kostenkontrolle':'kostenkontrolle','pm_honorar':'planungshonorar',
     'pm_abnahme':'abnahme_sia','pm_baustelle':'baustellencheckliste',
@@ -390,13 +414,46 @@
     {id:'architekt',            name:'Architekt / Generalplaner',icon:'🏛', gruppe:'bau'},
     {id:'bauherr',              name:'Bauherr / Investor',     icon:'🏗', gruppe:'bau'},
     {id:'generalunternehmer',   name:'Generalunternehmer',     icon:'👷', gruppe:'bau'},
-    // ── Lieferant (exklusiv gegenueber Gebaeudetechnik) ──
-    {id:'lieferant',            name:'Lieferant / Hersteller', icon:'🏭', gruppe:'lieferant'},
+    // ── Lieferanten (exklusiv gegenueber Gebaeudetechnik) ──
+    // ZWEI Typen: Anlagenlieferant (Berechnungsmodule, mit Verifizierung)
+    // und Produktlieferant (Werkzeuge/Maschinen, ohne Verifizierung).
+    {id:'lieferant',            name:'Anlagenlieferant / Hersteller', icon:'🏭', gruppe:'lieferant'},
+    {id:'produktlieferant',     name:'Produktlieferant (Werkzeuge)',  icon:'🔧', gruppe:'lieferant'},
     // ── Andere ──
+    {id:'garagist',             name:'Garagist / Werkstatt',   icon:'🚗', gruppe:'andere'},
     {id:'immobilien',           name:'Immobilienverwaltung',   icon:'🏢', gruppe:'andere'},
     {id:'behoerde',             name:'Behörde / Fachstelle',   icon:'🏛', gruppe:'andere'},
     {id:'sonstiges',            name:'Sonstiges',              icon:'📦', gruppe:'andere'}
   ];
+
+  // ── Firmen-Kategorie → erlaubte Mitarbeiter-Rollen (User-Entscheid) ──
+  // Die Kategorie der Firma bestimmt STRIKT, welche Rollen ihren Usern
+  // zugewiesen werden koennen (sys_admin filtert die Rollen-Checkboxen).
+  // null = alle Rollen erlaubt (Fallback fuer 'sonstiges' / ohne Kategorie).
+  // role_admin wird separat behandelt (nur Super-Admin vergibt sie).
+  var KATEGORIE_ROLLEN = {
+    sanitaerplaner:       ['role_planer','role_abteilungsleiter','role_magaziner','role_monteur','role_spengler'],
+    heizungsplaner:       ['role_hlkk_planer','role_abteilungsleiter','role_magaziner','role_monteur'],
+    lueftungsplaner:      ['role_lueftung_planer','role_abteilungsleiter','role_magaziner','role_monteur'],
+    elektroplaner:        ['role_elektro_planer','role_abteilungsleiter','role_magaziner','role_monteur'],
+    sanitaerinstallateur: ['role_unternehmer','role_abteilungsleiter','role_magaziner','role_monteur','role_spengler'],
+    heizungsinstallateur: ['role_unternehmer','role_abteilungsleiter','role_magaziner','role_monteur'],
+    lueftungsinstallateur:['role_unternehmer','role_abteilungsleiter','role_magaziner','role_monteur'],
+    elektroinstallateur:  ['role_unternehmer','role_abteilungsleiter','role_magaziner','role_monteur'],
+    klima_kaeltetechnik:  ['role_unternehmer','role_abteilungsleiter','role_magaziner','role_monteur'],
+    msr_gebaeudeautomation:['role_unternehmer','role_abteilungsleiter','role_magaziner','role_monteur'],
+    brandschutz:          ['role_unternehmer','role_abteilungsleiter','role_magaziner','role_monteur'],
+    aufzugsbau:           ['role_unternehmer','role_abteilungsleiter','role_magaziner','role_monteur'],
+    architekt:            ['role_architekt'],
+    bauherr:              ['role_bauherrschaft'],
+    generalunternehmer:   ['role_unternehmer','role_architekt'],
+    lieferant:            ['role_lieferant','role_lieferant_admin','role_lieferant_produkte','role_lieferant_verify','role_lieferant_offerten','role_lieferant_intern','role_pruefer'],
+    produktlieferant:     ['role_produktlieferant_admin','role_produktlieferant_produkte','role_produktlieferant_offerten','role_produktlieferant_intern','role_leiterpruefer','role_pruefer'],
+    garagist:             ['role_garagist'],
+    immobilien:           ['role_bauherrschaft'],
+    behoerde:             ['role_behoerde'],
+    sonstiges:            null
+  };
 
   var DEFAULT_USERS = [
     {id:'user_admin', username:'admin@gema.ch', name:'Administrator',
@@ -471,6 +528,28 @@
           try{localStorage.setItem(STORAGE_ORG_CATS,JSON.stringify(newCats));}catch(e){}
         }
         try{localStorage.setItem(MIGFLAG2,'1');}catch(e){}
+      }
+    } catch(e) {}
+    // ── Migration: Org-Kategorien Lieferanten-Typen + Garagist ──
+    // Neue Kategorien 'produktlieferant' + 'garagist' nachziehen und die
+    // System-Kategorie 'lieferant' auf das neue Label «Anlagenlieferant /
+    // Hersteller» umbenennen (idempotent, einmalig pro Geraet).
+    try {
+      var MIGFLAG_LIEFTYP='gema_auth_orgcats_lieftypen_v1';
+      if(!localStorage.getItem(MIGFLAG_LIEFTYP)){
+        var catsL=_getOrgCats();
+        if(catsL && catsL.length){
+          ['produktlieferant','garagist'].forEach(function(cid){
+            if(!catsL.find(function(c){return c.id===cid;})){
+              var defC=DEFAULT_ORG_CATS.find(function(c){return c.id===cid;});
+              if(defC)catsL.push(defC);
+            }
+          });
+          var exL=catsL.find(function(c){return c.id==='lieferant';});
+          if(exL && exL.name==='Lieferant / Hersteller') exL.name='Anlagenlieferant / Hersteller';
+          try{localStorage.setItem(STORAGE_ORG_CATS,JSON.stringify(catsL));}catch(e){}
+        }
+        try{localStorage.setItem(MIGFLAG_LIEFTYP,'1');}catch(e){}
       }
     } catch(e) {}
     // ── Migration: Rollen role_magaziner + role_monteur ──
@@ -901,6 +980,29 @@
     getRoles:_getRoles,
     getSession:_getSession,
     hash:_hash,
+
+    // ── Firmen-Kategorie → erlaubte Mitarbeiter-Rollen ──────────────
+    // Liefert die Rollen-IDs, die fuer User dieser Org zulaessig sind
+    // (Union ueber alle Kategorien der Org). null = keine Einschraenkung
+    // (Org ohne Kategorie, Kategorie 'sonstiges' oder org_default).
+    // role_admin ist NIE enthalten — die vergibt nur der Super-Admin.
+    getAssignableRoleIdsForOrg:function(orgId){
+      if(!orgId||orgId==='org_default')return null;
+      var orgs=_getOrgs()||[];
+      var org=orgs.find(function(o){return o.id===orgId;});
+      if(!org)return null;
+      var kats=(org.kategorien&&org.kategorien.length)?org.kategorien:(org.kategorie?[org.kategorie]:[]);
+      if(!kats.length)return null;
+      var out={},unrestricted=false;
+      kats.forEach(function(k){
+        if(!(k in KATEGORIE_ROLLEN)){unrestricted=true;return;} // unbekannte/eigene Kategorie → nicht einschraenken
+        var list=KATEGORIE_ROLLEN[k];
+        if(list===null){unrestricted=true;return;}              // 'sonstiges'
+        list.forEach(function(rid){out[rid]=true;});
+      });
+      if(unrestricted)return null;
+      return Object.keys(out);
+    },
 
     getCurrentUser:function(){
       var s=_getSession();if(!s)return null;
