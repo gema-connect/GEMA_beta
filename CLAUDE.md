@@ -264,6 +264,7 @@ Kategorie-Präfix + Kleinschreibung. **Keine Umlaute in Dateinamen** (ä→ae, �
 | `el_` | Elektro | `el_index.html` |
 | `hy_` | Hygiene | `hy_w12.html` |
 | `hz_` | Heizungsberechnungen | `hz_ausdehnungsgefaess.html` |
+| `lt_` | Lüftungsberechnungen | `lt_hx_diagramm.html` |
 | `br_` | Brandschutz | `br_index.html` |
 | `if_` | Infrastruktur (Werkzeug, Fahrzeug, Lager) | `if_werkzeug.html`, `if_fahrzeug.html` |
 | `sd_` | Schadensdokumentation | `sd_schadensbericht.html` |
@@ -358,6 +359,28 @@ Komplett NEU nach Excel-Vorlage «WarmwasserGesamt385_251125_v3.xlsm» (SIA 385/
 - Persistenz: AutoSave `heizlast_verbrauch` + 2 dynamische Tabellen (`hzlState={whg,per}`) im hidden `#zl_rows`; Perioden-Daten als `<input type="date">`.
 - Anlagenwahl + Offertanfrage: BESTEHENDE Kategorie `waermeerzeuger` (Payload: `leistungGenOut` = Total Kessel, `heizlast`, `warmwasser`, `qh100` — Projektwerte).
 - Registriert in gema_auth (MODULES `heizlast_verbrauch`, FILE_MAP `hz_heizlast`), sb_index (Heizung, «4 Module»), sw.js.
+
+### h,x-Diagramm für feuchte Luft (lt_hx_diagramm.html) — erste Lüftungsberechnung
+
+Mollier-h,x-Diagramm nach der Seven-Air-Vorlage (950 mbar / 540 m ü.M.). **Neues Präfix `lt_` (Lüftungsberechnungen) + neue Gruppe «Lüftung» auf sb_index** (cat-icon.lt/mod.lt sky-blue, Jump-Link). KEIN Excel — Formeln sind Standard-Psychrometrie (per Playwright gegen Tabellen-Referenzwerte + Round-Trips validiert):
+- **Formeln**: barometrische Höhenformel `p = 101325·(1−0.0065·H/288.15)^5.255` (540 m → 950 mbar wie PDF-Titel); Magnus (WMO/DIN) `ps = 611.2·e^(17.62t/(243.12+t))` Wasser bzw. `22.46/272.62` Eis; `x = 0.622·pD/(p−pD)`; `h = 1.006·t + x·(2501+1.86·t)`; Taupunkt = inverse Magnus; Feuchtkugel über adiabate Sättigung (Bisektion); ρ feuchte Luft.
+- **Luftzustände** (dynamische Tabelle, `#hx_rows`): je Punkt Kombination zweier bekannter Grössen (`t+φ`, `t+x`, `t+h`, `t+Taupunkt`, `t+Feuchtkugel`, `x+φ`, `x+h`, `h+φ`) → ALLE übrigen berechnet (t, φ, x, h, Td, Twb, ρ, pD); Kombis ohne geschlossene Lösung per Bisektion; φ > 100 % = Nebelgebiet rot markiert.
+- **Canvas-Diagramm** (kein Library): Isothermen horizontal, φ-Kurven 10–100 % (Sättigungslinie fett), h-Isolinien alle 5 kJ/kg im ungesättigten Bereich, Punkte farbig mit Label, Prozesslinie mit Pfeilen in Tabellenreihenfolge; Achsen auto-erweiternd (Default x 0–20 g/kg, t −15…40 °C).
+- **Prozess-Auswertung** (bei Volumenstrom > 0): je Abschnitt `ṁ = V̇·ρ(Start)/3600`, `P = ṁ·Δh` (+ = Heizen), `Wasser = ṁ·Δx·3600` (+ = Befeuchten); KPIs Σ Heiz-/Kühlleistung, Be-/Entfeuchtung.
+- Persistenz: AutoSave `hx_diagramm` + Punkte-Tabelle im hidden `#hx_rows`.
+- Anlagenwahl + Offertanfrage: **neue Produktkategorie `KATEGORIEN.lueftungsgeraet`** (Monobloc: Volumenstrom, WRG-Typ/Rückwärmzahl, Heiz-/Kühlregister, Befeuchter, SFP; matchFn auf Volumenstrom ≥ Bedarf ideal ≤ 1.6×) + `LIEF_KATEGORIEN` + bkpMap `244.0`. Payload: `volumenstrom`, `heizleistung`, `kuehlleistung`, `befeuchtung`, `hoehe` — Projektwerte, nie Datenblatt-Werte.
+- Registriert in gema_auth (MODULES `hx_diagramm`, cat **Lüftungsberechnungen**, FILE_MAP `lt_hx_diagramm`), sb_index (Gruppe Lüftung, Hero 27 Module/6 Kategorien), sw.js.
+
+### Flüssiggas LPG (sb_fluessiggas.html) — erste Gas-Berechnung
+
+1:1-Umsetzung der Excel «12.39_LPGBer.Vorlage_2023.12_V1.2» (Leitfaden L1 03'2024 Arbeitskreis LPG, EKAS 6517, Suva 66060; Node+Playwright gegen unabhängig berechnete Formelwerte validiert — die Vorlage enthält keine Beispieldaten). **Neue Gruppe «Gas» auf sb_index** (User-Wunsch «neuer Titel in den Sanitärberechnungen»; cat-icon.gs/mod.gs violett #7c3aed, Jump-Link 🛢️, Hero 28 Module/7 Kategorien) — Präfix bleibt `sb_`, gema_auth-cat Sanitärberechnungen. 4 Tabs:
+1. **Gasgeräte & Massenstrom**: dynamische Geräte-Tabelle — Katalog `GS_GERAETE` (38 Geräte Tab. 13/14 mit **gerundeten** Tabellen-ṁ, Bauart A/B/C/AB/A*) ODER freies Gerät (ṁ = kW/12.87, Hi Propan). Pro Zeile «Teil %?»-Checkbox: Teil-Verbraucher gehen über Diagramm 1 in die Spitzenlast, sonst 100 %-Dauerlast. **Spitzenmassenstrom ṁs**: wie im Excel manuell aus Diagramm 1 abgelesen (Original-Bild eingebettet: `vorlagen/lpg_diagramm1.jpg`) — zusätzlich kalibrierte Log-Log-Näherung als Vorschlag (`gsSpitzeNaeherung`: `u=ln(ṁA/ṁg)/ln(500/ṁg)`, `ṁs=ṁg·(50/ṁg)^(u^1.045)`; Blatt-Beispiel 7.5/1.5→3.75 ✓); Ablese-Input überschreibt. Total = Σ100 % + ṁs.
+2. **Rampen-/Tankgrösse**: V1 (eine Rampe für Total; Tab.-15-Lookup `GS_FLASCHEN` 10.5/33-35 kg × Temp −15…+15 °C × Entnahmezeit ½h…dauernd → n = ROUNDUP, Rampe = **2 × n** Betrieb+Reserve); V2 (getrennt Grundlast + Spitze, Summe aufgerundet); V3 (Tank `GS_TANKS` Tab. 17 überflur, **unterflur = 90 %**, Check `Unterflur/Total < 1 → «ist zu klein!»` wie Excel). «Meine Behälterwahl» (V1/2/3) steuert die Wechsel-Rechnung.
+3. **Jahresverbrauch**: Geräte-Zeilen gespiegelt aus Tab ① — Katalog-Zeilen mit Haken «über Tab. 16» zählen NICHT (Doppelzählungs-Schutz), **freie Zeilen zählen immer** (wie Excel); kg/a = Anzahl·ṁ·h/d·d/a. + Tab.-16-Block (`GS_TAB16` kg pro Person/Jahr × Personen). Behälterwechsel/Jahr = ROUNDUP(Total/(n·Flascheninhalt)) bzw. Tankbefüllungen = ROUNDUP(Total/Füllmenge 700–12'700 kg).
+4. **Frischluftöffnungen**: Raum/Standort-Blöcke (dynamisch) mit Geräte-Zeilen (Bauart je Zeile, «eingerechnet»-Toggle nur Bauart A). Raum-Modus: A → «Bitte Tabelle 20 beachten» (Tab. 20 als Info-Tabelle im UI); B → ΣkW·10 cm²; C → (ΣkW·2+100)·0.4 cm²; immer obere+untere Öffnung, mind. 100 cm².
+- Persistenz: Parameter via GemaAutoSave (`fluessiggas`), Geräte+Räume als EIN JSON (`gsState={ger,fr}`) im hidden `#gs_rows`-Textarea.
+- Anlagenwahl + Offertanfrage: **neue Produktkategorie `KATEGORIEN.fluessiggasanlage`** (Flaschenrampe/Tank/Verdampfer; Verdampfungsleistung kg/h Pflicht, matchFn ≥ Total-Massenstrom ideal ≤ 2×) + `LIEF_KATEGORIEN` + bkpMap `252.0`. Payload: `totalMassenstrom`, `grundlast`, `spitzenmassenstrom`, `jahresverbrauch` — Projektwerte, nie Datenblatt-Werte.
+- Registriert in gema_auth (MODULES `fluessiggas`, cat Sanitärberechnungen, FILE_MAP `sb_fluessiggas`), sb_index (**neue Gruppe Gas**), sw.js.
 - **Projektmanagement-Module** (pm_): Objekte, Terminplanung, Sitzungsprotokolle, Kostenkontrolle, Ausschreibung
 - **Hygiene-Module** (hy_): W12 Selbstkontrolle (SVGW)
 - **Infrastruktur-Module** (if_): Werkzeugmanagement, Fahrzeugmanagement, Trocknungsgeräte (siehe Abschnitte weiter unten)

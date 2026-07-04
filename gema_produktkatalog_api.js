@@ -16,6 +16,8 @@ var LIEF_KATEGORIEN = [
   {id:'ausdehnungsgefaess',label:'Ausdehnungsgefässe (Heizung)',gruppe:'anlagen'},
   {id:'heizungspumpe',label:'Heizungs-Umwälzpumpen',gruppe:'anlagen'},
   {id:'waermeerzeuger',label:'Wärmeerzeuger (WP / Kessel)',gruppe:'anlagen'},
+  {id:'lueftungsgeraet',label:'Lüftungsgeräte / Monoblocs',gruppe:'anlagen'},
+  {id:'fluessiggasanlage',label:'Flüssiggas-Versorgungsanlagen (LPG)',gruppe:'anlagen'},
   {id:'fettabscheider',label:'Fettabscheider',gruppe:'anlagen'},
   {id:'oelabscheider',label:'Ölabscheider',gruppe:'anlagen'},
   {id:'schlammsammler',label:'Schlammsammler',gruppe:'anlagen'},
@@ -882,6 +884,86 @@ KATEGORIEN.waermeerzeuger = {
   }
 };
 
+// ── Lüftungsgerät / Monobloc ──
+// lt_hx_diagramm.html matcht auf Volumenstrom + Register-Leistungen aus der hx-Prozessrechnung.
+KATEGORIEN.lueftungsgeraet = {
+  id: 'lueftungsgeraet',
+  name: 'Lüftungsgerät / Monobloc',
+  icon: '💨',
+  felder: [
+    { id: 'serie', label: 'Typenbezeichnung / Serie', typ: 'text', gruppe: 'Allgemein', pflicht: true },
+    { id: 'modell', label: 'Modell / Grösse', typ: 'text', gruppe: 'Allgemein', pflicht: true },
+    { id: 'artikelnr', label: 'Artikelnummer', typ: 'text', gruppe: 'Allgemein' },
+    { id: 'bauart', label: 'Bauart', typ: 'select', optionen: ['Monobloc innen','Monobloc Wetterfest (Dach)','Flachgerät (Zwischendecke)','Kompaktgerät Wohnungslüftung'], gruppe: 'Allgemein', pflicht: true },
+
+    { id: 'volumenstromMax', label: 'Max. Volumenstrom', typ: 'number', einheit: 'm³/h', gruppe: 'Leistungsdaten', pflicht: true },
+    { id: 'externerDruck', label: 'Externe Pressung', typ: 'number', einheit: 'Pa', gruppe: 'Leistungsdaten' },
+    { id: 'wrgTyp', label: 'Wärmerückgewinnung', typ: 'select', optionen: ['Plattentauscher (Kreuzstrom)','Plattentauscher (Gegenstrom)','Rotationstauscher','Kreislaufverbund','keine'], gruppe: 'Leistungsdaten' },
+    { id: 'wrgGrad', label: 'WRG-Rückwärmzahl', typ: 'number', einheit: '%', gruppe: 'Leistungsdaten' },
+    { id: 'heizleistung', label: 'Heizregister-Leistung', typ: 'number', einheit: 'kW', gruppe: 'Leistungsdaten' },
+    { id: 'kuehlleistung', label: 'Kühlregister-Leistung', typ: 'number', einheit: 'kW', gruppe: 'Leistungsdaten' },
+    { id: 'befeuchterLeistung', label: 'Befeuchter-Leistung', typ: 'number', einheit: 'kg/h', gruppe: 'Leistungsdaten' },
+    { id: 'sfp', label: 'SFP-Klasse / spez. Ventilatorleistung', typ: 'text', gruppe: 'Leistungsdaten' },
+
+    { id: 'spannung', label: 'Spannung', typ: 'select', optionen: ['230V/50Hz','400V/50Hz'], gruppe: 'Elektro' },
+
+    { id: 'ce', label: 'CE-Konformität (ErP/Ecodesign)', typ: 'checkbox', gruppe: 'Normen' },
+    { id: 'besonderheiten', label: 'Besonderheiten', typ: 'textarea', gruppe: 'Zusatz' }
+  ],
+  matchFn: function(produkt, berechnung){
+    let score = 0;
+    const d = produkt.daten || {};
+    const b = berechnung || {};
+    if(b.volumenstrom && d.volumenstromMax){
+      const v = parseFloat(d.volumenstromMax);
+      if(v >= b.volumenstrom && v <= b.volumenstrom * 1.6) score += 50;
+      else if(v >= b.volumenstrom) score += 30;
+      else if(v >= b.volumenstrom * 0.9) score += 10;
+    }
+    if(b.heizleistung && d.heizleistung && parseFloat(d.heizleistung) >= b.heizleistung) score += 20;
+    if(b.kuehlleistung && d.kuehlleistung && parseFloat(d.kuehlleistung) >= b.kuehlleistung) score += 15;
+    if(b.befeuchtung && d.befeuchterLeistung && parseFloat(d.befeuchterLeistung) >= b.befeuchtung) score += 10;
+    if(d.wrgGrad) score += 5;
+    return Math.min(100, score);
+  }
+};
+
+// ── Flüssiggas-Versorgungsanlage (LPG: Flaschenrampe / Tank / Verdampfer) ──
+KATEGORIEN.fluessiggasanlage = {
+  id: 'fluessiggasanlage',
+  name: 'Flüssiggas-Versorgungsanlage (LPG)',
+  icon: '🛢️',
+  felder: [
+    { id: 'serie', label: 'Typenbezeichnung / Serie', typ: 'text', gruppe: 'Allgemein', pflicht: true },
+    { id: 'modell', label: 'Modell / Grösse', typ: 'text', gruppe: 'Allgemein', pflicht: true },
+    { id: 'artikelnr', label: 'Artikelnummer', typ: 'text', gruppe: 'Allgemein' },
+    { id: 'bauart', label: 'Bauart', typ: 'select', optionen: ['Flaschenrampe (Transportbehälter)','Tank überflur','Tank unterflur','Verdampferanlage (elektrisch)'], gruppe: 'Allgemein', pflicht: true },
+
+    { id: 'verdampfungsleistung', label: 'Verdampfungs-/Entnahmeleistung', typ: 'number', einheit: 'kg/h', gruppe: 'Leistungsdaten', pflicht: true },
+    { id: 'lagerkapazitaet', label: 'Lagerkapazität / Füllmenge', typ: 'number', einheit: 'kg', gruppe: 'Leistungsdaten' },
+    { id: 'anzahlBehaelter', label: 'Anzahl Behälter (Rampe)', typ: 'number', einheit: 'Stk.', gruppe: 'Leistungsdaten' },
+    { id: 'behaeltergroesse', label: 'Behälter-/Flaschengrösse', typ: 'select', optionen: ['Propan 10.5 kg','Propan 33/35 kg','Tank 1.6–2.0 m³','Tank 2.7 m³','Tank 4.8 m³','Tank 12 m³','Tank 30 m³'], gruppe: 'Leistungsdaten' },
+    { id: 'ausgangsdruck', label: 'Ausgangsdruck (Regelstufe)', typ: 'number', einheit: 'mbar', gruppe: 'Leistungsdaten' },
+
+    { id: 'ekas', label: 'Konform EKAS 6517 / Leitfaden L1', typ: 'checkbox', gruppe: 'Normen' },
+    { id: 'besonderheiten', label: 'Besonderheiten', typ: 'textarea', gruppe: 'Zusatz' }
+  ],
+  matchFn: function(produkt, berechnung){
+    let score = 0;
+    const d = produkt.daten || {};
+    const b = berechnung || {};
+    if(b.totalMassenstrom && d.verdampfungsleistung){
+      const v = parseFloat(d.verdampfungsleistung);
+      if(v >= b.totalMassenstrom && v <= b.totalMassenstrom * 2) score += 50;
+      else if(v >= b.totalMassenstrom) score += 30;
+      else if(v >= b.totalMassenstrom * 0.9) score += 10;
+    }
+    if(b.jahresverbrauch && d.lagerkapazitaet && parseFloat(d.lagerkapazitaet) >= b.jahresverbrauch / 12) score += 15;
+    if(d.ekas) score += 10;
+    return Math.min(100, score);
+  }
+};
+
 // ── Frischwasserstation ──
 KATEGORIEN.frischwasserstation = {
   id: 'frischwasserstation',
@@ -1667,7 +1749,7 @@ function beantworteOffertanfrage(id, antwort){
   // Automatische Vormerkung für Ausschreibung erstellen
   if(oa.projekt && oa.projekt.objektId){
     var bkpMap={enthaertung:'253.0',osmose:'253.2',druckerhoehung:'253.4',frischwasserstation:'253.6',
-      hebeanlage:'252.6',fettabscheider:'252.4',oelabscheider:'252.8',zirkulation:'253.8',zirkulationspumpe:'253.8',sicherheitsventil:'254.0',ausdehnungsgefaess:'242.0',heizungspumpe:'243.0',waermeerzeuger:'242.0'};
+      hebeanlage:'252.6',fettabscheider:'252.4',oelabscheider:'252.8',zirkulation:'253.8',zirkulationspumpe:'253.8',sicherheitsventil:'254.0',ausdehnungsgefaess:'242.0',heizungspumpe:'243.0',waermeerzeuger:'242.0',lueftungsgeraet:'244.0',fluessiggasanlage:'252.0'};
     addVormerkung({
       objektId:oa.projekt.objektId,
       lieferantId:oa.lieferantId||'',
