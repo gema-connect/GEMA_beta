@@ -336,6 +336,17 @@ Komplett NEU nach Excel-Vorlage «WarmwasserGesamt385_251125_v3.xlsm» (SIA 385/
 - Persistenz: Parameter via GemaAutoSave (`heizungsleitungen`), die 4 dynamischen Tabellen als EIN JSON (`hlState={ts,str,vts,grp}`) im hidden `#hl_rows`-Textarea.
 - Anlagenwahl + Offertanfrage: **neue Produktkategorie `KATEGORIEN.heizungspumpe`** (Förderhöhe kPa + Volumenstrom m³/h + Medientemp, matchFn wie Zirkulationspumpe) + `LIEF_KATEGORIEN` + bkpMap `243.0`. Payload = massgebende Heizgruppe: `foerderhoehe` (kPa), `volumenstrom` (m³/h), `leistung` (kW), `vlTemp` — Projektwerte, nie Datenblatt-Werte.
 - Registriert in gema_auth (MODULES `heizungsleitungen`, cat Heizungsberechnungen, FILE_MAP `hz_heizungsleitungen`), sb_index (Heizung, «2 Module»), sw.js.
+
+### Wärmegruppen & Wärmeerzeugerleistung (hz_waermegruppen.html)
+
+1:1-Umsetzung der Excel «Dimensionierung_Waermegruppe_WW_Berechnung_mit_Verlustzuschlag.xlsx» (SIA 384/1+2; per Playwright gegen die Excel-Cached-Werte validiert). 4 Tabs:
+1. **Raumliste**: Räume mit Heizlast [W] (inkl. allfälligem Zuschlag direkt erfassen, z.B. `10900·1.15`) + Zuordnung Abgabesystem/Wärmegruppe/Gebäudeteil (Freitext + datalists aus dem Auswahllisten-Blatt).
+2. **Wärmegruppen**: pro Zeile eine Gruppe je Abgabesystem — Fläche + Leistung als SUMIFS über die Raumliste (**Matching exakt auf System UND Gruppe UND Gebäudeteil**, Hinweis bei 0 kW); separate Tabelle «Verbundene Systeme» (Lufterhitzer → ΦAS); «Total pro Abgabesystem» dynamisch über alle vorkommenden Systeme (die Excel-Vorlage listete nur 4 fixe — gleiche Formeln, vollständig).
+3. **Wassererwärmung**: `Q = m·c·ΔT/3600` (c=4.187), **`P = Q·(1+Verlustzuschlag)/Ladezeit`** → ΦW.
+4. **Wärmeerzeuger SIA 384/1**: `Φgen,out = (ΦHL,b − Φg,b) + Φoff + ΦW + ΦAS`; ΦHL,b-Input (0 = auto aus Total Abgabesysteme), Sperrzeit-Input (Excel hardcodierte 6 h) → `Φoff = ΦHL,b·24/(24−toff) − ΦHL,b`; Kontrolle + Differenz.
+- Persistenz: AutoSave `waermegruppen` + 4 dynamische Tabellen als EIN JSON (`wgState={raeume,gruppen,verbunden,ww}`) im hidden `#wg_rows`-Textarea.
+- Anlagenwahl + Offertanfrage: **neue Produktkategorie `KATEGORIEN.waermeerzeuger`** (Heizleistung kW + Bauart WP/Kessel + COP/max. VL; matchFn auf Heizleistung ≥ Φgen,out, ideal ≤ 1.5×) + `LIEF_KATEGORIEN` + bkpMap `242.0`. Payload: `leistungGenOut`, `heizlast`, `warmwasser`, `sperrzuschlag` — Projektwerte, nie Datenblatt-Werte.
+- Registriert in gema_auth (MODULES `waermegruppen`, cat Heizungsberechnungen, FILE_MAP `hz_waermegruppen`), sb_index (Heizung, «3 Module»), sw.js.
 - **Projektmanagement-Module** (pm_): Objekte, Terminplanung, Sitzungsprotokolle, Kostenkontrolle, Ausschreibung
 - **Hygiene-Module** (hy_): W12 Selbstkontrolle (SVGW)
 - **Infrastruktur-Module** (if_): Werkzeugmanagement, Fahrzeugmanagement, Trocknungsgeräte (siehe Abschnitte weiter unten)

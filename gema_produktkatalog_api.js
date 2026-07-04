@@ -15,6 +15,7 @@ var LIEF_KATEGORIEN = [
   {id:'sicherheitsventil',label:'Sicherheitsventile',gruppe:'anlagen'},
   {id:'ausdehnungsgefaess',label:'Ausdehnungsgefässe (Heizung)',gruppe:'anlagen'},
   {id:'heizungspumpe',label:'Heizungs-Umwälzpumpen',gruppe:'anlagen'},
+  {id:'waermeerzeuger',label:'Wärmeerzeuger (WP / Kessel)',gruppe:'anlagen'},
   {id:'fettabscheider',label:'Fettabscheider',gruppe:'anlagen'},
   {id:'oelabscheider',label:'Ölabscheider',gruppe:'anlagen'},
   {id:'schlammsammler',label:'Schlammsammler',gruppe:'anlagen'},
@@ -840,6 +841,47 @@ KATEGORIEN.heizungspumpe = {
   }
 };
 
+// ── Wärmeerzeuger (Wärmepumpe / Kessel) ──
+// hz_waermegruppen.html matcht auf die erforderliche Wärmeerzeugerleistung Φgen,out (SIA 384/1).
+KATEGORIEN.waermeerzeuger = {
+  id: 'waermeerzeuger',
+  name: 'Wärmeerzeuger',
+  icon: '🔥',
+  felder: [
+    { id: 'serie', label: 'Typenbezeichnung / Serie', typ: 'text', gruppe: 'Allgemein', pflicht: true },
+    { id: 'modell', label: 'Modell / Grösse', typ: 'text', gruppe: 'Allgemein', pflicht: true },
+    { id: 'artikelnr', label: 'Artikelnummer', typ: 'text', gruppe: 'Allgemein' },
+    { id: 'bauart', label: 'Bauart', typ: 'select', optionen: ['Wärmepumpe Luft/Wasser','Wärmepumpe Sole/Wasser','Wärmepumpe Wasser/Wasser','Gaskessel (Brennwert)','Pelletkessel','Stückholzkessel','Ölkessel','Fernwärme-Übergabestation','Elektroheizeinsatz'], gruppe: 'Allgemein', pflicht: true },
+
+    { id: 'heizleistung', label: 'Heizleistung (Auslegungspunkt)', typ: 'number', einheit: 'kW', gruppe: 'Leistungsdaten', pflicht: true },
+    { id: 'leistungMin', label: 'Min. Leistung (Modulation)', typ: 'number', einheit: 'kW', gruppe: 'Leistungsdaten' },
+    { id: 'cop', label: 'COP / Wirkungsgrad', typ: 'number', gruppe: 'Leistungsdaten' },
+    { id: 'vlTempMax', label: 'Max. Vorlauftemperatur', typ: 'number', einheit: '°C', gruppe: 'Leistungsdaten' },
+    { id: 'kaeltemittel', label: 'Kältemittel', typ: 'text', gruppe: 'Leistungsdaten' },
+    { id: 'schallleistung', label: 'Schallleistungspegel', typ: 'number', einheit: 'dB(A)', gruppe: 'Leistungsdaten' },
+
+    { id: 'spannung', label: 'Spannung', typ: 'select', optionen: ['230V/50Hz','400V/50Hz'], gruppe: 'Elektro' },
+
+    { id: 'ce', label: 'CE-Konformität', typ: 'checkbox', gruppe: 'Normen' },
+    { id: 'besonderheiten', label: 'Besonderheiten', typ: 'textarea', gruppe: 'Zusatz' }
+  ],
+  matchFn: function(produkt, berechnung){
+    let score = 0;
+    const d = produkt.daten || {};
+    const b = berechnung || {};
+    if(b.leistungGenOut && d.heizleistung){
+      const p = parseFloat(d.heizleistung);
+      if(p >= b.leistungGenOut && p <= b.leistungGenOut * 1.5) score += 60;
+      else if(p >= b.leistungGenOut) score += 35;
+      else if(p >= b.leistungGenOut * 0.9) score += 15;
+    }
+    if(d.leistungMin) score += 10;
+    if(d.cop) score += 10;
+    if(d.vlTempMax) score += 5;
+    return Math.min(100, score);
+  }
+};
+
 // ── Frischwasserstation ──
 KATEGORIEN.frischwasserstation = {
   id: 'frischwasserstation',
@@ -1625,7 +1667,7 @@ function beantworteOffertanfrage(id, antwort){
   // Automatische Vormerkung für Ausschreibung erstellen
   if(oa.projekt && oa.projekt.objektId){
     var bkpMap={enthaertung:'253.0',osmose:'253.2',druckerhoehung:'253.4',frischwasserstation:'253.6',
-      hebeanlage:'252.6',fettabscheider:'252.4',oelabscheider:'252.8',zirkulation:'253.8',zirkulationspumpe:'253.8',sicherheitsventil:'254.0',ausdehnungsgefaess:'242.0',heizungspumpe:'243.0'};
+      hebeanlage:'252.6',fettabscheider:'252.4',oelabscheider:'252.8',zirkulation:'253.8',zirkulationspumpe:'253.8',sicherheitsventil:'254.0',ausdehnungsgefaess:'242.0',heizungspumpe:'243.0',waermeerzeuger:'242.0'};
     addVormerkung({
       objektId:oa.projekt.objektId,
       lieferantId:oa.lieferantId||'',
