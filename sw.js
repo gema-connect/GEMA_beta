@@ -5,7 +5,7 @@ var CACHE_FILES = [
   '/sa_enthaertung.html', '/sa_osmose.html', '/sa_fettabscheider.html',
   '/sa_frischwasserstation.html', '/sa_oelabscheider.html', '/sa_schlammsammler.html',
   '/sa_solaranlage.html', '/sa_abwasserhebeanlage.html',
-  '/sb_lu_tabelle.html', '/sb_druckerhoehung.html', '/sb_zirkulation.html', '/sb_druckanstieg.html', '/hz_ausdehnungsgefaess.html', '/sb_druckverlust.html',
+  '/sb_lu_tabelle.html', '/sb_druckerhoehung.html', '/sb_zirkulation.html', '/sb_druckanstieg.html', '/hz_ausdehnungsgefaess.html', '/hz_heizungsleitungen.html', '/sb_druckverlust.html',
   '/sb_warmwasser.html', '/sb_niederschlag.html', '/sb_vonroll.html',
   '/sb_grobauslegung.html', '/sb_ausstosszeiten.html', '/sb_laengenausdehnung.html',
   '/sb_druckdispositiv.html', '/sb_apparateliste.html', '/sb_du_zusammenstellung.html',
