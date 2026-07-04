@@ -18,6 +18,7 @@ var LIEF_KATEGORIEN = [
   {id:'waermeerzeuger',label:'Wärmeerzeuger (WP / Kessel)',gruppe:'anlagen'},
   {id:'lueftungsgeraet',label:'Lüftungsgeräte / Monoblocs',gruppe:'anlagen'},
   {id:'fluessiggasanlage',label:'Flüssiggas-Versorgungsanlagen (LPG)',gruppe:'anlagen'},
+  {id:'gasloeschanlage',label:'Gaslöschanlagen (N2 / Novec / Inertgas)',gruppe:'anlagen'},
   {id:'fettabscheider',label:'Fettabscheider',gruppe:'anlagen'},
   {id:'oelabscheider',label:'Ölabscheider',gruppe:'anlagen'},
   {id:'schlammsammler',label:'Schlammsammler',gruppe:'anlagen'},
@@ -964,6 +965,45 @@ KATEGORIEN.fluessiggasanlage = {
   }
 };
 
+// ── Gaslöschanlage (Brandschutz) ──
+KATEGORIEN.gasloeschanlage = {
+  id: 'gasloeschanlage',
+  name: 'Gaslöschanlage',
+  icon: '🧯',
+  felder: [
+    { id: 'serie', label: 'Typenbezeichnung / Serie', typ: 'text', gruppe: 'Allgemein', pflicht: true },
+    { id: 'modell', label: 'Modell / Grösse', typ: 'text', gruppe: 'Allgemein', pflicht: true },
+    { id: 'artikelnr', label: 'Artikelnummer', typ: 'text', gruppe: 'Allgemein' },
+    { id: 'loeschmittel', label: 'Löschmittel', typ: 'select', optionen: ['Stickstoff N2 300 bar','Novec 1230 (FK-5-1-12)','Argon','Inergen (IG-541)','CO2'], gruppe: 'Allgemein', pflicht: true },
+
+    { id: 'flaschengroesse', label: 'Flaschengrösse', typ: 'number', einheit: 'l', gruppe: 'Leistungsdaten', pflicht: true },
+    { id: 'flaschenanzahlMax', label: 'Max. Flaschen pro Batterie', typ: 'number', einheit: 'Stk.', gruppe: 'Leistungsdaten' },
+    { id: 'maxRaumvolumen', label: 'Max. Raumvolumen (Richtwert)', typ: 'number', einheit: 'm³', gruppe: 'Leistungsdaten' },
+    { id: 'fuellmenge', label: 'Füllmenge pro Flasche', typ: 'number', einheit: 'kg', gruppe: 'Leistungsdaten' },
+    { id: 'arbeitsdruck', label: 'Arbeitsdruck', typ: 'number', einheit: 'bar', gruppe: 'Leistungsdaten' },
+
+    { id: 'vds', label: 'VdS-Zulassung', typ: 'checkbox', gruppe: 'Normen' },
+    { id: 'iso14520', label: 'Konform ISO 14520', typ: 'checkbox', gruppe: 'Normen' },
+    { id: 'besonderheiten', label: 'Besonderheiten', typ: 'textarea', gruppe: 'Zusatz' }
+  ],
+  matchFn: function(produkt, berechnung){
+    let score = 0;
+    const d = produkt.daten || {};
+    const b = berechnung || {};
+    if(b.loeschmittel && d.loeschmittel){
+      const want = String(b.loeschmittel).toLowerCase();
+      const have = String(d.loeschmittel).toLowerCase();
+      if(have.indexOf('novec') >= 0 && want.indexOf('novec') >= 0) score += 45;
+      else if((have.indexOf('n2') >= 0 || have.indexOf('stickstoff') >= 0) && want.indexOf('stickstoff') >= 0) score += 45;
+    }
+    if(b.flaschengroesse && d.flaschengroesse && Math.abs(parseFloat(d.flaschengroesse) - b.flaschengroesse) < 1) score += 20;
+    if(b.raumvolumen && d.maxRaumvolumen && parseFloat(d.maxRaumvolumen) >= b.raumvolumen) score += 20;
+    if(d.vds) score += 10;
+    if(d.iso14520) score += 5;
+    return Math.min(100, score);
+  }
+};
+
 // ── Frischwasserstation ──
 KATEGORIEN.frischwasserstation = {
   id: 'frischwasserstation',
@@ -1749,7 +1789,7 @@ function beantworteOffertanfrage(id, antwort){
   // Automatische Vormerkung für Ausschreibung erstellen
   if(oa.projekt && oa.projekt.objektId){
     var bkpMap={enthaertung:'253.0',osmose:'253.2',druckerhoehung:'253.4',frischwasserstation:'253.6',
-      hebeanlage:'252.6',fettabscheider:'252.4',oelabscheider:'252.8',zirkulation:'253.8',zirkulationspumpe:'253.8',sicherheitsventil:'254.0',ausdehnungsgefaess:'242.0',heizungspumpe:'243.0',waermeerzeuger:'242.0',lueftungsgeraet:'244.0',fluessiggasanlage:'252.0'};
+      hebeanlage:'252.6',fettabscheider:'252.4',oelabscheider:'252.8',zirkulation:'253.8',zirkulationspumpe:'253.8',sicherheitsventil:'254.0',ausdehnungsgefaess:'242.0',heizungspumpe:'243.0',waermeerzeuger:'242.0',lueftungsgeraet:'244.0',fluessiggasanlage:'252.0',gasloeschanlage:'256.0'};
     addVormerkung({
       objektId:oa.projekt.objektId,
       lieferantId:oa.lieferantId||'',
