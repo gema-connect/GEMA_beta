@@ -533,6 +533,8 @@ table.hl{border-collapse:collapse;width:100%;font-size:12.5px}
 .hl .hl-nr{font-weight:800;color:var(--accent);text-align:center;width:30px}
 .hl .hl-warn{color:var(--red);font-weight:800}
 .hl .hl-del{border:none;background:none;color:var(--muted2);cursor:pointer;font-size:14px;padding:2px 6px;border-radius:6px}
+.hl .hl-arm{border:1px solid #c8cfdf;background:#fff;cursor:pointer;font-size:11px;padding:2px 6px;border-radius:6px;vertical-align:middle}
+.hl .hl-arm.sel{border-color:#2563eb;background:#eff6ff}
 .hl .hl-del:hover{background:var(--red-bg);color:var(--red)}
 .hl-add{margin-top:8px;padding:7px 14px;border-radius:8px;border:1.5px dashed var(--border2);background:none;color:var(--muted);font-weight:700;font-size:12px;cursor:pointer;font-family:var(--sans)}
 .hl-add:hover{border-color:var(--accent);color:var(--accent)}
@@ -556,6 +558,8 @@ table.hl{border-collapse:collapse;width:100%;font-size:12.5px}
 <script src="gema_pdf.js"></script>
 <script src="gema_autosave.js"></script>
 <script src="gema_produktkatalog_api.js"></script>
+<script src="gema_armaturen_api.js"></script>
+<script src="gema_armaturen_picker.js"></script>
 <script src="gema_offer_request.js"></script>
 <script src="gema_anlagenwahl.js"></script>
 <script src="gema_dialog.js"></script>
@@ -930,6 +934,31 @@ function hlPersist(){
   }catch(e){}
   _hlInternal=false;
 }
+// Armaturen aus Katalog → «Hersteller [Pa]» der Teilstrecke (GemaArmaturenPicker)
+function _hlArmOpen(kind,i){
+  if(typeof GemaArmaturenPicker==='undefined'){alert('Armaturen-Katalog nicht geladen.');return;}
+  var arr=kind==='vts'?hlState.vts:hlState.ts;
+  var r=arr[i];if(!r)return;
+  var tvl=hlNum('hl_tvl'),trl=hlNum('hl_trl');var tm=(tvl+trl)/2,dT=tvl-trl;
+  var mid=document.getElementById('hl_medium').value;
+  var mDef=HL_MEDIEN[0];for(var k=0;k<HL_MEDIEN.length;k++){if(HL_MEDIEN[k].id===mid){mDef=HL_MEDIEN[k];break;}}
+  var med={cp:mDef.cp(tm),rho:mDef.rho(tm),nu:mDef.nu(tm)};
+  var p=kind==='vts'?((parseFloat(r.p1)||0)+(parseFloat(r.p2)||0)+(parseFloat(r.p3)||0)+(parseFloat(r.p4)||0)):(parseFloat(r.p)||0);
+  var c=hlTsCalc(r.mat,parseFloat(r.dn)||0,parseFloat(r.l)||0,p,0,0,med,dT);
+  var Q_ls=c.m>0?c.m/3600/med.rho*1000:0;
+  GemaArmaturenPicker.open({
+    title:'TS '+(i+1)+' · '+(r.mat||'')+' DN '+(r.dn||'–'),
+    dn:r.dn,di_mm:c.di||undefined,Q_ls:Q_ls,v_ms:c.v,rho:med.rho,unit:'Pa',
+    selection:r.arm||{armaturen:{},manuell:[]},
+    onSave:function(res){
+      r.arm=res.selection;
+      // ζ-basierte über v der TS in Pa umrechnen, kvs+manuell sind schon Δp (kPa)
+      var pa=res.dp_kPa*1000+res.zetaSum*med.rho/2*c.v*c.v;
+      r.he=pa>0?String(Math.round(pa)):r.he;
+      hlPersist();hlRenderTables();hlRecalc();
+    }
+  });
+}
 function hlMatOptions(sel){
   return ['Stahl','CNS','Kunststoff'].map(function(m){
     return '<option'+(sel===m?' selected':'')+'>'+m+'</option>';
@@ -959,7 +988,7 @@ function hlRenderTables(){
       +'<td><input class="hl-num" type="text" inputmode="decimal" data-k="l" value="'+(r.l||'')+'"/></td>'
       +'<td><input class="hl-num" type="text" inputmode="decimal" data-k="p" value="'+(r.p||'')+'"/></td>'
       +'<td><input class="hl-num" type="text" inputmode="decimal" data-k="zu" value="'+(r.zu||'')+'" placeholder="–"/></td>'
-      +'<td><input class="hl-num" type="text" inputmode="decimal" data-k="he" value="'+(r.he||'')+'" placeholder="–"/></td>'
+      +'<td style="white-space:nowrap"><input class="hl-num" type="text" inputmode="decimal" data-k="he" value="'+(r.he||'')+'" placeholder="–"/> <button class="hl-arm'+(r.arm&&((r.arm.manuell&&r.arm.manuell.length)||Object.keys(r.arm.armaturen||{}).length)?' sel':'')+'" title="Armaturen aus Katalog wählen (ζ/kvs dimensionsabhängig)" onclick="_hlArmOpen(\'ts\','+i+')">🔧</button></td>'
       +'<td class="hl-calc" id="hl_ts_'+i+'_m">–</td>'
       +'<td class="hl-calc" id="hl_ts_'+i+'_v">–</td>'
       +'<td class="hl-calc" id="hl_ts_'+i+'_r">–</td>'
@@ -998,7 +1027,7 @@ function hlRenderTables(){
       +'<td><input class="hl-num" type="text" inputmode="decimal" data-k="p3" value="'+(r.p3||'')+'"/></td>'
       +'<td><input class="hl-num" type="text" inputmode="decimal" data-k="p4" value="'+(r.p4||'')+'"/></td>'
       +'<td><input class="hl-num" type="text" inputmode="decimal" data-k="zu" value="'+(r.zu||'')+'" placeholder="–"/></td>'
-      +'<td><input class="hl-num" type="text" inputmode="decimal" data-k="he" value="'+(r.he||'')+'" placeholder="–"/></td>'
+      +'<td style="white-space:nowrap"><input class="hl-num" type="text" inputmode="decimal" data-k="he" value="'+(r.he||'')+'" placeholder="–"/> <button class="hl-arm'+(r.arm&&((r.arm.manuell&&r.arm.manuell.length)||Object.keys(r.arm.armaturen||{}).length)?' sel':'')+'" title="Armaturen aus Katalog wählen (ζ/kvs dimensionsabhängig)" onclick="_hlArmOpen(\'vts\','+i+')">🔧</button></td>'
       +'<td class="hl-calc" id="hl_vts_'+i+'_q">–</td>'
       +'<td class="hl-calc" id="hl_vts_'+i+'_m">–</td>'
       +'<td class="hl-calc" id="hl_vts_'+i+'_v">–</td>'

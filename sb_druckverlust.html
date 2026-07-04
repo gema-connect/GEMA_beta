@@ -320,6 +320,7 @@ function fixLeadingZero(el){
 <script src="gema_pdf.js"></script>
 <script src="gema_autosave.js"></script>
 <script src="gema_armaturen_api.js"></script>
+<script src="gema_armaturen_picker.js"></script>
 <script src="gema_dialog.js"></script>
 <link rel="stylesheet" href="gema_responsive.css"/>
 </head>
@@ -426,30 +427,18 @@ function fixLeadingZero(el){
         <div style="width:1px;height:36px;background:var(--blue-bd);flex-shrink:0"></div>
         <div id="checksContainer" style="flex:1"></div>
       </div>
+
+      <!-- Druckverlustdiagramme der gewählten Armaturen (erscheinen im PDF-Export) -->
+      <div id="armDiagSec" style="display:none;margin-top:14px;background:var(--sur);border:1.5px solid var(--brd);border-radius:11px;overflow:hidden">
+        <div style="padding:10px 14px;display:flex;align-items:center;gap:10px;background:var(--sur2);border-bottom:1px solid var(--brd)">
+          <span style="font-size:12.5px;font-weight:800">📈 Druckverlustdiagramme der gewählten Armaturen</span>
+          <span style="font-size:10.5px;color:var(--mut)">werden im PDF-Export angehängt</span>
+          <button class="no-print" id="armDiagToggle" onclick="toggleArmDiag()" style="margin-left:auto;padding:4px 12px;border-radius:7px;border:1.5px solid var(--brd2);background:var(--sur);color:var(--mut);font-size:11px;font-weight:700;cursor:pointer;font-family:inherit">Ausblenden</button>
+        </div>
+        <div id="armDiagBody" style="padding:12px 14px;display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px"></div>
+      </div>
   </div>
 </div><!-- /pg -->
-
-<!-- FITTINGS MODAL -->
-<div class="modal-bg hidden" id="fitModal">
-  <div class="modal">
-    <div class="modal-hd">
-      <div class="modal-hd-ic">🔧</div>
-      <div>
-        <div class="modal-hd-title" id="fitModalTitle">Fittings – Teilstrecke 1</div>
-        <div class="modal-hd-sub" id="fitModalSub">Rohrsystem auswählen</div>
-      </div>
-      <button class="modal-close" id="fitModalClose">✕</button>
-    </div>
-    <div class="modal-body" id="fitModalBody"></div>
-    <div class="modal-ft">
-      <div class="modal-ft-hint" id="fitModalHint">ζ werden summiert und in die Teilstrecke übernommen.</div>
-      <div style="display:flex;gap:8px">
-        <button class="mft-btn" id="fitModalReset">↺ Reset</button>
-        <button class="mft-btn primary" id="fitModalSave">✓ Übernehmen</button>
-      </div>
-    </div>
-  </div>
-</div>
 
 <div id="toast"></div>
 <script>
@@ -520,28 +509,30 @@ function renderInlineFitChips(row, sys){
     return '<span class="fit-chip-inline'+(active?' active':'')+'" onclick="incFit(\''+row.id+'\',\''+f.name.replace(/'/g,"\\'")+'\',1)" oncontextmenu="event.preventDefault();incFit(\''+row.id+'\',\''+f.name.replace(/'/g,"\\'")+'\', -1)" title="'+f.name+' · ζ abhängig von DN (Klick: +1, Rechtsklick: -1)">'+imgHtml+fitIcon(f.name)+' '+nameShort+(count>0?' <b>'+count+'</b>':'')+'</span>';
   }).join('');
 }
-function incFit(rowId,fitName,delta){
-  var row=state.rows.find(function(r){return r.id===rowId;});if(!row)return;
-  if(!row.fittings)row.fittings={};
-  row.fittings[fitName]=(row.fittings[fitName]||0)+delta;
-  if(row.fittings[fitName]<0)row.fittings[fitName]=0;
-  // Recalc zeta
+function recalcRowZeta(row){
+  // ζΣ = Formstücke + ζ-basierte Armaturen. kvs-Armaturen + manuelle Einträge fliessen
+  // NICHT hier ein — sie werden in calcRow als direkter Δp (dp_arm) addiert.
   var sys=SYSTEMS.find(function(s){return s.id===row.sysId;});
   var di=sys?sys.dims.find(function(d){return d.dn===row.dimDn;}):null;
   var diVal=di?di.di:20;
   var sysFits=FITTINGS[row.sysId]||[];
   var zSum=0;
-  for(var k in row.fittings){
+  for(var k in (row.fittings||{})){
     if(row.fittings[k]<=0)continue;
     var fit=sysFits.find(function(f){return f.name===k;});
     if(fit)zSum+=row.fittings[k]*fit.zetaFn(diVal);
   }
-  // Add armaturen zeta
-  if(row.armaturen){for(var ak in row.armaturen){
-    if(row.armaturen[ak]<=0)continue;
-    if(typeof GemaArmaturen!=='undefined'){zSum+=row.armaturen[ak]*GemaArmaturen.getZeta(ak,row.dimDn);}
-  }}
-  row.zeta_sum=Math.round(zSum*100)/100;
+  if(typeof GemaArmaturen!=='undefined'){
+    zSum+=GemaArmaturen.computeSelectionDp({armaturen:row.armaturen||{}},{dn:row.dimDn}).zetaSum;
+  }
+  row.zeta_sum=Math.round(zSum*1000)/1000;
+}
+function incFit(rowId,fitName,delta){
+  var row=state.rows.find(function(r){return r.id===rowId;});if(!row)return;
+  if(!row.fittings)row.fittings={};
+  row.fittings[fitName]=(row.fittings[fitName]||0)+delta;
+  if(row.fittings[fitName]<0)row.fittings[fitName]=0;
+  recalcRowZeta(row);
   render();
 }
 
@@ -727,8 +718,14 @@ function calcRow(row, rho, nu){
   const dp_pipe = lam*(L/di_m)*(rho/2)*v*v/1000;
   const dp_local = zeta_sum*(rho/2)*v*v/1000;
   const dp_eq = lam*(eq_rl/di_m)*(rho/2)*v*v/1000;
-  const dp_ts = dp_pipe+dp_local+dp_eq;
-  return{Q,v,Re,lam,regime,dp_pipe,dp_local,dp_eq,dp_ts};
+  // Armaturen mit kvs (dimensionsabhängig, automatisch) + manuelle Einträge → direkter Δp
+  let dp_arm = 0;
+  if(typeof GemaArmaturen!=='undefined'&&((row.armaturen&&Object.keys(row.armaturen).length)||(row.manuArm&&row.manuArm.length))){
+    const armRes=GemaArmaturen.computeSelectionDp({armaturen:row.armaturen||{},manuell:row.manuArm||[]},{dn:row.dimDn,Q_ls:Q,v_ms:v,rho:rho});
+    dp_arm=armRes.dp_kPa;
+  }
+  const dp_ts = dp_pipe+dp_local+dp_eq+dp_arm;
+  return{Q,v,Re,lam,regime,dp_pipe,dp_local,dp_eq,dp_arm,dp_ts};
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -746,6 +743,7 @@ function newRow(label){
     length_m:5, zeta_sum:0, eq_rl:0,
     fittings:{}, // {fittingName: count}
     armaturen:{}, // {armaturId: count}
+    manuArm:[], // [{name, dp(kPa)}] — manuell erfasste Armaturen
   };
 }
 
@@ -859,7 +857,6 @@ let state={
   project:'', owner:'', apparat:'', tempC:10,
   rows:[newRow('1'), newRow('2'), newRow('3')],
 };
-let fitModal={open:false, rowId:null, tmpFit:{}};
 // Aufgeklappt-Zustand der Formstück-Auswahl pro Teilstrecke (nur UI, nicht persistiert)
 var _fitOpenMap={};
 
@@ -894,7 +891,7 @@ function render(){
 
     const sys=SYSTEMS.find(s=>s.id===row.sysId);
     const dim=sys?.dims.find(d=>d.dn===row.dimDn);
-    const calc2=calc||{Q:0,v:0,Re:0,lam:0,regime:'—',dp_pipe:0,dp_local:0,dp_eq:0,dp_ts:0};
+    const calc2=calc||{Q:0,v:0,Re:0,lam:0,regime:'—',dp_pipe:0,dp_local:0,dp_eq:0,dp_arm:0,dp_ts:0};
 
     // Build dim options for selected system
     const dimOpts=sys?sys.dims.map(d=>`<option value="${d.dn}"${d.dn===row.dimDn?' selected':''}>${d.dn} (di ${d.di} mm)</option>`).join(''):'';
@@ -928,7 +925,8 @@ function render(){
     // Formstücke/Armaturen: kompakte Zusammenfassung (eingeklappt) oder volle Chip-Auswahl (aufgeklappt)
     const fitActive=Object.entries(row.fittings||{}).filter(([k,v])=>v>0);
     const armActive=Object.entries(row.armaturen||{}).filter(([k,v])=>v>0);
-    const nSel=fitActive.reduce((a,[,v])=>a+v,0)+armActive.reduce((a,[,v])=>a+v,0);
+    const manuActive=(row.manuArm||[]).filter(m=>m&&(m.name||parseFloat(m.dp)>0));
+    const nSel=fitActive.reduce((a,[,v])=>a+v,0)+armActive.reduce((a,[,v])=>a+v,0)+manuActive.length;
     const isFitOpen=!!_fitOpenMap[row.id];
     let fitSection;
     if(isFitOpen){
@@ -938,13 +936,15 @@ function render(){
         <span style="font-size:10px;font-weight:700;color:var(--mut);text-transform:uppercase;letter-spacing:.3px;margin-right:2px">Formstücke</span>
         ${renderInlineFitChips(row, sys)}
         <span style="width:1px;height:20px;background:var(--brd);margin:0 4px;flex-shrink:0"></span>
-        <button class="fit-open${armCount>0?' has-fittings':''}" data-fit="${row.id}">🔧 Armaturen${armCount>0?' ('+armCount+')':''}</button>
+        <button class="fit-open${(armCount>0||manuActive.length>0)?' has-fittings':''}" data-fit="${row.id}">🔧 Armaturen &amp; manuell${(armCount+manuActive.length)>0?' ('+(armCount+manuActive.length)+')':''}</button>
         ${armSummary}
+        ${manuActive.map(m=>`<span class="fit-chip">✍ ${m.name||'Manuell'} · ${fmt(parseFloat(m.dp)||0,2)} kPa</span>`).join('')}
       </div>`;
     } else {
       const miniChips=[
         ...fitActive.map(([name,cnt])=>`<span class="fit-mini"><b>${cnt}×</b> ${fitIcon(name)} ${name}</span>`),
-        ...armActive.map(([id,cnt])=>{const a=typeof GemaArmaturen!=='undefined'?GemaArmaturen.getById(id):null;return `<span class="fit-mini"><b>${cnt}×</b> 🔧 ${a?a.name:id}</span>`;})
+        ...armActive.map(([id,cnt])=>{const a=typeof GemaArmaturen!=='undefined'?GemaArmaturen.getById(id):null;const kvs=typeof GemaArmaturen!=='undefined'?GemaArmaturen.getKvs(id,row.dimDn):0;return `<span class="fit-mini"><b>${cnt}×</b> 🔧 ${a?a.name:id}${kvs>0?' <i style="font-weight:600">kvs '+kvs+'</i>':''}</span>`;}),
+        ...manuActive.map(m=>`<span class="fit-mini"><b>✍</b> ${m.name||'Manuell'} · ${fmt(parseFloat(m.dp)||0,2)} kPa</span>`)
       ].join('');
       fitSection=`
       <div class="ts-fittings">
@@ -988,6 +988,8 @@ function render(){
         <div class="res-item"><div class="res-lbl">Δp Rohr</div><div class="res-val">${fmt(calc2.dp_pipe,2)}<small style="font-size:10px;color:var(--mut)"> kPa</small></div></div>
         <div class="res-div ts-detail"></div>
         <div class="res-item ts-detail"><div class="res-lbl">Δp EW</div><div class="res-val">${fmt(calc2.dp_local+calc2.dp_eq,2)}<small style="font-size:10px;color:var(--mut)"> kPa</small></div></div>
+        <div class="res-div${calc2.dp_arm>0?'':' ts-detail'}"></div>
+        <div class="res-item${calc2.dp_arm>0?'':' ts-detail'}"><div class="res-lbl">Δp Arm.</div><div class="res-val">${fmt(calc2.dp_arm||0,2)}<small style="font-size:10px;color:var(--mut)"> kPa</small></div></div>
         <div class="res-div"></div>
         <div class="res-item"><div class="res-lbl">Δp TS</div><div class="res-big">${fmt(calc2.dp_ts,2)}<small style="font-size:11px;font-weight:700;color:var(--blue)"> kPa</small></div></div>
         <div class="res-div"></div>
@@ -1007,8 +1009,9 @@ function render(){
           const s=SYSTEMS.find(x=>x.id===v);
           if(s) row.dimDn=s.dims[0].dn;
           row.fittings={};
-          row.zeta_sum=0;
+          recalcRowZeta(row);
         }
+        if(k==='dimDn')recalcRowZeta(row);
         render();
       });
       el.addEventListener('change',e=>{
@@ -1020,8 +1023,9 @@ function render(){
           const s=SYSTEMS.find(x=>x.id===v);
           if(s) row.dimDn=s.dims[0].dn;
           row.fittings={};
-          row.zeta_sum=0;
+          recalcRowZeta(row);
         }
+        if(k==='dimDn')recalcRowZeta(row);
         render();
       });
     });
@@ -1078,154 +1082,91 @@ function render(){
   } else {
     cc.innerHTML=checks.slice(0,5).map(c=>`<div class="check-item ${c.type}">${c.type==='warn'?'⚠️':'ℹ️'} ${c.text}</div>`).join('');
   }
+  renderArmDiagramme(rho);
+
   // Auto-save active calculation
   saveActiveCalc();
 }
 
-// ═══════════════════════════════════════════════════════════
-// FITTINGS MODAL
-// ═══════════════════════════════════════════════════════════
-// Armaturen-Sortierung: 'hersteller' oder 'typ'
-var _armSort='hersteller';
+// ── Druckverlustdiagramme der verwendeten Armaturen (Anzeige + PDF-Anhang) ──
+var _armDiagHidden=false;
+function toggleArmDiag(){
+  _armDiagHidden=!_armDiagHidden;
+  var body=$('armDiagBody');var btn=$('armDiagToggle');
+  if(body)body.style.display=_armDiagHidden?'none':'grid';
+  if(btn)btn.textContent=_armDiagHidden?'Einblenden':'Ausblenden';
+}
+function renderArmDiagramme(rho){
+  var sec=$('armDiagSec');var body=$('armDiagBody');
+  if(!sec||!body)return;
+  if(typeof GemaArmaturen==='undefined'){sec.style.display='none';return;}
+  // Verwendete Armaturen einsammeln (dedupe pro Armatur+Dimension)
+  var entries=[],seen={};
+  state.rows.forEach(function(row){
+    var c=calcRow(row,rho,getWP().nu)||{Q:0};
+    var sys=SYSTEMS.find(function(x){return x.id===row.sysId;});
+    var dim=sys?sys.dims.find(function(d){return d.dn===row.dimDn;}):null;
+    Object.keys(row.armaturen||{}).forEach(function(id){
+      if(!(row.armaturen[id]>0))return;
+      var key=id+'|'+row.dimDn;
+      if(seen[key])return;seen[key]=1;
+      var a=GemaArmaturen.getById(id);if(!a)return;
+      var hasUpload=!!(a.diagramm&&(a.diagramm.url||a.diagramm.dataUrl));
+      var hasCurve=GemaArmaturen.getKvs(id,row.dimDn)>0||GemaArmaturen.getZeta(id,row.dimDn)>0;
+      if(!hasUpload&&!hasCurve)return;
+      entries.push({a:a,dn:row.dimDn,di:dim?dim.di:undefined,Q:c.Q,ts:row.label,hasUpload:hasUpload,hasCurve:hasCurve});
+    });
+  });
+  if(!entries.length){sec.style.display='none';body.innerHTML='';return;}
+  sec.style.display='';
+  body.innerHTML='';
+  entries.forEach(function(e){
+    var box=document.createElement('div');
+    box.style.cssText='border:1px solid var(--brd);border-radius:9px;padding:9px 10px;background:var(--sur)';
+    var hd='<div style="font-size:11.5px;font-weight:800;margin-bottom:2px">'+e.a.name+'</div>'
+      +'<div style="font-size:10px;color:var(--mut);margin-bottom:7px">'+(e.a.hersteller||'—')+' · '+e.dn+' · TS '+e.ts+(e.Q>0?' · Q='+fmt(e.Q,3)+' l/s':'')+'</div>';
+    box.innerHTML=hd;
+    if(e.hasUpload){
+      var img=document.createElement('img');
+      img.src=e.a.diagramm.url||e.a.diagramm.dataUrl;
+      img.style.cssText='max-width:100%;border-radius:6px;border:1px solid var(--brd)';
+      img.alt='Druckverlustdiagramm';
+      box.appendChild(img);
+    } else if(e.hasCurve&&typeof GemaArmaturenPicker!=='undefined'){
+      var cv=document.createElement('canvas');
+      cv.width=560;cv.height=280;
+      cv.style.cssText='width:100%;border-radius:6px;border:1px solid var(--brd)';
+      box.appendChild(cv);
+      GemaArmaturenPicker.drawCurve(cv,e.a.id,{dn:e.dn,di_mm:e.di,Q_ls:e.Q,rho:rho});
+    }
+    body.appendChild(box);
+  });
+  if(_armDiagHidden)body.style.display='none';
+}
 
+// ═══════════════════════════════════════════════════════════
+// ARMATUREN (GemaArmaturenPicker) — Katalog + manuelle Einträge + Diagramm
+// ═══════════════════════════════════════════════════════════
 function openFitModal(rowId){
   const row=state.rows.find(r=>r.id===rowId);
-  if(!row)return;
-  fitModal.rowId=rowId;
-  fitModal.tmpArm=JSON.parse(JSON.stringify(row.armaturen||{}));
-
+  if(!row||typeof GemaArmaturenPicker==='undefined')return;
   const sys=SYSTEMS.find(s=>s.id===row.sysId);
   const dim=sys?.dims.find(d=>d.dn===row.dimDn);
-
-  $('fitModalTitle').textContent=`🔧 Armaturen – TS ${row.label}`;
-  $('fitModalSub').textContent=sys?`${sys.name} · ${row.dimDn}`:'';
-
-  renderArmaturenBody(row,dim);
-  $('fitModal').classList.remove('hidden');
-}
-
-function renderArmaturenBody(row,dim){
-  const body=$('fitModalBody');
-  body.innerHTML='';
-  if(typeof GemaArmaturen==='undefined'){body.innerHTML='<p style="color:var(--mut);padding:16px">Armaturen-Katalog nicht geladen.</p>';return;}
-
-  // Sort toggle
-  const sortBar=document.createElement('div');
-  sortBar.style.cssText='display:flex;gap:6px;margin-bottom:12px';
-  sortBar.innerHTML='<button class="fit-sort-btn'+(_armSort==='hersteller'?' active':'')+'" onclick="_armSort=\'hersteller\';renderArmaturenBody(state.rows.find(r=>r.id===fitModal.rowId),null)">Nach Hersteller</button>'
-    +'<button class="fit-sort-btn'+(_armSort==='typ'?' active':'')+'" onclick="_armSort=\'typ\';renderArmaturenBody(state.rows.find(r=>r.id===fitModal.rowId),null)">Nach Typ</button>';
-  body.appendChild(sortBar);
-
-  const allArm=GemaArmaturen.getAll();
-  if(!dim){var sys=SYSTEMS.find(function(s){return s.id===row.sysId;});dim=sys?.dims.find(function(d){return d.dn===row.dimDn;});}
-
-  if(_armSort==='hersteller'){
-    var herst=GemaArmaturen.getHersteller();
-    herst.forEach(function(h){
-      var arms=allArm.filter(function(a){return a.hersteller===h;});
-      renderArmGroup(body,h,arms,row,dim);
-    });
-    var generic=allArm.filter(function(a){return !a.hersteller||a.hersteller==='—';});
-    if(generic.length)renderArmGroup(body,'Standard (herstellerunabhängig)',generic,row,dim);
-  } else {
-    GemaArmaturen.getTypen().forEach(function(typ){
-      var arms=allArm.filter(function(a){return a.typ===typ.id;});
-      if(arms.length)renderArmGroup(body,typ.icon+' '+typ.name,arms,row,dim);
-    });
-  }
-
-  // Zeta sum
-  const sumDiv=document.createElement('div');
-  sumDiv.className='fit-zeta-sum';sumDiv.id='fitZetaSum';
-  body.appendChild(sumDiv);
-  updateArmSum(row);
-}
-
-function renderArmGroup(body,title,arms,row,dim){
-  var sec=document.createElement('div');
-  sec.innerHTML='<div class="fit-section-title">'+title+'</div>';
-  var grid=document.createElement('div');grid.className='fit-grid';
-  arms.forEach(function(a){
-    var z=GemaArmaturen.getZeta(a.id,row.dimDn);
-    var cnt=fitModal.tmpArm[a.id]||0;
-    var card=document.createElement('div');
-    card.className='fit-card'+(cnt>0?' active':'');
-    card.dataset.armid=a.id;
-    card.innerHTML='<div class="fit-card-name">'+a.name+(a.status==='verifiziert'?' <span style="color:#16a34a;font-size:10px">✓</span>':' <span style="color:#d97706;font-size:10px">⚠</span>')+'</div>'
-      +'<div style="font-size:10px;color:var(--mut)">'+a.hersteller+(a.serie&&a.serie!=='—'?' · '+a.serie:'')+'</div>'
-      +'<div class="fit-card-zeta">ζ = '+fmt(z,3)+'</div>'
-      +'<div class="fit-counter">'
-      +'<button class="fit-cnt-btn" data-aid="'+a.id+'" data-dir="-1">−</button>'
-      +'<span class="fit-cnt-num">'+cnt+'</span>'
-      +'<button class="fit-cnt-btn" data-aid="'+a.id+'" data-dir="1">+</button>'
-      +'</div>';
-    grid.appendChild(card);
-  });
-  sec.appendChild(grid);body.appendChild(sec);
-  // Bind
-  grid.querySelectorAll('.fit-cnt-btn').forEach(function(btn){
-    btn.addEventListener('click',function(){
-      var aid=btn.dataset.aid;var dir=parseInt(btn.dataset.dir);
-      fitModal.tmpArm[aid]=(fitModal.tmpArm[aid]||0)+dir;
-      if(fitModal.tmpArm[aid]<0)fitModal.tmpArm[aid]=0;
-      var c=grid.querySelector('.fit-card[data-armid="'+aid+'"]');
-      if(c){c.querySelector('.fit-cnt-num').textContent=fitModal.tmpArm[aid];c.classList.toggle('active',fitModal.tmpArm[aid]>0);}
-      updateArmSum(state.rows.find(function(r){return r.id===fitModal.rowId;}));
-    });
+  const{rho,nu}=getWP();
+  const c=calcRow(row,rho,nu)||{Q:0,v:0};
+  GemaArmaturenPicker.open({
+    title:'TS '+row.label+(sys?' · '+sys.name+' '+row.dimDn:''),
+    dn:row.dimDn, di_mm:dim?dim.di:undefined, Q_ls:c.Q, v_ms:c.v, rho:rho, unit:'kPa',
+    selection:{armaturen:row.armaturen||{},manuell:row.manuArm||[]},
+    onSave:function(res){
+      row.armaturen=res.selection.armaturen||{};
+      row.manuArm=res.selection.manuell||[];
+      recalcRowZeta(row);
+      render();
+      toast('✓ Armaturen übernommen');
+    }
   });
 }
-
-function updateArmSum(row){
-  if(!row||typeof GemaArmaturen==='undefined')return;
-  var total=0;
-  Object.entries(fitModal.tmpArm).forEach(function([id,cnt]){
-    if(cnt<=0)return;
-    total+=cnt*GemaArmaturen.getZeta(id,row.dimDn);
-  });
-  var el=$('fitZetaSum');
-  if(el)el.innerHTML='<span class="fzs-lbl">Summe ζ Armaturen</span><span class="fzs-val">Σζ = '+fmt(total,3)+'</span>';
-  $('fitModalHint').textContent='Σζ Armaturen = '+fmt(total,3);
-}
-
-function closeFitModal(){$('fitModal').classList.add('hidden');fitModal.open=false;fitModal.rowId=null;}
-
-$('fitModalClose').addEventListener('click',closeFitModal);
-$('fitModal').addEventListener('click',e=>{if(e.target===$('fitModal'))closeFitModal();});
-
-$('fitModalReset').addEventListener('click',()=>{
-  fitModal.tmpFit={};
-  const row=state.rows.find(r=>r.id===fitModal.rowId);
-  if(row) openFitModal(fitModal.rowId);
-});
-
-$('fitModalSave').addEventListener('click',()=>{
-  const row=state.rows.find(r=>r.id===fitModal.rowId);
-  if(!row)return;
-  row.armaturen=JSON.parse(JSON.stringify(fitModal.tmpArm||{}));
-
-  // Recalculate zeta sum from fittings + armaturen
-  const sys=SYSTEMS.find(s=>s.id===row.sysId);
-  const dim=sys?.dims.find(d=>d.dn===row.dimDn);
-  const diVal=dim?dim.di:20;
-  const sysFits=FITTINGS[row.sysId]||[];
-  let total=0;
-  Object.entries(row.fittings||{}).forEach(([name,cnt])=>{
-    if(cnt<=0)return;
-    const f=sysFits.find(x=>x.name===name);
-    if(f)total+=cnt*f.zetaFn(diVal);
-  });
-  if(typeof GemaArmaturen!=='undefined'){
-    Object.entries(row.armaturen||{}).forEach(([id,cnt])=>{
-      if(cnt<=0)return;
-      total+=cnt*GemaArmaturen.getZeta(id,row.dimDn);
-    });
-  }
-  row.zeta_sum=Math.round(total*1000)/1000;
-
-  closeFitModal();
-  render();
-  toast('✓ Fittings übernommen');
-});
 
 // ═══════════════════════════════════════════════════════════
 // CONTROLS
@@ -1276,7 +1217,7 @@ function toggleDetails(){
 function toast(msg){const el=$('toast');el.textContent=msg;el.classList.add('show');clearTimeout(tT);tT=setTimeout(()=>el.classList.remove('show'),2200);}
 
 // ESC closes modals
-window.addEventListener('keydown',e=>{if(e.key==='Escape')closeFitModal();});
+
 
 // ═══════════════════════════════════════════════════════════
 // INIT

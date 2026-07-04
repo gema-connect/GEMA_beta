@@ -211,7 +211,7 @@ textarea.fc{resize:vertical;min-height:60px;line-height:1.5}
       </div>
     </div>
     <div class="card" style="margin-top:16px">
-      <div class="card-hd"><h3>⌥ Meine Armaturen</h3></div>
+      <div class="card-hd"><h3>⌥ Meine Armaturen</h3><button id="armAddBtn" onclick="_armOpen()" style="margin-left:auto;padding:5px 13px;border-radius:8px;border:1.5px solid #2563eb;background:#2563eb;color:#fff;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;display:none">+ Armatur erfassen</button></div>
       <div class="card-bd" id="armListe" style="padding:0">
         <p style="padding:16px;color:var(--mut);font-size:13px">Wird geladen...</p>
       </div>
@@ -391,6 +391,7 @@ textarea.fc{resize:vertical;min-height:60px;line-height:1.5}
 <script src="gema_produktkatalog_api.js"></script>
 <script src="gema_armaturen_api.js"></script>
 <script src="gema_storage.js"></script>
+<script src="gema_dialog.js"></script>
 <script src="gema_aktivitaetslog.js"></script>
 <script>
 'use strict';
@@ -2029,17 +2030,38 @@ function renderRohrsysteme(){
   }
   el.innerHTML=h;
 
-  // Armaturen aus GemaArmaturen
+  renderArmaturen();
+}
+
+// ── Armaturen-Katalog des Lieferanten (ζ + kvs pro Dimension, Druckverlustdiagramm) ──
+function _armEsc(x){return String(x==null?'':x).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function _armTypName(t){var x=(typeof GemaArmaturen!=='undefined'?GemaArmaturen.getTypen():[]).find(function(y){return y.id===t;});return x?x.name:t;}
+function renderArmaturen(){
   var armEl=document.getElementById('armListe');if(!armEl)return;
+  var addBtn=document.getElementById('armAddBtn');
+  if(addBtn)addBtn.style.display=(_liefCanEditProdukte()&&!(_lief&&_lief.status==='inaktiv'))?'':'none';
   var armH='';
-  if(typeof GemaArmaturen!=='undefined'){
-    var myArm=GemaArmaturen.getAll().filter(function(a){return a.hersteller===_lief?.firma;});
+  if(typeof GemaArmaturen!=='undefined'&&_lief){
+    var myArm=GemaArmaturen.getForLieferant(_lief.id,_lief.firma);
     if(myArm.length){
       armH+=myArm.map(function(a){
-        return '<div style="display:flex;align-items:center;gap:10px;padding:10px 16px;border-bottom:1px solid var(--brd)"><div style="flex:1"><strong style="font-size:13px">'+a.name+'</strong><div style="font-size:11px;color:var(--mut)">'+a.typ+(a.serie&&a.serie!=='—'?' · '+a.serie:'')+'</div></div><button onclick="verifyArmatur(\''+a.id+'\')" style="font-size:10px;padding:3px 10px;border-radius:8px;border:1px solid '+(a.status==='verifiziert'?'#bbf7d0':'#fecaca')+';background:'+(a.status==='verifiziert'?'#f0fdf4':'#fef2f2')+';color:'+(a.status==='verifiziert'?'#16a34a':'#dc2626')+';font-weight:700;cursor:pointer">'+(a.status==='verifiziert'?'✓ Verifiziert':'⚠ Verifizieren')+'</button></div>';
+        var dims=Object.keys(a.zeta||{});
+        (Object.keys(a.kvs||{})).forEach(function(d){if(dims.indexOf(d)<0)dims.push(d);});
+        var hasKvs=Object.keys(a.kvs||{}).length>0;
+        var hasDiag=!!(a.diagramm&&(a.diagramm.url||a.diagramm.dataUrl));
+        var btns='';
+        if(hasDiag)btns+='<button onclick="_armDiagView(\''+a.id+'\')" title="Druckverlustdiagramm" style="font-size:10px;padding:3px 8px;border-radius:8px;border:1px solid #bfcfff;background:#eff6ff;color:#2563eb;font-weight:700;cursor:pointer">📈</button>';
+        if(_liefCanEditProdukte())btns+='<button onclick="_armOpen(\''+a.id+'\')" style="font-size:10px;padding:3px 8px;border-radius:8px;border:1px solid var(--brd2);background:var(--bg2);color:var(--txt);font-weight:700;cursor:pointer">✏️</button>';
+        if(_liefCanVerify())btns+='<button onclick="verifyArmatur(\''+a.id+'\')" style="font-size:10px;padding:3px 10px;border-radius:8px;border:1px solid '+(a.status==='verifiziert'?'#bbf7d0':'#fecaca')+';background:'+(a.status==='verifiziert'?'#f0fdf4':'#fef2f2')+';color:'+(a.status==='verifiziert'?'#16a34a':'#dc2626')+';font-weight:700;cursor:pointer">'+(a.status==='verifiziert'?'✓ Verifiziert':'⚠ Verifizieren')+'</button>';
+        if(_liefCanEditProdukte())btns+='<button onclick="_armDelete(\''+a.id+'\')" title="Löschen" style="font-size:10px;padding:3px 8px;border-radius:8px;border:1px solid #fecaca;background:#fef2f2;color:#dc2626;font-weight:700;cursor:pointer">🗑</button>';
+        return '<div style="display:flex;align-items:center;gap:8px;padding:10px 16px;border-bottom:1px solid var(--brd);flex-wrap:wrap">'
+          +'<div style="flex:1;min-width:180px"><strong style="font-size:13px">'+_armEsc(a.name)+'</strong>'
+          +'<div style="font-size:11px;color:var(--mut)">'+_armEsc(_armTypName(a.typ))+(a.serie&&a.serie!=='—'?' · '+_armEsc(a.serie):'')
+          +' · '+dims.length+' Dim.'+(hasKvs?' · <b style="color:#2563eb">kvs</b>':'')+(hasDiag?' · 📈 Diagramm':'')+'</div></div>'
+          +btns+'</div>';
       }).join('');
     } else {
-      armH='<div style="padding:16px;text-align:center;color:var(--mut);font-size:13px">Keine Armaturen Ihrem Unternehmen zugeordnet.</div>';
+      armH='<div style="padding:16px;text-align:center;color:var(--mut);font-size:13px">Noch keine Armaturen erfasst.'+(_liefCanEditProdukte()?' Mit «+ Armatur erfassen» legen Sie ζ-/kvs-Werte pro Dimension und das Druckverlustdiagramm an — die Planer nutzen diese direkt in den Druckverlustberechnungen.':'')+'</div>';
     }
   } else {
     armH='<div style="padding:16px;text-align:center;color:var(--mut);font-size:13px">Armaturen-Katalog nicht verfügbar.</div>';
@@ -2049,15 +2071,161 @@ function renderRohrsysteme(){
 
 function verifyArmatur(id){
   if(typeof GemaArmaturen==='undefined')return;
+  if(_liefBlockedInaktiv())return;
   var a=GemaArmaturen.getById(id);
   if(!a)return;
-  if(a.status==='verifiziert'){alert('Bereits verifiziert.');return;}
-  if(confirm('Bestätigen Sie, dass die Zeta-Werte für "'+a.name+'" korrekt sind?')){
+  if(a.status==='verifiziert'){toast('Bereits verifiziert');return;}
+  GemaDialog.confirm({title:'Armatur verifizieren',message:'Bestätigen Sie, dass die ζ-/kvs-Werte für «'+a.name+'» korrekt sind?',confirmLabel:'Verifizieren'}).then(function(ok){
+    if(!ok)return;
     GemaArmaturen.verifiziere(id);
-    renderRohrsysteme();
+    renderArmaturen();
     toast('✓ '+a.name+' verifiziert');
+  });
+}
+
+// ── Armaturen-Editor ──
+var _armEdit=null;   // {id?, dims:[{dn,zeta,kvs}], diagramm}
+function _armModal(inner){
+  _dwzCloseModal();
+  var ov=document.createElement('div');ov.id='_dwzOv';
+  ov.style.cssText='position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:10600;display:flex;align-items:flex-start;justify-content:center;padding:20px;overflow-y:auto';
+  ov.innerHTML='<div style="background:#fff;border-radius:14px;padding:22px;max-width:640px;width:100%;margin:auto;box-shadow:0 20px 60px -10px rgba(0,0,0,.3)">'+inner+'</div>';
+  document.body.appendChild(ov);
+}
+function _armOpen(id){
+  if(typeof GemaArmaturen==='undefined'||!_liefCanEditProdukte())return;
+  if(_liefBlockedInaktiv())return;
+  var a=id?GemaArmaturen.getById(id):null;
+  var dims=[];
+  if(a){
+    var keys={};
+    Object.keys(a.zeta||{}).forEach(function(d){keys[d]=1;});
+    Object.keys(a.kvs||{}).forEach(function(d){keys[d]=1;});
+    dims=Object.keys(keys).map(function(d){return {dn:d,zeta:(a.zeta||{})[d]!=null?String((a.zeta||{})[d]):'',kvs:(a.kvs||{})[d]!=null?String((a.kvs||{})[d]):''};});
+  }
+  if(!dims.length)dims=[{dn:'',zeta:'',kvs:''},{dn:'',zeta:'',kvs:''}];
+  _armEdit={id:a?a.id:null,dims:dims,diagramm:a&&a.diagramm?JSON.parse(JSON.stringify(a.diagramm)):null};
+  var typOpts=GemaArmaturen.getTypen().map(function(t){return '<option value="'+t.id+'"'+(a&&a.typ===t.id?' selected':'')+'>'+t.name+'</option>';}).join('');
+  var inp='style="width:100%;padding:8px 10px;border:1.5px solid var(--brd2,#cdd4e4);border-radius:8px;font-size:13px;font-family:inherit;outline:none;box-sizing:border-box"';
+  _armModal('<h3 style="margin:0 0 12px;font-size:16px;font-weight:900">'+(a?'✏️ Armatur bearbeiten':'➕ Armatur erfassen')+'</h3>'
+    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">'
+    +'<div><label style="font-size:10px;font-weight:800;text-transform:uppercase;color:#64748b">Bezeichnung *</label><input id="_armName" '+inp+' value="'+_armEsc(a?a.name:'')+'" placeholder="z.B. Schrägsitzventil Easy-Top"/></div>'
+    +'<div><label style="font-size:10px;font-weight:800;text-transform:uppercase;color:#64748b">Typ</label><select id="_armTyp" '+inp+'>'+typOpts+'</select></div>'
+    +'<div><label style="font-size:10px;font-weight:800;text-transform:uppercase;color:#64748b">Serie</label><input id="_armSerie" '+inp+' value="'+_armEsc(a?a.serie:'')+'" placeholder="z.B. Optipress"/></div>'
+    +'<div><label style="font-size:10px;font-weight:800;text-transform:uppercase;color:#64748b">ζ Standard (Fallback)</label><input id="_armZetaDef" '+inp+' inputmode="decimal" value="'+_armEsc(a&&a.zetaDefault!=null?a.zetaDefault:'')+'" placeholder="z.B. 2.0"/></div>'
+    +'</div>'
+    +'<label style="font-size:10px;font-weight:800;text-transform:uppercase;color:#64748b">Dimensionen — ζ und/oder kvs [m³/h] pro DN <span style="font-weight:600;text-transform:none">(kvs wird in der Berechnung bevorzugt)</span></label>'
+    +'<div id="_armDims" style="margin:6px 0 8px"></div>'
+    +'<button onclick="_armAddDim()" style="padding:5px 12px;border-radius:8px;border:1.5px dashed var(--brd2,#cdd4e4);background:transparent;color:#64748b;font-size:11.5px;font-weight:700;cursor:pointer;font-family:inherit">+ Dimension</button>'
+    +'<div style="margin-top:14px"><label style="font-size:10px;font-weight:800;text-transform:uppercase;color:#64748b">Druckverlustdiagramm (Datenblatt, Bild)</label>'
+    +'<div id="_armDiagBox" style="margin-top:5px"></div>'
+    +'<input type="file" id="_armDiagFile" accept="image/*" style="display:none" onchange="_armPickDiag(this)"/>'
+    +'</div>'
+    +'<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:18px">'
+    +'<button onclick="_dwzCloseModal()" style="padding:8px 16px;border-radius:8px;border:1.5px solid var(--brd2,#cdd4e4);background:#fff;font-size:12.5px;font-weight:700;cursor:pointer;font-family:inherit">Abbrechen</button>'
+    +'<button onclick="_armSave()" style="padding:8px 18px;border-radius:8px;border:none;background:#2563eb;color:#fff;font-size:12.5px;font-weight:700;cursor:pointer;font-family:inherit">💾 Speichern</button>'
+    +'</div>');
+  _armRenderDims();_armRenderDiagBox();
+}
+function _armRenderDims(){
+  var el=document.getElementById('_armDims');if(!el||!_armEdit)return;
+  var inp='style="padding:7px 9px;border:1.5px solid var(--brd2,#cdd4e4);border-radius:7px;font-size:12.5px;font-family:inherit;outline:none;width:100%;box-sizing:border-box"';
+  el.innerHTML='<div style="display:grid;grid-template-columns:1fr 1fr 1fr 34px;gap:6px;font-size:9.5px;font-weight:800;text-transform:uppercase;color:#94a3b8;margin-bottom:3px"><span>DN / Dimension</span><span>ζ [–]</span><span>kvs [m³/h]</span><span></span></div>'
+    +_armEdit.dims.map(function(d,i){
+      return '<div style="display:grid;grid-template-columns:1fr 1fr 1fr 34px;gap:6px;margin-bottom:5px">'
+        +'<input '+inp+' value="'+_armEsc(d.dn)+'" placeholder="z.B. 22 oder 22x1.2" oninput="_armEdit.dims['+i+'].dn=this.value"/>'
+        +'<input '+inp+' inputmode="decimal" value="'+_armEsc(d.zeta)+'" placeholder="ζ" oninput="_armEdit.dims['+i+'].zeta=this.value"/>'
+        +'<input '+inp+' inputmode="decimal" value="'+_armEsc(d.kvs)+'" placeholder="kvs" oninput="_armEdit.dims['+i+'].kvs=this.value"/>'
+        +'<button onclick="_armDelDim('+i+')" style="border:1.5px solid #fecaca;background:#fef2f2;color:#dc2626;border-radius:7px;cursor:pointer;font-weight:700">✕</button>'
+        +'</div>';
+    }).join('');
+}
+function _armAddDim(){if(_armEdit){_armEdit.dims.push({dn:'',zeta:'',kvs:''});_armRenderDims();}}
+function _armDelDim(i){if(_armEdit){_armEdit.dims.splice(i,1);_armRenderDims();}}
+function _armRenderDiagBox(){
+  var el=document.getElementById('_armDiagBox');if(!el||!_armEdit)return;
+  var d=_armEdit.diagramm;
+  if(d&&(d.url||d.dataUrl)){
+    el.innerHTML='<div style="display:flex;align-items:center;gap:10px"><img src="'+_armEsc(d.url||d.dataUrl)+'" style="max-width:180px;max-height:110px;border:1px solid var(--brd,#e2e7f0);border-radius:7px" alt="Diagramm"/>'
+      +'<div style="display:flex;flex-direction:column;gap:6px">'
+      +'<button onclick="document.getElementById(\'_armDiagFile\').click()" style="padding:5px 12px;border-radius:7px;border:1.5px solid var(--brd2,#cdd4e4);background:#fff;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit">Ersetzen</button>'
+      +'<button onclick="_armEdit.diagramm=null;_armRenderDiagBox()" style="padding:5px 12px;border-radius:7px;border:1.5px solid #fecaca;background:#fef2f2;color:#dc2626;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit">Entfernen</button>'
+      +'</div></div>';
+  } else {
+    el.innerHTML='<button onclick="document.getElementById(\'_armDiagFile\').click()" style="padding:7px 14px;border-radius:8px;border:1.5px dashed var(--brd2,#cdd4e4);background:transparent;color:#64748b;font-size:11.5px;font-weight:700;cursor:pointer;font-family:inherit">📈 Diagramm hochladen (JPG/PNG)</button>'
+      +'<div style="font-size:10.5px;color:#94a3b8;margin-top:4px">Ohne Upload generiert GEMA die Kennlinie automatisch aus ζ/kvs.</div>';
   }
 }
+function _armPickDiag(input){
+  var f=input.files&&input.files[0];if(!f||!_armEdit)return;
+  if(f.size>4*1024*1024){toast('Bild zu gross (max. 4 MB)');input.value='';return;}
+  var rd=new FileReader();
+  rd.onload=function(){
+    var dataUrl=rd.result;
+    // Auslagern nach GemaStorage (Bucket gema-fotos), Base64-Fallback
+    if(typeof GemaStorage!=='undefined'&&GemaStorage.uploadDataUrl){
+      GemaStorage.uploadDataUrl(dataUrl,'armaturen/'+(_lief?_lief.id:'x')).then(function(r){
+        _armEdit.diagramm={url:r.url,name:f.name};_armRenderDiagBox();
+      }).catch(function(){
+        _armEdit.diagramm={dataUrl:dataUrl,name:f.name};_armRenderDiagBox();
+      });
+    } else {
+      _armEdit.diagramm={dataUrl:dataUrl,name:f.name};_armRenderDiagBox();
+    }
+  };
+  rd.readAsDataURL(f);
+  input.value='';
+}
+function _armSave(){
+  if(!_armEdit||typeof GemaArmaturen==='undefined')return;
+  var name=(document.getElementById('_armName')||{}).value||'';
+  if(!name.trim()){toast('Bezeichnung fehlt');return;}
+  var zeta={},kvs={};
+  _armEdit.dims.forEach(function(d){
+    var dn=String(d.dn||'').trim();if(!dn)return;
+    var z=parseFloat(String(d.zeta).replace(',','.'));
+    var k=parseFloat(String(d.kvs).replace(',','.'));
+    if(Number.isFinite(z))zeta[dn]=z;
+    if(Number.isFinite(k)&&k>0)kvs[dn]=k;
+  });
+  var zd=parseFloat(String((document.getElementById('_armZetaDef')||{}).value).replace(',','.'));
+  var base=_armEdit.id?GemaArmaturen.getById(_armEdit.id):null;
+  var a={
+    id:_armEdit.id||undefined,
+    typ:(document.getElementById('_armTyp')||{}).value||'sonstige',
+    name:name.trim(),
+    serie:((document.getElementById('_armSerie')||{}).value||'').trim()||'—',
+    hersteller:_lief?_lief.firma:'—',
+    lieferantId:_lief?_lief.id:undefined,
+    zeta:zeta,kvs:kvs,
+    zetaDefault:Number.isFinite(zd)?zd:(base?base.zetaDefault:undefined),
+    diagramm:_armEdit.diagramm||undefined,
+    status:'nicht_verifiziert'
+  };
+  GemaArmaturen.upsertArmatur(a);
+  _dwzCloseModal();
+  renderArmaturen();
+  toast('✓ Armatur gespeichert');
+}
+function _armDelete(id){
+  if(!_liefCanEditProdukte()||_liefBlockedInaktiv())return;
+  var a=typeof GemaArmaturen!=='undefined'?GemaArmaturen.getById(id):null;
+  GemaDialog.confirm({title:'Armatur löschen',message:'«'+(a?a.name:'Armatur')+'» wirklich aus dem Katalog löschen?',confirmLabel:'Löschen',danger:true}).then(function(ok){
+    if(!ok)return;
+    GemaArmaturen.deleteArmatur(id);
+    renderArmaturen();
+    toast('Armatur gelöscht');
+  });
+}
+function _armDiagView(id){
+  var a=typeof GemaArmaturen!=='undefined'?GemaArmaturen.getById(id):null;
+  if(!a||!a.diagramm)return;
+  _armModal('<h3 style="margin:0 0 10px;font-size:15px;font-weight:900">📈 '+_armEsc(a.name)+'</h3>'
+    +'<img src="'+_armEsc(a.diagramm.url||a.diagramm.dataUrl)+'" style="max-width:100%;border:1px solid var(--brd,#e2e7f0);border-radius:8px" alt="Druckverlustdiagramm"/>'
+    +'<div style="text-align:right;margin-top:12px"><button onclick="_dwzCloseModal()" style="padding:7px 15px;border-radius:8px;border:1.5px solid var(--brd2,#cdd4e4);background:#fff;font-size:12.5px;font-weight:700;cursor:pointer;font-family:inherit">Schliessen</button></div>');
+}
+window.addEventListener('gema-armaturen-loaded',function(){try{renderArmaturen();}catch(e){}});
+window.addEventListener('gema-armaturen-changed',function(){try{renderArmaturen();}catch(e){}});
 
 // ── Mitarbeiter-Verwaltung (Lieferant Org-Admin) ──
 function renderLiefUsers(){
