@@ -63,14 +63,14 @@ input,select,button{font-family:var(--sans)}
 .hero-pills{display:flex;gap:6px;flex-wrap:wrap}
 .hero-pill{padding:4px 10px;border-radius:6px;background:rgba(255,255,255,.13);border:1px solid rgba(255,255,255,.2);color:#fff;font-size:11.5px;font-weight:700}
 
-/* STATS */
-.stats-row{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:14px}
-@media(max-width:800px){.stats-row{grid-template-columns:repeat(3,1fr)}}
-.stat{background:var(--sur);border:1.5px solid var(--brd);border-radius:var(--r);padding:11px 13px;box-shadow:var(--sh-sm)}
-.stat.blue{border-color:var(--blue-bd);background:var(--blue-bg)}
-.stat-val{font-size:22px;font-weight:900;font-family:var(--mono);color:var(--txt);line-height:1}
-.stat.blue .stat-val{color:var(--blue);font-size:18px}
-.stat-lbl{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--mut);margin-top:3px}
+/* KOMPAKT-ZUSAMMENFASSUNG (ersetzt die grossen Stat-Karten) */
+.sum-bar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:8px 14px;margin-bottom:12px;background:var(--blue-bg);border:1.5px solid var(--blue-bd);border-radius:10px}
+.sum-item{font-size:12px;color:var(--mut);font-weight:600;white-space:nowrap}
+.sum-item b{font-family:var(--mono);font-weight:900;color:var(--txt);font-size:14px}
+.sum-item b.sum-blue{color:var(--blue);font-size:15px}
+.sum-dim{color:var(--mut2);font-size:11.5px}
+.sum-dim b{color:var(--mut);font-size:12px;font-weight:700}
+.sum-sep{width:1px;height:20px;background:var(--blue-bd);flex-shrink:0}
 
 /* LAYOUT */
 .layout{display:block}
@@ -96,7 +96,9 @@ input,select,button{font-family:var(--sans)}
 .ts-card:hover{border-color:var(--blue-bd)}
 .ts-card.has-error{border-color:var(--amber-bd)}
 
-.ts-head{padding:10px 13px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:var(--sur2);border-bottom:1px solid var(--brd)}
+.ts-head{padding:10px 13px;display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap;background:var(--sur2);border-bottom:1px solid var(--brd)}
+.ts-fg{display:flex;flex-direction:column;gap:3px;min-width:0}
+.ts-fg>label{font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:var(--mut);white-space:nowrap}
 .ts-num{width:38px;height:32px;border-radius:7px;border:1.5px solid var(--brd2);background:var(--bg2);font-size:13px;font-weight:700;font-family:var(--mono);text-align:center;outline:none;color:var(--blue);transition:.15s}
 .ts-num:focus{border-color:var(--blue);background:var(--sur)}
 .ts-select{height:32px;padding:0 8px;border:1.5px solid var(--brd2);border-radius:7px;font-size:12.5px;background:var(--sur);color:var(--txt);outline:none;transition:.15s;cursor:pointer}
@@ -126,6 +128,12 @@ input,select,button{font-family:var(--sans)}
 .res-big{font-size:14px;font-weight:900;color:var(--blue)}
 
 .ts-fittings{padding:9px 13px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-height:40px}
+.fit-toggle{display:inline-flex;align-items:center;gap:5px;padding:4px 11px;border-radius:7px;border:1.5px solid var(--brd2);background:var(--sur);font-size:11.5px;font-weight:700;cursor:pointer;transition:.15s;color:var(--txt2);white-space:nowrap;font-family:inherit}
+.fit-toggle:hover{background:var(--blue-bg);border-color:var(--blue-bd);color:var(--blue)}
+.fit-toggle.has-sel{border-color:var(--blue-bd);background:var(--blue-bg);color:var(--blue)}
+.fit-mini{display:inline-flex;align-items:center;gap:3px;padding:2px 8px;border-radius:6px;background:var(--blue-bg);border:1px solid var(--blue-bd);font-size:11px;font-weight:600;color:var(--blue-dk);white-space:nowrap}
+.fit-mini b{font-weight:800}
+.fit-none{font-size:11px;color:var(--mut2);font-style:italic}
 .fit-chip{display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;background:var(--blue-bg);border:1px solid var(--blue-bd);font-size:11.5px;font-weight:700;color:var(--blue-dk);cursor:pointer;transition:.15s}
 .fit-chip-inline{display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:7px;background:var(--bg2);border:1.5px solid var(--brd);font-size:11.5px;font-weight:600;cursor:pointer;user-select:none;transition:.12s;color:var(--mut)}
 .fit-chip-inline:hover{border-color:var(--blue-bd);background:var(--blue-bg)}
@@ -312,6 +320,7 @@ function fixLeadingZero(el){
 <script src="gema_pdf.js"></script>
 <script src="gema_autosave.js"></script>
 <script src="gema_armaturen_api.js"></script>
+<script src="gema_dialog.js"></script>
 <link rel="stylesheet" href="gema_responsive.css"/>
 </head>
 <body>
@@ -349,13 +358,15 @@ function fixLeadingZero(el){
   <!-- BERECHNUNGS-TABS + MEDIUM -->
   <div id="calcTabBar" style="display:flex;align-items:center;gap:6px;margin-bottom:12px;flex-wrap:wrap"></div>
 
-  <!-- STATS -->
-  <div class="stats-row">
-    <div class="stat"><div class="stat-val" id="s_ts">0</div><div class="stat-lbl">Teilstrecken</div></div>
-    <div class="stat blue"><div class="stat-val" id="s_dptotal">0.00 kPa</div><div class="stat-lbl">Total Δp</div></div>
-    <div class="stat blue"><div class="stat-val" id="s_dpbar">0.000 bar</div><div class="stat-lbl">Total Δp</div></div>
-    <div class="stat blue"><div class="stat-val" id="s_dpmws">0.00 mWS</div><div class="stat-lbl">Total Δp</div></div>
-    <div class="stat"><div class="stat-val" id="s_temp">10°C</div><div class="stat-lbl">Temperatur</div></div>
+  <!-- KOMPAKT-ZUSAMMENFASSUNG -->
+  <div class="sum-bar">
+    <span class="sum-item"><b id="s_ts">0</b> Teilstrecken</span>
+    <span class="sum-sep"></span>
+    <span class="sum-item">Total Δp <b class="sum-blue" id="s_dptotal">0.00 kPa</b></span>
+    <span class="sum-item sum-dim"><b id="s_dpbar">0.000 bar</b></span>
+    <span class="sum-item sum-dim"><b id="s_dpmws">0.00 mWS</b></span>
+    <span class="sum-sep"></span>
+    <span class="sum-item sum-dim"><b id="s_temp">10°C</b></span>
   </div>
 
 
@@ -415,7 +426,6 @@ function fixLeadingZero(el){
         <div style="width:1px;height:36px;background:var(--blue-bd);flex-shrink:0"></div>
         <div id="checksContainer" style="flex:1"></div>
       </div>
-    </div>
   </div>
 </div><!-- /pg -->
 
@@ -442,7 +452,6 @@ function fixLeadingZero(el){
 </div>
 
 <div id="toast"></div>
-<input type="file" id="fileInp" accept=".json" style="display:none">
 <script>
 // ═══════════════════════════════════════════════════════════
 // PIPE SYSTEMS & DIMENSIONS
@@ -789,14 +798,19 @@ function saveActiveCalc(){
   if(c)c.state=state;
   saveAllCalcs();
 }
+var _addCalcOpen=false;
 function addCalc(){
-  var med=prompt('Medium wählen:\nkw = Kaltwasser\nww = Warmwasser\new = Enthärtetes Wasser\now = Osmosewasser\nrw = Regenwasser\nzirk = Zirkulation','kw');
-  if(!med)return;
-  var m=MEDIEN.find(function(x){return x.id===med;})||MEDIEN[0];
+  // Inline-Medium-Auswahl statt prompt(): «+ Berechnung» klappt die Medium-Buttons auf
+  _addCalcOpen=!_addCalcOpen;
+  renderCalcTabs();
+}
+function addCalcMedium(medId){
+  var m=MEDIEN.find(function(x){return x.id===medId;})||MEDIEN[0];
   var n=allCalcs.length+1;
   var c=newCalc(m.name+' '+n,m.id);
   saveActiveCalc();
   allCalcs.push(c);activeCalcId=c.id;
+  _addCalcOpen=false;
   loadActiveCalc();saveAllCalcs();renderCalcTabs();render();
 }
 function switchCalc(id){
@@ -804,14 +818,22 @@ function switchCalc(id){
 }
 function removeCalc(id){
   if(allCalcs.length<=1){toast('Mindestens eine Berechnung erforderlich');return;}
-  allCalcs=allCalcs.filter(function(x){return x.id!==id;});
-  if(activeCalcId===id){activeCalcId=allCalcs[0].id;loadActiveCalc();}
-  saveAllCalcs();renderCalcTabs();render();
+  var c=allCalcs.find(function(x){return x.id===id;});
+  var doIt=function(){
+    allCalcs=allCalcs.filter(function(x){return x.id!==id;});
+    if(activeCalcId===id){activeCalcId=allCalcs[0].id;loadActiveCalc();}
+    saveAllCalcs();renderCalcTabs();render();
+  };
+  if(typeof GemaDialog!=='undefined'){
+    GemaDialog.confirm({title:'Berechnung löschen',message:'«'+(c?c.name:'Berechnung')+'» mit allen Teilstrecken wirklich löschen?',confirmLabel:'Löschen',danger:true}).then(function(ok){if(ok)doIt();});
+  } else if(confirm('Berechnung löschen?')){doIt();}
 }
 function renameCalc(id){
   var c=allCalcs.find(function(x){return x.id===id;});if(!c)return;
-  var n=prompt('Name der Berechnung:',c.name);if(!n)return;
-  c.name=n;saveAllCalcs();renderCalcTabs();
+  var apply=function(n){if(n===null||n===undefined)return;n=String(n).trim();if(!n)return;c.name=n;saveAllCalcs();renderCalcTabs();};
+  if(typeof GemaDialog!=='undefined'){
+    GemaDialog.prompt({title:'Berechnung umbenennen',defaultValue:c.name}).then(apply);
+  } else {apply(prompt('Name der Berechnung:',c.name));}
 }
 function renderCalcTabs(){
   var bar=document.getElementById('calcTabBar');if(!bar)return;
@@ -823,7 +845,13 @@ function renderCalcTabs(){
     if(allCalcs.length>1)h+='<span onclick="event.stopPropagation();removeCalc(\''+c.id+'\')" style="margin-left:4px;font-size:10px;opacity:.5;cursor:pointer" title="Entfernen">✕</span>';
     h+='</button>';
   });
-  h+='<button onclick="addCalc()" style="padding:6px 12px;border-radius:8px;border:1.5px dashed var(--brd);background:transparent;color:var(--mut);font-size:12px;font-weight:600;cursor:pointer;font-family:inherit">+ Berechnung</button>';
+  h+='<button onclick="addCalc()" style="padding:6px 12px;border-radius:8px;border:1.5px dashed var(--brd);background:transparent;color:var(--mut);font-size:12px;font-weight:600;cursor:pointer;font-family:inherit">'+(_addCalcOpen?'✕ Abbrechen':'+ Berechnung')+'</button>';
+  if(_addCalcOpen){
+    h+='<span style="font-size:11px;color:var(--mut);font-weight:700;margin-left:2px">Medium:</span>';
+    MEDIEN.forEach(function(m){
+      h+='<button onclick="addCalcMedium(\''+m.id+'\')" style="display:flex;align-items:center;gap:4px;padding:5px 11px;border-radius:8px;border:1.5px solid '+m.farbe+';background:'+m.farbe+'12;color:'+m.farbe+';font-size:11.5px;font-weight:700;cursor:pointer;font-family:inherit;white-space:nowrap">'+m.icon+' '+m.name+'</button>';
+    });
+  }
   bar.innerHTML=h;
 }
 
@@ -832,6 +860,8 @@ let state={
   rows:[newRow('1'), newRow('2'), newRow('3')],
 };
 let fitModal={open:false, rowId:null, tmpFit:{}};
+// Aufgeklappt-Zustand der Formstück-Auswahl pro Teilstrecke (nur UI, nicht persistiert)
+var _fitOpenMap={};
 
 function getWP(){return waterProps(state.tempC);}
 
@@ -882,43 +912,62 @@ function render(){
     const regClass=calc2.regime==='turbulent'?'ok':calc2.regime==='Übergang'?'warn':'';
 
     const flowCell=row.flowMode==='direct'
-      ? `<label class="ts-label">Q direkt</label><input class="ts-inp" type="text" inputmode="decimal" value="${row.q_direct}" data-k="q_direct" onblur="fixLeadingZero(this)"/><label class="ts-label">l/s</label>`
-      : `<label class="ts-label">Anzahl LU</label><input class="ts-inp" type="text" inputmode="decimal" value="${row.lu}" data-k="lu" onblur="fixLeadingZero(this)"/><label class="ts-label" style="background:transparent;border:none;margin-left:8px">gr. LU</label><input class="ts-inp" style="width:55px" type="text" inputmode="decimal" value="${row.grLU}" data-k="grLU" onblur="fixLeadingZero(this)"/><label class="ts-label" style="background:transparent;border:none;margin-left:8px">+ l/s</label><input class="ts-inp" style="width:60px" type="text" inputmode="decimal" value="${row.qZusatz||0}" data-k="qZusatz" onblur="fixLeadingZero(this)" title="Zusätzliche l/s (100%, ohne W3-Reduktion)"/>`;
+      ? `<div class="ts-fg"><label>Q direkt [l/s]</label><input class="ts-inp" style="width:80px" type="text" inputmode="decimal" value="${row.q_direct}" data-k="q_direct" onblur="fixLeadingZero(this)"/></div>`
+      : `<div class="ts-fg"><label>Anzahl LU</label><input class="ts-inp" style="width:70px" type="text" inputmode="decimal" value="${row.lu}" data-k="lu" onblur="fixLeadingZero(this)"/></div>
+         <div class="ts-fg"><label>gr. LU</label><input class="ts-inp" style="width:55px" type="text" inputmode="decimal" value="${row.grLU}" data-k="grLU" onblur="fixLeadingZero(this)"/></div>
+         <div class="ts-fg"><label title="Zusätzliche l/s (100%, ohne W3-Reduktion)">+ l/s</label><input class="ts-inp" style="width:60px" type="text" inputmode="decimal" value="${row.qZusatz||0}" data-k="qZusatz" onblur="fixLeadingZero(this)" title="Zusätzliche l/s (100%, ohne W3-Reduktion)"/></div>`;
     const ltColors={verteil:{bg:'#16a34a',brd:'#16a34a'},stockwerk:{bg:'#d97706',brd:'#d97706'},ausstoss:{bg:'#dc2626',brd:'#dc2626'}};
-    const ltBtns=`<div class="lt-group" style="display:inline-flex;margin-left:8px;border:1.5px solid #c8cfdf;border-radius:7px;overflow:hidden">`
+    const ltBtns=`<div class="lt-group" style="display:inline-flex;border:1.5px solid #c8cfdf;border-radius:7px;overflow:hidden">`
       +['verteil','stockwerk','ausstoss'].map(t=>{
         const labels={verteil:'Verteilltg.',stockwerk:'Stockwerk',ausstoss:'Ausstoss'};
         const isAct=row.leitungstyp===t;
         const col=ltColors[t];
-        return `<button data-lt="${t}" style="padding:0 10px;height:28px;border:none;border-right:1px solid #c8cfdf;font-size:10px;font-weight:${isAct?'800':'600'};cursor:pointer;font-family:inherit;white-space:nowrap;background:${isAct?col.bg:'#fff'};color:${isAct?'#fff':'#64748b'}">${labels[t]}</button>`;
+        return `<button data-lt="${t}" style="padding:0 10px;height:30px;border:none;border-right:1px solid #c8cfdf;font-size:10px;font-weight:${isAct?'800':'600'};cursor:pointer;font-family:inherit;white-space:nowrap;background:${isAct?col.bg:'#fff'};color:${isAct?'#fff':'#64748b'}">${labels[t]}</button>`;
       }).join('')+'</div>';
 
-    div.innerHTML=`
-      <div class="ts-head">
-        <label class="ts-label" style="flex-shrink:0">TS-Nr.</label>
-        <input class="ts-num" type="text" value="${row.label}" data-k="label" title="Nummer z.B. 1, 1.1, 2a"/>
-        <div class="ts-sep"></div>
-        <label class="ts-label">Rohrsystem</label>
-        <select class="ts-select" data-k="sysId" style="min-width:175px">
-          ${SYSTEMS.map(s=>`<option value="${s.id}"${s.id===row.sysId?' selected':''}>${s.status==='verifiziert'?'✓ ':'⚠ '}${s.name}</option>`).join('')}
-        </select>
-        <label class="ts-label">Dim.</label>
-        <select class="ts-select" data-k="dimDn" style="min-width:140px">${dimOpts}</select>
-        <div class="ts-sep"></div>
-        <label class="ts-label">Länge [m]</label>
-        <input class="ts-inp" type="text" inputmode="decimal" value="${row.length_m}" data-k="length_m" onblur="fixLeadingZero(this)"/>
-        <div class="ts-sep"></div>
-        ${flowCell}
-        ${ltBtns}
-        <button class="ts-del" data-del="${row.id}" title="Teilstrecke löschen">✕</button>
-      </div>
+    // Formstücke/Armaturen: kompakte Zusammenfassung (eingeklappt) oder volle Chip-Auswahl (aufgeklappt)
+    const fitActive=Object.entries(row.fittings||{}).filter(([k,v])=>v>0);
+    const armActive=Object.entries(row.armaturen||{}).filter(([k,v])=>v>0);
+    const nSel=fitActive.reduce((a,[,v])=>a+v,0)+armActive.reduce((a,[,v])=>a+v,0);
+    const isFitOpen=!!_fitOpenMap[row.id];
+    let fitSection;
+    if(isFitOpen){
+      fitSection=`
       <div class="ts-fittings">
+        <button class="fit-toggle has-sel" data-fittoggle="${row.id}" title="Auswahl einklappen">▾ Fertig</button>
         <span style="font-size:10px;font-weight:700;color:var(--mut);text-transform:uppercase;letter-spacing:.3px;margin-right:2px">Formstücke</span>
         ${renderInlineFitChips(row, sys)}
         <span style="width:1px;height:20px;background:var(--brd);margin:0 4px;flex-shrink:0"></span>
         <button class="fit-open${armCount>0?' has-fittings':''}" data-fit="${row.id}">🔧 Armaturen${armCount>0?' ('+armCount+')':''}</button>
         ${armSummary}
+      </div>`;
+    } else {
+      const miniChips=[
+        ...fitActive.map(([name,cnt])=>`<span class="fit-mini"><b>${cnt}×</b> ${fitIcon(name)} ${name}</span>`),
+        ...armActive.map(([id,cnt])=>{const a=typeof GemaArmaturen!=='undefined'?GemaArmaturen.getById(id):null;return `<span class="fit-mini"><b>${cnt}×</b> 🔧 ${a?a.name:id}</span>`;})
+      ].join('');
+      fitSection=`
+      <div class="ts-fittings">
+        <button class="fit-toggle${nSel>0?' has-sel':''}" data-fittoggle="${row.id}">🔧 Formstücke &amp; Armaturen${nSel>0?' ('+nSel+')':''} ▸</button>
+        ${nSel>0?miniChips:'<span class="fit-none">keine gewählt — ζ Σ bleibt manuell editierbar</span>'}
+      </div>`;
+    }
+
+    div.innerHTML=`
+      <div class="ts-head">
+        <div class="ts-fg"><label>TS-Nr.</label><input class="ts-num" type="text" value="${row.label}" data-k="label" title="Nummer z.B. 1, 1.1, 2a"/></div>
+        <div class="ts-fg" style="flex:2 1 175px"><label>Rohrsystem</label>
+          <select class="ts-select" data-k="sysId" style="width:100%">
+            ${SYSTEMS.map(s=>`<option value="${s.id}"${s.id===row.sysId?' selected':''}>${s.status==='verifiziert'?'✓ ':'⚠ '}${s.name}</option>`).join('')}
+          </select>
+        </div>
+        <div class="ts-fg" style="flex:1.3 1 130px"><label>Dimension</label><select class="ts-select" data-k="dimDn" style="width:100%">${dimOpts}</select></div>
+        <div class="ts-fg"><label>Länge [m]</label><input class="ts-inp" style="width:70px" type="text" inputmode="decimal" value="${row.length_m}" data-k="length_m" onblur="fixLeadingZero(this)"/></div>
+        ${flowCell}
+        <div class="ts-fg"><label>Leitungstyp</label>${ltBtns}</div>
+        <button class="ts-del" data-del="${row.id}" title="Teilstrecke löschen">✕</button>
       </div>
+      ${fitSection}
       <div class="ts-results">
         <div class="res-item"><div class="res-lbl">Q</div><div class="res-val">${fmt(calc2.Q,3)}<small style="font-size:10px;color:var(--mut)"> l/s</small></div></div>
         <div class="res-div"></div>
@@ -978,11 +1027,22 @@ function render(){
     });
 
     div.querySelector('[data-del]').addEventListener('click',()=>{
-      state.rows.splice(i,1);
-      render();
+      const doDel=()=>{state.rows.splice(i,1);render();};
+      if(typeof GemaDialog!=='undefined'){
+        GemaDialog.confirm({title:'Teilstrecke löschen',message:'Teilstrecke '+row.label+' wirklich löschen?',confirmLabel:'Löschen',danger:true}).then(ok=>{if(ok)doDel();});
+      } else doDel();
     });
 
-    div.querySelector('[data-fit]').addEventListener('click',()=>openFitModal(row.id));
+    const fitBtn=div.querySelector('[data-fit]');
+    if(fitBtn)fitBtn.addEventListener('click',()=>openFitModal(row.id));
+
+    // Formstück-Sektion auf-/zuklappen
+    div.querySelectorAll('[data-fittoggle]').forEach(btn=>{
+      btn.addEventListener('click',()=>{
+        _fitOpenMap[row.id]=!_fitOpenMap[row.id];
+        render();
+      });
+    });
 
     // Leitungstyp buttons
     div.querySelectorAll('[data-lt]').forEach(btn=>{
@@ -1191,104 +1251,14 @@ function addSubRow(){
 ['btnAddRow','btnAddRow2'].forEach(id=>document.getElementById(id)?.addEventListener('click',addRow));
 $('btnAddRow2sub').addEventListener('click',addSubRow);
 
-// Settings
-$('inp_project').addEventListener('input',e=>{state.project=e.target.value;});
-$('inp_owner').addEventListener('input',e=>{state.owner=e.target.value;});
+// Settings — Achtung: hier nur Elemente referenzieren, die auf der Seite existieren!
+// (Frühere Handler auf inp_project/inp_owner/btnPdf/btnExpJson warfen einen TypeError
+//  und brachen das Script ab → Temperatur/Durchfluss-Modus reagierten nicht mehr.)
 $('inp_apparat').addEventListener('input',e=>{state.apparat=e.target.value;saveActiveCalc();});
 $('inp_temp').addEventListener('input',e=>{state.tempC=parseFloat(e.target.value)||10;render();});
 $('inp_flowmode').addEventListener('change',e=>{
   state.rows.forEach(r=>r.flowMode=e.target.value);
   render();
-});
-
-// ═══════════════════════════════════════════════════════════
-// PDF EXPORT
-// ═══════════════════════════════════════════════════════════
-$('btnPdf').addEventListener('click',()=>{
-  const{jsPDF}=window.jspdf;
-  const doc=new jsPDF({orientation:'landscape',unit:'mm',format:'a4'});
-  const{rho,nu}=getWP();
-  let y=14;
-
-  // Header
-  doc.setFillColor(8,145,178);doc.roundedRect(10,y-8,277,32,4,4,'F');
-  doc.setTextColor(255,255,255);doc.setFont('helvetica','bold');doc.setFontSize(14);
-  doc.text('DRUCKVERLUSTBERECHNUNG WASSER',16,y+2);
-  doc.setFontSize(9);doc.setFont('helvetica','normal');
-  doc.text(`GEMA Sanitär · SVGW W3 / DIN 1988`,16,y+11);
-  doc.text(`Projekt: ${state.project||'—'}  |  SB: ${state.owner||'—'}  |  T=${state.tempC}°C  |  ρ=${fmt(rho,1)} kg/m³`,16,y+19);
-  doc.text(new Date().toLocaleDateString('de-CH'),240,y+2);
-  y+=38;
-
-  const rows=state.rows.map(row=>{
-    const c=calcRow(row,rho,nu)||{Q:0,v:0,Re:0,lam:0,regime:'—',dp_pipe:0,dp_local:0,dp_eq:0,dp_ts:0};
-    const sys=SYSTEMS.find(s=>s.id===row.sysId);
-    const dim=sys?.dims.find(d=>d.dn===row.dimDn);
-    const fitSummary=Object.entries(row.fittings||{}).filter(([k,v])=>v>0).map(([k,v])=>`${v}× ${k}`).join(', ')||'—';
-    return[
-      row.label,
-      sys?sys.name:'—',
-      row.dimDn+(dim?` (di${dim.di})`:' '),
-      fmt(row.length_m,1),
-      fmt(c.Q,3),
-      fmt(c.v,2),
-      fmt(c.Re,0),
-      c.regime,
-      fmt(c.lam,4),
-      fmt(row.zeta_sum,3),
-      fmt(c.dp_pipe,2),
-      fmt(c.dp_local+c.dp_eq,2),
-      fmt(c.dp_ts,2),
-      fitSummary,
-    ];
-  });
-
-  doc.setTextColor(50,50,50);
-  doc.autoTable({
-    startY:y,
-    head:[['TS','System','Dim.','L[m]','Q[l/s]','v[m/s]','Re','Strömung','λ','Σζ','ΔpRohr[kPa]','ΔpEW[kPa]','ΔpTS[kPa]','Fittings']],
-    body:rows,
-    styles:{fontSize:7,cellPadding:3},
-    headStyles:{fillColor:[8,145,178],textColor:255,fontStyle:'bold',fontSize:7},
-    alternateRowStyles:{fillColor:[240,252,255]},
-    columnStyles:{
-      0:{cellWidth:12,halign:'center'},1:{cellWidth:26},2:{cellWidth:22},3:{cellWidth:12,halign:'right'},
-      4:{cellWidth:14,halign:'right'},5:{cellWidth:14,halign:'right'},6:{cellWidth:15,halign:'right'},
-      7:{cellWidth:16},8:{cellWidth:12,halign:'right'},9:{cellWidth:10,halign:'right'},
-      10:{cellWidth:18,halign:'right'},11:{cellWidth:18,halign:'right'},12:{cellWidth:18,halign:'right'},
-      13:{cellWidth:50,overflow:'ellipsize'},
-    },
-    margin:{left:10,right:10},
-    didDrawPage:(d)=>{doc.setFontSize(7);doc.setTextColor(150);doc.text(`GEMA · Seite ${d.pageNumber}`,10,doc.internal.pageSize.height-5);}
-  });
-  const tot=state.rows.reduce((a,r)=>a+(calcRow(r,rho,nu)?.dp_ts||0),0);
-  const yf=doc.lastAutoTable.finalY+8;
-  doc.setFillColor(236,254,255);doc.roundedRect(10,yf-5,160,16,3,3,'F');
-  doc.setTextColor(8,145,178);doc.setFont('helvetica','bold');doc.setFontSize(11);
-  doc.text(`Total Δp = ${fmt(tot,2)} kPa  =  ${fmt(tot/100,3)} bar  =  ${fmt(tot/9.807,2)} mWS`,16,yf+5);
-  doc.save(`Druckverlust_${(state.project||'GEMA').replace(/[^\w\-]+/g,'_')}.pdf`);
-  toast('✓ PDF erstellt');
-});
-
-// ═══════════════════════════════════════════════════════════
-// JSON EXPORT / IMPORT
-// ═══════════════════════════════════════════════════════════
-$('btnExpJson').addEventListener('click',()=>{
-  const b=new Blob([JSON.stringify(state,null,2)],{type:'application/json'});
-  const a=document.createElement('a');
-  a.href=URL.createObjectURL(b);
-  a.download=`Druckverlust_${(state.project||'GEMA').replace(/[^\w\-]+/g,'_')}.json`;
-  a.click();URL.revokeObjectURL(a.href);
-  toast('✓ JSON exportiert');
-});
-
-$('btnImpJson').addEventListener('click',()=>$('fileInp').click());
-$('fileInp').addEventListener('change',e=>{
-  const f=e.target.files[0];if(!f)return;
-  const r=new FileReader();
-  r.onload=ev=>{try{state=JSON.parse(ev.target.result);rowCnt=state.rows.length;render();toast('✓ Importiert');}catch{toast('Fehler beim Import');}};
-  r.readAsText(f);
-  e.target.value='';
 });
 
 // ═══════════════════════════════════════════════════════════
