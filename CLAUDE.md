@@ -397,6 +397,18 @@ Mollier-h,x-Diagramm nach der Seven-Air-Vorlage (950 mbar / 540 m ü.M.). **Neue
 - Persistenz: Parameter via GemaAutoSave (`fluessiggas`), Geräte+Räume als EIN JSON (`gsState={ger,fr}`) im hidden `#gs_rows`-Textarea.
 - Anlagenwahl + Offertanfrage: **neue Produktkategorie `KATEGORIEN.fluessiggasanlage`** (Flaschenrampe/Tank/Verdampfer; Verdampfungsleistung kg/h Pflicht, matchFn ≥ Total-Massenstrom ideal ≤ 2×) + `LIEF_KATEGORIEN` + bkpMap `252.0`. Payload: `totalMassenstrom`, `grundlast`, `spitzenmassenstrom`, `jahresverbrauch` — Projektwerte, nie Datenblatt-Werte.
 - Registriert in gema_auth (MODULES `fluessiggas`, cat Sanitärberechnungen, FILE_MAP `sb_fluessiggas`), sb_index (**neue Gruppe Gas**), sw.js.
+
+### Druckverlust Erdgas (sb_druckverlust_erdgas.html) — zweite Gas-Berechnung
+
+1:1-Umsetzung der Excel «Druckverlustberechnung Erdgas» Vers. 3 (E. Hähni, 1997/2016; RC4-verschlüsselte .xls — Formeln aus BIFF-Shared-Formulas + VBA-Modulen extrahiert; Node-Test validiert die Engine gegen die Excel-Cached-Werte des Beispiels «Aufgabe Schule» auf < 1e-9 relativ). 4 Tabs:
+1. **Grundlagen & Vordimensionierung**: Gasdaten (HiB/Wsn/Temperatur/Drücke informativ; Rechnung läuft über ρ Default 0.75 kg/m³ und ν Default 11.41237·10⁻⁶ m²/s — in der Excel eine editierbare Konstante, KEINE Formel), Druckvorgaben (max. zul. Δp, Zähler-Δp), Vordimensionierung `d = [0.04·V̇²·ρ·L·(1+EW%) / (1.624·10⁻⁶·(Δpmax−ΔpZähler))]^(1/5)` mm + nächstgrössere Dimension je Material.
+2. **Teilstrecken & Druckverlust**: dynamische TS-Tabelle — V̇A + V̇K → V̇A max; Material/Dimension aus `EG_ROHRE` (T_Dimensionen: Stahl verzinkt k=0.15, Cu/CrNi k=0.0015, PE S5/S8 k=0.25, Guss DN40–65 k=0.03 / ab DN80 k=0.01 mm — Rauhigkeit pro Dimension); `v = V̇/3600/(π/4·d²)`, `Re = v·d/ν`, **λ nach VBA `Lambdawertberechnung`** (Branch-Reihenfolge exakt: laminar 64/Re bei Re≤2320 → rauh `1/(2·lg(3.71·d/k))²` bei Re·k/d>1300 → Übergang `0.0055·(1+(20000·k/d+10⁶/Re)^⅓)` bei 65≤Re·k/d≤1300 → Blasius `0.3164/Re^0.25` bei Re<10⁵ → `0.0032+0.221·Re^−0.237` bei Re<10⁶), `R = λ/d·ρ/200·v²` mbar/m, Δpζ, ΔpApp (Zähler als eigene Zeile ohne Dimension), **Δp-Kumulation wie Excel: `P = (ΔpTS==0 ? 0 : Pprev+ΔpTS)`** + expliziter «↺ neuer Strang»-Toggle; KPI max. Δp vs. zulässig mit rot-Warnung.
+3. **Spitzenvolumenstrom Haushalt**: Apparate-Katalog (`EG_GERAETE` aus AWerte) → Σ AW + GAW-Stufe (auto = nächsthöhere Stufe zum grössten Einzel-Anschlusswert); **VBA `Spitzenvolumenstrom(GAW, AW)`**: 24 Potenz-Stufen `AW^e·f` (GAW 1.0–10, je AW-Limit), Grösstwerte-Ast `AW^1.0563·0.067774` bei AW>580, Kontrollabfrage cap auf AW. Plus Küchen-Tabelle 3–100 Küchen (nächsthöherer Tabellenwert).
+4. **ζ-Werte (Referenz)**: Formstücke + Armaturen aus V_RW (inkl. Gaszähler-Anschluss ζ=2 bis DN25 / ζ=4 ab DN25).
+- Persistenz: Parameter via GemaAutoSave (`druckverlust_erdgas`), TS-+Geräte-Zeilen als EIN JSON (`egState={ts,ger}`) im hidden `#eg_rows`-Textarea (Pattern `#gs_rows`).
+- Engine im Block `/*ENGINE-START*/…/*ENGINE-END*/` (DOM-frei) — Node-Tests können sie direkt evaluieren.
+- KEINE Anlagenwahl/Offertanfrage (kein passendes Produktkatalog-Sortiment — wie sb_warmwasser).
+- Registriert in gema_auth (MODULES `druckverlust_erdgas`, FILE_MAP `sb_druckverlust_erdgas`), sb_index (Gruppe Gas, «2 Module», Hero 29 Module), sw.js.
 - **Projektmanagement-Module** (pm_): Objekte, Terminplanung, Sitzungsprotokolle, Kostenkontrolle, Ausschreibung
 - **Hygiene-Module** (hy_): W12 Selbstkontrolle (SVGW)
 - **Infrastruktur-Module** (if_): Werkzeugmanagement, Fahrzeugmanagement, Trocknungsgeräte (siehe Abschnitte weiter unten)
