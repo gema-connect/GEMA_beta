@@ -264,6 +264,7 @@ Kategorie-Präfix + Kleinschreibung. **Keine Umlaute in Dateinamen** (ä→ae, �
 | `el_` | Elektro | `el_index.html` |
 | `hy_` | Hygiene | `hy_w12.html` |
 | `hz_` | Heizungsberechnungen | `hz_ausdehnungsgefaess.html` |
+| `lt_` | Lüftungsberechnungen | `lt_hx_diagramm.html` |
 | `br_` | Brandschutz | `br_index.html` |
 | `if_` | Infrastruktur (Werkzeug, Fahrzeug, Lager) | `if_werkzeug.html`, `if_fahrzeug.html` |
 | `sd_` | Schadensdokumentation | `sd_schadensbericht.html` |
@@ -358,6 +359,17 @@ Komplett NEU nach Excel-Vorlage «WarmwasserGesamt385_251125_v3.xlsm» (SIA 385/
 - Persistenz: AutoSave `heizlast_verbrauch` + 2 dynamische Tabellen (`hzlState={whg,per}`) im hidden `#zl_rows`; Perioden-Daten als `<input type="date">`.
 - Anlagenwahl + Offertanfrage: BESTEHENDE Kategorie `waermeerzeuger` (Payload: `leistungGenOut` = Total Kessel, `heizlast`, `warmwasser`, `qh100` — Projektwerte).
 - Registriert in gema_auth (MODULES `heizlast_verbrauch`, FILE_MAP `hz_heizlast`), sb_index (Heizung, «4 Module»), sw.js.
+
+### h,x-Diagramm für feuchte Luft (lt_hx_diagramm.html) — erste Lüftungsberechnung
+
+Mollier-h,x-Diagramm nach der Seven-Air-Vorlage (950 mbar / 540 m ü.M.). **Neues Präfix `lt_` (Lüftungsberechnungen) + neue Gruppe «Lüftung» auf sb_index** (cat-icon.lt/mod.lt sky-blue, Jump-Link). KEIN Excel — Formeln sind Standard-Psychrometrie (per Playwright gegen Tabellen-Referenzwerte + Round-Trips validiert):
+- **Formeln**: barometrische Höhenformel `p = 101325·(1−0.0065·H/288.15)^5.255` (540 m → 950 mbar wie PDF-Titel); Magnus (WMO/DIN) `ps = 611.2·e^(17.62t/(243.12+t))` Wasser bzw. `22.46/272.62` Eis; `x = 0.622·pD/(p−pD)`; `h = 1.006·t + x·(2501+1.86·t)`; Taupunkt = inverse Magnus; Feuchtkugel über adiabate Sättigung (Bisektion); ρ feuchte Luft.
+- **Luftzustände** (dynamische Tabelle, `#hx_rows`): je Punkt Kombination zweier bekannter Grössen (`t+φ`, `t+x`, `t+h`, `t+Taupunkt`, `t+Feuchtkugel`, `x+φ`, `x+h`, `h+φ`) → ALLE übrigen berechnet (t, φ, x, h, Td, Twb, ρ, pD); Kombis ohne geschlossene Lösung per Bisektion; φ > 100 % = Nebelgebiet rot markiert.
+- **Canvas-Diagramm** (kein Library): Isothermen horizontal, φ-Kurven 10–100 % (Sättigungslinie fett), h-Isolinien alle 5 kJ/kg im ungesättigten Bereich, Punkte farbig mit Label, Prozesslinie mit Pfeilen in Tabellenreihenfolge; Achsen auto-erweiternd (Default x 0–20 g/kg, t −15…40 °C).
+- **Prozess-Auswertung** (bei Volumenstrom > 0): je Abschnitt `ṁ = V̇·ρ(Start)/3600`, `P = ṁ·Δh` (+ = Heizen), `Wasser = ṁ·Δx·3600` (+ = Befeuchten); KPIs Σ Heiz-/Kühlleistung, Be-/Entfeuchtung.
+- Persistenz: AutoSave `hx_diagramm` + Punkte-Tabelle im hidden `#hx_rows`.
+- Anlagenwahl + Offertanfrage: **neue Produktkategorie `KATEGORIEN.lueftungsgeraet`** (Monobloc: Volumenstrom, WRG-Typ/Rückwärmzahl, Heiz-/Kühlregister, Befeuchter, SFP; matchFn auf Volumenstrom ≥ Bedarf ideal ≤ 1.6×) + `LIEF_KATEGORIEN` + bkpMap `244.0`. Payload: `volumenstrom`, `heizleistung`, `kuehlleistung`, `befeuchtung`, `hoehe` — Projektwerte, nie Datenblatt-Werte.
+- Registriert in gema_auth (MODULES `hx_diagramm`, cat **Lüftungsberechnungen**, FILE_MAP `lt_hx_diagramm`), sb_index (Gruppe Lüftung, Hero 27 Module/6 Kategorien), sw.js.
 - **Projektmanagement-Module** (pm_): Objekte, Terminplanung, Sitzungsprotokolle, Kostenkontrolle, Ausschreibung
 - **Hygiene-Module** (hy_): W12 Selbstkontrolle (SVGW)
 - **Infrastruktur-Module** (if_): Werkzeugmanagement, Fahrzeugmanagement, Trocknungsgeräte (siehe Abschnitte weiter unten)
