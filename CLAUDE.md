@@ -347,6 +347,17 @@ Komplett NEU nach Excel-Vorlage «WarmwasserGesamt385_251125_v3.xlsm» (SIA 385/
 - Persistenz: AutoSave `waermegruppen` + 4 dynamische Tabellen als EIN JSON (`wgState={raeume,gruppen,verbunden,ww}`) im hidden `#wg_rows`-Textarea.
 - Anlagenwahl + Offertanfrage: **neue Produktkategorie `KATEGORIEN.waermeerzeuger`** (Heizleistung kW + Bauart WP/Kessel + COP/max. VL; matchFn auf Heizleistung ≥ Φgen,out, ideal ≤ 1.5×) + `LIEF_KATEGORIEN` + bkpMap `242.0`. Payload: `leistungGenOut`, `heizlast`, `warmwasser`, `sperrzuschlag` — Projektwerte, nie Datenblatt-Werte.
 - Registriert in gema_auth (MODULES `waermegruppen`, cat Heizungsberechnungen, FILE_MAP `hz_waermegruppen`), sb_index (Heizung, «3 Module»), sw.js.
+
+### Heizlast aus Jahresenergieverbrauch (hz_heizlast.html)
+
+1:1-Umsetzung der Excel «Heizlastbestimmung V6.1 2023» (Gabathuler; Sanierungs-Tool — Kesselleistung aus Abrechnungsperioden; per Playwright validiert: Zwischenwerte gegen Excel-Cached, Endresultate gegen unabhängige Formelwerte, weil die Beispiel-Cached-Werte #DIV/0! sind). 4 Tabs:
+1. **Gebäude & Warmwasser**: Kategorie (Miete/Eigentum/EFH) × Standard → WW-Verbrauch/Person (`HZL_VERBRAUCH` 35–55 dm³/P·d); Bauweise → Cwirk (`HZL_BAUWEISE`); Wohnungstypen-Tabelle: `Pers/WE = 3.3−2/(1+(F/100)³)` (+Override), `kWh/a·P = INT(ROUND(F·(1+z%)·gz·21.226/50))·50` (**Zeile-1-Formel inkl. Gleichzeitigkeitsfaktor für ALLE Zeilen — Excel-Zeilen 2–4 hatten gz vergessen**), QWW, `EBF = Fläche·WE/(ANF/EBF)` + Nebenräume·b-Faktor.
+2. **Klima & Verbrauch**: **36 SMA-Klimastationen inline** (`HZL_STATIONEN`: müM, ta, tam, HGT 2011–2022, b/m50/m90); `ta,Geb = ta,St+ROUND(−0.005·Δh)`; `fcor = 1+(9.4−tam)·0.06`; `QH,li = (EFH?16:13+15·Ath/AE)·fcor`; **Perioden-Tabelle**: Tag-im-Jahr → HGT-%-Saisonpolynom (3 Äste, gerundet), QWW-Anteil über Tage, `QH100 = QH/(D%/100)` (Jahreswechsel: +100; >365 d: ·365/Tage); Ø nur über Perioden mit QH100 > 0. Effizienzklasse A+–G (`HZL_EFFKLASSEN`, 100·qh/QH,li).
+3. **Heizleistung**: Hauptmethode Hottinger — Methode `A wenn 55·h·müM⁻⁰·³⁸⁵ ≥ qh sonst B`; `A: (qh/(h·müM^0.215))^0.6 · B: 0.4+qh/((5.3·h)+0.035·müM)` W/m²K; ·Faktor Ath/AE ·ΔT → W/m² → kW; WW-Zuschlag (EFH 2 / sonst 3 W/m²); Wiederaufheizfaktor `((24/(24−Sperr))−1)·0.5+1`; **3 Vergleichsmethoden** (Hottinger HGT-korrigiert mit f_HGT-Polynom; Betriebstundenkoeffizient `27·ln(qh)−32` bzw. Höhenvariante; SIA 384/1 b/m50/m90-Werte).
+4. **WW-Speicher & Heizkurve**: Speicherauslegung (tz = Cwirk·ΔqRH/spez. Leistung, Ladungen, Steuer-/Spitzen-/Bereitschaftsvolumen ·(1+z%), Boilervorrang-Check) + **neue Betriebstemperaturen nach Sanierung** (Steilheit, log. Übertemperatur, `ÜTneu = (Pneu/Palt)^(1/n)·ÜTalt`, JVL/JRL neu — WP-Tauglichkeit).
+- Persistenz: AutoSave `heizlast_verbrauch` + 2 dynamische Tabellen (`hzlState={whg,per}`) im hidden `#zl_rows`; Perioden-Daten als `<input type="date">`.
+- Anlagenwahl + Offertanfrage: BESTEHENDE Kategorie `waermeerzeuger` (Payload: `leistungGenOut` = Total Kessel, `heizlast`, `warmwasser`, `qh100` — Projektwerte).
+- Registriert in gema_auth (MODULES `heizlast_verbrauch`, FILE_MAP `hz_heizlast`), sb_index (Heizung, «4 Module»), sw.js.
 - **Projektmanagement-Module** (pm_): Objekte, Terminplanung, Sitzungsprotokolle, Kostenkontrolle, Ausschreibung
 - **Hygiene-Module** (hy_): W12 Selbstkontrolle (SVGW)
 - **Infrastruktur-Module** (if_): Werkzeugmanagement, Fahrzeugmanagement, Trocknungsgeräte (siehe Abschnitte weiter unten)
