@@ -12,6 +12,7 @@ var LIEF_KATEGORIEN = [
   {id:'osmose',label:'Umkehrosmoseanlagen',gruppe:'anlagen'},
   {id:'druckerhoehung',label:'Druckerhöhungsanlagen',gruppe:'anlagen'},
   {id:'zirkulationspumpe',label:'Zirkulationspumpen',gruppe:'anlagen'},
+  {id:'sicherheitsventil',label:'Sicherheitsventile',gruppe:'anlagen'},
   {id:'fettabscheider',label:'Fettabscheider',gruppe:'anlagen'},
   {id:'oelabscheider',label:'Ölabscheider',gruppe:'anlagen'},
   {id:'schlammsammler',label:'Schlammsammler',gruppe:'anlagen'},
@@ -707,6 +708,46 @@ KATEGORIEN.zirkulationspumpe = {
     if(b.tempRl && d.medienTempMax){
       if(d.medienTempMax >= b.tempRl) score += 10;
     }
+    return Math.min(100, score);
+  }
+};
+
+// ── Sicherheitsventil (Trinkwasser) ──
+// sb_druckanstieg.html matcht auf den berechneten Ansprechdruck [p SV].
+KATEGORIEN.sicherheitsventil = {
+  id: 'sicherheitsventil',
+  name: 'Sicherheitsventil',
+  icon: '🛡️',
+  felder: [
+    { id: 'serie', label: 'Typenbezeichnung / Serie', typ: 'text', gruppe: 'Allgemein', pflicht: true },
+    { id: 'modell', label: 'Modell / Grösse', typ: 'text', gruppe: 'Allgemein', pflicht: true },
+    { id: 'artikelnr', label: 'Artikelnummer', typ: 'text', gruppe: 'Allgemein' },
+    { id: 'bauart', label: 'Bauart', typ: 'select', optionen: ['Membran-Sicherheitsventil','Feder-Sicherheitsventil (Eckform)','Feder-Sicherheitsventil (Durchgang)','Sicherheitsgruppe (mit RV)'], gruppe: 'Allgemein', pflicht: true },
+
+    { id: 'ansprechdruck', label: 'Ansprechdruck (fix eingestellt)', typ: 'number', einheit: 'bar', gruppe: 'Leistungsdaten', pflicht: true },
+    { id: 'abblaseleistung', label: 'Abblaseleistung', typ: 'number', einheit: 'kW', gruppe: 'Leistungsdaten' },
+    { id: 'medienTempMax', label: 'Max. Medientemperatur', typ: 'number', einheit: '°C', gruppe: 'Leistungsdaten' },
+
+    { id: 'anschluss', label: 'Anschluss Eintritt', typ: 'select', optionen: ['DN 15 (½")','DN 20 (¾")','DN 25 (1")','DN 32 (1¼")','DN 40 (1½")','DN 50 (2")'], gruppe: 'Anschlüsse', pflicht: true },
+    { id: 'austritt', label: 'Anschluss Austritt', typ: 'text', gruppe: 'Anschlüsse' },
+
+    { id: 'svgwNr', label: 'SVGW-Zulassungsnummer', typ: 'text', gruppe: 'Normen' },
+    { id: 'ce', label: 'CE-Konformität', typ: 'checkbox', gruppe: 'Normen' },
+    { id: 'besonderheiten', label: 'Besonderheiten', typ: 'textarea', gruppe: 'Zusatz' }
+  ],
+  matchFn: function(produkt, berechnung){
+    let score = 0;
+    const d = produkt.daten || {};
+    const b = berechnung || {};
+    if(b.ansprechdruck && d.ansprechdruck){
+      const diff = Math.abs(parseFloat(d.ansprechdruck) - b.ansprechdruck);
+      if(diff <= 0.5) score += 60;
+      else if(diff <= 1.5) score += 35;
+      else if(diff <= 3) score += 15;
+    }
+    if(b.ruhedruck && d.ansprechdruck && parseFloat(d.ansprechdruck) > b.ruhedruck) score += 25;
+    if(d.anschluss) score += 10;
+    if(d.svgwNr) score += 5;
     return Math.min(100, score);
   }
 };
@@ -1496,7 +1537,7 @@ function beantworteOffertanfrage(id, antwort){
   // Automatische Vormerkung für Ausschreibung erstellen
   if(oa.projekt && oa.projekt.objektId){
     var bkpMap={enthaertung:'253.0',osmose:'253.2',druckerhoehung:'253.4',frischwasserstation:'253.6',
-      hebeanlage:'252.6',fettabscheider:'252.4',oelabscheider:'252.8',zirkulation:'253.8',zirkulationspumpe:'253.8'};
+      hebeanlage:'252.6',fettabscheider:'252.4',oelabscheider:'252.8',zirkulation:'253.8',zirkulationspumpe:'253.8',sicherheitsventil:'254.0'};
     addVormerkung({
       objektId:oa.projekt.objektId,
       lieferantId:oa.lieferantId||'',
