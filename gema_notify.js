@@ -160,6 +160,11 @@
       modul:'regierapport',
       defaultOn:true
     },
+    einsatz_geplant: {
+      label:'Einsatz eingeplant / verschoben',
+      modul:'einsatzplan',
+      defaultOn:true
+    },
     offertanfrage_neu: {
       label:'Neue Offertanfrage (Lieferant)',
       modul:'produktkatalog',

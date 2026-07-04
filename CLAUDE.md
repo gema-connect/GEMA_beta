@@ -1229,6 +1229,19 @@ Rechnung-PDF (Print-Fenster, A4, Briefkopf mit `org.logoVector||org.logo`) enth�
 
 Kundenstamm pro Org (Tab 👥) mit **Schnellübernahme aus Objekt-Beteiligten** (`GemaObjekte.getBeteiligte` → 1-Klick-Befüllung). `kundeSnapshot` wird ins Dokument denormalisiert (Adresse fürs PDF/QR stabil). Rechte: nur Planer-Rollen/Admin/Abteilungsleiter (`erpCanEdit`); MODULES-Key `erp` (cat Projektmanagement, Planer via `_allPerms`), FILE_MAP `pm_erp`. Deep-Links `?doc=<id>` und `?tab=offerte|auftrag|rechnung|kunden`. index.html PM («13 Module»), sw.js v169.
 
+## Einsatzplan (pm_einsatzplan.html)
+
+Kalender zur Monteur-Einplanung — Aufträge aus dem ERP-Modul per **Drag & Drop** (oder Antippen auf iPad) direkt auf die Plantafel ziehen. Mobile-tauglich (gleiche UI-Muster wie pm_regierapport/pm_erp).
+
+- **Storage per-Record**: moduleKey `einsatzplan`, prefix `einsatz:`, Pool-Cache `gema_einsatz_pool_v1` (bindCollection beim Boot, Einzel-Saves via `GemaSync.saveRecord`, Org-Scoping über `e.orgId`). Einsatz-Record: `{id, orgId, typ:'auftrag'|'frei'|'ferien', auftragId, auftragNr, kunde, titel, objektId, objektName, monteurUserId, monteurName, datum, dauerTage, slot:'ganz'|'vm'|'nm', zeitVon, zeitBis, notiz, erstelltVon}`.
+- **3 umschaltbare Ansichten** (`_view`): **Woche** = Plantafel (Zeilen = Personen, Spalten = Mo–Fr bzw. Mo–So, Zellen `data-cell="userId|datum"`), **Monat** = 42-Zellen-Grid mit Tages-Modal (`epDayOpen`), **Meine Woche** = Karten-Liste des eingeloggten Monteurs mit Notiz + Deep-Link «📝 Regierapport erfassen» (`pm_regierapport.html?objekt=…`). Monteure ohne Planungsrecht landen automatisch in «Meine Woche».
+- **Sidebar «Offene Aufträge»**: liest den ERP-Pool (`gema_erp_dok_pool_v1`, `typ='auftrag'`, Status ≠ abgeschlossen) direkt via `GemaSync.getCached`; eingeplante Aufträge tragen den Badge «✓ eingeplant» (`a._geplant`). Drop/Tap auf eine Zelle erzeugt den Einsatz mit übernommenen Auftrag-Daten (`epNeuAusAuftrag`: Nr/Kunde/Objekt).
+- **DnD + Tap-Fallback**: HTML5-DnD (`epBindDnD`, dataTransfer `ev:<id>` / `job:<id>` → `epDropOn(data,monteurId,datum)`); auf Touch stattdessen Karte antippen → Move-Modus (`epJobTap`/`epEvStartMove`, fixierte `#movebar` unten) → Ziel-Zelle antippen (`epCellClick`).
+- **Raster umschaltbar** in den ⚙️-Einstellungen (`org.settings.einsatzplan = {raster:'halbtag'|'zeit', wochenende, userIds}` via `GemaAuth.updateOrgSettings`): Halbtag = Ganztag/VM/NM-Chips, Zeit = von–bis-`type="time"`-Felder. `userIds` definiert die einplanbaren Personen (Default: alle `role_monteur`+`role_spengler` der Org, beliebige Org-User zuschaltbar). Sa/So-Spalten optional.
+- **Konflikt-Warnung**: `epOverlap(a,b)` (Zeitfenster-Schnitt bzw. Slot-Kollision — `ganz` kollidiert mit allem) markiert Doppelbelegungen mit ⚠; mehrtägige Einsätze via `dauerTage` (`epCovers`).
+- **Notifikation** `einsatz_geplant` (gema_notify.js) an den Monteur bei Einplanung UND Verschiebung (`epNotify`, nie an sich selbst), Link mit Deep-Link `pm_einsatzplan.html?d=YYYY-MM-DD` (Init springt zur Woche/zum Monat des Datums).
+- **Rechte**: Planen = Planer-Rollen/Admin/Abteilungsleiter/Magaziner (`epCanPlan`); Monteur/Spengler read-only (`einsatzplan` read in DEFAULT_ROLES, Magaziner write). MODULES-Key `einsatzplan` (cat Projektmanagement), FILE_MAP `pm_einsatzplan`. index.html PM («14 Module»), sw.js v170.
+
 ## Spenglerei – Dachinspektion (sp_dachbericht.html)
 
 Modul für Spengler zur Erstellung von Dach-Inspektionsberichten auf der Baustelle. Workflow ähnlich Schadensbericht (sd_schadensbericht.html), aber mit Spengler-spezifischer Struktur: Dachübersicht → Kapitel pro Seite (Strasse/Hof/Garten) → Unterkapitel (Einfassungen, Rinnen, Lukarnen etc.) → Massnahmen. PDF-Export im GEMA-Vorlagen-Stil mit Org-Logo bzw. GEMA-Fallback.
@@ -1630,6 +1643,10 @@ Zentrales Modul `gema_notify.js` für In-App-Benachrichtigungen. Glocke + Toast-
 | `offertanfrage_neu` | produktkatalog | on |
 | `offertanfrage_beantwortet` | produktkatalog | on |
 | `offertanfrage_abgelehnt` | produktkatalog | on |
+| `regie_eingereicht` | regierapport | on |
+| `regie_freigegeben` | regierapport | on |
+| `regie_abgelehnt` | regierapport | on |
+| `einsatz_geplant` | einsatzplan | on |
 
 **Neue Module fügen ihre Event-Keys hier hinzu**, sonst greift kein Preferences-Filter.
 
