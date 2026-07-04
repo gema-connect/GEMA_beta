@@ -409,6 +409,16 @@ Mollier-h,x-Diagramm nach der Seven-Air-Vorlage (950 mbar / 540 m ü.M.). **Neue
 - Engine im Block `/*ENGINE-START*/…/*ENGINE-END*/` (DOM-frei) — Node-Tests können sie direkt evaluieren.
 - KEINE Anlagenwahl/Offertanfrage (kein passendes Produktkatalog-Sortiment — wie sb_warmwasser).
 - Registriert in gema_auth (MODULES `druckverlust_erdgas`, FILE_MAP `sb_druckverlust_erdgas`), sb_index (Gruppe Gas, «2 Module», Hero 29 Module), sw.js.
+
+### Druckverlust Medizinalgase (sb_druckverlust_medizinalgas.html) — dritte Gas-Berechnung
+
+1:1-Umsetzung der Excel «Druckverluste_Medizinalgas.xlsm» (openpyxl-Formel-Extraktion + olevba; VBA `Lambdawertberechnung`/`Reynoldszahl`/`Strömungsart` IDENTISCH mit der Erdgas-Vorlage → gleiche λ-Branch-Logik. Node-Test: Stoffwerte gegen Excel-Cached-Werte des Beispiels, Teilstrecken gegen unabhängig berechnete Formelwerte — die Beispiel-TS-Zeilen im xlsm sind leer). 3 Tabs:
+1. **Anlagedaten & Stoffwerte**: Medium-Select (`MG_MEDIEN`: Erdgas/Druckluft/Sauerstoff/CO₂/Vacuum/Lachgas/Acetylen mit Rs + η), **Temperatur als Zeilen-Select** (`MG_TEMP`, 97 Zeilen −20…100 °C mit Sättigungsdampfdruck ps — **Excel-Quirk**: T_Medium!B4/C4 VLOOKUPen über die Zeilen-Nr., nicht über °C; der Select bildet die Zeilen-Semantik ab, t+ps kommen immer paarweise aus derselben Zeile), Luftdruck (Default 966 mbar), Überdruck im Rohr (Vakuum = negativ, z.B. −300), Sättigungsgrad %, optional max. zul. Δp. Stoffwerte: `ρN = 101325/Rs/273.15`, `ρB = (Luft+Über−ps·s%)·100/Rs/(t+273.15)`, `ν = η/ρB`.
+2. **Teilstrecken & Druckverlust**: `VN = AW·ED%·ϕ%·(1+Z%)` m³N/h → Betriebsvolumenstrom über `VN·(ρN/ρB)`; 14 Rohrmaterial-Tabellen (`MG_ROHRE` aus T_Dimensionen: Cu k=0.01, CrNi k=0.0015, Stahl verzinkt **k=0.8**, Mepla 0.005, PE S8 0.007, Guss DN-abhängig …); v/Re/λ/Strömungsart wie Erdgas; `R = λ/d·ρB/200·v²`; Einzelwiderstände `ζ·ρB/200·v² + äqRL·R` — **äq. Rohrlänge leer → Default l·0.5** (Vorlage `=E·0.5`); + konst. Δp; Δp-Kumulation `S = (R==0 ? 0 : Sprev+R)` + «↺ neuer Strang»-Toggle; KPI gegen max. zul. Δp.
+3. **ζ-Werte (Referenz)**: Formstücke + Armaturen der Vorlage.
+- Persistenz: Parameter via GemaAutoSave (`druckverlust_medizinalgas`), TS-Zeilen als JSON (`mgState={ts}`) im hidden `#mg_rows`-Textarea; Engine im `/*ENGINE-START*/…/*ENGINE-END*/`-Block.
+- **Persist-Guard (gilt für eg_/mg_)**: Init ruft nach dem Default-Seeding sofort `Persist()` auf und der Restore-Handler fällt bei leerem `ts` auf eine Default-Zeile zurück — sonst friert der AutoSave-Snapshot beim Objektwechsel (läuft VOR der ersten Eingabe) eine leere Tabelle ein.
+- KEINE Anlagenwahl/Offertanfrage (wie Erdgas). Registriert in gema_auth (MODULES `druckverlust_medizinalgas`, FILE_MAP `sb_druckverlust_medizinalgas`), sb_index (Gruppe Gas, «3 Module», Hero 30 Module), sw.js (v164).
 - **Projektmanagement-Module** (pm_): Objekte, Terminplanung, Sitzungsprotokolle, Kostenkontrolle, Ausschreibung
 - **Hygiene-Module** (hy_): W12 Selbstkontrolle (SVGW)
 - **Infrastruktur-Module** (if_): Werkzeugmanagement, Fahrzeugmanagement, Trocknungsgeräte (siehe Abschnitte weiter unten)
