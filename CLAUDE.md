@@ -1196,6 +1196,39 @@ Per-Record in der Cloud: moduleKey `regierapport`, prefix `regie:`, Pool-Cache `
 
 MODULES-Key `regierapport` (cat Projektmanagement), FILE_MAP `pm_regierapport`. DEFAULT_ROLES: Monteur/Spengler read+write (+ Monteur `objekte` read für die Objekt-Auswahl), Architekt/Bauherrschaft read+write (Freigabe), Planer via `_allPerms`. Event-Keys `regie_eingereicht`/`regie_freigegeben`/`regie_abgelehnt` in gema_notify.js. index.html PM-Kategorie («12 Module»), sw.js v168.
 
+## ERP: Offerten · Aufträge · Rechnungen (pm_erp.html)
+
+EIN integriertes Modul (User-Entscheid — kein Modul-Trio) mit Tabs Offerten/Aufträge/Rechnungen/Kunden + ⚙️-Einstellungen. Kern ist die verknüpfte **Dokument-Kette**: Offerte → (angenommen) → Auftrag → Akonto-/Teil-/Schlussrechnung. Mobile-tauglich (gleiche UI-Muster wie pm_regierapport).
+
+### Datenmodell & Storage
+
+Per-Record in der Cloud, moduleKey `erp`: Dokumente `erpdok:` → `gema_erp_dok_pool_v1`, Kunden `erpkunde:` → `gema_erp_kunden_pool_v1` (bindCollection beim Boot + Sofort-Render aus Cache; Einzel-Saves via saveRecord). Dokument: `{id, typ:'offerte'|'auftrag'|'rechnung', nr, orgId, objektId/objektName, kundeId, kundeSnapshot{firma,kontakt,strasse,plz,ort,email}, datum, gueltigBis|frist, status, positionen[], rabattPct, mwstPct, einleitung, schlusstext, verknuepfung:{offerteId?,auftragId?}, rechnungsArt:'einzel'|'akonto'|'teil'|'schluss', zahlungen[{datum,betrag}], erstelltVon}`. Nummernkreise pro Typ+Jahr: `OF-2026-001` / `AU-` / `RE-` (max+1 aus dem Pool). Einstellungen in `org.settings.erp` (mwstPct 8.1, fristTage 30, iban, qrIban, Absender, Standard-Schlusstexte).
+
+### Positionen (gemeinsamer Editor aller Dokumenttypen)
+
+`{id, art:'frei'|'titel'|'regie'|'oa'|'akonto'|'abzug', bez, menge, einheit, ep, rabattPct?, produktId?, lieferantFirma?, regieRapportId?, oaId?}`. Quellen-Buttons:
+- **📦 Katalog**: GemaProdukte über alle Kategorien (Volltextsuche), übernimmt produktId+Lieferant
+- **📝 Regierapporte**: ausgewiesene, unverrechnete Rapporte (`gema_regie_pool_v1`, objektgefiltert) als Pauschalposition mit `regieRapportId`; beim **Rechnung stellen** wird `r.verrechnetIn=<RechnungsNr>` in den Regie-Pool zurückgeschrieben (Cross-Modul-Write via GemaSync.saveRecord)
+- **🏷 Lieferanten-Offerten**: beantwortete Offertanfragen (`GemaProdukte.getOffertanfragen`, objektgefiltert) mit `antwort.bruttoPreis` als EP
+Summenblock: Zwischentotal → Zeilen-/Dokumentrabatt → Netto → MwSt → **Rappenrundung auf 0.05** (`erpRound5`).
+
+### Kette & Fakturierung
+
+- `erpZuAuftrag()`: kopiert Positionen, verknüpft beidseitig (`verknuepfung.offerteId`/`auftragId`)
+- **Akonto**: GemaDialog-Prompt (CHF oder `30%` der Auftrags-Nettosumme) → Rechnung mit einer `art:'akonto'`-Position
+- **Teilrechnung**: Modal mit Positions-Checkboxen + anpassbaren Mengen
+- **Schlussrechnung** (`erpSchlussPositionen`): alle Auftragspositionen + automatische **Abzugszeilen** (`art:'abzug'`, negativer EP) je bereits gestellter, nicht stornierter Rechnung — Netto-Abzug VOR MwSt (CH-Praxis)
+- `erpAuftragFakt(docs,auftragId)`: Auftragssumme / verrechnet / Rest / % — als Fortschrittsbalken im Auftrag und auf der Karte
+- Rechnung: entwurf → gestellt (sperrt Editor, Frist gesetzt) → bezahlt (Zahlungen kumulieren, Teilzahlungen) | storniert; **überfällig** wird berechnet (`erpRechnungAnzeigeStatus`: gestellt + Frist überschritten + nicht gedeckt)
+
+### Swiss QR-Rechnung
+
+Rechnung-PDF (Print-Fenster, A4, Briefkopf mit `org.logoVector||org.logo`) enthält bei hinterlegter IBAN den Zahlteil mit Empfangsschein: SPC-Payload v2.0 (`erpQrPayload`, 31 Zeilen, Adresstyp K). Mit **QR-IBAN** → Referenztyp `QRR` mit 27-stelliger Referenz aus der Rechnungsnummer (**Mod10-rekursiv-Prüfziffer**, `erpMod10` — validiert gegen bekanntes ESR-Beispiel), sonst `NON`. QR-Code-Rendering via qrcodejs-CDN im Print-Fenster (Schweizer-Kreuz-Overlay; offline Fallback-Hinweis). Engine (`erpDocTotals`/`erpAuftragFakt`/`erpSchlussPositionen`/`erpMod10`/`erpQrReferenz`/`erpQrPayload`) liegt im `/*ENGINE-START*/`-Block — Node-testbar.
+
+### Kunden & Rechte
+
+Kundenstamm pro Org (Tab 👥) mit **Schnellübernahme aus Objekt-Beteiligten** (`GemaObjekte.getBeteiligte` → 1-Klick-Befüllung). `kundeSnapshot` wird ins Dokument denormalisiert (Adresse fürs PDF/QR stabil). Rechte: nur Planer-Rollen/Admin/Abteilungsleiter (`erpCanEdit`); MODULES-Key `erp` (cat Projektmanagement, Planer via `_allPerms`), FILE_MAP `pm_erp`. Deep-Links `?doc=<id>` und `?tab=offerte|auftrag|rechnung|kunden`. index.html PM («13 Module»), sw.js v169.
+
 ## Spenglerei – Dachinspektion (sp_dachbericht.html)
 
 Modul für Spengler zur Erstellung von Dach-Inspektionsberichten auf der Baustelle. Workflow ähnlich Schadensbericht (sd_schadensbericht.html), aber mit Spengler-spezifischer Struktur: Dachübersicht → Kapitel pro Seite (Strasse/Hof/Garten) → Unterkapitel (Einfassungen, Rinnen, Lukarnen etc.) → Massnahmen. PDF-Export im GEMA-Vorlagen-Stil mit Org-Logo bzw. GEMA-Fallback.

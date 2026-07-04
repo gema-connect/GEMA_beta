@@ -264,6 +264,7 @@
     {key:'crbx_offertvergleich',    label:'CRBX Offertvergleich',      cat:'Projektmanagement'},
     {key:'schnellausschreibung',    label:'Schnellausschreibung',      cat:'Projektmanagement'},
     {key:'regierapport',            label:'Regierapporte',             cat:'Projektmanagement'},
+    {key:'erp',                     label:'Offerten/Aufträge/Rechnungen', cat:'Projektmanagement'},
     {key:'apparateliste',           label:'Apparateliste',             cat:'Projektmanagement'},
     {key:'inspektion_wartung',      label:'Inspektion & Wartung',      cat:'Projektmanagement'},
     {key:'elektroangaben',          label:'Elektroangaben',            cat:'Projektmanagement'},
@@ -309,7 +310,7 @@
     'sd_schadensbericht':'schadensbericht',
     'sp_dachbericht':'dachbericht',
     'if_trocknung':'trocknungsgeraete',
-    'pm_crbx':'crbx_offertvergleich','pm_schnellausschreibung':'schnellausschreibung','pm_regierapport':'regierapport',
+    'pm_crbx':'crbx_offertvergleich','pm_schnellausschreibung':'schnellausschreibung','pm_regierapport':'regierapport','pm_erp':'erp',
     'sys_lieferanten':'lieferantenverwaltung','sys_produktkatalog':'produktkatalog',
     'sys_workspace':'workspace',
   };
