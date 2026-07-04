@@ -167,11 +167,79 @@ input,select,textarea,button{font-family:inherit}
 // ═══════════════════════════════════════════════
 const SK='gema_schnellausschreibung_v1';
 let S={
-  ausschreibungen:[], // [{id,projekt,adresse,gewerke:[{name,beschrieb,beilagen:[],liefRef}],frist,status,unternehmer:[{id,firma,person,email,tel}],offerten:[{unternehmerId,gewerk,preis}],vergabe}]
+  ausschreibungen:[], // [{id,projekt,adresse,gewerke:[{name,beschrieb,beilagen:[],liefRef}],frist,status,orgId,erstelltVonUserId,unternehmer:[{id,firma,person,email,tel}],offerten:[{unternehmerId,gewerk,preis}],vergabe}]
 };
 
-function sv(){try{localStorage.setItem(SK,JSON.stringify(S))}catch(e){}}
+// ── Cloud-Sync (per-Record via GemaSync, eine Row pro Schnellausschreibung) ──
+const SA_CACHE='gema_sa_pool_v1', SA_PREFIX='sa:', SA_MODULE='schnellausschreibung';
+var _saPool=null, _saPersistT=null;
+function _saUser(){try{return typeof GemaAuth!=='undefined'?GemaAuth.getCurrentUser():null;}catch(e){return null;}}
+function _saScope(){
+  if(!_saPool)return;
+  var u=_saUser();
+  var adm=false;try{adm=!!(u&&u.roleIds&&u.roleIds.indexOf('role_admin')>=0);}catch(e){}
+  S.ausschreibungen=_saPool.filter(function(a){
+    if(!u||adm)return true;
+    return !a.orgId||a.orgId===u.orgId;
+  });
+}
+function sv(){
+  try{localStorage.setItem(SK,JSON.stringify(S))}catch(e){}
+  if(_saPool&&window.GemaSync&&GemaSync.persistCollection){
+    // Sichtbare (eigene) Records im globalen Pool ersetzen, fremde erhalten.
+    var curIds={};S.ausschreibungen.forEach(function(a){if(a&&a.id)curIds[a.id]=1;});
+    _saPool=_saPool.filter(function(a){return a&&a.id&&!curIds[a.id];}).concat(S.ausschreibungen);
+    clearTimeout(_saPersistT);
+    _saPersistT=setTimeout(function(){
+      try{GemaSync.persistCollection(SA_MODULE,SA_CACHE,SA_PREFIX,'id',_saPool).catch(function(){});}catch(e){}
+    },1000);
+  }
+}
 function ld(){try{const r=localStorage.getItem(SK);if(r)Object.assign(S,JSON.parse(r));}catch(e){}if(!S.ausschreibungen)S.ausschreibungen=[];}
+async function _saCloudInit(){
+  if(!window.GemaSync||!GemaSync.bindCollection)return;
+  try{
+    await GemaSync.bindCollection(SA_MODULE,SA_CACHE,SA_PREFIX,'id').catch(function(){return null;});
+    _saPool=(GemaSync.getCached&&GemaSync.getCached(SA_CACHE))||[];
+    // Einmalige Migration: alter localStorage-Stand → Cloud (nur wenn Pool leer)
+    if(!_saPool.length&&S.ausschreibungen.length){
+      var u=_saUser();
+      S.ausschreibungen.forEach(function(a){
+        if(!a.orgId&&u)a.orgId=u.orgId||'';
+        if(!a.erstelltVonUserId&&u)a.erstelltVonUserId=u.id;
+      });
+      _saPool=S.ausschreibungen.slice();
+      try{await GemaSync.persistCollection(SA_MODULE,SA_CACHE,SA_PREFIX,'id',_saPool);}catch(e){/* offline → Outbox */}
+    }
+    _saScope();
+    try{localStorage.setItem(SK,JSON.stringify(S));}catch(e){}
+    render();
+  }catch(e){}
+}
+window.addEventListener('pagehide',function(){try{clearTimeout(_saPersistT);if(_saPool&&window.GemaSync)GemaSync.persistCollection(SA_MODULE,SA_CACHE,SA_PREFIX,'id',_saPool).catch(function(){});}catch(e){}});
+
+// ── Notifikationen: E-Mail des Unternehmers → GEMA-User auflösen ──
+function _saFindUser(email){
+  if(!email)return null;
+  try{
+    var users=(typeof GemaAuth!=='undefined'&&GemaAuth.getUsers())||[];
+    var m=email.toLowerCase();
+    return users.find(function(u){
+      return (u.username||'').toLowerCase()===m||((u.profile&&u.profile.email)||'').toLowerCase()===m;
+    })||null;
+  }catch(e){return null;}
+}
+function _saNotify(un,a,payload){
+  if(typeof GemaNotify==='undefined'||!un)return false;
+  var target=_saFindUser(un.email);
+  if(!target)return false; // ohne GEMA-Konto keine In-App-Zustellung
+  GemaNotify.push(Object.assign({
+    empfaengerUserId:target.id,
+    modul:'ausschreibung',
+    link:'pm_schnellausschreibung.html?sa='+encodeURIComponent(a.id)
+  },payload));
+  return true;
+}
 function E(s){if(!s)return'';const d=document.createElement('div');d.textContent=s;return d.innerHTML;}
 function fC(v){if(!v||v===0)return'–';return'CHF '+v.toLocaleString('de-CH',{minimumFractionDigits:0,maximumFractionDigits:0});}
 function oM(id){document.getElementById(id).classList.add('open');}
@@ -280,7 +348,8 @@ function createSA(){
   const gewerke=[...document.querySelectorAll('#naGewWrap input:checked')].map(cb=>({name:cb.value,beschrieb:'',beilagen:[],liefRef:''}));
   if(!gewerke.length){toast('Mind. 1 Gewerk wählen','error');return;}
   const frist=document.getElementById('naFrist').value;
-  S.ausschreibungen.push({id:'sa-'+Date.now(),projekt,adresse,gewerke,frist,status:'entwurf',unternehmer:[],offerten:[],vergabe:null});
+  const me=_saUser();
+  S.ausschreibungen.push({id:'sa-'+Date.now(),projekt,adresse,gewerke,frist,status:'entwurf',orgId:(me&&me.orgId)||'',erstelltVonUserId:(me&&me.id)||'',unternehmer:[],offerten:[],vergabe:null});
   sv();cM('mNew');toast('Erstellt: '+projekt);_activeId=S.ausschreibungen[S.ausschreibungen.length-1].id;render();
 }
 
@@ -289,9 +358,18 @@ function editGew(gi){const a=curA();if(!a)return;_gwIdx=gi;const g=a.gewerke[gi]
 function saveGew(){const a=curA();if(!a||_gwIdx===null)return;const g=a.gewerke[_gwIdx];g.beschrieb=document.getElementById('gwDesc').value.trim();g.liefRef=document.getElementById('gwLiefRef').value.trim();const fi=document.getElementById('gwFiles');if(fi.files.length)g.beilagen=[...fi.files].map(f=>f.name);sv();cM('mGew');toast('Gespeichert');render();}
 
 function addUN(){const a=curA();if(!a)return;const firma=document.getElementById('invFirma').value.trim();if(!firma){toast('Firma angeben','error');return;}
-  a.unternehmer.push({id:'un-'+Date.now(),firma,person:document.getElementById('invPerson').value.trim(),email:document.getElementById('invEmail').value.trim(),tel:document.getElementById('invTel').value.trim()});
+  const un={id:'un-'+Date.now(),firma,person:document.getElementById('invPerson').value.trim(),email:document.getElementById('invEmail').value.trim(),tel:document.getElementById('invTel').value.trim()};
+  a.unternehmer.push(un);
   if(a.status==='entwurf')a.status='aktiv';
-  sv();cM('mInvite');['invFirma','invPerson','invEmail','invTel'].forEach(x=>document.getElementById(x).value='');toast('📧 '+firma+' eingeladen');render();}
+  sv();cM('mInvite');['invFirma','invPerson','invEmail','invTel'].forEach(x=>document.getElementById(x).value='');
+  // In-App-Benachrichtigung, falls der Unternehmer ein GEMA-Konto hat
+  const notified=_saNotify(un,a,{
+    eventKey:'ausschreibung_einladung',
+    typ:'aktion',
+    titel:'Neue Schnellausschreibung: '+a.projekt,
+    text:'Sie wurden zur Offertabgabe eingeladen ('+a.gewerke.map(function(g){return g.name;}).join(', ')+')'+(a.frist?' · Frist: '+a.frist:'')+'.'
+  });
+  toast('📧 '+firma+' eingeladen'+(notified?' — In-App benachrichtigt':''));render();}
 function rmUN(uid){const a=curA();if(!a||!confirm('Entfernen?'))return;a.unternehmer=a.unternehmer.filter(u=>u.id!==uid);a.offerten=(a.offerten||[]).filter(o=>o.unternehmerId!==uid);sv();render();}
 
 function submitDemo(){const a=curA();if(!a)return;const uid=document.getElementById('demoUN').value;
@@ -302,6 +380,22 @@ function openVergabe(){const a=curA();if(!a)return;const offerUN=a.unternehmer.f
   document.getElementById('vgWinner').innerHTML=offerUN.map(u=>{const total=a.offerten.filter(o=>o.unternehmerId===u.id).reduce((s,o)=>s+o.preis,0);return `<option value="${u.id}">${E(u.firma)} — ${fC(total)}</option>`;}).join('');oM('mVergabe');}
 function doVergabe(){const a=curA();if(!a)return;const wid=document.getElementById('vgWinner').value;const winner=a.unternehmer.find(u=>u.id===wid);
   a.status='vergeben';a.vergabe={winnerId:wid,datum:new Date().toISOString().split('T')[0],msgWin:document.getElementById('vgMsgWin').value,msgLose:document.getElementById('vgMsgLose').value};
+  // Zuschlag an den Gewinner, Absagen an alle übrigen Bieter (In-App,
+  // sofern GEMA-Konto; ohne Preise — kartellkonform)
+  if(winner)_saNotify(winner,a,{
+    eventKey:'ausschreibung_vergabe',typ:'erfolg',
+    titel:'🏆 Zuschlag erhalten: '+a.projekt,
+    text:a.vergabe.msgWin||('Sie haben den Zuschlag für «'+a.projekt+'» erhalten. Herzlichen Glückwunsch!')
+  });
+  a.unternehmer.forEach(function(u){
+    if(u.id===wid)return;
+    if(!(a.offerten||[]).some(function(o){return o.unternehmerId===u.id;}))return;
+    _saNotify(u,a,{
+      eventKey:'ausschreibung_vergabe',typ:'info',
+      titel:'Absage: '+a.projekt,
+      text:a.vergabe.msgLose||('Der Zuschlag für «'+a.projekt+'» wurde anderweitig vergeben. Vielen Dank für Ihre Offerte.')
+    });
+  });
   sv();cM('mVergabe');toast('🏆 Zuschlag an '+winner?.firma);render();}
 
 // ── TUTORIAL ──
@@ -323,7 +417,12 @@ function tutR(){document.getElementById('tutBd').innerHTML=TUT.map((s,i)=>`<div 
   document.getElementById('tutNext').textContent=_tC===TUT.length-1?'🚀 Starten':'Weiter →';}
 
 // ── INIT ──
-ld();render();
+ld();
+// Deep-Link ?sa=<id> aus Notifikationen: Detail direkt öffnen (Record kommt
+// ggf. erst mit dem Cloud-Pull — render() fällt bis dahin auf die Liste zurück).
+try{var _sp=new URLSearchParams(location.search);var _said=_sp.get('sa');if(_said)_activeId=_said;}catch(e){}
+render();
+_saCloudInit();
 </script>
 <script src="gema_scroll.js"></script>
 <script src="gema_mobile_menu.js"></script>

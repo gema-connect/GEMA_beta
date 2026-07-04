@@ -693,39 +693,199 @@ const VB_STANDARD=[
 const VB_KAPITEL=VB_STANDARD;
 
 // ── STATE ──
+// S enthält die GESCOPTE Sicht des eingeloggten Users (Planer: eigene Org;
+// Unternehmer/Lieferant/Architekt: nur die eigenen Anfragen/Offerten).
+// Persistenz läuft per-Record über GemaSync (eine Cloud-Row pro Datensatz,
+// Diff-Saves) — siehe _AUS_POOLS. Der alte Blob `gema_ausschreibung_v4`
+// bleibt NUR noch lokal als UI-State-Cache (currentRole, activeAusId, log,
+// Filter) und als Migrations-Quelle — er wird nicht mehr in die Cloud
+// geschrieben (Last-Write-Wins-Falle).
 let S={
   currentRole:'planer',currentUserId:'planer-1',
-  ausschreibung:null, // active ausschreibung object
-  ausschreibungen:[
-    {id:'aus-demo-1',name:'Neubau MFH Musterstrasse',typ:'funktional',modelle:['pauschal','einheitspreise'],modell:'pauschal',objekt:'Musterstrasse 12, 4053 Basel',objektId:'obj_demo_1',region:'Basel',frist:'2026-05-15',status:'entwurf',bkp:[{code:'251',name:'Allgemeine Sanitärapparate',unterpositionen:[],materialSpec:[]},{code:'253',name:'Ver- und Entsorgungsapparate',unterpositionen:[],materialSpec:[]},{code:'254',name:'Sanitärleitungen',unterpositionen:[],materialSpec:[]}],abzuege:JSON.parse(JSON.stringify(DEF_ABZUEGE)),crbx:{lv:null},beilagen:[],plaene:[{name:'Grundriss_EG.pdf',datum:'2026-03-20T10:00:00Z'}],unterlagen:[{name:'Baubeschrieb.pdf',datum:'2026-03-20T10:00:00Z'}],vorbedingungen:{modus:'gema',kapitel:{},pdfName:''},materialSpec:{},vergabe:{status:null,winnerId:null,datum:null,empfehlungen:[],empfehlungText:'',entscheidungsinstanz:'',empfaenger:'',frist:null,genehmigung:null,ablehnungGrund:'',zuschlagMsg:'',absageMsg:'',kostenUebertragen:false},lose:[{id:'los-d1',name:'LOS 1 — Gesamtgebäude',positionen:[{bkp:'251',titel:'Allgemeine Sanitärapparate',checked:true,status:'erledigt',istLieferung:false,lieferungTyp:null,modulUrl:null,offerte:null,montagePosition:null},{bkp:'251.0',titel:'Lieferung Sanitärapparate',checked:true,status:'offen',istLieferung:true,lieferungTyp:null,modulUrl:null,offerte:null,montagePosition:null},{bkp:'253',titel:'Ver- und Entsorgungsapparate',checked:true,status:'in_bearbeitung',istLieferung:false,lieferungTyp:null,modulUrl:null,offerte:null,montagePosition:null},{bkp:'253.0',titel:'Lieferung Enthärtungsanlage',checked:true,status:'offen',istLieferung:true,lieferungTyp:'enthaertung',modulUrl:'sa_enthaertung.html',offerte:null,montagePosition:{bkp:'253.1',titel:'Montage Enthärtungsanlage',checked:true}},{bkp:'253.1',titel:'Montage Enthärtungsanlage',checked:true,status:'offen',istLieferung:false,lieferungTyp:null,modulUrl:null,offerte:null,montagePosition:null},{bkp:'253.2',titel:'Lieferung Osmoseanlage',checked:true,status:'offen',istLieferung:true,lieferungTyp:'osmose',modulUrl:'sa_osmose.html',offerte:null,montagePosition:null},{bkp:'254',titel:'Sanitärleitungen',checked:true,status:'offen',istLieferung:false,lieferungTyp:null,modulUrl:null,offerte:null,montagePosition:null}]}],crbxVergleich:null,created:'2026-03-20T10:00:00Z'},
-    {id:'aus-demo-2',name:'Sanierung Schulhaus Reinach',typ:'funktional',modelle:['pauschal'],modell:'pauschal',objekt:'Schulstrasse 5, 4153 Reinach',objektId:'obj_demo_2',region:'Reinach',frist:'2026-04-30',status:'entwurf',bkp:[{code:'251',name:'Allgemeine Sanitärapparate',unterpositionen:[],materialSpec:[]},{code:'254',name:'Sanitärleitungen',unterpositionen:[],materialSpec:[]}],abzuege:JSON.parse(JSON.stringify(DEF_ABZUEGE)),crbx:{lv:null},beilagen:[],plaene:[{name:'Schema_Sanitaer.pdf',datum:'2026-03-15'}],unterlagen:[],vorbedingungen:{modus:'gema',kapitel:{},pdfName:''},materialSpec:{},vergabe:{status:null,winnerId:null,datum:null,empfehlungen:[],empfehlungText:'',entscheidungsinstanz:'',empfaenger:'',frist:null,genehmigung:null,ablehnungGrund:'',zuschlagMsg:'',absageMsg:'',kostenUebertragen:false},lose:[{id:'los-d2',name:'LOS 1',positionen:[{bkp:'251',titel:'Allgemeine Sanitärapparate',checked:true,status:'offen',istLieferung:false,lieferungTyp:null,modulUrl:null,offerte:null,montagePosition:null},{bkp:'254',titel:'Sanitärleitungen',checked:true,status:'offen',istLieferung:false,lieferungTyp:null,modulUrl:null,offerte:null,montagePosition:null}]}],crbxVergleich:null,created:'2026-03-15'},
-    {id:'aus-demo-3',name:'Umbau Büro Liestal',typ:'funktional',modelle:['global'],modell:'global',objekt:'Rathausstrasse 8, 4410 Liestal',objektId:'obj_demo_3',region:'Liestal',frist:'2026-03-31',status:'entwurf',bkp:[{code:'251',name:'Apparate',unterpositionen:[{id:'u1',name:'Lavabos',beschrieb:'6 Stk.',menge:'6',einheit:'Stk.'}],materialSpec:[]}],abzuege:JSON.parse(JSON.stringify(DEF_ABZUEGE)),crbx:{lv:null},beilagen:[],plaene:[],unterlagen:[],vorbedingungen:{modus:'gema',kapitel:{},pdfName:''},materialSpec:{},vergabe:{status:null,winnerId:null,datum:null,empfehlungen:[],empfehlungText:'',entscheidungsinstanz:'',empfaenger:'',frist:null,genehmigung:null,ablehnungGrund:'',zuschlagMsg:'',absageMsg:'',kostenUebertragen:false},lose:[],crbxVergleich:null,created:'2026-03-10'}
-  ],
-  activeAusId:'aus-demo-1',
-  beteiligte:[
-    {id:'inst-1',rolle:'installateur',userId:'user_unternehmer_1',firma:'Meier Sanitär AG',person:'Peter Meier',email:'meier@meiersanitaer.ch',tel:'061 333 44 55',gewerke:'25',abo:{typ:'basic'},profil:{},_loginStatus:'active'},
-    {id:'inst-2',rolle:'installateur',userId:'user_unternehmer_2',firma:'Steiner Sanitär GmbH',person:'Thomas Steiner',email:'steiner@steinersanitaer.ch',tel:'044 222 33 44',gewerke:'25',abo:{typ:'basic'},profil:{},_loginStatus:'active'},
-    {id:'lief-1',rolle:'lieferant',userId:'user_lief_bwt',firma:'BWT',person:'Hans Keller',email:'keller@bwt.ch',tel:'061 755 88 99',gewerke:'253',abo:{typ:'premium',gewerke:['253']},katalogLieferantId:'lief_bwt'},
-    {id:'lief-2',rolle:'lieferant',userId:'user_lief_gruenbeck',firma:'Grünbeck',person:'Martin Weber',email:'weber@gruenbeck.ch',tel:'044 820 33 44',gewerke:'253',abo:{typ:'basic',gewerke:['253']},katalogLieferantId:'lief_gruenbeck'},
-    {id:'lief-3',rolle:'lieferant',userId:'user_lief_judo',firma:'Judo',person:'Claudia Meier',email:'meier@judo.ch',tel:'031 920 11 22',gewerke:'253',abo:{typ:'basic',gewerke:['253']},katalogLieferantId:'lief_judo'},
-    {id:'arch-1',rolle:'architekt',userId:'user_architekt_1',firma:'Architektur Muster AG',person:'Sarah Müller',email:'mueller@archmuster.ch',tel:'061 555 66 77',gewerke:'',abo:{typ:'basic'},_loginStatus:'active'}
-  ],
+  ausschreibung:null, // active ausschreibung object (legacy)
+  ausschreibungen:[],
+  activeAusId:'',
+  beteiligte:[],
   verteilungen:[],
-  anfragen:[
-    // Demo zeigt einen realistischen Zwischenstand: ein Unternehmer hat
-    // abgelehnt, einer wartet noch auf Antwort. Keine interessierten
-    // Antworten — das Badge «Interesse-Anfragen» bleibt bei 0, bis der
-    // User selbst eine Anfrage bekommt, auf die jemand mit Interesse
-    // antwortet (und die noch nicht verteilt ist).
-    {id:'anf-1',ausId:'aus-demo-1',installateurId:'inst-1',status:'abgelehnt',datum:'2026-03-21T10:00:00Z',antwortDatum:'2026-03-21T14:00:00Z',nachricht:'Kapazitäten aktuell ausgelastet'},
-    {id:'anf-2',ausId:'aus-demo-1',installateurId:'inst-2',status:'angefragt',datum:'2026-03-21T10:00:00Z',antwortDatum:null,nachricht:''}
-  ],
+  anfragen:[],
   nettoAnfragen:[],
   marktplatzOfferten:[],
   einreichungen:[],
   emails:[],
   log:[]
 };
+
+// ── Per-Record-Pools (Cloud: moduleKey 'ausschreibung') ──
+// Jede Collection = eigener data_key-Prefix + eigener localStorage-Cache.
+var _AUS_POOLS=[
+  {key:'ausschreibungen',    cache:'gema_aus_pool_v1',    prefix:'aus:'},
+  {key:'beteiligte',         cache:'gema_ausbet_pool_v1', prefix:'ausbet:'},
+  {key:'anfragen',           cache:'gema_ausanf_pool_v1', prefix:'ausanf:'},
+  {key:'verteilungen',       cache:'gema_ausvrt_pool_v1', prefix:'ausvrt:'},
+  {key:'einreichungen',      cache:'gema_ausein_pool_v1', prefix:'ausein:'},
+  {key:'nettoAnfragen',      cache:'gema_ausna_pool_v1',  prefix:'ausna:'},
+  {key:'marktplatzOfferten', cache:'gema_ausmk_pool_v1',  prefix:'ausmk:'}
+];
+var _poolMem=null;      // volle (globale) Pools im Speicher — Quelle für sv()
+var _persistTimer=null;
+
+// Die früher fest eingebauten Demo-Datensätze (aus-demo-*, inst-*, lief-*,
+// arch-1, anf-1/2) — werden beim Laden gefiltert und bei der Migration
+// übersprungen: der Produktivbetrieb startet ohne Demo-Seeds.
+var _DEMO_IDS={'aus-demo-1':1,'aus-demo-2':1,'aus-demo-3':1,'inst-1':1,'inst-2':1,'lief-1':1,'lief-2':1,'lief-3':1,'arch-1':1,'anf-1':1,'anf-2':1};
+function _isDemoRec(r){return !!(r&&(_DEMO_IDS[r.id]||_DEMO_IDS[r.ausId]||_DEMO_IDS[r.installateurId]||_DEMO_IDS[r.lieferantId]));}
+function _stripDemo(){
+  _AUS_POOLS.forEach(function(p){S[p.key]=(S[p.key]||[]).filter(function(r){return !_isDemoRec(r);});});
+  if(_DEMO_IDS[S.activeAusId])S.activeAusId=S.ausschreibungen.length?S.ausschreibungen[0].id:'';
+}
+
+function _poolsFromCache(){
+  var o={};
+  _AUS_POOLS.forEach(function(p){
+    var arr=null;
+    try{if(window.GemaSync&&GemaSync.getCached)arr=GemaSync.getCached(p.cache);}catch(e){}
+    if(!arr||!arr.length){try{var raw=localStorage.getItem(p.cache);if(raw)arr=JSON.parse(raw);}catch(e){}}
+    o[p.key]=Array.isArray(arr)?arr:[];
+  });
+  return o;
+}
+
+// ── Scoping: welcher Ausschnitt der globalen Pools gehört in die Sicht
+// des eingeloggten Users? (Client-seitiges Scoping analog if_werkzeug —
+// der Pool wird komplett geladen, aber nur der eigene Teil landet in S.)
+function _scopePools(P){
+  var u=null;try{if(typeof GemaAuth!=='undefined')u=GemaAuth.getCurrentUser();}catch(e){}
+  var out={};
+  _AUS_POOLS.forEach(function(p){out[p.key]=(P[p.key]||[]).slice();});
+  var adm=false;try{adm=!!(u&&u.roleIds&&u.roleIds.indexOf('role_admin')>=0);}catch(e){}
+  if(!u||adm)return out; // kein Login (Dev-Modus) oder Admin: alles sichtbar
+  var role=_mapAuthRoleToCurrent();
+  var mail=((u.profile&&u.profile.email)||u.username||'').toLowerCase();
+  function isMe(b){return !!(b&&((b.userId&&b.userId===u.id)||(mail&&(b.email||'').toLowerCase()===mail)));}
+  function idsOf(list){var m={};list.forEach(function(r){if(r&&r.id)m[r.id]=1;});return m;}
+  if(role==='planer'){
+    out.ausschreibungen=out.ausschreibungen.filter(function(a){return !a.orgId||a.orgId===u.orgId;});
+    var ausIds=idsOf(out.ausschreibungen);
+    out.beteiligte=out.beteiligte.filter(function(b){return !b.ownerOrgId||b.ownerOrgId===u.orgId;});
+    out.anfragen=out.anfragen.filter(function(x){return ausIds[x.ausId];});
+    out.verteilungen=out.verteilungen.filter(function(x){return ausIds[x.ausId];});
+    out.einreichungen=out.einreichungen.filter(function(x){return ausIds[x.ausId];});
+    out.nettoAnfragen=out.nettoAnfragen.filter(function(x){return !x.ausId||ausIds[x.ausId];});
+    out.marktplatzOfferten=out.marktplatzOfferten.filter(function(x){return !x.ausId||ausIds[x.ausId];});
+  } else if(role==='installateur'){
+    var myBet=out.beteiligte.filter(function(b){return b.rolle==='installateur'&&isMe(b);});
+    var myIds=idsOf(myBet);
+    out.anfragen=out.anfragen.filter(function(x){return myIds[x.installateurId];});
+    out.verteilungen=out.verteilungen.filter(function(x){return myIds[x.installateurId];});
+    // KRITISCH: Ein Unternehmer sieht NUR seine eigenen Einreichungen —
+    // die Preise anderer Bieter bleiben unsichtbar.
+    out.einreichungen=out.einreichungen.filter(function(x){return myIds[x.installateurId];});
+    out.nettoAnfragen=out.nettoAnfragen.filter(function(x){return myIds[x.installateurId];});
+    out.marktplatzOfferten=out.marktplatzOfferten.filter(function(x){return !x.installateurId||myIds[x.installateurId];});
+    var meineAus={};
+    [out.anfragen,out.verteilungen,out.einreichungen].forEach(function(l){l.forEach(function(x){if(x.ausId)meineAus[x.ausId]=1;});});
+    out.ausschreibungen=out.ausschreibungen.filter(function(a){return meineAus[a.id];});
+    var ownerOrgs={};out.ausschreibungen.forEach(function(a){if(a.orgId)ownerOrgs[a.orgId]=1;});
+    out.beteiligte=myBet.concat(out.beteiligte.filter(function(b){return b.rolle==='lieferant'&&(!b.ownerOrgId||ownerOrgs[b.ownerOrgId]);}));
+  } else if(role==='lieferant'){
+    var myBetL=out.beteiligte.filter(function(b){return b.rolle==='lieferant'&&isMe(b);});
+    var myIdsL=idsOf(myBetL);
+    out.nettoAnfragen=out.nettoAnfragen.filter(function(x){return myIdsL[x.lieferantId];});
+    out.marktplatzOfferten=out.marktplatzOfferten.filter(function(x){return myIdsL[x.lieferantId];});
+    var naAus={};out.nettoAnfragen.forEach(function(x){if(x.ausId)naAus[x.ausId]=1;});
+    // Marktplatz: aktive/freigegebene Ausschreibungen + die eigener Anfragen
+    out.ausschreibungen=out.ausschreibungen.filter(function(a){return a.status==='aktiv'||a.status==='crbx_geprueft'||naAus[a.id];});
+    var visAus=idsOf(out.ausschreibungen);
+    out.verteilungen=out.verteilungen.filter(function(x){return visAus[x.ausId];});
+    var instIds={};out.nettoAnfragen.forEach(function(x){if(x.installateurId)instIds[x.installateurId]=1;});
+    out.beteiligte=myBetL.concat(out.beteiligte.filter(function(b){return instIds[b.id];}));
+    out.anfragen=[];out.einreichungen=[];
+  } else {
+    // architekt / bauherrschaft: Entscheidungsinstanz — sieht nur
+    // Ausschreibungen mit Vergabeantrag samt deren Einreichungen.
+    out.ausschreibungen=out.ausschreibungen.filter(function(a){return a.vergabe&&a.vergabe.status;});
+    var vAus=idsOf(out.ausschreibungen);
+    out.einreichungen=out.einreichungen.filter(function(x){return vAus[x.ausId];});
+    out.beteiligte=out.beteiligte.filter(isMe);
+    out.anfragen=[];out.verteilungen=[];out.nettoAnfragen=[];out.marktplatzOfferten=[];
+  }
+  return out;
+}
+
+// Nach jeder Änderung: gescopte S-Arrays zurück in die globalen Pools
+// mergen. Records, die beim Laden sichtbar waren und jetzt fehlen, wurden
+// gelöscht → fallen aus dem Pool (persistCollection macht daraus Cloud-
+// Deletes). Fremde (nicht sichtbare) Records bleiben unangetastet.
+function _mergePoolsFromS(){
+  // Guard: erst mergen, wenn S mindestens einmal AUS den Pools gescoped
+  // wurde (S._vis gesetzt durch ld()). Vorher hält S nur den Blob-Stand —
+  // ein Merge würde frisch migrierte/geladene Pool-Records mit den
+  // (älteren) Blob-Versionen überschreiben.
+  if(!_poolMem||!S._vis)return;
+  _AUS_POOLS.forEach(function(p){
+    var vis=(S._vis&&S._vis[p.key])||{};
+    var cur=S[p.key]||[];
+    var curIds={};cur.forEach(function(r){if(r&&r.id)curIds[r.id]=1;});
+    var keep=(_poolMem[p.key]||[]).filter(function(r){return r&&r.id&&!vis[r.id]&&!curIds[r.id];});
+    _poolMem[p.key]=keep.concat(cur);
+  });
+}
+function _persistPools(){
+  if(!window.GemaSync||!GemaSync.persistCollection||!_poolMem)return;
+  _AUS_POOLS.forEach(function(p){
+    try{GemaSync.persistCollection('ausschreibung',p.cache,p.prefix,'id',_poolMem[p.key]||[]).catch(function(){});}catch(e){}
+  });
+}
+function _schedulePersist(){
+  if(!window.GemaSync||!_poolMem)return;
+  clearTimeout(_persistTimer);
+  _persistTimer=setTimeout(_persistPools,1200);
+}
+window.addEventListener('pagehide',function(){try{clearTimeout(_persistTimer);_persistPools();}catch(e){}});
+window.addEventListener('beforeunload',function(){try{clearTimeout(_persistTimer);_persistPools();}catch(e){}});
+
+// Einmalige Migration: alter Blob (localStorage/_GemaDB) → per-Record-Pools.
+// Läuft nur, wenn die Cloud-Pools komplett leer sind. Demo-Seeds werden
+// übersprungen; fehlende orgId/ownerOrgId wird mit der Org des migrierenden
+// Users befüllt (der Blob lag immer beim Planer).
+async function _ausMigrateLegacyBlob(){
+  if(!window.GemaSync||!_poolMem)return;
+  if(_AUS_POOLS.some(function(p){return (_poolMem[p.key]||[]).length;}))return;
+  var raw=null;try{raw=localStorage.getItem(SK);}catch(e){raw=_m[SK]||null;}
+  if(!raw)return;
+  var L=null;try{L=JSON.parse(raw);}catch(e){return;}
+  if(!L)return;
+  var info=getCurrentUserInfo();
+  function keep(r){return r&&r.id&&!_isDemoRec(r);}
+  var aus=(L.ausschreibungen||[]).filter(keep).map(function(a){
+    if(!a.orgId)a.orgId=info.orgId||'';
+    if(!a.erstelltVonUserId&&info.userId!=='anonymous')a.erstelltVonUserId=info.userId;
+    return a;
+  });
+  var ausIds={};aus.forEach(function(a){ausIds[a.id]=1;});
+  var sets={
+    ausschreibungen:aus,
+    beteiligte:(L.beteiligte||[]).filter(keep).map(function(b){if(!b.ownerOrgId)b.ownerOrgId=info.orgId||'';return b;}),
+    anfragen:(L.anfragen||[]).filter(function(x){return keep(x)&&ausIds[x.ausId];}),
+    verteilungen:(L.verteilungen||[]).filter(function(x){return keep(x)&&ausIds[x.ausId];}),
+    einreichungen:(L.einreichungen||[]).filter(function(x){return keep(x)&&ausIds[x.ausId];}),
+    nettoAnfragen:(L.nettoAnfragen||[]).filter(function(x){return keep(x)&&(!x.ausId||ausIds[x.ausId]);}),
+    marktplatzOfferten:(L.marktplatzOfferten||[]).filter(keep)
+  };
+  var any=false;
+  for(var i=0;i<_AUS_POOLS.length;i++){
+    var p=_AUS_POOLS[i];var arr=sets[p.key]||[];
+    _poolMem[p.key]=arr;
+    if(!arr.length)continue;
+    any=true;
+    try{await GemaSync.persistCollection('ausschreibung',p.cache,p.prefix,'id',arr);}catch(e){/* offline → Outbox */}
+  }
+  if(any){
+    // Alte Cloud-Blob-Row entfernen, damit sie nirgends wieder aufersteht.
+    try{GemaSync.deleteRecord('ausschreibung',SK).catch(function(){});}catch(e){}
+    try{lg('☁','Migration','Ausschreibungsdaten per-Record in die Cloud überführt');}catch(e){}
+  }
+}
 
 // Ausschreibung template
 function newAusschreibung(opts){
@@ -748,7 +908,17 @@ function newAusschreibung(opts){
   };
 }
 
-function sv(){try{const j=JSON.stringify(S);if(typeof _GemaDB!=='undefined')_GemaDB.put(SK,j).catch(()=>{});try{localStorage.setItem(SK,j)}catch(e){_m[SK]=j}}catch(e){}
+function sv(){
+  try{
+    // 1) Gescopte Sicht zurück in die globalen Pools mergen + Cloud-Push
+    //    (debounced, per-Record-Diff via GemaSync.persistCollection).
+    _mergePoolsFromS();
+    _schedulePersist();
+    // 2) Lokaler Blob NUR noch als UI-State-/Fallback-Cache (kein
+    //    _GemaDB.put mehr — der Cloud-Blob war Last-Write-Wins).
+    const j=JSON.stringify(S);
+    try{localStorage.setItem(SK,j)}catch(e){_m[SK]=j}
+  }catch(e){}
   // Per-object BKP storage
   svBKP();
 }
@@ -765,34 +935,43 @@ function svBKP(){
 }
 function ldBKP(a){
   if(!a)return;
+  // Nur noch Fallback für Alt-Daten: Trägt die Ausschreibung bereits Lose
+  // (per-Record frisch aus der Cloud), darf der lokale BKP-Side-Store den
+  // Stand NICHT überschreiben — sonst gewinnt ein veralteter Geräte-Cache.
+  if(a.lose&&a.lose.length)return;
   var key=SK_BKP+'__'+(a.objektId||a.id);
   try{
     var r=localStorage.getItem(key)||_m[key]||null;
-    if(r){var d=JSON.parse(r);if(d.lose)a.lose=d.lose;if(d.crbxVergleich)a.crbxVergleich=d.crbxVergleich;}
+    if(r){var d=JSON.parse(r);if(d.lose)a.lose=d.lose;if(d.crbxVergleich&&!a.crbxVergleich)a.crbxVergleich=d.crbxVergleich;}
   }catch(e){}
 }
 function ld(){try{let r;try{r=localStorage.getItem(SK)}catch(e){r=_m[SK]||null}if(r)Object.assign(S,JSON.parse(r))}catch(e){}
+  // Ein aus dem Blob restauriertes _vis ist wertlos (stammt aus einer
+  // früheren Session) — es wird unten aus den Pools neu berechnet.
+  delete S._vis;
   if(!S.beteiligte)S.beteiligte=[];if(!S.ausschreibungen)S.ausschreibungen=[];
   if(!S.verteilungen)S.verteilungen=[];if(!S.anfragen)S.anfragen=[];if(!S.nettoAnfragen)S.nettoAnfragen=[];
   if(!S.marktplatzOfferten)S.marktplatzOfferten=[];if(!S.einreichungen)S.einreichungen=[];
   if(!S.emails)S.emails=[];if(!S.log)S.log=[];
-  // Migration: bestehender Demo-State hatte anf-1 als 'interessiert'
-  // ohne zugehoerige Verteilung, wodurch das Badge «Interesse-Anfragen»
-  // initial 1 zeigte. Neu setzen wir anf-1 auf 'abgelehnt' (wenn noch
-  // nicht vom User veraendert), damit die Demo mit einem sauberen 0
-  // startet. Läuft nur einmal pro Browser (via Flag).
-  if(!S._migratedAnfDemo){
-    var af = S.anfragen.find(function(x){return x.id==='anf-1';});
-    if (af && af.status==='interessiert' && af.ausId==='aus-demo-1' && af.installateurId==='inst-1'){
-      af.status='abgelehnt';
-      if(!af.nachricht) af.nachricht='Kapazitäten aktuell ausgelastet';
-    }
-    S._migratedAnfDemo = true;
-    try { sv(); } catch(e) {}
+  // Per-Record-Pools (sobald geladen) ersetzen die Blob-Arrays durch die
+  // gescopte Sicht des eingeloggten Users. S._vis merkt sich, welche
+  // Record-IDs im Scope lagen (Basis der Lösch-Erkennung in sv()).
+  if(_poolMem){
+    var scoped=_scopePools(_poolMem);
+    S._vis={};
+    _AUS_POOLS.forEach(function(p){
+      S[p.key]=scoped[p.key]||[];
+      var m={};S[p.key].forEach(function(r){if(r&&r.id)m[r.id]=1;});
+      S._vis[p.key]=m;
+    });
   }
-  // Set active ausschreibung
+  // Demo-Seeds früherer Versionen rausfiltern (Produktivbetrieb ohne Demos)
+  _stripDemo();
+  // Aktive Ausschreibung validieren
+  if(S.activeAusId&&!S.ausschreibungen.some(function(a){return a.id===S.activeAusId;}))S.activeAusId='';
+  if(!S.activeAusId&&S.ausschreibungen.length)S.activeAusId=S.ausschreibungen[0].id;
   if(!S.ausschreibung&&S.ausschreibungen.length)S.ausschreibung=S.ausschreibungen[0];
-  // Load per-object BKP data
+  // Load per-object BKP data (nur Fallback für Alt-Daten ohne Lose)
   S.ausschreibungen.forEach(function(a){ldBKP(a);});
 }
 function lg(i,a,d){S.log=(S.log||[]);let who=S.currentRole;try{if(typeof GemaAuth!=='undefined'){const u=GemaAuth.getCurrentUser();if(u)who=(u.name||u.username||S.currentRole);}}catch(e){}var ausId=S.activeAusId||'';var ausName='';if(ausId){var ax=S.ausschreibungen.find(function(x){return x.id===ausId;});if(ax)ausName=ax.name||'';}S.log.unshift({icon:i,action:a,detail:d||'',who,when:new Date().toISOString(),ausId:ausId,ausName:ausName});if(S.log.length>200)S.log.length=200;sv();}
@@ -4327,9 +4506,8 @@ function naPopulateObjekte(){
       all.forEach(o=>{sel.innerHTML+=`<option value="${o.id}"${o.id===activeId?' selected':''}>${E(o.name||'Projekt')}${o.ort?' · '+E(o.ort):''}</option>`;});
     }
   }catch(e){}
-  if(sel.options.length<=1){
-    sel.innerHTML+='<option value="demo-1">Umbau EFH Wolfhagweg 1, 4144 Arlesheim</option><option value="demo-2">Neubau MFH Bläsiring 153, 4057 Basel</option>';
-  }
+  // Keine Demo-Objekte mehr als Fallback — ohne Projekte verweist das
+  // leere Dropdown auf pm_objekte.html (Projekt zuerst anlegen).
   // Auto-Fill wenn aktives Objekt vorhanden
   if(activeId&&sel.value)try{naObjektChanged();}catch(e){}
 }
@@ -5068,7 +5246,11 @@ function addPerson(){var r=document.getElementById('apR').value,f=document.getEl
     if(zentralLief)katalogId=zentralLief.id;
   }
 
-  var obj={id:r.substring(0,4)+'-'+Date.now(),rolle:r,userId:null,firma:f,person:person,email:email,tel:tel,gewerke:'',profil:{},_loginStatus:'none',katalogLieferantId:katalogId||null,orgId:orgId||null};
+  // ownerOrgId = Org des erfassenden Planers (Adressbuch-Scoping bei der
+  // per-Record-Synchronisierung). NICHT zu verwechseln mit obj.orgId =
+  // Org der Partner-Firma (aus dem Autocomplete).
+  var _owner=getCurrentUserInfo();
+  var obj={id:r.substring(0,4)+'-'+Date.now(),rolle:r,userId:null,firma:f,person:person,email:email,tel:tel,gewerke:'',profil:{},_loginStatus:'none',katalogLieferantId:katalogId||null,orgId:orgId||null,ownerOrgId:_owner.orgId||''};
   // Auto-Verknüpfung: prüfe ob ein User mit dieser Email existiert
   var existingUser=findUserByEmail(email);
   if(existingUser){
@@ -5429,15 +5611,33 @@ function initDropZones(){
 // INIT
 // ═══════════════════════════════════════════════
 (async()=>{
+  // Legacy-Blob (nur noch als Migrations-Quelle + lokaler UI-State-Cache)
   try{if(typeof _GemaDB!=='undefined')await _GemaDB.init('ausschreibung',['gema_ausschreibung_v4']);}catch(e){}
+  // 1) Sofort aus lokalem Stand rendern (stale-while-revalidate)
   ld();
   // Rolle aus eingeloggtem User ableiten (statt aus der entfernten
   // role-bar). Fallback: bisherige Rolle aus S oder 'planer'.
   var authRole=_mapAuthRoleToCurrent();
   switchRole(authRole||S.currentRole||'planer');
-  // Deep-Link ?a=<ausschreibungId> — wird von allen GemaNotify-Links
+  // 2) Per-Record-Pools aus der Cloud ziehen (+ einmalige Blob-Migration),
+  //    danach mit gescoptem, frischem Stand neu rendern.
+  if(window.GemaSync&&GemaSync.bindCollection){
+    try{
+      await Promise.all(_AUS_POOLS.map(function(p){
+        return GemaSync.bindCollection('ausschreibung',p.cache,p.prefix,'id').catch(function(){return null;});
+      }));
+      _poolMem=_poolsFromCache();
+      await _ausMigrateLegacyBlob();
+      ld();
+      // Identitäts-Bindung neu aufloesen: _findMyBeteiligter() sah beim
+      // Erst-Render noch keine Pool-Beteiligten (leerer lokaler Stand).
+      switchRole(_mapAuthRoleToCurrent()||S.currentRole||'planer');
+    }catch(e){console.warn('[GEMA] Ausschreibung Cloud-Pull fehlgeschlagen',e);}
+  }
+  // 3) Deep-Link ?a=<ausschreibungId> — wird von allen GemaNotify-Links
   // (Einladung, Offerte eingereicht, Vergabe, …) verwendet: die
   // referenzierte Ausschreibung aktivieren und rollengerecht öffnen.
+  // Läuft NACH dem Cloud-Pull, damit die Ausschreibung sicher geladen ist.
   try{
     var qp=new URLSearchParams(location.search);
     var aid=qp.get('a');
