@@ -40,6 +40,16 @@
       modul:'ausschreibung',
       defaultOn:false
     },
+    ausschreibung_interesse: {
+      label:'Antwort auf Interesse-Anfrage (Unternehmer)',
+      modul:'ausschreibung',
+      defaultOn:true
+    },
+    ausschreibung_vergabeantrag: {
+      label:'Vergabeantrag eingereicht / entschieden',
+      modul:'ausschreibung',
+      defaultOn:true
+    },
     werkzeug_defekt: {
       label:'Defektmeldung eines Werkzeugs',
       modul:'werkzeug',

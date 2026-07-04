@@ -248,6 +248,19 @@ Jede Rolle hat ein eigenes Login mit rollenspezifischer Ansicht.
 
 CRBX = ZIP mit SIA 451 .e1s Datei (Festbreiten-Format, Satztypen A/B/C/G/Z).
 
+### Ausschreibung & Vergabe (pm_ausschreibungsunterlagen.html) — Workflow-Verdrahtung
+
+Zentrales Modul für den kompletten Ausschreibungs-Workflow (Planer ↔ Unternehmer ↔ Lieferant ↔ Architekt/BH). Storage: EIN Blob `gema_ausschreibung_v4` (localStorage + `_GemaDB`-Blob, moduleKey `ausschreibung`) + per-Objekt-BKP `gema_ausschreibung_bkp__<objektId>` + Vorlagen `gema_ausschreibung_vorlagen_v1`. Hub: `pm_ausschreibung.html` (verlinkt auch `pm_crbx.html`, den eigenständigen SIA-451-Offertvergleich mit eigenem Store `gema_crbx_v1`).
+
+- **Rollen-Sichten**: `_mapAuthRoleToCurrent()` mappt GemaAuth-Rollen auf interne Sichten — Planer-Rollen/Admin → `planer`, `role_unternehmer` → `installateur`, `role_lieferant*`/`role_produktlieferant*` (Prefix-Match!) → `lieferant`, `role_architekt`/`role_bauherrschaft` → `architekt`. **KRITISCH — Identitäts-Bindung**: `switchRole()` bindet Unternehmer/Lieferant/Architekt via `_findMyBeteiligter()` an IHREN `S.beteiligte`-Eintrag (userId-Match, Fallback E-Mail-Match mit Self-Healing der `userId`). Eingeloggte User ohne eigenen Eintrag bekommen eine LEERE Sicht — NIE auf den ersten fremden Beteiligten zurückfallen (Datenleck).
+- **MODUL_MAP (KRITISCH)**: Mapping `lieferungTyp` → `{modul, label, kategorie, autosaveKey}`. `kategorie` MUSS eine `KATEGORIEN`-ID aus gema_produktkatalog_api.js sein (z.B. `zirkulationspumpe`, nicht `zirkulation`), `autosaveKey` der GemaAutoSave-Modulname (Storage `gema_<autosaveKey>__<objektId>`). Alle 16 Berechnungsmodule mit Anlagenwahl sind gemappt (inkl. hz_/lt_/sb_druckanstieg/sb_fluessiggas). Im BKP-Baum tragen die Lieferung-Positionen (auch HLKK 242/243/244, 342/344) `modulKey`/`modulUrl`; der Planer kann das Mapping pro Position im Lieferung-Dialog überschreiben (`liefChangeModul`).
+- **Lieferung-Dialog** (`openLieferungDialog`): zeigt Berechnungs-Stand via `readCalcData()` (liest den echten AutoSave-Key des Moduls, per-Objekt/phase-aware) + beantwortete Offertanfragen des Produktkatalogs — gefiltert auf `oa.projekt.objektId === a.objektId`, Status liegt auf `oa.status` (NICHT `oa.antwort.status`); Antwort-Felder heissen `antwort.bruttoPreis/pdfName/pdfUrl/pdfDataUrl/beantwortetAm`. «Offerte anfragen» läuft über `GemaOfferRequest.open()` (Lieferanten-Auswahl/-Einladung + Notifikation; `gema_offer_request.js` ist eingebunden) und verlinkt die OA via `onSuccess` mit der Position.
+- **Vormerkungen**: `beantworteOffertanfrage()` (Produktkatalog) legt pro Objekt eine Vormerkung an; `_renderVormerkungen` in der BKP-Checkliste matcht zuerst über die Modul-Verknüpfung (`lieferungTyp`, Reverse-Map Kategorie→MODUL_MAP-Key), dann über `bkpCode`, und setzt die Offerte automatisch in die Position ein.
+- **Brücke Checkliste → Offert-Formular (KRITISCH)**: Die BKP-Checkliste lebt in `a.lose[].positionen`, das Preis-Formular des Unternehmers (`idet`) + Vergleich/Vergabe lesen `a.bkp[].unterpositionen`. `syncBkpFromLose(a)` materialisiert beim Verteilen (`vtl`) und beim Rendern von `idet` die angehakten Positionen ADD-ONLY als Unterpositionen (id `los_<bkp>`).
+- **Bestätigungs-Kette + Notifikationen** (alle Links mit Deep-Link `?a=<ausId>`, wird im Init ausgewertet und öffnet rollengerecht pbkp/idet/avga): Interesse-Anfrage → `ausschreibung_einladung` an Unternehmer; Antwort des Unternehmers → `ausschreibung_interesse` an den Absender (`anf.vonUserId`); Verteilen → `ausschreibung_einladung` («Unterlagen erhalten»); Offerte eingereicht → `ausschreibung_offerte_neu` an `a.erstelltVonUserId` (Fallback role_planer + `a.orgId` — Rolle+Org matchen bei GemaNotify BEIDE); CRBX bestätigt → `ausschreibung_crbx_bestaetigt` (Default aus); Vergabeantrag einreichen/genehmigen/ablehnen → `ausschreibung_vergabeantrag` (Empfänger-Auflösung via Objekt-Beteiligte-E-Mail → User, Fallback role_architekt); Zuschlag/Absage → `ausschreibung_vergabe`.
+- **Freigabe-Logik**: Nur CRBX-Ausschreibungen brauchen den CRBX-Abgleich (`crbx_geprueft`); funktionale zeigen im Verteilen-Tab stattdessen den Stand der BKP-Checkliste (kein toter Verweis auf den deaktivierten CRBX-Tab).
+- **Bekannte Grenze (bewusst)**: `gema_ausschreibung_v4` ist ein globaler Blob (kein per-Record-Sync, kein Org-Scoping, Last-Write-Wins zwischen Geräten). Für echten Multi-Tenant-Betrieb müsste das Modul auf `GemaSync.bindCollection/persistCollection` (eine Row pro Ausschreibung/Anfrage/Einreichung) migriert werden — Muster siehe «Cloud-First Storage-Architektur».
+
 ---
 
 ## Projektstruktur
@@ -1486,6 +1499,8 @@ Zentrales Modul `gema_notify.js` für In-App-Benachrichtigungen. Glocke + Toast-
 | `ausschreibung_offerte_neu` | ausschreibung | on |
 | `ausschreibung_vergabe` | ausschreibung | on |
 | `ausschreibung_crbx_bestaetigt` | ausschreibung | off |
+| `ausschreibung_interesse` | ausschreibung | on |
+| `ausschreibung_vergabeantrag` | ausschreibung | on |
 | `werkzeug_defekt` | werkzeug | on |
 | `werkzeug_zuweisung` | werkzeug | on |
 | `werkzeug_pruefung_faellig` | werkzeug | on |
