@@ -87,10 +87,28 @@
       var defById = {};
       defaults.forEach(function(d){ if(d && d.id) defById[d.id] = d; });
       cloudArr = cloudArr.map(function(r){
-        if(r && r.id && defById[r.id] && /^role_(lieferant|produktlieferant|leiterpruefer)/.test(r.id)){
-          return Object.assign({}, r, { name: defById[r.id].name, color: defById[r.id].color });
+        if(!(r && r.id && defById[r.id])) return r;
+        var d = defById[r.id];
+        var out = r;
+        if(/^role_(lieferant|produktlieferant|leiterpruefer)/.test(r.id)){
+          out = Object.assign({}, out, { name: d.name, color: d.color });
         }
-        return r;
+        // Fehlende Modul-Permissions aus den DEFAULTS ergaenzen (idempotent,
+        // kein Cloud-Write): Cloud-Rollen aus der Zeit VOR einem neuen Modul
+        // kennen dessen Key nicht — ohne Backfill zeigt das neue Modul fuer
+        // bestehende Installationen «Kein Zugriff». Vorhandene (auch bewusst
+        // deaktivierte) Eintraege werden NIE ueberschrieben.
+        if(d.permissions && out.permissions){
+          var missing = null;
+          Object.keys(d.permissions).forEach(function(k){
+            if(!out.permissions[k]){ (missing = missing || {})[k] = d.permissions[k]; }
+          });
+          if(missing){
+            if(out === r) out = Object.assign({}, r);
+            out.permissions = Object.assign({}, out.permissions, missing);
+          }
+        }
+        return out;
       });
     }
     return cloudArr;
@@ -227,6 +245,7 @@
     {key:'abwasserhebeanlage',      label:'Abwasserhebeanlage',        cat:'Sanitärberechnungen'},
     {key:'grobauslegung',           label:'Grobauslegung',             cat:'Sanitärberechnungen'},
     {key:'vonroll_tabellen',        label:'Von Roll Tabellen',         cat:'Sanitärberechnungen'},
+    {key:'ausdehnungsgefaess',      label:'Ausdehnungsgefäss HE301',   cat:'Heizungsberechnungen'},
     {key:'objekte',                 label:'Objekte & Beteiligte',      cat:'Projektmanagement'},
     {key:'terminplan',              label:'Terminplan',                cat:'Projektmanagement'},
     {key:'besprechungsprotokoll',   label:'Besprechungsprotokoll',     cat:'Projektmanagement'},
@@ -267,7 +286,7 @@
     'sa_solaranlage':'thermische_solaranlage','sb_warmwasser':'warmwasser_sia385',
     'sb_niederschlag':'niederschlagsanfall','sa_fettabscheider':'fettabscheider',
     'sa_oelabscheider':'oelabscheider','sa_schlammsammler':'schlammsammler',
-    'sa_abwasserhebeanlage':'abwasserhebeanlage','pm_objekte':'objekte',
+    'sa_abwasserhebeanlage':'abwasserhebeanlage','hz_ausdehnungsgefaess':'ausdehnungsgefaess','pm_objekte':'objekte',
     'pm_terminplan':'terminplan','pm_besprechung':'besprechungsprotokoll',
     'pm_kostenkontrolle':'kostenkontrolle','pm_honorar':'planungshonorar',
     'pm_abnahme':'abnahme_sia','pm_baustelle':'baustellencheckliste',

@@ -263,6 +263,7 @@ Kategorie-Präfix + Kleinschreibung. **Keine Umlaute in Dateinamen** (ä→ae, �
 | `sa_` | Sanitäranlagen | `sa_enthaertung.html` |
 | `el_` | Elektro | `el_index.html` |
 | `hy_` | Hygiene | `hy_w12.html` |
+| `hz_` | Heizungsberechnungen | `hz_ausdehnungsgefaess.html` |
 | `br_` | Brandschutz | `br_index.html` |
 | `if_` | Infrastruktur (Werkzeug, Fahrzeug, Lager) | `if_werkzeug.html`, `if_fahrzeug.html` |
 | `sd_` | Schadensdokumentation | `sd_schadensbericht.html` |
@@ -313,6 +314,17 @@ Komplett NEU nach Excel-Vorlage «WarmwasserGesamt385_251125_v3.xlsm» (SIA 385/
 - Persistenz: reine Input-Felder via GemaAutoSave (`druckanstieg`), keine dynamischen Tabellen.
 - Anlagenwahl + Offertanfrage: **neue Produktkategorie `KATEGORIEN.sicherheitsventil`** (Ansprechdruck bar + Abblaseleistung + Anschluss; matchFn scored Nähe zum berechneten pSV) + `LIEF_KATEGORIEN`-Eintrag + bkpMap `254.0`. Payload: `ansprechdruck`, `ruhedruck`, `gesamtdruck`, `druckanstieg`, `rohrDa` — Projektwerte, nie Datenblatt-Werte.
 - Registriert in gema_auth (MODULES `druckanstieg`, FILE_MAP `sb_druckanstieg`), sb_index (Kaltwasser, «8 Module» + ALL_MODULES), sw.js.
+
+### Ausdehnungsgefäss & Sicherheitsventil (hz_ausdehnungsgefaess.html) — erste Heizungsberechnung
+
+1:1-Umsetzung der Excel «Auslegung_Ausdehnungsgefässe_HE301_01_Var2.xlsm» (SWKI HE301-01, Betriebstemperatur < 100 °C; per Playwright gegen die Excel-Cached-Werte validiert). **Neues Präfix `hz_` (Heizungsberechnungen) + neue Gruppe «Heizung» auf sb_index** (cat-icon.hz/mod.hz orange, eigener Jump-Link).
+- **VBA-UDFs der Excel repliziert**: `Dichte_Wasser(t)` (identisches Polynom wie sb_druckanstieg), `X_Zuschlagsfaktor(FN)` (≥150 kW→1.5, ≤10 kW→3.0, sonst `(150−FN)·0.010714+1.5`), `spez_Volumen(Art,ΔT)` dm³/kW (Radiatoren `1200·ΔT⁻¹·⁰⁹`, Flachrohrrad `440·ΔT⁻⁰·⁹⁵`, Heizwände `195·ΔT⁻⁰·⁸`, Konvektoren `400·ΔT⁻⁰·⁹⁷`, FBH `200·ΔT⁻⁰·⁸⁷`, Lüftung `75·ΔT⁻⁰·⁶³`).
+- **Ablauf**: p0 = hst/10+Überlagerung, pfin = pSV/1.3 (pSV als Select 3–10 barü — die DGH-Tabelle matcht exakt); Ausdehnungsfaktor je Teil `e = ρmin/ρ(qm)−1` für Wärmeerzeuger, Speicher und **dynamische Heizgruppen-Tabelle** (eff. Wasserinhalt als Override, sonst Abschätzung über spez_Volumen; **Vex der Gruppen nutzt den WE-Zuschlagsfaktor**, wie Excel `$C$32`); `VN,min = Vex,tot·(Pfin+1)/(Pfin−Po)` → Gefässvorschlag aus SU/SD-Reihe (`HE_GEFAESSE` 18–800 l, Typ + Gefässdruck PS z.B. «SU 800.3»), Fülldruck, P·V ≥ 3000-Pflicht-Check; **Sicherheitsventil DGH**: Nennweite aus Abblaseleistungs-Tabelle (`HE_SV`, DN 15–32 je pSV), Schliessdruck/Druckmittelbeiwert/Verdampfungsenthalpie-Polynome, engster Querschnitt d0,ber/d0,eff, theoretische Abblaseleistung.
+- Warnungen: pfin ≤ p0 (SV-Druck zu klein für Anlagehöhe), VN,min > 800 l (Parallelgefässe), Leistung über DN-32-Kapazität.
+- Persistenz: Parameter via GemaAutoSave (`ausdehnungsgefaess`), Heizgruppen als JSON im hidden `#he_rows`-Textarea (Pattern `#zk_rows`).
+- Anlagenwahl + Offertanfrage: **neue Produktkategorie `KATEGORIEN.ausdehnungsgefaess`** (Nennvolumen + zul. Betriebsdruck PS + Bauart, matchFn auf VN ≥ VN,min) + `LIEF_KATEGORIEN` + bkpMap `242.0`. Payload: `vnMin`, `nennvolumen` (Vorschlag), `vordruck`, `enddruck`, `gefaessdruck`, `anlageinhalt`, `ausdehnungsvolumen` — Projektwerte, nie Datenblatt-Werte.
+- Registriert in gema_auth (MODULES `ausdehnungsgefaess`, cat **Heizungsberechnungen**, FILE_MAP `hz_ausdehnungsgefaess`), sb_index (Gruppe Heizung), sw.js.
+- **Permission-Backfill (KRITISCH, gilt für ALLE neuen Module)**: `_mergeWithDefaults` in gema_auth.js ergänzt bei Rollen mit Default-Pendant **fehlende** Modul-Permission-Keys aus den DEFAULT_ROLES (idempotent, kein Cloud-Write, vorhandene Einträge werden nie überschrieben) — sonst zeigten neue Module bei bestehenden Cloud-Installationen «Kein Zugriff», weil die Cloud-Rolle den neuen Key nicht kennt.
 - **Projektmanagement-Module** (pm_): Objekte, Terminplanung, Sitzungsprotokolle, Kostenkontrolle, Ausschreibung
 - **Hygiene-Module** (hy_): W12 Selbstkontrolle (SVGW)
 - **Infrastruktur-Module** (if_): Werkzeugmanagement, Fahrzeugmanagement, Trocknungsgeräte (siehe Abschnitte weiter unten)

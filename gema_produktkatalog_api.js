@@ -13,6 +13,7 @@ var LIEF_KATEGORIEN = [
   {id:'druckerhoehung',label:'Druckerhöhungsanlagen',gruppe:'anlagen'},
   {id:'zirkulationspumpe',label:'Zirkulationspumpen',gruppe:'anlagen'},
   {id:'sicherheitsventil',label:'Sicherheitsventile',gruppe:'anlagen'},
+  {id:'ausdehnungsgefaess',label:'Ausdehnungsgefässe (Heizung)',gruppe:'anlagen'},
   {id:'fettabscheider',label:'Fettabscheider',gruppe:'anlagen'},
   {id:'oelabscheider',label:'Ölabscheider',gruppe:'anlagen'},
   {id:'schlammsammler',label:'Schlammsammler',gruppe:'anlagen'},
@@ -748,6 +749,45 @@ KATEGORIEN.sicherheitsventil = {
     if(b.ruhedruck && d.ansprechdruck && parseFloat(d.ansprechdruck) > b.ruhedruck) score += 25;
     if(d.anschluss) score += 10;
     if(d.svgwNr) score += 5;
+    return Math.min(100, score);
+  }
+};
+
+// ── Ausdehnungsgefäss (Heizung, HE301/01) ──
+// hz_ausdehnungsgefaess.html matcht auf das berechnete Mindest-Nennvolumen VN,min + Gefässdruck PS.
+KATEGORIEN.ausdehnungsgefaess = {
+  id: 'ausdehnungsgefaess',
+  name: 'Ausdehnungsgefäss',
+  icon: '🫧',
+  felder: [
+    { id: 'serie', label: 'Typenbezeichnung / Serie', typ: 'text', gruppe: 'Allgemein', pflicht: true },
+    { id: 'modell', label: 'Modell / Grösse', typ: 'text', gruppe: 'Allgemein', pflicht: true },
+    { id: 'artikelnr', label: 'Artikelnummer', typ: 'text', gruppe: 'Allgemein' },
+    { id: 'bauart', label: 'Bauart', typ: 'select', optionen: ['Membran-Ausdehnungsgefäss','Blasen-Ausdehnungsgefäss','Kompressorgehaltene Druckhaltung','Pumpengehaltene Druckhaltung'], gruppe: 'Allgemein', pflicht: true },
+
+    { id: 'nennvolumen', label: 'Nennvolumen', typ: 'number', einheit: 'Liter', gruppe: 'Leistungsdaten', pflicht: true },
+    { id: 'maxDruck', label: 'Zul. Betriebsdruck PS', typ: 'number', einheit: 'bar', gruppe: 'Leistungsdaten', pflicht: true },
+    { id: 'vordruckWerk', label: 'Vordruck ab Werk', typ: 'number', einheit: 'bar', gruppe: 'Leistungsdaten' },
+    { id: 'medienTempMax', label: 'Max. Medientemperatur', typ: 'number', einheit: '°C', gruppe: 'Leistungsdaten' },
+
+    { id: 'anschluss', label: 'Anschluss', typ: 'text', gruppe: 'Anschlüsse' },
+
+    { id: 'ce', label: 'CE-Konformität (Druckgeräterichtlinie)', typ: 'checkbox', gruppe: 'Normen' },
+    { id: 'besonderheiten', label: 'Besonderheiten', typ: 'textarea', gruppe: 'Zusatz' }
+  ],
+  matchFn: function(produkt, berechnung){
+    let score = 0;
+    const d = produkt.daten || {};
+    const b = berechnung || {};
+    if(b.vnMin && d.nennvolumen){
+      const vn = parseFloat(d.nennvolumen);
+      if(vn >= b.vnMin && vn <= b.vnMin * 2) score += 55;
+      else if(vn >= b.vnMin) score += 35;
+      else if(vn >= b.vnMin * 0.9) score += 10;
+    }
+    if(b.gefaessdruck && d.maxDruck && parseFloat(d.maxDruck) >= b.gefaessdruck) score += 30;
+    if(d.vordruckWerk) score += 10;
+    if(d.ce) score += 5;
     return Math.min(100, score);
   }
 };
@@ -1537,7 +1577,7 @@ function beantworteOffertanfrage(id, antwort){
   // Automatische Vormerkung für Ausschreibung erstellen
   if(oa.projekt && oa.projekt.objektId){
     var bkpMap={enthaertung:'253.0',osmose:'253.2',druckerhoehung:'253.4',frischwasserstation:'253.6',
-      hebeanlage:'252.6',fettabscheider:'252.4',oelabscheider:'252.8',zirkulation:'253.8',zirkulationspumpe:'253.8',sicherheitsventil:'254.0'};
+      hebeanlage:'252.6',fettabscheider:'252.4',oelabscheider:'252.8',zirkulation:'253.8',zirkulationspumpe:'253.8',sicherheitsventil:'254.0',ausdehnungsgefaess:'242.0'};
     addVormerkung({
       objektId:oa.projekt.objektId,
       lieferantId:oa.lieferantId||'',
