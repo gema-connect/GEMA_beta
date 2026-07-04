@@ -145,6 +145,21 @@
       modul:'trocknung',
       defaultOn:true
     },
+    regie_eingereicht: {
+      label:'Regierapport eingereicht (zur Freigabe)',
+      modul:'regierapport',
+      defaultOn:true
+    },
+    regie_freigegeben: {
+      label:'Regierapport freigegeben',
+      modul:'regierapport',
+      defaultOn:true
+    },
+    regie_abgelehnt: {
+      label:'Regierapport zurückgewiesen',
+      modul:'regierapport',
+      defaultOn:true
+    },
     offertanfrage_neu: {
       label:'Neue Offertanfrage (Lieferant)',
       modul:'produktkatalog',

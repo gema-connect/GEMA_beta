@@ -1169,6 +1169,33 @@ A4 **Hochformat** erzwungen: beide `@page`-Regeln `size:A4 portrait`, jsPDF `ori
 
 ---
 
+## Regierapporte (pm_regierapport.html)
+
+Mobile-first Modul (iPad/iPhone-optimiert: grosse Touch-Ziele, Vollbild-Editor, Bottom-Sheet-Modals, safe-area) für Regiearbeiten auf der Baustelle — vom Monteur-Rapport bis zur bepreisten Zusammenstellung.
+
+### Workflow & Status
+
+```
+Entwurf → Eingereicht → Freigegeben → Ausgewiesen
+(Monteur)  (Monteur)     (Architekt/BL) (Projektleiter)
+              ↘ Zurückgewiesen (mit Grund, zurück an Ersteller)
+```
+
+- **Erfassen (Monteur)**: Objekt-Anbindung wie Berechnungen (aktives Objekt vorausgewählt), Arbeitsbeschrieb, **Stunden** (Kategorie-Chips aus Org-Stammansätzen, 0.25-h-Stepper, Name optional) und **Material** (frei ODER via Katalog-Picker aus GemaProdukte über alle Kategorien — Bezeichnung/`produktId`/`lieferantFirma` werden übernommen). **Monteure sehen NIE Preise** (`.preis-inp` nur für `_rrCanPrice()`).
+- **Einreichen**: GemaDialog fragt die Freigeber-E-Mail (Vorschlag = Architekt/Bauleitungs-Beteiligter des Objekts via `GemaObjekte.getBeteiligte`); Objektname/-adresse werden in den Record **denormalisiert** (Architekt fremder Org hat keinen Zugriff auf die Org-Objekte). Notifikationen `regie_eingereicht` an `role_planer`+Org sowie an den per E-Mail aufgelösten Freigeber-User.
+- **Freigabe**: ✍️ **Unterschrift vor Ort** (Canvas-Signatur-Pad, Retina, Pointer-Events; PNG als `freigabe.signaturDataUrl` im Record) ODER **digitale Freigabe/Zurückweisung** durch role_architekt/role_bauherrschaft bzw. den zugewiesenen Freigeber (`freigeber.email`-Match, cross-org). Nach Freigabe ist der Rapport für den Monteur gesperrt.
+- **Ausweisen (nur `_rrCanPrice()` = Planer/Admin/Abteilungsleiter)**: Ansätze pro Stundenzeile (Vorbefüllung aus Org-Stammansätzen `org.settings.regie.ansaetze`, Default-Kategorien Servicemonteur/Monteur/Hilfsmonteur/Lehrling/Bauleitung — Einstellungs-Modal ⚙️) + Material-EPs → Rapport-Total; Status `ausgewiesen`.
+- **Zusammenstellung** (pro Objekt, nur PL): Tabelle aller Rapporte mit Zwischentotal der ausgewiesenen, Zuschlag/Rabatt/MwSt (Parameter lokal je Objekt in `gema_regie_zus_v1`) → **Endsumme Regiearbeiten**; PDF-Export.
+- **PDF**: Einzelrapport (ohne/mit Preisen) und Gesamt-Zusammenstellung als Print-Fenster (A4, «Als PDF sichern» auf iPad) inkl. Freigabevermerk + Unterschrift-Bild.
+
+### Storage & Scope
+
+Per-Record in der Cloud: moduleKey `regierapport`, prefix `regie:`, Pool-Cache `gema_regie_pool_v1` (bindCollection beim Boot mit Sofort-Render aus Cache, Einzel-Saves via `GemaSync.saveRecord`). Sichtbarkeit: Planer = ganze Org · Monteur/Spengler = nur eigene Rapporte · Architekt/Bauherrschaft = eigene Org ODER ihnen zugewiesene (`freigeber.email` = eigene E-Mail, cross-org). Deep-Link `?rr=<id>` (aus den Notifikationen).
+
+### Rollen & Registrierung
+
+MODULES-Key `regierapport` (cat Projektmanagement), FILE_MAP `pm_regierapport`. DEFAULT_ROLES: Monteur/Spengler read+write (+ Monteur `objekte` read für die Objekt-Auswahl), Architekt/Bauherrschaft read+write (Freigabe), Planer via `_allPerms`. Event-Keys `regie_eingereicht`/`regie_freigegeben`/`regie_abgelehnt` in gema_notify.js. index.html PM-Kategorie («12 Module»), sw.js v168.
+
 ## Spenglerei – Dachinspektion (sp_dachbericht.html)
 
 Modul für Spengler zur Erstellung von Dach-Inspektionsberichten auf der Baustelle. Workflow ähnlich Schadensbericht (sd_schadensbericht.html), aber mit Spengler-spezifischer Struktur: Dachübersicht → Kapitel pro Seite (Strasse/Hof/Garten) → Unterkapitel (Einfassungen, Rinnen, Lukarnen etc.) → Massnahmen. PDF-Export im GEMA-Vorlagen-Stil mit Org-Logo bzw. GEMA-Fallback.
