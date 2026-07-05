@@ -40,6 +40,16 @@
       modul:'ausschreibung',
       defaultOn:false
     },
+    ausschreibung_interesse: {
+      label:'Antwort auf Interesse-Anfrage (Unternehmer)',
+      modul:'ausschreibung',
+      defaultOn:true
+    },
+    ausschreibung_vergabeantrag: {
+      label:'Vergabeantrag eingereicht / entschieden',
+      modul:'ausschreibung',
+      defaultOn:true
+    },
     werkzeug_defekt: {
       label:'Defektmeldung eines Werkzeugs',
       modul:'werkzeug',
@@ -133,6 +143,46 @@
     trockner_defekt: {
       label:'Trocknungsgerät: Defektmeldung',
       modul:'trocknung',
+      defaultOn:true
+    },
+    regie_eingereicht: {
+      label:'Regierapport eingereicht (zur Freigabe)',
+      modul:'regierapport',
+      defaultOn:true
+    },
+    regie_freigegeben: {
+      label:'Regierapport freigegeben',
+      modul:'regierapport',
+      defaultOn:true
+    },
+    regie_abgelehnt: {
+      label:'Regierapport zurückgewiesen',
+      modul:'regierapport',
+      defaultOn:true
+    },
+    einsatz_geplant: {
+      label:'Einsatz eingeplant / verschoben',
+      modul:'einsatzplan',
+      defaultOn:true
+    },
+    abnahme_freigabe_anfrage: {
+      label:'Abnahme zur Freigabe erhalten',
+      modul:'abnahme',
+      defaultOn:true
+    },
+    abnahme_freigabe_entscheid: {
+      label:'Abnahme-Freigabe entschieden',
+      modul:'abnahme',
+      defaultOn:true
+    },
+    abnahme_maengel_zugewiesen: {
+      label:'Mängelliste zugewiesen / Punkt zurückgewiesen',
+      modul:'abnahme',
+      defaultOn:true
+    },
+    abnahme_maengel_abgearbeitet: {
+      label:'Mängelliste abgearbeitet / freigegeben',
+      modul:'abnahme',
       defaultOn:true
     },
     offertanfrage_neu: {

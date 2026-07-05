@@ -1,11 +1,11 @@
 /* GEMA Service Worker — Offline Cache + Push Vorbereitung */
-var CACHE_NAME = 'gema-v160';
+var CACHE_NAME = 'gema-v174';
 var CACHE_FILES = [
   '/', '/index.html', '/sb_index.html',
   '/sa_enthaertung.html', '/sa_osmose.html', '/sa_fettabscheider.html',
   '/sa_frischwasserstation.html', '/sa_oelabscheider.html', '/sa_schlammsammler.html',
   '/sa_solaranlage.html', '/sa_abwasserhebeanlage.html',
-  '/sb_lu_tabelle.html', '/sb_druckerhoehung.html', '/sb_zirkulation.html', '/sb_druckanstieg.html', '/hz_ausdehnungsgefaess.html', '/hz_heizungsleitungen.html', '/hz_waermegruppen.html', '/hz_heizlast.html', '/lt_hx_diagramm.html', '/sb_fluessiggas.html', '/sb_druckverlust.html',
+  '/sb_lu_tabelle.html', '/sb_druckerhoehung.html', '/sb_zirkulation.html', '/sb_druckanstieg.html', '/hz_ausdehnungsgefaess.html', '/hz_heizungsleitungen.html', '/hz_waermegruppen.html', '/hz_heizlast.html', '/lt_hx_diagramm.html', '/sb_fluessiggas.html', '/sb_druckverlust_erdgas.html', '/sb_druckverlust_medizinalgas.html', '/sb_druckverlust.html',
   '/sb_warmwasser.html', '/sb_niederschlag.html', '/sb_vonroll.html',
   '/sb_grobauslegung.html', '/sb_ausstosszeiten.html', '/sb_laengenausdehnung.html',
   '/sb_druckdispositiv.html', '/sb_apparateliste.html', '/sb_du_zusammenstellung.html',
@@ -17,11 +17,11 @@ var CACHE_FILES = [
   '/sys_login.html', '/sys_admin.html', '/sys_profil.html',
   '/sys_produktkatalog.html', '/sys_lieferanten.html', '/sys_lieferant_dashboard.html',
   '/sys_preise.html', '/sys_beta.html', '/sys_workspace.html', '/sys_unternehmen.html',
-  '/br_vkf_formulare.html', '/br_vkf_formular.html',
+  '/br_vkf_formulare.html', '/br_vkf_formular.html', '/br_gasloeschung.html',
   '/el_angaben.html', '/if_fahrzeug.html', '/if_werkzeug.html', '/if_trocknung.html', '/sd_schadensbericht.html', '/sp_dachbericht.html',
-  '/pm_goodel.html', '/pm_schnellausschreibung.html', '/pm_crbx.html',
+  '/pm_goodel.html', '/pm_schnellausschreibung.html', '/pm_crbx.html', '/pm_regierapport.html', '/pm_erp.html', '/pm_einsatzplan.html',
   '/gema_sync.js', '/gema_auth.js', '/gema_db.js', '/gema_feedback.js', '/gema_autosave.js',
-  '/gema_objekte_api.js', '/gema_produktkatalog_api.js', '/gema_armaturen_api.js',
+  '/gema_objekte_api.js', '/gema_produktkatalog_api.js', '/gema_armaturen_api.js', '/gema_armaturen_picker.js',
   '/gema_anlagenwahl.css', '/gema_responsive.css', '/gema_scroll.js', '/gema_pdf.js', '/gema_notify.js', '/gema_notify_ui.js',
   '/gema_coachmarks.js', '/gema_mobile_menu.js', '/gema_recent.js',
   '/gema_pwa.js', '/gema_adresse.js', '/gema_avatar.js', '/gema_dialog.js',

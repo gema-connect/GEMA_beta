@@ -245,6 +245,8 @@
     {key:'abwasserhebeanlage',      label:'Abwasserhebeanlage',        cat:'Sanitärberechnungen'},
     {key:'grobauslegung',           label:'Grobauslegung',             cat:'Sanitärberechnungen'},
     {key:'fluessiggas',             label:'Flüssiggas LPG',            cat:'Sanitärberechnungen'},
+    {key:'druckverlust_erdgas',     label:'Druckverlust Erdgas',       cat:'Sanitärberechnungen'},
+    {key:'druckverlust_medizinalgas', label:'Druckverlust Medizinalgase', cat:'Sanitärberechnungen'},
     {key:'vonroll_tabellen',        label:'Von Roll Tabellen',         cat:'Sanitärberechnungen'},
     {key:'ausdehnungsgefaess',      label:'Ausdehnungsgefäss HE301',   cat:'Heizungsberechnungen'},
     {key:'heizungsleitungen',       label:'Heizungsleitungen',         cat:'Heizungsberechnungen'},
@@ -261,6 +263,9 @@
     {key:'ausschreibungsunterlagen',label:'Ausschreibungsunterlagen',  cat:'Projektmanagement'},
     {key:'crbx_offertvergleich',    label:'CRBX Offertvergleich',      cat:'Projektmanagement'},
     {key:'schnellausschreibung',    label:'Schnellausschreibung',      cat:'Projektmanagement'},
+    {key:'regierapport',            label:'Regierapporte',             cat:'Projektmanagement'},
+    {key:'erp',                     label:'Offerten/Aufträge/Rechnungen', cat:'Projektmanagement'},
+    {key:'einsatzplan',             label:'Einsatzplan',               cat:'Projektmanagement'},
     {key:'apparateliste',           label:'Apparateliste',             cat:'Projektmanagement'},
     {key:'inspektion_wartung',      label:'Inspektion & Wartung',      cat:'Projektmanagement'},
     {key:'elektroangaben',          label:'Elektroangaben',            cat:'Projektmanagement'},
@@ -272,6 +277,7 @@
     {key:'werkzeugmanagement',      label:'Werkzeugmanagement',        cat:'Sonstiges'},
     {key:'fahrzeugmanagement',      label:'Fahrzeugmanagement',        cat:'Sonstiges'},
     {key:'vkf_formulare',           label:'VKF-Formulare',             cat:'Brandschutz'},
+    {key:'gasloeschung',            label:'Gaslöschanlagen',           cat:'Brandschutz'},
     {key:'vkf_formular',            label:'VKF-Formular',              cat:'Brandschutz'},
     {key:'schadensbericht',         label:'Schadensberichte',          cat:'Schadensdokumentation'},
     {key:'dachbericht',             label:'Dachinspektion',            cat:'Spenglerei'},
@@ -286,7 +292,7 @@
     'sb_druckverlust':'druckverlust','sb_druckdispositiv':'druckdispositiv',
     'sb_lu_tabelle':'lu_tabelle','sb_ausstosszeiten':'ausstosszeiten',
     'sb_du_zusammenstellung':'du_zusammenstellung','sa_enthaertung':'enthaertungsanlage',
-    'sb_druckerhoehung':'druckerhoehung','sb_zirkulation':'zirkulation','sb_druckanstieg':'druckanstieg','sb_fluessiggas':'fluessiggas','sa_osmose':'osmose',
+    'sb_druckerhoehung':'druckerhoehung','sb_zirkulation':'zirkulation','sb_druckanstieg':'druckanstieg','sb_fluessiggas':'fluessiggas','sb_druckverlust_erdgas':'druckverlust_erdgas','sb_druckverlust_medizinalgas':'druckverlust_medizinalgas','sa_osmose':'osmose',
     'sa_frischwasserstation':'frischwasserstation','sb_laengenausdehnung':'laengenausdehnung',
     'sa_solaranlage':'thermische_solaranlage','sb_warmwasser':'warmwasser_sia385',
     'sb_niederschlag':'niederschlagsanfall','sa_fettabscheider':'fettabscheider',
@@ -299,13 +305,13 @@
     'hy_inspektion':'inspektion_wartung','el_angaben':'elektroangaben',
     'ab_berufsschule':'berufsschule','hy_spuelmanager':'spuelmanager','hy_w12':'w12',
     'if_werkzeug':'werkzeugmanagement','if_fahrzeug':'fahrzeugmanagement',
-    'br_vkf_formulare':'vkf_formulare','br_vkf_formular':'vkf_formular',
+    'br_vkf_formulare':'vkf_formulare','br_gasloeschung':'gasloeschung','br_vkf_formular':'vkf_formular',
     'sb_grobauslegung':'grobauslegung','sb_vonroll':'vonroll_tabellen',
     'pm_goodel':'kostenkontrolle','ab_sephir':'sephir','ab_quiz':'quiz',
     'sd_schadensbericht':'schadensbericht',
     'sp_dachbericht':'dachbericht',
     'if_trocknung':'trocknungsgeraete',
-    'pm_crbx':'crbx_offertvergleich','pm_schnellausschreibung':'schnellausschreibung',
+    'pm_crbx':'crbx_offertvergleich','pm_schnellausschreibung':'schnellausschreibung','pm_regierapport':'regierapport','pm_erp':'erp','pm_einsatzplan':'einsatzplan',
     'sys_lieferanten':'lieferantenverwaltung','sys_produktkatalog':'produktkatalog',
     'sys_workspace':'workspace',
   };
@@ -326,8 +332,8 @@
     {id:'role_hlkk_planer',name:'Heizungsplaner',color:'#dc2626',gewerke:['hlkk'],permissions:(function(){var p=_allPerms(true,true,false);p['werkzeugmanagement']={read:true,write:false,admin:false};p['objekte']={read:true,write:true,admin:true};return p;})()},
     {id:'role_lueftung_planer',name:'Lüftungsplaner',color:'#2563eb',gewerke:['lueftung'],permissions:(function(){var p=_allPerms(true,true,false);p['werkzeugmanagement']={read:true,write:false,admin:false};p['objekte']={read:true,write:true,admin:true};return p;})()},
     {id:'role_elektro_planer',name:'Elektroplaner',color:'#d97706',gewerke:['elektro'],permissions:(function(){var p=_allPerms(true,true,false);p['werkzeugmanagement']={read:true,write:false,admin:false};p['objekte']={read:true,write:true,admin:true};return p;})()},
-    {id:'role_spengler',name:'Spengler',color:'#0891b2',gewerke:['spenglerei'],permissions:(function(){var p=_somePerms(['dachbericht','objekte','baustellencheckliste','werkzeugmanagement'],true,true,false);p['dachbericht']={read:true,write:true,admin:true};p['objekte']={read:true,write:true,admin:true};return p;})()},
-    {id:'role_architekt',name:'Architekt / GP',color:'#7c3aed',permissions:_somePerms(['terminplan','besprechungsprotokoll','objekte','abnahme_sia'],true,false,false)},
+    {id:'role_spengler',name:'Spengler',color:'#0891b2',gewerke:['spenglerei'],permissions:(function(){var p=_somePerms(['dachbericht','objekte','baustellencheckliste','werkzeugmanagement'],true,true,false);p['dachbericht']={read:true,write:true,admin:true};p['objekte']={read:true,write:true,admin:true};p['regierapport']={read:true,write:true,admin:false};p['einsatzplan']={read:true,write:false,admin:false};p['abnahme_sia']={read:true,write:false,admin:false};return p;})()},
+    {id:'role_architekt',name:'Architekt / GP',color:'#7c3aed',permissions:(function(){var p=_somePerms(['terminplan','besprechungsprotokoll','objekte','abnahme_sia'],true,false,false);p['regierapport']={read:true,write:true,admin:false};return p;})()},
     {id:'role_unternehmer',name:'Unternehmer',color:'#d97706',permissions:_somePerms(['terminplan','abnahme_sia','werkzeugmanagement','baustellencheckliste','inspektion_wartung','ausschreibungsunterlagen','crbx_offertvergleich','schnellausschreibung'],true,true,false)},
     // ── Lieferanten-Rollen: ZWEI Typen (User-Entscheid) ──
     // ANLAGENLIEFERANT (role_lieferant*): liefert Anlagen fuer die
@@ -367,13 +373,13 @@
     // Magaziner: verwaltet das Werkzeuglager einer Organisation. Darf
     // Attribute aendern, Berichte hinzufuegen, Pruefungen anfordern und
     // Werkzeug Personen zuweisen. Sieht nur Werkzeuge der eigenen Org.
-    {id:'role_magaziner',name:'Magaziner',color:'#ea580c',permissions:(function(){var p=_somePerms(['werkzeugmanagement','fahrzeugmanagement','inspektion_wartung'],true,true,true);p['trocknungsgeraete']={read:true,write:true,admin:true};return p;})()},
+    {id:'role_magaziner',name:'Magaziner',color:'#ea580c',permissions:(function(){var p=_somePerms(['werkzeugmanagement','fahrzeugmanagement','inspektion_wartung'],true,true,true);p['trocknungsgeraete']={read:true,write:true,admin:true};p['einsatzplan']={read:true,write:true,admin:false};return p;})()},
     // Monteur: Read-only-Zugriff aufs Werkzeuglager. Kann Defekte melden,
     // aber nichts selbst aendern oder zuweisen. Sieht Werkzeuge der
     // eigenen Organisation.
-    {id:'role_monteur',name:'Monteur',color:'#64748b',permissions:(function(){var p=_somePerms(['werkzeugmanagement','baustellencheckliste','inspektion_wartung'],true,false,false);p['schadensbericht']={read:true,write:true,admin:false};p['trocknungsgeraete']={read:true,write:false,admin:false};return p;})()},
+    {id:'role_monteur',name:'Monteur',color:'#64748b',permissions:(function(){var p=_somePerms(['werkzeugmanagement','baustellencheckliste','inspektion_wartung'],true,false,false);p['schadensbericht']={read:true,write:true,admin:false};p['trocknungsgeraete']={read:true,write:false,admin:false};p['regierapport']={read:true,write:true,admin:false};p['objekte']={read:true,write:false,admin:false};p['einsatzplan']={read:true,write:false,admin:false};p['abnahme_sia']={read:true,write:false,admin:false};return p;})()},
     {id:'role_abteilungsleiter',name:'Abteilungsleiter',color:'#6d28d9',permissions:(function(){var p=_allPerms(true,true,false);p['werkzeugmanagement']={read:true,write:true,admin:false};p['objekte']={read:true,write:true,admin:true};return p;})()},
-    {id:'role_bauherrschaft',name:'Bauherrschaft',color:'#0284c7',permissions:_somePerms(['objekte','terminplan','kostenkontrolle','besprechungsprotokoll','abnahme_sia'],true,false,false)},
+    {id:'role_bauherrschaft',name:'Bauherrschaft',color:'#0284c7',permissions:(function(){var p=_somePerms(['objekte','terminplan','kostenkontrolle','besprechungsprotokoll','abnahme_sia'],true,false,false);p['regierapport']={read:true,write:true,admin:false};return p;})()},
     {id:'role_behoerde',name:'Behörde',color:'#475569',permissions:_somePerms(['w12','objekte','inspektion_wartung'],true,false,false)},
   ];
 

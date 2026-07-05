@@ -160,6 +160,17 @@ Berechnung abgeschlossen (z.B. Enthärtung: 2.5 l/s, 15°fH)
 - **User↔Lieferant-Verknüpfung**: `user.lieferantId` verknüpft den eingeloggten Auth-User eindeutig mit dem GemaProdukte-Lieferant-Datensatz. `findMyLieferant()` bevorzugt dieses Feld; die Heuristik (E-Mail/Org/Firma/**Org-Name**, normalisiert case-insensitive) bleibt Fallback und **self-healt** (schreibt `lieferantId` beim ersten Treffer via `GemaAuth.linkUserToLieferant`). **Init wartet auf den Cloud-Pull**: findet der erste (Cache-)Lauf nichts, sucht `init()` nach `GemaProdukte.ready` erneut (Ladehinweis statt sofort «Kein Profil»). **Auto-Provisionierung** (`_liefAutoProvision`): hat der User eine Lieferanten-Rolle (Anlagen ODER Produkt) und existiert auch nach dem Pull kein passender Datensatz, wird das Lieferanten-Profil automatisch aus der eigenen Org angelegt (`createLieferant` mit Org-Name/Adresse, Produktlieferant startet mit `lieferantKategorien:['werkzeuge']`) und verknüpft — Voraussetzung: User ist einer echten Org zugeteilt (nicht `org_default`). `GemaAuth.inviteLieferant(opts)` akzeptiert `opts.lieferantId` und setzt das Feld direkt beim Anlegen (Aufrufer: `_liefInviteUser` im Dashboard, `GemaOfferRequest._submit`). Mitarbeiter-Einladung (`_liefInviteUser`) startet mit `role_lieferant_intern` (Least Privilege — Admin weist Unterrolle zu). Firmenprofil-Edit nur für `_liefIsAdmin()`; Mitarbeiter-Verwaltung nur für Org-Admin **derselben** Lieferanten-Org.
 - **Kategorie-IDs (KRITISCH)**: `LIEF_KATEGORIEN` (Firmenprofil-Kategorien) und `KATEGORIEN` (Produkt-Schemas/Matching) nutzen DIESELBEN IDs — `hebeanlage` und `thermische_solaranlage` (nicht mehr `abwasserhebeanlage`/`solaranlage`). Für Altdaten gibt es `GemaProdukte.normKatId(id)` (Alias-Map), genutzt in `getLieferantenByKategorie` und im Kategorien-Filter von `gema_offer_request.js`.
 
+### Armaturen-/Rohr-Katalog (Druckverlust-Daten, gema_armaturen_api.js)
+
+Der **Anlagenlieferant** pflegt im Dashboard-Tab «Rohrsysteme & Armaturen» einen eigenen Armaturen-Katalog für die Druckverlustberechnungen (getrennt vom GemaProdukte-Produktkatalog — hier geht es um Rechenwerte, nicht um Offerten):
+- **Datenmodell pro Armatur**: `{id, typ, name, hersteller, serie, lieferantId, status, zeta:{dn:ζ}, kvs:{dn:kvs}, zetaDefault, diagramm:{url|dataUrl,name}}`. **ζ und/oder kvs pro Dimension** — die Berechnung bevorzugt kvs (`Δp = (Q[m³/h]/kvs)²·100` kPa, Datenblatt-üblich), sonst ζ (`Δp = ζ·ρ/2·v²`). DN-Lookup extrahiert die erste Zahl («22x1.2» → 22, «DN 20» → 20).
+- **Dashboard-CRUD** (`_armOpen`/`_armSave`/`_armDelete` in sys_lieferant_dashboard.html): Erfassen/Bearbeiten mit Dimensions-Zeilen (DN | ζ | kvs), Diagramm-Upload (Bild → `GemaStorage.uploadDataUrl` Pfad `armaturen/<lieferantId>`, Base64-Fallback), Verifizieren (nur `_liefCanVerify`), Löschen. Rechte via `_liefCanEditProdukte`, `_liefBlockedInaktiv`-Guard.
+- **Storage**: per-Record in der Cloud (moduleKey `armaturen`, prefix `arm:`, Pool `gema_armaturen_pool_v1`); der GEMA-Default-Katalog bleibt lokaler Seed (nie auto-gepusht), Pool-Records überschreiben Defaults gleicher id, Default-Löschung via Tombstone `{deleted:true}`.
+- **Nutzung in Berechnungen** (`gema_armaturen_picker.js`):
+  - **Druckverlust KW (sb_druckverlust.html)**: «🔧 Armaturen & manuell» pro Teilstrecke → Picker mit Katalog + **manuellen Einträgen (Name + Δp kPa)**. ζ-basierte Armaturen fliessen in ζΣ; **kvs-Armaturen + manuelle als direkter `dp_arm`** in `calcRow` (dimensionsabhängig automatisch, folgt der gewählten Dimension). Sektion «📈 Druckverlustdiagramme der gewählten Armaturen» unter der Total-Bar (Upload-Bild bzw. generierte Kennlinie mit Betriebspunkt) — sichtbar im UI und damit **im GemaPDF-Export angehängt** (ausblendbar).
+  - **Heizungsleitungen (hz_heizungsleitungen.html)**: 🔧-Button neben «Hersteller [Pa]» je TS → Picker (unit Pa), Summe (kvs+manuell direkt, ζ über v der TS) wird ins bestehende `he`-Feld geschrieben; Auswahl in `r.arm` gespeichert.
+  - **Zirkulation (sb_zirkulation.html)**: «🔧 Katalog» neben dem Kvs-Feld → Picker-Modus `kvs-single` (ohne Dimension: pro Armatur DN-kvs-Buttons) schreibt den kvs des Regulierventils in `zk_kvs`.
+
 ### Verifizierung
 
 1. GEMA erfasst Anlagen vor (Basisdaten)
@@ -247,6 +258,22 @@ Jede Rolle hat ein eigenes Login mit rollenspezifischer Ansicht.
 4. Alles in einem System, keine Dateien mehr nötig
 
 CRBX = ZIP mit SIA 451 .e1s Datei (Festbreiten-Format, Satztypen A/B/C/G/Z).
+
+### Ausschreibung & Vergabe (pm_ausschreibungsunterlagen.html) — Workflow-Verdrahtung
+
+Zentrales Modul für den kompletten Ausschreibungs-Workflow (Planer ↔ Unternehmer ↔ Lieferant ↔ Architekt/BH). **Storage: per-Record in der Cloud** (moduleKey `ausschreibung`, 7 Collections — siehe Tabelle «Migrierte Module»: `aus:`/`ausbet:`/`ausanf:`/`ausvrt:`/`ausein:`/`ausna:`/`ausmk:`). Der alte Blob `gema_ausschreibung_v4` bleibt NUR lokal als UI-State-Cache (currentRole/activeAusId/Log/Filter) und einmalige Migrations-Quelle — er wird NICHT mehr per `_GemaDB.put` in die Cloud geschrieben (Last-Write-Wins-Falle). Dazu per-Objekt-BKP `gema_ausschreibung_bkp__<objektId>` (nur noch Fallback: `ldBKP` überschreibt NIE eine Ausschreibung, die bereits Lose trägt) + Vorlagen `gema_ausschreibung_vorlagen_v1`. Hub: `pm_ausschreibung.html` (verlinkt auch `pm_crbx.html`, den eigenständigen SIA-451-Offertvergleich mit eigenem Store `gema_crbx_v1`).
+
+- **Pool-Architektur (KRITISCH)**: `S` hält immer die GESCOPTE Sicht des eingeloggten Users; `_poolMem` die vollen (globalen) Pools. `ld()` scoped via `_scopePools()` (Planer: `a.orgId === user.orgId`, Beteiligte via `ownerOrgId` = Org des erfassenden Planers — NICHT `orgId`, das ist die Org der Partner-Firma; Unternehmer: nur eigene Anfragen/Verteilungen/**Einreichungen** — Preise anderer Bieter bleiben unsichtbar; Lieferant: eigene Netto-Anfragen + aktive Marktplatz-Ausschreibungen; Architekt/BH: nur Ausschreibungen mit Vergabeantrag) und merkt sich die sichtbaren IDs in `S._vis`. `sv()` merged die S-Arrays via `_mergePoolsFromS()` zurück (im Scope fehlende = gelöscht → Cloud-Delete) und pusht debounced (1.2s) via `GemaSync.persistCollection`. **Guard**: `_mergePoolsFromS` läuft erst, wenn `S._vis` gesetzt ist (erstes Pool-Scoping) — sonst überschreibt der Blob-Altstand frisch geladene/migrierte Pool-Records; `ld()` verwirft ein aus dem Blob restauriertes `_vis`. Nach dem Cloud-Pull ruft der Init `switchRole()` erneut auf (Beteiligten-Bindung sah vorher keine Pool-Daten).
+- **Migration**: `_ausMigrateLegacyBlob()` splittet den alten Blob einmalig in die Pools (nur wenn Cloud-Pools leer), setzt fehlende `orgId`/`erstelltVonUserId`/`ownerOrgId` auf den migrierenden User und löscht die alte Cloud-Blob-Row. **Demo-Seeds (aus-demo-*, inst-*, lief-*, arch-1, anf-1/2) werden übersprungen und von `_stripDemo()` bei jedem Load gefiltert** — der Produktivbetrieb startet ohne Demo-Daten, das State-Literal ist leer.
+
+- **Rollen-Sichten**: `_mapAuthRoleToCurrent()` mappt GemaAuth-Rollen auf interne Sichten — Planer-Rollen/Admin → `planer`, `role_unternehmer` → `installateur`, `role_lieferant*`/`role_produktlieferant*` (Prefix-Match!) → `lieferant`, `role_architekt`/`role_bauherrschaft` → `architekt`. **KRITISCH — Identitäts-Bindung**: `switchRole()` bindet Unternehmer/Lieferant/Architekt via `_findMyBeteiligter()` an IHREN `S.beteiligte`-Eintrag (userId-Match, Fallback E-Mail-Match mit Self-Healing der `userId`). Eingeloggte User ohne eigenen Eintrag bekommen eine LEERE Sicht — NIE auf den ersten fremden Beteiligten zurückfallen (Datenleck).
+- **MODUL_MAP (KRITISCH)**: Mapping `lieferungTyp` → `{modul, label, kategorie, autosaveKey}`. `kategorie` MUSS eine `KATEGORIEN`-ID aus gema_produktkatalog_api.js sein (z.B. `zirkulationspumpe`, nicht `zirkulation`), `autosaveKey` der GemaAutoSave-Modulname (Storage `gema_<autosaveKey>__<objektId>`). Alle 16 Berechnungsmodule mit Anlagenwahl sind gemappt (inkl. hz_/lt_/sb_druckanstieg/sb_fluessiggas). Im BKP-Baum tragen die Lieferung-Positionen (auch HLKK 242/243/244, 342/344) `modulKey`/`modulUrl`; der Planer kann das Mapping pro Position im Lieferung-Dialog überschreiben (`liefChangeModul`).
+- **Lieferung-Dialog** (`openLieferungDialog`): zeigt Berechnungs-Stand via `readCalcData()` (liest den echten AutoSave-Key des Moduls, per-Objekt/phase-aware) + beantwortete Offertanfragen des Produktkatalogs — gefiltert auf `oa.projekt.objektId === a.objektId`, Status liegt auf `oa.status` (NICHT `oa.antwort.status`); Antwort-Felder heissen `antwort.bruttoPreis/pdfName/pdfUrl/pdfDataUrl/beantwortetAm`. «Offerte anfragen» läuft über `GemaOfferRequest.open()` (Lieferanten-Auswahl/-Einladung + Notifikation; `gema_offer_request.js` ist eingebunden) und verlinkt die OA via `onSuccess` mit der Position.
+- **Vormerkungen**: `beantworteOffertanfrage()` (Produktkatalog) legt pro Objekt eine Vormerkung an; `_renderVormerkungen` in der BKP-Checkliste matcht zuerst über die Modul-Verknüpfung (`lieferungTyp`, Reverse-Map Kategorie→MODUL_MAP-Key), dann über `bkpCode`, und setzt die Offerte automatisch in die Position ein.
+- **Brücke Checkliste → Offert-Formular (KRITISCH)**: Die BKP-Checkliste lebt in `a.lose[].positionen`, das Preis-Formular des Unternehmers (`idet`) + Vergleich/Vergabe lesen `a.bkp[].unterpositionen`. `syncBkpFromLose(a)` materialisiert beim Verteilen (`vtl`) und beim Rendern von `idet` die angehakten Positionen ADD-ONLY als Unterpositionen (id `los_<bkp>`).
+- **Bestätigungs-Kette + Notifikationen** (alle Links mit Deep-Link `?a=<ausId>`, wird im Init ausgewertet und öffnet rollengerecht pbkp/idet/avga): Interesse-Anfrage → `ausschreibung_einladung` an Unternehmer; Antwort des Unternehmers → `ausschreibung_interesse` an den Absender (`anf.vonUserId`); Verteilen → `ausschreibung_einladung` («Unterlagen erhalten»); Offerte eingereicht → `ausschreibung_offerte_neu` an `a.erstelltVonUserId` (Fallback role_planer + `a.orgId` — Rolle+Org matchen bei GemaNotify BEIDE); CRBX bestätigt → `ausschreibung_crbx_bestaetigt` (Default aus); Vergabeantrag einreichen/genehmigen/ablehnen → `ausschreibung_vergabeantrag` (Empfänger-Auflösung via Objekt-Beteiligte-E-Mail → User, Fallback role_architekt); Zuschlag/Absage → `ausschreibung_vergabe`.
+- **Freigabe-Logik**: Nur CRBX-Ausschreibungen brauchen den CRBX-Abgleich (`crbx_geprueft`); funktionale zeigen im Verteilen-Tab stattdessen den Stand der BKP-Checkliste (kein toter Verweis auf den deaktivierten CRBX-Tab).
+- **Schnellausschreibung (pm_schnellausschreibung.html)**: eigener per-Record-Pool (`sa:` → `gema_sa_pool_v1`, moduleKey `schnellausschreibung`), Records mit `orgId`/`erstelltVonUserId` + Org-Scoping; einmalige Migration des alten localStorage-Stands. Einladen (`addUN`) und Vergabe (`doVergabe`) pushen `ausschreibung_einladung` bzw. `ausschreibung_vergabe` (Zuschlag + Absagen ohne Preise) an den via E-Mail aufgelösten GEMA-User (`_saFindUser`); Deep-Link `?sa=<id>` öffnet das Detail.
 
 ---
 
@@ -381,6 +408,39 @@ Mollier-h,x-Diagramm nach der Seven-Air-Vorlage (950 mbar / 540 m ü.M.). **Neue
 - Persistenz: Parameter via GemaAutoSave (`fluessiggas`), Geräte+Räume als EIN JSON (`gsState={ger,fr}`) im hidden `#gs_rows`-Textarea.
 - Anlagenwahl + Offertanfrage: **neue Produktkategorie `KATEGORIEN.fluessiggasanlage`** (Flaschenrampe/Tank/Verdampfer; Verdampfungsleistung kg/h Pflicht, matchFn ≥ Total-Massenstrom ideal ≤ 2×) + `LIEF_KATEGORIEN` + bkpMap `252.0`. Payload: `totalMassenstrom`, `grundlast`, `spitzenmassenstrom`, `jahresverbrauch` — Projektwerte, nie Datenblatt-Werte.
 - Registriert in gema_auth (MODULES `fluessiggas`, cat Sanitärberechnungen, FILE_MAP `sb_fluessiggas`), sb_index (**neue Gruppe Gas**), sw.js.
+
+### Druckverlust Erdgas (sb_druckverlust_erdgas.html) — zweite Gas-Berechnung
+
+1:1-Umsetzung der Excel «Druckverlustberechnung Erdgas» Vers. 3 (E. Hähni, 1997/2016; RC4-verschlüsselte .xls — Formeln aus BIFF-Shared-Formulas + VBA-Modulen extrahiert; Node-Test validiert die Engine gegen die Excel-Cached-Werte des Beispiels «Aufgabe Schule» auf < 1e-9 relativ). 4 Tabs:
+1. **Grundlagen & Vordimensionierung**: Gasdaten (HiB/Wsn/Temperatur/Drücke informativ; Rechnung läuft über ρ Default 0.75 kg/m³ und ν Default 11.41237·10⁻⁶ m²/s — in der Excel eine editierbare Konstante, KEINE Formel), Druckvorgaben (max. zul. Δp, Zähler-Δp), Vordimensionierung `d = [0.04·V̇²·ρ·L·(1+EW%) / (1.624·10⁻⁶·(Δpmax−ΔpZähler))]^(1/5)` mm + nächstgrössere Dimension je Material.
+2. **Teilstrecken & Druckverlust**: dynamische TS-Tabelle — V̇A + V̇K → V̇A max; Material/Dimension aus `EG_ROHRE` (T_Dimensionen: Stahl verzinkt k=0.15, Cu/CrNi k=0.0015, PE S5/S8 k=0.25, Guss DN40–65 k=0.03 / ab DN80 k=0.01 mm — Rauhigkeit pro Dimension); `v = V̇/3600/(π/4·d²)`, `Re = v·d/ν`, **λ nach VBA `Lambdawertberechnung`** (Branch-Reihenfolge exakt: laminar 64/Re bei Re≤2320 → rauh `1/(2·lg(3.71·d/k))²` bei Re·k/d>1300 → Übergang `0.0055·(1+(20000·k/d+10⁶/Re)^⅓)` bei 65≤Re·k/d≤1300 → Blasius `0.3164/Re^0.25` bei Re<10⁵ → `0.0032+0.221·Re^−0.237` bei Re<10⁶), `R = λ/d·ρ/200·v²` mbar/m, Δpζ, ΔpApp (Zähler als eigene Zeile ohne Dimension), **Δp-Kumulation wie Excel: `P = (ΔpTS==0 ? 0 : Pprev+ΔpTS)`** + expliziter «↺ neuer Strang»-Toggle; KPI max. Δp vs. zulässig mit rot-Warnung.
+3. **Spitzenvolumenstrom Haushalt**: Apparate-Katalog (`EG_GERAETE` aus AWerte) → Σ AW + GAW-Stufe (auto = nächsthöhere Stufe zum grössten Einzel-Anschlusswert); **VBA `Spitzenvolumenstrom(GAW, AW)`**: 24 Potenz-Stufen `AW^e·f` (GAW 1.0–10, je AW-Limit), Grösstwerte-Ast `AW^1.0563·0.067774` bei AW>580, Kontrollabfrage cap auf AW. Plus Küchen-Tabelle 3–100 Küchen (nächsthöherer Tabellenwert).
+4. **ζ-Werte (Referenz)**: Formstücke + Armaturen aus V_RW (inkl. Gaszähler-Anschluss ζ=2 bis DN25 / ζ=4 ab DN25).
+- Persistenz: Parameter via GemaAutoSave (`druckverlust_erdgas`), TS-+Geräte-Zeilen als EIN JSON (`egState={ts,ger}`) im hidden `#eg_rows`-Textarea (Pattern `#gs_rows`).
+- Engine im Block `/*ENGINE-START*/…/*ENGINE-END*/` (DOM-frei) — Node-Tests können sie direkt evaluieren.
+- KEINE Anlagenwahl/Offertanfrage (kein passendes Produktkatalog-Sortiment — wie sb_warmwasser).
+- Registriert in gema_auth (MODULES `druckverlust_erdgas`, FILE_MAP `sb_druckverlust_erdgas`), sb_index (Gruppe Gas, «2 Module», Hero 29 Module), sw.js.
+
+### Druckverlust Medizinalgase (sb_druckverlust_medizinalgas.html) — dritte Gas-Berechnung
+
+1:1-Umsetzung der Excel «Druckverluste_Medizinalgas.xlsm» (openpyxl-Formel-Extraktion + olevba; VBA `Lambdawertberechnung`/`Reynoldszahl`/`Strömungsart` IDENTISCH mit der Erdgas-Vorlage → gleiche λ-Branch-Logik. Node-Test: Stoffwerte gegen Excel-Cached-Werte des Beispiels, Teilstrecken gegen unabhängig berechnete Formelwerte — die Beispiel-TS-Zeilen im xlsm sind leer). 3 Tabs:
+1. **Anlagedaten & Stoffwerte**: Medium-Select (`MG_MEDIEN`: Erdgas/Druckluft/Sauerstoff/CO₂/Vacuum/Lachgas/Acetylen mit Rs + η), **Temperatur als Zeilen-Select** (`MG_TEMP`, 97 Zeilen −20…100 °C mit Sättigungsdampfdruck ps — **Excel-Quirk**: T_Medium!B4/C4 VLOOKUPen über die Zeilen-Nr., nicht über °C; der Select bildet die Zeilen-Semantik ab, t+ps kommen immer paarweise aus derselben Zeile), Luftdruck (Default 966 mbar), Überdruck im Rohr (Vakuum = negativ, z.B. −300), Sättigungsgrad %, optional max. zul. Δp. Stoffwerte: `ρN = 101325/Rs/273.15`, `ρB = (Luft+Über−ps·s%)·100/Rs/(t+273.15)`, `ν = η/ρB`.
+2. **Teilstrecken & Druckverlust**: `VN = AW·ED%·ϕ%·(1+Z%)` m³N/h → Betriebsvolumenstrom über `VN·(ρN/ρB)`; 14 Rohrmaterial-Tabellen (`MG_ROHRE` aus T_Dimensionen: Cu k=0.01, CrNi k=0.0015, Stahl verzinkt **k=0.8**, Mepla 0.005, PE S8 0.007, Guss DN-abhängig …); v/Re/λ/Strömungsart wie Erdgas; `R = λ/d·ρB/200·v²`; Einzelwiderstände `ζ·ρB/200·v² + äqRL·R` — **äq. Rohrlänge leer → Default l·0.5** (Vorlage `=E·0.5`); + konst. Δp; Δp-Kumulation `S = (R==0 ? 0 : Sprev+R)` + «↺ neuer Strang»-Toggle; KPI gegen max. zul. Δp.
+3. **ζ-Werte (Referenz)**: Formstücke + Armaturen der Vorlage.
+- Persistenz: Parameter via GemaAutoSave (`druckverlust_medizinalgas`), TS-Zeilen als JSON (`mgState={ts}`) im hidden `#mg_rows`-Textarea; Engine im `/*ENGINE-START*/…/*ENGINE-END*/`-Block.
+- **Persist-Guard (gilt für eg_/mg_)**: Init ruft nach dem Default-Seeding sofort `Persist()` auf und der Restore-Handler fällt bei leerem `ts` auf eine Default-Zeile zurück — sonst friert der AutoSave-Snapshot beim Objektwechsel (läuft VOR der ersten Eingabe) eine leere Tabelle ein.
+- KEINE Anlagenwahl/Offertanfrage (wie Erdgas). Registriert in gema_auth (MODULES `druckverlust_medizinalgas`, FILE_MAP `sb_druckverlust_medizinalgas`), sb_index (Gruppe Gas, «3 Module», Hero 30 Module), sw.js (v164).
+### Gaslöschanlagen N2 / Novec 1230 (br_gasloeschung.html) — erste Brandschutz-Berechnung
+
+1:1-Umsetzung der beiden Quick-Tools «N2_300barKDT_Berechnung» und «Novec_1230_Berechnung_CAG» (Ch. Maag, ISO 14520; N2-Formeln aus dem offenen xlsx-Quicktool, Novec-Formeln per BIFF-Parser aus dem xlt extrahiert; Node-Test 45/45 gegen die Excel-Cached-Werte BEIDER Vorlagen). Kategorie **Brandschutz** (br_-Präfix, index.html-Kategorie «Brandschutz & Sprinkler»). 3 Tabs:
+1. **Stickstoff N2 300 bar**: Auslegungskonzentration % → `S = 0.79968+0.00293·T`, `Q = ln(100/(100−C))·V/S`, ISO-Höhenkorrektur (>1000 m: `5.3788e-9·h²−1.1975e-4·h+1`); Raumvolumen aus 3 Bereichen (Raum/Kabelboden/Hohldecke) je mit Objekt-Abzug, Volumenbestätigung übersteuerbar; VdS-Zuschlag → Qmin; Flaschen 80 l (24.9 kg) / 140 l (43.5 kg) → `nFl = ROUNDUP(Qmin/Füllung)`, Qg; `Q60 = QgDes·0.95`, Kontrolle Qg ≥ Q60+10 %; **Druckentlastung** `A = 83.53·1.304·(F.F.·Q60)/√P/10000·0.6` mit **Flow-Factor-Kurve** (13 Original-Stützpunkte aus dem Chart-XML, Canvas mit Betriebspunkt, Auto-Interpolation als Vorschlag + Ablese-Override); Düsen-Näherung `ROUNDUP(Fläche/30)` je Bereich (Objekte in voller Raumhöhe reduzieren die Fläche); `O₂ = 20.8·e^(−Q·S/V)` nach 60 s und nach Entleerung (Warnung < 10 %); Nachflutungs-Flaschen.
+2. **Novec 1230** (FK-5-1-12, ISO 14520-5): `S = 0.0664+0.000274·T`, `Q = C/(100−C)·V/S`; max. Füllfaktor (Default 0.8 kg/l) + freie Flaschengrösse → nFl, tatsächlicher Füllfaktor (Warnung > max); `O₂ = 20.8·e^(−Qg·S/V)`; **Entlastung** `A = (Qg/10)·S/√P·√((1−c·1.15)+c·14.47)` (Flutung 10 s); **Rohrvolumen-Helfer** (Dampfrohre schwere Baureihe, `V = di²·π/4·L/1000` l) mit Verhältnis Rohrnetz/Flaschenvolumen als Füllfaktor-Abschätzhilfe.
+3. **Raumübersicht**: dynamische Projekt-Tabelle (Geschoss/Raum/H/Fläche→Volumen/Löschmittel/Flaschen/Düsen/Entlastung/O₂/…) — Zeilen manuell oder per «⬇ Ergebnis übernehmen» aus Tab ①/② (nach Vorlage «Auslegung_Gaslöschung»).
+- **Bewusst NICHT übernommen** (User-Entscheid): die interne Preiskalkulation «Kalkulation_Intern_CAG_Stickstoff» (firmenspezifische Einkaufspreise + Projekt-Checklisten).
+- Persistenz: AutoSave `gasloeschung` + dynamische Tabellen (`bgState={ue,rv}`) im hidden `#bg_rows` (Persist-Guard wie eg_/mg_). **Zusätzlich `bgLoadFromSnapshot()`** (500/1500/3500 ms verzögert): liest `bg_rows` DIREKT aus dem AutoSave-Snapshot (`gema_gasloeschung__<oid>[@phase]`), solange der Nutzer nichts geändert hat (`_bgTouched`) — die `_restore`-Event-Kette allein ist timing-anfällig (Event auf dem hidden Textarea kann verloren gehen → Tabellen blieben leer).
+- Anlagenwahl + Offertanfrage: **neue Produktkategorie `KATEGORIEN.gasloeschanlage`** (Löschmittel-Select, Flaschengrösse/-anzahl, max. Raumvolumen, VdS/ISO-Flags; matchFn auf Löschmittel + Volumen) + `LIEF_KATEGORIEN` + bkpMap `256.0` (Brandschutz Sanitär) + MODUL_MAP-Eintrag `gasloeschanlage`. Payload: `loeschmittel`, `raumvolumen`, `konzentration`, `gasmenge` (Qg), `flaschen`, `flaschengroesse` — Projektwerte, nie Datenblatt-Werte. Berechnungswerte folgen dem aktiven Tab (N2/Novec).
+- Registriert in gema_auth (MODULES `gasloeschung`, cat Brandschutz, FILE_MAP `br_gasloeschung`), index.html (Brandschutz «2 Module»), sw.js (v167). Breadcrumb: «Brandschutz & Sprinkler» ohne sb_index-Link (Nicht-Sanitär-Modul).
+
 - **Projektmanagement-Module** (pm_): Objekte, Terminplanung, Sitzungsprotokolle, Kostenkontrolle, Ausschreibung
 - **Hygiene-Module** (hy_): W12 Selbstkontrolle (SVGW)
 - **Infrastruktur-Module** (if_): Werkzeugmanagement, Fahrzeugmanagement, Trocknungsgeräte (siehe Abschnitte weiter unten)
@@ -1109,6 +1169,98 @@ A4 **Hochformat** erzwungen: beide `@page`-Regeln `size:A4 portrait`, jsPDF `ori
 
 ---
 
+## Regierapporte (pm_regierapport.html)
+
+Mobile-first Modul (iPad/iPhone-optimiert: grosse Touch-Ziele, Vollbild-Editor, Bottom-Sheet-Modals, safe-area) für Regiearbeiten auf der Baustelle — vom Monteur-Rapport bis zur bepreisten Zusammenstellung.
+
+### Workflow & Status
+
+```
+Entwurf → Eingereicht → Freigegeben → Ausgewiesen
+(Monteur)  (Monteur)     (Architekt/BL) (Projektleiter)
+              ↘ Zurückgewiesen (mit Grund, zurück an Ersteller)
+```
+
+- **Erfassen (Monteur)**: Objekt-Anbindung wie Berechnungen (aktives Objekt vorausgewählt), Arbeitsbeschrieb, **Stunden** (Kategorie-Chips aus Org-Stammansätzen, 0.25-h-Stepper, Name optional) und **Material** (frei ODER via Katalog-Picker aus GemaProdukte über alle Kategorien — Bezeichnung/`produktId`/`lieferantFirma` werden übernommen). **Monteure sehen NIE Preise** (`.preis-inp` nur für `_rrCanPrice()`).
+- **Einreichen**: GemaDialog fragt die Freigeber-E-Mail (Vorschlag = Architekt/Bauleitungs-Beteiligter des Objekts via `GemaObjekte.getBeteiligte`); Objektname/-adresse werden in den Record **denormalisiert** (Architekt fremder Org hat keinen Zugriff auf die Org-Objekte). Notifikationen `regie_eingereicht` an `role_planer`+Org sowie an den per E-Mail aufgelösten Freigeber-User.
+- **Freigabe**: ✍️ **Unterschrift vor Ort** (Canvas-Signatur-Pad, Retina, Pointer-Events; PNG als `freigabe.signaturDataUrl` im Record) ODER **digitale Freigabe/Zurückweisung** durch role_architekt/role_bauherrschaft bzw. den zugewiesenen Freigeber (`freigeber.email`-Match, cross-org). Nach Freigabe ist der Rapport für den Monteur gesperrt.
+- **Ausweisen (nur `_rrCanPrice()` = Planer/Admin/Abteilungsleiter)**: Ansätze pro Stundenzeile (Vorbefüllung aus Org-Stammansätzen `org.settings.regie.ansaetze`, Default-Kategorien Servicemonteur/Monteur/Hilfsmonteur/Lehrling/Bauleitung — Einstellungs-Modal ⚙️) + Material-EPs → Rapport-Total; Status `ausgewiesen`.
+- **Zusammenstellung** (pro Objekt, nur PL): Tabelle aller Rapporte mit Zwischentotal der ausgewiesenen, Zuschlag/Rabatt/MwSt (Parameter lokal je Objekt in `gema_regie_zus_v1`) → **Endsumme Regiearbeiten**; PDF-Export.
+- **PDF**: Einzelrapport (ohne/mit Preisen) und Gesamt-Zusammenstellung als Print-Fenster (A4, «Als PDF sichern» auf iPad) inkl. Freigabevermerk + Unterschrift-Bild.
+
+### Storage & Scope
+
+Per-Record in der Cloud: moduleKey `regierapport`, prefix `regie:`, Pool-Cache `gema_regie_pool_v1` (bindCollection beim Boot mit Sofort-Render aus Cache, Einzel-Saves via `GemaSync.saveRecord`). Sichtbarkeit: Planer = ganze Org · Monteur/Spengler = nur eigene Rapporte · Architekt/Bauherrschaft = eigene Org ODER ihnen zugewiesene (`freigeber.email` = eigene E-Mail, cross-org). Deep-Link `?rr=<id>` (aus den Notifikationen).
+
+### Rollen & Registrierung
+
+MODULES-Key `regierapport` (cat Projektmanagement), FILE_MAP `pm_regierapport`. DEFAULT_ROLES: Monteur/Spengler read+write (+ Monteur `objekte` read für die Objekt-Auswahl), Architekt/Bauherrschaft read+write (Freigabe), Planer via `_allPerms`. Event-Keys `regie_eingereicht`/`regie_freigegeben`/`regie_abgelehnt` in gema_notify.js. index.html PM-Kategorie («12 Module»), sw.js v168.
+
+## ERP: Offerten · Aufträge · Rechnungen (pm_erp.html)
+
+EIN integriertes Modul (User-Entscheid — kein Modul-Trio) mit Tabs Offerten/Aufträge/Rechnungen/Kunden + ⚙️-Einstellungen. Kern ist die verknüpfte **Dokument-Kette**: Offerte → (angenommen) → Auftrag → Akonto-/Teil-/Schlussrechnung. Mobile-tauglich (gleiche UI-Muster wie pm_regierapport).
+
+### Datenmodell & Storage
+
+Per-Record in der Cloud, moduleKey `erp`: Dokumente `erpdok:` → `gema_erp_dok_pool_v1`, Kunden `erpkunde:` → `gema_erp_kunden_pool_v1` (bindCollection beim Boot + Sofort-Render aus Cache; Einzel-Saves via saveRecord). Dokument: `{id, typ:'offerte'|'auftrag'|'rechnung', nr, orgId, objektId/objektName, kundeId, kundeSnapshot{firma,kontakt,strasse,plz,ort,email}, datum, gueltigBis|frist, status, positionen[], rabattPct, mwstPct, einleitung, schlusstext, verknuepfung:{offerteId?,auftragId?}, rechnungsArt:'einzel'|'akonto'|'teil'|'schluss', zahlungen[{datum,betrag}], erstelltVon}`. Nummernkreise pro Typ+Jahr: `OF-2026-001` / `AU-` / `RE-` (max+1 aus dem Pool). Einstellungen in `org.settings.erp` (mwstPct 8.1, fristTage 30, iban, qrIban, Absender, Standard-Schlusstexte).
+
+### Positionen (gemeinsamer Editor aller Dokumenttypen)
+
+`{id, art:'frei'|'titel'|'regie'|'oa'|'akonto'|'abzug', bez, menge, einheit, ep, rabattPct?, produktId?, lieferantFirma?, regieRapportId?, oaId?}`. Quellen-Buttons:
+- **📦 Katalog**: GemaProdukte über alle Kategorien (Volltextsuche), übernimmt produktId+Lieferant
+- **📝 Regierapporte**: ausgewiesene, unverrechnete Rapporte (`gema_regie_pool_v1`, objektgefiltert) als Pauschalposition mit `regieRapportId`; beim **Rechnung stellen** wird `r.verrechnetIn=<RechnungsNr>` in den Regie-Pool zurückgeschrieben (Cross-Modul-Write via GemaSync.saveRecord)
+- **🏷 Lieferanten-Offerten**: beantwortete Offertanfragen (`GemaProdukte.getOffertanfragen`, objektgefiltert) mit `antwort.bruttoPreis` als EP
+Summenblock: Zwischentotal → Zeilen-/Dokumentrabatt → Netto → MwSt → **Rappenrundung auf 0.05** (`erpRound5`).
+
+### Kette & Fakturierung
+
+- `erpZuAuftrag()`: kopiert Positionen, verknüpft beidseitig (`verknuepfung.offerteId`/`auftragId`)
+- **Akonto**: GemaDialog-Prompt (CHF oder `30%` der Auftrags-Nettosumme) → Rechnung mit einer `art:'akonto'`-Position
+- **Teilrechnung**: Modal mit Positions-Checkboxen + anpassbaren Mengen
+- **Schlussrechnung** (`erpSchlussPositionen`): alle Auftragspositionen + automatische **Abzugszeilen** (`art:'abzug'`, negativer EP) je bereits gestellter, nicht stornierter Rechnung — Netto-Abzug VOR MwSt (CH-Praxis)
+- `erpAuftragFakt(docs,auftragId)`: Auftragssumme / verrechnet / Rest / % — als Fortschrittsbalken im Auftrag und auf der Karte
+- Rechnung: entwurf → gestellt (sperrt Editor, Frist gesetzt) → bezahlt (Zahlungen kumulieren, Teilzahlungen) | storniert; **überfällig** wird berechnet (`erpRechnungAnzeigeStatus`: gestellt + Frist überschritten + nicht gedeckt)
+
+### Swiss QR-Rechnung
+
+**Mehrseitiger Aufbau (alle 3 Dokumenttypen)**: Seite 1 = **Titelblatt** (`.cover`: Briefkopf, Empfänger, Meta, grosser Dokumenttitel, Einleitung, Betrag-Kachel `.cover-total` mit Offert-/Auftragssumme bzw. Rechnungsbetrag — KEINE Positionstabelle) → ab Seite 2 **Positionen im Detail** → **Zusammenstellung** (Zusammenzug pro `art:'titel'`-Gruppe + Zwischentotal/Rabatt/Netto/MwSt/Total + Schlusstext) → bei Rechnungen zuletzt das **QR-Blatt** (`.qrpage`: Betrag-Box mit Rechnungsbetrag/Frist/Referenz, Hinweis «alles im QR-Code — nichts von Hand ausfüllen», Zahlteil+Empfangsschein via `margin-top:auto` am Blattende). Sektionstrennung via `.pb` (Bildschirm gestrichelte Linie, Druck `page-break-before:always`); `thead{display:table-header-group}` wiederholt den Tabellenkopf bei mehrseitigen Positionslisten. **Druck-Fusszeile via `@page`-Margin-Boxes** (`@bottom-left/-center/-right`, CSS-escaped Strings) — `position:fixed` mit `bottom` kollidiert im Druck auf Folgeseiten mit dem Seitenanfang; die `.foot`-Div bleibt nur für die Bildschirm-Vorschau.
+
+**Briefkopf & Branding (alle 3 Dokumenttypen)**: Absender-Block oben LINKS (Firma + Adresse + Tel/Mail/Web aus `org.settings.erp`), **Logo oben RECHTS** (`org.logoVector||org.logo`, max 18×62 mm, `object-position:right top`; ohne Logo Wortmarke in Akzentfarbe), darunter Empfänger-Adresse links + Dokument-Meta rechts (Datum, Gültig-/Zahlbar-bis, Auftrag, Projekt als Label/Wert-Zeilen). **Akzentfarbe aus `org.settings.pdfFarben.primary`** (`erpBrand()` mit denselben Kontrastschutz-Helfern wie Schaden-/Dachbericht: `_erpDarkenForWhiteBg` ≥ 4.5:1 gegen Weiss + `_erpLightTint` für Flächen; Fallback ERP-Blau `#1d4ed8`) — färbt H1, Tabellen-Header, Titel-Zeilen, Summenzeile, Fusslinie. **Fusszeile auf jeder Seite** (`position:fixed`, im Druck via `bottom:-16mm` in den 24-mm-@page-Rand geschoben): Firma·Adresse | Tel·Mail·Web | MwSt-Nr (+IBAN nur bei Rechnung) — Felder `tel/email/web/mwstNr` in den ⚙️-ERP-Einstellungen, nur gefüllte erscheinen. **KRITISCH**: Die Fusszeile wird im `document.write`-String VOR dem Dokument-Body eingefügt — Markup NACH dem externen QR-Script-Tag kann beim Parsen verloren gehen.
+
+Rechnung-PDF (Print-Fenster, A4, Briefkopf mit `org.logoVector||org.logo`) enthält bei hinterlegter IBAN den Zahlteil mit Empfangsschein: SPC-Payload v2.0 (`erpQrPayload`, 31 Zeilen, Adresstyp K). Mit **QR-IBAN** → Referenztyp `QRR` mit 27-stelliger Referenz aus der Rechnungsnummer (**Mod10-rekursiv-Prüfziffer**, `erpMod10` — validiert gegen bekanntes ESR-Beispiel), sonst `NON`. QR-Code-Rendering via qrcodejs-CDN im Print-Fenster (Schweizer-Kreuz-Overlay; offline Fallback-Hinweis). Engine (`erpDocTotals`/`erpAuftragFakt`/`erpSchlussPositionen`/`erpMod10`/`erpQrReferenz`/`erpQrPayload`) liegt im `/*ENGINE-START*/`-Block — Node-testbar.
+
+### Positionsbilder, eigene Kataloge & Vorlagen
+
+- **Positionsbilder**: Jede Detailposition kann ein Bild tragen (`p.bildUrl` via `GemaStorage.uploadDataUrl` Pfad `erp/<orgId>`, Base64-Fallback `p.bildDataUrl`; Resize max 900px JPEG). Editor: 📷-Button pro Zeile, Thumbnail mit Lightbox + Entfernen. PDF: Bildzeile (`tr.bildrow`, max 34×72 mm) direkt unter der Position, `tr.hasimg td{border-bottom:none}` hält Bild+Text optisch zusammen, `page-break-inside:avoid`.
+- **Eigene Artikel-Kataloge (org-weit)**: per-Record `erpkat:` → `gema_erp_kat_pool_v1`. Katalog `{id, orgId, name, artikel:[{id,bez,einheit,ep,bildUrl?,bildDataUrl?}]}`. Modal «⭐ Eigene Artikel» im Positions-Editor: Katalog-CRUD (GemaDialog), Artikel erfassen/bearbeiten/löschen, Klick = Position einfügen (`eigenArtikelId`, Quelle-Badge «⭐ Eigen», Bild wandert mit), **«⬇ Aus aktuellem Dokument übernehmen»** (Positions-Checkliste, dedupe per Bezeichnung).
+- **Dokument-Vorlagen (org-weit)**: per-Record `erpvorl:` → `gema_erp_vorl_pool_v1`. Vorlage `{id, orgId, name, typ, titel, einleitung, schlusstext, rabattPct, mwstPct, positionen[]}` — beim Speichern werden Akonto-/Abzugszeilen entfernt und Regie-/OA-Positionen zu `art:'frei'` ohne `regieRapportId`/`oaId` gekappt (dokument-spezifisch). Modal «📑 Vorlagen» im Editor-Footer: aktuelles Dokument speichern (GemaDialog.prompt) + Liste mit Einfügen/Löschen. **Einfügen**: leeres Dokument → komplett übernehmen (Texte nur wenn leer, Rabatt/MwSt mit); sonst Positionen anhängen. Immer neue Positions-IDs.
+
+### Kunden & Rechte
+
+Kundenstamm pro Org (Tab 👥) mit **Schnellübernahme aus Objekt-Beteiligten** (`GemaObjekte.getBeteiligte` → 1-Klick-Befüllung). `kundeSnapshot` wird ins Dokument denormalisiert (Adresse fürs PDF/QR stabil). Rechte: nur Planer-Rollen/Admin/Abteilungsleiter (`erpCanEdit`); MODULES-Key `erp` (cat Projektmanagement, Planer via `_allPerms`), FILE_MAP `pm_erp`. Deep-Links `?doc=<id>` und `?tab=offerte|auftrag|rechnung|kunden`. index.html PM («13 Module»), sw.js v169.
+
+## Einsatzplan (pm_einsatzplan.html)
+
+Kalender zur Monteur-Einplanung — Aufträge aus dem ERP-Modul per **Drag & Drop** (oder Antippen auf iPad) direkt auf die Plantafel ziehen. Mobile-tauglich (gleiche UI-Muster wie pm_regierapport/pm_erp).
+
+- **Storage per-Record**: moduleKey `einsatzplan`, prefix `einsatz:`, Pool-Cache `gema_einsatz_pool_v1` (bindCollection beim Boot, Einzel-Saves via `GemaSync.saveRecord`, Org-Scoping über `e.orgId`). Einsatz-Record: `{id, orgId, typ:'auftrag'|'frei'|'ferien', auftragId, auftragNr, kunde, titel, objektId, objektName, monteurUserId, monteurName, datum, dauerTage, slot:'ganz'|'vm'|'nm', zeitVon, zeitBis, notiz, erstelltVon}`.
+- **3 umschaltbare Ansichten** (`_view`): **Woche** = Plantafel (Zeilen = Personen, Spalten = Mo–Fr bzw. Mo–So, Zellen `data-cell="userId|datum"`), **Monat** = 42-Zellen-Grid mit Tages-Modal (`epDayOpen`), **Meine Woche** = Karten-Liste des eingeloggten Monteurs mit Notiz + Deep-Link «📝 Regierapport erfassen» (`pm_regierapport.html?objekt=…`). Monteure ohne Planungsrecht landen automatisch in «Meine Woche».
+- **Sidebar «Offene Aufträge»**: liest den ERP-Pool (`gema_erp_dok_pool_v1`, `typ='auftrag'`, Status ≠ abgeschlossen) direkt via `GemaSync.getCached`; eingeplante Aufträge tragen den Badge «✓ eingeplant» (`a._geplant`). Drop/Tap auf eine Zelle erzeugt den Einsatz mit übernommenen Auftrag-Daten (`epNeuAusAuftrag`: Nr/Kunde/Objekt).
+- **DnD + Tap-Fallback**: HTML5-DnD (`epBindDnD`, dataTransfer `ev:<id>` / `job:<id>` → `epDropOn(data,monteurId,datum)`); auf Touch stattdessen Karte antippen → Move-Modus (`epJobTap`/`epEvStartMove`, fixierte `#movebar` unten) → Ziel-Zelle antippen (`epCellClick`).
+- **Raster umschaltbar** in den ⚙️-Einstellungen (`org.settings.einsatzplan = {raster:'halbtag'|'zeit', wochenende, userIds}` via `GemaAuth.updateOrgSettings`): Halbtag = Ganztag/VM/NM-Chips, Zeit = von–bis-`type="time"`-Felder. `userIds` definiert die einplanbaren Personen (Default: alle `role_monteur`+`role_spengler` der Org, beliebige Org-User zuschaltbar). Sa/So-Spalten optional.
+- **Konflikt-Warnung**: `epOverlap(a,b)` (Zeitfenster-Schnitt bzw. Slot-Kollision — `ganz` kollidiert mit allem) markiert Doppelbelegungen mit ⚠; mehrtägige Einsätze via `dauerTage` (`epCovers`).
+- **Notifikation** `einsatz_geplant` (gema_notify.js) an den Monteur bei Einplanung UND Verschiebung (`epNotify`, nie an sich selbst), Link mit Deep-Link `pm_einsatzplan.html?d=YYYY-MM-DD` (Init springt zur Woche/zum Monat des Datums).
+- **Rechte**: Planen = Planer-Rollen/Admin/Abteilungsleiter/Magaziner (`epCanPlan`); Monteur/Spengler read-only (`einsatzplan` read in DEFAULT_ROLES, Magaziner write). MODULES-Key `einsatzplan` (cat Projektmanagement), FILE_MAP `pm_einsatzplan`. index.html PM («14 Module»), sw.js v170.
+
+## Abnahmeprotokolle SIA 118 (pm_abnahme.html) — Teilnehmer, Freigabe & Monteur-Mängelliste
+
+Bestehendes SIA-118-Modul (mehrere Protokolle pro Objekt im per-Objekt-Blob `gema_abnahme_sia_v1__<objektId>` via `_GemaDB`, Mangel-/Plan-Pin-Fotos nach GemaStorage ausgelagert, 4 Unterschriften-Pads). Dazu drei Workflow-Bausteine:
+
+- **Teilnehmer & Gewerk (Karte im Abnahme-Tab)**: `state.gewerk` (`sanitaer|heizung|lueftung|elektro|spenglerei|allgemein`, Vorschlag aus Arbeitsgattung-Text bzw. Org-Kategorie) + `state.teilnehmer[]` aus den Objekt-Beteiligten. **Vorauswahl über `abRelevant(b,gewerk)`**: Bauherrschaft/Architekt/eigener Planer immer dabei, Behörden nie vorgewählt; Unternehmer/Weitere über **BKP-Codes des Beteiligten** (`AB_GEWERK_BKP`: sanitaer=25*, heizung=242/243, lueftung=244, elektro=23*, spenglerei=221/222/224) bzw. Text-Heuristik auf Firma/Funktion/Notizen — der Elektriker ist bei einer Sanitär-Abnahme NICHT vorgewählt. Manuelles An-/Abwählen setzt `_manuell` (übersteht Gewerk-Wechsel nicht — Wechsel baut neu auf).
+- **Freigabe pro Teilnehmer**: «✍ vor Ort» (Unterschriften-Pads unten) ODER «📧 Digital anfragen». Digitale Anfragen liegen **per-Record in der Cloud** (moduleKey `abnahme`, `abfrg:` → `gema_abnahme_frg_pool_v1`) mit denormalisiertem Kontext (Objektname, Arbeitsgattung, Ergebnis, offene Mängel) — **cross-org via `empfaengerEmail`-Match** (Regierapport-Muster). Der Empfänger sieht die Anfrage im Panel «Meine Freigaben» (`#abTasks`, oben auf der Seite) und gibt frei/lehnt ab (GemaDialog, Ablehnung mit Begründung); Status/Kommentar erscheinen beim Teilnehmer im Protokoll (`abSyncFreigaben`). Notifikationen `abnahme_freigabe_anfrage`/`abnahme_freigabe_entscheid`.
+- **Monteur-Mängelliste**: «📋 An Monteur übergeben» (Mängel-Tab) kopiert alle OFFENEN Mängel (inkl. Fotos) als Checkliste in einen per-Record-Auftrag (`abml:` → `gema_abnahme_ml_pool_v1`; `{monteurUserId, verantwortlich, status:'offen'|'abgearbeitet'|'freigegeben'|'erneute_abnahme', items:[{itemId, status, fixFotos[], kommentar}]}`). Der Monteur (role_monteur/role_spengler, `abnahme_sia` read) arbeitet sie im `#abTasks`-Panel ab: abhaken, **📷 Foto-Beweis** (GemaStorage `abnahme/<orgId>`, Base64-Fallback), Kommentar; «Alle abgearbeitet» erst möglich, wenn nichts mehr offen ist → `abnahme_maengel_abgearbeitet` an den Verantwortlichen. Dieser sieht die Karte «Zur Kontrolle»: einzelne Punkte **zurückweisen** (mit Grund → Liste zurück an Monteur) oder **«✅ Freigeben & ins Protokoll übernehmen»** (`abMlFreigeben` — schreibt `erledigt` = Datum/Monteur + Beweisfotos in die Protokoll-Mängel; **KRITISCH**: beim aktiven Protokoll in den LIVE-`state` schreiben, nicht in den `protocols[]`-Snapshot) oder **«📋 Erneute Abnahme vor Ort»** (Status-Marker, neues Protokoll manuell).
+- Debug-/Test-Hooks: `window._abState/_abCreateItem/_abRender/_abPoolRead/_abPoolSave/_abRenderTeilnehmer/_abRenderTasks/_abActiveProtoId`.
+
 ## Spenglerei – Dachinspektion (sp_dachbericht.html)
 
 Modul für Spengler zur Erstellung von Dach-Inspektionsberichten auf der Baustelle. Workflow ähnlich Schadensbericht (sd_schadensbericht.html), aber mit Spengler-spezifischer Struktur: Dachübersicht → Kapitel pro Seite (Strasse/Hof/Garten) → Unterkapitel (Einfassungen, Rinnen, Lukarnen etc.) → Massnahmen. PDF-Export im GEMA-Vorlagen-Stil mit Org-Logo bzw. GEMA-Fallback.
@@ -1486,6 +1638,8 @@ Zentrales Modul `gema_notify.js` für In-App-Benachrichtigungen. Glocke + Toast-
 | `ausschreibung_offerte_neu` | ausschreibung | on |
 | `ausschreibung_vergabe` | ausschreibung | on |
 | `ausschreibung_crbx_bestaetigt` | ausschreibung | off |
+| `ausschreibung_interesse` | ausschreibung | on |
+| `ausschreibung_vergabeantrag` | ausschreibung | on |
 | `werkzeug_defekt` | werkzeug | on |
 | `werkzeug_zuweisung` | werkzeug | on |
 | `werkzeug_pruefung_faellig` | werkzeug | on |
@@ -1508,6 +1662,14 @@ Zentrales Modul `gema_notify.js` für In-App-Benachrichtigungen. Glocke + Toast-
 | `offertanfrage_neu` | produktkatalog | on |
 | `offertanfrage_beantwortet` | produktkatalog | on |
 | `offertanfrage_abgelehnt` | produktkatalog | on |
+| `regie_eingereicht` | regierapport | on |
+| `regie_freigegeben` | regierapport | on |
+| `regie_abgelehnt` | regierapport | on |
+| `einsatz_geplant` | einsatzplan | on |
+| `abnahme_freigabe_anfrage` | abnahme | on |
+| `abnahme_freigabe_entscheid` | abnahme | on |
+| `abnahme_maengel_zugewiesen` | abnahme | on |
+| `abnahme_maengel_abgearbeitet` | abnahme | on |
 
 **Neue Module fügen ihre Event-Keys hier hinzu**, sonst greift kein Preferences-Filter.
 
@@ -1777,6 +1939,15 @@ GemaSync.persistCollection(moduleKey, storageKey, prefix, 'id', arr)
 | Produkte | `produktkatalog` | `produkt:` | `gema_pk_prod_pool_v1` |
 | Lieferanten | `produktkatalog` | `lieferant:` | `gema_pk_lief_pool_v1` |
 | Offertanfragen | `produktkatalog` | `oa:` | `gema_pk_oa_pool_v1` |
+| Ausschreibungen | `ausschreibung` | `aus:` | `gema_aus_pool_v1` |
+| Ausschreibungs-Beteiligte | `ausschreibung` | `ausbet:` | `gema_ausbet_pool_v1` |
+| Interesse-Anfragen | `ausschreibung` | `ausanf:` | `gema_ausanf_pool_v1` |
+| Verteilungen | `ausschreibung` | `ausvrt:` | `gema_ausvrt_pool_v1` |
+| Offert-Einreichungen | `ausschreibung` | `ausein:` | `gema_ausein_pool_v1` |
+| Netto-Anfragen | `ausschreibung` | `ausna:` | `gema_ausna_pool_v1` |
+| Marktplatz-Offerten | `ausschreibung` | `ausmk:` | `gema_ausmk_pool_v1` |
+| Schnellausschreibungen | `schnellausschreibung` | `sa:` | `gema_sa_pool_v1` |
+| Armaturen-Katalog | `armaturen` | `arm:` | `gema_armaturen_pool_v1` |
 
 **Produktkatalog (gema_produktkatalog_api.js) — Migration & Besonderheiten:** Produkte/Lieferanten/Offertanfragen liegen jetzt per-Record in der Cloud (vorher: ein Blob pro Key `gema_produktkatalog_v1`/`gema_lieferanten_v1`/`gema_offertanfragen_v1` via `_GemaDB.saveToModule` → Last-Write-Wins, das Produkte konkurrierender Lieferanten überschreiben konnte). Die lokalen Blobs (`{produkte,log}` etc.) bleiben als Lese-Cache, alle bestehenden Getter (`getProdukte`, `getAllLieferanten`, …) laufen unverändert. `loadFromSupabase()` macht jetzt den Per-Record-Pull (mit einmaliger Legacy-Blob-Migration) und feuert `gema-produkte-loaded`; `save()` macht Diff-Saves per `GemaSync.persistCollection`. Neu: **`GemaProdukte.ready`** (Promise, resolved nach dem ersten Cloud-Pull) — Demo-Seeding (`seedDemoData`/`seedDemoLieferanten`) wartet darauf, sonst würden auf frischen Geräten Demo-Daten in die Cloud gepusht. Der `log` in `_data.log` wird nicht mehr cloud-synct (nur lokal). Fallback auf den alten `_GemaDB`-Blob, falls `gema_sync.js` nicht geladen ist.
 
@@ -1835,7 +2006,8 @@ UI-Anbindung:
 | `gema_aktivitaetslog.js` | **Aktivitätenlog** für Infrastruktur-Module. `GemaActivityLog.log({modul,modulRecordId,modulRecordName,aktion,beschreibung,details})` pusht einen Eintrag; `getForModul(modul, orgId?)` liefert die gefilterte Historie. Cloud-First via `gema_sync.js` (Collection `gema_aktivitaetslog_v1`, moduleKey `aktivitaetslog`, prefix `log:`). `openModal({modul,titel})` zeigt das einheitliche Tabellen-Modal mit Suche, Aktion-Filter und CSV-Export. |
 | `gema_anlagenwahl.js` | Anlagenauswahl-Widget für Berechnungen |
 | `gema_avatar.js` | Profilbild-Upload + Renderer. `GemaAvatar.render(user, size, opts)` liefert HTML mit `<img>` oder Initialen-Fallback. `compress(file)` resized auf 256×256 JPEG. Avatar als Base64 unter `user.avatar` |
-| `gema_armaturen_api.js` | Armaturen-Stammdaten |
+| `gema_armaturen_api.js` | **Armaturen-Katalog** (ζ + kvs pro Dimension, Druckverlustdiagramm, Lieferanten-CRUD). `getDp(id,dn,{Q_ls,v_ms,rho})` (kvs bevorzugt: `Δp=(Q/kvs)²·100 kPa`, sonst `ζ·ρ/2·v²`), `computeSelectionDp(sel,ctx)` für Berechnungsmodule, `curvePoints(id,dn,opts)` für generierte Kennlinien, `upsertArmatur`/`deleteArmatur` (Defaults via Tombstone). Cloud per-Record (`arm:`), Defaults bleiben lokaler Seed. |
+| `gema_armaturen_picker.js` | **Armaturen-Auswahl-Widget** für Berechnungsmodule: Katalog mit Zähler + ζ/kvs pro aktueller Dimension, manuelle Einträge (Name + Δp, Einheit kPa/Pa/mbar), Diagramm-Overlay (Lieferanten-Upload oder generierte Δp-Q-Kurve mit Betriebspunkt), `drawCurve(canvas,…)` für PDF-Sektionen. Modi `multi` und `kvs-single` (Zirkulations-Regulierventil). |
 | `gema_auth.js` | Auth, Rollen, Orgs, Permissions, Cloud-Recovery |
 | `gema_autosave.js` | Auto-Save in Berechnungsmodulen |
 | `gema_coachmarks.js` | Onboarding-Touren |
