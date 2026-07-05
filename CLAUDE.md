@@ -1259,6 +1259,17 @@ Rechnung-PDF (Print-Fenster, A4, Briefkopf mit `org.logoVector||org.logo`) enth�
 - **Eigene Artikel-Kataloge (org-weit)**: per-Record `erpkat:` → `gema_erp_kat_pool_v1`. Katalog `{id, orgId, name, artikel:[{id,bez,einheit,ep,bildUrl?,bildDataUrl?}]}`. Modal «⭐ Eigene Artikel» im Positions-Editor: Katalog-CRUD (GemaDialog), Artikel erfassen/bearbeiten/löschen, Klick = Position einfügen (`eigenArtikelId`, Quelle-Badge «⭐ Eigen», Bild wandert mit), **«⬇ Aus aktuellem Dokument übernehmen»** (Positions-Checkliste, dedupe per Bezeichnung).
 - **Dokument-Vorlagen (org-weit)**: per-Record `erpvorl:` → `gema_erp_vorl_pool_v1`. Vorlage `{id, orgId, name, typ, titel, einleitung, schlusstext, rabattPct, mwstPct, positionen[]}` — beim Speichern werden Akonto-/Abzugszeilen entfernt und Regie-/OA-Positionen zu `art:'frei'` ohne `regieRapportId`/`oaId` gekappt (dokument-spezifisch). Modal «📑 Vorlagen» im Editor-Footer: aktuelles Dokument speichern (GemaDialog.prompt) + Liste mit Einfügen/Löschen. **Einfügen**: leeres Dokument → komplett übernehmen (Texte nur wenn leer, Rabatt/MwSt mit); sonst Positionen anhängen. Immer neue Positions-IDs.
 
+### Nachkalkulation & Projekterfolg (Tab «📈 Erfolg»)
+
+Soll-Ist-Vergleich pro Auftrag, nur für `erpCanEdit()`-Rollen sichtbar (Preise/DB). Engine-Funktion `erpNachkalk(auftrag,docs,rapporte,einsaetze,oas,kostenFaktorPct)` im `/*ENGINE-START*/`-Block (Node-testbar):
+- **Soll**: Auftragssumme netto + Fakturierungsstand via `erpAuftragFakt` (verrechnet/Rest/%, Fortschrittsbalken).
+- **Ist Regie**: ausgewiesene Regierapporte mit `r.objektId === auftrag.objektId` (Σ std×ansatz + Σ menge×ep), gesplittet verrechnet (`r.verrechnetIn`) / unverrechnet, + Stunden-Summe.
+- **Ist Material**: Positionen mit `oaId` — EK = `oa.antwort.bruttoPreis` der Lieferanten-Offerte, VK = menge×ep×(1−rabatt%).
+- **Einsatzplanung**: Σ `dauerTage` der Einsätze mit `e.auftragId === auftrag.id` (geplante Manntage) — dafür bindet der Init zusätzlich `gema_einsatz_pool_v1`.
+- **DB-Schätzung** nur wenn `org.settings.erp.kostenFaktorPct` > 0 (⚙️-Feld «Kostensatz % vom Verkaufsansatz»): Kosten = Regie×Faktor + EK-Material → Deckungsbeitrag CHF + % (im UI klar als Schätzung markiert; ohne Faktor KPI-Hinweis «Kostensatz in ⚙️ setzen»).
+- **Hinweis-Badges** (`hinweise[].code`): `unverrechnet` (amber, offene Regie CHF), `ueberverrechnet` (blau, über Auftragssumme fakturiert), `nachtrag` (rot, Regie übersteigt Auftrag → Nachtrag prüfen).
+- UI: KPI-Zeile (laufende Aufträge, Volumen, unverrechnete Regie org-weit, Ø DB), Karten laufende zuerst, Klick → Auftrag; Objekt-Filter + Suche wie andere Tabs, kein «＋ Neu»; Deep-Link `?tab=erfolg`.
+
 ### Kunden & Rechte
 
 Kundenstamm pro Org (Tab 👥) mit **Schnellübernahme aus Objekt-Beteiligten** (`GemaObjekte.getBeteiligte` → 1-Klick-Befüllung). `kundeSnapshot` wird ins Dokument denormalisiert (Adresse fürs PDF/QR stabil). Rechte: nur Planer-Rollen/Admin/Abteilungsleiter (`erpCanEdit`); MODULES-Key `erp` (cat Projektmanagement, Planer via `_allPerms`), FILE_MAP `pm_erp`. Deep-Links `?doc=<id>` und `?tab=offerte|auftrag|rechnung|kunden`. index.html PM («13 Module»), sw.js v169.
