@@ -115,6 +115,13 @@ table.pos{border-collapse:collapse;width:100%;font-size:13px;min-width:680px}
 .src.regie{background:var(--vio-bg);color:var(--vio);border:1px solid var(--vio-bd)}
 .src.oa{background:var(--grn-bg);color:var(--grn);border:1px solid var(--grn-bd)}
 .pos-del{width:36px;height:36px;border-radius:8px;border:1.5px solid var(--red-bd);background:var(--red-bg);color:var(--red);font-size:13px;cursor:pointer}
+.pos-foto{width:36px;height:36px;border-radius:8px;border:1.5px dashed var(--brd2);background:var(--sur);font-size:15px;cursor:pointer;flex-shrink:0}
+.pos-bild{position:relative;flex-shrink:0}
+.pos-bild img{width:38px;height:38px;object-fit:cover;border-radius:8px;border:1px solid var(--brd2);display:block;cursor:zoom-in}
+.pos-bild-x{position:absolute;top:-7px;right:-7px;width:19px;height:19px;border-radius:50%;border:none;background:var(--red);color:#fff;font-size:10px;line-height:1;cursor:pointer}
+#erpLightbox{position:fixed;inset:0;z-index:1600;background:rgba(8,20,40,.86);display:none;align-items:center;justify-content:center;cursor:zoom-out}
+#erpLightbox.open{display:flex}
+#erpLightbox img{max-width:92vw;max-height:88vh;border-radius:12px}
 .sum-block{margin-top:10px;margin-left:auto;max-width:360px;font-size:13.5px}
 .sum-block .rw{display:flex;justify-content:space-between;padding:5px 4px;border-bottom:1px solid var(--brd)}
 .sum-block .rw.tot{font-weight:900;font-size:15px;border-top:2px solid var(--acc);border-bottom:none;color:var(--acc)}
@@ -167,6 +174,7 @@ table.pos{border-collapse:collapse;width:100%;font-size:13px;min-width:680px}
 <script src="gema_feedback.js"></script><script src="gema_notify.js"></script><script src="gema_notify_ui.js"></script>
 <script src="gema_objekte_api.js"></script>
 <script src="gema_produktkatalog_api.js"></script>
+<script src="gema_storage.js"></script>
 <script src="gema_dialog.js"></script>
 <link rel="stylesheet" href="gema_responsive.css"/>
 </head>
@@ -222,6 +230,48 @@ table.pos{border-collapse:collapse;width:100%;font-size:13px;min-width:680px}
     </div>
   </div>
 </div>
+
+<!-- ═══ EIGENE ARTIKEL-KATALOGE ═══ -->
+<div class="modal-bg" id="eigModal">
+  <div class="modal">
+    <div class="modal-hd"><h3>⭐ Eigene Artikel (org-weit)</h3><button class="modal-x" onclick="document.getElementById('eigModal').classList.remove('open')">✕</button></div>
+    <div class="modal-bd">
+      <div style="display:flex;gap:6px;align-items:center;margin-bottom:10px">
+        <select id="eigKatSel" style="flex:1;padding:9px 10px;border:1.5px solid var(--brd2);border-radius:9px;font-size:14px" onchange="_eigKatId=this.value;_eigMode='list';erpEigRender()"></select>
+        <button class="btn" style="min-height:38px;padding:6px 11px" title="Neuer Katalog" onclick="erpEigKatNeu()">＋</button>
+        <button class="btn" style="min-height:38px;padding:6px 11px" id="eigKatRen" title="Umbenennen" onclick="erpEigKatUmbenennen()">✎</button>
+        <button class="btn" style="min-height:38px;padding:6px 11px" id="eigKatDel" title="Katalog löschen" onclick="erpEigKatLoeschen()">🗑</button>
+      </div>
+      <input class="pick-search" id="eigSearch" type="text" placeholder="Artikel suchen …" oninput="erpEigRender()"/>
+      <div id="eigList"></div>
+      <div id="eigForm" style="display:none;background:var(--sur2);border:1.5px solid var(--brd);border-radius:11px;padding:12px;margin-top:8px">
+        <div class="fld"><label>Bezeichnung *</label><input id="ea_bez" type="text" placeholder="z.B. Lavabo inkl. Armatur, montiert"/></div>
+        <div class="fld-row">
+          <div class="fld"><label>Einheit</label><select id="ea_einheit"></select></div>
+          <div class="fld"><label>EP CHF</label><input id="ea_ep" type="text" inputmode="decimal" onblur="fixLeadingZero(this)" placeholder="0.00"/></div>
+        </div>
+        <div style="display:flex;gap:8px"><button class="btn grn" onclick="erpEigArtSave()">💾 Speichern</button><button class="btn" onclick="_eigMode='list';_eigArtEditId=null;erpEigRender()">Abbrechen</button></div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+        <button class="btn" onclick="erpEigArtNeu()">＋ Artikel</button>
+        <button class="btn" onclick="erpEigAusDoku()">⬇ Aus aktuellem Dokument übernehmen</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ DOKUMENT-VORLAGEN ═══ -->
+<div class="modal-bg" id="vorlModal">
+  <div class="modal">
+    <div class="modal-hd"><h3>📑 Vorlagen (org-weit)</h3><button class="modal-x" onclick="document.getElementById('vorlModal').classList.remove('open')">✕</button></div>
+    <div class="modal-bd">
+      <button class="btn grn" id="vorlSaveBtn" style="width:100%" onclick="erpVorlSpeichern()">💾 Aktuelles Dokument als Vorlage speichern</button>
+      <div id="vorlList" style="margin-top:10px"></div>
+    </div>
+  </div>
+</div>
+
+<div id="erpLightbox" onclick="this.classList.remove('open')"><img src="" alt=""/></div>
 
 <!-- ═══ KUNDEN-EDITOR ═══ -->
 <div class="modal-bg" id="kundeModal">
@@ -407,6 +457,8 @@ function erpQrPayload(rech,s,totals){
 var ERP_MODULE='erp';
 var DOK_POOL='gema_erp_dok_pool_v1', DOK_PREFIX='erpdok:';
 var KUN_POOL='gema_erp_kunden_pool_v1', KUN_PREFIX='erpkunde:';
+var KAT_POOL='gema_erp_kat_pool_v1', KAT_PREFIX='erpkat:';       // eigene Artikel-Kataloge (org-weit)
+var VORL_POOL='gema_erp_vorl_pool_v1', VORL_PREFIX='erpvorl:';   // Dokument-Vorlagen (org-weit)
 var _erpCloudLoaded=false;
 var _memStore={};
 
@@ -433,6 +485,8 @@ function poolDelete(key,prefix,id){
 }
 function erpDocs(){var u=erpUser();return poolRead(DOK_POOL).filter(function(d){return u&&d.orgId===u.orgId;});}
 function erpKunden(){var u=erpUser();return poolRead(KUN_POOL).filter(function(k){return u&&k.orgId===u.orgId;});}
+function erpKataloge(){var u=erpUser();return poolRead(KAT_POOL).filter(function(k){return u&&k.orgId===u.orgId;});}
+function erpVorlagen(){var u=erpUser();return poolRead(VORL_POOL).filter(function(v){return u&&v.orgId===u.orgId;});}
 
 // ═══════════════════════════════════════════════════════════
 // RECHTE / SETTINGS / HELPERS
@@ -746,6 +800,7 @@ function erpOpenEditor(){
       +'<button class="btn ghost" onclick="erpPosAdd(\'frei\')">+ Position</button>'
       +'<button class="btn ghost" onclick="erpPosAdd(\'titel\')">+ Titelzeile</button>'
       +'<button class="btn" onclick="erpPickOpen(\'katalog\')">📦 Katalog</button>'
+      +'<button class="btn" onclick="erpEigOpen()">⭐ Eigene Artikel</button>'
       +'<button class="btn" onclick="erpPickOpen(\'regie\')">📝 Regierapporte</button>'
       +'<button class="btn" onclick="erpPickOpen(\'oa\')">🏷 Lieferanten-Offerten</button>'
       +'</div>':'')
@@ -786,9 +841,13 @@ function erpRenderPos(){
       return;
     }
     var betrag=erpNum(p.menge)*erpNum(p.ep)*(1-erpNum(p.rabattPct)/100);
-    var src=p.art==='regie'?'<span class="src regie">Regie</span>':p.produktId?'<span class="src katalog">Katalog</span>':p.art==='oa'?'<span class="src oa">Lief.-Offerte</span>':p.art==='abzug'?'<span class="src" style="background:var(--amber-bg);color:var(--amber);border:1px solid var(--amber-bd)">Abzug</span>':p.art==='akonto'?'<span class="src" style="background:var(--amber-bg);color:var(--amber);border:1px solid var(--amber-bd)">Akonto</span>':'';
+    var src=p.art==='regie'?'<span class="src regie">Regie</span>':p.eigenArtikelId?'<span class="src" style="background:var(--tint,#f5f8ff);color:var(--acc,#1d4ed8);border:1px solid var(--brd2)">⭐ Eigen</span>':p.produktId?'<span class="src katalog">Katalog</span>':p.art==='oa'?'<span class="src oa">Lief.-Offerte</span>':p.art==='abzug'?'<span class="src" style="background:var(--amber-bg);color:var(--amber);border:1px solid var(--amber-bd)">Abzug</span>':p.art==='akonto'?'<span class="src" style="background:var(--amber-bg);color:var(--amber);border:1px solid var(--amber-bd)">Akonto</span>':'';
+    var img=erpPosImgSrc(p);
+    var bildHtml=img
+      ?'<div class="pos-bild"><img src="'+esc(img)+'" onclick="erpPosBildView('+i+')" alt=""/>'+(editable?'<button class="pos-bild-x" title="Bild entfernen" onclick="erpPosBildDel('+i+')">✕</button>':'')+'</div>'
+      :(editable&&p.art!=='abzug'&&p.art!=='akonto'?'<button class="pos-foto" title="Bild zur Position" onclick="erpPosBildPick('+i+')">📷</button>':'');
     h+='<tr'+(p.art==='abzug'?' class="abzug"':'')+'>'
-      +'<td><input type="text" value="'+esc(p.bez)+'"'+dis+' oninput="cur.positionen['+i+'].bez=this.value"/></td>'
+      +'<td><div style="display:flex;gap:6px;align-items:center"><input type="text" value="'+esc(p.bez)+'"'+dis+' oninput="cur.positionen['+i+'].bez=this.value" style="flex:1"/>'+bildHtml+'</div></td>'
       +'<td>'+src+'</td>'
       +'<td style="width:76px"><input class="num" type="text" inputmode="decimal" value="'+(p.menge!=null?p.menge:'')+'"'+dis+' onchange="cur.positionen['+i+'].menge=this.value;erpRenderPos()" onblur="fixLeadingZero(this)"/></td>'
       +'<td style="width:88px"><select'+dis+' onchange="cur.positionen['+i+'].einheit=this.value">'+EINHEITEN.map(function(e){return '<option'+(p.einheit===e?' selected':'')+'>'+e+'</option>';}).join('')+'</select></td>'
@@ -814,6 +873,270 @@ function erpRenderPos(){
 function erpPosAdd(art){
   cur.positionen.push(art==='titel'?{id:uid(),art:'titel',bez:''}:{id:uid(),art:'frei',bez:'',menge:1,einheit:'Stk',ep:'',rabattPct:''});
   erpRenderPos();
+}
+
+// ═══════════════════════════════════════════════════════════
+// POSITIONSBILDER — Upload nach GemaStorage (erp/<orgId>), Base64-Fallback
+// ═══════════════════════════════════════════════════════════
+function erpPosImgSrc(p){return (p&&(p.bildUrl||p.bildDataUrl))||'';}
+function erpResizeImage(file,maxPx){
+  return new Promise(function(res,rej){
+    var rd=new FileReader();
+    rd.onload=function(){
+      var img=new Image();
+      img.onload=function(){
+        var w=img.width,h=img.height,f=Math.min(1,(maxPx||900)/Math.max(w,h));
+        var c=document.createElement('canvas');c.width=Math.round(w*f);c.height=Math.round(h*f);
+        var ctx=c.getContext('2d');ctx.imageSmoothingQuality='high';ctx.drawImage(img,0,0,c.width,c.height);
+        res(c.toDataURL('image/jpeg',0.82));
+      };
+      img.onerror=rej;img.src=rd.result;
+    };
+    rd.onerror=rej;rd.readAsDataURL(file);
+  });
+}
+function erpBildUpload(dataUrl){
+  var u=erpUser();
+  if(typeof GemaStorage!=='undefined'&&GemaStorage.uploadDataUrl){
+    return GemaStorage.uploadDataUrl(dataUrl,'erp/'+(u?u.orgId:'org')).then(function(r){return {url:r.url};}).catch(function(){return {dataUrl:dataUrl};});
+  }
+  return Promise.resolve({dataUrl:dataUrl});
+}
+function erpPosBildPick(i){
+  var inp=document.createElement('input');inp.type='file';inp.accept='image/*';
+  inp.onchange=function(){
+    var f=inp.files&&inp.files[0];if(!f)return;
+    toast('📷 Bild wird verarbeitet …');
+    erpResizeImage(f,900).then(erpBildUpload).then(function(r){
+      var p=cur&&cur.positionen[i];if(!p)return;
+      if(r.url){p.bildUrl=r.url;delete p.bildDataUrl;}else{p.bildDataUrl=r.dataUrl;delete p.bildUrl;}
+      erpRenderPos();toast('✓ Bild hinzugefügt');
+    }).catch(function(){toast('Bild konnte nicht gelesen werden');});
+  };
+  inp.click();
+}
+function erpPosBildDel(i){
+  var p=cur&&cur.positionen[i];if(!p)return;
+  delete p.bildUrl;delete p.bildDataUrl;
+  erpRenderPos();
+}
+function erpPosBildView(i){
+  var p=cur&&cur.positionen[i];var src=erpPosImgSrc(p);if(!src)return;
+  var lb=document.getElementById('erpLightbox');
+  lb.querySelector('img').src=src;
+  lb.classList.add('open');
+}
+
+// ═══════════════════════════════════════════════════════════
+// EIGENE ARTIKEL-KATALOGE (org-weit, erpkat:)
+// Katalog: {id, orgId, name, artikel:[{id,bez,einheit,ep,bildUrl?,bildDataUrl?}], erstelltVon}
+// ═══════════════════════════════════════════════════════════
+var _eigKatId=null,_eigArtEditId=null,_eigMode='list';
+function erpEigOpen(){
+  var kats=erpKataloge();
+  if(kats.length&&(!_eigKatId||!kats.some(function(k){return k.id===_eigKatId;})))_eigKatId=kats[0].id;
+  _eigMode='list';_eigArtEditId=null;
+  var se=document.getElementById('eigSearch');if(se)se.value='';
+  document.getElementById('ea_einheit').innerHTML=EINHEITEN.map(function(e){return '<option>'+e+'</option>';}).join('');
+  erpEigRender();
+  document.getElementById('eigModal').classList.add('open');
+}
+function erpEigKat(){return erpKataloge().find(function(k){return k.id===_eigKatId;})||null;}
+function erpEigSaveKat(k){poolSave(KAT_POOL,KAT_PREFIX,k);}
+function erpEigRender(){
+  var kats=erpKataloge();
+  var sel=document.getElementById('eigKatSel');
+  sel.innerHTML=kats.length?kats.map(function(k){return '<option value="'+k.id+'"'+(k.id===_eigKatId?' selected':'')+'>'+esc(k.name)+' ('+(k.artikel||[]).length+')</option>';}).join(''):'<option value="">– noch kein Katalog –</option>';
+  var kat=erpEigKat();
+  document.getElementById('eigKatRen').style.display=kat?'':'none';
+  document.getElementById('eigKatDel').style.display=kat?'':'none';
+  var el=document.getElementById('eigList');
+  var frm=document.getElementById('eigForm');frm.style.display=_eigMode==='form'?'':'none';
+  if(_eigMode==='form'){el.innerHTML='';return;}
+  if(!kat){el.innerHTML='<div style="text-align:center;color:var(--mut);font-size:13px;padding:18px">Noch kein eigener Katalog.<br>Mit «＋ Neuer Katalog» beginnen — z.B. «Sanitärapparate Standard».</div>';return;}
+  if(_eigMode==='pick-doc'){
+    var posn=(cur&&cur.positionen||[]).filter(function(p){return p.art!=='titel'&&p.art!=='abzug'&&p.art!=='akonto'&&String(p.bez||'').trim();});
+    el.innerHTML='<div style="font-size:12px;font-weight:700;color:var(--mut);margin-bottom:6px">Positionen aus «'+esc(cur&&cur.nr||'Dokument')+'» in den Katalog übernehmen:</div>'
+      +(posn.length?posn.map(function(p){
+        var da=(kat.artikel||[]).some(function(a){return a.bez===p.bez;});
+        return '<div class="pick-item"'+(da?' style="opacity:.45"':' onclick="erpEigAusDokuTake(\''+p.id+'\')"')+'><span style="font-size:17px">'+(erpPosImgSrc(p)?'🖼':'📄')+'</span>'
+          +'<div class="pi-t"><div class="pi-n">'+esc(p.bez)+'</div><div class="pi-s">'+esc(p.einheit||'')+' · EP '+chf(erpNum(p.ep))+(da?' · bereits im Katalog':'')+'</div></div>'
+          +(da?'':'<span style="font-size:18px;color:var(--acc)">＋</span>')+'</div>';
+      }).join(''):'<div style="color:var(--mut);font-size:13px;padding:10px">Keine übernehmbaren Positionen im Dokument.</div>')
+      +'<button class="btn" style="width:100%;margin-top:8px" onclick="_eigMode=\'list\';erpEigRender()">✓ Fertig</button>';
+    return;
+  }
+  var q=String((document.getElementById('eigSearch')||{}).value||'').toLowerCase().trim();
+  var arts=(kat.artikel||[]).filter(function(a){return !q||(a.bez+' '+(a.einheit||'')).toLowerCase().indexOf(q)>=0;});
+  var canIns=!!(cur&&erpEditable());
+  el.innerHTML=arts.length?arts.map(function(a){
+    var img=a.bildUrl||a.bildDataUrl;
+    return '<div class="pick-item"'+(canIns?' onclick="erpEigInsert(\''+a.id+'\')" title="In Dokument einfügen"':'')+'>'
+      +(img?'<img src="'+esc(img)+'" style="width:34px;height:34px;object-fit:cover;border-radius:7px;border:1px solid var(--brd2)"/>':'<span style="font-size:19px">⭐</span>')
+      +'<div class="pi-t"><div class="pi-n">'+esc(a.bez)+'</div><div class="pi-s">'+esc(a.einheit||'Stk')+' · EP '+chf(erpNum(a.ep))+'</div></div>'
+      +'<span style="display:flex;gap:4px" onclick="event.stopPropagation()">'
+      +'<button class="btn" style="min-height:32px;padding:4px 9px" onclick="erpEigArtEdit(\''+a.id+'\')">✎</button>'
+      +'<button class="btn" style="min-height:32px;padding:4px 9px" onclick="erpEigArtDel(\''+a.id+'\')">🗑</button>'
+      +(canIns?'<span style="font-size:18px;color:var(--acc);align-self:center">＋</span>':'')
+      +'</span></div>';
+  }).join(''):'<div style="text-align:center;color:var(--mut);font-size:13px;padding:14px">'+(q?'Nichts gefunden.':'Katalog ist leer — Artikel unten erfassen oder aus dem Dokument übernehmen.')+'</div>';
+}
+function erpEigKatNeu(){
+  GemaDialog.prompt({title:'Neuer Katalog',placeholder:'z.B. Sanitärapparate Standard'}).then(function(name){
+    if(!name||!name.trim())return;
+    var u=erpUser();
+    var k={id:uid(),orgId:u?u.orgId:'',name:name.trim(),artikel:[],erstelltVon:{userId:u?u.id:'',name:u?u.name:''},erstelltAm:new Date().toISOString()};
+    erpEigSaveKat(k);_eigKatId=k.id;erpEigRender();toast('✓ Katalog «'+k.name+'» erstellt');
+  });
+}
+function erpEigKatUmbenennen(){
+  var kat=erpEigKat();if(!kat)return;
+  GemaDialog.prompt({title:'Katalog umbenennen',defaultValue:kat.name}).then(function(name){
+    if(!name||!name.trim())return;
+    kat.name=name.trim();erpEigSaveKat(kat);erpEigRender();
+  });
+}
+function erpEigKatLoeschen(){
+  var kat=erpEigKat();if(!kat)return;
+  GemaDialog.confirm({title:'Katalog löschen',message:'«'+kat.name+'» mit '+(kat.artikel||[]).length+' Artikeln wirklich löschen?',confirmLabel:'Löschen',danger:true}).then(function(ok){
+    if(!ok)return;
+    poolDelete(KAT_POOL,KAT_PREFIX,kat.id);_eigKatId=null;erpEigRender();
+  });
+}
+function erpEigArtNeu(){
+  if(!erpEigKat()){toast('Zuerst einen Katalog erstellen');return;}
+  _eigArtEditId=null;_eigMode='form';
+  document.getElementById('ea_bez').value='';
+  document.getElementById('ea_einheit').value='Stk';
+  document.getElementById('ea_ep').value='';
+  erpEigRender();
+  document.getElementById('ea_bez').focus();
+}
+function erpEigArtEdit(id){
+  var kat=erpEigKat();var a=kat&&(kat.artikel||[]).find(function(x){return x.id===id;});if(!a)return;
+  _eigArtEditId=id;_eigMode='form';
+  erpEigRender();
+  document.getElementById('ea_bez').value=a.bez||'';
+  document.getElementById('ea_einheit').value=a.einheit||'Stk';
+  document.getElementById('ea_ep').value=a.ep!=null?a.ep:'';
+}
+function erpEigArtSave(){
+  var kat=erpEigKat();if(!kat)return;
+  var bez=document.getElementById('ea_bez').value.trim();
+  if(!bez){toast('⚠ Bezeichnung fehlt');return;}
+  var art=_eigArtEditId?(kat.artikel||[]).find(function(x){return x.id===_eigArtEditId;}):null;
+  if(!art){art={id:uid()};kat.artikel=(kat.artikel||[]);kat.artikel.push(art);}
+  art.bez=bez;
+  art.einheit=document.getElementById('ea_einheit').value;
+  art.ep=erpNum(document.getElementById('ea_ep').value);
+  erpEigSaveKat(kat);
+  _eigMode='list';_eigArtEditId=null;
+  erpEigRender();toast('✓ Artikel gespeichert');
+}
+function erpEigArtDel(id){
+  var kat=erpEigKat();if(!kat)return;
+  var a=(kat.artikel||[]).find(function(x){return x.id===id;});
+  GemaDialog.confirm({title:'Artikel löschen',message:'«'+((a&&a.bez)||'Artikel')+'» aus dem Katalog löschen?',confirmLabel:'Löschen',danger:true}).then(function(ok){
+    if(!ok)return;
+    kat.artikel=(kat.artikel||[]).filter(function(x){return x.id!==id;});
+    erpEigSaveKat(kat);erpEigRender();
+  });
+}
+function erpEigInsert(id){
+  if(!cur||!erpEditable())return;
+  var kat=erpEigKat();var a=kat&&(kat.artikel||[]).find(function(x){return x.id===id;});if(!a)return;
+  var pos={id:uid(),art:'frei',bez:a.bez,menge:1,einheit:a.einheit||'Stk',ep:a.ep,rabattPct:'',eigenArtikelId:a.id};
+  if(a.bildUrl)pos.bildUrl=a.bildUrl;
+  if(a.bildDataUrl)pos.bildDataUrl=a.bildDataUrl;
+  cur.positionen.push(pos);
+  erpRenderPos();toast('＋ '+a.bez);
+}
+function erpEigAusDoku(){
+  if(!cur){toast('Kein Dokument offen');return;}
+  if(!erpEigKat()){toast('Zuerst einen Katalog erstellen');return;}
+  _eigMode='pick-doc';erpEigRender();
+}
+function erpEigAusDokuTake(posId){
+  var kat=erpEigKat();var p=(cur&&cur.positionen||[]).find(function(x){return x.id===posId;});
+  if(!kat||!p)return;
+  var a={id:uid(),bez:p.bez,einheit:p.einheit||'Stk',ep:erpNum(p.ep)};
+  if(p.bildUrl)a.bildUrl=p.bildUrl;
+  if(p.bildDataUrl)a.bildDataUrl=p.bildDataUrl;
+  kat.artikel=(kat.artikel||[]);kat.artikel.push(a);
+  erpEigSaveKat(kat);erpEigRender();toast('✓ «'+p.bez+'» im Katalog gespeichert');
+}
+
+// ═══════════════════════════════════════════════════════════
+// DOKUMENT-VORLAGEN (org-weit, erpvorl:)
+// Vorlage: {id, orgId, name, typ, titel, einleitung, schlusstext, rabattPct, mwstPct, positionen[]}
+// ═══════════════════════════════════════════════════════════
+function erpVorlOpen(){
+  erpVorlRender();
+  document.getElementById('vorlModal').classList.add('open');
+}
+function erpVorlRender(){
+  var el=document.getElementById('vorlList');
+  var vs=erpVorlagen().slice().sort(function(a,b){return String(b.erstelltAm||'').localeCompare(String(a.erstelltAm||''));});
+  var canIns=!!(cur&&erpEditable());
+  el.innerHTML=vs.length?vs.map(function(v){
+    var t=erpDocTotals({positionen:v.positionen||[],rabattPct:v.rabattPct||0,mwstPct:v.mwstPct!=null?v.mwstPct:8.1});
+    var n=(v.positionen||[]).filter(function(p){return p.art!=='titel';}).length;
+    return '<div class="pick-item" style="cursor:default"><span style="font-size:19px">'+(TYP[v.typ]?TYP[v.typ].ic:'📑')+'</span>'
+      +'<div class="pi-t"><div class="pi-n">'+esc(v.name)+'</div><div class="pi-s">'+(TYP[v.typ]?TYP[v.typ].n:'')+' · '+n+' Positionen · Total '+chf(t.brutto)+'</div></div>'
+      +'<span style="display:flex;gap:4px">'
+      +(canIns?'<button class="btn grn" style="min-height:32px;padding:4px 10px" onclick="erpVorlApply(\''+v.id+'\')">⬇ Einfügen</button>':'')
+      +'<button class="btn" style="min-height:32px;padding:4px 9px" onclick="erpVorlDel(\''+v.id+'\')">🗑</button>'
+      +'</span></div>';
+  }).join(''):'<div style="text-align:center;color:var(--mut);font-size:13px;padding:16px">Noch keine Vorlagen.<br>Ein fertiges Dokument öffnen und oben als Vorlage speichern — steht danach der ganzen Firma zur Verfügung.</div>';
+  document.getElementById('vorlSaveBtn').style.display=cur?'':'none';
+}
+function erpVorlSpeichern(){
+  if(!cur)return;
+  GemaDialog.prompt({title:'Als Vorlage speichern (org-weit)',placeholder:'Name der Vorlage',defaultValue:cur.titel||TYP[cur.typ].n+' Standard'}).then(function(name){
+    if(!name||!name.trim())return;
+    var u=erpUser();
+    // Dokument-spezifisches raus: Akonto-/Abzugszeilen weglassen, Regie-/OA-Verknüpfungen kappen
+    var posn=(cur.positionen||[]).filter(function(p){return p.art!=='akonto'&&p.art!=='abzug';}).map(function(p){
+      var c={id:uid(),art:p.art==='titel'?'titel':'frei',bez:p.bez,menge:p.menge,einheit:p.einheit,ep:p.ep,rabattPct:p.rabattPct};
+      if(p.produktId){c.produktId=p.produktId;c.lieferantFirma=p.lieferantFirma;}
+      if(p.eigenArtikelId)c.eigenArtikelId=p.eigenArtikelId;
+      if(p.bildUrl)c.bildUrl=p.bildUrl;
+      if(p.bildDataUrl)c.bildDataUrl=p.bildDataUrl;
+      return c;
+    });
+    var v={id:uid(),orgId:u?u.orgId:'',name:name.trim(),typ:cur.typ,titel:cur.titel||'',einleitung:cur.einleitung||'',schlusstext:cur.schlusstext||'',
+      rabattPct:cur.rabattPct||0,mwstPct:cur.mwstPct,positionen:posn,
+      erstelltVon:{userId:u?u.id:'',name:u?u.name:''},erstelltAm:new Date().toISOString()};
+    poolSave(VORL_POOL,VORL_PREFIX,v);
+    erpVorlRender();toast('✓ Vorlage «'+v.name+'» gespeichert (org-weit)');
+  });
+}
+function erpVorlApply(id){
+  if(!cur||!erpEditable()){toast('Dokument nicht bearbeitbar');return;}
+  var v=erpVorlagen().find(function(x){return x.id===id;});if(!v)return;
+  var posn=(v.positionen||[]).map(function(p){var c=JSON.parse(JSON.stringify(p));c.id=uid();return c;});
+  var leer=!(cur.positionen||[]).filter(function(p){return p.art!=='titel';}).length;
+  if(leer){
+    cur.positionen=posn;
+    if(!cur.titel)cur.titel=v.titel||'';
+    if(!cur.einleitung)cur.einleitung=v.einleitung||'';
+    if(!cur.schlusstext)cur.schlusstext=v.schlusstext||'';
+    cur.rabattPct=v.rabattPct||0;
+    if(v.mwstPct!=null)cur.mwstPct=v.mwstPct;
+    erpOpenEditor();   // Texte neu rendern
+  } else {
+    cur.positionen=cur.positionen.concat(posn);
+    erpRenderPos();
+  }
+  document.getElementById('vorlModal').classList.remove('open');
+  toast('⬇ Vorlage «'+v.name+'» eingefügt');
+}
+function erpVorlDel(id){
+  var v=erpVorlagen().find(function(x){return x.id===id;});
+  GemaDialog.confirm({title:'Vorlage löschen',message:'«'+((v&&v.name)||'Vorlage')+'» für die ganze Firma löschen?',confirmLabel:'Löschen',danger:true}).then(function(ok){
+    if(!ok)return;
+    poolDelete(VORL_POOL,VORL_PREFIX,id);erpVorlRender();
+  });
 }
 
 // ── Footer-Aktionen (statusabhängig) ──
@@ -845,6 +1168,7 @@ function erpRenderFooter(){
       ft+='<button class="btn red" onclick="erpStornieren()">Stornieren</button>';
     }
   }
+  ft+='<button class="btn" onclick="erpVorlOpen()">📑 Vorlagen</button>';
   ft+='<button class="btn" onclick="erpPdf()">📄 PDF</button>';
   if(editable&&d.status==='entwurf'||d.typ==='offerte'&&d.status==='entwurf')ft+='<button class="btn red" onclick="erpLoeschen()">🗑</button>';
   document.getElementById('edFt').innerHTML=ft;
@@ -1230,8 +1554,11 @@ function erpPdf(){
     var betrag=erpNum(p.menge)*erpNum(p.ep)*(1-erpNum(p.rabattPct)/100);
     if(!curGrp){curGrp={bez:'Positionen ohne Titel',sum:0};gruppen.push(curGrp);}
     curGrp.sum+=betrag;
-    posRows+='<tr'+(p.art==='abzug'?' style="color:#92400e"':'')+'><td class="num" style="color:#888">'+nrPos+'</td><td>'+esc(p.bez)+(p.lieferantFirma?' <span style="color:#888;font-size:8pt">('+esc(p.lieferantFirma)+')</span>':'')+'</td>'
+    var pimg=erpPosImgSrc(p);
+    posRows+='<tr'+(pimg?' class="hasimg"':'')+(p.art==='abzug'?' style="color:#92400e"':'')+'><td class="num" style="color:#888">'+nrPos+'</td><td>'+esc(p.bez)+(p.lieferantFirma?' <span style="color:#888;font-size:8pt">('+esc(p.lieferantFirma)+')</span>':'')+'</td>'
       +'<td class="num">'+(p.menge!=null?p.menge:'')+'</td><td>'+esc(p.einheit||'')+'</td><td class="num">'+chf(erpNum(p.ep))+(erpNum(p.rabattPct)?'<br><span style="font-size:8pt;color:#888">−'+p.rabattPct+'%</span>':'')+'</td><td class="num">'+chf(betrag)+'</td></tr>';
+    // Positionsbild als eigene Zeile unter der Position
+    if(pimg)posRows+='<tr class="bildrow"><td></td><td colspan="5" style="padding:2px 7px 8px"><img src="'+esc(pimg)+'" alt="" style="max-height:34mm;max-width:72mm;border:.5px solid #ccc;border-radius:2mm;display:block"/></td></tr>';
   });
   // Briefkopf: Absender links (dezent), Logo oben rechts; darunter Empfänger links + Dokument-Meta rechts
   var absAdr=[s.strasse,[s.plz,s.ort].filter(Boolean).join(' ')].filter(Boolean).join(' · ');
@@ -1374,6 +1701,8 @@ function erpPdf(){
     +'tbody tr{page-break-inside:avoid}'
     +'th{background:var(--tint);border-bottom:1.5px solid var(--acc);color:var(--acc);text-align:left;padding:5px 7px;font-size:8pt;text-transform:uppercase;letter-spacing:.3px}'
     +'td{border-bottom:.5px solid #ddd;padding:5px 7px;vertical-align:top}'
+    +'tr.hasimg td{border-bottom:none}'          // Bildzeile gehört zur Position — Trennlinie erst danach
+    +'tr.bildrow{page-break-inside:avoid}'
     +'.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}'
     +'tr.sum td{border-top:2px solid var(--acc);background:var(--tint);font-size:10.5pt;color:var(--acc)}'
     +'.foot{position:fixed;left:26px;right:26px;bottom:8px;border-top:1px solid var(--acc);padding-top:5px;display:flex;justify-content:space-between;gap:16px;font-size:7.5pt;color:#666;line-height:1.5}'
@@ -1405,6 +1734,8 @@ document.addEventListener('DOMContentLoaded',function(){
       Promise.all([
         GemaSync.bindCollection(ERP_MODULE,DOK_POOL,DOK_PREFIX,'id'),
         GemaSync.bindCollection(ERP_MODULE,KUN_POOL,KUN_PREFIX,'id'),
+        GemaSync.bindCollection(ERP_MODULE,KAT_POOL,KAT_PREFIX,'id'),
+        GemaSync.bindCollection(ERP_MODULE,VORL_POOL,VORL_PREFIX,'id'),
         GemaSync.bindCollection('regierapport','gema_regie_pool_v1','regie:','id')
       ]),
       new Promise(function(res){setTimeout(res,6000);})
