@@ -185,6 +185,66 @@
       modul:'abnahme',
       defaultOn:true
     },
+    hy_schlauchwechsel: {
+      label:'Schlauchwechsel vor Probenahme (Dusche/Badewanne)',
+      modul:'legionellen',
+      defaultOn:true
+    },
+    hy_labor_probe: {
+      label:'Probe dem Labor zugewiesen',
+      modul:'legionellen',
+      defaultOn:true
+    },
+    hy_befund_positiv: {
+      label:'Positiver Legionellen-Befund',
+      modul:'legionellen',
+      defaultOn:true
+    },
+    hy_plan_erstellt: {
+      label:'Sanierungsplan erstellt (Ausführung fällig)',
+      modul:'legionellen',
+      defaultOn:true
+    },
+    hy_sanierung_delegiert: {
+      label:'Sanierung delegiert / übernommen',
+      modul:'legionellen',
+      defaultOn:true
+    },
+    hy_arbeit_abgeschlossen: {
+      label:'Sanierung ausgeführt (Freigabe ausstehend)',
+      modul:'legionellen',
+      defaultOn:true
+    },
+    spuel_faellig: {
+      label:'Spülstellen fällig (Spülmanager)',
+      modul:'spuelmanager',
+      defaultOn:true
+    },
+    spuel_aktiviert: {
+      label:'Spülregime aktiviert',
+      modul:'spuelmanager',
+      defaultOn:true
+    },
+    service_faellig: {
+      label:'Wartungen fällig (Service & Wartung)',
+      modul:'service',
+      defaultOn:true
+    },
+    service_erledigt: {
+      label:'Wartung erledigt',
+      modul:'service',
+      defaultOn:true
+    },
+    stunden_eingereicht: {
+      label:'Stundenrapport eingereicht (Freigabe)',
+      modul:'stundenerfassung',
+      defaultOn:true
+    },
+    stunden_entscheid: {
+      label:'Stundenrapport genehmigt/zurückgewiesen',
+      modul:'stundenerfassung',
+      defaultOn:true
+    },
     offertanfrage_neu: {
       label:'Neue Offertanfrage (Lieferant)',
       modul:'produktkatalog',

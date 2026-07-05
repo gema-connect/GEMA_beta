@@ -74,6 +74,13 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important}
 .card-meta{font-size:12px;color:var(--mut);line-height:1.6}
 .badge{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:999px;font-size:11px;font-weight:800;white-space:nowrap}
 .chain{font-size:11px;color:var(--vio);font-weight:700}
+/* Nachkalkulation (Tab Erfolg) */
+.nk-box{margin-top:9px;padding:9px 11px;background:var(--bg);border:1px solid var(--brd2);border-radius:10px}
+.nk-row{display:flex;justify-content:space-between;gap:10px;font-size:12px;color:var(--mut);padding:2.5px 0}
+.nk-row b{color:var(--txt);font-weight:800;white-space:nowrap}
+.nk-row.nk-db{border-top:1px dashed var(--brd2);margin-top:4px;padding-top:6px}
+.nk-bar{height:6px;background:var(--brd2);border-radius:4px;overflow:hidden;margin:4px 0 6px}
+.nk-bar div{height:100%;background:var(--acc);border-radius:4px}
 .empty{padding:38px 16px;text-align:center;color:var(--mut);font-size:14px;background:var(--sur);border:1.5px dashed var(--brd2);border-radius:14px}
 
 /* EDITOR-OVERLAY */
@@ -335,6 +342,9 @@ table.pos{border-collapse:collapse;width:100%;font-size:13px;min-width:680px}
         <div class="fld"><label>MwSt-Nr. (UID)</label><input id="s_mwstnr" type="text" placeholder="CHE-123.456.789 MWST"/></div>
       </div>
       <div style="font-size:11px;color:var(--mut);margin:-4px 0 12px">Erscheinen in der Fusszeile von Offerte, Auftragsbestätigung und Rechnung. Logo &amp; Akzentfarbe kommen aus dem Firmenprofil (Logo-Upload in der Benutzerverwaltung, «Berichts-Farben (PDF)» in den Firmendaten).</div>
+      <div style="font-size:11px;font-weight:800;text-transform:uppercase;color:var(--mut);margin:14px 0 6px">Nachkalkulation (Tab «Erfolg»)</div>
+      <div class="fld"><label>Kostensatz (% vom Verkaufsansatz)</label><input id="s_kosten" type="text" inputmode="decimal" onblur="fixLeadingZero(this)" placeholder="z.B. 70"/></div>
+      <div style="font-size:11px;color:var(--mut);margin:-4px 0 12px">Interner Kostenanteil der Regie-Verkaufsansätze (Lohn + Gemeinkosten). Damit schätzt der Erfolg-Tab Kosten und Deckungsbeitrag pro Auftrag. Leer = keine DB-Schätzung.</div>
       <div class="fld"><label>Standard-Schlusstext Offerte</label><textarea id="s_txtOfferte" placeholder="z.B. Wir danken für Ihre Anfrage …"></textarea></div>
       <div class="fld"><label>Standard-Schlusstext Rechnung</label><textarea id="s_txtRechnung" placeholder="z.B. Zahlbar innert 30 Tagen …"></textarea></div>
     </div>
@@ -449,6 +459,49 @@ function erpQrPayload(rech,s,totals){
   ];
   return lines.join('\n');
 }
+
+// ── Nachkalkulation pro Auftrag (Soll aus Auftrag, Ist aus Regie/Material/Einsatzplan) ──
+// rapporte = gema_regie_pool_v1, einsaetze = gema_einsatz_pool_v1, oas = Offertanfragen.
+// kostenFaktorPct (optional, org.settings.erp.kostenFaktorPct): interner Kostensatz in %
+// des Verkaufsansatzes → geschätzte Kosten + Deckungsbeitrag. Ohne Faktor: keine DB-Schätzung.
+function erpNachkalk(auftrag,docs,rapporte,einsaetze,oas,kostenFaktorPct){
+  var f=erpAuftragFakt(docs,auftrag.id);
+  var n=function(v){var x=parseFloat(String(v==null?'':v).replace(',','.'));return isNaN(x)?0:x;};
+  var raps=(rapporte||[]).filter(function(r){return auftrag.objektId&&r.objektId===auftrag.objektId&&r.status==='ausgewiesen';});
+  var regieTotal=0,regieVerrechnet=0,stunden=0;
+  raps.forEach(function(r){
+    var t=0;
+    (r.stunden||[]).forEach(function(z){t+=n(z.std)*n(z.ansatz);stunden+=n(z.std);});
+    (r.material||[]).forEach(function(m){t+=n(m.menge)*n(m.ep);});
+    regieTotal+=t;
+    if(r.verrechnetIn)regieVerrechnet+=t;
+  });
+  var regieUnverrechnet=regieTotal-regieVerrechnet;
+  // Material über Lieferanten-Offerten: EK = Offertpreis des Lieferanten, VK = Position im Auftrag
+  var ekMaterial=0,vkMaterial=0;
+  (auftrag.positionen||[]).forEach(function(p){
+    if(!p.oaId)return;
+    var oa=(oas||[]).find(function(x){return x.id===p.oaId;});
+    if(oa&&oa.antwort)ekMaterial+=n(oa.antwort.bruttoPreis);
+    vkMaterial+=n(p.menge)*n(p.ep)*(1-n(p.rabattPct)/100);
+  });
+  var geplantTage=0;
+  (einsaetze||[]).forEach(function(e){if(e.auftragId===auftrag.id)geplantTage+=parseInt(e.dauerTage,10)||1;});
+  var kosten=null,db=null,dbPct=null;
+  if(kostenFaktorPct>0){
+    kosten=regieTotal*(kostenFaktorPct/100)+ekMaterial;
+    db=f.auftragNetto-kosten;
+    dbPct=f.auftragNetto>0?db/f.auftragNetto*100:null;
+  }
+  var hinweise=[];
+  if(regieUnverrechnet>0.005)hinweise.push({code:'unverrechnet',betrag:regieUnverrechnet});
+  if(f.restNetto<-0.005)hinweise.push({code:'ueberverrechnet',betrag:-f.restNetto});
+  if(f.auftragNetto>0&&regieTotal>f.auftragNetto)hinweise.push({code:'nachtrag',betrag:regieTotal-f.auftragNetto});
+  return {auftragNetto:f.auftragNetto,verrechnetNetto:f.verrechnetNetto,restNetto:f.restNetto,pct:f.pct,
+    regieTotal:regieTotal,regieVerrechnet:regieVerrechnet,regieUnverrechnet:regieUnverrechnet,stunden:stunden,
+    ekMaterial:ekMaterial,vkMaterial:vkMaterial,geplantTage:geplantTage,
+    kostenGeschaetzt:kosten,dbGeschaetzt:db,dbPct:dbPct,hinweise:hinweise};
+}
 /*ENGINE-END*/
 
 // ═══════════════════════════════════════════════════════════
@@ -504,6 +557,7 @@ function erpSettings(){
     iban:s.iban||'', qrIban:s.qrIban||'',
     name:s.name||(org?org.name:''), strasse:s.strasse||'', plz:s.plz||'', ort:s.ort||'',
     tel:s.tel||'', email:s.email||'', web:s.web||'', mwstNr:s.mwstNr||'',
+    kostenFaktorPct:s.kostenFaktorPct!=null?s.kostenFaktorPct:0,
     txtOfferte:s.txtOfferte||'', txtRechnung:s.txtRechnung||''
   };
 }
@@ -581,14 +635,45 @@ function erpRenderTabs(){
     var n=docs.filter(function(d){return d.typ===t;}).length;
     h+='<button class="mtab'+(_tab===t?' on':'')+'" onclick="_tab=\''+t+'\';erpRenderAll()">'+TYP[t].ic+' '+TYP[t].pl+'<span class="cnt">'+n+'</span></button>';
   });
+  if(erpCanEdit()){
+    var nLauf=docs.filter(function(d){return d.typ==='auftrag'&&d.status!=='abgeschlossen';}).length;
+    h+='<button class="mtab'+(_tab==='erfolg'?' on':'')+'" onclick="_tab=\'erfolg\';erpRenderAll()">📈 Erfolg<span class="cnt">'+nLauf+'</span></button>';
+  }
   h+='<button class="mtab'+(_tab==='kunden'?' on':'')+'" onclick="_tab=\'kunden\';erpRenderAll()">👥 Kunden<span class="cnt">'+erpKunden().length+'</span></button>';
   if(erpCanEdit())h+='<button class="mtab" onclick="erpOpenSettings()" title="Einstellungen">⚙️</button>';
   document.getElementById('mtabs').innerHTML=h;
+}
+// Datenquellen für die Nachkalkulation (Regie-Pool, Einsatzplan-Pool, Offertanfragen)
+function erpNkDaten(){
+  var u=erpUser();
+  var raps=poolRead('gema_regie_pool_v1').filter(function(r){return u&&r.orgId===u.orgId;});
+  var eins=poolRead('gema_einsatz_pool_v1').filter(function(e){return u&&e.orgId===u.orgId;});
+  var oas=[];
+  try{if(typeof GemaProdukte!=='undefined'&&GemaProdukte.getOffertanfragen)oas=GemaProdukte.getOffertanfragen();}catch(e){}
+  return {rapporte:raps,einsaetze:eins,oas:oas};
 }
 function erpRenderKpis(){
   var docs=erpDocs();var el=document.getElementById('kpis');
   if(_tab==='kunden'){el.innerHTML='';return;}
   var h='';
+  if(_tab==='erfolg'){
+    var aufE=docs.filter(function(d){return d.typ==='auftrag';});
+    var nk=erpNkDaten();var s=erpSettings();
+    var volLauf=0,unverr=0,dbSum=0,dbBasis=0;
+    aufE.forEach(function(d){
+      var r=erpNachkalk(d,docs,nk.rapporte,nk.einsaetze,nk.oas,s.kostenFaktorPct);
+      if(d.status!=='abgeschlossen')volLauf+=r.auftragNetto;
+      unverr+=r.regieUnverrechnet;
+      if(r.dbGeschaetzt!=null){dbSum+=r.dbGeschaetzt;dbBasis+=r.auftragNetto;}
+    });
+    h='<div class="kpi"><b>'+aufE.filter(function(d){return d.status!=='abgeschlossen';}).length+'</b><span>Laufende Aufträge</span></div>'
+     +'<div class="kpi"><b>'+chf(volLauf)+'</b><span>Volumen laufend (netto)</span></div>'
+     +'<div class="kpi"><b style="color:'+(unverr>0.005?'var(--amber)':'var(--grn)')+'">'+chf(unverr)+'</b><span>Unverrechnete Regie CHF</span></div>'
+     +(s.kostenFaktorPct>0
+        ?'<div class="kpi"><b style="color:'+(dbSum>=0?'var(--grn)':'var(--red)')+'">'+(dbBasis>0?(Math.round(dbSum/dbBasis*1000)/10)+'%':'—')+'</b><span>Ø Deckungsbeitrag (Schätzung)</span></div>'
+        :'<div class="kpi"><b style="color:var(--mut)">—</b><span>DB: Kostensatz in ⚙️ setzen</span></div>');
+    el.innerHTML=h;return;
+  }
   if(_tab==='offerte'){
     var off=docs.filter(function(d){return d.typ==='offerte';});
     var offen=off.filter(function(d){return d.status==='entwurf'||d.status==='versendet';});
@@ -629,7 +714,7 @@ function erpRenderToolbar(){
   }
   var objOpts='<option value="">Alle Projekte</option>'+erpObjekte().map(function(o){return '<option value="'+o.id+'">'+esc(o.name+(o.ort?' · '+o.ort:''))+'</option>';}).join('');
   var h='';
-  if(erpCanEdit())h+='<button class="btn pri" style="flex:1;min-width:170px;font-size:15px" onclick="erpNeu(\''+_tab+'\')">＋ Neue '+(_tab==='auftrag'?'r Auftrag':TYP[_tab].n)+'</button>';
+  if(erpCanEdit()&&_tab!=='erfolg')h+='<button class="btn pri" style="flex:1;min-width:170px;font-size:15px" onclick="erpNeu(\''+_tab+'\')">＋ Neue '+(_tab==='auftrag'?'r Auftrag':TYP[_tab].n)+'</button>';
   h+='<select id="fObjekt" onchange="erpRenderList()">'+objOpts+'</select>';
   h+='<input type="text" id="fSuche" placeholder="🔍 Suchen …" oninput="erpRenderList()"/>';
   var old=document.getElementById('fObjekt');var oldV=old?old.value:'';
@@ -649,6 +734,7 @@ function erpRenderList(){
     }).join('');
     return;
   }
+  if(_tab==='erfolg'){erpRenderErfolg(el);return;}
   var docs=erpDocs().filter(function(d){return d.typ===_tab;});
   var fo=document.getElementById('fObjekt');var fs=document.getElementById('fSuche');
   if(fo&&fo.value)docs=docs.filter(function(d){return d.objektId===fo.value;});
@@ -681,6 +767,63 @@ function erpRenderList(){
       +'<div class="card-meta">👤 '+esc(erpKundeName(d))+(d.objektName?'<br>🏗 '+esc(d.objektName):'')
       +'<br>📅 '+dfmt(d.datum)+' · <b style="color:var(--txt2)">CHF '+chf(t.brutto)+'</b>'
       +(chain?'<br><span class="chain">🔗 '+esc(chain)+'</span>':'')+'</div></div></div>';
+  }).join('');
+}
+// ── Nachkalkulation & Projekterfolg: eine Karte pro Auftrag ──
+var NK_HINWEIS={
+  unverrechnet:{ic:'⚠',c:'#d97706',bg:'#fffbeb',bd:'#fcd34d',t:function(b){return 'CHF '+chf(b)+' unverrechnete Regieleistung';}},
+  ueberverrechnet:{ic:'ℹ',c:'#2563eb',bg:'#eff6ff',bd:'#bfdbfe',t:function(b){return 'CHF '+chf(b)+' über Auftragssumme fakturiert';}},
+  nachtrag:{ic:'📌',c:'#dc2626',bg:'#fef2f2',bd:'#fca5a5',t:function(b){return 'Regie übersteigt Auftrag um CHF '+chf(b)+' — Nachtrag prüfen';}}
+};
+function erpRenderErfolg(el){
+  var docs=erpDocs();
+  var auf=docs.filter(function(d){return d.typ==='auftrag';});
+  var fo=document.getElementById('fObjekt');var fs=document.getElementById('fSuche');
+  if(fo&&fo.value)auf=auf.filter(function(d){return d.objektId===fo.value;});
+  if(fs&&fs.value.trim()){
+    var q=fs.value.toLowerCase();
+    auf=auf.filter(function(d){return ((d.nr||'')+' '+(d.titel||'')+' '+erpKundeName(d)+' '+(d.objektName||'')).toLowerCase().indexOf(q)>=0;});
+  }
+  // Laufende zuerst, dann jüngste zuoberst
+  auf.sort(function(a,b){
+    var la=a.status!=='abgeschlossen'?0:1, lb=b.status!=='abgeschlossen'?0:1;
+    return la-lb||String(b.datum||'').localeCompare(String(a.datum||''));
+  });
+  if(!auf.length){
+    el.innerHTML=(!_erpCloudLoaded&&!poolRead(DOK_POOL).length)
+      ?'<div class="empty"><svg width="34" height="34" viewBox="0 0 34 34" style="display:block;margin:0 auto 8px"><circle cx="17" cy="17" r="13" fill="none" stroke="#cbd5e1" stroke-width="3.5" stroke-dasharray="55 28"><animateTransform attributeName="transform" type="rotate" from="0 17 17" to="360 17 17" dur="0.9s" repeatCount="indefinite"/></circle></svg>Wird geladen …</div>'
+      :'<div class="empty">📈 Noch keine Aufträge<br><span style="font-size:12.5px">Die Nachkalkulation vergleicht pro Auftrag das Soll (Auftragssumme) mit dem Ist aus Regierapporten, Lieferanten-Offerten und Einsatzplanung.</span></div>';
+    return;
+  }
+  var nk=erpNkDaten();var s=erpSettings();
+  el.innerHTML=auf.map(function(d){
+    var r=erpNachkalk(d,docs,nk.rapporte,nk.einsaetze,nk.oas,s.kostenFaktorPct);
+    var st=ST[d.status]||ST.offen;
+    var pctFakt=Math.max(0,Math.min(100,Math.round(r.pct)));
+    var rows=''
+      +'<div class="nk-row"><span>Auftragssumme (netto)</span><b>CHF '+chf(r.auftragNetto)+'</b></div>'
+      +'<div class="nk-row"><span>Verrechnet · Rest</span><b>CHF '+chf(r.verrechnetNetto)+' · <span style="color:var(--acc)">CHF '+chf(Math.max(0,r.restNetto))+'</span></b></div>'
+      +'<div class="nk-bar"><div style="width:'+pctFakt+'%"></div></div>'
+      +'<div class="nk-row"><span>Regie geleistet ('+(Math.round(r.stunden*4)/4)+' h)</span><b>CHF '+chf(r.regieTotal)+'</b></div>'
+      +'<div class="nk-row"><span>Regie verrechnet / offen</span><b>CHF '+chf(r.regieVerrechnet)+' / <span style="color:'+(r.regieUnverrechnet>0.005?'var(--amber)':'inherit')+'">CHF '+chf(r.regieUnverrechnet)+'</span></b></div>'
+      +(r.ekMaterial>0||r.vkMaterial>0?'<div class="nk-row"><span>Material EK → VK (Lieferanten-Offerten)</span><b>CHF '+chf(r.ekMaterial)+' → CHF '+chf(r.vkMaterial)+'</b></div>':'')
+      +(r.geplantTage>0?'<div class="nk-row"><span>Einsatzplanung</span><b>'+r.geplantTage+' Manntag'+(r.geplantTage===1?'':'e')+' geplant</b></div>':'');
+    if(r.dbGeschaetzt!=null){
+      rows+='<div class="nk-row nk-db"><span>Deckungsbeitrag (Schätzung, Kostensatz '+s.kostenFaktorPct+'%)</span>'
+        +'<b style="color:'+(r.dbGeschaetzt>=0?'var(--grn)':'var(--red)')+'">CHF '+chf(r.dbGeschaetzt)+(r.dbPct!=null?' ('+(Math.round(r.dbPct*10)/10)+'%)':'')+'</b></div>';
+    }
+    var badges=r.hinweise.map(function(hw){
+      var m=NK_HINWEIS[hw.code];if(!m)return '';
+      return '<span class="badge" style="background:'+m.bg+';color:'+m.c+';border:1px solid '+m.bd+'">'+m.ic+' '+m.t(hw.betrag)+'</span>';
+    }).join(' ');
+    return '<div class="card" onclick="erpOpen(\''+d.id+'\')">'
+      +'<div class="card-bar" style="background:'+st.c+'"></div><div class="card-bd">'
+      +'<div class="card-top"><span class="card-nr">'+esc(d.nr||'')+'</span><span class="badge" style="background:'+st.bg+';color:'+st.c+';border:1px solid '+st.bd+';margin-left:auto">'+st.n+'</span></div>'
+      +'<div class="card-title">'+esc(d.titel||erpKundeName(d))+'</div>'
+      +'<div class="card-meta">👤 '+esc(erpKundeName(d))+(d.objektName?' · 🏗 '+esc(d.objektName):'')+'</div>'
+      +'<div class="nk-box">'+rows+'</div>'
+      +(badges?'<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">'+badges+'</div>':'')
+      +'</div></div>';
   }).join('');
 }
 function erpRenderAll(){erpRenderTabs();erpRenderKpis();erpRenderToolbar();erpRenderList();}
@@ -1501,6 +1644,7 @@ function erpOpenSettings(){
   document.getElementById('s_email').value=s.email;
   document.getElementById('s_web').value=s.web;
   document.getElementById('s_mwstnr').value=s.mwstNr;
+  document.getElementById('s_kosten').value=s.kostenFaktorPct||'';
   document.getElementById('s_txtOfferte').value=s.txtOfferte;
   document.getElementById('s_txtRechnung').value=s.txtRechnung;
   document.getElementById('setModal').classList.add('open');
@@ -1522,6 +1666,7 @@ function erpSetSave(){
       email:document.getElementById('s_email').value.trim(),
       web:document.getElementById('s_web').value.trim(),
       mwstNr:document.getElementById('s_mwstnr').value.trim(),
+      kostenFaktorPct:erpNum(document.getElementById('s_kosten').value)||0,
       txtOfferte:document.getElementById('s_txtOfferte').value,
       txtRechnung:document.getElementById('s_txtRechnung').value
     };
@@ -1736,7 +1881,8 @@ document.addEventListener('DOMContentLoaded',function(){
         GemaSync.bindCollection(ERP_MODULE,KUN_POOL,KUN_PREFIX,'id'),
         GemaSync.bindCollection(ERP_MODULE,KAT_POOL,KAT_PREFIX,'id'),
         GemaSync.bindCollection(ERP_MODULE,VORL_POOL,VORL_PREFIX,'id'),
-        GemaSync.bindCollection('regierapport','gema_regie_pool_v1','regie:','id')
+        GemaSync.bindCollection('regierapport','gema_regie_pool_v1','regie:','id'),
+        GemaSync.bindCollection('einsatzplan','gema_einsatz_pool_v1','einsatz:','id')
       ]),
       new Promise(function(res){setTimeout(res,6000);})
     ]).then(function(){_erpCloudLoaded=true;erpRenderAll();erpDeepLink();}).catch(function(){_erpCloudLoaded=true;erpRenderAll();});
@@ -1750,7 +1896,7 @@ function erpDeepLink(){
   try{
     var m=location.search.match(/[?&]doc=([^&]+)/);
     if(m)erpOpen(decodeURIComponent(m[1]));
-    var t=location.search.match(/[?&]tab=(offerte|auftrag|rechnung|kunden)/);
+    var t=location.search.match(/[?&]tab=(offerte|auftrag|rechnung|erfolg|kunden)/);
     if(t){_tab=t[1];erpRenderAll();}
   }catch(e){}
 }

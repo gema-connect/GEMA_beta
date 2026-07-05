@@ -295,6 +295,7 @@ Kategorie-Präfix + Kleinschreibung. **Keine Umlaute in Dateinamen** (ä→ae, �
 | `br_` | Brandschutz | `br_index.html` |
 | `if_` | Infrastruktur (Werkzeug, Fahrzeug, Lager) | `if_werkzeug.html`, `if_fahrzeug.html` |
 | `sd_` | Schadensdokumentation | `sd_schadensbericht.html` |
+| `sv_` | Service & Wartung | `sv_service.html` |
 | `sp_` | Spenglerei | `sp_dachbericht.html` |
 | `ab_` | Ausbildung | `ab_index.html` |
 | `sys_` | System | `sys_settings.html` |
@@ -779,6 +780,42 @@ Wenn ein Media-Query entfernt wurde, blieben in einigen Modulen die innerhalb de
 
 ---
 
+## Legionellen-Management (hy_legionellen.html)
+
+**Heisst im UI «Hygienemanagement»** (User-Vorgabe — Modul-Key/Dateiname bleiben `legionellen`/`hy_legionellen`). Umsetzung der Spez. `GEMAVANILLAREBUILDSPEC.md` (main-Branch; Nachbau von «gema-connect / Hygiene – Water Quality Management») **integriert in die GEMA-Umgebung**: GemaAuth statt eigenem Login (2FA bewusst zurückgestellt), GemaSync-per-Record statt eigener DB/REST, GemaNotify statt eigener Notifications, **externe Partner (Labor/Sanierer) via E-Mail-Match cross-org** (Regierapport-Muster) statt eigener Portale, **Fälligkeits-Scan beim Seitenstart** statt Cron.
+
+- **Hierarchie/Pools (moduleKey `legionellen`)**: Standort `hysite:`→`gema_hy_sites_pool_v1` · Gebäude `hygeb:`→`gema_hy_geb_pool_v1` (optional `siteId`, `objektId`-Verknüpfung zu GEMA-Objekten, Typ + Overrides + Labor-Override) · Raum `hyraum:`→`gema_hy_raum_pool_v1` · Messstelle `hyps:`→`gema_hy_ps_pool_v1` (Medium WARMWASSER/KALTWASSER/ZIRKULATION, Typ inkl. DUSCHE/BADEWANNE-Schlauch-Flag, materialisiertes `interval`+`threshold`, `nextSampleDate`) · Probe `hyprobe:`→`gema_hy_proben_pool_v1` (Status/Messwerte/Sanierung/Log denormalisiert inkl. `psLabelSnapshot`/`laborEmail`).
+- **Vererbung (Kap. 11)**: `hyEffektiv(raum,geb,default)` — Raum-Override → Raumkategorie → Gebäude-Override → Gebäudetyp → Firmen-Standard bzw. 1000 KBE/L, mit **Herkunfts-Anzeige** im Messstellen-Formular; am PS materialisiert.
+- **Proben-Workflow (Kap. 8)**: SCHEDULED → SAMPLE_TAKEN (Pflicht: Entnahme-Temp + Entnahmeschema) → Einreichen mit 12 Pflichtfeldern (`hyPflichtFehlt`) → **`hyAuswertung`: max(Legionellen-Werte) STRIKT > Grenzwert = POSITIVE** → COMPLETED (negativ, `nextSampleDate` neu) oder PLANER_NOTIFIED (Sanierung). **Proben löscht niemand.** Manuelle Nacherfassung (Kap. 10.4): direkt COMPLETED, **totalLegionella = SUMME der 4 Subspezies**, `nextSampleDate` nur wenn jüngste Probe.
+- **Scheduler (Kap. 10.3)**: `hyScanFaellig` beim Seitenstart + nach PS-Save — 30-Tage-Fenster, idempotent über (psId, scheduledDate); Labor-Auflösung Gebäude→Standort→Firmen-Standard (`hyLaborFor`); DUSCHE/BADEWANNE → `hy_schlauchwechsel` an role_monteur (Tages-Lock `gema_hy_notif_lock_v1`).
+- **Sanierung (Kap. 9)**: läuft in PLANER_NOTIFIED über Timestamps. planMode/workMode NUR aus Org-Settings (`org.settings.legionellen`, INTERNAL/EXTERNAL); Contractor-Auflösung Gebäude→Standort→Settings (`hyContractorFor`), Snapshot am Sample (`sanPlanerEmail`/`sanTechnikerEmail`). Plan ≥ 10 Zeichen → benachrichtigt sofort Ausführende (keine separate Plan-Freigabe) · Delegation nur solange Schritt offen · Ausführung intern = role_monteur/planer, extern = E-Mail-Match · **Freigabe (Planer-Seite!) mit Pflicht-Nachprobendatum → Eltern COMPLETED + neue Probe SCHEDULED mit `parentSampleId`+`isRetake`** (Labor vom Eltern-Sample). Probenliste blendet Eltern mit Kindern aus (`hyOhneEltern`).
+- **UI (Kap. 15)**: Status-/Ergebnis-Badges, Legionellen-Ampel (0 sauber / <100 niedrig / <1000 moderat / ≥1000 hoch), Fälligkeits-Dringlichkeit (überfällig/bald/anstehend/geplant), Medium-Farben, `dd.mm.yyyy`. Views: Übersicht (KPIs) / Portfolio (Baum) / Proben (Filter-Chips) / Sanierung (Schritt-Karten); `#hyTasks` oben = Panels «Meine Labor-Proben» + «Meine Sanierungsaufträge» für externe Partner.
+- **Engine im `/*ENGINE-START*/`-Block** (Node-testbar): Referenzdaten, `hyMonate/hyAddMonths/hyNextDate/hyEffektiv/hyAuswertung/hyManuellAuswertung/hyPflichtFehlt/hyAmpel/hyDaysUntil/hyUrgency/hyScanFaellig/hyLaborFor/hyContractorFor/hySanAktiv/hyOhneEltern`.
+- Registriert: gema_auth (MODULES `legionellen` cat Hygiene, FILE_MAP `hy_legionellen`; Planer via `_allPerms`, Monteur read+write (Ausführung), Unternehmer read+write (externe Partner), Behörde read), gema_notify (6 `hy_*`-Keys), index.html (ersetzt die deaktivierte «Hygienemanagement»-Platzhalter-Kachel), sw.js.
+
+## Spülmanager (hy_spuelmanager.html) — komplett überarbeitet
+
+Spülregimes mit QR-Start-Timer und lückenloser Doku. **Komplett neu** (der alte Blob-Prototyp `gema_spuel_*` per Objekt wurde ersetzt; keine Migration — Altstand war Prototyp). Drei Typen (`SP_TYPEN`): **Legionellen-Massnahme** (Empfehlung alle 3 Tage, aus dem Hygienemanagement aktivierbar), **Baustelle mit Wasser am Netz** (alle 3 Tage), **Leerstand** (Intervall frei, Vorschlag 7 Tage).
+
+- **Pools (moduleKey `spuelmanager`)**: Spülobjekt `spobj:`→`gema_sp_obj_pool_v1` (`{typ, name, objektId?, intervalTage, spuelDauerSek (Default 180 s), aktiv, quelleText/quelleProbeId, beendetAm?}`) · Spülstelle `spst:`→`gema_sp_stellen_pool_v1` (`{spObjId, name, medium, dauerSek?-Override, letzteSpuelung}`) · Spülvorgang `splog:`→`gema_sp_log_pool_v1` (`{stelleId, gestartetAm/beendetAm, dauerSoll/IstSek, abweichung, viaQr, userName, bemerkung}`).
+- **QR pro Spülstelle**: URL `hy_spuelmanager.html?scan=<stelleId>` (qrcodejs-CDN, Etiketten-Druck A6) — Scan öffnet direkt den **Vollbild-Spül-Timer**: Countdown mit Soll-Dauer (`spDauerFor`: Stelle-Override → Objekt → 180 s), bei Ablauf Vibration + «Fertig — dokumentieren»; vorzeitiges Beenden verlangt einen Grund (`abweichung:true`, Badge «verkürzt»). Jeder Vorgang schreibt einen Log-Record + `stelle.letzteSpuelung`.
+- **Fälligkeit** (`spStatus`): nie gespült = sofort fällig; sonst letzteSpuelung + intervalTage → ok/faellig/ueberfaellig. Dashboard-KPIs + Liste «Jetzt fällige Spülstellen»; Scan beim Seitenstart pusht `spuel_faellig` an role_monteur (1×/Tag-Lock `gema_sp_notif_lock_v1`). Objekte sind **beendbar/reaktivierbar** (Baustelle übergeben, Wohnung vermietet — Protokoll bleibt).
+- **Kopplung Hygienemanagement**: Auf der Sanierungs-Karte in `hy_legionellen.html` gibt es «🚿 Massnahme ‹Spülen› (alle 3 Tage)» (`hySpuelAktivieren`) — legt Spülobjekt (typ legionellen, Herkunft = Befund) + Spülstelle aus der Messstelle DIREKT in die Spülmanager-Pools (gleiche localStorage-Keys + `GemaSync.saveRecord('spuelmanager',…)`), verlinkt `probe.spuelObjId` und benachrichtigt die Monteure (`spuel_aktiviert`). Umgekehrt exponiert der Spülmanager `window.GemaSpuel.aktivierenFuerMassnahme(opts)`.
+- **Protokoll**: revisionssicher, CSV-Export; `spCanFlush` = jede eingeloggte Person (Monteur/Hauswart spült), CRUD via `spCanEdit` (Planer/Admin/AL/Magaziner/Unternehmer). Engine (`SP_TYPEN/spStatus/spNextDue/spDauerFor/spMMSS/spAddDays`) im `/*ENGINE-START*/`-Block, Node-testbar.
+- Rollen: Monteur/Unternehmer/Magaziner read+write (`spuelmanager`); Event-Keys `spuel_faellig`/`spuel_aktiviert`.
+
+## Service & Wartung mit Anlagenregister (sv_service.html)
+
+Anlagenregister + Wartungsverträge + automatische Serviceaufträge — schliesst den Kreis «Anlage geliefert → Anlage gewartet → Wartung verrechnet». **Neues Präfix `sv_`**, moduleKey `service`, cat Hygiene (Kachel in «Hygiene & Betrieb»; das ältere `hy_inspektion.html` bleibt als einfaches Inventar-Tool unangetastet).
+
+- **Pools (per-Record)**: Anlage `svanl:`→`gema_sv_anlagen_pool_v1` (`{name,kategorie,hersteller,modell,serienNr,standort,objektId/objektName,produktId?,quelleOaId?,lieferantFirma?,inbetriebnahme,garantieBis,intervallMonate,letzteWartung,status,vertragId?,notizen}`) · Vertrag `svvtr:`→`gema_sv_vertraege_pool_v1` (`{titel,kundeText,objektId,anlagenIds[],pauschaleNetto,startDatum,status}`) · Serviceauftrag `svauf:`→`gema_sv_auftraege_pool_v1` (`{anlageId,anlageName,objektId/Name,vertragId?,faelligAm,status offen|eingeplant|erledigt|verrechnet,erledigtAm/Von,rapport,einsatzId?,rechnungId?}`).
+- **Engine** (`/*ENGINE-START*/`, Node-testbar): `svAddMonths` (mit Monatsende-Klemme), `svNextWartung` (Basis: letzteWartung → Inbetriebnahme → Erfassungsdatum; ohne Intervall null), `svDaysUntil/svUrgency` (überfällig/≤7 fällig/≤30 bald), `svGarantieAktiv`, **`svScanFaellig`** (Seitenstart-Scan: Anlagen mit Wartung ≤30 Tage → offener Serviceauftrag; idempotent über (anlageId,faelligAm), offener/eingeplanter Auftrag blockiert Duplikate), `svNextReNr` (ERP-Nummernkreis RE-Jahr-NNN repliziert).
+- **Import aus Offertanfragen**: «⬇ Aus Offertanfragen» listet beantwortete OAs (`GemaProdukte.getOffertanfragen`) → Anlage mit Produkt/Lieferant/Projekt vorbefüllt (`quelleOaId` verhindert Doppel-Übernahme, Intervall-Default 12 Monate).
+- **Cross-Modul-Writes** (ADD-ONLY via `xPoolAdd` — getCached→push→saveRecord mit fremdem moduleKey, nie persistCollection): «📅 Einsatz» schreibt einen Einsatz (`typ:'frei'`, Titel «🛠 Service: …», `serviceAuftragId`) in `gema_einsatz_pool_v1` + `einsatz_geplant` an den Monteur; «💰 Rechnung» erzeugt einen ERP-Rechnungs-Entwurf (`erpdok:` in `gema_erp_dok_pool_v1`, Position mit Rapport-Text, EP 0 zum Ergänzen bzw. Vertragspauschale) und verlinkt `auftrag.rechnungId` (Status `verrechnet`), Dialog bietet Sprung zu `pm_erp.html?doc=…`.
+- **Wartung dokumentieren** (`svDokuOpen/svDokuSave`, Rechte `svCanWork` = Edit-Rollen + Monteur/Spengler): Pflicht Datum + Rapport → `anlage.letzteWartung`, Auftrag `erledigt` (ohne offenen Auftrag wird ein erledigter als Doku angelegt), Notify `service_erledigt` an role_planer+Org. **QR pro Anlage** (`?scan=<id>`, qrcodejs, A6-Etikette) öffnet direkt dieses Modal.
+- **Fälligkeits-Scan beim Seitenstart** (`svScanUndRender`): legt Aufträge an + `service_faellig` an role_planer+Org (Tages-Lock `gema_sv_notif_lock_v1`).
+- Rechte: `svCanEdit` = Planer-Rollen/Admin/AL/Magaziner (CRUD, Verträge, Einsatz, Rechnung); Monteur/Spengler dokumentieren Wartungen. Registriert: gema_auth (MODULES `service` cat Hygiene, FILE_MAP `sv_service`, Monteur/Magaziner rw), gema_notify (`service_faellig`/`service_erledigt`), index.html (Hygiene & Betrieb, 6 Module), sw.js.
+
 ## W12-Modul (hy_w12.html)
 
 Selbstkontrolle nach SVGW W12:
@@ -1235,6 +1272,17 @@ Rechnung-PDF (Print-Fenster, A4, Briefkopf mit `org.logoVector||org.logo`) enth�
 - **Eigene Artikel-Kataloge (org-weit)**: per-Record `erpkat:` → `gema_erp_kat_pool_v1`. Katalog `{id, orgId, name, artikel:[{id,bez,einheit,ep,bildUrl?,bildDataUrl?}]}`. Modal «⭐ Eigene Artikel» im Positions-Editor: Katalog-CRUD (GemaDialog), Artikel erfassen/bearbeiten/löschen, Klick = Position einfügen (`eigenArtikelId`, Quelle-Badge «⭐ Eigen», Bild wandert mit), **«⬇ Aus aktuellem Dokument übernehmen»** (Positions-Checkliste, dedupe per Bezeichnung).
 - **Dokument-Vorlagen (org-weit)**: per-Record `erpvorl:` → `gema_erp_vorl_pool_v1`. Vorlage `{id, orgId, name, typ, titel, einleitung, schlusstext, rabattPct, mwstPct, positionen[]}` — beim Speichern werden Akonto-/Abzugszeilen entfernt und Regie-/OA-Positionen zu `art:'frei'` ohne `regieRapportId`/`oaId` gekappt (dokument-spezifisch). Modal «📑 Vorlagen» im Editor-Footer: aktuelles Dokument speichern (GemaDialog.prompt) + Liste mit Einfügen/Löschen. **Einfügen**: leeres Dokument → komplett übernehmen (Texte nur wenn leer, Rabatt/MwSt mit); sonst Positionen anhängen. Immer neue Positions-IDs.
 
+### Nachkalkulation & Projekterfolg (Tab «📈 Erfolg»)
+
+Soll-Ist-Vergleich pro Auftrag, nur für `erpCanEdit()`-Rollen sichtbar (Preise/DB). Engine-Funktion `erpNachkalk(auftrag,docs,rapporte,einsaetze,oas,kostenFaktorPct)` im `/*ENGINE-START*/`-Block (Node-testbar):
+- **Soll**: Auftragssumme netto + Fakturierungsstand via `erpAuftragFakt` (verrechnet/Rest/%, Fortschrittsbalken).
+- **Ist Regie**: ausgewiesene Regierapporte mit `r.objektId === auftrag.objektId` (Σ std×ansatz + Σ menge×ep), gesplittet verrechnet (`r.verrechnetIn`) / unverrechnet, + Stunden-Summe.
+- **Ist Material**: Positionen mit `oaId` — EK = `oa.antwort.bruttoPreis` der Lieferanten-Offerte, VK = menge×ep×(1−rabatt%).
+- **Einsatzplanung**: Σ `dauerTage` der Einsätze mit `e.auftragId === auftrag.id` (geplante Manntage) — dafür bindet der Init zusätzlich `gema_einsatz_pool_v1`.
+- **DB-Schätzung** nur wenn `org.settings.erp.kostenFaktorPct` > 0 (⚙️-Feld «Kostensatz % vom Verkaufsansatz»): Kosten = Regie×Faktor + EK-Material → Deckungsbeitrag CHF + % (im UI klar als Schätzung markiert; ohne Faktor KPI-Hinweis «Kostensatz in ⚙️ setzen»).
+- **Hinweis-Badges** (`hinweise[].code`): `unverrechnet` (amber, offene Regie CHF), `ueberverrechnet` (blau, über Auftragssumme fakturiert), `nachtrag` (rot, Regie übersteigt Auftrag → Nachtrag prüfen).
+- UI: KPI-Zeile (laufende Aufträge, Volumen, unverrechnete Regie org-weit, Ø DB), Karten laufende zuerst, Klick → Auftrag; Objekt-Filter + Suche wie andere Tabs, kein «＋ Neu»; Deep-Link `?tab=erfolg`.
+
 ### Kunden & Rechte
 
 Kundenstamm pro Org (Tab 👥) mit **Schnellübernahme aus Objekt-Beteiligten** (`GemaObjekte.getBeteiligte` → 1-Klick-Befüllung). `kundeSnapshot` wird ins Dokument denormalisiert (Adresse fürs PDF/QR stabil). Rechte: nur Planer-Rollen/Admin/Abteilungsleiter (`erpCanEdit`); MODULES-Key `erp` (cat Projektmanagement, Planer via `_allPerms`), FILE_MAP `pm_erp`. Deep-Links `?doc=<id>` und `?tab=offerte|auftrag|rechnung|kunden`. index.html PM («13 Module»), sw.js v169.
@@ -1251,6 +1299,17 @@ Kalender zur Monteur-Einplanung — Aufträge aus dem ERP-Modul per **Drag & Dro
 - **Konflikt-Warnung**: `epOverlap(a,b)` (Zeitfenster-Schnitt bzw. Slot-Kollision — `ganz` kollidiert mit allem) markiert Doppelbelegungen mit ⚠; mehrtägige Einsätze via `dauerTage` (`epCovers`).
 - **Notifikation** `einsatz_geplant` (gema_notify.js) an den Monteur bei Einplanung UND Verschiebung (`epNotify`, nie an sich selbst), Link mit Deep-Link `pm_einsatzplan.html?d=YYYY-MM-DD` (Init springt zur Woche/zum Monat des Datums).
 - **Rechte**: Planen = Planer-Rollen/Admin/Abteilungsleiter/Magaziner (`epCanPlan`); Monteur/Spengler read-only (`einsatzplan` read in DEFAULT_ROLES, Magaziner write). MODULES-Key `einsatzplan` (cat Projektmanagement), FILE_MAP `pm_einsatzplan`. index.html PM («14 Module»), sw.js v170.
+
+## Stundenerfassung GAV (pm_stunden.html)
+
+Mobile-first Arbeitszeiterfassung für Monteure (Handy-Format, grosse Touch-Ziele) mit GAV-konformen Zuschlägen und Freigabe-Workflow. **Zuschlags-/Spesen-Defaults in Anlehnung an den GAV der Gebäudetechnikbranche (suissetec), Region Nordwestschweiz** — alle Werte pro Org überschreibbar (`org.settings.stunden`, ⚙️-Modal mit explizitem Prüf-Hinweis; verbindlich ist immer der GAV-Text).
+
+- **Storage per-Record**: moduleKey `stundenerfassung`, prefix `std:`, Pool `gema_std_pool_v1`. EIN Record pro User+Tag: `{id,orgId,userId,userName,datum,eintraege:[{id,von,bis,pauseMin,objektId/objektName,taetigkeit,einsatzId?}],spesen:{mittag,km},status offen|eingereicht|genehmigt|zurueck,eingereichtAm?,entscheid:{von,am,grund}}`.
+- **Engine** (`/*ENGINE-START*/`, Node-testbar): `STD_DEFAULTS` (40-h-Woche, Zuschläge Überstunden 25 % / Samstag 25 % / Sonn-+Feiertag 100 % / Nacht 50 %, Nachtfenster 23–06 Uhr, bezahlte Znüni-Pause 15 Min. als Info, Mittag CHF 18, km CHF 0.70, Ferien 25 Tage, Feiertagsliste) · `stdParams` (Org-Merge) · `stdEintragMin` (über Mitternacht: bis ≤ von → +24 h) · `stdNachtMin` (Fenster-Überlappung, Pause zählt zur Tagzeit) · `stdTagTyp` (werktag/samstag/sonntag/feiertag) · `stdWochenStart/stdWochenSoll` (Feiertage Mo–Fr reduzieren Soll) · **`stdWochenAuswertung`** (Ist/Soll/Saldo, Überstunden = max(0, Ist−Wochensoll), Sa-/So-/Nacht-Stunden, **Zuschläge als Zeitwert** Σ h×%, Spesen CHF) · `stdMonatSoll/stdMonatsAuswertung` (Überstunden GAV-konform pro Woche ermittelt).
+- **Monteur-Flow («Meine Woche»)**: KW-Navigation, 7 Tages-Karten (Sa/So/Feiertag-Badges), Eintrag-Modal mit **Einsatzplan-Übernahme** (eigene Einsätze des Tages aus `gema_einsatz_pool_v1` → Objekt+Tätigkeit vorbefüllt), Spesen-Zeile pro Tag (🍽 Mittag auswärts, 🚗 km), 📝-Link pro Eintrag zu `pm_regierapport.html?objekt=…`. **«📤 Woche einreichen»** sperrt die Tage (Status eingereicht) + `stunden_eingereicht` an role_planer+Org.
+- **Freigabe (Planer/AL/Admin, `stCanApprove`)**: eingereichte Wochen gruppiert nach User+KW mit Tages-Detail und Zuschlags-/Spesen-Summen → **Genehmigen** oder **Zurückweisen mit Grund** (GemaDialog.prompt; Tage wieder editierbar, Grund als 💬-Badge beim Monteur) + `stunden_entscheid` an den Monteur (Deep-Link `?d=<wochenstart>`).
+- **Auswertung**: Monats-Picker, Tabelle pro Mitarbeiter (Ist/Soll/Saldo/Üst/Sa/So/Nacht/Zuschlag-Zeitwert/Mittage/km/Spesen CHF + Status) — Approver sehen die ganze Org, Monteure nur sich; **CSV-Export fürs Lohnbüro** (Semikolon, BOM).
+- Registriert: gema_auth (MODULES `stundenerfassung` cat Projektmanagement, FILE_MAP `pm_stunden`, Monteur/Spengler/Magaziner rw, Planer via `_allPerms`), gema_notify (`stunden_eingereicht`/`stunden_entscheid`), index.html (PM, 15 Module), sw.js.
 
 ## Abnahmeprotokolle SIA 118 (pm_abnahme.html) — Teilnehmer, Freigabe & Monteur-Mängelliste
 
@@ -1670,6 +1729,18 @@ Zentrales Modul `gema_notify.js` für In-App-Benachrichtigungen. Glocke + Toast-
 | `abnahme_freigabe_entscheid` | abnahme | on |
 | `abnahme_maengel_zugewiesen` | abnahme | on |
 | `abnahme_maengel_abgearbeitet` | abnahme | on |
+| `hy_schlauchwechsel` | legionellen | on |
+| `hy_labor_probe` | legionellen | on |
+| `hy_befund_positiv` | legionellen | on |
+| `hy_plan_erstellt` | legionellen | on |
+| `hy_sanierung_delegiert` | legionellen | on |
+| `hy_arbeit_abgeschlossen` | legionellen | on |
+| `spuel_faellig` | spuelmanager | on |
+| `spuel_aktiviert` | spuelmanager | on |
+| `service_faellig` | service | on |
+| `service_erledigt` | service | on |
+| `stunden_eingereicht` | stundenerfassung | on |
+| `stunden_entscheid` | stundenerfassung | on |
 
 **Neue Module fügen ihre Event-Keys hier hinzu**, sonst greift kein Preferences-Filter.
 
