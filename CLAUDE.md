@@ -211,6 +211,10 @@ Der **Anlagenlieferant** pflegt im Dashboard-Tab «Rohrsysteme & Armaturen» ein
 
 Jede Rolle hat ein eigenes Login mit rollenspezifischer Ansicht.
 
+### Modul-Freischaltung pro Kunde (GEPLANT, noch nicht gebaut)
+
+Kunden sollen NICHT alle Module bekommen (v.a. ERP und Stundenerfassung werden zurückgehalten). Heute läuft der Zugriff NUR über globale Rollen-Permissions (`GemaAuth.can` → `role.permissions[modulKey]`) — Rollen sind org-übergreifend, ein per-Kunde-Gating existiert nicht. **Entscheid (User)**: Später kommt eine Modul-Freischaltung pro Organisation (Org-Level-Check zusätzlich zur Rolle, Default = alles frei); das ERP bleibt dabei EIN Modul (kein Tab-Split Offerte/Rechnung). Die Berechnungs-/PM-Module funktionieren eigenständig — Cross-Modul-Verknüpfungen sind defensive Reads (leere Pools → leere Listen) bzw. ADD-ONLY-Writes; einzige harte Basis-Abhängigkeit: `objekte` (Objekt-Bezug von Abnahme, Berechnungen etc.).
+
 ### Rollenübersicht
 
 | Rolle | Sicht | Hauptfunktionen |
