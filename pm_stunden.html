@@ -320,6 +320,25 @@ function stdAbsenzAnteil(t){
   if(!t||!t.absenz)return 0;
   return t.absenz.anteil===0.5?0.5:1;
 }
+// Reduzierte Pensen (Prozent-Modell): skaliert die Soll-relevanten Parameter
+// auf das Anstellungspensum des Mitarbeiters — Tagessoll = Vollzeit-Tagessoll
+// × Pensum, damit skalieren Wochen-/Monatssoll, Vorholzeit, Absenz-Gutschriften
+// und Konto-Bezüge automatisch. FERIENTAGE BLEIBEN IN TAGEN (ein Ferientag ist
+// das reduzierte Tagessoll wert). Topf-A-Grenze: individueller Override pro
+// Mitarbeiter, sonst proportional zum Pensum.
+// mi = Mitarbeiter-Stammdaten {pensum, topfGrenzeH?, …}
+function stdParamsFuerMitarbeiter(p,mi){
+  mi=mi||{};
+  var f=(parseFloat(mi.pensum))/100;
+  if(isNaN(f)||f<=0||f>2)f=1;
+  var q={};Object.keys(p).forEach(function(k){q[k]=p[k];});
+  q.pensumFaktor=f;
+  q.wochenSoll=p.wochenSoll*f;
+  q.vorholProWocheH=p.vorholProWocheH*f;
+  var tg=parseFloat(mi.topfGrenzeH);
+  q.topfGrenzeH=(!isNaN(tg)&&tg>=0)?tg:p.topfGrenzeH*f;
+  return q;
+}
 function stdMin(hhmm){
   var m=String(hhmm||'').match(/^(\d{1,2}):(\d{2})$/);
   if(!m)return null;
@@ -594,7 +613,7 @@ function stFerienAntraege(){
 }
 // Feriensaldo-Detail eines Users in Tagen (Anspruch pro-rata − bezogen − beantragt − Betriebsferien-Reserve)
 function stFerienDetail(userId,jahr){
-  var p=stParams();
+  var p=stParamsFor(userId);
   var mi=stMitarbeiterInfo(userId);
   var tage=orgTage().filter(function(t){return t.userId===userId&&String(t.datum).slice(0,4)===String(jahr);});
   var bezogen=0,gebucht=[];
@@ -641,6 +660,10 @@ function stFerienKonflikte(antrag){
 }
 function stParams(){
   try{var org=GemaAuth.getCurrentOrg();return stdParams(org&&org.settings&&org.settings.stunden);}catch(e){return stdParams(null);}
+}
+// Per-User-Parameter: Org-Parameter auf das Anstellungspensum des Mitarbeiters skaliert
+function stParamsFor(userId){
+  return stdParamsFuerMitarbeiter(stParams(),stMitarbeiterInfo(userId));
 }
 
 var _tT;
@@ -692,7 +715,7 @@ function stRender(){
 function stWk(delta){_wkStart=stdAddTage(_wkStart,delta*7);stRender();}
 function stRenderWoche(){
   var u=stUser();if(!u)return '<div class="empty">Bitte in GEMA anmelden.</div>';
-  var p=stParams();
+  var p=stParamsFor(u.id);
   var tage=[];
   for(var i=0;i<7;i++){
     var d=stdAddTage(_wkStart,i);
@@ -714,7 +737,7 @@ function stRenderWoche(){
   h+='<div class="card"><div class="card-hd"><h3>Σ Woche</h3>'
     +Object.keys(statusBadges).map(function(s){var m=ST_STATUS[s]||ST_STATUS.offen;return '<span class="badge '+m.cls+'">'+m.n+'</span>';}).join(' ')
     +'</div><div class="card-bd">'
-    +'<div class="sumline"><span>Ist / Soll'+(p.vorholProWocheH>0?' (inkl. '+stdFmtH(p.vorholProWocheH)+' h Vorholzeit)':'')+'</span><b>'+stdFmtH(aus.ist)+' / '+stdFmtH(aus.soll)+' h</b></div>'
+    +'<div class="sumline"><span>Ist / Soll'+(p.vorholProWocheH>0?' (inkl. '+stdFmtH(p.vorholProWocheH)+' h Vorholzeit)':'')+(p.pensumFaktor&&p.pensumFaktor!==1?' · Pensum '+Math.round(p.pensumFaktor*100)+' %':'')+'</span><b>'+stdFmtH(aus.ist)+' / '+stdFmtH(aus.soll)+' h</b></div>'
     +'<div class="sumline"><span>Saldo</span><b style="color:'+(aus.saldo>=0?'var(--grn)':'var(--red)')+'">'+(aus.saldo>=0?'+':'')+stdFmtH(aus.saldo)+' h</b></div>'
     +(aus.ueberstunden>0.004?'<div class="sumline"><span>Überstunden (+'+p.zuschlagUeberstunden+'%)</span><b>'+stdFmtH(aus.ueberstunden)+' h</b></div>':'')
     +(aus.topfA>0.004?'<div class="sumline"><span>→ Topf A (Kompensation, max. '+stdFmtH(p.topfGrenzeH)+' h)</span><b>'+stdFmtH(aus.topfA)+' h</b></div>':'')
@@ -942,7 +965,7 @@ function stAbsRemove(){
 // ═══════════════════════════════════════════════════════════
 function stTopfBCheck(datum){
   var u=stUser();if(!u)return;
-  var p=stParams();
+  var p=stParamsFor(u.id);
   var ws=stdWochenStart(datum);
   var tage=meineTage().filter(function(t){return t.datum>=ws&&t.datum<=stdAddTage(ws,6);});
   var aus=stdWochenAuswertung(tage,ws,p);
@@ -1139,7 +1162,7 @@ function stWocheEinreichen(){
     return t.datum>=_wkStart&&t.datum<=stdAddTage(_wkStart,6)&&stTagHatDaten(t)&&(t.status==='offen'||t.status==='zurueck');
   });
   if(!tage.length){toast('Nichts zum Einreichen');return;}
-  var aus=stdWochenAuswertung(tage,_wkStart,stParams());
+  var aus=stdWochenAuswertung(tage,_wkStart,stParamsFor(u.id));
   GemaDialog.confirm({
     title:'Woche einreichen',
     message:'KW '+stKw(_wkStart)+' mit '+stdFmtH(aus.ist)+' h ('+tage.length+' Tage) zur Freigabe einreichen? Danach sind die Tage gesperrt.',
@@ -1173,9 +1196,10 @@ function stRenderFreigabe(){
     (grp[k]=grp[k]||[]).push(t);
   });
   return faHtml+Object.keys(grp).sort().map(function(k){
-    var tage=grp[k];var ws=k.split('|')[1];
+    var tage=grp[k];var grpUserId=k.split('|')[0],ws=k.split('|')[1];
     tage.sort(function(a,b){return a.datum.localeCompare(b.datum);});
-    var aus=stdWochenAuswertung(tage,ws,p);
+    var pu=stParamsFor(grpUserId);
+    var aus=stdWochenAuswertung(tage,ws,pu);
     var rows=tage.map(function(t){
       var abs=t.absenz?STD_ABSENZ[t.absenz.typ]:null;
       var teile=[];
@@ -1188,10 +1212,10 @@ function stRenderFreigabe(){
     return '<div class="card"><div class="card-hd"><h3>👷 '+esc(tage[0].userName||'')+'</h3><span class="sub">KW '+stKw(ws)+' · '+dfmt(ws)+' – '+dfmt(stdAddTage(ws,6))+'</span>'
       +'<span class="badge b-blue" style="margin-left:auto">'+stdFmtH(aus.ist)+' h</span></div>'
       +'<div class="card-bd">'+rows
-      +'<div class="sumline" style="border-top:1px solid var(--brd);margin-top:6px;padding-top:8px"><span>Ist / Soll · Saldo</span><b>'+stdFmtH(aus.ist)+' / '+stdFmtH(aus.soll)+' h · '+(aus.saldo>=0?'+':'')+stdFmtH(aus.saldo)+' h</b></div>'
+      +'<div class="sumline" style="border-top:1px solid var(--brd);margin-top:6px;padding-top:8px"><span>Ist / Soll · Saldo'+(pu.pensumFaktor&&pu.pensumFaktor!==1?' (Pensum '+Math.round(pu.pensumFaktor*100)+' %)':'')+'</span><b>'+stdFmtH(aus.ist)+' / '+stdFmtH(aus.soll)+' h · '+(aus.saldo>=0?'+':'')+stdFmtH(aus.saldo)+' h</b></div>'
       +(aus.zuschlagZeit>0.004?'<div class="sumline"><span>Zuschläge: '+(aus.ueberstunden>0.004?'Üst '+stdFmtH(aus.ueberstunden)+'h ':'')+(aus.samstag>0.004?'Sa '+stdFmtH(aus.samstag)+'h ':'')+(aus.sonntag>0.004?'So/Ft '+stdFmtH(aus.sonntag)+'h ':'')+(aus.nacht>0.004?'Nacht '+stdFmtH(aus.nacht)+'h':'')+'</span><b>+'+stdFmtH(aus.zuschlagZeit)+' h</b></div>':'')
       +(aus.topfA>0.004?'<div class="sumline"><span>Topf A (Kompensation)</span><b>'+stdFmtH(aus.topfA)+' h</b></div>':'')
-      +(aus.topfB>0.004?'<div class="gavnote" style="margin-top:6px;background:var(--red-bg);border-color:var(--red-bd);color:var(--red)"><b>💰 Topf B: '+stdFmtH(aus.topfB)+' h über der Grenze (+'+stdFmtH(p.topfGrenzeH)+' h) — auszahlungspflichtig.</b> Auszahlung in der Auswertung erfassen.</div>':'')
+      +(aus.topfB>0.004?'<div class="gavnote" style="margin-top:6px;background:var(--red-bg);border-color:var(--red-bd);color:var(--red)"><b>💰 Topf B: '+stdFmtH(aus.topfB)+' h über der Grenze (+'+stdFmtH(pu.topfGrenzeH)+' h) — auszahlungspflichtig.</b> Auszahlung in der Auswertung erfassen.</div>':'')
       +((aus.mittage||aus.km)?'<div class="sumline"><span>Spesen: '+aus.mittage+'× Mittag · '+(Math.round(aus.km*10)/10)+' km</span><b>CHF '+(aus.chfMittag+aus.chfKm).toFixed(2)+'</b></div>':'')
       +'<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">'
       +'<button class="btn grn" style="flex:1" onclick="stEntscheid(\''+esc(k)+'\',true)">✅ Genehmigen</button>'
@@ -1274,13 +1298,14 @@ function stRenderAuswertung(){
     +'</div>';
   if(!Object.keys(users).length)return h+'<div class="empty">📊 Keine erfassten Stunden im '+_monat+'.</div>'+stRenderJahresSalden(alle,jahr);
   var soll=stdMonatSoll(jahr,monat,p);
-  h+='<div class="card"><div class="card-hd"><h3>📊 Monatsauswertung '+_monat+'</h3><span class="sub">Soll '+stdFmtH(soll)+' h'+(p.vorholProWocheH>0?' (inkl. Vorholzeit)':'')+' · Zuschläge als Zeitwert ('+p.zuschlagUeberstunden+'/'+p.zuschlagSamstag+'/'+p.zuschlagSonntag+'/'+p.zuschlagNacht+'%)</span></div><div class="card-bd"><div class="t-wrap"><table class="t"><thead><tr>'
+  h+='<div class="card"><div class="card-hd"><h3>📊 Monatsauswertung '+_monat+'</h3><span class="sub">Soll (Vollzeit) '+stdFmtH(soll)+' h'+(p.vorholProWocheH>0?' (inkl. Vorholzeit)':'')+' · reduzierte Pensen pro Mitarbeiter berücksichtigt · Zuschläge als Zeitwert ('+p.zuschlagUeberstunden+'/'+p.zuschlagSamstag+'/'+p.zuschlagSonntag+'/'+p.zuschlagNacht+'%)</span></div><div class="card-bd"><div class="t-wrap"><table class="t"><thead><tr>'
     +'<th>Mitarbeiter</th><th class="num">Ist h</th><th class="num">Soll h</th><th class="num">Saldo h</th><th class="num">Üst h</th><th class="num">Topf A h</th><th class="num">Topf B h</th><th class="num">Sa h</th><th class="num">So/Ft h</th><th class="num">Nacht h</th><th class="num">Zuschlag h</th><th class="num">Mittage</th><th class="num">km</th><th class="num">Spesen CHF</th><th>Status</th><th></th></tr></thead><tbody>';
   Object.keys(users).forEach(function(uidk){
     var x=users[uidk];
-    var a=stdMonatsAuswertung(x.tage,jahr,monat,p);
+    var pu=stParamsFor(uidk);
+    var a=stdMonatsAuswertung(x.tage,jahr,monat,pu);
     var st={};x.tage.forEach(function(t){st[t.status||'offen']=true;});
-    h+='<tr><td><b>'+esc(x.name||'')+'</b></td>'
+    h+='<tr><td><b>'+esc(x.name||'')+'</b>'+(pu.pensumFaktor!==1?'<div style="font-size:10px;color:var(--mut)">Pensum '+Math.round(pu.pensumFaktor*100)+' %</div>':'')+'</td>'
       +'<td class="num">'+stdFmtH(a.ist)+'</td><td class="num">'+stdFmtH(a.soll)+'</td>'
       +'<td class="num" style="color:'+(a.saldo>=0?'var(--grn)':'var(--red)')+';font-weight:800">'+(a.saldo>=0?'+':'')+stdFmtH(a.saldo)+'</td>'
       +'<td class="num">'+stdFmtH(a.ueberstunden)+'</td>'
@@ -1303,16 +1328,21 @@ function stRenderJahresSalden(alle,jahr){
   imJahr.forEach(function(t){(users[t.userId]=users[t.userId]||{name:t.userName,tage:[]}).tage.push(t);});
   if(!Object.keys(users).length)return '';
   var canA=stCanApprove();
-  var h='<div class="card"><div class="card-hd"><h3>💰 Jahres-Salden '+jahr+'</h3><span class="sub">Töpfe kumuliert über alle Wochen · Ferien pro-rata nach Ein-/Austritt · Vorholzeit '+stdFmtH(p.vorholProWocheH)+' h/Woche</span></div><div class="card-bd"><div class="t-wrap"><table class="t"><thead><tr>'
+  var h='<div class="card"><div class="card-hd"><h3>💰 Jahres-Salden '+jahr+'</h3><span class="sub">Töpfe kumuliert über alle Wochen · Ferien pro-rata nach Ein-/Austritt · Vorholzeit '+stdFmtH(p.vorholProWocheH)+' h/Woche (Vollzeit — skaliert mit dem Pensum)</span></div><div class="card-bd"><div class="t-wrap"><table class="t"><thead><tr>'
     +'<th>Mitarbeiter</th><th class="num">Topf A Saldo h</th><th class="num">Topf B offen h</th><th class="num">Ausbezahlt h</th><th class="num">Vorhol-Saldo h</th><th class="num">Ferien Anspruch</th><th class="num">bezogen</th><th class="num">verfügbar</th><th class="num">Krank/Unfall Tg</th>'+(canA?'<th></th>':'')+'</tr></thead><tbody>';
   Object.keys(users).forEach(function(uidk){
     var x=users[uidk];
     var mi=stMitarbeiterInfo(uidk);
-    var j=stdJahresAuswertung(x.tage,jahr,p,{
+    var pu=stParamsFor(uidk);
+    var j=stdJahresAuswertung(x.tage,jahr,pu,{
       auszahlungH:stAuszahlungH(uidk,jahr),
       eintritt:mi.eintritt,austritt:mi.austritt,ferienTageJahr:mi.ferienTage
     });
-    h+='<tr><td><b>'+esc(x.name||'')+'</b>'+((mi.eintritt||mi.austritt)?'<div style="font-size:10px;color:var(--mut)">'+(mi.eintritt?'Eintritt '+dfmt(mi.eintritt):'')+(mi.eintritt&&mi.austritt?' · ':'')+(mi.austritt?'Austritt '+dfmt(mi.austritt):'')+'</div>':'')+'</td>'
+    var infoZeile=[];
+    if(pu.pensumFaktor!==1)infoZeile.push('Pensum '+Math.round(pu.pensumFaktor*100)+' %');
+    if(mi.eintritt)infoZeile.push('Eintritt '+dfmt(mi.eintritt));
+    if(mi.austritt)infoZeile.push('Austritt '+dfmt(mi.austritt));
+    h+='<tr><td><b>'+esc(x.name||'')+'</b>'+(infoZeile.length?'<div style="font-size:10px;color:var(--mut)">'+infoZeile.join(' · ')+'</div>':'')+'</td>'
       +'<td class="num">'+stdFmtH(j.topfASaldo)+'</td>'
       +'<td class="num"'+(j.topfBOffen>0.004?' style="color:var(--red);font-weight:800"':'')+'>'+stdFmtH(j.topfBOffen)+'</td>'
       +'<td class="num">'+stdFmtH(j.ausbezahltH)+'</td>'
@@ -1327,7 +1357,7 @@ function stRenderJahresSalden(alle,jahr){
       +'</tr>';
   });
   h+='</tbody></table></div>'
-    +'<div class="gavnote" style="margin-top:10px">Topf A = Mehrstunden über (Soll + Vorholzeit) bis '+stdFmtH(p.topfGrenzeH)+' h/Woche — Bezug via Absenz «Kompensation». Topf B = darüber, auszahlungspflichtig (Erinnerung an Vorgesetzte bei Überschreitung). Vorhol-Konto wird durch Absenz «Brückentag» belastet.</div>'
+    +'<div class="gavnote" style="margin-top:10px">Topf A = Mehrstunden über (Soll + Vorholzeit) bis '+stdFmtH(p.topfGrenzeH)+' h/Woche bei Vollzeit — die Grenze skaliert mit dem Pensum (individueller Override in den ⚙️-Stammdaten möglich); Bezug via Absenz «Kompensation». Topf B = darüber, auszahlungspflichtig (Erinnerung an Vorgesetzte bei Überschreitung). Vorhol-Konto wird durch Absenz «Brückentag» belastet. Bei reduziertem Pensum skalieren Soll, Vorholzeit und Tageswerte automatisch; Ferientage bleiben in Tagen (Tageswert = reduziertes Tagessoll).</div>'
     +'</div></div>';
   return h;
 }
@@ -1355,9 +1385,8 @@ function stAuszahlung(userId,name,jahr){
   });
 }
 function stdJahresAuswertungOffen(userId,jahr){
-  var p=stParams();
   var tage=orgTage().filter(function(t){return t.userId===userId&&String(t.datum).slice(0,4)===String(jahr);});
-  var j=stdJahresAuswertung(tage,jahr,p,{auszahlungH:stAuszahlungH(userId,jahr)});
+  var j=stdJahresAuswertung(tage,jahr,stParamsFor(userId),{auszahlungH:stAuszahlungH(userId,jahr)});
   return j.topfBOffen;
 }
 function stCsv(){
@@ -1367,13 +1396,16 @@ function stCsv(){
   var imMonat=alle.filter(function(t){return t.datum.slice(0,7)===_monat;});
   var users={};
   imMonat.forEach(function(t){(users[t.userId]=users[t.userId]||{name:t.userName,tage:[]}).tage.push(t);});
-  var rows=[['Mitarbeiter','Monat','Ist h','Soll h','Saldo h','Ueberstunden h','Topf A h','Topf B h','Samstag h','Sonntag/Feiertag h','Nacht h','Zuschlag Zeitwert h','Mittage','Mittag CHF','km','km CHF','Topf A Saldo Jahr h','Topf B offen Jahr h','Vorhol-Saldo h','Ferien Anspruch','Ferien bezogen','Ferien Rest'].join(';')];
+  var rows=[['Mitarbeiter','Pensum %','Monat','Ist h','Soll h','Saldo h','Ueberstunden h','Topf A h','Topf B h','Samstag h','Sonntag/Feiertag h','Nacht h','Zuschlag Zeitwert h','Mittage','Mittag CHF','km','km CHF','Topf A Saldo Jahr h','Topf B offen Jahr h','Vorhol-Saldo h','Ferien Anspruch','Ferien bezogen','Ferien verfuegbar'].join(';')];
   Object.keys(users).forEach(function(uidk){
-    var x=users[uidk];var a=stdMonatsAuswertung(x.tage,jahr,monat,p);
+    var x=users[uidk];
+    var pu=stParamsFor(uidk);
+    var a=stdMonatsAuswertung(x.tage,jahr,monat,pu);
     var mi=stMitarbeiterInfo(uidk);
     var jt=alle.filter(function(t){return t.userId===uidk&&String(t.datum).slice(0,4)===String(jahr);});
-    var j=stdJahresAuswertung(jt,jahr,p,{auszahlungH:stAuszahlungH(uidk,jahr),eintritt:mi.eintritt,austritt:mi.austritt,ferienTageJahr:mi.ferienTage});
-    rows.push([x.name,_monat,stdFmtH(a.ist),stdFmtH(a.soll),stdFmtH(a.saldo),stdFmtH(a.ueberstunden),stdFmtH(a.topfA),stdFmtH(a.topfB),stdFmtH(a.samstag),stdFmtH(a.sonntag),stdFmtH(a.nacht),stdFmtH(a.zuschlagZeit),a.mittage,a.chfMittag.toFixed(2),Math.round(a.km*10)/10,a.chfKm.toFixed(2),stdFmtH(j.topfASaldo),stdFmtH(j.topfBOffen),stdFmtH(j.vorholSaldo),j.ferienAnspruch.toFixed(1),j.ferienBezogen.toFixed(1),j.ferienSaldo.toFixed(1)].join(';'));
+    var j=stdJahresAuswertung(jt,jahr,pu,{auszahlungH:stAuszahlungH(uidk,jahr),eintritt:mi.eintritt,austritt:mi.austritt,ferienTageJahr:mi.ferienTage});
+    var fd=stFerienDetail(uidk,jahr);
+    rows.push([x.name,Math.round(pu.pensumFaktor*100),_monat,stdFmtH(a.ist),stdFmtH(a.soll),stdFmtH(a.saldo),stdFmtH(a.ueberstunden),stdFmtH(a.topfA),stdFmtH(a.topfB),stdFmtH(a.samstag),stdFmtH(a.sonntag),stdFmtH(a.nacht),stdFmtH(a.zuschlagZeit),a.mittage,a.chfMittag.toFixed(2),Math.round(a.km*10)/10,a.chfKm.toFixed(2),stdFmtH(j.topfASaldo),stdFmtH(j.topfBOffen),stdFmtH(j.vorholSaldo),fd.anspruch.toFixed(1),fd.bezogen.toFixed(1),fd.verfuegbar.toFixed(1)].join(';'));
   });
   var blob=new Blob(['﻿'+rows.join('\r\n')],{type:'text/csv;charset=utf-8'});
   var aEl=document.createElement('a');
@@ -1389,15 +1421,16 @@ function stPdf(userId){
   var u=stUser();if(!u)return;
   if(userId!==u.id&&!stCanApprove()){toast('Keine Berechtigung');return;}
   var p=stParams();
+  var pu=stParamsFor(userId);
   var jahr=parseInt(_monat.slice(0,4),10),monat=parseInt(_monat.slice(5,7),10);
   var alle=stCanApprove()?orgTage():meineTage();
   var tage=alle.filter(function(t){return t.userId===userId&&t.datum.slice(0,7)===_monat;});
   var byDatum={};tage.forEach(function(t){byDatum[t.datum]=t;});
   var name=tage.length?tage[0].userName:(userId===u.id?u.name:userId);
-  var a=stdMonatsAuswertung(tage,jahr,monat,p);
+  var a=stdMonatsAuswertung(tage,jahr,monat,pu);
   var mi=stMitarbeiterInfo(userId);
   var jTage=alle.filter(function(t){return t.userId===userId&&String(t.datum).slice(0,4)===String(jahr);});
-  var j=stdJahresAuswertung(jTage,jahr,p,{auszahlungH:stAuszahlungH(userId,jahr),eintritt:mi.eintritt,austritt:mi.austritt,ferienTageJahr:mi.ferienTage});
+  var j=stdJahresAuswertung(jTage,jahr,pu,{auszahlungH:stAuszahlungH(userId,jahr),eintritt:mi.eintritt,austritt:mi.austritt,ferienTageJahr:mi.ferienTage});
   var org=null;try{org=GemaAuth.getCurrentOrg();}catch(e){}
   var orgName=(org&&org.name)||'GEMA';
   var MON=['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
@@ -1455,6 +1488,7 @@ function stPdf(userId){
     +'<div class="tb"><button class="p" onclick="window.print()">🖨 Drucken / Als PDF speichern</button><button onclick="window.close()">Schliessen</button></div>'
     +'<div class="head"><div><h1>Stunden- &amp; Spesenrapport</h1><div class="sub">'+esc(orgName)+' · GAV Gebäudetechnik (Zuschläge als Zeitwert)</div></div>'
     +'<div class="meta"><b>'+esc(name)+'</b><br>'+MON[monat-1]+' '+jahr
+    +(pu.pensumFaktor!==1?'<br>Pensum: '+Math.round(pu.pensumFaktor*100)+' % (Wochensoll '+stdFmtH(pu.wochenSoll)+' h)':'')
     +(mi.eintritt?'<br>Eintritt: '+dfmt(mi.eintritt):'')+(mi.austritt?'<br>Austritt: '+dfmt(mi.austritt):'')
     +'<br>Erstellt: '+dfmt(today())+'</div></div>'
     +'<h2>Arbeitszeiten '+MON[monat-1]+' '+jahr+'</h2>'
@@ -1463,7 +1497,7 @@ function stPdf(userId){
     +'</tbody></table>'
     +'<div class="grid2"><div><h2>Zuschläge (Zeitwert)</h2><table><tbody>'
     +sum('Überstunden über Soll'+(p.vorholProWocheH>0?' + Vorholzeit':'')+' (+'+p.zuschlagUeberstunden+'%)',stdFmtH(a.ueberstunden)+' h')
-    +sum('&nbsp;&nbsp;davon Topf A (Kompensation, ≤ '+stdFmtH(p.topfGrenzeH)+' h/Wo)',stdFmtH(a.topfA)+' h')
+    +sum('&nbsp;&nbsp;davon Topf A (Kompensation, ≤ '+stdFmtH(pu.topfGrenzeH)+' h/Wo)',stdFmtH(a.topfA)+' h')
     +sum('&nbsp;&nbsp;davon <b>Topf B (auszahlungspflichtig)</b>',stdFmtH(a.topfB)+' h')
     +sum('Samstag (+'+p.zuschlagSamstag+'%)',stdFmtH(a.samstag)+' h')
     +sum('Sonntag/Feiertag (+'+p.zuschlagSonntag+'%)',stdFmtH(a.sonntag)+' h')
@@ -1520,17 +1554,21 @@ function stOpenSettings(){
   try{org=GemaAuth.getCurrentOrg();}catch(e){}
   var orgUsers=[];
   try{orgUsers=GemaAuth.getUsers().filter(function(x){return org&&x.orgId===org.id&&x.aktiv!==false&&x.active!==false;});}catch(e){}
+  var mitCols='1fr 105px 105px 52px 56px 56px';
   orgUsers.forEach(function(x){
     var mi=(p.mitarbeiter&&p.mitarbeiter[x.id])||{};
-    userRows+='<div class="s-mit-row" data-uid="'+esc(x.id)+'" style="display:grid;grid-template-columns:1fr 110px 110px 60px;gap:6px;align-items:center;margin-bottom:6px">'
+    userRows+='<div class="s-mit-row" data-uid="'+esc(x.id)+'" style="display:grid;grid-template-columns:'+mitCols+';gap:6px;align-items:center;margin-bottom:6px">'
       +'<div style="font-size:12px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(x.name||x.email||x.id)+'</div>'
       +'<input type="date" class="s-mit-ein" value="'+esc(mi.eintritt||'')+'" title="Eintritt" style="padding:6px;border:1.5px solid var(--brd2);border-radius:8px;font-size:11.5px"/>'
       +'<input type="date" class="s-mit-aus" value="'+esc(mi.austritt||'')+'" title="Austritt" style="padding:6px;border:1.5px solid var(--brd2);border-radius:8px;font-size:11.5px"/>'
       +'<input type="text" inputmode="decimal" class="s-mit-fer" value="'+(mi.ferienTage!=null?esc(mi.ferienTage):'')+'" placeholder="'+p.ferienTage+'" title="Ferienanspruch Tage/Jahr" style="padding:6px;border:1.5px solid var(--brd2);border-radius:8px;font-size:11.5px;text-align:right"/>'
+      +'<input type="text" inputmode="numeric" class="s-mit-pensum" value="'+(mi.pensum!=null?esc(mi.pensum):'')+'" placeholder="100" title="Anstellungspensum in % — skaliert Soll, Vorholzeit, Topf-Grenze und Tageswerte automatisch" style="padding:6px;border:1.5px solid var(--brd2);border-radius:8px;font-size:11.5px;text-align:right"/>'
+      +'<input type="text" inputmode="decimal" class="s-mit-topf" value="'+(mi.topfGrenzeH!=null?esc(mi.topfGrenzeH):'')+'" placeholder="'+(Math.round(p.topfGrenzeH*((parseFloat(mi.pensum)||100)/100)*100)/100)+'" title="Individuelle Topf-A-Grenze h/Woche — leer = Org-Grenze × Pensum" style="padding:6px;border:1.5px solid var(--brd2);border-radius:8px;font-size:11.5px;text-align:right"/>'
       +'</div>';
   });
   document.getElementById('s_mitarbeiter').innerHTML=orgUsers.length
-    ?'<div style="display:grid;grid-template-columns:1fr 110px 110px 60px;gap:6px;font-size:9.5px;font-weight:800;text-transform:uppercase;color:var(--mut);margin-bottom:4px"><div>Mitarbeiter</div><div>Eintritt</div><div>Austritt</div><div>Ferien</div></div>'+userRows
+    ?'<div style="display:grid;grid-template-columns:'+mitCols+';gap:6px;font-size:9.5px;font-weight:800;text-transform:uppercase;color:var(--mut);margin-bottom:4px"><div>Mitarbeiter</div><div>Eintritt</div><div>Austritt</div><div>Ferien</div><div>Pensum %</div><div>Topf h</div></div>'+userRows
+      +'<div class="hint">Pensum: nur den Anstellungsprozent eingeben (z.B. 80) — Wochensoll, Vorholzeit, Absenz-Gutschriften und Topf-Grenze skalieren automatisch; Ferienanspruch bleibt in Tagen (ein Tag = reduziertes Tagessoll). «Topf h» überschreibt die Topf-A-Grenze individuell (leer = Org-Grenze × Pensum).</div>'
     :'<div class="hint">Keine Benutzer in der Organisation gefunden.</div>';
   stOpen('setModal');
 }
@@ -1564,11 +1602,18 @@ function stSetSave(){
           var ein=row.querySelector('.s-mit-ein').value||'';
           var aus=row.querySelector('.s-mit-aus').value||'';
           var fer=parseFloat(row.querySelector('.s-mit-fer').value);
-          if(!ein&&!aus&&isNaN(fer))return;
+          var pen=parseFloat(row.querySelector('.s-mit-pensum').value);
+          var topf=parseFloat(row.querySelector('.s-mit-topf').value);
+          if(!(pen>0&&pen<=200))pen=NaN;
+          if(pen===100)pen=NaN; // 100 % = Default, nicht speichern
+          if(!(topf>=0))topf=NaN;
+          if(!ein&&!aus&&isNaN(fer)&&isNaN(pen)&&isNaN(topf))return;
           var o={};
           if(ein)o.eintritt=ein;
           if(aus)o.austritt=aus;
           if(!isNaN(fer))o.ferienTage=fer;
+          if(!isNaN(pen))o.pensum=pen;
+          if(!isNaN(topf))o.topfGrenzeH=topf;
           m[row.getAttribute('data-uid')]=o;
         });
         return m;
