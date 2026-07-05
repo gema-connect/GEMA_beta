@@ -225,6 +225,16 @@
       modul:'spuelmanager',
       defaultOn:true
     },
+    service_faellig: {
+      label:'Wartungen fällig (Service & Wartung)',
+      modul:'service',
+      defaultOn:true
+    },
+    service_erledigt: {
+      label:'Wartung erledigt',
+      modul:'service',
+      defaultOn:true
+    },
     offertanfrage_neu: {
       label:'Neue Offertanfrage (Lieferant)',
       modul:'produktkatalog',

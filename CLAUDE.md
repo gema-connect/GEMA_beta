@@ -295,6 +295,7 @@ Kategorie-Präfix + Kleinschreibung. **Keine Umlaute in Dateinamen** (ä→ae, �
 | `br_` | Brandschutz | `br_index.html` |
 | `if_` | Infrastruktur (Werkzeug, Fahrzeug, Lager) | `if_werkzeug.html`, `if_fahrzeug.html` |
 | `sd_` | Schadensdokumentation | `sd_schadensbericht.html` |
+| `sv_` | Service & Wartung | `sv_service.html` |
 | `sp_` | Spenglerei | `sp_dachbericht.html` |
 | `ab_` | Ausbildung | `ab_index.html` |
 | `sys_` | System | `sys_settings.html` |
@@ -802,6 +803,18 @@ Spülregimes mit QR-Start-Timer und lückenloser Doku. **Komplett neu** (der alt
 - **Kopplung Hygienemanagement**: Auf der Sanierungs-Karte in `hy_legionellen.html` gibt es «🚿 Massnahme ‹Spülen› (alle 3 Tage)» (`hySpuelAktivieren`) — legt Spülobjekt (typ legionellen, Herkunft = Befund) + Spülstelle aus der Messstelle DIREKT in die Spülmanager-Pools (gleiche localStorage-Keys + `GemaSync.saveRecord('spuelmanager',…)`), verlinkt `probe.spuelObjId` und benachrichtigt die Monteure (`spuel_aktiviert`). Umgekehrt exponiert der Spülmanager `window.GemaSpuel.aktivierenFuerMassnahme(opts)`.
 - **Protokoll**: revisionssicher, CSV-Export; `spCanFlush` = jede eingeloggte Person (Monteur/Hauswart spült), CRUD via `spCanEdit` (Planer/Admin/AL/Magaziner/Unternehmer). Engine (`SP_TYPEN/spStatus/spNextDue/spDauerFor/spMMSS/spAddDays`) im `/*ENGINE-START*/`-Block, Node-testbar.
 - Rollen: Monteur/Unternehmer/Magaziner read+write (`spuelmanager`); Event-Keys `spuel_faellig`/`spuel_aktiviert`.
+
+## Service & Wartung mit Anlagenregister (sv_service.html)
+
+Anlagenregister + Wartungsverträge + automatische Serviceaufträge — schliesst den Kreis «Anlage geliefert → Anlage gewartet → Wartung verrechnet». **Neues Präfix `sv_`**, moduleKey `service`, cat Hygiene (Kachel in «Hygiene & Betrieb»; das ältere `hy_inspektion.html` bleibt als einfaches Inventar-Tool unangetastet).
+
+- **Pools (per-Record)**: Anlage `svanl:`→`gema_sv_anlagen_pool_v1` (`{name,kategorie,hersteller,modell,serienNr,standort,objektId/objektName,produktId?,quelleOaId?,lieferantFirma?,inbetriebnahme,garantieBis,intervallMonate,letzteWartung,status,vertragId?,notizen}`) · Vertrag `svvtr:`→`gema_sv_vertraege_pool_v1` (`{titel,kundeText,objektId,anlagenIds[],pauschaleNetto,startDatum,status}`) · Serviceauftrag `svauf:`→`gema_sv_auftraege_pool_v1` (`{anlageId,anlageName,objektId/Name,vertragId?,faelligAm,status offen|eingeplant|erledigt|verrechnet,erledigtAm/Von,rapport,einsatzId?,rechnungId?}`).
+- **Engine** (`/*ENGINE-START*/`, Node-testbar): `svAddMonths` (mit Monatsende-Klemme), `svNextWartung` (Basis: letzteWartung → Inbetriebnahme → Erfassungsdatum; ohne Intervall null), `svDaysUntil/svUrgency` (überfällig/≤7 fällig/≤30 bald), `svGarantieAktiv`, **`svScanFaellig`** (Seitenstart-Scan: Anlagen mit Wartung ≤30 Tage → offener Serviceauftrag; idempotent über (anlageId,faelligAm), offener/eingeplanter Auftrag blockiert Duplikate), `svNextReNr` (ERP-Nummernkreis RE-Jahr-NNN repliziert).
+- **Import aus Offertanfragen**: «⬇ Aus Offertanfragen» listet beantwortete OAs (`GemaProdukte.getOffertanfragen`) → Anlage mit Produkt/Lieferant/Projekt vorbefüllt (`quelleOaId` verhindert Doppel-Übernahme, Intervall-Default 12 Monate).
+- **Cross-Modul-Writes** (ADD-ONLY via `xPoolAdd` — getCached→push→saveRecord mit fremdem moduleKey, nie persistCollection): «📅 Einsatz» schreibt einen Einsatz (`typ:'frei'`, Titel «🛠 Service: …», `serviceAuftragId`) in `gema_einsatz_pool_v1` + `einsatz_geplant` an den Monteur; «💰 Rechnung» erzeugt einen ERP-Rechnungs-Entwurf (`erpdok:` in `gema_erp_dok_pool_v1`, Position mit Rapport-Text, EP 0 zum Ergänzen bzw. Vertragspauschale) und verlinkt `auftrag.rechnungId` (Status `verrechnet`), Dialog bietet Sprung zu `pm_erp.html?doc=…`.
+- **Wartung dokumentieren** (`svDokuOpen/svDokuSave`, Rechte `svCanWork` = Edit-Rollen + Monteur/Spengler): Pflicht Datum + Rapport → `anlage.letzteWartung`, Auftrag `erledigt` (ohne offenen Auftrag wird ein erledigter als Doku angelegt), Notify `service_erledigt` an role_planer+Org. **QR pro Anlage** (`?scan=<id>`, qrcodejs, A6-Etikette) öffnet direkt dieses Modal.
+- **Fälligkeits-Scan beim Seitenstart** (`svScanUndRender`): legt Aufträge an + `service_faellig` an role_planer+Org (Tages-Lock `gema_sv_notif_lock_v1`).
+- Rechte: `svCanEdit` = Planer-Rollen/Admin/AL/Magaziner (CRUD, Verträge, Einsatz, Rechnung); Monteur/Spengler dokumentieren Wartungen. Registriert: gema_auth (MODULES `service` cat Hygiene, FILE_MAP `sv_service`, Monteur/Magaziner rw), gema_notify (`service_faellig`/`service_erledigt`), index.html (Hygiene & Betrieb, 6 Module), sw.js.
 
 ## W12-Modul (hy_w12.html)
 
@@ -1713,6 +1726,8 @@ Zentrales Modul `gema_notify.js` für In-App-Benachrichtigungen. Glocke + Toast-
 | `hy_arbeit_abgeschlossen` | legionellen | on |
 | `spuel_faellig` | spuelmanager | on |
 | `spuel_aktiviert` | spuelmanager | on |
+| `service_faellig` | service | on |
+| `service_erledigt` | service | on |
 
 **Neue Module fügen ihre Event-Keys hier hinzu**, sonst greift kein Preferences-Filter.
 
