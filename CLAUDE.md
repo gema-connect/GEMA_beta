@@ -779,6 +779,19 @@ Wenn ein Media-Query entfernt wurde, blieben in einigen Modulen die innerhalb de
 
 ---
 
+## Legionellen-Management (hy_legionellen.html)
+
+Umsetzung der Spez. `GEMAVANILLAREBUILDSPEC.md` (main-Branch; Nachbau von «gema-connect / Hygiene – Water Quality Management») **integriert in die GEMA-Umgebung**: GemaAuth statt eigenem Login (2FA bewusst zurückgestellt), GemaSync-per-Record statt eigener DB/REST, GemaNotify statt eigener Notifications, **externe Partner (Labor/Sanierer) via E-Mail-Match cross-org** (Regierapport-Muster) statt eigener Portale, **Fälligkeits-Scan beim Seitenstart** statt Cron.
+
+- **Hierarchie/Pools (moduleKey `legionellen`)**: Standort `hysite:`→`gema_hy_sites_pool_v1` · Gebäude `hygeb:`→`gema_hy_geb_pool_v1` (optional `siteId`, `objektId`-Verknüpfung zu GEMA-Objekten, Typ + Overrides + Labor-Override) · Raum `hyraum:`→`gema_hy_raum_pool_v1` · Messstelle `hyps:`→`gema_hy_ps_pool_v1` (Medium WARMWASSER/KALTWASSER/ZIRKULATION, Typ inkl. DUSCHE/BADEWANNE-Schlauch-Flag, materialisiertes `interval`+`threshold`, `nextSampleDate`) · Probe `hyprobe:`→`gema_hy_proben_pool_v1` (Status/Messwerte/Sanierung/Log denormalisiert inkl. `psLabelSnapshot`/`laborEmail`).
+- **Vererbung (Kap. 11)**: `hyEffektiv(raum,geb,default)` — Raum-Override → Raumkategorie → Gebäude-Override → Gebäudetyp → Firmen-Standard bzw. 1000 KBE/L, mit **Herkunfts-Anzeige** im Messstellen-Formular; am PS materialisiert.
+- **Proben-Workflow (Kap. 8)**: SCHEDULED → SAMPLE_TAKEN (Pflicht: Entnahme-Temp + Entnahmeschema) → Einreichen mit 12 Pflichtfeldern (`hyPflichtFehlt`) → **`hyAuswertung`: max(Legionellen-Werte) STRIKT > Grenzwert = POSITIVE** → COMPLETED (negativ, `nextSampleDate` neu) oder PLANER_NOTIFIED (Sanierung). **Proben löscht niemand.** Manuelle Nacherfassung (Kap. 10.4): direkt COMPLETED, **totalLegionella = SUMME der 4 Subspezies**, `nextSampleDate` nur wenn jüngste Probe.
+- **Scheduler (Kap. 10.3)**: `hyScanFaellig` beim Seitenstart + nach PS-Save — 30-Tage-Fenster, idempotent über (psId, scheduledDate); Labor-Auflösung Gebäude→Standort→Firmen-Standard (`hyLaborFor`); DUSCHE/BADEWANNE → `hy_schlauchwechsel` an role_monteur (Tages-Lock `gema_hy_notif_lock_v1`).
+- **Sanierung (Kap. 9)**: läuft in PLANER_NOTIFIED über Timestamps. planMode/workMode NUR aus Org-Settings (`org.settings.legionellen`, INTERNAL/EXTERNAL); Contractor-Auflösung Gebäude→Standort→Settings (`hyContractorFor`), Snapshot am Sample (`sanPlanerEmail`/`sanTechnikerEmail`). Plan ≥ 10 Zeichen → benachrichtigt sofort Ausführende (keine separate Plan-Freigabe) · Delegation nur solange Schritt offen · Ausführung intern = role_monteur/planer, extern = E-Mail-Match · **Freigabe (Planer-Seite!) mit Pflicht-Nachprobendatum → Eltern COMPLETED + neue Probe SCHEDULED mit `parentSampleId`+`isRetake`** (Labor vom Eltern-Sample). Probenliste blendet Eltern mit Kindern aus (`hyOhneEltern`).
+- **UI (Kap. 15)**: Status-/Ergebnis-Badges, Legionellen-Ampel (0 sauber / <100 niedrig / <1000 moderat / ≥1000 hoch), Fälligkeits-Dringlichkeit (überfällig/bald/anstehend/geplant), Medium-Farben, `dd.mm.yyyy`. Views: Übersicht (KPIs) / Portfolio (Baum) / Proben (Filter-Chips) / Sanierung (Schritt-Karten); `#hyTasks` oben = Panels «Meine Labor-Proben» + «Meine Sanierungsaufträge» für externe Partner.
+- **Engine im `/*ENGINE-START*/`-Block** (Node-testbar): Referenzdaten, `hyMonate/hyAddMonths/hyNextDate/hyEffektiv/hyAuswertung/hyManuellAuswertung/hyPflichtFehlt/hyAmpel/hyDaysUntil/hyUrgency/hyScanFaellig/hyLaborFor/hyContractorFor/hySanAktiv/hyOhneEltern`.
+- Registriert: gema_auth (MODULES `legionellen` cat Hygiene, FILE_MAP `hy_legionellen`; Planer via `_allPerms`, Monteur read+write (Ausführung), Unternehmer read+write (externe Partner), Behörde read), gema_notify (6 `hy_*`-Keys), index.html (ersetzt die deaktivierte «Hygienemanagement»-Platzhalter-Kachel), sw.js.
+
 ## W12-Modul (hy_w12.html)
 
 Selbstkontrolle nach SVGW W12:
@@ -1670,6 +1683,12 @@ Zentrales Modul `gema_notify.js` für In-App-Benachrichtigungen. Glocke + Toast-
 | `abnahme_freigabe_entscheid` | abnahme | on |
 | `abnahme_maengel_zugewiesen` | abnahme | on |
 | `abnahme_maengel_abgearbeitet` | abnahme | on |
+| `hy_schlauchwechsel` | legionellen | on |
+| `hy_labor_probe` | legionellen | on |
+| `hy_befund_positiv` | legionellen | on |
+| `hy_plan_erstellt` | legionellen | on |
+| `hy_sanierung_delegiert` | legionellen | on |
+| `hy_arbeit_abgeschlossen` | legionellen | on |
 
 **Neue Module fügen ihre Event-Keys hier hinzu**, sonst greift kein Preferences-Filter.
 

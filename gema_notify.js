@@ -185,6 +185,36 @@
       modul:'abnahme',
       defaultOn:true
     },
+    hy_schlauchwechsel: {
+      label:'Schlauchwechsel vor Probenahme (Dusche/Badewanne)',
+      modul:'legionellen',
+      defaultOn:true
+    },
+    hy_labor_probe: {
+      label:'Probe dem Labor zugewiesen',
+      modul:'legionellen',
+      defaultOn:true
+    },
+    hy_befund_positiv: {
+      label:'Positiver Legionellen-Befund',
+      modul:'legionellen',
+      defaultOn:true
+    },
+    hy_plan_erstellt: {
+      label:'Sanierungsplan erstellt (Ausführung fällig)',
+      modul:'legionellen',
+      defaultOn:true
+    },
+    hy_sanierung_delegiert: {
+      label:'Sanierung delegiert / übernommen',
+      modul:'legionellen',
+      defaultOn:true
+    },
+    hy_arbeit_abgeschlossen: {
+      label:'Sanierung ausgeführt (Freigabe ausstehend)',
+      modul:'legionellen',
+      defaultOn:true
+    },
     offertanfrage_neu: {
       label:'Neue Offertanfrage (Lieferant)',
       modul:'produktkatalog',
