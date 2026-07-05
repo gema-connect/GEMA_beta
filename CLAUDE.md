@@ -1899,6 +1899,10 @@ Ein **Eimer** ist ein flexibler Arbeitsraum, der Module, Notizen und Team-Mitgli
 - **Toast**: Animierte Pill (2.2s auto-dismiss)
 - **Responsive**: Notes unter Content bei ≤1024px, Hamburger-Drawer bei ≤720px
 
+### Modul-Status & KPIs (Verknüpfungen, KRITISCH bei Modul-Umbauten)
+
+Der Auto-Status der Modul-Tiles (`_wsAutoStatus`, Config `_WS_STATUS_CFG`) liest die **echten GemaAutoSave-Basis-Keys** (`gema_<autosaveName>__<objektId>` — z.B. `gema_enthaertungsanlage`, `gema_warmwasser_sia385`, `gema_niederschlagsanfall`, `gema_lu_tabelle`), die gewählte Anlage (`gema_<x>_anlage` bzw. `gema_aw_chosen_<kategorie>` von GemaAnlagenwahl) und den **Offertanfrage-Status über die echte OA-Kette** (`GemaProdukte.getOffertanfragen()` nach `objektId`+`kategorie` → «Offerte angefragt»/«Offerte erhalten»; `gema_produktkatalog_api.js` ist dafür eingebunden). «berechnet» kommt aus dem Berechnungs-Index (P04). Status-Erkennung ist eine **generische Heuristik über den flachen AutoSave-Snapshot** — KEINE modul-spezifischen Feld-IDs mehr (die alten waren nach den Modul-Neubauten alle tot). KPI-Pools (`gema_werkzeug`, `gema_vehicles`, `gema_trocknung_v1`) werden via `GemaSync.getCached` gelesen und **immer auf die eigene Org gefiltert** (`pool:true` in MODULE_KPIS). Wird ein Modul umgebaut (neuer AutoSave-Name), MUSS `_WS_STATUS_CFG` nachgezogen werden. Test-Hooks: `window._wsAutoStatusHook/_wsKpiHook`.
+
 ### Design Tokens (abweichend vom Hauptsystem)
 
 Der Workspace verwendet ein eigenes Token-Set aus dem React-Design-Handoff:

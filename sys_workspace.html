@@ -399,6 +399,7 @@ input::placeholder{color:#cbd5e1}
 <script src="gema_db.js"></script>
 <script src="gema_feedback.js"></script><script src="gema_notify.js"></script><script src="gema_notify_ui.js"></script>
 <script src="gema_objekte_api.js"></script>
+<script src="gema_produktkatalog_api.js"></script>
 <script src="gema_lu_api.js"></script>
 <script src="gema_osmose_api.js"></script>
 <script src="gema_apparate_api.js"></script>
@@ -671,14 +672,14 @@ input::placeholder{color:#cbd5e1}
       var ha=api.luHausanschluss;
       return ha>0?('V̇ '+ha.toFixed(2)+' l/s'):null;
     }},
-    sb_niederschlag:{label:'NS',key:'gema_niederschlag',format:function(d){if(!d)return null;if(d.flaeche)return d.flaeche+' m²';return null;}},
+    sb_niederschlag:{label:'NS',key:'gema_niederschlagsanfall',format:function(d){if(!d)return null;var n=0;for(var k in d){if(k!=='_ts'&&d[k]!==''&&d[k]!=null&&d[k]!==false)n++;}return n?'✓ erfasst':null;}},
     hy_w12:{label:'W12',key:'gema_w12_v1',format:function(d){if(!d)return null;if(d.checks){var done=0,total=0;for(var k in d.checks){total++;if(d.checks[k])done++;}if(total)return done+'/'+total+' Punkte';}return null;}},
     pm_objekte:{label:'Obj',format:function(){try{if(typeof GemaObjekte!=='undefined'){var all=GemaObjekte.getAll();if(all&&all.length)return all.length+' Objekte';}}catch(e){}return null;}},
     pm_terminplan:{label:'TP',format:function(){return null;}},
     pm_ausschreibung:{label:'AS',format:function(){return null;}},
     pm_abnahme:{label:'AB',format:function(){return null;}},
-    if_werkzeug:{label:'WZ',key:'gema_werkzeug',format:function(d){if(!d)return null;if(Array.isArray(d)){var defekte=d.filter(function(t){return t.berichte&&t.berichte.find(function(b){return b.typ==='defekt'&&!b.erledigt;});}).length;return d.length+' Geräte'+(defekte?' · '+defekte+' Defekte':'');}return null;}},
-    if_fahrzeug:{label:'FZ',key:'gema_fahrzeug',format:function(d){if(!d)return null;if(Array.isArray(d))return d.length+' Fahrzeuge';return null;}}
+    if_werkzeug:{label:'WZ',key:'gema_werkzeug',pool:true,format:function(d){if(!d)return null;if(Array.isArray(d)){var defekte=d.filter(function(t){return t.berichte&&t.berichte.find(function(b){return b.typ==='defekt'&&!b.erledigt;});}).length;return d.length+' Geräte'+(defekte?' · '+defekte+' Defekte':'');}return null;}},
+    if_fahrzeug:{label:'FZ',key:'gema_vehicles',pool:true,format:function(d){if(!d)return null;if(Array.isArray(d))return d.length+' Fahrzeuge';return null;}}
   };
 
   function getModuleKpi(modId,objektId){
@@ -705,10 +706,15 @@ input::placeholder{color:#cbd5e1}
           // GemaTrocknung ist nicht objekt-bezogen — wir muessen die
           // Geraete der eigenen Org direkt aus localStorage lesen.
           try{
-            var raw=null;
-            if(typeof _GemaDB!=='undefined' && _GemaDB.c) raw=_GemaDB.c['gema_trocknung_v1'];
-            if(!raw) raw=localStorage.getItem('gema_trocknung_v1');
-            var all=raw?JSON.parse(raw):[];
+            var all=null;
+            if(typeof GemaSync!=='undefined'&&GemaSync.getCached)all=GemaSync.getCached('gema_trocknung_v1');
+            if(!all||!all.length){
+              var raw=null;
+              if(typeof _GemaDB!=='undefined' && _GemaDB.c) raw=_GemaDB.c['gema_trocknung_v1'];
+              if(!raw) raw=localStorage.getItem('gema_trocknung_v1');
+              all=raw?JSON.parse(raw):[];
+            }
+            if(!Array.isArray(all))all=[];
             var meOrg=null; try{var u=GemaAuth.getCurrentUser(); meOrg=u?u.orgId:null;}catch(e){}
             if(meOrg){
               var mine=all.filter(function(d){return d&&d.orgId===meOrg;});
@@ -721,6 +727,22 @@ input::placeholder{color:#cbd5e1}
     }
     if(cfg.format&&!cfg.key)return cfg.format(null);
     if(!cfg.key)return null;
+    if(cfg.pool){
+      // Org-weiter Multi-Tenant-Pool (Werkzeug/Fahrzeug): via GemaSync.getCached
+      // (KONVENTION — localStorage-Cache kann am iOS-Quota scheitern) und
+      // IMMER auf die eigene Org gefiltert.
+      var pdata=null;
+      try{
+        var arr=null;
+        if(typeof GemaSync!=='undefined'&&GemaSync.getCached)arr=GemaSync.getCached(cfg.key);
+        if(!arr||!arr.length){var pr=localStorage.getItem(cfg.key);if(pr)arr=JSON.parse(pr);}
+        if(Array.isArray(arr)){
+          var meOrg=null;try{var pu=GemaAuth.getCurrentUser();meOrg=pu?pu.orgId:null;}catch(e){}
+          pdata=meOrg?arr.filter(function(x){return x&&x.orgId===meOrg;}):[];
+        }
+      }catch(e){}
+      try{return cfg.format(pdata);}catch(e){return null;}
+    }
     var storageKey=cfg.key;
     if(objektId&&typeof GemaObjekte!=='undefined'){
       try{storageKey=cfg.key+'__'+objektId;}catch(e){}
@@ -774,6 +796,9 @@ input::placeholder{color:#cbd5e1}
     setTimeout(function(){var inp=el.querySelector('.ws-input');if(inp)inp.focus();},60);
   }
   window._wsCloseModal=function(){document.getElementById('wsModalRoot').innerHTML='';};
+  // Debug-/Test-Hooks (Muster pm_abnahme)
+  window._wsAutoStatusHook=function(m,o){return _wsAutoStatus(m,o);};
+  window._wsKpiHook=function(m,o){return getModuleKpi(m,o);};
 
   // ── New Bucket Modal ──
   var _newType='project';
@@ -1106,69 +1131,75 @@ input::placeholder{color:#cbd5e1}
     return 'default';
   }
 
-  // ── Auto-Status: Erkennung aus localStorage ──
+  // ── Auto-Status: AutoSave-Snapshot + Anlagenwahl + echte Offertanfragen ──
   var NO_AUTO_STATUS=['hy_w12','if_werkzeug','if_fahrzeug'];
-  var ANLAGE_MODULES=['sa_enthaertung','sa_osmose','sb_druckerhoehung'];
+  // data = GemaAutoSave-Basis (Storage gema_<autosaveName>__<objektId>),
+  // anlage = Key der gewählten Anlage, kategorie = Produktkatalog-Kategorie (OA-Status)
+  var _WS_STATUS_CFG={
+    sa_enthaertung:{data:'gema_enthaertungsanlage',anlage:'gema_enthaertung_anlage',kategorie:'enthaertung'},
+    sa_osmose:{data:'gema_osmose',anlage:'gema_osmose_anlage',kategorie:'osmose'},
+    sb_druckerhoehung:{data:'gema_druckerhoehung',anlage:'gema_aw_chosen_druckerhoehung',kategorie:'druckerhoehung'},
+    sb_lu_tabelle:{data:'gema_lu_tabelle'},
+    sb_warmwasser:{data:'gema_warmwasser_sia385'},
+    sb_niederschlag:{data:'gema_niederschlagsanfall'},
+    sb_druckverlust:{data:'gema_druckverlust'},
+    pm_objekte:null,pm_terminplan:null,pm_ausschreibung:null,pm_abnahme:null
+  };
 
   function _wsAutoStatus(modId,objektId){
     if(NO_AUTO_STATUS.indexOf(modId)>=0)return 'offen';
-    var baseKeys={
-      sa_enthaertung:'gema_enthaertung',sa_osmose:'gema_osmose',
-      sb_druckerhoehung:'gema_druckerhoehung',sb_lu_tabelle:'gema_lu',
-      sb_warmwasser:'gema_warmwasser',sb_niederschlag:'gema_niederschlag',
-      sb_druckverlust:'gema_druckverlust',
-      pm_objekte:null,pm_terminplan:null,pm_ausschreibung:null,pm_abnahme:null
-    };
-    var base=baseKeys[modId];if(base===undefined)return 'offen';
-    if(base===null)return 'offen';
+    var cfg=_WS_STATUS_CFG[modId];
+    if(cfg===undefined||cfg===null)return 'offen';
 
-    var sk=objektId?base+'__'+objektId:base;
-    var data=null;
-    try{var raw=localStorage.getItem(sk);if(!raw)raw=localStorage.getItem(base);if(raw)data=JSON.parse(raw);}catch(e){}
-    if(!data)return 'offen';
-
-    if(ANLAGE_MODULES.indexOf(modId)>=0){
-      var anlKey=base+'_anlage';
-      var anlSk=objektId?anlKey+'__'+objektId:anlKey;
+    if(cfg.kategorie){
+      // Offertanfrage der Kategorie für dieses Objekt? — echte OA-Kette
+      // (GemaProdukte) statt des früheren toten '<base>_offerte'-Keys
+      try{
+        if(typeof GemaProdukte!=='undefined'&&objektId){
+          var oas=(GemaProdukte.getOffertanfragen()||[]).filter(function(oa){
+            return oa.projekt&&oa.projekt.objektId===objektId&&oa.kategorie===cfg.kategorie;
+          });
+          if(oas.some(function(oa){return oa.status==='beantwortet';}))return 'Offerte erhalten';
+          if(oas.length)return 'Offerte angefragt';
+        }
+      }catch(e){}
       var hasAnlage=false;
-      try{var ar=localStorage.getItem(anlSk);if(!ar)ar=localStorage.getItem(anlKey);if(ar&&ar!=='null'&&ar!=='""')hasAnlage=true;}catch(e){}
-      var hasOfferte=false;
-      try{var ofKey=base+'_offerte';var ofSk=objektId?ofKey+'__'+objektId:ofKey;var ofr=localStorage.getItem(ofSk);if(!ofr)ofr=localStorage.getItem(ofKey);if(ofr&&ofr!=='null')hasOfferte=true;}catch(e){}
-      if(hasOfferte)return 'Offerte angefragt';
+      try{
+        var ak=objektId?cfg.anlage+'__'+objektId:cfg.anlage;
+        var ar=localStorage.getItem(ak);
+        if(!ar&&!objektId)ar=localStorage.getItem(cfg.anlage);
+        if(ar&&ar!=='null'&&ar!=='""')hasAnlage=true;
+      }catch(e){}
       if(hasAnlage)return 'Anlage gewählt';
     }
 
-    var hasValues=false;var hasResult=false;
-    if(modId==='sa_enthaertung'){
-      hasValues=!!(data.haerteRoh||data.durchfluss);
-      hasResult=!!(data.haerteRoh&&data.haerteZiel&&data.durchfluss);
-    }else if(modId==='sa_osmose'){
-      hasValues=!!(data.zulaufTDS||data.volumenstrom);
-      hasResult=!!(data.permeat||data.recovery);
-    }else if(modId==='sb_druckerhoehung'){
-      hasValues=!!(data.volumenstrom||data.geodaetisch);
-      hasResult=!!(data.volumenstrom&&data.foerderhoehe);
-    }else if(modId==='sb_lu_tabelle'){
-      hasValues=data.verbraucher&&data.verbraucher.length>0;
-      hasResult=data.verbraucher&&data.verbraucher.length>0&&!!data.spitzenvolumenstrom;
-    }else if(modId==='sb_warmwasser'){
-      hasValues=!!(data.zapfstellen||data.personen);
-      hasResult=!!(data.speichervolumen||data.leistung);
-    }else if(modId==='sb_niederschlag'){
-      hasValues=!!(data.flaeche||data.abflussbeiwert);
-      hasResult=!!(data.flaeche&&data.abflussbeiwert);
-    }else if(modId==='sb_druckverlust'){
-      hasValues=!!(data.durchmesser||data.laenge);
-      hasResult=!!(data.druckverlust);
-    }else{
-      var keys=Object.keys(data);
-      hasValues=keys.length>0;
-      hasResult=keys.length>2;
-    }
+    var sk=objektId?cfg.data+'__'+objektId:cfg.data;
+    var data=null;
+    try{var raw=localStorage.getItem(sk);if(!raw&&!objektId)raw=localStorage.getItem(cfg.data);if(raw)data=JSON.parse(raw);}catch(e){}
+    if(!data)return 'offen';
 
-    if(hasResult)return 'berechnet';
-    if(hasValues)return 'in Bearbeitung';
-    return 'offen';
+    // Generische Heuristik über den AutoSave-Snapshot (flache id→Wert-Map;
+    // die früheren modul-spezifischen Feld-IDs existieren nach den Modul-
+    // Neubauten nicht mehr): gefüllte Felder = in Bearbeitung; Eintrag im
+    // Berechnungs-Index (P04, wird bei jedem Save mit Objekt gesetzt) = berechnet.
+    var filled=0;
+    try{
+      Object.keys(data).forEach(function(k){
+        if(k==='_ts')return;
+        var v=data[k];
+        if(v===''||v==null||v===false)return;
+        filled++;
+      });
+    }catch(e){}
+    if(!filled)return 'offen';
+    try{
+      if(objektId&&typeof GemaObjekte!=='undefined'&&GemaObjekte.getBerechnungenForObjekt){
+        var idx=GemaObjekte.getBerechnungenForObjekt(objektId)||[];
+        var autosaveName=cfg.data.replace(/^gema_/,'');
+        if(idx.some(function(e){return e.modul===autosaveName;}))return 'berechnet';
+      }
+    }catch(e){}
+    return 'in Bearbeitung';
   }
 
   // ── Objekt-Verknüpfung ──
