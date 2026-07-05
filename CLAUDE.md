@@ -1252,6 +1252,15 @@ Kalender zur Monteur-Einplanung — Aufträge aus dem ERP-Modul per **Drag & Dro
 - **Notifikation** `einsatz_geplant` (gema_notify.js) an den Monteur bei Einplanung UND Verschiebung (`epNotify`, nie an sich selbst), Link mit Deep-Link `pm_einsatzplan.html?d=YYYY-MM-DD` (Init springt zur Woche/zum Monat des Datums).
 - **Rechte**: Planen = Planer-Rollen/Admin/Abteilungsleiter/Magaziner (`epCanPlan`); Monteur/Spengler read-only (`einsatzplan` read in DEFAULT_ROLES, Magaziner write). MODULES-Key `einsatzplan` (cat Projektmanagement), FILE_MAP `pm_einsatzplan`. index.html PM («14 Module»), sw.js v170.
 
+## Abnahmeprotokolle SIA 118 (pm_abnahme.html) — Teilnehmer, Freigabe & Monteur-Mängelliste
+
+Bestehendes SIA-118-Modul (mehrere Protokolle pro Objekt im per-Objekt-Blob `gema_abnahme_sia_v1__<objektId>` via `_GemaDB`, Mangel-/Plan-Pin-Fotos nach GemaStorage ausgelagert, 4 Unterschriften-Pads). Dazu drei Workflow-Bausteine:
+
+- **Teilnehmer & Gewerk (Karte im Abnahme-Tab)**: `state.gewerk` (`sanitaer|heizung|lueftung|elektro|spenglerei|allgemein`, Vorschlag aus Arbeitsgattung-Text bzw. Org-Kategorie) + `state.teilnehmer[]` aus den Objekt-Beteiligten. **Vorauswahl über `abRelevant(b,gewerk)`**: Bauherrschaft/Architekt/eigener Planer immer dabei, Behörden nie vorgewählt; Unternehmer/Weitere über **BKP-Codes des Beteiligten** (`AB_GEWERK_BKP`: sanitaer=25*, heizung=242/243, lueftung=244, elektro=23*, spenglerei=221/222/224) bzw. Text-Heuristik auf Firma/Funktion/Notizen — der Elektriker ist bei einer Sanitär-Abnahme NICHT vorgewählt. Manuelles An-/Abwählen setzt `_manuell` (übersteht Gewerk-Wechsel nicht — Wechsel baut neu auf).
+- **Freigabe pro Teilnehmer**: «✍ vor Ort» (Unterschriften-Pads unten) ODER «📧 Digital anfragen». Digitale Anfragen liegen **per-Record in der Cloud** (moduleKey `abnahme`, `abfrg:` → `gema_abnahme_frg_pool_v1`) mit denormalisiertem Kontext (Objektname, Arbeitsgattung, Ergebnis, offene Mängel) — **cross-org via `empfaengerEmail`-Match** (Regierapport-Muster). Der Empfänger sieht die Anfrage im Panel «Meine Freigaben» (`#abTasks`, oben auf der Seite) und gibt frei/lehnt ab (GemaDialog, Ablehnung mit Begründung); Status/Kommentar erscheinen beim Teilnehmer im Protokoll (`abSyncFreigaben`). Notifikationen `abnahme_freigabe_anfrage`/`abnahme_freigabe_entscheid`.
+- **Monteur-Mängelliste**: «📋 An Monteur übergeben» (Mängel-Tab) kopiert alle OFFENEN Mängel (inkl. Fotos) als Checkliste in einen per-Record-Auftrag (`abml:` → `gema_abnahme_ml_pool_v1`; `{monteurUserId, verantwortlich, status:'offen'|'abgearbeitet'|'freigegeben'|'erneute_abnahme', items:[{itemId, status, fixFotos[], kommentar}]}`). Der Monteur (role_monteur/role_spengler, `abnahme_sia` read) arbeitet sie im `#abTasks`-Panel ab: abhaken, **📷 Foto-Beweis** (GemaStorage `abnahme/<orgId>`, Base64-Fallback), Kommentar; «Alle abgearbeitet» erst möglich, wenn nichts mehr offen ist → `abnahme_maengel_abgearbeitet` an den Verantwortlichen. Dieser sieht die Karte «Zur Kontrolle»: einzelne Punkte **zurückweisen** (mit Grund → Liste zurück an Monteur) oder **«✅ Freigeben & ins Protokoll übernehmen»** (`abMlFreigeben` — schreibt `erledigt` = Datum/Monteur + Beweisfotos in die Protokoll-Mängel; **KRITISCH**: beim aktiven Protokoll in den LIVE-`state` schreiben, nicht in den `protocols[]`-Snapshot) oder **«📋 Erneute Abnahme vor Ort»** (Status-Marker, neues Protokoll manuell).
+- Debug-/Test-Hooks: `window._abState/_abCreateItem/_abRender/_abPoolRead/_abPoolSave/_abRenderTeilnehmer/_abRenderTasks/_abActiveProtoId`.
+
 ## Spenglerei – Dachinspektion (sp_dachbericht.html)
 
 Modul für Spengler zur Erstellung von Dach-Inspektionsberichten auf der Baustelle. Workflow ähnlich Schadensbericht (sd_schadensbericht.html), aber mit Spengler-spezifischer Struktur: Dachübersicht → Kapitel pro Seite (Strasse/Hof/Garten) → Unterkapitel (Einfassungen, Rinnen, Lukarnen etc.) → Massnahmen. PDF-Export im GEMA-Vorlagen-Stil mit Org-Logo bzw. GEMA-Fallback.
@@ -1657,6 +1666,10 @@ Zentrales Modul `gema_notify.js` für In-App-Benachrichtigungen. Glocke + Toast-
 | `regie_freigegeben` | regierapport | on |
 | `regie_abgelehnt` | regierapport | on |
 | `einsatz_geplant` | einsatzplan | on |
+| `abnahme_freigabe_anfrage` | abnahme | on |
+| `abnahme_freigabe_entscheid` | abnahme | on |
+| `abnahme_maengel_zugewiesen` | abnahme | on |
+| `abnahme_maengel_abgearbeitet` | abnahme | on |
 
 **Neue Module fügen ihre Event-Keys hier hinzu**, sonst greift kein Preferences-Filter.
 

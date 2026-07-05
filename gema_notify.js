@@ -165,6 +165,26 @@
       modul:'einsatzplan',
       defaultOn:true
     },
+    abnahme_freigabe_anfrage: {
+      label:'Abnahme zur Freigabe erhalten',
+      modul:'abnahme',
+      defaultOn:true
+    },
+    abnahme_freigabe_entscheid: {
+      label:'Abnahme-Freigabe entschieden',
+      modul:'abnahme',
+      defaultOn:true
+    },
+    abnahme_maengel_zugewiesen: {
+      label:'Mängelliste zugewiesen / Punkt zurückgewiesen',
+      modul:'abnahme',
+      defaultOn:true
+    },
+    abnahme_maengel_abgearbeitet: {
+      label:'Mängelliste abgearbeitet / freigegeben',
+      modul:'abnahme',
+      defaultOn:true
+    },
     offertanfrage_neu: {
       label:'Neue Offertanfrage (Lieferant)',
       modul:'produktkatalog',

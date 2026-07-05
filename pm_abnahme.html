@@ -332,6 +332,9 @@ canvas.sig{width:100%;height:150px;background:#fff;display:block;touch-action:no
     <button class="proto-sel-btn proto-sel-del" id="protoDelBtn" onclick="deleteProtocol()">🗑</button>
   </div>
 
+  <!-- Aufgaben: Meine Freigaben (digital), Meine Mängellisten (Monteur), Kontrolle (Verantwortlicher) -->
+  <div id="abTasks"></div>
+
   <div class="tabs-bar">
     <button class="tab active" id="tab_abnahme"  onclick="setTab('abnahme')">📜 Abnahmeprotokoll</button>
     <button class="tab"        id="tab_maengel"  onclick="setTab('maengel')">🔍 Mängelliste</button>
@@ -432,6 +435,22 @@ canvas.sig{width:100%;height:150px;background:#fff;display:block;touch-action:no
       </div>
     </div>
 
+    <!-- Teilnehmer & Freigabe -->
+    <div class="card" style="margin-bottom:14px" id="teilnehmerCard">
+      <div class="card-hd">
+        <div class="card-hd-ic">👥</div>
+        <div>
+          <div class="card-hd-title">Teilnehmer & Freigabe</div>
+          <div class="card-hd-sub">Aus den Objekt-Beteiligten — passend zum Gewerk automatisch vorausgewählt</div>
+        </div>
+        <div style="margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <label style="font-size:10.5px;font-weight:800;color:var(--mut);text-transform:uppercase;letter-spacing:.3px">Gewerk</label>
+          <select id="tnGewerk" onchange="abGewerkChange(this.value)" style="padding:8px 11px;border:1.5px solid var(--brd2);border-radius:9px;font-size:13px;background:var(--bg2)"></select>
+        </div>
+      </div>
+      <div class="card-body" id="tnBody"></div>
+    </div>
+
     <!-- Unterschriften -->
     <div class="card">
       <div class="card-hd">
@@ -512,7 +531,8 @@ canvas.sig{width:100%;height:150px;background:#fff;display:block;touch-action:no
         <button class="fb"        id="mf_open" onclick="setMFilter('open')">🔴 Offen</button>
         <button class="fb"        id="mf_done" onclick="setMFilter('done')">✅ Erledigt</button>
       </div>
-      <button class="act-btn primary" id="addTop" style="margin-left:auto">+ Neuer Mängelpunkt</button>
+      <button class="act-btn" id="btnMlAssign" style="margin-left:auto" onclick="abMlOpenAssign()">📋 An Monteur übergeben</button>
+      <button class="act-btn primary" id="addTop">+ Neuer Mängelpunkt</button>
     </div>
 
     <div class="maengel-list" id="items"></div>
@@ -639,6 +659,7 @@ function fixLeadingZero(el){var v=el.value.trim();if(!v)return;if(v.charAt(0)===
 <script src="gema_db.js"></script>
 <script src="gema_feedback.js"></script><script src="gema_notify.js"></script><script src="gema_notify_ui.js"></script>
 <script src="gema_objekte_api.js"></script>
+<script src="gema_dialog.js"></script>
 <script src="gema_pdf.js"></script>
 <script src="gema_autosave.js"></script>
 <script>
@@ -1853,6 +1874,433 @@ await Promise.race([
     if(active) state=active.state;
     _migrateState();
   })();
+
+  // ══════════════════════════════════════════════════════════════
+  // TEILNEHMER & GEWERK · DIGITALE FREIGABE · MONTEUR-MÄNGELLISTE
+  // Freigabe-Anfragen + Mängellisten liegen per-Record in der Cloud
+  // (moduleKey abnahme, abfrg:/abml:) — damit funktioniert die digitale
+  // Freigabe auch cross-org (Architekt/BH fremder Org, Match via E-Mail),
+  // analog zum Regierapport-Muster.
+  // ══════════════════════════════════════════════════════════════
+  var AB_SYNC='abnahme';
+  var FRG_POOL='gema_abnahme_frg_pool_v1', FRG_PREFIX='abfrg:';
+  var ML_POOL='gema_abnahme_ml_pool_v1', ML_PREFIX='abml:';
+  var _abMemPools={};
+  function abPoolRead(key){
+    try{
+      if(typeof GemaSync!=='undefined'&&GemaSync.getCached){var a=GemaSync.getCached(key);if(a&&a.length)return a;}
+      var r=localStorage.getItem(key);if(r){var d=JSON.parse(r);if(Array.isArray(d))return d;}
+    }catch(e){}
+    return _abMemPools[key]||[];
+  }
+  function abPoolSave(key,prefix,rec){
+    var pool=abPoolRead(key).slice();
+    var i=pool.findIndex(function(x){return x.id===rec.id;});
+    if(i>=0)pool[i]=rec;else pool.push(rec);
+    _abMemPools[key]=pool;
+    try{localStorage.setItem(key,JSON.stringify(pool));}catch(e){}
+    if(typeof GemaSync!=='undefined'&&GemaSync.saveRecord)GemaSync.saveRecord(AB_SYNC,prefix+rec.id,rec).catch(function(){});
+  }
+  function abUser(){return _getUser();}
+  function abUserEmail(){var u=abUser();return String((u&&((u.profile&&u.profile.email)||u.username))||'').toLowerCase();}
+  function abNotify(o){try{if(typeof GemaNotify!=='undefined')GemaNotify.push(o);}catch(e){}}
+  function abFindUserByEmail(email){
+    try{
+      var e=String(email||'').toLowerCase();if(!e)return null;
+      return (GemaAuth.getUsers()||[]).find(function(x){
+        if(x.active===false)return false;
+        return String((x.profile&&x.profile.email)||x.username||'').toLowerCase()===e;
+      })||null;
+    }catch(err){return null;}
+  }
+
+  // ── Gewerk-Logik: welche Beteiligten machen an DIESER Abnahme Sinn? ──
+  var AB_GEWERKE=[['sanitaer','💧 Sanitär'],['heizung','🔥 Heizung'],['lueftung','💨 Lüftung'],['elektro','⚡ Elektro'],['spenglerei','🔨 Spenglerei / Dach'],['allgemein','🏗 Allgemein (alle)']];
+  var AB_GEWERK_BKP={sanitaer:['25'],heizung:['242','243'],lueftung:['244'],elektro:['23'],spenglerei:['221','222','224']};
+  var AB_GEWERK_RX={sanitaer:/sanit/i,heizung:/heiz|w(ä|ae)rme/i,lueftung:/l(ü|ue)ft|klima|kälte|kaelte/i,elektro:/elektr/i,spenglerei:/spengler|dach/i};
+  function abGuessGewerk(){
+    var txt=String(state.abnahme.arbeitsgattung||'');
+    for(var g in AB_GEWERK_RX){if(AB_GEWERK_RX[g].test(txt))return g;}
+    try{
+      var org=GemaAuth.getCurrentOrg();
+      var map={sanitaerplaner:'sanitaer',heizungsplaner:'heizung',lueftungsplaner:'lueftung',elektroplaner:'elektro'};
+      if(org&&map[org.kategorie])return map[org.kategorie];
+    }catch(e){}
+    return 'sanitaer';
+  }
+  function abRelevant(b,gewerk){
+    var rolle=b.rolle||'';
+    // Bauherrschaft, Bauleitung/Architekt und der eigene Planer sind IMMER dabei
+    if(rolle==='Bauherrschaft'||rolle==='Architekt / Generalplaner'||rolle==='Sanitärplaner')return true;
+    if(rolle==='Behörden')return false;
+    if(!gewerk||gewerk==='allgemein')return true;
+    var bkps=(b.bkp||[]).map(String);
+    var pref=AB_GEWERK_BKP[gewerk]||[];
+    var txt=[b.firma,b.funktion,b.notizen].filter(Boolean).join(' ');
+    if(bkps.length&&bkps.some(function(c){return pref.some(function(p){return c.indexOf(p)===0;});}))return true;
+    if(AB_GEWERK_RX[gewerk]&&AB_GEWERK_RX[gewerk].test(txt))return true;
+    // BKP oder Text zeigen klar auf ein ANDERES Gewerk → nicht vorwählen
+    if(bkps.length)return false;
+    for(var g in AB_GEWERK_RX){if(g!==gewerk&&AB_GEWERK_RX[g].test(txt))return false;}
+    return true;   // keine Gewerk-Info → im Zweifel dabei (abwählbar)
+  }
+  function abEnsureTn(){
+    if(!state.teilnehmer)state.teilnehmer=[];
+    if(!state.gewerk)state.gewerk=abGuessGewerk();
+  }
+  function abBuildTeilnehmer(rebuild){
+    abEnsureTn();
+    var bets=[];
+    try{if(typeof GemaObjekte!=='undefined'&&state._objektId)bets=GemaObjekte.getBeteiligte(state._objektId)||[];}catch(e){}
+    var seen={};
+    bets.forEach(function(b){
+      var name=[b.vorname,b.name].filter(Boolean).join(' ');
+      var ex=state.teilnehmer.find(function(t){return t.betId===b.id;});
+      if(ex){
+        ex.rolle=b.rolle;ex.firma=b.firma||'';ex.name=name;ex.email=b.email||'';
+        if(rebuild&&!ex._manuell)ex.dabei=abRelevant(b,state.gewerk);
+      } else {
+        state.teilnehmer.push({id:uid(),betId:b.id,rolle:b.rolle,firma:b.firma||'',name:name,email:b.email||'',dabei:abRelevant(b,state.gewerk),freigabe:{modus:'',status:''}});
+      }
+      seen[b.id]=1;
+    });
+    state.teilnehmer=state.teilnehmer.filter(function(t){return !t.betId||seen[t.betId];});
+  }
+  window.abGewerkChange=function(g){
+    state.gewerk=g;
+    state.teilnehmer.forEach(function(t){delete t._manuell;});
+    abBuildTeilnehmer(true);
+    persist();abRenderTeilnehmer();
+  };
+  window.abTnToggle=function(tid,chk){
+    var t=state.teilnehmer.find(function(x){return x.id===tid;});
+    if(!t)return;t.dabei=chk;t._manuell=true;persist();abRenderTeilnehmer();
+  };
+  window.abTnVorOrt=function(tid){
+    var t=state.teilnehmer.find(function(x){return x.id===tid;});
+    if(!t)return;t.freigabe={modus:'vor_ort',status:'vor_ort'};persist();abRenderTeilnehmer();
+    toast('✍ '+(t.name||t.firma)+' unterschreibt vor Ort (Unterschriften-Pad unten)');
+  };
+  window.abTnReset=function(tid){
+    var t=state.teilnehmer.find(function(x){return x.id===tid;});
+    if(!t)return;t.freigabe={modus:'',status:''};persist();abRenderTeilnehmer();
+  };
+  window.abTnAnfragen=function(tid){
+    var t=state.teilnehmer.find(function(x){return x.id===tid;});
+    if(!t)return;
+    if(!t.email){toast('⚠ Keine E-Mail beim Beteiligten hinterlegt (in pm_objekte.html ergänzen)');return;}
+    var u=abUser();if(!u)return;
+    var proto=protocols.find(function(p){return p.id===activeProtocolId;});
+    var rec={id:uid(),orgId:u.orgId,objektId:state._objektId||'',objektName:state.abnahme.bauobjekt||'',
+      protoId:activeProtocolId,protoName:proto?proto.name:'',gewerk:state.gewerk||'',arbeitsgattung:state.abnahme.arbeitsgattung||'',
+      datum:state.abnahme.datum||'',ergebnis:state.abnahme.ergebnis||'',entscheid:state.abnahme.entscheid||'',
+      maengelOffen:(state.items||[]).filter(function(it){return !(it.erledigt||'').trim();}).length,
+      empfaengerEmail:String(t.email).toLowerCase(),empfaengerName:t.name||t.firma,empfaengerRolle:t.rolle,
+      angefragtVon:{userId:u.id,name:u.name},angefragtAm:new Date().toISOString(),status:'offen',kommentar:''};
+    abPoolSave(FRG_POOL,FRG_PREFIX,rec);
+    t.freigabe={modus:'digital',status:'angefragt',anfrageId:rec.id};
+    var eu=abFindUserByEmail(t.email);
+    if(eu)abNotify({eventKey:'abnahme_freigabe_anfrage',empfaengerUserId:eu.id,modul:'abnahme',typ:'aktion',
+      titel:'Abnahme zur Freigabe',text:(rec.objektName||'Abnahmeprotokoll')+' — '+(rec.arbeitsgattung||rec.protoName)+' ('+(rec.maengelOffen||0)+' offene Mängel)',
+      link:'pm_abnahme.html'});
+    persist();abRenderTeilnehmer();
+    toast('📧 Freigabe-Anfrage an '+(t.name||t.firma)+(eu?' gesendet':' gespeichert (Person hat noch kein GEMA-Konto)'));
+  };
+  function abSyncFreigaben(){
+    var pool=abPoolRead(FRG_POOL);
+    (state.teilnehmer||[]).forEach(function(t){
+      if(t.freigabe&&t.freigabe.anfrageId){
+        var rec=pool.find(function(r){return r.id===t.freigabe.anfrageId;});
+        if(rec){t.freigabe.status=rec.status==='offen'?'angefragt':rec.status;t.freigabe.kommentar=rec.kommentar||'';t.freigabe.entschiedenAm=rec.entschiedenAm||'';}
+      }
+    });
+  }
+  function abRenderTeilnehmer(){
+    var el=document.getElementById('tnBody');if(!el)return;
+    abEnsureTn();
+    var gs=document.getElementById('tnGewerk');
+    if(gs&&!gs.options.length)gs.innerHTML=AB_GEWERKE.map(function(g){return '<option value="'+g[0]+'">'+g[1]+'</option>';}).join('');
+    if(gs&&gs.value!==state.gewerk)gs.value=state.gewerk;
+    abBuildTeilnehmer(false);
+    abSyncFreigaben();
+    var tn=state.teilnehmer||[];
+    if(!tn.length){el.innerHTML='<div style="color:var(--mut);font-size:13px;padding:6px 0">Keine Beteiligten beim Objekt hinterlegt — in <a href="pm_objekte.html" style="color:var(--blue)">pm_objekte.html</a> erfassen, dann erscheinen sie hier automatisch.</div>';return;}
+    el.innerHTML=tn.map(function(t){
+      var st='';
+      if(t.dabei){
+        var f=t.freigabe||{};
+        if(f.status==='vor_ort')st='<span class="status-badge sb-mut">✍ unterschreibt vor Ort</span> <button class="act-btn" style="min-height:30px;padding:3px 8px" onclick="abTnReset(\''+t.id+'\')">↺</button>';
+        else if(f.status==='angefragt')st='<span class="status-badge sb-open" style="background:#fffbeb;color:#b45309;border-color:#fcd34d">📧 Freigabe angefragt</span> <button class="act-btn" style="min-height:30px;padding:3px 8px" onclick="abTnReset(\''+t.id+'\')">↺</button>';
+        else if(f.status==='freigegeben')st='<span class="status-badge sb-done">✅ Digital freigegeben'+(f.entschiedenAm?' · '+f.entschiedenAm.slice(0,10).split('-').reverse().join('.'):'')+'</span>';
+        else if(f.status==='abgelehnt')st='<span class="status-badge sb-open">❌ Abgelehnt</span>'+(f.kommentar?' <span style="font-size:11px;color:var(--mut)">«'+esc(f.kommentar)+'»</span>':'')+' <button class="act-btn" style="min-height:30px;padding:3px 8px" onclick="abTnAnfragen(\''+t.id+'\')">📧 Erneut</button>';
+        else st='<button class="act-btn" style="min-height:30px;padding:3px 9px" onclick="abTnVorOrt(\''+t.id+'\')">✍ vor Ort</button> <button class="act-btn" style="min-height:30px;padding:3px 9px" onclick="abTnAnfragen(\''+t.id+'\')"'+(t.email?'':' title="Keine E-Mail hinterlegt"')+'>📧 Digital anfragen</button>';
+      }
+      return '<div style="display:flex;align-items:center;gap:10px;padding:8px 2px;border-bottom:1px solid var(--brd);flex-wrap:wrap">'
+        +'<label style="display:flex;align-items:center;gap:8px;cursor:pointer;min-width:0;flex:1">'
+        +'<input type="checkbox" style="width:20px;height:20px;flex-shrink:0" '+(t.dabei?'checked':'')+' onchange="abTnToggle(\''+t.id+'\',this.checked)"/>'
+        +'<span style="min-width:0"><b style="font-size:13.5px">'+esc(t.firma||t.name||'—')+'</b>'+(t.name&&t.firma?' <span style="font-size:12px;color:var(--txt2)">· '+esc(t.name)+'</span>':'')
+        +'<br><span style="font-size:11px;color:var(--mut)">'+esc(t.rolle||'')+(t.email?' · '+esc(t.email):'')+'</span></span>'
+        +'</label>'
+        +'<span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">'+st+'</span>'
+        +'</div>';
+    }).join('')
+    +'<div class="hint" style="margin-top:8px">Vorauswahl nach Gewerk (BKP-Codes / Bezeichnung der Beteiligten) — z.B. ist der Elektriker bei einer Sanitär-Abnahme nicht vorgewählt. Digital angefragte Teilnehmer geben direkt in GEMA frei; vor Ort wird unten auf dem Pad unterschrieben.</div>';
+  }
+
+  // ── Aufgaben-Panel: Meine Freigaben / Meine Mängellisten / Kontrolle ──
+  window.abFrgEntscheid=function(id,ok){
+    var rec=abPoolRead(FRG_POOL).find(function(r){return r.id===id;});if(!rec)return;
+    var done=function(kommentar){
+      rec.status=ok?'freigegeben':'abgelehnt';
+      rec.kommentar=kommentar||'';
+      rec.entschiedenAm=new Date().toISOString();
+      var u=abUser();rec.entschiedenVonName=u?u.name:'';
+      abPoolSave(FRG_POOL,FRG_PREFIX,rec);
+      if(rec.angefragtVon&&rec.angefragtVon.userId)abNotify({eventKey:'abnahme_freigabe_entscheid',empfaengerUserId:rec.angefragtVon.userId,modul:'abnahme',
+        typ:ok?'erfolg':'warnung',titel:ok?'Abnahme freigegeben':'Abnahme-Freigabe abgelehnt',
+        text:(rec.objektName||'Abnahme')+' — '+(rec.empfaengerName||'')+(kommentar?': «'+kommentar+'»':''),
+        link:'pm_abnahme.html'+(rec.objektId?'?objekt='+rec.objektId:'')});
+      abRenderTasks();try{abRenderTeilnehmer();}catch(e){}
+      toast(ok?'✅ Freigegeben':'Abgelehnt');
+    };
+    if(ok)GemaDialog.confirm({title:'Abnahme freigeben',message:'«'+(rec.objektName||'Abnahme')+' — '+(rec.arbeitsgattung||rec.protoName||'')+'» digital freigeben?',confirmLabel:'Freigeben'}).then(function(k){if(k)done('');});
+    else GemaDialog.prompt({title:'Freigabe ablehnen — Begründung',placeholder:'z.B. Mangel Position 3 nicht akzeptiert'}).then(function(v){if(v===null)return;done(v);});
+  };
+  window.abMlItemToggle=function(mlId,itemId,chk){
+    var ml=abPoolRead(ML_POOL).find(function(r){return r.id===mlId;});if(!ml)return;
+    var it=(ml.items||[]).find(function(x){return x.id===itemId;});if(!it)return;
+    it.status=chk?'erledigt':'offen';
+    it.erledigtAm=chk?new Date().toISOString():'';
+    abPoolSave(ML_POOL,ML_PREFIX,ml);
+    abRenderTasks();
+  };
+  window.abMlItemKommentar=function(mlId,itemId,val){
+    var ml=abPoolRead(ML_POOL).find(function(r){return r.id===mlId;});if(!ml)return;
+    var it=(ml.items||[]).find(function(x){return x.id===itemId;});if(!it)return;
+    it.kommentar=val;abPoolSave(ML_POOL,ML_PREFIX,ml);
+  };
+  window.abMlItemFoto=function(mlId,itemId){
+    var inp=document.createElement('input');inp.type='file';inp.accept='image/*';inp.setAttribute('capture','environment');
+    inp.onchange=function(){
+      var f=inp.files&&inp.files[0];if(!f)return;
+      fileToDataURL(f).then(function(du){return compressImage(du,1280,0.78);}).then(function(comp){
+        var u=abUser();
+        var fin=function(obj){
+          var ml=abPoolRead(ML_POOL).find(function(r){return r.id===mlId;});if(!ml)return;
+          var it=(ml.items||[]).find(function(x){return x.id===itemId;});if(!it)return;
+          it.fixFotos=it.fixFotos||[];it.fixFotos.push(obj);
+          abPoolSave(ML_POOL,ML_PREFIX,ml);abRenderTasks();toast('📷 Foto-Beweis gespeichert');
+        };
+        if(typeof GemaStorage!=='undefined'&&GemaStorage.uploadDataUrl){
+          GemaStorage.uploadDataUrl(comp,'abnahme/'+(u?u.orgId:'org')).then(function(r){fin({url:r.url,name:f.name||''});}).catch(function(){fin({dataUrl:comp,name:f.name||''});});
+        } else fin({dataUrl:comp,name:f.name||''});
+      }).catch(function(){toast('Foto konnte nicht gelesen werden');});
+    };
+    inp.click();
+  };
+  window.abMlFertigmelden=function(mlId){
+    var ml=abPoolRead(ML_POOL).find(function(r){return r.id===mlId;});if(!ml)return;
+    var offen=(ml.items||[]).filter(function(x){return x.status!=='erledigt';}).length;
+    if(offen){toast('⚠ Noch '+offen+' Punkt(e) offen');return;}
+    ml.status='abgearbeitet';ml.abgearbeitetAm=new Date().toISOString();
+    abPoolSave(ML_POOL,ML_PREFIX,ml);
+    if(ml.verantwortlich&&ml.verantwortlich.userId)abNotify({eventKey:'abnahme_maengel_abgearbeitet',empfaengerUserId:ml.verantwortlich.userId,modul:'abnahme',typ:'erfolg',
+      titel:'Mängelliste abgearbeitet',text:(ml.objektName||'')+' — '+(ml.monteurName||'')+' hat alle '+(ml.items||[]).length+' Punkte erledigt (mit Foto-Beweisen). Bitte kontrollieren.',
+      link:'pm_abnahme.html?objekt='+(ml.objektId||'')});
+    abRenderTasks();toast('✓ An '+((ml.verantwortlich&&ml.verantwortlich.name)||'Verantwortlichen')+' gemeldet');
+  };
+  window.abMlZurueckweisen=function(mlId,itemId){
+    GemaDialog.prompt({title:'Punkt zurückweisen — Begründung',placeholder:'z.B. Silikonfuge weiterhin undicht'}).then(function(v){
+      if(v===null)return;
+      var ml=abPoolRead(ML_POOL).find(function(r){return r.id===mlId;});if(!ml)return;
+      var it=(ml.items||[]).find(function(x){return x.id===itemId;});if(!it)return;
+      it.status='zurueckgewiesen';it.kommentarVerantwortlicher=v||'';
+      ml.status='offen';
+      abPoolSave(ML_POOL,ML_PREFIX,ml);
+      abNotify({eventKey:'abnahme_maengel_zugewiesen',empfaengerUserId:ml.monteurUserId,modul:'abnahme',typ:'warnung',
+        titel:'Mängelpunkt zurückgewiesen',text:(it.ort?it.ort+': ':'')+(it.mangel||'')+(v?' — «'+v+'»':''),link:'pm_abnahme.html'});
+      abRenderTasks();toast('↩ Punkt zurückgewiesen — Monteur benachrichtigt');
+    });
+  };
+  window.abMlFreigeben=function(mlId){
+    GemaDialog.confirm({title:'Mängelbehebung freigeben',message:'Alle Punkte akzeptieren und als erledigt ins Protokoll übernehmen?',confirmLabel:'Freigeben'}).then(function(ok){
+      if(!ok)return;
+      var ml=abPoolRead(ML_POOL).find(function(r){return r.id===mlId;});if(!ml)return;
+      ml.status='freigegeben';ml.freigegebenAm=new Date().toISOString();
+      var u=abUser();ml.freigegebenVon=u?u.name:'';
+      abPoolSave(ML_POOL,ML_PREFIX,ml);
+      // Rückschreiben ins Protokoll: beim AKTIVEN Protokoll in den Live-State
+      // (der Snapshot in protocols[] kann älter sein), sonst in den Snapshot.
+      var proto=protocols.find(function(p){return p.id===ml.protoId;});
+      var target=ml.protoId===activeProtocolId?state:(proto&&proto.state);
+      if(target){
+        (ml.items||[]).forEach(function(mi){
+          var it=(target.items||[]).find(function(x){return x.id===mi.itemId;});
+          if(it){
+            it.erledigt=(mi.erledigtAm||new Date().toISOString()).slice(0,10).split('-').reverse().join('.')+' / '+(ml.monteurName||'');
+            (mi.fixFotos||[]).forEach(function(ff){it.photos=it.photos||[];it.photos.push({name:ff.name||'beweis.jpg',url:ff.url||'',dataUrl:ff.url?'':(ff.dataUrl||''),type:'image/jpeg'});});
+            if(mi.kommentar)it.notizen=[it.notizen,mi.kommentar].filter(Boolean).join(' · ');
+          }
+        });
+        if(ml.protoId===activeProtocolId)render();
+        persistAll();
+      }
+      abNotify({eventKey:'abnahme_maengel_abgearbeitet',empfaengerUserId:ml.monteurUserId,modul:'abnahme',typ:'erfolg',
+        titel:'Mängelbehebung freigegeben',text:(ml.objektName||'')+' — alle Punkte akzeptiert. Danke!',link:'pm_abnahme.html'});
+      abRenderTasks();toast('✅ Freigegeben'+(proto?' — Protokoll aktualisiert':''));
+    });
+  };
+  window.abMlErneutAbnahme=function(mlId){
+    GemaDialog.confirm({title:'Erneute Abnahme vor Ort',message:'Mängelliste abschliessen und eine erneute Abnahme vor Ort vormerken? (Dazu ein neues Protokoll erstellen — «+ Neu» oben.)',confirmLabel:'Vormerken'}).then(function(ok){
+      if(!ok)return;
+      var ml=abPoolRead(ML_POOL).find(function(r){return r.id===mlId;});if(!ml)return;
+      ml.status='erneute_abnahme';abPoolSave(ML_POOL,ML_PREFIX,ml);
+      abNotify({eventKey:'abnahme_maengel_abgearbeitet',empfaengerUserId:ml.monteurUserId,modul:'abnahme',typ:'info',
+        titel:'Erneute Abnahme vor Ort',text:(ml.objektName||'')+' — die Behebung wird vor Ort erneut abgenommen.',link:'pm_abnahme.html'});
+      abRenderTasks();toast('📋 Erneute Abnahme vormerkt');
+    });
+  };
+  function abMlFotoThumbs(fotos,klein){
+    return (fotos||[]).map(function(f){
+      var src=(f.url||f.dataUrl||'');if(!src)return '';
+      return '<img src="'+esc(src)+'" style="width:'+(klein?34:46)+'px;height:'+(klein?34:46)+'px;object-fit:cover;border-radius:7px;border:1px solid var(--brd2);cursor:zoom-in" onclick="openLightbox(this.src)"/>';
+    }).join('');
+  }
+  function abRenderTasks(){
+    var host=document.getElementById('abTasks');if(!host)return;
+    var u=abUser();if(!u){host.innerHTML='';return;}
+    var mail=abUserEmail();
+    var h='';
+    // 1) Meine Freigaben (digital, an mich — org-übergreifend via E-Mail)
+    var frg=abPoolRead(FRG_POOL).filter(function(r){return r.status==='offen'&&r.empfaengerEmail===mail;});
+    if(frg.length){
+      h+='<div class="card" style="margin-bottom:14px;border-color:#fcd34d"><div class="card-hd"><div class="card-hd-ic">📧</div><div><div class="card-hd-title">Meine Freigaben</div><div class="card-hd-sub">Abnahmen, die auf Ihre digitale Freigabe warten</div></div></div><div class="card-body">'
+        +frg.map(function(r){
+          return '<div style="display:flex;align-items:center;gap:10px;padding:9px 2px;border-bottom:1px solid var(--brd);flex-wrap:wrap">'
+            +'<div style="flex:1;min-width:200px"><b style="font-size:13.5px">'+esc(r.objektName||'Abnahme')+'</b><br>'
+            +'<span style="font-size:12px;color:var(--mut)">'+esc(r.arbeitsgattung||r.protoName||'')+' · '+esc(r.datum||'')+' · Ergebnis: '+esc(r.ergebnis||'—')+' · '+(r.maengelOffen||0)+' offene Mängel · angefragt von '+esc((r.angefragtVon&&r.angefragtVon.name)||'')+'</span></div>'
+            +'<span style="display:flex;gap:6px"><button class="act-btn primary" onclick="abFrgEntscheid(\''+r.id+'\',true)">✅ Freigeben</button>'
+            +'<button class="act-btn" onclick="abFrgEntscheid(\''+r.id+'\',false)">✕ Ablehnen</button></span></div>';
+        }).join('')+'</div></div>';
+    }
+    // 2) Meine Mängellisten (Monteur)
+    var meineMl=abPoolRead(ML_POOL).filter(function(r){return r.monteurUserId===u.id&&(r.status==='offen');});
+    meineMl.forEach(function(ml){
+      var items=ml.items||[];var done=items.filter(function(x){return x.status==='erledigt';}).length;
+      h+='<div class="card" style="margin-bottom:14px;border-color:#93c5fd"><div class="card-hd"><div class="card-hd-ic">📋</div><div><div class="card-hd-title">Mängelliste — '+esc(ml.objektName||'')+'</div><div class="card-hd-sub">'+esc(ml.protoName||'')+' · von '+esc((ml.verantwortlich&&ml.verantwortlich.name)||'')+' · '+done+'/'+items.length+' erledigt</div></div></div><div class="card-body">'
+        +items.map(function(it){
+          var zg=it.status==='zurueckgewiesen';
+          return '<div style="padding:9px 2px;border-bottom:1px solid var(--brd)'+(zg?';background:#fef2f2':'')+'">'
+            +'<div style="display:flex;align-items:flex-start;gap:9px;flex-wrap:wrap">'
+            +'<input type="checkbox" style="width:22px;height:22px;flex-shrink:0;margin-top:2px" '+(it.status==='erledigt'?'checked':'')+' onchange="abMlItemToggle(\''+ml.id+'\',\''+it.id+'\',this.checked)"/>'
+            +'<div style="flex:1;min-width:180px"><b style="font-size:13.5px">'+esc(it.ort||'—')+'</b> <span style="font-size:13px">'+esc(it.mangel||'')+'</span>'
+            +(it.erledigungBis?'<br><span style="font-size:11px;color:var(--mut)">bis '+esc(it.erledigungBis)+'</span>':'')
+            +(zg?'<br><span style="font-size:12px;color:#b91c1c;font-weight:700">↩ Zurückgewiesen: «'+esc(it.kommentarVerantwortlicher||'')+'»</span>':'')
+            +'</div>'
+            +'<span style="display:flex;gap:5px;align-items:center;flex-wrap:wrap">'+abMlFotoThumbs(it.fotos,true)+abMlFotoThumbs(it.fixFotos)+'<button class="act-btn" style="min-height:34px" onclick="abMlItemFoto(\''+ml.id+'\',\''+it.id+'\')">📷 Beweis</button></span>'
+            +'</div>'
+            +'<input placeholder="Kommentar zur Behebung (optional) …" value="'+escAttr(it.kommentar||'')+'" style="margin-top:6px;width:100%;padding:8px 10px;border:1.5px solid var(--brd2);border-radius:8px;font-size:13px" onchange="abMlItemKommentar(\''+ml.id+'\',\''+it.id+'\',this.value)"/>'
+            +'</div>';
+        }).join('')
+        +'<button class="act-btn primary" style="margin-top:10px;width:100%" onclick="abMlFertigmelden(\''+ml.id+'\')">✓ Alle abgearbeitet — an '+esc((ml.verantwortlich&&ml.verantwortlich.name)||'Verantwortlichen')+' melden</button>'
+        +'</div></div>';
+    });
+    // 3) Kontrolle durch den Verantwortlichen
+    var kontrolle=abPoolRead(ML_POOL).filter(function(r){return r.status==='abgearbeitet'&&((r.verantwortlich&&r.verantwortlich.userId)===u.id||r.orgId===u.orgId);});
+    kontrolle.forEach(function(ml){
+      var items=ml.items||[];
+      h+='<div class="card" style="margin-bottom:14px;border-color:#86efac"><div class="card-hd"><div class="card-hd-ic">🔎</div><div><div class="card-hd-title">Zur Kontrolle — '+esc(ml.objektName||'')+'</div><div class="card-hd-sub">'+esc(ml.monteurName||'')+' hat alle '+items.length+' Punkte abgearbeitet</div></div></div><div class="card-body">'
+        +items.map(function(it){
+          return '<div style="display:flex;align-items:flex-start;gap:9px;padding:9px 2px;border-bottom:1px solid var(--brd);flex-wrap:wrap">'
+            +'<div style="flex:1;min-width:180px"><b style="font-size:13.5px">'+esc(it.ort||'—')+'</b> <span style="font-size:13px">'+esc(it.mangel||'')+'</span>'
+            +(it.kommentar?'<br><span style="font-size:12px;color:var(--txt2)">💬 '+esc(it.kommentar)+'</span>':'')
+            +'</div>'
+            +'<span style="display:flex;gap:5px;align-items:center;flex-wrap:wrap">'+abMlFotoThumbs(it.fixFotos)
+            +'<button class="act-btn" style="min-height:34px" onclick="abMlZurueckweisen(\''+ml.id+'\',\''+it.id+'\')">↩ Zurückweisen</button></span>'
+            +'</div>';
+        }).join('')
+        +'<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">'
+        +'<button class="act-btn primary" style="flex:1" onclick="abMlFreigeben(\''+ml.id+'\')">✅ Freigeben & ins Protokoll übernehmen</button>'
+        +'<button class="act-btn" onclick="abMlErneutAbnahme(\''+ml.id+'\')">📋 Erneute Abnahme vor Ort</button>'
+        +'</div></div></div>';
+    });
+    host.innerHTML=h;
+  }
+
+  // ── Mängel an Monteur übergeben ──
+  window.abMlOpenAssign=function(){
+    var offene=(state.items||[]).filter(function(it){return !(it.erledigt||'').trim();});
+    if(!offene.length){toast('Keine offenen Mängel');return;}
+    var users=[];try{users=(GemaAuth.getUsers()||[]).filter(function(x){var u=abUser();return x.active!==false&&u&&x.orgId===u.orgId&&(x.roleIds||[]).some(function(r){return r==='role_monteur'||r==='role_spengler';});});}catch(e){}
+    if(!users.length){toast('⚠ Keine Monteure in der Firma gefunden');return;}
+    var sel=document.getElementById('mlMonteurSel');
+    sel.innerHTML=users.map(function(x){return '<option value="'+x.id+'">'+esc(x.name||x.username)+'</option>';}).join('');
+    document.getElementById('mlAssignInfo').textContent=offene.length+' offene Mängelpunkte werden als Checkliste übergeben (inkl. Fotos). Der Monteur arbeitet sie ab und liefert Foto-Beweise.';
+    document.getElementById('mlAssignModal').style.display='flex';
+  };
+  window.abMlAssign=function(){
+    var monteurId=document.getElementById('mlMonteurSel').value;
+    var users=GemaAuth.getUsers()||[];
+    var m=users.find(function(x){return x.id===monteurId;});
+    if(!m){toast('⚠ Monteur wählen');return;}
+    var u=abUser();
+    var proto=protocols.find(function(p){return p.id===activeProtocolId;});
+    var offene=(state.items||[]).filter(function(it){return !(it.erledigt||'').trim();});
+    var rec={id:uid(),orgId:u.orgId,objektId:state._objektId||'',objektName:state.abnahme.bauobjekt||'',
+      protoId:activeProtocolId,protoName:proto?proto.name:'',gewerk:state.gewerk||'',
+      monteurUserId:m.id,monteurName:m.name||m.username,
+      verantwortlich:{userId:u.id,name:u.name},status:'offen',erstelltAm:new Date().toISOString(),
+      items:offene.map(function(it){return {id:uid(),itemId:it.id,ort:it.ort||'',mangel:it.mangel||'',erledigungBis:it.erledigungBis||'',
+        fotos:(it.photos||[]).map(function(p){return {url:p.url||'',dataUrl:p.url?'':(p.dataUrl||''),name:p.name||''};}),
+        status:'offen',fixFotos:[],kommentar:''};})};
+    abPoolSave(ML_POOL,ML_PREFIX,rec);
+    persistAll();   // Protokoll-Snapshot aktuell halten (Mangel-IDs der Liste)
+    abNotify({eventKey:'abnahme_maengel_zugewiesen',empfaengerUserId:m.id,modul:'abnahme',typ:'aktion',
+      titel:'Mängelliste zugewiesen',text:(rec.objektName||'Abnahme')+' — '+rec.items.length+' Punkte abarbeiten (mit Foto-Beweis)',link:'pm_abnahme.html'});
+    document.getElementById('mlAssignModal').style.display='none';
+    abRenderTasks();
+    toast('📋 '+rec.items.length+' Mängel an '+(m.name||m.username)+' übergeben');
+  };
+
+  // Modal fürs Übergeben (per JS eingehängt — kein weiterer HTML-Umbau nötig)
+  document.body.insertAdjacentHTML('beforeend',
+    '<div id="mlAssignModal" style="display:none;position:fixed;inset:0;z-index:1200;background:rgba(8,20,40,.6);align-items:center;justify-content:center;padding:16px">'
+    +'<div style="background:var(--sur,#fff);border-radius:16px;max-width:440px;width:100%;padding:18px;box-shadow:0 18px 60px rgba(0,0,0,.3)">'
+    +'<div style="font-size:15px;font-weight:900;margin-bottom:10px">📋 Mängel an Monteur übergeben</div>'
+    +'<div id="mlAssignInfo" style="font-size:12.5px;color:var(--mut,#64748b);margin-bottom:12px"></div>'
+    +'<div class="fg" style="margin-bottom:14px"><label>Monteur</label><select id="mlMonteurSel" style="width:100%;padding:10px 12px;border:1.5px solid var(--brd2,#cdd4e4);border-radius:10px;font-size:14px"></select></div>'
+    +'<div style="display:flex;gap:8px"><button class="act-btn primary" style="flex:1" onclick="abMlAssign()">📤 Übergeben</button>'
+    +'<button class="act-btn" onclick="document.getElementById(\'mlAssignModal\').style.display=\'none\'">Abbrechen</button></div>'
+    +'</div></div>');
+
+  // ── Hooks: Teilnehmer bei jedem Render/Objektwechsel aktualisieren ──
+  var _abOrigRender=render;
+  render=function(){_abOrigRender();try{abRenderTeilnehmer();}catch(e){}};
+  var _abOrigObjSelect=onObjektSelect;
+  onObjektSelect=function(){_abOrigObjSelect();try{abBuildTeilnehmer(true);abRenderTeilnehmer();}catch(e){}};
+  window.onObjektSelect=onObjektSelect;
+
+  // Debug-/Test-Hooks (Smoke-Tests + Konsole)
+  window._abState=function(){return state;};
+  window._abCreateItem=function(seed){return createItem(seed);};
+  window._abRender=function(){render();};
+  window._abPoolRead=abPoolRead;
+  window._abPoolSave=abPoolSave;
+  window._abRenderTeilnehmer=abRenderTeilnehmer;
+  window._abRenderTasks=abRenderTasks;
+  window._abActiveProtoId=function(){return activeProtocolId;};
+
+  // ── Cloud-Pull der Freigabe-/Mängellisten-Pools (non-blocking) ──
+  if(typeof GemaSync!=='undefined'&&GemaSync.bindCollection){
+    Promise.race([
+      Promise.all([
+        GemaSync.bindCollection(AB_SYNC,FRG_POOL,FRG_PREFIX,'id'),
+        GemaSync.bindCollection(AB_SYNC,ML_POOL,ML_PREFIX,'id')
+      ]),
+      new Promise(function(res){setTimeout(res,6000);})
+    ]).then(function(){abRenderTasks();try{abRenderTeilnehmer();}catch(e){}}).catch(function(){});
+  }
+  abRenderTasks();
 
   renderProtocolSelector();
   populateObjektDropdown();
