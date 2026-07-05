@@ -199,6 +199,21 @@ table.t{border-collapse:collapse;width:100%;font-size:12.5px}
   </div>
 </div></div>
 
+<!-- ═══ FERIENANTRAG ═══ -->
+<div class="modal-bg" id="ferienModal"><div class="modal">
+  <div class="modal-hd"><h3>🌴 Ferien beantragen</h3><button class="modal-x" onclick="stClose('ferienModal')">✕</button></div>
+  <div class="modal-bd">
+    <div class="fld-row">
+      <div class="fld"><label>Von *</label><input id="fa_von" type="date" onchange="stFerienCalc()"/></div>
+      <div class="fld"><label>Bis *</label><input id="fa_bis" type="date" onchange="stFerienCalc()"/></div>
+    </div>
+    <div class="fld"><label>Bemerkung</label><input id="fa_bem" type="text" placeholder="z.B. Familienferien"/></div>
+    <div class="card" style="margin:0 0 10px"><div class="card-bd" id="fa_calc" style="padding:10px 13px"></div></div>
+    <div class="gavnote">Der Antrag geht zur Freigabe an die Projektleitung. Nach der Genehmigung werden die Ferientage automatisch in deiner Stundenerfassung und im Einsatzplan-Kalender eingetragen.</div>
+  </div>
+  <div class="modal-ft"><button class="btn pri" onclick="stFerienSubmit()">📤 Antrag einreichen</button></div>
+</div></div>
+
 <!-- ═══ GAV-PARAMETER ═══ -->
 <div class="modal-bg" id="setModal"><div class="modal">
   <div class="modal-hd"><h3>⚙️ GAV-Parameter (Organisation)</h3><button class="modal-x" onclick="stClose('setModal')">✕</button></div>
@@ -234,6 +249,7 @@ table.t{border-collapse:collapse;width:100%;font-size:12.5px}
       <div class="fld"><label>Vorholzeit (h/Woche)</label><input id="s_vorhol" type="text" inputmode="decimal" onblur="fixLeadingZero(this)"/><div class="hint">Erhöht das Wochensoll und füllt das Vorhol-Konto — Brückentage werden daraus bezogen.</div></div>
     </div>
     <div class="fld"><label>Brückentage (ein Datum pro Zeile, JJJJ-MM-TT)</label><textarea id="s_brueckentage" rows="3" placeholder="2026-05-15&#10;2026-12-28"></textarea><div class="hint">Org-weite Brückentage. Der Mitarbeiter erfasst am Tag die Absenz «Brückentag» — Bezug ab Vorhol-Konto.</div></div>
+    <div class="fld"><label>Betriebsferien (pro Zeile: von bis Bezeichnung)</label><textarea id="s_betriebsferien" rows="3" placeholder="2026-12-24 2027-01-02 Weihnachten/Neujahr&#10;2026-07-20 2026-07-31 Sommerferien"></textarea><div class="hint">Die Werktage darin werden im Feriensaldo jedes Mitarbeiters als «reserviert» abgezogen und beim Beginn des Zeitraums automatisch als Ferien-Absenz eingetragen (kein Antrag nötig).</div></div>
     <div style="font-size:11px;font-weight:800;text-transform:uppercase;color:var(--mut);margin:14px 0 6px">Mitarbeiter: Ein-/Austritt &amp; Ferienanspruch</div>
     <div class="hint" style="margin-bottom:8px">Für die Pro-rata-Berechnung des Ferienanspruchs bei unterjährigem Ein-/Austritt. Leer = ganzes Jahr angestellt bzw. Standard-Anspruch.</div>
     <div id="s_mitarbeiter"></div>
@@ -274,6 +290,7 @@ var STD_DEFAULTS={
   topfGrenzeH:5,             // Topf A = Stunden über (Soll+Vorholzeit) bis zu dieser Grenze/Woche — darüber Topf B (auszahlungspflichtig)
   vorholProWocheH:0,         // Vorholzeit h/Woche: erhöht das Wochensoll, füllt das Vorhol-Konto für Brückentage
   brueckentage:[],           // 'YYYY-MM-DD' — org-weite Brückentage (Bezug ab Vorhol-Konto)
+  betriebsferien:[],         // [{von,bis,label}] — org-weite Betriebsferien (Ferien-Reserve + Auto-Eintrag)
   mitarbeiter:{}             // pro User-ID: {eintritt:'YYYY-MM-DD', austritt:'YYYY-MM-DD', ferienTage}
 };
 function stdParams(s){
@@ -286,6 +303,7 @@ function stdParams(s){
   });
   if(!Array.isArray(p.feiertage))p.feiertage=String(p.feiertage||'').split(/[\n,;]+/).map(function(x){return x.trim();}).filter(Boolean);
   if(!Array.isArray(p.brueckentage))p.brueckentage=String(p.brueckentage||'').split(/[\n,;]+/).map(function(x){return x.trim();}).filter(Boolean);
+  if(!Array.isArray(p.betriebsferien))p.betriebsferien=[];
   if(!p.mitarbeiter||typeof p.mitarbeiter!=='object'||Array.isArray(p.mitarbeiter))p.mitarbeiter={};
   return p;
 }
@@ -445,6 +463,47 @@ function stdFerienAnspruch(tageProJahr,jahr,eintritt,austritt){
   var jahrTage=Math.round((bis-von)/86400000)+1;
   return Math.round((tageProJahr*tage/jahrTage)*2)/2;
 }
+// Liste der Werktage (Mo–Fr, ohne Feiertage) in einem Datumsbereich (inkl. Grenzen)
+function stdWerktageListe(von,bis,feiertage){
+  var out=[];
+  if(!/^\d{4}-\d{2}-\d{2}/.test(String(von||''))||!/^\d{4}-\d{2}-\d{2}/.test(String(bis||'')))return out;
+  var d=String(von).slice(0,10),ende=String(bis).slice(0,10),guard=0;
+  while(d<=ende&&guard++<1000){
+    if(stdTagTyp(d,feiertage)==='werktag')out.push(d);
+    d=stdAddTage(d,1);
+  }
+  return out;
+}
+// Betriebsferien-Reserve: Werktage in den org-weiten Betriebsferien des Jahres,
+// die noch NICHT als Absenz gebucht sind — begrenzt auf die Anstellungszeit.
+function stdBetriebsferienTage(betriebsferien,jahr,feiertage,gebuchtDates,eintritt,austritt){
+  var set={};(gebuchtDates||[]).forEach(function(d){set[String(d).slice(0,10)]=1;});
+  var von=jahr+'-01-01',bis=jahr+'-12-31';
+  if(/^\d{4}-\d{2}-\d{2}/.test(String(eintritt||''))&&String(eintritt).slice(0,10)>von)von=String(eintritt).slice(0,10);
+  if(/^\d{4}-\d{2}-\d{2}/.test(String(austritt||''))&&String(austritt).slice(0,10)<bis)bis=String(austritt).slice(0,10);
+  var n=0;
+  (betriebsferien||[]).forEach(function(b){
+    if(!b||!b.von||!b.bis)return;
+    stdWerktageListe(b.von,b.bis,feiertage).forEach(function(d){
+      if(String(d).slice(0,4)!==String(jahr))return;
+      if(d<von||d>bis)return;
+      if(set[d])return;
+      n++;
+    });
+  });
+  return n;
+}
+// Feriensaldo-Detail in TAGEN — nachvollziehbare Aufschlüsselung.
+// o = {anspruch, bezogen, beantragt, bfReserve, vorholSaldoH, tagesSollH}
+function stdFerienSaldoDetail(o){
+  o=o||{};
+  var anspruch=parseFloat(o.anspruch)||0,bezogen=parseFloat(o.bezogen)||0,
+      beantragt=parseFloat(o.beantragt)||0,bf=parseFloat(o.bfReserve)||0,
+      vh=parseFloat(o.vorholSaldoH)||0,ts=parseFloat(o.tagesSollH)||0;
+  return {anspruch:anspruch,bezogen:bezogen,beantragt:beantragt,bfReserve:bf,
+    verfuegbar:anspruch-bezogen-beantragt-bf,
+    vorholSaldoH:vh,vorholTage:ts>0?vh/ts:0};
+}
 // Jahres-Salden eines Users: Töpfe A/B, Vorhol-Konto, Ferien.
 // opts = {auszahlungH, eintritt, austritt, ferienTageJahr}
 function stdJahresAuswertung(tage,jahr,p,opts){
@@ -522,6 +581,64 @@ function stMitarbeiterInfo(userId){
   var p=stParams();
   return (p.mitarbeiter&&p.mitarbeiter[userId])||{};
 }
+function poolDelete(id){
+  var pool=poolRead().filter(function(x){return x.id!==id;});
+  _mem[ST_POOL]=pool;
+  try{localStorage.setItem(ST_POOL,JSON.stringify(pool));}catch(e){}
+  if(typeof GemaSync!=='undefined'&&GemaSync.deleteRecord)GemaSync.deleteRecord(ST_MODULE,ST_PREFIX+id).catch(function(){});
+}
+// Ferienantrags-Records (typ:'ferienantrag') — im selben Pool, getrennt via t.typ
+function stFerienAntraege(){
+  var u=stUser();
+  return poolRead().filter(function(t){return t.typ==='ferienantrag'&&u&&t.orgId===u.orgId;});
+}
+// Feriensaldo-Detail eines Users in Tagen (Anspruch pro-rata − bezogen − beantragt − Betriebsferien-Reserve)
+function stFerienDetail(userId,jahr){
+  var p=stParams();
+  var mi=stMitarbeiterInfo(userId);
+  var tage=orgTage().filter(function(t){return t.userId===userId&&String(t.datum).slice(0,4)===String(jahr);});
+  var bezogen=0,gebucht=[];
+  tage.forEach(function(t){
+    if(t.absenz&&t.absenz.typ==='ferien'){bezogen+=stdAbsenzAnteil(t);gebucht.push(t.datum);}
+  });
+  var beantragt=0;
+  stFerienAntraege().forEach(function(a){
+    if(a.userId!==userId||a.status!=='beantragt')return;
+    beantragt+=stdWerktageListe(a.von,a.bis,p.feiertage).filter(function(d){
+      return String(d).slice(0,4)===String(jahr)&&gebucht.indexOf(d)<0;
+    }).length;
+  });
+  var bf=stdBetriebsferienTage(p.betriebsferien,jahr,p.feiertage,gebucht,mi.eintritt,mi.austritt);
+  var anspruch=stdFerienAnspruch(mi.ferienTage!=null?mi.ferienTage:p.ferienTage,jahr,mi.eintritt,mi.austritt);
+  var j=stdJahresAuswertung(tage,jahr,p,{});
+  return stdFerienSaldoDetail({anspruch:anspruch,bezogen:bezogen,beantragt:beantragt,bfReserve:bf,
+    vorholSaldoH:j.vorholSaldo,tagesSollH:p.wochenSoll/5});
+}
+// Wer ist im Zeitraum eines Antrags ebenfalls abwesend? (andere Anträge + Ferien-Absenzen, pro User dedupliziert)
+function stFerienKonflikte(antrag){
+  var out=[],seen={};
+  stFerienAntraege().forEach(function(a){
+    if(a.id===antrag.id||a.userId===antrag.userId||a.status==='abgelehnt')return;
+    if(a.von<=antrag.bis&&a.bis>=antrag.von){
+      out.push({name:a.userName,von:a.von,bis:a.bis,status:a.status==='genehmigt'?'genehmigt':'beantragt'});
+      seen[a.userId]=1;
+    }
+  });
+  var perUser={};
+  orgTage().forEach(function(t){
+    if(t.userId===antrag.userId||seen[t.userId])return;
+    if(!t.absenz||t.absenz.typ!=='ferien')return;
+    if(t.datum<antrag.von||t.datum>antrag.bis)return;
+    var g=(perUser[t.userId]=perUser[t.userId]||{name:t.userName,von:t.datum,bis:t.datum});
+    if(t.datum<g.von)g.von=t.datum;
+    if(t.datum>g.bis)g.bis=t.datum;
+  });
+  Object.keys(perUser).forEach(function(uidk){
+    var g=perUser[uidk];
+    out.push({name:g.name,von:g.von,bis:g.bis,status:'eingetragen'});
+  });
+  return out;
+}
 function stParams(){
   try{var org=GemaAuth.getCurrentOrg();return stdParams(org&&org.settings&&org.settings.stunden);}catch(e){return stdParams(null);}
 }
@@ -590,6 +707,7 @@ function stRenderWoche(){
     +'<button onclick="stWk(1)">›</button>'
     +(_wkStart!==stdWochenStart(today())?'<button class="btn sm" style="width:auto" onclick="_wkStart=stdWochenStart(today());stRender()">Heute</button>':'')
     +'</div></div>';
+  h+=stRenderFerienKarte(u.id);
   // Wochen-Summenkarte
   var offeneMitDaten=wochenTage.filter(function(t){return stTagHatDaten(t)&&(t.status==='offen'||t.status==='zurueck');});
   var statusBadges={};wochenTage.forEach(function(t){if(stTagHatDaten(t))statusBadges[t.status||'offen']=true;});
@@ -620,7 +738,7 @@ function stRenderWoche(){
       +'<div class="day-hd"><span class="dn">'+WOCHENTAGE[idx]+'</span><span class="dt">'+dfmt(x.datum)+'</span>'
       +(typ==='samstag'?'<span class="badge b-amber">Sa</span>':typ==='sonntag'?'<span class="badge b-red">So</span>':typ==='feiertag'?'<span class="badge b-red">Feiertag</span>':'')
       +((p.brueckentage||[]).indexOf(x.datum)>=0?'<span class="badge b-vio">🌉 Brückentag</span>':'')
-      +(abs?'<span class="badge '+abs.cls+'">'+abs.ic+' '+abs.n+(t.absenz.anteil===0.5?' (½)':'')+'</span>':'')
+      +(abs?'<span class="badge '+abs.cls+'" title="'+(t.absenz.quelle==='betriebsferien'?'Betriebsferien'+(t.absenz.label?': '+esc(t.absenz.label):''):t.absenz.quelle==='antrag'?'Aus genehmigtem Ferienantrag':'')+'">'+abs.ic+' '+abs.n+(t.absenz.anteil===0.5?' (½)':'')+(t.absenz.quelle==='betriebsferien'?' 🏭':'')+'</span>':'')
       +(stTagHatDaten(t)&&st?'<span class="badge '+st.cls+'">'+st.n+'</span>':'')
       +(t&&t.status==='zurueck'&&t.entscheid&&t.entscheid.grund?'<span class="badge b-red" title="'+esc(t.entscheid.grund)+'">💬</span>':'')
       +'<span class="tot">'+(t?stdFmtH(stdTagStunden(t)):'0.00')+' h</span></div>'
@@ -843,6 +961,176 @@ function stTopfBCheck(datum){
 }
 
 // ═══════════════════════════════════════════════════════════
+// FERIENANTRÄGE (beantragen → Freigabe → Kalender + Absenzen)
+// ═══════════════════════════════════════════════════════════
+var FA_STATUS={
+  beantragt:{n:'Beantragt',cls:'b-amber'},
+  genehmigt:{n:'Genehmigt',cls:'b-grn'},
+  abgelehnt:{n:'Abgelehnt',cls:'b-red'}
+};
+function stFmtT(t){return (Math.round(t*10)/10).toFixed(1);}
+// Saldo-Karte «Meine Ferien» — Aufschlüsselung in Tagen + eigene Anträge
+function stRenderFerienKarte(userId){
+  var jahr=new Date().getFullYear();
+  var p=stParams();
+  var d=stFerienDetail(userId,jahr);
+  var meine=stFerienAntraege().filter(function(a){return a.userId===userId;})
+    .sort(function(a,b){return b.von.localeCompare(a.von);}).slice(0,6);
+  var h='<div class="card"><div class="card-hd"><h3>🌴 Meine Ferien '+jahr+'</h3>'
+    +'<span class="badge '+(d.verfuegbar>=0?'b-grn':'b-red')+'">'+stFmtT(d.verfuegbar)+' Tage verfügbar</span>'
+    +'<button class="btn sm" style="margin-left:auto" onclick="stFerienOpen()">🌴 Ferien beantragen</button>'
+    +'</div><div class="card-bd">'
+    +'<div class="sumline"><span>Ferienanspruch '+jahr+' (pro-rata bei Ein-/Austritt)</span><b>'+stFmtT(d.anspruch)+' Tage</b></div>'
+    +'<div class="sumline"><span>− eingetragene Ferien (inkl. genehmigte Anträge)</span><b>'+stFmtT(d.bezogen)+' Tage</b></div>'
+    +'<div class="sumline"><span>− beantragt, noch offen</span><b>'+stFmtT(d.beantragt)+' Tage</b></div>'
+    +'<div class="sumline"><span>− reserviert für Betriebsferien'+((p.betriebsferien||[]).length?' ('+(p.betriebsferien||[]).map(function(b){return esc(b.label||dfmt(b.von)+'–'+dfmt(b.bis));}).join(', ')+')':'')+'</span><b>'+stFmtT(d.bfReserve)+' Tage</b></div>'
+    +'<div class="sumline" style="border-top:1px solid var(--brd);margin-top:4px;padding-top:7px"><span style="font-weight:800">= Verfügbarer Feriensaldo</span><b style="color:'+(d.verfuegbar>=0?'var(--grn)':'var(--red)')+'">'+stFmtT(d.verfuegbar)+' Tage</b></div>'
+    +(p.vorholProWocheH>0?'<div class="sumline"><span>Vorhol-Konto aktuell (für Brückentage, separat)</span><b>'+stFmtT(d.vorholTage)+' Tage ('+stdFmtH(d.vorholSaldoH)+' h)</b></div>':'');
+  if(meine.length){
+    h+='<div style="font-size:10.5px;font-weight:800;text-transform:uppercase;color:var(--mut);margin:10px 0 4px">Meine Anträge</div>';
+    meine.forEach(function(a){
+      var st=FA_STATUS[a.status]||FA_STATUS.beantragt;
+      h+='<div class="sumline"><span>'+dfmt(a.von)+' – '+dfmt(a.bis)+' ('+a.tage+' Tag'+(a.tage===1?'':'e')+')'
+        +(a.bemerkung?' · '+esc(a.bemerkung):'')
+        +(a.status==='abgelehnt'&&a.entscheid&&a.entscheid.grund?' · 💬 '+esc(a.entscheid.grund):'')
+        +'</span><b><span class="badge '+st.cls+'">'+st.n+'</span>'
+        +(a.status==='beantragt'?' <button class="btn sm" onclick="stFerienZurueckziehen(\''+esc(a.id)+'\')">✕</button>':'')
+        +'</b></div>';
+    });
+  }
+  h+='</div></div>';
+  return h;
+}
+function stFerienOpen(){
+  document.getElementById('fa_von').value='';
+  document.getElementById('fa_bis').value='';
+  document.getElementById('fa_bem').value='';
+  stFerienCalc();
+  stOpen('ferienModal');
+}
+function stFerienCalc(){
+  var u=stUser();if(!u)return;
+  var p=stParams();
+  var von=document.getElementById('fa_von').value,bis=document.getElementById('fa_bis').value;
+  var el=document.getElementById('fa_calc');
+  if(!von||!bis||bis<von){el.innerHTML='<span style="font-size:12px;color:var(--mut)">Von/Bis wählen — Werktage und Saldo werden automatisch berechnet.</span>';return;}
+  var tage=stdWerktageListe(von,bis,p.feiertage).length;
+  var jahr=parseInt(von.slice(0,4),10);
+  var d=stFerienDetail(u.id,jahr);
+  var nachher=d.verfuegbar-tage;
+  el.innerHTML='<div class="sumline"><span>Werktage im Zeitraum (ohne Sa/So/Feiertage)</span><b>'+tage+' Tag'+(tage===1?'':'e')+'</b></div>'
+    +'<div class="sumline"><span>Verfügbarer Saldo '+jahr+'</span><b>'+stFmtT(d.verfuegbar)+' Tage</b></div>'
+    +'<div class="sumline"><span>Saldo nach diesem Antrag</span><b style="color:'+(nachher>=0?'var(--grn)':'var(--red)')+'">'+stFmtT(nachher)+' Tage</b></div>'
+    +(nachher<0?'<div class="gavnote" style="margin-top:6px;background:var(--red-bg);border-color:var(--red-bd);color:var(--red)">⚠ Der Antrag übersteigt den verfügbaren Feriensaldo — die Projektleitung entscheidet.</div>':'');
+}
+function stFerienSubmit(){
+  var u=stUser();if(!u)return;
+  var p=stParams();
+  var von=document.getElementById('fa_von').value,bis=document.getElementById('fa_bis').value;
+  if(!von||!bis){toast('Von/Bis fehlt');return;}
+  if(bis<von){toast('Bis liegt vor Von');return;}
+  var tage=stdWerktageListe(von,bis,p.feiertage).length;
+  if(!tage){toast('Keine Werktage im Zeitraum');return;}
+  var a={id:uid(),typ:'ferienantrag',orgId:u.orgId,userId:u.id,userName:u.name,
+    von:von,bis:bis,tage:tage,bemerkung:document.getElementById('fa_bem').value.trim(),
+    status:'beantragt',beantragtAm:new Date().toISOString()};
+  poolSave(a);
+  ['role_planer','role_abteilungsleiter'].forEach(function(r){
+    stNotify({eventKey:'ferien_antrag',empfaengerRoleId:r,empfaengerOrgId:u.orgId,modul:'stundenerfassung',typ:'aktion',
+      titel:'Ferienantrag: '+u.name,
+      text:dfmt(von)+' – '+dfmt(bis)+' ('+tage+' Werktage)'+(a.bemerkung?' · '+a.bemerkung:''),
+      link:'pm_stunden.html?tab=freigabe'});
+  });
+  stClose('ferienModal');toast('📤 Ferienantrag eingereicht');stRender();
+}
+function stFerienZurueckziehen(id){
+  var u=stUser();
+  var a=poolRead().find(function(x){return x.id===id&&x.typ==='ferienantrag';});
+  if(!a||a.userId!==u.id||a.status!=='beantragt')return;
+  GemaDialog.confirm({title:'Antrag zurückziehen',message:'Ferienantrag '+dfmt(a.von)+' – '+dfmt(a.bis)+' wirklich zurückziehen?',confirmLabel:'Zurückziehen',danger:true}).then(function(ok){
+    if(!ok)return;
+    poolDelete(id);
+    toast('🗑 Antrag zurückgezogen');stRender();
+  });
+}
+// Entscheid der Projektleitung — Genehmigung trägt Absenzen + Einsatzplan-Eintrag ein
+function stFerienEntscheid(id,ok){
+  var u=stUser();if(!stCanApprove())return;
+  var a=poolRead().find(function(x){return x.id===id&&x.typ==='ferienantrag';});
+  if(!a||a.status!=='beantragt')return;
+  var apply=function(grund){
+    var p=stParams();
+    a.status=ok?'genehmigt':'abgelehnt';
+    a.entscheid={von:u.name,vonUserId:u.id,am:new Date().toISOString(),grund:grund||''};
+    poolSave(a);
+    if(ok){
+      stdWerktageListe(a.von,a.bis,p.feiertage).forEach(function(d){
+        var t=stTagFor(d,a.userId);
+        if(t&&t.absenz)return; // bestehende Absenz nie überschreiben
+        if(!t)t={id:uid(),orgId:a.orgId,userId:a.userId,userName:a.userName,datum:d,eintraege:[],spesen:{},status:'genehmigt',erstelltAm:new Date().toISOString()};
+        t.absenz={typ:'ferien',anteil:1,quelle:'antrag',antragId:a.id};
+        poolSave(t);
+      });
+      stFerienInEinsatzplan(a);
+    }
+    stNotify({eventKey:'ferien_entscheid',empfaengerUserId:a.userId,modul:'stundenerfassung',typ:ok?'erfolg':'warnung',
+      titel:'Ferienantrag '+(ok?'genehmigt':'abgelehnt'),
+      text:dfmt(a.von)+' – '+dfmt(a.bis)+(ok?' — die Ferien sind in Stundenerfassung und Einsatzplan eingetragen.':' — '+(grund||'ohne Begründung'))+' ('+u.name+')',
+      link:'pm_stunden.html?d='+stdWochenStart(a.von)});
+    toast(ok?'✅ Ferien genehmigt & eingetragen':'↩ Antrag abgelehnt');stRender();
+  };
+  if(ok)apply('');
+  else GemaDialog.prompt({title:'Ferienantrag ablehnen',placeholder:'Grund (für den Mitarbeiter sichtbar)',defaultValue:''}).then(function(g){
+    if(g===null)return;
+    apply(g);
+  });
+}
+// Genehmigte Ferien in den Einsatzplan-Kalender schreiben (ADD-ONLY, Cross-Modul wie sv_service)
+function stFerienInEinsatzplan(a){
+  try{
+    var u=stUser();
+    var von=String(a.von).slice(0,10),bis=String(a.bis).slice(0,10);
+    var dauer=Math.max(1,Math.round((Date.parse(bis+'T12:00:00Z')-Date.parse(von+'T12:00:00Z'))/86400000)+1);
+    var ev={id:'einsatz_'+Date.now()+'_'+Math.random().toString(36).slice(2,7),orgId:a.orgId,typ:'ferien',
+      auftragId:'',auftragNr:'',kunde:'',titel:'🌴 Ferien',objektId:'',objektName:'',
+      monteurUserId:a.userId,monteurName:a.userName,
+      datum:von,dauerTage:dauer,slot:'ganz',zeitVon:'',zeitBis:'',
+      notiz:'Ferienantrag genehmigt von '+(u?u.name:''),ferienAntragId:a.id,
+      erstelltVon:{userId:u?u.id:'',name:u?u.name:''},erstelltAm:new Date().toISOString()};
+    var key='gema_einsatz_pool_v1';
+    var pool=[];
+    try{if(typeof GemaSync!=='undefined'&&GemaSync.getCached)pool=GemaSync.getCached(key)||[];}catch(e){}
+    if(!pool.length){try{var r=localStorage.getItem(key);if(r){var dd=JSON.parse(r);if(Array.isArray(dd))pool=dd;}}catch(e){}}
+    pool=Array.isArray(pool)?pool.slice():[];
+    pool.push(ev);
+    try{localStorage.setItem(key,JSON.stringify(pool));}catch(e){}
+    if(typeof GemaSync!=='undefined'&&GemaSync.saveRecord)GemaSync.saveRecord('einsatzplan','einsatz:'+ev.id,ev).catch(function(){});
+  }catch(e){}
+}
+// Betriebsferien-Scan beim Seitenstart: begonnene Zeiträume automatisch als
+// Ferien-Absenz des eingeloggten Users eintragen (idempotent, nichts überschreiben)
+function stBetriebsferienScan(){
+  var u=stUser();if(!u)return;
+  var p=stParams();
+  if(!(p.betriebsferien||[]).length)return;
+  var heute=today(),mi=stMitarbeiterInfo(u.id),changed=false;
+  (p.betriebsferien||[]).forEach(function(b){
+    if(!b||!b.von||!b.bis)return;
+    if(b.von>heute)return; // Zeitraum noch nicht begonnen
+    stdWerktageListe(b.von,b.bis,p.feiertage).forEach(function(d){
+      if(mi.eintritt&&d<mi.eintritt)return;
+      if(mi.austritt&&d>mi.austritt)return;
+      var t=stTagFor(d,u.id);
+      if(t&&(t.absenz||(t.eintraege||[]).length))return; // gearbeitet oder Absenz vorhanden
+      if(!t)t={id:uid(),orgId:u.orgId,userId:u.id,userName:u.name,datum:d,eintraege:[],spesen:{},status:'genehmigt',erstelltAm:new Date().toISOString()};
+      t.absenz={typ:'ferien',anteil:1,quelle:'betriebsferien',label:b.label||''};
+      poolSave(t);changed=true;
+    });
+  });
+  if(changed){toast('🏖 Betriebsferien automatisch eingetragen');stRender();}
+}
+
+// ═══════════════════════════════════════════════════════════
 // EINREICHEN + FREIGABE
 // ═══════════════════════════════════════════════════════════
 function stWocheEinreichen(){
@@ -871,11 +1159,12 @@ function stWocheEinreichen(){
 function stRenderFreigabe(){
   if(!stCanApprove())return '<div class="empty">Keine Berechtigung.</div>';
   var p=stParams();
+  var faHtml=stRenderFerienAntraege();
   var eingereicht=orgTage().filter(function(t){return t.status==='eingereicht';});
   if(!eingereicht.length){
-    return (!_stCloudLoaded&&!poolRead().length)
+    return faHtml+((!_stCloudLoaded&&!poolRead().length)
       ?'<div class="empty"><svg width="34" height="34" viewBox="0 0 34 34" style="display:block;margin:0 auto 8px"><circle cx="17" cy="17" r="13" fill="none" stroke="#cbd5e1" stroke-width="3.5" stroke-dasharray="55 28"><animateTransform attributeName="transform" type="rotate" from="0 17 17" to="360 17 17" dur="0.9s" repeatCount="indefinite"/></circle></svg>Wird geladen …</div>'
-      :'<div class="empty">✅ Keine eingereichten Wochenrapporte offen.</div>';
+      :'<div class="empty">✅ Keine eingereichten Wochenrapporte offen.</div>');
   }
   // Gruppieren nach User + Woche
   var grp={};
@@ -883,7 +1172,7 @@ function stRenderFreigabe(){
     var k=t.userId+'|'+stdWochenStart(t.datum);
     (grp[k]=grp[k]||[]).push(t);
   });
-  return Object.keys(grp).sort().map(function(k){
+  return faHtml+Object.keys(grp).sort().map(function(k){
     var tage=grp[k];var ws=k.split('|')[1];
     tage.sort(function(a,b){return a.datum.localeCompare(b.datum);});
     var aus=stdWochenAuswertung(tage,ws,p);
@@ -909,6 +1198,38 @@ function stRenderFreigabe(){
       +'<button class="btn red" style="flex:1" onclick="stEntscheid(\''+esc(k)+'\',false)">↩ Zurückweisen</button>'
       +'</div></div></div>';
   }).join('');
+}
+// Offene Ferienanträge für die Projektleitung — mit Saldo des Mitarbeiters
+// und Konflikt-Übersicht (wer ist im Zeitraum ebenfalls abwesend/beantragt)
+function stRenderFerienAntraege(){
+  var offen=stFerienAntraege().filter(function(a){return a.status==='beantragt';})
+    .sort(function(a,b){return a.von.localeCompare(b.von);});
+  if(!offen.length)return '';
+  var h='';
+  offen.forEach(function(a){
+    var jahr=parseInt(String(a.von).slice(0,4),10);
+    var d=stFerienDetail(a.userId,jahr);
+    var konflikte=stFerienKonflikte(a);
+    var kHtml=konflikte.length
+      ?'<div class="gavnote" style="margin-top:8px"><b>⚠ Im gleichen Zeitraum abwesend:</b><br>'+konflikte.map(function(k){
+          var lbl=k.status==='beantragt'?'📨 beantragt':k.status==='genehmigt'?'✅ genehmigt':'🌴 eingetragen';
+          return esc(k.name)+' ('+dfmt(k.von)+(k.bis!==k.von?' – '+dfmt(k.bis):'')+', '+lbl+')';
+        }).join('<br>')+'</div>'
+      :'<div style="font-size:11.5px;color:var(--grn);font-weight:700;margin-top:8px">✓ Keine Überschneidung mit anderen Ferien/Anträgen</div>';
+    h+='<div class="card"><div class="card-hd"><h3>🌴 Ferienantrag: '+esc(a.userName||'')+'</h3>'
+      +'<span class="sub">beantragt am '+dfmt(a.beantragtAm)+'</span>'
+      +'<span class="badge b-amber" style="margin-left:auto">'+a.tage+' Werktag'+(a.tage===1?'':'e')+'</span></div>'
+      +'<div class="card-bd">'
+      +'<div class="sumline"><span>Zeitraum</span><b>'+dfmt(a.von)+' – '+dfmt(a.bis)+'</b></div>'
+      +(a.bemerkung?'<div class="sumline"><span>Bemerkung</span><b>'+esc(a.bemerkung)+'</b></div>':'')
+      +'<div class="sumline"><span>Verfügbarer Saldo '+jahr+' (Anspruch '+stFmtT(d.anspruch)+' − bezogen '+stFmtT(d.bezogen)+' − offen beantragt '+stFmtT(d.beantragt)+' − Betriebsferien '+stFmtT(d.bfReserve)+')</span><b style="color:'+(d.verfuegbar>=0?'var(--grn)':'var(--red)')+'">'+stFmtT(d.verfuegbar)+' Tage</b></div>'
+      +kHtml
+      +'<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">'
+      +'<button class="btn grn" style="flex:1" onclick="stFerienEntscheid(\''+esc(a.id)+'\',true)">✅ Genehmigen &amp; eintragen</button>'
+      +'<button class="btn red" style="flex:1" onclick="stFerienEntscheid(\''+esc(a.id)+'\',false)">✕ Ablehnen</button>'
+      +'</div></div></div>';
+  });
+  return h;
 }
 function stEntscheid(key,ok){
   var u=stUser();if(!stCanApprove())return;
@@ -983,7 +1304,7 @@ function stRenderJahresSalden(alle,jahr){
   if(!Object.keys(users).length)return '';
   var canA=stCanApprove();
   var h='<div class="card"><div class="card-hd"><h3>💰 Jahres-Salden '+jahr+'</h3><span class="sub">Töpfe kumuliert über alle Wochen · Ferien pro-rata nach Ein-/Austritt · Vorholzeit '+stdFmtH(p.vorholProWocheH)+' h/Woche</span></div><div class="card-bd"><div class="t-wrap"><table class="t"><thead><tr>'
-    +'<th>Mitarbeiter</th><th class="num">Topf A Saldo h</th><th class="num">Topf B offen h</th><th class="num">Ausbezahlt h</th><th class="num">Vorhol-Saldo h</th><th class="num">Ferien Anspruch</th><th class="num">bezogen</th><th class="num">Rest</th><th class="num">Krank/Unfall Tg</th>'+(canA?'<th></th>':'')+'</tr></thead><tbody>';
+    +'<th>Mitarbeiter</th><th class="num">Topf A Saldo h</th><th class="num">Topf B offen h</th><th class="num">Ausbezahlt h</th><th class="num">Vorhol-Saldo h</th><th class="num">Ferien Anspruch</th><th class="num">bezogen</th><th class="num">verfügbar</th><th class="num">Krank/Unfall Tg</th>'+(canA?'<th></th>':'')+'</tr></thead><tbody>';
   Object.keys(users).forEach(function(uidk){
     var x=users[uidk];
     var mi=stMitarbeiterInfo(uidk);
@@ -996,8 +1317,11 @@ function stRenderJahresSalden(alle,jahr){
       +'<td class="num"'+(j.topfBOffen>0.004?' style="color:var(--red);font-weight:800"':'')+'>'+stdFmtH(j.topfBOffen)+'</td>'
       +'<td class="num">'+stdFmtH(j.ausbezahltH)+'</td>'
       +'<td class="num"'+(j.vorholSaldo<-0.004?' style="color:var(--red)"':'')+'>'+stdFmtH(j.vorholSaldo)+'</td>'
-      +'<td class="num">'+j.ferienAnspruch.toFixed(1)+'</td><td class="num">'+j.ferienBezogen.toFixed(1)+'</td>'
-      +'<td class="num" style="font-weight:800;color:'+(j.ferienSaldo>=0?'var(--grn)':'var(--red)')+'">'+j.ferienSaldo.toFixed(1)+'</td>'
+      +(function(){
+        var fd=stFerienDetail(uidk,jahr);
+        return '<td class="num">'+stFmtT(fd.anspruch)+'</td><td class="num">'+stFmtT(fd.bezogen)+'</td>'
+          +'<td class="num" style="font-weight:800;color:'+(fd.verfuegbar>=0?'var(--grn)':'var(--red)')+'" title="− offen beantragt '+stFmtT(fd.beantragt)+' Tg · − Betriebsferien-Reserve '+stFmtT(fd.bfReserve)+' Tg">'+stFmtT(fd.verfuegbar)+'</td>';
+      })()
       +'<td class="num">'+j.krankTage.toFixed(1)+'</td>'
       +(canA?'<td>'+(j.topfBOffen>0.004?'<button class="btn sm" onclick="stAuszahlung(\''+esc(uidk)+'\',\''+esc((x.name||'').replace(/'/g,''))+'\','+jahr+')">💰 Auszahlung</button>':'')+'</td>':'')
       +'</tr>';
@@ -1154,7 +1478,14 @@ function stPdf(userId){
     +sum('Topf A Saldo (kumuliert − Kompensationsbezüge '+stdFmtH(j.kompensiertH)+' h)',stdFmtH(j.topfASaldo)+' h')
     +sum('Topf B offen (kumuliert '+stdFmtH(j.topfB)+' h − ausbezahlt '+stdFmtH(j.ausbezahltH)+' h)',stdFmtH(j.topfBOffen)+' h')
     +sum('Vorhol-Konto (erarbeitet '+stdFmtH(j.vorholEarned)+' h − Brückentage '+stdFmtH(j.brueckentagH)+' h)',stdFmtH(j.vorholSaldo)+' h')
-    +sum('Ferien: Anspruch (pro-rata) / bezogen / Rest',j.ferienAnspruch.toFixed(1)+' / '+j.ferienBezogen.toFixed(1)+' / '+j.ferienSaldo.toFixed(1)+' Tage')
+    +(function(){
+      var fd=stFerienDetail(userId,jahr);
+      return sum('Ferien: Anspruch '+jahr+' (pro-rata)',stFmtT(fd.anspruch)+' Tage')
+        +sum('&nbsp;&nbsp;− bezogen (eingetragene Ferien)',stFmtT(fd.bezogen)+' Tage')
+        +sum('&nbsp;&nbsp;− beantragt, noch offen',stFmtT(fd.beantragt)+' Tage')
+        +sum('&nbsp;&nbsp;− reserviert für Betriebsferien',stFmtT(fd.bfReserve)+' Tage')
+        +sum('Verfügbarer Feriensaldo',stFmtT(fd.verfuegbar)+' Tage',true);
+    })()
     +sum('Krank-/Unfalltage',j.krankTage.toFixed(1)+' Tage')
     +'</tbody></table>'
     +'<div class="note">Zuschläge sind als Zeitwert ausgewiesen (Stunden × Zuschlagssatz) — die Umrechnung in CHF erfolgt im Lohnbüro mit dem individuellen Stundenlohn. Werte in Anlehnung an den GAV der Gebäudetechnikbranche (suissetec), Region Nordwestschweiz; verbindlich ist der gültige GAV-Text bzw. das Anstellungsreglement.</div>'
@@ -1183,6 +1514,7 @@ function stOpenSettings(){
   document.getElementById('s_topfGrenze').value=p.topfGrenzeH;
   document.getElementById('s_vorhol').value=p.vorholProWocheH;
   document.getElementById('s_brueckentage').value=(p.brueckentage||[]).join('\n');
+  document.getElementById('s_betriebsferien').value=(p.betriebsferien||[]).map(function(b){return b.von+' '+b.bis+(b.label?' '+b.label:'');}).join('\n');
   // Mitarbeiter-Stammdaten (Eintritt/Austritt/Ferienanspruch)
   var org=null,userRows='';
   try{org=GemaAuth.getCurrentOrg();}catch(e){}
@@ -1222,6 +1554,10 @@ function stSetSave(){
       topfGrenzeH:(function(){var v=parseFloat(document.getElementById('s_topfGrenze').value);return isNaN(v)?5:Math.max(0,v);})(),
       vorholProWocheH:(function(){var v=parseFloat(document.getElementById('s_vorhol').value);return isNaN(v)?0:Math.max(0,v);})(),
       brueckentage:document.getElementById('s_brueckentage').value.split(/[\n,;]+/).map(function(x){return x.trim();}).filter(function(x){return /^\d{4}-\d{2}-\d{2}$/.test(x);}),
+      betriebsferien:document.getElementById('s_betriebsferien').value.split(/\n+/).map(function(l){
+        var m=l.trim().match(/^(\d{4}-\d{2}-\d{2})\s+(\d{4}-\d{2}-\d{2})\s*(.*)$/);
+        return (m&&m[1]<=m[2])?{von:m[1],bis:m[2],label:(m[3]||'').trim()}:null;
+      }).filter(Boolean),
       mitarbeiter:(function(){
         var m={};
         document.querySelectorAll('#s_mitarbeiter .s-mit-row').forEach(function(row){
@@ -1251,8 +1587,10 @@ function stSetSave(){
 document.addEventListener('DOMContentLoaded',function(){
   var m=location.search.match(/[?&]d=(\d{4}-\d{2}-\d{2})/);
   if(m)_wkStart=stdWochenStart(m[1]);
+  var tm=location.search.match(/[?&]tab=(\w+)/);
+  if(tm&&tm[1]==='freigabe'&&stCanApprove())_view='freigabe';
   stRender();
-  var boot=function(){_stCloudLoaded=true;stRender();};
+  var boot=function(){_stCloudLoaded=true;stBetriebsferienScan();stRender();};
   if(typeof GemaSync!=='undefined'&&GemaSync.bindCollection){
     Promise.race([
       Promise.all([

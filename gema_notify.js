@@ -255,6 +255,16 @@
       modul:'stundenerfassung',
       defaultOn:true
     },
+    ferien_antrag: {
+      label:'Ferienantrag eingereicht (Freigabe)',
+      modul:'stundenerfassung',
+      defaultOn:true
+    },
+    ferien_entscheid: {
+      label:'Ferienantrag genehmigt/abgelehnt',
+      modul:'stundenerfassung',
+      defaultOn:true
+    },
     offertanfrage_neu: {
       label:'Neue Offertanfrage (Lieferant)',
       modul:'produktkatalog',
