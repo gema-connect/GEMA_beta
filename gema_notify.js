@@ -245,6 +245,16 @@
       modul:'stundenerfassung',
       defaultOn:true
     },
+    stunden_topfb: {
+      label:'Topf B überschritten (Überstunden-Auszahlung fällig)',
+      modul:'stundenerfassung',
+      defaultOn:true
+    },
+    stunden_auszahlung: {
+      label:'Überstunden-Auszahlung erfasst (Topf B)',
+      modul:'stundenerfassung',
+      defaultOn:true
+    },
     offertanfrage_neu: {
       label:'Neue Offertanfrage (Lieferant)',
       modul:'produktkatalog',
