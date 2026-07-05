@@ -235,6 +235,16 @@
       modul:'service',
       defaultOn:true
     },
+    stunden_eingereicht: {
+      label:'Stundenrapport eingereicht (Freigabe)',
+      modul:'stundenerfassung',
+      defaultOn:true
+    },
+    stunden_entscheid: {
+      label:'Stundenrapport genehmigt/zurückgewiesen',
+      modul:'stundenerfassung',
+      defaultOn:true
+    },
     offertanfrage_neu: {
       label:'Neue Offertanfrage (Lieferant)',
       modul:'produktkatalog',

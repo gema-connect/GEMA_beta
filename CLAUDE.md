@@ -1300,6 +1300,17 @@ Kalender zur Monteur-Einplanung — Aufträge aus dem ERP-Modul per **Drag & Dro
 - **Notifikation** `einsatz_geplant` (gema_notify.js) an den Monteur bei Einplanung UND Verschiebung (`epNotify`, nie an sich selbst), Link mit Deep-Link `pm_einsatzplan.html?d=YYYY-MM-DD` (Init springt zur Woche/zum Monat des Datums).
 - **Rechte**: Planen = Planer-Rollen/Admin/Abteilungsleiter/Magaziner (`epCanPlan`); Monteur/Spengler read-only (`einsatzplan` read in DEFAULT_ROLES, Magaziner write). MODULES-Key `einsatzplan` (cat Projektmanagement), FILE_MAP `pm_einsatzplan`. index.html PM («14 Module»), sw.js v170.
 
+## Stundenerfassung GAV (pm_stunden.html)
+
+Mobile-first Arbeitszeiterfassung für Monteure (Handy-Format, grosse Touch-Ziele) mit GAV-konformen Zuschlägen und Freigabe-Workflow. **Zuschlags-/Spesen-Defaults in Anlehnung an den GAV der Gebäudetechnikbranche (suissetec), Region Nordwestschweiz** — alle Werte pro Org überschreibbar (`org.settings.stunden`, ⚙️-Modal mit explizitem Prüf-Hinweis; verbindlich ist immer der GAV-Text).
+
+- **Storage per-Record**: moduleKey `stundenerfassung`, prefix `std:`, Pool `gema_std_pool_v1`. EIN Record pro User+Tag: `{id,orgId,userId,userName,datum,eintraege:[{id,von,bis,pauseMin,objektId/objektName,taetigkeit,einsatzId?}],spesen:{mittag,km},status offen|eingereicht|genehmigt|zurueck,eingereichtAm?,entscheid:{von,am,grund}}`.
+- **Engine** (`/*ENGINE-START*/`, Node-testbar): `STD_DEFAULTS` (40-h-Woche, Zuschläge Überstunden 25 % / Samstag 25 % / Sonn-+Feiertag 100 % / Nacht 50 %, Nachtfenster 23–06 Uhr, bezahlte Znüni-Pause 15 Min. als Info, Mittag CHF 18, km CHF 0.70, Ferien 25 Tage, Feiertagsliste) · `stdParams` (Org-Merge) · `stdEintragMin` (über Mitternacht: bis ≤ von → +24 h) · `stdNachtMin` (Fenster-Überlappung, Pause zählt zur Tagzeit) · `stdTagTyp` (werktag/samstag/sonntag/feiertag) · `stdWochenStart/stdWochenSoll` (Feiertage Mo–Fr reduzieren Soll) · **`stdWochenAuswertung`** (Ist/Soll/Saldo, Überstunden = max(0, Ist−Wochensoll), Sa-/So-/Nacht-Stunden, **Zuschläge als Zeitwert** Σ h×%, Spesen CHF) · `stdMonatSoll/stdMonatsAuswertung` (Überstunden GAV-konform pro Woche ermittelt).
+- **Monteur-Flow («Meine Woche»)**: KW-Navigation, 7 Tages-Karten (Sa/So/Feiertag-Badges), Eintrag-Modal mit **Einsatzplan-Übernahme** (eigene Einsätze des Tages aus `gema_einsatz_pool_v1` → Objekt+Tätigkeit vorbefüllt), Spesen-Zeile pro Tag (🍽 Mittag auswärts, 🚗 km), 📝-Link pro Eintrag zu `pm_regierapport.html?objekt=…`. **«📤 Woche einreichen»** sperrt die Tage (Status eingereicht) + `stunden_eingereicht` an role_planer+Org.
+- **Freigabe (Planer/AL/Admin, `stCanApprove`)**: eingereichte Wochen gruppiert nach User+KW mit Tages-Detail und Zuschlags-/Spesen-Summen → **Genehmigen** oder **Zurückweisen mit Grund** (GemaDialog.prompt; Tage wieder editierbar, Grund als 💬-Badge beim Monteur) + `stunden_entscheid` an den Monteur (Deep-Link `?d=<wochenstart>`).
+- **Auswertung**: Monats-Picker, Tabelle pro Mitarbeiter (Ist/Soll/Saldo/Üst/Sa/So/Nacht/Zuschlag-Zeitwert/Mittage/km/Spesen CHF + Status) — Approver sehen die ganze Org, Monteure nur sich; **CSV-Export fürs Lohnbüro** (Semikolon, BOM).
+- Registriert: gema_auth (MODULES `stundenerfassung` cat Projektmanagement, FILE_MAP `pm_stunden`, Monteur/Spengler/Magaziner rw, Planer via `_allPerms`), gema_notify (`stunden_eingereicht`/`stunden_entscheid`), index.html (PM, 15 Module), sw.js.
+
 ## Abnahmeprotokolle SIA 118 (pm_abnahme.html) — Teilnehmer, Freigabe & Monteur-Mängelliste
 
 Bestehendes SIA-118-Modul (mehrere Protokolle pro Objekt im per-Objekt-Blob `gema_abnahme_sia_v1__<objektId>` via `_GemaDB`, Mangel-/Plan-Pin-Fotos nach GemaStorage ausgelagert, 4 Unterschriften-Pads). Dazu drei Workflow-Bausteine:
@@ -1728,6 +1739,8 @@ Zentrales Modul `gema_notify.js` für In-App-Benachrichtigungen. Glocke + Toast-
 | `spuel_aktiviert` | spuelmanager | on |
 | `service_faellig` | service | on |
 | `service_erledigt` | service | on |
+| `stunden_eingereicht` | stundenerfassung | on |
+| `stunden_entscheid` | stundenerfassung | on |
 
 **Neue Module fügen ihre Event-Keys hier hinzu**, sonst greift kein Preferences-Filter.
 
