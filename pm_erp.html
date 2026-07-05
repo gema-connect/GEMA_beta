@@ -276,6 +276,15 @@ table.pos{border-collapse:collapse;width:100%;font-size:13px;min-width:680px}
         <div class="fld"><label>PLZ</label><input id="s_plz" type="text"/></div>
         <div class="fld"><label>Ort</label><input id="s_ort" type="text"/></div>
       </div>
+      <div class="fld-row">
+        <div class="fld"><label>Telefon</label><input id="s_tel" type="text" placeholder="061 123 45 67"/></div>
+        <div class="fld"><label>E-Mail</label><input id="s_email" type="text" placeholder="info@firma.ch"/></div>
+      </div>
+      <div class="fld-row">
+        <div class="fld"><label>Website</label><input id="s_web" type="text" placeholder="www.firma.ch"/></div>
+        <div class="fld"><label>MwSt-Nr. (UID)</label><input id="s_mwstnr" type="text" placeholder="CHE-123.456.789 MWST"/></div>
+      </div>
+      <div style="font-size:11px;color:var(--mut);margin:-4px 0 12px">Erscheinen in der Fusszeile von Offerte, Auftragsbestätigung und Rechnung. Logo &amp; Akzentfarbe kommen aus dem Firmenprofil (Logo-Upload in der Benutzerverwaltung, «Berichts-Farben (PDF)» in den Firmendaten).</div>
       <div class="fld"><label>Standard-Schlusstext Offerte</label><textarea id="s_txtOfferte" placeholder="z.B. Wir danken für Ihre Anfrage …"></textarea></div>
       <div class="fld"><label>Standard-Schlusstext Rechnung</label><textarea id="s_txtRechnung" placeholder="z.B. Zahlbar innert 30 Tagen …"></textarea></div>
     </div>
@@ -440,8 +449,35 @@ function erpSettings(){
     fristTage:s.fristTage!=null?s.fristTage:30,
     iban:s.iban||'', qrIban:s.qrIban||'',
     name:s.name||(org?org.name:''), strasse:s.strasse||'', plz:s.plz||'', ort:s.ort||'',
+    tel:s.tel||'', email:s.email||'', web:s.web||'', mwstNr:s.mwstNr||'',
     txtOfferte:s.txtOfferte||'', txtRechnung:s.txtRechnung||''
   };
+}
+// ── Dokument-Branding: Akzentfarbe aus den Berichts-Farben der Org ──
+// (org.settings.pdfFarben wie Schadens-/Dachbericht, mit Kontrastschutz
+//  gegen Weiss — helle Firmenfarben werden Richtung Schwarz skaliert,
+//  Hue bleibt erhalten). Fallback: bisheriges ERP-Blau.
+function _erpHexToRgb(hex){hex=String(hex||'').trim().replace(/^#/,'');if(hex.length===3)hex=hex.charAt(0)+hex.charAt(0)+hex.charAt(1)+hex.charAt(1)+hex.charAt(2)+hex.charAt(2);if(!/^[0-9a-fA-F]{6}$/.test(hex))return null;return{r:parseInt(hex.slice(0,2),16),g:parseInt(hex.slice(2,4),16),b:parseInt(hex.slice(4,6),16)};}
+function _erpRgbToHex(r,g,b){function h(n){n=Math.max(0,Math.min(255,Math.round(n)));return(n<16?'0':'')+n.toString(16);}return'#'+h(r)+h(g)+h(b);}
+function _erpRelLum(rgb){var a=[rgb.r,rgb.g,rgb.b].map(function(v){v/=255;return v<=0.03928?v/12.92:Math.pow((v+0.055)/1.055,2.4);});return 0.2126*a[0]+0.7152*a[1]+0.0722*a[2];}
+function _erpContrastVsWhite(rgb){return 1.05/(_erpRelLum(rgb)+0.05);}
+function _erpDarkenForWhiteBg(hex,target){
+  var rgb=_erpHexToRgb(hex);if(!rgb)return null;
+  if(_erpContrastVsWhite(rgb)>=target)return _erpRgbToHex(rgb.r,rgb.g,rgb.b);
+  var f=1.0;
+  for(var i=0;i<40;i++){f-=0.025;var c={r:rgb.r*f,g:rgb.g*f,b:rgb.b*f};if(_erpContrastVsWhite(c)>=target)return _erpRgbToHex(c.r,c.g,c.b);}
+  return '#1f2933';
+}
+function _erpLightTint(hex,whiteMix){var rgb=_erpHexToRgb(hex);if(!rgb)return null;var m=whiteMix==null?0.94:whiteMix;return _erpRgbToHex(rgb.r+(255-rgb.r)*m,rgb.g+(255-rgb.g)*m,rgb.b+(255-rgb.b)*m);}
+function erpBrand(){
+  var org=erpOrg();
+  var pf=org&&org.settings&&org.settings.pdfFarben;
+  var acc='#1d4ed8',tint='#f5f8ff';
+  if(pf&&pf.primary&&_erpHexToRgb(pf.primary)){
+    acc=_erpDarkenForWhiteBg(pf.primary,4.5)||acc;
+    tint=_erpLightTint(pf.primary)||tint;
+  }
+  return {acc:acc,tint:tint};
 }
 var TYP={offerte:{n:'Offerte',pl:'Offerten',ic:'📄',prefix:'OF'},auftrag:{n:'Auftrag',pl:'Aufträge',ic:'📋',prefix:'AU'},rechnung:{n:'Rechnung',pl:'Rechnungen',ic:'💰',prefix:'RE'}};
 var ST={
@@ -1137,6 +1173,10 @@ function erpOpenSettings(){
   document.getElementById('s_strasse').value=s.strasse;
   document.getElementById('s_plz').value=s.plz;
   document.getElementById('s_ort').value=s.ort;
+  document.getElementById('s_tel').value=s.tel;
+  document.getElementById('s_email').value=s.email;
+  document.getElementById('s_web').value=s.web;
+  document.getElementById('s_mwstnr').value=s.mwstNr;
   document.getElementById('s_txtOfferte').value=s.txtOfferte;
   document.getElementById('s_txtRechnung').value=s.txtRechnung;
   document.getElementById('setModal').classList.add('open');
@@ -1154,6 +1194,10 @@ function erpSetSave(){
       strasse:document.getElementById('s_strasse').value.trim(),
       plz:document.getElementById('s_plz').value.trim(),
       ort:document.getElementById('s_ort').value.trim(),
+      tel:document.getElementById('s_tel').value.trim(),
+      email:document.getElementById('s_email').value.trim(),
+      web:document.getElementById('s_web').value.trim(),
+      mwstNr:document.getElementById('s_mwstnr').value.trim(),
       txtOfferte:document.getElementById('s_txtOfferte').value,
       txtRechnung:document.getElementById('s_txtRechnung').value
     };
@@ -1170,29 +1214,41 @@ function erpPdf(){
   var d=cur;if(!d)return;
   var s=erpSettings();var t=erpDocTotals(d);
   var org=erpOrg();
-  var docName=d.typ==='offerte'?'OFFERTE':d.typ==='auftrag'?'AUFTRAGSBESTÄTIGUNG':'RECHNUNG';
+  var docName=d.typ==='offerte'?'Offerte':d.typ==='auftrag'?'Auftragsbestätigung':'Rechnung';
   var k=d.kundeSnapshot||{};
-  var logo=(org&&(org.logoVector||org.logo))?'<img src="'+esc(org.logoVector||org.logo)+'" style="max-height:52px;max-width:200px"/>':'<div style="font-size:16pt;font-weight:900">'+esc(s.name||'GEMA')+'</div>';
+  var brand=erpBrand();
+  // Logo oben rechts — Vektor bevorzugt (org.logoVector), sonst Raster; ohne Logo Firmenname als Wortmarke
+  var logo=(org&&(org.logoVector||org.logo))
+    ?'<img src="'+esc(org.logoVector||org.logo)+'" alt="" style="max-height:18mm;max-width:62mm;object-fit:contain;object-position:right top"/>'
+    :'<div style="font-size:15pt;font-weight:900;color:var(--acc);letter-spacing:.3px">'+esc(s.name||'GEMA')+'</div>';
   var posRows='';
   var nrPos=0;
   (d.positionen||[]).forEach(function(p){
-    if(p.art==='titel'){posRows+='<tr><td colspan="6" style="font-weight:800;background:#f5f8ff;border-bottom:1.2px solid #1d4ed8">'+esc(p.bez)+'</td></tr>';return;}
+    if(p.art==='titel'){posRows+='<tr><td colspan="6" style="font-weight:800;background:var(--tint);border-bottom:1.2px solid var(--acc);color:var(--acc)">'+esc(p.bez)+'</td></tr>';return;}
     nrPos++;
     var betrag=erpNum(p.menge)*erpNum(p.ep)*(1-erpNum(p.rabattPct)/100);
     posRows+='<tr'+(p.art==='abzug'?' style="color:#92400e"':'')+'><td class="num" style="color:#888">'+nrPos+'</td><td>'+esc(p.bez)+(p.lieferantFirma?' <span style="color:#888;font-size:8pt">('+esc(p.lieferantFirma)+')</span>':'')+'</td>'
       +'<td class="num">'+(p.menge!=null?p.menge:'')+'</td><td>'+esc(p.einheit||'')+'</td><td class="num">'+chf(erpNum(p.ep))+(erpNum(p.rabattPct)?'<br><span style="font-size:8pt;color:#888">−'+p.rabattPct+'%</span>':'')+'</td><td class="num">'+chf(betrag)+'</td></tr>';
   });
-  var b='<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:26px">'
-    +'<div>'+logo+'<div style="font-size:9pt;color:#555;margin-top:4px">'+esc(s.name||'')+' · '+esc([s.strasse,[s.plz,s.ort].filter(Boolean).join(' ')].filter(Boolean).join(' · '))+'</div></div>'
-    +'<div style="text-align:right;font-size:9.5pt;color:#333;margin-top:38px"><b>'+esc(k.firma||'')+'</b>'+(k.kontakt?'<br>'+esc(k.kontakt):'')+(k.strasse?'<br>'+esc(k.strasse):'')+((k.plz||k.ort)?'<br>'+esc((k.plz||'')+' '+(k.ort||'')):'')+'</div></div>'
-    +'<h1 style="color:#1d4ed8">'+docName+' '+esc(d.nr||'')+'</h1>'
-    +'<div class="meta" style="margin-bottom:12px">'+(d.titel?'<b>'+esc(d.titel)+'</b> · ':'')
-    +'Datum: '+dfmt(d.datum)
-    +(d.typ==='offerte'&&d.gueltigBis?' · Gültig bis: '+dfmt(d.gueltigBis):'')
-    +(d.typ==='rechnung'&&d.frist?' · Zahlbar bis: <b>'+dfmt(d.frist)+'</b>':'')
-    +(d.objektName?' · Projekt: '+esc(d.objektName):'')
-    +(d.verknuepfung&&d.verknuepfung.auftragId&&d.typ==='rechnung'?(function(){var a=poolRead(DOK_POOL).find(function(x){return x.id===d.verknuepfung.auftragId;});return a?' · Auftrag: '+esc(a.nr):'';})():'')
+  // Briefkopf: Absender links (dezent), Logo oben rechts; darunter Empfänger links + Dokument-Meta rechts
+  var absAdr=[s.strasse,[s.plz,s.ort].filter(Boolean).join(' ')].filter(Boolean).join(' · ');
+  var kontaktLine=[s.tel?'Tel. '+s.tel:'',s.email,s.web].filter(Boolean).join(' · ');
+  var metaRows=[['Datum',dfmt(d.datum)]];
+  if(d.typ==='offerte'&&d.gueltigBis)metaRows.push(['Gültig bis',dfmt(d.gueltigBis)]);
+  if(d.typ==='rechnung'&&d.frist)metaRows.push(['Zahlbar bis','<b>'+dfmt(d.frist)+'</b>']);
+  if(d.verknuepfung&&d.verknuepfung.auftragId&&d.typ==='rechnung'){var _va=poolRead(DOK_POOL).find(function(x){return x.id===d.verknuepfung.auftragId;});if(_va)metaRows.push(['Auftrag',esc(_va.nr||'')]);}
+  if(d.objektName)metaRows.push(['Projekt',esc(d.objektName)]);
+  var b='<div class="kopf">'
+    +'<div class="kopf-l"><div class="abs-firma">'+esc(s.name||'')+'</div>'
+    +'<div class="abs-sub">'+esc(absAdr)+(kontaktLine?'<br>'+esc(kontaktLine):'')+'</div></div>'
+    +'<div class="kopf-r">'+logo+'</div>'
     +'</div>'
+    +'<div class="adrmeta">'
+    +'<div class="adr"><b>'+esc(k.firma||'')+'</b>'+(k.kontakt?'<br>'+esc(k.kontakt):'')+(k.strasse?'<br>'+esc(k.strasse):'')+((k.plz||k.ort)?'<br>'+esc((k.plz||'')+' '+(k.ort||'')):'')+'</div>'
+    +'<div class="dmeta">'+metaRows.map(function(r){return '<div class="mrow"><span class="ml">'+r[0]+'</span><span class="mv">'+r[1]+'</span></div>';}).join('')+'</div>'
+    +'</div>'
+    +'<h1>'+docName+' '+esc(d.nr||'')+'</h1>'
+    +(d.titel?'<div class="untertitel">'+esc(d.titel)+'</div>':'')
     +(d.einleitung?'<p style="font-size:10pt;white-space:pre-wrap">'+esc(d.einleitung)+'</p>':'')
     +'<table><thead><tr><th style="width:24px">Pos</th><th>Bezeichnung</th><th class="num">Menge</th><th>Einheit</th><th class="num">EP CHF</th><th class="num">Betrag CHF</th></tr></thead><tbody>'+posRows+'</tbody></table>'
     +'<table style="max-width:330px;margin-left:auto">'
@@ -1235,26 +1291,48 @@ function erpPdf(){
       +'<scr'+'ipt>window._erpQrPayload='+JSON.stringify(payload)+';</scr'+'ipt>'
       +'<scr'+'ipt src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js" onload="try{var el=document.getElementById(\'erpQr\');new QRCode(el,{text:window._erpQrPayload,width:174,height:174,correctLevel:QRCode.CorrectLevel.M});var x=document.createElement(\'div\');x.style.cssText=\'position:absolute;top:50%;left:50%;width:12px;height:12px;transform:translate(-50%,-50%);background:#000;display:flex;align-items:center;justify-content:center\';x.innerHTML=\'<span style=&quot;color:#fff;font-weight:900;font-size:9px;line-height:1&quot;>+</span>\';el.appendChild(x);}catch(e){}" onerror="document.getElementById(\'erpQr\').innerHTML=\'<div style=&quot;font-size:8pt;color:#888;padding:8px&quot;>QR-Code offline nicht verfügbar</div>\';"></scr'+'ipt>';
   }
+  // Fusszeile (jede Seite): Firma · Kontakt · MwSt-Nr/IBAN — nur gefüllte Angaben
+  var footL=[esc(s.name||''),esc(absAdr)].filter(Boolean).join(' · ');
+  var footM=[s.tel?'Tel. '+esc(s.tel):'',esc(s.email||''),esc(s.web||'')].filter(Boolean).join(' · ');
+  var footR=[s.mwstNr?esc(s.mwstNr):'',(d.typ==='rechnung'&&(s.qrIban||s.iban))?'IBAN '+esc(s.qrIban||s.iban):''].filter(Boolean).join(' · ');
+  var foot='<div class="foot"><span>'+footL+'</span>'+(footM?'<span>'+footM+'</span>':'')+(footR?'<span>'+footR+'</span>':'')+'</div>';
+
   var w=window.open('','_blank');
   if(!w){toast('Pop-up blockiert — bitte erlauben');return;}
   w.document.write('<!DOCTYPE html><html lang="de"><head><meta charset="utf-8"><title>'+esc(docName+' '+(d.nr||''))+'</title>'
-    +'<style>@page{size:A4 portrait;margin:16mm 15mm}'
-    +'body{font-family:"DM Sans",-apple-system,sans-serif;color:#111;font-size:10pt;line-height:1.45;margin:0;padding:26px}'
-    +'h1{font-size:16pt;margin:0 0 4px}'
-    +'.meta{font-size:9.5pt;color:#555}'
+    +'<style>@page{size:A4 portrait;margin:16mm 15mm 24mm}'
+    +':root{--acc:'+brand.acc+';--tint:'+brand.tint+'}'
+    +'body{font-family:"DM Sans",-apple-system,sans-serif;color:#111;font-size:10pt;line-height:1.45;margin:0;padding:26px 26px 74px}'
+    +'.kopf{display:flex;justify-content:space-between;align-items:flex-start;gap:22px;margin-bottom:12mm}'
+    +'.abs-firma{font-size:11pt;font-weight:800;letter-spacing:.2px}'
+    +'.abs-sub{font-size:8.5pt;color:#555;margin-top:3px;line-height:1.55}'
+    +'.kopf-r{flex-shrink:0;text-align:right}'
+    +'.adrmeta{display:flex;justify-content:space-between;align-items:flex-end;gap:22px;margin-bottom:10mm}'
+    +'.adr{font-size:10pt;line-height:1.55;min-height:18mm}'
+    +'.dmeta{font-size:9pt;min-width:54mm}'
+    +'.mrow{display:flex;justify-content:space-between;gap:16px;padding:1.5px 0}'
+    +'.ml{color:#666}'
+    +'.mv{font-weight:700;text-align:right}'
+    +'h1{font-size:16.5pt;margin:0 0 3px;color:var(--acc);letter-spacing:.2px}'
+    +'.untertitel{font-size:10.5pt;font-weight:700;color:#333;margin-bottom:10px}'
     +'table{border-collapse:collapse;width:100%;font-size:9.5pt;margin:8px 0 12px}'
-    +'th{background:#f5f8ff;border-bottom:1.5px solid #1d4ed8;text-align:left;padding:5px 7px;font-size:8pt;text-transform:uppercase;letter-spacing:.3px}'
+    +'th{background:var(--tint);border-bottom:1.5px solid var(--acc);color:var(--acc);text-align:left;padding:5px 7px;font-size:8pt;text-transform:uppercase;letter-spacing:.3px}'
     +'td{border-bottom:.5px solid #ddd;padding:5px 7px;vertical-align:top}'
     +'.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}'
-    +'tr.sum td{border-top:2px solid #1d4ed8;background:#f5f8ff;font-size:10.5pt}'
+    +'tr.sum td{border-top:2px solid var(--acc);background:var(--tint);font-size:10.5pt;color:var(--acc)}'
+    +'.foot{position:fixed;left:26px;right:26px;bottom:8px;border-top:1px solid var(--acc);padding-top:5px;display:flex;justify-content:space-between;gap:16px;font-size:7.5pt;color:#666;line-height:1.5}'
+    +'.foot span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}'
     +'.nb{position:fixed;top:10px;right:10px;display:flex;gap:8px}'
     +'.nb button{padding:9px 16px;border-radius:9px;border:1px solid #ccc;background:#fff;font-weight:700;cursor:pointer;font-family:inherit}'
-    +'.nb .p{background:#1d4ed8;color:#fff;border-color:#1d4ed8}'
+    +'.nb .p{background:var(--acc);color:#fff;border-color:var(--acc)}'
     +'#erpQr img,#erpQr canvas{width:100%!important;height:100%!important}'
-    +'@media print{.nb{display:none}body{padding:0}}'
+    // Druck: Fusszeile in den unteren Seitenrand (@page 24mm) schieben — wiederholt auf jeder Seite
+    +'@media print{.nb{display:none}body{padding:0}.foot{left:0;right:0;bottom:-16mm}}'
     +'</style></head><body>'
     +'<div class="nb"><button class="p" onclick="window.print()">🖨 Drucken / Als PDF sichern</button><button onclick="window.close()">Schliessen</button></div>'
-    +b+'</body></html>');
+    // foot VOR b: position:fixed macht die DOM-Reihenfolge egal, aber nach dem
+    // externen QR-Script-Tag kann der Parser nachfolgendes Markup verlieren
+    +foot+b+'</body></html>');
   w.document.close();
 }
 
