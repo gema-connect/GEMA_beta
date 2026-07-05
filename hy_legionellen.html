@@ -6,7 +6,7 @@
 <script src="gema_recent.js"></script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title>Legionellen-Management – GEMA</title>
+<title>Hygienemanagement – GEMA</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700;9..40,800;9..40,900&display=swap" rel="stylesheet">
@@ -137,7 +137,7 @@ table.t{border-collapse:collapse;width:100%;font-size:12.5px}
     </a>
     <div class="g-nav-bc">
       <span class="bc-cat">Hygiene &amp; Betrieb</span><span class="bc-sep">›</span>
-      <span class="bc-cur">Legionellen-Management</span>
+      <span class="bc-cur">Hygienemanagement</span>
     </div>
     <div class="g-nav-right">
       <button class="gema-feedback-btn no-print" onclick="GemaFeedback.start()">🔴 Feedback</button>
@@ -150,7 +150,7 @@ table.t{border-collapse:collapse;width:100%;font-size:12.5px}
     <div class="hero-in">
       <div class="hero-ic">🦠</div>
       <div>
-        <div class="hero-title">Legionellen-Management</div>
+        <div class="hero-title">Hygienemanagement</div>
         <div class="hero-sub">Trinkwasserhygiene: Portfolio · Probenplanung · Laborauswertung · Sanierungs-Workflow mit Nachproben</div>
       </div>
     </div>
@@ -740,6 +740,11 @@ function hySanCard(p,eigene){
   var binPlaner=eigene?(p.planMode!=='EXTERNAL'&&hyIsPlanerRolle()):(p.sanPlanerEmail===mail);
   var binTechniker=eigene?(p.workMode!=='EXTERNAL'&&hyIsTechniker()):(p.sanTechnikerEmail===mail);
   var akt='';
+  // Massnahme «Spülen»: aktiviert den Spülmanager (Empfehlung: alle 3 Tage)
+  if(eigene&&hyCanEdit()){
+    if(p.spuelObjId)akt+='<a class="btn sm" href="hy_spuelmanager.html" style="text-decoration:none">🚿 Spülregime aktiv → Spülmanager</a>';
+    else akt+='<button class="btn sm" onclick="hySpuelAktivieren(\''+p.id+'\')">🚿 Massnahme «Spülen» (alle 3 Tage)</button>';
+  }
   if(!p.planCreatedAt){
     if(binPlaner)akt+='<button class="btn pri sm" onclick="hySanPlanOpen(\''+p.id+'\')">📝 Sanierungsplan erstellen</button>';
     if(eigene&&hyCanEdit())akt+='<button class="btn sm" onclick="hySanDelegate(\''+p.id+'\',\'plan\')">'+(p.planMode==='EXTERNAL'?'↩ Planung intern übernehmen':'📤 Planung extern delegieren')+'</button>';
@@ -1253,6 +1258,38 @@ window.hySanApprove=function(id){
   });
 };
 
+// ── Massnahme «Spülen»: legt direkt ein Spülobjekt im Spülmanager an ──
+// (gleiche per-Record-Pools, moduleKey spuelmanager — Modul-übergreifend)
+window.hySpuelAktivieren=function(probeId){
+  var p=hyProbeById(probeId);if(!p||p.spuelObjId)return;
+  GemaDialog.confirm({title:'Spülregime aktivieren',message:'Als Sofort-Massnahme ein Spülregime im Spülmanager anlegen? Empfehlung: alle 3 Tage spülen, bis die Nachprobe negativ ist.',confirmLabel:'Aktivieren'}).then(function(ok){
+    if(!ok)return;
+    var u=hyUser();var k=psKontext(p.psId);
+    var spObj={id:'sp_'+Date.now()+'_'+Math.random().toString(36).slice(2,7),orgId:u.orgId,typ:'legionellen',
+      name:'Legionellen-Massnahme — '+(p.gebaeudeSnapshot||p.psLabelSnapshot||''),
+      intervalTage:3,spuelDauerSek:180,aktiv:true,
+      objektId:(k.geb&&k.geb.objektId)||'',objektName:(k.geb&&k.geb.name)||'',
+      quelleText:'aus Hygienemanagement (Befund '+(p.maxLegionella!=null?p.maxLegionella+' KBE/L':'positiv')+')',quelleProbeId:p.id,
+      erstelltVon:{userId:u.id,name:u.name},erstelltAm:new Date().toISOString()};
+    var spSt={id:'sp_'+Date.now()+'_'+Math.random().toString(36).slice(2,8),orgId:u.orgId,spObjId:spObj.id,
+      name:p.psLabelSnapshot||(k.ps?psLabel(k.ps):'Entnahmestelle'),medium:'beide',dauerSek:null,erstelltAm:new Date().toISOString()};
+    // In die Spülmanager-Pools schreiben (localStorage + Cloud per-Record)
+    [['gema_sp_obj_pool_v1','spobj:',spObj],['gema_sp_stellen_pool_v1','spst:',spSt]].forEach(function(e){
+      var pool=[];try{pool=JSON.parse(localStorage.getItem(e[0])||'[]');}catch(err){}
+      pool.push(e[2]);
+      try{localStorage.setItem(e[0],JSON.stringify(pool));}catch(err){}
+      if(typeof GemaSync!=='undefined'&&GemaSync.saveRecord)GemaSync.saveRecord('spuelmanager',e[1]+e[2].id,e[2]).catch(function(){});
+    });
+    p.spuelObjId=spObj.id;
+    hyLog(p,'Massnahme «Spülen» aktiviert — Spülregime alle 3 Tage (Spülmanager)');
+    poolSave('probe',p);
+    hyNotify({eventKey:'spuel_aktiviert',empfaengerRoleId:'role_monteur',empfaengerOrgId:u.orgId,modul:'spuelmanager',typ:'aktion',
+      titel:'Spülregime aktiviert (alle 3 Tage)',text:spObj.name,link:'hy_spuelmanager.html'});
+    toast('🚿 Spülregime im Spülmanager angelegt — QR-Codes dort ausdrucken');
+    hyRender();
+  });
+};
+
 // ═══════════════════════════════════════════════════════════
 // EINSTELLUNGEN
 // ═══════════════════════════════════════════════════════════
@@ -1304,7 +1341,7 @@ document.addEventListener('DOMContentLoaded',function(){
     _hyCloudLoaded=true;hyScheduleScan();
   }
   window.addEventListener('gema-objekte-loaded',function(){hyRender();});
-  if(typeof GemaFeedback!=='undefined')GemaFeedback.init('legionellen','Legionellen-Management');
+  if(typeof GemaFeedback!=='undefined')GemaFeedback.init('legionellen','Hygienemanagement');
 });
 </script>
 <script src="gema_scroll.js"></script>

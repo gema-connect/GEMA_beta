@@ -781,7 +781,7 @@ Wenn ein Media-Query entfernt wurde, blieben in einigen Modulen die innerhalb de
 
 ## Legionellen-Management (hy_legionellen.html)
 
-Umsetzung der Spez. `GEMAVANILLAREBUILDSPEC.md` (main-Branch; Nachbau von «gema-connect / Hygiene – Water Quality Management») **integriert in die GEMA-Umgebung**: GemaAuth statt eigenem Login (2FA bewusst zurückgestellt), GemaSync-per-Record statt eigener DB/REST, GemaNotify statt eigener Notifications, **externe Partner (Labor/Sanierer) via E-Mail-Match cross-org** (Regierapport-Muster) statt eigener Portale, **Fälligkeits-Scan beim Seitenstart** statt Cron.
+**Heisst im UI «Hygienemanagement»** (User-Vorgabe — Modul-Key/Dateiname bleiben `legionellen`/`hy_legionellen`). Umsetzung der Spez. `GEMAVANILLAREBUILDSPEC.md` (main-Branch; Nachbau von «gema-connect / Hygiene – Water Quality Management») **integriert in die GEMA-Umgebung**: GemaAuth statt eigenem Login (2FA bewusst zurückgestellt), GemaSync-per-Record statt eigener DB/REST, GemaNotify statt eigener Notifications, **externe Partner (Labor/Sanierer) via E-Mail-Match cross-org** (Regierapport-Muster) statt eigener Portale, **Fälligkeits-Scan beim Seitenstart** statt Cron.
 
 - **Hierarchie/Pools (moduleKey `legionellen`)**: Standort `hysite:`→`gema_hy_sites_pool_v1` · Gebäude `hygeb:`→`gema_hy_geb_pool_v1` (optional `siteId`, `objektId`-Verknüpfung zu GEMA-Objekten, Typ + Overrides + Labor-Override) · Raum `hyraum:`→`gema_hy_raum_pool_v1` · Messstelle `hyps:`→`gema_hy_ps_pool_v1` (Medium WARMWASSER/KALTWASSER/ZIRKULATION, Typ inkl. DUSCHE/BADEWANNE-Schlauch-Flag, materialisiertes `interval`+`threshold`, `nextSampleDate`) · Probe `hyprobe:`→`gema_hy_proben_pool_v1` (Status/Messwerte/Sanierung/Log denormalisiert inkl. `psLabelSnapshot`/`laborEmail`).
 - **Vererbung (Kap. 11)**: `hyEffektiv(raum,geb,default)` — Raum-Override → Raumkategorie → Gebäude-Override → Gebäudetyp → Firmen-Standard bzw. 1000 KBE/L, mit **Herkunfts-Anzeige** im Messstellen-Formular; am PS materialisiert.
@@ -791,6 +791,17 @@ Umsetzung der Spez. `GEMAVANILLAREBUILDSPEC.md` (main-Branch; Nachbau von «gema
 - **UI (Kap. 15)**: Status-/Ergebnis-Badges, Legionellen-Ampel (0 sauber / <100 niedrig / <1000 moderat / ≥1000 hoch), Fälligkeits-Dringlichkeit (überfällig/bald/anstehend/geplant), Medium-Farben, `dd.mm.yyyy`. Views: Übersicht (KPIs) / Portfolio (Baum) / Proben (Filter-Chips) / Sanierung (Schritt-Karten); `#hyTasks` oben = Panels «Meine Labor-Proben» + «Meine Sanierungsaufträge» für externe Partner.
 - **Engine im `/*ENGINE-START*/`-Block** (Node-testbar): Referenzdaten, `hyMonate/hyAddMonths/hyNextDate/hyEffektiv/hyAuswertung/hyManuellAuswertung/hyPflichtFehlt/hyAmpel/hyDaysUntil/hyUrgency/hyScanFaellig/hyLaborFor/hyContractorFor/hySanAktiv/hyOhneEltern`.
 - Registriert: gema_auth (MODULES `legionellen` cat Hygiene, FILE_MAP `hy_legionellen`; Planer via `_allPerms`, Monteur read+write (Ausführung), Unternehmer read+write (externe Partner), Behörde read), gema_notify (6 `hy_*`-Keys), index.html (ersetzt die deaktivierte «Hygienemanagement»-Platzhalter-Kachel), sw.js.
+
+## Spülmanager (hy_spuelmanager.html) — komplett überarbeitet
+
+Spülregimes mit QR-Start-Timer und lückenloser Doku. **Komplett neu** (der alte Blob-Prototyp `gema_spuel_*` per Objekt wurde ersetzt; keine Migration — Altstand war Prototyp). Drei Typen (`SP_TYPEN`): **Legionellen-Massnahme** (Empfehlung alle 3 Tage, aus dem Hygienemanagement aktivierbar), **Baustelle mit Wasser am Netz** (alle 3 Tage), **Leerstand** (Intervall frei, Vorschlag 7 Tage).
+
+- **Pools (moduleKey `spuelmanager`)**: Spülobjekt `spobj:`→`gema_sp_obj_pool_v1` (`{typ, name, objektId?, intervalTage, spuelDauerSek (Default 180 s), aktiv, quelleText/quelleProbeId, beendetAm?}`) · Spülstelle `spst:`→`gema_sp_stellen_pool_v1` (`{spObjId, name, medium, dauerSek?-Override, letzteSpuelung}`) · Spülvorgang `splog:`→`gema_sp_log_pool_v1` (`{stelleId, gestartetAm/beendetAm, dauerSoll/IstSek, abweichung, viaQr, userName, bemerkung}`).
+- **QR pro Spülstelle**: URL `hy_spuelmanager.html?scan=<stelleId>` (qrcodejs-CDN, Etiketten-Druck A6) — Scan öffnet direkt den **Vollbild-Spül-Timer**: Countdown mit Soll-Dauer (`spDauerFor`: Stelle-Override → Objekt → 180 s), bei Ablauf Vibration + «Fertig — dokumentieren»; vorzeitiges Beenden verlangt einen Grund (`abweichung:true`, Badge «verkürzt»). Jeder Vorgang schreibt einen Log-Record + `stelle.letzteSpuelung`.
+- **Fälligkeit** (`spStatus`): nie gespült = sofort fällig; sonst letzteSpuelung + intervalTage → ok/faellig/ueberfaellig. Dashboard-KPIs + Liste «Jetzt fällige Spülstellen»; Scan beim Seitenstart pusht `spuel_faellig` an role_monteur (1×/Tag-Lock `gema_sp_notif_lock_v1`). Objekte sind **beendbar/reaktivierbar** (Baustelle übergeben, Wohnung vermietet — Protokoll bleibt).
+- **Kopplung Hygienemanagement**: Auf der Sanierungs-Karte in `hy_legionellen.html` gibt es «🚿 Massnahme ‹Spülen› (alle 3 Tage)» (`hySpuelAktivieren`) — legt Spülobjekt (typ legionellen, Herkunft = Befund) + Spülstelle aus der Messstelle DIREKT in die Spülmanager-Pools (gleiche localStorage-Keys + `GemaSync.saveRecord('spuelmanager',…)`), verlinkt `probe.spuelObjId` und benachrichtigt die Monteure (`spuel_aktiviert`). Umgekehrt exponiert der Spülmanager `window.GemaSpuel.aktivierenFuerMassnahme(opts)`.
+- **Protokoll**: revisionssicher, CSV-Export; `spCanFlush` = jede eingeloggte Person (Monteur/Hauswart spült), CRUD via `spCanEdit` (Planer/Admin/AL/Magaziner/Unternehmer). Engine (`SP_TYPEN/spStatus/spNextDue/spDauerFor/spMMSS/spAddDays`) im `/*ENGINE-START*/`-Block, Node-testbar.
+- Rollen: Monteur/Unternehmer/Magaziner read+write (`spuelmanager`); Event-Keys `spuel_faellig`/`spuel_aktiviert`.
 
 ## W12-Modul (hy_w12.html)
 
@@ -1689,6 +1700,8 @@ Zentrales Modul `gema_notify.js` für In-App-Benachrichtigungen. Glocke + Toast-
 | `hy_plan_erstellt` | legionellen | on |
 | `hy_sanierung_delegiert` | legionellen | on |
 | `hy_arbeit_abgeschlossen` | legionellen | on |
+| `spuel_faellig` | spuelmanager | on |
+| `spuel_aktiviert` | spuelmanager | on |
 
 **Neue Module fügen ihre Event-Keys hier hinzu**, sonst greift kein Preferences-Filter.
 

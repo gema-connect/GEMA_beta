@@ -215,6 +215,16 @@
       modul:'legionellen',
       defaultOn:true
     },
+    spuel_faellig: {
+      label:'Spülstellen fällig (Spülmanager)',
+      modul:'spuelmanager',
+      defaultOn:true
+    },
+    spuel_aktiviert: {
+      label:'Spülregime aktiviert',
+      modul:'spuelmanager',
+      defaultOn:true
+    },
     offertanfrage_neu: {
       label:'Neue Offertanfrage (Lieferant)',
       modul:'produktkatalog',
