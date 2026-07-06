@@ -691,6 +691,10 @@ Geplant: `gema_lu_api.js` für den Datenfluss aus der LU-Zusammenstellung:
 
 ## Häufige Fehlerquellen
 
+### Admin-User-Switcher (Impersonation) — Guard nicht entfernen (KRITISCH)
+
+Das Benutzerwechsel-Dropdown oben rechts (`_injectBadge`/`GemaAuth._switchUser` in gema_auth.js) ist NUR für `role_admin` gedacht. **`_switchUser` hat einen Berechtigungs-Guard** (`_sessionUserIsAdmin() || _adminOriginIsAdmin()`): ohne ihn konnte jeder eingeloggte User per Konsole `GemaAuth._switchUser('<admin-id>')` die Session passwortlos auf einen Admin umschreiben. Der Impersonations-Marker `_gemaAdminOrigin` zählt nur, wenn er auf einen ECHTEN Admin zeigt (sonst wird er abgeräumt); `logout()` löscht ihn. Rückkehr zum Ursprungs-Admin räumt den Marker in `_switchUser` selbst ab (nicht vorher löschen — der Guard braucht ihn für den Rückweg). Grundsatz: Client-seitig ist das Defense-in-Depth — die Session liegt im localStorage und ist von technisch versierten Nutzern fälschbar; echte Autorisierung braucht serverseitige Checks (Supabase RLS), siehe «Modul-Freischaltung pro Kunde».
+
 ### Fremde Firma erscheint oben links / im Lieferanten-Dashboard («bwt aqua»-Bug, BEHOBEN)
 
 **Symptom**: Nav-Logo/Brand oben links oder das Lieferanten-Dashboard zeigt eine FREMDE Firma, obwohl der eingeloggte User gar nicht dort Mitglied ist.

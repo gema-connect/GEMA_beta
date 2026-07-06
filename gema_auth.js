@@ -666,6 +666,22 @@
   }
   function _detectModuleKey(){var f=location.pathname.split('/').pop().replace('.html','').toLowerCase();return FILE_MAP[f]||f;}
   function _isAdmin(user){return user&&user.roleIds&&user.roleIds.indexOf('role_admin')>=0;}
+  // Ist der AKTUELLE Session-User ein Admin? (für den _switchUser-Guard)
+  function _sessionUserIsAdmin(){
+    var s=_getSession();if(!s)return false;
+    var users=_getUsers()||[];
+    var u=users.find(function(x){return x.id===s.userId;});
+    return !!(u&&_isAdmin(u));
+  }
+  // Zeigt der Impersonations-Marker auf einen ECHTEN Admin? Ein von Hand
+  // gesetzter Marker auf einen Nicht-Admin-User gewährt keine Rechte.
+  function _adminOriginIsAdmin(){
+    var id=null;try{id=localStorage.getItem('_gemaAdminOrigin');}catch(e){}
+    if(!id)return false;
+    var users=_getUsers()||[];
+    var u=users.find(function(x){return x.id===id;});
+    return !!(u&&_isAdmin(u));
+  }
 
   // ── UI: Permissions ────────────────────────────────────────────────
   function _applyUI(perms){
@@ -752,8 +768,10 @@
     badge.style.cssText='display:flex;align-items:center;gap:6px;margin-left:16px;padding-right:12px;flex-shrink:0;position:relative';
 
     var isAdmin=_isAdmin(user);
-    var isImpersonating=false;
-    try{isImpersonating=!!localStorage.getItem('_gemaAdminOrigin');}catch(e){}
+    // Switcher nur für echte Admins bzw. eine ECHTE Admin-Impersonation —
+    // ein manuell gesetzter _gemaAdminOrigin-Marker auf einen Nicht-Admin
+    // blendet das Dropdown NICHT ein.
+    var isImpersonating=_adminOriginIsAdmin();
     var showSwitcher=isAdmin||isImpersonating;
     badge.innerHTML=
       '<div style="text-align:right;cursor:'+(showSwitcher?'pointer':'default')+'" '+(showSwitcher?'onclick="document.getElementById(\'_gemaSwitcher\').style.display=document.getElementById(\'_gemaSwitcher\').style.display===\'none\'?\'block\':\'none\'"':'')+'>'+
@@ -1067,10 +1085,23 @@
         setTimeout(function(){done(null);},6000);
       });
     },
-    logout:function(){localStorage.removeItem(STORAGE_SESSION);location.href='sys_login.html';},
+    logout:function(){
+      localStorage.removeItem(STORAGE_SESSION);
+      try{localStorage.removeItem('_gemaAdminOrigin');}catch(e){}
+      location.href='sys_login.html';
+    },
 
     // Admin-Impersonation: als anderer User anmelden, Admin-Zugang bleibt
     _switchUser:function(userId){
+      // GUARD (KRITISCH): Wechseln darf NUR ein Admin — entweder ist der
+      // aktuelle Session-User Admin, oder es läuft eine Impersonation, deren
+      // Ursprung ein Admin ist. Ohne diesen Check konnte JEDER eingeloggte
+      // User per Konsolen-Aufruf GemaAuth._switchUser('<admin-id>') die
+      // Session auf einen Admin umschreiben (ohne Passwort).
+      if(!_sessionUserIsAdmin()&&!_adminOriginIsAdmin()){
+        try{localStorage.removeItem('_gemaAdminOrigin');}catch(e){}
+        return;
+      }
       var users=_getUsers()||[];
       var user=users.find(function(u){return u.id===userId;});
       if(!user)return;
@@ -1084,6 +1115,8 @@
           try{localStorage.setItem('_gemaAdminOrigin',curUser.id);}catch(e){}
         }
       }
+      // Rückkehr zum Ursprungs-Admin beendet die Impersonation
+      try{if(localStorage.getItem('_gemaAdminOrigin')===user.id)localStorage.removeItem('_gemaAdminOrigin');}catch(e){}
       var exp=new Date();exp.setDate(exp.getDate()+1);
       var s={userId:user.id,expires:exp.toISOString()};
       try{localStorage.setItem(STORAGE_SESSION,JSON.stringify(s));}catch(e){}
@@ -1091,7 +1124,9 @@
       location.href=dest;
     },
     _isImpersonating:function(){
-      try{return !!localStorage.getItem('_gemaAdminOrigin');}catch(e){return false;}
+      // Nur eine ECHTE Admin-Impersonation zählt — ein von Hand gesetzter
+      // Marker auf einen Nicht-Admin ist wirkungslos.
+      return _adminOriginIsAdmin();
     },
     _getAdminOriginId:function(){
       try{return localStorage.getItem('_gemaAdminOrigin');}catch(e){return null;}
@@ -1099,7 +1134,14 @@
     _stopImpersonating:function(){
       var origId=w.GemaAuth._getAdminOriginId();
       if(!origId)return;
-      try{localStorage.removeItem('_gemaAdminOrigin');}catch(e){}
+      // Zurückwechseln nur, wenn der hinterlegte Ursprungs-User wirklich
+      // Admin ist — sonst wäre der Marker ein Passwort-loser Admin-Login.
+      if(!_adminOriginIsAdmin()){
+        try{localStorage.removeItem('_gemaAdminOrigin');}catch(e){}
+        return;
+      }
+      // Marker bleibt bis zum Wechsel gesetzt (Guard in _switchUser braucht
+      // ihn) — _switchUser räumt ihn bei der Rückkehr zum Ursprung selbst ab.
       w.GemaAuth._switchUser(origId);
     },
 
