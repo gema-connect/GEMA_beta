@@ -3479,11 +3479,60 @@ window._wzLendToSelf = _wzLendToSelf;
 window._wzKofferKontrolleSave=function(kofferId){
   var k=tools.find(function(x){return x.id===kofferId;});
   if(!k)return;
-  var ki=_wzKofferItems(k);
+  var u=_wzGetUser();
+  var kofRet=!!k.ausgeliehenAn;   // Rückgabe-Kontext? (Koffer ist ausgeliehen)
+
+  // Basis-Teilliste: bei Rückgabe nur die mit dem Koffer ausgeliehenen Teile,
+  // sonst der komplette Kofferinhalt (reine Vollständigkeitskontrolle).
+  var ki=kofRet
+    ? tools.filter(function(it){return it.ausgeliehenAn&&it.ausgeliehenAn.viaKoffer===k.id;})
+    : _wzKofferItems(k);
   var checked={};
   document.querySelectorAll('.kofCtrlItem:checked').forEach(function(cb){checked[cb.value]=true;});
   var fehlend=ki.filter(function(it){return !checked[it.id];});
-  var u=_wzGetUser();
+
+  if(kofRet){
+    // ── Rückgabe: nur wer zurückgeben darf, bucht den Koffer aus ──
+    if(!_wzCanReturnTool(k)){alert('Nur der Ausleiher oder ein Magaziner darf den Koffer zurückgeben.');return;}
+    var borrower=k.ausgeliehenAn;
+    ki.forEach(function(it){
+      if(checked[it.id]){
+        delete it.ausgeliehenAn;              // zurück im Lager
+      } else {
+        delete it.ausgeliehenAn.viaKoffer;    // fehlt → bleibt einzeln ausgeliehen
+      }
+    });
+    delete k.ausgeliehenAn;
+    save();renderList();
+    _wzActLog('rueckgabe','Koffer zurück von '+(borrower.name||'')+(fehlend.length?' — '+fehlend.length+' Teil(e) fehlen: '+fehlend.map(function(x){return x.name;}).join(', '):' (vollständig)'),k);
+    if(fehlend.length&&typeof GemaNotify!=='undefined'){
+      GemaNotify.push({eventKey:'werkzeug_koffer_fehlteil',empfaengerRoleId:'role_magaziner',empfaengerOrgId:k.orgId||'',modul:'werkzeug',typ:'warnung',
+        titel:'⚠ Koffer unvollständig zurück: '+k.name,
+        text:'Fehlt: '+fehlend.map(function(x){return x.name;}).join(', ')+' — weiterhin ausgeliehen an '+(borrower.name||'—'),
+        link:'if_werkzeug.html?view='+encodeURIComponent(k.id)});
+    }
+    if(typeof GemaNotify!=='undefined'&&borrower.userId&&(!u||borrower.userId!==u.id)){
+      GemaNotify.push({eventKey:'werkzeug_zuweisung',empfaengerUserId:borrower.userId,modul:'werkzeug',typ:'erfolg',
+        titel:'Koffer zurückgegeben: '+k.name,text:'Rückgabe bestätigt von '+(u?u.name:'')+(fehlend.length?' · '+fehlend.length+' Teil(e) noch bei dir':''),
+        link:'if_werkzeug.html?view='+encodeURIComponent(k.id)});
+    }
+    var secR=document.getElementById('kofCtrlSection');
+    if(secR){
+      if(fehlend.length){
+        secR.style.borderColor='#fecaca';
+        secR.innerHTML='<div style="font-size:15px;font-weight:800;color:#b91c1c;margin-bottom:8px">↩ Koffer zurückgegeben — '+fehlend.length+' Teil'+(fehlend.length!==1?'e':'')+' fehlt'+(fehlend.length!==1?'en':'')+'</div>'
+          +'<div style="display:flex;flex-direction:column;gap:5px;margin-bottom:12px">'+fehlend.map(function(x){return '<div style="font-size:13.5px;font-weight:600;color:#0f172a;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:9px 11px">✕ '+esc(x.name)+' <span style="font-size:11px;color:#b45309;font-weight:600">bleibt ausgeliehen</span></div>';}).join('')+'</div>'
+          +'<div style="font-size:12px;color:#64748b">Der Magaziner wurde informiert.</div>';
+      } else {
+        secR.style.borderColor='#bbf7d0';
+        secR.innerHTML='<div style="font-size:16px;font-weight:800;color:#15803d;margin-bottom:6px">✓ Koffer vollständig zurückgegeben</div>'
+          +'<div style="font-size:13px;color:#475569">Alle '+ki.length+' Teile sind zurück im Lager.</div>';
+      }
+    }
+    return;
+  }
+
+  // ── Reine Vollständigkeitskontrolle (Koffer im Lager) ──
   k.letzteKofferKontrolle={
     am:new Date().toISOString(),
     von:u?(u.name||u.username||''):'',
@@ -3559,27 +3608,40 @@ function _wzScanAusleihe(toolId){
     actionBtn='<button onclick="_wzScanBorrow(\''+toolId+'\')" style="width:100%;padding:16px;border-radius:14px;border:none;background:#1e3a5f;color:#fff;font-size:16px;font-weight:800;cursor:pointer;font-family:inherit;display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 4px 16px rgba(30,58,95,.3)">📲 Bei mir einbuchen</button>';
   }
 
-  // ── Koffer-Vollständigkeitskontrolle ──
-  // Beim Scannen eines Koffers alle Teile auflisten, ALLE vorausgewählt.
-  // Der Nutzer wählt ab, was er physisch NICHT sieht → fehlende Teile
-  // werden gemeldet (Log + Magaziner-Notify) und am Koffer vermerkt.
+  // ── Koffer-Vollständigkeitskontrolle / Rückgabe ──
+  // Ist der Koffer AUSGELIEHEN, ist es eine Rückgabe: es sind nur die mit
+  // dem Koffer ausgeliehenen Teile vorausgewählt (die zurueckkommen). Sonst
+  // (Koffer im Lager) eine reine Vollstaendigkeitskontrolle mit ALLEN Teilen.
+  // Abwaehlen = fehlt; bei Rueckgabe bleiben fehlende Teile ausgeliehen.
   var kofferKontrolle='';
   if(_wzIsKoffer(t)){
-    var ki=_wzKofferItems(t);
+    var kofRet=!!t.ausgeliehenAn;                 // Rueckgabe-Kontext?
+    var kofCanRet=kofRet&&_wzCanReturnTool(t);     // darf zurueckgeben?
+    var ki=kofRet
+      ? tools.filter(function(it){return it.ausgeliehenAn&&it.ausgeliehenAn.viaKoffer===t.id;})
+      : _wzKofferItems(t);
     var itemsHtml=ki.length?ki.map(function(it){
-      var borrowed=it.ausgeliehenAn?' <span style="font-size:10px;color:#b45309;font-weight:600">🔄 ausgeliehen an '+esc(it.ausgeliehenAn.name||'—')+'</span>':'';
+      var borrowed=(!kofRet&&it.ausgeliehenAn)?' <span style="font-size:10px;color:#b45309;font-weight:600">🔄 ausgeliehen an '+esc(it.ausgeliehenAn.name||'—')+'</span>':'';
       var defekt=_wzBadDefect(it)?' <span style="font-size:10px;color:#dc2626;font-weight:700">⚠ Defekt</span>':'';
       return '<label style="display:flex;align-items:center;gap:10px;padding:11px 12px;border:1px solid #e5e7eb;border-radius:10px;background:#fff;cursor:pointer">'
         +'<input type="checkbox" class="kofCtrlItem" value="'+esc(it.id)+'" checked style="width:22px;height:22px;accent-color:#16a34a;flex-shrink:0"/>'
         +'<span style="flex:1;min-width:0;font-size:14px;font-weight:600;color:#0f172a">'+esc(it.name)+(it.internKennung?' <span style="font-size:10px;color:#94a3b8;font-weight:500">'+esc(it.internKennung)+'</span>':'')+borrowed+defekt+'</span></label>';
-    }).join(''):'<div style="font-size:13px;color:#94a3b8;text-align:center;padding:14px">Dieser Koffer hat noch keine Teile hinterlegt.<br>Inhalt über «🧰 Inhalt» in der Geräteliste erfassen.</div>';
+    }).join(''):'<div style="font-size:13px;color:#94a3b8;text-align:center;padding:14px">'
+      +(kofRet?'Es wurden keine Teile mit dem Koffer ausgeliehen — es wird nur der Koffer selbst zurückgegeben.':'Dieser Koffer hat noch keine Teile hinterlegt.<br>Inhalt über «🧰 Inhalt» in der Geräteliste erfassen.')+'</div>';
     var lk=t.letzteKofferKontrolle;
-    var lkHtml=lk?('<div style="margin-top:10px;font-size:11px;color:'+(lk.vollstaendig?'#15803d':'#b45309')+';background:'+(lk.vollstaendig?'#f0fdf4':'#fffbeb')+';border:1px solid '+(lk.vollstaendig?'#bbf7d0':'#fde68a')+';border-radius:8px;padding:8px 10px">Letzte Kontrolle: '+fmt((lk.am||'').slice(0,10))+' · '+esc(lk.von||'')+' — '+(lk.vollstaendig?'vollständig ✓':((lk.fehlend||[]).length+' Teil(e) fehlten'))+'</div>'):'';
+    var lkHtml=(!kofRet&&lk)?('<div style="margin-top:10px;font-size:11px;color:'+(lk.vollstaendig?'#15803d':'#b45309')+';background:'+(lk.vollstaendig?'#f0fdf4':'#fffbeb')+';border:1px solid '+(lk.vollstaendig?'#bbf7d0':'#fde68a')+';border-radius:8px;padding:8px 10px">Letzte Kontrolle: '+fmt((lk.am||'').slice(0,10))+' · '+esc(lk.von||'')+' — '+(lk.vollstaendig?'vollständig ✓':((lk.fehlend||[]).length+' Teil(e) fehlten'))+'</div>'):'';
+    var kofTitel=kofRet?'🧰 Koffer zurückgeben & prüfen':'🧰 Vollständigkeit prüfen';
+    var kofSub=kofRet
+      ? 'Nur die mit dem Koffer ausgeliehenen Teile sind angehakt. <strong>Wähle ab, was fehlt</strong> — fehlende Teile bleiben ausgeliehen.'
+      : 'Alle '+ki.length+' Teil'+(ki.length!==1?'e sind':' ist')+' angehakt. <strong>Wähle ab, was du im Koffer NICHT siehst.</strong>';
+    var kofBtn=kofCanRet?'✓ Zurückgeben':'✓ Kontrolle bestätigen';
+    // Bei ausgeliehenem Koffer ohne Rueckgaberecht nur reine Kontrolle
+    var showBtn=ki.length||kofRet;
     kofferKontrolle='<div id="kofCtrlSection" style="background:#fff;border-radius:16px;border:1.5px solid #fde047;padding:16px;margin-bottom:20px">'
-      +'<div style="font-size:15px;font-weight:800;color:#854d0e;margin-bottom:4px">🧰 Vollständigkeit prüfen</div>'
-      +'<div style="font-size:12.5px;color:#64748b;margin-bottom:14px">Alle '+ki.length+' Teil'+(ki.length!==1?'e sind':' ist')+' angehakt. <strong>Wähle ab, was du im Koffer NICHT siehst.</strong></div>'
+      +'<div style="font-size:15px;font-weight:800;color:#854d0e;margin-bottom:4px">'+kofTitel+'</div>'
+      +'<div style="font-size:12.5px;color:#64748b;margin-bottom:14px">'+kofSub+'</div>'
       +'<div style="display:flex;flex-direction:column;gap:6px'+(ki.length>6?';max-height:44vh;overflow-y:auto':'')+'">'+itemsHtml+'</div>'
-      +(ki.length?'<button onclick="_wzKofferKontrolleSave(\''+t.id+'\')" style="width:100%;margin-top:14px;padding:14px;border-radius:12px;border:none;background:#16a34a;color:#fff;font-size:15px;font-weight:800;cursor:pointer;font-family:inherit;display:flex;align-items:center;justify-content:center;gap:8px">✓ Kontrolle bestätigen</button>':'')
+      +(showBtn?'<button onclick="_wzKofferKontrolleSave(\''+t.id+'\')" style="width:100%;margin-top:14px;padding:14px;border-radius:12px;border:none;background:#16a34a;color:#fff;font-size:15px;font-weight:800;cursor:pointer;font-family:inherit;display:flex;align-items:center;justify-content:center;gap:8px">'+kofBtn+'</button>':'')
       +lkHtml
       +'</div>';
   }
