@@ -3472,6 +3472,49 @@ window._wzKofferRueckgabeSave=function(kofferId){
   }
 };
 window._wzLendToSelf = _wzLendToSelf;
+// Koffer-Vollständigkeitskontrolle nach dem Scannen: liest die Checkboxen,
+// ermittelt fehlende Teile, protokolliert das Ergebnis am Koffer + im
+// Aktivitätenlog und meldet Fehlteile an den Magaziner. Ersetzt die
+// Kontroll-Sektion durch eine Ergebnis-Anzeige (grün/rot).
+window._wzKofferKontrolleSave=function(kofferId){
+  var k=tools.find(function(x){return x.id===kofferId;});
+  if(!k)return;
+  var ki=_wzKofferItems(k);
+  var checked={};
+  document.querySelectorAll('.kofCtrlItem:checked').forEach(function(cb){checked[cb.value]=true;});
+  var fehlend=ki.filter(function(it){return !checked[it.id];});
+  var u=_wzGetUser();
+  k.letzteKofferKontrolle={
+    am:new Date().toISOString(),
+    von:u?(u.name||u.username||''):'',
+    vonId:u?u.id:'',
+    geprueft:ki.length,
+    fehlend:fehlend.map(function(x){return {id:x.id,name:x.name};}),
+    vollstaendig:fehlend.length===0
+  };
+  save();renderList();
+  _wzActLog('pruefung','Koffer-Vollständigkeitskontrolle: '+(fehlend.length?fehlend.length+' Teil(e) fehlen: '+fehlend.map(function(x){return x.name;}).join(', '):'vollständig ('+ki.length+' Teile)'),k);
+  if(fehlend.length&&typeof GemaNotify!=='undefined'){
+    GemaNotify.push({eventKey:'werkzeug_koffer_fehlteil',empfaengerRoleId:'role_magaziner',empfaengerOrgId:k.orgId||'',modul:'werkzeug',typ:'warnung',
+      titel:'⚠ Koffer unvollständig: '+k.name,
+      text:'Kontrolle durch '+(u?(u.name||u.username):'—')+' — es fehlt: '+fehlend.map(function(x){return x.name;}).join(', '),
+      link:'if_werkzeug.html?view='+encodeURIComponent(k.id)});
+  }
+  // Ergebnis-Anzeige anstelle der Kontroll-Sektion
+  var sec=document.getElementById('kofCtrlSection');
+  if(sec){
+    if(fehlend.length){
+      sec.style.borderColor='#fecaca';
+      sec.innerHTML='<div style="font-size:15px;font-weight:800;color:#b91c1c;margin-bottom:8px">⚠ '+fehlend.length+' Teil'+(fehlend.length!==1?'e':'')+' fehlt'+(fehlend.length!==1?'en':'')+'</div>'
+        +'<div style="display:flex;flex-direction:column;gap:5px;margin-bottom:12px">'+fehlend.map(function(x){return '<div style="font-size:13.5px;font-weight:600;color:#0f172a;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:9px 11px">✕ '+esc(x.name)+'</div>';}).join('')+'</div>'
+        +'<div style="font-size:12px;color:#64748b">Der Magaziner wurde informiert. Ergebnis am Koffer vermerkt.</div>';
+    } else {
+      sec.style.borderColor='#bbf7d0';
+      sec.innerHTML='<div style="font-size:16px;font-weight:800;color:#15803d;margin-bottom:6px">✓ Koffer vollständig</div>'
+        +'<div style="font-size:13px;color:#475569">Alle '+ki.length+' Teile sind vorhanden. Kontrolle am Koffer vermerkt.</div>';
+    }
+  }
+};
 // ── Scan-View: Full-Screen Infoseite nach QR/NFC-Scan ──
 function _wzScanAusleihe(toolId){
   var t=tools.find(function(x){return x.id===toolId;});
@@ -3516,6 +3559,31 @@ function _wzScanAusleihe(toolId){
     actionBtn='<button onclick="_wzScanBorrow(\''+toolId+'\')" style="width:100%;padding:16px;border-radius:14px;border:none;background:#1e3a5f;color:#fff;font-size:16px;font-weight:800;cursor:pointer;font-family:inherit;display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 4px 16px rgba(30,58,95,.3)">📲 Bei mir einbuchen</button>';
   }
 
+  // ── Koffer-Vollständigkeitskontrolle ──
+  // Beim Scannen eines Koffers alle Teile auflisten, ALLE vorausgewählt.
+  // Der Nutzer wählt ab, was er physisch NICHT sieht → fehlende Teile
+  // werden gemeldet (Log + Magaziner-Notify) und am Koffer vermerkt.
+  var kofferKontrolle='';
+  if(_wzIsKoffer(t)){
+    var ki=_wzKofferItems(t);
+    var itemsHtml=ki.length?ki.map(function(it){
+      var borrowed=it.ausgeliehenAn?' <span style="font-size:10px;color:#b45309;font-weight:600">🔄 ausgeliehen an '+esc(it.ausgeliehenAn.name||'—')+'</span>':'';
+      var defekt=_wzBadDefect(it)?' <span style="font-size:10px;color:#dc2626;font-weight:700">⚠ Defekt</span>':'';
+      return '<label style="display:flex;align-items:center;gap:10px;padding:11px 12px;border:1px solid #e5e7eb;border-radius:10px;background:#fff;cursor:pointer">'
+        +'<input type="checkbox" class="kofCtrlItem" value="'+esc(it.id)+'" checked style="width:22px;height:22px;accent-color:#16a34a;flex-shrink:0"/>'
+        +'<span style="flex:1;min-width:0;font-size:14px;font-weight:600;color:#0f172a">'+esc(it.name)+(it.internKennung?' <span style="font-size:10px;color:#94a3b8;font-weight:500">'+esc(it.internKennung)+'</span>':'')+borrowed+defekt+'</span></label>';
+    }).join(''):'<div style="font-size:13px;color:#94a3b8;text-align:center;padding:14px">Dieser Koffer hat noch keine Teile hinterlegt.<br>Inhalt über «🧰 Inhalt» in der Geräteliste erfassen.</div>';
+    var lk=t.letzteKofferKontrolle;
+    var lkHtml=lk?('<div style="margin-top:10px;font-size:11px;color:'+(lk.vollstaendig?'#15803d':'#b45309')+';background:'+(lk.vollstaendig?'#f0fdf4':'#fffbeb')+';border:1px solid '+(lk.vollstaendig?'#bbf7d0':'#fde68a')+';border-radius:8px;padding:8px 10px">Letzte Kontrolle: '+fmt((lk.am||'').slice(0,10))+' · '+esc(lk.von||'')+' — '+(lk.vollstaendig?'vollständig ✓':((lk.fehlend||[]).length+' Teil(e) fehlten'))+'</div>'):'';
+    kofferKontrolle='<div id="kofCtrlSection" style="background:#fff;border-radius:16px;border:1.5px solid #fde047;padding:16px;margin-bottom:20px">'
+      +'<div style="font-size:15px;font-weight:800;color:#854d0e;margin-bottom:4px">🧰 Vollständigkeit prüfen</div>'
+      +'<div style="font-size:12.5px;color:#64748b;margin-bottom:14px">Alle '+ki.length+' Teil'+(ki.length!==1?'e sind':' ist')+' angehakt. <strong>Wähle ab, was du im Koffer NICHT siehst.</strong></div>'
+      +'<div style="display:flex;flex-direction:column;gap:6px'+(ki.length>6?';max-height:44vh;overflow-y:auto':'')+'">'+itemsHtml+'</div>'
+      +(ki.length?'<button onclick="_wzKofferKontrolleSave(\''+t.id+'\')" style="width:100%;margin-top:14px;padding:14px;border-radius:12px;border:none;background:#16a34a;color:#fff;font-size:15px;font-weight:800;cursor:pointer;font-family:inherit;display:flex;align-items:center;justify-content:center;gap:8px">✓ Kontrolle bestätigen</button>':'')
+      +lkHtml
+      +'</div>';
+  }
+
   var overlay=document.createElement('div');
   overlay.id='wzScanOverlay';
   overlay.style.cssText='position:fixed;inset:0;z-index:10000;background:#FAFAFA;overflow-y:auto;font-family:"DM Sans",system-ui,sans-serif';
@@ -3539,6 +3607,8 @@ function _wzScanAusleihe(toolId){
     +'<div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid #EEF1F4"><span style="font-size:13px;color:#94a3b8">Kategorie</span><span style="font-size:13px;font-weight:500">'+cat.icon+' '+esc(cat.label)+'</span></div>'
     +(_wzBadDefect(t)?'<div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid #EEF1F4"><span style="font-size:13px;color:#94a3b8">Defekt</span><span style="font-size:13px;font-weight:700;color:#dc2626">⚠ Defekt offen</span></div>':'')
     +'</div>'
+    // Koffer-Vollständigkeitskontrolle (nur bei Koffern) — Hauptfunktion beim Scan
+    +kofferKontrolle
     // Action
     +'<div style="margin-bottom:14px">'+actionBtn+'</div>'
     // Magaziner/Admin: direkt einer Person zuweisen oder an jemanden
