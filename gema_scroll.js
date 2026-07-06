@@ -70,10 +70,17 @@
     w.scrollTo(0, _scrollY);
   }
   function _reset() {
-    _lockCount = 0;
     var b = document.body;
+    // War der Body tatsaechlich gelockt (position:fixed)? Dann MUSS die
+    // Scroll-Position wiederhergestellt werden — sonst springt die Seite
+    // nach oben (position:fixed hatte sie visuell auf 0 gesetzt). Der
+    // Auto-Hook ruft _reset() beim Modal-Schliessen; ohne dieses scrollTo
+    // landete man nach QR-/Detail-Dialog immer am Seitenanfang.
+    var wasLocked = _lockCount > 0 || b.classList.contains('gema-modal-open');
+    _lockCount = 0;
     b.classList.remove('gema-modal-open');
     b.style.top = '';
+    if (wasLocked) w.scrollTo(0, _scrollY);
   }
 
   w.GemaScroll = {
