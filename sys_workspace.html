@@ -12,6 +12,7 @@
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
 <style>
 :root{
+  --navh:73px; /* Nav-Höhe (72px Inner + 1px Border) — Layout rechnete früher mit 53px → Seite war ~19px scrollbar */
   --bg:#FAFAFA;--card:#fff;--ink:#0f172a;--ink-2:#475569;--ink-3:#94a3b8;
   --line:#E5E7EB;--line-2:#EEF1F4;--accent-notes:#F59E0B;
   --green:#10B981;--green-deep:#0c4a2e;--navy:#1e3a5f;--blue:#3B82F6;
@@ -53,10 +54,10 @@ input::placeholder{color:#cbd5e1}
 @media(max-width:720px){.ws-search-wrap{display:none}}
 
 /* ── App Shell ── */
-.ws-shell{display:flex;min-height:calc(100vh - 53px)}
+.ws-shell{display:flex;min-height:calc(100vh - var(--navh));min-height:calc(100dvh - var(--navh))}
 
 /* ── Sidebar ── */
-.ws-sidebar{width:280px;flex-shrink:0;background:var(--card);border-right:1px solid var(--line);padding:20px 14px 16px;display:flex;flex-direction:column;gap:18px;overflow-y:auto;height:calc(100vh - 53px);position:sticky;top:53px}
+.ws-sidebar{width:280px;flex-shrink:0;background:var(--card);border-right:1px solid var(--line);padding:20px 14px 16px;display:flex;flex-direction:column;gap:18px;overflow-y:auto;height:calc(100vh - var(--navh));height:calc(100dvh - var(--navh));position:sticky;top:var(--navh)}
 .ws-sidebar::-webkit-scrollbar{width:6px}
 .ws-sidebar::-webkit-scrollbar-thumb{background:#d6dade;border-radius:6px}
 .ws-user{display:flex;align-items:center;gap:10px;padding:4px 6px 12px;border-bottom:1px solid var(--line-2)}
@@ -91,7 +92,7 @@ input::placeholder{color:#cbd5e1}
 .ws-main{flex:1;display:flex;flex-direction:column;min-width:0;min-height:0;background:var(--bg)}
 
 /* ── Notes Panel (Shell-level, right column) ── */
-.ws-notes-col{width:360px;flex-shrink:0;height:calc(100vh - 53px);position:sticky;top:53px;display:flex;flex-direction:column;overflow:hidden;border-left:1px solid var(--line)}
+.ws-notes-col{width:360px;flex-shrink:0;height:calc(100vh - var(--navh));height:calc(100dvh - var(--navh));position:sticky;top:var(--navh);display:flex;flex-direction:column;overflow:hidden;border-left:1px solid var(--line)}
 
 /* ── Content Header ── */
 .ws-bucket-header{padding:22px 28px 18px;display:flex;align-items:flex-start;justify-content:space-between;gap:16px;background:var(--card);border-bottom:1px solid var(--line)}
@@ -382,7 +383,7 @@ input::placeholder{color:#cbd5e1}
   .ws-tabbar{padding:4px 8px 0}
   .ws-tab{padding:6px 8px;font-size:11.5px;max-width:160px}
   .ws-mobile-toggle{display:flex}
-  .ws-notes-col{position:fixed!important;top:53px;left:0;right:0;bottom:calc(64px + env(safe-area-inset-bottom));width:100%!important;height:auto!important;z-index:60;border-left:none;border-radius:0;display:none!important;background:linear-gradient(180deg,#FFFBEB 0%,#FFF8E0 100%)}
+  .ws-notes-col{position:fixed!important;top:var(--navh);left:0;right:0;bottom:calc(64px + env(safe-area-inset-bottom));width:100%!important;height:auto!important;z-index:60;border-left:none;border-radius:0;display:none!important;background:linear-gradient(180deg,#FFFBEB 0%,#FFF8E0 100%)}
   .ws-notes-col.mobile-show{display:flex!important}
   .ws-notes{flex:1;min-height:0}
   .ws-notes-editor{padding:14px 16px;font-size:13px}
@@ -399,6 +400,7 @@ input::placeholder{color:#cbd5e1}
 <script src="gema_db.js"></script>
 <script src="gema_feedback.js"></script><script src="gema_notify.js"></script><script src="gema_notify_ui.js"></script>
 <script src="gema_objekte_api.js"></script>
+<script src="gema_adresse.js"></script>
 <script src="gema_produktkatalog_api.js"></script>
 <script src="gema_lu_api.js"></script>
 <script src="gema_osmose_api.js"></script>
@@ -1211,7 +1213,10 @@ input::placeholder{color:#cbd5e1}
     var listHtml=objekte.length?'<div class="ws-form-field"><label>Bestehendes Objekt verknüpfen</label>'
       +'<select class="ws-input" id="wsObjektSel" style="cursor:pointer">'
       +'<option value="">— Auswählen —</option>'
-      +objekte.map(function(o){return '<option value="'+o.id+'"'+(b.objektId===o.id?' selected':'')+'>'+esc(o.name||o.projektName||o.id)+' · '+esc(o.ort||'')+'</option>';}).join('')
+      +objekte.map(function(o){
+        var adr=[o.strasse,[o.plz,o.ort].filter(Boolean).join(' ')].filter(Boolean).join(', ');
+        return '<option value="'+o.id+'"'+(b.objektId===o.id?' selected':'')+'>'+esc(o.name||o.projektName||o.id)+(adr?' · '+esc(adr):'')+'</option>';
+      }).join('')
       +'</select></div>':'';
 
     var body='<div style="display:flex;flex-direction:column;gap:16px">'
@@ -1224,24 +1229,48 @@ input::placeholder{color:#cbd5e1}
       +'<select class="ws-input" id="wsNewObjTyp" style="width:auto;cursor:pointer">'
       +'<option value="Neubau">Neubau</option><option value="Sanierung">Sanierung</option>'
       +'<option value="Umbau">Umbau</option><option value="Erweiterung">Erweiterung</option></select></div>'
+      +'<div style="position:relative"><input class="ws-input" id="wsNewObjAdr" placeholder="🔍 Adresse suchen (swisstopo) — füllt Strasse, PLZ und Ort" autocomplete="off"></div>'
       +'<div style="display:flex;gap:8px"><input class="ws-input" id="wsNewObjStrasse" placeholder="Strasse" style="flex:1">'
       +'<input class="ws-input" id="wsNewObjPlz" placeholder="PLZ" style="width:80px">'
       +'<input class="ws-input" id="wsNewObjOrt" placeholder="Ort" style="flex:1"></div>'
+      +'<input type="hidden" id="wsNewObjKanton"><input type="hidden" id="wsNewObjGemeinde">'
       +'</div></div>'
       +'<div class="ws-form-actions">'
       +(b.objektId?'<button class="ws-btn ws-btn-ghost" onclick="_wsCloseModal();_wsUnlinkObjekt()" style="margin-right:auto;color:#dc2626">Verknüpfung lösen</button>':'')
       +'<button class="ws-btn ws-btn-ghost" onclick="_wsCloseModal()">Abbrechen</button>'
       +'<button class="ws-btn ws-btn-primary" onclick="_wsDoLinkOrCreate()">Speichern</button></div></div>';
     openModal('Objekt verknüpfen',body,560);
+    // swisstopo-Adresssuche ans neue Objekt binden (Modal-Inhalt ist jetzt im DOM)
+    try{
+      if(typeof GemaAdresse!=='undefined'&&GemaAdresse.attach){
+        GemaAdresse.attach('wsNewObjAdr',{strasse:'wsNewObjStrasse',plz:'wsNewObjPlz',ort:'wsNewObjOrt',kanton:'wsNewObjKanton',gemeinde:'wsNewObjGemeinde'});
+      }
+    }catch(e){}
   };
+  // Eimer-Name automatisch auf die Objekt-Adresse setzen (Fallback Objektname)
+  function _wsBucketNameFuerObjekt(o){
+    if(!o)return '';
+    var adr=[o.strasse,[o.plz,o.ort].filter(Boolean).join(' ')].filter(Boolean).join(', ');
+    return adr||o.name||'';
+  }
   window._wsDoLinkOrCreate=function(){
     var b=buckets.find(function(x){return x.id===activeTab;});if(!b)return;
     var sel=document.getElementById('wsObjektSel');
     var newName=(document.getElementById('wsNewObjName')||{}).value;
+    // Bei bereits verknüpftem Eimer steht das aktuelle Objekt im Dropdown
+    // vorausgewählt. Hat der User stattdessen den Neu-Block ausgefüllt (Name)
+    // und im Dropdown NICHTS geändert, gewinnt der Neu-Block.
+    var dropdownGeaendert=sel&&sel.value&&sel.value!==b.objektId;
 
-    if(sel&&sel.value){
+    if(sel&&sel.value&&(dropdownGeaendert||!(newName&&newName.trim()))){
       b.objektId=sel.value;
       var label=sel.options[sel.selectedIndex].text;
+      // Eimer-Name automatisch auf die Objekt-Adresse setzen
+      try{
+        var o=(typeof GemaObjekte!=='undefined'?GemaObjekte.getAll():[]).find(function(x){return x.id===sel.value;});
+        var neu=_wsBucketNameFuerObjekt(o);
+        if(neu)b.name=neu;
+      }catch(e){}
       b.activity.unshift({who:(_curUser()||{}).name||'Du',text:'Objekt verknüpft: '+label,when:'gerade eben'});
       _wsCloseModal();save();render();
       toast('Objekt verknüpft','building');
@@ -1250,10 +1279,12 @@ input::placeholder{color:#cbd5e1}
       var strasse=((document.getElementById('wsNewObjStrasse')||{}).value||'').trim();
       var plz=((document.getElementById('wsNewObjPlz')||{}).value||'').trim();
       var ort=((document.getElementById('wsNewObjOrt')||{}).value||'').trim();
+      var kanton=((document.getElementById('wsNewObjKanton')||{}).value||'').trim();
+      var gemeinde=((document.getElementById('wsNewObjGemeinde')||{}).value||'').trim();
       var objId='obj_'+Date.now();
       var curUser=null;
       try{if(typeof GemaAuth!=='undefined')curUser=GemaAuth.getCurrentUser();}catch(e){}
-      var newObj={id:objId,name:newName.trim(),strasse:strasse,plz:plz,ort:ort,
+      var newObj={id:objId,name:newName.trim(),strasse:strasse,plz:plz,ort:ort,kanton:kanton,gemeinde:gemeinde,
         bauvorhaben:typ,status:'aktiv',
         orgId:curUser?curUser.orgId:'org_default',
         erstelltVon:curUser?curUser.id:'',
@@ -1268,6 +1299,9 @@ input::placeholder{color:#cbd5e1}
         try{ if(typeof GemaObjekte!=='undefined'&&GemaObjekte.upsertObjekt) GemaObjekte.upsertObjekt(newObj); }catch(_e){}
       }catch(e){}
       b.objektId=objId;
+      // Eimer-Name automatisch auf die Adresse setzen (Fallback Objektname)
+      var neu=_wsBucketNameFuerObjekt(newObj);
+      if(neu)b.name=neu;
       b.activity.unshift({who:(_curUser()||{}).name||'Du',text:'Objekt erstellt & verknüpft: '+newName.trim(),when:'gerade eben'});
       _wsCloseModal();save();render();
       toast('Objekt „'+newName.trim()+'" erstellt & verknüpft','check');

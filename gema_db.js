@@ -47,6 +47,12 @@
     clearTimeout(_badgeTimer);
     if (color === 'green') {
       _badgeTimer = setTimeout(() => { if (_badge) _badge.style.opacity = '0'; }, 1800);
+    } else if (color === 'yellow') {
+      /* Sicherheitsnetz: das gelbe "Speichert…"-Badge darf nie dauerhaft
+         haengen bleiben (z.B. wenn flush() ohne _module frueh returnt oder
+         ein fetch nie zurueckkommt). flush() ueberschreibt es normal mit
+         gruen/rot; dieser Fallback blendet es sonst nach 8s aus. */
+      _badgeTimer = setTimeout(() => { if (_badge) _badge.style.opacity = '0'; }, 8000);
     }
   }
 
@@ -60,7 +66,12 @@
   function schedule(key, val) {
     _pending[key] = val;
     clearTimeout(_timer);
-    showBadge('● Speichert…', 'yellow');
+    /* Kein Cloud-Modul (init() nie aufgerufen) → save() ist rein lokal
+       (localStorage), es gibt keinen Cloud-Roundtrip. Dann KEIN
+       "Speichert…"-Badge zeigen, sonst haengt es (flush() returnt frueh).
+       Betrifft z.B. sys_workspace, das _GemaDB.save() als localStorage-
+       Ersatz nutzt ohne init(). */
+    if (_module) showBadge('● Speichert…', 'yellow');
     _timer = setTimeout(() => flush(), 700);
   }
 
