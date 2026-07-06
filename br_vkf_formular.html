@@ -108,6 +108,7 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important}
     </div>
     <div class="pf"><label>Bearbeiter</label><input type="text" id="metaBearbeiter" placeholder="Name"></div>
     <div class="pf"><label>Datum</label><input type="date" id="metaDatum"></div>
+    <div class="pf" style="display:flex;align-items:flex-end"><button class="g-nav-btn" onclick="wiederUebernehmen()" title="Leere Felder aus Objekt-Stammdaten, «Allgemeine Daten» und Benutzer/Firma befüllen — bestehende Eingaben bleiben unverändert">↻ Aus Objekt übernehmen</button></div>
   </div>
 
   <div id="formContainer"></div>
@@ -120,6 +121,15 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important}
 <script src="gema_objekte_api.js"></script>
 <script src="gema_pdf.js"></script>
 <script src="gema_autosave.js"></script>
+<script>
+function fixLeadingZero(el){
+  let v=el.value.trim();
+  if(v==='')return;
+  if(/^\./.test(v))v='0'+v;
+  if(/^-\./.test(v))v='-0'+v.slice(1);
+  el.value=String(parseFloat(v));
+}
+</script>
 <script>
 // ══════════════════════════════════════════
 // REFERENCE DATA
@@ -135,10 +145,10 @@ kantone:['AG','AI','AR','BE','BL','BS','FR','GE','GL','GR','JU','LU','NE','NW','
 // ══════════════════════════════════════════
 // SHARED SECTION TEMPLATES
 // ══════════════════════════════════════════
-function S_GEBAEUDE(n){return{num:n,title:'Geschütztes Gebäude',fields:[
-  {id:'gebObjekt',label:'Objekt / Gebäude',type:'text',stamm:'name',full:true},
-  {id:'gebStrasse',label:'Strasse',type:'text',stamm:'strasse'},
-  {id:'gebOrt',label:'PLZ / Ort',type:'text',stamm:'plzOrt'},
+function S_GEBAEUDE(n){return{num:n,title:'Geschütztes Gebäude',stammHint:true,fields:[
+  {id:'gebObjekt',label:'Objekt / Gebäude',type:'text',full:true},
+  {id:'gebStrasse',label:'Strasse',type:'text'},
+  {id:'gebOrt',label:'PLZ / Ort',type:'text'},
   {id:'gebKanton',label:'Kanton',type:'select',options:REF.kantone},
   {id:'gebQS',label:'Qualitätssicherungsstufe',type:'select',options:REF.qsStufen},
   {id:'gebVersNr',label:'Versicherungs-Nr.',type:'text'},
@@ -382,7 +392,7 @@ vorabklaerung_generalueberholung:{
 },
 
 kurz_anmeldung:{
-  title:'Kurz-Anmeldung',sub:'Umbau, Anpassungen — mit Bauentscheid und QS',icon:'⚡',
+  title:'Kurz-Anmeldung',sub:'Umbau, Anpassungen',icon:'⚡',
   sections:[
     S_GEBAEUDE(1),
     S_KONTAKT(2,'QS Verantwortlicher Brandschutz','qs',''),
@@ -468,7 +478,7 @@ function renderForm(formKey){
     html+='<div class="form-section-hd" onclick="toggleSection('+sec.num+')">';
     html+='<div class="form-section-num">'+sec.num+'</div>';
     html+='<div class="form-section-title">'+esc(sec.title)+'</div>';
-    if(sec.rolle) html+='<span class="stamm-hint">aus Stammdaten</span>';
+    if(sec.rolle||sec.stammHint) html+='<span class="stamm-hint">aus Stammdaten</span>';
     html+='<span class="form-section-arrow">▼</span>';
     html+='</div>';
     html+='<div class="form-section-body"><div class="grid2">';
@@ -486,7 +496,7 @@ function renderForm(formKey){
       } else if(f.type==='textarea'){
         html+='<textarea id="'+f.id+'" placeholder="'+(f.hint||'')+'"></textarea>';
       } else {
-        html+='<input type="'+(f.type||'text')+'" id="'+f.id+'"'+(f.inputmode?' inputmode="'+f.inputmode+'"':'')+' placeholder="">';
+        html+='<input type="'+(f.type||'text')+'" id="'+f.id+'"'+(f.inputmode?' inputmode="'+f.inputmode+'"':'')+(f.inputmode==='decimal'?' onblur="fixLeadingZero(this)"':'')+' placeholder="">';
       }
       if(f.hint&&f.type!=='textarea') html+='<div class="hint">'+esc(f.hint)+'</div>';
       html+='</div>';
@@ -502,29 +512,31 @@ function toggleSection(num){
 }
 window.toggleSection=toggleSection;
 
-function fillBehoerde(sel){
-  var kt=sel.value;
-  var target=document.getElementById('bsBehoerdeName');
+// Katalog-Select auf einen Kanton filtern. Bestehende Auswahl bleibt erhalten,
+// wenn sie zum Kanton passt (AutoSave-Restore feuert das onchange des Kanton-
+// Selects — ohne diesen Erhalt ging die gespeicherte Behörde beim Reload verloren).
+function _fillKatalogSelect(targetId,liste,kt){
+  var target=document.getElementById(targetId);
   if(!target) return;
-  target.innerHTML='<option value="">– wählen –</option>';
-  REF.behoerden.filter(function(b){return b.k===kt;}).forEach(function(b){
-    target.innerHTML+='<option value="'+esc(b.n)+'">'+esc(b.n)+'</option>';
+  var cur=target.value;
+  var html='<option value="">– wählen –</option>';
+  liste.filter(function(b){return b.k===kt;}).forEach(function(b){
+    html+='<option value="'+esc(b.n)+'">'+esc(b.n)+'</option>';
   });
+  target.innerHTML=html;
+  if(cur){for(var i=0;i<target.options.length;i++){if(target.options[i].value===cur){target.value=cur;break;}}}
+  // Genau EIN Katalog-Eintrag pro Kanton → direkt vorauswählen
+  if(!target.value&&target.options.length===2)target.selectedIndex=1;
 }
+function fillBehoerde(sel){_fillKatalogSelect('bsBehoerdeName',REF.behoerden,sel.value);}
 window.fillBehoerde=fillBehoerde;
 
-function fillFachstelle(sel){
-  var kt=sel.value;
-  var target=document.getElementById('inspName');
-  if(!target) return;
-  target.innerHTML='<option value="">– wählen –</option>';
-  REF.fachstellen.filter(function(b){return b.k===kt;}).forEach(function(b){
-    target.innerHTML+='<option value="'+esc(b.n)+'">'+esc(b.n)+'</option>';
-  });
-}
+function fillFachstelle(sel){_fillKatalogSelect('inspName',REF.fachstellen,sel.value);}
 window.fillFachstelle=fillFachstelle;
 
 // ── Fill from Objekt-Stammdaten ──
+// Füllt NUR leere Felder (setVal) — bestehende Eingaben und der AutoSave-
+// Restore werden nie überschrieben.
 function fillFromObjekt(){
   if(typeof GemaObjekte==='undefined') return;
   var sel=document.getElementById('metaObjektDropdown');
@@ -536,7 +548,14 @@ function fillFromObjekt(){
   setVal('gebObjekt',o.name||'');
   setVal('gebStrasse',o.strasse||'');
   setVal('gebOrt',[o.plz,o.ort].filter(Boolean).join(' '));
-  setVal('gebKanton',o.gemeinde||'');
+  setVal('gebKanton',o.kanton||'');
+  // Kanton → Brandschutzbehörde + Inspektionsstelle vorbelegen (je 1 Eintrag pro Kanton)
+  if(o.kanton){
+    var bk=document.getElementById('bsBehoerdeKanton');
+    if(bk&&!bk.value){bk.value=o.kanton;fillBehoerde(bk);}
+    var ik=document.getElementById('inspKanton');
+    if(ik&&!ik.value){ik.value=o.kanton;fillFachstelle(ik);}
+  }
   // Beteiligte
   var bet=GemaObjekte.getBeteiligte(objId);
   var mappings=[
@@ -557,6 +576,78 @@ function fillFromObjekt(){
     }
   });
 }
+// «Allgemeine Daten» als Basis: leere Felder aus dem gespeicherten
+// AutoSave-Snapshot des Formulars «Allgemeine Daten» DESSELBEN Objekts
+// übernehmen — die Feld-IDs sind über alle 9 Formulare identisch.
+function fillFromAllgemeineDaten(){
+  if(window._vkfFormKey==='allgemeine_daten') return;
+  var sel=document.getElementById('metaObjektDropdown');
+  var oid=sel?sel.value:'';
+  if(!oid) return;
+  var key='gema_vkf_allgemeine_daten__'+oid;
+  try{
+    if(typeof GemaObjekte!=='undefined'&&GemaObjekte.getActivePhase){
+      var ph=GemaObjekte.getActivePhase()||'';
+      if(ph)key+='@'+ph;
+    }
+  }catch(e){}
+  var data=null;
+  try{var raw=localStorage.getItem(key);if(raw)data=JSON.parse(raw);}catch(e){}
+  if(!data) return;
+  Object.keys(data).forEach(function(k){
+    if(k.charAt(0)==='_')return;
+    if(k.slice(0,4)==='meta')return;   // Projekt/Bearbeiter/Datum-Zeile nicht
+    if(k.slice(0,3)==='unt')return;    // Unterschriften nie übernehmen
+    if(k==='verteiler')return;
+    var v=data[k];
+    if(v==null||v===''||v===true||v===false)return;
+    setVal(k,String(v));
+  });
+  // Kanton aus dem Snapshot → Kataloge nachziehen
+  var bk=document.getElementById('bsBehoerdeKanton');
+  if(bk&&bk.value)fillBehoerde(bk);
+  var ik=document.getElementById('inspKanton');
+  if(ik&&ik.value)fillFachstelle(ik);
+}
+// Vorbelegungen aus User/Org: Bearbeiter, Unterschriften, Fachfirma Planung
+// (= eigene Firma, wenn kein Sanitärplaner-Beteiligter das Feld gefüllt hat)
+function fillDefaults(){
+  var u=null,org=null;
+  try{u=GemaAuth.getCurrentUser();org=GemaAuth.getCurrentOrg();}catch(e){}
+  if(u){
+    setVal('metaBearbeiter',u.name||'');
+    setVal('untPerson',u.name||'');
+  }
+  if(org){
+    var a=org.adresse||{};
+    setVal('untOrt',a.ort||'');
+    var pf=document.getElementById('planerFirma');
+    if(pf&&!pf.value){
+      setVal('planerFirma',org.name||'');
+      setVal('planerStrasse',a.strasse||'');
+      setVal('planerOrt',[a.plz,a.ort].filter(Boolean).join(' '));
+      if(u){
+        setVal('planerPerson',u.name||'');
+        var em=(u.profile&&u.profile.email)||u.email||u.username||'';
+        if(String(em).indexOf('@')>0)setVal('planerEmail',em);
+      }
+    }
+  }
+  var d=document.getElementById('untDatum');
+  if(d&&!d.value)d.value=new Date().toISOString().slice(0,10);
+}
+// Gesamte Vorbefüllung (Objekt → Allgemeine Daten → User/Org-Defaults).
+// Läuft verzögert nach dem AutoSave-Restore und füllt nur leere Felder —
+// mehrfaches Ausführen ist idempotent.
+function runVorbefuellung(){
+  fillFromObjekt();
+  fillFromAllgemeineDaten();
+  fillDefaults();
+}
+window.wiederUebernehmen=function(){
+  runVorbefuellung();
+  toast('↻ Stammdaten übernommen — nur leere Felder wurden befüllt');
+};
 function setVal(id,v){var el=document.getElementById(id);if(el&&!el.value) el.value=v;}
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 
@@ -580,7 +671,7 @@ function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').
     var sel=document.getElementById('metaObjektDropdown'),inp=document.getElementById('metaProjekt');if(!sel||!inp)return;
     if(sel.value&&typeof GemaObjekte!=='undefined'){var o=GemaObjekte.getAll().find(function(x){return x.id===sel.value;});if(o){var p=[o.name];if(o.strasse)p.push(o.strasse);if(o.plz||o.ort)p.push([o.plz,o.ort].filter(Boolean).join(' '));inp.value=p.join(', ');}}else{inp.value='';}
     _prevObjektId=sel.value;saveMeta();
-    fillFromObjekt();
+    runVorbefuellung();
   }
   function toggleObjektInput(f){
     var m=typeof f==='boolean'?f:document.getElementById('objComboManual').style.display==='none';
@@ -594,11 +685,15 @@ function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').
     // Detect form from URL
     var params=new URLSearchParams(location.search);
     var formKey=params.get('form')||'allgemeine_daten';
+    window._vkfFormKey=formKey;
     renderForm(formKey);
     loadMeta();
     populateObjektDropdown();
     // Autosave
     if(typeof GemaAutoSave!=='undefined') GemaAutoSave.init('vkf_'+formKey);
+    // Vorbefüllung verzögert NACH dem AutoSave-Restore (kein Restore-Event —
+    // Muster br_gasloeschung; füllt nur leere Felder, daher idempotent)
+    [600,1800,3500].forEach(function(ms){setTimeout(runVorbefuellung,ms);});
   });
   window.addEventListener('gema-objekte-loaded',function(){populateObjektDropdown();});
   ['metaProjekt','metaBearbeiter','metaDatum'].forEach(function(id){var el=document.getElementById(id);if(el)el.addEventListener('input',saveMeta);});
