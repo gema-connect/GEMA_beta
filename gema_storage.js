@@ -117,7 +117,7 @@
       method: 'POST',
       headers: {
         'apikey': s.SB_KEY,
-        'Authorization': 'Bearer ' + s.SB_KEY,
+        'Authorization': 'Bearer ' + ((s.getAuthToken && s.getAuthToken()) || s.SB_KEY),
         'Content-Type': parsed.mime,
         'cache-control': 'max-age=3600'
       },

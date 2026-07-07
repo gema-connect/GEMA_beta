@@ -19,7 +19,7 @@
   /* ── Supabase REST Headers ─────────────────────────────────────── */
   const hdrs = (extra) => Object.assign({
     'apikey':        SUPABASE_KEY,
-    'Authorization': 'Bearer ' + SUPABASE_KEY,
+    'Authorization': 'Bearer ' + ((window.GemaSync && GemaSync.getAuthToken && GemaSync.getAuthToken()) || SUPABASE_KEY),
     'Content-Type':  'application/json',
   }, extra || {});
 

@@ -1938,6 +1938,14 @@ Im Repo liegen die React-Designdateien als Referenz (nicht für Produktion):
 
 ---
 
+## GEMA Secure v1 — Server-Auth + RLS (gema-auth Function)
+
+Sicherheits-Schicht über der Cloud-Architektur (Details + Setup: `SECURITY_RLS_ANLEITUNG.md`; SQL: `supabase/gema_rls_v1.sql` + Rollback):
+- **Netlify Function `netlify/functions/gema-auth.js`** (ENV: `SUPABASE_SERVICE_KEY`, `GEMA_JWT_SECRET`): `login` prüft Zugangsdaten server-seitig (scrypt-`cred:`-Records; Legacy-djb2 wird beim ersten Login lazy migriert und aus dem user-Payload gestrippt) und stellt ein Supabase-kompatibles JWT aus (HS256, role=authenticated, Claims uid/org/adm, 30 Tage). `register` (Onboarding), `activate` (Einladung via `einladung.token`), `persist_auth` (ALLE user:/org:/role:-Writes mit server-seitiger Rechteprüfung: GEMA-Admin alles; Org-Admin eigene Org ohne role_admin-Vergabe; Selbst-Update ohne Rollen/Org/Status-Änderung; Partner-Einladungen cross-org nur mit INVITE_ROLE_PREFIXES; Deletes nur Admin, löscht `cred:` mit).
+- **RLS (`gema_rls_v1.sql`)**: keine anon-Policies (anon-Key nutzlos); authenticated liest alles ausser `cred:%`, schreibt nur `module_key <> 'auth'`; Storage-Upload nur authenticated. `cred:`-Records haben KEINE Policy → nur Service-Key.
+- **Client**: `gema_sync.js` sendet `Authorization: Bearer <JWT || anon>` (Token aus `gema_session_v1.token`), **fängt Auth-Collection-Writes ab** (`_routeAuthWrite` → Function; Fallback direkt, solange Function 404 = Kompatibilitätsmodus) und behandelt 401 (Token weg → Login-Redirect, einmalig). gema_autosave/gema_db/gema_objekte_api/gema_storage nutzen das Token via `GemaSync.getAuthToken()`. `gema_auth.js`: `loginAsync` Function-first (401 = falsche Daten, KEIN Legacy-Fallback; 404/Netz = Legacy), `getToken()`, `activateInvitationAsync`; **Empty-Read-Guard**: leere Cloud-Antwort überschreibt nie einen gefüllten users/orgs/roles-Cache (RLS ohne Token liefert [] mit HTTP 200). sys_login: Registrierung + Aktivierung Function-first mit Legacy-Fallback.
+- **KRITISCH**: Neue direkte Supabase-Fetches IMMER mit `(GemaSync.getAuthToken() || SB_KEY)` als Bearer bauen; user:/org:/role:-Writes NIE direkt, sondern über GemaSync (Interception). Admin-Konten aus GEMA erstellen funktioniert unverändert (läuft über die Function). Nicht abgedeckt (Stufe 2): per-Org-RLS der Modul-Daten, private Storage-Reads, Function-Rate-Limiting.
+
 ## Cloud-First Storage-Architektur (gema_sync.js)
 
 **Single source of truth ist Supabase.** Pro Datensatz eine eigene Row in `gema_data` mit `data_key='<entity>:<id>'` (z.B. `'user:user_admin'`, `'org:org_default'`, `'tool:wz_42'`). Saves laufen über Diff: nur geänderte Records werden gepusht, nie das ganze Array. localStorage bleibt als sekundärer sync-Cache, wird aber nach jedem Cloud-Bootstrap mit dem Cloud-Stand **überschrieben** (Cloud gewinnt).

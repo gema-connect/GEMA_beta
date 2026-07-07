@@ -130,7 +130,7 @@
         method: 'POST',
         headers: {
           'apikey': SB_KEY,
-          'Authorization': 'Bearer ' + SB_KEY,
+          'Authorization': 'Bearer ' + ((window.GemaSync && GemaSync.getAuthToken && GemaSync.getAuthToken()) || SB_KEY),
           'Content-Type': 'application/json',
           'Prefer': 'resolution=merge-duplicates,return=minimal'
         },
@@ -172,7 +172,7 @@
     // 2. Supabase
     fetch(SB_URL + '/rest/v1/' + TABLE + '?module_key=eq.' + encodeURIComponent(_module) +
           '&data_key=eq.' + encodeURIComponent(key) + '&select=payload', {
-      headers: { 'apikey': SB_KEY, 'Authorization': 'Bearer ' + SB_KEY }
+      headers: { 'apikey': SB_KEY, 'Authorization': 'Bearer ' + ((window.GemaSync && GemaSync.getAuthToken && GemaSync.getAuthToken()) || SB_KEY) }
     }).then(function(r) { return r.json(); })
     .then(function(rows) {
       if (rows && rows.length && rows[0].payload && rows[0].payload.v) {

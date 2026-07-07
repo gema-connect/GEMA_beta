@@ -399,11 +399,13 @@ body::before{
       if(!name){err.textContent='Bitte geben Sie Ihren Namen ein.';err.style.display='';return;}
       if(!pw1||pw1.length<4){err.textContent='Passwort muss mind. 4 Zeichen haben.';err.style.display='';return;}
       if(pw1!==pw2){err.textContent='Passwörter stimmen nicht überein.';err.style.display='';return;}
-      var user=GemaAuth.activateInvitation(inviteToken,pw1,{name:name,firma:firma});
-      if(!user){err.textContent='Einladungslink ungültig oder abgelaufen.';err.style.display='';return;}
-      // Auto-Login + rollenspezifische Weiterleitung
-      GemaAuth.login(user.username,pw1,true);
-      location.href=GemaAuth.getRedirectForUser(user);
+      // GEMA Secure v1: Aktivierung serverseitig (Function setzt das
+      // Passwort in den geschuetzten cred:-Record und liefert das JWT);
+      // Fallback auf den Legacy-Pfad steckt in activateInvitationAsync.
+      GemaAuth.activateInvitationAsync(inviteToken,pw1,{name:name,firma:firma}).then(function(user){
+        if(!user){err.textContent='Einladungslink ungültig oder abgelaufen.';err.style.display='';return;}
+        location.href=GemaAuth.getRedirectForUser(user);
+      });
     };
     return;
   }
@@ -543,18 +545,39 @@ function _regSubmit(){
       active:true,
       createdAt:new Date().toISOString()
     });
-    GemaAuth.saveOrgs(orgs);
-
-    existingUsers.push({
+    var _regUser={
       id:userId, username:email, name:name,
       password:GemaAuth.hashPassword?GemaAuth.hashPassword(pw):pw,
       roleIds:[roleId], orgId:orgId, active:true,
       profile:{firma:firma,person:name,email:email,telefon:document.getElementById('regTel').value.trim()},
       createdAt:new Date().toISOString()
-    });
-    GemaAuth.saveUsers(existingUsers);
-
-    GemaAuth.login(email,pw);
+    };
+    var _regOrg=orgs[orgs.length-1];
+    // GEMA Secure v1: Registrierung serverseitig (Function legt Org +
+    // Admin-User an, Passwort landet im geschuetzten cred:-Record und
+    // das JWT kommt direkt zurueck). Legacy-Fallback, solange die
+    // Function nicht deployed ist.
+    var _fnUrl=(window.GemaSync&&GemaSync.authFnUrl)||'/.netlify/functions/gema-auth';
+    fetch(_fnUrl,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'register',org:_regOrg,user:_regUser})})
+      .then(function(r){if(r.status===404)throw {fnMissing:true};return r.json().catch(function(){return {};}).then(function(j){return {status:r.status,j:j};});})
+      .then(function(res){
+        if(res.j&&res.j.ok&&res.j.token){
+          var exp=new Date();exp.setDate(exp.getDate()+30);
+          localStorage.setItem('gema_session_v1',JSON.stringify({userId:res.j.user.id,expires:exp.toISOString(),token:res.j.token,tokenExp:res.j.exp}));
+          _regDone();return;
+        }
+        if(res.status===500&&res.j&&/nicht konfiguriert/i.test(res.j.error||''))throw {fnMissing:true};
+        _regErr(res.j&&res.j.error||'Registrierung fehlgeschlagen.');
+      })
+      .catch(function(e){
+        // Function fehlt → Legacy (direkter Cloud-Write, vor RLS ok)
+        GemaAuth.saveOrgs(orgs);
+        existingUsers.push(_regUser);
+        GemaAuth.saveUsers(existingUsers);
+        GemaAuth.login(email,pw);
+        _regDone();
+      });
+    function _regDone(){
     document.getElementById('registerView').style.display='none';
     document.getElementById('loginCard').querySelector('.login-hd').style.display='';
     document.getElementById('loginSuccess').style.display='';
@@ -563,6 +586,7 @@ function _regSubmit(){
       var dest=typ==='lieferant'?'sys_lieferant_dashboard.html':'index.html';
       location.href=dest;
     },1500);
+    }
   }catch(e){_regErr('Fehler: '+e.message);}
 }
 window._showRegister=_showRegister;window._showLogin=_showLogin;window._regNext=_regNext;window._regPrev=_regPrev;window._regSubmit=_regSubmit;

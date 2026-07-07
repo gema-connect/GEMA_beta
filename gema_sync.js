@@ -58,10 +58,65 @@
     window.addEventListener('offline', function(){ _online = false; _setReachable(false); });
   }
 
+  // ── GEMA Secure v1: JWT aus der Session (gema-auth Netlify Function) ──
+  // Nach dem Login liegt ein Supabase-kompatibles JWT in der Session; alle
+  // REST-Calls laufen damit als role=authenticated (RLS). Ohne Token wird
+  // der anon-Key gesendet — vor RLS-Aktivierung voll funktionsfaehig,
+  // nach Aktivierung bewusst wirkungslos.
+  var AUTH_FN = '/.netlify/functions/gema-auth';
+  var _authFnMissing = false;   // 404 → Function (noch) nicht deployed → Legacy-Pfad
+  var _expiredShown = false;
+  function _authToken(){
+    try{
+      var s = JSON.parse(localStorage.getItem('gema_session_v1') || 'null');
+      return (s && s.token) || '';
+    }catch(e){ return ''; }
+  }
+  function _handle401(){
+    if(_expiredShown || !_authToken()) return;
+    _expiredShown = true;
+    try{
+      var s = JSON.parse(localStorage.getItem('gema_session_v1') || 'null') || {};
+      delete s.token;
+      localStorage.setItem('gema_session_v1', JSON.stringify(s));
+    }catch(e){}
+    try{ alert('Deine Sitzung ist abgelaufen — bitte neu anmelden.'); }catch(e){}
+    try{ location.href = 'sys_login.html?r=' + encodeURIComponent(location.href); }catch(e){}
+  }
+  function _isAuthKey(k){ return /^(user:|org:|role:)/.test(String(k || '')); }
+  // Auth-Collection-Writes laufen ueber die gema-auth-Function (Service-Key,
+  // serverseitige Berechtigungspruefung) — RLS blockt sie direkt an der DB.
+  function _persistAuthViaFn(records, deletes){
+    return fetch(AUTH_FN, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + _authToken() },
+      body: JSON.stringify({ action: 'persist_auth', records: records || [], deletes: deletes || [] })
+    }).then(function(r){
+      if(r.status === 404){ _authFnMissing = true; var e = new Error('gema-auth Function nicht deployed'); e.fnMissing = true; throw e; }
+      return r.json().catch(function(){ return {}; }).then(function(j){
+        if(!r.ok || !j.ok){
+          var e = new Error((j && j.error) || ('HTTP ' + r.status));
+          e.denied = (r.status === 401 || r.status === 403);
+          throw e;
+        }
+        _noteSuccess();
+        return j;
+      });
+    });
+  }
+  function _routeAuthWrite(records, deletes, directFallback){
+    if(_authFnMissing || !_authToken()) return directFallback();
+    return _persistAuthViaFn(records, deletes).catch(function(e){
+      if(e && e.fnMissing) return directFallback();
+      throw e;
+    });
+  }
+
   function _hdrs(extra){
+    var tok = _authToken();
     var h = {
       'apikey': SB_KEY,
-      'Authorization': 'Bearer ' + SB_KEY,
+      'Authorization': 'Bearer ' + (tok || SB_KEY),
       'Content-Type': 'application/json'
     };
     if(extra) for(var k in extra) h[k] = extra[k];
@@ -178,6 +233,7 @@
       body: JSON.stringify(body),
       keepalive: !!(opts && opts.keepalive)
     }).then(function(r){
+      if(r.status === 401) _handle401();
       if(!r.ok) throw new Error('HTTP ' + r.status);
       _noteSuccess();
       return true;
@@ -189,6 +245,12 @@
 
   function saveRecord(moduleKey, dataKey, data, opts){
     var lm = _now();
+    if(moduleKey === 'auth' && _isAuthKey(dataKey)){
+      return _routeAuthWrite([{ key: dataKey, data: data }], [], function(){
+        return _postRecords([{ module_key: 'auth', data_key: dataKey, payload: { data: data, _lm: lm } }], opts)
+          .then(function(){ return { ok:true, lm: lm }; });
+      }).then(function(){ return { ok:true, lm: lm }; });
+    }
     var body = [{ module_key: moduleKey, data_key: dataKey, payload: { data: data, _lm: lm } }];
     return _postRecords(body, opts).then(function(){ return { ok:true, lm: lm }; });
   }
@@ -201,6 +263,13 @@
   function saveRecords(moduleKey, records, opts){
     if(!records || !records.length) return Promise.resolve({ ok:true, count:0 });
     var lm = _now();
+    if(moduleKey === 'auth' && records.some(function(r){ return _isAuthKey(r.key); })){
+      return _routeAuthWrite(records.map(function(r){ return { key: r.key, data: r.data }; }), [], function(){
+        return _postRecords(records.map(function(rec){
+          return { module_key: 'auth', data_key: rec.key, payload: { data: rec.data, _lm: lm } };
+        }), opts);
+      }).then(function(){ return { ok:true, count: records.length, lm: lm }; });
+    }
     var body = records.map(function(rec){
       return {
         module_key: moduleKey,
@@ -217,11 +286,20 @@
    * Hartes Loeschen einer einzelnen Record-Row.
    */
   function deleteRecord(moduleKey, dataKey, opts){
+    if(moduleKey === 'auth' && _isAuthKey(dataKey)){
+      return _routeAuthWrite([], [dataKey], function(){
+        return _deleteRecordDirect(moduleKey, dataKey, opts);
+      }).then(function(){ return { ok:true }; });
+    }
+    return _deleteRecordDirect(moduleKey, dataKey, opts);
+  }
+  function _deleteRecordDirect(moduleKey, dataKey, opts){
     var url = SB_URL + '/rest/v1/' + SB_TABLE
       + '?module_key=eq.' + encodeURIComponent(moduleKey)
       + '&data_key=eq.' + encodeURIComponent(dataKey);
     return fetch(url, { method:'DELETE', headers: _hdrs(), keepalive: !!(opts && opts.keepalive) })
       .then(function(r){
+        if(r.status === 401) _handle401();
         if(!r.ok && r.status !== 404) throw new Error('HTTP ' + r.status);
         _noteSuccess();
         return { ok:true };
@@ -589,6 +667,9 @@
 
   // Public API
   w.GemaSync = {
+    // GEMA Secure v1
+    getAuthToken: _authToken,
+    authFnUrl: AUTH_FN,
     SB_URL: SB_URL,
     SB_KEY: SB_KEY,
     SB_TABLE: SB_TABLE,

@@ -73,7 +73,7 @@
     var url = SB_URL + '/rest/v1/gema_data?module_key=eq.objekte&data_key=eq.' + KEY + '&select=payload';
     var timeout = setTimeout(function(){ _readyResolve(); }, 3000);
     fetch(url, {
-      headers: { 'apikey': SB_KEY, 'Authorization': 'Bearer ' + SB_KEY }
+      headers: { 'apikey': SB_KEY, 'Authorization': 'Bearer ' + ((window.GemaSync && GemaSync.getAuthToken && GemaSync.getAuthToken()) || SB_KEY) }
     }).then(function(r) { return r.json(); })
     .then(function(rows) {
       clearTimeout(timeout);
@@ -134,7 +134,7 @@
   // ODER localStorage) fuer die einmalige Migration auf Per-Record.
   function _fetchLegacyCloudBlob(){
     var url = SB_URL + '/rest/v1/gema_data?module_key=eq.objekte&data_key=eq.' + KEY + '&select=payload';
-    return fetch(url, { headers: { 'apikey': SB_KEY, 'Authorization': 'Bearer ' + SB_KEY } })
+    return fetch(url, { headers: { 'apikey': SB_KEY, 'Authorization': 'Bearer ' + ((window.GemaSync && GemaSync.getAuthToken && GemaSync.getAuthToken()) || SB_KEY) } })
       .then(function(r){ return r.json(); })
       .then(function(rows){
         if (rows && rows.length && rows[0].payload && rows[0].payload.v){

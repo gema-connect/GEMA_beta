@@ -60,6 +60,18 @@
     return _S().loadCollection('auth', def.prefix).then(function(rows){
       var cloudArr = (rows||[]).map(function(r){ return r.data; })
                                 .filter(function(d){ return d && d[def.idField]; });
+      // GEMA Secure v1 — Guard: Unter RLS liefert ein Read OHNE gueltiges
+      // Token eine LEERE Liste (HTTP 200). Ein leeres Ergebnis darf einen
+      // gefuellten lokalen Cache nie ueberschreiben — sonst verschwinden
+      // User/Orgs/Rollen aus der UI, bis neu eingeloggt wird.
+      if(!cloudArr.length){
+        var local = null;
+        try{ local = JSON.parse(_readCache(storageKey) || 'null'); }catch(e){}
+        if(Array.isArray(local) && local.length){
+          console.warn('[GemaAuth] Cloud-Read fuer ' + storageKey + ' leer (kein Token?) — lokaler Cache bleibt');
+          return local;
+        }
+      }
       var merged = _mergeWithDefaults(storageKey, cloudArr);
       _writeLocalCache(storageKey, merged);
       return merged;
@@ -1069,20 +1081,105 @@
     },
     loginAsync:function(username,password,remember){
       var self=this;
-      return new Promise(function(resolve){
-        var resolved=false;
-        function done(u){if(!resolved){resolved=true;resolve(u);}}
-        // Cloud first — User-Wahl: Login braucht Verbindung, kein Offline-Fallback.
-        // Wir laden die User-Collection per Record und ersetzen den lokalen
-        // Cache, bevor wir den Login-Versuch machen.
-        _loadCollectionFromCloud(STORAGE_USERS).then(function(){
-          done(self.login(username,password,remember));
-        }).catch(function(){
-          // Cloud nicht erreichbar → kein Login moeglich (User-Wahl).
-          done(null);
+      // GEMA Secure v1: Login laeuft ueber die gema-auth Netlify Function —
+      // sie prueft die Zugangsdaten SERVER-seitig und stellt das JWT aus,
+      // mit dem alle weiteren Supabase-Calls unter RLS laufen. Ist die
+      // Function (noch) nicht deployed, greift der Legacy-Pfad (anon-Read
+      // + Client-Hash) — funktioniert nur, solange RLS nicht aktiv ist.
+      function legacyLogin(){
+        return new Promise(function(resolve){
+          var resolved=false;
+          function done(u){if(!resolved){resolved=true;resolve(u);}}
+          _loadCollectionFromCloud(STORAGE_USERS).then(function(){
+            done(self.login(username,password,remember));
+          }).catch(function(){ done(null); });
+          setTimeout(function(){done(null);},6000);
         });
-        // Hard-Timeout
-        setTimeout(function(){done(null);},6000);
+      }
+      var fnUrl=(w.GemaSync&&w.GemaSync.authFnUrl)||'/.netlify/functions/gema-auth';
+      return fetch(fnUrl,{
+        method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({action:'login',username:username,password:password})
+      }).then(function(r){
+        if(r.status===404){var e=new Error('fn-missing');e.fnMissing=true;throw e;}
+        return r.json().catch(function(){return {};}).then(function(j){return {status:r.status,j:j};});
+      }).then(function(res){
+        if(!res.j||!res.j.ok||!res.j.token){
+          if(res.status===500&&res.j&&/nicht konfiguriert/i.test(res.j.error||'')){
+            var e=new Error('fn-unconfigured');e.fnMissing=true;throw e;
+          }
+          return null; // falsche Zugangsdaten / inaktiv
+        }
+        var u=res.j.user;
+        var exp=new Date();exp.setDate(exp.getDate()+(remember?SESSION_DAYS:1));
+        var s={userId:u.id,expires:exp.toISOString(),token:res.j.token,tokenExp:res.j.exp};
+        try{localStorage.setItem(STORAGE_SESSION,JSON.stringify(s));}catch(e){}
+        // User sofort in den lokalen Cache mergen (getCurrentUser klappt
+        // direkt); danach Collections MIT Token frisch ziehen.
+        try{
+          var users=_getUsers()||[];
+          var i=users.findIndex(function(x){return x&&x.id===u.id;});
+          if(i>=0)users[i]=u;else users.push(u);
+          _writeLocalCache(STORAGE_USERS,users);
+        }catch(e){}
+        return Promise.all([
+          _loadCollectionFromCloud(STORAGE_USERS),
+          _loadCollectionFromCloud(STORAGE_ORGS),
+          _loadCollectionFromCloud(STORAGE_ROLES)
+        ]).catch(function(){}).then(function(){
+          return self.getCurrentUser()||u;
+        });
+      }).catch(function(e){
+        if(e&&e.fnMissing){
+          console.warn('[GemaAuth] gema-auth Function nicht verfuegbar — Legacy-Login');
+          return legacyLogin();
+        }
+        // Netzfehler → Legacy versuchen (deckt lokale Dev-Umgebung ab)
+        return legacyLogin();
+      });
+    },
+
+    // GEMA Secure v1: JWT der aktuellen Sitzung (leer, wenn Legacy-Login)
+    getToken:function(){
+      try{var s=JSON.parse(localStorage.getItem(STORAGE_SESSION)||'null');return (s&&s.token)||'';}catch(e){return '';}
+    },
+
+    // Einladungs-Aktivierung ueber die Function (Server prueft: Konto hat
+    // noch kein Passwort). Fallback auf den Legacy-Pfad, wenn die Function
+    // fehlt. Gibt {user, token?} zurueck oder null.
+    activateInvitationAsync:function(inviteToken,password,regData){
+      var self=this;
+      var fnUrl=(w.GemaSync&&w.GemaSync.authFnUrl)||'/.netlify/functions/gema-auth';
+      return fetch(fnUrl,{
+        method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({action:'activate',inviteToken:inviteToken,password:password,extra:regData||{}})
+      }).then(function(r){
+        if(r.status===404){var e=new Error('fn-missing');e.fnMissing=true;throw e;}
+        return r.json().catch(function(){return {};}).then(function(j){return {status:r.status,j:j};});
+      }).then(function(res){
+        if(!res.j||!res.j.ok||!res.j.token){
+          if(res.status===500&&res.j&&/nicht konfiguriert/i.test(res.j.error||'')){
+            var e=new Error('fn-unconfigured');e.fnMissing=true;throw e;
+          }
+          return null;
+        }
+        var u=res.j.user;
+        var exp=new Date();exp.setDate(exp.getDate()+SESSION_DAYS);
+        try{localStorage.setItem(STORAGE_SESSION,JSON.stringify({userId:u.id,expires:exp.toISOString(),token:res.j.token,tokenExp:res.j.exp}));}catch(e){}
+        try{
+          var users=_getUsers()||[];
+          var i=users.findIndex(function(x){return x&&x.id===u.id;});
+          if(i>=0)users[i]=u;else users.push(u);
+          _writeLocalCache(STORAGE_USERS,users);
+        }catch(e){}
+        return u;
+      }).catch(function(e){
+        if(e&&e.fnMissing){
+          var u=self.activateInvitation(inviteToken,password,regData);
+          if(u)self.login(u.username,password,true);
+          return u;
+        }
+        return null;
       });
     },
     logout:function(){
