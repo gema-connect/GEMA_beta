@@ -586,8 +586,8 @@ table.fw{border-collapse:collapse;width:100%;font-size:12.5px}
     <div class="gema-hero-ic">💧</div>
     <div>
       <div class="gema-hero-title">Frischwasserstation</div>
-      <div class="gema-hero-norm" title="Berechnungsgrundlage" style="display:inline-block;font-size:11px;color:rgba(255,255,255,.92);background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.22);padding:2px 8px;border-radius:6px;margin-top:6px;font-weight:700;letter-spacing:.2px">📖 SIA 385/2 · Nutzungseinheiten + Gleichzeitigkeit</div>
-      <div class="gema-hero-sub">Tagesbedarf · Spitzenvolumenstrom · Mischkreuz · Gastro/Spez-Anlagen · Leistung mit Zirkulationsabzug</div>
+      <div class="gema-hero-norm" title="Berechnungsgrundlage" style="display:inline-block;font-size:11px;color:rgba(255,255,255,.92);background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.22);padding:2px 8px;border-radius:6px;margin-top:6px;font-weight:700;letter-spacing:.2px">📖 SIA 385/2 · Nutzungseinheiten + Gleichzeitigkeit · Gauss/Poisson-Duschprofil</div>
+      <div class="gema-hero-sub">Tagesbedarf · Spitzenvolumenstrom · Mischkreuz · Gastro/Spez-Anlagen · Statistische Gauss-Bemessung · Leistung mit Zirkulationsabzug</div>
     </div>
   </div>
 </div>
@@ -666,7 +666,8 @@ table.fw{border-collapse:collapse;width:100%;font-size:12.5px}
         <b>2.</b> Duschen/Badewannen je Wohnungstyp → Spitzenvolumenstrom mit Gleichzeitigkeit.<br>
         <b>3.</b> Mischkreuz rechnet den Warmwasser-Anteil (Station liefert WW, gezapft wird Mischwasser).<br>
         <b>4.</b> Gastro-/Spezialgeräte: gleichzeitige Geräte ankreuzen.<br>
-        <b>5.</b> Leistung = ṁ·c<sub>p</sub>·ΔT minus Zirkulationsabzug — unten Anlage wählen &amp; Offerte anfragen.
+        <b>5.</b> Optional: statistische Gauss-Bemessung (Duschprofil + Poisson) als Plausibilisierung.<br>
+        <b>6.</b> Leistung = ṁ·c<sub>p</sub>·ΔT minus Zirkulationsabzug — unten Anlage wählen &amp; Offerte anfragen.
       </div>
     </div>
   </div>
@@ -678,12 +679,12 @@ table.fw{border-collapse:collapse;width:100%;font-size:12.5px}
   <div class="g-card-bd">
     <div class="fw-wrap">
       <table class="fw" id="fwWhgTable">
-        <thead><tr><th>Typ</th><th>Anzahl Wohnungen</th><th>Duschen / Whg</th><th>Badewannen / Whg</th><th>Total Duschen</th><th>Total Badewannen</th><th></th></tr></thead>
+        <thead><tr><th>Typ</th><th>Anzahl Wohnungen</th><th>Duschen / Whg</th><th>Badewannen / Whg</th><th title="Nettowohnfläche pro Wohnung — Basis für die Personenzahl nach SIA (nur für die Gauss-Bemessung in Abschnitt 5 nötig)">Fläche ANF [m²]</th><th>Total Duschen</th><th>Total Badewannen</th><th title="nP = (3.3 − 2/(1+(ANF/100)³)) · nWhg — Normbelegung nach SIA">Personen (SIA)</th><th></th></tr></thead>
         <tbody id="fwWhgBody"></tbody>
       </table>
     </div>
     <button class="fw-add" onclick="fwAddRow('whg')">+ Wohnungstyp</button>
-    <div class="fw-tot">Total: <b id="fw_out_duschen">–</b> Duschen · <b id="fw_out_wannen">–</b> Badewannen</div>
+    <div class="fw-tot">Total: <b id="fw_out_duschen">–</b> Duschen · <b id="fw_out_wannen">–</b> Badewannen · <b id="fw_out_pers">–</b> Personen (SIA)</div>
 
     <div class="g-main-grid" style="margin-top:14px">
       <div>
@@ -778,9 +779,142 @@ table.fw{border-collapse:collapse;width:100%;font-size:12.5px}
   </div>
 </div>
 
-<!-- 5 · LEISTUNG -->
+<!-- 5 · STATISTISCHE BEMESSUNG NACH GAUSS -->
 <div class="g-card" style="margin-top:14px">
-  <div class="g-card-hd"><h2>5 · Leistung Frischwasserstation</h2></div>
+  <div class="g-card-hd">
+    <h2>5 · Statistische Bemessung nach Gauss (Duschprofil)</h2>
+    <label class="g-switch-wrap no-print" style="cursor:pointer"><span style="font-weight:700">verwenden</span>
+      <span class="g-switch"><input type="checkbox" id="fwg_on" onchange="fwgToggle()"/><span class="g-switch-slider"></span></span>
+    </label>
+  </div>
+  <div class="g-card-bd">
+    <div class="g-info" style="margin-bottom:14px">
+      Alternative Plausibilisierung des Spitzenvolumenstroms: Duschstarts werden über ein
+      <b>1-Minuten-Tagesprofil</b> (4 Gauss-Glocken: Morgen/Mittag/Abend/Nacht) verteilt; die Zahl gleichzeitig
+      aktiver Duschen folgt einer <b>Poisson-Verteilung</b> (Quantil 95/99&nbsp;%). Quellen: REUWS/WRF v2
+      (0.69 Duschen/Person·Tag), SVES/gfs 2024 (Duschdauer ≈ 7.7&nbsp;min).
+      <b>Statistische Plausibilisierung — keine Normbemessung nach SVGW/SIA.</b>
+      Wohnungen/Flächen (Abschnitt 2), Mischstrom pro Dusche und Mischkreuz (Abschnitt 2) sowie
+      Zusatzlasten (Abschnitte 3+4) werden automatisch übernommen.
+    </div>
+    <div id="fwgBody" style="display:none">
+      <div class="g-main-grid">
+        <div>
+          <div class="fw-sec">Nutzung</div>
+          <div class="fg">
+            <div class="fg-lbl">Personen im Gebäude (Override)<br><span class="lbl-hint">0 = automatisch aus Abschnitt 2 (SIA-Normbelegung)</span></div>
+            <input class="fg-inp" onblur="fixLeadingZero(this)" id="fwg_persOverride" type="text" inputmode="decimal" value="0" oninput="fwRecalc()"/>
+            <span class="fg-unit">Pers.</span>
+          </div>
+          <div class="fg">
+            <div class="fg-lbl">Duschvorgänge je Person und Tag<br><span class="lbl-hint">Quelle REUWS/WRF 2016: 0.69</span></div>
+            <input class="fg-inp" onblur="fixLeadingZero(this)" id="fwg_duschPd" type="text" inputmode="decimal" value="0.69" oninput="fwRecalc()"/>
+            <span class="fg-unit">1/(P·d)</span>
+          </div>
+          <div class="fg">
+            <div class="fg-lbl">Duschdauer<br><span class="lbl-hint">Quelle SVES/gfs 2024, Mieter: 7.7 min — Aktiv-Fenster = gerundet</span></div>
+            <input class="fg-inp" onblur="fixLeadingZero(this)" id="fwg_dauer" type="text" inputmode="decimal" value="7.7" oninput="fwRecalc()"/>
+            <span class="fg-unit">min</span>
+          </div>
+          <div class="fw-sec">Bemessung</div>
+          <div class="fg">
+            <div class="fg-lbl">Bemessungsquantil<br><span class="lbl-hint">Wahrscheinlichkeit, dass der Bedarf abgedeckt ist</span></div>
+            <select class="fg-inp" id="fwg_quantil" style="text-align:left;width:210px" onchange="fwRecalc()">
+              <option value="0.99">99 % (konservativ)</option>
+              <option value="0.95">95 %</option>
+            </select>
+            <span class="fg-unit">–</span>
+          </div>
+          <div class="fg">
+            <div class="fg-lbl">Sicherheitszuschlag Duschenzahl<br><span class="lbl-hint">Excel-Vorlage rechnete Quantil + 1 Dusche (min. 2)</span></div>
+            <select class="fg-inp" id="fwg_zuschlag" style="text-align:left;width:210px" onchange="fwRecalc()">
+              <option value="1">Quantil + 1 Dusche (wie Vorlage)</option>
+              <option value="0">exaktes Quantil</option>
+            </select>
+            <span class="fg-unit">–</span>
+          </div>
+          <div class="fg">
+            <div class="fg-lbl">Reservefaktor<br><span class="lbl-hint">Regel-/Sicherheitsreserve</span></div>
+            <input class="fg-inp" onblur="fixLeadingZero(this)" id="fwg_reserve" type="text" inputmode="decimal" value="1.1" oninput="fwRecalc()"/>
+            <span class="fg-unit">–</span>
+          </div>
+          <div class="fg">
+            <div class="fg-lbl">Mindestgleichzeitigkeit Duschen<br><span class="lbl-hint">0 = automatisch Wohnungen ÷ 10 — verhindert zu kleine FWS</span></div>
+            <input class="fg-inp" onblur="fixLeadingZero(this)" id="fwg_minDuschen" type="text" inputmode="decimal" value="0" oninput="fwRecalc()"/>
+            <span class="fg-unit">Stk</span>
+          </div>
+          <div class="fw-sec">Primärseite (Heizung/Puffer)</div>
+          <div class="fg">
+            <div class="fg-lbl">Vorlauf Primär</div>
+            <input class="fg-inp" onblur="fixLeadingZero(this)" id="fwg_primVl" type="text" inputmode="decimal" value="70" oninput="fwRecalc()"/>
+            <span class="fg-unit">°C</span>
+          </div>
+          <div class="fg">
+            <div class="fg-lbl">Rücklauf Primär</div>
+            <input class="fg-inp" onblur="fixLeadingZero(this)" id="fwg_primRl" type="text" inputmode="decimal" value="45" oninput="fwRecalc()"/>
+            <span class="fg-unit">°C</span>
+          </div>
+          <details style="margin-top:10px">
+            <summary style="font-size:11px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;cursor:pointer">Tagesprofil-Parameter (Gauss-Glocken)</summary>
+            <div class="fw-wrap" style="margin-top:8px">
+              <table class="fw">
+                <thead><tr><th>Glocke</th><th title="Amplitude der Glocke (relativ — wird normiert)">Gewicht</th><th title="Zentrum in Minuten ab Mitternacht (420 = 07:00)">Zentrum [min]</th><th title="Standardabweichung / Breite der Glocke">σ [min]</th></tr></thead>
+                <tbody>
+                  <tr><td>Morgen</td><td><input class="fw-num" type="text" inputmode="decimal" id="fwg_p0w" value="0.55" oninput="fwRecalc()"/></td><td><input class="fw-num" type="text" inputmode="decimal" id="fwg_p0c" value="420" oninput="fwRecalc()"/></td><td><input class="fw-num" type="text" inputmode="decimal" id="fwg_p0s" value="60" oninput="fwRecalc()"/></td></tr>
+                  <tr><td>Mittag</td><td><input class="fw-num" type="text" inputmode="decimal" id="fwg_p1w" value="0.18" oninput="fwRecalc()"/></td><td><input class="fw-num" type="text" inputmode="decimal" id="fwg_p1c" value="720" oninput="fwRecalc()"/></td><td><input class="fw-num" type="text" inputmode="decimal" id="fwg_p1s" value="90" oninput="fwRecalc()"/></td></tr>
+                  <tr><td>Abend</td><td><input class="fw-num" type="text" inputmode="decimal" id="fwg_p2w" value="0.22" oninput="fwRecalc()"/></td><td><input class="fw-num" type="text" inputmode="decimal" id="fwg_p2c" value="1200" oninput="fwRecalc()"/></td><td><input class="fw-num" type="text" inputmode="decimal" id="fwg_p2s" value="70" oninput="fwRecalc()"/></td></tr>
+                  <tr><td>Nacht</td><td><input class="fw-num" type="text" inputmode="decimal" id="fwg_p3w" value="0.05" oninput="fwRecalc()"/></td><td><input class="fw-num" type="text" inputmode="decimal" id="fwg_p3c" value="60" oninput="fwRecalc()"/></td><td><input class="fw-num" type="text" inputmode="decimal" id="fwg_p3s" value="70" oninput="fwRecalc()"/></td></tr>
+                </tbody>
+              </table>
+            </div>
+          </details>
+        </div>
+        <div>
+          <div class="fw-sec">Ergebnis</div>
+          <div class="g-result-list">
+            <div class="g-result-row"><span class="g-result-lbl">Personen (massgebend)</span><span class="g-result-val" id="fwg_out_pers">–</span></div>
+            <div class="g-result-row"><span class="g-result-lbl">Duschvorgänge pro Tag</span><span class="g-result-val" id="fwg_out_duschenTag">–</span></div>
+            <div class="g-result-row"><span class="g-result-lbl">qWW je Dusche <span class="frml" style="display:inline;margin:0;">Mischstrom × WW-Anteil (Abschn. 2)</span></span><span class="g-result-val" id="fwg_out_qje">–</span></div>
+            <div class="g-result-row"><span class="g-result-lbl">Max. erwartete aktive Duschen λ</span><span class="g-result-val" id="fwg_out_lam">–</span></div>
+            <div class="g-result-row"><span class="g-result-lbl">Duschen 95 % / 99 % <span id="fwg_out_kHint" style="font-size:10.5px;color:var(--muted2)"></span></span><span class="g-result-val" id="fwg_out_k">–</span></div>
+            <div class="g-result-row"><span class="g-result-lbl">qWW Quantil (gewählt)</span><span class="g-result-val" id="fwg_out_qQuantil">–</span></div>
+            <div class="g-result-row"><span class="g-result-lbl">qWW Mindestgleichzeitigkeit</span><span class="g-result-val" id="fwg_out_qMin">–</span></div>
+            <div class="g-result-row"><span class="g-result-lbl">qWW Zusatzlasten (Gastro + Spez, Abschn. 3+4)</span><span class="g-result-val" id="fwg_out_qMix">–</span></div>
+            <div class="g-result-row"><span class="g-result-lbl">Massgebend vor Reserve <span class="frml" style="display:inline;margin:0;">MAX(Quantil; Mindest; Zusatz)</span></span><span class="g-result-val" id="fwg_out_massg">–</span></div>
+            <div class="g-result-row"><span class="g-result-lbl">qWW Gauss-Bemessung (× Reserve)</span><span class="g-result-val big" id="fwg_out_qBem">–</span></div>
+            <div class="g-result-row"><span class="g-result-lbl">FWS-Leistung (Gauss) <span class="frml" style="display:inline;margin:0;">q·c<sub>p</sub>·ΔT/60</span></span><span class="g-result-val" id="fwg_out_p">–</span></div>
+            <div class="g-result-row"><span class="g-result-lbl">Primärvolumenstrom <span class="frml" style="display:inline;margin:0;">P·60/(c<sub>p</sub>·ΔT<sub>prim</sub>)</span></span><span class="g-result-val" id="fwg_out_qPrim">–</span></div>
+            <div class="g-result-row"><span class="g-result-lbl">Vergleich empirisch (Abschnitte 2–4)</span><span class="g-result-val" id="fwg_out_vergleich">–</span></div>
+          </div>
+          <button class="g-btn primary no-print" style="margin-top:12px" onclick="fwgApply()">→ Als gewählten Volumenstrom übernehmen (Abschnitt 6)</button>
+          <div class="g-hint" style="margin-top:6px">Abschnitt 6 rechnet mit dem grösseren Wert aus «berechnet» (Abschnitte 2–4) und «gewählt».</div>
+        </div>
+      </div>
+      <div class="fw-sec" style="margin-top:16px">Tagesprofil — erwartete aktive Duschen als qWW [l/min]</div>
+      <canvas id="fwgChart" height="210" style="width:100%;border:1.5px solid var(--border);border-radius:10px;background:var(--surface2)"></canvas>
+      <div class="g-main-grid" style="margin-top:14px">
+        <div>
+          <div class="fw-sec">Pufferspitzen (Kurzzeitenergie) <span class="frml" style="display:inline;margin:0;">E = q·t·1.163·ΔT/1000</span></div>
+          <div class="fw-wrap">
+            <table class="fw"><thead><tr><th>Dauer [min]</th><th class="right">Energie [kWh]</th></tr></thead><tbody id="fwgPufferBody"></tbody></table>
+          </div>
+        </div>
+        <div>
+          <div class="fw-sec">Intervallvergleich — echte Glättung der Erwartung</div>
+          <div class="fw-wrap">
+            <table class="fw"><thead><tr><th>Intervall</th><th class="right">max. qWW Erwartung [l/min]</th><th>Anwendung</th></tr></thead><tbody id="fwgIntervallBody"></tbody></table>
+          </div>
+          <div class="g-hint" style="margin-top:6px">Gleitende Mittelwerte über das Tagesprofil (die Excel-Vorlage nutzte hier fixe Faktoren). Massgebend für die FWS ist die 1-min-Betrachtung.</div>
+        </div>
+      </div>
+      <div class="warn-box" id="fwg_msg" style="display:none;margin-top:12px"></div>
+    </div>
+  </div>
+</div>
+
+<!-- 6 · LEISTUNG -->
+<div class="g-card" style="margin-top:14px" id="fwLeistungCard">
+  <div class="g-card-hd"><h2>6 · Leistung Frischwasserstation</h2></div>
   <div class="g-card-bd">
     <div class="g-main-grid">
       <div>
@@ -844,6 +978,122 @@ var FW_DICHTE=[999.843, 999.902, 999.943, 999.967, 999.975, 999.967, 999.943, 99
 var FW_GZ=[[4,1],[8,0.6],[12,0.45],[21,0.4],[42,0.35],[65,0.33],[95,0.3],[130,0.27],[200,0.24]];
 var FW_CP=4.187; // kJ/kg·K
 
+/*ENGINE-START*/
+// ═══ Statistische FWS-Bemessung nach Gauss-Duschprofil + Poisson (DOM-frei, Node-testbar) ═══
+// Nach Vorlage «Warmwasser_FWS_nach_Gauss.xlsx» — mit dokumentierten Korrekturen
+// (siehe REPORT_FWS_Gauss_Formelpruefung.md):
+//  (1) exaktes Poisson-Quantil statt IF-Treppe (Vorlage: Quantil+1, Kappung bei 9/10 Duschen
+//      → unterdimensionierte ab ca. 150 Whg); optionaler Zuschlag «+1 Dusche» repliziert die Vorlage
+//  (2) Aktiv-Fenster = round(Duschdauer) statt hart 8 min (Duschdauer-Input der Vorlage war tot)
+//  (3) Aktiv-Fenster läuft zirkulär über Mitternacht (Vorlage: am Tagesanfang abgeschnitten);
+//      die Gauss-Gewichte selbst bleiben wie in der Vorlage linear (Modellentscheid des Erstellers)
+//  (4) Bemessungsquantil wählbar und wirksam (Vorlage: toter Input, es galt immer 99 %)
+//  (5) Intervallvergleich = echte gleitende Mittelwerte (Vorlage: fixe Faktoren 0.98/0.92/0.86)
+// cp hier 4.186 wie in der Gauss-Vorlage dokumentiert (Blatt 08); Abschnitt 6 nutzt FW_CP=4.187
+// aus der originalen FWS-Vorlage — Differenz 0.02 %.
+var FWG_PROFIL_DEFAULT=[
+  {label:'Morgen', w:0.55, c:420,  s:60},
+  {label:'Mittag', w:0.18, c:720,  s:90},
+  {label:'Abend',  w:0.22, c:1200, s:70},
+  {label:'Nacht',  w:0.05, c:60,   s:70}
+];
+// Personen je Wohnung nach SIA-Normbelegung (identische Formel wie sb_warmwasser/hz_heizlast)
+function fwgPersProWhg(anf){var f=(parseFloat(anf)||0)/100;return 3.3-2/(1+f*f*f);}
+// exaktes Poisson-Quantil: kleinstes k mit CDF(k) >= p
+function fwgPoissonQuantile(p,lam){
+  if(!(lam>0))return 0;
+  var k=0,term=Math.exp(-lam),cdf=term;
+  while(cdf<p&&k<100000){k++;term*=lam/k;cdf+=term;}
+  return k;
+}
+// Bemessungs-Duschenzahl: Quantil, optional +1 Dusche Sicherheitszuschlag (min. 2, wie Vorlage)
+function fwgKDuschen(p,lam,zuschlag){
+  var q=fwgPoissonQuantile(p,lam);
+  return zuschlag?Math.max(q+1,2):q;
+}
+// Tagesprofil: Gewichte je Minute, Duschstarts/min, aktive Duschen λ(t)
+function fwgProfil(duschenProTag,dauerMin,profil){
+  var N=1440,w=new Array(N),sum=0,t,i;
+  for(t=0;t<N;t++){
+    var g=0;
+    for(i=0;i<profil.length;i++){
+      var P=profil[i],wi=parseFloat(P.w)||0,c=parseFloat(P.c)||0,s=parseFloat(P.s)||0;
+      if(wi>0&&s>0){var x=(t-c)/s;g+=wi*Math.exp(-0.5*x*x);} // linear wie Vorlage (kein Tages-Umbruch)
+    }
+    w[t]=g;sum+=g;
+  }
+  var starts=new Array(N);
+  for(t=0;t<N;t++)starts[t]=sum>0?w[t]/sum*duschenProTag:0;
+  var win=Math.max(1,Math.round(parseFloat(dauerMin)||0)||1);
+  var lam=new Array(N),lamMax=0;
+  for(t=0;t<N;t++){
+    var acc=0;
+    for(i=0;i<win;i++)acc+=starts[(t-i+N)%N];
+    lam[t]=acc;if(acc>lamMax)lamMax=acc;
+  }
+  return {weights:w,starts:starts,lam:lam,lamMax:lamMax,win:win};
+}
+// Max. gleitender Mittelwert von λ über Fenster winMin (zirkulär) — für den Intervallvergleich
+function fwgRollMeanMax(lam,winMin){
+  var N=lam.length,max=0;
+  for(var t=0;t<N;t++){
+    var acc=0;
+    for(var i=0;i<winMin;i++)acc+=lam[(t-i+N)%N];
+    acc/=winMin;if(acc>max)max=acc;
+  }
+  return max;
+}
+// Gesamtberechnung Gauss-Bemessung
+function fwgCalc(inp){
+  // inp: {rowsWhg:[{n,anf}], persOverride, duschProPd, dauerMin, qJeDusche, quantil, zuschlag,
+  //       reserve, minDuschen(0=auto Whg/10), qMix, tww, tkw, primVl, primRl, profil}
+  var r={warn:[]};
+  var pers=0,whg=0,ohneFlaeche=0;
+  (inp.rowsWhg||[]).forEach(function(row){
+    var n=parseFloat(row.n)||0;if(!(n>0))return;
+    whg+=n;
+    var anf=parseFloat(row.anf)||0;
+    if(!(anf>0))ohneFlaeche+=n;
+    pers+=fwgPersProWhg(anf)*n; // Vorlage-Formel; ANF=0 → 1.3 P/Whg (Warnung unten)
+  });
+  r.whg=whg;r.persAuto=pers;r.ohneFlaeche=ohneFlaeche;
+  r.pers=(parseFloat(inp.persOverride)||0)>0?parseFloat(inp.persOverride):pers;
+  r.duschenTag=r.pers*(parseFloat(inp.duschProPd)||0);
+  var prof=fwgProfil(r.duschenTag,inp.dauerMin,inp.profil||FWG_PROFIL_DEFAULT);
+  r.prof=prof;r.lamMax=prof.lamMax;
+  r.k95=fwgKDuschen(0.95,r.lamMax,!!inp.zuschlag);
+  r.k99=fwgKDuschen(0.99,r.lamMax,!!inp.zuschlag);
+  var q=parseFloat(inp.quantil)||0.99;
+  r.quantil=q;
+  r.kSel=q>=0.99?r.k99:r.k95;
+  r.minDuschen=(parseFloat(inp.minDuschen)||0)>0?parseFloat(inp.minDuschen):whg/10;
+  var qJe=parseFloat(inp.qJeDusche)||0;
+  r.qJeDusche=qJe;
+  r.qErw=r.lamMax*qJe;
+  r.qQuantil=r.kSel*qJe;
+  r.qMin=r.minDuschen*qJe;
+  r.qMix=parseFloat(inp.qMix)||0;
+  r.massgebend=Math.max(r.qQuantil,r.qMin,r.qMix);
+  r.reserve=(parseFloat(inp.reserve)||0)>0?parseFloat(inp.reserve):1;
+  r.qBem=r.massgebend*r.reserve;
+  var dtWW=(parseFloat(inp.tww)||0)-(parseFloat(inp.tkw)||0);
+  r.dtWW=dtWW;
+  r.leistung=dtWW>0?r.qBem*4.186*dtWW/60:0; // kW (1 l ≈ 1 kg, wie Vorlage)
+  var dtPrim=(parseFloat(inp.primVl)||0)-(parseFloat(inp.primRl)||0);
+  r.dtPrim=dtPrim;
+  r.qPrim=dtPrim>0?r.leistung*60/(4.186*dtPrim):0; // l/min
+  r.puffer=[1,5,10,15,30,60].map(function(min){return {min:min,kwh:r.qBem*min*1.163*(dtWW>0?dtWW:0)/1000};});
+  r.intervalle=[1,5,15,60].map(function(m){
+    var lm=fwgRollMeanMax(prof.lam,m);
+    return {min:m,lamMax:lm,qMax:lm*qJe};
+  });
+  if(dtWW<=0)r.warn.push('Mischkreuz: Warmwasser- muss über Kaltwassertemperatur liegen.');
+  if(ohneFlaeche>0)r.warn.push(ohneFlaeche+' Wohnung(en) ohne Fläche ANF — Personenzahl dort nur 1.3 P/Whg. Fläche in Abschnitt 2 erfassen oder Personen-Override setzen.');
+  if(dtPrim<=0)r.warn.push('Primärspreizung: Vorlauf muss über Rücklauf liegen.');
+  return r;
+}
+/*ENGINE-END*/
+
 var fwState={nutz:[],whg:[],gastro:[],spez:[]};
 var _fwInternal=false;
 var _fwLast=null;
@@ -857,7 +1107,7 @@ function fwDichte(t){ // Excel LOOKUP: groesster Tabellenwert <= t
 
 function fwDefault(kind){
   if(kind==='nutz')return {ne:0,n:''};
-  if(kind==='whg')return {whg:'',du:1,wa:0};
+  if(kind==='whg')return {whg:'',du:1,wa:0,anf:''};
   return {name:'',lmin:'',n:1,x:true};
 }
 function fwAddRow(kind){fwState[kind].push(fwDefault(kind));fwRenderTables();fwPersist();fwRecalc();}
@@ -961,7 +1211,8 @@ function fwRenderTables(){
       +'<td><input class="fw-num" type="text" inputmode="decimal" value="'+fwEsc(r.whg)+'" data-k="whg" placeholder="0"/></td>'
       +'<td><input class="fw-num" type="text" inputmode="decimal" value="'+fwEsc(r.du)+'" data-k="du"/></td>'
       +'<td><input class="fw-num" type="text" inputmode="decimal" value="'+fwEsc(r.wa)+'" data-k="wa"/></td>'
-      +'<td class="fw-calc" data-c="du"></td><td class="fw-calc" data-c="wa"></td>'
+      +'<td><input class="fw-num" type="text" inputmode="decimal" value="'+fwEsc(r.anf==null?'':r.anf)+'" data-k="anf" placeholder="m²"/></td>'
+      +'<td class="fw-calc" data-c="du"></td><td class="fw-calc" data-c="wa"></td><td class="fw-calc" data-c="pers"></td>'
       +'<td><button class="fw-del" onclick="fwDelRow(\'whg\','+i+')">✕</button></td></tr>';
   }).join('');
   // Gastro/Spez
@@ -988,9 +1239,12 @@ function fwRenderCalc(res){
     tr.querySelector('[data-c="kwh"]').textContent=o.z?fwFmt(o.kwh,1):'–';
   });
   document.querySelectorAll('#fwWhgBody tr').forEach(function(tr){
-    var o=res.whg[parseInt(tr.dataset.i,10)]||{};
+    var i=parseInt(tr.dataset.i,10);
+    var o=res.whg[i]||{},row=fwState.whg[i]||{};
     tr.querySelector('[data-c="du"]').textContent=fwFmt(o.du,0);
     tr.querySelector('[data-c="wa"]').textContent=fwFmt(o.wa,0);
+    var n=parseFloat(row.whg)||0,anf=parseFloat(row.anf)||0;
+    tr.querySelector('[data-c="pers"]').textContent=(n>0&&anf>0)?fwFmt(fwgPersProWhg(anf)*n,1):'–';
   });
   ['gastro','spez'].forEach(function(kind){
     document.querySelectorAll((kind==='gastro'?'#fwGastroBody':'#fwSpezBody')+' tr').forEach(function(tr){
@@ -1004,6 +1258,8 @@ function fwRenderCalc(res){
   setTxt('fw_out_tagesbedarf',res.tagesbedarf>0?fwFmt(res.tagesbedarf,0)+' l/d':'–');
   setTxt('fw_out_duschen',fwFmt(res.duschen,0));
   setTxt('fw_out_wannen',fwFmt(res.wannen,0));
+  var persTot=0;fwState.whg.forEach(function(r){var n=parseFloat(r.whg)||0,anf=parseFloat(r.anf)||0;if(n>0&&anf>0)persTot+=fwgPersProWhg(anf)*n;});
+  setTxt('fw_out_pers',persTot>0?fwFmt(persTot,1):'–');
   setTxt('fw_out_v100',fwFmt(res.v100,1)+' l/min');
   setTxt('fw_out_gzVorschlag',res.gzVorschlag?fwFmt(res.gzVorschlag,2):'–');
   setTxt('fw_out_umrech',res.umrech?fwFmt(res.umrech,1)+' l/min':'–');
@@ -1051,7 +1307,149 @@ function fwPersist(){
   try{ta.dispatchEvent(new Event('change',{bubbles:true}));}catch(e){}
   _fwInternal=false;
 }
-function fwRecalc(){fwRenderCalc(fwCalc());}
+function fwRecalc(){var res=fwCalc();fwRenderCalc(res);fwgRecalc(res);}
+
+// ── Gauss-Bemessung: UI-Anbindung ──
+var _fwgLast=null;
+function fwgActive(){var el=document.getElementById('fwg_on');return !!(el&&el.checked);}
+function fwgToggle(){
+  var body=document.getElementById('fwgBody');
+  if(body)body.style.display=fwgActive()?'':'none';
+  fwRecalc();
+}
+function fwgProfilFromInputs(){
+  var prof=[],any=false;
+  for(var i=0;i<4;i++){
+    var w=fwNum('fwg_p'+i+'w'),c=fwNum('fwg_p'+i+'c'),s=fwNum('fwg_p'+i+'s');
+    if(w>0&&s>0)any=true;
+    prof.push({label:FWG_PROFIL_DEFAULT[i].label,w:w,c:c,s:s});
+  }
+  return any?prof:FWG_PROFIL_DEFAULT; // alles leer (z.B. nach Objektwechsel) → Standardprofil
+}
+function fwgRecalc(res){
+  var body=document.getElementById('fwgBody');
+  if(!body)return;
+  body.style.display=fwgActive()?'':'none';
+  if(!fwgActive()){_fwgLast=null;return;}
+  var selQ=document.getElementById('fwg_quantil'),selZ=document.getElementById('fwg_zuschlag');
+  var qJe=fwNum('fw_vDusche')*(res.wwAnteil||0);
+  var g=fwgCalc({
+    rowsWhg:fwState.whg.map(function(r){return {n:r.whg,anf:r.anf};}),
+    persOverride:fwNum('fwg_persOverride'),
+    duschProPd:fwNum('fwg_duschPd'),
+    dauerMin:fwNum('fwg_dauer'),
+    qJeDusche:qJe,
+    quantil:selQ?parseFloat(selQ.value):0.99,
+    zuschlag:selZ?selZ.value==='1':true,
+    reserve:fwNum('fwg_reserve'),
+    minDuschen:fwNum('fwg_minDuschen'),
+    qMix:(res.gastro?res.gastro.sel:0)+(res.spez?res.spez.sel:0),
+    tww:fwNum('fw_tww'),tkw:fwNum('fw_tkw'),
+    primVl:fwNum('fwg_primVl'),primRl:fwNum('fwg_primRl'),
+    profil:fwgProfilFromInputs()
+  });
+  _fwgLast=g;
+  function setTxt(id,txt){var el=document.getElementById(id);if(el)el.textContent=txt;}
+  setTxt('fwg_out_pers',fwFmt(g.pers,1)+' Pers.'+((parseFloat(fwNum('fwg_persOverride'))||0)>0?' (Override)':' (SIA aus Abschn. 2)'));
+  setTxt('fwg_out_duschenTag',fwFmt(g.duschenTag,1)+' 1/d');
+  setTxt('fwg_out_qje',fwFmt(g.qJeDusche,2)+' l/min');
+  setTxt('fwg_out_lam',fwFmt(g.lamMax,2)+' Stk');
+  setTxt('fwg_out_k',g.k95+' / '+g.k99+' Stk');
+  setTxt('fwg_out_kHint',(selZ&&selZ.value==='1')?'(inkl. +1 Dusche)':'(exaktes Quantil)');
+  setTxt('fwg_out_qQuantil',fwFmt(g.qQuantil,1)+' l/min ('+g.kSel+' Duschen)');
+  setTxt('fwg_out_qMin',fwFmt(g.qMin,1)+' l/min ('+fwFmt(g.minDuschen,1)+' Duschen)');
+  setTxt('fwg_out_qMix',fwFmt(g.qMix,1)+' l/min');
+  setTxt('fwg_out_massg',fwFmt(g.massgebend,1)+' l/min');
+  setTxt('fwg_out_qBem',g.qBem>0?fwFmt(g.qBem,1)+' l/min ('+fwFmt(g.qBem/60,2)+' l/s)':'–');
+  setTxt('fwg_out_p',fwFmt(g.leistung,1)+' kW');
+  setTxt('fwg_out_qPrim',fwFmt(g.qPrim,1)+' l/min (ΔT '+fwFmt(g.dtPrim,0)+' K)');
+  var emp=res.total||0,cmp=document.getElementById('fwg_out_vergleich');
+  if(cmp){
+    if(emp>0&&g.qBem>0){
+      var diff=g.qBem-emp;
+      cmp.textContent=fwFmt(emp,1)+' l/min ('+(diff>=0?'+':'')+fwFmt(diff,1)+' zur Gauss-Bemessung)';
+      cmp.className='g-result-val '+(diff>0?'amber':'green');
+    }else{cmp.textContent=emp>0?fwFmt(emp,1)+' l/min':'–';cmp.className='g-result-val';}
+  }
+  var pb=document.getElementById('fwgPufferBody');
+  if(pb)pb.innerHTML=g.puffer.map(function(p){return '<tr><td>'+p.min+'</td><td class="fw-calc">'+fwFmt(p.kwh,2)+'</td></tr>';}).join('');
+  var ib=document.getElementById('fwgIntervallBody');
+  if(ib){
+    var use={1:'FWS-Bemessung (massgebend)',5:'Kurzzeitprofil',15:'Tagesprofil',60:'Energieprofil — für FWS zu grob'};
+    ib.innerHTML=g.intervalle.map(function(iv){return '<tr><td>'+iv.min+' min</td><td class="fw-calc">'+fwFmt(iv.qMax,2)+'</td><td style="font-size:11px;color:var(--muted)">'+use[iv.min]+'</td></tr>';}).join('');
+  }
+  var msg=document.getElementById('fwg_msg');
+  if(msg){
+    if(g.warn.length){msg.style.display='';msg.innerHTML='⚠ '+g.warn.map(fwEsc).join('<br>⚠ ');}
+    else msg.style.display='none';
+  }
+  fwgRenderChart(g);
+}
+function fwgApply(){
+  if(!_fwgLast||!( _fwgLast.qBem>0))return;
+  var el=document.getElementById('fw_vGewaehlt');
+  if(!el)return;
+  el.value=String(Math.round(_fwgLast.qBem*10)/10);
+  try{el.dispatchEvent(new Event('input',{bubbles:true}));}catch(e){}
+  fwRecalc();
+  var card=document.getElementById('fwLeistungCard');
+  if(card){
+    card.scrollIntoView({behavior:'smooth',block:'start'});
+    card.style.transition='box-shadow .3s';card.style.boxShadow='0 0 0 3px rgba(37,99,235,.35)';
+    setTimeout(function(){card.style.boxShadow='';},1600);
+  }
+}
+function fwgRenderChart(g){
+  var cv=document.getElementById('fwgChart');
+  if(!cv||!g||!g.prof)return;
+  var cssW=cv.clientWidth||900,cssH=210,dpr=window.devicePixelRatio||1;
+  cv.width=Math.round(cssW*dpr);cv.height=Math.round(cssH*dpr);
+  var ctx=cv.getContext('2d');ctx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.clearRect(0,0,cssW,cssH);
+  var padL=44,padR=12,padT=14,padB=26,W=cssW-padL-padR,H=cssH-padT-padB;
+  var lam=g.prof.lam,qJe=g.qJeDusche;
+  var selZ=document.getElementById('fwg_zuschlag'),zu=selZ?selZ.value==='1':true;
+  var kStep=new Array(1440);
+  for(var t=0;t<1440;t++)kStep[t]=fwgKDuschen(g.quantil,lam[t],zu)*qJe;
+  var maxY=Math.max(g.qBem,1);
+  for(t=0;t<1440;t++){if(kStep[t]>maxY)maxY=kStep[t];if(lam[t]*qJe>maxY)maxY=lam[t]*qJe;}
+  maxY=Math.ceil(maxY/5)*5||5;
+  function X(t){return padL+t/1439*W;}
+  function Y(v){return padT+H-(v/maxY)*H;}
+  // Grid + Achsen
+  ctx.font='10px "DM Sans",sans-serif';ctx.fillStyle='#6b7280';ctx.strokeStyle='#e2e7f0';ctx.lineWidth=1;
+  for(var h=0;h<=24;h+=3){
+    var x=padL+h/24*W;
+    ctx.beginPath();ctx.moveTo(x,padT);ctx.lineTo(x,padT+H);ctx.stroke();
+    ctx.textAlign='center';ctx.fillText(h+' h',x,cssH-8);
+  }
+  var stepY=maxY<=10?2:(maxY<=25?5:10);
+  for(var v=0;v<=maxY;v+=stepY){
+    ctx.beginPath();ctx.moveTo(padL,Y(v));ctx.lineTo(padL+W,Y(v));ctx.stroke();
+    ctx.textAlign='right';ctx.fillText(String(v),padL-6,Y(v)+3);
+  }
+  // Erwartung (Fläche + Linie)
+  ctx.beginPath();ctx.moveTo(X(0),Y(0));
+  for(t=0;t<1440;t++)ctx.lineTo(X(t),Y(lam[t]*qJe));
+  ctx.lineTo(X(1439),Y(0));ctx.closePath();
+  ctx.fillStyle='rgba(29,78,216,.14)';ctx.fill();
+  ctx.beginPath();
+  for(t=0;t<1440;t++){var y=Y(lam[t]*qJe);t?ctx.lineTo(X(t),y):ctx.moveTo(X(t),y);}
+  ctx.strokeStyle='#1d4ed8';ctx.lineWidth=1.6;ctx.stroke();
+  // Quantil-Stufenlinie
+  ctx.beginPath();
+  for(t=0;t<1440;t++){y=Y(kStep[t]);t?ctx.lineTo(X(t),y):ctx.moveTo(X(t),y);}
+  ctx.strokeStyle='#d97706';ctx.lineWidth=1.4;ctx.stroke();
+  // Bemessungslinie
+  ctx.beginPath();ctx.setLineDash([5,4]);ctx.moveTo(padL,Y(g.qBem));ctx.lineTo(padL+W,Y(g.qBem));
+  ctx.strokeStyle='#dc2626';ctx.lineWidth=1.4;ctx.stroke();ctx.setLineDash([]);
+  // Legende
+  ctx.textAlign='left';
+  ctx.fillStyle='#1d4ed8';ctx.fillText('— Erwartung λ·q',padL+6,padT+10);
+  ctx.fillStyle='#d97706';ctx.fillText('— Quantil '+Math.round(g.quantil*100)+' %',padL+110,padT+10);
+  ctx.fillStyle='#dc2626';ctx.fillText('- - Bemessung '+fwFmt(g.qBem,1)+' l/min',padL+200,padT+10);
+  ctx.fillStyle='#6b7280';ctx.save();ctx.translate(11,padT+H/2);ctx.rotate(-Math.PI/2);ctx.textAlign='center';ctx.fillText('qWW [l/min]',0,0);ctx.restore();
+}
 function fwOnTableInput(e){
   var tr=e.target.closest('tr');if(!tr)return;
   var kind=tr.dataset.kind,i=parseInt(tr.dataset.i,10),k=e.target.dataset.k;
@@ -1110,7 +1508,7 @@ document.addEventListener('DOMContentLoaded', function(){
       var r=_fwLast||{};
       return {
         leistung: Math.round((r.pFws||0)*10)/10,        // kW netto
-        zapfleistung: Math.round((r.total||0)*10)/10,   // l/min WW
+        zapfleistung: Math.round((r.vMass||r.total||0)*10)/10, // l/min WW (massgebend inkl. Override/Gauss)
         tagesbedarf: Math.round(r.tagesbedarf||0),      // l/d à 60°C
         wwTemp: fwNum('fw_tww')
       };
@@ -1122,7 +1520,7 @@ document.addEventListener('DOMContentLoaded', function(){
     },
     renderChosenRows: function(d){
       var r=_fwLast||{};
-      var bp=r.pFws||0, bv=r.total||0;
+      var bp=r.pFws||0, bv=r.vMass||r.total||0;
       var ap=parseFloat(d.leistungNenn)||0, av=parseFloat(d.zapfleistungPeak)||0;
       var pOk=ap>=bp, vOk=av>=bv;
       var td='padding:7px 10px;border-bottom:1px solid #f1f5f9';
