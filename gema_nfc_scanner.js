@@ -27,7 +27,30 @@
 (function(w){
   'use strict';
 
-  var _state = { nfcReader: null, overlay: null, closeBtn: null, statusEl: null };
+  // EIN persistenter NDEFReader mit EINEM scan()-Aufruf pro Seite; die
+  // Sessions tauschen nur den aktiven Handler (_state.handler). Frueher
+  // erzeugte jeder scan()-Aufruf einen neuen Reader und stop() rief eine
+  // NICHT existierende API (NDEFReader hat kein .stop()) — die Reader
+  // lauschten ewig weiter, stapelten sich und wedgten den Chrome-NFC-Stack
+  // auf Android (Haenger). Handler weg = Session zu; der Reader bleibt.
+  var _state = { overlay: null, closeBtn: null, statusEl: null, handler: null, scanPromise: null };
+
+  function _ensureReader(){
+    if(!_state.scanPromise){
+      _state.scanPromise = (function(){
+        var r = new NDEFReader();
+        return r.scan().then(function(){
+          r.addEventListener('reading', function(ev){
+            if(_state.handler) _state.handler(ev);
+          });
+        });
+      })().catch(function(e){
+        _state.scanPromise = null; // Fehlstart: spaeterer Versuch darf neu starten
+        throw e;
+      });
+    }
+    return _state.scanPromise;
+  }
 
   function isAvailable(){
     return typeof window !== 'undefined' && 'NDEFReader' in window;
@@ -71,12 +94,10 @@
     if(color) _state.statusEl.style.color = color;
   }
 
-  // Stop alle aktiven Scan-Modi
+  // Stop alle aktiven Scan-Modi (NFC-Session = Handler entfernen; der
+  // persistente Reader bleibt bewusst bestehen — kein abort-Churn)
   function stop(){
-    if(_state.nfcReader){
-      try{ _state.nfcReader.stop && _state.nfcReader.stop(); }catch(e){}
-      _state.nfcReader = null;
-    }
+    _state.handler = null;
     if(_state.overlay){ try{ _state.overlay.remove(); }catch(e){} _state.overlay = null; }
     if(_state.closeBtn){ try{ _state.closeBtn.remove(); }catch(e){} _state.closeBtn = null; }
     // Auch GemaQR sicher stoppen (falls aktiv)
@@ -107,29 +128,29 @@
     _state.closeBtn = closeBtn;
 
     try{
-      var reader = new NDEFReader();
-      _state.nfcReader = reader;
-      reader.scan().then(function(){
-        reader.addEventListener('reading', function(ev){
-          var payload = '';
-          try{
-            ev.message.records.forEach(function(r){
-              if(r.recordType === 'url' || r.recordType === 'text'){
-                payload = new TextDecoder().decode(r.data);
-              }
-            });
-          }catch(e){}
-          if(payload){
-            overlay.textContent = '✅ Gescannt!';
-            overlay.style.background = '#15803d';
-            if(navigator.vibrate) try{ navigator.vibrate(100); }catch(e){}
-            try{ if(opts.onScan) opts.onScan(payload); }catch(e){ if(opts.onError) opts.onError(e); }
-            // Nach kurzer Anzeige Overlay schliessen — neuer Scan kann
-            // bei Bedarf erneut gestartet werden (Single-shot Verhalten)
-            setTimeout(stop, 700);
-          }
-        });
-      }).catch(function(err){
+      // Session-Handler setzen — die erste gueltige Lesung beendet die
+      // Session sofort (Single-shot; verhindert Doppel-Fires desselben Taps)
+      _state.handler = function(ev){
+        var payload = '';
+        try{
+          ev.message.records.forEach(function(r){
+            if(r.recordType === 'url' || r.recordType === 'text'){
+              payload = new TextDecoder().decode(r.data);
+            }
+          });
+        }catch(e){}
+        if(payload){
+          _state.handler = null;
+          overlay.textContent = '✅ Gescannt!';
+          overlay.style.background = '#15803d';
+          if(navigator.vibrate) try{ navigator.vibrate(100); }catch(e){}
+          try{ if(opts.onScan) opts.onScan(payload); }catch(e){ if(opts.onError) opts.onError(e); }
+          // Nach kurzer Anzeige Overlay schliessen — neuer Scan kann
+          // bei Bedarf erneut gestartet werden (Single-shot Verhalten)
+          setTimeout(stop, 700);
+        }
+      };
+      _ensureReader().catch(function(err){
         stop();
         if(opts.onError) opts.onError(err);
         else if(typeof alert === 'function') alert('NFC-Fehler: ' + (err && err.message || err));
