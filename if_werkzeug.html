@@ -637,6 +637,9 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
           <div class="fg" style="position:relative">
             <label>Zugewiesen an</label>
             <input type="text" id="f_assignee" placeholder="Person oder Team …" autocomplete="off">
+            <!-- Schnellwahl: die zuletzt zugewiesenen Personen (oft wird
+                 Werkzeug pro Person am Stueck erfasst) -->
+            <div id="f_assigneeRecent" style="margin-top:6px;gap:6px;flex-wrap:wrap;display:none"></div>
           </div>
         </div>
         <div class="fg" data-wz-opt="lifecycle">
@@ -1670,6 +1673,12 @@ function _wzInitAC(inputId,getSugg,onSelect){
 
   inp.addEventListener('input',show);
   inp.addEventListener('focus',show);
+  // Auch bei Klick/Tap ins bereits fokussierte Feld (oder nach Escape)
+  // oeffnet das Dropdown sofort — «erst beim Tippen» ist auf dem Phone
+  // nicht akzeptabel.
+  inp.addEventListener('click',function(){
+    if(!drop.classList.contains('open'))show();
+  });
   drop.addEventListener('mousedown',function(e){
     e.preventDefault();
     var el=e.target.closest('.ac-item');
@@ -1761,8 +1770,12 @@ function _wzAutoPruefungenFromExisting(){
 }
 
 function _wzSetupAutocomplete(){
-  var mb=document.querySelector('#addModal .modal-body');
-  if(mb)mb.addEventListener('scroll',_wzCloseAllAC);
+  // KEIN close-on-scroll auf dem Modal-Body mehr: Beim Fokus scrollen
+  // scrollIntoSpace() bzw. die aufgehende Handy-Tastatur den Body — der
+  // Scroll-Listener schloss das frisch geoeffnete Dropdown sofort wieder
+  // («oeffnet erst, wenn man einen Buchstaben tippt»). Das Dropdown wird
+  // beim Scrollen stattdessen nachpositioniert (positionDrop-Listener in
+  // _wzInitAC) und schliesst via blur/Escape/Auswahl.
   // Manuell getippte (statt per Dropdown gewaehlte) Werte triggern die
   // Pruefungs-Uebernahme ueber das change-Event.
   ['f_name','f_brand','f_model'].forEach(function(id){
@@ -2478,6 +2491,7 @@ function openAdd(){
   setText('mft_lbl','Gerät speichern'); setText('mft_ico','✓');
   document.getElementById('f_bought').value=today();
   document.getElementById('f_warranty').value=addMonths(today(),24);
+  _wzRenderAssigneeChips();
   document.getElementById('addModal').classList.remove('hidden');
   _wzResetModalScroll();
   _wzLockScroll();
@@ -2601,6 +2615,43 @@ function _wzBuildAssignee(existing){
   return{userId:'',name:val,seit:existing?.zugewiesenAn?.name===val?existing.zugewiesenAn.seit:today()};
 }
 
+// ── Zuletzt zugewiesene Personen (Schnellwahl-Chips im Formular) ──
+// Werkzeug wird oft pro Person am Stueck erfasst — die beiden zuletzt
+// verwendeten Zuweisungen stehen als 1-Klick-Buttons unter dem Feld.
+// Gepflegt von submitForm, dem Zuweisungs-Dialog und dem Koffer-Dialog.
+var _WZ_RECENT_ASSIGNEE_KEY='gema_wz_recent_assignees_v1';
+function _wzRecentAssignees(){
+  try{var a=JSON.parse(localStorage.getItem(_WZ_RECENT_ASSIGNEE_KEY)||'[]');return Array.isArray(a)?a:[];}catch(e){return [];}
+}
+function _wzRememberAssignee(name){
+  name=(name||'').trim();
+  if(!name)return;
+  var a=_wzRecentAssignees().filter(function(n){return n!==name;});
+  a.unshift(name);
+  try{localStorage.setItem(_WZ_RECENT_ASSIGNEE_KEY,JSON.stringify(a.slice(0,4)));}catch(e){}
+}
+function _wzRenderAssigneeChips(){
+  var box=document.getElementById('f_assigneeRecent');
+  if(!box)return;
+  var recent=_wzRecentAssignees().slice(0,2);
+  box.innerHTML='';
+  if(!recent.length){box.style.display='none';return;}
+  recent.forEach(function(n){
+    var b=document.createElement('button');
+    b.type='button';
+    b.textContent='👤 '+n;
+    b.title='Zuweisen an '+n;
+    b.style.cssText='padding:7px 13px;border-radius:999px;border:1.5px solid #c7d2fe;background:#eef2ff;color:#3730a3;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+    b.onclick=function(){
+      var inp=document.getElementById('f_assignee');
+      if(inp)inp.value=n;
+      _wzCloseAllAC();
+    };
+    box.appendChild(b);
+  });
+  box.style.display='flex';
+}
+
 function submitForm(){
   if(!_wzCanEdit()){alert('Keine Berechtigung');return;}
   const name=document.getElementById('f_name').value.trim();
@@ -2656,6 +2707,9 @@ function submitForm(){
   }
   if(eid){const i=tools.findIndex(t=>t.id===eid);if(i>=0)tools[i]=tool;else tools.unshift(tool);}
   else tools.unshift(tool);
+  // Schnellwahl-Chips: die im Formular verwendete Zuweisung merken
+  var _asgVal=document.getElementById('f_assignee').value.trim();
+  if(_asgVal)_wzRememberAssignee((tool.zugewiesenAn&&tool.zugewiesenAn.name)||_asgVal);
   save();renderList();closeAdd();
   _wzActLog(eid?'geaendert':'erfasst',
     (eid?'Werkzeug geändert':'Werkzeug erfasst')+(tool.cat?' · '+tool.cat:''),
@@ -2699,6 +2753,7 @@ function editTool(id){
   setText('mhd_title','Gerät bearbeiten');
   document.getElementById('mhd_ic').textContent='✏️';
   setText('mft_lbl','Änderungen speichern');setText('mft_ico','✓');
+  _wzRenderAssigneeChips();
   document.getElementById('addModal').classList.remove('hidden');
   _wzResetModalScroll();
   _wzLockScroll();
@@ -2965,6 +3020,7 @@ function _wzSaveZuweisung(toolId){
     var users=(typeof GemaAuth!=='undefined')?(GemaAuth.getUsers()||[]):[];
     var p=users.find(function(u){return u.id===uid;});
     t.zugewiesenAn={typ:'user', userId:uid, name:p?(p.name||p.username):uid, seit:today()};
+    _wzRememberAssignee(t.zugewiesenAn.name);
     _wzActLog('zuweisung','Zugewiesen an '+(t.zugewiesenAn.name||uid), t);
     // Notifikation an die Person
     if(typeof GemaNotify!=='undefined' && p){
@@ -3268,6 +3324,7 @@ function _wzKofferApplyZuweisung(k){
   var users=(typeof GemaAuth!=='undefined')?(GemaAuth.getUsers()||[]):[];
   var p=users.find(function(x){return x.id===uid;});
   k.zugewiesenAn={typ:'user',userId:uid,name:p?(p.name||p.username):uid,seit:today()};
+  _wzRememberAssignee(k.zugewiesenAn.name);
   _wzActLog('zuweisung','Zugewiesen an '+k.zugewiesenAn.name,k);
   if(typeof GemaNotify!=='undefined'&&p){
     var n=(k.kofferInhalt||[]).length;
