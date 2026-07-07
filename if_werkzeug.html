@@ -1203,6 +1203,7 @@ function _wzRenderBulkBar(){
   var allVisSel=visIds.length>0 && visIds.every(function(id){return _wzBulkSelected[id];});
   bar.innerHTML=(canLabel?'<button onclick="_wzBulkSelectAllVisible()" title="Alle aktuell sichtbaren (gefilterten) Werkzeuge markieren" style="padding:6px 12px;border-radius:8px;border:1px solid #475569;background:transparent;color:#fff;font-weight:700;cursor:pointer;font-family:inherit;font-size:12px">'+(allVisSel?'☐ Auswahl aufheben':'☑ Alle markieren')+'</button>':'')
     +'<span>'+count+' ausgewählt</span>'
+    +(_wzCanEdit()?'<button onclick="_wzBulkEdit()" '+(count?'':'disabled')+' title="Beliebige Felder der markierten Werkzeuge gemeinsam ändern" style="padding:6px 12px;border-radius:8px;border:none;background:#16a34a;color:#fff;font-weight:700;cursor:pointer;font-family:inherit;font-size:12px;'+(count?'':'opacity:.4;cursor:not-allowed')+'">✏️ Bearbeiten</button>':'')
     +'<button onclick="_wzBulkSetStatus()" '+(count?'':'disabled')+' style="padding:6px 12px;border-radius:8px;border:none;background:#2563eb;color:#fff;font-weight:700;cursor:pointer;font-family:inherit;font-size:12px;'+(count?'':'opacity:.4;cursor:not-allowed')+'">Status setzen</button>'
     +'<button onclick="_wzBulkAssign()" '+(count?'':'disabled')+' style="padding:6px 12px;border-radius:8px;border:none;background:#3730a3;color:#fff;font-weight:700;cursor:pointer;font-family:inherit;font-size:12px;'+(count?'':'opacity:.4;cursor:not-allowed')+'">Person zuweisen</button>'
     +(canLabel?'<button onclick="_wzExportEtikettenBulk()" '+(count?'':'disabled')+' title="Markierte Werkzeuge als Etiketten-PDF (je eine 49×23mm-Seite)" style="padding:6px 12px;border-radius:8px;border:none;background:#7c3aed;color:#fff;font-weight:700;cursor:pointer;font-family:inherit;font-size:12px;'+(count?'':'opacity:.4;cursor:not-allowed')+'">🏷 Etiketten</button>':'')
@@ -1249,6 +1250,176 @@ window._wzBulkApplyAssign=function(){
   save();_wzCloseModal();_wzToggleBulkMode();
   if(typeof showToast==='function')showToast(changed+' Zuweisungen aktualisiert');
 };
+
+// ── Sammel-Bearbeitung: beliebige Felder der Auswahl gemeinsam ändern ──
+// Jede Zeile hat eine «ändern»-Checkbox — nur angehakte Felder werden auf
+// die markierten Werkzeuge angewendet. Vor dem Anwenden fasst ein
+// GemaDialog.confirm alle Änderungen zusammen. Koffer werden übersprungen
+// (Kategorie/Prüfungen/Kaufdatum passen nicht auf Koffer-Datensätze).
+window._wzBulkEdit=function(){
+  if(!_wzCanEdit()){alert('Keine Berechtigung — nur Magaziner/Admin dürfen Geräte bearbeiten.');return;}
+  var ids=Object.keys(_wzBulkSelected);if(!ids.length)return;
+  var sel=ids.map(function(id){return tools.find(function(t){return t.id===id;});}).filter(Boolean);
+  var koffer=sel.filter(function(t){return _wzIsKoffer(t);});
+  var ziele=sel.filter(function(t){return !_wzIsKoffer(t);});
+  if(!ziele.length){alert('Nur Koffer ausgewählt — Koffer bitte über ihren eigenen ✏️-Dialog bearbeiten.');return;}
+  var catOpts='';
+  _wzGetActiveCats().forEach(function(c){
+    if(c.id==='koffer')return;
+    catOpts+='<option value="'+esc(c.id)+'">'+(c.icon||'')+' '+esc(c.label)+'</option>';
+  });
+  var personen=[];
+  if(typeof GemaAuth!=='undefined'){
+    try{
+      var me=_wzGetUser()||{};
+      personen=(GemaAuth.getUsers()||[]).filter(function(u){
+        if(!u.active)return false;
+        if(me.orgId&&u.orgId!==me.orgId&&!_wzIsAdmin())return false;
+        return u.roleIds&&(u.roleIds.indexOf('role_monteur')>=0||u.roleIds.indexOf('role_unternehmer')>=0||u.roleIds.indexOf('role_magaziner')>=0);
+      });
+    }catch(e){}
+  }
+  var zuwOpts='<option value="remove">— Zuweisung entfernen —</option>';
+  personen.forEach(function(p){zuwOpts+='<option value="u:'+esc(p.id)+'">👤 '+esc(p.name||p.username)+'</option>';});
+  zuwOpts+='<option value="p:">📍 Platz / Standort …</option>';
+  // Zeilen-Helper: Checkbox + Feld (Feld bis zum Anhaken deaktiviert)
+  function row(key,label,inner){
+    return '<div style="display:flex;align-items:flex-start;gap:10px;padding:9px 0;border-bottom:1px dashed #eef1f6">'
+      +'<input type="checkbox" id="be_on_'+key+'" onchange="_wzBeToggle(\''+key+'\')" style="width:19px;height:19px;margin-top:9px;flex-shrink:0;accent-color:#16a34a">'
+      +'<div style="flex:1;min-width:0"><label class="dlg-lbl" style="cursor:pointer" onclick="var c=document.getElementById(\'be_on_'+key+'\');c.checked=!c.checked;_wzBeToggle(\''+key+'\')">'+label+'</label>'
+      +'<div id="be_wrap_'+key+'" style="opacity:.45;pointer-events:none">'+inner+'</div></div></div>';
+  }
+  function pruefSel(k){
+    return '<div style="display:flex;gap:8px">'
+      +'<select class="dlg-inp" style="flex:1" id="be_v_'+k+'"><option value="on">aktivieren</option><option value="off">deaktivieren</option></select>'
+      +'<input class="dlg-inp" style="width:110px" id="be_iv_'+k+'" type="text" inputmode="numeric" value="12" title="Intervall in Monaten"/>'
+      +'</div>';
+  }
+  var html='<div class="dlg-card" style="max-width:520px;max-height:88vh;overflow-y:auto">'
+    +'<h3 style="margin:0 0 4px;font-size:17px;font-weight:800;color:#166534">✏️ Sammel-Bearbeitung</h3>'
+    +'<div style="font-size:12px;color:#64748b;margin-bottom:6px"><strong>'+ziele.length+'</strong> Werkzeug'+(ziele.length!==1?'e':'')+' ausgewählt'
+    +(koffer.length?' · '+koffer.length+' Koffer wird'+(koffer.length!==1?' werden':'')+' übersprungen':'')+'</div>'
+    +'<div style="font-size:11.5px;color:#94a3b8;margin-bottom:8px">Nur angehakte Felder werden geändert — alles andere bleibt unangetastet.</div>'
+    +row('cat','Kategorie','<select id="be_v_cat" class="dlg-inp">'+catOpts+'</select>')
+    +row('brand','Hersteller','<input id="be_v_brand" class="dlg-inp" placeholder="z.B. Hilti"/>')
+    +row('model','Modell / Typ','<input id="be_v_model" class="dlg-inp" placeholder="z.B. TE 30"/>')
+    +row('supplier','Lieferant / Grosshändler','<input id="be_v_supplier" class="dlg-inp" placeholder="z.B. Engel"/>')
+    +row('notes','Standort / Notizen','<input id="be_v_notes" class="dlg-inp" placeholder="z.B. Lager EG"/>')
+    +row('zuw','Zugewiesen an','<select id="be_v_zuw" class="dlg-inp" onchange="_wzBeZuwChange()">'+zuwOpts+'</select>'
+      +'<input id="be_v_zuwPlatz" class="dlg-inp" placeholder="z.B. Lager Halle B, Bus 3" style="display:none;margin-top:6px"/>')
+    +row('lifecycle','Status','<select id="be_v_lifecycle" class="dlg-inp"><option value="aktiv">✅ Aktiv</option><option value="in_reparatur">🔧 In Reparatur</option><option value="ausgemustert">📦 Ausgemustert</option><option value="verkauft">💰 Verkauft</option></select>')
+    +row('bought','Kaufdatum','<input id="be_v_bought" class="dlg-inp" type="date"/>')
+    +row('warranty','Garantie bis','<input id="be_v_warranty" class="dlg-inp" type="date"/>')
+    +row('service','Service-Intervall (Monate)',pruefSel('service'))
+    +row('elec','Elektroprüfung NIV (Monate)',pruefSel('elec'))
+    +row('leiter','Leiterprüfung EKAS (Monate) — greift nur bei Kategorie Leiter',pruefSel('leiter'))
+    +'<div class="dlg-row">'
+    +'  <button onclick="_wzCloseModal()" class="dlg-cancel">Abbrechen</button>'
+    +'  <button onclick="_wzBulkEditConfirm()" style="padding:9px 18px;border-radius:8px;border:none;background:#16a34a;color:#fff;cursor:pointer;font-weight:700;font-family:inherit">Änderungen anwenden …</button>'
+    +'</div></div>';
+  _wzShowModal(html);
+};
+window._wzBeToggle=function(key){
+  var on=document.getElementById('be_on_'+key).checked;
+  var w=document.getElementById('be_wrap_'+key);
+  if(w){w.style.opacity=on?'1':'.45';w.style.pointerEvents=on?'auto':'none';}
+};
+window._wzBeZuwChange=function(){
+  var sel=document.getElementById('be_v_zuw');
+  var pi=document.getElementById('be_v_zuwPlatz');
+  if(pi)pi.style.display=(sel&&sel.value==='p:')?'block':'none';
+};
+// Angehakte Felder einsammeln → {key, apply(t), label}
+function _wzBeCollect(){
+  var out=[];
+  function on(k){var c=document.getElementById('be_on_'+k);return c&&c.checked;}
+  function val(id){var e=document.getElementById(id);return e?e.value:'';}
+  if(on('cat')){
+    var cv=val('be_v_cat');var cd=_wzGetActiveCats().find(function(c){return c.id===cv;});
+    out.push({label:'Kategorie → '+((cd&&cd.label)||cv),apply:function(t){t.cat=cv;}});
+  }
+  if(on('brand')){var bv=val('be_v_brand').trim();out.push({label:'Hersteller → '+(bv||'(leer)'),apply:function(t){t.brand=bv;}});}
+  if(on('model')){var mv=val('be_v_model').trim();out.push({label:'Modell → '+(mv||'(leer)'),apply:function(t){t.model=mv;}});}
+  if(on('supplier')){var sv=val('be_v_supplier').trim();out.push({label:'Lieferant → '+(sv||'(leer)'),apply:function(t){t.supplier=sv;if(!sv)t.supplierId='';}});}
+  if(on('notes')){var nv=val('be_v_notes').trim();out.push({label:'Standort/Notizen → '+(nv||'(leer)'),apply:function(t){t.notes=nv;}});}
+  if(on('lifecycle')){var lv=val('be_v_lifecycle');out.push({label:'Status → '+lv,apply:function(t){t.lifecycleStatus=lv;}});}
+  if(on('bought')){var kv=val('be_v_bought');if(kv)out.push({label:'Kaufdatum → '+kv,apply:function(t){t.bought=kv;}});}
+  if(on('warranty')){var wv=val('be_v_warranty');out.push({label:'Garantie bis → '+(wv||'(leer)'),apply:function(t){t.warranty=wv||null;}});}
+  [['service','hasService','serviceInterval','Service'],['elec','hasElec','elecInterval','Elektroprüfung'],['leiter','hasLeiter','leiterInterval','Leiterprüfung']].forEach(function(c){
+    if(!on(c[0]))return;
+    var mode=val('be_v_'+c[0]);
+    var iv=parseInt(val('be_iv_'+c[0]),10)||12;
+    if(mode==='on'){
+      out.push({label:c[3]+' → aktiv, alle '+iv+' Monate',apply:function(t){
+        if(c[0]==='leiter'&&t.cat!=='leiter')return;
+        t[c[1]]=true;t[c[2]]=iv;
+      }});
+    }else{
+      out.push({label:c[3]+' → deaktiviert',apply:function(t){t[c[1]]=false;}});
+    }
+  });
+  // Zuweisung zuletzt (braucht Sonderbehandlung: Einbuchungs-Sperre, Notify)
+  if(on('zuw')){
+    var zv=val('be_v_zuw');
+    if(zv==='remove'){
+      out.push({label:'Zuweisung entfernen',zuw:{typ:'remove'}});
+    }else if(zv==='p:'){
+      var platz=val('be_v_zuwPlatz').trim();
+      if(platz)out.push({label:'Zugewiesen an Platz → '+platz,zuw:{typ:'platz',platz:platz}});
+    }else if(zv&&zv.indexOf('u:')===0){
+      var uid=zv.slice(2);
+      var users=(typeof GemaAuth!=='undefined')?(GemaAuth.getUsers()||[]):[];
+      var p=users.find(function(x){return x.id===uid;});
+      out.push({label:'Zugewiesen an → '+((p&&(p.name||p.username))||uid),zuw:{typ:'user',userId:uid,name:(p&&(p.name||p.username))||uid}});
+    }
+  }
+  return out;
+}
+window._wzBulkEditConfirm=function(){
+  var changes=_wzBeCollect();
+  if(!changes.length){alert('Bitte mindestens ein Feld zum Ändern anhaken.');return;}
+  var ids=Object.keys(_wzBulkSelected);
+  var ziele=ids.map(function(id){return tools.find(function(t){return t.id===id;});}).filter(function(t){return t&&!_wzIsKoffer(t);});
+  var msg='Folgende Änderungen werden auf '+ziele.length+' Werkzeug'+(ziele.length!==1?'e':'')+' angewendet:\n\n'
+    +changes.map(function(c){return '• '+c.label;}).join('\n');
+  GemaDialog.confirm({title:'Sammel-Bearbeitung bestätigen',message:msg,confirmLabel:'Anwenden'}).then(function(ok){
+    if(!ok)return;
+    _wzBulkApplyEdit(changes,ziele);
+  });
+};
+function _wzBulkApplyEdit(changes,ziele){
+  var zuwChange=changes.find(function(c){return c.zuw;});
+  var fieldChanges=changes.filter(function(c){return c.apply;});
+  var zuwSkipped=0,zuwCount=0;
+  ziele.forEach(function(t){
+    fieldChanges.forEach(function(c){c.apply(t);});
+    if(zuwChange){
+      if(_wzIsPendingEinbuchung(t)){zuwSkipped++;}
+      else if(zuwChange.zuw.typ==='remove'){delete t.zugewiesenAn;zuwCount++;}
+      else if(zuwChange.zuw.typ==='platz'){t.zugewiesenAn={typ:'platz',platz:zuwChange.zuw.platz,name:zuwChange.zuw.platz,seit:today()};zuwCount++;}
+      else{
+        // Gleicher Hauptnutzer wie bisher → seit-Datum erhalten
+        var seit=(t.zugewiesenAn&&t.zugewiesenAn.userId===zuwChange.zuw.userId)?t.zugewiesenAn.seit:today();
+        t.zugewiesenAn={typ:'user',userId:zuwChange.zuw.userId,name:zuwChange.zuw.name,seit:seit};
+        zuwCount++;
+      }
+    }
+    _wzActLog('geaendert','Sammel-Bearbeitung: '+changes.map(function(c){return c.label;}).join(', '),t);
+  });
+  if(zuwChange&&zuwChange.zuw.typ==='user'){
+    _wzRememberAssignee(zuwChange.zuw.name);
+    // EINE Notifikation statt einer pro Werkzeug
+    if(typeof GemaNotify!=='undefined'&&zuwCount>0){
+      GemaNotify.push({eventKey:'werkzeug_zuweisung',empfaengerUserId:zuwChange.zuw.userId,modul:'werkzeug',typ:'info',
+        titel:zuwCount+' Werkzeug'+(zuwCount!==1?'e':'')+' zugewiesen',
+        text:ziele.slice(0,3).map(function(t){return t.name;}).join(', ')+(ziele.length>3?' …':''),
+        link:'if_werkzeug.html'});
+    }
+  }
+  save();renderList();_wzCloseModal();_wzToggleBulkMode();
+  var msg=ziele.length+' Werkzeug'+(ziele.length!==1?'e':'')+' aktualisiert'+(zuwSkipped?' ('+zuwSkipped+' mit ausstehender Einbuchung: Zuweisung übersprungen)':'');
+  if(typeof showToast==='function')showToast(msg);
+}
 let _wzAdvFilter={};
 
 function _wzGetMyTools(list){
