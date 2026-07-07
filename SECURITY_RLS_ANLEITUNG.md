@@ -94,6 +94,19 @@ Bestehende Sitzungen haben noch kein Token. Jedes Gerät muss sich **einmal ab- 
 neu anmelden** (die App zeigt sonst leere Listen bzw. «Sitzung abgelaufen»). Beim
 ersten Login wird das Passwort automatisch auf scrypt migriert.
 
+### Angemeldet bleiben — gleitendes Sitzungsfenster
+
+Mit Häkchen **«Angemeldet bleiben»** beim Login bleibt man **dauerhaft**
+angemeldet: Der Client erneuert das Sitzungs-Token automatisch im Hintergrund
+(frühestens nach 24 h Token-Alter, gedrosselt). Neu anmelden muss sich nur,
+wer GEMA **länger als die Token-Laufzeit gar nicht öffnet** — Standard 30 Tage.
+
+- Fenster vergrössern: Netlify-Env-Variable **`GEMA_TOKEN_DAYS`** setzen
+  (z.B. `90`) und neu deployen.
+- Sicherheit: Das einzelne Token bleibt kurzlebig; **deaktivierte Konten
+  erhalten beim Refresh kein neues Token** mehr und fallen so automatisch
+  aus der Dauersitzung. Ohne Häkchen gilt wie bisher 1 Tag ohne Verlängerung.
+
 ### Troubleshooting: Netlify-Build scheitert mit «Exposed secrets detected»
 
 Netlify scannt Builds auf Secrets, sobald Secret-Env-Variablen gesetzt sind. Der
