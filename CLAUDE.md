@@ -2093,6 +2093,10 @@ Als installierte PWA (display:standalone) + `viewport-fit=cover` liegt die Seite
 - **Fixed-top-Elemente padden sich selbst um den Inset**: Offline-Banner (gema_sync.js), Notify-Panel/Toasts (gema_notify_ui.js, `top:calc(56px/66px + env(…))`), Feedback-Overlay (gema_feedback.js); GemaDialog + Mobile-Menü waren schon safe-area-aware. **Jedes NEUE `position:fixed`-Element mit top-Bezug braucht `env(safe-area-inset-top)`** (unten analog `safe-area-inset-bottom`, vgl. Abschnitt 8 act-bar/footer-bar).
 - **`overflow-x: clip` statt `hidden` auf html/body (NIE zurückdrehen!)**: `overflow-x:hidden` erzwingt per Spec `overflow-y:auto` → html/body werden Scroll-Container → **`position:sticky` klebte auf KEINER Seite mehr** (die Nav scrollte weg, obwohl sie «immer sichtbar» sein soll). `clip` klippt horizontal identisch, erzeugt aber keinen Scroll-Container. Die `hidden`-Zeile davor bleibt als Fallback für sehr alte Browser stehen.
 
+### Kompakter Modul-Kopf auf Phone (gema_responsive.css Abschnitt 16)
+
+Auf ≤640px zeigt der Modul-Hero nur Icon + Titel (`.gema-hero-norm`, `.gema-hero-sub` und `#gemaDataflowPill` sind ausgeblendet — Norm-Badge/Untertitel sind Desktop-Kontext); die `.project-bar` ist zweispaltig kompakt (Objekt volle Breite, Bearbeiter/Datum/SIA-Phase halbbreit). Damit beginnt die erste Berechnungs-Karte bei ~400px statt ~700px — die Berechnung ist ohne Scrollen im ersten Screen. Desktop/Tablet unverändert.
+
 ### iOS-Feel auf Touch-Geräten (gema_responsive.css Abschnitt 14)
 
 GEMA soll sich installiert wie eine native App anfühlen: global `-webkit-tap-highlight-color: transparent` (Feedback über `:active`-Zustände statt grauem Blitz), `touch-action: manipulation` auf allen Bedienelementen (kein Doppeltipp-Zoom-Delay), UI-Controls (Buttons/Chips/Tabs/Nav) auf coarse Pointern nicht selektierbar + ohne Long-Press-Callout, einheitliches Press-Feedback (`scale(0.96)`); Inhalte (Inputs/Tabellen/Resultate) bleiben selektierbar. Inputs stehen global auf ≥16px (kein iOS-Fokus-Zoom, Abschnitt 1). Desktop-Verhalten unverändert (alles hinter `@media (hover:none) and (pointer:coarse)` bzw. wirkungslos ohne Touch).
