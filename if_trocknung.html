@@ -2864,6 +2864,16 @@ var _tgNfcWriteCtl = null;
 function _tgNfcCancelWrite() {
   if (_tgNfcWriteCtl) { try { _tgNfcWriteCtl.abort(); } catch (e) {} _tgNfcWriteCtl = null; }
 }
+// EIN wiederverwendeter Writer-Reader + Timeout — Muster wie if_werkzeug:
+// gesperrte Tags im Feld bei haengigem write() koennen Chrome auf Android
+// einfrieren; der Timeout bricht hart ab, die Meldung erklaert die Ursache.
+var _tgNfcWriterInst = null;
+function _tgNfcWriter() {
+  if (!_tgNfcWriterInst) _tgNfcWriterInst = new NDEFReader();
+  return _tgNfcWriterInst;
+}
+window._TG_NFC_TIMEOUT_MS = window._TG_NFC_TIMEOUT_MS || 45000;
+var _TG_NFC_LOCKED_HINT = 'Schreiben nicht möglich. Häufigste Ursache: Der Tag ist GESPERRT (schreibgeschützt) — bitte einen frischen Tag verwenden. Falls NFC danach klemmt: Android-Einstellungen → NFC kurz aus- und wieder einschalten.';
 window._tgWriteNFC = async function() {
   if (!('NDEFReader' in window)) { alert('NFC wird von diesem Browser nicht unterstützt. Benötigt: Android + Chrome.'); return; }
   var st = document.getElementById('tgNfcStatus');
@@ -2872,21 +2882,27 @@ window._tgWriteNFC = async function() {
   if (_tgNfcWriteCtl) { _tgNfcCancelWrite(); return; }
   var ctl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
   _tgNfcWriteCtl = ctl;
-  if (st) st.textContent = '📡 NFC-Tag jetzt an das Gerät halten …';
+  var timedOut = false;
+  var timer = setTimeout(function() {
+    if (_tgNfcWriteCtl === ctl) { timedOut = true; _tgNfcCancelWrite(); }
+  }, window._TG_NFC_TIMEOUT_MS);
+  if (st) st.textContent = '📡 NFC-Tag jetzt an das Gerät halten … (gesperrte Tags können nicht beschrieben werden)';
   if (btn) { btn.textContent = '✕ Abbrechen'; }
   try {
-    var reader = new NDEFReader();
-    await reader.write({ records: [{ recordType: 'url', data: _currentTgNfcUrl }] }, ctl ? { signal: ctl.signal } : undefined);
+    await _tgNfcWriter().write({ records: [{ recordType: 'url', data: _currentTgNfcUrl }] }, ctl ? { signal: ctl.signal } : undefined);
     if (st) st.innerHTML = '<span style="color:#16a34a;font-weight:700">✓ Erfolgreich auf NFC-Tag geschrieben!</span>';
   } catch (e) {
-    if (e.name === 'NotAllowedError') {
-      if (st) st.innerHTML = '<span style="color:#d97706">NFC-Berechtigung verweigert. Bitte in den Browser-Einstellungen erlauben.</span>';
+    if (timedOut) {
+      if (st) st.innerHTML = '<span style="color:#dc2626">⏱ Zeitüberschreitung — kein beschreibbarer Tag erkannt. ' + esc(_TG_NFC_LOCKED_HINT) + '</span>';
     } else if (e.name === 'AbortError' || (e.message && e.message.indexOf('cancel') >= 0)) {
       if (st) st.textContent = 'Abgebrochen.';
+    } else if (e.name === 'NotAllowedError' || e.name === 'NotSupportedError' || e.name === 'InvalidStateError') {
+      if (st) st.innerHTML = '<span style="color:#d97706">' + esc(_TG_NFC_LOCKED_HINT) + ' (Falls es die Berechtigung ist: Website-Einstellungen → NFC erlauben.)</span>';
     } else {
       if (st) st.innerHTML = '<span style="color:#dc2626">Fehler: ' + esc(e.message || 'Unbekannt') + '</span>';
     }
   } finally {
+    clearTimeout(timer);
     if (_tgNfcWriteCtl === ctl) _tgNfcWriteCtl = null;
     if (btn) { btn.textContent = '📡 NFC'; btn.disabled = false; btn.style.opacity = '1'; }
   }
@@ -2903,25 +2919,32 @@ window._tgMakeNFCReadOnly = async function() {
   _tgNfcCancelWrite(); // haengigen Schreibvorgang abloesen
   var ctl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
   _tgNfcWriteCtl = ctl;
+  var timedOut = false;
+  var timer = setTimeout(function() {
+    if (_tgNfcWriteCtl === ctl) { timedOut = true; _tgNfcCancelWrite(); }
+  }, window._TG_NFC_TIMEOUT_MS);
   if (st) st.textContent = '🔒 NFC-Tag jetzt an das Gerät halten — wird gesperrt …';
   if (lockBtn) { lockBtn.disabled = true; lockBtn.style.opacity = '.6'; }
   if (wrtBtn) { wrtBtn.disabled = true; wrtBtn.style.opacity = '.6'; }
   try {
-    var reader = new NDEFReader();
+    var reader = _tgNfcWriter();
     if (typeof reader.makeReadOnly !== 'function') {
       throw new Error('Browser unterstützt das Sperren von NFC-Tags nicht (makeReadOnly nicht verfügbar).');
     }
     await reader.makeReadOnly(ctl ? { signal: ctl.signal } : undefined);
-    if (st) st.innerHTML = '<span style="color:#16a34a;font-weight:700">✓ NFC-Tag dauerhaft gesperrt.</span>';
+    if (st) st.innerHTML = '<span style="color:#16a34a;font-weight:700">✓ NFC-Tag dauerhaft gesperrt. Tag jetzt vom Gerät wegnehmen.</span>';
   } catch (e) {
-    if (e.name === 'NotAllowedError') {
-      if (st) st.innerHTML = '<span style="color:#d97706">NFC-Berechtigung verweigert.</span>';
+    if (timedOut) {
+      if (st) st.innerHTML = '<span style="color:#dc2626">⏱ Zeitüberschreitung — kein sperrbarer Tag erkannt (bereits gesperrte Tags können nicht erneut gesperrt werden).</span>';
     } else if (e.name === 'AbortError' || (e.message && e.message.indexOf('cancel') >= 0)) {
       if (st) st.textContent = 'Abgebrochen.';
+    } else if (e.name === 'NotAllowedError' || e.name === 'NotSupportedError') {
+      if (st) st.innerHTML = '<span style="color:#d97706">Sperren nicht möglich — Tag ist bereits gesperrt oder unterstützt das Sperren nicht.</span>';
     } else {
       if (st) st.innerHTML = '<span style="color:#dc2626">Fehler: ' + esc(e.message || 'Unbekannt') + '</span>';
     }
   } finally {
+    clearTimeout(timer);
     if (_tgNfcWriteCtl === ctl) _tgNfcWriteCtl = null;
     if (lockBtn) { lockBtn.disabled = false; lockBtn.style.opacity = '1'; }
     if (wrtBtn) { wrtBtn.disabled = false; wrtBtn.style.opacity = '1'; }
