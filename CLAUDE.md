@@ -526,6 +526,8 @@ function fixLeadingZero(el) {
 
 **Niemals** `type="number"` verwenden!
 
+Freistehende numerische Eingabefelder (ausserhalb von Tabellenzellen) tragen IMMER eine angeschlossene Einheits-Box — entweder `.g-inp-group` + `.g-inp` + `.g-inp-unit` (Referenz: sa_enthaertung) oder das `.fg`/`.fg-inp`/`.fg-unit`-Zeilenmuster der neueren Module; die Einheit steht in der Box, nicht im Label. Zentrale Ergebnis-Zeilen tragen `.frml`-Formel-Chips (inline im Label), Teilstrecken-Tabellen eine `.frml-block`-Legende darunter — die Formeln müssen dem Code entsprechen. Sichtbare UI-Texte referenzieren NIE die Excel-Arbeitsvorlagen («Excel-Vorlage», «wie Vorlage», Zellbezüge wie «(AB26)») — fachliche Quellen (Normen, Leitfäden, Hersteller) bleiben; JS-Kommentare mit Zellbezügen sind ok (Entwickler-Nachverfolgbarkeit).
+
 ### Placeholder-Farbe
 
 ```css
@@ -2211,3 +2213,6 @@ Wenn Änderungen über mehrere Module ausgerollt werden:
 16. ☐ Bestätigungs-Dialoge via `GemaDialog.confirm({danger:true}).then(...)` — kein nativer `confirm(...)`?
 17. ☐ Eingabe-Dialoge via `GemaDialog.prompt(...)` — kein nativer `prompt(...)`?
 18. ☐ `gema_dialog.js` auf der Seite eingebunden?
+19. ☐ Freistehende Zahlen-Inputs mit angeschlossener Einheits-Box (`.g-inp-group`/`.fg-unit`)?
+20. ☐ Zentrale Resultate mit `.frml`-Formel-Chips / Tabellen mit `.frml-block`-Legende?
+21. ☐ Keine sichtbaren Excel-/Vorlage-Verweise oder Zellbezüge im UI-Text?
