@@ -1737,13 +1737,14 @@ function _wzSetupAutocomplete(){
   },function(sel){
     var entries=_wzGetKatalogEntries();
     var matching=entries.filter(function(e){return e.name===sel.value;});
-    // Haeufigste Marke + Kategorie vorschlagen (eigene Geraete priorisiert
-    // via _wzMostFrequent-Gewichtung). User kann beides ueberschreiben.
-    var bestBrand = _wzMostFrequent(matching, function(e){ return e.brand; });
-    var bestCat   = _wzMostFrequent(matching, function(e){ return e.cat; });
-    var fBrand = document.getElementById('f_brand');
-    var fCat   = document.getElementById('f_cat');
-    if(bestBrand && !fBrand.value.trim()) fBrand.value = bestBrand;
+    // Nur die Kategorie vorschlagen (eigene Geraete priorisiert via
+    // _wzMostFrequent-Gewichtung). Den HERSTELLER bewusst NICHT
+    // uebernehmen (User-Vorgabe): dieselbe Bezeichnung existiert oft von
+    // mehreren Herstellern — ein Klick ins Hersteller-Feld oeffnet das
+    // Dropdown mit den bereits erfassten Herstellern dieser Bezeichnung
+    // (focus-show des f_brand-Autocomplete, gefiltert nach f_name).
+    var bestCat = _wzMostFrequent(matching, function(e){ return e.cat; });
+    var fCat    = document.getElementById('f_cat');
     if(bestCat && _wzIsCatActive(bestCat) && !fCat.value){
       fCat.value = bestCat;
       onCatChange();
@@ -2426,8 +2427,17 @@ function openAdd(){
   document.getElementById('f_bought').value=today();
   document.getElementById('f_warranty').value=addMonths(today(),24);
   document.getElementById('addModal').classList.remove('hidden');
+  _wzResetModalScroll();
   _wzLockScroll();
   _wzMaybeCoachmarks();
+}
+// Formular-Scroll beim Oeffnen IMMER nach oben: der Modal-Body behaelt
+// sonst die Scroll-Position der letzten Sitzung (z.B. vom Autocomplete-
+// scrollIntoSpace) — der Dialog wirkte «heruntergescrollt» geoeffnet.
+// Nach dem Entfernen von .hidden aufrufen (display:none hat kein Layout).
+function _wzResetModalScroll(){
+  var mb=document.querySelector('#addModal .modal-body');
+  if(mb)mb.scrollTop=0;
 }
 function closeAdd(){_wzCloseAllAC();document.getElementById('addModal').classList.add('hidden');clearForm();_wzUnlockScroll();}
 function clearForm(){
@@ -2636,6 +2646,7 @@ function editTool(id){
   document.getElementById('mhd_ic').textContent='✏️';
   setText('mft_lbl','Änderungen speichern');setText('mft_ico','✓');
   document.getElementById('addModal').classList.remove('hidden');
+  _wzResetModalScroll();
   _wzLockScroll();
 }
 function deleteTool(id){
