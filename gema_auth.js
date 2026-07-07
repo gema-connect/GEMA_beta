@@ -888,8 +888,56 @@
     return'sys_workspace.html';
   }
 
+  // ── GEMA Secure v1: Gleitendes Sitzungsfenster («angemeldet bleiben») ──
+  // Erneuert das JWT automatisch im Hintergrund (fruehestens nach 24h
+  // Token-Alter, gedrosselt auf 1x/6h), solange «Angemeldet bleiben»
+  // gewaehlt wurde. Aktive Nutzer bleiben damit DAUERHAFT angemeldet —
+  // nur wer laenger als die Token-Laufzeit (GEMA_TOKEN_DAYS, Default 30
+  // Tage) gar nicht reinschaut, muss sich neu anmelden. Deaktivierte
+  // Konten bekommen beim Refresh kein neues Token mehr.
+  function _tokenClaims(tok){
+    try{
+      var p=String(tok).split('.')[1].replace(/-/g,'+').replace(/_/g,'/');
+      return JSON.parse(atob(p));
+    }catch(e){return null;}
+  }
+  function _maybeRefreshToken(){
+    try{
+      var s=_getSession();
+      if(!s||!s.token||s.remember===false)return;
+      var last=parseInt(localStorage.getItem('gema_token_refresh_ts')||'0',10);
+      if(Date.now()-last<6*3600*1000)return; // Drossel: max. 1x pro 6h
+      var c=_tokenClaims(s.token);if(!c||!c.iat)return;
+      if((Date.now()/1000)-c.iat<24*3600)return; // Token juenger als 24h
+      try{localStorage.setItem('gema_token_refresh_ts',String(Date.now()));}catch(e){}
+      var fnUrl=(w.GemaSync&&w.GemaSync.authFnUrl)||'/.netlify/functions/gema-auth';
+      fetch(fnUrl,{
+        method:'POST',
+        headers:{'Content-Type':'application/json','Authorization':'Bearer '+s.token},
+        body:JSON.stringify({action:'refresh'})
+      }).then(function(r){
+        if(!r.ok)return null;
+        return r.json().catch(function(){return null;});
+      }).then(function(j){
+        if(!j||!j.ok||!j.token)return;
+        var cur=_getSession();if(!cur)return;
+        cur.token=j.token;cur.tokenExp=j.exp;cur.expires=j.exp;
+        try{localStorage.setItem(STORAGE_SESSION,JSON.stringify(cur));}catch(e){}
+        if(j.user){
+          try{
+            var users=_getUsers()||[];
+            var i=users.findIndex(function(x){return x&&x.id===j.user.id;});
+            if(i>=0)users[i]=j.user;else users.push(j.user);
+            _writeLocalCache(STORAGE_USERS,users);
+          }catch(e){}
+        }
+      }).catch(function(){});
+    }catch(e){}
+  }
+
   // ── INIT ───────────────────────────────────────────────────────────
   _initDefaults();
+  _maybeRefreshToken();
 
   if(_isSkip()){
     // login — no auth, just expose API
@@ -1111,8 +1159,12 @@
           return null; // falsche Zugangsdaten / inaktiv
         }
         var u=res.j.user;
-        var exp=new Date();exp.setDate(exp.getDate()+(remember?SESSION_DAYS:1));
-        var s={userId:u.id,expires:exp.toISOString(),token:res.j.token,tokenExp:res.j.exp};
+        // «Angemeldet bleiben»: Sitzungsende folgt dem Token (das der
+        // Auto-Refresh laufend erneuert) — sonst 1 Tag.
+        var expIso;
+        if(remember&&res.j.exp){expIso=res.j.exp;}
+        else{var exp=new Date();exp.setDate(exp.getDate()+(remember?SESSION_DAYS:1));expIso=exp.toISOString();}
+        var s={userId:u.id,expires:expIso,token:res.j.token,tokenExp:res.j.exp,remember:!!remember};
         try{localStorage.setItem(STORAGE_SESSION,JSON.stringify(s));}catch(e){}
         // User sofort in den lokalen Cache mergen (getCurrentUser klappt
         // direkt); danach Collections MIT Token frisch ziehen.
@@ -1164,8 +1216,7 @@
           return null;
         }
         var u=res.j.user;
-        var exp=new Date();exp.setDate(exp.getDate()+SESSION_DAYS);
-        try{localStorage.setItem(STORAGE_SESSION,JSON.stringify({userId:u.id,expires:exp.toISOString(),token:res.j.token,tokenExp:res.j.exp}));}catch(e){}
+        try{localStorage.setItem(STORAGE_SESSION,JSON.stringify({userId:u.id,expires:res.j.exp,token:res.j.token,tokenExp:res.j.exp,remember:true}));}catch(e){}
         try{
           var users=_getUsers()||[];
           var i=users.findIndex(function(x){return x&&x.id===u.id;});

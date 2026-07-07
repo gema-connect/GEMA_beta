@@ -367,6 +367,18 @@ async function actionPersistAuth(body, claims) {
   return resp(200, { ok: true, written: records.length, deleted: deletes.length });
 }
 
+// refresh: gleitendes Sitzungsfenster — ein noch gueltiges Token wird gegen
+// ein frisches getauscht (Client macht das automatisch im Hintergrund).
+// Deaktivierte/geloeschte Konten bekommen KEIN neues Token mehr → weiche
+// Revocation innerhalb der Token-Laufzeit.
+async function actionRefresh(claims) {
+  if (!claims) return resp(401, { error: 'Kein gueltiges Token' });
+  const user = await getRecord('user:' + claims.uid);
+  if (!user || user.active === false) return resp(401, { error: 'Konto inaktiv oder geloescht' });
+  const t = mintToken(user);
+  return resp(200, { ok: true, token: t.token, exp: t.exp, user: stripPassword(user) });
+}
+
 // ── HTTP-Geruest ─────────────────────────────────────────────────────────
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -393,6 +405,7 @@ exports.handler = async function (event) {
       case 'register': return await actionRegister(body);
       case 'activate': return await actionActivate(body);
       case 'persist_auth': return await actionPersistAuth(body, claims);
+      case 'refresh': return await actionRefresh(claims);
       case 'whoami': return claims ? resp(200, { ok: true, claims }) : resp(401, { error: 'Kein gueltiges Token' });
       default: return resp(400, { error: 'Unbekannte action' });
     }
