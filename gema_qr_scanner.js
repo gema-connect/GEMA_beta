@@ -7,6 +7,13 @@
   'use strict';
   var _scanner=null;
   var _overlay=null;
+  // Session-Zaehler: jede scan()-/stop()-Aktion entwertet die vorherige
+  // Session. Schuetzt gegen (a) Mehrfach-Decodes derselben Kamera-Session
+  // (html5-qrcode feuert bei fps 10 mehrfach, bevor stop() greift) und
+  // (b) veraltete Callbacks, wenn scan() erneut aufgerufen wird, waehrend
+  // eine alte Session noch laeuft (Koffer-Sammelscan: Scan landete sonst
+  // im vorher gescannten Koffer).
+  var _session=0;
 
   function loadLib(cb){
     if(w.Html5Qrcode){cb();return;}
@@ -19,6 +26,11 @@
 
   function scan(callback){
     loadLib(function(){
+      // Eine allenfalls noch offene Vorgaenger-Session IMMER abraeumen —
+      // sonst bleiben zwei Overlays/Kamera-Instanzen uebrig und der alte
+      // Callback faengt den naechsten Scan ab.
+      stop();
+      var mySession=++_session;
       // Overlay
       _overlay=document.createElement('div');
       _overlay.id='gemaQrOverlay';
@@ -36,6 +48,9 @@
         {facingMode:'environment'},
         {fps:10,qrbox:{width:250,height:250}},
         function(code){
+          // Nur die aktuelle Session darf liefern — und nur EINMAL.
+          if(mySession!==_session)return;
+          _session++;
           // Vibration feedback
           if(navigator.vibrate)navigator.vibrate(100);
           stop();
@@ -57,6 +72,7 @@
   }
 
   function stop(){
+    _session++;
     if(_scanner){try{_scanner.stop();}catch(e){}_scanner=null;}
     if(_overlay){_overlay.remove();_overlay=null;}
   }
