@@ -326,9 +326,10 @@ Komplett NEU nach Excel-Vorlage «Frischwasserstation.xlsm» (ersetzt die alte B
 1. **Nutzwarmwasserbedarf** (SIA 385/2): Nutzungseinheiten-Tabelle (`FW_NUTZUNG`, 28 Einträge mit `avg`+`σ` Normliter/d) — `V = n>10 ? avg+2σ/√n : avg+2σ`; Verlustzahl % (aus sb_warmwasser) → Tagesbedarf à 60 °C.
 2. **Spitzenvolumenstrom Wohnungsbau**: Duschen/Badewannen je Wohnungstyp, l/min pro Armatur, Druck-Umrechnungshelfer `v·√(p₂/p₁)`, Gleichzeitigkeits-Vorschlag (`FW_GZ`-Stufen nach Anzahl, «Wohnungen 30–35 %») + gewählter Wert; **Mischkreuz** (WW/KW/MW → WW-Anteil `(MW−KW)/(WW−KW)`).
 3./4. **Gastroanlage + Spezielle Anlage**: Geräte-Zeilen (Katalog `FW_GERAETE` als datalist, l/min@1.5 bar auto), Checkbox «gleichz.» → gewählter Volumenstrom = Σ markierte (manuelle Gleichzeitigkeit wie Excel).
-5. **Leistung**: `P = ṁ·cp·ΔT` mit Dichte aus `FW_DICHTE` (0–100 °C, floor-LOOKUP), massgebender Volumenstrom = max(berechnet, Override), minus Zirkulationsabzug (`ṁ_zirk·cp·ΔT_zirk`, Warnung T_Zirk < 52 °C).
-- Persistenz: Parameter via GemaAutoSave (`frischwasserstation`), die 4 dynamischen Tabellen als JSON im hidden `#fw_rows`-Textarea (Pattern wie `#zk_rows`).
-- Anlagenwahl/Offertanfrage: Kategorie `frischwasserstation` (bestehend), Payload `leistung` (kW netto), `zapfleistung` (l/min), `tagesbedarf`, `wwTemp` — Projektwerte, nie Datenblatt-Werte.
+5. **Statistische Bemessung nach Gauss (Duschprofil)** — Abschnitt 5, per Toggle (`#fwg_on`), nach Vorlage «Warmwasser_FWS_nach_Gauss.xlsx» (Node-Test 29/29 gegen Excel-Cached-Werte + Playwright 19/19; Formelprüfungs-Befunde in `REPORT_FWS_Gauss_Formelpruefung.md`): 1-min-Tagesprofil aus 4 Gauss-Glocken (Morgen/Mittag/Abend/Nacht, editierbar im `<details>`), Duschstarts = normierte Gewichte × Duschvorgänge/Tag (= Personen × 0.69 nach REUWS/WRF; Personen SIA-Normbelegung aus der Whg-Tabelle in Abschnitt 2, die dafür neu die Spalte **Fläche ANF** + Personen-Anzeige trägt — `fwgPersProWhg`, gleiche Formel wie sb_warmwasser), aktive Duschen λ(t) = gleitende Summe über round(Duschdauer 7.7 min), **zirkulär über Mitternacht**; Bemessungs-Duschenzahl = **exaktes Poisson-Quantil** (95/99 % wählbar) — die Excel-IF-Treppen lieferten Quantil+1 und kappten bei 9/10 Duschen (Unterdimensionierung ab ~150 Whg); Select «Quantil + 1 Dusche (wie Vorlage)» ist Default und repliziert die Excel exakt (Beispiel: 35.2 l/min / 110.5 kW). Massgebend = MAX(Quantil; Mindestgleichzeitigkeit Whg/10; Zusatzlasten = Gastro+Spez aus Abschn. 3+4) × Reservefaktor; qWW je Dusche = Mischstrom (Abschn. 2) × Mischkreuz-WW-Anteil. Dazu Primärvolumenstrom (`P·60/(4.186·ΔTprim)`), Pufferspitzen (kWh, 1–60 min), **echter** Intervallvergleich (gleitende Mittelwerte statt der erfundenen Excel-Faktoren 0.98/0.92/0.86) und Canvas-Tagesprofil (Erwartung, Quantil-Stufen, Bemessungslinie). Engine im `/*ENGINE-START*/…/*ENGINE-END*/`-Block (DOM-frei, Node-testbar). «→ Übernehmen» schreibt qBem in den Override `fw_vGewaehlt` von Abschnitt 6.
+6. **Leistung**: `P = ṁ·cp·ΔT` mit Dichte aus `FW_DICHTE` (0–100 °C, floor-LOOKUP), massgebender Volumenstrom = max(berechnet, Override), minus Zirkulationsabzug (`ṁ_zirk·cp·ΔT_zirk`, Warnung T_Zirk < 52 °C).
+- Persistenz: Parameter via GemaAutoSave (`frischwasserstation`), die 4 dynamischen Tabellen als JSON im hidden `#fw_rows`-Textarea (Pattern wie `#zk_rows`); die Gauss-Parameter sind statische Inputs (`fwg_*`, von AutoSave erfasst; Quantil/Zuschlag als Selects, damit der Objektwechsel-Clear auf den Default zurückfällt), Whg-Zeilen tragen zusätzlich `anf`.
+- Anlagenwahl/Offertanfrage: Kategorie `frischwasserstation` (bestehend), Payload `leistung` (kW netto), `zapfleistung` (l/min — **massgebender** Volumenstrom `vMass` inkl. Override/Gauss; vorher inkonsistent nur das empirische Total), `tagesbedarf`, `wwTemp` — Projektwerte, nie Datenblatt-Werte.
 
 ### Warmwasser SIA 385 (sb_warmwasser.html)
 
@@ -524,6 +525,8 @@ function fixLeadingZero(el) {
 ```
 
 **Niemals** `type="number"` verwenden!
+
+Freistehende numerische Eingabefelder (ausserhalb von Tabellenzellen) tragen IMMER eine angeschlossene Einheits-Box — entweder `.g-inp-group` + `.g-inp` + `.g-inp-unit` (Referenz: sa_enthaertung) oder das `.fg`/`.fg-inp`/`.fg-unit`-Zeilenmuster der neueren Module; die Einheit steht in der Box, nicht im Label. Zentrale Ergebnis-Zeilen tragen `.frml`-Formel-Chips (inline im Label), Teilstrecken-Tabellen eine `.frml-block`-Legende darunter — die Formeln müssen dem Code entsprechen. Sichtbare UI-Texte referenzieren NIE die Excel-Arbeitsvorlagen («Excel-Vorlage», «wie Vorlage», Zellbezüge wie «(AB26)») — fachliche Quellen (Normen, Leitfäden, Hersteller) bleiben; JS-Kommentare mit Zellbezügen sind ok (Entwickler-Nachverfolgbarkeit).
 
 ### Placeholder-Farbe
 
@@ -1935,6 +1938,14 @@ Im Repo liegen die React-Designdateien als Referenz (nicht für Produktion):
 
 ---
 
+## GEMA Secure v1 — Server-Auth + RLS (gema-auth Function)
+
+Sicherheits-Schicht über der Cloud-Architektur (Details + Setup: `SECURITY_RLS_ANLEITUNG.md`; SQL: `supabase/gema_rls_v1.sql` + Rollback):
+- **Netlify Function `netlify/functions/gema-auth.js`** (ENV: `SUPABASE_SERVICE_KEY`, `GEMA_JWT_SECRET`): `login` prüft Zugangsdaten server-seitig (scrypt-`cred:`-Records; Legacy-djb2 wird beim ersten Login lazy migriert und aus dem user-Payload gestrippt) und stellt ein Supabase-kompatibles JWT aus (HS256, role=authenticated, Claims uid/org/adm, 30 Tage). `register` (Onboarding), `activate` (Einladung via `einladung.token`), `persist_auth` (ALLE user:/org:/role:-Writes mit server-seitiger Rechteprüfung: GEMA-Admin alles; Org-Admin eigene Org ohne role_admin-Vergabe; Selbst-Update ohne Rollen/Org/Status-Änderung; Partner-Einladungen cross-org nur mit INVITE_ROLE_PREFIXES; Deletes nur Admin, löscht `cred:` mit).
+- **RLS (`gema_rls_v1.sql`)**: keine anon-Policies (anon-Key nutzlos); authenticated liest alles ausser `cred:%`, schreibt nur `module_key <> 'auth'`; Storage-Upload nur authenticated. `cred:`-Records haben KEINE Policy → nur Service-Key.
+- **Client**: `gema_sync.js` sendet `Authorization: Bearer <JWT || anon>` (Token aus `gema_session_v1.token`), **fängt Auth-Collection-Writes ab** (`_routeAuthWrite` → Function; Fallback direkt, solange Function 404 = Kompatibilitätsmodus) und behandelt 401 (Token weg → Login-Redirect, einmalig). gema_autosave/gema_db/gema_objekte_api/gema_storage nutzen das Token via `GemaSync.getAuthToken()`. `gema_auth.js`: `loginAsync` Function-first (401 = falsche Daten, KEIN Legacy-Fallback; 404/Netz = Legacy), `getToken()`, `activateInvitationAsync`; **Empty-Read-Guard**: leere Cloud-Antwort überschreibt nie einen gefüllten users/orgs/roles-Cache (RLS ohne Token liefert [] mit HTTP 200). sys_login: Registrierung + Aktivierung Function-first mit Legacy-Fallback.
+- **KRITISCH**: Neue direkte Supabase-Fetches IMMER mit `(GemaSync.getAuthToken() || SB_KEY)` als Bearer bauen; user:/org:/role:-Writes NIE direkt, sondern über GemaSync (Interception). Admin-Konten aus GEMA erstellen funktioniert unverändert (läuft über die Function). Nicht abgedeckt (Stufe 2): per-Org-RLS der Modul-Daten, private Storage-Reads, Function-Rate-Limiting.
+
 ## Cloud-First Storage-Architektur (gema_sync.js)
 
 **Single source of truth ist Supabase.** Pro Datensatz eine eigene Row in `gema_data` mit `data_key='<entity>:<id>'` (z.B. `'user:user_admin'`, `'org:org_default'`, `'tool:wz_42'`). Saves laufen über Diff: nur geänderte Records werden gepusht, nie das ganze Array. localStorage bleibt als sekundärer sync-Cache, wird aber nach jedem Cloud-Bootstrap mit dem Cloud-Stand **überschrieben** (Cloud gewinnt).
@@ -2081,6 +2092,23 @@ Die alten stündlichen `auth_bak`-Backups waren ein Notnagel für den jetzt beho
 
 `manifest.json` + `sw.js` — GEMA ist eine installierbare Progressive Web App. Service-Worker cached die wichtigsten HTML-Module und Assets (`/icon-192.svg`, `/icon-512.svg`, `/manifest.json`) für Offline-Erstaufruf. Beim Update einer Seite muss der Cache invalidiert werden — bei Bedarf SW-Version in `sw.js` hochziehen.
 
+### Safe-Area / Statusleiste (KRITISCH — Notch, Dynamic Island, installierte App)
+
+Als installierte PWA (display:standalone) + `viewport-fit=cover` liegt die Seite HINTER der System-Statusleiste — ohne Gegenmassnahme ragte die Nav in Uhrzeit/Frontkamera. Das Safe-Area-System (validiert per Playwright + CDP `Emulation.setSafeAreaInsetsOverride`):
+
+- **Alle 77 Seiten** tragen im `<head>` nach dem Viewport-Meta die vier PWA-Metas (`mobile-web-app-capable`, `apple-mobile-web-app-capable`, `apple-mobile-web-app-status-bar-style: black-translucent` → weisse Statusleisten-Schrift, `apple-mobile-web-app-title`). **Bei neuen Seiten mitgeben.**
+- **`gema_responsive.css` Abschnitt 13**: (1) `html::before` = fixer Streifen in theme-color `#0f172a` über die Inset-Höhe, z-index 10500, IMMER zuoberst am Viewport — schützt die weisse Statusleisten-Schrift auch, wenn die Nav wegscrollt oder eine Seite keine `.g-nav` hat (`body::before` ist auf sys_login belegt → deshalb `html`). (2) `.g-nav` bekommt den Inset als `padding-top`, Höhe wächst per `calc(72px + env(safe-area-inset-top))`. Browser/Desktop: `env() = 0` → alles unsichtbar. Landscape-Insets links/rechts liegen als Padding auf dem `body`.
+- **Fixed-top-Elemente padden sich selbst um den Inset**: Offline-Banner (gema_sync.js), Notify-Panel/Toasts (gema_notify_ui.js, `top:calc(56px/66px + env(…))`), Feedback-Overlay (gema_feedback.js); GemaDialog + Mobile-Menü waren schon safe-area-aware. **Jedes NEUE `position:fixed`-Element mit top-Bezug braucht `env(safe-area-inset-top)`** (unten analog `safe-area-inset-bottom`, vgl. Abschnitt 8 act-bar/footer-bar).
+- **`overflow-x: clip` statt `hidden` auf html/body (NIE zurückdrehen!)**: `overflow-x:hidden` erzwingt per Spec `overflow-y:auto` → html/body werden Scroll-Container → **`position:sticky` klebte auf KEINER Seite mehr** (die Nav scrollte weg, obwohl sie «immer sichtbar» sein soll). `clip` klippt horizontal identisch, erzeugt aber keinen Scroll-Container. Die `hidden`-Zeile davor bleibt als Fallback für sehr alte Browser stehen.
+
+### Kompakter Modul-Kopf auf Phone (gema_responsive.css Abschnitt 16)
+
+Auf ≤640px zeigt der Modul-Hero nur Icon + Titel (`.gema-hero-norm`, `.gema-hero-sub` und `#gemaDataflowPill` sind ausgeblendet — Norm-Badge/Untertitel sind Desktop-Kontext); die `.project-bar` ist zweispaltig kompakt (Objekt volle Breite, Bearbeiter/Datum/SIA-Phase halbbreit). Damit beginnt die erste Berechnungs-Karte bei ~400px statt ~700px — die Berechnung ist ohne Scrollen im ersten Screen. Desktop/Tablet unverändert.
+
+### iOS-Feel auf Touch-Geräten (gema_responsive.css Abschnitt 14)
+
+GEMA soll sich installiert wie eine native App anfühlen: global `-webkit-tap-highlight-color: transparent` (Feedback über `:active`-Zustände statt grauem Blitz), `touch-action: manipulation` auf allen Bedienelementen (kein Doppeltipp-Zoom-Delay), UI-Controls (Buttons/Chips/Tabs/Nav) auf coarse Pointern nicht selektierbar + ohne Long-Press-Callout, einheitliches Press-Feedback (`scale(0.96)`); Inhalte (Inputs/Tabellen/Resultate) bleiben selektierbar. Inputs stehen global auf ≥16px (kein iOS-Fokus-Zoom, Abschnitt 1). Desktop-Verhalten unverändert (alles hinter `@media (hover:none) and (pointer:coarse)` bzw. wirkungslos ohne Touch).
+
 ### Install-Helper (`gema_pwa.js`)
 
 Globaler Singleton, der den `beforeinstallprompt`-Event abfängt (das Browser-Event feuert nur einmal — wir halten es im Speicher, damit der User die Installation jederzeit auslösen kann).
@@ -2119,7 +2147,7 @@ UI-Anbindung:
 | `gema_dialog.js` | Eigene Alert/Confirm/Prompt-Dialoge im GEMA-Style. `window.alert` global ueberschrieben. `GemaDialog.confirm({title,message,danger}).then(ok=>…)` und `GemaDialog.prompt(...)` als Promise-API. `window.confirm` bleibt nativ (sync), neue Stellen sollen GemaDialog nutzen |
 | `gema_feedback.js` | Feedback-Overlay mit Annotation |
 | `gema_lu_api.js` | LU-Zusammenstellung Cross-Modul-API |
-| `gema_mobile_menu.js` | Hamburger-Menü auf Mobile |
+| `gema_mobile_menu.js` | Hamburger-Menü auf Mobile (v2, iOS-Feel): Sektionen Navigation (Startseite/Projekte, permission-guarded) · Zuletzt verwendet (via `GemaRecent`) · Aktionen (Seiten-Buttons, ohne Chevron) · Verwaltung (admin) · Konto (Einstellungen/Feedback/Abmelden); tappbarer User-Block → sys_profil; Footer «Als App installieren» (wenn GemaPWA bereit); Swipe-nach-rechts schliesst; Body-Lock via GemaScroll. **Verschiebt die Notify-Glocke (`.gn-btn`) auf Mobile NEBEN den Hamburger** (Klasse `gn-btn--nav`) statt sie mit `.g-nav-right` zu verstecken — Badge bleibt sichtbar; Desktop-Resize stellt sie zurück |
 | `gema_notify.js` | Notifikations-Engine |
 | `gema_notify_ui.js` | Glocke + Toast-UI |
 | `gema_objekte_api.js` | Objekte/Projekte Cross-Modul-API |
@@ -2134,7 +2162,7 @@ UI-Anbindung:
 | `gema_pwa.js` | PWA-Install-Helper (`beforeinstallprompt`-Capture, `GemaPWA.install()`) |
 | `gema_qr_scanner.js` | QR-Code-Scanner (`GemaQR.scan(cb)`) |
 | `gema_nfc_scanner.js` | Web-NFC-Reader mit automatischem QR-Fallback. `GemaNFC.scan({mode:'auto',onScan})` nutzt `NDEFReader` wenn verfügbar, sonst `GemaQR`. `GemaNFC.parseTgUrl(payload)` extrahiert Geräte-ID aus URL oder Direkt-String. iPhone-Hinweis automatisch eingeblendet (kein Browser-NFC, aber Hintergrund-Scan öffnet URL). |
-| `gema_recent.js` | Tracking + Anzeige zuletzt genutzter Module |
+| `gema_recent.js` | Tracking + Anzeige zuletzt genutzter Module. `PAGE_LABELS` = vollständige Map ALLER Seiten (aus `<title>` generiert — bei neuen Seiten ergänzen!); Public API `window.GemaRecent {list, label, currentKey}` fürs Mobile-Menü |
 | `gema_responsive.css` | Globale Responsive-/Layout-Regeln (Mobile + Tablet) |
 | `gema_scroll.js` | Scroll-Position-Restore + globaler Body-Scroll-Lock fuer Modals (`GemaScroll.lock/unlock`, Auto-Hook auf `.modal-bg`) |
 | `gema_storage.js` | **Bild-Upload in Supabase Storage** (Bucket `gema-fotos`). `GemaStorage.uploadDataUrl(dataUrl, pathHint)` laedt ein Base64-Bild als Datei hoch, verifiziert die oeffentliche Erreichbarkeit (Image-Load) und liefert `{url, path}`; im Record steht dann nur die URL statt Base64 → kleine Records, keine Request-Groessen-/localStorage-Quota-Probleme. Reject bei fehlendem/falsch konfiguriertem Bucket → Aufrufer faellt auf Base64 zurueck. **Setup (Dashboard, einmalig):** Bucket `gema-fotos` als Public anlegen + INSERT-Policy fuer Rolle `anon`. **Akzeptiert `data:image/*` UND `data:application/pdf`** (PDF-Verifikation via HEAD/Range-fetch statt Image-Load; genutzt fuer Lieferanten-Offerten-PDFs, Pfad `offerten/<lieferantId>`). Eingesetzt in `sp_dachbericht.html`, `sd_schadensbericht.html`, `sys_lieferant_dashboard.html` (Offerten-PDF) und `pm_abnahme.html` (Mangel-Fotos + Plan-Pin-Fotos via `_abUploadFotosToStorage`; Plan-Dateien/PDFs werden NICHT ausgelagert — Helper akzeptiert nur Bilder + Canvas/pdf.js-Kopplung). Bilder werden beim Save nach Storage ausgelagert; Bild-Quelle via `url || dataUrl`, jsPDF-Export rehydriert `url`→DataURL. |
@@ -2197,3 +2225,6 @@ Wenn Änderungen über mehrere Module ausgerollt werden:
 16. ☐ Bestätigungs-Dialoge via `GemaDialog.confirm({danger:true}).then(...)` — kein nativer `confirm(...)`?
 17. ☐ Eingabe-Dialoge via `GemaDialog.prompt(...)` — kein nativer `prompt(...)`?
 18. ☐ `gema_dialog.js` auf der Seite eingebunden?
+19. ☐ Freistehende Zahlen-Inputs mit angeschlossener Einheits-Box (`.g-inp-group`/`.fg-unit`)?
+20. ☐ Zentrale Resultate mit `.frml`-Formel-Chips / Tabellen mit `.frml-block`-Legende?
+21. ☐ Keine sichtbaren Excel-/Vorlage-Verweise oder Zellbezüge im UI-Text?
