@@ -3280,9 +3280,17 @@ window.openKofferInhalt=function(kofferId){
     +'<div style="display:flex;flex-direction:column;gap:6px">'+rows+'</div>'
     +addHtml
     +'<div class="dlg-row">'
-    +'  <button onclick="_wzCloseModal()" class="dlg-cancel">Schliessen</button>'
+    +'  <button onclick="_wzKofferInhaltClose()" class="dlg-cancel">Schliessen</button>'
     +'</div></div>';
   _wzShowModal(html);
+};
+// Schliessen des Inhalt-Editors beendet auch die laufende Scan-Session
+// (haengige QR-Re-Arm-Timeouts + NFC-Reader) — sonst poppt der Scanner
+// des soeben geschlossenen Koffers spaeter wieder auf.
+window._wzKofferInhaltClose=function(){
+  _wzScanNewSession();
+  if(typeof GemaQR!=='undefined'){try{GemaQR.stop();}catch(e){}}
+  _wzCloseModal();
 };
 window._wzKofferSearch=function(kofferId){
   var k=tools.find(function(x){return x.id===kofferId;});if(!k)return;
@@ -3344,6 +3352,24 @@ window._wzKofferMove=function(kofferId,toolId,dir){
 };
 
 // ── Sammelscan (QR/NFC): Werkzeuge direkt in den Koffer scannen ──
+// Scan-Session-Generation (KRITISCH): Die Sammelscan-Schleifen re-armen
+// sich nach jedem Treffer per setTimeout (QR) bzw. lauschen dauerhaft
+// (NFC-NDEFReader-Listener wird nie entfernt). Ohne Entwertung lief die
+// Schleife des VORHERIGEN Koffers weiter — der naechste Scan landete im
+// falschen Koffer und riss dessen Inhalt-Editor hoch. Jeder neue
+// Scan-Start holt sich eine frische Generation; Callbacks/Timeouts alter
+// Generationen sind tot. Laufende NFC-Sessions werden zusaetzlich per
+// AbortController beendet.
+var _wzScanGen=0;
+var _wzNfcAbort=null;
+function _wzScanNewSession(){
+  _wzScanGen++;
+  if(_wzNfcAbort){try{_wzNfcAbort.abort();}catch(e){}_wzNfcAbort=null;}
+  ['kofNfcStatus','kofNfcClose','sammelNfcStatus','sammelNfcClose','pruefNfcStatus'].forEach(function(id){
+    var el=document.getElementById(id);if(el)el.remove();
+  });
+  return _wzScanGen;
+}
 // Kurzes, nicht-blockierendes Feedback-Pill (Alerts wuerden die
 // Scan-Schleife unterbrechen).
 function _wzKofferScanFeedback(msg,ok){
@@ -3380,34 +3406,46 @@ function _wzKofferAddFromScan(kofferId,rawId){
   return true;
 }
 // QR-Sammelscan: nach jedem Treffer oeffnet sich der Scanner erneut —
-// beenden ueber den Abbrechen-Button des Scanners.
+// beenden ueber den Abbrechen-Button des Scanners. Callback + Re-Arm sind
+// an die Scan-Generation gebunden: startet inzwischen ein anderer Scan
+// (z.B. Sammelscan fuer einen ANDEREN Koffer), verfallen sie.
 window._wzKofferScanQR=function(kofferId){
   if(typeof GemaQR==='undefined'){alert('QR-Scanner nicht verfügbar');return;}
+  var gen=_wzScanNewSession();
   GemaQR.scan(function(code){
+    if(gen!==_wzScanGen)return;
     var id=code||'';
     if(id.indexOf('scan=')>=0)id=id.split('scan=')[1].split('&')[0];
     else if(id.indexOf('view=')>=0)id=id.split('view=')[1].split('&')[0];
     _wzKofferAddFromScan(kofferId,decodeURIComponent(id));
-    setTimeout(function(){_wzKofferScanQR(kofferId);},350);
+    setTimeout(function(){
+      if(gen!==_wzScanGen)return;
+      _wzKofferScanQR(kofferId);
+    },350);
   });
 };
 // NFC-Sammelscan: kontinuierlicher Lese-Loop (Android Chrome, Web-NFC),
-// gleiche Mechanik wie die Sammel-Ausleihe.
+// gleiche Mechanik wie die Sammel-Ausleihe. Der NDEFReader-Listener ist
+// an die Scan-Generation gebunden und die Session wird beim naechsten
+// Scan-Start bzw. via «NFC beenden» per AbortController beendet — sonst
+// lauscht der Reader des VORHERIGEN Koffers ewig weiter.
 window._wzKofferScanNFC=function(kofferId){
   if(!('NDEFReader' in window)){
     alert('Web-NFC ist auf diesem Gerät nicht verfügbar.\n\niPhone: Nutze den 📷 QR-Sammelscan.\n\nAndroid: Verwende Chrome für den NFC-Scan.');
     return;
   }
-  var old=document.getElementById('kofNfcStatus');if(old)old.remove();
-  var oldBtn=document.getElementById('kofNfcClose');if(oldBtn)oldBtn.remove();
+  var gen=_wzScanNewSession();
+  var ctl=(typeof AbortController!=='undefined')?new AbortController():null;
+  _wzNfcAbort=ctl;
   var nfcStatus=document.createElement('div');
   nfcStatus.id='kofNfcStatus';
   nfcStatus.style.cssText='position:fixed;bottom:calc(80px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);background:#1d4ed8;color:#fff;padding:12px 24px;border-radius:12px;font-size:14px;font-weight:700;z-index:11000;box-shadow:0 4px 16px rgba(0,0,0,.2)';
   nfcStatus.textContent='📡 Werkzeug-Tag scannen …';
   document.body.appendChild(nfcStatus);
   var reader=new NDEFReader();
-  reader.scan().then(function(){
+  reader.scan(ctl?{signal:ctl.signal}:undefined).then(function(){
     reader.addEventListener('reading',function(ev){
+      if(gen!==_wzScanGen)return;
       var url='';
       ev.message.records.forEach(function(r){
         if(r.recordType==='url'||r.recordType==='text'){url=new TextDecoder().decode(r.data);}
@@ -3423,13 +3461,21 @@ window._wzKofferScanNFC=function(kofferId){
   }).catch(function(e){
     nfcStatus.remove();
     var cb=document.getElementById('kofNfcClose');if(cb)cb.remove();
+    // Bewusst beendete Sessions (Abort durch neuen Scan/«NFC beenden»)
+    // sind kein Fehler.
+    if(gen!==_wzScanGen||(e&&e.name==='AbortError'))return;
     alert('NFC-Fehler: '+e.message);
   });
   var closeBtn=document.createElement('button');
   closeBtn.textContent='NFC beenden';
   closeBtn.id='kofNfcClose';
   closeBtn.style.cssText='position:fixed;bottom:calc(130px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);background:#fff;color:#1d4ed8;border:2px solid #1d4ed8;padding:8px 20px;border-radius:10px;font-size:13px;font-weight:700;z-index:11000;cursor:pointer;font-family:inherit';
-  closeBtn.onclick=function(){nfcStatus.remove();closeBtn.remove();};
+  closeBtn.onclick=function(){
+    _wzScanGen++;
+    if(ctl){try{ctl.abort();}catch(e){}}
+    if(_wzNfcAbort===ctl)_wzNfcAbort=null;
+    nfcStatus.remove();closeBtn.remove();
+  };
   document.body.appendChild(closeBtn);
 };
 
@@ -3965,14 +4011,18 @@ function _wzSammelScanNFC(){
     alert('Web-NFC ist auf diesem Gerät nicht verfügbar.\n\niPhone: Halte den NFC-Tag einfach ans Handy — Safari öffnet das Werkzeug automatisch.\n\nAndroid: Verwende Chrome für den NFC-Scan.');
     return;
   }
+  var gen=_wzScanNewSession();
+  var ctl=(typeof AbortController!=='undefined')?new AbortController():null;
+  _wzNfcAbort=ctl;
   var nfcStatus=document.createElement('div');
   nfcStatus.id='sammelNfcStatus';
   nfcStatus.style.cssText='position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:#1d4ed8;color:#fff;padding:12px 24px;border-radius:12px;font-size:14px;font-weight:700;z-index:11000;box-shadow:0 4px 16px rgba(0,0,0,.2)';
   nfcStatus.textContent='📡 NFC-Tag jetzt scannen …';
   document.body.appendChild(nfcStatus);
   var reader=new NDEFReader();
-  reader.scan().then(function(){
+  reader.scan(ctl?{signal:ctl.signal}:undefined).then(function(){
     reader.addEventListener('reading',function(ev){
+      if(gen!==_wzScanGen)return;
       var url='';
       ev.message.records.forEach(function(r){
         if(r.recordType==='url'||r.recordType==='text'){url=new TextDecoder().decode(r.data);}
@@ -3989,13 +4039,20 @@ function _wzSammelScanNFC(){
     });
   }).catch(function(e){
     nfcStatus.remove();
+    var cb=document.getElementById('sammelNfcClose');if(cb)cb.remove();
+    if(gen!==_wzScanGen||(e&&e.name==='AbortError'))return;
     alert('NFC-Fehler: '+e.message);
   });
   var closeBtn=document.createElement('button');
   closeBtn.textContent='NFC beenden';
   closeBtn.style.cssText='position:fixed;bottom:130px;left:50%;transform:translateX(-50%);background:#fff;color:#1d4ed8;border:2px solid #1d4ed8;padding:8px 20px;border-radius:10px;font-size:13px;font-weight:700;z-index:11000;cursor:pointer;font-family:inherit';
   closeBtn.id='sammelNfcClose';
-  closeBtn.onclick=function(){nfcStatus.remove();closeBtn.remove();};
+  closeBtn.onclick=function(){
+    _wzScanGen++;
+    if(ctl){try{ctl.abort();}catch(e){}}
+    if(_wzNfcAbort===ctl)_wzNfcAbort=null;
+    nfcStatus.remove();closeBtn.remove();
+  };
   document.body.appendChild(closeBtn);
 }
 
@@ -4003,14 +4060,20 @@ function _wzSammelScanQR(){
   // BUGFIX: der Helper exportiert GemaQR (nicht GemaQRScanner) — der alte
   // Check schlug immer fehl und der Scan-Button war funktionslos.
   if(typeof GemaQR==='undefined'){alert('QR-Scanner nicht verfügbar');return;}
+  var gen=_wzScanNewSession();
   GemaQR.scan(function(code){
+    if(gen!==_wzScanGen)return;
     var id=code;
     if(code.indexOf('scan=')>=0)id=code.split('scan=')[1].split('&')[0];
     else if(code.indexOf('view=')>=0)id=code.split('view=')[1].split('&')[0];
     _wzSammelFromScan(decodeURIComponent(id));
     // Sammelscan: Scanner nach kurzem Feedback erneut oeffnen, bis der
-    // User im Scanner auf Abbrechen tippt.
-    setTimeout(_wzSammelScanQR,350);
+    // User im Scanner auf Abbrechen tippt. Re-Arm nur, solange kein
+    // anderer Scan gestartet wurde (Generation-Guard).
+    setTimeout(function(){
+      if(gen!==_wzScanGen)return;
+      _wzSammelScanQR();
+    },350);
   });
 }
 
@@ -4021,6 +4084,7 @@ function _wzScanWithCamera(){
     GemaDialog.alert({title:'QR-Scanner nicht verfügbar', message:'Die Kamera-Funktion benötigt einen modernen Browser (Chrome / Safari).'});
     return;
   }
+  _wzScanNewSession(); // haengige Sammelscan-Schleifen entwerten
   GemaQR.scan(function(code){
     var id=code;
     if(code && code.indexOf('scan=')>=0)id=code.split('scan=')[1].split('&')[0];
@@ -4638,6 +4702,7 @@ function _wzRenderPruefUI(){
 function _wzPruefScan(method){
   if(method==='qr'){
     if(typeof GemaQR==='undefined'){alert('QR-Scanner nicht verfügbar');return;}
+    _wzScanNewSession(); // haengige Sammelscan-Schleifen entwerten
     GemaQR.scan(function(code){
       var id=code;
       if(code.indexOf('?view=')>=0)id=code.split('view=')[1];
@@ -4647,13 +4712,18 @@ function _wzPruefScan(method){
     });
   } else {
     if(!('NDEFReader' in window)){alert('NFC nicht unterstützt (nur Android Chrome).');return;}
+    var gen=_wzScanNewSession();
+    var ctl=(typeof AbortController!=='undefined')?new AbortController():null;
+    _wzNfcAbort=ctl;
     var nfcStatus=document.createElement('div');
+    nfcStatus.id='pruefNfcStatus';
     nfcStatus.style.cssText='position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:#1d4ed8;color:#fff;padding:12px 24px;border-radius:12px;font-size:14px;font-weight:700;z-index:11000;box-shadow:0 4px 16px rgba(0,0,0,.2)';
     nfcStatus.textContent='📡 NFC-Tag jetzt scannen …';
     document.body.appendChild(nfcStatus);
     var reader=new NDEFReader();
-    reader.scan().then(function(){
+    reader.scan(ctl?{signal:ctl.signal}:undefined).then(function(){
       reader.addEventListener('reading',function(ev){
+        if(gen!==_wzScanGen)return;
         nfcStatus.remove();
         var url='';
         ev.message.records.forEach(function(r){
@@ -4669,6 +4739,7 @@ function _wzPruefScan(method){
       },{once:true});
     }).catch(function(e){
       nfcStatus.remove();
+      if(gen!==_wzScanGen||(e&&e.name==='AbortError'))return;
       alert('NFC-Fehler: '+e.message);
     });
   }
