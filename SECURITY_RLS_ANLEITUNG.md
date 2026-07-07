@@ -89,6 +89,22 @@ Bestehende Sitzungen haben noch kein Token. Jedes Gerät muss sich **einmal ab- 
 neu anmelden** (die App zeigt sonst leere Listen bzw. «Sitzung abgelaufen»). Beim
 ersten Login wird das Passwort automatisch auf scrypt migriert.
 
+### Troubleshooting: Netlify-Build scheitert mit «Exposed secrets detected»
+
+Netlify scannt Builds auf Secrets, sobald Secret-Env-Variablen gesetzt sind. Der
+**Supabase anon-Key** im Client-JS sieht für den Scanner wie ein Secret aus, ist
+aber der by design öffentliche Browser-Key — er ist in `netlify.toml` über
+`SECRETS_SCAN_SMART_DETECTION_OMIT_VALUES` gezielt gesafelistet (echte Secrets
+werden weiterhin gescannt).
+
+Scheitert der Build TROTZDEM: Im Deploy-Log den Abschnitt «Exposed secrets
+detected» aufklappen und nachsehen, WELCHER Wert gefunden wurde. Steht dort
+`SUPABASE_SERVICE_KEY`, wurde beim Setzen der Env-Variable versehentlich der
+**anon-Key statt des service_role-Keys** eingefügt (beide sehen ähnlich aus!)
+— dann in Supabase → Settings → API den Key aus der Zeile **`service_role`**
+kopieren und die Netlify-Variable korrigieren. Mit dem anon-Key als
+SERVICE_KEY funktioniert Secure v1 ohnehin nicht.
+
 ## Schritt 8 — Rollback (falls etwas klemmt)
 
 SQL Editor → Inhalt von **`supabase/gema_rls_rollback.sql`** ausführen → RLS ist aus,
