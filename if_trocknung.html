@@ -2487,8 +2487,9 @@ window.openQR = function(id) {
     ['Leistung', d.kw ? d.kw + ' kW' : '—'],
     ['Serien-Nr.', d.serienNr || '—']
   ].map(function(pair) { return '<div class="qi-row"><span class="qi-lbl">' + pair[0] + '</span><span class="qi-val">' + esc(pair[1]) + '</span></div>'; }).join('');
+  _tgNfcCancelWrite(); // haengige Schreib-Operation eines anderen Geraets abloesen
   var nfcB = document.getElementById('tgNfcBtn');
-  if (nfcB) nfcB.style.display = ('NDEFReader' in window) ? 'inline-flex' : 'none';
+  if (nfcB) { nfcB.textContent = '📡 NFC'; nfcB.style.display = ('NDEFReader' in window) ? 'inline-flex' : 'none'; }
   var nfcLB = document.getElementById('tgNfcLockBtn');
   if (nfcLB) nfcLB.style.display = (('NDEFReader' in window) && _tgCanEdit()) ? 'inline-flex' : 'none';
   var ns = document.getElementById('tgNfcStatus');
@@ -2853,15 +2854,29 @@ window.exportEtikettenBulk = function() {
   });
 };
 
+// Es darf immer nur EINE haengige NFC-Schreib-/Sperr-Operation geben:
+// neuer Start bzw. Schliessen des QR-Dialogs brechen die vorherige per
+// AbortController ab. Ohne das stapelten sich beim Beschreiben mehrerer
+// Tags nacheinander ewig haengende write()-Promises — Chrome auf Android
+// fror ein, und die aelteste Operation haette den naechsten Tag mit der
+// falschen URL beschrieben.
+var _tgNfcWriteCtl = null;
+function _tgNfcCancelWrite() {
+  if (_tgNfcWriteCtl) { try { _tgNfcWriteCtl.abort(); } catch (e) {} _tgNfcWriteCtl = null; }
+}
 window._tgWriteNFC = async function() {
   if (!('NDEFReader' in window)) { alert('NFC wird von diesem Browser nicht unterstützt. Benötigt: Android + Chrome.'); return; }
   var st = document.getElementById('tgNfcStatus');
   var btn = document.getElementById('tgNfcBtn');
+  // Bereits ein Schreibvorgang haengig? → derselbe Button bricht ihn ab.
+  if (_tgNfcWriteCtl) { _tgNfcCancelWrite(); return; }
+  var ctl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+  _tgNfcWriteCtl = ctl;
   if (st) st.textContent = '📡 NFC-Tag jetzt an das Gerät halten …';
-  if (btn) { btn.disabled = true; btn.style.opacity = '.6'; }
+  if (btn) { btn.textContent = '✕ Abbrechen'; }
   try {
     var reader = new NDEFReader();
-    await reader.write({ records: [{ recordType: 'url', data: _currentTgNfcUrl }] });
+    await reader.write({ records: [{ recordType: 'url', data: _currentTgNfcUrl }] }, ctl ? { signal: ctl.signal } : undefined);
     if (st) st.innerHTML = '<span style="color:#16a34a;font-weight:700">✓ Erfolgreich auf NFC-Tag geschrieben!</span>';
   } catch (e) {
     if (e.name === 'NotAllowedError') {
@@ -2872,7 +2887,8 @@ window._tgWriteNFC = async function() {
       if (st) st.innerHTML = '<span style="color:#dc2626">Fehler: ' + esc(e.message || 'Unbekannt') + '</span>';
     }
   } finally {
-    if (btn) { btn.disabled = false; btn.style.opacity = '1'; }
+    if (_tgNfcWriteCtl === ctl) _tgNfcWriteCtl = null;
+    if (btn) { btn.textContent = '📡 NFC'; btn.disabled = false; btn.style.opacity = '1'; }
   }
 };
 
@@ -2884,6 +2900,9 @@ window._tgMakeNFCReadOnly = async function() {
   var st = document.getElementById('tgNfcStatus');
   var lockBtn = document.getElementById('tgNfcLockBtn');
   var wrtBtn = document.getElementById('tgNfcBtn');
+  _tgNfcCancelWrite(); // haengigen Schreibvorgang abloesen
+  var ctl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+  _tgNfcWriteCtl = ctl;
   if (st) st.textContent = '🔒 NFC-Tag jetzt an das Gerät halten — wird gesperrt …';
   if (lockBtn) { lockBtn.disabled = true; lockBtn.style.opacity = '.6'; }
   if (wrtBtn) { wrtBtn.disabled = true; wrtBtn.style.opacity = '.6'; }
@@ -2892,7 +2911,7 @@ window._tgMakeNFCReadOnly = async function() {
     if (typeof reader.makeReadOnly !== 'function') {
       throw new Error('Browser unterstützt das Sperren von NFC-Tags nicht (makeReadOnly nicht verfügbar).');
     }
-    await reader.makeReadOnly();
+    await reader.makeReadOnly(ctl ? { signal: ctl.signal } : undefined);
     if (st) st.innerHTML = '<span style="color:#16a34a;font-weight:700">✓ NFC-Tag dauerhaft gesperrt.</span>';
   } catch (e) {
     if (e.name === 'NotAllowedError') {
@@ -2903,12 +2922,14 @@ window._tgMakeNFCReadOnly = async function() {
       if (st) st.innerHTML = '<span style="color:#dc2626">Fehler: ' + esc(e.message || 'Unbekannt') + '</span>';
     }
   } finally {
+    if (_tgNfcWriteCtl === ctl) _tgNfcWriteCtl = null;
     if (lockBtn) { lockBtn.disabled = false; lockBtn.style.opacity = '1'; }
     if (wrtBtn) { wrtBtn.disabled = false; wrtBtn.style.opacity = '1'; }
   }
 };
 
 window.closeQR = function() {
+  _tgNfcCancelWrite(); // haengige NFC-Schreib-/Sperr-Operation beenden
   document.getElementById('qrModal').classList.add('hidden');
   unlockScroll();
 };
