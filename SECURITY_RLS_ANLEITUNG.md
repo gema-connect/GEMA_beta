@@ -31,8 +31,13 @@ Im [Supabase Dashboard](https://supabase.com/dashboard) dein Projekt öffnen:
 
 1. **Settings → API → Project API keys**: den **`service_role`-Key** kopieren
    (⚠ niemals in den Frontend-Code — nur als Netlify-Umgebungsvariable!).
-2. **Settings → API → JWT Settings**: das **JWT Secret** kopieren
-   (bei neueren Projekten heisst es «Legacy JWT Secret» — genau dieses nehmen).
+2. **Settings → API → JWT Settings** (bzw. neu: **Settings → JWT Keys → «Legacy
+   JWT Secret»**): das **JWT Secret** kopieren.
+   ⚠ **Verwechslungsgefahr:** Das JWT-Secret ist eine zufällige Zeichenkette
+   **ohne Punkte** und beginnt **nicht** mit `eyJ`. Alles, was mit `eyJhbGciOi…`
+   beginnt, ist ein API-**Key** (anon/service_role) und gehört NICHT in
+   `GEMA_JWT_SECRET` — Netlify bricht den Build sonst mit «Exposed secrets
+   detected: GEMA_JWT_SECRET» ab, weil der anon-Key öffentlich im Client-JS liegt.
 
 ## Schritt 2 — Netlify-Umgebungsvariablen setzen
 
@@ -98,12 +103,21 @@ aber der by design öffentliche Browser-Key — er ist in `netlify.toml` über
 werden weiterhin gescannt).
 
 Scheitert der Build TROTZDEM: Im Deploy-Log den Abschnitt «Exposed secrets
-detected» aufklappen und nachsehen, WELCHER Wert gefunden wurde. Steht dort
-`SUPABASE_SERVICE_KEY`, wurde beim Setzen der Env-Variable versehentlich der
-**anon-Key statt des service_role-Keys** eingefügt (beide sehen ähnlich aus!)
-— dann in Supabase → Settings → API den Key aus der Zeile **`service_role`**
-kopieren und die Netlify-Variable korrigieren. Mit dem anon-Key als
-SERVICE_KEY funktioniert Secure v1 ohnehin nicht.
+detected» aufklappen und nachsehen, WELCHE Variable gefunden wurde — in beiden
+Fällen wurde versehentlich der **anon-Key** als Wert eingefügt (er ist der
+einzige Supabase-Wert, der legitim im Client-Code liegt und darum gefunden wird):
+
+- **`GEMA_JWT_SECRET` gefunden** → dort steckt der anon-Key statt des
+  JWT-Secrets. Richtigen Wert holen: Settings → API → JWT Settings bzw.
+  Settings → JWT Keys → «Legacy JWT Secret» (zufällige Zeichenkette ohne
+  Punkte, beginnt nicht mit `eyJ`).
+- **`SUPABASE_SERVICE_KEY` gefunden** → dort steckt der anon-Key statt des
+  service_role-Keys. Richtigen Wert holen: Settings → API, Zeile
+  **`service_role`**.
+
+Nach der Korrektur: Deploys → «Trigger deploy» → «Clear cache and deploy site».
+Mit falschen Werten funktioniert Secure v1 ohnehin nicht (Supabase würde die
+signierten Tokens ablehnen).
 
 ## Schritt 8 — Rollback (falls etwas klemmt)
 
