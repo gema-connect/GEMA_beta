@@ -31,6 +31,9 @@ Im [Supabase Dashboard](https://supabase.com/dashboard) dein Projekt öffnen:
 
 1. **Settings → API → Project API keys**: den **`service_role`-Key** kopieren
    (⚠ niemals in den Frontend-Code — nur als Netlify-Umgebungsvariable!).
+   Alternativ funktioniert auch ein **neuer «Secret key»** (`sb_secret_…`)
+   aus dem Bereich «API Keys» — die Function erkennt beide Formate.
+   NICHT geeignet: der `anon`/`public`-Key und `sb_publishable_…`.
 2. **Settings → API → JWT Settings** (bzw. neu: **Settings → JWT Keys → «Legacy
    JWT Secret»**): das **JWT Secret** kopieren.
    ⚠ **Verwechslungsgefahr:** Das JWT-Secret ist eine zufällige Zeichenkette
@@ -106,6 +109,29 @@ wer GEMA **länger als die Token-Laufzeit gar nicht öffnet** — Standard 30 Ta
 - Sicherheit: Das einzelne Token bleibt kurzlebig; **deaktivierte Konten
   erhalten beim Refresh kein neues Token** mehr und fallen so automatisch
   aus der Dauersitzung. Ohne Häkchen gilt wie bisher 1 Tag ohne Verlängerung.
+
+### Troubleshooting: «Passwörter funktionieren nicht mehr»
+
+**Erste Hilfe, falls niemand mehr reinkommt und RLS schon aktiv ist:**
+SQL Editor → `supabase/gema_rls_rollback.sql` ausführen → alle Logins
+funktionieren sofort wieder im alten Modus. Danach in Ruhe die Ursache
+beheben und RLS erneut aktivieren.
+
+**Diagnose in 10 Sekunden:** Im Browser öffnen:
+`https://<deine-site>/.netlify/functions/gema-auth?action=diag`
+Die Antwort zeigt ohne Geheimwerte, was falsch ist:
+
+| Anzeige | Bedeutung / Fix |
+|---|---|
+| `serviceKey: FEHLT` / `jwtSecret: FEHLT` | Env-Variablen setzen (Schritt 2) + neu deployen |
+| `jwtSecret: VERDAECHTIG (eyJ…)` | Dort steckt ein API-Key statt des JWT-Secrets (Schritt 1.2) |
+| `datenbank: FEHLER …` | Service-Key falsch (z.B. anon-Key) — Schritt 1.1; Logins schlagen deshalb fehl |
+| `datenbank: lesbar — 0 Benutzer` | Key liest nichts — falsches Projekt oder falscher Key |
+| alles ok | Problem liegt woanders — Login-Seite zeigt seit v200 die echte Server-Fehlermeldung statt «Falsche E-Mail oder Passwort» |
+
+Hinweis: Ein Function-Defekt blockiert Logins nur noch, solange RLS aktiv
+ist — ohne RLS weicht der Client bei Server-Fehlern (ausser «falsches
+Passwort») automatisch auf den Legacy-Login aus.
 
 ### Troubleshooting: Netlify-Build scheitert mit «Exposed secrets detected»
 

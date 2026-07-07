@@ -50,13 +50,18 @@ const INVITE_ROLE_PREFIXES = [
 ];
 
 // ── Supabase REST (Service-Key, umgeht RLS) ─────────────────────────────
+// Akzeptiert BEIDE Supabase-Key-Formate: den Legacy-service_role-JWT
+// (eyJ…) und die neuen «Secret keys» (sb_secret_…). Neue Keys sind keine
+// JWTs — sie duerfen NICHT als Authorization: Bearer gesendet werden
+// (PostgREST wuerde 401 werfen), der apikey-Header allein genuegt.
+function sbHeaders() {
+  const h = { 'apikey': SERVICE_KEY, 'Content-Type': 'application/json' };
+  if (SERVICE_KEY.indexOf('eyJ') === 0) h['Authorization'] = 'Bearer ' + SERVICE_KEY;
+  return h;
+}
 async function sb(pathQs, opts) {
   const res = await fetch(SB_URL + '/rest/v1/' + pathQs, Object.assign({
-    headers: Object.assign({
-      'apikey': SERVICE_KEY,
-      'Authorization': 'Bearer ' + SERVICE_KEY,
-      'Content-Type': 'application/json'
-    }, (opts && opts.headers) || {})
+    headers: Object.assign(sbHeaders(), (opts && opts.headers) || {})
   }, opts || {}));
   if (!res.ok) {
     const t = await res.text().catch(() => '');
@@ -87,7 +92,13 @@ async function deleteRecordKey(dataKey) {
 }
 async function loadUsers() {
   const rows = await sb(TABLE + '?module_key=eq.auth&data_key=like.' + q('user:') + '*&select=data_key,payload');
-  return (rows || []).map(r => (r.payload && r.payload.data) || null).filter(Boolean);
+  // Beide Payload-Formen tolerieren: {data} (per-Record) und {v} (Alt-Blob)
+  return (rows || []).map(r => {
+    const p = (r && r.payload) || {};
+    if (p.data != null) return p.data;
+    if (p.v != null) { try { return typeof p.v === 'string' ? JSON.parse(p.v) : p.v; } catch (e) { return null; } }
+    return null;
+  }).filter(Boolean);
 }
 
 // ── Passwort-Hashing ─────────────────────────────────────────────────────
@@ -379,6 +390,34 @@ async function actionRefresh(claims) {
   return resp(200, { ok: true, token: t.token, exp: t.exp, user: stripPassword(user) });
 }
 
+// diag: Selbst-Diagnose ohne Geheimnisse — im Browser aufrufbar:
+//   /.netlify/functions/gema-auth?action=diag
+// Zeigt, ob die Env-Variablen plausibel sind und ob die Function die
+// Datenbank lesen kann (haeufigste Fehlkonfigurationen sofort sichtbar).
+async function actionDiag() {
+  const out = {
+    ok: true,
+    serviceKey: !SERVICE_KEY ? 'FEHLT'
+      : SERVICE_KEY.indexOf('eyJ') === 0 ? 'gesetzt (Legacy-JWT-Format)'
+      : SERVICE_KEY.indexOf('sb_secret_') === 0 ? 'gesetzt (neues sb_secret-Format)'
+      : 'gesetzt (unbekanntes Format — pruefen!)',
+    jwtSecret: !JWT_SECRET ? 'FEHLT'
+      : JWT_SECRET.indexOf('eyJ') === 0 ? 'VERDAECHTIG: sieht wie ein API-Key aus (eyJ…) — das JWT-Secret hat KEINE Punkte und beginnt nicht mit eyJ!'
+      : 'gesetzt (plausibles Format)',
+    tokenDays: TOKEN_DAYS
+  };
+  try {
+    const rows = await sb(TABLE + '?module_key=eq.auth&data_key=like.' + q('user:') + '*&select=data_key&limit=100');
+    out.datenbank = 'lesbar — ' + ((rows && rows.length) || 0) + ' Benutzer-Record(s) gefunden';
+    if (!rows || !rows.length) out.hinweis = 'Keine user:-Records lesbar — Service-Key falsch oder Daten fehlen.';
+  } catch (e) {
+    out.ok = false;
+    out.datenbank = 'FEHLER: ' + (e.message || 'unbekannt');
+    out.hinweis = 'Die Function kann die Datenbank nicht lesen → Logins schlagen fehl. Meist ist der SUPABASE_SERVICE_KEY falsch (anon-Key oder Tippfehler).';
+  }
+  return resp(200, out);
+}
+
 // ── HTTP-Geruest ─────────────────────────────────────────────────────────
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -391,6 +430,18 @@ function resp(status, obj) {
 
 exports.handler = async function (event) {
   if (event.httpMethod === 'OPTIONS') return { statusCode: 204, headers: CORS, body: '' };
+  // diag ist bewusst auch per GET erreichbar (Browser-URL) — gibt keine
+  // Geheimwerte preis, nur Konfigurations-Plausibilitaet.
+  if (event.httpMethod === 'GET') {
+    const qs = event.queryStringParameters || {};
+    if (qs.action === 'diag') {
+      if (!SERVICE_KEY || !JWT_SECRET) {
+        return resp(200, { ok: false, serviceKey: SERVICE_KEY ? 'gesetzt' : 'FEHLT', jwtSecret: JWT_SECRET ? 'gesetzt' : 'FEHLT', hinweis: 'Env-Variablen in Netlify setzen und neu deployen (SECURITY_RLS_ANLEITUNG.md Schritt 2).' });
+      }
+      return await actionDiag();
+    }
+    return resp(405, { error: 'POST only' });
+  }
   if (event.httpMethod !== 'POST') return resp(405, { error: 'POST only' });
   if (!SERVICE_KEY || !JWT_SECRET) {
     return resp(500, { error: 'Function nicht konfiguriert: SUPABASE_SERVICE_KEY / GEMA_JWT_SECRET als Netlify-Env-Variablen setzen (siehe SECURITY_RLS_ANLEITUNG.md)' });

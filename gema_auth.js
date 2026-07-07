@@ -1153,11 +1153,18 @@
         return r.json().catch(function(){return {};}).then(function(j){return {status:r.status,j:j};});
       }).then(function(res){
         if(!res.j||!res.j.ok||!res.j.token){
-          if(res.status===500&&res.j&&/nicht konfiguriert/i.test(res.j.error||'')){
-            var e=new Error('fn-unconfigured');e.fnMissing=true;throw e;
-          }
-          return null; // falsche Zugangsdaten / inaktiv
+          // 401 = falsche Zugangsdaten (endgueltig). ALLE anderen Fehler
+          // (500 Fehlkonfiguration, Supabase-Fehler, kaputte Antwort) sind
+          // SERVER-Probleme → Fehler merken und auf Legacy ausweichen,
+          // damit ein Function-Defekt nie alle Logins blockiert (solange
+          // RLS noch nicht aktiv ist, funktioniert der Legacy-Pfad).
+          if(res.status===401){w.GemaAuth.lastLoginError='';return null;}
+          var msg=(res.j&&res.j.error)||('HTTP '+res.status);
+          w.GemaAuth.lastLoginError='Server-Login fehlgeschlagen: '+msg;
+          console.warn('[GemaAuth] '+w.GemaAuth.lastLoginError+' — Legacy-Fallback');
+          var e=new Error('fn-error');e.fnMissing=true;throw e;
         }
+        w.GemaAuth.lastLoginError='';
         var u=res.j.user;
         // «Angemeldet bleiben»: Sitzungsende folgt dem Token (das der
         // Auto-Refresh laufend erneuert) — sonst 1 Tag.
@@ -1190,6 +1197,10 @@
         return legacyLogin();
       });
     },
+
+    // GEMA Secure v1: letzter Server-Login-Fehler (fuer die Login-Seite —
+    // unterscheidet «falsches Passwort» von «Function fehlkonfiguriert»)
+    lastLoginError:'',
 
     // GEMA Secure v1: JWT der aktuellen Sitzung (leer, wenn Legacy-Login)
     getToken:function(){
