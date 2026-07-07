@@ -395,13 +395,21 @@ body.gema-modal-open{
 }
 
 
-/* ── 1. PREVENT HORIZONTAL SCROLL + ZOOM (Global) ── */
+/* ── 1. PREVENT HORIZONTAL SCROLL + ZOOM (Global) ──
+   KRITISCH: overflow-x auf html/body als `clip` (mit `hidden` nur als
+   Fallback fuer sehr alte Browser). `hidden` erzwingt overflow-y:auto
+   (Spec-Koerzierung) und macht html/body zu Scroll-Containern — damit
+   klebte KEIN position:sticky mehr (die .g-nav scrollte auf allen Seiten
+   weg, obwohl sie «immer sichtbar» sein soll). `clip` klippt horizontal
+   identisch, erzeugt aber keinen Scroll-Container → sticky funktioniert. */
 html {
   overflow-x: hidden;
+  overflow-x: clip;
   -webkit-text-size-adjust: 100%;
 }
 body {
   overflow-x: hidden;
+  overflow-x: clip;
   position: relative;
   width: 100%;
 }
@@ -1470,4 +1478,40 @@ body {
   .filter-inner > * {
     scroll-snap-align: start;
   }
+}
+
+/* ── 13. PWA SAFE-AREA OBEN (Statusleiste / Notch / Dynamic Island) ──
+   Installierte PWA (display:standalone) + viewport-fit=cover: Die Seite
+   liegt HINTER der System-Statusleiste — ohne Inset ragt die Nav in
+   Uhrzeit/Frontkamera. Zwei Bausteine:
+   (1) html::before = fixer Streifen in theme-color #0f172a ueber die
+       Inset-Hoehe, IMMER zuoberst am Viewport (auch wenn die Nav
+       wegscrollt oder eine Seite gar keine .g-nav hat) — die weisse
+       Statusleisten-Schrift (Meta black-translucent auf allen Seiten)
+       bleibt so ueberall lesbar; identischer Look wie Android, wo das
+       System die Statusbar selbst in theme-color faerbt (env() = 0).
+       body::before ist auf sys_login.html belegt, daher html::before.
+       z-index ueber Dialog/Notify/Offline-Banner (die padden sich selbst
+       um den Inset), unter QR-Scanner-Overlay (12000, Kamera-Vollbild).
+   (2) .g-nav bekommt den Inset als padding-top, Hoehe waechst per calc —
+       der Nav-Inhalt beginnt unterhalb des Streifens.
+   Browser-Tab/Desktop: env() = 0 → beides unsichtbar, exakt wie bisher.
+   Landscape-Insets links/rechts deckt das body-Padding weiter oben ab.
+   !important, damit spaetere padding-Shorthands (Abschnitt 11) den
+   Inset nicht nullen. */
+html::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: env(safe-area-inset-top, 0px);
+  background: #0f172a;
+  z-index: 10500;
+  pointer-events: none;
+}
+.g-nav {
+  height: calc(72px + env(safe-area-inset-top, 0px)) !important;
+  min-height: calc(72px + env(safe-area-inset-top, 0px)) !important;
+  padding-top: env(safe-area-inset-top, 0px) !important;
 }

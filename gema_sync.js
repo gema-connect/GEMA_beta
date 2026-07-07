@@ -86,7 +86,8 @@
     Object.assign(_banner.style, {
       position:'fixed', top:'0', left:'0', right:'0', zIndex:'10000',
       background:'#b45309', color:'#fff', textAlign:'center',
-      padding:'8px 14px', fontFamily:'DM Sans,system-ui,sans-serif',
+      padding:'8px 14px', paddingTop:'calc(8px + env(safe-area-inset-top, 0px))',
+      fontFamily:'DM Sans,system-ui,sans-serif',
       fontSize:'13px', fontWeight:'600',
       boxShadow:'0 2px 6px rgba(0,0,0,.18)'
     });

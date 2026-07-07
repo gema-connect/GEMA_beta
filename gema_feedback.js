@@ -43,7 +43,7 @@
       /* ── SNIPPING OVERLAY ── */
       '<div id="gfb-overlay" style="display:none;position:fixed;inset:0;z-index:9000;cursor:crosshair">' +
         '<div style="position:absolute;inset:0;background:rgba(0,0,0,.38)"></div>' +
-        '<div style="position:fixed;top:20px;left:50%;transform:translateX(-50%);background:#0f172a;color:#fff;padding:10px 22px;border-radius:10px;font-size:13px;font-weight:700;box-shadow:0 8px 32px rgba(0,0,0,.25);z-index:9001;pointer-events:none;white-space:nowrap">' +
+        '<div style="position:fixed;top:calc(20px + env(safe-area-inset-top,0px));left:50%;transform:translateX(-50%);background:#0f172a;color:#fff;padding:10px 22px;border-radius:10px;font-size:13px;font-weight:700;box-shadow:0 8px 32px rgba(0,0,0,.25);z-index:9001;pointer-events:none;white-space:nowrap">' +
           'Bereich ausw&auml;hlen — Maus gedr&uuml;ckt halten und Rechteck ziehen &nbsp;&middot;&nbsp; ESC zum Abbrechen' +
         '</div>' +
         '<div id="gfb-sel" style="display:none;position:fixed;border:2.5px solid #3b82f6;background:rgba(59,130,246,.12);pointer-events:none"></div>' +
@@ -51,7 +51,7 @@
 
       /* ── ANNOTATION OVERLAY ── */
       '<div id="gfb-annot" style="display:none;position:fixed;inset:0;z-index:9050;background:rgba(15,23,42,.85);backdrop-filter:blur(4px)">' +
-        '<div style="position:fixed;top:0;left:0;right:0;z-index:9052;background:#0f172a;padding:10px 20px;display:flex;align-items:center;gap:12px;box-shadow:0 2px 12px rgba(0,0,0,.3)">' +
+        '<div style="position:fixed;top:0;left:0;right:0;z-index:9052;background:#0f172a;padding:10px 20px;padding-top:calc(10px + env(safe-area-inset-top,0px));display:flex;align-items:center;gap:12px;box-shadow:0 2px 12px rgba(0,0,0,.3)">' +
           '<span style="font-size:14px">🖊</span>' +
           '<span style="color:#fff;font-size:13px;font-weight:700;flex:1">Mit Rotstift markieren — Klick &amp; ziehen zum Zeichnen</span>' +
         '</div>' +

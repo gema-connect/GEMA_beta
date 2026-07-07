@@ -2082,6 +2082,15 @@ Die alten stündlichen `auth_bak`-Backups waren ein Notnagel für den jetzt beho
 
 `manifest.json` + `sw.js` — GEMA ist eine installierbare Progressive Web App. Service-Worker cached die wichtigsten HTML-Module und Assets (`/icon-192.svg`, `/icon-512.svg`, `/manifest.json`) für Offline-Erstaufruf. Beim Update einer Seite muss der Cache invalidiert werden — bei Bedarf SW-Version in `sw.js` hochziehen.
 
+### Safe-Area / Statusleiste (KRITISCH — Notch, Dynamic Island, installierte App)
+
+Als installierte PWA (display:standalone) + `viewport-fit=cover` liegt die Seite HINTER der System-Statusleiste — ohne Gegenmassnahme ragte die Nav in Uhrzeit/Frontkamera. Das Safe-Area-System (validiert per Playwright + CDP `Emulation.setSafeAreaInsetsOverride`):
+
+- **Alle 77 Seiten** tragen im `<head>` nach dem Viewport-Meta die vier PWA-Metas (`mobile-web-app-capable`, `apple-mobile-web-app-capable`, `apple-mobile-web-app-status-bar-style: black-translucent` → weisse Statusleisten-Schrift, `apple-mobile-web-app-title`). **Bei neuen Seiten mitgeben.**
+- **`gema_responsive.css` Abschnitt 13**: (1) `html::before` = fixer Streifen in theme-color `#0f172a` über die Inset-Höhe, z-index 10500, IMMER zuoberst am Viewport — schützt die weisse Statusleisten-Schrift auch, wenn die Nav wegscrollt oder eine Seite keine `.g-nav` hat (`body::before` ist auf sys_login belegt → deshalb `html`). (2) `.g-nav` bekommt den Inset als `padding-top`, Höhe wächst per `calc(72px + env(safe-area-inset-top))`. Browser/Desktop: `env() = 0` → alles unsichtbar. Landscape-Insets links/rechts liegen als Padding auf dem `body`.
+- **Fixed-top-Elemente padden sich selbst um den Inset**: Offline-Banner (gema_sync.js), Notify-Panel/Toasts (gema_notify_ui.js, `top:calc(56px/66px + env(…))`), Feedback-Overlay (gema_feedback.js); GemaDialog + Mobile-Menü waren schon safe-area-aware. **Jedes NEUE `position:fixed`-Element mit top-Bezug braucht `env(safe-area-inset-top)`** (unten analog `safe-area-inset-bottom`, vgl. Abschnitt 8 act-bar/footer-bar).
+- **`overflow-x: clip` statt `hidden` auf html/body (NIE zurückdrehen!)**: `overflow-x:hidden` erzwingt per Spec `overflow-y:auto` → html/body werden Scroll-Container → **`position:sticky` klebte auf KEINER Seite mehr** (die Nav scrollte weg, obwohl sie «immer sichtbar» sein soll). `clip` klippt horizontal identisch, erzeugt aber keinen Scroll-Container. Die `hidden`-Zeile davor bleibt als Fallback für sehr alte Browser stehen.
+
 ### Install-Helper (`gema_pwa.js`)
 
 Globaler Singleton, der den `beforeinstallprompt`-Event abfängt (das Browser-Event feuert nur einmal — wir halten es im Speicher, damit der User die Installation jederzeit auslösen kann).
