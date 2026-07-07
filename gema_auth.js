@@ -767,9 +767,14 @@
   // ── Nav Badge + Admin User-Switcher ─────────────────────────────
   function _injectBadge(user, roles, org) {
     if (document.getElementById('_gemaAuthBadge')) return;
-    var roleNames = (user.roleIds||[]).map(function(rid){
+    var allRoles = (user.roleIds||[]).map(function(rid){
       var r=roles.find(function(x){return x.id===rid;}); return r?r.name:'';
-    }).filter(Boolean).join(', ');
+    }).filter(Boolean);
+    // Kompakt: erste Rolle + «+N» — die volle Kommaliste sprengt bei
+    // Mehrfach-Rollen die Nav (v.a. auf dem Smartphone). Die komplette
+    // Aufzaehlung bleibt als Tooltip; im Admin-Switcher steht sie ohnehin.
+    var roleLabel = allRoles[0]||'';
+    if (allRoles.length>1) roleLabel += ' +'+(allRoles.length-1);
     var roleColor='#6b7280';
     if(user.roleIds&&user.roleIds.length){
       var fr=roles.find(function(r){return r.id===user.roleIds[0];});
@@ -777,7 +782,7 @@
     }
     var badge=document.createElement('div');
     badge.id='_gemaAuthBadge';
-    badge.style.cssText='display:flex;align-items:center;gap:6px;margin-left:16px;padding-right:12px;flex-shrink:0;position:relative';
+    badge.style.cssText='display:flex;align-items:center;gap:6px;margin-left:16px;padding-right:12px;flex-shrink:0;position:relative;min-width:0';
 
     var isAdmin=_isAdmin(user);
     // Switcher nur für echte Admins bzw. eine ECHTE Admin-Impersonation —
@@ -786,9 +791,9 @@
     var isImpersonating=_adminOriginIsAdmin();
     var showSwitcher=isAdmin||isImpersonating;
     badge.innerHTML=
-      '<div style="text-align:right;cursor:'+(showSwitcher?'pointer':'default')+'" '+(showSwitcher?'onclick="document.getElementById(\'_gemaSwitcher\').style.display=document.getElementById(\'_gemaSwitcher\').style.display===\'none\'?\'block\':\'none\'"':'')+'>'+
-        '<div style="font-size:12px;font-weight:700;color:#111827;line-height:1.2">'+_esc(user.name||user.username)+(showSwitcher?' <span style="font-size:9px;color:#9ca3af">▼</span>':'')+'</div>'+
-        '<div style="font-size:10px;font-weight:600;color:'+roleColor+'">'+_esc(roleNames)+'</div>'+
+      '<div style="text-align:right;cursor:'+(showSwitcher?'pointer':'default')+';min-width:0;max-width:230px" '+(showSwitcher?'onclick="document.getElementById(\'_gemaSwitcher\').style.display=document.getElementById(\'_gemaSwitcher\').style.display===\'none\'?\'block\':\'none\'"':'')+' title="'+_esc(allRoles.join(', '))+'">'+
+        '<div style="font-size:12px;font-weight:700;color:#111827;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+_esc(user.name||user.username)+(showSwitcher?' <span style="font-size:9px;color:#9ca3af">▼</span>':'')+'</div>'+
+        '<div style="font-size:10px;font-weight:600;color:'+roleColor+';white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+_esc(roleLabel)+'</div>'+
       '</div>';
 
     // Admin User-Switcher Dropdown (auch bei Impersonation)

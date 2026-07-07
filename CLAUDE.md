@@ -728,6 +728,14 @@ Bei Batch-Migrationen können verwaiste `</div>`-Tags entstehen (z.B. wenn `g-ph
 
 Diese Nav-Links wurden entfernt. Nicht wieder einfügen.
 
+### Sticky-Leisten unter der Nav: Offset IMMER `calc(72px + env(safe-area-inset-top, 0px))`
+
+Die `.g-nav` ist global 72px hoch (gema_responsive.css, `!important`) **plus Safe-Area-Inset** in der installierten PWA. Jede weitere sticky Leiste darunter (Filter-Bar, Suchleiste, Tab-Bars) MUSS ihren `top`-Wert darauf aufbauen — fixe Pixelwerte aus alten Nav-Höhen (56/46px) lassen die Leiste unter der Nav verschwinden bzw. frei über dem Inhalt schweben (Suchleisten-Bug auf index.html). Muster: erste Leiste `top: calc(72px + env(safe-area-inset-top, 0px))`, zweite `calc(72px + <Höhe der ersten> + env(…))`; Sprungziele (`scroll-margin-top`) auf die Stapelhöhe abstimmen. Auf dem Phone (≤640px) ist die index-Suchleiste bewusst `position: static` (scrollt mit, iOS-Muster) — nicht wieder sticky machen, sonst frisst der gepinnte Stapel den halben Screen.
+
+### Nav-Badge zeigt EINE Rolle + «+N»
+
+`_injectBadge` (gema_auth.js) zeigt bei Mehrfach-Rollen nur die erste Rolle plus `+N` (volle Liste im `title`-Tooltip; Mobile-Menü zeigt ebenfalls nur die Hauptrolle). Nicht auf die komma-separierte Vollliste zurückbauen — sie sprengt die Nav auf dem Smartphone. Text-Spalte hat Ellipsis-Caps (Desktop 230px inline, Phone 38vw via gema_responsive.css `!important`).
+
 ### Hero-Layout in Modulen: `<div class="hero-title">` statt `<h1>`/`<p>`
 
 `gema_responsive.css` setzt im `@media(max-width:640px)` Block grosszuegige Hero-Padding-Werte (`28-40px`) und grosse Schriftgroessen (`.hero h1 { font-size: clamp(22px, 7vw, 30px) }`) — gedacht fuer den prominenten Hero auf `index.html`. Modul-Seiten brauchen einen **kompakten** Hero (14px padding, 17px Titel).
