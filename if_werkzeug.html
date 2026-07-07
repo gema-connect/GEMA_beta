@@ -4743,6 +4743,7 @@ function _wzOpenSettings(){
   try{ org = (GemaAuth.getCurrentOrg && GemaAuth.getCurrentOrg()) || {}; }catch(e){}
   var s = (org.settings && org.settings.werkzeug) || {};
   var requireMag = !!s.requireMagazinerReturn;
+  var lockOnWrite = !!s.nfcLockOnWrite;
   var opt = _wzGetOptFelder();
   var cats = _wzGetCats();
 
@@ -4765,6 +4766,15 @@ function _wzOpenSettings(){
           + '<input type="checkbox" id="wzs_requireMagReturn" '+(requireMag?'checked':'')+' style="width:16px;height:16px;margin-top:2px;accent-color:#3730a3;flex-shrink:0">'
           + '<span><div style="font-size:13px;font-weight:700;color:#0f172a">Rückgabe nur durch Magaziner</div>'
             + '<div style="font-size:11.5px;color:#64748b;margin-top:2px;line-height:1.4">Wenn aktiviert: Monteure können Werkzeuge nicht selbstständig zurückgeben — ein Magaziner muss die Rückgabe bestätigen.</div></span>'
+        + '</label>'
+      + '</section>'
+      // 1b. NFC
+      + '<section>'
+        + '<div style="font-size:12px;font-weight:800;color:#3730a3;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">NFC-Tags</div>'
+        + '<label style="display:flex;align-items:flex-start;gap:10px;padding:11px 13px;border:1.5px solid '+(lockOnWrite?'#b91c1c':'#e5e7eb')+';border-radius:9px;cursor:pointer;background:'+(lockOnWrite?'#fef2f2':'#fff')+'">'
+          + '<input type="checkbox" id="wzs_nfcLockOnWrite" '+(lockOnWrite?'checked':'')+' style="width:16px;height:16px;margin-top:2px;accent-color:#b91c1c;flex-shrink:0">'
+          + '<span><div style="font-size:13px;font-weight:700;color:#0f172a">Beim Beschreiben automatisch sperren</div>'
+            + '<div style="font-size:11.5px;color:#64748b;margin-top:2px;line-height:1.4">Nach jedem erfolgreichen NFC-Schreiben wird der Tag im selben Vorgang dauerhaft schreibgeschützt — den Tag dafür am Gerät lassen, bis «gesperrt» erscheint. <strong style="color:#b91c1c">⚠ Das Sperren ist UNWIDERRUFLICH</strong> — gesperrte Tags können nie mehr beschrieben werden. Gilt für Magaziner/Admin.</div></span>'
         + '</label>'
       + '</section>'
       // 2. Optionale Felder
@@ -4872,6 +4882,7 @@ function _wzSaveSettings(){
     orgs[idx].settings = orgs[idx].settings || {};
     var wz = orgs[idx].settings.werkzeug = orgs[idx].settings.werkzeug || {};
     wz.requireMagazinerReturn = !!document.getElementById('wzs_requireMagReturn').checked;
+    wz.nfcLockOnWrite = !!document.getElementById('wzs_nfcLockOnWrite').checked;
     // Optionale Felder einsammeln
     var optOut = {};
     document.querySelectorAll('.wzs_opt').forEach(function(cb){
@@ -5777,6 +5788,16 @@ function _wzNfcWriter(){
 // ohne ihn blieb der Push ewig haengig.
 window._WZ_NFC_TIMEOUT_MS=window._WZ_NFC_TIMEOUT_MS||45000;
 var _WZ_NFC_LOCKED_HINT='Schreiben nicht möglich. Häufigste Ursache: Der Tag ist GESPERRT (schreibgeschützt) — gesperrte Tags können nie mehr beschrieben werden, bitte einen frischen Tag verwenden. Falls NFC danach klemmt: Android-Einstellungen → NFC kurz aus- und wieder einschalten.';
+// Org-Einstellung «Beim Beschreiben automatisch sperren» (⚙️-Einstellungen,
+// org.settings.werkzeug.nfcLockOnWrite): kettet makeReadOnly direkt an den
+// erfolgreichen write() — der Tag bleibt dafuer am Geraet. Nur fuer
+// Magaziner/Admin (Sperren ist irreversibel).
+function _wzNfcLockOnWrite(){
+  try{
+    var org=(GemaAuth.getCurrentOrg&&GemaAuth.getCurrentOrg())||{};
+    return !!(org.settings&&org.settings.werkzeug&&org.settings.werkzeug.nfcLockOnWrite);
+  }catch(e){return false;}
+}
 async function _wzWriteNFC(){
   if(!('NDEFReader' in window)){alert('NFC wird von diesem Browser nicht unterstützt. Benötigt: Android + Chrome.');return;}
   var st=document.getElementById('nfcStatus');
@@ -5784,29 +5805,43 @@ async function _wzWriteNFC(){
   // Bereits ein Schreibvorgang haengig? → derselbe Button bricht ihn ab.
   if(_wzNfcWriteCtl){_wzNfcCancelWrite();return;}
   _wzScanNewSession(); // parallele NFC-Lese-Loops beenden (blockieren sonst den NFC-Stack)
+  var autoLock=_wzNfcLockOnWrite()&&_wzCanEdit()&&(typeof NDEFReader.prototype.makeReadOnly==='function'||typeof _wzNfcWriter().makeReadOnly==='function');
   var ctl=(typeof AbortController!=='undefined')?new AbortController():null;
   _wzNfcWriteCtl=ctl;
   var timedOut=false;
   var timer=setTimeout(function(){
     if(_wzNfcWriteCtl===ctl){timedOut=true;_wzNfcCancelWrite();}
   },window._WZ_NFC_TIMEOUT_MS);
-  if(st)st.textContent='📡 NFC-Tag jetzt an das Gerät halten … (gesperrte Tags können nicht beschrieben werden)';
+  if(st)st.textContent='📡 NFC-Tag jetzt an das Gerät halten … '+(autoLock?'(wird nach dem Schreiben automatisch GESPERRT — Tag am Gerät lassen)':'(gesperrte Tags können nicht beschrieben werden)');
   if(btn){btn.textContent='✕ Abbrechen';}
+  var wrote=false;
   try{
     await _wzNfcWriter().write({records:[{recordType:'url',data:_currentNfcUrl}]},ctl?{signal:ctl.signal}:undefined);
-    if(st)st.innerHTML='<span style="color:#16a34a;font-weight:700">✓ Erfolgreich auf NFC-Tag geschrieben!</span>';
+    wrote=true;
+    if(autoLock){
+      // Sperr-Kette: gleicher AbortController + gleicher Timeout deckt
+      // Schreiben UND Sperren ab; der Tag liegt noch am Geraet.
+      if(st)st.textContent='✓ Geschrieben — Tag am Gerät LASSEN, wird gesperrt …';
+      await _wzNfcWriter().makeReadOnly(ctl?{signal:ctl.signal}:undefined);
+      if(st)st.innerHTML='<span style="color:#16a34a;font-weight:700">✓ Geschrieben &amp; dauerhaft gesperrt. Tag jetzt vom Gerät wegnehmen.</span>';
+    }else{
+      if(st)st.innerHTML='<span style="color:#16a34a;font-weight:700">✓ Erfolgreich auf NFC-Tag geschrieben!</span>';
+    }
   }catch(e){
+    // Teil-Erfolg: geschrieben, aber Sperren gescheitert — klar ausweisen,
+    // damit der User weiss, dass die URL auf dem Tag ist.
+    var prefix=wrote?'⚠ Geschrieben, aber Sperren fehlgeschlagen: ':'';
     if(timedOut){
-      if(st)st.innerHTML='<span style="color:#dc2626">⏱ Zeitüberschreitung — kein beschreibbarer Tag erkannt. '+esc(_WZ_NFC_LOCKED_HINT)+'</span>';
+      if(st)st.innerHTML='<span style="color:#dc2626">'+(wrote?esc(prefix)+'Zeitüberschreitung — Tag erneut anhalten und «🔒 Sperren» nutzen.':'⏱ Zeitüberschreitung — kein beschreibbarer Tag erkannt. '+esc(_WZ_NFC_LOCKED_HINT))+'</span>';
     }else if(e.name==='AbortError'||(e.message&&e.message.indexOf('cancel')>=0)){
-      if(st)st.textContent='Abgebrochen.';
+      if(st)st.textContent=wrote?prefix+'abgebrochen. Tag ist beschrieben, aber NICHT gesperrt.':'Abgebrochen.';
     }else if(e.name==='NotAllowedError'||e.name==='NotSupportedError'||e.name==='InvalidStateError'){
       // NotAllowedError kommt bei GESPERRTEN Tags UND bei fehlender
       // Berechtigung — die alte Meldung («Berechtigung verweigert»)
       // schickte User faelschlich in die Browser-Einstellungen.
-      if(st)st.innerHTML='<span style="color:#d97706">'+esc(_WZ_NFC_LOCKED_HINT)+' (Falls es die Berechtigung ist: Chrome fragt beim ersten Mal — sonst Website-Einstellungen → NFC erlauben.)</span>';
+      if(st)st.innerHTML='<span style="color:#d97706">'+(wrote?esc(prefix)+'Tag unterstützt das Sperren nicht oder ist bereits gesperrt.':esc(_WZ_NFC_LOCKED_HINT)+' (Falls es die Berechtigung ist: Chrome fragt beim ersten Mal — sonst Website-Einstellungen → NFC erlauben.)')+'</span>';
     }else{
-      if(st)st.innerHTML='<span style="color:#dc2626">Fehler: '+esc(e.message||'Unbekannt')+'</span>';
+      if(st)st.innerHTML='<span style="color:#dc2626">'+esc(prefix)+'Fehler: '+esc(e.message||'Unbekannt')+'</span>';
     }
   }finally{
     clearTimeout(timer);
