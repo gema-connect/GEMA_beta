@@ -859,6 +859,8 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
             📡 NFC</button>
           <button id="nfcLockBtn" onclick="_wzMakeNFCReadOnly()" title="NFC-Tag dauerhaft schreibgeschützt machen — irreversibel" style="display:none;flex:1 1 80px;padding:8px 10px;border-radius:8px;border:1.5px solid #fecaca;background:#fef2f2;color:#b91c1c;font-size:12px;font-weight:800;cursor:pointer;justify-content:center;align-items:center;gap:5px;font-family:inherit">
             🔒 Sperren</button>
+          <button onclick="_wzNfcDiag()" title="NFC-Diagnose: Version, Berechtigung und die letzten NFC-Ereignisse (auch nach einem Browser-Einfrieren)" style="flex:1 1 80px;padding:8px 10px;border-radius:8px;border:1.5px solid var(--brd);background:#fff;color:#475569;font-size:12px;font-weight:800;cursor:pointer;display:inline-flex;justify-content:center;align-items:center;gap:5px;font-family:inherit">
+            🩺 Diagnose</button>
         </div>
         <div id="nfcStatus" style="text-align:center;font-size:11px;color:var(--mut);margin-top:4px"></div>
       </div>
@@ -3668,10 +3670,10 @@ window._wzKofferMove=function(kofferId,toolId,dir){
 // die Sessions tauschen nur den aktiven Handler (_wzNfcHandler). Frueher
 // startete jede Session einen neuen Reader (bzw. brach ihn per abort ab)
 // — das wiederholte scan()/abort()-Zyklen-Muster wedged den NFC-Stack
-// von Chrome, die Seite fror ein. Haengige SCHREIB-Operationen werden
-// weiterhin per AbortController beendet (_wzNfcCancelWrite, s.u.) —
-// eine offene write()-Operation wuerde sonst den naechsten Tag mit der
-// falschen URL beschreiben.
+// von Chrome, die Seite fror ein. Haengige SCHREIB-/Sperr-Sessions werden
+// per _wzNfcAbortOp (s.u.) beendet — inkl. AbortController, Timern und
+// Button-/Status-Reset. Eine offene Schreib-Session wuerde sonst den
+// naechsten Tag mit der falschen URL beschreiben.
 var _wzScanGen=0;
 var _wzNfcHandler=null;
 var _wzNfcScanPromise=null;
@@ -3697,10 +3699,11 @@ function _wzNfcListen(handler){
   }
   return _wzNfcScanPromise;
 }
-// Lese-Reader waehrend Schreib-/Sperr-Operationen PAUSIEREN: Es ist dann
-// garantiert nur EINE NFC-Operation aktiv (nie scan + push parallel —
-// die Kombination steht im Verdacht, den Samsung-NFC-Stack zu wedgen).
-// Der naechste Lese-Start (_wzNfcListen) baut den Reader frisch auf.
+// Lese-Reader hart PAUSIEREN (abort; der naechste _wzNfcListen baut ihn
+// frisch auf). Seit dem write-on-detect-Umbau nur noch die NOTBREMSE des
+// Freeze-Watchdogs — Schreib-/Sperr-Operationen laufen BEWUSST ueber den
+// aktiven Lese-Reader (Web-NFC-Muster «write on tap»: erst reading-Event,
+// dann sofortiges write auf den anwesenden Tag).
 function _wzNfcPauseListen(){
   _wzNfcHandler=null;
   if(_wzNfcReadCtl){try{_wzNfcReadCtl.abort();}catch(e){}_wzNfcReadCtl=null;}
@@ -3709,7 +3712,7 @@ function _wzNfcPauseListen(){
 function _wzScanNewSession(){
   _wzScanGen++;
   _wzNfcHandler=null;   // Lese-Session beenden (Reader bleibt — kein abort-Churn)
-  _wzNfcCancelWrite();  // haengige Schreib-/Sperr-Operation abloesen
+  _wzNfcAbortOp();      // haengige Schreib-/Sperr-Operation abloesen (inkl. Button/Status)
   ['kofNfcStatus','kofNfcClose','sammelNfcStatus','sammelNfcClose','pruefNfcStatus'].forEach(function(id){
     var el=document.getElementById(id);if(el)el.remove();
   });
@@ -5765,9 +5768,14 @@ function openQR(id){
   const canvas=document.getElementById('qrCanvas');
   canvas.innerHTML='';
   _currentQRInstance=new QRCode(canvas,{text:url,width:190,height:190,colorDark:'#111827',colorLight:'#ffffff',correctLevel:QRCode.CorrectLevel.M});
-  _wzNfcCancelWrite(); // haengige Schreib-Operation eines anderen Geraets abloesen
+  _wzNfcAbortOp(); // haengige Schreib-/Sperr-Operation eines anderen Geraets abloesen
   var nfcB=document.getElementById('nfcBtn');
   if(nfcB){nfcB.textContent='📡 NFC';nfcB.style.display=('NDEFReader' in window)?'inline-flex':'none';var ns=document.getElementById('nfcStatus');if(ns)ns.textContent='';}
+  // Letzter NFC-Vorgang wurde nie abgeschlossen (Freeze/App gekillt)?
+  if(_wzNfcLastInterrupted){
+    var ns2=document.getElementById('nfcStatus');
+    if(ns2)ns2.innerHTML='<span style="color:#d97706">⚠ Der letzte NFC-Vorgang wurde nicht abgeschlossen (Browser eingefroren?). «🩺 Diagnose» zeigt den Hergang.</span>';
+  }
   var nfcLB=document.getElementById('nfcLockBtn');
   if(nfcLB){nfcLB.style.display=(('NDEFReader' in window)&&_wzCanEdit())?'inline-flex':'none';}
   document.getElementById('qrInfo').innerHTML=[
@@ -5780,7 +5788,7 @@ function openQR(id){
   setQrMode('qr');
   _wzLockScroll();
 }
-function closeQR(){_wzNfcCancelWrite();document.getElementById('qrModal').classList.add('hidden');_wzUnlockScroll();}
+function closeQR(){_wzNfcAbortOp();document.getElementById('qrModal').classList.add('hidden');_wzUnlockScroll();}
 function printQR(){window.print();}
 // Es darf immer nur EINE haengige NFC-Schreib-/Sperr-Operation geben:
 // jeder neue Start und das Schliessen des QR-Dialogs brechen die vorherige
@@ -5810,6 +5818,36 @@ function _wzNfcWriter(){
 // ohne ihn blieb der Push ewig haengig.
 window._WZ_NFC_TIMEOUT_MS=window._WZ_NFC_TIMEOUT_MS||45000;
 var _WZ_NFC_LOCKED_HINT='Schreiben nicht möglich. Häufigste Ursache: Der Tag ist GESPERRT (schreibgeschützt) — gesperrte Tags können nie mehr beschrieben werden, bitte einen frischen Tag verwenden. Falls NFC danach klemmt: Android-Einstellungen → NFC kurz aus- und wieder einschalten.';
+// ── NFC-Diagnose: persistentes Ereignis-Log (Ringpuffer, ueberlebt
+// Freeze/Reload). Haelt fest, WO genau ein Vorgang steckenblieb —
+// nach einem Browser-Einfrieren zeigt die 🩺-Diagnose den Hergang.
+var _WZ_NFC_BUILD='v213';
+function _wzNfcLog(ev,detail){
+  try{
+    var a=JSON.parse(localStorage.getItem('gema_wz_nfclog_v1')||'[]');
+    a.push({d:new Date().toISOString().slice(0,10),t:new Date().toISOString().slice(11,19),ev:ev,x:String(detail||'').slice(0,120)});
+    if(a.length>60)a=a.slice(-60);
+    localStorage.setItem('gema_wz_nfclog_v1',JSON.stringify(a));
+  }catch(e){}
+}
+function _wzNfcLogRead(){
+  try{var a=JSON.parse(localStorage.getItem('gema_wz_nfclog_v1')||'[]');return Array.isArray(a)?a:[];}catch(e){return [];}
+}
+// Beim Seitenstart: blieb der letzte Vorgang ohne Abschluss (Freeze/App
+// gekillt)? → merken und im QR-Dialog als Hinweis zeigen.
+var _wzNfcLastInterrupted=false;
+(function(){
+  if(!('NDEFReader' in window))return;
+  var log=_wzNfcLogRead();
+  var last=log.length?log[log.length-1]:null;
+  if(last&&/^(write_start|lock_start)$/.test(last.ev)){
+    _wzNfcLastInterrupted=true;
+    _wzNfcLog('op_interrupted','Vorgang «'+last.ev+'» wurde nie abgeschlossen (Browser eingefroren/geschlossen?)');
+  }
+  var mode=(window.matchMedia&&matchMedia('(display-mode: standalone)').matches)?'App':'Tab';
+  var chrome=(navigator.userAgent.match(/Chrome\/[\d.]+/)||[''])[0];
+  _wzNfcLog('page_load',_WZ_NFC_BUILD+' · '+chrome+' · '+mode);
+})();
 // Abkuehlpause zwischen NFC-Operationen: Schnellfeuer-Sequenzen
 // (schreiben, sofort naechstes Geraet, schreiben, sperren …) stressen den
 // Android-NFC-Stack — jede neue Operation wartet den Rest der Pause ab.
@@ -5835,9 +5873,10 @@ function _wzNfcWatchStart(){
     var gap=now-_wzNfcWatchLast;
     _wzNfcWatchLast=now;
     if(gap>4000&&_wzNfcWriteCtl){
-      _wzNfcCancelWrite();
+      _wzNfcAbortOp();
       _wzNfcPauseListen();
       _wzNfcWriterInst=null;
+      _wzNfcLog('freeze_recovered','Main-Thread stand '+gap+' ms');
       var st=document.getElementById('nfcStatus');
       if(st)st.innerHTML='<span style="color:#dc2626">⚠ NFC-Blockade erkannt — Vorgang automatisch abgebrochen. Bitte ALLE Tags vom Gerät nehmen, Android-NFC kurz aus- und wieder einschalten, dann erneut versuchen (nur EINEN frischen Tag anhalten).</span>';
     }
@@ -5856,125 +5895,235 @@ function _wzNfcLockOnWrite(){
     return !!(org.settings&&org.settings.werkzeug&&org.settings.werkzeug.nfcLockOnWrite);
   }catch(e){return false;}
 }
-async function _wzWriteNFC(){
+// ── NFC-Schreiben v2: «erst erkennen, dann schreiben» (write-on-detect) ──
+// Der alte Ablauf armierte einen Schreibauftrag, der EWIG auf einen Tag
+// wartete — traf dabei ein gesperrter/inkompatibler Tag ein, geriet
+// Chrome auf Samsung in einen Redetect-/Retry-Sturm und fror ein.
+// Neu: Der persistente Lese-Reader meldet, WANN ein Tag wirklich am
+// Geraet liegt (reading-Event — feuert auch bei gesperrten Tags). ERST
+// DANN wird genau EINMAL auf den anwesenden Tag geschrieben — Ergebnis
+// (ok/gesperrt/inkompatibel) kommt in Millisekunden, es existiert kein
+// dauerhaft haengiger Schreibauftrag mehr. Traegt der Tag bereits die
+// URL dieses Werkzeugs, wird gar nicht geschrieben.
+var _wzNfcActiveCancel=null; // beendet die laufende Schreib-/Sperr-Session (UI inkl.)
+function _wzNfcAbortOp(){
+  var c=_wzNfcActiveCancel;
+  _wzNfcActiveCancel=null;
+  _wzNfcCancelWrite();
+  if(c)c();
+}
+function _wzWriteNFC(){
   if(!('NDEFReader' in window)){alert('NFC wird von diesem Browser nicht unterstützt. Benötigt: Android + Chrome.');return;}
   var st=document.getElementById('nfcStatus');
   var btn=document.getElementById('nfcBtn');
-  // Bereits ein Schreibvorgang haengig? → derselbe Button bricht ihn ab.
-  if(_wzNfcWriteCtl){_wzNfcCancelWrite();return;}
-  _wzScanNewSession();  // Lese-Sessions/Pills abraeumen
-  _wzNfcPauseListen();  // Lese-Reader pausieren: nie scan + push parallel
-  var autoLock=_wzNfcLockOnWrite()&&_wzCanEdit()&&(typeof NDEFReader.prototype.makeReadOnly==='function'||typeof _wzNfcWriter().makeReadOnly==='function');
+  // Bereits ein Vorgang aktiv? → derselbe Button bricht ihn ab.
+  if(_wzNfcWriteCtl){_wzNfcAbortOp();if(st)st.textContent='Abgebrochen.';return;}
+  var gen=_wzScanNewSession(); // verdraengt Lese-Sessions (Koffer/Sammel)
+  var autoLock=_wzNfcLockOnWrite()&&_wzCanEdit()&&('NDEFReader' in window)&&(typeof NDEFReader.prototype.makeReadOnly==='function');
   var ctl=(typeof AbortController!=='undefined')?new AbortController():null;
   _wzNfcWriteCtl=ctl;
-  var timedOut=false;
-  var timer=setTimeout(function(){
-    if(_wzNfcWriteCtl===ctl){timedOut=true;_wzNfcCancelWrite();}
-  },window._WZ_NFC_TIMEOUT_MS);
-  _wzNfcWatchStart();
-  if(btn){btn.textContent='✕ Abbrechen';}
-  var wrote=false;
-  try{
-    await _wzNfcCooldown(st); // Abkuehlpause seit der letzten Operation
-    // Waehrend der Pause abgebrochen (Toggle/Timeout)? → sauber beenden,
-    // ohne write() mit totem Signal zu starten.
-    if(ctl&&ctl.signal.aborted){var _ab=new Error('aborted');_ab.name='AbortError';throw _ab;}
-    if(st)st.textContent='📡 NFC-Tag jetzt an das Gerät halten … '+(autoLock?'(wird nach dem Schreiben automatisch GESPERRT — Tag am Gerät lassen)':'(gesperrte Tags können nicht beschrieben werden)');
-    await _wzNfcWriter().write({records:[{recordType:'url',data:_currentNfcUrl}]},ctl?{signal:ctl.signal}:undefined);
-    wrote=true;
-    if(autoLock){
-      // Sperr-Kette: gleicher AbortController + gleicher Timeout deckt
-      // Schreiben UND Sperren ab; der Tag liegt noch am Geraet. Kurze
-      // Beruhigungspause zwischen den beiden Phasen.
-      if(st)st.textContent='✓ Geschrieben — Tag am Gerät LASSEN, wird gesperrt …';
-      await new Promise(function(r){setTimeout(r,400);});
-      await _wzNfcWriter().makeReadOnly(ctl?{signal:ctl.signal}:undefined);
-      // Writer nach dem Sperren frisch aufsetzen — eine Instanz, die
-      // makeReadOnly ausgefuehrt hat, wird nicht weiterverwendet.
-      _wzNfcWriterInst=null;
-      if(st)st.innerHTML='<span style="color:#16a34a;font-weight:700">✓ Geschrieben &amp; dauerhaft gesperrt. Tag jetzt vom Gerät wegnehmen.</span>';
-    }else{
-      if(st)st.innerHTML='<span style="color:#16a34a;font-weight:700">✓ Erfolgreich auf NFC-Tag geschrieben!</span>';
-    }
-  }catch(e){
-    // Teil-Erfolg: geschrieben, aber Sperren gescheitert — klar ausweisen,
-    // damit der User weiss, dass die URL auf dem Tag ist.
-    var prefix=wrote?'⚠ Geschrieben, aber Sperren fehlgeschlagen: ':'';
-    if(timedOut){
-      if(st)st.innerHTML='<span style="color:#dc2626">'+(wrote?esc(prefix)+'Zeitüberschreitung — Tag erneut anhalten und «🔒 Sperren» nutzen.':'⏱ Zeitüberschreitung — kein beschreibbarer Tag erkannt. '+esc(_WZ_NFC_LOCKED_HINT))+'</span>';
-    }else if(e.name==='AbortError'||(e.message&&e.message.indexOf('cancel')>=0)){
-      if(st)st.textContent=wrote?prefix+'abgebrochen. Tag ist beschrieben, aber NICHT gesperrt.':'Abgebrochen.';
-    }else if(e.name==='NotAllowedError'||e.name==='NotSupportedError'||e.name==='InvalidStateError'){
-      // NotAllowedError kommt bei GESPERRTEN Tags UND bei fehlender
-      // Berechtigung — die alte Meldung («Berechtigung verweigert»)
-      // schickte User faelschlich in die Browser-Einstellungen.
-      if(st)st.innerHTML='<span style="color:#d97706">'+(wrote?esc(prefix)+'Tag unterstützt das Sperren nicht oder ist bereits gesperrt.':esc(_WZ_NFC_LOCKED_HINT)+' (Falls es die Berechtigung ist: Chrome fragt beim ersten Mal — sonst Website-Einstellungen → NFC erlauben.)')+'</span>';
-    }else{
-      if(st)st.innerHTML='<span style="color:#dc2626">'+esc(prefix)+'Fehler: '+esc(e.message||'Unbekannt')+'</span>';
-    }
-  }finally{
-    clearTimeout(timer);
+  var finished=false,busy=false,wrote=false;
+  function endOp(msgHtml){
+    if(finished)return;
+    finished=true;
+    clearTimeout(timer);clearTimeout(hintTimer);
     _wzNfcLastOpEnd=Date.now();
-    // Nach jedem Sperr-VERSUCH (auch gescheitertem) den Writer frisch
-    // aufsetzen — eine Instanz mit makeReadOnly-Historie wird nie
-    // weiterverwendet.
-    if(autoLock&&wrote)_wzNfcWriterInst=null;
+    if(gen===_wzScanGen)_wzNfcHandler=null;
+    if(_wzNfcActiveCancel===cancelFn)_wzNfcActiveCancel=null;
     if(_wzNfcWriteCtl===ctl)_wzNfcWriteCtl=null;
+    if(autoLock&&wrote)_wzNfcWriterInst=null; // Instanz mit Sperr-Historie nie weiterverwenden
     _wzNfcWatchStop();
     if(btn){btn.textContent='📡 NFC';btn.disabled=false;btn.style.opacity='1';}
+    if(st&&msgHtml!==undefined)st.innerHTML=msgHtml;
   }
+  function cancelFn(){endOp('Abgebrochen.');}
+  _wzNfcActiveCancel=cancelFn;
+  var timer=setTimeout(function(){
+    if(finished)return;
+    _wzNfcCancelWrite();
+    _wzNfcLog('op_timeout','phase='+(busy?(wrote?'sperren':'schreiben'):'warten auf Tag'));
+    endOp('<span style="color:#dc2626">⏱ Kein NFC-Tag erkannt. Tag direkt an die NFC-Antenne halten (Rückseite Mitte/oben), kurz wegnehmen und erneut anhalten — dann nochmals «📡 NFC» tippen.</span>');
+  },window._WZ_NFC_TIMEOUT_MS);
+  // Liegt der Tag SCHON am Geraet, feuert kein neues reading-Event —
+  // der Hinweis erklaert das Wegnehmen/Neu-Anhalten.
+  var hintTimer=setTimeout(function(){
+    if(!finished&&!busy&&st)st.textContent='📡 Kein Tag erkannt — liegt er schon am Gerät? Kurz WEGNEHMEN und erneut anhalten.';
+  },window._WZ_NFC_HINT_MS||5000);
+  _wzNfcWatchStart();
+  _wzNfcLog('write_start',(autoLock?'mit Auto-Sperren · ':'')+((_currentNfcUrl.split('scan=')[1])||''));
+  if(btn){btn.textContent='✕ Abbrechen';}
+  _wzNfcCooldown(st).then(function(){
+    if(finished)return;
+    if(st)st.textContent='📡 NFC-Tag jetzt an das Gerät halten … '+(autoLock?'(wird nach dem Schreiben automatisch GESPERRT)':'');
+    return _wzNfcListen(async function(ev){
+      if(finished||busy||gen!==_wzScanGen)return;
+      busy=true;
+      try{
+        // Traegt der Tag bereits die URL dieses Werkzeugs? → fertig.
+        var existing='';
+        try{
+          (ev.message&&ev.message.records||[]).forEach(function(r){
+            if(r.recordType==='url')existing=new TextDecoder().decode(r.data);
+          });
+        }catch(_e){}
+        if(existing===_currentNfcUrl&&!autoLock){
+          _wzNfcLog('write_skip','Tag traegt bereits diese URL');
+          endOp('<span style="color:#16a34a;font-weight:700">✓ Tag ist bereits mit diesem Werkzeug beschrieben.</span>');
+          return;
+        }
+        if(st)st.textContent='⏳ Tag erkannt — wird beschrieben … (Tag am Gerät LASSEN)';
+        await _wzNfcWriter().write({records:[{recordType:'url',data:_currentNfcUrl}]},ctl?{overwrite:true,signal:ctl.signal}:{overwrite:true});
+        wrote=true;
+        _wzNfcLog('write_ok','');
+        if(autoLock){
+          if(st)st.textContent='✓ Geschrieben — Tag am Gerät LASSEN, wird gesperrt …';
+          _wzNfcLog('lock_start','Auto-Sperren nach write');
+          await _wzNfcWriter().makeReadOnly(ctl?{signal:ctl.signal}:undefined);
+          _wzNfcLog('lock_ok','');
+          endOp('<span style="color:#16a34a;font-weight:700">✓ Geschrieben &amp; dauerhaft gesperrt. Tag jetzt vom Gerät wegnehmen.</span>');
+        }else{
+          endOp('<span style="color:#16a34a;font-weight:700">✓ Erfolgreich auf NFC-Tag geschrieben!</span>');
+        }
+      }catch(e){
+        _wzNfcLog('op_err','phase='+(wrote?'sperren':'schreiben')+' · '+((e&&e.name)||'')+' '+((e&&e.message)||''));
+        var prefix=wrote?'⚠ Geschrieben, aber Sperren fehlgeschlagen: ':'';
+        if(e&&(e.name==='AbortError'||(e.message&&e.message.indexOf('cancel')>=0))){
+          endOp(wrote?('<span style="color:#d97706">'+esc(prefix)+'abgebrochen. Tag ist beschrieben, aber NICHT gesperrt.</span>'):'Abgebrochen.');
+        }else if(e&&(e.name==='NotAllowedError'||e.name==='NotSupportedError'||e.name==='InvalidStateError'||e.name==='NetworkError')){
+          endOp('<span style="color:#d97706">'+(wrote?esc(prefix)+'Tag unterstützt das Sperren nicht oder ist bereits gesperrt.':esc(_WZ_NFC_LOCKED_HINT))+'</span>');
+        }else{
+          endOp('<span style="color:#dc2626">'+esc(prefix)+'Fehler: '+esc((e&&e.message)||'Unbekannt')+'</span>');
+        }
+      }
+    });
+  }).catch(function(e){
+    if(finished)return;
+    _wzNfcLog('op_err','scan-start · '+((e&&e.name)||'')+' '+((e&&e.message)||''));
+    endOp('<span style="color:#dc2626">NFC konnte nicht gestartet werden: '+esc((e&&e.message)||'Berechtigung?')+' — Chrome fragt beim ersten Mal nach der NFC-Berechtigung.</span>');
+  });
 }
-async function _wzMakeNFCReadOnly(){
+function _wzMakeNFCReadOnly(){
   if(!('NDEFReader' in window)){alert('NFC wird von diesem Browser nicht unterstützt. Benötigt: Android + Chrome.');return;}
   if(!_wzCanEdit()){alert('Keine Berechtigung — nur Magaziner und Admins dürfen Tags sperren.');return;}
-  if(!confirm('NFC-Tag dauerhaft schreibgeschützt machen?\n\n⚠ Diese Aktion ist UNWIDERRUFLICH.\nDer Tag kann anschliessend nie mehr beschrieben oder gelöscht werden.\n\nWICHTIG: Danach den Tag ZUERST vom Gerät wegnehmen — ein gesperrter Tag am Gerät bei laufendem Schreibvorgang kann den Browser blockieren.\n\nFortfahren?'))return;
+  if(!confirm('NFC-Tag dauerhaft schreibgeschützt machen?\n\n⚠ Diese Aktion ist UNWIDERRUFLICH.\nDer Tag kann anschliessend nie mehr beschrieben oder gelöscht werden.\n\nFortfahren?'))return;
   var st=document.getElementById('nfcStatus');
   var lockBtn=document.getElementById('nfcLockBtn');
   var wrtBtn=document.getElementById('nfcBtn');
-  _wzNfcCancelWrite();     // haengigen Schreibvorgang abloesen
-  _wzScanNewSession();     // Lese-Sessions/Pills abraeumen
-  _wzNfcPauseListen();     // Lese-Reader pausieren: nie scan + push parallel
+  _wzNfcAbortOp();          // laufenden Vorgang abloesen
+  var gen=_wzScanNewSession();
   var ctl=(typeof AbortController!=='undefined')?new AbortController():null;
   _wzNfcWriteCtl=ctl;
-  var timedOut=false;
-  var timer=setTimeout(function(){
-    if(_wzNfcWriteCtl===ctl){timedOut=true;_wzNfcCancelWrite();}
-  },window._WZ_NFC_TIMEOUT_MS);
-  _wzNfcWatchStart();
-  if(lockBtn){lockBtn.disabled=true;lockBtn.style.opacity='.6';}
-  if(wrtBtn){wrtBtn.disabled=true;wrtBtn.style.opacity='.6';}
-  try{
-    await _wzNfcCooldown(st); // Abkuehlpause seit der letzten Operation
-    if(ctl&&ctl.signal.aborted){var _ab=new Error('aborted');_ab.name='AbortError';throw _ab;}
-    if(st)st.textContent='🔒 NFC-Tag jetzt an das Gerät halten — wird gesperrt …';
-    var reader=_wzNfcWriter();
-    if(typeof reader.makeReadOnly!=='function'){
-      throw new Error('Browser unterstützt das Sperren von NFC-Tags nicht (makeReadOnly nicht verfügbar).');
-    }
-    await reader.makeReadOnly(ctl?{signal:ctl.signal}:undefined);
-    if(st)st.innerHTML='<span style="color:#16a34a;font-weight:700">✓ NFC-Tag dauerhaft gesperrt. Tag jetzt vom Gerät wegnehmen.</span>';
-  }catch(e){
-    if(timedOut){
-      if(st)st.innerHTML='<span style="color:#dc2626">⏱ Zeitüberschreitung — kein sperrbarer Tag erkannt (bereits gesperrte Tags können nicht erneut gesperrt werden).</span>';
-    }else if(e.name==='AbortError'||(e.message&&e.message.indexOf('cancel')>=0)){
-      if(st)st.textContent='Abgebrochen.';
-    }else if(e.name==='NotAllowedError'||e.name==='NotSupportedError'){
-      if(st)st.innerHTML='<span style="color:#d97706">Sperren nicht möglich — Tag ist bereits gesperrt oder unterstützt das Sperren nicht.</span>';
-    }else{
-      if(st)st.innerHTML='<span style="color:#dc2626">Fehler: '+esc(e.message||'Unbekannt')+'</span>';
-    }
-  }finally{
+  var finished=false,busy=false;
+  function endOp(msgHtml){
+    if(finished)return;
+    finished=true;
     clearTimeout(timer);
     _wzNfcLastOpEnd=Date.now();
-    // Writer nach einem Sperr-Vorgang frisch aufsetzen — eine Instanz,
-    // die makeReadOnly ausgefuehrt hat, wird nicht weiterverwendet.
-    _wzNfcWriterInst=null;
+    if(gen===_wzScanGen)_wzNfcHandler=null;
+    if(_wzNfcActiveCancel===cancelFn)_wzNfcActiveCancel=null;
     if(_wzNfcWriteCtl===ctl)_wzNfcWriteCtl=null;
+    _wzNfcWriterInst=null;  // Instanz mit Sperr-Historie nie weiterverwenden
     _wzNfcWatchStop();
     if(lockBtn){lockBtn.disabled=false;lockBtn.style.opacity='1';}
-    if(wrtBtn){wrtBtn.disabled=false;wrtBtn.style.opacity='1';}
+    if(wrtBtn){wrtBtn.textContent='📡 NFC';wrtBtn.disabled=false;wrtBtn.style.opacity='1';}
+    if(st&&msgHtml!==undefined)st.innerHTML=msgHtml;
   }
+  function cancelFn(){endOp('Abgebrochen.');}
+  _wzNfcActiveCancel=cancelFn;
+  var timer=setTimeout(function(){
+    if(finished)return;
+    _wzNfcCancelWrite();
+    _wzNfcLog('op_timeout','phase='+(busy?'sperren':'warten auf Tag'));
+    endOp('<span style="color:#dc2626">⏱ Kein NFC-Tag erkannt — Tag kurz wegnehmen, erneut anhalten und nochmals versuchen.</span>');
+  },window._WZ_NFC_TIMEOUT_MS);
+  _wzNfcWatchStart();
+  _wzNfcLog('lock_start','manuell (🔒 Sperren)');
+  if(lockBtn){lockBtn.disabled=true;lockBtn.style.opacity='.6';}
+  if(wrtBtn){wrtBtn.disabled=true;wrtBtn.style.opacity='.6';}
+  _wzNfcCooldown(st).then(function(){
+    if(finished)return;
+    if(st)st.textContent='🔒 NFC-Tag jetzt an das Gerät halten — wird gesperrt …';
+    return _wzNfcListen(async function(ev){
+      if(finished||busy||gen!==_wzScanGen)return;
+      busy=true;
+      try{
+        var reader=_wzNfcWriter();
+        if(typeof reader.makeReadOnly!=='function'){
+          throw new Error('Browser unterstützt das Sperren von NFC-Tags nicht (makeReadOnly nicht verfügbar).');
+        }
+        if(st)st.textContent='⏳ Tag erkannt — wird gesperrt … (Tag am Gerät LASSEN)';
+        await reader.makeReadOnly(ctl?{signal:ctl.signal}:undefined);
+        _wzNfcLog('lock_ok','');
+        endOp('<span style="color:#16a34a;font-weight:700">✓ NFC-Tag dauerhaft gesperrt. Tag jetzt vom Gerät wegnehmen.</span>');
+      }catch(e){
+        _wzNfcLog('op_err','phase=sperren · '+((e&&e.name)||'')+' '+((e&&e.message)||''));
+        if(e&&(e.name==='AbortError'||(e.message&&e.message.indexOf('cancel')>=0))){
+          endOp('Abgebrochen.');
+        }else if(e&&(e.name==='NotAllowedError'||e.name==='NotSupportedError')){
+          endOp('<span style="color:#d97706">Sperren nicht möglich — Tag ist bereits gesperrt oder unterstützt das Sperren nicht.</span>');
+        }else{
+          endOp('<span style="color:#dc2626">Fehler: '+esc((e&&e.message)||'Unbekannt')+'</span>');
+        }
+      }
+    });
+  }).catch(function(e){
+    if(finished)return;
+    _wzNfcLog('op_err','scan-start · '+((e&&e.name)||'')+' '+((e&&e.message)||''));
+    endOp('<span style="color:#dc2626">NFC konnte nicht gestartet werden: '+esc((e&&e.message)||'Berechtigung?')+'</span>');
+  });
 }
+// 🩺 NFC-Diagnose: Version/Umgebung/Berechtigung + die letzten Ereignisse
+// aus dem persistenten Log — nach einem Einfrieren hier nachsehen und das
+// Log per «kopieren» weitergeben.
+window._wzNfcDiag=function(){
+  function render(perm){
+    var log=_wzNfcLogRead().slice(-25).reverse();
+    var rows=log.map(function(l){
+      var color=/err|timeout|freeze|interrupted/.test(l.ev)?'#dc2626':(/_ok|load/.test(l.ev)?'#16a34a':'#475569');
+      return '<tr><td style="padding:3px 8px;font-size:11px;color:#94a3b8;white-space:nowrap;vertical-align:top">'+esc(l.d+' '+l.t)+'</td>'
+        +'<td style="padding:3px 8px;font-size:11.5px;font-weight:700;color:'+color+';white-space:nowrap;vertical-align:top">'+esc(l.ev)+'</td>'
+        +'<td style="padding:3px 8px;font-size:11px;color:#475569;word-break:break-word">'+esc(l.x||'')+'</td></tr>';
+    }).join('')||'<tr><td colspan="3" style="padding:10px;color:#94a3b8;font-size:12px">Noch keine NFC-Ereignisse aufgezeichnet.</td></tr>';
+    var mode=(window.matchMedia&&matchMedia('(display-mode: standalone)').matches)?'Installierte App':'Browser-Tab';
+    var chrome=(navigator.userAgent.match(/Chrome\/[\d.]+/)||['?'])[0];
+    var info=[
+      ['GEMA-Build',_WZ_NFC_BUILD],
+      ['Browser',chrome+' · '+mode],
+      ['Web-NFC',('NDEFReader' in window)?'verfügbar':'NICHT verfügbar (nur Android Chrome)'],
+      ['Tag-Sperren (makeReadOnly)',('NDEFReader' in window&&typeof NDEFReader.prototype.makeReadOnly==='function')?'verfügbar':'nicht verfügbar'],
+      ['NFC-Berechtigung',perm],
+      ['Auto-Sperren-Einstellung',_wzNfcLockOnWrite()?'AKTIV (schreibt + sperrt in einem Zug)':'aus']
+    ].map(function(p){return '<div style="display:flex;gap:8px;font-size:12px;padding:3px 0"><span style="min-width:165px;color:#64748b;flex-shrink:0">'+p[0]+'</span><strong style="color:#0f172a;word-break:break-word">'+esc(p[1])+'</strong></div>';}).join('');
+    var html='<div class="dlg-card" style="max-width:560px;max-height:88vh;overflow-y:auto">'
+      +'<h3 style="margin:0 0 6px;font-size:17px;font-weight:800;color:#0f172a">🩺 NFC-Diagnose</h3>'
+      +info
+      +'<div style="font-size:12px;font-weight:800;color:#3730a3;text-transform:uppercase;letter-spacing:.5px;margin:12px 0 6px">Letzte NFC-Ereignisse (neueste zuoberst)</div>'
+      +'<div style="border:1px solid #e5e7eb;border-radius:9px;overflow:auto;max-height:260px"><table style="border-collapse:collapse;width:100%">'+rows+'</table></div>'
+      +'<div style="font-size:11.5px;color:#64748b;margin-top:10px;line-height:1.55;background:#f8fafc;border:1px solid #eef1f6;border-radius:9px;padding:10px 12px"><strong>Wenn Chrome beim Schreiben einfriert:</strong><br>1. ALLE GEMA-Fenster schliessen — es darf nur EIN GEMA offen sein (installierte App ODER Browser-Tab, nicht beides).<br>2. Android-Einstellungen → NFC aus- und wieder einschalten.<br>3. Nur EINEN frischen (nie gesperrten) Tag ans Gerät halten — gesperrte Tags und den Tag-Vorrat weg vom Handy.<br>4. Klemmt es weiterhin: hier «📋 Log kopieren» und das Log dem GEMA-Support melden.</div>'
+      +'<div class="dlg-row">'
+      +'<button onclick="_wzNfcLogCopy()" class="dlg-cancel">📋 Log kopieren</button>'
+      +'<button onclick="_wzNfcLogClear()" class="dlg-cancel">🗑 Log leeren</button>'
+      +'<button onclick="_wzCloseModal()" style="padding:9px 18px;border-radius:8px;border:none;background:#0f172a;color:#fff;cursor:pointer;font-weight:700;font-family:inherit">Schliessen</button>'
+      +'</div></div>';
+    _wzShowModal(html);
+  }
+  if(navigator.permissions&&navigator.permissions.query){
+    navigator.permissions.query({name:'nfc'}).then(function(p){render(p.state);}).catch(function(){render('unbekannt');});
+  }else render('unbekannt');
+};
+window._wzNfcLogCopy=function(){
+  var txt='GEMA NFC-Log '+_WZ_NFC_BUILD+' · '+navigator.userAgent+'\n'
+    +_wzNfcLogRead().map(function(l){return l.d+' '+l.t+'  '+l.ev+'  '+(l.x||'');}).join('\n');
+  if(navigator.clipboard&&navigator.clipboard.writeText){
+    navigator.clipboard.writeText(txt).then(function(){if(typeof showToast==='function')showToast('✓ Log kopiert');});
+  }
+};
+window._wzNfcLogClear=function(){
+  try{localStorage.removeItem('gema_wz_nfclog_v1');}catch(e){}
+  _wzNfcLastInterrupted=false;
+  _wzCloseModal();
+  if(typeof showToast==='function')showToast('Log geleert');
+};
 function downloadQR(){
   const c=document.getElementById('qrCanvas').querySelector('canvas');if(!c)return;
   const a=document.createElement('a');a.download=`QR_${document.getElementById('qrTitle').textContent.replace(/\s+/g,'_')}.png`;a.href=c.toDataURL();a.click();
