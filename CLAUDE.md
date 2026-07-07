@@ -2091,6 +2091,10 @@ Als installierte PWA (display:standalone) + `viewport-fit=cover` liegt die Seite
 - **Fixed-top-Elemente padden sich selbst um den Inset**: Offline-Banner (gema_sync.js), Notify-Panel/Toasts (gema_notify_ui.js, `top:calc(56px/66px + env(…))`), Feedback-Overlay (gema_feedback.js); GemaDialog + Mobile-Menü waren schon safe-area-aware. **Jedes NEUE `position:fixed`-Element mit top-Bezug braucht `env(safe-area-inset-top)`** (unten analog `safe-area-inset-bottom`, vgl. Abschnitt 8 act-bar/footer-bar).
 - **`overflow-x: clip` statt `hidden` auf html/body (NIE zurückdrehen!)**: `overflow-x:hidden` erzwingt per Spec `overflow-y:auto` → html/body werden Scroll-Container → **`position:sticky` klebte auf KEINER Seite mehr** (die Nav scrollte weg, obwohl sie «immer sichtbar» sein soll). `clip` klippt horizontal identisch, erzeugt aber keinen Scroll-Container. Die `hidden`-Zeile davor bleibt als Fallback für sehr alte Browser stehen.
 
+### iOS-Feel auf Touch-Geräten (gema_responsive.css Abschnitt 14)
+
+GEMA soll sich installiert wie eine native App anfühlen: global `-webkit-tap-highlight-color: transparent` (Feedback über `:active`-Zustände statt grauem Blitz), `touch-action: manipulation` auf allen Bedienelementen (kein Doppeltipp-Zoom-Delay), UI-Controls (Buttons/Chips/Tabs/Nav) auf coarse Pointern nicht selektierbar + ohne Long-Press-Callout, einheitliches Press-Feedback (`scale(0.96)`); Inhalte (Inputs/Tabellen/Resultate) bleiben selektierbar. Inputs stehen global auf ≥16px (kein iOS-Fokus-Zoom, Abschnitt 1). Desktop-Verhalten unverändert (alles hinter `@media (hover:none) and (pointer:coarse)` bzw. wirkungslos ohne Touch).
+
 ### Install-Helper (`gema_pwa.js`)
 
 Globaler Singleton, der den `beforeinstallprompt`-Event abfängt (das Browser-Event feuert nur einmal — wir halten es im Speicher, damit der User die Installation jederzeit auslösen kann).
@@ -2129,7 +2133,7 @@ UI-Anbindung:
 | `gema_dialog.js` | Eigene Alert/Confirm/Prompt-Dialoge im GEMA-Style. `window.alert` global ueberschrieben. `GemaDialog.confirm({title,message,danger}).then(ok=>…)` und `GemaDialog.prompt(...)` als Promise-API. `window.confirm` bleibt nativ (sync), neue Stellen sollen GemaDialog nutzen |
 | `gema_feedback.js` | Feedback-Overlay mit Annotation |
 | `gema_lu_api.js` | LU-Zusammenstellung Cross-Modul-API |
-| `gema_mobile_menu.js` | Hamburger-Menü auf Mobile |
+| `gema_mobile_menu.js` | Hamburger-Menü auf Mobile (v2, iOS-Feel): Sektionen Navigation (Startseite/Projekte, permission-guarded) · Zuletzt verwendet (via `GemaRecent`) · Aktionen (Seiten-Buttons, ohne Chevron) · Verwaltung (admin) · Konto (Einstellungen/Feedback/Abmelden); tappbarer User-Block → sys_profil; Footer «Als App installieren» (wenn GemaPWA bereit); Swipe-nach-rechts schliesst; Body-Lock via GemaScroll. **Verschiebt die Notify-Glocke (`.gn-btn`) auf Mobile NEBEN den Hamburger** (Klasse `gn-btn--nav`) statt sie mit `.g-nav-right` zu verstecken — Badge bleibt sichtbar; Desktop-Resize stellt sie zurück |
 | `gema_notify.js` | Notifikations-Engine |
 | `gema_notify_ui.js` | Glocke + Toast-UI |
 | `gema_objekte_api.js` | Objekte/Projekte Cross-Modul-API |
@@ -2144,7 +2148,7 @@ UI-Anbindung:
 | `gema_pwa.js` | PWA-Install-Helper (`beforeinstallprompt`-Capture, `GemaPWA.install()`) |
 | `gema_qr_scanner.js` | QR-Code-Scanner (`GemaQR.scan(cb)`) |
 | `gema_nfc_scanner.js` | Web-NFC-Reader mit automatischem QR-Fallback. `GemaNFC.scan({mode:'auto',onScan})` nutzt `NDEFReader` wenn verfügbar, sonst `GemaQR`. `GemaNFC.parseTgUrl(payload)` extrahiert Geräte-ID aus URL oder Direkt-String. iPhone-Hinweis automatisch eingeblendet (kein Browser-NFC, aber Hintergrund-Scan öffnet URL). |
-| `gema_recent.js` | Tracking + Anzeige zuletzt genutzter Module |
+| `gema_recent.js` | Tracking + Anzeige zuletzt genutzter Module. `PAGE_LABELS` = vollständige Map ALLER Seiten (aus `<title>` generiert — bei neuen Seiten ergänzen!); Public API `window.GemaRecent {list, label, currentKey}` fürs Mobile-Menü |
 | `gema_responsive.css` | Globale Responsive-/Layout-Regeln (Mobile + Tablet) |
 | `gema_scroll.js` | Scroll-Position-Restore + globaler Body-Scroll-Lock fuer Modals (`GemaScroll.lock/unlock`, Auto-Hook auf `.modal-bg`) |
 | `gema_storage.js` | **Bild-Upload in Supabase Storage** (Bucket `gema-fotos`). `GemaStorage.uploadDataUrl(dataUrl, pathHint)` laedt ein Base64-Bild als Datei hoch, verifiziert die oeffentliche Erreichbarkeit (Image-Load) und liefert `{url, path}`; im Record steht dann nur die URL statt Base64 → kleine Records, keine Request-Groessen-/localStorage-Quota-Probleme. Reject bei fehlendem/falsch konfiguriertem Bucket → Aufrufer faellt auf Base64 zurueck. **Setup (Dashboard, einmalig):** Bucket `gema-fotos` als Public anlegen + INSERT-Policy fuer Rolle `anon`. **Akzeptiert `data:image/*` UND `data:application/pdf`** (PDF-Verifikation via HEAD/Range-fetch statt Image-Load; genutzt fuer Lieferanten-Offerten-PDFs, Pfad `offerten/<lieferantId>`). Eingesetzt in `sp_dachbericht.html`, `sd_schadensbericht.html`, `sys_lieferant_dashboard.html` (Offerten-PDF) und `pm_abnahme.html` (Mangel-Fotos + Plan-Pin-Fotos via `_abUploadFotosToStorage`; Plan-Dateien/PDFs werden NICHT ausgelagert — Helper akzeptiert nur Bilder + Canvas/pdf.js-Kopplung). Bilder werden beim Save nach Storage ausgelagert; Bild-Quelle via `url || dataUrl`, jsPDF-Export rehydriert `url`→DataURL. |
