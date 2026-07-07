@@ -1717,9 +1717,58 @@ function _wzMostFrequent(entries, getKey){
   return best;
 }
 
+// Pruefungen aus bestehenden identischen Geraeten uebernehmen: sobald
+// Bezeichnung + Hersteller + Modell einem bereits erfassten Geraet
+// entsprechen, werden dessen aktivierte Pruefungen (Service / Elektro /
+// Leiter samt Intervall) im Formular automatisch angewaehlt — derselbe
+// Geraetetyp hat dieselbe Pruefpflicht. ADD-ONLY (nichts wird abgewaehlt),
+// nur bei Neuerfassung, und pro Kombination nur EINMAL — waehlt der User
+// eine Pruefung danach bewusst ab, bleibt sie ab.
+var _wzLastPruefTrio='';
+function _wzAutoPruefungenFromExisting(){
+  var eid=document.getElementById('f_editId');
+  if(eid&&eid.value)return;
+  var name=(document.getElementById('f_name').value||'').trim().toLowerCase();
+  var brand=(document.getElementById('f_brand').value||'').trim().toLowerCase();
+  var model=(document.getElementById('f_model').value||'').trim().toLowerCase();
+  if(!name||!brand||!model)return;
+  var key=name+'|'+brand+'|'+model;
+  if(key===_wzLastPruefTrio)return;
+  var matching=tools.filter(function(t){
+    if(_wzIsKoffer(t))return false;
+    return (t.name||'').trim().toLowerCase()===name
+        && (t.brand||'').trim().toLowerCase()===brand
+        && (t.model||'').trim().toLowerCase()===model;
+  });
+  if(!matching.length)return;
+  _wzLastPruefTrio=key;
+  var opt=_wzGetOptFelder();
+  [
+    {flag:'hasService',ts:'service',intField:'f_serviceInterval',intKey:'serviceInterval',on:opt.service!==false},
+    {flag:'hasElec',ts:'elec',intField:'f_elecInterval',intKey:'elecInterval',on:opt.elektro!==false},
+    // Leiter-Sektion existiert nur bei Kategorie 'leiter' — sonst wuerde
+    // eine unsichtbare Checkbox gesetzt.
+    {flag:'hasLeiter',ts:'leiter',intField:'f_leiterInterval',intKey:'leiterInterval',on:opt.leiter!==false&&document.getElementById('f_cat').value==='leiter'}
+  ].forEach(function(c){
+    if(!c.on)return;
+    var withCheck=matching.filter(function(t){return !!t[c.flag];});
+    if(!withCheck.length)return;
+    var cb=document.getElementById('f_has'+cap(c.ts));
+    if(cb&&!cb.checked)syncTS(c.ts,true);
+    var iv=_wzMostFrequent(withCheck,function(t){return t[c.intKey]?String(t[c.intKey]):'';});
+    if(iv){var f=document.getElementById(c.intField);if(f)f.value=iv;}
+  });
+}
+
 function _wzSetupAutocomplete(){
   var mb=document.querySelector('#addModal .modal-body');
   if(mb)mb.addEventListener('scroll',_wzCloseAllAC);
+  // Manuell getippte (statt per Dropdown gewaehlte) Werte triggern die
+  // Pruefungs-Uebernahme ueber das change-Event.
+  ['f_name','f_brand','f_model'].forEach(function(id){
+    var el=document.getElementById(id);
+    if(el)el.addEventListener('change',_wzAutoPruefungenFromExisting);
+  });
 
   _wzInitAC('f_name',function(q){
     var entries=_wzGetKatalogEntries();
@@ -1752,6 +1801,7 @@ function _wzSetupAutocomplete(){
     // Lieferanten-Katalog-Treffer? → Bild + Produkt-Link uebernehmen
     var liefE = matching.find(function(e){ return e.src==='lieferant'; });
     if(liefE) _wzApplyKatalogPick(liefE);
+    _wzAutoPruefungenFromExisting();
   });
 
   _wzInitAC('f_brand',function(q){
@@ -1788,6 +1838,7 @@ function _wzSetupAutocomplete(){
       fCat.value = bestCat;
       onCatChange();
     }
+    _wzAutoPruefungenFromExisting();
   });
 
   _wzInitAC('f_model',function(q){
@@ -1818,6 +1869,7 @@ function _wzSetupAutocomplete(){
       onCatChange();
     }
     _wzApplyKatalogPick(e);
+    _wzAutoPruefungenFromExisting();
   });
 
   _wzInitAC('f_supplier',function(q){
@@ -2457,6 +2509,8 @@ function clearForm(){
   document.getElementById('ts_leiter').style.display='none';
   // Garantie-Tracking zuruecksetzen: Feld ist wieder im 'Auto'-Modus
   var w=document.getElementById('f_warranty'); if(w) w.dataset.manual='0';
+  // Pruefungs-Uebernahme: naechste Erfassung startet frisch
+  _wzLastPruefTrio='';
 }
 const cap=s=>s.charAt(0).toUpperCase()+s.slice(1);
 
