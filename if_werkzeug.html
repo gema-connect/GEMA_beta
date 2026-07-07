@@ -2607,6 +2607,10 @@ function _wzSaveAndQR(){
 function editTool(id){
   if(!_wzCanEdit()){alert('Keine Berechtigung — nur Magaziner/Admin dürfen Geräte bearbeiten.');return;}
   const t=tools.find(x=>x.id===id);if(!t)return;
+  // Koffer: eigener kompakter Dialog (Name/Kennung/Zuteilung/Notizen) —
+  // das Werkzeug-Formular verlangt Kaufdatum/Kategorie, die ein Koffer
+  // nicht hat, und liesse sich nicht speichern.
+  if(_wzIsKoffer(t)){openKofferForm(id);return;}
   clearForm();
   _wzPopulateCatSelect(t.cat);
   _wzApplyOptFelder();
@@ -3118,34 +3122,119 @@ function _wzLendToSelf(toolId){
 // eine Vollstaendigkeitskontrolle. Inhalt/Reihenfolge pflegt der
 // zugeteilte Monteur oder Magaziner/Admin (_wzCanEditKoffer).
 // ══════════════════════════════════════════════════════════════
-window.openNeuerKoffer=function(){
-  if(!_wzCanEdit()){alert('Keine Berechtigung — nur Magaziner/Admin dürfen Koffer erstellen.');return;}
-  var html='<div class="dlg-card" style="max-width:460px">'
-    +'<h3 style="margin:0 0 4px;font-size:17px;font-weight:800;color:#854d0e">🧰 Neuer Koffer</h3>'
-    +'<div style="font-size:12px;color:#64748b;margin-bottom:14px">Ein Koffer bündelt mehrere Werkzeuge und hat einen eigenen QR-Code für den Deckel — beim Scannen wird der ganze Inhalt ausgeliehen.</div>'
-    +'<label class="dlg-lbl">Bezeichnung *</label>'
-    +'<input id="kofName" class="dlg-inp" placeholder="z.B. Bohrhammer-Koffer Hilti TE 30"/>'
+window.openNeuerKoffer=function(){ openKofferForm(''); };
+
+// Gemeinsamer Koffer-Dialog fuer Erstellen UND Bearbeiten. Ein Koffer ist
+// zwar ein Tool-Datensatz, braucht aber weder Kaufdatum noch Marke/Modell —
+// das grosse Werkzeug-Formular (mit Pflicht-Kaufdatum) passt nicht.
+// Direkt-Zuteilung (Person oder Platz) gleich im Dialog.
+window.openKofferForm=function(kofferId){
+  if(!_wzCanEdit()){alert('Keine Berechtigung — nur Magaziner/Admin dürfen Koffer erstellen/bearbeiten.');return;}
+  var k=kofferId?tools.find(function(x){return x.id===kofferId;}):null;
+  if(kofferId&&(!k||!_wzIsKoffer(k)))return;
+  // Zuteilbare Personen wie im Zuweisungs-Dialog (eigene Org)
+  var personen=[];
+  if(typeof GemaAuth!=='undefined'){
+    try{
+      var me=_wzGetUser()||{};
+      personen=(GemaAuth.getUsers()||[]).filter(function(u){
+        if(!u.active)return false;
+        if(me.orgId && u.orgId!==me.orgId && !_wzIsAdmin())return false;
+        return u.roleIds && (u.roleIds.indexOf('role_monteur')>=0||u.roleIds.indexOf('role_unternehmer')>=0||u.roleIds.indexOf('role_magaziner')>=0);
+      });
+    }catch(e){}
+  }
+  var cur=(k&&k.zugewiesenAn)||{};
+  var curPlatz=(!cur.userId&&cur.platz)?cur.platz:'';
+  var opts='<option value="">— Nicht zugewiesen —</option>';
+  personen.forEach(function(p){
+    opts+='<option value="u:'+esc(p.id)+'"'+(cur.userId===p.id?' selected':'')+'>👤 '+esc(p.name||p.username)+'</option>';
+  });
+  opts+='<option value="p:"'+(curPlatz?' selected':'')+'>📍 Platz / Standort …</option>';
+  var html='<div class="dlg-card" style="max-width:460px;max-height:88vh;overflow-y:auto">'
+    +'<h3 style="margin:0 0 4px;font-size:17px;font-weight:800;color:#854d0e">🧰 '+(k?'Koffer bearbeiten':'Neuer Koffer')+'</h3>'
+    +(k?'':'<div style="font-size:12px;color:#64748b;margin-bottom:14px">Ein Koffer bündelt mehrere Werkzeuge und hat einen eigenen QR-Code für den Deckel — beim Scannen wird der ganze Inhalt ausgeliehen.</div>')
+    +'<label class="dlg-lbl"'+(k?' style="margin-top:8px;display:block"':'')+'>Bezeichnung *</label>'
+    +'<input id="kofName" class="dlg-inp" placeholder="z.B. Bohrhammer-Koffer Hilti TE 30" value="'+esc((k&&k.name)||'')+'"/>'
     +'<label class="dlg-lbl" style="margin-top:10px;display:block">Interne Kennung (optional)</label>'
-    +'<input id="kofKennung" class="dlg-inp" placeholder="z.B. KO-01"/>'
+    +'<input id="kofKennung" class="dlg-inp" placeholder="z.B. KO-01" value="'+esc((k&&k.internKennung)||'')+'"/>'
+    +'<label class="dlg-lbl" style="margin-top:10px;display:block">Zuteilung (optional)</label>'
+    +'<select id="kofZuw" class="dlg-inp" onchange="_wzKofferZuwChange()">'+opts+'</select>'
+    +'<div id="kofPlatzWrap" style="display:'+(curPlatz?'block':'none')+';margin-top:8px">'
+    +'  <input id="kofPlatz" class="dlg-inp" placeholder="z.B. Lager Halle B, Bus 3" value="'+esc(curPlatz)+'"/>'
+    +'  <div style="font-size:11px;color:#64748b;margin-top:5px;line-height:1.45">Bei Platz-Zuweisung darf jeder Monteur den Koffer selbstständig ausleihen und zurückbringen.</div>'
+    +'</div>'
+    +'<label class="dlg-lbl" style="margin-top:10px;display:block">Notizen (optional)</label>'
+    +'<textarea id="kofNotes" class="dlg-inp" rows="2" style="resize:vertical;min-height:52px">'+esc((k&&k.notes)||'')+'</textarea>'
     +'<div class="dlg-row">'
     +'  <button onclick="_wzCloseModal()" class="dlg-cancel">Abbrechen</button>'
-    +'  <button onclick="_wzSaveNeuerKoffer()" style="padding:9px 18px;border-radius:8px;border:none;background:#854d0e;color:#fff;cursor:pointer;font-weight:700;font-family:inherit">✓ Erstellen &amp; befüllen</button>'
+    +'  <button onclick="_wzSaveKofferForm(\''+esc(kofferId||'')+'\')" style="padding:9px 18px;border-radius:8px;border:none;background:#854d0e;color:#fff;cursor:pointer;font-weight:700;font-family:inherit">'+(k?'✓ Speichern':'✓ Erstellen &amp; befüllen')+'</button>'
     +'</div></div>';
   _wzShowModal(html);
 };
-window._wzSaveNeuerKoffer=function(){
+window._wzKofferZuwChange=function(){
+  var sel=document.getElementById('kofZuw');
+  var wrap=document.getElementById('kofPlatzWrap');
+  if(wrap)wrap.style.display=(sel&&sel.value==='p:')?'block':'none';
+};
+// Zuteilung aus dem Koffer-Dialog anwenden (nur bei Aenderung; Log +
+// Notifikation wie im Zuweisungs-Dialog)
+function _wzKofferApplyZuweisung(k){
+  var sel=document.getElementById('kofZuw');if(!sel)return;
+  var v=sel.value;
+  var cur=k.zugewiesenAn||null;
+  if(!v){
+    if(cur){delete k.zugewiesenAn;_wzActLog('zuweisung','Zuweisung entfernt',k);}
+    return;
+  }
+  if(v==='p:'){
+    var platz=(document.getElementById('kofPlatz').value||'').trim();
+    if(!platz){
+      if(cur){delete k.zugewiesenAn;_wzActLog('zuweisung','Zuweisung entfernt',k);}
+      return;
+    }
+    if(cur&&cur.platz===platz&&!cur.userId)return;
+    k.zugewiesenAn={typ:'platz',platz:platz,name:platz,seit:today()};
+    _wzActLog('zuweisung','Zugewiesen an Platz: '+platz,k);
+    return;
+  }
+  var uid=v.slice(2);
+  if(cur&&cur.userId===uid)return;
+  var users=(typeof GemaAuth!=='undefined')?(GemaAuth.getUsers()||[]):[];
+  var p=users.find(function(x){return x.id===uid;});
+  k.zugewiesenAn={typ:'user',userId:uid,name:p?(p.name||p.username):uid,seit:today()};
+  _wzActLog('zuweisung','Zugewiesen an '+k.zugewiesenAn.name,k);
+  if(typeof GemaNotify!=='undefined'&&p){
+    var n=(k.kofferInhalt||[]).length;
+    GemaNotify.push({eventKey:'werkzeug_zuweisung',empfaengerUserId:uid,modul:'werkzeug',typ:'info',
+      titel:'Koffer zugewiesen: '+k.name,
+      text:(n?n+' Teile':'Neuer Koffer')+(k.internKennung?' · 🏷 '+k.internKennung:''),
+      link:'if_werkzeug.html?view='+encodeURIComponent(k.id)});
+  }
+}
+window._wzSaveKofferForm=function(kofferId){
   var name=(document.getElementById('kofName').value||'').trim();
   if(!name){alert('Bitte Bezeichnung eingeben.');return;}
   var kennung=(document.getElementById('kofKennung').value||'').trim();
+  var notes=(document.getElementById('kofNotes').value||'').trim();
   var u=_wzGetUser()||{};
-  var k={id:'t_'+Date.now(),name:name,cat:'koffer',istKoffer:true,internKennung:kennung,
-    kofferInhalt:[],brand:'',model:'',bought:'',warranty:'',serial:'',notes:'',
-    hasService:false,hasElec:false,hasLeiter:false,orgId:u.orgId||''};
-  tools.push(k);
+  var k,isNew=false;
+  if(kofferId){
+    k=tools.find(function(x){return x.id===kofferId;});
+    if(!k)return;
+    k.name=name;k.internKennung=kennung;k.notes=notes;
+  }else{
+    isNew=true;
+    k={id:'t_'+Date.now(),name:name,cat:'koffer',istKoffer:true,internKennung:kennung,
+      kofferInhalt:[],brand:'',model:'',bought:'',warranty:'',serial:'',notes:notes,
+      hasService:false,hasElec:false,hasLeiter:false,orgId:u.orgId||''};
+    tools.push(k);
+  }
+  _wzKofferApplyZuweisung(k);
   save();renderList();
-  _wzActLog('erfasst','Koffer erstellt',k);
+  _wzActLog(isNew?'erfasst':'geaendert',isNew?'Koffer erstellt':'Koffer geändert',k);
   _wzCloseModal();
-  openKofferInhalt(k.id);
+  if(isNew)openKofferInhalt(k.id);
 };
 
 // ── Inhalt-Editor: Reihenfolge + Teile hinzufuegen/entfernen ──
@@ -3181,7 +3270,10 @@ window.openKofferInhalt=function(kofferId){
       +'</div>')
     :'<div style="font-size:11px;color:#94a3b8;margin-top:12px">Inhalt kann nur vom zugeteilten Monteur oder Magaziner/Admin angepasst werden.</div>';
   var html='<div class="dlg-card" style="max-width:560px;max-height:88vh;overflow-y:auto">'
-    +'<h3 style="margin:0 0 4px;font-size:17px;font-weight:800;color:#854d0e">🧰 '+esc(k.name)+'</h3>'
+    +'<div style="display:flex;align-items:flex-start;gap:8px">'
+    +'<h3 style="margin:0 0 4px;font-size:17px;font-weight:800;color:#854d0e;flex:1;min-width:0">🧰 '+esc(k.name)+'</h3>'
+    +(_wzCanEdit()?'<button onclick="openKofferForm(\''+esc(k.id)+'\')" style="padding:6px 12px;border-radius:8px;border:1px solid #e5e7eb;background:#fff;color:#475569;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;flex-shrink:0" title="Bezeichnung, Kennung, Zuteilung und Notizen bearbeiten">✏️ Bearbeiten</button>':'')
+    +'</div>'
     +'<div style="font-size:12px;color:#64748b;margin-bottom:12px">'+items.length+' Teil'+(items.length!==1?'e':'')
     +(k.zugewiesenAn?' · Zugeteilt: <strong>'+esc(k.zugewiesenAn.name||'')+'</strong>':'')
     +(canEdit?' · Reihenfolge mit ↑↓ anpassen':'')+'</div>'
