@@ -12,6 +12,8 @@
 
   // ── Supabase config (same as gema_db.js) ──
   var SB_URL = 'https://fjhbqjvaygvhievjgdtm.supabase.co';
+  // Laufzeit-Basis: folgt GemaSync.SB_URL (automatischer Proxy-Fallback /sb)
+  function _sbBase(){ try{ return (window.GemaSync && window.GemaSync.SB_URL) || SB_URL; }catch(e){ return SB_URL; } }
   var SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZqaGJxanZheWd2aGlldmpnZHRtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI2ODk5OTUsImV4cCI6MjA4ODI2NTk5NX0.n3AbrEKTWWhI2tnDaf7-Z-QI9o9pJiP1E7BsHVuZY9k';
 
   // Self-Healing: prueft, ob activeObjektId auf ein existierendes Objekt
@@ -70,7 +72,7 @@
 
   function _fetchFromSupabase() {
     if (_loaded) { _readyResolve(); return; }
-    var url = SB_URL + '/rest/v1/gema_data?module_key=eq.objekte&data_key=eq.' + KEY + '&select=payload';
+    var url = _sbBase() + '/rest/v1/gema_data?module_key=eq.objekte&data_key=eq.' + KEY + '&select=payload';
     var timeout = setTimeout(function(){ _readyResolve(); }, 3000);
     fetch(url, {
       headers: { 'apikey': SB_KEY, 'Authorization': 'Bearer ' + ((window.GemaSync && GemaSync.getAuthToken && GemaSync.getAuthToken()) || SB_KEY) }
@@ -133,7 +135,7 @@
   // Holt den alten Blob (Cloud-Row module_key=objekte,data_key=gema_objekte_v1
   // ODER localStorage) fuer die einmalige Migration auf Per-Record.
   function _fetchLegacyCloudBlob(){
-    var url = SB_URL + '/rest/v1/gema_data?module_key=eq.objekte&data_key=eq.' + KEY + '&select=payload';
+    var url = _sbBase() + '/rest/v1/gema_data?module_key=eq.objekte&data_key=eq.' + KEY + '&select=payload';
     return fetch(url, { headers: { 'apikey': SB_KEY, 'Authorization': 'Bearer ' + ((window.GemaSync && GemaSync.getAuthToken && GemaSync.getAuthToken()) || SB_KEY) } })
       .then(function(r){ return r.json(); })
       .then(function(rows){

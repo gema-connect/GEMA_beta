@@ -11,6 +11,8 @@
      KONFIGURATION  —  hier deine Supabase-Werte eintragen
      ══════════════════════════════════════════════════════════════════ */
   const SUPABASE_URL = 'https://fjhbqjvaygvhievjgdtm.supabase.co';    // z.B. https://abcxyz.supabase.co
+  // Laufzeit-Basis: folgt GemaSync.SB_URL (automatischer Proxy-Fallback /sb)
+  const _sbBase = () => { try{ return (window.GemaSync && window.GemaSync.SB_URL) || SUPABASE_URL; }catch(e){ return SUPABASE_URL; } };
   const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZqaGJxanZheWd2aGlldmpnZHRtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI2ODk5OTUsImV4cCI6MjA4ODI2NTk5NX0.n3AbrEKTWWhI2tnDaf7-Z-QI9o9pJiP1E7BsHVuZY9k';  // Settings → API → anon / public
   /* ══════════════════════════════════════════════════════════════════ */
 
@@ -86,7 +88,7 @@
         if (v === null) {
           /* DELETE */
           const r = await fetch(
-            `${SUPABASE_URL}/rest/v1/${TABLE}` +
+            `${_sbBase()}/rest/v1/${TABLE}` +
             `?module_key=eq.${encodeURIComponent(_module)}` +
             `&data_key=eq.${encodeURIComponent(k)}`,
             { method: 'DELETE', headers: hdrs() }
@@ -98,7 +100,7 @@
              Ohne diesen Parameter schlägt der 2. Speichervorgang
              mit einem Unique-Constraint-Fehler fehl. */
           const r = await fetch(
-            `${SUPABASE_URL}/rest/v1/${TABLE}?on_conflict=module_key%2Cdata_key`,
+            `${_sbBase()}/rest/v1/${TABLE}?on_conflict=module_key%2Cdata_key`,
             {
               method:  'POST',
               headers: hdrs({ 'Prefer': 'resolution=merge-duplicates,return=minimal' }),
@@ -146,7 +148,7 @@
       try {
         const csv = dataKeys.map(k => `"${k}"`).join(',');
         const url =
-          `${SUPABASE_URL}/rest/v1/${TABLE}` +
+          `${_sbBase()}/rest/v1/${TABLE}` +
           `?module_key=eq.${encodeURIComponent(moduleName)}` +
           `&data_key=in.(${csv})` +
           `&select=data_key,payload`;
@@ -197,7 +199,7 @@
     async loadFromModule(moduleKey, dataKey) {
       try {
         const url =
-          `${SUPABASE_URL}/rest/v1/${TABLE}` +
+          `${_sbBase()}/rest/v1/${TABLE}` +
           `?module_key=eq.${encodeURIComponent(moduleKey)}` +
           `&data_key=eq.${encodeURIComponent(dataKey)}` +
           `&select=payload`;
@@ -220,7 +222,7 @@
       try {
         showBadge('● Speichert…', 'yellow');
         const r = await fetch(
-          `${SUPABASE_URL}/rest/v1/${TABLE}?on_conflict=module_key%2Cdata_key`,
+          `${_sbBase()}/rest/v1/${TABLE}?on_conflict=module_key%2Cdata_key`,
           {
             method:  'POST',
             headers: hdrs({ 'Prefer': 'resolution=merge-duplicates,return=minimal' }),

@@ -22,6 +22,28 @@
   var SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZqaGJxanZheWd2aGlldmpnZHRtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI2ODk5OTUsImV4cCI6MjA4ODI2NTk5NX0.n3AbrEKTWWhI2tnDaf7-Z-QI9o9pJiP1E7BsHVuZY9k';
   var SB_TABLE = 'gema_data';
 
+  // ── Same-Origin-Proxy-Fallback (netlify.toml: /sb/* → supabase) ──────
+  // Auf manchen Geraeten ist *.supabase.co blockiert (Firewall/Werbe-
+  // blocker/DNS-Filter/Antivirus), waehrend die GEMA-Domain selbst laeuft
+  // («Failed to fetch» trotz Internet). Die Probe erkennt das und schaltet
+  // automatisch auf den Same-Origin-Weg /sb/* um (und zurueck, sobald der
+  // direkte Weg wieder geht). Der Zustand ueberlebt Reloads (localStorage).
+  var PROXY_FLAG = 'gema_sb_proxy_v1';
+  var _sbProxy = false;
+  try{
+    _sbProxy = typeof localStorage !== 'undefined'
+      && localStorage.getItem(PROXY_FLAG) === '1'
+      && typeof location !== 'undefined' && /^https?:/.test(location.origin);
+  }catch(e){}
+  function _proxyBase(){ return location.origin + '/sb'; }
+  function _sbBase(){ return _sbProxy ? _proxyBase() : SB_URL; }
+  function _setProxy(on){
+    if(_sbProxy === on) return;
+    _sbProxy = on;
+    try{ if(on) localStorage.setItem(PROXY_FLAG, '1'); else localStorage.removeItem(PROXY_FLAG); }catch(e){}
+    try{ console.info('[GemaSync] Verbindungsweg gewechselt → ' + (on ? 'Same-Origin-Proxy /sb (supabase.co blockiert?)' : 'direkt supabase.co')); }catch(e){}
+  }
+
   var _online = (typeof navigator !== 'undefined' && 'onLine' in navigator) ? navigator.onLine : true;
   var _lastReachable = _online; // Echte Cloud-Erreichbarkeit (nicht nur navigator.onLine)
   var _connListeners = [];
@@ -185,11 +207,12 @@
       _selfTest().then(function(t){
         if(!box || !_banner) return;
         var hint;
-        if(!t.sbOk && t.fnOk) hint = '→ Internet funktioniert, aber die Cloud-Datenbank (supabase.co) ist von diesem Geraet aus blockiert. Firewall, Werbeblocker (AdGuard/uBlock), Antivirus oder DNS-Filter pruefen.';
+        if(!t.sbOk && t.fnOk) hint = '→ Internet funktioniert, aber die Cloud-Datenbank (supabase.co) ist von diesem Geraet aus blockiert. GEMA weicht automatisch auf den GEMA-Server-Proxy aus («Erneut pruefen» klicken); dauerhaft besser: Firewall, Werbeblocker (AdGuard/uBlock), Antivirus oder DNS-Filter pruefen.';
         else if(!t.sbOk && !t.fnOk) hint = '→ Keine Verbindung zum Server — Internet/WLAN/VPN pruefen.';
         else hint = '→ Verbindung scheint wieder da — «Erneut pruefen» klicken.';
-        box.innerHTML = '<div>Cloud-Datenbank (Supabase): ' + t.supabase + '</div>'
+        box.innerHTML = '<div>Cloud-Datenbank (Supabase, direkt): ' + t.supabase + '</div>'
           + '<div>GEMA-Server (Netlify): ' + t.fn + '</div>'
+          + '<div>Aktiver Verbindungsweg: ' + (_sbProxy ? 'GEMA-Server-Proxy (/sb)' : 'direkt (supabase.co)') + '</div>'
           + (_lastFailMsg ? '<div>Letzter Fehler: ' + String(_lastFailMsg).replace(/[<>&]/g,'') + '</div>' : '')
           + '<div style="margin-top:4px;font-weight:600">' + hint + '</div>';
       });
@@ -207,12 +230,25 @@
   // (Ausloeser z.B. das window-'online'-Event nach WLAN-Reconnect).
   // 401 loest stattdessen die Session-abgelaufen-Behandlung aus.
   var _probing = false;
+  // Probe-Fetch mit hartem 6s-Timeout — haengende Verbindungen (Proxy/AV)
+  // sollen den Weg-Wechsel nicht beliebig verzoegern.
+  function _probeFetch(url){
+    var ctl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+    var t = ctl ? setTimeout(function(){ try{ ctl.abort(); }catch(e){} }, 6000) : null;
+    return fetch(url, { headers: _hdrs(), method: 'GET', signal: ctl ? ctl.signal : undefined })
+      .finally(function(){ if(t) clearTimeout(t); });
+  }
+  // Antwortet der ALTERNATIVE Weg brauchbar? PostgREST-typische Antworten
+  // zaehlen (2xx/400/401/403/406); 404 heisst «Proxy-Route nicht deployed»,
+  // 5xx «Server krank» — beides KEIN gueltiger Ausweichweg.
+  function _altUsable(r){
+    return r.ok || r.status === 400 || r.status === 401 || r.status === 403 || r.status === 406;
+  }
   function _probeOnce(){
     if(_probing) return Promise.resolve(_lastReachable);
     _probing = true;
-    return fetch(SB_URL + '/rest/v1/' + SB_TABLE + '?select=module_key&limit=1', {
-      headers: _hdrs(), method: 'GET'
-    }).then(function(r){
+    var qs = '/rest/v1/' + SB_TABLE + '?select=module_key&limit=1';
+    return _probeFetch(_sbBase() + qs).then(function(r){
       if(r.status === 401) _handle401();
       if(r.ok || (r.status >= 400 && r.status < 500 && r.status !== 408 && r.status !== 429)){
         _noteSuccess();          // Server hat geantwortet → erreichbar
@@ -221,8 +257,22 @@
       _noteFailure(new Error('HTTP ' + r.status));  // 5xx/408/429 → Streak-Regel
       return false;
     }).catch(function(){
-      _setReachable(false);      // aktive Probe wirft → Cloud wirklich unerreichbar
-      return false;
+      // Aktueller Weg wirft (wirklich unerreichbar) → anderen Weg testen:
+      // direkt blockiert? → Same-Origin-Proxy /sb. Proxy kaputt? → direkt.
+      var toProxy = !_sbProxy;
+      var httpOrigin = (typeof location !== 'undefined') && /^https?:/.test(location.origin || '');
+      if(toProxy && !httpOrigin){ _setReachable(false); return false; }
+      var alt = (toProxy ? _proxyBase() : SB_URL) + qs;
+      return _probeFetch(alt).then(function(r){
+        if(!_altUsable(r)){ _setReachable(false); return false; }
+        _setProxy(toProxy);
+        if(r.status === 401) _handle401();
+        _noteSuccess();
+        return true;
+      }).catch(function(){
+        _setReachable(false);    // beide Wege tot → Cloud wirklich unerreichbar
+        return false;
+      });
     }).finally(function(){ _probing = false; });
   }
 
@@ -231,7 +281,7 @@
    * Liefert Array<{key, data, lm}>. Reject bei Netz-Fehler.
    */
   function loadCollection(moduleKey, prefix){
-    var url = SB_URL + '/rest/v1/' + SB_TABLE
+    var url = _sbBase() + '/rest/v1/' + SB_TABLE
       + '?module_key=eq.' + encodeURIComponent(moduleKey)
       + '&data_key=like.' + encodeURIComponent(prefix) + '*'
       + '&select=data_key,payload';
@@ -259,7 +309,7 @@
    * Lädt eine einzelne Record-Row (key inklusive Prefix).
    */
   function loadRecord(moduleKey, dataKey){
-    var url = SB_URL + '/rest/v1/' + SB_TABLE
+    var url = _sbBase() + '/rest/v1/' + SB_TABLE
       + '?module_key=eq.' + encodeURIComponent(moduleKey)
       + '&data_key=eq.' + encodeURIComponent(dataKey)
       + '&select=payload';
@@ -289,7 +339,7 @@
   // eigenes payload inkl. _lm). Wird von saveRecord/saveRecords UND vom
   // Outbox-Flush genutzt. Zentrale Stelle fuer Reachability-Buchhaltung.
   function _postRecords(body, opts){
-    return fetch(SB_URL + '/rest/v1/' + SB_TABLE + '?on_conflict=module_key%2Cdata_key', {
+    return fetch(_sbBase() + '/rest/v1/' + SB_TABLE + '?on_conflict=module_key%2Cdata_key', {
       method: 'POST',
       headers: _hdrs({ 'Prefer': 'resolution=merge-duplicates,return=minimal' }),
       body: JSON.stringify(body),
@@ -356,7 +406,7 @@
     return _deleteRecordDirect(moduleKey, dataKey, opts);
   }
   function _deleteRecordDirect(moduleKey, dataKey, opts){
-    var url = SB_URL + '/rest/v1/' + SB_TABLE
+    var url = _sbBase() + '/rest/v1/' + SB_TABLE
       + '?module_key=eq.' + encodeURIComponent(moduleKey)
       + '&data_key=eq.' + encodeURIComponent(dataKey);
     return fetch(url, { method:'DELETE', headers: _hdrs(), keepalive: !!(opts && opts.keepalive) })
@@ -438,7 +488,7 @@
   //                    Bei Erfolg wird der Cache aktualisiert. Bei Offline:
   //                    KEIN Save, Reject mit klarer Fehlermeldung.
   function _legacyBlobFetch(moduleKey, storageKey){
-    var url = SB_URL + '/rest/v1/' + SB_TABLE
+    var url = _sbBase() + '/rest/v1/' + SB_TABLE
       + '?module_key=eq.' + encodeURIComponent(moduleKey)
       + '&data_key=eq.' + encodeURIComponent(storageKey)
       + '&select=payload';
@@ -732,7 +782,6 @@
     // GEMA Secure v1
     getAuthToken: _authToken,
     authFnUrl: AUTH_FN,
-    SB_URL: SB_URL,
     SB_KEY: SB_KEY,
     SB_TABLE: SB_TABLE,
 
@@ -764,6 +813,13 @@
     flushOutbox: function(opts){ return _outboxFlush(opts); },
     pendingCount: _outboxCount
   };
+  // SB_URL folgt dem aktiven Verbindungsweg (direkt supabase.co ODER
+  // Same-Origin-Proxy /sb) — als Getter, damit alle Konsumenten
+  // (gema_auth/_storage/_autosave/_db/_objekte_api lesen zur Laufzeit)
+  // den automatischen Weg-Wechsel mitmachen, ohne eigenen Code.
+  try{
+    Object.defineProperty(w.GemaSync, 'SB_URL', { get: _sbBase });
+  }catch(e){ w.GemaSync.SB_URL = SB_URL; }
 
   // ── C: Flush-Ausloeser ──────────────────────────────────────────────
   // Outbox bei jeder Gelegenheit leeren, damit nicht synchronisierte Saves
