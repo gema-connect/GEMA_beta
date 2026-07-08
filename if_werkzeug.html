@@ -288,7 +288,10 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
 .hint strong{color:var(--txt2)}
 
 /* Autocomplete */
-.ac-drop{position:fixed;background:var(--sur);border:1.5px solid var(--plan-bd);border-radius:10px;box-shadow:var(--sh-lg);z-index:9999;max-height:220px;overflow-y:auto;display:none}
+/* z-index 11500: ueber _wzShowModal (10500) — Autocompletes laufen auch in
+   dynamischen Dialogen (Koffer-Form, Zuweisung, Sammel-Bearbeitung); unter
+   QR-Scanner (12000) und GemaDialog (12800). */
+.ac-drop{position:fixed;background:var(--sur);border:1.5px solid var(--plan-bd);border-radius:10px;box-shadow:var(--sh-lg);z-index:11500;max-height:220px;overflow-y:auto;display:none}
 .ac-drop.open{display:block}
 .ac-drop::-webkit-scrollbar{width:5px}
 .ac-drop::-webkit-scrollbar-thumb{background:var(--brd2);border-radius:4px}
@@ -1327,6 +1330,8 @@ window._wzBulkEdit=function(){
     +'  <button onclick="_wzBulkEditConfirm()" style="padding:9px 18px;border-radius:8px;border:none;background:#16a34a;color:#fff;cursor:pointer;font-weight:700;font-family:inherit">Änderungen anwenden …</button>'
     +'</div></div>';
   _wzShowModal(html);
+  _wzInitAC('be_v_notes',_wzStandortSuggestions,null);
+  _wzInitAC('be_v_zuwPlatz',_wzStandortSuggestions,null);
 };
 window._wzBeToggle=function(key){
   var on=document.getElementById('be_on_'+key).checked;
@@ -1731,6 +1736,10 @@ function _wzGetKatalogEntries(){
     WERKZEUG_KATALOG.forEach(function(k){entries.push({name:k.name,brand:k.brand,model:k.model,cat:k.cat,src:'katalog'});});
   }
   tools.forEach(function(t){
+    // Koffer/Sets sind KEINE Werkzeug-Vorschlaege — die Bezeichnung eines
+    // Koffers gehoert nicht ins Erfassungs-Autocomplete (umgekehrt schlaegt
+    // der Koffer-Dialog nur andere Koffer vor, siehe openKofferForm).
+    if(_wzIsKoffer(t))return;
     if(t.name)entries.push({name:t.name,brand:t.brand||'',model:t.model||'',cat:t.cat||'',src:'tools'});
   });
   // Lieferanten-Produktkatalog (Kategorie 'werkzeuge'): Produkte, die
@@ -1779,8 +1788,14 @@ function _wzHighlight(text,q){
 function _wzInitAC(inputId,getSugg,onSelect){
   var inp=document.getElementById(inputId);
   if(!inp)return;
+  // Re-Init-sicher: dynamische Dialoge (Koffer-Form, Zuweisung, Sammel-
+  // Bearbeitung) erzeugen ihre Inputs bei jedem Oeffnen neu — das alte
+  // Dropdown desselben Feldes wird abgeraeumt, sonst sammeln sich
+  // verwaiste .ac-drop-Divs im body.
+  document.querySelectorAll('.ac-drop[data-ac-for="'+inputId+'"]').forEach(function(d){d.remove();});
   var drop=document.createElement('div');
   drop.className='ac-drop';
+  drop.setAttribute('data-ac-for',inputId);
   document.body.appendChild(drop);
   var activeIdx=-1,items=[];
 
@@ -1845,7 +1860,9 @@ function _wzInitAC(inputId,getSugg,onSelect){
   var modalBody = inp.closest('.modal-body');
   if (modalBody) modalBody.addEventListener('scroll', positionDrop, { passive:true });
   window.addEventListener('resize', positionDrop);
-  window.addEventListener('scroll', positionDrop, { passive:true });
+  // capture:true faengt auch Scrolls von Element-Containern (z.B. das
+  // _wzShowModal-Overlay der dynamischen Dialoge) — Scroll bubbelt nicht.
+  window.addEventListener('scroll', positionDrop, { passive:true, capture:true });
   if (window.visualViewport) {
     window.visualViewport.addEventListener('resize', positionDrop);
     window.visualViewport.addEventListener('scroll', positionDrop);
@@ -1883,6 +1900,30 @@ function _wzInitAC(inputId,getSugg,onSelect){
 }
 
 function _wzCloseAllAC(){document.querySelectorAll('.ac-drop.open').forEach(function(d){d.classList.remove('open');});}
+
+// Vorschlags-Quelle fuer ALLE Standort-/Platz-Felder: bereits erfasste
+// Standorte aus dem eigenen Bestand — Standort-Notizen der Werkzeuge
+// (t.notes, Koffer ausgenommen: deren Notizen sind Freitext) plus alle
+// Platz-Zuweisungen (typ 'platz', auch von Koffern — ein Platz ist immer
+// ein Standort). Case-insensitive dedupliziert.
+function _wzStandortSuggestions(q){
+  var ql=(q||'').toLowerCase(),seen={},result=[];
+  function add(s,hint){
+    s=(s||'').trim();
+    if(!s)return;
+    var k=s.toLowerCase();
+    if(ql&&k.indexOf(ql)<0)return;
+    if(seen[k])return;
+    seen[k]=true;
+    result.push({label:s,value:s,hint:hint||''});
+  }
+  tools.forEach(function(t){
+    if(!_wzIsKoffer(t))add(t.notes,'');
+    var z=t.zugewiesenAn;
+    if(z&&(z.typ==='platz'||(!z.typ&&!z.userId&&z.platz)))add(z.platz,'📍 Platz');
+  });
+  return result;
+}
 
 // Liefert den haeufigsten Wert aus einer Liste. Bei Gleichstand
 // gewinnt der erste. Eintraege mit src='tools' (eigene Geraete) zaehlen
@@ -2099,18 +2140,8 @@ function _wzSetupAutocomplete(){
     if(sel.supplierId){document.getElementById('f_supplierId').value=sel.supplierId;}
   });
 
-  // Standort / Abteilung — Vorschläge aus bestehenden Geräten
-  _wzInitAC('f_notes',function(q){
-    var ql=q.toLowerCase(),seen={},result=[];
-    tools.forEach(function(t){
-      if(!t.notes)return;
-      if(ql&&t.notes.toLowerCase().indexOf(ql)<0)return;
-      if(seen[t.notes])return;
-      seen[t.notes]=true;
-      result.push({label:t.notes,value:t.notes});
-    });
-    return result;
-  },null);
+  // Standort / Abteilung — Vorschläge aus bereits erfassten Standorten
+  _wzInitAC('f_notes',_wzStandortSuggestions,null);
 
   // Zugewiesen an — Vorschläge aus GemaAuth-Users + bestehenden Einträgen
   _wzInitAC('f_assignee',function(q){
@@ -3155,6 +3186,7 @@ function openZuweisung(toolId){
     + '</div>'
     + '</div>';
   _wzShowModal(html);
+  _wzInitAC('zuwPlatz',_wzStandortSuggestions,null);
 }
 
 // Tab-Switch im Zuweisungs-Modal
@@ -3483,6 +3515,24 @@ window.openKofferForm=function(kofferId){
     +'  <button onclick="_wzSaveKofferForm(\''+esc(kofferId||'')+'\')" style="padding:9px 18px;border-radius:8px;border:none;background:#854d0e;color:#fff;cursor:pointer;font-weight:700;font-family:inherit">'+(k?'✓ Speichern':'✓ Erstellen &amp; befüllen')+'</button>'
     +'</div></div>';
   _wzShowModal(html);
+  // Bezeichnungs-Vorschlaege NUR aus anderen Koffern (Werkzeug-Namen
+  // gehoeren nicht hierher — spiegelbildlich zur Werkzeug-Erfassung,
+  // die Koffer ausschliesst).
+  _wzInitAC('kofName',function(q){
+    var ql=q.toLowerCase(),seen={},result=[];
+    tools.forEach(function(t){
+      if(!_wzIsKoffer(t))return;
+      if(kofferId&&t.id===kofferId)return;
+      if(!t.name)return;
+      if(ql&&t.name.toLowerCase().indexOf(ql)<0)return;
+      if(seen[t.name])return;
+      seen[t.name]=true;
+      var n=(t.kofferInhalt||[]).length;
+      result.push({label:t.name,value:t.name,hint:n?n+' Teile':''});
+    });
+    return result;
+  },null);
+  _wzInitAC('kofPlatz',_wzStandortSuggestions,null);
 };
 window._wzKofferZuwChange=function(){
   var sel=document.getElementById('kofZuw');
