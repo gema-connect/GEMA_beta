@@ -11,6 +11,8 @@
   'use strict';
 
   var SB_URL = 'https://fjhbqjvaygvhievjgdtm.supabase.co';
+  // Laufzeit-Basis: folgt GemaSync.SB_URL (automatischer Proxy-Fallback /sb)
+  function _sbBase(){ try{ return (window.GemaSync && window.GemaSync.SB_URL) || SB_URL; }catch(e){ return SB_URL; } }
   var SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZqaGJxanZheWd2aGlldmpnZHRtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI2ODk5OTUsImV4cCI6MjA4ODI2NTk5NX0.n3AbrEKTWWhI2tnDaf7-Z-QI9o9pJiP1E7BsHVuZY9k';
   var TABLE = 'gema_data';
 
@@ -126,7 +128,7 @@
 
     // Supabase upsert
     try {
-      fetch(SB_URL + '/rest/v1/' + TABLE + '?on_conflict=module_key%2Cdata_key', {
+      fetch(_sbBase() + '/rest/v1/' + TABLE + '?on_conflict=module_key%2Cdata_key', {
         method: 'POST',
         headers: {
           'apikey': SB_KEY,
@@ -170,7 +172,7 @@
     } catch(e) {}
 
     // 2. Supabase
-    fetch(SB_URL + '/rest/v1/' + TABLE + '?module_key=eq.' + encodeURIComponent(_module) +
+    fetch(_sbBase() + '/rest/v1/' + TABLE + '?module_key=eq.' + encodeURIComponent(_module) +
           '&data_key=eq.' + encodeURIComponent(key) + '&select=payload', {
       headers: { 'apikey': SB_KEY, 'Authorization': 'Bearer ' + ((window.GemaSync && GemaSync.getAuthToken && GemaSync.getAuthToken()) || SB_KEY) }
     }).then(function(r) { return r.json(); })

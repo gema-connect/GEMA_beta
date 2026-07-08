@@ -1,5 +1,5 @@
 /* GEMA Service Worker — Offline Cache + Push Vorbereitung */
-var CACHE_NAME = 'gema-v224';
+var CACHE_NAME = 'gema-v225';
 var CACHE_FILES = [
   '/', '/index.html', '/sb_index.html',
   '/sa_enthaertung.html', '/sa_osmose.html', '/sa_fettabscheider.html',
@@ -56,8 +56,8 @@ self.addEventListener('activate', function(event) {
 // Fetch: Cache-First fuer App-Shell, Network-First fuer API
 self.addEventListener('fetch', function(event) {
   var url = event.request.url;
-  // Supabase API → immer Netzwerk
-  if (url.indexOf('supabase.co') >= 0 || url.indexOf('supabase.in') >= 0) {
+  // Supabase API (direkt ODER via Same-Origin-Proxy /sb/*) → immer Netzwerk
+  if (url.indexOf('supabase.co') >= 0 || url.indexOf('supabase.in') >= 0 || url.indexOf('/sb/') >= 0) {
     event.respondWith(
       fetch(event.request).catch(function() { return caches.match(event.request); })
     );
