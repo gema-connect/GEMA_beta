@@ -34,6 +34,7 @@ const SYSTEM_PROMPT =
   'Regeln: ' +
   '(1) menge = Stückzahl als reine Zahl, ohne Einheit (Schweizer Format 1\'000.5 → 1000.5). ' +
   '(2) artikelNr = Artikel-/Bestellnummer des Lieferanten (leer lassen, wenn keine vorhanden). ' +
+  '(2b) posNr = Positionsnummer der Zeile im Dokument (die laufende «Pos.»-Nummer, z.B. 1, 2, 10 oder 010), falls vorhanden — NICHT die Artikelnummer. Leer lassen, wenn keine vorhanden. ' +
   '(3) bezeichnung = Artikelbezeichnung/Beschreibung. ' +
   '(4) Ignoriere ALLE Nicht-Artikel-Zeilen — sie duerfen NICHT als Position erscheinen: ' +
   'Summen/Zwischensummen/Total, MwSt/Steuer, Rabatte/Skonto, sowie saemtliche Nebenkosten ' +
@@ -60,6 +61,7 @@ const TOOL = {
         items: {
           type: 'object',
           properties: {
+            posNr: { type: 'string', description: 'Positionsnummer der Zeile im Dokument (laufende «Pos.»-Nr, nicht die Artikelnummer; leer wenn keine)' },
             artikelNr: { type: 'string', description: 'Lieferanten-Artikelnummer (leer wenn keine)' },
             bezeichnung: { type: 'string', description: 'Artikelbezeichnung' },
             menge: { type: 'number', description: 'Stückzahl als Zahl' }
