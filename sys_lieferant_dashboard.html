@@ -206,6 +206,21 @@ textarea.fc{resize:vertical;min-height:60px;line-height:1.5}
     <div id="oaList"></div>
   </div>
 
+  <!-- Tab: Bestellungen (Anlagen — vom Gewinner-Unternehmer nach Zuschlag) -->
+  <div class="tab-body" id="tb-bestellungen">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
+      <select class="fc" id="bestFilter" style="max-width:170px" onchange="renderBestellungen()">
+        <option value="">Alle</option>
+        <option value="offen">Offen</option>
+        <option value="bestaetigt">Bestätigt</option>
+        <option value="geliefert">Geliefert</option>
+        <option value="abgelehnt">Abgelehnt</option>
+        <option value="storniert">Storniert</option>
+      </select>
+    </div>
+    <div id="bestList"></div>
+  </div>
+
   <!-- Tab: Rohrsysteme & Armaturen -->
   <div class="tab-body" id="tb-rohrsysteme">
     <div class="card">
@@ -387,12 +402,36 @@ textarea.fc{resize:vertical;min-height:60px;line-height:1.5}
   </div>
 </div>
 
+<!-- Bestellung-bestätigen Modal -->
+<div id="bestAnswerOverlay" style="display:none;position:fixed;inset:0;z-index:400;background:rgba(0,0,0,.5);backdrop-filter:blur(4px);align-items:center;justify-content:center;padding:20px">
+  <div style="background:var(--sur);border-radius:16px;max-width:560px;width:100%;box-shadow:0 24px 64px rgba(0,0,0,.2);overflow:hidden;max-height:calc(100vh - 40px);overflow-y:auto">
+    <div style="padding:16px 20px;border-bottom:1.5px solid var(--brd)">
+      <div style="font-size:16px;font-weight:800">✓ Bestellung bestätigen</div>
+      <div style="font-size:12px;color:var(--mut);margin-top:4px" id="bestAnswerSub"></div>
+    </div>
+    <div style="padding:16px 20px;display:flex;flex-direction:column;gap:12px">
+      <div id="bestAnswerDetails"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div><label class="fl">Liefertermin</label><input type="date" class="fc" id="bestAntTermin"/></div>
+        <div><label class="fl">AB-Nummer (optional)</label><input type="text" class="fc" id="bestAntAbNr" placeholder="z.B. AB-48213"/></div>
+      </div>
+      <div><label class="fl">Nachricht an den Besteller</label><textarea class="fc" id="bestAntMsg" rows="3" placeholder="Lieferdetails, Avisierung, Konditionen…"></textarea></div>
+      <div><label class="fl">Auftragsbestätigung als PDF (optional)</label><input type="file" class="fc" id="bestAntPdf" accept=".pdf" style="padding:6px"/></div>
+    </div>
+    <div style="padding:14px 20px;border-top:1.5px solid var(--brd);display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn btn-g" onclick="closeBestAnswer()">Abbrechen</button>
+      <button class="btn btn-p" onclick="sendBestAnswer()">✓ Bestellung bestätigen</button>
+    </div>
+  </div>
+</div>
+
 <div class="toast-c" id="toasts"></div>
 
 <script src="gema_db.js"></script>
 <script src="gema_coachmarks.js"></script>
 <script src="gema_feedback.js"></script><script src="gema_notify.js"></script><script src="gema_notify_ui.js"></script>
 <script src="gema_produktkatalog_api.js"></script>
+<script src="gema_bestellungen_api.js"></script>
 <script src="gema_armaturen_api.js"></script>
 <script src="gema_storage.js"></script>
 <script src="gema_dialog.js"></script>
@@ -604,6 +643,11 @@ function _initWithLief(){
   } else {
     _dwzLoaded=true;
   }
+  // Bestellungen-Pool frisch aus der Cloud (Bestellungen kommen von
+  // FREMDEN Unternehmer-Orgs — der lokale Cache kennt sie sonst nicht).
+  if(typeof GemaBest!=='undefined'&&GemaBest.bind){
+    GemaBest.bind().then(function(){ try{renderBestellungen();}catch(e){} }).catch(function(){});
+  }
 }
 
 function setupTabs(){
@@ -627,6 +671,7 @@ function setupTabs(){
   }
   if(isAnlagen){
     tabs.push({id:'anfragen',label:'Offertanfragen',show:true,badge:'oaBadge'});
+    tabs.push({id:'bestellungen',label:'🛒 Bestellungen',show:true,badge:'bestBadge'});
     tabs.push({id:'rohrsysteme',label:'Rohrsysteme & Armaturen',show:true});
   }
   if(isPruefer||isLief){
@@ -685,7 +730,7 @@ window.switchToTab=switchToTab;
 function renderAll(){
   // Jede Sektion einzeln absichern: ein Fehler in EINEM Renderer darf
   // nie die restlichen Sektionen (und damit das ganze Dashboard) killen.
-  [renderKPIs,renderUebersicht,renderProdukte,renderAnfragen,renderRohrsysteme,
+  [renderKPIs,renderUebersicht,renderProdukte,renderAnfragen,renderBestellungen,renderRohrsysteme,
    renderWzPruefauftraege,renderWerkzeuge,renderMandate,renderWzDefekte,
    renderWzErsatz,renderLiefUsers,fillProfil].forEach(function(fn){
     try{ fn(); }catch(e){ try{console.warn('[lief-dashboard]',fn.name,e);}catch(_){} }
@@ -1339,6 +1384,168 @@ function quickReject(oaId){
   if(!confirm('Offertanfrage wirklich ablehnen?')) return;
   GemaProdukte.ablehnenOffertanfrage(oaId, 'Offertanfrage abgelehnt.');
   renderAll(); toast('Anfrage abgelehnt');
+}
+
+// ── 🛒 Bestellungen-Tab: Anlagen-Bestellungen der Gewinner-Unternehmer ──
+// Datenquelle: GemaBest (gema_bestellungen_api.js, globaler per-Record-Pool
+// 'best:'), gefiltert auf b.lieferantId === _lief.id. Aktionen laufen über
+// die zentralen GemaBest-Statusfunktionen (setzen Verlauf + Notifikation).
+var _answerBestId=null;
+
+function _bestFmtDate(d){if(!d)return '—';var p=String(d).split('T')[0].split('-');return p.length===3?p[2]+'.'+p[1]+'.'+p[0]:d;}
+
+function renderBestellungen(){
+  var el=document.getElementById('bestList');
+  if(!el)return; // Tab existiert nur beim Anlagenlieferanten
+  var list=(typeof GemaBest!=='undefined'&&_lief)?GemaBest.getForLieferant(_lief.id):[];
+  var offen=list.filter(function(b){return b.status==='offen';}).length;
+  var badge=document.getElementById('bestBadge');
+  if(badge){
+    if(offen>0){badge.style.display='inline';badge.textContent=offen;}
+    else badge.style.display='none';
+  }
+  var filter=(document.getElementById('bestFilter')||{}).value||'';
+  if(filter)list=list.filter(function(b){return b.status===filter;});
+  list.sort(function(a,b){return String(b.bestelltAm||'').localeCompare(String(a.bestelltAm||''));});
+  if(!list.length){
+    el.innerHTML='<div class="card" style="padding:22px;text-align:center;color:var(--mut);font-size:13px">🛒 Keine Bestellungen'+(filter?' mit diesem Status':'')+'.<br><span style="font-size:12px">Hier erscheinen Anlagen-Bestellungen von Unternehmern nach dem Ausschreibungs-Zuschlag.</span></div>';
+    return;
+  }
+  el.innerHTML=list.map(renderBestCard).join('');
+}
+
+function renderBestCard(b){
+  var s=(typeof GemaBest!=='undefined'&&GemaBest.STATUS[b.status])||{color:'#64748b',bg:'#f8fafc',bd:'#cbd5e1',short:b.status};
+  var h='<div class="card" style="margin-bottom:12px;border-left:4px solid '+s.color+'"><div style="padding:13px 16px">';
+  h+='<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px">'
+    +'<strong style="font-size:14px">'+E(b.nr)+'</strong>'
+    +(typeof GemaBest!=='undefined'?GemaBest.badgeHtml(b):'')
+    +'<span style="margin-left:auto;font-size:11px;color:var(--mut)">'+_bestFmtDate(b.bestelltAm)+'</span></div>';
+  h+='<div style="font-size:13px;font-weight:800">'+E(b.produktName||'—')+'</div>';
+  h+='<div style="font-size:12px;color:var(--mut);line-height:1.7">'
+    +'Besteller: <strong style="color:var(--txt)">'+E(b.bestellerFirma||b.bestellerName||'—')+'</strong>'
+    +(b.bestellerName&&b.bestellerFirma?' · '+E(b.bestellerName):'')
+    +(b.bestellerEmail?' · '+E(b.bestellerEmail):'')
+    +(b.objektName?'<br>🏗 '+E(b.objektName):'')
+    +(b.lieferadresse?'<br>📍 '+E(b.lieferadresse):'')
+    +(b.wunschtermin?'<br>Wunschtermin: <strong style="color:var(--txt)">'+_bestFmtDate(b.wunschtermin)+'</strong>':'')
+    +'</div>';
+  h+='<div style="font-size:13px;font-weight:800;margin-top:6px">'+b.menge+' '+E(b.einheit||'Stk')+' × CHF '+GemaBest.fmtChf(b.preis)+' = CHF '+GemaBest.fmtChf(b.total)+'</div>';
+  if(b.bemerkung)h+='<p style="font-size:12px;color:var(--txt2);background:var(--sur2);border:1px solid var(--brd);padding:6px 10px;border-radius:6px;margin-top:6px">„'+E(b.bemerkung)+'"</p>';
+  if(b.antwort&&b.status!=='abgelehnt'){
+    var pdf=b.antwort.pdfUrl||b.antwort.pdfDataUrl;
+    h+='<div style="font-size:12px;color:var(--mut);margin-top:6px;padding-top:6px;border-top:1px dashed var(--brd)">✓ Bestätigt'
+      +(b.antwort.liefertermin?' · Liefertermin <strong style="color:var(--txt)">'+_bestFmtDate(b.antwort.liefertermin)+'</strong>':'')
+      +(b.antwort.abNr?' · AB '+E(b.antwort.abNr):'')
+      +(pdf?' · <a href="'+E(pdf)+'" target="_blank" rel="noopener" style="color:var(--acc);font-weight:700">📄 '+E(b.antwort.pdfName||'PDF')+'</a>':'')
+      +'</div>';
+  }
+  if(b.status==='abgelehnt'&&b.antwort)h+='<div style="font-size:12px;color:#dc2626;margin-top:6px">✕ Abgelehnt'+(b.antwort.nachricht?': „'+E(b.antwort.nachricht)+'"':'')+'</div>';
+  if(b.geliefert)h+='<div style="font-size:12px;color:var(--grn,#16a34a);margin-top:4px">📦 Geliefert gemeldet '+_bestFmtDate(b.geliefert.am)+(b.empfangen?' · Wareneingang bestätigt ✓':'')+'</div>';
+  if(b.storno)h+='<div style="font-size:12px;color:var(--mut);margin-top:4px">⊘ Storniert'+(b.storno.grund?': „'+E(b.storno.grund)+'"':'')+'</div>';
+  var acts='';
+  if(_liefCanOfferten()){
+    if(b.status==='offen')acts='<button class="btn btn-p btn-sm" onclick="openBestAnswer(\''+b.id+'\')">✓ Bestätigen</button> <button class="btn btn-d btn-sm" onclick="bestAblehnenDlg(\''+b.id+'\')">✕ Ablehnen</button>';
+    else if(b.status==='bestaetigt')acts='<button class="btn btn-p btn-sm" onclick="bestGeliefertDlg(\''+b.id+'\')">📦 Als geliefert melden</button>';
+  }
+  if(acts)h+='<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">'+acts+'</div>';
+  h+='</div></div>';
+  return h;
+}
+
+function openBestAnswer(id){
+  if(!_liefCanOfferten()){ toast('Keine Berechtigung für Bestellungen.','error'); return; }
+  if(_liefBlockedInaktiv()) return;
+  var b=GemaBest.byId(id);if(!b)return;
+  _answerBestId=id;
+  document.getElementById('bestAnswerSub').textContent=b.nr+' · '+(b.bestellerFirma||b.bestellerName||'');
+  document.getElementById('bestAnswerDetails').innerHTML=
+    '<div style="background:var(--sur2);border:1px solid var(--brd);border-radius:8px;padding:8px 12px;font-size:12.5px">'
+    +'<strong>'+E(b.produktName||'—')+'</strong> — '+b.menge+' '+E(b.einheit||'Stk')+' · CHF '+GemaBest.fmtChf(b.total)
+    +(b.objektName?'<br>🏗 '+E(b.objektName):'')
+    +(b.lieferadresse?'<br>📍 '+E(b.lieferadresse):'')
+    +(b.wunschtermin?'<br>Wunschtermin: '+_bestFmtDate(b.wunschtermin):'')
+    +'</div>';
+  document.getElementById('bestAntTermin').value=b.wunschtermin||'';
+  document.getElementById('bestAntAbNr').value='';
+  document.getElementById('bestAntMsg').value='';
+  document.getElementById('bestAntPdf').value='';
+  document.getElementById('bestAnswerOverlay').style.display='flex';
+}
+function closeBestAnswer(){document.getElementById('bestAnswerOverlay').style.display='none';_answerBestId=null;}
+
+function sendBestAnswer(){
+  if(!_answerBestId)return;
+  if(_liefBlockedInaktiv())return;
+  var antwort={
+    liefertermin:document.getElementById('bestAntTermin').value||'',
+    abNr:(document.getElementById('bestAntAbNr').value||'').trim(),
+    nachricht:(document.getElementById('bestAntMsg').value||'').trim()
+  };
+  var fi=document.getElementById('bestAntPdf');
+  function _finish(){
+    GemaBest.bestaetigen(_answerBestId,antwort);
+    closeBestAnswer();renderBestellungen();toast('✓ Bestellung bestätigt');
+  }
+  if(fi.files&&fi.files.length){
+    var file=fi.files[0];
+    if(file.size>10*1024*1024){ toast('PDF zu gross (max. 10 MB).','error'); return; }
+    antwort.pdfName=file.name;
+    var reader=new FileReader();
+    reader.onload=function(){
+      var dataUrl=reader.result;
+      if(typeof GemaStorage!=='undefined'&&GemaStorage.isConfigured()){
+        toast('PDF wird hochgeladen…');
+        GemaStorage.uploadDataUrl(dataUrl,'bestellungen/'+(_lief?_lief.id:'unbekannt')).then(function(res){
+          antwort.pdfUrl=res.url;
+          _finish();
+        }).catch(function(err){
+          if(file.size>2.5*1024*1024){
+            toast('Upload fehlgeschlagen ('+(err&&err.message||'Fehler')+') — bitte PDF unter 2.5 MB wählen.','error');
+            return;
+          }
+          antwort.pdfDataUrl=dataUrl;
+          _finish();
+        });
+      }else{
+        if(file.size>2.5*1024*1024){ toast('PDF zu gross (max. 2.5 MB ohne Cloud-Storage).','error'); return; }
+        antwort.pdfDataUrl=dataUrl;
+        _finish();
+      }
+    };
+    reader.readAsDataURL(file);
+  }else{
+    _finish();
+  }
+}
+
+function bestAblehnenDlg(id){
+  if(!_liefCanOfferten()){ toast('Keine Berechtigung für Bestellungen.','error'); return; }
+  if(_liefBlockedInaktiv())return;
+  GemaDialog.prompt({
+    title:'Bestellung ablehnen',
+    message:'Grund der Ablehnung (wird dem Besteller mitgeteilt):',
+    placeholder:'z.B. Anlage nicht mehr lieferbar',
+    defaultValue:''
+  }).then(function(val){
+    if(val===null)return;
+    GemaBest.ablehnen(id,val||'Bestellung abgelehnt.');
+    renderBestellungen();toast('Bestellung abgelehnt');
+  });
+}
+
+function bestGeliefertDlg(id){
+  if(!_liefCanOfferten()){ toast('Keine Berechtigung für Bestellungen.','error'); return; }
+  if(_liefBlockedInaktiv())return;
+  GemaDialog.confirm({
+    title:'Als geliefert melden',
+    message:'Die Anlage wurde ausgeliefert? Der Besteller wird benachrichtigt und kann den Wareneingang bestätigen.',
+    confirmLabel:'📦 Geliefert'
+  }).then(function(ok){
+    if(!ok)return;
+    GemaBest.geliefertMelden(id,'');
+    renderBestellungen();toast('📦 Als geliefert gemeldet');
+  });
 }
 
 // ── Werkzeuge-Tab: Arbeitsplatz für externe Lieferanten & Prüfer ──

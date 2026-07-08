@@ -36,6 +36,7 @@
     'pm_ausschreibungsunterlagen':'Ausschreibungsunterlagen',
     'pm_baustelle':'Baustellencheckliste',
     'pm_besprechung':'Besprechungsprotokoll',
+    'pm_bestellungen':'Bestellungen',
     'pm_crbx':'CRBX Offertvergleich',
     'pm_einsatzplan':'Einsatzplan',
     'pm_erp':'Offerten · Aufträge · Rechnungen',
