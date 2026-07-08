@@ -191,6 +191,7 @@ table.gt input.cell.mini{max-width:74px;text-align:right}
 </div>
 
 <div id="weModalHost"></div>
+<div id="weModalHost2"></div>
 <div id="weToast"></div>
 
 <script src="gema_db.js"></script>
@@ -714,12 +715,26 @@ function renderPreview(container,lbl){
   if(wrap&&addr){var fs=parseFloat(getComputedStyle(addr).fontSize)||22;var g=0;while((wrap.scrollHeight>wrap.clientHeight+0.5||wrap.scrollWidth>wrap.clientWidth+0.5)&&fs>6&&g<600){fs-=1;addr.style.fontSize=fs+'px';g++;}}
 }
 
-/* ══════════════════ Modal-Host ══════════════════ */
+/* ══════════════════ Modal-Host (2 Ebenen) ══════════════════
+   Ebene 1 (#weModalHost): Detail-/Bearbeiten-Dialoge.
+   Ebene 2 (#weModalHost2): Projekt-/Adress-Picker + Neues-Projekt — liegt
+   UEBER Ebene 1, damit der aufrufende Dialog im Hintergrund offen bleibt
+   (gleiche UX wie im Import-Wizard, wo die Seite hinter dem Picker steht).
+   weCloseModal() schliesst immer die OBERSTE offene Ebene — alle
+   bestehenden ✕/Abbrechen-Handler funktionieren dadurch unveraendert. */
 function showModal(html,maxw){
   var host=$('weModalHost');
   host.innerHTML='<div class="modal-bg" onmousedown="if(event.target===this)weCloseModal()"><div class="modal" style="max-width:'+(maxw||'760px')+'">'+html+'</div></div>';
 }
-window.weCloseModal=function(){var host=$('weModalHost');if(host)host.innerHTML='';};
+function showModalTop(html,maxw){
+  var host=$('weModalHost2');
+  host.innerHTML='<div class="modal-bg" style="z-index:9500" onmousedown="if(event.target===this)weCloseModal()"><div class="modal" style="max-width:'+(maxw||'760px')+'">'+html+'</div></div>';
+}
+window.weCloseModal=function(){
+  var top=$('weModalHost2');
+  if(top&&top.innerHTML){top.innerHTML='';return;}
+  var host=$('weModalHost');if(host)host.innerHTML='';
+};
 
 /* ══════════════════ TAB: Import-Wizard ══════════════════ */
 var IMP=null;
@@ -1248,9 +1263,9 @@ window.weImpDoImport=function(print){
   weTab('ueber');
 };
 
-/* Neues Projekt inline (reuse GemaObjekte) */
+/* Neues Projekt inline (reuse GemaObjekte) — Ebene 2 (aus dem Picker heraus) */
 function openNewProjektModal(cb){
-  showModal(
+  showModalTop(
     '<button class="modal-x" onclick="weCloseModal()">✕</button>'
     +'<h2>＋ Neues Projekt</h2><div class="msub">Wird als GEMA-Objekt gespeichert und steht überall zur Verfügung.</div>'
     +'<div class="row"><div class="col"><label class="fl">Bezeichnung *</label><input class="in" id="npName" placeholder="z.B. Neubau Sonnenweg"></div></div>'
@@ -1295,7 +1310,7 @@ function renderPicker(){
       +'<div class="row" style="margin-top:8px"><div class="col" style="max-width:130px"><input class="in" id="pkPlz" inputmode="numeric" placeholder="PLZ" value="'+E(freeCur.plz||'')+'"></div><div class="col"><input class="in" id="pkOrt" placeholder="Ort" value="'+E(freeCur.ort||'')+'"></div></div>'
       +'<button class="btn pri sm" style="margin-top:10px" onclick="wePickFrei()">✓ Freie Adresse übernehmen</button></div>';
   }
-  showModal(h,'560px');
+  showModalTop(h,'560px');   // Ebene 2 — aufrufender Dialog bleibt im Hintergrund offen
   // Adress-Autocomplete: PLZ+Ort in eigene Felder, Strassenfeld NUR Strasse+Nr
   try{if(showFrei&&window.GemaAdresse&&GemaAdresse.attach&&$('pkStr'))GemaAdresse.attach($('pkStr'),{plz:'pkPlz',ort:'pkOrt',onSelect:function(r){var s=$('pkStr');if(s)s.value=r.strasse||'';}});}catch(e){}
 }
