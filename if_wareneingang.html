@@ -126,6 +126,7 @@ table.gt input.cell.mini{max-width:74px;text-align:right}
 .lblbox .lb-eye{font-size:10px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.4px;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .lblbox .lb-addrwrap{flex:1;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;overflow:hidden;min-height:0}
 .lblbox .lb-addr{font-weight:900;line-height:1.05;color:#0f172a}
+.lblbox .lb-city{font-size:11px;font-weight:700;color:#334155;margin-top:2px;text-align:center;line-height:1.1;word-break:break-word}
 .lblbox .lb-art{font-size:11px;color:#1e293b;margin-top:3px;text-align:center;line-height:1.2;font-weight:600}
 .lblbox .lb-foot{display:flex;justify-content:space-between;gap:6px;font-size:8.5px;color:#64748b;font-weight:700;border-top:1px solid #eef2f7;padding-top:3px;margin-top:3px}
 .previewwrap{display:flex;flex-direction:column;align-items:center;gap:8px;padding:14px;background:#f8fafc;border-radius:12px}
@@ -294,7 +295,17 @@ function projekte(){
   try{return (GemaObjekte.getAll()||[]).map(function(o){return {objektId:o.id,name:o.name||'Ohne Name',strasse:o.strasse||'',plz:o.plz||'',ort:o.ort||''};});}
   catch(e){return [];}
 }
-function lagerProjekt(){var l=settings().lager||{};return {objektId:'',name:l.name||'Lager / kein Projekt',strasse:l.strasse||'',plz:l.plz||'',ort:l.ort||''};}
+function lagerProjekt(){var l=settings().lager||{};return {objektId:'',istLager:true,name:l.name||'Lager / kein Projekt',strasse:l.strasse||'',plz:l.plz||'',ort:l.ort||''};}
+// Lager-Position: wird im Wareneingang kontrolliert, aber NICHT als Etikette gedruckt.
+function isLagerProj(p){
+  if(!p||p.objektId)return false;
+  if(p.istLager)return true;
+  // Legacy (ohne Flag): kein Objekt + keine echte Adresse ODER Name = Lager-Name
+  var lag=lagerProjekt();
+  if(!(p.strasse||'').trim()&&!(p.ort||'').trim())return true;
+  if((p.name||'')===lag.name&&!(p.strasse||'').trim())return true;
+  return false;
+}
 function projModus(){return settings().projektModus;}       // 'beides' | 'gema' | 'frei'
 function gemaObjekteAn(){return projModus()!=='frei';}       // dürfen GEMA-Objekte referenziert werden?
 function freieAdrAn(){return projModus()!=='gema';}          // dürfen freie Adressen erfasst werden?
@@ -477,13 +488,15 @@ function renderLiefModal(l){
         +'<button class="btn sm" onclick="weComplete(\''+l.id+'\',\''+p.id+'\')" title="komplett erhalten">✓ voll</button>'
         +'</div>'
       ):(e+' / '+m);
+    var lag=isLagerProj(p.projekt);
+    var projLine=(p.projekt&&p.projekt.name)?'<br><span class="mut" style="font-size:11px">'+(lag?'📦':'📍')+' '+E(p.projekt.name)+'</span>':'';
     return '<tr>'
-      +'<td>'+(i+1)+'</td>'
+      +'<td><strong>'+E(p.posNr||(i+1))+'</strong></td>'
       +'<td>'+E(p.artikelNr||'—')+'</td>'
-      +'<td><strong>'+E(p.bezeichnung||'—')+'</strong>'+(p.projekt&&p.projekt.name?'<br><span class="mut" style="font-size:11px">📍 '+E(p.projekt.name)+'</span>':'')+'</td>'
+      +'<td><strong>'+E(p.bezeichnung||'—')+'</strong>'+projLine+'</td>'
       +'<td class="num">'+recCtrls+'</td>'
       +'<td>'+statusBadge(st)+'</td>'
-      +'<td class="num"><button class="btn sm" onclick="wePrintPos(\''+l.id+'\',\''+p.id+'\')" title="Etiketten dieser Position">🏷</button></td>'
+      +'<td class="num">'+(lag?'<span class="chip" title="Lager — keine Etikette">📦</span>':'<button class="btn sm" onclick="wePrintPos(\''+l.id+'\',\''+p.id+'\')" title="Etiketten dieser Position">🏷</button>')+'</td>'
       +'</tr>';
   }).join('');
 
@@ -508,7 +521,7 @@ function renderLiefModal(l){
     +'<h2>🚚 '+E(l.lieferantFirma||'Lieferung')+'</h2>'
     +'<div class="msub">Wareneingang kontrollieren — Menge erfassen, Etiketten drucken.</div>'
     +head
-    +'<div class="tblwrap"><table class="gt"><thead><tr><th>Pos</th><th>Art-Nr</th><th>Bezeichnung</th><th class="num">Eingegangen</th><th>Status</th><th class="num">🏷</th></tr></thead><tbody>'+rows+'</tbody></table></div>'
+    +'<div class="tblwrap"><table class="gt"><thead><tr><th title="Positionsnummer im Dokument">Pos-Nr</th><th>Art-Nr</th><th>Bezeichnung</th><th class="num">Eingegangen</th><th>Status</th><th class="num">🏷</th></tr></thead><tbody>'+rows+'</tbody></table></div>'
     +actions
   ,'860px');
 }
@@ -550,17 +563,26 @@ function labelsFromPos(l,p){
   return out;
 }
 function labelsFromLief(l){
-  var out=[];(l.positionen||[]).forEach(function(p){out=out.concat(labelsFromPos(l,p));});return out;
+  // Lager-Positionen bekommen KEINE Etikette (nur Wareneingangs-Kontrolle).
+  var out=[];(l.positionen||[]).forEach(function(p){if(isLagerProj(p.projekt))return;out=out.concat(labelsFromPos(l,p));});return out;
 }
-window.wePrintLief=function(liefId){var l=liefById(liefId);if(!l)return;var labels=labelsFromLief(l);if(!labels.length){toast('Keine Positionen');return;}printLabels(labels);};
-window.wePrintPos=function(liefId,posId){var l=liefById(liefId);if(!l)return;var p=(l.positionen||[]).find(function(x){return x.id===posId;});if(!p)return;printLabels(labelsFromPos(l,p));};
+window.wePrintLief=function(liefId){var l=liefById(liefId);if(!l)return;var labels=labelsFromLief(l);if(!labels.length){toast('Nur Lager-Positionen — keine Etiketten zu drucken');return;}printLabels(labels);};
+window.wePrintPos=function(liefId,posId){var l=liefById(liefId);if(!l)return;var p=(l.positionen||[]).find(function(x){return x.id===posId;});if(!p)return;if(isLagerProj(p.projekt)){toast('Lager-Position — keine Etikette');return;}printLabels(labelsFromPos(l,p));};
 
+// «…strasse» → «…str.» NUR für den Etikettendruck (Daten bleiben unverändert).
+function abbrevStrasse(s){return String(s||'').replace(/strasse/gi,function(m){return m.charAt(0)==='S'?'Str.':'str.';});}
 function labelInner(lbl,s){
   var p=lbl.projekt||{};
-  var adr=projAdrLines(p);
-  var big=adr.length?adr:[p.name||''];         // Adresse dominiert; ohne Adresse den Namen gross
-  var eyebrow=adr.length?(p.name||''):'';
-  var startFs=Math.max(13,Math.round(s.labelH*3.7795*0.30));
+  var strasse=abbrevStrasse((p.strasse||'').trim());   // Strasse+Nr, gekürzt, DOMINANT
+  var ort=(p.ort||'').trim();                            // Ort klein, KEINE PLZ
+  var nm=(p.name||'').trim();
+  var bigLines,cityLine='';
+  if(strasse){ bigLines=[strasse]; cityLine=ort; }
+  else if(ort){ bigLines=[ort]; }                        // nur Ort → Ort gross
+  else { bigLines=[nm]; }                                // Fallback: Bezeichnung
+  // Eyebrow nur bei echtem Projektnamen (GEMA-Objekt), nicht wenn Name = Adresse
+  var eyebrow=(nm && nm!==strasse && nm!==(p.strasse||'').trim() && nm!==ort)?nm:'';
+  var startFs=Math.max(13,Math.round(s.labelH*3.7795*0.36));
   var artHtml='';
   if(s.showArtikel&&(lbl.artikel||lbl.artikelNr)){
     artHtml='<div class="lb-art">'+E(lbl.artikel||'')+(lbl.artikelNr?' <span class="mut">'+E(lbl.artikelNr)+'</span>':'')+'</div>';
@@ -569,12 +591,16 @@ function labelInner(lbl,s){
   var footR=(s.numberLabels&&lbl.total>1)?(lbl.idx+' / '+lbl.total):'';
   return '<div class="lb-pad">'
     +(eyebrow?'<div class="lb-eye">'+E(eyebrow)+'</div>':'')
-    +'<div class="lb-addrwrap"><div class="lb-addr" style="font-size:'+startFs+'px">'+big.map(E).join('<br>')+'</div>'+artHtml+'</div>'
+    +'<div class="lb-addrwrap"><div class="lb-addr" style="font-size:'+startFs+'px">'+bigLines.map(E).join('<br>')+'</div>'
+      +(cityLine?'<div class="lb-city">'+E(cityLine)+'</div>':'')
+      +artHtml+'</div>'
     +((footL||footR)?'<div class="lb-foot"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+footL+'</span><span>'+footR+'</span></div>':'')
     +'</div>';
 }
 function fitScript(){
-  return '(function(){function fit(el){var box=el.parentNode;if(!box)return;var fs=parseFloat(getComputedStyle(el).fontSize)||24;var g=0;while((el.scrollHeight>box.clientHeight||el.scrollWidth>box.clientWidth)&&fs>7&&g<400){fs-=1;el.style.fontSize=fs+"px";g++;}}var e=document.querySelectorAll(".lb-addr");for(var i=0;i<e.length;i++)fit(e[i]);})();';
+  // Skaliert die Strasse (.lb-addr) herunter, bis der GESAMTE Adressblock
+  // (Strasse + Ort + Artikel) passt — nie abschneiden.
+  return '(function(){function fit(wrap){var a=wrap.querySelector(".lb-addr");if(!a)return;var fs=parseFloat(getComputedStyle(a).fontSize)||24;var g=0;while((wrap.scrollHeight>wrap.clientHeight+0.5||wrap.scrollWidth>wrap.clientWidth+0.5)&&fs>6&&g<600){fs-=1;a.style.fontSize=fs+"px";g++;}}var w=document.querySelectorAll(".lb-addrwrap");for(var i=0;i<w.length;i++)fit(w[i]);})();';
 }
 function printLabels(labels){
   var s=settings();
@@ -588,6 +614,7 @@ function printLabels(labels){
     +'.lb-eye{font-size:2.1mm;font-weight:800;color:#333;text-transform:uppercase;letter-spacing:.2px;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}'
     +'.lb-addrwrap{flex:1;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;overflow:hidden;min-height:0}'
     +'.lb-addr{font-weight:900;line-height:1.04;color:#000}'
+    +'.lb-city{font-size:2.9mm;font-weight:700;color:#000;margin-top:.8mm;text-align:center;line-height:1.05;word-break:break-word}'
     +'.lb-art{font-size:2.3mm;margin-top:1mm;text-align:center;line-height:1.15;font-weight:600}'
     +'.lb-foot{display:flex;justify-content:space-between;gap:1mm;font-size:1.7mm;color:#333;font-weight:700;padding-top:.6mm}'
     +'.mut{color:#555;font-weight:600}'
@@ -611,8 +638,8 @@ function renderPreview(container,lbl){
   var s=settings();
   var pxmm=3.5;// on-screen scale
   container.innerHTML='<div class="lblbox" style="width:'+(s.labelW*pxmm)+'px;height:'+(s.labelH*pxmm)+'px">'+labelInner(lbl,s)+'</div>';
-  var addr=container.querySelector('.lb-addr');
-  if(addr){var box=addr.parentNode;var fs=parseFloat(getComputedStyle(addr).fontSize)||22;var g=0;while((addr.scrollHeight>box.clientHeight||addr.scrollWidth>box.clientWidth)&&fs>7&&g<400){fs-=1;addr.style.fontSize=fs+'px';g++;}}
+  var wrap=container.querySelector('.lb-addrwrap');var addr=container.querySelector('.lb-addr');
+  if(wrap&&addr){var fs=parseFloat(getComputedStyle(addr).fontSize)||22;var g=0;while((wrap.scrollHeight>wrap.clientHeight+0.5||wrap.scrollWidth>wrap.clientWidth+0.5)&&fs>6&&g<600){fs-=1;addr.style.fontSize=fs+'px';g++;}}
 }
 
 /* ══════════════════ Modal-Host ══════════════════ */
@@ -624,7 +651,7 @@ window.weCloseModal=function(){var host=$('weModalHost');if(host)host.innerHTML=
 
 /* ══════════════════ TAB: Import-Wizard ══════════════════ */
 var IMP=null;
-function newImp(){return {schritt:1,lieferantFirma:'',quelle:'html',grid:null,pdfExtract:null,positionen:[],bestellnummer:'',bestelldatum:today(),notiz:'',bulkProjObj:null,kiFileB64:null,kiFileName:'',kiFileType:'',kiText:'',kiBusy:false};}
+function newImp(){return {schritt:1,lieferantFirma:'',quelle:'ki',grid:null,pdfExtract:null,positionen:[],bestellnummer:'',bestelldatum:today(),notiz:'',bulkProjObj:null,kiFileB64:null,kiFileName:'',kiFileType:'',kiText:'',kiBusy:false};}
 // IMP lebt in dieser IIFE (nicht global) — Inline-Handler müssen über diesen
 // globalen Setter gehen, sonst «IMP is not defined» im oninput-Kontext.
 window.weImpSet=function(k,v,dup){if(IMP){IMP[k]=v;if(dup)weDupCheck();}};
@@ -660,18 +687,32 @@ function renderStep1(){
   var hints={html:'Kopiere die Artikeltabelle aus der Bestätigungs-E-Mail und füge sie im nächsten Schritt ein.',
     pdf:'Lade das Bestell-/Lieferschein-PDF hoch — Text wird mit Koordinaten ausgelesen.',
     ki:'🤖 Claude analysiert das Dokument (PDF, Foto oder Text) und liest die Positionen automatisch aus — auch bei gescannten Belegen ohne Text-Ebene und ohne Spalten-Mapping.'};
+  // Lieferant: bekannte als Dropdown (aus Modul-Historie), neue als Freitext.
+  var selOpts='<option value="">— bekannten Lieferant wählen —</option>'+hist.map(function(f){return '<option value="'+E(f)+'"'+(IMP.lieferantFirma===f?' selected':'')+'>'+E(f)+'</option>';}).join('');
+  var liefBlock=hist.length
+    ? '<div class="row"><div class="col"><label class="fl">'+liefLabel+'</label>'
+        +'<select class="in" id="impLiefSelect" onchange="weImpLiefPick(this.value)" style="margin-bottom:8px">'+selOpts+'</select>'
+        +'<input class="in" id="impLiefName" list="impLiefDL" placeholder="… oder neuen Lieferant eingeben" value="'+E(IMP.lieferantFirma)+'" oninput="weImpLiefType(this.value)"><datalist id="impLiefDL">'+dl+'</datalist>'
+        +'<div class="hint" style="margin-top:5px">Bekannten Lieferant im Dropdown wählen — oder neu eingeben (wird für künftige Importe gemerkt).</div></div></div>'
+    : '<div class="row"><div class="col"><label class="fl">'+liefLabel+'</label>'
+        +'<input class="in" id="impLiefName" list="impLiefDL" placeholder="z.B. Sanitär Müller AG" value="'+E(IMP.lieferantFirma)+'" oninput="weImpSet(&#39;lieferantFirma&#39;,this.value)"><datalist id="impLiefDL">'+dl+'</datalist>'
+        +'<div class="hint" style="margin-top:5px">Einmal erfasst, erscheint der Lieferant beim nächsten Import als Dropdown.</div></div></div>';
   b.innerHTML='<h3>1 · Quelle & Lieferant</h3><div class="desc">Lieferant frei eingeben (kein Katalog). Der Name bestimmt, welches Spalten-Mapping geladen/gemerkt wird.</div>'
-    +'<div class="row"><div class="col"><label class="fl">'+liefLabel+'</label><input class="in" id="impLiefName" list="impLiefDL" placeholder="z.B. Sanitär Müller AG" value="'+E(IMP.lieferantFirma)+'" oninput="weImpSet(&#39;lieferantFirma&#39;,this.value)"><datalist id="impLiefDL">'+dl+'</datalist>'+(hist.length?'<div class="hint" style="margin-top:5px">Vorschläge aus deinen bisherigen Lieferungen.</div>':'')+'</div></div>'
-    +'<label class="fl" style="margin-top:14px">Quelle</label>'
+    +liefBlock
+    +'<label class="fl" style="margin-top:14px">Extraktion</label>'
     +'<div class="row">'
+      +'<button class="btn '+(ki?'pri':'')+'" style="flex:1" onclick="weImpQuelle(\'ki\')">🤖 KI-Analyse</button>'
       +'<button class="btn '+(IMP.quelle==='html'?'pri':'')+'" style="flex:1" onclick="weImpQuelle(\'html\')">📋 Tabelle einfügen</button>'
       +'<button class="btn '+(IMP.quelle==='pdf'?'pri':'')+'" style="flex:1" onclick="weImpQuelle(\'pdf\')">📄 PDF hochladen</button>'
-      +'<button class="btn '+(ki?'pri':'')+'" style="flex:1" onclick="weImpQuelle(\'ki\')">🤖 KI-Analyse</button>'
     +'</div>'
     +'<div class="hint" style="margin-top:8px">'+hints[IMP.quelle]+'</div>'
     +'<div class="row no-print" style="margin-top:16px"><span style="flex:1"></span><button class="btn pri" onclick="weImpNext()">Weiter →</button></div>';
 }
 window.weImpQuelle=function(q){IMP.quelle=q;renderStep1();};
+// Dropdown-Auswahl eines bekannten Lieferanten → Freitext-Feld nachziehen
+window.weImpLiefPick=function(v){IMP.lieferantFirma=v||'';var t=$('impLiefName');if(t)t.value=v||'';};
+// Freitext-Eingabe → Dropdown auf «neu» zurückstellen
+window.weImpLiefType=function(v){IMP.lieferantFirma=v;var s=$('impLiefSelect');if(s&&s.value!==v)s.value='';};
 window.weImpNext=function(){
   var n=($('impLiefName')||{}).value||IMP.lieferantFirma;
   // Bei KI-Analyse ist der Lieferant optional (Claude erkennt ihn i.d.R. selbst).
@@ -832,7 +873,7 @@ function kiApplyResult(data){
   var arr=Array.isArray(data.positionen)?data.positionen:[];
   IMP.positionen=arr.map(function(p,i){
     var m=p&&p.menge;var mn=(typeof m==='number'&&isFinite(m))?Math.round(m):num(m);
-    return mkPos((p&&p.artikelNr)||'',(p&&p.bezeichnung)||'',mn||(mn===0?0:1),i);
+    return mkPos((p&&p.artikelNr)||'',(p&&p.bezeichnung)||'',mn||(mn===0?0:1),i,(p&&p.posNr)||'');
   });
   // Kopfdaten übernehmen, ohne bestehende Eingaben zu überschreiben
   if(!IMP.lieferantFirma&&data.lieferant)IMP.lieferantFirma=String(data.lieferant).trim();
@@ -950,6 +991,7 @@ function renderMappingAssistant(grid,quelle){
   var ths='';for(var i=0;i<maxCols;i++)ths+='<th>Sp '+(i+1)+'</th>';
   out.innerHTML='<div class="infobox">🧭 Neues Mapping für <strong>'+E(IMP.lieferantFirma||'Lieferant')+'</strong> ('+quelle.toUpperCase()+'). Ordne die Spalten zu — beim nächsten Mal geht es automatisch.</div>'
     +'<div class="row">'
+      +'<div class="col"><label class="fl">Pos-Nr = </label><select class="in" id="mapPos">'+colOpts(guess.posNr)+'</select></div>'
       +'<div class="col"><label class="fl">Art-Nr = </label><select class="in" id="mapArt">'+colOpts(guess.artikelNr)+'</select></div>'
       +'<div class="col"><label class="fl">Bezeichnung = </label><select class="in" id="mapBez">'+colOpts(guess.bezeichnung)+'</select></div>'
       +'<div class="col"><label class="fl">Menge = </label><select class="in" id="mapMenge">'+colOpts(guess.menge)+'</select></div>'
@@ -959,7 +1001,7 @@ function renderMappingAssistant(grid,quelle){
     +'<div class="row no-print" style="margin-top:12px"><button class="btn" onclick="weImpBack()">← Zurück</button><span style="flex:1"></span><label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#475569"><input type="checkbox" id="mapSave" checked> Mapping merken</label><button class="btn pri" onclick="weImpApplyMapping(\''+quelle+'\')">Übernehmen →</button></div>';
 }
 function guessCols(grid){
-  var g={artikelNr:'',bezeichnung:'',menge:'',skip:0};
+  var g={posNr:'',artikelNr:'',bezeichnung:'',menge:'',skip:0};
   var head=null,headIdx=-1;
   for(var r=0;r<Math.min(3,grid.rows.length);r++){
     var joined=grid.rows[r].join(' ').toLowerCase();
@@ -968,8 +1010,9 @@ function guessCols(grid){
   if(head){
     head.forEach(function(c,i){
       var t=(c||'').toLowerCase();
-      if(g.artikelNr===''&&/art.*nr|artikel|nummer|^nr/.test(t))g.artikelNr=i;
-      if(g.bezeichnung===''&&/bezeich|beschr|benennung|text|artikel/.test(t)&&i!==g.artikelNr)g.bezeichnung=i;
+      if(g.posNr===''&&/^pos\.?$|position|^p\.?$/.test(t))g.posNr=i;
+      if(g.artikelNr===''&&/art.*nr|artikel|nummer|^nr/.test(t)&&i!==g.posNr)g.artikelNr=i;
+      if(g.bezeichnung===''&&/bezeich|beschr|benennung|text|artikel/.test(t)&&i!==g.artikelNr&&i!==g.posNr)g.bezeichnung=i;
       if(g.menge===''&&/menge|anzahl|stk|stück|qty/.test(t))g.menge=i;
     });
     g.skip=headIdx+1;
@@ -988,9 +1031,9 @@ function guessCols(grid){
   return g;
 }
 window.weImpApplyMapping=function(quelle){
-  var art=$('mapArt').value,bez=$('mapBez').value,menge=$('mapMenge').value,skip=num($('mapSkip').value);
+  var pos=($('mapPos')||{}).value||'',art=$('mapArt').value,bez=$('mapBez').value,menge=$('mapMenge').value,skip=num($('mapSkip').value);
   if(bez===''){toast('Bezeichnung-Spalte wählen');return;}
-  var cols={artikelNr:art===''?null:parseInt(art,10),bezeichnung:parseInt(bez,10),menge:menge===''?null:parseInt(menge,10),skip:skip};
+  var cols={posNr:pos===''?null:parseInt(pos,10),artikelNr:art===''?null:parseInt(art,10),bezeichnung:parseInt(bez,10),menge:menge===''?null:parseInt(menge,10),skip:skip};
   var config;
   if(quelle==='pdf'&&IMP.pdfExtract&&IMP.grid.bounds){
     // aus Spaltenindizes x-Bänder ableiten (stabiler für PDF)
@@ -1008,7 +1051,7 @@ window.weImpApplyMapping=function(quelle){
 };
 function colsToBands(bounds,cols){
   function band(ci){if(ci==null||ci<0)return null;var xMin=bounds[ci]-3;var xMax=(ci+1<bounds.length?bounds[ci+1]-3:99999);return {xMin:xMin,xMax:xMax};}
-  return {artikelNr:band(cols.artikelNr),bezeichnung:band(cols.bezeichnung),menge:band(cols.menge)};
+  return {posNr:band(cols.posNr),artikelNr:band(cols.artikelNr),bezeichnung:band(cols.bezeichnung),menge:band(cols.menge)};
 }
 function applyGridMapping(grid,config){
   var cols=config.cols||{};var skip=config.skip||0;
@@ -1018,8 +1061,9 @@ function applyGridMapping(grid,config){
     var bez=cols.bezeichnung!=null?(r[cols.bezeichnung]||''):'';
     var art=cols.artikelNr!=null?(r[cols.artikelNr]||''):'';
     var menge=cols.menge!=null?num(r[cols.menge]):0;
+    var posNr=cols.posNr!=null?(r[cols.posNr]||''):'';
     if(!bez.trim()&&!art.trim())return;
-    out.push(mkPos(art,bez,menge,out.length));
+    out.push(mkPos(art,bez,menge,out.length,posNr));
   });
   return out;
 }
@@ -1043,13 +1087,14 @@ function applyPdfBands(items,config){
     var bez=pick(row,bands.bezeichnung);
     var art=pick(row,bands.artikelNr);
     var menge=num(pick(row,bands.menge));
+    var posNr=pick(row,bands.posNr);
     if(!bez&&!art)return;
-    out.push(mkPos(art,bez,menge,out.length));
+    out.push(mkPos(art,bez,menge,out.length,posNr));
   });
   return out;
 }
-function mkPos(art,bez,menge,idx){
-  return {id:uid('pos'),sortindex:idx,artikelNr:(art||'').trim(),bezeichnung:(bez||'').trim(),menge:menge||0,eingegangenMenge:0,status:'offen',projekt:defaultProjekt()};
+function mkPos(art,bez,menge,idx,posNr){
+  return {id:uid('pos'),sortindex:idx,posNr:(posNr==null?'':String(posNr)).trim(),artikelNr:(art||'').trim(),bezeichnung:(bez||'').trim(),menge:menge||0,eingegangenMenge:0,status:'offen',projekt:defaultProjekt()};
 }
 
 /* Step 3: Review-Grid + Projekt + Import */
@@ -1062,14 +1107,17 @@ function projShort(p){
 function renderStep3(){
   var b=$('impBody');
   if(!IMP.bulkProjObj)IMP.bulkProjObj=defaultProjekt();
+  var anyLager=false;
   var rows=IMP.positionen.map(function(p,i){
     var flag=(num(p.menge)<=0)?' style="background:#fef2f2"':'';
     var pj=p.projekt||lagerProjekt();
+    var lag=isLagerProj(pj);if(lag)anyLager=true;
     return '<tr'+flag+'>'
+      +'<td><input class="cell mini" value="'+E(p.posNr||'')+'" placeholder="—" title="Positionsnummer im Dokument" onchange="weImpEdit('+i+',\'posNr\',this.value)"></td>'
       +'<td class="num"><input class="cell mini" inputmode="numeric" value="'+E(p.menge)+'" onchange="weImpEdit('+i+',\'menge\',this.value)">'+(num(p.menge)<=0?'<div class="tag-flag" style="font-size:10px">Menge!</div>':'')+'</td>'
       +'<td><input class="cell" value="'+E(p.artikelNr)+'" onchange="weImpEdit('+i+',\'artikelNr\',this.value)"></td>'
       +'<td><input class="cell" value="'+E(p.bezeichnung)+'" onchange="weImpEdit('+i+',\'bezeichnung\',this.value)"></td>'
-      +'<td><button class="btn sm" style="max-width:100%;width:100%;justify-content:flex-start;overflow:hidden" title="Projekt/Adresse ändern" onclick="weImpRowProj('+i+')">'+(pj.objektId?'📋':'📍')+' <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+E(projShort(pj))+'</span></button></td>'
+      +'<td><button class="btn sm" style="max-width:100%;width:100%;justify-content:flex-start;overflow:hidden" title="'+(lag?'Lager — wird kontrolliert, aber NICHT als Etikette gedruckt. Klicken zum Ändern.':'Projekt/Adresse ändern')+'" onclick="weImpRowProj('+i+')">'+(lag?'📦':(pj.objektId?'📋':'📍'))+' <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+E(projShort(pj))+'</span></button></td>'
       +'<td class="num"><button class="btn sm danger" onclick="weImpDelRow('+i+')" title="Zeile löschen">✕</button></td>'
       +'</tr>';
   }).join('');
@@ -1081,7 +1129,8 @@ function renderStep3(){
       +'<div class="col"><label class="fl">Projekt / Lieferadresse für ganze Lieferung</label><button class="btn" style="width:100%;justify-content:flex-start" onclick="weImpBulkPick()">'+(IMP.bulkProjObj.objektId?'📋':'📍')+' '+E(projShort(IMP.bulkProjObj))+' — ändern</button></div>'
       +'<div class="col" style="max-width:230px"><label class="fl">&nbsp;</label><button class="btn" style="width:100%" onclick="weImpApplyBulkProj()">⤓ Auf alle Zeilen anwenden</button></div>'
     +'</div>'
-    +'<div class="tblwrap"><table class="gt" style="min-width:640px"><thead><tr><th class="num" style="width:90px">Menge</th><th style="width:130px">Art-Nr</th><th>Bezeichnung</th><th style="width:200px">Projekt / Adresse</th><th></th></tr></thead><tbody id="impRows">'+rows+'</tbody></table></div>'
+    +'<div class="tblwrap"><table class="gt" style="min-width:680px"><thead><tr><th style="width:64px">Pos-Nr</th><th class="num" style="width:80px">Menge</th><th style="width:120px">Art-Nr</th><th>Bezeichnung</th><th style="width:190px">Projekt / Adresse</th><th></th></tr></thead><tbody id="impRows">'+rows+'</tbody></table></div>'
+    +(anyLager?'<div class="hint" style="margin-top:6px">📦 Lager-Positionen werden importiert und im Wareneingang kontrolliert, aber <strong>nicht als Etikette gedruckt</strong>.</div>':'')
     +'<div class="row no-print" style="margin-top:8px"><button class="btn sm" onclick="weImpAddRow()">＋ Zeile</button><span class="hint" style="align-self:center">'+IMP.positionen.length+' Position'+(IMP.positionen.length!==1?'en':'')+'</span></div>'
     +'<hr style="border:none;border-top:1px solid #eef2f7;margin:14px 0">'
     +'<div class="row"><div class="col"><label class="fl">Lieferant'+(IMP.lieferantFirma?'':' *')+'</label><input class="in" id="impLiefName2" list="impLiefDL2" placeholder="z.B. Sanitär Müller AG" value="'+E(IMP.lieferantFirma)+'" oninput="weImpSet(&#39;lieferantFirma&#39;,this.value,1)"><datalist id="impLiefDL2">'+lieferantHistory().map(function(f){return '<option value="'+E(f)+'"></option>';}).join('')+'</datalist></div></div>'
@@ -1123,7 +1172,7 @@ window.weImpDoImport=function(print){
   saveRec(POOL_L,PREFIX_L,l);
   toast('Lieferung importiert ('+pos.length+' Positionen)');
   IMP=null;
-  if(print){printLabels(labelsFromLief(l));}
+  if(print){var lbls=labelsFromLief(l);if(lbls.length)printLabels(lbls);else toast('Nur Lager-Positionen — keine Etiketten gedruckt');}
   weTab('ueber');
 };
 
@@ -1137,7 +1186,8 @@ function openNewProjektModal(cb){
     +'<div class="row" style="margin-top:10px"><div class="col" style="max-width:150px"><label class="fl">PLZ</label><input class="in" id="npPlz" inputmode="numeric" placeholder="8000"></div><div class="col"><label class="fl">Ort</label><input class="in" id="npOrt" placeholder="Zürich"></div></div>'
     +'<div class="row no-print" style="margin-top:16px"><span style="flex:1"></span><button class="btn" onclick="weCloseModal()">Abbrechen</button><button class="btn pri" id="npSave">Anlegen</button></div>'
   ,'520px');
-  try{if(window.GemaAdresse&&GemaAdresse.attach)GemaAdresse.attach($('npStr'),{onSelect:function(r){if(r.plz)$('npPlz').value=r.plz;if(r.ort)$('npOrt').value=r.ort;}});}catch(e){}
+  // Adress-Autocomplete: PLZ+Ort in eigene Felder, Strassenfeld NUR Strasse+Nr
+  try{if(window.GemaAdresse&&GemaAdresse.attach)GemaAdresse.attach($('npStr'),{plz:'npPlz',ort:'npOrt',onSelect:function(r){var s=$('npStr');if(s)s.value=r.strasse||'';}});}catch(e){}
   $('npSave').onclick=function(){
     var name=$('npName').value.trim();if(!name){toast('Bezeichnung fehlt');return;}
     var o={id:uid('objekt'),name:name,strasse:$('npStr').value.trim(),plz:$('npPlz').value.trim(),ort:$('npOrt').value.trim(),orgId:orgId(),status:'aktiv',erstelltVon:(user()||{}).id||'',erstelltAm:_now()};
@@ -1168,14 +1218,14 @@ function renderPicker(){
       +'<button class="btn sm" style="margin-top:8px" onclick="wePickNewGema()">＋ Neues GEMA-Objekt</button></div>';
   }
   if(showFrei){
-    h+='<div class="card" style="margin-bottom:4px;box-shadow:none;padding:12px"><label class="fl">Freie Adresse (unabhängig)</label>'
-      +'<div class="row"><div class="col"><input class="in" id="pkName" placeholder="Bezeichnung (optional)" value="'+E(freeCur.name||'')+'"></div></div>'
-      +'<div class="row" style="margin-top:8px"><div class="col"><input class="in" id="pkStr" placeholder="Strasse" value="'+E(freeCur.strasse||'')+'"></div></div>'
+    h+='<div class="card" style="margin-bottom:4px;box-shadow:none;padding:12px"><label class="fl">Freie Adresse (unabhängig) — die Adresse ist zugleich die Bezeichnung, die gedruckt wird</label>'
+      +'<div class="row"><div class="col"><input class="in" id="pkStr" placeholder="Strasse und Nummer" value="'+E(freeCur.strasse||'')+'"></div></div>'
       +'<div class="row" style="margin-top:8px"><div class="col" style="max-width:130px"><input class="in" id="pkPlz" inputmode="numeric" placeholder="PLZ" value="'+E(freeCur.plz||'')+'"></div><div class="col"><input class="in" id="pkOrt" placeholder="Ort" value="'+E(freeCur.ort||'')+'"></div></div>'
       +'<button class="btn pri sm" style="margin-top:10px" onclick="wePickFrei()">✓ Freie Adresse übernehmen</button></div>';
   }
   showModal(h,'560px');
-  try{if(showFrei&&window.GemaAdresse&&GemaAdresse.attach&&$('pkStr'))GemaAdresse.attach($('pkStr'),{onSelect:function(r){if(r.plz&&$('pkPlz'))$('pkPlz').value=r.plz;if(r.ort&&$('pkOrt'))$('pkOrt').value=r.ort;}});}catch(e){}
+  // Adress-Autocomplete: PLZ+Ort in eigene Felder, Strassenfeld NUR Strasse+Nr
+  try{if(showFrei&&window.GemaAdresse&&GemaAdresse.attach&&$('pkStr'))GemaAdresse.attach($('pkStr'),{plz:'pkPlz',ort:'pkOrt',onSelect:function(r){var s=$('pkStr');if(s)s.value=r.strasse||'';}});}catch(e){}
 }
 window.wePickFilter=function(v){v=(v||'').toLowerCase();var els=document.querySelectorAll('#pickList .pick-obj');for(var i=0;i<els.length;i++){var h=els[i].getAttribute('data-h')||'';els[i].style.display=h.indexOf(v)>=0?'':'none';}};
 function _pickDone(pj){if(_pickCb)_pickCb(pj);_pickCb=null;weCloseModal();}
@@ -1183,11 +1233,10 @@ window.wePickLager=function(){_pickDone(lagerProjekt());};
 window.wePickGema=function(id){var p=projekte().find(function(x){return x.objektId===id;});if(p)_pickDone(p);};
 window.wePickNewGema=function(){var savedCb=_pickCb;openNewProjektModal(function(p){if(savedCb)savedCb(p);});_pickCb=null;};
 window.wePickFrei=function(){
-  var pj={objektId:'',name:($('pkName')||{}).value||'',strasse:($('pkStr')||{}).value||'',plz:($('pkPlz')||{}).value||'',ort:($('pkOrt')||{}).value||''};
-  pj.name=pj.name.trim();pj.strasse=pj.strasse.trim();pj.plz=pj.plz.trim();pj.ort=pj.ort.trim();
-  if(!pj.name&&!pj.strasse&&!pj.ort){toast('Bitte Adresse oder Bezeichnung eingeben');return;}
-  if(!pj.name)pj.name=pj.strasse||pj.ort;
-  _pickDone(pj);
+  var strasse=(($('pkStr')||{}).value||'').trim(),plz=(($('pkPlz')||{}).value||'').trim(),ort=(($('pkOrt')||{}).value||'').trim();
+  if(!strasse&&!ort){toast('Bitte Adresse eingeben');return;}
+  // Bezeichnung = Adresse (Strasse+Nr, sonst Ort) — wird auf der Etikette gedruckt.
+  _pickDone({objektId:'',name:strasse||ort,strasse:strasse,plz:plz,ort:ort});
 };
 
 /* ══════════════════ TAB: Schnell-Etikette ══════════════════ */
@@ -1208,6 +1257,8 @@ function renderEtikette(){
     +'<div class="row no-print" style="margin-top:14px"><button class="btn pri" onclick="weQePrint()">🖨 '+(QE.anzahl>1?QE.anzahl+' Etiketten':'Etikette')+' drucken</button></div>'
     +'</div>'
     +'<div class="card"><label class="fl">Vorschau (WYSIWYG)</label><div class="previewwrap"><div id="qePreview"></div><div class="hint">Format '+settings().labelW+'×'+settings().labelH+' mm — änderbar in ⚙️ Einstellungen. Adresse skaliert automatisch.</div></div></div>';
+  // Adress-Autocomplete: PLZ+Ort in eigene Felder, Strassenfeld NUR Strasse+Nr
+  try{if(window.GemaAdresse&&GemaAdresse.attach&&$('qeStr'))GemaAdresse.attach($('qeStr'),{plz:'qePlz',ort:'qeOrt',onSelect:function(r){QE.strasse=r.strasse||'';QE.plz=r.plz||'';QE.ort=r.ort||'';var s=$('qeStr');if(s)s.value=QE.strasse;weQeRefresh();}});}catch(e){}
   weQeRefresh();
 }
 window.weQe=function(f,v){QE[f]=(f==='anzahl')?Math.max(1,num(v)):v;weQeRefresh();if(f==='anzahl'){var b=document.querySelector('#tab_etikette .btn.pri');if(b)b.innerHTML='🖨 '+(QE.anzahl>1?QE.anzahl+' Etiketten':'Etikette')+' drucken';}};
@@ -1317,7 +1368,7 @@ document.addEventListener('DOMContentLoaded',function(){
 });
 
 /* Debug/Test-Hooks */
-window._weHooks={settings:settings,liefStatus:liefStatus,posStatus:posStatus,extractHtmlGrid:extractHtmlGrid,extractTextGrid:extractTextGrid,guessCols:guessCols,applyGridMapping:applyGridMapping,pdfItemsToGrid:pdfItemsToGrid,applyPdfBands:applyPdfBands,mkPos:mkPos,projModus:projModus,gemaObjekteAn:gemaObjekteAn,freieAdrAn:freieAdrAn,defaultProjekt:defaultProjekt,lieferantKey:lieferantKey,findMapping:findMapping,saveMapping:saveMapping,kiApplyResult:kiApplyResult,parseDateLoose:parseDateLoose,newImp:newImp,getImp:function(){return IMP;},setImp:function(x){IMP=x;}};
+window._weHooks={settings:settings,liefStatus:liefStatus,posStatus:posStatus,extractHtmlGrid:extractHtmlGrid,extractTextGrid:extractTextGrid,guessCols:guessCols,applyGridMapping:applyGridMapping,pdfItemsToGrid:pdfItemsToGrid,applyPdfBands:applyPdfBands,mkPos:mkPos,projModus:projModus,gemaObjekteAn:gemaObjekteAn,freieAdrAn:freieAdrAn,defaultProjekt:defaultProjekt,lieferantKey:lieferantKey,findMapping:findMapping,saveMapping:saveMapping,kiApplyResult:kiApplyResult,parseDateLoose:parseDateLoose,newImp:newImp,getImp:function(){return IMP;},setImp:function(x){IMP=x;},lagerProjekt:lagerProjekt,isLagerProj:isLagerProj,abbrevStrasse:abbrevStrasse,labelsFromLief:labelsFromLief,labelInner:labelInner,lieferantHistory:lieferantHistory};
 })();
 </script>
 <script src="gema_scroll.js"></script>
