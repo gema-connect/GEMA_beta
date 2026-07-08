@@ -196,6 +196,7 @@ table.gt input.cell.mini{max-width:74px;text-align:right}
 <script src="gema_objekte_api.js"></script>
 <script src="gema_dialog.js"></script>
 <script src="gema_adresse.js"></script>
+<script src="gema_claude.js"></script>
 <script src="gema_feedback.js"></script><script src="gema_notify.js"></script><script src="gema_notify_ui.js"></script>
 
 <script>
@@ -623,7 +624,10 @@ window.weCloseModal=function(){var host=$('weModalHost');if(host)host.innerHTML=
 
 /* ══════════════════ TAB: Import-Wizard ══════════════════ */
 var IMP=null;
-function newImp(){return {schritt:1,lieferantFirma:'',quelle:'html',grid:null,pdfExtract:null,positionen:[],bestellnummer:'',bestelldatum:today(),notiz:'',bulkProjObj:null};}
+function newImp(){return {schritt:1,lieferantFirma:'',quelle:'html',grid:null,pdfExtract:null,positionen:[],bestellnummer:'',bestelldatum:today(),notiz:'',bulkProjObj:null,kiFileB64:null,kiFileName:'',kiFileType:'',kiText:'',kiBusy:false};}
+// IMP lebt in dieser IIFE (nicht global) — Inline-Handler müssen über diesen
+// globalen Setter gehen, sonst «IMP is not defined» im oninput-Kontext.
+window.weImpSet=function(k,v,dup){if(IMP){IMP[k]=v;if(dup)weDupCheck();}};
 function renderImport(){
   var host=$('tab_import');if(!host)return;
   if(!canEdit()){host.innerHTML='<div class="card"><div class="empty"><div class="em-ic">🔒</div>Nur Lager/Planer dürfen Lieferungen importieren.</div></div>';return;}
@@ -651,27 +655,35 @@ function renderStep1(){
   var hist=lieferantHistory();
   var dl=hist.map(function(f){return '<option value="'+E(f)+'"></option>';}).join('');
   var b=$('impBody');
+  var ki=(IMP.quelle==='ki');
+  var liefLabel=ki?'Lieferant <span class="mut" style="font-weight:400">(optional — KI erkennt ihn meist)</span>':'Lieferant *';
+  var hints={html:'Kopiere die Artikeltabelle aus der Bestätigungs-E-Mail und füge sie im nächsten Schritt ein.',
+    pdf:'Lade das Bestell-/Lieferschein-PDF hoch — Text wird mit Koordinaten ausgelesen.',
+    ki:'🤖 Claude analysiert das Dokument (PDF, Foto oder Text) und liest die Positionen automatisch aus — auch bei gescannten Belegen ohne Text-Ebene und ohne Spalten-Mapping.'};
   b.innerHTML='<h3>1 · Quelle & Lieferant</h3><div class="desc">Lieferant frei eingeben (kein Katalog). Der Name bestimmt, welches Spalten-Mapping geladen/gemerkt wird.</div>'
-    +'<div class="row"><div class="col"><label class="fl">Lieferant *</label><input class="in" id="impLiefName" list="impLiefDL" placeholder="z.B. Sanitär Müller AG" value="'+E(IMP.lieferantFirma)+'" oninput="IMP.lieferantFirma=this.value"><datalist id="impLiefDL">'+dl+'</datalist>'+(hist.length?'<div class="hint" style="margin-top:5px">Vorschläge aus deinen bisherigen Lieferungen.</div>':'')+'</div></div>'
+    +'<div class="row"><div class="col"><label class="fl">'+liefLabel+'</label><input class="in" id="impLiefName" list="impLiefDL" placeholder="z.B. Sanitär Müller AG" value="'+E(IMP.lieferantFirma)+'" oninput="weImpSet(&#39;lieferantFirma&#39;,this.value)"><datalist id="impLiefDL">'+dl+'</datalist>'+(hist.length?'<div class="hint" style="margin-top:5px">Vorschläge aus deinen bisherigen Lieferungen.</div>':'')+'</div></div>'
     +'<label class="fl" style="margin-top:14px">Quelle</label>'
     +'<div class="row">'
       +'<button class="btn '+(IMP.quelle==='html'?'pri':'')+'" style="flex:1" onclick="weImpQuelle(\'html\')">📋 Tabelle einfügen</button>'
       +'<button class="btn '+(IMP.quelle==='pdf'?'pri':'')+'" style="flex:1" onclick="weImpQuelle(\'pdf\')">📄 PDF hochladen</button>'
+      +'<button class="btn '+(ki?'pri':'')+'" style="flex:1" onclick="weImpQuelle(\'ki\')">🤖 KI-Analyse</button>'
     +'</div>'
-    +'<div class="hint" style="margin-top:8px">'+(IMP.quelle==='html'?'Kopiere die Artikeltabelle aus der Bestätigungs-E-Mail und füge sie im nächsten Schritt ein.':'Lade das Bestell-/Lieferschein-PDF hoch — Text wird mit Koordinaten ausgelesen.')+'</div>'
+    +'<div class="hint" style="margin-top:8px">'+hints[IMP.quelle]+'</div>'
     +'<div class="row no-print" style="margin-top:16px"><span style="flex:1"></span><button class="btn pri" onclick="weImpNext()">Weiter →</button></div>';
 }
 window.weImpQuelle=function(q){IMP.quelle=q;renderStep1();};
 window.weImpNext=function(){
   var n=($('impLiefName')||{}).value||IMP.lieferantFirma;
-  if(!n||!n.trim()){toast('Bitte Lieferant eingeben');return;}
-  IMP.lieferantFirma=n.trim();
+  // Bei KI-Analyse ist der Lieferant optional (Claude erkennt ihn i.d.R. selbst).
+  if((!n||!n.trim())&&IMP.quelle!=='ki'){toast('Bitte Lieferant eingeben');return;}
+  IMP.lieferantFirma=(n||'').trim();
   IMP.schritt=2;renderImport();
 };
 
 /* Step 2: Extraktion */
 function renderStep2(){
   var b=$('impBody');
+  if(IMP.quelle==='ki'){renderStep2KI();return;}
   if(IMP.quelle==='html'){
     b.innerHTML='<h3>2 · Tabelle einfügen</h3><div class="desc">Lieferant: <strong>'+E(IMP.lieferantFirma||'—')+'</strong>. Kopiere die Artikeltabelle (Excel, Web, E-Mail) und füge sie unten ein (Cmd/Ctrl+V).</div>'
       +'<div class="pastebox" id="pasteBox" contenteditable="true" tabindex="0">Hier klicken und Tabelle einfügen …</div>'
@@ -745,8 +757,104 @@ function extractTextGrid(text){
   return {rows:rows,maxCols:maxCols};
 }
 function colsValid(cols,maxCols){return cols&&typeof cols.bezeichnung==='number'&&cols.bezeichnung<maxCols;}
-function manualStartBtn(){return '<div style="margin-top:10px"><button class="btn" onclick="weImpManual()">✏️ Zeilen manuell erfassen</button></div>';}
+function manualStartBtn(){return '<div class="row no-print" style="margin-top:10px;gap:8px"><button class="btn" onclick="weImpManual()">✏️ Zeilen manuell erfassen</button>'+kiFallbackBtn()+'</div>';}
+// «Stattdessen mit KI analysieren» — schaltet in den KI-Modus (Schritt 2 KI)
+function kiFallbackBtn(){return '<button class="btn" onclick="weImpToKi()">🤖 Mit KI analysieren</button>';}
 window.weImpManual=function(){IMP.positionen=[];IMP.schritt=3;renderImport();};
+window.weImpToKi=function(){
+  IMP.quelle='ki';IMP.schritt=2;renderImport();
+  // Wenn ein PDF bereits ausgewählt war (Text-Extraktion scheiterte), direkt übernehmen.
+  if(IMP.kiPendingFile){var f=IMP.kiPendingFile;IMP.kiPendingFile=null;_kiIngestFile(f);}
+};
+
+/* ── Step 2 (KI): Dokument-Analyse via Claude ─────────────────────────── */
+function renderStep2KI(){
+  var b=$('impBody');
+  var hasFile=!!IMP.kiFileB64;
+  var busy=!!IMP.kiBusy;
+  b.innerHTML='<h3>2 · KI-Analyse</h3>'
+    +'<div class="desc">Lieferant: <strong>'+E(IMP.lieferantFirma||'— (KI erkennt ihn)')+'</strong>. Lade den Beleg als <strong>PDF oder Foto</strong> hoch — oder füge den Belegtext ein. Claude liest Positionen, Lieferant und Bestellnummer aus. Im nächsten Schritt kontrollierst du alles.</div>'
+    +'<label class="fl">Beleg (PDF / Foto)</label>'
+    +'<input type="file" accept="application/pdf,image/*" class="in" id="kiFile" onchange="weImpKiFile(this)"'+(busy?' disabled':'')+'>'
+    +'<div id="kiFileInfo" class="hint" style="margin-top:6px">'+(hasFile?('📎 '+E(IMP.kiFileName||'Datei')+' bereit'):'Max. ~3 MB. Bei grösseren PDFs bitte Text einfügen.')+'</div>'
+    +'<label class="fl" style="margin-top:14px">…oder Belegtext einfügen</label>'
+    +'<textarea class="in" id="kiText" rows="5" placeholder="Text aus Rechnung/Lieferschein/Auftragsbestätigung hier einfügen (optional, wenn keine Datei)"'+(busy?' disabled':'')+' oninput="weImpSet(&#39;kiText&#39;,this.value)">'+E(IMP.kiText||'')+'</textarea>'
+    +'<div id="kiStatus" style="margin-top:12px">'+(busy?kiBusyHtml():'')+'</div>'
+    +'<div class="row no-print" style="margin-top:16px"><button class="btn" onclick="weImpBack()"'+(busy?' disabled':'')+'>← Zurück</button><span style="flex:1"></span>'
+      +'<button class="btn pri" id="kiGoBtn" onclick="weImpKiAnalyze()"'+(busy?' disabled':'')+'>🤖 Analysieren</button></div>';
+}
+function kiBusyHtml(){
+  return '<div class="infobox">🤖 Claude analysiert den Beleg … <span class="mut">(kann bei mehrseitigen PDFs ein paar Sekunden dauern)</span></div>';
+}
+function _kiIngestFile(f){
+  if(!f)return;
+  if(f.size>4200000){GemaDialog&&GemaDialog.alert?GemaDialog.alert({title:'Datei zu gross',message:'Die Datei ist grösser als ~3 MB. Bitte ein kleineres PDF/Foto wählen oder den Belegtext einfügen.'}):toast('Datei zu gross (max ~3 MB)');return;}
+  fileToBase64(f).then(function(b64){
+    IMP.kiFileB64=b64;IMP.kiFileName=f.name||'beleg';IMP.kiFileType=f.type||'';
+    var el=$('kiFileInfo');if(el)el.innerHTML='📎 '+E(IMP.kiFileName)+' bereit';
+  }).catch(function(){toast('Datei konnte nicht gelesen werden');});
+}
+window.weImpKiFile=function(inp){var f=inp.files&&inp.files[0];if(!f)return;_kiIngestFile(f);};
+function fileToBase64(f){
+  return new Promise(function(res,rej){
+    var fr=new FileReader();
+    fr.onload=function(){res(String(fr.result||''));};   // data:...;base64,XXXX
+    fr.onerror=function(){rej(new Error('read failed'));};
+    fr.readAsDataURL(f);
+  });
+}
+window.weImpKiAnalyze=function(){
+  if(IMP.kiBusy)return;
+  var txt=(($('kiText')||{}).value||IMP.kiText||'').trim();
+  IMP.kiText=txt;
+  if(!IMP.kiFileB64&&!txt){toast('Bitte Datei hochladen oder Text einfügen');return;}
+  if(typeof GemaClaude==='undefined'||!GemaClaude.extractPositions){
+    $('kiStatus').innerHTML='<div class="warnbox">KI-Analyse ist in dieser Installation nicht verfügbar. Bitte Tabelle einfügen oder PDF-Text-Import nutzen.</div>';return;
+  }
+  IMP.kiBusy=true;renderStep2KI();
+  var opts={};
+  if(IMP.kiFileB64){opts.fileBase64=IMP.kiFileB64;opts.mediaType=IMP.kiFileType||'';opts.filename=IMP.kiFileName||'';}
+  if(txt)opts.text=txt;
+  GemaClaude.extractPositions(opts).then(function(data){
+    IMP.kiBusy=false;
+    kiApplyResult(data);
+  }).catch(function(err){
+    IMP.kiBusy=false;renderStep2KI();
+    var msg=(err&&err.message)||'Unbekannter Fehler';
+    $('kiStatus').innerHTML='<div class="warnbox">🤖 KI-Analyse fehlgeschlagen: '+E(msg)+'<div style="margin-top:8px" class="row no-print"><button class="btn sm" onclick="weImpManual()">✏️ Manuell erfassen</button><button class="btn sm" onclick="weImpQuelle2(\'html\')">📋 Tabelle einfügen</button><button class="btn sm" onclick="weImpQuelle2(\'pdf\')">📄 PDF-Text</button></div></div>';
+  });
+};
+// Wechsel zurück auf klassische Quelle aus dem KI-Fehler-Fallback
+window.weImpQuelle2=function(q){IMP.quelle=q;IMP.schritt=2;renderImport();};
+// KI-Resultat → Review-Grid (Schritt 3)
+function kiApplyResult(data){
+  data=data||{};
+  var arr=Array.isArray(data.positionen)?data.positionen:[];
+  IMP.positionen=arr.map(function(p,i){
+    var m=p&&p.menge;var mn=(typeof m==='number'&&isFinite(m))?Math.round(m):num(m);
+    return mkPos((p&&p.artikelNr)||'',(p&&p.bezeichnung)||'',mn||(mn===0?0:1),i);
+  });
+  // Kopfdaten übernehmen, ohne bestehende Eingaben zu überschreiben
+  if(!IMP.lieferantFirma&&data.lieferant)IMP.lieferantFirma=String(data.lieferant).trim();
+  if(!IMP.bestellnummer&&data.bestellnummer)IMP.bestellnummer=String(data.bestellnummer).trim();
+  var d=parseDateLoose(data.bestelldatum);if(d)IMP.bestelldatum=d;
+  if(!IMP.positionen.length){
+    renderStep2KI();
+    $('kiStatus').innerHTML='<div class="warnbox">🤖 Es wurden keine Positionen erkannt. Bitte einen klareren Beleg wählen, Text einfügen oder manuell erfassen.<div style="margin-top:8px" class="row no-print"><button class="btn sm" onclick="weImpManual()">✏️ Manuell erfassen</button></div></div>';
+    return;
+  }
+  IMP.__kiCount=IMP.positionen.length;
+  IMP.schritt=3;renderImport();
+  toast('🤖 '+IMP.positionen.length+' Position'+(IMP.positionen.length!==1?'en':'')+' erkannt — bitte kontrollieren');
+}
+// Datum robust nach YYYY-MM-DD (ISO, dd.mm.yyyy, dd/mm/yyyy)
+function parseDateLoose(s){
+  if(!s)return '';s=String(s).trim();
+  var m=s.match(/^(\d{4})-(\d{2})-(\d{2})/);if(m)return m[1]+'-'+m[2]+'-'+m[3];
+  m=s.match(/^(\d{1,2})[.\/](\d{1,2})[.\/](\d{2,4})/);
+  if(m){var y=m[3].length===2?('20'+m[3]):m[3];return y+'-'+String(m[2]).padStart(2,'0')+'-'+String(m[1]).padStart(2,'0');}
+  return '';
+}
 
 /* PDF → grid */
 function ensurePdfJs(){
@@ -760,6 +868,7 @@ function ensurePdfJs(){
 }
 window.weImpPdf=function(inp){
   var f=inp.files&&inp.files[0];if(!f)return;
+  IMP.kiPendingFile=f;   // für «Mit KI analysieren»-Fallback wiederverwenden
   $('pdfStatus').textContent='PDF wird gelesen …';
   var fr=new FileReader();
   fr.onload=function(){
@@ -965,8 +1074,9 @@ function renderStep3(){
       +'</tr>';
   }).join('');
   var dup=findDuplicate();
-  b.innerHTML='<h3>3 · Review & Import</h3>'
-    +'<div class="desc">Alles editierbar — <strong>PDF/Import ist fehleranfällig, bitte kontrollieren.</strong> Menge = Anzahl Etiketten.</div>'
+  var kiBadge=(IMP.quelle==='ki'&&IMP.__kiCount)?'<span class="chip" style="background:#ecfccb;color:#3f6212;margin-left:6px">🤖 KI-Analyse</span>':'';
+  b.innerHTML='<h3>3 · Review & Import'+kiBadge+'</h3>'
+    +'<div class="desc">Alles editierbar — <strong>'+(IMP.quelle==='ki'?'KI-Extraktion':'PDF/Import')+' ist fehleranfällig, bitte kontrollieren.</strong> Menge = Anzahl Etiketten.</div>'
     +'<div class="row" style="align-items:flex-end;margin-bottom:10px">'
       +'<div class="col"><label class="fl">Projekt / Lieferadresse für ganze Lieferung</label><button class="btn" style="width:100%;justify-content:flex-start" onclick="weImpBulkPick()">'+(IMP.bulkProjObj.objektId?'📋':'📍')+' '+E(projShort(IMP.bulkProjObj))+' — ändern</button></div>'
       +'<div class="col" style="max-width:230px"><label class="fl">&nbsp;</label><button class="btn" style="width:100%" onclick="weImpApplyBulkProj()">⤓ Auf alle Zeilen anwenden</button></div>'
@@ -974,10 +1084,11 @@ function renderStep3(){
     +'<div class="tblwrap"><table class="gt" style="min-width:640px"><thead><tr><th class="num" style="width:90px">Menge</th><th style="width:130px">Art-Nr</th><th>Bezeichnung</th><th style="width:200px">Projekt / Adresse</th><th></th></tr></thead><tbody id="impRows">'+rows+'</tbody></table></div>'
     +'<div class="row no-print" style="margin-top:8px"><button class="btn sm" onclick="weImpAddRow()">＋ Zeile</button><span class="hint" style="align-self:center">'+IMP.positionen.length+' Position'+(IMP.positionen.length!==1?'en':'')+'</span></div>'
     +'<hr style="border:none;border-top:1px solid #eef2f7;margin:14px 0">'
+    +'<div class="row"><div class="col"><label class="fl">Lieferant'+(IMP.lieferantFirma?'':' *')+'</label><input class="in" id="impLiefName2" list="impLiefDL2" placeholder="z.B. Sanitär Müller AG" value="'+E(IMP.lieferantFirma)+'" oninput="weImpSet(&#39;lieferantFirma&#39;,this.value,1)"><datalist id="impLiefDL2">'+lieferantHistory().map(function(f){return '<option value="'+E(f)+'"></option>';}).join('')+'</datalist></div></div>'
     +'<div class="row">'
-      +'<div class="col"><label class="fl">Bestell-Nr</label><input class="in" id="impBestNr" placeholder="optional" value="'+E(IMP.bestellnummer)+'" oninput="IMP.bestellnummer=this.value;weDupCheck()"></div>'
-      +'<div class="col"><label class="fl">Bestelldatum</label><input class="in" type="date" id="impBestDat" value="'+E(IMP.bestelldatum)+'" oninput="IMP.bestelldatum=this.value"></div>'
-      +'<div class="col"><label class="fl">Notiz</label><input class="in" id="impNotiz" placeholder="optional" value="'+E(IMP.notiz)+'" oninput="IMP.notiz=this.value"></div>'
+      +'<div class="col"><label class="fl">Bestell-Nr</label><input class="in" id="impBestNr" placeholder="optional" value="'+E(IMP.bestellnummer)+'" oninput="weImpSet(&#39;bestellnummer&#39;,this.value,1)"></div>'
+      +'<div class="col"><label class="fl">Bestelldatum</label><input class="in" type="date" id="impBestDat" value="'+E(IMP.bestelldatum)+'" oninput="weImpSet(&#39;bestelldatum&#39;,this.value)"></div>'
+      +'<div class="col"><label class="fl">Notiz</label><input class="in" id="impNotiz" placeholder="optional" value="'+E(IMP.notiz)+'" oninput="weImpSet(&#39;notiz&#39;,this.value)"></div>'
     +'</div>'
     +'<div id="impDup">'+(dup?dupWarn(dup):'')+'</div>'
     +'<div class="row no-print" style="margin-top:16px"><button class="btn" onclick="weImpBack()">← Zurück</button><span style="flex:1"></span>'
@@ -1000,6 +1111,7 @@ window.weImpApplyBulkProj=function(){var p=IMP.bulkProjObj||defaultProjekt();IMP
 window.weImpDoImport=function(print){
   var pos=IMP.positionen.filter(function(p){return (p.bezeichnung||'').trim()||(p.artikelNr||'').trim();});
   if(!pos.length){toast('Keine Positionen zum Importieren');return;}
+  if(!(IMP.lieferantFirma||'').trim()){toast('Bitte Lieferant eingeben');var lf=$('impLiefName2');if(lf)lf.focus();return;}
   pos.forEach(function(p,i){p.sortindex=i;p.status=posStatus(p);});
   var l={
     id:uid('we'),orgId:orgId(),erstelltVon:(user()||{}).id||'',erstelltVonName:userName(),importDatum:_now(),
@@ -1205,7 +1317,7 @@ document.addEventListener('DOMContentLoaded',function(){
 });
 
 /* Debug/Test-Hooks */
-window._weHooks={settings:settings,liefStatus:liefStatus,posStatus:posStatus,extractHtmlGrid:extractHtmlGrid,extractTextGrid:extractTextGrid,guessCols:guessCols,applyGridMapping:applyGridMapping,pdfItemsToGrid:pdfItemsToGrid,applyPdfBands:applyPdfBands,mkPos:mkPos,projModus:projModus,gemaObjekteAn:gemaObjekteAn,freieAdrAn:freieAdrAn,defaultProjekt:defaultProjekt,lieferantKey:lieferantKey,findMapping:findMapping,saveMapping:saveMapping};
+window._weHooks={settings:settings,liefStatus:liefStatus,posStatus:posStatus,extractHtmlGrid:extractHtmlGrid,extractTextGrid:extractTextGrid,guessCols:guessCols,applyGridMapping:applyGridMapping,pdfItemsToGrid:pdfItemsToGrid,applyPdfBands:applyPdfBands,mkPos:mkPos,projModus:projModus,gemaObjekteAn:gemaObjekteAn,freieAdrAn:freieAdrAn,defaultProjekt:defaultProjekt,lieferantKey:lieferantKey,findMapping:findMapping,saveMapping:saveMapping,kiApplyResult:kiApplyResult,parseDateLoose:parseDateLoose,newImp:newImp,getImp:function(){return IMP;},setImp:function(x){IMP=x;}};
 })();
 </script>
 <script src="gema_scroll.js"></script>
