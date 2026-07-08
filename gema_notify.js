@@ -279,6 +279,37 @@
       label:'Offertanfrage abgelehnt',
       modul:'produktkatalog',
       defaultOn:true
+    },
+    // ── Bestellungen (Anlagen — Gewinner-Unternehmer → Lieferant) ──
+    bestellung_neu: {
+      label:'Neue Bestellung eingegangen (Lieferant)',
+      modul:'bestellungen',
+      defaultOn:true
+    },
+    bestellung_bestaetigt: {
+      label:'Bestellung bestätigt (Liefertermin/AB)',
+      modul:'bestellungen',
+      defaultOn:true
+    },
+    bestellung_abgelehnt: {
+      label:'Bestellung abgelehnt',
+      modul:'bestellungen',
+      defaultOn:true
+    },
+    bestellung_geliefert: {
+      label:'Bestellung geliefert',
+      modul:'bestellungen',
+      defaultOn:true
+    },
+    bestellung_empfangen: {
+      label:'Wareneingang bestätigt (Lieferant)',
+      modul:'bestellungen',
+      defaultOn:true
+    },
+    bestellung_storniert: {
+      label:'Bestellung storniert (Lieferant)',
+      modul:'bestellungen',
+      defaultOn:true
     }
   };
 

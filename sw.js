@@ -1,5 +1,5 @@
 /* GEMA Service Worker — Offline Cache + Push Vorbereitung */
-var CACHE_NAME = 'gema-v213';
+var CACHE_NAME = 'gema-v214';
 var CACHE_FILES = [
   '/', '/index.html', '/sb_index.html',
   '/sa_enthaertung.html', '/sa_osmose.html', '/sa_fettabscheider.html',
@@ -19,9 +19,9 @@ var CACHE_FILES = [
   '/sys_preise.html', '/sys_beta.html', '/sys_workspace.html', '/sys_unternehmen.html',
   '/br_vkf_formulare.html', '/br_vkf_formular.html', '/br_gasloeschung.html',
   '/el_angaben.html', '/if_fahrzeug.html', '/if_werkzeug.html', '/if_trocknung.html', '/sd_schadensbericht.html', '/sp_dachbericht.html',
-  '/pm_goodel.html', '/pm_schnellausschreibung.html', '/pm_crbx.html', '/pm_regierapport.html', '/pm_erp.html', '/pm_einsatzplan.html', '/pm_stunden.html',
+  '/pm_goodel.html', '/pm_schnellausschreibung.html', '/pm_crbx.html', '/pm_regierapport.html', '/pm_erp.html', '/pm_einsatzplan.html', '/pm_stunden.html', '/pm_bestellungen.html',
   '/gema_sync.js', '/gema_auth.js', '/gema_db.js', '/gema_feedback.js', '/gema_autosave.js',
-  '/gema_objekte_api.js', '/gema_produktkatalog_api.js', '/gema_armaturen_api.js', '/gema_armaturen_picker.js',
+  '/gema_objekte_api.js', '/gema_produktkatalog_api.js', '/gema_armaturen_api.js', '/gema_armaturen_picker.js', '/gema_bestellungen_api.js',
   '/gema_anlagenwahl.css', '/gema_responsive.css', '/gema_scroll.js', '/gema_pdf.js', '/gema_notify.js', '/gema_notify_ui.js',
   '/gema_coachmarks.js', '/gema_mobile_menu.js', '/gema_recent.js',
   '/gema_pwa.js', '/gema_adresse.js', '/gema_avatar.js', '/gema_dialog.js',

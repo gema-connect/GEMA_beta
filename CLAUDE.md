@@ -142,7 +142,7 @@ Berechnung abgeschlossen (z.B. Enthärtung: 2.5 l/s, 15°fH)
 
 ### Zwei Lieferanten-Typen (KRITISCH)
 
-- **Anlagenlieferant** (`role_lieferant*`): liefert Anlagen für die Berechnungsmodule (Enthärtung, Druckerhöhung, Osmose …) — mit Verifizierungs-Workflow. Dashboard-Tabs: Übersicht, Meine Produkte, Offertanfragen, Rohrsysteme, Werkzeuge, Mitarbeiter, Firmenprofil.
+- **Anlagenlieferant** (`role_lieferant*`): liefert Anlagen für die Berechnungsmodule (Enthärtung, Druckerhöhung, Osmose …) — mit Verifizierungs-Workflow. Dashboard-Tabs: Übersicht, Meine Produkte, Offertanfragen, 🛒 Bestellungen, Rohrsysteme, Werkzeuge, Mitarbeiter, Firmenprofil.
 - **Produktlieferant** (`role_produktlieferant_admin/_produkte/_offerten/_intern`): liefert Werkzeuge/Maschinen fürs Werkzeugmanagement — KEINE Verifizierungs-Unterrolle. Dashboard = Werkzeug-Sicht: Übersicht, Meine Produkte (nur Kategorie `werkzeuge` für reine Produktlieferanten), 🔧 Werkzeuge, Mitarbeiter, Firmenprofil (keine Anlagen-Offertanfragen/Rohrsysteme).
 - **Leiternprüfer** (`role_leiterpruefer`): EKAS-Leiterprüfungen — erscheint in `openPruefAnfordern` NUR bei `pruefKat='leiterpruefung'` (reiner Leiternprüfer). Kombinierbar mit Produktlieferant-Rollen auf demselben Account. `_wzInvitePruefer` vergibt bei Leiter-Werkzeugen automatisch `role_leiterpruefer` statt `role_pruefer`.
 - **Rollen-Checks**: Dashboard-Helper `_liefIsAnlagenLief()`/`_liefIsProduktLief()`; `_liefIsAdmin`/`_liefCanEditProdukte`/`_liefCanOfferten` decken beide Typen ab, `_liefCanVerify` nur Anlagen. Partner-Checks in if_werkzeug (`_wzIsBeauftragt`, cross-org load, Prüf-Dropdown, Supplier-Autocomplete) prüfen BEIDE Prefixe (`role_lieferant`, `role_produktlieferant`) + `role_pruefer`/`role_leiterpruefer`. Mitarbeiter-Einladung im Dashboard startet typ-abhängig (`role_produktlieferant_intern` bzw. `role_lieferant_intern`); Rollen-Zuweisung bietet nur die Rollen des eigenen Typs an (+ Leiternprüfer bei Produktlieferanten).
@@ -225,7 +225,7 @@ Kunden sollen NICHT alle Module bekommen (v.a. ERP und Stundenerfassung werden z
 | **Elektroplaner** | Vollzugang Berechnungen + PM | Wie Sanitärplaner, Gewerk: Elektro |
 | **Spengler** | Dachinspektion + PM + Werkzeug | Erstellt Dachberichte (sp_dachbericht), Zugang zu Objekten + Werkzeug-Read |
 | **Abteilungsleiter** | Berechnungen + PM + Werkzeuge | Prüft Berechnungen, sieht alle Projekte der Abteilung, Werkzeug-Leserechte |
-| **Unternehmer** | Ausschreibungen + Offerten | CRBX-Preise ausfüllen (langfristig in GEMA, kurzfristig Datei-Upload), Offertvergleich einsehen |
+| **Unternehmer** | Ausschreibungen + Offerten + Bestellungen | CRBX-Preise ausfüllen (langfristig in GEMA, kurzfristig Datei-Upload), Offertvergleich einsehen; nach Zuschlag Anlagen direkt beim Lieferanten bestellen (pm_bestellungen) |
 | **Bauherrschaft** | Projektübersicht + Kosten | Projektstatus, Kostenkontrolle, Terminplan, Freigaben (Read-only) |
 | **Architekt** | Projektübersicht + Koordination | Terminplanung, Sitzungsprotokolle, Dokumentation |
 | **Behörde** | Bewilligungen + Hygiene | W12-Prüfungen, Bewilligungsstatus, Inspektion (Read-only) |
@@ -456,7 +456,7 @@ Hub (`br_vkf_formulare.html`) mit 9 Formular-Karten; der Renderer `br_vkf_formul
 - **Infrastruktur-Module** (if_): Werkzeugmanagement, Fahrzeugmanagement, Trocknungsgeräte (siehe Abschnitte weiter unten)
 - **Schadensdokumentation** (sd_): Schadensberichte (siehe Abschnitt „Schadensdokumentation" weiter unten). Trocknungsgeräte (if_trocknung.html) liefert automatisch Gerätedaten via `GemaTrocknung`-API.
 - **Zentrale Module**: `index.html` (Hauptnavigation / Modulübersicht), `pm_objekte.html` (Projektverwaltung)
-- **Lieferanten-Modul**: `sys_lieferant_dashboard.html` mit 6 Tabs (Übersicht, Produkte, Anfragen, Rohrsysteme, Werkzeuge, Firmenprofil)
+- **Lieferanten-Modul**: `sys_lieferant_dashboard.html` mit Tabs Übersicht, Produkte, Anfragen, 🛒 Bestellungen, Rohrsysteme, Werkzeuge, Mitarbeiter, Firmenprofil
 - **Garagist-Modul**: `sys_garagist_dashboard.html` mit 4 Tabs (Übersicht, Anstehend, Service-Historie, Werkstatt-Profil). Login-Redirect für `role_garagist`. Werkstatt-Team-Sicht (`garagistUserId` ∈ Garagisten derselben Org), Quick-Actions: `?service=ID` (Service-Modal in `if_fahrzeug.html`), «✏ km» (km-Update), «🏭 Einbuchen / ✓ Ausbuchen» (Garage-Status, mit Reparatur-Doku bei offenen Defekten). Daten per-Record via GemaSync, Aktionen geloggt + notifiziert.
 
 ---
@@ -1347,6 +1347,18 @@ Mobile-first Arbeitszeiterfassung für Monteure (Handy-Format, grosse Touch-Ziel
 - **PDF-Monatsblatt pro Mitarbeiter** (`stPdf`, Button in der Auswertungs-Tabelle; Monteur nur eigenes): Print-Fenster A4 (Muster Regierapport) mit allen Tagen (Einträge/Absenzen/Status), Zuschlags-Zusammenzug inkl. Topf-Split, Spesen-Detail pro Tag, Jahres-Stand (Töpfe/Vorhol/Ferien) und Unterschriftszeilen — Grundlage für den Lohnlauf.
 - Registriert: gema_auth (MODULES `stundenerfassung` cat Projektmanagement, FILE_MAP `pm_stunden`, Monteur/Spengler/Magaziner rw, Planer via `_allPerms`), gema_notify (`stunden_eingereicht`/`stunden_entscheid`/`stunden_topfb`/`stunden_auszahlung`/`ferien_antrag`/`ferien_entscheid`), index.html (PM, 15 Module), sw.js.
 
+## Bestellungen für Anlagen (pm_bestellungen.html + gema_bestellungen_api.js)
+
+Kompletter Bestellprozess nach dem Ausschreibungs-Zuschlag (User-Entscheid: NUR der Gewinner-Unternehmer bestellt; voller Lebenszyklus; eigenes Modul + Integrationen; druckbarer Bestellschein):
+
+- **Storage per-Record**: moduleKey `bestellungen`, prefix `best:`, Pool `gema_best_pool_v1`. Record: `{id, nr, orgId (Besteller-Org), bestellerUserId/Name/Firma/Email/Tel, lieferantId, lieferantFirma, produktId, produktName, kategorie, menge, einheit, preis, total, quelle:{typ:'ausschreibung', ausId, ausName, posKey (losId|bkp|titel), bkpCode, posTitel, offertanfrageId}, objektId, objektName, lieferadresse, wunschtermin, bemerkung, status, bestelltAm, antwort, geliefert, empfangen, storno, verlauf[]}`. Nummernkreis pro Besteller-Org+Jahr: `BST-2026-001` (`GemaBest.nextNr`).
+- **Status-Flow** (`GemaBest`-API, zentrale Übergänge mit Verlauf + Notifikation): `offen` → `bestaetigt` (Lieferant: `antwort{liefertermin, abNr, nachricht, pdfName/pdfUrl/pdfDataUrl, beantwortetAm/Von}`) → `geliefert` (`geliefert{am,von,nachricht}`) + Wareneingangs-Marker `empfangen{am,von}` (Besteller); `offen` → `abgelehnt` (Grund in `antwort.nachricht`); `offen|bestaetigt` → `storniert` (`storno{am,von,grund}`, Besteller). Ungültige Übergänge geben `null` zurück. Einzel-Saves via `GemaSync.saveRecord` (NIE persistCollection — globaler Pool über alle Orgs, wie Werkzeug im Dashboard); Event `gema-bestellungen-changed`.
+- **Auslöser — Bestell-Sektion in pm_ausschreibungsunterlagen** (`_bstWinnerSektion` in `VIEWS.idet`, nur wenn `a.vergabe.winnerId === me.id` und Status `vergeben`): listet alle angehakten Lieferungs-Positionen (`istLieferung`) über alle Lose; Vorbefüllung aus `pos.offerte` (Lieferant fix, Produktname, `bruttoPreis`); ohne Offerte Lieferanten-Select aus `GemaProdukte.getAllLieferanten()` (aktive). Dialog `mBestellen` (`bstOpenDialog`/`bstSubmit`): Menge/Einheit/Preis, Lieferadresse (vorbefüllt aus `a.objekt`+`region`), Wunschtermin, Bemerkung. Bereits bestellte Positionen zeigen Badge `✓ BST-… · Status` (Lookup über `quelle.ausId`+`posKey`, storniert/abgelehnt erlauben Neu-Bestellung); Kategorie aus `MODUL_MAP[lieferungTyp].kategorie`.
+- **pm_bestellungen.html** (Besteller-Übersicht, Org-Scope `b.orgId===u.orgId`): KPI-Zeile, Status-Filter-Chips, Suche, Karten-Grid, Detail-Modal mit Verlauf/AB-PDF; Aktionen (nur `GemaAuth.can('write','bestellungen')`): «✓ Wareneingang bestätigen» (geliefert), «⊘ Stornieren» (offen/bestätigt, GemaDialog mit Grund); **Bestellschein-Print** `bstPrint(id)` (A4-Print-Fenster: Besteller-Briefkopf + `org.logoVector||logo`, Lieferant, Positionstabelle, Total, Lieferadresse, Termine). Deep-Link `?b=<id>` öffnet das Detail (Ziel der Besteller-Notifikationen).
+- **Lieferanten-Dashboard**: neuer Tab «🛒 Bestellungen» (nur Anlagenlieferant, Badge `bestBadge` = offene; Deep-Link `?tab=bestellungen` — Ziel der Lieferanten-Notifikationen). `GemaBest.bind()` beim Init (cross-org Pull, Bestellungen kommen von fremden Unternehmer-Orgs). Karten mit Besteller/Projekt/Lieferadresse/Betrag/Wunschtermin; Aktionen via `_liefCanOfferten` + `_liefBlockedInaktiv`: «✓ Bestätigen» (Modal `bestAnswerOverlay`: Liefertermin [vorbefüllt = Wunschtermin], AB-Nr, Nachricht, AB-PDF ≤10 MB → GemaStorage Pfad `bestellungen/<lieferantId>`, Base64-Fallback ≤2.5 MB), «✕ Ablehnen» (GemaDialog.prompt Grund), «📦 Als geliefert melden».
+- **Notifikationen** (Empfänger-Auflösung wie Offertanfragen: Lieferant über `user.lieferantId`-Match, Fallback Lieferanten-Org; Besteller direkt via `bestellerUserId`): `bestellung_neu`/`bestellung_storniert` an Lieferant, `bestellung_bestaetigt`/`bestellung_abgelehnt`/`bestellung_geliefert` an Besteller, `bestellung_empfangen` an Lieferant.
+- Registriert: gema_auth (MODULES `bestellungen` cat Projektmanagement, FILE_MAP `pm_bestellungen`, **role_unternehmer r/w**, Planer via `_allPerms` + Permission-Backfill), gema_notify (6 Keys), index.html (PM, 16 Module), sw.js (v214), gema_recent. Playwright: bestellungen_test 30/30 (Gewinner-Sektion + Dialog-Vorbefüllung, Statusmaschine inkl. ungültiger Übergänge, Notifys, Deep-Links, Bestellschein, Dashboard-Flow).
+
 ## Abnahmeprotokolle SIA 118 (pm_abnahme.html) — Teilnehmer, Freigabe & Monteur-Mängelliste
 
 Bestehendes SIA-118-Modul (mehrere Protokolle pro Objekt im per-Objekt-Blob `gema_abnahme_sia_v1__<objektId>` via `_GemaDB`, Mangel-/Plan-Pin-Fotos nach GemaStorage ausgelagert, 4 Unterschriften-Pads). Dazu drei Workflow-Bausteine:
@@ -1757,6 +1769,12 @@ Zentrales Modul `gema_notify.js` für In-App-Benachrichtigungen. Glocke + Toast-
 | `offertanfrage_neu` | produktkatalog | on |
 | `offertanfrage_beantwortet` | produktkatalog | on |
 | `offertanfrage_abgelehnt` | produktkatalog | on |
+| `bestellung_neu` | bestellungen | on |
+| `bestellung_bestaetigt` | bestellungen | on |
+| `bestellung_abgelehnt` | bestellungen | on |
+| `bestellung_geliefert` | bestellungen | on |
+| `bestellung_empfangen` | bestellungen | on |
+| `bestellung_storniert` | bestellungen | on |
 | `regie_eingereicht` | regierapport | on |
 | `regie_freigegeben` | regierapport | on |
 | `regie_abgelehnt` | regierapport | on |
@@ -2072,6 +2090,7 @@ GemaSync.persistCollection(moduleKey, storageKey, prefix, 'id', arr)
 | Marktplatz-Offerten | `ausschreibung` | `ausmk:` | `gema_ausmk_pool_v1` |
 | Schnellausschreibungen | `schnellausschreibung` | `sa:` | `gema_sa_pool_v1` |
 | Armaturen-Katalog | `armaturen` | `arm:` | `gema_armaturen_pool_v1` |
+| Bestellungen (Anlagen) | `bestellungen` | `best:` | `gema_best_pool_v1` |
 
 **Produktkatalog (gema_produktkatalog_api.js) — Migration & Besonderheiten:** Produkte/Lieferanten/Offertanfragen liegen jetzt per-Record in der Cloud (vorher: ein Blob pro Key `gema_produktkatalog_v1`/`gema_lieferanten_v1`/`gema_offertanfragen_v1` via `_GemaDB.saveToModule` → Last-Write-Wins, das Produkte konkurrierender Lieferanten überschreiben konnte). Die lokalen Blobs (`{produkte,log}` etc.) bleiben als Lese-Cache, alle bestehenden Getter (`getProdukte`, `getAllLieferanten`, …) laufen unverändert. `loadFromSupabase()` macht jetzt den Per-Record-Pull (mit einmaliger Legacy-Blob-Migration) und feuert `gema-produkte-loaded`; `save()` macht Diff-Saves per `GemaSync.persistCollection`. Neu: **`GemaProdukte.ready`** (Promise, resolved nach dem ersten Cloud-Pull) — Demo-Seeding (`seedDemoData`/`seedDemoLieferanten`) wartet darauf, sonst würden auf frischen Geräten Demo-Daten in die Cloud gepusht. Der `log` in `_data.log` wird nicht mehr cloud-synct (nur lokal). Fallback auf den alten `_GemaDB`-Blob, falls `gema_sync.js` nicht geladen ist.
 
@@ -2151,6 +2170,7 @@ UI-Anbindung:
 | `gema_armaturen_picker.js` | **Armaturen-Auswahl-Widget** für Berechnungsmodule: Katalog mit Zähler + ζ/kvs pro aktueller Dimension, manuelle Einträge (Name + Δp, Einheit kPa/Pa/mbar), Diagramm-Overlay (Lieferanten-Upload oder generierte Δp-Q-Kurve mit Betriebspunkt), `drawCurve(canvas,…)` für PDF-Sektionen. Modi `multi` und `kvs-single` (Zirkulations-Regulierventil). |
 | `gema_auth.js` | Auth, Rollen, Orgs, Permissions, Cloud-Recovery |
 | `gema_autosave.js` | Auto-Save in Berechnungsmodulen |
+| `gema_bestellungen_api.js` | **Bestellprozess für Anlagen** (`window.GemaBest`): per-Record-Pool `best:`, Nummernkreis `BST-JJJJ-NNN` pro Org, Status-Übergänge `create/bestaetigen/ablehnen/geliefertMelden/empfangBestaetigen/stornieren` (je mit Verlauf + Notifikation), `bind()`/`getForOrg()`/`getForLieferant()`, `badgeHtml`/`fmtChf`. Konsumenten: pm_bestellungen, pm_ausschreibungsunterlagen (Gewinner-Sektion), sys_lieferant_dashboard (🛒-Tab). |
 | `gema_coachmarks.js` | Onboarding-Touren |
 | `gema_db.js` | Legacy Storage-Layer (`_GemaDB`). Cloud-First, aber Blob-pro-Modulkey. Neue Module nutzen stattdessen `gema_sync.js`. |
 | `gema_sync.js` | **Cloud-First Per-Record-Sync.** Single source of truth Supabase, eine Row pro Datensatz, Diff-Saves, Offline-Banner. `bindCollection`/`persistCollection` als Modul-Helper. Siehe „Cloud-First Storage-Architektur". |
