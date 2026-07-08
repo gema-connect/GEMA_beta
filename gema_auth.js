@@ -1211,10 +1211,19 @@
           if(i>=0)users[i]=u;else users.push(u);
           _writeLocalCache(STORAGE_USERS,users);
         }catch(e){}
-        return Promise.all([
-          _loadCollectionFromCloud(STORAGE_USERS),
-          _loadCollectionFromCloud(STORAGE_ORGS),
-          _loadCollectionFromCloud(STORAGE_ROLES)
+        // Collections MIT Token frisch ziehen — aber den Login NICHT daran
+        // aufhaengen: haengende/langsame Cloud-Reads (Netz, Proxy, AV)
+        // machten den Login sonst beliebig langsam. Max. 2.5s warten
+        // (frische Caches im Normalfall), danach weiterleiten — die Pulls
+        // laufen im Hintergrund fertig und die Zielseite pullt beim Boot
+        // ohnehin erneut. User-Record ist bereits im Cache (oben gemerged).
+        return Promise.race([
+          Promise.all([
+            _loadCollectionFromCloud(STORAGE_USERS),
+            _loadCollectionFromCloud(STORAGE_ORGS),
+            _loadCollectionFromCloud(STORAGE_ROLES)
+          ]),
+          new Promise(function(res){ setTimeout(res, 2500); })
         ]).catch(function(){}).then(function(){
           return self.getCurrentUser()||u;
         });
