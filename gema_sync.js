@@ -43,6 +43,7 @@
   // das Internet einwandfrei laeuft. Echte Netz-/Server-Fehler (fetch wirft,
   // 5xx, 408, 429) schalten erst nach ZWEI Fehlern in Folge auf offline —
   // ein einzelner Aussetzer soll das Banner nicht ausloesen.
+  var _lastFailMsg = '';   // letzter echter Fehler — fuer die Banner-Diagnose
   function _noteFailure(e){
     var msg = (e && e.message) || '';
     var m = /HTTP (\d+)/.exec(msg);
@@ -50,6 +51,7 @@
       var code = +m[1];
       if(code >= 400 && code < 500 && code !== 408 && code !== 429) return;
     }
+    _lastFailMsg = msg || 'Netzwerkfehler';
     _failStreak++;
     if(_failStreak >= 2) _setReachable(false);
   }
@@ -127,17 +129,38 @@
 
   // Sichtbares Banner wenn die Verbindung weg ist (eine Zeile oben).
   // Nur beim ersten Verbindungsverlust gerendert; verschwindet bei Online.
-  var _banner = null;
+  // Mit «Erneut pruefen» + «Details»-Selbsttest (Supabase vs. Netlify-
+  // Function getrennt): zeigt, ob die Cloud-Datenbank von DIESEM Geraet
+  // blockiert ist (Firewall/Werbeblocker/DNS), obwohl das Internet laeuft —
+  // haeufigster Fall des «Offline trotz Internet»-Reports. Solange das
+  // Banner steht, probt ein Timer alle 20s automatisch (selbstheilend).
+  var _banner = null, _reprobeTimer = null;
+  function _startReprobe(){
+    if(_reprobeTimer || typeof setInterval === 'undefined') return;
+    _reprobeTimer = setInterval(function(){ if(!_lastReachable) _probeOnce(); }, 20000);
+  }
+  function _stopReprobe(){ if(_reprobeTimer){ clearInterval(_reprobeTimer); _reprobeTimer = null; } }
+  function _selfTest(){
+    var out = { supabase:'', fn:'' };
+    var p1 = fetch(SB_URL + '/rest/v1/' + SB_TABLE + '?select=module_key&limit=1', { headers: _hdrs() })
+      .then(function(r){ out.supabase = 'antwortet (HTTP ' + r.status + ')'; out.sbOk = true; })
+      .catch(function(e){ out.supabase = 'NICHT erreichbar — ' + ((e && e.message) || e); out.sbOk = false; });
+    var p2 = fetch(AUTH_FN + '?action=diag')
+      .then(function(r){ out.fn = 'antwortet (HTTP ' + r.status + ')'; out.fnOk = true; })
+      .catch(function(e){ out.fn = 'NICHT erreichbar — ' + ((e && e.message) || e); out.fnOk = false; });
+    return Promise.all([p1, p2]).then(function(){ return out; });
+  }
   function _broadcastBanner(reachable){
     if(typeof document === 'undefined') return;
     if(reachable){
+      _stopReprobe();
       if(_banner){ try{ _banner.remove(); }catch(e){} _banner = null; }
       return;
     }
+    _startReprobe();
     if(_banner) return;
     _banner = document.createElement('div');
     _banner.id = 'gema-sync-offline-banner';
-    _banner.textContent = '⚠ Offline — Aenderungen werden nicht gespeichert.';
     Object.assign(_banner.style, {
       position:'fixed', top:'0', left:'0', right:'0', zIndex:'10000',
       background:'#b45309', color:'#fff', textAlign:'center',
@@ -146,6 +169,31 @@
       fontSize:'13px', fontWeight:'600',
       boxShadow:'0 2px 6px rgba(0,0,0,.18)'
     });
+    var btnCss = 'margin-left:10px;padding:3px 10px;border:1px solid rgba(255,255,255,.6);border-radius:7px;background:transparent;color:#fff;font:inherit;font-size:12px;font-weight:700;cursor:pointer';
+    _banner.innerHTML = '<span>⚠ Cloud nicht erreichbar — Aenderungen werden nicht gespeichert.</span>'
+      + '<button type="button" id="gema-sync-retry" style="' + btnCss + '">↻ Erneut pruefen</button>'
+      + '<button type="button" id="gema-sync-diag" style="' + btnCss + '">Details</button>'
+      + '<div id="gema-sync-diag-out" style="display:none;margin-top:6px;font-weight:400;font-size:12px;text-align:left;max-width:640px;margin-left:auto;margin-right:auto;background:rgba(0,0,0,.18);border-radius:8px;padding:8px 10px"></div>';
+    _banner.querySelector('#gema-sync-retry').onclick = function(){
+      var b = this; b.textContent = '…';
+      _probeOnce().then(function(ok){ if(!ok && b) b.textContent = '↻ Erneut pruefen'; });
+    };
+    _banner.querySelector('#gema-sync-diag').onclick = function(){
+      var box = _banner && _banner.querySelector('#gema-sync-diag-out');
+      if(!box) return;
+      box.style.display = ''; box.textContent = 'Pruefe Verbindung …';
+      _selfTest().then(function(t){
+        if(!box || !_banner) return;
+        var hint;
+        if(!t.sbOk && t.fnOk) hint = '→ Internet funktioniert, aber die Cloud-Datenbank (supabase.co) ist von diesem Geraet aus blockiert. Firewall, Werbeblocker (AdGuard/uBlock), Antivirus oder DNS-Filter pruefen.';
+        else if(!t.sbOk && !t.fnOk) hint = '→ Keine Verbindung zum Server — Internet/WLAN/VPN pruefen.';
+        else hint = '→ Verbindung scheint wieder da — «Erneut pruefen» klicken.';
+        box.innerHTML = '<div>Cloud-Datenbank (Supabase): ' + t.supabase + '</div>'
+          + '<div>GEMA-Server (Netlify): ' + t.fn + '</div>'
+          + (_lastFailMsg ? '<div>Letzter Fehler: ' + String(_lastFailMsg).replace(/[<>&]/g,'') + '</div>' : '')
+          + '<div style="margin-top:4px;font-weight:600">' + hint + '</div>';
+      });
+    };
     if(document.body) document.body.appendChild(_banner);
     else document.addEventListener('DOMContentLoaded', function(){ if(_banner && !_banner.parentNode) document.body.appendChild(_banner); });
   }
