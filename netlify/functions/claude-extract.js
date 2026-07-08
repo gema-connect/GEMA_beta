@@ -35,7 +35,12 @@ const SYSTEM_PROMPT =
   '(1) menge = Stückzahl als reine Zahl, ohne Einheit (Schweizer Format 1\'000.5 → 1000.5). ' +
   '(2) artikelNr = Artikel-/Bestellnummer des Lieferanten (leer lassen, wenn keine vorhanden). ' +
   '(3) bezeichnung = Artikelbezeichnung/Beschreibung. ' +
-  '(4) Ignoriere Summen-, Zwischensummen-, MwSt-, Rabatt-, Versand- und reine Kopf-/Fusszeilen. ' +
+  '(4) Ignoriere ALLE Nicht-Artikel-Zeilen — sie duerfen NICHT als Position erscheinen: ' +
+  'Summen/Zwischensummen/Total, MwSt/Steuer, Rabatte/Skonto, sowie saemtliche Nebenkosten ' +
+  'wie Fracht-/Frachtkosten, Versand-/Liefer-/Transportkosten, Porto, Verpackung/Verpackungskosten, ' +
+  'Paket-/Kleinpaket-/Paketpauschale (z.B. «Paket klein», «Kleinpaket»), Mindermengen-/Kleinmengenzuschlag, ' +
+  'Palettenpfand/Gebindepfand, Bearbeitungs-/Handling-/Verwaltungsgebuehr, vorgezogene Entsorgungsgebuehr (VEG/vRG), ' +
+  'Zuschlaege/Gebuehren jeder Art sowie reine Kopf-/Fusszeilen. Nur echte bestellte/gelieferte Sanitaerartikel zaehlen. ' +
   '(5) Wenn erkennbar, gib zusätzlich lieferant (Firmenname), bestellnummer und bestelldatum an ' +
   '(bestelldatum als ISO YYYY-MM-DD, wenn möglich). ' +
   'Erfinde keine Positionen. Wenn keine Positionen erkennbar sind, gib eine leere Liste zurück.';
@@ -51,7 +56,7 @@ const TOOL = {
       bestelldatum: { type: 'string', description: 'Bestell-/Lieferdatum, ISO YYYY-MM-DD falls möglich' },
       positionen: {
         type: 'array',
-        description: 'Alle Artikelpositionen des Dokuments',
+        description: 'Nur echte bestellte/gelieferte Sanitaerartikel. KEINE Nebenkosten wie Fracht/Versand/Porto, Verpackung, «Paket klein»/Kleinpaket, Mindermengenzuschlag, Gebuehren, Rabatte, MwSt oder Summenzeilen.',
         items: {
           type: 'object',
           properties: {
