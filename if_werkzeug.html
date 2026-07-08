@@ -870,7 +870,11 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
         <div style="display:flex;justify-content:center;padding:6px 0 4px">
           <div id="qrLabelPreview"></div>
         </div>
-        <div style="text-align:center;font-size:11px;color:var(--mut);margin-bottom:12px">Etikette 49 × 23 mm · Querformat</div>
+        <div style="text-align:center;font-size:11px;color:var(--mut);margin-bottom:8px">Etikette 49 × 23 mm · Querformat</div>
+        <label id="wzLblNameRow" style="display:flex;align-items:center;justify-content:center;gap:8px;font-size:12.5px;font-weight:600;color:#0f172a;margin-bottom:10px;cursor:pointer">
+          <input type="checkbox" id="wzLblName" onchange="_wzBuildEtikettePreview()" style="width:15px;height:15px;accent-color:#3730a3">
+          Name zusätzlich aufdrucken
+        </label>
         <button class="mft-save" style="width:100%;justify-content:center;padding:9px 10px;font-size:12.5px" onclick="downloadEtikettePDF()">⬇ Etikette als PDF</button>
       </div>
     </div>
@@ -4769,6 +4773,7 @@ function _wzOpenSettings(){
   var s = (org.settings && org.settings.werkzeug) || {};
   var requireMag = !!s.requireMagazinerReturn;
   var lockOnWrite = !!s.nfcLockOnWrite;
+  var etikName = (s.etiketteName==='immer'||s.etiketteName==='fragen')?s.etiketteName:'nie';
   var opt = _wzGetOptFelder();
   var cats = _wzGetCats();
 
@@ -4801,6 +4806,19 @@ function _wzOpenSettings(){
           + '<span><div style="font-size:13px;font-weight:700;color:#0f172a">Beim Beschreiben automatisch sperren</div>'
             + '<div style="font-size:11.5px;color:#64748b;margin-top:2px;line-height:1.4">Nach jedem erfolgreichen NFC-Schreiben wird der Tag im selben Vorgang dauerhaft schreibgeschützt — den Tag dafür am Gerät lassen, bis «gesperrt» erscheint. <strong style="color:#b91c1c">⚠ Das Sperren ist UNWIDERRUFLICH</strong> — gesperrte Tags können nie mehr beschrieben werden. Gilt für Magaziner/Admin.</div></span>'
         + '</label>'
+      + '</section>'
+      // 1c. Etiketten
+      + '<section>'
+        + '<div style="font-size:12px;font-weight:800;color:#3730a3;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Etiketten</div>'
+        + '<div style="padding:11px 13px;border:1.5px solid #e5e7eb;border-radius:9px;background:#fff">'
+          + '<div style="font-size:13px;font-weight:700;color:#0f172a;margin-bottom:6px">Werkzeug-Name zusätzlich zur internen Kennung aufdrucken</div>'
+          + '<select id="wzs_etiketteName" style="width:100%;padding:8px 10px;border:1.5px solid #dbe2ee;border-radius:8px;font:inherit;font-size:13px;background:#fff">'
+            + '<option value="nie"'+(etikName==='nie'?' selected':'')+'>Nie — nur interne Kennung (Name nur, wenn keine Kennung existiert)</option>'
+            + '<option value="immer"'+(etikName==='immer'?' selected':'')+'>Immer — Name klein unter der Kennung</option>'
+            + '<option value="fragen"'+(etikName==='fragen'?' selected':'')+'>Vor dem Druck wählen</option>'
+          + '</select>'
+          + '<div style="font-size:11.5px;color:#64748b;margin-top:6px;line-height:1.4">Gilt für Werkzeuge UND Koffer. Beim Einzel-Druck steuert die Checkbox im Etiketten-Dialog (nach dieser Einstellung vorbelegt); beim Sammelexport wird bei «Vor dem Druck wählen» einmal pro Export gefragt. Die Kennung wird immer so gross wie möglich dargestellt.</div>'
+        + '</div>'
       + '</section>'
       // 2. Optionale Felder
       + '<section>'
@@ -4908,6 +4926,8 @@ function _wzSaveSettings(){
     var wz = orgs[idx].settings.werkzeug = orgs[idx].settings.werkzeug || {};
     wz.requireMagazinerReturn = !!document.getElementById('wzs_requireMagReturn').checked;
     wz.nfcLockOnWrite = !!document.getElementById('wzs_nfcLockOnWrite').checked;
+    var etikSel = document.getElementById('wzs_etiketteName');
+    if(etikSel) wz.etiketteName = etikSel.value;
     // Optionale Felder einsammeln
     var optOut = {};
     document.querySelectorAll('.wzs_opt').forEach(function(cb){
@@ -5761,6 +5781,10 @@ var _wzCurrentQRTool=null;    // aktuell im QR-Dialog gezeigtes Werkzeug (fuer E
 function openQR(id){
   const t=tools.find(x=>x.id===id);if(!t)return;
   _wzCurrentQRTool=t;
+  // Checkbox «Name aufdrucken» pro Werkzeug frisch nach Org-Einstellung
+  // vorbelegen ('immer' → an; 'nie'/'fragen' → aus, im Dialog umschaltbar).
+  var lblCb=document.getElementById('wzLblName');
+  if(lblCb)lblCb.checked=(_wzEtiketteNameMode()==='immer');
   const cat=CATS[t.cat]||CATS.sonstige;
   setText('qrTitle',t.name);
   const url=`${location.href.split('?')[0]}?scan=${id}`;
@@ -6297,7 +6321,14 @@ function _wzWrapText(text,maxW,fontPt){
 function _wzFitText(text,boxW,boxH,maxFont,minFont){
   for(var f=maxFont;f>=minFont;f-=0.5){
     var lines=_wzWrapText(text,boxW,f);
-    if(lines.length<=2){var lh=f*0.3528*1.12;if(lines.length*lh<=boxH)return {font:f,lines:lines,lineH:lh};}
+    if(lines.length<=2){
+      var lh=f*0.3528*1.12;
+      // Hoehe UND Breite pruefen — bei grossen Startfonts kann ein einzelnes
+      // langes Wort (z.B. «WZ-0140») sonst ueber den Rand laufen, weil der
+      // Wortumbruch es nicht teilen kann.
+      var wOk=lines.every(function(ln){return _wzEtiketteW10(ln)*f/10<=boxW+0.1;});
+      if(wOk&&lines.length*lh<=boxH)return {font:f,lines:lines,lineH:lh};
+    }
   }
   var fl=_wzWrapText(text,boxW,minFont);
   return {font:minFont,lines:fl.slice(0,2),lineH:minFont*0.3528*1.12};
@@ -6306,10 +6337,33 @@ function _wzEtiketteText(t){
   if(!t)return '—';
   return (t.internKennung&&t.internKennung.trim())?t.internKennung.trim():(t.name||'—');
 }
-// Festes Layout: QR rechts ueber volle Hoehe, links Logo oben + Bezeichnung darunter.
-function _wzComputeEtikette(text,logo){
+// Org-Einstellung: Werkzeug-Name zusaetzlich auf die Etikette drucken?
+// 'nie' (Default — nur Kennung; Name nur als Fallback ohne Kennung) |
+// 'immer' | 'fragen' (Einzel: Checkbox im Dialog; Sammelexport: 1x fragen).
+function _wzEtiketteNameMode(){
+  try{
+    var o=GemaAuth.getCurrentOrg&&GemaAuth.getCurrentOrg();
+    var v=o&&o.settings&&o.settings.werkzeug&&o.settings.werkzeug.etiketteName;
+    return (v==='immer'||v==='fragen')?v:'nie';
+  }catch(e){return 'nie';}
+}
+// Zweitzeile (Name) — nur wenn gewuenscht UND eine interne Kennung existiert
+// (ohne Kennung ist der Name bereits der Haupttext).
+function _wzEtiketteSubText(t,withName){
+  if(!withName||!t)return '';
+  var k=(t.internKennung||'').trim();
+  if(!k)return '';
+  var n=(t.name||'').trim();
+  return (n&&n!==k)?n:'';
+}
+// Festes Layout: QR rechts ueber volle Hoehe, links Logo oben + Bezeichnung
+// darunter. Haupttext wird MAXIMAL skaliert (fuellt die verfuegbare Hoehe/
+// Breite — eine kurze Kennung wie «3» wird riesig, langer Text schrumpft).
+// Optionaler subText (Werkzeug-Name) als kleine Zeile(n) unter dem Haupttext.
+function _wzComputeEtikette(text,logo,subText){
   var C=_WZ_ETIK,LW=C.LW,LH=C.LH,PAD=C.PAD,GAP=C.GAP;
   text=String(text==null?'':text).trim()||'—';
+  subText=String(subText==null?'':subText).trim();
   var qr=LH-2*PAD;
   var qrX=LW-PAD-qr,qrY=PAD;
   var colX=PAD,colW=qrX-GAP-PAD,colTop=PAD,colH=LH-2*PAD;
@@ -6323,9 +6377,26 @@ function _wzComputeEtikette(text,logo){
   var gapLT=logo?1.0:0;
   var textTop=colTop+logoBandH+gapLT;
   var textH=colH-logoBandH-gapLT;
-  var ft=_wzFitText(text,colW,textH,12,5.5);
-  return {LW:LW,LH:LH,PAD:PAD,qr:qr,qrX:qrX,qrY:qrY,colX:colX,colW:colW,logoBox:logoBox,textTop:textTop,textH:textH,font:ft.font,lines:ft.lines,lineH:ft.lineH,text:text};
+  // Zweitzeile (Name) unten abzweigen, bevor der Haupttext skaliert wird.
+  var sub=null,subTop=0;
+  if(subText){
+    var subBandMax=Math.min(5.2,textH*0.42);
+    var sf=_wzFitText(subText,colW,subBandMax,6,4);
+    var subH=sf.lines.length*sf.lineH;
+    var gapMS=0.6;
+    sub={font:sf.font,lines:sf.lines,lineH:sf.lineH,h:subH};
+    textH=Math.max(3,textH-subH-gapMS);
+    subTop=textTop+textH+gapMS;
+  }
+  // Haupttext maximal fuellen: Start-Schriftgrad = volle Resthoehe als eine
+  // Zeile (gedeckelt bei 46pt gegen Endlos-Schleifen), _wzFitText schrumpft
+  // bis Breite+Hoehe passen.
+  var maxFont=Math.max(12,Math.min(46,textH/(0.3528*1.12)));
+  var ft=_wzFitText(text,colW,textH,maxFont,5.5);
+  return {LW:LW,LH:LH,PAD:PAD,qr:qr,qrX:qrX,qrY:qrY,colX:colX,colW:colW,logoBox:logoBox,textTop:textTop,textH:textH,font:ft.font,lines:ft.lines,lineH:ft.lineH,text:text,sub:sub,subTop:subTop};
 }
+// Test-Hooks (Playwright)
+window._wzEtikHooks={compute:_wzComputeEtikette,fit:_wzFitText,text:_wzEtiketteText,sub:_wzEtiketteSubText,nameMode:_wzEtiketteNameMode,measure:_wzEtiketteW10};
 function _wzGetQrDataUrl(){
   var box=document.getElementById('qrCanvas');
   if(!box)return '';
@@ -6384,6 +6455,14 @@ function _wzDrawEtikette(doc,spec,qr,logo){
     var baseY=spec.textTop+topPad+i*spec.lineH+spec.lineH*0.76;
     doc.text(ln,cx,baseY,{align:'center'});
   });
+  // Zweitzeile (Werkzeug-Name) klein unter dem Haupttext
+  if(spec.sub){
+    doc.setFont('helvetica','normal');doc.setFontSize(spec.sub.font);
+    spec.sub.lines.forEach(function(ln,i){
+      var baseY=spec.subTop+i*spec.sub.lineH+spec.sub.lineH*0.76;
+      doc.text(ln,cx,baseY,{align:'center'});
+    });
+  }
 }
 function _wzBuildEtikettePreview(){
   var box=document.getElementById('qrLabelPreview');
@@ -6391,10 +6470,17 @@ function _wzBuildEtikettePreview(){
   var t=_wzCurrentQRTool;
   if(!t){box.innerHTML='';return;}
   var text=_wzEtiketteText(t);
+  // Checkbox «Name aufdrucken» — nur sinnvoll, wenn eine Kennung existiert
+  var cb=document.getElementById('wzLblName');
+  var row=document.getElementById('wzLblNameRow');
+  var hasKennung=!!(t.internKennung&&t.internKennung.trim());
+  if(row)row.style.display=hasKennung?'flex':'none';
+  var withName=hasKennung&&!!(cb&&cb.checked);
+  var subText=_wzEtiketteSubText(t,withName);
   var qrData=_wzGetQrDataUrl();
   _wzEnsureLabelLogo().then(function(logo){
     if(_wzCurrentQRTool!==t)return;
-    var spec=_wzComputeEtikette(text,logo);
+    var spec=_wzComputeEtikette(text,logo,subText);
     var PX=6.4;
     var W=spec.LW*PX,H=spec.LH*PX;
     var fontPx=spec.font*0.3528*PX;
@@ -6405,6 +6491,10 @@ function _wzBuildEtikettePreview(){
       html+='<img alt="Logo" src="'+logo.dataUrl+'" style="position:absolute;left:'+(lb.x*PX)+'px;top:'+(lb.y*PX)+'px;width:'+(lb.w*PX)+'px;height:'+(lb.h*PX)+'px;object-fit:contain"/>';
     }
     html+='<div style="position:absolute;left:'+(spec.colX*PX)+'px;top:'+(spec.textTop*PX)+'px;width:'+(spec.colW*PX)+'px;height:'+(spec.textH*PX)+'px;display:flex;align-items:center;justify-content:center;text-align:center;font-weight:700;font-size:'+fontPx+'px;line-height:1.12;color:#111827;overflow:hidden">'+spec.lines.map(esc).join('<br>')+'</div>';
+    if(spec.sub){
+      var subPx=spec.sub.font*0.3528*PX;
+      html+='<div style="position:absolute;left:'+(spec.colX*PX)+'px;top:'+(spec.subTop*PX)+'px;width:'+(spec.colW*PX)+'px;height:'+(spec.sub.h*PX)+'px;display:flex;align-items:flex-start;justify-content:center;text-align:center;font-weight:400;font-size:'+subPx+'px;line-height:1.12;color:#111827;overflow:hidden">'+spec.sub.lines.map(esc).join('<br>')+'</div>';
+    }
     box.style.cssText='position:relative;width:'+W+'px;height:'+H+'px;background:#fff;border:1px solid #cbd5e1;border-radius:4px;box-shadow:0 2px 10px rgba(15,23,42,.14);overflow:hidden;font-family:Helvetica,Arial,sans-serif';
     box.innerHTML=html;
   });
@@ -6431,10 +6521,13 @@ window.downloadEtikettePDF=function(){
     var t=_wzCurrentQRTool;
     if(!t)return;
     var text=_wzEtiketteText(t);
+    // Checkbox im Dialog entscheidet (vorbelegt nach Org-Einstellung)
+    var withName=!!(document.getElementById('wzLblName')||{}).checked;
+    var subText=_wzEtiketteSubText(t,withName);
     var qr=_wzQrForUrl(location.href.split('?')[0]+'?scan='+t.id);
     if(!qr.modules&&!qr.dataUrl){alert('QR-Code nicht verfügbar.');return;}
     _wzEnsureLabelLogo().then(function(logo){
-      var spec=_wzComputeEtikette(text,logo);
+      var spec=_wzComputeEtikette(text,logo,subText);
       var jsPDF=window.jspdf.jsPDF;
       var doc=new jsPDF({unit:'mm',format:[spec.LW,spec.LH],orientation:'landscape'});
       _wzDrawEtikette(doc,spec,qr,logo);
@@ -6448,6 +6541,12 @@ window._wzExportEtikettenBulk=function(){
   if(!_wzCanBulkLabel())return;
   var ids=Object.keys(_wzBulkSelected).filter(function(id){return tools.some(function(t){return t.id===id;});});
   if(!ids.length){alert('Bitte zuerst Werkzeuge markieren.');return;}
+  // Name mitdrucken? Org-Einstellung: 'immer'/'nie' direkt, 'fragen' → 1x pro Export
+  var mode=_wzEtiketteNameMode();
+  var ask=(mode==='fragen'&&typeof GemaDialog!=='undefined')
+    ? GemaDialog.confirm({title:'Etiketten drucken',message:'Werkzeug-Namen zusätzlich zur internen Kennung aufdrucken?',confirmLabel:'Mit Name',cancelLabel:'Nur Kennung'})
+    : Promise.resolve(mode==='immer');
+  ask.then(function(withName){
   _wzEnsureJsPDF().then(function(){
     if(!(window.jspdf&&window.jspdf.jsPDF)){alert('PDF-Bibliothek nicht verfügbar.');return;}
     _wzEnsureLabelLogo().then(function(logo){
@@ -6460,7 +6559,7 @@ window._wzExportEtikettenBulk=function(){
         var text=_wzEtiketteText(t);
         var qr=_wzQrForUrl(base+'?scan='+id);
         if(!qr.modules&&!qr.dataUrl)return;
-        var spec=_wzComputeEtikette(text,logo);
+        var spec=_wzComputeEtikette(text,logo,_wzEtiketteSubText(t,withName));
         if(!doc){doc=new jsPDF({unit:'mm',format:[spec.LW,spec.LH],orientation:'landscape'});}
         else{doc.addPage([spec.LW,spec.LH],'landscape');}
         _wzDrawEtikette(doc,spec,qr,logo);
@@ -6469,6 +6568,7 @@ window._wzExportEtikettenBulk=function(){
       if(!doc||!made){alert('Keine Etiketten erzeugt.');return;}
       doc.save('Etiketten_'+made+'_Stueck.pdf');
     });
+  });
   });
 };
 // Alle aktuell sichtbaren (gefilterten) Werkzeuge markieren / Auswahl aufheben.
