@@ -194,7 +194,6 @@ table.gt input.cell.mini{max-width:74px;text-align:right}
 
 <script src="gema_db.js"></script>
 <script src="gema_objekte_api.js"></script>
-<script src="gema_produktkatalog_api.js"></script>
 <script src="gema_dialog.js"></script>
 <script src="gema_adresse.js"></script>
 <script src="gema_feedback.js"></script><script src="gema_notify.js"></script><script src="gema_notify_ui.js"></script>
@@ -242,6 +241,9 @@ function settings(){
     labelH:parseFloat(s.labelH)||23,
     showArtikel:s.showArtikel!==false,
     numberLabels:s.numberLabels!==false,
+    // Projektquelle: 'beides' (flexibel, Default) | 'gema' (nur GEMA-Objekte
+    // referenzieren) | 'frei' (nur freie Adressen, unabhängig von GEMA)
+    projektModus:(s.projektModus==='gema'||s.projektModus==='frei')?s.projektModus:'beides',
     standardObjektId:s.standardObjektId||'',
     lager:s.lager||{name:'Lager / kein Projekt',strasse:'',plz:'',ort:''}
   };
@@ -292,14 +294,14 @@ function projekte(){
   catch(e){return [];}
 }
 function lagerProjekt(){var l=settings().lager||{};return {objektId:'',name:l.name||'Lager / kein Projekt',strasse:l.strasse||'',plz:l.plz||'',ort:l.ort||''};}
+function projModus(){return settings().projektModus;}       // 'beides' | 'gema' | 'frei'
+function gemaObjekteAn(){return projModus()!=='frei';}       // dürfen GEMA-Objekte referenziert werden?
+function freieAdrAn(){return projModus()!=='gema';}          // dürfen freie Adressen erfasst werden?
 function defaultProjekt(){
   var s=settings();
-  if(s.standardObjektId){var p=projekte().find(function(x){return x.objektId===s.standardObjektId;});if(p)return p;}
+  // Nur wenn GEMA-Objekte erlaubt sind: Standard-Objekt referenzieren.
+  if(gemaObjekteAn()&&s.standardObjektId){var p=projekte().find(function(x){return x.objektId===s.standardObjektId;});if(p)return p;}
   return lagerProjekt();
-}
-function projByLabel(v){
-  if(!v||v==='__lager')return lagerProjekt();
-  return projekte().find(function(p){return p.objektId===v;})||lagerProjekt();
 }
 function projAdrLines(p){
   if(!p)return [];
@@ -312,23 +314,30 @@ function projLabel(p){
   return p.name+(a.length?' · '+a.join(', '):'');
 }
 
-/* Lieferanten = GemaProdukte */
-function lieferanten(){
-  try{return (GemaProdukte.getAllLieferanten()||[]).map(function(l){return {id:l.id,firma:l.firma||l.name||''};}).filter(function(l){return l.firma;})
-    .sort(function(a,b){return a.firma.localeCompare(b.firma);});}
-  catch(e){return [];}
+/* Lieferanten = KOMPLETT FREI (kein Produkt-/Lieferantenkatalog). Als
+   Autocomplete dient nur die eigene Historie dieses Moduls. */
+function lieferantHistory(){
+  var seen={},out=[];
+  poolRead(POOL_L).forEach(function(l){var f=(l&&l.lieferantFirma||'').trim();if(f&&l.orgId===orgId()&&!seen[f.toLowerCase()]){seen[f.toLowerCase()]=1;out.push(f);}});
+  poolRead(POOL_M).forEach(function(m){var f=(m&&m.lieferantFirma||'').trim();if(f&&m.orgId===orgId()&&!seen[f.toLowerCase()]){seen[f.toLowerCase()]=1;out.push(f);}});
+  return out.sort(function(a,b){return a.localeCompare(b);});
 }
+function lieferantKey(firma){return (firma||'').trim().toLowerCase();}
 
-/* Mappings (per Lieferant + Quelle) */
+/* Mappings (per Lieferant-Name + Quelle) */
 function mappings(){return poolRead(POOL_M).filter(function(m){return m&&m.orgId===orgId();});}
-function findMapping(lieferantId,quelle){
-  if(!lieferantId)return null;
-  return mappings().find(function(m){return m.lieferantId===lieferantId&&m.quelle===quelle;})||null;
+function findMapping(firma,quelle){
+  var key=lieferantKey(firma);if(!key)return null;
+  return mappings().find(function(m){
+    if(m.quelle!==quelle)return false;
+    return m.lieferantKey===key || lieferantKey(m.lieferantFirma)===key;   // key + Legacy-Firma-Match
+  })||null;
 }
-function saveMapping(lieferantId,lieferantFirma,quelle,config){
-  var ex=findMapping(lieferantId,quelle);
-  var rec=ex||{id:uid('wemap'),orgId:orgId(),lieferantId:lieferantId,lieferantFirma:lieferantFirma,quelle:quelle};
-  rec.lieferantFirma=lieferantFirma||rec.lieferantFirma;
+function saveMapping(firma,quelle,config){
+  var ex=findMapping(firma,quelle);
+  var rec=ex||{id:uid('wemap'),orgId:orgId(),lieferantKey:lieferantKey(firma),lieferantFirma:firma,quelle:quelle};
+  rec.lieferantKey=lieferantKey(firma);
+  rec.lieferantFirma=firma||rec.lieferantFirma;
   rec.config=config;rec.aktualisiert=_now();
   saveRec(POOL_M,PREFIX_M,rec);
   return rec;
@@ -614,7 +623,7 @@ window.weCloseModal=function(){var host=$('weModalHost');if(host)host.innerHTML=
 
 /* ══════════════════ TAB: Import-Wizard ══════════════════ */
 var IMP=null;
-function newImp(){return {schritt:1,lieferantId:'',lieferantFirma:'',quelle:'html',grid:null,pdfExtract:null,positionen:[],bestellnummer:'',bestelldatum:today(),notiz:'',bulkProj:'__default'};}
+function newImp(){return {schritt:1,lieferantFirma:'',quelle:'html',grid:null,pdfExtract:null,positionen:[],bestellnummer:'',bestelldatum:today(),notiz:'',bulkProjObj:null};}
 function renderImport(){
   var host=$('tab_import');if(!host)return;
   if(!canEdit()){host.innerHTML='<div class="card"><div class="empty"><div class="em-ic">🔒</div>Nur Lager/Planer dürfen Lieferungen importieren.</div></div>';return;}
@@ -637,15 +646,13 @@ function renderStep(){
 }
 function stepsRefresh(){var host=$('tab_import');if(!host)return;var s=host.querySelector('.steps');if(s)s.outerHTML=stepsHtml();}
 
-/* Step 1: Quelle & Lieferant */
+/* Step 1: Quelle & Lieferant — Lieferant KOMPLETT FREI (Freitext, kein Katalog) */
 function renderStep1(){
-  var liefs=lieferanten();
-  var opts='<option value="">— Lieferant wählen —</option>'+liefs.map(function(l){return '<option value="'+l.id+'"'+(l.id===IMP.lieferantId?' selected':'')+'>'+E(l.firma)+'</option>';}).join('')+'<option value="__free">＋ Anderer / neuer Lieferant …</option>';
-  var freeShow=(IMP.lieferantId==='__free'||(!IMP.lieferantId&&IMP.lieferantFirma));
+  var hist=lieferantHistory();
+  var dl=hist.map(function(f){return '<option value="'+E(f)+'"></option>';}).join('');
   var b=$('impBody');
-  b.innerHTML='<h3>1 · Quelle & Lieferant</h3><div class="desc">Der Lieferant bestimmt, welches Spalten-Mapping geladen wird.</div>'
-    +'<div class="row"><div class="col"><label class="fl">Lieferant</label><select class="in" id="impLief" onchange="weImpLiefSel(this.value)">'+opts+'</select></div>'
-    +'<div class="col" id="impFreeWrap" style="'+(freeShow?'':'display:none')+'"><label class="fl">Firmenname (frei)</label><input class="in" id="impFreeName" placeholder="z.B. Sanitär Müller AG" value="'+E(IMP.lieferantFirma)+'" oninput="IMP.lieferantFirma=this.value"></div></div>'
+  b.innerHTML='<h3>1 · Quelle & Lieferant</h3><div class="desc">Lieferant frei eingeben (kein Katalog). Der Name bestimmt, welches Spalten-Mapping geladen/gemerkt wird.</div>'
+    +'<div class="row"><div class="col"><label class="fl">Lieferant *</label><input class="in" id="impLiefName" list="impLiefDL" placeholder="z.B. Sanitär Müller AG" value="'+E(IMP.lieferantFirma)+'" oninput="IMP.lieferantFirma=this.value"><datalist id="impLiefDL">'+dl+'</datalist>'+(hist.length?'<div class="hint" style="margin-top:5px">Vorschläge aus deinen bisherigen Lieferungen.</div>':'')+'</div></div>'
     +'<label class="fl" style="margin-top:14px">Quelle</label>'
     +'<div class="row">'
       +'<button class="btn '+(IMP.quelle==='html'?'pri':'')+'" style="flex:1" onclick="weImpQuelle(\'html\')">📋 Tabelle einfügen</button>'
@@ -654,15 +661,11 @@ function renderStep1(){
     +'<div class="hint" style="margin-top:8px">'+(IMP.quelle==='html'?'Kopiere die Artikeltabelle aus der Bestätigungs-E-Mail und füge sie im nächsten Schritt ein.':'Lade das Bestell-/Lieferschein-PDF hoch — Text wird mit Koordinaten ausgelesen.')+'</div>'
     +'<div class="row no-print" style="margin-top:16px"><span style="flex:1"></span><button class="btn pri" onclick="weImpNext()">Weiter →</button></div>';
 }
-window.weImpLiefSel=function(v){
-  if(v==='__free'){IMP.lieferantId='__free';IMP.lieferantFirma='';}
-  else{IMP.lieferantId=v;var l=lieferanten().find(function(x){return x.id===v;});IMP.lieferantFirma=l?l.firma:'';}
-  var w=$('impFreeWrap');if(w)w.style.display=(v==='__free')?'':'none';
-};
 window.weImpQuelle=function(q){IMP.quelle=q;renderStep1();};
 window.weImpNext=function(){
-  if(IMP.lieferantId==='__free'){var n=($('impFreeName')||{}).value||IMP.lieferantFirma;if(!n||!n.trim()){toast('Bitte Firmenname eingeben');return;}IMP.lieferantFirma=n.trim();IMP.lieferantId='';}
-  else if(!IMP.lieferantId){toast('Bitte Lieferant wählen');return;}
+  var n=($('impLiefName')||{}).value||IMP.lieferantFirma;
+  if(!n||!n.trim()){toast('Bitte Lieferant eingeben');return;}
+  IMP.lieferantFirma=n.trim();
   IMP.schritt=2;renderImport();
 };
 
@@ -702,7 +705,7 @@ function handleHtmlPaste(html,text){
   if((!grid||!grid.rows.length)&&text){grid=extractTextGrid(text);}
   if(!grid||!grid.rows.length){$('impExtractOut').innerHTML='<div class="warnbox">Keine Tabelle erkannt. Bitte als Tabelle (nicht als Bild) kopieren, oder Zeilen manuell erfassen.</div>'+manualStartBtn();return;}
   IMP.grid=grid;
-  var mp=findMapping(IMP.lieferantId,'html');
+  var mp=findMapping(IMP.lieferantFirma,'html');
   if(mp&&mp.config&&mp.config.cols&&colsValid(mp.config.cols,grid.maxCols)){
     IMP.positionen=applyGridMapping(grid,mp.config);
     IMP.schritt=3;renderImport();
@@ -779,7 +782,7 @@ window.weImpPdf=function(inp){
       $('pdfStatus').textContent='';
       if(!grid||!grid.rows.length){$('impExtractOut').innerHTML='<div class="warnbox">Kein Text erkannt (evtl. gescanntes PDF ohne Text-Layer). Bitte Zeilen manuell erfassen.</div>'+manualStartBtn();return;}
       IMP.grid=grid;IMP.pdfExtract={items:items};
-      var mp=findMapping(IMP.lieferantId,'pdf');
+      var mp=findMapping(IMP.lieferantFirma,'pdf');
       if(mp&&mp.config&&(mp.config.bands||mp.config.cols)){
         IMP.positionen=mp.config.bands?applyPdfBands(items,mp.config):applyGridMapping(grid,mp.config);
         IMP.schritt=3;renderImport();
@@ -888,8 +891,8 @@ window.weImpApplyMapping=function(quelle){
     config={cols:cols,skip:skip};
     IMP.positionen=applyGridMapping(IMP.grid,config);
   }
-  if($('mapSave')&&$('mapSave').checked&&IMP.lieferantId){
-    saveMapping(IMP.lieferantId,IMP.lieferantFirma,quelle,config);
+  if($('mapSave')&&$('mapSave').checked&&IMP.lieferantFirma){
+    saveMapping(IMP.lieferantFirma,quelle,config);
     toast('Mapping gespeichert');
   }
   IMP.schritt=3;renderImport();
@@ -941,20 +944,23 @@ function mkPos(art,bez,menge,idx){
 }
 
 /* Step 3: Review-Grid + Projekt + Import */
+function projShort(p){
+  if(!p)return 'Lager';
+  if(p.objektId){return p.name||'Objekt';}
+  var a=projAdrLines(p);
+  return p.name||a[0]||(a.join(', '))||lagerProjekt().name;
+}
 function renderStep3(){
   var b=$('impBody');
-  var projOpts=function(sel){
-    var o='<option value="__lager"'+((!sel||!sel.objektId)?' selected':'')+'>📦 '+E(lagerProjekt().name)+'</option>';
-    projekte().forEach(function(p){o+='<option value="'+p.objektId+'"'+((sel&&sel.objektId===p.objektId)?' selected':'')+'>'+E(p.name)+(p.ort?' · '+E(p.ort):'')+'</option>';});
-    return o;
-  };
+  if(!IMP.bulkProjObj)IMP.bulkProjObj=defaultProjekt();
   var rows=IMP.positionen.map(function(p,i){
     var flag=(num(p.menge)<=0)?' style="background:#fef2f2"':'';
+    var pj=p.projekt||lagerProjekt();
     return '<tr'+flag+'>'
       +'<td class="num"><input class="cell mini" inputmode="numeric" value="'+E(p.menge)+'" onchange="weImpEdit('+i+',\'menge\',this.value)">'+(num(p.menge)<=0?'<div class="tag-flag" style="font-size:10px">Menge!</div>':'')+'</td>'
       +'<td><input class="cell" value="'+E(p.artikelNr)+'" onchange="weImpEdit('+i+',\'artikelNr\',this.value)"></td>'
       +'<td><input class="cell" value="'+E(p.bezeichnung)+'" onchange="weImpEdit('+i+',\'bezeichnung\',this.value)"></td>'
-      +'<td><select class="cell" onchange="weImpEditProj('+i+',this.value)">'+projOpts(p.projekt)+'</select></td>'
+      +'<td><button class="btn sm" style="max-width:100%;width:100%;justify-content:flex-start;overflow:hidden" title="Projekt/Adresse ändern" onclick="weImpRowProj('+i+')">'+(pj.objektId?'📋':'📍')+' <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+E(projShort(pj))+'</span></button></td>'
       +'<td class="num"><button class="btn sm danger" onclick="weImpDelRow('+i+')" title="Zeile löschen">✕</button></td>'
       +'</tr>';
   }).join('');
@@ -962,11 +968,10 @@ function renderStep3(){
   b.innerHTML='<h3>3 · Review & Import</h3>'
     +'<div class="desc">Alles editierbar — <strong>PDF/Import ist fehleranfällig, bitte kontrollieren.</strong> Menge = Anzahl Etiketten.</div>'
     +'<div class="row" style="align-items:flex-end;margin-bottom:10px">'
-      +'<div class="col"><label class="fl">Projekt für ganze Lieferung</label><select class="in" id="impBulkProj" onchange="weImpBulkProj(this.value)">'+projOpts(IMP.bulkProj==='__default'?defaultProjekt():projByLabel(IMP.bulkProj))+'</select></div>'
-      +'<div class="col" style="max-width:210px"><label class="fl">&nbsp;</label><button class="btn" style="width:100%" onclick="weImpApplyBulkProj()">⤓ Auf alle Zeilen anwenden</button></div>'
-      +'<div class="col" style="max-width:190px"><label class="fl">&nbsp;</label><button class="btn" style="width:100%" onclick="weImpNewProj()">＋ Neues Projekt</button></div>'
+      +'<div class="col"><label class="fl">Projekt / Lieferadresse für ganze Lieferung</label><button class="btn" style="width:100%;justify-content:flex-start" onclick="weImpBulkPick()">'+(IMP.bulkProjObj.objektId?'📋':'📍')+' '+E(projShort(IMP.bulkProjObj))+' — ändern</button></div>'
+      +'<div class="col" style="max-width:230px"><label class="fl">&nbsp;</label><button class="btn" style="width:100%" onclick="weImpApplyBulkProj()">⤓ Auf alle Zeilen anwenden</button></div>'
     +'</div>'
-    +'<div class="tblwrap"><table class="gt" style="min-width:640px"><thead><tr><th class="num" style="width:90px">Menge</th><th style="width:130px">Art-Nr</th><th>Bezeichnung</th><th style="width:210px">Projekt</th><th></th></tr></thead><tbody id="impRows">'+rows+'</tbody></table></div>'
+    +'<div class="tblwrap"><table class="gt" style="min-width:640px"><thead><tr><th class="num" style="width:90px">Menge</th><th style="width:130px">Art-Nr</th><th>Bezeichnung</th><th style="width:200px">Projekt / Adresse</th><th></th></tr></thead><tbody id="impRows">'+rows+'</tbody></table></div>'
     +'<div class="row no-print" style="margin-top:8px"><button class="btn sm" onclick="weImpAddRow()">＋ Zeile</button><span class="hint" style="align-self:center">'+IMP.positionen.length+' Position'+(IMP.positionen.length!==1?'en':'')+'</span></div>'
     +'<hr style="border:none;border-top:1px solid #eef2f7;margin:14px 0">'
     +'<div class="row">'
@@ -986,14 +991,11 @@ function findDuplicate(){
 function dupWarn(l){return '<div class="warnbox">⚠ Bestell-Nr «'+E(l.bestellnummer)+'» existiert bereits für '+E(l.lieferantFirma)+' (importiert '+fD(l.importDatum)+'). Trotzdem importieren erzeugt eine zweite Lieferung.</div>';}
 window.weDupCheck=function(){var d=$('impDup');if(!d)return;var dup=findDuplicate();d.innerHTML=dup?dupWarn(dup):'';};
 window.weImpEdit=function(i,f,v){if(IMP.positionen[i]){IMP.positionen[i][f]=(f==='menge')?num(v):v;if(f==='menge'){renderStep3();}}};
-window.weImpEditProj=function(i,v){if(IMP.positionen[i])IMP.positionen[i].projekt=projByLabel(v);};
 window.weImpDelRow=function(i){IMP.positionen.splice(i,1);renderStep3();};
 window.weImpAddRow=function(){IMP.positionen.push(mkPos('','',1,IMP.positionen.length));renderStep3();};
-window.weImpBulkProj=function(v){IMP.bulkProj=v;};
-window.weImpApplyBulkProj=function(){var p=(IMP.bulkProj==='__default')?defaultProjekt():projByLabel(IMP.bulkProj);IMP.positionen.forEach(function(x){x.projekt=p;});renderStep3();toast('Projekt auf alle Zeilen gesetzt');};
-window.weImpNewProj=function(){openNewProjektModal(function(p){
-  IMP.bulkProj=p.objektId;IMP.positionen.forEach(function(x){x.projekt=p;});renderStep3();toast('Projekt angelegt & zugewiesen');
-});};
+window.weImpRowProj=function(i){if(!IMP.positionen[i])return;weOpenProjektPicker(IMP.positionen[i].projekt,function(pj){IMP.positionen[i].projekt=pj;renderStep3();});};
+window.weImpBulkPick=function(){weOpenProjektPicker(IMP.bulkProjObj,function(pj){IMP.bulkProjObj=pj;renderStep3();});};
+window.weImpApplyBulkProj=function(){var p=IMP.bulkProjObj||defaultProjekt();IMP.positionen.forEach(function(x){x.projekt=Object.assign({},p);});renderStep3();toast('Projekt/Adresse auf alle Zeilen gesetzt');};
 
 window.weImpDoImport=function(print){
   var pos=IMP.positionen.filter(function(p){return (p.bezeichnung||'').trim()||(p.artikelNr||'').trim();});
@@ -1001,7 +1003,7 @@ window.weImpDoImport=function(print){
   pos.forEach(function(p,i){p.sortindex=i;p.status=posStatus(p);});
   var l={
     id:uid('we'),orgId:orgId(),erstelltVon:(user()||{}).id||'',erstelltVonName:userName(),importDatum:_now(),
-    lieferantId:IMP.lieferantId||'',lieferantFirma:IMP.lieferantFirma||'',
+    lieferantFirma:IMP.lieferantFirma||'',
     bestellnummer:(IMP.bestellnummer||'').trim(),bestelldatum:IMP.bestelldatum||today(),
     notiz:(IMP.notiz||'').trim(),positionen:pos,status:'offen',updatedAt:_now()
   };
@@ -1033,13 +1035,60 @@ function openNewProjektModal(cb){
   };
 }
 
+/* ── Projekt/Adresse-Picker (adaptiert an projektModus: gema | frei | beides) ── */
+var _pickCb=null,_pickCur=null;
+window.weOpenProjektPicker=function(current,cb){_pickCb=cb;_pickCur=current||{};renderPicker();};
+function renderPicker(){
+  var showGema=gemaObjekteAn(),showFrei=freieAdrAn();
+  var cur=_pickCur||{};var freeCur=(!cur.objektId)?cur:{};
+  var h='<button class="modal-x" onclick="weCloseModal()">✕</button>'
+    +'<h2>📍 Projekt / Lieferadresse</h2><div class="msub">Wohin gehört diese Ware? '+(projModus()==='frei'?'Freie Adresse (unabhängig von GEMA-Objekten).':projModus()==='gema'?'GEMA-Objekt referenzieren.':'GEMA-Objekt referenzieren oder freie Adresse.')+'</div>'
+    +'<button class="btn" style="margin-bottom:12px" onclick="wePickLager()">📦 '+E(lagerProjekt().name)+'</button>';
+  if(showGema){
+    var list=projekte();
+    var objs=list.length?list.map(function(p){
+      var hay=(p.name+' '+p.ort+' '+p.strasse).toLowerCase();
+      return '<div class="lief-card pick-obj" data-h="'+E(hay)+'" style="padding:9px 11px;margin-bottom:6px;cursor:pointer" onclick="wePickGema(\''+p.objektId+'\')"><div class="lc-main"><div class="lc-t" style="font-size:13px">'+E(p.name)+'</div><div class="lc-meta">'+E(projAdrLines(p).join(', ')||'—')+'</div></div></div>';
+    }).join(''):'<div class="mut" style="font-size:12px;padding:8px">Noch keine GEMA-Objekte. Über «＋ Neues Objekt» anlegen.</div>';
+    h+='<div class="card" style="margin-bottom:12px;box-shadow:none;padding:12px"><label class="fl">GEMA-Objekt referenzieren</label>'
+      +'<input class="in" id="pickSearch" placeholder="🔍 Objekt suchen …" oninput="wePickFilter(this.value)">'
+      +'<div id="pickList" style="max-height:190px;overflow:auto;margin-top:8px">'+objs+'</div>'
+      +'<button class="btn sm" style="margin-top:8px" onclick="wePickNewGema()">＋ Neues GEMA-Objekt</button></div>';
+  }
+  if(showFrei){
+    h+='<div class="card" style="margin-bottom:4px;box-shadow:none;padding:12px"><label class="fl">Freie Adresse (unabhängig)</label>'
+      +'<div class="row"><div class="col"><input class="in" id="pkName" placeholder="Bezeichnung (optional)" value="'+E(freeCur.name||'')+'"></div></div>'
+      +'<div class="row" style="margin-top:8px"><div class="col"><input class="in" id="pkStr" placeholder="Strasse" value="'+E(freeCur.strasse||'')+'"></div></div>'
+      +'<div class="row" style="margin-top:8px"><div class="col" style="max-width:130px"><input class="in" id="pkPlz" inputmode="numeric" placeholder="PLZ" value="'+E(freeCur.plz||'')+'"></div><div class="col"><input class="in" id="pkOrt" placeholder="Ort" value="'+E(freeCur.ort||'')+'"></div></div>'
+      +'<button class="btn pri sm" style="margin-top:10px" onclick="wePickFrei()">✓ Freie Adresse übernehmen</button></div>';
+  }
+  showModal(h,'560px');
+  try{if(showFrei&&window.GemaAdresse&&GemaAdresse.attach&&$('pkStr'))GemaAdresse.attach($('pkStr'),{onSelect:function(r){if(r.plz&&$('pkPlz'))$('pkPlz').value=r.plz;if(r.ort&&$('pkOrt'))$('pkOrt').value=r.ort;}});}catch(e){}
+}
+window.wePickFilter=function(v){v=(v||'').toLowerCase();var els=document.querySelectorAll('#pickList .pick-obj');for(var i=0;i<els.length;i++){var h=els[i].getAttribute('data-h')||'';els[i].style.display=h.indexOf(v)>=0?'':'none';}};
+function _pickDone(pj){if(_pickCb)_pickCb(pj);_pickCb=null;weCloseModal();}
+window.wePickLager=function(){_pickDone(lagerProjekt());};
+window.wePickGema=function(id){var p=projekte().find(function(x){return x.objektId===id;});if(p)_pickDone(p);};
+window.wePickNewGema=function(){var savedCb=_pickCb;openNewProjektModal(function(p){if(savedCb)savedCb(p);});_pickCb=null;};
+window.wePickFrei=function(){
+  var pj={objektId:'',name:($('pkName')||{}).value||'',strasse:($('pkStr')||{}).value||'',plz:($('pkPlz')||{}).value||'',ort:($('pkOrt')||{}).value||''};
+  pj.name=pj.name.trim();pj.strasse=pj.strasse.trim();pj.plz=pj.plz.trim();pj.ort=pj.ort.trim();
+  if(!pj.name&&!pj.strasse&&!pj.ort){toast('Bitte Adresse oder Bezeichnung eingeben');return;}
+  if(!pj.name)pj.name=pj.strasse||pj.ort;
+  _pickDone(pj);
+};
+
 /* ══════════════════ TAB: Schnell-Etikette ══════════════════ */
 var QE={name:'',strasse:'',plz:'',ort:'',artikel:'',artikelNr:'',anzahl:1};
 function renderEtikette(){
   var host=$('tab_etikette');if(!host)return;
-  var projOpts='<option value="">— Projekt übernehmen (optional) —</option>'+projekte().map(function(p){return '<option value="'+p.objektId+'">'+E(p.name)+(p.ort?' · '+E(p.ort):'')+'</option>';}).join('');
+  var projRow='';
+  if(gemaObjekteAn()){
+    var projOpts='<option value="">— GEMA-Objekt übernehmen (optional) —</option>'+projekte().map(function(p){return '<option value="'+p.objektId+'">'+E(p.name)+(p.ort?' · '+E(p.ort):'')+'</option>';}).join('');
+    projRow='<div class="row"><div class="col"><label class="fl">Projekt übernehmen</label><select class="in" id="qeProj" onchange="weQeProj(this.value)">'+projOpts+'</select></div></div>';
+  }
   host.innerHTML='<div class="card"><h3>🏷 Schnell-Etikette</h3><div class="desc">Einzelne Regal-Etikette ohne Import — Adresse eingeben, Vorschau prüfen, drucken. Adresse ist das dominante Element.</div>'
-    +'<div class="row"><div class="col"><label class="fl">Projekt übernehmen</label><select class="in" id="qeProj" onchange="weQeProj(this.value)">'+projOpts+'</select></div></div>'
+    +projRow
     +'<div class="row" style="margin-top:10px"><div class="col"><label class="fl">Projekt-/Empfängername</label><input class="in" id="qeName" value="'+E(QE.name)+'" oninput="weQe(\'name\',this.value)" placeholder="z.B. Neubau Sonnenweg"></div></div>'
     +'<div class="row" style="margin-top:10px"><div class="col"><label class="fl">Strasse</label><input class="in" id="qeStr" value="'+E(QE.strasse)+'" oninput="weQe(\'strasse\',this.value)" placeholder="Musterstrasse 1"></div></div>'
     +'<div class="row" style="margin-top:10px"><div class="col" style="max-width:150px"><label class="fl">PLZ</label><input class="in" id="qePlz" inputmode="numeric" value="'+E(QE.plz)+'" oninput="weQe(\'plz\',this.value)"></div><div class="col"><label class="fl">Ort</label><input class="in" id="qeOrt" value="'+E(QE.ort)+'" oninput="weQe(\'ort\',this.value)"></div></div>'
@@ -1067,11 +1116,24 @@ function renderEinst(){
   var projOpts='<option value="">📦 Lager / kein Projekt (Freitext unten)</option>'+projekte().map(function(p){return '<option value="'+p.objektId+'"'+(s.standardObjektId===p.objektId?' selected':'')+'>'+E(p.name)+(p.ort?' · '+E(p.ort):'')+'</option>';}).join('');
   var maps=mappings();
   var mapRows=maps.length?maps.map(function(m){
-    return '<tr><td>'+E(m.lieferantFirma||m.lieferantId||'—')+'</td><td><span class="chip">'+E((m.quelle||'').toUpperCase())+'</span></td><td class="mut" style="font-size:11px">'+mapSummary(m)+'</td><td class="num">'+(ed?'<button class="btn sm danger" onclick="weDelMapping(\''+m.id+'\')">✕</button>':'')+'</td></tr>';
+    return '<tr><td>'+E(m.lieferantFirma||m.lieferantKey||'—')+'</td><td><span class="chip">'+E((m.quelle||'').toUpperCase())+'</span></td><td class="mut" style="font-size:11px">'+mapSummary(m)+'</td><td class="num">'+(ed?'<button class="btn sm danger" onclick="weDelMapping(\''+m.id+'\')">✕</button>':'')+'</td></tr>';
   }).join(''):'<tr><td colspan="4" class="mut" style="text-align:center;padding:16px">Noch keine Mappings — entstehen automatisch beim ersten Import je Lieferant.</td></tr>';
 
+  var stdRow = gemaObjekteAn()
+    ? '<div class="row"><div class="col"><label class="fl">Standardprojekt (GEMA-Objekt)</label><select class="in" id="setStdProj" '+(ed?'':'disabled')+'>'+projOpts+'</select></div></div>'
+    : '<div class="infobox">Modus «Nur freie Adressen» aktiv — es wird kein GEMA-Objekt referenziert. Standard ist die Lager-Adresse unten.</div>';
+
   host.innerHTML=
-    '<div class="card"><h3>🏷 Etiketten-Format</h3><div class="desc">Massgeblich für <code>@page</code> und das ganze Layout. Standard = 49 × 23 mm (wie Werkzeug-Etiketten, Zebra ZD421).</div>'
+    '<div class="card"><h3>📍 Projektquelle</h3><div class="desc">Sollen Lieferungen die GEMA-Objekt-Stammdaten referenzieren oder frei/unabhängig erfasst werden? Betrifft Import-Zuordnung, Schnell-Etikette und Standardprojekt.</div>'
+    +'<div class="row"><div class="col"><label class="fl">Modus</label><select class="in" id="setProjModus" '+(ed?'':'disabled')+'>'
+      +'<option value="beides"'+(s.projektModus==='beides'?' selected':'')+'>Flexibel — GEMA-Objekte referenzieren ODER freie Adressen</option>'
+      +'<option value="gema"'+(s.projektModus==='gema'?' selected':'')+'>Nur GEMA-Objekte referenzieren</option>'
+      +'<option value="frei"'+(s.projektModus==='frei'?' selected':'')+'>Nur freie Objekte / Adressen (unabhängig von GEMA)</option>'
+    +'</select></div></div>'
+    +(ed?'<div class="row" style="margin-top:12px"><button class="btn pri" onclick="weSaveProjModus()">Speichern</button></div>':'')
+    +'</div>'
+
+    +'<div class="card"><h3>🏷 Etiketten-Format</h3><div class="desc">Massgeblich für <code>@page</code> und das ganze Layout. Standard = 49 × 23 mm (wie Werkzeug-Etiketten, Zebra ZD421).</div>'
     +'<div class="row"><div class="col" style="max-width:160px"><label class="fl">Breite (mm)</label><input class="in" id="setW" inputmode="decimal" onblur="fixLeadingZero(this)" value="'+s.labelW+'" '+(ed?'':'disabled')+'></div>'
     +'<div class="col" style="max-width:160px"><label class="fl">Höhe (mm)</label><input class="in" id="setH" inputmode="decimal" onblur="fixLeadingZero(this)" value="'+s.labelH+'" '+(ed?'':'disabled')+'></div>'
     +'<div class="col"><label class="fl">Optionen</label>'
@@ -1082,8 +1144,8 @@ function renderEinst(){
     +'<div id="setPrev" style="margin-top:12px"></div>'
     +'</div>'
 
-    +'<div class="card"><h3>📦 Standardprojekt (Lager)</h3><div class="desc">Vorauswahl für neue Lieferungen ohne Projektzuordnung (Lagerbestellungen).</div>'
-    +'<div class="row"><div class="col"><label class="fl">Standardprojekt</label><select class="in" id="setStdProj" '+(ed?'':'disabled')+'>'+projOpts+'</select></div></div>'
+    +'<div class="card"><h3>📦 Standard / Lager-Adresse</h3><div class="desc">Vorauswahl für neue Lieferungen ohne Projektzuordnung (Lagerbestellungen).</div>'
+    +stdRow
     +'<div class="row" style="margin-top:10px"><div class="col"><label class="fl">Lager-Bezeichnung (Freitext)</label><input class="in" id="setLagerName" value="'+E(s.lager.name)+'" '+(ed?'':'disabled')+'></div></div>'
     +'<div class="row" style="margin-top:10px"><div class="col"><label class="fl">Lager-Strasse</label><input class="in" id="setLagerStr" value="'+E(s.lager.strasse)+'" '+(ed?'':'disabled')+'></div><div class="col" style="max-width:140px"><label class="fl">PLZ</label><input class="in" id="setLagerPlz" value="'+E(s.lager.plz)+'" '+(ed?'':'disabled')+'></div><div class="col"><label class="fl">Ort</label><input class="in" id="setLagerOrt" value="'+E(s.lager.ort)+'" '+(ed?'':'disabled')+'></div></div>'
     +(ed?'<div class="row" style="margin-top:12px"><button class="btn pri" onclick="weSaveStd()">Speichern</button></div>':'')
@@ -1108,9 +1170,14 @@ window.weSetPreview=function(){var c=$('setPrev');if(!c)return;
   var lbl={projekt:{objektId:'',name:'Neubau Sonnenweg',strasse:'Musterstrasse 12',plz:'8005',ort:'Zürich'},artikel:'WC-Spülkasten',artikelNr:'AB-123',lieferant:'Muster AG',datum:_now(),idx:1,total:3};
   c.innerHTML='<div class="previewwrap"></div>';renderPreview(c.querySelector('.previewwrap'),lbl);
 };
+window.weSaveProjModus=function(){
+  var v=($('setProjModus')||{}).value||'beides';
+  if(saveSettings({projektModus:v})){toast('Projektquelle gespeichert');renderEinst();}
+};
 window.weSaveStd=function(){
   var lager={name:$('setLagerName').value.trim()||'Lager / kein Projekt',strasse:$('setLagerStr').value.trim(),plz:$('setLagerPlz').value.trim(),ort:$('setLagerOrt').value.trim()};
-  if(saveSettings({standardObjektId:$('setStdProj').value,lager:lager}))toast('Standardprojekt gespeichert');
+  var patch={lager:lager};var sp=$('setStdProj');if(sp)patch.standardObjektId=sp.value;
+  if(saveSettings(patch))toast('Standardprojekt gespeichert');
 };
 window.weDelMapping=function(id){
   GemaDialog.confirm({title:'Mapping löschen',message:'Spalten-Mapping löschen? Beim nächsten Import dieses Lieferanten wird neu zugeordnet.',confirmLabel:'Löschen',danger:true}).then(function(ok){
@@ -1138,7 +1205,7 @@ document.addEventListener('DOMContentLoaded',function(){
 });
 
 /* Debug/Test-Hooks */
-window._weHooks={settings:settings,liefStatus:liefStatus,posStatus:posStatus,extractHtmlGrid:extractHtmlGrid,extractTextGrid:extractTextGrid,guessCols:guessCols,applyGridMapping:applyGridMapping,pdfItemsToGrid:pdfItemsToGrid,applyPdfBands:applyPdfBands,mkPos:mkPos};
+window._weHooks={settings:settings,liefStatus:liefStatus,posStatus:posStatus,extractHtmlGrid:extractHtmlGrid,extractTextGrid:extractTextGrid,guessCols:guessCols,applyGridMapping:applyGridMapping,pdfItemsToGrid:pdfItemsToGrid,applyPdfBands:applyPdfBands,mkPos:mkPos,projModus:projModus,gemaObjekteAn:gemaObjekteAn,freieAdrAn:freieAdrAn,defaultProjekt:defaultProjekt,lieferantKey:lieferantKey,findMapping:findMapping,saveMapping:saveMapping};
 })();
 </script>
 <script src="gema_scroll.js"></script>
