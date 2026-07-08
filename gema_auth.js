@@ -298,6 +298,7 @@
     {key:'schadensbericht',         label:'Schadensberichte',          cat:'Schadensdokumentation'},
     {key:'dachbericht',             label:'Dachinspektion',            cat:'Spenglerei'},
     {key:'trocknungsgeraete',       label:'Trocknungsgeräte',          cat:'Infrastruktur'},
+    {key:'wareneingang',            label:'Wareneingang',              cat:'Infrastruktur'},
     {key:'lieferantenverwaltung',   label:'Lieferantenverwaltung',     cat:'System'},
     {key:'produktkatalog',          label:'Produktkatalog',            cat:'System'},
     {key:'workspace',               label:'Workspace',                 cat:'System'},
@@ -326,7 +327,7 @@
     'pm_goodel':'kostenkontrolle','ab_sephir':'sephir','ab_quiz':'quiz',
     'sd_schadensbericht':'schadensbericht',
     'sp_dachbericht':'dachbericht',
-    'if_trocknung':'trocknungsgeraete',
+    'if_trocknung':'trocknungsgeraete','if_wareneingang':'wareneingang',
     'pm_crbx':'crbx_offertvergleich','pm_schnellausschreibung':'schnellausschreibung','pm_bestellungen':'bestellungen','pm_regierapport':'regierapport','pm_erp':'erp','pm_einsatzplan':'einsatzplan',
     'sys_lieferanten':'lieferantenverwaltung','sys_produktkatalog':'produktkatalog',
     'sys_workspace':'workspace',
@@ -390,6 +391,13 @@
     // Attribute aendern, Berichte hinzufuegen, Pruefungen anfordern und
     // Werkzeug Personen zuweisen. Sieht nur Werkzeuge der eigenen Org.
     {id:'role_magaziner',name:'Magaziner',color:'#ea580c',permissions:(function(){var p=_somePerms(['werkzeugmanagement','fahrzeugmanagement','inspektion_wartung'],true,true,true);p['trocknungsgeraete']={read:true,write:true,admin:true};p['einsatzplan']={read:true,write:true,admin:false};p['spuelmanager']={read:true,write:true,admin:false};p['service']={read:true,write:true,admin:false};p['stundenerfassung']={read:true,write:true,admin:false};return p;})()},
+    // Lagerist: nimmt Sanitärapparate/Material im Wareneingang an — bestellte
+    // Lieferungen importieren (HTML/PDF), Wareneingang kontrollieren (was ist
+    // angekommen), Regal-Etiketten drucken. Sieht Projekte (Objekte) zum
+    // Zuordnen der Lieferadresse. Zielperson im Alltag laut Handoff ist der
+    // Projektleiter — die Planer-Rollen erhalten den Zugriff automatisch über
+    // _allPerms, der Lagerist ist die dedizierte Lager-Rolle.
+    {id:'role_lagerist',name:'Lagerist',color:'#4d7c0f',permissions:(function(){var p=_somePerms(['objekte'],true,true,false);p['wareneingang']={read:true,write:true,admin:true};return p;})()},
     // Monteur: Read-only-Zugriff aufs Werkzeuglager. Kann Defekte melden,
     // aber nichts selbst aendern oder zuweisen. Sieht Werkzeuge der
     // eigenen Organisation.
@@ -456,18 +464,18 @@
   // null = alle Rollen erlaubt (Fallback fuer 'sonstiges' / ohne Kategorie).
   // role_admin wird separat behandelt (nur Super-Admin vergibt sie).
   var KATEGORIE_ROLLEN = {
-    sanitaerplaner:       ['role_planer','role_abteilungsleiter','role_magaziner','role_monteur','role_spengler'],
-    heizungsplaner:       ['role_hlkk_planer','role_abteilungsleiter','role_magaziner','role_monteur'],
-    lueftungsplaner:      ['role_lueftung_planer','role_abteilungsleiter','role_magaziner','role_monteur'],
-    elektroplaner:        ['role_elektro_planer','role_abteilungsleiter','role_magaziner','role_monteur'],
-    sanitaerinstallateur: ['role_unternehmer','role_abteilungsleiter','role_magaziner','role_monteur','role_spengler'],
-    heizungsinstallateur: ['role_unternehmer','role_abteilungsleiter','role_magaziner','role_monteur'],
-    lueftungsinstallateur:['role_unternehmer','role_abteilungsleiter','role_magaziner','role_monteur'],
-    elektroinstallateur:  ['role_unternehmer','role_abteilungsleiter','role_magaziner','role_monteur'],
-    klima_kaeltetechnik:  ['role_unternehmer','role_abteilungsleiter','role_magaziner','role_monteur'],
-    msr_gebaeudeautomation:['role_unternehmer','role_abteilungsleiter','role_magaziner','role_monteur'],
-    brandschutz:          ['role_unternehmer','role_abteilungsleiter','role_magaziner','role_monteur'],
-    aufzugsbau:           ['role_unternehmer','role_abteilungsleiter','role_magaziner','role_monteur'],
+    sanitaerplaner:       ['role_planer','role_abteilungsleiter','role_magaziner','role_lagerist','role_monteur','role_spengler'],
+    heizungsplaner:       ['role_hlkk_planer','role_abteilungsleiter','role_magaziner','role_lagerist','role_monteur'],
+    lueftungsplaner:      ['role_lueftung_planer','role_abteilungsleiter','role_magaziner','role_lagerist','role_monteur'],
+    elektroplaner:        ['role_elektro_planer','role_abteilungsleiter','role_magaziner','role_lagerist','role_monteur'],
+    sanitaerinstallateur: ['role_unternehmer','role_abteilungsleiter','role_magaziner','role_lagerist','role_monteur','role_spengler'],
+    heizungsinstallateur: ['role_unternehmer','role_abteilungsleiter','role_magaziner','role_lagerist','role_monteur'],
+    lueftungsinstallateur:['role_unternehmer','role_abteilungsleiter','role_magaziner','role_lagerist','role_monteur'],
+    elektroinstallateur:  ['role_unternehmer','role_abteilungsleiter','role_magaziner','role_lagerist','role_monteur'],
+    klima_kaeltetechnik:  ['role_unternehmer','role_abteilungsleiter','role_magaziner','role_lagerist','role_monteur'],
+    msr_gebaeudeautomation:['role_unternehmer','role_abteilungsleiter','role_magaziner','role_lagerist','role_monteur'],
+    brandschutz:          ['role_unternehmer','role_abteilungsleiter','role_magaziner','role_lagerist','role_monteur'],
+    aufzugsbau:           ['role_unternehmer','role_abteilungsleiter','role_magaziner','role_lagerist','role_monteur'],
     architekt:            ['role_architekt'],
     bauherr:              ['role_bauherrschaft'],
     generalunternehmer:   ['role_unternehmer','role_architekt'],
@@ -606,6 +614,22 @@
           _writeLocalCache(STORAGE_ROLES, rolesG);
         }
         try{localStorage.setItem(MIGFLAG_GARAGIST,'1');}catch(e){}
+      }
+    } catch(e) {}
+    // ── Migration: Rolle role_lagerist (Wareneingang) ──
+    // Lager-Rolle fuer das Wareneingangsmodul. Wird einmalig in bestehende
+    // Installationen nachgezogen (_mergeWithDefaults deckt den Cloud-Pull ab,
+    // diese lokale Nachziehung greift schon vor dem naechsten Pull).
+    try {
+      var MIGFLAG_LAGERIST='gema_auth_lagerist_v1';
+      if(!localStorage.getItem(MIGFLAG_LAGERIST)){
+        var rolesL=_getRoles()||[];
+        if(!rolesL.find(function(r){return r.id==='role_lagerist';})){
+          var defL=DEFAULT_ROLES.find(function(r){return r.id==='role_lagerist';});
+          if(defL)rolesL.push(defL);
+          _writeLocalCache(STORAGE_ROLES, rolesL);
+        }
+        try{localStorage.setItem(MIGFLAG_LAGERIST,'1');}catch(e){}
       }
     } catch(e) {}
 
