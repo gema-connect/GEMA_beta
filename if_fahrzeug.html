@@ -807,8 +807,8 @@ tbody td.mono{font-family:var(--mono);font-weight:500;}
       <button class="btn" style="flex:1 1 120px;justify-content:center;" onclick="closeViewModal()">Schliessen</button>
       <button class="btn" style="flex:1 1 120px;justify-content:center;" onclick="openBerichte(_lastViewId)">📋 Historie</button>
       <button class="btn" style="flex:1 1 120px;justify-content:center;" onclick="openDefekt(_lastViewId)">🔧 Defekt</button>
-      <button class="btn" style="flex:1 1 120px;justify-content:center;" onclick="openKosten(_lastViewId)">💰 Kosten</button>
-      <button class="btn" style="flex:1 1 120px;justify-content:center;" onclick="_fzGarageToggle(_lastViewId)">🏭 Garage</button>
+      <button class="btn" style="flex:1 1 120px;justify-content:center;" id="vm_kostenBtn" onclick="openKosten(_lastViewId)">💰 Kosten</button>
+      <button class="btn" style="flex:1 1 120px;justify-content:center;" id="vm_garageBtn" onclick="_fzGarageToggle(_lastViewId)">🏭 Garage</button>
       <button class="btn primary" style="flex:1 1 120px;justify-content:center;" id="vm_editBtn">✏️ Bearbeiten</button>
     </div>
   </div>
@@ -1028,6 +1028,9 @@ function _fzCollectTankkarten(){
 
 function openModal(id){
   if(id){
+    // Bearbeiten nur fuer Editoren (Magaziner/Admin bzw. Garagist mit
+    // Feld-Whitelist) — Monteure sind hard-locked (_fzCanEdit).
+    if(!_fzCanEdit()){alert('Keine Berechtigung — nur Magaziner/Admin dürfen Fahrzeuge bearbeiten.');return;}
     // View/Edit — Garagist nur fuer ihm zugewiesene Fahrzeuge.
     if(_fzIsGaragist()){
       var vCheck=vehicles.find(function(x){return x.id===id;});
@@ -1117,6 +1120,7 @@ window.closeModal = closeModal;
 function $f(id,val){ document.getElementById(id).value=val||""; }
 
 function saveVehicle(){
+  if(!_fzCanEdit()){alert('Keine Berechtigung — nur Magaziner/Admin dürfen Fahrzeuge speichern.');return;}
   const nr=document.getElementById("fNr").value.trim();
   const plate=document.getElementById("fPlate").value.trim().toUpperCase();
   const model=document.getElementById("fModel").value.trim();
@@ -1499,7 +1503,7 @@ function renderCards(list){
     if(v.hasLabel) extras.push("Beschr.");
 
     return `
-    <div class="v-card" onclick="openModal('${v.id}')">
+    <div class="v-card" onclick="${_fzCanEdit()?'openModal':'openViewFzg'}('${v.id}')">
       <div class="v-card-bar ${svc.badge}"></div>
       <div class="v-card-body">
       <div class="v-card-top">
@@ -1529,9 +1533,9 @@ function renderCards(list){
       ${v.driver?`<div style="padding:8px 18px;background:var(--plan-bg);border-top:1px solid var(--plan-bd);font-size:11.5px;color:var(--plan-dk);display:flex;align-items:center;gap:6px"><div class="v-card-driver-dot">${driverInitials(v.driver)}</div><strong>${esc(v.driver)}</strong>${v.dept?' · '+esc(v.dept):''}</div>`:''}
       ${v.ausgeliehenAn?`<div style="padding:8px 18px;background:#fefce8;border-top:1px solid #fde68a;font-size:11.5px;color:#92400e;display:flex;align-items:center;gap:6px;flex-wrap:wrap"><span>🔄</span>Ausgeliehen an <strong>${esc(v.ausgeliehenAn.name||'—')}</strong>${v.ausgeliehenAn.seit?`<span style="color:#b45309;margin-left:4px">seit ${fmtDate(v.ausgeliehenAn.seit)}</span>`:''}<span style="margin-left:auto">${_fzCanReturn(v)?`<button onclick="event.stopPropagation();_fzReturnVehicle('${v.id}')" style="padding:3px 10px;border-radius:6px;border:1px solid #16a34a;background:#f0fdf4;color:#16a34a;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit">✓ Zurück</button>`:''}</span></div>`:''}
       <div style="padding:10px 18px;display:flex;align-items:center;justify-content:flex-end;gap:6px;border-top:1px solid var(--border)">
-          <button class="g-nav-btn" style="padding:5px 10px;font-size:11px" onclick="event.stopPropagation();_fzOpenAusleihe('${v.id}')" title="Ausleihen">🔄 Ausleihe</button>
+          ${_fzCanLend()?`<button class="g-nav-btn" style="padding:5px 10px;font-size:11px" onclick="event.stopPropagation();_fzOpenAusleihe('${v.id}')" title="Ausleihen">🔄 Ausleihe</button>`:''}
           <button class="g-nav-btn" style="padding:5px 10px;font-size:11px" onclick="event.stopPropagation();openFzgQR('${v.id}')">🔲 QR</button>
-          <button class="g-nav-btn" style="padding:5px 10px;font-size:11px" onclick="event.stopPropagation();openZuweisung('${v.id}')">👤 Zuweisen</button>
+          ${_fzCanAssign()?`<button class="g-nav-btn" style="padding:5px 10px;font-size:11px" onclick="event.stopPropagation();openZuweisung('${v.id}')">👤 Zuweisen</button>`:''}
       </div>
       </div>
     </div>`;
@@ -1552,7 +1556,7 @@ function renderTable(list){
     const svc=serviceStatus(v);
     const nsd=nextServiceDate(v);
     return `
-    <tr onclick="openModal('${v.id}')">
+    <tr onclick="${_fzCanEdit()?'openModal':'openViewFzg'}('${v.id}')">
       <td><span class="veh-id">${esc(v.nr)}</span></td>
       <td><div class="veh-name">${esc(v.model)}</div><div class="veh-sub">${v.year||''} ${v.fuel?'· '+v.fuel:''} ${v.color?'· '+v.color:''}</div></td>
       <td><span class="veh-plate">${esc(v.plate)}</span></td>
@@ -1565,7 +1569,7 @@ function renderTable(list){
         ${nsd?'<div style="font-size:11px;color:var(--muted);margin-top:2px;">'+fmtDate(nsd)+'</div>':''}
       </td>
       <td><span class="badge ${statusBadge(v.status)}">${statusLabel(v.status)}</span></td>
-      <td class="center"><button class="btn sm ghost" onclick="event.stopPropagation();openModal('${v.id}')">✎</button></td>
+      <td class="center">${_fzCanEdit()?`<button class="btn sm ghost" onclick="event.stopPropagation();openModal('${v.id}')">✎</button>`:''}</td>
     </tr>`;
   }).join("");
 }
@@ -2174,11 +2178,18 @@ function _fzGetUser(){try{return GemaAuth.getCurrentUser();}catch(e){return null
 function _fzIsAdmin(){var u=_fzGetUser();return u&&u.roleIds&&u.roleIds.indexOf('role_admin')>=0;}
 function _fzIsMagaziner(){var u=_fzGetUser();return u&&u.roleIds&&u.roleIds.indexOf('role_magaziner')>=0;}
 function _fzIsGaragist(){var u=_fzGetUser();return u&&u.roleIds&&u.roleIds.indexOf('role_garagist')>=0;}
+function _fzIsMonteur(){var u=_fzGetUser();return !!(u&&u.roleIds&&u.roleIds.indexOf('role_monteur')>=0);}
 function _fzCanEdit(){
   if(_fzIsAdmin()||_fzIsMagaziner()||_fzCanSettings())return true;
   // Garagist darf zugewiesene Fahrzeuge oeffnen; die Feld-Restriktionen
   // greifen via _fzApplyGaragistRestrictions im Formular.
   if(_fzIsGaragist())return true;
+  // Monteur ist HARD-LOCKED (analog _wzCanEdit in if_werkzeug): selbst
+  // wenn ein Admin der Monteur-Rolle 'write' auf fahrzeugmanagement
+  // vergibt, bleibt Bearbeiten gesperrt — der Monteur darf nur Defekt
+  // melden und auf sich selbst ausleihen/zurueckgeben. Edit-Rechte
+  // gibt's nur ueber Admin-, Magaziner- oder Garagist-Rolle.
+  if(_fzIsMonteur())return false;
   try{if(typeof GemaAuth!=='undefined'&&typeof GemaAuth.can==='function'){
     if(GemaAuth.can('write','fahrzeugmanagement')||GemaAuth.can('admin','fahrzeugmanagement'))return true;
   }}catch(e){}
@@ -2187,6 +2198,16 @@ function _fzCanEdit(){
 function _fzCanCreate(){
   // Erfassen neuer Fahrzeuge nur fuer Magaziner/Admin (nicht Garagist).
   return _fzIsAdmin()||_fzIsMagaziner()||_fzCanSettings();
+}
+// Fahrer-Zuweisung / Abteilung: nur Magaziner/Admin (auch nicht Garagist —
+// die Werkstatt teilt keine Fahrer zu).
+function _fzCanAssign(){
+  return _fzIsAdmin()||_fzIsMagaziner()||_fzCanSettings();
+}
+// Ausleihe-Dialog oeffnen: Editoren (voller Personen-Picker) ODER Monteur
+// (Self-Service — nur auf sich selbst, siehe _fzOpenAusleihe/_fzSaveAusleihe).
+function _fzCanLend(){
+  return _fzCanEdit()||_fzIsMonteur();
 }
 function _fzCanView(){return true;}
 // Defekt melden darf jeder eingeloggte User (analog if_werkzeug) —
@@ -3117,10 +3138,16 @@ function openViewFzg(id){
 
   document.getElementById('vm_body').innerHTML=html;
 
-  // Edit button
+  // Edit/Kosten/Garage nur fuer Editoren (Monteur hard-locked) — der
+  // Defekt-Button bleibt fuer alle sichtbar (_fzCanReportDefect).
+  var canEd=_fzCanEdit();
   var editBtn=document.getElementById('vm_editBtn');
-  editBtn.style.display='';
+  editBtn.style.display=canEd?'':'none';
   editBtn.onclick=function(){ closeViewModal(); openModal(id); };
+  var kBtn=document.getElementById('vm_kostenBtn');
+  if(kBtn)kBtn.style.display=canEd?'':'none';
+  var gBtn=document.getElementById('vm_garageBtn');
+  if(gBtn)gBtn.style.display=canEd?'':'none';
 
   overlay.style.display='flex';overlay.classList.remove('hidden');
   document.body.classList.add('modal-open');
@@ -3863,6 +3890,7 @@ function vehTag(v) {
 
 /* ═══ ZUWEISUNG ═══ */
 function openZuweisung(vehicleId) {
+  if(!_fzCanAssign()){alert('Keine Berechtigung — nur Magaziner/Admin dürfen Fahrer zuweisen.');return;}
   const v = vehicles.find(x => x.id === vehicleId);
   if (!v) return;
   document.getElementById('zuweisungVehTag').innerHTML = vehTag(v);
@@ -3875,6 +3903,7 @@ function openZuweisung(vehicleId) {
 window.openZuweisung = openZuweisung;
 
 function saveZuweisung() {
+  if(!_fzCanAssign()){alert('Keine Berechtigung.');return;}
   const v = vehicles.find(x => x.id === _mgmtVehicleId);
   if (!v) return;
   const oldDriver = v.driver;
@@ -3900,16 +3929,29 @@ function _fzCanReturn(v){
   var u=null;try{if(typeof GemaAuth!=='undefined')u=GemaAuth.getCurrentUser();}catch(e){}
   if(!u)return false;
   if(u.roleIds&&(u.roleIds.indexOf('role_admin')>=0||u.roleIds.indexOf('role_magaziner')>=0))return true;
+  // Wer selbst ausgeliehen hat, darf sein Fahrzeug auch zurueckgeben.
+  if(v.ausgeliehenAn.userId&&v.ausgeliehenAn.userId===u.id)return true;
   if(v.driver&&v.driver===u.name)return true;
   return false;
 }
 function _fzOpenAusleihe(vehicleId){
   var v=vehicles.find(function(x){return x.id===vehicleId;});if(!v)return;
+  if(!_fzCanLend()){alert('Keine Berechtigung.');return;}
+  var selfOnly=!_fzCanEdit(); // Monteur: Self-Service — nur auf sich selbst
   var personen=[];
   try{if(typeof GemaAuth!=='undefined'){
     var me=GemaAuth.getCurrentUser()||{};
     var users=GemaAuth.getUsers()||[];
-    personen=users.filter(function(u){return u.active&&(!me.orgId||u.orgId===me.orgId||me.roleIds.indexOf('role_admin')>=0);});
+    if(selfOnly){
+      // Bereits an jemand anderen ausgeliehen → Monteur kann nichts tun.
+      if(v.ausgeliehenAn&&v.ausgeliehenAn.userId&&v.ausgeliehenAn.userId!==me.id){
+        alert('Bereits ausgeliehen an '+(v.ausgeliehenAn.name||'—')+' — nur Magaziner/Admin können das ändern.');
+        return;
+      }
+      personen=users.filter(function(u){return u.id===me.id;});
+    }else{
+      personen=users.filter(function(u){return u.active&&(!me.orgId||u.orgId===me.orgId||me.roleIds.indexOf('role_admin')>=0);});
+    }
   }}catch(e){}
   var cur=v.ausgeliehenAn||{};
   var opts='<option value="">— Nicht ausgeliehen —</option>';
@@ -3936,8 +3978,17 @@ function _fzOpenAusleihe(vehicleId){
 function _fzCloseMgmt(){var o=document.getElementById('fzAusleiheOverlay');if(o)o.remove();}
 function _fzSaveAusleihe(vehicleId){
   var v=vehicles.find(function(x){return x.id===vehicleId;});if(!v)return;
+  if(!_fzCanLend()){alert('Keine Berechtigung.');return;}
   var sel=document.getElementById('fzAusleiheUser');
   var uid=sel?sel.value:'';
+  // Hard-Guard Monteur (Self-Service): darf nur auf SICH ausleihen und
+  // nur die EIGENE Ausleihe aufheben — fremde Ausleihen sind tabu.
+  if(!_fzCanEdit()){
+    var meId=(_fzGetUser()||{}).id||'';
+    var curUid=(v.ausgeliehenAn&&v.ausgeliehenAn.userId)||'';
+    if(uid&&uid!==meId){alert('Keine Berechtigung — Sie können das Fahrzeug nur auf sich selbst ausleihen.');return;}
+    if(!uid&&curUid&&curUid!==meId){alert('Keine Berechtigung — nur Magaziner/Admin können fremde Ausleihen aufheben.');return;}
+  }
   if(!uid){delete v.ausgeliehenAn;}
   else{
     var users=(typeof GemaAuth!=='undefined')?(GemaAuth.getUsers()||[]):[];
@@ -3962,6 +4013,8 @@ window._fzOpenAusleihe=_fzOpenAusleihe;
 window._fzSaveAusleihe=_fzSaveAusleihe;
 window._fzReturnVehicle=_fzReturnVehicle;
 window._fzCanReturn=_fzCanReturn;
+// Test-/Debug-Hooks (Playwright) — Permission-Helper + Fahrzeug-Pool
+window._fzPermHooks={canEdit:_fzCanEdit,canAssign:_fzCanAssign,canLend:_fzCanLend,canCreate:_fzCanCreate,canReportDefect:_fzCanReportDefect,vehicles:function(){return vehicles;}};
 
 /* ═══ DEFEKT ═══ */
 function openDefekt(vehicleId) {
@@ -4182,6 +4235,7 @@ window._fzGarageAusbuchen=_fzGarageAusbuchen;
 
 /* ═══ KOSTEN ═══ */
 function openKosten(vehicleId) {
+  if(!_fzCanEdit()){alert('Keine Berechtigung — Kosten erfassen nur Magaziner/Admin.');return;}
   const v = vehicles.find(x => x.id === vehicleId); if (!v) return;
   document.getElementById('kostenVehTag').innerHTML = vehTag(v);
   document.getElementById('kostenKat').value = 'Treibstoff';
@@ -4194,6 +4248,7 @@ function openKosten(vehicleId) {
 window.openKosten = openKosten;
 
 function saveKosten() {
+  if(!_fzCanEdit()){alert('Keine Berechtigung.');return;}
   const betrag = document.getElementById('kostenBetrag').value.trim();
   if (!betrag) { showToast('Bitte Betrag eingeben.'); return; }
   const kat = document.getElementById('kostenKat').value;
