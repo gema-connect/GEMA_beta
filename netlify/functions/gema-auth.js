@@ -60,9 +60,17 @@ function sbHeaders() {
   return h;
 }
 async function sb(pathQs, opts) {
-  const res = await fetch(SB_URL + '/rest/v1/' + pathQs, Object.assign({
-    headers: Object.assign(sbHeaders(), (opts && opts.headers) || {})
-  }, opts || {}));
+  opts = opts || {};
+  // KRITISCH — Header-Merge ZULETZT: frueher ueberschrieb Object.assign(
+  // {headers: merged}, opts) die gemergten Header wieder mit opts.headers,
+  // sobald ein Aufrufer eigene Header mitgab (putRecord: Prefer). Der
+  // apikey fiel weg → Supabase 401 «No API key found in request» — ALLE
+  // Schreib-Aktionen (Login-Cred-Migration, Registrierung, persist_auth)
+  // schlugen fehl, Lese-Aktionen liefen normal.
+  const fo = Object.assign({}, opts, {
+    headers: Object.assign(sbHeaders(), opts.headers || {})
+  });
+  const res = await fetch(SB_URL + '/rest/v1/' + pathQs, fo);
   if (!res.ok) {
     const t = await res.text().catch(() => '');
     throw new Error('Supabase ' + res.status + ': ' + t.slice(0, 200));
