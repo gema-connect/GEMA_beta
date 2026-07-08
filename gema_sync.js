@@ -150,7 +150,14 @@
     else document.addEventListener('DOMContentLoaded', function(){ if(_banner && !_banner.parentNode) document.body.appendChild(_banner); });
   }
 
-  // Einmaliger Reachability-Check via leichter HEAD-Anfrage
+  // Einmaliger Reachability-Check via leichter HEAD-Anfrage.
+  // KRITISCH — gleiche Fehlerklassifikation wie _noteFailure: JEDE
+  // HTTP-Antwort heisst "Server erreichbar". Ein 401 (abgelaufenes/
+  // ungueltiges Session-Token — typisch auf einem lange unbenutzten
+  // Zweit-PC) ist KEIN Verbindungsproblem; frueher schaltete die Probe
+  // hier sofort auf "Offline", obwohl das Internet einwandfrei lief
+  // (Ausloeser z.B. das window-'online'-Event nach WLAN-Reconnect).
+  // 401 loest stattdessen die Session-abgelaufen-Behandlung aus.
   var _probing = false;
   function _probeOnce(){
     if(_probing) return Promise.resolve(_lastReachable);
@@ -158,10 +165,15 @@
     return fetch(SB_URL + '/rest/v1/' + SB_TABLE + '?select=module_key&limit=1', {
       headers: _hdrs(), method: 'GET'
     }).then(function(r){
-      if(r.ok){ _noteSuccess(); } else { _setReachable(false); }
-      return r.ok;
+      if(r.status === 401) _handle401();
+      if(r.ok || (r.status >= 400 && r.status < 500 && r.status !== 408 && r.status !== 429)){
+        _noteSuccess();          // Server hat geantwortet → erreichbar
+        return true;
+      }
+      _noteFailure(new Error('HTTP ' + r.status));  // 5xx/408/429 → Streak-Regel
+      return false;
     }).catch(function(){
-      _setReachable(false);
+      _setReachable(false);      // aktive Probe wirft → Cloud wirklich unerreichbar
       return false;
     }).finally(function(){ _probing = false; });
   }
@@ -177,6 +189,7 @@
       + '&select=data_key,payload';
     return fetch(url, { headers: _hdrs() })
       .then(function(r){
+        if(r.status === 401) _handle401();   // abgelaufene Session → Login (wie Writes)
         if(!r.ok) throw new Error('HTTP ' + r.status);
         _noteSuccess();
         return r.json();
@@ -204,6 +217,7 @@
       + '&select=payload';
     return fetch(url, { headers: _hdrs() })
       .then(function(r){
+        if(r.status === 401) _handle401();   // abgelaufene Session → Login (wie Writes)
         if(!r.ok) throw new Error('HTTP ' + r.status);
         _noteSuccess();
         return r.json();

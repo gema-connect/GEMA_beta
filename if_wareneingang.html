@@ -267,12 +267,15 @@ function saveRec(pool,prefix,rec){
   var arr=poolRead(pool);var i=-1;for(var k=0;k<arr.length;k++){if(arr[k]&&arr[k].id===rec.id){i=k;break;}}
   if(i>=0)arr[i]=rec;else arr.unshift(rec);
   poolWrite(pool,arr);
-  try{if(typeof GemaSync!=='undefined'&&GemaSync.saveRecord)GemaSync.saveRecord(MODULE,prefix+rec.id,rec).catch(function(){});}catch(e){}
+  // Cloud-Fehler NICHT stumm schlucken: saveRecord hat keinen Outbox-Support —
+  // ein gescheiterter Push bliebe nur lokal und wuerde beim naechsten
+  // Cloud-Pull ueberschrieben. Der User muss es sehen.
+  try{if(typeof GemaSync!=='undefined'&&GemaSync.saveRecord)GemaSync.saveRecord(MODULE,prefix+rec.id,rec).catch(function(){toast('⚠ Nicht in der Cloud gespeichert — Verbindung prüfen und erneut speichern');});}catch(e){}
   return rec;
 }
 function delRec(pool,prefix,id){
   poolWrite(pool,poolRead(pool).filter(function(x){return x&&x.id!==id;}));
-  try{if(typeof GemaSync!=='undefined'&&GemaSync.deleteRecord)GemaSync.deleteRecord(MODULE,prefix+id).catch(function(){});}catch(e){}
+  try{if(typeof GemaSync!=='undefined'&&GemaSync.deleteRecord)GemaSync.deleteRecord(MODULE,prefix+id).catch(function(){toast('⚠ Löschung nicht in die Cloud übertragen — Verbindung prüfen');});}catch(e){}
 }
 
 /* ══════════════════ Domänen-Accessoren ══════════════════ */
@@ -537,7 +540,7 @@ function _updatePos(liefId,posId,fn){
   saveRec(POOL_L,PREFIX_L,l);
   return l;
 }
-window.weSetEingang=function(liefId,posId,v){var l=_updatePos(liefId,posId,function(p){var m=num(p.menge);var e=Math.max(0,num(v));p.eingegangenMenge=e;});if(l){renderLiefModal(l);renderUeber();}};
+window.weSetEingang=function(liefId,posId,v){var l=_updatePos(liefId,posId,function(p){var m=num(p.menge);p.eingegangenMenge=Math.min(m||999999,Math.max(0,num(v)));});if(l){renderLiefModal(l);renderUeber();}};
 window.weInc=function(liefId,posId,d){var l=_updatePos(liefId,posId,function(p){var m=num(p.menge);p.eingegangenMenge=Math.min(m||999999,num(p.eingegangenMenge)+d);});if(l){renderLiefModal(l);renderUeber();}};
 window.weComplete=function(liefId,posId){var l=_updatePos(liefId,posId,function(p){p.eingegangenMenge=num(p.menge);});if(l){renderLiefModal(l);renderUeber();toast('Position komplett erhalten');}};
 window.weReceiveAll=function(liefId){
