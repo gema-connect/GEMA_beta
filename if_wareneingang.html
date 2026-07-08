@@ -452,13 +452,14 @@ function liefCardHtml(l){
   var projSet={};(l.positionen||[]).forEach(function(p){if(p.projekt&&p.projekt.name)projSet[p.projekt.name]=1;});
   var projs=Object.keys(projSet);
   var projTxt=projs.length===0?'—':(projs.length===1?projs[0]:projs.length+' Projekte');
+  var editBtn=canEdit()?'<button class="btn sm" title="Lieferung bearbeiten" onclick="event.stopPropagation();weEditLief(\''+l.id+'\')">✏️</button>':'';
   return '<div class="lief-card" onclick="weOpenLief(\''+l.id+'\')">'
     +'<div class="lc-ic">🚚</div>'
     +'<div class="lc-main">'
       +'<div class="lc-t">'+E(l.lieferantFirma||'Lieferant?')+(l.bestellnummer?' <span class="mut" style="font-weight:600">· '+E(l.bestellnummer)+'</span>':'')+'</div>'
       +'<div class="lc-meta"><span>📅 '+fD(l.bestelldatum||l.importDatum)+'</span><span>📍 '+E(projTxt)+'</span><span>📦 '+posN+' Position'+(posN!==1?'en':'')+'</span>'+(offenPos>0?'<span class="tag-flag">⏳ '+offenPos+' offen</span>':'')+'</div>'
     +'</div>'
-    +'<div class="lc-r">'+badge+'<span class="mut" style="font-size:11px">Details →</span></div>'
+    +'<div class="lc-r">'+badge+'<div style="display:flex;gap:6px;align-items:center">'+editBtn+'<span class="mut" style="font-size:11px">Details →</span></div></div>'
   +'</div>';
 }
 function statusBadge(s){
@@ -509,7 +510,8 @@ function renderLiefModal(l){
   if(l.notiz)head+='<div class="infobox">📝 '+E(l.notiz)+'</div>';
 
   var actions='<div class="row no-print" style="margin-top:14px;gap:8px">'
-    +'<button class="btn pri" onclick="wePrintLief(\''+l.id+'\')">🏷 Alle Etiketten drucken</button>'
+    +(ed?'<button class="btn pri" onclick="weEditLief(\''+l.id+'\')">✏️ Bearbeiten</button>':'')
+    +'<button class="btn" onclick="wePrintLief(\''+l.id+'\')">🏷 Alle Etiketten drucken</button>'
     +(ed?'<button class="btn" onclick="weReceiveAll(\''+l.id+'\')">✓ Alles als eingegangen</button>':'')
     +(ed?'<button class="btn danger" onclick="weDeleteLief(\''+l.id+'\')">🗑 Löschen</button>':'')
     +'<span style="flex:1"></span>'
@@ -549,8 +551,74 @@ window.weReceiveAll=function(liefId){
 window.weDeleteLief=function(liefId){
   var l=liefById(liefId);if(!l)return;
   GemaDialog.confirm({title:'Lieferung löschen',message:'Lieferung «'+(l.lieferantFirma||'')+'» mit '+(l.positionen||[]).length+' Positionen wirklich löschen?',confirmLabel:'Löschen',danger:true}).then(function(ok){
-    if(!ok)return;delRec(POOL_L,PREFIX_L,liefId);weCloseModal();renderUeber();toast('Lieferung gelöscht');
+    if(!ok)return;delRec(POOL_L,PREFIX_L,liefId);LEDIT=null;weCloseModal();renderUeber();toast('Lieferung gelöscht');
   });
+};
+
+/* ── Lieferung bearbeiten (Kopfdaten + Positionen editieren) ── */
+var LEDIT=null;   // Arbeitskopie der bearbeiteten Lieferung
+window.weEditLief=function(liefId){
+  if(!canEdit()){toast('Keine Berechtigung');return;}
+  var l=liefById(liefId);if(!l){toast('Lieferung nicht gefunden');return;}
+  LEDIT={id:l.id,lieferantFirma:l.lieferantFirma||'',bestellnummer:l.bestellnummer||'',bestelldatum:l.bestelldatum||l.importDatum||today(),notiz:l.notiz||'',
+    positionen:(l.positionen||[]).map(function(p){return Object.assign({},p,{projekt:Object.assign({},p.projekt||lagerProjekt())});})};
+  renderLiefEdit();
+};
+function renderLiefEdit(){
+  var l=LEDIT;if(!l)return;
+  var anyLager=false;
+  var rows=l.positionen.map(function(p,i){
+    var pj=p.projekt||lagerProjekt();var lag=isLagerProj(pj);if(lag)anyLager=true;
+    return '<tr>'
+      +'<td><input class="cell mini" value="'+E(p.posNr||'')+'" placeholder="—" title="Positionsnummer im Dokument" onchange="weLEdit('+i+',\'posNr\',this.value)"></td>'
+      +'<td class="num"><input class="cell mini" inputmode="numeric" value="'+E(p.menge)+'" onchange="weLEdit('+i+',\'menge\',this.value)"></td>'
+      +'<td><input class="cell" value="'+E(p.artikelNr)+'" onchange="weLEdit('+i+',\'artikelNr\',this.value)"></td>'
+      +'<td><input class="cell" value="'+E(p.bezeichnung)+'" onchange="weLEdit('+i+',\'bezeichnung\',this.value)"></td>'
+      +'<td><button class="btn sm" style="max-width:100%;width:100%;justify-content:flex-start;overflow:hidden" title="'+(lag?'Lager — keine Etikette. Klicken zum Ändern.':'Projekt/Adresse ändern')+'" onclick="weLEditProj('+i+')">'+(lag?'📦':(pj.objektId?'📋':'📍'))+' <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+E(projShort(pj))+'</span></button></td>'
+      +'<td class="num"><button class="btn sm danger" onclick="weLEditDel('+i+')" title="Zeile löschen">✕</button></td>'
+      +'</tr>';
+  }).join('');
+  var dl=lieferantHistory().map(function(f){return '<option value="'+E(f)+'"></option>';}).join('');
+  showModal(
+    '<button class="modal-x" onclick="weCloseModal()">✕</button>'
+    +'<h2>✏️ Lieferung bearbeiten</h2>'
+    +'<div class="msub">Erfasste Lieferung anpassen — Kopfdaten, Positionen, Positionsnummer und Projekt/Adresse. Eingegangene Mengen bleiben erhalten.</div>'
+    +'<div class="row"><div class="col"><label class="fl">Lieferant *</label><input class="in" id="leLief" list="leLiefDL" value="'+E(l.lieferantFirma)+'" oninput="weLEditHead(&#39;lieferantFirma&#39;,this.value)"><datalist id="leLiefDL">'+dl+'</datalist></div></div>'
+    +'<div class="row" style="margin-top:8px">'
+      +'<div class="col"><label class="fl">Bestell-Nr</label><input class="in" value="'+E(l.bestellnummer)+'" oninput="weLEditHead(&#39;bestellnummer&#39;,this.value)"></div>'
+      +'<div class="col"><label class="fl">Bestelldatum</label><input class="in" type="date" value="'+E(l.bestelldatum)+'" oninput="weLEditHead(&#39;bestelldatum&#39;,this.value)"></div>'
+      +'<div class="col"><label class="fl">Notiz</label><input class="in" value="'+E(l.notiz)+'" oninput="weLEditHead(&#39;notiz&#39;,this.value)"></div>'
+    +'</div>'
+    +'<div class="tblwrap" style="margin-top:12px"><table class="gt" style="min-width:680px"><thead><tr><th style="width:64px">Pos-Nr</th><th class="num" style="width:80px">Menge</th><th style="width:120px">Art-Nr</th><th>Bezeichnung</th><th style="width:190px">Projekt / Adresse</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div>'
+    +(anyLager?'<div class="hint" style="margin-top:6px">📦 Lager-Positionen: Wareneingangs-Kontrolle ja, keine Etikette.</div>':'')
+    +'<div class="row no-print" style="margin-top:8px"><button class="btn sm" onclick="weLEditAdd()">＋ Zeile</button><button class="btn sm" style="margin-left:8px" onclick="weLEditBulkProj()">📍 Projekt/Adresse auf alle Zeilen</button><span class="hint" style="align-self:center;margin-left:auto">'+l.positionen.length+' Position'+(l.positionen.length!==1?'en':'')+'</span></div>'
+    +'<div class="row no-print" style="margin-top:16px;gap:8px"><button class="btn danger" onclick="weLEditDelLief()">🗑 Lieferung löschen</button><span style="flex:1"></span>'
+      +'<button class="btn" onclick="weEditCancel()">Abbrechen</button>'
+      +'<button class="btn pri" onclick="weLEditSave()">✓ Speichern</button></div>'
+  ,'900px');
+}
+window.weLEditHead=function(f,v){if(LEDIT)LEDIT[f]=v;};
+window.weLEdit=function(i,f,v){if(LEDIT&&LEDIT.positionen[i])LEDIT.positionen[i][f]=(f==='menge')?num(v):v;};
+window.weLEditDel=function(i){if(!LEDIT)return;LEDIT.positionen.splice(i,1);renderLiefEdit();};
+window.weLEditAdd=function(){if(!LEDIT)return;LEDIT.positionen.push(mkPos('','',1,LEDIT.positionen.length));renderLiefEdit();};
+window.weLEditProj=function(i){if(!LEDIT||!LEDIT.positionen[i])return;weOpenProjektPicker(LEDIT.positionen[i].projekt,function(pj){LEDIT.positionen[i].projekt=pj;renderLiefEdit();});};
+window.weLEditBulkProj=function(){if(!LEDIT)return;var base=(LEDIT.positionen[0]&&LEDIT.positionen[0].projekt)||defaultProjekt();weOpenProjektPicker(base,function(pj){LEDIT.positionen.forEach(function(x){x.projekt=Object.assign({},pj);});renderLiefEdit();toast('Projekt/Adresse auf alle Zeilen gesetzt');});};
+window.weEditCancel=function(){var id=LEDIT&&LEDIT.id;LEDIT=null;if(id)weOpenLief(id);else weCloseModal();};
+window.weLEditDelLief=function(){var id=LEDIT&&LEDIT.id;if(id)weDeleteLief(id);};
+window.weLEditSave=function(){
+  if(!LEDIT)return;
+  if(!(LEDIT.lieferantFirma||'').trim()){toast('Bitte Lieferant eingeben');return;}
+  var l=liefById(LEDIT.id);if(!l){toast('Lieferung nicht gefunden');return;}
+  var pos=LEDIT.positionen.filter(function(p){return (p.bezeichnung||'').trim()||(p.artikelNr||'').trim();});
+  if(!pos.length){toast('Mindestens eine Position mit Bezeichnung/Art-Nr nötig');return;}
+  pos.forEach(function(p,i){p.sortindex=i;p.menge=num(p.menge);p.eingegangenMenge=Math.max(0,Math.min(num(p.eingegangenMenge),p.menge||999999));p.status=posStatus(p);});
+  l.lieferantFirma=LEDIT.lieferantFirma.trim();
+  l.bestellnummer=(LEDIT.bestellnummer||'').trim();
+  l.bestelldatum=LEDIT.bestelldatum||today();
+  l.notiz=(LEDIT.notiz||'').trim();
+  l.positionen=pos;l.status=liefStatus(l);l.updatedAt=_now();
+  saveRec(POOL_L,PREFIX_L,l);
+  LEDIT=null;renderUeber();weOpenLief(l.id);toast('Lieferung gespeichert');
 };
 
 /* ══════════════════ Etiketten (HTML + window.print) ══════════════════ */
@@ -1368,7 +1436,7 @@ document.addEventListener('DOMContentLoaded',function(){
 });
 
 /* Debug/Test-Hooks */
-window._weHooks={settings:settings,liefStatus:liefStatus,posStatus:posStatus,extractHtmlGrid:extractHtmlGrid,extractTextGrid:extractTextGrid,guessCols:guessCols,applyGridMapping:applyGridMapping,pdfItemsToGrid:pdfItemsToGrid,applyPdfBands:applyPdfBands,mkPos:mkPos,projModus:projModus,gemaObjekteAn:gemaObjekteAn,freieAdrAn:freieAdrAn,defaultProjekt:defaultProjekt,lieferantKey:lieferantKey,findMapping:findMapping,saveMapping:saveMapping,kiApplyResult:kiApplyResult,parseDateLoose:parseDateLoose,newImp:newImp,getImp:function(){return IMP;},setImp:function(x){IMP=x;},lagerProjekt:lagerProjekt,isLagerProj:isLagerProj,abbrevStrasse:abbrevStrasse,labelsFromLief:labelsFromLief,labelInner:labelInner,lieferantHistory:lieferantHistory};
+window._weHooks={settings:settings,liefStatus:liefStatus,posStatus:posStatus,extractHtmlGrid:extractHtmlGrid,extractTextGrid:extractTextGrid,guessCols:guessCols,applyGridMapping:applyGridMapping,pdfItemsToGrid:pdfItemsToGrid,applyPdfBands:applyPdfBands,mkPos:mkPos,projModus:projModus,gemaObjekteAn:gemaObjekteAn,freieAdrAn:freieAdrAn,defaultProjekt:defaultProjekt,lieferantKey:lieferantKey,findMapping:findMapping,saveMapping:saveMapping,kiApplyResult:kiApplyResult,parseDateLoose:parseDateLoose,newImp:newImp,getImp:function(){return IMP;},setImp:function(x){IMP=x;},lagerProjekt:lagerProjekt,isLagerProj:isLagerProj,abbrevStrasse:abbrevStrasse,labelsFromLief:labelsFromLief,labelInner:labelInner,lieferantHistory:lieferantHistory,getLEdit:function(){return LEDIT;},liefById:liefById};
 })();
 </script>
 <script src="gema_scroll.js"></script>
