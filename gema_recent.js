@@ -28,6 +28,7 @@
     'hz_waermegruppen':'Wärmegruppen SIA 384',
     'if_fahrzeug':'Fahrzeugmanagement',
     'if_trocknung':'Trocknungsgeräte',
+    'if_wareneingang':'Wareneingang',
     'if_werkzeug':'Werkzeugmanagement',
     'index':'Modulübersicht',
     'lt_hx_diagramm':'h,x-Diagramm',
