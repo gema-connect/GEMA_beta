@@ -570,6 +570,8 @@ window.weEditLief=function(liefId){
 };
 function renderLiefEdit(){
   var l=LEDIT;if(!l)return;
+  if(!l.bulkProjObj)l.bulkProjObj=defaultProjekt();
+  var bulkName=projShort(l.bulkProjObj);
   var anyLager=false;
   var rows=l.positionen.map(function(p,i){
     var pj=p.projekt||lagerProjekt();var lag=isLagerProj(pj);if(lag)anyLager=true;
@@ -578,7 +580,10 @@ function renderLiefEdit(){
       +'<td class="num"><input class="cell mini" inputmode="numeric" value="'+E(p.menge)+'" onchange="weLEdit('+i+',\'menge\',this.value)"></td>'
       +'<td><input class="cell" value="'+E(p.artikelNr)+'" onchange="weLEdit('+i+',\'artikelNr\',this.value)"></td>'
       +'<td><input class="cell" value="'+E(p.bezeichnung)+'" onchange="weLEdit('+i+',\'bezeichnung\',this.value)"></td>'
-      +'<td><button class="btn sm" style="max-width:100%;width:100%;justify-content:flex-start;overflow:hidden" title="'+(lag?'Lager — keine Etikette. Klicken zum Ändern.':'Projekt/Adresse ändern')+'" onclick="weLEditProj('+i+')">'+(lag?'📦':(pj.objektId?'📋':'📍'))+' <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+E(projShort(pj))+'</span></button></td>'
+      +'<td><div style="display:flex;gap:4px;align-items:center">'
+        +'<button class="btn sm" title="Gewähltes Projekt «'+E(bulkName)+'» dieser Zeile zuweisen" onclick="weLEditAssign('+i+')">⤓</button>'
+        +'<button class="btn sm" style="flex:1;max-width:100%;justify-content:flex-start;overflow:hidden" title="'+(lag?'Lager — keine Etikette. Klicken zum Ändern.':'Projekt/Adresse ändern')+'" onclick="weLEditProj('+i+')">'+(lag?'📦':(pj.objektId?'📋':'📍'))+' <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+E(projShort(pj))+'</span></button>'
+      +'</div></td>'
       +'<td class="num"><button class="btn sm danger" onclick="weLEditDel('+i+')" title="Zeile löschen">✕</button></td>'
       +'</tr>';
   }).join('');
@@ -593,9 +598,14 @@ function renderLiefEdit(){
       +'<div class="col"><label class="fl">Bestelldatum</label><input class="in" type="date" value="'+E(l.bestelldatum)+'" oninput="weLEditHead(&#39;bestelldatum&#39;,this.value)"></div>'
       +'<div class="col"><label class="fl">Notiz</label><input class="in" value="'+E(l.notiz)+'" oninput="weLEditHead(&#39;notiz&#39;,this.value)"></div>'
     +'</div>'
-    +'<div class="tblwrap" style="margin-top:12px"><table class="gt" style="min-width:680px"><thead><tr><th style="width:64px">Pos-Nr</th><th class="num" style="width:80px">Menge</th><th style="width:120px">Art-Nr</th><th>Bezeichnung</th><th style="width:190px">Projekt / Adresse</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div>'
+    +'<div class="row" style="align-items:flex-end;margin-top:12px;margin-bottom:2px">'
+      +'<div class="col"><label class="fl">Projekt / Lieferadresse für ganze Lieferung</label><button class="btn" style="width:100%;justify-content:flex-start" onclick="weLEditBulkPick()">'+(isLagerProj(l.bulkProjObj)?'📦':(l.bulkProjObj.objektId?'📋':'📍'))+' '+E(bulkName)+' — ändern</button></div>'
+      +'<div class="col" style="max-width:230px"><label class="fl">&nbsp;</label><button class="btn" style="width:100%" onclick="weLEditApplyBulk()">⤓ Auf alle Zeilen anwenden</button></div>'
+    +'</div>'
+    +'<div class="hint" style="margin-bottom:6px">Tipp: Projekt oben wählen und mit dem ⤓-Button in der Zeile einzelnen Positionen zuweisen — oder «Auf alle Zeilen anwenden».</div>'
+    +'<div class="tblwrap"><table class="gt" style="min-width:700px"><thead><tr><th style="width:64px">Pos-Nr</th><th class="num" style="width:80px">Menge</th><th style="width:120px">Art-Nr</th><th>Bezeichnung</th><th style="width:220px">Projekt / Adresse</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div>'
     +(anyLager?'<div class="hint" style="margin-top:6px">📦 Lager-Positionen: Wareneingangs-Kontrolle ja, keine Etikette.</div>':'')
-    +'<div class="row no-print" style="margin-top:8px"><button class="btn sm" onclick="weLEditAdd()">＋ Zeile</button><button class="btn sm" style="margin-left:8px" onclick="weLEditBulkProj()">📍 Projekt/Adresse auf alle Zeilen</button><span class="hint" style="align-self:center;margin-left:auto">'+l.positionen.length+' Position'+(l.positionen.length!==1?'en':'')+'</span></div>'
+    +'<div class="row no-print" style="margin-top:8px"><button class="btn sm" onclick="weLEditAdd()">＋ Zeile</button><span class="hint" style="align-self:center;margin-left:auto">'+l.positionen.length+' Position'+(l.positionen.length!==1?'en':'')+'</span></div>'
     +'<div class="row no-print" style="margin-top:16px;gap:8px"><button class="btn danger" onclick="weLEditDelLief()">🗑 Lieferung löschen</button><span style="flex:1"></span>'
       +'<button class="btn" onclick="weEditCancel()">Abbrechen</button>'
       +'<button class="btn pri" onclick="weLEditSave()">✓ Speichern</button></div>'
@@ -605,8 +615,13 @@ window.weLEditHead=function(f,v){if(LEDIT)LEDIT[f]=v;};
 window.weLEdit=function(i,f,v){if(LEDIT&&LEDIT.positionen[i])LEDIT.positionen[i][f]=(f==='menge')?num(v):v;};
 window.weLEditDel=function(i){if(!LEDIT)return;LEDIT.positionen.splice(i,1);renderLiefEdit();};
 window.weLEditAdd=function(){if(!LEDIT)return;LEDIT.positionen.push(mkPos('','',1,LEDIT.positionen.length));renderLiefEdit();};
-window.weLEditProj=function(i){if(!LEDIT||!LEDIT.positionen[i])return;weOpenProjektPicker(LEDIT.positionen[i].projekt,function(pj){LEDIT.positionen[i].projekt=pj;renderLiefEdit();});};
-window.weLEditBulkProj=function(){if(!LEDIT)return;var base=(LEDIT.positionen[0]&&LEDIT.positionen[0].projekt)||defaultProjekt();weOpenProjektPicker(base,function(pj){LEDIT.positionen.forEach(function(x){x.projekt=Object.assign({},pj);});renderLiefEdit();toast('Projekt/Adresse auf alle Zeilen gesetzt');});};
+// Zeilen-Picker: gewaehltes Projekt wird auch zum «aktuellen» Projekt oben —
+// danach laesst es sich per ⤓ mit einem Klick weiteren Zeilen zuweisen.
+window.weLEditProj=function(i){if(!LEDIT||!LEDIT.positionen[i])return;weOpenProjektPicker(LEDIT.positionen[i].projekt,function(pj){LEDIT.positionen[i].projekt=pj;LEDIT.bulkProjObj=Object.assign({},pj);renderLiefEdit();});};
+window.weLEditBulkPick=function(){if(!LEDIT)return;weOpenProjektPicker(LEDIT.bulkProjObj,function(pj){LEDIT.bulkProjObj=pj;renderLiefEdit();});};
+window.weLEditApplyBulk=function(){if(!LEDIT)return;var p=LEDIT.bulkProjObj||defaultProjekt();LEDIT.positionen.forEach(function(x){x.projekt=Object.assign({},p);});renderLiefEdit();toast('Projekt/Adresse auf alle Zeilen gesetzt');};
+// ⤓ pro Zeile: das oben gewaehlte Projekt dieser einen Position zuweisen.
+window.weLEditAssign=function(i){if(!LEDIT||!LEDIT.positionen[i])return;LEDIT.positionen[i].projekt=Object.assign({},LEDIT.bulkProjObj||defaultProjekt());renderLiefEdit();toast('Projekt zugewiesen');};
 window.weEditCancel=function(){var id=LEDIT&&LEDIT.id;LEDIT=null;if(id)weOpenLief(id);else weCloseModal();};
 window.weLEditDelLief=function(){var id=LEDIT&&LEDIT.id;if(id)weDeleteLief(id);};
 window.weLEditSave=function(){
@@ -1195,6 +1210,7 @@ function renderStep3(){
   var b=$('impBody');
   if(!IMP.bulkProjObj)IMP.bulkProjObj=defaultProjekt();
   var anyLager=false;
+  var bulkName=projShort(IMP.bulkProjObj);
   var rows=IMP.positionen.map(function(p,i){
     var flag=(num(p.menge)<=0)?' style="background:#fef2f2"':'';
     var pj=p.projekt||lagerProjekt();
@@ -1204,7 +1220,10 @@ function renderStep3(){
       +'<td class="num"><input class="cell mini" inputmode="numeric" value="'+E(p.menge)+'" onchange="weImpEdit('+i+',\'menge\',this.value)">'+(num(p.menge)<=0?'<div class="tag-flag" style="font-size:10px">Menge!</div>':'')+'</td>'
       +'<td><input class="cell" value="'+E(p.artikelNr)+'" onchange="weImpEdit('+i+',\'artikelNr\',this.value)"></td>'
       +'<td><input class="cell" value="'+E(p.bezeichnung)+'" onchange="weImpEdit('+i+',\'bezeichnung\',this.value)"></td>'
-      +'<td><button class="btn sm" style="max-width:100%;width:100%;justify-content:flex-start;overflow:hidden" title="'+(lag?'Lager — wird kontrolliert, aber NICHT als Etikette gedruckt. Klicken zum Ändern.':'Projekt/Adresse ändern')+'" onclick="weImpRowProj('+i+')">'+(lag?'📦':(pj.objektId?'📋':'📍'))+' <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+E(projShort(pj))+'</span></button></td>'
+      +'<td><div style="display:flex;gap:4px;align-items:center">'
+        +'<button class="btn sm" title="Gewähltes Projekt «'+E(bulkName)+'» dieser Zeile zuweisen" onclick="weImpAssignRow('+i+')">⤓</button>'
+        +'<button class="btn sm" style="flex:1;max-width:100%;justify-content:flex-start;overflow:hidden" title="'+(lag?'Lager — wird kontrolliert, aber NICHT als Etikette gedruckt. Klicken zum Ändern.':'Projekt/Adresse ändern')+'" onclick="weImpRowProj('+i+')">'+(lag?'📦':(pj.objektId?'📋':'📍'))+' <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+E(projShort(pj))+'</span></button>'
+      +'</div></td>'
       +'<td class="num"><button class="btn sm danger" onclick="weImpDelRow('+i+')" title="Zeile löschen">✕</button></td>'
       +'</tr>';
   }).join('');
@@ -1212,11 +1231,12 @@ function renderStep3(){
   var kiBadge=(IMP.quelle==='ki'&&IMP.__kiCount)?'<span class="chip" style="background:#ecfccb;color:#3f6212;margin-left:6px">🤖 KI-Analyse</span>':'';
   b.innerHTML='<h3>3 · Review & Import'+kiBadge+'</h3>'
     +'<div class="desc">Alles editierbar — <strong>'+(IMP.quelle==='ki'?'KI-Extraktion':'PDF/Import')+' ist fehleranfällig, bitte kontrollieren.</strong> Menge = Anzahl Etiketten.</div>'
-    +'<div class="row" style="align-items:flex-end;margin-bottom:10px">'
-      +'<div class="col"><label class="fl">Projekt / Lieferadresse für ganze Lieferung</label><button class="btn" style="width:100%;justify-content:flex-start" onclick="weImpBulkPick()">'+(IMP.bulkProjObj.objektId?'📋':'📍')+' '+E(projShort(IMP.bulkProjObj))+' — ändern</button></div>'
+    +'<div class="row" style="align-items:flex-end;margin-bottom:2px">'
+      +'<div class="col"><label class="fl">Projekt / Lieferadresse für ganze Lieferung</label><button class="btn" style="width:100%;justify-content:flex-start" onclick="weImpBulkPick()">'+(isLagerProj(IMP.bulkProjObj)?'📦':(IMP.bulkProjObj.objektId?'📋':'📍'))+' '+E(bulkName)+' — ändern</button></div>'
       +'<div class="col" style="max-width:230px"><label class="fl">&nbsp;</label><button class="btn" style="width:100%" onclick="weImpApplyBulkProj()">⤓ Auf alle Zeilen anwenden</button></div>'
     +'</div>'
-    +'<div class="tblwrap"><table class="gt" style="min-width:680px"><thead><tr><th style="width:64px">Pos-Nr</th><th class="num" style="width:80px">Menge</th><th style="width:120px">Art-Nr</th><th>Bezeichnung</th><th style="width:190px">Projekt / Adresse</th><th></th></tr></thead><tbody id="impRows">'+rows+'</tbody></table></div>'
+    +'<div class="hint" style="margin-bottom:6px">Tipp: Projekt oben wählen und mit dem ⤓-Button in der Zeile einzelnen Positionen zuweisen — oder «Auf alle Zeilen anwenden».</div>'
+    +'<div class="tblwrap"><table class="gt" style="min-width:700px"><thead><tr><th style="width:64px">Pos-Nr</th><th class="num" style="width:80px">Menge</th><th style="width:120px">Art-Nr</th><th>Bezeichnung</th><th style="width:220px">Projekt / Adresse</th><th></th></tr></thead><tbody id="impRows">'+rows+'</tbody></table></div>'
     +(anyLager?'<div class="hint" style="margin-top:6px">📦 Lager-Positionen werden importiert und im Wareneingang kontrolliert, aber <strong>nicht als Etikette gedruckt</strong>.</div>':'')
     +'<div class="row no-print" style="margin-top:8px"><button class="btn sm" onclick="weImpAddRow()">＋ Zeile</button><span class="hint" style="align-self:center">'+IMP.positionen.length+' Position'+(IMP.positionen.length!==1?'en':'')+'</span></div>'
     +'<hr style="border:none;border-top:1px solid #eef2f7;margin:14px 0">'
@@ -1240,9 +1260,13 @@ window.weDupCheck=function(){var d=$('impDup');if(!d)return;var dup=findDuplicat
 window.weImpEdit=function(i,f,v){if(IMP.positionen[i]){IMP.positionen[i][f]=(f==='menge')?num(v):v;if(f==='menge'){renderStep3();}}};
 window.weImpDelRow=function(i){IMP.positionen.splice(i,1);renderStep3();};
 window.weImpAddRow=function(){IMP.positionen.push(mkPos('','',1,IMP.positionen.length));renderStep3();};
-window.weImpRowProj=function(i){if(!IMP.positionen[i])return;weOpenProjektPicker(IMP.positionen[i].projekt,function(pj){IMP.positionen[i].projekt=pj;renderStep3();});};
+// Zeilen-Picker: gewaehltes Projekt wird auch zum «aktuellen» Projekt oben —
+// danach per ⤓ mit einem Klick weiteren Zeilen zuweisbar.
+window.weImpRowProj=function(i){if(!IMP.positionen[i])return;weOpenProjektPicker(IMP.positionen[i].projekt,function(pj){IMP.positionen[i].projekt=pj;IMP.bulkProjObj=Object.assign({},pj);renderStep3();});};
 window.weImpBulkPick=function(){weOpenProjektPicker(IMP.bulkProjObj,function(pj){IMP.bulkProjObj=pj;renderStep3();});};
 window.weImpApplyBulkProj=function(){var p=IMP.bulkProjObj||defaultProjekt();IMP.positionen.forEach(function(x){x.projekt=Object.assign({},p);});renderStep3();toast('Projekt/Adresse auf alle Zeilen gesetzt');};
+// ⤓ pro Zeile: das oben gewaehlte Projekt dieser einen Position zuweisen.
+window.weImpAssignRow=function(i){if(!IMP.positionen[i])return;IMP.positionen[i].projekt=Object.assign({},IMP.bulkProjObj||defaultProjekt());renderStep3();toast('Projekt zugewiesen');};
 
 window.weImpDoImport=function(print){
   var pos=IMP.positionen.filter(function(p){return (p.bezeichnung||'').trim()||(p.artikelNr||'').trim();});
