@@ -924,6 +924,8 @@ Ein **Koffer** bündelt mehrere Werkzeuge (z.B. Bohrhammer + Akku + Ladegerät) 
 
 ### QR-Code & Etiketten (if_werkzeug.html)
 
+**Hero-Kamera-Scan (nur Touch-Geräte)**: `#wzHeroScan` («📷 Scannen») im Hero-Header öffnet `_wzScanWithCamera()` (In-App-Kamera via GemaQR → `_wzScanAusleihe`-Detail-Ansicht mit Aktionen) — sichtbar nur bei `matchMedia('(hover: none) and (pointer: coarse)')` (iPhone/Tablet). Hintergrund: Die System-Kamera öffnet den QR-Link jedes Mal in einem neuen Tab samt Neu-Anmeldung; der In-App-Scan bleibt in der laufenden Session. Alle Rollen (auch Monteur).
+
 Werkzeug hat **dasselbe Etiketten-System wie das Trocknungs-Modul** (siehe Abschnitt «Etiketten-System (komplett)» unter Trocknungsgeräte für die vollständige Logik) — portiert mit `_wz`-Prefix:
 - QR-Dialog mit Umschalter **«QR-Code | Etikette»** (`setQrMode`); `_wzCurrentQRTool` wird in `openQR` gesetzt. QR-URL = `?scan=<id>`.
 - Etikette **49×23mm Querformat**, festes Layout (QR rechts über volle Höhe, links Logo oben + interne Bezeichnung darunter). Beschriftung = `internKennung || name`. Logo = `org.logo` (via `GemaAuth.getCurrentOrg()`), sonst GEMA-Fallback, für jsPDF zu PNG gerastert. Helper analog Trocknung: `_wzComputeEtikette`, `_wzDrawEtikette`, `_wzEnsureLabelLogo`, `_wzBuildEtikettePreview`, `_wzFitText`, `_wzGetQrDataUrl`/`_wzRenderQrDataUrl`, jsPDF via `_wzEnsureJsPDF`.
