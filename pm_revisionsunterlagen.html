@@ -859,6 +859,7 @@ function detRender(){
   tools.push('<button class="btn sm" onclick="matrixOpen()">📋 Vollständigkeit</button>');
   if(can){ tools.push('<button class="btn sm" onclick="matrixOpen(true)">📨 Fehlende anfordern</button>'); }
   tools.push('<button class="btn sm" onclick="detPdf()">📄 PDF</button>');
+  tools.push('<button class="btn sm" onclick="detKomplettPdf()">🧩 Komplett-PDF</button>');
   tools.push('<button class="btn sm" onclick="shareOpen()">🔗 Freigabe / QR</button>');
   if(can){ tools.push('<button class="btn sm" onclick="kapEditorOpen()">⚙ Kapitel</button>');
     tools.push('<select class="sel" style="min-height:32px;font-size:12px" onchange="detStatus(this.value)"><option value="">Status…</option><option value="in_arbeit">In Arbeit</option><option value="bereit">Bereit</option><option value="uebergeben">Übergeben</option></select>');
@@ -1011,10 +1012,27 @@ function detSammeln(){ revSammelnLauf(_det,false); detReload(); detOpenKeep(); }
 function detOpenKeep(){ var id=_det.id; _det=_readPool(POOL).find(function(d){return d.id===id;}); detRender(); }
 function detStatus(v){ if(!v)return; _det.status=v; if(v==='uebergeben')_det.uebergebenAm=new Date().toISOString(); saveDossier(_det); detRender(); toast('Status: '+v); }
 function detDelete(){ GemaDialog.confirm({title:'Dossier löschen',message:'Dieses Revisionsdossier wirklich löschen?',danger:true,confirmLabel:'Löschen'}).then(function(ok){ if(!ok)return; _delRec(POOL,'revd:',_det.id); detClose(); }); }
+function _detObjAdr(){ var objAdr=''; try{ var o=(GemaObjekte.getAll()||[]).find(function(x){return x.id===_det.objektId;}); if(o)objAdr=[o.strasse,[o.plz,o.ort].filter(Boolean).join(' ')].filter(Boolean).join(', '); }catch(e){} return objAdr; }
 function detPdf(){
   if(typeof GemaRevisionPDF==='undefined'){ toast('PDF-Modul nicht geladen.'); return; }
-  var objAdr=''; try{ var o=(GemaObjekte.getAll()||[]).find(function(x){return x.id===_det.objektId;}); if(o)objAdr=[o.strasse,[o.plz,o.ort].filter(Boolean).join(' ')].filter(Boolean).join(', '); }catch(e){}
-  GemaRevisionPDF.exportPrint(_det,{org:_org(),user:_me(),objektName:_det.objektName,objektAdresse:objAdr,shareUrl:(_det.freigabe&&_det.freigabe.aktiv)?(location.origin+'/sys_revision_ansicht.html?t='+_det.freigabe.token):''});
+  GemaRevisionPDF.exportPrint(_det,{org:_org(),user:_me(),objektName:_det.objektName,objektAdresse:_detObjAdr(),shareUrl:(_det.freigabe&&_det.freigabe.aktiv)?(location.origin+'/sys_revision_ansicht.html?t='+_det.freigabe.token):''});
+}
+// Komplett-PDF: Struktur + alle angehängten Lieferanten-PDFs in EINER Datei (pdf-lib)
+function detKomplettPdf(){
+  if(typeof GemaRevisionPDF==='undefined'||!GemaRevisionPDF.exportKomplett){ toast('PDF-Modul nicht geladen.'); return; }
+  var atts=0; try{ _det.kapitel.forEach(function(k){(k.eintraege||[]).forEach(function(e){ if((e.typ==='dokument'||e.typ==='produktdok')&&!e.ausgeblendet&&(e.url||e.dataUrl))atts++; });}); }catch(e){}
+  var PH={libs:'Bibliotheken werden geladen …',struktur:'Struktur wird erstellt …',merge:'Dokumente werden zusammengeführt',notes:'Hinweise werden ergänzt …',nummern:'Seitennummern …',fertig:'Fertig'};
+  mOpen('Komplett-PDF erstellen','<div id="kpProg" style="font-size:13px;color:var(--txt2);line-height:1.7"><div class="hintbox">Erzeugt ein einziges PDF inklusive aller angehängten Lieferanten-Unterlagen ('+atts+' Dokument'+(atts===1?'':'e')+'). Grosse Dokumentensätze können einen Moment dauern.</div><div id="kpStat">Wird vorbereitet …</div></div>',[{label:'Schliessen',fn:'mClose()'}]);
+  var stat=function(t){ var el=document.getElementById('kpStat'); if(el)el.textContent=t; };
+  GemaRevisionPDF.exportKomplett(_det,{org:_org(),user:_me(),objektName:_det.objektName,objektAdresse:_detObjAdr(),
+    onProgress:function(phase,done,total){ if(phase==='merge')stat('Dokumente werden zusammengeführt … '+(done+1)+'/'+total); else stat(PH[phase]||phase); }
+  }).then(function(res){
+    var msg='<div class="hintbox" style="background:var(--grn-bg);border-color:var(--grn-bd);color:#166534">✓ Komplett-PDF erstellt und heruntergeladen.<br>'+res.merged+' von '+res.total+' Dokument(en) eingebettet'+(res.failed&&res.failed.length?(' · '+res.failed.length+' nicht einbettbar (als Hinweisseite gelistet)'):'')+'.</div>';
+    if(res.failed&&res.failed.length)msg+='<div style="font-size:11.5px;color:var(--mut);margin-top:6px">Nicht eingebettet: '+res.failed.map(E).join(', ')+'</div>';
+    var el=document.getElementById('kpProg'); if(el)el.innerHTML=msg;
+  }).catch(function(err){
+    var el=document.getElementById('kpProg'); if(el)el.innerHTML='<div class="hintbox" style="background:var(--red-bg);border-color:var(--red-bd);color:#991b1b">✕ Konnte nicht erstellt werden: '+E(err&&err.message||'Fehler')+'<br><span style="font-size:11.5px">Bitte Internetverbindung prüfen (die PDF-Bibliotheken werden online geladen) oder den einfachen «📄 PDF»-Export nutzen.</span></div>';
+  });
 }
 
 // Deckblatt-Editor
