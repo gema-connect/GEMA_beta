@@ -27,6 +27,7 @@
 
   var ENDPOINT = '/.netlify/functions/claude-rewrite';
   var EXTRACT_ENDPOINT = '/.netlify/functions/claude-extract';
+  var FORMFIELDS_ENDPOINT = '/.netlify/functions/claude-formfields';
 
   function _call(mode, text, opts) {
     opts = opts || {};
@@ -97,6 +98,34 @@
     });
   }
 
+  // ── Formular-Analyse (Behörden & Formulare): erkennt die Felder eines
+  //    Behörden-PDF und schlägt je Feld eine GEMA-Zuordnung vor. Nimmt die
+  //    AcroForm-Feldnamen (bevorzugt) und/oder das PDF/Bild entgegen.
+  //    opts = { fileBase64?, mediaType?, filename?, fieldNames?:[{name,label,type}], text?, signal? }
+  function analyzeForm(opts) {
+    opts = opts || {};
+    var payload = {};
+    if (opts.fileBase64) payload.fileBase64 = opts.fileBase64;
+    if (opts.mediaType) payload.mediaType = opts.mediaType;
+    if (opts.filename) payload.filename = opts.filename;
+    if (opts.fieldNames) payload.fieldNames = opts.fieldNames;
+    if (opts.text) payload.text = String(opts.text);
+    return fetch(FORMFIELDS_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: opts.signal
+    }).then(function(r){
+      if (r.status === 404) throw new Error('KI-Formularanalyse ist nicht verfügbar (Function nicht deployed).');
+      return r.json().then(function(data){
+        if (!r.ok || !data.ok) throw new Error(data && data.error ? data.error : ('HTTP ' + r.status));
+        var d = data.data || {};
+        d.felder = Array.isArray(d.felder) ? d.felder : [];
+        return d;
+      }).catch(function(err){ if (err instanceof Error) throw err; throw new Error('Unerwartete Antwort der KI-Formularanalyse.'); });
+    });
+  }
+
   w.GemaClaude = {
     isConfigured: isConfigured,
     rewrite: function(t, o){ return _call('rewrite', t, o); },
@@ -104,6 +133,7 @@
     fix: function(t, o){ return _call('fix', t, o); },
     shorten: function(t, o){ return _call('shorten', t, o); },
     expand: function(t, o){ return _call('expand', t, o); },
-    extractPositions: extractPositions
+    extractPositions: extractPositions,
+    analyzeForm: analyzeForm
   };
 })(typeof window !== 'undefined' ? window : this);

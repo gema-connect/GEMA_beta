@@ -330,6 +330,11 @@
       label:'Revisionsunterlagen freigegeben (Link/QR)',
       modul:'revisionsunterlagen',
       defaultOn:false
+    },
+    behoerde_formular_geaendert: {
+      label:'Behördenformular unter Quell-URL geändert',
+      modul:'behoerden_formulare',
+      defaultOn:true
     }
   };
 
