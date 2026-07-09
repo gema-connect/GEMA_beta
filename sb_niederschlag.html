@@ -607,6 +607,24 @@ select.warType{padding:3px 6px;font-size:11px;font-weight:600;font-family:var(--
 
 .pf label a:hover,.fg label a:hover,.field-label a:hover{text-decoration:none!important}
 /* Objekt Combo */
+/* ── Datenquelle Regenspende (SN 592000 / MeteoSchweiz B04) ── */
+.nb-src-seg{display:inline-flex;border:1.5px solid #cdd4e4;border-radius:10px;overflow:hidden}
+.nb-src-seg .nb-src{border:none;background:#fff;color:#64748b;font-size:12.5px;font-weight:800;padding:8px 14px;cursor:pointer;font-family:inherit}
+.nb-src-seg .nb-src.on{background:#2563eb;color:#fff}
+.nb-hint{background:#eff6ff;border:1px solid #bfdbfe;border-radius:9px;padding:8px 11px;font-size:12px;color:#334155;line-height:1.5;margin-bottom:10px}
+.nb-manual{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:8px 0;font-size:12px;color:#64748b}
+.nb-manual .g-inp.sm{width:130px;padding:6px 9px}
+.nb-pts{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px;margin-top:6px}
+.nb-pt{border:1.5px solid #e2e7f0;border-radius:11px;padding:9px 11px;cursor:pointer;background:#fff;transition:.12s}
+.nb-pt:hover{border-color:#bfdbfe}
+.nb-pt.on{border-color:#2563eb;background:#eff6ff;box-shadow:0 0 0 2px #bfdbfe}
+.nb-pt .d{font-size:15px;font-weight:900;color:#0f172a}
+.nb-pt .m{font-size:11px;color:#64748b;margin-top:2px;line-height:1.5}
+.nb-pt .r{font-size:12px;font-weight:800;color:#2563eb;margin-top:3px}
+.nb-pt .near{font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:#16a34a}
+.nb-empty{border:1.5px dashed #fcd34d;background:#fffbeb;border-radius:11px;padding:12px 14px;font-size:12.5px;color:#92400e;line-height:1.55}
+.nb-srcnote{font-size:11px;color:#64748b;line-height:1.6;margin-top:10px}
+.nb-srcnote b{color:#334155}
 </style>
 
 
@@ -618,6 +636,7 @@ select.warType{padding:3px 6px;font-size:11px;font-weight:600;font-family:var(--
 <script src="gema_varianten.js"></script>
 <script src="gema_pdf.js"></script>
 <script src="gema_autosave.js"></script>
+<script src="gema_adresse.js"></script>
 <link rel="stylesheet" href="gema_responsive.css"/>
 </head>
 <body style="background:#f4f6fb;color:#111827">
@@ -717,11 +736,44 @@ select.warType{padding:3px 6px;font-size:11px;font-weight:600;font-family:var(--
   <div class="g-card" style="margin-bottom:16px;">
     <div class="g-card-hd"><h2>Standardwerte</h2></div>
     <div class="g-card-bd">
-      <div class="g-grid-3">
-        <div class="g-field">
-          <label class="g-label">Standard-Ort</label>
-          <select class="g-sel" id="defaultLocation"></select>
+      <!-- Datenquelle für die Regenspende: SN-592000-Stationen ODER MeteoSchweiz-Punktdaten -->
+      <div class="g-field" style="margin-bottom:12px">
+        <label class="g-label">Datenquelle Regenspende</label>
+        <div class="nb-src-seg" id="nbSrcSeg">
+          <button type="button" class="nb-src on" data-src="sn" onclick="nbSetSource('sn')">Standort (SN 592000)</button>
+          <button type="button" class="nb-src" data-src="mch" onclick="nbSetSource('mch')">Punktdaten MeteoSchweiz</button>
         </div>
+      </div>
+      <!-- Quelle A: SN-592000-Stationen (bestehend) -->
+      <div id="nbStationWrap">
+        <div class="g-grid-3">
+          <div class="g-field">
+            <label class="g-label">Standard-Ort</label>
+            <select class="g-sel" id="defaultLocation"></select>
+          </div>
+        </div>
+      </div>
+      <!-- Quelle B: MeteoSchweiz Punktdaten (Karte B04, 1-km-Raster) -->
+      <div id="nbMchWrap" style="display:none">
+        <div class="nb-hint">Objektadresse eingeben — die drei nächstgelegenen Gitterpunkte der MeteoSchweiz-Starkniederschlagskarte (B04, 1-km-Raster) werden geladen. <b>Vorausgewählt ist der nächstgelegene Punkt.</b> Ein anderer Punkt ist wählbar, verlangt aber eine Begründung.</div>
+        <div class="g-grid-3">
+          <div class="g-field" style="grid-column:1/-1">
+            <label class="g-label">Objektadresse</label>
+            <input type="text" class="g-inp" id="nbAdr" placeholder="Strasse Nr., PLZ Ort" autocomplete="off">
+          </div>
+        </div>
+        <div class="nb-manual">
+          <span>oder Koordinaten manuell (WGS84):</span>
+          <input type="text" inputmode="decimal" onblur="fixLeadingZero(this)" class="g-inp sm" id="nbLon" placeholder="Länge E · 7.59">
+          <input type="text" inputmode="decimal" onblur="fixLeadingZero(this)" class="g-inp sm" id="nbLat" placeholder="Breite N · 47.57">
+          <button type="button" class="g-btn sm" onclick="nbSearchManual()">Punkte laden</button>
+        </div>
+        <div id="nbPts" class="nb-pts"></div>
+        <div id="nbBegrWrap" class="g-field" style="display:none;margin-top:10px">
+          <label class="g-label">Begründung für Abweichung vom nächstgelegenen Punkt <span style="color:#dc2626">*</span></label>
+          <input type="text" class="g-inp" id="nbBegr" placeholder="Warum ein anderer als der nächstgelegene Punkt?" oninput="nbBegrChanged()">
+        </div>
+        <div id="nbSrcNote" class="nb-srcnote"></div>
       </div>
     </div>
   </div>
@@ -1315,6 +1367,12 @@ function safeNum(v) {
 }
 
 function getRegenspende(location, rwert) {
+  // MeteoSchweiz-Punktdaten: synthetischer Standort __MCH__ (Werte via
+  // window._nbValues, gesetzt vom B04-Wiring weiter unten).
+  if (location === '__MCH__' && window._nbValues) {
+    const mv = window._nbValues[rwert];
+    return (mv == null) ? 0 : Number(mv);
+  }
   const row = DATA.regenspende[location];
   if (!row) return 0;
   const val = row[rwert];
@@ -1446,7 +1504,9 @@ function renumberCat(cat) {
 function renumber() { renumberCat("dach"); renumberCat("umg"); }
 
 function recalcRow(tr) {
-  const location = el("defaultLocation")?.value || DATA.locations[0] || "";
+  // MeteoSchweiz-Punktdaten überschreiben die Stationswahl, wenn ein
+  // Gitterpunkt gewählt ist (synthetischer Schlüssel __MCH__ in DATA.regenspende).
+  const location = (window._nbActiveKey) || el("defaultLocation")?.value || DATA.locations[0] || "";
   const art = tr.querySelector(".art").value;
 
   const cat = tr.dataset.cat || "dach";
@@ -1638,7 +1698,8 @@ function getState() {
       csLabel: el("defaultCs").value,
       autoR: el("autoR").checked,
       showAdvanced: el("showAdvanced").checked,
-      unit: UNIT
+      unit: UNIT,
+      nb: (window._nbSerialize ? window._nbSerialize() : null)
     },
     notent: { headMm: el("headMm").value, nOverflows: el("nOverflows").value },
     rows
@@ -1657,6 +1718,7 @@ function setState(state) {
     el("unitM3h").checked = (UNIT === "m3h");
     el("unitBadge").textContent = unitLabel();
     el("unitTopText").textContent = unitLabel();
+    if (window._nbRestore) try { window._nbRestore(state.defaults.nb); } catch(e){}
   }
   if (state.notent) {
     el("headMm").value = state.notent.headMm || el("headMm").value;
@@ -2189,10 +2251,235 @@ window.rebuildAllDropdowns = function(){
   recalcAll();
 };
 
+// Für das B04-Wiring (separater Script-Block ausserhalb dieser IIFE) exponieren.
+// recalcAll() summiert nur — recalcRowsAll() rechnet ALLE Zeilen neu + summiert
+// (nötig, wenn sich die Datenquelle/Regenspende ändert).
+window.recalcAll = recalcAll;
+window.recalcRowsAll = function(){
+  document.querySelectorAll("#tbodyDach tr, #tbodyUmg tr").forEach(tr => recalcRow(tr));
+  recalcAll();
+};
+
 try { init(); } catch(e) { console.error("init error:", e); }
 
 
 })().catch(e=>console.error("[GEMA] Fehler:",e));
+</script>
+<script>
+/* ═══════════════════════════════════════════════════════════════════════
+   Datenquelle B — MeteoSchweiz Punktdaten (Karte B04, 1-km-Raster)
+   Adresse → nächste 3 Gitterpunkte (PostGIS-RPC nb_naechste_punkte) →
+   Regenspende r(D,T). Ergänzt die bestehende SN-592000-Stationswahl; die
+   Berechnung selbst (recalcRow/getRegenspende) bleibt unverändert — ein
+   gewählter Punkt wird als synthetischer Standort __MCH__ eingespeist.
+   ═══════════════════════════════════════════════════════════════════════ */
+'use strict';
+/* ═══ ENGINE-START — DOM-frei, Node-testbar ═══ */
+// r(D,T) → B04-Dauerstufe (Minuten) + Wiederkehrperiode (Jahre).
+// TODO: fachliche Bestätigung Robin — welche Dauerstufe/Wiederkehrperiode je
+// Anwendungsfall (Dachentwässerung / Notentwässerung / Retention /
+// Versickerung) massgebend ist, richtet sich nach SN 592000 / SIA 271 /
+// VSA-Richtlinien. Bis zur Bestätigung 1:1-Abbildung r(D,T) → B04(D,T).
+var NB_R_KEYS = ["r5.5","r5.10","r5.20","r5.30","r5.50","r5.100","r10.5","r10.10","r10.20","r10.30","r10.50","r10.100"];
+var NB_MAP = {
+  "r5.5":{dauerMin:5,T:5},   "r5.10":{dauerMin:5,T:10},   "r5.20":{dauerMin:5,T:20},
+  "r5.30":{dauerMin:5,T:30}, "r5.50":{dauerMin:5,T:50},   "r5.100":{dauerMin:5,T:100},
+  "r10.5":{dauerMin:10,T:5}, "r10.10":{dauerMin:10,T:10}, "r10.20":{dauerMin:10,T:20},
+  "r10.30":{dauerMin:10,T:30},"r10.50":{dauerMin:10,T:50}, "r10.100":{dauerMin:10,T:100}
+};
+// Schlüssel der Dauerstufe im werte-jsonb (Import-Kontrakt): 5→"5min", 60→"1h".
+function nbDauerKey(dauerMin){ return dauerMin>=60 ? (dauerMin/60)+"h" : dauerMin+"min"; }
+// mm über t Sekunden → l/(s·m²). 1 mm = 1 l/m² → r = h/t. (×10000 = l/(s·ha).)
+function nbMmToLsm2(h_mm, dauerMin){ var t=dauerMin*60; if(!(t>0)) return 0; return h_mm/t; }
+// Gitterpunkt-werte (B04, mm) → Regenspende-Zeile {r5.5:.., ...} in l/(s·m²).
+function nbGridpointToRegenspende(werte, roundTo){
+  if(!werte || typeof werte!=='object') return null;
+  var out={}, any=false;
+  for(var i=0;i<NB_R_KEYS.length;i++){
+    var k=NB_R_KEYS[i], m=NB_MAP[k], lvl=werte[nbDauerKey(m.dauerMin)];
+    var mm=(lvl && lvl["T"+m.T]!=null) ? Number(lvl["T"+m.T]) : null;
+    if(mm!=null && isFinite(mm)){ var v=nbMmToLsm2(mm,m.dauerMin); out[k]=roundTo?Math.round(v/roundTo)*roundTo:v; any=true; }
+    else out[k]=0;
+  }
+  return any?out:null;
+}
+// WGS84-Bounding-Box Schweiz — Sanity-Check gegen vertauschte/falsche Koordinaten.
+function nbInCH(lon, lat){ lon=Number(lon); lat=Number(lat); return isFinite(lon)&&isFinite(lat)&&lon>=5.9&&lon<=10.6&&lat>=45.7&&lat<=47.85; }
+// Default = nächstgelegener Punkt. Abweichung = ein anderer als der nächste.
+function nbNearestId(points){ if(!points||!points.length) return null; var s=points.slice().sort(function(a,b){return a.distanz_m-b.distanz_m;}); return s[0].gitterpunkt_id; }
+function nbIsAbweichung(points, chosenId){ var n=nbNearestId(points); return n!=null && String(chosenId)!==String(n); }
+/* ═══ ENGINE-END ═══ */
+
+(function(){
+  var _nb = { source:'sn', lon:null, lat:null, label:'', points:[], chosenId:null, begr:'', values:null, datensatzId:'', distanz:null, x:null, y:null };
+  window._nbActiveKey = null;
+
+  function el(id){ return document.getElementById(id); }
+  function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+  function _recalc(){ try{ if(typeof window.recalcRowsAll==='function') window.recalcRowsAll(); else if(typeof window.recalcAll==='function') window.recalcAll(); }catch(e){} }
+
+  // Synthetischen Standort __MCH__ aktiv setzen. getRegenspende() liest die
+  // Werte aus window._nbValues (DATA bleibt unangetastet/privat).
+  function nbApplyValues(){
+    if(!_nb.values) return;
+    window._nbValues = _nb.values;
+    window._nbActiveKey = '__MCH__';
+    _recalc(); nbUpdateNote();
+  }
+  function nbClearActive(){ window._nbActiveKey = null; window._nbValues = null; _recalc(); }
+
+  window.nbSetSource = function(src){
+    _nb.source = (src==='mch') ? 'mch' : 'sn';
+    var segs = document.querySelectorAll('#nbSrcSeg .nb-src');
+    Array.prototype.forEach.call(segs, function(b){ b.classList.toggle('on', b.getAttribute('data-src')===_nb.source); });
+    var st=el('nbStationWrap'), mch=el('nbMchWrap');
+    if(st) st.style.display = (_nb.source==='mch') ? 'none' : '';
+    if(mch) mch.style.display = (_nb.source==='mch') ? '' : 'none';
+    if(_nb.source==='mch'){ if(_nb.values) nbApplyValues(); else { nbRenderPoints(); nbUpdateNote(); } }
+    else nbClearActive();
+  };
+
+  // ── RPC nb_naechste_punkte ──
+  function nbSbBase(){ try{ return (window.GemaSync && GemaSync.SB_URL) || 'https://fjhbqjvaygvhievjgdtm.supabase.co'; }catch(e){ return 'https://fjhbqjvaygvhievjgdtm.supabase.co'; } }
+  function nbSbKey(){ try{ return (window.GemaSync && GemaSync.SB_KEY) || ''; }catch(e){ return ''; } }
+  function nbTok(){ try{ return (window.GemaSync && GemaSync.getAuthToken && GemaSync.getAuthToken()) || nbSbKey(); }catch(e){ return nbSbKey(); } }
+  function nbRpc(lon, lat, limit){
+    var key=nbSbKey();
+    return fetch(nbSbBase()+'/rest/v1/rpc/nb_naechste_punkte', {
+      method:'POST',
+      headers:{ 'apikey':key, 'Authorization':'Bearer '+(nbTok()||key), 'Content-Type':'application/json' },
+      body: JSON.stringify({ p_lon:Number(lon), p_lat:Number(lat), p_limit:limit||3 })
+    }).then(function(r){
+      if(r.status===404) throw {code:'nodata'};       // RPC/Tabelle nicht deployed
+      if(!r.ok) throw {code:'http', status:r.status};
+      return r.json();
+    });
+  }
+
+  window.nbLoadPoints = function(lon, lat, label){
+    if(!nbInCH(lon,lat)){ nbShowEmpty('Die Koordinaten liegen ausserhalb der Schweiz ('+lon+' / '+lat+'). Bitte Adresse/Koordinaten prüfen.'); return; }
+    _nb.lon=Number(lon); _nb.lat=Number(lat); _nb.label=label||'';
+    var box=el('nbPts'); if(box) box.innerHTML='<div class="nb-hint" style="margin:0">Gitterpunkte werden geladen …</div>';
+    nbRpc(lon, lat, 3).then(function(rows){
+      _nb.points = Array.isArray(rows)?rows:[];
+      if(!_nb.points.length){ nbShowEmpty('Für diese Koordinaten wurden keine Gitterpunkte gefunden — die MeteoSchweiz-Datengrundlage (B04) ist in dieser Umgebung noch nicht importiert.'); _nb.values=null; nbClearActive(); return; }
+      // Default = nächstgelegener Punkt
+      _nb.chosenId = nbNearestId(_nb.points);
+      _nb.begr='';
+      nbRenderPoints();
+      nbChooseApply();
+    }).catch(function(err){
+      var msg = (err && err.code==='nodata')
+        ? 'Die MeteoSchweiz-Datengrundlage (B04) ist noch nicht importiert. Solange greift die Datenquelle «Standort (SN 592000)». Wie du mir die Quelldaten lieferst, steht in regenwasser_QUELLE.md.'
+        : 'Gitterpunkt-Abfrage nicht möglich'+(err&&err.status?(' (HTTP '+err.status+')'):'')+'. Bitte später erneut versuchen oder «Standort (SN 592000)» nutzen.';
+      nbShowEmpty(msg); _nb.values=null; nbClearActive();
+    });
+  };
+
+  function nbShowEmpty(msg){ var box=el('nbPts'); if(box) box.innerHTML='<div class="nb-empty">⚠ '+esc(msg)+'</div>'; var bw=el('nbBegrWrap'); if(bw) bw.style.display='none'; nbUpdateNote(); }
+
+  function nbRenderPoints(){
+    var box=el('nbPts'); if(!box) return;
+    if(!_nb.points.length){ box.innerHTML=''; return; }
+    var nearest = nbNearestId(_nb.points);
+    box.innerHTML = _nb.points.map(function(p){
+      var on = String(p.gitterpunkt_id)===String(_nb.chosenId);
+      var isNear = String(p.gitterpunkt_id)===String(nearest);
+      var rline='';
+      var rr = nbGridpointToRegenspende(p.werte, 0.001);
+      if(rr) rline='<div class="r">r(5,5) = '+ (rr['r5.5']!=null?rr['r5.5'].toFixed(3):'–') +' l/(s·m²)</div>';
+      return '<div class="nb-pt'+(on?' on':'')+'" onclick="nbChoose(\''+esc(p.gitterpunkt_id)+'\')">'
+        + (isNear?'<div class="near">✓ nächster Punkt</div>':'')
+        + '<div class="d">'+ (p.distanz_m!=null?Math.round(p.distanz_m):'?') +' m</div>'
+        + '<div class="m">'+ (p.hoehe_m!=null?(p.hoehe_m+' m ü.M. · '):'') + (p.x_lv95!=null&&p.y_lv95!=null?('E '+Math.round(p.x_lv95)+' / N '+Math.round(p.y_lv95)):'') +'</div>'
+        + rline + '</div>';
+    }).join('');
+  }
+
+  // Punkt wählen (Klick) → Begründungspflicht bei Abweichung, dann anwenden.
+  window.nbChoose = function(id){
+    _nb.chosenId = id;
+    nbRenderPoints();
+    var abw = nbIsAbweichung(_nb.points, id);
+    var bw=el('nbBegrWrap'); if(bw) bw.style.display = abw ? '' : 'none';
+    if(!abw){ _nb.begr=''; var bi=el('nbBegr'); if(bi) bi.value=''; }
+    nbChooseApply();
+  };
+  window.nbBegrChanged = function(){ var bi=el('nbBegr'); _nb.begr = bi?bi.value:''; nbChooseApply(); nbUpdateNote(); };
+
+  // Werte des gewählten Punktes berechnen + einspeisen (nur wenn Begründung
+  // bei Abweichung vorhanden — sonst bleibt der letzte gültige Stand aktiv).
+  function nbChooseApply(){
+    var p = _nb.points.filter(function(x){return String(x.gitterpunkt_id)===String(_nb.chosenId);})[0];
+    if(!p){ return; }
+    var abw = nbIsAbweichung(_nb.points, _nb.chosenId);
+    _nb.values = nbGridpointToRegenspende(p.werte, 0.001);
+    _nb.datensatzId = p.datensatz_id||''; _nb.distanz=p.distanz_m; _nb.x=p.x_lv95; _nb.y=p.y_lv95;
+    if(abw && !(_nb.begr && _nb.begr.trim())){ nbUpdateNote(); return; } // wartet auf Begründung
+    if(_nb.values) nbApplyValues(); else nbClearActive();
+  }
+
+  function nbUpdateNote(){
+    var n=el('nbSrcNote'); if(!n) return;
+    if(_nb.source!=='mch'){ n.innerHTML=''; return; }
+    if(!_nb.values || !_nb.points.length){ n.innerHTML=''; return; }
+    var abw = nbIsAbweichung(_nb.points, _nb.chosenId);
+    var parts = [];
+    parts.push('<b>Datengrundlage:</b> Extreme Punktniederschläge (Karte B04). Quelle: MeteoSchweiz'+(_nb.datensatzId?(' · '+esc(_nb.datensatzId)):'')+'.');
+    parts.push('Gitterpunkt'+(_nb.x!=null&&_nb.y!=null?(' E '+Math.round(_nb.x)+' / N '+Math.round(_nb.y)):'')+(_nb.distanz!=null?(', Distanz '+Math.round(_nb.distanz)+' m'):'')+(_nb.label?(' · '+esc(_nb.label)):'')+'.');
+    if(abw) parts.push('<b>Abweichung vom nächsten Punkt</b>'+(_nb.begr?(': '+esc(_nb.begr)):' — Begründung erforderlich.'));
+    parts.push('Adresssuche: swisstopo (geo.admin.ch).');
+    n.innerHTML = parts.join('<br>');
+  }
+
+  window.nbSearchManual = function(){
+    var lon=parseFloat((el('nbLon')||{}).value), lat=parseFloat((el('nbLat')||{}).value);
+    if(!isFinite(lon)||!isFinite(lat)){ nbShowEmpty('Bitte Länge (E) und Breite (N) in WGS84 eingeben.'); return; }
+    nbLoadPoints(lon, lat, 'manuell '+lon+'/'+lat);
+  };
+
+  // ── Persistenz (in state.defaults.nb) ──
+  window._nbSerialize = function(){
+    if(_nb.source!=='mch') return { source:'sn' };
+    return { source:'mch', lon:_nb.lon, lat:_nb.lat, label:_nb.label, chosenId:_nb.chosenId, begr:_nb.begr,
+             values:_nb.values, datensatzId:_nb.datensatzId, distanz:_nb.distanz, x:_nb.x, y:_nb.y, points:_nb.points };
+  };
+  window._nbRestore = function(s){
+    if(!s || s.source!=='mch'){ if(window.nbSetSource) nbSetSource('sn'); return; }
+    _nb.source='mch'; _nb.lon=s.lon; _nb.lat=s.lat; _nb.label=s.label||''; _nb.chosenId=s.chosenId;
+    _nb.begr=s.begr||''; _nb.values=s.values||null; _nb.datensatzId=s.datensatzId||''; _nb.distanz=s.distanz;
+    _nb.x=s.x; _nb.y=s.y; _nb.points=Array.isArray(s.points)?s.points:[];
+    if(window.nbSetSource){
+      // UI umschalten ohne erneuten RPC — gespeicherte Werte reichen (offline-fest)
+      var segs=document.querySelectorAll('#nbSrcSeg .nb-src');
+      Array.prototype.forEach.call(segs,function(b){ b.classList.toggle('on', b.getAttribute('data-src')==='mch'); });
+      var st=el('nbStationWrap'), mch=el('nbMchWrap'); if(st)st.style.display='none'; if(mch)mch.style.display='';
+      var adr=el('nbAdr'); if(adr && _nb.label && !/^manuell /.test(_nb.label)) adr.value=_nb.label;
+      var bi=el('nbBegr'); if(bi) bi.value=_nb.begr;
+      nbRenderPoints();
+      var bw=el('nbBegrWrap'); if(bw) bw.style.display = nbIsAbweichung(_nb.points,_nb.chosenId) ? '' : 'none';
+      if(_nb.values) nbApplyValues(); else nbUpdateNote();
+    }
+  };
+
+  // ── Init: Adress-Autocomplete an #nbAdr binden (swisstopo, liefert lon/lat) ──
+  function nbInit(){
+    try{
+      if(window.GemaAdresse && GemaAdresse.attach && el('nbAdr')){
+        GemaAdresse.attach('nbAdr', { onSelect: function(r){
+          if(r && r.lon!=null && r.lat!=null){ nbLoadPoints(r.lon, r.lat, r.label || ((r.strasse||'')+' '+(r.plz||'')+' '+(r.ort||'')).trim()); }
+          else nbShowEmpty('Für diese Adresse fehlt eine Koordinate — bitte Koordinaten manuell eingeben.');
+        }});
+      }
+    }catch(e){}
+  }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', nbInit); else nbInit();
+
+  // Test-Hooks (Node/Playwright)
+  window._nbHooks = { NB_R_KEYS:NB_R_KEYS, NB_MAP:NB_MAP, nbDauerKey:nbDauerKey, nbMmToLsm2:nbMmToLsm2,
+    nbGridpointToRegenspende:nbGridpointToRegenspende, nbInCH:nbInCH, nbNearestId:nbNearestId,
+    nbIsAbweichung:nbIsAbweichung, state:function(){return _nb;} };
+})();
 </script>
 <script>
 // GEMA Feedback init
