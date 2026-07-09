@@ -7,6 +7,8 @@
 -- ═══════════════════════════════════════════════════════════════════════
 
 drop function if exists public.nb_naechste_punkte(numeric, numeric, integer);
+-- Trigger geht mit der Tabelle; die Trigger-Funktion separat entfernen:
+drop function if exists public.nb_set_geom();
 
 drop policy if exists nb_gitterpunkt_read on public.nb_gitterpunkt;
 drop policy if exists nb_datensatz_read   on public.nb_datensatz;
