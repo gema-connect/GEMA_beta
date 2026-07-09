@@ -275,6 +275,9 @@ details.stufen[open] summary::before{content:"▾ "}
 <!-- INSTALLATEURE -->
 <section class="psec" id="secInstallateur"></section>
 
+<!-- EINZELMODULE -->
+<section class="psec" id="secEinzelmodule"></section>
+
 <!-- HERSTELLER -->
 <section class="psec" id="secHersteller"></section>
 
@@ -361,6 +364,14 @@ details.stufen[open] summary::before{content:"▾ "}
   function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
   function chf(n){ return GemaAbo.fmtChf(n); }
   function num(n){ var v=+n||0; return (v%1===0? String(v) : v.toFixed(2)); }
+  // Modul-Matrix (pro Render einmal berechnet): Anzahl enthaltener Module je Abo-Spalte
+  function mxCount(spalteId){
+    return (PS._mx||[]).filter(function(r){ return r.spalten && r.spalten[spalteId]; }).length;
+  }
+  function modulFeat(spalteId){
+    var n = mxCount(spalteId);
+    return n>0 ? '<div class="pc-feat"><span class="ck">🧩</span>'+n+' Module enthalten</div>' : '';
+  }
 
   // ── Zahlweise-Toggle ──────────────────────────────────────────────
   window.setZahlweise = function(zw){
@@ -415,10 +426,15 @@ details.stufen[open] summary::before{content:"▾ "}
       var ts = GemaAbo.getTokenStatus(user);
       if(ts && !ts.unbegrenzt){
         var cls = ts.pct>=95?'crit':(ts.pct>=80?'warn':'');
+        var modSubs = GemaAbo.getSubsForOrg(user.orgId).filter(function(s){ return s.typ==='modul' && (s.status==='aktiv'||s.status==='trial'); });
+        var modBadges = modSubs.length
+          ? '<span class="badge b-blu" title="Gebuchte Einzelmodule">🧩 '+modSubs.map(function(s){return esc(s.planLabel||s.modulKey);}).join(' · ')+'</span>'
+          : '';
         html = '<div class="myabo-card"><span style="font-size:20px">🎟</span>'+
           '<div><div class="t">Gratis-Konto</div><div class="s">Token-Budget diesen Monat</div></div>'+
           '<div class="tokbar '+cls+'"><div class="s" style="display:flex;justify-content:space-between"><span>'+ts.verbraucht+' / '+ts.budget+' Tokens</span><span>'+Math.max(0,ts.rest)+' übrig</span></div>'+
           '<div class="tb-track"><div class="tb-fill" style="width:'+Math.min(100,ts.pct)+'%"></div></div></div>'+
+          modBadges+
           '<a href="#secTokens" class="badge b-blu" style="text-decoration:none">Token-Pakete ↓</a></div>';
       }
     }
@@ -435,7 +451,7 @@ details.stufen[open] summary::before{content:"▾ "}
         '<p>Voller Funktionsumfang — dieselben Module wie zahlende Nutzer. Statt eines Abos verbrauchst du ein <b style="color:#fff">Token-Budget von '+num(g.tokenBudgetMonat)+' Tokens'+(g.reset==='einmalig'?' (einmalige Startgutschrift)':' pro Monat')+'</b>. Ideal zum Kennenlernen, für Gelegenheitsnutzer und Lernende.</p></div>'+
         '<div class="gratis-r">'+
           '<div class="gratis-price">CHF 0.– <small>/ Monat</small></div>'+
-          '<div class="gratis-tok">✓ '+num(g.tokenBudgetMonat)+' Tokens'+(g.reset==='einmalig'?' Startguthaben':'/Monat')+' · ✓ Alle Funktionen · ✓ '+num(g.speicherGb)+' GB Speicher</div>'+
+          '<div class="gratis-tok">✓ '+num(g.tokenBudgetMonat)+' Tokens'+(g.reset==='einmalig'?' Startguthaben':'/Monat')+' · ✓ '+(mxCount('gratis')===(PS._mx||[]).length && (PS._mx||[]).length>0 ? 'Alle '+(PS._mx||[]).length+' Module' : (mxCount('gratis')>0 ? mxCount('gratis')+' Module' : 'Alle Funktionen'))+' · ✓ '+num(g.speicherGb)+' GB Speicher</div>'+
           '<a class="gratis-cta" href="index.html">Kostenlos nutzen →</a>'+
         '</div>'+
       '</div>';
@@ -496,6 +512,7 @@ details.stufen[open] summary::before{content:"▾ "}
         '<button class="pc-cta" onclick="coOpen(\''+g.person.id+'\',\''+gid+'\')">'+esc(g.person.label)+' wählen</button>'+
         '<div class="pc-feats"><div class="pc-feats-title">Enthalten</div>'+
         (g.person.features||[]).map(function(f){return '<div class="pc-feat"><span class="ck">✓</span>'+esc(f)+'</div>';}).join('')+
+        modulFeat(gid+'_person')+
         '</div>'+limitsChips(g.person)+'</div></div>';
     }
 
@@ -513,6 +530,7 @@ details.stufen[open] summary::before{content:"▾ "}
       '<button class="pc-cta primary" onclick="coOpen(\''+st.id+'\',\''+gid+'\')">'+esc(st.label||'Abo')+' bestellen</button>'+
       '<div class="pc-feats"><div class="pc-feats-title">Enthalten</div>'+
       (g.firmaFeatures||[]).map(function(f){return '<div class="pc-feat"><span class="ck">✓</span>'+esc(f)+'</div>';}).join('')+
+      modulFeat(gid+'_firma')+
       '</div>'+limitsChips(st)+stufenTbl+'</div></div>';
 
     return '<section class="psec"><div class="psec-hd"><div class="psec-ic">'+esc(g.icon||'📦')+'</div>'+
@@ -553,13 +571,37 @@ details.stufen[open] summary::before{content:"▾ "}
       '<div class="pcard anim" style="margin-top:16px"><div class="pc-in" style="display:grid;grid-template-columns:1.2fr 1fr;gap:22px;align-items:start">'+
         '<div><div class="pc-name">'+esc(st.label||'')+'</div><div class="pc-desc">'+esc(inst.inklusive||'')+'</div>'+seg+
         '<div class="pc-feats" style="margin-top:14px"><div class="pc-feats-title">Enthalten</div>'+
-        (inst.features||[]).map(function(f){return '<div class="pc-feat"><span class="ck">✓</span>'+esc(f)+'</div>';}).join('')+'</div></div>'+
+        (inst.features||[]).map(function(f){return '<div class="pc-feat"><span class="ck">✓</span>'+esc(f)+'</div>';}).join('')+
+        modulFeat('installateur')+'</div></div>'+
         '<div>'+preisBlock(p)+
         '<button class="pc-cta primary" style="width:100%" onclick="coOpen(\''+st.id+'\',\'installateur\')">'+esc(st.label||'Stufe')+' bestellen</button>'+
         limitsChips(st)+tbl+'</div>'+
       '</div></div>';
     var grid = document.querySelector('#secInstallateur .pc-in');
     if(grid && window.matchMedia('(max-width:700px)').matches) grid.style.gridTemplateColumns='1fr';
+  }
+
+  // ── Render: Einzelmodule (abseits der Abos buchbar) ───────────────
+  function renderEinzelmodule(){
+    var host = document.getElementById('secEinzelmodule');
+    var ems = GemaAbo.einzelModule();
+    if(!ems.length){ host.innerHTML=''; return; }
+    var cards = ems.map(function(r){
+      var p = GemaAbo.einzelModulPreis(r.key, {zahlweise:PS.zahlweise});
+      if(!p) return '';
+      var note = PS.zahlweise==='jaehrlich' ? chf(p.jahrTotal)+' / Jahr' : 'exkl. MwSt';
+      return '<div class="fee-card">'+
+        '<div style="font-size:10.5px;font-weight:800;color:var(--mut2);text-transform:uppercase;letter-spacing:.4px">'+esc(r.cat||'Modul')+'</div>'+
+        '<div class="fl" style="font-size:15px;margin-top:4px">'+esc(r.label)+'</div>'+
+        '<div style="display:flex;align-items:baseline;gap:4px;margin-top:12px"><span style="font-size:13px;font-weight:700;color:var(--mut)">CHF</span><span style="font-size:26px;font-weight:900">'+num(p.monatlich)+'</span><span style="font-size:12px;color:var(--mut)">/ Monat</span></div>'+
+        '<div style="font-size:11px;color:var(--mut2);margin-top:2px">'+esc(note)+'</div>'+
+        '<button class="pc-cta" style="width:100%;margin-top:12px;padding:10px" onclick="coOpenModul(\''+esc(r.key)+'\')">Dazubuchen</button>'+
+        '</div>';
+    }).join('');
+    host.innerHTML =
+      '<div class="psec-hd"><div class="psec-ic">🧩</div><div><h2>Einzelmodule</h2>'+
+      '<div class="sub">Einzelne Module abseits der Abos dazubuchen — auch ohne Grundabo nutzbar (Zugriff nur auf das gebuchte Modul, Kombination mit jedem Abo möglich).</div></div></div>'+
+      '<div class="fee-grid">'+cards+'</div>';
   }
 
   // ── Render: Hersteller ────────────────────────────────────────────
@@ -628,13 +670,31 @@ details.stufen[open] summary::before{content:"▾ "}
     if(!pl) return;
     var zusatz = (pl.typ==='firma' && s && g.gewerke && g.gewerke.length) ? s.gewerke.slice(1) : [];
     var basisGw = (s && s.gewerke && s.gewerke[0]) || '';
-    PS.co = {planId:planId, gruppeId:gid, zusatzGewerke:zusatz, gewerkBasis:basisGw, zahlung:'karte', promo:null};
+    PS.co = {typ:'plan', planId:planId, gruppeId:gid, zusatzGewerke:zusatz, gewerkBasis:basisGw, zahlung:'karte', promo:null};
+    _coShow();
+  };
+  // Einzelmodul-Checkout
+  window.coOpenModul = function(key){
+    var user = (window.GemaAuth && GemaAuth.getCurrentUser) ? GemaAuth.getCurrentUser() : null;
+    if(!user){ location.href='sys_login.html?r='+encodeURIComponent(location.href); return; }
+    var row = GemaAbo.einzelModule().find(function(r){ return r.key===key; });
+    if(!row) return;
+    PS.co = {typ:'modul', planId:'modul_'+key, modulKey:key, modulLabel:row.label, modulCat:row.cat, gruppeId:'', zusatzGewerke:[], gewerkBasis:'', zahlung:'karte', promo:null};
+    _coShow();
+  };
+  function _coShow(){
     document.getElementById('coPromo').value='';
     document.getElementById('coPromoMsg').textContent='';
     coPay('karte');
     coRender();
     document.getElementById('coModal').classList.add('show');
-  };
+  }
+  // Preis des aktuellen Checkouts (Plan ODER Einzelmodul)
+  function coPreis(){
+    if(!PS.co) return null;
+    if(PS.co.typ==='modul') return GemaAbo.einzelModulPreis(PS.co.modulKey, {zahlweise:PS.zahlweise, promo:PS.co.promo});
+    return GemaAbo.preis(PS.co.planId, {zusatzGewerke:PS.co.zusatzGewerke.length, zahlweise:PS.zahlweise, promo:PS.co.promo});
+  }
   window.coClose = function(){ document.getElementById('coModal').classList.remove('show'); PS.co=null; };
   window.coPay = function(art){
     if(PS.co) PS.co.zahlung = art;
@@ -658,21 +718,29 @@ details.stufen[open] summary::before{content:"▾ "}
   function coRender(){
     if(!PS.co) return;
     var c = cfg();
-    var pl = GemaAbo.planById(PS.co.planId);
-    var g = (c.rollen||{})[PS.co.gruppeId] || (PS.co.gruppeId==='installateur'? c.installateur : null);
-    var p = GemaAbo.preis(PS.co.planId, {zusatzGewerke:PS.co.zusatzGewerke.length, zahlweise:PS.zahlweise, promo:PS.co.promo});
-    var gwLabel = function(id){
-      var alle = (g&&g.gewerke)||[]; var f = alle.find(function(x){return x.id===id;}); return f? f.label : id;
-    };
-    var det = [];
-    if(PS.co.gewerkBasis) det.push('Gewerk: '+gwLabel(PS.co.gewerkBasis)+(PS.co.zusatzGewerke.length? ' + '+PS.co.zusatzGewerke.map(gwLabel).join(', '):''));
-    det.push('max. '+num(pl.stufe.maxNutzer)+' Nutzer · '+num(pl.stufe.speicherGb)+' GB · '+Number(pl.stufe.anfragenTag||0).toLocaleString('de-CH')+' Anfragen/Tag');
+    var p = coPreis();
+    if(!p){ coClose(); return; }
     var trial = +((c.abrechnung||{}).trialTage)||0;
-    document.getElementById('coPlan').innerHTML =
-      '<div class="a">'+esc((g&&g.label? g.label+' · ':''))+esc(pl.stufe.label)+'</div>'+
-      '<div class="b">'+det.map(esc).join('<br>')+'</div>';
+    var istModul = PS.co.typ==='modul';
+    if(istModul){
+      document.getElementById('coPlan').innerHTML =
+        '<div class="a">🧩 Einzelmodul · '+esc(PS.co.modulLabel)+'</div>'+
+        '<div class="b">'+esc(PS.co.modulCat||'Modul')+' · auch ohne Grundabo nutzbar — Zugriff nur auf dieses Modul, mit jedem Abo kombinierbar</div>';
+    } else {
+      var pl = GemaAbo.planById(PS.co.planId);
+      var g = (c.rollen||{})[PS.co.gruppeId] || (PS.co.gruppeId==='installateur'? c.installateur : null);
+      var gwLabel = function(id){
+        var alle = (g&&g.gewerke)||[]; var f = alle.find(function(x){return x.id===id;}); return f? f.label : id;
+      };
+      var det = [];
+      if(PS.co.gewerkBasis) det.push('Gewerk: '+gwLabel(PS.co.gewerkBasis)+(PS.co.zusatzGewerke.length? ' + '+PS.co.zusatzGewerke.map(gwLabel).join(', '):''));
+      det.push('max. '+num(pl.stufe.maxNutzer)+' Nutzer · '+num(pl.stufe.speicherGb)+' GB · '+Number(pl.stufe.anfragenTag||0).toLocaleString('de-CH')+' Anfragen/Tag');
+      document.getElementById('coPlan').innerHTML =
+        '<div class="a">'+esc((g&&g.label? g.label+' · ':''))+esc(pl.stufe.label)+'</div>'+
+        '<div class="b">'+det.map(esc).join('<br>')+'</div>';
+    }
     var rows = '';
-    rows += '<div class="co-row"><span>Abo ('+ (PS.zahlweise==='jaehrlich'?'jährliche':'monatliche') +' Zahlweise)</span><b>'+chf(p.basis)+' / Mt</b></div>';
+    rows += '<div class="co-row"><span>'+(istModul?'Einzelmodul':'Abo')+' ('+ (PS.zahlweise==='jaehrlich'?'jährliche':'monatliche') +' Zahlweise)</span><b>'+chf(p.basis)+' / Mt</b></div>';
     if(p.zusatz>0) rows += '<div class="co-row"><span>Zusatz-Gewerke ('+PS.co.zusatzGewerke.length+')</span><b>+ '+chf(p.zusatz)+' / Mt</b></div>';
     if(p.jahresrabattPct>0) rows += '<div class="co-row"><span>Jahresrabatt</span><b style="color:var(--grn)">− '+num(p.jahresrabattPct)+'%</b></div>';
     if(p.promoPct>0) rows += '<div class="co-row"><span>Promo «'+esc(PS.co.promo.code)+'»</span><b style="color:var(--grn)">− '+num(p.promoPct)+'%</b></div>';
@@ -688,8 +756,11 @@ details.stufen[open] summary::before{content:"▾ "}
     if(!PS.co) return;
     var co = PS.co;
     var stripeCfg = cfg().stripe||{};
+    var p = coPreis();
+    if(!p){ coClose(); return; }
     GemaAbo.bestellen({
       planId: co.planId,
+      planLabel: co.modulLabel || '',
       gewerkBasis: co.gewerkBasis,
       zusatzGewerke: co.zusatzGewerke,
       zahlweise: PS.zahlweise,
@@ -699,7 +770,6 @@ details.stufen[open] summary::before{content:"▾ "}
       coClose();
       if(co.zahlung==='karte'){
         if(stripeCfg.enabled){
-          var p = GemaAbo.preis(co.planId,{zusatzGewerke:co.zusatzGewerke.length, zahlweise:PS.zahlweise, promo:co.promo});
           return GemaAbo.startStripeCheckout({
             planId: co.planId, subId: rec.id,
             betragRappen: Math.round(p.monatlichInkl*100),
@@ -744,8 +814,9 @@ details.stufen[open] summary::before{content:"▾ "}
 
   // ── Render all ────────────────────────────────────────────────────
   function renderAll(){
+    PS._mx = GemaAbo.moduleMatrix();
     renderMyAbo(); renderGratis(); renderRollen(); renderInstallateur();
-    renderHersteller(); renderTokens(); renderStatics();
+    renderEinzelmodule(); renderHersteller(); renderTokens(); renderStatics();
     if(PS.co) coRender();
   }
 

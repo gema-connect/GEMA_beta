@@ -75,6 +75,19 @@ input::placeholder{color:#cbd5e1}
 .etbl .del{border:none;background:transparent;color:var(--red);font-size:14px;cursor:pointer;padding:4px 7px;border-radius:6px}
 .etbl .del:hover{background:var(--red-bg)}
 .tblwrap{overflow-x:auto}
+/* Modul-Matrix */
+.mxwrap{overflow-x:auto}
+.mxtbl{width:100%;border-collapse:separate;border-spacing:0;font-size:12px;min-width:880px}
+.mxtbl th{background:var(--bg2);padding:7px 8px;font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;color:var(--mut);border-bottom:1.5px solid var(--brd);text-align:center;white-space:nowrap;vertical-align:top}
+.mxtbl th:first-child{text-align:left;position:sticky;left:0;background:var(--bg2);z-index:2}
+.mxtbl td{padding:4px 8px;border-bottom:1px solid var(--brd);text-align:center}
+.mxtbl td:first-child{text-align:left;font-weight:600;color:var(--txt);position:sticky;left:0;background:var(--sur);z-index:1;min-width:190px;max-width:230px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mxtbl tr.cat td{background:var(--bg2);font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:var(--mut2);padding:5px 8px;text-align:left}
+.mxtbl input[type=checkbox]{width:16px;height:16px;accent-color:var(--grn);cursor:pointer}
+.mxtbl .mp{width:78px;padding:5px 7px;border:1.5px solid var(--brd2);border-radius:7px;font-size:12px;font-family:inherit;text-align:right}
+.mxtbl .mp:focus{outline:none;border-color:var(--acc)}
+.mx-colbtn{display:block;margin:3px auto 0;border:1px solid var(--brd2);background:var(--sur);border-radius:6px;font-size:9px;font-weight:700;color:var(--mut);cursor:pointer;padding:2px 6px;font-family:inherit}
+.mx-colbtn:hover{background:var(--bg2)}
 /* Abo-Liste */
 .sub-row{display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--brd);flex-wrap:wrap}
 .sub-row:last-child{border-bottom:none}
@@ -126,6 +139,7 @@ input::placeholder{color:#cbd5e1}
   <div class="tabs">
     <button class="tab active" data-tab="abonnenten" onclick="switchTab('abonnenten',this)">📊 Abonnenten</button>
     <button class="tab" data-tab="plaene" onclick="switchTab('plaene',this)">📦 Pläne & Preise</button>
+    <button class="tab" data-tab="module" onclick="switchTab('module',this)">🧩 Module</button>
     <button class="tab" data-tab="tokens" onclick="switchTab('tokens',this)">🎟 Tokens</button>
     <button class="tab" data-tab="hersteller" onclick="switchTab('hersteller',this)">🏭 Hersteller</button>
     <button class="tab" data-tab="zahlung" onclick="switchTab('zahlung',this)">💰 Abrechnung & Zahlung</button>
@@ -133,6 +147,7 @@ input::placeholder{color:#cbd5e1}
 
   <div class="tab-body active" id="tab-abonnenten"></div>
   <div class="tab-body" id="tab-plaene"></div>
+  <div class="tab-body" id="tab-module"></div>
   <div class="tab-body" id="tab-tokens"></div>
   <div class="tab-body" id="tab-hersteller"></div>
   <div class="tab-body" id="tab-zahlung"></div>
@@ -268,6 +283,7 @@ function fixLeadingZero(el){
   function renderTab(){
     if(TAB==='abonnenten') renderAbonnenten();
     else if(TAB==='plaene') renderPlaene();
+    else if(TAB==='module') renderModule();
     else if(TAB==='tokens') renderTokens();
     else if(TAB==='hersteller') renderHersteller();
     else if(TAB==='zahlung') renderZahlung();
@@ -311,7 +327,7 @@ function fixLeadingZero(el){
       var who = s.scope==='user' ? (s.userName||s.userId)+' <span class="badge b-mut">Person</span>' : esc(s.orgName||orgName(s.orgId));
       var gw = (s.gewerkBasis? s.gewerkBasis + (s.zusatzGewerke&&s.zusatzGewerke.length? ' +'+s.zusatzGewerke.length:'') : '');
       return '<div class="sub-row">'+
-        '<div class="who"><div class="a">'+who+'</div><div class="b">'+esc(s.planLabel||s.planId)+(gw?' · '+esc(gw):'')+' · seit '+esc(s.start||'—')+'</div></div>'+
+        '<div class="who"><div class="a">'+who+'</div><div class="b">'+(s.typ==='modul'?'🧩 Einzelmodul · ':'')+esc(s.planLabel||s.planId)+(gw?' · '+esc(gw):'')+' · seit '+esc(s.start||'—')+'</div></div>'+
         '<span class="badge '+(ST_BADGE[s.status]||'b-mut')+'">'+esc(s.status)+(s.status==='trial'&&s.trialEnde?' bis '+esc(s.trialEnde):'')+'</span>'+
         '<div class="meta">'+esc(s.zahlweise||'')+' · '+esc(s.zahlung||'')+(s.promoCode?' · Promo '+esc(s.promoCode):'')+'</div>'+
         '<div class="preis">'+chf(s.preisMonat)+'<span style="font-size:10px;color:var(--mut);font-weight:600"> /Mt</span></div>'+
@@ -363,12 +379,16 @@ function fixLeadingZero(el){
       return '<option value="'+esc(o.id)+'">'+esc(o.name)+'</option>';
     }).join('');
     var idx = GemaAbo.planIndex();
-    document.getElementById('asPlan').innerHTML = Object.keys(idx).filter(function(pid){
+    var planOpts = Object.keys(idx).filter(function(pid){
       return idx[pid].typ!=='person';
     }).map(function(pid){
       var p = idx[pid];
       return '<option value="'+esc(pid)+'">'+esc((p.gruppeId==='installateur'?'Installateur · ':(CFG.rollen[p.gruppeId]||{}).label+' · ')+p.stufe.label)+' — '+chf(p.stufe.preis)+'/Mt</option>';
     }).join('');
+    var emOpts = GemaAbo.einzelModule().map(function(r){
+      return '<option value="modul_'+esc(r.key)+'">🧩 Einzelmodul · '+esc(r.label)+' — '+chf(r.einzelPreis)+'/Mt</option>';
+    }).join('');
+    document.getElementById('asPlan').innerHTML = planOpts + emOpts;
     document.getElementById('assignModal').classList.add('show');
   };
   window.assignClose = function(){ document.getElementById('assignModal').classList.remove('show'); };
@@ -441,6 +461,63 @@ function fixLeadingZero(el){
       '</div></div>';
     document.getElementById('tab-plaene').innerHTML = html;
   }
+
+  // ── TAB: Modul-Matrix ─────────────────────────────────────────────
+  function renderModule(){
+    var spalten = GemaAbo.spaltenFuer(CFG);
+    var mx = GemaAbo.matrixFuer(CFG);
+    var buchbar = mx.filter(function(r){ return r.einzelPreis > 0; }).length;
+    var head = '<tr><th>Modul</th>'+spalten.map(function(s){
+      return '<th>'+esc(s.label)+'<button class="mx-colbtn" title="Ganze Spalte umschalten" onclick="mxToggleCol(\''+esc(s.id)+'\')">alle ⇄</button></th>';
+    }).join('')+'<th>Einzelpreis<br><span style="font-weight:600;text-transform:none;letter-spacing:0">CHF/Mt · leer = nicht buchbar</span></th></tr>';
+    var rows = '', lastCat = null;
+    mx.forEach(function(r){
+      if(r.cat !== lastCat){
+        lastCat = r.cat;
+        rows += '<tr class="cat"><td colspan="'+(spalten.length+2)+'">'+esc(r.cat || 'Weitere')+'</td></tr>';
+      }
+      rows += '<tr><td title="'+esc(r.key)+'">'+esc(r.label)+'</td>'+
+        spalten.map(function(s){
+          return '<td><input type="checkbox" '+(r.spalten[s.id]?'checked':'')+' onchange="updMx(this,\''+esc(r.key)+'\',\''+esc(s.id)+'\')"/></td>';
+        }).join('')+
+        '<td><input class="mp" type="text" inputmode="decimal" placeholder="—" value="'+(r.einzelPreis>0?esc(num(r.einzelPreis)):'')+'" onblur="fixLeadingZero(this)" oninput="updMxPreis(this,\''+esc(r.key)+'\')"/></td></tr>';
+    });
+    document.getElementById('tab-module').innerHTML =
+      '<div class="card"><div class="card-hd"><div><h3>🧩 Modul-Matrix — was ist wo enthalten?</h3>'+
+      '<div class="sub">'+mx.length+' Module · '+buchbar+' einzeln buchbar · Häkchen = im Abo enthalten</div></div></div>'+
+      '<div class="card-bd">'+
+      '<div class="hint" style="margin-bottom:10px">Nicht angepasste Zellen folgen den <b>Default-Regeln</b> (Gratis = alles · Planer Person = nur Berechnungen + Objekte · Planer Firma = Vollzugang · Architekt = Projektmanagement · Installateur = Werkzeug/Baustelle) — neue Module sind damit automatisch sinnvoll vorbelegt. Ein <b>Einzelpreis</b> macht das Modul abseits der Abos einzeln buchbar; es erscheint dann auf der Preisseite unter «Einzelmodule».</div>'+
+      '<div class="mxwrap"><table class="mxtbl"><thead>'+head+'</thead><tbody>'+rows+'</tbody></table></div>'+
+      '</div></div>';
+  }
+  function _mxCfg(){
+    if(!CFG.module) CFG.module = {zuweisung:{}, einzelPreise:{}};
+    if(!CFG.module.zuweisung) CFG.module.zuweisung = {};
+    if(!CFG.module.einzelPreise) CFG.module.einzelPreise = {};
+    return CFG.module;
+  }
+  window.updMx = function(el, key, sp){
+    var m = _mxCfg();
+    if(!m.zuweisung[key]) m.zuweisung[key] = {};
+    m.zuweisung[key][sp] = !!el.checked;
+    markDirty();
+  };
+  window.updMxPreis = function(el, key){
+    var m = _mxCfg();
+    var v = pnum(el.value);
+    if(v > 0) m.einzelPreise[key] = v; else delete m.einzelPreise[key];
+    markDirty();
+  };
+  window.mxToggleCol = function(sp){
+    var mx = GemaAbo.matrixFuer(CFG);
+    var anyOff = mx.some(function(r){ return !r.spalten[sp]; });
+    var m = _mxCfg();
+    mx.forEach(function(r){
+      if(!m.zuweisung[r.key]) m.zuweisung[r.key] = {};
+      m.zuweisung[r.key][sp] = anyOff;
+    });
+    markDirty(); renderTab();
+  };
 
   // ── TAB: Tokens ───────────────────────────────────────────────────
   function renderTokens(){

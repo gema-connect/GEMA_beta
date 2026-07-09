@@ -157,7 +157,19 @@
     rechnung: { enabled: true },
     promoCodes: [
       // {code:'GEMA2026', rabattPct:20, gueltigBis:'2026-12-31', aktiv:true}
-    ]
+    ],
+    module: {
+      // Modul-Matrix: welche GEMA-Module sind in welchem Abo enthalten.
+      // zuweisung[modulKey] = {<spalteId>:bool, …} — NUR Abweichungen von den
+      // Default-Regeln (aboModulDefault) müssen gespeichert sein; fehlende
+      // Zellen fallen auf die Defaults zurück (neue Module erscheinen so
+      // automatisch sinnvoll vorbelegt). Spalten: gratis, <gruppe>_person,
+      // <gruppe>_firma, installateur (dynamisch aus cfg.rollen).
+      zuweisung: {},
+      // Einzelmodul-Preise CHF/Monat: Modul ist «einzeln buchbar» (abseits
+      // der Abos), sobald hier ein Preis > 0 steht. 0/fehlend = nicht buchbar.
+      einzelPreise: {}
+    }
   };
 
   // ── Engine-Helfer (DOM-frei) ─────────────────────────────────────────
@@ -286,6 +298,77 @@
     return {budget:budget, verbraucht:verbraucht, rest:rest, pct:pct};
   }
 
+  // ── Modul-Matrix ─────────────────────────────────────────────────────
+  // Spalten der Matrix, dynamisch aus den Rollengruppen der Config.
+  function aboModulSpalten(cfg){
+    var sp = [{id:'gratis', label:'Gratis'}];
+    Object.keys(cfg.rollen || {}).forEach(function(gid){
+      var g = cfg.rollen[gid] || {};
+      sp.push({id:gid+'_person', label:(g.label || gid)+' · Person'});
+      sp.push({id:gid+'_firma',  label:(g.label || gid)+' · Firma'});
+    });
+    sp.push({id:'installateur', label:((cfg.installateur || {}).label) || 'Installateure'});
+    return sp;
+  }
+
+  // Default-Inklusion eines Moduls je Spalte (greift, solange der Admin die
+  // Zelle nie explizit gesetzt hat — auch für KÜNFTIGE neue Module).
+  var _ABO_BERECHNUNG_CATS = ['Sanitärberechnungen','Heizungsberechnungen','Lüftungsberechnungen'];
+  var _ABO_INST_CATS = ['Infrastruktur','Sonstiges','Schadensdokumentation'];
+  var _ABO_INST_KEYS = ['objekte','regierapport','stundenerfassung','einsatzplan','bestellungen','ausschreibungsunterlagen','abnahme_sia','baustellencheckliste','trocknungsgeraete','wareneingang'];
+  function aboModulDefault(spalteId, mod){
+    var cat = mod.cat || '';
+    if(spalteId === 'gratis') return true; // Gratis = alle Funktionen (Token-Limit)
+    if(/_firma$/.test(spalteId)){
+      if(spalteId.indexOf('architekt') === 0) return cat === 'Projektmanagement' || mod.key === 'workspace';
+      return true; // Planer-Firma (H/L/S + Admin) = Vollzugang
+    }
+    if(/_person$/.test(spalteId)){
+      if(spalteId.indexOf('architekt') === 0) return cat === 'Projektmanagement';
+      return _ABO_BERECHNUNG_CATS.indexOf(cat) >= 0 || mod.key === 'objekte'; // «Nur S/H/L» + Objekt-Basis
+    }
+    if(spalteId === 'installateur'){
+      return _ABO_INST_CATS.indexOf(cat) >= 0 || _ABO_INST_KEYS.indexOf(mod.key) >= 0;
+    }
+    return false;
+  }
+
+  // Volle Matrix: module = [{key,label,cat}] (GemaAuth.getModules()).
+  // Gespeicherte Zellen (cfg.module.zuweisung) gewinnen über die Defaults.
+  function aboModulMatrix(cfg, module){
+    var spalten = aboModulSpalten(cfg);
+    var zu = ((cfg.module || {}).zuweisung) || {};
+    var ep = ((cfg.module || {}).einzelPreise) || {};
+    return (module || []).map(function(m){
+      var row = {key:m.key, label:m.label, cat:m.cat, spalten:{}, einzelPreis:(+ep[m.key] || 0)};
+      var saved = zu[m.key];
+      spalten.forEach(function(s){
+        row.spalten[s.id] = (saved && (s.id in saved)) ? !!saved[s.id] : aboModulDefault(s.id, m);
+      });
+      return row;
+    });
+  }
+
+  // Preis eines einzeln gebuchten Moduls (abseits der Abos) — gleiche
+  // Rabatt-/MwSt-Logik wie aboPreis. null = Modul nicht einzeln buchbar.
+  function aboEinzelModulPreis(cfg, modulKey, opts){
+    opts = opts || {};
+    var basis = +(((cfg.module || {}).einzelPreise) || {})[modulKey] || 0;
+    if(basis <= 0) return null;
+    var jahresPct = (opts.zahlweise === 'jaehrlich') ? (+((cfg.abrechnung||{}).jahresrabattPct) || 0) : 0;
+    var promoPct  = opts.promo ? (+opts.promo.rabattPct || 0) : 0;
+    var mtl = basis * (1 - jahresPct/100) * (1 - promoPct/100);
+    var mwstPct = +((cfg.abrechnung||{}).mwstPct) || 0;
+    return {
+      planId:'modul_'+modulKey, typ:'modul', modulKey:modulKey,
+      basis:aboRound5(basis), zusatz:0, nettoOhneRabatt:aboRound5(basis),
+      jahresrabattPct:jahresPct, promoPct:promoPct,
+      monatlich:aboRound5(mtl), jahrTotal:aboRound5(mtl*12),
+      mwstPct:mwstPct, mwstMonat:aboRound5(mtl*mwstPct/100),
+      monatlichInkl:aboRound5(mtl*(1+mwstPct/100))
+    };
+  }
+
   // Nutzer-Limit einer Org = Summe der maxNutzer aller aktiven Abos (Grund + Add-on)
   function aboNutzerLimit(cfg, subs){
     var max = 0;
@@ -364,19 +447,54 @@
     return getSubs().find(function(s){ return s.scope === 'user' && s.userId === userId; }) || null;
   }
 
-  // Effektives Abo eines Users: Person-Abo → Org-Grundabo → gratis
+  // Effektives Abo eines Users: Person-Abo → Org-Grundabo → gratis.
+  // Einzelmodul-Abos (typ 'modul') zählen NICHT als Grundabo — sie geben nur
+  // Modul-Zugang, das Token-Budget bleibt (falls kein Grundabo besteht).
   function getEffective(user){
     user = user || _me();
     if(!user) return {modus:'gratis', sub:null};
     var aktivOk = function(s){ return s && (s.status === 'aktiv' || s.status === 'trial'); };
     var pers = getSubForUser(user.id);
     if(aktivOk(pers)) return {modus:'bezahlt', sub:pers};
-    var orgSubs = getSubsForOrg(user.orgId).filter(aktivOk);
-    var grund = orgSubs.find(function(s){ return aboPlanById(_cfg, s.planId) && aboPlanById(_cfg, s.planId).typ !== 'installateur'; }) || orgSubs[0];
+    var orgSubs = getSubsForOrg(user.orgId).filter(aktivOk)
+      .filter(function(s){ return s.typ !== 'modul' && !!aboPlanById(_cfg, s.planId); });
+    var grund = orgSubs.find(function(s){ return aboPlanById(_cfg, s.planId).typ !== 'installateur'; }) || orgSubs[0];
     if(grund) return {modus:'bezahlt', sub:grund};
     return {modus:'gratis', sub:null};
   }
   function isPaying(user){ return getEffective(user).modus === 'bezahlt'; }
+
+  // ── Modul-Zugriff ───────────────────────────────────────────────────
+  function _modules(){
+    return (w.GemaAuth && GemaAuth.getModules) ? (GemaAuth.getModules() || []) : [];
+  }
+  // Hat der User das Modul über sein Abo (Matrix-Spalten aller aktiven Abos
+  // der Org + Person-Abo), über ein gebuchtes Einzelmodul oder als
+  // Gratis-Nutzer über die Gratis-Spalte? (Definition/Vorbereitung — das
+  // harte Gating pro Org ist ein separater, geplanter Schritt.)
+  function hatModul(modulKey, user){
+    user = user || _me();
+    if(!user) return true;
+    var row = aboModulMatrix(_cfg, _modules()).find(function(r){ return r.key === modulKey; });
+    if(!row) return true; // unbekanntes Modul nie aussperren
+    var aktivOk = function(s){ return s && (s.status === 'aktiv' || s.status === 'trial'); };
+    var spalten = [];
+    var pers = getSubForUser(user.id);
+    if(aktivOk(pers)){
+      var plp = aboPlanById(_cfg, pers.planId);
+      if(plp) spalten.push(plp.gruppeId + '_person');
+    }
+    var direkt = false;
+    getSubsForOrg(user.orgId).filter(aktivOk).forEach(function(s){
+      if(s.typ === 'modul'){ if(s.modulKey === modulKey) direkt = true; return; }
+      var pl = aboPlanById(_cfg, s.planId);
+      if(!pl) return;
+      spalten.push(pl.typ === 'installateur' ? 'installateur' : pl.gruppeId + '_firma');
+    });
+    if(direkt) return true;
+    if(!spalten.length) return !!row.spalten.gratis;
+    return spalten.some(function(sp){ return !!row.spalten[sp]; });
+  }
 
   function _subId(opts, user){
     var pl = aboPlanById(_cfg, opts.planId);
@@ -406,20 +524,28 @@
     opts = opts || {};
     var user = _me();
     if(!user) return Promise.reject(new Error('nicht_angemeldet'));
-    var pl = aboPlanById(_cfg, opts.planId);
-    if(!pl) return Promise.reject(new Error('plan_unbekannt'));
+    var istModul = /^modul_/.test(opts.planId || '');
+    var modulKey = istModul ? opts.planId.slice(6) : '';
+    var pl = istModul ? null : aboPlanById(_cfg, opts.planId);
+    if(!istModul && !pl) return Promise.reject(new Error('plan_unbekannt'));
 
     var promo = aboPromoFind(_cfg, opts.promoCode);
-    var preis = aboPreis(_cfg, opts.planId, {
-      zusatzGewerke: (opts.zusatzGewerke || []).length,
-      zahlweise: opts.zahlweise || 'monatlich',
-      promo: promo
-    });
+    var preis = istModul
+      ? aboEinzelModulPreis(_cfg, modulKey, {zahlweise: opts.zahlweise || 'monatlich', promo: promo})
+      : aboPreis(_cfg, opts.planId, {
+          zusatzGewerke: (opts.zusatzGewerke || []).length,
+          zahlweise: opts.zahlweise || 'monatlich',
+          promo: promo
+        });
+    if(!preis) return Promise.reject(new Error('modul_nicht_buchbar'));
+    var modulDef = istModul ? _modules().find(function(m){ return m.key === modulKey; }) : null;
+    var planLabel = istModul ? (opts.planLabel || (modulDef && modulDef.label) || modulKey) : pl.stufe.label;
 
     var targetOrgId = opts.orgId || user.orgId;
-    var id = opts.admin && opts.orgId
-      ? (pl.typ === 'installateur' ? 'sub_' + opts.orgId + '_inst' : 'sub_' + opts.orgId + '_grund')
-      : _subId(opts, user);
+    var id;
+    if(istModul) id = 'sub_' + targetOrgId + '_mod_' + modulKey;
+    else if(opts.admin && opts.orgId) id = (pl.typ === 'installateur' ? 'sub_' + opts.orgId + '_inst' : 'sub_' + opts.orgId + '_grund');
+    else id = _subId(opts, user);
 
     var existing = getSubs().find(function(s){ return s.id === id; });
     var neu = !existing;
@@ -440,13 +566,15 @@
     var rec = existing ? JSON.parse(JSON.stringify(existing)) : {
       id: id, verlauf: [], start: heute.toISOString().split('T')[0]
     };
-    rec.scope = (pl.typ === 'person') ? 'user' : 'org';
+    rec.scope = (!istModul && pl.typ === 'person') ? 'user' : 'org';
     rec.orgId = targetOrgId;
     rec.orgName = opts.orgName || (org && org.id === targetOrgId ? org.name : (rec.orgName || ''));
-    if(pl.typ === 'person'){ rec.userId = user.id; rec.userName = user.name || user.email || ''; }
+    if(!istModul && pl.typ === 'person'){ rec.userId = user.id; rec.userName = user.name || user.email || ''; }
     rec.planId = opts.planId;
-    rec.gruppeId = pl.gruppeId;
-    rec.planLabel = pl.stufe.label;
+    rec.typ = istModul ? 'modul' : 'abo';
+    if(istModul) rec.modulKey = modulKey;
+    rec.gruppeId = istModul ? 'modul' : pl.gruppeId;
+    rec.planLabel = planLabel;
     rec.gewerkBasis = opts.gewerkBasis || rec.gewerkBasis || '';
     rec.zusatzGewerke = opts.zusatzGewerke || [];
     rec.zahlweise = opts.zahlweise || 'monatlich';
@@ -460,7 +588,7 @@
     rec.verlauf.push({
       ts: new Date().toISOString(), userId: user.id, userName: user.name || '',
       aktion: neu ? 'bestellt' : 'geaendert',
-      detail: pl.stufe.label + ' · ' + rec.zahlweise + ' · ' + rec.zahlung +
+      detail: planLabel + ' · ' + rec.zahlweise + ' · ' + rec.zahlung +
               (rec.zusatzGewerke.length ? ' · +' + rec.zusatzGewerke.length + ' Gewerk(e)' : '') +
               ' · CHF ' + preis.monatlich.toFixed(2) + '/Mt' + (promo ? ' · Promo ' + promo.code : '')
     });
@@ -471,7 +599,7 @@
       _notify({
         eventKey: 'abo_bestellung', empfaengerRoleId: 'role_admin',
         modul: 'abos', typ: 'aktion',
-        titel: '💳 Neue Abo-Bestellung: ' + pl.stufe.label,
+        titel: '💳 Neue ' + (istModul ? 'Einzelmodul' : 'Abo') + '-Bestellung: ' + planLabel,
         text: (rec.orgName || rec.userName || targetOrgId) + ' · ' + rec.zahlweise + ' · ' + rec.zahlung +
               ' · CHF ' + preis.monatlich.toFixed(2) + '/Mt · Status: ' + status,
         link: 'sys_abos.html?tab=abonnenten'
@@ -655,6 +783,16 @@
     preis: function(planId, opts){ return aboPreis(_cfg, planId, opts); },
     planById: function(planId){ return aboPlanById(_cfg, planId); },
     planIndex: function(){ return aboPlanIndex(_cfg); },
+    // Modul-Matrix & Einzelmodule
+    getModules: _modules,
+    modulSpalten: function(){ return aboModulSpalten(_cfg); },
+    moduleMatrix: function(){ return aboModulMatrix(_cfg, _modules()); },
+    // Varianten mit expliziter Config — für den Admin-Editor (Arbeitskopie)
+    spaltenFuer: function(cfg){ return aboModulSpalten(cfg || _cfg); },
+    matrixFuer: function(cfg){ return aboModulMatrix(cfg || _cfg, _modules()); },
+    einzelModulPreis: function(modulKey, opts){ return aboEinzelModulPreis(_cfg, modulKey, opts); },
+    einzelModule: function(){ return aboModulMatrix(_cfg, _modules()).filter(function(r){ return r.einzelPreis > 0; }); },
+    hatModul: hatModul,
     promoFind: function(code){ return aboPromoFind(_cfg, code); },
     herstellerGebuehr: function(vorgangId, betrag, kanal){ return aboHerstellerGebuehr(_cfg, vorgangId, betrag, kanal); },
     nutzerLimitForOrg: function(orgId){ return aboNutzerLimit(_cfg, getSubsForOrg(orgId)); },

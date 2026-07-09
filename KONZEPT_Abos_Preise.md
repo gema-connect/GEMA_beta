@@ -115,6 +115,40 @@ unbegrenzt}` — Module rufen das vor der Aktion auf (Integrationspunkte
 dokumentiert in CLAUDE.md; die Verdrahtung in die einzelnen Module folgt
 schrittweise — die API, Buchführung und Admin-Pflege stehen komplett).
 
+## 3b. Modul-Matrix & Einzelmodule
+
+**Modul-Matrix** (Admin-Tab «🧩 Module»): definiert pro GEMA-Modul, in
+welchen Abos es enthalten ist. Spalten: Gratis · Planer Person · Planer
+Firma · Architekt Person · Architekt Firma · Installateure (dynamisch —
+neue Rollengruppen erzeugen neue Spalten). **Default-Regeln** (gelten für
+alle nie angepassten Zellen, auch für künftige neue Module):
+
+| Spalte | Default |
+|---|---|
+| Gratis | alle Module (Limit über Tokens) |
+| Planer Person | nur Berechnungs-Kategorien (S/H/L) + Objekte |
+| Planer Firma | Vollzugang (alle Module) |
+| Architekt Person | nur Projektmanagement |
+| Architekt Firma | Projektmanagement + Workspace |
+| Installateure | Infrastruktur/Werkzeug/Baustelle (inkl. Regierapporte, Stunden, Einsatzplan, Bestellungen, Ausschreibungen, Abnahme, Wareneingang, Objekte) |
+
+Gespeichert werden NUR Abweichungen (`cfg.module.zuweisung`) — die Matrix
+bleibt dadurch robust, wenn neue Module dazukommen.
+
+**Einzelmodule (Module abseits der Abos):** Erhält ein Modul in der
+Matrix-Spalte «Einzelpreis» einen CHF/Monat-Wert, ist es einzeln buchbar
+und erscheint auf der Preisseite unter «🧩 Einzelmodule» (auch ohne
+Grundabo nutzbar; Zugriff nur auf das gebuchte Modul; Jahres-/Promo-Rabatt
+und MwSt wie bei Abos). Bestellung erzeugt ein Abo-Record
+`sub_<orgId>_mod_<key>` (`typ:'modul'`) — es zählt bewusst NICHT als
+Grundabo, d.h. ein Gratis-Nutzer mit gebuchtem Einzelmodul behält sein
+Token-Budget. Zugriffs-Helper: `GemaAbo.hatModul(modulKey, user)`
+(Matrix-Spalten aller aktiven Abos der Org + direkt gebuchte Einzelmodule,
+Fallback Gratis-Spalte). Das harte per-Org-Gating der Module bleibt der
+separate, in CLAUDE.md beschriebene geplante Schritt («Modul-Freischaltung
+pro Kunde») — die Matrix liefert dafür die Preis-/Vertragsdefinition.
+Standardmässig ist KEIN Einzelpreis gesetzt (Preisentscheid von Robin).
+
 ## 4. Offene Fragen an Robin (Annahmen A1–A4)
 
 Die interaktive Rückfrage war in der Session nicht möglich — folgende
