@@ -68,6 +68,18 @@ create table if not exists public.nb_gitterpunkt (
 comment on column public.nb_gitterpunkt.werte is
   'Niederschlagshoehe in mm je Dauerstufe/Wiederkehrperiode. Umrechnung in Regenspende erst in der Berechnung: r[l/(s·ha)] = h[mm] × 10000 / t[s].';
 
+-- Idempotenz: rüstet eine bereits bestehende Tabelle (frühere Migration OHNE
+-- lon/lat) nach, damit der Trigger unten die Spalten vorfindet. Bei frischer
+-- Tabelle sind sie schon da (no-op). geom wird ggf. nullable, weil der Trigger
+-- es füllt (eine evtl. alte NOT-NULL-Constraint bleibt bestehen, ist ok).
+alter table public.nb_gitterpunkt add column if not exists lon numeric;
+alter table public.nb_gitterpunkt add column if not exists lat numeric;
+alter table public.nb_gitterpunkt add column if not exists x_lv95 numeric;
+alter table public.nb_gitterpunkt add column if not exists y_lv95 numeric;
+alter table public.nb_gitterpunkt add column if not exists hoehe_m integer;
+alter table public.nb_gitterpunkt add column if not exists unsicherheit jsonb;
+alter table public.nb_gitterpunkt alter column geom drop not null;
+
 -- geom aus lon/lat setzen (search_path deckt beide PostGIS-Schema-Platzierungen ab).
 create or replace function public.nb_set_geom() returns trigger
   language plpgsql
