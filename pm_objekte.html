@@ -1328,9 +1328,15 @@ function saveObjekt(){
     abteilungsLeiterId:$('objAbteilungsLeiterId')?$('objAbteilungsLeiterId').value:'',
     teamUserIds:(_teamChipState||[]).slice(),
     beteiligte:_objGetBeteiligte()};
+  var _abschlussTrigger=null;
   if(editId){
     const idx=_mem.objekte.findIndex(x=>x.id===editId);
-    if(idx>=0)Object.assign(_mem.objekte[idx],data);
+    if(idx>=0){
+      var _prevStatus=_mem.objekte[idx].status||'';
+      Object.assign(_mem.objekte[idx],data);
+      // Projekt-Abschluss: Trigger fuer Revisionsunterlagen
+      if(_prevStatus!=='abgeschlossen' && data.status==='abgeschlossen'){ _abschlussTrigger={id:editId,name:data.name}; }
+    }
   } else {
     data.id=uid();data.createdAt=new Date().toISOString();
     // Org-Zuordnung
@@ -1344,6 +1350,26 @@ function saveObjekt(){
   }
   save();closeModal('objModal');renderObjekte();updateBadges();
   toast('✓ Objekt gespeichert');
+  if(_abschlussTrigger) _objRevisionAbschluss(_abschlussTrigger.id,_abschlussTrigger.name);
+}
+
+// Projekt-Abschluss → Revisionsunterlagen anstossen (Dossier-Vorschlag + Notify)
+function _objRevisionAbschluss(objektId,objektName){
+  // Notifikation an die Planer der Org
+  try{
+    var u=GemaAuth.getCurrentUser();
+    if(u&&typeof GemaNotify!=='undefined'){
+      GemaNotify.push({eventKey:'revision_projektabschluss',empfaengerRoleId:'role_planer',empfaengerOrgId:u.orgId,modul:'revisionsunterlagen',typ:'aktion',titel:'Projekt abgeschlossen — Revisionsunterlagen',text:'«'+(objektName||'')+'» wurde abgeschlossen. Bitte Revisionsunterlagen erstellen.',link:'pm_revisionsunterlagen.html?objekt='+encodeURIComponent(objektId),objektId:objektId});
+    }
+  }catch(e){}
+  // Existiert schon ein Dossier fuers Objekt?
+  var hat=false;
+  try{ var pool=(typeof GemaSync!=='undefined'&&GemaSync.getCached)?(GemaSync.getCached('gema_rev_pool_v1')||[]):JSON.parse(localStorage.getItem('gema_rev_pool_v1')||'[]'); hat=(pool||[]).some(function(d){return d.objektId===objektId;}); }catch(e){}
+  var canRev=false; try{ canRev=GemaAuth.can('write','revisionsunterlagen'); }catch(e){}
+  if(hat||!canRev) return;
+  GemaDialog.confirm({title:'Revisionsunterlagen',message:'Zum Projektabschluss gehören die Revisionsunterlagen (Übergabedossier für die Bauherrschaft). GEMA stellt sie automatisch aus den verbauten Produkten zusammen.\n\nJetzt ein Dossier erstellen?',confirmLabel:'Dossier erstellen'}).then(function(ok){
+    if(ok) location.href='pm_revisionsunterlagen.html?objekt='+encodeURIComponent(objektId);
+  });
 }
 window.saveObjekt=saveObjekt;
 
