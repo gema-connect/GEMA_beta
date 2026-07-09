@@ -2,8 +2,8 @@
  * netlify/functions/form-watch-cron.js
  *
  * Geplante Function (Schedule in netlify.toml): prüft periodisch server-seitig
- * ALLE hinterlegten Behördenformular-URLs (bform:-Records) und meldet
- * Änderungen dem GEMA-Admin — auch wenn niemand das Modul öffnet.
+ * ALLE hinterlegten Behördenformular-URLs (bformdef:-Pool-Definitionen) und
+ * meldet Änderungen dem GEMA-Admin — auch wenn niemand das Modul öffnet.
  *
  * Ablauf: Records via Service-Key laden → je sourceUrl den Inhalt hashen →
  * bei Abweichung vom gespeicherten sourceHash das Record markieren
@@ -35,8 +35,8 @@ async function _notifyAdmin(form){
   var n = { id:id, ts:new Date().toISOString(), eventKey:'behoerde_formular_geaendert',
     empfaengerRoleId:'role_admin', empfaengerOrgId:null, empfaengerUserId:null,
     modul:'behoerden_formulare', typ:'warnung',
-    titel:'Behördenformular geändert', text:(form.titel||form.behoerde||'Formular')+(form.objektName?(' — '+form.objektName):'')+': die Quelle unter der hinterlegten URL hat sich geändert.',
-    link:'pm_behoerden_formulare.html'+(form.id?('?f='+form.id):''), objektId:form.objektId||'', gelesen:false, gelesenAt:null };
+    titel:'Behördenformular geändert', text:(form.name||form.titel||form.behoerde||'Formular')+': die Quelle unter der hinterlegten URL hat sich geändert.',
+    link:'pm_behoerden_formulare.html'+(form.id?('?d='+form.id):''), objektId:'', gelesen:false, gelesenAt:null };
   await _putRecord('notify', 'notif:'+id, n);
 }
 
@@ -44,7 +44,7 @@ exports.handler = async function () {
   if (!SERVICE_KEY) return { statusCode:200, body:JSON.stringify({ ok:false, skipped:'no service key' }) };
   let checked=0, changed=0, errors=0;
   try {
-    const rows = await sb(TABLE+'?module_key=eq.behoerden_formulare&data_key=like.'+q('bform:')+'*&select=data_key,payload&limit='+MAX_URLS);
+    const rows = await sb(TABLE+'?module_key=eq.behoerden_formulare&data_key=like.'+q('bformdef:')+'*&select=data_key,payload&limit='+MAX_URLS);
     for (let i=0; i<(rows||[]).length; i++){
       const form = (rows[i].payload && rows[i].payload.data) || null;
       if (!form) continue;
