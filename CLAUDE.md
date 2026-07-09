@@ -207,6 +207,22 @@ Der **Anlagenlieferant** pflegt im Dashboard-Tab «Rohrsysteme & Armaturen» ein
 
 ---
 
+## Abo- & Preissystem (GemaAbo)
+
+Preispolitik nach Rollen (Preisblatt Robin 07/2026; Schema + offene Fragen/Annahmen A1–A4 in `KONZEPT_Abos_Preise.md`). Drei Bausteine: **`gema_abo_api.js`** (`window.GemaAbo`), Preisseite **`sys_preise.html`** (komplett neu, datengetrieben — der alte statische Starter/Professional/Enterprise-Entwurf wurde ersetzt) und Admin-Modul **`sys_abos.html`** («Abos & Preise», verlinkt als Tab in sys_admin).
+
+- **Preismodell**: Gratis-Nutzer (CHF 0, voller Funktionsumfang, **Token-Budget** 500/Monat) · **Planer** S/H/L (Person CHF 10 «Nur S/H/L»; Firma Grundabo I–V: 50/2, 100/5, 165/10, 250/15, 350/20 Nutzer — «H/L/S + Admin») · **Zusatz-Gewerk +20%** des Firmen-Abopreises je weiteres Gewerk (Modus umschaltbar: pro_gewerk/alle_pauschal/rabatt) · **Architekten** wie Planer, aber «Nur PM» bzw. «PM + Anfragen», ohne Gewerke · **Installateure Zusatz-Abo** I–IIII (100/10, 250/25, 450/45, 600/60 Nutzer; Add-on und/oder standalone, umschaltbar) · **Hersteller transaktionsbasiert** (Offertanfrage 1% / Ausschreibung 3% / Bestellung 6%, Registrierung gratis; Modell umschaltbar auf «nur bei Bestellung, Satz nach Herkunftskanal»). Pro Stufe zusätzlich Speicher (GB) + Serveranfragen/Tag. Übergreifend: MwSt 8.1%, Jahresrabatt 10%, Trial 14 Tage, Kündigungs-/Zahlungsfrist 30 Tage, Promo-Codes, Token-Zukaufpakete — ALLES im Admin einstellbar (`ABO_DEFAULT_CFG` sind nur Startwerte; `aboDeepMerge` legt die gespeicherte Config über die Defaults, neue Felder erscheinen automatisch).
+- **Storage (moduleKey `abos`)**: Config `abocfg:main` (EIN Record, Cache `gema_abo_cfg_v1`, stale-while-revalidate) · Abos `abosub:` → `gema_abo_sub_pool_v1` (deterministische IDs: `sub_<orgId>_grund`, `sub_<orgId>_inst`, `sub_user_<userId>` — Re-Bestellung überschreibt statt dupliziert; Verlauf-Array als Audit) · Token-Ledger `abotok:` → `gema_abo_tok_pool_v1` (ein Record pro User+Monat `tok_<userId>_<YYYY-MM>` bzw. `_gesamt` bei einmaliger Gutschrift). **Pools sind org-übergreifend → NUR `GemaSync.saveRecord`, NIE persistCollection.**
+- **Engine im `/*ENGINE-START*/…/*ENGINE-END*/`-Block** (DOM-frei, Node-Test 29/29 grün): `aboPreis(cfg,planId,{zusatzGewerke,zahlweise,promo})` (Rappenrundung 0.05, MwSt, Jahres-/Promo-Rabatt), `aboPlanIndex/aboPlanById`, `aboPromoFind`, `aboHerstellerGebuehr(cfg,vorgang,betrag,kanal)` (beide Modelle), `aboTokenStatus`, `aboAktionKosten`, `aboNutzerLimit` (Summe maxNutzer aktiver Abos einer Org), `aboDeepMerge`, `aboRound5`, `aboMonatKey`.
+- **Public API**: `getConfig()/saveConfig(cfg)` · `preis/planById/planIndex/promoFind/herstellerGebuehr/nutzerLimitForOrg/fmtChf` · `getSubs/getSubsForOrg/getSubForUser/getEffective(user)` (Person-Abo → Org-Abo → gratis) · `isPaying` · `bestellen(opts)` (deterministische Sub-ID, Status: neu+Trial→`trial`, Rechnung→`aktiv`, Karte→`angefragt` solange Stripe aus; Notify `abo_bestellung` an role_admin) · `setStatus(subId,status,grund)` (Admin; Notify `abo_status` an Besteller) · **Tokens**: `getTokenStatus(user)` (`{unbegrenzt:true}` für Bezahl-Abos bei Geltung `nur_gratis`), `charge(aktionId,anzahl)` (Promise `{ok,rest,ueberzogen}` — `ok:false` bei hartem Limit; Warn-Notify `abo_tokens_knapp` ab Schwelle, 1×/Monat-Lock `gema_abo_warn_lock_v1`), `topupKaufen(paketId,zahlung)`, `getTokenLedger()` · `startStripeCheckout(payload)`.
+- **Token-Integration in Module (Muster)**: vor der Aktion `GemaAbo.charge('pdf_export').then(r=>{ if(!r.ok){ GemaDialog.alert({title:'Token-Budget aufgebraucht', message:'…sys_preise.html…'}); return; } … })` — Aktions-IDs = `tokenAktionen[].id` aus der Config (berechnung_neu, pdf_export, ki_text, ki_dokument, offertanfrage, ausschreibung, bestellung, upload_datei, speicher_mb, sync_100). Verdrahtung in die einzelnen Module folgt schrittweise — API/Buchführung/Admin stehen.
+- **sys_preise.html** (in `_isLoginOnly` — jeder eingeloggte User): rendert Gratis-Karte, Rollen-Sektionen (Person-Karte + Firmen-Karte mit **Teamgrössen-Segment** + **Gewerk-Chips** mit Live-Preis), Installateur-, Hersteller-, Token-Sektion (Aktionen-Tabelle + Zukaufpakete) komplett aus der Config; Monat/Jahr-Toggle; «Mein Abo»-Banner (Status bzw. Token-Fortschrittsbalken); **Checkout-Modal** (Promo-Code, Zahlungsart Karte/Rechnung, Summen inkl. MwSt) → `GemaAbo.bestellen`. Karte bei `stripe.enabled` → `startStripeCheckout` (Redirect), sonst Hinweis «vorbereitet» + Bestellung als `angefragt`.
+- **sys_abos.html** (NUR role_admin — nicht in FILE_MAP → `_detectModuleKey()`='sys_abos' hat keine Rollen-Permission, Admins passieren via `_isAdmin`; zusätzlich In-Page-Guard): 5 Tabs — **Abonnenten** (KPIs aktiv/trial/angefragt/MRR, Statuswechsel aktivieren/sperren/beenden mit Grund + Verlauf, «＋ Abo manuell zuweisen» für Orgs), **Pläne & Preise** (Person-/Stufen-Editoren pro Gruppe, Zusatz-Gewerk-Modus+%, Installateur-Verfügbarkeit), **Tokens** (Budget/Reset/Geltung/Limit-Verhalten/Warnschwelle, Aktions- und Paket-Tabellen, Verbrauchs-Übersicht des Monats), **Hersteller** (Modell, %-Sätze, Gebühren-Rechner), **Abrechnung & Zahlung** (MwSt/Jahresrabatt/Trial/Fristen, Stripe-Toggle+Publishable-Key, Promo-Codes). Arbeitskopie + Save-Bar «Speichern & veröffentlichen» → `saveConfig` (wirkt sofort auf die Preisseite). Deep-Link `?tab=…`.
+- **Stripe (VORBEREITET, nicht aktiv)**: `netlify/functions/stripe-checkout.js` + Redirect `/api/stripe-checkout` — erstellt eine Checkout-Session (Env `STRIPE_SECRET_KEY`, optional `STRIPE_PRICE_MAP` planId→priceId für echte recurring Subscriptions; ohne Key → 501). Offen: `stripe-webhook.js` (checkout.session.completed → Abo serverseitig aktivieren). Bis zur Aktivierung laufen Karten-Bestellungen als «angefragt» und werden manuell/per Rechnung abgewickelt.
+- Registriert: sw.js (v238: sys_abos.html + gema_abo_api.js), gema_recent (Labels), gema_notify (3 Keys), sys_admin (Tab-Link «💳 Abos & Preise ↗»). `sys_abos` bewusst NICHT in MODULES/FILE_MAP (Admin-only via Fallback-Key).
+
+---
+
 ## Rollen & Zugangssystem
 
 Jede Rolle hat ein eigenes Login mit rollenspezifischer Ansicht.
@@ -1881,6 +1897,9 @@ Zentrales Modul `gema_notify.js` für In-App-Benachrichtigungen. Glocke + Toast-
 | `revision_projektabschluss` | revisionsunterlagen | on |
 | `revision_freigabe_erstellt` | revisionsunterlagen | off |
 | `behoerde_formular_geaendert` | behoerden_formulare | on |
+| `abo_bestellung` | abos | on |
+| `abo_status` | abos | on |
+| `abo_tokens_knapp` | abos | on |
 
 **Neue Module fügen ihre Event-Keys hier hinzu**, sonst greift kein Preferences-Filter.
 
@@ -2180,6 +2199,9 @@ GemaSync.persistCollection(moduleKey, storageKey, prefix, 'id', arr)
 | Revisions-Unterlagenanfragen | `revisionsunterlagen` | `reva:` | `gema_rev_anfr_pool_v1` |
 | Behörden-Formulare | `behoerden_formulare` | `bform:` | `gema_bform_pool_v1` |
 | Behörden-Formular-Vorlagen | `behoerden_formulare` | `bformv:` | `gema_bform_vorl_pool_v1` |
+| Abo-Preiskonfiguration | `abos` | `abocfg:` (EIN Record `abocfg:main`) | `gema_abo_cfg_v1` |
+| Abonnemente | `abos` | `abosub:` | `gema_abo_sub_pool_v1` |
+| Token-Ledger | `abos` | `abotok:` | `gema_abo_tok_pool_v1` |
 
 **Produktkatalog (gema_produktkatalog_api.js) — Migration & Besonderheiten:** Produkte/Lieferanten/Offertanfragen liegen jetzt per-Record in der Cloud (vorher: ein Blob pro Key `gema_produktkatalog_v1`/`gema_lieferanten_v1`/`gema_offertanfragen_v1` via `_GemaDB.saveToModule` → Last-Write-Wins, das Produkte konkurrierender Lieferanten überschreiben konnte). Die lokalen Blobs (`{produkte,log}` etc.) bleiben als Lese-Cache, alle bestehenden Getter (`getProdukte`, `getAllLieferanten`, …) laufen unverändert. `loadFromSupabase()` macht jetzt den Per-Record-Pull (mit einmaliger Legacy-Blob-Migration) und feuert `gema-produkte-loaded`; `save()` macht Diff-Saves per `GemaSync.persistCollection`. Neu: **`GemaProdukte.ready`** (Promise, resolved nach dem ersten Cloud-Pull) — Demo-Seeding (`seedDemoData`/`seedDemoLieferanten`) wartet darauf, sonst würden auf frischen Geräten Demo-Daten in die Cloud gepusht. Der `log` in `_data.log` wird nicht mehr cloud-synct (nur lokal). Fallback auf den alten `_GemaDB`-Blob, falls `gema_sync.js` nicht geladen ist.
 
@@ -2253,6 +2275,7 @@ UI-Anbindung:
 |-------|-------|
 | `gema_adresse.js` | Adress-Autocomplete (swisstopo geo.admin.ch). Auto-Init via `data-gema-adresse` + `data-target-strasse/plz/ort/kanton`-Attribute, oder programmatisch via `GemaAdresse.attach(input, opts)` |
 | `gema_aktivitaetslog.js` | **Aktivitätenlog** für Infrastruktur-Module. `GemaActivityLog.log({modul,modulRecordId,modulRecordName,aktion,beschreibung,details})` pusht einen Eintrag; `getForModul(modul, orgId?)` liefert die gefilterte Historie. Cloud-First via `gema_sync.js` (Collection `gema_aktivitaetslog_v1`, moduleKey `aktivitaetslog`, prefix `log:`). `openModal({modul,titel})` zeigt das einheitliche Tabellen-Modal mit Suche, Aktion-Filter und CSV-Export. |
+| `gema_abo_api.js` | **Abo-, Preis- & Token-System** (`window.GemaAbo`). Preiskonfiguration `abocfg:main`, Abos `abosub:*`, Token-Ledger `abotok:*` (moduleKey `abos`). Preis-Engine (Zusatz-Gewerk, Jahres-/Promo-Rabatt, MwSt, Rappenrundung), `charge(aktionId)` für Token-Verbrauch, `bestellen()/setStatus()`, Stripe-Checkout-Client (vorbereitet). Konsumenten: sys_preise, sys_abos. Siehe «Abo- & Preissystem». |
 | `gema_anlagenwahl.js` | Anlagenauswahl-Widget für Berechnungen |
 | `gema_avatar.js` | Profilbild-Upload + Renderer. `GemaAvatar.render(user, size, opts)` liefert HTML mit `<img>` oder Initialen-Fallback. `compress(file)` resized auf 256×256 JPEG. Avatar als Base64 unter `user.avatar` |
 | `gema_armaturen_api.js` | **Armaturen-Katalog** (ζ + kvs pro Dimension, Druckverlustdiagramm, Lieferanten-CRUD). `getDp(id,dn,{Q_ls,v_ms,rho})` (kvs bevorzugt: `Δp=(Q/kvs)²·100 kPa`, sonst `ζ·ρ/2·v²`), `computeSelectionDp(sel,ctx)` für Berechnungsmodule, `curvePoints(id,dn,opts)` für generierte Kennlinien, `upsertArmatur`/`deleteArmatur` (Defaults via Tombstone). Cloud per-Record (`arm:`), Defaults bleiben lokaler Seed. |
