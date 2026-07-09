@@ -227,11 +227,17 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important}
               <div style="font-size:11px;font-weight:800;color:var(--mut);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">+ Neues Dokument hochladen</div>
               <div class="g3">
                 <select class="fc" id="docTyp" title="Dokumenttyp">
-                  <option value="datenblatt">📄 Datenblatt (PDF)</option>
-                  <option value="anleitung">📘 Montageanleitung</option>
-                  <option value="zertifikat">🏅 Zertifikat (SVGW, KTI, …)</option>
-                  <option value="schema">📐 Schema / Zeichnung</option>
-                  <option value="bild">🖼 Produktbild</option>
+                  <option value="datenblatt">📄 Datenblatt / Technische Daten</option>
+                  <option value="technische_zeichnung">📐 Technische Zeichnung / Masszeichnung</option>
+                  <option value="bedienungsanleitung">📘 Bedienungsanleitung</option>
+                  <option value="montageanleitung">🔧 Montageanleitung</option>
+                  <option value="wartungsanleitung">🛠 Wartungs-/Serviceanleitung</option>
+                  <option value="konformitaetserklaerung">✅ Konformitätserklärung (CE/…)</option>
+                  <option value="zertifikat">🏅 Zertifikat / Zulassung (SVGW…)</option>
+                  <option value="schema">🗺 Schema / Anschlussschema</option>
+                  <option value="ersatzteilliste">🧩 Ersatzteilliste</option>
+                  <option value="garantie">🛡 Garantieschein / -bedingungen</option>
+                  <option value="sonstiges">📎 Sonstiges</option>
                 </select>
                 <select class="fc" id="docSprache" title="Sprache">
                   <option value="de">🇩🇪 Deutsch</option>
@@ -267,6 +273,7 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important}
 <script src="gema_feedback.js"></script><script src="gema_notify.js"></script><script src="gema_notify_ui.js"></script>
 <script src="gema_pdf.js"></script>
 <script src="gema_produktkatalog_api.js"></script>
+<script src="gema_storage.js"></script>
 <script src="gema_vergleich.js"></script>
 <script>
 function fixLeadingZero(el){let v=el.value.trim();if(!v)return;if(v.startsWith('.'))v='0'+v;if(v.startsWith('-.'))v='-0'+v.substring(1);const n=parseFloat(v);if(!isNaN(n))el.value=n;}
@@ -566,13 +573,23 @@ function saveProdukt(){
 // Gruppierung nach Typ in fester Reihenfolge: Datenblätter zuerst, dann
 // Montageanleitungen, Zertifikate, Schemata, Bilder. Jede Gruppe bekommt
 // einen farbigen Header und zeigt Sprach-Flag + Dateigrösse pro Eintrag.
+// Kanonische Reihenfolge fuer die Gruppierung; Gruppierung erfolgt ueber
+// GemaProdukte.normDokTyp(), damit Altdaten (anleitung/montage/konformitaet/bild)
+// automatisch in der richtigen Gruppe landen.
 var DOC_TYPEN = [
-  { id:'datenblatt', label:'Datenblätter',      icon:'📄', cls:'t-bl' },
-  { id:'anleitung',  label:'Montageanleitungen', icon:'📘', cls:'t-bl' },
-  { id:'zertifikat', label:'Zertifikate',        icon:'🏅', cls:'t-gr' },
-  { id:'schema',     label:'Schemata / Zeichnungen', icon:'📐', cls:'t-gy' },
-  { id:'bild',       label:'Produktbilder',      icon:'🖼', cls:'t-gy' }
+  { id:'datenblatt',              label:'Datenblätter / Technische Daten', icon:'📄', cls:'t-bl' },
+  { id:'technische_zeichnung',    label:'Technische Zeichnungen',          icon:'📐', cls:'t-bl' },
+  { id:'bedienungsanleitung',     label:'Bedienungsanleitungen',           icon:'📘', cls:'t-bl' },
+  { id:'montageanleitung',        label:'Montageanleitungen',              icon:'🔧', cls:'t-bl' },
+  { id:'wartungsanleitung',       label:'Wartungs-/Serviceanleitungen',    icon:'🛠', cls:'t-gr' },
+  { id:'konformitaetserklaerung', label:'Konformitätserklärungen',         icon:'✅', cls:'t-gr' },
+  { id:'zertifikat',              label:'Zertifikate / Zulassungen',       icon:'🏅', cls:'t-gr' },
+  { id:'schema',                  label:'Schemata / Anschlussschemata',    icon:'🗺', cls:'t-gy' },
+  { id:'ersatzteilliste',         label:'Ersatzteillisten',                icon:'🧩', cls:'t-gy' },
+  { id:'garantie',                label:'Garantie',                        icon:'🛡', cls:'t-gy' },
+  { id:'sonstiges',               label:'Sonstiges',                       icon:'📎', cls:'t-gy' }
 ];
+function _normDok(t){ return (typeof GemaProdukte!=='undefined'&&GemaProdukte.normDokTyp)?GemaProdukte.normDokTyp(t):(t||'sonstiges'); }
 var DOC_SPRACHEN = { de:'🇩🇪 DE', fr:'🇫🇷 FR', it:'🇮🇹 IT', en:'🇬🇧 EN' };
 function _fmtBytes(b){
   if (!b) return '';
@@ -588,9 +605,9 @@ function renderDocs(){
     box.innerHTML='<div style="padding:18px;text-align:center;color:var(--mut);background:var(--bg);border-radius:var(--r-sm)"><div style="font-size:24px;margin-bottom:4px">📄</div><div style="font-size:13px">Noch keine Dokumente hochgeladen.</div><div style="font-size:11px;margin-top:2px">Datenblätter, Anleitungen und Zertifikate direkt beim Produkt verfügbar.</div></div>';
     return;
   }
-  // Gruppieren
+  // Gruppieren (Altdaten via normDokTyp auf kanonische Typen abbilden)
   var byTyp={};
-  docs.forEach(function(d){var t=d.typ||'datenblatt';(byTyp[t]=byTyp[t]||[]).push(d);});
+  docs.forEach(function(d){var t=_normDok(d.typ);(byTyp[t]=byTyp[t]||[]).push(d);});
   var html='';
   DOC_TYPEN.forEach(function(typInfo){
     var list=byTyp[typInfo.id];if(!list||!list.length)return;
@@ -599,7 +616,7 @@ function renderDocs(){
       + typInfo.icon+' '+typInfo.label+' <span style="color:var(--mut2);font-weight:600">('+list.length+')</span>'
       +'</div>';
     list.forEach(function(d){
-      var hasData=!!d.dataUrl;
+      var hasData=!!(d.url||d.dataUrl);
       var spr=d.sprache?(DOC_SPRACHEN[d.sprache]||d.sprache):'';
       var size=_fmtBytes(d.groesse);
       var previewBtn=hasData?'<button class="btn btn-s btn-sm" onclick="previewDoc(\''+E(d.id)+'\')" title="Vorschau">👁</button>':'';
@@ -629,16 +646,32 @@ function addDoc(){
   const sprache=(document.getElementById('docSprache')||{value:''}).value;
   if(!fi.files?.length){toast('Datei wählen','error');return;}
   const file=fi.files[0];
-  if(file.size>10*1024*1024){toast('Max. 10 MB','error');return;}
+  const ext=(file.name.split('.').pop()||'').toLowerCase();
+  const isPdf=file.type==='application/pdf'||ext==='pdf';
+  const isImg=/^image\//.test(file.type)||['jpg','jpeg','png','webp','gif','svg'].indexOf(ext)>=0;
+  if(!isPdf&&!isImg){toast('Bitte als PDF (oder Bild) hochladen.','error');return;}
+  if(file.size>12*1024*1024){toast('Max. 12 MB','error');return;}
   const reader=new FileReader();
   reader.onload=function(){
-    const fmt=file.name.split('.').pop().toLowerCase();
-    GemaProdukte.addDokument(currentProdukt.id,{
-      name:file.name, typ:typ, format:fmt, sprache:sprache,
-      groesse:file.size, dataUrl:reader.result
-    });
-    currentProdukt=GemaProdukte.getProdukt(currentProdukt.id);
-    fi.value='';var fn=document.getElementById('docFileName');if(fn)fn.textContent='';renderDocs();toast('Dokument hochgeladen');
+    const dataUrl=reader.result;
+    function done(rec){
+      GemaProdukte.addDokument(currentProdukt.id, rec);
+      currentProdukt=GemaProdukte.getProdukt(currentProdukt.id);
+      fi.value='';var fn=document.getElementById('docFileName');if(fn)fn.textContent='';renderDocs();toast('Dokument hochgeladen');
+    }
+    var base={ name:file.name, typ:typ, format:ext||(isPdf?'pdf':'jpg'), sprache:sprache, groesse:file.size };
+    // SVG kann GemaStorage (Image-Load-Verifikation) nicht → immer Base64
+    if(ext!=='svg' && typeof GemaStorage!=='undefined' && GemaStorage.isConfigured()){
+      GemaStorage.uploadDataUrl(dataUrl, 'produkte/'+(currentProdukt.lieferantId||'unbekannt')+'/doks').then(function(res){
+        done(Object.assign(base,{url:res.url}));
+      }).catch(function(){
+        if(file.size>2.5*1024*1024){toast('Upload fehlgeschlagen — Datei zu gross für den Fallback (max. 2.5 MB).','error');return;}
+        done(Object.assign(base,{dataUrl:dataUrl}));
+      });
+    } else {
+      if(file.size>2.5*1024*1024){toast('Datei zu gross für lokalen Speicher (max. 2.5 MB) — bitte Cloud-Speicher konfigurieren.','error');return;}
+      done(Object.assign(base,{dataUrl:dataUrl}));
+    }
   };
   reader.readAsDataURL(file);
 }
@@ -652,13 +685,16 @@ function rmDoc(docId){
 function previewDoc(docId){
   const docs=GemaProdukte.getDokumente(currentProdukt.id);
   const d=docs.find(x=>x.id===docId);
-  if(!d||!d.dataUrl) return;
+  if(!d) return;
+  const src=d.url||d.dataUrl;
+  if(!src) return;
+  if(d.url){ window.open(d.url,'_blank'); return; }
   const w=window.open('','_blank');
   if(!w) return;
-  if(d.format==='pdf'||d.dataUrl.startsWith('data:application/pdf')){
-    w.document.write('<html><body style="margin:0"><iframe src="'+d.dataUrl+'" style="width:100%;height:100vh;border:none"></iframe><\/body><\/html>');
+  if(d.format==='pdf'||src.startsWith('data:application/pdf')){
+    w.document.write('<html><body style="margin:0"><iframe src="'+src+'" style="width:100%;height:100vh;border:none"></iframe><\/body><\/html>');
   } else {
-    w.document.write('<html><body style="margin:0;display:flex;align-items:center;justify-content:center;background:#f4f6fb;min-height:100vh"><img src="'+d.dataUrl+'" style="max-width:100%;max-height:100vh;object-fit:contain"/><\/body><\/html>');
+    w.document.write('<html><body style="margin:0;display:flex;align-items:center;justify-content:center;background:#f4f6fb;min-height:100vh"><img src="'+src+'" style="max-width:100%;max-height:100vh;object-fit:contain"/><\/body><\/html>');
   }
 }
 

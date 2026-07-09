@@ -310,6 +310,26 @@
       label:'Bestellung storniert (Lieferant)',
       modul:'bestellungen',
       defaultOn:true
+    },
+    revision_unterlagen_anfrage: {
+      label:'Anfrage: Unterlagen für Revisionsdossier',
+      modul:'revisionsunterlagen',
+      defaultOn:true
+    },
+    revision_unterlagen_erhalten: {
+      label:'Revisions-Unterlagen vom Lieferant erhalten',
+      modul:'revisionsunterlagen',
+      defaultOn:true
+    },
+    revision_projektabschluss: {
+      label:'Projekt abgeschlossen — Revisionsunterlagen erstellen',
+      modul:'revisionsunterlagen',
+      defaultOn:true
+    },
+    revision_freigabe_erstellt: {
+      label:'Revisionsunterlagen freigegeben (Link/QR)',
+      modul:'revisionsunterlagen',
+      defaultOn:false
     }
   };
 

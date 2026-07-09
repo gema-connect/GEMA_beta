@@ -40,6 +40,29 @@ var LIEF_KATEGORIEN = [
 var KAT_ALIAS = { abwasserhebeanlage:'hebeanlage', solaranlage:'thermische_solaranlage' };
 function normKatId(id){ return KAT_ALIAS[id] || id; }
 
+// ── Kanonische Dokumenttypen fuer produkt.dokumente[] ──
+// Frueher nutzten die zwei Pflege-UIs unterschiedliche typ-Werte
+// (sys_produktkatalog: datenblatt/anleitung/zertifikat/schema/bild;
+//  sys_lieferant_dashboard: datenblatt/montage/zertifikat/konformitaet).
+// DOK_TYPEN ist das eine kanonische Enum, DOK_TYP_ALIAS bildet Altdaten darauf ab.
+// Bestandsdaten bleiben unangetastet — Leser normalisieren via normDokTyp() (wie normKatId).
+var DOK_TYPEN = {
+  datenblatt:              { label:'Datenblatt / Technische Daten', icon:'📄' },
+  technische_zeichnung:    { label:'Technische Zeichnung / Masszeichnung', icon:'📐' },
+  bedienungsanleitung:     { label:'Bedienungsanleitung', icon:'📘' },
+  montageanleitung:        { label:'Montageanleitung', icon:'🔧' },
+  wartungsanleitung:       { label:'Wartungs-/Serviceanleitung', icon:'🛠' },
+  konformitaetserklaerung: { label:'Konformitätserklärung (CE/…)', icon:'✅' },
+  zertifikat:              { label:'Zertifikat / Zulassung (SVGW…)', icon:'🏅' },
+  schema:                  { label:'Schema / Anschlussschema', icon:'🗺' },
+  ersatzteilliste:         { label:'Ersatzteilliste', icon:'🧩' },
+  garantie:                { label:'Garantieschein / -bedingungen', icon:'🛡' },
+  sonstiges:               { label:'Sonstiges', icon:'📎' }
+};
+var DOK_TYP_ALIAS = { anleitung:'bedienungsanleitung', montage:'montageanleitung',
+                      konformitaet:'konformitaetserklaerung', bild:'sonstiges' };
+function normDokTyp(t){ return DOK_TYPEN[t] ? t : (DOK_TYP_ALIAS[t] || 'sonstiges'); }
+
 var SK = 'gema_produktkatalog_v1';
 const SK_LIEF = 'gema_lieferanten_v1';
 const SK_OA = 'gema_offertanfragen_v1';
@@ -1584,7 +1607,8 @@ function addDokument(produktId, dok){
     datum: new Date().toISOString().split('T')[0],
     groesse: dok.groesse || 0,
     hochgeladenVon: _getUsername(),
-    dataUrl: dok.dataUrl || '' // base64 for localStorage (temp, migrate to Supabase later)
+    url: dok.url || '',         // GemaStorage-URL (bevorzugt, haelt den Record klein)
+    dataUrl: dok.dataUrl || ''  // base64-Fallback bzw. Altdaten; Leser nutzen url || dataUrl
   };
   p.dokumente.push(d);
   addLog(p, 'Dokument', 'Hochgeladen: ' + d.name);
@@ -2101,6 +2125,9 @@ window.GemaProdukte = {
   // Lieferanten-Kategorien
   LIEF_KATEGORIEN,
   normKatId,
+  DOK_TYPEN,
+  DOK_TYP_ALIAS,
+  normDokTyp,
   getLieferantenByKategorie: function(kat){
     var k = normKatId(kat);
     return getAllLieferanten().filter(function(l){

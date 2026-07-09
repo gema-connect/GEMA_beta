@@ -276,6 +276,7 @@
     {key:'crbx_offertvergleich',    label:'CRBX Offertvergleich',      cat:'Projektmanagement'},
     {key:'schnellausschreibung',    label:'Schnellausschreibung',      cat:'Projektmanagement'},
     {key:'bestellungen',            label:'Bestellungen (Anlagen)',    cat:'Projektmanagement'},
+    {key:'revisionsunterlagen',     label:'Revisionsunterlagen',       cat:'Projektmanagement'},
     {key:'regierapport',            label:'Regierapporte',             cat:'Projektmanagement'},
     {key:'erp',                     label:'Offerten/Aufträge/Rechnungen', cat:'Projektmanagement'},
     {key:'einsatzplan',             label:'Einsatzplan',               cat:'Projektmanagement'},
@@ -328,7 +329,7 @@
     'sd_schadensbericht':'schadensbericht',
     'sp_dachbericht':'dachbericht',
     'if_trocknung':'trocknungsgeraete','if_wareneingang':'wareneingang',
-    'pm_crbx':'crbx_offertvergleich','pm_schnellausschreibung':'schnellausschreibung','pm_bestellungen':'bestellungen','pm_regierapport':'regierapport','pm_erp':'erp','pm_einsatzplan':'einsatzplan',
+    'pm_crbx':'crbx_offertvergleich','pm_schnellausschreibung':'schnellausschreibung','pm_bestellungen':'bestellungen','pm_revisionsunterlagen':'revisionsunterlagen','pm_regierapport':'regierapport','pm_erp':'erp','pm_einsatzplan':'einsatzplan',
     'sys_lieferanten':'lieferantenverwaltung','sys_produktkatalog':'produktkatalog',
     'sys_workspace':'workspace',
   };
@@ -350,8 +351,8 @@
     {id:'role_lueftung_planer',name:'Lüftungsplaner',color:'#2563eb',gewerke:['lueftung'],permissions:(function(){var p=_allPerms(true,true,false);p['werkzeugmanagement']={read:true,write:false,admin:false};p['objekte']={read:true,write:true,admin:true};return p;})()},
     {id:'role_elektro_planer',name:'Elektroplaner',color:'#d97706',gewerke:['elektro'],permissions:(function(){var p=_allPerms(true,true,false);p['werkzeugmanagement']={read:true,write:false,admin:false};p['objekte']={read:true,write:true,admin:true};return p;})()},
     {id:'role_spengler',name:'Spengler',color:'#0891b2',gewerke:['spenglerei'],permissions:(function(){var p=_somePerms(['dachbericht','objekte','baustellencheckliste','werkzeugmanagement'],true,true,false);p['dachbericht']={read:true,write:true,admin:true};p['objekte']={read:true,write:true,admin:true};p['regierapport']={read:true,write:true,admin:false};p['einsatzplan']={read:true,write:false,admin:false};p['abnahme_sia']={read:true,write:false,admin:false};p['stundenerfassung']={read:true,write:true,admin:false};return p;})()},
-    {id:'role_architekt',name:'Architekt / GP',color:'#7c3aed',permissions:(function(){var p=_somePerms(['terminplan','besprechungsprotokoll','objekte','abnahme_sia'],true,false,false);p['regierapport']={read:true,write:true,admin:false};return p;})()},
-    {id:'role_unternehmer',name:'Unternehmer',color:'#d97706',permissions:(function(){var p=_somePerms(['terminplan','abnahme_sia','werkzeugmanagement','baustellencheckliste','inspektion_wartung','ausschreibungsunterlagen','crbx_offertvergleich','schnellausschreibung','bestellungen'],true,true,false);p['legionellen']={read:true,write:true,admin:false};p['spuelmanager']={read:true,write:true,admin:false};return p;})()},
+    {id:'role_architekt',name:'Architekt / GP',color:'#7c3aed',permissions:(function(){var p=_somePerms(['terminplan','besprechungsprotokoll','objekte','abnahme_sia'],true,false,false);p['regierapport']={read:true,write:true,admin:false};p['revisionsunterlagen']={read:true,write:false,admin:false};return p;})()},
+    {id:'role_unternehmer',name:'Unternehmer',color:'#d97706',permissions:(function(){var p=_somePerms(['terminplan','abnahme_sia','werkzeugmanagement','baustellencheckliste','inspektion_wartung','ausschreibungsunterlagen','crbx_offertvergleich','schnellausschreibung','bestellungen'],true,true,false);p['legionellen']={read:true,write:true,admin:false};p['spuelmanager']={read:true,write:true,admin:false};p['revisionsunterlagen']={read:true,write:true,admin:false};return p;})()},
     // ── Lieferanten-Rollen: ZWEI Typen (User-Entscheid) ──
     // ANLAGENLIEFERANT (role_lieferant*): liefert Anlagen fuer die
     // Berechnungsmodule (Enthaertung, Druckerhoehung, Osmose, …) —
@@ -403,7 +404,7 @@
     // eigenen Organisation.
     {id:'role_monteur',name:'Monteur',color:'#64748b',permissions:(function(){var p=_somePerms(['werkzeugmanagement','baustellencheckliste','inspektion_wartung'],true,false,false);p['schadensbericht']={read:true,write:true,admin:false};p['trocknungsgeraete']={read:true,write:false,admin:false};p['regierapport']={read:true,write:true,admin:false};p['objekte']={read:true,write:false,admin:false};p['einsatzplan']={read:true,write:false,admin:false};p['abnahme_sia']={read:true,write:false,admin:false};p['legionellen']={read:true,write:true,admin:false};p['spuelmanager']={read:true,write:true,admin:false};p['service']={read:true,write:true,admin:false};p['stundenerfassung']={read:true,write:true,admin:false};return p;})()},
     {id:'role_abteilungsleiter',name:'Abteilungsleiter',color:'#6d28d9',permissions:(function(){var p=_allPerms(true,true,false);p['werkzeugmanagement']={read:true,write:true,admin:false};p['objekte']={read:true,write:true,admin:true};return p;})()},
-    {id:'role_bauherrschaft',name:'Bauherrschaft',color:'#0284c7',permissions:(function(){var p=_somePerms(['objekte','terminplan','kostenkontrolle','besprechungsprotokoll','abnahme_sia'],true,false,false);p['regierapport']={read:true,write:true,admin:false};return p;})()},
+    {id:'role_bauherrschaft',name:'Bauherrschaft',color:'#0284c7',permissions:(function(){var p=_somePerms(['objekte','terminplan','kostenkontrolle','besprechungsprotokoll','abnahme_sia'],true,false,false);p['regierapport']={read:true,write:true,admin:false};p['revisionsunterlagen']={read:true,write:false,admin:false};return p;})()},
     {id:'role_behoerde',name:'Behörde',color:'#475569',permissions:_somePerms(['w12','objekte','inspektion_wartung','legionellen'],true,false,false)},
   ];
 
