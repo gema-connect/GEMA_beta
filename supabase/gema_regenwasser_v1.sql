@@ -49,20 +49,39 @@ create table if not exists public.nb_datensatz (
 comment on table public.nb_datensatz is
   'Versionierte Starkniederschlags-Datensaetze (MeteoSchweiz B04). Genau ein Datensatz sollte aktiv=true sein.';
 
--- Gitterpunkte, ein Datensatz pro Punkt pro Version (~50k–70k Punkte).
+-- Gitterpunkte, ein Datensatz pro Punkt pro Version (~63'000 Punkte pro Version).
+-- Der Import liefert lon/lat (WGS84, aus den 2D-lon/lat-Feldern des B04-NetCDF);
+-- geom wird per Trigger daraus gebaut (kein Geometrie-Handling im Importer nötig).
 create table if not exists public.nb_gitterpunkt (
   id           bigserial primary key,
   datensatz_id text not null references public.nb_datensatz(id) on delete cascade,
-  geom         geometry(Point, 4326) not null,
+  lon          numeric not null,           -- WGS84 Laenge (E)
+  lat          numeric not null,           -- WGS84 Breite (N)
+  geom         geometry(Point, 4326),      -- per Trigger aus lon/lat
   x_lv95       numeric,                    -- Ost (LV95 / EPSG:2056)
   y_lv95       numeric,                    -- Nord (LV95 / EPSG:2056)
-  hoehe_m      integer,
-  werte        jsonb not null,             -- { "5min": {"T2":..,"T5":..}, "10min": {...}, ... } in mm
-  unsicherheit jsonb                       -- gleiche Struktur, je Kombi {"p2_5":..,"p97_5":..}
+  hoehe_m      integer,                    -- im B04-Produkt nicht enthalten → NULL
+  werte        jsonb not null,             -- { "5min": {"T2":..,"T5":..}, "10min": {...} } in mm
+  unsicherheit jsonb                       -- optional, gleiche Struktur, je Kombi {"p2_5":..,"p97_5":..}
 );
 
 comment on column public.nb_gitterpunkt.werte is
   'Niederschlagshoehe in mm je Dauerstufe/Wiederkehrperiode. Umrechnung in Regenspende erst in der Berechnung: r[l/(s·ha)] = h[mm] × 10000 / t[s].';
+
+-- geom aus lon/lat setzen (search_path deckt beide PostGIS-Schema-Platzierungen ab).
+create or replace function public.nb_set_geom() returns trigger
+  language plpgsql
+  set search_path = public, extensions
+as $$
+begin
+  new.geom := st_setsrid(st_makepoint(new.lon, new.lat), 4326);
+  return new;
+end;
+$$;
+
+drop trigger if exists nb_geom_trg on public.nb_gitterpunkt;
+create trigger nb_geom_trg before insert or update of lon, lat
+  on public.nb_gitterpunkt for each row execute function public.nb_set_geom();
 
 -- Geograpie-Index fuer die Nearest-Neighbour-Suche (<-> Operator).
 create index if not exists nb_gitterpunkt_geom_idx
