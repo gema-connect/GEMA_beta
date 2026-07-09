@@ -221,6 +221,17 @@ textarea.fc{resize:vertical;min-height:60px;line-height:1.5}
     <div id="bestList"></div>
   </div>
 
+  <!-- Tab: Revisionsanfragen (Unterlagen für Übergabedossier) -->
+  <div class="tab-body" id="tb-revision">
+    <div class="card">
+      <div class="card-hd"><h3>📑 Anfragen: Revisions-Unterlagen</h3></div>
+      <div class="card-bd" style="padding:14px">
+        <p style="font-size:12.5px;color:var(--mut);margin-bottom:12px">Planer fordern für ihre Übergabedossiers fehlende Unterlagen (Datenblätter, Bedienungs-/Wartungsanleitungen, Konformitätserklärungen) an. Laden Sie die Unterlagen direkt beim betroffenen Produkt hoch — so stehen sie für alle künftigen Projekte bereit.</p>
+        <div id="revAnfragenList"><p style="color:var(--mut);font-size:13px">Wird geladen…</p></div>
+      </div>
+    </div>
+  </div>
+
   <!-- Tab: Rohrsysteme & Armaturen -->
   <div class="tab-body" id="tb-rohrsysteme">
     <div class="card">
@@ -640,6 +651,10 @@ function _initWithLief(){
   if(typeof GemaBest!=='undefined'&&GemaBest.bind){
     GemaBest.bind().then(function(){ try{renderBestellungen();}catch(e){} }).catch(function(){});
   }
+  // Revisions-Anfragen (cross-org: kommen von fremden Planer-Orgs).
+  if(typeof GemaSync!=='undefined'&&GemaSync.bindCollection){
+    GemaSync.bindCollection('revisionsunterlagen','gema_rev_anfr_pool_v1','reva:','id').then(function(){ try{renderRevisionen();}catch(e){} }).catch(function(){});
+  }
 }
 
 function setupTabs(){
@@ -660,6 +675,7 @@ function setupTabs(){
   var tabs=[{id:'uebersicht',label:'Übersicht',show:true}];
   if(isLief){
     tabs.push({id:'produkte',label:'Meine Produkte',show:true});
+    tabs.push({id:'revision',label:'📑 Revisionsanfragen',show:true,badge:'revBadge'});
   }
   if(isAnlagen){
     tabs.push({id:'anfragen',label:'Offertanfragen',show:true,badge:'oaBadge'});
@@ -722,10 +738,87 @@ window.switchToTab=switchToTab;
 function renderAll(){
   // Jede Sektion einzeln absichern: ein Fehler in EINEM Renderer darf
   // nie die restlichen Sektionen (und damit das ganze Dashboard) killen.
-  [renderKPIs,renderUebersicht,renderProdukte,renderAnfragen,renderBestellungen,renderRohrsysteme,
+  [renderKPIs,renderUebersicht,renderProdukte,renderAnfragen,renderBestellungen,renderRevisionen,renderRohrsysteme,
    renderWzPruefauftraege,renderWerkzeuge,renderMandate,renderWzDefekte,
    renderWzErsatz,renderLiefUsers,fillProfil].forEach(function(fn){
     try{ fn(); }catch(e){ try{console.warn('[lief-dashboard]',fn.name,e);}catch(_){} }
+  });
+}
+
+// ── Revisionsanfragen (Unterlagen fürs Übergabedossier) ──
+function _revReadAnfragen(){ try{ if(typeof GemaSync!=='undefined'&&GemaSync.getCached) return GemaSync.getCached('gema_rev_anfr_pool_v1')||[]; }catch(e){} try{return JSON.parse(localStorage.getItem('gema_rev_anfr_pool_v1')||'[]');}catch(e){return [];} }
+function _revMyAnfragen(){ if(!_lief)return []; return _revReadAnfragen().filter(function(a){return a.lieferantId===_lief.id;}).sort(function(x,y){return (y.angefordertAm||'').localeCompare(x.angefordertAm||'');}); }
+function _revSaveAnfrage(a){
+  var arr=_revReadAnfragen(); var i=arr.findIndex(function(x){return x.id===a.id;}); if(i>=0)arr[i]=a;else arr.unshift(a);
+  try{localStorage.setItem('gema_rev_anfr_pool_v1',JSON.stringify(arr));}catch(e){}
+  try{ if(typeof GemaSync!=='undefined'&&GemaSync.saveRecord)GemaSync.saveRecord('revisionsunterlagen','reva:'+a.id,a).catch(function(){}); }catch(e){}
+}
+function _revDokLabel(t){ try{ if(typeof GemaProdukte!=='undefined'&&GemaProdukte.DOK_TYPEN){ var n=GemaProdukte.normDokTyp(t); return (GemaProdukte.DOK_TYPEN[n]&&GemaProdukte.DOK_TYPEN[n].label)||t; } }catch(e){} return t; }
+function _revHatDok(produktId,typ){ try{ var doks=GemaProdukte.getDokumente(produktId)||[]; return doks.some(function(d){return GemaProdukte.normDokTyp(d.typ)===GemaProdukte.normDokTyp(typ);}); }catch(e){ return false; } }
+function renderRevisionen(){
+  var box=document.getElementById('revAnfragenList'); if(!box)return;
+  var list=_revMyAnfragen();
+  var offen=list.filter(function(a){return a.status==='offen';}).length;
+  var badge=document.getElementById('revBadge'); if(badge){ badge.textContent=offen; badge.style.display=offen>0?'':'none'; }
+  if(!list.length){ box.innerHTML='<p style="color:var(--mut);font-size:13px">Keine Anfragen. Sobald ein Planer für ein Übergabedossier Unterlagen anfragt, erscheinen sie hier.</p>'; return; }
+  box.innerHTML=list.map(function(a){
+    var stCol={offen:'#ea580c',beantwortet:'#16a34a',abgelehnt:'#dc2626'}[a.status]||'#64748b';
+    var stLbl={offen:'Offen',beantwortet:'Erledigt',abgelehnt:'Abgelehnt'}[a.status]||a.status;
+    var chips=(a.dokTypen||[]).map(function(t){ var have=a.produktId&&_revHatDok(a.produktId,t); return '<span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;border:1px solid '+(have?'#bbf7d0':'#fcd34d')+';background:'+(have?'#f0fdf4':'#fffbeb')+';color:'+(have?'#16a34a':'#b45309')+'">'+(have?'✓ ':'')+E(_revDokLabel(t))+'</span>'; }).join(' ');
+    var h='<div style="border:1.5px solid var(--brd);border-radius:12px;padding:12px;margin-bottom:10px">';
+    h+='<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><strong style="font-size:13.5px;flex:1">'+E(a.produktName||'—')+'</strong><span style="font-size:11px;font-weight:800;padding:2px 9px;border-radius:999px;background:'+stCol+'20;color:'+stCol+'">'+stLbl+'</span></div>';
+    h+='<div style="font-size:12px;color:var(--mut);margin-top:4px">🏗 '+E(a.objektName||'')+' · von '+E((a.angefordertVon||{}).firma||(a.angefordertVon||{}).name||'')+'</div>';
+    if(a.nachricht)h+='<div style="font-size:12px;color:var(--txt2);margin-top:6px">'+E(a.nachricht)+'</div>';
+    h+='<div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:5px">'+chips+'</div>';
+    if(a.status==='offen'&&(_liefCanEditProdukte()||_liefCanOfferten())){
+      h+='<div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:6px">';
+      h+='<button class="btn btn-p btn-sm" onclick="revUpload(\''+E(a.id)+'\')" style="font-size:11px">📤 Unterlagen hochladen</button>';
+      h+='<button class="btn btn-s btn-sm" onclick="revErledigt(\''+E(a.id)+'\')" style="font-size:11px">✓ Erledigt senden</button>';
+      h+='<button class="btn btn-d btn-sm" onclick="revAblehnen(\''+E(a.id)+'\')" style="font-size:11px">✕ Ablehnen</button>';
+      h+='</div>';
+    }
+    h+='</div>';
+    return h;
+  }).join('');
+}
+function revUpload(id){
+  var a=_revMyAnfragen().find(function(x){return x.id===id;}); if(!a)return;
+  if(_liefBlockedInaktiv())return;
+  // Produkt im eigenen Katalog → dort hochladen (profitiert allen Projekten)
+  var prod=null; try{ prod=a.produktId?GemaProdukte.getProdukt(a.produktId):null; }catch(e){}
+  if(prod&&prod.lieferantId===_lief.id){
+    switchToTab('produkte'); openProdEditor(a.produktId);
+    toast('Laden Sie die fehlenden Unterlagen beim Produkt hoch, dann «Erledigt senden».');
+    return;
+  }
+  // Fallback: freies Produkt → direkt an die Anfrage hängen
+  var inp=document.createElement('input'); inp.type='file'; inp.accept='.pdf,.jpg,.jpeg,.png,.webp';
+  inp.onchange=function(){ if(!inp.files||!inp.files.length)return; var file=inp.files[0];
+    var ext=(file.name.split('.').pop()||'').toLowerCase(); var isPdf=file.type==='application/pdf'||ext==='pdf'; var isImg=/^image\//.test(file.type)||['jpg','jpeg','png','webp'].indexOf(ext)>=0;
+    if(!isPdf&&!isImg){ toast('Bitte PDF oder Bild.','error'); return; }
+    if(file.size>12*1024*1024){ toast('Max. 12 MB','error'); return; }
+    var rd=new FileReader(); rd.onload=function(){ var dataUrl=rd.result;
+      function done(rec){ a.antwort=a.antwort||{doks:[]}; a.antwort.doks=a.antwort.doks||[]; a.antwort.doks.push(rec); _revSaveAnfrage(a); renderRevisionen(); toast('Datei angehängt'); }
+      var base={dokTyp:(a.dokTypen||[])[0]||'sonstiges',name:file.name,format:ext||(isPdf?'pdf':'jpg')};
+      if(typeof GemaStorage!=='undefined'&&GemaStorage.isConfigured()){ GemaStorage.uploadDataUrl(dataUrl,'revision/anfragen/'+_lief.id).then(function(res){ base.url=res.url; done(base); }).catch(function(){ if(file.size>2.5*1024*1024){toast('Upload fehlgeschlagen — Datei zu gross.','error');return;} base.dataUrl=dataUrl; done(base); }); }
+      else { if(file.size>2.5*1024*1024){toast('Cloud nicht verfügbar — Datei zu gross.','error');return;} base.dataUrl=dataUrl; done(base); }
+    }; rd.readAsDataURL(file);
+  };
+  inp.click();
+}
+function _revNotifyPlaner(a,typ,titel){
+  try{ if(a.angefordertVon&&a.angefordertVon.userId&&typeof GemaNotify!=='undefined')GemaNotify.push({eventKey:'revision_unterlagen_erhalten',empfaengerUserId:a.angefordertVon.userId,modul:'revisionsunterlagen',typ:typ||'erfolg',titel:titel,text:(a.produktName||'')+' — '+(a.objektName||''),link:'pm_revisionsunterlagen.html?d='+(a.dossierId||''),objektId:a.objektId||''}); }catch(e){}
+}
+function revErledigt(id){
+  var a=_revMyAnfragen().find(function(x){return x.id===id;}); if(!a)return; if(_liefBlockedInaktiv())return;
+  a.status='beantwortet'; a.antwort=a.antwort||{}; a.antwort.beantwortetAm=new Date().toISOString(); a.antwort.beantwortetVon=(GemaAuth.getCurrentUser()||{}).name||'';
+  _revSaveAnfrage(a); _revNotifyPlaner(a,'erfolg','Revisions-Unterlagen bereitgestellt'); renderRevisionen(); toast('Als erledigt gemeldet');
+}
+function revAblehnen(id){
+  var a=_revMyAnfragen().find(function(x){return x.id===id;}); if(!a)return; if(_liefBlockedInaktiv())return;
+  GemaDialog.prompt({title:'Anfrage ablehnen',placeholder:'Grund (optional)'}).then(function(grund){ if(grund===null)return;
+    a.status='abgelehnt'; a.antwort=a.antwort||{}; a.antwort.nachricht=grund||''; a.antwort.beantwortetAm=new Date().toISOString();
+    _revSaveAnfrage(a); _revNotifyPlaner(a,'warnung','Revisions-Anfrage abgelehnt'); renderRevisionen(); toast('Abgelehnt');
   });
 }
 
