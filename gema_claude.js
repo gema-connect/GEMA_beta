@@ -22,8 +22,15 @@
  *     opts = { imageBase64, mediaType?, text?, modus:'grundriss'|'schnitt', signal? }
  *     — Plan-Analyse (Grundriss Pass 1 / Schnitt Pass 3) via
  *       /.netlify/functions/claude-plan. Pläne-Modul (pm_plaene.html).
+ *   GemaClaude.createRedactor(extraTerms?)     → {redactText,matchesTerm,restore,count}
+ *     — Anonymisierung: Kundennamen/-adressen (Objekt-Stammdaten,
+ *       Beteiligte, generische Adressmuster) werden vor dem API-Aufruf
+ *       durch [NAME_n]/[ADRESSE_n] ersetzt und via restore() wieder
+ *       eingesetzt. Die Text-Modi (rewrite/fix/…) nutzen das automatisch
+ *       (abschaltbar mit opts.anonymize === false); matchesTerm() dient
+ *       der Bild-Schwärzung in pm_plaene.
  *
- * opts = { signal? }   AbortSignal optional
+ * opts = { signal?, anonymize?, extraTerms? }   AbortSignal optional
  *
  * Bei Fehler wird das Promise gerejected mit Error(message).
  */
@@ -35,19 +42,121 @@
   var FORMFIELDS_ENDPOINT = '/.netlify/functions/claude-formfields';
   var PLAN_ENDPOINT = '/.netlify/functions/claude-plan';
 
+  // ── Anonymisierung (Datenschutz): Kundennamen und Adressen verlassen
+  //    GEMA nicht — sie werden VOR dem API-Aufruf durch Platzhalter
+  //    ([NAME_n]/[ADRESSE_n]) ersetzt bzw. im Planbild geschwärzt und in
+  //    der Antwort via restore() wieder eingesetzt.
+  //    Begriffs-Quellen: Objekt-Stammdaten + Beteiligte (lokaler Cache,
+  //    GemaObjekte) + aufrufer-spezifische extraTerms + generische
+  //    Adressmuster (Strasse + Nr, PLZ + Ort). Best-effort: unbekannte
+  //    Namen ohne Stammdaten-Bezug können nicht erkannt werden.
+  var GENERIC_PATTERNS = [
+    /\b[A-ZÄÖÜ][A-Za-zäöüéèàß.\-]{2,}(?:strasse|straße|str\.|weg|gasse|platz|allee|ring|rain|halde|matte|acker|feld|steig|weid)\s*\d+[a-z]?\b/g,
+    /\b\d{4}\s+[A-ZÄÖÜ][A-Za-zäöüéèà\-]{2,}\b/g
+  ];
+  function _redEsc(s){ return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+  function _redWordIn(hay, needle){
+    return new RegExp('(^|[^0-9a-zäöüéèà])' + _redEsc(needle) + '($|[^0-9a-zäöüéèà])').test(hay);
+  }
+  function _redTerms(extra){
+    var terms = [];
+    function add(v){
+      v = String(v == null ? '' : v).trim();
+      if (v.length < 3 || /^\d+$/.test(v)) return;
+      terms.push(v);
+    }
+    function addObj(o){ if(!o) return; add(o.name); add(o.firma); add(o.strasse); add(o.ort); if (o.plz && o.ort) add(o.plz + ' ' + o.ort); }
+    try {
+      if (w.GemaObjekte && w.GemaObjekte.getAll) (w.GemaObjekte.getAll() || []).forEach(addObj);
+    } catch(e) {}
+    try {
+      var blob = JSON.parse((w.localStorage && localStorage.getItem('gema_objekte_v1')) || '{}');
+      (blob.objekte || []).forEach(addObj);
+      (blob.beteiligte || []).forEach(addObj);
+    } catch(e) {}
+    (extra || []).forEach(add);
+    var seen = {}, out = [];
+    terms.forEach(function(t){ var k = t.toLowerCase(); if (seen[k]) return; seen[k] = 1; out.push(t); });
+    out.sort(function(a, b){ return b.length - a.length; }); // längste zuerst («Musterstrasse 12» vor «Musterstrasse»)
+    return out;
+  }
+  // createRedactor(extraTerms?) → { redactText, matchesTerm, restore, count }
+  function createRedactor(extraTerms){
+    var terms = _redTerms(extraTerms);
+    var map = {}, inv = {}, n = 0;
+    function isAdr(t){ return /\d/.test(t) || /(strasse|straße|str\.|weg|gasse|platz|allee)/i.test(t); }
+    function tokenFor(orig){
+      var k = orig.toLowerCase();
+      if (inv[k]) return inv[k];
+      n++;
+      var tok = '[' + (isAdr(orig) ? 'ADRESSE' : 'NAME') + '_' + n + ']';
+      map[tok] = orig; inv[k] = tok;
+      return tok;
+    }
+    function redactText(text){
+      var out = String(text == null ? '' : text);
+      terms.forEach(function(t){
+        out = out.replace(new RegExp(_redEsc(t), 'gi'), function(){ return tokenFor(t); });
+      });
+      GENERIC_PATTERNS.forEach(function(re){
+        out = out.replace(re, function(m){ return tokenFor(m); });
+      });
+      return out;
+    }
+    // Für Bild-Schwärzung: ist dieses Text-Fragment (pdf.js-Textitem) sensibel?
+    // Reine Zahlen/Masse werden NIE geschwärzt (Bemassungen braucht die Analyse).
+    function matchesTerm(str){
+      var s = String(str == null ? '' : str).trim();
+      if (s.length < 3) return false;
+      if (/^[\d\s.,:;\/\-–—×x°%m²'"()]+$/.test(s)) return false;
+      for (var g = 0; g < GENERIC_PATTERNS.length; g++){
+        GENERIC_PATTERNS[g].lastIndex = 0;
+        if (GENERIC_PATTERNS[g].test(s)) return true;
+      }
+      var low = s.toLowerCase();
+      for (var i = 0; i < terms.length; i++){
+        var t = terms[i].toLowerCase();
+        if (low === t) return true;
+        if (low.length >= 4 && _redWordIn(t, low)) return true; // Fragment = Wort(folge) im Begriff
+        if (t.length >= 4 && _redWordIn(low, t)) return true;   // Begriff steckt als Wort im Fragment
+      }
+      return false;
+    }
+    function restore(x){
+      if (typeof x === 'string'){
+        var s = x;
+        Object.keys(map).forEach(function(tok){ s = s.split(tok).join(map[tok]); });
+        return s;
+      }
+      if (Array.isArray(x)) return x.map(restore);
+      if (x && typeof x === 'object'){
+        var o = {};
+        Object.keys(x).forEach(function(k){ o[k] = restore(x[k]); });
+        return o;
+      }
+      return x;
+    }
+    return { redactText: redactText, matchesTerm: matchesTerm, restore: restore, count: function(){ return n; }, terms: terms };
+  }
+
   function _call(mode, text, opts) {
     opts = opts || {};
+    // Anonymisierung default AN: Platzhalter rein → Antwort → Platzhalter
+    // zurück (die Rewrite-Prompts sind angewiesen, sie exakt zu erhalten).
+    var red = (opts.anonymize === false) ? null : createRedactor(opts.extraTerms);
+    var sendText = red ? red.redactText(text) : text;
     return fetch(ENDPOINT, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ mode: mode, text: text }),
+      body: JSON.stringify({ mode: mode, text: sendText }),
       signal: opts.signal
     }).then(function(r){
       return r.json().then(function(data){
         if (!r.ok || !data.ok) {
           throw new Error(data && data.error ? data.error : ('HTTP ' + r.status));
         }
-        return data.text || '';
+        var out = data.text || '';
+        return red ? red.restore(out) : out;
       });
     });
   }
@@ -170,6 +279,7 @@
     expand: function(t, o){ return _call('expand', t, o); },
     extractPositions: extractPositions,
     analyzeForm: analyzeForm,
-    analyzePlan: analyzePlan
+    analyzePlan: analyzePlan,
+    createRedactor: createRedactor
   };
 })(typeof window !== 'undefined' ? window : this);
