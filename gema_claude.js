@@ -17,6 +17,11 @@
  *     opts = { text?, fileBase64?, mediaType?, filename?, signal? }
  *     — Dokument-Analyse (Rechnung/Lieferschein/Auftragsbestätigung) via
  *       /.netlify/functions/claude-extract. Wareneingang-Modul.
+ *   GemaClaude.analyzePlan(opts)               Promise<{plantyp,geschoss,massstab,
+ *                                                       bemassungen[],raeume[],…}>
+ *     opts = { imageBase64, mediaType?, text?, modus:'grundriss'|'schnitt', signal? }
+ *     — Plan-Analyse (Grundriss Pass 1 / Schnitt Pass 3) via
+ *       /.netlify/functions/claude-plan. Pläne-Modul (pm_plaene.html).
  *
  * opts = { signal? }   AbortSignal optional
  *
@@ -28,6 +33,7 @@
   var ENDPOINT = '/.netlify/functions/claude-rewrite';
   var EXTRACT_ENDPOINT = '/.netlify/functions/claude-extract';
   var FORMFIELDS_ENDPOINT = '/.netlify/functions/claude-formfields';
+  var PLAN_ENDPOINT = '/.netlify/functions/claude-plan';
 
   function _call(mode, text, opts) {
     opts = opts || {};
@@ -126,6 +132,35 @@
     });
   }
 
+  // ── Plan-Analyse (Pläne einlesen, pm_plaene.html): liefert Semantik +
+  //    Seed-Punkte (Raumlabels, Bemassungen bzw. Geschosshöhen) — die
+  //    Geometrie rechnet der Browser deterministisch (Flood-Fill).
+  //    opts = { imageBase64, mediaType?, text?, modus:'grundriss'|'schnitt', signal? }
+  function analyzePlan(opts) {
+    opts = opts || {};
+    var payload = {
+      imageBase64: opts.imageBase64 || '',
+      mediaType: opts.mediaType || 'image/jpeg',
+      modus: opts.modus === 'schnitt' ? 'schnitt' : 'grundriss'
+    };
+    if (opts.text) payload.text = String(opts.text);
+    return fetch(PLAN_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: opts.signal
+    }).then(function(r){
+      if (r.status === 404) throw new Error('KI-Plananalyse ist nicht verfügbar (Function nicht deployed, 404).');
+      return r.json().then(function(data){
+        if (!r.ok || !data.ok) throw new Error(data && data.error ? data.error : ('HTTP ' + r.status));
+        var d = data.data || {};
+        if (payload.modus === 'schnitt') d.geschosse = Array.isArray(d.geschosse) ? d.geschosse : [];
+        else { d.raeume = Array.isArray(d.raeume) ? d.raeume : []; d.bemassungen = Array.isArray(d.bemassungen) ? d.bemassungen : []; }
+        return d;
+      }).catch(function(err){ if (err instanceof Error) throw err; throw new Error('Unerwartete Antwort der KI-Plananalyse.'); });
+    });
+  }
+
   w.GemaClaude = {
     isConfigured: isConfigured,
     rewrite: function(t, o){ return _call('rewrite', t, o); },
@@ -134,6 +169,7 @@
     shorten: function(t, o){ return _call('shorten', t, o); },
     expand: function(t, o){ return _call('expand', t, o); },
     extractPositions: extractPositions,
-    analyzeForm: analyzeForm
+    analyzeForm: analyzeForm,
+    analyzePlan: analyzePlan
   };
 })(typeof window !== 'undefined' ? window : this);

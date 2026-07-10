@@ -40,6 +40,7 @@
     'pm_bestellungen':'Bestellungen',
     'pm_revisionsunterlagen':'Revisionsunterlagen',
     'pm_behoerden_formulare':'Behörden & Formulare',
+    'pm_plaene':'Pläne einlesen',
     'pm_crbx':'CRBX Offertvergleich',
     'pm_einsatzplan':'Einsatzplan',
     'pm_erp':'Offerten · Aufträge · Rechnungen',
