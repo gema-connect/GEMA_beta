@@ -75,6 +75,14 @@
       modus: 'pro_gewerk',         // 'pro_gewerk' | 'alle_pauschal' | 'rabatt'
       prozent: 20
     },
+    zusatzNutzer: {
+      // A6 (Annahme): Nutzer über dem Stufen-Limit kosten PROPORTIONAL zum
+      // Abo — Preis pro weiterem Nutzer = Abopreis (inkl. Zusatz-Gewerke)
+      // ÷ inkludierte Nutzer × faktorPct. Gilt für Firmen- und
+      // Installateur-Abos (Person-Abos sind fix 1 Nutzer).
+      aktiv: true,
+      faktorPct: 100
+    },
     rollen: {
       planer: {
         label: 'Planer', icon: '📐',
@@ -94,7 +102,7 @@
         firmaFeatures: ['Alle Berechnungsmodule (gewähltes Gewerk)','Komplettes Projektmanagement (Objekte, Termine, Ausschreibung, ERP)','Benutzer- & Rollenverwaltung (Admin)','Offertanfragen an Lieferanten','Cloud-Speicherung in der Schweiz'],
         firma: [
           {id:'planer_firma_1', label:'Grundabo I',    preis:50,  maxNutzer:2,  speicherGb:5,  anfragenTag:5000},
-          {id:'planer_firma_2', label:'Grundabo II',   preis:100, maxNutzer:5,  speicherGb:15, anfragenTag:10000},
+          {id:'planer_firma_2', label:'Grundabo II',   preis:100, maxNutzer:5,  speicherGb:15, anfragenTag:10000, beliebt:true},
           {id:'planer_firma_3', label:'Grundabo III',  preis:165, maxNutzer:10, speicherGb:30, anfragenTag:20000},
           {id:'planer_firma_4', label:'Grundabo IIII', preis:250, maxNutzer:15, speicherGb:50, anfragenTag:30000},
           {id:'planer_firma_5', label:'Grundabo V',    preis:350, maxNutzer:20, speicherGb:75, anfragenTag:50000}
@@ -114,11 +122,29 @@
         firmaFeatures: ['Komplettes Projektmanagement','Ausschreibungen & Vergabeanträge','Anfragen an Unternehmer & Lieferanten','Benutzer- & Rollenverwaltung (Admin)','Cloud-Speicherung in der Schweiz'],
         firma: [
           {id:'architekt_firma_1', label:'Grundabo I',    preis:50,  maxNutzer:2,  speicherGb:5,  anfragenTag:5000},
-          {id:'architekt_firma_2', label:'Grundabo II',   preis:100, maxNutzer:5,  speicherGb:15, anfragenTag:10000},
+          {id:'architekt_firma_2', label:'Grundabo II',   preis:100, maxNutzer:5,  speicherGb:15, anfragenTag:10000, beliebt:true},
           {id:'architekt_firma_3', label:'Grundabo III',  preis:165, maxNutzer:10, speicherGb:30, anfragenTag:20000},
           {id:'architekt_firma_4', label:'Grundabo IIII', preis:250, maxNutzer:15, speicherGb:50, anfragenTag:30000},
           {id:'architekt_firma_5', label:'Grundabo V',    preis:350, maxNutzer:20, speicherGb:75, anfragenTag:50000}
         ]
+      },
+      studenten: {
+        // A5 (Annahme): Studenten-/Lernenden-Lizenz kostenlos mit
+        // Ausbildungsnachweis — GEMA prüft und aktiviert (Bestellung startet
+        // als «angefragt», siehe verifizierung-Flag). Aktive Lizenz = wie
+        // Bezahl-Abo (kein Token-Limit).
+        label: 'Studenten', icon: '🎓',
+        untertitel: 'Lernende · Studierende · Fachschulen',
+        verifizierung: true,
+        verifizierungHinweis: 'Kostenlos mit gültigem Ausbildungsnachweis (Lehre, Studium, Fachschule). GEMA prüft den Nachweis und aktiviert die Lizenz.',
+        gewerke: [],
+        person: {
+          id:'studenten_person', label:'Studenten-Lizenz', preis:0, maxNutzer:1,
+          speicherGb:2, anfragenTag:2000,
+          inklusive:'Voller Funktionsumfang für die Ausbildung — ohne Token-Limit',
+          features:['Alle Berechnungsmodule (S/H/L)','Ausbildung: Berufsschule, SEPHIR, Quiz & Lernkarten','Objekte, PDF-Export & Cloud (CH)','Kein Token-Limit nach Aktivierung']
+        },
+        firma: []
       }
     },
     installateur: {
@@ -137,6 +163,9 @@
     },
     hersteller: {
       label: 'Hersteller / Lieferanten', icon: '🏭',
+      // A7 (Annahme): Konditionen erscheinen NICHT öffentlich auf der
+      // Preisseite — Hersteller stellen eine Anfrage. Toggle für später.
+      oeffentlichAnzeigen: false,
       anmeldungGratis: true,
       grundgebuehr: 0,
       // A3 (Annahme): Gebühr pro Vorgang vom jeweiligen Wert.
@@ -229,7 +258,8 @@
   }
 
   // Preisberechnung für einen Plan.
-  // opts: {zusatzGewerke:<Anzahl weitere Gewerke>, zahlweise:'monatlich'|'jaehrlich', promo:<PromoObj|null>}
+  // opts: {zusatzGewerke:<Anzahl weitere Gewerke>, zusatzNutzer:<Nutzer über
+  //        dem Stufen-Limit>, zahlweise:'monatlich'|'jaehrlich', promo:<PromoObj|null>}
   function aboPreis(cfg, planId, opts){
     opts = opts || {};
     var pl = aboPlanById(cfg, planId);
@@ -247,6 +277,18 @@
     }
 
     var netto = basis + zusatz;
+
+    // Zusatz-Nutzer über dem Stufen-Limit: proportional zum Abopreis
+    // (inkl. Zusatz-Gewerke) — Preis/Nutzer = netto ÷ maxNutzer × Faktor.
+    var zn = Math.max(0, +opts.zusatzNutzer || 0);
+    var znCfg = cfg.zusatzNutzer || {};
+    var proNutzer = 0, nutzerZusatz = 0;
+    if((pl.typ === 'firma' || pl.typ === 'installateur') && znCfg.aktiv !== false && (+pl.stufe.maxNutzer || 0) > 0){
+      proNutzer = aboRound5(netto / (+pl.stufe.maxNutzer) * ((+znCfg.faktorPct || 100) / 100));
+      nutzerZusatz = proNutzer * zn;
+    }
+    netto += nutzerZusatz;
+
     var jahresPct = (opts.zahlweise === 'jaehrlich') ? (+((cfg.abrechnung||{}).jahresrabattPct) || 0) : 0;
     var promoPct  = opts.promo ? (+opts.promo.rabattPct || 0) : 0;
     var mtl = netto * (1 - jahresPct/100) * (1 - promoPct/100);
@@ -256,6 +298,9 @@
       planId: planId, typ: pl.typ, gruppeId: pl.gruppeId,
       basis: aboRound5(basis),
       zusatz: aboRound5(zusatz),
+      proNutzer: proNutzer,
+      zusatzNutzer: zn,
+      nutzerZusatz: aboRound5(nutzerZusatz),
       nettoOhneRabatt: aboRound5(netto),
       jahresrabattPct: jahresPct,
       promoPct: promoPct,
@@ -304,8 +349,8 @@
     var sp = [{id:'gratis', label:'Gratis'}];
     Object.keys(cfg.rollen || {}).forEach(function(gid){
       var g = cfg.rollen[gid] || {};
-      sp.push({id:gid+'_person', label:(g.label || gid)+' · Person'});
-      sp.push({id:gid+'_firma',  label:(g.label || gid)+' · Firma'});
+      if(g.person) sp.push({id:gid+'_person', label:(g.label || gid)+' · Person'});
+      if((g.firma || []).length) sp.push({id:gid+'_firma', label:(g.label || gid)+' · Firma'});
     });
     sp.push({id:'installateur', label:((cfg.installateur || {}).label) || 'Installateure'});
     return sp;
@@ -319,6 +364,7 @@
   function aboModulDefault(spalteId, mod){
     var cat = mod.cat || '';
     if(spalteId === 'gratis') return true; // Gratis = alle Funktionen (Token-Limit)
+    if(spalteId.indexOf('studenten') === 0) return true; // Studenten-Lizenz = voller Umfang (A5)
     if(/_firma$/.test(spalteId)){
       if(spalteId.indexOf('architekt') === 0) return cat === 'Projektmanagement' || mod.key === 'workspace';
       return true; // Planer-Firma (H/L/S + Admin) = Vollzugang
@@ -369,13 +415,14 @@
     };
   }
 
-  // Nutzer-Limit einer Org = Summe der maxNutzer aller aktiven Abos (Grund + Add-on)
+  // Nutzer-Limit einer Org = Summe der maxNutzer aller aktiven Abos
+  // (Grund + Add-on) plus dazugebuchte Zusatz-Nutzer.
   function aboNutzerLimit(cfg, subs){
     var max = 0;
     (subs || []).forEach(function(s){
       if(!s || (s.status !== 'aktiv' && s.status !== 'trial')) return;
       var pl = aboPlanById(cfg, s.planId);
-      if(pl) max += (+pl.stufe.maxNutzer || 0);
+      if(pl) max += (+pl.stufe.maxNutzer || 0) + Math.max(0, +s.zusatzNutzer || 0);
     });
     return max;
   }
@@ -534,6 +581,7 @@
       ? aboEinzelModulPreis(_cfg, modulKey, {zahlweise: opts.zahlweise || 'monatlich', promo: promo})
       : aboPreis(_cfg, opts.planId, {
           zusatzGewerke: (opts.zusatzGewerke || []).length,
+          zusatzNutzer: Math.max(0, +opts.zusatzNutzer || 0),
           zahlweise: opts.zahlweise || 'monatlich',
           promo: promo
         });
@@ -554,6 +602,10 @@
     if(opts.admin) status = opts.status || 'aktiv';
     else if(neu && trialTage > 0) status = 'trial';
     else status = (opts.zahlung === 'rechnung') ? 'aktiv' : 'angefragt';
+    // Gruppen mit Verifizierungspflicht (z.B. Studenten-Lizenz): Bestellung
+    // startet immer als «angefragt» — GEMA prüft und aktiviert manuell.
+    var gruppeCfg = (!istModul && pl && (_cfg.rollen || {})[pl.gruppeId]) || {};
+    if(!opts.admin && gruppeCfg.verifizierung) status = 'angefragt';
 
     var heute = new Date();
     var trialEnde = null;
@@ -577,6 +629,7 @@
     rec.planLabel = planLabel;
     rec.gewerkBasis = opts.gewerkBasis || rec.gewerkBasis || '';
     rec.zusatzGewerke = opts.zusatzGewerke || [];
+    rec.zusatzNutzer = Math.max(0, +opts.zusatzNutzer || 0);
     rec.zahlweise = opts.zahlweise || 'monatlich';
     rec.zahlung = opts.zahlung || 'rechnung';
     rec.promoCode = promo ? promo.code : '';
@@ -590,6 +643,7 @@
       aktion: neu ? 'bestellt' : 'geaendert',
       detail: planLabel + ' · ' + rec.zahlweise + ' · ' + rec.zahlung +
               (rec.zusatzGewerke.length ? ' · +' + rec.zusatzGewerke.length + ' Gewerk(e)' : '') +
+              (rec.zusatzNutzer ? ' · +' + rec.zusatzNutzer + ' Nutzer' : '') +
               ' · CHF ' + preis.monatlich.toFixed(2) + '/Mt' + (promo ? ' · Promo ' + promo.code : '')
     });
 

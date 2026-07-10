@@ -43,6 +43,25 @@ Gleiche Stufen/Preise wie Planer (Person CHF 10, Firma 50/100/165/250/350),
 aber Funktionsumfang **«Nur Projektmanagement»** (Person) bzw.
 **«PM + Anfragen»** (Firma). Kein Gewerk-Zusatz.
 
+### Studenten (Annahme A5)
+
+| | |
+|---|---|
+| Preis | CHF 0.– («Studenten-Lizenz», 1 Nutzer) |
+| Umfang | voller Funktionsumfang, **ohne Token-Limit** (nach Aktivierung wie Bezahl-Abo) |
+| Bedingung | gültiger Ausbildungsnachweis (Lehre, Studium, Fachschule) |
+| Ablauf | Antrag auf der Preisseite → Status «angefragt» → GEMA prüft Nachweis und aktiviert (`verifizierung:true` in `rollen.studenten`) |
+
+### Zusätzliche Nutzer über dem Stufen-Limit (Annahme A6)
+
+Jeder Nutzer über der inkludierten Anzahl kostet **proportional zum Abo**:
+`Preis pro weiterem Nutzer = Abopreis (inkl. Zusatz-Gewerke) ÷ inkludierte
+Nutzer × Faktor` (Faktor Default 100%, im Admin einstellbar; Funktion
+abschaltbar). Beispiel: Grundabo III (CHF 165 / 10 Nutzer) → CHF 16.50, mit
+Zusatz-Gewerk Heizung (CHF 198) → CHF 19.80 je weiterer Nutzer/Monat.
+Buchung über den Stepper im Checkout; zählt in `aboNutzerLimit` mit.
+Gilt für Firmen- und Installateur-Abos (Person-Abos sind fix 1 Nutzer).
+
 ### Installateure (Zusatz-Abo)
 
 | Stufe | Preis/Monat | max. Nutzer | Speicher | Serveranfragen/Tag |
@@ -69,6 +88,12 @@ eigenständig für reine Unternehmer-Betriebe (im Admin umschaltbar).
 **Annahme A3:** Gebühr fällt **pro Vorgang vom jeweiligen Wert** an
 (alternatives Modell «nur bei Bestellung, gestaffelt nach Herkunftskanal
 1/3/6%» ist im Admin als Modus hinterlegt).
+
+**Annahme A7 — nicht öffentlich:** Die Preisseite zeigt für Hersteller
+KEINE Konditionen («Konditionen auf Anfrage» + Kontakt-Button) — die Sätze
+oben sind nur die interne Kalkulationsgrundlage im Admin. Toggle
+`hersteller.oeffentlichAnzeigen` schaltet die öffentliche Anzeige bei
+Bedarf wieder ein.
 
 ---
 
@@ -170,6 +195,14 @@ Annahmen wurden getroffen und sind **im Admin ohne Code-Änderung umstellbar**:
 6. **Person-Abo:** 1 Nutzer, CHF 10, ohne Firmen-/Adminfunktionen — bitte
    bestätigen, ob das Person-Abo ebenfalls Zusatz-Gewerke erlauben soll
    (aktuell: nein, genau 1 Gewerk).
+7. **A5 — Studenten:** CHF 0, 1 Nutzer, voller Umfang ohne Token-Limit,
+   Aktivierung nach Ausbildungsnachweis-Prüfung durch GEMA (Bestellung
+   startet als «angefragt»). Preis/Umfang im Admin änderbar.
+8. **A6 — Zusatz-Nutzer:** exakt proportional (Abopreis ÷ inkludierte
+   Nutzer), Faktor im Admin in % einstellbar, abschaltbar; gilt für
+   Firmen- + Installateur-Abos.
+9. **A7 — Hersteller öffentlich:** Konditionen erscheinen NICHT auf der
+   Preisseite (nur «auf Anfrage»); Toggle im Admin vorhanden.
 
 ## 5. Ergänzte Punkte (waren im Preisblatt nicht enthalten)
 
