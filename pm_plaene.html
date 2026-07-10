@@ -110,6 +110,19 @@ input::placeholder{color:#cbd5e1}
 .gh-tbl td{padding:3px 3px;border-bottom:1px solid var(--brd)}
 .gh-tbl input{width:100%;padding:5px 6px;border:1.5px solid var(--brd2);border-radius:6px;font-family:inherit;font-size:12px}
 .gh-tbl .del{border:none;background:transparent;color:var(--red);cursor:pointer;font-size:13px}
+/* CAD-Export-Modal */
+.pl-modal-bg{position:fixed;inset:0;background:rgba(15,23,42,.45);backdrop-filter:blur(3px);z-index:9000;display:none;align-items:center;justify-content:center;padding:16px}
+.pl-modal-bg.open{display:flex}
+.pl-modal{background:#fff;border-radius:14px;max-width:470px;width:100%;max-height:88vh;overflow-y:auto;padding:18px;box-shadow:0 24px 60px -18px rgba(15,23,42,.4)}
+.pl-modal h3{font-size:15px;font-weight:800;margin-bottom:4px}
+.pl-modal .sub{font-size:11.5px;color:var(--mut);margin-bottom:12px;line-height:1.5}
+.pl-chk{display:flex;align-items:flex-start;gap:8px;padding:7px 0;font-size:13px;cursor:pointer}
+.pl-chk input{margin-top:2px;accent-color:var(--acc)}
+.pl-chk small{display:block;color:var(--mut);font-size:10.5px}
+.pl-note{font-size:11px;border-radius:9px;padding:8px 11px;line-height:1.5;margin-top:8px}
+.pl-note.ok{background:var(--grn-bg);border:1px solid #bbf7d0;color:#166534}
+.pl-note.warn{background:var(--amb-bg);border:1px solid #fde68a;color:#92400e}
+.pl-note.info{background:var(--acc-bg);border:1px solid #bfdbfe;color:#1e40af}
 @media(max-width:900px){.pl-main{flex-direction:column;height:auto}.pl-viewer{height:56vh}.pl-side{width:100%;border-left:none;border-top:1.5px solid var(--brd)}}
 @media print{.g-nav,.pl-bar,.no-print{display:none!important}}
 </style>
@@ -230,7 +243,32 @@ input::placeholder{color:#cbd5e1}
     <div class="card"><div class="card-bd" style="display:flex;gap:8px;flex-wrap:wrap">
       <button class="btn" onclick="plExportCsv()">⬇ Export CSV (Excel)</button>
       <button class="btn" onclick="plExportJson()">⬇ Export JSON</button>
+      <button class="btn" onclick="plCadOpen()" title="Plan als DXF für CAD exportieren — Vektor-PDF nahezu verlustfrei, Scans per Mittellinien-Vektorisierung. DXF öffnet in AutoCAD/BricsCAD/QCAD und wird dort per «Speichern als» zu DWG." style="background:#eff4ff;border-color:#bfdbfe;color:#1d4ed8">📐 CAD-Export (DXF)</button>
     </div></div>
+  </div>
+</div>
+
+<!-- CAD-Export-Modal (PDF/Scan → DXF) -->
+<div class="pl-modal-bg" id="plCadModal">
+  <div class="pl-modal">
+    <h3>📐 CAD-Export (DXF)</h3>
+    <div class="sub" id="plCadQuelle"></div>
+    <label class="pl-chk"><input type="checkbox" id="plCadLinien" checked><span>Plan-Linien<small>Wände, Konturen, Bemassungslinien — aus den PDF-Vektorpfaden bzw. per Scan-Vektorisierung</small></span></label>
+    <label class="pl-chk" id="plCadOptText"><input type="checkbox" id="plCadText" checked><span>Text<small>Beschriftungen aus der PDF-Text-Ebene als editierbare TEXT-Objekte (Layer TEXT)</small></span></label>
+    <label class="pl-chk" id="plCadOptFl"><input type="checkbox" id="plCadFl" checked><span>GEMA-Flächen<small>Raumpolygone + Aussenkontur als geschlossene Polylinien mit m²-Label (Layer GEMA_*)</small></span></label>
+    <label class="pl-chk" id="plCadOptFe"><input type="checkbox" id="plCadFe" checked><span>Fenster &amp; Türen<small>erfasste Öffnungen als Linien (Layer GEMA_FENSTER/GEMA_TUEREN)</small></span></label>
+    <div id="plCadScanOpts" style="border-top:1px solid var(--brd);margin-top:6px;padding-top:8px">
+      <label class="pl-chk"><input type="checkbox" id="plCadAxis" checked><span>Achsen ausrichten<small>fast waagrechte/senkrechte Linien exakt orthogonal ziehen (±2.5°)</small></span></label>
+      <div class="fg" style="margin:4px 0 0"><label>Mindestlänge (filtert Scan-Rauschen)</label>
+        <div class="inp-grp"><input class="inp" id="plCadMinLen" type="text" inputmode="decimal" value="150" onblur="fixLeadingZero(this)"><span class="unit">mm</span></div>
+      </div>
+    </div>
+    <div class="pl-note" id="plCadEinheit"></div>
+    <div class="pl-note info">💡 <b>DXF statt DWG:</b> DWG ist ein geschlossenes Autodesk-Format und kann im Browser nicht zuverlässig geschrieben werden. DXF öffnet in <b>jedem</b> CAD (AutoCAD, BricsCAD, QCAD, Allplan …) — dort «Speichern als DWG», fertig.</div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">
+      <button class="btn" onclick="plCadClose()">Abbrechen</button>
+      <button class="btn btn-p" id="plCadGo" onclick="plCadRun()">⬇ DXF erzeugen</button>
+    </div>
   </div>
 </div>
 
@@ -450,6 +488,173 @@ function plFensterMass(se,f,prj){
   var hoehe=(f.hoeheM>0)?f.hoeheM:defH;
   var annahme=!(f.hoeheM>0)&&defQ!=='schnitt'&&defQ!=='manuell';
   return {breiteM:breite,hoeheM:hoehe,annahme:annahme,m2:(breite==null?null:breite*hoehe)};
+}
+// Kubische Bezier-Kurve in n Punkte tessellieren (de Casteljau via Polynom)
+function plBezierPts(p0,c1,c2,p1,n){
+  var out=[];n=n||12;
+  for(var i=1;i<=n;i++){
+    var t=i/n,u=1-t;
+    out.push([
+      u*u*u*p0[0]+3*u*u*t*c1[0]+3*u*t*t*c2[0]+t*t*t*p1[0],
+      u*u*u*p0[1]+3*u*u*t*c1[1]+3*u*t*t*c2[1]+t*t*t*p1[1]
+    ]);
+  }
+  return out;
+}
+// Zhang-Suen-Skelettierung: Linien-Bitmap (1=Linie) → 1 px breite Mittellinien.
+// Grundlage der Scan-Vektorisierung (Centerline wie Scan2CAD/WinTopo).
+function plThin(bin,w,h){
+  var cur=new Uint8Array(bin),changed=true,guard=200;
+  function at(a,x,y){return (x<0||y<0||x>=w||y>=h)?0:a[y*w+x];}
+  while(changed&&guard-->0){
+    changed=false;
+    for(var pass=0;pass<2;pass++){
+      var del=[];
+      for(var y=0;y<h;y++)for(var x=0;x<w;x++){
+        var i=y*w+x;
+        if(!cur[i])continue;
+        var p2=at(cur,x,y-1),p3=at(cur,x+1,y-1),p4=at(cur,x+1,y),p5=at(cur,x+1,y+1),
+            p6=at(cur,x,y+1),p7=at(cur,x-1,y+1),p8=at(cur,x-1,y),p9=at(cur,x-1,y-1);
+        var B=p2+p3+p4+p5+p6+p7+p8+p9;
+        if(B<2||B>6)continue;
+        var seq=[p2,p3,p4,p5,p6,p7,p8,p9,p2],A=0;
+        for(var k=0;k<8;k++)if(seq[k]===0&&seq[k+1]===1)A++;
+        if(A!==1)continue;
+        if(pass===0){if(p2*p4*p6!==0||p4*p6*p8!==0)continue;}
+        else{if(p2*p4*p8!==0||p2*p6*p8!==0)continue;}
+        del.push(i);
+      }
+      if(del.length){changed=true;for(var d=0;d<del.length;d++)cur[del[d]]=0;}
+    }
+  }
+  return cur;
+}
+// Skelett → Polylinien: von Endpunkten/Verzweigungen aus die 1-px-Pfade
+// verfolgen, danach übrig gebliebene Schleifen (geschlossene Konturen).
+function plSkelPolylines(skel,w,h){
+  var N8=[[1,0],[1,1],[0,1],[-1,1],[-1,0],[-1,-1],[0,-1],[1,-1]];
+  function nbs(x,y){
+    var out=[];
+    for(var k=0;k<8;k++){
+      var dx=N8[k][0],dy=N8[k][1];
+      var nx=x+dx,ny=y+dy;
+      if(nx<0||ny<0||nx>=w||ny>=h||!skel[ny*w+nx])continue;
+      // Diagonale nur zählen, wenn KEIN orthogonaler Umweg existiert —
+      // sonst erzeugt jede L-Ecke eine künstliche Verzweigung (deg 3).
+      if(dx&&dy&&(skel[y*w+nx]||skel[ny*w+x]))continue;
+      out.push([nx,ny]);
+    }
+    return out;
+  }
+  var deg=new Uint8Array(w*h);
+  for(var y=0;y<h;y++)for(var x=0;x<w;x++)if(skel[y*w+x])deg[y*w+x]=nbs(x,y).length;
+  var usedEdge={};                    // "x1,y1>x2,y2" — jede Kante nur einmal
+  function ek(a,b){return a[0]+','+a[1]+'>'+b[0]+','+b[1];}
+  var polys=[],consumed=new Uint8Array(w*h);
+  function walk(start,first){
+    var poly=[start,first],prev=start,cur=first;
+    usedEdge[ek(start,first)]=1;usedEdge[ek(first,start)]=1;
+    var guard=w*h;
+    while(guard-->0){
+      var d=deg[cur[1]*w+cur[0]];
+      if(d!==2)break;                 // Knoten (Ende/Verzweigung) erreicht
+      var nb=nbs(cur[0],cur[1]).filter(function(p){return !(p[0]===prev[0]&&p[1]===prev[1]);});
+      if(!nb.length)break;
+      var nxt=nb[0];
+      if(usedEdge[ek(cur,nxt)])break;
+      usedEdge[ek(cur,nxt)]=1;usedEdge[ek(nxt,cur)]=1;
+      poly.push(nxt);prev=cur;cur=nxt;
+    }
+    poly.forEach(function(p){if(deg[p[1]*w+p[0]]===2)consumed[p[1]*w+p[0]]=1;});
+    return poly;
+  }
+  for(var y2=0;y2<h;y2++)for(var x2=0;x2<w;x2++){
+    var i=y2*w+x2,d=deg[i];
+    if(!skel[i]||d===2||d===0)continue;   // nur Knoten als Startpunkte
+    var start=[x2,y2];
+    nbs(x2,y2).forEach(function(nb){
+      if(usedEdge[ek(start,nb)])return;
+      var poly=walk(start,nb);
+      if(poly.length>=2)polys.push(poly);
+    });
+  }
+  // Reine Schleifen (alle deg==2, z.B. Kreise/rechteckige Konturen)
+  for(var y3=0;y3<h;y3++)for(var x3=0;x3<w;x3++){
+    var j=y3*w+x3;
+    if(!skel[j]||deg[j]!==2||consumed[j])continue;
+    var start2=[x3,y3],nb0=nbs(x3,y3)[0];
+    if(!nb0||usedEdge[ek(start2,nb0)]){consumed[j]=1;continue;}
+    var loop=walk(start2,nb0);
+    if(loop.length>=4){loop.push([start2[0],start2[1]]);polys.push(loop);}
+  }
+  return polys;
+}
+// plOrtho für OFFENE Polylinien (kein Wraparound letzte→erste Kante)
+function plOrthoOpen(pts,tolGrad){
+  var tol=(tolGrad==null?5:tolGrad)*Math.PI/180;
+  var out=pts.map(function(p){return [p[0],p[1]];});
+  for(var i=0;i<out.length-1;i++){
+    var a=out[i],b=out[i+1];
+    var ang=Math.atan2(b[1]-a[1],b[0]-a[0]);
+    var m=Math.abs(((ang%(Math.PI/2))+Math.PI/2)%(Math.PI/2));
+    var dev=Math.min(m,Math.PI/2-m);
+    if(dev<=tol){
+      if(Math.abs(Math.cos(ang))>Math.abs(Math.sin(ang))){var ym=(a[1]+b[1])/2;a[1]=ym;b[1]=ym;}
+      else{var xm=(a[0]+b[0])/2;a[0]=xm;b[0]=xm;}
+    }
+  }
+  return out;
+}
+// DXF-Writer (R12 ASCII — öffnet in AutoCAD/BricsCAD/QCAD/LibreCAD …):
+// build = {layers:[{name,color}], lines:[{x1,y1,x2,y2,layer}],
+//          polylines:[{pts:[[x,y]…],closed,layer}], texts:[{x,y,h,text,layer}]}
+// Koordinaten sind fertig transformiert (mm, Y nach oben).
+function plDxf(build){
+  var L=[];
+  function p(code,val){L.push(String(code));L.push(String(val));}
+  function num(v){return (Math.round(v*1000)/1000).toString();}
+  // Extents
+  var xs=[],ys=[];
+  (build.lines||[]).forEach(function(l){xs.push(l.x1,l.x2);ys.push(l.y1,l.y2);});
+  (build.polylines||[]).forEach(function(pl){pl.pts.forEach(function(q){xs.push(q[0]);ys.push(q[1]);});});
+  (build.texts||[]).forEach(function(t){xs.push(t.x);ys.push(t.y);});
+  var minX=xs.length?Math.min.apply(null,xs):0,maxX=xs.length?Math.max.apply(null,xs):1;
+  var minY=ys.length?Math.min.apply(null,ys):0,maxY=ys.length?Math.max.apply(null,ys):1;
+  // HEADER
+  p(0,'SECTION');p(2,'HEADER');
+  p(9,'$ACADVER');p(1,'AC1009');
+  p(9,'$INSUNITS');p(70,4); // 4 = Millimeter (von neueren Readern ausgewertet)
+  p(9,'$EXTMIN');p(10,num(minX));p(20,num(minY));p(30,0);
+  p(9,'$EXTMAX');p(10,num(maxX));p(20,num(maxY));p(30,0);
+  p(0,'ENDSEC');
+  // TABLES → LAYER
+  p(0,'SECTION');p(2,'TABLES');
+  p(0,'TABLE');p(2,'LAYER');p(70,(build.layers||[]).length);
+  (build.layers||[]).forEach(function(ly){
+    p(0,'LAYER');p(2,ly.name);p(70,0);p(62,ly.color||7);p(6,'CONTINUOUS');
+  });
+  p(0,'ENDTAB');p(0,'ENDSEC');
+  // ENTITIES
+  p(0,'SECTION');p(2,'ENTITIES');
+  (build.lines||[]).forEach(function(l){
+    p(0,'LINE');p(8,l.layer||'0');
+    p(10,num(l.x1));p(20,num(l.y1));p(30,0);
+    p(11,num(l.x2));p(21,num(l.y2));p(31,0);
+  });
+  (build.polylines||[]).forEach(function(pl){
+    p(0,'POLYLINE');p(8,pl.layer||'0');p(66,1);p(70,pl.closed?1:0);
+    pl.pts.forEach(function(q){
+      p(0,'VERTEX');p(8,pl.layer||'0');p(10,num(q[0]));p(20,num(q[1]));p(30,0);
+    });
+    p(0,'SEQEND');
+  });
+  (build.texts||[]).forEach(function(t){
+    p(0,'TEXT');p(8,t.layer||'0');
+    p(10,num(t.x));p(20,num(t.y));p(30,0);
+    p(40,num(t.h||2.5));p(1,String(t.text==null?'':t.text).slice(0,255));
+  });
+  p(0,'ENDSEC');p(0,'EOF');
+  return L.join('\r\n')+'\r\n';
 }
 // Σ Fenster-/Türflächen über alle Seiten — NUR freigegebene Einträge.
 function plFensterSummen(seiten,prj){
@@ -1043,8 +1248,22 @@ function plExtractVecSegs(page,viewport){
           var op=mini[k];
           if(op===OPS.moveTo){cur=plMatApply(ctm,co[ci],co[ci+1]);start=cur;ci+=2;}
           else if(op===OPS.lineTo){var nx=plMatApply(ctm,co[ci],co[ci+1]);ci+=2;if(cur)push(cur,nx);cur=nx;}
-          else if(op===OPS.curveTo){cur=plMatApply(ctm,co[ci+4],co[ci+5]);ci+=6;}
-          else if(op===OPS.curveTo2||op===OPS.curveTo3){cur=plMatApply(ctm,co[ci+2],co[ci+3]);ci+=4;}
+          else if(op===OPS.curveTo){
+            // Bezier tessellieren (12 Segmente) — Bögen/Rundungen bleiben Form
+            var c1=plMatApply(ctm,co[ci],co[ci+1]),c2=plMatApply(ctm,co[ci+2],co[ci+3]),e1=plMatApply(ctm,co[ci+4],co[ci+5]);ci+=6;
+            if(cur){var bp=plBezierPts(cur,c1,c2,e1,12),pv=cur;bp.forEach(function(q){push(pv,q);pv=q;});}
+            cur=e1;
+          }
+          else if(op===OPS.curveTo2){
+            var c2b=plMatApply(ctm,co[ci],co[ci+1]),e2=plMatApply(ctm,co[ci+2],co[ci+3]);ci+=4;
+            if(cur){var bp2=plBezierPts(cur,cur,c2b,e2,12),pv2=cur;bp2.forEach(function(q){push(pv2,q);pv2=q;});}
+            cur=e2;
+          }
+          else if(op===OPS.curveTo3){
+            var c1c=plMatApply(ctm,co[ci],co[ci+1]),e3=plMatApply(ctm,co[ci+2],co[ci+3]);ci+=4;
+            if(cur){var bp3=plBezierPts(cur,c1c,e3,e3,12),pv3=cur;bp3.forEach(function(q){push(pv3,q);pv3=q;});}
+            cur=e3;
+          }
           else if(op===OPS.closePath){if(cur&&start)push(cur,start);cur=start;}
           else if(op===OPS.rectangle){
             var x=co[ci],y=co[ci+1],w2=co[ci+2],h2=co[ci+3];ci+=4;
@@ -1617,6 +1836,148 @@ window.plExportJson=function(){
   var out={projekt:p,seiten:plSeiten()};
   plDownload('Plaene_'+(p.bezeichnung||'Projekt').replace(/[^\w-]+/g,'_')+'.json','application/json',JSON.stringify(out,null,2));
 };
+
+// ── CAD-Export (DXF) — PDF/Scan → CAD ───────────────────────────────
+// Vektor-PDF: die extrahierten Pfadsegmente (inkl. tessellierter Kurven)
+// werden 1:1 als LINEs geschrieben — nahezu verlustfrei. Scan/Raster:
+// Mittellinien-Vektorisierung (Binarisieren → Zhang-Suen-Skelett →
+// Pfadverfolgung → Douglas-Peucker). Einheiten: Millimeter über die
+// Seiten-Kalibrierung (Modell 1:1), sonst Pixel mit Warnung. DWG selbst
+// ist ein geschlossenes Autodesk-Format — DXF öffnet in jedem CAD und
+// wird dort per «Speichern als» zu DWG.
+window.plCadOpen=function(){
+  var s=plSeite();
+  if(!s){GemaDialog.alert({title:'Kein Plan',message:'Zuerst einen Plan öffnen.'});return;}
+  var cv=document.getElementById('plCanvas');
+  if(!cv.width||cv.width<20){GemaDialog.alert({title:'Plan lädt noch',message:'Bitte warten, bis der Plan gerendert ist.'});return;}
+  var isVec=!!(PL.vecSegs&&PL.vecSegs.length);
+  var kalib=!!(s.kalibBestaetigt&&s.mmProPixel>0);
+  var hasText=!!(PL.textItems&&PL.textItems.length);
+  var hasFl=!!((s.flaechen||[]).some(function(f){return f.polygon;}));
+  var hasFe=!!((s.fenster||[]).length);
+  var bg=document.getElementById('plCadModal');
+  bg.querySelector('#plCadQuelle').innerHTML=isVec
+    ?'<span class="badge b-grn">⌖ Vektor-PDF</span> '+PL.vecSegs.length+' Pfadsegmente — Export nahezu verlustfrei.'
+    :'<span class="badge b-amb">🖨 Scan/Raster</span> Mittellinien-Vektorisierung — Qualität hängt von der Scan-Schärfe ab (gerade Wände sehr gut, Schraffuren/Handschrift werden gefiltert bzw. ungenau).';
+  bg.querySelector('#plCadEinheit').className='pl-note '+(kalib?'ok':'warn');
+  bg.querySelector('#plCadEinheit').innerHTML=kalib
+    ?'📏 Kalibriert: 1 px = '+plFmt(s.mmProPixel,3)+' mm → DXF in <b>Millimetern, Modell 1:1</b> (CAD-massstabsgetreu).'
+    :'⚠ Keine bestätigte Kalibrierung — Export in <b>Pixel-Einheiten</b>. Für massstabsgetreues CAD zuerst 📏 kalibrieren.';
+  bg.querySelector('#plCadOptText').style.display=hasText?'':'none';
+  bg.querySelector('#plCadOptFl').style.display=hasFl?'':'none';
+  bg.querySelector('#plCadOptFe').style.display=hasFe?'':'none';
+  bg.querySelector('#plCadScanOpts').style.display=isVec?'none':'';
+  bg.classList.add('open');
+};
+window.plCadClose=function(){document.getElementById('plCadModal').classList.remove('open');};
+window.plCadRun=function(){
+  var s=plSeite();if(!s)return;
+  var bg=document.getElementById('plCadModal');
+  var opts={
+    linien:bg.querySelector('#plCadLinien').checked,
+    text:bg.querySelector('#plCadText').checked&&bg.querySelector('#plCadOptText').style.display!=='none',
+    flaechen:bg.querySelector('#plCadFl').checked&&bg.querySelector('#plCadOptFl').style.display!=='none',
+    fenster:bg.querySelector('#plCadFe').checked&&bg.querySelector('#plCadOptFe').style.display!=='none',
+    axis:bg.querySelector('#plCadAxis').checked,
+    minLenMm:plNum(bg.querySelector('#plCadMinLen').value)||0
+  };
+  var btn=bg.querySelector('#plCadGo');
+  btn.disabled=true;btn.textContent='⏳ Erzeuge DXF …';
+  setTimeout(function(){
+    try{
+      var res=plCadBuild(s,opts);
+      var p=plPrj();
+      var name='CAD_'+((p&&p.bezeichnung)||'Plan').replace(/[^\w-]+/g,'_')+'_'+(s.geschoss||'S'+s.seitennummer).replace(/[^\w-]+/g,'_')+'.dxf';
+      plDownload(name,'application/dxf',res.dxf);
+      plCadClose();
+      GemaDialog.alert({title:'DXF exportiert',message:res.stats+'\nDXF in AutoCAD/BricsCAD/QCAD öffnen — «Speichern als» erzeugt dort bei Bedarf eine DWG.'});
+    }catch(e){
+      GemaDialog.alert({title:'CAD-Export fehlgeschlagen',message:String(e&&e.message||e)});
+    }
+    btn.disabled=false;btn.textContent='⬇ DXF erzeugen';
+  },50);
+};
+function plCadBuild(s,opts){
+  var kalib=!!(s.kalibBestaetigt&&s.mmProPixel>0);
+  var scale=kalib?s.mmProPixel:1;
+  var H=s.renderH||document.getElementById('plCanvas').height;
+  function tx(x){return x*scale;}
+  function ty(y){return (H-y)*scale;} // DXF: Y nach oben
+  var isVec=!!(PL.vecSegs&&PL.vecSegs.length);
+  var build={layers:[],lines:[],polylines:[],texts:[]};
+  var nScan=0;
+  if(opts.linien){
+    if(isVec){
+      PL.vecSegs.forEach(function(sg){
+        build.lines.push({x1:tx(sg[0]),y1:ty(sg[1]),x2:tx(sg[2]),y2:ty(sg[3]),layer:'PLAN'});
+      });
+    }else{
+      var b=plBuildBitmap();
+      var bin=plBinarize(b.gray,b.w,b.h,150);
+      // OCR-Textboxen maskieren: Text wird (falls gewünscht) als TEXT-Entity
+      // exportiert — als vektorisierte Buchstaben-Linien wäre er Datenmüll.
+      (PL.textItems||[]).forEach(function(ti){
+        var x0=Math.max(0,Math.floor(ti.x*b.f)-1),y0=Math.max(0,Math.floor(ti.y*b.f)-1);
+        var x1=Math.min(b.w-1,Math.ceil((ti.x+ti.w)*b.f)+1),y1=Math.min(b.h-1,Math.ceil((ti.y+ti.h)*b.f)+1);
+        for(var yy=y0;yy<=y1;yy++)for(var xx=x0;xx<=x1;xx++)bin[yy*b.w+xx]=0;
+      });
+      var skel=plThin(bin,b.w,b.h);
+      var polys=plSkelPolylines(skel,b.w,b.h);
+      var minPx=opts.minLenMm>0?(opts.minLenMm/scale)*b.f:3;
+      polys.forEach(function(poly){
+        var closed=poly.length>3&&poly[0][0]===poly[poly.length-1][0]&&poly[0][1]===poly[poly.length-1][1];
+        var simp=plDP(poly,1.4);
+        if(opts.axis)simp=plOrthoOpen(simp,2.5);
+        var len=0;for(var i=1;i<simp.length;i++)len+=Math.hypot(simp[i][0]-simp[i-1][0],simp[i][1]-simp[i-1][1]);
+        if(len<minPx)return;
+        var pts=simp.map(function(q){return [tx(q[0]/b.f),ty(q[1]/b.f)];});
+        if(closed&&pts.length>3){pts.pop();build.polylines.push({pts:pts,closed:true,layer:'PLAN'});}
+        else if(pts.length===2)build.lines.push({x1:pts[0][0],y1:pts[0][1],x2:pts[1][0],y2:pts[1][1],layer:'PLAN'});
+        else build.polylines.push({pts:pts,closed:false,layer:'PLAN'});
+        nScan++;
+      });
+    }
+    build.layers.push({name:'PLAN',color:7});
+  }
+  if(opts.text){
+    (PL.textItems||[]).forEach(function(ti){
+      var str=String(ti.str||'').trim();
+      if(!str)return;
+      var fh=ti.h/1.3; // gespeicherte Höhe trägt 1.3-Padding
+      build.texts.push({x:tx(ti.x),y:ty(ti.y+ti.h),h:Math.max(0.1,fh*0.72*scale),text:str,layer:'TEXT'});
+    });
+    build.layers.push({name:'TEXT',color:8});
+  }
+  if(opts.flaechen){
+    var lblH=kalib?200:14; // 20 cm Schrift im 1:1-Modell bzw. 14 px
+    (s.flaechen||[]).forEach(function(fl){
+      if(!fl.polygon)return;
+      var layer=fl.kategorie==='kontur'?'GEMA_KONTUR':'GEMA_RAEUME';
+      build.polylines.push({pts:fl.polygon.map(function(q){return [tx(q[0]),ty(q[1])];}),closed:true,layer:layer});
+      var cx=0,cy=0;fl.polygon.forEach(function(q){cx+=q[0];cy+=q[1];});
+      cx/=fl.polygon.length;cy/=fl.polygon.length;
+      var lbl=((fl.raumNummer?fl.raumNummer+' ':'')+(fl.raumName||'')).trim()+(fl.flaecheM2!=null?' '+plFmt(fl.flaecheM2,1)+' m2':'');
+      if(lbl.trim())build.texts.push({x:tx(cx),y:ty(cy),h:lblH,text:lbl,layer:'GEMA_TEXT'});
+    });
+    build.layers.push({name:'GEMA_RAEUME',color:3});
+    build.layers.push({name:'GEMA_KONTUR',color:5});
+    build.layers.push({name:'GEMA_TEXT',color:3});
+  }
+  if(opts.fenster){
+    (s.fenster||[]).forEach(function(f){
+      build.lines.push({x1:tx(f.p1[0]),y1:ty(f.p1[1]),x2:tx(f.p2[0]),y2:ty(f.p2[1]),layer:f.typ==='tuer'?'GEMA_TUEREN':'GEMA_FENSTER'});
+    });
+    build.layers.push({name:'GEMA_FENSTER',color:4});
+    build.layers.push({name:'GEMA_TUEREN',color:6});
+  }
+  if(opts.text&&!build.texts.length&&!isVec)build.layers=build.layers.filter(function(l){return l.name!=='TEXT';});
+  if(!build.lines.length&&!build.polylines.length&&!build.texts.length)throw new Error('Nichts zu exportieren — Optionen prüfen (bei Scans ggf. Mindestlänge senken).');
+  var stats=(isVec?PL.vecSegs.length+' Vektorsegmente':nScan+' vektorisierte Linienzüge (Scan)')
+    +(build.texts.length?' · '+build.texts.length+' Texte':'')
+    +((s.flaechen||[]).some(function(f){return f.polygon;})&&opts.flaechen?' · GEMA-Flächen als eigene Layer':'')
+    +(kalib?' · Einheiten: mm (1:1)':' · ⚠ Einheiten: px (unkalibriert)');
+  return {dxf:plDxf(build),stats:stats};
+}
 
 // ── Boot ────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded',function(){
