@@ -155,7 +155,7 @@
         if (!r.ok || !data.ok) throw new Error(data && data.error ? data.error : ('HTTP ' + r.status));
         var d = data.data || {};
         if (payload.modus === 'schnitt') d.geschosse = Array.isArray(d.geschosse) ? d.geschosse : [];
-        else { d.raeume = Array.isArray(d.raeume) ? d.raeume : []; d.bemassungen = Array.isArray(d.bemassungen) ? d.bemassungen : []; }
+        else { d.raeume = Array.isArray(d.raeume) ? d.raeume : []; d.bemassungen = Array.isArray(d.bemassungen) ? d.bemassungen : []; d.fenster = Array.isArray(d.fenster) ? d.fenster : []; }
         return d;
       }).catch(function(err){ if (err instanceof Error) throw err; throw new Error('Unerwartete Antwort der KI-Plananalyse.'); });
     });

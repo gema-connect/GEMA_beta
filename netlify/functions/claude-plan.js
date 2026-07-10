@@ -38,7 +38,8 @@ const SYSTEM_GRUNDRISS =
   '(3) massstab: aus dem Plankopf (z.B. «1:50»). ' +
   '(4) bemassungen: lies Massketten ab — NUR eindeutige, gerade Einzelmasse zwischen zwei Massbegrenzungen. wert_mm = die angeschriebene Zahl in Millimetern (Schweizer Pläne bemassen in cm oder mm — «425» an einer Raumkette heisst meist 4250 mm; entscheide anhand der Grössenordnung, ein Wohnraum ist 3–6 m breit). p1/p2 = die BILDKOORDINATEN der beiden Massbegrenzungen, normalisiert auf 0..1 (x = Anteil der Bildbreite, y = Anteil der Bildhöhe). Nur Bemassungen, deren Endpunkte du sicher verorten kannst — lieber 3 sichere als 10 geratene. ' +
   '(5) raeume: JEDES Raumlabel im Grundriss. label_position = normalisierte Bildposition MITTEN IM RAUM (auf dem Label, nie auf einer Wand). angeschriebene_flaeche_m2 nur, wenn die m²-Zahl wirklich beim Label steht. typ: beheizt (Wohn-/Arbeitsräume, Bad, Küche, Flur innerhalb Wohnung), unbeheizt (Keller, Estrich, Garage, Technik, Treppenhaus kalt, Windfang kalt), aussen (Balkon, Terrasse, Sitzplatz, Attika). nutzung: kurzes Stichwort (wohnen/schlafen/bad/kueche/verkehr/technik/lager/aussen). konfidenz: hoch/mittel/niedrig. ' +
-  '(6) Erfinde NICHTS: keine Räume ohne Label, keine Bemassungen ohne ablesbare Zahl. Antworte auf Deutsch mit echten Umlauten.';
+  '(6) fenster: Öffnungen in den AUSSENwänden des Gebäudes — Fenster (im Plan als dünne Doppel-/Dreifachlinie in der Wand) und Aussentüren. p1/p2 = die beiden ENDPUNKTE der Öffnung entlang der Wand, normalisiert 0..1. typ: fenster oder tuer. nutzung = Nutzungs-Stichwort des dahinterliegenden Raums (für die Fensterhöhen-Annahme). NUR Öffnungen in Aussenwänden, keine Innentüren; nur sicher verortbare — lieber weniger als geratene. ' +
+  '(7) Erfinde NICHTS: keine Räume ohne Label, keine Bemassungen ohne ablesbare Zahl. Antworte auf Deutsch mit echten Umlauten.';
 
 const SYSTEM_SCHNITT =
   'Du bist ein Bauplan-Analyst für ein Schweizer Gebäudetechnik-Planungsbüro. ' +
@@ -48,7 +49,8 @@ const SYSTEM_SCHNITT =
   '(2) dachneigung_grad: die Dachneigung in Grad, falls angeschrieben oder eindeutig ablesbar (Flachdach = 0). ' +
   '(3) dachform: flachdach/satteldach/walmdach/pultdach/mansarddach/andere. ' +
   '(4) kniestock_m: Kniestockhöhe in Metern, falls ablesbar. ' +
-  '(5) Erfinde NICHTS — lieber ein Feld weglassen als raten. Antworte auf Deutsch mit echten Umlauten.';
+  '(5) fenster_hoehe_m: die typische Fensterhöhe in Metern, falls im Schnitt bemasst (Brüstung bis Sturz). ' +
+  '(6) Erfinde NICHTS — lieber ein Feld weglassen als raten. Antworte auf Deutsch mit echten Umlauten.';
 
 function _toolGrundriss(){
   return {
@@ -92,6 +94,20 @@ function _toolGrundriss(){
             required: ['name','label_position','typ']
           }
         },
+        fenster: {
+          type:'array',
+          description:'Fenster-/Türöffnungen in den Aussenwänden (max. 40).',
+          items: {
+            type:'object',
+            properties: {
+              p1: { type:'array', items:{type:'number'}, minItems:2, maxItems:2, description:'Erster Endpunkt der Öffnung [x,y], normalisiert 0..1' },
+              p2: { type:'array', items:{type:'number'}, minItems:2, maxItems:2, description:'Zweiter Endpunkt der Öffnung [x,y], normalisiert 0..1' },
+              typ: { type:'string', enum:['fenster','tuer'] },
+              nutzung: { type:'string', description:'Nutzungs-Stichwort des dahinterliegenden Raums (wohnen/bad/…)' }
+            },
+            required: ['p1','p2','typ']
+          }
+        },
         aussenkontur_hinweis: { type:'string', description:'Kurzer Hinweis zur Gebäudeform (z.B. «rechteckig, Anbau Süd»)' }
       },
       required: ['plantyp','raeume']
@@ -122,7 +138,8 @@ function _toolSchnitt(){
         },
         dachneigung_grad: { type:'number', description:'Dachneigung in Grad (Flachdach = 0); weglassen wenn nicht ablesbar' },
         dachform: { type:'string', enum:['flachdach','satteldach','walmdach','pultdach','mansarddach','andere'] },
-        kniestock_m: { type:'number', description:'Kniestockhöhe in Metern; weglassen wenn nicht ablesbar' }
+        kniestock_m: { type:'number', description:'Kniestockhöhe in Metern; weglassen wenn nicht ablesbar' },
+        fenster_hoehe_m: { type:'number', description:'Typische Fensterhöhe in Metern (Brüstung bis Sturz), falls bemasst' }
       },
       required: ['geschosse']
     }
@@ -174,7 +191,7 @@ exports.handler = async function (event) {
     if (!tb || !tb.input) return { statusCode:200, headers:cors, body:JSON.stringify({ok:false,error:'Keine strukturierte Antwort erhalten.'}) };
     const out = tb.input;
     if (modus === 'schnitt') out.geschosse = Array.isArray(out.geschosse) ? out.geschosse : [];
-    else { out.raeume = Array.isArray(out.raeume) ? out.raeume : []; out.bemassungen = Array.isArray(out.bemassungen) ? out.bemassungen : []; }
+    else { out.raeume = Array.isArray(out.raeume) ? out.raeume : []; out.bemassungen = Array.isArray(out.bemassungen) ? out.bemassungen : []; out.fenster = Array.isArray(out.fenster) ? out.fenster : []; }
     return { statusCode:200, headers:cors, body:JSON.stringify({ok:true, data:out, usage:data.usage||null}) };
   } catch(e) {
     return { statusCode:500, headers:cors, body:JSON.stringify({ok:false,error:'Proxy-Fehler: '+(e.message||String(e))}) };

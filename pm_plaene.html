@@ -55,7 +55,7 @@ input::placeholder{color:#cbd5e1}
 /* Hauptbereich */
 .pl-main{display:flex;gap:0;height:calc(100vh - 190px);min-height:480px;border-top:1.5px solid var(--brd);background:var(--sur)}
 .pl-viewer{flex:1;position:relative;overflow:hidden;background:#e8ebf2;cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none}
-.pl-viewer.tool-draw,.pl-viewer.tool-fill,.pl-viewer.tool-calib{cursor:crosshair}
+.pl-viewer.tool-draw,.pl-viewer.tool-fill,.pl-viewer.tool-calib,.pl-viewer.tool-fenster{cursor:crosshair}
 .pl-viewer.panning{cursor:grabbing}
 #plStage{position:absolute;left:0;top:0;transform-origin:0 0}
 #plCanvas{display:block;box-shadow:0 6px 30px rgba(15,23,42,.18);background:#fff}
@@ -142,6 +142,7 @@ input::placeholder{color:#cbd5e1}
     <button data-tool="pan" class="on" onclick="plTool('pan')" title="Auswählen / Verschieben / Pan">🖐 Auswahl</button>
     <button data-tool="draw" onclick="plTool('draw')" title="Raum-Polygon zeichnen: Klicks setzen Ecken, Doppelklick schliesst">✏️ Zeichnen</button>
     <button data-tool="fill" onclick="plTool('fill')" title="Automatisch füllen: in einen Raum klicken">🪄 Füllen</button>
+    <button data-tool="fenster" onclick="plTool('fenster')" title="Fenster/Aussentür einzeichnen: zwei Klicks auf die Endpunkte der Öffnung">🪟 Fenster</button>
     <button data-tool="calib" onclick="plTool('calib')" title="Kalibrieren: zwei Punkte mit bekannter Distanz klicken">📏 Kalibrieren</button>
   </div>
   <button class="btn btn-ki" id="plKiBtn" onclick="plAnalyze()" title="Claude analysiert den Plan: Typ, Geschoss, Massstab, Raumliste">🤖 KI-Analyse</button>
@@ -168,6 +169,7 @@ input::placeholder{color:#cbd5e1}
       <span><i style="background:var(--c-unbeheizt)"></i>unbeheizt</span>
       <span><i style="background:var(--c-aussen)"></i>Aussenraum</span>
       <span><i style="background:var(--c-kontur)"></i>Aussenkontur (BGF)</span>
+      <span><i style="background:var(--c-fenster)"></i>Fenster/Tür</span>
       <span><i style="background:var(--c-pruefen)"></i>prüfen</span>
       <span><i style="background:var(--c-fehler)"></i>Fehler</span>
     </div>
@@ -186,7 +188,7 @@ input::placeholder{color:#cbd5e1}
     </div>
     <!-- Plan-Info -->
     <div class="card" id="plInfoCard" style="display:none">
-      <div class="card-hd"><h3>📄 Plan</h3><span id="plTypBadge" class="badge b-blu">–</span></div>
+      <div class="card-hd"><h3>📄 Plan</h3><span id="plVecBadge" class="badge b-grn" style="display:none" title="Vektor-PDF erkannt — Polygone rasten auf den exakten PDF-Linien ein (Snapping)">⌖ Vektor</span><span id="plTypBadge" class="badge b-blu">–</span></div>
       <div class="card-bd">
         <div class="grid2">
           <div class="fg"><label>Plantyp</label>
@@ -200,7 +202,7 @@ input::placeholder{color:#cbd5e1}
         </div>
         <div class="fg" style="margin-bottom:0"><label>Türschluss (Flood-Fill)</label>
           <div class="inp-grp"><input class="inp" id="plSchliessen" type="text" inputmode="decimal" value="3" onblur="fixLeadingZero(this)"/><span class="unit">px</span></div>
-          <div style="font-size:10px;color:var(--mut2);margin-top:2px">Morphologisches Closing: Wandlücken bis knapp zum <b>doppelten</b> Wert werden geschlossen, die Raumfläche bleibt unverfälscht. Läuft die Füllung aus → erhöhen (max. 20).</div>
+          <div style="font-size:10px;color:var(--mut2);margin-top:2px">Morphologisches Closing: Wandlücken bis knapp zum <b>doppelten</b> Wert werden geschlossen, die Raumfläche bleibt unverfälscht. Läuft die Füllung aus (z.B. offene Türen ohne Türblatt) → erhöhen (max. 40).</div>
         </div>
       </div>
     </div>
@@ -208,6 +210,11 @@ input::placeholder{color:#cbd5e1}
     <div class="card">
       <div class="card-hd"><h3>🏠 Räume & Flächen</h3><span class="badge b-mut" id="plFreigabeZaehler">0 / 0 freigegeben</span></div>
       <div class="card-bd" id="plRaumListe"><div style="font-size:12px;color:var(--mut)">Noch keine Flächen — zeichnen, füllen oder per KI-Analyse erkennen.</div></div>
+    </div>
+    <!-- Fenster & Aussentüren -->
+    <div class="card">
+      <div class="card-hd"><h3>🪟 Fenster & Aussentüren</h3><span class="badge b-mut" id="plFeZaehler">0</span></div>
+      <div class="card-bd" id="plFensterListe"></div>
     </div>
     <!-- Summen -->
     <div class="card">
@@ -409,6 +416,56 @@ function plMedian(arr){
   var m=Math.floor(s.length/2);
   return s.length%2?s[m]:(s[m-1]+s[m])/2;
 }
+// Punkt p auf Strecke a–b projizieren → {pt:[x,y], d:Abstand}
+function plProj(p,a,b){
+  var dx=b[0]-a[0],dy=b[1]-a[1],l2=dx*dx+dy*dy;
+  if(l2===0)return {pt:[a[0],a[1]],d:Math.hypot(p[0]-a[0],p[1]-a[1])};
+  var t=Math.max(0,Math.min(1,((p[0]-a[0])*dx+(p[1]-a[1])*dy)/l2));
+  var q=[a[0]+t*dx,a[1]+t*dy];
+  return {pt:q,d:Math.hypot(p[0]-q[0],p[1]-q[1])};
+}
+// Vektor-Snapping (Phase 5): Polygon-Ecken auf das nächstgelegene
+// Vektor-Segment [[x1,y1,x2,y2],…] einrasten, Toleranz tol px.
+// Ecken ohne Segment in Reichweite bleiben unverändert.
+function plSnap(poly,segs,tol){
+  var t=(tol==null?3:tol);
+  return poly.map(function(pt){
+    var best=null,bd=t;
+    for(var i=0;i<segs.length;i++){
+      var s=segs[i],r=plProj(pt,[s[0],s[1]],[s[2],s[3]]);
+      if(r.d<=bd){bd=r.d;best=r.pt;}
+    }
+    return best?[best[0],best[1]]:[pt[0],pt[1]];
+  });
+}
+// Fenster-/Tür-Mass eines Eintrags: Breite über die Seiten-Kalibrierung,
+// Höhe = Override am Fenster → Projekt-Default (Schnitt/manuell) → Annahme
+// (Fenster 1.40 m / Tür 2.10 m, Konzept §8 — immer als Annahme geflaggt).
+function plFensterMass(se,f,prj){
+  var mpp=(se&&se.kalibBestaetigt&&se.mmProPixel>0)?se.mmProPixel:0;
+  var breite=mpp?Math.hypot(f.p2[0]-f.p1[0],f.p2[1]-f.p1[1])*mpp/1000:null;
+  var istTuer=f.typ==='tuer';
+  var defH=istTuer?((prj&&prj.tuerHoeheM>0)?prj.tuerHoeheM:2.1):((prj&&prj.fensterHoeheM>0)?prj.fensterHoeheM:1.4);
+  var defQ=istTuer?((prj&&prj.tuerHoeheQuelle)||''):((prj&&prj.fensterHoeheQuelle)||'');
+  var hoehe=(f.hoeheM>0)?f.hoeheM:defH;
+  var annahme=!(f.hoeheM>0)&&defQ!=='schnitt'&&defQ!=='manuell';
+  return {breiteM:breite,hoeheM:hoehe,annahme:annahme,m2:(breite==null?null:breite*hoehe)};
+}
+// Σ Fenster-/Türflächen über alle Seiten — NUR freigegebene Einträge.
+function plFensterSummen(seiten,prj){
+  var out={fensterM2:0,tuerenM2:0,anzahlFenster:0,anzahlTueren:0,annahmeHoehe:false,ohneKalib:0,offen:0};
+  (seiten||[]).forEach(function(se){
+    (se.fenster||[]).forEach(function(f){
+      if(f.status!=='freigegeben'){out.offen++;return;}
+      var m=plFensterMass(se,f,prj);
+      if(m.m2==null){out.ohneKalib++;return;}
+      if(m.annahme)out.annahmeHoehe=true;
+      if(f.typ==='tuer'){out.tuerenM2+=m.m2;out.anzahlTueren++;}
+      else{out.fensterM2+=m.m2;out.anzahlFenster++;}
+    });
+  });
+  return out;
+}
 /*ENGINE-END*/
 
 // ── State & Storage ─────────────────────────────────────────────────
@@ -417,9 +474,9 @@ var PL={
   PRJ_CACHE:'gema_pln_prj_pool_v1', SEITE_CACHE:'gema_pln_seiten_pool_v1',
   projektId:'', seiteId:'', tool:'pan',
   zoom:1, tx:20, ty:20,
-  drawPts:[], calibPts:[], sel:'',
+  drawPts:[], calibPts:[], fensterPts:[], sel:'', selFe:'',
   pdfDocs:{}, lokalPdf:{}, textLayer:'',
-  renderToken:0, bmp:null, busy:false
+  renderToken:0, bmp:null, busy:false, vecSegs:null
 };
 function plEsc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 function plNum(v){var n=parseFloat(String(v).replace(',','.'));return isNaN(n)?0:n;}
@@ -544,7 +601,7 @@ function plUploadOne(file){
             dateiname:file.name,url:dok.url,seitennummer:i,
             plantyp:'',geschoss:'',geschossIndex:null,massstab:'',
             mmProPixel:0,kalibQuelle:'',kalibBestaetigt:false,
-            renderW:0,renderH:0,flaechen:[],analyse:null,schnitt:null,lokal:!dok.url};
+            renderW:0,renderH:0,flaechen:[],fenster:[],analyse:null,schnitt:null,lokal:!dok.url};
           plSaveSeite(s);
         }
         if(!dok.url)GemaDialog.alert({title:'Nur lokal',message:file.name+': Upload in den Storage nicht möglich — der Plan ist nur in dieser Sitzung verfügbar (Flächen bleiben gespeichert).'});
@@ -585,19 +642,21 @@ function plGetDoc(seite){
 // ── Seite öffnen & rendern ──────────────────────────────────────────
 function plShowEmpty(show){document.getElementById('plEmpty').style.display=show?'flex':'none';}
 window.plOpenSeite=function(id){
-  PL.seiteId=id;PL.sel='';PL.drawPts=[];PL.calibPts=[];PL.bmp=null;PL.textLayer='';
+  PL.seiteId=id;PL.sel='';PL.selFe='';PL.drawPts=[];PL.calibPts=[];PL.fensterPts=[];PL.bmp=null;PL.textLayer='';PL.vecSegs=null;
   var s=plSeite();
   plTabsRender();
   if(!s){plShowEmpty(true);plAllRender();return;}
   plShowEmpty(false);
-  var token=++PL.renderToken;
+  var token=++PL.renderToken,pageRef=null,vpRef=null;
   plEnsurePdfjs().then(function(){return plGetDoc(s);}).then(function(doc){
     return doc.getPage(s.seitennummer);
   }).then(function(page){
     if(token!==PL.renderToken)return;
+    pageRef=page;
     var base=page.getViewport({scale:1});
     var scale=s.renderW>0?(s.renderW/base.width):(2600/Math.max(base.width,base.height));
     var vp=page.getViewport({scale:scale});
+    vpRef=vp;
     var cv=document.getElementById('plCanvas');
     cv.width=Math.round(vp.width);cv.height=Math.round(vp.height);
     if(!s.renderW){s.renderW=cv.width;s.renderH=cv.height;plSaveSeite(s);}
@@ -611,6 +670,12 @@ window.plOpenSeite=function(id){
   }).then(function(){
     if(token!==PL.renderToken)return;
     plFit();plAllRender();
+    // Vektor-Pfade fürs Snapping (asynchron, best-effort; Scans → null)
+    if(pageRef&&vpRef)plExtractVecSegs(pageRef,vpRef).then(function(segs){
+      if(token!==PL.renderToken)return;
+      PL.vecSegs=(segs&&segs.length>=40)?segs:null;
+      plInfoRender();plListeRender();
+    }).catch(function(){});
   }).catch(function(e){
     plShowEmpty(true);
     document.querySelector('#plEmpty .big').textContent='⚠';
@@ -670,12 +735,13 @@ function plToImg(ev){
   return [(ev.clientX-r.left-PL.tx)/PL.zoom,(ev.clientY-r.top-PL.ty)/PL.zoom];
 }
 window.plTool=function(t){
-  PL.tool=t;PL.drawPts=[];PL.calibPts=[];
+  PL.tool=t;PL.drawPts=[];PL.calibPts=[];PL.fensterPts=[];
   document.querySelectorAll('#plTools button').forEach(function(b){b.classList.toggle('on',b.dataset.tool===t);});
   var v=document.getElementById('plViewer');
   v.className='pl-viewer tool-'+t;
   var hints={draw:'✏️ Klicks setzen Ecken · Doppelklick oder Enter schliesst das Polygon · Esc bricht ab',
              fill:'🪄 In die Mitte eines Raums klicken — die Fläche wird automatisch gefüllt',
+             fenster:'🪟 Die beiden Endpunkte der Fenster-/Türöffnung in der Aussenwand anklicken · Esc bricht ab',
              calib:'📏 Zwei Punkte mit bekannter Distanz anklicken (z.B. eine Masskette)'};
   plHint(hints[t]||'');
   plSvgRender();
@@ -718,6 +784,9 @@ function plHint(txt){
     } else if(PL.tool==='calib'){
       PL.calibPts.push(img);plSvgRender();
       if(PL.calibPts.length===2)plCalibFinish();
+    } else if(PL.tool==='fenster'){
+      PL.fensterPts.push(img);plSvgRender();
+      if(PL.fensterPts.length===2)plFensterFinish();
     } else if(PL.tool==='fill'){
       plFillAt(img);
     }
@@ -761,19 +830,14 @@ function plHint(txt){
     }
   });
   document.addEventListener('keydown',function(e){
-    if(e.key==='Escape'){PL.drawPts=[];PL.calibPts=[];plSvgRender();}
+    if(e.key==='Escape'){PL.drawPts=[];PL.calibPts=[];PL.fensterPts=[];plSvgRender();}
     if(e.key==='Enter'&&PL.tool==='draw'&&PL.drawPts.length>=3)plDrawFinish();
     if((e.key==='Delete'||e.key==='Backspace')&&PL.sel&&document.activeElement.tagName!=='INPUT'){
       e.preventDefault();plFlLoeschen(PL.sel);
     }
   });
 })();
-function plSegDist(p,a,b){
-  var dx=b[0]-a[0],dy=b[1]-a[1],l2=dx*dx+dy*dy;
-  if(l2===0)return Math.hypot(p[0]-a[0],p[1]-a[1]);
-  var t=Math.max(0,Math.min(1,((p[0]-a[0])*dx+(p[1]-a[1])*dy)/l2));
-  return Math.hypot(p[0]-(a[0]+t*dx),p[1]-(a[1]+t*dy));
-}
+function plSegDist(p,a,b){return plProj(p,a,b).d;}
 function plVertexDel(idx){
   var fl=plFl(PL.sel);if(!fl||fl.polygon.length<=3||!plCanEdit())return;
   fl.polygon.splice(idx,1);plFlRecalc(fl);plSaveSeite(plSeite());plAllRender();
@@ -887,6 +951,114 @@ window.plKalibReset=function(){
   plSaveSeite(s);plAllRender();
 };
 
+// ── Fenster & Aussentüren (Konzept §8) ──────────────────────────────
+function plFensterFinish(){
+  var s=plSeite();
+  PL.fensterPts.length>2&&(PL.fensterPts=PL.fensterPts.slice(0,2));
+  var a=PL.fensterPts[0],b=PL.fensterPts[1];
+  PL.fensterPts=[];
+  if(!s||!plCanEdit()){plSvgRender();return;}
+  if(!a||!b||Math.hypot(b[0]-a[0],b[1]-a[1])<4){plHint('Punkte zu nah beieinander — nochmals klicken.');plSvgRender();return;}
+  s.fenster=s.fenster||[];
+  var fe={id:plId('plfe'),p1:[a[0],a[1]],p2:[b[0],b[1]],typ:'fenster',hoeheM:null,status:'erkannt',quelle:'manuell',nutzung:''};
+  s.fenster.push(fe);
+  PL.selFe=fe.id;
+  plSaveSeite(s);plHint('');plSvgRender();plFensterRender();plHuelleRender();
+}
+function plFe(id){var s=plSeite();return s?(s.fenster||[]).find(function(f){return f.id===id;}):null;}
+window.plFeTyp=function(id,v){
+  var f=plFe(id);if(!f||!plCanEdit())return;
+  f.typ=v==='tuer'?'tuer':'fenster';
+  plSaveSeite(plSeite());plSvgRender();plFensterRender();plHuelleRender();
+};
+window.plFeHoehe=function(id,v){
+  var f=plFe(id);if(!f||!plCanEdit())return;
+  var n=plNum(v);f.hoeheM=n>0?n:null;
+  plSaveSeite(plSeite());plFensterRender();plHuelleRender();
+};
+window.plFeStatus=function(id,st){
+  var f=plFe(id);if(!f||!plCanEdit())return;
+  f.status=st;plSaveSeite(plSeite());plFensterRender();plHuelleRender();
+};
+window.plFeDel=function(id){
+  if(!plCanEdit())return;
+  GemaDialog.confirm({title:'Fenster/Tür löschen',message:'Diesen Eintrag wirklich löschen?',confirmLabel:'Löschen',danger:true}).then(function(ok){
+    if(!ok)return;
+    var s=plSeite();if(!s)return;
+    s.fenster=(s.fenster||[]).filter(function(f){return f.id!==id;});
+    if(PL.selFe===id)PL.selFe='';
+    plSaveSeite(s);plSvgRender();plFensterRender();plHuelleRender();
+  });
+};
+window.plFeZoom=function(id){
+  var f=plFe(id);if(!f)return;
+  PL.selFe=(PL.selFe===id)?'':id;
+  var v=document.getElementById('plViewer');
+  var cx=(f.p1[0]+f.p2[0])/2,cy=(f.p1[1]+f.p2[1])/2;
+  PL.tx=v.clientWidth/2-cx*PL.zoom;PL.ty=v.clientHeight/2-cy*PL.zoom;
+  plApplyView();plFensterRender();
+};
+window.plFeDefHoehe=function(which,v){
+  var p=plPrj();if(!p||!plCanEdit())return;
+  var n=plNum(v);
+  if(which==='tuer'){p.tuerHoeheM=n>0?n:0;p.tuerHoeheQuelle=n>0?'manuell':'';}
+  else{p.fensterHoeheM=n>0?n:0;p.fensterHoeheQuelle=n>0?'manuell':'';}
+  plSavePrj(p);plFensterRender();plHuelleRender();
+};
+
+// ── Vektor-Snapping (Phase 5, nur Vektor-PDFs) ──────────────────────
+// Liniensegmente aus der pdf.js-Operator-Liste in Canvas-px extrahieren.
+// Scan-PDFs liefern (fast) keine Pfade → PL.vecSegs bleibt null, das
+// Snapping entfällt ersatzlos (Konzept Schritt 5).
+function plMatMul(m,n){
+  return [m[0]*n[0]+m[2]*n[1], m[1]*n[0]+m[3]*n[1],
+          m[0]*n[2]+m[2]*n[3], m[1]*n[2]+m[3]*n[3],
+          m[0]*n[4]+m[2]*n[5]+m[4], m[1]*n[4]+m[3]*n[5]+m[5]];
+}
+function plMatApply(m,x,y){return [m[0]*x+m[2]*y+m[4], m[1]*x+m[3]*y+m[5]];}
+function plExtractVecSegs(page,viewport){
+  return page.getOperatorList().then(function(opl){
+    var OPS=pdfjsLib.OPS,segs=[];
+    function push(a,b){
+      if(segs.length>=30000)return;
+      if(Math.hypot(b[0]-a[0],b[1]-a[1])<1.5)return;
+      segs.push([a[0],a[1],b[0],b[1]]);
+    }
+    var ctm=viewport.transform.slice(),stack=[];
+    for(var i=0;i<opl.fnArray.length&&segs.length<30000;i++){
+      var fn=opl.fnArray[i],args=opl.argsArray[i];
+      if(fn===OPS.save)stack.push(ctm.slice());
+      else if(fn===OPS.restore)ctm=stack.pop()||ctm;
+      else if(fn===OPS.transform)ctm=plMatMul(ctm,args);
+      else if(fn===OPS.constructPath&&args&&args.length>=2){
+        var mini=args[0],co=args[1],ci=0,cur=null,start=null;
+        for(var k=0;k<mini.length;k++){
+          var op=mini[k];
+          if(op===OPS.moveTo){cur=plMatApply(ctm,co[ci],co[ci+1]);start=cur;ci+=2;}
+          else if(op===OPS.lineTo){var nx=plMatApply(ctm,co[ci],co[ci+1]);ci+=2;if(cur)push(cur,nx);cur=nx;}
+          else if(op===OPS.curveTo){cur=plMatApply(ctm,co[ci+4],co[ci+5]);ci+=6;}
+          else if(op===OPS.curveTo2||op===OPS.curveTo3){cur=plMatApply(ctm,co[ci+2],co[ci+3]);ci+=4;}
+          else if(op===OPS.closePath){if(cur&&start)push(cur,start);cur=start;}
+          else if(op===OPS.rectangle){
+            var x=co[ci],y=co[ci+1],w2=co[ci+2],h2=co[ci+3];ci+=4;
+            var q1=plMatApply(ctm,x,y),q2=plMatApply(ctm,x+w2,y),q3=plMatApply(ctm,x+w2,y+h2),q4=plMatApply(ctm,x,y+h2);
+            push(q1,q2);push(q2,q3);push(q3,q4);push(q4,q1);
+            cur=q1;start=q1;
+          }
+          else break; // unbekannter Mini-Op → Argument-Offsets nicht mehr sicher
+        }
+      }
+    }
+    return segs;
+  });
+}
+window.plFlSnapVec=function(id){
+  var fl=plFl(id);if(!fl||!fl.polygon||!plCanEdit())return;
+  if(!PL.vecSegs||!PL.vecSegs.length)return;
+  fl.polygon=plSnap(fl.polygon,PL.vecSegs,6);
+  plFlRecalc(fl);plSaveSeite(plSeite());plAllRender();
+};
+
 // ── Flood-Fill (Schritt 4 des Konzepts) ─────────────────────────────
 function plBuildBitmap(){
   if(PL.bmp)return PL.bmp;
@@ -931,7 +1103,7 @@ function plFillAt(imgPt){
 }
 function plFloodPolygon(imgPt){
   var b=plBuildBitmap();
-  var dil=Math.max(0,Math.min(20,Math.round(plNum(document.getElementById('plSchliessen').value)||3)));
+  var dil=Math.max(0,Math.min(40,Math.round(plNum(document.getElementById('plSchliessen').value)||3)));
   if(!b.walls||b.dil!==dil){
     var bin=plBinarize(b.gray,b.w,b.h,150);
     b.walls=dil>0?plErode(plDilate(bin,b.w,b.h,dil),b.w,b.h,dil):bin; // Closing
@@ -947,6 +1119,8 @@ function plFloodPolygon(imgPt){
   var orto=plOrtho(simp,5);
   var poly=orto.map(function(p){return [p[0]/b.f,p[1]/b.f];});
   if(poly.length<3)return null;
+  // Vektor-Snapping (Phase 5): Ecken auf die exakten PDF-Pfade ziehen
+  if(PL.vecSegs&&PL.vecSegs.length)poly=plSnap(poly,PL.vecSegs,Math.max(3,3/b.f));
   return {polygon:poly};
 }
 window.plSeedsFuellen=function(){
@@ -1022,6 +1196,23 @@ function plApplyGrundriss(s,res){
       quelle:'ki',konfidenz:r.konfidenz||'',status:'erkannt',warn:'ok'});
     neu++;
   });
+  // Fenster/Aussentüren (Konzept §8) — als erkannt-Einträge, Duplikat-Schutz über Endpunkt-Nähe
+  var neuF=0;
+  (res.fenster||[]).forEach(function(fe){
+    if(!fe||!fe.p1||!fe.p2||fe.p1.length<2||fe.p2.length<2)return;
+    var p1=[fe.p1[0]*w,fe.p1[1]*h],p2=[fe.p2[0]*w,fe.p2[1]*h];
+    if(Math.hypot(p2[0]-p1[0],p2[1]-p1[1])<4)return;
+    s.fenster=s.fenster||[];
+    var dupe=s.fenster.some(function(x){
+      var d1=Math.hypot(x.p1[0]-p1[0],x.p1[1]-p1[1])+Math.hypot(x.p2[0]-p2[0],x.p2[1]-p2[1]);
+      var d2=Math.hypot(x.p1[0]-p2[0],x.p1[1]-p2[1])+Math.hypot(x.p2[0]-p1[0],x.p2[1]-p1[1]);
+      return Math.min(d1,d2)<24;
+    });
+    if(dupe)return;
+    s.fenster.push({id:plId('plfe'),p1:p1,p2:p2,typ:fe.typ==='tuer'?'tuer':'fenster',
+      hoeheM:null,status:'erkannt',quelle:'ki',nutzung:fe.nutzung||''});
+    neuF++;
+  });
   // Kalibrier-Vorschlag aus Bemassungen
   var cands=[];
   (res.bemassungen||[]).forEach(function(b){
@@ -1029,7 +1220,7 @@ function plApplyGrundriss(s,res){
     var d=Math.hypot((b.p2[0]-b.p1[0])*w,(b.p2[1]-b.p1[1])*h);
     if(d>10)cands.push(b.wert_mm/d);
   });
-  var info=neu+' Räume erkannt'+(res.geschoss?' · Geschoss '+res.geschoss:'')+(res.massstab?' · Massstab '+res.massstab:'');
+  var info=neu+' Räume erkannt'+(neuF?' · '+neuF+' Fenster/Türen':'')+(res.geschoss?' · Geschoss '+res.geschoss:'')+(res.massstab?' · Massstab '+res.massstab:'');
   if(cands.length&&!s.kalibBestaetigt){
     var med=plMedian(cands);
     var gut=cands.filter(function(c){return Math.abs(c-med)/med<0.1;});
@@ -1054,8 +1245,12 @@ function plApplySchnitt(s,res){
   });
   if(res.dachneigung_grad!=null)p.dachneigung=plNum(res.dachneigung_grad);
   if(res.dachform)p.dachform=res.dachform;
+  // Fensterhöhe aus dem Schnitt (Konzept §8) — manuelle Eingabe nie überschreiben
+  if(res.fenster_hoehe_m>0&&p.fensterHoeheQuelle!=='manuell'){
+    p.fensterHoeheM=plNum(res.fenster_hoehe_m);p.fensterHoeheQuelle='schnitt';
+  }
   plSavePrj(p);
-  GemaDialog.alert({title:'Schnitt ausgewertet',message:(res.geschosse||[]).length+' Geschosshöhen übernommen'+(res.dachneigung_grad!=null?' · Dachneigung '+res.dachneigung_grad+'°':'')+'. Prüfen unter «Gebäudehülle & EBF».'});
+  GemaDialog.alert({title:'Schnitt ausgewertet',message:(res.geschosse||[]).length+' Geschosshöhen übernommen'+(res.dachneigung_grad!=null?' · Dachneigung '+res.dachneigung_grad+'°':'')+(res.fenster_hoehe_m>0?' · Fensterhöhe '+plFmt(res.fenster_hoehe_m,2)+' m':'')+'. Prüfen unter «Gebäudehülle & EBF».'});
 }
 
 // ── SVG-Overlay ─────────────────────────────────────────────────────
@@ -1093,6 +1288,21 @@ function plSvgRender(){
       out.push('<text x="'+fl.seed[0]+'" y="'+(fl.seed[1]-11/z)+'" text-anchor="middle" font-size="'+(11/z)+'" font-weight="700" fill="#7c3aed" style="paint-order:stroke;stroke:#fff;stroke-width:'+(3/z)+'px">'+plEsc(fl.raumName||'')+' (Seed)</text>');
     }
   });
+  // Fenster & Aussentüren (Konzept §8) — Öffnungs-Linien auf der Wand
+  var prj=plPrj();
+  (s.fenster||[]).forEach(function(f,fi){
+    var sel=f.id===PL.selFe;
+    var col=f.typ==='tuer'?'#0369a1':'var(--c-fenster)';
+    out.push('<line x1="'+f.p1[0]+'" y1="'+f.p1[1]+'" x2="'+f.p2[0]+'" y2="'+f.p2[1]+'" stroke="'+col+'" stroke-width="'+((sel?9:6)/z)+'" stroke-linecap="round" opacity="'+(f.status==='freigegeben'?0.95:0.6)+'" data-fe="'+f.id+'"/>');
+    var mx=(f.p1[0]+f.p2[0])/2,my=(f.p1[1]+f.p2[1])/2;
+    var mass=plFensterMass(s,f,prj);
+    var lbl=(f.typ==='tuer'?'T':'F')+(fi+1)+(mass.breiteM!=null?' '+plFmt(mass.breiteM,2)+' m':'');
+    out.push('<text x="'+mx+'" y="'+(my-9/z)+'" text-anchor="middle" font-size="'+(10.5/z)+'" font-weight="800" fill="'+(f.typ==='tuer'?'#0369a1':'#0284c7')+'" style="paint-order:stroke;stroke:#fff;stroke-width:'+(3/z)+'px">'+plEsc(lbl)+'</text>');
+  });
+  // Fenster-Vorschau (erster Klick gesetzt)
+  if(PL.fensterPts.length){
+    PL.fensterPts.forEach(function(p){out.push('<circle cx="'+p[0]+'" cy="'+p[1]+'" r="'+(5/z)+'" fill="none" stroke="#0ea5e9" stroke-width="2.5" vector-effect="non-scaling-stroke"/>');});
+  }
   // Zeichnen-Vorschau
   if(PL.drawPts.length){
     var dstr=PL.drawPts.map(function(p){return p[0].toFixed(1)+','+p[1].toFixed(1);}).join(' ');
@@ -1136,6 +1346,49 @@ function plInfoRender(){
   var tb=document.getElementById('plTypBadge');
   tb.textContent=s.plantyp||'unbekannt';
   tb.className='badge '+(s.plantyp?'b-blu':'b-mut');
+  document.getElementById('plVecBadge').style.display=(PL.vecSegs&&PL.vecSegs.length)?'':'none';
+}
+function plFensterRender(){
+  var host=document.getElementById('plFensterListe');
+  var s=plSeite(),p=plPrj();
+  var alle=0,frei=0;
+  plSeiten().forEach(function(se){(se.fenster||[]).forEach(function(f){alle++;if(f.status==='freigegeben')frei++;});});
+  document.getElementById('plFeZaehler').textContent=frei+' / '+alle+' freigegeben';
+  if(!s){host.innerHTML='<div style="font-size:12px;color:var(--mut)">Kein Plan geöffnet.</div>';return;}
+  var fhQ=(p&&p.fensterHoeheQuelle)||'',thQ=(p&&p.tuerHoeheQuelle)||'';
+  var html='<div class="grid2" style="margin-bottom:4px">'+
+    '<div class="fg"><label>Fensterhöhe Standard '+(fhQ==='schnitt'?'<span class="badge b-blu" style="text-transform:none">aus Schnitt</span>':(fhQ==='manuell'?'':'⚠'))+'</label>'+
+      '<div class="inp-grp"><input class="inp" type="text" inputmode="decimal" value="'+plEsc(p&&p.fensterHoeheM>0?p.fensterHoeheM:'')+'" placeholder="1.4 (Annahme)" onblur="fixLeadingZero(this)" onchange="plFeDefHoehe(\'fenster\',this.value)"/><span class="unit">m</span></div></div>'+
+    '<div class="fg"><label>Türhöhe Standard '+(thQ==='manuell'?'':'⚠')+'</label>'+
+      '<div class="inp-grp"><input class="inp" type="text" inputmode="decimal" value="'+plEsc(p&&p.tuerHoeheM>0?p.tuerHoeheM:'')+'" placeholder="2.1 (Annahme)" onblur="fixLeadingZero(this)" onchange="plFeDefHoehe(\'tuer\',this.value)"/><span class="unit">m</span></div></div>'+
+    '</div>';
+  var fes=(s.fenster||[]);
+  if(!fes.length){
+    html+='<div style="font-size:12px;color:var(--mut)">Keine Fenster/Türen auf dieser Seite — mit 🪟 einzeichnen oder per KI-Analyse erkennen.</div>';
+    host.innerHTML=html;return;
+  }
+  html+='<div class="gesch-hd"><span>'+plEsc(s.geschoss||'Seite '+s.seitennummer)+'</span><span>'+fes.filter(function(f){return f.status==='freigegeben';}).length+'/'+fes.length+' ✓</span></div>';
+  fes.forEach(function(f,fi){
+    var st=PL_ST[f.status]||PL_ST.erkannt;
+    var m=plFensterMass(s,f,p);
+    var mtxt=(m.m2!=null)?plFmt(m.m2,2)+' m²':'– (kalibrieren)';
+    html+='<div class="raum-row'+(f.id===PL.selFe?' sel':'')+'" onclick="plFeZoom(\''+f.id+'\')">'+
+      '<span class="cdot" style="background:'+(f.typ==='tuer'?'#0369a1':'var(--c-fenster)')+'"></span>'+
+      '<span class="rn">'+(f.typ==='tuer'?'🚪 T':'🪟 F')+(fi+1)+' <small>'+plEsc(f.quelle||'')+(m.breiteM!=null?' · '+plFmt(m.breiteM,2)+' × '+plFmt(m.hoeheM,2)+' m':'')+(m.annahme?' ⚠ Höhe angenommen':'')+'</small></span>'+
+      '<span class="m2">'+mtxt+'</span>'+
+      '<span class="st" title="'+st.t+'">'+st.i+'</span></div>';
+    if(f.id===PL.selFe){
+      html+='<div class="raum-acts">'+
+        '<select onchange="plFeTyp(\''+f.id+'\',this.value)" onclick="event.stopPropagation()">'+
+          '<option value="fenster"'+(f.typ!=='tuer'?' selected':'')+'>Fenster</option>'+
+          '<option value="tuer"'+(f.typ==='tuer'?' selected':'')+'>Aussentür</option></select>'+
+        '<input type="text" inputmode="decimal" value="'+plEsc(f.hoeheM>0?f.hoeheM:'')+'" placeholder="Höhe m" style="width:70px;padding:4px 6px;font-size:10.5px;border:1.5px solid var(--brd2);border-radius:7px;font-family:inherit" onclick="event.stopPropagation()" onchange="plFeHoehe(\''+f.id+'\',this.value)"/>'+
+        (f.status!=='freigegeben'?'<button class="btn" onclick="event.stopPropagation();plFeStatus(\''+f.id+'\',\'freigegeben\')">✓ Freigeben</button>':'<button class="btn" onclick="event.stopPropagation();plFeStatus(\''+f.id+'\',\'erkannt\')">↩ zurück</button>')+
+        '<button class="btn" style="color:var(--red)" onclick="event.stopPropagation();plFeDel(\''+f.id+'\')">🗑</button>'+
+        '</div>';
+    }
+  });
+  host.innerHTML=html;
 }
 window.plMetaChange=function(){
   var s=plSeite();if(!s||!plCanEdit())return;
@@ -1173,6 +1426,7 @@ function plListeRender(){
         '</select>'+
         (fl.status!=='freigegeben'&&fl.polygon?'<button class="btn" onclick="event.stopPropagation();plFlStatus(\''+fl.id+'\',\'freigegeben\')">✓ Freigeben</button>':'')+
         (fl.status==='freigegeben'?'<button class="btn" onclick="event.stopPropagation();plFlStatus(\''+fl.id+'\',\'geprueft\')">↩ zurück</button>':'')+
+        (fl.polygon&&PL.vecSegs&&PL.vecSegs.length?'<button class="btn" title="Ecken auf die exakten PDF-Vektorlinien einrasten" onclick="event.stopPropagation();plFlSnapVec(\''+fl.id+'\')">⌖ Einrasten</button>':'')+
         '<button class="btn" onclick="event.stopPropagation();plFlName(\''+fl.id+'\')">✏️ Name</button>'+
         (!fl.polygon&&fl.seed?'<button class="btn" onclick="event.stopPropagation();plFillAt([ '+fl.seed[0]+','+fl.seed[1]+' ])">🪄 Füllen</button>':'')+
         '<button class="btn" style="color:var(--red)" onclick="event.stopPropagation();plFlLoeschen(\''+fl.id+'\')">🗑</button>'+
@@ -1244,7 +1498,15 @@ function plHuelleRender(){
   var bodenBgf=idxList.length?konturen[Math.min.apply(null,idxList)].bgf:0;
   var neig=plNum(p.dachneigung)||0;
   var dach=neig>0?dachBgf/Math.cos(neig*Math.PI/180):dachBgf;
-  var fenster=plNum(p.fensterM2)||0,tueren=plNum(p.tuerenM2)||0;
+  // Fenster/Türen: automatische Summe aus den erfassten Öffnungen (nur
+  // freigegebene, Konzept §8); ein manueller Override > 0 gewinnt.
+  var fsum=plFensterSummen(plSeiten(),p);
+  var fenMan=plNum(p.fensterM2)||0,tueMan=plNum(p.tuerenM2)||0;
+  var fenster=fenMan>0?fenMan:fsum.fensterM2, tueren=tueMan>0?tueMan:fsum.tuerenM2;
+  var feSrc=[];
+  feSrc.push(fenMan>0?'Fenster manuell':(fsum.anzahlFenster?fsum.anzahlFenster+' Fenster':''));
+  feSrc.push(tueMan>0?'Türen manuell':(fsum.anzahlTueren?fsum.anzahlTueren+' Türen':''));
+  feSrc=feSrc.filter(Boolean).join(' + ');
   var daemm=Math.max(0,fassade+dach+bodenBgf-fenster-tueren);
   var html='';
   html+='<div style="font-size:10px;font-weight:800;color:var(--mut);text-transform:uppercase;letter-spacing:.4px;margin-bottom:5px">Geschosshöhen <span style="text-transform:none;font-weight:600">(Schnitt-Analyse oder manuell)</span></div>';
@@ -1262,15 +1524,17 @@ function plHuelleRender(){
   html+='<div class="grid2" style="margin-top:10px">'+
     '<div class="fg"><label>Dachneigung</label><div class="inp-grp"><input class="inp" type="text" inputmode="decimal" value="'+plEsc(p.dachneigung||0)+'" onblur="fixLeadingZero(this)" onchange="plPrjFeld(\'dachneigung\',this.value)"/><span class="unit">°</span></div></div>'+
     '<div class="fg"><label>EBF-Faktor (ohne Kontur)</label><div class="inp-grp"><input class="inp" type="text" inputmode="decimal" value="'+plEsc(p.ebfFaktor||1.2)+'" onblur="fixLeadingZero(this)" onchange="plPrjFeld(\'ebfFaktor\',this.value)"/><span class="unit">–</span></div></div>'+
-    '<div class="fg"><label>Σ Fensterflächen ⚠</label><div class="inp-grp"><input class="inp" type="text" inputmode="decimal" value="'+plEsc(p.fensterM2||0)+'" onblur="fixLeadingZero(this)" onchange="plPrjFeld(\'fensterM2\',this.value)"/><span class="unit">m²</span></div></div>'+
-    '<div class="fg"><label>Σ Aussentüren ⚠</label><div class="inp-grp"><input class="inp" type="text" inputmode="decimal" value="'+plEsc(p.tuerenM2||0)+'" onblur="fixLeadingZero(this)" onchange="plPrjFeld(\'tuerenM2\',this.value)"/><span class="unit">m²</span></div></div>'+
+    '<div class="fg"><label>Σ Fenster Override</label><div class="inp-grp"><input class="inp" type="text" inputmode="decimal" value="'+plEsc(p.fensterM2||'')+'" placeholder="auto: '+plFmt(fsum.fensterM2,1)+'" onblur="fixLeadingZero(this)" onchange="plPrjFeld(\'fensterM2\',this.value)"/><span class="unit">m²</span></div></div>'+
+    '<div class="fg"><label>Σ Türen Override</label><div class="inp-grp"><input class="inp" type="text" inputmode="decimal" value="'+plEsc(p.tuerenM2||'')+'" placeholder="auto: '+plFmt(fsum.tuerenM2,1)+'" onblur="fixLeadingZero(this)" onchange="plPrjFeld(\'tuerenM2\',this.value)"/><span class="unit">m²</span></div></div>'+
     '</div>';
   html+='<div class="sum-row" style="margin-top:6px"><span>Fassade <span class="src">Σ Umfang × Geschosshöhe</span></span><b>'+plFmt(fassade,1)+' m²</b></div>';
   if(fassadeDetail.length)html+='<div style="font-size:10px;color:var(--mut2);margin:-3px 0 4px">'+fassadeDetail.join(' · ')+'</div>';
   html+='<div class="sum-row"><span>Dach <span class="src">'+(neig>0?'BGF / cos('+plFmt(neig,0)+'°)':'Flachdach = BGF')+'</span></span><b>'+plFmt(dach,1)+' m²</b></div>';
   html+='<div class="sum-row"><span>Boden gegen Erdreich <span class="src">BGF unterstes Geschoss</span></span><b>'+plFmt(bodenBgf,1)+' m²</b></div>';
-  html+='<div class="sum-row"><span>− Fenster/Türen</span><b>'+plFmt(fenster+tueren,1)+' m²</b></div>';
+  html+='<div class="sum-row"><span>− Fenster/Türen'+(feSrc?' <span class="src">'+plEsc(feSrc)+(fsum.annahmeHoehe&&!(fenMan>0&&tueMan>0)?' ⚠ Höhe angenommen':'')+'</span>':'')+'</span><b>'+plFmt(fenster+tueren,1)+' m²</b></div>';
   html+='<div class="sum-row total"><span>Dämmfläche</span><b>'+plFmt(daemm,1)+' m²</b></div>';
+  if(fsum.offen)html+='<div class="warn-inline">ℹ '+fsum.offen+' Fenster/Türen noch nicht freigegeben — nur freigegebene werden abgezogen.</div>';
+  if(fsum.ohneKalib)html+='<div class="warn-inline">⚠ '+fsum.ohneKalib+' freigegebene Fenster/Türen ohne kalibrierte Seite — Breite unbekannt, nicht eingerechnet.</div>';
   if(!Object.keys(konturen).length)html+='<div class="warn-inline">⚠ Keine freigegebene <b>Aussenkontur</b> — pro Grundriss die Gebäude-Aussenkante zeichnen/füllen und als Kategorie «Aussenkontur (BGF)» freigeben.</div>';
   if(hFehlt.length)html+='<div class="warn-inline">⚠ Geschosshöhe fehlt für: '+hFehlt.map(plEsc).join(', ')+' — Schnittplan analysieren oder manuell erfassen (Fassade unvollständig).</div>';
   host.innerHTML=html;
@@ -1297,7 +1561,7 @@ window.plPrjFeld=function(k,v){
 };
 
 function plAllRender(){
-  plKalibRender();plInfoRender();plListeRender();plSummenRender();plHuelleRender();plSvgRender();
+  plKalibRender();plInfoRender();plListeRender();plFensterRender();plSummenRender();plHuelleRender();plSvgRender();
   var hasSeite=!!plSeite();
   ['plKiBtn','plSeedBtn'].forEach(function(id){document.getElementById(id).disabled=!hasSeite;});
 }
