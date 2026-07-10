@@ -1019,6 +1019,13 @@
           var curPage=thisFileLower||'index';
           var destPage=roleDest.replace('.html','').toLowerCase();
           if(!_isAdmin(user)&&destPage!==curPage&&destPage!=='index'){
+            // Chat-Deep-Link (?chat=<threadId>, gema_chat.js) über den
+            // Rollen-Redirect hinweg erhalten — sonst verpufft der Klick
+            // auf eine Chat-Benachrichtigung auf der Modulübersicht.
+            try{
+              var _chatParam=new URLSearchParams(location.search).get('chat');
+              if(_chatParam)roleDest+=(roleDest.indexOf('?')>=0?'&':'?')+'chat='+encodeURIComponent(_chatParam);
+            }catch(e){}
             location.href=roleDest;
             return;
           }

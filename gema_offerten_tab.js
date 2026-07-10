@@ -74,13 +74,36 @@
         h += '</div>';
       }
 
-      h += '<div style="font-size:10px;color:#9ca3af;margin-top:6px">Gesendet: ' + (oa.erstelltAm ? new Date(oa.erstelltAm).toLocaleDateString('de-CH') : '–') + (oa.frist ? ' · Frist: ' + oa.frist : '') + '</div>';
+      h += '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:6px">';
+      h += '<div style="font-size:10px;color:#9ca3af">Gesendet: ' + (oa.erstelltAm ? new Date(oa.erstelltAm).toLocaleDateString('de-CH') : '–') + (oa.frist ? ' · Frist: ' + oa.frist : '') + '</div>';
+      if (w.GemaChat && oa.lieferantId) {
+        h += '<button onclick="_gotOaChat(\'' + _esc(oa.id) + '\')" style="font-size:11px;font-weight:700;color:#0c4a2e;background:#dcfce7;border:1px solid #bbf7d0;border-radius:999px;padding:4px 11px;cursor:pointer;font-family:inherit" title="Chat mit dem Lieferanten zu dieser Offertanfrage">💬 Rückfrage</button>';
+      }
+      h += '</div>';
       h += '</div>';
     });
 
     h += '</div>';
     panel.innerHTML = h;
   }
+
+  // Kontext-Chat zum Lieferanten dieser Offertanfrage (GemaChat)
+  w._gotOaChat = function(oaId) {
+    if (typeof GemaChat === 'undefined' || typeof GemaProdukte === 'undefined') return;
+    var oa = GemaProdukte.getOffertanfrage ? GemaProdukte.getOffertanfrage(oaId) : null;
+    if (!oa) { oa = (GemaProdukte.getOffertanfragen() || []).find(function(x){ return x.id === oaId; }); }
+    if (!oa) return;
+    var objId = oa.projekt && oa.projekt.objektId;
+    GemaChat.start({
+      lieferantId: oa.lieferantId,
+      kontext: {
+        typ: 'offertanfrage', refId: oa.id,
+        label: 'Offertanfrage: ' + (oa.produktName || oa.kategorie || '') + (oa.projekt && oa.projekt.name ? ' · ' + oa.projekt.name : ''),
+        url: 'pm_objekte.html?tab=offerten' + (objId ? '&objekt=' + encodeURIComponent(objId) : ''),
+        urlExtern: 'sys_lieferant_dashboard.html?tab=anfragen'
+      }
+    });
+  };
 
   function inject() {
     // Finde den Tab-Container (project-bar oder ähnlich)

@@ -350,6 +350,11 @@
       label:'Token-Budget fast aufgebraucht',
       modul:'abos',
       defaultOn:true
+    },
+    chat_nachricht: {
+      label:'Neue Chat-Nachricht',
+      modul:'chat',
+      defaultOn:true
     }
   };
 

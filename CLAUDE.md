@@ -1843,6 +1843,16 @@ Tabellen-Modal mit fünf Spalten (Datum, Aktion-Pill, Datensatz, Beschreibung, U
 
 ---
 
+## Kontext-Chat (GemaChat, gema_chat.js)
+
+GEMA-weiter Direkt-Chat zwischen Benutzern (Beteiligte, Lieferanten, Team) im **WhatsApp-Layout** — 💬-Button in der Nav (neben der Glocke, Ungelesen-Badge grün) → rechtes Panel (Mobile Vollbild): Chat-Liste → Thread mit Bubbles (eigene grün rechts, fremde weiss links), Tag-Trennern, Zeit + Lesehäkchen (✓✓ blau, wenn ALLE Gegenseiten gelesen haben), **Anzeigebild aus dem GEMA-Profil** (`user.avatar` via sys_profil, Initialen-Fallback in Rollenfarbe), Absender-Name + Rolle über fremden Bubbles. Eingebunden auf allen 82 Seiten mit `gema_notify_ui.js` (direkt danach); `gema_mobile_menu.js` verschiebt `.gc-btn` auf Mobile neben den Hamburger (wie die Glocke).
+
+- **Kernidee — Kontext-Bezug**: `GemaChat.start({userId?|userIds?|email?|lieferantId?, kontext?, text?})` startet/öffnet einen Chat MIT Bezug: `kontext = {typ (offertanfrage|ausschreibung|bestellung|objekt|frei), refId, label, url, urlExtern?}`. Der Bezug erscheint als klickbarer Chip im Thread-Kopf und in der Liste — beide Seiten wissen sofort, worum es geht. `url` = Deep-Link für den Starter, `urlExtern` für die Gegenseite (z.B. Planer → pm_objekte, Lieferant → Dashboard); der Chip löst rollenrichtig auf (`erstelltVon` = url, sonst urlExtern). **Thread-Wiederverwendung**: gleicher Teilnehmerkreis + gleiche `refId` (`key` = sortierte userIds + refId) → derselbe Thread; ohne Kontext `|direkt`. Threads entstehen als Draft und werden erst mit der ersten Nachricht gespeichert. `lieferantId` löst ALLE aktiven User mit `user.lieferantId` auf (Team-Chat); `email` matcht profile.email/username; kein Treffer → GemaDialog-Hinweis «kein GEMA-Login».
+- **Storage (moduleKey `chat`, ALLES cross-org → NUR `saveRecord`, NIE persistCollection)**: Thread `chat:` → `gema_chat_threads_pool_v1` (`{id,key,teilnehmerIds,teilnehmer:[{userId,name,firma,rolle}],kontext,erstelltVon,letzte:{text,von,vonName,ts},updatedAt}`) · Nachricht `chatmsg:<threadId>_<msgId>` — **pro Thread via `loadCollection`-Prefix-Filter** geladen (kein globaler Bind) + lokaler LRU-Cache `gema_chat_msgcache_v1` (100 Msgs/Thread, 30 Threads) · Lesestand `chatread:cr_<threadId>_<uid>` → `gema_chat_read_pool_v1` (**ein Record pro User+Thread — keine Schreibkonflikte**; Thread-Update schreibt nur der Sender). Ungelesen = `letzte.von !== ich && letzte.ts > mein Lesestand`. Polling: Meta 45 s + visibilitychange, offener Thread 10 s; eigene Nachrichten offline mit 🕓-Pending (lokal gecacht, Server-Merge ersetzt).
+- **Benachrichtigung**: `chat_nachricht` an alle anderen Teilnehmer, gedrosselt 1×/30 min pro Thread+Empfänger (`gema_chat_notif_lock_v1`); Link = kontext-URL + `?chat=<threadId>`. **Deep-Link (KRITISCH)**: `?chat=` wird beim Script-Parse in sessionStorage gestasht (TTL 25 s) UND der Rollen-Redirect in gema_auth (`_isLoginOnly`-Zweig) reicht den `chat`-Parameter explizit an `roleDest` weiter — sonst verpuffte der Klick auf die Benachrichtigung auf index.html (Redirect → sys_workspace verwarf die Query, bevor gema_chat.js parste). Panel-Schliessen räumt den Stash ab.
+- **Integrationen («💬 Rückfrage»)**: gema_offerten_tab.js (Planer → Lieferanten-Team, Bezug OA) · sys_lieferant_dashboard (OA-Karte → `a.absenderId`, Bestellungs-Karte → `bestellerUserId`) · pm_objekte Beteiligte-Tabelle (💬 bei E-Mail, Bezug Objekt) · pm_ausschreibungsunterlagen (idet: Unternehmer → `a.erstelltVonUserId`; pvgl Offertvergleich: Chips «Rückfrage zur Offerte» pro Bieter via `bet.userId`; Kontext-URL `?a=<id>` funktioniert für BEIDE Rollen) · pm_bestellungen Detail-Footer (→ Lieferanten-Team). Muster für neue Module: kleiner Wrapper, der `GemaChat.start` mit typ/refId/label/url(+urlExtern) aufruft — hinter `typeof GemaChat!=='undefined'` guarden.
+- Kein eigenes Modul-Permission-Gating (nav-level, jeder eingeloggte User); sys_login bootet nicht (kein User). Tests: Node-Pure 18 (threadKey/Zeit/threadUnread/linkify) + Playwright chat_smoke 34 (Kontext-Start, Bubbles/Trenner/Häkchen, Zwei-User-Roundtrip mit Badge→Lesen→Antwort, Notify+Throttle+Link, Deep-Link über Rollen-Redirect, Picker, Beteiligten-Chat in pm_objekte).
+
 ## Notifikations-System (GemaNotify)
 
 Zentrales Modul `gema_notify.js` für In-App-Benachrichtigungen. Glocke + Toast-Anzeige via `gema_notify_ui.js`, automatisch in alle Seiten injiziert (in `.g-nav-actions` oder `.g-nav-right`).
@@ -1917,6 +1927,7 @@ Zentrales Modul `gema_notify.js` für In-App-Benachrichtigungen. Glocke + Toast-
 | `abo_bestellung` | abos | on |
 | `abo_status` | abos | on |
 | `abo_tokens_knapp` | abos | on |
+| `chat_nachricht` | chat | on |
 
 **Neue Module fügen ihre Event-Keys hier hinzu**, sonst greift kein Preferences-Filter.
 
@@ -2221,6 +2232,9 @@ GemaSync.persistCollection(moduleKey, storageKey, prefix, 'id', arr)
 | Abo-Preiskonfiguration | `abos` | `abocfg:` (EIN Record `abocfg:main`) | `gema_abo_cfg_v1` |
 | Abonnemente | `abos` | `abosub:` | `gema_abo_sub_pool_v1` |
 | Token-Ledger | `abos` | `abotok:` | `gema_abo_tok_pool_v1` |
+| Chat-Threads | `chat` | `chat:` | `gema_chat_threads_pool_v1` |
+| Chat-Lesestand | `chat` | `chatread:` | `gema_chat_read_pool_v1` |
+| Chat-Nachrichten | `chat` | `chatmsg:<threadId>_` (pro Thread via loadCollection) | `gema_chat_msgcache_v1` (LRU) |
 
 **Produktkatalog (gema_produktkatalog_api.js) — Migration & Besonderheiten:** Produkte/Lieferanten/Offertanfragen liegen jetzt per-Record in der Cloud (vorher: ein Blob pro Key `gema_produktkatalog_v1`/`gema_lieferanten_v1`/`gema_offertanfragen_v1` via `_GemaDB.saveToModule` → Last-Write-Wins, das Produkte konkurrierender Lieferanten überschreiben konnte). Die lokalen Blobs (`{produkte,log}` etc.) bleiben als Lese-Cache, alle bestehenden Getter (`getProdukte`, `getAllLieferanten`, …) laufen unverändert. `loadFromSupabase()` macht jetzt den Per-Record-Pull (mit einmaliger Legacy-Blob-Migration) und feuert `gema-produkte-loaded`; `save()` macht Diff-Saves per `GemaSync.persistCollection`. Neu: **`GemaProdukte.ready`** (Promise, resolved nach dem ersten Cloud-Pull) — Demo-Seeding (`seedDemoData`/`seedDemoLieferanten`) wartet darauf, sonst würden auf frischen Geräten Demo-Daten in die Cloud gepusht. Der `log` in `_data.log` wird nicht mehr cloud-synct (nur lokal). Fallback auf den alten `_GemaDB`-Blob, falls `gema_sync.js` nicht geladen ist.
 
@@ -2301,6 +2315,7 @@ UI-Anbindung:
 | `gema_armaturen_picker.js` | **Armaturen-Auswahl-Widget** für Berechnungsmodule: Katalog mit Zähler + ζ/kvs pro aktueller Dimension, manuelle Einträge (Name + Δp, Einheit kPa/Pa/mbar), Diagramm-Overlay (Lieferanten-Upload oder generierte Δp-Q-Kurve mit Betriebspunkt), `drawCurve(canvas,…)` für PDF-Sektionen. Modi `multi` und `kvs-single` (Zirkulations-Regulierventil). |
 | `gema_auth.js` | Auth, Rollen, Orgs, Permissions, Cloud-Recovery |
 | `gema_autosave.js` | Auto-Save in Berechnungsmodulen |
+| `gema_chat.js` | **GEMA-weiter Kontext-Chat** (`window.GemaChat`, WhatsApp-Layout). `start({userId?|email?|lieferantId?, kontext:{typ,refId,label,url,urlExtern?}, text?})` startet einen Chat mit klickbarem Bezug-Chip (Ausschreibung/Offertanfrage/Bestellung/Objekt); Threads per-Record cross-org (`chat:`/`chatread:`, Nachrichten `chatmsg:<threadId>_` via Prefix-loadCollection — NIE persistCollection), Anzeigebild aus dem Profil, Notify `chat_nachricht` (30-min-Throttle) mit `?chat=`-Deep-Link. Siehe Abschnitt «Kontext-Chat». |
 | `gema_bestellungen_api.js` | **Bestellprozess für Anlagen** (`window.GemaBest`): per-Record-Pool `best:`, Nummernkreis `BST-JJJJ-NNN` pro Org, Status-Übergänge `create/bestaetigen/ablehnen/geliefertMelden/empfangBestaetigen/stornieren` (je mit Verlauf + Notifikation), `bind()`/`getForOrg()`/`getForLieferant()`, `badgeHtml`/`fmtChf`. Konsumenten: pm_bestellungen, pm_ausschreibungsunterlagen (Gewinner-Sektion), sys_lieferant_dashboard (🛒-Tab). |
 | `gema_revision_pdf.js` | **Revisionsunterlagen HTML/Print-Export** für das Übergabedossier. `GemaRevisionPDF.exportPrint(dossier, {org,user,objektName,objektAdresse,shareUrl})` — Muster gema_schaden_pdf: Branding `org.settings.pdfFarben` + `org.logoVector||org.logo` (Fallback GEMA-SVG), Kontrastschutz-Helfer dupliziert, @page-Margin-Boxen, Cover/TOC/Kapitel, Dokument-Anhänge als klickbare Beilagen, optionaler Cover-QR (qrcodejs im Print-Fenster). Konsument: pm_revisionsunterlagen. |
 | `gema_coachmarks.js` | Onboarding-Touren |
@@ -2309,7 +2324,7 @@ UI-Anbindung:
 | `gema_dialog.js` | Eigene Alert/Confirm/Prompt-Dialoge im GEMA-Style. `window.alert` global ueberschrieben. `GemaDialog.confirm({title,message,danger}).then(ok=>…)` und `GemaDialog.prompt(...)` als Promise-API. `window.confirm` bleibt nativ (sync), neue Stellen sollen GemaDialog nutzen |
 | `gema_feedback.js` | Feedback-Overlay mit Annotation |
 | `gema_lu_api.js` | LU-Zusammenstellung Cross-Modul-API |
-| `gema_mobile_menu.js` | Hamburger-Menü auf Mobile (v2, iOS-Feel): Sektionen Navigation (Startseite/Projekte, permission-guarded) · Zuletzt verwendet (via `GemaRecent`) · Aktionen (Seiten-Buttons, ohne Chevron) · Verwaltung (admin) · Konto (Einstellungen/Feedback/Abmelden); tappbarer User-Block → sys_profil; Footer «Als App installieren» (wenn GemaPWA bereit); Swipe-nach-rechts schliesst; Body-Lock via GemaScroll. **Verschiebt die Notify-Glocke (`.gn-btn`) auf Mobile NEBEN den Hamburger** (Klasse `gn-btn--nav`) statt sie mit `.g-nav-right` zu verstecken — Badge bleibt sichtbar; Desktop-Resize stellt sie zurück |
+| `gema_mobile_menu.js` | Hamburger-Menü auf Mobile (v2, iOS-Feel): Sektionen Navigation (Startseite/Projekte, permission-guarded) · Zuletzt verwendet (via `GemaRecent`) · Aktionen (Seiten-Buttons, ohne Chevron) · Verwaltung (admin) · Konto (Einstellungen/Feedback/Abmelden); tappbarer User-Block → sys_profil; Footer «Als App installieren» (wenn GemaPWA bereit); Swipe-nach-rechts schliesst; Body-Lock via GemaScroll. **Verschiebt Notify-Glocke (`.gn-btn`) UND Chat-Button (`.gc-btn`) auf Mobile NEBEN den Hamburger** (Klasse `gn-btn--nav`) statt sie mit `.g-nav-right` zu verstecken — Badges bleiben sichtbar; Desktop-Resize stellt sie zurück |
 | `gema_notify.js` | Notifikations-Engine |
 | `gema_notify_ui.js` | Glocke + Toast-UI |
 | `gema_objekte_api.js` | Objekte/Projekte Cross-Modul-API |
