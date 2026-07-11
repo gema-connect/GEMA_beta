@@ -79,7 +79,9 @@ input::placeholder,textarea::placeholder{color:#cbd5e1 !important;}
 .g-nav-btn.primary:hover{background:var(--accent-dk);}
 
 /* ── APP SHELL ── */
-.app-shell{display:flex;height:calc(100vh - 52px);overflow:hidden;}
+/* Nav ist global 72px hoch (gema_responsive.css, !important) + Safe-Area */
+.app-shell{display:flex;height:calc(100vh - 72px - env(safe-area-inset-top,0px));overflow:hidden;}
+@supports(height:100dvh){.app-shell{height:calc(100dvh - 72px - env(safe-area-inset-top,0px));}}
 
 /* ── SIDEBAR ── */
 .sidebar{
@@ -227,8 +229,15 @@ td.inline-edit:hover::after{content:" ✏";opacity:.5;margin-left:4px;font-size:
 .weekend-cell{fill:rgba(148,163,184,.14) !important;}
 .weekend-text{fill:#9ca3af !important;}
 .today-highlight{fill:rgba(37,99,235,.12) !important;}
+/* Frappes eigene Heute-Spalte ausblenden — unser Overlay zeichnet sie
+   (mit Padding-Offset) selbst, sonst erscheinen zwei versetzte Spalten */
+.gantt .grid .today-highlight{display:none !important;}
 .day-line{stroke:#d1d5db;stroke-width:1px;}
 .week-border{stroke:#94a3b8;stroke-width:2px;}
+/* Erledigte Termine: Bar abgeschwächt, Name durchgestrichen */
+.gantt .bar-wrapper.done .bar{opacity:.45;}
+.gantt .bar-wrapper.done .bar-label{opacity:.7;text-decoration:line-through;}
+.gtl-row.done .gtl-name{text-decoration:line-through;color:var(--muted);}
 
 /* ── LIST TAB ── */
 .list-wrap{flex:1;overflow-y:auto;padding:16px 20px;}
@@ -317,10 +326,12 @@ td.inline-edit:hover::after{content:" ✏";opacity:.5;margin-left:4px;font-size:
 /* ── RESPONSIVE ── */
 @media(max-width:900px){
   .sidebar{width:0;border-right:none;}
-  .sidebar.mobile-open{width:var(--sidebar-w);border-right:1.5px solid var(--border);position:fixed;top:52px;left:0;bottom:0;z-index:200;box-shadow:var(--shadow-lg);}
+  .sidebar.mobile-open{width:var(--sidebar-w);border-right:1.5px solid var(--border);position:fixed;top:calc(72px + env(safe-area-inset-top,0px));left:0;bottom:0;z-index:290;box-shadow:var(--shadow-lg);}
   .form-row{grid-template-columns:1fr;}
   .form-row.triple{grid-template-columns:1fr 1fr;}
 }
+#sbBackdrop{display:none;position:fixed;inset:0;top:calc(72px + env(safe-area-inset-top,0px));background:rgba(15,23,42,.4);z-index:280;}
+#sbBackdrop.show{display:block;}
 @media(max-width:640px){
   .stats-bar{padding:8px 12px;gap:6px;}
   .gantt-toolbar{padding:8px 12px;}
@@ -377,6 +388,7 @@ td.inline-edit:hover::after{content:" ✏";opacity:.5;margin-left:4px;font-size:
 <!-- NAV -->
 
 <!-- APP SHELL -->
+<div id="sbBackdrop" class="no-print"></div>
 <div class="app-shell">
 
   <!-- SIDEBAR -->
@@ -477,6 +489,7 @@ td.inline-edit:hover::after{content:" ✏";opacity:.5;margin-left:4px;font-size:
       <div class="stat-pill" style="border-color:#d8b4fe;background:#faf5ff;"><span class="stat-pill-val" id="statMiles" style="color:#7c3aed;">0</span><span class="stat-pill-lbl">Meilensteine</span></div>
       <div class="stat-pill amber" id="statOverduePill" style="display:none;"><span class="stat-pill-val" id="statOverdue">0</span><span class="stat-pill-lbl">Überfällig</span></div>
       <div class="stat-pill green" id="statRunningPill" style="display:none;"><span class="stat-pill-val" id="statRunning">0</span><span class="stat-pill-lbl">Laufen</span></div>
+      <div class="stat-pill" id="statDonePill" style="display:none;border-color:var(--green-bd);background:var(--green-bg);"><span class="stat-pill-val" id="statDone" style="color:var(--green);">0</span><span class="stat-pill-lbl">Erledigt</span></div>
       <div style="margin-left:auto;display:flex;align-items:center;gap:6px;" class="no-print">
         <span id="lastSavedTxt" style="font-size:11.5px;color:var(--muted);">–</span>
       </div>
@@ -494,21 +507,14 @@ td.inline-edit:hover::after{content:" ✏";opacity:.5;margin-left:4px;font-size:
     <div class="tab-pane active" id="tab-gantt">
       <div class="gantt-toolbar no-print">
         <div class="gtb-group">
-          <span class="gtb-label">Ansicht</span>
-          <select class="gtb-sel" id="viewMode">
-            <option value="Day" selected>Tag</option>
-            <option value="Week">Woche</option>
-            <option value="Month">Monat</option>
-          </select>
-        </div>
-        <div class="gtb-group">
           <span class="gtb-label">Fenster</span>
           <select class="gtb-sel" id="windowSpan">
             <option value="7">1 Woche</option>
             <option value="14" selected>2 Wochen</option>
             <option value="30">1 Monat</option>
             <option value="60">2 Monate</option>
-            <option value="__all__">Alles</option>
+            <option value="90">3 Monate</option>
+            <option value="__all__">Ganzes Projekt</option>
           </select>
           <input class="gtb-inp" id="windowStart" type="date" title="Startdatum der Ansicht"/>
         </div>
@@ -516,11 +522,11 @@ td.inline-edit:hover::after{content:" ✏";opacity:.5;margin-left:4px;font-size:
           <span class="gtb-label">Zoom</span>
           <select class="gtb-sel" id="zoomPreset">
             <option value="auto" selected>Auto</option>
+            <option value="1.5">150%</option>
+            <option value="1.25">125%</option>
             <option value="1">100%</option>
-            <option value="0.9">90%</option>
-            <option value="0.8">80%</option>
-            <option value="0.7">70%</option>
-            <option value="0.6">60%</option>
+            <option value="0.75">75%</option>
+            <option value="0.5">50%</option>
           </select>
         </div>
         <div class="gtb-sep"></div>
@@ -711,8 +717,7 @@ td.inline-edit:hover::after{content:" ✏";opacity:.5;margin-left:4px;font-size:
                 <span id="btnExportJSON2" style="display:none"></span>
                 <label class="g-btn full" style="cursor:pointer;justify-content:center;">⬆ JSON importieren<input type="file" accept="application/json" id="importJSON" style="display:none"/></label>
                 <span id="importJSON2" style="display:none"></span>
-                <button class="g-btn full" id="btnPDF">📄 PDF exportieren</button>
-                <span id="btnPDF2" style="display:none"></span>
+                <button class="g-btn full" id="btnPDFSettings">📄 PDF exportieren</button>
               </div>
               <div class="divider"></div>
               <div class="info-box" style="font-size:11.5px;">JSON-Export enthält alle Termine, Kategorien und Einstellungen. Kann in einen anderen Browser importiert werden.</div>
@@ -796,10 +801,13 @@ td.inline-edit:hover::after{content:" ✏";opacity:.5;margin-left:4px;font-size:
         <div class="field-label">Unternehmer</div>
         <select class="g-sel" id="editOwner"><option value="">– kein Unternehmer –</option></select>
       </div>
-      <div class="field" style="margin:0;">
+      <div class="field" style="margin:0 0 8px;">
         <div class="field-label">Notizen</div>
         <textarea class="g-textarea" id="editNotes" style="min-height:40px;"></textarea>
       </div>
+      <label id="editDoneWrap" style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1.5px solid var(--green-bd);background:var(--green-bg);border-radius:var(--r-sm);cursor:pointer;font-size:12.5px;font-weight:700;color:var(--green);">
+        <input type="checkbox" id="editDone" style="accent-color:var(--green);width:16px;height:16px;cursor:pointer;"/> Erledigt
+      </label>
     </div>
     <div class="modal-footer">
       <button class="g-btn danger sm" id="btnDeleteTask">🗑 Löschen</button>
@@ -896,14 +904,20 @@ function fixLeadingZero(el){
 <script src="gema_autosave.js"></script>
 <script>
 (async()=>{
-if(typeof _GemaDB!=='undefined'){try{await Promise.race([_GemaDB.init('terminplan',['terminplan.webapp.v2']),new Promise((_,r)=>setTimeout(()=>r('timeout'),3000))]);}catch(e){console.warn('GemaDB:',e);}}
+/* Storage: Basis-Key (freie Pläne) + per-Objekt-Key des aktiven Objekts.
+   KRITISCH: _GemaDB.init lädt NUR die angefragten data_keys — der
+   per-Objekt-Key MUSS mitgeladen werden, sonst liest loadState() bei
+   aktivem Objekt ins Leere, obwohl saveState() dorthin schreibt
+   (Plan erschien nach jedem Reload leer). */
+var _TP_BASE='terminplan.webapp.v2';
+var STORAGE_KEY = (typeof GemaObjekte!=='undefined') ? GemaObjekte.storageKey(_TP_BASE) : _TP_BASE;
+if(typeof _GemaDB!=='undefined'){try{await Promise.race([_GemaDB.init('terminplan',[...new Set([_TP_BASE,STORAGE_KEY])]),new Promise((_,r)=>setTimeout(()=>r('timeout'),3000))]);}catch(e){console.warn('GemaDB:',e);}}
 
 /* ═══════════════════════════════════════════════
    GEMA – Terminplanung v6
    Redesigned: light theme, sidebar + tab layout
    Logic ported from v5, fully preserved.
 ═══════════════════════════════════════════════ */
-var STORAGE_KEY = (typeof GemaObjekte!=='undefined') ? GemaObjekte.storageKey('terminplan.webapp.v2') : 'terminplan.webapp.v2';
 const DEFAULT_CATEGORIES = [
   { id:"cat_blue",  name:"Allgemein",  color:"#2563eb" },
   { id:"cat_green", name:"Sanitär",   color:"#16a34a" },
@@ -926,14 +940,36 @@ function categoryById(id){ return state.categories.find(c=>c.id===id)||state.cat
 // ── Status logic ──
 function taskStatus(t){
   if(isMilestone(t)) return "milestone";
+  if(t.done) return "done";
   const today=toISO(new Date());
   if(t.end < today) return "overdue";
   if(t.start <= today && t.end >= today) return "running";
   if(t.start > today) return "planned";
   return "planned";
 }
+function toggleTaskDone(id){
+  const t=state.tasks.find(x=>x.id===id); if(!t) return;
+  t.done=!t.done;
+  saveState(false); renderAll();
+  toast(t.done?"✓ Als erledigt markiert":"Termin wieder offen");
+}
+window.toggleTaskDone=toggleTaskDone;
+// Schweizer Datumsformat für Anzeige/PDF (Inputs bleiben ISO)
+function fmtCH(iso){ if(!iso) return "–"; const p=String(iso).split("-"); return p.length===3?p[2]+"."+p[1]+"."+p[0]:iso; }
 
 // ── State ──
+/* Migration: Pläne, die vor dem per-Objekt-Fix bei aktivem Objekt unter
+   dem Basis-Key gespeichert wurden (und via state.objektId bereits dem
+   Objekt zugeordnet sind), einmalig auf den per-Objekt-Key übertragen. */
+if(typeof _GemaDB!=='undefined' && STORAGE_KEY!==_TP_BASE && (_GemaDB.c[STORAGE_KEY]==null) && _GemaDB.c[_TP_BASE]){
+  try{
+    const baseSt=JSON.parse(_GemaDB.c[_TP_BASE]);
+    const activeId=(typeof GemaObjekte!=='undefined')?GemaObjekte.getActiveId():'';
+    if(baseSt && baseSt.objektId && activeId && baseSt.objektId===activeId){
+      _GemaDB.save(STORAGE_KEY, _GemaDB.c[_TP_BASE]);
+    }
+  }catch(e){}
+}
 let state = loadState();
 function loadState(){
   const raw=(typeof _GemaDB!=='undefined'?(_GemaDB.c[STORAGE_KEY]??null):null);
@@ -945,12 +981,43 @@ function loadState(){
     st.categories??=DEFAULT_CATEGORIES; st.tasks??=[];
     st.holidays??=[]; st.holidaysEnabled??=false; st.lastSaved??=null; st.contractors??=[];
     st.bemerkung??="";
+    // Altdaten-Schutz: Unternehmer sind Strings (kein {name}-Objekt)
+    st.contractors=(st.contractors||[]).map(c=>typeof c==='string'?c:((c&&c.name)||'')).filter(Boolean);
     // legacy: migrate projectName → projektName
     if(!st.projektName && st.projectName) st.projektName=st.projectName;
     return st;
   }catch(e){} }
   return { projektName:"", objektId:"", objektFree:false, projectStart:toISO(new Date()), projectEnd:"", projectBearbeiter:"", country:"CH", subdivision:"",
     categories:structuredClone(DEFAULT_CATEGORIES), tasks:[], holidays:[], holidaysEnabled:false, lastSaved:null, contractors:[], bemerkung:"" };
+}
+
+/* ── Objektwechsel = Plan-Wechsel (Konvention: BASE_KEY__objektId) ──
+   Der Objekt-Dropdown wechselt den Storage-Key: jedes Objekt hat seinen
+   eigenen Terminplan; «Freies Objekt» nutzt den Basis-Key. */
+let _tpSwitching=false;
+async function _tpSwitchStorage(newObjektId){
+  if(_tpSwitching) return;
+  _tpSwitching=true;
+  try{
+    if(newObjektId && typeof GemaObjekte!=='undefined'){ try{ if(GemaObjekte.getActiveId()!==newObjektId) GemaObjekte.setActiveId(newObjektId); }catch(e){} }
+    const newKey = newObjektId
+      ? ((typeof GemaObjekte!=='undefined') ? GemaObjekte.storageKey(_TP_BASE) : _TP_BASE+'__'+newObjektId)
+      : _TP_BASE;
+    if(newKey===STORAGE_KEY){
+      if(newObjektId && state.objektId!==newObjektId){ state.objektId=newObjektId; saveState(false); renderStats(); }
+      return;
+    }
+    STORAGE_KEY=newKey;
+    if(typeof _GemaDB!=='undefined' && (_GemaDB.c[newKey]==null)){
+      try{ const v=await _GemaDB.loadFromModule('terminplan', newKey); if(v!=null) _GemaDB.c[newKey]=v; }catch(e){}
+    }
+    state=loadState();
+    if(newObjektId){ state.objektId=newObjektId; state.objektFree=false; }
+    hydrateInputs();
+    try{ restoreFilters(); }catch(_){}
+    renderAll();
+    toast(newObjektId?"Terminplan des Objekts geladen":"Freier Terminplan geladen");
+  } finally { _tpSwitching=false; }
 }
 function saveState(notify=true){
   state.lastSaved=new Date().toISOString();
@@ -1002,15 +1069,29 @@ function populateObjektDropdown(){
   }
   if(cur) sel.value=cur;
 }
+/* Reine UI-Synchronisation der Objekt-Combo (kein Plan-Wechsel) */
+function _tpObjektUiSync(){
+  const free=!!state.objektFree;
+  document.getElementById("objektFrei").style.display=free?"":"none";
+  document.getElementById("objComboSelect").style.display=free?"none":"";
+  document.getElementById("objComboPlus").style.display=free?"none":"";
+  document.getElementById("objComboBtn").textContent=free?"Stammdaten":"Freies Objekt";
+  if(free) document.getElementById("objektFrei").value=state.projektName||"";
+  else document.getElementById("objektDropdown").value=state.objektId||"";
+}
 function toggleObjektFree(checked){
-  state.objektFree=checked;
-  document.getElementById("objektFrei").style.display=checked?"":"none";
-  document.getElementById("objComboSelect").style.display=checked?"none":"";
-  document.getElementById("objComboPlus").style.display=checked?"none":"";
-  document.getElementById("objComboBtn").textContent=checked?"Stammdaten":"Freies Objekt";
-  if(!checked && state.objektId) document.getElementById("objektDropdown").value=state.objektId;
-  if(checked) document.getElementById("objektFrei").value=state.projektName||"";
-  saveState(false); renderStats();
+  if(_tpSwitching){ state.objektFree=checked; _tpObjektUiSync(); return; }
+  if(checked){
+    _tpSwitchStorage('').then(()=>{
+      state.objektFree=true; _tpObjektUiSync();
+      saveState(false); renderStats();
+    });
+  } else {
+    const sel=document.getElementById("objektDropdown").value||state.objektId;
+    state.objektFree=false; _tpObjektUiSync();
+    if(sel){ _tpSwitchStorage(sel); }
+    else { saveState(false); renderStats(); }
+  }
 }
 window.toggleObjektFree=toggleObjektFree;
 
@@ -1036,11 +1117,24 @@ document.querySelectorAll(".tab-btn").forEach(btn=>{
 });
 
 // ── Sidebar toggle ──
+// Unter 900px ist die Sidebar per CSS eingeklappt und öffnet als
+// Overlay (.mobile-open + Backdrop) — «collapsed» hätte dort keinerlei
+// sichtbare Wirkung (Sidebar liess sich auf dem Handy nie öffnen).
 const sidebar=document.getElementById("sidebar");
+const sbBackdrop=document.getElementById("sbBackdrop");
+function _tpSidebarClose(){ sidebar.classList.remove("mobile-open"); if(sbBackdrop) sbBackdrop.classList.remove("show"); }
 document.getElementById("sidebarToggle").addEventListener("click",()=>{
-  sidebar.classList.toggle("collapsed");
-  setTimeout(()=>{ if(gantt){updateGanttHeight();requestAnimationFrame(()=>{applyViewport();localizeHeaders();});} },220);
+  if(window.matchMedia("(max-width:900px)").matches){
+    const open=!sidebar.classList.contains("mobile-open");
+    sidebar.classList.toggle("mobile-open",open);
+    if(sbBackdrop) sbBackdrop.classList.toggle("show",open);
+  } else {
+    sidebar.classList.toggle("collapsed");
+  }
+  setTimeout(()=>{ if(gantt){updateGanttHeight();renderGantt();} },220);
 });
+if(sbBackdrop) sbBackdrop.addEventListener("click",_tpSidebarClose);
+window.addEventListener("resize",()=>{ if(!window.matchMedia("(max-width:900px)").matches) _tpSidebarClose(); });
 
 // ── Category dropdown render ──
 function renderCategoryOptions(sel, includeAll=false){
@@ -1095,12 +1189,15 @@ function renderStats(){
   document.getElementById("statProjName").textContent=getProjectName();
   document.getElementById("statTasks").textContent=state.tasks.filter(t=>!isMilestone(t)).length;
   document.getElementById("statMiles").textContent=state.tasks.filter(isMilestone).length;
-  const overdue=state.tasks.filter(t=>!isMilestone(t)&&t.end<today).length;
-  const running=state.tasks.filter(t=>!isMilestone(t)&&t.start<=today&&t.end>=today).length;
+  const overdue=state.tasks.filter(t=>!isMilestone(t)&&!t.done&&t.end<today).length;
+  const running=state.tasks.filter(t=>!isMilestone(t)&&!t.done&&t.start<=today&&t.end>=today).length;
+  const done=state.tasks.filter(t=>!isMilestone(t)&&t.done).length;
   const op=document.getElementById("statOverduePill"); op.style.display=overdue?"":"none";
   document.getElementById("statOverdue").textContent=overdue;
   const rp=document.getElementById("statRunningPill"); rp.style.display=running?"":"none";
   document.getElementById("statRunning").textContent=running;
+  const dp=document.getElementById("statDonePill");
+  if(dp){ dp.style.display=done?"":"none"; document.getElementById("statDone").textContent=done; }
 }
 
 // ── GANTT ──
@@ -1116,7 +1213,40 @@ function taskToFrappe(t){
     const ed=parseISO(t.end); ed.setDate(ed.getDate()+1);
     e=toISO(ed)+" 00:00";
   }
-  return { id:t.id, name:t.name+(isMilestone(t)?" ◆":""), start:s, end:e, progress:0, custom_class:`cat_${t.categoryId}${isMilestone(t)?" milestone":""}` };
+  return { id:t.id, name:t.name+(isMilestone(t)?" ◆":""), start:s, end:e, progress:0, custom_class:`cat_${t.categoryId}${isMilestone(t)?" milestone":""}${t.done?" done":""}` };
+}
+
+/* ── Spaltenbreite (px pro Tag) statt CSS-Transform ──
+   Frappe-Gantt 0.6.1 überschreibt options.column_width in
+   update_view_scale() hart (Day=38). Der Patch legt danach unsere
+   gewünschte Breite an — damit rechnen Bars, Grid UND Drag&Drop alle
+   mit derselben Skala (kein transform → Zeilen bleiben deckungsgleich
+   mit der Task-Liste links). */
+function _tpPatchGantt(){
+  if(typeof Gantt==="undefined"||Gantt._gemaCwPatched) return;
+  const orig=Gantt.prototype.update_view_scale;
+  Gantt.prototype.update_view_scale=function(m){
+    orig.call(this,m);
+    if(this.options && this.options.gema_column_width>0) this.options.column_width=this.options.gema_column_width;
+  };
+  Gantt._gemaCwPatched=true;
+}
+function _tpProjectSpanDays(){
+  let min=null,max=null;
+  state.tasks.forEach(t=>{ if(!min||t.start<min)min=t.start; if(!max||t.end>max)max=t.end; });
+  if(state.projectStart && (!min||state.projectStart<min)) min=state.projectStart;
+  if(state.projectEnd && (!max||state.projectEnd>max)) max=state.projectEnd;
+  if(!min||!max) return 28;
+  return Math.max(7, diffDays(min,max)+1);
+}
+function _tpColumnWidth(){
+  const area=document.getElementById("ganttChartArea");
+  const avail=Math.max(280,(area?area.clientWidth:960)-4);
+  const span=document.getElementById("windowSpan")?.value||"14";
+  const days=span==="__all__"?_tpProjectSpanDays():Math.max(1,Number(span)||14);
+  const zp=document.getElementById("zoomPreset")?.value||"auto";
+  const f=(zp==="auto")?1:(Number(zp)||1);
+  return Math.max(3.5, Math.min(90, (avail/days)*f));
 }
 function injectCatStyles(){
   let css="";
@@ -1142,11 +1272,11 @@ function renderTaskList(){
   tasks.forEach((t,i)=>{
     const cat=categoryById(t.categoryId);
     const row=document.createElement("div");
-    row.className="gtl-row";
+    row.className="gtl-row"+(t.done?" done":"");
     row.draggable=true;
     row.dataset.id=t.id;
     row.dataset.idx=i;
-    row.innerHTML=`<span class="gtl-grip">⋮⋮</span><span class="gtl-dot" style="background:${cat.color};"></span><span class="gtl-name" title="${escH(t.name)}">${escH(t.name)}</span>`;
+    row.innerHTML=`<span class="gtl-grip">⋮⋮</span><span class="gtl-dot" style="background:${cat.color};"></span><span class="gtl-name" title="${escH(t.name)}">${t.done?"✓ ":""}${escH(t.name)}</span>`;
     // Drag events
     row.addEventListener("dragstart",e=>{
       row.classList.add("dragging");
@@ -1177,27 +1307,26 @@ function reorderTask(dragId,dropId){
   saveState(false); renderAll();
   toast("Reihenfolge geändert");
 }
+/* Frappe erzeugt INNERHALB von #ganttEl einen eigenen Scroll-Container
+   (.gantt-container, overflow:auto) — der äussere #ganttChartArea
+   scrollt nie. Alle Scroll-Zugriffe laufen deshalb über diesen Helper. */
+function _tpScroller(){
+  return document.querySelector("#ganttEl .gantt-container")
+      || document.getElementById("ganttChartArea");
+}
 function syncTaskListScroll(){
-  const chartArea=document.getElementById("ganttChartArea");
   const listBody=document.getElementById("gtlBody");
-  if(!chartArea||!listBody) return;
-  // Sync vertical scroll of chart area → task list
-  chartArea.removeEventListener("scroll",chartArea._syncFn||function(){});
-  chartArea._syncFn=()=>{ listBody.scrollTop=chartArea.scrollTop; };
-  chartArea.addEventListener("scroll",chartArea._syncFn);
-  // Also sync the inner SVG scroll if gantt uses overflow
-  const ganttEl=document.getElementById("ganttEl");
-  if(ganttEl){
-    ganttEl.removeEventListener("scroll",ganttEl._syncFn||function(){});
-    ganttEl._syncFn=()=>{ listBody.scrollTop=ganttEl.scrollTop; };
-    ganttEl.addEventListener("scroll",ganttEl._syncFn);
-  }
+  const sc=_tpScroller();
+  if(!sc||!listBody) return;
+  sc.removeEventListener("scroll",sc._syncFn||function(){});
+  sc._syncFn=()=>{ listBody.scrollTop=sc.scrollTop; };
+  sc.addEventListener("scroll",sc._syncFn);
 }
 
 function renderGantt(){
   injectCatStyles();
   const tasks=filteredTasks().map(taskToFrappe);
-  const mode=document.getElementById("viewMode").value;
+  const mode="Day";
   const el=document.getElementById("ganttEl");
   el.innerHTML="";
   if(!tasks.length){
@@ -1209,10 +1338,12 @@ function renderGantt(){
     gantt=null; return;
   }
   try {
+    _tpPatchGantt();
     gantt=new Gantt("#ganttEl",tasks,{
       view_mode:mode, date_format:"YYYY-MM-DD",
       bar_height:24,
       padding:14,
+      gema_column_width:_tpColumnWidth(),
       custom_popup_html:(task)=>{
         const t=state.tasks.find(x=>x.id===task.id); if(!t) return "";
         const cat=categoryById(t.categoryId);
@@ -1222,8 +1353,8 @@ function renderGantt(){
             <div style="width:10px;height:10px;border-radius:2px;background:${cat.color};flex-shrink:0;"></div>
             <span style="font-size:11px;color:#6b7280;font-weight:600;">${escH(cat.name)}</span>
           </div>
-          <div style="font-weight:800;font-size:13px;margin-bottom:6px;">${escH(t.name)}</div>
-          <div style="font-size:12px;color:#374151;"><b>${t.start}</b> → <b>${t.end}</b> · ${dur}</div>
+          <div style="font-weight:800;font-size:13px;margin-bottom:6px;">${escH(t.name)}${t.done?' <span style="color:#16a34a;font-size:11px;">✓ erledigt</span>':""}</div>
+          <div style="font-size:12px;color:#374151;"><b>${fmtCH(t.start)}</b> → <b>${fmtCH(t.end)}</b> · ${dur}</div>
           ${t.owner?`<div style="font-size:12px;color:#6b7280;margin-top:4px;">👷 ${escH(t.owner)}</div>`:""}
           ${t.notes?`<div style="font-size:11.5px;color:#374151;margin-top:6px;white-space:pre-wrap;">${escH(t.notes.slice(0,120))}${t.notes.length>120?"…":""}</div>`:""}
           <div style="font-size:11px;color:#9ca3af;margin-top:8px;">Klick zum Bearbeiten</div>
@@ -1241,6 +1372,7 @@ function renderGantt(){
     applyHolidayShading();
     snapBarsToGrid();
     updateGanttHeight();
+    syncTaskListScroll();
     // Re-snap after frappe may recalculate on hover
     const ganttEl=document.getElementById("ganttEl");
     if(ganttEl && !ganttEl._snapBound){
@@ -1409,30 +1541,23 @@ function updateGanttHeight(){
   const h=Math.max(260,Math.floor(window.innerHeight-rect.top-20));
   split.style.height=h+"px";
 }
+/* Fenster-Start = horizontales Scrollen (kein CSS-Transform mehr).
+   Früher wurde der SVG per translate/scale verschoben: der Offset war
+   in unskalierten Einheiten gerechnet (Ansicht begann am falschen
+   Datum) und der uniforme scale() verzog die Y-Positionen — die Bars
+   sassen nicht mehr auf ihren Zeilen der Task-Liste. */
 function applyViewport(){
   if(!gantt) return;
   const container=document.getElementById("ganttEl");
   const svg=container?.querySelector("svg"); if(!svg) return;
-  const zp=document.getElementById("zoomPreset")?.value||"auto";
-  const span=document.getElementById("windowSpan")?.value||"__all__";
+  svg.style.transform=""; svg.style.transformOrigin="";
+  const area=_tpScroller(); if(!area) return;
   const startStr=document.getElementById("windowStart")?.value;
-  const gs=gantt.gantt_start?new Date(gantt.gantt_start):new Date(state.projectStart);
-  const ge=gantt.gantt_end?new Date(gantt.gantt_end):new Date(state.projectStart);
-  const totalDays=Math.max(1,Math.round((ge-gs)/86400000));
-  const bb=svg.getBBox?svg.getBBox():{width:svg.clientWidth,height:svg.clientHeight};
-  const cw=container.clientWidth, ch=container.clientHeight;
-  const windowDays=span==="__all__"?totalDays:Math.max(1,Number(span));
-  const windowStart=startStr?new Date(startStr):gs;
-  const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
-  const offsetDays=clamp(Math.round((windowStart-gs)/86400000),0,Math.max(0,totalDays-1));
-  const xOffset=(offsetDays/totalDays)*bb.width;
-  const windowW=(windowDays/totalDays)*bb.width;
-  let scale=cw/Math.max(1,windowW);
-  scale=Math.min(scale,ch/Math.max(1,bb.height));
-  scale=Math.min(scale,1.4);
-  if(zp!=="auto"){ const z=Number(zp); if(z>0) scale=z; }
-  svg.style.transformOrigin="0 0";
-  svg.style.transform=`translate(${-xOffset}px,0) scale(${scale})`;
+  const gs=gantt.gantt_start?new Date(gantt.gantt_start):null;
+  if(!startStr||!gs) return;
+  const cw=gantt.options.column_width||38, pad=gantt.options.padding||18;
+  const offsetDays=Math.max(0,_ganttDayOffset(parseISO(startStr),gs));
+  area.scrollLeft=Math.max(0,pad+offsetDays*cw-1);
 }
 // Liefert die Anzahl ganzer Tage zwischen zwei Daten, gerundet —
 // damit Sommer-/Winterzeit-Uebergaenge (Tag mit 23 oder 25 Stunden)
@@ -1476,19 +1601,16 @@ function applyHolidayShading(){
 
     const holidays=(state.holidaysEnabled?state.holidays:[]).map(h=>h.date);
     const todayISO=toISO(new Date());
-    const mode=document.getElementById("viewMode").value;
     const opts=gantt.options;
-    const step=opts.step||24, cw=opts.column_width||38;
+    const cw=opts.column_width||38;
     const gs=gantt.gantt_start, ge=gantt.gantt_end;
     if(!gs||!ge) return;
-    const dayNames=["So","Mo","Di","Mi","Do","Fr","Sa"];
     const monthNames=["Jan","Feb","Mär","Apr","Mai","Jun","Jul","Aug","Sep","Okt","Nov","Dez"];
-
-    // Im Monat-Modus zeigen wir keinen Day-Loop (zu dicht), aber die
-    // Today-Markierung und Holiday-Markierung wird unten weiterhin
-    // gerendert. Sie bleiben dank _ganttDayOffset taggenau.
-    if(mode!=="Month"){
-      // Draw overlays for each day
+    // Label-Dichte an die Spaltenbreite anpassen: bei schmalen Spalten
+    // (Fenster «Ganzes Projekt») Tagesnummern nur montags zeigen, sehr
+    // schmale Spalten ganz ohne Tagesnummern — sonst überlappt alles.
+    const showEveryDay=cw>=13, showMonDay=cw>=3.4;
+    {
       const cur=new Date(gs);
     let lastMonth=-1;
     while(cur<=ge){
@@ -1498,15 +1620,17 @@ function applyHolidayShading(){
       const x=(opts.padding||18)+_ganttDayOffset(cur, gs)*cw;
 
       // ── Single vertical line per day (full height) ──
-      const dl=document.createElementNS(ns,"line");
-      dl.setAttribute("x1",x); dl.setAttribute("y1",headerH);
-      dl.setAttribute("x2",x); dl.setAttribute("y2",fh);
-      if(day===1){
-        dl.setAttribute("class","week-border");
-      } else {
-        dl.setAttribute("class","day-line");
+      if(showEveryDay||day===1){
+        const dl=document.createElementNS(ns,"line");
+        dl.setAttribute("x1",x); dl.setAttribute("y1",headerH);
+        dl.setAttribute("x2",x); dl.setAttribute("y2",fh);
+        if(day===1){
+          dl.setAttribute("class","week-border");
+        } else {
+          dl.setAttribute("class","day-line");
+        }
+        g.appendChild(dl);
       }
-      g.appendChild(dl);
 
       // ── Weekend shading ──
       if(day===0||day===6){
@@ -1537,7 +1661,7 @@ function applyHolidayShading(){
       }
 
       // ── KW label (row 2, y≈30) — show on Monday ──
-      if(day===1){
+      if(day===1 && cw>=4){
         // ISO week number
         const tmp=new Date(cur.getTime());
         tmp.setDate(tmp.getDate()+3-(tmp.getDay()+6)%7);
@@ -1552,42 +1676,20 @@ function applyHolidayShading(){
       }
 
       // ── Day number (row 3, y≈48) — on the vertical line ──
-      const dt=document.createElementNS(ns,"text");
-      dt.setAttribute("x",x+3); dt.setAttribute("y",48);
-      dt.setAttribute("text-anchor","start");
-      dt.setAttribute("font-size","9.5"); dt.setAttribute("font-weight","700");
-      dt.setAttribute("font-family","DM Sans,sans-serif");
-      const isWe=day===0||day===6;
-      dt.setAttribute("fill",isWe?"#9ca3af":"#374151");
-      dt.textContent=cur.getDate();
-      g.appendChild(dt);
+      if(showEveryDay||(day===1&&showMonDay)){
+        const dt=document.createElementNS(ns,"text");
+        dt.setAttribute("x",x+3); dt.setAttribute("y",48);
+        dt.setAttribute("text-anchor","start");
+        dt.setAttribute("font-size","9.5"); dt.setAttribute("font-weight","700");
+        dt.setAttribute("font-family","DM Sans,sans-serif");
+        const isWe=day===0||day===6;
+        dt.setAttribute("fill",isWe?"#9ca3af":"#374151");
+        dt.textContent=cur.getDate();
+        g.appendChild(dt);
+      }
 
       cur.setDate(cur.getDate()+1);
     }
-    } // /if(mode!=="Month")
-
-    // Im Month-Modus reichen Monatsgrenzen + -Label, da die Tage-Spalten
-    // sehr schmal sind und einzelne Tageslinien das Bild ueberladen.
-    if(mode==="Month"){
-      const monthNames2=["Jan","Feb","Mär","Apr","Mai","Jun","Jul","Aug","Sep","Okt","Nov","Dez"];
-      const cur2=new Date(gs.getFullYear(), gs.getMonth(), 1);
-      while(cur2<=ge){
-        const x=(opts.padding||18)+_ganttDayOffset(cur2, gs)*cw;
-        if(x>0){
-          const ml=document.createElementNS(ns,"line");
-          ml.setAttribute("x1",x); ml.setAttribute("y1",0);
-          ml.setAttribute("x2",x); ml.setAttribute("y2",fh);
-          ml.setAttribute("stroke","#cbd5e1"); ml.setAttribute("stroke-width","1");
-          g.appendChild(ml);
-        }
-        const mt=document.createElementNS(ns,"text");
-        mt.setAttribute("x",x+8); mt.setAttribute("y",24);
-        mt.setAttribute("font-size","12"); mt.setAttribute("font-weight","800");
-        mt.setAttribute("fill","#374151"); mt.setAttribute("font-family","DM Sans,sans-serif");
-        mt.textContent=monthNames2[cur2.getMonth()]+" "+cur2.getFullYear();
-        g.appendChild(mt);
-        cur2.setMonth(cur2.getMonth()+1);
-      }
     }
 
     // ── Holiday overlays ──
@@ -1661,7 +1763,7 @@ function applyHolidayShading(){
 document.getElementById("btnToday").addEventListener("click",()=>{
   document.getElementById("windowStart").value=toISO(new Date());
   document.getElementById("windowSpan").value="14";
-  requestAnimationFrame(()=>{applyViewport();localizeHeaders();});
+  renderGantt();
   toast("Ansicht: Heute");
 });
 
@@ -1936,17 +2038,18 @@ function renderTable(){
       </div></td>
       <td><span class="cat-badge"><div class="cat-badge-dot" style="background:${cat.color};"></div>${escH(cat.name)}</span></td>
       <td class="inline-edit" data-field="owner" data-id="${t.id}" title="Klick zum Bearbeiten" style="color:var(--muted2);font-size:12.5px;cursor:pointer">${escH(t.owner||"—")}</td>
-      <td class="inline-edit" data-field="dates" data-id="${t.id}" title="Klick zum Bearbeiten" style="font-family:var(--mono);font-size:12px;cursor:pointer">${t.start}<br><span style="color:var(--muted);">→ ${t.end}</span></td>
+      <td class="inline-edit" data-field="dates" data-id="${t.id}" title="Klick zum Bearbeiten" style="font-family:var(--mono);font-size:12px;cursor:pointer">${fmtCH(t.start)}<br><span style="color:var(--muted);">→ ${fmtCH(t.end)}</span></td>
       <td class="r" style="font-size:12px;">${dur}</td>
       <td><span class="status-badge ${st}">${stLabel}</span></td>
       <td class="no-print">
         <div style="display:flex;gap:5px;">
+          ${isMilestone(t)?"":`<button class="g-btn sm ${t.done?"green":""}" data-act="done" data-id="${t.id}" title="${t.done?"Als offen markieren":"Als erledigt markieren"}">✓</button>`}
           <button class="g-btn sm" data-act="edit" data-id="${t.id}">✏</button>
           <button class="g-btn sm danger" data-act="del" data-id="${t.id}">✕</button>
         </div>
       </td>`;
     tr.querySelectorAll("button[data-act]").forEach(btn=>{
-      btn.addEventListener("click",()=>{ const id=btn.dataset.id; if(btn.dataset.act==="edit") openEdit(id); else deleteTask(id); });
+      btn.addEventListener("click",()=>{ const id=btn.dataset.id; if(btn.dataset.act==="edit") openEdit(id); else if(btn.dataset.act==="done") toggleTaskDone(id); else deleteTask(id); });
     });
     tr.querySelectorAll(".inline-edit").forEach(cell=>{
       cell.addEventListener("click", _onInlineEditClick);
@@ -2048,6 +2151,8 @@ function openEdit(id){
   setEditType(typ);
   renderCategoryOptions(document.getElementById("editCategory"),false);
   document.getElementById("editCategory").value=t.categoryId;
+  document.getElementById("editDone").checked=!!t.done;
+  document.getElementById("editDoneWrap").style.display=isMilestone(t)?"none":"flex";
   document.getElementById("modalTitle").textContent=`✏ ${t.name}`;
   // Calculate duration
   if(!isMilestone(t)){
@@ -2065,6 +2170,8 @@ function setEditType(val){
   document.querySelectorAll("#editTypeToggle .type-btn").forEach(b=>{
     b.classList.toggle("active", b.dataset.val===val);
   });
+  const dw=document.getElementById("editDoneWrap");
+  if(dw) dw.style.display=val==="milestone"?"none":"flex";
 }
 window.setEditType=setEditType;
 
@@ -2095,6 +2202,7 @@ function updateTask(){
   t.owner=document.getElementById("editOwner").value.trim();
   t.notes=document.getElementById("editNotes").value.trim();
   t.type=document.getElementById("editType").value;
+  t.done=document.getElementById("editDone").checked&&!isMilestone(t);
   if(isMilestone(t)) t.end=t.start;
   saveState(false); closeModal(); renderAll();
   toast("✓ Änderungen gespeichert");
@@ -2437,7 +2545,7 @@ function renderHolidayList(){
 function exportJSON(){
   const data=JSON.stringify(state,null,2);
   const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([data],{type:"application/json"}));
-  a.download=(state.projectName?.trim()||"Terminplan").replace(/[^\w\- ]+/g,"").replace(/\s+/g,"_")+".json";
+  a.download=(getProjectName()||"Terminplan").replace(/[^\w\- ]+/g,"").replace(/\s+/g,"_")+".json";
   a.click(); URL.revokeObjectURL(a.href);
   toast("⬇ JSON exportiert");
 }
@@ -2447,10 +2555,16 @@ function importJSON(file){
     try{
       const st=JSON.parse(r.result);
       if(!st||typeof st!=="object") throw 0;
-      state={projectName:st.projectName||"",projectStart:st.projectStart||toISO(new Date()),country:st.country||"CH",subdivision:st.subdivision||"",
+      // ALLE bekannten Felder übernehmen — sonst verliert der
+      // Export/Import-Roundtrip Unternehmer, Bemerkung und Projektname
+      state={projektName:st.projektName||st.projectName||"",objektId:st.objektId||"",objektFree:st.objektFree!=null?!!st.objektFree:!!(st.projektName||st.projectName),
+        projectStart:st.projectStart||toISO(new Date()),projectEnd:st.projectEnd||"",projectBearbeiter:st.projectBearbeiter||"",
+        country:st.country||"CH",subdivision:st.subdivision||"",
         categories:Array.isArray(st.categories)&&st.categories.length?st.categories:structuredClone(DEFAULT_CATEGORIES),
         tasks:Array.isArray(st.tasks)?st.tasks:[],holidays:Array.isArray(st.holidays)?st.holidays:[],
-        holidaysEnabled:!!st.holidaysEnabled,lastSaved:st.lastSaved||null};
+        holidaysEnabled:!!st.holidaysEnabled,lastSaved:st.lastSaved||null,
+        contractors:(Array.isArray(st.contractors)?st.contractors:[]).map(c=>typeof c==='string'?c:((c&&c.name)||'')).filter(Boolean),
+        bemerkung:st.bemerkung||""};
       saveState(false); hydrateInputs(); renderAll();
       toast("⬆ Import erfolgreich");
     }catch(e){ alert("Import fehlgeschlagen – bitte eine gültige JSON-Datei wählen."); }
@@ -2458,41 +2572,133 @@ function importJSON(file){
   r.readAsText(file);
 }
 
-// ── PDF ──
-function exportPDF(){
+// ── PDF (gebrandet: Firmenlogo + Firmenfarben aus org.settings.pdfFarben) ──
+// Kontrastschutz-Helfer — gleiches Muster wie gema_schaden_pdf.js:
+// die Primärfarbe wird Richtung Schwarz skaliert, bis sie gegen Weiss
+// WCAG ≥ 4.5:1 erreicht. Der Kontrast ist symmetrisch: dieselbe Farbe
+// trägt weisse Schrift auf der Fläche UND ist als Text auf Weiss lesbar.
+function _tpHexToRgb(hex){
+  const h=String(hex||"").replace("#","");
+  if(h.length!==6) return null;
+  const r=parseInt(h.slice(0,2),16),g=parseInt(h.slice(2,4),16),b=parseInt(h.slice(4,6),16);
+  return [r,g,b].some(isNaN)?null:[r,g,b];
+}
+function _tpRelLum(rgb){
+  const f=v=>{v/=255;return v<=0.03928?v/12.92:Math.pow((v+0.055)/1.055,2.4);};
+  return 0.2126*f(rgb[0])+0.7152*f(rgb[1])+0.0722*f(rgb[2]);
+}
+function _tpContrastVsWhite(rgb){ return 1.05/(_tpRelLum(rgb)+0.05); }
+function _tpDarkenForWhiteBg(rgb,target){
+  let out=rgb.slice(), guard=0;
+  while(_tpContrastVsWhite(out)<(target||4.5)&&guard++<40){ out=out.map(v=>Math.max(0,Math.round(v*0.92))); }
+  return out;
+}
+function _tpMixWhite(rgb,f){ return rgb.map(v=>Math.round(v+(255-v)*f)); }
+function _tpPdfBrand(){
+  let org=null;
+  try{ if(typeof GemaAuth!=="undefined") org=GemaAuth.getCurrentOrg(); }catch(e){}
+  const cfg=(org&&org.settings&&org.settings.pdfFarben)||{};
+  const primary=_tpHexToRgb(cfg.primary)||[29,78,216];          // Fallback GEMA-Blau
+  const secondary=_tpHexToRgb(cfg.secondary);
+  const fill=_tpDarkenForWhiteBg(primary,4.5);                   // Band + Text-Akzent
+  return {
+    org:org,
+    orgName:(org&&org.name)||"GEMA",
+    fill:fill,
+    accent2:secondary?_tpDarkenForWhiteBg(secondary,3):fill.map(v=>Math.round(v*0.6)),
+    tint:_tpMixWhite(fill,0.92),
+    tintBorder:_tpMixWhite(fill,0.72)
+  };
+}
+// Logo rastern (org.logoVector bevorzugt — SVG rastert verlustfrei);
+// jsPDF braucht PNG/JPEG. Ergebnis gecacht pro Quelle.
+let _tpLogoCache={};
+function _tpPdfLogo(org){
+  const src=(org&&(org.logoVector||org.logo))||"";
+  if(!src) return Promise.resolve(null);
+  if(_tpLogoCache[src]) return Promise.resolve(_tpLogoCache[src]);
+  return new Promise(resolve=>{
+    const img=new Image();
+    img.onload=function(){
+      try{
+        const iw=img.naturalWidth||300, ih=img.naturalHeight||100;
+        const scale=Math.min(900/iw,900/ih,4);
+        const c=document.createElement("canvas");
+        c.width=Math.max(1,Math.round(iw*scale)); c.height=Math.max(1,Math.round(ih*scale));
+        const ctx=c.getContext("2d");
+        ctx.fillStyle="#ffffff"; ctx.fillRect(0,0,c.width,c.height);
+        ctx.imageSmoothingQuality="high";
+        ctx.drawImage(img,0,0,c.width,c.height);
+        // JPEG statt PNG: jsPDF bettet Canvas-PNGs unkomprimiert ein
+        // (machte das PDF ~2 MB gross); der Chip ist weiss → kein Alpha nötig
+        const out={dataUrl:c.toDataURL("image/jpeg",0.9),ratio:c.width/c.height};
+        _tpLogoCache[src]=out; resolve(out);
+      }catch(e){ resolve(null); }
+    };
+    img.onerror=function(){ resolve(null); };
+    img.src=src;
+  });
+}
+async function exportPDF(){
   const name=getProjectName();
   const {jsPDF}=window.jspdf;
   const doc=new jsPDF({orientation:"landscape",unit:"mm",format:"a4"});
   const pw=doc.internal.pageSize.getWidth(), ph=doc.internal.pageSize.getHeight();
   const M=12;
+  const B=_tpPdfBrand();
+  const logo=await _tpPdfLogo(B.org);
+  const exportStamp="Export: "+new Date().toLocaleString("de-CH",{day:"2-digit",month:"2-digit",year:"numeric",hour:"2-digit",minute:"2-digit"});
 
-  // ── HEADER BOX ──
-  doc.setFillColor(37,99,235);
-  doc.roundedRect(M,M,pw-M*2,22,3,3,"F");
+  // Fusszeile auf jeder Seite (Brand-Linie + Org · Plan · Seite)
+  function drawFooter(pageNo){
+    doc.setDrawColor(B.fill[0],B.fill[1],B.fill[2]); doc.setLineWidth(0.5);
+    doc.line(M, ph-9, pw-M, ph-9);
+    doc.setFontSize(6.5); doc.setFont("helvetica","normal"); doc.setTextColor(120,128,140);
+    doc.text(B.orgName+"  ·  Terminplan  ·  "+name+"  ·  Seite "+pageNo, M, ph-5.5);
+    doc.text(exportStamp, pw-M, ph-5.5, {align:"right"});
+  }
+
+  // ── HEADER-BAND in Firmenfarbe + Logo-Chip ──
+  const bandH=22;
+  doc.setFillColor(B.fill[0],B.fill[1],B.fill[2]);
+  doc.roundedRect(M,M,pw-M*2,bandH,3,3,"F");
+  // Sekundärfarbe als schmaler Akzentstreifen am Band-Fuss
+  doc.setFillColor(B.accent2[0],B.accent2[1],B.accent2[2]);
+  doc.rect(M,M+bandH-1.6,pw-M*2,1.6,"F");
+  let titleX=M+5;
+  if(logo){
+    const chipH=16, chipW=Math.min(46,Math.max(18,chipH*logo.ratio+6));
+    doc.setFillColor(255,255,255);
+    doc.roundedRect(M+4,M+3,chipW,chipH,2,2,"F");
+    const innerH=chipH-3.5, innerW=Math.min(chipW-4,innerH*logo.ratio);
+    const drawH=innerW/logo.ratio;
+    const lx=M+4+(chipW-innerW)/2, ly=M+3+(chipH-drawH)/2;
+    try{ doc.addImage(logo.dataUrl,"JPEG",lx,ly,innerW,drawH); }catch(e){}
+    titleX=M+4+chipW+5;
+  }
   doc.setFontSize(15); doc.setFont("helvetica","bold"); doc.setTextColor(255,255,255);
-  doc.text(name, M+5, M+9);
-  doc.setFontSize(8); doc.setFont("helvetica","normal"); doc.setTextColor(200,220,255);
+  doc.text(name, titleX, M+9.5);
+  doc.setFontSize(8); doc.setFont("helvetica","normal"); doc.setTextColor(255,255,255);
   const metaParts=[];
   if(state.projectBearbeiter) metaParts.push("Bearbeiter: "+state.projectBearbeiter);
-  if(state.projectStart) metaParts.push("Start: "+state.projectStart);
-  if(state.projectEnd)   metaParts.push("Ende: "+state.projectEnd);
-  metaParts.push("Export: "+new Date().toLocaleString("de-CH",{day:"2-digit",month:"2-digit",year:"numeric",hour:"2-digit",minute:"2-digit"}));
-  doc.text(metaParts.join("   ·   "), M+5, M+15);
+  if(state.projectStart) metaParts.push("Start: "+fmtCH(state.projectStart));
+  if(state.projectEnd)   metaParts.push("Ende: "+fmtCH(state.projectEnd));
+  metaParts.push(exportStamp);
+  doc.text(metaParts.join("   ·   "), titleX, M+15.5);
   // Kategorie-Legende rechts im Header
   let legX=pw-M-5;
   [...state.categories].reverse().forEach(c=>{
-    const hex=c.color.replace("#","");
-    const cr=parseInt(hex.substring(0,2),16),cg=parseInt(hex.substring(2,4),16),cb=parseInt(hex.substring(4,6),16);
+    const crgb=_tpHexToRgb(c.color)||[100,116,139];
     doc.setFontSize(6.5); doc.setFont("helvetica","normal"); doc.setTextColor(255,255,255);
     const tw=doc.getTextWidth(c.name);
     legX-=tw+1;
     doc.text(c.name, legX, M+9);
     legX-=5;
-    doc.setFillColor(cr,cg,cb);
+    doc.setFillColor(crgb[0],crgb[1],crgb[2]);
     doc.roundedRect(legX, M+5, 4, 4, 0.8, 0.8, "F");
     legX-=3;
   });
-  let curY=M+26;
+  let curY=M+bandH+4;
 
   // ── GANTT ──
   const tasks=state.tasks.slice().sort((a,b)=>a.start.localeCompare(b.start));
@@ -2539,11 +2745,15 @@ function exportPDF(){
         doc.setFillColor(isHol?255:236, isHol?249:240, isHol?220:248);
         doc.rect(x, curY, dayW, ganttH, "F");
       }
-      // Month label
+      // Month label — nur zeichnen, wenn das Monats-Segment breit genug
+      // ist (sonst überlappten sich z.B. «Jun» und «Jul» am Chart-Anfang)
       const mon=d.toLocaleString("de-CH",{month:"short"});
       if(mon!==lastMonth){
         doc.setFontSize(5.5); doc.setFont("helvetica","bold"); doc.setTextColor(55,65,81);
-        doc.text(mon+" "+d.getFullYear(), x+0.5, curY+4.5);
+        const daysInMonth=new Date(d.getFullYear(), d.getMonth()+1, 0).getDate();
+        const segW=(daysInMonth-d.getDate()+1)*dayW;
+        const mLabel=mon+" "+d.getFullYear();
+        if(segW>=doc.getTextWidth(mLabel)+2) doc.text(mLabel, x+0.5, curY+4.5);
         lastMonth=mon;
         doc.setDrawColor(148,163,184); doc.setLineWidth(0.5);
         if(i>0) doc.line(x, curY, x, curY+hdrH);
@@ -2557,34 +2767,41 @@ function exportPDF(){
       d.setDate(d.getDate()+1);
     }
 
-    // Today line
+    // Today line (Firmenfarbe)
     const todayISO=toISO(new Date()); const td=parseISO(todayISO);
     if(td>=minDate&&td<=maxDate){
       const todayX=calX+Math.round((td-minDate)/86400000)*dayW;
-      doc.setDrawColor(37,99,235); doc.setLineWidth(0.8);
+      doc.setDrawColor(B.fill[0],B.fill[1],B.fill[2]); doc.setLineWidth(0.8);
       doc.line(todayX, curY, todayX, curY+ganttH);
-      doc.setFillColor(37,99,235);
+      doc.setFillColor(B.fill[0],B.fill[1],B.fill[2]);
       doc.circle(todayX, curY+hdrH, 1, "F");
     }
 
     // Task rows
     tasks.forEach((t,idx)=>{
       const cat=categoryById(t.categoryId);
-      const hex=cat.color.replace("#","");
-      const cr=parseInt(hex.substring(0,2),16),cg=parseInt(hex.substring(2,4),16),cb=parseInt(hex.substring(4,6),16);
+      let [cr,cg,cb]=_tpHexToRgb(cat.color)||[100,116,139];
+      // Erledigte Termine abgeschwächt (heller Ton derselben Farbe)
+      if(t.done){ const mix=_tpMixWhite([cr,cg,cb],0.55); cr=mix[0];cg=mix[1];cb=mix[2]; }
       const rowY=curY+hdrH+idx*rowH;
 
       // Row separator
       doc.setDrawColor(226,231,240); doc.setLineWidth(0.2);
       doc.line(M, rowY+rowH, pw-M, rowY+rowH);
 
-      // Color dot + label
+      // Color dot + label (Meilenstein: kleine Raute statt ◆-Glyphe —
+      // jsPDF-Standardfonts sind latin1, ◆/●/⚠/✓ würden als "%Æ" enden)
       doc.setFillColor(cr,cg,cb);
-      doc.roundedRect(M+1.5, rowY+1.5, 2.5, 2.5, 0.5, 0.5, "F");
+      if(isMilestone(t)){
+        const mx=M+2.75, my=rowY+2.75, msz=1.8;
+        doc.triangle(mx,my-msz, mx+msz,my, mx,my+msz,"F");
+        doc.triangle(mx,my-msz, mx-msz,my, mx,my+msz,"F");
+      } else {
+        doc.roundedRect(M+1.5, rowY+1.5, 2.5, 2.5, 0.5, 0.5, "F");
+      }
       doc.setFontSize(6); doc.setFont("helvetica","bold"); doc.setTextColor(17,24,39);
-      const labelTxt=isMilestone(t)?"◆ "+t.name:t.name;
       const maxLbl=labelColW-7;
-      const tLines=doc.splitTextToSize(labelTxt, maxLbl);
+      const tLines=doc.splitTextToSize(t.name, maxLbl);
       doc.text(tLines[0], M+5, rowY+4.5);
       // Owner
       if(t.owner){
@@ -2606,7 +2823,7 @@ function exportPDF(){
         doc.triangle(cx,cy-sz, cx+sz,cy, cx,cy+sz,"F");
         doc.triangle(cx,cy-sz, cx-sz,cy, cx,cy+sz,"F");
         doc.setFontSize(5); doc.setFont("helvetica","bold"); doc.setTextColor(17,24,39);
-        doc.text(t.start, cx+sz+1, cy+1.5);
+        doc.text(fmtCH(t.start), cx+sz+1, cy+1.5);
       } else {
         doc.setFillColor(cr,cg,cb);
         doc.roundedRect(bx, by, bw, barH, 1, 1, "F");
@@ -2626,85 +2843,88 @@ function exportPDF(){
         // Duration label
         const dur=countWorkingDays(t.start,t.end);
         doc.setFontSize(4.2); doc.setTextColor(107,114,128);
-        doc.text(dur+"AT", bx+bw+1+(bw<8?doc.getTextWidth(barTxt[0])+2:0), by+barH/2-0.5);
+        doc.text(dur+" AT", bx+bw+1+(bw<8?doc.getTextWidth(barTxt[0])+2:0), by+barH/2-0.5);
       }
     });
 
     curY+=ganttH+6;
   }
 
-  // ── TASK TABLE ──
+  // ── TASK TABLE (inkl. Status-Spalte) ──
+  const stText={running:"Läuft",planned:"Geplant",overdue:"Überfällig",done:"Erledigt",milestone:"Meilenstein"};
+  const stColor={running:B.fill,planned:[107,114,128],overdue:[220,38,38],done:[22,163,74],milestone:[124,58,237]};
   const rows=tasks.map(t=>{
     const cat=categoryById(t.categoryId);
-    const dur=isMilestone(t)?"◆ Meilenstein":`${countWorkingDays(t.start,t.end)} AT`;
-    const stLabel={running:"● Läuft",planned:"Geplant",overdue:"⚠ Überfällig",done:"✓ Erledigt",milestone:"◆ Meilenstein"}[taskStatus(t)]||"–";
-    return [t.name, cat.name, t.owner||"–", t.start, t.end, dur, t.notes?t.notes.slice(0,60)+(t.notes.length>60?"…":""):"–"];
+    const st=taskStatus(t);
+    const dur=isMilestone(t)?"–":`${countWorkingDays(t.start,t.end)} AT`;
+    return [t.name, cat.name, t.owner||"–", fmtCH(t.start), fmtCH(t.end), dur, stText[st]||"–", t.notes?t.notes.slice(0,60)+(t.notes.length>60?"…":""):"–"];
   });
   doc.autoTable({
     startY:curY,
-    head:[["Termin","Kategorie","Unternehmer","Start","Ende","Dauer","Notizen"]],
+    head:[["Termin","Kategorie","Unternehmer","Start","Ende","Dauer","Status","Notizen"]],
     body:rows,
     styles:{font:"helvetica",fontSize:7.5,cellPadding:2,textColor:[17,24,39]},
-    headStyles:{fillColor:[37,99,235],textColor:[255,255,255],fontStyle:"bold",fontSize:7},
-    alternateRowStyles:{fillColor:[248,250,252]},
+    headStyles:{fillColor:B.fill,textColor:[255,255,255],fontStyle:"bold",fontSize:7},
+    alternateRowStyles:{fillColor:B.tint},
     columnStyles:{
-      0:{fontStyle:"bold",cellWidth:48},
+      0:{fontStyle:"bold",cellWidth:46},
       1:{cellWidth:22},
-      2:{cellWidth:28},
+      2:{cellWidth:27},
       3:{cellWidth:18,halign:"center"},
       4:{cellWidth:18,halign:"center"},
-      5:{cellWidth:14,halign:"center"},
-      6:{cellWidth:"auto",textColor:[100,116,139]},
+      5:{cellWidth:13,halign:"center"},
+      6:{cellWidth:20,halign:"center"},
+      7:{cellWidth:"auto",textColor:[100,116,139]},
     },
     didParseCell:function(data){
-      if(data.column.index===1 && data.section==="body"){
+      if(data.section!=="body") return;
+      if(data.column.index===1){
         const cat=state.categories.find(c=>c.name===data.cell.raw);
         if(cat){
-          const hex=cat.color.replace("#","");
-          data.cell.styles.fillColor=[parseInt(hex.substring(0,2),16),parseInt(hex.substring(2,4),16),parseInt(hex.substring(4,6),16)];
-          const lum=(0.299*data.cell.styles.fillColor[0]+0.587*data.cell.styles.fillColor[1]+0.114*data.cell.styles.fillColor[2])/255;
+          const crgb=_tpHexToRgb(cat.color)||[100,116,139];
+          data.cell.styles.fillColor=crgb;
+          const lum=(0.299*crgb[0]+0.587*crgb[1]+0.114*crgb[2])/255;
           data.cell.styles.textColor=lum>0.55?[17,24,39]:[255,255,255];
           data.cell.styles.fontStyle="bold";
         }
       }
+      if(data.column.index===6){
+        const key=Object.keys(stText).find(k=>stText[k]===data.cell.raw);
+        if(key){ data.cell.styles.textColor=stColor[key]; data.cell.styles.fontStyle="bold"; }
+      }
     },
-    margin:{left:M,right:M},
-    didDrawPage:function(data){
-      doc.setFontSize(6.5); doc.setTextColor(150);
-      doc.text("GEMA Terminplan  ·  "+name+"  ·  Seite "+data.pageNumber, M, ph-6);
-      doc.text("Exportiert: "+new Date().toLocaleString("de-CH"), pw-M, ph-6, {align:"right"});
-    }
+    margin:{left:M,right:M,bottom:14}
   });
 
-  // ── BEMERKUNG (unten, deutlich sichtbar) ──
+  // ── BEMERKUNG (unten, deutlich sichtbar, in Firmenfarbe) ──
   if(state.bemerkung && state.bemerkung.trim()){
     let bemY=doc.lastAutoTable?doc.lastAutoTable.finalY+8:curY+8;
     // Neue Seite wenn zu wenig Platz
-    if(bemY+20>ph-M){
-      doc.addPage(); bemY=M;
-      doc.setFontSize(6.5); doc.setTextColor(150);
-      doc.text("GEMA Terminplan  ·  "+name, M, ph-6);
-    }
+    if(bemY+20>ph-14){ doc.addPage(); bemY=M; }
     const bemLines=doc.splitTextToSize(state.bemerkung.trim(), pw-M*2-14);
     const bemH=Math.max(18, bemLines.length*5+14);
     // Hintergrund
-    doc.setFillColor(239,246,255);
+    doc.setFillColor(B.tint[0],B.tint[1],B.tint[2]);
     doc.roundedRect(M, bemY, pw-M*2, bemH, 3, 3, "F");
-    doc.setDrawColor(37,99,235); doc.setLineWidth(0.7);
+    doc.setDrawColor(B.fill[0],B.fill[1],B.fill[2]); doc.setLineWidth(0.7);
     doc.roundedRect(M, bemY, pw-M*2, bemH, 3, 3, "S");
     // Linker Akzentstreifen
-    doc.setFillColor(37,99,235);
+    doc.setFillColor(B.fill[0],B.fill[1],B.fill[2]);
     doc.rect(M, bemY, 3, bemH, "F");
     // Titel
-    doc.setFontSize(9); doc.setFont("helvetica","bold"); doc.setTextColor(29,78,216);
+    doc.setFontSize(9); doc.setFont("helvetica","bold"); doc.setTextColor(B.fill[0],B.fill[1],B.fill[2]);
     doc.text("Allgemeine Bemerkung", M+8, bemY+6);
     // Trennlinie
-    doc.setDrawColor(147,197,253); doc.setLineWidth(0.3);
+    doc.setDrawColor(B.tintBorder[0],B.tintBorder[1],B.tintBorder[2]); doc.setLineWidth(0.3);
     doc.line(M+8, bemY+8, pw-M-5, bemY+8);
     // Text
     doc.setFontSize(8); doc.setFont("helvetica","normal"); doc.setTextColor(30,41,59);
     doc.text(bemLines, M+8, bemY+13);
   }
+
+  // Fusszeile auf ALLEN Seiten (nach dem Inhalt, damit nichts überdeckt)
+  const pageCount=doc.getNumberOfPages();
+  for(let p=1;p<=pageCount;p++){ doc.setPage(p); drawFooter(p); }
 
   doc.save((name||"Terminplan").replace(/[^\w\- ]+/g,"").replace(/\s+/g,"_")+".pdf");
   toast("📄 PDF erstellt");
@@ -2731,8 +2951,8 @@ function buildICS(){
   const dtend=`${endD.getFullYear()}${p(endD.getMonth()+1)}${p(endD.getDate())}T${p(endD.getHours())}${p(endD.getMinutes())}00`;
   const interval=freq==="BIWEEKLY"?2:1;
   function esc(s){ return String(s||"").replace(/\\/g,"\\\\").replace(/\n/g,"\\n").replace(/,/g,"\\,").replace(/;/g,"\\;"); }
-  const ics=`BEGIN:VCALENDAR\nVERSION:2.0\nPRODID:-//GEMA Terminplan//DE\nCALSCALE:GREGORIAN\nMETHOD:PUBLISH\nBEGIN:VEVENT\nUID:${uid()}@terminplan.local\nDTSTAMP:${icsDateTime(toISO(new Date()),new Date().toTimeString().slice(0,5))}\nSUMMARY:${esc(subj)}\nDTSTART:${dtstart}\nDTEND:${dtend}\nRRULE:FREQ=WEEKLY;INTERVAL=${interval};BYDAY=${byday}\n${loc?"LOCATION:"+esc(loc)+"\n":""}DESCRIPTION:${esc("Jour fixe · Projekt: "+(state.projectName||"–"))}\nEND:VEVENT\nEND:VCALENDAR`;
-  return {ics,filename:`JourFixe_${(state.projectName||"Projekt").replace(/[^\w\- ]+/g,"").replace(/\s+/g,"_")}.ics`,first};
+  const ics=`BEGIN:VCALENDAR\nVERSION:2.0\nPRODID:-//GEMA Terminplan//DE\nCALSCALE:GREGORIAN\nMETHOD:PUBLISH\nBEGIN:VEVENT\nUID:${uid()}@terminplan.local\nDTSTAMP:${icsDateTime(toISO(new Date()),new Date().toTimeString().slice(0,5))}\nSUMMARY:${esc(subj)}\nDTSTART:${dtstart}\nDTEND:${dtend}\nRRULE:FREQ=WEEKLY;INTERVAL=${interval};BYDAY=${byday}\n${loc?"LOCATION:"+esc(loc)+"\n":""}DESCRIPTION:${esc("Jour fixe · Projekt: "+(getProjectName()||"–"))}\nEND:VEVENT\nEND:VCALENDAR`;
+  return {ics,filename:`JourFixe_${(getProjectName()||"Projekt").replace(/[^\w\- ]+/g,"").replace(/\s+/g,"_")}.ics`,first};
 }
 function downloadICS(){
   const {ics,filename,first}=buildICS();
@@ -2743,19 +2963,14 @@ function downloadICS(){
 function emailDraft(){
   const rec=document.getElementById("jfRecipients").value.trim().replace(/;/g,",");
   const subj=document.getElementById("jfSubject").value.trim()||"Jour fixe Baustelle";
-  const body=`Hallo zusammen\n\nAnbei der Serientermin für den Jour fixe (Projekt: ${state.projectName||"–"}).\nBitte die .ics Datei anhängen.\n\nFreundliche Grüsse`;
+  const body=`Hallo zusammen\n\nAnbei der Serientermin für den Jour fixe (Projekt: ${getProjectName()||"–"}).\nBitte die .ics Datei anhängen.\n\nFreundliche Grüsse`;
   window.location.href=`mailto:${encodeURIComponent(rec)}?subject=${encodeURIComponent(subj)}&body=${encodeURIComponent(body)}`;
 }
 
 // ── Hydrate & Render All ──
 function hydrateInputs(){
   populateObjektDropdown();
-  if(state.objektFree){
-    toggleObjektFree(true);
-    document.getElementById("objektFrei").value=state.projektName||"";
-  } else {
-    document.getElementById("objektDropdown").value=state.objektId||"";
-  }
+  _tpObjektUiSync();
   document.getElementById("projektBemerkung").value=state.bemerkung||"";
   document.getElementById("projectBearbeiter").value=state.projectBearbeiter||"";
   document.getElementById("projectStart").value=state.projectStart||toISO(new Date());
@@ -2806,9 +3021,10 @@ document.getElementById("btnExportJSON").addEventListener("click",exportJSON);
 if(document.getElementById("btnExportJSON2")) document.getElementById("btnExportJSON2").addEventListener("click",exportJSON);
 document.getElementById("importJSON").addEventListener("change",e=>{ if(e.target.files?.[0]) importJSON(e.target.files[0]); });
 if(document.getElementById("importJSON2")) document.getElementById("importJSON2").addEventListener("change",e=>{ if(e.target.files?.[0]) importJSON(e.target.files[0]); });
-document.getElementById("btnPDF").addEventListener("click",exportPDF);
-if(document.getElementById("btnPDF2")) document.getElementById("btnPDF2").addEventListener("click",exportPDF);
-if(document.getElementById("navBtnPDF")) document.getElementById("navBtnPDF").addEventListener("click",exportPDF);
+["btnPDF","btnPDFSettings","navBtnPDF"].forEach(id=>{
+  const b=document.getElementById(id);
+  if(b) b.addEventListener("click",()=>{ Promise.resolve(exportPDF()).catch(e=>{ console.error("PDF:",e); toast("⚠ PDF-Export fehlgeschlagen"); }); });
+});
 document.getElementById("btnICS").addEventListener("click",openJF);
 document.getElementById("btnCloseJF").addEventListener("click",closeJF);
 document.getElementById("btnDownloadICS").addEventListener("click",downloadICS);
@@ -2833,10 +3049,17 @@ if(document.getElementById("btnShiftMinus2")) document.getElementById("btnShiftM
 if(document.getElementById("btnShiftPlus2")) document.getElementById("btnShiftPlus2").addEventListener("click",()=>shiftAll(1));
 
 document.getElementById("objektDropdown").addEventListener("change",e=>{
-  state.objektId=e.target.value;
-  saveState(false); renderStats();
-  // Filter-Praeferenzen sind pro Objekt — beim Wechsel die neu laden
-  try{ restoreFilters(); }catch(_){}
+  // Objektwechsel = anderen Plan laden (per-Objekt-Storage-Key)
+  _tpSwitchStorage(e.target.value);
+});
+// Aktives Objekt wurde ausserhalb gewechselt (Zuordnungs-Pill, anderes
+// Modul, zweiter Tab) → Plan des neuen Objekts laden.
+window.addEventListener("gema-objekt-changed",()=>{
+  if(_tpSwitching || state.objektFree) return;
+  try{
+    const id=(typeof GemaObjekte!=='undefined')?GemaObjekte.getActiveId():'';
+    if(id) _tpSwitchStorage(id);
+  }catch(e){}
 });
 document.getElementById("objektFrei").addEventListener("input",e=>{
   state.projektName=e.target.value;
@@ -2865,7 +3088,7 @@ document.getElementById("subdivision").addEventListener("change",e=>{
   if(state.holidaysEnabled) loadHolidays();
 });
 
-["viewMode","windowSpan","windowStart","zoomPreset"].forEach(id=>{
+["windowSpan","windowStart","zoomPreset"].forEach(id=>{
   document.getElementById(id).addEventListener("change",()=>{ renderGantt(); requestAnimationFrame(()=>{applyViewport();localizeHeaders();}); });
 });
 ["filterCategory","filterOwner","search"].forEach(id=>{
@@ -2879,7 +3102,14 @@ document.getElementById("subdivision").addEventListener("change",e=>{
 document.getElementById("modal").addEventListener("click",e=>{ if(e.target===document.getElementById("modal")) closeModal(); });
 document.getElementById("jfModal").addEventListener("click",e=>{ if(e.target===document.getElementById("jfModal")) closeJF(); });
 
-window.addEventListener("resize",()=>{ updateGanttHeight(); requestAnimationFrame(()=>{applyViewport();localizeHeaders();}); });
+// Bei Grössenänderung passt sich die Spaltenbreite (Auto-Fit) an —
+// debounced neu rendern statt nur Viewport nachziehen.
+let _tpResizeT=null;
+window.addEventListener("resize",()=>{
+  updateGanttHeight();
+  clearTimeout(_tpResizeT);
+  _tpResizeT=setTimeout(()=>{ if(document.getElementById("tab-gantt").classList.contains("active")) renderGantt(); },180);
+});
 
 // Auto-save every 30s
 setInterval(()=>saveState(false),30000);
@@ -2894,7 +3124,7 @@ function _filterPrefsKey(){
 }
 function persistFilters(){
   try{
-    var ids=['filterCategory','filterOwner','search','filterCategory2','filterOwner2','search2','viewMode','windowSpan','windowStart','zoomPreset'];
+    var ids=['filterCategory','filterOwner','search','filterCategory2','filterOwner2','search2','windowSpan','windowStart','zoomPreset'];
     var data={};
     ids.forEach(function(id){var el=document.getElementById(id);if(el)data[id]=el.value;});
     localStorage.setItem(_filterPrefsKey(),JSON.stringify(data));
@@ -2918,7 +3148,7 @@ function restoreFilters(){
 // Lauscht auf alle relevanten Filter-Inputs, debounced damit nicht
 // jeder Tastendruck einen localStorage-Write triggert.
 var _filterPersistTimer=null;
-['filterCategory','filterOwner','search','filterCategory2','filterOwner2','search2','viewMode','windowSpan','windowStart','zoomPreset'].forEach(function(id){
+['filterCategory','filterOwner','search','filterCategory2','filterOwner2','search2','windowSpan','windowStart','zoomPreset'].forEach(function(id){
   var el=document.getElementById(id);
   if(!el)return;
   var fn=function(){clearTimeout(_filterPersistTimer);_filterPersistTimer=setTimeout(persistFilters,250);};
