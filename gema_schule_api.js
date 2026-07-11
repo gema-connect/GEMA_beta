@@ -293,7 +293,75 @@
   function _sync(){return (typeof w.GemaSync!=='undefined')?w.GemaSync:null;}
   function _auth(){return (typeof w.GemaAuth!=='undefined')?w.GemaAuth:null;}
   function _user(){var a=_auth();try{return (a&&a.getCurrentUser())||null;}catch(e){return null;}}
-  function _now(){return new Date().toISOString();}
+
+  // ── Serverzeit (KRITISCH für Prüfungen) ────────────────────────────
+  // Die Gerätezeit der Studierenden ist nicht vertrauenswürdig (Uhr
+  // verstellen = mehr Prüfungszeit). Der Offset zur Serverzeit wird aus
+  // dem HTTP-Date-Header der Cloud bestimmt (sekundengenau, NTP-basiert
+  // — für Prüfungsfenster mehr als genau genug): serverMs ≈ Date-Header
+  // + halbe Antwortzeit. Kandidaten: Supabase direkt (bzw. was
+  // GemaSync.SB_URL gerade ist — im Proxy-Modus bereits /sb) und
+  // explizit der Same-Origin-Proxy /sb/ (Header dort IMMER lesbar,
+  // CORS-frei, und sw.js cached /sb/-Pfade nie). Mehrere Messungen,
+  // die mit der kleinsten Laufzeit gewinnt.
+  // ALLE Prüfungs-Zeitentscheide laufen über jetzt()/jetztIso() —
+  // Countdown, Phasen, verspaetet-Marker, Auto-Abgabe, Zeitstempel.
+  var _zeitOffset=0;
+  var _zeitSynced=false;
+  var _zeitLastSync=0;
+  var _zeitInflight=null;
+  function _zeitProbe(url){
+    var t0=Date.now();
+    return fetch(url,{method:'HEAD',cache:'no-store'}).then(function(r){
+      var t1=Date.now();
+      var d=r.headers.get('date');
+      var ms=d?Date.parse(d):NaN;
+      if(!isFinite(ms))throw new Error('kein Date-Header lesbar');
+      var rtt=t1-t0;
+      if(rtt>15000)throw new Error('Antwortzeit zu gross');
+      // Date-Header ist sekundengenau → +500 ms = Mitte der Sekunde
+      return {offset:(ms+500)-(t0+rtt/2),rtt:rtt};
+    });
+  }
+  function syncZeit(force){
+    // Läuft bereits eine Messung, hängen sich ALLE Aufrufer an dieselbe —
+    // sonst entschied z.B. der Deep-Link-Check mit noch ungesyncter Zeit.
+    if(_zeitInflight)return _zeitInflight;
+    if(!force&&Date.now()-_zeitLastSync<60000)return Promise.resolve(_zeitSynced);
+    _zeitLastSync=Date.now();
+    var s=_sync();
+    var urls=[];
+    try{if(s&&s.SB_URL)urls.push(String(s.SB_URL)+'/rest/v1/');}catch(e){}
+    try{
+      if(w.location&&w.location.origin&&w.location.origin.indexOf('http')===0){
+        var proxy=w.location.origin+'/sb/rest/v1/';
+        if(urls.indexOf(proxy)<0)urls.push(proxy);
+      }
+    }catch(e){}
+    if(!urls.length)return Promise.resolve(_zeitSynced);
+    var results=[];
+    var chain=Promise.resolve();
+    urls.forEach(function(u){
+      chain=chain.then(function(){
+        var bust=(u.indexOf('?')<0?'?':'&')+'zeitprobe='+Date.now().toString(36);
+        return _zeitProbe(u+bust).then(function(r){results.push(r);}).catch(function(){});
+      });
+    });
+    _zeitInflight=chain.then(function(){
+      _zeitInflight=null;
+      if(!results.length)return _zeitSynced; // Fehlschlag: letzten Stand behalten
+      results.sort(function(a,b){return a.rtt-b.rtt;});
+      _zeitOffset=results[0].offset;
+      _zeitSynced=true;
+      return true;
+    });
+    return _zeitInflight;
+  }
+  function jetzt(){return Date.now()+_zeitOffset;}
+  function jetztIso(){return new Date(jetzt()).toISOString();}
+  function zeitStatus(){return {synced:_zeitSynced,offsetMs:Math.round(_zeitOffset)};}
+
+  function _now(){return jetztIso();}
   function _readPool(store){
     var s=_sync();
     try{if(s&&s.getCached)return s.getCached(store)||[];}catch(e){}
@@ -338,6 +406,7 @@
   var _ready=new Promise(function(res){_readyResolve=res;});
   function bind(opts){
     opts=opts||{};
+    syncZeit(); // Serverzeit-Abgleich parallel anstossen (blockiert nichts)
     var s=_sync();
     if(!s||!s.bindCollection){_cloudLoaded=true;_readyResolve();return Promise.resolve();}
     var jobs=[];
@@ -705,7 +774,7 @@
     pruefungenForStudent().forEach(function(p){
       var f=schuleFenster(p,u.id);
       if(!f.start)return;
-      var dt=f.start-Date.now();
+      var dt=f.start-jetzt();
       if(dt<=0||dt>24*3600*1000)return;
       var k=p.id+'_'+u.id;
       if(lock[k]===today)return;
@@ -744,6 +813,8 @@
     MODULE_KEY:MODULE_KEY,POOLS:POOLS,ABG_PREFIX:ABG_PREFIX,
     ready:_ready,bind:bind,
     get cloudLoaded(){return _cloudLoaded;},
+    // Serverzeit
+    jetzt:jetzt,jetztIso:jetztIso,syncZeit:syncZeit,zeitStatus:zeitStatus,
     // Engine
     uid:schuleUid,codeNeu:schuleCodeNeu,codeNorm:schuleCodeNorm,
     seed:schuleSeed,shuffle:schuleShuffle,

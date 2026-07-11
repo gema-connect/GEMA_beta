@@ -178,6 +178,7 @@ textarea.inp{min-height:96px;resize:vertical}
     <div class="run-timer" id="runTimer">–:–</div>
   </div>
   <div class="tol-banner" id="tolBanner" style="display:none"></div>
+  <div class="tol-banner" id="syncHint" style="display:none;background:var(--blue-bg);border-bottom-color:var(--blue-bd);color:#1e3a8a">⚠ Serverzeit nicht abgeglichen — es gilt vorübergehend die Gerätezeit. Verbindung prüfen.</div>
   <div class="ov-body" id="runBody"></div>
   <div class="abgeben-bar" id="abgBar">
     <span id="abgHint" style="font-size:12.5px;color:var(--mut);font-weight:600"></span>
@@ -232,7 +233,7 @@ function renderList(){
     var gruppen={aktiv:[],geplant:[],abgegeben:[],publiziert:[]};
     list.forEach(function(p,i){
       var abg=abgs[i];
-      var r=S.rest(p,u.id,Date.now());
+      var r=S.rest(p,u.id,S.jetzt());
       // Publiziert zaehlt auch fuer nie abgegebene, aber korrigierte
       // Autosave-Staende (Browser einfach geschlossen)
       if(p.publiziertAm&&abg&&abg.gestartetAm)gruppen.publiziert.push({p:p,abg:abg});
@@ -245,7 +246,7 @@ function renderList(){
     var karte=function(x,typ){
       var p=x.p,abg=x.abg;
       var klasse=S.klasseById(p.klasseId);
-      var r=S.rest(p,u.id,Date.now());
+      var r=S.rest(p,u.id,S.jetzt());
       var ft='';
       if(typ==='aktiv'){
         ft='<span class="badge '+(r.phase==='toleranz'?'amb':'grn')+'">'+(r.phase==='toleranz'?'Toleranzzeit läuft':'● Läuft — noch '+S.fmtMs(r.ms))+'</span>'+
@@ -284,7 +285,11 @@ window.slStart=function(pid){
   var u=me();if(!u)return;
   var p=S.pruefungById(pid);
   if(!p)return;
-  var r=S.rest(p,u.id,Date.now());
+  // Serverzeit VOR dem Start erzwingen — die Prüfungszeit muss für alle
+  // gleich laufen, unabhängig von der Gerätuhr (syncZeit ist best-effort:
+  // ohne Serverantwort gilt der letzte bekannte Offset bzw. Gerätezeit).
+  S.syncZeit(true).then(function(){
+  var r=S.rest(p,u.id,S.jetzt());
   if(r.phase!=='laufend'&&r.phase!=='toleranz'){renderList();return;}
   S.loadMeineAbgabe(pid).then(function(abg){
     if(abg&&abg.abgegebenAm){renderList();return;}
@@ -292,7 +297,7 @@ window.slStart=function(pid){
       abg={
         id:S.abgabeId(pid,u.id),orgId:p.orgId,pruefungId:pid,klasseId:p.klasseId,
         userId:u.id,userName:u.name||u.username||'',
-        gestartetAm:new Date().toISOString(),antworten:{}
+        gestartetAm:S.jetztIso(),antworten:{}
       };
     }
     RUN.p=p;RUN.abg=abg;RUN.autosub=false;
@@ -306,6 +311,7 @@ window.slStart=function(pid){
     document.getElementById('runOv').classList.add('open');
     document.body.style.overflow='hidden';
     startTick();
+  });
   });
 };
 window.slRunnerSchliessen=function(){
@@ -405,9 +411,10 @@ function updateProgress(){
   var hint=document.getElementById('abgHint');
   if(hint)hint.textContent=f.beantwortet<f.total?(f.total-f.beantwortet)+' Aufgabe(n) noch offen':'Alle Aufgaben beantwortet';
 }
-// ── Timer ──
+// ── Timer (läuft auf Serverzeit — S.jetzt(), nie Date.now()) ──
 function startTick(){
   stopTick();
+  RUN.tickCount=0;
   RUN.tick=setInterval(updateTimer,1000);
   updateTimer();
 }
@@ -415,7 +422,12 @@ function stopTick(){if(RUN.tick){clearInterval(RUN.tick);RUN.tick=null;}}
 function updateTimer(){
   var u=me();
   if(!RUN.p||!u)return;
-  var r=S.rest(RUN.p,u.id,Date.now());
+  // Serverzeit alle 5 Minuten nachjustieren (Drift/Netzwechsel)
+  RUN.tickCount=(RUN.tickCount||0)+1;
+  if(RUN.tickCount%300===0)S.syncZeit(true);
+  var sh=document.getElementById('syncHint');
+  if(sh)sh.style.display=S.zeitStatus().synced?'none':'';
+  var r=S.rest(RUN.p,u.id,S.jetzt());
   var el=document.getElementById('runTimer');
   var banner=document.getElementById('tolBanner');
   if(r.phase==='laufend'){
@@ -549,8 +561,8 @@ function doAbgeben(auto){
   var u=me();
   if(!RUN.p||!RUN.abg||RUN.abg.abgegebenAm)return;
   var fen=S.fenster(RUN.p,u.id);
-  var now=Date.now();
-  RUN.abg.abgegebenAm=new Date().toISOString();
+  var now=S.jetzt();
+  RUN.abg.abgegebenAm=S.jetztIso();
   RUN.abg.verspaetet=!!(fen.ende&&now>fen.ende);
   RUN.abg.autoAbgabe=!!auto;
   RUN.dirty=true;
@@ -697,6 +709,10 @@ document.addEventListener('DOMContentLoaded',function(){
   try{renderList();}catch(e){}
   var t=new Promise(function(res){setTimeout(res,6000);});
   Promise.race([S.bind({loesungen:false}),t]).then(function(){
+    // Erst auf den Serverzeit-Abgleich warten — Gruppierung und
+    // Deep-Link-Phasen-Check dürfen nie auf der Gerätuhr entscheiden.
+    return S.syncZeit();
+  }).then(function(){
     _cloudLoaded=true;
     if(S.istStudent())S.refreshStudentMods();
     S.scanErinnerungen();
@@ -708,7 +724,7 @@ document.addEventListener('DOMContentLoaded',function(){
         var p=S.pruefungById(pid);
         var u=me();
         if(p&&u){
-          var r=S.rest(p,u.id,Date.now());
+          var r=S.rest(p,u.id,S.jetzt());
           if(p.publiziertAm)slResultat(pid);
           else if(r.phase==='laufend'||r.phase==='toleranz')slStart(pid);
         }
