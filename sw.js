@@ -1,5 +1,5 @@
 /* GEMA Service Worker — Offline Cache + Push Vorbereitung */
-var CACHE_NAME = 'gema-v243';
+var CACHE_NAME = 'gema-v244';
 var CACHE_FILES = [
   '/', '/index.html', '/sb_index.html',
   '/sa_enthaertung.html', '/sa_osmose.html', '/sa_fettabscheider.html',
@@ -14,6 +14,7 @@ var CACHE_FILES = [
   '/pm_abnahme.html', '/pm_kostenkontrolle.html', '/pm_honorar.html',
   '/hy_w12.html', '/hy_inspektion.html', '/hy_spuelmanager.html', '/hy_legionellen.html', '/sv_service.html',
   '/ab_index.html', '/ab_sephir.html', '/ab_berufsschule.html', '/ab_quiz.html',
+  '/ab_klassen.html', '/ab_pruefungen.html', '/ab_pruefung_live.html', '/gema_schule_api.js',
   '/sys_login.html', '/sys_admin.html', '/sys_profil.html',
   '/sys_produktkatalog.html', '/sys_lieferanten.html', '/sys_lieferant_dashboard.html',
   '/sys_preise.html', '/sys_abos.html', '/sys_beta.html', '/sys_workspace.html', '/sys_unternehmen.html',

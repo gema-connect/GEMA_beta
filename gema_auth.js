@@ -289,6 +289,8 @@
     {key:'berufsschule',            label:'Berufsschule',              cat:'Ausbildung'},
     {key:'sephir',                  label:'SEPHIR Handlungskompetenzen', cat:'Ausbildung'},
     {key:'quiz',                    label:'Quiz',                      cat:'Ausbildung'},
+    {key:'klassen',                 label:'Klassen & Lernmittel',      cat:'Ausbildung'},
+    {key:'pruefungen',              label:'Prüfungen (Schule)',        cat:'Ausbildung'},
     {key:'spuelmanager',            label:'Spülmanager',               cat:'Hygiene'},
     {key:'service',                 label:'Service & Wartung',         cat:'Hygiene'},
     {key:'w12',                     label:'Selbstkontrolle W12',       cat:'Hygiene'},
@@ -328,6 +330,7 @@
     'br_vkf_formulare':'vkf_formulare','br_gasloeschung':'gasloeschung','br_vkf_formular':'vkf_formular',
     'sb_grobauslegung':'grobauslegung','sb_vonroll':'vonroll_tabellen',
     'pm_goodel':'kostenkontrolle','ab_sephir':'sephir','ab_quiz':'quiz',
+    'ab_klassen':'klassen','ab_pruefungen':'pruefungen','ab_pruefung_live':'pruefungen',
     'sd_schadensbericht':'schadensbericht',
     'sp_dachbericht':'dachbericht',
     'if_trocknung':'trocknungsgeraete','if_wareneingang':'wareneingang',
@@ -335,6 +338,18 @@
     'sys_lieferanten':'lieferantenverwaltung','sys_produktkatalog':'produktkatalog',
     'sys_workspace':'workspace',
   };
+
+  // ── Schule: Berechnungs-Kategorien (Klassen-Freischaltung) ─────────
+  // Module dieser Kategorien können Dozenten pro Klasse für Studierende
+  // freischalten (harte Sperre, siehe _studentModAllowed weiter unten).
+  var CALC_CATS=['Sanitärberechnungen','Heizungsberechnungen','Lüftungsberechnungen','Brandschutz'];
+  var _calcKeysMemo=null;
+  function _calcKeySet(){
+    if(_calcKeysMemo)return _calcKeysMemo;
+    _calcKeysMemo={};
+    MODULES.forEach(function(m){if(CALC_CATS.indexOf(m.cat)>=0)_calcKeysMemo[m.key]=1;});
+    return _calcKeysMemo;
+  }
 
   // ── Hash ───────────────────────────────────────────────────────────
   function _hash(str) {
@@ -408,6 +423,25 @@
     {id:'role_abteilungsleiter',name:'Abteilungsleiter',color:'#6d28d9',permissions:(function(){var p=_allPerms(true,true,false);p['werkzeugmanagement']={read:true,write:true,admin:false};p['objekte']={read:true,write:true,admin:true};return p;})()},
     {id:'role_bauherrschaft',name:'Bauherrschaft',color:'#0284c7',permissions:(function(){var p=_somePerms(['objekte','terminplan','kostenkontrolle','besprechungsprotokoll','abnahme_sia'],true,false,false);p['regierapport']={read:true,write:true,admin:false};p['revisionsunterlagen']={read:true,write:false,admin:false};return p;})()},
     {id:'role_behoerde',name:'Behörde',color:'#475569',permissions:_somePerms(['w12','objekte','inspektion_wartung','legionellen'],true,false,false)},
+    // ── Schule (Org-Kategorie 'schule') ──
+    // Dozent: Klassen-/Prüfungs-Cockpit (admin) + alle Berechnungsmodule
+    // (Unterricht/Vorbereitung) + Objekte für Übungsprojekte.
+    {id:'role_dozent',name:'Dozent',color:'#0f766e',permissions:(function(){
+      var p=_allPerms(false,false,false);
+      MODULES.forEach(function(m){if(CALC_CATS.indexOf(m.cat)>=0)p[m.key]={read:true,write:true,admin:false};});
+      ['klassen','pruefungen'].forEach(function(k){p[k]={read:true,write:true,admin:true};});
+      ['quiz','berufsschule','sephir'].forEach(function(k){p[k]={read:true,write:true,admin:false};});
+      p['objekte']={read:true,write:true,admin:false};
+      return p;})()},
+    // Studierende: NUR Klassen-Portal + Prüfungen. Berechnungsmodule
+    // ausschliesslich über die Klassen-Freischaltung des Dozenten
+    // (harte Sperre — _studentModAllowed prüft den Klassen-Cache).
+    // Eigene Prüfungs-Abgaben schreiben sie als eigene sabg:-Records,
+    // dafür braucht es KEIN write auf 'pruefungen'.
+    {id:'role_student',name:'Studierende',color:'#0ea5e9',permissions:(function(){
+      var p=_somePerms(['klassen','pruefungen'],true,false,false);
+      p['quiz']={read:true,write:true,admin:false};
+      return p;})()},
   ];
 
   // ── Default Org + User ─────────────────────────────────────────────
@@ -458,6 +492,7 @@
     {id:'garagist',             name:'Garagist / Werkstatt',   icon:'🚗', gruppe:'andere'},
     {id:'immobilien',           name:'Immobilienverwaltung',   icon:'🏢', gruppe:'andere'},
     {id:'behoerde',             name:'Behörde / Fachstelle',   icon:'🏛', gruppe:'andere'},
+    {id:'schule',               name:'Schule / Bildungsinstitution', icon:'🎓', gruppe:'andere'},
     {id:'sonstiges',            name:'Sonstiges',              icon:'📦', gruppe:'andere'}
   ];
 
@@ -487,6 +522,7 @@
     garagist:             ['role_garagist'],
     immobilien:           ['role_bauherrschaft'],
     behoerde:             ['role_behoerde'],
+    schule:               ['role_dozent','role_student'],
     sonstiges:            null
   };
 
@@ -635,6 +671,32 @@
         try{localStorage.setItem(MIGFLAG_LAGERIST,'1');}catch(e){}
       }
     } catch(e) {}
+    // ── Migration: Schule (role_dozent + role_student + Org-Kategorie) ──
+    // Dozenten-/Klassen-Modul: Rollen und die Org-Kategorie 'schule'
+    // einmalig in bestehende Installationen nachziehen.
+    try {
+      var MIGFLAG_SCHULE='gema_auth_schule_v1';
+      if(!localStorage.getItem(MIGFLAG_SCHULE)){
+        var rolesS=_getRoles()||[];
+        var chgS=false;
+        ['role_dozent','role_student'].forEach(function(rid){
+          if(!rolesS.find(function(r){return r.id===rid;})){
+            var defS=DEFAULT_ROLES.find(function(r){return r.id===rid;});
+            if(defS){rolesS.push(defS);chgS=true;}
+          }
+        });
+        if(chgS)_writeLocalCache(STORAGE_ROLES, rolesS);
+        var catsS=_getOrgCats();
+        if(catsS&&catsS.length&&!catsS.find(function(c){return c.id==='schule';})){
+          var defCS=DEFAULT_ORG_CATS.find(function(c){return c.id==='schule';});
+          if(defCS){
+            catsS.push(defCS);
+            try{localStorage.setItem(STORAGE_ORG_CATS,JSON.stringify(catsS));}catch(e){}
+          }
+        }
+        try{localStorage.setItem(MIGFLAG_SCHULE,'1');}catch(e){}
+      }
+    } catch(e) {}
 
     // ── Cloud-First Bootstrap (per-Record) ─────────────────────────
     // Strategie:
@@ -706,6 +768,57 @@
   }
   function _detectModuleKey(){var f=location.pathname.split('/').pop().replace('.html','').toLowerCase();return FILE_MAP[f]||f;}
   function _isAdmin(user){return user&&user.roleIds&&user.roleIds.indexOf('role_admin')>=0;}
+  function _hasRoleId(user,rid){return !!(user&&user.roleIds&&user.roleIds.indexOf(rid)>=0);}
+
+  // ── Schule: Studierenden-Gating (harte Sperre mit Klassen-Freischaltung) ──
+  // Studierende (role_student) haben KEINE Berechnungs-Permissions in der
+  // Rolle. Der Dozent schaltet Module pro Klasse frei; ab_klassen.html /
+  // ab_pruefung_live.html schreiben die erlaubten Modul-Keys in den Cache
+  // 'gema_student_mods_v1' ({userId, mods:[], exams:{key:untilTs}, ts}) —
+  // exams = pro Prüfungs-Aufgabe freigeschaltete Tools bis Prüfungsende.
+  // Dieser Check ist rein ADDITIV (erweitert nie-erlaubte Module), fail-
+  // closed: ohne Cache bleibt das Modul gesperrt, der Init macht dann
+  // eine async Nachprüfung gegen den Klassen-Pool.
+  function _studentModCache(user){
+    try{
+      var raw=localStorage.getItem('gema_student_mods_v1');
+      if(!raw)return null;
+      var c=JSON.parse(raw);
+      if(!c||c.userId!==user.id)return null;
+      return c;
+    }catch(e){return null;}
+  }
+  function _studentModAllowed(user,mkey){
+    if(!_hasRoleId(user,'role_student'))return false;
+    if(!_calcKeySet()[mkey])return false;
+    var c=_studentModCache(user);
+    if(!c)return false;
+    if(c.mods&&c.mods.indexOf(mkey)>=0)return true;
+    var until=c.exams&&c.exams[mkey];
+    return !!(until&&Date.now()<until);
+  }
+  // Async-Nachprüfung: Klassen-Pool frisch laden (evtl. hat der Dozent das
+  // Modul gerade erst freigeschaltet und der lokale Cache ist alt).
+  function _studentModsRefresh(user,mkey,cb){
+    if(typeof w.GemaSync==='undefined'||!w.GemaSync.loadCollection){cb(false);return;}
+    w.GemaSync.loadCollection('schule','sklasse:').then(function(rows){
+      var mods={};
+      (rows||[]).forEach(function(r){
+        var k=r&&r.data;
+        if(!k||k.archiviert)return;
+        if((k.studentIds||[]).indexOf(user.id)<0)return;
+        (k.module||[]).forEach(function(m){mods[m]=1;});
+      });
+      var cur=_studentModCache(user)||{};
+      var exams={};
+      var oldEx=cur.exams||{};
+      Object.keys(oldEx).forEach(function(k){if(oldEx[k]>Date.now())exams[k]=oldEx[k];});
+      try{
+        localStorage.setItem('gema_student_mods_v1',JSON.stringify({userId:user.id,mods:Object.keys(mods),exams:exams,ts:Date.now()}));
+      }catch(e){}
+      cb(!!mods[mkey]||!!(exams[mkey]&&Date.now()<exams[mkey]));
+    }).catch(function(){cb(false);});
+  }
   // Ist der AKTUELLE Session-User ein Admin? (für den _switchUser-Guard)
   function _sessionUserIsAdmin(){
     var s=_getSession();if(!s)return false;
@@ -916,6 +1029,10 @@
     if(u.roleIds.some(function(r){return typeof r==='string'&&(r.indexOf('role_lieferant')===0||r.indexOf('role_produktlieferant')===0);}))return'sys_lieferant_dashboard.html';
     if(u.roleIds.indexOf('role_pruefer')>=0||u.roleIds.indexOf('role_leiterpruefer')>=0)return'sys_lieferant_dashboard.html';
     if(u.roleIds.indexOf('role_garagist')>=0)return'sys_garagist_dashboard.html';
+    // Schule: Dozent landet auf der Modulübersicht (freies Arbeiten mit den
+    // Berechnungsmodulen), Studierende hart auf ihrem Klassen-Portal.
+    if(u.roleIds.indexOf('role_dozent')>=0)return'index.html';
+    if(u.roleIds.indexOf('role_student')>=0)return'ab_klassen.html';
     if(u.roleIds.indexOf('role_magaziner')>=0)return'index.html';
     if(u.roleIds.indexOf('role_monteur')>=0)return'index.html';
     return'sys_workspace.html';
@@ -1037,10 +1154,24 @@
         } else {
           var mkey=_detectModuleKey();
           var perms=_getPerms(user,roles,mkey);
+          // Schule: Klassen-Freischaltung für Studierende (additiv)
+          if(!perms.read&&_studentModAllowed(user,mkey)){
+            perms={read:true,write:true,admin:false};
+          }
           if(!_isAdmin(user)&&!perms.read){
+            // Studierende fail-closed + async Nachprüfung: hat der Dozent
+            // das Modul gerade erst freigeschaltet, ist der lokale Cache
+            // alt → Klassen-Pool frisch laden und bei Treffer neu laden.
+            var _studRetry=_hasRoleId(user,'role_student')&&_calcKeySet()[mkey];
+            if(_studRetry){
+              _studentModsRefresh(user,mkey,function(ok){if(ok)location.reload();});
+            }
             _unblock();
             document.addEventListener('DOMContentLoaded',function(){
-              document.body.innerHTML='<div style="display:flex;align-items:center;justify-content:center;height:100vh;font-family:system-ui"><div style="text-align:center"><div style="font-size:48px">🔒</div><h2 style="margin:16px 0 8px">Kein Zugriff</h2><p style="color:#6b7280">Sie haben keine Berechtigung für dieses Modul.</p><a href="index.html" style="display:inline-block;margin-top:16px;padding:10px 24px;background:#1d4ed8;color:#fff;border-radius:8px;text-decoration:none;font-weight:700">← Zurück zur Übersicht</a></div></div>';
+              var hint=_studRetry?'Dieses Modul ist für deine Klasse (noch) nicht freigeschaltet.':'Sie haben keine Berechtigung für dieses Modul.';
+              var back=_studRetry?'ab_klassen.html':'index.html';
+              var backLabel=_studRetry?'← Zu meinen Klassen':'← Zurück zur Übersicht';
+              document.body.innerHTML='<div style="display:flex;align-items:center;justify-content:center;height:100vh;font-family:system-ui"><div style="text-align:center"><div style="font-size:48px">🔒</div><h2 style="margin:16px 0 8px">Kein Zugriff</h2><p style="color:#6b7280">'+hint+'</p><a href="'+back+'" style="display:inline-block;margin-top:16px;padding:10px 24px;background:#1d4ed8;color:#fff;border-radius:8px;text-decoration:none;font-weight:700">'+backLabel+'</a></div></div>';
             });
           } else {
             _unblock();
@@ -1101,6 +1232,8 @@
 
   w.GemaAuth={
     getModules:function(){return MODULES;},
+    getFileMap:function(){return FILE_MAP;},
+    getCalcCats:function(){return CALC_CATS.slice();},
     getOrgs:_getOrgs,
     getOrgCats:_getOrgCats,
     getKategorieGruppe:_kategorieGruppe,
@@ -1149,7 +1282,12 @@
       var user=w.GemaAuth.getCurrentUser();if(!user)return false;
       if(_isAdmin(user))return true;
       var roles=_getRoles()||[];
-      return !!_getPerms(user,roles,mkey||_detectModuleKey())[action];
+      var key=mkey||_detectModuleKey();
+      if(_getPerms(user,roles,key)[action])return true;
+      // Schule: Klassen-Freischaltung für Studierende (read+write additiv —
+      // damit zeigen auch index/sb_index genau die freigeschalteten Kacheln)
+      if((action==='read'||action==='write')&&_studentModAllowed(user,key))return true;
+      return false;
     },
     login:function(username,password,remember){
       var users=_getUsers()||DEFAULT_USERS;
