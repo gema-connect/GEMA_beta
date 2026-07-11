@@ -126,21 +126,24 @@
   // gema_notify_ui.js sie einsetzt). Badge/Panel bleiben unberührt.
   // ─────────────────────────────────────────────────────────────
   function relocateBell(isMobile) {
-    var bell = document.querySelector('.gn-btn');
-    if (!bell || !hamburgerBtn) return;
-    if (isMobile) {
-      if (bell.parentNode !== navContainer) {
-        bell.classList.add('gn-btn--nav');
-        navContainer.insertBefore(bell, hamburgerBtn);
+    // Glocke UND Chat-Button (gema_chat.js) neben den Hamburger verschieben
+    ['.gc-btn', '.gn-btn'].forEach(function (sel) {
+      var bell = document.querySelector(sel);
+      if (!bell || !hamburgerBtn) return;
+      if (isMobile) {
+        if (bell.parentNode !== navContainer) {
+          bell.classList.add('gn-btn--nav');
+          navContainer.insertBefore(bell, hamburgerBtn);
+        }
+      } else {
+        if (bell.parentNode === navContainer && navRight) {
+          bell.classList.remove('gn-btn--nav');
+          var fb = navRight.querySelector('#feedbackBtn') || navRight.querySelector('.gema-feedback-btn');
+          if (fb) navRight.insertBefore(bell, fb);
+          else navRight.appendChild(bell);
+        }
       }
-    } else {
-      if (bell.parentNode === navContainer && navRight) {
-        bell.classList.remove('gn-btn--nav');
-        var fb = navRight.querySelector('#feedbackBtn') || navRight.querySelector('.gema-feedback-btn');
-        if (fb) navRight.insertBefore(bell, fb);
-        else navRight.appendChild(bell);
-      }
-    }
+    });
   }
 
   // gema_notify_ui.js injiziert die Glocke u.U. NACH dem Menü-Init

@@ -432,7 +432,7 @@ textarea.fc{resize:vertical;min-height:60px;line-height:1.5}
 
 <script src="gema_db.js"></script>
 <script src="gema_coachmarks.js"></script>
-<script src="gema_feedback.js"></script><script src="gema_notify.js"></script><script src="gema_notify_ui.js"></script>
+<script src="gema_feedback.js"></script><script src="gema_notify.js"></script><script src="gema_notify_ui.js"></script><script src="gema_chat.js"></script>
 <script src="gema_produktkatalog_api.js"></script>
 <script src="gema_bestellungen_api.js"></script>
 <script src="gema_armaturen_api.js"></script>
@@ -1367,8 +1367,30 @@ function renderOaCard(a){
     (a.produktName?'<div style="font-size:11px;color:var(--mut);margin-bottom:6px"><strong>🏭 Gewählte Anlage:</strong> '+E(a.produktName)+'</div>':'')+
     (a.nachricht?'<div style="font-size:12px;color:var(--txt2);font-style:italic;margin-bottom:8px">«'+E(a.nachricht.substring(0,200))+(a.nachricht.length>200?'…':'')+'»</div>':'')+
     (a.antwort?'<div style="font-size:12px;color:var(--grn);font-weight:600;margin-bottom:8px">✉ Beantwortet: '+E((a.antwort.nachricht||'').substring(0,100))+_oaPdfLinkHtml(a.antwort)+'</div>':'')+
-    (a.status==='offen'&&_liefCanOfferten()?'<div style="display:flex;gap:8px;margin-top:8px"><button class="btn btn-p btn-sm" onclick="openOaAnswer(\''+E(a.id)+'\')">✉ Beantworten</button><button class="btn btn-d btn-sm" onclick="quickReject(\''+E(a.id)+'\')">✕ Ablehnen</button></div>':(a.status==='offen'?'<div style="font-size:11px;color:var(--mut);margin-top:8px">Beantworten nur durch die Rolle «Offerten» (oder Lieferant-Admin).</div>':''))+
+    (a.status==='offen'&&_liefCanOfferten()?'<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap"><button class="btn btn-p btn-sm" onclick="openOaAnswer(\''+E(a.id)+'\')">✉ Beantworten</button><button class="btn btn-d btn-sm" onclick="quickReject(\''+E(a.id)+'\')">✕ Ablehnen</button>'+_oaChatBtn(a)+'</div>':(a.status==='offen'?'<div style="font-size:11px;color:var(--mut);margin-top:8px">Beantworten nur durch die Rolle «Offerten» (oder Lieferant-Admin).</div>':(_oaChatBtn(a)?'<div style="margin-top:8px">'+_oaChatBtn(a)+'</div>':'')))+
   '</div>';
+}
+
+// Kontext-Chat zum anfragenden Planer (GemaChat) — beide Seiten sehen im
+// Chat-Kopf sofort, um welche Offertanfrage es geht.
+function _oaChatBtn(a){
+  if(typeof GemaChat==='undefined'||!a.absenderId)return '';
+  return '<button class="btn btn-sm" onclick="_liefOaChat(\''+E(a.id)+'\')" title="Chat mit '+E(a.absenderName||'dem Anfragenden')+' zu dieser Offertanfrage" style="background:#dcfce7;border-color:#bbf7d0;color:#0c4a2e">💬 Rückfrage</button>';
+}
+function _liefOaChat(oaId){
+  if(typeof GemaChat==='undefined')return;
+  var a=(GemaProdukte.getOffertanfragen()||[]).find(function(x){return x.id===oaId;});
+  if(!a||!a.absenderId)return;
+  var objId=a.projekt&&a.projekt.objektId;
+  GemaChat.start({
+    userId:a.absenderId,
+    kontext:{
+      typ:'offertanfrage',refId:a.id,
+      label:'Offertanfrage: '+(a.produktName||a.kategorie||'')+(a.projekt&&a.projekt.name?' · '+a.projekt.name:''),
+      url:'sys_lieferant_dashboard.html?tab=anfragen',
+      urlExtern:'pm_objekte.html?tab=offerten'+(objId?'&objekt='+encodeURIComponent(objId):'')
+    }
+  });
 }
 
 // PDF der Offerten-Antwort als klickbaren Link rendern: Storage-URL oeffnet
@@ -1582,9 +1604,25 @@ function renderBestCard(b){
     if(b.status==='offen')acts='<button class="btn btn-p btn-sm" onclick="openBestAnswer(\''+b.id+'\')">✓ Bestätigen</button> <button class="btn btn-d btn-sm" onclick="bestAblehnenDlg(\''+b.id+'\')">✕ Ablehnen</button>';
     else if(b.status==='bestaetigt')acts='<button class="btn btn-p btn-sm" onclick="bestGeliefertDlg(\''+b.id+'\')">📦 Als geliefert melden</button>';
   }
+  if(typeof GemaChat!=='undefined'&&b.bestellerUserId)acts+=(acts?' ':'')+'<button class="btn btn-sm" onclick="_liefBestChat(\''+b.id+'\')" title="Chat mit dem Besteller zu dieser Bestellung" style="background:#dcfce7;border-color:#bbf7d0;color:#0c4a2e">💬 Rückfrage</button>';
   if(acts)h+='<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">'+acts+'</div>';
   h+='</div></div>';
   return h;
+}
+
+// Kontext-Chat zum Besteller (GemaChat) — Bezug: diese Bestellung.
+function _liefBestChat(id){
+  if(typeof GemaChat==='undefined')return;
+  var b=GemaBest.byId(id);if(!b||!b.bestellerUserId)return;
+  GemaChat.start({
+    userId:b.bestellerUserId,
+    kontext:{
+      typ:'bestellung',refId:b.id,
+      label:'Bestellung '+(b.nr||'')+(b.produktName?': '+b.produktName:''),
+      url:'sys_lieferant_dashboard.html?tab=bestellungen',
+      urlExtern:'pm_bestellungen.html?b='+encodeURIComponent(b.id)
+    }
+  });
 }
 
 function openBestAnswer(id){

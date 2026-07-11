@@ -62,7 +62,11 @@ exports.handler = async function(event) {
   if (!text) return { statusCode: 400, headers: cors, body: JSON.stringify({ ok: false, error: 'Kein Text übergeben' }) };
   if (text.length > 8000) return { statusCode: 400, headers: cors, body: JSON.stringify({ ok: false, error: 'Text zu lang (max 8000 Zeichen)' }) };
 
-  const systemPrompt = PROMPTS[mode] || PROMPTS.rewrite;
+  // Anonymisierungs-Platzhalter (gema_claude.js ersetzt Kundennamen/-adressen
+  // client-seitig durch [NAME_n]/[ADRESSE_n] und setzt sie danach wieder ein)
+  // müssen die Überarbeitung unverändert überleben.
+  const systemPrompt = (PROMPTS[mode] || PROMPTS.rewrite) +
+    ' Platzhalter in eckigen Klammern wie [NAME_1] oder [ADRESSE_2] sind anonymisierte Angaben — übernimm sie EXAKT unverändert an der passenden Stelle.';
 
   try {
     const resp = await fetch(ANTHROPIC_URL, {

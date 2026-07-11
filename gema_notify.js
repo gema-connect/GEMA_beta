@@ -335,6 +335,26 @@
       label:'Behördenformular unter Quell-URL geändert',
       modul:'behoerden_formulare',
       defaultOn:true
+    },
+    abo_bestellung: {
+      label:'Neue Abo-Bestellung / Token-Zukauf (GEMA-Admin)',
+      modul:'abos',
+      defaultOn:true
+    },
+    abo_status: {
+      label:'Abo-Status geändert (aktiviert / gesperrt / beendet)',
+      modul:'abos',
+      defaultOn:true
+    },
+    abo_tokens_knapp: {
+      label:'Token-Budget fast aufgebraucht',
+      modul:'abos',
+      defaultOn:true
+    },
+    chat_nachricht: {
+      label:'Neue Chat-Nachricht',
+      modul:'chat',
+      defaultOn:true
     }
   };
 

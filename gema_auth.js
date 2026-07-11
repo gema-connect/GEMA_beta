@@ -278,6 +278,7 @@
     {key:'bestellungen',            label:'Bestellungen (Anlagen)',    cat:'Projektmanagement'},
     {key:'revisionsunterlagen',     label:'Revisionsunterlagen',       cat:'Projektmanagement'},
     {key:'behoerden_formulare',     label:'Behörden & Formulare',      cat:'Projektmanagement'},
+    {key:'plaene',                  label:'Pläne einlesen',            cat:'Projektmanagement'},
     {key:'regierapport',            label:'Regierapporte',             cat:'Projektmanagement'},
     {key:'erp',                     label:'Offerten/Aufträge/Rechnungen', cat:'Projektmanagement'},
     {key:'einsatzplan',             label:'Einsatzplan',               cat:'Projektmanagement'},
@@ -330,7 +331,7 @@
     'sd_schadensbericht':'schadensbericht',
     'sp_dachbericht':'dachbericht',
     'if_trocknung':'trocknungsgeraete','if_wareneingang':'wareneingang',
-    'pm_crbx':'crbx_offertvergleich','pm_schnellausschreibung':'schnellausschreibung','pm_bestellungen':'bestellungen','pm_revisionsunterlagen':'revisionsunterlagen','pm_behoerden_formulare':'behoerden_formulare','pm_regierapport':'regierapport','pm_erp':'erp','pm_einsatzplan':'einsatzplan',
+    'pm_crbx':'crbx_offertvergleich','pm_schnellausschreibung':'schnellausschreibung','pm_bestellungen':'bestellungen','pm_revisionsunterlagen':'revisionsunterlagen','pm_behoerden_formulare':'behoerden_formulare','pm_plaene':'plaene','pm_regierapport':'regierapport','pm_erp':'erp','pm_einsatzplan':'einsatzplan',
     'sys_lieferanten':'lieferantenverwaltung','sys_produktkatalog':'produktkatalog',
     'sys_workspace':'workspace',
   };
@@ -352,7 +353,7 @@
     {id:'role_lueftung_planer',name:'Lüftungsplaner',color:'#2563eb',gewerke:['lueftung'],permissions:(function(){var p=_allPerms(true,true,false);p['werkzeugmanagement']={read:true,write:false,admin:false};p['objekte']={read:true,write:true,admin:true};return p;})()},
     {id:'role_elektro_planer',name:'Elektroplaner',color:'#d97706',gewerke:['elektro'],permissions:(function(){var p=_allPerms(true,true,false);p['werkzeugmanagement']={read:true,write:false,admin:false};p['objekte']={read:true,write:true,admin:true};return p;})()},
     {id:'role_spengler',name:'Spengler',color:'#0891b2',gewerke:['spenglerei'],permissions:(function(){var p=_somePerms(['dachbericht','objekte','baustellencheckliste','werkzeugmanagement'],true,true,false);p['dachbericht']={read:true,write:true,admin:true};p['objekte']={read:true,write:true,admin:true};p['regierapport']={read:true,write:true,admin:false};p['einsatzplan']={read:true,write:false,admin:false};p['abnahme_sia']={read:true,write:false,admin:false};p['stundenerfassung']={read:true,write:true,admin:false};return p;})()},
-    {id:'role_architekt',name:'Architekt / GP',color:'#7c3aed',permissions:(function(){var p=_somePerms(['terminplan','besprechungsprotokoll','objekte','abnahme_sia'],true,false,false);p['regierapport']={read:true,write:true,admin:false};p['revisionsunterlagen']={read:true,write:false,admin:false};p['behoerden_formulare']={read:true,write:true,admin:false};return p;})()},
+    {id:'role_architekt',name:'Architekt / GP',color:'#7c3aed',permissions:(function(){var p=_somePerms(['terminplan','besprechungsprotokoll','objekte','abnahme_sia'],true,false,false);p['regierapport']={read:true,write:true,admin:false};p['revisionsunterlagen']={read:true,write:false,admin:false};p['behoerden_formulare']={read:true,write:true,admin:false};p['plaene']={read:true,write:true,admin:false};return p;})()},
     {id:'role_unternehmer',name:'Unternehmer',color:'#d97706',permissions:(function(){var p=_somePerms(['terminplan','abnahme_sia','werkzeugmanagement','baustellencheckliste','inspektion_wartung','ausschreibungsunterlagen','crbx_offertvergleich','schnellausschreibung','bestellungen'],true,true,false);p['legionellen']={read:true,write:true,admin:false};p['spuelmanager']={read:true,write:true,admin:false};p['revisionsunterlagen']={read:true,write:true,admin:false};return p;})()},
     // ── Lieferanten-Rollen: ZWEI Typen (User-Entscheid) ──
     // ANLAGENLIEFERANT (role_lieferant*): liefert Anlagen fuer die
@@ -1018,6 +1019,13 @@
           var curPage=thisFileLower||'index';
           var destPage=roleDest.replace('.html','').toLowerCase();
           if(!_isAdmin(user)&&destPage!==curPage&&destPage!=='index'){
+            // Chat-Deep-Link (?chat=<threadId>, gema_chat.js) über den
+            // Rollen-Redirect hinweg erhalten — sonst verpufft der Klick
+            // auf eine Chat-Benachrichtigung auf der Modulübersicht.
+            try{
+              var _chatParam=new URLSearchParams(location.search).get('chat');
+              if(_chatParam)roleDest+=(roleDest.indexOf('?')>=0?'&':'?')+'chat='+encodeURIComponent(_chatParam);
+            }catch(e){}
             location.href=roleDest;
             return;
           }
