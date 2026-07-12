@@ -526,10 +526,12 @@ Einheitliche Klassen für alle Module:
 </nav>
 ```
 
-### Navigationslogik (Breadcrumbs)
+### Navigationslogik (Breadcrumbs) — Nav-Kanon (Drift-Guard: `scripts/nav_uniform_test.mjs`)
 
-- **Sanitärberechnungen (16 Module)**: GEMA-Logo → `index.html`, Breadcrumb "Sanitärberechnungen" → `sb_index.html`
-- **Nicht-Sanitär-Module**: Logo → `index.html` (nur Logo-Link)
+Alle 85 Seiten mit `.g-nav` folgen EINEM Kanon; der Test prüft ihn statisch (Markup) + gerendert (Playwright, `CHROME=<chromium> node scripts/nav_uniform_test.mjs`):
+- **Logo**: exakt EINE Markup-Variante (volles GEMA-SVG aus index.html, `height="28"` im `<div class="g-nav-mark">`-Wrapper), href IMMER `index.html` (auch sys_garagist_dashboard — der Rollen-Redirect fängt Garagisten ab). Gerendert wird das Logo global 40px hoch (gema_responsive.css `!important`). Neue Seiten: Logo-Block 1:1 aus index.html kopieren.
+- **Breadcrumb-Labels je Ziel (verbindlich)**: `sb_index.html` ⇒ «Sanitärberechnungen» (auch hz_/lt_-Module — der Hub heisst so) · `pm_ausschreibung.html` ⇒ «Planung & Management» · `ab_index.html` ⇒ «Ausbildung» · Brandschutz ⇒ `index.html#brand` «Brandschutz & Sprinkler» (es gibt KEIN br_index.html — der frühere Link war tot). Markup: `a.bc-cat` + `span.bc-sep ›` + `span.bc-cur`. Kein redundanter «GEMA»-Crumb (Logo verlinkt bereits index), keine «← …»-Links.
+- **Buttons**: Feedback IMMER `<button class="gema-feedback-btn no-print" onclick="…GemaFeedback.start()">🔴 Feedback</button>` (auf JEDER Seite, auch Dashboards); Aktions-Buttons `g-nav-btn no-print`. Die METRIKEN (Höhe 34px, Padding, Font 12.5px, Radius 8px; Tablet 30px) erzwingt gema_responsive.css zentral mit `!important` — per-Seite-CSS bestimmt nur noch Farben (`:where()`-Defaults füllen Lücken, `.g-nav-btn.primary` behält Akzente, Feedback-Rot #dc2626 ist zentral fixiert). Keine per-Seite Höhen/Paddings für Nav-Buttons mehr einführen.
 
 ### Hauptmodul-Design (index.html / Übersichtsseiten)
 
