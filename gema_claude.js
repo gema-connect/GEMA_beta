@@ -155,6 +155,11 @@
       try { data = JSON.parse(txt); } catch (e) {}
       if (data === null) {
         var kopf = String(txt || '').trim().slice(0, 300);
+        if (r.status === 504 || r.status === 502 && /time/i.test(kopf)) {
+          // Netlify bricht synchrone Functions nach ~10 s ab — die Vision-
+          // Analyse mehrseitiger PDFs kann länger dauern (Gateway Timeout).
+          throw new Error(was + ': Zeitüberschreitung (HTTP ' + r.status + ') — die Analyse dauerte länger als das Netlify-Function-Limit (~10 s). PDFs mit Textebene werden automatisch als schneller Text analysiert; bei gescannten, mehrseitigen Belegen: weniger Seiten fotografieren/hochladen oder den Belegtext direkt einfügen.');
+        }
         if (r.status === 413 || /too large|entity too large|payload/i.test(kopf)) {
           throw new Error('Anfrage zu gross (HTTP ' + r.status + ') — die Datei überschreitet das Upload-Limit (~3 MB). Bitte kleinere Datei wählen oder den Text einfügen.');
         }
