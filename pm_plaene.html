@@ -713,13 +713,37 @@ function plCachePut(key,rec){
   if(i>=0)arr[i]=rec;else arr.push(rec);
   plCacheWrite(key,arr);
 }
+// PreBoot-Journal (KRITISCH — Plan «wurde nicht importiert»-Bug): Der Boot-Pull
+// (bindCollection) überschreibt den localStorage-Cache mit einem Cloud-Snapshot,
+// der VOR dem GET-Start liegt. Legt der User im Boot-Fenster ein Projekt an oder
+// lädt Seiten hoch, fehlen diese Records im Snapshot — nach `_plMem={}` waren
+// Projekt+Seiten aus der Sicht verschwunden (obwohl in der Cloud), ohne Meldung.
+// Darum: Writes/Deletes bis Boot-Ende journalieren und nach dem Reset wieder
+// über den frischen Cache legen (gleiche Semantik wie das Outbox-Overlay).
+var _plBootDone=false,_plPreBoot={};
+function _plPreBootNote(cache,id,op){
+  if(_plBootDone)return;
+  (_plPreBoot[cache]=_plPreBoot[cache]||{})[id]=op;
+}
+function _plPreBootApply(){
+  Object.keys(_plPreBoot).forEach(function(cache){
+    var ops=_plPreBoot[cache];
+    Object.keys(ops).forEach(function(id){
+      if(ops[id].del)plCacheWrite(cache,plCached(cache).filter(function(x){return x&&x.id!==id;}));
+      else plCachePut(cache,ops[id].rec);
+    });
+  });
+  _plPreBoot={};
+}
 function plSaveRec(prefix,cache,rec){
   rec.updatedAt=new Date().toISOString();
   plCachePut(cache,rec);
+  _plPreBootNote(cache,rec.id,{rec:rec});
   if(window.GemaSync)GemaSync.saveRecord(PL.MK,prefix+rec.id,rec).catch(function(e){console.warn('[plaene] save',e&&e.message);});
 }
 function plDelRec(prefix,cache,id){
   plCacheWrite(cache,plCached(cache).filter(function(x){return x&&x.id!==id;}));
+  _plPreBootNote(cache,id,{del:true});
   if(window.GemaSync)GemaSync.deleteRecord(PL.MK,prefix+id).catch(function(){});
 }
 function plProjekte(){
@@ -767,7 +791,7 @@ window.plPrjWechsel=function(id){
 window.plUpload=function(files){
   if(!files||!files.length)return;
   if(!plPrj()){GemaDialog.alert({title:'Projekt fehlt',message:'Zuerst ein Plan-Projekt anlegen (＋).'});return;}
-  if(!plCanEdit())return;
+  if(!plCanEdit()){GemaDialog.alert({title:'Kein Schreibrecht',message:'Dir fehlt die Berechtigung für das Modul «Pläne & Flächen».'});return;}
   var list=Array.prototype.slice.call(files);
   document.getElementById('plFile').value='';
   plEnsurePdfjs().then(function(){
@@ -798,6 +822,7 @@ function plUploadOne(file){
     return upl.then(function(up){
       return pdfjsLib.getDocument({data:plDataUrlToBytes(dataUrl)}).promise.then(function(doc){
         var p=plPrj();
+        if(!p)throw new Error('Plan-Projekt nicht mehr gefunden — bitte Projekt wählen und «'+file.name+'» erneut hochladen.');
         var dok={id:plId('pld'),name:file.name,url:up&&up.url||'',seiten:doc.numPages};
         p.dokumente=p.dokumente||[];p.dokumente.push(dok);plSavePrj(p);
         if(!dok.url)PL.lokalPdf[dok.id]=dataUrl; // nur Session — Hinweis folgt
@@ -1991,15 +2016,20 @@ document.addEventListener('DOMContentLoaded',function(){
     : Promise.resolve();
   boot.then(function(){
     _plMem={}; // Cloud-Pull übernehmen (frisch aus dem aktualisierten Cache lesen)
+    _plBootDone=true;
+    _plPreBootApply(); // im Boot-Fenster entstandene Projekte/Seiten wieder überlagern
     plPrjRender();
-    var qp=new URLSearchParams(location.search).get('p');
-    var list=plProjekte();
-    if(qp&&list.some(function(x){return x.id===qp;}))PL.projektId=qp;
-    else if(list.length===1)PL.projektId=list[0].id;
+    var hatteWahl=!!PL.projektId; // User hat im Boot-Fenster schon gearbeitet — Wahl nie überschreiben
+    if(!hatteWahl){
+      var qp=new URLSearchParams(location.search).get('p');
+      var list=plProjekte();
+      if(qp&&list.some(function(x){return x.id===qp;}))PL.projektId=qp;
+      else if(list.length===1)PL.projektId=list[0].id;
+    }
     if(PL.projektId){
       plPrjRender();plTabsRender();
-      var s=plSeiten()[0];
-      if(s)plOpenSeite(s.id);else plAllRender();
+      if(plSeite()){plAllRender();} // offene Seite (z.B. frischer Upload) nicht wegnavigieren
+      else{var s=plSeiten()[0];if(s)plOpenSeite(s.id);else plAllRender();}
     }
   });
   window.addEventListener('resize',function(){if(plSeite())plApplyView();});
