@@ -235,6 +235,16 @@
       modul:'spuelmanager',
       defaultOn:true
     },
+    immo_auftrag_neu: {
+      label:'Neuer Handwerker-Auftrag (Immobilien)',
+      modul:'immobilien',
+      defaultOn:true
+    },
+    immo_auftrag_status: {
+      label:'Handwerker-Auftrag: Statusänderung',
+      modul:'immobilien',
+      defaultOn:true
+    },
     service_faellig: {
       label:'Wartungen fällig (Service & Wartung)',
       modul:'service',

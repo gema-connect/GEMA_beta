@@ -264,6 +264,7 @@ Kunden sollen NICHT alle Module bekommen (v.a. ERP und Stundenerfassung werden z
 | **Garagist** | Eigenes Konto, externe Werkstatt | Pflegt zugewiesene Fahrzeuge: km-Stand, Service-Historie, MFK, Reifen, Defekte. Sieht Kaufbelege/Tankkarten nicht; Versicherungsdaten nur bei Freigabe pro Fahrzeug. Kein Erfassen neuer Fahrzeuge. |
 | **Magaziner** | Werkzeug-/Fahrzeuglager der eigenen Org | Geräte erfassen + verwalten, Berichte schreiben, Personen zuweisen, Prüfungen bei Lieferanten anfordern |
 | **Lagerist** (`role_lagerist`) | Wareneingang der eigenen Org | Bestellte Sanitärapparate importieren (HTML/PDF), Wareneingang kontrollieren (Teilmengen/Backorder), Regal-Etiketten drucken. Sieht Projekte (Objekte) zum Zuordnen der Lieferadresse. Zielperson im Alltag laut Handoff ist der Projektleiter — die Planer-Rollen erhalten den Zugriff automatisch über `_allPerms`. |
+| **Immobilienverwalter** (`role_immoverwalter`) | Immobilienverwaltung + Spülmanager | Verwaltet Liegenschaften/Wohnungen/Mietverhältnisse (iv_immobilien, r/w/a), vergibt Handwerker-Aufträge an GEMA-Betriebe, meldet Leerwohnungen (startet Spülregime). spuelmanager r/w für die Leerstand-Spülprotokolle. Org-Kategorie `immobilien` bietet die Rolle im User-Modal an |
 | **Monteur** | Read-only auf Werkzeuge + Schadensberichte | Geräte einsehen, Defekte melden, Schadensmessungen + Fotos erfassen — keine Edit-Rechte auf Werkzeuge |
 | **Prüfer** | Werkzeug-/Fahrzeug-Prüfungen | Quittiert Prüfungs-Aufträge, lädt Prüfberichte hoch |
 | **Dozent** (`role_dozent`) | Klassen + Prüfungen (admin) + alle Berechnungsmodule | Führt Klassen (ab_klassen), schaltet Berechnungsmodule pro Klasse frei, stellt Lernmittel bereit, erstellt/korrigiert Prüfungen (ab_pruefungen). Landing: index.html |
@@ -323,6 +324,7 @@ Kategorie-Präfix + Kleinschreibung. **Keine Umlaute in Dateinamen** (ä→ae, �
 | `lt_` | Lüftungsberechnungen | `lt_hx_diagramm.html` |
 | `br_` | Brandschutz | `br_index.html` |
 | `if_` | Infrastruktur (Werkzeug, Fahrzeug, Lager) | `if_werkzeug.html`, `if_fahrzeug.html` |
+| `iv_` | Immobilienverwaltung | `iv_immobilien.html` |
 | `sd_` | Schadensdokumentation | `sd_schadensbericht.html` |
 | `sv_` | Service & Wartung | `sv_service.html` |
 | `sp_` | Spenglerei | `sp_dachbericht.html` |
@@ -1846,6 +1848,19 @@ Lager-/Logistikmodul (Präfix `if_`, cat **Infrastruktur**): bestellte Sanitära
 
 ---
 
+## Immobilienverwaltung (iv_immobilien.html)
+
+Verwaltungs-Modul für Immobilienverwaltungen (neues Präfix `iv_`, MODULES-Key `immobilien`, cat `Immobilien`, eigene index.html-Kategorie «Immobilien» `#immo`): Liegenschaften → Wohnungen → Mietverhältnisse, Handwerker-Aufträge mit direkter GEMA-Anbindung und Leerwohnungs-Workflow mit automatischem Spülregime.
+
+- **Pools (moduleKey `immobilien`, alle Writes NUR `GemaSync.saveRecord` — Aufträge sind cross-org)**: Liegenschaft `imlg:`→`gema_im_lg_pool_v1` (`{name,strasse,plz,ort,baujahr,hauswart,hauswartTel,bemerkung}`) · Wohnung `imwhg:`→`gema_im_whg_pool_v1` (`{liegenschaftId,bez,stockwerk,zimmer,flaecheM2,nettomiete,nebenkosten,status:'vermietet'|'leer',leerstand:null|{seit,intervalTage,spuelObjId}}`) · Mietverhältnis `immv:`→`gema_im_mv_pool_v1` (`{wohnungId,mieter,tel,email,beginn,ende(''=unbefristet),nettomiete,nebenkosten,kaution,status}`) · Handwerker-Auftrag `imauf:`→`gema_im_auf_pool_v1` (`{nr,orgId,liegenschaftName/wohnungBez/adresse DENORMALISIERT,titel,beschreibung,kategorie,prioritaet,termin,handwerker:{typ:'gema'|'extern',userId,name,firma,email,tel},status,bericht,verlauf[]}`). Nummernkreis `HW-<Jahr>-NNN` pro Verwalter-Org (`ivNextNr`).
+- **Engine im `/*ENGINE-START*/…/*ENGINE-END*/`-Block** (DOM-frei, `scripts/immobilien_engine_test.mjs` 44 Fälle): `ivAufNext` (Status-Maschine offen→beauftragt→in_arbeit→erledigt, ablehnen/zurueckziehen; ungültig=null, Muster GemaBest), `ivNextNr`, `ivScopeAuftraege` (Verwalter=eigene Org; Handwerker=zugewiesene via `handwerker.userId`-Match, Fallback E-Mail case-insensitive), `ivMvAktiv/ivMvAuslaufend`, `ivLeerQuote/ivKpis` (Mietzins-Soll = netto+NK nur AKTIVER MV), `ivAddDays`, `ivSpuelDue` (nie gespült = sofort fällig — Logik wie hy_spuelmanager).
+- **Leerwohnung → Spülregime (KRITISCH — Kern-Feature)**: «🏠 Leerstand» auf der Wohnungskarte → Modal (seit-Datum, Intervall Default 7 Tage, Spülstellen-Liste Default Küche/Bad/WC, Checkbox aktiv). Legt Spülobjekt `typ:'leerstand'` + Spülstellen DIREKT in die Spülmanager-Pools (`xPoolAdd` → localStorage + `GemaSync.saveRecord('spuelmanager','spobj:'/'spst:',…)` — Muster hy_legionellen), verlinkt `wohnung.leerstand.spuelObjId`, pusht `spuel_aktiviert` an role_monteur+Org. **«✓ Wieder vermietet»** (bzw. Status-Wechsel im Formular oder MV-Erfassung auf leerer Wohnung) beendet das Spülobjekt (`aktiv:false,beendetAm` via `ivSpuelObjUpdate` — Einzel-Record-Update, Protokoll bleibt) und bietet direkt die MV-Erfassung an. MV-Beenden ohne Folge-MV bietet umgekehrt den Leerstand-Flow an (seit = Mietende+1). Fälligkeits-Badges («🚿 N Spülung(en) fällig») auf den Wohnungskarten + Übersicht lesen die SP-Pools — der Boot **bindet die Spülmanager-Pools mit** (Muster GemaBest.bind, sonst auf Zweitgeräten leer).
+- **Handwerker-Aufträge**: Auftrag pro Liegenschaft(+optional Wohnung) mit Gewerk/Priorität/Wunschtermin. Handwerker-Segment **«🔗 GEMA-Betrieb»** (Dropdown ALLER aktiven `role_unternehmer`-User GEMA-weit, Label = Org-Name, Muster `_fzGemaGaragen`) ODER **«Extern»** (Freitext — Verwalter pflegt Status selbst, `ivDarfHandwerkerAktion` erlaubt das nur bei `typ!=='gema'`). «Beauftragen» → Notify `immo_auftrag_neu` an `handwerker.userId` (Deep-Link `iv_immobilien.html?auf=<id>`). Der GEMA-Handwerker sieht seine Aufträge cross-org im Panel **`#ivTasks` «Meine Handwerker-Aufträge»** (reiner Handwerker: keine Verwalter-Tabs): Annehmen → `in_arbeit`, «✓ Erledigt» mit Pflicht-Arbeitsbericht, Ablehnen mit Grund — jeweils `immo_auftrag_status` an `erstelltVonUserId`. Verwalter kann beauftragte/abgelehnte Aufträge zurückziehen (wieder offen) und offene/abgelehnte löschen; 💬-Rückfrage via GemaChat (Kontext-Chip auf den Auftrag).
+- **Rechte**: `ivIsVerwalter()` = role_admin/role_immoverwalter/Planer-Rollen/AL (Rollen-Liste — NICHT role_unternehmer, der hat `immobilien` r/w nur für Statuswechsel an seinen Aufträgen + Panel). Neue Rolle **`role_immoverwalter`** (immobilien r/w/a + spuelmanager r/w), Migration `gema_auth_immo_v1`; `spCanEdit` in hy_spuelmanager um role_immoverwalter erweitert; KATEGORIE_ROLLEN `immobilien` → [role_immoverwalter, role_bauherrschaft]. Boot-Guard `#ivTabs` (Kein-Zugriff-Body).
+- Registriert: gema_auth (MODULES `immobilien` cat Immobilien, FILE_MAP `iv_immobilien`, role_unternehmer +immobilien r/w — Golden `scripts/rolematrix_golden.json` regeneriert), gema_notify (`immo_auftrag_neu`/`immo_auftrag_status`), index.html (neue Kategorie «Immobilien» + Filter-Button `data-filter="immo"`), sw.js (v257), gema_recent. Tests: `scripts/immobilien_engine_test.mjs` (Node, 44) + `scripts/immobilien_smoke_test.mjs` (Playwright, 30 Checks: CRUD, Leerstand→Spülpools lokal+Cloud, Cross-Org-Roundtrip Verwalterin↔Handwerker mit Notifys, Wiedervermietung beendet Spülobjekt, hy_spuelmanager-Sicht, Kein-Zugriff Monteur; In-Memory-PostgREST-Mock für echten Zwei-Kontexte-Sync).
+
+---
+
 ## Aktivitätenlog (gema_aktivitaetslog.js)
 
 Modul-übergreifender Aktivitätenlog für die Infrastruktur-Module **Werkzeug**, **Fahrzeug** und **Trocknungsgeräte**. Eingebunden in `if_werkzeug.html`, `if_fahrzeug.html` und `if_trocknung.html`.
@@ -1976,6 +1991,8 @@ Zentrales Modul `gema_notify.js` für In-App-Benachrichtigungen. Glocke + Toast-
 | `hy_arbeit_abgeschlossen` | legionellen | on |
 | `spuel_faellig` | spuelmanager | on |
 | `spuel_aktiviert` | spuelmanager | on |
+| `immo_auftrag_neu` | immobilien | on |
+| `immo_auftrag_status` | immobilien | on |
 | `service_faellig` | service | on |
 | `service_erledigt` | service | on |
 | `stunden_eingereicht` | stundenerfassung | on |
@@ -2291,6 +2308,10 @@ GemaSync.persistCollection(moduleKey, storageKey, prefix, 'id', arr)
 | Netto-Anfragen | `ausschreibung` | `ausna:` | `gema_ausna_pool_v1` |
 | Marktplatz-Offerten | `ausschreibung` | `ausmk:` | `gema_ausmk_pool_v1` |
 | Schnellausschreibungen | `schnellausschreibung` | `sa:` | `gema_sa_pool_v1` |
+| Immobilien-Liegenschaften | `immobilien` | `imlg:` | `gema_im_lg_pool_v1` |
+| Immobilien-Wohnungen | `immobilien` | `imwhg:` | `gema_im_whg_pool_v1` |
+| Immobilien-Mietverhältnisse | `immobilien` | `immv:` | `gema_im_mv_pool_v1` |
+| Immobilien-Handwerkeraufträge | `immobilien` | `imauf:` | `gema_im_auf_pool_v1` |
 | Goodel-Umfragen | `goodel` | `goodel:` | `gema_goodel_v1` (Cache-Key = alter Blob-Key, für die Auto-Migration) |
 | Armaturen-Katalog | `armaturen` | `arm:` | `gema_armaturen_pool_v1` |
 | Bestellungen (Anlagen) | `bestellungen` | `best:` | `gema_best_pool_v1` |
