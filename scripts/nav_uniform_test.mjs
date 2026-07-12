@@ -53,12 +53,19 @@ for (const f of files) {
   ok(!/<a href="index.html">GEMA<\/a>/.test(nav), f + ': redundanter GEMA-Crumb');
 
   // Breadcrumb-Label-Kanon je Ziel
-  const canon = { 'sb_index.html': 'Sanitärberechnungen', 'pm_ausschreibung.html': 'Planung & Management', 'ab_index.html': 'Ausbildung' };
+  const canon = {
+    'sb_index.html': 'Sanitärberechnungen',
+    'pm_ausschreibung.html': 'Planung & Management',
+    'ab_index.html': 'Ausbildung',
+    'index.html#hei': 'Heizung & Wärmeerzeugung',
+    'index.html#lueft': 'Lüftung & Klimatisierung',
+    'index.html#brand': 'Brandschutz & Sprinkler'
+  };
   for (const [target, label] of Object.entries(canon)) {
-    const re = new RegExp('<a[^>]*href="' + target.replace('.', '\\.') + '"[^>]*>([^<]*)</a>', 'g');
+    const re = new RegExp('<a[^>]*href="' + target.replace(/[.#]/g, '\\$&') + '"[^>]*>([^<]*)</a>', 'g');
     let m;
     while ((m = re.exec(nav))) {
-      const txt = m[1].replace(/\s+/g, ' ').trim();
+      const txt = m[1].replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
       if (txt === '⚙️') continue; // Hub-Settings-Links ausgenommen
       ok(txt === label, f + ': Breadcrumb «' + txt + '» → ' + target + ' (Kanon: «' + label + '»)');
     }
