@@ -179,12 +179,14 @@ table.gt input.cell.mini{max-width:74px;text-align:right}
 
   <div class="tb no-print">
     <button class="vtab on" data-tab="ueber" onclick="weTab('ueber')">📋 Übersicht <span class="cnt" id="cntUeber">0</span></button>
+    <button class="vtab" data-tab="offerten" onclick="weTab('offerten')">🔀 Offerten <span class="cnt" id="cntOff">0</span></button>
     <button class="vtab" data-tab="import" onclick="weTab('import')">⬇ Import</button>
     <button class="vtab" data-tab="etikette" onclick="weTab('etikette')">🏷 Schnell-Etikette</button>
     <button class="vtab" data-tab="einst" onclick="weTab('einst')">⚙️ Einstellungen</button>
   </div>
 
   <div id="tab_ueber"></div>
+  <div id="tab_offerten" style="display:none"></div>
   <div id="tab_import" style="display:none"></div>
   <div id="tab_etikette" style="display:none"></div>
   <div id="tab_einst" style="display:none"></div>
@@ -199,6 +201,7 @@ table.gt input.cell.mini{max-width:74px;text-align:right}
 <script src="gema_dialog.js"></script>
 <script src="gema_adresse.js"></script>
 <script src="gema_claude.js"></script>
+<script src="gema_storage.js"></script>
 <script src="gema_feedback.js"></script><script src="gema_notify.js"></script><script src="gema_notify_ui.js"></script><script src="gema_chat.js"></script>
 
 <script>
@@ -214,8 +217,10 @@ function fixLeadingZero(el){var v=el.value.trim();if(v==='')return;if(/^\./.test
 var MODULE='wareneingang';
 var POOL_L='gema_we_pool_v1', PREFIX_L='we:';       // Lieferungen (Positionen eingebettet)
 var POOL_M='gema_we_map_pool_v1', PREFIX_M='wemap:'; // Lieferanten-Spalten-Mappings
+var POOL_O='gema_weoff_pool_v1', PREFIX_O='weoff:'; // Grosshändler-Offerten (Split: Lager / andere Lieferanten)
 var PDFJS_SRC='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
 var PDFJS_WORKER='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+var PDFLIB_SRC='https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js';
 var _cloudLoaded=false;
 var _tab='ueber';
 
@@ -248,7 +253,11 @@ function settings(){
     // referenzieren) | 'frei' (nur freie Adressen, unabhängig von GEMA)
     projektModus:(s.projektModus==='gema'||s.projektModus==='frei')?s.projektModus:'beides',
     standardObjektId:s.standardObjektId||'',
-    lager:s.lager||{name:'Lager / kein Projekt',strasse:'',plz:'',ort:''}
+    lager:s.lager||{name:'Lager / kein Projekt',strasse:'',plz:'',ort:''},
+    // Offerten-Split: Bezugsquellen-Regeln — {id, muster, ziel:'lager'|'lieferant', lieferant}.
+    // muster = Stichwort/Artikel-Nr (Substring, case-insensitive auf ArtNr+Bezeichnung).
+    // Die ERSTE passende Regel gewinnt (Reihenfolge = Priorität).
+    splitRegeln:Array.isArray(s.splitRegeln)?s.splitRegeln:[]
   };
 }
 function saveSettings(patch){
@@ -359,14 +368,138 @@ function saveMapping(firma,quelle,config){
   return rec;
 }
 
+/* ══════════════════ Offerten-Split (Grosshändler-Offerte → Lager / andere Lieferanten) ══════════════════
+   Ablauf: Grosshändler-Offerte (PDF) importieren → Positionen extrahieren →
+   automatisch klassifizieren (Regeln aus den Einstellungen: Lagerartikel bzw.
+   «beziehen wir bei Lieferant X») → Anpassungs-PDF mit durchgestrichenen
+   Positionen an den Grosshändler → Bestell-Listen pro Ziel-Lieferant →
+   die späteren ABs laufen wie gehabt über den Import (verknüpft via offerteId). */
+function offerten(){
+  return poolRead(POOL_O).filter(function(o){return o&&o.orgId===orgId();})
+    .sort(function(a,b){return (b.importDatum||'').localeCompare(a.importDatum||'');});
+}
+function offById(id){return poolRead(POOL_O).find(function(o){return o&&o.id===id;})||null;}
+
+// Klassifizierung einer Position nach den Split-Regeln — die ERSTE passende
+// Regel gewinnt. Ohne Treffer bleibt die Position beim Grosshändler.
+function offKlassifiziere(pos,regeln){
+  var hay=(((pos&&pos.artikelNr)||'')+' '+((pos&&pos.bezeichnung)||'')).toLowerCase();
+  for(var i=0;i<(regeln||[]).length;i++){
+    var r=regeln[i];var m=((r&&r.muster)||'').trim().toLowerCase();
+    if(!m)continue;
+    if(hay.indexOf(m)>=0){
+      if(r.ziel==='lager')return {bezug:'lager',bezugLieferant:'',regelMuster:r.muster};
+      return {bezug:'lieferant',bezugLieferant:((r.lieferant||'').trim())||'anderer Lieferant',regelMuster:r.muster};
+    }
+  }
+  return {bezug:'grosshaendler',bezugLieferant:'',regelMuster:''};
+}
+function offBezugLabel(p){
+  if(p.bezug==='lager')return '📦 Lager';
+  if(p.bezug==='lieferant')return '🏭 '+(p.bezugLieferant||'anderer Lieferant');
+  return '🛒 Grosshändler';
+}
+// Gruppierung für Bestell-Listen: Grosshändler / Lager / je Ziel-Lieferant.
+function offGruppen(off){
+  var g={grosshaendler:[],lager:[],lieferanten:{}};
+  (off.positionen||[]).forEach(function(p){
+    if(p.bezug==='lager')g.lager.push(p);
+    else if(p.bezug==='lieferant'){var k=(p.bezugLieferant||'anderer Lieferant');(g.lieferanten[k]=g.lieferanten[k]||[]).push(p);}
+    else g.grosshaendler.push(p);
+  });
+  return g;
+}
+
+// ── Abdeckung: welche Offerten-Positionen sind schon bestellt/eingegangen? ──
+// Quelle: Lieferungen mit l.offerteId === off.id (AB-Import mit Verknüpfung).
+// Match per normalisierter Artikel-Nr, Fallback normalisierte Bezeichnung.
+// Lager-Positionen gelten als gedeckt (werden nicht bestellt); manuelles
+// p.erledigt überstimmt «offen».
+function normArt(s){return String(s==null?'':s).toLowerCase().replace(/[^a-z0-9]/g,'');}
+function offAbdeckung(off,liefs){
+  liefs=(liefs||lieferungen()).filter(function(l){return l&&l.offerteId===off.id;});
+  var liefPos=[];
+  liefs.forEach(function(l){(l.positionen||[]).forEach(function(p){liefPos.push({lief:l,p:p});});});
+  var map={};
+  (off.positionen||[]).forEach(function(p){
+    if(p.bezug==='lager'){map[p.id]={status:'lager'};return;}
+    var a=normArt(p.artikelNr),b=normArt(p.bezeichnung);
+    var hit=null;
+    if(a)hit=liefPos.find(function(x){return normArt(x.p.artikelNr)===a;});
+    if(!hit&&b)hit=liefPos.find(function(x){return normArt(x.p.bezeichnung)===b;});
+    if(hit)map[p.id]={status:(posStatus(hit.p)==='eingegangen')?'eingegangen':'bestellt',liefId:hit.lief.id,liefFirma:hit.lief.lieferantFirma||''};
+    else if(p.erledigt)map[p.id]={status:'bestellt',manuell:true};
+    else map[p.id]={status:'offen'};
+  });
+  return map;
+}
+function offStatus(off,abd){
+  abd=abd||offAbdeckung(off);
+  var rel=(off.positionen||[]).filter(function(p){return p.bezug!=='lager';});
+  if(!rel.length)return 'komplett';
+  var st=rel.map(function(p){return (abd[p.id]||{}).status||'offen';});
+  if(st.every(function(s){return s==='eingegangen';}))return 'komplett';
+  if(st.every(function(s){return s!=='offen';}))return 'bestellt';
+  if(st.some(function(s){return s!=='offen';}))return 'teilweise';
+  return 'offen';
+}
+function offStatusBadge(s){
+  if(s==='komplett')return '<span class="badge b-komplett">✓ Eingegangen</span>';
+  if(s==='bestellt')return '<span class="badge b-komplett" style="background:#eff6ff;color:#1d4ed8">✓ Bestellt</span>';
+  if(s==='teilweise')return '<span class="badge b-teil">◐ Teilweise</span>';
+  return '<span class="badge b-offen">○ Offen</span>';
+}
+
+// ── Zeilen-Matching fürs Anpassungs-PDF (DOM-frei, Node-testbar) ──
+// items: pdf.js-Textitems {str,x,y,w,h,page} (PDF-User-Space, Ursprung unten
+// links). Baut pro Seite Text-Zeilen (y-Cluster) und sucht für jede zu
+// streichende Position die Zeile: zuerst über die Artikel-Nr, dann über den
+// Anfang der Bezeichnung. Liefert {pos, band:{page,x0,x1,y0,y1}|null}.
+function offMatchZeilen(items,positionen){
+  var byPage={};(items||[]).forEach(function(it){if(it&&it.str&&String(it.str).trim())(byPage[it.page]=byPage[it.page]||[]).push(it);});
+  var rows=[];
+  Object.keys(byPage).forEach(function(pg){
+    var arr=byPage[pg].slice().sort(function(a,b){return b.y-a.y||a.x-b.x;});
+    var cur=null,curY=null,yTol=4;
+    arr.forEach(function(it){
+      if(cur&&Math.abs(it.y-curY)<=yTol){cur.items.push(it);}
+      else{cur={page:Number(pg),items:[it]};curY=it.y;rows.push(cur);}
+    });
+  });
+  rows.forEach(function(r){
+    r.items.sort(function(a,b){return a.x-b.x;});
+    r.text=r.items.map(function(it){return it.str;}).join(' ');
+    r.norm=normArt(r.text);
+    var ys=r.items.map(function(it){return it.y;});
+    var hs=r.items.map(function(it){return it.h||9;});
+    r.x0=Math.min.apply(null,r.items.map(function(it){return it.x;}));
+    r.x1=Math.max.apply(null,r.items.map(function(it){return it.x+(it.w||0);}));
+    r.y0=Math.min.apply(null,ys);
+    r.y1=Math.max.apply(null,ys.map(function(y,i){return y+hs[i];}));
+    r.used=false;
+  });
+  return (positionen||[]).map(function(p){
+    var a=normArt(p.artikelNr);
+    var hit=null;
+    if(a&&a.length>=3)hit=rows.find(function(r){return !r.used&&r.norm.indexOf(a)>=0;});
+    if(!hit){
+      var b=normArt((p.bezeichnung||'').slice(0,24));
+      if(b&&b.length>=8)hit=rows.find(function(r){return !r.used&&r.norm.indexOf(b)>=0;});
+    }
+    if(hit)hit.used=true;
+    return {pos:p,band:hit?{page:hit.page,x0:hit.x0,x1:hit.x1,y0:hit.y0,y1:hit.y1}:null};
+  });
+}
+
 /* ══════════════════ Tabs ══════════════════ */
 window.weTab=function(t){
   _tab=t;
-  ['ueber','import','etikette','einst'].forEach(function(n){
+  ['ueber','offerten','import','etikette','einst'].forEach(function(n){
     var pane=$('tab_'+n);if(pane)pane.style.display=(n===t)?'':'none';
   });
   document.querySelectorAll('.vtab').forEach(function(b){b.classList.toggle('on',b.getAttribute('data-tab')===t);});
   if(t==='ueber')renderUeber();
+  if(t==='offerten')renderOfferten();
   if(t==='import')renderImport();
   if(t==='etikette')renderEtikette();
   if(t==='einst')renderEinst();
@@ -512,6 +645,10 @@ function renderLiefModal(l){
     +infoCol('Status',statusBadge(liefStatus(l)))
     +'</div>';
   if(l.notiz)head+='<div class="infobox">📝 '+E(l.notiz)+'</div>';
+  if(l.offerteId){
+    var lo=offById(l.offerteId);
+    head+='<div class="infobox" style="cursor:pointer" onclick="weOpenOff(\''+E(l.offerteId)+'\')" title="Offerte öffnen">🔀 Gehört zu Offerte: <strong>'+E(lo?(lo.lieferantFirma+(lo.offertNr?' · '+lo.offertNr:'')):l.offerteId)+'</strong> →</div>';
+  }
 
   var actions='<div class="row no-print" style="margin-top:14px;gap:8px">'
     +(ed?'<button class="btn pri" onclick="weEditLief(\''+l.id+'\')">✏️ Bearbeiten</button>':'')
@@ -753,7 +890,11 @@ window.weCloseModal=function(){
 
 /* ══════════════════ TAB: Import-Wizard ══════════════════ */
 var IMP=null;
-function newImp(){return {schritt:1,lieferantFirma:'',quelle:'ki',grid:null,pdfExtract:null,positionen:[],bestellnummer:'',bestelldatum:today(),notiz:'',bulkProjObj:null,kiFileB64:null,kiFileName:'',kiFileType:'',kiText:'',kiBusy:false};}
+function newImp(modus){return {schritt:1,modus:(modus==='offerte')?'offerte':'lieferung',lieferantFirma:'',quelle:'ki',grid:null,pdfExtract:null,positionen:[],bestellnummer:'',bestelldatum:today(),notiz:'',bulkProjObj:null,kiFileB64:null,kiFileName:'',kiFileType:'',kiText:'',kiBusy:false,
+  // Offerten-Modus: Original-PDF (für Anpassungs-Streichungen) + Kopfdaten
+  origPdfB64:null,origPdfName:'',offertNr:'',offertDatum:today(),offProjekt:null,
+  // Lieferungs-Modus: optionale Verknüpfung mit einer Grosshändler-Offerte
+  offerteId:''};}
 // IMP lebt in dieser IIFE (nicht global) — Inline-Handler müssen über diesen
 // globalen Setter gehen, sonst «IMP is not defined» im oninput-Kontext.
 window.weImpSet=function(k,v,dup){if(IMP){IMP[k]=v;if(dup)weDupCheck();}};
@@ -761,11 +902,20 @@ function renderImport(){
   var host=$('tab_import');if(!host)return;
   if(!canEdit()){host.innerHTML='<div class="card"><div class="empty"><div class="em-ic">🔒</div>Nur Lager/Planer dürfen Lieferungen importieren.</div></div>';return;}
   if(!IMP)IMP=newImp();
-  host.innerHTML=stepsHtml()+'<div class="card" id="impBody"></div>';
+  var banner='';
+  if(IMP.modus==='offerte'){
+    banner='<div class="infobox no-print" style="display:flex;align-items:center;gap:8px"><span style="flex:1">🔀 <strong>Offerten-Import</strong> — Grosshändler-Offerte extrahieren und in Bezugsquellen aufteilen (kein Wareneingang).</span><button class="btn sm" onclick="weOffAbbruch()">✕ Abbrechen</button></div>';
+  } else if(IMP.offerteId){
+    var oo=offById(IMP.offerteId);
+    banner='<div class="infobox no-print" style="display:flex;align-items:center;gap:8px"><span style="flex:1">🔀 Wird mit Offerte <strong>'+E(oo?(oo.lieferantFirma+(oo.offertNr?' · '+oo.offertNr:'')):IMP.offerteId)+'</strong> verknüpft (Abdeckungs-Kontrolle).</span><button class="btn sm" onclick="weImpSet(&#39;offerteId&#39;,&#39;&#39;);renderImport()">✕ Verknüpfung lösen</button></div>';
+  }
+  host.innerHTML=banner+stepsHtml()+'<div class="card" id="impBody"></div>';
   renderStep();
 }
+window.weOffAbbruch=function(){IMP=null;weTab('offerten');};
 function stepsHtml(){
-  var names=['Quelle & Lieferant','Extraktion','Review & Import'];
+  var off=IMP.modus==='offerte';
+  var names=[off?'Quelle & Grosshändler':'Quelle & Lieferant','Extraktion',off?'Review & Aufteilung':'Review & Import'];
   return '<div class="steps no-print">'+names.map(function(n,i){
     var idx=i+1;var cls=IMP.schritt===idx?'on':(IMP.schritt>idx?'done':'');
     return '<div class="step '+cls+'"><span class="sn">'+(IMP.schritt>idx?'✓':idx)+'</span>'+n+'</div>';
@@ -775,6 +925,7 @@ function renderStep(){
   stepsRefresh();
   if(IMP.schritt===1)renderStep1();
   else if(IMP.schritt===2)renderStep2();
+  else if(IMP.modus==='offerte')renderStep3Offerte();
   else renderStep3();
 }
 function stepsRefresh(){var host=$('tab_import');if(!host)return;var s=host.querySelector('.steps');if(s)s.outerHTML=stepsHtml();}
@@ -785,7 +936,8 @@ function renderStep1(){
   var dl=hist.map(function(f){return '<option value="'+E(f)+'"></option>';}).join('');
   var b=$('impBody');
   var ki=(IMP.quelle==='ki');
-  var liefLabel=ki?'Lieferant <span class="mut" style="font-weight:400">(optional — KI erkennt ihn meist)</span>':'Lieferant *';
+  var wer=(IMP.modus==='offerte')?'Grosshändler':'Lieferant';
+  var liefLabel=ki?wer+' <span class="mut" style="font-weight:400">(optional — KI erkennt ihn meist)</span>':wer+' *';
   var hints={html:'Kopiere die Artikeltabelle aus der Bestätigungs-E-Mail und füge sie im nächsten Schritt ein.',
     pdf:'Lade das Bestell-/Lieferschein-PDF hoch — Text wird mit Koordinaten ausgelesen.',
     ki:'🤖 Claude analysiert das Dokument (PDF, Foto oder Text) und liest die Positionen automatisch aus — auch bei gescannten Belegen ohne Text-Ebene und ohne Spalten-Mapping.'};
@@ -934,6 +1086,9 @@ function _kiIngestFile(f){
   if(f.size>4200000){GemaDialog&&GemaDialog.alert?GemaDialog.alert({title:'Datei zu gross',message:'Die Datei ist grösser als ~3 MB. Bitte ein kleineres PDF/Foto wählen oder den Belegtext einfügen.'}):toast('Datei zu gross (max ~3 MB)');return;}
   fileToBase64(f).then(function(b64){
     IMP.kiFileB64=b64;IMP.kiFileName=f.name||'beleg';IMP.kiFileType=f.type||'';
+    // Original-PDF behalten — im Offerten-Modus die Basis für das
+    // Anpassungs-PDF mit den Durchstreichungen.
+    if((f.type||'')==='application/pdf'){IMP.origPdfB64=b64;IMP.origPdfName=f.name||'Offerte.pdf';}
     var el=$('kiFileInfo');if(el)el.innerHTML='📎 '+E(IMP.kiFileName)+' bereit';
   }).catch(function(){toast('Datei konnte nicht gelesen werden');});
 }
@@ -977,10 +1132,17 @@ function kiApplyResult(data){
     var m=p&&p.menge;var mn=(typeof m==='number'&&isFinite(m))?Math.round(m):num(m);
     return mkPos((p&&p.artikelNr)||'',(p&&p.bezeichnung)||'',mn||(mn===0?0:1),i,(p&&p.posNr)||'');
   });
-  // Kopfdaten übernehmen, ohne bestehende Eingaben zu überschreiben
+  // Kopfdaten übernehmen, ohne bestehende Eingaben zu überschreiben.
+  // Im Offerten-Modus gehören Beleg-Nr/-Datum in Offert-Nr/-Datum.
   if(!IMP.lieferantFirma&&data.lieferant)IMP.lieferantFirma=String(data.lieferant).trim();
-  if(!IMP.bestellnummer&&data.bestellnummer)IMP.bestellnummer=String(data.bestellnummer).trim();
-  var d=parseDateLoose(data.bestelldatum);if(d)IMP.bestelldatum=d;
+  var d=parseDateLoose(data.bestelldatum);
+  if(IMP.modus==='offerte'){
+    if(!IMP.offertNr&&data.bestellnummer)IMP.offertNr=String(data.bestellnummer).trim();
+    if(d)IMP.offertDatum=d;
+  } else {
+    if(!IMP.bestellnummer&&data.bestellnummer)IMP.bestellnummer=String(data.bestellnummer).trim();
+    if(d)IMP.bestelldatum=d;
+  }
   if(!IMP.positionen.length){
     renderStep2KI();
     $('kiStatus').innerHTML='<div class="warnbox">🤖 Es wurden keine Positionen erkannt. Bitte einen klareren Beleg wählen, Text einfügen oder manuell erfassen.<div style="margin-top:8px" class="row no-print"><button class="btn sm" onclick="weImpManual()">✏️ Manuell erfassen</button></div></div>';
@@ -1012,6 +1174,8 @@ function ensurePdfJs(){
 window.weImpPdf=function(inp){
   var f=inp.files&&inp.files[0];if(!f)return;
   IMP.kiPendingFile=f;   // für «Mit KI analysieren»-Fallback wiederverwenden
+  // Original-PDF behalten (Offerten-Modus: Basis fürs Anpassungs-PDF).
+  fileToBase64(f).then(function(b64){IMP.origPdfB64=b64;IMP.origPdfName=f.name||'Offerte.pdf';}).catch(function(){});
   $('pdfStatus').textContent='PDF wird gelesen …';
   var fr=new FileReader();
   fr.onload=function(){
@@ -1246,10 +1410,24 @@ function renderStep3(){
       +'<div class="col"><label class="fl">Bestelldatum</label><input class="in" type="date" id="impBestDat" value="'+E(IMP.bestelldatum)+'" oninput="weImpSet(&#39;bestelldatum&#39;,this.value)"></div>'
       +'<div class="col"><label class="fl">Notiz</label><input class="in" id="impNotiz" placeholder="optional" value="'+E(IMP.notiz)+'" oninput="weImpSet(&#39;notiz&#39;,this.value)"></div>'
     +'</div>'
+    +offLinkRow()
     +'<div id="impDup">'+(dup?dupWarn(dup):'')+'</div>'
     +'<div class="row no-print" style="margin-top:16px"><button class="btn" onclick="weImpBack()">← Zurück</button><span style="flex:1"></span>'
       +'<button class="btn" onclick="weImpDoImport(false)">✓ Importieren</button>'
       +'<button class="btn pri" onclick="weImpDoImport(true)">✓ Importieren & Etiketten drucken</button></div>';
+}
+// «Gehört zu Offerte» — verknüpft den AB-Import mit einer Grosshändler-
+// Offerte (Abdeckungs-Kontrolle: welche Offerten-Positionen sind bestellt?).
+function offLinkRow(){
+  var offs=offerten();
+  if(!offs.length&&!IMP.offerteId)return '';
+  var opts='<option value="">— keine Verknüpfung —</option>'+offs.map(function(o){
+    var lbl=(o.lieferantFirma||'?')+(o.offertNr?' · '+o.offertNr:'')+' ('+fD(o.offertDatum||o.importDatum)+')';
+    return '<option value="'+E(o.id)+'"'+(IMP.offerteId===o.id?' selected':'')+'>'+E(lbl)+'</option>';
+  }).join('');
+  return '<div class="row" style="margin-top:10px"><div class="col"><label class="fl">🔀 Gehört zu Offerte (optional)</label>'
+    +'<select class="in" onchange="weImpSet(&#39;offerteId&#39;,this.value)">'+opts+'</select>'
+    +'<div class="hint" style="margin-top:4px">Verknüpfte Wareneingänge decken die Offerten-Positionen ab (Status «bestellt/eingegangen» im Offerten-Tab).</div></div></div>';
 }
 function findDuplicate(){
   var bn=(IMP.bestellnummer||'').trim();if(!bn)return null;
@@ -1257,9 +1435,13 @@ function findDuplicate(){
 }
 function dupWarn(l){return '<div class="warnbox">⚠ Bestell-Nr «'+E(l.bestellnummer)+'» existiert bereits für '+E(l.lieferantFirma)+' (importiert '+fD(l.importDatum)+'). Trotzdem importieren erzeugt eine zweite Lieferung.</div>';}
 window.weDupCheck=function(){var d=$('impDup');if(!d)return;var dup=findDuplicate();d.innerHTML=dup?dupWarn(dup):'';};
-window.weImpEdit=function(i,f,v){if(IMP.positionen[i]){IMP.positionen[i][f]=(f==='menge')?num(v):v;if(f==='menge'){renderStep3();}}};
-window.weImpDelRow=function(i){IMP.positionen.splice(i,1);renderStep3();};
-window.weImpAddRow=function(){IMP.positionen.push(mkPos('','',1,IMP.positionen.length));renderStep3();};
+// Schritt-3-Renderer nach Modus (Lieferung vs. Offerten-Split)
+function renderStep3Any(){if(IMP&&IMP.modus==='offerte')renderStep3Offerte();else renderStep3();}
+window.weImpEdit=function(i,f,v){if(IMP.positionen[i]){IMP.positionen[i][f]=(f==='menge')?num(v):v;
+  // Offerten-Modus: Text-Änderung kann die Regel-Klassifizierung ändern → neu rendern.
+  if(f==='menge'||(IMP.modus==='offerte'&&(f==='artikelNr'||f==='bezeichnung'))){renderStep3Any();}}};
+window.weImpDelRow=function(i){IMP.positionen.splice(i,1);renderStep3Any();};
+window.weImpAddRow=function(){IMP.positionen.push(mkPos('','',1,IMP.positionen.length));renderStep3Any();};
 // Zeilen-Picker: gewaehltes Projekt wird auch zum «aktuellen» Projekt oben —
 // danach per ⤓ mit einem Klick weiteren Zeilen zuweisbar.
 window.weImpRowProj=function(i){if(!IMP.positionen[i])return;weOpenProjektPicker(IMP.positionen[i].projekt,function(pj){IMP.positionen[i].projekt=pj;IMP.bulkProjObj=Object.assign({},pj);renderStep3();});};
@@ -1277,7 +1459,8 @@ window.weImpDoImport=function(print){
     id:uid('we'),orgId:orgId(),erstelltVon:(user()||{}).id||'',erstelltVonName:userName(),importDatum:_now(),
     lieferantFirma:IMP.lieferantFirma||'',
     bestellnummer:(IMP.bestellnummer||'').trim(),bestelldatum:IMP.bestelldatum||today(),
-    notiz:(IMP.notiz||'').trim(),positionen:pos,status:'offen',updatedAt:_now()
+    notiz:(IMP.notiz||'').trim(),positionen:pos,status:'offen',
+    offerteId:IMP.offerteId||'',updatedAt:_now()
   };
   l.status=liefStatus(l);
   saveRec(POOL_L,PREFIX_L,l);
@@ -1348,6 +1531,440 @@ window.wePickFrei=function(){
   if(!strasse&&!ort){toast('Bitte Adresse eingeben');return;}
   // Bezeichnung = Adresse (Strasse+Nr, sonst Ort) — wird auf der Etikette gedruckt.
   _pickDone({objektId:'',name:strasse||ort,strasse:strasse,plz:plz,ort:ort});
+};
+
+/* ══════════════════ TAB: Offerten (Grosshändler-Offerten-Split) ══════════════════ */
+function renderOfferten(){
+  var host=$('tab_offerten');if(!host)return;
+  var all=offerten();
+  var c=$('cntOff');if(c)c.textContent=all.length;
+  if(!_cloudLoaded&&!all.length){host.innerHTML=spinnerHtml('Offerten werden geladen …');return;}
+  var head='<div class="card"><h3>🔀 Grosshändler-Offerten</h3>'
+    +'<div class="desc">Offerte des Grosshändlers importieren — GEMA erkennt automatisch, welche Positionen <strong>ab Lager</strong> bezogen oder <strong>bei anderen Lieferanten</strong> bestellt werden (Regeln in ⚙️ Einstellungen). Daraus entstehen das Anpassungs-PDF mit durchgestrichenen Positionen für den Grosshändler und Bestell-Listen pro Lieferant. Die späteren Auftragsbestätigungen importierst du wie gewohnt und verknüpfst sie mit der Offerte.</div>'
+    +(canEdit()?'<div class="row no-print"><button class="btn pri" onclick="weOffNeu()">＋ Offerte importieren</button></div>':'')
+    +'</div>';
+  var body;
+  if(!all.length){
+    body='<div class="empty"><div class="em-ic">🔀</div><div style="font-weight:800;font-size:15px;color:#475569">Noch keine Offerten</div>'
+      +'<div style="margin-top:6px">Importiere die Offerte des Grosshändlers (PDF) — die Positionen werden automatisch aufgeteilt.</div></div>';
+  } else {
+    body=all.map(offCardHtml).join('');
+  }
+  host.innerHTML=head+'<div id="offList">'+body+'</div>';
+}
+function offCardHtml(o){
+  var g=offGruppen(o);
+  var nLief=Object.keys(g.lieferanten).reduce(function(s,k){return s+g.lieferanten[k].length;},0);
+  var abd=offAbdeckung(o);
+  var chips='<span class="chip">🛒 '+g.grosshaendler.length+' Grosshändler</span>'
+    +(g.lager.length?' <span class="chip" style="background:#ecfccb;color:#3f6212">📦 '+g.lager.length+' Lager</span>':'')
+    +(nLief?' <span class="chip" style="background:#e0e7ff;color:#3730a3">🏭 '+nLief+' andere Lieferanten</span>':'');
+  return '<div class="lief-card" onclick="weOpenOff(\''+o.id+'\')">'
+    +'<div class="lc-ic">🔀</div>'
+    +'<div class="lc-main">'
+      +'<div class="lc-t">'+E(o.lieferantFirma||'Grosshändler?')+(o.offertNr?' <span class="mut" style="font-weight:600">· '+E(o.offertNr)+'</span>':'')+'</div>'
+      +'<div class="lc-meta"><span>📅 '+fD(o.offertDatum||o.importDatum)+'</span>'+(o.projekt&&o.projekt.name?'<span>📋 '+E(o.projekt.name)+'</span>':'')+'<span>📦 '+(o.positionen||[]).length+' Positionen</span></div>'
+      +'<div style="margin-top:5px">'+chips+'</div>'
+    +'</div>'
+    +'<div class="lc-r">'+offStatusBadge(offStatus(o,abd))+'<span class="mut" style="font-size:11px">Details →</span></div>'
+  +'</div>';
+}
+window.weOffNeu=function(){
+  if(!canEdit()){toast('Keine Berechtigung');return;}
+  IMP=newImp('offerte');
+  weTab('import');
+};
+
+/* ── Review & Speichern (Schritt 3 im Offerten-Modus) ── */
+function offEnsureBezug(){
+  // Automatisch zugewiesene Zeilen bei JEDEM Render neu klassifizieren —
+  // sonst bliebe eine leer hinzugefügte/nachträglich editierte Zeile auf
+  // dem Stand der ersten Bewertung. Manuelle Zuweisungen bleiben fix.
+  var regeln=settings().splitRegeln;
+  IMP.positionen.forEach(function(p){
+    if(p.bezugQuelle==='manuell')return;
+    var k=offKlassifiziere(p,regeln);
+    p.bezug=k.bezug;p.bezugLieferant=k.bezugLieferant;p.regelMuster=k.regelMuster;
+    p.bezugQuelle=k.regelMuster?'regel':'auto';
+  });
+}
+function offBezugSelect(p,idxAttr,onSel,onLief){
+  var sel='<select class="cell" style="min-width:130px" onchange="'+onSel+'('+idxAttr+',this.value)">'
+    +'<option value="grosshaendler"'+(p.bezug==='grosshaendler'?' selected':'')+'>🛒 Grosshändler</option>'
+    +'<option value="lager"'+(p.bezug==='lager'?' selected':'')+'>📦 Lager</option>'
+    +'<option value="lieferant"'+(p.bezug==='lieferant'?' selected':'')+'>🏭 anderer Lieferant</option>'
+    +'</select>';
+  var lief=(p.bezug==='lieferant')
+    ?'<input class="cell" style="margin-top:4px" placeholder="Lieferant" value="'+E(p.bezugLieferant||'')+'" onchange="'+onLief+'('+idxAttr+',this.value)">'
+    :'';
+  var regel=(p.regelMuster&&p.bezugQuelle==='regel')?'<div class="mut" style="font-size:10px;margin-top:2px" title="Automatisch per Regel zugewiesen">⚙ Regel «'+E(p.regelMuster)+'»</div>':'';
+  return sel+lief+regel;
+}
+function renderStep3Offerte(){
+  var b=$('impBody');
+  offEnsureBezug();
+  var regelN=settings().splitRegeln.length;
+  var rows=IMP.positionen.map(function(p,i){
+    var flag=(num(p.menge)<=0)?' style="background:#fef2f2"':'';
+    return '<tr'+flag+'>'
+      +'<td><input class="cell mini" value="'+E(p.posNr||'')+'" placeholder="—" onchange="weImpEdit('+i+',\'posNr\',this.value)"></td>'
+      +'<td class="num"><input class="cell mini" inputmode="numeric" value="'+E(p.menge)+'" onchange="weImpEdit('+i+',\'menge\',this.value)"></td>'
+      +'<td><input class="cell" value="'+E(p.artikelNr)+'" onchange="weImpEdit('+i+',\'artikelNr\',this.value)"></td>'
+      +'<td><input class="cell" value="'+E(p.bezeichnung)+'" onchange="weImpEdit('+i+',\'bezeichnung\',this.value)"></td>'
+      +'<td>'+offBezugSelect(p,i,'weOffBezug','weOffBezugLief')+'</td>'
+      +'<td class="num"><button class="btn sm danger" onclick="weImpDelRow('+i+')" title="Zeile löschen">✕</button></td>'
+      +'</tr>';
+  }).join('');
+  var pdfInfo=IMP.origPdfB64
+    ?'<span class="chip">📄 '+E(IMP.origPdfName||'Offerte.pdf')+'</span>'
+    :'<span class="chip" style="background:#fef9c3;color:#854d0e" title="Ohne Original-PDF kann später kein Anpassungs-PDF mit Durchstreichungen erzeugt werden.">⚠ kein Original-PDF</span>';
+  var projName=IMP.offProjekt&&IMP.offProjekt.name?IMP.offProjekt.name:'— optional —';
+  b.innerHTML='<h3>3 · Review & Aufteilung <span class="chip" style="background:#e0e7ff;color:#3730a3;margin-left:6px">🔀 Offerte</span></h3>'
+    +'<div class="desc">Bezug pro Position prüfen — '+(regelN?regelN+' Regel'+(regelN!==1?'n':'')+' aus den Einstellungen wurden angewendet.':'<strong>Noch keine Split-Regeln hinterlegt</strong> (⚙️ Einstellungen → Offerten-Split) — alles steht auf Grosshändler.')+' Positionen mit 📦/🏭 werden im Anpassungs-PDF durchgestrichen.</div>'
+    +'<div class="tblwrap"><table class="gt" style="min-width:760px"><thead><tr><th style="width:64px">Pos-Nr</th><th class="num" style="width:80px">Menge</th><th style="width:120px">Art-Nr</th><th>Bezeichnung</th><th style="width:200px">Bezug</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div>'
+    +'<div class="row no-print" style="margin-top:8px"><button class="btn sm" onclick="weImpAddRow()">＋ Zeile</button><span class="hint" style="align-self:center">'+IMP.positionen.length+' Position'+(IMP.positionen.length!==1?'en':'')+'</span><span style="flex:1"></span>'+pdfInfo+'</div>'
+    +'<hr style="border:none;border-top:1px solid #eef2f7;margin:14px 0">'
+    +'<div class="row">'
+      +'<div class="col"><label class="fl">Grosshändler *</label><input class="in" id="offLief" list="offLiefDL" placeholder="z.B. Sanitas Troesch AG" value="'+E(IMP.lieferantFirma)+'" oninput="weImpSet(&#39;lieferantFirma&#39;,this.value)"><datalist id="offLiefDL">'+lieferantHistory().map(function(f){return '<option value="'+E(f)+'"></option>';}).join('')+'</datalist></div>'
+      +'<div class="col" style="max-width:190px"><label class="fl">Offert-Nr</label><input class="in" placeholder="optional" value="'+E(IMP.offertNr||'')+'" oninput="weImpSet(&#39;offertNr&#39;,this.value)"></div>'
+      +'<div class="col" style="max-width:180px"><label class="fl">Offert-Datum</label><input class="in" type="date" value="'+E(IMP.offertDatum||today())+'" oninput="weImpSet(&#39;offertDatum&#39;,this.value)"></div>'
+    +'</div>'
+    +'<div class="row" style="margin-top:10px">'
+      +'<div class="col"><label class="fl">Projekt (optional)</label><button class="btn" style="width:100%;justify-content:flex-start" onclick="weOffProjPick()">📋 '+E(projName)+'</button></div>'
+      +'<div class="col"><label class="fl">Notiz</label><input class="in" placeholder="optional" value="'+E(IMP.notiz)+'" oninput="weImpSet(&#39;notiz&#39;,this.value)"></div>'
+    +'</div>'
+    +'<div class="row no-print" style="margin-top:16px"><button class="btn" onclick="weImpBack()">← Zurück</button><span style="flex:1"></span>'
+      +'<button class="btn pri" onclick="weOffSave()">✓ Offerte speichern</button></div>';
+}
+window.weOffBezug=function(i,v){
+  var p=IMP.positionen[i];if(!p)return;
+  p.bezug=v;p.bezugQuelle='manuell';
+  if(v!=='lieferant')p.bezugLieferant='';
+  renderStep3Offerte();
+};
+window.weOffBezugLief=function(i,v){var p=IMP.positionen[i];if(!p)return;p.bezugLieferant=(v||'').trim();p.bezugQuelle='manuell';};
+window.weOffProjPick=function(){
+  weOpenProjektPicker(IMP.offProjekt||{},function(pj){IMP.offProjekt=(pj&&(pj.objektId||pj.name))?{objektId:pj.objektId||'',name:pj.name||''}:null;renderStep3Offerte();});
+};
+// Base64-Grösse einer dataUrl in Bytes (approx.) — für den Record-Fallback.
+function dataUrlBytes(d){var i=(d||'').indexOf(',');return i<0?0:Math.floor((d.length-i-1)*0.75);}
+var _offPdfMem={};   // Offerte-PDFs, die zu gross für den Record sind (nur Session)
+window.weOffSave=function(){
+  var pos=IMP.positionen.filter(function(p){return (p.bezeichnung||'').trim()||(p.artikelNr||'').trim();});
+  if(!pos.length){toast('Keine Positionen');return;}
+  var firma=(($('offLief')||{}).value||IMP.lieferantFirma||'').trim();
+  if(!firma){toast('Bitte Grosshändler eingeben');var f=$('offLief');if(f)f.focus();return;}
+  pos.forEach(function(p,i){p.sortindex=i;delete p.projekt;delete p.eingegangenMenge;delete p.status;p.erledigt=!!p.erledigt;});
+  var o={
+    id:uid('weoff'),orgId:orgId(),erstelltVon:(user()||{}).id||'',erstelltVonName:userName(),importDatum:_now(),
+    lieferantFirma:firma,offertNr:(IMP.offertNr||'').trim(),offertDatum:IMP.offertDatum||today(),
+    notiz:(IMP.notiz||'').trim(),projekt:IMP.offProjekt||null,
+    pdf:null,anpassungAm:null,positionen:pos,updatedAt:_now()
+  };
+  var b64=IMP.origPdfB64,name=IMP.origPdfName||'Offerte.pdf';
+  IMP=null;
+  var fin=function(){saveRec(POOL_O,PREFIX_O,o);toast('Offerte gespeichert ('+pos.length+' Positionen)');weTab('offerten');weOpenOff(o.id);};
+  if(b64&&b64.indexOf('data:application/pdf')===0){
+    // Original-PDF nach GemaStorage auslagern (Record klein halten);
+    // Base64-Fallback nur ≤ 2.5 MB, sonst bleibt das PDF Session-lokal.
+    var upl=(typeof GemaStorage!=='undefined'&&GemaStorage.uploadDataUrl)
+      ?GemaStorage.uploadDataUrl(b64,'wareneingang/'+orgId()+'/offerten')
+      :Promise.reject(new Error('kein Storage'));
+    upl.then(function(r){o.pdf={name:name,url:r.url};fin();})
+      .catch(function(){
+        if(dataUrlBytes(b64)<=2500000){o.pdf={name:name,dataUrl:b64};}
+        else{o.pdf={name:name};_offPdfMem[o.id]=b64;toast('⚠ PDF zu gross für die Cloud — Anpassungs-PDF nur in dieser Sitzung möglich');}
+        fin();
+      });
+  } else { fin(); }
+};
+
+/* ── Detail-Modal ── */
+window.weOpenOff=function(id){
+  var o=offById(id);if(!o){toast('Offerte nicht gefunden');return;}
+  renderOffModal(o);
+};
+function renderOffModal(o){
+  var ed=canEdit();
+  var abd=offAbdeckung(o);
+  var g=offGruppen(o);
+  var nLief=Object.keys(g.lieferanten).reduce(function(s,k){return s+g.lieferanten[k].length;},0);
+  var rows=(o.positionen||[]).map(function(p,i){
+    var a=abd[p.id]||{status:'offen'};
+    var st;
+    if(a.status==='lager')st='<span class="chip" style="background:#ecfccb;color:#3f6212">📦 ab Lager</span>';
+    else if(a.status==='eingegangen')st='<span class="badge b-komplett">✓ Eingegangen</span>';
+    else if(a.status==='bestellt')st='<span class="badge b-komplett" style="background:#eff6ff;color:#1d4ed8" title="'+(a.liefFirma?('AB von '+E(a.liefFirma)):'manuell als bestellt markiert')+'">✓ Bestellt'+(a.manuell?' ✎':'')+'</span>';
+    else st='<span class="badge b-offen">○ Offen</span>';
+    var tgl=(ed&&p.bezug!=='lager'&&a.status!=='eingegangen'&&!a.liefId)
+      ?' <button class="btn sm" title="'+(p.erledigt?'Markierung «bestellt» entfernen':'manuell als bestellt markieren')+'" onclick="weOffToggleErledigt(\''+o.id+'\',\''+p.id+'\')">'+(p.erledigt?'↺':'✓')+'</button>':'';
+    var bez=ed?offBezugSelect(p,'\''+o.id+'\',\''+p.id+'\'','weOffDetBezug','weOffDetBezugLief')
+      :offBezugLabel(p);
+    return '<tr'+(p.bezug!=='grosshaendler'?' style="background:#fafcf6"':'')+'>'
+      +'<td><strong>'+E(p.posNr||(i+1))+'</strong></td>'
+      +'<td class="num">'+E(p.menge)+'</td>'
+      +'<td>'+E(p.artikelNr||'—')+'</td>'
+      +'<td><strong>'+E(p.bezeichnung||'—')+'</strong></td>'
+      +'<td>'+bez+'</td>'
+      +'<td>'+st+tgl+'</td>'
+      +'</tr>';
+  }).join('');
+  var pdfLink='—';
+  if(o.pdf&&o.pdf.url)pdfLink='<a href="'+E(o.pdf.url)+'" target="_blank" rel="noopener" style="color:#0f766e;font-weight:700;text-decoration:none">📄 '+E(o.pdf.name||'Offerte.pdf')+'</a>';
+  else if(o.pdf&&o.pdf.dataUrl)pdfLink='<a href="'+o.pdf.dataUrl+'" download="'+E(o.pdf.name||'Offerte.pdf')+'" style="color:#0f766e;font-weight:700;text-decoration:none">📄 '+E(o.pdf.name||'Offerte.pdf')+'</a>';
+  else if(o.pdf&&_offPdfMem[o.id])pdfLink='📄 '+E(o.pdf.name||'Offerte.pdf')+' <span class="mut">(nur diese Sitzung)</span>';
+  var head='<div class="row" style="margin-bottom:12px">'
+    +infoCol('Grosshändler',E(o.lieferantFirma||'—'))
+    +infoCol('Offert-Nr',E(o.offertNr||'—'))
+    +infoCol('Datum',fD(o.offertDatum||o.importDatum))
+    +infoCol('Original-PDF',pdfLink)
+    +'</div>';
+  if(o.projekt&&o.projekt.name)head+='<div class="infobox">📋 Projekt: '+E(o.projekt.name)+'</div>';
+  if(o.notiz)head+='<div class="infobox">📝 '+E(o.notiz)+'</div>';
+  var chips='<div style="margin-bottom:10px"><span class="chip">🛒 '+g.grosshaendler.length+' beim Grosshändler</span> '
+    +'<span class="chip" style="background:#ecfccb;color:#3f6212">📦 '+g.lager.length+' ab Lager</span> '
+    +'<span class="chip" style="background:#e0e7ff;color:#3730a3">🏭 '+nLief+' bei anderen Lieferanten</span></div>';
+  var hasPdf=!!(o.pdf&&(o.pdf.url||o.pdf.dataUrl||_offPdfMem[o.id]));
+  var actions='<div class="row no-print" style="margin-top:14px;gap:8px;flex-wrap:wrap">'
+    +(ed?'<button class="btn pri" '+(hasPdf?'':'disabled title="Kein Original-PDF hinterlegt — Offerte mit PDF importieren"')+' onclick="weOffAnpassung(\''+o.id+'\')">📄 Anpassungs-PDF (Streichungen)</button>':'')
+    +'<button class="btn" onclick="weOffListen(\''+o.id+'\')">🛒 Bestell-Listen</button>'
+    +(ed?'<button class="btn" onclick="weOffImportAB(\''+o.id+'\')">⬇ AB zu dieser Offerte importieren</button>':'')
+    +(ed?'<button class="btn" title="Regeln aus den Einstellungen erneut anwenden (manuelle Zuweisungen bleiben)" onclick="weOffReapply(\''+o.id+'\')">⚙ Regeln neu anwenden</button>':'')
+    +(ed?'<button class="btn danger" onclick="weOffDelete(\''+o.id+'\')">🗑 Löschen</button>':'')
+    +'<span style="flex:1"></span>'
+    +'<button class="btn" onclick="weCloseModal()">Schliessen</button>'
+    +'</div>';
+  var liefs=lieferungen().filter(function(l){return l.offerteId===o.id;});
+  var liefChips=liefs.length?'<div style="margin-top:10px"><label class="fl">Verknüpfte Wareneingänge</label>'+liefs.map(function(l){
+    return '<button class="btn sm" style="margin:2px 4px 2px 0" onclick="weOpenLief(\''+l.id+'\')">🚚 '+E(l.lieferantFirma||'?')+(l.bestellnummer?' · '+E(l.bestellnummer):'')+' — '+statusBadge(liefStatus(l)).replace(/<[^>]+>/g,'')+'</button>';
+  }).join('')+'</div>':'';
+  showModal(
+    '<button class="modal-x" onclick="weCloseModal()">✕</button>'
+    +'<h2>🔀 '+E(o.lieferantFirma||'Offerte')+' '+offStatusBadge(offStatus(o,abd))+'</h2>'
+    +'<div class="msub">Offerten-Split — Bezug pro Position, Anpassungs-PDF für den Grosshändler, Bestell-Listen für die übrigen Bezugsquellen.</div>'
+    +head+chips
+    +'<div class="tblwrap"><table class="gt"><thead><tr><th>Pos-Nr</th><th class="num">Menge</th><th>Art-Nr</th><th>Bezeichnung</th><th style="width:200px">Bezug</th><th>Status</th></tr></thead><tbody>'+rows+'</tbody></table></div>'
+    +liefChips
+    +actions
+  ,'920px');
+}
+function _offUpd(offId,fn){
+  var o=offById(offId);if(!o)return null;
+  fn(o);o.updatedAt=_now();
+  saveRec(POOL_O,PREFIX_O,o);
+  return o;
+}
+window.weOffDetBezug=function(offId,posId,v){
+  var o=_offUpd(offId,function(o){var p=(o.positionen||[]).find(function(x){return x.id===posId;});if(p){p.bezug=v;p.bezugQuelle='manuell';if(v!=='lieferant')p.bezugLieferant='';}});
+  if(o){renderOffModal(o);renderOfferten();}
+};
+window.weOffDetBezugLief=function(offId,posId,v){
+  _offUpd(offId,function(o){var p=(o.positionen||[]).find(function(x){return x.id===posId;});if(p){p.bezugLieferant=(v||'').trim();p.bezugQuelle='manuell';}});
+};
+window.weOffToggleErledigt=function(offId,posId){
+  var o=_offUpd(offId,function(o){var p=(o.positionen||[]).find(function(x){return x.id===posId;});if(p)p.erledigt=!p.erledigt;});
+  if(o){renderOffModal(o);renderOfferten();}
+};
+window.weOffReapply=function(offId){
+  var regeln=settings().splitRegeln;
+  var o=_offUpd(offId,function(o){
+    (o.positionen||[]).forEach(function(p){
+      if(p.bezugQuelle==='manuell')return;   // manuelle Zuweisungen NIE überschreiben
+      var k=offKlassifiziere(p,regeln);
+      p.bezug=k.bezug;p.bezugLieferant=k.bezugLieferant;p.regelMuster=k.regelMuster;
+      p.bezugQuelle=k.regelMuster?'regel':'auto';
+    });
+  });
+  if(o){renderOffModal(o);renderOfferten();toast('Regeln neu angewendet (manuelle Zuweisungen unverändert)');}
+};
+window.weOffDelete=function(offId){
+  var o=offById(offId);if(!o)return;
+  GemaDialog.confirm({title:'Offerte löschen',message:'Offerte «'+(o.lieferantFirma||'')+(o.offertNr?' · '+o.offertNr:'')+'» mit '+(o.positionen||[]).length+' Positionen wirklich löschen? Verknüpfte Wareneingänge bleiben bestehen.',confirmLabel:'Löschen',danger:true}).then(function(ok){
+    if(!ok)return;delRec(POOL_O,PREFIX_O,offId);delete _offPdfMem[offId];weCloseModal();renderOfferten();toast('Offerte gelöscht');
+  });
+};
+// «AB importieren» → Import-Wizard mit vorverknüpfter Offerte
+window.weOffImportAB=function(offId){
+  var o=offById(offId);if(!o)return;
+  weCloseModal();
+  IMP=newImp();
+  IMP.offerteId=o.id;
+  toast('Import mit Offerte «'+(o.lieferantFirma||'')+(o.offertNr?' · '+o.offertNr:'')+'» verknüpft');
+  weTab('import');
+};
+
+/* ── Bestell-Listen (Druck + Zwischenablage) ── */
+// Pure Builder — auch für Tests: Textblöcke pro Gruppe.
+function offListenText(off){
+  var g=offGruppen(off);
+  var blocks=[];
+  function block(titel,arr,hinweis){
+    if(!arr.length)return;
+    blocks.push({titel:titel,hinweis:hinweis||'',zeilen:arr.map(function(p){
+      return (num(p.menge)||1)+'× '+(p.artikelNr?p.artikelNr+' — ':'')+(p.bezeichnung||'');
+    })});
+  }
+  Object.keys(g.lieferanten).sort().forEach(function(k){
+    block('🏭 Bestellen bei: '+k,g.lieferanten[k],'Auftragsbestätigung danach im Wareneingang importieren und mit dieser Offerte verknüpfen.');
+  });
+  block('📦 Ab Lager beziehen',g.lager,'Kommissionierliste — diese Positionen werden NICHT bestellt.');
+  block('🛒 Beim Grosshändler bestellen ('+(off.lieferantFirma||'')+')',g.grosshaendler,'Basis = Anpassungs-PDF mit den Streichungen.');
+  return blocks;
+}
+window.weOffListen=function(offId){
+  var o=offById(offId);if(!o)return;
+  var blocks=offListenText(o);
+  if(!blocks.length){toast('Keine Positionen');return;}
+  var w=window.open('','_blank');if(!w){toast('Pop-up blockiert');return;}
+  var sect=blocks.map(function(b,i){
+    var rows=b.zeilen.map(function(z){return '<tr><td>'+E(z)+'</td></tr>';}).join('');
+    return '<div class="sect'+(i>0?' pb':'')+'"><h2>'+E(b.titel)+'</h2>'+(b.hinweis?'<div class="hint">'+E(b.hinweis)+'</div>':'')
+      +'<table><tbody>'+rows+'</tbody></table></div>';
+  }).join('');
+  var html='<!doctype html><html><head><meta charset="utf-8"><title>Bestell-Listen — '+E(o.lieferantFirma||'Offerte')+'</title>'
+    +'<style>@page{size:A4;margin:16mm}body{font-family:"DM Sans",Arial,sans-serif;color:#0f172a;font-size:13px}h1{font-size:19px;margin:0 0 2px}.sub{color:#64748b;font-size:12px;margin-bottom:16px}h2{font-size:15px;margin:0 0 4px}.hint{color:#64748b;font-size:11px;margin-bottom:8px}table{width:100%;border-collapse:collapse;margin-bottom:18px}td{border:1px solid #dbe0ea;padding:6px 9px}.pb{page-break-before:always}.tb{position:fixed;top:10px;right:10px}@media print{.tb{display:none}}</style></head><body>'
+    +'<div class="tb"><button onclick="window.print()">Drucken / PDF</button></div>'
+    +'<h1>Bestell-Listen</h1><div class="sub">Offerte '+E(o.lieferantFirma||'')+(o.offertNr?' · '+E(o.offertNr):'')+' vom '+fD(o.offertDatum||o.importDatum)+(o.projekt&&o.projekt.name?' · Projekt: '+E(o.projekt.name):'')+' — erstellt '+fD(_now())+'</div>'
+    +sect+'</body></html>';
+  w.document.write(html);w.document.close();
+};
+
+/* ── Anpassungs-PDF: Streichungen im Original + Beiblatt ── */
+function ensurePdfLib(){
+  return new Promise(function(res,rej){
+    if(window.PDFLib)return res(window.PDFLib);
+    var s=document.createElement('script');s.src=PDFLIB_SRC;
+    s.onload=function(){window.PDFLib?res(window.PDFLib):rej(new Error('pdf-lib fehlt'));};
+    s.onerror=function(){rej(new Error('pdf-lib konnte nicht geladen werden (offline?)'));};
+    document.head.appendChild(s);
+  });
+}
+function _dataUrlToBytes(d){
+  var i=d.indexOf(',');var bin=atob(d.slice(i+1));
+  var u=new Uint8Array(bin.length);for(var k=0;k<bin.length;k++)u[k]=bin.charCodeAt(k);
+  return u;
+}
+async function _offPdfBytes(o){
+  if(_offPdfMem[o.id])return _dataUrlToBytes(_offPdfMem[o.id]);
+  var pdf=o.pdf||{};
+  if(pdf.dataUrl)return _dataUrlToBytes(pdf.dataUrl);
+  if(pdf.url){
+    var r=null;
+    try{r=await fetch(pdf.url);}catch(e){}
+    if(!r||!r.ok){
+      // /sb-Proxy-Fallback (Geräte mit blockiertem supabase.co)
+      var m=String(pdf.url).match(/^https?:\/\/[^/]+(\/storage\/v1\/.*)$/);
+      if(m){try{r=await fetch(location.origin+'/sb'+m[1]);}catch(e){}}
+    }
+    if(r&&r.ok)return new Uint8Array(await r.arrayBuffer());
+  }
+  return null;
+}
+// Beiblatt-Zeilen (pure, testbar): Titel + eine Zeile je gestrichener Position.
+function offBeiblattLines(off){
+  var out=[];
+  (off.positionen||[]).forEach(function(p,i){
+    if(p.bezug==='grosshaendler')return;
+    var grund=(p.bezug==='lager')?'ab Lager':('Bezug anderweitig'+(p.bezugLieferant?' ('+p.bezugLieferant+')':''));
+    out.push('Pos. '+(p.posNr||(i+1))+' · '+(num(p.menge)||1)+'× '+(p.artikelNr?p.artikelNr+' — ':'')+(p.bezeichnung||'')+'  →  entfällt: '+grund);
+  });
+  return out;
+}
+function _wrapLine(s,max){
+  var out=[];s=String(s||'');
+  while(s.length>max){
+    var cut=s.lastIndexOf(' ',max);if(cut<max*0.5)cut=max;
+    out.push(s.slice(0,cut));s=s.slice(cut).replace(/^\s+/,'');
+  }
+  if(s)out.push(s);
+  return out;
+}
+// WinAnsi-sicher für pdf-lib-Standardfonts (Helvetica): Zeichen ausserhalb
+// Latin-1 ersetzen, sonst wirft encodeText.
+function _winAnsiSafe(s){return String(s||'').replace(/[→]/g,'->').replace(/[^ -~ -ÿ]/g,'?');}
+window.weOffAnpassung=function(offId){
+  var o=offById(offId);if(!o)return;
+  var streich=(o.positionen||[]).filter(function(p){return p.bezug!=='grosshaendler';});
+  if(!streich.length){toast('Keine Positionen zum Streichen — alles bleibt beim Grosshändler');return;}
+  toast('Anpassungs-PDF wird erstellt …');
+  Promise.all([ensurePdfLib(),_offPdfBytes(o)]).then(function(rr){
+    var PDFLib=rr[0],bytes=rr[1];
+    if(!bytes)throw new Error('Original-PDF nicht ladbar');
+    // 1) Textzeilen im Original lokalisieren (pdf.js) — best effort.
+    return ensurePdfJs().then(function(pdfjs){
+      return pdfjs.getDocument({data:bytes.slice()}).promise.then(function(pdf){
+        var items=[];var chain=Promise.resolve();
+        for(var pg=1;pg<=pdf.numPages;pg++){
+          (function(pg){chain=chain.then(function(){return pdf.getPage(pg).then(function(page){return page.getTextContent().then(function(tc){
+            tc.items.forEach(function(it){
+              if(!it.str||!it.str.trim())return;
+              var tr=it.transform;var h=Math.hypot(tr[2],tr[3])||9;
+              items.push({str:it.str,x:tr[4],y:tr[5],w:it.width||0,h:h,page:pg});
+            });
+          });});});})(pg);
+        }
+        return chain.then(function(){return {items:items};});
+      });
+    }).catch(function(){return {items:[]};}).then(function(res){
+      // 2) Striche + Beiblatt via pdf-lib.
+      return PDFLib.PDFDocument.load(bytes).then(function(doc){
+        var matches=offMatchZeilen(res.items,streich);
+        var pages=doc.getPages();
+        var struck=0;
+        matches.forEach(function(m){
+          if(!m.band)return;
+          var page=pages[m.band.page-1];if(!page)return;
+          var yMid=(m.band.y0+m.band.y1)/2;
+          page.drawLine({
+            start:{x:Math.max(6,m.band.x0-4),y:yMid},
+            end:{x:Math.min(page.getWidth()-6,m.band.x1+4),y:yMid},
+            thickness:1.4,color:PDFLib.rgb(0.82,0.1,0.1),opacity:0.9
+          });
+          struck++;
+        });
+        // Beiblatt (immer): Liste der entfallenden Positionen + Grund.
+        return doc.embedFont(PDFLib.StandardFonts.Helvetica).then(function(font){
+          return doc.embedFont(PDFLib.StandardFonts.HelveticaBold).then(function(bold){
+            var ref=pages[0];
+            var pw=ref?ref.getWidth():595,ph=ref?ref.getHeight():842;
+            var page=doc.addPage([pw,ph]);
+            var y=ph-56;
+            function line(txt,f,size,color){
+              _wrapLine(_winAnsiSafe(txt),Math.floor((pw-100)/(size*0.5))).forEach(function(seg){
+                if(y<50){page=doc.addPage([pw,ph]);y=ph-56;}
+                page.drawText(seg,{x:50,y:y,size:size,font:f||font,color:color||PDFLib.rgb(0.06,0.09,0.16)});
+                y-=size+6;
+              });
+            }
+            line('Anpassung zur Offerte '+(o.offertNr?o.offertNr+' ':'')+'- '+(o.lieferantFirma||''),bold,15);
+            line((o.projekt&&o.projekt.name?'Projekt: '+o.projekt.name+' - ':'')+'erstellt am '+fD(_now()),font,10,PDFLib.rgb(0.39,0.45,0.55));
+            y-=8;
+            line('Die folgenden Positionen entfallen aus unserer Bestellung. Wir bitten um eine angepasste Offerte / Auftragsbestätigung über die verbleibenden Positionen.',font,11);
+            y-=6;
+            offBeiblattLines(o).forEach(function(z){line(z,font,10);});
+            y-=10;
+            if(struck<streich.length){
+              line('Hinweis: '+(struck?'Nicht alle':'Die')+' Positionen konnten im Original-PDF nicht automatisch durchgestrichen werden ('+(streich.length-struck)+' von '+streich.length+' ohne Markierung, z.B. gescanntes PDF) - massgebend ist diese Liste.',font,9,PDFLib.rgb(0.72,0.35,0.04));
+            } else {
+              line('Die entfallenden Positionen sind im Original durchgestrichen.',font,9,PDFLib.rgb(0.39,0.45,0.55));
+            }
+            return doc.save().then(function(out){return {out:out,struck:struck};});
+          });
+        });
+      });
+    });
+  }).then(function(r){
+    var blob=new Blob([r.out],{type:'application/pdf'});
+    var url=URL.createObjectURL(blob);
+    var a=document.createElement('a');a.href=url;
+    a.download='Anpassung_'+String(o.offertNr||o.lieferantFirma||'Offerte').replace(/[^a-zA-Z0-9\-_]+/g,'_')+'.pdf';
+    document.body.appendChild(a);a.click();
+    setTimeout(function(){document.body.removeChild(a);URL.revokeObjectURL(url);},1500);
+    _offUpd(o.id,function(x){x.anpassungAm=_now();});
+    toast('📄 Anpassungs-PDF erstellt — '+r.struck+' von '+streich.length+' Positionen durchgestrichen'+(r.struck<streich.length?' (Rest siehe Beiblatt)':''));
+  }).catch(function(e){
+    GemaDialog.alert({title:'Anpassungs-PDF',message:'Konnte nicht erstellt werden: '+((e&&e.message)||'Fehler')+'. Ohne Internet (CDN) oder ohne Original-PDF ist die Funktion nicht verfügbar.'});
+  });
 };
 
 /* ══════════════════ TAB: Schnell-Etikette ══════════════════ */
@@ -1425,10 +2042,44 @@ function renderEinst(){
     +(ed?'<div class="row" style="margin-top:12px"><button class="btn pri" onclick="weSaveStd()">Speichern</button></div>':'')
     +'</div>'
 
+    +'<div class="card"><h3>🔀 Offerten-Split — Bezugsquellen-Regeln</h3><div class="desc">Beim Import einer Grosshändler-Offerte wird jede Position gegen diese Regeln geprüft (Stichwort/Artikel-Nr, ohne Gross-/Kleinschreibung, in Art-Nr + Bezeichnung). <strong>Die erste passende Regel gewinnt.</strong> Beispiel: Muster «Hansgrohe» → Bezug bei «Muster Sanitär AG»; Muster «Pressbogen» → 📦 Lager.</div>'
+    +'<div class="tblwrap"><table class="gt" style="min-width:560px"><thead><tr><th>Muster (Stichwort / Art-Nr)</th><th style="width:170px">Ziel</th><th style="width:200px">Lieferant</th><th></th></tr></thead><tbody id="regelRows">'+regelRowsHtml(ed)+'</tbody></table></div>'
+    +(ed?'<div class="row no-print" style="margin-top:10px"><button class="btn sm" onclick="weRegelAdd()">＋ Regel</button><span style="flex:1"></span><button class="btn pri" onclick="weSaveRegeln()">Regeln speichern</button></div>':'')
+    +'</div>'
+
     +'<div class="card"><h3>🧭 Lieferanten-Spalten-Mappings</h3><div class="desc">Pro Lieferant + Quelle (HTML/PDF) gespeicherte Spaltenzuordnung. Wird beim Import automatisch genutzt.</div>'
     +'<div class="tblwrap"><table class="gt"><thead><tr><th>Lieferant</th><th>Quelle</th><th>Zuordnung</th><th></th></tr></thead><tbody>'+mapRows+'</tbody></table></div>'
     +'</div>';
 }
+/* Split-Regeln-Editor (Arbeitskopie, gespeichert via weSaveRegeln) */
+var _einstRegeln=null;
+function regelRowsHtml(ed){
+  if(_einstRegeln===null)_einstRegeln=settings().splitRegeln.map(function(r){return Object.assign({},r);});
+  if(!_einstRegeln.length)return '<tr><td colspan="4" class="mut" style="text-align:center;padding:16px">Noch keine Regeln — ohne Regeln bleibt beim Offerten-Import alles beim Grosshändler.</td></tr>';
+  return _einstRegeln.map(function(r,i){
+    var liefDis=(r.ziel!=='lieferant');
+    return '<tr>'
+      +'<td><input class="cell" value="'+E(r.muster||'')+'" placeholder="z.B. Hansgrohe" '+(ed?'onchange="weRegelEdit('+i+',\'muster\',this.value)"':'disabled')+'></td>'
+      +'<td><select class="cell" '+(ed?'onchange="weRegelEdit('+i+',\'ziel\',this.value)"':'disabled')+'>'
+        +'<option value="lieferant"'+(r.ziel!=='lager'?' selected':'')+'>🏭 anderer Lieferant</option>'
+        +'<option value="lager"'+(r.ziel==='lager'?' selected':'')+'>📦 Lager</option>'
+      +'</select></td>'
+      +'<td><input class="cell" value="'+E(r.lieferant||'')+'" placeholder="'+(liefDis?'—':'z.B. Muster Sanitär AG')+'" '+(ed&&!liefDis?'onchange="weRegelEdit('+i+',\'lieferant\',this.value)"':'disabled')+'></td>'
+      +'<td class="num">'+(ed?'<button class="btn sm danger" onclick="weRegelDel('+i+')">✕</button>':'')+'</td>'
+      +'</tr>';
+  }).join('');
+}
+function _regelRerender(){var tb=$('regelRows');if(tb)tb.innerHTML=regelRowsHtml(canEdit());}
+window.weRegelAdd=function(){if(_einstRegeln===null)_einstRegeln=settings().splitRegeln.slice();_einstRegeln.push({id:uid('regel'),muster:'',ziel:'lieferant',lieferant:''});_regelRerender();};
+window.weRegelDel=function(i){if(!_einstRegeln)return;_einstRegeln.splice(i,1);_regelRerender();};
+window.weRegelEdit=function(i,f,v){if(!_einstRegeln||!_einstRegeln[i])return;_einstRegeln[i][f]=(f==='muster'||f==='lieferant')?String(v||'').trim():v;if(f==='ziel')_regelRerender();};
+window.weSaveRegeln=function(){
+  var regeln=(_einstRegeln||[]).filter(function(r){return (r.muster||'').trim();})
+    .map(function(r){return {id:r.id||uid('regel'),muster:r.muster.trim(),ziel:(r.ziel==='lager')?'lager':'lieferant',lieferant:(r.ziel==='lager')?'':String(r.lieferant||'').trim()};});
+  var bad=regeln.find(function(r){return r.ziel==='lieferant'&&!r.lieferant;});
+  if(bad){toast('Regel «'+bad.muster+'»: bitte Ziel-Lieferant angeben');return;}
+  if(saveSettings({splitRegeln:regeln})){_einstRegeln=null;renderEinst();toast(regeln.length+' Regel'+(regeln.length!==1?'n':'')+' gespeichert');}
+};
 function mapSummary(m){
   var c=m.config||{};var cols=c.cols||{};
   if(c.bands){return 'x-Bänder (PDF), Kopfzeilen: '+(c.skip||0);}
@@ -1463,13 +2114,16 @@ window.weDelMapping=function(id){
 document.addEventListener('DOMContentLoaded',function(){
   renderUeber();
   var boot=function(){_cloudLoaded=true;renderUeber();
+    var c=$('cntOff');if(c)c.textContent=offerten().length;
     var m=location.search.match(/[?&]l=([a-zA-Z0-9_\-]+)/);if(m){var l=liefById(decodeURIComponent(m[1]));if(l)weOpenLief(l.id);}
+    var mo=location.search.match(/[?&]off=([a-zA-Z0-9_\-]+)/);if(mo){var o=offById(decodeURIComponent(mo[1]));if(o){weTab('offerten');weOpenOff(o.id);}}
   };
   if(typeof GemaSync!=='undefined'&&GemaSync.bindCollection){
     Promise.race([
       Promise.all([
         GemaSync.bindCollection(MODULE,POOL_L,PREFIX_L,'id'),
-        GemaSync.bindCollection(MODULE,POOL_M,PREFIX_M,'id')
+        GemaSync.bindCollection(MODULE,POOL_M,PREFIX_M,'id'),
+        GemaSync.bindCollection(MODULE,POOL_O,PREFIX_O,'id')
       ]),
       new Promise(function(res){setTimeout(res,6000);})
     ]).then(boot).catch(boot);
@@ -1479,7 +2133,9 @@ document.addEventListener('DOMContentLoaded',function(){
 });
 
 /* Debug/Test-Hooks */
-window._weHooks={settings:settings,liefStatus:liefStatus,posStatus:posStatus,extractHtmlGrid:extractHtmlGrid,extractTextGrid:extractTextGrid,guessCols:guessCols,applyGridMapping:applyGridMapping,pdfItemsToGrid:pdfItemsToGrid,applyPdfBands:applyPdfBands,mkPos:mkPos,projModus:projModus,gemaObjekteAn:gemaObjekteAn,freieAdrAn:freieAdrAn,defaultProjekt:defaultProjekt,lieferantKey:lieferantKey,findMapping:findMapping,saveMapping:saveMapping,kiApplyResult:kiApplyResult,parseDateLoose:parseDateLoose,newImp:newImp,getImp:function(){return IMP;},setImp:function(x){IMP=x;},lagerProjekt:lagerProjekt,isLagerProj:isLagerProj,abbrevStrasse:abbrevStrasse,labelsFromLief:labelsFromLief,labelInner:labelInner,lieferantHistory:lieferantHistory,getLEdit:function(){return LEDIT;},liefById:liefById};
+window._weHooks={settings:settings,liefStatus:liefStatus,posStatus:posStatus,extractHtmlGrid:extractHtmlGrid,extractTextGrid:extractTextGrid,guessCols:guessCols,applyGridMapping:applyGridMapping,pdfItemsToGrid:pdfItemsToGrid,applyPdfBands:applyPdfBands,mkPos:mkPos,projModus:projModus,gemaObjekteAn:gemaObjekteAn,freieAdrAn:freieAdrAn,defaultProjekt:defaultProjekt,lieferantKey:lieferantKey,findMapping:findMapping,saveMapping:saveMapping,kiApplyResult:kiApplyResult,parseDateLoose:parseDateLoose,newImp:newImp,getImp:function(){return IMP;},setImp:function(x){IMP=x;},lagerProjekt:lagerProjekt,isLagerProj:isLagerProj,abbrevStrasse:abbrevStrasse,labelsFromLief:labelsFromLief,labelInner:labelInner,lieferantHistory:lieferantHistory,getLEdit:function(){return LEDIT;},liefById:liefById,
+  // Offerten-Split
+  offerten:offerten,offById:offById,offKlassifiziere:offKlassifiziere,offGruppen:offGruppen,offAbdeckung:offAbdeckung,offStatus:offStatus,offMatchZeilen:offMatchZeilen,offListenText:offListenText,offBeiblattLines:offBeiblattLines,normArt:normArt,dataUrlBytes:dataUrlBytes};
 })();
 </script>
 <script src="gema_scroll.js"></script>

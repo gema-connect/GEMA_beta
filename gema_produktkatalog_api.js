@@ -1548,6 +1548,10 @@ function quickCreateLieferant(firma,email,erstelltVon){
 
 // ── Offertanfrage-Vormerkungen (für spätere Ausschreibung) ──
 const SK_VM='gema_offert_vormerkungen_v1';
+// BKP-Vorschlag je Anlagenwahl-Kategorie — Codes entsprechen der
+// BKP_KOMPLETT-Checkliste in pm_ausschreibungsunterlagen.html.
+const OA_BKP_MAP={enthaertung:'253.0',osmose:'253.2',druckerhoehung:'253.4',frischwasserstation:'253.6',
+  hebeanlage:'252.6',fettabscheider:'252.4',oelabscheider:'252.8',zirkulation:'253.8',zirkulationspumpe:'253.8',sicherheitsventil:'254.0',ausdehnungsgefaess:'242.0',heizungspumpe:'243.0',waermeerzeuger:'242.0',lueftungsgeraet:'244.0',fluessiggasanlage:'252.0',gasloeschanlage:'256.0'};
 let _vormerkungen=[];
 function _loadVormerkungen(){try{var r=localStorage.getItem(SK_VM);if(r)_vormerkungen=JSON.parse(r);}catch(e){}_vormerkungen=_vormerkungen||[];}
 function _saveVormerkungen(){try{localStorage.setItem(SK_VM,JSON.stringify(_vormerkungen));}catch(e){}}
@@ -1576,12 +1580,51 @@ function addVormerkung(daten){
   return vm;
 }
 
+// KRITISCH (Cross-Gerät): addVormerkung läuft in beantworteOffertanfrage(),
+// also auf dem GERÄT DES LIEFERANTEN — der localStorage-Stand erreicht den
+// Planer nie. Die Offertanfragen selbst sind aber per-Record cloud-synct.
+// Deshalb werden Vormerkungen zusätzlich aus den beantworteten OAs des
+// Objekts abgeleitet (deterministische id 'vm_oa_<oaId>'); ein lokaler
+// Record mit derselben offertanfrageId gewinnt — inkl. uebernommen-Status.
+function _derivedVormerkungen(objektId){
+  var known={};
+  _vormerkungen.forEach(function(v){if(v&&v.offertanfrageId)known[v.offertanfrageId]=true;});
+  return _oaData.anfragen.filter(function(a){
+    return a&&a.status==='beantwortet'&&a.antwort&&a.projekt&&a.projekt.objektId===objektId&&!known[a.id];
+  }).map(function(a){
+    return {
+      id:'vm_oa_'+a.id,
+      objektId:objektId,
+      lieferantId:a.lieferantId||'',
+      lieferantFirma:a.lieferantFirma||'',
+      produktId:a.produktId||'',
+      produktName:a.produktName||'',
+      kategorie:a.kategorie||'',
+      modulKey:a.kategorie||'',
+      bkpCode:OA_BKP_MAP[a.kategorie]||'',
+      bruttoPreis:(a.antwort&&a.antwort.bruttoPreis)||0,
+      offertanfrageId:a.id,
+      status:'vorgemerkt',
+      erstelltAm:(a.antwort&&a.antwort.beantwortetAm)||a.erstelltAm||'',
+      uebernommenAm:null
+    };
+  });
+}
+
 function getVormerkungen(objektId){
-  return _vormerkungen.filter(function(v){return v.objektId===objektId&&v.status==='vorgemerkt';});
+  var lokal=_vormerkungen.filter(function(v){return v.objektId===objektId&&v.status==='vorgemerkt';});
+  return lokal.concat(_derivedVormerkungen(objektId));
 }
 
 function markVormerkungUebernommen(vmId){
   var vm=_vormerkungen.find(function(v){return v.id===vmId;});
+  if(!vm&&typeof vmId==='string'&&vmId.indexOf('vm_oa_')===0){
+    // Abgeleitete Vormerkung (aus cloud-synchter OA): uebernommen-Status
+    // als lokalen Record festhalten, damit die Ableitung sie auf diesem
+    // Gerät nicht erneut liefert.
+    vm={id:vmId,offertanfrageId:vmId.slice(6),objektId:'',status:'uebernommen'};
+    _vormerkungen.push(vm);
+  }
   if(vm){vm.status='uebernommen';vm.uebernommenAm=new Date().toISOString();_saveVormerkungen();}
 }
 
@@ -1810,10 +1853,10 @@ function beantworteOffertanfrage(id, antwort){
       + (oa.antwort.pdfName ? ' · 📄 ' + oa.antwort.pdfName : '')
       + (oa.projekt && oa.projekt.name ? ' · Projekt: ' + oa.projekt.name : '')
   });
-  // Automatische Vormerkung für Ausschreibung erstellen
+  // Automatische Vormerkung für Ausschreibung erstellen (lokal auf dem
+  // antwortenden Gerät; auf anderen Geräten liefert getVormerkungen die
+  // gleiche Vormerkung abgeleitet aus der cloud-synchten OA).
   if(oa.projekt && oa.projekt.objektId){
-    var bkpMap={enthaertung:'253.0',osmose:'253.2',druckerhoehung:'253.4',frischwasserstation:'253.6',
-      hebeanlage:'252.6',fettabscheider:'252.4',oelabscheider:'252.8',zirkulation:'253.8',zirkulationspumpe:'253.8',sicherheitsventil:'254.0',ausdehnungsgefaess:'242.0',heizungspumpe:'243.0',waermeerzeuger:'242.0',lueftungsgeraet:'244.0',fluessiggasanlage:'252.0',gasloeschanlage:'256.0'};
     addVormerkung({
       objektId:oa.projekt.objektId,
       lieferantId:oa.lieferantId||'',
@@ -1822,7 +1865,7 @@ function beantworteOffertanfrage(id, antwort){
       produktName:oa.produktName||'',
       kategorie:oa.kategorie||'',
       modulKey:oa.kategorie||'',
-      bkpCode:bkpMap[oa.kategorie]||'',
+      bkpCode:OA_BKP_MAP[oa.kategorie]||'',
       bruttoPreis:antwort.bruttoPreis||0,
       offertanfrageId:oa.id
     });
