@@ -676,7 +676,7 @@ function fixLeadingZero(el){
           <div class="lu-info-bar empty" id="luInfoBar" style="display:none">
             <span id="luInfoIcon">💧</span>
             <span id="luInfoText">Keine OW-Verbraucher in der LU-Zusammenstellung.</span>
-            <button class="g-btn sm" id="luInfoBtn" style="margin-left:auto;display:none" onclick="_prefillFromLU(_prevObjektId)">↻ LU-Daten laden</button>
+            <button class="g-btn sm" id="luInfoBtn" style="margin-left:auto;display:none" onclick="_osmoseLuReload()">↻ LU-Daten laden</button>
           </div>
           <div class="g-table-wrap" style="margin-bottom:12px;">
             <table class="consumer-tbl">
@@ -1048,9 +1048,21 @@ function fixLeadingZero(el){
         // Cross-Modul-API: Output an GemaOsmose schreiben, damit
         // Folge-Module (sa_enthaertung, sb_grobauslegung) Permeat +
         // Konzentrat ohne erneute Berechnung uebernehmen koennen.
+        // KRITISCH: _prevObjektId lebt in der Meta-IIFE des naechsten
+        // Script-Blocks und ist hier NICHT sichtbar — der fruehere
+        // Direktzugriff warf bei jedem recalc() einen ReferenceError,
+        // den das try/catch verschluckte: GemaOsmose.save lief NIE,
+        // die Enthaertung bekam nie Permeat + Konzentrat. Objekt-Bezug
+        // deshalb scope-sicher aus Dropdown bzw. GemaObjekte lesen.
         try {
-          if (typeof GemaOsmose !== 'undefined' && _prevObjektId) {
-            GemaOsmose.save(_prevObjektId, {
+          // Dropdown ist die Quelle der Objekt-Bindung dieses Moduls;
+          // GemaObjekte nur als Fallback, falls das Element (noch) fehlt.
+          // Leeres Dropdown = bewusst kein Objekt -> NICHT speichern.
+          var _osmSel = document.getElementById('metaObjektDropdown');
+          var _osmOid = _osmSel ? (_osmSel.value || '')
+            : ((typeof GemaObjekte !== 'undefined' && GemaObjekte.getActiveId) ? (GemaObjekte.getActiveId() || '') : '');
+          if (typeof GemaOsmose !== 'undefined' && _osmOid) {
+            GemaOsmose.save(_osmOid, {
               permeat_lh: voLh,
               weichwasser_lh: vwLh,
               recovery_pct: phiPercent,
@@ -1148,7 +1160,7 @@ document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('osmo
       bar.style.display='flex';
       bar.className='lu-info-bar empty';
       document.getElementById('luInfoIcon').textContent='💧';
-      document.getElementById('luInfoText').textContent='Keine Osmosewasser-Verbraucher in der LU-Zusammenstellung. Verbraucher manuell erfassen oder in der LU das Medium «BW» zuweisen.';
+      document.getElementById('luInfoText').textContent='Keine Osmosewasser-Verbraucher in der LU-Zusammenstellung. Verbraucher manuell erfassen oder in der LU das Medium «OW» (Enthärtetes Wasser für Osmose) zuweisen.';
       document.getElementById('luInfoBtn').style.display='none';
       return;
     }
@@ -1248,6 +1260,10 @@ document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('osmo
   window.onObjektSelect=onObjektSelect;
   window.toggleObjektInput=toggleObjektInput;
   window.populateObjektDropdown=populateObjektDropdown;
+  // Für den «↻ LU-Daten laden»-Button (inline onclick löst im globalen
+  // Scope auf — _prefillFromLU/_prevObjektId sind IIFE-lokal und waren
+  // von dort nicht erreichbar: der Button war tot).
+  window._osmoseLuReload=function(){_prefillFromLU(_prevObjektId);};
   document.addEventListener('DOMContentLoaded',function(){loadMeta();populateObjektDropdown();if(typeof GemaAutoSave!=='undefined') GemaAutoSave.init('osmose');setTimeout(function(){if(_prevObjektId)_prefillFromLU(_prevObjektId);},200);
     // Gewählte Anlage (pro Objekt) beim Laden wieder anzeigen.
     setTimeout(function(){ try{ var a=_osmGetChosenAnlage(); if(a){ var sec=document.getElementById('pkSection'); if(sec)sec.style.display=''; renderChosenAnlage(); } }catch(e){} }, 320);

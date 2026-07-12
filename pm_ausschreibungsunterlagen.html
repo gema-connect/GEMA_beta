@@ -1928,6 +1928,29 @@ function _renderVormerkungen(a,los){
   var vms=GemaProdukte.getVormerkungen(objektId);
   if(!vms.length)return'';
 
+  // Cross-Gerät: Vormerkungen, deren Offertanfrage bereits in einer
+  // Position dieses Objekts steckt (pos.offerte.offertanfrageId — die
+  // aus-Pools sind cloud-synct), gelten als übernommen. Ohne diesen
+  // Abgleich erschiene eine auf Gerät A eingesetzte Vormerkung auf
+  // Gerät B erneut (der uebernommen-Marker ist nur lokal).
+  var usedOa={};
+  (S.ausschreibungen||[]).forEach(function(ax){
+    if(ax.objektId!==objektId)return;
+    (ax.lose||[]).forEach(function(lx){
+      (lx.positionen||[]).forEach(function(px){
+        if(px&&px.offerte&&px.offerte.offertanfrageId)usedOa[px.offerte.offertanfrageId]=true;
+      });
+    });
+  });
+  vms=vms.filter(function(vm){
+    if(vm.offertanfrageId&&usedOa[vm.offertanfrageId]){
+      try{GemaProdukte.markVormerkungUebernommen(vm.id);}catch(e){}
+      return false;
+    }
+    return true;
+  });
+  if(!vms.length)return'';
+
   // Reverse-Map: Produktkatalog-Kategorie → MODUL_MAP-Key (z.B.
   // 'zirkulationspumpe' → 'zirkulation'), damit Vormerkungen auch über
   // die Modul-Verknüpfung der Position matchen, nicht nur über bkpCode.
@@ -5830,6 +5853,19 @@ function initDropZones(){
       // Erst-Render noch keine Pool-Beteiligten (leerer lokaler Stand).
       switchRole(_mapAuthRoleToCurrent()||S.currentRole||'planer');
     }catch(e){console.warn('[GEMA] Ausschreibung Cloud-Pull fehlgeschlagen',e);}
+  }
+  // Bestell-Pool (GemaBest) mitladen — die Gewinner-Sektion in idet liest
+  // Status-Badges + Nummernkreis aus dem Cache 'gema_best_pool_v1'. Ohne
+  // Bind wäre er auf frischen/anderen Geräten leer: Badges fehlten
+  // (Doppelbestellungs-Risiko) und nextNr() könnte kollidieren.
+  // Fire-and-forget; falls die Bestell-Sektion schon offen ist, neu rendern.
+  if(typeof GemaBest!=='undefined'&&GemaBest.bind){
+    GemaBest.bind().then(function(){
+      try{
+        var act=document.querySelector('.tab-btn.active');
+        if(act&&act.dataset.tab==='idet')nav('idet');
+      }catch(e){}
+    }).catch(function(){});
   }
   // 3) Deep-Link ?a=<ausschreibungId> — wird von allen GemaNotify-Links
   // (Einladung, Offerte eingereicht, Vergabe, …) verwendet: die

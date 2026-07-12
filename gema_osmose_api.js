@@ -60,8 +60,14 @@
     try {
       var k = _storageKey(objektId);
       var s = JSON.stringify(data);
+      // KRITISCH: localStorage IMMER schreiben — das ist der Kanal, ueber
+      // den die Zielseiten (sa_enthaertung, sb_grobauslegung) via _read
+      // lesen. _GemaDB.save allein legt den Wert nur in den SEITENLOKALEN
+      // Cache (+ Cloud nur, wenn die Seite _GemaDB.init aufgerufen hat —
+      // sa_osmose tut das nicht): der Wert war nach einem Reload bzw. auf
+      // der Zielseite unsichtbar und die Kette Osmose→Enthaertung brach.
+      try { localStorage.setItem(k, s); } catch(e) {}
       if (typeof _GemaDB !== 'undefined' && _GemaDB.save) _GemaDB.save(k, s);
-      else localStorage.setItem(k, s);
     } catch(e) {}
   }
 
@@ -126,8 +132,8 @@
   function clear(objektId) {
     try {
       var k = _storageKey(objektId);
-      if (typeof _GemaDB !== 'undefined' && _GemaDB.save) _GemaDB.save(k, '');
       try { localStorage.removeItem(k); } catch(e) {}
+      if (typeof _GemaDB !== 'undefined' && _GemaDB.save) _GemaDB.save(k, '');
     } catch(e) {}
   }
 
