@@ -258,7 +258,34 @@ check('HTML-Antwort → verständliche Meldung mit HTTP-Status statt «Unexpecte
 kiMode = 'plain413';
 const msg413 = await page.evaluate(() => GemaClaude.extractPositions({ text: 'test' }).then(() => 'OK').catch(e => e.message));
 check('413 ohne JSON → «Anfrage zu gross»-Meldung', /zu gross/i.test(msg413) && /413/.test(msg413));
+kiMode = 'html504';
 await page.unroute('**/claude-extract');
+await page.route('**/claude-extract', route => route.fulfill({ status: 504, contentType: 'text/html', body: '<HTML> <HEAD><TITLE>Gateway Timeout</TITLE></HEAD><BODY>504</BODY></HTML>' }));
+const msg504 = await page.evaluate(() => GemaClaude.extractPositions({ text: 'test' }).then(() => 'OK').catch(e => e.message));
+check('504 (Function-Timeout) → «Zeitüberschreitung»-Meldung mit Hinweisen',
+  /Zeitüberschreitung/.test(msg504) && /504/.test(msg504) && /Textebene|Belegtext/.test(msg504));
+await page.unroute('**/claude-extract');
+
+// ── 10b) Payload-Entscheid Text-vor-Datei (gegen Netlify-504) ─────────
+const kiOpts = await page.evaluate(() => {
+  const H = window._weHooks;
+  const langText = new Array(3000).join('Pos 1 HG-123 Brauseschlauch 2 Stk\n'); // ~100k > 58k-Limit
+  return {
+    // PDF mit Textebene → Text statt Datei
+    textPfad: H.kiAnalyseOpts({ kiFileB64: 'data:application/pdf;base64,AAAA', kiFileType: 'application/pdf', kiFileName: 'a.pdf', kiPdfText: new Array(20).join('Pos 1 HG-123 Brauseschlauch 2 Stk\n') }, ''),
+    // Scan ohne Textebene → Datei
+    scanPfad: H.kiAnalyseOpts({ kiFileB64: 'data:application/pdf;base64,AAAA', kiFileType: 'application/pdf', kiFileName: 'scan.pdf', kiPdfText: '' }, ''),
+    // Textebene über dem 58k-Function-Limit → Datei (keine stille Kürzung)
+    langPfad: H.kiAnalyseOpts({ kiFileB64: 'data:application/pdf;base64,AAAA', kiFileType: 'application/pdf', kiFileName: 'gross.pdf', kiPdfText: langText }, ''),
+    // manuell eingefügter Text hat Vorrang
+    manuellPfad: H.kiAnalyseOpts({ kiFileB64: 'data:application/pdf;base64,AAAA', kiFileType: 'application/pdf', kiFileName: 'a.pdf', kiPdfText: 'x'.repeat(500) }, 'Mein Belegtext')
+  };
+});
+check('PDF mit Textebene → Analyse als Text (keine Datei im Payload)',
+  !!kiOpts.textPfad.text && !kiOpts.textPfad.fileBase64);
+check('Scan ohne Textebene → Analyse als Datei', !!kiOpts.scanPfad.fileBase64 && !kiOpts.scanPfad.text);
+check('Textebene > 58k Zeichen → Datei statt stiller Kürzung', !!kiOpts.langPfad.fileBase64 && !kiOpts.langPfad.text);
+check('manueller Text hat Vorrang', kiOpts.manuellPfad.text === 'Mein Belegtext');
 
 // ── 11) Client-Cap = Function-Limit (~3.3 MB): zu grosse Datei wird
 //        SOFORT abgefangen (kein Server-Roundtrip, keine HTML-Fehlerseite).
