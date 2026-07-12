@@ -127,6 +127,16 @@
     .vote-btn.leer{background:var(--bg2);border:1.5px solid var(--brd);color:var(--mut2);font-size:12px}
     .btn-edit{width:22px;height:22px;border:none;background:var(--blue-bg);color:var(--blue);border-radius:8px;cursor:pointer;font-size:11px;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:.15s}
     .btn-edit:hover{background:var(--blue);color:#fff}
+    .invite-list{display:flex;flex-direction:column;gap:4px;max-height:170px;overflow-y:auto;border:1.5px solid var(--brd);border-radius:10px;padding:8px;background:var(--bg)}
+    /* .field label.invite-row: text-transform/letter-spacing zurücksetzen —
+       die generische .field-label-Regel (höhere Spezifität) würde die
+       Namen sonst in Versalien zwingen */
+    .invite-row,.field label.invite-row{display:flex;align-items:center;gap:9px;padding:6px 8px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;color:var(--txt2);text-transform:none;letter-spacing:0}
+    .invite-row:hover{background:var(--sur)}
+    .invite-row input{accent-color:var(--plan);width:16px;height:16px;cursor:pointer;flex-shrink:0}
+    .invite-empty{font-size:12px;color:var(--mut);padding:4px 6px}
+    .ext-tag{display:inline-flex;align-items:center;padding:1px 7px;border-radius:10px;font-size:10px;font-weight:700;background:var(--amb-bg);color:var(--amb);border:1px solid var(--amb-bd)}
+    .tag-share{background:var(--grn-bg);color:var(--grn);border:1px solid var(--grn-bd)}
     .vote-hint{font-size:12px;color:var(--plan);background:var(--plan-bg);border:1px solid var(--plan-bd);border-radius:9px;padding:7px 11px}
     @keyframes gdPulse{0%{box-shadow:0 0 0 0 rgba(124,58,237,.45)}100%{box-shadow:0 0 0 14px rgba(124,58,237,0)}}
     .poll-card.hl{animation:gdPulse 1.2s ease-out 2;border-color:var(--plan-bd)}
@@ -261,10 +271,42 @@
         <div class="options-list" id="optionsList"></div>
         <button class="btn-add-opt" onclick="addOptionField()">+ Termin hinzufügen</button>
       </div>
+      <div class="field">
+        <label>Team benachrichtigen <span style="font-weight:400;text-transform:none;letter-spacing:0;font-size:11px;color:var(--mut)">(nur Ausgewählte erhalten eine Benachrichtigung)</span></label>
+        <div class="invite-list" id="inviteList"></div>
+      </div>
     </div>
     <div class="modal-foot">
       <button class="btn-secondary" onclick="closeCreate()">Abbrechen</button>
       <button class="btn-primary" onclick="saveNewPoll()">Umfrage erstellen</button>
+    </div>
+  </div>
+</div>
+
+<!-- Teilen / externer Link -->
+<div class="modal-bg hidden" id="shareModal">
+  <div class="modal">
+    <div class="modal-hd">
+      <span class="modal-title">🔗 Umfrage teilen</span>
+      <button class="modal-x" onclick="closeShare()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="vote-hint">Externe (z.B. Bauherrschaft, Handwerker ohne GEMA-Login) sehen über den Link <strong>nur diese eine Umfrage</strong> und können abstimmen — keine anderen Umfragen, keine Firmendaten.</div>
+      <div id="shareOff">
+        <p style="font-size:13px;color:var(--mut)">Noch kein Link aktiv.</p>
+        <button class="btn-primary" style="margin-top:10px" onclick="shareEnable()">🔗 Link erstellen</button>
+      </div>
+      <div id="shareOn" class="hidden">
+        <div class="field">
+          <label>Öffentlicher Link</label>
+          <div style="display:flex;gap:8px">
+            <input class="inp" id="shareLink" readonly style="font-size:12px"/>
+            <button class="btn-secondary" style="flex-shrink:0" onclick="shareCopy()">📋 Kopieren</button>
+          </div>
+        </div>
+        <button class="btn-danger gema-read-ok" style="margin-top:14px" onclick="shareDisable()">Link deaktivieren</button>
+        <span style="font-size:11px;color:var(--mut);margin-left:8px">Der bisherige Link wird dadurch sofort ungültig.</span>
+      </div>
     </div>
   </div>
 </div>
@@ -449,6 +491,7 @@
       }).join('');
       return`<tr><td class="name-cell"><div style="display:flex;align-items:center;gap:6px">
         <span>${esc(pt.name)}</span>
+        ${pt.extern?'<span class="ext-tag">extern</span>':''}
         <button class="btn-edit" title="Antwort bearbeiten" onclick="openVote('${esc(p.id)}','${esc(pt.id)}')">✏️</button>
         ${canWrite?`<button class="btn-rm gema-read-ok" style="width:22px;height:22px;font-size:11px" title="Löschen"
           onclick="openDeletePart('${esc(p.id)}','${esc(pt.id)}')">✕</button>`:''}
@@ -464,12 +507,14 @@
           <div class="poll-tags">
             <span class="poll-tag tag-cnt">🗓 ${n} Termine · ${parts.length} ${parts.length===1?'Antwort':'Antworten'}</span>
             ${p.ort?`<span class="poll-tag tag-loc">📍 ${esc(p.ort)}</span>`:''}
+            ${(p.freigabe&&p.freigabe.aktiv)?`<span class="poll-tag tag-share">🔗 Externer Link aktiv</span>`:''}
           </div>
           <div class="poll-title">${esc(p.title)}</div>
           ${p.desc?`<div class="poll-desc">${esc(p.desc)}</div>`:''}
         </div>
         <div class="poll-actions">
           <button class="btn-secondary" onclick="openVote('${esc(p.id)}')">✍️ Abstimmen</button>
+          ${canWrite?`<button class="btn-secondary" title="Für Externe teilen" onclick="openShare('${esc(p.id)}')">🔗</button>`:''}
           ${canWrite?`<button class="btn-danger gema-read-ok" title="Umfrage löschen" onclick="openDeletePoll('${esc(p.id)}')">🗑</button>`:''}
         </div>
       </div>
@@ -492,11 +537,26 @@
   }
 
   /* CREATE */
+  function _renderInviteList(){
+    const el=$('inviteList');
+    let users=[];
+    try{
+      if(typeof GemaAuth!=='undefined'&&GemaAuth.getUsers){
+        users=(GemaAuth.getUsers()||[]).filter(u=>u&&u.active!==false&&u.orgId===myOrg&&(!me||u.id!==me.id));
+      }
+    }catch(e){}
+    if(!users.length){
+      el.innerHTML='<div class="invite-empty">Keine weiteren Team-Mitglieder in deiner Organisation.</div>';
+      return;
+    }
+    el.innerHTML=users.map(u=>`<label class="invite-row"><input type="checkbox" class="invite-cb" value="${esc(u.id)}"/> ${esc(u.name||u.username||'')}</label>`).join('');
+  }
   function openCreate(){
     if(!canWrite){toast('Keine Berechtigung zum Erstellen.');return;}
     $('newTitle').value=$('newDesc').value=$('newOrt').value='';
     $('optionsList').innerHTML='';
     addOptionField();addOptionField();addOptionField();
+    _renderInviteList();
     $('createModal').classList.remove('hidden');
     setTimeout(()=>$('newTitle').focus(),80);
   }
@@ -545,23 +605,83 @@
     if(options.length<2){toast('Mindestens 2 Terminoptionen erforderlich.');return;}
     // chronologisch — unabhängig von der Eingabe-Reihenfolge
     options.sort((a,b)=>(a.date+(a.time||'')).localeCompare(b.date+(b.time||'')));
+    const eingeladen=[...document.querySelectorAll('#inviteList .invite-cb:checked')].map(cb=>cb.value);
     const poll={id:uid(),orgId:myOrg,title,desc,ort,created:new Date().toISOString(),
       erstelltVon:me?{userId:me.id,name:me.name||me.username||''}:null,
-      options,participants:[]};
+      eingeladen,options,participants:[]};
     persistPoll(poll);
     _scope();render();closeCreate();
     toast('✅ Umfrage erstellt!');
-    // Team der eigenen Organisation informieren
+    // NUR die ausgewählten Team-Mitglieder benachrichtigen — nicht die
+    // ganze Organisation (User-Vorgabe: nur Betroffene)
     try{
-      if(typeof GemaNotify!=='undefined'&&myOrg){
-        GemaNotify.push({eventKey:'goodel_neu',empfaengerOrgId:myOrg,modul:'goodel',typ:'aktion',
-          titel:'🗓 Neue Terminabstimmung',
-          text:title+(ort?' · '+ort:''),
-          link:'pm_goodel.html?poll='+poll.id});
+      if(typeof GemaNotify!=='undefined'){
+        eingeladen.forEach(uidTo=>{
+          GemaNotify.push({eventKey:'goodel_neu',empfaengerUserId:uidTo,modul:'goodel',typ:'aktion',
+            titel:'🗓 Neue Terminabstimmung',
+            text:title+(ort?' · '+ort:''),
+            link:'pm_goodel.html?poll='+poll.id});
+        });
       }
     }catch(e){}
   }
   window.saveNewPoll=saveNewPoll;
+
+  /* ── Teilen: öffentlicher Link für Externe ──
+     Externe sehen über sys_goodel_ansicht.html?t=<token> NUR diese eine
+     Umfrage (Server sanitisiert via netlify/functions/goodel-share.js)
+     und können dort abstimmen. */
+  let _sharePid=null;
+  function _tokenNeu(){
+    const b=new Uint8Array(24);
+    (window.crypto||{getRandomValues:a=>{for(let i=0;i<a.length;i++)a[i]=Math.floor(Math.random()*256);}}).getRandomValues(b);
+    return [...b].map(x=>x.toString(16).padStart(2,'0')).join('');
+  }
+  function _shareUrl(p){
+    return location.origin+location.pathname.replace(/[^/]*$/,'')+'sys_goodel_ansicht.html?t='+(p.freigabe&&p.freigabe.token||'');
+  }
+  function _shareRender(p){
+    const on=!!(p.freigabe&&p.freigabe.aktiv&&p.freigabe.token);
+    $('shareOff').classList.toggle('hidden',on);
+    $('shareOn').classList.toggle('hidden',!on);
+    if(on) $('shareLink').value=_shareUrl(p);
+  }
+  function openShare(pollId){
+    if(!canWrite){toast('Keine Berechtigung.');return;}
+    const p=polls.find(x=>x.id===pollId);if(!p)return;
+    _sharePid=pollId;
+    _shareRender(p);
+    $('shareModal').classList.remove('hidden');
+  }
+  window.openShare=openShare;
+  function closeShare(){$('shareModal').classList.add('hidden');}
+  window.closeShare=closeShare;
+  function shareEnable(){
+    const p=polls.find(x=>x.id===_sharePid);if(!p)return;
+    p.freigabe={token:_tokenNeu(),aktiv:true,erstelltAm:new Date().toISOString()};
+    persistPoll(p);
+    _shareRender(p);_scope();render();
+    toast('🔗 Link erstellt');
+  }
+  window.shareEnable=shareEnable;
+  function shareDisable(){
+    const p=polls.find(x=>x.id===_sharePid);if(!p)return;
+    // Token löschen — der alte Link ist damit endgültig tot; ein neuer
+    // Link bekommt einen frischen Token
+    p.freigabe={token:null,aktiv:false,erstelltAm:null};
+    persistPoll(p);
+    _shareRender(p);_scope();render();
+    toast('Link deaktiviert');
+  }
+  window.shareDisable=shareDisable;
+  function shareCopy(){
+    const v=$('shareLink').value;
+    const done=()=>toast('📋 Link kopiert');
+    if(navigator.clipboard&&navigator.clipboard.writeText){
+      navigator.clipboard.writeText(v).then(done).catch(()=>{ $('shareLink').select();document.execCommand('copy');done(); });
+    } else { $('shareLink').select();document.execCommand('copy');done(); }
+  }
+  window.shareCopy=shareCopy;
 
   /* VOTE */
   function openVote(pollId,editId=null){
