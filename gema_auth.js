@@ -305,6 +305,7 @@
     {key:'dachbericht',             label:'Dachinspektion',            cat:'Spenglerei'},
     {key:'trocknungsgeraete',       label:'Trocknungsgeräte',          cat:'Infrastruktur'},
     {key:'wareneingang',            label:'Wareneingang',              cat:'Infrastruktur'},
+    {key:'immobilien',              label:'Immobilienverwaltung',      cat:'Immobilien'},
     {key:'lieferantenverwaltung',   label:'Lieferantenverwaltung',     cat:'System'},
     {key:'produktkatalog',          label:'Produktkatalog',            cat:'System'},
     {key:'workspace',               label:'Workspace',                 cat:'System'},
@@ -334,7 +335,7 @@
     'ab_klassen':'klassen','ab_pruefungen':'pruefungen','ab_pruefung_live':'pruefungen',
     'sd_schadensbericht':'schadensbericht',
     'sp_dachbericht':'dachbericht',
-    'if_trocknung':'trocknungsgeraete','if_wareneingang':'wareneingang',
+    'if_trocknung':'trocknungsgeraete','if_wareneingang':'wareneingang','iv_immobilien':'immobilien',
     'pm_crbx':'crbx_offertvergleich','pm_schnellausschreibung':'schnellausschreibung','pm_bestellungen':'bestellungen','pm_revisionsunterlagen':'revisionsunterlagen','pm_behoerden_formulare':'behoerden_formulare','pm_plaene':'plaene','pm_regierapport':'regierapport','pm_erp':'erp','pm_einsatzplan':'einsatzplan',
     'sys_lieferanten':'lieferantenverwaltung','sys_produktkatalog':'produktkatalog',
     'sys_workspace':'workspace',
@@ -370,7 +371,7 @@
     {id:'role_elektro_planer',name:'Elektroplaner',color:'#d97706',gewerke:['elektro'],permissions:(function(){var p=_allPerms(true,true,false);p['werkzeugmanagement']={read:true,write:false,admin:false};p['objekte']={read:true,write:true,admin:true};return p;})()},
     {id:'role_spengler',name:'Spengler',color:'#0891b2',gewerke:['spenglerei'],permissions:(function(){var p=_somePerms(['dachbericht','objekte','baustellencheckliste','werkzeugmanagement'],true,true,false);p['goodel']={read:true,write:true,admin:false};p['dachbericht']={read:true,write:true,admin:true};p['objekte']={read:true,write:true,admin:true};p['regierapport']={read:true,write:true,admin:false};p['einsatzplan']={read:true,write:false,admin:false};p['abnahme_sia']={read:true,write:false,admin:false};p['stundenerfassung']={read:true,write:true,admin:false};return p;})()},
     {id:'role_architekt',name:'Architekt / GP',color:'#7c3aed',permissions:(function(){var p=_somePerms(['terminplan','besprechungsprotokoll','objekte','abnahme_sia'],true,false,false);p['goodel']={read:true,write:true,admin:false};p['regierapport']={read:true,write:true,admin:false};p['revisionsunterlagen']={read:true,write:false,admin:false};p['behoerden_formulare']={read:true,write:true,admin:false};p['plaene']={read:true,write:true,admin:false};return p;})()},
-    {id:'role_unternehmer',name:'Unternehmer',color:'#d97706',permissions:(function(){var p=_somePerms(['terminplan','abnahme_sia','werkzeugmanagement','baustellencheckliste','inspektion_wartung','ausschreibungsunterlagen','crbx_offertvergleich','schnellausschreibung','bestellungen'],true,true,false);p['goodel']={read:true,write:true,admin:false};p['legionellen']={read:true,write:true,admin:false};p['spuelmanager']={read:true,write:true,admin:false};p['revisionsunterlagen']={read:true,write:true,admin:false};return p;})()},
+    {id:'role_unternehmer',name:'Unternehmer',color:'#d97706',permissions:(function(){var p=_somePerms(['terminplan','abnahme_sia','werkzeugmanagement','baustellencheckliste','inspektion_wartung','ausschreibungsunterlagen','crbx_offertvergleich','schnellausschreibung','bestellungen'],true,true,false);p['goodel']={read:true,write:true,admin:false};p['legionellen']={read:true,write:true,admin:false};p['spuelmanager']={read:true,write:true,admin:false};p['revisionsunterlagen']={read:true,write:true,admin:false};p['immobilien']={read:true,write:true,admin:false};return p;})()},
     // ── Lieferanten-Rollen: ZWEI Typen (User-Entscheid) ──
     // ANLAGENLIEFERANT (role_lieferant*): liefert Anlagen fuer die
     // Berechnungsmodule (Enthaertung, Druckerhoehung, Osmose, …) —
@@ -417,6 +418,10 @@
     // Projektleiter — die Planer-Rollen erhalten den Zugriff automatisch über
     // _allPerms, der Lagerist ist die dedizierte Lager-Rolle.
     {id:'role_lagerist',name:'Lagerist',color:'#4d7c0f',permissions:(function(){var p=_somePerms(['objekte'],true,true,false);p['wareneingang']={read:true,write:true,admin:true};return p;})()},
+    // Immobilienverwalter: verwaltet Liegenschaften/Wohnungen/Mietverhaeltnisse
+    // und vergibt Handwerker-Auftraege (iv_immobilien). spuelmanager r/w fuer
+    // die Leerwohnungs-Spuelregimes (Protokoll einsehen, Objekte pflegen).
+    {id:'role_immoverwalter',name:'Immobilienverwalter',color:'#4338ca',permissions:(function(){var p=_somePerms(['immobilien'],true,true,true);p['spuelmanager']={read:true,write:true,admin:false};return p;})()},
     // Monteur: Read-only-Zugriff aufs Werkzeuglager. Kann Defekte melden,
     // aber nichts selbst aendern oder zuweisen. Sieht Werkzeuge der
     // eigenen Organisation.
@@ -521,7 +526,7 @@
     lieferant:            ['role_lieferant','role_lieferant_admin','role_lieferant_produkte','role_lieferant_verify','role_lieferant_offerten','role_lieferant_intern','role_pruefer'],
     produktlieferant:     ['role_produktlieferant_admin','role_produktlieferant_produkte','role_produktlieferant_offerten','role_produktlieferant_intern','role_leiterpruefer','role_pruefer'],
     garagist:             ['role_garagist'],
-    immobilien:           ['role_bauherrschaft'],
+    immobilien:           ['role_immoverwalter','role_bauherrschaft'],
     behoerde:             ['role_behoerde'],
     schule:               ['role_dozent','role_student'],
     sonstiges:            null
@@ -696,6 +701,23 @@
           }
         }
         try{localStorage.setItem(MIGFLAG_SCHULE,'1');}catch(e){}
+      }
+    } catch(e) {}
+    // ── Migration: Rolle role_immoverwalter (Immobilienverwaltung) ──
+    // Verwalter-Rolle fuer iv_immobilien. Wird einmalig in bestehende
+    // Installationen nachgezogen (die Org-Kategorie 'immobilien' existiert
+    // bereits; _mergeWithDefaults ergaenzt den immobilien-Permission-Key
+    // bestehender Rollen beim Cloud-Pull).
+    try {
+      var MIGFLAG_IMMO='gema_auth_immo_v1';
+      if(!localStorage.getItem(MIGFLAG_IMMO)){
+        var rolesI=_getRoles()||[];
+        if(!rolesI.find(function(r){return r.id==='role_immoverwalter';})){
+          var defI=DEFAULT_ROLES.find(function(r){return r.id==='role_immoverwalter';});
+          if(defI)rolesI.push(defI);
+          _writeLocalCache(STORAGE_ROLES, rolesI);
+        }
+        try{localStorage.setItem(MIGFLAG_IMMO,'1');}catch(e){}
       }
     } catch(e) {}
 

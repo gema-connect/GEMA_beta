@@ -33,6 +33,7 @@
     'if_trocknung':'Trocknungsgeräte',
     'if_wareneingang':'Wareneingang',
     'if_werkzeug':'Werkzeugmanagement',
+    'iv_immobilien':'Immobilienverwaltung',
     'index':'Modulübersicht',
     'lt_hx_diagramm':'h,x-Diagramm',
     'pm_abnahme':'Abnahme SIA 118',
