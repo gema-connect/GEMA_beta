@@ -266,26 +266,70 @@ check('504 (Function-Timeout) → «Zeitüberschreitung»-Meldung mit Hinweisen'
   /Zeitüberschreitung/.test(msg504) && /504/.test(msg504) && /Textebene|Belegtext/.test(msg504));
 await page.unroute('**/claude-extract');
 
-// ── 10b) Payload-Entscheid Text-vor-Datei (gegen Netlify-504) ─────────
+// ── 10b) Payload-Entscheid + Chunking (gegen Netlify-504) ─────────────
 const kiOpts = await page.evaluate(() => {
   const H = window._weHooks;
-  const langText = new Array(3000).join('Pos 1 HG-123 Brauseschlauch 2 Stk\n'); // ~100k > 58k-Limit
+  const seite = 'Pos 1 HG-123 Brauseschlauch 2 Stk\n'.repeat(45).trim();   // ~1.5k/Seite
+  const pages23 = new Array(23).fill(seite);                                // ≈ Nutzer-PDF
   return {
     // PDF mit Textebene → Text statt Datei
-    textPfad: H.kiAnalyseOpts({ kiFileB64: 'data:application/pdf;base64,AAAA', kiFileType: 'application/pdf', kiFileName: 'a.pdf', kiPdfText: new Array(20).join('Pos 1 HG-123 Brauseschlauch 2 Stk\n') }, ''),
+    textPfad: H.kiAnalyseOpts({ kiFileB64: 'data:application/pdf;base64,AAAA', kiFileType: 'application/pdf', kiFileName: 'a.pdf', kiPdfText: seite }, ''),
     // Scan ohne Textebene → Datei
     scanPfad: H.kiAnalyseOpts({ kiFileB64: 'data:application/pdf;base64,AAAA', kiFileType: 'application/pdf', kiFileName: 'scan.pdf', kiPdfText: '' }, ''),
-    // Textebene über dem 58k-Function-Limit → Datei (keine stille Kürzung)
-    langPfad: H.kiAnalyseOpts({ kiFileB64: 'data:application/pdf;base64,AAAA', kiFileType: 'application/pdf', kiFileName: 'gross.pdf', kiPdfText: langText }, ''),
-    // manuell eingefügter Text hat Vorrang
-    manuellPfad: H.kiAnalyseOpts({ kiFileB64: 'data:application/pdf;base64,AAAA', kiFileType: 'application/pdf', kiFileName: 'a.pdf', kiPdfText: 'x'.repeat(500) }, 'Mein Belegtext')
+    // 23-Seiten-Auftrag → Text-Plan mit mehreren ~7k-Chunks (parallel)
+    planGross: (function(){ const p = H.kiAnalysePlan({ kiFileB64: 'data:application/pdf;base64,AAAA', kiFileType: 'application/pdf', kiFileName: 'gross.pdf', kiPdfText: pages23.join('\n\n'), kiPdfPages: pages23 }, ''); return { art: p.art, n: p.chunks ? p.chunks.length : 0, maxLen: p.chunks ? Math.max(...p.chunks.map(c => c.length)) : 0 }; })(),
+    // Scan-Plan bleibt EIN Datei-Call
+    planScan: H.kiAnalysePlan({ kiFileB64: 'data:application/pdf;base64,AAAA', kiFileType: 'application/pdf', kiFileName: 'scan.pdf', kiPdfText: '', kiPdfPages: [] }, '').art,
+    // manuell eingefügter Text hat Vorrang (und wird bei Länge gechunkt)
+    manuellPfad: H.kiAnalyseOpts({ kiFileB64: 'data:application/pdf;base64,AAAA', kiFileType: 'application/pdf', kiFileName: 'a.pdf', kiPdfText: 'x'.repeat(500) }, 'Mein Belegtext'),
+    // Chunk-Packung: überlange Einzelseite wird an Zeilengrenzen gesplittet
+    splitLang: H.kiTextChunks(['Zeile\n'.repeat(3000)], 7000).every(c => c.length <= 7000),
+    // Merge: Positionen konkateniert (KEIN Dedup), Kopfdaten first-non-empty
+    merge: H.kiMergeResults([
+      { positionen: [{ artikelNr: 'A', menge: 1 }], lieferant: '', bestellnummer: '306371141' },
+      { positionen: [{ artikelNr: 'A', menge: 1 }, { artikelNr: 'B', menge: 2 }], lieferant: 'Sanitas Troesch AG', bestellnummer: '999' }
+    ])
   };
 });
 check('PDF mit Textebene → Analyse als Text (keine Datei im Payload)',
   !!kiOpts.textPfad.text && !kiOpts.textPfad.fileBase64);
 check('Scan ohne Textebene → Analyse als Datei', !!kiOpts.scanPfad.fileBase64 && !kiOpts.scanPfad.text);
-check('Textebene > 58k Zeichen → Datei statt stiller Kürzung', !!kiOpts.langPfad.fileBase64 && !kiOpts.langPfad.text);
+check('23-Seiten-Auftrag → Text-Plan mit mehreren Chunks ≤ 7k', kiOpts.planGross.art === 'text' && kiOpts.planGross.n >= 4 && kiOpts.planGross.maxLen <= 7000);
+check('Scan-Plan bleibt EIN Datei-Call', kiOpts.planScan === 'datei');
 check('manueller Text hat Vorrang', kiOpts.manuellPfad.text === 'Mein Belegtext');
+check('überlange Einzelseite wird an Zeilengrenzen gesplittet', kiOpts.splitLang === true);
+check('Merge: Positionen konkateniert (kein Dedup), Kopfdaten first-non-empty',
+  kiOpts.merge.positionen.length === 3 && kiOpts.merge.lieferant === 'Sanitas Troesch AG' && kiOpts.merge.bestellnummer === '306371141');
+
+// ── 10c) E2E: grosser Text-Beleg → PARALLELE Teil-Calls an die Function ─
+let kiCalls = 0;
+await page.route('**/claude-extract', async route => {
+  kiCalls++;
+  const body = JSON.parse(route.request().postData() || '{}');
+  return route.fulfill({ contentType: 'application/json', body: JSON.stringify({
+    ok: true, data: { lieferant: kiCalls === 1 ? 'Sanitas Troesch AG' : '', bestellnummer: '', bestelldatum: '',
+      positionen: [{ posNr: String(kiCalls), artikelNr: 'CHUNK-' + kiCalls, bezeichnung: 'Teil (' + String(body.text || '').length + ' Zeichen)', menge: 1 }] } }) });
+});
+const chunked = await page.evaluate(() => {
+  const H = window._weHooks;
+  const seite = 'Pos 1 HG-123 Brauseschlauch 2 Stk\n'.repeat(45).trim();
+  window.weOffAbbruch && window.weOffAbbruch();
+  const imp = H.newImp();
+  imp.schritt = 2; imp.quelle = 'ki';
+  imp.kiFileB64 = 'data:application/pdf;base64,AAAA'; imp.kiFileType = 'application/pdf'; imp.kiFileName = 'gross.pdf';
+  imp.kiPdfText = new Array(23).fill(seite).join('\n\n'); imp.kiPdfPages = new Array(23).fill(seite);
+  H.setImp(imp);
+  window.weTab('import');
+  window.weImpKiAnalyze();
+  return new Promise(res => setTimeout(() => {
+    const i = H.getImp();
+    res({ n: i && i.positionen ? i.positionen.length : 0, schritt: i && i.schritt, lief: i && i.lieferantFirma });
+  }, 900));
+});
+check('grosser Beleg → ein Teil-Call pro Chunk (parallel)', kiCalls >= 4);
+check('Chunk-Resultate gemergt: eine Position je Teil, Schritt 3, Kopfdaten übernommen',
+  chunked.n === kiCalls && chunked.schritt === 3 && chunked.lief === 'Sanitas Troesch AG');
+await page.unroute('**/claude-extract');
 
 // ── 11) Client-Cap = Function-Limit (~3.3 MB): zu grosse Datei wird
 //        SOFORT abgefangen (kein Server-Roundtrip, keine HTML-Fehlerseite).

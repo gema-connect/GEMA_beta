@@ -890,7 +890,7 @@ window.weCloseModal=function(){
 
 /* ══════════════════ TAB: Import-Wizard ══════════════════ */
 var IMP=null;
-function newImp(modus){return {schritt:1,modus:(modus==='offerte')?'offerte':'lieferung',lieferantFirma:'',quelle:'ki',grid:null,pdfExtract:null,positionen:[],bestellnummer:'',bestelldatum:today(),notiz:'',bulkProjObj:null,kiFileB64:null,kiFileName:'',kiFileType:'',kiPdfText:'',kiText:'',kiBusy:false,
+function newImp(modus){return {schritt:1,modus:(modus==='offerte')?'offerte':'lieferung',lieferantFirma:'',quelle:'ki',grid:null,pdfExtract:null,positionen:[],bestellnummer:'',bestelldatum:today(),notiz:'',bulkProjObj:null,kiFileB64:null,kiFileName:'',kiFileType:'',kiPdfText:'',kiPdfPages:[],kiText:'',kiBusy:false,
   // Offerten-Modus: Original-PDF (für Anpassungs-Streichungen) + Kopfdaten
   origPdfB64:null,origPdfName:'',offertNr:'',offertDatum:today(),offProjekt:null,
   // Lieferungs-Modus: optionale Verknüpfung mit einer Grosshändler-Offerte
@@ -1089,7 +1089,7 @@ function _kiIngestFile(f){
   // VOR der Function («Unexpected token '<' … is not valid JSON»).
   if(f.size>3300000){GemaDialog&&GemaDialog.alert?GemaDialog.alert({title:'Datei zu gross',message:'Die Datei ist grösser als ~3 MB ('+(f.size/1048576).toFixed(1)+' MB). Bitte ein kleineres PDF/Foto wählen oder den Belegtext einfügen.'}):toast('Datei zu gross (max ~3 MB)');return;}
   fileToBase64(f).then(function(b64){
-    IMP.kiFileB64=b64;IMP.kiFileName=f.name||'beleg';IMP.kiFileType=f.type||'';IMP.kiPdfText='';
+    IMP.kiFileB64=b64;IMP.kiFileName=f.name||'beleg';IMP.kiFileType=f.type||'';IMP.kiPdfText='';IMP.kiPdfPages=[];
     var el=$('kiFileInfo');if(el)el.innerHTML='📎 '+E(IMP.kiFileName)+' bereit';
     if((f.type||'')==='application/pdf'){
       // Original-PDF behalten — im Offerten-Modus die Basis für das
@@ -1100,13 +1100,14 @@ function _kiIngestFile(f){
       // Analyse des ganzen PDFs, die bei mehrseitigen Belegen Netlifys
       // 10-s-Function-Limit riss (HTTP 504). Scans ohne Textebene gehen
       // weiterhin als Datei.
-      _kiPdfTextExtract(b64).then(function(t){
-        t=(t||'').trim();
+      _kiPdfTextExtract(b64).then(function(res){
+        var t=((res&&res.text)||'').trim();
         if(!IMP||IMP.kiFileB64!==b64)return;   // Datei wurde inzwischen gewechselt
         IMP.kiPdfText=t;
+        IMP.kiPdfPages=(res&&res.pages)||[];
         var el2=$('kiFileInfo');
         if(el2)el2.innerHTML='📎 '+E(IMP.kiFileName)+(t.length>=200
-          ?' bereit — Textebene erkannt (schnelle Text-Analyse)'
+          ?' bereit — Textebene erkannt (schnelle Text-Analyse'+(kiTextChunks(IMP.kiPdfPages).length>1?' in Teilen':'')+')'
           :' bereit (kein Textlayer — Bild-Analyse, kann bei vielen Seiten länger dauern)');
       }).catch(function(){});
     }
@@ -1115,11 +1116,13 @@ function _kiIngestFile(f){
 window.weImpKiFile=function(inp){var f=inp.files&&inp.files[0];if(!f)return;_kiIngestFile(f);};
 // PDF-Textebene → zeilenweiser Text (y-Cluster pro Seite, x-sortiert) —
 // Grundlage für die schnelle Text-Analyse statt Vision-PDF.
+// Liefert {text, pages[]} — die Seiten-Texte sind die natürlichen
+// Schnittstellen fürs Chunking grosser Dokumente.
 function _kiPdfTextExtract(dataUrl){
   return ensurePdfJs().then(function(pdfjs){
     return pdfjs.getDocument({data:_dataUrlToBytes(dataUrl)}).promise;
   }).then(function(pdf){
-    var out=[];var chain=Promise.resolve();
+    var pages=[];var chain=Promise.resolve();
     for(var pg=1;pg<=pdf.numPages;pg++){
       (function(pg){chain=chain.then(function(){return pdf.getPage(pg).then(function(page){return page.getTextContent().then(function(tc){
         var items=[];
@@ -1133,29 +1136,73 @@ function _kiPdfTextExtract(dataUrl){
           if(cur&&Math.abs(it.y-curY)<=4){cur.push(it);}
           else{cur=[it];curY=it.y;lines.push(cur);}
         });
-        lines.forEach(function(l){l.sort(function(a,b){return a.x-b.x;});out.push(l.map(function(i){return i.str;}).join(' '));});
-        out.push('');
+        pages.push(lines.map(function(l){l.sort(function(a,b){return a.x-b.x;});return l.map(function(i){return i.str;}).join(' ');}).join('\n'));
       });});});})(pg);
     }
-    return chain.then(function(){return out.join('\n');});
+    return chain.then(function(){return {text:pages.join('\n\n'),pages:pages};});
   });
 }
 // Payload-Entscheid für die KI-Analyse (pure, testbar): manuell eingefügter
-// Text hat Vorrang; sonst extrahierte PDF-Textebene (>=200 Zeichen, <=58k =
-// Function-Textlimit) statt der Datei; Scans/Bilder gehen als Datei.
+// Text hat Vorrang; sonst extrahierte PDF-Textebene (>=200 Zeichen) statt
+// der Datei; Scans/Bilder ohne Textebene gehen als Datei.
 function kiAnalyseOpts(imp,txt){
   var opts={};
   txt=(txt||'').trim();
   if(txt)opts.text=txt;
   if(imp.kiFileB64){
     var pt=(imp.kiPdfText||'').trim();
-    if(!txt&&pt.length>=200&&pt.length<=58000){
+    if(!txt&&pt.length>=200){
       opts.text=pt;opts.filename=imp.kiFileName||'';
     } else {
       opts.fileBase64=imp.kiFileB64;opts.mediaType=imp.kiFileType||'';opts.filename=imp.kiFileName||'';
     }
   }
   return opts;
+}
+// Text an Seitengrenzen in Chunks packen (pure, testbar). Grosse Aufträge
+// (z.B. 23 Seiten, 46 Positionen) sind mit EINEM synchronen Function-Call
+// nicht analysierbar — Netlify bricht nach ~10 s ab (HTTP 504). Chunks à
+// ~7k Zeichen werden PARALLEL analysiert (je 3–6 s) und danach gemergt.
+// Überlange Einzelseiten werden an Zeilengrenzen hart gesplittet.
+function kiTextChunks(pages,max){
+  max=max||7000;
+  var chunks=[];var cur='';
+  (pages||[]).forEach(function(p){
+    p=String(p||'').trim();if(!p)return;
+    while(p.length>max){
+      var cut=p.lastIndexOf('\n',max);if(cut<max*0.3)cut=max;
+      if(cur){chunks.push(cur);cur='';}
+      chunks.push(p.slice(0,cut));
+      p=p.slice(cut).replace(/^\s+/,'');
+    }
+    if(cur&&(cur.length+p.length+1)>max){chunks.push(cur);cur=p;}
+    else cur=cur?(cur+'\n'+p):p;
+  });
+  if(cur)chunks.push(cur);
+  return chunks;
+}
+// Analyse-Plan (pure, testbar): Datei (Scan/Bild) = EIN Call; Text = ein
+// Call pro Chunk. Auch manuell eingefügter Langtext wird gechunkt.
+function kiAnalysePlan(imp,txt){
+  var opts=kiAnalyseOpts(imp,txt);
+  if(opts.fileBase64)return {art:'datei',opts:opts};
+  var manuell=(txt||'').trim();
+  var pages=(!manuell&&imp.kiPdfPages&&imp.kiPdfPages.length)?imp.kiPdfPages:[opts.text||''];
+  return {art:'text',filename:opts.filename||'',chunks:kiTextChunks(pages)};
+}
+// Chunk-Resultate zusammenführen (pure, testbar): Positionen in Chunk-
+// Reihenfolge (KEIN Dedup — dieselbe Artikel-Nr kann legitim mehrfach
+// vorkommen, z.B. zwei Nasszellen), Kopfdaten = erster nicht-leerer Wert.
+function kiMergeResults(results){
+  var out={lieferant:'',bestellnummer:'',bestelldatum:'',positionen:[]};
+  (results||[]).forEach(function(r){
+    if(!r)return;
+    if(Array.isArray(r.positionen))out.positionen=out.positionen.concat(r.positionen);
+    ['lieferant','bestellnummer','bestelldatum'].forEach(function(k){
+      if(!out[k]&&r[k])out[k]=String(r[k]).trim();
+    });
+  });
+  return out;
 }
 function fileToBase64(f){
   return new Promise(function(res,rej){
@@ -1174,14 +1221,39 @@ window.weImpKiAnalyze=function(){
     $('kiStatus').innerHTML='<div class="warnbox">KI-Analyse ist in dieser Installation nicht verfügbar. Bitte Tabelle einfügen oder PDF-Text-Import nutzen.</div>';return;
   }
   IMP.kiBusy=true;renderStep2KI();
-  var opts=kiAnalyseOpts(IMP,txt);
-  GemaClaude.extractPositions(opts).then(function(data){
+  // Plan: Datei (Scan) = EIN Call; Text = ein PARALLELER Call pro ~7k-Chunk.
+  // Grosse Aufträge (23 Seiten / 46 Positionen) rissen sonst Netlifys
+  // 10-s-Function-Limit (HTTP 504) — auch auf dem Text-Pfad.
+  var plan=kiAnalysePlan(IMP,txt);
+  var calls;
+  if(plan.art==='datei'){
+    calls=[GemaClaude.extractPositions(plan.opts)];
+  } else {
+    calls=plan.chunks.map(function(c){return GemaClaude.extractPositions({text:c,filename:plan.filename});});
+  }
+  var done=0;var st=$('kiStatus');
+  function busyTxt(){return '<div class="infobox">🤖 Claude analysiert den Beleg'+(calls.length>1?' — '+done+'/'+calls.length+' Teile fertig':'')+' … <span class="mut">(grosse Belege werden in Teilen parallel analysiert)</span></div>';}
+  if(st)st.innerHTML=busyTxt();
+  var wrapped=calls.map(function(p){
+    return p.then(function(d){done++;var s=$('kiStatus');if(s&&IMP&&IMP.kiBusy)s.innerHTML=busyTxt();return d;})
+      .catch(function(err){done++;return {__fehler:(err&&err.message)||'Fehler'};});
+  });
+  Promise.all(wrapped).then(function(results){
     IMP.kiBusy=false;
-    kiApplyResult(data);
-  }).catch(function(err){
-    IMP.kiBusy=false;renderStep2KI();
-    var msg=(err&&err.message)||'Unbekannter Fehler';
-    $('kiStatus').innerHTML='<div class="warnbox">🤖 KI-Analyse fehlgeschlagen: '+E(msg)+'<div style="margin-top:8px" class="row no-print"><button class="btn sm" onclick="weImpManual()">✏️ Manuell erfassen</button><button class="btn sm" onclick="weImpQuelle2(\'html\')">📋 Tabelle einfügen</button><button class="btn sm" onclick="weImpQuelle2(\'pdf\')">📄 PDF-Text</button></div></div>';
+    var fails=results.filter(function(r){return r&&r.__fehler;});
+    var okRes=results.filter(function(r){return r&&!r.__fehler;});
+    if(!okRes.length){
+      renderStep2KI();
+      var msg=(fails[0]&&fails[0].__fehler)||'Unbekannter Fehler';
+      $('kiStatus').innerHTML='<div class="warnbox">🤖 KI-Analyse fehlgeschlagen: '+E(msg)+'<div style="margin-top:8px" class="row no-print"><button class="btn sm" onclick="weImpManual()">✏️ Manuell erfassen</button><button class="btn sm" onclick="weImpQuelle2(\'html\')">📋 Tabelle einfügen</button><button class="btn sm" onclick="weImpQuelle2(\'pdf\')">📄 PDF-Text</button></div></div>';
+      return;
+    }
+    kiApplyResult(calls.length>1?kiMergeResults(okRes):okRes[0]);
+    if(fails.length){
+      // Teilausfall NIE verschweigen — die Positionsliste wäre sonst still
+      // unvollständig. Schritt 3 wird ohnehin kontrolliert.
+      toast('⚠ '+fails.length+' von '+calls.length+' Teilen fehlgeschlagen — Liste evtl. unvollständig, bitte prüfen oder erneut analysieren');
+    }
   });
 };
 // Wechsel zurück auf klassische Quelle aus dem KI-Fehler-Fallback
@@ -2198,8 +2270,8 @@ document.addEventListener('DOMContentLoaded',function(){
 window._weHooks={settings:settings,liefStatus:liefStatus,posStatus:posStatus,extractHtmlGrid:extractHtmlGrid,extractTextGrid:extractTextGrid,guessCols:guessCols,applyGridMapping:applyGridMapping,pdfItemsToGrid:pdfItemsToGrid,applyPdfBands:applyPdfBands,mkPos:mkPos,projModus:projModus,gemaObjekteAn:gemaObjekteAn,freieAdrAn:freieAdrAn,defaultProjekt:defaultProjekt,lieferantKey:lieferantKey,findMapping:findMapping,saveMapping:saveMapping,kiApplyResult:kiApplyResult,parseDateLoose:parseDateLoose,newImp:newImp,getImp:function(){return IMP;},setImp:function(x){IMP=x;},lagerProjekt:lagerProjekt,isLagerProj:isLagerProj,abbrevStrasse:abbrevStrasse,labelsFromLief:labelsFromLief,labelInner:labelInner,lieferantHistory:lieferantHistory,getLEdit:function(){return LEDIT;},liefById:liefById,
   // Offerten-Split
   offerten:offerten,offById:offById,offKlassifiziere:offKlassifiziere,offGruppen:offGruppen,offAbdeckung:offAbdeckung,offStatus:offStatus,offMatchZeilen:offMatchZeilen,offListenText:offListenText,offBeiblattLines:offBeiblattLines,normArt:normArt,dataUrlBytes:dataUrlBytes,
-  // KI-Payload-Entscheid (Text-vor-Datei gegen Netlify-504)
-  kiAnalyseOpts:kiAnalyseOpts};
+  // KI-Payload-Entscheid + Chunking (Text-vor-Datei + Parallel-Teile gegen Netlify-504)
+  kiAnalyseOpts:kiAnalyseOpts,kiTextChunks:kiTextChunks,kiAnalysePlan:kiAnalysePlan,kiMergeResults:kiMergeResults};
 })();
 </script>
 <script src="gema_scroll.js"></script>
