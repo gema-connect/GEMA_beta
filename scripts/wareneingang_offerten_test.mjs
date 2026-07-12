@@ -244,6 +244,31 @@ const tab = await page.evaluate(() => {
 });
 check('Offerten-Tab zeigt Karte + Zähler', tab.karte && tab.cnt === '1');
 
+// ── 10) KI-Fehler-Härtung: HTML-/Nicht-JSON-Antworten → klare Meldung ─
+// (Plattform-Fehlerseite VOR der Function, Proxy-/Virenscanner-Blockseite.)
+// page.route hat Vorrang vor der Kontext-Route des Harness.
+let kiMode = 'html502';
+await page.route('**/claude-extract', route => {
+  if (kiMode === 'html502') return route.fulfill({ status: 502, contentType: 'text/html', body: '<HTML> <HEAD><TITLE>Bad Gateway</TITLE></HEAD><BODY>Proxy Error</BODY></HTML>' });
+  return route.fulfill({ status: 413, contentType: 'text/plain', body: 'Request Entity Too Large' });
+});
+const msgHtml = await page.evaluate(() => GemaClaude.extractPositions({ text: 'test' }).then(() => 'OK').catch(e => e.message));
+check('HTML-Antwort → verständliche Meldung mit HTTP-Status statt «Unexpected token»',
+  /HTML-Seite/.test(msgHtml) && /502/.test(msgHtml) && /Firewall|Upload-Limit/.test(msgHtml));
+kiMode = 'plain413';
+const msg413 = await page.evaluate(() => GemaClaude.extractPositions({ text: 'test' }).then(() => 'OK').catch(e => e.message));
+check('413 ohne JSON → «Anfrage zu gross»-Meldung', /zu gross/i.test(msg413) && /413/.test(msg413));
+await page.unroute('**/claude-extract');
+
+// ── 11) Client-Cap = Function-Limit (~3.3 MB): zu grosse Datei wird
+//        SOFORT abgefangen (kein Server-Roundtrip, keine HTML-Fehlerseite).
+await page.evaluate(() => { try { window.weCloseModal(); } catch (e) {} window.weOffNeu(); window.weImpNext(); });
+await page.waitForTimeout(200);
+await page.setInputFiles('#kiFile', { name: 'gross.pdf', mimeType: 'application/pdf', buffer: Buffer.alloc(3400000, 65) });
+await page.waitForTimeout(400);
+const dlgTxt = await page.evaluate(() => { const d = document.querySelector('.gema-dlg'); return d ? d.textContent : ''; });
+check('Datei > 3.3 MB → sofortige Meldung mit Grösse (3.2 MB)', /zu gross/i.test(dlgTxt) && /3\.2 MB/.test(dlgTxt));
+
 check('Keine JS-Fehler auf der Seite', errors.length === 0);
 if (errors.length) console.log('  [pageerrors]', errors.slice(0, 5));
 

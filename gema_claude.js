@@ -139,6 +139,35 @@
     return { redactText: redactText, matchesTerm: matchesTerm, restore: restore, count: function(){ return n; }, terms: terms };
   }
 
+  // ── Antwort robust parsen (alle Functions) ──────────────────────────
+  // Die Functions antworten in JEDEM Fall mit JSON. Kommt stattdessen eine
+  // HTML-/Text-Seite zurück, hat der Request die Function nie erreicht:
+  // Plattform-Payload-Limit (Body zu gross → Fehlerseite VOR der Function),
+  // Firewall/Virenscanner-Blockseite oder ein Deploy ohne Functions.
+  // Früher endete das als kryptisches «Unexpected token '<' … is not valid
+  // JSON» — hier wird daraus eine klare, handlungsleitende Meldung.
+  function _parseJson(r, was) {
+    if (r.status === 404) {
+      return Promise.reject(new Error(was + ' ist nicht verfügbar (Function nicht deployed).'));
+    }
+    return r.text().then(function(txt){
+      var data = null;
+      try { data = JSON.parse(txt); } catch (e) {}
+      if (data === null) {
+        var kopf = String(txt || '').trim().slice(0, 300);
+        if (r.status === 413 || /too large|entity too large|payload/i.test(kopf)) {
+          throw new Error('Anfrage zu gross (HTTP ' + r.status + ') — die Datei überschreitet das Upload-Limit (~3 MB). Bitte kleinere Datei wählen oder den Text einfügen.');
+        }
+        var art = /^</.test(kopf) ? 'eine HTML-Seite' : 'eine unerwartete Antwort';
+        throw new Error(was + ': Der Server hat statt JSON ' + art + ' geliefert (HTTP ' + r.status + '). Mögliche Ursachen: Datei zu gross fürs Upload-Limit (~3 MB), Firewall/Virenscanner blockiert den Aufruf, oder die Netlify-Function fehlt in diesem Deploy.');
+      }
+      if (!r.ok || !data.ok) {
+        throw new Error(data && data.error ? data.error : ('HTTP ' + r.status));
+      }
+      return data;
+    });
+  }
+
   function _call(mode, text, opts) {
     opts = opts || {};
     // Anonymisierung default AN: Platzhalter rein → Antwort → Platzhalter
@@ -151,10 +180,7 @@
       body: JSON.stringify({ mode: mode, text: sendText }),
       signal: opts.signal
     }).then(function(r){
-      return r.json().then(function(data){
-        if (!r.ok || !data.ok) {
-          throw new Error(data && data.error ? data.error : ('HTTP ' + r.status));
-        }
+      return _parseJson(r, 'KI-Texthilfe').then(function(data){
         var out = data.text || '';
         return red ? red.restore(out) : out;
       });
@@ -195,20 +221,10 @@
       body: JSON.stringify(payload),
       signal: opts.signal
     }).then(function(r){
-      if (r.status === 404) {
-        throw new Error('KI-Analyse ist nicht verfügbar (Function nicht deployed).');
-      }
-      return r.json().then(function(data){
-        if (!r.ok || !data.ok) {
-          throw new Error(data && data.error ? data.error : ('HTTP ' + r.status));
-        }
+      return _parseJson(r, 'KI-Analyse').then(function(data){
         var d = data.data || {};
         d.positionen = Array.isArray(d.positionen) ? d.positionen : [];
         return d;
-      }).catch(function(err){
-        // JSON-Parse-Fehler o.ä. → sauberer Error
-        if (err instanceof Error) throw err;
-        throw new Error('Unerwartete Antwort der KI-Analyse.');
       });
     });
   }
@@ -231,13 +247,11 @@
       body: JSON.stringify(payload),
       signal: opts.signal
     }).then(function(r){
-      if (r.status === 404) throw new Error('KI-Formularanalyse ist nicht verfügbar (Function nicht deployed).');
-      return r.json().then(function(data){
-        if (!r.ok || !data.ok) throw new Error(data && data.error ? data.error : ('HTTP ' + r.status));
+      return _parseJson(r, 'KI-Formularanalyse').then(function(data){
         var d = data.data || {};
         d.felder = Array.isArray(d.felder) ? d.felder : [];
         return d;
-      }).catch(function(err){ if (err instanceof Error) throw err; throw new Error('Unerwartete Antwort der KI-Formularanalyse.'); });
+      });
     });
   }
 
@@ -259,14 +273,12 @@
       body: JSON.stringify(payload),
       signal: opts.signal
     }).then(function(r){
-      if (r.status === 404) throw new Error('KI-Plananalyse ist nicht verfügbar (Function nicht deployed, 404).');
-      return r.json().then(function(data){
-        if (!r.ok || !data.ok) throw new Error(data && data.error ? data.error : ('HTTP ' + r.status));
+      return _parseJson(r, 'KI-Plananalyse').then(function(data){
         var d = data.data || {};
         if (payload.modus === 'schnitt') d.geschosse = Array.isArray(d.geschosse) ? d.geschosse : [];
         else { d.raeume = Array.isArray(d.raeume) ? d.raeume : []; d.bemassungen = Array.isArray(d.bemassungen) ? d.bemassungen : []; d.fenster = Array.isArray(d.fenster) ? d.fenster : []; }
         return d;
-      }).catch(function(err){ if (err instanceof Error) throw err; throw new Error('Unerwartete Antwort der KI-Plananalyse.'); });
+      });
     });
   }
 
