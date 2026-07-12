@@ -108,6 +108,19 @@ async function loadUsers() {
     return null;
   }).filter(Boolean);
 }
+// Generische Modul-Records (fuer register_student: Klassen-Pool 'schule',
+// Notifikationen 'notify') — gleiche Payload-Form wie putRecord.
+async function loadModuleCollection(moduleKey, prefix) {
+  const rows = await sb(TABLE + '?module_key=eq.' + q(moduleKey) + '&data_key=like.' + q(prefix) + '*&select=data_key,payload');
+  return (rows || []).map(r => ((r && r.payload) || {}).data).filter(Boolean);
+}
+async function putModuleRecord(moduleKey, dataKey, data) {
+  await sb(TABLE + '?on_conflict=module_key%2Cdata_key', {
+    method: 'POST',
+    headers: { 'Prefer': 'resolution=merge-duplicates,return=minimal' },
+    body: JSON.stringify([{ module_key: moduleKey, data_key: dataKey, payload: { data: data, _lm: Date.now() } }])
+  });
+}
 
 // ── Passwort-Hashing ─────────────────────────────────────────────────────
 // Legacy-djb2 des Clients (gema_auth.js _hash) — nur zur Verifikation/als
@@ -255,6 +268,97 @@ async function actionRegister(body) {
   const saved = stripPassword(user);
   const t = mintToken(saved);
   return resp(200, { ok: true, token: t.token, exp: t.exp, user: saved });
+}
+
+// ── Schule: Klassencode-Registrierung (Studierende) ─────────────────────
+// Der Dozent teilt den Klassencode; Studierende registrieren sich damit
+// selbst und landen als role_student in der Schul-Org + Klasse.
+function normCode(code) { return String(code || '').toUpperCase().replace(/[^A-Z0-9]/g, ''); }
+async function findKlasseByCode(code) {
+  const c = normCode(code);
+  if (!c) return null;
+  const klassen = await loadModuleCollection('schule', 'sklasse:');
+  return klassen.find(k => k && !k.archiviert && normCode(k.code) === c) || null;
+}
+
+// class_info: oeffentlicher Lookup VOR der Registrierung (zeigt dem
+// Studierenden, welcher Klasse er beitritt). Der Code ist das Geheimnis.
+async function actionClassInfo(body) {
+  const klasse = await findKlasseByCode(body.code);
+  if (!klasse) return resp(404, { error: 'Klassencode ungueltig' });
+  const org = await getRecord('org:' + klasse.orgId);
+  return resp(200, {
+    ok: true,
+    klasse: { name: klasse.name || '', lehrgang: klasse.lehrgang || '', org: (org && org.name) || '' }
+  });
+}
+
+async function actionRegisterStudent(body) {
+  const code = normCode(body.code);
+  const name = String(body.name || '').trim();
+  const email = String(body.email || '').trim().toLowerCase();
+  const password = String(body.password || '');
+  if (!code || !name || !email || !password) return resp(400, { error: 'Angaben unvollstaendig' });
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return resp(400, { error: 'E-Mail ungueltig' });
+  const klasse = await findKlasseByCode(code);
+  if (!klasse) return resp(404, { error: 'Klassencode ungueltig' });
+
+  const users = await loadUsers();
+  const exists = users.find(u => u && (
+    (u.username && String(u.username).toLowerCase() === email) ||
+    (u.profile && u.profile.email && String(u.profile.email).toLowerCase() === email)
+  ));
+  if (exists) {
+    // Bestehendes Konto: Passwort verifizieren und NUR den Klassen-Beitritt
+    // machen (kein Org-Wechsel, keine Rollen-Aenderung — der User behaelt
+    // sein Konto und erscheint zusaetzlich in der Klasse).
+    if (exists.active === false) return resp(403, { error: 'Dieses Konto ist deaktiviert.' });
+    const cred = await getRecord('cred:' + exists.id);
+    let ok = false;
+    if (cred) ok = verifyCred(cred, password);
+    else if (exists.password) ok = timingSafeEq(exists.password, djb2(password));
+    if (!ok) return resp(409, { error: 'E-Mail bereits registriert — bitte mit dem bestehenden Passwort anmelden.' });
+    klasse.studentIds = klasse.studentIds || [];
+    if (klasse.studentIds.indexOf(exists.id) < 0) {
+      klasse.studentIds.push(exists.id);
+      await putModuleRecord('schule', 'sklasse:' + klasse.id, klasse);
+      await notifyBeitritt(klasse, exists);
+    }
+    const tEx = mintToken(exists);
+    return resp(200, { ok: true, token: tEx.token, exp: tEx.exp, user: stripPassword(exists), klasse: { id: klasse.id, name: klasse.name } });
+  }
+
+  const uid = 'user_stud_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+  const user = {
+    id: uid, username: email, name: name,
+    roleIds: ['role_student'], orgId: klasse.orgId, active: true,
+    createdAt: new Date().toISOString(),
+    profile: { email: email, telefon: '', sprache: 'de', benachrichtigungen: true }
+  };
+  await putRecord('cred:' + uid, { alg: 'scrypt', src: looksLikeDjb2(password) ? 'djb2' : 'plain', hash: scryptHash(password), setAt: new Date().toISOString() });
+  await putRecord('user:' + uid, user);
+  klasse.studentIds = klasse.studentIds || [];
+  if (klasse.studentIds.indexOf(uid) < 0) klasse.studentIds.push(uid);
+  await putModuleRecord('schule', 'sklasse:' + klasse.id, klasse);
+  await notifyBeitritt(klasse, user);
+  const t = mintToken(user);
+  return resp(200, { ok: true, token: t.token, exp: t.exp, user: user, klasse: { id: klasse.id, name: klasse.name } });
+}
+async function notifyBeitritt(klasse, user) {
+  // Dozenten der Klasse benachrichtigen (Notif-Record wie GemaNotify.push)
+  for (const did of (klasse.dozentIds || [])) {
+    const nid = 'n_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
+    try {
+      await putModuleRecord('notify', 'notif:' + nid, {
+        id: nid, ts: new Date().toISOString(), eventKey: 'schule_klasse_beitritt',
+        empfaengerUserId: did, empfaengerRoleId: '', empfaengerOrgId: '',
+        absenderUserId: user.id, modul: 'schule', typ: 'info',
+        titel: 'Neues Klassenmitglied',
+        text: (user.name || user.username || '') + ' ist der Klasse «' + (klasse.name || '') + '» beigetreten.',
+        link: 'ab_klassen.html?k=' + klasse.id, objektId: '', gelesen: false, gelesenAt: null
+      });
+    } catch (e) { /* Benachrichtigung ist best-effort */ }
+  }
 }
 
 async function actionActivate(body) {
@@ -462,6 +566,8 @@ exports.handler = async function (event) {
     switch (body.action) {
       case 'login': return await actionLogin(body);
       case 'register': return await actionRegister(body);
+      case 'register_student': return await actionRegisterStudent(body);
+      case 'class_info': return await actionClassInfo(body);
       case 'activate': return await actionActivate(body);
       case 'persist_auth': return await actionPersistAuth(body, claims);
       case 'refresh': return await actionRefresh(claims);

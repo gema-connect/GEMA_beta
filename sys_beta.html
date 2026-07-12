@@ -999,13 +999,27 @@ document.addEventListener('DOMContentLoaded', async () => {
   renderAll();
 
   // ── Quiz Community Review Panel ──
-  (function loadQuizReview() {
+  // Community-Fragen liegen als per-Record-Pool (moduleKey 'quiz', prefix
+  // 'quizq:') — frisch binden statt des frueheren localStorage-Seitenkanals
+  // (der Cross-Modul-Read via _GemaDB.init fand die Quiz-Rows nie, weil sie
+  // unter module_key='quiz' liegen, nicht unter dem Beta-Modul).
+  (async function loadQuizReview() {
     let commQ = [];
     try {
-      const raw = (typeof _GemaDB!=='undefined' && _GemaDB.c && _GemaDB.c[SK_COMMQ])
-        ? _GemaDB.c[SK_COMMQ]
-        : localStorage.getItem(SK_COMMQ);
-      if (raw) commQ = JSON.parse(raw);
+      if (typeof GemaSync !== 'undefined' && GemaSync.bindCollection) {
+        commQ = await Promise.race([
+          GemaSync.bindCollection('quiz', SK_COMMQ, 'quizq:', 'id'),
+          new Promise(function(r){ setTimeout(function(){ r(null); }, 5000); })
+        ]) || [];
+      }
+    } catch(e) {}
+    try {
+      if (!commQ.length) {
+        const raw = (typeof GemaSync !== 'undefined' && GemaSync.getCached)
+          ? JSON.stringify(GemaSync.getCached(SK_COMMQ))
+          : localStorage.getItem(SK_COMMQ);
+        if (raw) commQ = JSON.parse(raw) || [];
+      }
     } catch(e) {}
 
     const pruefe = commQ.filter(function(q){ return q.status === 'pruefe'; });

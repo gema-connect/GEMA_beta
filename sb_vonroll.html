@@ -738,7 +738,8 @@ const T4 = [
 
 
 let state = {tab:1, t1:{f1:45,f2:60,n:1.5}, t2:{f1:45,f2:60,n:1.5}, t3:{f1:45,f2:60,n:1.5}, t4:{a:45,n:1.5}};
-const SK = _sk;
+/* KEIN `const SK = _sk`-Alias: _sk wird beim Objektwechsel (onObjektSelect)
+   neu gesetzt — ein eingefrorener Alias liesse Save/Load im Boot-Key haengen. */
 const $=id=>document.getElementById(id);
 const fmt=(n,d=4)=>isFinite(n)?n.toFixed(d):'–';
 const esc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
@@ -1023,8 +1024,11 @@ window.switchTab=function(n){
 window.calc=calc;
 
 // Save/Load/Reset
-function saveLocal(){try{if(typeof _GemaDB!=='undefined')_GemaDB.save(SK,JSON.stringify(state));}catch(e){}toast('Gespeichert.');}
-function loadLocal(){if(typeof _GemaDB==='undefined')return;const raw=(_GemaDB.c[SK]??null);if(!raw){toast('Keine Daten.');return;}try{const o=JSON.parse(raw);Object.assign(state,o);switchTab(state.tab);toast('Geladen.');}catch(e){toast('Fehler.');}}
+function saveLocal(){try{if(typeof _GemaDB!=='undefined')_GemaDB.save(_sk,JSON.stringify(state));}catch(e){}toast('Gespeichert.');}
+function loadLocal(){if(typeof _GemaDB==='undefined')return;const raw=(_GemaDB.c[_sk]??null);if(!raw){toast('Keine Daten.');return;}try{const o=JSON.parse(raw);Object.assign(state,o);switchTab(state.tab);toast('Geladen.');}catch(e){toast('Fehler.');}}
+// Fuer den Objektwechsel (Meta-IIFE): Stand des AKTUELLEN _sk still anwenden
+// (loadLocal ist IIFE-intern und toastet bei leerem Stand).
+window._objReload=function(){try{if(typeof _GemaDB==='undefined')return;const raw=(_GemaDB.c[_sk]??null);if(raw){const o=JSON.parse(raw);Object.assign(state,o);switchTab(state.tab);}}catch(e){}};
 function resetAll(){state={tab:1,t1:{f1:45,f2:60,n:1.5},t2:{f1:45,f2:60,n:1.5},t3:{f1:45,f2:60,n:1.5},t4:{a:45,n:1.5}};switchTab(1);toast('Zurückgesetzt.');}
 
 function toast(msg){let el=document.getElementById('toast');if(!el){el=document.createElement('div');el.id='toast';el.style.cssText='position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#1e293b;color:#e2e8f0;padding:10px 24px;border-radius:10px;font-size:13px;font-weight:600;z-index:999;box-shadow:0 8px 24px rgba(0,0,0,.3);transition:opacity .3s';document.body.appendChild(el);}el.textContent=msg;el.style.opacity='1';clearTimeout(el._t);el._t=setTimeout(()=>{el.style.opacity='0';},2000);}
@@ -1034,7 +1038,7 @@ $('btnLoad')?.addEventListener('click',loadLocal);
 $('btnReset')?.addEventListener('click',resetAll);
 
 // Auto-load
-try{if(typeof _GemaDB!=='undefined'){const raw=(_GemaDB.c[SK]??null);if(raw){const o=JSON.parse(raw);Object.assign(state,o);}}}catch(e){}
+try{if(typeof _GemaDB!=='undefined'){const raw=(_GemaDB.c[_sk]??null);if(raw){const o=JSON.parse(raw);Object.assign(state,o);}}}catch(e){}
 switchTab(state.tab);
 
 })().catch(e=>console.error('[GEMA] Fehler:',e));
@@ -1047,7 +1051,14 @@ document.addEventListener('DOMContentLoaded',function(){if(typeof GemaFeedback!=
   function loadMeta(){try{var d=JSON.parse(localStorage.getItem(MK));if(d){if(document.getElementById('metaProjekt'))document.getElementById('metaProjekt').value=d.p||'';if(document.getElementById('metaBearbeiter'))document.getElementById('metaBearbeiter').value=d.b||'';if(document.getElementById('metaDatum'))document.getElementById('metaDatum').value=d.d||'';if(d.oid&&document.getElementById('metaObjektDropdown')){document.getElementById('metaObjektDropdown').value=d.oid;_prevObjektId=d.oid;}}}catch(e){}if(!document.getElementById('metaDatum')?.value){var el=document.getElementById('metaDatum');if(el)el.value=new Date().toISOString().slice(0,10);}}
   var _prevObjektId='';
   function populateObjektDropdown(){if(typeof GemaObjekte==='undefined')return;var sel=document.getElementById('metaObjektDropdown');if(!sel)return;var objs=GemaObjekte.getAll();var activeId=GemaObjekte.getActiveId();sel.innerHTML='<option value="">\u2013 Objekt w\u00e4hlen \u2013</option>'+objs.map(function(o){return '<option value="'+o.id+'"'+(o.id===activeId?' selected':'')+'>'+(o.name||'\u2013')+(o.ort?' \u00b7 '+o.ort:'')+'</option>';}).join('');var savedOid=_prevObjektId;if(savedOid&&objs.find(function(o){return o.id===savedOid;})){sel.value=savedOid;}else if(activeId&&!document.getElementById('metaProjekt').value){sel.value=activeId;_prevObjektId=activeId;onObjektSelect();}}
-  function onObjektSelect(){var sel=document.getElementById('metaObjektDropdown');var inp=document.getElementById('metaProjekt');if(!sel||!inp)return;if(sel.value&&typeof GemaObjekte!=='undefined'){var o=GemaObjekte.getAll().find(function(x){return x.id===sel.value;});if(o){var parts=[o.name];if(o.strasse)parts.push(o.strasse);if(o.plz||o.ort)parts.push([o.plz,o.ort].filter(Boolean).join(' '));inp.value=parts.join(', ');}}else{inp.value='';}  _prevObjektId=sel.value;saveMeta();loadLocal();setTimeout(function(){if(typeof calc==='function')calc();},100);}
+  function onObjektSelect(){var sel=document.getElementById('metaObjektDropdown');var inp=document.getElementById('metaProjekt');if(!sel||!inp)return;if(sel.value&&typeof GemaObjekte!=='undefined'){var o=GemaObjekte.getAll().find(function(x){return x.id===sel.value;});if(o){var parts=[o.name];if(o.strasse)parts.push(o.strasse);if(o.plz||o.ort)parts.push([o.plz,o.ort].filter(Boolean).join(' '));inp.value=parts.join(', ');}}else{inp.value='';}  _prevObjektId=sel.value;saveMeta();
+    /* KRITISCH: Storage-Key aufs gewaehlte Objekt umschalten — sonst schreibt
+       persist() weiter in den Key des Boot-Objekts (Daten landen im falschen
+       Projekt) — und den neuen per-Objekt-Key nachladen, BEVOR gelesen wird. */
+    if(typeof GemaObjekte!=='undefined'&&GemaObjekte.setActiveId)GemaObjekte.setActiveId(sel.value||'');
+    _sk=(typeof GemaObjekte!=='undefined')?GemaObjekte.storageKey('gema_vonroll_v1'):'gema_vonroll_v1';
+    var _apply=function(){if(typeof _objReload==='function')_objReload();setTimeout(function(){if(typeof calc==='function')calc();},100);};
+    if(typeof _GemaDB!=='undefined'&&_GemaDB.ensure){_GemaDB.ensure([_sk]).then(_apply);}else{_apply();}}
   function toggleObjektInput(forceManual){var isManual=typeof forceManual==='boolean'?forceManual:document.getElementById('objComboManual').style.display==='none';document.getElementById('objComboSelect').style.display=isManual?'none':'flex';document.getElementById('objComboManual').style.display=isManual?'flex':'none';document.getElementById('objComboBtn').textContent=isManual?'Stammdaten':'Freies Objekt';if(!isManual)populateObjektDropdown();}
   window.onObjektSelect=onObjektSelect;window.toggleObjektInput=toggleObjektInput;window.populateObjektDropdown=populateObjektDropdown;
   document.addEventListener('DOMContentLoaded',function(){loadMeta();populateObjektDropdown();});

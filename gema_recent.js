@@ -12,6 +12,9 @@
     // genutzt vom 🕒-Dropdown UND vom Mobile-Menü («Zuletzt verwendet»).
     'ab_berufsschule':'Berufsschule',
     'ab_index':'Lehrlingsausbildung',
+    'ab_klassen':'Klassen & Lernmittel',
+    'ab_pruefung_live':'Meine Prüfungen',
+    'ab_pruefungen':'Prüfungen (Schule)',
     'ab_quiz':'Quiz & Lernkarten',
     'ab_sephir':'SEPHIR Bildungsbericht',
     'br_gasloeschung':'Gaslöschanlagen N2/Novec',

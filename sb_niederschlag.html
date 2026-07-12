@@ -627,7 +627,63 @@ select.warType{padding:3px 6px;font-size:11px;font-weight:600;font-family:var(--
 .nb-srcnote b{color:#334155}
 </style>
 
-
+<!-- Regenkarte: Leaflet 1.9.4 (cdnjs) — Übersichtskarte Standort + B04-Rasterpunkte -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<style>
+/* ═══ Regenkarte (rk-) — Mini-Karte, Vollbild-Modal, Druck ═══ */
+.rk-mini-wrap{position:relative;margin-top:12px;height:200px;border:1px solid var(--border2);border-radius:12px;overflow:hidden;background:#e9edf3}
+#rkMini{position:absolute;inset:0;z-index:1}
+.rk-attr{position:absolute;right:6px;bottom:4px;z-index:520;font-size:11px;color:#334155;background:rgba(255,255,255,.72);border-radius:6px;padding:1px 6px;pointer-events:none}
+.rk-mini-overlay{position:absolute;inset:0;z-index:540;cursor:pointer;display:flex;align-items:center;justify-content:center;background:transparent;transition:background .15s;border:none;width:100%;padding:0}
+.rk-mini-overlay:hover{background:rgba(15,23,42,.18)}
+.rk-open-pill{opacity:0;transition:opacity .15s;background:rgba(15,23,42,.82);color:#fff;font-size:13px;font-weight:700;font-family:'DM Sans',sans-serif;border-radius:999px;padding:7px 15px;pointer-events:none}
+.rk-mini-overlay:hover .rk-open-pill{opacity:1}
+@media (hover:none){.rk-open-pill{opacity:.8}}
+.rk-ph{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:12px;color:#64748b;text-align:center;padding:12px;z-index:2}
+/* Marker (nur L.divIcon — nie das Leaflet-Default-Icon) */
+.rk-pin{width:30px;height:38px;position:relative;filter:drop-shadow(0 2px 3px rgba(0,0,0,.35))}
+.rk-pin .b{position:absolute;left:50%;top:2px;width:26px;height:26px;margin-left:-13px;background:var(--accent,#0f7a4a);border:2px solid #fff;border-radius:50% 50% 50% 0;transform:rotate(-45deg);box-sizing:border-box}
+.rk-pin .c{position:absolute;left:50%;top:15px;width:8px;height:8px;margin-left:-4px;background:#fff;border-radius:50%}
+.rk-pt{border-radius:50%;background:#fff;border:2px solid #1e3a5f;color:#1e3a5f;display:flex;align-items:center;justify-content:center;font-family:'DM Sans',sans-serif;font-weight:600;box-shadow:0 1px 4px rgba(0,0,0,.25);box-sizing:border-box}
+.rk-pt.on{border-color:var(--accent,#0f7a4a);border-width:3px;color:var(--accent,#0f7a4a)}
+.rk-dist-tt{background:#fff;border:1px solid var(--border2);border-radius:7px;box-shadow:0 1px 4px rgba(0,0,0,.15);font-family:'DM Sans',sans-serif;font-weight:600;font-size:11px;color:#334155;padding:1px 7px;white-space:nowrap}
+.rk-dist-tt::before{display:none}
+/* Popups (nur Modal) — kein Leaflet-Default-Look */
+.rk-popup .leaflet-popup-content-wrapper{border-radius:10px;border:1px solid var(--border2);box-shadow:0 6px 24px rgba(0,0,0,.18);font-family:'DM Sans',sans-serif}
+.rk-popup .leaflet-popup-content{margin:10px 14px;font-size:12.5px;line-height:1.6}
+/* Vollbild-Modal */
+.rk-modal-bg{position:fixed;inset:0;z-index:12000;background:rgba(15,23,42,.6);display:none;align-items:center;justify-content:center;padding:20px}
+.rk-modal-bg.open{display:flex}
+.rk-modal{background:var(--surface,#fff);width:100%;max-width:1100px;height:85vh;border-radius:20px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 24px 70px rgba(0,0,0,.35)}
+.rk-modal-hd{display:flex;align-items:center;gap:12px;padding:calc(12px + env(safe-area-inset-top,0px)) 18px 12px;border-bottom:1px solid var(--border)}
+.rk-modal-title{font-size:15px;font-weight:800}
+.rk-modal-sub{font-size:12px;color:var(--muted);margin-top:1px}
+.rk-x{margin-left:auto;border:none;background:none;font-size:19px;cursor:pointer;color:var(--muted);flex-shrink:0}
+#rkModalMap{flex:1;min-height:0}
+.rk-legend{display:flex;gap:8px;flex-wrap:wrap;padding:10px 16px calc(10px + env(safe-area-inset-bottom,0px));border-top:1px solid var(--border);background:var(--surface2,#f8faff)}
+.rk-chip{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--border2);background:#fff;border-radius:999px;padding:4px 11px;font-size:11.5px;font-weight:600;color:#334155}
+.rk-chip .dot{width:11px;height:11px;border-radius:50%;flex-shrink:0;box-sizing:border-box}
+@media(max-width:640px){.rk-modal-bg{padding:0}.rk-modal{max-width:none;height:100%;border-radius:0}}
+/* Druck: statisches Bild statt Live-Karte */
+.rk-print-check{display:flex;align-items:center;gap:7px;margin-top:9px;font-size:12px;color:#374151;font-weight:600;cursor:pointer}
+.rk-print-check input{width:15px;height:15px;accent-color:var(--accent)}
+.rk-print{display:none;margin-top:12px}
+.rk-print img{max-width:100%;border:1px solid var(--border2);border-radius:8px}
+.rk-print-cap{font-size:12.5px;font-weight:700;margin-bottom:6px}
+.rk-print-attr{font-size:10.5px;color:#64748b;margin-top:4px}
+/* GemaPDF-Export (html2canvas wertet @media print nicht aus): body.rk-printing */
+body.rk-printing .rk-mini-wrap,body.rk-printing .rk-print-check{display:none!important}
+body.rk-printing.rk-has-print .rk-print{display:block}
+@media print{
+  .rk-mini-wrap,.rk-print-check,.rk-modal-bg{display:none!important}
+  body.rk-has-print .rk-print{display:block;break-inside:avoid;max-height:90mm}
+  body.rk-has-print .rk-print img{max-height:78mm}
+  /* Fallback bei Tainted-Canvas: Live-Mini-Karte direkt drucken */
+  body.rk-print-fb .rk-mini-wrap{display:block!important}
+  body.rk-print-fb .rk-mini-overlay{display:none!important}
+}
+</style>
 
 <script defer src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script src="gema_db.js"></script>
@@ -772,6 +828,22 @@ select.warType{padding:3px 6px;font-size:11px;font-weight:600;font-family:var(--
         <div id="nbBegrWrap" class="g-field" style="display:none;margin-top:10px">
           <label class="g-label">Begründung für Abweichung vom nächstgelegenen Punkt <span style="color:#dc2626">*</span></label>
           <input type="text" class="g-inp" id="nbBegr" placeholder="Warum ein anderer als der nächstgelegene Punkt?" oninput="nbBegrChanged()">
+        </div>
+        <!-- Übersichtskarte: Projektstandort + 3 nächste B04-Rasterpunkte (nur Anzeige) -->
+        <div class="rk-mini-wrap" id="rkMiniWrap" style="display:none">
+          <div id="rkMini"></div>
+          <div class="rk-attr">© swisstopo</div>
+          <button type="button" class="rk-mini-overlay" id="rkMiniOverlay" aria-label="Karte öffnen" onclick="rkOpenModal()">
+            <span class="rk-open-pill">Karte öffnen ⤢</span>
+          </button>
+        </div>
+        <label class="rk-print-check" id="rkPrintRow" style="display:none">
+          <input type="checkbox" id="rkPrintChk"> Übersichtskarte im Bericht anzeigen
+        </label>
+        <div class="rk-print" id="rkPrint">
+          <div class="rk-print-cap">Übersichtskarte Standort / Messraster</div>
+          <img id="rkPrintImg" alt="Übersichtskarte Standort und MeteoSchweiz-Rasterpunkte"/>
+          <div class="rk-print-attr">© swisstopo · Daten: MeteoSchweiz</div>
         </div>
         <div id="nbSrcNote" class="nb-srcnote"></div>
       </div>
@@ -2259,12 +2331,37 @@ window.recalcRowsAll = function(){
   document.querySelectorAll("#tbodyDach tr, #tbodyUmg tr").forEach(tr => recalcRow(tr));
   recalcAll();
 };
+// Fuer den Objektwechsel (Meta-IIFE): gespeicherten Stand des AKTUELLEN _sk
+// still anwenden — loadLocal ist IIFE-intern und flasht bei leerem Stand.
+window._objReload = function(){
+  try{
+    if(typeof _GemaDB==='undefined') return;
+    const raw = (_GemaDB.c[_sk]??null);
+    if(raw) setState(JSON.parse(raw));
+  }catch(e){}
+};
 
 try { init(); } catch(e) { console.error("init error:", e); }
 
 
 })().catch(e=>console.error("[GEMA] Fehler:",e));
 </script>
+
+<!-- Vollbild-Karte (Regenkarte) -->
+<div class="rk-modal-bg" id="rkModal">
+  <div class="rk-modal">
+    <div class="rk-modal-hd">
+      <div style="min-width:0">
+        <div class="rk-modal-title">Regenspende — Standort &amp; MeteoSchweiz-Rasterpunkte</div>
+        <div class="rk-modal-sub" id="rkModalSub"></div>
+      </div>
+      <button class="rk-x" onclick="rkCloseModal()" aria-label="Schliessen">✕</button>
+    </div>
+    <div id="rkModalMap"></div>
+    <div class="rk-legend" id="rkLegend"></div>
+  </div>
+</div>
+
 <script>
 /* ═══════════════════════════════════════════════════════════════════════
    Datenquelle B — MeteoSchweiz Punktdaten (Karte B04, 1-km-Raster)
@@ -2338,6 +2435,7 @@ function nbIsAbweichung(points, chosenId){ var n=nbNearestId(points); return n!=
     if(mch) mch.style.display = (_nb.source==='mch') ? '' : 'none';
     if(_nb.source==='mch'){ if(_nb.values) nbApplyValues(); else { nbRenderPoints(); nbUpdateNote(); } }
     else nbClearActive();
+    if(window._rkUpdate) try{ window._rkUpdate(); }catch(e){}   // Übersichtskarte
   };
 
   // ── RPC nb_naechste_punkte ──
@@ -2377,7 +2475,7 @@ function nbIsAbweichung(points, chosenId){ var n=nbNearestId(points); return n!=
     });
   };
 
-  function nbShowEmpty(msg){ var box=el('nbPts'); if(box) box.innerHTML='<div class="nb-empty">⚠ '+esc(msg)+'</div>'; var bw=el('nbBegrWrap'); if(bw) bw.style.display='none'; nbUpdateNote(); }
+  function nbShowEmpty(msg){ var box=el('nbPts'); if(box) box.innerHTML='<div class="nb-empty">⚠ '+esc(msg)+'</div>'; var bw=el('nbBegrWrap'); if(bw) bw.style.display='none'; nbUpdateNote(); if(window._rkHide) try{ window._rkHide(); }catch(e){} }
 
   function nbRenderPoints(){
     var box=el('nbPts'); if(!box) return;
@@ -2395,6 +2493,7 @@ function nbIsAbweichung(points, chosenId){ var n=nbNearestId(points); return n!=
         + '<div class="m">'+ (p.hoehe_m!=null?(p.hoehe_m+' m ü.M. · '):'') + (p.x_lv95!=null&&p.y_lv95!=null?('E '+Math.round(p.x_lv95)+' / N '+Math.round(p.y_lv95)):'') +'</div>'
         + rline + '</div>';
     }).join('');
+    if(window._rkUpdate) try{ window._rkUpdate(); }catch(e){}   // Übersichtskarte (Laden/Wahl/Restore)
   }
 
   // Punkt wählen (Klick) → Begründungspflicht bei Abweichung, dann anwenden.
@@ -2483,6 +2582,414 @@ function nbIsAbweichung(points, chosenId){ var n=nbNearestId(points); return n!=
 })();
 </script>
 <script>
+/* ═══════════════════════════════════════════════════════════════════════
+   Regenkarte (rk-) — Übersichtskarte Projektstandort + 3 B04-Rasterpunkte
+   Mini-Karte (nicht interaktiv, Klick → Vollbild-Modal) + Druck-Export als
+   statisches Bild (WMTS-Kachel-Stitching). NUR Anzeige — kein Setzen des
+   Standorts per Kartenklick. Basiskarte: swisstopo Landeskarte grau.
+   Das Modul wählt EINEN Punkt (kein IDW) → statt Gewichten wird der
+   gewählte Punkt markiert. Konsumiert den nb-Zustand über _nbHooks.state(),
+   Aufruf über die Hooks window._rkUpdate / window._rkHide.
+   ═══════════════════════════════════════════════════════════════════════ */
+'use strict';
+/*RK-ENGINE-START*/
+// LV95 → WGS84 (offizielle swisstopo-Näherungsformeln, ~1 m genau)
+function rkLV95(E, N) {
+  var y = (E - 2600000) / 1000000;
+  var x = (N - 1200000) / 1000000;
+  var lng = 2.6779094 + 4.728982 * y + 0.791484 * y * x
+          + 0.1306 * y * x * x - 0.0436 * y * y * y;
+  var lat = 16.9023892 + 3.238272 * x - 0.270978 * y * y
+          - 0.002528 * x * x - 0.0447 * y * y * x - 0.0140 * x * x * x;
+  return { lat: lat * 100 / 36, lng: lng * 100 / 36 };
+}
+// Erkennt LV95 (E/N), LV03 (y/x) oder WGS84 — in beliebiger Reihenfolge.
+function rkToWGS84(a, b) {
+  a = Number(a); b = Number(b);
+  if (a > 2000000) return rkLV95(a, b);                       // a = E (LV95)
+  if (b > 2000000) return rkLV95(b, a);                       // b = E (LV95)
+  if (a > 400000)  return rkLV95(a + 2000000, b + 1000000);   // a = y (LV03)
+  if (b > 400000)  return rkLV95(b + 2000000, a + 1000000);   // b = y (LV03)
+  if (a >= 45 && a <= 48) return { lat: a, lng: b };          // WGS84 lat/lng
+  return { lat: b, lng: a };                                  // WGS84 lng/lat
+}
+// WGS84 → LV95 (nur Anzeige der Projektkoordinaten, swisstopo-Näherung)
+function rkWGS84toLV95(lat, lng) {
+  var p = (lat * 3600 - 169028.66) / 10000;
+  var l = (lng * 3600 - 26782.5) / 10000;
+  var E = 2600072.37 + 211455.93 * l - 10938.51 * l * p - 0.36 * l * p * p - 44.54 * l * l * l;
+  var N = 1200147.07 + 308807.95 * p + 3745.25 * l * l + 76.63 * p * p - 194.56 * l * l * p + 119.79 * p * p * p;
+  return { E: E, N: N };
+}
+// Distanz: unter 1 km in Metern, sonst km mit 1 Dezimale
+function rkFmtDist(m) {
+  m = Number(m);
+  if (!isFinite(m) || m < 0) return '–';
+  return m < 1000 ? Math.round(m) + ' m' : (m / 1000).toFixed(1) + ' km';
+}
+// Schweizer Zahlenformat mit Apostroph: 2611234 → 2'611'234
+function rkFmtNum(v) {
+  return String(Math.round(Number(v))).replace(/\B(?=(\d{3})+(?!\d))/g, "'");
+}
+// Web-Mercator: Grad → Kachelkoordinate (Faktor 256 = Pixel)
+function rkTileX(lng, z) { return (lng + 180) / 360 * Math.pow(2, z); }
+function rkTileY(lat, z) {
+  var r = lat * Math.PI / 180;
+  return (1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * Math.pow(2, z);
+}
+// Druck-Zoom: grösste Stufe, bei der die BBox (+~20 % Rand) in maxW×maxH passt
+function rkPrintZoom(bb, maxW, maxH) {
+  for (var z = 15; z > 8; z--) {
+    var w = (rkTileX(bb.east, z) - rkTileX(bb.west, z)) * 256;
+    var h = (rkTileY(bb.south, z) - rkTileY(bb.north, z)) * 256;
+    if (w <= maxW * 0.8 && h <= maxH * 0.8) return z;
+  }
+  return 8;
+}
+/*RK-ENGINE-END*/
+(function(){
+  if(!document.getElementById('rkMini')) return;
+  var TILE_URL='https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-grau/default/current/3857/{z}/{x}/{y}.jpeg';
+  var PRINT_KEY='gema_regenkarte_print_v1';
+  var RK={mini:null,miniGrp:null,modal:null,modalGrp:null,data:null,printBusy:false,printPending:null,printSig:''};
+
+  function el(id){ return document.getElementById(id); }
+  function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+  function hasL(){ return typeof window.L!=='undefined'; }
+  function accent(){
+    try{ var v=getComputedStyle(document.documentElement).getPropertyValue('--accent').trim(); if(v) return v; }catch(e){}
+    return '#0f7a4a';
+  }
+  function rkTileLayer(){
+    return L.tileLayer(TILE_URL,{maxZoom:18,attribution:'© swisstopo',crossOrigin:'anonymous'});
+  }
+
+  // ── Daten aus dem nb-Zustand (dieselben Werte wie die Punktekarten) ──
+  function rkData(){
+    var s=null;
+    try{ s=window._nbHooks&&window._nbHooks.state(); }catch(e){}
+    if(!s||s.source!=='mch'||!Array.isArray(s.points)||!s.points.length) return null;
+    if(s.lon==null||s.lat==null) return null;
+    var proj=rkToWGS84(s.lat,s.lon); // Auto-Erkennung (nb hält WGS84: lat/lon)
+    var pts=s.points.slice()
+      .sort(function(a,b){ return (Number(a.distanz_m)||0)-(Number(b.distanz_m)||0); })
+      .map(function(p,i){
+        if(p.x_lv95==null||p.y_lv95==null) return null;
+        var w=rkToWGS84(p.x_lv95,p.y_lv95);
+        var wert=null;
+        try{
+          var rr=window._nbHooks.nbGridpointToRegenspende(p.werte,0.001);
+          if(rr&&rr['r5.5']!=null) wert=rr['r5.5'];
+        }catch(e){}
+        return { lat:w.lat,lng:w.lng,nr:i+1,distM:Number(p.distanz_m)||0,hoehe:p.hoehe_m,
+                 wert:wert,chosen:String(p.gitterpunkt_id)===String(s.chosenId),
+                 e:p.x_lv95,n:p.y_lv95 };
+      }).filter(Boolean);
+    if(!pts.length) return null;
+    return { projekt:{lat:proj.lat,lng:proj.lng,label:s.label||''}, punkte:pts };
+  }
+  function wertTxt(p){ return 'r(5,5) = '+(p.wert!=null?p.wert.toFixed(3):'–')+' l/(s·m²)'; }
+  function bounds(d){
+    var b=L.latLngBounds([[d.projekt.lat,d.projekt.lng]]);
+    d.punkte.forEach(function(p){ b.extend([p.lat,p.lng]); });
+    return b;
+  }
+
+  // ── Marker / Linien (Mini vereinfacht: kleiner, keine Popups/Tooltips) ──
+  function pinIcon(){
+    return L.divIcon({className:'',html:'<div class="rk-pin"><div class="b"></div><div class="c"></div></div>',
+      iconSize:[30,38],iconAnchor:[15,36],popupAnchor:[0,-34]});
+  }
+  function ptIcon(p,mini){
+    var s=mini?20:26;
+    return L.divIcon({className:'',
+      html:'<div class="rk-pt'+(p.chosen?' on':'')+'" style="width:'+s+'px;height:'+s+'px;font-size:'+(mini?11:13)+'px">'+p.nr+'</div>',
+      iconSize:[s,s],iconAnchor:[s/2,s/2],popupAnchor:[0,-s/2-2]});
+  }
+  function drawInto(grp,d,mini){
+    grp.clearLayers();
+    d.punkte.forEach(function(p){
+      var line=L.polyline([[d.projekt.lat,d.projekt.lng],[p.lat,p.lng]],
+        {dashArray:'6 6',color:'#64748b',weight:2,opacity:.8,interactive:false});
+      if(!mini) line.bindTooltip(rkFmtDist(p.distM),{permanent:true,direction:'center',className:'rk-dist-tt'});
+      grp.addLayer(line);
+    });
+    d.punkte.forEach(function(p){
+      var m=L.marker([p.lat,p.lng],{icon:ptIcon(p,mini),keyboard:false});
+      if(!mini) m.bindPopup(
+        '<b>Punkt '+p.nr+(p.chosen?' · ✓ gewählt':'')+'</b><br>'+wertTxt(p)
+        +'<br>Distanz '+rkFmtDist(p.distM)
+        +(p.hoehe!=null?('<br>'+p.hoehe+' m ü.M.'):'')
+        +'<br>E '+rkFmtNum(p.e)+' / N '+rkFmtNum(p.n),{className:'rk-popup'});
+      grp.addLayer(m);
+    });
+    var pm=L.marker([d.projekt.lat,d.projekt.lng],{icon:pinIcon(),zIndexOffset:1000,keyboard:false});
+    if(!mini){
+      var lv=rkWGS84toLV95(d.projekt.lat,d.projekt.lng);
+      pm.bindPopup('<b>Projektstandort</b><br>'+(d.projekt.label?esc(d.projekt.label)+'<br>':'')
+        +'LV95: '+rkFmtNum(lv.E)+' / '+rkFmtNum(lv.N),{className:'rk-popup'});
+    }
+    grp.addLayer(pm);
+  }
+
+  // ── Mini-Karte ──
+  function renderMini(){
+    var wrap=el('rkMiniWrap');
+    if(!RK.data){ wrap.style.display='none'; return; }
+    wrap.style.display='';
+    if(!hasL()){
+      // Leaflet (CDN) nicht geladen — grauer Platzhalter, Berechnung läuft weiter
+      if(!el('rkPh')){
+        var ph=document.createElement('div');
+        ph.className='rk-ph'; ph.id='rkPh';
+        ph.textContent='Karte nicht verfügbar (keine Verbindung zu cdnjs/swisstopo).';
+        el('rkMini').appendChild(ph);
+      }
+      return;
+    }
+    var ph2=el('rkPh'); if(ph2) ph2.remove();
+    if(!RK.mini){
+      RK.mini=L.map('rkMini',{
+        dragging:false,touchZoom:false,scrollWheelZoom:false,doubleClickZoom:false,
+        boxZoom:false,keyboard:false,tap:false,zoomControl:false,attributionControl:false
+      });
+      rkTileLayer().addTo(RK.mini);
+      RK.miniGrp=L.layerGroup().addTo(RK.mini);
+    }
+    drawInto(RK.miniGrp,RK.data,true);
+    // Container evtl. gerade erst eingeblendet → Grösse neu bestimmen
+    requestAnimationFrame(function(){
+      try{ RK.mini.invalidateSize(); RK.mini.fitBounds(bounds(RK.data),{padding:[24,24],maxZoom:13}); }catch(e){}
+    });
+  }
+
+  // ── Vollbild-Modal (eine Instanz, wiederverwendet) ──
+  window.rkOpenModal=function(){
+    if(!RK.data||!hasL()) return;
+    var lv=rkWGS84toLV95(RK.data.projekt.lat,RK.data.projekt.lng);
+    el('rkModalSub').textContent=(RK.data.projekt.label?RK.data.projekt.label+' · ':'')
+      +'LV95 '+rkFmtNum(lv.E)+' / '+rkFmtNum(lv.N);
+    el('rkModal').classList.add('open');
+    document.body.style.overflow='hidden';
+    if(!RK.modal){
+      RK.modal=L.map('rkModalMap',{
+        minZoom:7,
+        maxBounds:[[45.6,5.7],[47.95,10.7]],maxBoundsViscosity:0.8
+      });
+      rkTileLayer().addTo(RK.modal);
+      try{ RK.modal.attributionControl.setPrefix(false); }catch(e){}
+      RK.modalGrp=L.layerGroup().addTo(RK.modal);
+    }
+    drawInto(RK.modalGrp,RK.data,false);
+    renderLegend();
+    requestAnimationFrame(function(){
+      try{ RK.modal.invalidateSize(); RK.modal.fitBounds(bounds(RK.data),{padding:[48,48],maxZoom:15}); }catch(e){}
+    });
+  };
+  window.rkCloseModal=function(){
+    el('rkModal').classList.remove('open');
+    document.body.style.overflow='';
+  };
+  el('rkModal').addEventListener('click',function(e){ if(e.target===el('rkModal')) rkCloseModal(); });
+  document.addEventListener('keydown',function(e){
+    if(e.key==='Escape'&&el('rkModal').classList.contains('open')) rkCloseModal();
+  });
+  function renderLegend(){
+    var lg=el('rkLegend'); if(!lg||!RK.data) return;
+    var chips=['<span class="rk-chip"><span class="dot" style="background:'+accent()+'"></span>Projektstandort'
+      +(RK.data.projekt.label?' — '+esc(RK.data.projekt.label):'')+'</span>'];
+    RK.data.punkte.forEach(function(p){
+      chips.push('<span class="rk-chip"><span class="dot" style="background:#fff;border:2px solid '
+        +(p.chosen?accent():'#1e3a5f')+'"></span><b>'+p.nr+'</b>'+(p.chosen?' ✓ gewählt':'')
+        +' · '+wertTxt(p)+' · '+rkFmtDist(p.distM)+'</span>');
+    });
+    lg.innerHTML=chips.join('');
+  }
+
+  // ── Zentrale Update-Hooks (vom nb-Code aufgerufen) ──
+  window._rkUpdate=function(){
+    RK.data=rkData();
+    renderMini();
+    el('rkPrintRow').style.display=RK.data?'':'none';
+    if(el('rkModal').classList.contains('open')){
+      if(RK.data&&RK.modal){
+        drawInto(RK.modalGrp,RK.data,false); renderLegend();
+        try{ RK.modal.fitBounds(bounds(RK.data),{padding:[48,48],maxZoom:15}); }catch(e){}
+      } else rkCloseModal();
+    }
+    rkPrintSync();
+  };
+  window._rkHide=function(){
+    RK.data=null;
+    renderMini();
+    el('rkPrintRow').style.display='none';
+    if(el('rkModal').classList.contains('open')) rkCloseModal();
+    rkPrintSync();
+  };
+
+  /* ── Druck: statisches Bild (WMTS-Kachel-Stitching, kein Live-Leaflet) ──
+     Vorab generiert (window.onbeforeprint kann nicht auf async warten):
+     nach jeder Berechnung bei aktiver Checkbox bzw. beim Aktivieren. */
+  function chkOn(){ try{ return localStorage.getItem(PRINT_KEY)!=='0'; }catch(e){ return true; } }
+  function rkPrintSync(){
+    if(!RK.data||!chkOn()){
+      document.body.classList.remove('rk-has-print','rk-print-fb');
+      return;
+    }
+    var sig=JSON.stringify([RK.data.projekt.lat,RK.data.projekt.lng,
+      RK.data.punkte.map(function(p){ return [p.lat,p.lng,p.nr,p.chosen]; })]);
+    if(sig===RK.printSig&&el('rkPrintImg').src){ document.body.classList.add('rk-has-print'); return; }
+    rkBuildPrint(sig);
+  }
+  function rkBuildPrint(sig){
+    if(RK.printBusy){ RK.printPending=sig; return; }
+    RK.printBusy=true;
+    rkStitch(RK.data).then(function(url){
+      RK.printBusy=false;
+      if(url){
+        el('rkPrintImg').src=url;
+        RK.printSig=sig;
+        document.body.classList.add('rk-has-print');
+        document.body.classList.remove('rk-print-fb');
+      } else {
+        // Tainted Canvas o.ä. → Fallback: Mini-Karte direkt drucken
+        document.body.classList.remove('rk-has-print');
+        document.body.classList.add('rk-print-fb');
+      }
+      if(RK.printPending&&RK.printPending!==sig){ var s=RK.printPending; RK.printPending=null; rkBuildPrint(s); }
+      else RK.printPending=null;
+    });
+  }
+  function rkStitch(d){
+    return new Promise(function(resolve){
+      try{
+        var lats=[d.projekt.lat],lngs=[d.projekt.lng];
+        d.punkte.forEach(function(p){ lats.push(p.lat); lngs.push(p.lng); });
+        var bb={north:Math.max.apply(null,lats),south:Math.min.apply(null,lats),
+                east:Math.max.apply(null,lngs),west:Math.min.apply(null,lngs)};
+        var W=1200,H=800;
+        var z=rkPrintZoom(bb,W,H);
+        var cx=rkTileX((bb.east+bb.west)/2,z)*256, cy=rkTileY((bb.north+bb.south)/2,z)*256;
+        var ox=cx-W/2, oy=cy-H/2;
+        var canvas=document.createElement('canvas'); canvas.width=W; canvas.height=H;
+        var ctx=canvas.getContext('2d');
+        ctx.fillStyle='#e9edf3'; ctx.fillRect(0,0,W,H);
+        var jobs=[];
+        var tx0=Math.floor(ox/256),tx1=Math.floor((ox+W)/256);
+        var ty0=Math.floor(oy/256),ty1=Math.floor((oy+H)/256);
+        for(var tx=tx0;tx<=tx1;tx++){
+          for(var ty=ty0;ty<=ty1;ty++){
+            (function(tx,ty){
+              jobs.push(new Promise(function(res){
+                var img=new Image();
+                img.crossOrigin='anonymous';
+                img.onload=function(){ try{ ctx.drawImage(img,Math.round(tx*256-ox),Math.round(ty*256-oy)); }catch(e){} res(); };
+                img.onerror=function(){ res(); };
+                img.src=TILE_URL.replace('{z}',z).replace('{x}',tx).replace('{y}',ty);
+              }));
+            })(tx,ty);
+          }
+        }
+        Promise.all(jobs).then(function(){
+          var px=function(lat,lng){ return [rkTileX(lng,z)*256-ox, rkTileY(lat,z)*256-oy]; };
+          var P=px(d.projekt.lat,d.projekt.lng);
+          var ac=accent();
+          // Distanzlinien (gestrichelt) + Distanz-Label in Linienmitte
+          ctx.save();
+          ctx.setLineDash([6,6]); ctx.strokeStyle='#64748b'; ctx.lineWidth=2; ctx.globalAlpha=.85;
+          d.punkte.forEach(function(p){
+            var q=px(p.lat,p.lng);
+            ctx.beginPath(); ctx.moveTo(P[0],P[1]); ctx.lineTo(q[0],q[1]); ctx.stroke();
+          });
+          ctx.restore();
+          ctx.font='600 13px "DM Sans",system-ui,sans-serif';
+          ctx.textAlign='center'; ctx.textBaseline='middle';
+          d.punkte.forEach(function(p){
+            var q=px(p.lat,p.lng);
+            var mx=(P[0]+q[0])/2,my=(P[1]+q[1])/2;
+            var t=rkFmtDist(p.distM);
+            var tw=ctx.measureText(t).width;
+            ctx.fillStyle='rgba(255,255,255,.92)';
+            ctx.strokeStyle='#cdd4e4'; ctx.lineWidth=1;
+            var bx=mx-tw/2-7,by=my-10,bw2=tw+14,bh=20;
+            ctx.beginPath();
+            if(ctx.roundRect) ctx.roundRect(bx,by,bw2,bh,7); else ctx.rect(bx,by,bw2,bh);
+            ctx.fill(); ctx.stroke();
+            ctx.fillStyle='#334155'; ctx.fillText(t,mx,my+0.5);
+          });
+          // Rasterpunkte (nummeriert, gewählter Punkt in Akzentfarbe)
+          d.punkte.forEach(function(p){
+            var q=px(p.lat,p.lng);
+            ctx.beginPath(); ctx.arc(q[0],q[1],13,0,Math.PI*2);
+            ctx.fillStyle='#fff'; ctx.fill();
+            ctx.lineWidth=p.chosen?3:2;
+            ctx.strokeStyle=p.chosen?ac:'#1e3a5f'; ctx.stroke();
+            ctx.fillStyle=p.chosen?ac:'#1e3a5f';
+            ctx.font='600 14px "DM Sans",system-ui,sans-serif';
+            ctx.fillText(String(p.nr),q[0],q[1]+0.5);
+          });
+          // Projekt-Pin (Kreis mit Spitze + weisser Innenpunkt)
+          ctx.beginPath();
+          ctx.moveTo(P[0],P[1]);
+          ctx.lineTo(P[0]-11,P[1]-20);
+          ctx.arc(P[0],P[1]-24,14,Math.PI*0.82,Math.PI*0.18);
+          ctx.closePath();
+          ctx.fillStyle=ac; ctx.fill();
+          ctx.lineWidth=2; ctx.strokeStyle='#fff'; ctx.stroke();
+          ctx.beginPath(); ctx.arc(P[0],P[1]-24,4.5,0,Math.PI*2);
+          ctx.fillStyle='#fff'; ctx.fill();
+          // Attribution ins Bild
+          ctx.font='600 12px "DM Sans",system-ui,sans-serif';
+          ctx.textAlign='right'; ctx.textBaseline='alphabetic';
+          var at='© swisstopo';
+          var aw=ctx.measureText(at).width;
+          ctx.fillStyle='rgba(255,255,255,.78)';
+          ctx.fillRect(W-aw-16,H-22,aw+12,18);
+          ctx.fillStyle='#334155'; ctx.fillText(at,W-10,H-9);
+          var url=null;
+          try{ url=canvas.toDataURL('image/jpeg',0.9); }catch(e){ url=null; } // Tainted Canvas
+          resolve(url);
+        });
+      }catch(e){ resolve(null); }
+    });
+  }
+
+  // Checkbox: Default AN, persistiert
+  var chk=el('rkPrintChk');
+  chk.checked=chkOn();
+  chk.addEventListener('change',function(){
+    try{ localStorage.setItem(PRINT_KEY,chk.checked?'1':'0'); }catch(e){}
+    rkPrintSync();
+  });
+
+  // GemaPDF (html2canvas wertet @media print nicht aus): Export wrappen —
+  // während des Exports statisches Bild zeigen, Live-Mini ausblenden.
+  (function(){
+    if(!(window.GemaPDF&&GemaPDF.export)) return;
+    var orig=GemaPDF.export;
+    GemaPDF.export=function(opts){
+      document.body.classList.add('rk-printing');
+      var done=function(){ document.body.classList.remove('rk-printing'); };
+      var r;
+      try{ r=orig.call(GemaPDF,opts); }catch(e){ done(); throw e; }
+      Promise.resolve(r).then(done,done);
+      setTimeout(done,20000); // Sicherheitsnetz
+      return r;
+    };
+  })();
+
+  // Leaflet lädt defer nach diesem Inline-Block — falls beim ersten Update
+  // noch nicht da, nach window.load erneut versuchen.
+  window.addEventListener('load',function(){ if(window._rkUpdate) try{ window._rkUpdate(); }catch(e){} });
+
+  // Test-Hooks
+  window._rkHooks={ rkLV95:rkLV95, rkToWGS84:rkToWGS84, rkWGS84toLV95:rkWGS84toLV95,
+    rkFmtDist:rkFmtDist, rkFmtNum:rkFmtNum, rkPrintZoom:rkPrintZoom,
+    rkTileX:rkTileX, rkTileY:rkTileY, data:function(){ return RK.data; },
+    state:function(){ return RK; }, stitch:function(){ return rkStitch(RK.data); } };
+})();
+</script>
+<script>
 // GEMA Feedback init
 document.addEventListener('DOMContentLoaded', function(){try{GemaFeedback.init('niederschlagsanfall', 'Niederschlagsanfall');}catch(e){}});
 </script>
@@ -2519,7 +3026,14 @@ document.addEventListener('DOMContentLoaded', function(){try{GemaFeedback.init('
       var o=GemaObjekte.getAll().find(function(x){return x.id===sel.value;});
       if(o){var parts=[o.name];if(o.strasse)parts.push(o.strasse);if(o.plz||o.ort)parts.push([o.plz,o.ort].filter(Boolean).join(' '));inp.value=parts.join(', ');}
     } else { inp.value=''; }
-    _prevObjektId=sel.value;saveMeta();loadLocal(true);setTimeout(function(){if(typeof recalc==='function')recalc();},100);
+    _prevObjektId=sel.value;saveMeta();
+    /* KRITISCH: Storage-Key aufs gewaehlte Objekt umschalten — sonst schreibt
+       persist() weiter in den Key des Boot-Objekts (Daten landen im falschen
+       Projekt) — und den neuen per-Objekt-Key nachladen, BEVOR gelesen wird. */
+    if(typeof GemaObjekte!=='undefined'&&GemaObjekte.setActiveId)GemaObjekte.setActiveId(sel.value||'');
+    _sk=(typeof GemaObjekte!=='undefined')?GemaObjekte.storageKey('gema_niederschlagsanfall_v1'):'gema_niederschlagsanfall_v1';
+    var _apply=function(){if(typeof _objReload==='function')_objReload();setTimeout(function(){if(typeof recalcRowsAll==='function')recalcRowsAll();},100);};
+    if(typeof _GemaDB!=='undefined'&&_GemaDB.ensure){_GemaDB.ensure([_sk]).then(_apply);}else{_apply();}
   }
   function toggleObjektInput(forceManual){
     var isManual=typeof forceManual==='boolean'?forceManual:document.getElementById('objComboManual').style.display==='none';

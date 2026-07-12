@@ -165,6 +165,16 @@
       modul:'einsatzplan',
       defaultOn:true
     },
+    goodel_neu: {
+      label:'Neue Terminabstimmung (Goodel)',
+      modul:'goodel',
+      defaultOn:true
+    },
+    goodel_abgestimmt: {
+      label:'Antwort auf meine Terminabstimmung',
+      modul:'goodel',
+      defaultOn:true
+    },
     abnahme_freigabe_anfrage: {
       label:'Abnahme zur Freigabe erhalten',
       modul:'abnahme',
@@ -354,6 +364,36 @@
     chat_nachricht: {
       label:'Neue Chat-Nachricht',
       modul:'chat',
+      defaultOn:true
+    },
+    schule_pruefung_geplant: {
+      label:'Prüfung aufgeschaltet',
+      modul:'schule',
+      defaultOn:true
+    },
+    schule_pruefung_erinnerung: {
+      label:'Erinnerung vor Prüfungsbeginn',
+      modul:'schule',
+      defaultOn:true
+    },
+    schule_abgabe_eingegangen: {
+      label:'Prüfungs-Abgabe eingegangen (Dozent)',
+      modul:'schule',
+      defaultOn:true
+    },
+    schule_resultate_publiziert: {
+      label:'Prüfungs-Resultate veröffentlicht',
+      modul:'schule',
+      defaultOn:true
+    },
+    schule_lernmittel_neu: {
+      label:'Neues Lernmittel in der Klasse',
+      modul:'schule',
+      defaultOn:true
+    },
+    schule_klasse_beitritt: {
+      label:'Neues Klassenmitglied (Dozent)',
+      modul:'schule',
       defaultOn:true
     }
   };

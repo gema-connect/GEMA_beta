@@ -250,6 +250,9 @@ body::before{
     <div style="text-align:center;margin-top:14px">
       <button onclick="_showRegister()" style="background:none;border:none;color:var(--accent);font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">Noch kein Konto? Jetzt registrieren →</button>
     </div>
+    <div style="text-align:center;margin-top:6px">
+      <button onclick="_showStudent()" style="background:none;border:none;color:#0f766e;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">🎓 Studierende: Mit Klassencode registrieren</button>
+    </div>
     <div class="login-footer">GEMA Engineering Suite · Geschützter Bereich</div>
   </div>
 
@@ -335,6 +338,31 @@ body::before{
     </div>
   </div>
 
+  <!-- Studierenden-Registrierung mit Klassencode (hidden) -->
+  <div id="studentView" style="display:none">
+    <div style="padding:24px 32px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+        <button onclick="_showLogin()" style="border:none;background:none;cursor:pointer;font-size:16px;color:var(--muted)">←</button>
+        <h3 style="font-size:17px;font-weight:900;margin:0">🎓 Klasse beitreten</h3>
+      </div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:16px">Registriere dich mit dem Klassencode deines Dozenten.</div>
+
+      <div class="reg-fg">
+        <label class="login-label">Klassencode *</label>
+        <input class="login-input" id="studCode" placeholder="z.B. K7M2XA" maxlength="10" autocomplete="off"
+               style="text-transform:uppercase;letter-spacing:3px;font-weight:800;text-align:center"/>
+      </div>
+      <div id="studKlasseInfo" style="display:none;margin-bottom:12px;padding:9px 12px;border-radius:var(--r-sm);background:#f0fdfa;border:1px solid #99f6e4;color:#0f766e;font-size:12.5px;font-weight:700"></div>
+      <div class="reg-fg"><label class="login-label">Vor- und Nachname *</label><input class="login-input" id="studName" placeholder="Max Muster"/></div>
+      <div class="reg-fg"><label class="login-label">E-Mail *</label><input class="login-input" id="studEmail" type="email" placeholder="max@mail.ch"/></div>
+      <div class="reg-fg"><label class="login-label">Passwort *</label><input class="login-input" id="studPw" type="password" placeholder="Mindestens 6 Zeichen"/></div>
+      <div class="reg-fg"><label class="login-label">Passwort bestätigen *</label><input class="login-input" id="studPw2" type="password" placeholder="Passwort wiederholen"/></div>
+      <button id="studSubmit" onclick="_studSubmit()" style="width:100%;padding:11px;border-radius:var(--r-sm);border:none;background:#0f766e;color:#fff;font-size:13.5px;font-weight:700;cursor:pointer;font-family:inherit;margin-top:6px">✓ Registrieren & Klasse beitreten</button>
+      <div style="font-size:11px;color:var(--muted);margin-top:10px;text-align:center">Bereits ein GEMA-Konto? Einfach E-Mail + bestehendes Passwort eingeben — du wirst der Klasse hinzugefügt.</div>
+      <div id="studError" style="display:none;margin-top:10px;padding:8px 12px;border-radius:var(--r-sm);background:var(--red-bg);border:1px solid #fecaca;color:var(--red);font-size:12px;font-weight:600;text-align:center"></div>
+    </div>
+  </div>
+
 </div>
 
 <style>
@@ -410,6 +438,15 @@ body::before{
     return;
   }
 
+  // Klassen-Einladungslink (?klasse=CODE): ohne Session direkt die
+  // Studierenden-Registrierung öffnen; mit Session den Code stashen —
+  // ab_klassen.html bietet dann den Beitritt mit bestehendem Konto an.
+  var klassenCode=params.get('klasse')||'';
+  if(klassenCode&&s){
+    try{sessionStorage.setItem('gema_klasse_join',klassenCode.toUpperCase());}catch(e){}
+    redirect='ab_klassen.html';
+  }
+
   if(s){
     var user = GemaAuth.getCurrentUser();
     document.getElementById('loggedInView').style.display='';
@@ -419,6 +456,8 @@ body::before{
         'Du bist als "'+user.name+'" angemeldet.';
     }
     document.getElementById('continueBtn').onclick=function(){location.href=redirect;};
+  } else if(klassenCode){
+    _showStudent(klassenCode);
   }
 
   function doLogin(){
@@ -490,6 +529,7 @@ function _showLogin(){
   document.getElementById('loginForm').style.display='';
   var _tb2=document.getElementById('trialBanner');if(_tb2)_tb2.style.display='';
   document.getElementById('registerView').style.display='none';
+  document.getElementById('studentView').style.display='none';
 }
 function _regGoTo(step){
   _regStep=step;
@@ -594,6 +634,136 @@ function _regSubmit(){
   }catch(e){_regErr('Fehler: '+e.message);}
 }
 window._showRegister=_showRegister;window._showLogin=_showLogin;window._regNext=_regNext;window._regPrev=_regPrev;window._regSubmit=_regSubmit;
+
+// ── Studierenden-Registrierung mit Klassencode ──
+function _showStudent(code){
+  document.getElementById('loginCard').querySelector('.login-hd').style.display='none';
+  document.getElementById('loginForm').style.display='none';
+  document.getElementById('loginSuccess').style.display='none';
+  var _tb3=document.getElementById('trialBanner');if(_tb3)_tb3.style.display='none';
+  document.getElementById('registerView').style.display='none';
+  document.getElementById('studentView').style.display='';
+  if(code){
+    document.getElementById('studCode').value=String(code).toUpperCase();
+    _studCodeCheck();
+  }
+}
+function _studErr(msg){var el=document.getElementById('studError');el.textContent=msg;el.style.display=msg?'':'none';}
+var _studCodeTimer=null;
+// Klassen-Lookup (zeigt VOR der Registrierung, welcher Klasse man beitritt)
+function _studCodeCheck(){
+  var code=document.getElementById('studCode').value.trim().toUpperCase();
+  var info=document.getElementById('studKlasseInfo');
+  info.style.display='none';
+  if(code.length<4)return;
+  var fnUrl=(window.GemaSync&&GemaSync.authFnUrl)||'/.netlify/functions/gema-auth';
+  fetch(fnUrl,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'class_info',code:code})})
+    .then(function(r){if(!r.ok)throw 0;return r.json();})
+    .then(function(j){
+      if(j&&j.ok&&j.klasse){
+        info.textContent='✓ '+(j.klasse.org?j.klasse.org+' — ':'')+j.klasse.name+(j.klasse.lehrgang?' · '+j.klasse.lehrgang:'');
+        info.style.display='';
+      }
+    })
+    .catch(function(){
+      // Function nicht deployed → Fallback: Klassen-Pool direkt lesen
+      try{
+        if(window.GemaSync&&GemaSync.loadCollection){
+          GemaSync.loadCollection('schule','sklasse:').then(function(rows){
+            var norm=code.replace(/[^A-Z0-9]/g,'');
+            var k=(rows||[]).map(function(r){return r.data;}).find(function(x){
+              return x&&!x.archiviert&&String(x.code||'').toUpperCase().replace(/[^A-Z0-9]/g,'')===norm;
+            });
+            if(k){info.textContent='✓ '+k.name+(k.lehrgang?' · '+k.lehrgang:'');info.style.display='';}
+          }).catch(function(){});
+        }
+      }catch(e){}
+    });
+}
+document.getElementById('studCode').addEventListener('input',function(){
+  clearTimeout(_studCodeTimer);
+  _studCodeTimer=setTimeout(_studCodeCheck,450);
+});
+
+function _studSubmit(){
+  var code=document.getElementById('studCode').value.trim().toUpperCase();
+  var name=document.getElementById('studName').value.trim();
+  var email=document.getElementById('studEmail').value.trim().toLowerCase();
+  var pw=document.getElementById('studPw').value;
+  var pw2=document.getElementById('studPw2').value;
+  _studErr('');
+  if(!code){_studErr('Bitte Klassencode eingeben.');return;}
+  if(!name||!email){_studErr('Name und E-Mail sind Pflichtfelder.');return;}
+  if(pw.length<6){_studErr('Passwort muss mindestens 6 Zeichen haben.');return;}
+  if(pw!==pw2){_studErr('Passwörter stimmen nicht überein.');return;}
+  var btn=document.getElementById('studSubmit');
+  btn.disabled=true;btn.textContent='Registrieren …';
+  function done(userId,exp,token,klasseName){
+    localStorage.setItem('gema_session_v1',JSON.stringify({userId:userId,expires:exp,token:token||'',tokenExp:exp,remember:true}));
+    document.getElementById('studentView').style.display='none';
+    document.getElementById('loginCard').querySelector('.login-hd').style.display='';
+    document.getElementById('loginSuccess').style.display='';
+    document.getElementById('successTxt').textContent='Willkommen'+(klasseName?' in der Klasse «'+klasseName+'»':'')+', '+name+'!';
+    setTimeout(function(){location.href='ab_klassen.html';},1200);
+  }
+  function fail(msg){
+    btn.disabled=false;btn.textContent='✓ Registrieren & Klasse beitreten';
+    _studErr(msg||'Registrierung fehlgeschlagen.');
+  }
+  var fnUrl=(window.GemaSync&&GemaSync.authFnUrl)||'/.netlify/functions/gema-auth';
+  fetch(fnUrl,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'register_student',code:code,name:name,email:email,password:pw})})
+    .then(function(r){if(r.status===404)throw {fnMissing:true};return r.json().catch(function(){return {};}).then(function(j){return {status:r.status,j:j};});})
+    .then(function(res){
+      if(res.j&&res.j.ok&&res.j.token){
+        done(res.j.user.id,res.j.exp,res.j.token,res.j.klasse?res.j.klasse.name:'');
+        return;
+      }
+      if(res.status===500&&res.j&&/nicht konfiguriert/i.test(res.j.error||''))throw {fnMissing:true};
+      fail(res.j&&res.j.error);
+    })
+    .catch(function(e){
+      if(!e||!e.fnMissing){fail('Netzwerkfehler — bitte erneut versuchen.');return;}
+      // Legacy-Fallback (Function nicht deployed, RLS noch aus):
+      // Klasse direkt suchen, User client-seitig anlegen, Beitritt schreiben.
+      try{
+        if(!(window.GemaSync&&GemaSync.loadCollection)){fail('Cloud nicht erreichbar.');return;}
+        GemaSync.loadCollection('schule','sklasse:').then(function(rows){
+          var norm=code.replace(/[^A-Z0-9]/g,'');
+          var klasse=(rows||[]).map(function(r){return r.data;}).find(function(x){
+            return x&&!x.archiviert&&String(x.code||'').toUpperCase().replace(/[^A-Z0-9]/g,'')===norm;
+          });
+          if(!klasse){fail('Klassencode ungültig.');return;}
+          var users=GemaAuth.getUsers()||[];
+          var exists=users.find(function(u){
+            return u&&((u.username&&u.username.toLowerCase()===email)||(u.profile&&u.profile.email&&u.profile.email.toLowerCase()===email));
+          });
+          var uid;
+          if(exists){
+            // Bestehendes Konto: Login prüfen, dann nur Klassen-Beitritt
+            var lu=GemaAuth.login(email,pw);
+            if(!lu){fail('E-Mail bereits registriert — Passwort stimmt nicht.');return;}
+            uid=exists.id;
+          }else{
+            uid='user_stud_'+Date.now();
+            users.push({
+              id:uid,username:email,name:name,
+              password:GemaAuth.hashPassword?GemaAuth.hashPassword(pw):pw,
+              roleIds:['role_student'],orgId:klasse.orgId,active:true,
+              profile:{email:email,person:name},createdAt:new Date().toISOString()
+            });
+            GemaAuth.saveUsers(users);
+            GemaAuth.login(email,pw);
+          }
+          klasse.studentIds=klasse.studentIds||[];
+          if(klasse.studentIds.indexOf(uid)<0)klasse.studentIds.push(uid);
+          GemaSync.saveRecord('schule','sklasse:'+klasse.id,klasse).catch(function(){});
+          var exp=new Date();exp.setDate(exp.getDate()+30);
+          done(uid,exp.toISOString(),'',klasse.name);
+        }).catch(function(){fail('Cloud nicht erreichbar.');});
+      }catch(err){fail('Fehler: '+err.message);}
+    });
+}
+window._showStudent=_showStudent;window._studSubmit=_studSubmit;window._studCodeCheck=_studCodeCheck;
 </script>
 <script src="gema_mobile_menu.js"></script>
 <script src="gema_adresse.js"></script>

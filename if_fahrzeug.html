@@ -2180,16 +2180,21 @@ function _fzIsMagaziner(){var u=_fzGetUser();return u&&u.roleIds&&u.roleIds.inde
 function _fzIsGaragist(){var u=_fzGetUser();return u&&u.roleIds&&u.roleIds.indexOf('role_garagist')>=0;}
 function _fzIsMonteur(){var u=_fzGetUser();return !!(u&&u.roleIds&&u.roleIds.indexOf('role_monteur')>=0);}
 function _fzCanEdit(){
+  // Monteur ist HARD-LOCKED (analog _wzCanEdit in if_werkzeug): selbst
+  // wenn ein Admin der Monteur-Rolle 'write' auf fahrzeugmanagement
+  // vergibt ODER der Monteur zusaetzlich Org-Admin ist, bleibt Bearbeiten
+  // gesperrt — der Monteur darf nur Defekt melden und auf sich selbst
+  // ausleihen/zurueckgeben. Edit-Rechte gibt's nur ueber Admin-, Magaziner-
+  // oder Garagist-Rolle.
+  // KRITISCH — diese Pruefung MUSS zuerst stehen: der _fzCanSettings()-
+  // Kurzschluss (Org-Admin) bzw. der GemaAuth.can('admin')-Pfad liessen einen
+  // Monteur sonst durch, bevor die Sperre greift (Divergenz zu if_werkzeug,
+  // das Monteur ebenfalls als erste Zeile sperrt).
+  if(_fzIsMonteur())return false;
   if(_fzIsAdmin()||_fzIsMagaziner()||_fzCanSettings())return true;
   // Garagist darf zugewiesene Fahrzeuge oeffnen; die Feld-Restriktionen
   // greifen via _fzApplyGaragistRestrictions im Formular.
   if(_fzIsGaragist())return true;
-  // Monteur ist HARD-LOCKED (analog _wzCanEdit in if_werkzeug): selbst
-  // wenn ein Admin der Monteur-Rolle 'write' auf fahrzeugmanagement
-  // vergibt, bleibt Bearbeiten gesperrt — der Monteur darf nur Defekt
-  // melden und auf sich selbst ausleihen/zurueckgeben. Edit-Rechte
-  // gibt's nur ueber Admin-, Magaziner- oder Garagist-Rolle.
-  if(_fzIsMonteur())return false;
   try{if(typeof GemaAuth!=='undefined'&&typeof GemaAuth.can==='function'){
     if(GemaAuth.can('write','fahrzeugmanagement')||GemaAuth.can('admin','fahrzeugmanagement'))return true;
   }}catch(e){}

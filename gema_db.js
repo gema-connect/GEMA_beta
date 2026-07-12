@@ -193,6 +193,42 @@
     },
 
     /**
+     * Fehlende data_keys des AKTUELLEN Moduls in den Cache nachladen.
+     * KRITISCH fuer per-Objekt-Keys (BASE__<objektId>): init() laedt nur
+     * die beim Boot angefragten Keys — wechselt der Nutzer das Objekt zur
+     * Laufzeit, MUSS der neue Key vor dem Lesen nachgeladen werden, sonst
+     * liest das Modul ins Leere und wirkt leer, obwohl Cloud-Daten da sind.
+     * Bereits gecachte Keys werden nicht erneut geladen (kein Ueberschreiben
+     * ungespeicherter lokaler Aenderungen).
+     */
+    async ensure(dataKeys) {
+      if (!_module || !Array.isArray(dataKeys)) return;
+      const missing = dataKeys.filter(k => k && !(k in _cache));
+      if (!missing.length) return;
+      try {
+        const csv = missing.map(k => `"${k}"`).join(',');
+        const url =
+          `${_sbBase()}/rest/v1/${TABLE}` +
+          `?module_key=eq.${encodeURIComponent(_module)}` +
+          `&data_key=in.(${csv})` +
+          `&select=data_key,payload`;
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 4000);
+        const r = await fetch(url, { headers: hdrs(), signal: controller.signal });
+        clearTimeout(timeoutId);
+        if (!r.ok) return;
+        const rows = await r.json();
+        rows.forEach(row => {
+          if (!(row.data_key in _cache)) {
+            _cache[row.data_key] = (row.payload && row.payload.v != null) ? row.payload.v : null;
+          }
+        });
+      } catch (e) {
+        console.warn('[GemaDB] ensure Fehler:', e.message);
+      }
+    },
+
+    /**
      * Wert in einem ANDEREN Modul lesen (direkt aus Supabase, kein Cache).
      * Wird z.B. von gema_feedback.js genutzt um bestehende Einträge zu lesen.
      */
