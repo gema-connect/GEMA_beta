@@ -619,7 +619,10 @@ function fixLeadingZero(el){
 <script>
 
 (async() => {
-if(typeof _GemaDB!=='undefined'){try{await _GemaDB.init('elektroangaben', ['elektroangaben_gema_v2', 'elektroangaben_meta_v2']);}catch(e){console.warn('GemaDB:',e);}}
+/* KRITISCH: Positionen + Meta sind neu PRO OBJEKT gespeichert — der
+   flache Key war global über alle Organisationen/Projekte geteilt
+   (gegenseitiges Überschreiben). Flache Keys bleiben Lese-Fallback. */
+if(typeof _GemaDB!=='undefined'){try{await _GemaDB.init('elektroangaben', [...new Set(['elektroangaben_gema_v2', 'elektroangaben_meta_v2'].flatMap(function(b){var oid='';try{oid=(typeof GemaObjekte!=='undefined'&&GemaObjekte.getActiveId)?(GemaObjekte.getActiveId()||''):'';}catch(e){}return oid?[b,b+'__'+oid]:[b];}))]);}catch(e){console.warn('GemaDB:',e);}}
 
   const $ = id => document.getElementById(id);
   const SK = 'elektroangaben_gema_v2';
@@ -634,10 +637,25 @@ if(typeof _GemaDB!=='undefined'){try{await _GemaDB.init('elektroangaben', ['elek
   const GLIST = ['UG 5','UG 4','UG 3','UG 2','UG 1','EG','1.OG','2.OG','3.OG','4.OG','5.OG','6.OG','7.OG','8.OG','9.OG','10.OG','DG','Dach','Technikgeschoss','Technikraum'];
   $('geschoss').innerHTML = '<option value="">–</option>' + GLIST.map(g=>`<option>${g}</option>`).join('');
 
-  /* ── PERSIST ── */
-  function load(){ try{ items=JSON.parse(typeof _GemaDB!=="undefined"&&_GemaDB.c?_GemaDB.c[SK]||'[]':'[]'); if(!Array.isArray(items))items=[]; }catch{ items=[]; } }
+  /* ── PERSIST (pro Objekt: BASE__<objektId>, Fallback flacher Key) ── */
+  let _prevOid = (function(){ try{ return (typeof GemaObjekte!=='undefined'&&GemaObjekte.getActiveId)?(GemaObjekte.getActiveId()||''):''; }catch(e){ return ''; } })();
+  function _elKey(base, oid){
+    if(oid===undefined){
+      var sel=document.getElementById('metaObjektDropdown');
+      oid=(sel&&sel.value)?sel.value:_prevOid;
+    }
+    return oid?(base+'__'+oid):base;
+  }
+  function _elRead(base){
+    if(typeof _GemaDB==='undefined'||!_GemaDB.c) return null;
+    var k=_elKey(base);
+    var r=(_GemaDB.c[k]!=null)?_GemaDB.c[k]:null;
+    if(r==null && k!==base) r=(_GemaDB.c[base]!=null)?_GemaDB.c[base]:null;
+    return r;
+  }
+  function load(){ try{ items=JSON.parse(_elRead(SK)||'[]'); if(!Array.isArray(items))items=[]; }catch{ items=[]; } }
   function loadMeta(){
-    try{ const m=JSON.parse(typeof _GemaDB!=="undefined"&&_GemaDB.c?_GemaDB.c[MK]||'null':'null');
+    try{ const m=JSON.parse(_elRead(MK)||'null');
       if(m){ $('project').value=m.project||''; $('phase').value=m.phase||'';
         if(m.bearbeiter&&document.getElementById('metaBearbeiter'))document.getElementById('metaBearbeiter').value=m.bearbeiter;
         if(m.datum&&document.getElementById('metaDatum'))document.getElementById('metaDatum').value=m.datum;
@@ -649,13 +667,13 @@ if(typeof _GemaDB!=='undefined'){try{await _GemaDB.init('elektroangaben', ['elek
     // Objekt-Dropdown befüllen
     _populateObjektDropdown();
   }
-  function persist(){
-    try{if(typeof _GemaDB!=="undefined")_GemaDB.save(SK,JSON.stringify(items));}catch(e){}
+  function persist(oidOverride){
+    try{if(typeof _GemaDB!=="undefined")_GemaDB.save(_elKey(SK,oidOverride),JSON.stringify(items));}catch(e){}
     var metaObj={project:$('project').value.trim(),phase:$('phase').value};
     var be=document.getElementById('metaBearbeiter');if(be)metaObj.bearbeiter=be.value;
     var da=document.getElementById('metaDatum');if(da)metaObj.datum=da.value;
     var od=document.getElementById('metaObjektDropdown');if(od)metaObj.objektId=od.value;
-    try{if(typeof _GemaDB!=="undefined")_GemaDB.save(MK,JSON.stringify(metaObj));}catch(e){}
+    try{if(typeof _GemaDB!=="undefined")_GemaDB.save(_elKey(MK,oidOverride),JSON.stringify(metaObj));}catch(e){}
   }
   function _populateObjektDropdown(){
     var sel=document.getElementById('metaObjektDropdown');if(!sel||typeof GemaObjekte==='undefined')return;
@@ -669,8 +687,16 @@ if(typeof _GemaDB!=='undefined'){try{await _GemaDB.init('elektroangaben', ['elek
   }
   window.onObjektSelect=function(){
     var sel=document.getElementById('metaObjektDropdown');
-    if(sel&&sel.value&&typeof GemaObjekte!=='undefined')GemaObjekte.setActiveId(sel.value);
-    persist();
+    var newOid=sel?sel.value:'';
+    // Stand des VORHERIGEN Objekts unter dessen Key sichern — sonst
+    // würden die alten Positionen ins neue Objekt kopiert
+    persist(_prevOid);
+    if(newOid&&typeof GemaObjekte!=='undefined')GemaObjekte.setActiveId(newOid);
+    _prevOid=newOid;
+    var apply=function(){ load(); renderTable(); updateStats(); updateAnlageFilter(); };
+    var keys=[_elKey(SK,newOid),_elKey(MK,newOid)];
+    if(typeof _GemaDB!=='undefined'&&_GemaDB.ensure){ _GemaDB.ensure(keys).then(apply); }
+    else apply();
   };
 
   /* ── TOAST ── */

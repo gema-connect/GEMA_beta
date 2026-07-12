@@ -792,6 +792,10 @@ const INITIAL_QUESTIONS = [
 const SK_QUIZ    = 'gema_quiz_v1';
 const SK_COMMQ   = 'gema_quiz_community_v1';
 const SK_SCORES  = 'gema_quiz_scores_v1';
+/* Spielverlauf pro User (KRITISCH): der flache Scores-Key war EIN globaler
+   Blob ueber ALLE User/Orgs — jeder Quiz-Abschluss ueberschrieb die Historie
+   der anderen (Last-Write-Wins). Flacher Key nur noch Lese-Fallback. */
+const _scoresKey = () => {try{const u=(typeof GemaAuth!=='undefined')&&GemaAuth.getCurrentUser&&GemaAuth.getCurrentUser();return (u&&u.id)?SK_SCORES+'__user_'+u.id:SK_SCORES;}catch(e){return SK_SCORES;}};
 
 let _isAdmin = false;
 let _currentUser = null;
@@ -804,9 +808,17 @@ let scores = [];       // play history
 function loadState() {
   try {
     if (typeof _GemaDB !== 'undefined' && _GemaDB.c) {
-      if (_GemaDB.c[SK_QUIZ])   officialQ   = JSON.parse(_GemaDB.c[SK_QUIZ]);
-      if (_GemaDB.c[SK_COMMQ])  communityQ  = JSON.parse(_GemaDB.c[SK_COMMQ]);
-      if (_GemaDB.c[SK_SCORES]) scores      = JSON.parse(_GemaDB.c[SK_SCORES]);
+      if (_GemaDB.c[SK_QUIZ]) officialQ = JSON.parse(_GemaDB.c[SK_QUIZ]);
+      const sc = _GemaDB.c[_scoresKey()] ?? _GemaDB.c[SK_SCORES];
+      if (sc) scores = JSON.parse(sc);
+    }
+  } catch(e) {}
+  // Community-Fragen: per-Record-Pool via GemaSync (Cache-Key = alter Blob-Key
+  // → bindCollection migriert die Legacy-Blob-Row automatisch)
+  try {
+    if (typeof GemaSync !== 'undefined' && GemaSync.getCached) {
+      const cq = GemaSync.getCached(SK_COMMQ);
+      if (Array.isArray(cq) && cq.length) communityQ = cq;
     }
   } catch(e) {}
   // Fallback localStorage
@@ -819,12 +831,31 @@ function loadState() {
   if (!officialQ.length) officialQ = INITIAL_QUESTIONS.map(q => ({...q, source:'official'}));
 }
 
-function saveState() {
+/* Speichern — GEZIELT pro Datenart (KRITISCH): der alte saveState() schrieb
+   bei JEDER Aktion alle drei Blobs — zwei gleichzeitige Nutzer ueberschrieben
+   sich gegenseitig Community-Fragen und Spielverlauf (Last-Write-Wins).
+   - officialQ: globaler Admin-Blob, nur Admin-Aktionen schreiben ihn
+   - communityQ: org-uebergreifender Multi-Writer-Pool → NUR per-Record via
+     GemaSync.saveRecord (NIE das ganze Array / NIE persistCollection)
+   - scores: pro User (eigener Key) */
+function saveOfficial() {
   const js = JSON.stringify(officialQ);
-  const jc = JSON.stringify(communityQ);
-  const jsc= JSON.stringify(scores);
-  try { if (typeof _GemaDB !== 'undefined') { _GemaDB.save(SK_QUIZ, js); _GemaDB.save(SK_COMMQ, jc); _GemaDB.save(SK_SCORES, jsc); } } catch(e){}
-  try { localStorage.setItem(SK_QUIZ, js); localStorage.setItem(SK_COMMQ, jc); localStorage.setItem(SK_SCORES, jsc); } catch(e){}
+  try { if (typeof _GemaDB !== 'undefined') _GemaDB.save(SK_QUIZ, js); } catch(e){}
+  try { localStorage.setItem(SK_QUIZ, js); } catch(e){}
+}
+function saveScores() {
+  const jsc = JSON.stringify(scores);
+  try { if (typeof _GemaDB !== 'undefined') _GemaDB.save(_scoresKey(), jsc); } catch(e){}
+  try { localStorage.setItem(SK_SCORES, jsc); } catch(e){}
+}
+function saveCommQ(entry) {
+  if (!entry || !entry.id) return;
+  try {
+    if (typeof GemaSync !== 'undefined' && GemaSync.saveRecord) {
+      GemaSync.saveRecord('quiz', 'quizq:' + entry.id, entry).catch(()=>{});
+    }
+  } catch(e){}
+  try { localStorage.setItem(SK_COMMQ, JSON.stringify(communityQ)); } catch(e){}
 }
 
 // ══════════════════════════════════════════════
@@ -1125,7 +1156,7 @@ function showResult() {
   // Save score
   scores.unshift({ topic: quizTopic, diff: quizDiff, score: quizScore, total, pct, ts: nowStr() });
   if (scores.length > 50) scores.pop();
-  saveState();
+  saveScores();
   updateStats();
 }
 
@@ -1239,7 +1270,7 @@ function submitCommunityQuestion() {
     entry.correct = opts.correct;
   }
   communityQ.push(entry);
-  saveState();
+  saveCommQ(entry);
   // Reset form
   ['cq_topic','cq_question','cq_answer'].forEach(id => document.getElementById(id).value='');
   document.getElementById('mcOpts_comm').innerHTML='';
@@ -1295,7 +1326,7 @@ function renderAdmin() {
 
 function setCQStatus(idx, status) {
   communityQ[idx].status = status;
-  saveState();
+  saveCommQ(communityQ[idx]);
   renderAdmin();
   renderCommunity();
   updateStats();
@@ -1305,7 +1336,7 @@ function setCQStatus(idx, status) {
 function deleteOfficialQ(id) {
   if (!confirm('Frage wirklich löschen?')) return;
   officialQ = officialQ.filter(q=>q.id!==id);
-  saveState();
+  saveOfficial();
   renderAdmin();
   updateStats();
   toast('🗑 Frage gelöscht');
@@ -1367,7 +1398,7 @@ function saveQuestion() {
     entry.id = uid();
     officialQ.push(entry);
   }
-  saveState();
+  saveOfficial();
   closeModal();
   renderAdmin();
   renderTopicCards();
@@ -1444,9 +1475,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('tabAdmin').style.display    = '';
   }
 
-  // Load DB
-  if (typeof _GemaDB !== 'undefined') {
-    try { await Promise.race([_GemaDB.init('quiz',[SK_QUIZ,SK_COMMQ,SK_SCORES]), new Promise(r=>setTimeout(r,5000))]); } catch(e){}
+  // Load DB — officialQ + scores via _GemaDB (Blob), Community-Fragen als
+  // per-Record-Pool via GemaSync (Cache-Key = alter Blob-Key → Auto-Migration)
+  const boots = [];
+  if (typeof _GemaDB !== 'undefined') boots.push(_GemaDB.init('quiz', [...new Set([SK_QUIZ, SK_SCORES, _scoresKey()])]));
+  if (typeof GemaSync !== 'undefined' && GemaSync.bindCollection) boots.push(GemaSync.bindCollection('quiz', SK_COMMQ, 'quizq:', 'id'));
+  if (boots.length) {
+    try { await Promise.race([Promise.all(boots), new Promise(r=>setTimeout(r,5000))]); } catch(e){}
   }
 
   loadState();

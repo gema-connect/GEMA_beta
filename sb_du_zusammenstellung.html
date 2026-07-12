@@ -1057,7 +1057,14 @@ document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('du_z
   function onObjektSelect(){
     var sel=document.getElementById('metaObjektDropdown'),inp=document.getElementById('metaProjekt');if(!sel||!inp)return;
     if(sel.value&&typeof GemaObjekte!=='undefined'){var o=GemaObjekte.getAll().find(function(x){return x.id===sel.value;});if(o){var p=[o.name];if(o.strasse)p.push(o.strasse);if(o.plz||o.ort)p.push([o.plz,o.ort].filter(Boolean).join(' '));inp.value=p.join(', ');}}else{inp.value='';}
-    _prevObjektId=sel.value;saveMeta();loadSaved();setTimeout(function(){if(typeof calc==='function')calc();},100);
+    _prevObjektId=sel.value;saveMeta();
+    /* KRITISCH: Storage-Key aufs gewaehlte Objekt umschalten — sonst schreibt
+       persist() weiter in den Key des Boot-Objekts (Daten landen im falschen
+       Projekt) — und den neuen per-Objekt-Key nachladen, BEVOR gelesen wird. */
+    if(typeof GemaObjekte!=='undefined'&&GemaObjekte.setActiveId)GemaObjekte.setActiveId(sel.value||'');
+    _sk=(typeof GemaObjekte!=='undefined')?GemaObjekte.storageKey('gema_du'):'gema_du';
+    var _apply=function(){loadSaved();setTimeout(function(){if(typeof calc==='function')calc();},100);};
+    if(typeof _GemaDB!=='undefined'&&_GemaDB.ensure){_GemaDB.ensure([_sk]).then(_apply);}else{_apply();}
   }
   function toggleObjektInput(f){
     var m=typeof f==='boolean'?f:document.getElementById('objComboManual').style.display==='none';

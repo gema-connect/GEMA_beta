@@ -922,7 +922,18 @@ const toast = (msg) => {
 };
 
 // ── INIT ──────────────────────────────────────────────────────
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+  // KRITISCH: Ohne _GemaDB.init war die Cloud-Persistenz komplett tot —
+  // save() flusht nur mit gesetztem Modul-Kontext, und der Lese-Cache
+  // blieb leer. Die Checkliste überlebte damit keinen Reload.
+  if(typeof _GemaDB!=='undefined'){
+    try{
+      await Promise.race([
+        _GemaDB.init('baustellencheckliste', [...new Set(['baustellencheckliste_v1', SK])]),
+        new Promise((_,r)=>setTimeout(()=>r('timeout'),4000))
+      ]);
+    }catch(e){ console.warn('GemaDB:', e); }
+  }
   initSig();
   // set today as default date
   if(!state.datum) document.getElementById('datum').value = new Date().toISOString().split('T')[0];

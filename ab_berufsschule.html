@@ -652,9 +652,13 @@ function fixLeadingZero(el){
 <script src="gema_autosave.js"></script>
 <script>
 (async () => {
-  if(typeof _GemaDB!=='undefined'){try{await _GemaDB.init('berufsschule', ['gema_berufsschule_v1']);}catch(e){console.warn('GemaDB:',e);}}
-
   const KEY = 'gema_berufsschule_v1';
+  /* Org-Scoping (KRITISCH): der flache Key war EIN globaler Blob ueber ALLE
+     Organisationen — Betrieb A ueberschrieb beim Speichern die Berufsschul-
+     Daten von Betrieb B (Last-Write-Wins). Gespeichert wird nur noch der
+     Org-Key; der flache Key bleibt Lese-Fallback fuer Altdaten. */
+  const _keyOrg = () => {try{const u=(typeof GemaAuth!=='undefined')&&GemaAuth.getCurrentUser&&GemaAuth.getCurrentUser();return (u&&u.orgId)?KEY+'__org_'+u.orgId:KEY;}catch(e){return KEY;}};
+  if(typeof _GemaDB!=='undefined'){try{await _GemaDB.init('berufsschule', [...new Set([KEY,_keyOrg()])]);}catch(e){console.warn('GemaDB:',e);}}
   const uid = () => Math.random().toString(36).slice(2,9) + Date.now().toString(36);
   const $ = id => document.getElementById(id);
   const esc = s => String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
@@ -677,9 +681,9 @@ function fixLeadingZero(el){
   let state = { lernende:[], faecher:[], noten:[], absenzen:[], stundenplan:[] };
 
   /* ── PERSIST ── */
-  function save() { if(typeof _GemaDB!=='undefined') _GemaDB.save(KEY, JSON.stringify(state)); }
+  function save() { if(typeof _GemaDB!=='undefined') _GemaDB.save(_keyOrg(), JSON.stringify(state)); }
   function load() {
-    const raw = (typeof _GemaDB!=="undefined"&&_GemaDB.c)?(_GemaDB.c[KEY]??null):null;
+    const raw = (typeof _GemaDB!=="undefined"&&_GemaDB.c)?(_GemaDB.c[_keyOrg()]??_GemaDB.c[KEY]??null):null;
     if(!raw) return;
     try { const s = JSON.parse(raw); if(s && typeof s === 'object') state = {...state,...s}; } catch(e){}
   }
