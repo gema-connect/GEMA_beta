@@ -165,6 +165,16 @@
       modul:'einsatzplan',
       defaultOn:true
     },
+    goodel_neu: {
+      label:'Neue Terminabstimmung (Goodel)',
+      modul:'goodel',
+      defaultOn:true
+    },
+    goodel_abgestimmt: {
+      label:'Antwort auf meine Terminabstimmung',
+      modul:'goodel',
+      defaultOn:true
+    },
     abnahme_freigabe_anfrage: {
       label:'Abnahme zur Freigabe erhalten',
       modul:'abnahme',

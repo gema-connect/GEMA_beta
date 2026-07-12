@@ -1384,6 +1384,18 @@ Bauzeitenplan mit frappe-gantt 0.6.1 (CDN) + eigener Header-/Grid-Overlay-Zeichn
 - **Gebrandeter PDF-Export** (`exportPDF`, async): Header-Band in Firmenfarbe mit weissem **Logo-Chip** (`org.logoVector||org.logo`, Canvas-Raster als JPEG — PNG bettete jsPDF unkomprimiert ein, ~2 MB), Sekundärfarbe als Akzentstreifen; `_tpPdfBrand()` mit denselben Kontrastschutz-Helfern wie gema_schaden_pdf (`_tpDarkenForWhiteBg` ≥ 4.5:1, `_tpMixWhite`-Tint für Zebra/Bemerkung); ohne Branding GEMA-Blau, ohne Logo kein Chip. Tabelle mit **Status-Spalte** (farbig), CH-Datumsformat überall, Fusszeile (Org · Terminplan · Seite) auf allen Seiten. **jsPDF-Standardfonts sind latin1** — ◆/●/⚠/✓ enden als «%Æ»-Müll: Meilensteine werden als Rauten GEZEICHNET, Status als Klartext. Monatslabel nur wenn das Monats-Segment breit genug ist (sonst überlappten «Jun/Jul» am Chartanfang).
 - **Layout-Fixes**: `.app-shell` rechnet mit der globalen 72px-Nav (+ Safe-Area, `100dvh`-Variante) statt 52px; Mobile ≤900px öffnet die Sidebar als Overlay (`mobile-open` + `#sbBackdrop`) — der Toggle schaltete früher nur `collapsed` (auf dem Handy wirkungslos, Sidebar war unerreichbar). Eindeutige PDF-Button-IDs (`btnPDF`/`btnPDFSettings`/`navBtnPDF`, früher doppeltes `id="btnPDF"`). JSON-Import erhält ALLE Felder (projektName/contractors/bemerkung/projectEnd gingen im Roundtrip verloren); Unternehmer sind Strings (Normalisierung in `loadState`). ICS/Export-Dateinamen via `getProjectName()`.
 
+## Goodel – Terminabstimmung (pm_goodel.html)
+
+Doodle-artige Terminabstimmung fürs Team (Umfrage mit Datums-/Zeit-Optionen + Ort, Ja/Vielleicht/Nein pro Teilnehmer, Favorit = meiste Ja-Stimmen).
+
+- **Storage per-Record + Org-Scoping (KRITISCH)**: moduleKey `goodel`, prefix `goodel:`, ein Record pro Umfrage mit `orgId` — Sicht auf die eigene Org gefiltert, Einzel-Saves via `GemaSync.saveRecord`/`deleteRecord` (nie das ganze Array). Früher lag ALLES in EINEM globalen Blob `gema_goodel_v1` ohne orgId: jede Organisation sah die Umfragen aller anderen und überschrieb sie beim Speichern (Last-Write-Wins). **Cache-Key = alter Blob-Key `gema_goodel_v1`** — `bindCollection('goodel','gema_goodel_v1','goodel:','id')` findet so die Legacy-Blob-Row und splittet sie automatisch in Records (orgId-lose Alt-Umfragen bleiben defensiv für alle sichtbar, bis der nächste Save sie der eigenen Org stempelt). Boot: Stale-while-revalidate (sofort aus Cache rendern, Spinner nur bei leerem Cache).
+- **Record**: `{id, orgId, title, desc, ort, created, erstelltVon:{userId,name}, options:[{date,time}] (chronologisch sortiert), participants:[{id,name,userId?,votes:['ja'|'nein'|'maybe'|null]}]}`. Ersteller im Karten-Footer.
+- **Abstimmen**: Name wird vom eingeloggten User vorbefüllt; hat er bereits geantwortet, öffnet «Abstimmen» automatisch den **Edit-Modus** seiner Antwort (Hinweis-Banner) — zusätzlich ✏️ pro Teilnehmer-Zeile (vorher gab es KEINEN Weg, eine Stimme zu ändern). Duplikat-Namen-Check nur für wirklich neue Namen.
+- **`gema-read-ok` auf allen Lösch-Buttons (KRITISCH)**: `gema_auth._applyUI` versteckt für Nicht-Admins pauschal `button[onclick*="Delete"]` — das traf hier Löschen UND Abbrechen/✕ der beiden Bestätigungs-Modals (race-abhängig, je nachdem ob der Sweep vor/nach dem Rendern lief). Goodel gated Erstellen/Löschen selbst über `GemaAuth.can('write','goodel')`, darum tragen 🗑/✕/Abbrechen/Löschen die Ausnahme-Klasse.
+- **XSS-Härtung**: `esc()` escapt auch `"` und `'` — Teilnehmernamen landen in onclick-/HTML-Attributen (ein Name wie «O'Brien» brach vorher das Attribut). Modal-Öffner erhalten nur noch IDs, Namen werden per Lookup aufgelöst. Leere Stimm-Zellen heissen `vote-btn leer` (nicht `empty` — Kollision mit der globalen Empty-State-Klasse blies die Zellen zu 80px-Blöcken auf).
+- **Notifikationen**: `goodel_neu` an die ganze Org (empfaengerOrgId) bei neuer Umfrage, `goodel_abgestimmt` an den Ersteller bei neuer Antwort; Deep-Link `pm_goodel.html?poll=<id>` scrollt zur Karte + Puls-Highlight.
+- Registriert: gema_auth (MODULES `goodel` cat Projektmanagement, FILE_MAP `pm_goodel`→`goodel` — vorher fälschlich auf `kostenkontrolle` gemappt; rw für Architekt/Unternehmer/Bauherrschaft/Monteur/Spengler/Magaziner, Planer via `_allPerms` + Permission-Backfill), gema_notify (2 Keys), index.html (`data-module="goodel"`), sw.js.
+
 ## Stundenerfassung GAV (pm_stunden.html)
 
 Mobile-first Arbeitszeiterfassung für Monteure (Handy-Format, grosse Touch-Ziele) mit GAV-konformen Zuschlägen und Freigabe-Workflow. **Zuschlags-/Spesen-Defaults in Anlehnung an den GAV der Gebäudetechnikbranche (suissetec), Region Nordwestschweiz** — alle Werte pro Org überschreibbar (`org.settings.stunden`, ⚙️-Modal mit explizitem Prüf-Hinweis; verbindlich ist immer der GAV-Text).
@@ -1932,6 +1944,8 @@ Zentrales Modul `gema_notify.js` für In-App-Benachrichtigungen. Glocke + Toast-
 | `regie_freigegeben` | regierapport | on |
 | `regie_abgelehnt` | regierapport | on |
 | `einsatz_geplant` | einsatzplan | on |
+| `goodel_neu` | goodel | on |
+| `goodel_abgestimmt` | goodel | on |
 | `abnahme_freigabe_anfrage` | abnahme | on |
 | `abnahme_freigabe_entscheid` | abnahme | on |
 | `abnahme_maengel_zugewiesen` | abnahme | on |
@@ -2259,6 +2273,7 @@ GemaSync.persistCollection(moduleKey, storageKey, prefix, 'id', arr)
 | Netto-Anfragen | `ausschreibung` | `ausna:` | `gema_ausna_pool_v1` |
 | Marktplatz-Offerten | `ausschreibung` | `ausmk:` | `gema_ausmk_pool_v1` |
 | Schnellausschreibungen | `schnellausschreibung` | `sa:` | `gema_sa_pool_v1` |
+| Goodel-Umfragen | `goodel` | `goodel:` | `gema_goodel_v1` (Cache-Key = alter Blob-Key, für die Auto-Migration) |
 | Armaturen-Katalog | `armaturen` | `arm:` | `gema_armaturen_pool_v1` |
 | Bestellungen (Anlagen) | `bestellungen` | `best:` | `gema_best_pool_v1` |
 | Revisions-Dossiers | `revisionsunterlagen` | `revd:` | `gema_rev_pool_v1` |

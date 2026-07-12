@@ -269,6 +269,7 @@
     {key:'terminplan',              label:'Terminplan',                cat:'Projektmanagement'},
     {key:'besprechungsprotokoll',   label:'Besprechungsprotokoll',     cat:'Projektmanagement'},
     {key:'kostenkontrolle',         label:'Kostenkontrolle',           cat:'Projektmanagement'},
+    {key:'goodel',                  label:'Goodel (Terminabstimmung)', cat:'Projektmanagement'},
     {key:'planungshonorar',         label:'Planungshonorar SIA 108',   cat:'Projektmanagement'},
     {key:'abnahme_sia',             label:'Abnahme SIA 118',           cat:'Projektmanagement'},
     {key:'baustellencheckliste',    label:'Baustellencheckliste',      cat:'Projektmanagement'},
@@ -329,7 +330,7 @@
     'if_werkzeug':'werkzeugmanagement','if_fahrzeug':'fahrzeugmanagement',
     'br_vkf_formulare':'vkf_formulare','br_gasloeschung':'gasloeschung','br_vkf_formular':'vkf_formular',
     'sb_grobauslegung':'grobauslegung','sb_vonroll':'vonroll_tabellen',
-    'pm_goodel':'kostenkontrolle','ab_sephir':'sephir','ab_quiz':'quiz',
+    'pm_goodel':'goodel','ab_sephir':'sephir','ab_quiz':'quiz',
     'ab_klassen':'klassen','ab_pruefungen':'pruefungen','ab_pruefung_live':'pruefungen',
     'sd_schadensbericht':'schadensbericht',
     'sp_dachbericht':'dachbericht',
@@ -367,9 +368,9 @@
     {id:'role_hlkk_planer',name:'Heizungsplaner',color:'#dc2626',gewerke:['hlkk'],permissions:(function(){var p=_allPerms(true,true,false);p['werkzeugmanagement']={read:true,write:false,admin:false};p['objekte']={read:true,write:true,admin:true};return p;})()},
     {id:'role_lueftung_planer',name:'Lüftungsplaner',color:'#2563eb',gewerke:['lueftung'],permissions:(function(){var p=_allPerms(true,true,false);p['werkzeugmanagement']={read:true,write:false,admin:false};p['objekte']={read:true,write:true,admin:true};return p;})()},
     {id:'role_elektro_planer',name:'Elektroplaner',color:'#d97706',gewerke:['elektro'],permissions:(function(){var p=_allPerms(true,true,false);p['werkzeugmanagement']={read:true,write:false,admin:false};p['objekte']={read:true,write:true,admin:true};return p;})()},
-    {id:'role_spengler',name:'Spengler',color:'#0891b2',gewerke:['spenglerei'],permissions:(function(){var p=_somePerms(['dachbericht','objekte','baustellencheckliste','werkzeugmanagement'],true,true,false);p['dachbericht']={read:true,write:true,admin:true};p['objekte']={read:true,write:true,admin:true};p['regierapport']={read:true,write:true,admin:false};p['einsatzplan']={read:true,write:false,admin:false};p['abnahme_sia']={read:true,write:false,admin:false};p['stundenerfassung']={read:true,write:true,admin:false};return p;})()},
-    {id:'role_architekt',name:'Architekt / GP',color:'#7c3aed',permissions:(function(){var p=_somePerms(['terminplan','besprechungsprotokoll','objekte','abnahme_sia'],true,false,false);p['regierapport']={read:true,write:true,admin:false};p['revisionsunterlagen']={read:true,write:false,admin:false};p['behoerden_formulare']={read:true,write:true,admin:false};p['plaene']={read:true,write:true,admin:false};return p;})()},
-    {id:'role_unternehmer',name:'Unternehmer',color:'#d97706',permissions:(function(){var p=_somePerms(['terminplan','abnahme_sia','werkzeugmanagement','baustellencheckliste','inspektion_wartung','ausschreibungsunterlagen','crbx_offertvergleich','schnellausschreibung','bestellungen'],true,true,false);p['legionellen']={read:true,write:true,admin:false};p['spuelmanager']={read:true,write:true,admin:false};p['revisionsunterlagen']={read:true,write:true,admin:false};return p;})()},
+    {id:'role_spengler',name:'Spengler',color:'#0891b2',gewerke:['spenglerei'],permissions:(function(){var p=_somePerms(['dachbericht','objekte','baustellencheckliste','werkzeugmanagement'],true,true,false);p['goodel']={read:true,write:true,admin:false};p['dachbericht']={read:true,write:true,admin:true};p['objekte']={read:true,write:true,admin:true};p['regierapport']={read:true,write:true,admin:false};p['einsatzplan']={read:true,write:false,admin:false};p['abnahme_sia']={read:true,write:false,admin:false};p['stundenerfassung']={read:true,write:true,admin:false};return p;})()},
+    {id:'role_architekt',name:'Architekt / GP',color:'#7c3aed',permissions:(function(){var p=_somePerms(['terminplan','besprechungsprotokoll','objekte','abnahme_sia'],true,false,false);p['goodel']={read:true,write:true,admin:false};p['regierapport']={read:true,write:true,admin:false};p['revisionsunterlagen']={read:true,write:false,admin:false};p['behoerden_formulare']={read:true,write:true,admin:false};p['plaene']={read:true,write:true,admin:false};return p;})()},
+    {id:'role_unternehmer',name:'Unternehmer',color:'#d97706',permissions:(function(){var p=_somePerms(['terminplan','abnahme_sia','werkzeugmanagement','baustellencheckliste','inspektion_wartung','ausschreibungsunterlagen','crbx_offertvergleich','schnellausschreibung','bestellungen'],true,true,false);p['goodel']={read:true,write:true,admin:false};p['legionellen']={read:true,write:true,admin:false};p['spuelmanager']={read:true,write:true,admin:false};p['revisionsunterlagen']={read:true,write:true,admin:false};return p;})()},
     // ── Lieferanten-Rollen: ZWEI Typen (User-Entscheid) ──
     // ANLAGENLIEFERANT (role_lieferant*): liefert Anlagen fuer die
     // Berechnungsmodule (Enthaertung, Druckerhoehung, Osmose, …) —
@@ -408,7 +409,7 @@
     // Magaziner: verwaltet das Werkzeuglager einer Organisation. Darf
     // Attribute aendern, Berichte hinzufuegen, Pruefungen anfordern und
     // Werkzeug Personen zuweisen. Sieht nur Werkzeuge der eigenen Org.
-    {id:'role_magaziner',name:'Magaziner',color:'#ea580c',permissions:(function(){var p=_somePerms(['werkzeugmanagement','fahrzeugmanagement','inspektion_wartung'],true,true,true);p['trocknungsgeraete']={read:true,write:true,admin:true};p['einsatzplan']={read:true,write:true,admin:false};p['spuelmanager']={read:true,write:true,admin:false};p['service']={read:true,write:true,admin:false};p['stundenerfassung']={read:true,write:true,admin:false};return p;})()},
+    {id:'role_magaziner',name:'Magaziner',color:'#ea580c',permissions:(function(){var p=_somePerms(['werkzeugmanagement','fahrzeugmanagement','inspektion_wartung'],true,true,true);p['goodel']={read:true,write:true,admin:false};p['trocknungsgeraete']={read:true,write:true,admin:true};p['einsatzplan']={read:true,write:true,admin:false};p['spuelmanager']={read:true,write:true,admin:false};p['service']={read:true,write:true,admin:false};p['stundenerfassung']={read:true,write:true,admin:false};return p;})()},
     // Lagerist: nimmt Sanitärapparate/Material im Wareneingang an — bestellte
     // Lieferungen importieren (HTML/PDF), Wareneingang kontrollieren (was ist
     // angekommen), Regal-Etiketten drucken. Sieht Projekte (Objekte) zum
@@ -419,9 +420,9 @@
     // Monteur: Read-only-Zugriff aufs Werkzeuglager. Kann Defekte melden,
     // aber nichts selbst aendern oder zuweisen. Sieht Werkzeuge der
     // eigenen Organisation.
-    {id:'role_monteur',name:'Monteur',color:'#64748b',permissions:(function(){var p=_somePerms(['werkzeugmanagement','baustellencheckliste','inspektion_wartung'],true,false,false);p['schadensbericht']={read:true,write:true,admin:false};p['trocknungsgeraete']={read:true,write:false,admin:false};p['regierapport']={read:true,write:true,admin:false};p['objekte']={read:true,write:false,admin:false};p['einsatzplan']={read:true,write:false,admin:false};p['abnahme_sia']={read:true,write:false,admin:false};p['legionellen']={read:true,write:true,admin:false};p['spuelmanager']={read:true,write:true,admin:false};p['service']={read:true,write:true,admin:false};p['stundenerfassung']={read:true,write:true,admin:false};return p;})()},
+    {id:'role_monteur',name:'Monteur',color:'#64748b',permissions:(function(){var p=_somePerms(['werkzeugmanagement','baustellencheckliste','inspektion_wartung'],true,false,false);p['goodel']={read:true,write:true,admin:false};p['schadensbericht']={read:true,write:true,admin:false};p['trocknungsgeraete']={read:true,write:false,admin:false};p['regierapport']={read:true,write:true,admin:false};p['objekte']={read:true,write:false,admin:false};p['einsatzplan']={read:true,write:false,admin:false};p['abnahme_sia']={read:true,write:false,admin:false};p['legionellen']={read:true,write:true,admin:false};p['spuelmanager']={read:true,write:true,admin:false};p['service']={read:true,write:true,admin:false};p['stundenerfassung']={read:true,write:true,admin:false};return p;})()},
     {id:'role_abteilungsleiter',name:'Abteilungsleiter',color:'#6d28d9',permissions:(function(){var p=_allPerms(true,true,false);p['werkzeugmanagement']={read:true,write:true,admin:false};p['objekte']={read:true,write:true,admin:true};return p;})()},
-    {id:'role_bauherrschaft',name:'Bauherrschaft',color:'#0284c7',permissions:(function(){var p=_somePerms(['objekte','terminplan','kostenkontrolle','besprechungsprotokoll','abnahme_sia'],true,false,false);p['regierapport']={read:true,write:true,admin:false};p['revisionsunterlagen']={read:true,write:false,admin:false};return p;})()},
+    {id:'role_bauherrschaft',name:'Bauherrschaft',color:'#0284c7',permissions:(function(){var p=_somePerms(['objekte','terminplan','kostenkontrolle','besprechungsprotokoll','abnahme_sia'],true,false,false);p['goodel']={read:true,write:true,admin:false};p['regierapport']={read:true,write:true,admin:false};p['revisionsunterlagen']={read:true,write:false,admin:false};return p;})()},
     {id:'role_behoerde',name:'Behörde',color:'#475569',permissions:_somePerms(['w12','objekte','inspektion_wartung','legionellen'],true,false,false)},
     // ── Schule (Org-Kategorie 'schule') ──
     // Dozent: Klassen-/Prüfungs-Cockpit (admin) + alle Berechnungsmodule
