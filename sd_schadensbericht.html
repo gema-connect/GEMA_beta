@@ -362,6 +362,18 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
 /* VIEW TOGGLE for measurements */
 .sd-ref-pill{display:inline-block;font-size:10px;font-weight:800;padding:2px 7px;border-radius:20px;background:#eef2ff;color:#4338ca;border:1px solid #c7d2fe;vertical-align:1px;white-space:nowrap}
 .sd-first-pill{display:inline-block;font-size:10.5px;font-weight:800;padding:3px 8px;border-radius:20px;background:#fef3c7;color:#92400e;border:1px solid #fcd34d;vertical-align:1px;white-space:nowrap}
+/* Bereichs-Karten (Fotos/Messpunkte/Geräte je betroffenem Bereich) */
+.sd-area{border:1.5px solid var(--brd2);border-radius:14px;padding:14px;margin-bottom:12px;background:var(--sur);transition:border-color .12s,background .12s}
+.sd-area.sd-area-drop-over{border-color:var(--plan);background:var(--plan-bg);border-style:dashed}
+.sd-area-hd{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+.sd-area-name{font-size:14.5px;font-weight:800;color:var(--txt);overflow-wrap:anywhere;flex:1;min-width:120px}
+.sd-area-sub{font-size:11px;font-weight:800;text-transform:uppercase;color:var(--mut);margin:12px 0 6px}
+.sd-area-none{border:1.5px dashed #fca5a5;background:#fef2f2}
+.sd-area-none .sd-area-name{color:#b91c1c}
+.sd-drag{cursor:grab}
+.sd-drag:active{cursor:grabbing}
+.sd-move-sel{font-size:11.5px;font-weight:700;border:1.5px solid var(--brd2);border-radius:7px;padding:4px 6px;background:var(--bg2);color:var(--txt);font-family:var(--sans);max-width:100%}
+.sd-unassigned-item{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 10px;border:1.5px solid var(--brd);border-radius:9px;background:var(--bg2);margin-bottom:6px}
 .meas-view-toggle{display:flex;gap:0;border:1.5px solid var(--brd2);border-radius:8px;overflow:hidden;height:32px;flex-shrink:0;box-sizing:border-box}
 .meas-view-toggle button{padding:0 14px;height:100%;border:none;background:transparent;font-size:12px;font-weight:700;color:var(--mut);cursor:pointer;display:inline-flex;align-items:center}
 .meas-view-toggle button.active{background:var(--plan);color:#fff}
@@ -1843,7 +1855,7 @@ function sdRenderDetail(s) {
 
   // Phase 4: Abschluss
   html += sdRenderAccordion('abschluss', '✅', 'Abschlussbericht', phaseIdx, function() {
-    return sdRenderAbschluss(s, canEdit);
+    return sdRenderAbschluss(s, canEdit, canMeas);
   }, s.id, canEdit);
 
   document.getElementById('detailInner').innerHTML = html;
@@ -1980,40 +1992,26 @@ function sdRenderAnalyse(s, canEdit, canMeas) {
   h += '</div>';
 
   // Massnahmen — nur Aufzaehlung (User-Vorgabe: keine Prio, keine Checkbox,
-  // kein Status). Massnahmen werden im Bericht als Liste der durchgefuehrten
-  // Schritte erwaehnt.
+  // kein Status). Der «+ Massnahme»-Button steht UNTER der Liste (Mobile:
+  // kein Hochscrollen nötig); neue Massnahmen werden synchron angehängt +
+  // fokussiert (Tastatur öffnet direkt, siehe sdAddMnInline).
   h += '<div style="margin-bottom:12px">';
-  h += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">';
   h += '<label style="font-size:11px;font-weight:800;text-transform:uppercase;color:var(--mut)">Massnahmen</label>';
-  if (editable) h += '<button class="nbtn" onclick="sdAddMnInline(\'' + s.id + '\')">+ Massnahme</button>';
-  h += '</div>';
+  h += '<div id="mnList_' + s.id + '" style="display:flex;flex-direction:column;gap:6px;margin-top:8px">';
   if (a.massnahmen && a.massnahmen.length) {
-    h += '<div style="display:flex;flex-direction:column;gap:6px">';
     a.massnahmen.forEach(function(m, i) {
       var beschr = typeof m === 'string' ? m : (m.beschreibung || m.text || '');
-      if (editable) {
-        // Jede Massnahme ist direkt editierbar (Textfeld), speichert beim Verlassen.
-        h += '<div class="mn-item" style="align-items:flex-start;gap:8px">';
-        h += '<textarea class="mn-edit" rows="2" placeholder="Massnahme beschreiben …" onblur="sdUpdateMn(\'' + s.id + '\',' + i + ',this.value)" style="flex:1;min-width:0;width:100%;box-sizing:border-box;border:1.5px solid var(--brd2);border-radius:8px;padding:8px 11px;font-size:13.5px;font-family:var(--sans);background:var(--bg2);color:var(--txt);outline:none;resize:vertical;line-height:1.45">' + esc(beschr) + '</textarea>';
-        h += '<button class="btn-del-icon" title="Löschen" onclick="sdDelMn(\'' + s.id + '\',' + i + ')">✕</button>';
-        h += '</div>';
-      } else {
-        h += '<div class="mn-item"><div class="mn-body"><div class="mn-text">' + esc(beschr) + '</div></div></div>';
-      }
+      h += _sdMnRowHtml(s.id, i, beschr, editable);
     });
-    h += '</div>';
-  } else {
+  } else if (!editable) {
     h += '<div style="font-size:12px;color:var(--mut);padding:12px;text-align:center;background:var(--bg2);border-radius:8px">Keine Massnahmen erfasst</div>';
   }
   h += '</div>';
+  if (editable) h += '<button class="nbtn" style="margin-top:8px" onclick="sdAddMnInline(\'' + s.id + '\')">+ Massnahme</button>';
+  h += '</div>';
 
-  // Messpunkte — Ausgangslage (Referenz). Gleiche Datenquelle wie die
-  // Trocknungsphase (s.trocknung.messpunkte) — hier bereits in der Analyse
-  // definierbar, inkl. Referenzmessung als Ausgangswert vor Trocknungsstart.
-  h += sdRenderMesspunkteAusgangslage(s, canEdit, canMeas);
-
-  // Fotos
-  h += sdRenderPhotoSection(s.id, 'analyse', a.fotos || [], editable);
+  // Betroffene Bereiche — Fotos + Referenz-Messpunkte je Bereich.
+  h += sdRenderBereiche(s, 'analyse', canEdit, canMeas);
 
   // Actions
   if (canEdit && s.phase === 'analyse') {
@@ -2030,53 +2028,6 @@ function sdRenderAnalyse(s, canEdit, canMeas) {
 // liest/schreibt s.trocknung.messpunkte wie die Trocknungsphase, damit
 // bestehende Berichte unveraendert funktionieren. Regulaere Messungen aus
 // der Trocknung werden hier nur als Zaehler angedeutet.
-function sdRenderMesspunkteAusgangslage(s, canEdit, canMeas) {
-  var editable = (canEdit || canMeas);
-  var tr = s.trocknung || {};
-  var mps = tr.messpunkte || [];
-  var h = '<div style="margin-bottom:12px">';
-  h += '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:12px">';
-  h += '<label style="font-size:11px;font-weight:800;text-transform:uppercase;color:var(--mut)">📏 Messpunkte — Ausgangslage (Referenz)</label>';
-  if (editable) h += '<button class="nbtn" onclick="sdOpenMpAdd(\'' + s.id + '\',\'analyse\')">+ Messpunkt</button>';
-  h += '</div>';
-  if (mps.length) {
-    mps.forEach(function(mp) {
-      var messungen = mp.messungen || [];
-      var refs = messungen.filter(function(m) { return m && m.referenz; });
-      var regCount = messungen.length - refs.length;
-      h += '<div style="background:var(--sur);border:1.5px solid var(--brd);border-radius:12px;padding:12px 14px;margin-bottom:8px">';
-      h += '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">';
-      h += '<div style="font-size:13.5px;font-weight:800;color:var(--txt);overflow-wrap:anywhere;flex:1;min-width:140px">📍 ' + esc(mp.name) + '</div>';
-      if (editable) h += '<button class="nbtn" onclick="sdOpenMessAdd(\'' + s.id + '\',\'' + mp.id + '\',true)">+ Referenzmessung</button>';
-      if (canEdit) h += '<button class="btn-del-icon" title="Messpunkt löschen" onclick="sdDelMp(\'' + s.id + '\',\'' + mp.id + '\')">✕</button>';
-      h += '</div>';
-      if (refs.length) {
-        refs.forEach(function(m) {
-          var mi = messungen.indexOf(m);
-          h += '<div style="display:flex;align-items:center;gap:10px;margin-top:8px;padding:8px 10px;background:var(--bg2);border-radius:8px;font-size:13px;flex-wrap:wrap">';
-          h += '<span class="sd-ref-pill">Referenz</span>';
-          h += '<span style="font-weight:800">' + m.wert + ' ' + esc(m.einheit || 'Digits') + '</span>';
-          h += '<span style="color:var(--mut)">' + sdFmtDate(m.datum) + '</span>';
-          if (m.foto) {
-            h += '<button type="button" onclick="sdOpenLightbox(\'' + esc(m.foto) + '\')" title="Foto-Beleg ansehen" style="border:0;padding:0;background:none;cursor:pointer">'
-              + '<img src="' + m.foto + '" alt="" style="width:28px;height:28px;object-fit:cover;border-radius:5px;border:1.5px solid var(--brd2);display:block"></button>';
-          }
-          if (canEdit) h += '<button class="btn-del-icon" title="Messung löschen" style="margin-left:auto" onclick="sdDelMessung(\'' + s.id + '\',\'' + mp.id + '\',' + mi + ')">✕</button>';
-          h += '</div>';
-        });
-      } else {
-        h += '<div style="margin-top:8px;font-size:12px;color:var(--mut)">Noch keine Referenzmessung — Ausgangswert vor Trocknungsstart erfassen.</div>';
-      }
-      if (regCount > 0) h += '<div style="margin-top:6px;font-size:11.5px;color:var(--mut)">+ ' + regCount + ' Messung' + (regCount !== 1 ? 'en' : '') + ' in der Trocknungsphase</div>';
-      h += '</div>';
-    });
-  } else {
-    h += '<div style="font-size:12px;color:var(--mut);padding:12px;text-align:center;background:var(--bg2);border-radius:8px">Noch keine Messpunkte. Bereits jetzt definieren — die Referenzmessung ist die Ausgangslage für die Trocknung.</div>';
-  }
-  h += '</div>';
-  return h;
-}
-
 function sdUpdateAnalyse(id, field, val) {
   var s = sdGetById(id); if (!s) return;
   if (!s.zustandsanalyse) s.zustandsanalyse = { leckortung: '', schadenausmass: '', massnahmen: [], fotos: [], abgeschlossenAm: null };
@@ -2127,17 +2078,403 @@ function sdUpdateMn(id, idx, val) {
   sdSave();
 }
 window.sdUpdateMn = sdUpdateMn;
-// Neue (leere) Massnahme inline hinzufuegen + direkt fokussieren.
+// Markup einer einzelnen Massnahmen-Zeile (geteilt zwischen Voll-Render und
+// dem synchronen Anhängen in sdAddMnInline).
+function _sdMnRowHtml(sid, i, beschr, editable) {
+  if (!editable) return '<div class="mn-item"><div class="mn-body"><div class="mn-text">' + esc(beschr) + '</div></div></div>';
+  return '<div class="mn-item" data-mn-idx="' + i + '" style="align-items:flex-start;gap:8px">'
+    + '<textarea class="mn-edit" rows="2" placeholder="Massnahme beschreiben …" onblur="sdUpdateMn(\'' + sid + '\',' + i + ',this.value)" style="flex:1;min-width:0;width:100%;box-sizing:border-box;border:1.5px solid var(--brd2);border-radius:8px;padding:8px 11px;font-size:13.5px;font-family:var(--sans);background:var(--bg2);color:var(--txt);outline:none;resize:vertical;line-height:1.45">' + esc(beschr) + '</textarea>'
+    + '<button class="btn-del-icon" title="Löschen" onclick="sdDelMn(\'' + sid + '\',' + i + ')">✕</button>'
+    + '</div>';
+}
+// Neue (leere) Massnahme hinzufuegen. Statt Voll-Render wird die Zeile SYNCHRON
+// ans Listen-Ende angehaengt und sofort fokussiert — nur so oeffnet iOS Safari
+// die Tastatur direkt (Fokus muss im User-Gesture-Stack bleiben). Zusaetzlich
+// wird die neue Textbox in die Sicht gescrollt.
 function sdAddMnInline(id) {
   var s = sdGetById(id); if (!s) return;
   if (!s.zustandsanalyse) s.zustandsanalyse = { leckortung: '', schadenausmass: '', massnahmen: [], fotos: [], abgeschlossenAm: null };
   if (!Array.isArray(s.zustandsanalyse.massnahmen)) s.zustandsanalyse.massnahmen = [];
+  var newIdx = s.zustandsanalyse.massnahmen.length;
   s.zustandsanalyse.massnahmen.push({ id: 'mn_' + Date.now(), beschreibung: '' });
   sdSave();
+  var list = document.getElementById('mnList_' + id);
+  if (list) {
+    var tmp = document.createElement('div');
+    tmp.innerHTML = _sdMnRowHtml(id, newIdx, '', true);
+    var row = tmp.firstChild;
+    list.appendChild(row);
+    var ta = row.querySelector('.mn-edit');
+    if (ta) {
+      try { ta.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) {}
+      try { ta.focus({ preventScroll: true }); } catch (e) { try { ta.focus(); } catch (_) {} }
+    }
+    return;
+  }
+  // Fallback (Liste nicht gefunden): voll rendern.
   sdRenderDetail(s);
   setTimeout(function() { var a = document.querySelectorAll('.mn-edit'); if (a.length) a[a.length - 1].focus(); }, 60);
 }
 window.sdAddMnInline = sdAddMnInline;
+
+// ══════════════════════════════════════════════════════════════════
+// BEREICHE (betroffene Räume) — Fotos, Messpunkte & Geräte werden je
+// Bereich erfasst und angezeigt. Datenmodell rein ADDITIV: die Items
+// tragen ein optionales `raum`-Feld (Geräte hatten es schon). Bestehende
+// Berichte ohne das Feld landen im «Ohne Bereich»-Bucket und lassen sich
+// per Drag&Drop / Auswahl einem Bereich zuweisen — nichts wird migriert
+// oder mutiert, solange der User es nicht selbst zuordnet.
+// ══════════════════════════════════════════════════════════════════
+// Bereichs-Liste: erfasste Räume (s.raeume) + referenzierte Räume aus
+// Items, die nicht (mehr) in raeume stehen (Altbestand/Import) — so
+// verschwindet kein Gerät/Foto. Stabile Reihenfolge.
+function _sdAreaNames(s){
+  var out = [];
+  function add(r){ r = String(r == null ? '' : r).trim(); if(r && out.indexOf(r) < 0) out.push(r); }
+  (Array.isArray(s.raeume) ? s.raeume : []).forEach(add);
+  var tr = s.trocknung || {}, za = s.zustandsanalyse || {}, ab = s.abschluss || {};
+  function pull(arr){ (arr || []).forEach(function(it){ if(it && it.raum) add(it.raum); }); }
+  pull(tr.geraete); pull(tr.messpunkte); pull(za.fotos); pull(tr.fotos); pull(ab.fotos);
+  return out;
+}
+// Normierter Bereich eines Items ('' = ohne Bereich).
+function _sdRaumOf(it){ return it && it.raum ? String(it.raum).trim() : ''; }
+// Zugriffs-Array für ein Item nach Art + Phase.
+function _sdItemArray(s, kind, phase){
+  if(kind === 'mp') return (s.trocknung || {}).messpunkte;
+  if(kind === 'dev') return (s.trocknung || {}).geraete;
+  if(kind === 'foto'){
+    if(phase === 'analyse') return (s.zustandsanalyse || {}).fotos;
+    if(phase === 'trocknung') return (s.trocknung || {}).fotos;
+    if(phase === 'abschluss') return (s.abschluss || {}).fotos;
+  }
+  return null;
+}
+// Weist ein Item (Foto/Messpunkt/Gerät) einem Bereich zu — setzt nur das
+// raum-Feld (additiv), speichert, rendert neu.
+function sdAssignItemToArea(schadenId, kind, phase, idx, areaName){
+  var s = sdGetById(schadenId); if(!s) return;
+  var arr = _sdItemArray(s, kind, phase);
+  if(!arr || !arr[idx]) return;
+  arr[idx].raum = areaName || '';
+  sdSave();
+  sdRenderDetail(s);
+}
+window.sdAssignItemToArea = sdAssignItemToArea;
+
+// ── Drag & Drop (Desktop) ──
+var _sdDrag = null;
+function sdDragStart(ev, schadenId, kind, phase, idx){
+  _sdDrag = { schadenId: schadenId, kind: kind, phase: phase, idx: idx };
+  try { ev.dataTransfer.setData('text/plain', kind + ':' + idx); ev.dataTransfer.effectAllowed = 'move'; } catch(e){}
+}
+function sdDragOverArea(ev, el){ if(!_sdDrag) return; ev.preventDefault(); try { ev.dataTransfer.dropEffect = 'move'; } catch(e){} el.classList.add('sd-area-drop-over'); }
+function sdDragLeaveArea(el){ el.classList.remove('sd-area-drop-over'); }
+function sdDropOnArea(ev, schadenId, areaIdx){
+  ev.preventDefault();
+  var d = _sdDrag; _sdDrag = null;
+  document.querySelectorAll('.sd-area-drop-over').forEach(function(el){ el.classList.remove('sd-area-drop-over'); });
+  if(!d || d.schadenId !== schadenId) return;
+  var s = sdGetById(schadenId); if(!s) return;
+  var area = _sdAreaNames(s)[parseInt(areaIdx, 10)];
+  if(area == null) return;
+  sdAssignItemToArea(schadenId, d.kind, d.phase, d.idx, area);
+}
+window.sdDragStart = sdDragStart; window.sdDragOverArea = sdDragOverArea;
+window.sdDragLeaveArea = sdDragLeaveArea; window.sdDropOnArea = sdDropOnArea;
+
+// ── Auswahl-Fallback (Touch/alle Geräte): «→ in Bereich …» ──
+function sdMoveSelChanged(sel, schadenId, kind, phase, idx){
+  var v = sel.value; if(v === '') return;
+  var s = sdGetById(schadenId); if(!s) return;
+  if(v === '__new'){
+    sel.value = '';
+    GemaDialog.prompt({ title:'Neuer Bereich', message:'Name des Bereichs / Raums:', placeholder:'z.B. Bad EG, Flur, Keller' }).then(function(val){
+      if(val === null) return;
+      var name = String(val || '').trim(); if(!name) return;
+      var s2 = sdGetById(schadenId); if(!s2) return;
+      if(!Array.isArray(s2.raeume)) s2.raeume = [];
+      if(s2.raeume.indexOf(name) < 0) s2.raeume.push(name);
+      sdAssignItemToArea(schadenId, kind, phase, idx, name);
+    });
+    return;
+  }
+  var area = _sdAreaNames(s)[parseInt(v, 10)];
+  if(area == null){ sel.value = ''; return; }
+  sdAssignItemToArea(schadenId, kind, phase, idx, area);
+}
+window.sdMoveSelChanged = sdMoveSelChanged;
+function _sdMoveSelHtml(schadenId, kind, phase, idx, areas){
+  var opts = ['<option value="">→ in Bereich …</option>'];
+  areas.forEach(function(a, ai){ opts.push('<option value="' + ai + '">' + esc(a) + '</option>'); });
+  opts.push('<option value="__new">＋ Neuer Bereich …</option>');
+  return '<select class="sd-move-sel" style="margin-left:auto" onchange="sdMoveSelChanged(this,\'' + schadenId + '\',\'' + kind + '\',\'' + phase + '\',' + idx + ')">' + opts.join('') + '</select>';
+}
+
+// ── Foto-Kacheln eines Bereichs (echte Indizes in die Phasen-Foto-Liste) ──
+function _sdPhotoStrip(schadenId, phase, fotos, editable, area, areaIdx){
+  var h = '<div class="photo-grid" style="margin-top:6px">';
+  var any = false;
+  (fotos || []).forEach(function(f, i){
+    if(_sdRaumOf(f) !== area) return;
+    any = true;
+    var inReport = f.imBericht !== false;
+    var _fsrc = _sdImgSrc(f);
+    h += '<div class="photo-item' + (inReport ? '' : ' photo-not-in-report') + '">';
+    h += '<img src="' + _fsrc + '" alt="Foto" onclick="event.stopPropagation();sdOpenLightbox(\'' + _fsrc.replace(/'/g, "\\'") + '\')">';
+    if(editable){
+      h += '<button class="photo-del" onclick="event.stopPropagation();sdDelPhoto(\'' + schadenId + '\',\'' + phase + '\',' + i + ')">✕</button>';
+      h += '<button class="photo-report-toggle' + (inReport ? ' on' : '') + '"'
+        + ' onclick="event.stopPropagation();sdTogglePhotoInReport(\'' + schadenId + '\',\'' + phase + '\',' + i + ')"'
+        + ' title="' + (inReport ? 'Foto im Bericht — Klick zum Ausschluss' : 'Foto NICHT im Bericht — Klick zum Einschluss') + '">'
+        + (inReport ? '✓' : '🚫') + '</button>';
+    }
+    if(f.kommentar) h += '<div class="photo-comment">' + esc(f.kommentar) + '</div>';
+    if(!inReport) h += '<div class="photo-badge" style="background:var(--red)">Nicht im Bericht</div>';
+    h += '</div>';
+  });
+  if(editable){
+    h += '<div class="photo-add" onclick="sdTriggerPhotoUpload(\'' + schadenId + '\',\'' + phase + '\',' + areaIdx + ')">';
+    h += '<span style="font-size:24px">📷</span><span>Foto hinzufügen</span></div>';
+  } else if(!any){
+    h += '<div style="font-size:12px;color:var(--mut);padding:8px">Keine Fotos</div>';
+  }
+  h += '</div>';
+  return h;
+}
+
+// ── Eine Messpunkt-Karte (phase='analyse' → Referenz-Ansicht kompakt,
+//    phase='trocknung' → volle Messreihe mit Tabelle/Diagramm) ──
+function _sdMpCardHtml(s, mp, editable, canEdit, phase){
+  var messungen = mp.messungen || [];
+  var h = '';
+  if(phase === 'analyse'){
+    var refs = messungen.filter(function(m){ return m && m.referenz; });
+    var regCount = messungen.length - refs.length;
+    h += '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">';
+    h += '<div style="font-size:13px;font-weight:800;color:var(--txt);overflow-wrap:anywhere;flex:1;min-width:120px">📍 ' + esc(mp.name) + '</div>';
+    if(editable) h += '<button class="nbtn" onclick="sdOpenMessAdd(\'' + s.id + '\',\'' + mp.id + '\',true)">+ Referenzmessung</button>';
+    if(canEdit) h += '<button class="btn-del-icon" title="Messpunkt löschen" onclick="sdDelMp(\'' + s.id + '\',\'' + mp.id + '\')">✕</button>';
+    h += '</div>';
+    if(refs.length){
+      refs.forEach(function(m){
+        var mIdx = messungen.indexOf(m);
+        h += '<div style="display:flex;align-items:center;gap:9px;margin-top:6px;font-size:12.5px;flex-wrap:wrap">';
+        h += '<span class="sd-ref-pill">Referenz</span>';
+        h += '<span style="font-weight:800">' + m.wert + ' ' + esc(m.einheit || 'Digits') + '</span>';
+        h += '<span style="color:var(--mut)">' + sdFmtDate(m.datum) + '</span>';
+        if(m.foto) h += '<button type="button" onclick="sdOpenLightbox(\'' + esc(m.foto) + '\')" title="Foto-Beleg" style="border:0;padding:0;background:none;cursor:pointer"><img src="' + m.foto + '" alt="" style="width:26px;height:26px;object-fit:cover;border-radius:5px;border:1.5px solid var(--brd2);display:block"></button>';
+        if(canEdit) h += '<button class="btn-del-icon" title="Messung löschen" style="margin-left:auto" onclick="sdDelMessung(\'' + s.id + '\',\'' + mp.id + '\',' + mIdx + ')">✕</button>';
+        h += '</div>';
+      });
+    } else {
+      h += '<div style="margin-top:6px;font-size:11.5px;color:var(--mut)">Noch keine Referenzmessung — Ausgangswert vor Trocknungsstart erfassen.</div>';
+    }
+    if(regCount > 0) h += '<div style="margin-top:5px;font-size:11px;color:var(--mut)">+ ' + regCount + ' Messung' + (regCount !== 1 ? 'en' : '') + ' in der Trocknungsphase</div>';
+  } else {
+    var viewKey = mp.id;
+    var curView = _measView[viewKey] || 'table';
+    var hatRegulaer = messungen.some(function(m){ return m && !m.referenz; });
+    var erstePill = (!hatRegulaer && s.phase === 'trocknung') ? ' <span class="sd-first-pill">⏳ Erste Messung ausstehend</span>' : '';
+    h += '<div style="margin-bottom:8px">';
+    h += '<div style="font-size:13px;font-weight:800;color:var(--txt);margin-bottom:6px;overflow-wrap:anywhere">📍 ' + esc(mp.name) + erstePill + '</div>';
+    h += '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">';
+    h += '<div class="meas-view-toggle">';
+    h += '<button class="' + (curView === 'table' ? 'active' : '') + '" onclick="sdSetMeasView(\'' + viewKey + '\',\'table\',\'' + s.id + '\')">Tabelle</button>';
+    h += '<button class="' + (curView === 'chart' ? 'active' : '') + '" onclick="sdSetMeasView(\'' + viewKey + '\',\'chart\',\'' + s.id + '\')">Diagramm</button>';
+    h += '</div>';
+    if(editable) h += '<button class="nbtn" onclick="sdOpenMessAdd(\'' + s.id + '\',\'' + mp.id + '\')">+ Messung</button>';
+    if(canEdit) h += '<button class="btn-del-icon" title="Messpunkt löschen" style="margin-left:auto" onclick="sdDelMp(\'' + s.id + '\',\'' + mp.id + '\')">✕</button>';
+    h += '</div></div>';
+    if(curView === 'table'){
+      if(messungen.length){
+        h += '<div style="overflow-x:auto"><table class="meas-table"><thead><tr><th>Datum</th><th>Wert (Digits)</th><th style="width:60px">Beleg</th><th style="width:32px;padding-right:0;text-align:right"></th></tr></thead><tbody>';
+        messungen.forEach(function(m, mi){
+          var unit = m.einheit || 'Digits';
+          h += '<tr><td>' + sdFmtDate(m.datum) + (m.referenz ? ' <span class="sd-ref-pill">Referenz</span>' : '') + '</td><td style="font-weight:800">' + m.wert + ' ' + esc(unit) + '</td>';
+          h += '<td style="width:60px">';
+          if(m.foto) h += '<button type="button" onclick="sdOpenLightbox(\'' + esc(m.foto) + '\')" title="Foto-Beleg ansehen" style="border:0;padding:0;background:none;cursor:pointer"><img src="' + m.foto + '" alt="" style="width:36px;height:36px;object-fit:cover;border-radius:6px;border:1.5px solid var(--brd2);display:block"></button>';
+          else h += '<span style="font-size:11px;color:var(--mut)">—</span>';
+          h += '</td><td style="text-align:right;white-space:nowrap;width:32px;padding-right:0">';
+          if(canEdit) h += '<button class="btn-del-icon" title="Messung löschen" onclick="sdDelMessung(\'' + s.id + '\',\'' + mp.id + '\',' + mi + ')">✕</button>';
+          h += '</td></tr>';
+        });
+        h += '</tbody></table></div>';
+      } else {
+        h += '<div style="font-size:12px;color:var(--mut);text-align:center;padding:10px">Keine Messungen</div>';
+      }
+    } else {
+      h += '<div class="chart-wrap"><canvas id="chart_' + mp.id + '"></canvas></div>';
+    }
+  }
+  return h;
+}
+
+// ── Messpunkte eines Bereichs (Wrapper + Add-Button) ──
+function _sdMpBlock(s, area, areaIdx, editable, canEdit, phase){
+  var mps = (s.trocknung && s.trocknung.messpunkte) || [];
+  var h = '';
+  var any = false;
+  mps.forEach(function(mp){
+    if(_sdRaumOf(mp) !== area) return;
+    any = true;
+    h += '<div style="background:var(--bg2);border:1px solid var(--brd);border-radius:9px;padding:10px 12px;margin-bottom:6px">' + _sdMpCardHtml(s, mp, editable, canEdit, phase) + '</div>';
+  });
+  if(!any) h += '<div style="font-size:11.5px;color:var(--mut);padding:6px 0">Noch kein Messpunkt in diesem Bereich.</div>';
+  if(editable) h += '<button class="nbtn" style="margin-top:2px" onclick="sdOpenMpAdd(\'' + s.id + '\',\'' + phase + '\',' + areaIdx + ')">+ Messpunkt</button>';
+  return h;
+}
+
+// ── Eine Geräte-Karte (echte Index-Referenz in s.trocknung.geraete) ──
+function _sdDevCardOne(s, gi, editable, canEdit){
+  var g = (s.trocknung.geraete || [])[gi]; if(!g) return '';
+  var kwhVal = sdComputeKwh(g);
+  var kwh = kwhVal == null ? '—' : kwhVal.toFixed(1);
+  var tage = sdGeraetTage(g);
+  var zTyp = g.zaehlerTyp || 'stunden';
+  var zEinheit = zTyp === 'kwh' ? 'kWh' : (zTyp === 'kein' ? '' : 'h');
+  var zBadge = zTyp === 'kwh' ? '⚡ kWh' : (zTyp === 'kein' ? '–' : '⏱ h');
+  var hasZaehler = zTyp !== 'kein';
+  var h = '<div class="dev-card">';
+  h += '<div class="dev-card-head"><div class="dev-card-name">⚡ ' + esc(g.name) + (g.tgDeviceId ? ' <span style="font-size:10px;color:#7c3aed;background:#f5f3ff;padding:1px 6px;border-radius:10px;font-weight:800;vertical-align:1px">QR</span>' : '') + '</div>';
+  if(canEdit) h += '<button class="btn-del-icon" title="Gerät entfernen" onclick="sdDelDev(\'' + s.id + '\',' + gi + ')">✕</button>';
+  h += '</div><div class="dev-card-grid">';
+  h += _sdDcRow('Leistung', (g.kw ? esc(String(g.kw)) + ' kW' : '—'));
+  h += _sdDcRow('Zähler', zBadge);
+  h += _sdDcRow('Start', hasZaehler ? (esc(String(g.zaehlerStart != null ? g.zaehlerStart : '0')) + (zEinheit ? ' ' + zEinheit : '')) : '—');
+  var editCls = editable ? 'dc-edit' : '';
+  var endeHtml;
+  if(editable && hasZaehler) endeHtml = '<input type="text" inputmode="decimal" value="' + (g.zaehlerEnde || '') + '" placeholder="—" style="text-align:left" onblur="fixLeadingZero(this);sdUpdateDevEnd(\'' + s.id + '\',' + gi + ',this.value)">';
+  else if(hasZaehler) endeHtml = esc(String(g.zaehlerEnde || '—'));
+  else endeHtml = '—';
+  h += _sdDcRow('Ende' + (zEinheit ? ' (' + zEinheit + ')' : ''), endeHtml, editable && hasZaehler ? editCls : '');
+  var endeAmHtml;
+  if(editable){
+    var endeIso = sdGeraetEnde(g);
+    var isFixed = !!endeIso;
+    var dispVal = endeIso || sdToday();
+    endeAmHtml = '<input type="date" value="' + dispVal + '" data-fixed="' + (isFixed ? '1' : '0') + '" style="color:' + (isFixed ? 'var(--txt)' : 'var(--mut)') + ';background:' + (isFixed ? 'var(--sur)' : 'var(--bg2)') + ';font-style:' + (isFixed ? 'normal' : 'italic') + '" onchange="sdUpdateDevEndDate(\'' + s.id + '\',' + gi + ',this.value)">';
+  } else endeAmHtml = (sdGeraetEnde(g) ? sdFmtDate(sdGeraetEnde(g)) : '—');
+  h += _sdDcRow('Ende am', endeAmHtml, editCls);
+  var tageHtml = (tage == null) ? '—' : (sdGeraetEnde(g) ? (tage + ' Tag' + (tage !== 1 ? 'e' : '')) : (tage + ' Tag' + (tage !== 1 ? 'e' : '') + '<span class="dc-run">läuft</span>'));
+  h += _sdDcRow('Tage', tageHtml);
+  h += _sdDcRow('kWh', '<span style="font-weight:800;color:' + (kwh !== '—' ? 'var(--plan)' : 'var(--mut)') + '">' + kwh + '</span>');
+  h += '</div></div>';
+  return h;
+}
+
+// ── Geräte eines Bereichs + QR-Zuweisung ──
+function _sdDevBlock(s, area, areaIdx, editable, canEdit){
+  var ger = (s.trocknung && s.trocknung.geraete) || [];
+  var h = '';
+  var any = false;
+  ger.forEach(function(g, gi){
+    if(_sdRaumOf(g) !== area) return;
+    any = true;
+    h += _sdDevCardOne(s, gi, editable, canEdit);
+  });
+  if(!any) h += '<div style="font-size:11.5px;color:var(--mut);padding:6px 0">Noch kein Gerät in diesem Bereich.</div>';
+  if(editable){
+    h += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px">';
+    h += '<button class="nbtn primary" onclick="sdScanDevForArea(\'' + s.id + '\',' + areaIdx + ')">📷 Gerät scannen &amp; zuweisen</button>';
+    h += '<button class="nbtn" onclick="sdOpenDevAdd(\'' + s.id + '\',' + areaIdx + ')">+ Gerät manuell</button>';
+    h += '</div>';
+  }
+  return h;
+}
+
+// ── «Ohne Bereich»-Bucket: nicht zugeordnete Items dieser Phase ──
+// Zeigt die Items VOLL (Foto-Kachel / komplette Messreihe / Gerätekarte),
+// damit bei Altberichten nichts «versteckt» wird — jedes Item ist eine
+// ziehbare Karte mit «→ in Bereich …»-Auswahl (Touch-Fallback zu DnD).
+function _sdUnassignedBucket(s, phase, areas, editable, canEdit){
+  var items = [];
+  var fotos = _sdItemArray(s, 'foto', phase) || [];
+  fotos.forEach(function(f, i){
+    if(_sdRaumOf(f) !== '') return;
+    var src = _sdImgSrc(f);
+    var body = '<div style="display:flex;align-items:center;gap:10px">'
+      + '<img src="' + src + '" alt="" onclick="sdOpenLightbox(\'' + src.replace(/'/g, "\\'") + '\')" style="width:56px;height:56px;object-fit:cover;border-radius:8px;border:1.5px solid var(--brd2);display:block;cursor:pointer">'
+      + '<span style="font-size:12.5px;flex:1">📷 ' + esc(f.kommentar || 'Foto') + '</span>';
+    if(canEdit) body += '<button class="btn-del-icon" title="Foto löschen" onclick="sdDelPhoto(\'' + s.id + '\',\'' + phase + '\',' + i + ')">✕</button>';
+    body += '</div>';
+    items.push({ kind:'foto', idx:i, body:body });
+  });
+  if(phase === 'analyse' || phase === 'trocknung'){
+    ((s.trocknung && s.trocknung.messpunkte) || []).forEach(function(mp, i){
+      if(_sdRaumOf(mp) === '') items.push({ kind:'mp', idx:i, body:_sdMpCardHtml(s, mp, editable, canEdit, phase) });
+    });
+  }
+  if(phase === 'trocknung'){
+    ((s.trocknung && s.trocknung.geraete) || []).forEach(function(g, i){
+      if(_sdRaumOf(g) === '') items.push({ kind:'dev', idx:i, body:_sdDevCardOne(s, i, editable, canEdit) });
+    });
+  }
+  if(!items.length) return '';
+  var h = '<div class="sd-area sd-area-none">';
+  h += '<div class="sd-area-hd"><div class="sd-area-name">📥 Ohne Bereich — bitte zuordnen</div><span style="font-size:11px;color:var(--mut)">' + items.length + ' Eintrag' + (items.length !== 1 ? 'e' : '') + '</span></div>';
+  h += '<div style="font-size:11.5px;color:var(--mut);margin-bottom:8px">In eine Bereichs-Karte oben ziehen — oder unten den Bereich wählen.</div>';
+  items.forEach(function(it){
+    var drag = editable ? ' draggable="true" ondragstart="sdDragStart(event,\'' + s.id + '\',\'' + it.kind + '\',\'' + phase + '\',' + it.idx + ')"' : '';
+    h += '<div class="' + (editable ? 'sd-drag ' : '') + '" style="border:1.5px solid var(--brd2);border-radius:10px;padding:10px 12px;margin-bottom:8px;background:var(--sur)"' + drag + '>';
+    h += it.body;
+    if(editable){
+      h += '<div style="display:flex;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap">';
+      if(areas.length) h += _sdMoveSelHtml(s.id, it.kind, phase, it.idx, areas);
+      else h += '<span style="font-size:11px;color:var(--mut)">Zuerst mit «+ Bereich» einen Bereich anlegen</span>';
+      h += '</div>';
+    }
+    h += '</div>';
+  });
+  h += '</div>';
+  return h;
+}
+
+function _sdBereichHeader(phase){
+  if(phase === 'analyse') return 'Betroffene Bereiche — Fotos &amp; Ausgangslage';
+  if(phase === 'trocknung') return 'Betroffene Bereiche — Messungen, Geräte &amp; Fotos';
+  return 'Betroffene Bereiche — Fotos';
+}
+
+// Eine Bereichs-Karte je Phase.
+function _sdAreaCard(s, phase, area, areaIdx, editable, canEdit){
+  var dz = ' ondragover="sdDragOverArea(event,this)" ondragleave="sdDragLeaveArea(this)" ondrop="sdDropOnArea(event,\'' + s.id + '\',' + areaIdx + ')"';
+  var h = '<div class="sd-area"' + dz + '>';
+  h += '<div class="sd-area-hd"><div class="sd-area-name">🏠 ' + esc(area) + '</div></div>';
+  if(phase === 'analyse'){
+    h += '<div class="sd-area-sub">📷 Fotos</div>' + _sdPhotoStrip(s.id, 'analyse', (s.zustandsanalyse || {}).fotos, editable, area, areaIdx);
+    h += '<div class="sd-area-sub">📏 Messpunkte — Ausgangslage (Referenz)</div>' + _sdMpBlock(s, area, areaIdx, editable, canEdit, 'analyse');
+  } else if(phase === 'trocknung'){
+    h += '<div class="sd-area-sub">📏 Messungen</div>' + _sdMpBlock(s, area, areaIdx, editable, canEdit, 'trocknung');
+    h += '<div class="sd-area-sub">⚡ Trocknungsgeräte</div>' + _sdDevBlock(s, area, areaIdx, editable, canEdit);
+    h += '<div class="sd-area-sub">📷 Fotos</div>' + _sdPhotoStrip(s.id, 'trocknung', (s.trocknung || {}).fotos, editable, area, areaIdx);
+  } else {
+    h += '<div class="sd-area-sub">📷 Fotos</div>' + _sdPhotoStrip(s.id, 'abschluss', (s.abschluss || {}).fotos, editable, area, areaIdx);
+  }
+  h += '</div>';
+  return h;
+}
+
+// Master: rendert alle Bereichs-Karten + «Ohne Bereich»-Bucket einer Phase.
+function sdRenderBereiche(s, phase, canEdit, canMeas){
+  var editable = canEdit || (phase !== 'abschluss' && canMeas);
+  var areas = _sdAreaNames(s);
+  var h = '<div style="margin-bottom:14px">';
+  h += '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:10px">';
+  h += '<label style="font-size:12px;font-weight:800;text-transform:uppercase;color:var(--mut)">' + _sdBereichHeader(phase) + '</label>';
+  if(canEdit) h += '<button class="nbtn" onclick="sdErfAddRaum(\'' + s.id + '\')">+ Bereich</button>';
+  h += '</div>';
+  if(areas.length){
+    areas.forEach(function(area, ai){ h += _sdAreaCard(s, phase, area, ai, editable, canEdit); });
+  } else {
+    var hint = phase === 'analyse' ? 'Fotos und Referenz-Messpunkte' : (phase === 'trocknung' ? 'Fotos, Messungen und Geräte' : 'Fotos');
+    h += '<div class="sd-area-none" style="padding:14px;border-radius:12px;text-align:center;font-size:12.5px">Noch keine betroffenen Bereiche.' + (canEdit ? ' Lege oben mit «+ Bereich» einen an, um darin ' + hint + ' direkt zu erfassen.' : '') + '</div>';
+  }
+  h += _sdUnassignedBucket(s, phase, areas, editable, canEdit);
+  h += '</div>';
+  return h;
+}
+window.sdRenderBereiche = sdRenderBereiche;
 
 // ── PHASE 3: TROCKNUNG ──
 // Geräte-Ansicht: 'table' | 'cards'. Default: Kacheln auf schmalen Screens
@@ -2228,164 +2565,33 @@ function sdRenderTrocknung(s, canEdit, canMeas) {
   }
   h += '</div>';
 
-  // Messpunkte
-  h += '<div style="margin-bottom:16px">';
-  h += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">';
-  h += '<label style="font-size:13px;font-weight:800;color:var(--txt)">📏 Messpunkte</label>';
-  if (editable) h += '<button class="nbtn" onclick="sdOpenMpAdd(\'' + s.id + '\')">+ Messpunkt</button>';
-  h += '</div>';
+  // Betroffene Bereiche — Messungen, Geräte (QR-Zuweisung) & Fotos je Bereich.
+  h += sdRenderBereiche(s, 'trocknung', canEdit, canMeas);
 
-  if (tr.messpunkte && tr.messpunkte.length) {
-    tr.messpunkte.forEach(function(mp) {
-      h += '<div style="background:var(--sur);border:1.5px solid var(--brd);border-radius:12px;padding:14px 16px;margin-bottom:10px">';
-      // Kopf: Name in EIGENER Zeile (volle Breite, kein Quetschen), darunter
-      // die Bedienelemente (Toggle / + Messung / ✕) — bricht auf Mobile sauber.
-      var viewKey = mp.id;
-      var curView = _measView[viewKey] || 'table';
-      // «Erste Messung ausstehend»: in der laufenden Trocknung noch keine
-      // regulaere Messung (nur Referenz aus der Analyse oder gar nichts).
-      var hatRegulaer = (mp.messungen || []).some(function(m) { return m && !m.referenz; });
-      var erstePill = (!hatRegulaer && s.phase === 'trocknung') ? ' <span class="sd-first-pill">⏳ Erste Messung ausstehend</span>' : '';
-      h += '<div style="margin-bottom:12px">';
-      h += '<div style="font-size:13.5px;font-weight:800;color:var(--txt);margin-bottom:8px;overflow-wrap:anywhere">📍 ' + esc(mp.name) + erstePill + '</div>';
-      h += '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">';
-      h += '<div class="meas-view-toggle">';
-      h += '<button class="' + (curView === 'table' ? 'active' : '') + '" onclick="sdSetMeasView(\'' + viewKey + '\',\'table\',\'' + s.id + '\')">Tabelle</button>';
-      h += '<button class="' + (curView === 'chart' ? 'active' : '') + '" onclick="sdSetMeasView(\'' + viewKey + '\',\'chart\',\'' + s.id + '\')">Diagramm</button>';
-      h += '</div>';
-      if (editable) h += '<button class="nbtn" onclick="sdOpenMessAdd(\'' + s.id + '\',\'' + mp.id + '\')">+ Messung</button>';
-      if (canEdit) h += '<button class="btn-del-icon" title="Messpunkt löschen" style="margin-left:auto" onclick="sdDelMp(\'' + s.id + '\',\'' + mp.id + '\')">✕</button>';
-      h += '</div></div>';
-
-      if (curView === 'table') {
-        // Table view
-        if (mp.messungen && mp.messungen.length) {
-          h += '<div style="overflow-x:auto"><table class="meas-table"><thead><tr><th>Datum</th><th>Wert (Digits)</th><th style="width:60px">Beleg</th><th style="width:32px;padding-right:0;text-align:right"></th></tr></thead><tbody>';
-          mp.messungen.forEach(function(m, mi) {
-            var unit = m.einheit || 'Digits';
-            h += '<tr><td>' + sdFmtDate(m.datum) + (m.referenz ? ' <span class="sd-ref-pill">Referenz</span>' : '') + '</td><td style="font-weight:800">' + m.wert + ' ' + esc(unit) + '</td>';
-            // Foto-Beleg: Klick oeffnet Lightbox
-            h += '<td style="width:60px">';
-            if (m.foto) {
-              h += '<button type="button" onclick="sdOpenLightbox(\'' + esc(m.foto) + '\')" title="Foto-Beleg ansehen" '
-                + 'style="border:0;padding:0;background:none;cursor:pointer">'
-                + '<img src="' + m.foto + '" alt="" style="width:36px;height:36px;object-fit:cover;border-radius:6px;border:1.5px solid var(--brd2);display:block">'
-                + '</button>';
-            } else {
-              h += '<span style="font-size:11px;color:var(--mut)">—</span>';
-            }
-            h += '</td>';
-            h += '<td style="text-align:right;white-space:nowrap;width:32px;padding-right:0">';
-            if (canEdit) h += '<button class="btn-del-icon" title="Messung löschen" onclick="sdDelMessung(\'' + s.id + '\',\'' + mp.id + '\',' + mi + ')">✕</button>';
-            h += '</td></tr>';
-          });
-          h += '</tbody></table></div>';
-        } else {
-          h += '<div style="font-size:12px;color:var(--mut);text-align:center;padding:10px">Keine Messungen</div>';
-        }
-      } else {
-        // Chart view
-        h += '<div class="chart-wrap"><canvas id="chart_' + mp.id + '"></canvas></div>';
+  // Gesamtübersicht — Total Stromverbrauch aller Geräte + kombiniertes
+  // Trend-Diagramm über alle Messpunkte (bereichsübergreifend, für den
+  // Bericht). Bewusst zusätzlich zur Bereichs-Ansicht (User-Vorgabe).
+  (function(){
+    var ger = tr.geraete || [];
+    var mpAll = (tr.messpunkte || []).filter(function(m){ return (m.messungen || []).length; });
+    var totalKwh = 0; ger.forEach(function(g){ var v = sdComputeKwh(g); if(v != null) totalKwh += v; });
+    var chartImg = null;
+    try { if(mpAll.length) chartImg = _sdRenderTrendChart(mpAll); } catch(e){}
+    if((ger.length && totalKwh > 0) || chartImg){
+      h += '<div style="margin-bottom:16px">';
+      h += '<label style="font-size:13px;font-weight:800;color:var(--txt)">📊 Gesamtübersicht</label>';
+      if(ger.length){
+        h += '<div class="sum-card" style="margin-top:8px"><div class="sum-row"><span class="lbl">Geräte total</span><span class="val">' + ger.length + '</span></div>';
+        if(totalKwh > 0) h += '<div class="sum-row"><span class="lbl">Total Stromverbrauch</span><span class="val" style="color:var(--plan)">' + totalKwh.toFixed(1) + ' kWh</span></div>';
+        h += '</div>';
+      }
+      if(chartImg){
+        h += '<div style="margin-top:10px;font-size:11px;font-weight:800;text-transform:uppercase;color:var(--mut)">Messpunkt-Trend (alle Bereiche)</div>';
+        h += '<img src="' + chartImg + '" alt="Messpunkt-Trend" style="width:100%;max-width:100%;border:1px solid var(--brd);border-radius:8px;margin-top:6px;display:block">';
       }
       h += '</div>';
-    });
-  } else {
-    h += '<div style="font-size:12px;color:var(--mut);padding:16px;text-align:center;background:var(--bg2);border-radius:8px">Keine Messpunkte definiert. Fügen Sie Messpunkte hinzu, um Feuchtigkeitswerte zu protokollieren.</div>';
-  }
-  h += '</div>';
-
-  // Geräte
-  var _devView = _sdGetDevView();
-  h += '<div style="margin-bottom:16px">';
-  h += '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:12px;flex-wrap:wrap">';
-  h += '<label style="font-size:13px;font-weight:800;color:var(--txt)">⚡ Trocknungsgeräte</label>';
-  h += '<div style="display:flex;align-items:center;gap:8px">';
-  if (tr.geraete && tr.geraete.length) h += '<button class="nbtn" onclick="sdToggleDevView()" title="Ansicht umschalten (Tabelle / Kacheln)" style="padding:6px 11px">' + (_devView === 'cards' ? '☰ Tabelle' : '▦ Kacheln') + '</button>';
-  if (editable) h += '<button class="nbtn" onclick="sdOpenDevAdd(\'' + s.id + '\')">+ Gerät</button>';
-  h += '</div></div>';
-
-  if (tr.geraete && tr.geraete.length && _devView === 'cards') {
-    h += _sdGeraeteCardsHtml(s, tr, editable, canEdit);
-  } else if (tr.geraete && tr.geraete.length) {
-    h += '<div style="overflow-x:auto"><table class="dev-table"><thead><tr>'
-       + '<th>Gerät</th>'
-       + '<th>Raum</th>'
-       + '<th style="text-align:right">kW</th>'
-       + '<th>Zähler</th>'
-       + '<th style="text-align:right">Start</th>'
-       + '<th style="text-align:right">Ende</th>'
-       + '<th>Ende am</th>'
-       + '<th style="text-align:right">Tage</th>'
-       + '<th style="text-align:right">kWh</th>'
-       + '<th style="width:32px"></th>'
-       + '</tr></thead><tbody>';
-    tr.geraete.forEach(function(g, gi) {
-      var kwhVal = sdComputeKwh(g);
-      var kwh = kwhVal == null ? '—' : kwhVal.toFixed(1);
-      var tage = sdGeraetTage(g);
-      var tageStr = tage == null ? '—' : (sdGeraetEnde(g) ? String(tage) : (tage + '⏵')); // ⏵ = laufend, kein "Tage"-Suffix (Header sagt es)
-      var zTyp = g.zaehlerTyp || 'stunden';
-      var zEinheit = zTyp === 'kwh' ? 'kWh' : (zTyp === 'kein' ? '' : 'h');
-      var zBadge = zTyp === 'kwh' ? '⚡ kWh' : (zTyp === 'kein' ? '–' : '⏱ h');
-      var hasZaehler = zTyp !== 'kein';
-      h += '<tr>';
-      h += '<td style="font-weight:700;min-width:140px">' + esc(g.name) + '</td>';
-      h += '<td class="dev-tight">' + esc(g.raum || '—') + '</td>';
-      h += '<td class="dev-num">' + (g.kw || '—') + '</td>';
-      h += '<td class="dev-tight" style="font-size:11px;font-weight:700;color:var(--mut)">' + zBadge + '</td>';
-      h += '<td class="dev-num">' + (hasZaehler ? ((g.zaehlerStart != null ? g.zaehlerStart : '0') + (zEinheit ? ' '+zEinheit : '')) : '—') + '</td>';
-      h += '<td class="dev-num" style="min-width:90px">';
-      if (editable && hasZaehler) {
-        h += '<input type="text" inputmode="decimal" value="' + (g.zaehlerEnde || '') + '" placeholder="—" style="width:74px;min-height:32px;text-align:right" onblur="fixLeadingZero(this);sdUpdateDevEnd(\'' + s.id + '\',' + gi + ',this.value)">';
-      } else if(hasZaehler) {
-        h += (g.zaehlerEnde || '—');
-      } else {
-        h += '—';
-      }
-      h += '</td>';
-      // Ende-am-Datum: solange das Geraet nicht "entfernt" ist (kein
-      // entferntAm gesetzt), wird das heutige Datum als Vorschau grau
-      // angezeigt. Sobald der Zaehlerstand-Ende eingetragen wird (oder
-      // der User direkt das Datum setzt), wird der Wert fix gespeichert
-      // und schwarz angezeigt — bleibt aber editierbar.
-      h += '<td class="dev-tight" style="min-width:130px">';
-      if (editable) {
-        var endeIso  = sdGeraetEnde(g);
-        var isFixed  = !!endeIso;
-        var dispVal  = endeIso || sdToday();
-        h += '<input type="date" value="' + dispVal + '" '
-           + 'data-fixed="' + (isFixed?'1':'0') + '" '
-           + 'style="height:32px;padding:0 6px;border:1.5px solid var(--brd2);border-radius:6px;font-size:12px;font-family:var(--sans);width:auto;'
-           + 'color:' + (isFixed ? 'var(--txt)' : 'var(--mut)') + ';'
-           + 'background:' + (isFixed ? 'var(--sur)' : 'var(--bg2)') + ';'
-           + 'font-style:' + (isFixed ? 'normal' : 'italic') + ';" '
-           + 'onchange="sdUpdateDevEndDate(\'' + s.id + '\',' + gi + ',this.value)">';
-      } else {
-        h += (sdGeraetEnde(g) ? sdFmtDate(sdGeraetEnde(g)) : '—');
-      }
-      h += '</td>';
-      h += '<td class="dev-num" style="font-weight:700;color:' + (tage == null ? 'var(--mut)' : 'var(--txt)') + '">' + tageStr + '</td>';
-      h += '<td class="dev-num" style="font-weight:800;color:' + (kwh !== '—' ? 'var(--plan)' : 'var(--mut)') + '">' + kwh + '</td>';
-      h += '<td style="text-align:right;width:32px;padding-right:0">';
-      if (canEdit) h += '<button class="btn-del-icon" title="Gerät entfernen" onclick="sdDelDev(\'' + s.id + '\',' + gi + ')">✕</button>';
-      h += '</td></tr>';
-    });
-    h += '</tbody></table></div>';
-  } else {
-    h += '<div style="font-size:12px;color:var(--mut);padding:12px;text-align:center;background:var(--bg2);border-radius:8px">Keine Geräte erfasst</div>';
-  }
-  // Total kWh — fuer Tabelle UND Kacheln; nutzt sdComputeKwh (respektiert zaehlerTyp).
-  if (tr.geraete && tr.geraete.length) {
-    var totalKwh = 0;
-    tr.geraete.forEach(function(g) {
-      var v = sdComputeKwh(g);
-      if(v != null) totalKwh += v;
-    });
-    if (totalKwh > 0) {
-      h += '<div class="sum-card" style="margin-top:8px"><div class="sum-row"><span class="lbl">Total Stromverbrauch</span><span class="val" style="color:var(--plan)">' + totalKwh.toFixed(1) + ' kWh</span></div></div>';
     }
-  }
-  h += '</div>';
+  })();
 
   // ─── Live-Spiegelung aus Trocknungsmodul (read-only) ───────────
   // Geraete, die im if_trocknung-Modul gerade fuer diesen Schaden im
@@ -2453,8 +2659,7 @@ function sdRenderTrocknung(s, canEdit, canMeas) {
   }
   h += '</div>';
 
-  // Fotos
-  h += sdRenderPhotoSection(s.id, 'trocknung', tr.fotos || [], editable);
+  // Fotos sind jetzt Teil der Bereichs-Karten (siehe sdRenderBereiche).
 
   // Actions
   if (canEdit && s.phase === 'trocknung') {
@@ -2551,9 +2756,14 @@ function sdUpdateDevEndDate(id, idx, val) {
 // IMMER in s.trocknung.messpunkte (eine Datenquelle; bestehende Berichte
 // bleiben unveraendert lesbar).
 var _mpCtx = '';
-function sdOpenMpAdd(id, ctx) {
+var _mpRaum = '';   // Bereich, dem der neue Messpunkt zugeordnet wird ('' = ohne)
+function sdOpenMpAdd(id, ctx, raumIdx) {
   _mpSchadenId = id;
   _mpCtx = ctx || '';
+  _mpRaum = '';
+  if (raumIdx != null && raumIdx !== '') {
+    try { var _s = sdGetById(id); _mpRaum = (_sdAreaNames(_s) || [])[parseInt(raumIdx, 10)] || ''; } catch (e) {}
+  }
   document.getElementById('mpName').value = '';
   var hint = document.getElementById('mpRefHint');
   if (hint) hint.style.display = (_mpCtx === 'analyse') ? '' : 'none';
@@ -2565,6 +2775,8 @@ function sdAddMesspunkt() {
   if (!name) { alert('Bitte Name eingeben.'); return; }
   if (!s.trocknung) s.trocknung = { gestartetAm: null, beendetAm: null, messpunkte: [], geraete: [], fotos: [], notizen: '' };
   var mp = { id: 'mp_' + Date.now(), name: name, messungen: [] };
+  // Bereichszuordnung additiv setzen (nur wenn vorhanden).
+  if (_mpRaum) mp.raum = _mpRaum;
   s.trocknung.messpunkte.push(mp);
   sdSave();
   document.getElementById('mpAddModal').classList.add('hidden');
@@ -2573,6 +2785,7 @@ function sdAddMesspunkt() {
   // synchron im selben User-Gesture-Stack, damit die Kamera auf iOS oeffnet.
   if (_mpCtx === 'analyse') sdOpenMessAdd(s.id, mp.id, true);
   _mpCtx = '';
+  _mpRaum = '';
 }
 function sdDelMp(id, mpId) {
   GemaDialog.confirm({title:'Messpunkt löschen', message:'Messpunkt mit allen Messungen wirklich löschen?', confirmLabel:'Löschen', danger:true}).then(function(ok){
@@ -2805,7 +3018,9 @@ function _sdRenderDevPicker(schadenId){
   });
 }
 
-function sdOpenDevAdd(id) {
+// raumIdx (optional): Index in _sdAreaNames(s) — das Gerät wird diesem Bereich
+// zugeordnet (devRaumSelect vorbelegt).
+function sdOpenDevAdd(id, raumIdx) {
   document.getElementById('devName').value = '';
   document.getElementById('devKw').value = '';
   document.getElementById('devStart').value = '0';
@@ -2828,10 +3043,25 @@ function sdOpenDevAdd(id) {
   }
   _sdRenderDevPicker(id);
   document.getElementById('devAddModal').dataset.schadenId = id;
-  // Raum-Dropdown aus den bereits erfassten Raeumen aufbauen.
-  sdRenderDevRaumSelect(id);
+  // Raum-Dropdown aus den bereits erfassten Raeumen aufbauen — mit
+  // optionaler Bereichs-Vorwahl (aus der Bereichs-Karte / QR-Zuweisung).
+  var pre = '';
+  if (raumIdx != null && raumIdx !== '') {
+    try { var _s = sdGetById(id); pre = (_sdAreaNames(_s) || [])[parseInt(raumIdx, 10)] || ''; } catch (e) {}
+  }
+  sdRenderDevRaumSelect(id, pre);
   document.getElementById('devAddModal').classList.remove('hidden');
 }
+
+// Öffnet die Geräte-Zuweisung für einen Bereich und startet SOFORT den
+// QR/NFC-Scan (User-Gesture vom Button-Klick). Nach dem Scan sind Name/kW
+// und der aktuelle Zählerstand vorbefüllt — der Monteur prüft den
+// Zählerstand kurz gegen und bestätigt mit «Hinzufügen».
+function sdScanDevForArea(id, raumIdx) {
+  sdOpenDevAdd(id, raumIdx);
+  try { _sdScanForDev(); } catch (e) {}
+}
+window.sdScanDevForArea = sdScanDevForArea;
 
 // Default-Zaehler-Typ pro Geraet (Backwards-Compat). Identisch zur
 // Logik in if_trocknung.html _tgDefaultZaehlerTyp.
@@ -2944,6 +3174,9 @@ function sdRenderDevRaumSelect(id, preselect){
   var sel = document.getElementById('devRaumSelect');
   if(!sel) return;
   var raeume = Array.isArray(s.raeume) ? s.raeume.slice() : [];
+  // Vorwahl-Bereich, der (noch) nicht in raeume steht (abgeleiteter
+  // Bereich aus Altbestand), trotzdem als Option anbieten.
+  if(preselect && raeume.indexOf(preselect) < 0) raeume.push(preselect);
   var opts = ['<option value="">— Raum wählen —</option>'];
   raeume.forEach(function(r){
     opts.push('<option value="' + esc(r) + '">' + esc(r) + '</option>');
@@ -3119,7 +3352,7 @@ function sdDelDev(id, idx) {
 }
 
 // ── PHASE 4: ABSCHLUSS ──
-function sdRenderAbschluss(s, canEdit) {
+function sdRenderAbschluss(s, canEdit, canMeas) {
   var ab = s.abschluss || {};
   // Editierbar fuer alle Berechtigten — auch nach formalem Abschluss.
   var editable = canEdit;
@@ -3167,8 +3400,8 @@ function sdRenderAbschluss(s, canEdit) {
     h += '</div></div>';
   }
 
-  // Fotos
-  h += sdRenderPhotoSection(s.id, 'abschluss', ab.fotos || [], editable);
+  // Betroffene Bereiche — Abschluss-Fotos je Bereich.
+  h += sdRenderBereiche(s, 'abschluss', canEdit, canMeas);
 
   // Actions
   if (canEdit && s.phase === 'abschluss') {
@@ -3260,39 +3493,8 @@ window.sdReopenPhase = sdReopenPhase;
 // ══════════════════════════════════════
 // PHOTO SYSTEM
 // ══════════════════════════════════════
-function sdRenderPhotoSection(schadenId, phase, fotos, editable) {
-  var h = '<div style="margin-top:12px">';
-  h += '<label style="font-size:11px;font-weight:800;text-transform:uppercase;color:var(--mut)">📷 Fotos</label>';
-  h += '<div class="photo-grid" style="margin-top:6px">';
-  if (fotos && fotos.length) {
-    fotos.forEach(function(f, i) {
-      var inReport = f.imBericht !== false;
-      h += '<div class="photo-item' + (inReport ? '' : ' photo-not-in-report') + '">';
-      var _fsrc = _sdImgSrc(f);
-      h += '<img src="' + _fsrc + '" alt="Foto" onclick="event.stopPropagation();sdOpenLightbox(\'' + _fsrc.replace(/'/g, "\\'") + '\')">';
-      if (editable) {
-        h += '<button class="photo-del" onclick="event.stopPropagation();sdDelPhoto(\'' + schadenId + '\',\'' + phase + '\',' + i + ')">✕</button>';
-        // Toggle 'Im Bericht' — Klick schaltet imBericht um. Gruener
-        // Haken = im Bericht, rotes Auge-zu = nicht im Bericht.
-        h += '<button class="photo-report-toggle' + (inReport ? ' on' : '') + '"'
-          + ' onclick="event.stopPropagation();sdTogglePhotoInReport(\'' + schadenId + '\',\'' + phase + '\',' + i + ')"'
-          + ' title="' + (inReport ? 'Foto im Bericht — Klick zum Ausschluss' : 'Foto NICHT im Bericht — Klick zum Einschluss') + '">'
-          + (inReport ? '✓' : '🚫') + '</button>';
-      }
-      if (f.kommentar) h += '<div class="photo-comment">' + esc(f.kommentar) + '</div>';
-      if (!inReport) h += '<div class="photo-badge" style="background:var(--red)">Nicht im Bericht</div>';
-      h += '</div>';
-    });
-  }
-  if (editable) {
-    h += '<div class="photo-add" onclick="sdTriggerPhotoUpload(\'' + schadenId + '\',\'' + phase + '\')">';
-    h += '<span style="font-size:24px">📷</span>';
-    h += '<span>Foto hinzufügen</span>';
-    h += '</div>';
-  }
-  h += '</div></div>';
-  return h;
-}
+// (Foto-Anzeige läuft jetzt bereichsweise über _sdPhotoStrip / sdRenderBereiche.
+//  sdTriggerPhotoUpload/sdStorePhoto/sdDelPhoto/sdTogglePhotoInReport folgen.)
 
 // KRITISCH (iOS Safari): Der dynamische File-Input muss IM DOM haengen und
 // global referenziert bleiben, solange die Kamera offen ist. Ein detachter
@@ -3301,8 +3503,14 @@ function sdRenderPhotoSection(schadenId, phase, fotos, editable) {
 // nach «Verwenden» still weg. Trat v.a. bei mehreren Fotos hintereinander
 // auf, weil die Bildverarbeitung des vorherigen Fotos GC-Druck erzeugt.
 var _sdPhotoInput = null;
-function sdTriggerPhotoUpload(schadenId, phase) {
-  _photoTarget = { schadenId: schadenId, phase: phase };
+// raumIdx (optional): Index in _sdAreaNames(s) — das Foto wird direkt diesem
+// Bereich zugeordnet (foto.raum). Ohne raumIdx bleibt das Foto ohne Bereich.
+function sdTriggerPhotoUpload(schadenId, phase, raumIdx) {
+  var raum = '';
+  if (raumIdx != null && raumIdx !== '') {
+    try { var _s = sdGetById(schadenId); raum = (_sdAreaNames(_s) || [])[parseInt(raumIdx, 10)] || ''; } catch (e) {}
+  }
+  _photoTarget = { schadenId: schadenId, phase: phase, raum: raum };
   // Liegengebliebene Instanz (Kamera abgebrochen) abraeumen
   if (_sdPhotoInput && _sdPhotoInput.parentNode) {
     try { _sdPhotoInput.parentNode.removeChild(_sdPhotoInput); } catch (e) {}
@@ -3354,7 +3562,7 @@ function sdResizeAndStore(file) {
       }
       // Open comment dialog
       _pcCallback = function(kommentar, imBericht) {
-        sdStorePhoto(_photoTarget.schadenId, _photoTarget.phase, dataUrl, kommentar, imBericht);
+        sdStorePhoto(_photoTarget.schadenId, _photoTarget.phase, dataUrl, kommentar, imBericht, (_photoTarget.raum || ''));
       };
       document.getElementById('pcComment').value = '';
       document.getElementById('pcInReport').checked = true;
@@ -3380,7 +3588,7 @@ function sdClosePhotoComment() {
   document.getElementById('photoCommentModal').classList.add('hidden');
 }
 
-function sdStorePhoto(schadenId, phase, dataUrl, kommentar, imBericht) {
+function sdStorePhoto(schadenId, phase, dataUrl, kommentar, imBericht, raum) {
   var s = sdGetById(schadenId); if (!s) return;
   var photo = {
     id: 'ph_' + Date.now(),
@@ -3390,6 +3598,9 @@ function sdStorePhoto(schadenId, phase, dataUrl, kommentar, imBericht) {
     erstelltAm: sdToday(),
     phase: phase
   };
+  // Bereichszuordnung nur setzen, wenn vorhanden (additiv — Altfotos ohne
+  // Feld bleiben «ohne Bereich»).
+  if (raum) photo.raum = raum;
   if (phase === 'analyse') {
     if (!s.zustandsanalyse) s.zustandsanalyse = { leckortung: '', schadenausmass: '', massnahmen: [], fotos: [], abgeschlossenAm: null };
     s.zustandsanalyse.fotos.push(photo);
