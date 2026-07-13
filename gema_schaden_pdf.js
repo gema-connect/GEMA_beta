@@ -536,8 +536,16 @@
     var massnahmenList = (a.massnahmen||[]).map(function(m){
       return (typeof m === 'string') ? m : (m && (m.beschreibung || m.text) || '');
     }).filter(notEmpty);
+    // Referenzmessungen (Ausgangslage, in der Analyse erfasst) — liegen im
+    // Trocknungs-Datenmodell (s.trocknung.messpunkte, messung.referenz:true).
+    var refRows = [];
+    ((s.trocknung||{}).messpunkte||[]).forEach(function(mp){
+      (mp.messungen||[]).forEach(function(m){
+        if(m && m.referenz) refRows.push({ name: mp.name||'Messpunkt', wert: m.wert, einheit: m.einheit||'Digits', datum: m.datum });
+      });
+    });
     var hasContent = notEmpty(a.leckortung) || notEmpty(a.schadenausmass)
-      || massnahmenList.length || (a.fotos||[]).length;
+      || massnahmenList.length || (a.fotos||[]).length || refRows.length;
     if(!hasContent) return '';
     var h = '<section class="report-section"><div class="page-body">'
       + '<div class="sec-head">'
@@ -555,6 +563,14 @@
       h += '<div class="block"><div class="block-label">Massnahmen</div><div class="block-body"><ul>';
       massnahmenList.forEach(function(m){ h += '<li>'+esc(m)+'</li>'; });
       h += '</ul></div></div>';
+    }
+    if(refRows.length){
+      h += '<div class="tbl-block"><div class="subhead">Messpunkte — Ausgangslage (Referenz)</div>'
+        + '<table class="tbl"><thead><tr><th>Messpunkt</th><th class="num">Referenzwert</th><th>Datum</th></tr></thead><tbody>';
+      refRows.forEach(function(r){
+        h += '<tr><td class="lead">'+esc(r.name)+'</td><td class="num">'+r.wert+' '+esc(r.einheit)+'</td><td>'+esc(fmtDate(r.datum))+'</td></tr>';
+      });
+      h += '</tbody></table></div>';
     }
     h += photoSectionHtml('Analyse-Fotos', a.fotos);
     h += '</div></section>';
@@ -678,7 +694,7 @@
           var v = parseFloat(m.wert);
           var d = (i === 0) ? '—' : (v - prev).toFixed(1);
           var trend = (i === 0) ? 'Ausgangswert' : ((v - prev) < 0 ? 'fallend' : ((v - prev) > 0 ? 'steigend' : 'unveraendert'));
-          h += '<tr><td class="lead">'+esc(fmtDate(m.datum))+'</td>'
+          h += '<tr><td class="lead">'+esc(fmtDate(m.datum))+(m.referenz ? ' (Referenz)' : '')+'</td>'
             + '<td class="num">'+v+' Digits</td>'
             + '<td class="num">'+d+'</td>'
             + '<td>'+trend+'</td></tr>';

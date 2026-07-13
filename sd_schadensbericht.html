@@ -360,6 +360,8 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
 .print-area{display:none}
 
 /* VIEW TOGGLE for measurements */
+.sd-ref-pill{display:inline-block;font-size:10px;font-weight:800;padding:2px 7px;border-radius:20px;background:#eef2ff;color:#4338ca;border:1px solid #c7d2fe;vertical-align:1px;white-space:nowrap}
+.sd-first-pill{display:inline-block;font-size:10.5px;font-weight:800;padding:3px 8px;border-radius:20px;background:#fef3c7;color:#92400e;border:1px solid #fcd34d;vertical-align:1px;white-space:nowrap}
 .meas-view-toggle{display:flex;gap:0;border:1.5px solid var(--brd2);border-radius:8px;overflow:hidden;height:32px;flex-shrink:0;box-sizing:border-box}
 .meas-view-toggle button{padding:0 14px;height:100%;border:none;background:transparent;font-size:12px;font-weight:700;color:var(--mut);cursor:pointer;display:inline-flex;align-items:center}
 .meas-view-toggle button.active{background:var(--plan);color:#fff}
@@ -821,6 +823,7 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
       <label class="dlg-lbl">Name <span style="color:var(--red)">*</span></label>
       <input type="text" class="dlg-inp" id="mpName" placeholder="z.B. Wand links Bad, Boden Mitte …">
     </div>
+    <div id="mpRefHint" style="display:none;margin-bottom:12px;padding:9px 12px;background:#eef2ff;border:1px solid #c7d2fe;border-radius:8px;font-size:12.5px;color:#4338ca;line-height:1.45">Nach dem Hinzufügen wird direkt die <strong>Referenzmessung</strong> (Ausgangslage vor Trocknungsstart) erfasst.</div>
     <div class="dlg-row">
       <button class="dlg-cancel" onclick="document.getElementById('mpAddModal').classList.remove('hidden');document.getElementById('mpAddModal').classList.add('hidden')">Abbrechen</button>
       <button class="dlg-save" onclick="sdAddMesspunkt()">Hinzufügen</button>
@@ -854,6 +857,10 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
       </div>
       <input type="file" id="messPhotoInput" accept="image/*" capture="environment" style="display:none" onchange="sdMessHandlePhoto(event)">
     </div>
+    <label style="display:flex;align-items:center;gap:9px;margin-bottom:12px;font-size:13px;font-weight:600;color:var(--txt);cursor:pointer">
+      <input type="checkbox" id="messReferenz" style="width:17px;height:17px;flex-shrink:0">
+      Referenzmessung (Ausgangslage vor Trocknungsstart)
+    </label>
     <div class="dlg-row">
       <button class="dlg-cancel" onclick="document.getElementById('messAddModal').classList.add('hidden')">Abbrechen</button>
       <button class="dlg-save" onclick="sdAddMessung()">Hinzufügen</button>
@@ -1505,7 +1512,7 @@ function sdRenderCards(list) {
     html += '<div class="tc-body">';
     html += '<div class="tc-row">📍 <strong>' + esc(objName) + '</strong></div>';
     if (s.raeume && s.raeume.length) html += '<div class="tc-row">🏠 ' + s.raeume.map(esc).join(', ') + '</div>';
-    if (s.trocknung && s.trocknung.messpunkte && s.trocknung.messpunkte.length && s.phase === 'trocknung') {
+    if (s.trocknung && s.trocknung.messpunkte && s.trocknung.messpunkte.length && (s.phase === 'trocknung' || s.phase === 'analyse')) {
       html += '<div class="tc-row">📏 ' + s.trocknung.messpunkte.length + ' Messpunkte</div>';
     }
     html += '</div>';
@@ -1826,7 +1833,7 @@ function sdRenderDetail(s) {
 
   // Phase 2: Zustandsanalyse
   html += sdRenderAccordion('analyse', '🔍', 'Zustandsanalyse', phaseIdx, function() {
-    return sdRenderAnalyse(s, canEdit);
+    return sdRenderAnalyse(s, canEdit, canMeas);
   }, s.id, canEdit);
 
   // Phase 3: Trocknung
@@ -1947,7 +1954,7 @@ function sdRenderErfassung(s, canEdit) {
 }
 
 // ── PHASE 2: ANALYSE ──
-function sdRenderAnalyse(s, canEdit) {
+function sdRenderAnalyse(s, canEdit, canMeas) {
   var a = s.zustandsanalyse || {};
   // Editierbar fuer alle Berechtigten — Phasen koennen auch nach
   // Abschluss noch bearbeitet werden.
@@ -2000,6 +2007,11 @@ function sdRenderAnalyse(s, canEdit) {
   }
   h += '</div>';
 
+  // Messpunkte — Ausgangslage (Referenz). Gleiche Datenquelle wie die
+  // Trocknungsphase (s.trocknung.messpunkte) — hier bereits in der Analyse
+  // definierbar, inkl. Referenzmessung als Ausgangswert vor Trocknungsstart.
+  h += sdRenderMesspunkteAusgangslage(s, canEdit, canMeas);
+
   // Fotos
   h += sdRenderPhotoSection(s.id, 'analyse', a.fotos || [], editable);
 
@@ -2010,6 +2022,58 @@ function sdRenderAnalyse(s, canEdit) {
   if (canEdit && s.phase === 'erfasst') {
     h += '<div style="margin-top:16px;text-align:right"><button class="nbtn primary" onclick="sdAdvancePhase(\'' + s.id + '\',\'analyse\')">Phase starten</button></div>';
   }
+  return h;
+}
+
+// Kompakte Messpunkt-Sicht fuer die Analyse-Phase: Messpunkte definieren +
+// Referenzmessungen (Ausgangslage) erfassen. KEIN eigener Speicherort —
+// liest/schreibt s.trocknung.messpunkte wie die Trocknungsphase, damit
+// bestehende Berichte unveraendert funktionieren. Regulaere Messungen aus
+// der Trocknung werden hier nur als Zaehler angedeutet.
+function sdRenderMesspunkteAusgangslage(s, canEdit, canMeas) {
+  var editable = (canEdit || canMeas);
+  var tr = s.trocknung || {};
+  var mps = tr.messpunkte || [];
+  var h = '<div style="margin-bottom:12px">';
+  h += '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:12px">';
+  h += '<label style="font-size:11px;font-weight:800;text-transform:uppercase;color:var(--mut)">📏 Messpunkte — Ausgangslage (Referenz)</label>';
+  if (editable) h += '<button class="nbtn" onclick="sdOpenMpAdd(\'' + s.id + '\',\'analyse\')">+ Messpunkt</button>';
+  h += '</div>';
+  if (mps.length) {
+    mps.forEach(function(mp) {
+      var messungen = mp.messungen || [];
+      var refs = messungen.filter(function(m) { return m && m.referenz; });
+      var regCount = messungen.length - refs.length;
+      h += '<div style="background:var(--sur);border:1.5px solid var(--brd);border-radius:12px;padding:12px 14px;margin-bottom:8px">';
+      h += '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">';
+      h += '<div style="font-size:13.5px;font-weight:800;color:var(--txt);overflow-wrap:anywhere;flex:1;min-width:140px">📍 ' + esc(mp.name) + '</div>';
+      if (editable) h += '<button class="nbtn" onclick="sdOpenMessAdd(\'' + s.id + '\',\'' + mp.id + '\',true)">+ Referenzmessung</button>';
+      if (canEdit) h += '<button class="btn-del-icon" title="Messpunkt löschen" onclick="sdDelMp(\'' + s.id + '\',\'' + mp.id + '\')">✕</button>';
+      h += '</div>';
+      if (refs.length) {
+        refs.forEach(function(m) {
+          var mi = messungen.indexOf(m);
+          h += '<div style="display:flex;align-items:center;gap:10px;margin-top:8px;padding:8px 10px;background:var(--bg2);border-radius:8px;font-size:13px;flex-wrap:wrap">';
+          h += '<span class="sd-ref-pill">Referenz</span>';
+          h += '<span style="font-weight:800">' + m.wert + ' ' + esc(m.einheit || 'Digits') + '</span>';
+          h += '<span style="color:var(--mut)">' + sdFmtDate(m.datum) + '</span>';
+          if (m.foto) {
+            h += '<button type="button" onclick="sdOpenLightbox(\'' + esc(m.foto) + '\')" title="Foto-Beleg ansehen" style="border:0;padding:0;background:none;cursor:pointer">'
+              + '<img src="' + m.foto + '" alt="" style="width:28px;height:28px;object-fit:cover;border-radius:5px;border:1.5px solid var(--brd2);display:block"></button>';
+          }
+          if (canEdit) h += '<button class="btn-del-icon" title="Messung löschen" style="margin-left:auto" onclick="sdDelMessung(\'' + s.id + '\',\'' + mp.id + '\',' + mi + ')">✕</button>';
+          h += '</div>';
+        });
+      } else {
+        h += '<div style="margin-top:8px;font-size:12px;color:var(--mut)">Noch keine Referenzmessung — Ausgangswert vor Trocknungsstart erfassen.</div>';
+      }
+      if (regCount > 0) h += '<div style="margin-top:6px;font-size:11.5px;color:var(--mut)">+ ' + regCount + ' Messung' + (regCount !== 1 ? 'en' : '') + ' in der Trocknungsphase</div>';
+      h += '</div>';
+    });
+  } else {
+    h += '<div style="font-size:12px;color:var(--mut);padding:12px;text-align:center;background:var(--bg2);border-radius:8px">Noch keine Messpunkte. Bereits jetzt definieren — die Referenzmessung ist die Ausgangslage für die Trocknung.</div>';
+  }
+  h += '</div>';
   return h;
 }
 
@@ -2178,8 +2242,12 @@ function sdRenderTrocknung(s, canEdit, canMeas) {
       // die Bedienelemente (Toggle / + Messung / ✕) — bricht auf Mobile sauber.
       var viewKey = mp.id;
       var curView = _measView[viewKey] || 'table';
+      // «Erste Messung ausstehend»: in der laufenden Trocknung noch keine
+      // regulaere Messung (nur Referenz aus der Analyse oder gar nichts).
+      var hatRegulaer = (mp.messungen || []).some(function(m) { return m && !m.referenz; });
+      var erstePill = (!hatRegulaer && s.phase === 'trocknung') ? ' <span class="sd-first-pill">⏳ Erste Messung ausstehend</span>' : '';
       h += '<div style="margin-bottom:12px">';
-      h += '<div style="font-size:13.5px;font-weight:800;color:var(--txt);margin-bottom:8px;overflow-wrap:anywhere">📍 ' + esc(mp.name) + '</div>';
+      h += '<div style="font-size:13.5px;font-weight:800;color:var(--txt);margin-bottom:8px;overflow-wrap:anywhere">📍 ' + esc(mp.name) + erstePill + '</div>';
       h += '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">';
       h += '<div class="meas-view-toggle">';
       h += '<button class="' + (curView === 'table' ? 'active' : '') + '" onclick="sdSetMeasView(\'' + viewKey + '\',\'table\',\'' + s.id + '\')">Tabelle</button>';
@@ -2195,7 +2263,7 @@ function sdRenderTrocknung(s, canEdit, canMeas) {
           h += '<div style="overflow-x:auto"><table class="meas-table"><thead><tr><th>Datum</th><th>Wert (Digits)</th><th style="width:60px">Beleg</th><th style="width:32px;padding-right:0;text-align:right"></th></tr></thead><tbody>';
           mp.messungen.forEach(function(m, mi) {
             var unit = m.einheit || 'Digits';
-            h += '<tr><td>' + sdFmtDate(m.datum) + '</td><td style="font-weight:800">' + m.wert + ' ' + esc(unit) + '</td>';
+            h += '<tr><td>' + sdFmtDate(m.datum) + (m.referenz ? ' <span class="sd-ref-pill">Referenz</span>' : '') + '</td><td style="font-weight:800">' + m.wert + ' ' + esc(unit) + '</td>';
             // Foto-Beleg: Klick oeffnet Lightbox
             h += '<td style="width:60px">';
             if (m.foto) {
@@ -2478,9 +2546,17 @@ function sdUpdateDevEndDate(id, idx, val) {
 }
 
 // ── MESSPUNKTE ──
-function sdOpenMpAdd(id) {
+// _mpCtx: 'analyse' = Aufruf aus dem Ausgangslage-Block der Zustandsanalyse —
+// nach dem Anlegen wird direkt die Referenzmessung erfasst. Messpunkte liegen
+// IMMER in s.trocknung.messpunkte (eine Datenquelle; bestehende Berichte
+// bleiben unveraendert lesbar).
+var _mpCtx = '';
+function sdOpenMpAdd(id, ctx) {
   _mpSchadenId = id;
+  _mpCtx = ctx || '';
   document.getElementById('mpName').value = '';
+  var hint = document.getElementById('mpRefHint');
+  if (hint) hint.style.display = (_mpCtx === 'analyse') ? '' : 'none';
   document.getElementById('mpAddModal').classList.remove('hidden');
 }
 function sdAddMesspunkt() {
@@ -2488,10 +2564,15 @@ function sdAddMesspunkt() {
   var name = document.getElementById('mpName').value.trim();
   if (!name) { alert('Bitte Name eingeben.'); return; }
   if (!s.trocknung) s.trocknung = { gestartetAm: null, beendetAm: null, messpunkte: [], geraete: [], fotos: [], notizen: '' };
-  s.trocknung.messpunkte.push({ id: 'mp_' + Date.now(), name: name, messungen: [] });
+  var mp = { id: 'mp_' + Date.now(), name: name, messungen: [] };
+  s.trocknung.messpunkte.push(mp);
   sdSave();
   document.getElementById('mpAddModal').classList.add('hidden');
   sdRenderDetail(s);
+  // Aus der Analyse: direkt die Referenzmessung (Ausgangslage) anschliessen —
+  // synchron im selben User-Gesture-Stack, damit die Kamera auf iOS oeffnet.
+  if (_mpCtx === 'analyse') sdOpenMessAdd(s.id, mp.id, true);
+  _mpCtx = '';
 }
 function sdDelMp(id, mpId) {
   GemaDialog.confirm({title:'Messpunkt löschen', message:'Messpunkt mit allen Messungen wirklich löschen?', confirmLabel:'Löschen', danger:true}).then(function(ok){
@@ -2532,12 +2613,14 @@ function _sdFocusMessVal(){
   try { v.scrollIntoView({behavior:'smooth', block:'center'}); } catch(e){}
 }
 
-function sdOpenMessAdd(schadenId, mpId) {
+function sdOpenMessAdd(schadenId, mpId, referenz) {
   _messSchadenId = schadenId;
   _messMpId = mpId;
   _messPhotoBuf = null;
   document.getElementById('messDate').value = sdToday();
   document.getElementById('messVal').value = '';
+  var refCb = document.getElementById('messReferenz');
+  if (refCb) refCb.checked = !!referenz;
   _sdResetMessPhotoPreview();
   // Modal sichtbar machen.
   document.getElementById('messAddModal').classList.remove('hidden');
@@ -2568,8 +2651,10 @@ function sdMessHandlePhoto(ev){
   if(!file) return;
   if(file.size > 10*1024*1024){ alert('Datei zu gross (max. 10 MB Originalgrösse).'); return; }
   var reader = new FileReader();
+  reader.onerror = function(){ alert('Foto konnte nicht gelesen werden — bitte erneut aufnehmen.'); };
   reader.onload = function(e){
     var img = new Image();
+    img.onerror = function(){ alert('Foto konnte nicht verarbeitet werden (Format nicht unterstützt) — bitte erneut aufnehmen.'); };
     img.onload = function(){
       var maxW = 1600;
       var w = img.width, h = img.height;
@@ -2613,13 +2698,18 @@ function sdAddMessung() {
     if (s.trocknung.messpunkte[i].id === _messMpId) { mp = s.trocknung.messpunkte[i]; break; }
   }
   if (!mp) return;
-  mp.messungen.push({
+  var mess = {
     id: 'm_' + Date.now(),
     datum: document.getElementById('messDate').value || sdToday(),
     wert: parseFloat(val),
     einheit: 'Digits',
     foto: _messPhotoBuf || null
-  });
+  };
+  // Referenz-Flag NUR setzen wenn angehakt (additiv — Berichte ohne das
+  // Feld bleiben identisch, alte Leser ignorieren es).
+  var refCb = document.getElementById('messReferenz');
+  if (refCb && refCb.checked) mess.referenz = true;
+  mp.messungen.push(mess);
   // Sort by date
   mp.messungen.sort(function(a, b) { return (a.datum || '').localeCompare(b.datum || ''); });
   sdSave();
@@ -3204,25 +3294,46 @@ function sdRenderPhotoSection(schadenId, phase, fotos, editable) {
   return h;
 }
 
+// KRITISCH (iOS Safari): Der dynamische File-Input muss IM DOM haengen und
+// global referenziert bleiben, solange die Kamera offen ist. Ein detachter
+// Input ohne erreichbare Referenz wird von WebKit garbage-collected, waehrend
+// der User fotografiert — das change-Event feuert dann NIE und das Foto ist
+// nach «Verwenden» still weg. Trat v.a. bei mehreren Fotos hintereinander
+// auf, weil die Bildverarbeitung des vorherigen Fotos GC-Druck erzeugt.
+var _sdPhotoInput = null;
 function sdTriggerPhotoUpload(schadenId, phase) {
   _photoTarget = { schadenId: schadenId, phase: phase };
+  // Liegengebliebene Instanz (Kamera abgebrochen) abraeumen
+  if (_sdPhotoInput && _sdPhotoInput.parentNode) {
+    try { _sdPhotoInput.parentNode.removeChild(_sdPhotoInput); } catch (e) {}
+  }
+  _sdPhotoInput = null;
   var inp = document.createElement('input');
   inp.type = 'file';
   inp.accept = 'image/*';
   inp.setAttribute('capture', 'environment');
-  inp.onchange = function(e) {
-    var file = e.target.files[0];
+  inp.style.cssText = 'position:fixed;top:-100px;left:-100px;width:1px;height:1px;opacity:0;pointer-events:none';
+  inp.onchange = function() {
+    var file = inp.files && inp.files[0];
+    if (inp.parentNode) { try { inp.parentNode.removeChild(inp); } catch (e) {} }
+    if (_sdPhotoInput === inp) _sdPhotoInput = null;
     if (!file) return;
     if (file.size > 10 * 1024 * 1024) { alert('Datei zu gross (max. 10 MB Originalgrösse).'); return; }
     sdResizeAndStore(file);
   };
+  document.body.appendChild(inp);
+  _sdPhotoInput = inp;
   inp.click();
 }
 
 function sdResizeAndStore(file) {
   var reader = new FileReader();
+  // Fehler nie still verschlucken — der User muss wissen, dass das Foto
+  // NICHT uebernommen wurde (statt es erst im Bericht zu vermissen).
+  reader.onerror = function() { alert('Foto konnte nicht gelesen werden — bitte erneut aufnehmen.'); };
   reader.onload = function(e) {
     var img = new Image();
+    img.onerror = function() { alert('Foto konnte nicht verarbeitet werden (Format nicht unterstützt) — bitte erneut aufnehmen.'); };
     img.onload = function() {
       var maxW = 1600;
       var w = img.width, h = img.height;
@@ -4263,7 +4374,7 @@ function sdExportPdf(id){
           var diff = prevV==null ? '' : ((w-prevV>=0?'+':'') + (w-prevV).toFixed(1));
           var trend = prevV==null ? '' : (w>prevV ? 'steigend' : (w<prevV ? 'fallend' : 'gleich'));
           prevV = w;
-          return [_sdPdfFmtDate(me.datum), w+' '+(me.einheit||'Digits'), diff, trend];
+          return [_sdPdfFmtDate(me.datum)+(me.referenz?' (Referenz)':''), w+' '+(me.einheit||'Digits'), diff, trend];
         });
         drawTable(['Datum','Wert','Diff','Trend'], rows, [2, 2, 1, 1.2]);
       });
@@ -4474,7 +4585,7 @@ function sdBuildReportHtml(s) {
         if (mp.messungen && mp.messungen.length) {
           h += '<table><tr><th>Datum</th><th>Wert (Digits)</th></tr>';
           mp.messungen.forEach(function(m) {
-            h += '<tr><td>' + sdFmtDate(m.datum) + '</td><td>' + m.wert + ' ' + (m.einheit || 'Digits') + '</td></tr>';
+            h += '<tr><td>' + sdFmtDate(m.datum) + (m.referenz ? ' (Referenz)' : '') + '</td><td>' + m.wert + ' ' + (m.einheit || 'Digits') + '</td></tr>';
           });
           h += '</table>';
         }
