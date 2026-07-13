@@ -252,6 +252,49 @@
   var _lastKnownIdsInitialized=false;
 
   // ── Settings-Dialog (Abo-Preferences) ────────────────────────
+  // Modul-Schlüssel der EVENT_KEYS → Anzeigename (Gruppierung der Einstellungen).
+  // Fallback: Label aus GemaAuth.getModules(), sonst der Schlüssel selbst.
+  var MODUL_LABELS={
+    ausschreibung:'📋 Ausschreibung & Vergabe',
+    werkzeug:'🔧 Werkzeugmanagement',
+    fahrzeug:'🚗 Fahrzeugmanagement',
+    lu:'📐 LU-Zusammenstellung',
+    objekte:'🏗 Objekte & Beteiligte',
+    schadensbericht:'🏚 Schadensberichte',
+    trocknung:'🌡 Trocknungsgeräte',
+    produktkatalog:'🏷 Offertanfragen & Produktkatalog',
+    bestellungen:'🛒 Bestellungen (Anlagen)',
+    regierapport:'📝 Regierapporte',
+    einsatzplan:'📅 Einsatzplan',
+    goodel:'🗳 Goodel (Terminabstimmung)',
+    abnahme:'✅ Abnahmeprotokolle SIA',
+    legionellen:'🦠 Hygienemanagement',
+    spuelmanager:'🚿 Spülmanager',
+    immobilien:'🏢 Immobilienverwaltung',
+    service:'🛠 Service & Wartung',
+    stundenerfassung:'⏱ Stundenerfassung',
+    revisionsunterlagen:'📑 Revisionsunterlagen',
+    behoerden_formulare:'🏛 Behörden & Formulare',
+    abos:'💳 Abos & Preise',
+    chat:'💬 Chat',
+    schule:'🎓 Schule & Klassen'
+  };
+  function _modulLabel(key){
+    if(!key)return 'Weitere';
+    if(MODUL_LABELS[key])return MODUL_LABELS[key];
+    try{
+      var m=(w.GemaAuth&&w.GemaAuth.getModules)?w.GemaAuth.getModules().find(function(x){return x.key===key;}):null;
+      if(m&&m.label)return m.label;
+    }catch(e){}
+    return key.charAt(0).toUpperCase()+key.slice(1);
+  }
+  function _closeSettings(){
+    var overlay=d.getElementById('gnSettingsOverlay');
+    if(overlay)overlay.remove();
+    d.body.classList.remove('modal-open');
+    d.removeEventListener('keydown',_settingsEsc);
+  }
+  function _settingsEsc(e){if(e.key==='Escape')_closeSettings();}
   function _openSettings(){
     _close();
     var overlay=d.getElementById('gnSettingsOverlay');
@@ -259,28 +302,50 @@
     overlay=d.createElement('div');
     overlay.id='gnSettingsOverlay';
     overlay.style.cssText='position:fixed;inset:0;background:rgba(15,23,42,.5);z-index:10001;display:flex;align-items:center;justify-content:center;padding:20px;font-family:var(--sans,"DM Sans",sans-serif)';
+    // Nach Modul gruppieren — sauber getrennte Abschnitte statt einer flachen Liste
     var keys=Object.keys(w.GemaNotify.EVENT_KEYS);
-    var rows=keys.map(function(k){
-      var ev=w.GemaNotify.EVENT_KEYS[k];
-      var on=w.GemaNotify.isEventEnabled(k);
-      return '<label style="display:flex;align-items:center;gap:12px;padding:12px 14px;border:1.5px solid #e2e8f0;border-radius:8px;cursor:pointer;margin-bottom:8px;background:'+(on?'#f0fdf4':'#fff')+'">'
-        +'<input type="checkbox" data-ev="'+_esc(k)+'" '+(on?'checked':'')+' style="width:18px;height:18px;cursor:pointer"/>'
-        +'<div style="flex:1"><div style="font-size:13px;font-weight:700;color:#0f172a">'+_esc(ev.label)+'</div>'
-        +'<div style="font-size:11px;color:#64748b;margin-top:2px">Modul: '+_esc(ev.modul||'—')+'</div></div>'
-        +'</label>';
+    var gruppen={};
+    keys.forEach(function(k){
+      var mod=w.GemaNotify.EVENT_KEYS[k].modul||'weitere';
+      (gruppen[mod]=gruppen[mod]||[]).push(k);
+    });
+    var modKeys=Object.keys(gruppen).sort(function(a,b){
+      return _modulLabel(a).replace(/^[^\wÄÖÜäöü]+\s*/,'').localeCompare(_modulLabel(b).replace(/^[^\wÄÖÜäöü]+\s*/,''),'de');
+    });
+    var sections=modKeys.map(function(mod){
+      var evs=gruppen[mod].slice().sort(function(a,b){
+        return String(w.GemaNotify.EVENT_KEYS[a].label).localeCompare(String(w.GemaNotify.EVENT_KEYS[b].label),'de');
+      });
+      var rows=evs.map(function(k){
+        var ev=w.GemaNotify.EVENT_KEYS[k];
+        var on=w.GemaNotify.isEventEnabled(k);
+        return '<label style="display:flex;align-items:center;gap:11px;padding:9px 12px;border:1.5px solid #e2e8f0;border-radius:8px;cursor:pointer;margin-bottom:6px;background:'+(on?'#f0fdf4':'#fff')+'">'
+          +'<input type="checkbox" data-ev="'+_esc(k)+'" '+(on?'checked':'')+' style="width:18px;height:18px;cursor:pointer;flex-shrink:0"/>'
+          +'<div style="flex:1;font-size:13px;font-weight:600;color:#0f172a">'+_esc(ev.label)+'</div>'
+          +'</label>';
+      }).join('');
+      return '<div style="margin-bottom:14px">'
+        +'<div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:#64748b;padding:0 2px;margin:0 0 6px;border-bottom:1.5px solid #e2e8f0;padding-bottom:5px">'+_esc(_modulLabel(mod))+'</div>'
+        +rows+'</div>';
     }).join('');
     overlay.innerHTML=''
-      +'<div style="background:#fff;border-radius:14px;padding:24px;max-width:480px;width:100%;max-height:80vh;overflow-y:auto;box-shadow:0 20px 60px -10px rgba(0,0,0,.3)">'
-      +'  <h3 style="margin:0 0 6px;font-size:17px;font-weight:800">🔔 Benachrichtigungs-Einstellungen</h3>'
-      +'  <p style="margin:0 0 16px;font-size:12px;color:#64748b">Wähle, welche Benachrichtigungen du erhalten möchtest. Änderungen gelten ab sofort.</p>'
-      +'  <div id="gnPrefList">'+rows+'</div>'
-      +'  <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">'
+      +'<div id="gnSettingsBox" style="background:#fff;border-radius:14px;padding:0;max-width:520px;width:100%;max-height:82vh;display:flex;flex-direction:column;box-shadow:0 20px 60px -10px rgba(0,0,0,.3);overflow:hidden">'
+      +'  <div style="display:flex;align-items:flex-start;gap:10px;padding:18px 20px 12px;border-bottom:1px solid #e2e8f0;flex-shrink:0">'
+      +'    <div style="flex:1"><h3 style="margin:0 0 4px;font-size:17px;font-weight:800">🔔 Benachrichtigungs-Einstellungen</h3>'
+      +'    <p style="margin:0;font-size:12px;color:#64748b">Nach Modul gruppiert — wähle, welche Benachrichtigungen du erhalten möchtest. Änderungen gelten ab sofort.</p></div>'
+      +'    <button id="gnPrefX" title="Schliessen" style="width:34px;height:34px;border-radius:9px;border:1.5px solid #c8cfdf;background:#f8faff;color:#334155;cursor:pointer;font-size:15px;font-weight:700;flex-shrink:0;line-height:1">✕</button>'
+      +'  </div>'
+      +'  <div id="gnPrefList" style="padding:14px 20px;overflow-y:auto;-webkit-overflow-scrolling:touch">'+sections+'</div>'
+      +'  <div style="display:flex;gap:8px;justify-content:flex-end;padding:12px 20px;border-top:1px solid #e2e8f0;flex-shrink:0">'
       +'    <button id="gnPrefClose" style="padding:8px 18px;border-radius:8px;border:1.5px solid #c8cfdf;background:#fff;color:#334155;cursor:pointer;font-weight:600;font-family:inherit">Schliessen</button>'
       +'  </div>'
       +'</div>';
     d.body.appendChild(overlay);
     d.body.classList.add('modal-open');
-    overlay.querySelector('#gnPrefClose').addEventListener('click',function(){overlay.remove();d.body.classList.remove('modal-open');});
+    overlay.querySelector('#gnPrefClose').addEventListener('click',_closeSettings);
+    overlay.querySelector('#gnPrefX').addEventListener('click',_closeSettings);
+    overlay.addEventListener('click',function(e){if(e.target===overlay)_closeSettings();});
+    d.addEventListener('keydown',_settingsEsc);
     overlay.querySelectorAll('input[type=checkbox]').forEach(function(cb){
       cb.addEventListener('change',function(){
         w.GemaNotify.setPref(cb.getAttribute('data-ev'), cb.checked);

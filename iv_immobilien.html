@@ -685,25 +685,38 @@ var TABS=[
   {id:'auf',label:'🔧 Aufträge'}
 ];
 window.ivTab=function(id){_tab=id;ivRender();};
+// Jeder Abschnitt einzeln gekapselt (Muster sys_lieferant_dashboard renderAll):
+// ein Fehler in einem Renderer darf nie wieder die ganze Seite leeren —
+// stattdessen erscheint eine sichtbare Fehlerbox.
 function ivRender(){
   var verw=ivIsVerwalter();
-  var tabsEl=document.getElementById('ivTabs');
-  tabsEl.innerHTML=verw?TABS.map(function(t){
-    return '<button class="vtab'+(t.id===_tab?' on':'')+'" onclick="ivTab(\''+t.id+'\')">'+t.label+'</button>';
-  }).join(''):'';
-  document.getElementById('btnLg').style.display=(verw&&_tab==='lg')?'':'none';
-  document.getElementById('btnWhg').style.display=(verw&&_tab==='whg')?'':'none';
-  document.getElementById('btnMv').style.display=(verw&&_tab==='mv')?'':'none';
-  document.getElementById('btnAuf').style.display=verw?'':'none';
-  ivRenderTasks();
+  try{
+    var tabsEl=document.getElementById('ivTabs');
+    tabsEl.innerHTML=verw?TABS.map(function(t){
+      return '<button class="vtab'+(t.id===_tab?' on':'')+'" onclick="ivTab(\''+t.id+'\')">'+t.label+'</button>';
+    }).join(''):'';
+  }catch(e){console.warn('[immobilien] tabs',e);}
+  try{
+    document.getElementById('btnLg').style.display=(verw&&_tab==='lg')?'':'none';
+    document.getElementById('btnWhg').style.display=(verw&&_tab==='whg')?'':'none';
+    document.getElementById('btnMv').style.display=(verw&&_tab==='mv')?'':'none';
+    document.getElementById('btnAuf').style.display=verw?'':'none';
+  }catch(e){console.warn('[immobilien] buttons',e);}
+  try{ivRenderTasks();}catch(e){console.warn('[immobilien] tasks',e);}
   var w=document.getElementById('ivWrap');
-  if(!verw){w.innerHTML=ivIsHandwerker()?'':'<div class="empty">Kein Verwaltungs-Zugriff.</div>';return;}
-  if(_tab==='ueber')w.innerHTML=ivHtmlUebersicht();
-  else if(_tab==='lg')w.innerHTML=ivHtmlLgs();
-  else if(_tab==='whg')w.innerHTML=ivHtmlWhgs();
-  else if(_tab==='mv')w.innerHTML=ivHtmlMvs();
-  else if(_tab==='geld')w.innerHTML=ivHtmlGeld();
-  else if(_tab==='auf')w.innerHTML=ivHtmlAufs();
+  if(!w)return;
+  try{
+    if(!verw){w.innerHTML=ivIsHandwerker()?'':'<div class="empty">Kein Verwaltungs-Zugriff — dieses Modul ist für Immobilienverwalter. Handwerksbetriebe sehen hier ihre zugewiesenen Aufträge.</div>';return;}
+    if(_tab==='ueber')w.innerHTML=ivHtmlUebersicht();
+    else if(_tab==='lg')w.innerHTML=ivHtmlLgs();
+    else if(_tab==='whg')w.innerHTML=ivHtmlWhgs();
+    else if(_tab==='mv')w.innerHTML=ivHtmlMvs();
+    else if(_tab==='geld')w.innerHTML=ivHtmlGeld();
+    else if(_tab==='auf')w.innerHTML=ivHtmlAufs();
+  }catch(e){
+    console.warn('[immobilien] render',e);
+    w.innerHTML='<div class="empty">⚠ Anzeige-Fehler in diesem Tab ('+esc(e&&e.message||e)+') — bitte Seite neu laden. Falls es bleibt: Feedback-Button oben rechts.</div>';
+  }
 }
 function ladeHtml(){
   return '<div class="empty"><svg width="26" height="26" viewBox="0 0 26 26" style="vertical-align:middle;margin-right:8px"><circle cx="13" cy="13" r="10" fill="none" stroke="#c7d2fe" stroke-width="3"/><path d="M13 3 a10 10 0 0 1 10 10" fill="none" stroke="#4338ca" stroke-width="3" stroke-linecap="round"><animateTransform attributeName="transform" type="rotate" from="0 13 13" to="360 13 13" dur="0.9s" repeatCount="indefinite"/></path></svg>Daten werden geladen …</div>';
@@ -712,8 +725,25 @@ function ladeHtml(){
 // ── Handwerker-Panel «Meine Aufträge» ───────────────────────────────
 function ivRenderTasks(){
   var host=document.getElementById('ivTasks');
-  var meine=scopedAufs().meine.filter(function(a){return a.status==='beauftragt'||a.status==='in_arbeit';});
-  if(!meine.length){host.innerHTML='';return;}
+  var alle=scopedAufs().meine;
+  var meine=alle.filter(function(a){return a.status==='beauftragt'||a.status==='in_arbeit';});
+  if(!meine.length){
+    // Handwerker ohne offene Aufträge: Startbild statt leerer Seite —
+    // vorher blieb für role_unternehmer NUR der Header übrig (User-Bug 07/2026).
+    if(!ivIsVerwalter()&&ivIsHandwerker()){
+      var erledigt=alle.filter(function(a){return a.status==='erledigt';})
+        .sort(function(a,b){return String(b.erledigtAm||'').localeCompare(String(a.erledigtAm||''));}).slice(0,5);
+      host.innerHTML='<div class="tasks"><h3>🔧 Meine Handwerker-Aufträge</h3>'+
+        '<div style="background:#fff;border:1.5px solid var(--brd);border-radius:12px;padding:12px 14px;font-size:12.5px;color:var(--mut)">'+
+        (_ivCloudLoaded?'Zurzeit sind deinem Betrieb keine offenen Aufträge zugewiesen. Vergibt eine Immobilienverwaltung einen Auftrag an dich, erscheint er hier — zusätzlich wirst du über die 🔔-Glocke benachrichtigt.':'Aufträge werden geladen …')+
+        '</div>'+
+        (erledigt.length?'<div style="margin-top:8px;font-size:11px;font-weight:800;color:var(--mut);text-transform:uppercase;letter-spacing:.3px">Zuletzt erledigt</div>'+erledigt.map(function(a){
+          return '<div class="vl" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><b>'+esc(a.nr)+'</b> '+esc(a.titel)+' <span class="badge b-grn">Erledigt</span><span style="flex:1"></span><button class="btn sm" onclick="ivAufDetail(\''+a.id+'\')">Details</button></div>';
+        }).join(''):'')+
+        '</div>';
+    } else host.innerHTML='';
+    return;
+  }
   host.innerHTML='<div class="tasks"><h3>🔧 Meine Handwerker-Aufträge ('+meine.length+')</h3>'+meine.map(function(a){
     var st=IV_AUF_STATUS[a.status]||IV_AUF_STATUS.offen;
     return '<div style="background:#fff;border:1.5px solid var(--brd);border-radius:12px;padding:10px 12px;margin-bottom:8px">'+
