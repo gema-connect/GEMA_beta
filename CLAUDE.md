@@ -763,6 +763,14 @@ Das Benutzerwechsel-Dropdown oben rechts (`_injectBadge`/`GemaAuth._switchUser` 
 
 **Jetzt**: Ohne auflösbare Org bleibt das GEMA-Logo; ohne Lieferanten-Zuordnung zeigt das Dashboard «Kein Lieferanten-Profil gefunden». GEMA-Admins bekommen eine **explizite Vorschau** mit Firmen-Auswahl (`?lief=<id>`, amber Banner «👁 Admin-Vorschau») statt stillschweigend `all[0]`. **Keine `||orgs[0]` / `all[0]`-Fallbacks wieder einbauen!**
 
+### GEMA-Logo blitzt kurz auf, bevor das Firmenlogo erscheint (Pre-Paint-Fix)
+
+**Symptom**: Auf einer frisch ladenden Seite sah man ganz kurz das GEMA-Logo, bevor `_swapLogo` es gegen das hinterlegte Firmenlogo tauschte (FOUC beim Seitenwechsel).
+
+**Ursache**: Das GEMA-SVG steht statisch im Nav-Markup (`.g-nav-mark`) und wird gezeichnet, bevor `_swapLogo(userOrg)` (läuft erst bei `DOMContentLoaded`) es durch das `<img>` mit `org.logo` ersetzt.
+
+**Fix (`gema_auth.js`, gilt für alle Seiten zentral)**: `_navLogoPrepaint()` läuft **synchron im `<head>`** (gema_auth.js ist ein blockierendes `<script>` vor dem Body → vor dem Nav-Paint). Es liest den Pre-Paint-Cache `gema_nav_logo_v1` (`{orgId, src, ratio, name, hideName}`, von `_cacheNavLogo` beim letzten erfolgreichen `_swapLogo` geschrieben) und injiziert — nur wenn der Cache zur Org des eingeloggten Users passt (**orgId-Guard** gegen fremdes Logo nach User-/Org-Wechsel) — ein `<style id="_gaNavLogo">`, das `.g-nav-mark svg{display:none}` setzt und das Firmenlogo als `.g-nav-mark::before`-Hintergrund rendert. So erscheint auf jeder Folgeseite sofort das richtige Logo (nur die allererste Seite nach dem Login blitzt einmalig, weil der Cache noch fehlt). `_swapLogo` entfernt den Pre-Paint-Style, bevor es das echte `<img>` einsetzt (gleiches Bild → kein Doppel-Logo), und **self-heilt**: hat die Org kein Logo, werden Cache + Pre-Paint-Style gelöscht und das GEMA-SVG wieder sichtbar; `logout()` leert den Cache. Test: `scripts/navlogo_prepaint_test.mjs` (16 Checks: Pre-Paint aktiv, Cache-Schreiben, Cross-Org-Guard, Self-Heal — Pre-Swap-Zustand via zuerst registriertem DOMContentLoaded-Listener gemessen).
+
 ### DM-Sans „l" wird zu dick im PDF-Export (Optical-Sizing)
 
 **Symptom**: Im HTML/Print-PDF (Schaden-/Dachbericht) erscheint das kleine „l" (und ähnliche dünne Glyphen) **fetter/dicker** als der Rest — v.a. in Listen/Fliesstext.

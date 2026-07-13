@@ -900,12 +900,80 @@
   }
 
   // ── Logo Swap ──────────────────────────────────────────────────────
+  // Pre-Paint-Cache: das zuletzt gerenderte Firmenlogo (Quelle + Seitenverhältnis
+  // + Org) — damit _navLogoPrepaint() beim NÄCHSTEN Seitenaufruf das Firmenlogo
+  // SCHON VOR dem ersten Paint zeigen kann (kein kurzes GEMA-Logo mehr).
+  var NAV_LOGO_CACHE = 'gema_nav_logo_v1';
+  function _cacheNavLogo(org, img) {
+    try {
+      var ratio = (img && img.naturalWidth && img.naturalHeight) ? (img.naturalWidth / img.naturalHeight) : null;
+      var prev = null; try { prev = JSON.parse(localStorage.getItem(NAV_LOGO_CACHE) || 'null'); } catch (e) {}
+      localStorage.setItem(NAV_LOGO_CACHE, JSON.stringify({
+        orgId: org.id || '',
+        src: org.logo,
+        ratio: (ratio && ratio > 0) ? ratio : ((prev && prev.ratio) || 2.2),
+        name: org.name || '',
+        hideName: !!(org.settings && org.settings.hideName)
+      }));
+    } catch (e) {}
+  }
+
+  // Head-Zeit (synchron, VOR dem Nav-Parsing): wenn ein Firmenlogo für die Org
+  // des eingeloggten Users gecacht ist, blende das statische GEMA-SVG per
+  // injiziertem <style> aus und rendere das Firmenlogo als ::before-Hintergrund.
+  // So erscheint auf jeder Folgeseite sofort das richtige Logo. Der Guard
+  // (orgId-Vergleich) verhindert ein FREMDES Logo nach User-/Org-Wechsel.
+  function _navLogoPrepaint() {
+    try {
+      if (typeof document === 'undefined' || !document.head) return;
+      if (document.getElementById('_gaNavLogo')) return;
+      var raw = null; try { raw = localStorage.getItem(NAV_LOGO_CACHE); } catch (e) {}
+      if (!raw) return;
+      var c; try { c = JSON.parse(raw); } catch (e) { return; }
+      if (!c || !c.src) return;
+      // Guard: Cache muss zur Org des eingeloggten Users gehören.
+      var s = _getSession();
+      if (!s || !s.userId) return;
+      if (c.orgId) {
+        var us = _getUsers() || [];
+        var u = us.find(function (x) { return x.id === s.userId; });
+        if (!u || u.orgId !== c.orgId) return;
+      }
+      var H = 40; // gema_responsive.css rendert das Nav-Logo global 40px hoch
+      var ratio = (typeof c.ratio === 'number' && c.ratio > 0.2 && c.ratio < 12) ? c.ratio : 2.2;
+      var W = Math.max(24, Math.min(120, Math.round(H * ratio)));
+      var st = document.createElement('style');
+      st.id = '_gaNavLogo';
+      st.textContent =
+        '.g-nav-mark svg{display:none!important}' +
+        '.g-nav-mark{width:auto!important;height:' + H + 'px;display:inline-flex;align-items:center}' +
+        '.g-nav-mark::before{content:"";display:block;height:' + H + 'px;width:' + W + 'px;' +
+        'background:url("' + c.src + '") left center/contain no-repeat}';
+      document.head.appendChild(st);
+    } catch (e) {}
+  }
+
   function _swapLogo(org) {
-    if (!org || !org.logo) return;
+    if (!org || !org.logo) {
+      // Diese Org hat KEIN Logo → evtl. veralteten Pre-Paint entfernen +
+      // Cache leeren (Self-Heal nach Logo-Entfernung / Org-Wechsel), sonst
+      // bliebe das GEMA-SVG verborgen und es erschiene gar kein Logo.
+      if (org && !org.logo) {
+        try { localStorage.removeItem(NAV_LOGO_CACHE); } catch (e) {}
+        var p0 = document.getElementById('_gaNavLogo');
+        if (p0 && p0.parentNode) p0.parentNode.removeChild(p0);
+      }
+      return;
+    }
+    // Pre-Paint-Style entfernen — wir rendern gleich das echte <img> (gleiches
+    // Bild an gleicher Stelle → kein sichtbarer Wechsel, alles in EINEM Sync-Task).
+    var pre = document.getElementById('_gaNavLogo');
+    if (pre && pre.parentNode) pre.parentNode.removeChild(pre);
     // Find GEMA logo SVG in nav and replace with org logo (full nav height)
     var nav = document.querySelector('.g-nav');
     var navH = nav ? nav.offsetHeight : 52;
     var imgH = navH - 8; // 4px padding top+bottom
+    var lastImg = null;
     var marks = document.querySelectorAll('.g-nav-mark');
     marks.forEach(function(mark) {
       var svg = mark.querySelector('svg') || mark.querySelector('img');
@@ -917,8 +985,15 @@
         mark.style.cssText = 'width:auto;height:'+imgH+'px;display:flex;align-items:center';
         mark.innerHTML = '';
         mark.appendChild(img);
+        lastImg = img;
       }
     });
+    // Logo für den Pre-Paint der nächsten Seite cachen (Seitenverhältnis via
+    // onload — dataURL lädt praktisch sofort).
+    if (lastImg) {
+      lastImg.onload = function(){ _cacheNavLogo(org, lastImg); };
+      _cacheNavLogo(org, lastImg); // sofort (mit letztem bekannten Ratio) — Fallback
+    }
     // Swap or hide brand text based on org settings
     var brands = document.querySelectorAll('.g-nav-brand');
     if (org.settings && org.settings.hideName) {
@@ -1115,6 +1190,9 @@
   if(_isSkip()){
     // login — no auth, just expose API
   } else {
+    // Firmenlogo VOR dem ersten Paint einblenden (aus dem Cache, synchron im
+    // <head> — verhindert das kurze Aufblitzen des GEMA-Logos beim Seitenwechsel).
+    _navLogoPrepaint();
     // FRUEHER haben wir hier ein <style id="_gaBlock">body{visibility:
     // hidden!important}</style> injiziert, damit der Modul-Inhalt
     // waehrend des Permission-Checks nicht aufblitzt. Das war aber
@@ -1457,6 +1535,7 @@
     logout:function(){
       localStorage.removeItem(STORAGE_SESSION);
       try{localStorage.removeItem('_gemaAdminOrigin');}catch(e){}
+      try{localStorage.removeItem(NAV_LOGO_CACHE);}catch(e){}
       location.href='sys_login.html';
     },
 
