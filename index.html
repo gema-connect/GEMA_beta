@@ -1551,11 +1551,76 @@ body {
 </footer>
 
 <script data-cfasync="false" src="/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js"></script><script>
-// ── FAVOURITES ──────────────────────────────────────────────
-const FAV_KEY = 'gema_favourites';
-let favs = new Set(JSON.parse(localStorage.getItem(FAV_KEY) || '[]'));
+// ── FAVOURITES (pro User, Cloud-synchron über alle Geräte) ──────────
+// Storage: per-Record in der Cloud (moduleKey 'favoriten', dataKey
+// 'fav_<userId>', data={userId,keys[],updatedAt}) via GemaSync. Zusätzlich
+// ein per-User-localStorage-Cache (Stale-while-revalidate: sofort aus Cache
+// rendern, dann Cloud pullen und — falls abweichend — neu rendern). Der alte
+// geräteweite Key 'gema_favourites' dient als einmalige Migrations-Quelle.
+const FAV_KEY = 'gema_favourites';           // Legacy (geräteweit) → Migration
+const FAV_MODULE = 'favoriten';
 
-const saveFavs = () => localStorage.setItem(FAV_KEY, JSON.stringify([...favs]));
+function _favUserId(){
+  try { var u = (typeof GemaAuth !== 'undefined' && GemaAuth.getCurrentUser) ? GemaAuth.getCurrentUser() : null; return (u && u.id) ? u.id : ''; }
+  catch(e){ return ''; }
+}
+function _favCacheKey(){
+  var uid = _favUserId();
+  return uid ? ('gema_favourites_' + uid) : FAV_KEY;
+}
+function _favParse(raw){ try { return new Set(JSON.parse(raw || '[]')); } catch(e){ return new Set(); } }
+function _loadFavsLocal(){
+  var key = _favCacheKey();
+  var raw = null;
+  try { raw = localStorage.getItem(key); } catch(e){}
+  // Erster Aufruf für diesen User ohne per-User-Cache → alten geräteweiten
+  // Stand als Startwert übernehmen (Migration).
+  if(raw == null && key !== FAV_KEY){
+    try { raw = localStorage.getItem(FAV_KEY); } catch(e){}
+  }
+  return _favParse(raw);
+}
+let favs = _loadFavsLocal();
+
+const saveFavs = () => {
+  var arr = [...favs];
+  try { localStorage.setItem(_favCacheKey(), JSON.stringify(arr)); } catch(e){}
+  var uid = _favUserId();
+  if(uid && typeof GemaSync !== 'undefined' && GemaSync.saveRecord){
+    try { var p = GemaSync.saveRecord(FAV_MODULE, 'fav_' + uid, { userId: uid, keys: arr, updatedAt: new Date().toISOString() }); if(p && p.catch) p.catch(function(){}); } catch(e){}
+  }
+};
+
+// Sterne + Fav-Grid neu bespielen (nach Cloud-Pull).
+function _favRefreshUI(){
+  document.querySelectorAll('.fav-btn[data-key]').forEach(function(btn){
+    var k = btn.dataset.key;
+    btn.classList.toggle('active', favs.has(k));
+    btn.title = favs.has(k) ? 'Aus Favoriten entfernen' : 'Als Favorit markieren';
+  });
+  try { buildFavGrid(); } catch(e){}
+}
+
+// Cloud-Pull beim Seitenstart — Cloud gewinnt (Cross-Device). Existiert noch
+// kein Cloud-Record, werden die lokalen Favoriten einmalig hochgespielt.
+function _favCloudPull(){
+  var uid = _favUserId();
+  if(!uid || typeof GemaSync === 'undefined' || !GemaSync.loadRecord) return;
+  GemaSync.loadRecord(FAV_MODULE, 'fav_' + uid).then(function(rec){
+    if(rec && rec.data && Array.isArray(rec.data.keys)){
+      var cloud = new Set(rec.data.keys);
+      var same = cloud.size === favs.size && [...cloud].every(function(k){ return favs.has(k); });
+      if(!same){
+        favs = cloud;
+        try { localStorage.setItem(_favCacheKey(), JSON.stringify([...favs])); } catch(e){}
+        _favRefreshUI();
+      }
+    } else if(favs.size){
+      // Noch kein Cloud-Record: lokalen Stand (inkl. migrierter Legacy-Favs) sichern.
+      saveFavs();
+    }
+  }).catch(function(){});
+}
 
 const getCardKey = (card) => {
   const a = card.closest('a.mod-card');
@@ -1776,9 +1841,22 @@ function filterModules() {
   });
 })();
 
+// Test-Hooks (Playwright: favoriten_sync_test.mjs)
+window._favHooks = {
+  get: function(){ return [...favs]; },
+  has: function(k){ return favs.has(k); },
+  size: function(){ return favs.size; },
+  toggle: function(k){ return toggleFav(k); },
+  pull: function(){ return _favCloudPull(); }
+};
+
 // ── INIT ──────────────────────────────────────────────────
 addStarButtons();
 buildFavGrid();
+// Favoriten aus der Cloud (pro User) nachziehen — sofort + nach kurzem
+// Delay (falls die Auth-Session beim ersten Lauf noch nicht bereit war).
+_favCloudPull();
+setTimeout(_favCloudPull, 1500);
 </script>
 <script src="gema_feedback.js"></script><script src="gema_notify.js"></script><script src="gema_notify_ui.js"></script><script src="gema_chat.js"></script>
 <script>document.addEventListener('DOMContentLoaded',function(){if(typeof GemaFeedback!=='undefined')GemaFeedback.init('module','Modulübersicht');});</script>
