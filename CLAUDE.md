@@ -545,6 +545,14 @@ Hero im `index.html`-Stil:
 - Zweispaltig: links Eyebrow-Pill + grosser Titel (`clamp(28px, 42px)`) + Beschreibung + Stats-Zeile; rechts Badge-Karten (Normen + CH Hosting)
 - Effektive Modulzählung (nicht "16+")
 
+### Modul-Kacheln: Stichpunkte + gleiche Höhen (Kachel-Kanon, User-Vorgabe 07/2026)
+
+Gilt auf ALLEN Übersichtsseiten mit Modul-Kacheln (index.html, sb_index.html, ab_index.html, pm_ausschreibung.html):
+- **Beschreibung = GENAU 3 Stichpunkte**, kein Fliesstext: `<div class="mod-desc"><ul class="mod-pts"><li>…</li>×3</ul></div>` (sb_index: `<ul class="mod-pts">` ersetzt das frühere `<p>` direkt). Stichpunkte sind kurze Funktions-Fragmente (Normen/Kennwerte nennen, kein Marketing, kein Punkt am Ende); `<sub>`-HTML für Formelzeichen erlaubt. Auch «Bald»-Platzhalter-Kacheln folgen dem Muster.
+- **Gleiche Höhen**: `@media (min-width:641px){ .mod-grid{grid-auto-rows:1fr} }` (Mobile einspaltig bewusst ohne Streckung) + `.mod-title{min-height:2.4em}` (2 Titelzeilen reserviert — 1-zeilige Titel bekommen denselben Raum) + bestehendes flex-column/`flex:1`/Footer-unten. `.mod-pts li::before` = kleines Quadrat in `currentColor` mit Opacity.
+- Die index-Suche filtert über den Kachel-Text — Stichpunkte bleiben durchsuchbar (Playwright-Check «QR-Rechnung → ERP-Kachel»).
+- Neue Kacheln: IMMER 3 Stichpunkte im `mod-pts`-Muster anlegen, nie wieder Fliesstext-`mod-desc`.
+
 ---
 
 ## Code-Patterns
