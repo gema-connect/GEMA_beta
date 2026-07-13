@@ -122,7 +122,7 @@ console.log('— Verwalterin (role_immoverwalter) —');
   const { ctx, page } = await newPage('u_verw');
   await page.goto(BASE + '/iv_immobilien.html', { waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(1800);
-  ok(await page.evaluate(() => !!document.getElementById('ivTabs') && document.querySelectorAll('#ivTabs .vtab').length === 5), 'Seite geladen, 5 Verwalter-Tabs');
+  ok(await page.evaluate(() => !!document.getElementById('ivTabs') && document.querySelectorAll('#ivTabs .vtab').length === 6), 'Seite geladen, 6 Verwalter-Tabs');
 
   // Liegenschaft via UI
   await page.evaluate(() => ivLgNeu());
@@ -143,6 +143,21 @@ console.log('— Verwalterin (role_immoverwalter) —');
   await page.waitForTimeout(300);
   const whgId = await page.evaluate(() => (JSON.parse(localStorage.getItem('gema_im_whg_pool_v1') || '[]')[0] || {}).id);
   ok(!!whgId, 'Wohnung gespeichert');
+
+  // Mietverhältnis via UI → Mieter landet AUTOMATISCH im Stamm (mieterId verknüpft)
+  await page.evaluate(id => ivMvNeu(id), whgId);
+  await page.fill('#mv_mieter', 'Familie Muster');
+  await page.fill('#mv_tel', '+41 61 111 22 33');
+  await page.evaluate(m => { document.getElementById('mv_beginn').value = m + '-01'; }, new Date().toISOString().slice(0, 7));
+  await page.evaluate(() => ivMvSave());
+  await page.waitForTimeout(300);
+  const mvSt = await page.evaluate(() => {
+    const mv = JSON.parse(localStorage.getItem('gema_im_mv_pool_v1') || '[]')[0];
+    const stamm = JSON.parse(localStorage.getItem('gema_im_mieter_pool_v1') || '[]');
+    return { mvId: mv && mv.id, mieterId: mv && mv.mieterId, stamm: stamm.length, stammName: stamm[0] && stamm[0].name };
+  });
+  ok(mvSt.stamm === 1 && mvSt.stammName === 'Familie Muster' && mvSt.mieterId, 'MV-Save legt Mieter automatisch im Stamm an + verknüpft (mieterId)');
+  ok(cloud.has('immobilien|immieter:' + mvSt.mieterId), 'Mieter-Stamm-Record in der Cloud');
 
   // Leerstand melden → Spülmanager-Kopplung
   await page.evaluate(id => ivLeerstandOpen(id), whgId);
@@ -192,15 +207,27 @@ console.log('— Handwerker (role_unternehmer, fremde Org) —');
   ok(panel.indexOf('Meine Handwerker-Aufträge') >= 0 && panel.indexOf('Geschirrspüler defekt') >= 0, 'Panel «Meine Aufträge» zeigt Cross-Org-Auftrag');
   ok(await page.evaluate(() => document.querySelectorAll('#ivTabs .vtab').length === 0), 'Keine Verwalter-Tabs für reinen Handwerker');
   const aufId = await page.evaluate(() => (GemaSync.getCached('gema_im_auf_pool_v1')[0] || {}).id);
+  // Offerte einreichen (vor Annahme)
+  await page.evaluate(id => ivAufOfferteOpen(id), aufId);
+  await page.fill('#of_betrag', '450');
+  await page.fill('#of_nachricht', 'Pauschal inkl. Material');
+  await page.evaluate(() => ivAufOfferteSave());
+  await page.waitForTimeout(300);
+  const cloudOff = cloud.get('immobilien|imauf:' + aufId).data;
+  ok(cloudOff.offerte && cloudOff.offerte.betrag === 450, 'Offerte am Auftrag gespeichert (Cloud)');
+  const notifOff = [...cloud.entries()].filter(([k]) => k.startsWith('notify|notif:')).map(([, p]) => p.data).find(d => d && d.eventKey === 'immo_auftrag_offerte');
+  ok(notifOff && notifOff.empfaengerUserId === 'u_verw', 'immo_auftrag_offerte-Notify an Verwalterin');
   await page.evaluate(id => ivAufAnnehmen(id), aufId);
   await page.waitForTimeout(300);
   ok(cloud.get('immobilien|imauf:' + aufId).data.status === 'in_arbeit', 'Annehmen → in_arbeit (Cloud)');
   await page.evaluate(id => ivAufErledigtOpen(id), aufId);
   await page.fill('#er_bericht', 'Zulaufschlauch ersetzt, dicht.');
+  await page.fill('#er_betrag', '380');
   await page.evaluate(() => ivAufErledigtSave());
   await page.waitForTimeout(300);
   const cloudAuf = cloud.get('immobilien|imauf:' + aufId).data;
   ok(cloudAuf.status === 'erledigt' && cloudAuf.bericht.indexOf('Zulaufschlauch') === 0, 'Erledigt mit Arbeitsbericht (Cloud)');
+  ok(cloudAuf.kosten && cloudAuf.kosten.betrag === 380, 'Rechnungsbetrag beim Erledigen erfasst (380)');
   const notifStat = [...cloud.entries()].filter(([k]) => k.startsWith('notify|notif:')).map(([, p]) => p.data).filter(d => d && d.eventKey === 'immo_auftrag_status');
   ok(notifStat.length >= 2 && notifStat.every(d => d.empfaengerUserId === 'u_verw'), 'Status-Notifys (angenommen+erledigt) an Verwalterin');
   ok(page.errs.length === 0, 'keine pageerrors (Handwerker)' + (page.errs.length ? ': ' + page.errs[0] : ''));
@@ -223,6 +250,45 @@ console.log('— Verwalterin: Rückmeldung + Wiedervermietung —');
   await page.evaluate(() => ivTab('whg'));
   const badge = await page.evaluate(() => document.getElementById('ivWrap').textContent);
   ok(badge.indexOf('Spülung(en) fällig') >= 0, 'Fälligkeits-Badge «Spülung fällig» auf der Leerwohnung');
+
+  // Mietzins-Tab: Soll-Zeile (voller Monat 1650+220) + Bezahlt-Toggle mit deterministischer Record-ID
+  await page.evaluate(() => ivTab('geld'));
+  const geld1 = await page.evaluate(() => document.getElementById('ivWrap').textContent);
+  ok(geld1.indexOf('Familie Muster') >= 0 && /1.870\.00/.test(geld1) && geld1.indexOf('Offen') >= 0, 'Mietzins-Tab zeigt Soll-Zeile CHF 1870 offen');
+  const mvId = await page.evaluate(() => (GemaSync.getCached('gema_im_mv_pool_v1')[0] || {}).id);
+  await page.evaluate(id => ivZahlToggle(id, 1), mvId);
+  await page.waitForTimeout(300);
+  const monat = new Date().toISOString().slice(0, 7);
+  const zRec = cloud.get('immobilien|imzahl:z_' + mvId + '_' + monat);
+  ok(zRec && zRec.data.bezahlt === true && zRec.data.betrag === 1870, 'Zahlung als Record z_<mvId>_<Monat> mit Soll-Snapshot (Cloud)');
+  const geld2 = await page.evaluate(() => document.getElementById('ivWrap').textContent);
+  ok(geld2.indexOf('✓ Bezahlt') >= 0, 'Zeile zeigt «✓ Bezahlt»');
+
+  // NK-Abrechnung: Position + Handwerker-Kosten-Übernahme + Speichern + Print
+  const lgId = await page.evaluate(() => (GemaSync.getCached('gema_im_lg_pool_v1')[0] || {}).id);
+  await page.evaluate(id => ivNkOpen(id), lgId);
+  await page.evaluate(() => ivNkNeu());
+  await page.evaluate(j => { document.getElementById('nk_jahr').value = String(j); ivNkMeta(); }, new Date().getFullYear());
+  await page.evaluate(() => { ivNkPosAdd(); ivNkPosUpd(0, 'bez', 'Heizung'); ivNkPosUpd(0, 'betrag', '6000'); });
+  await page.evaluate(() => ivNkUebernahme());
+  await page.waitForTimeout(300);
+  const nkText = await page.evaluate(() => document.getElementById('nkBody').textContent + '|' + Array.from(document.getElementById('nkBody').querySelectorAll('input')).map(i => i.value).join('|'));
+  ok(nkText.indexOf('HW-') >= 0 && nkText.indexOf('Geschirrspüler defekt') >= 0, 'Handwerker-Kosten (380) als NK-Position übernommen');
+  ok(nkText.indexOf('Familie Muster') >= 0 && nkText.indexOf('Nachzahlung') + nkText.indexOf('Guthaben') > -2, 'Live-Ergebnis mit Mieter-Saldo sichtbar');
+  await page.evaluate(() => ivNkSave());
+  await page.waitForTimeout(300);
+  const nkCloud = cloudRows('immobilien', 'imnk:');
+  ok(nkCloud.length === 1 && nkCloud[0].payload.data.positionen.some(p => p.auftragId), 'NK-Abrechnung in der Cloud, Auftrags-Position verknüpft (Dedupe-Anker)');
+  await page.evaluate(id => ivNkEdit(id), nkCloud[0].payload.data.id);
+  await page.evaluate(() => ivNkUebernahme());
+  await page.waitForTimeout(300);
+  const dlgTxt = await page.evaluate(() => { const d = document.querySelector('.gema-dlg-bg'); return d ? d.textContent : ''; });
+  ok(dlgTxt.indexOf('Nichts zu übernehmen') >= 0, 'Zweite Übernahme dedupliziert (auftragId)');
+  await page.evaluate(() => { const b = Array.from(document.querySelectorAll('.gema-dlg-bg button')).find(x => /OK/.test(x.textContent)); if (b) b.click(); });
+  const [pop] = await Promise.all([page.waitForEvent('popup', { timeout: 5000 }).catch(() => null), page.evaluate(() => ivNkPrint())]);
+  ok(!!pop, 'Print-Fenster der NK-Abrechnung öffnet');
+  if (pop) { await pop.waitForLoadState('domcontentloaded').catch(() => {}); ok((await pop.title()).indexOf('NK-Abrechnung') >= 0, 'Print-Titel «NK-Abrechnung …»'); await pop.close(); }
+  await page.evaluate(() => ivClose('nkModal'));
 
   // Spülmanager-Sicht der Verwalterin (neue Rolle: read+write)
   await page.goto(BASE + '/hy_spuelmanager.html', { waitUntil: 'domcontentloaded' });

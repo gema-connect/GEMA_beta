@@ -224,6 +224,8 @@ table.t{border-collapse:collapse;width:100%;font-size:12.5px}
   <div class="modal-hd"><h3 id="mvTitle">Mietverhältnis</h3><button class="modal-x" onclick="ivClose('mvModal')">✕</button></div>
   <div class="modal-bd">
     <div class="fld"><label>Wohnung *</label><select id="mv_whg"></select></div>
+    <div class="fld"><label>Mieter aus Stamm</label><select id="mv_mieterSel" onchange="ivMvMieterPick(this.value)"></select>
+      <div class="hint">Bestehenden Mieter wählen (Kontaktdaten werden übernommen) — oder unten neu erfassen, er landet automatisch im Mieter-Stamm.</div></div>
     <div class="fld"><label>Mieter (Name) *</label><input id="mv_mieter" type="text" placeholder="Familie Muster"/></div>
     <div class="fld-row">
       <div class="fld"><label>Telefon</label><input id="mv_tel" type="text"/></div>
@@ -323,10 +325,49 @@ WC</textarea></div>
   <div class="modal-hd"><h3>✓ Auftrag erledigt</h3><button class="modal-x" onclick="ivClose('erlModal')">✕</button></div>
   <div class="modal-bd">
     <div class="fld"><label>Arbeitsbericht *</label><textarea id="er_bericht" rows="4" placeholder="Was wurde gemacht? Material, Hinweise …"></textarea></div>
+    <div class="fld"><label>Rechnungsbetrag (optional)</label><div class="ig"><input id="er_betrag" type="text" inputmode="decimal" onblur="fixLeadingZero(this)" placeholder="z.B. 380"/><span class="ig-u">CHF</span></div>
+      <div class="hint">Fliesst als Kostenposition in die Nebenkosten-Abrechnung der Liegenschaft — kann auch später vom Verwalter erfasst werden.</div></div>
   </div>
   <div class="modal-ft">
     <button class="btn" onclick="ivClose('erlModal')">Abbrechen</button>
     <button class="btn grn" onclick="ivAufErledigtSave()">✓ Als erledigt melden</button>
+  </div>
+</div></div>
+
+<!-- ═══ MIETER (Stamm) ═══ -->
+<div class="modal-bg" id="mieterModal"><div class="modal">
+  <div class="modal-hd"><h3 id="mieterTitle">Mieter</h3><button class="modal-x" onclick="ivClose('mieterModal')">✕</button></div>
+  <div class="modal-bd">
+    <div class="fld"><label>Name *</label><input id="mt_name" type="text" placeholder="Familie Muster"/></div>
+    <div class="fld-row">
+      <div class="fld"><label>Telefon</label><input id="mt_tel" type="text"/></div>
+      <div class="fld"><label>E-Mail</label><input id="mt_email" type="text"/></div>
+    </div>
+    <div class="fld"><label>Bemerkung</label><textarea id="mt_bem" rows="2"></textarea></div>
+  </div>
+  <div class="modal-ft">
+    <button class="btn" onclick="ivClose('mieterModal')">Abbrechen</button>
+    <button class="btn pri" onclick="ivMieterSave()">Speichern</button>
+  </div>
+</div></div>
+
+<!-- ═══ NK-ABRECHNUNG ═══ -->
+<div class="modal-bg" id="nkModal"><div class="modal" style="max-width:720px">
+  <div class="modal-hd"><h3 id="nkTitle">📊 Nebenkosten</h3><button class="modal-x" onclick="ivClose('nkModal')">✕</button></div>
+  <div class="modal-bd" id="nkBody"></div>
+  <div class="modal-ft" id="nkFoot"></div>
+</div></div>
+
+<!-- ═══ OFFERTE (Handwerker) ═══ -->
+<div class="modal-bg" id="offModal"><div class="modal">
+  <div class="modal-hd"><h3>💰 Offerte zum Auftrag</h3><button class="modal-x" onclick="ivClose('offModal')">✕</button></div>
+  <div class="modal-bd">
+    <div class="fld"><label>Offert-Betrag *</label><div class="ig"><input id="of_betrag" type="text" inputmode="decimal" onblur="fixLeadingZero(this)" placeholder="z.B. 450"/><span class="ig-u">CHF</span></div></div>
+    <div class="fld"><label>Nachricht</label><textarea id="of_nachricht" rows="3" placeholder="Umfang, Vorbehalte, Termin …"></textarea></div>
+  </div>
+  <div class="modal-ft">
+    <button class="btn" onclick="ivClose('offModal')">Abbrechen</button>
+    <button class="btn pri" onclick="ivAufOfferteSave()">Offerte senden</button>
   </div>
 </div></div>
 
@@ -438,6 +479,76 @@ function ivSpuelDue(spObj,stellen,heute){
   });
   return {faellig:due,total:(stellen||[]).length,naechste:next};
 }
+// ── Mietzins & Nebenkosten ──────────────────────────────────────────
+function ivRound5(n){return Math.round((parseFloat(n)||0)*20)/20;} // Rappenrundung 0.05
+function ivTageImMonat(monat){var p=String(monat).split('-');return new Date(parseInt(p[0],10),parseInt(p[1],10),0).getDate();}
+// Überlappung zweier Zeiträume in Tagen (inklusive); ''-Ende = offen.
+// Mindestens einer der beiden Zeiträume muss begrenzt sein (Monat/Jahr sind es immer).
+function ivUeberlappTage(aVon,aBis,bVon,bBis){
+  var von=(aVon>bVon)?aVon:bVon;
+  var bis=(aBis&&bBis)?((aBis<bBis)?aBis:bBis):(aBis||bBis);
+  if(!von||!bis||bis<von)return 0;
+  return Math.round((Date.parse(bis+'T12:00:00Z')-Date.parse(von+'T12:00:00Z'))/86400000)+1;
+}
+// Soll-Zeilen eines Monats: pro Mietverhältnis mit Überlappung, TAGESGENAU pro-rata
+// (Einzug/Auszug Mitte Monat = anteiliger Mietzins), Rappenrundung 0.05.
+// Massgebend sind beginn/ende — nicht der Status (ein beendetes MV hatte im Vormonat Soll).
+function ivSollZeilen(mvs,monat){
+  var tim=ivTageImMonat(monat);
+  var von=monat+'-01',bis=monat+'-'+(tim<10?'0':'')+tim;
+  var out=[];
+  (mvs||[]).forEach(function(m){
+    if(!m||!m.beginn)return;
+    var t=ivUeberlappTage(m.beginn,m.ende||'',von,bis);
+    if(t<=0)return;
+    var brutto=(parseFloat(m.nettomiete)||0)+(parseFloat(m.nebenkosten)||0);
+    out.push({mvId:m.id,whgId:m.wohnungId,mieter:m.mieter,tage:t,tageMonat:tim,voll:t===tim,soll:ivRound5(brutto*t/tim)});
+  });
+  return out;
+}
+// Deterministische Zahlungs-Record-ID: ein Record pro MV+Monat (Muster Token-Ledger)
+function ivZahlId(mvId,monat){return 'z_'+mvId+'_'+monat;}
+// Nebenkosten-Jahresabrechnung: Positionen → Verteilung auf Wohnungen nach
+// Schlüssel (Wohnfläche | pro Wohnung gleich) → pro Mietverhältnis tagesgenau;
+// Akonto = monatliche NK × 12 × aktive Tage/Jahrestage. Leerstandstage gehen
+// zulasten der Verwaltung und werden separat ausgewiesen.
+function ivNkAbrechnung(nk,whgs,mvs){
+  var jahr=parseInt(nk.jahr,10);
+  var von=jahr+'-01-01',bis=jahr+'-12-31';
+  var jahresTage=ivUeberlappTage(von,bis,von,bis);
+  var total=0;(nk.positionen||[]).forEach(function(p){total+=parseFloat(p&&p.betrag)||0;});
+  var wl=(whgs||[]).filter(Boolean);
+  var flSum=0;wl.forEach(function(w){flSum+=parseFloat(w.flaecheM2)||0;});
+  var rows=[],verteilt=0,leerTotal=0;
+  wl.forEach(function(w){
+    var anteil=(nk.schluessel==='flaeche'&&flSum>0)?total*(parseFloat(w.flaecheM2)||0)/flSum:(wl.length?total/wl.length:0);
+    var mieterZeilen=[],belegteTage=0;
+    (mvs||[]).forEach(function(m){
+      if(!m||m.wohnungId!==w.id||!m.beginn)return;
+      var t=ivUeberlappTage(m.beginn,m.ende||'',von,bis);
+      if(t<=0)return;
+      belegteTage+=t;
+      var kostenAnteil=anteil*t/jahresTage;
+      var akonto=(parseFloat(m.nebenkosten)||0)*12*t/jahresTage;
+      mieterZeilen.push({mvId:m.id,mieter:m.mieter,tage:t,kostenAnteil:ivRound5(kostenAnteil),akonto:ivRound5(akonto),saldo:ivRound5(kostenAnteil-akonto)});
+    });
+    if(belegteTage>jahresTage)belegteTage=jahresTage;
+    var leerTage=jahresTage-belegteTage;
+    var leerKosten=ivRound5(anteil*leerTage/jahresTage);
+    leerTotal+=leerKosten;
+    mieterZeilen.forEach(function(z){verteilt+=z.kostenAnteil;});
+    rows.push({whgId:w.id,bez:w.bez,anteil:ivRound5(anteil),mieterZeilen:mieterZeilen,leerTage:leerTage,leerKosten:leerKosten});
+  });
+  return {total:ivRound5(total),jahresTage:jahresTage,rows:rows,verteilt:ivRound5(verteilt),leerTotal:ivRound5(leerTotal)};
+}
+// Erledigte Handwerker-Aufträge einer Liegenschaft mit erfassten Kosten im Jahr
+// (Quelle für die Übernahme in die NK-Abrechnung)
+function ivAufKostenJahr(aufs,lgId,jahr){
+  return (aufs||[]).filter(function(a){
+    return a&&a.liegenschaftId===lgId&&a.status==='erledigt'&&a.kosten&&parseFloat(a.kosten.betrag)>0
+      &&String(a.erledigtAm||a.kosten.am||'').slice(0,4)===String(jahr);
+  });
+}
 /*ENGINE-END*/
 
 // ── Pools (per-Record via GemaSync — Aufträge sind CROSS-ORG: NUR saveRecord) ──
@@ -446,7 +557,10 @@ var IV_POOLS={
   lg:{key:'gema_im_lg_pool_v1',prefix:'imlg:'},
   whg:{key:'gema_im_whg_pool_v1',prefix:'imwhg:'},
   mv:{key:'gema_im_mv_pool_v1',prefix:'immv:'},
-  auf:{key:'gema_im_auf_pool_v1',prefix:'imauf:'}
+  auf:{key:'gema_im_auf_pool_v1',prefix:'imauf:'},
+  mieter:{key:'gema_im_mieter_pool_v1',prefix:'immieter:'},
+  zahl:{key:'gema_im_zahl_pool_v1',prefix:'imzahl:'},
+  nk:{key:'gema_im_nk_pool_v1',prefix:'imnk:'}
 };
 // Spülmanager-Pools (Cross-Modul: Leerstand-Kopplung + Fälligkeits-Anzeige)
 var SP_OBJ_KEY='gema_sp_obj_pool_v1',SP_ST_KEY='gema_sp_stellen_pool_v1';
@@ -524,6 +638,10 @@ function ivNotify(o){try{if(typeof GemaNotify!=='undefined')GemaNotify.push(o);}
 function myLgs(){var u=ivUser();return poolRead('lg').filter(function(x){return u&&x&&x.orgId===u.orgId;});}
 function myWhgs(){var u=ivUser();return poolRead('whg').filter(function(x){return u&&x&&x.orgId===u.orgId;});}
 function myMvs(){var u=ivUser();return poolRead('mv').filter(function(x){return u&&x&&x.orgId===u.orgId;});}
+function myMieter(){var u=ivUser();return poolRead('mieter').filter(function(x){return u&&x&&x.orgId===u.orgId;});}
+function myZahl(){var u=ivUser();return poolRead('zahl').filter(function(x){return u&&x&&x.orgId===u.orgId;});}
+function myNks(){var u=ivUser();return poolRead('nk').filter(function(x){return u&&x&&x.orgId===u.orgId;});}
+function mieterById(id){return myMieter().find(function(x){return x.id===id;})||null;}
 function scopedAufs(){return ivScopeAuftraege(poolRead('auf'),ivUser());}
 function lgById(id){return myLgs().find(function(x){return x.id===id;})||null;}
 function whgById(id){return myWhgs().find(function(x){return x.id===id;})||null;}
@@ -562,7 +680,8 @@ var TABS=[
   {id:'ueber',label:'🏠 Übersicht'},
   {id:'lg',label:'🏢 Liegenschaften'},
   {id:'whg',label:'🔑 Wohnungen'},
-  {id:'mv',label:'👥 Mietverhältnisse'},
+  {id:'mv',label:'👥 Mieter & Verträge'},
+  {id:'geld',label:'💰 Mietzins'},
   {id:'auf',label:'🔧 Aufträge'}
 ];
 window.ivTab=function(id){_tab=id;ivRender();};
@@ -583,6 +702,7 @@ function ivRender(){
   else if(_tab==='lg')w.innerHTML=ivHtmlLgs();
   else if(_tab==='whg')w.innerHTML=ivHtmlWhgs();
   else if(_tab==='mv')w.innerHTML=ivHtmlMvs();
+  else if(_tab==='geld')w.innerHTML=ivHtmlGeld();
   else if(_tab==='auf')w.innerHTML=ivHtmlAufs();
 }
 function ladeHtml(){
@@ -602,6 +722,7 @@ function ivRenderTasks(){
       '<div class="itm-acts">'+
         '<button class="btn sm" onclick="ivAufDetail(\''+a.id+'\')">Details</button>'+
         (a.status==='beauftragt'?'<button class="btn sm pri" onclick="ivAufAnnehmen(\''+a.id+'\')">✓ Annehmen</button><button class="btn sm red" onclick="ivAufAblehnen(\''+a.id+'\')">✕ Ablehnen</button>':'')+
+        '<button class="btn sm" onclick="ivAufOfferteOpen(\''+a.id+'\')">💰 Offerte</button>'+
         '<button class="btn sm grn" onclick="ivAufErledigtOpen(\''+a.id+'\')">✓ Erledigt</button>'+
       '</div></div>';
   }).join('')+'</div>';
@@ -612,11 +733,20 @@ function ivHtmlUebersicht(){
   var lgs=myLgs(),whgs=myWhgs(),mvs=myMvs(),aufsOrg=scopedAufs().org,heute=ivHeute();
   if(!_ivCloudLoaded&&!lgs.length&&!whgs.length)return ladeHtml();
   var k=ivKpis(lgs,whgs,mvs,aufsOrg,heute);
+  var monat=heute.slice(0,7);
+  var offenMiete=0;
+  var zahlRecs=myZahl();
+  ivSollZeilen(mvs,monat).forEach(function(z){
+    var r=zahlRecs.find(function(x){return x.id===ivZahlId(z.mvId,monat);});
+    if(!(r&&r.bezahlt))offenMiete+=z.soll;
+  });
+  offenMiete=ivRound5(offenMiete);
   var h='<div class="kpis">'+
     '<div class="kpi"><div class="v">'+k.liegenschaften+'</div><div class="l">Liegenschaften</div></div>'+
     '<div class="kpi"><div class="v">'+k.wohnungen+'</div><div class="l">Wohnungen</div></div>'+
     '<div class="kpi'+(k.leer>0?' amber':'')+'"><div class="v">'+k.leer+' ('+k.leerQuote+' %)</div><div class="l">Leerstand</div></div>'+
     '<div class="kpi"><div class="v">'+fmtChf(k.mietzinsSoll)+'</div><div class="l">Mietzins-Soll / Mt.</div></div>'+
+    '<div class="kpi'+(offenMiete>0?' warn':'')+'"><div class="v">'+fmtChf(offenMiete)+'</div><div class="l">Mieten offen ('+fmtMonat(monat)+')</div></div>'+
     '<div class="kpi'+(k.auftraegeOffen>0?' amber':'')+'"><div class="v">'+k.auftraegeOffen+'</div><div class="l">Offene Aufträge</div></div>'+
     '</div>';
   // Fällige Spülungen der Leerwohnungen
@@ -667,6 +797,7 @@ function ivHtmlLgs(){
       '<div class="itm-acts">'+
         '<button class="btn sm" onclick="ivLgWhgs(\''+lg.id+'\')">🔑 Wohnungen</button>'+
         '<button class="btn sm" onclick="ivAufNeu(null,\''+lg.id+'\')">🔧 Auftrag</button>'+
+        '<button class="btn sm" onclick="ivNkOpen(\''+lg.id+'\')">📊 NK-Abrechnung</button>'+
         '<button class="btn sm" onclick="ivLgEdit(\''+lg.id+'\')">✏️</button>'+
         '<button class="btn sm red" onclick="ivLgDelete(\''+lg.id+'\')">🗑</button>'+
       '</div></div></div>';
@@ -889,14 +1020,32 @@ window.ivVermietet=function(whgId){
   });
 };
 
-// ── Mietverhältnisse ────────────────────────────────────────────────
+// ── Mieter-Stamm + Mietverhältnisse ─────────────────────────────────
 function ivHtmlMvs(){
-  var mvs=myMvs();
-  if(!_ivCloudLoaded&&!mvs.length)return ladeHtml();
-  if(!mvs.length)return '<div class="empty">Noch keine Mietverhältnisse erfasst.</div>';
+  var mvs=myMvs(),mieter=myMieter();
+  if(!_ivCloudLoaded&&!mvs.length&&!mieter.length)return ladeHtml();
   var heute=ivHeute();
+  // Mieter-Stamm (Daten einmal erfassen — MV übernehmen die Kontaktdaten)
+  var h='<div class="card"><div class="card-hd"><h3>👥 Mieter-Stamm</h3><span class="sub">Kontaktdaten einmal erfassen — Mietverträge verweisen darauf</span>'+
+    '<span style="flex:1"></span><button class="btn sm" onclick="ivMieterNeu()">＋ Mieter</button></div>';
+  if(!mieter.length){h+='<div class="card-bd"><div class="empty" style="padding:12px">Noch keine Mieter erfasst — beim Speichern eines Mietverhältnisses wird der Mieter automatisch in den Stamm übernommen.</div></div></div>';}
+  else{
+    h+='<div class="t-wrap"><table class="t"><thead><tr><th>Name</th><th>Kontakt</th><th>Verträge</th><th>Wohnt aktuell</th><th></th></tr></thead><tbody>'+
+      mieter.slice().sort(function(a,b){return String(a.name).localeCompare(String(b.name));}).map(function(p){
+        var vs=mvs.filter(function(m){return m.mieterId===p.id;});
+        var akt=vs.filter(function(m){return ivMvAktiv(m,heute);});
+        var wo=akt.map(function(m){return whgLabel(whgById(m.wohnungId));}).join(', ');
+        return '<tr><td><b>'+esc(p.name)+'</b></td>'+
+          '<td style="font-size:11.5px;color:var(--mut)">'+[p.tel,p.email].filter(Boolean).map(esc).join('<br>')+'</td>'+
+          '<td>'+vs.length+'</td><td>'+(wo?esc(wo):'—')+'</td>'+
+          '<td style="white-space:nowrap"><button class="btn sm" onclick="ivMieterEdit(\''+p.id+'\')">✏️</button> '+
+          (vs.length?'':'<button class="btn sm red" onclick="ivMieterDelete(\''+p.id+'\')">🗑</button>')+'</td></tr>';
+      }).join('')+'</tbody></table></div></div>';
+  }
+  // Mietverhältnisse
+  if(!mvs.length)return h+'<div class="empty">Noch keine Mietverhältnisse erfasst.</div>';
   mvs=mvs.slice().sort(function(a,b){return String(b.beginn||'').localeCompare(String(a.beginn||''));});
-  return '<div class="card"><div class="t-wrap"><table class="t"><thead><tr><th>Wohnung</th><th>Mieter</th><th>Beginn</th><th>Ende</th><th>Netto + NK</th><th>Status</th><th></th></tr></thead><tbody>'+
+  h+='<div class="card"><div class="card-hd"><h3>📄 Mietverhältnisse</h3></div><div class="t-wrap"><table class="t"><thead><tr><th>Wohnung</th><th>Mieter</th><th>Beginn</th><th>Ende</th><th>Netto + NK</th><th>Status</th><th></th></tr></thead><tbody>'+
     mvs.map(function(m){
       var w=whgById(m.wohnungId);
       var aktiv=ivMvAktiv(m,heute);
@@ -908,16 +1057,69 @@ function ivHtmlMvs(){
         '<td style="white-space:nowrap"><button class="btn sm" onclick="ivMvEdit(\''+m.id+'\')">✏️</button> '+
         (aktiv?'<button class="btn sm" onclick="ivMvBeenden(\''+m.id+'\')">Beenden</button>':'')+'</td></tr>';
     }).join('')+'</tbody></table></div></div>';
+  return h;
 }
+// Mieter-Stamm CRUD
+var _editMieterId='';
+window.ivMieterNeu=function(){
+  if(!ivIsVerwalter())return;
+  _editMieterId='';
+  document.getElementById('mieterTitle').textContent='Neuer Mieter';
+  ['mt_name','mt_tel','mt_email','mt_bem'].forEach(function(i){document.getElementById(i).value='';});
+  ivOpen('mieterModal');
+};
+window.ivMieterEdit=function(id){
+  var p=mieterById(id);if(!p)return;
+  _editMieterId=id;
+  document.getElementById('mieterTitle').textContent='Mieter bearbeiten';
+  document.getElementById('mt_name').value=p.name||'';
+  document.getElementById('mt_tel').value=p.tel||'';
+  document.getElementById('mt_email').value=p.email||'';
+  document.getElementById('mt_bem').value=p.bemerkung||'';
+  ivOpen('mieterModal');
+};
+window.ivMieterSave=function(){
+  if(!ivIsVerwalter())return;
+  var name=document.getElementById('mt_name').value.trim();
+  if(!name){GemaDialog.alert({title:'Name fehlt',message:'Bitte einen Namen eingeben.'});return;}
+  var u=ivUser();
+  var p=_editMieterId?mieterById(_editMieterId):{id:ivId('mt'),orgId:u.orgId,erstelltAm:new Date().toISOString()};
+  if(!p)return;
+  p.name=name;
+  p.tel=document.getElementById('mt_tel').value.trim();
+  p.email=document.getElementById('mt_email').value.trim();
+  p.bemerkung=document.getElementById('mt_bem').value.trim();
+  poolSave('mieter',p);
+  ivClose('mieterModal');toast('Mieter gespeichert');ivRender();
+};
+window.ivMieterDelete=function(id){
+  if(myMvs().some(function(m){return m.mieterId===id;})){GemaDialog.alert({title:'Nicht möglich',message:'Dieser Mieter hat Mietverhältnisse.'});return;}
+  GemaDialog.confirm({title:'Mieter löschen',message:'Mieter wirklich aus dem Stamm löschen?',confirmLabel:'Löschen',danger:true}).then(function(ok){
+    if(!ok)return;
+    poolDelete('mieter',id);toast('Gelöscht');ivRender();
+  });
+};
 var _editMvId='';
 function ivMvWhgOptions(sel){
   document.getElementById('mv_whg').innerHTML=myWhgs().map(function(w){return '<option value="'+w.id+'"'+(w.id===sel?' selected':'')+'>'+esc(whgLabel(w))+'</option>';}).join('');
 }
+function ivMvMieterOptions(sel){
+  document.getElementById('mv_mieterSel').innerHTML='<option value="">– neu erfassen (wird in den Stamm übernommen) –</option>'+
+    myMieter().slice().sort(function(a,b){return String(a.name).localeCompare(String(b.name));})
+      .map(function(p){return '<option value="'+p.id+'"'+(p.id===sel?' selected':'')+'>'+esc(p.name)+'</option>';}).join('');
+}
+window.ivMvMieterPick=function(id){
+  var p=mieterById(id);if(!p)return;
+  document.getElementById('mv_mieter').value=p.name||'';
+  if(p.tel)document.getElementById('mv_tel').value=p.tel;
+  if(p.email)document.getElementById('mv_email').value=p.email;
+};
 window.ivMvNeu=function(whgId){
   if(!myWhgs().length){GemaDialog.alert({title:'Wohnung fehlt',message:'Zuerst eine Wohnung anlegen.'});return;}
   _editMvId='';
   document.getElementById('mvTitle').textContent='Neues Mietverhältnis';
   ivMvWhgOptions(whgId||'');
+  ivMvMieterOptions('');
   ['mv_mieter','mv_tel','mv_email','mv_ende','mv_netto','mv_nk','mv_kaution','mv_bem'].forEach(function(i){document.getElementById(i).value='';});
   document.getElementById('mv_beginn').value=ivHeute();
   var w=whgId?whgById(whgId):null;
@@ -929,6 +1131,7 @@ window.ivMvEdit=function(id){
   _editMvId=id;
   document.getElementById('mvTitle').textContent='Mietverhältnis bearbeiten';
   ivMvWhgOptions(m.wohnungId);
+  ivMvMieterOptions(m.mieterId||'');
   document.getElementById('mv_mieter').value=m.mieter||'';
   document.getElementById('mv_tel').value=m.tel||'';
   document.getElementById('mv_email').value=m.email||'';
@@ -961,6 +1164,19 @@ window.ivMvSave=function(){
   m.nebenkosten=document.getElementById('mv_nk').value.trim();
   m.kaution=document.getElementById('mv_kaution').value.trim();
   m.bemerkung=document.getElementById('mv_bem').value.trim();
+  // Mieter-Stamm verknüpfen: gewählter Stamm-Eintrag, sonst Name-Match,
+  // sonst AUTO-Anlage (Daten einmal erfassen — der Stamm wächst von selbst)
+  var stammSel=document.getElementById('mv_mieterSel').value;
+  var stamm=stammSel?mieterById(stammSel):null;
+  if(!stamm){
+    var nlc=mieter.toLowerCase();
+    stamm=myMieter().find(function(p){return String(p.name).toLowerCase()===nlc;})||null;
+  }
+  if(!stamm){
+    stamm={id:ivId('mt'),orgId:u.orgId,name:mieter,tel:m.tel,email:m.email,bemerkung:'',erstelltAm:new Date().toISOString()};
+    poolSave('mieter',stamm);
+  }
+  m.mieterId=stamm.id;
   poolSave('mv',m);
   // Aktives MV auf leerer Wohnung → Wohnung gilt als vermietet
   if(w&&w.status==='leer'&&ivMvAktiv(m,ivHeute())){
@@ -997,6 +1213,234 @@ window.ivMvBeenden=function(id){
   });
 };
 
+// ── Mietzins-Kontrolle (Soll pro Monat, Zahlungen abhaken) ──────────
+var _geldMonat=ivHeute().slice(0,7);
+function fmtMonat(monat){
+  var MN=['Jan','Feb','März','April','Mai','Juni','Juli','Aug','Sept','Okt','Nov','Dez'];
+  var p=String(monat).split('-');return MN[parseInt(p[1],10)-1]+' '+p[0];
+}
+function ivMonatShift(monat,delta){
+  var p=String(monat).split('-');
+  var d=new Date(parseInt(p[0],10),parseInt(p[1],10)-1+delta,1,12);
+  var m=d.getMonth()+1;return d.getFullYear()+'-'+(m<10?'0':'')+m;
+}
+window.ivGeldMonat=function(delta){_geldMonat=ivMonatShift(_geldMonat,delta);ivRender();};
+function ivHtmlGeld(){
+  var mvs=myMvs();
+  if(!_ivCloudLoaded&&!mvs.length)return ladeHtml();
+  var zeilen=ivSollZeilen(mvs,_geldMonat).sort(function(a,b){return whgLabel(whgById(a.whgId)).localeCompare(whgLabel(whgById(b.whgId)));});
+  var zahlRecs=myZahl();
+  var sollTot=0,bezTot=0;
+  var rows=zeilen.map(function(z){
+    var r=zahlRecs.find(function(x){return x.id===ivZahlId(z.mvId,_geldMonat);});
+    var bez=!!(r&&r.bezahlt);
+    var betrag=bez?(parseFloat(r.betrag)||z.soll):z.soll;
+    sollTot+=z.soll;if(bez)bezTot+=betrag;
+    return {z:z,bez:bez,r:r,betrag:betrag};
+  });
+  sollTot=ivRound5(sollTot);bezTot=ivRound5(bezTot);
+  var offen=ivRound5(sollTot-bezTot);
+  var h='<div class="tb no-print"><button class="btn sm" onclick="ivGeldMonat(-1)">‹</button>'+
+    '<b style="font-size:14px;min-width:110px;text-align:center">'+fmtMonat(_geldMonat)+'</b>'+
+    '<button class="btn sm" onclick="ivGeldMonat(1)">›</button>'+
+    '<span style="flex:1"></span><button class="btn sm" onclick="ivGeldCsv()">⬇ CSV</button></div>';
+  h+='<div class="kpis">'+
+    '<div class="kpi"><div class="v">'+fmtChf(sollTot)+'</div><div class="l">Soll '+fmtMonat(_geldMonat)+'</div></div>'+
+    '<div class="kpi"><div class="v">'+fmtChf(bezTot)+'</div><div class="l">Bezahlt</div></div>'+
+    '<div class="kpi'+(offen>0?' warn':'')+'"><div class="v">'+fmtChf(offen)+'</div><div class="l">Offen</div></div></div>';
+  if(!rows.length)return h+'<div class="empty">Keine aktiven Mietverhältnisse in diesem Monat.</div>';
+  h+='<div class="card"><div class="t-wrap"><table class="t"><thead><tr><th>Wohnung</th><th>Mieter</th><th>Soll</th><th>Status</th><th></th></tr></thead><tbody>'+
+    rows.map(function(x){
+      var z=x.z;
+      return '<tr><td>'+esc(whgLabel(whgById(z.whgId)))+'</td><td>'+esc(z.mieter)+(z.voll?'':' <span class="badge b-out">'+z.tage+'/'+z.tageMonat+' Tage</span>')+'</td>'+
+        '<td><b>'+fmtChf(z.soll)+'</b></td>'+
+        '<td>'+(x.bez?'<span class="badge b-grn">✓ Bezahlt '+fmtD(x.r.bezahltAm)+'</span>':'<span class="badge b-red">Offen</span>')+'</td>'+
+        '<td style="white-space:nowrap">'+(x.bez
+          ?'<button class="btn sm" onclick="ivZahlToggle(\''+z.mvId+'\',0)">↺ Wieder öffnen</button>'
+          :'<button class="btn sm grn" onclick="ivZahlToggle(\''+z.mvId+'\',1)">✓ Bezahlt</button>')+'</td></tr>';
+    }).join('')+'</tbody></table></div></div>';
+  h+='<div class="hint" style="font-size:11px;color:var(--mut);margin-top:-4px">Teilmonate (Einzug/Auszug) werden tagesgenau anteilig gestellt. Der Soll-Betrag wird beim Abhaken als Beleg gespeichert.</div>';
+  return h;
+}
+window.ivZahlToggle=function(mvId,bezahlt){
+  if(!ivIsVerwalter())return;
+  var u=ivUser();
+  var id=ivZahlId(mvId,_geldMonat);
+  if(bezahlt){
+    var z=ivSollZeilen(myMvs(),_geldMonat).find(function(x){return x.mvId===mvId;});
+    if(!z)return;
+    poolSave('zahl',{id:id,orgId:u.orgId,mvId:mvId,monat:_geldMonat,betrag:z.soll,bezahlt:true,bezahltAm:ivHeute(),erfasstVon:u.name});
+    ivRender();
+  } else {
+    GemaDialog.confirm({title:'Zahlung zurücksetzen',message:'Die Zahlung wieder auf «Offen» setzen?',confirmLabel:'Wieder öffnen',danger:true}).then(function(ok){
+      if(!ok)return;
+      poolDelete('zahl',id);ivRender();
+    });
+  }
+};
+window.ivGeldCsv=function(){
+  var zeilen=ivSollZeilen(myMvs(),_geldMonat);
+  var zahlRecs=myZahl();
+  var csv='﻿Monat;Wohnung;Mieter;Tage;Soll CHF;Status;Bezahlt am\n';
+  zeilen.forEach(function(z){
+    var r=zahlRecs.find(function(x){return x.id===ivZahlId(z.mvId,_geldMonat);});
+    csv+=[_geldMonat,whgLabel(whgById(z.whgId)),z.mieter,z.tage+'/'+z.tageMonat,String(z.soll).replace('.',','),(r&&r.bezahlt)?'bezahlt':'offen',(r&&r.bezahltAm)||''].map(function(v){return '"'+String(v).replace(/"/g,'""')+'"';}).join(';')+'\n';
+  });
+  var a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));
+  a.download='Mietzins_'+_geldMonat+'.csv';
+  document.body.appendChild(a);a.click();a.remove();
+};
+
+// ── Nebenkosten-Jahresabrechnung (pro Liegenschaft) ─────────────────
+var _nkLgId='',_nkEdit=null;
+window.ivNkOpen=function(lgId){
+  if(!ivIsVerwalter())return;
+  _nkLgId=lgId;_nkEdit=null;
+  ivNkListe();
+  ivOpen('nkModal');
+};
+function ivNkListe(){
+  var lg=lgById(_nkLgId);
+  document.getElementById('nkTitle').textContent='📊 Nebenkosten — '+(lg?lg.name:'');
+  var nks=myNks().filter(function(n){return n.liegenschaftId===_nkLgId;})
+    .sort(function(a,b){return String(b.jahr).localeCompare(String(a.jahr));});
+  document.getElementById('nkBody').innerHTML=
+    (nks.length?nks.map(function(n){
+      var total=0;(n.positionen||[]).forEach(function(p){total+=parseFloat(p&&p.betrag)||0;});
+      return '<div class="vl" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><b>Abrechnung '+esc(n.jahr)+'</b>'+
+        '<span class="badge b-out">'+(n.positionen||[]).length+' Positionen</span><span class="badge b-acc">'+fmtChf(total)+'</span>'+
+        '<span style="flex:1"></span><button class="btn sm" onclick="ivNkEdit(\''+n.id+'\')">✏️ Öffnen</button>'+
+        '<button class="btn sm red" onclick="ivNkDelete(\''+n.id+'\')">🗑</button></div>';
+    }).join(''):'<div class="empty" style="padding:14px">Noch keine Abrechnung — Kosten des Jahres erfassen (Heizung, Wasser, Hauswart …), GEMA verteilt sie nach Schlüssel auf die Mietverhältnisse (tagesgenau) und rechnet die Akonto-Nebenkosten an.</div>');
+  document.getElementById('nkFoot').innerHTML=
+    '<button class="btn" onclick="ivClose(\'nkModal\')">Schliessen</button>'+
+    '<button class="btn pri" onclick="ivNkNeu()">＋ Neue Abrechnung</button>';
+}
+window.ivNkNeu=function(){
+  var u=ivUser();
+  var jahr=new Date().getFullYear()-1; // abgerechnet wird üblicherweise das Vorjahr
+  _nkEdit={id:ivId('nk'),orgId:u.orgId,liegenschaftId:_nkLgId,jahr:jahr,schluessel:'flaeche',positionen:[],erstelltAm:new Date().toISOString()};
+  ivNkEditor();
+};
+window.ivNkEdit=function(id){
+  var n=myNks().find(function(x){return x.id===id;});if(!n)return;
+  _nkEdit=JSON.parse(JSON.stringify(n)); // Arbeitskopie
+  ivNkEditor();
+};
+window.ivNkDelete=function(id){
+  GemaDialog.confirm({title:'Abrechnung löschen',message:'Diese Nebenkosten-Abrechnung wirklich löschen?',confirmLabel:'Löschen',danger:true}).then(function(ok){
+    if(!ok)return;
+    poolDelete('nk',id);ivNkListe();
+  });
+};
+function ivNkEditor(){
+  var lg=lgById(_nkLgId);
+  document.getElementById('nkTitle').textContent='📊 NK-Abrechnung '+esc(String(_nkEdit.jahr))+' — '+(lg?lg.name:'');
+  var posHtml=(_nkEdit.positionen||[]).map(function(p,i){
+    return '<tr><td><input type="text" value="'+esc(p.bez)+'" onchange="ivNkPosUpd('+i+',\'bez\',this.value)" style="width:100%;padding:6px 8px;border:1.5px solid var(--brd2);border-radius:8px;font-size:12.5px"/></td>'+
+      '<td style="width:130px"><input type="text" inputmode="decimal" onblur="fixLeadingZero(this)" value="'+esc(p.betrag)+'" onchange="ivNkPosUpd('+i+',\'betrag\',this.value)" style="width:100%;padding:6px 8px;border:1.5px solid var(--brd2);border-radius:8px;font-size:12.5px;text-align:right"/></td>'+
+      '<td style="width:36px"><button class="btn sm red" onclick="ivNkPosDel('+i+')">🗑</button></td></tr>';
+  }).join('');
+  document.getElementById('nkBody').innerHTML=
+    '<div class="fld-row">'+
+      '<div class="fld"><label>Abrechnungsjahr</label><input id="nk_jahr" type="text" inputmode="numeric" value="'+esc(String(_nkEdit.jahr))+'" onchange="ivNkMeta()"/></div>'+
+      '<div class="fld"><label>Verteilschlüssel</label><select id="nk_schluessel" onchange="ivNkMeta()">'+
+        '<option value="flaeche"'+(_nkEdit.schluessel==='flaeche'?' selected':'')+'>Nach Wohnfläche (m²)</option>'+
+        '<option value="gleich"'+(_nkEdit.schluessel==='gleich'?' selected':'')+'>Pro Wohnung gleich</option></select></div>'+
+    '</div>'+
+    '<div class="fld"><label>Kosten-Positionen (CHF/Jahr)</label>'+
+    '<div class="t-wrap"><table class="t"><thead><tr><th>Bezeichnung</th><th style="text-align:right">Betrag CHF</th><th></th></tr></thead><tbody>'+posHtml+'</tbody></table></div>'+
+    '<div style="display:flex;gap:6px;margin-top:7px;flex-wrap:wrap">'+
+      '<button class="btn sm" onclick="ivNkPosAdd()">＋ Position</button>'+
+      '<button class="btn sm" onclick="ivNkUebernahme()">🔧 Handwerker-Kosten '+esc(String(_nkEdit.jahr))+' übernehmen</button>'+
+    '</div></div>'+
+    '<div id="nkErgebnis"></div>';
+  document.getElementById('nkFoot').innerHTML=
+    '<button class="btn" onclick="ivNkListe()">‹ Zurück</button>'+
+    '<button class="btn" onclick="ivNkPrint()">🖨 Drucken</button>'+
+    '<button class="btn pri" onclick="ivNkSave()">Speichern</button>';
+  ivNkRecalc();
+}
+window.ivNkMeta=function(){
+  _nkEdit.jahr=parseInt(document.getElementById('nk_jahr').value,10)||_nkEdit.jahr;
+  _nkEdit.schluessel=document.getElementById('nk_schluessel').value;
+  ivNkRecalc();
+};
+window.ivNkPosAdd=function(){(_nkEdit.positionen=_nkEdit.positionen||[]).push({bez:'',betrag:''});ivNkEditor();};
+window.ivNkPosDel=function(i){_nkEdit.positionen.splice(i,1);ivNkEditor();};
+window.ivNkPosUpd=function(i,feld,val){if(_nkEdit.positionen[i]){_nkEdit.positionen[i][feld]=val;ivNkRecalc();}};
+window.ivNkUebernahme=function(){
+  var vorhanden={};(_nkEdit.positionen||[]).forEach(function(p){if(p.auftragId)vorhanden[p.auftragId]=true;});
+  var kand=ivAufKostenJahr(scopedAufs().org,_nkLgId,_nkEdit.jahr).filter(function(a){return !vorhanden[a.id];});
+  if(!kand.length){GemaDialog.alert({title:'Nichts zu übernehmen',message:'Keine (weiteren) erledigten Handwerker-Aufträge mit erfassten Kosten im Jahr '+_nkEdit.jahr+' für diese Liegenschaft.'});return;}
+  kand.forEach(function(a){
+    _nkEdit.positionen.push({bez:'🔧 '+a.nr+' '+a.titel,betrag:String(a.kosten.betrag),auftragId:a.id});
+  });
+  toast(kand.length+' Auftrag/Aufträge übernommen');
+  ivNkEditor();
+};
+function ivNkErgebnisDaten(){
+  var whgs=myWhgs().filter(function(w){return w.liegenschaftId===_nkLgId;});
+  return ivNkAbrechnung(_nkEdit,whgs,myMvs());
+}
+window.ivNkRecalc=function(){
+  var host=document.getElementById('nkErgebnis');if(!host)return;
+  var erg=ivNkErgebnisDaten();
+  if(!erg.rows.length){host.innerHTML='<div class="empty">Keine Wohnungen in dieser Liegenschaft.</div>';return;}
+  var h='<div class="fld"><label>Ergebnis — Total '+fmtChf(erg.total)+' · verteilt '+fmtChf(erg.verteilt)+(erg.leerTotal>0?' · <span style="color:var(--amber)">Leerstand zulasten Verwaltung '+fmtChf(erg.leerTotal)+'</span>':'')+'</label>';
+  h+='<div class="t-wrap"><table class="t"><thead><tr><th>Wohnung / Mieter</th><th>Tage</th><th>Kostenanteil</th><th>Akonto (NK)</th><th>Saldo</th></tr></thead><tbody>';
+  erg.rows.forEach(function(r){
+    h+='<tr><td colspan="5" style="background:var(--sur2)"><b>'+esc(r.bez)+'</b> — Anteil '+fmtChf(r.anteil)+(r.leerTage>0?' · <span style="color:var(--amber)">'+r.leerTage+' Tage leer ('+fmtChf(r.leerKosten)+')</span>':'')+'</td></tr>';
+    r.mieterZeilen.forEach(function(z){
+      h+='<tr><td style="padding-left:22px">'+esc(z.mieter)+'</td><td>'+z.tage+'</td><td>'+fmtChf(z.kostenAnteil)+'</td><td>'+fmtChf(z.akonto)+'</td>'+
+        '<td><b style="color:'+(z.saldo>0?'var(--red)':'var(--grn)')+'">'+(z.saldo>0?'Nachzahlung ':'Guthaben ')+fmtChf(Math.abs(z.saldo))+'</b></td></tr>';
+    });
+    if(!r.mieterZeilen.length)h+='<tr><td style="padding-left:22px;color:var(--mut)" colspan="5">— ganzjährig leer —</td></tr>';
+  });
+  h+='</tbody></table></div></div>';
+  host.innerHTML=h;
+};
+window.ivNkSave=function(){
+  if(!ivIsVerwalter()||!_nkEdit)return;
+  _nkEdit.positionen=(_nkEdit.positionen||[]).filter(function(p){return p&&(String(p.bez).trim()||parseFloat(p.betrag));});
+  poolSave('nk',_nkEdit);
+  toast('Abrechnung gespeichert');
+  ivNkListe();
+};
+window.ivNkPrint=function(){
+  var lg=lgById(_nkLgId);
+  var erg=ivNkErgebnisDaten();
+  var org=(function(){try{var u=GemaAuth.getCurrentUser();var o=(GemaAuth.getOrgs()||[]).find(function(x){return x.id===u.orgId;});return o?o.name:'';}catch(e){return '';}})();
+  var rows='';
+  erg.rows.forEach(function(r){
+    rows+='<tr class="whg"><td colspan="5">'+esc(r.bez)+' — Anteil '+fmtChf(r.anteil)+(r.leerTage>0?' · '+r.leerTage+' Tage Leerstand ('+fmtChf(r.leerKosten)+' zulasten Verwaltung)':'')+'</td></tr>';
+    r.mieterZeilen.forEach(function(z){
+      rows+='<tr><td class="ind">'+esc(z.mieter)+'</td><td>'+z.tage+'</td><td>'+fmtChf(z.kostenAnteil)+'</td><td>'+fmtChf(z.akonto)+'</td><td><b>'+(z.saldo>0?'Nachzahlung ':'Guthaben ')+fmtChf(Math.abs(z.saldo))+'</b></td></tr>';
+    });
+  });
+  var pos='';(_nkEdit.positionen||[]).forEach(function(p){pos+='<tr><td>'+esc(p.bez)+'</td><td style="text-align:right">'+fmtChf(p.betrag)+'</td></tr>';});
+  var w=window.open('','_blank');
+  if(!w){GemaDialog.alert({title:'Pop-up blockiert',message:'Bitte Pop-ups für GEMA erlauben.'});return;}
+  w.document.write('<!DOCTYPE html><html lang="de"><head><meta charset="utf-8"><title>NK-Abrechnung '+esc(String(_nkEdit.jahr))+'</title><style>'+
+    '@page{size:A4 portrait;margin:18mm}body{font-family:"DM Sans",ui-sans-serif,system-ui,sans-serif;color:#0f172a;font-size:12px}'+
+    'h1{font-size:17px;margin:0 0 2px}h2{font-size:13px;margin:16px 0 6px}.mut{color:#64748b;font-size:11px}'+
+    'table{border-collapse:collapse;width:100%;margin-top:4px}th{font-size:9.5px;text-transform:uppercase;letter-spacing:.3px;color:#64748b;text-align:left;border-bottom:2px solid #cbd5e1;padding:5px 6px}'+
+    'td{border-bottom:1px solid #e2e8f0;padding:5px 6px;vertical-align:top}tr.whg td{background:#f1f5f9;font-weight:700}.ind{padding-left:18px}'+
+    '.tot{margin-top:10px;font-weight:700}.no-print{margin-bottom:14px}@media print{.no-print{display:none}}'+
+    '</style></head><body>'+
+    '<div class="no-print"><button onclick="window.print()">🖨 Drucken / Als PDF speichern</button> <button onclick="window.close()">Schliessen</button></div>'+
+    '<h1>Nebenkosten-Abrechnung '+esc(String(_nkEdit.jahr))+'</h1>'+
+    '<div class="mut">'+esc(org)+(lg?' · '+esc(lg.name)+' · '+esc(lgAdresse(lg)):'')+' · Verteilschlüssel: '+(_nkEdit.schluessel==='flaeche'?'Wohnfläche':'pro Wohnung gleich')+' · erstellt '+fmtD(ivHeute())+'</div>'+
+    '<h2>Kosten</h2><table><thead><tr><th>Position</th><th style="text-align:right">CHF</th></tr></thead><tbody>'+pos+
+    '<tr><td class="tot">Total</td><td class="tot" style="text-align:right">'+fmtChf(erg.total)+'</td></tr></tbody></table>'+
+    '<h2>Verteilung auf die Mietverhältnisse (tagesgenau)</h2>'+
+    '<table><thead><tr><th>Wohnung / Mieter</th><th>Tage</th><th>Kostenanteil</th><th>Akonto</th><th>Saldo</th></tr></thead><tbody>'+rows+'</tbody></table>'+
+    (erg.leerTotal>0?'<div class="tot" style="color:#b45309">Leerstand zulasten Verwaltung: '+fmtChf(erg.leerTotal)+'</div>':'')+
+    '</body></html>');
+  w.document.close();
+};
+
 // ── Handwerker-Aufträge ─────────────────────────────────────────────
 function ivHtmlAufs(){
   var aufs=scopedAufs().org;
@@ -1016,7 +1460,9 @@ function ivHtmlAufs(){
       '<div style="display:flex;gap:7px;align-items:center;flex-wrap:wrap"><div class="itm-title">'+esc(a.titel)+'</div><span class="badge '+st.cls+'">'+st.label+'</span>'+(a.prioritaet==='dringend'?'<span class="badge b-red">Dringend</span>':'')+'</div>'+
       '<div class="itm-meta"><b>'+esc(a.nr)+'</b> · '+esc(a.kategorie||'Allgemein')+'<br>'+esc(a.liegenschaftName||'')+(a.wohnungBez?' · '+esc(a.wohnungBez):'')+
       '<br>Handwerker: '+(hw.firma||hw.name?esc(hw.firma||hw.name)+(hw.typ==='gema'?' <span class="badge b-acc">🔗 GEMA</span>':''):'—')+
-      (a.termin?'<br>Wunschtermin: '+fmtD(a.termin):'')+'</div>'+
+      (a.termin?'<br>Wunschtermin: '+fmtD(a.termin):'')+
+      (a.offerte&&!a.kosten?'<br>💰 Offerte: <b>'+fmtChf(a.offerte.betrag)+'</b>':'')+
+      (a.kosten?'<br>💰 Kosten: <b>'+fmtChf(a.kosten.betrag)+'</b>':'')+'</div>'+
       '<div class="itm-acts"><button class="btn sm" onclick="ivAufDetail(\''+a.id+'\')">Details</button>'+
       (a.status==='offen'?'<button class="btn sm pri" onclick="ivAufBeauftragen(\''+a.id+'\')">✓ Beauftragen</button><button class="btn sm" onclick="ivAufEdit(\''+a.id+'\')">✏️</button><button class="btn sm red" onclick="ivAufDelete(\''+a.id+'\')">🗑</button>':'')+
       (a.status==='abgelehnt'?'<button class="btn sm" onclick="ivAufZurueckziehen(\''+a.id+'\')">↺ Neu vergeben</button>':'')+
@@ -1190,10 +1636,52 @@ window.ivAufErledigtSave=function(){
   a.bericht=bericht;
   a.erledigtAm=new Date().toISOString();
   a.erledigtVon=u.name;
-  a.verlauf.push({ts:new Date().toISOString(),von:u.name,text:'Erledigt — '+bericht});
+  var betrag=parseFloat(document.getElementById('er_betrag').value);
+  if(betrag>0)a.kosten={betrag:ivRound5(betrag),am:new Date().toISOString(),von:u.name};
+  a.verlauf.push({ts:new Date().toISOString(),von:u.name,text:'Erledigt — '+bericht+(betrag>0?' · Rechnungsbetrag '+fmtChf(betrag):'')});
   poolSave('auf',a);
-  ivNotifyVerwalter(a,'erfolg','Auftrag '+a.nr+' erledigt',a.titel+' — Bericht: '+bericht.slice(0,120));
+  ivNotifyVerwalter(a,'erfolg','Auftrag '+a.nr+' erledigt',a.titel+' — Bericht: '+bericht.slice(0,120)+(betrag>0?' · '+fmtChf(betrag):''));
   ivClose('erlModal');ivCloseIfOpen('adetModal');ivRender();toast('Als erledigt gemeldet');
+};
+// Offerte/Kostenschätzung des Handwerkers zum Auftrag (Info an den Verwalter)
+var _offAufId='';
+window.ivAufOfferteOpen=function(id){
+  var a=aufById(id);if(!a)return;
+  if(!ivDarfHandwerkerAktion(a))return;
+  if(a.status!=='beauftragt'&&a.status!=='in_arbeit')return;
+  _offAufId=id;
+  document.getElementById('of_betrag').value=(a.offerte&&a.offerte.betrag)||'';
+  document.getElementById('of_nachricht').value=(a.offerte&&a.offerte.nachricht)||'';
+  ivOpen('offModal');
+};
+window.ivAufOfferteSave=function(){
+  var a=aufById(_offAufId);if(!a)return;
+  var betrag=parseFloat(document.getElementById('of_betrag').value);
+  if(!(betrag>0)){GemaDialog.alert({title:'Betrag fehlt',message:'Bitte den Offert-Betrag angeben.'});return;}
+  var u=ivUser();
+  a.offerte={betrag:ivRound5(betrag),nachricht:document.getElementById('of_nachricht').value.trim(),von:u.name,am:new Date().toISOString()};
+  a.verlauf.push({ts:new Date().toISOString(),von:u.name,text:'Offerte eingereicht: '+fmtChf(betrag)+(a.offerte.nachricht?' — '+a.offerte.nachricht:'')});
+  poolSave('auf',a);
+  if(a.erstelltVonUserId){
+    ivNotify({eventKey:'immo_auftrag_offerte',empfaengerUserId:a.erstelltVonUserId,modul:'immobilien',typ:'aktion',
+      titel:'Offerte zu Auftrag '+a.nr+': '+fmtChf(betrag),text:a.titel+(a.offerte.nachricht?' — '+a.offerte.nachricht.slice(0,120):''),
+      link:'iv_immobilien.html?auf='+a.id});
+  }
+  ivClose('offModal');ivCloseIfOpen('adetModal');ivRender();toast('Offerte gesendet');
+};
+// Verwalter: Rechnungsbetrag nachträglich erfassen/ändern (fliesst in die NK-Abrechnung)
+window.ivAufKostenErfassen=function(id){
+  var a=aufById(id);if(!a||!ivIsVerwalter()||a.status!=='erledigt')return;
+  GemaDialog.prompt({title:'Kosten erfassen',placeholder:'Rechnungsbetrag CHF',defaultValue:(a.kosten&&a.kosten.betrag)||(a.offerte&&a.offerte.betrag)||''}).then(function(val){
+    if(val===null)return;
+    var betrag=parseFloat(String(val).replace(',','.'));
+    if(!(betrag>0)){GemaDialog.alert({title:'Ungültiger Betrag',message:'Bitte einen Betrag > 0 eingeben.'});return;}
+    var u=ivUser();
+    a.kosten={betrag:ivRound5(betrag),am:new Date().toISOString(),von:u.name};
+    a.verlauf.push({ts:new Date().toISOString(),von:u.name,text:'Kosten erfasst: '+fmtChf(betrag)});
+    poolSave('auf',a);
+    ivCloseIfOpen('adetModal');ivRender();toast('Kosten erfasst — via «📊 NK-Abrechnung» der Liegenschaft umlegbar');
+  });
 };
 window.ivAufAblehnen=function(id){
   var a=aufById(id);if(!a)return;
@@ -1244,6 +1732,8 @@ window.ivAufDetail=function(id){
     (a.beschreibung?'<div class="fld"><label>Beschreibung</label><div style="font-size:13px;white-space:pre-wrap">'+esc(a.beschreibung)+'</div></div>':'')+
     '<div class="fld"><label>Handwerker</label><div style="font-size:13px">'+(hw.firma||hw.name?esc([hw.firma,hw.name].filter(Boolean).join(' · '))+(hw.typ==='gema'?' <span class="badge b-acc">🔗 GEMA</span>':' (extern)')+(hw.tel?'<br>☎ '+esc(hw.tel):'')+(hw.email?'<br>✉ '+esc(hw.email):''):'— noch nicht vergeben —')+'</div></div>'+
     (a.termin?'<div class="fld"><label>Wunschtermin</label><div style="font-size:13px">'+fmtD(a.termin)+'</div></div>':'')+
+    (a.offerte?'<div class="fld"><label>Offerte des Handwerkers</label><div style="font-size:13px;background:var(--blue-bg);border:1px solid var(--blue-bd);border-radius:10px;padding:9px 11px"><b>'+fmtChf(a.offerte.betrag)+'</b>'+(a.offerte.nachricht?' — '+esc(a.offerte.nachricht):'')+'<br><span style="color:var(--mut);font-size:11px">'+esc(a.offerte.von||'')+' · '+fmtD(a.offerte.am)+'</span></div></div>':'')+
+    (a.kosten?'<div class="fld"><label>Kosten (Rechnung)</label><div style="font-size:13px"><b>'+fmtChf(a.kosten.betrag)+'</b> <span style="color:var(--mut);font-size:11px">erfasst '+fmtD(a.kosten.am)+' · fliesst in die NK-Abrechnung der Liegenschaft</span></div></div>':'')+
     (a.bericht?'<div class="fld"><label>Arbeitsbericht</label><div style="font-size:13px;white-space:pre-wrap;background:var(--grn-bg);border:1px solid var(--grn-bd);border-radius:10px;padding:9px 11px">'+esc(a.bericht)+'</div></div>':'')+
     '<div class="fld"><label>Verlauf</label>'+(a.verlauf||[]).slice().reverse().map(function(v){
       return '<div class="vl"><span class="ts">'+fmtD(v.ts)+' · '+esc(v.von||'')+'</span><br>'+esc(v.text)+'</div>';
@@ -1252,7 +1742,9 @@ window.ivAufDetail=function(id){
   var u=ivUser();
   var darfHw=ivDarfHandwerkerAktion(a);
   if(darfHw&&ivAufNext(a.status,'annehmen'))f.push('<button class="btn pri" onclick="ivAufAnnehmen(\''+a.id+'\')">✓ Annehmen</button>');
+  if(darfHw&&(a.status==='beauftragt'||a.status==='in_arbeit')&&hw.typ==='gema')f.push('<button class="btn" onclick="ivAufOfferteOpen(\''+a.id+'\')">💰 Offerte</button>');
   if(darfHw&&ivAufNext(a.status,'erledigen'))f.push('<button class="btn grn" onclick="ivAufErledigtOpen(\''+a.id+'\')">✓ Erledigt</button>');
+  if(ivIsVerwalter()&&u&&a.orgId===u.orgId&&a.status==='erledigt')f.push('<button class="btn" onclick="ivAufKostenErfassen(\''+a.id+'\')">💰 Kosten '+(a.kosten?'ändern':'erfassen')+'</button>');
   if(darfHw&&ivAufNext(a.status,'ablehnen')&&!(ivIsVerwalter()&&a.orgId===(u&&u.orgId)))f.push('<button class="btn red" onclick="ivAufAblehnen(\''+a.id+'\')">✕ Ablehnen</button>');
   if(ivIsVerwalter()&&u&&a.orgId===u.orgId){
     if(ivAufNext(a.status,'beauftragen'))f.push('<button class="btn pri" onclick="ivAufBeauftragen(\''+a.id+'\')">✓ Beauftragen</button>');

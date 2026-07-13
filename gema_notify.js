@@ -245,6 +245,11 @@
       modul:'immobilien',
       defaultOn:true
     },
+    immo_auftrag_offerte: {
+      label:'Offerte zu Handwerker-Auftrag (Immobilien)',
+      modul:'immobilien',
+      defaultOn:true
+    },
     service_faellig: {
       label:'Wartungen fällig (Service & Wartung)',
       modul:'service',
