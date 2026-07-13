@@ -1258,6 +1258,63 @@ window.weImpKiAnalyze=function(){
 };
 // Wechsel zurück auf klassische Quelle aus dem KI-Fehler-Fallback
 window.weImpQuelle2=function(q){IMP.quelle=q;IMP.schritt=2;renderImport();};
+// KI-Nachkontrolle gegen den Roh-Text (pure, testbar): vervollständigt
+// Artikelnummern, denen die KI einen führenden Nummernblock abgeschnitten hat.
+// Grosshändler-Nummern bestehen oft aus mehreren Blöcken («3612 272.000.000») —
+// im Textlayer sieht der Sortimentsblock wie ein eigenes Feld aus und ging
+// teils verloren (nur «272.000.000» kam an). Konservative Regeln gegen Fehlgriffe:
+//  - Kandidat = EIN Ziffernblock (3–6 Stellen) + genau ein Trenner (« » oder «.»)
+//    unmittelbar vor der Nummer; davor keine Ziffer/Punkt/Komma (Preise wie
+//    «425.00» scheiden aus).
+//  - Blöcke, die der Pos-Nr oder der Menge der Zeile entsprechen, zählen nie.
+//  - Die Nummer darf im Text NIRGENDS ohne diesen Block vorkommen (hits==total)
+//    und der Block muss über alle Vorkommen identisch sein.
+//  - Übernahme nur, wenn der Block im Text ≥2× als Nummern-Präfix vorkommt
+//    (Sortimentsblöcke wiederholen sich über die Positionen; laufende
+//    Pos-Nummern sind pro Dokument einmalig und kommen so nie durch) ODER eine
+//    bereits vollständig extrahierte Artikel-Nr mit «Block + Leerzeichen» beginnt.
+function kiArtNrRepair(positionen,rohtext){
+  var text=String(rohtext||'');
+  if(!text||!positionen||!positionen.length)return 0;
+  function cl(v){return String(v==null?'':v).trim().replace(/^0+(?=\d)/,'');}
+  function rxEsc(s){return s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');}
+  var vollPraefix={};
+  positionen.forEach(function(p){
+    var nr=(p&&p.artikelNr?String(p.artikelNr):'').trim();
+    var m=nr.match(/^(\d{3,6}) \d/);
+    if(m)vollPraefix[m[1]]=true;
+  });
+  var cands=[],candCount={};
+  positionen.forEach(function(p,idx){
+    var nr=(p&&p.artikelNr?String(p.artikelNr):'').trim();
+    if(nr.length<5||!/^\d/.test(nr))return;
+    if(/^\d{1,6} \d/.test(nr))return; // trägt bereits einen Leerzeichen-Block
+    var e=rxEsc(nr);
+    var reAll=new RegExp('(^|[^0-9])'+e+'(?![0-9])','g');
+    var reBlock=new RegExp('(^|[^0-9.,])(\\d{3,6})([ .])'+e+'(?![0-9])','g');
+    var total=0;while(reAll.exec(text))total++;
+    var hits=0,keys={},m2;
+    while((m2=reBlock.exec(text))){hits++;keys[m2[2]+m2[3]]=true;}
+    var kk=Object.keys(keys);
+    if(!hits||kk.length!==1||hits!==total)return;
+    var block=kk[0].slice(0,-1),sep=kk[0].slice(-1);
+    if(cl(block)===cl(p.posNr)||cl(block)===cl(p.menge))return; // Pos-Nr-/Mengen-Falle
+    if(candCount[kk[0]]==null){
+      var reCnt=new RegExp('(^|[^0-9.,])'+rxEsc(block)+rxEsc(sep)+'\\d','g'),bc=0;
+      while(reCnt.exec(text))bc++;
+      candCount[kk[0]]=bc; // Text-Vorkommen des Blocks als Nummern-Präfix
+    }
+    cands.push({idx:idx,block:block,sep:sep,key:kk[0]});
+  });
+  var fixed=0;
+  cands.forEach(function(c){
+    if(candCount[c.key]>=2||(c.sep===' '&&vollPraefix[c.block])){
+      positionen[c.idx].artikelNr=c.block+c.sep+positionen[c.idx].artikelNr;
+      fixed++;
+    }
+  });
+  return fixed;
+}
 // KI-Resultat → Review-Grid (Schritt 3)
 function kiApplyResult(data){
   data=data||{};
@@ -1266,6 +1323,9 @@ function kiApplyResult(data){
     var m=p&&p.menge;var mn=(typeof m==='number'&&isFinite(m))?Math.round(m):num(m);
     return mkPos((p&&p.artikelNr)||'',(p&&p.bezeichnung)||'',mn||(mn===0?0:1),i,(p&&p.posNr)||'');
   });
+  var repariert=0;
+  try{repariert=kiArtNrRepair(IMP.positionen,((IMP.kiText||'')+'\n'+(IMP.kiPdfText||'')).trim());}catch(e){}
+  IMP.__kiRepariert=repariert;
   // Kopfdaten übernehmen, ohne bestehende Eingaben zu überschreiben.
   // Im Offerten-Modus gehören Beleg-Nr/-Datum in Offert-Nr/-Datum.
   if(!IMP.lieferantFirma&&data.lieferant)IMP.lieferantFirma=String(data.lieferant).trim();
@@ -1284,7 +1344,7 @@ function kiApplyResult(data){
   }
   IMP.__kiCount=IMP.positionen.length;
   IMP.schritt=3;renderImport();
-  toast('🤖 '+IMP.positionen.length+' Position'+(IMP.positionen.length!==1?'en':'')+' erkannt — bitte kontrollieren');
+  toast('🤖 '+IMP.positionen.length+' Position'+(IMP.positionen.length!==1?'en':'')+' erkannt'+(repariert?' · '+repariert+' Artikel-Nr. vervollständigt':'')+' — bitte kontrollieren');
 }
 // Datum robust nach YYYY-MM-DD (ISO, dd.mm.yyyy, dd/mm/yyyy)
 function parseDateLoose(s){
@@ -2267,7 +2327,7 @@ document.addEventListener('DOMContentLoaded',function(){
 });
 
 /* Debug/Test-Hooks */
-window._weHooks={settings:settings,liefStatus:liefStatus,posStatus:posStatus,extractHtmlGrid:extractHtmlGrid,extractTextGrid:extractTextGrid,guessCols:guessCols,applyGridMapping:applyGridMapping,pdfItemsToGrid:pdfItemsToGrid,applyPdfBands:applyPdfBands,mkPos:mkPos,projModus:projModus,gemaObjekteAn:gemaObjekteAn,freieAdrAn:freieAdrAn,defaultProjekt:defaultProjekt,lieferantKey:lieferantKey,findMapping:findMapping,saveMapping:saveMapping,kiApplyResult:kiApplyResult,parseDateLoose:parseDateLoose,newImp:newImp,getImp:function(){return IMP;},setImp:function(x){IMP=x;},lagerProjekt:lagerProjekt,isLagerProj:isLagerProj,abbrevStrasse:abbrevStrasse,labelsFromLief:labelsFromLief,labelInner:labelInner,lieferantHistory:lieferantHistory,getLEdit:function(){return LEDIT;},liefById:liefById,
+window._weHooks={settings:settings,liefStatus:liefStatus,posStatus:posStatus,extractHtmlGrid:extractHtmlGrid,extractTextGrid:extractTextGrid,guessCols:guessCols,applyGridMapping:applyGridMapping,pdfItemsToGrid:pdfItemsToGrid,applyPdfBands:applyPdfBands,mkPos:mkPos,projModus:projModus,gemaObjekteAn:gemaObjekteAn,freieAdrAn:freieAdrAn,defaultProjekt:defaultProjekt,lieferantKey:lieferantKey,findMapping:findMapping,saveMapping:saveMapping,kiApplyResult:kiApplyResult,kiArtNrRepair:kiArtNrRepair,parseDateLoose:parseDateLoose,newImp:newImp,getImp:function(){return IMP;},setImp:function(x){IMP=x;},lagerProjekt:lagerProjekt,isLagerProj:isLagerProj,abbrevStrasse:abbrevStrasse,labelsFromLief:labelsFromLief,labelInner:labelInner,lieferantHistory:lieferantHistory,getLEdit:function(){return LEDIT;},liefById:liefById,
   // Offerten-Split
   offerten:offerten,offById:offById,offKlassifiziere:offKlassifiziere,offGruppen:offGruppen,offAbdeckung:offAbdeckung,offStatus:offStatus,offMatchZeilen:offMatchZeilen,offListenText:offListenText,offBeiblattLines:offBeiblattLines,normArt:normArt,dataUrlBytes:dataUrlBytes,
   // KI-Payload-Entscheid + Chunking (Text-vor-Datei + Parallel-Teile gegen Netlify-504)
