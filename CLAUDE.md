@@ -769,7 +769,7 @@ Das Benutzerwechsel-Dropdown oben rechts (`_injectBadge`/`GemaAuth._switchUser` 
 
 **Ursache**: `gema_schaden_pdf.js` / `gema_dachbericht_pdf.js` setzten im Body `font-optical-sizing:none`. Das zwingt die **DM-Sans-Variable-Font** auf ihre Default-Optical-Size (kräftigere Striche, für Display gedacht) → bei kleinem Fliesstext (10.5pt) wirken die Striche zu schwer.
 
-**Fix**: `font-optical-sizing:auto;font-variation-settings:"opsz" 14;` im Body-CSS (statt `none`). `opsz 14` = Text-Optische-Grösse → saubere, gleichmässige Striche. **In BEIDEN PDF-Helfern gleich halten** (Schaden + Dach), da das Problem in beiden auftritt.
+**Fix**: `font-optical-sizing:auto;font-variation-settings:"opsz" 14;` im Body-CSS (statt `none`). `opsz 14` = Text-Optische-Grösse → saubere, gleichmässige Striche. **Kanon gilt für JEDES Druckfenster, das DM Sans lädt** (Fonts-Link im `document.write`) — aktuell: gema_schaden_pdf, gema_dachbericht_pdf, gema_revision_pdf (Kanon liegt im REPORT_CSS), pm_stunden (Monatsblatt), pm_bestellungen (Bestellschein), ab_pruefungen (Prüfungs-PDF), if_wareneingang (Etiketten). Druckfenster OHNE Fonts-Link drucken im System-Fallback und sind nicht betroffen; jsPDF nutzt Standardfonts (latin1). **Drift-Guard: `node scripts/pdf_opsz_test.mjs`** — failt bei jedem neuen DM-Sans-Druckfenster ohne Kanon und bei jedem `font-optical-sizing:none` im Repo.
 
 ### Cross-Modul-Write brach still: IIFE-Scope über Script-Block-Grenzen + try/catch (sa_osmose, BEHOBEN)
 
