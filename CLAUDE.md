@@ -755,12 +755,13 @@ Geplant: `gema_lu_api.js` für den Datenfluss aus der LU-Zusammenstellung:
 
 ## Feedback & PDF-Systeme
 
-### gema_feedback.js (v3)
+### gema_feedback.js (v4)
 
-- Roter Stift-Annotation-Overlay nach Screenshot-Snip
-- Maus/Touch-Zeichnung, Undo/Clear/Skip/Done
-- **Wichtig**: Frisches Canvas bei jedem Öffnen erstellen (kein `getBoundingClientRect()`-Caching)
-- localStorage-Fallback
+- Annotation-Overlay nach Screenshot-Snip mit **4 Werkzeugen wie in PDF-Programmen** (Toolbar oben, aktives Werkzeug rot): ✏️ Stift (Freihand), ↗ Pfeil (gefüllte Spitze am Endpunkt), ▭ Rechteck, T Text (Inline-Input direkt an der Klickposition — Enter übernimmt, ESC bricht nur das Input ab, Blur committet; Text mit weissem Halo für Lesbarkeit)
+- **Vektor-Shape-Modell** (`_annotShapes`): jede Form ist ein Objekt, Drag zeigt Live-Vorschau, Undo entfernt genau das letzte Objekt (kein Pixel-Undo); Mini-Drags < 6 px werden verworfen. Merge in den Screenshot erst bei «Fertig». Maus + Touch
+- **Wichtig**: Frisches Canvas bei jedem Öffnen erstellen (kein `getBoundingClientRect()`-Caching); Overlay ist flex-column (Toolbar darf umbrechen)
+- localStorage-Fallback; Test-Hooks `window._gfbHooks` (openAnnotation/setTool/shapes/undo/finish)
+- **Markdown-Export-Status-Dialog (sys_beta.html)**: Nach dem Export (💾 Download UND 📋 Kopieren) fragt `openExMarkDialog` pro exportiertem OFFENEN Punkt per Checkbox (vorausgewählt, gruppiert nach Modul, «Alle abwählen»-Toggle, Live-Zähler), ob er auf `cStatus='bearbeitung'` gesetzt werden soll — ersetzt die frühere stille Auto-Mark-Checkbox. «Erledigt» wird nie zurückgestuft, «bearbeitung» nicht erneut gelistet. Drift-Guard: `scripts/feedback_tools_test.mjs` (33 Checks, Annotation + Dialog)
 
 ### gema_pdf.js (v2)
 
