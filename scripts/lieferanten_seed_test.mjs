@@ -76,7 +76,7 @@ console.log('■ Produktkatalog: Seed kommt in der App an (sa_enthaertung)');
   });
   ok(st.liefCount === 14, '14 Seed-Lieferanten geladen (' + st.liefCount + ')');
   ok(st.liefAktiv, 'alle Seed-Lieferanten status aktiv');
-  ok(st.seedCount === 25, '25 Seed-Produkte geladen (' + st.seedCount + ')');
+  ok(st.seedCount === 26, '26 Seed-Produkte geladen (' + st.seedCount + ')');
   ok(st.alleNichtVerifiziert, 'ALLE Seed-Produkte nicht_verifiziert (Verifizierungs-Test möglich)');
   ok(st.enth.includes('Duplex') && st.enth.includes('SD21'), 'Enthärtung: BWT Perla Duplex + Grünbeck softliQ:SD21 als freigegeben gelistet');
   ok(st.druck === 3, 'Druckerhöhung: 3 Produkte (Grundfos/Wilo/KSB)');
@@ -115,7 +115,7 @@ console.log('■ Armaturen-Katalog: kvs-Records + Lieferanten-Zuordnung (sb_druc
       d06fKvs25: d06f && d06f.kvs && d06f.kvs[25],
       gwfKvs20: gwf && gwf.kvs && gwf.kvs[20],
       imiListe: GemaArmaturen.getForLieferant('lief_seed_imi', 'IMI Hydronic Engineering (Schweiz) AG').map(a => a.id),
-      nussbaumListe: GemaArmaturen.getForLieferant('lief_seed_nussbaum', 'R. Nussbaum AG').length,
+      nussbaumIds: GemaArmaturen.getForLieferant('lief_seed_nussbaum', 'R. Nussbaum AG').map(a => a.id),
       // kvs-Rechenweg: Δp = (Q/kvs)²·100 kPa — STAD DN20 voll offen bei 2 m³/h
       dp: GemaArmaturen.getDp('arm_seed_stad', 20, { Q_ls: 2000 / 3600, rho: 1000, v_ms: 1 })
     };
@@ -125,7 +125,8 @@ console.log('■ Armaturen-Katalog: kvs-Records + Lieferanten-Zuordnung (sb_druc
   ok(st.d06fKvs25 === 5.8, 'D06F kvs DN25 = 5.8 (Resideo-Produktseite)');
   ok(st.gwfKvs20 === 5.0, 'GWF Wasserzähler kvs DN20 = 5.0');
   ok(st.imiListe.includes('arm_seed_stad'), 'getForLieferant(imi) liefert den STAD-Record (Dashboard-Tab)');
-  ok(st.nussbaumListe >= 4, 'Nussbaum sieht via Firma-Match auch die Default-Armaturen (' + st.nussbaumListe + ')');
+  ok(st.nussbaumIds.includes('arm_seed_nussbaum_dm'), 'Nussbaum-Liste enthält den Redfil-Druckminderer-Record');
+  ok(st.nussbaumIds.length >= 5, 'Nussbaum sieht via Firma-Match auch die Default-Armaturen inkl. Schrägsitzventil (' + st.nussbaumIds.length + ')');
   ok(st.dp && Math.abs(st.dp.dp_kPa - Math.pow(2 / 5.39, 2) * 100) < 0.5, 'Δp-Berechnung über kvs plausibel (' + (st.dp && st.dp.dp_kPa && st.dp.dp_kPa.toFixed(2)) + ' kPa)');
   await ctx.close();
 }

@@ -304,9 +304,16 @@ const PRODUKTE = [
   }),
   // ── Armaturen (Produktkatalog — Rechenwerte stehen zusätzlich im Armaturen-Katalog arm:) ──
   produkt('nussbaum', 'armaturen', {
-    serie: 'Easy-Top', modell: 'Schrägsitzventil Optipress', armaturTyp: 'Schrägsitzventil',
-    dn: 'DN 15–50 (Ø 15–54 mm)', zetaWerte: 'ζ je Dimension: 15: 2.3 · 18: 2.1 · 22: 1.7 · 28: 1.4 · 35: 1.2 · 42: 1.6 · 54: 1.5 (siehe Armaturen-Katalog)',
-    werkstoff: 'Rotguss/Edelstahl', svgw: true
+    serie: 'Optipress-Aquaplus', modell: 'Schrägsitzventil mit Easy-Top-Oberteil (Art. 82200/82202)', armaturTyp: 'Schrägsitzventil',
+    dn: 'Ø 15–54 mm (Pressanschluss)', zetaWerte: 'ζ je Dimension: 15: 2.3 · 18: 2.1 · 22: 1.7 · 28: 1.4 · 35: 1.2 · 42: 1.6 · 54: 1.5 (siehe Armaturen-Katalog)',
+    druckbereich: 'PN 16', tempBereich: 'Wasser bis 90 °C',
+    werkstoff: 'Rotguss, Easy-Top-Oberteil', svgw: true
+  }),
+  produkt('nussbaum', 'armaturen', {
+    serie: 'Redfil', modell: 'Druckreduzierventil (Art. 11000)', armaturTyp: 'Druckminderer',
+    dn: 'DN 15–50 (½"–2")', druckbereich: 'PN 16 · Hinterdruck einstellbar 2–6 bar (Werkseinstellung 4 bar)',
+    zetaWerte: 'Durchfluss-/kvs-Werte je DN gemäss Nussbaum-Datenblatt — vom Lieferanten zu ergänzen (Basisdaten vorerfasst)',
+    tempBereich: 'Trinkwasser (Standard-Ausführung)', werkstoff: 'Rotguss CC246E, mit Manometer', svgw: true
   }),
   produkt('jrg', 'armaturen', {
     serie: 'JRG LegioStop', modell: 'Schrägsitzventil Sanipex MT', armaturTyp: 'Schrägsitzventil',
@@ -352,6 +359,13 @@ const ARMATUREN = [
     id: 'arm_seed_gwf_q34', typ: 'wasserzaehler', name: 'Hauswasserzähler Q3 4', hersteller: 'GWF MessSysteme AG',
     serie: 'Q3 4 / DN 20', lieferantId: 'lief_seed_gwf', status: 'nicht_verifiziert',
     zeta: {}, kvs: { 20: 5.0 }, zetaDefault: 4.0
+  },
+  {
+    // Basisdaten-Platzhalter: ζ 8.0 = GEMA-Standard-Richtwert für Druckminderer —
+    // Nussbaum ergänzt die Redfil-Durchflusswerte je DN beim Verifizieren im Dashboard.
+    id: 'arm_seed_nussbaum_dm', typ: 'druckminderer', name: 'Druckreduzierventil Redfil (11000)', hersteller: 'R. Nussbaum AG',
+    serie: 'Redfil', lieferantId: 'lief_seed_nussbaum', status: 'nicht_verifiziert',
+    zeta: {}, kvs: {}, zetaDefault: 8.0
   }
 ];
 
