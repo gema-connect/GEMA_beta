@@ -535,8 +535,19 @@ export function buildImport(json) {
     const l = liefById[key];
     if (!l) { errors.push('Produkt «' + ((src.daten || {}).modell || '?') + '»: unbekannter Lieferant-Key «' + src.lieferant + '» (bekannt: ' + Object.keys(liefById).join(', ') + ')'); return null; }
     const d = src.daten || {};
+    // Optional «ersetzt»: übernimmt die ID eines bestehenden Basis-Seed-Produkts
+    // → die Row wird als REPLACE-Upsert emittiert (DO UPDATE) statt neu angelegt.
+    let id = 'prod_seed_' + key + '_' + slug(src.kategorie) + '_' + (slug((d.serie || '') + '_' + (d.modell || '')) || 'produkt');
+    let replace = false;
+    if (src.ersetzt) {
+      const basis = PRODUKTE.find(p => p.id === src.ersetzt);
+      if (!basis) errors.push('Produkt «' + (d.modell || '?') + '»: ersetzt-Ziel «' + src.ersetzt + '» existiert nicht im Basis-Seed');
+      else if (basis.kategorie !== src.kategorie) errors.push('Produkt «' + (d.modell || '?') + '»: ersetzt-Ziel hat Kategorie ' + basis.kategorie + ', Import sagt ' + src.kategorie);
+      else if (basis.lieferantId !== l.id) errors.push('Produkt «' + (d.modell || '?') + '»: ersetzt-Ziel gehört ' + basis.lieferantFirma + ', Import sagt ' + l.firma);
+      else { id = src.ersetzt; replace = true; }
+    }
     return {
-      id: 'prod_seed_' + key + '_' + slug(src.kategorie) + '_' + (slug((d.serie || '') + '_' + (d.modell || '')) || 'produkt'),
+      id: id, _replace: replace,
       kategorie: src.kategorie, lieferantId: l.id, lieferantFirma: l.firma,
       daten: d, dokumente: [], status: 'nicht_verifiziert', quelle: 'admin',
       erstelltVon: 'GEMA Seed (Chat-Import)', erstelltAm: new Date().toISOString(),
@@ -567,26 +578,41 @@ export function buildImport(json) {
 
   const rows = [];
   neueLief.forEach(l => rows.push({ module_key: 'produktkatalog', data_key: 'lieferant:' + l.id, data: l }));
-  prods.forEach(p => rows.push({ module_key: 'produktkatalog', data_key: 'produkt:' + p.id, data: p }));
+  prods.forEach(p => {
+    const replace = p._replace; delete p._replace;
+    rows.push({ module_key: 'produktkatalog', data_key: 'produkt:' + p.id, data: p, replace: replace });
+  });
   arms.forEach(a => rows.push({ module_key: 'armaturen', data_key: 'arm:' + a.id, data: a }));
-  return { rows, errors, stats: { lieferantenNeu: neueLief.length, produkte: prods.length, armaturen: arms.length } };
+  return { rows, errors, stats: { lieferantenNeu: neueLief.length, produkte: prods.length, ersetzt: rows.filter(r => r.replace).length, armaturen: arms.length } };
 }
 
 function rowsToSql(rows, titel, lm) {
-  const lines = [];
-  lines.push('-- ' + titel);
-  lines.push("-- ALLE Records status='nicht_verifiziert'. Idempotent: ON CONFLICT DO NOTHING.");
-  lines.push('-- AUSFÜHREN: Supabase Dashboard → SQL Editor → einfügen → Run.');
-  lines.push('-- Rollback (alle Seed-Records): supabase/gema_lieferanten_seed_rollback.sql');
-  lines.push('');
-  lines.push('insert into public.gema_data (module_key, data_key, payload) values');
-  const tuples = rows.map(r => {
+  const tuple = r => {
     const payload = JSON.stringify({ data: r.data, _lm: lm });
     if (payload.indexOf('$j$') >= 0) throw new Error('Dollar-Quote-Kollision in ' + r.data_key);
     return "('" + r.module_key + "', '" + r.data_key + "', $j$" + payload + '$j$::jsonb)';
-  });
-  lines.push(tuples.join(',\n'));
-  lines.push('on conflict (module_key, data_key) do nothing;');
+  };
+  const neu = rows.filter(r => !r.replace);
+  const rep = rows.filter(r => r.replace);
+  const lines = [];
+  lines.push('-- ' + titel);
+  lines.push("-- ALLE Records status='nicht_verifiziert'. Neue Records: ON CONFLICT DO NOTHING (idempotent).");
+  lines.push('-- AUSFÜHREN: Supabase Dashboard → SQL Editor → einfügen → Run.');
+  lines.push('-- Rollback (alle Seed-Records): supabase/gema_lieferanten_seed_rollback.sql');
+  lines.push('');
+  if (neu.length) {
+    lines.push('insert into public.gema_data (module_key, data_key, payload) values');
+    lines.push(neu.map(tuple).join(',\n'));
+    lines.push('on conflict (module_key, data_key) do nothing;');
+  }
+  if (rep.length) {
+    lines.push('');
+    lines.push('-- ERSETZT bestehende Basis-Seed-Records (reichere Datenblatt-Version, gleiche ID');
+    lines.push('-- → kein Duplikat im Katalog). Überschreibt bewusst: DO UPDATE.');
+    lines.push('insert into public.gema_data (module_key, data_key, payload) values');
+    lines.push(rep.map(tuple).join(',\n'));
+    lines.push('on conflict (module_key, data_key) do update set payload = excluded.payload;');
+  }
   return lines.join('\n') + '\n';
 }
 
@@ -632,6 +658,7 @@ function buildPrompt() {
   L.push('```');
   L.push('- `lieferanten` nur für Firmen, die es in GEMA noch nicht gibt. **Bestehende Keys** (direkt referenzierbar): ' + Object.keys(LIEF_BY_KEY).sort().join(', ') + '.');
   L.push('- `armaturen` = Rechenwerte-Katalog für die Druckverlustberechnung (ζ und/oder kvs **je DN**; kvs wird bevorzugt). Nur wenn du echte ζ-/kvs-Werte je Dimension hast.');
+  L.push('- Produkte können optional `"ersetzt": "<prod_seed_…-ID>"` tragen — NUR verwenden, wenn im Auftrag ausdrücklich verlangt (ersetzt einen bestehenden Seed-Record derselben Anlage durch die reichere Version).');
   L.push('');
   L.push('## Lieferanten-Kategorien (`kategorien`)');
   LK.forEach(k => L.push('- `' + k.id + '` — ' + k.label));
@@ -698,10 +725,11 @@ function importMain(file) {
   const out = join(ROOT, 'supabase', 'gema_lieferanten_seed_import_' + base + '.sql');
   const lm = Date.now();
   writeFileSync(out, rowsToSql(rows, 'GEMA Seed-Import «' + base + '» (' + new Date().toISOString().slice(0, 10) + ') — aus Chat-Recherche via --import', lm));
-  // Roundtrip
+  // Roundtrip — in Datei-Reihenfolge (erst neue Rows, dann Replace-Block)
   const lits = [...readFileSync(out, 'utf8').matchAll(/\$j\$(.*?)\$j\$::jsonb/gs)].map(m => JSON.parse(m[1]));
-  if (lits.length !== rows.length) throw new Error('Roundtrip: Literal-Anzahl weicht ab');
-  rows.forEach((r, i) => { if (JSON.stringify(lits[i].data) !== JSON.stringify(r.data)) throw new Error('Roundtrip-Diff bei ' + r.data_key); });
+  const ordered = [...rows.filter(r => !r.replace), ...rows.filter(r => r.replace)];
+  if (lits.length !== ordered.length) throw new Error('Roundtrip: Literal-Anzahl weicht ab');
+  ordered.forEach((r, i) => { if (JSON.stringify(lits[i].data) !== JSON.stringify(r.data)) throw new Error('Roundtrip-Diff bei ' + r.data_key); });
   console.log('✓ Import validiert —', JSON.stringify(stats));
   console.log('✓ geschrieben:', out);
   console.log('→ Datei im Supabase SQL Editor ausführen.');

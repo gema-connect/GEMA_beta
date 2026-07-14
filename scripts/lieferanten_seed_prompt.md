@@ -64,6 +64,7 @@ Du recherchierst **reale, belegbare Herstellerdaten** (Datenblätter, offizielle
 ```
 - `lieferanten` nur für Firmen, die es in GEMA noch nicht gibt. **Bestehende Keys** (direkt referenzierbar): bwt, flamco, geberit, gruenbeck, grundfos, gwf, imi, jrg, ksb, nussbaum, oventrop, resideo, taconova, wilo.
 - `armaturen` = Rechenwerte-Katalog für die Druckverlustberechnung (ζ und/oder kvs **je DN**; kvs wird bevorzugt). Nur wenn du echte ζ-/kvs-Werte je Dimension hast.
+- Produkte können optional `"ersetzt": "<prod_seed_…-ID>"` tragen — NUR verwenden, wenn im Auftrag ausdrücklich verlangt (ersetzt einen bestehenden Seed-Record derselben Anlage durch die reichere Version).
 
 ## Lieferanten-Kategorien (`kategorien`)
 - `enthaertung` — Enthärtungsanlagen
