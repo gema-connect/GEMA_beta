@@ -67,6 +67,7 @@
     'sb_apparateliste':'Apparateliste Sanitär',
     'sb_ausstosszeiten':'Ausstosszeiten',
     'sb_druckanstieg':'Druckanstieg Temperatur',
+    'sb_saugpumpe':'Saugpumpe (Saughöhe)',
     'sb_druckdispositiv':'Druckdispositiv',
     'sb_druckerhoehung':'Druckerhöhungsanlage',
     'sb_druckverlust':'Druckverlust Wasser',
