@@ -310,10 +310,16 @@ const PRODUKTE = [
     werkstoff: 'Rotguss, Easy-Top-Oberteil', svgw: true
   }),
   produkt('nussbaum', 'armaturen', {
-    serie: 'Redfil', modell: 'Druckreduzierventil (Art. 11000)', armaturTyp: 'Druckminderer',
+    serie: 'Druckreduzierventil', modell: 'Art. 11000 — ohne Feinfilter', armaturTyp: 'Druckminderer',
     dn: 'DN 15–50 (½"–2")', druckbereich: 'PN 16 · Hinterdruck einstellbar 2–6 bar (Werkseinstellung 4 bar)',
-    zetaWerte: 'Durchfluss-/kvs-Werte je DN gemäss Nussbaum-Datenblatt — vom Lieferanten zu ergänzen (Basisdaten vorerfasst)',
+    zetaWerte: 'Durchfluss-/kvs-Werte je DN gemäss Nussbaum-Datenblatt «Druckreduzierventil» — vom Lieferanten zu ergänzen (Basisdaten vorerfasst)',
     tempBereich: 'Trinkwasser (Standard-Ausführung)', werkstoff: 'Rotguss CC246E, mit Manometer', svgw: true
+  }),
+  produkt('nussbaum', 'armaturen', {
+    serie: 'Redfil', modell: 'Druckreduzier-Feinfiltergruppe (Art. 12075; rückspülbar 12100/12104)', armaturTyp: 'Druckminderer',
+    dn: 'DN 15–50 (gemäss Ausführung)', druckbereich: 'PN 16 · Hinterdruck einstellbar 2–6 bar (Werkseinstellung 4 bar)',
+    zetaWerte: 'Kombination Druckreduzierventil + Feinfilter in EINER Armatur. Druckverlustwerte gemäss Nussbaum-Datenblatt «Redfil – Druckreduzier-Feinfiltergruppen» — vom Lieferanten zu ergänzen',
+    tempBereich: 'Trinkwasser kalt', werkstoff: 'Rotguss; Filtertasse Polyamid, Filtersieb Kunststoff (rückspülbare Ausführung: Edelstahl)', svgw: true
   }),
   produkt('jrg', 'armaturen', {
     serie: 'JRG LegioStop', modell: 'Schrägsitzventil Sanipex MT', armaturTyp: 'Schrägsitzventil',
@@ -362,10 +368,18 @@ const ARMATUREN = [
   },
   {
     // Basisdaten-Platzhalter: ζ 8.0 = GEMA-Standard-Richtwert für Druckminderer —
-    // Nussbaum ergänzt die Redfil-Durchflusswerte je DN beim Verifizieren im Dashboard.
-    id: 'arm_seed_nussbaum_dm', typ: 'druckminderer', name: 'Druckreduzierventil Redfil (11000)', hersteller: 'R. Nussbaum AG',
-    serie: 'Redfil', lieferantId: 'lief_seed_nussbaum', status: 'nicht_verifiziert',
+    // Nussbaum ergänzt die Datenblatt-Werte je DN beim Verifizieren im Dashboard.
+    id: 'arm_seed_nussbaum_dm', typ: 'druckminderer', name: 'Druckreduzierventil (Art. 11000, ohne Feinfilter)', hersteller: 'R. Nussbaum AG',
+    serie: 'Druckreduzierventil 11000', lieferantId: 'lief_seed_nussbaum', status: 'nicht_verifiziert',
     zeta: {}, kvs: {}, zetaDefault: 8.0
+  },
+  {
+    // Redfil = Druckreduzierventil MIT Feinfilter in einer Armatur → Platzhalter
+    // 11.0 = GEMA-Richtwerte Druckminderer (8.0) + Filter (3.0) kombiniert,
+    // bis Nussbaum die Druckverlustwerte aus dem Redfil-Datenblatt einpflegt.
+    id: 'arm_seed_nussbaum_redfil', typ: 'druckminderer', name: 'Redfil Druckreduzier-Feinfiltergruppe', hersteller: 'R. Nussbaum AG',
+    serie: 'Redfil (12075; rückspülbar 12100/12104)', lieferantId: 'lief_seed_nussbaum', status: 'nicht_verifiziert',
+    zeta: {}, kvs: {}, zetaDefault: 11.0
   }
 ];
 

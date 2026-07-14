@@ -76,7 +76,7 @@ console.log('■ Produktkatalog: Seed kommt in der App an (sa_enthaertung)');
   });
   ok(st.liefCount === 14, '14 Seed-Lieferanten geladen (' + st.liefCount + ')');
   ok(st.liefAktiv, 'alle Seed-Lieferanten status aktiv');
-  ok(st.seedCount === 26, '26 Seed-Produkte geladen (' + st.seedCount + ')');
+  ok(st.seedCount === 27, '27 Seed-Produkte geladen (' + st.seedCount + ')');
   ok(st.alleNichtVerifiziert, 'ALLE Seed-Produkte nicht_verifiziert (Verifizierungs-Test möglich)');
   ok(st.enth.includes('Duplex') && st.enth.includes('SD21'), 'Enthärtung: BWT Perla Duplex + Grünbeck softliQ:SD21 als freigegeben gelistet');
   ok(st.druck === 3, 'Druckerhöhung: 3 Produkte (Grundfos/Wilo/KSB)');
@@ -125,8 +125,8 @@ console.log('■ Armaturen-Katalog: kvs-Records + Lieferanten-Zuordnung (sb_druc
   ok(st.d06fKvs25 === 5.8, 'D06F kvs DN25 = 5.8 (Resideo-Produktseite)');
   ok(st.gwfKvs20 === 5.0, 'GWF Wasserzähler kvs DN20 = 5.0');
   ok(st.imiListe.includes('arm_seed_stad'), 'getForLieferant(imi) liefert den STAD-Record (Dashboard-Tab)');
-  ok(st.nussbaumIds.includes('arm_seed_nussbaum_dm'), 'Nussbaum-Liste enthält den Redfil-Druckminderer-Record');
-  ok(st.nussbaumIds.length >= 5, 'Nussbaum sieht via Firma-Match auch die Default-Armaturen inkl. Schrägsitzventil (' + st.nussbaumIds.length + ')');
+  ok(st.nussbaumIds.includes('arm_seed_nussbaum_dm') && st.nussbaumIds.includes('arm_seed_nussbaum_redfil'), 'Nussbaum-Liste enthält Druckreduzierventil 11000 UND Redfil-Feinfiltergruppe');
+  ok(st.nussbaumIds.length >= 6, 'Nussbaum sieht via Firma-Match auch die Default-Armaturen inkl. Schrägsitzventil (' + st.nussbaumIds.length + ')');
   ok(st.dp && Math.abs(st.dp.dp_kPa - Math.pow(2 / 5.39, 2) * 100) < 0.5, 'Δp-Berechnung über kvs plausibel (' + (st.dp && st.dp.dp_kPa && st.dp.dp_kPa.toFixed(2)) + ' kPa)');
   await ctx.close();
 }
