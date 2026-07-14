@@ -392,43 +392,71 @@ export function records() {
   return rows;
 }
 
-// ── Validierung gegen die Live-Schemata aus gema_produktkatalog_api.js ──
-function validate() {
+// ── Live-Schemata aus gema_produktkatalog_api.js laden ──
+let _schemaCache = null;
+export function loadSchemas() {
+  if (_schemaCache) return _schemaCache;
   const src = readFileSync(join(ROOT, 'gema_produktkatalog_api.js'), 'utf8');
   const sandbox = { window: { addEventListener() {}, dispatchEvent() {} }, localStorage: { getItem: () => null, setItem() {}, removeItem() {} } };
   const fn = new Function('window', 'localStorage', src + '\nreturn window.GemaProdukte;');
   const GP = fn(sandbox.window, sandbox.localStorage);
-  const KAT = GP.KATEGORIEN;
-  const LIEF_IDS = new Set(GP.LIEF_KATEGORIEN.map(k => k.id));
+  // Armaturen-Typen aus gema_armaturen_api.js (per Regex — Datei ist eine IIFE)
+  const armSrc = readFileSync(join(ROOT, 'gema_armaturen_api.js'), 'utf8');
+  const typBlock = (armSrc.match(/var TYPEN=\[([\s\S]*?)\];/) || [])[1] || '';
+  const armTypen = [...typBlock.matchAll(/\{id:'([^']+)',name:'([^']+)'/g)].map(m => ({ id: m[1], name: m[2] }));
+  _schemaCache = { KAT: GP.KATEGORIEN, LIEF_KATEGORIEN: GP.LIEF_KATEGORIEN, armTypen };
+  return _schemaCache;
+}
+
+// ── Validierung gegen die Live-Schemata (gilt für Basis-Seed UND Importe) ──
+function validateSets(liefArr, prodArr, armArr, extraLiefIds) {
+  const { KAT, LIEF_KATEGORIEN: LK, armTypen } = loadSchemas();
+  const LIEF_IDS = new Set(LK.map(k => k.id));
+  const knownLief = new Set([...LIEFERANTEN.map(l => l.id), ...(extraLiefIds || [])]);
+  liefArr.forEach(l => knownLief.add(l.id));
   const errors = [];
 
-  LIEFERANTEN.forEach(l => {
+  liefArr.forEach(l => {
+    if (!l.firma) errors.push('Lieferant ' + l.id + ': firma fehlt');
     (l.lieferantKategorien || []).forEach(k => {
-      if (!LIEF_IDS.has(k)) errors.push('Lieferant ' + l.id + ': unbekannte LIEF_KATEGORIE «' + k + '»');
+      if (!LIEF_IDS.has(k)) errors.push('Lieferant ' + l.id + ': unbekannte LIEF_KATEGORIE «' + k + '» (erlaubt: ' + [...LIEF_IDS].join(', ') + ')');
     });
     if (l.status !== 'aktiv') errors.push('Lieferant ' + l.id + ': status muss aktiv sein');
   });
 
-  PRODUKTE.forEach(p => {
+  prodArr.forEach(p => {
     const cat = KAT[p.kategorie];
     if (!cat) { errors.push('Produkt ' + p.id + ': unbekannte Kategorie «' + p.kategorie + '»'); return; }
     const feldIds = new Set(cat.felder.map(f => f.id));
     Object.keys(p.daten).forEach(k => {
       if (!feldIds.has(k)) errors.push('Produkt ' + p.id + ': Feld «' + k + '» existiert nicht im Schema ' + p.kategorie);
     });
-    cat.felder.filter(f => f.typ === 'select' && p.daten[f.id] != null && p.daten[f.id] !== '').forEach(f => {
-      if (!f.optionen.includes(p.daten[f.id])) errors.push('Produkt ' + p.id + ': «' + p.daten[f.id] + '» keine gültige Option für ' + f.id + ' (' + f.optionen.join('|') + ')');
+    cat.felder.forEach(f => {
+      const v = p.daten[f.id];
+      if (v == null || v === '') return;
+      if (f.typ === 'select' && !f.optionen.includes(v)) errors.push('Produkt ' + p.id + ': «' + v + '» keine gültige Option für ' + f.id + ' (' + f.optionen.join('|') + ')');
+      if (f.typ === 'number' && typeof v !== 'number') errors.push('Produkt ' + p.id + ': Feld ' + f.id + ' muss eine Zahl sein (ohne Einheit), erhalten: ' + JSON.stringify(v));
+      if (f.typ === 'checkbox' && typeof v !== 'boolean') errors.push('Produkt ' + p.id + ': Feld ' + f.id + ' muss true/false sein');
     });
     if (p.status !== 'nicht_verifiziert') errors.push('Produkt ' + p.id + ': status muss nicht_verifiziert sein');
-    if (!LIEFERANTEN.some(l => l.id === p.lieferantId)) errors.push('Produkt ' + p.id + ': lieferantId ' + p.lieferantId + ' fehlt im Seed');
+    if (!knownLief.has(p.lieferantId)) errors.push('Produkt ' + p.id + ': lieferantId ' + p.lieferantId + ' unbekannt');
   });
 
-  ARMATUREN.forEach(a => {
+  armArr.forEach(a => {
+    if (!a.name) errors.push('Armatur ' + a.id + ': name fehlt');
+    if (armTypen.length && !armTypen.some(t => t.id === a.typ)) errors.push('Armatur ' + a.id + ': unbekannter typ «' + a.typ + '» (erlaubt: ' + armTypen.map(t => t.id).join(', ') + ')');
+    ['zeta', 'kvs'].forEach(k => {
+      Object.entries(a[k] || {}).forEach(([dn, v]) => {
+        if (!(Number(dn) > 0) || typeof v !== 'number') errors.push('Armatur ' + a.id + ': ' + k + '-Eintrag «' + dn + ': ' + v + '» ungültig (DN-Zahl → Zahlwert)');
+      });
+    });
     if (a.status !== 'nicht_verifiziert') errors.push('Armatur ' + a.id + ': status muss nicht_verifiziert sein');
-    if (a.lieferantId && !LIEFERANTEN.some(l => l.id === a.lieferantId)) errors.push('Armatur ' + a.id + ': lieferantId fehlt im Seed');
+    if (a.lieferantId && !knownLief.has(a.lieferantId)) errors.push('Armatur ' + a.id + ': lieferantId ' + a.lieferantId + ' unbekannt');
   });
   return errors;
 }
+
+function validate() { return validateSets(LIEFERANTEN, PRODUKTE, ARMATUREN); }
 
 // ── SQL-Erzeugung (Dollar-Quoting — keine Escape-Fallen) ──
 function toSql() {
@@ -471,6 +499,165 @@ function toRollbackSql() {
   ].join('\n');
 }
 
+// ═══════════════════════════════════════════════════════════════
+// JSON-IMPORT — Daten aus dem Claude-Chat (Format: siehe --prompt).
+// Gleiche Validierung wie der Basis-Seed, deterministische IDs
+// (Re-Import = idempotent), Ausgabe als eigenes SQL-File.
+// ═══════════════════════════════════════════════════════════════
+function slug(s) {
+  return String(s || '').toLowerCase()
+    .replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/ß/g, 'ss')
+    .replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 48);
+}
+
+export function buildImport(json) {
+  json = json || {};
+  const errors = [];
+  const neueLief = [];
+  const liefById = {};   // key → Lieferant-Record (bestehend oder neu)
+  Object.entries(LIEF_BY_KEY).forEach(([k, l]) => { liefById[k] = l; });
+
+  (json.lieferanten || []).forEach(src => {
+    const key = slug(src.key || src.firma);
+    if (!key) { errors.push('Lieferant ohne key/firma'); return; }
+    if (liefById[key]) { errors.push('Lieferant-Key «' + key + '» existiert bereits (' + liefById[key].firma + ') — Produkte einfach über diesen Key referenzieren, Lieferant nicht neu definieren'); return; }
+    const l = lieferant(key, src.firma || '', src.kategorien || [], {
+      website: src.website, email: src.email, telefon: src.telefon,
+      beschreibung: src.beschreibung, adresse: src.adresse
+    });
+    l.erstelltVon = 'GEMA Seed (Chat-Import)';
+    liefById[key] = l;
+    neueLief.push(l);
+  });
+
+  const prods = (json.produkte || []).map(src => {
+    const key = slug(src.lieferant);
+    const l = liefById[key];
+    if (!l) { errors.push('Produkt «' + ((src.daten || {}).modell || '?') + '»: unbekannter Lieferant-Key «' + src.lieferant + '» (bekannt: ' + Object.keys(liefById).join(', ') + ')'); return null; }
+    const d = src.daten || {};
+    return {
+      id: 'prod_seed_' + key + '_' + slug(src.kategorie) + '_' + (slug((d.serie || '') + '_' + (d.modell || '')) || 'produkt'),
+      kategorie: src.kategorie, lieferantId: l.id, lieferantFirma: l.firma,
+      daten: d, dokumente: [], status: 'nicht_verifiziert', quelle: 'admin',
+      erstelltVon: 'GEMA Seed (Chat-Import)', erstelltAm: new Date().toISOString(),
+      geaendertVon: '', geaendertAm: '', verifiziertVon: '', verifiziertAm: '',
+      log: [{ ts: new Date().toISOString(), user: 'GEMA Seed', aktion: 'erstellt', detail: 'Chat-Recherche importiert — bitte prüfen und verifizieren' }]
+    };
+  }).filter(Boolean);
+
+  const arms = (json.armaturen || []).map(src => {
+    const key = slug(src.lieferant);
+    const l = liefById[key];
+    if (src.lieferant && !l) { errors.push('Armatur «' + (src.name || '?') + '»: unbekannter Lieferant-Key «' + src.lieferant + '»'); return null; }
+    return {
+      id: 'arm_seed_' + (slug((key ? key + '_' : '') + (src.name || '')) || 'armatur'),
+      typ: src.typ, name: src.name || '', hersteller: l ? l.firma : (src.hersteller || ''),
+      serie: src.serie || '', lieferantId: l ? l.id : '', status: 'nicht_verifiziert',
+      zeta: src.zeta || {}, kvs: src.kvs || {}, zetaDefault: (typeof src.zetaDefault === 'number' ? src.zetaDefault : null)
+    };
+  }).filter(Boolean);
+
+  errors.push(...validateSets(neueLief, prods, arms));
+  // Duplikat-Check innerhalb des Imports (gleiches Produkt zweimal → gleiche ID)
+  const seen = new Set();
+  [...neueLief.map(l => 'lieferant:' + l.id), ...prods.map(p => 'produkt:' + p.id), ...arms.map(a => 'arm:' + a.id)].forEach(k => {
+    if (seen.has(k)) errors.push('Doppelte ID im Import: ' + k);
+    seen.add(k);
+  });
+
+  const rows = [];
+  neueLief.forEach(l => rows.push({ module_key: 'produktkatalog', data_key: 'lieferant:' + l.id, data: l }));
+  prods.forEach(p => rows.push({ module_key: 'produktkatalog', data_key: 'produkt:' + p.id, data: p }));
+  arms.forEach(a => rows.push({ module_key: 'armaturen', data_key: 'arm:' + a.id, data: a }));
+  return { rows, errors, stats: { lieferantenNeu: neueLief.length, produkte: prods.length, armaturen: arms.length } };
+}
+
+function rowsToSql(rows, titel, lm) {
+  const lines = [];
+  lines.push('-- ' + titel);
+  lines.push("-- ALLE Records status='nicht_verifiziert'. Idempotent: ON CONFLICT DO NOTHING.");
+  lines.push('-- AUSFÜHREN: Supabase Dashboard → SQL Editor → einfügen → Run.');
+  lines.push('-- Rollback (alle Seed-Records): supabase/gema_lieferanten_seed_rollback.sql');
+  lines.push('');
+  lines.push('insert into public.gema_data (module_key, data_key, payload) values');
+  const tuples = rows.map(r => {
+    const payload = JSON.stringify({ data: r.data, _lm: lm });
+    if (payload.indexOf('$j$') >= 0) throw new Error('Dollar-Quote-Kollision in ' + r.data_key);
+    return "('" + r.module_key + "', '" + r.data_key + "', $j$" + payload + '$j$::jsonb)';
+  });
+  lines.push(tuples.join(',\n'));
+  lines.push('on conflict (module_key, data_key) do nothing;');
+  return lines.join('\n') + '\n';
+}
+
+// ═══════════════════════════════════════════════════════════════
+// --prompt: Recherche-Auftrag für den Claude-Chat, generiert aus den
+// LIVE-Schemata (Feld-IDs/Optionen driften damit nie).
+// ═══════════════════════════════════════════════════════════════
+function buildPrompt() {
+  const { KAT, LIEF_KATEGORIEN: LK, armTypen } = loadSchemas();
+  const L = [];
+  L.push('# Auftrag: Reale Lieferanten-/Produktdaten für GEMA recherchieren');
+  L.push('');
+  L.push('Du recherchierst **reale, belegbare Herstellerdaten** (Datenblätter, offizielle Produktseiten) für den GEMA-Produktkatalog (Schweizer Sanitär-/Haustechnik-Software). Antworte am Ende **NUR mit EINEM JSON-Codeblock** im unten definierten Format — kein SQL, keine Tabellen, kein Text ausserhalb des Codeblocks (kurze Quellenliste davor ist ok).');
+  L.push('');
+  L.push('## Regeln (WICHTIG)');
+  L.push('- **Nichts erfinden.** Nur Werte, die du in Datenblättern/Produktseiten belegen kannst. Fehlende Werte: Feld einfach WEGLASSEN.');
+  L.push('- Aus Kennlinien/Formeln **abgeleitete** Werte sind erlaubt, aber im Feld `besonderheiten` als «abgeleitet — ab Datenblatt prüfen» zu kennzeichnen.');
+  L.push('- Pro Produkt in `besonderheiten` eine Kurzbeschreibung + **«Quelle: …»** (Dokument-/Seitenname).');
+  L.push('- Zahlenfelder: **reine Zahl mit Punkt als Dezimaltrenner**, OHNE Einheit (die Einheit steht im Schema). Checkboxen: true/false.');
+  L.push('- `select`-Felder: **EXAKT** eine der erlaubten Optionen (Zeichen für Zeichen).');
+  L.push('- Modellnamen exakt wie beim Hersteller (inkl. Artikelnummer, wo bekannt). `serie` + `modell` werden in GEMA hintereinander angezeigt — Serie im Modell nicht wiederholen.');
+  L.push('- Texte in Schweizer Hochdeutsch (kein ß).');
+  L.push('- Der Status wird automatisch auf «nicht verifiziert» gesetzt — der Lieferant bestätigt die Daten später selbst.');
+  L.push('');
+  L.push('## JSON-Format');
+  L.push('```json');
+  L.push(JSON.stringify({
+    lieferanten: [{
+      key: 'kurzname', firma: 'Firma AG', kategorien: ['enthaertung'],
+      website: 'https://…', beschreibung: 'Kurzbeschrieb',
+      adresse: { strasse: '', plz: '', ort: '', kanton: '', land: 'CH' }
+    }],
+    produkte: [{
+      lieferant: 'kurzname',
+      kategorie: 'enthaertung',
+      daten: { serie: '…', modell: '…', nenndurchfluss: 53, ce: true, besonderheiten: '… Quelle: …' }
+    }],
+    armaturen: [{
+      lieferant: 'kurzname', typ: 'druckminderer', name: 'Anzeigename', serie: '…',
+      kvs: { 15: 2.4, 20: 3.1 }, zeta: {}, zetaDefault: 8.0
+    }]
+  }, null, 2));
+  L.push('```');
+  L.push('- `lieferanten` nur für Firmen, die es in GEMA noch nicht gibt. **Bestehende Keys** (direkt referenzierbar): ' + Object.keys(LIEF_BY_KEY).sort().join(', ') + '.');
+  L.push('- `armaturen` = Rechenwerte-Katalog für die Druckverlustberechnung (ζ und/oder kvs **je DN**; kvs wird bevorzugt). Nur wenn du echte ζ-/kvs-Werte je Dimension hast.');
+  L.push('');
+  L.push('## Lieferanten-Kategorien (`kategorien`)');
+  LK.forEach(k => L.push('- `' + k.id + '` — ' + k.label));
+  L.push('');
+  L.push('## Armaturen-Typen (`armaturen[].typ`)');
+  L.push(armTypen.map(t => '`' + t.id + '` (' + t.name + ')').join(' · '));
+  L.push('');
+  L.push('## Produkt-Kategorien und ihre Felder (`produkte[].daten`)');
+  L.push('Nur diese Feld-IDs sind erlaubt (pro Kategorie). ✱ = Pflichtfeld (wenn beschaffbar).');
+  Object.keys(KAT).forEach(kid => {
+    const c = KAT[kid];
+    L.push('');
+    L.push('### `' + kid + '` — ' + c.name);
+    L.push('| Feld-ID | Bedeutung | Typ | Einheit | Optionen |');
+    L.push('|---|---|---|---|---|');
+    (c.felder || []).forEach(f => {
+      L.push('| `' + f.id + '`' + (f.pflicht ? ' ✱' : '') + ' | ' + f.label + ' | ' + (f.typ || 'text') + ' | ' + (f.einheit || '') + ' | ' + (f.optionen ? f.optionen.join(' \\| ') : '') + ' |');
+    });
+  });
+  L.push('');
+  L.push('---');
+  L.push('_Generiert aus den Live-Schemata via `node scripts/lieferanten_seed_gen.mjs --prompt` — bei Schema-Änderungen neu erzeugen._');
+  return L.join('\n') + '\n';
+}
+
+// ═══════════════════════════════════════════════════════════════
 function main() {
   const errors = validate();
   if (errors.length) {
@@ -495,4 +682,40 @@ function main() {
   console.log('✓ geschrieben:', OUT);
 }
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) main();
+function importMain(file) {
+  if (!file) { console.error('Aufruf: node scripts/lieferanten_seed_gen.mjs --import <daten.json>'); process.exit(1); }
+  let json;
+  try { json = JSON.parse(readFileSync(file, 'utf8')); }
+  catch (e) { console.error('✗ JSON nicht lesbar (' + file + '): ' + e.message); process.exit(1); }
+  const { rows, errors, stats } = buildImport(json);
+  if (errors.length) {
+    console.error('✗ Import-Validierung fehlgeschlagen (' + errors.length + '):');
+    errors.forEach(e => console.error('  - ' + e));
+    process.exit(1);
+  }
+  if (!rows.length) { console.error('✗ Import enthält keine Records'); process.exit(1); }
+  const base = slug((file.split(/[\\/]/).pop() || 'import').replace(/\.json$/i, ''));
+  const out = join(ROOT, 'supabase', 'gema_lieferanten_seed_import_' + base + '.sql');
+  const lm = Date.now();
+  writeFileSync(out, rowsToSql(rows, 'GEMA Seed-Import «' + base + '» (' + new Date().toISOString().slice(0, 10) + ') — aus Chat-Recherche via --import', lm));
+  // Roundtrip
+  const lits = [...readFileSync(out, 'utf8').matchAll(/\$j\$(.*?)\$j\$::jsonb/gs)].map(m => JSON.parse(m[1]));
+  if (lits.length !== rows.length) throw new Error('Roundtrip: Literal-Anzahl weicht ab');
+  rows.forEach((r, i) => { if (JSON.stringify(lits[i].data) !== JSON.stringify(r.data)) throw new Error('Roundtrip-Diff bei ' + r.data_key); });
+  console.log('✓ Import validiert —', JSON.stringify(stats));
+  console.log('✓ geschrieben:', out);
+  console.log('→ Datei im Supabase SQL Editor ausführen.');
+}
+
+function promptMain() {
+  const out = join(ROOT, 'scripts', 'lieferanten_seed_prompt.md');
+  writeFileSync(out, buildPrompt());
+  console.log('✓ Chat-Prompt geschrieben:', out);
+}
+
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+  const args = process.argv.slice(2);
+  if (args[0] === '--import') importMain(args[1]);
+  else if (args[0] === '--prompt') promptMain();
+  else main();
+}

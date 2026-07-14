@@ -9,7 +9,7 @@
 // Aufruf: CHROME=<chromium> node scripts/lieferanten_seed_test.mjs
 import { chromium } from 'playwright-core';
 import { startServer, BASE, seed, newPage } from './rolematrix_harness.mjs';
-import { records } from './lieferanten_seed_gen.mjs';
+import { records, buildImport } from './lieferanten_seed_gen.mjs';
 
 const CHROME = process.env.CHROME || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
 let pass = 0, fail = 0;
@@ -19,6 +19,37 @@ const ok = (cond, name) => {
 };
 
 const ROWS = records();
+
+// ═════════════════════════════════════════════════════════════════
+// 0) JSON-Import (--import, Chat-Recherche-Workflow) — pure Node
+// ═════════════════════════════════════════════════════════════════
+console.log('■ JSON-Import: Validierung + Record-Bau (buildImport)');
+{
+  const good = buildImport({
+    lieferanten: [{ key: 'testfirma', firma: 'Testfirma AG', kategorien: ['druckerhoehung'] }],
+    produkte: [
+      { lieferant: 'bwt', kategorie: 'enthaertung', daten: { serie: 'S', modell: 'M', nenndurchfluss: 30, anschluss: 'DN 25', ce: true } },
+      { lieferant: 'testfirma', kategorie: 'druckerhoehung', daten: { serie: 'T', modell: 'X1', bauart: 'VFD (Frequenzgeregelt)', volumenstromMax: 3, druckMax: 5, anschlussSaug: 'DN 50', anschlussDruck: 'DN 50' } }
+    ],
+    armaturen: [{ lieferant: 'testfirma', typ: 'rueckschlag', name: 'RV Test', kvs: { 25: 8.5 }, zetaDefault: 2.0 }]
+  });
+  ok(good.errors.length === 0, 'gültiger Import ohne Fehler (' + good.errors.join('; ') + ')');
+  ok(good.rows.length === 4, 'Import erzeugt 4 Rows (1 Lieferant + 2 Produkte + 1 Armatur)');
+  ok(good.rows.every(r => !r.data.status || r.data.status === 'nicht_verifiziert' || r.data.status === 'aktiv'), 'Status automatisch korrekt (nicht_verifiziert / Lieferant aktiv)');
+  const p1 = good.rows.find(r => r.data_key.startsWith('produkt:') && r.data.lieferantId === 'lief_seed_bwt');
+  ok(!!p1 && p1.data.lieferantFirma === 'BWT AQUA AG', 'Produkt auf bestehenden Lieferant-Key «bwt» aufgelöst');
+  const again = buildImport({ produkte: [{ lieferant: 'bwt', kategorie: 'enthaertung', daten: { serie: 'S', modell: 'M', nenndurchfluss: 30 } }] });
+  ok(again.rows[0].data_key === p1.data_key.replace('produkt:', 'produkt:').valueOf() && again.rows[0].data.id === p1.data.id, 'deterministische Produkt-ID → Re-Import idempotent (' + p1.data.id + ')');
+
+  const bad = buildImport({
+    produkte: [
+      { lieferant: 'gibtsnicht', kategorie: 'enthaertung', daten: { modell: 'A' } },
+      { lieferant: 'bwt', kategorie: 'enthaertung', daten: { modell: 'B', quatschfeld: 1, nenndurchfluss: '53 l/min', anschluss: 'DN23' } }
+    ],
+    armaturen: [{ lieferant: 'bwt', typ: 'falschtyp', name: 'X', kvs: { abc: 2 } }]
+  });
+  ok(bad.errors.length >= 6, 'kaputter Import liefert alle Fehler (' + bad.errors.length + '): Lieferant-Key, Fremdfeld, Zahl-als-String, Select-Option, Armatur-Typ, kvs-Key');
+}
 const server = await startServer();
 const browser = await chromium.launch({ executablePath: CHROME, args: ['--no-sandbox'] });
 
