@@ -33,6 +33,8 @@ Jeder Verbraucher in der LU hat ein zugeordnetes Medium:
 | **Enthärtetes Wasser für Osmose** | `ow` (Alias `osmose`) | Trinkwassernetz | Osmoseberechnung (l/s) → Enthärtungsanlage (Permeat + Konzentrat) |
 | **Regenwasser** | `gw` (Alias `regenwasser`) | Separates Leitungsnetz | Eigene Pumpe/Druckerhöhung (l/s) |
 
+**Zusammenstellung nach Leitungsnetz (Feedback 14.07.):** In `sb_lu_tabelle` zählen Apparate auf einem alternativen Leitungsnetz (`NETZ_ZU_MEDIUM`: enthaertet→bw, osmose→ow, regenwasser→gw) mit ihrem LU-Total im JEWEILIGEN Medium (eigene W3-Auswertung je Medium inkl. Einzelapparat-Regel, Max-LU-Buttons) — nicht mehr in KW/WW/ND. Die Ergebnis-Hauptwerte listen alle Medien mit Beitrag; die Apparate-Zeile zeigt hinten «N LU · RW»-Chips statt irreführender KW/WW-Werte. Die Enthärtungs-Verbrauchertabelle (sa_enthaertung) führt bis zu 10 Zeilen (A–J, G–J via «＋ Verbraucher»), E (Dauerverbraucher) + F (Gegenosmoseanlage) laufen OHNE LU direkt über l/s, jede Zeile hat eine «+ manuell [l/s]»-Zuschlagsspalte (1:1 addiert) und eine berechnete Spalte «über Enthärter [l/s]» (Verschnitt-anteilig); Härte V unter HW,min ist zulässig, wird aber gewarnt.
+
 **Fachliche Regel (Doppelzählungs-Schutz):** Osmosewasser wird IMMER vorenthärtet — der `ow`-Volumenstrom ist automatisch auch Enthärtungs-Volumenstrom, fliesst aber **nur über das Osmose-Ergebnis** (Permeat + Konzentrat via `GemaOsmose.getResults`) in die Enthärtungsanlage, nie direkt. `bw` und `ow` sind getrennte LU-Medien: `GemaLU.getByMedium(objektId,'enthaertet')` liefert nur bw-Verbraucher, `getByMedium(objektId,'osmose')` nur ow-Verbraucher. Früher zeigten beide Aliase auf dasselbe Medium → derselbe Bedarf zählte in der Enthärtung doppelt.
 
 ### Datenfluss-Diagramm

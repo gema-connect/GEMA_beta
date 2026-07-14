@@ -354,14 +354,13 @@
       preview.style.display = 'none';
     }
     // Auto-fill name from logged-in user
-    var authorEl = document.getElementById('gfb-author');
-    if (authorEl && !authorEl.value) {
-      try {
-        if (typeof GemaAuth !== 'undefined') {
-          var user = GemaAuth.getCurrentUser();
-          if (user) authorEl.value = user.name || user.username || '';
-        }
-      } catch(e) {}
+    _prefillAuthor();
+    // Defensiv: falls irgendein Pfad das Namensfeld leert (z.B. beim
+    // Typ-Wechsel auf «Fehler/Bug» beobachtet), beim Select-Change neu füllen.
+    var typeEl = document.getElementById('gfb-type');
+    if (typeEl && !typeEl._gfbNameGuard) {
+      typeEl._gfbNameGuard = true;
+      typeEl.addEventListener('change', _prefillAuthor);
     }
     var modal = document.getElementById('gfb-modal');
     if (modal) modal.style.display = 'flex';
@@ -420,6 +419,18 @@
     }
   }
 
+  function _prefillAuthor() {
+    var authorEl = document.getElementById('gfb-author');
+    if (authorEl && !authorEl.value) {
+      try {
+        if (typeof GemaAuth !== 'undefined') {
+          var user = GemaAuth.getCurrentUser();
+          if (user) authorEl.value = user.name || user.username || '';
+        }
+      } catch(e) {}
+    }
+  }
+
   function close() {
     var m = document.getElementById('gfb-modal');
     if (m) m.style.display = 'none';
@@ -475,9 +486,9 @@
     if (btn) { btn.disabled = false; btn.textContent = '📤 Feedback senden'; }
     if (ok) {
       var taEl = document.getElementById('gfb-text');
-      var auEl = document.getElementById('gfb-author');
       if (taEl) taEl.value = '';
-      if (auEl) auEl.value = '';
+      // Name bewusst NICHT leeren — er wird beim nächsten Öffnen sonst als
+      // «leer» wahrgenommen (Feedback 14.07.); Prefill greift nur bei leerem Feld.
       close();
       _toast('✓ Feedback gespeichert');
     } else {
