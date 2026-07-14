@@ -2071,6 +2071,14 @@ Zentrales Modul `gema_notify.js` für In-App-Benachrichtigungen. Glocke + Toast-
 
 **Neue Module fügen ihre Event-Keys hier hinzu**, sonst greift kein Preferences-Filter.
 
+### Einstellungs-Gating nach Modul-Zugriff (KRITISCH)
+
+Das ⚙-Einstellungs-Panel der Glocke zeigt NUR Gruppen von Modulen, die das Konto nutzen kann — keine Einstellungen für Module ohne Zugriff (ein Garagist sieht z.B. nur Fahrzeug + Abos + Chat statt aller ~22 Gruppen). Logik in `gema_notify_ui.js`:
+- **`MODUL_ZUGRIFF`** mappt jede EVENT_KEYS-Gruppe auf `{mods:[gema_auth-Modul-Keys — read genügt], roles:[Rollen-Präfixe für Cross-Org-Flüsse ohne Modul-Permission], immer:true}`. Beispiele: `werkzeug → werkzeugmanagement` + roles Lieferanten/Prüfer (Dashboard-Werkzeuge-Tab ist `_isLoginOnly`, nicht modul-gegated); `ausschreibung` + roles Architekt/Bauherrschaft (Vergabeantrag); `abos`/`chat` = `immer` (kontoweit). **Neue Event-Key-Gruppen MÜSSEN hier ergänzt werden** — Fallback für unbekannte Gruppen: existiert der Gruppen-Key als gema_auth-Modul, gilt dessen read-Permission, sonst sichtbar (fail-open, kein stilles Verstecken).
+- **Selbstheilend**: Wer bereits Notifikationen einer Gruppe ERHALTEN hat, sieht deren Einstellungen immer (deckt E-Mail-Match-/lieferantId-Zustellung ab, z.B. externer Freigeber). `role_admin` sieht alles. Wurden Gruppen ausgeblendet, zeigt das Panel die Hinweiszeile «nur Module mit Zugriff».
+- **Gleiches Prinzip in sys_profil.html**: Die Ausschreibungs-Einstellungen (Karte «Standard BKP-Auswahl» `#cardBkpDefaults` + Toggle «Dynamische BKP-Nummerierung» `#rowDynBKP`) sind nur mit `can('read','ausschreibungsunterlagen')` sichtbar.
+- **Drift-Guard: `scripts/notify_prefs_gating_test.mjs`** (Layer 1 liest EVENT_KEYS/MODUL_ZUGRIFF/MODUL_LABELS live aus der App — failt bei jeder neuen Gruppe ohne Zuordnung/Label und bei mods-Tippfehlern; Layer 2 prüft die Sichtbarkeits-Matrix für Admin/Planer/Monteur/Garagist/Student/Lieferant/Bauherrschaft, Selbstheilung und das sys_profil-Gating). Hinweis: «objekte» ist KEINE Laufzeit-Gruppe (kommt nur in Demo-Seeds vor) — es gibt 22 echte Gruppen.
+
 ### Cloud-Sync (Cross-Device-Zustellung)
 
 Notifikationen lagen früher NUR im localStorage — sie erreichten damit nie ein anderes Gerät (Planer → Lieferant funktionierte nicht). Jetzt spiegelt `gema_notify.js` jede Notifikation best-effort als eigene Cloud-Row via `gema_sync.js` (moduleKey `notify`, prefix `notif:`): `push()` → `saveRecord`, `markRead`/`markAllRead` → Update, `remove`/`clearForCurrentUser` → `deleteRecord` (nur bei persönlich adressierten — Rollen-/Org-Notifikationen haben mehrere Empfänger und werden nur lokal entfernt). Merge-Pull beim Seitenstart (2.5s verzögert), alle 60s und bei Tab-Fokus (`visibilitychange`); beim Merge gewinnt der Gelesen-Status. Ohne `gema_sync.js`/Cloud funktioniert alles lokal weiter. Demo-Seeds bleiben lokal (kein Cloud-Push).
@@ -2492,7 +2500,7 @@ UI-Anbindung:
 | `gema_lu_api.js` | LU-Zusammenstellung Cross-Modul-API |
 | `gema_mobile_menu.js` | Hamburger-Menü auf Mobile (v2, iOS-Feel): Sektionen Navigation (Startseite/Projekte, permission-guarded) · Zuletzt verwendet (via `GemaRecent`) · Aktionen (Seiten-Buttons, ohne Chevron) · Verwaltung (admin) · Konto (Einstellungen/Feedback/Abmelden); tappbarer User-Block → sys_profil; Footer «Als App installieren» (wenn GemaPWA bereit); Swipe-nach-rechts schliesst; Body-Lock via GemaScroll. **Verschiebt Notify-Glocke (`.gn-btn`) UND Chat-Button (`.gc-btn`) auf Mobile NEBEN den Hamburger** (Klasse `gn-btn--nav`) statt sie mit `.g-nav-right` zu verstecken — Badges bleiben sichtbar; Desktop-Resize stellt sie zurück |
 | `gema_notify.js` | Notifikations-Engine |
-| `gema_notify_ui.js` | Glocke + Toast-UI. Benachrichtigungs-Einstellungen (⚙ in der Glocke) **nach Modul gruppiert** (`MODUL_LABELS`-Map + GemaAuth-Fallback, Gruppen alphabetisch, Events je Gruppe sortiert) mit ✕-Button, ESC und Backdrop-Klick zum Schliessen — neue EVENT_KEYS-`modul`-Werte in `MODUL_LABELS` ergänzen |
+| `gema_notify_ui.js` | Glocke + Toast-UI. Benachrichtigungs-Einstellungen (⚙ in der Glocke) **nach Modul gruppiert** (`MODUL_LABELS`-Map + GemaAuth-Fallback, Gruppen alphabetisch, Events je Gruppe sortiert) mit ✕-Button, ESC und Backdrop-Klick zum Schliessen — **und nach Modul-Zugriff GEFILTERT** (`MODUL_ZUGRIFF`, siehe «Einstellungs-Gating nach Modul-Zugriff»). Neue EVENT_KEYS-`modul`-Werte in `MODUL_LABELS` UND `MODUL_ZUGRIFF` ergänzen (Drift-Guard `scripts/notify_prefs_gating_test.mjs`) |
 | `gema_objekte_api.js` | Objekte/Projekte Cross-Modul-API |
 | `gema_offer_request.js` | Externe Offertanfragen |
 | `gema_offerten_tab.js` | Offerten-Tab in Berechnungsmodulen |
