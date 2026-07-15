@@ -10,7 +10,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes"/>
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
 <meta name="apple-mobile-web-app-title" content="GEMA"/>
-<title>Planablage – GEMA</title>
+<title>Plandialog – GEMA</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700;9..40,800;9..40,900&display=swap" rel="stylesheet">
@@ -163,7 +163,7 @@ function fixLeadingZero(el){
     </a>
     <div class="g-nav-bc">
       <a class="bc-cat" href="pm_ausschreibung.html">Planung &amp; Management</a><span class="bc-sep">›</span>
-      <span class="bc-cur">Planablage</span>
+      <span class="bc-cur">Plandialog</span>
     </div>
     <div class="g-nav-right">
       <button class="gema-feedback-btn no-print" onclick="GemaFeedback.start()">🔴 Feedback</button>
@@ -176,7 +176,7 @@ function fixLeadingZero(el){
     <div class="hero-in">
       <div class="hero-ic">📐</div>
       <div>
-        <div class="hero-title">Planablage</div>
+        <div class="hero-title">Plandialog</div>
         <div class="hero-sub">Pläne &amp; Dokumente pro Projekt — mit PDF-Markierungen, Freigaben für Beteiligte und Pendenzenliste mit Plan-Pins</div>
       </div>
     </div>
@@ -208,6 +208,7 @@ function fixLeadingZero(el){
     <span class="pv-sep"></span>
     <button class="pv-btn" id="pvEye" onclick="pabEye()" title="Alle Markierungen & Pins ein-/ausblenden (sauberer Plan)">👁</button>
     <button class="pv-btn" id="pvLayerBtn" onclick="pabLayerPanel()" title="Layer (Gewerke) ein-/ausblenden">🗂</button>
+    <button class="pv-btn" id="pvLogBtn" onclick="pabViewerLog()" title="Verlauf / Änderungslog">🕘</button>
     <span class="pv-sep" id="pvToolSep"></span>
     <span id="pvTools"></span>
     <span id="pvFarben" style="display:inline-flex;gap:5px;align-items:center;margin-left:4px"></span>
@@ -364,6 +365,13 @@ function fixLeadingZero(el){
     var p = String(iso).slice(0,10).split('-');
     return p.length === 3 ? p[2] + '.' + p[1] + '.' + p[0] : iso;
   }
+  function fmtDatumZeit(iso){
+    if(!iso) return '—';
+    var d = new Date(iso);
+    if(isNaN(d.getTime())) return fmtDatum(iso);
+    var p = function(n){ return (n < 10 ? '0' : '') + n; };
+    return p(d.getDate()) + '.' + p(d.getMonth()+1) + '.' + d.getFullYear() + ', ' + p(d.getHours()) + ':' + p(d.getMinutes());
+  }
   function user(){ return (typeof GemaAuth !== 'undefined') ? GemaAuth.getCurrentUser() : null; }
   function myMail(){ var u = user(); return u ? pabNormMail((u.profile && u.profile.email) || u.username) : ''; }
   function canWrite(){ try{ return GemaAuth.can('write', MK); }catch(e){ return false; } }
@@ -462,6 +470,50 @@ function fixLeadingZero(el){
   function notify(opts){
     try{ if(typeof GemaNotify !== 'undefined') GemaNotify.push(opts); }catch(e){}
   }
+
+  // ── Änderungslog (rec.log[] — wandert mit dem Record, cross-org sichtbar) ──
+  // pabLog mutiert nur; der Aufrufer speichert den Record direkt danach.
+  var LOG_MAX = 200;
+  function pabLog(rec, aktion, text){
+    var me = user();
+    rec.log = rec.log || [];
+    rec.log.push({ ts: new Date().toISOString(), von: { userId: me ? me.id : '', name: me ? (me.name || '') : '' }, aktion: aktion, text: text || '' });
+    if(rec.log.length > LOG_MAX) rec.log = rec.log.slice(-LOG_MAX);
+  }
+  var LOG_AKT = {
+    hochgeladen:{l:'Hochgeladen',b:'b-grn'}, freigabe:{l:'Freigaben',b:'b-acc'},
+    kommentar:{l:'Kommentar',b:'b-out'}, markierung:{l:'Markierungen',b:'b-blue'},
+    erfasst:{l:'Erfasst',b:'b-grn'}, geaendert:{l:'Geändert',b:'b-out'},
+    zugewiesen:{l:'Zugewiesen',b:'b-blue'}, erledigt:{l:'Erledigt',b:'b-amber'},
+    geprueft:{l:'Geprüft',b:'b-grn'}, zurueckgewiesen:{l:'Zurückgewiesen',b:'b-red'}
+  };
+  window.pabLogOpen = function(kind, id){
+    var rec = kind === 'pend' ? pendById(id) : dokById(id);
+    if(!rec) return;
+    if(kind !== 'pend' && !kannLesen(rec)) return;
+    var eintraege = (rec.log || []).slice();
+    var hatAkt = function(a){ return eintraege.some(function(e){ return e.aktion === a; }); };
+    // Legacy-Records ohne Log: bekannte Zeitstempel als virtuelle Einträge
+    if(kind === 'pend'){
+      if(rec.erstelltAm && !hatAkt('erfasst')) eintraege.push({ ts: rec.erstelltAm, von: rec.erstelltVon || {}, aktion: 'erfasst', text: rec.titel || '' });
+      if(rec.erledigtAm && !hatAkt('erledigt')) eintraege.push({ ts: rec.erledigtAm, von: rec.erledigtVon || {}, aktion: 'erledigt', text: '' });
+    } else {
+      if(rec.hochgeladenAm && !hatAkt('hochgeladen')) eintraege.push({ ts: rec.hochgeladenAm, von: rec.hochgeladenVon || {}, aktion: 'hochgeladen', text: (rec.datei && rec.datei.name) || '' });
+    }
+    eintraege.sort(function(a, b){ return (a.ts || '') < (b.ts || '') ? 1 : -1; });   // neueste zuerst
+    var rows = eintraege.map(function(e){
+      var ak = LOG_AKT[e.aktion] || { l: e.aktion || '—', b: 'b-out' };
+      return '<div style="display:flex;gap:9px;align-items:flex-start;padding:7px 0;border-bottom:1px dashed var(--brd)">' +
+        '<span class="badge ' + ak.b + '" style="flex-shrink:0;margin-top:1px">' + esc(ak.l) + '</span>' +
+        '<div style="flex:1;min-width:0;font-size:12.5px">' +
+          (e.text ? '<div style="color:var(--txt)">' + esc(e.text) + '</div>' : '') +
+          '<div style="color:var(--mut);font-size:11px">' + esc((e.von && e.von.name) || '—') + ' · ' + fmtDatumZeit(e.ts) + '</div>' +
+        '</div></div>';
+    }).join('');
+    showModal('<div class="modal-hd"><h3>🕘 Verlauf — ' + esc(kind === 'pend' ? (rec.titel || 'Pendenz') : (rec.name || 'Dokument')) + '</h3><button class="modal-x gema-read-ok" onclick="pabCloseModal()">✕</button></div>' +
+      '<div class="modal-bd">' + (rows || '<div class="empty">Noch keine Einträge.</div>') + '</div>' +
+      '<div class="modal-ft"><button class="btn gema-read-ok" onclick="pabCloseModal()">Schliessen</button></div>');
+  };
 
   // ── Binär-Upload direkt nach Supabase Storage (grosse Dateien, kein Base64) ──
   // Grenzen: Free-Plan max. 50 MB pro Datei (Dashboard-Einstellung), 1 GB Storage
@@ -577,6 +629,7 @@ function fixLeadingZero(el){
         (isPdf ? '<button class="btn sm pri" onclick="pabViewerOpen(\'' + esc(d.id) + '\')">👁 Öffnen</button>' : '') +
         '<a class="btn sm" href="' + esc(d.datei && d.datei.url || '#') + '" target="_blank" rel="noopener" download>⬇ Download</a>' +
         '<button class="btn sm gema-read-ok" onclick="pabKommentare(\'' + esc(d.id) + '\')">💬</button>' +
+        '<button class="btn sm gema-read-ok" onclick="pabLogOpen(\'dok\',\'' + esc(d.id) + '\')" title="Verlauf / Änderungslog">🕘</button>' +
         (edit && !extern ? '<button class="btn sm" onclick="pabFreigaben(\'' + esc(d.id) + '\')">🔒 Freigaben</button>' : '') +
         (edit && !extern ? '<button class="btn sm red gema-read-ok" onclick="pabDokDel(\'' + esc(d.id) + '\')">🗑</button>' : '') +
       '</div>' +
@@ -626,9 +679,10 @@ function fixLeadingZero(el){
         id: uid('pab'), orgId: me.orgId, objektId: objektId, objektName: objektId ? objName(objektId) : '',
         name: name, kategorie: kategorie,
         datei: { name: f.name, url: res.url, size: f.size, mime: f.type || '' },
-        freigaben: [], kommentare: [],
+        freigaben: [], kommentare: [], log: [],
         hochgeladenVon: { userId: me.id, name: me.name || '' }, hochgeladenAm: new Date().toISOString()
       };
+      pabLog(rec, 'hochgeladen', f.name + ' (' + pabFmtSize(f.size) + ')');
       saveRec(LSD, PFD, rec);
       pabCloseModal(); toast('Hochgeladen — ' + pabFmtSize(f.size));
       TAB = 'doks'; render();
@@ -644,7 +698,7 @@ function fixLeadingZero(el){
   };
   window.pabDokDel = function(id){
     var d = dokById(id); if(!d || !kannBearbeiten(d)) return;
-    GemaDialog.confirm({ title: 'Dokument löschen', message: '«' + d.name + '» aus der Planablage löschen? Markierungen und zugehörige Pendenzen-Pins verlieren den Plan-Bezug.', confirmLabel: 'Löschen', danger: true }).then(function(ok){
+    GemaDialog.confirm({ title: 'Dokument löschen', message: '«' + d.name + '» aus dem Plandialog löschen? Markierungen und zugehörige Pendenzen-Pins verlieren den Plan-Bezug.', confirmLabel: 'Löschen', danger: true }).then(function(ok){
       if(!ok) return;
       delRec(LSD, PFD, id);
       delRec(LSA, PFA, id);
@@ -720,6 +774,7 @@ function fixLeadingZero(el){
     var me = user();
     var vorher = {};
     (d.freigaben || []).forEach(function(f){ vorher[pabNormMail(f.email)] = f.recht; });
+    var vorherJson = JSON.stringify(d.freigaben || []);
     var neu = [];
     document.querySelectorAll('#frgList .frg-row').forEach(function(row){
       var mail = row.getAttribute('data-mail');
@@ -734,6 +789,22 @@ function fixLeadingZero(el){
       }
       neu.push(f);
     });
+    // Änderungslog: wer kam dazu, wessen Recht änderte, wem wurde entzogen
+    var plus = [], minus = [], chg = [];
+    neu.forEach(function(f){
+      var m = pabNormMail(f.email), v = vorher[m];
+      if(v === undefined) plus.push(f.email + ' (' + f.recht + ')');
+      else if(v !== f.recht) chg.push(f.email + ' → ' + f.recht);
+    });
+    Object.keys(vorher).forEach(function(m){
+      if(!neu.some(function(f){ return pabNormMail(f.email) === m; })) minus.push(m);
+    });
+    var teile = [];
+    if(plus.length) teile.push('freigegeben: ' + plus.join(', '));
+    if(chg.length) teile.push('Recht geändert: ' + chg.join(', '));
+    if(minus.length) teile.push('entzogen: ' + minus.join(', '));
+    if(!teile.length && vorherJson !== JSON.stringify(neu)) teile.push('Gewerk / Layer-Sicht angepasst');
+    if(teile.length) pabLog(d, 'freigabe', teile.join(' · '));
     d.freigaben = neu;
     saveRec(LSD, PFD, d);
     // Notify NEU freigegebene (aufgelöster GEMA-User)
@@ -742,7 +813,7 @@ function fixLeadingZero(el){
       var zu = resolveUserByMail(f.email);
       if(zu && me && zu.id !== me.id){
         notify({ eventKey: 'plan_dokument_freigegeben', empfaengerUserId: zu.id, modul: MK, typ: 'info',
-          titel: 'Planablage: Dokument freigegeben',
+          titel: 'Plandialog: Dokument freigegeben',
           text: '«' + d.name + '»' + (d.objektName ? ' — ' + d.objektName : '') + ' (' + (f.recht === 'bearbeiten' ? 'bearbeiten' : 'lesen') + ')',
           link: 'pm_planablage.html?d=' + d.id });
       }
@@ -771,6 +842,7 @@ function fixLeadingZero(el){
     if(!text){ toast('Kommentar ist leer'); return; }
     d.kommentare = d.kommentare || [];
     d.kommentare.push({ von: { userId: me.id, name: me.name || '' }, text: text, am: new Date().toISOString() });
+    pabLog(d, 'kommentar', text.slice(0, 120));
     saveRec(LSD, PFD, d);
     pabKommentare(id); toast('Kommentar gespeichert'); render();
   };
@@ -832,6 +904,7 @@ function fixLeadingZero(el){
         (edit && p.status === 'erledigt' ? '<button class="btn sm grn gema-read-ok" onclick="pabPendAktion(\'' + esc(p.id) + '\',\'pruefen\')">✔ Geprüft</button>' : '') +
         (edit && (p.status === 'erledigt' || p.status === 'geprueft') ? '<button class="btn sm gema-read-ok" onclick="pabPendAktion(\'' + esc(p.id) + '\',\'zurueckweisen\')">↺ Zurückweisen</button>' : '') +
         '<button class="btn sm gema-read-ok" onclick="pabPendKommentar(\'' + esc(p.id) + '\')">💬</button>' +
+        '<button class="btn sm gema-read-ok" onclick="pabLogOpen(\'pend\',\'' + esc(p.id) + '\')" title="Verlauf / Änderungslog">🕘</button>' +
         (edit ? '<button class="btn sm" onclick="pabPendNeu(\'' + esc(p.id) + '\')">✏️</button>' : '') +
         (edit ? '<button class="btn sm red gema-read-ok" onclick="pabPendDel(\'' + esc(p.id) + '\')">🗑</button>' : '') +
       '</div>' +
@@ -949,6 +1022,8 @@ function fixLeadingZero(el){
     rec.fotos = _pendFotos.slice();
     var vorherZust = alt && alt.zustaendig ? pabNormMail(alt.zustaendig.email) : '';
     rec.zustaendig = zust;
+    if(alt) pabLog(rec, 'geaendert', ''); else { rec.log = []; pabLog(rec, 'erfasst', rec.titel); }
+    if(zust && pabNormMail(zust.email) !== vorherZust) pabLog(rec, 'zugewiesen', zust.name || zust.email || '');
     saveRec(LSP, PFP, rec);
     if(zust && pabNormMail(zust.email) !== vorherZust){
       var zielUserId = zust.userId || (resolveUserByMail(zust.email) || {}).id;
@@ -975,6 +1050,7 @@ function fixLeadingZero(el){
       p.status = neu;
       if(aktion === 'erledigen'){ p.erledigtAm = new Date().toISOString(); p.erledigtVon = { userId: me.id, name: me.name || '' }; }
       if(kommentar){ p.kommentare = p.kommentare || []; p.kommentare.push({ von: { userId: me.id, name: me.name || '' }, text: kommentar, am: new Date().toISOString() }); }
+      pabLog(p, aktion === 'erledigen' ? 'erledigt' : (aktion === 'pruefen' ? 'geprueft' : 'zurueckgewiesen'), kommentar || '');
       saveRec(LSP, PFP, p);
       if(aktion === 'erledigen' && p.erstelltVon && p.erstelltVon.userId && p.erstelltVon.userId !== me.id){
         notify({ eventKey: 'plan_pendenz_erledigt', empfaengerUserId: p.erstelltVon.userId, modul: MK, typ: 'erfolg',
@@ -1075,6 +1151,7 @@ function fixLeadingZero(el){
     PV.extern = !!(me && d.orgId !== me.orgId);
     PV.sicht = pabLayerSicht(d, me);                       // null = alle | Array
     PV.hideAll = false;
+    PV.chg = {};                                           // geänderte Seiten (fürs Änderungslog)
     PV.layerVis = {};                                      // eigene Anzeige: alles an
     erlaubteLayer().forEach(function(id){ PV.layerVis[id] = true; });
     var frei = meineFreigabe(d);
@@ -1108,6 +1185,16 @@ function fixLeadingZero(el){
   };
   window.pabViewerClose = function(){
     flushAnnot();
+    // EIN Log-Eintrag pro Viewer-Session (statt einem pro Autosave-Flush)
+    var chgSeiten = Object.keys(PV.chg || {});
+    if(chgSeiten.length && PV.dok){
+      var dLog = dokById(PV.dok.id);
+      if(dLog){
+        pabLog(dLog, 'markierung', 'Markierungen bearbeitet (Seite ' + chgSeiten.sort(function(a, b){ return a - b; }).join(', ') + ')');
+        saveRec(LSD, PFD, dLog);
+      }
+    }
+    PV.chg = {};
     $id('pvWrap').classList.remove('open');
     var lp = $id('pvLayerPanel'); if(lp) lp.style.display = 'none';
     PV.dok = null; PV.pdf = null;
@@ -1157,6 +1244,7 @@ function fixLeadingZero(el){
   window.pabTool = function(t){ PV.tool = t; PV.sel = null; renderTools(); drawShapes(); updDel(); };
   window.pabFarbe = function(f){ PV.farbe = f; renderTools(); };
   window.pabDrawLayer = function(v){ PV.drawLayer = v || 'allgemein'; renderTools(); };
+  window.pabViewerLog = function(){ if(PV.dok) pabLogOpen('dok', PV.dok.id); };
   // 👁 Master-Toggle: sauberer Plan ohne Markierungen/Pins (für ALLE Rollen)
   window.pabEye = function(){
     PV.hideAll = !PV.hideAll;
@@ -1314,6 +1402,7 @@ function fixLeadingZero(el){
   var _annotT = null;
   function queueAnnot(){
     var st = $id('pvSaveState'); if(st) st.textContent = '⏳';
+    if(PV.dirty && PV.chg) PV.chg[PV.seite] = 1;   // fürs Änderungslog beim Schliessen
     renderLayerPanel();
     clearTimeout(_annotT);
     _annotT = setTimeout(flushAnnot, 900);
@@ -1428,6 +1517,7 @@ function fixLeadingZero(el){
         if(!ok) return;
         var me = user();
         p.status = 'erledigt'; p.erledigtAm = new Date().toISOString(); p.erledigtVon = { userId: me.id, name: me.name || '' };
+        pabLog(p, 'erledigt', 'via Plan-Pin');
         saveRec(LSP, PFP, p);
         if(p.erstelltVon && p.erstelltVon.userId && p.erstelltVon.userId !== me.id){
           notify({ eventKey: 'plan_pendenz_erledigt', empfaengerUserId: p.erstelltVon.userId, modul: MK, typ: 'erfolg',

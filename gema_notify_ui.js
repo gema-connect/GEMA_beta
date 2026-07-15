@@ -276,7 +276,7 @@
     stundenerfassung:'⏱ Stundenerfassung',
     revisionsunterlagen:'📑 Revisionsunterlagen',
     behoerden_formulare:'🏛 Behörden & Formulare',
-    planablage:'📐 Planablage & Pendenzen',
+    planablage:'📐 Plandialog',
     abos:'💳 Abos & Preise',
     chat:'💬 Chat',
     schule:'🎓 Schule & Klassen'

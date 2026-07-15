@@ -89,6 +89,7 @@ console.log('■ Planer (write) — Boot, Dokument-Karte, Freigaben');
   const { ctx, page } = await openPage(browser, ['role_planer'], { doks: [DOK], pends: [PEND] });
   await waitBoot(page);
   ok(await page.evaluate(() => _pabHooks.dokAll().length) === 1, 'geseedetes Dokument aus dem Cloud-Pull sichtbar');
+  ok(await page.evaluate(() => document.querySelector('.hero-title').textContent) === 'Plandialog', 'Modul heisst im UI «Plandialog»');
   ok(await page.evaluate(() => document.body.textContent.includes('Grundriss EG Sanitär')), 'Dokument-Karte gerendert');
   ok(await page.evaluate(() => document.body.textContent.includes('4.0 MB')), 'Dateigrösse formatiert (pabFmtSize)');
   ok(await page.evaluate(() => document.getElementById('btnUpload').style.display !== 'none'), 'Upload-Button für Planer sichtbar');
@@ -104,12 +105,14 @@ console.log('■ Planer (write) — Boot, Dokument-Karte, Freigaben');
   await page.evaluate(() => pabFreiSave('d1'));
   const frei = await page.evaluate(() => _pabHooks.dokById('d1').freigaben);
   ok(frei.length === 3 && frei.some(f => f.email === 'neu@extern.ch' && f.recht === 'lesen'), 'Freigaben gespeichert (neue Adresse mit «lesen»)');
+  ok(await page.evaluate(() => (_pabHooks.dokById('d1').log || []).some(e => e.aktion === 'freigabe' && e.text.includes('neu@extern.ch'))), 'Änderungslog: Freigabe-Eintrag mit Diff-Text');
 
   // Kommentar
   await page.evaluate(() => pabKommentare('d1'));
   await page.fill('#km_text', 'Bitte Version B beachten');
   await page.evaluate(() => pabKommentarSave('d1'));
   ok(await page.evaluate(() => (_pabHooks.dokById('d1').kommentare || []).length) === 1, 'Kommentar am Dokument gespeichert');
+  ok(await page.evaluate(() => (_pabHooks.dokById('d1').log || []).some(e => e.aktion === 'kommentar')), 'Änderungslog: Kommentar-Eintrag');
   await page.evaluate(() => pabCloseModal());
 
   // Pendenzen-Tab: KPI + Karte + Statusmaschine (prüfen als Verwalter)
@@ -133,6 +136,12 @@ console.log('■ Planer (write) — Boot, Dokument-Karte, Freigaben');
   await page.waitForFunction(() => _pabHooks.pendById('p1').status === 'offen');
   const kom = await page.evaluate(() => _pabHooks.pendById('p1').kommentare);
   ok(kom.some(k => k.text === 'Bohrung an falscher Stelle'), 'Zurückweisen → offen + Grund als Kommentar');
+  const plog = await page.evaluate(() => (_pabHooks.pendById('p1').log || []).map(e => e.aktion));
+  ok(plog.includes('erledigt') && plog.includes('geprueft') && plog.includes('zurueckgewiesen'), 'Änderungslog Pendenz: erledigt + geprüft + zurückgewiesen protokolliert');
+  await page.evaluate(() => pabLogOpen('pend', 'p1'));
+  await page.waitForSelector('#pabModalHost .modal');
+  ok(await page.evaluate(() => document.querySelector('#pabModalHost .modal').textContent.includes('Verlauf') && document.querySelector('#pabModalHost .modal').textContent.includes('Zurückgewiesen')), '🕘-Verlauf-Modal rendert die Einträge');
+  await page.evaluate(() => pabCloseModal());
   await ctx.close();
 }
 
@@ -176,6 +185,10 @@ console.log('■ Viewer — Rechteck zeichnen → Annot-Pool, Undo, Pin→Penden
   await page.evaluate(() => pabPendSave());
   await page.waitForFunction(() => _pabHooks.pendAll().some(p => p.titel === 'Neuer Punkt aus Pin' && p.pin && p.dokId === 'd1'));
   ok(true, 'Pendenz aus Pin gespeichert (dokId + pin persistiert)');
+  ok(await page.evaluate(() => { const p = _pabHooks.pendAll().find(x => x.titel === 'Neuer Punkt aus Pin'); return p && p.log && p.log[0].aktion === 'erfasst'; }), 'Änderungslog Pendenz: «erfasst» beim Anlegen');
+  await page.evaluate(() => pabViewerClose());
+  const mlog = await page.evaluate(() => (_pabHooks.dokById('d1').log || []).filter(e => e.aktion === 'markierung'));
+  ok(mlog.length === 1 && /Seite 1/.test(mlog[0].text), 'Änderungslog: EIN Markierungs-Eintrag pro Viewer-Session (Seite 1)');
   await ctx.close();
 }
 
@@ -247,6 +260,7 @@ console.log('■ Upload — Storage-Mock (Erfolg) und 413 → Limit-Dialog');
   ok(d.name === 'Testplan OG' && d.kategorie === 'plan', 'Upload legt Dokument-Record an');
   ok(/\/storage\/v1\/object\/public\/gema-fotos\/planablage\/org_test\//.test(d.datei.url), 'Storage-URL im Record (public-Pfad, orgId-Ordner)');
   ok(d.datei.size === 13 && d.datei.mime === 'application/pdf', 'Grösse + MIME übernommen');
+  ok(d.log && d.log[0] && d.log[0].aktion === 'hochgeladen' && d.log[0].text.includes('testplan.pdf'), 'Änderungslog: «hochgeladen» als erster Eintrag');
   await ctx.close();
 }
 {

@@ -281,7 +281,7 @@
     {key:'revisionsunterlagen',     label:'Revisionsunterlagen',       cat:'Projektmanagement'},
     {key:'behoerden_formulare',     label:'Behörden & Formulare',      cat:'Projektmanagement'},
     {key:'plaene',                  label:'Pläne einlesen',            cat:'Projektmanagement'},
-    {key:'planablage',              label:'Planablage & Pendenzen',    cat:'Projektmanagement'},
+    {key:'planablage',              label:'Plandialog',                cat:'Projektmanagement'},
     {key:'regierapport',            label:'Regierapporte',             cat:'Projektmanagement'},
     {key:'erp',                     label:'Offerten/Aufträge/Rechnungen', cat:'Projektmanagement'},
     {key:'einsatzplan',             label:'Einsatzplan',               cat:'Projektmanagement'},
