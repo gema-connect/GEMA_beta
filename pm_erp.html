@@ -349,8 +349,13 @@ table.pos{border-collapse:collapse;width:100%;font-size:13px;min-width:680px}
       <div style="font-size:11px;font-weight:800;text-transform:uppercase;color:var(--mut);margin:14px 0 6px">Nachkalkulation (Tab «Erfolg»)</div>
       <div class="fld"><label>Kostensatz (% vom Verkaufsansatz)</label><input id="s_kosten" type="text" inputmode="decimal" onblur="fixLeadingZero(this)" placeholder="z.B. 70"/></div>
       <div style="font-size:11px;color:var(--mut);margin:-4px 0 12px">Interner Kostenanteil der Regie-Verkaufsansätze (Lohn + Gemeinkosten). Damit schätzt der Erfolg-Tab Kosten und Deckungsbeitrag pro Auftrag. Leer = keine DB-Schätzung.</div>
-      <div class="fld"><label>Standard-Schlusstext Offerte</label><textarea id="s_txtOfferte" placeholder="z.B. Wir danken für Ihre Anfrage …"></textarea></div>
+      <div class="fld"><label>Standard-Einleitung Offerte</label><textarea id="s_txtOfferteIntro" placeholder="z.B. Wir danken für Ihre Anfrage und offerieren Ihnen wie folgt:"></textarea></div>
+      <div class="fld"><label>Standard-Schlusstext Offerte</label><textarea id="s_txtOfferte" placeholder="z.B. Wir danken für Ihre Anfrage und freuen uns, wenn wir die offerierten Arbeiten für Sie ausführen dürfen."></textarea></div>
+      <div class="fld"><label>Standard-Einleitung Auftragsbestätigung</label><textarea id="s_txtAuftragIntro" placeholder="z.B. Wir danken für Ihren Auftrag und bestätigen wie folgt:"></textarea></div>
+      <div class="fld"><label>Standard-Schlusstext Auftragsbestätigung</label><textarea id="s_txtAuftrag" placeholder="z.B. Über die Terminplanung informieren wir Sie rechtzeitig."></textarea></div>
+      <div class="fld"><label>Standard-Einleitung Rechnung</label><textarea id="s_txtRechnungIntro" placeholder="z.B. Wir danken für Ihren Auftrag und stellen Ihnen wie folgt in Rechnung:"></textarea></div>
       <div class="fld"><label>Standard-Schlusstext Rechnung</label><textarea id="s_txtRechnung" placeholder="z.B. Zahlbar innert 30 Tagen …"></textarea></div>
+      <div class="fld"><label>Konditionen / Kleingedrucktes (unten auf Seite 1)</label><textarea id="s_txtKonditionen" placeholder="z.B. Zahlungskonditionen: 30 Tage netto. Als Preisbasis gelten die am Offertdatum geltenden Materialpreise. …"></textarea></div>
     </div>
     <div class="modal-ft">
       <button class="btn grn" onclick="erpSetSave()">💾 Speichern</button>
@@ -550,7 +555,11 @@ function erpVorlagen(){var u=erpUser();return poolRead(VORL_POOL).filter(functio
 // ═══════════════════════════════════════════════════════════
 function erpUser(){try{return GemaAuth.getCurrentUser();}catch(e){return null;}}
 function erpHas(rid){var u=erpUser();return !!(u&&u.roleIds&&u.roleIds.indexOf(rid)>=0);}
-function erpCanEdit(){return erpHas('role_admin')||erpHas('role_planer')||erpHas('role_hlkk_planer')||erpHas('role_lueftung_planer')||erpHas('role_elektro_planer')||erpHas('role_abteilungsleiter');}
+function erpCanEdit(){
+  if(erpHas('role_admin')||erpHas('role_planer')||erpHas('role_hlkk_planer')||erpHas('role_lueftung_planer')||erpHas('role_elektro_planer')||erpHas('role_abteilungsleiter'))return true;
+  // Matrix-basiert: jede Rolle mit write auf «erp» darf erstellen/bearbeiten (z.B. Unternehmer)
+  try{return !!(typeof GemaAuth!=='undefined'&&GemaAuth.can&&GemaAuth.can('write','erp'));}catch(e){return false;}
+}
 function erpOrg(){try{return GemaAuth.getCurrentOrg();}catch(e){return null;}}
 function erpSettings(){
   var org=erpOrg();
@@ -562,7 +571,9 @@ function erpSettings(){
     name:s.name||(org?org.name:''), strasse:s.strasse||'', plz:s.plz||'', ort:s.ort||'',
     tel:s.tel||'', email:s.email||'', web:s.web||'', mwstNr:s.mwstNr||'',
     kostenFaktorPct:s.kostenFaktorPct!=null?s.kostenFaktorPct:0,
-    txtOfferte:s.txtOfferte||'', txtRechnung:s.txtRechnung||''
+    txtOfferte:s.txtOfferte||'', txtRechnung:s.txtRechnung||'', txtAuftrag:s.txtAuftrag||'',
+    txtOfferteIntro:s.txtOfferteIntro||'', txtAuftragIntro:s.txtAuftragIntro||'', txtRechnungIntro:s.txtRechnungIntro||'',
+    txtKonditionen:s.txtKonditionen||''
   };
 }
 // ── Dokument-Branding: Akzentfarbe aus den Berichts-Farben der Org ──
@@ -847,7 +858,8 @@ function erpNeu(typ,vorlage){
     frist:typ==='rechnung'?addDays(today(),s.fristTage):'',
     status:typ==='auftrag'?'offen':'entwurf',
     positionen:[],rabattPct:0,mwstPct:s.mwstPct,
-    einleitung:'',schlusstext:typ==='rechnung'?s.txtRechnung:(typ==='offerte'?s.txtOfferte:''),
+    einleitung:typ==='rechnung'?s.txtRechnungIntro:(typ==='offerte'?s.txtOfferteIntro:s.txtAuftragIntro),
+    schlusstext:typ==='rechnung'?s.txtRechnung:(typ==='offerte'?s.txtOfferte:s.txtAuftrag),
     verknuepfung:{},rechnungsArt:typ==='rechnung'?'einzel':undefined,zahlungen:[],
     erstelltVon:{userId:u?u.id:'',name:u?u.name:''},erstelltAm:new Date().toISOString()
   },vorlage||{});
@@ -933,7 +945,6 @@ function erpOpenEditor(){
     +'<div class="fld"><label>Datum</label><input type="date" value="'+esc(d.datum||'')+'"'+dis+' onchange="cur.datum=this.value"/></div>'
     +(d.typ==='offerte'?'<div class="fld"><label>Gültig bis</label><input type="date" value="'+esc(d.gueltigBis||'')+'"'+dis+' onchange="cur.gueltigBis=this.value"/></div>':'')
     +(d.typ==='rechnung'?'<div class="fld"><label>Zahlbar bis</label><input type="date" value="'+esc(d.frist||'')+'"'+dis+' onchange="cur.frist=this.value"/></div>':'')
-    +'<div class="fld"><label>MwSt. %</label><input type="text" inputmode="decimal" value="'+d.mwstPct+'"'+dis+' onchange="cur.mwstPct=erpNum(this.value);erpRenderPos()" onblur="fixLeadingZero(this)"/></div>'
     +'</div>'
     +(d.kundeSnapshot?'<div style="font-size:12px;color:var(--mut);background:var(--sur2);border-radius:9px;padding:8px 11px">📮 '+esc(d.kundeSnapshot.firma)+(d.kundeSnapshot.kontakt?' · '+esc(d.kundeSnapshot.kontakt):'')+'<br>'+esc([d.kundeSnapshot.strasse,[d.kundeSnapshot.plz,d.kundeSnapshot.ort].filter(Boolean).join(' ')].filter(Boolean).join(', ')||'(keine Adresse — für die Rechnung ergänzen)')+'</div>':'')
     +'</div></div>';
@@ -954,11 +965,9 @@ function erpOpenEditor(){
     +'<div class="sum-block" id="sumBlock"></div>'
     +'</div></div>';
 
-  // ── Texte ──
-  h+='<div class="sec"><div class="sec-hd"><h3>💬 Texte</h3></div><div class="sec-bd">'
-    +'<div class="fld"><label>Einleitung (erscheint über den Positionen)</label><textarea'+dis+' oninput="cur.einleitung=this.value">'+esc(d.einleitung||'')+'</textarea></div>'
-    +'<div class="fld"><label>Schlusstext</label><textarea'+dis+' oninput="cur.schlusstext=this.value">'+esc(d.schlusstext||'')+'</textarea></div>'
-    +'</div></div>';
+  // ── Einleitung/Schlusstext/MwSt: zentral in den ⚙️-Einstellungen (beim Erstellen
+  //    gestempelt) — auf der Bearbeitungsoberfläche bewusst nicht mehr sichtbar ──
+  h+='<div class="sec"><div class="sec-bd" style="font-size:12px;color:var(--mut)">💬 Einleitungs- und Schlusstext sowie der MwSt.-Satz ('+d.mwstPct+' %) werden zentral in den <b>⚙️ Einstellungen</b> gepflegt und beim Erstellen des Dokuments übernommen.</div></div>';
 
   document.getElementById('edBody').innerHTML=h;
   erpRenderPos();
@@ -1352,7 +1361,7 @@ function erpZuAuftrag(){
     datum:today(),status:'offen',
     positionen:JSON.parse(JSON.stringify(off.positionen||[])),
     rabattPct:off.rabattPct,mwstPct:off.mwstPct,
-    einleitung:off.einleitung,schlusstext:'',
+    einleitung:s.txtAuftragIntro||'',schlusstext:s.txtAuftrag||'',
     verknuepfung:{offerteId:off.id},zahlungen:[],
     erstelltVon:{userId:u?u.id:'',name:u?u.name:''},erstelltAm:new Date().toISOString()
   };
@@ -1371,7 +1380,7 @@ function _erpNeueRechnung(auftrag,art,positionen,titelZusatz){
     kundeId:auftrag.kundeId,kundeSnapshot:auftrag.kundeSnapshot,
     datum:today(),frist:addDays(today(),s.fristTage),status:'entwurf',
     positionen:positionen,rabattPct:0,mwstPct:auftrag.mwstPct!=null?auftrag.mwstPct:s.mwstPct,
-    einleitung:'',schlusstext:s.txtRechnung,
+    einleitung:s.txtRechnungIntro||'',schlusstext:s.txtRechnung,
     verknuepfung:{auftragId:auftrag.id,offerteId:auftrag.verknuepfung?auftrag.verknuepfung.offerteId:undefined},
     rechnungsArt:art,zahlungen:[],
     erstelltVon:{userId:u?u.id:'',name:u?u.name:''},erstelltAm:new Date().toISOString()
@@ -1651,6 +1660,11 @@ function erpOpenSettings(){
   document.getElementById('s_kosten').value=s.kostenFaktorPct||'';
   document.getElementById('s_txtOfferte').value=s.txtOfferte;
   document.getElementById('s_txtRechnung').value=s.txtRechnung;
+  document.getElementById('s_txtAuftrag').value=s.txtAuftrag;
+  document.getElementById('s_txtOfferteIntro').value=s.txtOfferteIntro;
+  document.getElementById('s_txtAuftragIntro').value=s.txtAuftragIntro;
+  document.getElementById('s_txtRechnungIntro').value=s.txtRechnungIntro;
+  document.getElementById('s_txtKonditionen').value=s.txtKonditionen;
   document.getElementById('setModal').classList.add('open');
 }
 function erpSetSave(){
@@ -1672,7 +1686,12 @@ function erpSetSave(){
       mwstNr:document.getElementById('s_mwstnr').value.trim(),
       kostenFaktorPct:erpNum(document.getElementById('s_kosten').value)||0,
       txtOfferte:document.getElementById('s_txtOfferte').value,
-      txtRechnung:document.getElementById('s_txtRechnung').value
+      txtRechnung:document.getElementById('s_txtRechnung').value,
+      txtAuftrag:document.getElementById('s_txtAuftrag').value,
+      txtOfferteIntro:document.getElementById('s_txtOfferteIntro').value,
+      txtAuftragIntro:document.getElementById('s_txtAuftragIntro').value,
+      txtRechnungIntro:document.getElementById('s_txtRechnungIntro').value,
+      txtKonditionen:document.getElementById('s_txtKonditionen').value
     };
     GemaAuth.updateOrgSettings(org.id,settings);
     toast('✓ Einstellungen gespeichert');
@@ -1696,12 +1715,13 @@ function erpPdf(){
     :'<div style="font-size:15pt;font-weight:900;color:var(--acc);letter-spacing:.3px">'+esc(s.name||'GEMA')+'</div>';
   var posRows='';
   var nrPos=0;
-  var gruppen=[],curGrp=null,hatTitel=false;   // Zusammenzug pro Titel für die Zusammenstellung
+  var GRP_L='ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  var gruppen=[],curGrp=null,hatTitel=false;   // Zusammenzug pro Kapitel (A, B, C …) für die Zusammenfassung
   (d.positionen||[]).forEach(function(p){
-    if(p.art==='titel'){hatTitel=true;curGrp={bez:p.bez,sum:0};gruppen.push(curGrp);posRows+='<tr><td colspan="6" style="font-weight:800;background:var(--tint);border-bottom:1.2px solid var(--acc);color:var(--acc)">'+esc(p.bez)+'</td></tr>';return;}
+    if(p.art==='titel'){hatTitel=true;curGrp={bez:p.bez,sum:0,ltr:GRP_L.charAt(gruppen.length)||''};gruppen.push(curGrp);posRows+='<tr class="grprow"><td class="grpltr">'+curGrp.ltr+'</td><td colspan="5">'+esc(p.bez)+'</td></tr>';return;}
     nrPos++;
     var betrag=erpNum(p.menge)*erpNum(p.ep)*(1-erpNum(p.rabattPct)/100);
-    if(!curGrp){curGrp={bez:'Positionen ohne Titel',sum:0};gruppen.push(curGrp);}
+    if(!curGrp){curGrp={bez:'Positionen ohne Titel',sum:0,ltr:GRP_L.charAt(gruppen.length)||''};gruppen.push(curGrp);}
     curGrp.sum+=betrag;
     var pimg=erpPosImgSrc(p);
     posRows+='<tr'+(pimg?' class="hasimg"':'')+(p.art==='abzug'?' style="color:#92400e"':'')+'><td class="num" style="color:#888">'+nrPos+'</td><td>'+esc(p.bez)+(p.lieferantFirma?' <span style="color:#888;font-size:8pt">('+esc(p.lieferantFirma)+')</span>':'')+'</td>'
@@ -1712,45 +1732,54 @@ function erpPdf(){
   // Briefkopf: Absender links (dezent), Logo oben rechts; darunter Empfänger links + Dokument-Meta rechts
   var absAdr=[s.strasse,[s.plz,s.ort].filter(Boolean).join(' ')].filter(Boolean).join(' · ');
   var kontaktLine=[s.tel?'Tel. '+s.tel:'',s.email,s.web].filter(Boolean).join(' · ');
-  var metaRows=[['Datum',dfmt(d.datum)]];
-  if(d.typ==='offerte'&&d.gueltigBis)metaRows.push(['Gültig bis',dfmt(d.gueltigBis)]);
-  if(d.typ==='rechnung'&&d.frist)metaRows.push(['Zahlbar bis','<b>'+dfmt(d.frist)+'</b>']);
-  if(d.verknuepfung&&d.verknuepfung.auftragId&&d.typ==='rechnung'){var _va=poolRead(DOK_POOL).find(function(x){return x.id===d.verknuepfung.auftragId;});if(_va)metaRows.push(['Auftrag',esc(_va.nr||'')]);}
-  if(d.objektName)metaRows.push(['Projekt',esc(d.objektName)]);
+  var metaRows=[['Nr.:',esc(d.nr||'')]];
+  if(d.objektName)metaRows.push(['Projekt:',esc(d.objektName)]);
+  if(d.typ==='offerte'&&d.gueltigBis)metaRows.push(['Gültig bis:',dfmt(d.gueltigBis)]);
+  if(d.typ==='rechnung'&&d.frist)metaRows.push(['Zahlbar bis:',dfmt(d.frist)]);
+  if(d.verknuepfung&&d.verknuepfung.auftragId&&d.typ==='rechnung'){var _va=poolRead(DOK_POOL).find(function(x){return x.id===d.verknuepfung.auftragId;});if(_va)metaRows.push(['Auftrag:',esc(_va.nr||'')]);}
   var typTotalLabel=d.typ==='offerte'?'Offertsumme':d.typ==='auftrag'?'Auftragssumme':'Rechnungsbetrag';
   // ── Seite 1: Titelblatt (Kopf, Empfänger, Meta mit Projekt, Titel, Einleitung, Summe) ──
-  var cover='<div class="cover"><div class="kopf">'
+  // Kürzel des Erstellers für die Ort/Datum-Zeile (Muster: «Basel, 13.07.2026 / RJ»)
+  var kz=String((d.erstelltVon&&d.erstelltVon.name)||'').trim().split(/\s+/).map(function(x){return x.charAt(0);}).join('').toUpperCase().slice(0,3);
+  var cover='<div class="sheet cover"><div class="kopf">'
     +'<div class="kopf-l"><div class="abs-firma">'+esc(s.name||'')+'</div>'
-    +'<div class="abs-sub">'+esc(absAdr)+(kontaktLine?'<br>'+esc(kontaktLine):'')+'</div></div>'
+    +'<div class="abs-sub">'+[s.strasse,[s.plz,s.ort].filter(Boolean).join(' ')].filter(Boolean).map(esc).join('<br>')
+    +((s.tel||s.email)?'<br><br>'+[s.tel?'Telefon '+esc(s.tel):'',esc(s.email||'')].filter(Boolean).join('<br>'):'')+'</div></div>'
     +'<div class="kopf-r">'+logo+'</div>'
     +'</div>'
-    +'<div class="adrmeta">'
-    +'<div class="adr"><b>'+esc(k.firma||'')+'</b>'+(k.kontakt?'<br>'+esc(k.kontakt):'')+(k.strasse?'<br>'+esc(k.strasse):'')+((k.plz||k.ort)?'<br>'+esc((k.plz||'')+' '+(k.ort||'')):'')+'</div>'
-    +'<div class="dmeta">'+metaRows.map(function(r){return '<div class="mrow"><span class="ml">'+r[0]+'</span><span class="mv">'+r[1]+'</span></div>';}).join('')+'</div>'
+    // Empfänger rechts (CH-Fensterposition), links Projekt-/Objekt-Kontext
+    +'<div class="adrzone">'
+    +'<div class="adr-l"></div>'
+    +'<div class="adr-r"><b>'+esc(k.firma||'')+'</b>'+(k.kontakt?'<br>'+esc(k.kontakt):'')+(k.strasse?'<br>'+esc(k.strasse):'')+((k.plz||k.ort)?'<br>'+esc((k.plz||'')+' '+(k.ort||'')):'')+'</div>'
     +'</div>'
-    +'<h1>'+docName+' '+esc(d.nr||'')+'</h1>'
-    +(d.titel?'<div class="untertitel">'+esc(d.titel)+'</div>':'')
+    +'<div class="ortdatum">'+esc((s.ort?s.ort+', ':'')+dfmt(d.datum))+(kz?' / '+esc(kz):'')+'</div>'
+    +'<h1>'+docName+'</h1>'
+    +'<div class="meta">'+metaRows.map(function(r){return '<div class="mrow"><span class="ml">'+r[0]+'</span><span class="mv">'+r[1]+'</span></div>';}).join('')+'</div>'
+    +(d.titel?'<div class="titelbar">'+esc(d.titel)+'</div>':'')
     +(d.einleitung?'<p class="intro">'+esc(d.einleitung)+'</p>':'')
-    +'<div class="cover-total"><span>'+typTotalLabel+' inkl. '+d.mwstPct+' % MwSt.</span><b>CHF '+chf(t.brutto)+'</b></div>'
-    +'<div class="cover-hint">Detailpositionen und Zusammenstellung auf den folgenden Seiten'+(d.typ==='rechnung'&&(s.iban||s.qrIban)?' · Zahlteil (QR-Rechnung) auf der letzten Seite':'')+'.</div>'
+    +'<div class="totalrow"><span>Total inkl. '+d.mwstPct+' % MwSt.:</span><b>Fr. '+chf(t.brutto)+'</b></div>'
+    +(d.schlusstext?'<p class="outro">'+esc(d.schlusstext)+'</p>':'')
+    +'<p class="gruss">Mit freundlichen Grüssen<br>'+esc(s.name||'')+'</p>'
+    +(s.txtKonditionen?'<div class="kleing">'+esc(s.txtKonditionen)+'</div>':'')
     +'</div>';
   // ── Ab Seite 2: Detailpositionen ──
-  var posSec='<div class="pb"><h2>'+docName+' '+esc(d.nr||'')+' — Positionen im Detail</h2>'
+  var posSec='<div class="sheet pb"><h2>Positionen im Detail</h2>'
     +'<table><thead><tr><th style="width:24px">Pos</th><th>Bezeichnung</th><th class="num">Menge</th><th>Einheit</th><th class="num">EP CHF</th><th class="num">Betrag CHF</th></tr></thead><tbody>'+posRows+'</tbody></table>'
     +'</div>';
   // ── Zusammenstellung: Zusammenzug pro Titel + Totale ──
-  var zusSec='<div class="pb"><h2>Zusammenstellung</h2>'
-    +(hatTitel?'<table style="max-width:440px"><thead><tr><th>Titel</th><th class="num">Betrag CHF</th></tr></thead><tbody>'
-      +gruppen.map(function(g){return '<tr><td>'+esc(g.bez)+'</td><td class="num">'+chf(g.sum)+'</td></tr>';}).join('')
+  var zusSec='<div class="sheet pb"><h2>Zusammenfassung</h2>'
+    +(hatTitel?'<table class="zus" style="max-width:480px"><tbody>'
+      +gruppen.map(function(g){return '<tr><td class="grpltr">'+g.ltr+'</td><td>'+esc(g.bez)+'</td><td class="num">'+chf(g.sum)+'</td></tr>';}).join('')
       +'</tbody></table>':'')
-    +'<table style="max-width:440px">'
-    +'<tr><td>Zwischentotal</td><td class="num">'+chf(t.zwischen)+'</td></tr>'
-    +(t.rabatt?'<tr><td>Rabatt '+d.rabattPct+' %</td><td class="num">− '+chf(t.rabatt)+'</td></tr>':'')
-    +'<tr><td>Netto</td><td class="num">'+chf(t.netto)+'</td></tr>'
-    +'<tr><td>MwSt. '+d.mwstPct+' %</td><td class="num">'+chf(t.mwst)+'</td></tr>'
-    +(Math.abs(t.rundung)>=0.005?'<tr><td>Rundung</td><td class="num">'+chf(t.rundung)+'</td></tr>':'')
-    +'<tr class="sum"><td><b>'+typTotalLabel+' CHF</b></td><td class="num"><b>'+chf(t.brutto)+'</b></td></tr></table>'
-    +(d.schlusstext?'<p style="font-size:10pt;white-space:pre-wrap;margin-top:14px">'+esc(d.schlusstext)+'</p>':'')
+    +'<table class="tot" style="max-width:480px">'
+    +(t.rabatt
+      ?'<tr><td colspan="2">Zwischentotal</td><td class="num">'+chf(t.zwischen)+'</td></tr>'
+       +'<tr><td colspan="2">Rabatt '+d.rabattPct+' %</td><td class="num">− '+chf(t.rabatt)+'</td></tr>'
+       +'<tr><td colspan="2"><b>Total</b></td><td class="num"><b>'+chf(t.netto)+'</b></td></tr>'
+      :'<tr><td colspan="2"><b>Total</b></td><td class="num"><b>'+chf(t.netto)+'</b></td></tr>')
+    +'<tr><td>Mehrwertsteuer '+d.mwstPct+' %</td><td class="num" style="color:#888">'+chf(t.netto)+'</td><td class="num">'+chf(t.mwst)+'</td></tr>'
+    +(Math.abs(t.rundung)>=0.005?'<tr><td colspan="2">Rundung</td><td class="num">'+chf(t.rundung)+'</td></tr>':'')
+    +'<tr class="sum"><td colspan="2"><b>Gesamttotal '+(d.typ==='rechnung'?'(Rechnungsbetrag) ':'')+'CHF</b></td><td class="num"><b>'+chf(t.brutto)+'</b></td></tr></table>'
     +'</div>';
   if(!nrPos)posSec='';   // keine Positionen → keine leere Detailseite
   var b=cover+posSec+zusSec;
@@ -1764,7 +1793,7 @@ function erpPdf(){
     var useQrr=!!(s.qrIban&&String(s.qrIban).trim());
     var ref=useQrr?erpQrReferenz(d.nr):'';
     var refFmt=ref?ref.replace(/(\d{2})(\d{5})(\d{5})(\d{5})(\d{5})(\d{5})/,'$1 $2 $3 $4 $5 $6'):'';
-    b+='<div class="pb qrpage"><h2>Zahlung — Rechnung '+esc(d.nr||'')+'</h2>'
+    b+='<div class="sheet pb qrpage"><h2>Zahlung — Rechnung '+esc(d.nr||'')+'</h2>'
       +'<div class="betragbox">'
       +'<div><div class="bb-l">Rechnungsbetrag</div><div class="bb-v">CHF '+chf(t.brutto)+'</div></div>'
       +(d.frist?'<div><div class="bb-l">Zahlbar bis</div><div class="bb-v2">'+dfmt(d.frist)+'</div></div>':'')
@@ -1805,42 +1834,47 @@ function erpPdf(){
   var footLraw=[s.name||'',absAdr].filter(Boolean).join(' · ');
   var footMraw=[s.tel?'Tel. '+s.tel:'',s.email||'',s.web||''].filter(Boolean).join(' · ');
   var footRraw=[s.mwstNr||'',(d.typ==='rechnung'&&(s.qrIban||s.iban))?'IBAN '+(s.qrIban||s.iban):''].filter(Boolean).join(' · ');
-  var foot='<div class="foot"><span>'+esc(footLraw)+'</span>'+(footMraw?'<span>'+esc(footMraw)+'</span>':'')+(footRraw?'<span>'+esc(footRraw)+'</span>':'')+'</div>';
   function cssStr(x){return '"'+String(x).replace(/\\/g,'\\\\').replace(/"/g,'\\"').replace(/[\r\n]+/g,' ')+'"';}
   var footBoxCss='font-family:\'DM Sans\',-apple-system,sans-serif;font-size:7pt;color:#666;';
   var pageFootCss='@bottom-left{content:'+cssStr(footLraw)+';'+footBoxCss+'}'
     +(footMraw?'@bottom-center{content:'+cssStr(footMraw)+';'+footBoxCss+'}':'')
     +(footRraw?'@bottom-right{content:'+cssStr(footRraw)+';'+footBoxCss+'}':'');
+  // Kopfzeile jeder Druckseite (Muster): «Nr | Datum — Seite N»
+  var pageHeadCss='@top-right{content:'+cssStr((d.nr?d.nr+' | ':'')+dfmt(d.datum)+' — Seite ')+' counter(page);'+footBoxCss+'}';
 
   var w=window.open('','_blank');
   if(!w){toast('Pop-up blockiert — bitte erlauben');return;}
   w.document.write('<!DOCTYPE html><html lang="de"><head><meta charset="utf-8"><title>'+esc(docName+' '+(d.nr||''))+'</title>'
-    +'<style>@page{size:A4 portrait;margin:16mm 15mm 22mm;'+pageFootCss+'}'
+    +'<style>@page{size:A4 portrait;margin:18mm 15mm 22mm;'+pageHeadCss+pageFootCss+'}'
     +':root{--acc:'+brand.acc+';--tint:'+brand.tint+'}'
-    +'body{font-family:"DM Sans",-apple-system,sans-serif;color:#111;font-size:10pt;line-height:1.45;margin:0;padding:26px 26px 74px}'
-    +'.kopf{display:flex;justify-content:space-between;align-items:flex-start;gap:22px;margin-bottom:12mm}'
-    +'.abs-firma{font-size:11pt;font-weight:800;letter-spacing:.2px}'
-    +'.abs-sub{font-size:8.5pt;color:#555;margin-top:3px;line-height:1.55}'
+    // Bildschirm: graue Bühne, jede Sektion ein weisses A4-Blatt (direkt als A4 gerendert)
+    +'body{font-family:"DM Sans",-apple-system,sans-serif;color:#111;font-size:10pt;line-height:1.45;margin:0;background:#e4e8ee;padding:26px 10px 70px}'
+    +'.sheet{width:210mm;max-width:calc(100vw - 20px);min-height:296mm;margin:0 auto 26px;background:#fff;box-shadow:0 3px 24px rgba(15,23,42,.22);border-radius:2px;padding:18mm 15mm 22mm;box-sizing:border-box;display:flex;flex-direction:column}'
+    +'.kopf{display:flex;justify-content:space-between;align-items:flex-start;gap:22px;margin-bottom:10mm}'
+    +'.abs-firma{font-size:10.5pt;font-weight:800;letter-spacing:.2px}'
+    +'.abs-sub{font-size:8.5pt;color:#111;margin-top:2px;line-height:1.6}'
     +'.kopf-r{flex-shrink:0;text-align:right}'
-    +'.adrmeta{display:flex;justify-content:space-between;align-items:flex-end;gap:22px;margin-bottom:10mm}'
-    +'.adr{font-size:10pt;line-height:1.55;min-height:18mm}'
-    +'.dmeta{font-size:9pt;min-width:54mm}'
-    +'.mrow{display:flex;justify-content:space-between;gap:16px;padding:1.5px 0}'
-    +'.ml{color:#666}'
-    +'.mv{font-weight:700;text-align:right}'
-    +'h1{font-size:21pt;margin:0 0 4px;color:var(--acc);letter-spacing:.2px}'
-    +'h2{font-size:12.5pt;margin:0 0 10px;color:var(--acc);letter-spacing:.2px}'
-    +'.untertitel{font-size:11.5pt;font-weight:700;color:#333;margin-bottom:12px}'
-    +'.intro{font-size:10pt;white-space:pre-wrap;max-width:150mm}'
-    +'.cover-total{display:flex;justify-content:space-between;align-items:center;gap:20px;margin-top:16mm;padding:13px 18px;background:var(--tint);border:1.5px solid var(--acc);border-radius:9px}'
-    +'.cover-total span{font-size:9.5pt;font-weight:700;color:#333}'
-    +'.cover-total b{font-size:16pt;color:var(--acc);font-variant-numeric:tabular-nums}'
-    +'.cover-hint{font-size:8.5pt;color:#777;margin-top:8px}'
-    // Neue Seite je Abschnitt: Bildschirm = gestrichelte Trennung, Druck = echter Umbruch
-    +'.pb{margin-top:36px;padding-top:28px;border-top:2px dashed #ddd}'
-    +'.betragbox{display:flex;gap:34px;align-items:flex-end;padding:13px 18px;background:var(--tint);border:1.5px solid var(--acc);border-radius:9px;margin:4px 0 10px}'
+    +'.adrzone{display:flex;justify-content:space-between;align-items:flex-start;gap:22px;margin-bottom:11mm}'
+    +'.adr-l{font-size:9pt;color:#333;line-height:1.55;max-width:80mm}'
+    +'.adr-eyebrow{font-size:8pt;font-weight:800;color:#666}'
+    +'.adr-r{font-size:10pt;line-height:1.55;width:75mm;min-height:20mm}'
+    +'.ortdatum{text-align:right;font-size:10pt;margin-bottom:9mm}'
+    +'h1{font-size:16pt;margin:0 0 5mm;color:#111;letter-spacing:.2px}'
+    +'h2{font-size:12.5pt;margin:0 0 10px;color:#111;letter-spacing:.2px}'
+    +'.meta{font-size:10pt;margin-bottom:7mm}'
+    +'.mrow{display:flex;gap:8px;padding:1.5px 0}'
+    +'.ml{font-weight:800;width:30mm;flex-shrink:0}'
+    +'.titelbar{border-top:1.2px solid #111;border-bottom:1.2px solid #111;padding:2.4mm 1mm;font-weight:800;font-size:11pt;margin:1mm 0 6mm}'
+    +'.totalrow{display:flex;justify-content:space-between;align-items:baseline;gap:20px;font-size:11pt;font-weight:800;margin:3mm 0 7mm}'
+    +'.totalrow b{font-size:12.5pt;border-bottom:1.5px solid #111;padding:0 2mm 1mm;font-variant-numeric:tabular-nums;color:#111}'
+    +'.intro,.outro{font-size:10pt;white-space:pre-wrap;max-width:168mm;margin:0 0 5mm}'
+    +'.gruss{font-size:10pt;margin:7mm 0 0}'
+    +'.cover-hint{font-size:8.5pt;color:#777;margin-top:5mm}'
+    +'.kleing{margin-top:auto;padding-top:6mm;font-size:7.5pt;color:#555;line-height:1.5;white-space:pre-wrap}'
+    +'.pb{}'
+    +'.betragbox{display:flex;gap:34px;align-items:flex-end;padding:13px 18px;border:1.5px solid #111;border-radius:9px;margin:4px 0 10px}'
     +'.bb-l{font-size:8pt;font-weight:800;text-transform:uppercase;letter-spacing:.3px;color:#555;margin-bottom:2px}'
-    +'.bb-v{font-size:16pt;font-weight:900;color:var(--acc);font-variant-numeric:tabular-nums}'
+    +'.bb-v{font-size:16pt;font-weight:900;color:#111;font-variant-numeric:tabular-nums}'
     +'.bb-v2{font-size:11pt;font-weight:800;font-variant-numeric:tabular-nums}'
     +'.qrhint{font-size:9pt;color:#444;max-width:165mm}'
     +'.qrpage{display:flex;flex-direction:column}'
@@ -1848,28 +1882,34 @@ function erpPdf(){
     +'table{border-collapse:collapse;width:100%;font-size:9.5pt;margin:8px 0 12px}'
     +'thead{display:table-header-group}'
     +'tbody tr{page-break-inside:avoid}'
-    +'th{background:var(--tint);border-bottom:1.5px solid var(--acc);color:var(--acc);text-align:left;padding:5px 7px;font-size:8pt;text-transform:uppercase;letter-spacing:.3px}'
-    +'td{border-bottom:.5px solid #ddd;padding:5px 7px;vertical-align:top}'
-    +'tr.hasimg td{border-bottom:none}'          // Bildzeile gehört zur Position — Trennlinie erst danach
+    // Muster-Typografie: schlichte schwarze Linien statt Farbbalken
+    +'th{border-top:1px solid #111;border-bottom:1px solid #111;text-align:left;padding:4px 7px;font-size:8pt;font-weight:800}'
+    +'td{border-bottom:.4px solid #ddd;padding:5px 7px;vertical-align:top}'
+    +'tr.grprow td{border-bottom:1px solid #111;font-weight:800;font-size:10.5pt;padding-top:12px}'
+    +'.grpltr{width:10mm;font-weight:900;color:#111}'
+    +'tr.hasimg td{border-bottom:none}'
     +'tr.bildrow{page-break-inside:avoid}'
     +'.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}'
-    +'tr.sum td{border-top:2px solid var(--acc);background:var(--tint);font-size:10.5pt;color:var(--acc)}'
-    +'.foot{position:fixed;left:26px;right:26px;bottom:8px;border-top:1px solid var(--acc);padding-top:5px;display:flex;justify-content:space-between;gap:16px;font-size:7.5pt;color:#666;line-height:1.5}'
-    +'.foot span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}'
-    +'.nb{position:fixed;top:10px;right:10px;display:flex;gap:8px}'
-    +'.nb button{padding:9px 16px;border-radius:9px;border:1px solid #ccc;background:#fff;font-weight:700;cursor:pointer;font-family:inherit}'
+    +'table.zus td{border-bottom:none;padding:3px 7px}'
+    +'table.tot td{border-bottom:none;padding:3px 7px}'
+    +'table.tot tr:first-child td{border-top:1px solid #111;padding-top:6px}'
+    +'tr.sum td{border-top:1.5px solid #111;border-bottom:none;font-size:11pt;color:#111}'
+    +'.nb{position:fixed;top:10px;right:10px;display:flex;gap:8px;z-index:50}'
+    +'.nb button{padding:9px 16px;border-radius:9px;border:1px solid #ccc;background:#fff;font-weight:700;cursor:pointer;font-family:inherit;box-shadow:0 2px 10px rgba(0,0,0,.12)}'
     +'.nb .p{background:var(--acc);color:#fff;border-color:var(--acc)}'
     +'#erpQr img,#erpQr canvas{width:100%!important;height:100%!important}'
-    // Druck: Fusszeile in den unteren Seitenrand (@page 24mm) schieben — wiederholt auf jeder Seite
-    +'@media print{.nb{display:none}body{padding:0}.foot{display:none}'   // Druck-Fusszeile via @page-Margin-Boxes
-    +'.pb{page-break-before:always;margin-top:0;padding-top:0;border-top:none}'
-    +'.qrpage{min-height:240mm}'   // Zahlteil ans Seitenende (margin-top:auto)
+    // Druck: Blätter zurücksetzen — @page übernimmt Ränder/Kopf-/Fusszeilen
+    +'@media print{.nb{display:none}body{background:none;padding:0}'
+    +'.sheet{width:auto;max-width:none;min-height:0;margin:0;background:none;box-shadow:none;border-radius:0;padding:0;display:block}'
+    +'.cover{display:flex;flex-direction:column;min-height:250mm}'
+    +'.pb{page-break-before:always}'
+    +'.qrpage{display:flex;flex-direction:column;min-height:240mm}'
     +'}'
     +'</style></head><body>'
     +'<div class="nb"><button class="p" onclick="window.print()">🖨 Drucken / Als PDF sichern</button><button onclick="window.close()">Schliessen</button></div>'
     // foot VOR b: position:fixed macht die DOM-Reihenfolge egal, aber nach dem
     // externen QR-Script-Tag kann der Parser nachfolgendes Markup verlieren
-    +foot+b+'</body></html>');
+    +b+'</body></html>');
   w.document.close();
 }
 

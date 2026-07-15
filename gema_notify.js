@@ -260,6 +260,11 @@
       modul:'service',
       defaultOn:true
     },
+    kleider_bezug: {
+      label:'Arbeitskleider: Bezug erfasst / storniert',
+      modul:'arbeitskleider',
+      defaultOn:true
+    },
     stunden_eingereicht: {
       label:'Stundenrapport eingereicht (Freigabe)',
       modul:'stundenerfassung',

@@ -623,7 +623,7 @@
       tr.geraete.forEach(function(g){
         var hours = computeHours(g);
         var kwh = computeKwh(g);
-        var t = (g.tage != null) ? g.tage : daysBetween(tr.gestartetAm, tr.beendetAm);
+        var t = (g.tage != null) ? g.tage : daysBetween(g.eingesetztAm || tr.gestartetAm, g.entferntAm || g.zurueckAm || tr.beendetAm);
         var stdTag = (hours != null && t > 0) ? (hours/t).toFixed(1) : (hours != null ? hours.toFixed(1) : '—');
         h += '<tr>'
           + '<td class="lead">'+esc(g.name||'—')+'</td>'
@@ -646,7 +646,7 @@
         var kk = computeKwh(g);
         if(hh != null) raumAgg[rm].h += hh;
         if(kk != null) raumAgg[rm].kwh += kk;
-        var t = (g.tage != null) ? g.tage : daysBetween(tr.gestartetAm, tr.beendetAm);
+        var t = (g.tage != null) ? g.tage : daysBetween(g.eingesetztAm || tr.gestartetAm, g.entferntAm || g.zurueckAm || tr.beendetAm);
         if(t > raumAgg[rm].tage) raumAgg[rm].tage = t;
       });
       var totH = 0, totKwh = 0, totAnz = 0;
