@@ -32,6 +32,7 @@
     'if_fahrzeug':'Fahrzeugmanagement',
     'if_trocknung':'Trocknungsgeräte',
     'if_wareneingang':'Wareneingang',
+    'if_arbeitskleider':'Arbeitskleider',
     'if_werkzeug':'Werkzeugmanagement',
     'iv_immobilien':'Immobilienverwaltung',
     'index':'Modulübersicht',

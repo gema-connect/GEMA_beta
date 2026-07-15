@@ -1910,6 +1910,19 @@ Lager-/Logistikmodul (Präfix `if_`, cat **Infrastruktur**): bestellte Sanitära
 
 ---
 
+## Arbeitskleider (if_arbeitskleider.html)
+
+Kleiderbudget-Verwaltung pro Mitarbeiter (Infrastruktur): Budget mit einstellbarer Zeitachse, Artikel-Katalog mit Preisen/Grössen, Bezüge «buchen» + freie Einträge mit Quittungs-Beleg, Saldo-Übersicht (wer hat wie viel offen) und revisionssicheres Log.
+
+- **Pools (moduleKey `arbeitskleider`)**: Artikel `akart:` → `gema_ak_artikel_pool_v1` (`{name, kategorie (AK_KATS: tshirt/pullover/jacke/hose/shorts/schuhe/muetze/handschuhe/zubehoer/sonstiges), preis, groessen[], aktiv}`) · Bezüge `akbez:` → `gema_ak_bezug_pool_v1` (`{userId/userName, typ:'artikel'|'frei', artikelId?, artikelName, kategorie, groesse?, menge, preis, total, datum, bemerkung, beleg?{name,url|dataUrl}, erfasstVon:{userId,name}, storniert?:{am,von,grund}, ts}`). Einzel-Saves via `GemaSync.saveRecord`; **PreBoot-Journal (KRITISCH, Muster pm_plaene `_plPreBoot`)**: `saveRec`/`delRec` journalen bis zum Abschluss des bindCollection-Pulls und legen sich danach wieder über den Cache — sonst wischte der (ältere) Cloud-Snapshot einen im Boot-Fenster erfassten Artikel/Bezug still weg (vom Smoke-Test gefunden). Das Spinner-Race (6 s) ist davon getrennt: das Journal wendet erst an, wenn der Bind WIRKLICH fertig ist.
+- **Einstellungen `org.settings.arbeitskleider`** (⚙️-Tab, `GemaAuth.updateOrgSettings`): `{budget (Standard CHF/Periode), periode:'jahr'|'halbjahr'|'quartal', startMonat 1–12, kumulierbar, budgetAb (Kumulations-Anker), mitarbeiterSicht, budgets:{userId:{betrag?, ab?}}}`. **Budget-Modell = Standard + Ausnahmen** (Override pro Person; `betrag:0` ist gültig = kein Budget; `ab` = Eintrittsdatum, kappt die Kumulation). **`mitarbeiterSicht`-Toggle** (User-Entscheid, Variante 1 ⇄ 3): an = Mitarbeitende sehen eigenen Saldo + eigene Bezüge (read-only, kein Selbst-Buchen), aus = Modul zeigt Mitarbeitenden einen Deaktiviert-Hinweis (reine Lagerverwaltung).
+- **Engine im `/*ENGINE-START*/…/*ENGINE-END*/`-Block** (DOM-frei, Node-Test 56 Fälle): `akParams` (Defaults-Merge), `akPeriodeVon` (Periode zum Datum, verankert am Startmonat — Geschäftsjahr April, Quartal über den Jahreswechsel etc.), `akPeriodeLabel`/`akNaechstePeriode`, `akBudgetFor`, `akAnker` (spätestes von `budgetAb`/User-`ab`; ohne Anker keine Historie), **`akSaldo`** → `{periode, budget, uebertrag, verfuegbar, verbraucht, rest, negativ}` (Storno/fremde User/Vorperioden ausgeschlossen; kumulierbar = Σ(budget−verbraucht) über alle abgeschlossenen Perioden ab Anker — auch negativ, Überzug wandert mit), `akFmtChf` (CHF-Format mit Apostroph-Tausendern).
+- **Überschreitung erlaubt mit Warnung** (User-Entscheid): Live-Vorschau «Rest nach Bezug» im Erfassen-Dialog wird bei Unterdeckung rot + Warntext, der Bezug wird trotzdem erfasst; Karten/KPI («Überzogen») weisen negative Salden rot aus.
+- **Bezug erfassen** (nur Manager = `role_admin`/`role_magaziner`/`can('admin','arbeitskleider')` — Monteur ist über den Manager-Guard ausgeschlossen): Person-Select → Segment «Aus Katalog» (Artikel-Select mit Preis-Vorbefüllung, Grössen-Chips wenn der Artikel `groessen` trägt — dann Pflicht) ODER «Freier Eintrag» (z.B. Schuhe mit Quittung: Bezeichnung + Kategorie + **Beleg-Upload**: Bild resized max 1600px JPEG bzw. PDF ≤ 8 MB → `GemaStorage.uploadDataUrl('arbeitskleider/<orgId>')`, Base64-Fallback ≤ 2.5 MB); Menge-Stepper, Preis editierbar, Datum, Bemerkung. Notify `kleider_bezug` an den Mitarbeiter (Erfassen typ info, Storno typ warnung; nie an sich selbst, nur bei aktiver Mitarbeiter-Sicht).
+- **Storno statt Löschen**: `storniert:{am,von,grund}` (GemaDialog.prompt) — der Eintrag bleibt im Log sichtbar (durchgestrichen + Badge), zählt aber nicht mehr ans Budget. Artikel-Löschen lässt Bezüge unangetastet (Name/Preis sind in den Bezug denormalisiert).
+- **Log-Tab**: Filter Person + Zeitraum (aktuelle Periode/alle), CSV-Export (Semikolon + BOM). Deep-Link `?tab=uebersicht|katalog|log|einstellungen`.
+- Registriert: gema_auth (MODULES `arbeitskleider` cat Infrastruktur, FILE_MAP `if_arbeitskleider`; **Magaziner r/w/a**, Monteur/Spengler read, Planer via `_allPerms` + Permission-Backfill), gema_notify (`kleider_bezug`), gema_notify_ui (MODUL_LABELS «👕 Arbeitskleider» + MODUL_ZUGRIFF `{mods:['arbeitskleider']}` — Drift-Guard-Zählwerte in `notify_prefs_gating_test` auf 23/14 nachgeführt), index.html (Infrastruktur, 4 Module), sw.js (v272), gema_recent. Rollen-Golden regeneriert (75 Module). Tests: `scripts/arbeitskleider_engine_test.mjs` (Node, 56) + `scripts/arbeitskleider_smoke_test.mjs` (Playwright, 39 — Manager-CRUD/Bezug/Überschreitung/Storno/Einstellungen, Monteur-Eigensicht, Sicht-Toggle aus, Kein-Zugriff; PostgREST-Mock liefert geseedete Pools im Row-Format). Test-Hooks `window._akHooks`.
+
 ## Immobilienverwaltung (iv_immobilien.html)
 
 Verwaltungs-Modul für Immobilienverwaltungen (neues Präfix `iv_`, MODULES-Key `immobilien`, cat `Immobilien`, eigene index.html-Kategorie «Immobilien» `#immo`): Liegenschaften → Wohnungen → Mietverhältnisse, Handwerker-Aufträge mit direkter GEMA-Anbindung und Leerwohnungs-Workflow mit automatischem Spülregime.
@@ -2058,6 +2071,7 @@ Zentrales Modul `gema_notify.js` für In-App-Benachrichtigungen. Glocke + Toast-
 | `immo_auftrag_neu` | immobilien | on |
 | `immo_auftrag_status` | immobilien | on |
 | `immo_auftrag_offerte` | immobilien | on |
+| `kleider_bezug` | arbeitskleider | on |
 | `service_faellig` | service | on |
 | `service_erledigt` | service | on |
 | `stunden_eingereicht` | stundenerfassung | on |
@@ -2388,6 +2402,8 @@ GemaSync.persistCollection(moduleKey, storageKey, prefix, 'id', arr)
 | Immobilien-Mieterstamm | `immobilien` | `immieter:` | `gema_im_mieter_pool_v1` |
 | Immobilien-Mietzahlungen | `immobilien` | `imzahl:` | `gema_im_zahl_pool_v1` |
 | Immobilien-NK-Abrechnungen | `immobilien` | `imnk:` | `gema_im_nk_pool_v1` |
+| Arbeitskleider-Artikel | `arbeitskleider` | `akart:` | `gema_ak_artikel_pool_v1` |
+| Arbeitskleider-Bezüge | `arbeitskleider` | `akbez:` | `gema_ak_bezug_pool_v1` |
 | Goodel-Umfragen | `goodel` | `goodel:` | `gema_goodel_v1` (Cache-Key = alter Blob-Key, für die Auto-Migration) |
 | Armaturen-Katalog | `armaturen` | `arm:` | `gema_armaturen_pool_v1` |
 | Bestellungen (Anlagen) | `bestellungen` | `best:` | `gema_best_pool_v1` |
