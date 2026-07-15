@@ -165,6 +165,9 @@ const NAV = [
   ['role_lagerist',   'pm_erp.html',             'deny', 'Lagerist → ERP gesperrt'],
   ['role_unternehmer','pm_bestellungen.html',    'load', 'Unternehmer → Bestellungen'],
   ['role_unternehmer','pm_erp.html',             'load', 'Unternehmer → ERP offen (Offerten erstellen, ab Werk)'],
+  ['role_unternehmer','pm_planablage.html',      'load', 'Unternehmer → Planablage (r/w)'],
+  ['role_monteur',    'pm_planablage.html',      'load', 'Monteur → Planablage (read, Pendenzen abarbeiten)'],
+  ['role_garagist',   'pm_planablage.html',      'deny', 'Garagist → Planablage gesperrt'],
 ];
 async function gatingOf(file, roleIds, opts) {
   const { ctx, page } = await newPage(browser, seed(roleIds, opts));

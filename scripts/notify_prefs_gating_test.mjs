@@ -47,7 +47,7 @@ console.log('■ Layer 1 — Laufzeit-Drift-Guard (live aus der App)');
       badMods: modsKeys.filter(k => !authKeys.has(k))
     };
   });
-  ok(drift.anzahl >= 23, `EVENT_KEYS-Gruppen live extrahiert (${drift.anzahl})`);
+  ok(drift.anzahl >= 24, `EVENT_KEYS-Gruppen live extrahiert (${drift.anzahl})`);
   ok(drift.ohneZugriff.length === 0, 'jede EVENT_KEYS-Gruppe hat einen MODUL_ZUGRIFF-Eintrag' + (drift.ohneZugriff.length ? ' — FEHLT: ' + drift.ohneZugriff.join(',') : ''));
   ok(drift.badMods.length === 0, 'alle mods-Keys existieren als gema_auth-Module' + (drift.badMods.length ? ' — UNBEKANNT: ' + drift.badMods.join(',') : ''));
   ok(drift.ohneLabel.length === 0, 'jede Gruppe hat ein MODUL_LABELS-Label' + (drift.ohneLabel.length ? ' — FEHLT: ' + drift.ohneLabel.join(',') : ''));
@@ -73,22 +73,22 @@ async function visibleGroups(roleIds, page_, extraSeed) {
   return { ctx, page, groups };
 }
 
-// Alle 23 Laufzeit-Gruppen (EVENT_KEYS; «objekte» kommt nur in Demo-Seeds vor)
-const ALLE = ['ausschreibung','werkzeug','fahrzeug','lu','schadensbericht','trocknung','produktkatalog','bestellungen','regierapport','einsatzplan','goodel','abnahme','legionellen','spuelmanager','immobilien','arbeitskleider','service','stundenerfassung','revisionsunterlagen','behoerden_formulare','abos','chat','schule'];
+// Alle 24 Laufzeit-Gruppen (EVENT_KEYS; «objekte» kommt nur in Demo-Seeds vor)
+const ALLE = ['ausschreibung','werkzeug','fahrzeug','lu','schadensbericht','trocknung','produktkatalog','bestellungen','regierapport','einsatzplan','goodel','abnahme','legionellen','spuelmanager','immobilien','arbeitskleider','service','stundenerfassung','revisionsunterlagen','behoerden_formulare','planablage','abos','chat','schule'];
 
 console.log('■ Layer 2 — Sichtbarkeits-Matrix pro Rolle');
 {
   let r = await visibleGroups(['role_admin'], 'index.html');
-  eqSet('Admin sieht alle 23 Gruppen', r.groups, ALLE);
+  eqSet('Admin sieht alle 24 Gruppen', r.groups, ALLE);
   await r.ctx.close();
 
   r = await visibleGroups(['role_planer'], 'sys_workspace.html');
-  eqSet('Planer sieht alle 23 Gruppen (Vollzugang)', r.groups, ALLE);
+  eqSet('Planer sieht alle 24 Gruppen (Vollzugang)', r.groups, ALLE);
   await r.ctx.close();
 
   r = await visibleGroups(['role_monteur'], 'index.html');
-  eqSet('Monteur: nur seine 14 Gruppen (kein Fahrzeug/Ausschreibung/Bestellungen …)', r.groups,
-    ['werkzeug','trocknung','schadensbericht','regierapport','einsatzplan','goodel','abnahme','legionellen','spuelmanager','arbeitskleider','service','stundenerfassung','abos','chat']);
+  eqSet('Monteur: nur seine 15 Gruppen (kein Fahrzeug/Ausschreibung/Bestellungen …)', r.groups,
+    ['werkzeug','trocknung','schadensbericht','regierapport','einsatzplan','goodel','abnahme','legionellen','spuelmanager','arbeitskleider','service','stundenerfassung','planablage','abos','chat']);
   await r.ctx.close();
 
   r = await visibleGroups(['role_garagist'], 'sys_garagist_dashboard.html');
@@ -106,7 +106,7 @@ console.log('■ Layer 2 — Sichtbarkeits-Matrix pro Rolle');
 
   r = await visibleGroups(['role_bauherrschaft'], 'sys_workspace.html');
   eqSet('Bauherrschaft: Freigabe-Scope inkl. Vergabeantrag (roles-Ausnahme)', r.groups,
-    ['ausschreibung','regierapport','goodel','abnahme','revisionsunterlagen','abos','chat']);
+    ['ausschreibung','regierapport','goodel','abnahme','revisionsunterlagen','planablage','abos','chat']);
   await r.ctx.close();
 }
 
@@ -133,7 +133,7 @@ console.log('■ Layer 2 — Panel-DOM (Monteur) + Hinweiszeile');
   ok(!txt.includes('Ausschreibung & Vergabe'), 'Panel zeigt KEINE Ausschreibungs-Gruppe');
   ok(await page.$('#gnPrefHint') != null, 'Hinweiszeile «nur Module mit Zugriff» vorhanden');
   const sektionen = await page.$$eval('#gnPrefList > div', els => els.filter(e => e.id !== 'gnPrefHint').length);
-  ok(sektionen === 14, 'genau 14 Gruppen-Sektionen gerendert (' + sektionen + ')');
+  ok(sektionen === 15, 'genau 15 Gruppen-Sektionen gerendert (' + sektionen + ')');
   await ctx.close();
 }
 
@@ -145,7 +145,7 @@ console.log('■ Layer 2 — Admin-Panel unverändert (alle Gruppen, keine Hinwe
   await page.evaluate(() => _gnHooks.openSettings());
   await page.waitForSelector('#gnSettingsOverlay', { timeout: 5000 });
   const sektionen = await page.$$eval('#gnPrefList > div', els => els.filter(e => e.id !== 'gnPrefHint').length);
-  ok(sektionen === 23, 'Admin: alle 23 Gruppen-Sektionen (' + sektionen + ')');
+  ok(sektionen === 24, 'Admin: alle 24 Gruppen-Sektionen (' + sektionen + ')');
   ok(await page.$('#gnPrefHint') == null, 'keine Hinweiszeile, wenn nichts ausgeblendet ist');
   await ctx.close();
 }
