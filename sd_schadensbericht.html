@@ -919,12 +919,26 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
             <option value="kein">Kein Zähler</option>
             <option value="stunden" selected>Stunden-Zähler (h)</option>
             <option value="kwh">kWh-Zähler (direkt)</option>
+            <option value="laufzeit">Ohne Zähler — Laufzeit (Tage × h/Tag)</option>
           </select>
         </div>
       </div>
       <div class="fg" id="devStartWrap">
         <label class="dlg-lbl" id="devStartLabel">Zählerstand Start (h)</label>
         <input type="text" inputmode="decimal" class="dlg-inp" id="devStart" placeholder="0" onblur="fixLeadingZero(this)">
+      </div>
+      <div id="devLaufzeitWrap" style="display:none">
+        <div class="fg-row">
+          <div class="fg">
+            <label class="dlg-lbl">Stunden total (h)</label>
+            <input type="text" inputmode="decimal" class="dlg-inp" id="devStdTotal" placeholder="leer = Tage × h/Tag" onblur="fixLeadingZero(this)">
+          </div>
+          <div class="fg">
+            <label class="dlg-lbl">Laufzeit pro Tag (h/Tag)</label>
+            <input type="text" inputmode="decimal" class="dlg-inp" id="devStdProTag" placeholder="z.B. 24" onblur="fixLeadingZero(this)">
+          </div>
+        </div>
+        <div style="font-size:11px;color:#6b7280;margin-top:4px">Für Geräte ohne Zähler (z.B. Ventilator): Stunden total direkt eintragen ODER leer lassen — dann rechnet GEMA Tage (aus Start-/Enddatum) × h/Tag. Stromverbrauch = Stunden × Leistung (kW).</div>
       </div>
       <input type="hidden" id="devLinkedTgId" value="">
     </div>
@@ -1376,10 +1390,15 @@ function sdGeraetEnde(g){
 //   - 'kwh':     kWh = Ende - Start          (direkt vom Verbrauchszaehler)
 //   - 'kein':    null                        (keine Zaehlerwerte)
 // Backwards-Compat: fehlendes zaehlerTyp wird als 'stunden' interpretiert.
-function sdComputeKwh(g){
+function sdComputeKwh(g, tr){
   if(!g) return null;
   var typ = g.zaehlerTyp || 'stunden';
   if(typ === 'kein') return null;
+  if(typ === 'laufzeit'){
+    // Ohne Zaehler (z.B. Ventilator): kWh = Stunden × Leistung
+    var _h = sdComputeHours(g, tr);
+    return (_h != null && g.kw) ? _h * parseFloat(g.kw) : null;
+  }
   if(g.zaehlerEnde == null || g.zaehlerEnde === '') return null;
   var diff = (parseFloat(g.zaehlerEnde)||0) - (parseFloat(g.zaehlerStart)||0);
   if(diff < 0) diff = 0;
@@ -1390,9 +1409,16 @@ function sdComputeKwh(g){
 
 // Betriebsstunden pro Geraet. Nur sinnvoll bei zaehlerTyp='stunden' —
 // bei 'kwh' liefert der Zaehler den Verbrauch ohne Stunden-Information.
-function sdComputeHours(g){
+function sdComputeHours(g, tr){
   if(!g) return null;
   var typ = g.zaehlerTyp || 'stunden';
+  if(typ === 'laufzeit'){
+    // Stunden total manuell ODER Tage (aus Start/Ende) × Laufzeit pro Tag
+    if(g.stundenTotal != null && g.stundenTotal !== '') return Math.max(0, parseFloat(g.stundenTotal) || 0);
+    var _t = sdGeraetTage(g, tr);
+    var _pt = parseFloat(g.stundenProTag);
+    return (_t != null && _pt > 0) ? _t * _pt : null;
+  }
   if(typ !== 'stunden') return null;
   if(g.zaehlerEnde == null || g.zaehlerEnde === '') return null;
   var diff = (parseFloat(g.zaehlerEnde)||0) - (parseFloat(g.zaehlerStart)||0);
@@ -2332,13 +2358,13 @@ function _sdMpBlock(s, area, areaIdx, editable, canEdit, phase){
 // ── Eine Geräte-Karte (echte Index-Referenz in s.trocknung.geraete) ──
 function _sdDevCardOne(s, gi, editable, canEdit){
   var g = (s.trocknung.geraete || [])[gi]; if(!g) return '';
-  var kwhVal = sdComputeKwh(g);
+  var kwhVal = sdComputeKwh(g, s.trocknung);
   var kwh = kwhVal == null ? '—' : kwhVal.toFixed(1);
   var tage = sdGeraetTage(g, s.trocknung);
   var zTyp = g.zaehlerTyp || 'stunden';
   var zEinheit = zTyp === 'kwh' ? 'kWh' : (zTyp === 'kein' ? '' : 'h');
-  var zBadge = zTyp === 'kwh' ? '⚡ kWh' : (zTyp === 'kein' ? '–' : '⏱ h');
-  var hasZaehler = zTyp !== 'kein';
+  var zBadge = zTyp === 'kwh' ? '⚡ kWh' : (zTyp === 'laufzeit' ? '🕒 Laufzeit' : (zTyp === 'kein' ? '–' : '⏱ h'));
+  var hasZaehler = (zTyp === 'stunden' || zTyp === 'kwh');
   var h = '<div class="dev-card">';
   h += '<div class="dev-card-head"><div class="dev-card-name">⚡ ' + esc(g.name) + (g.tgDeviceId ? ' <span style="font-size:10px;color:#7c3aed;background:#f5f3ff;padding:1px 6px;border-radius:10px;font-weight:800;vertical-align:1px">QR</span>' : '') + '</div>';
   if(canEdit && !g.tgDeviceId) h += '<button class="btn-del-icon" title="Gerät bearbeiten" style="margin-right:2px" onclick="sdOpenDevEdit(\'' + s.id + '\',' + gi + ')">✏️</button>';
@@ -2346,13 +2372,27 @@ function _sdDevCardOne(s, gi, editable, canEdit){
   h += '</div><div class="dev-card-grid">';
   h += _sdDcRow('Leistung', (g.kw ? esc(String(g.kw)) + ' kW' : '—'));
   h += _sdDcRow('Zähler', zBadge);
-  h += _sdDcRow('Start', hasZaehler ? (esc(String(g.zaehlerStart != null ? g.zaehlerStart : '0')) + (zEinheit ? ' ' + zEinheit : '')) : '—');
   var editCls = editable ? 'dc-edit' : '';
+  if(zTyp === 'laufzeit'){
+    var lzHrs = sdComputeHours(g, s.trocknung);
+    var lzTot = (g.stundenTotal != null && g.stundenTotal !== '') ? g.stundenTotal : '';
+    var lzPt = (g.stundenProTag != null && g.stundenProTag !== '') ? g.stundenProTag : '';
+    if(editable){
+      h += _sdDcRow('h total', '<input type="text" inputmode="decimal" value="' + lzTot + '" placeholder="auto" style="text-align:left" onblur="fixLeadingZero(this);sdUpdateDevLaufzeit(\'' + s.id + '\',' + gi + ',\'stundenTotal\',this.value)">', editCls);
+      h += _sdDcRow('h/Tag', '<input type="text" inputmode="decimal" value="' + lzPt + '" placeholder="z.B. 24" style="text-align:left" onblur="fixLeadingZero(this);sdUpdateDevLaufzeit(\'' + s.id + '\',' + gi + ',\'stundenProTag\',this.value)">', editCls);
+    } else {
+      h += _sdDcRow('h total', lzTot !== '' ? esc(String(lzTot)) + ' h' : '—');
+      h += _sdDcRow('h/Tag', lzPt !== '' ? esc(String(lzPt)) + ' h' : '—');
+    }
+    h += _sdDcRow('Stunden', lzHrs != null ? ((Math.round(lzHrs * 10) / 10) + ' h' + (lzTot !== '' ? '' : ' <span style="color:var(--mut);font-size:10px">(Tage × h/Tag)</span>')) : '—');
+  } else {
+  h += _sdDcRow('Start', hasZaehler ? (esc(String(g.zaehlerStart != null ? g.zaehlerStart : '0')) + (zEinheit ? ' ' + zEinheit : '')) : '—');
   var endeHtml;
   if(editable && hasZaehler) endeHtml = '<input type="text" inputmode="decimal" value="' + (g.zaehlerEnde || '') + '" placeholder="—" style="text-align:left" onblur="fixLeadingZero(this);sdUpdateDevEnd(\'' + s.id + '\',' + gi + ',this.value)">';
   else if(hasZaehler) endeHtml = esc(String(g.zaehlerEnde || '—'));
   else endeHtml = '—';
   h += _sdDcRow('Ende' + (zEinheit ? ' (' + zEinheit + ')' : ''), endeHtml, editable && hasZaehler ? editCls : '');
+  }
   var startIso = g.eingesetztAm || (g.einsatz && g.einsatz.eingesetztAm) || '';
   var startAmHtml;
   if(editable){
@@ -2512,14 +2552,14 @@ function _sdDcRow(lbl, valHtml, cls){
 function _sdGeraeteCardsHtml(s, tr, editable, canEdit){
   var h = '';
   tr.geraete.forEach(function(g, gi){
-    var kwhVal = sdComputeKwh(g);
+    var kwhVal = sdComputeKwh(g, tr);
     var kwh = kwhVal == null ? '—' : kwhVal.toFixed(1);
     var tage = sdGeraetTage(g, tr);
     var tageStr = tage == null ? '—' : (sdGeraetEnde(g) ? String(tage) : (tage + '⏵'));
     var zTyp = g.zaehlerTyp || 'stunden';
     var zEinheit = zTyp === 'kwh' ? 'kWh' : (zTyp === 'kein' ? '' : 'h');
-    var zBadge = zTyp === 'kwh' ? '⚡ kWh' : (zTyp === 'kein' ? '–' : '⏱ h');
-    var hasZaehler = zTyp !== 'kein';
+    var zBadge = zTyp === 'kwh' ? '⚡ kWh' : (zTyp === 'laufzeit' ? '🕒 Laufzeit' : (zTyp === 'kein' ? '–' : '⏱ h'));
+    var hasZaehler = (zTyp === 'stunden' || zTyp === 'kwh');
     h += '<div class="dev-card">';
     h += '<div class="dev-card-head"><div class="dev-card-name">⚡ ' + esc(g.name) + '</div>';
     if (canEdit && !g.tgDeviceId) h += '<button class="btn-del-icon" title="Gerät bearbeiten" style="margin-right:2px" onclick="sdOpenDevEdit(\'' + s.id + '\',' + gi + ')">✏️</button>';
@@ -2529,14 +2569,28 @@ function _sdGeraeteCardsHtml(s, tr, editable, canEdit){
     h += _sdDcRow('Raum', esc(g.raum || '—'));
     h += _sdDcRow('Leistung', (g.kw ? esc(String(g.kw)) + ' kW' : '—'));
     h += _sdDcRow('Zähler', zBadge);
-    h += _sdDcRow('Start', hasZaehler ? (esc(String(g.zaehlerStart != null ? g.zaehlerStart : '0')) + (zEinheit ? ' ' + zEinheit : '')) : '—');
     var editCls = editable ? 'dc-edit' : '';
+    if (zTyp === 'laufzeit') {
+      var lzHrs = sdComputeHours(g, tr);
+      var lzTot = (g.stundenTotal != null && g.stundenTotal !== '') ? g.stundenTotal : '';
+      var lzPt = (g.stundenProTag != null && g.stundenProTag !== '') ? g.stundenProTag : '';
+      if (editable) {
+        h += _sdDcRow('h total', '<input type="text" inputmode="decimal" value="' + lzTot + '" placeholder="auto" style="text-align:left" onblur="fixLeadingZero(this);sdUpdateDevLaufzeit(\'' + s.id + '\',' + gi + ',\'stundenTotal\',this.value)">', editCls);
+        h += _sdDcRow('h/Tag', '<input type="text" inputmode="decimal" value="' + lzPt + '" placeholder="z.B. 24" style="text-align:left" onblur="fixLeadingZero(this);sdUpdateDevLaufzeit(\'' + s.id + '\',' + gi + ',\'stundenProTag\',this.value)">', editCls);
+      } else {
+        h += _sdDcRow('h total', lzTot !== '' ? esc(String(lzTot)) + ' h' : '—');
+        h += _sdDcRow('h/Tag', lzPt !== '' ? esc(String(lzPt)) + ' h' : '—');
+      }
+      h += _sdDcRow('Stunden', lzHrs != null ? ((Math.round(lzHrs * 10) / 10) + ' h' + (lzTot !== '' ? '' : ' <span style="color:var(--mut);font-size:10px">(Tage × h/Tag)</span>')) : '—');
+    } else {
+    h += _sdDcRow('Start', hasZaehler ? (esc(String(g.zaehlerStart != null ? g.zaehlerStart : '0')) + (zEinheit ? ' ' + zEinheit : '')) : '—');
     var endeHtml;
     if (editable && hasZaehler) {
       endeHtml = '<input type="text" inputmode="decimal" value="' + (g.zaehlerEnde || '') + '" placeholder="—" style="text-align:left" onblur="fixLeadingZero(this);sdUpdateDevEnd(\'' + s.id + '\',' + gi + ',this.value)">';
     } else if (hasZaehler) { endeHtml = esc(String(g.zaehlerEnde || '—')); }
     else { endeHtml = '—'; }
     h += _sdDcRow('Ende' + (zEinheit ? ' (' + zEinheit + ')' : ''), endeHtml, editable && hasZaehler ? editCls : '');
+    }
     var startIso = g.eingesetztAm || (g.einsatz && g.einsatz.eingesetztAm) || '';
     var startAmHtml;
     if (editable) {
@@ -2596,7 +2650,7 @@ function sdRenderTrocknung(s, canEdit, canMeas) {
   (function(){
     var ger = tr.geraete || [];
     var mpAll = (tr.messpunkte || []).filter(function(m){ return (m.messungen || []).length; });
-    var totalKwh = 0; ger.forEach(function(g){ var v = sdComputeKwh(g); if(v != null) totalKwh += v; });
+    var totalKwh = 0; ger.forEach(function(g){ var v = sdComputeKwh(g, tr); if(v != null) totalKwh += v; });
     var chartImg = null;
     try { if(mpAll.length) chartImg = _sdRenderTrendChart(mpAll); } catch(e){}
     if((ger.length && totalKwh > 0) || chartImg){
@@ -2791,6 +2845,16 @@ function sdDevDateBlur(id){
   var s = sdGetById(id); if (s) sdRenderDetail(s);
 }
 window.sdDevDateBlur = sdDevDateBlur;
+// Laufzeit-Felder (h total / h pro Tag) direkt auf der Karte pflegen.
+function sdUpdateDevLaufzeit(id, idx, feld, val) {
+  var s = sdGetById(id); if (!s || !s.trocknung) return;
+  var g = s.trocknung.geraete[idx]; if (!g) return;
+  val = String(val == null ? '' : val).trim();
+  g[feld] = (val === '') ? null : (parseFloat(val) || 0);
+  sdSave();
+  sdRenderDetail(s);
+}
+window.sdUpdateDevLaufzeit = sdUpdateDevLaufzeit;
 
 // ── MESSPUNKTE ──
 // _mpCtx: 'analyse' = Aufruf aus dem Ausgangslage-Block der Zustandsanalyse —
@@ -3070,6 +3134,8 @@ function sdOpenDevAdd(id, raumIdx) {
   document.getElementById('devName').value = '';
   document.getElementById('devKw').value = '';
   document.getElementById('devStart').value = '0';
+  document.getElementById('devStdTotal').value = '';
+  document.getElementById('devStdProTag').value = '';
   document.getElementById('devLinkedTgId').value = '';
   var typSel = document.getElementById('devZaehlerTyp');
   if(typSel){ typSel.value = 'stunden'; _sdApplyZaehlerTyp('stunden'); }
@@ -3117,6 +3183,8 @@ function sdOpenDevEdit(id, gi) {
   var typ = g.zaehlerTyp || 'stunden';
   _sdApplyZaehlerTyp(typ);
   document.getElementById('devStart').value = (g.zaehlerStart != null) ? g.zaehlerStart : '0';
+  document.getElementById('devStdTotal').value = (g.stundenTotal != null) ? g.stundenTotal : '';
+  document.getElementById('devStdProTag').value = (g.stundenProTag != null) ? g.stundenProTag : '';
   sdRenderDevRaumSelect(id, g.raum || '');
 }
 window.sdOpenDevEdit = sdOpenDevEdit;
@@ -3161,9 +3229,11 @@ function _sdApplyZaehlerTyp(typ){
   var wrap = document.getElementById('devStartWrap');
   var label = document.getElementById('devStartLabel');
   var input = document.getElementById('devStart');
-  if(typ === 'kein'){
+  var lz = document.getElementById('devLaufzeitWrap');
+  if(lz) lz.style.display = (typ === 'laufzeit') ? '' : 'none';
+  if(typ === 'kein' || typ === 'laufzeit'){
     if(wrap) wrap.style.display = 'none';
-    if(input) input.value = '';
+    if(input && typ === 'kein') input.value = '';
   } else {
     if(wrap) wrap.style.display = '';
     if(label) label.textContent = typ === 'kwh' ? 'Zählerstand Start (kWh)' : 'Zählerstand Start (h)';
@@ -3383,7 +3453,10 @@ function sdAddGeraet() {
   var kw = parseFloat(document.getElementById('devKw').value) || 0;
   var zTypEl = document.getElementById('devZaehlerTyp');
   var zaehlerTyp = (zTypEl && zTypEl.value) || 'stunden';
-  var zaehlerStart = zaehlerTyp === 'kein' ? null : (parseFloat(document.getElementById('devStart').value) || 0);
+  var zaehlerStart = (zaehlerTyp === 'kein' || zaehlerTyp === 'laufzeit') ? null : (parseFloat(document.getElementById('devStart').value) || 0);
+  var _lzNum = function(elId){ var v = String((document.getElementById(elId)||{}).value || '').trim(); if(v === '') return null; var n = parseFloat(v); return isNaN(n) ? null : n; };
+  var stundenTotal = zaehlerTyp === 'laufzeit' ? _lzNum('devStdTotal') : null;
+  var stundenProTag = zaehlerTyp === 'laufzeit' ? _lzNum('devStdProTag') : null;
   var editIdx = document.getElementById('devAddModal').dataset.editIdx;
   if (editIdx !== '' && editIdx != null) {
     // Edit-Modus: bestehendes Geraet aktualisieren — Zaehler-Ende,
@@ -3392,7 +3465,8 @@ function sdAddGeraet() {
     if (!g) return;
     g.name = name; g.raum = raum; g.kw = kw;
     g.zaehlerTyp = zaehlerTyp; g.zaehlerStart = zaehlerStart;
-    if (zaehlerTyp === 'kein') g.zaehlerEnde = null;
+    g.stundenTotal = stundenTotal; g.stundenProTag = stundenProTag;
+    if (zaehlerTyp === 'kein' || zaehlerTyp === 'laufzeit') g.zaehlerEnde = null;
     sdSave();
     document.getElementById('devAddModal').classList.add('hidden');
     sdRenderDetail(s);
@@ -3406,6 +3480,8 @@ function sdAddGeraet() {
     zaehlerTyp: zaehlerTyp,
     zaehlerStart: zaehlerStart,
     zaehlerEnde: null,
+    stundenTotal: stundenTotal,
+    stundenProTag: stundenProTag,
     eingesetztAm: sdToday(),
     entferntAm: null,
     tgDeviceId: linkedTgId || null
@@ -3472,7 +3548,7 @@ function sdRenderAbschluss(s, canEdit, canMeas) {
   if (tr.geraete && tr.geraete.length) {
     var totalKwh = 0;
     tr.geraete.forEach(function(g) {
-      var v = sdComputeKwh(g);
+      var v = sdComputeKwh(g, tr);
       if(v != null) totalKwh += v;
     });
     h += '<div style="margin-bottom:12px"><label style="font-size:11px;font-weight:800;text-transform:uppercase;color:var(--mut)">Stromverbrauch (Trocknung)</label>';
@@ -4539,12 +4615,12 @@ function sdExportPdf(id){
           if(g.kwhTotal != null){
             kwh = g.kwhTotal;
           } else {
-            kwh = sdComputeKwh(g);
+            kwh = sdComputeKwh(g, tr);
           }
           if(g.betriebsstunden != null){
             hours = g.betriebsstunden;
           } else {
-            hours = sdComputeHours(g);
+            hours = sdComputeHours(g, tr);
           }
           if(kwh != null) totKwh += kwh;
           if(hours != null) totHours += hours;
@@ -4890,7 +4966,7 @@ function sdBuildReportHtml(s) {
       h += '<table><tr><th>Gerät</th><th>Raum</th><th>kW</th><th>Zähler-Typ</th><th>Start</th><th>Ende</th><th>kWh</th></tr>';
       var totalKwh = 0;
       tr.geraete.forEach(function(g) {
-        var kwhVal = sdComputeKwh(g);
+        var kwhVal = sdComputeKwh(g, tr);
         if(kwhVal != null) totalKwh += kwhVal;
         var typ = g.zaehlerTyp || 'stunden';
         var einheit = typ === 'kwh' ? 'kWh' : (typ === 'kein' ? '—' : 'h');
