@@ -511,6 +511,33 @@ body {
 .pf input[type="date"]{font-family:var(--sans,inherit);height:auto;padding:7px 10px}
 @media(max-width:700px){.project-bar{grid-template-columns:1fr}}
 input::placeholder,textarea::placeholder{color:#cbd5e1!important}
+/* ── Tankoptimierung (24-h-Profil) ── */
+.ot-wrap{overflow-x:auto;border:1px solid var(--line,#e2e8f0);border-radius:10px}
+.ot-tbl{border-collapse:collapse;font-size:11px;min-width:1280px;width:100%}
+.ot-tbl th,.ot-tbl td{border-bottom:1px solid #eef1f6;border-right:1px solid #f1f4f9;padding:3px 4px;text-align:center;white-space:nowrap}
+.ot-tbl thead th{background:#f8fafc;font-weight:800;color:#475569;font-size:10px}
+.ot-tbl .ot-lead{position:sticky;left:0;background:#fff;text-align:left;min-width:160px;max-width:200px;z-index:2;box-shadow:2px 0 0 #eef1f6}
+.ot-tbl thead .ot-lead{background:#f8fafc;z-index:3}
+.ot-h{width:44px;border:1px solid #d7dde8;border-radius:6px;padding:3px 3px;font-size:11px;text-align:right;font-family:inherit;background:#fff}
+.ot-h:focus{outline:none;border-color:#1d4ed8}
+.ot-h.warn{border-color:#dc2626;background:#fef2f2}
+.ot-ab{width:38px;border:1px solid #d7dde8;border-radius:6px;padding:3px 3px;font-size:11px;text-align:right;font-family:inherit}
+.ot-sub{font-size:10px;color:#64748b;font-weight:600}
+.ot-fill{font-weight:700;color:#0f172a;font-size:10.5px}
+td.ot-low{background:#fee2e2;color:#b91c1c;font-weight:800}
+td.ot-over{background:#fef3c7;color:#92400e;font-weight:800}
+.ot-pill{display:inline-block;padding:1px 8px;border-radius:99px;font-size:10px;font-weight:800}
+.ot-pill.ok{background:#dcfce7;color:#15803d}
+.ot-pill.bad{background:#fee2e2;color:#b91c1c}
+.ot-prodrow td{background:#eff6ff}
+.ot-prodrow .ot-lead{background:#eff6ff!important}
+.ot-kpis{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+.ot-kpi{flex:1 1 150px;border:1px solid var(--line,#e2e8f0);border-radius:10px;padding:8px 12px;background:#fff}
+.ot-kpi .l{font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.3px}
+.ot-kpi .v{font-size:17px;font-weight:800;color:#0f172a}
+.ot-kpi.good .v{color:#15803d}.ot-kpi.warnk .v{color:#b45309}.ot-kpi.bad .v{color:#b91c1c}
+.ot-btn{border:1px solid #cbd5e1;background:#fff;border-radius:7px;padding:3px 8px;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit}
+.ot-btn:hover{background:#f1f5f9}
 .pf label a:hover,.fg label a:hover,.field-label a:hover{text-decoration:none!important}
 .obj-combo{display:flex;flex-direction:column;gap:4px}
 .obj-combo-row{display:flex;gap:6px;align-items:center}
@@ -746,6 +773,16 @@ function fixLeadingZero(el){
               <span class="g-result-val" id="anlageStatusText" style="font-size:12px;text-align:right;max-width:200px;">–</span>
             </div>
             <div class="g-result-row">
+              <span class="g-result-lbl">Reinwassertank zwingend</span>
+              <span class="g-result-val" id="tankZwingend">–</span>
+<span class="frml">JA, wenn V̇<sub>B</sub> ≥ V<sub>A</sub> (Stundenbedarf ≥ Stundenleistung)</span>
+            </div>
+            <div class="g-result-row">
+              <span class="g-result-lbl">Online-Anlage möglich</span>
+              <span class="g-result-val" id="onlineMoeglich">–</span>
+<span class="frml">JA, wenn V<sub>A</sub>·t ≥ V<sub>B,d</sub> und V<sub>A</sub> &gt; V̇<sub>B</sub></span>
+            </div>
+            <div class="g-result-row">
               <span class="g-result-lbl">Volumenstrom Osmose VO</span>
               <span class="g-result-val big" id="voLh">0</span>
 <span class="frml">V̇<sub>O</sub> = Permeatleistung Anlage&nbsp;&nbsp;[l/h]</span>
@@ -808,6 +845,56 @@ function fixLeadingZero(el){
 
     </div>
   </div>
+
+  <!-- Sektion 3: Tankoptimierung (24-h-Profil) — Offline-Betrieb mit Tank -->
+  <div class="g-section" id="tankoptSection" style="display:none;margin-top:18px">
+    <div class="g-section-hd">
+      <div class="g-section-num">3</div>
+      <div>
+        <div class="g-section-title">Tankoptimierung — 24-h-Profil</div>
+        <div class="g-section-sub">Offline-Betrieb mit Reinwassertank: Bedarf &amp; Produktion pro Stunde verteilen · Tankfüllstand prüfen</div>
+      </div>
+    </div>
+    <div class="g-section-bd">
+      <div class="g-hint" id="otOnlineHint" style="display:none;margin:0">
+        ✅ Online-Anlage möglich (Anlageleistung ≥ Spitzenbedarf) — eine Tankoptimierung ist nicht erforderlich.
+        Sie wird aktiv, sobald ein Reinwassertank zwingend ist (V̇<sub>B</sub> ≥ V<sub>A</sub>) oder eine Tankgrösse erfasst wird.
+      </div>
+      <div id="otBody" style="display:none">
+        <div class="ot-kpis">
+          <div class="ot-kpi"><div class="l">Anlageleistung VA</div><div class="v" id="otVa">0</div><div class="ot-sub">l/h</div></div>
+          <div class="ot-kpi"><div class="l">Laufzeit</div><div class="v" id="otLaufzeit">0</div><div class="ot-sub">h/Tag</div></div>
+          <div class="ot-kpi"><div class="l">Produzierbar (VA × Laufzeit)</div><div class="v" id="otProduzierbar">0</div><div class="ot-sub">l/Tag</div></div>
+          <div class="ot-kpi"><div class="l">Produktion verteilt Σ</div><div class="v" id="otProdSum">0</div><div class="ot-sub">l/Tag</div></div>
+          <div class="ot-kpi" id="otDiffKpi"><div class="l">Differenz zu vergeben</div><div class="v" id="otDiff">0</div><div class="ot-sub">l</div></div>
+        </div>
+        <div class="ot-wrap"><table class="ot-tbl" id="otTbl"></table></div>
+        <p class="g-hint" style="margin-top:8px">
+          Liter je Stundenfenster eintragen (00 = 00–01 Uhr …). Zeilen-Warnung «zu viel», wenn mehr verteilt als das Tages-Soll;
+          Füllstand-Warnung rot unter 50 l Reserve, amber über der optimierten Tankgrösse (Tank läuft über). Startfüllung um 00:00 Uhr = optimierte Tankgrösse.
+        </p>
+        <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end;margin-top:12px">
+          <div class="g-field" style="max-width:240px">
+            <label class="g-label">Optimierte Tankgrösse (Startfüllung)</label>
+            <div class="g-inp-group">
+              <input class="g-inp" type="text" inputmode="decimal" id="otOptTank" oninput="otOptChanged()" onblur="fixLeadingZero(this)"/>
+              <span class="g-inp-unit">l</span>
+            </div>
+            <span class="g-hint" id="otMinHint">min. erforderlich: –</span>
+          </div>
+          <button class="g-btn sm no-print" type="button" onclick="otVorschlag()">↧ Vorschlag übernehmen</button>
+          <button class="g-btn sm no-print" type="button" onclick="otUebernehmen()">→ als gewählte Tankgrösse übernehmen</button>
+          <div class="g-hint" id="otTankVergleich" style="margin-left:auto"></div>
+        </div>
+        <div style="margin-top:14px">
+          <div style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px">Tankfüllstand über den Tag</div>
+          <canvas id="otCanvas" width="1040" height="230" style="width:100%;max-width:100%;border:1px solid #e2e8f0;border-radius:10px;background:#ffffff"></canvas>
+          <div class="g-hint" style="margin-top:4px">━ Füllstand · ┄ Tankgrösse (Überlauf-Grenze) · ┄ Reserve 50 l («zu wenig», wie Vorlage)</div>
+        </div>
+      </div>
+      <textarea id="os_tankopt" style="display:none"></textarea>
+    </div>
+  </div>
 </div>
 
 <!-- Produktwahl nach Berechnung -->
@@ -842,6 +929,64 @@ function fixLeadingZero(el){
 </div>
 
 <script>
+/*ENGINE-START*/
+// ── Tankoptimierung 24-h-Profil (Excel «Bedarf-Tankoptimierung») ──────
+// DOM-frei, Node-testbar (scripts/osmose_tankopt_test.mjs).
+(function(w){
+  'use strict';
+  // Verteilt einen Stundenwert ab Startstunde über n Stunden (Bruchteil in
+  // der letzten Stunde), zirkulär über Mitternacht. → Array[24] in Litern.
+  function osmVerteil24(wertProStunde, stunden, ab){
+    var arr = []; for(var i = 0; i < 24; i++) arr.push(0);
+    wertProStunde = Number(wertProStunde) || 0;
+    stunden = Number(stunden) || 0;
+    ab = Math.min(23, Math.max(0, Math.round(Number(ab) || 0)));
+    if(wertProStunde <= 0 || stunden <= 0) return arr;
+    if(stunden > 24) stunden = 24;
+    var voll = Math.floor(stunden), rest = stunden - voll;
+    for(var k = 0; k < voll; k++) arr[(ab + k) % 24] += wertProStunde;
+    if(rest > 1e-9) arr[(ab + voll) % 24] += wertProStunde * rest;
+    return arr;
+  }
+  // Tanksimulation. KORRIGIERT (User-Entscheid 07/2026): JEDE Stunde zählt
+  // im Füllstand — auch 00–01. Die Excel-Vorlage liess die Produktion der
+  // ersten Stunde aus dem Füllstand fallen (D26=D23); mit prod[0]=0 ist
+  // die Rechnung zellidentisch mit der Vorlage (Node-Test belegt beides).
+  // Startfüllung um 00:00 = optimierte Tankgrösse (Blatt-Logik: der Tag
+  // beginnt mit vollem Tank — «Liter vor Beginn des Permeatverbrauches»).
+  function osmTankProfil(bedarfRows, prod, startTank){
+    var bedarfH = [], kumBedarf = [], kumProd = [], fuellstand = [];
+    var kb = 0, kp = 0, minStand = Infinity, maxStand = -Infinity;
+    for(var h = 0; h < 24; h++){
+      var b = 0;
+      (bedarfRows || []).forEach(function(r){ b += Number((r || [])[h]) || 0; });
+      bedarfH.push(b);
+      kb += b; kumBedarf.push(kb);
+      kp += Number((prod || [])[h]) || 0; kumProd.push(kp);
+      var f = (Number(startTank) || 0) + kp - kb;
+      fuellstand.push(f);
+      if(f < minStand) minStand = f;
+      if(f > maxStand) maxStand = f;
+    }
+    return { bedarfH: bedarfH, kumBedarf: kumBedarf, kumProd: kumProd, fuellstand: fuellstand,
+             minStand: minStand === Infinity ? 0 : minStand, maxStand: maxStand === -Infinity ? 0 : maxStand };
+  }
+  // Minimal nötige Startfüllung (= optimierte Tankgrösse), damit der
+  // Füllstand nie unter die Reserve fällt (Vorlage warnt < 50 l):
+  // Reserve + grösstes kumuliertes Defizit (Bedarf − Produktion).
+  function osmTankMin(bedarfRows, prod, reserve){
+    reserve = (reserve == null) ? 50 : (Number(reserve) || 0);
+    var p = osmTankProfil(bedarfRows, prod, 0);
+    var maxDefizit = 0;
+    for(var h = 0; h < 24; h++){
+      var d = p.kumBedarf[h] - p.kumProd[h];
+      if(d > maxDefizit) maxDefizit = d;
+    }
+    return reserve + maxDefizit;
+  }
+  w.osmVerteil24 = osmVerteil24; w.osmTankProfil = osmTankProfil; w.osmTankMin = osmTankMin;
+})(typeof window !== 'undefined' ? window : globalThis);
+/*ENGINE-END*/
 
     function parseNumber(value) {
         if (value === undefined || value === null) return 0;
@@ -1042,6 +1187,21 @@ function fixLeadingZero(el){
         document.getElementById("vnSelected").textContent = formatNumber(vnSelected, 1);
         document.getElementById("vnStatusText").textContent = vnStatus;
 
+        // Excel-Checks AC49/AC51: Reinwassertank zwingend + Online-Anlage
+        // AC49 = IF(AC24>=AC42,"JA","NEIN") · AC51 = IF(AND(AC43>=AC38,AC42>AC24),"JA","NEIN")
+        var zwingend = (va > 0 && vb > 0) ? (vb >= va ? 'JA' : 'NEIN') : '–';
+        var onlineOk = (va > 0 && dailyDemand > 0) ? ((producedPerDay >= dailyDemand && va > vb) ? 'JA' : 'NEIN') : '–';
+        var elZw = document.getElementById('tankZwingend');
+        var elOn = document.getElementById('onlineMoeglich');
+        if(elZw){ elZw.textContent = zwingend; elZw.style.color = zwingend === 'JA' ? '#b45309' : ''; }
+        if(elOn){ elOn.textContent = onlineOk; elOn.style.color = onlineOk === 'NEIN' ? '#b45309' : (onlineOk === 'JA' ? '#15803d' : ''); }
+
+        // 24-h-Tankoptimierung nachziehen (Sichtbarkeit + Neuberechnung)
+        try {
+          tankoptSync({ vb: vb, va: va, hours: hours, dailyDemand: dailyDemand,
+                        tankSelected: tankSelectedInput, producedPerDay: producedPerDay });
+        } catch(e) {}
+
         // Produktkatalog: show Anlagen-Wahl if valid
         if(typeof window._pkAfterRecalc==='function') window._pkAfterRecalc(voLh, phiPercent);
 
@@ -1071,6 +1231,348 @@ function fixLeadingZero(el){
           }
         } catch(e) {}
     }
+
+    // ══ Tankoptimierung (24-h-Profil) — UI-Schicht ════════════════════
+    // Bedarfszeilen spiegeln die Verbraucher-Tabelle (Key = Name, damit
+    // die Stundenwerte LU-Reloads überleben); Produktion + optimierte
+    // Tankgrösse eigenständig. Persistenz als JSON im hidden Textarea
+    // #os_tankopt (Muster #zk_rows) via GemaAutoSave 'osmose'.
+    var OT = { bedarf: {}, ab: {}, prod: [], abProd: 6, optTank: '' };
+    (function(){ for(var i = 0; i < 24; i++) OT.prod.push(0); })();
+    var _otInternal = false, _otTouched = false, _otSig = null, _otCtx = null;
+
+    function otEsc(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+    function otKey(name, idx){ var n = String(name || '').trim().toLowerCase(); return n ? ('n:' + n) : ('i:' + idx); }
+    function otRound(v){ return Math.round((Number(v) || 0) * 100) / 100; }
+    function otSet(id, txt){ var el = document.getElementById(id); if(el) el.textContent = txt; }
+
+    function otConsumers(){
+      var out = [], tbody = document.getElementById('consumerBody');
+      if(!tbody) return out;
+      for(var i = 0; i < tbody.rows.length; i++){
+        var r = tbody.rows[i];
+        var name = (r.cells[0].querySelector('input') || {}).value || '';
+        var flow = parseNumber((r.cells[1].querySelector('input') || {}).value);
+        var hrs = parseNumber((r.cells[2].querySelector('input') || {}).value);
+        out.push({ name: name, flow: flow, hours: hrs, soll: flow * hrs, key: otKey(name, i) });
+      }
+      return out;
+    }
+    function otArr(key){
+      if(!OT.bedarf[key]){ OT.bedarf[key] = []; }
+      var a = OT.bedarf[key];
+      while(a.length < 24) a.push(0);
+      return a;
+    }
+
+    function tankoptSync(ctx){
+      _otCtx = ctx;
+      var sec = document.getElementById('tankoptSection'); if(!sec) return;
+      var anyData = (ctx.va > 0) || (ctx.vb > 0) || (ctx.dailyDemand > 0);
+      // Sichtbarkeits-Regel (User-Entscheid): automatisch bei Offline/Tank —
+      // Tank zwingend (VB >= VA) ODER eine Tankgrösse ist erfasst.
+      var relevant = (ctx.va > 0 && ctx.vb > 0 && ctx.vb >= ctx.va) || (ctx.tankSelected > 0);
+      if(!anyData){ sec.style.display = 'none'; return; }
+      sec.style.display = '';
+      document.getElementById('otOnlineHint').style.display = relevant ? 'none' : '';
+      document.getElementById('otBody').style.display = relevant ? '' : 'none';
+      if(!relevant) return;
+      var cons = otConsumers();
+      var sig = cons.map(function(c){ return c.key; }).join('|');
+      if(sig !== _otSig){ _otSig = sig; otBuildTable(cons); }
+      otUpdate();
+    }
+
+    function otBuildTable(cons){
+      var t = document.getElementById('otTbl'); if(!t) return;
+      var h = '<thead><tr><th class="ot-lead">Verbraucher</th><th class="no-print" title="Startstunde für Auto-Verteilen">ab h</th>';
+      for(var i = 0; i < 24; i++) h += '<th>' + String(i).padStart(2, '0') + '</th>';
+      h += '<th>Σ / Soll [l]</th><th>Status</th></tr></thead><tbody>';
+      cons.forEach(function(c, ci){
+        var arr = otArr(c.key);
+        h += '<tr data-key="' + otEsc(c.key) + '"><td class="ot-lead"><b>' + otEsc(c.name || ('Verbraucher ' + (ci + 1))) + '</b><div class="ot-sub" data-sub></div></td>';
+        h += '<td class="no-print"><input class="ot-ab" type="text" inputmode="numeric" value="' + (OT.ab[c.key] != null ? OT.ab[c.key] : 6) + '" onchange="otAbChanged(this,\'' + otEsc(c.key) + '\')"/> <button class="ot-btn" type="button" title="Tages-Soll ab Startstunde über die Betriebszeit verteilen" onclick="otVerteileBedarf(\'' + otEsc(c.key) + '\')">⇆</button></td>';
+        for(var hh = 0; hh < 24; hh++){
+          h += '<td><input class="ot-h" type="text" inputmode="decimal" data-kind="b" data-key="' + otEsc(c.key) + '" data-h="' + hh + '" value="' + (arr[hh] ? otRound(arr[hh]) : '') + '" oninput="otCellInput(this)" onblur="fixLeadingZero(this)"/></td>';
+        }
+        h += '<td class="ot-sub" data-sum></td><td data-warn></td></tr>';
+      });
+      h += '<tr><td class="ot-lead"><b>Total Permeatbedarf</b><div class="ot-sub">Liter je Stunde</div></td><td class="no-print"></td>';
+      for(var b = 0; b < 24; b++) h += '<td class="ot-sub" data-bh="' + b + '"></td>';
+      h += '<td class="ot-sub" data-bsum></td><td></td></tr>';
+      h += '<tr class="ot-prodrow"><td class="ot-lead"><b>Permeatproduktion</b><div class="ot-sub">Liter je Stunde</div></td>';
+      h += '<td class="no-print"><input class="ot-ab" type="text" inputmode="numeric" id="otAbProd" value="' + (OT.abProd != null ? OT.abProd : 6) + '" onchange="otAbProdChanged(this)"/> <button class="ot-btn" type="button" title="Anlageleistung × Laufzeit ab Startstunde einfüllen" onclick="otVerteileProd()">⇆</button></td>';
+      for(var p = 0; p < 24; p++) h += '<td><input class="ot-h" type="text" inputmode="decimal" data-kind="p" data-h="' + p + '" value="' + (OT.prod[p] ? otRound(OT.prod[p]) : '') + '" oninput="otCellInput(this)" onblur="fixLeadingZero(this)"/></td>';
+      h += '<td class="ot-sub" data-psum></td><td data-pwarn></td></tr>';
+      h += '<tr><td class="ot-lead"><b>Tankfüllstand</b><div class="ot-sub">Liter am Stundenende</div></td><td class="no-print"></td>';
+      for(var f = 0; f < 24; f++) h += '<td class="ot-fill" data-f="' + f + '"></td>';
+      h += '<td></td><td></td></tr></tbody>';
+      t.innerHTML = h;
+    }
+
+    window.otCellInput = function(el){
+      _otTouched = true;
+      var v = parseNumber(el.value), hh = parseInt(el.dataset.h, 10);
+      if(el.dataset.kind === 'p') OT.prod[hh] = v;
+      else otArr(el.dataset.key)[hh] = v;
+      otPersist(); otUpdate();
+    };
+    window.otAbChanged = function(el, key){
+      _otTouched = true;
+      OT.ab[key] = Math.min(23, Math.max(0, Math.round(parseNumber(el.value))));
+      el.value = OT.ab[key];
+      otPersist();
+    };
+    window.otAbProdChanged = function(el){
+      _otTouched = true;
+      OT.abProd = Math.min(23, Math.max(0, Math.round(parseNumber(el.value))));
+      el.value = OT.abProd;
+      otPersist();
+    };
+    window.otVerteileBedarf = function(key){
+      var c = otConsumers().find(function(x){ return x.key === key; });
+      if(!c) return;
+      _otTouched = true;
+      OT.bedarf[key] = osmVerteil24(c.flow, c.hours, OT.ab[key] != null ? OT.ab[key] : 6);
+      _otSig = null; otPersist(); recalc();
+    };
+    window.otVerteileProd = function(){
+      var ctx = _otCtx || {};
+      var laufzeit = (ctx.va > 0 && ctx.dailyDemand > 0) ? ctx.dailyDemand / ctx.va : 0;
+      _otTouched = true;
+      OT.prod = osmVerteil24(ctx.va, laufzeit, OT.abProd != null ? OT.abProd : 6);
+      _otSig = null; otPersist(); recalc();
+    };
+    window.otOptChanged = function(){
+      _otTouched = true;
+      OT.optTank = (document.getElementById('otOptTank') || {}).value || '';
+      otPersist(); otUpdate();
+    };
+    window.otVorschlag = function(){
+      var cons = otConsumers();
+      var rows = cons.map(function(c){ return otArr(c.key); });
+      var min = osmTankMin(rows, OT.prod);
+      var el = document.getElementById('otOptTank');
+      if(el){ el.value = Math.ceil(min); }
+      window.otOptChanged();
+    };
+    window.otUebernehmen = function(){
+      var v = parseNumber((document.getElementById('otOptTank') || {}).value);
+      if(v <= 0) return;
+      var el = document.getElementById('tankSelected');
+      if(el){ el.value = String(v); }
+      recalc();
+    };
+
+    function otUpdate(){
+      var ctx = _otCtx || {};
+      var cons = otConsumers();
+      var rows = cons.map(function(c){ return otArr(c.key); });
+      var startTank = parseNumber((document.getElementById('otOptTank') || {}).value);
+      var prof = osmTankProfil(rows, OT.prod, startTank);
+      var laufzeit = (ctx.va > 0 && ctx.dailyDemand > 0) ? ctx.dailyDemand / ctx.va : 0;
+      var produzierbar = (ctx.va || 0) * laufzeit;
+      var prodSum = 0; OT.prod.forEach(function(v){ prodSum += Number(v) || 0; });
+      var diff = prodSum - produzierbar;   // «Differenz zu vergeben» (W23)
+
+      otSet('otVa', formatNumber(ctx.va || 0, 1));
+      otSet('otLaufzeit', formatNumber(laufzeit, 2));
+      otSet('otProduzierbar', formatNumber(produzierbar, 0));
+      otSet('otProdSum', formatNumber(prodSum, 0));
+      otSet('otDiff', (diff > 0 ? '+' : '') + formatNumber(diff, 0));
+      var kpi = document.getElementById('otDiffKpi');
+      if(kpi) kpi.className = 'ot-kpi ' + (Math.abs(diff) <= 0.5 ? 'good' : (diff > 0 ? 'bad' : 'warnk'));
+
+      // Bedarfszeilen: Σ vs Soll + Status-Pill (Excel AD: «zu viel»)
+      document.querySelectorAll('#otTbl tr[data-key]').forEach(function(tr){
+        var key = tr.getAttribute('data-key');
+        var c = cons.find(function(x){ return x.key === key; }) || { flow: 0, hours: 0, soll: 0 };
+        var arr = otArr(key);
+        var sum = 0; arr.forEach(function(v){ sum += Number(v) || 0; });
+        var sub = tr.querySelector('[data-sub]');
+        if(sub) sub.textContent = formatNumber(c.flow, 1) + ' l/h · ' + formatNumber(c.hours, 1) + ' h/d';
+        var sumEl = tr.querySelector('[data-sum]');
+        if(sumEl) sumEl.textContent = formatNumber(sum, 0) + ' / ' + formatNumber(c.soll, 0);
+        var warnEl = tr.querySelector('[data-warn]');
+        if(warnEl){
+          if(sum > c.soll + 0.5) warnEl.innerHTML = '<span class="ot-pill bad">zu viel</span>';
+          else if(c.soll > 0 && Math.abs(sum - c.soll) <= 0.5) warnEl.innerHTML = '<span class="ot-pill ok">✓</span>';
+          else if(c.soll > 0 && sum < c.soll - 0.5) warnEl.innerHTML = '<span class="ot-sub">offen: ' + formatNumber(c.soll - sum, 0) + ' l</span>';
+          else warnEl.innerHTML = '';
+        }
+      });
+
+      // Σ Bedarf pro Stunde + Total
+      var bsum = 0;
+      for(var hh = 0; hh < 24; hh++){
+        var cell = document.querySelector('#otTbl [data-bh="' + hh + '"]');
+        if(cell) cell.textContent = prof.bedarfH[hh] ? formatNumber(prof.bedarfH[hh], 0) : '';
+        bsum += prof.bedarfH[hh];
+      }
+      var bsumEl = document.querySelector('#otTbl [data-bsum]');
+      if(bsumEl) bsumEl.textContent = formatNumber(bsum, 0);
+
+      // Produktion: Stundenwert > VA markieren, Σ prüfen
+      document.querySelectorAll('#otTbl input[data-kind="p"]').forEach(function(inp){
+        var v = parseNumber(inp.value);
+        inp.classList.toggle('warn', ctx.va > 0 && v > ctx.va + 0.5);
+      });
+      var psumEl = document.querySelector('#otTbl [data-psum]');
+      if(psumEl) psumEl.textContent = formatNumber(prodSum, 0);
+      var pwarnEl = document.querySelector('#otTbl [data-pwarn]');
+      if(pwarnEl) pwarnEl.innerHTML = (prodSum > produzierbar + 0.5) ? '<span class="ot-pill bad">zu viel</span>' : '';
+
+      // Füllstand-Zeile: rot < 50 l Reserve («zu wenig»), amber > Tankgrösse
+      for(var f = 0; f < 24; f++){
+        var fc = document.querySelector('#otTbl [data-f="' + f + '"]');
+        if(!fc) continue;
+        var val = prof.fuellstand[f];
+        fc.textContent = formatNumber(val, 0);
+        fc.classList.toggle('ot-low', val < 50);
+        fc.classList.toggle('ot-over', startTank > 0 && val > startTank + 0.5);
+        fc.title = val < 50 ? 'zu wenig (Reserve 50 l unterschritten)' : (startTank > 0 && val > startTank + 0.5 ? 'zu viel — Tank läuft über' : '');
+      }
+
+      // Vorschlag + Vergleich mit gewählter Tankgrösse
+      var min = osmTankMin(rows, OT.prod);
+      otSet('otMinHint', 'min. erforderlich: ' + formatNumber(min, 0) + ' l (inkl. 50 l Reserve)');
+      var vgl = document.getElementById('otTankVergleich');
+      if(vgl){
+        if(ctx.tankSelected > 0 && startTank > 0){
+          vgl.textContent = 'Gewählte Tankgrösse: ' + formatNumber(ctx.tankSelected, 0) + ' l — ' +
+            (ctx.tankSelected >= startTank ? 'deckt die optimierte Grösse ✓' : 'kleiner als optimiert (' + formatNumber(startTank, 0) + ' l)!');
+        } else if(ctx.tankSelected > 0){
+          vgl.textContent = 'Gewählte Tankgrösse: ' + formatNumber(ctx.tankSelected, 0) + ' l';
+        } else {
+          vgl.textContent = '';
+        }
+      }
+      otDrawCanvas(prof, startTank);
+    }
+
+    function otDrawCanvas(prof, startTank){
+      var c = document.getElementById('otCanvas'); if(!c || !c.getContext) return;
+      var g = c.getContext('2d'), W = c.width, H = c.height;
+      g.clearRect(0, 0, W, H);
+      g.fillStyle = '#ffffff'; g.fillRect(0, 0, W, H);
+      var pad = { l: 56, r: 14, t: 12, b: 26 };
+      var maxY = Math.max(startTank || 0, prof.maxStand, 100) * 1.12;
+      var minY = Math.min(0, prof.minStand * 1.12);
+      if(maxY === minY) maxY = minY + 1;
+      var X = function(h){ return pad.l + (W - pad.l - pad.r) * (h / 24); };
+      var Y = function(v){ return pad.t + (H - pad.t - pad.b) * (1 - (v - minY) / (maxY - minY)); };
+      // Stundenraster + Labels
+      g.strokeStyle = '#eef1f6'; g.fillStyle = '#94a3b8'; g.font = '10px DM Sans'; g.textAlign = 'center';
+      for(var h = 0; h <= 24; h += 2){
+        g.beginPath(); g.moveTo(X(h), pad.t); g.lineTo(X(h), H - pad.b); g.stroke();
+        g.fillText(String(h).padStart(2, '0'), X(h), H - 8);
+      }
+      // Nulllinie
+      g.strokeStyle = '#cbd5e1'; g.beginPath(); g.moveTo(pad.l, Y(0)); g.lineTo(W - pad.r, Y(0)); g.stroke();
+      // Y-Beschriftung
+      g.textAlign = 'right'; g.fillStyle = '#64748b';
+      [minY, 0, maxY / 2, maxY].forEach(function(v){
+        if(v < minY || v > maxY) return;
+        g.fillText(formatNumber(v, 0), pad.l - 6, Y(v) + 3);
+      });
+      // Reserve 50 l (amber gestrichelt)
+      g.strokeStyle = '#d97706'; g.setLineDash([5, 4]);
+      g.beginPath(); g.moveTo(pad.l, Y(50)); g.lineTo(W - pad.r, Y(50)); g.stroke();
+      // Tankgrösse (rot gestrichelt)
+      if(startTank > 0){
+        g.strokeStyle = '#dc2626';
+        g.beginPath(); g.moveTo(pad.l, Y(startTank)); g.lineTo(W - pad.r, Y(startTank)); g.stroke();
+      }
+      g.setLineDash([]);
+      // Füllstand-Kurve (Startpunkt 00:00 = Startfüllung, dann Stundenenden)
+      g.strokeStyle = '#1d4ed8'; g.lineWidth = 2.2;
+      g.beginPath(); g.moveTo(X(0), Y(startTank || 0));
+      for(var i = 0; i < 24; i++) g.lineTo(X(i + 1), Y(prof.fuellstand[i]));
+      g.stroke();
+      g.lineWidth = 1;
+      g.fillStyle = '#1d4ed8';
+      for(var j = 0; j < 24; j++){
+        g.beginPath(); g.arc(X(j + 1), Y(prof.fuellstand[j]), 2.4, 0, Math.PI * 2); g.fill();
+      }
+    }
+
+    // ── Persistenz (Muster #zk_rows): JSON im hidden Textarea ──────────
+    function otNormalize(st){
+      var o = { bedarf: {}, ab: {}, prod: [], abProd: 6, optTank: '' };
+      if(st && typeof st === 'object'){
+        if(st.bedarf && typeof st.bedarf === 'object'){
+          Object.keys(st.bedarf).forEach(function(k){
+            var a = Array.isArray(st.bedarf[k]) ? st.bedarf[k].slice(0, 24) : [];
+            while(a.length < 24) a.push(0);
+            o.bedarf[k] = a.map(function(v){ return Number(v) || 0; });
+          });
+        }
+        if(st.ab && typeof st.ab === 'object') o.ab = st.ab;
+        if(Array.isArray(st.prod)){ o.prod = st.prod.slice(0, 24).map(function(v){ return Number(v) || 0; }); }
+        while(o.prod.length < 24) o.prod.push(0);
+        if(st.abProd != null) o.abProd = st.abProd;
+        if(st.optTank != null) o.optTank = st.optTank;
+      } else {
+        for(var i = 0; i < 24; i++) o.prod.push(0);
+      }
+      return o;
+    }
+    function otPersist(){
+      var ta = document.getElementById('os_tankopt'); if(!ta) return;
+      _otInternal = true;
+      try{
+        ta.value = JSON.stringify(OT);
+        ta.dispatchEvent(new Event('change', { bubbles: true }));
+      }catch(e){}
+      _otInternal = false;
+    }
+    function otApplyState(st){
+      OT = otNormalize(st);
+      _otSig = null;
+      var el = document.getElementById('otOptTank');
+      if(el) el.value = OT.optTank || '';
+      recalc();
+    }
+    (function(){
+      var ta = document.getElementById('os_tankopt'); if(!ta) return;
+      function restore(){
+        if(_otInternal) return;
+        try{
+          var st = JSON.parse(ta.value || 'null');
+          if(st && typeof st === 'object') otApplyState(st);
+        }catch(e){}
+      }
+      ta.addEventListener('input', restore);
+      ta.addEventListener('change', restore);
+    })();
+    // Snapshot-Fallback (Muster bgLoadFromSnapshot): die change-Event-Kette
+    // des AutoSave-Restores ist timing-anfällig — deshalb zusätzlich direkt
+    // aus dem AutoSave-Snapshot lesen, solange der User nichts geändert hat.
+    function otSnapshotLoad(){
+      if(_otTouched) return;
+      try{
+        var oid = (document.getElementById('metaObjektDropdown') || {}).value || '';
+        if(!oid && typeof GemaObjekte !== 'undefined'){ try{ oid = GemaObjekte.getActiveId() || ''; }catch(e){} }
+        var ph = '';
+        if(typeof GemaObjekte !== 'undefined' && GemaObjekte.getActivePhase){ try{ ph = GemaObjekte.getActivePhase() || ''; }catch(e){} }
+        var keys = [];
+        if(oid) keys.push('gema_osmose__' + oid + (ph ? '@' + ph : ''));
+        if(oid && ph) keys.push('gema_osmose__' + oid);
+        keys.push('gema_osmose');
+        for(var i = 0; i < keys.length; i++){
+          var raw = localStorage.getItem(keys[i]); if(!raw) continue;
+          var snap = JSON.parse(raw); if(!snap || !snap.os_tankopt) return;
+          var st = JSON.parse(snap.os_tankopt); if(!st || typeof st !== 'object') return;
+          if(JSON.stringify(otNormalize(st)) !== JSON.stringify(OT)) otApplyState(st);
+          return;
+        }
+      }catch(e){}
+    }
+    document.addEventListener('DOMContentLoaded', function(){
+      setTimeout(otSnapshotLoad, 700);
+      setTimeout(otSnapshotLoad, 2000);
+      setTimeout(otSnapshotLoad, 3800);
+    });
 
     // Initial ein paar Zeilen anlegen
     (function init() {
