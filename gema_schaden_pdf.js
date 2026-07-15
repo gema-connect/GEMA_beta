@@ -23,9 +23,14 @@
     // ─ Bildschirm-Vorschau: jede Sektion als eigenes A4-Blatt mit Schatten,
     //   damit der User die Seitengrenzen visuell sieht (statt fortlaufender
     //   Strom). Cover + jede report-section ist ein eigenes Papier-Element.
-    + '@media screen{body{background:#dfe3e6;padding:32px 16px;}'
-      + '.content{width:210mm;margin:0 auto;background:transparent;}'
-      + '.content > .cover,.content > .report-section{width:210mm;min-height:297mm;background:var(--paper);box-shadow:0 8px 40px rgba(20,30,45,.18);margin:0 auto 28px;position:relative;overflow:hidden;}'
+    // ─ Bildschirm: IMMER A4-Blätter auf grauer Bühne (GemaPrintA4-Muster).
+    //   max-width statt Mobile-Umbau: das Blatt schrumpft auf schmalen
+    //   Fenstern proportional mit, bleibt aber ein Blatt — der frühere
+    //   ≤820px-Fallback (width:100%, min-height:auto) zerstörte den A4-Look
+    //   bereits im 900px-Druckfenster bei Windows-Skalierung 125 %.
+    + '@media screen{body{background:#dfe3e6;padding:32px 12px;}'
+      + '.content{width:210mm;max-width:calc(100vw - 24px);margin:0 auto;background:transparent;}'
+      + '.content > .cover,.content > .report-section{width:100%;min-height:297mm;background:var(--paper);box-shadow:0 8px 40px rgba(20,30,45,.18);margin:0 auto 28px;position:relative;overflow:hidden;}'
       + '.content > .report-section{padding:0;}'
       + '.doc-header,.doc-footer{display:none;}'
     + '}'
@@ -112,8 +117,10 @@
     + '.photo-head{display:flex;align-items:baseline;gap:8px;margin:20px 0 9px;break-after:avoid;page-break-after:avoid;}'
     + '.photo-head .ph-title{font-size:9pt;font-weight:700;color:var(--ink);}'
     + '.photo-head .ph-count{font-size:7.5pt;color:#fff;background:var(--accent);padding:1px 7px;border-radius:9px;font-weight:600;}'
+    // Fotos IMMER 2-spaltig (User-Vorgabe — grössere Bilder; der frühere
+    // cols-3-Umbruch ab 5 Fotos ist entfernt)
     + '.photos{display:grid;grid-template-columns:repeat(2,1fr);gap:9mm 6mm;}'
-    + '.photos.cols-3{grid-template-columns:repeat(3,1fr);}'
+    + '.photos.cols-3{grid-template-columns:repeat(2,1fr);}'
     + '.photo{break-inside:avoid;}'
     + '.photo-frame{aspect-ratio:4/3;border:.75pt solid var(--line);border-radius:6px;background:var(--tint);overflow:hidden;position:relative;display:flex;align-items:center;justify-content:center;}'
     + '.photo-frame img{width:100%;height:100%;object-fit:cover;display:block;}'
@@ -132,17 +139,19 @@
     + '.print-toolbar{position:fixed;top:12px;right:12px;z-index:9999;display:flex;gap:8px;}'
     + '.print-toolbar button{background:var(--accent);color:#fff;border:none;padding:9px 16px;border-radius:7px;cursor:pointer;font-weight:600;font-size:13px;font-family:\'DM Sans\',sans-serif;box-shadow:0 4px 12px rgba(0,0,0,.15);}'
     + '.print-toolbar button.secondary{background:#fff;color:var(--ink);border:1px solid var(--line);}'
-    // ─ Mobile-Vorschau: das A4-Blatt ist mit width:210mm breiter als ein
-    //   Handy-Viewport. Mit margin:0 auto rutscht der linke Rand (und damit
-    //   das Firmenlogo oben links) aus dem Bild. Auf schmalen Screens daher
-    //   das Blatt fluid auf Geraetebreite stellen. Der Druck bleibt A4 (die
-    //   @media print-Regeln ueberschreiben das). ─────────────────────────
+    // ─ Zwischen 560 und 820px bleibt das Blatt ein (mitschrumpfendes) A4 —
+    //   KEIN Umbau mehr auf width:100 %/min-height:auto (siehe oben).
     + '@media screen and (max-width:820px){'
-      + 'body{padding:14px 10px;}'
-      + '.content{width:100%;}'
-      + '.content > .cover,.content > .report-section{width:100%;min-height:auto;margin:0 auto 18px;}'
+      + 'body{padding:14px 8px;}'
+      + '.content{max-width:calc(100vw - 16px);}'
+    + '}'
+    // ─ Echte Phone-Viewports: erst hier wird die A4-Proportion aufgegeben
+    //   (Blatt-Optik mit Schatten bleibt), damit ein fast leeres Cover nicht
+    //   drei Screens Weissraum erzeugt. Der Druck bleibt A4 (@media print).
+    + '@media screen and (max-width:560px){'
+      + '.content > .cover,.content > .report-section{min-height:auto;margin:0 auto 18px;}'
       + '.page-body{padding:16px 16px 20px;}'
-      + '.cover{padding:0 16px;}'
+      + '.cover{padding:0 16px;min-height:auto;}'
       + '.cover-bar{margin:0 -16px;}'
       + '.cover-top{padding:16px 0 0;}'
       + '.cover-hero{margin-top:24px;}'
@@ -369,8 +378,7 @@
       + '<span class="ph-title">'+esc(title)+'</span>'
       + '<span class="ph-count">'+inReport.length+'</span>'
       + '</div>';
-    var cls = inReport.length > 4 ? 'photos cols-3' : 'photos';
-    h += '<div class="'+cls+'">';
+    h += '<div class="photos">';
     inReport.forEach(function(f, i){
       var num = (i+1) < 10 ? '0'+(i+1) : ''+(i+1);
       h += '<div class="photo">'

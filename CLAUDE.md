@@ -1295,7 +1295,7 @@ Full-Screen-Overlay (`position:fixed`) mit 4-Phasen-Timeline und aufklappbaren A
 
 - **Cover (Seite 1)**: Firmen-Logo aus `org.logo` (32×32 mm), Briefkopf rechts (Name, Adresse, Tel, Mail), darunter SCHADENSBERICHT-Header, Schadentitel groß, farbige Typ-Pille + Phase-Pille nebeneinander, Stammdaten-Box (Objekt, Bearbeiter, Erfasst, Schaden-ID, Räume), eingerahmte Versicherungs-Box mit Police-Nr. / Schaden-Nr. / Kontakt.
 - **Seite 2 — TOC**: Inhaltsverzeichnis mit Phasen und Seitenzahlen. Wird _nachträglich_ befüllt (Section-Tracking via `sectionsTOC[]`), nachdem alle Inhalts-Seiten gerendert sind.
-- **Inhalts-Seiten**: Jede Phase als farbiges Section-Band über Voll-Breite (Phasen-Farbe), darunter `drawParagraph`, `drawTable` mit Zebra-Streifen (Geräte: Name/Raum/kW/h/kWh/Status + Summen-Zeile; Messpunkte: Datum/Wert/Δ/Trend + min/max-Header), `drawPhotoGallery` 3 pro Zeile mit Rahmen und Caption.
+- **Inhalts-Seiten**: Jede Phase als farbiges Section-Band über Voll-Breite (Phasen-Farbe), darunter `drawParagraph`, `drawTable` mit Zebra-Streifen (Geräte: Name/Raum/kW/h/kWh/Status + Summen-Zeile; Messpunkte: Datum/Wert/Δ/Trend + min/max-Header), `drawPhotoGallery` 2 pro Zeile (User-Vorgabe 07/2026 — grössere Fotos) mit Rahmen und Caption.
 - **Header (alle Inhalts-Seiten)**: kleines Logo (14×14) links, Firmenname, „Schadensbericht · Titel" rechts, Trennlinie.
 - **Footer (alle Inhalts-Seiten)**: Firma + Adresse links, „PDF erstellt: …" mittig, „Seite X / Y" rechts, Trennlinie.
 - **Statt Emojis**: farbige Buchstaben-Pillen (W/S/R/L/Rü/X) — jsPDF kann Emojis nicht rendern.
@@ -1333,7 +1333,7 @@ A4 **Hochformat** erzwungen: beide `@page`-Regeln `size:A4 portrait`, jsPDF `ori
 
 **Sachbearbeiter**: wird im Erfassungs-Modal (`sdOpenNew`) per Dropdown gewählt (`#f_sachbearbeiter`). Default = aktuell eingeloggter User. Auswahl alle aktiven User der eigenen Org (`GemaAuth.getUsers().filter orgId`). Speichert in `s.erstelltVon = {userId, name}` — wird im Cover unter «Sachbearbeiter» angezeigt.
 
-**Bildschirm-Vorschau zeigt Seiten als A4-Blätter**: Cover und jede `report-section` sind in der Vorschau eigene 210×297mm-Blätter mit Box-Shadow auf grauem Hintergrund — der User sieht die Sektion-Grenzen, statt eines fortlaufenden Stroms. Im Print fallen die Schatten weg und der Browser fügt physische Seiten automatisch ein.
+**Bildschirm-Vorschau zeigt Seiten als A4-Blätter — IMMER (GemaPrintA4-Muster)**: Cover und jede `report-section` sind eigene 210×297mm-Blätter mit Box-Shadow auf grauer Bühne; `.content` trägt `width:210mm;max-width:calc(100vw − 24px)` — auf schmalen Fenstern schrumpft das Blatt proportional, bleibt aber ein Blatt. Der frühere ≤820px-Umbau (width:100 %, min-height:auto) zerstörte den A4-Look bereits im 900px-Druckfenster bei Windows-Skalierung 125 % (≈720 CSS-px); erst ≤560px (echte Phones) wird die A4-Proportion aufgegeben (Blatt-Optik bleibt). **Fotos IMMER 2-spaltig** (User-Vorgabe — der cols-3-Umbruch ab 5 Fotos ist entfernt). Im Print fallen die Schatten weg und der Browser fügt physische Seiten automatisch ein.
 
 **Saubere Seitenumbrüche im Druck**: Subhead + Tabelle werden über einen `.tbl-block`-Wrapper mit `break-inside:avoid` zusammengehalten — der Tabellen-Header steht nicht alleine am Seitenende. Genauso `.photo-group` (Foto-Head + Grid bei ≤6 Fotos), `.chart-card`, `.note`, `.block` und einzelne `.tbl`-Zeilen. `display:table-header-group` auf `.tbl thead` wiederholt den Header bei einer Tabelle, die doch noch übers Seitenende läuft.
 
