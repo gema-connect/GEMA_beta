@@ -288,6 +288,74 @@
     }catch(e){}
     return key.charAt(0).toUpperCase()+key.slice(1);
   }
+
+  // ── Sichtbarkeit der Einstellungs-Gruppen (KRITISCH) ─────────
+  // Es werden NUR Gruppen angezeigt, deren Modul der eingeloggte User
+  // tatsächlich nutzen kann — keine Einstellungen für Module ohne Zugriff.
+  // mods  = GemaAuth-Modul-Keys (read genügt, ein Treffer reicht)
+  // roles = Rollen-Präfixe für Cross-Org-Flüsse OHNE Modul-Permission
+  //         (Lieferanten-Dashboard-Tabs, Vergabeantrag an Architekt/BH)
+  // immer = kontoweite Gruppen (Abo/Chat betreffen jeden eingeloggten User)
+  // Selbstheilend: Wer bereits Notifikationen einer Gruppe ERHALTEN hat,
+  // sieht deren Einstellungen immer (deckt E-Mail-Match-/lieferantId-Flüsse
+  // ab). role_admin sieht alles. Neue EVENT_KEYS-Module hier ergänzen —
+  // Drift-Guard: scripts/notify_prefs_gating_test.mjs.
+  var MODUL_ZUGRIFF={
+    ausschreibung:{mods:['ausschreibungsunterlagen','schnellausschreibung'],roles:['role_lieferant','role_produktlieferant','role_architekt','role_bauherrschaft']},
+    werkzeug:{mods:['werkzeugmanagement'],roles:['role_lieferant','role_produktlieferant','role_pruefer','role_leiterpruefer']},
+    fahrzeug:{mods:['fahrzeugmanagement'],roles:['role_garagist','role_pruefer']},
+    lu:{mods:['lu_tabelle']},
+    objekte:{mods:['objekte']},
+    schadensbericht:{mods:['schadensbericht']},
+    trocknung:{mods:['trocknungsgeraete']},
+    produktkatalog:{mods:['produktkatalog'],roles:['role_lieferant','role_produktlieferant']},
+    bestellungen:{mods:['bestellungen'],roles:['role_lieferant']},
+    regierapport:{mods:['regierapport']},
+    einsatzplan:{mods:['einsatzplan']},
+    goodel:{mods:['goodel']},
+    abnahme:{mods:['abnahme_sia']},
+    legionellen:{mods:['legionellen']},
+    spuelmanager:{mods:['spuelmanager']},
+    immobilien:{mods:['immobilien']},
+    service:{mods:['service']},
+    stundenerfassung:{mods:['stundenerfassung']},
+    revisionsunterlagen:{mods:['revisionsunterlagen'],roles:['role_lieferant','role_produktlieferant']},
+    behoerden_formulare:{mods:['behoerden_formulare']},
+    abos:{immer:true},
+    chat:{immer:true},
+    schule:{mods:['klassen','pruefungen']}
+  };
+  function _gruppeSichtbar(mod, empfangeneGruppen){
+    try{
+      if(!w.GemaAuth||!GemaAuth.getCurrentUser)return true;   // ohne Auth-Kontext: nichts verstecken
+      var u=GemaAuth.getCurrentUser(); if(!u)return true;
+      var roleIds=u.roleIds||[];
+      if(roleIds.indexOf('role_admin')>=0)return true;
+      if(empfangeneGruppen&&empfangeneGruppen[mod])return true; // hat bereits solche Notifikationen → einstellbar
+      var cfg=MODUL_ZUGRIFF[mod];
+      if(!cfg){
+        // Unbekannte Gruppe (neues Modul): notify-modul == auth-key ist der
+        // Normalfall — wenn der Key als Modul existiert, gilt dessen Permission;
+        // sonst nichts verstecken (fail-open statt stilles Wegfiltern).
+        var known=false;
+        try{ known=!!(GemaAuth.getModules&&GemaAuth.getModules().find(function(m){return m.key===mod;})); }catch(e){}
+        if(!known)return true;
+        try{ return !!(GemaAuth.can&&GemaAuth.can('read',mod)); }catch(e){ return true; }
+      }
+      if(cfg.immer)return true;
+      var mods=cfg.mods||[];
+      for(var i=0;i<mods.length;i++){
+        try{ if(GemaAuth.can&&GemaAuth.can('read',mods[i]))return true; }catch(e){}
+      }
+      var pref=cfg.roles||[];
+      for(var j=0;j<pref.length;j++){
+        for(var r=0;r<roleIds.length;r++){
+          if(String(roleIds[r]).indexOf(pref[j])===0)return true;
+        }
+      }
+      return false;
+    }catch(e){ return true; }
+  }
   function _closeSettings(){
     var overlay=d.getElementById('gnSettingsOverlay');
     if(overlay)overlay.remove();
@@ -309,7 +377,19 @@
       var mod=w.GemaNotify.EVENT_KEYS[k].modul||'weitere';
       (gruppen[mod]=gruppen[mod]||[]).push(k);
     });
-    var modKeys=Object.keys(gruppen).sort(function(a,b){
+    // Gruppen bereits erhaltener Notifikationen (Cross-Org-Flüsse) — deren
+    // Einstellungen bleiben sichtbar, auch ohne Modul-Permission.
+    var empfangeneGruppen={};
+    try{
+      (w.GemaNotify.getForCurrentUser()||[]).forEach(function(n){
+        var ev=n&&n.eventKey&&w.GemaNotify.EVENT_KEYS[n.eventKey];
+        if(ev&&ev.modul)empfangeneGruppen[ev.modul]=true;
+      });
+    }catch(e){}
+    var alleModKeys=Object.keys(gruppen);
+    var modKeys=alleModKeys.filter(function(mod){return _gruppeSichtbar(mod,empfangeneGruppen);});
+    var ausgeblendet=alleModKeys.length-modKeys.length;
+    modKeys=modKeys.sort(function(a,b){
       return _modulLabel(a).replace(/^[^\wÄÖÜäöü]+\s*/,'').localeCompare(_modulLabel(b).replace(/^[^\wÄÖÜäöü]+\s*/,''),'de');
     });
     var sections=modKeys.map(function(mod){
@@ -335,7 +415,9 @@
       +'    <p style="margin:0;font-size:12px;color:#64748b">Nach Modul gruppiert — wähle, welche Benachrichtigungen du erhalten möchtest. Änderungen gelten ab sofort.</p></div>'
       +'    <button id="gnPrefX" title="Schliessen" style="width:34px;height:34px;border-radius:9px;border:1.5px solid #c8cfdf;background:#f8faff;color:#334155;cursor:pointer;font-size:15px;font-weight:700;flex-shrink:0;line-height:1">✕</button>'
       +'  </div>'
-      +'  <div id="gnPrefList" style="padding:14px 20px;overflow-y:auto;-webkit-overflow-scrolling:touch">'+sections+'</div>'
+      +'  <div id="gnPrefList" style="padding:14px 20px;overflow-y:auto;-webkit-overflow-scrolling:touch">'+sections
+      +(ausgeblendet>0?'<div id="gnPrefHint" style="font-size:11px;color:#94a3b8;line-height:1.5;padding:2px 2px 0">ℹ Angezeigt werden nur Benachrichtigungen von Modulen, auf die dein Konto Zugriff hat.</div>':'')
+      +'</div>'
       +'  <div style="display:flex;gap:8px;justify-content:flex-end;padding:12px 20px;border-top:1px solid #e2e8f0;flex-shrink:0">'
       +'    <button id="gnPrefClose" style="padding:8px 18px;border-radius:8px;border:1.5px solid #c8cfdf;background:#fff;color:#334155;cursor:pointer;font-weight:600;font-family:inherit">Schliessen</button>'
       +'  </div>'
@@ -377,5 +459,8 @@
 
   if(d.readyState==='loading') d.addEventListener('DOMContentLoaded',_init);
   else _init();
+
+  // Test-Hooks (Playwright: Gruppen-Gating der Einstellungen)
+  w._gnHooks={openSettings:_openSettings,gruppeSichtbar:_gruppeSichtbar,MODUL_ZUGRIFF:MODUL_ZUGRIFF,MODUL_LABELS:MODUL_LABELS};
 
 })(window, document);

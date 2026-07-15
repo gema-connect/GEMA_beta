@@ -12,6 +12,7 @@ var LIEF_KATEGORIEN = [
   {id:'osmose',label:'Umkehrosmoseanlagen',gruppe:'anlagen'},
   {id:'druckerhoehung',label:'Druckerhöhungsanlagen',gruppe:'anlagen'},
   {id:'zirkulationspumpe',label:'Zirkulationspumpen',gruppe:'anlagen'},
+  {id:'saugpumpe',label:'Saugpumpen (selbstansaugend)',gruppe:'anlagen'},
   {id:'sicherheitsventil',label:'Sicherheitsventile',gruppe:'anlagen'},
   {id:'ausdehnungsgefaess',label:'Ausdehnungsgefässe (Heizung)',gruppe:'anlagen'},
   {id:'heizungspumpe',label:'Heizungs-Umwälzpumpen',gruppe:'anlagen'},
@@ -737,6 +738,53 @@ KATEGORIEN.zirkulationspumpe = {
     if(b.tempRl && d.medienTempMax){
       if(d.medienTempMax >= b.tempRl) score += 10;
     }
+    return Math.min(100, score);
+  }
+};
+
+// ── Saugpumpe (Saugbetrieb, z.B. Regenwasser-/Zisternen- und Grundwasserförderung) ──
+// sb_saugpumpe.html matcht auf das verfügbare NPSH-Budget (Hb − Hf − Hs − Hv):
+// je grösser die Reserve zwischen Budget und NPSH-Wert der Pumpe, desto besser.
+KATEGORIEN.saugpumpe = {
+  id: 'saugpumpe',
+  name: 'Saugpumpe',
+  icon: '⛲',
+  felder: [
+    { id: 'serie', label: 'Typenbezeichnung / Serie', typ: 'text', gruppe: 'Allgemein', pflicht: true },
+    { id: 'modell', label: 'Modell / Grösse', typ: 'text', gruppe: 'Allgemein', pflicht: true },
+    { id: 'artikelnr', label: 'Artikelnummer', typ: 'text', gruppe: 'Allgemein' },
+    { id: 'bauart', label: 'Bauart', typ: 'select', optionen: ['Selbstansaugende Kreiselpumpe','Normalsaugende Kreiselpumpe','Jetpumpe (Ejektorpumpe)','Peripheralradpumpe','Membran-/Kolbenpumpe'], gruppe: 'Allgemein', pflicht: true },
+
+    { id: 'npsh', label: 'NPSH-Wert (beim Nennförderstrom)', typ: 'number', einheit: 'm', gruppe: 'Leistungsdaten', pflicht: true },
+    { id: 'maxSaughoehe', label: 'Max. Saughöhe (Herstellerangabe)', typ: 'number', einheit: 'm', gruppe: 'Leistungsdaten' },
+    { id: 'foerdermenge', label: 'Fördermenge (Nennpunkt)', typ: 'number', einheit: 'm³/h', gruppe: 'Leistungsdaten' },
+    { id: 'foerderhoehe', label: 'Förderhöhe (Nennpunkt)', typ: 'number', einheit: 'm', gruppe: 'Leistungsdaten' },
+    { id: 'motorleistung', label: 'Motorleistung', typ: 'number', einheit: 'kW', gruppe: 'Leistungsdaten' },
+    { id: 'medienTempMax', label: 'Max. Medientemperatur', typ: 'number', einheit: '°C', gruppe: 'Leistungsdaten' },
+
+    { id: 'anschluss', label: 'Anschlüsse Saug-/Druckseite', typ: 'text', gruppe: 'Anschlüsse' },
+    { id: 'spannung', label: 'Spannung', typ: 'select', optionen: ['230 V','400 V'], gruppe: 'Anschlüsse' },
+
+    { id: 'svgwNr', label: 'SVGW-Zulassungsnummer', typ: 'text', gruppe: 'Normen' },
+    { id: 'ce', label: 'CE-Konformität', typ: 'checkbox', gruppe: 'Normen' },
+    { id: 'besonderheiten', label: 'Besonderheiten', typ: 'textarea', gruppe: 'Zusatz' }
+  ],
+  matchFn: function(produkt, berechnung){
+    let score = 0;
+    const d = produkt.daten || {};
+    const b = berechnung || {};
+    const budget = parseFloat(b.npshVerfuegbar);
+    if(budget && d.npsh){
+      const reserve = budget - parseFloat(d.npsh);
+      if(reserve >= 3) score += 60;
+      else if(reserve >= 1.5) score += 45;
+      else if(reserve >= 0.5) score += 25;
+      else if(reserve > 0) score += 10;
+    }
+    if(b.wasserTemp != null && d.medienTempMax && parseFloat(d.medienTempMax) >= b.wasserTemp) score += 10;
+    if(d.maxSaughoehe) score += 10;
+    if(d.foerdermenge) score += 10;
+    if(d.svgwNr) score += 5;
     return Math.min(100, score);
   }
 };
@@ -1551,7 +1599,7 @@ const SK_VM='gema_offert_vormerkungen_v1';
 // BKP-Vorschlag je Anlagenwahl-Kategorie — Codes entsprechen der
 // BKP_KOMPLETT-Checkliste in pm_ausschreibungsunterlagen.html.
 const OA_BKP_MAP={enthaertung:'253.0',osmose:'253.2',druckerhoehung:'253.4',frischwasserstation:'253.6',
-  hebeanlage:'252.6',fettabscheider:'252.4',oelabscheider:'252.8',zirkulation:'253.8',zirkulationspumpe:'253.8',sicherheitsventil:'254.0',ausdehnungsgefaess:'242.0',heizungspumpe:'243.0',waermeerzeuger:'242.0',lueftungsgeraet:'244.0',fluessiggasanlage:'252.0',gasloeschanlage:'256.0'};
+  hebeanlage:'252.6',fettabscheider:'252.4',oelabscheider:'252.8',zirkulation:'253.8',zirkulationspumpe:'253.8',saugpumpe:'253.4',sicherheitsventil:'254.0',ausdehnungsgefaess:'242.0',heizungspumpe:'243.0',waermeerzeuger:'242.0',lueftungsgeraet:'244.0',fluessiggasanlage:'252.0',gasloeschanlage:'256.0'};
 let _vormerkungen=[];
 function _loadVormerkungen(){try{var r=localStorage.getItem(SK_VM);if(r)_vormerkungen=JSON.parse(r);}catch(e){}_vormerkungen=_vormerkungen||[];}
 function _saveVormerkungen(){try{localStorage.setItem(SK_VM,JSON.stringify(_vormerkungen));}catch(e){}}

@@ -1,11 +1,11 @@
 /* GEMA Service Worker — Offline Cache + Push Vorbereitung */
-var CACHE_NAME = 'gema-v265';
+var CACHE_NAME = 'gema-v271';
 var CACHE_FILES = [
   '/', '/index.html', '/sb_index.html',
   '/sa_enthaertung.html', '/sa_osmose.html', '/sa_fettabscheider.html',
   '/sa_frischwasserstation.html', '/sa_oelabscheider.html', '/sa_schlammsammler.html',
   '/sa_solaranlage.html', '/sa_abwasserhebeanlage.html',
-  '/sb_lu_tabelle.html', '/sb_druckerhoehung.html', '/sb_zirkulation.html', '/sb_druckanstieg.html', '/hz_ausdehnungsgefaess.html', '/hz_heizungsleitungen.html', '/hz_waermegruppen.html', '/hz_heizlast.html', '/lt_hx_diagramm.html', '/sb_fluessiggas.html', '/sb_druckverlust_erdgas.html', '/sb_druckverlust_medizinalgas.html', '/sb_druckverlust.html',
+  '/sb_lu_tabelle.html', '/sb_druckerhoehung.html', '/sb_zirkulation.html', '/sb_druckanstieg.html', '/sb_saugpumpe.html', '/hz_ausdehnungsgefaess.html', '/hz_heizungsleitungen.html', '/hz_waermegruppen.html', '/hz_heizlast.html', '/lt_hx_diagramm.html', '/sb_fluessiggas.html', '/sb_druckverlust_erdgas.html', '/sb_druckverlust_medizinalgas.html', '/sb_druckverlust.html',
   '/sb_warmwasser.html', '/sb_niederschlag.html', '/sb_vonroll.html',
   '/sb_grobauslegung.html', '/sb_ausstosszeiten.html', '/sb_laengenausdehnung.html',
   '/sb_druckdispositiv.html', '/sb_apparateliste.html', '/sb_du_zusammenstellung.html',
@@ -26,7 +26,7 @@ var CACHE_FILES = [
   '/gema_lu_api.js', '/gema_osmose_api.js', '/gema_offer_request.js', '/gema_offerten_tab.js',
   '/gema_anlagenwahl.css', '/gema_responsive.css', '/gema_scroll.js', '/gema_pdf.js', '/gema_notify.js', '/gema_notify_ui.js', '/gema_chat.js',
   '/gema_coachmarks.js', '/gema_mobile_menu.js', '/gema_recent.js',
-  '/gema_pwa.js', '/gema_adresse.js', '/gema_avatar.js', '/gema_dialog.js',
+  '/gema_pwa.js', '/gema_adresse.js', '/gema_hoehe.js', '/gema_avatar.js', '/gema_dialog.js',
   '/gema_qr_scanner.js', '/gema_nfc_scanner.js', '/gema_aktivitaetslog.js',
   '/gema_schaden_pdf.js', '/gema_dachbericht_pdf.js', '/gema_claude.js', '/gema_storage.js', '/gema_revision_pdf.js', '/gema_abo_api.js',
   '/icon-192.svg', '/icon-512.svg', '/manifest.json'

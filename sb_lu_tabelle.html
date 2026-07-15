@@ -735,6 +735,7 @@ function fixLeadingZero(el){
             <div>Apparat</div><div>Anz.</div><div>Medium</div><div>KW</div><div>WW</div><div>ND</div><div>Total</div><div></div>
           </div>
           <div id="deviceList"></div>
+          <div style="margin-top:8px"><button class="g-btn sm no-print" onclick="window._luAddDevice&&window._luAddDevice()">＋ Zeile</button></div>
           <div class="g-info" style="margin-top:12px;">
             <b>Einzelapparat-Regel:</b> Wenn nur 1 Apparat (2/3/5 LU) ohne weitere Verbraucher → direkt LU/10 l/s.
           </div>
@@ -752,6 +753,7 @@ function fixLeadingZero(el){
             <div>Bezeichnung</div><div>Anz.</div><div>Medium</div><div>l/s</div><div></div>
           </div>
           <div id="specialList"></div>
+          <div style="margin-top:8px"><button class="g-btn sm no-print" onclick="window._luAddSpecial&&window._luAddSpecial()">＋ Spezieller Apparat</button></div>
         </div>
       </div>
 
@@ -766,6 +768,7 @@ function fixLeadingZero(el){
             <div>Bezeichnung</div><div>Anz.</div><div>Medium</div><div>l/s</div><div></div>
           </div>
           <div id="dauerList"></div>
+          <div style="margin-top:8px"><button class="g-btn sm no-print" onclick="window._luAddDauer&&window._luAddDauer()">＋ Dauerverbraucher</button></div>
           <div class="g-info" style="margin-top:12px;">
             <b>Dauerverbraucher:</b> Volumenstrom wird 1:1 addiert (keine Diagramm-Berechnung).
           </div>
@@ -1052,9 +1055,11 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
       maxLU: {kw:3, ww:3, nd:5, bw:3, ow:3, gw:3, frei:3},
       maxLUManual: {kw:false, ww:false, nd:false, bw:false, ow:false, gw:false, frei:false},
       devices: [
-        { deviceName: "", qty: 0, medium: "trinkwasser" },
-        { deviceName: "", qty: 0, medium: "trinkwasser" },
-        { deviceName: "", qty: 0, medium: "trinkwasser" }
+        { deviceName: "Waschtisch", qty: 0, medium: "trinkwasser" },
+        { deviceName: "WC-Spülkasten", qty: 0, medium: "trinkwasser" },
+        { deviceName: "Spülbecken (Küche)", qty: 0, medium: "trinkwasser" },
+        { deviceName: "Dusche", qty: 0, medium: "trinkwasser" },
+        { deviceName: "Badewanne", qty: 0, medium: "trinkwasser" }
       ],
       special: [
         { label: "", medium: "kw", freiName: "", flow: 0, qty: 1 }
@@ -1145,9 +1150,10 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
           const inactiveDev = DEVICES.find(d=>d.name===row.deviceName);
           if (inactiveDev) showDevices.push(inactiveDev);
         }
+        const sortedDevices = showDevices.slice().sort((a,b)=>a.name.localeCompare(b.name,'de'));
         const options = [
           `<option value="" ${row.deviceName ? "" : "selected"} disabled>Apparat wählen …</option>`,
-          ...showDevices.map(d => `<option value="${escapeHtml(d.name)}" ${d.name===row.deviceName ? "selected":""}>${escapeHtml(d.name)}${d.active===false?' (inaktiv)':''}</option>`)
+          ...sortedDevices.map(d => `<option value="${escapeHtml(d.name)}" ${d.name===row.deviceName ? "selected":""}>${escapeHtml(d.name)}${d.active===false?' (inaktiv)':''}</option>`)
         ];
         select.innerHTML = options.join("");
 
@@ -1158,29 +1164,42 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
         const medSel = document.createElement("select");
         medSel.title = "Leitungsnetz / Medium";
         medSel.innerHTML = DEVICE_MEDIA.map(m =>
-          `<option value="${m.id}" ${(row.medium||'trinkwasser')===m.id?'selected':''}>${m.short}</option>`
+          `<option value="${m.id}" ${(row.medium||'trinkwasser')===m.id?'selected':''}>${m.label} (${m.short})</option>`
         ).join('');
         medSel.style.cssText = "font-size:11px;font-weight:700;color:" +
           (DEVICE_MEDIA.find(m=>m.id===(row.medium||'trinkwasser'))||DEVICE_MEDIA[0]).color + ";";
 
         const dev = DEVICE_BY_NAME.get(row.deviceName);
         const q = row.qty || 0;
+        const netzMedium = { enthaertet:'bw', osmose:'ow', regenwasser:'gw' }[row.medium || 'trinkwasser'] || null;
+        const netzInfo = netzMedium ? (DEVICE_MEDIA.find(m => m.id === (row.medium || 'trinkwasser')) || null) : null;
 
         const kwSpan = document.createElement("span");
         kwSpan.style.cssText = "font-family:var(--mono);font-size:12px;font-weight:700;color:var(--green);text-align:center;";
-        kwSpan.textContent = dev && q ? (dev.lu_kw > 0 ? String(dev.lu_kw * q) : "–") : "–";
+        kwSpan.textContent = dev && q && !netzMedium ? (dev.lu_kw > 0 ? String(dev.lu_kw * q) : "–") : "–";
 
         const wwSpan = document.createElement("span");
         wwSpan.style.cssText = "font-family:var(--mono);font-size:12px;font-weight:700;color:var(--red);text-align:center;";
-        wwSpan.textContent = dev && q ? (dev.lu_ww > 0 ? String(dev.lu_ww * q) : "–") : "–";
+        wwSpan.textContent = dev && q && !netzMedium ? (dev.lu_ww > 0 ? String(dev.lu_ww * q) : "–") : "–";
 
         const ndSpan = document.createElement("span");
         ndSpan.style.cssText = "font-family:var(--mono);font-size:12px;font-weight:700;color:var(--accent);text-align:center;";
-        ndSpan.textContent = dev && q ? (dev.lu_nd > 0 ? String(dev.lu_nd * q) : "–") : "–";
+        ndSpan.textContent = dev && q && !netzMedium ? (dev.lu_nd > 0 ? String(dev.lu_nd * q) : "–") : "–";
 
         const totalSpan = document.createElement("span");
-        totalSpan.style.cssText = "font-family:var(--mono);font-size:13px;font-weight:800;color:var(--text);text-align:right;";
-        totalSpan.textContent = dev && q ? String(dev.lu_total * q) + " LU" : "–";
+        totalSpan.style.cssText = "font-family:var(--mono);font-size:13px;font-weight:800;color:var(--text);text-align:right;white-space:nowrap;";
+        if (dev && q) {
+          totalSpan.textContent = String(dev.lu_total * q) + " LU";
+          if (netzInfo) {
+            const chip = document.createElement("span");
+            chip.textContent = " · " + netzInfo.short;
+            chip.style.cssText = "font-size:11px;font-weight:800;color:" + netzInfo.color + ";";
+            chip.title = netzInfo.label + " — zählt im Medium " + netzInfo.short + ", nicht in KW/WW/ND";
+            totalSpan.appendChild(chip);
+          }
+        } else {
+          totalSpan.textContent = "–";
+        }
 
         const remove = document.createElement("button");
         remove.className = "iconBtn"; remove.title = "Zeile entfernen"; remove.textContent = "✕";
@@ -1258,7 +1277,7 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
         } else {
           const medSel = document.createElement("select");
           medSel.innerHTML = MEDIA.map(m =>
-            '<option value="'+m.id+'"'+(m.id===row.medium?' selected':'')+'>'+m.short+'</option>'
+            '<option value="'+m.id+'"'+(m.id===row.medium?' selected':'')+'>'+(m.id==='frei'?m.label:m.label)+'</option>'
           ).join('');
           medSel.addEventListener("change", (e) => {
             state[stateKey][idx].medium = e.target.value;
@@ -1313,13 +1332,18 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
       return sums;
     }
 
+    // Leitungsnetz des Apparats → Berechnungsmedium der Zusammenstellung
+    const NETZ_ZU_MEDIUM = { enthaertet:'bw', osmose:'ow', regenwasser:'gw' };
+
     function calc(){
       let devCount = 0;
       let totalUnits = 0;
       let luTotal = 0, luWw = 0, luKw = 0, luNd = 0;
       let maxSingleLU = {kw:0, ww:0, nd:0};
       // Apparate-Stueckzahl pro Medium (fuer die Einzelapparat-Regel)
-      let unitsPerMed = {kw:0, ww:0, nd:0};
+      let unitsPerMed = {kw:0, ww:0, nd:0, bw:0, ow:0, gw:0};
+      // LU der Apparate auf alternativen Netzen (EW/OW/RW) — je Medium
+      let luAlt = {bw:0, ow:0, gw:0};
 
       for (const r of state.devices){
         if (!r.deviceName) continue;
@@ -1330,6 +1354,14 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
         devCount += 1;
         totalUnits += q;
         luTotal += d.lu_total * q;
+        const altMed = NETZ_ZU_MEDIUM[r.medium || 'trinkwasser'];
+        if (altMed) {
+          // Apparat hängt am EW-/OW-/RW-Netz: sein LU-Total zählt in DIESEM
+          // Medium (eigenes Netz mit eigener Auslegung), nicht in KW/WW/ND.
+          luAlt[altMed] += d.lu_total * q;
+          unitsPerMed[altMed] += q;
+          continue;
+        }
         luWw += d.lu_ww * q;
         luKw += d.lu_kw * q;
         luNd += d.lu_nd * q;
@@ -1358,6 +1390,10 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
       const qKwLU = _qMed(luKw, maxLU.kw||3, unitsPerMed.kw, (specialSums.kw||0)+(dauerSums.kw||0));
       const qWwLU = _qMed(luWw, maxLU.ww||3, unitsPerMed.ww, (specialSums.ww||0)+(dauerSums.ww||0));
       const qNdLU = _qMed(luNd, maxLU.nd||5, unitsPerMed.nd, (specialSums.nd||0)+(dauerSums.nd||0));
+      const qAltLU = {};
+      for (const mid of ['bw','ow','gw']) {
+        qAltLU[mid] = _qMed(luAlt[mid], maxLU[mid]||3, unitsPerMed[mid], (specialSums[mid]||0)+(dauerSums[mid]||0));
+      }
 
       // Totals per medium (LU + special + dauer)
       const media = {};
@@ -1366,6 +1402,9 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
       media.kw.lu = luKw; media.kw.luRaw = luKw/10; media.kw.luFlow = qKwLU;
       media.ww.lu = luWw; media.ww.luRaw = luWw/10; media.ww.luFlow = qWwLU;
       media.nd.lu = luNd; media.nd.luRaw = luNd/10; media.nd.luFlow = qNdLU;
+      for (const mid of ['bw','ow','gw']) {
+        media[mid].lu = luAlt[mid]; media[mid].luRaw = luAlt[mid]/10; media[mid].luFlow = qAltLU[mid];
+      }
 
       for (const [k,v] of Object.entries(specialSums)) { if (!media[k]) media[k]={lu:0,luRaw:0,luFlow:0,special:0,dauer:0,total:0}; media[k].special = v; }
       for (const [k,v] of Object.entries(dauerSums)) { if (!media[k]) media[k]={lu:0,luRaw:0,luFlow:0,special:0,dauer:0,total:0}; media[k].dauer = v; }
@@ -1389,12 +1428,13 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
         ? (singleAppliance && luTotal > 3 ? "Direkt (1 Apparat, LU/10)" : "Direkt (LU/10)")
         : (useA ? "Kurve A" : "Kurve B");
 
-      return { devCount, totalUnits, luTotal, luWw, luKw, luNd, media, qKwTotal, qWwTotal, qHausanschluss, qSumAll, curve, maxSingleLU, specialSums, dauerSums };
+      return { devCount, totalUnits, luTotal, luWw, luKw, luNd, luAlt, media, qKwTotal, qWwTotal, qHausanschluss, qSumAll, curve, maxSingleLU, specialSums, dauerSums };
     }
 
     function setStatus(obj){
       const dot = $("statusDot");
       const txt = $("statusTxt");
+      if (!dot || !txt) return; // Status-Anzeige existiert nicht mehr — ohne Guard riss der TypeError init() vor bind() ab (tote «+ Zeile»-Buttons)
 
       const anyInput = (obj.luTotal > 0) || Object.values(obj.media).some(m => m.special > 0 || m.dauer > 0);
 
@@ -1445,6 +1485,7 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
       if (obj.luKw > 0) usedMedia.add('kw');
       if (obj.luWw > 0) usedMedia.add('ww');
       if (obj.luNd > 0) usedMedia.add('nd');
+      for (const mid of ['bw','ow','gw']) { if (obj.luAlt && obj.luAlt[mid] > 0) usedMedia.add(mid); }
 
       // === HAUPTWERTE ===
       const itemsMain = [];
@@ -1482,11 +1523,11 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
         const m = obj.media[mid];
         if (!m) continue;
         const mInfo = MEDIA_MAP.get(mid) || {short:mid, label:mid};
-        itemsMain.push({ title: mInfo.label + " total", hint:"Spezial + Dauer",
-          rawVal: fmtFlow(m.special, 2),
+        itemsMain.push({ title: mInfo.label + " total", hint: m.lu > 0 ? "LU-Anteil + Spezial + Dauer" : "Spezial + Dauer",
+          rawVal: fmtFlow(m.luRaw + m.special, 2),
           value: fmtFlow(m.total,2), unit:fu, cls:"",
-          frml:"Q = Q<sub>s</sub>" + (m.dauer>0?' + Q<sub>d</sub>':''),
-          maxlu:"" });
+          frml: (m.lu > 0 ? "Q = f(LU) + Q<sub>s</sub>" : "Q = Q<sub>s</sub>") + (m.dauer>0?' + Q<sub>d</sub>':''),
+          maxlu: m.lu > 0 ? _maxLUButtons(mid) : "" });
       }
       // Summe
       itemsMain.push({ title:"Summe alle Medien", hint:"KW + WW + ND + weitere",
@@ -1502,6 +1543,12 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
       if (usedMedia.has('kw') && obj.luKw > 0) itemsSplit.push({ title:"Kaltwasser \u2013 LU", hint:"Summe LU KW", value: fmt(obj.luKw,0), unit:"LU", cls:"kw", frml:"" });
       if (usedMedia.has('ww') && obj.luWw > 0) itemsSplit.push({ title:"Warmwasser \u2013 LU", hint:"Summe LU WW", value: fmt(obj.luWw,0), unit:"LU", cls:"ww", frml:"" });
       if (usedMedia.has('nd') && obj.luNd > 0) itemsSplit.push({ title:"Netzdruck \u2013 LU", hint:"Summe LU ND", value: fmt(obj.luNd,0), unit:"LU", cls:"nd", frml:"" });
+      for (const mid of ['bw','ow','gw']) {
+        if (obj.luAlt && obj.luAlt[mid] > 0) {
+          const mi = MEDIA_MAP.get(mid) || {label:mid};
+          itemsSplit.push({ title: mi.label + " \u2013 LU", hint:"Summe LU " + (mi.short||mid), value: fmt(obj.luAlt[mid],0), unit:"LU", cls:"", frml:"" });
+        }
+      }
       itemsSplit.push({ title:"l/s Hausanschlussleitung", hint:"max(KW, WW) + Spezial + weitere Medien", value: fmtFlow(obj.qHausanschluss,2), unit:fu, cls:"", frml:"Q<sub>HA</sub> = max(Q<sub>KW</sub>, Q<sub>WW</sub>) + \u03a3Q<sub>spez</sub>" });
       const specialUnits = state.special.reduce((a,s) => a + (s.label || s.flow > 0 ? clampNum(s.qty,0,1e6) : 0), 0);
       const dauerUnits = state.dauer.reduce((a,s) => a + (s.label || s.flow > 0 ? clampNum(s.qty,0,1e6) : 0), 0);
@@ -1677,6 +1724,9 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
     window.calcAndRender = calcAndRender;
 
     // --- Aktionen ---
+    window._luAddDevice = function(){ addDeviceRow(); };
+    window._luAddSpecial = function(){ addSpecialRow(); };
+    window._luAddDauer = function(){ addDauerRow(); };
     function addDeviceRow(){
       state.devices.push({ deviceName: "", qty: 0, medium: "trinkwasser" });
       renderDeviceList();
@@ -1703,9 +1753,11 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
         maxLU: {kw:3, ww:3, nd:5, bw:3, gw:3, frei:3},
         maxLUManual: {kw:false, ww:false, nd:false, bw:false, gw:false, frei:false},
         devices: [
-          { deviceName: "", qty: 0, medium: "trinkwasser" },
-          { deviceName: "", qty: 0, medium: "trinkwasser" },
-          { deviceName: "", qty: 0, medium: "trinkwasser" }
+          { deviceName: "Waschtisch", qty: 0, medium: "trinkwasser" },
+          { deviceName: "WC-Spülkasten", qty: 0, medium: "trinkwasser" },
+          { deviceName: "Spülbecken (Küche)", qty: 0, medium: "trinkwasser" },
+          { deviceName: "Dusche", qty: 0, medium: "trinkwasser" },
+          { deviceName: "Badewanne", qty: 0, medium: "trinkwasser" }
         ],
         special: [
           { label: "", medium: "kw", freiName: "", flow: 0, qty: 1 }
@@ -1934,12 +1986,15 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
 
     // --- Bindings ---
     function bind(){
-      $("projekt").addEventListener("input", (e)=>{ state.projekt = e.target.value || ""; });
-      $("notizen").addEventListener("input", (e)=>{ state.notizen = e.target.value || ""; });
+      // Defensiv: #projekt/#notizen existieren im aktuellen Layout nicht mehr —
+      // ein harter Zugriff riss bind() ab, BEVOR die «+»-Buttons gebunden waren
+      // (Feedback 14.07.: «+ Zeile funktioniert nicht»).
+      $("projekt")?.addEventListener("input", (e)=>{ state.projekt = e.target.value || ""; });
+      $("notizen")?.addEventListener("input", (e)=>{ state.notizen = e.target.value || ""; });
 
 
-      $("btnAddDevice").addEventListener("click", addDeviceRow);
-      $("btnAddSpecial").addEventListener("click", addSpecialRow);
+      $("btnAddDevice")?.addEventListener("click", addDeviceRow);
+      $("btnAddSpecial")?.addEventListener("click", addSpecialRow);
       $("btnAddDauer")?.addEventListener("click", addDauerRow);
 
       $("btnReset")?.addEventListener("click", resetAll);

@@ -1,6 +1,7 @@
 /**
- * gema_feedback.js  —  GEMA Feedback-System v3
- * Features: Snipping-Screenshot + Rotstift-Annotation + Feedback-Formular
+ * gema_feedback.js  —  GEMA Feedback-System v4
+ * Features: Snipping-Screenshot + Annotation (Stift / Pfeil / Rechteck / Text
+ * wie in PDF-Programmen, Vektor-Shapes mit Undo pro Objekt) + Feedback-Formular
  * Benoetigt: gema_db.js (muss vorher eingebunden sein)
  * html2canvas wird bei Bedarf automatisch nachgeladen.
  */
@@ -13,9 +14,10 @@
   let _screenshotDataUrl = '';
   let _snipStart = null, _snipRect = null, _dragging = false;
 
-  // ── Annotation state ──
+  // ── Annotation state (Vektor-Shapes: pen/arrow/rect/text) ──
   let _annotCanvas = null, _annotCtx = null;
-  let _annotDrawing = false, _annotPaths = [];
+  let _annotDrawing = false, _annotShapes = [], _annotTemp = null;
+  let _annotTool = 'pen', _annotTextInput = null;
 
   function init(moduleId, moduleName) {
     _moduleId   = moduleId;
@@ -50,12 +52,18 @@
       '</div>' +
 
       /* ── ANNOTATION OVERLAY ── */
-      '<div id="gfb-annot" style="display:none;position:fixed;inset:0;z-index:9050;background:rgba(15,23,42,.85);backdrop-filter:blur(4px)">' +
-        '<div style="position:fixed;top:0;left:0;right:0;z-index:9052;background:#0f172a;padding:10px 20px;padding-top:calc(10px + env(safe-area-inset-top,0px));display:flex;align-items:center;gap:12px;box-shadow:0 2px 12px rgba(0,0,0,.3)">' +
+      '<div id="gfb-annot" style="display:none;position:fixed;inset:0;z-index:9050;background:rgba(15,23,42,.85);backdrop-filter:blur(4px);flex-direction:column">' +
+        '<div style="flex-shrink:0;background:#0f172a;padding:8px 16px;padding-top:calc(8px + env(safe-area-inset-top,0px));display:flex;align-items:center;gap:10px;flex-wrap:wrap;box-shadow:0 2px 12px rgba(0,0,0,.3)">' +
           '<span style="font-size:14px">🖊</span>' +
-          '<span style="color:#fff;font-size:13px;font-weight:700;flex:1">Mit Rotstift markieren — Klick &amp; ziehen zum Zeichnen</span>' +
+          '<div id="gfb-tools" style="display:flex;gap:6px;flex-wrap:wrap">' +
+            '<button type="button" class="gfb-tool" data-tool="pen" style="padding:6px 12px;border-radius:8px;border:1.5px solid #475569;background:rgba(255,255,255,.08);color:#cbd5e1;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;transition:.15s">✏️ Stift</button>' +
+            '<button type="button" class="gfb-tool" data-tool="arrow" style="padding:6px 12px;border-radius:8px;border:1.5px solid #475569;background:rgba(255,255,255,.08);color:#cbd5e1;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;transition:.15s">↗ Pfeil</button>' +
+            '<button type="button" class="gfb-tool" data-tool="rect" style="padding:6px 12px;border-radius:8px;border:1.5px solid #475569;background:rgba(255,255,255,.08);color:#cbd5e1;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;transition:.15s">▭ Rechteck</button>' +
+            '<button type="button" class="gfb-tool" data-tool="text" style="padding:6px 12px;border-radius:8px;border:1.5px solid #475569;background:rgba(255,255,255,.08);color:#cbd5e1;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;transition:.15s">T Text</button>' +
+          '</div>' +
+          '<span id="gfb-annot-hint" style="color:#94a3b8;font-size:12px;font-weight:600;flex:1;min-width:150px">Klick &amp; ziehen zum Zeichnen</span>' +
         '</div>' +
-        '<div id="gfb-annot-wrap" style="position:absolute;top:52px;left:0;right:0;bottom:0;display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:auto;padding:20px;gap:12px">' +
+        '<div id="gfb-annot-wrap" style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:auto;padding:20px;gap:12px;min-height:0">' +
           '<div id="gfb-annot-container" style="position:relative;display:inline-block;border-radius:8px;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,.4)">' +
             '<img id="gfb-annot-img" style="display:block;max-width:100%;max-height:calc(100vh - 180px)" />' +
             '<canvas id="gfb-annot-canvas" style="position:absolute;top:0;left:0;cursor:crosshair"></canvas>' +
@@ -175,6 +183,11 @@
     if (undoBtn) undoBtn.addEventListener('click', _undoAnnotation);
     if (clearBtn) clearBtn.addEventListener('click', _clearAnnotation);
 
+    // ── Werkzeug-Auswahl (Stift / Pfeil / Rechteck / Text) ──
+    document.querySelectorAll('#gfb-tools .gfb-tool').forEach(function(b) {
+      b.addEventListener('click', function() { _setAnnotTool(b.dataset.tool); });
+    });
+
     // ── Preview click → re-annotate ──
     var preview = document.getElementById('gfb-preview');
     if (preview) preview.addEventListener('click', function() {
@@ -201,15 +214,140 @@
   }
 
   // ═══════════════════════════════════════════
-  // ANNOTATION
+  // ANNOTATION — Vektor-Shapes (Stift/Pfeil/Rechteck/Text) wie in
+  // PDF-Programmen: jede Form ist ein eigenes Objekt (Undo pro Objekt),
+  // Drag zeigt eine Live-Vorschau, Text als Inline-Input direkt am Bild.
   // ═══════════════════════════════════════════
+  function _setAnnotTool(t) {
+    _commitTextInput();
+    _annotTool = t;
+    var hints = {
+      pen:   'Klick & ziehen zum Zeichnen',
+      arrow: 'Ziehen — die Pfeilspitze zeigt zum Endpunkt',
+      rect:  'Rechteck über den Bereich aufziehen',
+      text:  'Auf die Stelle klicken, Text tippen, Enter'
+    };
+    var h = document.getElementById('gfb-annot-hint');
+    if (h) h.textContent = hints[t] || '';
+    document.querySelectorAll('#gfb-tools .gfb-tool').forEach(function(b) {
+      var on = b.dataset.tool === t;
+      b.style.background  = on ? '#dc2626' : 'rgba(255,255,255,.08)';
+      b.style.borderColor = on ? '#dc2626' : '#475569';
+      b.style.color       = on ? '#fff'    : '#cbd5e1';
+    });
+    if (_annotCanvas) _annotCanvas.style.cursor = (t === 'text') ? 'text' : 'crosshair';
+  }
+
+  function _annotLW() {
+    return Math.max(3, (_annotCanvas ? _annotCanvas.width : 600) / 180);
+  }
+  function _annotFontPx() {
+    return Math.max(16, Math.round((_annotCanvas ? _annotCanvas.width : 600) / 26));
+  }
+
+  function _drawShape(ctx, s, lw) {
+    ctx.strokeStyle = '#dc2626';
+    ctx.fillStyle   = '#dc2626';
+    ctx.lineWidth   = lw;
+    ctx.lineCap  = 'round';
+    ctx.lineJoin = 'round';
+    if (s.tool === 'pen') {
+      if (!s.points || s.points.length < 2) return;
+      ctx.beginPath();
+      ctx.moveTo(s.points[0].x, s.points[0].y);
+      for (var i = 1; i < s.points.length; i++) ctx.lineTo(s.points[i].x, s.points[i].y);
+      ctx.stroke();
+    } else if (s.tool === 'rect') {
+      ctx.strokeRect(Math.min(s.x1, s.x2), Math.min(s.y1, s.y2), Math.abs(s.x2 - s.x1), Math.abs(s.y2 - s.y1));
+    } else if (s.tool === 'arrow') {
+      var dx = s.x2 - s.x1, dy = s.y2 - s.y1;
+      if (Math.sqrt(dx * dx + dy * dy) < 1) return;
+      var ang  = Math.atan2(dy, dx);
+      var head = Math.max(10, lw * 3.2);
+      // Linie endet kurz vor der Spitze, damit die gefuellte Spitze sauber schliesst
+      ctx.beginPath();
+      ctx.moveTo(s.x1, s.y1);
+      ctx.lineTo(s.x2 - Math.cos(ang) * head * 0.6, s.y2 - Math.sin(ang) * head * 0.6);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(s.x2, s.y2);
+      ctx.lineTo(s.x2 - head * Math.cos(ang - 0.42), s.y2 - head * Math.sin(ang - 0.42));
+      ctx.lineTo(s.x2 - head * Math.cos(ang + 0.42), s.y2 - head * Math.sin(ang + 0.42));
+      ctx.closePath();
+      ctx.fill();
+    } else if (s.tool === 'text') {
+      if (!s.text) return;
+      ctx.font = '700 ' + s.size + 'px "DM Sans",ui-sans-serif,system-ui,sans-serif';
+      ctx.textBaseline = 'top';
+      // Weisser Halo fuer Lesbarkeit auf beliebigem Screenshot-Hintergrund
+      ctx.lineWidth = Math.max(2, s.size / 7);
+      ctx.strokeStyle = 'rgba(255,255,255,.88)';
+      ctx.strokeText(s.text, s.x, s.y);
+      ctx.fillText(s.text, s.x, s.y);
+    }
+  }
+
+  // ── Inline-Text-Input direkt an der Klickposition ──
+  function _openTextInput(pos) {
+    _commitTextInput();
+    var container = document.getElementById('gfb-annot-container');
+    if (!container || !_annotCanvas) return;
+    var rect = _annotCanvas.getBoundingClientRect();
+    var dispScale  = rect.width / _annotCanvas.width;  // Canvas-px → Anzeige-px
+    var fontCanvas = _annotFontPx();
+    var inp = document.createElement('input');
+    inp.type = 'text';
+    inp.id = 'gfb-annot-textinp';
+    inp.placeholder = 'Text…';
+    inp.autocomplete = 'off';
+    inp.style.cssText = 'position:absolute;z-index:5;left:' + Math.round(pos.x * dispScale) + 'px;top:' + Math.round(pos.y * dispScale) + 'px;' +
+      'font:700 ' + Math.max(11, fontCanvas * dispScale) + 'px "DM Sans",ui-sans-serif,sans-serif;color:#dc2626;' +
+      'background:rgba(255,255,255,.92);border:1.5px dashed #dc2626;border-radius:4px;padding:1px 4px;outline:none;min-width:70px;max-width:92%';
+    inp._gfbMeta = { x: pos.x, y: pos.y, size: fontCanvas };
+    inp.addEventListener('keydown', function(e) {
+      e.stopPropagation();  // ESC/Enter nicht an den globalen Handler durchreichen
+      if (e.key === 'Enter') _commitTextInput();
+      else if (e.key === 'Escape') _cancelTextInput();
+    });
+    inp.addEventListener('blur', function() { _commitTextInput(); });
+    inp.addEventListener('mousedown', function(e) { e.stopPropagation(); });
+    inp.addEventListener('touchstart', function(e) { e.stopPropagation(); });
+    container.appendChild(inp);
+    _annotTextInput = inp;
+    try { inp.focus(); } catch(e) {}  // synchron — iOS braucht den User-Gesture-Stack
+  }
+
+  function _commitTextInput() {
+    var inp = _annotTextInput;
+    if (!inp) return;
+    _annotTextInput = null;  // vor remove() — blur wuerde sonst rekursiv committen
+    var val  = (inp.value || '').trim();
+    var meta = inp._gfbMeta;
+    try { inp.remove(); } catch(e) {}
+    if (val && meta) {
+      _annotShapes.push({ tool: 'text', x: meta.x, y: meta.y, text: val, size: meta.size });
+      _redrawAnnotation();
+    }
+  }
+
+  function _cancelTextInput() {
+    var inp = _annotTextInput;
+    if (!inp) return;
+    _annotTextInput = null;
+    try { inp.remove(); } catch(e) {}
+  }
+
   function _openAnnotation(dataUrl) {
     var annot = document.getElementById('gfb-annot');
     var img   = document.getElementById('gfb-annot-img');
     if (!annot || !img) { _showModal(); return; }
 
-    _annotPaths = [];
+    _annotShapes = [];
+    _annotTemp = null;
     _annotDrawing = false;
+    _cancelTextInput();
+    var stray = document.getElementById('gfb-annot-textinp');
+    if (stray) stray.remove();
 
     img.onload = function() {
       // Create fresh canvas each time
@@ -226,9 +364,10 @@
 
       _annotCanvas = canvas;
       _annotCtx = canvas.getContext('2d');
+      _setAnnotTool(_annotTool || 'pen');
 
-      // ── Drawing events ──
-      var currentPath = null;
+      // ── Zeichen-Logik (alle Werkzeuge) ──
+      var downPos = null, moved = false;
 
       function getPos(e) {
         var rect = canvas.getBoundingClientRect();
@@ -238,95 +377,87 @@
         return { x: (touch.clientX - rect.left) * scaleX, y: (touch.clientY - rect.top) * scaleY };
       }
 
-      canvas.addEventListener('mousedown', function(e) {
-        e.preventDefault();
+      function startShape(pos) {
+        _commitTextInput();
+        downPos = pos; moved = false;
+        if (_annotTool === 'pen') {
+          _annotTemp = { tool: 'pen', points: [pos] };
+        } else if (_annotTool === 'arrow' || _annotTool === 'rect') {
+          _annotTemp = { tool: _annotTool, x1: pos.x, y1: pos.y, x2: pos.x, y2: pos.y };
+        } else {
+          _annotTemp = null;  // Text: wird beim Loslassen platziert
+        }
         _annotDrawing = true;
-        var pos = getPos(e);
-        currentPath = [pos];
-        _annotPaths.push(currentPath);
-        _annotCtx.beginPath();
-        _annotCtx.moveTo(pos.x, pos.y);
-      });
+      }
 
-      canvas.addEventListener('mousemove', function(e) {
+      function moveShape(pos) {
         if (!_annotDrawing) return;
-        e.preventDefault();
-        var pos = getPos(e);
-        currentPath.push(pos);
-        _annotCtx.strokeStyle = '#dc2626';
-        _annotCtx.lineWidth = Math.max(3, canvas.width / 180);
-        _annotCtx.lineCap = 'round';
-        _annotCtx.lineJoin = 'round';
-        _annotCtx.lineTo(pos.x, pos.y);
-        _annotCtx.stroke();
-      });
+        if (downPos && (Math.abs(pos.x - downPos.x) > 3 || Math.abs(pos.y - downPos.y) > 3)) moved = true;
+        if (_annotTemp) {
+          if (_annotTemp.tool === 'pen') _annotTemp.points.push(pos);
+          else { _annotTemp.x2 = pos.x; _annotTemp.y2 = pos.y; }
+          _redrawAnnotation();
+        }
+      }
 
-      canvas.addEventListener('mouseup', function() { _annotDrawing = false; currentPath = null; });
-      canvas.addEventListener('mouseleave', function() { _annotDrawing = false; currentPath = null; });
+      function endShape() {
+        if (!_annotDrawing) return;
+        _annotDrawing = false;
+        if (_annotTool === 'text') {
+          if (downPos && !moved) _openTextInput(downPos);
+        } else if (_annotTemp) {
+          var keep = (_annotTemp.tool === 'pen')
+            ? _annotTemp.points.length > 1
+            : (Math.abs(_annotTemp.x2 - _annotTemp.x1) > 6 || Math.abs(_annotTemp.y2 - _annotTemp.y1) > 6);
+          if (keep) _annotShapes.push(_annotTemp);
+        }
+        _annotTemp = null;
+        downPos = null;
+        _redrawAnnotation();
+      }
+
+      canvas.addEventListener('mousedown', function(e) { e.preventDefault(); startShape(getPos(e)); });
+      canvas.addEventListener('mousemove', function(e) { if (_annotDrawing) { e.preventDefault(); moveShape(getPos(e)); } });
+      canvas.addEventListener('mouseup',    endShape);
+      canvas.addEventListener('mouseleave', endShape);
 
       // Touch
-      canvas.addEventListener('touchstart', function(e) {
-        e.preventDefault();
-        _annotDrawing = true;
-        var pos = getPos(e);
-        currentPath = [pos];
-        _annotPaths.push(currentPath);
-        _annotCtx.beginPath();
-        _annotCtx.moveTo(pos.x, pos.y);
-      }, {passive:false});
-
-      canvas.addEventListener('touchmove', function(e) {
-        if (!_annotDrawing) return;
-        e.preventDefault();
-        var pos = getPos(e);
-        currentPath.push(pos);
-        _annotCtx.strokeStyle = '#dc2626';
-        _annotCtx.lineWidth = Math.max(3, canvas.width / 180);
-        _annotCtx.lineCap = 'round';
-        _annotCtx.lineJoin = 'round';
-        _annotCtx.lineTo(pos.x, pos.y);
-        _annotCtx.stroke();
-      }, {passive:false});
-
-      canvas.addEventListener('touchend', function() { _annotDrawing = false; currentPath = null; });
+      canvas.addEventListener('touchstart', function(e) { e.preventDefault(); startShape(getPos(e)); }, {passive:false});
+      canvas.addEventListener('touchmove',  function(e) { if (_annotDrawing) { e.preventDefault(); moveShape(getPos(e)); } }, {passive:false});
+      canvas.addEventListener('touchend',   endShape);
     };
     img.src = dataUrl;
-    annot.style.display = 'block';
+    annot.style.display = 'flex';
+    _setAnnotTool(_annotTool || 'pen');
   }
 
   function _redrawAnnotation() {
     if (!_annotCtx || !_annotCanvas) return;
     _annotCtx.clearRect(0, 0, _annotCanvas.width, _annotCanvas.height);
-    _annotCtx.strokeStyle = '#dc2626';
-    _annotCtx.lineWidth = Math.max(3, _annotCanvas.width / 200);
-    _annotCtx.lineCap = 'round';
-    _annotCtx.lineJoin = 'round';
-    _annotPaths.forEach(function(path) {
-      if (path.length < 2) return;
-      _annotCtx.beginPath();
-      _annotCtx.moveTo(path[0].x, path[0].y);
-      for (var i = 1; i < path.length; i++) {
-        _annotCtx.lineTo(path[i].x, path[i].y);
-      }
-      _annotCtx.stroke();
-    });
+    var lw = _annotLW();
+    _annotShapes.forEach(function(s) { _drawShape(_annotCtx, s, lw); });
+    if (_annotTemp) _drawShape(_annotCtx, _annotTemp, lw);
   }
 
   function _undoAnnotation() {
-    if (_annotPaths.length > 0) {
-      _annotPaths.pop();
+    if (_annotTextInput) { _cancelTextInput(); return; }
+    if (_annotShapes.length > 0) {
+      _annotShapes.pop();
       _redrawAnnotation();
     }
   }
 
   function _clearAnnotation() {
-    _annotPaths = [];
+    _cancelTextInput();
+    _annotShapes = [];
+    _annotTemp = null;
     _redrawAnnotation();
   }
 
   function _finishAnnotation() {
+    _commitTextInput();  // offenes Textfeld noch uebernehmen
     // Merge annotation onto screenshot
-    if (_annotCanvas && _annotPaths.length > 0) {
+    if (_annotCanvas && _annotShapes.length > 0) {
       var img = document.getElementById('gfb-annot-img');
       var mergeCanvas = document.createElement('canvas');
       mergeCanvas.width  = _annotCanvas.width;
@@ -354,14 +485,13 @@
       preview.style.display = 'none';
     }
     // Auto-fill name from logged-in user
-    var authorEl = document.getElementById('gfb-author');
-    if (authorEl && !authorEl.value) {
-      try {
-        if (typeof GemaAuth !== 'undefined') {
-          var user = GemaAuth.getCurrentUser();
-          if (user) authorEl.value = user.name || user.username || '';
-        }
-      } catch(e) {}
+    _prefillAuthor();
+    // Defensiv: falls irgendein Pfad das Namensfeld leert (z.B. beim
+    // Typ-Wechsel auf «Fehler/Bug» beobachtet), beim Select-Change neu füllen.
+    var typeEl = document.getElementById('gfb-type');
+    if (typeEl && !typeEl._gfbNameGuard) {
+      typeEl._gfbNameGuard = true;
+      typeEl.addEventListener('change', _prefillAuthor);
     }
     var modal = document.getElementById('gfb-modal');
     if (modal) modal.style.display = 'flex';
@@ -370,7 +500,9 @@
   function start() {
     _snipRect = null;
     _screenshotDataUrl = '';
-    _annotPaths = [];
+    _annotShapes = [];
+    _annotTemp = null;
+    _cancelTextInput();
     var p = document.getElementById('gfb-preview');
     if (p) { p.src = ''; p.style.display = 'none'; }
 
@@ -417,6 +549,18 @@
     } catch(e) {
       console.warn('[GemaFeedback] Fullscreen capture:', e);
       _showModal();
+    }
+  }
+
+  function _prefillAuthor() {
+    var authorEl = document.getElementById('gfb-author');
+    if (authorEl && !authorEl.value) {
+      try {
+        if (typeof GemaAuth !== 'undefined') {
+          var user = GemaAuth.getCurrentUser();
+          if (user) authorEl.value = user.name || user.username || '';
+        }
+      } catch(e) {}
     }
   }
 
@@ -475,9 +619,9 @@
     if (btn) { btn.disabled = false; btn.textContent = '📤 Feedback senden'; }
     if (ok) {
       var taEl = document.getElementById('gfb-text');
-      var auEl = document.getElementById('gfb-author');
       if (taEl) taEl.value = '';
-      if (auEl) auEl.value = '';
+      // Name bewusst NICHT leeren — er wird beim nächsten Öffnen sonst als
+      // «leer» wahrgenommen (Feedback 14.07.); Prefill greift nur bei leerem Feld.
       close();
       _toast('✓ Feedback gespeichert');
     } else {
@@ -510,5 +654,18 @@
   }
 
   w.GemaFeedback = { init: init, start: start, close: close, submit: submit };
+
+  // Test-Hooks (Playwright) — kein Public API
+  w._gfbHooks = {
+    openAnnotation: _openAnnotation,
+    setTool: _setAnnotTool,
+    tool: function() { return _annotTool; },
+    shapes: function() { return _annotShapes; },
+    undo: _undoAnnotation,
+    clear: _clearAnnotation,
+    finish: _finishAnnotation,
+    commitText: _commitTextInput,
+    screenshot: function() { return _screenshotDataUrl; }
+  };
 
 })(window);

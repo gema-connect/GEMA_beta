@@ -1080,10 +1080,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;color:#0f172a;cursor:pointer">
           <input type="checkbox" id="exWithScreenshots" checked style="width:15px;height:15px;accent-color:#2563eb"> 🖼 Mit Screenshots (Base64)
         </label>
-        <span style="width:1px;height:18px;background:#cdd4e4"></span>
-        <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;color:#0f172a;cursor:pointer">
-          <input type="checkbox" id="exAutoMarkArbeit" checked style="width:15px;height:15px;accent-color:#f59e0b"> 🟡 Exportierte automatisch auf "in Bearbeitung" setzen
-        </label>
       </div>
       <div style="margin-top:10px;display:flex;gap:8px;align-items:center">
         <button onclick="refreshExportPreview()" style="padding:7px 14px;border-radius:8px;border:1.5px solid #cdd4e4;background:#fff;color:#0f172a;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit">🔄 Vorschau aktualisieren</button>
@@ -1098,7 +1094,30 @@ document.addEventListener('DOMContentLoaded', async () => {
     <div style="padding:14px 22px;border-top:1.5px solid #e2e7f0;display:flex;gap:8px;justify-content:flex-end;background:#f7f8fc">
       <button onclick="closeExportModal()" style="padding:9px 16px;border-radius:9px;border:1.5px solid #cdd4e4;background:#fff;color:#334155;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">Abbrechen</button>
       <button onclick="downloadExport()" style="padding:9px 16px;border-radius:9px;border:1.5px solid #cdd4e4;background:#fff;color:#0f172a;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">💾 Download .md</button>
-      <button onclick="copyExport()" style="padding:9px 18px;border-radius:9px;border:none;background:#1d4ed8;color:#fff;font-size:13px;font-weight:800;cursor:pointer;font-family:inherit">📋 Kopieren &amp; Status setzen</button>
+      <button onclick="copyExport()" style="padding:9px 18px;border-radius:9px;border:none;background:#1d4ed8;color:#fff;font-size:13px;font-weight:800;cursor:pointer;font-family:inherit">📋 Kopieren</button>
+    </div>
+  </div>
+</div>
+
+<!-- ─────────── STATUS-DIALOG NACH EXPORT: Punkte auf «In Bearbeitung»? ─────────── -->
+<div id="exMarkModal" style="display:none;position:fixed;inset:0;z-index:9300;background:rgba(15,23,42,.55);backdrop-filter:blur(4px);align-items:center;justify-content:center;padding:20px">
+  <div style="background:#fff;border-radius:16px;width:100%;max-width:620px;max-height:88vh;display:flex;flex-direction:column;box-shadow:0 24px 64px rgba(0,0,0,.25);font-family:'DM Sans',ui-sans-serif,sans-serif">
+    <div style="padding:16px 22px;border-bottom:1.5px solid #e2e7f0;display:flex;align-items:center;gap:10px">
+      <div style="font-size:18px">🟡</div>
+      <div style="flex:1">
+        <div style="font-size:15px;font-weight:800;color:#0f172a">Exportierte Punkte auf «In Bearbeitung» setzen?</div>
+        <div style="font-size:12px;color:#6b7280;margin-top:2px">Der Export wurde erstellt. Wähle, welche der exportierten offenen Punkte den Status 🟡 In Bearbeitung erhalten sollen.</div>
+      </div>
+      <button onclick="closeExMarkDialog()" style="background:#f4f6fb;border:none;border-radius:8px;width:32px;height:32px;font-size:16px;cursor:pointer;color:#6b7280">✕</button>
+    </div>
+    <div style="padding:10px 22px;border-bottom:1px solid #e2e7f0;background:#f7f8fc;display:flex;align-items:center;gap:10px">
+      <button id="exMarkToggleAll" onclick="exMarkToggleAll()" style="padding:6px 12px;border-radius:8px;border:1.5px solid #cdd4e4;background:#fff;color:#0f172a;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit">☐ Alle abwählen</button>
+      <span id="exMarkStats" style="font-size:11.5px;color:#6b7280;font-weight:600"></span>
+    </div>
+    <div id="exMarkList" style="padding:12px 22px;flex:1;overflow:auto"></div>
+    <div style="padding:14px 22px;border-top:1.5px solid #e2e7f0;display:flex;gap:8px;justify-content:flex-end;background:#f7f8fc">
+      <button onclick="closeExMarkDialog()" style="padding:9px 16px;border-radius:9px;border:1.5px solid #cdd4e4;background:#fff;color:#334155;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">Nicht setzen</button>
+      <button id="exMarkApply" onclick="exMarkApply()" style="padding:9px 18px;border-radius:9px;border:none;background:#f59e0b;color:#fff;font-size:13px;font-weight:800;cursor:pointer;font-family:inherit">🟡 Setzen</button>
     </div>
   </div>
 </div>
@@ -1109,9 +1128,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 // ═══════════════════════════════════════════════════
 // Sammelt alle Feedback-Eintraege ueber alle Module, gruppiert
 // nach Modul, formatiert als Markdown (Screenshots als Base64).
-// Beim Klick auf "Kopieren & Status setzen" werden alle exportierten
-// Eintraege automatisch auf cStatus='bearbeitung' gesetzt — beim
-// naechsten Export sind sie damit nicht mehr im Default-Filter "Offen".
+// Nach dem Export (Kopieren ODER .md-Download) fragt ein Dialog pro
+// exportiertem offenen Punkt, ob er auf cStatus='bearbeitung' gesetzt
+// werden soll — beim naechsten Export sind gesetzte Punkte damit nicht
+// mehr im Default-Filter "Offen".
 
 // Modul-ID -> Anzeigename Map (aus MODULES + sub-items zusammenstellen)
 function _exModuleLabel(modId){
@@ -1276,14 +1296,89 @@ document.addEventListener('DOMContentLoaded', function(){
     var el = document.getElementById(id);
     if(el) el.addEventListener('change', refreshExportPreview);
   });
+  // Backdrop-Klick schliesst den Status-Dialog
+  var mm = document.getElementById('exMarkModal');
+  if(mm) mm.addEventListener('click', function(e){ if(e.target === mm) closeExMarkDialog(); });
 });
 
-// Markiert alle exportierten Eintraege auf cStatus='bearbeitung',
-// damit sie beim naechsten Export nicht mehr im Default-Filter "Offen"
-// auftauchen. Speichert pro Modul-ID einmal mit allen Aenderungen.
-function _exMarkAsArbeit(filtered){
+// ── Status-Dialog nach Export ────────────────────────
+// Fragt pro exportiertem Punkt (nur cStatus 'offen' — 'erledigt' wird nie
+// zurueckgestuft, 'bearbeitung' ist schon gesetzt), ob er auf
+// «In Bearbeitung» wechseln soll. Checkboxen vorausgewaehlt.
+var _exMarkPending = [];
+
+function openExMarkDialog(filtered){
+  _exMarkPending = (filtered || []).filter(function(e){
+    return (e.item.cStatus || 'offen') === 'offen';
+  });
+  if(!_exMarkPending.length) return;
+  var list = document.getElementById('exMarkList');
+  var html = '';
+  var lastMod = null;
+  _exMarkPending.forEach(function(e, i){
+    if(e.modId !== lastMod){
+      lastMod = e.modId;
+      html += '<div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:#6b7280;margin:' + (i?'12px':'0') + ' 0 6px">' + escHtml(e.modName) + '</div>';
+    }
+    var typLabel = e.item.type==='fehler' ? '🐛' : e.item.type==='aenderung' ? '✏️' : '💬';
+    var txt = (e.item.text || '').replace(/\s+/g,' ').trim();
+    if(txt.length > 110) txt = txt.slice(0, 110) + '…';
+    html += '<label style="display:flex;align-items:flex-start;gap:9px;padding:8px 10px;border:1.5px solid #e2e7f0;border-radius:9px;margin-bottom:6px;cursor:pointer;background:#fff">'
+      + '<input type="checkbox" class="exmark-cb" data-k="' + i + '" checked onchange="exMarkUpdateCount()" style="width:15px;height:15px;accent-color:#f59e0b;margin-top:2px;flex-shrink:0">'
+      + '<span style="font-size:12.5px;color:#0f172a;line-height:1.45"><span style="font-weight:800">' + typLabel + ' ' + escHtml(e.item.author || 'Anonym') + '</span>'
+      + '<span style="color:#94a3b8;font-weight:600"> · ' + escHtml(e.item.ts || '') + '</span><br>' + escHtml(txt || '(keine Beschreibung)') + '</span>'
+      + '</label>';
+  });
+  list.innerHTML = html;
+  var m = document.getElementById('exMarkModal');
+  if(m) m.style.display = 'flex';
+  exMarkUpdateCount();
+}
+window.openExMarkDialog = openExMarkDialog;
+
+function closeExMarkDialog(){
+  var m = document.getElementById('exMarkModal');
+  if(m) m.style.display = 'none';
+  _exMarkPending = [];
+}
+window.closeExMarkDialog = closeExMarkDialog;
+
+function _exMarkChecked(){
+  return Array.prototype.slice.call(document.querySelectorAll('#exMarkList .exmark-cb:checked'))
+    .map(function(cb){ return _exMarkPending[parseInt(cb.dataset.k, 10)]; })
+    .filter(Boolean);
+}
+
+function exMarkUpdateCount(){
+  var n = _exMarkChecked().length;
+  var total = _exMarkPending.length;
+  var btn = document.getElementById('exMarkApply');
+  if(btn){
+    btn.textContent = '🟡 ' + n + ' Punkt' + (n===1?'':'e') + ' setzen';
+    btn.disabled = n === 0;
+    btn.style.opacity = n === 0 ? '.5' : '1';
+    btn.style.cursor = n === 0 ? 'default' : 'pointer';
+  }
+  var st = document.getElementById('exMarkStats');
+  if(st) st.textContent = n + ' von ' + total + ' ausgewählt';
+  var tg = document.getElementById('exMarkToggleAll');
+  if(tg) tg.textContent = n === total ? '☐ Alle abwählen' : '☑ Alle auswählen';
+}
+window.exMarkUpdateCount = exMarkUpdateCount;
+
+function exMarkToggleAll(){
+  var cbs = document.querySelectorAll('#exMarkList .exmark-cb');
+  var allChecked = _exMarkChecked().length === _exMarkPending.length;
+  cbs.forEach(function(cb){ cb.checked = !allChecked; });
+  exMarkUpdateCount();
+}
+window.exMarkToggleAll = exMarkToggleAll;
+
+function exMarkApply(){
+  var sel = _exMarkChecked();
+  if(!sel.length){ closeExMarkDialog(); return; }
   var byMod = {};
-  filtered.forEach(function(e){ (byMod[e.modId] = byMod[e.modId] || []).push(e); });
+  sel.forEach(function(e){ (byMod[e.modId] = byMod[e.modId] || []).push(e); });
   Object.keys(byMod).forEach(function(modId){
     var fb = getFeedback(modId);
     var changed = false;
@@ -1294,42 +1389,36 @@ function _exMarkAsArbeit(filtered){
         changed = true;
       }
     });
-    if(changed && typeof _GemaDB !== 'undefined'){
-      try { _GemaDB.save('feedback_' + modId, JSON.stringify(fb)); } catch(e){}
+    if(changed){
+      if(typeof _GemaDB !== 'undefined'){
+        try { _GemaDB.save('feedback_' + modId, JSON.stringify(fb)); } catch(e){}
+      }
+      try { refreshCommentUI(modId); } catch(e){}
     }
   });
+  closeExMarkDialog();
+  try { countAll(); } catch(e){}
+  refreshExportPreview();
+  toast('🟡 ' + sel.length + ' Punkt' + (sel.length===1?'':'e') + ' auf "In Bearbeitung" gesetzt');
 }
+window.exMarkApply = exMarkApply;
 
 function copyExport(){
   var ta = document.getElementById('exPreview');
   var md = ta.value;
   if(!md){ toast('⚠ Nichts zu kopieren'); return; }
   // In die Zwischenablage kopieren
-  var ok = false;
   try {
     if(navigator.clipboard && navigator.clipboard.writeText){
       navigator.clipboard.writeText(md).then(function(){
         toast('📋 In Zwischenablage kopiert');
       }).catch(function(){ _exFallbackCopy(ta); });
-      ok = true;
     } else {
       _exFallbackCopy(ta);
-      ok = true;
     }
-  } catch(e) { _exFallbackCopy(ta); ok = true; }
-  // Auto-Status setzen wenn Checkbox aktiv
-  if(document.getElementById('exAutoMarkArbeit').checked){
-    var all = _exCollectAll();
-    var filtered = _exApplyFilter(all);
-    _exMarkAsArbeit(filtered);
-    setTimeout(function(){
-      // Refresh preview damit die jetzt verschobenen Status sichtbar sind
-      refreshExportPreview();
-      // UI der Modul-Listen neu zeichnen
-      try { renderRows && renderRows(); } catch(e){}
-    }, 200);
-    toast('🟡 ' + filtered.length + ' Eintr' + (filtered.length===1?'ag':'äge') + ' auf "in Bearbeitung" gesetzt');
-  }
+  } catch(e) { _exFallbackCopy(ta); }
+  // Nach dem Export fragen, welche Punkte auf «In Bearbeitung» sollen
+  openExMarkDialog(_exApplyFilter(_exCollectAll()));
 }
 window.copyExport = copyExport;
 
@@ -1355,6 +1444,8 @@ function downloadExport(){
   document.body.appendChild(a); a.click();
   setTimeout(function(){ document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
   toast('💾 ' + fname + ' heruntergeladen');
+  // Nach dem Export fragen, welche Punkte auf «In Bearbeitung» sollen
+  openExMarkDialog(_exApplyFilter(_exCollectAll()));
 }
 window.downloadExport = downloadExport;
 </script>

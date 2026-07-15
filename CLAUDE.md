@@ -33,6 +33,8 @@ Jeder Verbraucher in der LU hat ein zugeordnetes Medium:
 | **Enthärtetes Wasser für Osmose** | `ow` (Alias `osmose`) | Trinkwassernetz | Osmoseberechnung (l/s) → Enthärtungsanlage (Permeat + Konzentrat) |
 | **Regenwasser** | `gw` (Alias `regenwasser`) | Separates Leitungsnetz | Eigene Pumpe/Druckerhöhung (l/s) |
 
+**Zusammenstellung nach Leitungsnetz (Feedback 14.07.):** In `sb_lu_tabelle` zählen Apparate auf einem alternativen Leitungsnetz (`NETZ_ZU_MEDIUM`: enthaertet→bw, osmose→ow, regenwasser→gw) mit ihrem LU-Total im JEWEILIGEN Medium (eigene W3-Auswertung je Medium inkl. Einzelapparat-Regel, Max-LU-Buttons) — nicht mehr in KW/WW/ND. Die Ergebnis-Hauptwerte listen alle Medien mit Beitrag; die Apparate-Zeile zeigt hinten «N LU · RW»-Chips statt irreführender KW/WW-Werte. Die Enthärtungs-Verbrauchertabelle (sa_enthaertung) führt bis zu 10 Zeilen (A–J, G–J via «＋ Verbraucher»), E (Dauerverbraucher) + F (Gegenosmoseanlage) laufen OHNE LU direkt über l/s, jede Zeile hat eine «+ manuell [l/s]»-Zuschlagsspalte (1:1 addiert) und eine berechnete Spalte «über Enthärter [l/s]» (Verschnitt-anteilig); Härte V unter HW,min ist zulässig, wird aber gewarnt.
+
 **Fachliche Regel (Doppelzählungs-Schutz):** Osmosewasser wird IMMER vorenthärtet — der `ow`-Volumenstrom ist automatisch auch Enthärtungs-Volumenstrom, fliesst aber **nur über das Osmose-Ergebnis** (Permeat + Konzentrat via `GemaOsmose.getResults`) in die Enthärtungsanlage, nie direkt. `bw` und `ow` sind getrennte LU-Medien: `GemaLU.getByMedium(objektId,'enthaertet')` liefert nur bw-Verbraucher, `getByMedium(objektId,'osmose')` nur ow-Verbraucher. Früher zeigten beide Aliase auf dasselbe Medium → derselbe Bedarf zählte in der Enthärtung doppelt.
 
 ### Datenfluss-Diagramm
@@ -178,6 +180,8 @@ Der **Anlagenlieferant** pflegt im Dashboard-Tab «Rohrsysteme & Armaturen» ein
 3. Lieferant bestätigt die Korrektheit der Daten
 4. Anlage erhält den **"Verifiziert"-Badge** ✓
 5. Nicht-verifizierte Anlagen werden als "Nicht verifiziert" markiert
+
+**Produktions-Seed mit realen Herstellerdaten**: `supabase/gema_lieferanten_seed_v1.sql` (im Supabase-SQL-Editor ausführen; Rollback daneben) legt 14 reale Lieferanten (BWT, Grünbeck, Grundfos, Wilo, KSB, Nussbaum, Geberit, GF JRG, Oventrop, Taconova, Flamco, IMI, GWF, Resideo), 27 Produkte über 10 Kategorien und 5 Armaturen-Records (kvs/ζ) an — ALLE bewusst `nicht_verifiziert` (Testbasis für den Verifizierungs-Workflow). IDs mit festen Präfixen `lief_seed_`/`prod_seed_`/`arm_seed_`; `ON CONFLICT DO NOTHING` (Re-Run überschreibt NIE — auch nicht inzwischen Verifiziertes). Quelle/Generator: `scripts/lieferanten_seed_gen.mjs` (validiert gegen die Live-KATEGORIEN-Schemata + SQL-Roundtrip; Daten dort ändern, dann neu generieren); E2E-Test `scripts/lieferanten_seed_test.mjs` (27 Checks: Import-Validierung, Kataloge, matchFn, Armaturen-Δp, Dashboard-Admin-Vorschau). **Chat-Recherche-Workflow**: `--prompt` erzeugt `scripts/lieferanten_seed_prompt.md` (Recherche-Auftrag für Claude-Chat mit ALLEN Kategorie-Feld-IDs aus den Live-Schemata — Antwortformat ist EIN JSON-Codeblock); `--import <daten.json>` validiert das Chat-JSON (Feld-IDs, Select-Optionen, Zahlentypen, Lieferant-Keys) und schreibt `supabase/gema_lieferanten_seed_import_<name>.sql` (deterministische IDs → Re-Import idempotent; Status automatisch nicht_verifiziert).
 
 ### Offertanfrage-Workflow (End-to-End)
 
@@ -376,6 +380,33 @@ Komplett NEU nach Excel-Vorlage «WarmwasserGesamt385_251125_v3.xlsm» (SIA 385/
 - Persistenz: reine Input-Felder via GemaAutoSave (`druckanstieg`), keine dynamischen Tabellen.
 - Anlagenwahl + Offertanfrage: **neue Produktkategorie `KATEGORIEN.sicherheitsventil`** (Ansprechdruck bar + Abblaseleistung + Anschluss; matchFn scored Nähe zum berechneten pSV) + `LIEF_KATEGORIEN`-Eintrag + bkpMap `254.0`. Payload: `ansprechdruck`, `ruhedruck`, `gesamtdruck`, `druckanstieg`, `rohrDa` — Projektwerte, nie Datenblatt-Werte.
 - Registriert in gema_auth (MODULES `druckanstieg`, FILE_MAP `sb_druckanstieg`), sb_index (Kaltwasser, «8 Module» + ALL_MODULES), sw.js.
+
+### Saugpumpe – maximale Saughöhe (sb_saugpumpe.html)
+
+1:1-Umsetzung der Excel «Saugpumpe.xlsx» (Blatt Berechnung_Saughöhe; Node-Test `scripts/saugpumpe_engine_test.mjs` 44 Fälle gegen Excel-Cached-Werte + unabhängig berechnete Formelwerte, Playwright-Smoke `scripts/saugpumpe_smoke_test.mjs` 23 Checks). Kaltwasser-Gruppe auf sb_index — 6 Schritte auf einer Seite (Layout wie sb_druckanstieg):
+1. Luftdruck aus Höhenlage: `pLuft = 101'325·((288 − 0.0065·h)/288)^5.255` (barometrische Höhenformel) → 2. Dichte Wasser `ρ = 1006 − (0.26·T + 0.0022·T²)` (Näherung, gültig 10–200 °C) → 3. Theoretisch maximale Saughöhe `Hb = pLuft/(ρ·9.81)` (~10.3 m auf Meereshöhe) → 4. Druckverlust Saugleitung pf [Pa] → `Hf = pf/(ρ·9.81)` → 5. NPSH-Wert des Herstellers [m] + Sicherheitszuschlag Hs (Default 0.5 m) → 6. Verdampfungsdruck pv [Pa] → `Hv = pv/(ρ·9.81)`.
+- **pv-Automatik**: leeres pv-Feld = Tafelwert bei T aus `SG_DAMPFDRUCK` (Wasserdampftafel Haar/Gallagher/Kell NBS/NRC, Springer 1988 — 35 Stützpunkte 0.01–99.6 °C, linear interpoliert; als Referenz-Karte mit Stützpunkt-Markierung im UI); manuelle Eingabe überschreibt IMMER (auch 0 — Unterscheidung `pv:null` = auto vs. `pv:0` = manuell in `sgCalc`).
+- **Ergebnis**: `hmax = Hb − Hf − NPSH − Hs − Hv` — muss positiv sein (sonst rote Warnbox «Saugbetrieb nicht möglich» + KPI bad); KPIs hmax / Hb / Summe Abzüge. `npshBudget = Hb − Hf − Hs − Hv` (= hmax + NPSH) ist der Projektwert fürs Anlagen-Matching.
+- Persistenz: reine Input-Felder via GemaAutoSave (`saugpumpe`), keine dynamischen Tabellen. Engine im `/*ENGINE-START*/…/*ENGINE-END*/`-Block (DOM-frei, Node-testbar).
+- Anlagenwahl + Offertanfrage: **neue Produktkategorie `KATEGORIEN.saugpumpe`** (NPSH Pflicht, max. Saughöhe/Fördermenge/Förderhöhe/Motorleistung; matchFn scored die Reserve `npshVerfuegbar − npsh`) + `LIEF_KATEGORIEN` + bkpMap `253.4` + MODUL_MAP + OA_KAT_MAP + `_OA_BW_LABELS` (`saughoeheMax`/`npshVerfuegbar`/`wasserTemp`; `hoehe` wiederverwendet). Payload: `saughoeheMax`, `npshVerfuegbar`, `wasserTemp`, `hoehe` — Projektwerte, nie Datenblatt-Werte.
+- Registriert in gema_auth (MODULES `saugpumpe`, FILE_MAP `sb_saugpumpe`), sb_index (Kaltwasser «9 Module», Hero 26), sw.js (v266), gema_recent. Rollen-Golden (`scripts/rolematrix_golden.json`) regeneriert — 74 Module.
+
+### Höhen-Übernahme ab Karte (gema_hoehe.js — Druckdispositiv, Saugpumpe, Gas)
+
+Wiederverwendbares Widget: ermittelt die **Terrainhöhe [m ü.M.] am Projektstandort** über den offiziellen swisstopo-Höhendienst und schreibt sie per «→ Übernehmen» ins Modul-Feld. Kein API-Key, CORS offen — derselbe api3.geo.admin.ch-Host wie das bestehende Adress-Autocomplete.
+- **Ablauf**: Objektadresse (Auto-Prefill aus dem aktiven Objekt, nur solange nichts erfasst/getippt) bzw. Adresssuche (GemaAdresse-Autocomplete) → SearchServer-Geocoding (WGS84) → `ghWgs84ToLV95` (identische swisstopo-Näherungsformeln wie `rkWGS84toLV95` in sb_niederschlag) → `GET /rest/services/height?easting&northing&sr=2056` → Höhe. **swissALTI3D ist ein GELÄNDE-Modell ohne Gebäude** — der geocodierte Punkt liegt aber oft auf der Gebäudemitte; deshalb ist der Punkt korrigierbar.
+- **Karte**: Mini-Ausschnitt (Luftbild swissimage, Zoom 18, nur Anzeige — Muster rk-Karte) + Vollbild-Modal (eine geteilte Instanz, z-index 12000, ESC/Backdrop): Marker ziehen ODER Karte anklicken → Höhe wird neu abgefragt (AbortController), Segment «🛰 Luftbild ⇄ 🗺 Karte» (pixelkarte-farbe hilft z.B. beim Orientieren), Verschiebung > 1.5 m ⇒ Badge «📌 Punkt manuell korrigiert» (persistiert). Leaflet 1.9.4 wird lazy von cdnjs geladen; ohne CDN/offline degradiert die Karte zum Platzhalter — **die Höhenermittlung/Übernahme funktioniert ohne Karte weiter**, API-Fehler zeigen eine klare Meldung (manuelle Eingabe bleibt).
+- **Persistenz (KRITISCH — Muster #zk_rows + bgLoadFromSnapshot)**: Zustand als JSON im Hidden-Input `<stateId>` → GemaAutoSave speichert ihn pro Objekt; Reload stellt OHNE erneuten API-Call wieder her (offline-fest). Die Modul-Init-Blöcke attachen **synchron** (Script steht nach dem Container) — das Hidden-Input muss existieren, BEVOR GemaAutoSave beim DOMContentLoaded restored; zusätzlich liest `restoreFromInput` als Fallback direkt aus dem AutoSave-Snapshot (`gema_<autosaveModul>[__<objektId>]`, via `opts.autosaveModul`). Im Druck erscheint statt der Karte eine Dokumentations-Zeile (Quelle swissALTI3D + LV95 + Korrektur-Vermerk).
+- **Integrationen**: `sb_druckdispositiv` (`#ddHoehe`→`hVerteilbatterie`, Strassenniveau als Basis Reservoir↔Verteilbatterie; Reservoir-Höhe bleibt bewusst manuell — User-Entscheid) · `sb_saugpumpe` (`#sgHoehe`→`sg_h` Höhenlage) · `sb_druckverlust_medizinalgas` (`#mgHoehe`→`mg_luft`, **mode:'mbar'** rechnet die Höhe über die barometrische Höhenformel in Luftdruck um — `ghLuftdruckMbar(400)=966` = alter Modul-Default) · `sb_druckverlust_erdgas` (`#egHoehe`→`eg_luft`, informativ). Alle 4 binden `gema_adresse.js` + `gema_hoehe.js` ein.
+- Engine im `/*ENGINE-START*/`-Block (DOM-frei): `ghWgs84ToLV95/ghLuftdruckMbar/ghDistM/ghFmtCoord/ghInCH`. Tests: `scripts/hoehe_engine_test.mjs` (27 — Bern-Anker ±1.5 m, Konsistenz mit RK-Engine, mbar-Referenzen 540 m→950) + `scripts/hoehe_smoke_test.mjs` (21, API gemockt: Prefill/Übernahme/Korrektur/Reload-Persistenz/Fehlerfall). Test-Hooks `window._ghHooks`. sw.js cached `gema_hoehe.js`.
+
+### Druckschema im Druckdispositiv (sb_druckdispositiv.html)
+
+Live-SVG-Szene «Versorgung → Wasserzähler → Installation» (Karte 📊 vor den Ergebnissen; Grafik-Entscheid Variante 3, 07/2026) — zeichnet sich bei jedem `recalc()` neu aus den echten Modulwerten, beide Modi:
+- **Reservoir-Modus**: Terrain mit Reservoir, Δh-Massband (`Δh x m → y bar`), Chips für Schwankung/Δp-Hauszuleitung; passt die Höhendifferenz nicht in die Szene, wird ein **Massstab-Bruch** gezeichnet und in `#ddSchemaNote` ausgewiesen (kleine Δh «massstäblich gezeichnet», negatives Δh = Warnhinweis). **Netz-Modus**: Netzanschluss-Symbol mit Chip-Spalte darüber (Versorgungsdruck/Höhengewinn/Schwankung/Δp-HZ).
+- **Gebäudeschnitt**: Geschossraster aus `hHoechste` (`n = round(h/2.8)` geklemmt 1..8, oberste Linie = exakte Höhe) mit «+x,x m · Ruhe y bar» je Ebene (basis − h·0.0981), Steigleitung, Zapfstelle oben, Fliessdruck-Kasten über dem Dach + Δp-Installation-Chip darunter, tiefste Stelle mit Ruhedruck; Stationen WZ/NB/DM erscheinen nur mit Werten (DM-Chip: `DM → x bar` bei Einstelldruck, sonst `Δp DM −x bar`).
+- **Norm-Farben synchron zu den Ergebnis-Karten** (Fliessdruck < 1 «Zu tief» rot / < 1.5 «Gemäss Norm» grün / ≥ 1.5 «Erhöht» amber; Ruhedruck > 5 rot), Werte folgen der Einheiten-Umschaltung (bar/kPa/mbar/Pa). **Chips sind klickbar** (`data-ziel` → scrollt zum Eingabefeld, fokussiert, `.dd-puls`-Feedback).
+- **Technik (KRITISCH)**: Szene liegt in einem eigenen Script-Block → `window._ddSchemaDraw(d)` wird am Ende von `recalc()` geguardet aufgerufen (Cross-Block-Scope-Regel); recalc hoisted dafür `hResV/hVertV/pv/hGewinnM/schwBar/dvHZ/dvWZ`. NUR literale Hex-Farben im SVG (kein `var()` — GemaPDF/html2canvas rastert sonst falsch); Inline-SVG druckt scharf mit. Drift-Guard: `scripts/druckdispo_schema_test.mjs` (Playwright, 31 Checks: Werte/Farben/Konsistenz mit `#out-fliessdruck`, Chip-Klick, Einheiten, Massstab-Logik, Netz-Modus, optionale Stationen).
 
 ### Ausdehnungsgefäss & Sicherheitsventil (hz_ausdehnungsgefaess.html) — erste Heizungsberechnung
 
@@ -734,12 +765,13 @@ Geplant: `gema_lu_api.js` für den Datenfluss aus der LU-Zusammenstellung:
 
 ## Feedback & PDF-Systeme
 
-### gema_feedback.js (v3)
+### gema_feedback.js (v4)
 
-- Roter Stift-Annotation-Overlay nach Screenshot-Snip
-- Maus/Touch-Zeichnung, Undo/Clear/Skip/Done
-- **Wichtig**: Frisches Canvas bei jedem Öffnen erstellen (kein `getBoundingClientRect()`-Caching)
-- localStorage-Fallback
+- Annotation-Overlay nach Screenshot-Snip mit **4 Werkzeugen wie in PDF-Programmen** (Toolbar oben, aktives Werkzeug rot): ✏️ Stift (Freihand), ↗ Pfeil (gefüllte Spitze am Endpunkt), ▭ Rechteck, T Text (Inline-Input direkt an der Klickposition — Enter übernimmt, ESC bricht nur das Input ab, Blur committet; Text mit weissem Halo für Lesbarkeit)
+- **Vektor-Shape-Modell** (`_annotShapes`): jede Form ist ein Objekt, Drag zeigt Live-Vorschau, Undo entfernt genau das letzte Objekt (kein Pixel-Undo); Mini-Drags < 6 px werden verworfen. Merge in den Screenshot erst bei «Fertig». Maus + Touch
+- **Wichtig**: Frisches Canvas bei jedem Öffnen erstellen (kein `getBoundingClientRect()`-Caching); Overlay ist flex-column (Toolbar darf umbrechen)
+- localStorage-Fallback; Test-Hooks `window._gfbHooks` (openAnnotation/setTool/shapes/undo/finish)
+- **Markdown-Export-Status-Dialog (sys_beta.html)**: Nach dem Export (💾 Download UND 📋 Kopieren) fragt `openExMarkDialog` pro exportiertem OFFENEN Punkt per Checkbox (vorausgewählt, gruppiert nach Modul, «Alle abwählen»-Toggle, Live-Zähler), ob er auf `cStatus='bearbeitung'` gesetzt werden soll — ersetzt die frühere stille Auto-Mark-Checkbox. «Erledigt» wird nie zurückgestuft, «bearbeitung» nicht erneut gelistet. Drift-Guard: `scripts/feedback_tools_test.mjs` (33 Checks, Annotation + Dialog)
 
 ### gema_pdf.js (v2)
 
@@ -2052,6 +2084,14 @@ Zentrales Modul `gema_notify.js` für In-App-Benachrichtigungen. Glocke + Toast-
 
 **Neue Module fügen ihre Event-Keys hier hinzu**, sonst greift kein Preferences-Filter.
 
+### Einstellungs-Gating nach Modul-Zugriff (KRITISCH)
+
+Das ⚙-Einstellungs-Panel der Glocke zeigt NUR Gruppen von Modulen, die das Konto nutzen kann — keine Einstellungen für Module ohne Zugriff (ein Garagist sieht z.B. nur Fahrzeug + Abos + Chat statt aller ~22 Gruppen). Logik in `gema_notify_ui.js`:
+- **`MODUL_ZUGRIFF`** mappt jede EVENT_KEYS-Gruppe auf `{mods:[gema_auth-Modul-Keys — read genügt], roles:[Rollen-Präfixe für Cross-Org-Flüsse ohne Modul-Permission], immer:true}`. Beispiele: `werkzeug → werkzeugmanagement` + roles Lieferanten/Prüfer (Dashboard-Werkzeuge-Tab ist `_isLoginOnly`, nicht modul-gegated); `ausschreibung` + roles Architekt/Bauherrschaft (Vergabeantrag); `abos`/`chat` = `immer` (kontoweit). **Neue Event-Key-Gruppen MÜSSEN hier ergänzt werden** — Fallback für unbekannte Gruppen: existiert der Gruppen-Key als gema_auth-Modul, gilt dessen read-Permission, sonst sichtbar (fail-open, kein stilles Verstecken).
+- **Selbstheilend**: Wer bereits Notifikationen einer Gruppe ERHALTEN hat, sieht deren Einstellungen immer (deckt E-Mail-Match-/lieferantId-Zustellung ab, z.B. externer Freigeber). `role_admin` sieht alles. Wurden Gruppen ausgeblendet, zeigt das Panel die Hinweiszeile «nur Module mit Zugriff».
+- **Gleiches Prinzip in sys_profil.html**: Die Ausschreibungs-Einstellungen (Karte «Standard BKP-Auswahl» `#cardBkpDefaults` + Toggle «Dynamische BKP-Nummerierung» `#rowDynBKP`) sind nur mit `can('read','ausschreibungsunterlagen')` sichtbar.
+- **Drift-Guard: `scripts/notify_prefs_gating_test.mjs`** (Layer 1 liest EVENT_KEYS/MODUL_ZUGRIFF/MODUL_LABELS live aus der App — failt bei jeder neuen Gruppe ohne Zuordnung/Label und bei mods-Tippfehlern; Layer 2 prüft die Sichtbarkeits-Matrix für Admin/Planer/Monteur/Garagist/Student/Lieferant/Bauherrschaft, Selbstheilung und das sys_profil-Gating). Hinweis: «objekte» ist KEINE Laufzeit-Gruppe (kommt nur in Demo-Seeds vor) — es gibt 22 echte Gruppen.
+
 ### Cloud-Sync (Cross-Device-Zustellung)
 
 Notifikationen lagen früher NUR im localStorage — sie erreichten damit nie ein anderes Gerät (Planer → Lieferant funktionierte nicht). Jetzt spiegelt `gema_notify.js` jede Notifikation best-effort als eigene Cloud-Row via `gema_sync.js` (moduleKey `notify`, prefix `notif:`): `push()` → `saveRecord`, `markRead`/`markAllRead` → Update, `remove`/`clearForCurrentUser` → `deleteRecord` (nur bei persönlich adressierten — Rollen-/Org-Notifikationen haben mehrere Empfänger und werden nur lokal entfernt). Merge-Pull beim Seitenstart (2.5s verzögert), alle 60s und bei Tab-Fokus (`visibilitychange`); beim Merge gewinnt der Gelesen-Status. Ohne `gema_sync.js`/Cloud funktioniert alles lokal weiter. Demo-Seeds bleiben lokal (kein Cloud-Push).
@@ -2469,10 +2509,11 @@ UI-Anbindung:
 | `gema_sync.js` | **Cloud-First Per-Record-Sync.** Single source of truth Supabase, eine Row pro Datensatz, Diff-Saves, Offline-Banner. `bindCollection`/`persistCollection` als Modul-Helper. Siehe „Cloud-First Storage-Architektur". |
 | `gema_dialog.js` | Eigene Alert/Confirm/Prompt-Dialoge im GEMA-Style. `window.alert` global ueberschrieben. `GemaDialog.confirm({title,message,danger}).then(ok=>…)` und `GemaDialog.prompt(...)` als Promise-API. `window.confirm` bleibt nativ (sync), neue Stellen sollen GemaDialog nutzen |
 | `gema_feedback.js` | Feedback-Overlay mit Annotation |
+| `gema_hoehe.js` | **Höhen-Übernahme ab Karte (swisstopo)** — `GemaHoehe.attach({container, stateId, autosaveModul, mode:'m'\|'mbar', applyLabel, onApply})`. Adresse → Geocoding (SearchServer) → LV95 → Höhendienst `api3.geo.admin.ch/rest/services/height` (swissALTI3D) → m ü.M.; gezoomte Luftbild-Mini-Karte + Vollbild-Modal mit verschiebbarem Punkt (jede Verschiebung fragt die Höhe neu ab), «Übernehmen» schreibt ins Modul-Feld. Siehe Abschnitt «Höhen-Übernahme ab Karte». |
 | `gema_lu_api.js` | LU-Zusammenstellung Cross-Modul-API |
 | `gema_mobile_menu.js` | Hamburger-Menü auf Mobile (v2, iOS-Feel): Sektionen Navigation (Startseite/Projekte, permission-guarded) · Zuletzt verwendet (via `GemaRecent`) · Aktionen (Seiten-Buttons, ohne Chevron) · Verwaltung (admin) · Konto (Einstellungen/Feedback/Abmelden); tappbarer User-Block → sys_profil; Footer «Als App installieren» (wenn GemaPWA bereit); Swipe-nach-rechts schliesst; Body-Lock via GemaScroll. **Verschiebt Notify-Glocke (`.gn-btn`) UND Chat-Button (`.gc-btn`) auf Mobile NEBEN den Hamburger** (Klasse `gn-btn--nav`) statt sie mit `.g-nav-right` zu verstecken — Badges bleiben sichtbar; Desktop-Resize stellt sie zurück |
 | `gema_notify.js` | Notifikations-Engine |
-| `gema_notify_ui.js` | Glocke + Toast-UI. Benachrichtigungs-Einstellungen (⚙ in der Glocke) **nach Modul gruppiert** (`MODUL_LABELS`-Map + GemaAuth-Fallback, Gruppen alphabetisch, Events je Gruppe sortiert) mit ✕-Button, ESC und Backdrop-Klick zum Schliessen — neue EVENT_KEYS-`modul`-Werte in `MODUL_LABELS` ergänzen |
+| `gema_notify_ui.js` | Glocke + Toast-UI. Benachrichtigungs-Einstellungen (⚙ in der Glocke) **nach Modul gruppiert** (`MODUL_LABELS`-Map + GemaAuth-Fallback, Gruppen alphabetisch, Events je Gruppe sortiert) mit ✕-Button, ESC und Backdrop-Klick zum Schliessen — **und nach Modul-Zugriff GEFILTERT** (`MODUL_ZUGRIFF`, siehe «Einstellungs-Gating nach Modul-Zugriff»). Neue EVENT_KEYS-`modul`-Werte in `MODUL_LABELS` UND `MODUL_ZUGRIFF` ergänzen (Drift-Guard `scripts/notify_prefs_gating_test.mjs`) |
 | `gema_objekte_api.js` | Objekte/Projekte Cross-Modul-API |
 | `gema_offer_request.js` | Externe Offertanfragen |
 | `gema_offerten_tab.js` | Offerten-Tab in Berechnungsmodulen |
