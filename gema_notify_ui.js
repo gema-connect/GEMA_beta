@@ -276,6 +276,7 @@
     stundenerfassung:'⏱ Stundenerfassung',
     revisionsunterlagen:'📑 Revisionsunterlagen',
     behoerden_formulare:'🏛 Behörden & Formulare',
+    planablage:'📐 Planablage & Pendenzen',
     abos:'💳 Abos & Preise',
     chat:'💬 Chat',
     schule:'🎓 Schule & Klassen'
@@ -323,6 +324,7 @@
     stundenerfassung:{mods:['stundenerfassung']},
     revisionsunterlagen:{mods:['revisionsunterlagen'],roles:['role_lieferant','role_produktlieferant']},
     behoerden_formulare:{mods:['behoerden_formulare']},
+    planablage:{mods:['planablage']},
     abos:{immer:true},
     chat:{immer:true},
     schule:{mods:['klassen','pruefungen']}

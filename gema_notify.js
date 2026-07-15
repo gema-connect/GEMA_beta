@@ -366,6 +366,21 @@
       modul:'behoerden_formulare',
       defaultOn:true
     },
+    plan_dokument_freigegeben: {
+      label:'Plan/Dokument für mich freigegeben',
+      modul:'planablage',
+      defaultOn:true
+    },
+    plan_pendenz_zugewiesen: {
+      label:'Pendenz mir zugewiesen',
+      modul:'planablage',
+      defaultOn:true
+    },
+    plan_pendenz_erledigt: {
+      label:'Pendenz erledigt gemeldet',
+      modul:'planablage',
+      defaultOn:true
+    },
     abo_bestellung: {
       label:'Neue Abo-Bestellung / Token-Zukauf (GEMA-Admin)',
       modul:'abos',
