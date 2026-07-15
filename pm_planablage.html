@@ -125,6 +125,19 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important}
 #pvSvg text{font-family:'DM Sans',sans-serif;font-weight:700}
 .pv-pin{cursor:pointer}
 .pv-hint{position:absolute;left:50%;bottom:calc(14px + env(safe-area-inset-bottom));transform:translateX(-50%);background:#111827ee;color:#fff;font-size:12px;font-weight:700;padding:8px 14px;border-radius:99px;z-index:5;white-space:nowrap}
+/* ── Layer-Panel + Gewerk-Chips ── */
+.pv-pop{position:absolute;top:calc(52px + env(safe-area-inset-top));right:10px;z-index:20;background:#fff;border:1px solid var(--brd2);border-radius:12px;box-shadow:0 14px 40px rgba(0,0,0,.35);padding:10px 12px;min-width:230px;max-width:88vw}
+.pv-pop h4{margin:0 0 7px;font-size:12px;font-weight:800;color:var(--txt)}
+.lyr-row{display:flex;align-items:center;gap:8px;padding:5px 0;font-size:12.5px;font-weight:700;color:var(--txt);cursor:pointer;user-select:none}
+.lyr-row input{accent-color:var(--acc)}
+.lyr-row .cnt{margin-left:auto;font-size:10.5px;color:var(--mut);font-weight:800}
+.lyr-dot{width:12px;height:12px;border-radius:50%;flex-shrink:0;border:1.5px solid #ffffffaa;box-shadow:0 0 0 1px rgba(0,0,0,.12)}
+.lyr-sel{font-weight:700;font-size:12px;border:1.5px solid var(--brd2);border-radius:8px;padding:5px 7px;background:var(--sur)}
+.lyr-chip{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:99px;border:1.5px solid var(--brd2);background:var(--sur);font-size:11px;font-weight:800;cursor:pointer;user-select:none}
+.lyr-chip.on{border-color:var(--acc);background:#fffbeb}
+.frg-chips{display:none;width:100%;gap:5px;flex-wrap:wrap;padding:4px 0 2px}
+.frg-chips.show{display:flex}
+.pv-lyrsel{height:36px;border-radius:9px;border:1px solid #46506033;background:#2c3442;color:#dfe5ee;font-size:12px;font-weight:800;padding:0 6px;max-width:130px}
 @media print{.g-nav,.no-print{display:none!important}}
 </style>
 <script src="gema_feedback.js"></script><script src="gema_notify.js"></script><script src="gema_notify_ui.js"></script><script src="gema_chat.js"></script>
@@ -192,6 +205,9 @@ function fixLeadingZero(el){
     <span class="pv-sep"></span>
     <button class="pv-btn" onclick="pabZoom(-1)">−</button>
     <button class="pv-btn" onclick="pabZoom(1)">＋</button>
+    <span class="pv-sep"></span>
+    <button class="pv-btn" id="pvEye" onclick="pabEye()" title="Alle Markierungen & Pins ein-/ausblenden (sauberer Plan)">👁</button>
+    <button class="pv-btn" id="pvLayerBtn" onclick="pabLayerPanel()" title="Layer (Gewerke) ein-/ausblenden">🗂</button>
     <span class="pv-sep" id="pvToolSep"></span>
     <span id="pvTools"></span>
     <span id="pvFarben" style="display:inline-flex;gap:5px;align-items:center;margin-left:4px"></span>
@@ -200,6 +216,7 @@ function fixLeadingZero(el){
     <button class="pv-btn" id="pvDel" onclick="pabDelSel()" title="Ausgewählte Markierung löschen" disabled>🗑</button>
     <span class="pv-pg" id="pvSaveState" style="font-size:10.5px"></span>
   </div>
+  <div id="pvLayerPanel" class="pv-pop no-print" style="display:none"></div>
   <div class="pv-body" id="pvBody">
     <div id="pvStage">
       <canvas id="pvCanvas"></canvas>
@@ -249,8 +266,66 @@ function fixLeadingZero(el){
     if(b >= 1024) return Math.round(b/1024) + ' KB';
     return b + ' B';
   }
+  // ── Gewerk-Layer ──────────────────────────────────────────────────
+  // Jede Markierung/Pendenz liegt auf einem Gewerk-Layer (Altdaten ohne
+  // Feld zählen als «allgemein»). Farben = feste Gewerkfarben.
+  var PAB_LAYER = [
+    { id:'sanitaer',   label:'Sanitär',    farbe:'#2563eb' },
+    { id:'heizung',    label:'Heizung',    farbe:'#dc2626' },
+    { id:'lueftung',   label:'Lüftung',    farbe:'#0891b2' },
+    { id:'elektro',    label:'Elektro',    farbe:'#d97706' },
+    { id:'spenglerei', label:'Spenglerei', farbe:'#7c3aed' },
+    { id:'allgemein',  label:'Allgemein',  farbe:'#475569' }
+  ];
+  function pabLayerById(id){
+    for(var i = 0; i < PAB_LAYER.length; i++) if(PAB_LAYER[i].id === id) return PAB_LAYER[i];
+    return PAB_LAYER[PAB_LAYER.length - 1];   // allgemein
+  }
+  // Freitext/Org-Kategorie/Beteiligten-Rolle → Gewerk-Layer
+  function pabGewerkVonText(t){
+    t = String(t || '').toLowerCase();
+    if(t.indexOf('sanit') >= 0) return 'sanitaer';
+    if(t.indexOf('heiz') >= 0 || t.indexOf('hlkk') >= 0) return 'heizung';
+    if(t.indexOf('lüft') >= 0 || t.indexOf('lueft') >= 0 || t.indexOf('klima') >= 0) return 'lueftung';
+    if(t.indexOf('elektr') >= 0) return 'elektro';
+    if(t.indexOf('speng') >= 0 || t.indexOf('dach') >= 0) return 'spenglerei';
+    return 'allgemein';
+  }
+  // Welche Layer darf der User auf diesem Dokument SEHEN?
+  //   null  = alle (Eigentümer-Org — Projekt-Owner sieht immer alles)
+  //   Array = nur diese Layer (Externe via Freigabe; Default = eigenes
+  //           Gewerk + Allgemein, «alle» bzw. explizite Auswahl möglich;
+  //           das eigene Gewerk ist IMMER enthalten — man sieht, was man
+  //           selbst zeichnet)
+  //   []    = keine (kein Zugriff)
+  function pabLayerSicht(dok, user){
+    if(!dok || !user) return [];
+    if(dok.orgId === user.orgId) return null;
+    var me = pabNormMail((user.profile && user.profile.email) || user.username);
+    if(!me) return [];
+    var f = (dok.freigaben || []).find(function(x){ return pabNormMail(x.email) === me; });
+    if(!f) return [];
+    var own = f.gewerk || 'allgemein';
+    if(f.layers === 'alle') return null;
+    if(Array.isArray(f.layers) && f.layers.length){
+      var out = f.layers.slice();
+      if(out.indexOf(own) < 0) out.push(own);
+      return out;
+    }
+    return own === 'allgemein' ? ['allgemein'] : [own, 'allgemein'];
+  }
+  // Anzeige-Farbe eines Shapes: frei gewählte Farbe, solange nur EIN Layer
+  // aktiv ist — sind mehrere Layer gleichzeitig sichtbar, wechselt die
+  // Darstellung auf die Gewerkfarbe (User-Entscheid: Zuordnung erkennbar).
+  function pabShapeFarbe(s, mehrereLayer){
+    var lay = pabLayerById(s && s.layer);
+    if(mehrereLayer) return lay.farbe;
+    return (s && s.farbe) || lay.farbe;
+  }
   w.pabNormMail = pabNormMail; w.pabKannLesen = pabKannLesen; w.pabKannBearbeiten = pabKannBearbeiten;
   w.pabPendUebergang = pabPendUebergang; w.pabFmtSize = pabFmtSize;
+  w.PAB_LAYER = PAB_LAYER; w.pabLayerById = pabLayerById; w.pabGewerkVonText = pabGewerkVonText;
+  w.pabLayerSicht = pabLayerSicht; w.pabShapeFarbe = pabShapeFarbe;
 })(typeof window !== 'undefined' ? window : globalThis);
 /*ENGINE-END*/
 </script>
@@ -341,10 +416,15 @@ function fixLeadingZero(el){
     var me = myMail();
     var arr = cached(LSP).filter(function(p){
       if(!p) return false;
-      if(p.orgId === u.orgId) return true;
-      if(me && pabNormMail(p.zustaendig && p.zustaendig.email) === me) return true;
+      if(p.orgId === u.orgId) return true;                                       // eigene Org: alles
+      if(me && pabNormMail(p.zustaendig && p.zustaendig.email) === me) return true; // mir zugewiesen: immer
+      if(p.erstelltVon && p.erstelltVon.userId === u.id) return true;             // von mir erfasst: immer
       var d = p.dokId ? dokById(p.dokId) : null;
-      return d ? kannLesen(d) : false;
+      if(!d || !kannLesen(d)) return false;
+      // Externe sehen über den Plan-Bezug nur Pendenzen ihrer freigegebenen
+      // Layer — der Elektriker sieht die Sanitär-Pendenzen NICHT.
+      var sicht = pabLayerSicht(d, u);
+      return sicht === null || sicht.indexOf(p.layer || 'allgemein') >= 0;
     });
     arr.sort(function(a,b){ return (b.erstelltAm||'') < (a.erstelltAm||'') ? -1 : 1; });
     return arr;
@@ -569,30 +649,52 @@ function fixLeadingZero(el){
   };
 
   // ── Freigaben (Beteiligte: lesen / bearbeiten, cross-org via E-Mail) ──
+  // Zeile im Freigabe-Dialog: Recht + Gewerk (eigener Layer der Person) +
+  // Layer-Sicht (Eigenes+Allgemein / Alle / explizite Auswahl per Chips)
+  function frgRowHtml(email, name, f, guessGewerk){
+    var recht = f ? f.recht : '';
+    var gewerk = (f && f.gewerk) || guessGewerk || 'allgemein';
+    var sicht = f ? (f.layers === 'alle' ? 'alle' : (Array.isArray(f.layers) && f.layers.length ? 'auswahl' : 'eigene')) : 'eigene';
+    var selLayers = (f && Array.isArray(f.layers)) ? f.layers : [];
+    return '<div class="frg-row" data-mail="' + esc(email) + '">' +
+      '<span class="who"><b>' + esc(name || email) + '</b>' + (name ? '<br><span style="color:var(--mut);font-size:11px">' + esc(email) + '</span>' : '') + '</span>' +
+      '<select class="lyr-sel frg-recht" title="Zugriffsrecht"><option value=""' + (!recht ? ' selected' : '') + '>kein Zugriff</option><option value="lesen"' + (recht === 'lesen' ? ' selected' : '') + '>👁 lesen</option><option value="bearbeiten"' + (recht === 'bearbeiten' ? ' selected' : '') + '>✏️ bearbeiten</option></select>' +
+      '<select class="lyr-sel frg-gewerk" title="Gewerk der Person (ihr Zeichen-Layer)">' +
+        PAB_LAYER.map(function(l){ return '<option value="' + l.id + '"' + (gewerk === l.id ? ' selected' : '') + '>' + esc(l.label) + '</option>'; }).join('') +
+      '</select>' +
+      '<select class="lyr-sel frg-sicht" title="Welche Layer sieht die Person?" onchange="pabFreiSicht(this)">' +
+        '<option value="eigene"' + (sicht === 'eigene' ? ' selected' : '') + '>Eigenes + Allgemein</option>' +
+        '<option value="alle"' + (sicht === 'alle' ? ' selected' : '') + '>Alle Layer</option>' +
+        '<option value="auswahl"' + (sicht === 'auswahl' ? ' selected' : '') + '>Auswahl …</option>' +
+      '</select>' +
+      '<div class="frg-chips' + (sicht === 'auswahl' ? ' show' : '') + '">' +
+        PAB_LAYER.map(function(l){ return '<span class="lyr-chip' + (selLayers.indexOf(l.id) >= 0 ? ' on' : '') + '" data-lyr="' + l.id + '" onclick="this.classList.toggle(\'on\')"><span class="lyr-dot" style="background:' + l.farbe + '"></span>' + esc(l.label) + '</span>'; }).join('') +
+      '</div>' +
+      '</div>';
+  }
+  window.pabFreiSicht = function(sel){
+    var row = sel.closest('.frg-row'); if(!row) return;
+    var chips = row.querySelector('.frg-chips');
+    if(chips) chips.classList.toggle('show', sel.value === 'auswahl');
+  };
   window.pabFreigaben = function(id){
     var d = dokById(id); if(!d || !kannBearbeiten(d)) return;
     var bets = d.objektId ? beteiligteFor(d.objektId) : [];
     var frei = d.freigaben || [];
-    function rowHtml(email, name, recht){
-      return '<div class="frg-row" data-mail="' + esc(email) + '">' +
-        '<span class="who"><b>' + esc(name || email) + '</b>' + (name ? '<br><span style="color:var(--mut);font-size:11px">' + esc(email) + '</span>' : '') + '</span>' +
-        '<select class="btn sm frg-recht" style="font-weight:700"><option value=""' + (!recht ? ' selected' : '') + '>kein Zugriff</option><option value="lesen"' + (recht === 'lesen' ? ' selected' : '') + '>👁 lesen</option><option value="bearbeiten"' + (recht === 'bearbeiten' ? ' selected' : '') + '>✏️ bearbeiten</option></select>' +
-        '</div>';
-    }
     var seen = {};
     var rows = '';
     bets.forEach(function(b){
       var mail = pabNormMail(b.email); if(!mail || seen[mail]) return; seen[mail] = 1;
       var f = frei.find(function(x){ return pabNormMail(x.email) === mail; });
-      rows += rowHtml(b.email, (b.name || b.firma || '') + (b.rolle ? ' · ' + b.rolle : ''), f ? f.recht : '');
+      rows += frgRowHtml(b.email, (b.name || b.firma || '') + (b.rolle ? ' · ' + b.rolle : ''), f, pabGewerkVonText((b.rolle || '') + ' ' + (b.firma || '')));
     });
     frei.forEach(function(f){
       var mail = pabNormMail(f.email); if(seen[mail]) return; seen[mail] = 1;
-      rows += rowHtml(f.email, f.name || '', f.recht);
+      rows += frgRowHtml(f.email, f.name || '', f, f.gewerk);
     });
     showModal('<div class="modal-hd"><h3>🔒 Freigaben — ' + esc(d.name) + '</h3><button class="modal-x gema-read-ok" onclick="pabCloseModal()">✕</button></div>' +
       '<div class="modal-bd">' +
-      '<div class="hint" style="margin-bottom:8px">Beteiligte des Projekts + freie E-Mail-Adressen. «lesen» = ansehen &amp; kommentieren, «bearbeiten» = zusätzlich Markierungen &amp; Pendenzen. Zugriff gilt GEMA-weit über die E-Mail des Logins.</div>' +
+      '<div class="hint" style="margin-bottom:8px">Beteiligte des Projekts + freie E-Mail-Adressen. «lesen» = ansehen &amp; kommentieren, «bearbeiten» = zusätzlich Markierungen &amp; Pendenzen (auf dem eigenen Gewerk-Layer). <b>Layer-Sicht</b>: Standard sieht die Person nur ihr Gewerk + Allgemein — dem Architekten/der Bauleitung gibst du «Alle Layer». Deine eigene Firma sieht immer alles.</div>' +
       '<div id="frgList">' + (rows || '<div class="empty">Keine Beteiligten mit E-Mail am Projekt.</div>') + '</div>' +
       '<div class="fld" style="margin-top:10px"><label>Weitere E-Mail freigeben</label><div style="display:flex;gap:6px"><input type="email" id="frg_mail" placeholder="name@firma.ch" style="flex:1"/><button class="btn sm" onclick="pabFreiAdd()">＋</button></div></div>' +
       '</div>' +
@@ -605,8 +707,7 @@ function fixLeadingZero(el){
     var list = $id('frgList'); if(!list) return;
     if(list.querySelector('[data-mail="' + mail + '"]')){ toast('Bereits in der Liste'); return; }
     var div = document.createElement('div');
-    div.innerHTML = '<div class="frg-row" data-mail="' + esc(mail) + '"><span class="who"><b>' + esc(mail) + '</b></span>' +
-      '<select class="btn sm frg-recht" style="font-weight:700"><option value="">kein Zugriff</option><option value="lesen" selected>👁 lesen</option><option value="bearbeiten">✏️ bearbeiten</option></select></div>';
+    div.innerHTML = frgRowHtml(mail, '', { recht: 'lesen' }, 'allgemein');
     list.appendChild(div.firstChild);
     inp.value = '';
   };
@@ -619,7 +720,15 @@ function fixLeadingZero(el){
     document.querySelectorAll('#frgList .frg-row').forEach(function(row){
       var mail = row.getAttribute('data-mail');
       var recht = (row.querySelector('.frg-recht') || {}).value || '';
-      if(recht) neu.push({ email: mail, recht: recht });
+      if(!recht) return;
+      var f = { email: mail, recht: recht, gewerk: (row.querySelector('.frg-gewerk') || {}).value || 'allgemein' };
+      var sicht = (row.querySelector('.frg-sicht') || {}).value || 'eigene';
+      if(sicht === 'alle') f.layers = 'alle';
+      else if(sicht === 'auswahl'){
+        f.layers = [].slice.call(row.querySelectorAll('.lyr-chip.on')).map(function(c){ return c.getAttribute('data-lyr'); });
+        if(!f.layers.length) delete f.layers;   // leere Auswahl = Default (eigenes + Allgemein)
+      }
+      neu.push(f);
     });
     d.freigaben = neu;
     saveRec(LSD, PFD, d);
@@ -708,6 +817,7 @@ function fixLeadingZero(el){
       (p.beschrieb ? '<div style="font-size:12.5px;color:var(--txt2);margin-top:6px;white-space:pre-wrap">' + esc(p.beschrieb) + '</div>' : '') +
       '<div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:7px">' +
         '<span class="badge ' + pr.b + '">Prio ' + pr.l + '</span>' +
+        (function(){ var lay = pabLayerById(p.layer); return '<span class="badge b-out" style="display:inline-flex;align-items:center;gap:4px"><span class="lyr-dot" style="background:' + lay.farbe + ';width:9px;height:9px"></span>' + esc(lay.label) + '</span>'; })() +
         (p.zustaendig && (p.zustaendig.name || p.zustaendig.email) ? '<span class="badge b-blue">👤 ' + esc(p.zustaendig.name || p.zustaendig.email) + '</span>' : '') +
         (d && p.pin ? '<button class="badge b-acc gema-read-ok" style="cursor:pointer;border-style:solid" onclick="pabViewerOpen(\'' + esc(d.id) + '\',' + (p.seite || 1) + ',\'' + esc(p.id) + '\')">📐 ' + esc(d.name) + ' · S.' + (p.seite || 1) + '</button>' : (d ? '<span class="badge b-out">📐 ' + esc(d.name) + '</span>' : '')) +
       '</div>' +
@@ -748,11 +858,16 @@ function fixLeadingZero(el){
           ['hoch','mittel','niedrig'].map(function(x){ return '<option value="' + x + '"' + ((p ? p.prioritaet : 'mittel') === x ? ' selected' : '') + '>' + PRIO[x].l + '</option>'; }).join('') +
         '</select></div>' +
       '</div>' +
+      '<div class="fld-row">' +
       '<div class="fld"><label>Plan (PDF, für den Pin)</label><select id="pd_dok">' +
         '<option value="">— kein Plan-Bezug —</option>' +
         doks.map(function(d){ var sel = (p ? p.dokId : preset.dokId) === d.id; return '<option value="' + esc(d.id) + '"' + (sel ? ' selected' : '') + '>' + esc(d.name) + '</option>'; }).join('') +
       '</select>' +
       '<div class="hint">' + (preset.pin || (p && p.pin) ? '📍 Pin gesetzt (Seite ' + (preset.seite || (p && p.seite) || 1) + ') — Position bleibt erhalten.' : 'Pin setzen: Plan öffnen → Werkzeug 📍 → auf die Stelle klicken.') + '</div></div>' +
+      '<div class="fld"><label>Gewerk-Layer</label><select id="pd_layer">' +
+        PAB_LAYER.map(function(l){ var sel = (p ? (p.layer || 'allgemein') : (preset.layer || myGewerk())) === l.id; return '<option value="' + l.id + '"' + (sel ? ' selected' : '') + '>' + esc(l.label) + '</option>'; }).join('') +
+      '</select><div class="hint">Bestimmt Farbe des Pins im Multi-Layer-Blick und wer die Pendenz über Layer-Freigaben sieht.</div></div>' +
+      '</div>' +
       '<div class="fld-row">' +
         '<div class="fld"><label>Zuständig (Org-Mitglied)</label><select id="pd_zust_user">' +
           '<option value="">—</option>' +
@@ -826,6 +941,7 @@ function fixLeadingZero(el){
     rec.seite = parseInt(($id('pd_seite') || {}).value, 10) || (alt && alt.seite) || (dokId ? 1 : null);
     rec.pin = dokId ? (pin || (alt && alt.pin) || null) : null;
     rec.prioritaet = ($id('pd_prio') || {}).value || 'mittel';
+    rec.layer = ($id('pd_layer') || {}).value || rec.layer || 'allgemein';
     rec.fotos = _pendFotos.slice();
     var vorherZust = alt && alt.zustaendig ? pabNormMail(alt.zustaendig.email) : '';
     rec.zustaendig = zust;
@@ -892,7 +1008,38 @@ function fixLeadingZero(el){
   };
 
   // ── PDF-Viewer + Annotation ───────────────────────────────────────
-  var PV = { dok:null, pdf:null, seite:1, seiten:1, scale:1, tool:'hand', farbe:FARBEN[0], shapes:{}, sel:null, dirty:false, temp:null, pts:null, canEdit:false, hiPend:null };
+  var PV = { dok:null, pdf:null, seite:1, seiten:1, scale:1, tool:'hand', farbe:FARBEN[0], shapes:{}, sel:null, dirty:false, temp:null, pts:null, canEdit:false, hiPend:null,
+             sicht:null, layerVis:null, hideAll:false, drawLayer:'allgemein', extern:false };
+  // Eigenes Gewerk des eingeloggten Users (Org-Kategorie → Layer)
+  function myGewerk(){
+    try{
+      var u = user(); if(!u) return 'allgemein';
+      var orgs = (GemaAuth.getOrgs && GemaAuth.getOrgs()) || [];
+      var org = orgs.find(function(o){ return o.id === u.orgId; }) || {};
+      var kats = (org.kategorien && org.kategorien.length ? org.kategorien : [org.kategorie]).filter(Boolean);
+      for(var i = 0; i < kats.length; i++){
+        var g = pabGewerkVonText(kats[i]);
+        if(g !== 'allgemein') return g;
+      }
+    }catch(e){}
+    return 'allgemein';
+  }
+  // Freigabe-Eintrag des eingeloggten Users auf einem Dokument (extern)
+  function meineFreigabe(d){
+    var me = myMail(); if(!me || !d) return null;
+    return (d.freigaben || []).find(function(f){ return pabNormMail(f.email) === me; }) || null;
+  }
+  // Erlaubte Layer als Array (null-Sicht = alle)
+  function erlaubteLayer(){
+    return PV.sicht === null ? PAB_LAYER.map(function(l){ return l.id; }) : PV.sicht;
+  }
+  function layerSichtbar(id){
+    id = id || 'allgemein';
+    if(PV.hideAll) return false;
+    if(PV.sicht !== null && PV.sicht.indexOf(id) < 0) return false;   // harte Freigabe-Grenze
+    if(PV.layerVis && !PV.layerVis[id]) return false;                 // eigenes Ein-/Ausblenden
+    return true;
+  }
   var TOOLS = [
     { id:'hand',    ic:'🖐', t:'Auswählen / Verschieben' },
     { id:'pfeil',   ic:'➜',  t:'Pfeil' },
@@ -920,7 +1067,18 @@ function fixLeadingZero(el){
     var d = dokById(dokId); if(!d || !kannLesen(d)) return;
     PV.dok = d; PV.seite = seite || 1; PV.sel = null; PV.hiPend = hiPendId || null;
     PV.canEdit = kannBearbeiten(d);
+    var me = user();
+    PV.extern = !!(me && d.orgId !== me.orgId);
+    PV.sicht = pabLayerSicht(d, me);                       // null = alle | Array
+    PV.hideAll = false;
+    PV.layerVis = {};                                      // eigene Anzeige: alles an
+    erlaubteLayer().forEach(function(id){ PV.layerVis[id] = true; });
+    var frei = meineFreigabe(d);
+    PV.drawLayer = PV.extern ? ((frei && frei.gewerk) || 'allgemein') : myGewerk();
     var a = annotFor(dokId);
+    // KRITISCH: IMMER die vollen Shapes laden (alle Layer) — gefiltert wird
+    // NUR beim Rendern. Würde beim Laden gefiltert, löschte der nächste
+    // Autosave eines Externen die für ihn unsichtbaren Layer aus dem Record.
     PV.shapes = (a && a.seiten) ? JSON.parse(JSON.stringify(a.seiten)) : {};
     $id('pvName').textContent = d.name;
     $id('pvWrap').classList.add('open');
@@ -947,6 +1105,7 @@ function fixLeadingZero(el){
   window.pabViewerClose = function(){
     flushAnnot();
     $id('pvWrap').classList.remove('open');
+    var lp = $id('pvLayerPanel'); if(lp) lp.style.display = 'none';
     PV.dok = null; PV.pdf = null;
     if(typeof GemaScroll !== 'undefined' && GemaScroll.unlock) try{ GemaScroll.unlock(); }catch(e){}
     render();
@@ -964,6 +1123,7 @@ function fixLeadingZero(el){
   };
   function renderTools(){
     var host = $id('pvTools');
+    var eye = $id('pvEye'); if(eye) eye.className = 'pv-btn' + (PV.hideAll ? ' on' : '');
     if(!PV.canEdit){
       host.innerHTML = '<span class="pv-pg" style="opacity:.7">👁 nur Lesen</span>';
       $id('pvFarben').innerHTML = '';
@@ -973,15 +1133,59 @@ function fixLeadingZero(el){
     }
     $id('pvUndo').style.display = '';
     $id('pvDel').style.display = '';
+    // Zeichen-Layer: Externe zeichnen fix auf ihrem Freigabe-Gewerk,
+    // die eigene Org wählt den Layer frei (Default = Gewerk der Org)
+    var lay = pabLayerById(PV.drawLayer);
+    var laySel;
+    if(PV.extern){
+      laySel = '<span class="pv-pg" title="Dein Zeichen-Layer (aus der Freigabe)" style="display:inline-flex;align-items:center;gap:5px"><span class="lyr-dot" style="background:' + lay.farbe + '"></span>' + esc(lay.label) + '</span>';
+    } else {
+      laySel = '<select class="pv-lyrsel" id="pvLayerSel" title="Zeichen-Layer (Gewerk)" onchange="pabDrawLayer(this.value)">' +
+        PAB_LAYER.map(function(l){ return '<option value="' + l.id + '"' + (PV.drawLayer === l.id ? ' selected' : '') + '>' + esc(l.label) + '</option>'; }).join('') + '</select>';
+    }
     host.innerHTML = TOOLS.map(function(t){
       return '<button class="pv-btn' + (PV.tool === t.id ? ' on' : '') + '" title="' + t.t + '" onclick="pabTool(\'' + t.id + '\')">' + t.ic + '</button>';
-    }).join('');
+    }).join('') + ' ' + laySel;
     $id('pvFarben').innerHTML = FARBEN.map(function(f){
       return '<button class="pv-farb' + (PV.farbe === f ? ' on' : '') + '" style="background:' + f + '" onclick="pabFarbe(\'' + f + '\')" title="Farbe"></button>';
     }).join('');
   }
   window.pabTool = function(t){ PV.tool = t; PV.sel = null; renderTools(); drawShapes(); updDel(); };
   window.pabFarbe = function(f){ PV.farbe = f; renderTools(); };
+  window.pabDrawLayer = function(v){ PV.drawLayer = v || 'allgemein'; renderTools(); };
+  // 👁 Master-Toggle: sauberer Plan ohne Markierungen/Pins (für ALLE Rollen)
+  window.pabEye = function(){
+    PV.hideAll = !PV.hideAll;
+    renderTools(); drawShapes(); renderLayerPanel();
+  };
+  // 🗂 Layer-Panel: pro erlaubtem Layer ein-/ausblenden
+  window.pabLayerPanel = function(){
+    var p = $id('pvLayerPanel'); if(!p) return;
+    if(p.style.display !== 'none'){ p.style.display = 'none'; return; }
+    p.style.display = '';        // ERST sichtbar schalten — renderLayerPanel
+    renderLayerPanel();          // bricht bei display:none bewusst ab
+  };
+  function renderLayerPanel(){
+    var p = $id('pvLayerPanel'); if(!p || p.style.display === 'none') return;
+    var arr = seiteShapes();
+    var pins = pendAll().filter(function(x){ return x.dokId === (PV.dok && PV.dok.id) && (x.seite || 1) === PV.seite && x.pin; });
+    var ids = erlaubteLayer();
+    var rows = ids.map(function(id){
+      var l = pabLayerById(id);
+      var n = arr.filter(function(s){ return (s.layer || 'allgemein') === id; }).length +
+              pins.filter(function(x){ return (x.layer || 'allgemein') === id; }).length;
+      return '<label class="lyr-row"><input type="checkbox"' + (PV.layerVis[id] ? ' checked' : '') + (PV.hideAll ? ' disabled' : '') + ' onchange="pabLayerToggle(\'' + id + '\',this.checked)"/>' +
+        '<span class="lyr-dot" style="background:' + l.farbe + '"></span>' + esc(l.label) +
+        '<span class="cnt">' + (n || '') + '</span></label>';
+    }).join('');
+    p.innerHTML = '<h4>🗂 Layer (diese Seite)</h4>' + rows +
+      '<label class="lyr-row" style="border-top:1px dashed var(--brd);margin-top:5px;padding-top:8px"><input type="checkbox"' + (PV.hideAll ? ' checked' : '') + ' onchange="pabEye()"/>👁 Alles ausblenden (sauberer Plan)</label>' +
+      (PV.sicht !== null ? '<div style="font-size:10.5px;color:var(--mut);margin-top:5px">Du siehst die für dich freigegebenen Layer.</div>' : '');
+  }
+  window.pabLayerToggle = function(id, on){
+    PV.layerVis[id] = !!on;
+    drawShapes(); renderLayerPanel();
+  };
 
   function renderSeite(){
     PV.pdf.getPage(PV.seite).then(function(page){
@@ -994,7 +1198,7 @@ function fixLeadingZero(el){
       sizeSvg(c.width, c.height);
       $id('pvPg').textContent = 'Seite ' + PV.seite + ' / ' + PV.seiten;
       return page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
-    }).then(function(){ drawShapes(); });
+    }).then(function(){ drawShapes(); renderLayerPanel(); });
   }
   function sizeSvg(w, h){
     var svg = $id('pvSvg');
@@ -1015,8 +1219,9 @@ function fixLeadingZero(el){
   function X(n){ return n * W(); }
   function Y(n){ return n * H(); }
 
+  var _pvMulti = false;   // >1 Layer sichtbar → Darstellung in Gewerkfarbe
   function shapeSvg(s, idx){
-    var col = s.farbe || '#dc2626';
+    var col = pabShapeFarbe(s, _pvMulti);
     var sw = Math.max(1.6, W() * 0.0022);
     var selCls = (PV.sel === s.id) ? ' sel' : '';
     var attrs = ' class="shp' + selCls + '" data-sid="' + s.id + '" fill="none" stroke="' + col + '" stroke-width="' + sw + '"';
@@ -1056,7 +1261,7 @@ function fixLeadingZero(el){
     return '<g class="shp' + (selCls || '') + '" data-sid="' + sid + '">' + core + '</g>';
   }
   function pinsSvg(){
-    var pins = pendAll().filter(function(p){ return p.dokId === (PV.dok && PV.dok.id) && (p.seite || 1) === PV.seite && p.pin; });
+    var pins = pendAll().filter(function(p){ return p.dokId === (PV.dok && PV.dok.id) && (p.seite || 1) === PV.seite && p.pin && layerSichtbar(p.layer); });
     return pins.map(function(p, i){
       var col = (p.status || 'offen') === 'offen' ? '#dc2626' : (p.status === 'erledigt' ? '#d97706' : '#16a34a');
       var r = Math.max(10, W() * 0.012);
@@ -1069,7 +1274,12 @@ function fixLeadingZero(el){
   }
   function drawShapes(){
     var svg = $id('pvSvg');
-    var arr = seiteShapes();
+    // Render-Filter: Layer-Sichtbarkeit (Freigabe-Grenze + eigenes Ausblenden
+    // + 👁-Master-Toggle). PV.shapes bleibt IMMER vollständig (siehe Open).
+    var arr = seiteShapes().filter(function(s){ return layerSichtbar(s.layer); });
+    var distinct = {};
+    arr.forEach(function(s){ distinct[s.layer || 'allgemein'] = 1; });
+    _pvMulti = Object.keys(distinct).length > 1;
     svg.innerHTML = arr.map(shapeSvg).join('') + pinsSvg() + (PV.temp || '');
   }
   function updDel(){
@@ -1088,12 +1298,19 @@ function fixLeadingZero(el){
     if(!PV.canEdit || !PV.sel) return;
     var arr = seiteShapes();
     var i = arr.findIndex(function(s){ return s.id === PV.sel; });
-    if(i >= 0){ arr.splice(i, 1); PV.dirty = true; }
+    if(i >= 0){
+      if(PV.extern){   // Hard-Guard: Externe löschen nur eigene Shapes
+        var me = user();
+        if(!(arr[i].von && me && arr[i].von.userId === me.id)){ PV.sel = null; updDel(); return; }
+      }
+      arr.splice(i, 1); PV.dirty = true;
+    }
     PV.sel = null; drawShapes(); updDel(); queueAnnot();
   };
   var _annotT = null;
   function queueAnnot(){
     var st = $id('pvSaveState'); if(st) st.textContent = '⏳';
+    renderLayerPanel();
     clearTimeout(_annotT);
     _annotT = setTimeout(flushAnnot, 900);
   }
@@ -1114,7 +1331,7 @@ function fixLeadingZero(el){
   }
   function neuShape(base){
     var me = user();
-    return Object.assign({ id: uid('shp'), farbe: PV.farbe, von: { userId: me ? me.id : '', name: me ? me.name : '' }, am: new Date().toISOString() }, base);
+    return Object.assign({ id: uid('shp'), farbe: PV.farbe, layer: PV.drawLayer || 'allgemein', von: { userId: me ? me.id : '', name: me ? me.name : '' }, am: new Date().toISOString() }, base);
   }
   var _down = null;
   function onDown(ev){
@@ -1123,14 +1340,25 @@ function fixLeadingZero(el){
     if(t){ pabPinKlick(t.getAttribute('data-pid')); return; }
     if(PV.tool === 'hand' || !PV.canEdit){
       var sh = ev.target.closest ? ev.target.closest('.shp') : null;
-      PV.sel = (sh && PV.canEdit) ? sh.getAttribute('data-sid') : null;
+      PV.sel = null;
+      if(sh && PV.canEdit){
+        var sid = sh.getAttribute('data-sid');
+        if(PV.extern){
+          // Externe (Freigabe «bearbeiten») löschen nur EIGENE Markierungen
+          var meS = user();
+          var sOwn = seiteShapes().find(function(x){ return x.id === sid; });
+          if(sOwn && sOwn.von && meS && sOwn.von.userId === meS.id) PV.sel = sid;
+        } else {
+          PV.sel = sid;
+        }
+      }
       drawShapes(); updDel();
       return;
     }
     ev.preventDefault();
     var p = svgPos(ev);
     if(PV.tool === 'pin'){
-      var preset = { dokId: PV.dok.id, seite: PV.seite, pin: { x: p.x, y: p.y }, objektId: PV.dok.objektId };
+      var preset = { dokId: PV.dok.id, seite: PV.seite, pin: { x: p.x, y: p.y }, objektId: PV.dok.objektId, layer: PV.drawLayer };
       PV.tool = 'hand'; renderTools();
       pabPendNeu('', preset);
       return;
@@ -1275,7 +1503,9 @@ function fixLeadingZero(el){
     kannLesen: kannLesen, kannBearbeiten: kannBearbeiten, canWrite: canWrite,
     saveDok: function(rec){ saveRec(LSD, PFD, rec); }, savePend: function(rec){ saveRec(LSP, PFP, rec); },
     annotFor: annotFor, seiteShapes: function(){ return seiteShapes(); }, PV: PV,
-    setTab: function(t){ TAB = t; render(); }, cloudLoaded: function(){ return _cloudLoaded; }
+    setTab: function(t){ TAB = t; render(); }, cloudLoaded: function(){ return _cloudLoaded; },
+    myGewerk: myGewerk, layerSichtbar: layerSichtbar, multi: function(){ return _pvMulti; },
+    saveAnnot: function(rec){ saveRec(LSA, PFA, rec); }
   };
 })();
 </script>

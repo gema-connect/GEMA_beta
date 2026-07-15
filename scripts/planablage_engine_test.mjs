@@ -14,7 +14,8 @@ const m = html.match(/\/\*ENGINE-START\*\/([\s\S]*?)\/\*ENGINE-END\*\//);
 if (!m) { console.error('ENGINE-Block nicht gefunden'); process.exit(1); }
 const g = {};
 new Function(m[1])();          // ENGINE hängt an globalThis (kein window in Node)
-const { pabNormMail, pabKannLesen, pabKannBearbeiten, pabPendUebergang, pabFmtSize } = globalThis;
+const { pabNormMail, pabKannLesen, pabKannBearbeiten, pabPendUebergang, pabFmtSize,
+        PAB_LAYER, pabLayerById, pabGewerkVonText, pabLayerSicht, pabShapeFarbe } = globalThis;
 
 let okCount = 0, failCount = 0;
 function ok(cond, label) {
@@ -69,6 +70,47 @@ eq(pabPendUebergang('erledigt', 'erledigen'), null, 'doppelt erledigen → ungü
 eq(pabPendUebergang('geprueft', 'pruefen'), null, 'geprueft nochmals prüfen → ungültig');
 eq(pabPendUebergang('offen', 'zurueckweisen'), null, 'offen zurückweisen → ungültig');
 eq(pabPendUebergang('offen', 'quatsch'), null, 'unbekannte Aktion → null');
+
+console.log('■ Gewerk-Layer (PAB_LAYER / pabLayerById / pabGewerkVonText)');
+ok(PAB_LAYER.length === 6, '6 feste Gewerk-Layer');
+ok(new Set(PAB_LAYER.map(l => l.farbe)).size === 6, 'alle Layer-Farben eindeutig');
+eq(pabLayerById('elektro').label, 'Elektro', 'Lookup nach id');
+eq(pabLayerById('gibtsnicht').id, 'allgemein', 'unbekannte id → allgemein (Altdaten-Fallback)');
+eq(pabLayerById(undefined).id, 'allgemein', 'fehlendes layer-Feld → allgemein');
+eq(pabGewerkVonText('Sanitärplaner'), 'sanitaer', 'Org-Kategorie sanitaerplaner');
+eq(pabGewerkVonText('heizungsinstallateur'), 'heizung', 'Kategorie heizungsinstallateur');
+eq(pabGewerkVonText('Lüftung / Klima AG'), 'lueftung', 'Freitext Lüftung');
+eq(pabGewerkVonText('Elektro Muster GmbH'), 'elektro', 'Beteiligten-Firma Elektro');
+eq(pabGewerkVonText('Spenglerei & Bedachungen'), 'spenglerei', 'Spenglerei-Text');
+eq(pabGewerkVonText('Architekturbüro XY'), 'allgemein', 'kein Treffer → allgemein');
+
+console.log('■ pabLayerSicht (wer sieht welche Layer)');
+const dokL = { id: 'dl', orgId: 'org_a', freigaben: [
+  { email: 'elektriker@firma.ch', recht: 'bearbeiten', gewerk: 'elektro' },
+  { email: 'architekt@gp.ch', recht: 'lesen', gewerk: 'allgemein', layers: 'alle' },
+  { email: 'bauleiter@gp.ch', recht: 'lesen', gewerk: 'heizung', layers: ['sanitaer', 'lueftung'] },
+  { email: 'alt@partner.ch', recht: 'lesen' }
+] };
+const uOwner = { id: 'o1', orgId: 'org_a', profile: { email: 'pl@firma.ch' } };
+const uElektro = { id: 'e1', orgId: 'org_x', profile: { email: 'elektriker@firma.ch' } };
+const uArch = { id: 'a1', orgId: 'org_y', profile: { email: 'architekt@gp.ch' } };
+const uBL = { id: 'b1', orgId: 'org_z', profile: { email: 'bauleiter@gp.ch' } };
+const uAlt = { id: 'x1', orgId: 'org_z', profile: { email: 'alt@partner.ch' } };
+const uNix = { id: 'n1', orgId: 'org_z', profile: { email: 'nix@partner.ch' } };
+eq(pabLayerSicht(dokL, uOwner), null, 'Eigentümer-Org → null (= alle Layer, Projekt-Owner)');
+ok(JSON.stringify(pabLayerSicht(dokL, uElektro)) === JSON.stringify(['elektro','allgemein']), 'Default: eigenes Gewerk + Allgemein (Elektriker sieht Sanitär NICHT)');
+eq(pabLayerSicht(dokL, uArch), null, 'Freigabe «alle» → null (Architekt sieht alles)');
+ok(JSON.stringify(pabLayerSicht(dokL, uBL)) === JSON.stringify(['sanitaer','lueftung','heizung']), 'explizite Auswahl ∪ eigenes Gewerk (eigenes immer enthalten)');
+ok(JSON.stringify(pabLayerSicht(dokL, uAlt)) === JSON.stringify(['allgemein']), 'Alt-Freigabe ohne gewerk → nur Allgemein');
+ok(JSON.stringify(pabLayerSicht(dokL, uNix)) === JSON.stringify([]), 'ohne Freigabe → leer');
+ok(JSON.stringify(pabLayerSicht(null, uOwner)) === JSON.stringify([]), 'null-Dokument → leer');
+
+console.log('■ pabShapeFarbe (frei vs. Gewerkfarbe bei mehreren Layern)');
+const shpFrei = { farbe: '#111827', layer: 'sanitaer' };
+eq(pabShapeFarbe(shpFrei, false), '#111827', 'EIN Layer aktiv → frei gewählte Farbe');
+eq(pabShapeFarbe(shpFrei, true), pabLayerById('sanitaer').farbe, 'mehrere Layer aktiv → Gewerkfarbe');
+eq(pabShapeFarbe({ layer: 'elektro' }, false), pabLayerById('elektro').farbe, 'ohne eigene Farbe → Layer-Farbe');
+eq(pabShapeFarbe({ farbe: '#16a34a' }, true), pabLayerById('allgemein').farbe, 'Altdaten ohne layer → allgemein-Farbe im Multi-Blick');
 
 console.log('■ pabFmtSize');
 eq(pabFmtSize(0), '0 B', '0 B');

@@ -262,6 +262,105 @@ console.log('■ Upload — Storage-Mock (Erfolg) und 413 → Limit-Dialog');
   await ctx.close();
 }
 
+// ── 6b) Gewerk-Layer: Farben, Panel, 👁, Extern-Sicht, Autosave-Integrität ──
+console.log('■ Layer — Multi-Farbe, Panel/👁-Toggle, Extern-Filter, kein Datenverlust');
+const DOKL = Object.assign({}, DOK, { freigaben: [{ email: 'elektriker@ext.ch', recht: 'bearbeiten', gewerk: 'elektro' }] });
+const ANNOT = { id: 'd1', orgId: 'org_test', aktualisiertAm: '2026-07-14T08:00:00.000Z', seiten: { '1': [
+  { id: 's1', typ: 'rect', x1: 0.1, y1: 0.1, x2: 0.3, y2: 0.3, farbe: '#111827', layer: 'sanitaer', von: { userId: 'u_x' } },
+  { id: 's2', typ: 'rect', x1: 0.5, y1: 0.5, x2: 0.7, y2: 0.7, farbe: '#16a34a', layer: 'elektro', von: { userId: 'u_y' } },
+  { id: 's3', typ: 'text', x1: 0.2, y1: 0.85, text: 'Alt ohne Layer', von: { userId: 'u_x' } }
+] } };
+const PSAN = Object.assign({}, PEND, { id: 'p_san', titel: 'Sanitär-Punkt', layer: 'sanitaer', pin: { x: 0.2, y: 0.2 }, zustaendig: null });
+const PALT = Object.assign({}, PEND, { id: 'p_alt', titel: 'Allgemeiner Punkt', pin: { x: 0.8, y: 0.8 }, zustaendig: null });
+{
+  // Eigentümer-Org (Planer, Org-Kategorie sanitaerplaner)
+  const { ctx, page } = await openPage(browser, ['role_planer'], { doks: [DOKL], pends: [PSAN, PALT], annots: [ANNOT] });
+  await waitBoot(page);
+  await page.evaluate(() => pabViewerOpen('d1'));
+  await page.waitForFunction(() => document.getElementById('pvWrap').classList.contains('open') && document.getElementById('pvCanvas').width > 100, null, { timeout: 6000 });
+  ok(await page.evaluate(() => _pabHooks.PV.sicht) === null, 'Eigentümer-Org: Layer-Sicht = alle (null)');
+  ok(await page.evaluate(() => _pabHooks.PV.drawLayer) === 'sanitaer', 'Zeichen-Layer aus Org-Kategorie sanitaerplaner');
+  ok(await page.evaluate(() => document.querySelectorAll('#pvSvg .shp').length) === 3, 'alle 3 Shapes sichtbar (3 Layer)');
+  ok(await page.evaluate(() => _pabHooks.multi()), 'Multi-Layer-Modus aktiv (>1 Layer auf der Seite)');
+  ok(await page.evaluate(() => document.querySelector('#pvSvg [data-sid="s1"]').getAttribute('stroke')) === '#2563eb', 'Multi-Blick: Sanitär-Shape in GEWERKFARBE (blau) statt freier Farbe');
+  ok(await page.evaluate(() => document.querySelectorAll('#pvSvg .pv-pin').length) === 2, 'beide Pendenz-Pins sichtbar');
+  // Layer-Panel: Elektro + Allgemein ausblenden → nur Sanitär → freie Farbe
+  await page.evaluate(() => { pabLayerPanel(); pabLayerToggle('elektro', false); pabLayerToggle('allgemein', false); });
+  ok(await page.evaluate(() => document.querySelectorAll('#pvSvg .shp').length) === 1, 'Layer-Toggle: nur noch Sanitär-Shape sichtbar');
+  ok(await page.evaluate(() => document.querySelector('#pvSvg [data-sid="s1"]').getAttribute('stroke')) === '#111827', 'EIN Layer aktiv → frei gewählte Farbe');
+  ok(await page.evaluate(() => document.querySelectorAll('#pvSvg .pv-pin').length) === 1, 'Allgemein-Pin ausgeblendet, Sanitär-Pin bleibt');
+  // 👁 Master-Toggle: sauberer Plan
+  await page.evaluate(() => pabEye());
+  ok(await page.evaluate(() => document.querySelectorAll('#pvSvg .shp, #pvSvg .pv-pin').length) === 0, '👁: ALLE Markierungen + Pins ausgeblendet (sauberer Plan)');
+  await page.evaluate(() => pabEye());
+  ok(await page.evaluate(() => document.querySelectorAll('#pvSvg .shp').length) === 1, '👁 erneut: Markierungen wieder da (Layer-Wahl erhalten)');
+  // Neues Shape landet auf dem gewählten Zeichen-Layer
+  await page.evaluate(() => pabTool('rect'));
+  const bx = await page.evaluate(() => { const r = document.getElementById('pvSvg').getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height }; });
+  await page.mouse.move(bx.x + bx.w * 0.75, bx.y + bx.h * 0.1);
+  await page.mouse.down();
+  await page.mouse.move(bx.x + bx.w * 0.9, bx.y + bx.h * 0.25, { steps: 3 });
+  await page.mouse.up();
+  ok(await page.evaluate(() => _pabHooks.seiteShapes().slice(-1)[0].layer) === 'sanitaer', 'neues Shape trägt den Zeichen-Layer (sanitaer)');
+  await ctx.close();
+}
+{
+  // Externer Elektriker (Freigabe «bearbeiten», Gewerk elektro, Default-Sicht)
+  const { ctx, page } = await openPage(browser, ['role_unternehmer'], {
+    doks: [DOKL], pends: [PSAN, PALT], annots: [ANNOT],
+    userPatch: { orgId: 'org_fremd', username: 'elektriker@ext.ch', profile: { email: 'elektriker@ext.ch' } }
+  });
+  await waitBoot(page);
+  const pend = await page.evaluate(() => _pabHooks.pendAll().map(p => p.titel));
+  ok(pend.includes('Allgemeiner Punkt') && !pend.includes('Sanitär-Punkt'), 'Pendenzenliste: Elektriker sieht Sanitär-Pendenz NICHT (Layer-Grenze)');
+  await page.evaluate(() => pabViewerOpen('d1'));
+  await page.waitForFunction(() => document.getElementById('pvWrap').classList.contains('open') && document.getElementById('pvCanvas').width > 100, null, { timeout: 6000 });
+  ok(JSON.stringify(await page.evaluate(() => _pabHooks.PV.sicht)) === JSON.stringify(['elektro', 'allgemein']), 'Extern-Sicht = eigenes Gewerk + Allgemein');
+  ok(await page.evaluate(() => document.querySelectorAll('#pvSvg .shp').length) === 2, 'Sanitär-Shape für Elektriker NICHT gerendert');
+  ok(await page.evaluate(() => !document.querySelector('#pvSvg [data-sid="s1"]')), 's1 (Sanitär) fehlt im Overlay');
+  ok(await page.evaluate(() => _pabHooks.PV.drawLayer) === 'elektro', 'Zeichen-Layer fix aus der Freigabe (elektro)');
+  ok(await page.evaluate(() => !document.getElementById('pvLayerSel')), 'kein Layer-Wechsel-Select für Externe');
+  await page.evaluate(() => pabLayerPanel());
+  ok(await page.evaluate(() => document.querySelectorAll('#pvLayerPanel .lyr-row').length) === 3, 'Layer-Panel zeigt nur die 2 erlaubten Layer (+ 👁-Zeile)');
+  // Fremdes Shape (s2, anderer Autor) lässt sich nicht selektieren
+  const bx2 = await page.evaluate(() => { const r = document.getElementById('pvSvg').getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height }; });
+  await page.mouse.click(bx2.x + bx2.w * 0.6, bx2.y + bx2.h * 0.6);
+  ok(await page.evaluate(() => _pabHooks.PV.sel) === null, 'Extern: fremde Markierung nicht selektierbar (kein Löschen fremder Shapes)');
+  // Eigenes Rechteck zeichnen → Autosave darf die UNSICHTBAREN Layer nicht wegwerfen
+  await page.evaluate(() => pabTool('rect'));
+  await page.mouse.move(bx2.x + bx2.w * 0.78, bx2.y + bx2.h * 0.7);
+  await page.mouse.down();
+  await page.mouse.move(bx2.x + bx2.w * 0.9, bx2.y + bx2.h * 0.82, { steps: 3 });
+  await page.mouse.up();
+  ok(await page.evaluate(() => _pabHooks.seiteShapes().slice(-1)[0].layer) === 'elektro', 'Extern zeichnet auf seinem Gewerk-Layer');
+  await page.waitForFunction(() => { const a = _pabHooks.annotFor('d1'); return a && a.seiten && a.seiten['1'] && a.seiten['1'].length === 4; }, null, { timeout: 5000 });
+  ok(await page.evaluate(() => _pabHooks.annotFor('d1').seiten['1'].some(s => s.id === 's1')), 'KRITISCH: Autosave des Externen erhält den (für ihn unsichtbaren) Sanitär-Layer');
+  await ctx.close();
+}
+{
+  // Freigabe-Dialog: Gewerk + Layer-Sicht Roundtrip
+  const { ctx, page } = await openPage(browser, ['role_planer'], { doks: [DOKL] });
+  await waitBoot(page);
+  await page.evaluate(() => pabFreigaben('d1'));
+  await page.waitForSelector('#frgList .frg-row');
+  ok(await page.evaluate(() => document.querySelector('#frgList .frg-gewerk').value) === 'elektro', 'Gewerk-Select mit gespeichertem Wert (elektro)');
+  ok(await page.evaluate(() => document.querySelector('#frgList .frg-sicht').value) === 'eigene', 'Layer-Sicht Default «Eigenes + Allgemein»');
+  await page.evaluate(() => { document.querySelector('#frgList .frg-sicht').value = 'alle'; pabFreiSave('d1'); });
+  ok(await page.evaluate(() => _pabHooks.dokById('d1').freigaben[0].layers) === 'alle', 'Sicht «Alle Layer» gespeichert (layers=alle)');
+  // explizite Auswahl per Chips
+  await page.evaluate(() => pabFreigaben('d1'));
+  await page.waitForSelector('#frgList .frg-row');
+  await page.evaluate(() => {
+    const row = document.querySelector('#frgList .frg-row');
+    row.querySelector('.frg-sicht').value = 'auswahl';
+    row.querySelector('.lyr-chip[data-lyr="sanitaer"]').classList.add('on');
+    row.querySelector('.lyr-chip[data-lyr="heizung"]').classList.add('on');
+    pabFreiSave('d1');
+  });
+  ok(JSON.stringify(await page.evaluate(() => _pabHooks.dokById('d1').freigaben[0].layers)) === JSON.stringify(['sanitaer', 'heizung']), 'explizite Layer-Auswahl als Array gespeichert');
+  await ctx.close();
+}
+
 // ── 6) Deep-Link + Gating ────────────────────────────────────────────
 console.log('■ Deep-Link ?p= und Kein-Zugriff (Garagist)');
 {
