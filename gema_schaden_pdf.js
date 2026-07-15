@@ -273,10 +273,14 @@
   };
 
   // kWh / Stunden — Logik gespiegelt aus sd_schadensbericht.html
-  function computeKwh(g){
+  function computeKwh(g, tage){
     if(!g) return null;
     var typ = g.zaehlerTyp || 'stunden';
     if(typ === 'kein') return null;
+    if(typ === 'laufzeit'){
+      var _h = computeHours(g, tage);
+      return (_h != null && g.kw) ? _h * parseFloat(g.kw) : null;
+    }
     if(g.zaehlerEnde == null || g.zaehlerEnde === '') return null;
     var diff = (parseFloat(g.zaehlerEnde)||0) - (parseFloat(g.zaehlerStart)||0);
     if(diff < 0) diff = 0;
@@ -284,9 +288,14 @@
     if(!g.kw) return null;
     return diff * parseFloat(g.kw);
   }
-  function computeHours(g){
+  function computeHours(g, tage){
     if(!g) return null;
     var typ = g.zaehlerTyp || 'stunden';
+    if(typ === 'laufzeit'){
+      if(g.stundenTotal != null && g.stundenTotal !== '') return Math.max(0, parseFloat(g.stundenTotal)||0);
+      var _pt = parseFloat(g.stundenProTag);
+      return (tage != null && tage > 0 && _pt > 0) ? tage * _pt : null;
+    }
     if(typ !== 'stunden') return null;
     if(g.zaehlerEnde == null || g.zaehlerEnde === '') return null;
     var diff = (parseFloat(g.zaehlerEnde)||0) - (parseFloat(g.zaehlerStart)||0);
@@ -621,9 +630,9 @@
           + '<th class="num">Tage</th><th class="num">Energie</th>'
         + '</tr></thead><tbody>';
       tr.geraete.forEach(function(g){
-        var hours = computeHours(g);
-        var kwh = computeKwh(g);
         var t = (g.tage != null) ? g.tage : daysBetween(g.eingesetztAm || tr.gestartetAm, g.entferntAm || g.zurueckAm || tr.beendetAm);
+        var hours = computeHours(g, t);
+        var kwh = computeKwh(g, t);
         var stdTag = (hours != null && t > 0) ? (hours/t).toFixed(1) : (hours != null ? hours.toFixed(1) : '—');
         h += '<tr>'
           + '<td class="lead">'+esc(g.name||'—')+'</td>'
@@ -642,11 +651,11 @@
         var rm = g.raum || 'Ohne Raum';
         if(!raumAgg[rm]) raumAgg[rm] = { anz:0, h:0, kwh:0, tage:0 };
         raumAgg[rm].anz += 1;
-        var hh = computeHours(g);
-        var kk = computeKwh(g);
+        var t = (g.tage != null) ? g.tage : daysBetween(g.eingesetztAm || tr.gestartetAm, g.entferntAm || g.zurueckAm || tr.beendetAm);
+        var hh = computeHours(g, t);
+        var kk = computeKwh(g, t);
         if(hh != null) raumAgg[rm].h += hh;
         if(kk != null) raumAgg[rm].kwh += kk;
-        var t = (g.tage != null) ? g.tage : daysBetween(g.eingesetztAm || tr.gestartetAm, g.entferntAm || g.zurueckAm || tr.beendetAm);
         if(t > raumAgg[rm].tage) raumAgg[rm].tage = t;
       });
       var totH = 0, totKwh = 0, totAnz = 0;
