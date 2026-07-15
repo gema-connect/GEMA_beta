@@ -1340,11 +1340,13 @@ function sdDaysBetween(startISO, endISO){
   return Math.max(1, diff + 1); // +1 weil Tag-inklusiv: Start- und End-Tag zaehlen beide mit
 }
 
-// Geraet-Start-Datum: priorisiert explizit gesetztes Feld, faellt
-// auf id-Timestamp zurueck (Backwards-Compat fuer alte Geraete).
-function sdGeraetStart(g){
+// Geraet-Start-Datum: explizit gesetztes Feld → Einsatz → TROCKNUNGS-START
+// der Phase (tr.gestartetAm) → id-Timestamp (Backwards-Compat). Die Tage
+// werden damit IMMER ab Start gerechnet, nie ab dem Beendet-Datum.
+function sdGeraetStart(g, tr){
   if(g.eingesetztAm) return g.eingesetztAm;
   if(g.einsatz && g.einsatz.eingesetztAm) return g.einsatz.eingesetztAm;
+  if(tr && tr.gestartetAm) return tr.gestartetAm;
   // id Format 'dev_<timestamp>' → Datum extrahieren
   if(typeof g.id === 'string'){
     var m = g.id.match(/^dev_(\d{10,})/);
@@ -1395,10 +1397,10 @@ function sdComputeHours(g){
   return diff < 0 ? 0 : diff;
 }
 
-function sdGeraetTage(g){
-  var start = sdGeraetStart(g);
+function sdGeraetTage(g, tr){
+  var start = sdGeraetStart(g, tr);
   if(!start) return null;
-  var ende = sdGeraetEnde(g) || sdToday();
+  var ende = sdGeraetEnde(g) || (tr && tr.beendetAm) || sdToday();
   return sdDaysBetween(start, ende);
 }
 var esc = function(s) { return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); };
@@ -2330,7 +2332,7 @@ function _sdDevCardOne(s, gi, editable, canEdit){
   var g = (s.trocknung.geraete || [])[gi]; if(!g) return '';
   var kwhVal = sdComputeKwh(g);
   var kwh = kwhVal == null ? '—' : kwhVal.toFixed(1);
-  var tage = sdGeraetTage(g);
+  var tage = sdGeraetTage(g, s.trocknung);
   var zTyp = g.zaehlerTyp || 'stunden';
   var zEinheit = zTyp === 'kwh' ? 'kWh' : (zTyp === 'kein' ? '' : 'h');
   var zBadge = zTyp === 'kwh' ? '⚡ kWh' : (zTyp === 'kein' ? '–' : '⏱ h');
@@ -2348,6 +2350,14 @@ function _sdDevCardOne(s, gi, editable, canEdit){
   else if(hasZaehler) endeHtml = esc(String(g.zaehlerEnde || '—'));
   else endeHtml = '—';
   h += _sdDcRow('Ende' + (zEinheit ? ' (' + zEinheit + ')' : ''), endeHtml, editable && hasZaehler ? editCls : '');
+  var startIso = g.eingesetztAm || (g.einsatz && g.einsatz.eingesetztAm) || '';
+  var startAmHtml;
+  if(editable){
+    var sFixed = !!startIso;
+    var sVal = startIso || sdGeraetStart(g, s.trocknung) || sdToday();
+    startAmHtml = '<input type="date" value="' + sVal + '" data-fixed="' + (sFixed ? '1' : '0') + '" style="color:' + (sFixed ? 'var(--txt)' : 'var(--mut)') + ';background:' + (sFixed ? 'var(--sur)' : 'var(--bg2)') + ';font-style:' + (sFixed ? 'normal' : 'italic') + '" onchange="sdUpdateDevStartDate(\'' + s.id + '\',' + gi + ',this.value)">';
+  } else startAmHtml = (sdGeraetStart(g, s.trocknung) ? sdFmtDate(sdGeraetStart(g, s.trocknung)) : '—');
+  h += _sdDcRow('Start am', startAmHtml, editCls);
   var endeAmHtml;
   if(editable){
     var endeIso = sdGeraetEnde(g);
@@ -2501,7 +2511,7 @@ function _sdGeraeteCardsHtml(s, tr, editable, canEdit){
   tr.geraete.forEach(function(g, gi){
     var kwhVal = sdComputeKwh(g);
     var kwh = kwhVal == null ? '—' : kwhVal.toFixed(1);
-    var tage = sdGeraetTage(g);
+    var tage = sdGeraetTage(g, tr);
     var tageStr = tage == null ? '—' : (sdGeraetEnde(g) ? String(tage) : (tage + '⏵'));
     var zTyp = g.zaehlerTyp || 'stunden';
     var zEinheit = zTyp === 'kwh' ? 'kWh' : (zTyp === 'kein' ? '' : 'h');
@@ -2523,6 +2533,14 @@ function _sdGeraeteCardsHtml(s, tr, editable, canEdit){
     } else if (hasZaehler) { endeHtml = esc(String(g.zaehlerEnde || '—')); }
     else { endeHtml = '—'; }
     h += _sdDcRow('Ende' + (zEinheit ? ' (' + zEinheit + ')' : ''), endeHtml, editable && hasZaehler ? editCls : '');
+    var startIso = g.eingesetztAm || (g.einsatz && g.einsatz.eingesetztAm) || '';
+    var startAmHtml;
+    if (editable) {
+      var sFixed = !!startIso;
+      var sVal = startIso || sdGeraetStart(g, tr) || sdToday();
+      startAmHtml = '<input type="date" value="' + sVal + '" data-fixed="' + (sFixed ? '1' : '0') + '" style="color:' + (sFixed ? 'var(--txt)' : 'var(--mut)') + ';background:' + (sFixed ? 'var(--sur)' : 'var(--bg2)') + ';font-style:' + (sFixed ? 'normal' : 'italic') + '" onchange="sdUpdateDevStartDate(\'' + s.id + '\',' + gi + ',this.value)">';
+    } else { startAmHtml = (sdGeraetStart(g, tr) ? sdFmtDate(sdGeraetStart(g, tr)) : '—'); }
+    h += _sdDcRow('Start am', startAmHtml, editCls);
     var endeAmHtml;
     if (editable) {
       var endeIso = sdGeraetEnde(g);
@@ -2749,6 +2767,17 @@ function sdUpdateDevEndDate(id, idx, val) {
   sdSave();
   sdRenderDetail(s);
 }
+// Start-Datum pro Geraet manuell ueberschreiben (leer = zurueck auf den
+// Trocknungs-Start der Phase als Default).
+function sdUpdateDevStartDate(id, idx, val) {
+  var s = sdGetById(id); if (!s || !s.trocknung) return;
+  var g = s.trocknung.geraete[idx];
+  if (!g) return;
+  g.eingesetztAm = val || null;
+  sdSave();
+  sdRenderDetail(s);
+}
+window.sdUpdateDevStartDate = sdUpdateDevStartDate;
 
 // ── MESSPUNKTE ──
 // _mpCtx: 'analyse' = Aufruf aus dem Ausgangslage-Block der Zustandsanalyse —
@@ -4467,9 +4496,9 @@ function sdExportPdf(id){
           if(kwh != null) totKwh += kwh;
           if(hours != null) totHours += hours;
           // Geraete-Tage
-          var gStart = sdGeraetStart(g);
+          var gStart = sdGeraetStart(g, tr);
           var gEnde  = sdGeraetEnde(g);
-          var gTage  = sdGeraetTage(g);
+          var gTage  = sdGeraetTage(g, tr);
           // Raum-Aggregation
           var rmKey = (g.raum||'').trim() || '(kein Raum)';
           if(!raumAgg[rmKey]) raumAgg[rmKey] = { kwh:0, hours:0, count:0, minStart:null, maxEnd:null, hasOpen:false };
