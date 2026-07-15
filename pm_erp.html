@@ -1732,10 +1732,11 @@ function erpPdf(){
   // Briefkopf: Absender links (dezent), Logo oben rechts; darunter Empfänger links + Dokument-Meta rechts
   var absAdr=[s.strasse,[s.plz,s.ort].filter(Boolean).join(' ')].filter(Boolean).join(' · ');
   var kontaktLine=[s.tel?'Tel. '+s.tel:'',s.email,s.web].filter(Boolean).join(' · ');
-  var metaRows=[['Nr.',esc(d.nr||'')]];
-  if(d.typ==='offerte'&&d.gueltigBis)metaRows.push(['Gültig bis',dfmt(d.gueltigBis)]);
-  if(d.typ==='rechnung'&&d.frist)metaRows.push(['Zahlbar bis','<b>'+dfmt(d.frist)+'</b>']);
-  if(d.verknuepfung&&d.verknuepfung.auftragId&&d.typ==='rechnung'){var _va=poolRead(DOK_POOL).find(function(x){return x.id===d.verknuepfung.auftragId;});if(_va)metaRows.push(['Auftrag',esc(_va.nr||'')]);}
+  var metaRows=[['Nr.:',esc(d.nr||'')]];
+  if(d.objektName)metaRows.push(['Projekt:',esc(d.objektName)]);
+  if(d.typ==='offerte'&&d.gueltigBis)metaRows.push(['Gültig bis:',dfmt(d.gueltigBis)]);
+  if(d.typ==='rechnung'&&d.frist)metaRows.push(['Zahlbar bis:',dfmt(d.frist)]);
+  if(d.verknuepfung&&d.verknuepfung.auftragId&&d.typ==='rechnung'){var _va=poolRead(DOK_POOL).find(function(x){return x.id===d.verknuepfung.auftragId;});if(_va)metaRows.push(['Auftrag:',esc(_va.nr||'')]);}
   var typTotalLabel=d.typ==='offerte'?'Offertsumme':d.typ==='auftrag'?'Auftragssumme':'Rechnungsbetrag';
   // ── Seite 1: Titelblatt (Kopf, Empfänger, Meta mit Projekt, Titel, Einleitung, Summe) ──
   // Kürzel des Erstellers für die Ort/Datum-Zeile (Muster: «Basel, 13.07.2026 / RJ»)
@@ -1748,7 +1749,7 @@ function erpPdf(){
     +'</div>'
     // Empfänger rechts (CH-Fensterposition), links Projekt-/Objekt-Kontext
     +'<div class="adrzone">'
-    +'<div class="adr-l">'+(d.objektName?'<span class="adr-eyebrow">Projekt / Objekt:</span><br>'+esc(d.objektName):'')+'</div>'
+    +'<div class="adr-l"></div>'
     +'<div class="adr-r"><b>'+esc(k.firma||'')+'</b>'+(k.kontakt?'<br>'+esc(k.kontakt):'')+(k.strasse?'<br>'+esc(k.strasse):'')+((k.plz||k.ort)?'<br>'+esc((k.plz||'')+' '+(k.ort||'')):'')+'</div>'
     +'</div>'
     +'<div class="ortdatum">'+esc((s.ort?s.ort+', ':'')+dfmt(d.datum))+(kz?' / '+esc(kz):'')+'</div>'
@@ -1756,10 +1757,9 @@ function erpPdf(){
     +'<div class="meta">'+metaRows.map(function(r){return '<div class="mrow"><span class="ml">'+r[0]+'</span><span class="mv">'+r[1]+'</span></div>';}).join('')+'</div>'
     +(d.titel?'<div class="titelbar">'+esc(d.titel)+'</div>':'')
     +(d.einleitung?'<p class="intro">'+esc(d.einleitung)+'</p>':'')
-    +'<div class="totalrow"><span>'+typTotalLabel+' inkl. '+d.mwstPct+' % MwSt.:</span><b>Fr. '+chf(t.brutto)+'</b></div>'
+    +'<div class="totalrow"><span>Total inkl. '+d.mwstPct+' % MwSt.:</span><b>Fr. '+chf(t.brutto)+'</b></div>'
     +(d.schlusstext?'<p class="outro">'+esc(d.schlusstext)+'</p>':'')
-    +'<p class="gruss">Mit freundlichen Grüssen<br><b>'+esc(s.name||'')+'</b></p>'
-    +'<div class="cover-hint">Detailpositionen und Zusammenfassung auf den folgenden Seiten'+(d.typ==='rechnung'&&(s.iban||s.qrIban)?' · Zahlteil (QR-Rechnung) auf der letzten Seite':'')+'.</div>'
+    +'<p class="gruss">Mit freundlichen Grüssen<br>'+esc(s.name||'')+'</p>'
     +(s.txtKonditionen?'<div class="kleing">'+esc(s.txtKonditionen)+'</div>':'')
     +'</div>';
   // ── Ab Seite 2: Detailpositionen ──
@@ -1852,29 +1852,29 @@ function erpPdf(){
     +'.sheet{width:210mm;max-width:calc(100vw - 20px);min-height:296mm;margin:0 auto 26px;background:#fff;box-shadow:0 3px 24px rgba(15,23,42,.22);border-radius:2px;padding:18mm 15mm 22mm;box-sizing:border-box;display:flex;flex-direction:column}'
     +'.kopf{display:flex;justify-content:space-between;align-items:flex-start;gap:22px;margin-bottom:10mm}'
     +'.abs-firma{font-size:10.5pt;font-weight:800;letter-spacing:.2px}'
-    +'.abs-sub{font-size:8.5pt;color:#444;margin-top:2px;line-height:1.6}'
+    +'.abs-sub{font-size:8.5pt;color:#111;margin-top:2px;line-height:1.6}'
     +'.kopf-r{flex-shrink:0;text-align:right}'
     +'.adrzone{display:flex;justify-content:space-between;align-items:flex-start;gap:22px;margin-bottom:11mm}'
     +'.adr-l{font-size:9pt;color:#333;line-height:1.55;max-width:80mm}'
     +'.adr-eyebrow{font-size:8pt;font-weight:800;color:#666}'
     +'.adr-r{font-size:10pt;line-height:1.55;width:75mm;min-height:20mm}'
     +'.ortdatum{text-align:right;font-size:10pt;margin-bottom:9mm}'
-    +'h1{font-size:16pt;margin:0 0 5mm;color:var(--acc);letter-spacing:.2px}'
-    +'h2{font-size:12.5pt;margin:0 0 10px;color:var(--acc);letter-spacing:.2px}'
+    +'h1{font-size:16pt;margin:0 0 5mm;color:#111;letter-spacing:.2px}'
+    +'h2{font-size:12.5pt;margin:0 0 10px;color:#111;letter-spacing:.2px}'
     +'.meta{font-size:10pt;margin-bottom:7mm}'
     +'.mrow{display:flex;gap:8px;padding:1.5px 0}'
     +'.ml{font-weight:800;width:30mm;flex-shrink:0}'
     +'.titelbar{border-top:1.2px solid #111;border-bottom:1.2px solid #111;padding:2.4mm 1mm;font-weight:800;font-size:11pt;margin:1mm 0 6mm}'
     +'.totalrow{display:flex;justify-content:space-between;align-items:baseline;gap:20px;font-size:11pt;font-weight:800;margin:3mm 0 7mm}'
-    +'.totalrow b{font-size:12.5pt;border-bottom:2.5px double #111;padding:0 2mm 1mm;font-variant-numeric:tabular-nums;color:var(--acc)}'
+    +'.totalrow b{font-size:12.5pt;border-bottom:1.5px solid #111;padding:0 2mm 1mm;font-variant-numeric:tabular-nums;color:#111}'
     +'.intro,.outro{font-size:10pt;white-space:pre-wrap;max-width:168mm;margin:0 0 5mm}'
     +'.gruss{font-size:10pt;margin:7mm 0 0}'
     +'.cover-hint{font-size:8.5pt;color:#777;margin-top:5mm}'
     +'.kleing{margin-top:auto;padding-top:6mm;font-size:7.5pt;color:#555;line-height:1.5;white-space:pre-wrap}'
     +'.pb{}'
-    +'.betragbox{display:flex;gap:34px;align-items:flex-end;padding:13px 18px;background:var(--tint);border:1.5px solid var(--acc);border-radius:9px;margin:4px 0 10px}'
+    +'.betragbox{display:flex;gap:34px;align-items:flex-end;padding:13px 18px;border:1.5px solid #111;border-radius:9px;margin:4px 0 10px}'
     +'.bb-l{font-size:8pt;font-weight:800;text-transform:uppercase;letter-spacing:.3px;color:#555;margin-bottom:2px}'
-    +'.bb-v{font-size:16pt;font-weight:900;color:var(--acc);font-variant-numeric:tabular-nums}'
+    +'.bb-v{font-size:16pt;font-weight:900;color:#111;font-variant-numeric:tabular-nums}'
     +'.bb-v2{font-size:11pt;font-weight:800;font-variant-numeric:tabular-nums}'
     +'.qrhint{font-size:9pt;color:#444;max-width:165mm}'
     +'.qrpage{display:flex;flex-direction:column}'
@@ -1886,14 +1886,14 @@ function erpPdf(){
     +'th{border-top:1px solid #111;border-bottom:1px solid #111;text-align:left;padding:4px 7px;font-size:8pt;font-weight:800}'
     +'td{border-bottom:.4px solid #ddd;padding:5px 7px;vertical-align:top}'
     +'tr.grprow td{border-bottom:1px solid #111;font-weight:800;font-size:10.5pt;padding-top:12px}'
-    +'.grpltr{width:10mm;font-weight:900;color:var(--acc)}'
+    +'.grpltr{width:10mm;font-weight:900;color:#111}'
     +'tr.hasimg td{border-bottom:none}'
     +'tr.bildrow{page-break-inside:avoid}'
     +'.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}'
     +'table.zus td{border-bottom:none;padding:3px 7px}'
     +'table.tot td{border-bottom:none;padding:3px 7px}'
     +'table.tot tr:first-child td{border-top:1px solid #111;padding-top:6px}'
-    +'tr.sum td{border-top:1.5px solid #111;border-bottom:3px double #111;font-size:11pt;color:var(--acc)}'
+    +'tr.sum td{border-top:1.5px solid #111;border-bottom:none;font-size:11pt;color:#111}'
     +'.nb{position:fixed;top:10px;right:10px;display:flex;gap:8px;z-index:50}'
     +'.nb button{padding:9px 16px;border-radius:9px;border:1px solid #ccc;background:#fff;font-weight:700;cursor:pointer;font-family:inherit;box-shadow:0 2px 10px rgba(0,0,0,.12)}'
     +'.nb .p{background:var(--acc);color:#fff;border-color:var(--acc)}'
