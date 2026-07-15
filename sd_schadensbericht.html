@@ -883,16 +883,18 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
 <!-- GERÄT ADD MODAL -->
 <div class="modal-bg hidden" id="devAddModal">
   <div class="dlg-card" style="max-width:560px">
-    <div style="font-size:16px;font-weight:800;margin-bottom:12px">⚡ Trocknungsgerät hinzufügen</div>
+    <div style="font-size:16px;font-weight:800;margin-bottom:12px" id="devModalTitle">⚡ Trocknungsgerät hinzufügen</div>
     <!-- Auswahl aus Geraeteverwaltung: zeigt verfuegbare Geraete der
          eigenen Org. Klick fuellt Name/kW/Typ aus + setzt im Geraete-
          Modul den Status auf 'im_einsatz' (mit Verknuepfung zum Schaden). -->
     <!-- NFC / QR Scan-Aktion — Monteur scannt Tag, passendes Geraet wird ausgewaehlt -->
+    <div id="devAddOnlyWrap">
     <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
       <button type="button" class="nbtn" id="devNfcScanBtn" onclick="_sdScanForDev()" style="font-weight:700">📡 NFC-Tag scannen</button>
       <span id="devScanStatus" style="font-size:11.5px;color:var(--mut);flex:1;min-width:0"></span>
     </div>
     <div id="devPickerWrap" style="margin-bottom:14px"></div>
+    </div>
     <div style="display:flex;flex-direction:column;gap:12px">
       <div>
         <label class="dlg-lbl">Name <span style="color:var(--red)">*</span></label>
@@ -928,7 +930,7 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
     </div>
     <div class="dlg-row">
       <button class="dlg-cancel" onclick="document.getElementById('devAddModal').classList.add('hidden')">Abbrechen</button>
-      <button class="dlg-save" onclick="sdAddGeraet()">Hinzufügen</button>
+      <button class="dlg-save" id="devSaveBtn" onclick="sdAddGeraet()">Hinzufügen</button>
     </div>
   </div>
 </div>
@@ -2339,6 +2341,7 @@ function _sdDevCardOne(s, gi, editable, canEdit){
   var hasZaehler = zTyp !== 'kein';
   var h = '<div class="dev-card">';
   h += '<div class="dev-card-head"><div class="dev-card-name">⚡ ' + esc(g.name) + (g.tgDeviceId ? ' <span style="font-size:10px;color:#7c3aed;background:#f5f3ff;padding:1px 6px;border-radius:10px;font-weight:800;vertical-align:1px">QR</span>' : '') + '</div>';
+  if(canEdit && !g.tgDeviceId) h += '<button class="btn-del-icon" title="Gerät bearbeiten" style="margin-right:2px" onclick="sdOpenDevEdit(\'' + s.id + '\',' + gi + ')">✏️</button>';
   if(canEdit) h += '<button class="btn-del-icon" title="Gerät entfernen" onclick="sdDelDev(\'' + s.id + '\',' + gi + ')">✕</button>';
   h += '</div><div class="dev-card-grid">';
   h += _sdDcRow('Leistung', (g.kw ? esc(String(g.kw)) + ' kW' : '—'));
@@ -2519,6 +2522,7 @@ function _sdGeraeteCardsHtml(s, tr, editable, canEdit){
     var hasZaehler = zTyp !== 'kein';
     h += '<div class="dev-card">';
     h += '<div class="dev-card-head"><div class="dev-card-name">⚡ ' + esc(g.name) + '</div>';
+    if (canEdit && !g.tgDeviceId) h += '<button class="btn-del-icon" title="Gerät bearbeiten" style="margin-right:2px" onclick="sdOpenDevEdit(\'' + s.id + '\',' + gi + ')">✏️</button>';
     if (canEdit) h += '<button class="btn-del-icon" title="Gerät entfernen" onclick="sdDelDev(\'' + s.id + '\',' + gi + ')">✕</button>';
     h += '</div>';
     h += '<div class="dev-card-grid">';
@@ -3059,6 +3063,10 @@ function _sdRenderDevPicker(schadenId){
 // raumIdx (optional): Index in _sdAreaNames(s) — das Gerät wird diesem Bereich
 // zugeordnet (devRaumSelect vorbelegt).
 function sdOpenDevAdd(id, raumIdx) {
+  document.getElementById('devAddModal').dataset.editIdx = '';
+  document.getElementById('devModalTitle').textContent = '⚡ Trocknungsgerät hinzufügen';
+  document.getElementById('devSaveBtn').textContent = 'Hinzufügen';
+  var aow = document.getElementById('devAddOnlyWrap'); if (aow) aow.style.display = '';
   document.getElementById('devName').value = '';
   document.getElementById('devKw').value = '';
   document.getElementById('devStart').value = '0';
@@ -3090,6 +3098,28 @@ function sdOpenDevAdd(id, raumIdx) {
   sdRenderDevRaumSelect(id, pre);
   document.getElementById('devAddModal').classList.remove('hidden');
 }
+
+// Manuell erfasstes Geraet bearbeiten — gleicher Dialog im Edit-Modus:
+// Scan/Picker ausgeblendet, Felder vorbefuellt; Zaehler-Ende, Datums-
+// felder und TG-Verknuepfung bleiben beim Speichern unangetastet.
+function sdOpenDevEdit(id, gi) {
+  var s = sdGetById(id); if (!s || !s.trocknung) return;
+  var g = s.trocknung.geraete[gi]; if (!g) return;
+  sdOpenDevAdd(id, null);
+  var modal = document.getElementById('devAddModal');
+  modal.dataset.editIdx = String(gi);
+  document.getElementById('devModalTitle').textContent = '✏️ Trocknungsgerät bearbeiten';
+  document.getElementById('devSaveBtn').textContent = 'Speichern';
+  var aow = document.getElementById('devAddOnlyWrap'); if (aow) aow.style.display = 'none';
+  document.getElementById('devName').value = g.name || '';
+  document.getElementById('devKw').value = (g.kw || g.kw === 0) ? g.kw : '';
+  document.getElementById('devLinkedTgId').value = g.tgDeviceId || '';
+  var typ = g.zaehlerTyp || 'stunden';
+  _sdApplyZaehlerTyp(typ);
+  document.getElementById('devStart').value = (g.zaehlerStart != null) ? g.zaehlerStart : '0';
+  sdRenderDevRaumSelect(id, g.raum || '');
+}
+window.sdOpenDevEdit = sdOpenDevEdit;
 
 // Öffnet die Geräte-Zuweisung für einen Bereich und startet SOFORT den
 // QR/NFC-Scan (User-Gesture vom Button-Klick). Nach dem Scan sind Name/kW
@@ -3354,6 +3384,20 @@ function sdAddGeraet() {
   var zTypEl = document.getElementById('devZaehlerTyp');
   var zaehlerTyp = (zTypEl && zTypEl.value) || 'stunden';
   var zaehlerStart = zaehlerTyp === 'kein' ? null : (parseFloat(document.getElementById('devStart').value) || 0);
+  var editIdx = document.getElementById('devAddModal').dataset.editIdx;
+  if (editIdx !== '' && editIdx != null) {
+    // Edit-Modus: bestehendes Geraet aktualisieren — Zaehler-Ende,
+    // Start-/End-Datum und tgDeviceId bleiben erhalten.
+    var g = s.trocknung.geraete[parseInt(editIdx, 10)];
+    if (!g) return;
+    g.name = name; g.raum = raum; g.kw = kw;
+    g.zaehlerTyp = zaehlerTyp; g.zaehlerStart = zaehlerStart;
+    if (zaehlerTyp === 'kein') g.zaehlerEnde = null;
+    sdSave();
+    document.getElementById('devAddModal').classList.add('hidden');
+    sdRenderDetail(s);
+    return;
+  }
   s.trocknung.geraete.push({
     id: 'dev_' + Date.now(),
     name: name,
