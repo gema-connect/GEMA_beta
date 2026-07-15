@@ -245,10 +245,46 @@
     var pad = function(n){return n<10?'0'+n:''+n;};
     return pad(d.getDate())+'.'+pad(d.getMonth()+1)+'.'+d.getFullYear()+', '+pad(d.getHours())+':'+pad(d.getMinutes())+' Uhr';
   }
+  // Tag-INKLUSIVE Zaehlung — MUSS sdDaysBetween in sd_schadensbericht.html
+  // entsprechen (Start- UND End-Tag zaehlen mit: 10.07.–15.07. = 6 Tage).
+  // Frueher zaehlte der Export nur die Differenz (5) → PDF wich um einen Tag
+  // von der Berichtserfassung ab. slice(0,10) macht volle ISO-Timestamps
+  // (tr.gestartetAm aus Altdaten) datumsstabil.
   function daysBetween(a, b){
     if(!a || !b) return 0;
-    var t = (new Date(b) - new Date(a)) / 86400000;
-    return Math.max(0, Math.round(t));
+    var s = new Date(String(a).slice(0,10)+'T00:00:00').getTime();
+    var e = new Date(String(b).slice(0,10)+'T00:00:00').getTime();
+    if(isNaN(s) || isNaN(e)) return 0;
+    return Math.max(1, Math.ceil((e - s) / 86400000) + 1);
+  }
+  function todayIso(){
+    var d = new Date();
+    return d.getFullYear()+'-'+(d.getMonth()<9?'0':'')+(d.getMonth()+1)+'-'+(d.getDate()<10?'0':'')+d.getDate();
+  }
+  // Geraete-Start/-Tage — Spiegel von sdGeraetStart/sdGeraetTage im Modul
+  // (explizites Datum → Einsatz → Trocknungs-Start → dev_<ts>-Fallback;
+  // laufende Geraete zaehlen bis HEUTE, nicht «—»).
+  function geraetStart(g, tr){
+    if(g.eingesetztAm) return g.eingesetztAm;
+    if(g.einsatz && g.einsatz.eingesetztAm) return g.einsatz.eingesetztAm;
+    if(tr && tr.gestartetAm) return tr.gestartetAm;
+    if(typeof g.id === 'string'){
+      var m = g.id.match(/^dev_(\d{10,})/);
+      if(m){
+        var d = new Date(parseInt(m[1], 10));
+        if(!isNaN(d.getTime())){
+          return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+        }
+      }
+    }
+    return null;
+  }
+  function geraetTage(g, tr){
+    if(g && g.tage != null) return g.tage;   // extern vorberechnet
+    var start = geraetStart(g, tr);
+    if(!start) return null;
+    var ende = g.entferntAm || g.zurueckAm || (tr && tr.beendetAm) || todayIso();
+    return daysBetween(start, ende) || null;
   }
 
   // Pruef ob ein Wert "leer" ist (null/undef/''/whitespace-only).
@@ -469,14 +505,15 @@
     var statusBg    = statusOk ? 'var(--tint)' : 'var(--tint-blue)';
     var statusBrd   = statusOk ? '#cfe6d6'     : '#c5d2e3';
 
-    // KPIs aus Trocknung
+    // KPIs aus Trocknung — Tage/Energie identisch zur Berichtserfassung
+    // (laufende Trocknung zaehlt bis heute; Laufzeit-Geraete via Tage×h/Tag)
     var tr = s.trocknung || {};
-    var tage = daysBetween(tr.gestartetAm, tr.beendetAm);
+    var tage = tr.gestartetAm ? daysBetween(tr.gestartetAm, tr.beendetAm || todayIso()) : 0;
     var anzGeraete = (tr.geraete||[]).length;
     var anzMesspunkte = (tr.messpunkte||[]).length;
     var energieTotal = 0;
     (tr.geraete||[]).forEach(function(g){
-      var k = computeKwh(g);
+      var k = computeKwh(g, geraetTage(g, tr));
       if(k != null) energieTotal += k;
     });
 
@@ -593,10 +630,10 @@
     var hasContent = tr.gestartetAm || tr.beendetAm || (tr.geraete||[]).length || (tr.messpunkte||[]).length || tr.notizen || (tr.fotos||[]).length;
     if(!hasContent) return '';
 
-    var tage = daysBetween(tr.gestartetAm, tr.beendetAm);
+    var tage = tr.gestartetAm ? daysBetween(tr.gestartetAm, tr.beendetAm || todayIso()) : 0;
     var energieTotal = 0;
     (tr.geraete||[]).forEach(function(g){
-      var k = computeKwh(g);
+      var k = computeKwh(g, geraetTage(g, tr));
       if(k != null) energieTotal += k;
     });
 
@@ -630,7 +667,7 @@
           + '<th class="num">Tage</th><th class="num">Energie</th>'
         + '</tr></thead><tbody>';
       tr.geraete.forEach(function(g){
-        var t = (g.tage != null) ? g.tage : daysBetween(g.eingesetztAm || tr.gestartetAm, g.entferntAm || g.zurueckAm || tr.beendetAm);
+        var t = geraetTage(g, tr);
         var hours = computeHours(g, t);
         var kwh = computeKwh(g, t);
         var stdTag = (hours != null && t > 0) ? (hours/t).toFixed(1) : (hours != null ? hours.toFixed(1) : '—');
@@ -651,7 +688,7 @@
         var rm = g.raum || 'Ohne Raum';
         if(!raumAgg[rm]) raumAgg[rm] = { anz:0, h:0, kwh:0, tage:0 };
         raumAgg[rm].anz += 1;
-        var t = (g.tage != null) ? g.tage : daysBetween(g.eingesetztAm || tr.gestartetAm, g.entferntAm || g.zurueckAm || tr.beendetAm);
+        var t = geraetTage(g, tr);
         var hh = computeHours(g, t);
         var kk = computeKwh(g, t);
         if(hh != null) raumAgg[rm].h += hh;
