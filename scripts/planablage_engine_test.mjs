@@ -72,14 +72,23 @@ eq(pabPendUebergang('offen', 'zurueckweisen'), null, 'offen zurückweisen → un
 eq(pabPendUebergang('offen', 'quatsch'), null, 'unbekannte Aktion → null');
 
 console.log('■ Gewerk-Layer (PAB_LAYER / pabLayerById / pabGewerkVonText)');
-ok(PAB_LAYER.length === 6, '6 feste Gewerk-Layer');
-ok(new Set(PAB_LAYER.map(l => l.farbe)).size === 6, 'alle Layer-Farben eindeutig');
+ok(PAB_LAYER.length === 7, '7 feste Gewerk-Layer (inkl. Klima + Spenglerei)');
+ok(new Set(PAB_LAYER.map(l => l.farbe)).size === 7, 'alle Layer-Farben eindeutig');
+// Standardfarben (User-Vorgabe): Sanitär grün, Heizung rot, Lüftung blau,
+// Klima violett, Elektro amber, Allgemein grau
+eq(pabLayerById('sanitaer').farbe, '#16a34a', 'Sanitär = grün');
+eq(pabLayerById('heizung').farbe, '#dc2626', 'Heizung = rot');
+eq(pabLayerById('lueftung').farbe, '#2563eb', 'Lüftung = blau');
+eq(pabLayerById('klima').farbe, '#7c3aed', 'Klima = violett');
+eq(pabLayerById('elektro').farbe, '#d97706', 'Elektro = amber');
+eq(pabLayerById('allgemein').farbe, '#475569', 'Allgemein = grau');
 eq(pabLayerById('elektro').label, 'Elektro', 'Lookup nach id');
 eq(pabLayerById('gibtsnicht').id, 'allgemein', 'unbekannte id → allgemein (Altdaten-Fallback)');
 eq(pabLayerById(undefined).id, 'allgemein', 'fehlendes layer-Feld → allgemein');
 eq(pabGewerkVonText('Sanitärplaner'), 'sanitaer', 'Org-Kategorie sanitaerplaner');
 eq(pabGewerkVonText('heizungsinstallateur'), 'heizung', 'Kategorie heizungsinstallateur');
-eq(pabGewerkVonText('Lüftung / Klima AG'), 'lueftung', 'Freitext Lüftung');
+eq(pabGewerkVonText('Lüftung / Klima AG'), 'lueftung', 'Freitext Lüftung (Lüftung gewinnt vor Klima)');
+eq(pabGewerkVonText('Kälte & Klima GmbH'), 'klima', 'Freitext Klima/Kälte → klima');
 eq(pabGewerkVonText('Elektro Muster GmbH'), 'elektro', 'Beteiligten-Firma Elektro');
 eq(pabGewerkVonText('Spenglerei & Bedachungen'), 'spenglerei', 'Spenglerei-Text');
 eq(pabGewerkVonText('Architekturbüro XY'), 'allgemein', 'kein Treffer → allgemein');

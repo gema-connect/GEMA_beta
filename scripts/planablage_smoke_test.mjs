@@ -282,7 +282,7 @@ const PALT = Object.assign({}, PEND, { id: 'p_alt', titel: 'Allgemeiner Punkt', 
   ok(await page.evaluate(() => _pabHooks.PV.drawLayer) === 'sanitaer', 'Zeichen-Layer aus Org-Kategorie sanitaerplaner');
   ok(await page.evaluate(() => document.querySelectorAll('#pvSvg .shp').length) === 3, 'alle 3 Shapes sichtbar (3 Layer)');
   ok(await page.evaluate(() => _pabHooks.multi()), 'Multi-Layer-Modus aktiv (>1 Layer auf der Seite)');
-  ok(await page.evaluate(() => document.querySelector('#pvSvg [data-sid="s1"]').getAttribute('stroke')) === '#2563eb', 'Multi-Blick: Sanitär-Shape in GEWERKFARBE (blau) statt freier Farbe');
+  ok(await page.evaluate(() => document.querySelector('#pvSvg [data-sid="s1"]').getAttribute('stroke')) === '#16a34a', 'Multi-Blick: Sanitär-Shape in GEWERKFARBE (grün) statt freier Farbe');
   ok(await page.evaluate(() => document.querySelectorAll('#pvSvg .pv-pin').length) === 2, 'beide Pendenz-Pins sichtbar');
   // Layer-Panel: Elektro + Allgemein ausblenden → nur Sanitär → freie Farbe
   await page.evaluate(() => { pabLayerPanel(); pabLayerToggle('elektro', false); pabLayerToggle('allgemein', false); });
