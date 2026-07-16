@@ -597,6 +597,19 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important}
    das Auto-Table-Layout quetscht die Zelle sonst unter die Textbreite und
    der Pfeil schneidet den Code ab (Karte scrollt stattdessen horizontal). */
 select.warType{min-width:78px;padding:3px 6px;font-size:11px;font-weight:600;font-family:var(--mono);border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text)}
+/* Strang-Zuweisung + Zusammenstellung nach Strängen */
+select.strangSel{min-width:86px;padding:3px 6px;font-size:11px;font-weight:600;font-family:var(--mono);border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text)}
+.str-card{border:1.5px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:10px;background:var(--surface)}
+.str-hd{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px}
+.str-name-inp{font-weight:800;font-size:13px;border:1px solid var(--border);border-radius:7px;padding:4px 8px;width:140px;background:var(--surface);color:var(--text);font-family:inherit}
+.str-tag{font-size:9.5px;font-weight:800;padding:2px 8px;border-radius:99px;background:var(--surface2);color:var(--muted);letter-spacing:.3px}
+.str-ss-sel{padding:4px 8px;font-size:11.5px;font-weight:600;border:1px solid var(--border);border-radius:7px;background:var(--surface);color:var(--text);font-family:inherit}
+.str-tbl{width:100%;border-collapse:collapse;font-size:11.5px}
+.str-tbl th{font-size:9.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.3px;text-align:left;padding:3px 6px;border-bottom:1px solid var(--border)}
+.str-tbl th.right,.str-tbl td.right{text-align:right;font-family:var(--mono)}
+.str-tbl td{padding:4px 6px;border-bottom:1px dashed var(--border);color:var(--text)}
+.str-tbl tr.str-total td{font-weight:800;border-bottom:none;border-top:2px solid var(--border);font-size:12px}
+.ss-fl-chip .via-strang{font-size:9px;margin-left:2px}
 /* ── SS TOGGLE BUTTONS ── */
 .ss-toggle{display:inline-flex;border:1.5px solid var(--border2);border-radius:8px;overflow:hidden;font-size:11px;font-weight:600}
 .ss-toggle button{padding:4px 10px;border:none;background:var(--surface);color:var(--muted);cursor:pointer;font-family:inherit;font-size:11px;font-weight:600;transition:.15s;border-right:1px solid var(--border2)}
@@ -870,6 +883,7 @@ body.rk-printing.rk-has-print .rk-print{display:block}
         <thead><tr>
           <th style="width:42px;">Nr.</th>
           <th style="width:90px;">Art</th>
+          <th style="width:92px;">Strang</th>
           <th>Dachart</th>
           <th>Beschaffenheit (CS)</th>
           <th class="right" style="width:65px;">Fläche m²</th>
@@ -898,6 +912,7 @@ body.rk-printing.rk-has-print .rk-print{display:block}
         <thead><tr>
           <th style="width:42px;">Nr.</th>
           <th style="width:90px;">Art</th>
+          <th style="width:92px;">Strang</th>
           <th>Flächenart</th>
           <th>Beschaffenheit</th>
           <th style="width:75px;">Kolmation <button class="info-btn" onclick="document.getElementById('kolmDialog').showModal()" title="Info">i</button></th>
@@ -948,6 +963,18 @@ body.rk-printing.rk-has-print .rk-print{display:block}
         <tbody id="tbodyNot"></tbody>
       </table>
       <div style="margin:10px 16px 14px;"><span class="pill" id="notSummary">Noch keine Flächen.</span></div>
+    </div>
+  </div>
+
+  <!-- ZUSAMMENSTELLUNG NACH STRÄNGEN -->
+  <div class="g-card" style="margin-bottom:16px;" id="strangSection">
+    <div class="g-card-hd">
+      <h2>Zusammenstellung nach Strängen</h2>
+      <span class="g-badge blue" id="strangCount">0</span>
+    </div>
+    <div class="g-card-bd">
+      <p class="g-hint" style="margin-bottom:12px;">Flächen in den Tabellen über das Strang-Dropdown zuordnen («＋ Neuer Strang» legt z.B. WAR-R 1 an, Name umbenennbar) · pro Strang den Schlammsammler koppeln — er übernimmt die Flächen des Strangs automatisch in seine Auslegung.</p>
+      <div id="strangList"></div>
     </div>
   </div>
 
@@ -1525,6 +1552,7 @@ function rowTemplate(nr, cat, preset={}) {
     tr.innerHTML = `
       <td class="num"><input class="nr-label" type="text" value="${nrLabel}" /></td>
       <td><select class="warType"></select></td>
+      <td><select class="strangSel"></select></td>
       <td><select class="art"></select></td>
       <td><select class="csLabel"></select></td>
       <td><select class="kolm"></select></td>
@@ -1543,6 +1571,7 @@ function rowTemplate(nr, cat, preset={}) {
     tr.innerHTML = `
       <td class="num"><input class="nr-label" type="text" value="${nrLabel}" /></td>
       <td><select class="warType"></select></td>
+      <td><select class="strangSel"></select></td>
       <td><select class="art"></select></td>
       <td><select class="csLabel"></select></td>
       <td class="num"><input class="area" type="text" inputmode="decimal" onblur="fixLeadingZero(this)" placeholder="48.5" value="${area}" /></td>
@@ -1555,6 +1584,7 @@ function rowTemplate(nr, cat, preset={}) {
   }
 
   buildWarSelect(tr.querySelector(".warType"), warType);
+  buildStrangSelect(tr.querySelector(".strangSel"), preset.strang || "", tr);
   buildSelect(tr.querySelector(".art"), Object.keys(arts), x=>x, x=>x);
   tr.querySelector(".art").value = art;
   tr.querySelector(".csLabel").value = csLabel;
@@ -1664,6 +1694,8 @@ function recalcAll() {
   if(el("unitBadgeNote")) el("unitBadgeNote").textContent = unitLabel();
 
   try { recalcNot(); } catch(e) { console.warn("recalcNot:", e); }
+  try { renderStraenge(); } catch(e) {}
+  try { renderAllSS(); } catch(e) {}
 }
 
 function toggleAdvanced() {
@@ -1766,12 +1798,17 @@ function getState() {
     csLabel: tr.querySelector(".csLabel").value,
     kolm: tr.querySelector(".kolm")?.value || "gering",
     area: tr.querySelector(".area").value,
-    rwert: tr.querySelector(".rwert").value
+    rwert: tr.querySelector(".rwert").value,
+    strang: tr.dataset.strangId || ""
   }));
   return {
     v: 1,
     savedAt: new Date().toISOString(),
     project: el("project").value,
+    straenge: strState.map(s => ({ id: s.id, name: s.name, warType: s.warType, ssId: s.ssId || "" })),
+    ss: ssState.map(s => ({ id: s.id, name: s.name, deckel: s.deckel, assigned: [...s.assignedNrs],
+                            auslauftiefe: s.auslauftiefe, schlammtiefe: s.schlammtiefe,
+                            bereich: s.bereich, zustand: s.zustand, h: s.h })),
     defaults: {
       location: el("defaultLocation").value,
       art: el("defaultArt").value,
@@ -1810,6 +1847,18 @@ function setState(state) {
     el("nOverflows").value = state.notent.nOverflows || el("nOverflows").value;
   }
 
+  // Stränge + Schlammsammler VOR den Zeilen restaurieren — die Zeilen-
+  // Dropdowns brauchen die Optionen, die SS-Karten die Zuweisungen.
+  strState = (state.straenge || []).map(x => ({ id: x.id, name: x.name || "", warType: x.warType || "WAR-R", ssId: x.ssId || "" }));
+  strIdCounter = strState.reduce((m, x) => Math.max(m, Number(x.id) || 0), 0);
+  if(Array.isArray(state.ss)){
+    ssState = state.ss.map(x => ({ id: x.id, name: x.name || "SS", deckel: x.deckel || "verschlossen",
+      assignedNrs: new Set(Array.isArray(x.assigned) ? x.assigned : []),
+      auslauftiefe: x.auslauftiefe, schlammtiefe: x.schlammtiefe,
+      bereich: x.bereich || "frost", zustand: x.zustand || "neu", h: x.h || "" }));
+    ssIdCounter = ssState.reduce((m, x) => Math.max(m, Number(x.id) || 0), 0);
+  }
+
   if(el("tbodyDach")) el("tbodyDach").innerHTML = "";
   if(el("tbodyUmg")) el("tbodyUmg").innerHTML = "";
   (state.rows || []).forEach((r) => {
@@ -1818,6 +1867,7 @@ function setState(state) {
 
   toggleAdvanced();
   recalcAll();
+  try { renderAllSS(); } catch(e) {}
 }
 
 function saveLocal() {
@@ -2129,6 +2179,172 @@ function init() {
 // SCHLAMMSAMMLER
 // ═══════════════════════════════════════════════
 const DN_STD = [600, 800, 1000, 1200, 1500, 2000];
+// ══ Stränge — Flächen-Zuweisung + Zusammenstellung + SS-Kopplung ══════
+// Ein Strang bündelt Flächen (Zuweisung per Dropdown in der Zeile) und
+// kann einen Schlammsammler gekoppelt haben: der SS übernimmt die
+// Flächen des Strangs automatisch in seine Auslegung (ssEffNrs).
+let strState = [];      // [{id, name, warType, ssId}]
+let strIdCounter = 0;
+
+function strNextNr(warType){
+  let max = 0;
+  strState.forEach(s => {
+    if(s.warType === warType){
+      const m = String(s.name||"").match(/(\d+)\s*$/);
+      const n = m ? parseInt(m[1], 10) : 0;
+      if(n > max) max = n;
+    }
+  });
+  return max + 1;
+}
+function strAdd(warType){
+  strIdCounter++;
+  const s = { id: strIdCounter, name: warType + " " + strNextNr(warType), warType: warType, ssId: "" };
+  strState.push(s);
+  return s;
+}
+function strById(id){ return strState.find(s => String(s.id) === String(id)) || null; }
+
+function strFillOptions(sel, cur){
+  sel.innerHTML = "";
+  const o0 = document.createElement("option");
+  o0.value = ""; o0.textContent = "–";
+  sel.appendChild(o0);
+  strState.forEach(s => {
+    const o = document.createElement("option");
+    o.value = String(s.id); o.textContent = s.name;
+    sel.appendChild(o);
+  });
+  const on = document.createElement("option");
+  on.value = "__new__"; on.textContent = "＋ Neuer Strang …";
+  sel.appendChild(on);
+  sel.value = cur != null ? String(cur) : "";
+  if(sel.value !== String(cur == null ? "" : cur)) sel.value = "";
+  return sel.value;
+}
+function buildStrangSelect(sel, value, tr){
+  tr.dataset.strangId = strFillOptions(sel, value || "");
+  sel.addEventListener("change", () => {
+    if(sel.value === "__new__"){
+      const wt = tr.querySelector(".warType")?.value || "WAR-R";
+      const s = strAdd(wt);                 // Auto-Name nach Leitungstyp, z.B. WAR-R 1
+      tr.dataset.strangId = String(s.id);
+      strRefreshSelects();
+    } else {
+      tr.dataset.strangId = sel.value;
+    }
+    renderStraenge();
+    renderAllSS();
+  });
+}
+function strRefreshSelects(){
+  document.querySelectorAll("#tbodyDach tr, #tbodyUmg tr").forEach(tr => {
+    const sel = tr.querySelector(".strangSel");
+    if(!sel) return;
+    tr.dataset.strangId = strFillOptions(sel, tr.dataset.strangId || "");
+  });
+}
+window.strRename = function(id, name){
+  const s = strById(id); if(!s) return;
+  s.name = String(name || "").trim() || (s.warType + " " + strNextNr(s.warType));
+  strRefreshSelects(); renderStraenge(); renderAllSS();
+};
+window.strSetSS = function(id, ssId){
+  const s = strById(id); if(!s) return;
+  s.ssId = ssId || "";
+  renderStraenge(); renderAllSS();
+};
+window.strDelete = function(id){
+  strState = strState.filter(s => String(s.id) !== String(id));
+  document.querySelectorAll("#tbodyDach tr, #tbodyUmg tr").forEach(tr => {
+    if(String(tr.dataset.strangId || "") === String(id)) tr.dataset.strangId = "";
+  });
+  strRefreshSelects(); renderStraenge(); renderAllSS();
+};
+
+// Flächen-Nrn, die einem SS über gekoppelte Stränge zufliessen
+function ssStrangNrs(ssId){
+  const nrs = new Set();
+  const ids = strState.filter(s => s.ssId !== "" && String(s.ssId) === String(ssId)).map(s => String(s.id));
+  if(!ids.length) return nrs;
+  getFlaechen().forEach(f => { if(ids.indexOf(String(f.strang)) >= 0) nrs.add(f.nr); });
+  return nrs;
+}
+// Effektive Flächen eines SS = manuelle Chips ∪ Strang-Kopplung
+function ssEffNrs(ss){
+  const eff = new Set(ss.assignedNrs);
+  ssStrangNrs(ss.id).forEach(n => eff.add(n));
+  return eff;
+}
+
+function renderStraenge(){
+  const host = el("strangList");
+  if(!host) return;
+  if(el("strangCount")) el("strangCount").textContent = strState.length;
+  host.innerHTML = "";
+  const flaechen = getFlaechen();
+  if(strState.length === 0){
+    host.innerHTML = '<p style="color:var(--muted);font-size:12px;padding:4px 0;">Noch keine Stränge — in der Flächenzeile über das Strang-Dropdown «＋ Neuer Strang» anlegen.</p>';
+    return;
+  }
+  strState.forEach(s => {
+    const items = flaechen.filter(f => String(f.strang) === String(s.id));
+    let aSum = 0, qSum = 0;
+    items.forEach(f => { aSum += f.area; qSum += f.qLps; });
+    const ss = ssState.find(x => String(x.id) === String(s.ssId)) || null;
+    const card = document.createElement("div");
+    card.className = "str-card";
+    let ssOpts = '<option value="">– kein Schlammsammler –</option>';
+    ssState.forEach(x => {
+      ssOpts += '<option value="' + x.id + '"' + (String(s.ssId) === String(x.id) ? " selected" : "") + '>' + x.name + '</option>';
+    });
+    let h = '<div class="str-hd">'
+      + '<input type="text" class="str-name-inp" value="' + String(s.name).replace(/"/g, "&quot;") + '" onchange="window.strRename(' + s.id + ',this.value)" title="Strang umbenennen"/>'
+      + '<span class="str-tag">' + s.warType + '</span>'
+      + '<span class="g-badge blue">' + items.length + ' Fläche' + (items.length === 1 ? "" : "n") + '</span>'
+      + '<span style="flex:1"></span>'
+      + '<label style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.3px;">Schlammsammler</label>'
+      + '<select class="str-ss-sel" onchange="window.strSetSS(' + s.id + ',this.value)">' + ssOpts + '</select>'
+      + '<button class="miniBtn danger no-print" title="Strang löschen (Flächen bleiben, Zuweisung wird entfernt)" onclick="window.strDelete(' + s.id + ')">✕</button>'
+      + '</div>';
+    if(items.length === 0){
+      h += '<p style="color:var(--muted);font-size:11.5px;margin:2px 0 0;">Keine Flächen zugeordnet.</p>';
+    } else {
+      h += '<table class="str-tbl"><thead><tr><th style="width:52px;">Nr.</th><th style="width:70px;">Typ</th><th>Fläche / Art</th><th class="right" style="width:80px;">m²</th><th class="right" style="width:90px;">Q</th></tr></thead><tbody>';
+      items.forEach(f => {
+        h += '<tr><td>' + (f.nrLabel || f.nr) + '</td><td>' + (f.warType || "") + '</td><td>'
+          + (f.cat === "umg" ? "Umgebung" : "Dach") + ' · ' + String(f.art || "").replace(/</g, "&lt;")
+          + '</td><td class="right">' + fmt(f.area, 1) + '</td><td class="right">' + flowDisplay(f.qLps, 2) + '</td></tr>';
+      });
+      h += '<tr class="str-total"><td colspan="3">Total ' + String(s.name).replace(/</g, "&lt;")
+        + (ss ? ' <span style="font-weight:600;color:var(--muted);font-size:10.5px;">→ ' + ss.name + '</span>' : '')
+        + '</td><td class="right">' + fmt(aSum, 1) + '</td><td class="right">' + flowDisplay(qSum, 2) + '</td></tr>';
+      h += '</tbody></table>';
+    }
+    card.innerHTML = h;
+    host.appendChild(card);
+  });
+  // Nicht zugeordnete Flächen ausweisen
+  const offen = flaechen.filter(f => !f.strang);
+  if(offen.length){
+    let aO = 0, qO = 0;
+    offen.forEach(f => { aO += f.area; qO += f.qLps; });
+    const p = document.createElement("p");
+    p.style.cssText = "color:var(--muted);font-size:11.5px;margin:4px 0 0;";
+    p.textContent = "Ohne Strang: " + offen.length + " Fläche" + (offen.length === 1 ? "" : "n") + " · " + fmt(aO, 1) + " m² · " + flowDisplay(qO, 2);
+    host.appendChild(p);
+  }
+}
+
+// Test-Hooks (Playwright — der Block ist eine async-IIFE, nichts ist global)
+window._strHooks = {
+  strState: function(){ return strState; },
+  ssState: function(){ return ssState; },
+  getState: function(){ return getState(); },
+  setState: function(st){ return setState(st); },
+  ssEffNrs: function(id){ const ss = ssState.find(x => String(x.id) === String(id)); return ss ? [...ssEffNrs(ss)] : []; }
+};
+
 let ssState = []; // array of {id, name, deckel, assignedNrs:Set, bereich, auslauftiefe, schlammtiefe, h}
 let ssIdCounter = 0;
 
@@ -2153,7 +2369,8 @@ function getFlaechen(){
     warType: tr.querySelector(".warType")?.value || "WAR-R",
     art: tr.querySelector(".art")?.value || "",
     area: safeNum(tr.querySelector(".area")?.value),
-    qLps: safeNum(tr.dataset.qLps)
+    qLps: safeNum(tr.dataset.qLps),
+    strang: tr.dataset.strangId || ""
   }));
 }
 
@@ -2214,15 +2431,17 @@ function renderAllSS(){
     const t = isSSE ? 120 : 30;
     const mode = isSSE ? "SSE" : "SS";
 
-    // Sum Q from assigned flächen
+    // Sum Q from assigned flächen — effektiv = manuelle Chips ∪ Strang-Kopplung
+    const effNrs = ssEffNrs(ss);
+    const strangNrs = ssStrangNrs(ss.id);
     let qSum = 0;
     let hasUmg = false;
-    ss.assignedNrs.forEach(nr => {
+    effNrs.forEach(nr => {
       const fl = flaechen.find(f=>f.nr===nr);
       if(fl){ qSum += fl.qLps; if(fl.cat==="umg") hasUmg = true; }
     });
     const qTotal = qSum;
-    const needsPlatzWarn = isSSE && !hasUmg && ss.assignedNrs.size > 0;
+    const needsPlatzWarn = isSSE && !hasUmg && effNrs.size > 0;
 
     // Calc DN from lookup tables (SS_Auslegung_2024.xlsx)
     const lookupTable = isSSE ? SSE_DN_LOOKUP : SS_DN_LOOKUP;
@@ -2321,9 +2540,12 @@ function renderAllSS(){
       wrap.style.cssText = "display:inline-flex;flex-wrap:wrap;gap:5px;";
       items.forEach(fl => {
         const chip = document.createElement("div");
-        chip.className = "ss-fl-chip" + (ss.assignedNrs.has(fl.nr) ? " active" : "");
-        chip.innerHTML = `<span class="ss-fl-nr">${fl.nrLabel||fl.nr}</span><span style="font-size:9px;color:var(--muted);margin-right:2px;">${fl.warType||''}</span><span>${fmt(fl.area,0)} m² · ${fmt(fl.qLps,2)} l/s</span>`;
+        const viaStrang = strangNrs.has(fl.nr);
+        chip.className = "ss-fl-chip" + (effNrs.has(fl.nr) ? " active" : "");
+        chip.innerHTML = `<span class="ss-fl-nr">${fl.nrLabel||fl.nr}</span><span style="font-size:9px;color:var(--muted);margin-right:2px;">${fl.warType||''}</span><span>${fmt(fl.area,0)} m² · ${fmt(fl.qLps,2)} l/s</span>` + (viaStrang ? '<span class="via-strang" title="über Strang-Kopplung zugewiesen">🔗</span>' : '');
+        if(viaStrang) chip.title = "Über die Strang-Kopplung zugewiesen — Zuordnung im Strang ändern";
         chip.addEventListener("click", () => {
+          if(viaStrang){ flash("Über Strang gekoppelt — Zuordnung in der Strang-Zusammenstellung ändern.", true); return; }
           if(ss.assignedNrs.has(fl.nr)) ss.assignedNrs.delete(fl.nr);
           else ss.assignedNrs.add(fl.nr);
           renderAllSS();

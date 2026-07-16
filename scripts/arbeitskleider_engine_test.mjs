@@ -9,7 +9,7 @@ const m = src.match(/\/\*ENGINE-START\*\/([\s\S]*?)\/\*ENGINE-END\*\//);
 if (!m) { console.error('ENGINE-Block nicht gefunden'); process.exit(1); }
 const g = {};
 new Function('window', m[1])(g);
-const { akParams, akPeriodeVon, akPeriodeLabel, akNaechstePeriode, akBudgetFor, akSaldo, akFmtChf, akKat, AK_KATS } = g;
+const { akParams, akPeriodeVon, akPeriodeLabel, akNaechstePeriode, akBudgetFor, akSaldo, akFmtChf, akKat, akKats, AK_KATS } = g;
 
 let n = 0, fail = 0;
 function t(name, cond) {
@@ -124,6 +124,23 @@ eq("CHF 1 Mio mit Apostrophen", akFmtChf(1000000), "1'000'000.00");
 eq('akKat schuhe → 👟', akKat('schuhe').icon, '👟');
 eq('akKat unbekannt → sonstiges', akKat('gibtsnicht').id, 'sonstiges');
 t('10 Kategorien definiert', AK_KATS.length === 10);
+
+console.log('— akKats (org-anpassbare Kategorien) —');
+t('ohne Config → Standard-Katalog', akKats(null) === AK_KATS);
+t('kategorien:null → Standard-Katalog', akKats(akParams({ kategorien: null })) === AK_KATS);
+t('leere Liste → Standard-Katalog', akKats({ kategorien: [] }) === AK_KATS);
+const eigene = akKats({ kategorien: [
+  { id: 'helm', label: 'Helm & Schutz', icon: '⛑' },
+  { id: 'brille', label: 'Schutzbrille' },              // ohne Icon → 🏷
+  { id: '', label: 'ohne id' }, null, { id: 'x' }        // ungültige übersprungen
+] });
+eq('eigene Liste: 2 gültige Einträge', eigene.length, 2);
+eq('Reihenfolge erhalten', eigene[0].id, 'helm');
+eq('fehlendes Icon → 🏷', eigene[1].icon, '🏷');
+t('nur ungültige Einträge → Standard-Katalog', akKats({ kategorien: [null, { id: '', label: '' }] }) === AK_KATS);
+eq('akKat mit eigener Liste', akKat('helm', eigene).label, 'Helm & Schutz');
+eq('akKat: gelöschte STANDARD-Kategorie behält Standard-Label', akKat('schuhe', eigene).icon, '👟');
+eq('akKat: unbekannte id → letzte der wirksamen Liste', akKat('weg', eigene).id, 'brille');
 
 console.log('\n' + (n - fail) + '/' + n + ' Checks bestanden' + (fail ? ' — ' + fail + ' FEHLER' : ''));
 process.exit(fail ? 1 : 0);

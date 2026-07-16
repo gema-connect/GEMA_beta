@@ -149,6 +149,59 @@ await p1.waitForTimeout(120);
   ok(t.indexOf('50.00') >= 0, 'Marco: Rest 50.00 (Override 100 − 50 bezogen)');
   ok(t.indexOf('500.00') >= 0, 'Manager selbst: Rest 500.00 (neues Standard-Budget, keine Bezüge)');
 }
+
+// ── Kategorien-Editor: umbenennen, ergänzen, löschen + Altdaten-Schutz ──
+console.log('■ Einstellungen: Kategorien anpassbar');
+// Vorbereitungs-Artikel in der Kategorie «hose» (wird gleich gelöscht)
+await p1.evaluate(() => { window._akHooks.setTab('katalog'); window.akArtikelNeu(); });
+await p1.fill('#af_name', 'Arbeitshose Classic');
+await p1.fill('#af_preis', '80');
+await p1.evaluate(() => { document.getElementById('af_kat').value = 'hose'; });
+await p1.evaluate(() => window.akArtikelSave(''));
+await p1.waitForTimeout(120);
+
+await p1.evaluate(() => window._akHooks.setTab('einstellungen'));
+ok(await p1.evaluate(() => document.querySelectorAll('#katRows [data-kat-id]').length) === 10, 'Editor listet die 10 Standard-Kategorien');
+await p1.evaluate(() => {
+  document.querySelector('#katRows [data-kat-id="tshirt"] [data-kat-label]').value = 'Shirts & Polos';
+  window.akKatRowAdd();
+  const rows = document.querySelectorAll('#katRows [data-kat-id]');
+  const neu = rows[rows.length - 1];
+  neu.querySelector('[data-kat-label]').value = 'Helm & Schutz';
+  neu.querySelector('[data-kat-icon]').value = '⛑';
+  window.akKatRowDel(document.querySelector('#katRows [data-kat-id="hose"] button'));
+  window.akSettingsSave();
+});
+await p1.waitForTimeout(120);
+{
+  const kats = await p1.evaluate(() => GemaAuth.getOrgs()[0].settings.arbeitskleider.kategorien);
+  ok(Array.isArray(kats) && kats.length === 10, 'Custom-Liste gespeichert (10 Standard − Hose + neue)');
+  ok(!!kats.find(k => k.id === 'tshirt' && k.label === 'Shirts & Polos'), 'Umbenennen behält die Kategorie-ID (tshirt)');
+  const helm = kats.find(k => k.label === 'Helm & Schutz') || {};
+  ok(helm.id === 'helm_schutz' && helm.icon === '⛑', 'neue Kategorie mit generierter ID «helm_schutz»');
+  ok(!kats.find(k => k.id === 'hose'), 'Kategorie «Hose» entfernt');
+}
+{
+  await p1.evaluate(() => window._akHooks.setTab('katalog'));
+  const t = await p1.evaluate(() => document.getElementById('akContent').textContent);
+  ok(t.indexOf('Shirts & Polos') >= 0, 'Katalog-Karte trägt das neue Label');
+  ok(t.indexOf('Arbeitshose Classic') >= 0 && t.indexOf('bisherige Kategorie') >= 0, 'Artikel der gelöschten Kategorie bleibt sichtbar («bisherige Kategorie»)');
+  const hoseId = await p1.evaluate(() => window._akHooks.artikelAll().find(a => a.kategorie === 'hose').id);
+  await p1.evaluate(id => window.akArtikelEdit(id), hoseId);
+  const sel = await p1.evaluate(() => Array.from(document.querySelectorAll('#af_kat option')).map(o => ({ v: o.value, t: o.textContent, s: o.selected })));
+  ok(sel.some(o => o.v === 'hose' && o.s && o.t.indexOf('bisherig') >= 0), 'Artikel-Form: gelöschte Kategorie als «(bisherig)» vorselektiert');
+  ok(sel.some(o => o.t.indexOf('Helm & Schutz') >= 0), 'Artikel-Form bietet die neue Kategorie an');
+  await p1.evaluate(() => window.akCloseModal());
+}
+{
+  await p1.evaluate(() => window.akBezugNeu('u_mont'));
+  await p1.waitForSelector('#bz_artikel');
+  const og = await p1.evaluate(() => Array.from(document.querySelectorAll('#bz_artikel optgroup')).map(o => o.label));
+  ok(og.some(l => l.indexOf('Shirts & Polos') >= 0), 'Bezug-Dialog gruppiert nach neuem Label');
+  ok(og.some(l => l.indexOf('Hose') >= 0), 'Artikel der gelöschten Kategorie bleiben im Bezug wählbar');
+  await p1.evaluate(() => window.akCloseModal());
+}
+
 // Zustand für Kontext 2/3 exportieren
 const poolA = await p1.evaluate(() => localStorage.getItem('gema_ak_artikel_pool_v1'));
 const poolB = await p1.evaluate(() => localStorage.getItem('gema_ak_bezug_pool_v1'));
