@@ -383,9 +383,12 @@
     });
     // Gruppen bereits erhaltener Notifikationen (Cross-Org-Flüsse) — deren
     // Einstellungen bleiben sichtbar, auch ohne Modul-Permission.
+    // includeDisabled: auch Notifikationen DEAKTIVIERTER Events zählen —
+    // sonst verschwände die Gruppe aus dem Panel, sobald man sie abschaltet,
+    // und liesse sich nie wieder aktivieren.
     var empfangeneGruppen={};
     try{
-      (w.GemaNotify.getForCurrentUser()||[]).forEach(function(n){
+      (w.GemaNotify.getForCurrentUser({includeDisabled:true})||[]).forEach(function(n){
         var ev=n&&n.eventKey&&w.GemaNotify.EVENT_KEYS[n.eventKey];
         if(ev&&ev.modul)empfangeneGruppen[ev.modul]=true;
       });

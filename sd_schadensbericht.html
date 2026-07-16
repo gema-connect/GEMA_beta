@@ -3111,8 +3111,9 @@ function _sdRenderDevPicker(schadenId){
       // Zaehler-Typ aus Geraeteverwaltung uebernehmen (Default-Logik bei fehlendem Feld)
       var devTyp = _sdDefaultZaehlerTyp(dev);
       _sdApplyZaehlerTyp(devTyp);
-      // Aktuellen Zaehlerstand als Startwert vorschlagen (User kann anpassen)
-      if(devTyp !== 'kein'){
+      // Aktuellen Zaehlerstand als Startwert vorschlagen (User kann anpassen).
+      // 'kein'/'laufzeit' haben keinen Zaehlerstand — Feld bleibt leer/versteckt.
+      if(devTyp !== 'kein' && devTyp !== 'laufzeit'){
         document.getElementById('devStart').value = _sdGetAktuellerStand(dev) || 0;
       }
       // Visuelle Bestaetigung
@@ -3201,12 +3202,17 @@ function sdScanDevForArea(id, raumIdx) {
 }
 window.sdScanDevForArea = sdScanDevForArea;
 
-// Default-Zaehler-Typ pro Geraet (Backwards-Compat). Identisch zur
-// Logik in if_trocknung.html _tgDefaultZaehlerTyp.
+// Default-Zaehler-Typ pro Geraet (Backwards-Compat). Basis-Logik wie
+// if_trocknung.html _tgDefaultZaehlerTyp — mit EINEM Bericht-Mapping:
+// Geraet OHNE Zaehler, aber mit Leistung (z.B. Bautrockner ohne Zaehler,
+// Ventilator) → im Bericht automatisch die Laufzeit-Erfassung
+// (Stunden × kW), sonst gaebe es keinen Stromverbrauch zu erfassen.
+// Messgeraete (kw 0) bleiben 'kein' — kein Verbrauchs-Tracking.
 function _sdDefaultZaehlerTyp(dev){
   if(!dev) return 'stunden';
-  if(dev.zaehlerTyp) return dev.zaehlerTyp;
-  return dev.typ === 'messgeraet' ? 'kein' : 'stunden';
+  var t = dev.zaehlerTyp || (dev.typ === 'messgeraet' ? 'kein' : 'stunden');
+  if(t === 'kein' && (parseFloat(dev.kw) || 0) > 0) return 'laufzeit';
+  return t;
 }
 
 // Aktueller Zaehlerstand eines TG-Geraets — Spiegelbild von
@@ -3286,8 +3292,8 @@ function _sdHandleScanPayload(payload){
   var dTyp = _sdDefaultZaehlerTyp(dev);
   _sdApplyZaehlerTyp(dTyp);
   // Aktuellen Zaehlerstand des Geraets vorbefuellen — Monteur prueft &
-  // bestaetigt vor Ort (oder korrigiert).
-  if(dTyp !== 'kein'){
+  // bestaetigt vor Ort (oder korrigiert). 'kein'/'laufzeit' haben keinen.
+  if(dTyp !== 'kein' && dTyp !== 'laufzeit'){
     document.getElementById('devStart').value = _sdGetAktuellerStand(dev) || 0;
   }
   // Picker-Karte visuell highlighten
@@ -3411,7 +3417,7 @@ function _sdMarkTgDeviceInUse(tgId, schaden, raum, zaehlerStart){
 // Umgekehrt: Geraet wieder freigeben (Status verfuegbar), Einsatz-
 // Historie ergaenzen. Wird beim sdDelDev aufgerufen, wenn ein
 // verknuepftes TG-Geraet entfernt wird.
-function _sdReleaseTgDevice(tgId, geraet){
+function _sdReleaseTgDevice(tgId, geraet, tr){
   var all = _sdTgReadAll();
   var idx = all.findIndex(function(d){ return d.id === tgId; });
   if(idx<0) return;
@@ -3422,10 +3428,20 @@ function _sdReleaseTgDevice(tgId, geraet){
     hist.zurueckAm = sdToday();
     hist.zaehlerEnde = (geraet && geraet.zaehlerEnde) || hist.zaehlerStart || 0;
     // zaehlerTyp aus TG-Geraet uebernehmen — Default 'stunden' (Backwards-Compat).
+    // Wurde das Geraet im Bericht ueber die LAUFZEIT erfasst (Geraet ohne
+    // Zaehler, aber mit kW), gewinnt diese Erfassung: Stunden + kWh aus dem
+    // Bericht wandern in die Geraete-Historie statt null.
     var hZTyp = d.zaehlerTyp || (geraet && geraet.zaehlerTyp) || 'stunden';
+    if(geraet && geraet.zaehlerTyp === 'laufzeit') hZTyp = 'laufzeit';
     hist.zaehlerTyp = hZTyp;
     var diff = (hist.zaehlerEnde||0) - (hist.zaehlerStart||0); if(diff<0) diff=0;
-    if(hZTyp === 'kwh'){
+    if(hZTyp === 'laufzeit'){
+      var lzH = null, lzK = null;
+      try{ lzH = sdComputeHours(geraet, tr); lzK = sdComputeKwh(geraet, tr); }catch(e){}
+      hist.zaehlerEnde = null;
+      hist.betriebsstunden = lzH != null ? Math.round(lzH*100)/100 : null;
+      hist.kwhTotal = lzK != null ? Math.round(lzK*100)/100 : null;
+    } else if(hZTyp === 'kwh'){
       hist.kwhTotal = Math.round(diff*100)/100;
       hist.betriebsstunden = null; // kein Stunden-Wert bei direktem kWh-Zaehler
     } else if(hZTyp === 'kein'){
@@ -3501,9 +3517,10 @@ function sdDelDev(id, idx) {
     if(!ok) return;
     var s = sdGetById(id); if (!s || !s.trocknung) return;
     var g = s.trocknung.geraete[idx];
-    // Wenn Geraet aus Verwaltung kam → dort wieder freigeben
+    // Wenn Geraet aus Verwaltung kam → dort wieder freigeben (tr-Kontext
+    // fuer die Laufzeit-Berechnung: Tage × h/Tag brauchen die Phase)
     if(g && g.tgDeviceId){
-      try { _sdReleaseTgDevice(g.tgDeviceId, g); } catch(e){ console.warn('[sd] release', e); }
+      try { _sdReleaseTgDevice(g.tgDeviceId, g, s.trocknung); } catch(e){ console.warn('[sd] release', e); }
     }
     s.trocknung.geraete.splice(idx, 1);
     sdSave();

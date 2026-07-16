@@ -567,7 +567,7 @@ tr.tg-row-sel{background:var(--plan-bg2,#ede9fe)}
         </div>
         <div class="fg">
           <label>Gerätetyp <span class="req">*</span></label>
-          <select id="f_typ" onchange="if(typeof _tgClearFieldErrors==='function')_tgClearFieldErrors();_tgUpdateKwVisibility();">
+          <select id="f_typ" onchange="if(typeof _tgClearFieldErrors==='function')_tgClearFieldErrors();_tgUpdateKwVisibility();_tgPrefillFromTyp();">
             <option value="">— Typ wählen —</option>
             <option value="bautrockner">🌡️ Bautrockner</option>
             <option value="adsorption">🌫️ Adsorptionsentfeuchter</option>
@@ -577,6 +577,7 @@ tr.tg-row-sel{background:var(--plan-bg2,#ede9fe)}
             <option value="infrarot">☀️ Infrarotheizung</option>
             <option value="messgeraet">📊 Messgerät</option>
           </select>
+          <div class="fg-hint" id="f_typ_prefill_hint" style="display:none;font-size:11px;color:#1d4ed8;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:6px 10px;margin-top:6px;font-weight:600"></div>
         </div>
         <div class="fg">
           <label>Bezeichnung <span class="req">*</span></label>
@@ -691,7 +692,7 @@ tr.tg-row-sel{background:var(--plan-bg2,#ede9fe)}
       </div>
       <div class="fg-row">
         <div class="fg" id="e_zaehlerStart_wrap">
-          <label>Zählerstand Start (h)</label>
+          <label id="e_zaehlerStart_label">Zählerstand Start (h)</label>
           <input type="text" inputmode="decimal" id="e_zaehlerStart" placeholder="0" onblur="fixLeadingZero(this)">
         </div>
         <div class="fg">
@@ -723,7 +724,7 @@ tr.tg-row-sel{background:var(--plan-bg2,#ede9fe)}
     <div class="modal-body">
       <div id="return_info"></div>
       <div class="fg" id="r_zaehlerEnde_wrap">
-        <label>Zählerstand Ende (h) <span class="req">*</span></label>
+        <label><span id="r_zaehlerEnde_label">Zählerstand Ende (h)</span> <span class="req">*</span></label>
         <input type="text" inputmode="decimal" id="r_zaehlerEnde" placeholder="0" onblur="fixLeadingZero(this);calcKwh()">
       </div>
       <div class="fg">
@@ -1602,6 +1603,7 @@ function renderCards(list) {
         html += '<button class="tc-act accent" onclick="openReturn(\'' + d.id + '\')">✅ Zurücknehmen</button>';
       }
       html += '<button class="tc-act" onclick="openEdit(\'' + d.id + '\')">✏️</button>';
+      html += '<button class="tc-act" onclick="openDuplicate(\'' + d.id + '\')" title="Gerät duplizieren — Werte kopieren, Kennung/Serien-Nr./Zählerstand neu">📋</button>';
       html += '<button class="tc-act danger" onclick="deleteDevice(\'' + d.id + '\')">🗑️</button>';
     }
     html += '</div></div></div>';
@@ -1648,6 +1650,7 @@ function renderTable(list) {
       if (d.status === 'verfuegbar') html += '<button class="tc-act accent" onclick="openEinsatz(\'' + d.id + '\')">🚀</button> ';
       if (d.status === 'im_einsatz') html += '<button class="tc-act accent" onclick="openReturn(\'' + d.id + '\')">✅</button> ';
       html += '<button class="tc-act" onclick="openEdit(\'' + d.id + '\')">✏️</button> ';
+      html += '<button class="tc-act" onclick="openDuplicate(\'' + d.id + '\')" title="Gerät duplizieren">📋</button> ';
       html += '<button class="tc-act danger" onclick="deleteDevice(\'' + d.id + '\')">🗑️</button>';
     }
     html += '</td></tr>';
@@ -1716,8 +1719,47 @@ window.openEdit = function(id) {
   document.getElementById('f_lastService').value = d.lastService || '';
   updateServiceToggle();
   _tgUpdateKwVisibility();
+  _tgHidePrefillHint();
   document.getElementById('addModal').classList.remove('hidden');
   lockScroll();
+};
+
+// Bestehendes Geraet duplizieren: oeffnet die Erfassung als NEUES Geraet
+// mit allen kopierbaren Werten (Typ, Bezeichnung, Marke, Modell, kW,
+// Zaehler-Typ, Notizen, Service-Einstellungen). Eindeutige Felder —
+// interne Kennung, Serien-Nr., Zaehlerstand — bleiben bewusst leer.
+window.openDuplicate = function(id){
+  if(!_tgCanEdit()) return;
+  var src = devices.find(function(x){ return x.id === id; });
+  if(!src) return;
+  editId = null;
+  document.getElementById('mhd_title').textContent = 'Gerät duplizieren';
+  clearForm();
+  document.getElementById('f_typ').value = src.typ || '';
+  document.getElementById('f_name').value = src.name || '';
+  document.getElementById('f_marke').value = src.marke || '';
+  document.getElementById('f_modell').value = src.modell || '';
+  document.getElementById('f_kw').value = src.kw || '';
+  document.getElementById('f_notes').value = src.notes || '';
+  document.getElementById('f_hasService').checked = !!src.hasService;
+  document.getElementById('f_serviceInterval').value = src.serviceInterval || '';
+  document.getElementById('f_lastService').value = src.lastService || '';
+  updateServiceToggle();
+  _tgUpdateKwVisibility();
+  var zSel = document.getElementById('f_zaehlerTyp');
+  if(zSel && !zSel.disabled) zSel.value = src.zaehlerTyp || _tgDefaultZaehlerTyp(src.typ);
+  _tgUpdateZaehlerstandLabel();
+  var hint = document.getElementById('f_typ_prefill_hint');
+  if(hint){
+    hint.textContent = '📋 Kopie von «' + (src.name || '—') + '» — interne Kennung, Serien-Nr. und Zählerstand fürs neue Gerät ergänzen.';
+    hint.style.display = '';
+  }
+  document.getElementById('addModal').classList.remove('hidden');
+  lockScroll();
+  setTimeout(function(){
+    var f = document.getElementById('f_intern');
+    if(f){ try{ f.focus(); }catch(e){} }
+  }, 120);
 };
 
 // Default-Zaehler-Typ pro Geraetetyp: Messgeraete haben i.d.R. keinen
@@ -1791,6 +1833,54 @@ function _tgUpdateKwVisibility(){
   // Label fuer 'Aktueller Zaehlerstand' synchronisieren
   _tgUpdateZaehlerstandLabel();
 }
+// KRITISCH — Cross-Block-Scope-Regel: Der Modul-Code lebt in einer IIFE,
+// Inline-onchange-Attribute im HTML erreichen NUR window-exponierte Namen.
+// Ohne diese Exporte war der Zaehler-Typ-Wechsel im Formular tot (Feld
+// «Aktueller Zaehlerstand» blieb bei 'kein' sichtbar, Label wechselte nie).
+window._tgUpdateKwVisibility = _tgUpdateKwVisibility;
+window._tgUpdateZaehlerstandLabel = _tgUpdateZaehlerstandLabel;
+
+function _tgHidePrefillHint(){
+  var h = document.getElementById('f_typ_prefill_hint');
+  if(h) h.style.display = 'none';
+}
+
+// Typ gewaehlt → Werte vom zuletzt erfassten Geraet desselben Typs
+// uebernehmen (nur bei Neuerfassung). Bereits ausgefuellte Text-Felder
+// werden NIE ueberschrieben; die Einstellungen (Zaehler-Typ, Service)
+// wandern als Vorbelegung mit — alles bleibt im Formular anpassbar.
+function _tgPrefillFromTyp(){
+  _tgHidePrefillHint();
+  if(editId) return;
+  var typ = document.getElementById('f_typ').value;
+  if(!typ) return;
+  var same = devices.filter(function(x){ return x && x.typ === typ; });
+  if(!same.length) return;
+  same.sort(function(a, b){ return String(b.erstelltAm || '').localeCompare(String(a.erstelltAm || '')); });
+  var t = same[0];
+  var fillIfEmpty = function(id, val){
+    var el = document.getElementById(id);
+    if(el && !(el.value || '').trim() && (val || val === 0)) el.value = val;
+  };
+  fillIfEmpty('f_marke', t.marke);
+  fillIfEmpty('f_modell', t.modell);
+  if(t.kw) fillIfEmpty('f_kw', t.kw);
+  var zSel = document.getElementById('f_zaehlerTyp');
+  if(zSel && !zSel.disabled) zSel.value = t.zaehlerTyp || _tgDefaultZaehlerTyp(typ);
+  var hs = document.getElementById('f_hasService');
+  if(hs && !hs.checked && t.hasService){
+    hs.checked = true;
+    fillIfEmpty('f_serviceInterval', t.serviceInterval || '');
+    updateServiceToggle();
+  }
+  _tgUpdateZaehlerstandLabel();
+  var hint = document.getElementById('f_typ_prefill_hint');
+  if(hint){
+    hint.textContent = '⤵ Werte von «' + (t.name || 'bestehendem Gerät') + '» übernommen — bei Bedarf anpassen.';
+    hint.style.display = '';
+  }
+}
+window._tgPrefillFromTyp = _tgPrefillFromTyp;
 
 function clearForm() {
   ['f_typ','f_name','f_intern','f_marke','f_modell','f_serial','f_kw','f_zaehlerTyp','f_aktuellerStand','f_notes','f_serviceInterval','f_lastService'].forEach(function(id) {
@@ -1799,6 +1889,7 @@ function clearForm() {
   });
   document.getElementById('f_hasService').checked = false;
   updateServiceToggle();
+  _tgHidePrefillHint();
 }
 
 window.closeAdd = function() {
@@ -1830,6 +1921,7 @@ function _tgClearFieldErrors(){
   var existing=document.getElementById('tgFormError');
   if(existing) existing.remove();
 }
+window._tgClearFieldErrors = _tgClearFieldErrors;
 function _tgFieldError(id, msg){
   var el=document.getElementById(id);
   if(el){
@@ -2144,10 +2236,15 @@ window.openEinsatz = function(id) {
   var defStand = _tgGetAktuellerStand(d);
   document.getElementById('e_zaehlerStart').value = defStand || '';
   document.getElementById('e_datum').value = today();
-  // Zaehlerstand-Feld ausblenden bei Messgeraeten (kein kWh-Tracking)
+  // Zaehlerstand-Feld folgt dem Zaehler-Typ des GERAETS: 'kein' hat
+  // keinen Zaehlerstand (Feld weg), 'kwh' zaehlt kWh statt Stunden.
   var einDef = GERAETE_TYPEN[d.typ] || {};
+  var eTyp = d.zaehlerTyp || _tgDefaultZaehlerTyp(d.typ);
   var zsWrap = document.getElementById('e_zaehlerStart_wrap');
-  if(zsWrap) zsWrap.style.display = einDef.noKw ? 'none' : '';
+  if(zsWrap) zsWrap.style.display = (einDef.noKw || eTyp === 'kein') ? 'none' : '';
+  var zsLbl = document.getElementById('e_zaehlerStart_label');
+  if(zsLbl) zsLbl.textContent = eTyp === 'kwh' ? 'Zählerstand Start (kWh)' : 'Zählerstand Start (h)';
+  if(eTyp === 'kein') document.getElementById('e_zaehlerStart').value = '';
   document.getElementById('einsatzModal').classList.remove('hidden');
   lockScroll();
 };
@@ -2201,10 +2298,22 @@ window.openReturn = function(id) {
   var days = daysBetween(d.einsatz.eingesetztAm || today(), today());
   var retDef = GERAETE_TYPEN[d.typ] || {};
   var noKw = !!retDef.noKw;
-  var energyLine = noKw
-    ? ''
-    : ('⚡ Zählerstand Start: <strong>' + (d.einsatz.zaehlerStart || 0) + ' h</strong><br>' +
-       '💡 Leistung: <strong>' + (d.kw || 0) + ' kW</strong>');
+  // Einheit + Sichtbarkeit folgen dem Zaehler-Typ des Geraets: 'kwh'
+  // zaehlt kWh direkt (keine Leistungs-Multiplikation), 'kein' hat gar
+  // keinen Zaehlerstand — der Verbrauch wird im Schadensbericht ueber
+  // die Laufzeit (h × kW) erfasst.
+  var rTyp = d.zaehlerTyp || _tgDefaultZaehlerTyp(d.typ);
+  var noZaehler = noKw || rTyp === 'kein';
+  var rUnit = rTyp === 'kwh' ? 'kWh' : 'h';
+  var energyLine = '';
+  if(noKw){
+    energyLine = '';
+  } else if(rTyp === 'kein'){
+    energyLine = '🔌 Kein Zähler — der Stromverbrauch wird im Schadensbericht über die Laufzeit (h × kW) erfasst.';
+  } else {
+    energyLine = '⚡ Zählerstand Start: <strong>' + (d.einsatz.zaehlerStart || 0) + ' ' + rUnit + '</strong>' +
+      (rTyp === 'kwh' ? '' : '<br>💡 Leistung: <strong>' + (d.kw || 0) + ' kW</strong>');
+  }
   document.getElementById('return_info').innerHTML =
     '<div style="background:var(--bg2);border:1px solid var(--brd);border-radius:10px;padding:12px 14px;margin-bottom:8px">' +
     '<div style="font-size:12px;font-weight:800;color:var(--txt);margin-bottom:6px">Einsatz-Info</div>' +
@@ -2217,9 +2326,11 @@ window.openReturn = function(id) {
   document.getElementById('r_zaehlerEnde').value = '';
   document.getElementById('r_datum').value = today();
   document.getElementById('kwh_card').style.display = 'none';
-  // Zaehlerstand-Feld ausblenden bei Messgeraeten — Rueckgabe ohne kWh
+  // Zaehlerstand-Feld ausblenden ohne Zaehler (Messgeraet ODER Zaehler-Typ 'kein')
   var rWrap = document.getElementById('r_zaehlerEnde_wrap');
-  if(rWrap) rWrap.style.display = noKw ? 'none' : '';
+  if(rWrap) rWrap.style.display = noZaehler ? 'none' : '';
+  var rLbl = document.getElementById('r_zaehlerEnde_label');
+  if(rLbl) rLbl.textContent = rTyp === 'kwh' ? 'Zählerstand Ende (kWh)' : 'Zählerstand Ende (h)';
   document.getElementById('returnModal').classList.remove('hidden');
   lockScroll();
 };
@@ -2369,6 +2480,11 @@ window.openDetail = function(id) {
   html += dmField('Modell', d.modell || '—');
   html += dmField('Serien-Nr.', d.serienNr || '—');
   html += dmField('Leistung', d.kw ? d.kw + ' kW' : '—');
+  var dZTyp = d.zaehlerTyp || _tgDefaultZaehlerTyp(d.typ);
+  html += dmField('Zähler-Typ', dZTyp === 'kwh' ? '⚡ kWh-Zähler (direkt)' : (dZTyp === 'kein' ? '🔌 Kein Zähler' : '⏱ Stunden-Zähler (h)'));
+  if (dZTyp !== 'kein') {
+    html += dmField('Aktueller Zählerstand', _tgGetAktuellerStand(d) + (dZTyp === 'kwh' ? ' kWh' : ' h'));
+  }
   html += '</div>';
   if (d.notes) {
     html += dmField('Notizen', d.notes);
@@ -2392,7 +2508,9 @@ window.openDetail = function(id) {
     html += dmField('Schadensprojekt', d.einsatz.schadenTitel || '—');
     html += dmField('Raum / Zone', d.einsatz.raum || '—');
     html += dmField('Einsatz seit', fmt(d.einsatz.eingesetztAm) + ' (' + days + ' Tage)');
-    html += dmField('Zählerstand Start', (d.einsatz.zaehlerStart || 0) + ' h');
+    if (dZTyp !== 'kein') {
+      html += dmField('Zählerstand Start', (d.einsatz.zaehlerStart || 0) + (dZTyp === 'kwh' ? ' kWh' : ' h'));
+    }
     html += '</div></div>';
   }
 
@@ -3110,7 +3228,8 @@ window.exportPDF=function(){
         if(e.objektName)   {doc.text('  Objekt: '+e.objektName,M+2,y);y+=4.2;}
         if(e.raum)         {doc.text('  Raum: '+e.raum,M+2,y);y+=4.2;}
         if(e.eingesetztAm) {doc.text('  Eingesetzt: '+new Date(e.eingesetztAm).toLocaleDateString('de-CH'),M+2,y);y+=4.2;}
-        if(e.zaehlerStart!=null) {doc.text('  Zähler-Start: '+e.zaehlerStart+' h',M+2,y);y+=4.2;}
+        var pdfZTyp=d.zaehlerTyp||_tgDefaultZaehlerTyp(d.typ);
+        if(e.zaehlerStart!=null && pdfZTyp!=='kein') {doc.text('  Zähler-Start: '+e.zaehlerStart+(pdfZTyp==='kwh'?' kWh':' h'),M+2,y);y+=4.2;}
       }
 
       // Einsatz-Historie

@@ -116,8 +116,18 @@ input,select,button{font-family:var(--sans)}
 .ts-inp:focus+.ts-label{border-color:var(--blue)}
 .ts-label{font-size:11px;color:var(--mut);font-weight:600;white-space:nowrap}
 .ts-sep{width:1px;height:26px;background:var(--brd);flex-shrink:0}
-.ts-del{width:30px;height:30px;border-radius:7px;border:1.5px solid var(--brd2);background:var(--sur);font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:.15s;color:var(--mut);flex-shrink:0;margin-left:auto}
+.ts-del{width:30px;height:30px;border-radius:7px;border:1.5px solid var(--brd2);background:var(--sur);font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:.15s;color:var(--mut);flex-shrink:0}
 .ts-del:hover{background:var(--red-bg);border-color:var(--red-bd);color:var(--red)}
+/* Wichtige Werte (Q, v, Δp TS) direkt in der Kopfzeile + Auf-/Zuklapp-Knopf */
+.hd-res.hd-first{margin-left:auto}
+.hd-val{height:30px;display:flex;align-items:center;gap:2px;padding:0 9px;border-radius:7px;border:1.5px solid var(--brd);background:var(--bg2);font-size:12.5px;font-weight:800;font-family:var(--mono);color:var(--txt);white-space:nowrap}
+.hd-val small{font-size:9.5px;font-weight:600;color:var(--mut)}
+.hd-val.ok{color:var(--grn)}
+.hd-val.warn{color:var(--amber)}
+.hd-val.err{color:var(--red)}
+.hd-val.blue{color:var(--blue)}
+.ts-toggle{width:30px;height:30px;border-radius:7px;border:1.5px solid var(--brd2);background:var(--sur);font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:.15s;color:var(--mut);flex-shrink:0;margin-left:6px}
+.ts-toggle:hover,.ts-toggle.open{background:var(--blue-bg);border-color:var(--blue-bd);color:var(--blue)}
 
 .ts-results{padding:9px 13px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;border-bottom:1px solid var(--brd);background:rgba(8,145,178,.03)}
 .ts-results .ts-detail{display:none}
@@ -412,6 +422,7 @@ function fixLeadingZero(el){
   <!-- PARAMETER -->
   <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;padding:10px 14px;background:var(--sur);border:1.5px solid var(--brd);border-radius:10px;align-items:center">
     <div style="display:flex;flex-direction:column;gap:2px;flex:2;min-width:160px"><span style="font-size:10px;font-weight:700;color:var(--mut);text-transform:uppercase;letter-spacing:.4px">Apparat / Strang</span><input id="inp_apparat" type="text" placeholder="z.B. Lavabo EG, Strang A" style="padding:7px 10px;border:1.5px solid var(--brd2);border-radius:8px;font-size:13px;width:100%"/></div>
+    <div style="display:flex;flex-direction:column;gap:2px;min-width:110px"><span style="font-size:10px;font-weight:700;color:var(--mut);text-transform:uppercase;letter-spacing:.4px">Medium</span><select id="inp_medium" title="Weitere Medien folgen — Stoffwerte aktuell für Wasser" style="padding:7px 10px;border:1.5px solid var(--brd2);border-radius:8px;font-size:13px"><option value="wasser">Wasser</option><option value="" disabled>weitere folgen …</option></select></div>
     <div style="display:flex;flex-direction:column;gap:2px"><span style="font-size:10px;font-weight:700;color:var(--mut);text-transform:uppercase;letter-spacing:.4px">Temperatur</span><div class="g-inp-group"><input id="inp_temp" class="g-inp" type="text" inputmode="decimal" value="10" onblur="fixLeadingZero(this)" style="padding:7px 10px;border:1.5px solid var(--brd2);border-radius:8px 0 0 8px;border-right:0;width:55px;font-size:13px"/><span class="g-inp-unit" style="padding:7px 8px">°C</span></div></div>
     <div style="display:flex;flex-direction:column;gap:2px;min-width:120px"><span style="font-size:10px;font-weight:700;color:var(--mut);text-transform:uppercase;letter-spacing:.4px">Durchfluss</span><select id="inp_flowmode" style="padding:7px 10px;border:1.5px solid var(--brd2);border-radius:8px;font-size:13px"><option value="lu">LU (nach W3)</option><option value="direct">Q direkt [l/s]</option></select></div>
     <div style="height:1px;width:1px"></div>
@@ -763,7 +774,7 @@ function newRow(label){
   return{
     id:uid(), label:label||String(rowCnt),
     sysId:'optipress', dimDn:'22x1.2',
-    flowMode:'lu', lu:10, grLU:5, q_direct:0.1, qZusatz:0,
+    flowMode:'lu', lu:10, grLU:3, q_direct:0.1, qZusatz:0,
     leitungstyp:'verteil', // 'verteil'|'stockwerk'|'ausstoss'
     length_m:5, zeta_sum:0, eq_rl:0,
     fittings:{}, // {fittingName: count}
@@ -884,6 +895,9 @@ let state={
 };
 // Aufgeklappt-Zustand der Formstück-Auswahl pro Teilstrecke (nur UI, nicht persistiert)
 var _fitOpenMap={};
+// Aufgeklappt-Zustand der Teilstrecken-Details (Excel-Listen-Ansicht: Zeilen
+// starten kompakt, ▸ klappt Formstücke + volle Ergebnis-Zeile auf; nur UI)
+var _tsOpenMap={};
 
 function getWP(){return waterProps(state.tempC);}
 
@@ -901,6 +915,7 @@ function render(){
   if($('out_nu_display'))$('out_nu_display').textContent=(nu).toExponential(2)+' m²/s';
   $('s_temp').textContent=state.tempC+'°C';
   if($('inp_apparat'))$('inp_apparat').value=state.apparat||'';
+  if($('inp_medium'))$('inp_medium').value=state.medium||'wasser';
   if($('inp_temp'))$('inp_temp').value=state.tempC;
 
   let cum=0, checks=[];
@@ -912,7 +927,8 @@ function render(){
     if(calc) cum+=calc.dp_ts;
 
     const div=document.createElement('div');
-    div.className='ts-card'+(calc&&calc.v>2?' has-error':'');
+    const vLimCard={verteil:2.0,stockwerk:3.0,ausstoss:4.0}[row.leitungstyp||'verteil']||2.0;
+    div.className='ts-card'+(calc&&calc.v>vLimCard?' has-error':'');
 
     const sys=SYSTEMS.find(s=>s.id===row.sysId);
     const dim=sys?.dims.find(d=>d.dn===row.dimDn);
@@ -928,15 +944,22 @@ function render(){
       ? Object.entries(row.armaturen||{}).filter(([k,v])=>v>0).map(([k,v])=>{const a=typeof GemaArmaturen!=='undefined'?GemaArmaturen.getById(k):null;return `<span class="fit-chip">${v}× ${a?a.name:k}</span>`;}).join('')
       : '';
 
+    // v-Ampel (Feedback 07/2026): über dem Grenzwert rot, ab 90 % des
+    // Grenzwerts orange, darunter grün — z.B. Ausstoss (4.0 m/s):
+    // ≥ 4.01 rot · 3.60–4.00 orange · < 3.60 grün
     const vLim={verteil:2.0,stockwerk:3.0,ausstoss:4.0}[row.leitungstyp||'verteil']||2.0;
-    const vClass=calc2.v>vLim?'err':calc2.v>vLim*0.75?'warn':'ok';
+    const vClass=calc2.v>vLim?'err':calc2.v>=vLim*0.9?'warn':'ok';
     const reText=calc2.Re>0?fmt(calc2.Re,0):'—';
     const regClass=calc2.regime==='turbulent'?'ok':calc2.regime==='Übergang'?'warn':'';
 
+    // gr. LU: nach W3 nur 3 oder 5 wählbar (Default 3); Altwerte bleiben als Option
+    const grVal=parseFloat(row.grLU)||3;
+    const grOpts=(grVal===3||grVal===5)?[3,5]:[3,5,grVal];
+    const grSelect=`<select class="ts-select" data-k="grLU" style="width:60px">${grOpts.map(v=>`<option value="${v}"${v===grVal?' selected':''}>${v}</option>`).join('')}</select>`;
     const flowCell=row.flowMode==='direct'
       ? `<div class="ts-fg"><label>Q direkt</label><div class="g-inp-group"><input class="ts-inp g-inp" style="width:80px" type="text" inputmode="decimal" value="${row.q_direct}" data-k="q_direct" onblur="fixLeadingZero(this)"/><span class="g-inp-unit">l/s</span></div></div>`
       : `<div class="ts-fg"><label>Anzahl LU</label><div class="g-inp-group"><input class="ts-inp g-inp" style="width:70px" type="text" inputmode="decimal" value="${row.lu}" data-k="lu" onblur="fixLeadingZero(this)"/><span class="g-inp-unit">LU</span></div></div>
-         <div class="ts-fg"><label>gr. LU</label><div class="g-inp-group"><input class="ts-inp g-inp" style="width:55px" type="text" inputmode="decimal" value="${row.grLU}" data-k="grLU" onblur="fixLeadingZero(this)"/><span class="g-inp-unit">LU</span></div></div>
+         <div class="ts-fg"><label title="Grösster Einzel-Belastungswert nach W3 — 3 oder 5 LU">gr. LU</label>${grSelect}</div>
          <div class="ts-fg"><label title="Zusätzliche l/s (100%, ohne W3-Reduktion)">+ Q</label><div class="g-inp-group"><input class="ts-inp g-inp" style="width:60px" type="text" inputmode="decimal" value="${row.qZusatz||0}" data-k="qZusatz" onblur="fixLeadingZero(this)" title="Zusätzliche l/s (100%, ohne W3-Reduktion)"/><span class="g-inp-unit">l/s</span></div></div>`;
     const ltColors={verteil:{bg:'#16a34a',brd:'#16a34a'},stockwerk:{bg:'#d97706',brd:'#d97706'},ausstoss:{bg:'#dc2626',brd:'#dc2626'}};
     const ltBtns=`<div class="lt-group" style="display:inline-flex;border:1.5px solid #c8cfdf;border-radius:7px;overflow:hidden">`
@@ -978,6 +1001,14 @@ function render(){
       </div>`;
     }
 
+    // Ausklappbar (Feedback 07/2026 — kompakte Excel-Liste): Kopfzeile trägt
+    // die wichtigen Werte (Q, v, Δp TS) als Chips; Formstücke + volle
+    // Ergebnis-Zeile erscheinen erst beim Aufklappen (▸).
+    const isTsOpen=!!_tsOpenMap[row.id];
+    const hdChips=`
+        <div class="ts-fg hd-res hd-first"><label>Q</label><div class="hd-val">${fmt(calc2.Q,3)}<small> l/s</small></div></div>
+        <div class="ts-fg hd-res"><label>v</label><div class="hd-val ${vClass}">${fmt(calc2.v,2)}<small> m/s</small></div></div>
+        <div class="ts-fg hd-res"><label>Δp TS</label><div class="hd-val blue">${fmt(calc2.dp_ts,2)}<small> kPa</small></div></div>`;
     div.innerHTML=`
       <div class="ts-head">
         <div class="ts-fg"><label>TS-Nr.</label><input class="ts-num" type="text" value="${row.label}" data-k="label" title="Nummer z.B. 1, 1.1, 2a"/></div>
@@ -987,13 +1018,15 @@ function render(){
           </select>
         </div>
         <div class="ts-fg" style="flex:1.3 1 130px"><label>Dimension</label><select class="ts-select" data-k="dimDn" style="width:100%">${dimOpts}</select></div>
+        <div class="ts-fg"><label>Leitungstyp</label>${ltBtns}</div>
         <div class="ts-fg"><label>Länge</label><div class="g-inp-group"><input class="ts-inp g-inp" style="width:70px" type="text" inputmode="decimal" value="${row.length_m}" data-k="length_m" onblur="fixLeadingZero(this)"/><span class="g-inp-unit">m</span></div></div>
         ${flowCell}
-        <div class="ts-fg"><label>Leitungstyp</label>${ltBtns}</div>
+        ${hdChips}
+        <button class="ts-toggle${isTsOpen?' open':''}" data-tstoggle="${row.id}" title="${isTsOpen?'Details einklappen':'Formstücke & Details aufklappen'}">${isTsOpen?'▾':'▸'}</button>
         <button class="ts-del" data-del="${row.id}" title="Teilstrecke löschen">✕</button>
       </div>
-      ${fitSection}
-      <div class="ts-results">
+      ${isTsOpen?fitSection:''}
+      <div class="ts-results"${isTsOpen?'':' style="display:none"'}>
         <div class="res-item"><div class="res-lbl">Q</div><div class="res-val">${fmt(calc2.Q,3)}<small style="font-size:10px;color:var(--mut)"> l/s</small></div></div>
         <div class="res-div"></div>
         <div class="res-item"><div class="res-lbl">v</div><div class="res-val ${vClass}">${fmt(calc2.v,2)}<small style="font-size:10px;color:var(--mut)"> m/s</small></div></div>
@@ -1069,6 +1102,14 @@ function render(){
     div.querySelectorAll('[data-fittoggle]').forEach(btn=>{
       btn.addEventListener('click',()=>{
         _fitOpenMap[row.id]=!_fitOpenMap[row.id];
+        render();
+      });
+    });
+
+    // Teilstrecken-Details auf-/zuklappen (kompakte Excel-Liste)
+    div.querySelectorAll('[data-tstoggle]').forEach(btn=>{
+      btn.addEventListener('click',()=>{
+        _tsOpenMap[row.id]=!_tsOpenMap[row.id];
         render();
       });
     });
@@ -1198,7 +1239,17 @@ function openFitModal(rowId){
 // ═══════════════════════════════════════════════════════════
 function addRow(){
   rowCnt++;
-  state.rows.push(newRow(String(rowCnt)));
+  const row=newRow(String(rowCnt));
+  // Neue Teilstrecke übernimmt als Vorschlag die letzte Wahl (Feedback 07/2026)
+  const last=state.rows[state.rows.length-1];
+  if(last){
+    row.sysId=last.sysId;
+    row.dimDn=last.dimDn;
+    row.flowMode=last.flowMode;
+    row.leitungstyp=last.leitungstyp;
+    row.grLU=last.grLU;
+  }
+  state.rows.push(row);
   render();
 }
 function addSubRow(){
@@ -1221,6 +1272,8 @@ $('btnAddRow2sub').addEventListener('click',addSubRow);
 // (Frühere Handler auf inp_project/inp_owner/btnPdf/btnExpJson warfen einen TypeError
 //  und brachen das Script ab → Temperatur/Durchfluss-Modus reagierten nicht mehr.)
 $('inp_apparat').addEventListener('input',e=>{state.apparat=e.target.value;saveActiveCalc();});
+// Medium (Vorbereitung für später — aktuell nur Wasser, Stoffwerte via waterProps)
+$('inp_medium')?.addEventListener('change',e=>{state.medium=e.target.value||'wasser';saveActiveCalc();});
 $('inp_temp').addEventListener('input',e=>{state.tempC=parseFloat(e.target.value)||10;render();});
 $('inp_flowmode').addEventListener('change',e=>{
   state.rows.forEach(r=>r.flowMode=e.target.value);
