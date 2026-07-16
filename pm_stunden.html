@@ -156,6 +156,9 @@ table.t{border-collapse:collapse;width:100%;font-size:12.5px}
 @media(max-width:520px){.fld-row{grid-template-columns:1fr}.fld-row3{grid-template-columns:1fr 1fr}}
 .sumline{display:flex;justify-content:space-between;gap:10px;font-size:12.5px;color:var(--mut);padding:3px 0}
 .sumline b{color:var(--txt);font-variant-numeric:tabular-nums}
+.chkline{display:flex;align-items:flex-start;gap:8px;font-size:12.5px;font-weight:700;color:var(--txt2);margin:8px 0;cursor:pointer}
+.chkline input[type=checkbox]{width:18px;height:18px;accent-color:var(--acc);flex-shrink:0;margin-top:1px}
+.chkline small{display:block;font-weight:600;color:var(--mut);font-size:10.5px;margin-top:1px}
 .gavnote{font-size:11px;color:var(--mut);background:var(--amber-bg);border:1px solid var(--amber-bd);border-radius:10px;padding:9px 11px;line-height:1.55}
 #toast{position:fixed;left:50%;bottom:calc(70px + env(safe-area-inset-bottom));transform:translateX(-50%);background:var(--txt);color:#fff;padding:10px 18px;border-radius:12px;font-size:13.5px;font-weight:700;z-index:1400;box-shadow:0 8px 28px rgba(0,0,0,.3);opacity:0;transition:opacity .3s;pointer-events:none;max-width:90vw;text-align:center}
 #toast.show{opacity:1}
@@ -271,17 +274,18 @@ table.t{border-collapse:collapse;width:100%;font-size:12.5px}
   </div>
 </div></div>
 
-<!-- ═══ FERIENANTRAG ═══ -->
+<!-- ═══ FERIEN-/ABSENZ-ANTRAG ═══ -->
 <div class="modal-bg" id="ferienModal"><div class="modal">
-  <div class="modal-hd"><h3>🌴 Ferien beantragen</h3><button class="modal-x" onclick="stClose('ferienModal')">✕</button></div>
+  <div class="modal-hd"><h3>🌴 Ferien / Absenz beantragen</h3><button class="modal-x" onclick="stClose('ferienModal')">✕</button></div>
   <div class="modal-bd">
+    <div class="fld"><label>Absenz-Typ</label><select id="fa_typ" onchange="stFerienCalc()"></select></div>
     <div class="fld-row">
       <div class="fld"><label>Von *</label><input id="fa_von" type="date" onchange="stFerienCalc()"/></div>
       <div class="fld"><label>Bis *</label><input id="fa_bis" type="date" onchange="stFerienCalc()"/></div>
     </div>
     <div class="fld"><label>Bemerkung</label><input id="fa_bem" type="text" placeholder="z.B. Familienferien"/></div>
     <div class="card" style="margin:0 0 10px"><div class="card-bd" id="fa_calc" style="padding:10px 13px"></div></div>
-    <div class="gavnote">Der Antrag geht zur Freigabe an die Projektleitung. Nach der Genehmigung werden die Ferientage automatisch in deiner Stundenerfassung und im Einsatzplan-Kalender eingetragen.</div>
+    <div class="gavnote">Der Antrag geht zur Freigabe an die Projektleitung. Nach der Genehmigung werden die Tage automatisch in deiner Stundenerfassung und im Einsatzplan-Kalender eingetragen — du musst nichts mehr nachtragen.</div>
   </div>
   <div class="modal-ft"><button class="btn pri" onclick="stFerienSubmit()">📤 Antrag einreichen</button></div>
 </div></div>
@@ -310,11 +314,21 @@ table.t{border-collapse:collapse;width:100%;font-size:12.5px}
       <div class="fld"><label>Mittagsentschädigung CHF/Tag</label><input id="s_mittag" type="text" inputmode="decimal" onblur="fixLeadingZero(this)"/></div>
       <div class="fld"><label>Kilometerentschädigung CHF/km</label><input id="s_km" type="text" inputmode="decimal" onblur="fixLeadingZero(this)"/></div>
     </div>
+    <label class="chkline"><input type="checkbox" id="s_kmAktiv"/><span>km-Entschädigung erfassen<small>Aus = das km-Feld verschwindet aus der Tageserfassung und die km-Spalte aus der Auswertung. Bereits erfasste km bleiben sichtbar und zählen weiter.</small></span></label>
     <div class="fld-row">
       <div class="fld"><label>Bezahlte Pause (Min./Tag, Znüni)</label><input id="s_pause" type="text" inputmode="numeric" onblur="fixLeadingZero(this)"/><div class="hint">Gilt als Arbeitszeit — im Eintrag NICHT als Pause abziehen</div></div>
       <div class="fld"><label>Ferienanspruch (Tage/Jahr)</label><input id="s_ferien" type="text" inputmode="numeric" onblur="fixLeadingZero(this)"/><div class="hint">Info-Wert (GAV: mehr ab 50 / Lehrjahre)</div></div>
     </div>
     <div class="fld"><label>Feiertage (ein Datum pro Zeile, JJJJ-MM-TT)</label><textarea id="s_feiertage" rows="4" placeholder="2026-01-01&#10;2026-04-03&#10;2026-08-01"></textarea><div class="hint">Reduzieren das Soll und zählen mit dem Sonntagszuschlag (kantonal verschieden — bitte für BS/BL/AG/SO passend pflegen)</div></div>
+    <div class="fld" style="background:var(--sur2);border:1.5px solid var(--brd);border-radius:12px;padding:10px 12px">
+      <label>Feiertage automatisch einfügen</label>
+      <div id="s_ftDefs" style="display:grid;grid-template-columns:1fr 1fr;gap:0 10px;margin:4px 0 6px"></div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <input id="s_ftJahr" type="text" inputmode="numeric" onblur="fixLeadingZero(this)" style="width:90px;min-height:38px" placeholder="Jahr"/>
+        <button class="btn sm" type="button" style="width:auto" onclick="stFeiertageEinfuegen()">＋ Feiertage einfügen</button>
+      </div>
+      <div class="hint">Bewegliche Feiertage (Karfreitag, Auffahrt, Pfingstmontag …) werden über das Osterdatum berechnet. Auswahl kantonal anpassen — eingefügt wird oben in die Liste (ohne Duplikate), die Auswahl wird gespeichert.</div>
+    </div>
     <div style="font-size:11px;font-weight:800;text-transform:uppercase;color:var(--mut);margin:14px 0 6px">Überstunden-Töpfe &amp; Vorholzeit</div>
     <div class="fld-row">
       <div class="fld"><label>Topf-A-Grenze (h/Woche)</label><input id="s_topfGrenze" type="text" inputmode="decimal" onblur="fixLeadingZero(this)"/><div class="hint">Topf A = Stunden über (Soll + Vorholzeit) bis zu dieser Grenze (Kompensation). Darüber = Topf B, auszahlungspflichtig — Vorgesetzte werden sofort benachrichtigt.</div></div>
@@ -322,6 +336,24 @@ table.t{border-collapse:collapse;width:100%;font-size:12.5px}
     </div>
     <div class="fld"><label>Brückentage (ein Datum pro Zeile, JJJJ-MM-TT)</label><textarea id="s_brueckentage" rows="3" placeholder="2026-05-15&#10;2026-12-28"></textarea><div class="hint">Org-weite Brückentage. Der Mitarbeiter erfasst am Tag die Absenz «Brückentag» — Bezug ab Vorhol-Konto.</div></div>
     <div class="fld"><label>Betriebsferien (pro Zeile: von bis Bezeichnung)</label><textarea id="s_betriebsferien" rows="3" placeholder="2026-12-24 2027-01-02 Weihnachten/Neujahr&#10;2026-07-20 2026-07-31 Sommerferien"></textarea><div class="hint">Die Werktage darin werden im Feriensaldo jedes Mitarbeiters als «reserviert» abgezogen und beim Beginn des Zeitraums automatisch als Ferien-Absenz eingetragen (kein Antrag nötig).</div></div>
+    <div style="font-size:11px;font-weight:800;text-transform:uppercase;color:var(--mut);margin:14px 0 6px">Regeln &amp; Automatik</div>
+    <label class="chkline"><input type="checkbox" id="s_maxTagessoll"/><span>Nie mehr als das Tagessoll anrechnen (keine Vorholzeit)<small>An Werktagen zählt höchstens das Tagessoll — darüber erfasste Zeit wird ausgewiesen, aber nicht angerechnet. Deaktiviert die Vorholzeit. Sa/So-Arbeit zählt weiterhin (zuschlagsrelevant).</small></span></label>
+    <label class="chkline"><input type="checkbox" id="s_autoKomp"/><span>Fehlzeit automatisch mit Kompensation auffüllen<small>Macht jemand früher Feierabend, wird der Rest bis zum Tagessoll automatisch als Kompensation (Bezug Topf A) eingetragen — via «🌴 Absenz» änderbar, z.B. auf Ferien. Gilt nur für Werktage mit mindestens einem Zeiteintrag.</small></span></label>
+    <div class="fld" style="background:var(--sur2);border:1.5px solid var(--brd);border-radius:12px;padding:10px 12px">
+      <label>Absenz-Regeln (pro Typ)</label>
+      <div id="s_absenzRegeln" style="margin-top:4px"></div>
+      <div class="hint"><b>füllt bis Tagessoll:</b> Die Absenz-Gutschrift füllt genau die Lücke zwischen Arbeitszeit und Tagessoll (z.B. halbtags krank + gearbeitet = nie mehr als das Tagessoll). <b>keine Vorholzeit:</b> An Tagen mit dieser Absenz zählt höchstens das Tagessoll — so lässt sich z.B. festlegen, ob Lehrlinge an Berufsschul-/ÜK-Tagen Vorholzeit schreiben dürfen (Häkchen weg = erlaubt).</div>
+    </div>
+    <div style="font-size:11px;font-weight:800;text-transform:uppercase;color:var(--mut);margin:14px 0 6px">Kontroll-Indikatoren (Wochenrapport)</div>
+    <div class="fld-row">
+      <div class="fld"><label>Warnung über … Stunden/Woche</label><input id="s_indMaxH" type="text" inputmode="decimal" onblur="fixLeadingZero(this)" placeholder="aus"/></div>
+      <div class="fld"><label>Warnung über … % vom Soll</label><input id="s_indMaxPct" type="text" inputmode="decimal" onblur="fixLeadingZero(this)" placeholder="aus"/></div>
+    </div>
+    <div class="fld-row">
+      <div class="fld"><label>Hinweis unter … Stunden/Woche</label><input id="s_indMinH" type="text" inputmode="decimal" onblur="fixLeadingZero(this)" placeholder="aus"/></div>
+      <div class="fld"><label>Hinweis unter … % vom Soll</label><input id="s_indMinPct" type="text" inputmode="decimal" onblur="fixLeadingZero(this)" placeholder="aus"/></div>
+    </div>
+    <div class="hint" style="margin:-4px 0 8px">Leer/0 = aus. Auffällige Wochen werden in der Freigabe mit einem Badge markiert (über = rot ⚠, unter = amber ▼); Überschreitungen zusätzlich in der «Σ Woche»-Karte des Mitarbeiters.</div>
     <div style="font-size:11px;font-weight:800;text-transform:uppercase;color:var(--mut);margin:14px 0 6px">Mitarbeiter: Ein-/Austritt &amp; Ferienanspruch</div>
     <div class="hint" style="margin-bottom:8px">Für die Pro-rata-Berechnung des Ferienanspruchs bei unterjährigem Ein-/Austritt. Leer = ganzes Jahr angestellt bzw. Standard-Anspruch.</div>
     <div id="s_mitarbeiter"></div>
@@ -363,6 +395,12 @@ var STD_DEFAULTS={
   vorholProWocheH:0,         // Vorholzeit h/Woche: erhöht das Wochensoll, füllt das Vorhol-Konto für Brückentage
   brueckentage:[],           // 'YYYY-MM-DD' — org-weite Brückentage (Bezug ab Vorhol-Konto)
   betriebsferien:[],         // [{von,bis,label}] — org-weite Betriebsferien (Ferien-Reserve + Auto-Eintrag)
+  kmAktiv:true,              // km-Entschädigung erfassen (aus = Feld/Spalten ausgeblendet, Satz bleibt gespeichert)
+  maxTagessoll:false,        // hart: an Werktagen zählt höchstens das Tagessoll (keine Vorholzeit — vorholProWocheH wird 0)
+  autoKompensation:false,    // fehlende Zeit bis zum Tagessoll automatisch als Kompensation (Topf-A-Bezug) ergänzen
+  absenzRegeln:{},           // pro Absenz-Typ: {fuelltAuf:bool, keineVorholzeit:bool} — Overrides über STD_ABSENZ_REGEL_DEFAULTS
+  indikatoren:{maxH:0,maxPct:0,minH:0,minPct:0}, // Kontroll-Indikatoren pro Woche (0/leer = aus)
+  feiertagAutoSel:null,      // Feiertags-Generator: gewählte STD_FEIERTAG_DEFS-ids (null = Default-Auswahl)
   mitarbeiter:{}             // pro User-ID: {eintritt:'YYYY-MM-DD', austritt:'YYYY-MM-DD', ferienTage}
 };
 function stdParams(s){
@@ -377,20 +415,75 @@ function stdParams(s){
   if(!Array.isArray(p.brueckentage))p.brueckentage=String(p.brueckentage||'').split(/[\n,;]+/).map(function(x){return x.trim();}).filter(Boolean);
   if(!Array.isArray(p.betriebsferien))p.betriebsferien=[];
   if(!p.mitarbeiter||typeof p.mitarbeiter!=='object'||Array.isArray(p.mitarbeiter))p.mitarbeiter={};
+  p.kmAktiv=p.kmAktiv!==false&&p.kmAktiv!=='false';
+  p.maxTagessoll=p.maxTagessoll===true||p.maxTagessoll==='true';
+  p.autoKompensation=p.autoKompensation===true||p.autoKompensation==='true';
+  if(p.maxTagessoll)p.vorholProWocheH=0; // «nie über Tagessoll» ⇒ Vorholzeit deaktiviert
+  if(!p.absenzRegeln||typeof p.absenzRegeln!=='object'||Array.isArray(p.absenzRegeln))p.absenzRegeln={};
+  var ind=(p.indikatoren&&typeof p.indikatoren==='object')?p.indikatoren:{};
+  p.indikatoren={};
+  ['maxH','maxPct','minH','minPct'].forEach(function(k){
+    var v=parseFloat(ind[k]);p.indikatoren[k]=(isFinite(v)&&v>0)?v:0;
+  });
+  if(p.feiertagAutoSel!=null&&!Array.isArray(p.feiertagAutoSel))p.feiertagAutoSel=null;
   return p;
 }
-// Absenz-Typen (Tages-Ebene, t.absenz = {typ, anteil:1|0.5})
+// Absenz-Typen (Tages-Ebene, t.absenz = {typ, anteil:1|0.5, stunden?, quelle?})
+// stunden > 0 (Auto-Kompensation) übersteuert den anteil-basierten Zeitwert.
 var STD_ABSENZ={
   ferien:{n:'Ferien',ic:'🌴',cls:'b-grn'},
   krank:{n:'Krank',ic:'🤒',cls:'b-amber'},
   unfall:{n:'Unfall',ic:'🩹',cls:'b-amber'},
   militaer:{n:'Militär / Zivilschutz',ic:'🎖',cls:'b-out'},
+  schule:{n:'Berufsschule (Lehrling)',ic:'🎓',cls:'b-blue'},
+  uek:{n:'ÜK überbetrieblicher Kurs',ic:'🧑‍🏭',cls:'b-blue'},
   kompensation:{n:'Kompensation (Bezug Topf A)',ic:'⏳',cls:'b-blue'},
   brueckentag:{n:'Brückentag (Bezug Vorholzeit)',ic:'🌉',cls:'b-vio'}
 };
+// Regel-Defaults pro Absenz-Typ: fuelltAuf = die Absenz-Gutschrift füllt genau
+// bis zum Tagessoll auf (Gutschrift = Lücke zwischen Arbeitszeit und Tagessoll);
+// keineVorholzeit = an diesem Tag zählt höchstens das Tagessoll (Kappung).
+// Schule/ÜK (Lehrlinge) starten mit beiden Regeln aktiv — ob dort Vorholzeit
+// geschrieben werden darf, ist pro Org in den ⚙️-Regeln umstellbar. Alle
+// übrigen Typen starten OHNE Regeln (bisheriges Verhalten bleibt).
+var STD_ABSENZ_REGEL_DEFAULTS={
+  schule:{fuelltAuf:true,keineVorholzeit:true},
+  uek:{fuelltAuf:true,keineVorholzeit:true}
+};
+function stdAbsenzRegel(p,typ){
+  var d=STD_ABSENZ_REGEL_DEFAULTS[typ]||{};
+  var s=(p&&p.absenzRegeln&&p.absenzRegeln[typ])||{};
+  return {
+    fuelltAuf:s.fuelltAuf!=null?!!s.fuelltAuf:!!d.fuelltAuf,
+    keineVorholzeit:s.keineVorholzeit!=null?!!s.keineVorholzeit:!!d.keineVorholzeit
+  };
+}
 function stdAbsenzAnteil(t){
   if(!t||!t.absenz)return 0;
   return t.absenz.anteil===0.5?0.5:1;
+}
+// Tagessoll in h (inkl. Vorholzeit-Anteil)
+function stdTagSollH(p){return (p.wochenSoll+p.vorholProWocheH)/5;}
+// Soll-Abzug (Absenz-Gutschrift) eines Tages in STUNDEN — regel-aware:
+// stunden-basierte Absenzen (Auto-Kompensation) zählen mit ihrem Stundenwert,
+// «füllt bis Tagessoll auf» kappt die Gutschrift auf die Lücke zum Tagessoll.
+function stdTagAbzugH(t,p){
+  if(!t||!t.absenz)return 0;
+  if(stdTagTyp(t.datum,p.feiertage)!=='werktag')return 0;
+  var T=stdTagSollH(p);
+  var st=parseFloat(t.absenz.stunden);
+  var basis=(isFinite(st)&&st>0)?Math.min(st,T):stdAbsenzAnteil(t)*T;
+  if(stdAbsenzRegel(p,t.absenz.typ).fuelltAuf)basis=Math.min(basis,Math.max(0,T-stdTagStunden(t)));
+  return basis;
+}
+// Max. anrechenbare Arbeitszeit eines Tages (h) — null = keine Kappung.
+// Greift an Werktagen bei org-weitem maxTagessoll ODER Absenz-Regel
+// «keine Vorholzeit» (der Tag zählt höchstens bis zum Tagessoll).
+function stdTagCapH(t,datum,p){
+  if(stdTagTyp(datum,p.feiertage)!=='werktag')return null;
+  var r=(t&&t.absenz)?stdAbsenzRegel(p,t.absenz.typ):null;
+  if(!p.maxTagessoll&&!(r&&r.keineVorholzeit))return null;
+  return Math.max(0,stdTagSollH(p)-stdTagAbzugH(t,p));
 }
 // Reduzierte Pensen (Prozent-Modell): skaliert die Soll-relevanten Parameter
 // auf das Anstellungspensum des Mitarbeiters — Tagessoll = Vollzeit-Tagessoll
@@ -460,15 +553,14 @@ function stdWochenSoll(wochenStart,p){
   for(var i=0;i<5;i++){if(stdTagTyp(stdAddTage(wochenStart,i),p.feiertage)==='feiertag')frei++;}
   return (5-frei)*(p.wochenSoll/5);
 }
-// Aktive Solltage einer Woche (0–5): 5 minus Feiertage Mo–Fr minus Absenz-Anteile an Werktagen
+// Aktive Solltage einer Woche (0–5): 5 minus Feiertage Mo–Fr minus Absenz-
+// Gutschriften an Werktagen (regel-/stunden-aware via stdTagAbzugH)
 function stdWochenAktivTage(tage,wochenStart,p){
   var frei=0;
   for(var i=0;i<5;i++){if(stdTagTyp(stdAddTage(wochenStart,i),p.feiertage)==='feiertag')frei++;}
-  var abs=0;
+  var T=stdTagSollH(p),abs=0;
   (tage||[]).forEach(function(t){
-    if(!t.absenz)return;
-    if(stdTagTyp(t.datum,p.feiertage)!=='werktag')return;
-    abs+=stdAbsenzAnteil(t);
+    if(T>0)abs+=stdTagAbzugH(t,p)/T;
   });
   return Math.max(0,5-frei-abs);
 }
@@ -479,10 +571,16 @@ function stdWochenSollEff(tage,wochenStart,p){
 }
 // Auswertung einer Woche (tage = Tagesrapporte EINES Users dieser Woche).
 // Topf-Regel: Mehrstunden über (Soll+Vorholzeit) → Topf A bis topfGrenzeH, darüber Topf B.
+// ist = ANRECHENBARE Zeit (Tages-Kappung via stdTagCapH); istRoh = erfasste Zeit,
+// gekappt = Differenz («über Tagessoll — nicht angerechnet»). Ohne Regeln/maxTagessoll
+// ist ist === istRoh (bisheriges Verhalten).
 function stdWochenAuswertung(tage,wochenStart,p){
-  var ist=0,sa=0,so=0,nachtMin=0,mittage=0,km=0;
+  var ist=0,istRoh=0,gekappt=0,sa=0,so=0,nachtMin=0,mittage=0,km=0;
   (tage||[]).forEach(function(t){
-    var h=stdTagStunden(t);ist+=h;
+    var h=stdTagStunden(t);istRoh+=h;
+    var cap=stdTagCapH(t,t.datum,p);
+    var hA=(cap!=null&&h>cap)?cap:h;
+    ist+=hA;gekappt+=h-hA;
     var typ=stdTagTyp(t.datum,p.feiertage);
     if(typ==='samstag')sa+=h;
     if(typ==='sonntag'||typ==='feiertag')so+=h;
@@ -498,7 +596,7 @@ function stdWochenAuswertung(tage,wochenStart,p){
   var vorholWoche=aktiv*(p.vorholProWocheH/5);
   var nacht=nachtMin/60;
   var zuschlagZeit=ueber*p.zuschlagUeberstunden/100+sa*p.zuschlagSamstag/100+so*p.zuschlagSonntag/100+nacht*p.zuschlagNacht/100;
-  return {ist:ist,soll:soll,saldo:ist-soll,ueberstunden:ueber,topfA:topfA,topfB:topfB,vorholWoche:vorholWoche,
+  return {ist:ist,istRoh:istRoh,gekappt:gekappt,soll:soll,saldo:ist-soll,ueberstunden:ueber,topfA:topfA,topfB:topfB,vorholWoche:vorholWoche,
     samstag:sa,sonntag:so,nacht:nacht,
     zuschlagZeit:zuschlagZeit,mittage:mittage,km:km,
     chfMittag:mittage*p.mittagCHF,chfKm:km*p.kmCHF};
@@ -515,17 +613,20 @@ function stdMonatSoll(jahr,monat,p){
 // Monatsauswertung eines Users. Überstunden/Töpfe werden GAV-konform pro Woche
 // ermittelt (Wochen am Monatsrand: nur mit den Tagen im Monat — Näherung).
 function stdMonatsAuswertung(tage,jahr,monat,p){
-  var ist=0,sa=0,so=0,nachtMin=0,mittage=0,km=0,absKredit=0;
+  var ist=0,istRoh=0,gekappt=0,sa=0,so=0,nachtMin=0,mittage=0,km=0,absKredit=0;
   var wochen={};
   (tage||[]).forEach(function(t){
-    var h=stdTagStunden(t);ist+=h;
+    var h=stdTagStunden(t);istRoh+=h;
+    var cap=stdTagCapH(t,t.datum,p);
+    var hA=(cap!=null&&h>cap)?cap:h;
+    ist+=hA;gekappt+=h-hA;
     var typ=stdTagTyp(t.datum,p.feiertage);
     if(typ==='samstag')sa+=h;
     if(typ==='sonntag'||typ==='feiertag')so+=h;
     (t.eintraege||[]).forEach(function(e){nachtMin+=stdNachtMin(e,p);});
     if(t.spesen&&t.spesen.mittag)mittage++;
     km+=parseFloat(t.spesen&&t.spesen.km)||0;
-    if(t.absenz&&typ==='werktag')absKredit+=stdAbsenzAnteil(t)*((p.wochenSoll+p.vorholProWocheH)/5);
+    absKredit+=stdTagAbzugH(t,p);
     var ws=stdWochenStart(t.datum);
     (wochen[ws]=wochen[ws]||[]).push(t);
   });
@@ -537,7 +638,7 @@ function stdMonatsAuswertung(tage,jahr,monat,p){
   var soll=Math.max(0,stdMonatSoll(jahr,monat,p)-absKredit);
   var nacht=nachtMin/60;
   var zuschlagZeit=ueber*p.zuschlagUeberstunden/100+sa*p.zuschlagSamstag/100+so*p.zuschlagSonntag/100+nacht*p.zuschlagNacht/100;
-  return {ist:ist,soll:soll,saldo:ist-soll,ueberstunden:ueber,topfA:topfA,topfB:topfB,samstag:sa,sonntag:so,nacht:nacht,
+  return {ist:ist,istRoh:istRoh,gekappt:gekappt,soll:soll,saldo:ist-soll,ueberstunden:ueber,topfA:topfA,topfB:topfB,samstag:sa,sonntag:so,nacht:nacht,
     zuschlagZeit:zuschlagZeit,mittage:mittage,km:km,
     chfMittag:mittage*p.mittagCHF,chfKm:km*p.kmCHF};
 }
@@ -607,10 +708,11 @@ function stdJahresAuswertung(tage,jahr,p,opts){
     if(t.absenz){
       var a=stdAbsenzAnteil(t);
       absTage[t.absenz.typ]=(absTage[t.absenz.typ]||0)+a;
+      var absH=parseFloat(t.absenz.stunden); // stunden-basierte Absenz (Auto-Kompensation) übersteuert anteil×Tagessoll
       if(t.absenz.typ==='ferien')ferien+=a;
       if(t.absenz.typ==='krank'||t.absenz.typ==='unfall')krank+=a;
-      if(t.absenz.typ==='kompensation')kompH+=a*ts;
-      if(t.absenz.typ==='brueckentag')brueckH+=a*ts;
+      if(t.absenz.typ==='kompensation')kompH+=(isFinite(absH)&&absH>0)?absH:a*ts;
+      if(t.absenz.typ==='brueckentag')brueckH+=(isFinite(absH)&&absH>0)?absH:a*ts;
     }
   });
   var ist=0,soll=0,topfA=0,topfB=0,vorhol=0;
@@ -628,6 +730,71 @@ function stdJahresAuswertung(tage,jahr,p,opts){
     krankTage:krank,absTage:absTage};
 }
 function stdFmtH(h){return (Math.round(h*100)/100).toFixed(2);}
+// ── Feiertags-Generator (automatisch einfügbar, kantonal wählbar) ──
+// Ostersonntag nach Gauss/Butcher (gregorianisch) — geprüft 2024-03-31,
+// 2025-04-20, 2026-04-05, 2027-03-28, 2030-04-21.
+function stdOstern(jahr){
+  var a=jahr%19,b=Math.floor(jahr/100),c=jahr%100,d=Math.floor(b/4),e=b%4,
+      f=Math.floor((b+8)/25),g=Math.floor((b-f+1)/3),h=(19*a+b-d-g+15)%30,
+      i=Math.floor(c/4),k=c%4,l=(32+2*e+2*i-h-k)%7,m=Math.floor((a+11*h+22*l)/451),
+      mo=Math.floor((h+l-7*m+114)/31),ta=((h+l-7*m+114)%31)+1;
+  return jahr+'-'+(mo<10?'0':'')+mo+'-'+(ta<10?'0':'')+ta;
+}
+// Gesetzliche/übliche CH-Feiertage — on:true = Default-Auswahl (Region NW-CH,
+// wie die GAV-Vorlage); die Auswahl ist pro Org umstellbar (kantonal verschieden).
+var STD_FEIERTAG_DEFS=[
+  {id:'neujahr',n:'Neujahr (1.1.)',fix:'01-01',on:true},
+  {id:'berchtold',n:'Berchtoldstag (2.1.)',fix:'01-02',on:false},
+  {id:'karfreitag',n:'Karfreitag',ostern:-2,on:true},
+  {id:'ostermontag',n:'Ostermontag',ostern:1,on:true},
+  {id:'tag_der_arbeit',n:'Tag der Arbeit (1.5.)',fix:'05-01',on:true},
+  {id:'auffahrt',n:'Auffahrt',ostern:39,on:true},
+  {id:'pfingstmontag',n:'Pfingstmontag',ostern:50,on:true},
+  {id:'fronleichnam',n:'Fronleichnam',ostern:60,on:false},
+  {id:'bundesfeier',n:'Bundesfeiertag (1.8.)',fix:'08-01',on:true},
+  {id:'maria_himmelfahrt',n:'Mariä Himmelfahrt (15.8.)',fix:'08-15',on:false},
+  {id:'allerheiligen',n:'Allerheiligen (1.11.)',fix:'11-01',on:false},
+  {id:'maria_empfaengnis',n:'Mariä Empfängnis (8.12.)',fix:'12-08',on:false},
+  {id:'weihnachten',n:'Weihnachten (25.12.)',fix:'12-25',on:true},
+  {id:'stephanstag',n:'Stephanstag (26.12.)',fix:'12-26',on:true}
+];
+// Feiertags-Daten eines Jahres für die gewählten Definitions-ids
+// (ids null/leer = Default-Auswahl on:true), sortiert.
+function stdFeiertageJahr(jahr,ids){
+  jahr=parseInt(jahr,10);
+  if(!(jahr>1900&&jahr<2200))return [];
+  var sel=(ids&&ids.length)?ids:STD_FEIERTAG_DEFS.filter(function(d){return d.on;}).map(function(d){return d.id;});
+  var out=[];
+  STD_FEIERTAG_DEFS.forEach(function(d){
+    if(sel.indexOf(d.id)<0)return;
+    out.push(d.fix?jahr+'-'+d.fix:stdAddTage(stdOstern(jahr),d.ostern));
+  });
+  return out.sort();
+}
+// ── Kontroll-Indikatoren einer Woche (aus = stdWochenAuswertung-Ergebnis) ──
+// Konfigurierbare Grenzen p.indikatoren {maxH,maxPct,minH,minPct} (0 = aus):
+// max* = auffällig hohe Woche (rot), min* = auffällig tiefe Woche (amber).
+function stdIndikatoren(aus,p){
+  var cfg=(p&&p.indikatoren)||{},out=[];
+  var pct=aus.soll>0?aus.ist/aus.soll*100:null;
+  if(cfg.maxH>0&&aus.ist>cfg.maxH+1e-9)out.push({typ:'max_h',stufe:'rot',text:'⚠ '+stdFmtH(aus.ist)+' h > '+stdFmtH(cfg.maxH)+' h'});
+  if(cfg.maxPct>0&&pct!=null&&pct>cfg.maxPct+1e-9)out.push({typ:'max_pct',stufe:'rot',text:'⚠ '+Math.round(pct)+' % > '+cfg.maxPct+' % vom Soll'});
+  if(cfg.minH>0&&aus.ist<cfg.minH-1e-9)out.push({typ:'min_h',stufe:'amber',text:'▼ '+stdFmtH(aus.ist)+' h < '+stdFmtH(cfg.minH)+' h'});
+  if(cfg.minPct>0&&pct!=null&&pct<cfg.minPct-1e-9)out.push({typ:'min_pct',stufe:'amber',text:'▼ '+Math.round(pct)+' % < '+cfg.minPct+' % vom Soll'});
+  return out;
+}
+// ── Auto-Kompensation: fehlende Zeit bis zum Tagessoll (h) ──
+// Nur an Werktagen mit mindestens einem Zeiteintrag; eine bestehende MANUELLE
+// Absenz wird nie angetastet (nur die eigene auto-Kompensation wird nachgeführt).
+// 0 = nichts aufzufüllen (bzw. auto-Absenz wieder entfernen).
+function stdAutoKompGap(t,datum,p){
+  if(!p.autoKompensation)return 0;
+  if(stdTagTyp(datum,p.feiertage)!=='werktag')return 0;
+  if(!t||!(t.eintraege||[]).length)return 0;
+  if(t.absenz&&!(t.absenz.typ==='kompensation'&&t.absenz.quelle==='auto'))return 0;
+  var gap=Math.round((stdTagSollH(p)-stdTagStunden(t))*100)/100;
+  return gap>0.05?gap:0;
+}
 /*ENGINE-END*/
 
 // ═══════════════════════════════════════════════════════════
@@ -702,6 +869,7 @@ function stFerienDetail(userId,jahr){
   var beantragt=0;
   stFerienAntraege().forEach(function(a){
     if(a.userId!==userId||a.status!=='beantragt')return;
+    if((a.absenzTyp||'ferien')!=='ferien')return; // nur Ferien-Anträge belasten den Feriensaldo
     beantragt+=stdWerktageListe(a.von,a.bis,p.feiertage).filter(function(d){
       return String(d).slice(0,4)===String(jahr)&&gebucht.indexOf(d)<0;
     }).length;
@@ -771,6 +939,47 @@ function stTagEditable(t){
   if(t.userId!==u.id)return false;
   return t.status!=='eingereicht'&&t.status!=='genehmigt';
 }
+// Suffix für Absenz-Anzeigen: stunden-basierte Absenzen (Auto-Kompensation)
+// zeigen den Stundenwert, sonst ½ bei halbem Tag
+function stAbsSuffix(t){
+  if(!t||!t.absenz)return '';
+  var st=parseFloat(t.absenz.stunden);
+  if(isFinite(st)&&st>0)return ' ('+stdFmtH(st)+' h'+(t.absenz.quelle==='auto'?' auto':'')+')';
+  return t.absenz.anteil===0.5?' (½)':'';
+}
+// Spesen-Kurztext: km nur zeigen, wenn erfasst ODER km-Erfassung aktiv
+function stSpesenText(aus,p){
+  var teile=[];
+  if(aus.mittage)teile.push(aus.mittage+'× Mittag');
+  if(aus.km||p.kmAktiv)teile.push((Math.round(aus.km*10)/10)+' km');
+  return teile.join(' · ');
+}
+// Indikator-Badges (Kontroll-Grenzen aus den ⚙️-Einstellungen)
+function stIndBadges(aus,p,nurRot){
+  return stdIndikatoren(aus,p).filter(function(i){return !nurRot||i.stufe==='rot';})
+    .map(function(i){return '<span class="badge '+(i.stufe==='rot'?'b-red':'b-amber')+'">'+i.text+'</span>';}).join(' ');
+}
+// Auto-Kompensation nachführen (⚙️-Einstellung): fehlende Zeit bis zum
+// Tagessoll als Kompensations-Absenz ergänzen bzw. wieder entfernen.
+// Manuelle Absenzen bleiben unangetastet — der Typ ist via «🌴 Absenz»
+// änderbar (z.B. auf Ferien), danach übersteuert die manuelle Wahl die Automatik.
+function stAutoKomp(datum){
+  var u=stUser();if(!u)return false;
+  var p=stParamsFor(u.id);
+  if(!p.autoKompensation)return false;
+  var t=stTagFor(datum,u.id);
+  if(!t||!stTagEditable(t))return false;
+  var gap=stdAutoKompGap(t,datum,p);
+  if(gap>0){
+    if(t.absenz&&t.absenz.quelle==='auto'&&Math.abs((parseFloat(t.absenz.stunden)||0)-gap)<0.005)return false;
+    t.absenz={typ:'kompensation',anteil:gap>=stdTagSollH(p)*0.5?1:0.5,stunden:gap,quelle:'auto'};
+    poolSave(t);return true;
+  }
+  if(t.absenz&&t.absenz.typ==='kompensation'&&t.absenz.quelle==='auto'){
+    delete t.absenz;poolSave(t);return true;
+  }
+  return false;
+}
 
 // ═══════════════════════════════════════════════════════════
 // VIEWS
@@ -827,8 +1036,10 @@ function stRenderWoche(){
   var statusBadges={};wochenTage.forEach(function(t){if(stTagHatDaten(t))statusBadges[t.status||'offen']=true;});
   h+='<div class="card"><div class="card-hd"><h3>Σ Woche</h3>'
     +Object.keys(statusBadges).map(function(s){var m=ST_STATUS[s]||ST_STATUS.offen;return '<span class="badge '+m.cls+'">'+m.n+'</span>';}).join(' ')
+    +stIndBadges(aus,p,true)
     +'</div><div class="card-bd">'
-    +'<div class="sumline"><span>Ist / Soll'+(p.vorholProWocheH>0?' (inkl. '+stdFmtH(p.vorholProWocheH)+' h Vorholzeit)':'')+(p.pensumFaktor&&p.pensumFaktor!==1?' · Pensum '+Math.round(p.pensumFaktor*100)+' %':'')+'</span><b>'+stdFmtH(aus.ist)+' / '+stdFmtH(aus.soll)+' h</b></div>'
+    +'<div class="sumline"><span>Ist / Soll'+(p.vorholProWocheH>0?' (inkl. '+stdFmtH(p.vorholProWocheH)+' h Vorholzeit)':'')+(p.maxTagessoll?' · max. Tagessoll':'')+(p.pensumFaktor&&p.pensumFaktor!==1?' · Pensum '+Math.round(p.pensumFaktor*100)+' %':'')+'</span><b>'+stdFmtH(aus.ist)+' / '+stdFmtH(aus.soll)+' h</b></div>'
+    +(aus.gekappt>0.004?'<div class="sumline"><span style="color:var(--amber)">Über Tagessoll — nicht angerechnet (erfasst '+stdFmtH(aus.istRoh)+' h)</span><b style="color:var(--amber)">−'+stdFmtH(aus.gekappt)+' h</b></div>':'')
     +'<div class="sumline"><span>Saldo</span><b style="color:'+(aus.saldo>=0?'var(--grn)':'var(--red)')+'">'+(aus.saldo>=0?'+':'')+stdFmtH(aus.saldo)+' h</b></div>'
     +(aus.ueberstunden>0.004?'<div class="sumline"><span>Überstunden (+'+p.zuschlagUeberstunden+'%)</span><b>'+stdFmtH(aus.ueberstunden)+' h</b></div>':'')
     +(aus.topfA>0.004?'<div class="sumline"><span>→ Topf A (Kompensation, max. '+stdFmtH(p.topfGrenzeH)+' h)</span><b>'+stdFmtH(aus.topfA)+' h</b></div>':'')
@@ -837,7 +1048,7 @@ function stRenderWoche(){
     +(aus.sonntag>0.004?'<div class="sumline"><span>Sonntag/Feiertag (+'+p.zuschlagSonntag+'%)</span><b>'+stdFmtH(aus.sonntag)+' h</b></div>':'')
     +(aus.nacht>0.004?'<div class="sumline"><span>Nacht '+p.nachtVon+'–'+p.nachtBis+' (+'+p.zuschlagNacht+'%)</span><b>'+stdFmtH(aus.nacht)+' h</b></div>':'')
     +(aus.zuschlagZeit>0.004?'<div class="sumline"><span>Zuschläge (Zeitwert)</span><b>+'+stdFmtH(aus.zuschlagZeit)+' h</b></div>':'')
-    +((aus.mittage||aus.km)?'<div class="sumline"><span>Spesen: '+aus.mittage+'× Mittag · '+(Math.round(aus.km*10)/10)+' km</span><b>CHF '+(aus.chfMittag+aus.chfKm).toFixed(2)+'</b></div>':'')
+    +((aus.mittage||aus.km)?'<div class="sumline"><span>Spesen: '+stSpesenText(aus,p)+'</span><b>CHF '+(aus.chfMittag+aus.chfKm).toFixed(2)+'</b></div>':'')
     +(offeneMitDaten.length?'<div style="margin-top:10px"><button class="btn pri" style="width:100%" onclick="stWocheEinreichen()">📤 Woche einreichen ('+offeneMitDaten.length+' Tag'+(offeneMitDaten.length===1?'':'e')+')</button></div>':'')
     +'</div></div>';
   // Tages-Karten
@@ -858,7 +1069,7 @@ function stTagKarte(datum,p,gross){
     +'<div class="day-hd"><span class="dn">'+wt+'</span><span class="dt">'+dfmt(datum)+'</span>'
     +(typ==='samstag'?'<span class="badge b-amber">Sa</span>':typ==='sonntag'?'<span class="badge b-red">So</span>':typ==='feiertag'?'<span class="badge b-red">Feiertag</span>':'')
     +((p.brueckentage||[]).indexOf(datum)>=0?'<span class="badge b-vio">🌉 Brückentag</span>':'')
-    +(abs?'<span class="badge '+abs.cls+'" title="'+(t.absenz.quelle==='betriebsferien'?'Betriebsferien'+(t.absenz.label?': '+esc(t.absenz.label):''):t.absenz.quelle==='antrag'?'Aus genehmigtem Ferienantrag':'')+'">'+abs.ic+' '+abs.n+(t.absenz.anteil===0.5?' (½)':'')+(t.absenz.quelle==='betriebsferien'?' 🏭':'')+'</span>':'')
+    +(abs?'<span class="badge '+abs.cls+'" title="'+(t.absenz.quelle==='betriebsferien'?'Betriebsferien'+(t.absenz.label?': '+esc(t.absenz.label):''):t.absenz.quelle==='antrag'?'Aus genehmigtem Antrag':t.absenz.quelle==='auto'?'Automatisch bis zum Tagessoll ergänzt — via 🌴 Absenz änderbar':'')+'">'+abs.ic+' '+abs.n+stAbsSuffix(t)+(t.absenz.quelle==='betriebsferien'?' 🏭':'')+'</span>':'')
     +(stTagHatDaten(t)&&st?'<span class="badge '+st.cls+'">'+st.n+'</span>':'')
     +(t&&t.status==='zurueck'&&t.entscheid&&t.entscheid.grund?'<span class="badge b-red" title="'+esc(t.entscheid.grund)+'">💬</span>':'')
     +'<span class="tot">'+(t?stdFmtH(stdTagStunden(t)):'0.00')+' h</span></div>'
@@ -880,7 +1091,8 @@ function stTagKarte(datum,p,gross){
       +'<button class="btn sm" onclick="stAbsOpen(\''+datum+'\')">'+(abs?abs.ic+' Absenz ändern':'🌴 Absenz')+'</button></div>';
     h+='<div class="spesen-row">'
       +'<label><input type="checkbox" '+(t&&t.spesen&&t.spesen.mittag?'checked':'')+' onchange="stSpesen(\''+datum+'\',\'mittag\',this.checked)"/> 🍽 Mittag auswärts</label>'
-      +'<label>🚗 <input type="text" inputmode="decimal" placeholder="km" value="'+(t&&t.spesen&&t.spesen.km?t.spesen.km:'')+'" onblur="stSpesen(\''+datum+'\',\'km\',this.value)"/> km</label>'
+      // km-Spesen nur wenn org-weit aktiv — bereits erfasste km bleiben korrigierbar
+      +((p.kmAktiv||(parseFloat(t&&t.spesen&&t.spesen.km)||0)>0)?'<label>🚗 <input type="text" inputmode="decimal" placeholder="km" value="'+(t&&t.spesen&&t.spesen.km?t.spesen.km:'')+'" onblur="stSpesen(\''+datum+'\',\'km\',this.value)"/> km</label>':'')
       +'</div>';
   } else if(t&&t.spesen&&(t.spesen.mittag||t.spesen.km)){
     h+='<div class="spesen-row">'+(t.spesen.mittag?'🍽 Mittag auswärts':'')+(t.spesen.km?' · 🚗 '+t.spesen.km+' km':'')+'</div>';
@@ -1086,8 +1298,13 @@ function stEinSave(){
   } else t.eintraege.push(e);
   if(t.status==='zurueck')t.status='offen';
   poolSave(t);
+  var autoK=stAutoKomp(_einDatum);
   stTopfBCheck(_einDatum);
-  stClose('einModal');toast('💾 '+stdFmtH(stdEintragMin(e)/60)+' h erfasst');stRender();
+  var tNeu=stTagFor(_einDatum,u.id);
+  stClose('einModal');
+  toast('💾 '+stdFmtH(stdEintragMin(e)/60)+' h erfasst'
+    +(autoK&&tNeu&&tNeu.absenz&&tNeu.absenz.quelle==='auto'?' · ⏳ '+stdFmtH(tNeu.absenz.stunden)+' h Kompensation ergänzt':''));
+  stRender();
   // Direkt-Rapport: nach jedem NEUEN Eintrag mit Projekt fragt GEMA
   // «Material gebraucht?» — überspringbar, reine Zeiterfassung bleibt möglich.
   if(neu&&e.objektId)stRrStart(_einDatum,e.id);
@@ -1098,6 +1315,7 @@ function stEinDelete(){
     if(!ok)return;
     t.eintraege=(t.eintraege||[]).filter(function(x){return x.id!==_einId;});
     poolSave(t);
+    stAutoKomp(_einDatum);
     stClose('einModal');toast('🗑 Eintrag gelöscht');stRender();
   });
 }
@@ -1358,6 +1576,8 @@ var ABS_HINTS={
   krank:'Reduziert das Wochensoll — keine Minusstunden durch Krankheit.',
   unfall:'Reduziert das Wochensoll — keine Minusstunden durch Unfall.',
   militaer:'Reduziert das Wochensoll (Militär / Zivilschutz / Zivildienst).',
+  schule:'Berufsschul-Tag (Lehrlinge) — reduziert das Soll.',
+  uek:'Überbetrieblicher Kurs ÜK (Lehrlinge) — reduziert das Soll.',
   kompensation:'Bezug ab Topf A (Überstunden-Kompensation). Der Topf-A-Saldo ist in der Auswertung sichtbar.',
   brueckentag:'Bezug ab Vorhol-Konto (vorgeholte Zeit für Brückentage).'
 };
@@ -1367,7 +1587,8 @@ function stAbsOpen(datum){
   if(t&&!stTagEditable(t)){toast('Tag ist eingereicht — nicht mehr änderbar');return;}
   _absDatum=datum;
   var p=stParams();
-  document.getElementById('abs_datumLbl').textContent=WOCHENTAGE[(new Date(datum+'T12:00:00Z').getUTCDay()+6)%7]+', '+dfmt(datum);
+  document.getElementById('abs_datumLbl').textContent=WOCHENTAGE[(new Date(datum+'T12:00:00Z').getUTCDay()+6)%7]+', '+dfmt(datum)
+    +(t&&t.absenz&&t.absenz.quelle==='auto'?' — ⏳ '+stdFmtH(t.absenz.stunden)+' h automatisch als Kompensation ergänzt. Speichern übersteuert die Automatik (z.B. Typ Ferien wählen).':'');
   var cur=t&&t.absenz?t.absenz.typ:((p.brueckentage||[]).indexOf(datum)>=0?'brueckentag':'ferien');
   document.getElementById('abs_typ').innerHTML=Object.keys(STD_ABSENZ).map(function(k){
     return '<option value="'+k+'"'+(k===cur?' selected':'')+'>'+STD_ABSENZ[k].ic+' '+STD_ABSENZ[k].n+'</option>';
@@ -1377,9 +1598,14 @@ function stAbsOpen(datum){
   stAbsHint();
   stOpen('absModal');
 }
+// Hinweis pro Typ + aktive Org-Regeln (⚙️ Regeln & Automatik)
 function stAbsHint(){
   var typ=document.getElementById('abs_typ').value;
-  document.getElementById('abs_hint').textContent=ABS_HINTS[typ]||'';
+  var r=stdAbsenzRegel(stParams(),typ);
+  var teile=[ABS_HINTS[typ]||''];
+  if(r.fuelltAuf)teile.push('Regel: Die Gutschrift füllt genau bis zum Tagessoll auf (Arbeitszeit + Absenz = Tagessoll, nie mehr).');
+  if(r.keineVorholzeit)teile.push('Regel: An diesem Tag zählt höchstens das Tagessoll — keine Vorholzeit/Überstunden.');
+  document.getElementById('abs_hint').textContent=teile.filter(Boolean).join(' ');
 }
 function stAbsSave(){
   var u=stUser();if(!u)return;
@@ -1440,7 +1666,7 @@ function stRenderFerienKarte(userId){
     .sort(function(a,b){return b.von.localeCompare(a.von);}).slice(0,6);
   var h='<div class="card"><div class="card-hd"><h3>🌴 Meine Ferien '+jahr+'</h3>'
     +'<span class="badge '+(d.verfuegbar>=0?'b-grn':'b-red')+'">'+stFmtT(d.verfuegbar)+' Tage verfügbar</span>'
-    +'<button class="btn sm" style="margin-left:auto" onclick="stFerienOpen()">🌴 Ferien beantragen</button>'
+    +'<button class="btn sm" style="margin-left:auto" onclick="stFerienOpen()">🌴 Ferien / Absenz beantragen</button>'
     +'</div><div class="card-bd">'
     +'<div class="sumline"><span>Ferienanspruch '+jahr+' (pro-rata bei Ein-/Austritt)</span><b>'+stFmtT(d.anspruch)+' Tage</b></div>'
     +'<div class="sumline"><span>− eingetragene Ferien (inkl. genehmigte Anträge)</span><b>'+stFmtT(d.bezogen)+' Tage</b></div>'
@@ -1452,7 +1678,8 @@ function stRenderFerienKarte(userId){
     h+='<div style="font-size:10.5px;font-weight:800;text-transform:uppercase;color:var(--mut);margin:10px 0 4px">Meine Anträge</div>';
     meine.forEach(function(a){
       var st=FA_STATUS[a.status]||FA_STATUS.beantragt;
-      h+='<div class="sumline"><span>'+dfmt(a.von)+' – '+dfmt(a.bis)+' ('+a.tage+' Tag'+(a.tage===1?'':'e')+')'
+      var ft=STD_ABSENZ[a.absenzTyp||'ferien']||STD_ABSENZ.ferien;
+      h+='<div class="sumline"><span>'+ft.ic+' '+dfmt(a.von)+' – '+dfmt(a.bis)+' ('+a.tage+' Tag'+(a.tage===1?'':'e')+((a.absenzTyp||'ferien')!=='ferien'?' '+esc(ft.n):'')+')'
         +(a.bemerkung?' · '+esc(a.bemerkung):'')
         +(a.status==='abgelehnt'&&a.entscheid&&a.entscheid.grund?' · 💬 '+esc(a.entscheid.grund):'')
         +'</span><b><span class="badge '+st.cls+'">'+st.n+'</span>'
@@ -1463,7 +1690,17 @@ function stRenderFerienKarte(userId){
   h+='</div></div>';
   return h;
 }
+// Beantragbare Absenz-Typen (Krank/Unfall werden direkt erfasst, nicht beantragt)
+var FA_TYPEN=['ferien','kompensation','militaer','schule','uek'];
+// Topf-A-Saldo eines Users im Jahr (für die Antrags-Vorschau/Freigabe bei Kompensation)
+function stTopfASaldo(userId,jahr){
+  var tage=orgTage().filter(function(t){return t.userId===userId&&String(t.datum).slice(0,4)===String(jahr);});
+  return stdJahresAuswertung(tage,jahr,stParamsFor(userId),{}).topfASaldo;
+}
 function stFerienOpen(){
+  document.getElementById('fa_typ').innerHTML=FA_TYPEN.map(function(k){
+    return '<option value="'+k+'">'+STD_ABSENZ[k].ic+' '+STD_ABSENZ[k].n+'</option>';
+  }).join('');
   document.getElementById('fa_von').value='';
   document.getElementById('fa_bis').value='';
   document.getElementById('fa_bem').value='';
@@ -1473,37 +1710,49 @@ function stFerienOpen(){
 function stFerienCalc(){
   var u=stUser();if(!u)return;
   var p=stParams();
+  var typ=(document.getElementById('fa_typ')||{}).value||'ferien';
   var von=document.getElementById('fa_von').value,bis=document.getElementById('fa_bis').value;
   var el=document.getElementById('fa_calc');
-  if(!von||!bis||bis<von){el.innerHTML='<span style="font-size:12px;color:var(--mut)">Von/Bis wählen — Werktage und Saldo werden automatisch berechnet.</span>';return;}
+  if(!von||!bis||bis<von){el.innerHTML='<span style="font-size:12px;color:var(--mut)">Von/Bis wählen — Werktage'+(typ==='ferien'?' und Saldo':'')+' werden automatisch berechnet.</span>';return;}
   var tage=stdWerktageListe(von,bis,p.feiertage).length;
   var jahr=parseInt(von.slice(0,4),10);
-  var d=stFerienDetail(u.id,jahr);
-  var nachher=d.verfuegbar-tage;
-  el.innerHTML='<div class="sumline"><span>Werktage im Zeitraum (ohne Sa/So/Feiertage)</span><b>'+tage+' Tag'+(tage===1?'':'e')+'</b></div>'
-    +'<div class="sumline"><span>Verfügbarer Saldo '+jahr+'</span><b>'+stFmtT(d.verfuegbar)+' Tage</b></div>'
-    +'<div class="sumline"><span>Saldo nach diesem Antrag</span><b style="color:'+(nachher>=0?'var(--grn)':'var(--red)')+'">'+stFmtT(nachher)+' Tage</b></div>'
-    +(nachher<0?'<div class="gavnote" style="margin-top:6px;background:var(--red-bg);border-color:var(--red-bd);color:var(--red)">⚠ Der Antrag übersteigt den verfügbaren Feriensaldo — die Projektleitung entscheidet.</div>':'');
+  var h='<div class="sumline"><span>Werktage im Zeitraum (ohne Sa/So/Feiertage)</span><b>'+tage+' Tag'+(tage===1?'':'e')+'</b></div>';
+  if(typ==='ferien'){
+    var d=stFerienDetail(u.id,jahr);
+    var nachher=d.verfuegbar-tage;
+    h+='<div class="sumline"><span>Verfügbarer Saldo '+jahr+'</span><b>'+stFmtT(d.verfuegbar)+' Tage</b></div>'
+      +'<div class="sumline"><span>Saldo nach diesem Antrag</span><b style="color:'+(nachher>=0?'var(--grn)':'var(--red)')+'">'+stFmtT(nachher)+' Tage</b></div>'
+      +(nachher<0?'<div class="gavnote" style="margin-top:6px;background:var(--red-bg);border-color:var(--red-bd);color:var(--red)">⚠ Der Antrag übersteigt den verfügbaren Feriensaldo — die Projektleitung entscheidet.</div>':'');
+  } else if(typ==='kompensation'){
+    var saldoA=stTopfASaldo(u.id,jahr);
+    h+='<div class="sumline"><span>Topf-A-Saldo aktuell (Bezug pro Tag = Tagessoll)</span><b style="color:'+(saldoA>=0?'var(--grn)':'var(--red)')+'">'+stdFmtH(saldoA)+' h</b></div>';
+  } else {
+    var r=stdAbsenzRegel(p,typ);
+    h+='<div class="sumline"><span>Wirkung</span><b>reduziert das Soll'+(r.keineVorholzeit?' · keine Vorholzeit':'')+'</b></div>';
+  }
+  el.innerHTML=h;
 }
 function stFerienSubmit(){
   var u=stUser();if(!u)return;
   var p=stParams();
+  var typ=(document.getElementById('fa_typ')||{}).value||'ferien';
+  var ft=STD_ABSENZ[typ]||STD_ABSENZ.ferien;
   var von=document.getElementById('fa_von').value,bis=document.getElementById('fa_bis').value;
   if(!von||!bis){toast('Von/Bis fehlt');return;}
   if(bis<von){toast('Bis liegt vor Von');return;}
   var tage=stdWerktageListe(von,bis,p.feiertage).length;
   if(!tage){toast('Keine Werktage im Zeitraum');return;}
-  var a={id:uid(),typ:'ferienantrag',orgId:u.orgId,userId:u.id,userName:u.name,
+  var a={id:uid(),typ:'ferienantrag',absenzTyp:typ,orgId:u.orgId,userId:u.id,userName:u.name,
     von:von,bis:bis,tage:tage,bemerkung:document.getElementById('fa_bem').value.trim(),
     status:'beantragt',beantragtAm:new Date().toISOString()};
   poolSave(a);
   ['role_planer','role_abteilungsleiter'].forEach(function(r){
     stNotify({eventKey:'ferien_antrag',empfaengerRoleId:r,empfaengerOrgId:u.orgId,modul:'stundenerfassung',typ:'aktion',
-      titel:'Ferienantrag: '+u.name,
+      titel:ft.n+'-Antrag: '+u.name,
       text:dfmt(von)+' – '+dfmt(bis)+' ('+tage+' Werktage)'+(a.bemerkung?' · '+a.bemerkung:''),
       link:'pm_stunden.html?tab=freigabe'});
   });
-  stClose('ferienModal');toast('📤 Ferienantrag eingereicht');stRender();
+  stClose('ferienModal');toast('📤 Antrag eingereicht');stRender();
 }
 function stFerienZurueckziehen(id){
   var u=stUser();
@@ -1522,6 +1771,8 @@ function stFerienEntscheid(id,ok){
   if(!a||a.status!=='beantragt')return;
   var apply=function(grund){
     var p=stParams();
+    var absTyp=a.absenzTyp||'ferien';
+    var ft=STD_ABSENZ[absTyp]||STD_ABSENZ.ferien;
     a.status=ok?'genehmigt':'abgelehnt';
     a.entscheid={von:u.name,vonUserId:u.id,am:new Date().toISOString(),grund:grund||''};
     poolSave(a);
@@ -1530,34 +1781,36 @@ function stFerienEntscheid(id,ok){
         var t=stTagFor(d,a.userId);
         if(t&&t.absenz)return; // bestehende Absenz nie überschreiben
         if(!t)t={id:uid(),orgId:a.orgId,userId:a.userId,userName:a.userName,datum:d,eintraege:[],spesen:{},status:'genehmigt',erstelltAm:new Date().toISOString()};
-        t.absenz={typ:'ferien',anteil:1,quelle:'antrag',antragId:a.id};
+        t.absenz={typ:absTyp,anteil:1,quelle:'antrag',antragId:a.id};
         poolSave(t);
       });
       stFerienInEinsatzplan(a);
     }
     stNotify({eventKey:'ferien_entscheid',empfaengerUserId:a.userId,modul:'stundenerfassung',typ:ok?'erfolg':'warnung',
-      titel:'Ferienantrag '+(ok?'genehmigt':'abgelehnt'),
-      text:dfmt(a.von)+' – '+dfmt(a.bis)+(ok?' — die Ferien sind in Stundenerfassung und Einsatzplan eingetragen.':' — '+(grund||'ohne Begründung'))+' ('+u.name+')',
+      titel:ft.n+'-Antrag '+(ok?'genehmigt':'abgelehnt'),
+      text:dfmt(a.von)+' – '+dfmt(a.bis)+(ok?' — die Tage sind in Stundenerfassung und Einsatzplan eingetragen.':' — '+(grund||'ohne Begründung'))+' ('+u.name+')',
       link:'pm_stunden.html?d='+stdWochenStart(a.von)});
-    toast(ok?'✅ Ferien genehmigt & eingetragen':'↩ Antrag abgelehnt');stRender();
+    toast(ok?'✅ Genehmigt & eingetragen':'↩ Antrag abgelehnt');stRender();
   };
   if(ok)apply('');
-  else GemaDialog.prompt({title:'Ferienantrag ablehnen',placeholder:'Grund (für den Mitarbeiter sichtbar)',defaultValue:''}).then(function(g){
+  else GemaDialog.prompt({title:'Antrag ablehnen',placeholder:'Grund (für den Mitarbeiter sichtbar)',defaultValue:''}).then(function(g){
     if(g===null)return;
     apply(g);
   });
 }
-// Genehmigte Ferien in den Einsatzplan-Kalender schreiben (ADD-ONLY, Cross-Modul wie sv_service)
+// Genehmigte Anträge in den Einsatzplan-Kalender schreiben (ADD-ONLY, Cross-Modul wie sv_service)
+var FA_EP_TITEL={ferien:'🌴 Ferien',kompensation:'⏳ Kompensation',militaer:'🎖 Militär',schule:'🎓 Berufsschule',uek:'🧑‍🏭 ÜK'};
 function stFerienInEinsatzplan(a){
   try{
     var u=stUser();
+    var absTyp=a.absenzTyp||'ferien';
     var von=String(a.von).slice(0,10),bis=String(a.bis).slice(0,10);
     var dauer=Math.max(1,Math.round((Date.parse(bis+'T12:00:00Z')-Date.parse(von+'T12:00:00Z'))/86400000)+1);
     var ev={id:'einsatz_'+Date.now()+'_'+Math.random().toString(36).slice(2,7),orgId:a.orgId,typ:'ferien',
-      auftragId:'',auftragNr:'',kunde:'',titel:'🌴 Ferien',objektId:'',objektName:'',
+      auftragId:'',auftragNr:'',kunde:'',titel:FA_EP_TITEL[absTyp]||((STD_ABSENZ[absTyp]||STD_ABSENZ.ferien).ic+' '+(STD_ABSENZ[absTyp]||STD_ABSENZ.ferien).n),objektId:'',objektName:'',
       monteurUserId:a.userId,monteurName:a.userName,
       datum:von,dauerTage:dauer,slot:'ganz',zeitVon:'',zeitBis:'',
-      notiz:'Ferienantrag genehmigt von '+(u?u.name:''),ferienAntragId:a.id,
+      notiz:'Antrag genehmigt von '+(u?u.name:''),ferienAntragId:a.id,
       erstelltVon:{userId:u?u.id:'',name:u?u.name:''},erstelltAm:new Date().toISOString()};
     var key='gema_einsatz_pool_v1';
     var pool=[];
@@ -1642,20 +1895,22 @@ function stRenderFreigabe(){
     var rows=tage.map(function(t){
       var abs=t.absenz?STD_ABSENZ[t.absenz.typ]:null;
       var teile=[];
-      if(abs)teile.push(abs.ic+' '+abs.n+(t.absenz.anteil===0.5?' (½)':''));
+      if(abs)teile.push(abs.ic+' '+abs.n+stAbsSuffix(t));
       (t.eintraege||[]).forEach(function(e){teile.push(e.von+'–'+e.bis+(e.objektName?' '+e.objektName:''));});
       return '<div class="sumline"><span>'+WOCHENTAGE[(new Date(t.datum+'T12:00:00Z').getUTCDay()+6)%7].slice(0,2)+' '+dfmt(t.datum)
         +' — '+esc(teile.join(' · '))
         +'</span><b>'+stdFmtH(stdTagStunden(t))+' h</b></div>';
     }).join('');
     return '<div class="card"><div class="card-hd"><h3>👷 '+esc(tage[0].userName||'')+'</h3><span class="sub">KW '+stKw(ws)+' · '+dfmt(ws)+' – '+dfmt(stdAddTage(ws,6))+'</span>'
+      +stIndBadges(aus,pu,false)
       +'<span class="badge b-blue" style="margin-left:auto">'+stdFmtH(aus.ist)+' h</span></div>'
       +'<div class="card-bd">'+rows
       +'<div class="sumline" style="border-top:1px solid var(--brd);margin-top:6px;padding-top:8px"><span>Ist / Soll · Saldo'+(pu.pensumFaktor&&pu.pensumFaktor!==1?' (Pensum '+Math.round(pu.pensumFaktor*100)+' %)':'')+'</span><b>'+stdFmtH(aus.ist)+' / '+stdFmtH(aus.soll)+' h · '+(aus.saldo>=0?'+':'')+stdFmtH(aus.saldo)+' h</b></div>'
+      +(aus.gekappt>0.004?'<div class="sumline"><span style="color:var(--amber)">Über Tagessoll — nicht angerechnet (erfasst '+stdFmtH(aus.istRoh)+' h)</span><b style="color:var(--amber)">−'+stdFmtH(aus.gekappt)+' h</b></div>':'')
       +(aus.zuschlagZeit>0.004?'<div class="sumline"><span>Zuschläge: '+(aus.ueberstunden>0.004?'Üst '+stdFmtH(aus.ueberstunden)+'h ':'')+(aus.samstag>0.004?'Sa '+stdFmtH(aus.samstag)+'h ':'')+(aus.sonntag>0.004?'So/Ft '+stdFmtH(aus.sonntag)+'h ':'')+(aus.nacht>0.004?'Nacht '+stdFmtH(aus.nacht)+'h':'')+'</span><b>+'+stdFmtH(aus.zuschlagZeit)+' h</b></div>':'')
       +(aus.topfA>0.004?'<div class="sumline"><span>Topf A (Kompensation)</span><b>'+stdFmtH(aus.topfA)+' h</b></div>':'')
       +(aus.topfB>0.004?'<div class="gavnote" style="margin-top:6px;background:var(--red-bg);border-color:var(--red-bd);color:var(--red)"><b>💰 Topf B: '+stdFmtH(aus.topfB)+' h über der Grenze (+'+stdFmtH(pu.topfGrenzeH)+' h) — auszahlungspflichtig.</b> Auszahlung in der Auswertung erfassen.</div>':'')
-      +((aus.mittage||aus.km)?'<div class="sumline"><span>Spesen: '+aus.mittage+'× Mittag · '+(Math.round(aus.km*10)/10)+' km</span><b>CHF '+(aus.chfMittag+aus.chfKm).toFixed(2)+'</b></div>':'')
+      +((aus.mittage||aus.km)?'<div class="sumline"><span>Spesen: '+stSpesenText(aus,pu)+'</span><b>CHF '+(aus.chfMittag+aus.chfKm).toFixed(2)+'</b></div>':'')
       +'<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">'
       +'<button class="btn grn" style="flex:1" onclick="stEntscheid(\''+esc(k)+'\',true)">✅ Genehmigen</button>'
       +'<button class="btn red" style="flex:1" onclick="stEntscheid(\''+esc(k)+'\',false)">↩ Zurückweisen</button>'
@@ -1671,7 +1926,8 @@ function stRenderFerienAntraege(){
   var h='';
   offen.forEach(function(a){
     var jahr=parseInt(String(a.von).slice(0,4),10);
-    var d=stFerienDetail(a.userId,jahr);
+    var absTyp=a.absenzTyp||'ferien';
+    var ft=STD_ABSENZ[absTyp]||STD_ABSENZ.ferien;
     var konflikte=stFerienKonflikte(a);
     var kHtml=konflikte.length
       ?'<div class="gavnote" style="margin-top:8px"><b>⚠ Im gleichen Zeitraum abwesend:</b><br>'+konflikte.map(function(k){
@@ -1679,13 +1935,21 @@ function stRenderFerienAntraege(){
           return esc(k.name)+' ('+dfmt(k.von)+(k.bis!==k.von?' – '+dfmt(k.bis):'')+', '+lbl+')';
         }).join('<br>')+'</div>'
       :'<div style="font-size:11.5px;color:var(--grn);font-weight:700;margin-top:8px">✓ Keine Überschneidung mit anderen Ferien/Anträgen</div>';
-    h+='<div class="card"><div class="card-hd"><h3>🌴 Ferienantrag: '+esc(a.userName||'')+'</h3>'
+    var saldoHtml='';
+    if(absTyp==='ferien'){
+      var d=stFerienDetail(a.userId,jahr);
+      saldoHtml='<div class="sumline"><span>Verfügbarer Saldo '+jahr+' (Anspruch '+stFmtT(d.anspruch)+' − bezogen '+stFmtT(d.bezogen)+' − offen beantragt '+stFmtT(d.beantragt)+' − Betriebsferien '+stFmtT(d.bfReserve)+')</span><b style="color:'+(d.verfuegbar>=0?'var(--grn)':'var(--red)')+'">'+stFmtT(d.verfuegbar)+' Tage</b></div>';
+    } else if(absTyp==='kompensation'){
+      var saldoA=stTopfASaldo(a.userId,jahr);
+      saldoHtml='<div class="sumline"><span>Topf-A-Saldo '+jahr+' (Bezug pro Tag = Tagessoll)</span><b style="color:'+(saldoA>=0?'var(--grn)':'var(--red)')+'">'+stdFmtH(saldoA)+' h</b></div>';
+    }
+    h+='<div class="card"><div class="card-hd"><h3>'+ft.ic+' '+esc(ft.n)+'-Antrag: '+esc(a.userName||'')+'</h3>'
       +'<span class="sub">beantragt am '+dfmt(a.beantragtAm)+'</span>'
       +'<span class="badge b-amber" style="margin-left:auto">'+a.tage+' Werktag'+(a.tage===1?'':'e')+'</span></div>'
       +'<div class="card-bd">'
       +'<div class="sumline"><span>Zeitraum</span><b>'+dfmt(a.von)+' – '+dfmt(a.bis)+'</b></div>'
       +(a.bemerkung?'<div class="sumline"><span>Bemerkung</span><b>'+esc(a.bemerkung)+'</b></div>':'')
-      +'<div class="sumline"><span>Verfügbarer Saldo '+jahr+' (Anspruch '+stFmtT(d.anspruch)+' − bezogen '+stFmtT(d.bezogen)+' − offen beantragt '+stFmtT(d.beantragt)+' − Betriebsferien '+stFmtT(d.bfReserve)+')</span><b style="color:'+(d.verfuegbar>=0?'var(--grn)':'var(--red)')+'">'+stFmtT(d.verfuegbar)+' Tage</b></div>'
+      +saldoHtml
       +kHtml
       +'<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">'
       +'<button class="btn grn" style="flex:1" onclick="stFerienEntscheid(\''+esc(a.id)+'\',true)">✅ Genehmigen &amp; eintragen</button>'
@@ -1737,22 +2001,24 @@ function stRenderAuswertung(){
     +'</div>';
   if(!Object.keys(users).length)return h+'<div class="empty">📊 Keine erfassten Stunden im '+_monat+'.</div>'+stRenderJahresSalden(alle,jahr);
   var soll=stdMonatSoll(jahr,monat,p);
-  h+='<div class="card"><div class="card-hd"><h3>📊 Monatsauswertung '+_monat+'</h3><span class="sub">Soll (Vollzeit) '+stdFmtH(soll)+' h'+(p.vorholProWocheH>0?' (inkl. Vorholzeit)':'')+' · reduzierte Pensen pro Mitarbeiter berücksichtigt · Zuschläge als Zeitwert ('+p.zuschlagUeberstunden+'/'+p.zuschlagSamstag+'/'+p.zuschlagSonntag+'/'+p.zuschlagNacht+'%)</span></div><div class="card-bd"><div class="t-wrap"><table class="t"><thead><tr>'
-    +'<th>Mitarbeiter</th><th class="num">Ist h</th><th class="num">Soll h</th><th class="num">Saldo h</th><th class="num">Üst h</th><th class="num">Topf A h</th><th class="num">Topf B h</th><th class="num">Sa h</th><th class="num">So/Ft h</th><th class="num">Nacht h</th><th class="num">Zuschlag h</th><th class="num">Mittage</th><th class="num">km</th><th class="num">Spesen CHF</th><th>Status</th><th></th></tr></thead><tbody>';
+  // km-Spalte nur wenn km-Erfassung aktiv ODER im Monat km erfasst wurden (Altdaten bleiben sichtbar)
+  var kmCol=p.kmAktiv||Object.keys(users).some(function(k){return users[k].tage.some(function(t){return (parseFloat(t.spesen&&t.spesen.km)||0)>0;});});
+  h+='<div class="card"><div class="card-hd"><h3>📊 Monatsauswertung '+_monat+'</h3><span class="sub">Soll (Vollzeit) '+stdFmtH(soll)+' h'+(p.vorholProWocheH>0?' (inkl. Vorholzeit)':'')+(p.maxTagessoll?' · max. Tagessoll aktiv':'')+' · reduzierte Pensen pro Mitarbeiter berücksichtigt · Zuschläge als Zeitwert ('+p.zuschlagUeberstunden+'/'+p.zuschlagSamstag+'/'+p.zuschlagSonntag+'/'+p.zuschlagNacht+'%)</span></div><div class="card-bd"><div class="t-wrap"><table class="t"><thead><tr>'
+    +'<th>Mitarbeiter</th><th class="num">Ist h</th><th class="num">Soll h</th><th class="num">Saldo h</th><th class="num">Üst h</th><th class="num">Topf A h</th><th class="num">Topf B h</th><th class="num">Sa h</th><th class="num">So/Ft h</th><th class="num">Nacht h</th><th class="num">Zuschlag h</th><th class="num">Mittage</th>'+(kmCol?'<th class="num">km</th>':'')+'<th class="num">Spesen CHF</th><th>Status</th><th></th></tr></thead><tbody>';
   Object.keys(users).forEach(function(uidk){
     var x=users[uidk];
     var pu=stParamsFor(uidk);
     var a=stdMonatsAuswertung(x.tage,jahr,monat,pu);
     var st={};x.tage.forEach(function(t){st[t.status||'offen']=true;});
     h+='<tr><td><b>'+esc(x.name||'')+'</b>'+(pu.pensumFaktor!==1?'<div style="font-size:10px;color:var(--mut)">Pensum '+Math.round(pu.pensumFaktor*100)+' %</div>':'')+'</td>'
-      +'<td class="num">'+stdFmtH(a.ist)+'</td><td class="num">'+stdFmtH(a.soll)+'</td>'
+      +'<td class="num"'+(a.gekappt>0.004?' title="erfasst '+stdFmtH(a.istRoh)+' h — '+stdFmtH(a.gekappt)+' h über Tagessoll nicht angerechnet"':'')+'>'+stdFmtH(a.ist)+(a.gekappt>0.004?' <span style="color:var(--amber)">*</span>':'')+'</td><td class="num">'+stdFmtH(a.soll)+'</td>'
       +'<td class="num" style="color:'+(a.saldo>=0?'var(--grn)':'var(--red)')+';font-weight:800">'+(a.saldo>=0?'+':'')+stdFmtH(a.saldo)+'</td>'
       +'<td class="num">'+stdFmtH(a.ueberstunden)+'</td>'
       +'<td class="num">'+stdFmtH(a.topfA)+'</td>'
       +'<td class="num"'+(a.topfB>0.004?' style="color:var(--red);font-weight:800"':'')+'>'+stdFmtH(a.topfB)+'</td>'
       +'<td class="num">'+stdFmtH(a.samstag)+'</td><td class="num">'+stdFmtH(a.sonntag)+'</td><td class="num">'+stdFmtH(a.nacht)+'</td>'
       +'<td class="num"><b>+'+stdFmtH(a.zuschlagZeit)+'</b></td>'
-      +'<td class="num">'+a.mittage+'</td><td class="num">'+(Math.round(a.km*10)/10)+'</td><td class="num">'+(a.chfMittag+a.chfKm).toFixed(2)+'</td>'
+      +'<td class="num">'+a.mittage+'</td>'+(kmCol?'<td class="num">'+(Math.round(a.km*10)/10)+'</td>':'')+'<td class="num">'+(a.chfMittag+a.chfKm).toFixed(2)+'</td>'
       +'<td>'+Object.keys(st).map(function(s){var m=ST_STATUS[s]||ST_STATUS.offen;return '<span class="badge '+m.cls+'">'+m.n+'</span>';}).join(' ')+'</td>'
       +'<td><button class="btn sm" title="Monatsblatt (Lohnlauf) als PDF" onclick="stPdf(\''+esc(uidk)+'\')">📄 PDF</button></td></tr>';
   });
@@ -1882,7 +2148,7 @@ function stPdf(userId){
     var we=(typ==='samstag'||typ==='sonntag');
     if(!t&&we)continue; // leere Wochenenden weglassen
     var teile=[];
-    if(t&&t.absenz){var ab=STD_ABSENZ[t.absenz.typ];teile.push('<b>'+ab.ic+' '+esc(ab.n)+(t.absenz.anteil===0.5?' (½ Tag)':'')+'</b>');}
+    if(t&&t.absenz){var ab=STD_ABSENZ[t.absenz.typ]||{ic:'•',n:t.absenz.typ};teile.push('<b>'+ab.ic+' '+esc(ab.n)+esc(stAbsSuffix(t))+'</b>');}
     if(t)(t.eintraege||[]).forEach(function(e){
       teile.push(esc(e.von+'–'+e.bis)+((parseInt(e.pauseMin,10)||0)>0?' (Pause '+e.pauseMin+'′)':'')
         +(e.objektName?' · '+esc(e.objektName):'')+(e.taetigkeit?' · '+esc(e.taetigkeit):''));
@@ -1933,6 +2199,7 @@ function stPdf(userId){
     +'<h2>Arbeitszeiten '+MON[monat-1]+' '+jahr+'</h2>'
     +'<table><thead><tr><th>Datum</th><th>Tag</th><th>Einträge / Absenz</th><th class="num">Std</th><th>Status</th></tr></thead><tbody>'+rowsH
     +'<tr class="tot"><td colspan="3">Total Ist / Soll / Saldo</td><td class="num">'+stdFmtH(a.ist)+' / '+stdFmtH(a.soll)+' / '+(a.saldo>=0?'+':'')+stdFmtH(a.saldo)+'</td><td></td></tr>'
+    +(a.gekappt>0.004?'<tr><td colspan="3">davon über Tagessoll — nicht angerechnet (erfasst '+stdFmtH(a.istRoh)+' h)</td><td class="num">−'+stdFmtH(a.gekappt)+'</td><td></td></tr>':'')
     +'</tbody></table>'
     +'<div class="grid2"><div><h2>Zuschläge (Zeitwert)</h2><table><tbody>'
     +sum('Überstunden über Soll'+(p.vorholProWocheH>0?' + Vorholzeit':'')+' (+'+p.zuschlagUeberstunden+'%)',stdFmtH(a.ueberstunden)+' h')
@@ -1974,6 +2241,9 @@ function stPdf(userId){
 function stOpenSettings(){
   if(!stCanSettings()){toast('Keine Berechtigung');return;}
   var p=stParams();
+  // Roh-Settings für Werte, die stdParams normalisiert (maxTagessoll nullt vorholProWocheH —
+  // der konfigurierte Wert soll beim Abschalten aber wieder da sein)
+  var raw={};try{var o=GemaAuth.getCurrentOrg();raw=(o&&o.settings&&o.settings.stunden)||{};}catch(e){}
   document.getElementById('s_wochenSoll').value=p.wochenSoll;
   document.getElementById('s_zUeber').value=p.zuschlagUeberstunden;
   document.getElementById('s_zSa').value=p.zuschlagSamstag;
@@ -1983,13 +2253,39 @@ function stOpenSettings(){
   document.getElementById('s_nachtBis').value=p.nachtBis;
   document.getElementById('s_mittag').value=p.mittagCHF;
   document.getElementById('s_km').value=p.kmCHF;
+  document.getElementById('s_kmAktiv').checked=p.kmAktiv;
   document.getElementById('s_pause').value=p.bezahltePauseMin;
   document.getElementById('s_ferien').value=p.ferienTage;
   document.getElementById('s_feiertage').value=(p.feiertage||[]).join('\n');
   document.getElementById('s_topfGrenze').value=p.topfGrenzeH;
-  document.getElementById('s_vorhol').value=p.vorholProWocheH;
+  document.getElementById('s_vorhol').value=(raw.vorholProWocheH!=null&&raw.vorholProWocheH!=='')?raw.vorholProWocheH:p.vorholProWocheH;
   document.getElementById('s_brueckentage').value=(p.brueckentage||[]).join('\n');
   document.getElementById('s_betriebsferien').value=(p.betriebsferien||[]).map(function(b){return b.von+' '+b.bis+(b.label?' '+b.label:'');}).join('\n');
+  // Feiertags-Generator: Jahr + gespeicherte Auswahl (Default = on:true-Definitionen)
+  document.getElementById('s_ftJahr').value=String(new Date().getFullYear());
+  var ftSel=(p.feiertagAutoSel&&p.feiertagAutoSel.length)?p.feiertagAutoSel:STD_FEIERTAG_DEFS.filter(function(d){return d.on;}).map(function(d){return d.id;});
+  document.getElementById('s_ftDefs').innerHTML=STD_FEIERTAG_DEFS.map(function(d){
+    return '<label class="chkline" style="margin:2px 0;font-weight:600"><input type="checkbox" class="s-ft-def" value="'+d.id+'"'+(ftSel.indexOf(d.id)>=0?' checked':'')+'/> '+esc(d.n)+'</label>';
+  }).join('');
+  // Regeln & Automatik
+  document.getElementById('s_maxTagessoll').checked=p.maxTagessoll;
+  document.getElementById('s_autoKomp').checked=p.autoKompensation;
+  var regelRows='';
+  Object.keys(STD_ABSENZ).forEach(function(typ){
+    var r=stdAbsenzRegel(p,typ);
+    regelRows+='<div class="s-regel-row" data-typ="'+typ+'" style="display:grid;grid-template-columns:1fr 92px 92px;gap:6px;align-items:center;margin-bottom:4px">'
+      +'<div style="font-size:12px;font-weight:700">'+STD_ABSENZ[typ].ic+' '+esc(STD_ABSENZ[typ].n)+'</div>'
+      +'<div style="text-align:center"><input type="checkbox" class="s-regel-fuellt"'+(r.fuelltAuf?' checked':'')+' style="width:18px;height:18px;accent-color:var(--acc)"/></div>'
+      +'<div style="text-align:center"><input type="checkbox" class="s-regel-kv"'+(r.keineVorholzeit?' checked':'')+' style="width:18px;height:18px;accent-color:var(--acc)"/></div>'
+      +'</div>';
+  });
+  document.getElementById('s_absenzRegeln').innerHTML=
+    '<div style="display:grid;grid-template-columns:1fr 92px 92px;gap:6px;font-size:9.5px;font-weight:800;text-transform:uppercase;color:var(--mut);margin-bottom:4px"><div>Absenz-Typ</div><div style="text-align:center">füllt bis Tagessoll</div><div style="text-align:center">keine Vorholzeit</div></div>'+regelRows;
+  // Kontroll-Indikatoren (0 = aus → leeres Feld)
+  document.getElementById('s_indMaxH').value=p.indikatoren.maxH||'';
+  document.getElementById('s_indMaxPct').value=p.indikatoren.maxPct||'';
+  document.getElementById('s_indMinH').value=p.indikatoren.minH||'';
+  document.getElementById('s_indMinPct').value=p.indikatoren.minPct||'';
   // Mitarbeiter-Stammdaten (Eintritt/Austritt/Ferienanspruch)
   var org=null,userRows='';
   try{org=GemaAuth.getCurrentOrg();}catch(e){}
@@ -2038,6 +2334,28 @@ function stSetSave(){
         var m=l.trim().match(/^(\d{4}-\d{2}-\d{2})\s+(\d{4}-\d{2}-\d{2})\s*(.*)$/);
         return (m&&m[1]<=m[2])?{von:m[1],bis:m[2],label:(m[3]||'').trim()}:null;
       }).filter(Boolean),
+      kmAktiv:document.getElementById('s_kmAktiv').checked,
+      maxTagessoll:document.getElementById('s_maxTagessoll').checked,
+      autoKompensation:document.getElementById('s_autoKomp').checked,
+      absenzRegeln:(function(){
+        var m={};
+        document.querySelectorAll('#s_absenzRegeln .s-regel-row').forEach(function(row){
+          m[row.getAttribute('data-typ')]={
+            fuelltAuf:row.querySelector('.s-regel-fuellt').checked,
+            keineVorholzeit:row.querySelector('.s-regel-kv').checked
+          };
+        });
+        return m;
+      })(),
+      indikatoren:(function(){
+        var o={};
+        [['maxH','s_indMaxH'],['maxPct','s_indMaxPct'],['minH','s_indMinH'],['minPct','s_indMinPct']].forEach(function(x){
+          var v=parseFloat(document.getElementById(x[1]).value);
+          o[x[0]]=(isFinite(v)&&v>0)?v:0;
+        });
+        return o;
+      })(),
+      feiertagAutoSel:[].map.call(document.querySelectorAll('#s_ftDefs .s-ft-def:checked'),function(c){return c.value;}),
       mitarbeiter:(function(){
         var m={};
         document.querySelectorAll('#s_mitarbeiter .s-mit-row').forEach(function(row){
@@ -2066,6 +2384,22 @@ function stSetSave(){
   }catch(e){toast('Fehler beim Speichern');}
   stClose('setModal');
   stRender();
+}
+// Feiertage des gewählten Jahres (Generator) in die Feiertagsliste einfügen —
+// dedupliziert + sortiert; gespeichert wird erst mit «💾 Speichern»
+function stFeiertageEinfuegen(){
+  var jahr=parseInt(document.getElementById('s_ftJahr').value,10);
+  var ids=[].map.call(document.querySelectorAll('#s_ftDefs .s-ft-def:checked'),function(c){return c.value;});
+  if(!ids.length){toast('Mindestens einen Feiertag wählen');return;}
+  var neu=stdFeiertageJahr(jahr,ids);
+  if(!neu.length){toast('Jahr prüfen (z.B. '+new Date().getFullYear()+')');return;}
+  var ta=document.getElementById('s_feiertage');
+  var cur=ta.value.split(/[\n,;]+/).map(function(x){return x.trim();}).filter(Boolean);
+  var add=0;
+  neu.forEach(function(d){if(cur.indexOf(d)<0){cur.push(d);add++;}});
+  cur.sort();
+  ta.value=cur.join('\n');
+  toast(add?('＋ '+add+' Feiertag'+(add===1?'':'e')+' '+jahr+' eingefügt — mit 💾 Speichern übernehmen'):'Alle gewählten Feiertage '+jahr+' sind bereits in der Liste');
 }
 
 // ═══════════════════════════════════════════════════════════
