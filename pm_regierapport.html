@@ -188,6 +188,7 @@ table.ztbl{border-collapse:collapse;width:100%;font-size:12.5px}
 <script src="gema_feedback.js"></script><script src="gema_notify.js"></script><script src="gema_notify_ui.js"></script><script src="gema_chat.js"></script>
 <script src="gema_objekte_api.js"></script>
 <script src="gema_produktkatalog_api.js"></script>
+<script src="gema_storage.js"></script>
 <script src="gema_dialog.js"></script><script src="gema_print_a4.js"></script>
 <link rel="stylesheet" href="gema_responsive.css"/>
 </head>
@@ -580,6 +581,11 @@ function rrOpenEditor(isNew){
     +(editable?'<div style="display:flex;gap:8px;padding:0 14px 13px;flex-wrap:wrap"><button class="btn ghost" style="flex:1" onclick="rrMatAdd()">+ Material frei</button><button class="btn" style="flex:1" onclick="rrKatOpen()">🔍 Aus Katalog</button></div>':'')
     +'</div>';
 
+  // ── Fotos der Arbeit ──
+  h+='<div class="sec"><div class="sec-hd"><h3>📷 Fotos</h3><span class="hint" id="fotoSum"></span></div><div class="sec-bd" id="fotoRows"></div>'
+    +(editable?'<div style="padding:0 14px 13px"><button class="btn ghost big" onclick="rrFotoAdd()">📷 Foto aufnehmen / wählen</button></div>':'')
+    +'</div>';
+
   // ── Bemerkung ──
   h+='<div class="sec"><div class="sec-hd"><h3>💬 Bemerkungen</h3></div><div class="sec-bd">'
     +'<div class="fld"><textarea placeholder="z.B. Erschwernisse, Wartezeiten, Absprachen …"'+dis+' oninput="cur.bemerkung=this.value">'+esc(r.bemerkung||'')+'</textarea></div>'
@@ -600,7 +606,7 @@ function rrOpenEditor(isNew){
   }
 
   document.getElementById('edBody').innerHTML=h;
-  rrRenderStd();rrRenderMat();
+  rrRenderStd();rrRenderMat();rrRenderFotos();
 
   // ── Footer-Aktionen ──
   var ft='';
@@ -683,6 +689,87 @@ function rrRenderMat(){
   rrUpdateSums();
 }
 function rrMatAdd(){cur.material.push({id:uid(),bez:'',menge:1,einheit:'Stk',ep:''});rrRenderMat();}
+
+// ── Fotos der Arbeit (additiv: r.fotos = [{url|dataUrl, ts}]) ──
+function _rrImgSrc(f){return (f&&(f.url||f.dataUrl))||'';}
+function rrRenderFotos(){
+  var el=document.getElementById('fotoRows');if(!el||!cur)return;
+  var editable=rrCanEditRec(cur);
+  var fotos=cur.fotos||[];
+  var sum=document.getElementById('fotoSum');if(sum)sum.textContent=fotos.length?(fotos.length+' Foto'+(fotos.length===1?'':'s')):'';
+  if(!fotos.length){el.innerHTML='<div style="font-size:12.5px;color:var(--mut2);text-align:center;padding:6px">Noch keine Fotos</div>';return;}
+  el.innerHTML='<div style="display:flex;gap:8px;flex-wrap:wrap">'+fotos.map(function(f,i){
+    return '<div style="position:relative">'
+      +'<img src="'+esc(_rrImgSrc(f))+'" alt="Foto" style="width:86px;height:86px;object-fit:cover;border-radius:10px;border:1.5px solid var(--brd);cursor:pointer" onclick="rrFotoView('+i+')"/>'
+      +(editable?'<button class="row-del" style="position:absolute;top:-7px;right:-7px" onclick="cur.fotos.splice('+i+',1);rrRenderFotos()">✕</button>':'')
+      +'</div>';
+  }).join('')+'</div>';
+}
+// Dynamischer File-Input MUSS im DOM hängen (iOS-GC-Muster, sd_schadensbericht)
+var _rrFotoInput=null;
+function rrFotoAdd(){
+  if(!cur||!rrCanEditRec(cur))return;
+  if(_rrFotoInput&&_rrFotoInput.parentNode)_rrFotoInput.parentNode.removeChild(_rrFotoInput);
+  var inp=document.createElement('input');
+  inp.type='file';inp.accept='image/*';inp.setAttribute('capture','environment');
+  inp.style.cssText='position:fixed;left:-9999px;top:0;width:1px;height:1px;opacity:0';
+  document.body.appendChild(inp);_rrFotoInput=inp;
+  inp.onchange=function(){
+    var f=inp.files&&inp.files[0];
+    if(inp.parentNode)inp.parentNode.removeChild(inp);
+    _rrFotoInput=null;
+    if(!f||!cur)return;
+    rrFotoResize(f,function(dataUrl){
+      if(!dataUrl){toast('Foto konnte nicht gelesen werden');return;}
+      if(!cur)return;
+      cur.fotos=cur.fotos||[];
+      cur.fotos.push({dataUrl:dataUrl,ts:new Date().toISOString()});
+      rrRenderFotos();
+      rrFotoUpload(cur.fotos.length-1);
+    });
+  };
+  inp.click();
+}
+function rrFotoResize(file,cb){
+  var rd=new FileReader();
+  rd.onerror=function(){cb(null);};
+  rd.onload=function(){
+    var img=new Image();
+    img.onerror=function(){cb(null);};
+    img.onload=function(){
+      try{
+        var max=1600,w=img.width,h=img.height;
+        if(w>max||h>max){var f=Math.min(max/w,max/h);w=Math.round(w*f);h=Math.round(h*f);}
+        var c=document.createElement('canvas');c.width=w;c.height=h;
+        c.getContext('2d').drawImage(img,0,0,w,h);
+        cb(c.toDataURL('image/jpeg',0.82));
+      }catch(e){cb(null);}
+    };
+    img.src=rd.result;
+  };
+  rd.readAsDataURL(file);
+}
+function rrFotoUpload(i){
+  try{
+    if(typeof GemaStorage==='undefined'||!GemaStorage.uploadDataUrl)return;
+    var u=rrUser();var f=cur&&cur.fotos&&cur.fotos[i];
+    if(!f||!f.dataUrl)return;
+    GemaStorage.uploadDataUrl(f.dataUrl,'regierapport/'+(u&&u.orgId?u.orgId:'org')).then(function(res){
+      if(res&&res.url&&cur&&cur.fotos&&cur.fotos[i]){
+        cur.fotos[i]={url:res.url,ts:f.ts};
+        rrRenderFotos();
+      }
+    }).catch(function(){});
+  }catch(e){}
+}
+function rrFotoView(i){
+  var f=cur&&cur.fotos&&cur.fotos[i];if(!f)return;
+  var ov=document.createElement('div');
+  ov.style.cssText='position:fixed;inset:0;background:rgba(15,23,42,.9);z-index:13000;display:flex;align-items:center;justify-content:center;padding:20px;cursor:zoom-out';
+  ov.innerHTML='<img src="'+esc(_rrImgSrc(f))+'" alt="Foto" style="max-width:100%;max-height:100%;border-radius:12px"/>';
+  ov.onclick=function(){ov.remove();};
+  document.body.appendChild(ov);
+}
 function rrUpdateSums(){
   if(!cur)return;
   var t=rrTotals(cur);
@@ -1043,6 +1130,14 @@ function rrPdf(mitPreisen){
     b+='</tbody></table>';
   }
   if(mitPreisen)b+='<table><tr class="sum"><td>TOTAL REGIERAPPORT (exkl. MwSt.)</td><td class="num" style="width:120px">CHF '+chf(t.total)+'</td></tr></table>';
+  if((r.fotos||[]).length){
+    b+='<h2>Fotos der Arbeit</h2><div style="display:flex;flex-wrap:wrap;gap:8px">'
+      +r.fotos.map(function(f){
+        var src=_rrImgSrc(f);
+        return src?'<img src="'+esc(src)+'" alt="Foto" style="width:47%;max-height:88mm;object-fit:contain;border:.5px solid #ccc;border-radius:6px;page-break-inside:avoid;background:#fafafa"/>':'';
+      }).join('')
+      +'</div>';
+  }
   if(r.freigabe){
     b+='<div class="box"><b>✓ Freigegeben</b> am '+dfmt(r.freigabe.am)+' durch <b>'+esc(r.freigabe.name)+'</b>'+(r.freigabe.funktion?' ('+esc(r.freigabe.funktion)+')':'')
       +(r.freigabe.typ==='signatur'?' — Unterschrift:':' — digitale Freigabe in GEMA')
