@@ -370,13 +370,13 @@ table.t{border-collapse:collapse;width:100%;font-size:12.5px}
       <div class="fld" style="background:var(--sur2);border:1.5px solid var(--brd);border-radius:12px;padding:10px 12px">
         <label>Absenz-Regeln (pro Typ)</label>
         <div id="s_absenzRegeln" style="margin-top:4px"></div>
-        <div class="hint"><b>füllt bis Tagessoll:</b> Die Absenz-Gutschrift füllt genau die Lücke zwischen Arbeitszeit und Tagessoll (z.B. halbtags krank + gearbeitet = nie mehr als das Tagessoll). <b>keine Vorholzeit:</b> An Tagen mit dieser Absenz zählt höchstens das Tagessoll — so lässt sich z.B. festlegen, ob Lehrlinge an Berufsschul-/ÜK-Tagen Vorholzeit schreiben dürfen (Häkchen weg = erlaubt).</div>
+        <div class="hint"><b>füllt bis Tagessoll:</b> Die Absenz-Gutschrift füllt genau die Lücke zwischen Arbeitszeit und Tagessoll (z.B. halbtags krank + gearbeitet = nie mehr als das Tagessoll). <b>keine Vorholzeit:</b> An Tagen mit dieser Absenz zählt höchstens das Tagessoll — so lässt sich z.B. festlegen, ob Lehrlinge an Berufsschul-/ÜK-Tagen Vorholzeit schreiben dürfen (Häkchen weg = erlaubt). <b>Limit T/J:</b> max. Tage pro Jahr — die Selbst-Erfassung stoppt am Limit, Anträge darüber entscheidet die Projektleitung (Ferien/Kompensation/Brückentag haben eigene Konten und darum kein Limit-Feld).</div>
       </div>
     </div>
     <div class="set-sec" data-sec="eigene">
       <div class="sec-cap">Eigene Absenz-Typen</div>
-      <div class="hint" style="margin-bottom:8px">Zusätzliche Absenz-Typen fürs Team (z.B. Arzttermin, Weiterbildung, Umzugstag) — mit eigenen Kriterien und optional nur für ausgewählte Personen sichtbar. Die Mitarbeiter erfassen sie wie jede Absenz über «🌴 Absenz»; mit «Antrag» erscheinen sie zusätzlich im Ferien-/Absenz-Antrag.</div>
-      <div style="display:grid;grid-template-columns:46px 1fr 44px 44px 44px 64px 30px;gap:6px;font-size:9px;font-weight:800;text-transform:uppercase;color:var(--mut);margin-bottom:2px"><div>Icon</div><div>Bezeichnung</div><div style="text-align:center" title="füllt bis Tagessoll auf">füllt</div><div style="text-align:center" title="keine Vorholzeit an diesem Tag">k. Vorh.</div><div style="text-align:center" title="im Ferien-/Absenz-Antrag beantragbar">Antrag</div><div style="text-align:center">sichtbar</div><div></div></div>
+      <div class="hint" style="margin-bottom:8px">Zusätzliche Absenz-Typen fürs Team (z.B. 🩺 Arzttermin, ❤️ Pflege Angehörige mit Limit 3 Tage/Jahr, 📦 Umzugstag) — mit eigenen Kriterien, optionalem Jahres-Limit und optional nur für ausgewählte Personen sichtbar. Die Mitarbeiter erfassen sie wie jede Absenz über «🌴 Absenz»; mit «Antrag» erscheinen sie zusätzlich im Ferien-/Absenz-Antrag.</div>
+      <div style="display:grid;grid-template-columns:46px 1fr 40px 40px 40px 54px 64px 30px;gap:6px;font-size:9px;font-weight:800;text-transform:uppercase;color:var(--mut);margin-bottom:2px"><div>Icon</div><div>Bezeichnung</div><div style="text-align:center" title="füllt bis Tagessoll auf">füllt</div><div style="text-align:center" title="keine Vorholzeit an diesem Tag">k. Vorh.</div><div style="text-align:center" title="im Ferien-/Absenz-Antrag beantragbar">Antrag</div><div style="text-align:center" title="max. Tage pro Jahr (leer = unbegrenzt)">Limit T/J</div><div style="text-align:center">sichtbar</div><div></div></div>
       <div id="s_eigeneRows"></div>
       <button class="btn sm" type="button" style="width:auto" onclick="stEaAdd()">＋ Eigener Absenz-Typ</button>
       <div class="hint" style="margin-top:6px">👥 = nur für angehakte Personen sichtbar (niemand angehakt = alle). Wird ein Typ gelöscht, bleiben bereits erfasste Tage lesbar.</div>
@@ -477,10 +477,12 @@ function stdParams(s){
     if(!e||typeof e!=='object')return null;
     var id=String(e.id||'').trim(),name=String(e.name||'').trim();
     if(!id||!name)return null;
+    var lim=parseFloat(e.maxTageProJahr);
     return {id:id,name:name,ic:String(e.ic||'').trim()||'📌',
       fuelltAuf:e.fuelltAuf===true||e.fuelltAuf==='true',
       keineVorholzeit:e.keineVorholzeit===true||e.keineVorholzeit==='true',
       beantragbar:e.beantragbar===true||e.beantragbar==='true',
+      maxTageProJahr:(isFinite(lim)&&lim>0)?lim:null,
       nurUserIds:(Array.isArray(e.nurUserIds)&&e.nurUserIds.length)?e.nurUserIds.slice():null};
   }).filter(Boolean);
   return p;
@@ -537,6 +539,31 @@ function stdAbsenzDef(p,typ){
   var e=stdEigeneAbsenz(p,typ);
   if(e)return {n:e.name,ic:e.ic||'📌',cls:'b-vio'};
   return {n:String(typ||'Absenz'),ic:'📌',cls:'b-out'};
+}
+// Jahres-Limit eines Absenz-Typs in Tagen (z.B. Pflege Angehörige → 3 Tage/Jahr).
+// Eigene Typen tragen es auf der Definition, Built-ins in absenzRegeln[typ].
+// null = kein Limit. Ferien/Kompensation/Brückentag haben eigene Konten
+// (Feriensaldo/Topf A/Vorhol) — dort gibt es bewusst kein Zusatz-Limit.
+var STD_ABSENZ_LIMIT_AUSGENOMMEN=['ferien','kompensation','brueckentag'];
+function stdAbsenzLimit(p,typ){
+  if(STD_ABSENZ_LIMIT_AUSGENOMMEN.indexOf(typ)>=0)return null;
+  var e=stdEigeneAbsenz(p,typ);
+  if(e)return e.maxTageProJahr||null;
+  var s=(p&&p.absenzRegeln&&p.absenzRegeln[typ])||{};
+  var v=parseFloat(s.maxTageProJahr);
+  return (isFinite(v)&&v>0)?v:null;
+}
+// Bezogene Tage eines Absenz-Typs in einem Jahr (½-Tage = 0.5;
+// stunden-basierte Absenzen zählen mit stunden/Tagessoll)
+function stdAbsenzBezogen(tage,typ,jahr,p){
+  var T=stdTagSollH(p),sum=0;
+  (tage||[]).forEach(function(t){
+    if(!t||!t.absenz||t.absenz.typ!==typ)return;
+    if(String(t.datum).slice(0,4)!==String(jahr))return;
+    var st=parseFloat(t.absenz.stunden);
+    sum+=(isFinite(st)&&st>0&&T>0)?st/T:stdAbsenzAnteil(t);
+  });
+  return sum;
 }
 function stdAbsenzAnteil(t){
   if(!t||!t.absenz)return 0;
@@ -1691,8 +1718,20 @@ function stAbsTypenFuer(userId){
   stdEigeneAbsenzenFuer(p,userId).forEach(function(e){out.push({id:e.id,ic:e.ic,n:e.name});});
   return out;
 }
-// Hinweis pro Typ + aktive Org-Regeln (⚙️ Regeln & Automatik)
+// Jahres-Limit-Stand eines Users für einen Typ (null = kein Limit).
+// exklDatum: dieser Tag zählt nicht mit (beim Bearbeiten der eigenen Absenz).
+function stAbsLimitInfo(userId,typ,jahr,exklDatum){
+  var p=stParamsFor(userId);
+  var limit=stdAbsenzLimit(p,typ);
+  if(!limit)return null;
+  var tage=orgTage().filter(function(t){return t.userId===userId;});
+  var bezogen=stdAbsenzBezogen(tage,typ,jahr,p);
+  var bezogenOhne=exklDatum?stdAbsenzBezogen(tage.filter(function(t){return t.datum!==exklDatum;}),typ,jahr,p):bezogen;
+  return {limit:limit,bezogen:bezogen,bezogenOhne:bezogenOhne,rest:limit-bezogen};
+}
+// Hinweis pro Typ + aktive Org-Regeln (⚙️ Regeln & Automatik) + Jahres-Limit-Stand
 function stAbsHint(){
+  var u=stUser();if(!u)return;
   var typ=document.getElementById('abs_typ').value;
   var p=stParams();
   var r=stdAbsenzRegel(p,typ);
@@ -1700,14 +1739,32 @@ function stAbsHint(){
   var teile=[ABS_HINTS[typ]||(eigene?'Eigener Absenz-Typ «'+eigene.name+'» — reduziert das Soll.':'')];
   if(r.fuelltAuf)teile.push('Regel: Die Gutschrift füllt genau bis zum Tagessoll auf (Arbeitszeit + Absenz = Tagessoll, nie mehr).');
   if(r.keineVorholzeit)teile.push('Regel: An diesem Tag zählt höchstens das Tagessoll — keine Vorholzeit/Überstunden.');
+  var jahr=parseInt(String(_absDatum||today()).slice(0,4),10);
+  var info=stAbsLimitInfo(u.id,typ,jahr);
+  if(info)teile.push('Limit: max. '+stFmtT(info.limit)+' Tage/Jahr — '+jahr+' bezogen: '+stFmtT(info.bezogen)+', Rest '+stFmtT(Math.max(0,info.rest))+'.');
   document.getElementById('abs_hint').textContent=teile.filter(Boolean).join(' ');
 }
 function stAbsSave(){
   var u=stUser();if(!u)return;
   var t=stTagFor(_absDatum,u.id);
   if(t&&!stTagEditable(t)){toast('Tag ist eingereicht — nicht mehr änderbar');return;}
+  var typ=document.getElementById('abs_typ').value;
+  var anteil=document.getElementById('abs_anteil').value==='0.5'?0.5:1;
+  // Jahres-Limit (z.B. Pflege Angehörige → 3 Tage/Jahr): Selbst-Erfassung über
+  // dem Limit wird gestoppt — Reduzieren/Umbuchen bleibt immer möglich.
+  var jahr=parseInt(String(_absDatum).slice(0,4),10);
+  var info=stAbsLimitInfo(u.id,typ,jahr,_absDatum);
+  if(info){
+    var vorher=info.bezogen-info.bezogenOhne; // heutiger Tag, falls schon dieser Typ
+    var neu=info.bezogenOhne+anteil;
+    if(neu>info.limit+0.001&&anteil>vorher+0.001){
+      var def=stdAbsenzDef(stParams(),typ);
+      toast('⛔ Limit erreicht: «'+def.n+'» max. '+stFmtT(info.limit)+' Tage/Jahr — bereits '+stFmtT(info.bezogenOhne)+' bezogen');
+      return;
+    }
+  }
   if(!t)t={id:uid(),orgId:u.orgId,userId:u.id,userName:u.name,datum:_absDatum,eintraege:[],spesen:{},status:'offen',erstelltAm:new Date().toISOString()};
-  t.absenz={typ:document.getElementById('abs_typ').value,anteil:document.getElementById('abs_anteil').value==='0.5'?0.5:1};
+  t.absenz={typ:typ,anteil:anteil};
   if(t.status==='zurueck')t.status='offen';
   poolSave(t);
   stClose('absModal');toast('💾 Absenz erfasst');stRender();
@@ -1829,6 +1886,13 @@ function stFerienCalc(){
   } else {
     var r=stdAbsenzRegel(p,typ);
     h+='<div class="sumline"><span>Wirkung</span><b>reduziert das Soll'+(r.keineVorholzeit?' · keine Vorholzeit':'')+'</b></div>';
+  }
+  // Jahres-Limit des Typs (z.B. Pflege Angehörige → 3 Tage/Jahr)
+  var linfo=stAbsLimitInfo(u.id,typ,jahr);
+  if(linfo){
+    var lNachher=linfo.rest-tage;
+    h+='<div class="sumline"><span>Jahres-Limit: bezogen / max.</span><b style="color:'+(lNachher>=-0.001?'var(--txt)':'var(--red)')+'">'+stFmtT(linfo.bezogen)+' / '+stFmtT(linfo.limit)+' Tage</b></div>'
+      +(lNachher<-0.001?'<div class="gavnote" style="margin-top:6px;background:var(--red-bg);border-color:var(--red-bd);color:var(--red)">⚠ Der Antrag übersteigt das Jahres-Limit ('+stFmtT(linfo.limit)+' Tage) — die Projektleitung entscheidet.</div>':'');
   }
   el.innerHTML=h;
 }
@@ -2042,6 +2106,10 @@ function stRenderFerienAntraege(){
     } else if(absTyp==='kompensation'){
       var saldoA=stTopfASaldo(a.userId,jahr);
       saldoHtml='<div class="sumline"><span>Topf-A-Saldo '+jahr+' (Bezug pro Tag = Tagessoll)</span><b style="color:'+(saldoA>=0?'var(--grn)':'var(--red)')+'">'+stdFmtH(saldoA)+' h</b></div>';
+    } else {
+      var linfo=stAbsLimitInfo(a.userId,absTyp,jahr);
+      if(linfo)saldoHtml='<div class="sumline"><span>Jahres-Limit «'+esc(ft.n)+'» '+jahr+' (bezogen / max.)</span><b style="color:'+(linfo.rest-a.tage>=-0.001?'var(--grn)':'var(--red)')+'">'+stFmtT(linfo.bezogen)+' / '+stFmtT(linfo.limit)+' Tage</b></div>'
+        +(linfo.rest-a.tage<-0.001?'<div class="gavnote" style="margin-top:6px;background:var(--red-bg);border-color:var(--red-bd);color:var(--red)">⚠ Die Genehmigung ('+a.tage+' Tage) überschreitet das Jahres-Limit von '+stFmtT(linfo.limit)+' Tagen.</div>':'');
     }
     h+='<div class="card"><div class="card-hd"><h3>'+ft.ic+' '+esc(ft.n)+'-Antrag: '+esc(a.userName||'')+'</h3>'
       +'<span class="sub">beantragt am '+dfmt(a.beantragtAm)+'</span>'
@@ -2373,14 +2441,19 @@ function stOpenSettings(){
   var regelRows='';
   Object.keys(STD_ABSENZ).forEach(function(typ){
     var r=stdAbsenzRegel(p,typ);
-    regelRows+='<div class="s-regel-row" data-typ="'+typ+'" style="display:grid;grid-template-columns:1fr 92px 92px;gap:6px;align-items:center;margin-bottom:4px">'
+    var limOk=STD_ABSENZ_LIMIT_AUSGENOMMEN.indexOf(typ)<0;
+    var limVal=(p.absenzRegeln&&p.absenzRegeln[typ]&&parseFloat(p.absenzRegeln[typ].maxTageProJahr)>0)?p.absenzRegeln[typ].maxTageProJahr:'';
+    regelRows+='<div class="s-regel-row" data-typ="'+typ+'" style="display:grid;grid-template-columns:1fr 78px 78px 64px;gap:6px;align-items:center;margin-bottom:4px">'
       +'<div style="font-size:12px;font-weight:700">'+STD_ABSENZ[typ].ic+' '+esc(STD_ABSENZ[typ].n)+'</div>'
       +'<div style="text-align:center"><input type="checkbox" class="s-regel-fuellt"'+(r.fuelltAuf?' checked':'')+' style="width:18px;height:18px;accent-color:var(--acc)"/></div>'
       +'<div style="text-align:center"><input type="checkbox" class="s-regel-kv"'+(r.keineVorholzeit?' checked':'')+' style="width:18px;height:18px;accent-color:var(--acc)"/></div>'
+      +(limOk
+        ?'<input type="text" inputmode="decimal" class="s-regel-limit" value="'+esc(limVal)+'" placeholder="∞" title="Jahres-Limit in Tagen — leer = unbegrenzt" style="padding:6px 4px;border:1.5px solid var(--brd2);border-radius:8px;font-size:11.5px;text-align:center"/>'
+        :'<div style="text-align:center;color:var(--mut2)" title="Hat ein eigenes Konto (Feriensaldo / Topf A / Vorhol) — kein Zusatz-Limit">—</div>')
       +'</div>';
   });
   document.getElementById('s_absenzRegeln').innerHTML=
-    '<div style="display:grid;grid-template-columns:1fr 92px 92px;gap:6px;font-size:9.5px;font-weight:800;text-transform:uppercase;color:var(--mut);margin-bottom:4px"><div>Absenz-Typ</div><div style="text-align:center">füllt bis Tagessoll</div><div style="text-align:center">keine Vorholzeit</div></div>'+regelRows;
+    '<div style="display:grid;grid-template-columns:1fr 78px 78px 64px;gap:6px;font-size:9.5px;font-weight:800;text-transform:uppercase;color:var(--mut);margin-bottom:4px"><div>Absenz-Typ</div><div style="text-align:center">füllt bis Tagessoll</div><div style="text-align:center">keine Vorholzeit</div><div style="text-align:center" title="max. Tage pro Jahr">Limit T/J</div></div>'+regelRows;
   // Kontroll-Indikatoren (0 = aus → leeres Feld)
   document.getElementById('s_indMaxH').value=p.indikatoren.maxH||'';
   document.getElementById('s_indMaxPct').value=p.indikatoren.maxPct||'';
@@ -2481,7 +2554,12 @@ function stSetSummary(){
   if(!el)return;
   var v=function(id){var x=document.getElementById(id);return x?String(x.value).trim():'';};
   var chk=function(id){var x=document.getElementById(id);return !!(x&&x.checked);};
-  var eigene=[].map.call(document.querySelectorAll('#s_eigeneRows .s-ea-name'),function(i){return i.value.trim();}).filter(Boolean);
+  var eigene=[].map.call(document.querySelectorAll('#s_eigeneRows .s-ea-row'),function(row){
+    var name=row.querySelector('.s-ea-name').value.trim();
+    if(!name)return '';
+    var lim=parseFloat(row.querySelector('.s-ea-limit').value);
+    return name+((isFinite(lim)&&lim>0)?' (max. '+lim+' T/J)':'');
+  }).filter(Boolean);
   var ind=[];
   if(parseFloat(v('s_indMaxH'))>0)ind.push('> '+v('s_indMaxH')+' h');
   if(parseFloat(v('s_indMaxPct'))>0)ind.push('> '+v('s_indMaxPct')+' %');
@@ -2509,12 +2587,13 @@ function stEaRowHtml(e){
   var sel={};(e.nurUserIds||[]).forEach(function(x){sel[x]=1;});
   var nSel=(e.nurUserIds||[]).length;
   return '<div class="s-ea-row" data-id="'+esc(e.id||'')+'" style="margin-bottom:6px">'
-    +'<div style="display:grid;grid-template-columns:46px 1fr 44px 44px 44px 64px 30px;gap:6px;align-items:center">'
+    +'<div style="display:grid;grid-template-columns:46px 1fr 40px 40px 40px 54px 64px 30px;gap:6px;align-items:center">'
     +'<input type="text" class="s-ea-ic" value="'+esc(e.ic||'')+'" placeholder="📌" style="padding:6px 4px;border:1.5px solid var(--brd2);border-radius:8px;font-size:13px;text-align:center"/>'
-    +'<input type="text" class="s-ea-name" value="'+esc(e.name||'')+'" placeholder="z.B. Arzttermin" style="padding:6px 8px;border:1.5px solid var(--brd2);border-radius:8px;font-size:12.5px"/>'
+    +'<input type="text" class="s-ea-name" value="'+esc(e.name||'')+'" placeholder="z.B. Pflege Angehörige" style="padding:6px 8px;border:1.5px solid var(--brd2);border-radius:8px;font-size:12.5px"/>'
     +'<div style="text-align:center"><input type="checkbox" class="s-ea-fuellt"'+(e.fuelltAuf?' checked':'')+' title="füllt bis Tagessoll auf" style="width:18px;height:18px;accent-color:var(--acc)"/></div>'
     +'<div style="text-align:center"><input type="checkbox" class="s-ea-kv"'+(e.keineVorholzeit?' checked':'')+' title="keine Vorholzeit an diesem Tag" style="width:18px;height:18px;accent-color:var(--acc)"/></div>'
     +'<div style="text-align:center"><input type="checkbox" class="s-ea-antrag"'+(e.beantragbar?' checked':'')+' title="im Ferien-/Absenz-Antrag beantragbar" style="width:18px;height:18px;accent-color:var(--acc)"/></div>'
+    +'<input type="text" inputmode="decimal" class="s-ea-limit" value="'+(e.maxTageProJahr!=null?esc(e.maxTageProJahr):'')+'" placeholder="∞" title="Jahres-Limit in Tagen, z.B. 3 — leer = unbegrenzt" style="padding:6px 4px;border:1.5px solid var(--brd2);border-radius:8px;font-size:11.5px;text-align:center"/>'
     +'<button type="button" class="btn sm s-ea-userbtn" style="min-height:28px;padding:2px 6px" onclick="stEaUsersToggle(this)">👥 '+(nSel||'alle')+'</button>'
     +'<button type="button" onclick="this.closest(\'.s-ea-row\').remove()" title="Typ entfernen (alte Einträge bleiben lesbar)" style="width:26px;height:26px;border-radius:8px;border:1px solid var(--brd2);background:var(--sur);color:var(--red);font-weight:900;cursor:pointer">✕</button>'
     +'</div>'
@@ -2585,10 +2664,13 @@ function stSetSave(){
       absenzRegeln:(function(){
         var m={};
         document.querySelectorAll('#s_absenzRegeln .s-regel-row').forEach(function(row){
-          m[row.getAttribute('data-typ')]={
+          var o={
             fuelltAuf:row.querySelector('.s-regel-fuellt').checked,
             keineVorholzeit:row.querySelector('.s-regel-kv').checked
           };
+          var limEl=row.querySelector('.s-regel-limit');
+          if(limEl){var lv=parseFloat(limEl.value);if(isFinite(lv)&&lv>0)o.maxTageProJahr=lv;}
+          m[row.getAttribute('data-typ')]=o;
         });
         return m;
       })(),
@@ -2610,10 +2692,12 @@ function stSetSave(){
           if(!name)return; // leere Zeilen verwerfen
           var id=row.getAttribute('data-id')||stEaSlug(name,taken); // bestehende IDs bleiben stabil (Altdaten!)
           var users=[].map.call(row.querySelectorAll('.s-ea-user:checked'),function(c){return c.value;});
+          var lim=parseFloat(row.querySelector('.s-ea-limit').value);
           out.push({id:id,name:name,ic:row.querySelector('.s-ea-ic').value.trim()||'📌',
             fuelltAuf:row.querySelector('.s-ea-fuellt').checked,
             keineVorholzeit:row.querySelector('.s-ea-kv').checked,
             beantragbar:row.querySelector('.s-ea-antrag').checked,
+            maxTageProJahr:(isFinite(lim)&&lim>0)?lim:null,
             nurUserIds:users.length?users:null});
         });
         return out;

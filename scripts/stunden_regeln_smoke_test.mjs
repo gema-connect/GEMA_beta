@@ -39,7 +39,8 @@ s1.gema_orgs_v1[0].settings = { stunden: {
   absenzRegeln: { krank: { fuelltAuf: true, keineVorholzeit: true } },
   eigeneAbsenzen: [
     { id: 'ea_arzt', name: 'Arzttermin', ic: '🩺', fuelltAuf: true, keineVorholzeit: true, beantragbar: true, nurUserIds: null },
-    { id: 'ea_schulung', name: 'Interne Schulung', ic: '📚', fuelltAuf: false, keineVorholzeit: false, beantragbar: true, nurUserIds: ['u_other'] }
+    { id: 'ea_schulung', name: 'Interne Schulung', ic: '📚', fuelltAuf: false, keineVorholzeit: false, beantragbar: true, nurUserIds: ['u_other'] },
+    { id: 'ea_pflege', name: 'Pflege Angehörige', ic: '❤️', fuelltAuf: false, keineVorholzeit: false, beantragbar: true, maxTageProJahr: 3, nurUserIds: null }
   ]
 } };
 const { page: p1 } = await newPage(browser, s1);
@@ -210,7 +211,7 @@ await p1.waitForTimeout(200);
 console.log('■ Eigene Absenz-Typen (Sichtbarkeit + Erfassung + Antrag)');
 {
   const ea = await p1.evaluate(() => GemaAuth.getOrgs()[0].settings.stunden.eigeneAbsenzen);
-  ok(ea.length === 2 && ea[0].id === 'ea_arzt' && (ea[1].nurUserIds || []).join() === 'u_other', 'Geseedete Typen überleben den Settings-Roundtrip (IDs + Sichtbarkeit stabil)');
+  ok(ea.length === 3 && ea[0].id === 'ea_arzt' && (ea[1].nurUserIds || []).join() === 'u_other' && ea[2].maxTageProJahr === 3, 'Geseedete Typen überleben den Settings-Roundtrip (IDs, Sichtbarkeit + Limit stabil)');
   await p1.evaluate(() => { _view = 'woche'; stRender(); stAbsOpen('2026-07-16'); });
   const absOpts = await p1.evaluate(() => [].map.call(document.querySelectorAll('#abs_typ option'), o => o.value));
   ok(absOpts.includes('ea_arzt'), 'Eigener Typ «Arzttermin» im Absenz-Modal wählbar');
@@ -231,7 +232,10 @@ console.log('■ ⚙️ Editor für eigene Typen + Einrichtungs-Assistent');
 await p1.evaluate(() => stOpenSettings());
 {
   ok(await p1.evaluate(() => document.getElementById('setWizBar').style.display === 'none'), 'Bestehende Einstellungen → Listen-Modus (kein Auto-Wizard)');
-  ok(await p1.evaluate(() => document.querySelectorAll('#s_eigeneRows .s-ea-row').length === 2), 'Editor zeigt beide eigenen Typen');
+  ok(await p1.evaluate(() => document.querySelectorAll('#s_eigeneRows .s-ea-row').length === 3), 'Editor zeigt alle drei eigenen Typen');
+  ok(await p1.evaluate(() => document.querySelector('#s_eigeneRows .s-ea-row[data-id=ea_pflege] .s-ea-limit').value === '3'), 'Limit-Feld (3 T/J) beim eigenen Typ vorbelegt');
+  ok(await p1.evaluate(() => !document.querySelector('#s_absenzRegeln .s-regel-row[data-typ=ferien] .s-regel-limit')), 'Ferien ohne Limit-Feld (eigenes Konto — «—»)');
+  await p1.evaluate(() => { document.querySelector('#s_absenzRegeln .s-regel-row[data-typ=militaer] .s-regel-limit').value = '10'; });
   ok(await p1.evaluate(() => document.querySelector('#s_eigeneRows .s-ea-row[data-id=ea_schulung] .s-ea-userbtn').textContent.trim() === '👥 1'), 'Sichtbarkeits-Knopf zeigt «👥 1» beim eingeschränkten Typ');
   await p1.evaluate(() => {
     stEaAdd();
@@ -256,8 +260,38 @@ await p1.evaluate(() => stOpenSettings());
   await p1.evaluate(() => stSetSave());
   await p1.waitForTimeout(300);
   const ea2 = await p1.evaluate(() => GemaAuth.getOrgs()[0].settings.stunden.eigeneAbsenzen);
-  ok(ea2.length === 3 && ea2[2].id === 'ea_zuegeltag' && ea2[2].name === 'Zügeltag', 'Neuer Typ mit Slug-ID ea_zuegeltag gespeichert (Umlaut → ue)');
+  ok(ea2.length === 4 && ea2[3].id === 'ea_zuegeltag' && ea2[3].name === 'Zügeltag', 'Neuer Typ mit Slug-ID ea_zuegeltag gespeichert (Umlaut → ue)');
   ok(ea2[0].id === 'ea_arzt' && ea2[1].id === 'ea_schulung' && (ea2[1].nurUserIds || []).join() === 'u_other', 'Bestehende IDs + Sichtbarkeit unverändert (Altdaten bleiben verknüpft)');
+  ok(ea2[2].maxTageProJahr === 3, 'Limit des eigenen Typs überlebt den Roundtrip');
+  ok(await p1.evaluate(() => GemaAuth.getOrgs()[0].settings.stunden.absenzRegeln.militaer.maxTageProJahr === 10), 'Built-in-Limit (Militär 10 T/J) gespeichert');
+}
+
+console.log('■ Jahres-Limit (Pflege Angehörige → 3 Tage/Jahr)');
+{
+  await p1.evaluate(() => { _view = 'woche'; stRender(); stAbsOpen('2026-08-03'); document.getElementById('abs_typ').value = 'ea_pflege'; stAbsHint(); });
+  ok(await p1.evaluate(() => /max\. 3\.0 Tage\/Jahr/.test(document.getElementById('abs_hint').textContent)), 'Hint nennt das Limit (max. 3.0 Tage/Jahr)');
+  await p1.evaluate(() => { document.getElementById('abs_anteil').value = '1'; stAbsSave(); });
+  await p1.evaluate(() => { stAbsOpen('2026-08-04'); document.getElementById('abs_typ').value = 'ea_pflege'; document.getElementById('abs_anteil').value = '1'; stAbsSave(); });
+  await p1.evaluate(() => { stAbsOpen('2026-08-05'); document.getElementById('abs_typ').value = 'ea_pflege'; document.getElementById('abs_anteil').value = '0.5'; stAbsSave(); });
+  await p1.waitForTimeout(200);
+  ok(await p1.evaluate(() => ['2026-08-03', '2026-08-04', '2026-08-05'].every(d => ((stTagFor(d, 'u_test') || {}).absenz || {}).typ === 'ea_pflege')), '2.5 Tage «Pflege Angehörige» erfasst');
+  await p1.evaluate(() => { stAbsOpen('2026-08-06'); document.getElementById('abs_typ').value = 'ea_pflege'; document.getElementById('abs_anteil').value = '1'; stAbsSave(); });
+  await p1.waitForTimeout(200);
+  ok(await p1.evaluate(() => !(stTagFor('2026-08-06', 'u_test') || {}).absenz), 'Ganzer Tag über dem Limit wird gestoppt (2.5 + 1 > 3)');
+  ok(await p1.evaluate(() => document.getElementById('absModal').classList.contains('open')), 'Modal bleibt offen (Korrektur möglich)');
+  await p1.evaluate(() => { document.getElementById('abs_anteil').value = '0.5'; stAbsSave(); });
+  await p1.waitForTimeout(200);
+  ok(await p1.evaluate(() => ((stTagFor('2026-08-06', 'u_test') || {}).absenz || {}).anteil === 0.5), '½ Tag bis exakt ans Limit erlaubt (3.0 / 3)');
+  await p1.evaluate(() => { stAbsOpen('2026-08-07'); document.getElementById('abs_typ').value = 'ea_pflege'; document.getElementById('abs_anteil').value = '0.5'; stAbsSave(); });
+  await p1.waitForTimeout(200);
+  ok(await p1.evaluate(() => !(stTagFor('2026-08-07', 'u_test') || {}).absenz), 'Limit voll → weitere Selbst-Erfassung blockiert');
+  await p1.evaluate(() => stClose('absModal'));
+  await p1.evaluate(() => { stFerienOpen(); document.getElementById('fa_typ').value = 'ea_pflege'; document.getElementById('fa_von').value = '2026-08-10'; document.getElementById('fa_bis').value = '2026-08-11'; stFerienCalc(); });
+  ok(await p1.evaluate(() => /Jahres-Limit/.test(document.getElementById('fa_calc').textContent) && /übersteigt das Jahres-Limit/.test(document.getElementById('fa_calc').textContent)), 'Antrags-Vorschau zeigt Limit-Stand + Warnung');
+  await p1.evaluate(() => stFerienSubmit());
+  await p1.waitForTimeout(200);
+  await p1.evaluate(() => { _view = 'freigabe'; stRender(); });
+  ok(await p1.evaluate(() => /Jahres-Limit «Pflege Angehörige»/.test(document.getElementById('viewWrap').textContent)), 'Freigabe-Karte zeigt den Limit-Stand des Mitarbeiters');
 }
 
 console.log('■ Erst-Einrichtung startet automatisch als Assistent');

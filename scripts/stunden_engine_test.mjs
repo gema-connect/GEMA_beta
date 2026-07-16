@@ -18,7 +18,7 @@ const g = new Function(m[1] + `;return {STD_DEFAULTS,stdParams,STD_ABSENZ,STD_AB
   stdAbsenzAnteil,stdTagSollH,stdTagAbzugH,stdTagCapH,stdEintragMin,stdTagTyp,stdTagStunden,stdAddTage,
   stdWochenStart,stdWochenSoll,stdWochenAktivTage,stdWochenSollEff,stdWochenAuswertung,stdMonatsAuswertung,
   stdJahresAuswertung,stdFmtH,stdOstern,STD_FEIERTAG_DEFS,stdFeiertageJahr,stdIndikatoren,stdAutoKompGap,
-  stdParamsFuerMitarbeiter,stdEigeneAbsenz,stdEigeneAbsenzenFuer,stdAbsenzDef};`)();
+  stdParamsFuerMitarbeiter,stdEigeneAbsenz,stdEigeneAbsenzenFuer,stdAbsenzDef,stdAbsenzLimit,stdAbsenzBezogen};`)();
 
 let n = 0, fail = 0;
 function t(name, cond) {
@@ -209,6 +209,27 @@ const wEigen = g.stdWochenAuswertung([
 ], WS, pEigen);
 near('Woche mit eigenem Typ (füllt+kv): Saldo 0', wEigen.saldo, 0);
 near('Gutschrift = Lücke zum Tagessoll (8−2=6 h → Soll 34 h)', wEigen.soll, 34);
+
+console.log('— Jahres-Limits (stdAbsenzLimit / stdAbsenzBezogen) —');
+const pLim = g.stdParams({
+  eigeneAbsenzen: [{ id: 'ea_pflege', name: 'Pflege Angehörige', maxTageProJahr: 3 }],
+  absenzRegeln: { militaer: { maxTageProJahr: 10 }, ferien: { maxTageProJahr: 99 } }
+});
+near('Limit eigener Typ: 3 Tage/Jahr', g.stdAbsenzLimit(pLim, 'ea_pflege'), 3);
+near('Limit Built-in via Regel: Militär 10', g.stdAbsenzLimit(pLim, 'militaer'), 10);
+t('Ferien ausgenommen (Feriensaldo) → null trotz Eintrag', g.stdAbsenzLimit(pLim, 'ferien') === null);
+t('Kompensation/Brückentag ausgenommen (eigene Konten)', g.stdAbsenzLimit(pLim, 'kompensation') === null && g.stdAbsenzLimit(pLim, 'brueckentag') === null);
+t('Ohne Eintrag → null', g.stdAbsenzLimit(pLim, 'krank') === null);
+t('maxTageProJahr 0 → null (normalisiert)', g.stdParams({ eigeneAbsenzen: [{ id: 'ea_x', name: 'X', maxTageProJahr: 0 }] }).eigeneAbsenzen[0].maxTageProJahr === null);
+const bezTage = [
+  tag('2026-02-02', 0, { typ: 'ea_pflege', anteil: 1 }),
+  tag('2026-02-03', 0, { typ: 'ea_pflege', anteil: 0.5 }),
+  tag('2025-12-30', 0, { typ: 'ea_pflege', anteil: 1 }),             // anderes Jahr
+  tag('2026-02-04', 0, { typ: 'krank', anteil: 1 }),                 // anderer Typ
+  tag('2026-02-05', 5, { typ: 'ea_pflege', anteil: 1, stunden: 4 })  // stunden-basiert: 4 h / 8 h = 0.5 Tage
+];
+near('Bezogen 2026: 1 + ½ + ½ (stunden) = 2 Tage', g.stdAbsenzBezogen(bezTage, 'ea_pflege', 2026, pLim), 2);
+near('Bezogen 2025: 1 Tag (Jahres-Filter)', g.stdAbsenzBezogen(bezTage, 'ea_pflege', 2025, pLim), 1);
 
 console.log('— Pensum-Skalierung bleibt kompatibel —');
 const p80 = g.stdParamsFuerMitarbeiter(pDef, { pensum: 80 });
