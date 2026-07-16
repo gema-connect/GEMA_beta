@@ -203,7 +203,8 @@ function fixLeadingZero(el){
     kumulierbar: false,     // Restbudget in die nächste Periode übertragen
     budgetAb: '',           // ISO-Datum: ab wann kumuliert wird ('' = nur aktuelle Periode)
     mitarbeiterSicht: true, // false = nur Magaziner/Admin sehen das Modul
-    budgets: {}             // { userId: { betrag: Number|null, ab: 'YYYY-MM-DD'|null } }
+    budgets: {},            // { userId: { betrag: Number|null, ab: 'YYYY-MM-DD'|null } }
+    kategorien: null        // null = Standard-Katalog AK_KATS; sonst [{id,label,icon}]
   };
   var AK_PLEN = { jahr:12, halbjahr:6, quartal:3 };
   var AK_KATS = [
@@ -218,9 +219,30 @@ function fixLeadingZero(el){
     {id:'zubehoer',   label:'Zubehör',           icon:'🎒'},
     {id:'sonstiges',  label:'Sonstiges',         icon:'📦'}
   ];
-  function akKat(id){
-    for(var i=0;i<AK_KATS.length;i++){ if(AK_KATS[i].id===id) return AK_KATS[i]; }
-    return AK_KATS[AK_KATS.length-1];
+  // Wirksame Kategorien-Liste: pro Org anpassbar (cfg.kategorien aus den
+  // Einstellungen); ungültige Einträge werden übersprungen, leer/fehlend
+  // fällt auf den Standard-Katalog zurück.
+  function akKats(cfg){
+    var list = cfg && Array.isArray(cfg.kategorien) ? cfg.kategorien : null;
+    if(list && list.length){
+      var out = [];
+      list.forEach(function(k){
+        if(!k) return;
+        var id = String(k.id || '').trim();
+        var label = String(k.label || '').trim();
+        if(!id || !label) return;
+        out.push({ id:id, label:label, icon: String(k.icon || '').trim() || '🏷' });
+      });
+      if(out.length) return out;
+    }
+    return AK_KATS;
+  }
+  function akKat(id, kats){
+    var list = (kats && kats.length) ? kats : AK_KATS;
+    for(var i=0;i<list.length;i++){ if(list[i].id===id) return list[i]; }
+    // Altdaten: gelöschte Standard-Kategorie behält ihr Standard-Label
+    for(var j=0;j<AK_KATS.length;j++){ if(AK_KATS[j].id===id) return AK_KATS[j]; }
+    return list[list.length-1];
   }
   function akParams(settings){
     var s = settings || {};
@@ -306,7 +328,7 @@ function fixLeadingZero(el){
     parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, "'");
     return (neg ? '−' : '') + parts[0] + '.' + parts[1];
   }
-  w.AK_DEFAULTS = AK_DEFAULTS; w.AK_PLEN = AK_PLEN; w.AK_KATS = AK_KATS; w.akKat = akKat;
+  w.AK_DEFAULTS = AK_DEFAULTS; w.AK_PLEN = AK_PLEN; w.AK_KATS = AK_KATS; w.akKat = akKat; w.akKats = akKats;
   w.akParams = akParams; w.akPeriodeVon = akPeriodeVon; w.akPeriodeLabel = akPeriodeLabel;
   w.akNaechstePeriode = akNaechstePeriode; w.akBudgetFor = akBudgetFor; w.akAnker = akAnker;
   w.akSaldo = akSaldo; w.akFmtChf = akFmtChf;
@@ -348,6 +370,18 @@ function fixLeadingZero(el){
     var o = org();
     return akParams(o && o.settings && o.settings.arbeitskleider);
   }
+  // Wirksame Kategorien (Org-Einstellungen, sonst Standard-Katalog)
+  function KATS(){ return akKats(params()); }
+  // Kategorie-Anzeige mit Altdaten-Schutz: gelöschte Standard-Kategorie →
+  // Standard-Label; gelöschte eigene Kategorie → Kennung als Label.
+  function katOf(id){
+    id = id || 'sonstiges';
+    var ks = KATS();
+    for(var i=0;i<ks.length;i++){ if(ks[i].id === id) return ks[i]; }
+    for(var j=0;j<AK_KATS.length;j++){ if(AK_KATS[j].id === id) return AK_KATS[j]; }
+    return { id:id, label:id, icon:'🏷' };
+  }
+  function katIst(id){ return KATS().some(function(k){ return k.id === id; }); }
   function isManager(){
     var u = user(); if(!u) return false;
     var r = u.roleIds || [];
@@ -400,9 +434,13 @@ function fixLeadingZero(el){
   function artikelAll(){
     var u = user(); if(!u) return [];
     var arr = cached(LSA).filter(function(a){ return a && a.orgId === u.orgId; });
+    var ks = KATS();
+    function ki(id){
+      var i = ks.findIndex(function(k){ return k.id === id; });
+      return i < 0 ? 999 : i;   // gelöschte/unbekannte Kategorien ans Ende
+    }
     arr.sort(function(a, b){
-      var ka = AK_KATS.findIndex(function(k){ return k.id === a.kategorie; });
-      var kb = AK_KATS.findIndex(function(k){ return k.id === b.kategorie; });
+      var ka = ki(a.kategorie), kb = ki(b.kategorie);
       if(ka !== kb) return ka - kb;
       return String(a.name||'').localeCompare(String(b.name||''), 'de');
     });
@@ -551,10 +589,8 @@ function fixLeadingZero(el){
       return;
     }
     var html = '';
-    AK_KATS.forEach(function(k){
-      var inKat = arts.filter(function(a){ return (a.kategorie || 'sonstiges') === k.id; });
-      if(!inKat.length) return;
-      html += '<div class="card"><div class="card-hd"><h3>' + k.icon + ' ' + esc(k.label) + '</h3><span class="sub">' + inKat.length + ' Artikel</span></div>' +
+    function katCard(k, inKat, extraBadge){
+      return '<div class="card"><div class="card-hd"><h3>' + k.icon + ' ' + esc(k.label) + '</h3>' + (extraBadge || '') + '<span class="sub">' + inKat.length + ' Artikel</span></div>' +
         '<div class="card-bd"><div class="grid">' +
         inKat.map(function(a){
           return '<div class="itm"><div class="itm-bd">' +
@@ -568,6 +604,21 @@ function fixLeadingZero(el){
           '</div></div>';
         }).join('') +
         '</div></div></div>';
+    }
+    KATS().forEach(function(k){
+      var inKat = arts.filter(function(a){ return (a.kategorie || 'sonstiges') === k.id; });
+      if(!inKat.length) return;
+      html += katCard(k, inKat, '');
+    });
+    // Artikel in gelöschten/umkonfigurierten Kategorien bleiben sichtbar
+    var restIds = [];
+    arts.forEach(function(a){
+      var id = a.kategorie || 'sonstiges';
+      if(!katIst(id) && restIds.indexOf(id) < 0) restIds.push(id);
+    });
+    restIds.forEach(function(id){
+      var inKat = arts.filter(function(a){ return (a.kategorie || 'sonstiges') === id; });
+      html += katCard(katOf(id), inKat, '<span class="badge b-out">bisherige Kategorie</span>');
     });
     host.innerHTML = html;
   }
@@ -605,7 +656,7 @@ function fixLeadingZero(el){
     host.innerHTML = html;
   }
   function logRowHtml(b, mitAktion){
-    var kat = akKat(b.kategorie || 'sonstiges');
+    var kat = katOf(b.kategorie);
     var belegLink = '';
     if(b.beleg && (b.beleg.url || b.beleg.dataUrl)){
       belegLink = ' <a href="' + esc(b.beleg.url || b.beleg.dataUrl) + '" target="_blank" rel="noopener" onclick="event.stopPropagation()">📎</a>';
@@ -637,7 +688,7 @@ function fixLeadingZero(el){
     });
     var rows = [['Datum','Mitarbeiter','Artikel','Kategorie','Groesse','Menge','Preis','Total','Typ','Erfasst von','Bemerkung','Status']];
     list.forEach(function(b){
-      rows.push([fmtDatum(b.datum), b.userName || '', b.artikelName || '', akKat(b.kategorie || 'sonstiges').label,
+      rows.push([fmtDatum(b.datum), b.userName || '', b.artikelName || '', katOf(b.kategorie).label,
         b.groesse || '', b.menge || 1, (Number(b.preis) || 0).toFixed(2), (Number(b.total) || 0).toFixed(2),
         b.typ === 'frei' ? 'frei' : 'Katalog', (b.erfasstVon && b.erfasstVon.name) || '', b.bemerkung || '',
         b.storniert ? 'storniert' : 'ok']);
@@ -677,6 +728,15 @@ function fixLeadingZero(el){
       '<div class="hint">Deaktiviert = nur Magaziner/Admin sehen das Modul (reine Lagerverwaltung).</div></div>' +
       '</div></div>';
 
+    html += '<div class="card"><div class="card-hd"><h3>🏷 Kategorien</h3><span class="sub">Reihenfolge = Anzeige in Katalog &amp; Bezügen</span></div><div class="card-bd">' +
+      '<div id="katRows">' + KATS().map(katRowHtml).join('') + '</div>' +
+      '<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">' +
+        '<button class="btn sm" onclick="akKatRowAdd()">＋ Kategorie</button>' +
+        '<button class="btn sm gema-read-ok" onclick="akKatsReset()">↺ Standard wiederherstellen</button>' +
+      '</div>' +
+      '<div class="hint" style="margin-top:8px">Umbenennen wirkt direkt auf bestehende Artikel und Bezüge. Wird eine Kategorie entfernt, bleiben ihre Artikel erhalten und erscheinen unter «bisherige Kategorie». Gespeichert wird mit «Einstellungen speichern».</div>' +
+      '</div></div>';
+
     html += '<div class="card"><div class="card-hd"><h3>👤 Ausnahmen pro Mitarbeiter</h3><span class="sub">leer = Standard-Budget gilt</span></div><div class="card-bd"><div class="t-wrap ov-tbl">' +
       '<table class="t"><thead><tr><th>Mitarbeiter</th><th style="width:150px">Budget-Ausnahme [CHF]</th><th style="width:170px">Budget ab (Eintritt)</th></tr></thead><tbody>' +
       us.map(function(x){
@@ -690,6 +750,47 @@ function fixLeadingZero(el){
       '<div style="margin-top:12px"><button class="btn pri" onclick="akSettingsSave()">💾 Einstellungen speichern</button></div>' +
       '</div></div>';
     host.innerHTML = html;
+  }
+  function katRowHtml(k){
+    return '<div data-kat-id="' + esc(k.id || '') + '" style="display:flex;gap:8px;margin-bottom:6px;align-items:center">' +
+      '<input type="text" data-kat-icon maxlength="8" value="' + esc(k.icon || '') + '" style="width:56px;text-align:center" title="Symbol (Emoji)"/>' +
+      '<input type="text" data-kat-label value="' + esc(k.label || '') + '" placeholder="Bezeichnung" style="flex:1"/>' +
+      '<button class="btn sm red gema-read-ok" onclick="akKatRowDel(this)" title="Kategorie entfernen">🗑</button>' +
+      '</div>';
+  }
+  window.akKatRowAdd = function(){
+    var host = $id('katRows'); if(!host) return;
+    var tmp = document.createElement('div');
+    tmp.innerHTML = katRowHtml({ id: '', label: '', icon: '🏷' });
+    host.appendChild(tmp.firstChild);
+    var last = host.lastChild.querySelector('[data-kat-label]');
+    if(last) last.focus();
+  };
+  window.akKatRowDel = function(btn){
+    var row = btn.closest('[data-kat-id]');
+    if(row) row.remove();
+  };
+  window.akKatsReset = function(){
+    GemaDialog.confirm({
+      title: 'Standard-Kategorien',
+      message: 'Liste auf die ' + AK_KATS.length + ' GEMA-Standard-Kategorien zurücksetzen? Wirkt erst mit «Einstellungen speichern».',
+      confirmLabel: 'Zurücksetzen'
+    }).then(function(ok){
+      if(!ok) return;
+      var host = $id('katRows');
+      if(host) host.innerHTML = AK_KATS.map(katRowHtml).join('');
+    });
+  };
+  // Label → stabile Kategorie-ID (ae/oe/ue, alnum, eindeutig)
+  function katSlug(label, taken){
+    var s = String(label || '').toLowerCase()
+      .replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue')
+      .replace(/[éèê]/g, 'e').replace(/[àâ]/g, 'a')
+      .replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+    if(!s) s = 'kat';
+    var base = s, n = 2;
+    while(taken.indexOf(s) >= 0){ s = base + '_' + n; n++; }
+    return s;
   }
   window.akSettingsSave = function(){
     var u = user(); if(!u || !isManager()) return;
@@ -712,6 +813,22 @@ function fixLeadingZero(el){
         if(ab) cfg.budgets[uid].ab = ab;
       }
     });
+    // Kategorien einsammeln (Zeilen-Reihenfolge = Anzeige-Reihenfolge; ID bleibt beim Umbenennen)
+    var kats = [], taken = [];
+    document.querySelectorAll('#katRows [data-kat-id]').forEach(function(row){
+      var label = ((row.querySelector('[data-kat-label]') || {}).value || '').trim();
+      if(!label) return;
+      var icon = ((row.querySelector('[data-kat-icon]') || {}).value || '').trim() || '🏷';
+      var id = row.getAttribute('data-kat-id') || '';
+      if(!id || taken.indexOf(id) >= 0) id = katSlug(label, taken);
+      taken.push(id);
+      kats.push({ id: id, label: label, icon: icon });
+    });
+    if(!kats.length){ toast('Mindestens eine Kategorie behalten'); return; }
+    var istDefault = kats.length === AK_KATS.length && kats.every(function(k, i){
+      return k.id === AK_KATS[i].id && k.label === AK_KATS[i].label && k.icon === AK_KATS[i].icon;
+    });
+    cfg.kategorien = istDefault ? null : kats;
     if(GemaAuth.updateOrgSettings && GemaAuth.updateOrgSettings(u.orgId, { arbeitskleider: cfg })){
       toast('Einstellungen gespeichert');
       render();
@@ -749,7 +866,7 @@ function fixLeadingZero(el){
     } else {
       html += '<table class="t"><thead><tr><th>Datum</th><th>Artikel</th><th>Menge</th><th style="text-align:right">Total CHF</th></tr></thead><tbody>' +
         own.map(function(b){
-          var kat = akKat(b.kategorie || 'sonstiges');
+          var kat = katOf(b.kategorie);
           return '<tr' + (b.storniert ? ' class="storno"' : '') + '><td style="white-space:nowrap">' + fmtDatum(b.datum) + '</td>' +
             '<td>' + kat.icon + ' ' + esc(b.artikelName) + (b.groesse ? ' <span class="badge b-out">' + esc(b.groesse) + '</span>' : '') +
             (b.storniert ? ' <span class="badge b-red">storniert</span>' : '') + '</td>' +
@@ -778,7 +895,7 @@ function fixLeadingZero(el){
       '<h4 style="font-size:12px;font-weight:900;text-transform:uppercase;letter-spacing:.4px;color:var(--mut);margin:14px 0 6px">Bezüge</h4>' +
       (own.length ? '<div class="t-wrap"><table class="t"><thead><tr><th>Datum</th><th>Artikel</th><th>Menge</th><th style="text-align:right">CHF</th><th></th></tr></thead><tbody>' +
         own.map(function(b){
-          var kat = akKat(b.kategorie || 'sonstiges');
+          var kat = katOf(b.kategorie);
           return '<tr' + (b.storniert ? ' class="storno"' : '') + '><td style="white-space:nowrap">' + fmtDatum(b.datum) + '</td>' +
             '<td>' + kat.icon + ' ' + esc(b.artikelName) + (b.groesse ? ' <span class="badge b-out">' + esc(b.groesse) + '</span>' : '') +
             (b.typ === 'frei' ? ' <span class="badge b-acc">frei</span>' : '') +
@@ -803,14 +920,19 @@ function fixLeadingZero(el){
   };
   function openArtikelForm(a){
     if(!isManager()) return;
-    var isNew = !a; a = a || { kategorie:'tshirt', aktiv:true };
+    var ks = KATS(), defKat = (ks[0] || {}).id || 'sonstiges';
+    var isNew = !a; a = a || { kategorie: defKat, aktiv: true };
+    var curKat = a.kategorie || defKat;
+    var katOpts = ks.map(function(k){ return '<option value="' + esc(k.id) + '"' + (curKat === k.id ? ' selected' : '') + '>' + k.icon + ' ' + esc(k.label) + '</option>'; }).join('');
+    if(!isNew && !katIst(curKat)){
+      var alt = katOf(curKat);
+      katOpts = '<option value="' + esc(curKat) + '" selected>' + alt.icon + ' ' + esc(alt.label) + ' (bisherig)</option>' + katOpts;
+    }
     var html = '<div class="modal-hd"><h3>' + (isNew ? '＋ Artikel anlegen' : '✏️ Artikel bearbeiten') + '</h3><button class="modal-x gema-read-ok" onclick="akCloseModal()">✕</button></div>' +
       '<div class="modal-bd">' +
       '<div class="fld"><label>Bezeichnung *</label><input id="af_name" type="text" value="' + esc(a.name || '') + '" placeholder="z.B. T-Shirt mit Firmenlogo"/></div>' +
       '<div class="fld-row">' +
-        '<div class="fld"><label>Kategorie</label><select id="af_kat">' +
-          AK_KATS.map(function(k){ return '<option value="' + k.id + '"' + ((a.kategorie || 'tshirt') === k.id ? ' selected' : '') + '>' + k.icon + ' ' + esc(k.label) + '</option>'; }).join('') +
-        '</select></div>' +
+        '<div class="fld"><label>Kategorie</label><select id="af_kat">' + katOpts + '</select></div>' +
         '<div class="fld"><label>Preis pro Stück *</label><div class="ig"><input id="af_preis" type="text" inputmode="decimal" onblur="fixLeadingZero(this)" value="' + esc(a.preis != null ? a.preis : '') + '" placeholder="0.00"/><span class="ig-u">CHF</span></div></div>' +
       '</div>' +
       '<div class="fld"><label>Grössen (optional, mit Komma)</label><input id="af_groessen" type="text" value="' + esc((a.groessen || []).join(', ')) + '" placeholder="z.B. S, M, L, XL, XXL"/><div class="hint">Beim Bezug als Auswahl-Chips angeboten. Leer lassen für Artikel ohne Grösse.</div></div>' +
@@ -830,7 +952,7 @@ function fixLeadingZero(el){
     var alt = id ? artikelAll().find(function(x){ return x.id === id; }) : null;
     var rec = alt ? Object.assign({}, alt) : { id: uid('aka'), orgId: u.orgId, erstelltAm: new Date().toISOString() };
     rec.name = name.trim();
-    rec.kategorie = ($id('af_kat') || {}).value || 'sonstiges';
+    rec.kategorie = ($id('af_kat') || {}).value || (KATS()[0] || {}).id || 'sonstiges';
     rec.preis = preis;
     rec.groessen = (($id('af_groessen') || {}).value || '').split(',').map(function(x){ return x.trim(); }).filter(Boolean);
     rec.aktiv = !!($id('af_aktiv') || {}).checked;
@@ -858,9 +980,10 @@ function fixLeadingZero(el){
     if(!isManager()) return;
     var us = orgUsers();
     if(!us.length){ toast('Keine Mitarbeitenden in der Organisation'); return; }
+    var bzKats = KATS();
     BZ = {
       typ: 'artikel', userId: userId || us[0].id, artikelId: '', groesse: '',
-      menge: 1, preis: '', name: '', kategorie: 'sonstiges',
+      menge: 1, preis: '', name: '', kategorie: (bzKats[bzKats.length - 1] || {}).id || 'sonstiges',
       datum: todayIso(), bemerkung: '', belegName: '', belegDataUrl: ''
     };
     var aktive = artikelAll().filter(function(a){ return a.aktiv !== false; });
@@ -897,22 +1020,35 @@ function fixLeadingZero(el){
         return;
       }
       var art = aktive.find(function(a){ return a.id === BZ.artikelId; });
+      var ks = KATS();
+      var optFor = function(k, inKat){
+        return '<optgroup label="' + k.icon + ' ' + esc(k.label) + '">' +
+          inKat.map(function(a){ return '<option value="' + esc(a.id) + '"' + (BZ.artikelId === a.id ? ' selected' : '') + '>' + esc(a.name) + ' — CHF ' + akFmtChf(a.preis) + '</option>'; }).join('') +
+          '</optgroup>';
+      };
+      var groups = ks.map(function(k){
+        var inKat = aktive.filter(function(a){ return (a.kategorie || 'sonstiges') === k.id; });
+        return inKat.length ? optFor(k, inKat) : '';
+      }).join('');
+      // Artikel in nicht (mehr) konfigurierten Kategorien bleiben wählbar
+      var restIds = [];
+      aktive.forEach(function(a){
+        var id = a.kategorie || 'sonstiges';
+        if(!katIst(id) && restIds.indexOf(id) < 0) restIds.push(id);
+      });
+      groups += restIds.map(function(id){
+        return optFor(katOf(id), aktive.filter(function(a){ return (a.kategorie || 'sonstiges') === id; }));
+      }).join('');
       host.innerHTML = '<div class="fld"><label>Artikel *</label><select id="bz_artikel" onchange="akBzArtikel(this.value)">' +
-        '<option value="">— Artikel wählen —</option>' +
-        AK_KATS.map(function(k){
-          var inKat = aktive.filter(function(a){ return (a.kategorie || 'sonstiges') === k.id; });
-          if(!inKat.length) return '';
-          return '<optgroup label="' + k.icon + ' ' + esc(k.label) + '">' +
-            inKat.map(function(a){ return '<option value="' + esc(a.id) + '"' + (BZ.artikelId === a.id ? ' selected' : '') + '>' + esc(a.name) + ' — CHF ' + akFmtChf(a.preis) + '</option>'; }).join('') +
-            '</optgroup>';
-        }).join('') +
+        '<option value="">— Artikel wählen —</option>' + groups +
         '</select></div>' +
         '<div class="fld" id="bz_groessen_wrap"' + (art && art.groessen && art.groessen.length ? '' : ' style="display:none"') + '><label>Grösse</label><div class="gchips" id="bz_groessen">' + bzGroessenHtml(art) + '</div></div>';
     } else {
       host.innerHTML = '<div class="fld"><label>Bezeichnung *</label><input id="bz_frei_name" type="text" value="' + esc(BZ.name) + '" oninput="akBzFreiName(this.value)" placeholder="z.B. Sicherheitsschuhe (Quittung)"/></div>' +
         '<div class="fld-row">' +
         '<div class="fld"><label>Kategorie</label><select id="bz_frei_kat" onchange="akBzFreiKat(this.value)">' +
-          AK_KATS.map(function(k){ return '<option value="' + k.id + '"' + (BZ.kategorie === k.id ? ' selected' : '') + '>' + k.icon + ' ' + esc(k.label) + '</option>'; }).join('') +
+          (katIst(BZ.kategorie) ? '' : (function(){ var k = katOf(BZ.kategorie); return '<option value="' + esc(BZ.kategorie) + '" selected>' + k.icon + ' ' + esc(k.label) + ' (bisherig)</option>'; })()) +
+          KATS().map(function(k){ return '<option value="' + esc(k.id) + '"' + (BZ.kategorie === k.id ? ' selected' : '') + '>' + k.icon + ' ' + esc(k.label) + '</option>'; }).join('') +
         '</select></div>' +
         '<div class="fld"><label>Beleg / Quittung</label><input id="bz_beleg" type="file" accept="image/*,application/pdf" onchange="akBzBeleg(this)"/>' +
         '<div class="hint" id="bz_beleg_hint">' + (BZ.belegName ? '📎 ' + esc(BZ.belegName) : 'Foto oder PDF, optional') + '</div></div>' +
