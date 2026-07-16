@@ -18,7 +18,8 @@ const g = new Function(m[1] + `;return {STD_DEFAULTS,stdParams,STD_ABSENZ,STD_AB
   stdAbsenzAnteil,stdTagSollH,stdTagAbzugH,stdTagCapH,stdEintragMin,stdTagTyp,stdTagStunden,stdAddTage,
   stdWochenStart,stdWochenSoll,stdWochenAktivTage,stdWochenSollEff,stdWochenAuswertung,stdMonatsAuswertung,
   stdJahresAuswertung,stdFmtH,stdOstern,STD_FEIERTAG_DEFS,stdFeiertageJahr,stdIndikatoren,stdAutoKompGap,
-  stdParamsFuerMitarbeiter,stdEigeneAbsenz,stdEigeneAbsenzenFuer,stdAbsenzDef,stdAbsenzLimit,stdAbsenzBezogen};`)();
+  stdParamsFuerMitarbeiter,stdEigeneAbsenz,stdEigeneAbsenzenFuer,stdAbsenzDef,stdAbsenzLimit,stdAbsenzBezogen,
+  stdJahresMonatswerte,stdAbsenzTageProTyp,stdProjektStunden};`)();
 
 let n = 0, fail = 0;
 function t(name, cond) {
@@ -230,6 +231,40 @@ const bezTage = [
 ];
 near('Bezogen 2026: 1 + ½ + ½ (stunden) = 2 Tage', g.stdAbsenzBezogen(bezTage, 'ea_pflege', 2026, pLim), 2);
 near('Bezogen 2025: 1 Tag (Jahres-Filter)', g.stdAbsenzBezogen(bezTage, 'ea_pflege', 2025, pLim), 1);
+
+console.log('— Auswertungen: Jahr / Absenzen / Projekte —');
+{
+  const jt = [
+    tag('2026-07-13', 8), tag('2026-07-14', 8), tag('2026-07-15', 8), tag('2026-07-16', 8), tag('2026-07-17', 8), // KW29: 40/40
+    tag('2026-08-03', 10),                                                                                        // Aug: 10 h
+    tag('2026-08-04', 0, { typ: 'krank', anteil: 0.5 })
+  ];
+  const mon = g.stdJahresMonatswerte(jt, 2026, pDef);
+  t('12 Monatswerte', mon.length === 12);
+  t('Monate ohne Erfassung: hatDaten=false (Jan)', mon[0].hatDaten === false && mon[0].soll === 0);
+  near('Juli: Ist 40 / Soll 168 (voller Monat)', mon[6].ist, 40);
+  near('Juli-Soll = Monatssoll (23 Werktage × 8)', mon[6].soll, 184);
+  near('August: Absenz-Tage 0.5', mon[7].absenzTage, 0.5);
+  near('kum. Saldo läuft nur über Daten-Monate', mon[11].kumSaldo, mon[6].saldo + mon[7].saldo);
+  const apt = g.stdAbsenzTageProTyp([
+    tag('2026-03-02', 0, { typ: 'ferien', anteil: 1 }),
+    tag('2026-03-03', 0, { typ: 'ferien', anteil: 0.5 }),
+    tag('2026-03-04', 5, { typ: 'kompensation', anteil: 1, stunden: 3, quelle: 'auto' }),
+    tag('2025-03-04', 0, { typ: 'ferien', anteil: 1 })
+  ], 2026, pDef);
+  near('Absenz-Matrix: Ferien 1.5 Tage', apt.ferien, 1.5);
+  near('Absenz-Matrix: stunden-basierte Kompensation 3/8 Tage', apt.kompensation, 0.375);
+  t('Anderes Jahr ausgefiltert', Object.keys(apt).length === 2);
+  const pj = g.stdProjektStunden([
+    { userName: 'A', eintraege: [ { von: '07:00', bis: '12:00', pauseMin: 0, objektId: 'o1', objektName: 'MFH Muster' }, { von: '13:00', bis: '17:00', pauseMin: 0 } ] },
+    { userName: 'B', eintraege: [ { von: '07:00', bis: '15:00', pauseMin: 60, objektId: 'o1', objektName: 'MFH Muster' } ] }
+  ]);
+  t('Projekte sortiert nach Stunden (o1 zuerst)', pj[0].objektId === 'o1' && pj.length === 2);
+  near('o1: 5 h (A) + 7 h (B) = 12 h', pj[0].stunden, 12);
+  near('Ohne-Projekt-Sammler: 4 h', pj[1].stunden, 4);
+  t('Ohne-Projekt-Name gesetzt', pj[1].name === 'Ohne Projekt' && pj[1].objektId === '');
+  near('User-Split am Projekt', pj[0].users.B, 7);
+}
 
 console.log('— Pensum-Skalierung bleibt kompatibel —');
 const p80 = g.stdParamsFuerMitarbeiter(pDef, { pensum: 80 });

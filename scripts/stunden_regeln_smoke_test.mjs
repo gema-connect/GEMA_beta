@@ -294,6 +294,50 @@ console.log('■ Jahres-Limit (Pflege Angehörige → 3 Tage/Jahr)');
   ok(await p1.evaluate(() => /Jahres-Limit «Pflege Angehörige»/.test(document.getElementById('viewWrap').textContent)), 'Freigabe-Karte zeigt den Limit-Stand des Mitarbeiters');
 }
 
+console.log('■ Auswertungen: Monat / Jahr / Absenzen / Projekte');
+{
+  await p1.evaluate(() => { _view = 'auswertung'; _ausMode = 'monat'; _ausJahr = '2026'; _monat = '2026-07'; stRender(); });
+  ok(await p1.evaluate(() => document.querySelectorAll('#viewWrap .wkmode button').length >= 4), 'Segmented Control mit 4 Auswertungs-Sichten');
+  ok(await p1.evaluate(() => document.querySelector('#viewWrap .t') !== null), 'Monat: Lohnbüro-Tabelle rendert (Default)');
+  // Jahr
+  await p1.evaluate(() => { stSetAusMode('jahr'); });
+  await p1.waitForTimeout(250);
+  {
+    const t1 = await p1.evaluate(() => document.getElementById('viewWrap').textContent);
+    ok(/Jahresverlauf/.test(t1) && (await p1.evaluate(() => !!document.getElementById('ausJahrChart'))), 'Jahr: Verlaufs-Karte + Canvas-Diagramm');
+    ok(await p1.evaluate(() => document.getElementById('ausJahrChart').width > 0), 'Diagramm gezeichnet (Canvas hat Breite)');
+    ok(/Jul/.test(t1) && /Dez/.test(t1), 'Jahr: 12 Monats-Zeilen');
+    ok(t1.includes('13.00'), 'Juli-Ist 13.00 h (5 h + 8 h angerechnet — Kappung greift)');
+    ok(/keine Erfassung/.test(t1), 'Monate ohne Erfassung als «— keine Erfassung —» (kein Phantom-Soll)');
+    ok(/Jahres-Salden/.test(t1), 'Jahres-Salden-Karte in der Jahr-Sicht');
+    const csv = await p1.evaluate(() => stCsvJahrRows());
+    ok(csv.length >= 3 && csv.some(r => r.startsWith('Test User;2026-07;13.00')), 'CSV Jahr: Zeile pro Mitarbeiter+Monat');
+  }
+  // Absenzen
+  await p1.evaluate(() => { stSetAusMode('absenzen'); });
+  await p1.waitForTimeout(200);
+  {
+    const t2 = await p1.evaluate(() => document.getElementById('viewWrap').textContent);
+    ok(/Pflege Angehörige/.test(t2), 'Absenzen-Matrix: eigener Typ als Spalte');
+    ok(/3\.0 \/ 3\.0/.test(t2), 'Limit-Zelle «3.0 / 3.0» (bezogen / max.)');
+    ok(/Militär/.test(t2) && /2\.0/.test(t2), 'Militär 2.0 Tage (aus genehmigtem Antrag)');
+    ok(/Total/.test(t2), 'Total-Zeile/-Spalte vorhanden');
+    const csvA = await p1.evaluate(() => stCsvAbsenzenRows());
+    ok(csvA.some(r => r.includes('Pflege Angehörige;3.0;3.0')), 'CSV Absenzen: Typ + Tage + Limit');
+  }
+  // Projekte
+  await p1.evaluate(() => { _prjZeitraum = 'monat'; _monat = '2026-07'; stSetAusMode('projekte'); });
+  await p1.waitForTimeout(200);
+  {
+    const t3 = await p1.evaluate(() => document.getElementById('viewWrap').textContent);
+    ok(/Ohne Projekt/.test(t3), 'Projekte: Sammel-Zeile «Ohne Projekt»');
+    ok(t3.includes('14.00'), 'Projekt-Stunden = erfasste 14.00 h (5 + 9, ungekappt)');
+    ok(/Test User/.test(t3), 'Mitarbeiter-Aufschlüsselung pro Projekt');
+    const csvP = await p1.evaluate(() => stCsvProjekteRows());
+    ok(csvP.some(r => r.includes('Ohne Projekt;— alle —;14.00')), 'CSV Projekte: Projekt-Total + Mitarbeiter-Zeilen');
+  }
+}
+
 console.log('■ Erst-Einrichtung startet automatisch als Assistent');
 {
   const s2 = seed(['role_planer']);

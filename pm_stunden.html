@@ -890,6 +890,68 @@ function stdIndikatoren(aus,p){
   if(cfg.minPct>0&&pct!=null&&pct<cfg.minPct-1e-9)out.push({typ:'min_pct',stufe:'amber',text:'▼ '+Math.round(pct)+' % < '+cfg.minPct+' % vom Soll'});
   return out;
 }
+// ── Auswertungs-Helfer (Jahr / Absenzen / Projekte) ──
+// 12 Monatswerte eines Users: Monate ohne Erfassung tragen hatDaten:false
+// (kein aufgeblähtes Minus-Soll für Monate vor Eintritt/ohne Rapport);
+// kumSaldo läuft nur über Monate mit Daten.
+function stdJahresMonatswerte(tage,jahr,p){
+  var out=[],kum=0,T=stdTagSollH(p);
+  for(var m=1;m<=12;m++){
+    var mm=jahr+'-'+(m<10?'0':'')+m;
+    var mt=(tage||[]).filter(function(t){return String(t.datum).slice(0,7)===mm;});
+    var hat=mt.length>0;
+    var a=hat?stdMonatsAuswertung(mt,jahr,m,p):null;
+    var absT=0;
+    mt.forEach(function(t){
+      if(!t.absenz)return;
+      var st=parseFloat(t.absenz.stunden);
+      absT+=(isFinite(st)&&st>0&&T>0)?st/T:stdAbsenzAnteil(t);
+    });
+    if(hat)kum+=a.saldo;
+    out.push({monat:m,hatDaten:hat,
+      ist:hat?a.ist:0,istRoh:hat?a.istRoh:0,gekappt:hat?a.gekappt:0,soll:hat?a.soll:0,
+      saldo:hat?a.saldo:0,kumSaldo:kum,
+      ueberstunden:hat?a.ueberstunden:0,topfA:hat?a.topfA:0,topfB:hat?a.topfB:0,
+      samstag:hat?a.samstag:0,sonntag:hat?a.sonntag:0,nacht:hat?a.nacht:0,
+      zuschlagZeit:hat?a.zuschlagZeit:0,mittage:hat?a.mittage:0,km:hat?a.km:0,
+      spesenChf:hat?(a.chfMittag+a.chfKm):0,absenzTage:absT});
+  }
+  return out;
+}
+// Absenz-Tage eines Users pro Typ in einem Jahr (½-Tage = 0.5,
+// stunden-basierte Absenzen = stunden/Tagessoll) — Map typ → Tage
+function stdAbsenzTageProTyp(tage,jahr,p){
+  var T=stdTagSollH(p),m={};
+  (tage||[]).forEach(function(t){
+    if(!t||!t.absenz)return;
+    if(String(t.datum).slice(0,4)!==String(jahr))return;
+    var st=parseFloat(t.absenz.stunden);
+    var v=(isFinite(st)&&st>0&&T>0)?st/T:stdAbsenzAnteil(t);
+    m[t.absenz.typ]=(m[t.absenz.typ]||0)+v;
+  });
+  return m;
+}
+// Stunden pro Projekt/Objekt über beliebige Tagesrapporte — sortiert nach
+// Stunden absteigend; Einträge ohne Projekt landen im Sammel-Eintrag ''.
+function stdProjektStunden(tage){
+  var m={};
+  (tage||[]).forEach(function(t){
+    (t.eintraege||[]).forEach(function(e){
+      var key=e.objektId||'';
+      var o=(m[key]=m[key]||{objektId:key,name:'',stunden:0,users:{}});
+      var h=stdEintragMin(e)/60;
+      o.stunden+=h;
+      if(e.objektName)o.name=e.objektName;
+      var un=t.userName||t.userId||'';
+      o.users[un]=(o.users[un]||0)+h;
+    });
+  });
+  return Object.keys(m).map(function(k){
+    var o=m[k];
+    if(!o.name)o.name=o.objektId||'Ohne Projekt';
+    return o;
+  }).sort(function(a,b){return b.stunden-a.stunden;});
+}
 // ── Auto-Kompensation: fehlende Zeit bis zum Tagessoll (h) ──
 // Nur an Werktagen mit mindestens einem Zeiteintrag; eine bestehende MANUELLE
 // Absenz wird nie angetastet (nur die eigene auto-Kompensation wird nachgeführt).
@@ -1110,6 +1172,8 @@ function stRender(){
   if(_view==='woche')w.innerHTML=stRenderWoche();
   else if(_view==='freigabe')w.innerHTML=stRenderFreigabe();
   else w.innerHTML=stRenderAuswertung();
+  // Jahresverlauf-Diagramm nach dem DOM-Einbau zeichnen (Canvas braucht Layout-Breite)
+  if(document.getElementById('ausJahrChart'))setTimeout(stAusJahrChartDraw,0);
 }
 function stWk(delta){_wkStart=stdAddTage(_wkStart,delta*7);stRender();}
 function stSetWkMode(m){_wkMode=m;if(m==='monat')_kalMonat=_tagDatum.slice(0,7);stRender();}
@@ -2152,9 +2216,34 @@ function stEntscheid(key,ok){
 }
 
 // ═══════════════════════════════════════════════════════════
-// AUSWERTUNG (Monat) + CSV
+// AUSWERTUNGEN: Monat · Jahr · Absenzen · Projekte (+ CSV je Sicht)
 // ═══════════════════════════════════════════════════════════
+var _ausMode='monat';
+var _ausJahr=String(new Date().getFullYear());
+var _ausUserSel='';
+var _prjZeitraum='monat';
+function stSetAusMode(m){_ausMode=m;stRender();}
 function stRenderAuswertung(){
+  var u=stUser();if(!u)return '';
+  var seg='<div class="wkmode no-print">'+[['monat','📅 Monat'],['jahr','📈 Jahr'],['absenzen','🌴 Absenzen'],['projekte','🏗 Projekte']].map(function(m){
+    return '<button class="'+(_ausMode===m[0]?'on':'')+'" onclick="stSetAusMode(\''+m[0]+'\')">'+m[1]+'</button>';
+  }).join('')+'</div>';
+  if(_ausMode==='jahr')return seg+stRenderAusJahr();
+  if(_ausMode==='absenzen')return seg+stRenderAusAbsenzen();
+  if(_ausMode==='projekte')return seg+stRenderAusProjekte();
+  return seg+stRenderAusMonat();
+}
+// Jahr-Auswahl (Jahre mit Daten ∪ aktuelles Jahr)
+function stAusJahrSelect(alle){
+  var jahre={};jahre[String(new Date().getFullYear())]=1;jahre[_ausJahr]=1;
+  (alle||[]).forEach(function(t){jahre[String(t.datum).slice(0,4)]=1;});
+  return '<label style="font-size:12px;font-weight:800;color:var(--mut)">Jahr&nbsp;</label>'
+    +'<select onchange="_ausJahr=this.value;stRender()" style="padding:8px 10px;border:1.5px solid var(--brd2);border-radius:10px;font-size:13px">'
+    +Object.keys(jahre).sort().map(function(j){return '<option value="'+j+'"'+(j===_ausJahr?' selected':'')+'>'+j+'</option>';}).join('')
+    +'</select>';
+}
+// ── Monat (Lohnbüro-Tabelle) ──
+function stRenderAusMonat(){
   var u=stUser();if(!u)return '';
   var p=stParams();
   var jahr=parseInt(_monat.slice(0,4),10),monat=parseInt(_monat.slice(5,7),10);
@@ -2167,7 +2256,7 @@ function stRenderAuswertung(){
     +'<span style="flex:1"></span>'
     +(Object.keys(users).length?'<button class="btn" onclick="stCsv()">⬇ CSV (Lohnbüro)</button>':'')
     +'</div>';
-  if(!Object.keys(users).length)return h+'<div class="empty">📊 Keine erfassten Stunden im '+_monat+'.</div>'+stRenderJahresSalden(alle,jahr);
+  if(!Object.keys(users).length)return h+'<div class="empty">📊 Keine erfassten Stunden im '+_monat+'.</div>';
   var soll=stdMonatSoll(jahr,monat,p);
   // km-Spalte nur wenn km-Erfassung aktiv ODER im Monat km erfasst wurden (Altdaten bleiben sichtbar)
   var kmCol=p.kmAktiv||Object.keys(users).some(function(k){return users[k].tage.some(function(t){return (parseFloat(t.spesen&&t.spesen.km)||0)>0;});});
@@ -2191,8 +2280,260 @@ function stRenderAuswertung(){
       +'<td><button class="btn sm" title="Monatsblatt (Lohnlauf) als PDF" onclick="stPdf(\''+esc(uidk)+'\')">📄 PDF</button></td></tr>';
   });
   h+='</tbody></table></div></div></div>';
+  return h;
+}
+// ── Jahr: 12-Monats-Verlauf pro Mitarbeiter + Diagramm + Jahres-Salden ──
+var _ausChartData=null;
+function stRenderAusJahr(){
+  var u=stUser();var canA=stCanApprove();
+  var alle=canA?orgTage():meineTage();
+  var jahr=parseInt(_ausJahr,10);
+  var imJahr=alle.filter(function(t){return String(t.datum).slice(0,4)===_ausJahr;});
+  var users={};imJahr.forEach(function(t){users[t.userId]=t.userName||t.userId;});
+  if(!canA){users={};users[u.id]=u.name;}
+  var ids=Object.keys(users).sort(function(a,b){return String(users[a]).localeCompare(String(users[b]));});
+  var sel=canA?((_ausUserSel&&users[_ausUserSel])?_ausUserSel:(ids[0]||u.id)):u.id;
+  var pu=stParamsFor(sel);
+  var mon=stdJahresMonatswerte(alle.filter(function(t){return t.userId===sel;}),jahr,pu);
+  _ausChartData={mon:mon};
+  var tot={ist:0,soll:0,ueber:0,topfA:0,topfB:0,sa:0,so:0,nacht:0,zu:0,abs:0,chf:0,gekappt:0,istRoh:0};
+  mon.forEach(function(x){if(!x.hatDaten)return;
+    tot.ist+=x.ist;tot.istRoh+=x.istRoh;tot.gekappt+=x.gekappt;tot.soll+=x.soll;tot.ueber+=x.ueberstunden;
+    tot.topfA+=x.topfA;tot.topfB+=x.topfB;tot.sa+=x.samstag;tot.so+=x.sonntag;tot.nacht+=x.nacht;
+    tot.zu+=x.zuschlagZeit;tot.abs+=x.absenzTage;tot.chf+=x.spesenChf;});
+  var saldo=tot.ist-tot.soll;
+  var h='<div class="tb">'+stAusJahrSelect(alle)
+    +(canA?'<select onchange="_ausUserSel=this.value;stRender()" style="padding:8px 10px;border:1.5px solid var(--brd2);border-radius:10px;font-size:13px">'
+      +ids.map(function(i){return '<option value="'+esc(i)+'"'+(i===sel?' selected':'')+'>👷 '+esc(users[i])+'</option>';}).join('')+'</select>':'')
+    +'<span style="flex:1"></span>'
+    +(imJahr.length?'<button class="btn" onclick="stCsvJahr()">⬇ CSV Jahr'+(canA?' (alle Mitarbeiter)':'')+'</button>':'')
+    +'</div>';
+  h+='<div class="kpis">'
+    +'<div class="kpi"><div class="v">'+stdFmtH(tot.ist)+'</div><div class="l">Ist h '+esc(_ausJahr)+'</div></div>'
+    +'<div class="kpi"><div class="v">'+stdFmtH(tot.soll)+'</div><div class="l">Soll h (erfasste Monate)</div></div>'
+    +'<div class="kpi"><div class="v" style="color:'+(saldo>=0?'var(--grn)':'var(--red)')+'">'+(saldo>=0?'+':'')+stdFmtH(saldo)+'</div><div class="l">Saldo h</div></div>'
+    +'<div class="kpi"><div class="v">'+stdFmtH(tot.ueber)+'</div><div class="l">Überstunden h</div></div>'
+    +'<div class="kpi"><div class="v">'+stFmtT(tot.abs)+'</div><div class="l">Absenz-Tage</div></div>'
+    +'</div>';
+  h+='<div class="card"><div class="card-hd"><h3>📈 Jahresverlauf — '+esc(users[sel]||'')+'</h3><span class="sub">Ist (blau) vs. Soll (grau) pro Monat</span></div><div class="card-bd"><canvas id="ausJahrChart" style="width:100%;height:190px;display:block"></canvas></div></div>';
+  var MONK=['Jan','Feb','Mär','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Dez'];
+  h+='<div class="card"><div class="card-hd"><h3>📅 Monate im Detail</h3><span class="sub">Monate ohne Erfassung zählen nicht ins Soll · * = über Tagessoll gekappt</span></div><div class="card-bd"><div class="t-wrap"><table class="t"><thead><tr>'
+    +'<th>Monat</th><th class="num">Ist h</th><th class="num">Soll h</th><th class="num">Saldo h</th><th class="num">kum. Saldo</th><th class="num">Üst h</th><th class="num">Topf A</th><th class="num">Topf B</th><th class="num">Sa h</th><th class="num">So/Ft h</th><th class="num">Nacht h</th><th class="num">Zuschlag h</th><th class="num">Absenz Tg</th><th class="num">Spesen CHF</th></tr></thead><tbody>';
+  mon.forEach(function(x){
+    if(!x.hatDaten){h+='<tr><td>'+MONK[x.monat-1]+'</td><td class="num" colspan="13" style="color:var(--mut2)">— keine Erfassung —</td></tr>';return;}
+    h+='<tr><td><b>'+MONK[x.monat-1]+'</b></td>'
+      +'<td class="num">'+stdFmtH(x.ist)+(x.gekappt>0.004?' <span style="color:var(--amber)" title="'+stdFmtH(x.gekappt)+' h über Tagessoll nicht angerechnet (erfasst '+stdFmtH(x.istRoh)+' h)">*</span>':'')+'</td>'
+      +'<td class="num">'+stdFmtH(x.soll)+'</td>'
+      +'<td class="num" style="color:'+(x.saldo>=0?'var(--grn)':'var(--red)')+'">'+(x.saldo>=0?'+':'')+stdFmtH(x.saldo)+'</td>'
+      +'<td class="num" style="font-weight:800;color:'+(x.kumSaldo>=0?'var(--grn)':'var(--red)')+'">'+(x.kumSaldo>=0?'+':'')+stdFmtH(x.kumSaldo)+'</td>'
+      +'<td class="num">'+stdFmtH(x.ueberstunden)+'</td><td class="num">'+stdFmtH(x.topfA)+'</td>'
+      +'<td class="num"'+(x.topfB>0.004?' style="color:var(--red);font-weight:800"':'')+'>'+stdFmtH(x.topfB)+'</td>'
+      +'<td class="num">'+stdFmtH(x.samstag)+'</td><td class="num">'+stdFmtH(x.sonntag)+'</td><td class="num">'+stdFmtH(x.nacht)+'</td>'
+      +'<td class="num">+'+stdFmtH(x.zuschlagZeit)+'</td>'
+      +'<td class="num">'+stFmtT(x.absenzTage)+'</td>'
+      +'<td class="num">'+x.spesenChf.toFixed(2)+'</td></tr>';
+  });
+  h+='<tr style="font-weight:900"><td style="border-top:2px solid var(--brd2)">Total</td>'
+    +'<td class="num" style="border-top:2px solid var(--brd2)">'+stdFmtH(tot.ist)+'</td>'
+    +'<td class="num" style="border-top:2px solid var(--brd2)">'+stdFmtH(tot.soll)+'</td>'
+    +'<td class="num" style="border-top:2px solid var(--brd2);color:'+(saldo>=0?'var(--grn)':'var(--red)')+'">'+(saldo>=0?'+':'')+stdFmtH(saldo)+'</td>'
+    +'<td style="border-top:2px solid var(--brd2)"></td>'
+    +'<td class="num" style="border-top:2px solid var(--brd2)">'+stdFmtH(tot.ueber)+'</td>'
+    +'<td class="num" style="border-top:2px solid var(--brd2)">'+stdFmtH(tot.topfA)+'</td>'
+    +'<td class="num" style="border-top:2px solid var(--brd2)">'+stdFmtH(tot.topfB)+'</td>'
+    +'<td class="num" style="border-top:2px solid var(--brd2)">'+stdFmtH(tot.sa)+'</td>'
+    +'<td class="num" style="border-top:2px solid var(--brd2)">'+stdFmtH(tot.so)+'</td>'
+    +'<td class="num" style="border-top:2px solid var(--brd2)">'+stdFmtH(tot.nacht)+'</td>'
+    +'<td class="num" style="border-top:2px solid var(--brd2)">+'+stdFmtH(tot.zu)+'</td>'
+    +'<td class="num" style="border-top:2px solid var(--brd2)">'+stFmtT(tot.abs)+'</td>'
+    +'<td class="num" style="border-top:2px solid var(--brd2)">'+tot.chf.toFixed(2)+'</td></tr>';
+  h+='</tbody></table></div></div></div>';
   return h+stRenderJahresSalden(alle,jahr);
 }
+// Balken-Diagramm Ist vs. Soll (Canvas, NUR literale Hex-Farben — GemaPDF-Regel)
+function stAusJahrChartDraw(){
+  var c=document.getElementById('ausJahrChart');
+  if(!c||!_ausChartData)return;
+  var mon=_ausChartData.mon;
+  var dpr=window.devicePixelRatio||1;
+  var W=c.clientWidth||600,H=190;
+  c.width=Math.round(W*dpr);c.height=Math.round(H*dpr);
+  var x=c.getContext('2d');x.scale(dpr,dpr);
+  x.clearRect(0,0,W,H);
+  var padL=40,padB=20,padT=16,padR=8;
+  var iw=W-padL-padR,ih=H-padT-padB;
+  var max=1;mon.forEach(function(m){max=Math.max(max,m.ist,m.soll);});
+  max=Math.max(10,Math.ceil(max/10)*10);
+  x.font='10px "DM Sans", sans-serif';
+  for(var g=0;g<=2;g++){
+    var vy=padT+ih-ih*g/2;
+    x.strokeStyle='#e2e7f0';x.lineWidth=1;
+    x.beginPath();x.moveTo(padL,vy);x.lineTo(W-padR,vy);x.stroke();
+    x.fillStyle='#94a3b8';x.textAlign='right';x.textBaseline='middle';
+    x.fillText(String(Math.round(max*g/2)),padL-6,vy);
+  }
+  var MONK1=['J','F','M','A','M','J','J','A','S','O','N','D'];
+  var gw=iw/12;
+  mon.forEach(function(m,i){
+    var cx=padL+gw*i;
+    var bw=Math.max(4,Math.min(14,gw*0.28));
+    if(m.hatDaten){
+      var hs=ih*m.soll/max,hi=ih*m.ist/max;
+      x.fillStyle='#cbd5e1';x.fillRect(cx+gw/2-bw-1,padT+ih-hs,bw,hs);
+      x.fillStyle='#4338ca';x.fillRect(cx+gw/2+1,padT+ih-hi,bw,hi);
+    }
+    x.fillStyle='#64748b';x.textAlign='center';x.textBaseline='top';
+    x.fillText(MONK1[i],cx+gw/2,padT+ih+4);
+  });
+  x.textAlign='left';x.textBaseline='top';
+  x.fillStyle='#cbd5e1';x.fillRect(W-118,0,10,10);
+  x.fillStyle='#64748b';x.fillText('Soll',W-104,0);
+  x.fillStyle='#4338ca';x.fillRect(W-64,0,10,10);
+  x.fillStyle='#64748b';x.fillText('Ist',W-50,0);
+}
+// ── Absenzen: Matrix Mitarbeiter × Typ (inkl. eigener Typen + Limits) ──
+function stRenderAusAbsenzen(){
+  var u=stUser();var canA=stCanApprove();
+  var alle=canA?orgTage():meineTage();
+  var p=stParams();
+  var imJahr=alle.filter(function(t){return String(t.datum).slice(0,4)===_ausJahr;});
+  var users={};imJahr.forEach(function(t){if(t.absenz)users[t.userId]=t.userName||t.userId;});
+  var ids=Object.keys(users).sort(function(a,b){return String(users[a]).localeCompare(String(users[b]));});
+  var h='<div class="tb">'+stAusJahrSelect(alle)+'<span style="flex:1"></span>'
+    +(ids.length?'<button class="btn" onclick="stCsvAbsenzen()">⬇ CSV Absenzen</button>':'')+'</div>';
+  if(!ids.length)return h+'<div class="empty">🌴 Keine Absenzen im '+esc(_ausJahr)+' erfasst.</div>';
+  var daten={};
+  ids.forEach(function(uidk){
+    daten[uidk]=stdAbsenzTageProTyp(alle.filter(function(t){return t.userId===uidk;}),_ausJahr,stParamsFor(uidk));
+  });
+  // Spalten: kanonische Reihenfolge (Built-ins → eigene → Altdaten-Typen); nur genutzte oder limitierte
+  var typen=Object.keys(STD_ABSENZ).concat((p.eigeneAbsenzen||[]).map(function(e){return e.id;}));
+  ids.forEach(function(uidk){Object.keys(daten[uidk]).forEach(function(typ){if(typen.indexOf(typ)<0)typen.push(typ);});});
+  var cols=typen.filter(function(typ){
+    if(stdAbsenzLimit(p,typ))return true;
+    return ids.some(function(uidk){return (daten[uidk][typ]||0)>0.004;});
+  });
+  h+='<div class="card"><div class="card-hd"><h3>🌴 Absenzen '+esc(_ausJahr)+' (Tage)</h3><span class="sub">½-Tage zählen 0.5 · Typen mit Jahres-Limit zeigen «bezogen / max.» (rot = überschritten)</span></div><div class="card-bd"><div class="t-wrap"><table class="t"><thead><tr><th>Mitarbeiter</th>'
+    +cols.map(function(typ){var d=stdAbsenzDef(p,typ);return '<th class="num" title="'+esc(d.n)+'">'+d.ic+' '+esc(String(d.n).split(' (')[0])+'</th>';}).join('')
+    +'<th class="num">Total</th></tr></thead><tbody>';
+  var colTot={};
+  ids.forEach(function(uidk){
+    var row=daten[uidk],tot=0;
+    h+='<tr><td><b>'+esc(users[uidk])+'</b></td>';
+    cols.forEach(function(typ){
+      var v=row[typ]||0;tot+=v;colTot[typ]=(colTot[typ]||0)+v;
+      var lim=stdAbsenzLimit(p,typ);
+      if(!v&&!lim){h+='<td class="num" style="color:var(--mut2)">—</td>';return;}
+      var txt=stFmtT(v)+(lim?' / '+stFmtT(lim):'');
+      h+='<td class="num" style="'+(lim&&v>lim+0.001?'color:var(--red);font-weight:800':(v>0.004?'font-weight:700':'color:var(--mut2)'))+'">'+txt+'</td>';
+    });
+    h+='<td class="num" style="font-weight:900">'+stFmtT(tot)+'</td></tr>';
+  });
+  var grand=0;
+  h+='<tr style="font-weight:900"><td style="border-top:2px solid var(--brd2)">Total</td>'
+    +cols.map(function(typ){var v=colTot[typ]||0;grand+=v;return '<td class="num" style="border-top:2px solid var(--brd2)">'+(v>0.004?stFmtT(v):'—')+'</td>';}).join('')
+    +'<td class="num" style="border-top:2px solid var(--brd2)">'+stFmtT(grand)+'</td></tr>';
+  h+='</tbody></table></div>'
+    +'<div class="gavnote" style="margin-top:10px">Ferien laufen zusätzlich über den Feriensaldo (Anspruch pro-rata), Kompensation über Topf A, Brückentage über das Vorhol-Konto — die Kontostände stehen in der 📈 Jahr-Ansicht unter «Jahres-Salden».</div>'
+    +'</div></div>';
+  return h;
+}
+// ── Projekte: Stunden pro Objekt (Monat oder Jahr) ──
+function stRenderAusProjekte(){
+  var u=stUser();var canA=stCanApprove();
+  var alle=canA?orgTage():meineTage();
+  var zeitTage=alle.filter(function(t){
+    return _prjZeitraum==='jahr'?String(t.datum).slice(0,4)===_ausJahr:t.datum.slice(0,7)===_monat;
+  });
+  var projekte=stdProjektStunden(zeitTage);
+  var total=0;projekte.forEach(function(o){total+=o.stunden;});
+  var h='<div class="tb">'
+    +'<div class="wkmode no-print" style="margin:0">'+[['monat','Monat'],['jahr','Jahr']].map(function(m){
+      return '<button class="'+(_prjZeitraum===m[0]?'on':'')+'" onclick="_prjZeitraum=\''+m[0]+'\';stRender()">'+m[1]+'</button>';
+    }).join('')+'</div>'
+    +(_prjZeitraum==='monat'
+      ?'<input type="month" value="'+_monat+'" onchange="_monat=this.value;stRender()" style="padding:8px 10px;border:1.5px solid var(--brd2);border-radius:10px;font-size:13px"/>'
+      :stAusJahrSelect(alle))
+    +'<span style="flex:1"></span>'
+    +(projekte.length?'<button class="btn" onclick="stCsvProjekte()">⬇ CSV Projekte</button>':'')
+    +'</div>';
+  var lbl=_prjZeitraum==='jahr'?_ausJahr:_monat;
+  if(!projekte.length)return h+'<div class="empty">🏗 Keine erfassten Stunden im '+esc(lbl)+'.</div>';
+  h+='<div class="card"><div class="card-hd"><h3>🏗 Stunden pro Projekt — '+esc(lbl)+'</h3><span class="sub">'+(canA?'ganze Organisation':'nur eigene Stunden')+' · Total '+stdFmtH(total)+' h</span></div><div class="card-bd"><div class="t-wrap"><table class="t"><thead><tr><th>Projekt / Objekt</th><th class="num">Stunden</th><th style="min-width:130px">Anteil</th><th>Mitarbeiter</th></tr></thead><tbody>';
+  projekte.forEach(function(o){
+    var pct=total>0?o.stunden/total*100:0;
+    var userTxt=Object.keys(o.users).sort(function(a,b){return o.users[b]-o.users[a];})
+      .map(function(n){return esc(n||'—')+' '+stdFmtH(o.users[n])+' h';}).join(' · ');
+    h+='<tr><td><b>'+(o.objektId?esc(o.name):'— Ohne Projekt —')+'</b></td>'
+      +'<td class="num" style="font-weight:800">'+stdFmtH(o.stunden)+'</td>'
+      +'<td><div style="background:#f1f5f9;border:1px solid #e2e7f0;border-radius:6px;height:13px;overflow:hidden"><div style="width:'+Math.max(1,Math.round(pct))+'%;height:100%;background:#4338ca;opacity:.85"></div></div><div style="font-size:10px;color:var(--mut);margin-top:1px">'+(Math.round(pct*10)/10)+' %</div></td>'
+      +'<td style="font-size:11.5px;color:var(--txt2)">'+userTxt+'</td></tr>';
+  });
+  h+='</tbody></table></div>'
+    +'<div class="gavnote" style="margin-top:10px">Basis: Projekt-Zuordnung der einzelnen Zeiteinträge («Ohne Projekt» = Einträge ohne gewähltes Objekt). Für die kaufmännische Nachkalkulation (Soll/Ist in CHF, Regie) siehe ERP → Tab «📈 Erfolg».</div>'
+    +'</div></div>';
+  return h;
+}
+// ── CSV-Exporte der neuen Sichten (Builder getrennt — Node-/Test-freundlich) ──
+function stCsvDownload(rows,name){
+  var blob=new Blob(['﻿'+rows.join('\r\n')],{type:'text/csv;charset=utf-8'});
+  var aEl=document.createElement('a');
+  aEl.href=URL.createObjectURL(blob);
+  aEl.download=name;
+  document.body.appendChild(aEl);aEl.click();aEl.remove();
+}
+function stCsvJahrRows(){
+  var canA=stCanApprove();
+  var alle=canA?orgTage():meineTage();
+  var jahr=parseInt(_ausJahr,10);
+  var users={};
+  alle.forEach(function(t){if(String(t.datum).slice(0,4)===_ausJahr)users[t.userId]=t.userName||t.userId;});
+  var rows=[['Mitarbeiter','Monat','Ist h','Soll h','Saldo h','kum. Saldo h','Ueberstunden h','Topf A h','Topf B h','Samstag h','Sonntag/Feiertag h','Nacht h','Zuschlag h','Absenz Tage','Mittage','km','Spesen CHF'].join(';')];
+  Object.keys(users).sort(function(a,b){return String(users[a]).localeCompare(String(users[b]));}).forEach(function(uidk){
+    var mon=stdJahresMonatswerte(alle.filter(function(t){return t.userId===uidk;}),jahr,stParamsFor(uidk));
+    mon.forEach(function(x){
+      if(!x.hatDaten)return;
+      rows.push([users[uidk],_ausJahr+'-'+(x.monat<10?'0':'')+x.monat,stdFmtH(x.ist),stdFmtH(x.soll),stdFmtH(x.saldo),stdFmtH(x.kumSaldo),stdFmtH(x.ueberstunden),stdFmtH(x.topfA),stdFmtH(x.topfB),stdFmtH(x.samstag),stdFmtH(x.sonntag),stdFmtH(x.nacht),stdFmtH(x.zuschlagZeit),stFmtT(x.absenzTage),x.mittage,Math.round(x.km*10)/10,x.spesenChf.toFixed(2)].join(';'));
+    });
+  });
+  return rows;
+}
+function stCsvJahr(){stCsvDownload(stCsvJahrRows(),'Stunden_Jahr_'+_ausJahr+'.csv');}
+function stCsvAbsenzenRows(){
+  var canA=stCanApprove();
+  var alle=canA?orgTage():meineTage();
+  var p=stParams();
+  var users={};
+  alle.forEach(function(t){if(String(t.datum).slice(0,4)===_ausJahr&&t.absenz)users[t.userId]=t.userName||t.userId;});
+  var rows=[['Mitarbeiter','Jahr','Absenz-Typ','Tage','Limit Tage/Jahr'].join(';')];
+  Object.keys(users).sort(function(a,b){return String(users[a]).localeCompare(String(users[b]));}).forEach(function(uidk){
+    var m=stdAbsenzTageProTyp(alle.filter(function(t){return t.userId===uidk;}),_ausJahr,stParamsFor(uidk));
+    Object.keys(m).forEach(function(typ){
+      var lim=stdAbsenzLimit(p,typ);
+      rows.push([users[uidk],_ausJahr,stdAbsenzDef(p,typ).n,stFmtT(m[typ]),lim?stFmtT(lim):''].join(';'));
+    });
+  });
+  return rows;
+}
+function stCsvAbsenzen(){stCsvDownload(stCsvAbsenzenRows(),'Absenzen_'+_ausJahr+'.csv');}
+function stCsvProjekteRows(){
+  var canA=stCanApprove();
+  var alle=canA?orgTage():meineTage();
+  var zeitTage=alle.filter(function(t){
+    return _prjZeitraum==='jahr'?String(t.datum).slice(0,4)===_ausJahr:t.datum.slice(0,7)===_monat;
+  });
+  var lbl=_prjZeitraum==='jahr'?_ausJahr:_monat;
+  var rows=[['Zeitraum','Projekt','Mitarbeiter','Stunden h'].join(';')];
+  stdProjektStunden(zeitTage).forEach(function(o){
+    var name=o.objektId?o.name:'Ohne Projekt';
+    rows.push([lbl,name,'— alle —',stdFmtH(o.stunden)].join(';'));
+    Object.keys(o.users).sort(function(a,b){return o.users[b]-o.users[a];}).forEach(function(n){
+      rows.push([lbl,name,n||'—',stdFmtH(o.users[n])].join(';'));
+    });
+  });
+  return rows;
+}
+function stCsvProjekte(){stCsvDownload(stCsvProjekteRows(),'Projektstunden_'+(_prjZeitraum==='jahr'?_ausJahr:_monat)+'.csv');}
 // Jahres-Salden: Töpfe A/B, Vorhol-Konto, Ferien (pro-rata) — pro Mitarbeiter
 function stRenderJahresSalden(alle,jahr){
   var p=stParams();
