@@ -937,6 +937,19 @@ table.ww{border-collapse:collapse;width:100%;font-size:12.5px}
       <div class="frml-block" style="margin-top:10px">Summenlinie: Σ Stundenverbrauch in % des Tagesbedarfs (Beginn 05:00) &nbsp;·&nbsp; Ladelinie: Verbrauch + Speicherinhalt, Steigung V̇ = P·3600/(4.187·∆θ) &nbsp;·&nbsp; Erforderliches Speichervolumen = grösster Bedarfsüberschuss über jede Zeitspanne</div>
     </div>
   </div>
+
+  <!-- Tagesablauf-Simulation: Speicher-Ladezustand animiert über den Tag -->
+  <div class="g-card" id="wwSimCard" style="margin-top:16px;">
+    <div class="g-card-hd">
+      <h2>⏱ Tagesablauf-Simulation Speicher</h2>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end;">
+        <button class="g-btn sm no-print" type="button" id="wwSimPlayBtn" onclick="wwSimToggle()">▶ Abspielen</button>
+        <input type="range" class="ww-sim-slider no-print" min="0" max="24" step="0.05" value="2" oninput="wwSimScrub(this.value)" style="min-width:170px;width:260px;accent-color:#2563eb"/>
+        <span style="font-size:13px;font-weight:800;color:var(--text);font-variant-numeric:tabular-nums" id="wwSimZeit">07:00</span>
+      </div>
+    </div>
+    <div class="g-card-bd" id="wwSimWrap" style="overflow-x:auto;padding:14px 10px;"></div>
+  </div>
 </div>
 <textarea id="ww_rows" style="display:none"></textarea>
 
@@ -1569,6 +1582,7 @@ function wwSlUpdate(){
 
   _wwslData={P:P,prof:prof,A:A,ms:ms,sim:sim,cap:cap,sp:sp,deckt:deckt};
   wwSlDraw();
+  try{if(typeof window._wwSimSync==='function')window._wwSimSync();}catch(e){}
 }
 
 // ── Canvas-Zeichnung ──────────────────────────────────────────────
@@ -2027,6 +2041,167 @@ document.addEventListener('DOMContentLoaded',function(){
       try{el.classList.add('wwsp-puls');setTimeout(function(){el.classList.remove('wwsp-puls');},2200);}catch(e){}
     },260);
   });
+})();
+
+// ═══════════════════════════════════════════════
+// Tagesablauf-Simulation (Tab ⑤): Speicher-Ladezustand animiert über den
+// eingeschwungenen Tag (wwSlSim, Diagrammstart 05:00). Warm-Schicht von
+// oben (Speicherinhalt), Kaltwasser unten; Ladung/Verbrauch je 5-min-Schritt.
+// Gerüst einmal pro Datenstand (build), pro Frame nur Attribute (apply).
+// NUR literale Hex-Farben (GemaPDF-Regel).
+// ═══════════════════════════════════════════════
+(function(){
+  var S={t:2,playing:false,raf:0,last:0,built:''};
+  var G={X:250,W:170,TOP:52,BOT:332};
+  function f0(v){return (v==null||!isFinite(v))?'–':Math.round(v).toLocaleString('de-CH');}
+  function clockTxt(t){
+    var c=(5+t)%24, hh=Math.floor(c), mm=Math.floor((c%1)*60);
+    return String(hh).padStart(2,'0')+':'+String(mm).padStart(2,'0');
+  }
+  // Datenpaket für die Simulation. Ist das erforderliche Mindest-Speicher-
+  // volumen 0 (durchgehende Ladung mit genug Leistung → D.cap = 0), wird als
+  // Anzeige-Kapazität der effektive SIA-Speicher aus Tab ④ genommen und die
+  // Simulation dafür separat gerechnet (gecacht pro Signatur).
+  function simData(){
+    var D=window._wwslData;
+    if(!D||!(D.P&&D.P.bedarf>0)||!(D.P.p>0))return null;
+    if(D.cap>0.05)return {P:D.P,A:D.A,sim:D.sim,cap:D.cap,quelle:''};
+    var res=window._wwLast||{};
+    var capSia=(res.vstoEff>0)?res.vstoEff/D.P.bedarf*100:0;
+    if(!(capSia>0.05))return null;
+    var sig=[capSia.toFixed(3),D.P.bedarf.toFixed(1),D.P.modus,D.P.segs.map(function(x){return x.join('-');}).join('|')].join('§');
+    if(!S.fb||S.fb.sig!==sig)S.fb={sig:sig,sim:wwSlSim(D.A.verb,D.A.lad,capSia)};
+    return {P:D.P,A:D.A,sim:S.fb.sim,cap:capSia,quelle:'eff. Speicher SIA Tab ④'};
+  }
+  function build(){
+    var wrap=document.getElementById('wwSimWrap');if(!wrap)return;
+    var D=simData();
+    if(!D){
+      wrap.innerHTML='<div class="g-hint">Die Simulation erscheint, sobald Tagesbedarf und Ladeleistung gesetzt sind (Parameter links).</div>';
+      S.built='';
+      if(S.playing)window.wwSimToggle();
+      return;
+    }
+    var literCap=D.cap/100*D.P.bedarf;
+    var sig=[D.cap,D.P.bedarf,D.P.modus,D.P.segs.map(function(x){return x.join('-');}).join('|')].join('§');
+    if(S.built===sig&&wrap.querySelector('svg'))return;
+    S.built=sig;
+    var X=G.X,W=G.W,T=G.TOP,B=G.BOT;
+    var s='<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 660 396" width="660" style="max-width:100%">';
+    s+='<defs>'+
+      '<marker id="wwSimArrR" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 Z" fill="#dc2626"/></marker>'+
+      '<marker id="wwSimArrO" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 Z" fill="#ea580c"/></marker>'+
+    '</defs>';
+    // Warmwasserausgang oben (aktiv, wenn die Stunde Verbrauch hat)
+    s+='<g data-sim="wwGrp">'+
+      '<line x1="'+(X+W/2)+'" y1="'+(T-4)+'" x2="'+(X+W/2)+'" y2="'+(T-40)+'" stroke="#dc2626" stroke-width="4" stroke-linecap="round" marker-end="url(#wwSimArrR)"/>'+
+      '<text x="'+(X+W/2+12)+'" y="'+(T-26)+'" font-size="11" font-weight="800" fill="#dc2626" font-family="DM Sans, sans-serif">Warmwasserausgang</text>'+
+      '<text data-sim="verbTxt" x="'+(X+W/2+12)+'" y="'+(T-12)+'" font-size="10" font-weight="700" fill="#dc2626" font-family="DM Sans, sans-serif"></text>'+
+    '</g>';
+    // Wärmeerzeuger unten links (aktiv, wenn geladen wird)
+    s+='<g data-sim="weGrp">'+
+      '<rect x="20" y="'+(B-46)+'" width="128" height="42" rx="8" fill="#fff7ed" stroke="#ea580c" stroke-width="1.5"/>'+
+      '<text x="84" y="'+(B-29)+'" font-size="10" font-weight="800" fill="#9a3412" text-anchor="middle" font-family="DM Sans, sans-serif">Wärmeerzeuger</text>'+
+      '<text data-sim="ladTxt" x="84" y="'+(B-14)+'" font-size="10.5" font-weight="800" fill="#ea580c" text-anchor="middle" font-family="DM Sans, sans-serif"></text>'+
+      '<line x1="148" y1="'+(B-25)+'" x2="'+(X-4)+'" y2="'+(B-25)+'" stroke="#ea580c" stroke-width="2.6" stroke-linecap="round" marker-end="url(#wwSimArrO)"/>'+
+    '</g>';
+    // Kaltwasser-Grundfüllung + Warm-Schicht (von oben) + Behälter
+    s+='<rect x="'+(X+2)+'" y="'+T+'" width="'+(W-4)+'" height="'+(B-T)+'" fill="#dbeafe"/>';
+    s+='<rect data-sim="warm" x="'+(X+2)+'" y="'+T+'" width="'+(W-4)+'" height="0" fill="#fecaca"/>';
+    s+='<line data-sim="grenze" x1="'+(X+2)+'" y1="'+T+'" x2="'+(X+W-2)+'" y2="'+T+'" stroke="#dc2626" stroke-width="2.2"/>';
+    s+='<rect x="'+X+'" y="'+T+'" width="'+W+'" height="'+(B-T)+'" rx="10" fill="none" stroke="#111827" stroke-width="2.6"/>';
+    s+='<text x="'+(X+W/2)+'" y="'+(B+20)+'" font-size="10.5" font-weight="700" fill="#64748b" text-anchor="middle" font-family="DM Sans, sans-serif">Speicher (Darstellung): '+f0(literCap)+' l'+(D.quelle?' ('+D.quelle+')':'')+'</text>';
+    s+='<text x="'+(X+W/2)+'" y="'+(B-10)+'" font-size="9.5" font-weight="700" fill="#1d4ed8" text-anchor="middle" font-family="DM Sans, sans-serif">Kaltwasser</text>';
+    // Inhalt-Chip an der Schichtgrenze
+    s+='<g data-sim="lvlGrp" transform="translate(0,'+T+')">'+
+      '<rect x="'+(X+W+8)+'" y="-10" width="132" height="20" rx="10" fill="#ffffff" stroke="#dc2626" stroke-width="1.2"/>'+
+      '<text data-sim="lvlTxt" x="'+(X+W+74)+'" y="4" font-size="10.5" font-weight="800" fill="#dc2626" text-anchor="middle" font-family="DM Sans, sans-serif"></text>'+
+    '</g>';
+    // Uhr + Tag/Nacht + Status-Pill
+    s+='<text data-sim="clock" x="20" y="30" font-size="20" font-weight="800" fill="#0f172a" font-family="DM Sans, sans-serif" style="font-variant-numeric:tabular-nums">07:00</text>';
+    s+='<text data-sim="day" x="92" y="30" font-size="15" font-family="DM Sans, sans-serif">☀️</text>';
+    s+='<g><rect data-sim="pillBg" x="472" y="14" width="176" height="22" rx="11" fill="#f0fdf4" stroke="#16a34a" stroke-width="1.4"/>'+
+      '<text data-sim="pillTxt" x="560" y="29" font-size="10.5" font-weight="800" fill="#16a34a" text-anchor="middle" font-family="DM Sans, sans-serif">Versorgung i.O.</text></g>';
+    // Ladefenster-Hinweis
+    if(D.P.modus==='fenster'&&D.P.segs.length){
+      var fTxt=D.P.segs.map(function(sg){return wwSlClock(sg[0])+'–'+wwSlClock(sg[1]);}).join(' · ');
+      s+='<text x="20" y="386" font-size="9.5" font-weight="600" fill="#16a34a" font-family="DM Sans, sans-serif">Ladefenster: '+fTxt+' Uhr</text>';
+    }
+    s+='</svg>';
+    wrap.innerHTML=s;
+  }
+  function apply(){
+    var slider=document.querySelector('.ww-sim-slider');
+    var zeit=document.getElementById('wwSimZeit');
+    var ct=clockTxt(S.t);
+    if(zeit)zeit.textContent=ct;
+    if(slider&&Math.abs(parseFloat(slider.value)-S.t)>0.06)slider.value=String(S.t);
+    var wrap=document.getElementById('wwSimWrap');
+    var D=simData();
+    if(!wrap||!D)return;
+    var svg=wrap.querySelector('svg');if(!svg)return;
+    var q=function(k){return svg.querySelector('[data-sim="'+k+'"]');};
+    var A=D.A,sim=D.sim,cap=D.cap,P=D.P;
+    var liter=function(pct){return pct/100*P.bedarf;};
+    var k=Math.max(0,Math.min(A.n-1,Math.floor(S.t/A.dt)));
+    var inhalt=sim.s[Math.min(k+1,sim.s.length-1)];
+    var frac=cap>0?Math.max(0,Math.min(1,inhalt/cap)):0;
+    var warmH=frac*(G.BOT-G.TOP);   // Warm-Schicht liegt OBEN, Grenze bei TOP+warmH
+    var warm=q('warm');if(warm)warm.setAttribute('height',warmH.toFixed(1));
+    var gr=q('grenze');
+    if(gr){gr.setAttribute('y1',(G.TOP+warmH).toFixed(1));gr.setAttribute('y2',(G.TOP+warmH).toFixed(1));}
+    var lg=q('lvlGrp');
+    if(lg){
+      lg.setAttribute('transform','translate(0,'+Math.max(G.TOP+10,Math.min(G.BOT-10,G.TOP+warmH))+')');
+      var lt=q('lvlTxt');
+      if(lt)lt.textContent=f0(liter(inhalt))+' l · '+f0(cap>0?inhalt/cap*100:0)+' %';
+    }
+    var verbRate=liter((A.verb[k]||0)/A.dt);
+    var ladRate=liter((sim.loads[k]||0)/A.dt);
+    var fensterAuf=(A.lad[k]||0)>1e-9;
+    var wwg=q('wwGrp');if(wwg)wwg.setAttribute('opacity',verbRate>0.5?'1':'0.3');
+    var vt=q('verbTxt');if(vt)vt.textContent=verbRate>0.5?'−'+f0(verbRate)+' l/h':'';
+    var weg=q('weGrp');if(weg)weg.setAttribute('opacity',ladRate>0.5?'1':(fensterAuf?'0.55':'0.3'));
+    var ldt=q('ladTxt');if(ldt)ldt.textContent=ladRate>0.5?'+'+f0(ladRate)+' l/h':(fensterAuf?'bereit':'AUS');
+    var ck=q('clock');if(ck)ck.textContent=ct;
+    var c24=(5+S.t)%24;
+    var dy=q('day');if(dy)dy.textContent=(c24>=6&&c24<21)?'☀️':'🌙';
+    var unmet=(sim.unmetSegs||[]).some(function(sg){return k>=sg[0]&&k<sg[1];});
+    var pb=q('pillBg'),px=q('pillTxt');
+    if(pb&&px){
+      var st=unmet?['#fef2f2','#dc2626','Unterdeckung — Speicher leer!']:
+             (frac<0.08?['#fffbeb','#d97706','Speicher fast leer']:['#f0fdf4','#16a34a','Versorgung i.O.']);
+      pb.setAttribute('fill',st[0]);pb.setAttribute('stroke',st[1]);
+      px.setAttribute('fill',st[1]);px.textContent=st[2];
+    }
+  }
+  function tick(ts){
+    if(!S.playing)return;
+    if(!S.last)S.last=ts;
+    var dt=(ts-S.last)/1000;
+    S.last=ts;
+    S.t=(S.t+dt*1.6)%24;   // 24 h in 15 s
+    apply();
+    S.raf=requestAnimationFrame(tick);
+  }
+  window.wwSimToggle=function(){
+    S.playing=!S.playing;
+    S.last=0;
+    var b=document.getElementById('wwSimPlayBtn');
+    if(b)b.textContent=S.playing?'⏸ Pause':'▶ Abspielen';
+    if(S.playing)S.raf=requestAnimationFrame(tick);
+    else cancelAnimationFrame(S.raf);
+  };
+  window.wwSimScrub=function(v){
+    S.t=Math.min(23.999,Math.max(0,parseFloat(v)||0));
+    apply();
+  };
+  window._wwSimSync=function(){build();apply();};
+  window._wwSimHooks={
+    state:function(){return S;},
+    setT:function(t){S.t=((Number(t)||0)%24+24)%24;apply();},
+    data:simData
+  };
 })();
 </script>
 <script>
