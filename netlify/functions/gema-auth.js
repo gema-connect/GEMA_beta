@@ -40,6 +40,12 @@ const JWT_SECRET = process.env.GEMA_JWT_SECRET || '';
 const TOKEN_DAYS = parseInt(process.env.GEMA_TOKEN_DAYS || '30', 10) || 30;
 const TABLE = 'gema_data';
 
+// Selbst-Registrierung (Pilot-Sperre): standardmaessig AUS. Konten legt der
+// GEMA-Administrator an; Einladungs-Aktivierung (activate) ist NICHT betroffen.
+// Zum Oeffnen die jeweilige Env auf '1' setzen (Netlify → Environment).
+const REGISTRATION_OPEN = process.env.GEMA_REGISTRATION_OPEN === '1';
+const STUDENT_REGISTRATION_OPEN = process.env.GEMA_STUDENT_REGISTRATION_OPEN === '1';
+
 // Rollen, die ein NICHT-Admin per Einladung in einer FREMDEN Org anlegen
 // darf (Partner-Einladungen: Lieferanten, Pruefer, Garagisten, Unternehmer,
 // Architekt/Bauherrschaft fuer Freigaben). role_admin ist NIE erlaubt.
@@ -220,64 +226,107 @@ async function absorbPassword(userData) {
 }
 
 // ── Aktionen ─────────────────────────────────────────────────────────────
-async function actionLogin(body) {
+async function actionLogin(body, event) {
   const username = String(body.username || '').trim().toLowerCase();
   const password = String(body.password || '');
   if (!username || !password) return resp(400, { error: 'username/password fehlen' });
+
+  // Brute-Force-Drossel: pro IP UND pro Benutzername ein gleitendes Fenster
+  // (nur FEHLversuche zaehlen — erfolgreiche Logins nicht, damit ein Buero
+  // hinter EINER IP nie ausgesperrt wird). FAIL-OPEN. Vorab-Pruefung ohne
+  // Hochzaehlen; der Zaehler steigt nur bei falschem Passwort.
+  const ip = clientIp(event);
+  if (await throttleOver('login_ip', ip, LOGIN_MAX_IP, LOGIN_WINDOW_MS) ||
+      await throttleOver('login_user', username, LOGIN_MAX_USER, LOGIN_WINDOW_MS)) {
+    return resp(429, { error: 'Zu viele Anmeldeversuche — bitte in einigen Minuten erneut versuchen.' });
+  }
+
   const users = await loadUsers();
   const user = users.find(u => u && u.active !== false && (
     (u.username && String(u.username).toLowerCase() === username) ||
     (u.profile && u.profile.email && String(u.profile.email).toLowerCase() === username)
   ));
-  if (!user) return resp(401, { error: 'Zugangsdaten ungueltig' });
-
-  const cred = await getRecord('cred:' + user.id);
-  let ok = false;
-  if (cred) {
-    ok = verifyCred(cred, password);
-  } else if (user.password) {
-    // Legacy: djb2-Hash liegt noch im user-Payload → verifizieren und
-    // lazy auf cred:(scrypt) migrieren, Hash aus dem Payload entfernen.
-    ok = timingSafeEq(user.password, djb2(password));
-    if (ok) {
-      await putRecord('cred:' + user.id, { alg: 'scrypt', src: 'plain', hash: scryptHash(password), setAt: new Date().toISOString() });
-      await putRecord('user:' + user.id, stripPassword(user));
+  let ok = false, user2 = user;
+  if (user) {
+    const cred = await getRecord('cred:' + user.id);
+    if (cred) {
+      ok = verifyCred(cred, password);
+    } else if (user.password) {
+      // Legacy: djb2-Hash liegt noch im user-Payload → verifizieren und
+      // lazy auf cred:(scrypt) migrieren, Hash aus dem Payload entfernen.
+      ok = timingSafeEq(user.password, djb2(password));
+      if (ok) {
+        await putRecord('cred:' + user.id, { alg: 'scrypt', src: 'plain', hash: scryptHash(password), setAt: new Date().toISOString() });
+        await putRecord('user:' + user.id, stripPassword(user));
+      }
     }
   }
-  if (!ok) return resp(401, { error: 'Zugangsdaten ungueltig' });
-  const t = mintToken(user);
-  return resp(200, { ok: true, token: t.token, exp: t.exp, user: stripPassword(user) });
+  if (!ok) {
+    // Fehlversuch aufzeichnen (IP + Benutzername).
+    await throttleBump('login_ip', ip, LOGIN_WINDOW_MS);
+    await throttleBump('login_user', username, LOGIN_WINDOW_MS);
+    return resp(401, { error: 'Zugangsdaten ungueltig' });
+  }
+  // Erfolg → Benutzer-Zaehler leeren, damit ein legitimer User nach ein
+  // paar Tippfehlern nicht gesperrt bleibt.
+  await throttleClear('login_user', username);
+  const t = mintToken(user2);
+  return resp(200, { ok: true, token: t.token, exp: t.exp, user: stripPassword(user2) });
 }
 
-// Register-Drossel (Review S1.4): begrenzt die Neu-Org-Registrierungen pro
-// IP, damit nicht beliebig viele authenticated-JWTs erzeugt werden koennen.
-// Persistiert einen kurzlebigen Zaehler-Record; FAIL-OPEN — ein Fehler im
-// Throttle-Store blockiert NIE eine legitime Registrierung. Grosszuegiges
-// Limit: Neu-Firmen-Onboarding ist selten (Studierende nutzen die separate
-// Klassencode-Registrierung, die hier nicht faellt).
+// ── Drosseln (Review S1.4 + Login-Brute-Force) ─────────────────────────
+// Kurzlebige Zaehler-Records im auth-Modul; ALLE Throttle-Helfer sind
+// FAIL-OPEN — ein Fehler im Throttle-Store blockiert NIE eine legitime
+// Aktion. Schluessel werden gehasht, damit keine IPs/Benutzernamen im
+// (fuer authenticated lesbaren) Record-Key stehen.
 const REG_MAX_PER_HOUR = parseInt(process.env.GEMA_REG_MAX_PER_HOUR || '8', 10) || 8;
+const LOGIN_MAX_IP = parseInt(process.env.GEMA_LOGIN_MAX_IP || '20', 10) || 20;
+const LOGIN_MAX_USER = parseInt(process.env.GEMA_LOGIN_MAX_USER || '8', 10) || 8;
+const LOGIN_WINDOW_MS = (parseInt(process.env.GEMA_LOGIN_WINDOW_MIN || '15', 10) || 15) * 60000;
+
 function clientIp(event) {
   const h = (event && event.headers) || {};
   const raw = h['x-nf-client-connection-ip'] || h['X-Nf-Client-Connection-Ip'] ||
     (h['x-forwarded-for'] || h['X-Forwarded-For'] || '').split(',')[0] || '';
   return String(raw).trim().replace(/[^0-9a-fA-F:.]/g, '').slice(0, 45);
 }
-async function registerThrottleOk(event) {
+function _thKey(ns, id) { return 'throttle:' + ns + ':' + crypto.createHash('sha256').update(String(id)).digest('hex').slice(0, 32); }
+// Ueber-Limit? (nur lesen, zaehlt nicht hoch) — FAIL-OPEN.
+async function throttleOver(ns, id, maxN, windowMs) {
   try {
-    const ip = clientIp(event);
-    if (!ip) return true; // keine IP ermittelbar → nicht blockieren
+    if (!id) return false;
     const now = Date.now();
-    const key = 'throttle:reg:' + ip;
+    const rec = await getRecord(_thKey(ns, id));
+    const hits = (rec && Array.isArray(rec.hits) ? rec.hits : []).filter(t => now - t < windowMs);
+    return hits.length >= maxN;
+  } catch (e) { return false; }
+}
+// Einen Treffer aufzeichnen (Fenster beschneiden) — FAIL-OPEN.
+async function throttleBump(ns, id, windowMs) {
+  try {
+    if (!id) return;
+    const now = Date.now();
+    const key = _thKey(ns, id);
     const rec = await getRecord(key);
-    const hits = (rec && Array.isArray(rec.hits) ? rec.hits : []).filter(t => now - t < 3600000);
-    if (hits.length >= REG_MAX_PER_HOUR) return false;
+    const hits = (rec && Array.isArray(rec.hits) ? rec.hits : []).filter(t => now - t < windowMs);
     hits.push(now);
-    await putRecord(key, { hits: hits, ip: ip, _lm: now });
-    return true;
-  } catch (e) { return true; } // FAIL-OPEN: Throttle-Store-Fehler nie blockierend
+    await putRecord(key, { hits: hits, _lm: now });
+  } catch (e) { /* FAIL-OPEN */ }
+}
+async function throttleClear(ns, id) { try { if (id) await deleteRecordKey(_thKey(ns, id)); } catch (e) { /* egal */ } }
+
+async function registerThrottleOk(event) {
+  const ip = clientIp(event);
+  if (!ip) return true; // keine IP ermittelbar → nicht blockieren
+  if (await throttleOver('reg', ip, REG_MAX_PER_HOUR, 3600000)) return false;
+  await throttleBump('reg', ip, 3600000);
+  return true;
 }
 
 async function actionRegister(body, event) {
+  if (!REGISTRATION_OPEN) {
+    return resp(403, { error: 'Selbst-Registrierung ist deaktiviert — bitte wende dich an deinen GEMA-Administrator.' });
+  }
   if (!(await registerThrottleOk(event))) {
     return resp(429, { error: 'Zu viele Registrierungen von dieser Verbindung — bitte spaeter erneut versuchen.' });
   }
@@ -325,6 +374,9 @@ async function actionClassInfo(body) {
 }
 
 async function actionRegisterStudent(body) {
+  if (!STUDENT_REGISTRATION_OPEN) {
+    return resp(403, { error: 'Selbst-Registrierung ist deaktiviert — bitte wende dich an deinen GEMA-Administrator.' });
+  }
   const code = normCode(body.code);
   const name = String(body.name || '').trim();
   const email = String(body.email || '').trim().toLowerCase();
@@ -601,7 +653,7 @@ exports.handler = async function (event) {
   const claims = verifyJwt(auth.replace(/^Bearer\s+/i, ''));
   try {
     switch (body.action) {
-      case 'login': return await actionLogin(body);
+      case 'login': return await actionLogin(body, event);
       case 'register': return await actionRegister(body, event);
       case 'register_student': return await actionRegisterStudent(body);
       case 'class_info': return await actionClassInfo(body);

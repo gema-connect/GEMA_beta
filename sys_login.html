@@ -247,12 +247,20 @@ body::before{
     </div>
     <div class="login-error" id="loginError">Falsche E-Mail oder Passwort.</div>
     <button class="login-btn" id="loginBtn" type="button">Anmelden</button>
-    <div style="text-align:center;margin-top:14px">
-      <button onclick="_showRegister()" style="background:none;border:none;color:var(--accent);font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">Noch kein Konto? Jetzt registrieren →</button>
+    <!-- Selbst-Registrierung: waehrend der Pilotphase deaktiviert. Konten
+         legt der GEMA-Administrator an; Einladungs-Links (?invite=) bleiben
+         unberuehrt. Wieder aktivieren: REGISTRATION_OPEN unten auf true UND
+         serverseitig GEMA_REGISTRATION_OPEN / GEMA_STUDENT_REGISTRATION_OPEN
+         setzen (der Server ist die eigentliche Sperre). -->
+    <div id="regEntry" style="display:none">
+      <div style="text-align:center;margin-top:14px">
+        <button onclick="_showRegister()" style="background:none;border:none;color:var(--accent);font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">Noch kein Konto? Jetzt registrieren →</button>
+      </div>
+      <div style="text-align:center;margin-top:6px">
+        <button onclick="_showStudent()" style="background:none;border:none;color:#0f766e;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">🎓 Studierende: Mit Klassencode registrieren</button>
+      </div>
     </div>
-    <div style="text-align:center;margin-top:6px">
-      <button onclick="_showStudent()" style="background:none;border:none;color:#0f766e;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">🎓 Studierende: Mit Klassencode registrieren</button>
-    </div>
+    <div id="regClosedNote" style="display:none;text-align:center;margin-top:14px;font-size:12.5px;color:var(--muted)">Kein Konto? Wende dich an deinen GEMA-Administrator.</div>
     <div class="login-footer">GEMA Engineering Suite · Geschützter Bereich</div>
   </div>
 
@@ -387,6 +395,19 @@ body::before{
   var redirect = params.get('r') || 'index.html';
   var inviteToken = params.get('invite') || '';
 
+  // ── Selbst-Registrierung (Pilot-Sperre) ──────────────────────────────
+  // Waehrend der Pilotphase legt der GEMA-Administrator alle Konten an;
+  // die Selbst-Registrierung (neue Firma / Klassencode) ist aus. Diese
+  // Konstante steuert nur die Anzeige — die eigentliche Sperre sitzt
+  // serverseitig (GEMA_REGISTRATION_OPEN / GEMA_STUDENT_REGISTRATION_OPEN
+  // in gema-auth.js). Zum Wieder-Oeffnen BEIDE Seiten setzen.
+  // Einladungs-Aktivierung (?invite=) ist NICHT betroffen.
+  var REGISTRATION_OPEN = false;
+  document.addEventListener('DOMContentLoaded', function(){
+    var e = document.getElementById('regEntry'); if(e) e.style.display = REGISTRATION_OPEN ? '' : 'none';
+    var n = document.getElementById('regClosedNote'); if(n) n.style.display = REGISTRATION_OPEN ? 'none' : '';
+  });
+
   // Einladungs-Modus: Registrierung oder bestehender Account
   if(inviteToken){
     // Prüfe ob Token gültig ist und ob Account bereits existiert
@@ -456,7 +477,7 @@ body::before{
         'Du bist als "'+user.name+'" angemeldet.';
     }
     document.getElementById('continueBtn').onclick=function(){location.href=redirect;};
-  } else if(klassenCode){
+  } else if(klassenCode && REGISTRATION_OPEN){
     _showStudent(klassenCode);
   }
 

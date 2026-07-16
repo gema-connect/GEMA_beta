@@ -368,3 +368,36 @@ if (!mine || !mine.extSecret || !timingSafeEq(mine.extSecret, secret)) return re
 7. **S6** erst umsetzen, wenn Stripe aktiviert werden soll.
 
 **Regel bei der Umsetzung:** Jeder Fix mit einer kurzen Verifikation absichern (Angriffs-Testwert + Normalfall). Client-seitige Checks (S4, Teile von S1) sind Defense-in-Depth — die eigentliche Autorisierung gehört server-seitig (RLS + Functions).
+
+---
+
+## Pilot-Betrieb — Härtung für den geschlossenen Nutzerkreis (2026-07-16)
+
+GEMA läuft im Pilot mit einem kleinen, ausgewählten Nutzerkreis. **Wichtig:** «nur ausgewählte Nutzer» heisst NICHT «von aussen nicht erreichbar» — die Netlify-URL, die Supabase-REST-API (anon-Key steht im Client) und die Functions sind öffentlich. Der Einladungs-Kreis regelt nur, wer ein Login bekommt, nicht wer die API erreicht. Umgesetzt (Branch `claude/security-measures-review-5y6047`) + offene Konsolen-Schritte:
+
+### Umgesetzt im Code
+- **Selbst-Registrierung AUS (Default).** `actionRegister` und `actionRegisterStudent` in `gema-auth.js` sind hinter `GEMA_REGISTRATION_OPEN` / `GEMA_STUDENT_REGISTRATION_OPEN` gegated (Default = geschlossen → 403). `sys_login.html` blendet die beiden Registrier-Einstiege aus (`REGISTRATION_OPEN=false`) und zeigt «Wende dich an deinen GEMA-Administrator». **Einladungs-Aktivierung (`?invite=`) und die Admin-Anlage von Konten bleiben unberührt.** Neue Konten (auch für Externe) legt der Admin in `sys_admin.html` an bzw. per Einladung.
+- **Login-Brute-Force-Drossel.** `actionLogin` drosselt pro IP (`GEMA_LOGIN_MAX_IP`, Default 20) UND pro Benutzername (`GEMA_LOGIN_MAX_USER`, Default 8) über ein gleitendes Fenster (`GEMA_LOGIN_WINDOW_MIN`, Default 15 min). Es zählen NUR Fehlversuche; ein erfolgreicher Login leert den Benutzer-Zähler (Büro hinter einer IP wird nie ausgesperrt). FAIL-OPEN; Schlüssel sind gehasht (keine IP/Benutzernamen im Record).
+- **E-Mail-Verifikation: bewusst zurückgestellt.** GEMA hat keinen Mailversand; bei Einladungs-only ist der Invite-Token bereits der E-Mail-Nachweis.
+
+### Env-Variablen (Netlify → Site settings → Environment variables)
+| Variable | Default | Wirkung |
+|---|---|---|
+| `GEMA_REGISTRATION_OPEN` | `0` (aus) | `1` = Selbst-Registrierung neuer Firmen wieder offen |
+| `GEMA_STUDENT_REGISTRATION_OPEN` | `0` (aus) | `1` = Klassencode-Registrierung (Schulen) offen |
+| `GEMA_LOGIN_MAX_IP` / `GEMA_LOGIN_MAX_USER` | `20` / `8` | Fehlversuche pro Fenster, bis 429 |
+| `GEMA_LOGIN_WINDOW_MIN` | `15` | Fenstergrösse der Login-Drossel (Min.) |
+| `GEMA_REG_MAX_PER_HOUR` | `8` | Registrierungen/IP/h (falls Registrierung offen) |
+| `GEMA_JWT_SECRET`, `SUPABASE_SERVICE_KEY`, `ANTHROPIC_API_KEY` | — | bereits nötig (Login/Functions/KI) |
+> Beim Wieder-Öffnen der Registrierung BEIDE Seiten setzen: die Env(s) **und** `REGISTRATION_OPEN=true` in `sys_login.html` (der Server ist die eigentliche Sperre; der Client-Wert nur die Anzeige).
+
+### Konsolen-Schritte (nicht im Code — vom Betreiber auszuführen)
+1. **RLS v1 verifizieren (höchste Priorität).** Prüfen, ob `supabase/gema_rls_v1.sql` aktiv ist (Dashboard → Authentication → Policies auf `gema_data`, ODER ein REST-`GET` mit dem anon-Key liefert `[]`). **Falls nicht aktiv, ist die gesamte DB ohne Login les-/löschbar** — dann sofort `gema_rls_v1.sql` im SQL-Editor ausführen (Anleitung: `SECURITY_RLS_ANLEITUNG.md`).
+2. **Edge-Zugangskontrolle für die Pilotphase (grösster Hebel).** Die ganze Deployment hinter eine Zugangswand legen:
+   - **Netlify** (Site → Access control → Password protection / Visitor access), ODER
+   - **Cloudflare Access** vor die Domain (E-Mail-Allowlist, für kleine Teams gratis).
+   - **Wichtig für Externe:** Weil externe Partner nun ein **admin-erstelltes Login** bekommen, müssen ihre E-Mails/Zugänge AUCH auf der Edge-Allowlist stehen — sonst erreichen sie die GEMA-Anmeldung nicht. Alternativ Edge-Gate mit Ausnahmen für die nötigen Pfade. Die öffentlichen Share-Viewer (`sys_goodel_ansicht.html`, `sys_revision_ansicht.html`) werden im reinen Pilot nicht gebraucht; falls doch, ebenfalls ausnehmen.
+3. **RLS v2 (per-Org-Scoping) gestaffelt ausrollen.** `supabase/gema_rls_v2_orgscope.sql` collection-weise + getestet (Pre-Flight-Audit + Zwei-Org-Test im Skript). Reduziert den Cross-Org-Schaden auch für ein legitim angelegtes Konto. Rollback: `gema_rls_v2_rollback.sql`.
+
+### Bewusst später (kein zero-risk-Schritt für den Pilot)
+Per-User-Rate-Limit auf die KI-Proxies, SRI/Selbst-Hosting der CDN-Libraries, private Storage-Reads + signierte URLs, Stripe-Webhook, feinere Cross-Org-RLS (uid-Containment).
