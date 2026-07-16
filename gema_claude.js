@@ -42,6 +42,18 @@
   var FORMFIELDS_ENDPOINT = '/.netlify/functions/claude-formfields';
   var PLAN_ENDPOINT = '/.netlify/functions/claude-plan';
 
+  // Auth-Header (Review S3): die KI-Proxies akzeptieren nur eingeloggte
+  // GEMA-User. Das JWT liegt in der GemaSync-Session; ohne Token laeuft der
+  // Aufruf ins 401 (Function-Gate) — dieselbe UX wie ein fehlendes Deploy.
+  function _authHeaders(base) {
+    var h = base || { 'Content-Type': 'application/json' };
+    try {
+      var tok = (w.GemaSync && w.GemaSync.getAuthToken && w.GemaSync.getAuthToken()) || '';
+      if (tok) h['Authorization'] = 'Bearer ' + tok;
+    } catch (e) {}
+    return h;
+  }
+
   // ── Anonymisierung (Datenschutz): Kundennamen und Adressen verlassen
   //    GEMA nicht — sie werden VOR dem API-Aufruf durch Platzhalter
   //    ([NAME_n]/[ADRESSE_n]) ersetzt bzw. im Planbild geschwärzt und in
@@ -181,7 +193,7 @@
     var sendText = red ? red.redactText(text) : text;
     return fetch(ENDPOINT, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: _authHeaders(),
       body: JSON.stringify({ mode: mode, text: sendText }),
       signal: opts.signal
     }).then(function(r){
@@ -198,7 +210,7 @@
     // deployed. Wir interpretieren: deploy ok wenn Status NICHT 404.
     return fetch(ENDPOINT, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: _authHeaders(),
       body: JSON.stringify({ mode: 'rewrite', text: 'ping' })
     }).then(function(r){
       if (r.status === 404) return false;
@@ -222,7 +234,7 @@
     if (opts.filename) payload.filename = opts.filename;
     return fetch(EXTRACT_ENDPOINT, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: _authHeaders(),
       body: JSON.stringify(payload),
       signal: opts.signal
     }).then(function(r){
@@ -248,7 +260,7 @@
     if (opts.text) payload.text = String(opts.text);
     return fetch(FORMFIELDS_ENDPOINT, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: _authHeaders(),
       body: JSON.stringify(payload),
       signal: opts.signal
     }).then(function(r){
@@ -274,7 +286,7 @@
     if (opts.text) payload.text = String(opts.text);
     return fetch(PLAN_ENDPOINT, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: _authHeaders(),
       body: JSON.stringify(payload),
       signal: opts.signal
     }).then(function(r){
