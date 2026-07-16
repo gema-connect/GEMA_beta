@@ -18,7 +18,7 @@ const g = new Function(m[1] + `;return {STD_DEFAULTS,stdParams,STD_ABSENZ,STD_AB
   stdAbsenzAnteil,stdTagSollH,stdTagAbzugH,stdTagCapH,stdEintragMin,stdTagTyp,stdTagStunden,stdAddTage,
   stdWochenStart,stdWochenSoll,stdWochenAktivTage,stdWochenSollEff,stdWochenAuswertung,stdMonatsAuswertung,
   stdJahresAuswertung,stdFmtH,stdOstern,STD_FEIERTAG_DEFS,stdFeiertageJahr,stdIndikatoren,stdAutoKompGap,
-  stdParamsFuerMitarbeiter};`)();
+  stdParamsFuerMitarbeiter,stdEigeneAbsenz,stdEigeneAbsenzenFuer,stdAbsenzDef};`)();
 
 let n = 0, fail = 0;
 function t(name, cond) {
@@ -184,6 +184,31 @@ near('Monat: Ist 38 h (Kappung)', mKrank.ist, 38);
 t('Monat: istRoh + gekappt vorhanden', typeof mKrank.istRoh === 'number' && typeof mKrank.gekappt === 'number');
 // Juli 2026: 23 Werktage × 8 h = 184 h Soll − 2 h Gutschrift
 near('Monatssoll 184 − 2 = 182 h', mKrank.soll, 182);
+
+console.log('— Eigene (Admin-definierte) Absenz-Typen —');
+const pEigen = g.stdParams({ eigeneAbsenzen: [
+  { id: 'ea_arzt', name: 'Arzttermin', ic: '🩺', fuelltAuf: true, keineVorholzeit: true, beantragbar: true, nurUserIds: null },
+  { id: 'ea_schulung', name: 'Interne Schulung', fuelltAuf: 'true', keineVorholzeit: false, nurUserIds: ['u_a', 'u_b'] },
+  { id: '', name: 'ohne id → verworfen' }, null, 'müll', { id: 'ea_x' /* ohne Name → verworfen */ }
+] });
+eq('Normalisierung: 2 gültige Typen bleiben', pEigen.eigeneAbsenzen.map(e => e.id), ['ea_arzt', 'ea_schulung']);
+t('Icon-Fallback 📌 + String-Boolean gecoerced', pEigen.eigeneAbsenzen[1].ic === '📌' && pEigen.eigeneAbsenzen[1].fuelltAuf === true);
+t('nurUserIds leer/null → alle', pEigen.eigeneAbsenzen[0].nurUserIds === null);
+eq('stdEigeneAbsenz findet Typ', g.stdEigeneAbsenz(pEigen, 'ea_arzt').name, 'Arzttermin');
+t('stdEigeneAbsenz unbekannt → null', g.stdEigeneAbsenz(pEigen, 'ea_nix') === null);
+eq('Sichtbar für alle: ea_arzt', g.stdEigeneAbsenzenFuer(pEigen, 'u_z').map(e => e.id), ['ea_arzt']);
+eq('Sichtbar für u_a: beide', g.stdEigeneAbsenzenFuer(pEigen, 'u_a').map(e => e.id), ['ea_arzt', 'ea_schulung']);
+eq('stdAbsenzDef built-in', g.stdAbsenzDef(pEigen, 'ferien').n, 'Ferien');
+eq('stdAbsenzDef eigener Typ', g.stdAbsenzDef(pEigen, 'ea_arzt'), { n: 'Arzttermin', ic: '🩺', cls: 'b-vio' });
+eq('stdAbsenzDef gelöschter Typ → Altdaten-Fallback', g.stdAbsenzDef(pEigen, 'ea_geloescht').ic, '📌');
+eq('Regel aus eigener Definition (fuelltAuf+kv)', g.stdAbsenzRegel(pEigen, 'ea_arzt'), { fuelltAuf: true, keineVorholzeit: true });
+eq('Regel eigener Typ ohne kv', g.stdAbsenzRegel(pEigen, 'ea_schulung'), { fuelltAuf: true, keineVorholzeit: false });
+const wEigen = g.stdWochenAuswertung([
+  tag('2026-07-13', 8), tag('2026-07-14', 2, { typ: 'ea_arzt', anteil: 1 }),
+  tag('2026-07-15', 8), tag('2026-07-16', 8), tag('2026-07-17', 8)
+], WS, pEigen);
+near('Woche mit eigenem Typ (füllt+kv): Saldo 0', wEigen.saldo, 0);
+near('Gutschrift = Lücke zum Tagessoll (8−2=6 h → Soll 34 h)', wEigen.soll, 34);
 
 console.log('— Pensum-Skalierung bleibt kompatibel —');
 const p80 = g.stdParamsFuerMitarbeiter(pDef, { pensum: 80 });

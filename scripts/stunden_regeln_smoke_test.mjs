@@ -32,10 +32,15 @@ const browser = await chromium.launch({ executablePath: CHROME, args: ['--no-san
 
 console.log('■ Boot mit Regeln/Automatik/Indikatoren (Planer)');
 const s1 = seed(['role_planer']);
+s1.gema_users_v1.push({ id: 'u_other', username: 'o@test.ch', name: 'Other User', roleIds: ['role_monteur'], orgId: 'org_test', active: true, profile: { email: 'o@test.ch' } });
 s1.gema_orgs_v1[0].settings = { stunden: {
   autoKompensation: true, kmAktiv: false,
   indikatoren: { maxH: 8, maxPct: 0, minH: 35, minPct: 0 },
-  absenzRegeln: { krank: { fuelltAuf: true, keineVorholzeit: true } }
+  absenzRegeln: { krank: { fuelltAuf: true, keineVorholzeit: true } },
+  eigeneAbsenzen: [
+    { id: 'ea_arzt', name: 'Arzttermin', ic: '🩺', fuelltAuf: true, keineVorholzeit: true, beantragbar: true, nurUserIds: null },
+    { id: 'ea_schulung', name: 'Interne Schulung', ic: '📚', fuelltAuf: false, keineVorholzeit: false, beantragbar: true, nurUserIds: ['u_other'] }
+  ]
 } };
 const { page: p1 } = await newPage(browser, s1);
 const errors = [];
@@ -200,6 +205,71 @@ await p1.waitForTimeout(200);
 {
   const heads = await p1.evaluate(() => [].map.call(document.querySelectorAll('.t thead th'), x => x.textContent.trim()));
   ok(heads.length > 0 && heads.indexOf('km') < 0, 'Auswertungs-Tabelle ohne km-Spalte (kmAktiv aus, keine Altwerte)');
+}
+
+console.log('■ Eigene Absenz-Typen (Sichtbarkeit + Erfassung + Antrag)');
+{
+  const ea = await p1.evaluate(() => GemaAuth.getOrgs()[0].settings.stunden.eigeneAbsenzen);
+  ok(ea.length === 2 && ea[0].id === 'ea_arzt' && (ea[1].nurUserIds || []).join() === 'u_other', 'Geseedete Typen überleben den Settings-Roundtrip (IDs + Sichtbarkeit stabil)');
+  await p1.evaluate(() => { _view = 'woche'; stRender(); stAbsOpen('2026-07-16'); });
+  const absOpts = await p1.evaluate(() => [].map.call(document.querySelectorAll('#abs_typ option'), o => o.value));
+  ok(absOpts.includes('ea_arzt'), 'Eigener Typ «Arzttermin» im Absenz-Modal wählbar');
+  ok(!absOpts.includes('ea_schulung'), 'Auf u_other eingeschränkter Typ für u_test NICHT sichtbar');
+  await p1.evaluate(() => { document.getElementById('abs_typ').value = 'ea_arzt'; stAbsHint(); });
+  ok(await p1.evaluate(() => /Arzttermin/.test(document.getElementById('abs_hint').textContent) && /keine Vorholzeit/.test(document.getElementById('abs_hint').textContent)), 'Hint nennt eigenen Typ + aktive Kriterien');
+  await p1.evaluate(() => { document.getElementById('abs_anteil').value = '1'; stAbsSave(); });
+  await p1.waitForTimeout(200);
+  ok(await p1.evaluate(() => stTagFor('2026-07-16', 'u_test').absenz.typ === 'ea_arzt'), 'Absenz mit eigenem Typ gespeichert');
+  ok(await p1.evaluate(() => document.getElementById('viewWrap').innerHTML.includes('Arzttermin')), 'Wochen-Badge zeigt den eigenen Typ');
+  await p1.evaluate(() => stFerienOpen());
+  const faOpts = await p1.evaluate(() => [].map.call(document.querySelectorAll('#fa_typ option'), o => o.value));
+  ok(faOpts.includes('ea_arzt') && !faOpts.includes('ea_schulung'), 'Antrag: beantragbarer eigener Typ dabei, eingeschränkter nicht');
+  await p1.evaluate(() => stClose('ferienModal'));
+}
+
+console.log('■ ⚙️ Editor für eigene Typen + Einrichtungs-Assistent');
+await p1.evaluate(() => stOpenSettings());
+{
+  ok(await p1.evaluate(() => document.getElementById('setWizBar').style.display === 'none'), 'Bestehende Einstellungen → Listen-Modus (kein Auto-Wizard)');
+  ok(await p1.evaluate(() => document.querySelectorAll('#s_eigeneRows .s-ea-row').length === 2), 'Editor zeigt beide eigenen Typen');
+  ok(await p1.evaluate(() => document.querySelector('#s_eigeneRows .s-ea-row[data-id=ea_schulung] .s-ea-userbtn').textContent.trim() === '👥 1'), 'Sichtbarkeits-Knopf zeigt «👥 1» beim eingeschränkten Typ');
+  await p1.evaluate(() => {
+    stEaAdd();
+    const rows = document.querySelectorAll('#s_eigeneRows .s-ea-row');
+    const r = rows[rows.length - 1];
+    r.querySelector('.s-ea-name').value = 'Zügeltag';
+    r.querySelector('.s-ea-ic').value = '📦';
+  });
+  await p1.evaluate(() => stSetMode(true, 0));
+  ok(await p1.evaluate(() => document.querySelectorAll('#setModal .set-sec.cur').length === 1 && document.getElementById('setWizBar').style.display !== 'none'), 'Assistent: genau eine Sektion sichtbar + Schritt-Leiste');
+  ok(await p1.evaluate(() => document.getElementById('setWizBar').textContent.includes('Schritt 1 / 10')), 'Schritt-Zähler 1/10');
+  await p1.evaluate(() => { stSetWizGo(1); stSetWizGo(1); });
+  ok(await p1.evaluate(() => document.querySelector('#setModal .set-sec.cur').getAttribute('data-sec') === 'spesen'), 'Weiter ×2 → Schritt «Spesen»');
+  await p1.evaluate(() => stSetMode(false));
+  ok(await p1.evaluate(() => document.getElementById('setWizBar').style.display === 'none' && document.querySelectorAll('#setModal .set-sec.cur').length === 0), '«≡ Liste» beendet den Assistenten (alle Sektionen sichtbar)');
+  await p1.evaluate(() => stSetMode(true, 9));
+  ok(await p1.evaluate(() => {
+    const t = document.getElementById('s_zusammenfassung').textContent;
+    return t.includes('Arzttermin') && t.includes('Zügeltag') && t.includes('Auto-Kompensation');
+  }), 'Zusammenfassung listet eigene Typen + Automatik');
+  ok(await p1.evaluate(() => document.getElementById('setFt').textContent.includes('Speichern')), 'Letzter Schritt bietet «💾 Speichern»');
+  await p1.evaluate(() => stSetSave());
+  await p1.waitForTimeout(300);
+  const ea2 = await p1.evaluate(() => GemaAuth.getOrgs()[0].settings.stunden.eigeneAbsenzen);
+  ok(ea2.length === 3 && ea2[2].id === 'ea_zuegeltag' && ea2[2].name === 'Zügeltag', 'Neuer Typ mit Slug-ID ea_zuegeltag gespeichert (Umlaut → ue)');
+  ok(ea2[0].id === 'ea_arzt' && ea2[1].id === 'ea_schulung' && (ea2[1].nurUserIds || []).join() === 'u_other', 'Bestehende IDs + Sichtbarkeit unverändert (Altdaten bleiben verknüpft)');
+}
+
+console.log('■ Erst-Einrichtung startet automatisch als Assistent');
+{
+  const s2 = seed(['role_planer']);
+  const { page: p2 } = await newPage(browser, s2);
+  await p2.goto(BASE + '/pm_stunden.html', { waitUntil: 'domcontentloaded' });
+  await p2.waitForFunction(() => typeof stOpenSettings === 'function', null, { timeout: 12000 });
+  await p2.waitForTimeout(500);
+  await p2.evaluate(() => stOpenSettings());
+  ok(await p2.evaluate(() => document.querySelector('#setModal .modal').classList.contains('wiz')), 'Ohne gespeicherte Einstellungen öffnet der Assistent automatisch');
+  ok(await p2.evaluate(() => document.getElementById('setWizBar').textContent.includes('Arbeitszeit')), 'Erster Schritt: Arbeitszeit & Ferien');
 }
 
 ok(errors.length === 0, 'Keine JS-Fehler in pm_stunden' + (errors.length ? ' — ' + errors[0] : ''));
