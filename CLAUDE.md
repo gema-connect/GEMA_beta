@@ -2170,7 +2170,8 @@ GemaNotify.push({
   titel, text, link, objektId
 });
 
-GemaNotify.getForCurrentUser();   // sortiert nach ts, neuste zuerst
+GemaNotify.getForCurrentUser();   // sortiert nach ts, neuste zuerst — FILTERT nach den Einstellungen des Users
+GemaNotify.getForCurrentUser({includeDisabled:true}); // ohne Prefs-Filter (nur ⚙-Panel-Selbstheilung)
 GemaNotify.getUnreadCount();
 GemaNotify.markRead(id);
 GemaNotify.markAllRead();
@@ -2182,7 +2183,7 @@ GemaNotify.isEventEnabled(eventKey);
 GemaNotify.onChange(fn);
 ```
 
-**Empfänger-Routing**: Mindestens eines von `empfaengerUserId`, `empfaengerRoleId` oder `empfaengerOrgId` setzen. **Preferences-Filter**: Wenn `eventKey` und `empfaengerUserId` gesetzt sind und der User das Event deaktiviert hat, wird die Notifikation gar nicht erst erstellt.
+**Empfänger-Routing**: Mindestens eines von `empfaengerUserId`, `empfaengerRoleId` oder `empfaengerOrgId` setzen. **Preferences-Filter (zweistufig, KRITISCH)**: (1) Erstell-Filter in `push()` greift NUR bei persönlich adressierten Meldungen (`eventKey` + `empfaengerUserId` gesetzt, User hat das Event deaktiviert → Notifikation wird gar nicht erst erstellt). (2) **Anzeige-Filter in `getForCurrentUser()`** — Rollen-/Org-adressierte Pushes (z.B. `werkzeug_pruefung_faellig` an `role_magaziner`+Org) haben MEHRERE Empfänger mit unterschiedlichen Einstellungen und können beim Erstellen nicht gefiltert werden; deshalb filtert jeder Empfänger beim Anzeigen nach seinen eigenen Prefs (deaktivierter eventKey → Meldung unsichtbar in Panel/Glocke/Toasts, `getUnreadCount` zählt sie nicht). Bug bis 07/2026: dieser Anzeige-Filter fehlte — Rollen-Meldungen umgingen die Einstellungen komplett. `{includeDisabled:true}` liefert ungefiltert und wird NUR von der ⚙-Panel-Selbstheilung genutzt (sonst verschwände eine deaktivierte Gruppe aus dem Panel und wäre nie wieder aktivierbar). Test: `scripts/notify_prefs_filter_test.mjs` (12 Checks).
 
 ---
 

@@ -595,11 +595,31 @@
       return n;
     },
 
-    /** Alle Notifikationen fuer den aktuellen User. */
-    getForCurrentUser: function(){
+    /**
+     * Alle Notifikationen fuer den aktuellen User.
+     * KRITISCH — Einstellungs-Filter beim ANZEIGEN: der Erstellungs-Filter
+     * in push() greift nur bei persoenlich adressierten Notifikationen
+     * (empfaengerUserId). Rollen-/Org-adressierte Pushes (z.B.
+     * werkzeug_pruefung_faellig an role_magaziner+Org) haben viele
+     * Empfaenger mit unterschiedlichen Praeferenzen — deshalb filtert
+     * hier jeder Empfaenger nach SEINEN deaktivierten Event-Keys.
+     * opts.includeDisabled=true liefert ungefiltert (Settings-Panel:
+     * Selbstheilung «bereits erhaltene Gruppen anzeigen»).
+     */
+    getForCurrentUser: function(opts){
       var u=_me(); if(!u)return [];
-      return _readAll().filter(function(n){return _matchesUser(n,u);})
-        .sort(function(a,b){return b.ts.localeCompare(a.ts);});
+      var inclDisabled=!!(opts&&opts.includeDisabled);
+      var prefs=_readPrefs()[u.id]||{};
+      var enabled=function(k){
+        if(prefs[k]===false)return false;
+        if(prefs[k]===true)return true;
+        return (EVENT_KEYS[k]||{}).defaultOn!==false;
+      };
+      return _readAll().filter(function(n){
+        if(!_matchesUser(n,u))return false;
+        if(!inclDisabled && n.eventKey && !enabled(n.eventKey))return false;
+        return true;
+      }).sort(function(a,b){return b.ts.localeCompare(a.ts);});
     },
 
     /** Anzahl ungelesener Notifikationen fuer aktuellen User. */
