@@ -797,8 +797,14 @@
   function startStripeCheckout(payload){
     var s = _cfg.stripe || {};
     if(!s.enabled) return Promise.reject(new Error('stripe_not_configured'));
+    // Auth-Header (Review S6): der Checkout laeuft nur fuer eingeloggte
+    // User; der Server leitet uid/orgId aus dem Token ab (nicht aus dem
+    // Body). Der Betrag wird serverseitig bestimmt — betragRappen aus dem
+    // Payload ist nur noch ein Anzeige-Hinweis.
+    var hdr = {'Content-Type':'application/json'};
+    try { var tok = (w.GemaSync && GemaSync.getAuthToken && GemaSync.getAuthToken()) || ''; if(tok) hdr['Authorization']='Bearer '+tok; } catch(e){}
     return fetch('/api/stripe-checkout', {
-      method:'POST', headers:{'Content-Type':'application/json'},
+      method:'POST', headers:hdr,
       body: JSON.stringify(payload || {})
     }).then(function(r){
       if(!r.ok) throw new Error('stripe_backend_' + r.status);

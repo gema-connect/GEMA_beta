@@ -14,6 +14,8 @@
  *   { ok:false, error:'...' }  bei Fehler
  */
 
+const { requireAuth } = require('./_jwt');
+
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 const ANTHROPIC_VERSION = '2023-06-01';
 const MODEL = 'claude-haiku-4-5-20251001';  // schnell + günstig für Textüberarbeitung
@@ -34,7 +36,7 @@ exports.handler = async function(event) {
       statusCode: 200,
       headers: {
         'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Headers': 'Content-Type',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
         'Access-Control-Allow-Methods': 'POST, OPTIONS'
       },
       body: ''
@@ -45,6 +47,11 @@ exports.handler = async function(event) {
 
   if (event.httpMethod !== 'POST') {
     return { statusCode: 405, headers: cors, body: JSON.stringify({ ok: false, error: 'Method not allowed' }) };
+  }
+
+  // Auth-Gate (Review S3): nur eingeloggte GEMA-User — kein offener Proxy.
+  if (!requireAuth(event)) {
+    return { statusCode: 401, headers: cors, body: JSON.stringify({ ok: false, error: 'Nicht angemeldet' }) };
   }
 
   const key = process.env.ANTHROPIC_API_KEY;

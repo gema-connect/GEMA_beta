@@ -14,6 +14,25 @@
 
 ---
 
+## ✅ Umsetzungsstand (2026-07-16)
+
+Alle Befunde wurden gegen den aktuellen Code (nach PRs #224–#227) neu verifiziert; sie treffen unverändert zu. Umgesetzt auf Branch `claude/security-measures-review-5y6047`:
+
+| Befund | Status | Umsetzung |
+|---|---|---|
+| **S2** SSRF form-watch | ✅ **umgesetzt** | `form-watch.js` + `form-watch-cron.js`: DNS-Auflösung + private-IP-Check (deckt Dezimal-/Hex-IPs, IPv6, DNS-Rebinding), Redirects werden manuell verfolgt und jedes Ziel erneut geprüft. Getestet gegen 12 Bypass-Vektoren. |
+| **S3** claude-*-Proxies offen | ✅ **umgesetzt** | Geteiltes `netlify/functions/_jwt.js`; JWT-Gate in `claude-rewrite/extract/formfields/plan` + `form-watch`. Clients (`gema_claude.js`, `pm_behoerden_formulare.html`) senden `Authorization: Bearer`. |
+| **S4** XSS-Escaper/Sinks | ✅ **umgesetzt** | Die 10 schwachen Escaper auf den kanonischen Voll-Escaper (`&<>"'`) umgestellt, die 5 rohen Sinks gewrappt. Alle funktional gegen `"><img onerror>`/`'`-Payload geprüft. Nach dem Review hinzugekommene Module gegen dasselbe Muster gesweept — nicht exponiert (Single-Quote-Sinks tragen nur maschinelle IDs). |
+| **S5** persist_auth Selbst-Edit | ✅ **umgesetzt** | Feld-Whitelist (`name/profile/avatar/einstellungen/password`) im Selbst-Update; alle übrigen Felder (abo, planerPremium, lieferantId, gastZugaenge, …) werden aus dem DB-Stand übernommen. Kein Datenverlust: das Lieferanten-Self-Heal löst sich weiter über die Org-Heuristik auf. |
+| **S6** stripe-checkout | ✅ **gehärtet** (Rest bei Go-Live) | Auth-Gate + `client_reference_id`/Metadata aus dem Token; der client-gewählte Betrag wird nicht mehr verrechnet (Preis nur via `STRIPE_PRICE_MAP`, ad-hoc-Zweig nur mit `STRIPE_ALLOW_ADHOC=1`). Offen bis Stripe-Aktivierung: `stripe-webhook.js`. |
+| **S7** goodel-share timing | ✅ **umgesetzt** | `extSecret`-Vergleich auf `crypto.timingSafeEqual`. |
+| **S1 Teil b** register-Drossel | ✅ **umgesetzt** | Fail-open Sliding-Window pro IP in `gema-auth.js` (`GEMA_REG_MAX_PER_HOUR`, Default 8/h; Studierenden-Registrierung nicht betroffen). |
+| **S1 Teil a** per-Org-RLS | 📋 **vorbereitet, manueller Rollout** | `supabase/gema_rls_v2_orgscope.sql` (+ Rollback) — **kann nicht risikofrei in einem Zug aktiviert werden**: mehrere «org-eigene» Collections haben legitime Cross-Org-Pfade (Gastzugang, Regierapport-Freigeber, Abnahme-Freigabe, Immobilien-Handwerker, Plandialog-Freigaben, Labor/Sanierer). Die Migration scopt deshalb **nur** 10 eindeutig single-org-Collections und lässt alle anderen exakt wie in v1. Robin führt sie **collection-weise + getestet** im Supabase-SQL-Editor aus (Pre-Flight-Audit + Zwei-Org-Test im Skript). **Zuerst prüfen, ob v1 (`gema_rls_v1.sql`) überhaupt deployed ist** (Abschnitt «ZUERST VERIFIZIEREN»). |
+
+**Nicht ausgeweitet (bewusst):** Die per-Org-RLS für die Cross-Org-Collections (Chat/Ausschreibung/Bestellung/Werkzeug/Schule …) via `uid`-Containment bleibt Stufe 2; ebenso das Stripe-Webhook. Beides ist kein zero-risk-Schritt für diese Runde.
+
+---
+
 ## ⚠️ ZUERST VERIFIZIEREN (bevor irgendetwas anderes)
 
 **Ist die RLS überhaupt deployed?** Der Supabase-Anon-Key steht fest im Client (`gema_db.js`, `gema_sync.js`). Ist `supabase/gema_rls_v1.sql` **nicht** im Supabase-SQL-Editor ausgeführt, ist die gesamte Datenbank **öffentlich les- und schreibbar** — ohne Login.

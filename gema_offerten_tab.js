@@ -19,7 +19,7 @@
     return '';
   }
 
-  function _esc(s) { if (!s) return ''; var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+  function _esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' })[c]; }); }
   function _fC(v) { if (!v || v === 0) return '–'; return Number(v).toLocaleString('de-CH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
 
   function render() {
@@ -67,7 +67,7 @@
         if (oa.antwort.pdfUrl) {
           h += '<div style="margin-top:4px"><a href="' + _esc(oa.antwort.pdfUrl) + '" target="_blank" rel="noopener" style="color:#2563eb;font-weight:600;text-decoration:none">📄 ' + _esc(oa.antwort.pdfName || 'Offerte.pdf') + '</a></div>';
         } else if (oa.antwort.pdfDataUrl) {
-          h += '<div style="margin-top:4px"><a href="' + oa.antwort.pdfDataUrl + '" download="' + _esc(oa.antwort.pdfName || 'Offerte.pdf') + '" style="color:#2563eb;font-weight:600;text-decoration:none">📄 ' + _esc(oa.antwort.pdfName || 'Offerte.pdf') + ' (herunterladen)</a></div>';
+          h += '<div style="margin-top:4px"><a href="' + _esc(oa.antwort.pdfDataUrl) + '" download="' + _esc(oa.antwort.pdfName || 'Offerte.pdf') + '" style="color:#2563eb;font-weight:600;text-decoration:none">📄 ' + _esc(oa.antwort.pdfName || 'Offerte.pdf') + ' (herunterladen)</a></div>';
         } else if (oa.antwort.pdfName) {
           h += '<div style="margin-top:4px;color:#2563eb;font-weight:600">📄 ' + _esc(oa.antwort.pdfName) + '</div>';
         }

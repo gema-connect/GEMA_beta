@@ -249,7 +249,38 @@ async function actionLogin(body) {
   return resp(200, { ok: true, token: t.token, exp: t.exp, user: stripPassword(user) });
 }
 
-async function actionRegister(body) {
+// Register-Drossel (Review S1.4): begrenzt die Neu-Org-Registrierungen pro
+// IP, damit nicht beliebig viele authenticated-JWTs erzeugt werden koennen.
+// Persistiert einen kurzlebigen Zaehler-Record; FAIL-OPEN — ein Fehler im
+// Throttle-Store blockiert NIE eine legitime Registrierung. Grosszuegiges
+// Limit: Neu-Firmen-Onboarding ist selten (Studierende nutzen die separate
+// Klassencode-Registrierung, die hier nicht faellt).
+const REG_MAX_PER_HOUR = parseInt(process.env.GEMA_REG_MAX_PER_HOUR || '8', 10) || 8;
+function clientIp(event) {
+  const h = (event && event.headers) || {};
+  const raw = h['x-nf-client-connection-ip'] || h['X-Nf-Client-Connection-Ip'] ||
+    (h['x-forwarded-for'] || h['X-Forwarded-For'] || '').split(',')[0] || '';
+  return String(raw).trim().replace(/[^0-9a-fA-F:.]/g, '').slice(0, 45);
+}
+async function registerThrottleOk(event) {
+  try {
+    const ip = clientIp(event);
+    if (!ip) return true; // keine IP ermittelbar → nicht blockieren
+    const now = Date.now();
+    const key = 'throttle:reg:' + ip;
+    const rec = await getRecord(key);
+    const hits = (rec && Array.isArray(rec.hits) ? rec.hits : []).filter(t => now - t < 3600000);
+    if (hits.length >= REG_MAX_PER_HOUR) return false;
+    hits.push(now);
+    await putRecord(key, { hits: hits, ip: ip, _lm: now });
+    return true;
+  } catch (e) { return true; } // FAIL-OPEN: Throttle-Store-Fehler nie blockierend
+}
+
+async function actionRegister(body, event) {
+  if (!(await registerThrottleOk(event))) {
+    return resp(429, { error: 'Zu viele Registrierungen von dieser Verbindung — bitte spaeter erneut versuchen.' });
+  }
   const org = body.org, user = body.user;
   if (!org || !org.id || !user || !user.id || !user.username) return resp(400, { error: 'org/user unvollstaendig' });
   if (!user.password) return resp(400, { error: 'Passwort fehlt' });
@@ -428,12 +459,18 @@ async function actionPersistAuth(body, claims) {
       if (admin) continue;
       if (existing) {
         if (targetId === requester.id) {
-          // Selbst-Update: Rechte/Org/Aktiv-Status bleiben wie in der DB
-          if (JSON.stringify(data.roleIds || []) !== JSON.stringify(existing.roleIds || []) ||
-              String(data.orgId || '') !== String(existing.orgId || '') ||
-              (data.active === false) !== (existing.active === false)) {
-            return resp(403, { error: 'Eigene Rollen/Org/Status koennen nicht geaendert werden' });
-          }
+          // Selbst-Update (Review S5): NUR unkritische Profilfelder duerfen
+          // sich selbst geaendert werden. Alle uebrigen Felder werden aus
+          // dem DB-Stand uebernommen (nie vom Client) — sonst liesse sich
+          // per gecraftetem persist_auth-Request z.B. planerPremium/abo
+          // (Bezahl-Bypass), lieferantId (fremdes Lieferanten-Dashboard)
+          // oder gastZugaenge (fremde Org-Objekte) selbst freischalten.
+          // Der bisherige Guard fror nur roleIds/orgId/active ein.
+          const SELF_EDITABLE = { name: 1, profile: 1, avatar: 1, einstellungen: 1, password: 1 };
+          const merged = Object.assign({}, existing);
+          for (const fk of Object.keys(data)) { if (SELF_EDITABLE[fk]) merged[fk] = data[fk]; }
+          merged.id = existing.id;
+          rec.data = merged; // die Schreib-Schleife nutzt rec.data
         } else if (isOrgAdmin && String(existing.orgId) === String(requester.orgId)) {
           // Org-Admin verwaltet die eigene Org — role_admin bleibt tabu
           if (!noAdminRole(data.roleIds)) return resp(403, { error: 'role_admin kann nur der GEMA-Admin vergeben' });
@@ -565,7 +602,7 @@ exports.handler = async function (event) {
   try {
     switch (body.action) {
       case 'login': return await actionLogin(body);
-      case 'register': return await actionRegister(body);
+      case 'register': return await actionRegister(body, event);
       case 'register_student': return await actionRegisterStudent(body);
       case 'class_info': return await actionClassInfo(body);
       case 'activate': return await actionActivate(body);

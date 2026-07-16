@@ -19,6 +19,8 @@
  * Antwort: { ok:true, data:{ behoerde, felder:[{name,label,typ,gemaMap}] }, usage }
  */
 
+const { requireAuth } = require('./_jwt');
+
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 const ANTHROPIC_VERSION = '2023-06-01';
 const MODEL = process.env.ANTHROPIC_FORMFIELDS_MODEL || process.env.ANTHROPIC_EXTRACT_MODEL || 'claude-haiku-4-5';
@@ -83,10 +85,12 @@ function _stripDataUrl(b64){ if(typeof b64!=='string')return ''; var i=b64.index
 
 exports.handler = async function (event) {
   if (event.httpMethod === 'OPTIONS') {
-    return { statusCode: 200, headers: { 'Access-Control-Allow-Origin':'*','Access-Control-Allow-Headers':'Content-Type','Access-Control-Allow-Methods':'POST, OPTIONS' }, body: '' };
+    return { statusCode: 200, headers: { 'Access-Control-Allow-Origin':'*','Access-Control-Allow-Headers':'Content-Type, Authorization','Access-Control-Allow-Methods':'POST, OPTIONS' }, body: '' };
   }
   const cors = { 'Access-Control-Allow-Origin':'*','Content-Type':'application/json' };
   if (event.httpMethod !== 'POST') return { statusCode:405, headers:cors, body:JSON.stringify({ok:false,error:'Method not allowed'}) };
+  // Auth-Gate (Review S3): nur eingeloggte GEMA-User — kein offener Proxy.
+  if (!requireAuth(event)) return { statusCode:401, headers:cors, body:JSON.stringify({ok:false,error:'Nicht angemeldet'}) };
   const key = process.env.ANTHROPIC_API_KEY;
   if (!key) return { statusCode:500, headers:cors, body:JSON.stringify({ok:false,error:'ANTHROPIC_API_KEY ist nicht konfiguriert.'}) };
 

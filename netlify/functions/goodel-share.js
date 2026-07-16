@@ -49,6 +49,12 @@ function randHex(bytes) {
   const crypto = require('crypto');
   return crypto.randomBytes(bytes).toString('hex');
 }
+// Konstante-Zeit-Vergleich fuer das externe Secret (Review S7).
+function timingSafeEq(a, b) {
+  const crypto = require('crypto');
+  const x = Buffer.from(String(a == null ? '' : a)), y = Buffer.from(String(b == null ? '' : b));
+  return x.length === y.length && crypto.timingSafeEqual(x, y);
+}
 
 /* Umfrage per Token laden (nur aktive Freigaben). Liefert {key, poll} */
 async function loadByToken(token) {
@@ -150,7 +156,7 @@ exports.handler = async function (event) {
     if (partId && secret) {
       // Eigene externe Antwort bearbeiten (Identität via Secret)
       const mine = poll.participants.find(pt => pt.id === partId && pt.extern === true);
-      if (!mine || !mine.extSecret || mine.extSecret !== secret) return resp(403, { error: 'Antwort kann nicht bearbeitet werden' });
+      if (!mine || !mine.extSecret || !timingSafeEq(mine.extSecret, secret)) return resp(403, { error: 'Antwort kann nicht bearbeitet werden' });
       mine.name = name;
       mine.votes = votes;
     } else {
