@@ -1,0 +1,142 @@
+// Playwright-Smoke: sys_beta — Feedback-Board-Umbau (Feedback 17.07.2026)
+//   - Feedback-Punkte pro Modul als eingeklapptes Voll-Breite-Panel unter der
+//     Modul-Zeile (statt enger Tabellenzelle) — Toggle öffnet/schliesst
+//   - Screenshots gross (max-height 380px) + Klick öffnet die Lightbox
+//   - Checkbox-Mehrfachauswahl («Alle markieren» pro Modul, auch modulübergreifend)
+//     + Bulk-Leiste unten: Status gemeinsam wechseln (offen/bearbeitung/erledigt)
+//   - Einzel-Status/Löschen weiterhin pro Punkt; Filter versteckt Panels mit
+// Ausführen: CHROME=<chromium> node scripts/beta_feedback_board_test.mjs
+import { chromium } from 'playwright-core';
+import { startServer, BASE, seed, newPage } from './rolematrix_harness.mjs';
+
+const CHROME = process.env.CHROME || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
+let pass = 0, fail = 0;
+const ok = (cond, name) => {
+  if (cond) { pass++; console.log('  ✓ ' + name); }
+  else { fail++; console.log('  ✗ FAIL: ' + name); }
+};
+
+const server = await startServer();
+const browser = await chromium.launch({ executablePath: CHROME, args: ['--no-sandbox'] });
+
+console.log('■ Boot + Feedback seeden (2 Module, 1 Screenshot)');
+const { ctx, page } = await newPage(browser, seed(['role_admin']));
+const errors = [];
+page.on('pageerror', e => errors.push(e.message));
+await page.goto(BASE + '/sys_beta.html', { waitUntil: 'domcontentloaded' });
+await page.waitForSelector('#catContainer .cat-block', { timeout: 15000 });
+
+// 1×1-px-PNG als Screenshot-Platzhalter
+const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+await page.evaluate(png => {
+  _GemaDB.c['feedback_lu_tabelle'] = JSON.stringify([
+    { type: 'fehler', author: 'Robin', text: 'Punkt A — Button tut nichts', ts: '17.07.26, 08:00', screenshot: png },
+    { type: 'kommentar', author: 'Robin', text: 'Punkt B — Layout prüfen', ts: '17.07.26, 08:05' }
+  ]);
+  _GemaDB.c['feedback_druckdispositiv'] = JSON.stringify([
+    { type: 'aenderung', author: 'Sandro', text: 'Punkt C — Einheit umstellen', ts: '17.07.26, 09:00' }
+  ]);
+  renderAll();
+}, PNG);
+
+console.log('■ Panel: eingeklappt starten, Voll-Breite-Zeile, Toggle');
+ok(await page.evaluate(() => {
+  const p = document.getElementById('fbp-lu_tabelle');
+  return p && p.style.display === 'none' && p.dataset.open === '0';
+}), 'Panel startet eingeklappt');
+ok(await page.evaluate(() => {
+  const p = document.getElementById('fbp-lu_tabelle');
+  return p.tagName === 'TR' && p.querySelector('td').getAttribute('colspan') === '5';
+}), 'Panel ist Voll-Breite-Zeile (colspan 5) unter der Modul-Zeile');
+ok(await page.evaluate(() => !document.querySelector('.comment-box')), 'Alte enge Kommentar-Box in der Zelle ist weg');
+await page.evaluate(() => toggleFbPanel('lu_tabelle'));
+ok(await page.evaluate(() => {
+  const p = document.getElementById('fbp-lu_tabelle');
+  return p.style.display !== 'none' && p.dataset.open === '1';
+}), 'Toggle klappt das Panel auf');
+ok(await page.evaluate(() => document.querySelectorAll('#cl-lu_tabelle .fb-card').length === 2), 'Beide Feedback-Punkte als Karten gerendert');
+
+console.log('■ Screenshot gross + Lightbox');
+{
+  const shot = await page.evaluate(() => {
+    const img = document.querySelector('#cl-lu_tabelle .fb-shot img');
+    if (!img) return null;
+    return { maxH: getComputedStyle(img).maxHeight, cursor: getComputedStyle(img).cursor };
+  });
+  ok(shot && shot.maxH === '380px', 'Screenshot bis 380px hoch (vorher 160px)');
+  ok(shot && shot.cursor === 'zoom-in', 'Bild zeigt zoom-in-Cursor');
+  await page.click('#cl-lu_tabelle .fb-shot img');
+  ok(await page.evaluate(() => document.getElementById('fbLightboxEl').classList.contains('open')), 'Klick öffnet die Lightbox');
+  ok(await page.evaluate(() => document.getElementById('fbLightboxImg').src.indexOf('data:image/png') === 0), 'Lightbox zeigt das Bild');
+  await page.keyboard.press('Escape');
+  ok(await page.evaluate(() => !document.getElementById('fbLightboxEl').classList.contains('open')), 'ESC schliesst die Lightbox');
+}
+
+console.log('■ Multi-Select + Bulk-Statuswechsel');
+await page.evaluate(() => fbSelAll('lu_tabelle'));
+ok(await page.evaluate(() => fbSelCount() === 2), '«Alle markieren» wählt beide Punkte');
+ok(await page.evaluate(() => document.getElementById('fbBulkbar').classList.contains('show')), 'Bulk-Leiste erscheint');
+ok(await page.evaluate(() => document.getElementById('fbBulkCount').textContent.indexOf('2 Punkte') === 0), 'Leiste zählt 2 Punkte');
+// modulübergreifend: dritten Punkt aus druckdispositiv dazu
+await page.evaluate(() => {
+  toggleFbPanel('druckdispositiv');
+  document.querySelector('#cl-druckdispositiv .fb-check').click();
+});
+ok(await page.evaluate(() => fbSelCount() === 3 && document.getElementById('fbBulkCount').textContent.indexOf('3 Punkte') === 0), 'Auswahl funktioniert modulübergreifend (3 Punkte)');
+await page.evaluate(() => fbBulkStatus('bearbeitung'));
+{
+  const st = await page.evaluate(() => ({
+    lu: JSON.parse(_GemaDB.c['feedback_lu_tabelle']).map(e => e.cStatus || 'offen'),
+    dd: JSON.parse(_GemaDB.c['feedback_druckdispositiv']).map(e => e.cStatus || 'offen'),
+    sel: fbSelCount(),
+    bar: document.getElementById('fbBulkbar').classList.contains('show')
+  }));
+  ok(st.lu.join() === 'bearbeitung,bearbeitung' && st.dd.join() === 'bearbeitung', 'Bulk setzt alle 3 Punkte auf «In Arbeit» (beide Module gespeichert)');
+  ok(st.sel === 0 && !st.bar, 'Auswahl geleert, Leiste verschwindet');
+}
+// Bulk erneut: alle auf erledigt → Zähler-Badge grün
+await page.evaluate(() => { fbSelAll('lu_tabelle'); fbBulkStatus('erledigt'); });
+ok(await page.evaluate(() => JSON.parse(_GemaDB.c['feedback_lu_tabelle']).every(e => e.cStatus === 'erledigt')), 'Zweiter Bulk-Lauf: beide Punkte erledigt');
+ok(await page.evaluate(() => {
+  const btn = document.querySelector('tr[data-id=lu_tabelle] .comment-toggle');
+  return btn && btn.querySelector('.cb-c-done') && !btn.querySelector('.cb-c-open');
+}), 'Zähler-Badge der Modul-Zeile nur noch grün (0 offen)');
+
+console.log('■ Einzel-Aktionen + manuelle Kommentare weiter intakt');
+await page.evaluate(() => {
+  document.getElementById('cta-lu_tabelle').value = 'Manueller Hinweis';
+  document.getElementById('cauthor-lu_tabelle').value = 'Tester';
+  addComment('lu_tabelle', 'LU / Spitzenvolumenstrom');
+});
+ok(await page.evaluate(() => document.querySelectorAll('#cl-lu_tabelle .fb-card').length === 3), 'Manueller Kommentar erscheint als dritte Karte');
+await page.evaluate(() => setCommentStatus('lu_tabelle', 'm', 0, 'bearbeitung'));
+ok(await page.evaluate(() => (state.mods.lu_tabelle.comments[0].cStatus) === 'bearbeitung'), 'Einzel-Statuswechsel pro Punkt funktioniert weiter');
+// Bulk auf gemischte Quellen (Feedback + manuell)
+await page.evaluate(() => { fbSelAll('lu_tabelle'); fbBulkStatus('offen'); });
+ok(await page.evaluate(() =>
+  JSON.parse(_GemaDB.c['feedback_lu_tabelle']).every(e => e.cStatus === 'offen') &&
+  state.mods.lu_tabelle.comments[0].cStatus === 'offen'
+), 'Bulk deckt Feedback- UND manuelle Punkte ab');
+
+console.log('■ Filter versteckt Panel mit; Suche findet Feedback-Text');
+await page.evaluate(() => { document.getElementById('searchInp').value = 'Einheit umstellen'; filterRows(); });
+{
+  const r = await page.evaluate(() => ({
+    dd: document.querySelector('tr[data-id=druckdispositiv]').style.display,
+    ddPanel: document.getElementById('fbp-druckdispositiv').style.display,
+    lu: document.querySelector('tr[data-id=lu_tabelle]').style.display,
+    luPanel: document.getElementById('fbp-lu_tabelle').style.display
+  }));
+  ok(r.dd !== 'none' && r.ddPanel !== 'none', 'Suche nach Feedback-Text findet das Modul (Panel bleibt offen)');
+  ok(r.lu === 'none' && r.luPanel === 'none', 'Gefiltertes Modul versteckt auch sein offenes Panel');
+}
+await page.evaluate(() => { document.getElementById('searchInp').value = ''; filterRows(); });
+ok(await page.evaluate(() => document.getElementById('fbp-lu_tabelle').style.display !== 'none'), 'Filter weg → offenes Panel wieder sichtbar');
+
+ok(errors.length === 0, 'Keine JS-Fehler' + (errors.length ? ' — ' + errors[0] : ''));
+
+await ctx.close();
+await browser.close();
+server.close();
+console.log('\n' + pass + '/' + (pass + fail) + ' Checks bestanden' + (fail ? ' — ' + fail + ' FEHLER' : ''));
+process.exit(fail ? 1 : 0);
