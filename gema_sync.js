@@ -96,6 +96,82 @@
       return (s && s.token) || '';
     }catch(e){ return ''; }
   }
+  // Session vorhanden, aber KEIN Token (Anmeldung aus der Zeit vor GEMA
+  // Secure v1, oder Token nach einem 401 entfernt): Reads laufen dann mit
+  // dem anon-Key. Unter aktivem RLS liefert das LEERE Pools mit HTTP 200 —
+  // kein Fehler, kein Redirect. Solche leeren Antworten sind NICHT
+  // vertrauenswuerdig (Praxisfall 17.07.: «es zeigt mir keine Daten mehr
+  // an» — Werkzeug/Fahrzeug/Schadensberichte leer, nach Neuanmeldung
+  // alles wieder da).
+  function _tokenlessSession(){
+    try{
+      var s = JSON.parse(localStorage.getItem('gema_session_v1') || 'null');
+      return !!(s && s.userId) && !(s && s.token);
+    }catch(e){ return false; }
+  }
+  // Sichtbarer Hinweis statt stiller Leere: die Session hat kein gueltiges
+  // Anmelde-Token mehr — Cloud-Daten koennen nicht geladen werden.
+  var _reloginBanner = null;
+  function _showRelogin(){
+    if(_reloginBanner || typeof document === 'undefined') return;
+    try{ if(/sys_login\.html/i.test((typeof location !== 'undefined' && location.pathname) || '')) return; }catch(e){}
+    _reloginBanner = document.createElement('div');
+    _reloginBanner.id = 'gema-sync-relogin-banner';
+    Object.assign(_reloginBanner.style, {
+      position:'fixed', top:'0', left:'0', right:'0', zIndex:'10001',
+      background:'#b45309', color:'#fff', textAlign:'center',
+      padding:'8px 14px', paddingTop:'calc(8px + env(safe-area-inset-top, 0px))',
+      fontFamily:'DM Sans,system-ui,sans-serif',
+      fontSize:'13px', fontWeight:'600',
+      boxShadow:'0 2px 6px rgba(0,0,0,.18)'
+    });
+    var btnCss = 'margin-left:10px;padding:3px 10px;border:1px solid rgba(255,255,255,.6);border-radius:7px;background:transparent;color:#fff;font:inherit;font-size:12px;font-weight:700;cursor:pointer';
+    _reloginBanner.innerHTML = '<span>⚠ Deine Sitzung hat kein gueltiges Anmelde-Token mehr — Cloud-Daten koennen nicht geladen werden.</span>'
+      + '<button type="button" id="gema-sync-relogin-btn" style="' + btnCss + '">Neu anmelden</button>';
+    _reloginBanner.querySelector('#gema-sync-relogin-btn').onclick = function(){
+      try{ location.href = 'sys_login.html?r=' + encodeURIComponent(location.href); }catch(e){}
+    };
+    if(document.body) document.body.appendChild(_reloginBanner);
+    else document.addEventListener('DOMContentLoaded', function(){ if(_reloginBanner && !_reloginBanner.parentNode) document.body.appendChild(_reloginBanner); });
+  }
+  // «Automatisch ausloggen, wenn kein gueltiges Token mehr» (User-Wunsch
+  // 17.07.): Eine Session mit userId aber OHNE Token ist unter GEMA Secure
+  // ungueltig — statt stiller leerer Pools wird der Nutzer ausgeloggt und
+  // zum Login geleitet (wie beim 401 einer abgelaufenen Session).
+  // Loop-Bremse (KRITISCH): erzeugt die Anmeldung selbst wieder eine
+  // token-lose Session (Legacy-Kompatibilitaetsmodus ohne gema-auth-
+  // Function), wuerde der Auto-Logout endlos kreisen — deshalb (a) vorab
+  // ein diag-Check: nur ausloggen, wenn die Function deployed ist
+  // (Status != 404), und (b) hoechstens 1 Auto-Logout pro 10 Minuten,
+  // danach nur noch der sichtbare Banner.
+  var RELOGIN_TS_KEY = 'gema_sync_relogin_ts_v1';
+  function _autoLogout(){
+    try{
+      var last = parseInt(localStorage.getItem(RELOGIN_TS_KEY) || '0', 10);
+      if(Date.now() - last < 10 * 60 * 1000) return false;
+      localStorage.setItem(RELOGIN_TS_KEY, String(Date.now()));
+    }catch(e){}
+    try{ localStorage.removeItem('gema_session_v1'); }catch(e){}
+    try{ alert('Deine Sitzung ist abgelaufen — bitte neu anmelden.'); }catch(e){}
+    try{ location.href = 'sys_login.html?r=' + encodeURIComponent(location.href); }catch(e){}
+    return true;
+  }
+  function _tokenlessBootCheck(){
+    if(!_tokenlessSession()) return;
+    try{ if(/sys_login\.html/i.test((typeof location !== 'undefined' && location.pathname) || '')) return; }catch(e){}
+    var ctl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+    var t = ctl ? setTimeout(function(){ try{ ctl.abort(); }catch(e){} }, 6000) : null;
+    fetch(AUTH_FN + '?action=diag', { signal: ctl ? ctl.signal : undefined })
+      .then(function(r){
+        if(t) clearTimeout(t);
+        if(r.status === 404){ _authFnMissing = true; return; }  // Legacy — kein Logout
+        if(!_autoLogout()) _showRelogin();                      // Bremse aktiv → Hinweis
+      })
+      .catch(function(){ if(t) clearTimeout(t); });             // offline/unklar — kein Logout
+  }
+  if(typeof document !== 'undefined' && typeof fetch !== 'undefined'){
+    setTimeout(_tokenlessBootCheck, 1200);
+  }
   function _handle401(){
     if(_expiredShown || !_authToken()) return;
     _expiredShown = true;
@@ -581,6 +657,16 @@
         arr = _outboxApplyTo(moduleKey, prefix, idField, arr);
         _writeCache(storageKey, arr);
         return arr;
+      }
+      // GEMA Secure (KRITISCH): eine token-lose Session liest mit dem
+      // anon-Key — unter RLS kommt dann 200 + LEER zurueck, obwohl die
+      // Daten in der Cloud liegen. Ein GEFUELLTER lokaler Cache wird von
+      // so einem Read NIE geleert; stattdessen Cache behalten und zur
+      // Neuanmeldung auffordern. (Leerer Cache: Verhalten wie bisher —
+      // betrifft nur frische Geraete, dort gibt es nichts zu schuetzen.)
+      if(_tokenlessSession()){
+        var kept = _readCache(storageKey);
+        if(kept.length){ _showRelogin(); return kept; }
       }
       // Keine Per-Record-Daten — pruefe ob alte Blob-Row da ist
       return _legacyBlobFetch(moduleKey, storageKey).then(function(blob){

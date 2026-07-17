@@ -27,7 +27,7 @@ const FUTURE = new Date(Date.now() + 30 * 86400000).toISOString();
 const seed = {
   gema_orgs_v1: [{ id: 'org_t', name: 'T AG', kategorie: 'sanitaerinstallateur', kategorien: ['sanitaerinstallateur'], admins: ['u_t'], active: true }],
   gema_users_v1: [{ id: 'u_t', username: 'l@t.ch', name: 'Lager', roleIds: ['role_lagerist'], orgId: 'org_t', active: true, profile: { email: 'l@t.ch' } }],
-  gema_session_v1: { userId: 'u_t', expires: FUTURE }
+  gema_session_v1: { token: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpYXQiOjQwMDAwMDAwMDAsImV4cCI6NDEwMjQ0NDgwMCwidWlkIjoidV90ZXN0Iiwib3JnIjoib3JnX3Rlc3QiLCJyb2xlIjoiYXV0aGVudGljYXRlZCJ9.testsig', userId: 'u_t', expires: FUTURE }
 };
 const browser = await chromium.launch({ executablePath: process.env.CHROME || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome' });
 const ctx = await browser.newContext();

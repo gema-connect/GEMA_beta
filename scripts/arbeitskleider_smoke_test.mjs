@@ -213,7 +213,7 @@ console.log('■ Monteur: Mitarbeiter-Sicht deaktiviert (Variante «nur Magazine
 const s2 = seed(['role_monteur']);
 s2.gema_users_v1 = JSON.parse(JSON.stringify(s2.gema_users_v1));
 s2.gema_users_v1.push(MONTEUR);
-s2.gema_session_v1 = { userId: 'u_mont', expires: s2.gema_session_v1.expires };
+s2.gema_session_v1 = { token: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpYXQiOjQwMDAwMDAwMDAsImV4cCI6NDEwMjQ0NDgwMCwidWlkIjoidV90ZXN0Iiwib3JnIjoib3JnX3Rlc3QiLCJyb2xlIjoiYXV0aGVudGljYXRlZCJ9.testsig', userId: 'u_mont', expires: s2.gema_session_v1.expires };
 s2.gema_orgs_v1 = JSON.parse(orgsJson);
 s2['gema_ak_artikel_pool_v1'] = JSON.parse(poolA);
 s2['gema_ak_bezug_pool_v1'] = JSON.parse(poolB);

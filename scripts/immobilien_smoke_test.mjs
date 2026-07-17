@@ -85,7 +85,7 @@ const USERS = [
 function seedFor(userId) {
   return {
     gema_orgs_v1: ORGS, gema_users_v1: USERS,
-    gema_session_v1: { userId, expires: FUTURE }
+    gema_session_v1: { token: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpYXQiOjQwMDAwMDAwMDAsImV4cCI6NDEwMjQ0NDgwMCwidWlkIjoidV90ZXN0Iiwib3JnIjoib3JnX3Rlc3QiLCJyb2xlIjoiYXV0aGVudGljYXRlZCJ9.testsig', userId, expires: FUTURE }
   };
 }
 
