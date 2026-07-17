@@ -844,14 +844,20 @@ table.ww{border-collapse:collapse;width:100%;font-size:12.5px}
       <div class="ww-vermerk">Nettowohnfläche (ANF): Die reine Innenfläche der Wohneinheit (Wohnzimmer, Schlafzimmer, Küche, Bad, Korridore). Wände, Pfeiler und unbewohnbare Kellerräume werden abgezogen.</div>
       <div class="g-main-grid" style="margin-top:14px">
         <div>
+          <!-- Erweiterte Heizlast-Abschätzung (Feedback #6): Nutzung × Bauperiode/Standard → W/m² -->
           <div class="fg">
-            <div class="fg-lbl">Gebäudetyp aus Liste<br><span class="lbl-hint">spezifische Heizlast W/m² (nur Wohnbau)</span></div>
-            <select class="g-sel" id="ww_heizTyp" onchange="wwRecalc()"><option value="0">Bestehende, schlecht wärmegedämmte Wohnhäuser (60 W/m²)</option><option value="1">Bestehende, gut wärmegedämmte Wohnhäuser (45 W/m²)</option><option value="2" selected>Neubauten gemäss heutigen Vorschriften (32 W/m²)</option><option value="3">Bestehende, schlecht wärmegedämmte Dienstleistungsbauten (70 W/m²)</option><option value="4">Minergie-Gebäude (25 W/m²)</option><option value="5">Minergie-P-Gebäude (14 W/m²)</option></select>
+            <div class="fg-lbl">Gebäudekategorie / Nutzung<br><span class="lbl-hint">erweiterte Abschätzung der Heizlast</span></div>
+            <select class="g-sel" id="ww_heizKat" onchange="wwRecalc()"><option value="0">Einfamilienhaus (EFH)</option><option value="1" selected>Mehrfamilienhaus (MFH)</option><option value="2">Bürogebäude</option><option value="3">Schulhäuser / Bildung</option><option value="4">Verkauf / Detailhandel</option><option value="5">Hotels / Beherbergung</option><option value="6">Spitäler / Pflegeheime</option><option value="7">Restaurants / Gastronomie</option><option value="8">Sporthallen, beheizt</option></select>
+          </div>
+          <div class="fg">
+            <div class="fg-lbl">Bauperiode / Standard</div>
+            <select class="g-sel" id="ww_heizStd" onchange="wwRecalc()"><option value="0">Altbau ungedämmt (vor 1975)</option><option value="1">Altbau teilsaniert (1975–1990)</option><option value="2">Erste Dämmvorschriften (1990–2000)</option><option value="3" selected>Moderner Neubau / MuKEn ab 2015</option><option value="4">Minergie</option><option value="5">Minergie-P</option><option value="6">Passivhaus</option></select>
           </div>
 <div class="fg"><div class="fg-lbl">Heizlast frei gewählt<br><span class="lbl-hint">überschreibt die Abschätzung · 0 = Abschätzung</span></div><input class="fg-inp" onblur="fixLeadingZero(this)" id="ww_heizFrei" type="text" inputmode="decimal" value="0" oninput="wwRecalc()" /><span class="fg-unit">kW</span></div>
         </div>
         <div>
           <div class="g-result-list">
+            <div class="g-result-row"><span class="g-result-lbl">Spezifische Heizlast aus Liste</span><span class="g-result-val" id="ww_out_heizWspez">–</span></div>
             <div class="g-result-row"><span class="g-result-lbl">Heizlast aus Liste <span class="ww-badge-hint">Abschätzung</span> <span class="frml" style="display:inline;margin:0;">(A/0.85)·W/m²</span></span><span class="g-result-val" id="ww_out_heizWohn">–</span></div>
             <div class="g-result-row"><span class="g-result-lbl">Massgebende Heizlast</span><span class="g-result-val" id="ww_out_heizlast">–</span></div>
           </div>
@@ -1117,13 +1123,22 @@ var WW_ENTNAHME={"zeiten": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 1
 // Datentabellen WW_GROB_NUTZUNG / WW_FEIN_NUTZUNG / WW_ENTNAHME werden
 // vom Builder direkt davor als JSON eingefuegt.
 
-var WW_HEIZLAST_TYPEN=[
- {name:'Bestehende, schlecht wärmegedämmte Wohnhäuser',w:60},
- {name:'Bestehende, gut wärmegedämmte Wohnhäuser',w:45},
- {name:'Neubauten gemäss heutigen Vorschriften',w:32},
- {name:'Bestehende, schlecht wärmegedämmte Dienstleistungsbauten',w:70},
- {name:'Minergie-Gebäude',w:25},
- {name:'Minergie-P-Gebäude',w:14}
+// Erweiterte Abschätzung der Heizlast (Feedback #6, Tabelle Robin 17.07.):
+// W/m² je Gebäudekategorie × Bauperiode/Standard. Spalten (Index 0..6):
+// Altbau ungedämmt (vor 1975) · Altbau teilsaniert (1975–1990) ·
+// Erste Dämmvorschriften (1990–2000) · Moderner Neubau / MuKEn ab 2015 ·
+// Minergie · Minergie-P · Passivhaus. stern:true = Passivhaus-Wert trägt
+// in der Quelltabelle einen *-Vermerk (wird 1:1 mit angezeigt).
+var WW_HEIZLAST_MATRIX=[
+ {name:'Einfamilienhaus (EFH)',     w:[100,75,50,25,20,12,10]},
+ {name:'Mehrfamilienhaus (MFH)',    w:[90,65,40,20,17,10,9]},
+ {name:'Bürogebäude',               w:[75,55,45,25,20,12,10]},
+ {name:'Schulhäuser / Bildung',     w:[70,50,40,20,16,10,9]},
+ {name:'Verkauf / Detailhandel',    w:[65,50,40,28,20,14,10],stern:true},
+ {name:'Hotels / Beherbergung',     w:[95,70,55,33,25,16,10],stern:true},
+ {name:'Spitäler / Pflegeheime',    w:[110,85,65,40,32,20,12],stern:true},
+ {name:'Restaurants / Gastronomie', w:[85,65,50,35,28,16,10],stern:true},
+ {name:'Sporthallen, beheizt',      w:[60,45,35,22,16,11,10],stern:true}
 ];
 // Rohrverlust-Faktoren je Aussen-Ø: q [kWh/(m·d)] = ΔT · Faktor
 var WW_ROHR_FAKTOR={'15':0.00236667,'18':0.002525,'22':0.00268571,'28':0.00291429,'35':0.00314286,'42':0.003333333,'54':0.003633333,'64':0.003833333,'76.1':0.0040667,'88.9':0.0043,'108':0.00456667};
@@ -1259,10 +1274,14 @@ function wwCalc(){
     return {np:np,fl:nw*anf,belegung:nw>0?np/nw:0};
   });
   res.flaeche=flaeche;res.personen=pers;
-  // Heizlast (Z102/Z105/Z210)
-  var typIdx=parseInt((document.getElementById('ww_heizTyp')||{}).value,10)||0;
-  var wspez=(WW_HEIZLAST_TYPEN[typIdx]||{}).w||32;
-  res.heizlastWohn=flaeche>0?((flaeche/0.85)*wspez)/1000:0;  // Z102
+  // Heizlast (Z102/Z105/Z210) — erweiterte Matrix Nutzung × Standard (Feedback #6)
+  var katIdx=parseInt((document.getElementById('ww_heizKat')||{}).value,10);if(!isFinite(katIdx))katIdx=1;
+  var stdIdx=parseInt((document.getElementById('ww_heizStd')||{}).value,10);if(!isFinite(stdIdx))stdIdx=3;
+  var heizRow=WW_HEIZLAST_MATRIX[katIdx]||WW_HEIZLAST_MATRIX[1];
+  var wspez=(heizRow.w||[])[stdIdx]||0;
+  res.heizWspez=wspez;
+  res.heizStern=!!(heizRow.stern&&stdIdx===6);
+  res.heizlastWohn=(flaeche>0&&wspez>0)?((flaeche/0.85)*wspez)/1000:0;  // Z102
   var heizFrei=wwNum('ww_heizFrei');                          // Z105
   res.heizlast=heizFrei>0?heizFrei:res.heizlastWohn;          // Z210
   // Feinplanungs-Speicherverluste (1.2) — auf Anfangs-Speichervolumen
@@ -1462,6 +1481,7 @@ function wwRenderCalc(res){
   setTxt('ww_out_spitze',wwFmt(res.spitze,0));
   setTxt('ww_out_personen',wwFmt(res.personen,1));
   setTxt('ww_out_flaeche',wwFmt(res.flaeche,0));
+  setTxt('ww_out_heizWspez',res.heizWspez>0?wwFmt(res.heizWspez,0)+(res.heizStern?'*':'')+' W/m²':'–');
   setTxt('ww_out_heizWohn',res.heizlastWohn>0?wwFmt(res.heizlastWohn,1)+' kW':'–');
   setTxt('ww_out_heizlast',res.heizlast>0?wwFmt(res.heizlast,1)+' kW':'–');
   setTxt('ww_out_dtLeitung',res.dtLeitung>0?wwFmt(res.dtLeitung,0)+' K':'–');
