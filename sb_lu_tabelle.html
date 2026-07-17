@@ -403,7 +403,7 @@ body {
 
 /* Device list rows */
 .device-row {
-  display:grid; grid-template-columns: 1fr 60px 110px 45px 45px 45px 55px 32px;
+  display:grid; grid-template-columns: 1fr 60px 110px 45px 45px 45px 45px 55px 32px;
   gap:8px; padding:8px 10px;
   background:var(--surface);
   border:1.5px solid var(--border); border-top:0;
@@ -447,11 +447,11 @@ body {
   background:var(--bg2); border:1.5px solid var(--border); border-radius:var(--r-sm) var(--r-sm) 0 0;
   font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:.4px;
 }
-.list-head.devices { grid-template-columns: 1fr 60px 110px 45px 45px 45px 55px 32px; }
+.list-head.devices { grid-template-columns: 1fr 60px 110px 45px 45px 45px 45px 55px 32px; }
 .list-head.specials { grid-template-columns: 1fr 70px 120px 90px 36px; }
 .special-row select { padding:6px 8px; border:1.5px solid var(--border2); border-radius:10px; font-size:12px; font-family:inherit; font-weight:600; background:var(--surface); color:var(--text); width:100%; cursor:pointer; }
 .special-row select:focus { outline:none; border-color:var(--accent); box-shadow:0 0 0 2px rgba(37,99,235,.1); }
-.medium-kw{color:var(--green)!important}.medium-ww{color:var(--red)!important}.medium-nd{color:var(--accent)!important}.medium-bw{color:#7c3aed!important}.medium-ow{color:#0d9488!important}.medium-gw{color:#0891b2!important}.medium-frei{color:var(--text)!important}
+.medium-kw{color:var(--green)!important}.medium-ww{color:var(--red)!important}.medium-nd{color:var(--accent)!important}.medium-bw{color:#7c3aed!important}.medium-ow{color:#0d9488!important}.medium-gw{color:#0891b2!important}.medium-grau{color:#64748b!important}.medium-frei{color:var(--text)!important}
 .maxlu-inline{display:inline-flex;gap:3px;margin-left:6px;vertical-align:middle}
 .maxlu-inline button{padding:2px 6px;border-radius:5px;border:1px solid var(--border2);background:var(--surface);color:var(--muted);font-size:9px;font-weight:700;cursor:pointer;font-family:inherit;transition:.15s;line-height:1.2}
 .maxlu-inline button:hover{background:var(--bg2)}
@@ -732,7 +732,7 @@ function fixLeadingZero(el){
         </div>
         <div class="g-card-bd">
           <div class="list-head devices">
-            <div>Apparat</div><div>Anz.</div><div>Medium</div><div>KW</div><div>WW</div><div>ND</div><div>Total</div><div></div>
+            <div>Apparat</div><div>Anz.</div><div>Medium</div><div>KW</div><div>WW</div><div>ND</div><div title="LU auf alternativem Leitungsnetz (EW / OW / RW / GW)">Netz</div><div>Total</div><div></div>
           </div>
           <div id="deviceList"></div>
           <div style="margin-top:8px"><button class="g-btn sm no-print" onclick="window._luAddDevice&&window._luAddDevice()">＋ Zeile</button></div>
@@ -844,7 +844,12 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
       // Osmoseberechnung und von dort (Permeat+Konzentrat) in die
       // Enthärtung. BW sind Apparate, die NUR enthärtetes Wasser brauchen.
       {id:'ow', label:'Enthärtetes Wasser für Osmose (OW)', short:'OW', cls:'medium-ow', color:'#0d9488'},
-      {id:'gw', label:'Grauwasser (GW)', short:'GW', cls:'medium-gw', color:'#0891b2'},
+      // gw war historisch als «Grauwasser» beschriftet, meinte aber immer das
+      // Regenwasser-Netz (Alias 'regenwasser', Ziel Regenwasser-Druckerhöhung).
+      // Die ID bleibt 'gw' (Bestandsschutz gespeicherter Daten), nur das Label
+      // ist korrigiert. Grauwasser ist seither ein EIGENES Medium ('grau').
+      {id:'gw', label:'Regenwasser (RW)', short:'RW', cls:'medium-gw', color:'#0891b2'},
+      {id:'grau', label:'Grauwasser (GW)', short:'GW', cls:'medium-grau', color:'#64748b'},
       {id:'frei', label:'Freie Eingabe', short:'Frei', cls:'medium-frei', color:'var(--text)'}
     ];
     const MEDIA_MAP = new Map(MEDIA.map(m=>[m.id,m]));
@@ -853,17 +858,19 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
     //
     // ACHTUNG — zwei getrennte Key-Welten (M4, bewusst so belassen):
     //   state.devices[].medium  nutzt DEVICE_MEDIA-Keys ('trinkwasser',
-    //     'enthaertet', 'osmose', 'regenwasser') = Leitungsnetz-Zuordnung
-    //     des Apparats (Anzeige; Berechnung laeuft ueber lu_kw/ww/nd).
+    //     'enthaertet', 'osmose', 'regenwasser', 'grauwasser') =
+    //     Leitungsnetz-Zuordnung des Apparats (Anzeige; Berechnung laeuft
+    //     ueber lu_kw/ww/nd).
     //   state.special[]/dauer[].medium nutzt MEDIA-Keys ('kw','ww','nd',
-    //     'bw','ow','gw','frei') = Berechnungsmedium.
+    //     'bw','ow','gw','grau','frei') = Berechnungsmedium.
     // Die Arrays sind getrennt, es gibt keine Key-Kollision. Beim Lesen
     // greift ueberall der Fallback || 'kw' bzw. || 'trinkwasser'.
     const DEVICE_MEDIA = [
       {id:'trinkwasser',  label:'Trinkwasser',         short:'TW',  color:'#2563eb'},
       {id:'enthaertet',   label:'Enthärtetes Wasser',   short:'EW',  color:'#7c3aed'},
-      {id:'osmose',       label:'Osmosewasser',          short:'OW',  color:'#0891b2'},
-      {id:'regenwasser',  label:'Regenwasser',           short:'RW',  color:'#16a34a'}
+      {id:'osmose',       label:'Osmosewasser',          short:'OW',  color:'#0d9488'},
+      {id:'regenwasser',  label:'Regenwasser',           short:'RW',  color:'#0891b2'},
+      {id:'grauwasser',   label:'Grauwasser',            short:'GW',  color:'#64748b'}
     ];
 
     // ── Admin Stammdaten (custom overrides, persisted) ──
@@ -889,6 +896,12 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
         // Apply media overrides
         if (Array.isArray(data.media)) {
           data.media.forEach(mo => {
+            // Migration Label-Fix 07/2026: gw hiess frueher faelschlich
+            // «Grauwasser (GW)», meinte aber das Regenwasser-Netz. Ein
+            // gespeicherter Override mit dem alten Default-Label wird
+            // verworfen (sonst gaebe es zwei «Grauwasser»-Medien);
+            // bewusste eigene Umbenennungen bleiben erhalten.
+            if (mo.id === 'gw' && /grauwasser/i.test(mo.label||'')) return;
             const m = MEDIA.find(x=>x.id===mo.id);
             if (m) { m.label = mo.label||m.label; m.short = mo.short||m.short; }
           });
@@ -927,7 +940,7 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
       if (!el) return;
       el.innerHTML = MEDIA.filter(m=>m.id!=='frei').map((m,i) =>
         '<div style="display:flex;gap:10px;padding:10px;border-bottom:1px solid var(--border,#e2e8f0);align-items:center">' +
-          '<span style="font-size:18px;width:24px;text-align:center">'+({kw:'💧',ww:'🔴',nd:'🔵',bw:'🟣',gw:'🟢'}[m.id]||'⚪')+'</span>' +
+          '<span style="font-size:18px;width:24px;text-align:center">'+({kw:'💧',ww:'🔴',nd:'🔵',bw:'🟣',ow:'🟢',gw:'🌧',grau:'♻️'}[m.id]||'⚪')+'</span>' +
           '<div style="flex:1;display:flex;gap:8px">' +
             '<div style="flex:2"><label style="font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.4px">Bezeichnung</label>' +
               '<input type="text" value="'+escapeHtml(m.label)+'" onchange="_admMedChange(\''+m.id+'\',\'label\',this.value)" style="padding:5px 8px;border:1.5px solid var(--border2,#cdd4e4);border-radius:6px;font-size:13px;font-weight:600;font-family:inherit;color:var(--text);width:100%;margin-top:2px"></div>' +
@@ -1052,8 +1065,8 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
     let state = {
       projekt: "",
       notizen: "",
-      maxLU: {kw:3, ww:3, nd:5, bw:3, ow:3, gw:3, frei:3},
-      maxLUManual: {kw:false, ww:false, nd:false, bw:false, ow:false, gw:false, frei:false},
+      maxLU: {kw:3, ww:3, nd:5, bw:3, ow:3, gw:3, grau:3, frei:3},
+      maxLUManual: {kw:false, ww:false, nd:false, bw:false, ow:false, gw:false, grau:false, frei:false},
       devices: [
         { deviceName: "Waschtisch", qty: 0, medium: "trinkwasser" },
         { deviceName: "WC-Spülkasten", qty: 0, medium: "trinkwasser" },
@@ -1124,7 +1137,7 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
         if (d.lu_ww > 0) maxPerMedium.ww = Math.max(maxPerMedium.ww, d.lu_ww);
         if (d.lu_nd > 0) maxPerMedium.nd = Math.max(maxPerMedium.nd, d.lu_nd);
       }
-      for (const mid of ['kw','ww','nd','bw','ow','gw','frei']){
+      for (const mid of ['kw','ww','nd','bw','ow','gw','grau','frei']){
         if (state.maxLUManual[mid]) continue;
         const detected = maxPerMedium[mid] || 0;
         state.maxLU[mid] = detected >= 5 ? 5 : 3;
@@ -1171,7 +1184,7 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
 
         const dev = DEVICE_BY_NAME.get(row.deviceName);
         const q = row.qty || 0;
-        const netzMedium = { enthaertet:'bw', osmose:'ow', regenwasser:'gw' }[row.medium || 'trinkwasser'] || null;
+        const netzMedium = { enthaertet:'bw', osmose:'ow', regenwasser:'gw', grauwasser:'grau' }[row.medium || 'trinkwasser'] || null;
         const netzInfo = netzMedium ? (DEVICE_MEDIA.find(m => m.id === (row.medium || 'trinkwasser')) || null) : null;
 
         const kwSpan = document.createElement("span");
@@ -1185,6 +1198,18 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
         const ndSpan = document.createElement("span");
         ndSpan.style.cssText = "font-family:var(--mono);font-size:12px;font-weight:700;color:var(--accent);text-align:center;";
         ndSpan.textContent = dev && q && !netzMedium ? (dev.lu_nd > 0 ? String(dev.lu_nd * q) : "–") : "–";
+
+        // Netz-Spalte: LU des Apparats auf einem alternativen Leitungsnetz
+        // (EW/OW/RW/GW) — sichtbar statt nur Striche in KW/WW/ND (Feedback 17.07.).
+        const netzSpan = document.createElement("span");
+        netzSpan.style.cssText = "font-family:var(--mono);font-size:12px;font-weight:700;text-align:center;color:" +
+          (netzInfo ? netzInfo.color : "var(--muted)") + ";";
+        if (dev && q && netzMedium) {
+          netzSpan.textContent = String(dev.lu_total * q);
+          netzSpan.title = netzInfo.label + " (" + netzInfo.short + ") — LU zählen im eigenen Leitungsnetz";
+        } else {
+          netzSpan.textContent = "–";
+        }
 
         const totalSpan = document.createElement("span");
         totalSpan.style.cssText = "font-family:var(--mono);font-size:13px;font-weight:800;color:var(--text);text-align:right;white-space:nowrap;";
@@ -1230,6 +1255,7 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
         div.appendChild(kwSpan);
         div.appendChild(wwSpan);
         div.appendChild(ndSpan);
+        div.appendChild(netzSpan);
         div.appendChild(totalSpan);
         div.appendChild(remove);
         host.appendChild(div);
@@ -1333,7 +1359,7 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
     }
 
     // Leitungsnetz des Apparats → Berechnungsmedium der Zusammenstellung
-    const NETZ_ZU_MEDIUM = { enthaertet:'bw', osmose:'ow', regenwasser:'gw' };
+    const NETZ_ZU_MEDIUM = { enthaertet:'bw', osmose:'ow', regenwasser:'gw', grauwasser:'grau' };
 
     function calc(){
       let devCount = 0;
@@ -1341,9 +1367,9 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
       let luTotal = 0, luWw = 0, luKw = 0, luNd = 0;
       let maxSingleLU = {kw:0, ww:0, nd:0};
       // Apparate-Stueckzahl pro Medium (fuer die Einzelapparat-Regel)
-      let unitsPerMed = {kw:0, ww:0, nd:0, bw:0, ow:0, gw:0};
-      // LU der Apparate auf alternativen Netzen (EW/OW/RW) — je Medium
-      let luAlt = {bw:0, ow:0, gw:0};
+      let unitsPerMed = {kw:0, ww:0, nd:0, bw:0, ow:0, gw:0, grau:0};
+      // LU der Apparate auf alternativen Netzen (EW/OW/RW/GW) — je Medium
+      let luAlt = {bw:0, ow:0, gw:0, grau:0};
 
       for (const r of state.devices){
         if (!r.deviceName) continue;
@@ -1356,7 +1382,7 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
         luTotal += d.lu_total * q;
         const altMed = NETZ_ZU_MEDIUM[r.medium || 'trinkwasser'];
         if (altMed) {
-          // Apparat hängt am EW-/OW-/RW-Netz: sein LU-Total zählt in DIESEM
+          // Apparat hängt am EW-/OW-/RW-/GW-Netz: sein LU-Total zählt in DIESEM
           // Medium (eigenes Netz mit eigener Auslegung), nicht in KW/WW/ND.
           luAlt[altMed] += d.lu_total * q;
           unitsPerMed[altMed] += q;
@@ -1391,7 +1417,7 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
       const qWwLU = _qMed(luWw, maxLU.ww||3, unitsPerMed.ww, (specialSums.ww||0)+(dauerSums.ww||0));
       const qNdLU = _qMed(luNd, maxLU.nd||5, unitsPerMed.nd, (specialSums.nd||0)+(dauerSums.nd||0));
       const qAltLU = {};
-      for (const mid of ['bw','ow','gw']) {
+      for (const mid of ['bw','ow','gw','grau']) {
         qAltLU[mid] = _qMed(luAlt[mid], maxLU[mid]||3, unitsPerMed[mid], (specialSums[mid]||0)+(dauerSums[mid]||0));
       }
 
@@ -1402,7 +1428,7 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
       media.kw.lu = luKw; media.kw.luRaw = luKw/10; media.kw.luFlow = qKwLU;
       media.ww.lu = luWw; media.ww.luRaw = luWw/10; media.ww.luFlow = qWwLU;
       media.nd.lu = luNd; media.nd.luRaw = luNd/10; media.nd.luFlow = qNdLU;
-      for (const mid of ['bw','ow','gw']) {
+      for (const mid of ['bw','ow','gw','grau']) {
         media[mid].lu = luAlt[mid]; media[mid].luRaw = luAlt[mid]/10; media[mid].luFlow = qAltLU[mid];
       }
 
@@ -1485,7 +1511,7 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
       if (obj.luKw > 0) usedMedia.add('kw');
       if (obj.luWw > 0) usedMedia.add('ww');
       if (obj.luNd > 0) usedMedia.add('nd');
-      for (const mid of ['bw','ow','gw']) { if (obj.luAlt && obj.luAlt[mid] > 0) usedMedia.add(mid); }
+      for (const mid of ['bw','ow','gw','grau']) { if (obj.luAlt && obj.luAlt[mid] > 0) usedMedia.add(mid); }
 
       // === HAUPTWERTE ===
       const itemsMain = [];
@@ -1517,8 +1543,8 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
           frml:"Q<sub>ND</sub> = f(LU<sub>ND</sub>)",
           maxlu: m.lu > 0 ? _maxLUButtons('nd') : "" });
       }
-      // BW, OW, GW, Frei
-      for (const mid of ['bw','ow','gw','frei']) {
+      // BW, OW, RW, GW, Frei
+      for (const mid of ['bw','ow','gw','grau','frei']) {
         if (!usedMedia.has(mid)) continue;
         const m = obj.media[mid];
         if (!m) continue;
@@ -1543,7 +1569,7 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
       if (usedMedia.has('kw') && obj.luKw > 0) itemsSplit.push({ title:"Kaltwasser \u2013 LU", hint:"Summe LU KW", value: fmt(obj.luKw,0), unit:"LU", cls:"kw", frml:"" });
       if (usedMedia.has('ww') && obj.luWw > 0) itemsSplit.push({ title:"Warmwasser \u2013 LU", hint:"Summe LU WW", value: fmt(obj.luWw,0), unit:"LU", cls:"ww", frml:"" });
       if (usedMedia.has('nd') && obj.luNd > 0) itemsSplit.push({ title:"Netzdruck \u2013 LU", hint:"Summe LU ND", value: fmt(obj.luNd,0), unit:"LU", cls:"nd", frml:"" });
-      for (const mid of ['bw','ow','gw']) {
+      for (const mid of ['bw','ow','gw','grau']) {
         if (obj.luAlt && obj.luAlt[mid] > 0) {
           const mi = MEDIA_MAP.get(mid) || {label:mid};
           itemsSplit.push({ title: mi.label + " \u2013 LU", hint:"Summe LU " + (mi.short||mid), value: fmt(obj.luAlt[mid],0), unit:"LU", cls:"", frml:"" });
@@ -1750,8 +1776,8 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
       state = {
         projekt: "",
         notizen: "",
-        maxLU: {kw:3, ww:3, nd:5, bw:3, gw:3, frei:3},
-        maxLUManual: {kw:false, ww:false, nd:false, bw:false, gw:false, frei:false},
+        maxLU: {kw:3, ww:3, nd:5, bw:3, ow:3, gw:3, grau:3, frei:3},
+        maxLUManual: {kw:false, ww:false, nd:false, bw:false, ow:false, gw:false, grau:false, frei:false},
         devices: [
           { deviceName: "Waschtisch", qty: 0, medium: "trinkwasser" },
           { deviceName: "WC-Spülkasten", qty: 0, medium: "trinkwasser" },
@@ -1880,8 +1906,8 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
           state = {
             projekt: obj.projekt || "",
             notizen: obj.notizen || "",
-            maxLU: (typeof obj.maxLU === 'object' && obj.maxLU) ? obj.maxLU : {kw:3, ww:3, nd:5, bw:3, gw:3, frei:3},
-            maxLUManual: (typeof obj.maxLUManual === 'object' && obj.maxLUManual) ? obj.maxLUManual : {kw:false, ww:false, nd:false, bw:false, gw:false, frei:false},
+            maxLU: (typeof obj.maxLU === 'object' && obj.maxLU) ? obj.maxLU : {kw:3, ww:3, nd:5, bw:3, ow:3, gw:3, grau:3, frei:3},
+            maxLUManual: (typeof obj.maxLUManual === 'object' && obj.maxLUManual) ? obj.maxLUManual : {kw:false, ww:false, nd:false, bw:false, ow:false, gw:false, grau:false, frei:false},
             devices: Array.isArray(obj.devices) && obj.devices.length
               ? obj.devices.map(r => ({
                   deviceName: DEVICE_BY_NAME.has(r.deviceName) ? r.deviceName : (r.deviceName||""),
