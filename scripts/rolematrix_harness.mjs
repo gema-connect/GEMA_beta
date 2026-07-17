@@ -58,14 +58,25 @@ export async function wireRoutes(ctx) {
 
 const FUTURE = new Date(Date.now() + 30 * 86400000).toISOString();
 
+// Fake-JWT für die Test-Session (GEMA Secure v1: echte Logins tragen ein
+// Token; ohne Token behandelt gema_sync leere Cloud-Antworten als nicht
+// vertrauenswürdig und zeigt den Neu-anmelden-Banner). iat = jetzt →
+// _maybeRefreshToken bleibt still (Token jünger als 24h).
+function _testJwt() {
+  const b64 = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
+  const now = Math.floor(Date.now() / 1000);
+  return b64({ alg: 'HS256', typ: 'JWT' }) + '.' +
+         b64({ iat: now, exp: now + 30 * 86400, uid: 'u_test', org: 'org_test', role: 'authenticated' }) + '.testsig';
+}
+
 // localStorage-Seed für einen Test-User mit gegebenen roleIds.
-// opts: { roles? (überschreibt gema_roles_v1), studentMods?, orgKat?, orgAdmins? }
+// opts: { roles? (überschreibt gema_roles_v1), studentMods?, orgKat?, orgAdmins?, tokenlos? }
 export function seed(roleIds, opts) {
   opts = opts || {};
   const s = {
     gema_orgs_v1: [{ id: 'org_test', name: 'Testfirma AG', kategorie: opts.orgKat || 'sanitaerplaner', kategorien: [opts.orgKat || 'sanitaerplaner'], admins: opts.orgAdmins || ['u_test'], active: true }],
     gema_users_v1: [{ id: 'u_test', username: 'u@test.ch', name: 'Test User', roleIds: roleIds, orgId: 'org_test', active: true, profile: { email: 'u@test.ch' } }],
-    gema_session_v1: { userId: 'u_test', expires: FUTURE }
+    gema_session_v1: opts.tokenlos ? { userId: 'u_test', expires: FUTURE } : { userId: 'u_test', expires: FUTURE, token: _testJwt() }
   };
   if (opts.roles) s.gema_roles_v1 = opts.roles;
   if (opts.studentMods) s.gema_student_mods_v1 = { userId: 'u_test', mods: opts.studentMods, exams: {}, ts: Date.now() };
