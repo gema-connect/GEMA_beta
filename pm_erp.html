@@ -1345,6 +1345,13 @@ function erpPosMove(i,dir){
   var t=cur.positionen[i];cur.positionen[i]=cur.positionen[j];cur.positionen[j]=t;
   erpRenderPos();
 }
+// Rabatt-/Zuschlagszeile direkt unterhalb der Zeile i einfügen — Modus (% vom
+// Kapitel-Zwischentotal oder pauschal CHF) kommt aus dem Kontextmenü, bleibt in
+// der Zeile aber weiterhin umschaltbar
+function erpPosInsertAufschlag(i,art,modus){
+  cur.positionen.splice(i+1,0,{id:uid(),art:art,bez:art==='rabatt'?'Rabatt':'Zuschlag',modus:modus,wert:''});
+  erpRenderPos();
+}
 function erpPosCtx(e,i){
   // In Eingabefeldern bleibt das native Menü (Text kopieren/einfügen)
   if(e.target&&/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName))return;
@@ -1358,6 +1365,12 @@ function erpPosCtx(e,i){
     items.push({ic:'✂️',t:'Ausschneiden',fn:function(){_posClip=JSON.parse(JSON.stringify(p));cur.positionen.splice(i,1);erpRenderPos();toast('✂️ Ausgeschnitten');}});
     if(_posClip)items.push({ic:'📥',t:'Einfügen (unterhalb)',fn:function(){cur.positionen.splice(i+1,0,_posClipCopy(_posClip));erpRenderPos();}});
     items.push({ic:'🗐',t:'Duplizieren',fn:function(){cur.positionen.splice(i+1,0,_posClipCopy(p));erpRenderPos();}});
+    items.push('-');
+    items.push({hd:'Unterhalb einfügen'});
+    items.push({ic:'−',t:'Rabatt in %',fn:function(){erpPosInsertAufschlag(i,'rabatt','pct');}});
+    items.push({ic:'−',t:'Rabatt pauschal (CHF)',fn:function(){erpPosInsertAufschlag(i,'rabatt','chf');}});
+    items.push({ic:'＋',t:'Zuschlag in %',fn:function(){erpPosInsertAufschlag(i,'zuschlag','pct');}});
+    items.push({ic:'＋',t:'Zuschlag pauschal (CHF)',fn:function(){erpPosInsertAufschlag(i,'zuschlag','chf');}});
     items.push('-');
     if(i>0)items.push({ic:'⬆️',t:'Nach oben verschieben',fn:function(){erpPosMove(i,-1);}});
     if(i<cur.positionen.length-1)items.push({ic:'⬇️',t:'Nach unten verschieben',fn:function(){erpPosMove(i,1);}});

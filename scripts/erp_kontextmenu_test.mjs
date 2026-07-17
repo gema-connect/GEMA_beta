@@ -210,9 +210,53 @@ await page.waitForTimeout(200);
 await rowCtx(0);
 {
   const items = await ctxItems();
-  ok(items.length === 1 && items[0].indexOf('Kopieren') >= 0, 'Gestellte Rechnung: nur «Kopieren» (read-only)');
+  ok(items.length === 1 && items[0].indexOf('Kopieren') >= 0, 'Gestellte Rechnung: nur «Kopieren» (read-only, auch kein Rabatt/Zuschlag)');
 }
 await page.evaluate(() => erpCtxClose());
+
+console.log('■ Rabatt/Zuschlag per Rechtsklick einfügen (% oder pauschal)');
+await page.evaluate(() => { erpOpen(window._posDocId); });
+await page.waitForTimeout(200);
+await rowCtx(0);
+{
+  const items = await ctxItems();
+  ok(items.some(t => t.indexOf('Rabatt in %') >= 0) && items.some(t => t.indexOf('Rabatt pauschal (CHF)') >= 0), 'Menü: «Rabatt in %» + «Rabatt pauschal (CHF)»');
+  ok(items.some(t => t.indexOf('Zuschlag in %') >= 0) && items.some(t => t.indexOf('Zuschlag pauschal (CHF)') >= 0), 'Menü: «Zuschlag in %» + «Zuschlag pauschal (CHF)»');
+  ok(await page.evaluate(() => [...document.querySelectorAll('#erpCtxMenu .ctx-hd')].some(h => h.textContent.indexOf('Unterhalb einfügen') >= 0)), 'Gruppen-Überschrift «Unterhalb einfügen»');
+}
+await ctxClick('Rabatt in %');
+ok(await page.evaluate(() => {
+  const p = cur.positionen[1];
+  return p && p.art === 'rabatt' && p.modus === 'pct' && p.bez === 'Rabatt';
+}), 'Rabatt-Zeile (%) direkt unterhalb eingefügt');
+// Rabatt wirkt aufs Kapitel-Zwischentotal: 10 % auf die Position darüber (2400)
+ok(await page.evaluate(() => {
+  cur.positionen[1].wert = '10';
+  const vorher = erpDocTotals(cur).zwischen;
+  cur.positionen.splice(1, 1);
+  const ohne = erpDocTotals(cur).zwischen;
+  cur.positionen.splice(1, 0, { id: 'rb_t', art: 'rabatt', bez: 'Rabatt', modus: 'pct', wert: '10' });
+  return Math.abs((ohne - vorher) - 240) < 0.01;
+}), 'Eingefügter Rabatt rechnet aufs Zwischentotal (10 % von 2400 = 240)');
+await page.evaluate(() => { cur.positionen.splice(1, 1); erpRenderPos(); });
+await rowCtx(0);
+await ctxClick('Zuschlag pauschal (CHF)');
+ok(await page.evaluate(() => {
+  const p = cur.positionen[1];
+  return p && p.art === 'zuschlag' && p.modus === 'chf' && p.bez === 'Zuschlag';
+}), 'Zuschlag-Zeile (pauschal CHF) eingefügt');
+await page.evaluate(() => { cur.positionen.splice(1, 1); erpRenderPos(); erpSaveCur(true); });
+// Auch in der Rechnung (Entwurf — User-Wunsch «bei Offerte und Rechnung»)
+await page.evaluate(() => {
+  const re = poolRead(DOK_POOL).find(d => d.typ === 'rechnung' && d.rechnungsArt === 'schluss');
+  erpOpen(re.id);
+});
+await page.waitForTimeout(200);
+await rowCtx(0);
+ok((await ctxItems()).some(t => t.indexOf('Rabatt pauschal (CHF)') >= 0), 'Rechnung (Entwurf): Rabatt/Zuschlag-Einträge im Menü');
+await ctxClick('Rabatt pauschal (CHF)');
+ok(await page.evaluate(() => cur.positionen[1] && cur.positionen[1].art === 'rabatt' && cur.positionen[1].modus === 'chf'), 'Rabatt pauschal in der Rechnung eingefügt');
+await page.evaluate(() => { cur.positionen.splice(1, 1); erpRenderPos(); });
 
 console.log('■ Menü-Verhalten: Escape + Klick daneben schliessen');
 await page.evaluate(() => { erpOpen(window._posDocId); });
