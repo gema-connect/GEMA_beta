@@ -368,6 +368,28 @@ table.pos{border-collapse:collapse;width:100%;font-size:13px;min-width:680px}
   </div>
 </div>
 
+<!-- ═══ ABWEICHENDE ZUSTELLADRESSE ═══ -->
+<div class="modal-bg" id="zustellModal">
+  <div class="modal">
+    <div class="modal-hd"><h3>✉️ Abweichende Zustelladresse</h3><button class="modal-x" onclick="document.getElementById('zustellModal').classList.remove('open')">✕</button></div>
+    <div class="modal-bd">
+      <div style="font-size:12px;color:var(--mut);margin-bottom:12px;line-height:1.55">Wohin das Dokument adressiert/zugestellt wird (z.B. Verwaltung, Architekt, c/o- oder Postfach-Adresse). <b>Rechnungsempfänger und Zahler bleibt der Kunde</b> — bei Rechnungen lautet der QR-Zahlteil weiterhin auf ihn.</div>
+      <div class="fld"><label>Aus Kundenstamm übernehmen (optional)</label><select id="z_pick" onchange="erpZustellPrefill(this.value)"></select></div>
+      <div class="fld"><label>Firma / Name *</label><input id="z_firma" type="text" placeholder="z.B. Liegenschaftsverwaltung Muster AG"/></div>
+      <div class="fld"><label>Kontakt / z.Hd.</label><input id="z_kontakt" type="text" placeholder="z.B. z.Hd. Frau Beispiel"/></div>
+      <div class="fld"><label>Strasse / Nr. / Postfach</label><input id="z_strasse" type="text"/></div>
+      <div class="fld-row">
+        <div class="fld"><label>PLZ</label><input id="z_plz" type="text"/></div>
+        <div class="fld"><label>Ort</label><input id="z_ort" type="text"/></div>
+      </div>
+    </div>
+    <div class="modal-ft">
+      <button class="btn" onclick="document.getElementById('zustellModal').classList.remove('open')">Abbrechen</button>
+      <button class="btn grn" onclick="erpZustellSave()">💾 Übernehmen</button>
+    </div>
+  </div>
+</div>
+
 <!-- ═══ BKP-TITEL-PICKER (Standard-Baukostenplan) ═══ -->
 <div class="modal-bg" id="bkpModal">
   <div class="modal">
@@ -964,7 +986,7 @@ function erpNeu(typ,vorlage){
   var objId='';try{objId=(document.getElementById('fObjekt')||{}).value||GemaObjekte.getActiveId()||'';}catch(e){}
   cur=Object.assign({
     id:uid(),typ:typ,nr:erpNextNr(typ),orgId:u?u.orgId:'',
-    objektId:objId,titel:'',kundeId:'',kundeSnapshot:null,bereichId:'',
+    objektId:objId,titel:'',kundeId:'',kundeSnapshot:null,zustellSnapshot:null,bereichId:'',
     datum:today(),
     gueltigBis:typ==='offerte'?addDays(today(),30):'',
     frist:typ==='rechnung'?addDays(today(),s.fristTage):'',
@@ -1041,7 +1063,7 @@ function erpOpenEditor(){
   var kunden=erpKunden();
   h+='<div class="sec"><div class="sec-hd"><h3>'+TYP[d.typ].ic+' Grunddaten</h3></div><div class="sec-bd">'
     +'<div class="fld-row">'
-    +'<div class="fld"><label>Kunde *</label><div style="display:flex;gap:6px">'
+    +'<div class="fld"><label>Kunde (Rechnungsempfänger) *</label><div style="display:flex;gap:6px">'
     +'<select id="e_kunde" style="flex:1"'+dis+' onchange="erpKundeWahl(this.value)">'
     +'<option value="">– Kunde wählen –</option>'
     +kunden.map(function(k){return '<option value="'+k.id+'"'+(k.id===d.kundeId?' selected':'')+'>'+esc(k.firma)+'</option>';}).join('')
@@ -1066,7 +1088,20 @@ function erpOpenEditor(){
         +'</select></div>';
     })()
     +'</div>'
-    +(d.kundeSnapshot?'<div style="font-size:12px;color:var(--mut);background:var(--sur2);border-radius:9px;padding:8px 11px">📮 '+esc(d.kundeSnapshot.firma)+(d.kundeSnapshot.kontakt?' · '+esc(d.kundeSnapshot.kontakt):'')+'<br>'+esc([d.kundeSnapshot.strasse,[d.kundeSnapshot.plz,d.kundeSnapshot.ort].filter(Boolean).join(' ')].filter(Boolean).join(', ')||'(keine Adresse — für die Rechnung ergänzen)')+'</div>':'')
+    +(d.kundeSnapshot?'<div style="font-size:12px;color:var(--mut);background:var(--sur2);border-radius:9px;padding:8px 11px">👤 <b>Kunde (Rechnungsempfänger/Zahler):</b> '+esc(d.kundeSnapshot.firma)+(d.kundeSnapshot.kontakt?' · '+esc(d.kundeSnapshot.kontakt):'')+'<br>'+esc([d.kundeSnapshot.strasse,[d.kundeSnapshot.plz,d.kundeSnapshot.ort].filter(Boolean).join(' ')].filter(Boolean).join(', ')||'(keine Adresse — für die Rechnung ergänzen)')+'</div>':'')
+    // Abweichende Zustelladresse: wohin das Dokument adressiert wird (Fensteradresse) —
+    // Rechnungsempfänger + QR-Zahlteil bleiben beim Kunden
+    +(function(){
+      var zu=d.zustellSnapshot;
+      if(zu&&zu.firma){
+        return '<div style="font-size:12px;color:var(--txt2);background:var(--blue-bg);border:1px solid var(--blue-bd);border-radius:9px;padding:8px 11px;margin-top:6px;display:flex;gap:8px;align-items:flex-start">'
+          +'<div style="flex:1;min-width:0">✉️ <b>Zustelladresse (abweichend):</b> '+esc(zu.firma)+(zu.kontakt?' · '+esc(zu.kontakt):'')+'<br>'+esc([zu.strasse,[zu.plz,zu.ort].filter(Boolean).join(' ')].filter(Boolean).join(', '))
+          +'<br><span style="font-size:11px;color:var(--mut)">Das Dokument wird an diese Adresse adressiert — Rechnungsempfänger/Zahler'+(d.typ==='rechnung'?' (QR-Zahlteil)':'')+' bleibt der Kunde.</span></div>'
+          +(editable?'<span style="display:flex;gap:5px;flex-shrink:0"><button class="btn" style="min-height:28px;padding:3px 9px;font-size:11.5px" onclick="erpZustellOpen()">✏️</button><button class="btn" style="min-height:28px;padding:3px 9px;font-size:11.5px" onclick="erpZustellRemove()">✕</button></span>':'')
+          +'</div>';
+      }
+      return editable?'<button class="btn ghost" style="margin-top:6px;min-height:34px;font-size:12px" title="Wohin das Dokument adressiert/zugestellt wird (z.B. Verwaltung, Architekt, c/o oder Postfach) — Rechnungsempfänger und Zahler bleibt der Kunde" onclick="erpZustellOpen()">✉️ Abweichende Zustelladresse …</button>':'';
+    })()
     +'</div></div>';
 
   // ── Positionen ──
@@ -1515,6 +1550,51 @@ function erpVorlDel(id){
   });
 }
 
+// ═══════════════════════════════════════════════════════════
+// ABWEICHENDE ZUSTELLADRESSE (zustellSnapshot) — Fensteradresse des
+// Dokuments; Rechnungsempfänger/Zahler (QR-Zahlteil) bleibt der Kunde.
+// ═══════════════════════════════════════════════════════════
+function erpZustellOpen(){
+  if(!cur||!erpEditable()){toast('Dokument nicht bearbeitbar');return;}
+  var zu=cur.zustellSnapshot||{};
+  document.getElementById('z_pick').innerHTML='<option value="">– wählen (optional) –</option>'
+    +erpKunden().map(function(kd){return '<option value="'+kd.id+'">'+esc(kd.firma)+'</option>';}).join('');
+  document.getElementById('z_firma').value=zu.firma||'';
+  document.getElementById('z_kontakt').value=zu.kontakt||'';
+  document.getElementById('z_strasse').value=zu.strasse||'';
+  document.getElementById('z_plz').value=zu.plz||'';
+  document.getElementById('z_ort').value=zu.ort||'';
+  document.getElementById('zustellModal').classList.add('open');
+}
+function erpZustellPrefill(id){
+  var kd=erpKunden().find(function(x){return x.id===id;});
+  if(!kd)return;
+  document.getElementById('z_firma').value=kd.firma||'';
+  document.getElementById('z_kontakt').value=kd.kontakt||'';
+  document.getElementById('z_strasse').value=kd.strasse||'';
+  document.getElementById('z_plz').value=kd.plz||'';
+  document.getElementById('z_ort').value=kd.ort||'';
+}
+function erpZustellSave(){
+  var firma=document.getElementById('z_firma').value.trim();
+  if(!firma){toast('⚠ Firma/Name fehlt');return;}
+  cur.zustellSnapshot={
+    firma:firma,
+    kontakt:document.getElementById('z_kontakt').value.trim(),
+    strasse:document.getElementById('z_strasse').value.trim(),
+    plz:document.getElementById('z_plz').value.trim(),
+    ort:document.getElementById('z_ort').value.trim()
+  };
+  document.getElementById('zustellModal').classList.remove('open');
+  erpOpenEditor();
+  toast('✉️ Zustelladresse gesetzt — Rechnungsempfänger bleibt der Kunde');
+}
+function erpZustellRemove(){
+  cur.zustellSnapshot=null;
+  erpOpenEditor();
+  toast('Zustelladresse entfernt — Dokument geht wieder an den Kunden');
+}
+
 // ── Footer-Aktionen (statusabhängig) ──
 function erpRenderFooter(){
   var d=cur;var ft='';var s=erpStatusOf(d);
@@ -1578,6 +1658,7 @@ function erpZuAuftrag(){
     id:uid(),typ:'auftrag',nr:erpNextNr('auftrag'),orgId:off.orgId,
     objektId:off.objektId,objektName:off.objektName,titel:off.titel,
     kundeId:off.kundeId,kundeSnapshot:off.kundeSnapshot,bereichId:off.bereichId||'',
+    zustellSnapshot:off.zustellSnapshot?JSON.parse(JSON.stringify(off.zustellSnapshot)):null,
     datum:today(),status:'offen',
     positionen:JSON.parse(JSON.stringify(off.positionen||[])),
     rabattPct:off.rabattPct,mwstPct:off.mwstPct,
@@ -1598,6 +1679,7 @@ function _erpNeueRechnung(auftrag,art,positionen,titelZusatz){
     objektId:auftrag.objektId,objektName:auftrag.objektName,
     titel:(auftrag.titel||'')+(titelZusatz?' — '+titelZusatz:''),
     kundeId:auftrag.kundeId,kundeSnapshot:auftrag.kundeSnapshot,bereichId:auftrag.bereichId||'',
+    zustellSnapshot:auftrag.zustellSnapshot?JSON.parse(JSON.stringify(auftrag.zustellSnapshot)):null,
     datum:today(),frist:addDays(today(),s.fristTage),status:'entwurf',
     positionen:positionen,rabattPct:0,mwstPct:auftrag.mwstPct!=null?auftrag.mwstPct:s.mwstPct,
     einleitung:s.txtRechnungIntro||'',schlusstext:s.txtRechnung,
@@ -1932,6 +2014,10 @@ function erpPdf(){
   var org=erpOrg();
   var docName=d.typ==='offerte'?'Offerte':d.typ==='auftrag'?'Auftragsbestätigung':'Rechnung';
   var k=d.kundeSnapshot||{};
+  // Fensteradresse = abweichende Zustelladresse, sonst Kunde. Der Kunde bleibt
+  // Rechnungsempfänger/Zahler — der QR-Zahlteil (erpQrPayload) lautet IMMER auf ihn.
+  var zu=(d.zustellSnapshot&&d.zustellSnapshot.firma)?d.zustellSnapshot:null;
+  var fen=zu||k;
   var brand=erpBrand();
   // Logo oben rechts — Vektor bevorzugt (org.logoVector), sonst Raster; ohne Logo Firmenname als Wortmarke
   var logo=(org&&(org.logoVector||org.logo))
@@ -1981,6 +2067,9 @@ function erpPdf(){
   var absAdr=[s.strasse,[s.plz,s.ort].filter(Boolean).join(' ')].filter(Boolean).join(' · ');
   var kontaktLine=[s.tel?'Tel. '+s.tel:'',s.email,s.web].filter(Boolean).join(' · ');
   var metaRows=[['Nr.:',esc(d.nr||'')]];
+  // Weicht die Zustelladresse ab, bleibt der Kunde als Rechnungsempfänger/
+  // Auftraggeber im Dokument ausgewiesen (Fenster zeigt die Zustelladresse)
+  if(zu&&k.firma)metaRows.push([d.typ==='rechnung'?'Rechnungsempfänger:':'Auftraggeber:',esc(k.firma)]);
   if(d.objektName)metaRows.push(['Projekt:',esc(d.objektName)]);
   if(d.typ==='offerte'&&d.gueltigBis)metaRows.push(['Gültig bis:',dfmt(d.gueltigBis)]);
   if(d.typ==='rechnung'&&d.frist)metaRows.push(['Zahlbar bis:',dfmt(d.frist)]);
@@ -1998,7 +2087,7 @@ function erpPdf(){
     // Empfänger rechts (CH-Fensterposition), links Projekt-/Objekt-Kontext
     +'<div class="adrzone">'
     +'<div class="adr-l"></div>'
-    +'<div class="adr-r"><b>'+esc(k.firma||'')+'</b>'+(k.kontakt?'<br>'+esc(k.kontakt):'')+(k.strasse?'<br>'+esc(k.strasse):'')+((k.plz||k.ort)?'<br>'+esc((k.plz||'')+' '+(k.ort||'')):'')+'</div>'
+    +'<div class="adr-r"><b>'+esc(fen.firma||'')+'</b>'+(fen.kontakt?'<br>'+esc(fen.kontakt):'')+(fen.strasse?'<br>'+esc(fen.strasse):'')+((fen.plz||fen.ort)?'<br>'+esc((fen.plz||'')+' '+(fen.ort||'')):'')+'</div>'
     +'</div>'
     +'<div class="ortdatum">'+esc((s.ort?s.ort+', ':'')+dfmt(d.datum))+(kz?' / '+esc(kz):'')+'</div>'
     +'<h1>'+docName+'</h1>'
