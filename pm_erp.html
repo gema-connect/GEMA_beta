@@ -346,6 +346,10 @@ table.pos{border-collapse:collapse;width:100%;font-size:13px;min-width:680px}
         <div class="fld"><label>MwSt-Nr. (UID)</label><input id="s_mwstnr" type="text" placeholder="CHE-123.456.789 MWST"/></div>
       </div>
       <div style="font-size:11px;color:var(--mut);margin:-4px 0 12px">Erscheinen in der Fusszeile von Offerte, Auftragsbestätigung und Rechnung. Logo &amp; Akzentfarbe kommen aus dem Firmenprofil (Logo-Upload in der Benutzerverwaltung, «Berichts-Farben (PDF)» in den Firmendaten).</div>
+      <div style="font-size:11px;font-weight:800;text-transform:uppercase;color:var(--mut);margin:14px 0 6px">Arbeitsbereiche (Offerte → Auftrag → Einsatzplan)</div>
+      <div id="s_abRows"></div>
+      <button class="btn" type="button" style="width:auto" onclick="abRowAdd('s_abRows')">＋ Arbeitsbereich</button>
+      <div style="font-size:11px;color:var(--mut);margin:6px 0 12px">Individuell benannte Bereiche mit Farbe (z.B. Sanitär, Sanitärservice, Heizung). Die Zuweisung passiert bereits bei der Offerte und wird auf Auftrag und Einsatzplan-Termin vererbt — die Termine im Kalender erscheinen in der Bereichsfarbe. Die Liste gilt firmenweit (auch im Einsatzplan editierbar).</div>
       <div style="font-size:11px;font-weight:800;text-transform:uppercase;color:var(--mut);margin:14px 0 6px">Nachkalkulation (Tab «Erfolg»)</div>
       <div class="fld"><label>Kostensatz (% vom Verkaufsansatz)</label><input id="s_kosten" type="text" inputmode="decimal" onblur="fixLeadingZero(this)" placeholder="z.B. 70"/></div>
       <div style="font-size:11px;color:var(--mut);margin:-4px 0 12px">Interner Kostenanteil der Regie-Verkaufsansätze (Lohn + Gemeinkosten). Damit schätzt der Erfolg-Tab Kosten und Deckungsbeitrag pro Auftrag. Leer = keine DB-Schätzung.</div>
@@ -602,6 +606,70 @@ function erpBrand(){
   }
   return {acc:acc,tint:tint};
 }
+// ── Arbeitsbereiche (org.settings.arbeitsbereiche = [{id,name,farbe}]) ──
+// Individuell benannte Bereiche mit Farbe (z.B. Sanitär, Sanitärservice, Heizung).
+// Zuweisung startet bei der Offerte und wird auf Auftrag/Rechnung/Einsatz vererbt;
+// der Einsatzplan färbt die Termine in der Bereichsfarbe.
+function abListe(){
+  var org=erpOrg();
+  var l=(org&&org.settings&&org.settings.arbeitsbereiche)||[];
+  if(!Array.isArray(l))return [];
+  return l.filter(function(b){return b&&b.id&&b.name;}).map(function(b){
+    return {id:String(b.id),name:String(b.name),farbe:/^#[0-9a-fA-F]{6}$/.test(String(b.farbe||''))?b.farbe:'#64748b'};
+  });
+}
+function abById(id){if(!id)return null;var l=abListe();for(var i=0;i<l.length;i++){if(l[i].id===id)return l[i];}return null;}
+function abTint(hex){
+  var m=/^#([0-9a-fA-F]{6})$/.exec(String(hex||''));if(!m)return '#f1f5f9';
+  function mix(v){return Math.round(v+(255-v)*0.86);}
+  return 'rgb('+mix(parseInt(m[1].slice(0,2),16))+','+mix(parseInt(m[1].slice(2,4),16))+','+mix(parseInt(m[1].slice(4,6),16))+')';
+}
+function abChipHtml(id){
+  var b=abById(id);if(!b)return '';
+  return '<span class="ab-chip" style="display:inline-flex;align-items:center;gap:5px;padding:2px 9px;border-radius:999px;border:1.5px solid '+b.farbe+';background:'+abTint(b.farbe)+';font-size:10.5px;font-weight:800;color:var(--txt2);vertical-align:middle"><span style="width:8px;height:8px;border-radius:50%;background:'+b.farbe+';display:inline-block;flex-shrink:0"></span>'+esc(b.name)+'</span>';
+}
+// Editor-Zeilen für die ⚙️-Einstellungen (IDs bleiben beim Umbenennen stabil — data-id)
+var AB_PALETTE=['#16a34a','#2563eb','#d97706','#7c3aed','#dc2626','#0891b2','#475569'];
+function abRowHtml(b){
+  b=b||{};
+  return '<div class="ab-row" data-id="'+esc(b.id||'')+'" style="display:flex;gap:8px;align-items:center;margin-bottom:6px">'
+    +'<input type="color" class="ab-farbe" value="'+esc(b.farbe||'#16a34a')+'" title="Bereichsfarbe" style="width:44px;height:38px;padding:2px;border:1.5px solid var(--brd2);border-radius:9px;background:var(--sur);cursor:pointer;flex-shrink:0"/>'
+    +'<input type="text" class="ab-name" value="'+esc(b.name||'')+'" placeholder="z.B. Sanitär, Sanitärservice, Heizung" style="flex:1;min-width:0;padding:9px 11px;border:1.5px solid var(--brd2);border-radius:9px;font-size:13.5px"/>'
+    +'<button type="button" onclick="this.closest(\'.ab-row\').remove()" title="Bereich entfernen (bestehende Zuweisungen bleiben gespeichert, werden aber nicht mehr farbig angezeigt)" style="width:34px;height:34px;border-radius:9px;border:1px solid var(--brd2);background:var(--sur);color:var(--red);font-weight:900;cursor:pointer;flex-shrink:0">✕</button>'
+    +'</div>';
+}
+function abRowAdd(hostId){
+  var host=document.getElementById(hostId);
+  var n=host.querySelectorAll('.ab-row').length;
+  var tmp=document.createElement('div');
+  tmp.innerHTML=abRowHtml({farbe:AB_PALETTE[n%AB_PALETTE.length]});
+  host.appendChild(tmp.firstChild);
+  var inp=host.lastChild.querySelector('.ab-name');
+  if(inp)inp.focus();
+}
+function abSlug(name,taken){
+  var s='ab_'+String(name).toLowerCase()
+    .replace(/ä/g,'ae').replace(/ö/g,'oe').replace(/ü/g,'ue').replace(/é|è|ê/g,'e')
+    .replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'').slice(0,24);
+  if(s==='ab_'||s==='ab')s='ab_bereich';
+  var b=s,i=2;
+  while(taken[s])s=b+'_'+(i++);
+  taken[s]=1;
+  return s;
+}
+function abRowsCollect(hostId){
+  var out=[],taken={};
+  var rows=document.querySelectorAll('#'+hostId+' .ab-row');
+  rows.forEach(function(row){var id=row.getAttribute('data-id');if(id)taken[id]=1;});
+  rows.forEach(function(row){
+    var name=row.querySelector('.ab-name').value.trim();
+    if(!name)return;
+    var id=row.getAttribute('data-id')||abSlug(name,taken);
+    var farbe=row.querySelector('.ab-farbe').value;
+    out.push({id:id,name:name,farbe:/^#[0-9a-fA-F]{6}$/.test(farbe)?farbe:'#64748b'});
+  });
+  return out;
+}
 var TYP={offerte:{n:'Offerte',pl:'Offerten',ic:'📄',prefix:'OF'},auftrag:{n:'Auftrag',pl:'Aufträge',ic:'📋',prefix:'AU'},rechnung:{n:'Rechnung',pl:'Rechnungen',ic:'💰',prefix:'RE'}};
 var ST={
   entwurf:{n:'Entwurf',c:'#64748b',bg:'#f1f5f9',bd:'#cbd5e1'},
@@ -775,9 +843,10 @@ function erpRenderList(){
       chain+=f.rechnungen.length+' Rechnung'+(f.rechnungen.length===1?'':'en')+' · '+Math.round(f.pct)+'% fakturiert';
     }
     if(d.typ==='rechnung'&&d.verknuepfung&&d.verknuepfung.auftragId){var a2=erpDocs().find(function(x){return x.id===d.verknuepfung.auftragId;});if(a2)chain='zu '+a2.nr+(d.rechnungsArt&&d.rechnungsArt!=='einzel'?' · '+({akonto:'Akonto',teil:'Teilrechnung',schluss:'Schlussrechnung'})[d.rechnungsArt]:'');}
+    var abChip=abChipHtml(d.bereichId);
     return '<div class="card" onclick="erpOpen(\''+d.id+'\')">'
       +'<div class="card-bar" style="background:'+st.c+'"></div><div class="card-bd">'
-      +'<div class="card-top"><span class="card-nr">'+esc(d.nr||'')+'</span><span class="badge" style="background:'+st.bg+';color:'+st.c+';border:1px solid '+st.bd+';margin-left:auto">'+st.n+'</span></div>'
+      +'<div class="card-top"><span class="card-nr">'+esc(d.nr||'')+'</span>'+(abChip?'<span style="margin-left:6px">'+abChip+'</span>':'')+'<span class="badge" style="background:'+st.bg+';color:'+st.c+';border:1px solid '+st.bd+';margin-left:auto">'+st.n+'</span></div>'
       +'<div class="card-title">'+esc(d.titel||erpKundeName(d))+'</div>'
       +'<div class="card-meta">👤 '+esc(erpKundeName(d))+(d.objektName?'<br>🏗 '+esc(d.objektName):'')
       +'<br>📅 '+dfmt(d.datum)+' · <b style="color:var(--txt2)">CHF '+chf(t.brutto)+'</b>'
@@ -852,7 +921,7 @@ function erpNeu(typ,vorlage){
   var objId='';try{objId=(document.getElementById('fObjekt')||{}).value||GemaObjekte.getActiveId()||'';}catch(e){}
   cur=Object.assign({
     id:uid(),typ:typ,nr:erpNextNr(typ),orgId:u?u.orgId:'',
-    objektId:objId,titel:'',kundeId:'',kundeSnapshot:null,
+    objektId:objId,titel:'',kundeId:'',kundeSnapshot:null,bereichId:'',
     datum:today(),
     gueltigBis:typ==='offerte'?addDays(today(),30):'',
     frist:typ==='rechnung'?addDays(today(),s.fristTage):'',
@@ -945,6 +1014,14 @@ function erpOpenEditor(){
     +'<div class="fld"><label>Datum</label><input type="date" value="'+esc(d.datum||'')+'"'+dis+' onchange="cur.datum=this.value"/></div>'
     +(d.typ==='offerte'?'<div class="fld"><label>Gültig bis</label><input type="date" value="'+esc(d.gueltigBis||'')+'"'+dis+' onchange="cur.gueltigBis=this.value"/></div>':'')
     +(d.typ==='rechnung'?'<div class="fld"><label>Zahlbar bis</label><input type="date" value="'+esc(d.frist||'')+'"'+dis+' onchange="cur.frist=this.value"/></div>':'')
+    +(function(){
+      var bl=abListe();
+      if(!bl.length)return '';   // keine Bereiche definiert → Feld ausblenden (Definition in ⚙️)
+      return '<div class="fld"><label>Arbeitsbereich</label><select id="e_bereich"'+dis+' onchange="cur.bereichId=this.value">'
+        +'<option value="">– kein Bereich –</option>'
+        +bl.map(function(b){return '<option value="'+b.id+'"'+(b.id===d.bereichId?' selected':'')+'>'+esc(b.name)+'</option>';}).join('')
+        +'</select></div>';
+    })()
     +'</div>'
     +(d.kundeSnapshot?'<div style="font-size:12px;color:var(--mut);background:var(--sur2);border-radius:9px;padding:8px 11px">📮 '+esc(d.kundeSnapshot.firma)+(d.kundeSnapshot.kontakt?' · '+esc(d.kundeSnapshot.kontakt):'')+'<br>'+esc([d.kundeSnapshot.strasse,[d.kundeSnapshot.plz,d.kundeSnapshot.ort].filter(Boolean).join(' ')].filter(Boolean).join(', ')||'(keine Adresse — für die Rechnung ergänzen)')+'</div>':'')
     +'</div></div>';
@@ -1357,7 +1434,7 @@ function erpZuAuftrag(){
   var auftrag={
     id:uid(),typ:'auftrag',nr:erpNextNr('auftrag'),orgId:off.orgId,
     objektId:off.objektId,objektName:off.objektName,titel:off.titel,
-    kundeId:off.kundeId,kundeSnapshot:off.kundeSnapshot,
+    kundeId:off.kundeId,kundeSnapshot:off.kundeSnapshot,bereichId:off.bereichId||'',
     datum:today(),status:'offen',
     positionen:JSON.parse(JSON.stringify(off.positionen||[])),
     rabattPct:off.rabattPct,mwstPct:off.mwstPct,
@@ -1377,7 +1454,7 @@ function _erpNeueRechnung(auftrag,art,positionen,titelZusatz){
     id:uid(),typ:'rechnung',nr:erpNextNr('rechnung'),orgId:auftrag.orgId,
     objektId:auftrag.objektId,objektName:auftrag.objektName,
     titel:(auftrag.titel||'')+(titelZusatz?' — '+titelZusatz:''),
-    kundeId:auftrag.kundeId,kundeSnapshot:auftrag.kundeSnapshot,
+    kundeId:auftrag.kundeId,kundeSnapshot:auftrag.kundeSnapshot,bereichId:auftrag.bereichId||'',
     datum:today(),frist:addDays(today(),s.fristTage),status:'entwurf',
     positionen:positionen,rabattPct:0,mwstPct:auftrag.mwstPct!=null?auftrag.mwstPct:s.mwstPct,
     einleitung:s.txtRechnungIntro||'',schlusstext:s.txtRechnung,
@@ -1658,6 +1735,7 @@ function erpOpenSettings(){
   document.getElementById('s_web').value=s.web;
   document.getElementById('s_mwstnr').value=s.mwstNr;
   document.getElementById('s_kosten').value=s.kostenFaktorPct||'';
+  document.getElementById('s_abRows').innerHTML=abListe().map(abRowHtml).join('');
   document.getElementById('s_txtOfferte').value=s.txtOfferte;
   document.getElementById('s_txtRechnung').value=s.txtRechnung;
   document.getElementById('s_txtAuftrag').value=s.txtAuftrag;
@@ -1693,6 +1771,8 @@ function erpSetSave(){
       txtRechnungIntro:document.getElementById('s_txtRechnungIntro').value,
       txtKonditionen:document.getElementById('s_txtKonditionen').value
     };
+    // Arbeitsbereiche liegen TOP-LEVEL in org.settings (geteilt mit dem Einsatzplan)
+    settings.arbeitsbereiche=abRowsCollect('s_abRows');
     GemaAuth.updateOrgSettings(org.id,settings);
     toast('✓ Einstellungen gespeichert');
   }catch(e){toast('Fehler beim Speichern');}
