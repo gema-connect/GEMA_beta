@@ -24,13 +24,18 @@
   // Die Enthärtung holt sich 'enthaertet' (bw) direkt UND das Osmose-
   // Ergebnis via GemaOsmose — die ow-Verbraucher gehen also NICHT nochmal
   // direkt in die Enthärtung (sonst Doppelzählung).
+  // gw hiess historisch faelschlich «Grauwasser», meinte aber immer das
+  // Regenwasser-Netz (Alias 'regenwasser'). Die ID bleibt 'gw'
+  // (Bestandsschutz gespeicherter Daten), nur das Label ist korrigiert.
+  // Grauwasser ist seit 07/2026 ein EIGENES Medium ('grau').
   var MEDIA = {
     kw:   { id: 'kw',   label: 'Kaltwasser (KW)',                     alias: 'trinkwasser',  color: '#16a34a' },
     ww:   { id: 'ww',   label: 'Warmwasser (WW)',                     alias: 'warmwasser',   color: '#dc2626' },
     nd:   { id: 'nd',   label: 'Netzdruck (ND)',                      alias: 'netzdruck',    color: '#2563eb' },
     bw:   { id: 'bw',   label: 'Enthärtetes Wasser (BW)',             alias: 'enthaertet',   color: '#7c3aed' },
     ow:   { id: 'ow',   label: 'Enthärtetes Wasser für Osmose (OW)',  alias: 'osmose',       color: '#0d9488' },
-    gw:   { id: 'gw',   label: 'Grauwasser (GW)',                     alias: 'regenwasser',  color: '#0891b2' },
+    gw:   { id: 'gw',   label: 'Regenwasser (RW)',                    alias: 'regenwasser',  color: '#0891b2' },
+    grau: { id: 'grau', label: 'Grauwasser (GW)',                     alias: 'grauwasser',   color: '#64748b' },
     frei: { id: 'frei', label: 'Freie Eingabe',                       alias: 'frei',         color: '#374151' }
   };
 
@@ -40,9 +45,8 @@
     ALIAS_MAP[k] = k;
     ALIAS_MAP[MEDIA[k].alias] = k;
   });
-  // Zusätzliche Alias
+  // Zusätzliche Alias ('grau' zeigte frueher auf gw — jetzt eigenes Medium)
   ALIAS_MAP['behandelt'] = 'bw';
-  ALIAS_MAP['grau'] = 'gw';
   ALIAS_MAP['regen'] = 'gw';
 
   function _resolveMedium(medium) {

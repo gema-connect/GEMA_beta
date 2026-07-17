@@ -428,7 +428,8 @@ function fixLeadingZero(el){
     <div style="height:1px;width:1px"></div>
     <div style="display:flex;flex-direction:column;gap:2px;align-items:center"><span style="font-size:10px;font-weight:700;color:var(--mut)">ρ</span><div style="padding:7px 10px;background:var(--bg2);border:1.5px solid var(--brd2);border-radius:8px;font-size:13px;font-weight:600;color:var(--txt);white-space:nowrap;line-height:1.2" id="out_rho_display">—</div></div>
     <div style="display:flex;flex-direction:column;gap:2px;align-items:center"><span style="font-size:10px;font-weight:700;color:var(--mut)">ν</span><div style="padding:7px 10px;background:var(--bg2);border:1.5px solid var(--brd2);border-radius:8px;font-size:13px;font-weight:600;color:var(--txt);white-space:nowrap;line-height:1.2" id="out_nu_display">—</div></div>
-    <div style="display:flex;flex-direction:column;gap:2px;margin-left:auto"><span style="font-size:10px;color:transparent">.</span><button id="togDetails" onclick="toggleDetails()" style="padding:7px 14px;border-radius:8px;border:1.5px solid #c8cfdf;background:#fff;color:#64748b;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;white-space:nowrap">Details</button></div>
+    <div style="display:flex;flex-direction:column;gap:2px;margin-left:auto"><span style="font-size:10px;font-weight:700;color:var(--mut);text-transform:uppercase;letter-spacing:.4px;text-align:center">Δp-Einheit</span><div id="dpUnitSeg" style="display:inline-flex;border:1.5px solid #c8cfdf;border-radius:8px;overflow:hidden"><button type="button" data-dpu="kPa" onclick="setDpUnit('kPa')" style="padding:7px 12px;border:none;background:#1d4ed8;color:#fff;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit">kPa</button><button type="button" data-dpu="bar" onclick="setDpUnit('bar')" style="padding:7px 12px;border:none;border-left:1px solid #c8cfdf;background:#fff;color:#64748b;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit">bar</button></div></div>
+    <div style="display:flex;flex-direction:column;gap:2px"><span style="font-size:10px;color:transparent">.</span><button id="togDetails" onclick="toggleDetails()" style="padding:7px 14px;border-radius:8px;border:1.5px solid #c8cfdf;background:#fff;color:#64748b;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;white-space:nowrap">Details</button></div>
     <input id="out_rho" type="hidden"/><input id="out_nu" type="hidden"/>
   </div>
 
@@ -906,9 +907,21 @@ function getWP(){return waterProps(state.tempC);}
 // ═══════════════════════════════════════════════════════════
 const $ = id=>document.getElementById(id);
 const fmt=(v,d)=>Number.isFinite(v)?v.toFixed(d):'-';
+// Δp-Anzeigeeinheit kPa ⇄ bar (Feedback 07/2026) — reine Anzeige, gerechnet wird in kPa
+function dpU(){return state&&state.dpUnit==='bar'?'bar':'kPa';}
+function dpFmt(kpa,dec){return dpU()==='bar'?fmt(kpa/100,dec!=null?dec:3):fmt(kpa,dec!=null?dec:2);}
+function setDpUnit(u){state.dpUnit=(u==='bar')?'bar':'kPa';saveActiveCalc();renderDpUnitSeg();render();}
+function renderDpUnitSeg(){
+  document.querySelectorAll('#dpUnitSeg [data-dpu]').forEach(function(b){
+    var on=b.getAttribute('data-dpu')===dpU();
+    b.style.background=on?'#1d4ed8':'#fff';
+    b.style.color=on?'#fff':'#64748b';
+  });
+}
 
 function render(){
   const{rho,nu}=getWP();
+  renderDpUnitSeg();
   $('out_rho').value=fmt(rho,2);
   $('out_nu').value=(nu).toExponential(4);
   if($('out_rho_display'))$('out_rho_display').textContent=fmt(rho,1)+' kg/m³';
@@ -1008,7 +1021,7 @@ function render(){
     const hdChips=`
         <div class="ts-fg hd-res hd-first"><label>Q</label><div class="hd-val">${fmt(calc2.Q,3)}<small> l/s</small></div></div>
         <div class="ts-fg hd-res"><label>v</label><div class="hd-val ${vClass}">${fmt(calc2.v,2)}<small> m/s</small></div></div>
-        <div class="ts-fg hd-res"><label>Δp TS</label><div class="hd-val blue">${fmt(calc2.dp_ts,2)}<small> kPa</small></div></div>`;
+        <div class="ts-fg hd-res"><label>Δp TS</label><div class="hd-val blue">${dpFmt(calc2.dp_ts)}<small> ${dpU()}</small></div></div>`;
     div.innerHTML=`
       <div class="ts-head">
         <div class="ts-fg"><label>TS-Nr.</label><input class="ts-num" type="text" value="${row.label}" data-k="label" title="Nummer z.B. 1, 1.1, 2a"/></div>
@@ -1027,31 +1040,27 @@ function render(){
       </div>
       ${isTsOpen?fitSection:''}
       <div class="ts-results"${isTsOpen?'':' style="display:none"'}>
-        <div class="res-item"><div class="res-lbl">Q</div><div class="res-val">${fmt(calc2.Q,3)}<small style="font-size:10px;color:var(--mut)"> l/s</small></div></div>
-        <div class="res-div"></div>
-        <div class="res-item"><div class="res-lbl">v</div><div class="res-val ${vClass}">${fmt(calc2.v,2)}<small style="font-size:10px;color:var(--mut)"> m/s</small></div></div>
-        <div class="res-div ts-detail"></div>
         <div class="res-item ts-detail"><div class="res-lbl">Re</div><div class="res-val">${reText}</div></div>
         <div class="res-div ts-detail"></div>
         <div class="res-item ts-detail"><div class="res-lbl">Strömung</div><div class="res-val ${regClass}">${calc2.regime}</div></div>
         <div class="res-div ts-detail"></div>
         <div class="res-item ts-detail"><div class="res-lbl">λ</div><div class="res-val">${fmt(calc2.lam,4)}</div></div>
-        <div class="res-div"></div>
+        <div class="res-div ts-detail"></div>
         <div class="res-item"><div class="res-lbl">ζ Σ</div>
           <div class="g-inp-group"><input class="ts-inp g-inp" style="width:60px" type="text" inputmode="decimal" value="${row.zeta_sum}" data-k="zeta_sum" onblur="fixLeadingZero(this)"/><span class="g-inp-unit">–</span></div>
         </div>
         <div class="res-div ts-detail"></div>
         <div class="res-item ts-detail"><div class="res-lbl">äq. RL</div><div class="g-inp-group"><input class="ts-inp g-inp" style="width:60px" type="text" inputmode="decimal" value="${row.eq_rl}" data-k="eq_rl" onblur="fixLeadingZero(this)"/><span class="g-inp-unit">m</span></div></div>
         <div class="res-div"></div>
-        <div class="res-item"><div class="res-lbl">Δp Rohr</div><div class="res-val">${fmt(calc2.dp_pipe,2)}<small style="font-size:10px;color:var(--mut)"> kPa</small></div></div>
-        <div class="res-div ts-detail"></div>
-        <div class="res-item ts-detail"><div class="res-lbl">Δp EW</div><div class="res-val">${fmt(calc2.dp_local+calc2.dp_eq,2)}<small style="font-size:10px;color:var(--mut)"> kPa</small></div></div>
+        <div class="res-item"><div class="res-lbl">Δp Rohr</div><div class="res-val">${dpFmt(calc2.dp_pipe)}<small style="font-size:10px;color:var(--mut)"> ${dpU()}</small></div></div>
+        <div class="res-div"></div>
+        <div class="res-item"><div class="res-lbl" title="Druckverlust aus den Einzelwiderständen (ζ-Werte + äquivalente Rohrlänge)">Δp ζ</div><div class="res-val">${dpFmt(calc2.dp_local+calc2.dp_eq)}<small style="font-size:10px;color:var(--mut)"> ${dpU()}</small></div></div>
         <div class="res-div${calc2.dp_arm>0?'':' ts-detail'}"></div>
-        <div class="res-item${calc2.dp_arm>0?'':' ts-detail'}"><div class="res-lbl">Δp Arm.</div><div class="res-val">${fmt(calc2.dp_arm||0,2)}<small style="font-size:10px;color:var(--mut)"> kPa</small></div></div>
+        <div class="res-item${calc2.dp_arm>0?'':' ts-detail'}"><div class="res-lbl">Δp Arm.</div><div class="res-val">${dpFmt(calc2.dp_arm||0)}<small style="font-size:10px;color:var(--mut)"> ${dpU()}</small></div></div>
         <div class="res-div"></div>
-        <div class="res-item"><div class="res-lbl">Δp TS</div><div class="res-big">${fmt(calc2.dp_ts,2)}<small style="font-size:11px;font-weight:700;color:var(--blue)"> kPa</small></div></div>
+        <div class="res-item"><div class="res-lbl">Δp TS</div><div class="res-big">${dpFmt(calc2.dp_ts)}<small style="font-size:11px;font-weight:700;color:var(--blue)"> ${dpU()}</small></div></div>
         <div class="res-div"></div>
-        <div class="res-item"><div class="res-lbl">Δp kum.</div><div class="res-val" style="color:var(--blue)">${fmt(cum,2)}<small style="font-size:10px"> kPa</small></div></div>
+        <div class="res-item"><div class="res-lbl">Δp kum.</div><div class="res-val" style="color:var(--blue)">${dpFmt(cum)}<small style="font-size:10px"> ${dpU()}</small></div></div>
       </div>
     `;
 
