@@ -90,7 +90,7 @@ async function device(userId, extraLs) {
     return route.abort();
   });
   await ctx.addInitScript(s => { for (const [k, v] of Object.entries(s)) localStorage.setItem(k, JSON.stringify(v)); },
-    Object.assign({ gema_orgs_v1: [ORG], gema_users_v1: USERS, gema_session_v1: { userId, expires: FUTURE } }, extraLs || {}));
+    Object.assign({ gema_orgs_v1: [ORG], gema_users_v1: USERS, gema_session_v1: { token: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpYXQiOjQwMDAwMDAwMDAsImV4cCI6NDEwMjQ0NDgwMCwidWlkIjoidV90ZXN0Iiwib3JnIjoib3JnX3Rlc3QiLCJyb2xlIjoiYXV0aGVudGljYXRlZCJ9.testsig', userId, expires: FUTURE } }, extraLs || {}));
   const page = await ctx.newPage();
   page.errs = []; page.on('pageerror', e => page.errs.push(e.message));
   await page.goto(BASE + '/index.html', { waitUntil: 'domcontentloaded' });

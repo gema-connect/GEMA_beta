@@ -134,6 +134,44 @@
     if(document.body) document.body.appendChild(_reloginBanner);
     else document.addEventListener('DOMContentLoaded', function(){ if(_reloginBanner && !_reloginBanner.parentNode) document.body.appendChild(_reloginBanner); });
   }
+  // «Automatisch ausloggen, wenn kein gueltiges Token mehr» (User-Wunsch
+  // 17.07.): Eine Session mit userId aber OHNE Token ist unter GEMA Secure
+  // ungueltig — statt stiller leerer Pools wird der Nutzer ausgeloggt und
+  // zum Login geleitet (wie beim 401 einer abgelaufenen Session).
+  // Loop-Bremse (KRITISCH): erzeugt die Anmeldung selbst wieder eine
+  // token-lose Session (Legacy-Kompatibilitaetsmodus ohne gema-auth-
+  // Function), wuerde der Auto-Logout endlos kreisen — deshalb (a) vorab
+  // ein diag-Check: nur ausloggen, wenn die Function deployed ist
+  // (Status != 404), und (b) hoechstens 1 Auto-Logout pro 10 Minuten,
+  // danach nur noch der sichtbare Banner.
+  var RELOGIN_TS_KEY = 'gema_sync_relogin_ts_v1';
+  function _autoLogout(){
+    try{
+      var last = parseInt(localStorage.getItem(RELOGIN_TS_KEY) || '0', 10);
+      if(Date.now() - last < 10 * 60 * 1000) return false;
+      localStorage.setItem(RELOGIN_TS_KEY, String(Date.now()));
+    }catch(e){}
+    try{ localStorage.removeItem('gema_session_v1'); }catch(e){}
+    try{ alert('Deine Sitzung ist abgelaufen — bitte neu anmelden.'); }catch(e){}
+    try{ location.href = 'sys_login.html?r=' + encodeURIComponent(location.href); }catch(e){}
+    return true;
+  }
+  function _tokenlessBootCheck(){
+    if(!_tokenlessSession()) return;
+    try{ if(/sys_login\.html/i.test((typeof location !== 'undefined' && location.pathname) || '')) return; }catch(e){}
+    var ctl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+    var t = ctl ? setTimeout(function(){ try{ ctl.abort(); }catch(e){} }, 6000) : null;
+    fetch(AUTH_FN + '?action=diag', { signal: ctl ? ctl.signal : undefined })
+      .then(function(r){
+        if(t) clearTimeout(t);
+        if(r.status === 404){ _authFnMissing = true; return; }  // Legacy — kein Logout
+        if(!_autoLogout()) _showRelogin();                      // Bremse aktiv → Hinweis
+      })
+      .catch(function(){ if(t) clearTimeout(t); });             // offline/unklar — kein Logout
+  }
+  if(typeof document !== 'undefined' && typeof fetch !== 'undefined'){
+    setTimeout(_tokenlessBootCheck, 1200);
+  }
   function _handle401(){
     if(_expiredShown || !_authToken()) return;
     _expiredShown = true;
