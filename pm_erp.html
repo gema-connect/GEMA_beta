@@ -131,6 +131,16 @@ table.pos{border-collapse:collapse;width:100%;font-size:13px;min-width:680px}
 .pos-bild img{width:38px;height:38px;object-fit:cover;border-radius:8px;border:1px solid var(--brd2);display:block;cursor:zoom-in}
 .pos-bild-x{position:absolute;top:-7px;right:-7px;width:19px;height:19px;border-radius:50%;border:none;background:var(--red);color:#fff;font-size:10px;line-height:1;cursor:pointer}
 #erpLightbox{position:fixed;inset:0;z-index:1600;background:rgba(8,20,40,.86);display:none;align-items:center;justify-content:center;cursor:zoom-out}
+
+/* KONTEXTMENÜ (Rechtsklick auf Karten + Positionen) */
+#erpCtxMenu{position:fixed;z-index:2000;background:var(--sur);border:1.5px solid var(--brd2);border-radius:12px;box-shadow:0 14px 44px rgba(0,0,0,.2);padding:6px;min-width:224px;max-width:300px}
+#erpCtxMenu .ctx-i{display:flex;align-items:center;gap:9px;width:100%;text-align:left;padding:9px 11px;border:none;background:none;border-radius:8px;font-size:13px;font-weight:600;color:var(--txt2);cursor:pointer;font-family:inherit;white-space:nowrap}
+#erpCtxMenu .ctx-i:hover{background:var(--sur2)}
+#erpCtxMenu .ctx-i.danger{color:var(--red)}
+#erpCtxMenu .ctx-i.danger:hover{background:var(--red-bg)}
+#erpCtxMenu .ctx-i .ci{width:20px;text-align:center;flex-shrink:0}
+#erpCtxMenu .ctx-sep{height:1px;background:var(--brd);margin:5px 8px}
+#erpCtxMenu .ctx-hd{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:var(--mut2);padding:5px 11px 3px}
 #erpLightbox.open{display:flex}
 #erpLightbox img{max-width:92vw;max-height:88vh;border-radius:12px}
 .sum-block{margin-top:10px;margin-left:auto;max-width:360px;font-size:13.5px}
@@ -909,7 +919,7 @@ function erpRenderList(){
     }
     if(d.typ==='rechnung'&&d.verknuepfung&&d.verknuepfung.auftragId){var a2=erpDocs().find(function(x){return x.id===d.verknuepfung.auftragId;});if(a2)chain='zu '+a2.nr+(d.rechnungsArt&&d.rechnungsArt!=='einzel'?' · '+({akonto:'Akonto',teil:'Teilrechnung',schluss:'Schlussrechnung'})[d.rechnungsArt]:'');}
     var abChip=abChipHtml(d.bereichId);
-    return '<div class="card" onclick="erpOpen(\''+d.id+'\')">'
+    return '<div class="card" onclick="erpOpen(\''+d.id+'\')" oncontextmenu="erpDocCtx(event,\''+d.id+'\')">'
       +'<div class="card-bar" style="background:'+st.c+'"></div><div class="card-bd">'
       +'<div class="card-top"><span class="card-nr">'+esc(d.nr||'')+'</span>'+(abChip?'<span style="margin-left:6px">'+abChip+'</span>':'')+'<span class="badge" style="background:'+st.bg+';color:'+st.c+';border:1px solid '+st.bd+';margin-left:auto">'+st.n+'</span></div>'
       +'<div class="card-title">'+esc(d.titel||erpKundeName(d))+'</div>'
@@ -965,7 +975,7 @@ function erpRenderErfolg(el){
       var m=NK_HINWEIS[hw.code];if(!m)return '';
       return '<span class="badge" style="background:'+m.bg+';color:'+m.c+';border:1px solid '+m.bd+'">'+m.ic+' '+m.t(hw.betrag)+'</span>';
     }).join(' ');
-    return '<div class="card" onclick="erpOpen(\''+d.id+'\')">'
+    return '<div class="card" onclick="erpOpen(\''+d.id+'\')" oncontextmenu="erpDocCtx(event,\''+d.id+'\')">'
       +'<div class="card-bar" style="background:'+st.c+'"></div><div class="card-bd">'
       +'<div class="card-top"><span class="card-nr">'+esc(d.nr||'')+'</span><span class="badge" style="background:'+st.bg+';color:'+st.c+';border:1px solid '+st.bd+';margin-left:auto">'+st.n+'</span></div>'
       +'<div class="card-title">'+esc(d.titel||erpKundeName(d))+'</div>'
@@ -1156,7 +1166,7 @@ function erpRenderPos(){
       // Zwischentotal (Positionen darüber im Kapitel) oder Pauschal-CHF
       var istRab=p.art==='rabatt';
       var bz=erpAufschlagBetrag(p,kapBasis);
-      h+='<tr'+(istRab?' class="abzug"':'')+'>'
+      h+='<tr'+(istRab?' class="abzug"':'')+' oncontextmenu="erpPosCtx(event,'+i+')">'
         +'<td><input type="text" value="'+esc(p.bez)+'" placeholder="'+(istRab?'Rabatt':'Zuschlag')+' …"'+dis+' oninput="cur.positionen['+i+'].bez=this.value"/></td>'
         +'<td><span class="src" style="background:'+(istRab?'var(--red-bg);color:var(--red);border:1px solid var(--red-bd)':'var(--amber-bg);color:var(--amber);border:1px solid var(--amber-bd)')+'">'+(istRab?'− Rabatt':'+ Zuschlag')+'</span></td>'
         +'<td></td>'
@@ -1173,7 +1183,7 @@ function erpRenderPos(){
       // BKP-Checkliste im Ausschreibungsmodul); Nummer + Text bleiben frei anpassbar
       kapBasis=0;
       var eb=bkpEbene(p.bkp);
-      h+='<tr class="titel"><td colspan="6"><div style="display:flex;gap:6px;align-items:center;padding-left:'+(eb*20)+'px">'
+      h+='<tr class="titel" oncontextmenu="erpPosCtx(event,'+i+')"><td colspan="6"><div style="display:flex;gap:6px;align-items:center;padding-left:'+(eb*20)+'px">'
         +(eb?'<span style="color:var(--mut2);font-size:11px;flex-shrink:0">└</span>':'')
         +'<input type="text" value="'+esc(p.bkp||'')+'" placeholder="BKP" title="BKP-Nr. (z.B. 2, 25, 254, 254.0) — bestimmt die Einrückung; frei anpassbar" style="flex:0 0 76px;width:76px;text-align:left;color:var(--acc,#1d4ed8)"'+(editable?' oninput="cur.positionen['+i+'].bkp=this.value" onchange="erpRenderPos()"':' disabled')+'/>'
         +'<input type="text" value="'+esc(p.bez)+'" placeholder="Titel …" style="flex:1;min-width:0"'+(editable?' oninput="cur.positionen['+i+'].bez=this.value"':' disabled')+'/>'
@@ -1187,7 +1197,7 @@ function erpRenderPos(){
     var bildHtml=img
       ?'<div class="pos-bild"><img src="'+esc(img)+'" onclick="erpPosBildView('+i+')" alt=""/>'+(editable?'<button class="pos-bild-x" title="Bild entfernen" onclick="erpPosBildDel('+i+')">✕</button>':'')+'</div>'
       :(editable&&p.art!=='abzug'&&p.art!=='akonto'?'<button class="pos-foto" title="Bild zur Position" onclick="erpPosBildPick('+i+')">📷</button>':'');
-    h+='<tr'+(p.art==='abzug'?' class="abzug"':'')+'>'
+    h+='<tr'+(p.art==='abzug'?' class="abzug"':'')+' oncontextmenu="erpPosCtx(event,'+i+')">'
       +'<td><div style="display:flex;gap:6px;align-items:center"><input type="text" value="'+esc(p.bez)+'"'+dis+' oninput="cur.positionen['+i+'].bez=this.value" style="flex:1"/>'+bildHtml+'</div></td>'
       +'<td>'+src+'</td>'
       +'<td style="width:76px"><input class="num" type="text" inputmode="decimal" value="'+(p.menge!=null?p.menge:'')+'"'+dis+' onchange="cur.positionen['+i+'].menge=this.value;erpRenderPos()" onblur="fixLeadingZero(this)"/></td>'
@@ -1201,7 +1211,7 @@ function erpRenderPos(){
   if(!h)h='<tr><td colspan="8" style="text-align:center;color:var(--mut2);padding:14px">Noch keine Positionen — unten hinzufügen</td></tr>';
   tb.innerHTML=h;
   var t=erpDocTotals(cur);
-  var hint=document.getElementById('posHint');if(hint)hint.textContent=(cur.positionen||[]).filter(function(p){return p.art!=='titel';}).length+' Positionen';
+  var hint=document.getElementById('posHint');if(hint)hint.textContent=(cur.positionen||[]).filter(function(p){return p.art!=='titel';}).length+' Positionen'+(editable&&window.matchMedia&&matchMedia('(hover:hover)').matches?' · Rechtsklick: Kopieren / Einfügen / Verschieben':'');
   var sb=document.getElementById('sumBlock');
   var editableDoc=erpEditable();
   if(sb)sb.innerHTML='<div class="rw"><span>Zwischentotal</span><b>'+chf(t.zwischen)+'</b></div>'
@@ -1218,6 +1228,143 @@ function erpPosAdd(art){
     :art==='zuschlag'?{id:uid(),art:'zuschlag',bez:'Zuschlag',modus:'pct',wert:''}
     :{id:uid(),art:'frei',bez:'',menge:1,einheit:'Stk',ep:'',rabattPct:''});
   erpRenderPos();
+}
+
+// ═══════════════════════════════════════════════════════════
+// KONTEXTMENÜ (Rechtsklick) — wenig Klicks statt vieler Buttons.
+// Karten: statusabhängige Aktionen (Auftrag/Akonto/Teil/Schluss …);
+// Positions-Editor: Kopieren/Ausschneiden/Einfügen/Verschieben.
+// ═══════════════════════════════════════════════════════════
+var _ctxEl=null;
+function erpCtxClose(){if(_ctxEl){_ctxEl.remove();_ctxEl=null;}}
+document.addEventListener('click',erpCtxClose);
+document.addEventListener('keydown',function(e){if(e.key==='Escape')erpCtxClose();});
+window.addEventListener('scroll',erpCtxClose,true);
+window.addEventListener('resize',erpCtxClose);
+// items: {ic,t,fn,danger?} | '-' (Trenner) | {hd:'Überschrift'}
+function erpCtxShow(e,items){
+  e.preventDefault();e.stopPropagation();
+  erpCtxClose();
+  if(!items||!items.length)return;
+  var m=document.createElement('div');
+  m.id='erpCtxMenu';
+  items.forEach(function(it){
+    if(it==='-'){var s=document.createElement('div');s.className='ctx-sep';m.appendChild(s);return;}
+    if(it.hd){var h=document.createElement('div');h.className='ctx-hd';h.textContent=it.hd;m.appendChild(h);return;}
+    var b=document.createElement('button');
+    b.type='button';
+    b.className='ctx-i'+(it.danger?' danger':'');
+    b.innerHTML='<span class="ci">'+(it.ic||'')+'</span><span>'+esc(it.t)+'</span>';
+    b.onclick=function(ev){ev.stopPropagation();erpCtxClose();it.fn();};
+    m.appendChild(b);
+  });
+  document.body.appendChild(m);
+  var r=m.getBoundingClientRect();
+  m.style.left=Math.max(8,Math.min(e.clientX,window.innerWidth-r.width-8))+'px';
+  m.style.top=Math.max(8,Math.min(e.clientY,window.innerHeight-r.height-8))+'px';
+  _ctxEl=m;
+}
+
+// ── Karten-Menü (Dokument-Liste + Erfolg-Tab) ──
+function erpCtxStatus(id,st,msg){
+  var d=poolRead(DOK_POOL).find(function(x){return x.id===id;});if(!d)return;
+  d.status=st;
+  poolSave(DOK_POOL,DOK_PREFIX,d);
+  toast(msg||('Status: '+st));
+  erpRenderAll();
+}
+// Offerte duplizieren: Kopie als Entwurf mit neuer Nummer; Regie-/OA-Verknüpfungen
+// werden gekappt (sonst doppelte Verrechnung/Nachkalkulation), Kette/Zahlungen leer.
+function erpDuplizieren(id){
+  var d=poolRead(DOK_POOL).find(function(x){return x.id===id;});if(!d)return;
+  var u=erpUser();
+  var c=JSON.parse(JSON.stringify(d));
+  c.id=uid();c.nr=erpNextNr(d.typ);c.status='entwurf';c.datum=today();
+  if(d.typ==='offerte')c.gueltigBis=addDays(today(),30);
+  c.verknuepfung={};c.zahlungen=[];
+  c.erstelltVon={userId:u?u.id:'',name:u?u.name:''};c.erstelltAm=new Date().toISOString();
+  (c.positionen||[]).forEach(function(p){p.id=uid();delete p.regieRapportId;delete p.oaId;});
+  poolSave(DOK_POOL,DOK_PREFIX,c);
+  toast('🗐 '+TYP[d.typ].n+' '+c.nr+' als Kopie erstellt');
+  erpOpen(c.id);
+}
+function erpDocCtx(e,id){
+  var d=erpDocs().find(function(x){return x.id===id;});
+  if(!d)return;
+  var canEdit=erpCanEdit();
+  var s=erpStatusOf(d);
+  var items=[{hd:(d.nr||'')+' · '+TYP[d.typ].n},{ic:'📂',t:'Öffnen',fn:function(){erpOpen(id);}}];
+  if(canEdit){
+    if(d.typ==='offerte'){
+      if(d.status==='entwurf')items.push({ic:'📤',t:'Als versendet markieren',fn:function(){erpCtxStatus(id,'versendet','📤 Offerte als versendet markiert');}});
+      if(d.status==='versendet'){
+        items.push({ic:'✓',t:'Als angenommen markieren',fn:function(){erpCtxStatus(id,'angenommen','🎉 Offerte angenommen');}});
+        items.push({ic:'✕',t:'Als abgelehnt markieren',fn:function(){erpCtxStatus(id,'abgelehnt','Offerte als abgelehnt markiert');}});
+      }
+      if(d.status==='angenommen'&&!(d.verknuepfung&&d.verknuepfung.auftragId))items.push({ic:'📋',t:'Auftrag erstellen',fn:function(){erpOpen(id);erpZuAuftrag();}});
+      items.push({ic:'🗐',t:'Duplizieren',fn:function(){erpDuplizieren(id);}});
+    }
+    if(d.typ==='auftrag'&&d.status!=='abgeschlossen'){
+      items.push('-');
+      items.push({ic:'💰',t:'Akontorechnung erstellen',fn:function(){erpOpen(id);erpAkonto();}});
+      items.push({ic:'💰',t:'Teilrechnung erstellen',fn:function(){erpOpen(id);erpTeilOpen();}});
+      items.push({ic:'💰',t:'Schlussrechnung erstellen',fn:function(){erpOpen(id);erpSchluss();}});
+      items.push('-');
+      if(d.status==='offen')items.push({ic:'▶',t:'In Arbeit setzen',fn:function(){erpCtxStatus(id,'in_arbeit','Auftrag in Arbeit');}});
+      items.push({ic:'✓',t:'Auftrag abschliessen',fn:function(){erpCtxStatus(id,'abgeschlossen','Auftrag abgeschlossen');}});
+    }
+    if(d.typ==='rechnung'){
+      if(d.status==='entwurf')items.push({ic:'📤',t:'Rechnung stellen',fn:function(){erpOpen(id);erpRechnungStellen();}});
+      if(s==='gestellt'||s==='ueberfaellig'){
+        items.push({ic:'💵',t:'Zahlung erfassen',fn:function(){erpOpen(id);erpZahlung();}});
+        items.push({ic:'⊘',t:'Stornieren',fn:function(){erpOpen(id);erpStornieren();}});
+      }
+    }
+  }
+  items.push({ic:'📄',t:'PDF',fn:function(){erpOpen(id);erpPdf();}});
+  if(canEdit&&d.status==='entwurf'){
+    items.push('-');
+    items.push({ic:'🗑',t:'Löschen',danger:true,fn:function(){erpOpen(id);erpLoeschen();}});
+  }
+  erpCtxShow(e,items);
+}
+
+// ── Positions-Menü (Editor): Clipboard lebt pro Seiten-Session — Kopieren in
+// einem Dokument, Einfügen in einem anderen funktioniert. Beim Einfügen werden
+// Regie-/OA-Verknüpfungen gekappt (kein Doppel-Verrechnen/Doppel-Zählen).
+var _posClip=null;
+function _posClipCopy(p){
+  var c=JSON.parse(JSON.stringify(p));
+  c.id=uid();
+  delete c.regieRapportId;delete c.oaId;
+  return c;
+}
+function erpPosMove(i,dir){
+  var j=i+dir;
+  if(j<0||j>=cur.positionen.length)return;
+  var t=cur.positionen[i];cur.positionen[i]=cur.positionen[j];cur.positionen[j]=t;
+  erpRenderPos();
+}
+function erpPosCtx(e,i){
+  // In Eingabefeldern bleibt das native Menü (Text kopieren/einfügen)
+  if(e.target&&/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName))return;
+  if(!cur)return;
+  var p=cur.positionen[i];if(!p)return;
+  var editable=erpEditable();
+  var lbl=p.art==='titel'?('Titel «'+(p.bez||'—')+'»'):(p.bez||'Position');
+  var items=[{hd:lbl.length>34?lbl.slice(0,33)+'…':lbl}];
+  items.push({ic:'📋',t:'Kopieren',fn:function(){_posClip=JSON.parse(JSON.stringify(p));toast('📋 Kopiert — Rechtsklick → Einfügen (auch in einem anderen Dokument)');}});
+  if(editable){
+    items.push({ic:'✂️',t:'Ausschneiden',fn:function(){_posClip=JSON.parse(JSON.stringify(p));cur.positionen.splice(i,1);erpRenderPos();toast('✂️ Ausgeschnitten');}});
+    if(_posClip)items.push({ic:'📥',t:'Einfügen (unterhalb)',fn:function(){cur.positionen.splice(i+1,0,_posClipCopy(_posClip));erpRenderPos();}});
+    items.push({ic:'🗐',t:'Duplizieren',fn:function(){cur.positionen.splice(i+1,0,_posClipCopy(p));erpRenderPos();}});
+    items.push('-');
+    if(i>0)items.push({ic:'⬆️',t:'Nach oben verschieben',fn:function(){erpPosMove(i,-1);}});
+    if(i<cur.positionen.length-1)items.push({ic:'⬇️',t:'Nach unten verschieben',fn:function(){erpPosMove(i,1);}});
+    items.push('-');
+    items.push({ic:'🗑',t:'Löschen',danger:true,fn:function(){cur.positionen.splice(i,1);erpRenderPos();}});
+  }
+  erpCtxShow(e,items);
 }
 
 // ═══════════════════════════════════════════════════════════
