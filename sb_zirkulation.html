@@ -785,6 +785,15 @@ table.zks{border-collapse:collapse;width:100%;font-size:12.5px}
   </div>
 </div>
 
+<!-- ── NETZSCHEMA (Temperaturverlauf) ── -->
+<div class="g-card" style="margin-top:14px" id="zkSchemaCard">
+  <div class="g-card-hd"><h2>📊 Netzschema — Temperaturverlauf</h2><span style="font-size:11px;color:var(--muted)">automatisch aus den Teilstrecken · Farbe = Rücklauftemperatur</span></div>
+  <div class="g-card-bd">
+    <div id="zkSchema" style="width:100%;overflow-x:auto"></div>
+    <div id="zkSchemaNote" class="g-hint" style="margin-top:8px"></div>
+  </div>
+</div>
+
 </div>
 
 <script>
@@ -1838,6 +1847,7 @@ function zkRenderCalc(res){
   if(uw.length){msg.style.display='';msg.innerHTML='⚠ '+uw.map(zkEsc).join('<br>⚠ ');}
   else msg.style.display='none';
   _zkLast=res;
+  if(window._zkSchemaDraw)try{window._zkSchemaDraw({res:res,rows:zkRows,tww:zkNum('zk_tww'),dtzul:zkNum('zk_dtzul'),hEff:zkNum('zk_heff')});}catch(e){}
 }
 
 // ── Events / Persistenz ──
@@ -1999,6 +2009,196 @@ document.addEventListener('DOMContentLoaded', function(){
 })();</script>
 <script>
 document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('zirkulation', 'Zirkulationsberechnung');});
+</script>
+<style>
+#zkSchema svg{display:block;min-width:760px;width:100%;height:auto}
+.zk-puls-row td{animation:zkPulsBg 1.6s ease-out 1}
+@keyframes zkPulsBg{0%{background:rgba(37,99,235,.22)}100%{background:transparent}}
+.zk-puls{animation:zkPuls 1.4s ease-out 1}
+@keyframes zkPuls{0%{box-shadow:0 0 0 0 rgba(37,99,235,.55)}100%{box-shadow:0 0 0 14px rgba(37,99,235,0)}}
+</style>
+<script>
+// ── 📊 Netzschema Zirkulation: Strangbaum mit Temperaturverlauf ──
+// Eigener Script-Block; Aufruf geguardet am Ende von zkRenderCalc via
+// window._zkSchemaDraw (Cross-Block-Scope-Regel). NUR literale Hex-Farben
+// (GemaPDF/html2canvas-Regel). Baum: Erwärmer + Pumpe links, jede End-TS =
+// ein Strang mit Drosselventil; Leitungsfarbe = mittlere RL-Temperatur der TS
+// (warm rot → kalt blau), massgebender Strang dick + ★.
+(function(){
+  function fmt(x,d){if(x==null||!isFinite(x))return '–';return x.toLocaleString('de-CH',{minimumFractionDigits:d,maximumFractionDigits:d});}
+  function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+  // Farbskala warm (#dc2626) → kalt (#2563eb)
+  function lerpCol(t){
+    t=Math.max(0,Math.min(1,t));
+    var a=[37,99,235],b=[220,38,38]; // blau → rot
+    var c=a.map(function(v,i){return Math.round(v+(b[i]-v)*t);});
+    return 'rgb('+c[0]+','+c[1]+','+c[2]+')';
+  }
+  window._zkZielKlick=function(typ,val){
+    if(typ==='inp'){
+      var el=document.getElementById(val);
+      if(!el)return;
+      try{el.scrollIntoView({behavior:'smooth',block:'center'});}catch(e){try{el.scrollIntoView();}catch(e2){}}
+      try{el.focus({preventScroll:true});}catch(e){}
+      el.classList.remove('zk-puls');void el.offsetWidth;el.classList.add('zk-puls');
+      setTimeout(function(){el.classList.remove('zk-puls');},1600);
+      return;
+    }
+    if(typ==='ts'){
+      var zr=window.zkRows||[];
+      var idx=-1;
+      for(var i=0;i<zr.length;i++){if(String(zr[i].nr)===String(val)){idx=i;break;}}
+      var tr=idx>=0?document.querySelector('#zkBody tr[data-i="'+idx+'"]'):null;
+      if(!tr)return;
+      try{tr.scrollIntoView({behavior:'smooth',block:'center'});}catch(e){try{tr.scrollIntoView();}catch(e2){}}
+      tr.classList.remove('zk-puls-row');void tr.offsetWidth;tr.classList.add('zk-puls-row');
+      setTimeout(function(){tr.classList.remove('zk-puls-row');},1800);
+      return;
+    }
+    if(typ==='strang'){
+      var sb=document.getElementById('zkStrangBody');
+      if(sb)try{sb.scrollIntoView({behavior:'smooth',block:'center'});}catch(e){try{sb.scrollIntoView();}catch(e2){}}
+    }
+  };
+  document.addEventListener('click',function(e){
+    var g=e.target&&e.target.closest?e.target.closest('#zkSchema [data-zkziel]'):null;
+    if(!g)return;
+    var z=g.getAttribute('data-zkziel').split('|');
+    window._zkZielKlick(z[0],z[1]);
+  });
+  function chip(x,y,txt,ziel,fill,stroke,color){
+    var w=Math.round(txt.length*6.2)+18;
+    return '<g'+(ziel?' data-zkziel="'+ziel+'" style="cursor:pointer"':'')+'>'
+      +'<rect x="'+x+'" y="'+(y-14)+'" width="'+w+'" height="21" rx="10.5" fill="'+(fill||'#ffffff')+'" stroke="'+(stroke||'#cbd5e1')+'" stroke-width="1.2"/>'
+      +'<text x="'+(x+w/2)+'" y="'+(y+1)+'" text-anchor="middle" font-size="10.5" font-weight="700" fill="'+(color||'#334155')+'">'+esc(txt)+'</text></g>';
+  }
+  window._zkSchemaDraw=function(d){
+    var host=document.getElementById('zkSchema');
+    var note=document.getElementById('zkSchemaNote');
+    if(!host)return;
+    var res=(d&&d.res)||{};
+    var rows=((d&&d.rows)||[]).filter(function(r){return parseFloat(r.len)>0;});
+    if(!rows.length||res.root==null){
+      host.innerHTML='<div style="color:#64748b;font-size:12px;padding:10px">Netzschema folgt, sobald Teilstrecken mit Länge erfasst sind.</div>';
+      if(note)note.textContent='';
+      return;
+    }
+    var byNr={},kids={},parentOf={};
+    rows.forEach(function(r){byNr[r.nr]=r;});
+    rows.forEach(function(r){
+      kids[r.nr]=[r.e,r.f].map(function(c){return parseInt(c,10);}).filter(function(c){return c&&byNr[c];});
+      kids[r.nr].forEach(function(c){parentOf[c]=r.nr;});
+    });
+    // DFS ab Root: Tiefe, Reihenfolge, y über Leaf-Slots (innere Knoten mittig über den Kindern)
+    var depth={},posY={},order=[],seen={},leafSlots=0,maxDepth=0;
+    (function walk(nr,dp){
+      if(seen[nr])return;
+      seen[nr]=1;depth[nr]=dp;maxDepth=Math.max(maxDepth,dp);order.push(nr);
+      var ks=kids[nr]||[];
+      if(!ks.length){posY[nr]=leafSlots++;return;}
+      ks.forEach(function(c){walk(c,dp+1);});
+      var ys=ks.filter(function(c){return posY[c]!=null;}).map(function(c){return posY[c];});
+      posY[nr]=ys.length?ys.reduce(function(a,b){return a+b;},0)/ys.length:leafSlots++;
+    })(res.root,0);
+    var unreach=rows.filter(function(r){return !seen[r.nr];}).map(function(r){return r.nr;});
+    // Geometrie
+    var RH=56,top=86;
+    var W=940;
+    var Hgt=Math.max(300,top+leafSlots*RH+66);
+    var x0=196;
+    var colW=Math.max(86,Math.min(180,(W-x0-200)/Math.max(1,maxDepth+1)));
+    function X(nr){return x0+(depth[nr]+1)*colW;}
+    function Y(nr){return top+posY[nr]*RH+26;}
+    // Temperatur-Spanne für die Farbskala
+    var tmin=null,tmax=null;
+    order.forEach(function(nr){
+      var o=res.rows[nr]||{};
+      [o.H,o.L].forEach(function(t){
+        if(t==null||!isFinite(t))return;
+        tmin=tmin==null?t:Math.min(tmin,t);
+        tmax=tmax==null?t:Math.max(tmax,t);
+      });
+    });
+    if(tmin==null){tmin=(d.tww||60)-(d.dtzul||5);tmax=d.tww||60;}
+    if(tmax-tmin<0.2)tmax=tmin+0.2;
+    function colorOf(nr){
+      var o=res.rows[nr]||{};
+      var t=(o.H!=null&&o.L!=null)?(o.H+o.L)/2:(o.H!=null?o.H:tmax);
+      return lerpCol((t-tmin)/(tmax-tmin));
+    }
+    // Massgebender Strang (Pfad-Set)
+    var maxS=(res.straenge||[]).filter(function(s){return s.dp===res.reqHead&&s.dp>0;})[0]||null;
+    var onMax={};if(maxS)maxS.path.forEach(function(n){onMax[n]=1;});
+    var strangByLeaf={};(res.straenge||[]).forEach(function(s){strangByLeaf[s.leaf]=s;});
+    var s='';
+    var yRoot=Y(res.root);
+    // WW-Erwärmer + Pumpe links auf Höhe der Root-TS
+    s+='<rect x="16" y="'+(yRoot-30)+'" width="74" height="60" rx="9" fill="#f8fafc" stroke="#0f172a" stroke-width="2.5"/>';
+    s+='<text x="53" y="'+(yRoot-8)+'" text-anchor="middle" font-size="9.5" font-weight="800" fill="#0f172a">WW-</text>';
+    s+='<text x="53" y="'+(yRoot+4)+'" text-anchor="middle" font-size="9.5" font-weight="800" fill="#0f172a">Erwärmer</text>';
+    s+='<text x="53" y="'+(yRoot+19)+'" text-anchor="middle" font-size="9.5" font-weight="700" fill="#dc2626">'+fmt(d.tww,0)+' °C</text>';
+    // Rückflussverhinderer-Symbol zwischen Pumpe und Erwärmer
+    s+='<line x1="90" y1="'+yRoot+'" x2="'+(x0-22)+'" y2="'+yRoot+'" stroke="'+colorOf(res.root)+'" stroke-width="4.5"/>';
+    s+='<path d="M112 '+(yRoot-7)+' L126 '+yRoot+' L112 '+(yRoot+7)+' Z" fill="none" stroke="#0f172a" stroke-width="2"/>';
+    s+='<line x1="126" y1="'+(yRoot-7)+'" x2="126" y2="'+(yRoot+7)+'" stroke="#0f172a" stroke-width="2.5"/>';
+    s+='<text x="119" y="'+(yRoot+20)+'" text-anchor="middle" font-size="8.5" fill="#64748b">RV</text>';
+    // Pumpe
+    s+='<circle cx="'+(x0-22)+'" cy="'+yRoot+'" r="15" fill="#ffffff" stroke="#0f172a" stroke-width="2.6"/>';
+    s+='<path d="M'+(x0-27)+' '+(yRoot-7)+' L'+(x0-9)+' '+yRoot+' L'+(x0-27)+' '+(yRoot+7)+' Z" fill="#0f172a"/>';
+    s+='<text x="'+(x0-22)+'" y="'+(yRoot+30)+'" text-anchor="middle" font-size="9" font-weight="700" fill="#334155">Zirk.-Pumpe</text>';
+    s+='<line x1="'+(x0-7)+'" y1="'+yRoot+'" x2="'+x0+'" y2="'+yRoot+'" stroke="'+colorOf(res.root)+'" stroke-width="4.5"/>';
+    // Teilstrecken zeichnen (Eltern zuerst — order ist Pre-Order)
+    order.forEach(function(nr){
+      var r=byNr[nr],o=res.rows[nr]||{};
+      var col=colorOf(nr),sw=onMax[nr]?7:4.5;
+      var x2=X(nr),y2=Y(nr);
+      var x1,y1;
+      if(nr===res.root){x1=x0;y1=yRoot;}
+      else{var p=parentOf[nr];x1=X(p);y1=Y(p);}
+      if(Math.abs(y1-y2)>0.5)s+='<line x1="'+x1+'" y1="'+y1.toFixed(1)+'" x2="'+x1+'" y2="'+y2.toFixed(1)+'" stroke="'+col+'" stroke-width="'+sw+'" stroke-linecap="round"/>';
+      s+='<line x1="'+x1+'" y1="'+y2.toFixed(1)+'" x2="'+x2+'" y2="'+y2.toFixed(1)+'" stroke="'+col+'" stroke-width="'+sw+'" stroke-linecap="round"/>';
+      // Fliessrichtungs-Pfeil Richtung Pumpe (Zirkulation fliesst zum Erwärmer zurück)
+      var ax=(x1+x2)/2;
+      s+='<path d="M'+(ax+4)+' '+(y2-4)+' L'+(ax-4)+' '+y2.toFixed(1)+' L'+(ax+4)+' '+(y2+4)+'" fill="none" stroke="#ffffff" stroke-width="1.6"/>';
+      // TS-Label (klickbar → Tabellenzeile)
+      var lbl='TS '+nr+' · DN '+r.dn+(o.pipeErr?' ⚠':'');
+      s+='<g data-zkziel="ts|'+nr+'" style="cursor:pointer">'
+        +'<rect x="'+(x1+8)+'" y="'+(y2-24)+'" width="'+(Math.round(lbl.length*5.6)+10)+'" height="15" rx="4" fill="#ffffff" opacity="0.82"/>'
+        +'<text x="'+(x1+13)+'" y="'+(y2-13)+'" font-size="9.5" font-weight="700" fill="'+(o.pipeErr?'#dc2626':'#475569')+'">'+esc(lbl)+'</text></g>';
+      // End-TS: Drosselventil + Strang-Chip
+      var st=(!kids[nr]||!kids[nr].length)?strangByLeaf[nr]:null;
+      if(st){
+        s+='<g transform="translate('+(x2+4)+','+y2.toFixed(1)+')"><path d="M0 -7 L12 0 L0 7 Z M24 -7 L12 0 L24 7 Z" fill="'+col+'"/></g>';
+        var isMax=maxS&&maxS.name===st.name;
+        var badKv=st.kv==null&&st.dpDr<0;
+        var chipTxt='Strang '+st.name+(isMax?' ★':'')+' · '+(badKv?'Drossel —':'KV '+fmt(st.kv,0)+' l/h');
+        var cw=Math.round(chipTxt.length*5.9)+16;
+        s+='<g data-zkziel="strang|'+st.name+'" style="cursor:pointer">'
+          +'<rect x="'+(x2+32)+'" y="'+(y2-11)+'" width="'+cw+'" height="21" rx="10" fill="'+(badKv?'#fef2f2':(isMax?'#fff7ed':'#f8fafc'))+'" stroke="'+(badKv?'#fca5a5':(isMax?'#fdba74':'#cbd5e1'))+'" stroke-width="1.2"/>'
+          +'<text x="'+(x2+32+cw/2)+'" y="'+(y2+3)+'" text-anchor="middle" font-size="9.5" font-weight="700" fill="'+(badKv?'#dc2626':(isMax?'#c2410c':'#334155'))+'">'+esc(chipTxt)+'</text>'
+          +'<text x="'+(x2+32)+'" y="'+(y2+22)+'" font-size="9" fill="#64748b">T '+fmt(st.tVentil,1)+' °C · Δp '+fmt(st.dp,0)+' mbar</text></g>';
+      }
+    });
+    // Kopf-Chips
+    var p=res.pump||{};
+    s+=chip(12,22,'Pumpe: '+fmt(p.m,0)+' kg/h · H erf. '+fmt(res.reqHead,0)+' mbar (eff. '+fmt(d.hEff,0)+')','inp|zk_heff','#eff6ff','#93c5fd','#1d4ed8');
+    s+=chip(12,48,'T am Erwärmer '+fmt(p.tRL,1)+' °C · T WW '+fmt(d.tww,0)+' °C (ΔT '+fmt(d.dtzul,1)+' K)','inp|zk_tww');
+    if(maxS)s+=chip(452,22,'★ massgebend: Strang '+maxS.name+' (TS '+maxS.path.join('→')+')','strang|'+maxS.name,'#fff7ed','#fdba74','#c2410c');
+    // Legende: Farbskala + Symbole
+    var lgx=16,lgy=Hgt-18;
+    s+='<defs><linearGradient id="zkGradLeg" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#2563eb"/><stop offset="1" stop-color="#dc2626"/></linearGradient></defs>';
+    s+='<rect x="'+lgx+'" y="'+(lgy-9)+'" width="130" height="10" rx="5" fill="url(#zkGradLeg)"/>';
+    s+='<text x="'+lgx+'" y="'+(lgy+13)+'" font-size="9" fill="#64748b">'+fmt(tmin,1)+' °C</text>';
+    s+='<text x="'+(lgx+130)+'" y="'+(lgy+13)+'" text-anchor="end" font-size="9" fill="#64748b">'+fmt(tmax,1)+' °C</text>';
+    s+='<text x="'+(lgx+150)+'" y="'+lgy+'" font-size="9.5" fill="#64748b">Farbe = mittlere RL-Temperatur · ★ massgebender Strang · ⋈ Drosselventil · ⚠ DN prüfen · Pfeile = Fliessrichtung zur Pumpe</text>';
+    host.innerHTML='<svg viewBox="0 0 '+W+' '+Hgt+'" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Zirkulations-Netzschema mit Temperaturverlauf">'+s+'</svg>';
+    if(note){
+      var txt='Jede End-Teilstrecke ist ein Strang mit Drosselventil; der massgebende Strang bestimmt die Förderhöhe. Labels und Chips sind klickbar (Teilstrecke → Tabellenzeile, Strang → Auswertung).';
+      if(unreach.length)txt='⚠ TS '+unreach.join(', ')+' ist nicht mit dem Netz verbunden (Anschluss prüfen). '+txt;
+      note.textContent=txt;
+    }
+  };
+})();
 </script>
 <script src="gema_scroll.js"></script>
 <script src="gema_mobile_menu.js"></script>
