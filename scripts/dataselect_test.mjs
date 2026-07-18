@@ -1,7 +1,9 @@
 // Playwright-Smoke: DataSelect-Integration im ERP (07/2026)
-//   - «🔎 DataSelect»-Picker im Positions-Editor: Lieferant-Select
-//     (org.settings.dataselect.anbieter, Default Geberit 1900) + Suche nach
-//     Artnr/Bez/EAN → Ergebnisliste mit Thumbnail → Position inkl. Bild
+//   - DataSelect ist in die «Kataloge»-Seitenleiste des Positions-Editors
+//     integriert (kein separater Dialog): je Lieferant eine aufklappbare Gruppe
+//     (org.settings.dataselect.anbieter, Default Geberit 1900) mit Inline-Suche
+//     → Ergebnis-Artikel mit Thumbnail → markieren + Enter/Doppelklick →
+//     Stückzahl-Dialog → Position inkl. Bild ÜBER der markierten Zeile
 //   - /api/dataselect gemockt (Function im Test nicht erreichbar): Request-
 //     Params geprüft, Fehler-/Leer-Zustände, Client-Normalisierung
 //   - GemaDataSelect.addAnbieter persistiert in org.settings
@@ -28,9 +30,10 @@ let lastReq = null;
 await ctx.route('**/api/dataselect**', route => {
   const u = new URL(route.request().url());
   lastReq = Object.fromEntries(u.searchParams.entries());
-  const artnr = u.searchParams.get('artnr') || '';
-  if (artnr === 'LEER') return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ ok: true, artikel: [], anzahl: 0 }) });
-  if (artnr === 'FEHLER') return route.fulfill({ status: 502, contentType: 'application/json', body: JSON.stringify({ ok: false, error: 'DataSelect-Fehler (HTTP 500)' }) });
+  // Sidebar-Suche schickt Zahl-artige Eingaben als artnr, sonst als bez
+  const key = u.searchParams.get('artnr') || u.searchParams.get('bez') || '';
+  if (key === 'LEER') return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ ok: true, artikel: [], anzahl: 0 }) });
+  if (key === 'FEHLER') return route.fulfill({ status: 502, contentType: 'application/json', body: JSON.stringify({ ok: false, error: 'DataSelect-Fehler (HTTP 500)' }) });
   return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ ok: true, anzahl: 2, artikel: [
     { artnr: '620.020.00.1', bezeichnung: 'Spülkasten Sigma UP320', ean: '7612345678901', preis: 289.5, waehrung: 'CHF', einheit: 'Stk', hersteller: 'Geberit', serie: 'Sigma', bildUrl: 'https://www.dataselect.ch/img/620020.jpg' },
     { artnr: '115.770.00.5', bezeichnung: 'Betätigungsplatte Sigma50', ean: '', preis: 145, waehrung: 'CHF', einheit: 'Stk', hersteller: 'Geberit', serie: 'Sigma', bildUrl: '' }
@@ -57,72 +60,98 @@ ok(await page.evaluate(() => {
   return r && own.some(a => a.id === '1801' && a.name === 'R. Nussbaum') && GemaDataSelect.anbieter().some(a => a.id === '1801');
 }), 'neuer Lieferant landet in org.settings + Liste');
 
-console.log('■ Picker öffnen (Dokument nötig)');
+console.log('■ Kataloge-Seitenleiste öffnen (Dokument nötig)');
 await page.evaluate(() => {
   erpNeu('offerte');
   cur.titel = 'Sanitärinstallation MFH';
   cur.kundeSnapshot = { firma: 'Immo Basel AG' };
   erpSaveCur(true);
   erpOpenEditor();
+  erpSideTool('kataloge');
 });
-ok(await page.evaluate(() => document.getElementById('edBody').innerHTML.indexOf('🔎 DataSelect') >= 0), 'Toolbar: «🔎 DataSelect»-Button im Positions-Editor');
-await page.evaluate(() => erpDsOpen());
-ok(await page.evaluate(() => document.getElementById('dsModal').classList.contains('open')), 'DataSelect-Modal öffnet');
-ok(await page.evaluate(() => {
-  const opts = [...document.getElementById('ds_anbieter').options].map(o => o.textContent);
-  return opts.some(t => t.indexOf('Geberit') >= 0 && t.indexOf('1900') >= 0);
-}), 'Lieferant-Select zeigt Geberit (1900)');
+ok(await page.evaluate(() => _sideTool === 'kataloge'), 'Seitenleiste zeigt «Kataloge» (kein separater DataSelect-Dialog)');
+ok(await page.evaluate(() => document.getElementById('edSideBody').innerHTML.indexOf('DataSelect') >= 0), 'Kataloge-Panel enthält die DataSelect-Sektion');
+ok(await page.evaluate(() => !!document.getElementById('dsq_1900') && !!document.getElementById('dsRes_1900')), 'DataSelect-Gruppe für Geberit (1900) mit Inline-Suche');
 
 console.log('■ Suche: Request-Params + Ergebnisliste');
 await page.evaluate(() => {
-  document.getElementById('ds_anbieter').value = '1900';
-  document.getElementById('ds_artnr').value = '620.020';
-  document.getElementById('ds_sprache').value = 'de';
-  erpDsSearch();
+  document.getElementById('dsq_1900').value = '620.020';
+  erpDsSearch('1900');
 });
 await page.waitForTimeout(400);
 ok(lastReq && lastReq.anbieter === '1900' && lastReq.artnr === '620.020' && lastReq.sprache === 'de', 'Request trägt anbieter/artnr/sprache: ' + JSON.stringify(lastReq));
 {
-  const html = await page.evaluate(() => document.getElementById('ds_list').innerHTML);
+  const html = await page.evaluate(() => document.getElementById('dsRes_1900').innerHTML);
   ok(html.indexOf('Spülkasten Sigma UP320') >= 0 && html.indexOf('620.020.00.1') >= 0, 'Ergebnis: Bezeichnung + Artnr');
   ok(html.indexOf('CHF 289.50') >= 0 && html.indexOf('EAN 7612345678901') >= 0, 'Preis + EAN gerendert');
-  ok(html.indexOf('dataselect.ch/img/620020.jpg') >= 0, 'Thumbnail-Bild im Ergebnis');
+  // Suche OHNE Thumbnails (schnell) — Bild lädt erst beim Einfügen; 🖼-Hinweis
+  ok(html.indexOf('<img') < 0 && html.indexOf('🖼') >= 0, 'Trefferliste ohne Thumbnails (Bild lädt beim Einfügen)');
+  ok(await page.evaluate(() => document.querySelectorAll('#dsRes_1900 .side-art').length === 2), 'zwei Artikel als auswählbare Zeilen (.side-art)');
 }
 
-console.log('■ Artikel einfügen → Position inkl. Bild');
-await page.evaluate(() => erpDsTake(0));
+console.log('■ Artikel einfügen (markieren + Enter → Menge) + Bild wird nachgeladen');
+// ersten Treffer markieren + Enter → Mengendialog, Menge 3, bestätigen
+await page.evaluate(() => {
+  const row = document.querySelector('#dsRes_1900 .side-art');
+  erpArtSel(row);
+  row.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+});
+await page.waitForTimeout(60);
+ok(await page.evaluate(() => document.getElementById('erpQtyModal').classList.contains('open')), 'Enter öffnet den Stückzahl-Dialog');
+ok(await page.evaluate(() => document.activeElement && document.activeElement.id === 'eq_menge'), 'Fokus liegt direkt auf dem Mengenfeld');
+await page.evaluate(() => { document.getElementById('eq_menge').value = '3'; erpQtyConfirm(); });
+await page.waitForTimeout(60);
 {
   const p = await page.evaluate(() => cur.positionen[cur.positionen.length - 1]);
-  ok(p && p.bez === 'Spülkasten Sigma UP320', 'Position: Bezeichnung übernommen');
+  ok(p && p.bez === 'Spülkasten Sigma UP320' && Math.abs(p.menge - 3) < 1e-6, 'Position: Bezeichnung + Menge (3) aus dem Dialog');
   ok(Math.abs(p.ep - 289.5) < 1e-6 && p.einheit === 'Stk', 'Position: Preis (EP) + Einheit');
   ok(p.produktId === 'ds:620.020.00.1' && p.dsArtnr === '620.020.00.1', 'Position: produktId/dsArtnr verknüpft');
-  ok(p.bildUrl === 'https://www.dataselect.ch/img/620020.jpg', 'Position trägt das Bild (bildUrl)');
+  ok(!p._dsAnb && !p._dsBild && p._dsHat === undefined, 'transiente Bild-Hinweise NICHT in der Position gespeichert');
   ok((p.lieferantFirma || '').indexOf('Geberit') >= 0, 'Position: Lieferant Geberit');
-  // Bild erscheint im Positions-Editor
-  const posHtml = await page.evaluate(() => document.getElementById('posBody').innerHTML);
-  ok(posHtml.indexOf('620020.jpg') >= 0, 'Bild im Positions-Editor sichtbar (pos-bild)');
 }
-// Zweiter Artikel ohne Bild
-await page.evaluate(() => erpDsTake(1));
+// Bild lädt ASYNCHRON nach (externe Bild-URL im Test blockiert → Fallback auf Roh-URL)
+await page.waitForFunction(() => { const p = cur.positionen[cur.positionen.length - 1]; return p && (p.bildUrl || p.bildDataUrl); }, null, { timeout: 4000 });
+{
+  const p = await page.evaluate(() => cur.positionen[cur.positionen.length - 1]);
+  ok(p.bildUrl === 'https://www.dataselect.ch/img/620020.jpg' || (p.bildDataUrl || '').indexOf('data:image') === 0, 'Bild nach dem Einfügen nachgeladen (komprimiert bzw. Fallback-URL)');
+  const posHtml = await page.evaluate(() => document.getElementById('posBody').innerHTML);
+  ok(posHtml.indexOf('620020.jpg') >= 0 || posHtml.indexOf('data:image') >= 0, 'Bild im Positions-Editor sichtbar (pos-bild)');
+}
+// Einfügen ÜBER der markierten Positionszeile
+ok(await page.evaluate(() => {
+  cur.positionen = [{ id: 'a', art: 'frei', bez: 'A', menge: 1, einheit: 'Stk', ep: 1 }, { id: 'b', art: 'frei', bez: 'B', menge: 1, einheit: 'Stk', ep: 1 }];
+  erpPosSelReset(); erpRenderPos();
+  erpPosSelClick({ stopPropagation() {}, preventDefault() {} }, 1);  // b markieren
+  erpArtGo({ art: 'frei', bez: 'X', menge: 1, einheit: 'Stk', ep: 5 });
+  return true;
+}), 'Artikel markiert → Mengendialog offen');
+await page.evaluate(() => { document.getElementById('eq_menge').value = '2'; erpQtyConfirm(); });
+ok(await page.evaluate(() => { const i = cur.positionen.findIndex(p => p.id === 'b'); return cur.positionen[i - 1].bez === 'X' && Math.abs(cur.positionen[i - 1].menge - 2) < 1e-6; }), 'Einfügen DIREKT ÜBER der markierten Zeile (b)');
+// Zweiter Artikel ohne Bild (Doppelklick → Menge 1) — Auswahl zurücksetzen, damit ans Ende
+await page.evaluate(() => {
+  cur.positionen = []; erpPosSelReset(); erpRenderPos();
+  document.getElementById('dsq_1900').value = '620.020'; erpDsSearch('1900');
+});
+await page.waitForTimeout(300);
+await page.evaluate(() => { document.querySelectorAll('#dsRes_1900 .side-art')[1].dispatchEvent(new MouseEvent('dblclick', { bubbles: true })); });
+await page.waitForTimeout(60);
+await page.evaluate(() => erpQtyConfirm());
 ok(await page.evaluate(() => {
   const p = cur.positionen[cur.positionen.length - 1];
   return p.bez === 'Betätigungsplatte Sigma50' && !p.bildUrl && Math.abs(p.ep - 145) < 1e-6;
 }), 'Artikel ohne Bild: Position ohne bildUrl, Preis korrekt');
 
 console.log('■ Leer- und Fehlerzustände');
-await page.evaluate(() => { document.getElementById('ds_artnr').value = 'LEER'; document.getElementById('ds_bez').value = ''; document.getElementById('ds_ean').value = ''; erpDsSearch(); });
+await page.evaluate(() => { document.getElementById('dsq_1900').value = 'LEER'; erpDsSearch('1900'); });
 await page.waitForTimeout(300);
-ok(await page.evaluate(() => document.getElementById('ds_list').innerHTML.indexOf('Keine Artikel gefunden') >= 0), 'leere Antwort → «Keine Artikel gefunden»');
-await page.evaluate(() => { document.getElementById('ds_artnr').value = 'FEHLER'; erpDsSearch(); });
+ok(await page.evaluate(() => document.getElementById('dsRes_1900').innerHTML.indexOf('Keine Artikel gefunden') >= 0), 'leere Antwort → «Keine Artikel gefunden»');
+await page.evaluate(() => { document.getElementById('dsq_1900').value = 'FEHLER'; erpDsSearch('1900'); });
 await page.waitForTimeout(300);
-ok(await page.evaluate(() => /DataSelect-Fehler/.test(document.getElementById('ds_list').innerHTML)), 'Server-Fehler → Fehlermeldung im Panel');
+ok(await page.evaluate(() => /DataSelect-Fehler/.test(document.getElementById('dsRes_1900').innerHTML)), 'Server-Fehler → Fehlermeldung im Panel');
 // Ohne Suchkriterium
-await page.evaluate(() => {
-  document.getElementById('ds_artnr').value = ''; document.getElementById('ds_bez').value = ''; document.getElementById('ds_ean').value = '';
-  erpDsSearch();
-});
+await page.evaluate(() => { document.getElementById('dsq_1900').value = ''; erpDsSearch('1900'); });
 await page.waitForTimeout(250);
-ok(await page.evaluate(() => document.getElementById('ds_list').innerHTML.indexOf('Artikelnummer, Bezeichnung oder EAN') >= 0), 'ohne Suchkriterium → Hinweis (kein Request)');
+ok(await page.evaluate(() => document.getElementById('dsRes_1900').innerHTML.indexOf('Artikelnummer, Bezeichnung oder EAN') >= 0), 'ohne Suchkriterium → Hinweis (kein Request)');
 
 ok(errors.length === 0, 'keine JS-Fehler' + (errors.length ? ' — ' + errors[0] : ''));
 await ctx.close();

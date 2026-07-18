@@ -142,13 +142,21 @@ exports.handler = async function(event){
   var sprache = String(p.sprache || 'de').toLowerCase();
   if (['de','fr','it'].indexOf(sprache) < 0) sprache = 'de';
   var preisbuch = String(p.preisbuch || '1').replace(/[^0-9]/g, '') || '1';
+  // bilder=1 → Bilder mitliefern (Detail-Abruf beim Einfügen einer Position).
+  // Ohne bilder → SUCHE: schnelle, schlanke Antwort (Inline-/Base64-Bilder werden
+  // aus dem Payload entfernt, damit die Trefferliste nicht auf Bild-Bytes wartet).
+  var withBilder = (String(p.bilder || '') === '1' || String(p.bilder || '').toLowerCase() === 'true');
 
   // Ziel-URL bauen (fixer Host → keine SSRF-Fläche)
   var qs = new URLSearchParams();
   qs.set('id_anbieter', anbieter);
   qs.set('preisbuch_nr', preisbuch);
   qs.set('code_sprache', sprache);
-  qs.set('format', 'debim');               // PFLICHT (mit Bildern)
+  // Format je Modus konfigurierbar: für die Suche kann ein leichteres (bildloses,
+  // schnelleres) Format des Katalogs gesetzt werden — Default bleibt debim.
+  qs.set('format', withBilder
+    ? (process.env.DATASELECT_FORMAT_BILD || 'debim')
+    : (process.env.DATASELECT_FORMAT_SUCHE || 'debim'));
   if (artnr) qs.set('artnr', artnr);
   if (bez)   qs.set('Bez', bez);
   if (ean)   qs.set('EAN', ean);
@@ -193,7 +201,16 @@ exports.handler = async function(event){
     return a && (a.artnr || a.bezeichnung);
   });
 
-  return { statusCode: 200, headers: cors, body: JSON.stringify({ ok: true, artikel: artikel, anzahl: artikel.length }) };
+  // hatBild = ob ein Bild existiert (fürs verzögerte Nachladen beim Einfügen).
+  // Im Suchmodus schwere Inline-Bilder (data:-URIs/Base64) NICHT ans Frontend
+  // geben — nur der eingefügte Artikel lädt sein Bild nach (bilder=1). HTTP-URLs
+  // sind billige Strings und bleiben (das Frontend zeigt sie in der Suche nicht).
+  artikel.forEach(function(a){
+    a.hatBild = !!a.bildUrl;
+    if (!withBilder && /^data:/i.test(a.bildUrl || '')) a.bildUrl = '';
+  });
+
+  return { statusCode: 200, headers: cors, body: JSON.stringify({ ok: true, artikel: artikel, anzahl: artikel.length, bilder: withBilder }) };
 };
 
 // Für Node-Tests

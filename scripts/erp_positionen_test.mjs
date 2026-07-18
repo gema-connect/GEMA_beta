@@ -1,4 +1,6 @@
 // Playwright-Smoke: ERP-Positionseditor — Auswahl/DnD/Sperre/Schlussrabatte (07/2026)
+//   - Werte/Texte: Anzeige-Zellen (.pcell), erst per Doppelklick (erpCellEdit)
+//     bearbeitbar; Delete im offenen Eingabefeld löscht keine Zeilen
 //   - Zeilen markieren: Klick (einzeln), Shift (Bereich), Ctrl/Cmd (mehrere);
 //     Delete löscht die Auswahl (Feld-Editing hat Vorrang)
 //   - Neue Position/Katalog wird bei GENAU einer Markierung darüber eingefügt,
@@ -49,6 +51,9 @@ ok(await page.evaluate(() => { erpPosSelClick({ stopPropagation() {}, preventDef
 ok(await page.evaluate(() => { const html = document.getElementById('posBody').innerHTML; return (html.match(/pos-sel/g) || []).length === 3; }), 'markierte Zeilen tragen die pos-sel-Klasse (3)');
 // Griff-Spalte + Delete-Hinweis
 ok(await page.evaluate(() => document.querySelectorAll('#posBody .pos-grip').length === 4), 'jede Zeile hat einen ⠿-Griff');
+// Werte sind Anzeige-Zellen — erst der Doppelklick öffnet ein Eingabefeld
+ok(await page.evaluate(() => document.querySelectorAll('#posBody .pcell').length > 0 && document.querySelectorAll('#posBody input').length === 0), 'Positionen zeigen Anzeige-Zellen (.pcell), keine Roh-Inputs');
+ok(await page.evaluate(() => { erpCellEdit(cur.positionen[0].id, 'bez'); const has = document.querySelectorAll('#posBody input[data-edit]').length === 1; erpCellCommit(); return has; }), 'Doppelklick (erpCellEdit) öffnet ein Eingabefeld, Klick woanders (erpCellCommit) schliesst');
 
 console.log('■ Delete löscht die Auswahl (nicht in Feldern)');
 ok(await page.evaluate(() => { erpPosSelClick({ stopPropagation() {}, preventDefault() {} }, 1); erpPosSelClick({ stopPropagation() {}, preventDefault() {}, ctrlKey: true }, 2); return _selIds.join(',') === 'p2,p3'; }), 'p2+p3 markiert');
@@ -58,13 +63,16 @@ ok(await page.evaluate(() => {
   document.dispatchEvent(ev);
   return cur.positionen.map(p => p.id).join(',') === 'p1,p4' && _selIds.length === 0;
 }), 'Delete-Taste entfernt p2+p3');
-// Feld-Editing hat Vorrang: Delete im Input löscht KEINE Zeilen
+// Feld-Editing hat Vorrang: Delete im offenen Bearbeitungsfeld löscht KEINE Zeilen
 ok(await page.evaluate(() => {
   erpPosSelClick({ stopPropagation() {}, preventDefault() {} }, 0);
-  const inp = document.querySelector('#posBody input');
+  erpCellEdit(cur.positionen[0].id, 'bez');   // Doppelklick-Bearbeitung öffnet ein Eingabefeld
+  const inp = document.querySelector('#posBody input[data-edit]');
   inp.focus();
   document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', bubbles: true }));
-  return cur.positionen.length === 2;   // nichts gelöscht
+  const okk = cur.positionen.length === 2;   // nichts gelöscht
+  erpCellCommit();
+  return okk;
 }), 'Delete im Eingabefeld löscht keine Zeilen');
 
 console.log('■ Einfügen über der Markierung (genau eine) / ans Ende (mehrere)');

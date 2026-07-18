@@ -201,9 +201,11 @@ await page.waitForTimeout(200);
 await rowCtx(0);
 await ctxClick('Einfügen');
 ok(await page.evaluate(() => cur.positionen[1] && cur.positionen[1].bez === 'Regie Vorarbeiten' && !cur.positionen[1].regieRapportId), 'In anderes Dokument (Auftrag) eingefügt');
-// Rechtsklick IN einem Eingabefeld → natives Menü bleibt (kein Custom-Menü)
+// Rechtsklick IN einem (per Doppelklick geöffneten) Eingabefeld → natives Menü bleibt
+await page.evaluate(() => erpCellEdit(cur.positionen[0].id, 'bez'));
 await rowCtx(0, true);
 ok(!(await ctxOpen()), 'Im Eingabefeld: kein Custom-Menü (native Textbearbeitung)');
+await page.evaluate(() => erpCellCommit());
 // Read-only (gestellte Rechnung): nur Kopieren
 await page.evaluate(() => { erpOpen(window._akId); });
 await page.waitForTimeout(200);
