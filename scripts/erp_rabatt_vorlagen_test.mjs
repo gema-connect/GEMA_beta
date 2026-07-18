@@ -84,8 +84,9 @@ await page.evaluate(() => {
     const rows = [...document.querySelectorAll('#posBody tr')];
     const zu = rows[3], ra = rows[4];
     return {
-      zuBadge: zu.querySelector('.src').textContent, zuBasis: zu.cells[5].textContent.trim(), zuBetrag: zu.cells[6].textContent.trim(),
-      raBasis: ra.cells[5].textContent.trim(), raBetrag: ra.cells[6].textContent.trim(),
+      // cells[0] ist neu die Auswahl-/DnD-Griff-Spalte → Basis/Betrag um 1 verschoben
+      zuBadge: zu.querySelector('.src').textContent, zuBasis: zu.cells[6].textContent.trim(), zuBetrag: zu.cells[7].textContent.trim(),
+      raBasis: ra.cells[6].textContent.trim(), raBetrag: ra.cells[7].textContent.trim(),
       raClass: ra.className, sum: document.getElementById('sumBlock').textContent
     };
   });

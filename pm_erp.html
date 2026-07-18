@@ -126,6 +126,12 @@ table.pos{border-collapse:collapse;width:100%;font-size:13px;min-width:680px}
 .src.regie{background:var(--vio-bg);color:var(--vio);border:1px solid var(--vio-bd)}
 .src.oa{background:var(--grn-bg);color:var(--grn);border:1px solid var(--grn-bd)}
 .pos-del{width:36px;height:36px;border-radius:8px;border:1.5px solid var(--red-bd);background:var(--red-bg);color:var(--red);font-size:13px;cursor:pointer}
+.pos-grip{width:26px;text-align:center;color:var(--mut2);cursor:grab;user-select:none;font-size:15px;line-height:1;touch-action:none}
+.pos-grip:active{cursor:grabbing}
+.pos tr.pos-sel td{background:var(--tint,#eff4ff)!important;box-shadow:inset 3px 0 0 var(--acc,#1d4ed8)}
+.pos tr.pos-sel .pos-grip{color:var(--acc,#1d4ed8)}
+.pos tr.pos-drop td{box-shadow:inset 0 3px 0 var(--acc,#1d4ed8)}
+.pos tr.pos-dragging td{opacity:.45}
 .pos-foto{width:36px;height:36px;border-radius:8px;border:1.5px dashed var(--brd2);background:var(--sur);font-size:15px;cursor:pointer;flex-shrink:0}
 .pos-bild{position:relative;flex-shrink:0}
 .pos-bild img{width:38px;height:38px;object-fit:cover;border-radius:8px;border:1px solid var(--brd2);display:block;cursor:zoom-in}
@@ -500,13 +506,20 @@ function erpDocTotals(doc){
     if(erpNum(p.rabattPct))z*=(1-erpNum(p.rabattPct)/100);
     zwischen+=z;kapBasis+=z;
   });
+  // Legacy: einzelner Dokument-Rabatt-% (alte Dokumente, vor den Schluss-Zeilen).
   var rabatt=zwischen*(erpNum(doc.rabattPct)/100);
-  var netto=zwischen-rabatt;
+  // Schlussrabatte/-zuschläge: beliebig viele, je % oder pauschal (CHF), ALLE
+  // auf DERSELBEN Basis = Netto-Total nach Positionen (keine Verkettung — wie
+  // die Kapitel-Rabatte). Rabatt zählt negativ, Zuschlag positiv.
+  var schlussBasis=zwischen-rabatt;
+  var schluss=(doc.schluss||[]).map(function(s){ return {s:s,betrag:erpAufschlagBetrag(s,schlussBasis)}; });
+  var schlussTotal=0;schluss.forEach(function(x){schlussTotal+=x.betrag;});
+  var netto=schlussBasis+schlussTotal;
   var mwst=netto*(erpNum(doc.mwstPct)/100);
   var bruttoRaw=netto+mwst;
   var brutto=erpRound5(bruttoRaw);
   var rundung=brutto-bruttoRaw;
-  return {zwischen:zwischen,rabatt:rabatt,netto:netto,mwst:mwst,brutto:brutto,rundung:rundung};
+  return {zwischen:zwischen,rabatt:rabatt,schluss:schluss,schlussTotal:schlussTotal,netto:netto,mwst:mwst,brutto:brutto,rundung:rundung};
 }
 
 // Fakturierungsstand eines Auftrags über alle zugehörigen Rechnungen (ohne stornierte)
@@ -1638,7 +1651,7 @@ function erpNeu(typ,vorlage){
     gueltigBis:typ==='offerte'?addDays(today(),30):'',
     frist:typ==='rechnung'?addDays(today(),s.fristTage):'',
     status:typ==='auftrag'?'offen':'entwurf',
-    positionen:[],rabattPct:0,mwstPct:s.mwstPct,
+    positionen:[],rabattPct:0,schluss:[],mwstPct:s.mwstPct,
     einleitung:typ==='rechnung'?s.txtRechnungIntro:(typ==='offerte'?s.txtOfferteIntro:s.txtAuftragIntro),
     schlusstext:typ==='rechnung'?s.txtRechnung:(typ==='offerte'?s.txtOfferte:s.txtAuftrag),
     verknuepfung:{},rechnungsArt:typ==='rechnung'?'einzel':undefined,zahlungen:[],
@@ -1651,35 +1664,64 @@ function erpOpen(id){
   if(!d)return;
   cur=JSON.parse(JSON.stringify(d));
   _tab=cur.typ;
+  erpPosSelReset();          // Auswahl beim Öffnen zurücksetzen
   erpOpenEditor();
 }
-function erpCloseEditor(){document.getElementById('edOv').classList.remove('open');cur=null;erpRenderAll();}
+function erpCloseEditor(){document.getElementById('edOv').classList.remove('open');cur=null;erpPosSelReset();erpRenderAll();}
 function erpSaveCur(silent){
   if(!cur)return;
   if(cur.objektId){var o=erpObjekte().find(function(x){return x.id===cur.objektId;});if(o){cur.objektName=o.name+(o.ort?' · '+o.ort:'');}}
+  var unlk=cur._unlocked;delete cur._unlocked;   // Entsperren ist transient, nicht speichern
   poolSave(DOK_POOL,DOK_PREFIX,cur);
+  cur._unlocked=unlk;
   if(!silent)toast('✓ Gespeichert');
+}
+// Natürlich editierbar (ohne Entsperren): Offerte nur im Entwurf (versendet =
+// gesperrt), Auftrag solange nicht abgeschlossen, Rechnung nur im Entwurf.
+function erpNaturalEditable(d){
+  if(!d)return false;
+  if(d.typ==='offerte')return d.status==='entwurf';
+  if(d.typ==='auftrag')return d.status!=='abgeschlossen';
+  return d.status==='entwurf';
 }
 function erpEditable(){
   if(!erpCanEdit()||!cur)return false;
-  if(cur.typ==='offerte')return cur.status==='entwurf'||cur.status==='versendet';
-  if(cur.typ==='auftrag')return cur.status!=='abgeschlossen';
-  return cur.status==='entwurf';
+  return erpNaturalEditable(cur)||!!cur._unlocked;
 }
+// Gesperrt = berechtigt, aber im gesperrten Status und (noch) nicht entsperrt
+function erpLocked(){return !!(cur&&erpCanEdit()&&!erpNaturalEditable(cur)&&!cur._unlocked);}
 
 function erpOpenEditor(){
-  var d=cur;var editable=erpEditable();
+  var d=cur;
+  erpPosSelReset();          // Auswahl bei vollem Editor-Rebuild zurücksetzen
+  // Schlussrabatte normalisieren + Alt-Dokument-Rabatt (rabattPct) einmalig in
+  // eine Schlusszeile migrieren (danach läuft alles über cur.schluss)
+  if(!Array.isArray(d.schluss))d.schluss=[];
+  if(erpNum(d.rabattPct)>0&&!d.schluss.length){
+    d.schluss.push({id:uid(),art:'rabatt',bez:'Rabatt',modus:'pct',wert:d.rabattPct});
+    d.rabattPct=0;
+  }
+  var editable=erpEditable();
   var s=erpStatusOf(d);var st=ST[s]||ST.entwurf;
   document.getElementById('edTitle').textContent=d.nr+' · '+TYP[d.typ].n+(d.rechnungsArt&&d.rechnungsArt!=='einzel'?' ('+({akonto:'Akonto',teil:'Teil',schluss:'Schluss'})[d.rechnungsArt]+')':'');
   var bd=document.getElementById('edBadge');
   bd.textContent=st.n;bd.style.cssText='background:'+st.bg+';color:'+st.c+';border:1px solid '+st.bd;
 
   var h='';
-  // Status-Stepper
-  var flow=d.typ==='offerte'?[['entwurf','Entwurf'],['versendet','Versendet'],['angenommen','Angenommen']]
+  // Gesperrt-Hinweis mit Entsperren (versendete Offerte / gestellte Rechnung /
+  // abgeschlossener Auftrag) — entsperren macht sie erneut bearbeitbar
+  if(erpLocked()){
+    h+='<div class="infobox warn" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">'
+      +'<span style="flex:1;min-width:180px">🔒 <b>Gesperrt</b> — '+(d.typ==='offerte'?'die Offerte wurde versendet':d.typ==='rechnung'?'die Rechnung wurde gestellt':'der Auftrag ist abgeschlossen')+'. Zum Ändern entsperren.</span>'
+      +'<button class="btn" style="min-height:32px;padding:5px 12px;font-size:12.5px" onclick="erpEntsperren()">🔓 Entsperren</button>'
+      +'</div>';
+  }
+  // Status-Stepper — Offerte: Entwurf → Versendet (kein «Angenommen» mehr:
+  // aus einer versendeten Offerte wird direkt der Auftrag erstellt)
+  var flow=d.typ==='offerte'?[['entwurf','Entwurf'],['versendet','Versendet']]
     :d.typ==='auftrag'?[['offen','Offen'],['in_arbeit','In Arbeit'],['abgeschlossen','Abgeschlossen']]
     :[['entwurf','Entwurf'],['gestellt','Gestellt'],['bezahlt','Bezahlt']];
-  var idx=flow.findIndex(function(f){return f[0]===(s==='ueberfaellig'?'gestellt':s);});
+  var idx=flow.findIndex(function(f){return f[0]===(s==='ueberfaellig'?'gestellt':(s==='angenommen'?'versendet':s));});
   if(idx<0)idx=0;
   h+='<div class="steps">'+flow.map(function(f,i){return '<div class="step'+(i<idx?' done':i===idx?' cur':'')+'"><div class="step-dot"></div><span>'+f[1]+'</span></div>';}).join('')+'</div>';
 
@@ -1790,7 +1832,7 @@ function erpOpenEditor(){
   // ── Positionen ──
   h+='<div class="sec"><div class="sec-hd"><h3>📑 Positionen</h3><span class="hint" id="posHint"></span></div>'
     +'<div class="sec-bd"><div class="pos-wrap"><table class="pos"><thead><tr>'
-    +'<th style="width:34%">Bezeichnung</th><th>Quelle</th><th class="num">Menge</th><th>Einheit</th><th class="num">EP CHF</th><th class="num">Rabatt %</th><th class="num">Betrag</th>'+(editable?'<th></th>':'')+'</tr></thead>'
+    +(editable?'<th style="width:26px"></th>':'')+'<th style="width:32%">Bezeichnung</th><th>Quelle</th><th class="num">Menge</th><th>Einheit</th><th class="num">EP CHF</th><th class="num">Rabatt %</th><th class="num">Betrag</th>'+(editable?'<th></th>':'')+'</tr></thead>'
     +'<tbody id="posBody"></tbody></table></div>'
     +(editable?'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">'
       +'<button class="btn ghost" onclick="erpPosAdd(\'frei\')">+ Position</button>'
@@ -1836,6 +1878,15 @@ function erpRenderPos(){
   var editable=erpEditable();
   var h='';
   var kapBasis=0;   // Positionssumme seit dem letzten Titel (Basis für Rabatt-/Zuschlagszeilen)
+  // Auswahl-/DnD-Griff pro Zeile (nur editierbar): Klick markiert (Shift=Bereich,
+  // Ctrl/Cmd=einzeln umschalten), Ziehen verschiebt.
+  function grip(i){
+    if(!editable)return '';
+    var sel=_selIds.indexOf(cur.positionen[i].id)>=0;
+    return '<td class="pos-grip" draggable="true" title="Ziehen zum Verschieben · Klick markiert (Shift: Bereich, Ctrl/Cmd: mehrere) · Delete löscht die Markierung"'
+      +' onclick="erpPosSelClick(event,'+i+')" ondragstart="erpPosDragStart(event,'+i+')" ondragover="erpPosDragOver(event,'+i+')" ondragleave="erpPosDragLeave(event,'+i+')" ondrop="erpPosDrop(event,'+i+')" ondragend="erpPosDragEnd()">⠿</td>';
+  }
+  function trClass(i,extra){var c=extra?[extra]:[];if(editable&&_selIds.indexOf(cur.positionen[i].id)>=0)c.push('pos-sel');return c.length?' class="'+c.join(' ')+'"':'';}
   (cur.positionen||[]).forEach(function(p,i){
     var dis=editable&&p.art!=='abzug'?'':' disabled';
     if(p.art==='rabatt'||p.art==='zuschlag'){
@@ -1843,7 +1894,7 @@ function erpRenderPos(){
       // Zwischentotal (Positionen darüber im Kapitel) oder Pauschal-CHF
       var istRab=p.art==='rabatt';
       var bz=erpAufschlagBetrag(p,kapBasis);
-      h+='<tr'+(istRab?' class="abzug"':'')+' oncontextmenu="erpPosCtx(event,'+i+')">'
+      h+='<tr'+trClass(i,istRab?'abzug':'')+' data-posid="'+esc(p.id)+'" oncontextmenu="erpPosCtx(event,'+i+')">'+grip(i)
         +'<td><input type="text" value="'+esc(p.bez)+'" placeholder="'+(istRab?'Rabatt':'Zuschlag')+' …"'+dis+' oninput="cur.positionen['+i+'].bez=this.value"/></td>'
         +'<td><span class="src" style="background:'+(istRab?'var(--red-bg);color:var(--red);border:1px solid var(--red-bd)':'var(--amber-bg);color:var(--amber);border:1px solid var(--amber-bd)')+'">'+(istRab?'− Rabatt':'+ Zuschlag')+'</span></td>'
         +'<td></td>'
@@ -1860,7 +1911,7 @@ function erpRenderPos(){
       // BKP-Checkliste im Ausschreibungsmodul); Nummer + Text bleiben frei anpassbar
       kapBasis=0;
       var eb=bkpEbene(p.bkp);
-      h+='<tr class="titel" oncontextmenu="erpPosCtx(event,'+i+')"><td colspan="6"><div style="display:flex;gap:6px;align-items:center;padding-left:'+(eb*20)+'px">'
+      h+='<tr'+trClass(i,'titel')+' data-posid="'+esc(p.id)+'" oncontextmenu="erpPosCtx(event,'+i+')">'+grip(i)+'<td colspan="6"><div style="display:flex;gap:6px;align-items:center;padding-left:'+(eb*20)+'px">'
         +(eb?'<span style="color:var(--mut2);font-size:11px;flex-shrink:0">└</span>':'')
         +'<input type="text" value="'+esc(p.bkp||'')+'" placeholder="BKP" title="BKP-Nr. (z.B. 2, 25, 254, 254.0) — bestimmt die Einrückung; frei anpassbar" style="flex:0 0 76px;width:76px;text-align:left;color:var(--acc,#1d4ed8)"'+(editable?' oninput="cur.positionen['+i+'].bkp=this.value" onchange="erpRenderPos()"':' disabled')+'/>'
         +'<input type="text" value="'+esc(p.bez)+'" placeholder="Titel …" style="flex:1;min-width:0"'+(editable?' oninput="cur.positionen['+i+'].bez=this.value"':' disabled')+'/>'
@@ -1869,12 +1920,12 @@ function erpRenderPos(){
     }
     var betrag=erpNum(p.menge)*erpNum(p.ep)*(1-erpNum(p.rabattPct)/100);
     kapBasis+=betrag;
-    var src=p.art==='regie'?'<span class="src regie">Regie</span>':p.eigenArtikelId?'<span class="src" style="background:var(--tint,#f5f8ff);color:var(--acc,#1d4ed8);border:1px solid var(--brd2)">⭐ Eigen</span>':p.produktId?'<span class="src katalog">Katalog</span>':p.art==='oa'?'<span class="src oa">Lief.-Offerte</span>':p.art==='abzug'?'<span class="src" style="background:var(--amber-bg);color:var(--amber);border:1px solid var(--amber-bd)">Abzug</span>':p.art==='akonto'?'<span class="src" style="background:var(--amber-bg);color:var(--amber);border:1px solid var(--amber-bd)">Akonto</span>':'';
+    var src=p.art==='regie'?'<span class="src regie">Regie</span>':p.eigenArtikelId?'<span class="src" style="background:var(--tint,#f5f8ff);color:var(--acc,#1d4ed8);border:1px solid var(--brd2)">⭐ Eigen</span>':p.produktId?'<span class="src katalog">'+(String(p.produktId).indexOf('ds:')===0?'🔎 DataSelect':'Katalog')+'</span>':p.art==='oa'?'<span class="src oa">Lief.-Offerte</span>':p.art==='abzug'?'<span class="src" style="background:var(--amber-bg);color:var(--amber);border:1px solid var(--amber-bd)">Abzug</span>':p.art==='akonto'?'<span class="src" style="background:var(--amber-bg);color:var(--amber);border:1px solid var(--amber-bd)">Akonto</span>':'';
     var img=erpPosImgSrc(p);
     var bildHtml=img
       ?'<div class="pos-bild"><img src="'+esc(img)+'" onclick="erpPosBildView('+i+')" alt=""/>'+(editable?'<button class="pos-bild-x" title="Bild entfernen" onclick="erpPosBildDel('+i+')">✕</button>':'')+'</div>'
       :(editable&&p.art!=='abzug'&&p.art!=='akonto'?'<button class="pos-foto" title="Bild zur Position" onclick="erpPosBildPick('+i+')">📷</button>':'');
-    h+='<tr'+(p.art==='abzug'?' class="abzug"':'')+' oncontextmenu="erpPosCtx(event,'+i+')">'
+    h+='<tr'+trClass(i,p.art==='abzug'?'abzug':'')+' data-posid="'+esc(p.id)+'" oncontextmenu="erpPosCtx(event,'+i+')">'+grip(i)
       +'<td><div style="display:flex;gap:6px;align-items:center"><input type="text" value="'+esc(p.bez)+'"'+dis+' oninput="cur.positionen['+i+'].bez=this.value" style="flex:1"/>'+bildHtml+'</div></td>'
       +'<td>'+src+'</td>'
       +'<td style="width:76px"><input class="num" type="text" inputmode="decimal" value="'+(p.menge!=null?p.menge:'')+'"'+dis+' onchange="cur.positionen['+i+'].menge=this.value;erpRenderPos()" onblur="fixLeadingZero(this)"/></td>'
@@ -1885,27 +1936,134 @@ function erpRenderPos(){
       +(editable?'<td><button class="pos-del" onclick="cur.positionen.splice('+i+',1);erpRenderPos()">✕</button></td>':'')
       +'</tr>';
   });
-  if(!h)h='<tr><td colspan="8" style="text-align:center;color:var(--mut2);padding:14px">Noch keine Positionen — unten hinzufügen</td></tr>';
+  var _ncols=(editable?9:7);
+  if(!h)h='<tr><td colspan="'+_ncols+'" style="text-align:center;color:var(--mut2);padding:14px">Noch keine Positionen — unten hinzufügen</td></tr>';
   tb.innerHTML=h;
   var t=erpDocTotals(cur);
-  var hint=document.getElementById('posHint');if(hint)hint.textContent=(cur.positionen||[]).filter(function(p){return p.art!=='titel';}).length+' Positionen'+(editable&&window.matchMedia&&matchMedia('(hover:hover)').matches?' · Rechtsklick: Kopieren / Einfügen / Verschieben':'');
+  var nSel=editable?_selIds.length:0;
+  var hint=document.getElementById('posHint');
+  if(hint)hint.textContent=(cur.positionen||[]).filter(function(p){return p.art!=='titel';}).length+' Positionen'
+    +(nSel?' · '+nSel+' markiert (Delete löscht)':(editable&&window.matchMedia&&matchMedia('(hover:hover)').matches?' · Griff ⠿: markieren/ziehen · Rechtsklick: Menü':''));
   var sb=document.getElementById('sumBlock');
   var editableDoc=erpEditable();
+  // Schlussrabatte/-zuschläge (beliebig viele, je % oder CHF, auf das Netto-Gesamttotal)
+  var schlussHtml=(cur.schluss||[]).map(function(s,si){
+    var betrag=erpAufschlagBetrag(s,t.zwischen-t.rabatt);
+    var istRab=s.art!=='zuschlag';
+    if(!editableDoc)return '<div class="rw"><span>'+esc(s.bez||(istRab?'Rabatt':'Zuschlag'))+' '+(s.modus==='chf'?'(pauschal)':(erpNum(s.wert)+' %'))+'</span><b style="color:'+(betrag<0?'var(--red)':'var(--amber)')+'">'+(betrag<0?'− ':'+ ')+chf(Math.abs(betrag))+'</b></div>';
+    return '<div class="rw" style="gap:6px;align-items:center">'
+      +'<input type="text" value="'+esc(s.bez||'')+'" placeholder="'+(istRab?'Rabatt':'Zuschlag')+'" style="flex:1;min-width:50px;padding:4px 7px;border:1.5px solid var(--brd2);border-radius:7px;font-size:12px" oninput="cur.schluss['+si+'].bez=this.value"/>'
+      +'<select style="padding:4px 4px;border:1.5px solid var(--brd2);border-radius:7px;font-size:12px" onchange="cur.schluss['+si+'].modus=this.value;erpRenderPos()"><option value="pct"'+(s.modus!=='chf'?' selected':'')+'>%</option><option value="chf"'+(s.modus==='chf'?' selected':'')+'>CHF</option></select>'
+      +'<input type="text" inputmode="decimal" value="'+(s.wert!=null?s.wert:'')+'" placeholder="'+(s.modus==='chf'?'Betrag':'%')+'" style="width:62px;padding:4px 6px;border:1.5px solid var(--brd2);border-radius:7px;text-align:right;font-size:12px" onchange="cur.schluss['+si+'].wert=this.value;erpRenderPos()" onblur="fixLeadingZero(this)"/>'
+      +'<b style="min-width:76px;text-align:right;white-space:nowrap;color:'+(betrag<0?'var(--red)':'var(--amber)')+'">'+(betrag<0?'− ':'+ ')+chf(Math.abs(betrag))+'</b>'
+      +'<button class="pos-del" style="width:28px;height:28px;flex-shrink:0" onclick="cur.schluss.splice('+si+',1);erpRenderPos()">✕</button>'
+      +'</div>';
+  }).join('');
   if(sb)sb.innerHTML='<div class="rw"><span>Zwischentotal</span><b>'+chf(t.zwischen)+'</b></div>'
-    +'<div class="rw"><span>Rabatt '+(editableDoc?'<input type="text" inputmode="decimal" value="'+(cur.rabattPct||0)+'" style="width:52px;padding:4px 6px;border:1.5px solid var(--brd2);border-radius:7px;text-align:right" onchange="cur.rabattPct=erpNum(this.value);erpRenderPos()"/>':(cur.rabattPct||0))+' %</span><b>− '+chf(t.rabatt)+'</b></div>'
+    +(t.rabatt?'<div class="rw"><span>Rabatt '+(cur.rabattPct||0)+' %</span><b>− '+chf(t.rabatt)+'</b></div>':'')
+    +schlussHtml
+    +(editableDoc?'<div style="display:flex;gap:6px;margin:2px 0 4px"><button class="btn ghost" style="min-height:28px;padding:3px 10px;font-size:11.5px" title="Schlussrabatt aufs Netto-Gesamttotal — in % oder pauschal CHF" onclick="erpSchlussAdd(\'rabatt\')">− Schlussrabatt</button><button class="btn ghost" style="min-height:28px;padding:3px 10px;font-size:11.5px" title="Zuschlag aufs Netto-Gesamttotal — in % oder pauschal CHF" onclick="erpSchlussAdd(\'zuschlag\')">＋ Zuschlag</button></div>':'')
     +'<div class="rw"><span>Netto</span><b>'+chf(t.netto)+'</b></div>'
     +'<div class="rw"><span>MwSt. '+cur.mwstPct+' %</span><b>'+chf(t.mwst)+'</b></div>'
     +(Math.abs(t.rundung)>=0.005?'<div class="rw"><span>Rundung</span><b>'+chf(t.rundung)+'</b></div>':'')
     +'<div class="rw tot"><span>Total CHF</span><b>'+chf(t.brutto)+'</b></div>';
 }
 function erpPosAdd(art){
-  cur.positionen.push(
+  _erpInsertPos(
     art==='titel'?{id:uid(),art:'titel',bez:''}
     :art==='rabatt'?{id:uid(),art:'rabatt',bez:'Rabatt',modus:'pct',wert:''}
     :art==='zuschlag'?{id:uid(),art:'zuschlag',bez:'Zuschlag',modus:'pct',wert:''}
     :{id:uid(),art:'frei',bez:'',menge:1,einheit:'Stk',ep:'',rabattPct:''});
   erpRenderPos();
 }
+// Schlussrabatt/-zuschlag (aufs Netto-Gesamttotal, beliebig viele, % oder CHF)
+function erpSchlussAdd(art){
+  cur.schluss=cur.schluss||[];
+  cur.schluss.push({id:uid(),art:art,bez:art==='rabatt'?'Rabatt':'Zuschlag',modus:'pct',wert:''});
+  erpRenderPos();
+}
+
+// ═══════════════════════════════════════════════════════════
+// POSITIONS-AUSWAHL (Klick/Shift/Ctrl) + DRAG&DROP + Einfügen über Markierung
+// ═══════════════════════════════════════════════════════════
+var _selIds=[],_selAnchor=null,_dragId=null;
+function erpPosSelReset(){_selIds=[];_selAnchor=null;}
+function erpPosSelClick(e,i){
+  if(e){e.stopPropagation();e.preventDefault();}
+  if(!cur||!cur.positionen[i])return;
+  var id=cur.positionen[i].id;
+  if(e&&e.shiftKey&&_selAnchor!=null){
+    var a=cur.positionen.findIndex(function(x){return x.id===_selAnchor;});
+    if(a<0)a=i;
+    var lo=Math.min(a,i),hi=Math.max(a,i);
+    _selIds=[];for(var k=lo;k<=hi;k++)_selIds.push(cur.positionen[k].id);
+  } else if(e&&(e.ctrlKey||e.metaKey)){
+    var ix=_selIds.indexOf(id);
+    if(ix>=0)_selIds.splice(ix,1);else _selIds.push(id);
+    _selAnchor=id;
+  } else {
+    _selIds=(_selIds.length===1&&_selIds[0]===id)?[]:[id];   // erneuter Klick hebt auf
+    _selAnchor=id;
+  }
+  erpRenderPos();
+}
+function erpPosDeleteSelected(){
+  if(!_selIds.length||!cur)return;
+  var n=_selIds.length;
+  cur.positionen=cur.positionen.filter(function(p){return _selIds.indexOf(p.id)<0;});
+  erpPosSelReset();erpRenderPos();
+  toast('🗑 '+n+' Position'+(n===1?'':'en')+' gelöscht');
+}
+// Einfügen: bei GENAU einer Markierung über der markierten Zeile, sonst ans Ende
+// (mehrere markiert → «über der Markierung» funktioniert bewusst nicht).
+function _erpInsertPos(pos){
+  if(_selIds.length===1){
+    var idx=cur.positionen.findIndex(function(p){return p.id===_selIds[0];});
+    if(idx>=0){cur.positionen.splice(idx,0,pos);return;}
+  }
+  cur.positionen.push(pos);
+}
+// Drag&Drop-Reihenfolge (Desktop; Touch nutzt Kontextmenü ⬆️⬇️)
+function erpPosDragStart(e,i){
+  if(!cur||!cur.positionen[i]){return;}
+  _dragId=cur.positionen[i].id;
+  try{e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/plain',_dragId);}catch(_){}
+  var tr=e.target&&e.target.closest?e.target.closest('tr'):null;if(tr)tr.classList.add('pos-dragging');
+}
+function erpPosDragOver(e,i){
+  if(_dragId==null)return;
+  e.preventDefault();try{e.dataTransfer.dropEffect='move';}catch(_){}
+  var tr=e.target&&e.target.closest?e.target.closest('tr'):null;
+  if(tr){document.querySelectorAll('#posBody tr.pos-drop').forEach(function(x){if(x!==tr)x.classList.remove('pos-drop');});tr.classList.add('pos-drop');}
+}
+function erpPosDragLeave(e,i){var tr=e.target&&e.target.closest?e.target.closest('tr'):null;if(tr)tr.classList.remove('pos-drop');}
+function erpPosDrop(e,i){
+  e.preventDefault();
+  document.querySelectorAll('#posBody tr.pos-drop').forEach(function(x){x.classList.remove('pos-drop');});
+  if(_dragId==null||!cur)return;
+  var toId=cur.positionen[i]&&cur.positionen[i].id;
+  var fromId=_dragId;_dragId=null;
+  if(!toId||!fromId||toId===fromId)return;
+  var fi=cur.positionen.findIndex(function(p){return p.id===fromId;});
+  if(fi<0)return;
+  var it=cur.positionen.splice(fi,1)[0];
+  var ti=cur.positionen.findIndex(function(p){return p.id===toId;});
+  if(ti<0)cur.positionen.push(it);else cur.positionen.splice(ti,0,it);   // vor der Zielzeile
+  erpRenderPos();
+}
+function erpPosDragEnd(){_dragId=null;document.querySelectorAll('#posBody tr.pos-drop,#posBody tr.pos-dragging').forEach(function(x){x.classList.remove('pos-drop','pos-dragging');});}
+// Delete-Taste löscht die markierten Positionen — nur wenn der Editor offen,
+// editierbar, etwas markiert ist und der Fokus NICHT in einem Feld liegt.
+document.addEventListener('keydown',function(e){
+  if(e.key!=='Delete'&&e.key!=='Backspace')return;
+  var ov=document.getElementById('edOv');
+  if(!ov||!ov.classList.contains('open'))return;
+  if(!erpEditable()||!_selIds.length)return;
+  var ae=document.activeElement;
+  if(ae&&/^(INPUT|SELECT|TEXTAREA)$/.test(ae.tagName))return;   // Feld-Editing hat Vorrang
+  e.preventDefault();
+  erpPosDeleteSelected();
+});
 
 // ═══════════════════════════════════════════════════════════
 // KONTEXTMENÜ (Rechtsklick) — wenig Klicks statt vieler Buttons.
@@ -1975,11 +2133,9 @@ function erpDocCtx(e,id){
   if(canEdit){
     if(d.typ==='offerte'){
       if(d.status==='entwurf')items.push({ic:'📤',t:'Als versendet markieren',fn:function(){erpCtxStatus(id,'versendet','📤 Offerte als versendet markiert');}});
-      if(d.status==='versendet'){
-        items.push({ic:'✓',t:'Als angenommen markieren',fn:function(){erpCtxStatus(id,'angenommen','🎉 Offerte angenommen');}});
-        items.push({ic:'✕',t:'Als abgelehnt markieren',fn:function(){erpCtxStatus(id,'abgelehnt','Offerte als abgelehnt markiert');}});
-      }
-      if(d.status==='angenommen'&&!(d.verknuepfung&&d.verknuepfung.auftragId))items.push({ic:'📋',t:'Auftrag erstellen',fn:function(){erpOpen(id);erpZuAuftrag();}});
+      // Kein «Angenommen»-Schritt mehr — aus einer versendeten Offerte direkt den Auftrag
+      if((d.status==='versendet'||d.status==='angenommen')&&!(d.verknuepfung&&d.verknuepfung.auftragId))items.push({ic:'📋',t:'Auftrag erstellen',fn:function(){erpOpen(id);erpZuAuftrag();}});
+      if(d.status==='versendet'||d.status==='angenommen')items.push({ic:'✕',t:'Als abgelehnt markieren',fn:function(){erpCtxStatus(id,'abgelehnt','Offerte als abgelehnt markiert');}});
       items.push({ic:'🗐',t:'Duplizieren',fn:function(){erpDuplizieren(id);}});
     }
     if(d.typ==='auftrag'&&d.status!=='abgeschlossen'){
@@ -2039,6 +2195,12 @@ function erpPosCtx(e,i){
   var editable=erpEditable();
   var lbl=p.art==='titel'?('Titel «'+(p.bez||'—')+'»'):(p.bez||'Position');
   var items=[{hd:lbl.length>34?lbl.slice(0,33)+'…':lbl}];
+  if(editable){
+    items.push({ic:'➕',t:'Neue Position darüber',fn:function(){cur.positionen.splice(i,0,{id:uid(),art:'frei',bez:'',menge:1,einheit:'Stk',ep:'',rabattPct:''});erpRenderPos();}});
+    items.push({ic:'➕',t:'Neue Position darunter',fn:function(){cur.positionen.splice(i+1,0,{id:uid(),art:'frei',bez:'',menge:1,einheit:'Stk',ep:'',rabattPct:''});erpRenderPos();}});
+    if(_selIds.length>1)items.push({ic:'🗑',t:_selIds.length+' markierte löschen',danger:true,fn:function(){erpPosDeleteSelected();}});
+    items.push('-');
+  }
   items.push({ic:'📋',t:'Kopieren',fn:function(){_posClip=JSON.parse(JSON.stringify(p));toast('📋 Kopiert — Rechtsklick → Einfügen (auch in einem anderen Dokument)');}});
   if(editable){
     items.push({ic:'✂️',t:'Ausschneiden',fn:function(){_posClip=JSON.parse(JSON.stringify(p));cur.positionen.splice(i,1);erpRenderPos();toast('✂️ Ausgeschnitten');}});
@@ -2280,7 +2442,7 @@ function erpEigInsert(id){
   var pos={id:uid(),art:'frei',bez:a.bez,menge:1,einheit:a.einheit||'Stk',ep:a.ep,rabattPct:'',eigenArtikelId:a.id};
   if(a.bildUrl)pos.bildUrl=a.bildUrl;
   if(a.bildDataUrl)pos.bildDataUrl=a.bildDataUrl;
-  cur.positionen.push(pos);
+  _erpInsertPos(pos);
   erpRenderPos();toast('＋ '+a.bez);
 }
 function erpEigAusDoku(){
@@ -2351,7 +2513,7 @@ function erpVorlSpeichern(){
       return c;
     });
     var v={id:uid(),orgId:u?u.orgId:'',name:name.trim(),typ:cur.typ,titel:cur.titel||'',einleitung:cur.einleitung||'',schlusstext:cur.schlusstext||'',
-      rabattPct:cur.rabattPct||0,mwstPct:cur.mwstPct,positionen:posn,
+      rabattPct:cur.rabattPct||0,schluss:(cur.schluss||[]).map(function(s){return {id:uid(),art:s.art,bez:s.bez,modus:s.modus,wert:s.wert};}),mwstPct:cur.mwstPct,positionen:posn,
       erstelltVon:{userId:u?u.id:'',name:u?u.name:''},erstelltAm:new Date().toISOString()};
     if(cur.typ==='rechnung'&&cur.rechnungsArt)v.rechnungsArt=cur.rechnungsArt;   // z.B. Akonto-Standardvorlage
     poolSave(VORL_POOL,VORL_PREFIX,v);
@@ -2366,9 +2528,11 @@ function erpVorlApply(id){
   if(leer){
     cur.positionen=posn;
     cur.rabattPct=v.rabattPct||0;
+    cur.schluss=(v.schluss||[]).map(function(s){return {id:uid(),art:s.art,bez:s.bez,modus:s.modus,wert:s.wert};});
     if(v.mwstPct!=null)cur.mwstPct=v.mwstPct;
   } else {
     cur.positionen=cur.positionen.concat(posn);
+    if((v.schluss||[]).length)cur.schluss=(cur.schluss||[]).concat(v.schluss.map(function(s){return {id:uid(),art:s.art,bez:s.bez,modus:s.modus,wert:s.wert};}));
   }
   // Die Vorlage bestimmt die Texte: mitgebrachte Einleitung/Schlusstext ersetzen die
   // gestempelten Standardtexte (so wirkt z.B. eine Akonto-Standardvorlage auch auf
@@ -2438,14 +2602,14 @@ function erpZustellRemove(){
 function erpRenderFooter(){
   var d=cur;var ft='';var s=erpStatusOf(d);
   var editable=erpEditable();
+  if(erpLocked())ft+='<button class="btn" onclick="erpEntsperren()">🔓 Entsperren</button>';
   if(editable)ft+='<button class="btn pri" onclick="erpDoSave()">💾 Speichern</button>';
   if(d.typ==='offerte'){
     if(d.status==='entwurf')ft+='<button class="btn grn" onclick="erpStatus(\'versendet\',\'📤 Offerte als versendet markiert\')">📤 Versendet</button>';
-    if(d.status==='versendet'){
-      ft+='<button class="btn grn" onclick="erpStatus(\'angenommen\',\'🎉 Offerte angenommen\')">✓ Angenommen</button>';
-      ft+='<button class="btn red" onclick="erpStatus(\'abgelehnt\',\'Offerte als abgelehnt markiert\')">✕ Abgelehnt</button>';
-    }
-    if(d.status==='angenommen'&&!(d.verknuepfung&&d.verknuepfung.auftragId))ft+='<button class="btn grn" onclick="erpZuAuftrag()">📋 → Auftrag erstellen</button>';
+    // Versendet → direkt Auftrag erstellen (kein «Angenommen»-Zwischenschritt);
+    // «angenommen» bleibt für Altdaten kompatibel.
+    if((d.status==='versendet'||d.status==='angenommen')&&!(d.verknuepfung&&d.verknuepfung.auftragId))ft+='<button class="btn grn" onclick="erpZuAuftrag()">📋 → Auftrag erstellen</button>';
+    if(d.status==='versendet'||d.status==='angenommen')ft+='<button class="btn red" onclick="erpStatus(\'abgelehnt\',\'Offerte als abgelehnt markiert\')">✕ Abgelehnt</button>';
   }
   if(d.typ==='auftrag'){
     if(d.status==='offen')ft+='<button class="btn" onclick="erpStatus(\'in_arbeit\',\'Auftrag in Arbeit\')">▶ In Arbeit</button>';
@@ -2478,6 +2642,14 @@ function erpStatus(st,msg){
   toast(msg||('Status: '+st));
   erpOpenEditor();
 }
+// Gesperrtes Dokument zum Bearbeiten entsperren (transient — beim nächsten
+// Öffnen ist es wieder gesperrt)
+function erpEntsperren(){
+  if(!cur)return;
+  cur._unlocked=true;
+  toast('🔓 Entsperrt — Änderungen möglich');
+  erpOpenEditor();
+}
 function erpLoeschen(){
   GemaDialog.confirm({title:TYP[cur.typ].n+' löschen',message:(cur.nr||'')+' wirklich löschen?',confirmLabel:'Löschen',danger:true}).then(function(ok){
     if(!ok)return;
@@ -2502,7 +2674,7 @@ function erpZuAuftrag(){
     sachbearbeiter:erpSbNeu(off),
     datum:today(),status:'offen',
     positionen:JSON.parse(JSON.stringify(off.positionen||[])),
-    rabattPct:off.rabattPct,mwstPct:off.mwstPct,
+    rabattPct:off.rabattPct,schluss:JSON.parse(JSON.stringify(off.schluss||[])),mwstPct:off.mwstPct,
     einleitung:s.txtAuftragIntro||'',schlusstext:s.txtAuftrag||'',
     verknuepfung:{offerteId:off.id},zahlungen:[],
     erstelltVon:{userId:u?u.id:'',name:u?u.name:''},erstelltAm:new Date().toISOString()
@@ -2515,6 +2687,9 @@ function erpZuAuftrag(){
 }
 function _erpNeueRechnung(auftrag,art,positionen,titelZusatz){
   var u=erpUser();var s=erpSettings();
+  // Schlussrabatte/-zuschläge nur bei der SCHLUSSrechnung übernehmen (sie bilden
+  // den vollen Auftragswert ab). Akonto/Teil sind eigenständige Teilbeträge.
+  var schluss=(art==='schluss')?JSON.parse(JSON.stringify(auftrag.schluss||[])):[];
   var re={
     id:uid(),typ:'rechnung',nr:erpNextNr('rechnung'),orgId:auftrag.orgId,
     objektId:auftrag.objektId,objektName:auftrag.objektName,
@@ -2523,7 +2698,7 @@ function _erpNeueRechnung(auftrag,art,positionen,titelZusatz){
     zustellSnapshot:auftrag.zustellSnapshot?JSON.parse(JSON.stringify(auftrag.zustellSnapshot)):null,
     sachbearbeiter:erpSbNeu(auftrag),
     datum:today(),frist:addDays(today(),s.fristTage),status:'entwurf',
-    positionen:positionen,rabattPct:0,mwstPct:auftrag.mwstPct!=null?auftrag.mwstPct:s.mwstPct,
+    positionen:positionen,rabattPct:0,schluss:schluss,mwstPct:auftrag.mwstPct!=null?auftrag.mwstPct:s.mwstPct,
     einleitung:s.txtRechnungIntro||'',schlusstext:s.txtRechnung,
     verknuepfung:{auftragId:auftrag.id,offerteId:auftrag.verknuepfung?auftrag.verknuepfung.offerteId:undefined},
     rechnungsArt:art,zahlungen:[],
@@ -2702,7 +2877,7 @@ function erpPickRender(){
 var _pickFiltered=[];
 function erpPickTake(i){
   var it=_pickFiltered[i];if(!it||!cur)return;
-  cur.positionen.push(JSON.parse(JSON.stringify(it.pos)));
+  _erpInsertPos(JSON.parse(JSON.stringify(it.pos)));
   erpRenderPos();
   toast('＋ '+it.name);
   if(_pickMode!=='katalog'){_pickItems=erpPickLoad(_pickMode);erpPickRender();}
@@ -2782,7 +2957,7 @@ function erpDsTake(i){
     lieferantFirma:a.hersteller||(document.getElementById('ds_anbieter').selectedOptions[0]||{}).textContent||''};
   // Bild: externe URL direkt (rendert im Editor + Druck-PDF), data:-URL als Base64
   if(a.bildUrl){ if(/^data:/i.test(a.bildUrl))pos.bildDataUrl=a.bildUrl; else pos.bildUrl=a.bildUrl; }
-  cur.positionen.push(pos);
+  _erpInsertPos(pos);
   erpRenderPos();
   toast('＋ '+(a.bezeichnung||a.artnr||'Artikel'));
 }
@@ -3038,9 +3213,10 @@ function erpPdf(){
       }).join('')
       +'</tbody></table>':'')
     +'<table class="tot" style="max-width:480px">'
-    +(t.rabatt
+    +((t.rabatt||(t.schluss&&t.schluss.length))
       ?'<tr><td colspan="2">Zwischentotal</td><td class="num">'+chf(t.zwischen)+'</td></tr>'
-       +'<tr><td colspan="2">Rabatt '+d.rabattPct+' %</td><td class="num">− '+chf(t.rabatt)+'</td></tr>'
+       +(t.rabatt?'<tr><td colspan="2">Rabatt '+d.rabattPct+' %</td><td class="num">− '+chf(t.rabatt)+'</td></tr>':'')
+       +(t.schluss||[]).map(function(x){var neg=x.betrag<0;return '<tr><td colspan="2">'+esc(x.s.bez||(neg?'Rabatt':'Zuschlag'))+(x.s.modus==='chf'?'':' '+erpNum(x.s.wert)+' %')+'</td><td class="num">'+(neg?'− ':'+ ')+chf(Math.abs(x.betrag))+'</td></tr>';}).join('')
        +'<tr><td colspan="2"><b>Total</b></td><td class="num"><b>'+chf(t.netto)+'</b></td></tr>'
       :'<tr><td colspan="2"><b>Total</b></td><td class="num"><b>'+chf(t.netto)+'</b></td></tr>')
     +'<tr><td>Mehrwertsteuer '+d.mwstPct+' %</td><td class="num" style="color:#888">'+chf(t.netto)+'</td><td class="num">'+chf(t.mwst)+'</td></tr>'
