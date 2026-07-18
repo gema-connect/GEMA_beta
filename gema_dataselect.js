@@ -26,6 +26,10 @@
   // IDs pflegt die Organisation selbst (keine erfundenen IDs).
   var SEED = [{ id: '1900', name: 'Geberit' }];
 
+  // IGH-/UN-ECE-Einheitencodes → GEMA-Einheiten (Spiegel des Server-Mappings).
+  var _DS_EINHEIT = { PCE:'Stk', PCS:'Stk', PC:'Stk', H87:'Stk', EA:'Stk', PK:'Stk', PA:'Paar', PAR:'Paar', SET:'Stk', ST:'Stk', STK:'Stk', 'STK.':'Stk', MTR:'m', LM:'lfm', MTK:'m²', MTQ:'m³', LTR:'l', LT:'l', KGM:'kg', KG:'kg', HUR:'h', HR:'h' };
+  function _mapEinheit(u){ var k = String(u || '').trim().toUpperCase(); return _DS_EINHEIT[k] || String(u || '').trim(); }
+
   function _org(){ try { return (w.GemaAuth && GemaAuth.getCurrentOrg) ? GemaAuth.getCurrentOrg() : null; } catch (e){ return null; } }
 
   function anbieter(){
@@ -36,13 +40,15 @@
       if (!a || !a.id) return;
       var id = String(a.id).replace(/[^0-9]/g, '');
       if (!id || seen[id]) return;
-      seen[id] = 1; out.push({ id: id, name: String(a.name || ('Lieferant ' + id)) });
+      // textLang: welcher Text beim Einfügen in die Offerte kommt — 'lang' (ausführliche
+      // Produktbeschreibung, Default) oder 'kurz' (Produktname).
+      seen[id] = 1; out.push({ id: id, name: String(a.name || ('Lieferant ' + id)), textLang: (a.textLang === 'kurz' ? 'kurz' : 'lang') });
     });
-    SEED.forEach(function(a){ if (!seen[a.id]) { seen[a.id] = 1; out.push({ id: a.id, name: a.name }); } });
+    SEED.forEach(function(a){ if (!seen[a.id]) { seen[a.id] = 1; out.push({ id: a.id, name: a.name, textLang: 'lang' }); } });
     out.sort(function(a, b){ return a.name.localeCompare(b.name); });
     return out;
   }
-  function addAnbieter(id, name){
+  function addAnbieter(id, name, textLang){
     id = String(id || '').replace(/[^0-9]/g, '');
     if (!id) return false;
     var org = _org();
@@ -50,11 +56,18 @@
     var st = org.settings || {};
     st.dataselect = st.dataselect || {};
     var list = Array.isArray(st.dataselect.anbieter) ? st.dataselect.anbieter.slice() : [];
-    var i = -1; list.forEach(function(x, ix){ if (x && String(x.id) === id) i = ix; });
-    var rec = { id: id, name: String(name || ('Lieferant ' + id)).trim() };
+    var i = -1, alt = null; list.forEach(function(x, ix){ if (x && String(x.id) === id) { i = ix; alt = x; } });
+    var lang = (textLang === 'kurz' || textLang === 'lang') ? textLang : ((alt && alt.textLang) || 'lang');
+    var rec = { id: id, name: String(name || (alt && alt.name) || ('Lieferant ' + id)).trim(), textLang: lang };
     if (i >= 0) list[i] = rec; else list.push(rec);
     st.dataselect.anbieter = list;
     try { GemaAuth.updateOrgSettings(org.id, st); return true; } catch (e){ return false; }
+  }
+  // Kurz-/Lang-Textmodus eines hinterlegten Lieferanten umstellen (org-weit gespeichert).
+  function setTextLang(id, mode){
+    id = String(id || '').replace(/[^0-9]/g, '');
+    var cur = anbieter().find(function(x){ return x.id === id; });
+    return addAnbieter(id, cur ? cur.name : '', mode === 'kurz' ? 'kurz' : 'lang');
   }
 
   function _authHeaders(){
@@ -125,9 +138,10 @@
       return {
         artnr: String(raw.artnr || '').trim(), bezeichnung: String(raw.bezeichnung || '').trim(),
         ean: String(raw.ean || '').trim(), preis: _num(raw.preis), waehrung: String(raw.waehrung || 'CHF'),
-        einheit: String(raw.einheit || '').trim(), hersteller: String(raw.hersteller || '').trim(),
+        einheit: _mapEinheit(raw.einheit), hersteller: String(raw.hersteller || '').trim(),
         serie: String(raw.serie || '').trim(), bildUrl: bu,
         ausfuehrung: String(raw.ausfuehrung || '').trim(),
+        bezeichnungLang: String(raw.bezeichnungLang || '').trim(),
         hatBild: (raw.hatBild !== undefined ? !!raw.hatBild : !!bu)   // Bild vorhanden? (fürs Nachladen)
       };
     }
@@ -139,11 +153,12 @@
       ean: String(_pick(raw, ['ean','gtin','barcode']) || '').trim(),
       preis: _num(_pick(raw, ['verkaufspreis','bruttopreis','listenpreis','preis','price','vk','sale_price','default_price','einkaufspreis','purchase_price'])),
       waehrung: String(_pick(raw, ['waehrung','währung','currency']) || 'CHF'),
-      einheit: String(_pick(raw, ['einheit','me','vpe','unit','unit_name']) || '').trim(),
+      einheit: _mapEinheit(_pick(raw, ['einheit','me','vpe','unit','unit_name'])),
       hersteller: String(_pick(raw, ['hersteller','lieferant','marke','brand']) || '').trim(),
       serie: String(_pick(raw, ['serie','produktlinie','hauptgruppe','untergruppe']) || '').trim(),
       bildUrl: bildUrl,
       ausfuehrung: String(_pick(raw, ['ausfuehrung','ausführung']) || '').trim(),
+      bezeichnungLang: String(_pick(raw, ['bezeichnunglang','produktbeschreibung','beschreibung','description']) || '').trim(),
       hatBild: (raw.hatBild !== undefined ? !!raw.hatBild : !!bildUrl)
     };
   }
@@ -183,5 +198,5 @@
       .catch(function(e){ return { ok: false, error: 'Verbindungsfehler: ' + (e && e.message ? e.message : '') }; });
   }
 
-  w.GemaDataSelect = { search: search, debug: debug, anbieter: anbieter, addAnbieter: addAnbieter, normArtikel: normArtikel, fmtPreis: fmtPreis, SEED: SEED };
+  w.GemaDataSelect = { search: search, debug: debug, anbieter: anbieter, addAnbieter: addAnbieter, setTextLang: setTextLang, normArtikel: normArtikel, mapEinheit: _mapEinheit, fmtPreis: fmtPreis, SEED: SEED };
 })();
