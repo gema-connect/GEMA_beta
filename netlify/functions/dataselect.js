@@ -83,6 +83,19 @@ function _stripHtml(s){
     .replace(/&amp;/gi, '&').replace(/&lt;/gi, '<').replace(/&gt;/gi, '>')
     .replace(/&quot;/gi, '"').replace(/&#39;/gi, "'").replace(/\s+/g, ' ').trim();
 }
+// Langtext (mehrzeilig) säubern: Tags weg (falls HTML), Leerzeichen normalisieren,
+// aber echte Zeilenumbrüche erhalten.
+function _cleanLang(t){
+  var s = String(t || '');
+  if (/<[a-z!/]/i.test(s)) return _stripHtml(s);
+  return s.replace(/\r\n?/g, '\n').replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
+}
+// IGH-/UN-ECE-Einheitencodes → GEMA-Einheiten (bexio liefert z.B. «PCE»).
+var _DS_EINHEIT = { PCE:'Stk', PCS:'Stk', PC:'Stk', H87:'Stk', EA:'Stk', PK:'Stk', PA:'Paar', PAR:'Paar', SET:'Stk', ST:'Stk', STK:'Stk', 'STK.':'Stk', MTR:'m', LM:'lfm', MTK:'m²', MTQ:'m³', LTR:'l', LT:'l', KGM:'kg', KG:'kg', HUR:'h', HR:'h' };
+function _mapEinheit(u){
+  var k = String(u || '').trim().toUpperCase();
+  return _DS_EINHEIT[k] || String(u || '').trim();
+}
 // Ausführung (Farbe/Oberfläche) aus der bexio-Beschreibung ziehen. Muster:
 // «… Schallisolierung\nAF: Pergamon/AFZ: Gleitschutz Antislip» → "Pergamon · Gleitschutz Antislip".
 function _afAusfuehrung(text){
@@ -107,13 +120,18 @@ function _normArtikel(raw){
   // Verkaufspreis zuerst (bexio-CSV), Einkaufspreis nur als letzter Ausweg.
   var preisRaw = _pick(raw, ['verkaufspreis','bruttopreis','listenpreis','preis','bruttopreis1','preis1','bp','vk','price','listprice','grossprice','ep','einzelpreis','sale_price','saleprice','default_price','defaultprice','einkaufspreis','purchase_price','purchaseprice']);
   var bildRaw = raw.Bilder || raw.bilder || raw.Images || raw.images || _pick(raw, ['bildurl','bild','image','imageurl','picture','foto','thumbnail','thumb','bildlink']);
+  // Langtext (ausführliche Produktbeschreibung) getrennt vom Kurztext (Produktname).
+  // Die AF:/AFZ:-Ausführungszeile am Ende wird abgeschnitten (steckt in `ausfuehrung`).
+  var kurz = String(bez || '').trim();
+  var lang = _cleanLang(_pick(raw, ['produktbeschreibung','beschreibunglang','langtext','produktbeschreibunglieferant','description','beschreibung'])).replace(/(^|\n)\s*AF:[\s\S]*$/i, '').trim();
   return {
     artnr: String(artnr || '').trim(),
-    bezeichnung: String(bez || '').trim(),
+    bezeichnung: kurz,
+    bezeichnungLang: (lang && lang.replace(/\s+/g,' ') !== kurz.replace(/\s+/g,' ')) ? lang : '',
     ean: String(_pick(raw, ['ean','gtin','eannr','eancode','barcode']) || '').trim(),
     preis: _num(preisRaw),
     waehrung: String(_pick(raw, ['waehrung','währung','currency','whg']) || 'CHF').trim() || 'CHF',
-    einheit: String(_pick(raw, ['einheit','me','mengeneinheit','vpe','verkaufseinheit','verpackungseinheit','unit','uom','mengeneinheittext','unit_name','unitname']) || '').trim(),
+    einheit: _mapEinheit(_pick(raw, ['einheit','me','mengeneinheit','vpe','verkaufseinheit','verpackungseinheit','unit','uom','mengeneinheittext','unit_name','unitname'])),
     hersteller: String(_pick(raw, ['hersteller','lieferant','anbieter','marke','brand','manufacturer','fabrikat','lieferantname']) || '').trim(),
     serie: String(_pick(raw, ['serie','produktlinie','produktgruppe','sortiment','linie','series','hauptgruppe','untergruppe']) || '').trim(),
     bildUrl: _bild(bildRaw),
@@ -346,3 +364,5 @@ exports._bild = _bild;
 exports._parseCsv = _parseCsv;
 exports._stripHtml = _stripHtml;
 exports._afAusfuehrung = _afAusfuehrung;
+exports._mapEinheit = _mapEinheit;
+exports._cleanLang = _cleanLang;

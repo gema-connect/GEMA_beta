@@ -116,6 +116,27 @@ console.log('■ _parseCsv — bexio-CSV (Semikolon, gequotet)');
   ok(ds._parseCsv('<?xml version="1.0"?><x/>') === null, 'XML → kein CSV (null)');
   ok(ds._parseCsv('[{"a":1}]') === null, 'JSON → kein CSV (null)');
 }
+console.log('■ _mapEinheit — IGH/UN-ECE-Codes → GEMA-Einheiten');
+ok(ds._mapEinheit('PCE') === 'Stk', 'PCE → Stk');
+ok(ds._mapEinheit('pce') === 'Stk', 'pce (klein) → Stk');
+ok(ds._mapEinheit('MTQ') === 'm³' && ds._mapEinheit('MTK') === 'm²' && ds._mapEinheit('LTR') === 'l', 'MTQ/MTK/LTR → m³/m²/l');
+ok(ds._mapEinheit('Stk') === 'Stk', 'bereits-GEMA bleibt (idempotent)');
+ok(ds._mapEinheit('Kartons') === 'Kartons', 'unbekannte Einheit unverändert durchgereicht');
+{
+  const a = ds._normArtikel({ Produktcode: 'X', Produktname: 'Y', Verkaufspreis: '5', Einheit: 'PCE' });
+  ok(a.einheit === 'Stk', 'bexio-CSV Einheit «PCE» → «Stk» im normalisierten Artikel');
+}
+
+console.log('■ bezeichnungLang — Kurz- (Produktname) vs. Langtext (Produktbeschreibung)');
+{
+  const a = ds._normArtikel({ Produktcode: 'A', Produktname: 'Duschwanne Kaldewei 80x90', Produktbeschreibung: 'Duschwanne Kaldewei Duschplan 80 x 90 x 6,5 cm, Stahl, emailliert, mit Schallisolierung\nAF: Pergamon/AFZ: Gleitschutz Antislip', Verkaufspreis: '1222' });
+  ok(a.bezeichnung === 'Duschwanne Kaldewei 80x90', 'bezeichnung = Kurztext (Produktname)');
+  ok(a.bezeichnungLang.indexOf('emailliert') >= 0, 'bezeichnungLang = ausführliche Beschreibung');
+  ok(a.bezeichnungLang.indexOf('AF:') < 0, 'AF/AFZ-Zeile aus dem Langtext entfernt (steckt in ausfuehrung)');
+  ok(a.ausfuehrung === 'Pergamon · Gleitschutz Antislip', 'ausfuehrung weiterhin aus AF/AFZ');
+}
+ok(ds._normArtikel({ Produktcode: 'B', Produktname: 'WC-Sitz', Verkaufspreis: '50' }).bezeichnungLang === '', 'ohne Langbeschreibung → bezeichnungLang leer');
+
 console.log('■ _stripHtml — HTML aus Beschreibung');
 ok(ds._stripHtml('<b>Sigma</b>&nbsp;UP') === 'Sigma UP', 'Tags + &nbsp; entfernt');
 

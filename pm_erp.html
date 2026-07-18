@@ -101,7 +101,11 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important}
 /* Hauptbereich: scrollbarer Inhalt + dauerhafter Sidebar */
 .ov-main{flex:1;display:flex;min-height:0}
 .ov-bd{flex:1;min-width:0;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:14px;padding-bottom:calc(28px + env(safe-area-inset-bottom))}
-.ov-side{width:338px;flex-shrink:0;border-left:1.5px solid var(--brd);background:var(--sur2);display:flex;flex-direction:column;overflow:hidden}
+.ov-side{width:var(--erp-side-w,338px);flex-shrink:0;position:relative;border-left:1.5px solid var(--brd);background:var(--sur2);display:flex;flex-direction:column;overflow:hidden}
+.ov-side-rs{position:absolute;top:0;left:-3px;width:9px;height:100%;cursor:col-resize;z-index:6;touch-action:none}
+.ov-side-rs::before{content:'';position:absolute;left:3px;top:0;width:2px;height:100%;background:transparent;transition:background .15s}
+.ov-side-rs:hover::before,body.erp-resizing .ov-side-rs::before{background:var(--acc)}
+body.erp-resizing{cursor:col-resize;user-select:none}
 .side-tabs{display:flex;flex-wrap:wrap;gap:5px;padding:9px 10px;border-bottom:1px solid var(--brd);background:var(--sur);flex-shrink:0}
 .side-tab{flex:1 1 0;min-width:0;padding:7px 5px;border-radius:8px;border:1.5px solid var(--brd2);background:var(--sur);font-size:11px;font-weight:800;color:var(--mut);cursor:pointer;white-space:nowrap;text-align:center;overflow:hidden;text-overflow:ellipsis}
 .side-tab.on{background:var(--acc);border-color:var(--acc);color:#fff}
@@ -153,7 +157,7 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important}
 
 /* POSITIONEN */
 .pos-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
-table.pos{border-collapse:collapse;width:100%;font-size:13px;min-width:680px}
+table.pos{border-collapse:collapse;width:100%;font-size:13px}
 .pos th{background:var(--sur2);border-bottom:2px solid var(--brd2);padding:7px 8px;font-size:10px;font-weight:800;color:var(--mut);text-align:left;text-transform:uppercase;letter-spacing:.3px;white-space:nowrap}
 .pos td{border-bottom:1px solid var(--brd);padding:5px 5px;vertical-align:middle}
 .pos input,.pos select{padding:9px 8px;border:1.5px solid var(--brd2);border-radius:8px;font-size:13.5px;background:var(--sur);outline:none;width:100%;min-height:40px}
@@ -184,6 +188,8 @@ table.pos{border-collapse:collapse;width:100%;font-size:13px;min-width:680px}
 .pos .pcell.bezflex{flex:1;min-width:0}
 .pos .pcell.bkp{color:var(--acc);font-weight:800;flex:0 0 auto;min-width:44px}
 .pos .pcell.titeltxt{font-weight:800;flex:1}
+/* Lange Positionstexte umbrechen — Positionen scrollen NIE horizontal */
+.pos .pcell.bezflex,.pos .pcell.titeltxt{white-space:normal;overflow:visible;text-overflow:clip;overflow-wrap:anywhere;word-break:break-word;line-height:1.35}
 .pos tr.pos-editing td{background:#fff}
 .pos-foto{width:36px;height:36px;border-radius:8px;border:1.5px dashed var(--brd2);background:var(--sur);font-size:15px;cursor:pointer;flex-shrink:0}
 .pos-bild{position:relative;flex-shrink:0}
@@ -288,6 +294,7 @@ table.pos{border-collapse:collapse;width:100%;font-size:13px;min-width:680px}
   #edOv.side-open .ov-side{transform:none}
   #edOv.side-open::after{content:'';position:fixed;inset:0;z-index:555;background:rgba(8,20,40,.4)}
   .ov-side-toggle{display:inline-flex}
+  .ov-side-rs{display:none}
 }
 @media print{.g-nav,.no-print{display:none!important}}
 </style>
@@ -345,6 +352,7 @@ table.pos{border-collapse:collapse;width:100%;font-size:13px;min-width:680px}
   <div class="ov-main">
     <div class="ov-bd" id="edBody"></div>
     <aside class="ov-side no-print" id="edSide">
+      <div class="ov-side-rs" id="edSideRs" title="Ziehen zum Verbreitern/Verschmälern"></div>
       <div class="side-tabs" id="edSideTabs"></div>
       <div class="side-body" id="edSideBody"></div>
     </aside>
@@ -381,6 +389,22 @@ table.pos{border-collapse:collapse;width:100%;font-size:13px;min-width:680px}
     <div class="modal-ft">
       <button class="btn" onclick="erpVarCancel()">Abbrechen</button>
       <button class="btn grn" onclick="erpVarConfirm()">Weiter →</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ LIEFERANT HINZUFÜGEN (Name suchen, ID meist automatisch) ═══ -->
+<div class="modal-bg" id="erpAnbModal">
+  <div class="modal">
+    <div class="modal-hd"><h3>Lieferant hinzufügen</h3><button class="modal-x" onclick="erpAnbClose()">✕</button></div>
+    <div class="modal-bd">
+      <div class="fld"><label>Name des Lieferanten</label><input id="anb_name" type="text" list="anbNameList" placeholder="z.B. Geberit" autocomplete="off" oninput="erpAnbNameInput(this.value)" onkeydown="if(event.key==='Enter'){event.preventDefault();document.getElementById('anb_id').focus();}"/><datalist id="anbNameList"></datalist></div>
+      <div class="fld"><label>IGH-Mitglieder-ID (id_anbieter)</label><input id="anb_id" type="text" inputmode="numeric" placeholder="z.B. 1900" autocomplete="off" onkeydown="if(event.key==='Enter'){event.preventDefault();erpAnbSave();}"/></div>
+      <div class="side-hint">Bekannte Lieferanten füllen die ID automatisch. Sonst steht die numerische ID auf Ihrem DataSelect-Vertrag.</div>
+    </div>
+    <div class="modal-ft">
+      <button class="btn" onclick="erpAnbClose()">Abbrechen</button>
+      <button class="btn grn" onclick="erpAnbSave()">＋ Hinzufügen</button>
     </div>
   </div>
 </div>
@@ -556,6 +580,7 @@ function erpAufschlagBetrag(p,basis){
 function erpDocTotals(doc){
   var zwischen=0,kapBasis=0;   // kapBasis = Positionssumme seit dem letzten Titel
   (doc.positionen||[]).forEach(function(p){
+    if(p.art==='seitenumbruch')return;   // Layout-Marker, zählt nicht
     if(p.art==='titel'){kapBasis=0;return;}
     if(p.art==='rabatt'||p.art==='zuschlag'){zwischen+=erpAufschlagBetrag(p,kapBasis);return;}
     var z=erpNum(p.menge)*erpNum(p.ep);
@@ -958,7 +983,7 @@ var ST={
   bezahlt:{n:'Bezahlt',c:'#16a34a',bg:'#f0fdf4',bd:'#bbf7d0'},
   storniert:{n:'Storniert',c:'#94a3b8',bg:'#f1f5f9',bd:'#e2e8f0'}
 };
-var EINHEITEN=['Stk','h','m','m²','lfm','kg','l','pausch.'];
+var EINHEITEN=['Stk','h','m','m²','m³','lfm','kg','l','Paar','pausch.'];
 var cur=null, _tab='offerte', _tT;
 function toast(m){var el=document.getElementById('toast');el.textContent=m;el.classList.add('show');clearTimeout(_tT);_tT=setTimeout(function(){el.classList.remove('show');},2400);}
 function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
@@ -1718,6 +1743,7 @@ function erpNeu(typ,vorlage){
     verknuepfung:{},rechnungsArt:typ==='rechnung'?'einzel':undefined,zahlungen:[],
     erstelltVon:{userId:u?u.id:'',name:u?u.name:''},erstelltAm:new Date().toISOString()
   },vorlage||{});
+  _erpGrunddatenOffen=true;   // neue Offerte: Grunddaten zuerst erfassen (sichtbar)
   erpOpenEditor();
 }
 function erpOpen(id){
@@ -1725,6 +1751,7 @@ function erpOpen(id){
   if(!d)return;
   cur=JSON.parse(JSON.stringify(d));
   _tab=cur.typ;
+  _erpGrunddatenOffen=false;  // bestehendes Dokument: Grunddaten eingeklappt (Button oben)
   erpPosSelReset();          // Auswahl beim Öffnen zurücksetzen
   erpOpenEditor();
 }
@@ -1873,7 +1900,7 @@ function erpOpenEditor(){
   var dis=editable?'':' disabled';
   // ── Kopf ──
   var kunden=erpKunden();
-  h+='<div class="sec"><div class="sec-hd"><h3>'+TYP[d.typ].ic+' Grunddaten</h3></div><div class="sec-bd">'
+  h+='<div class="sec" id="secGrund"'+((_erpGrunddatenOffen||!editable)?'':' style="display:none"')+'><div class="sec-hd"><h3>'+TYP[d.typ].ic+' Grunddaten</h3>'+(editable?'<button class="btn" style="margin-left:auto;min-height:26px;padding:2px 10px;font-size:11.5px" onclick="erpGrunddatenToggle()">▲ Einklappen</button>':'')+'</div><div class="sec-bd">'
     +'<div class="fld-row">'
     +'<div class="fld"><label>Kunde (Rechnungsempfänger) *</label><div style="display:flex;gap:6px">'
     +'<select id="e_kunde" style="flex:1"'+dis+' onchange="erpKundeWahl(this.value)">'
@@ -1996,6 +2023,7 @@ function erpChainHtml(d){
 // zum Bearbeiten geöffnet (_editCell = {id,field}); Klick auf die Zeile MARKIERT
 // (dezent-blauer Hintergrund), Klick woanders schliesst die Bearbeitung (onblur).
 var _editCell=null;
+var _erpGrunddatenOffen=false;   // Grunddaten-Sektion sichtbar? (neu=offen, bestehend=zu)
 function erpPosById(id){return (cur&&cur.positionen||[]).find(function(p){return p.id===id;});}
 function erpCellSet(id,field,val){var p=erpPosById(id);if(p)p[field]=val;}
 function erpCellEdit(id,field){if(!cur||!erpEditable())return;_editCell={id:id,field:field};erpRenderPos();}
@@ -2058,6 +2086,14 @@ function erpRenderPos(){
         +'</tr>';
       return;
     }
+    if(p.art==='seitenumbruch'){
+      // Manueller Seitenumbruch (Ctrl+Enter) — im Editor als Trenner, im PDF page-break
+      h+=trOpen(i,'seitenumbruch')+grip(i)
+        +'<td colspan="6" style="text-align:center;color:var(--mut2);font-size:11px;font-weight:800;letter-spacing:.5px;border-top:1.5px dashed var(--brd2);border-bottom:1.5px dashed var(--brd2)">— — —  Seitenumbruch  — — —</td><td></td>'
+        +(editable?'<td><button class="pos-del" onclick="event.stopPropagation();cur.positionen.splice('+i+',1);erpRenderPos()">✕</button></td>':'')
+        +'</tr>';
+      return;
+    }
     if(p.art==='titel'){
       // BKP-Struktur: Nummer bestimmt die Einrückung (2 → 25 → 254 → 254.0, wie die
       // BKP-Checkliste im Ausschreibungsmodul); Nummer + Text bleiben frei anpassbar
@@ -2082,7 +2118,7 @@ function erpRenderPos(){
       +'<td><div style="display:flex;gap:6px;align-items:center">'+pcell(p.id,'bez','bezflex',(p.bez?esc(p.bez):'<span class="mut">—</span>'),inpText(p.id,'bez',p.bez,'','flex:1;min-width:0'),!editableRow)+bildHtml+'</div></td>'
       +'<td>'+src+'</td>'
       +'<td style="width:76px">'+pcell(p.id,'menge','num',(p.menge!=null&&p.menge!==''?esc(p.menge):'<span class="mut">–</span>'),inpNum(p.id,'menge',p.menge,''),!editableRow)+'</td>'
-      +'<td style="width:88px">'+pcell(p.id,'einheit','',esc(p.einheit||'Stk'),inpSel(p.id,'einheit',EINHEITEN.map(function(e){return '<option'+(p.einheit===e?' selected':'')+'>'+e+'</option>';}).join('')),!editableRow)+'</td>'
+      +'<td style="width:88px">'+pcell(p.id,'einheit','',esc(p.einheit||'Stk'),inpSel(p.id,'einheit',(function(cu){var L=EINHEITEN.slice();if(cu&&L.indexOf(cu)<0)L.unshift(cu);return L.map(function(e){return '<option'+(cu===e?' selected':'')+'>'+esc(e)+'</option>';}).join('');})(p.einheit)),!editableRow)+'</td>'
       +'<td style="width:104px">'+pcell(p.id,'ep','num',(p.ep!=null&&p.ep!==''?esc(p.ep):'<span class="mut">–</span>'),inpNum(p.id,'ep',p.ep,''),!editableRow)+'</td>'
       +'<td style="width:76px">'+pcell(p.id,'rabattPct','num',(p.rabattPct?esc(p.rabattPct)+' %':'<span class="mut">–</span>'),inpNum(p.id,'rabattPct',p.rabattPct,'–'),!editableRow)+'</td>'
       +'<td class="num" style="font-weight:700;white-space:nowrap">'+chf(betrag)+'</td>'
@@ -2242,6 +2278,19 @@ document.addEventListener('keydown',function(e){
   e.preventDefault();
   erpPosDeleteSelected();
 });
+// Ctrl/Cmd+Enter → manueller Seitenumbruch (vor der markierten Zeile bzw. am Ende).
+document.addEventListener('keydown',function(e){
+  if(!(e.key==='Enter'&&(e.ctrlKey||e.metaKey)))return;
+  var ov=document.getElementById('edOv');
+  if(!ov||!ov.classList.contains('open'))return;
+  if(!erpEditable())return;
+  var ae=document.activeElement;
+  if(ae&&/^(INPUT|SELECT|TEXTAREA)$/.test(ae.tagName))return;   // Feld-Editing hat Vorrang
+  e.preventDefault();
+  _erpInsertPos({id:uid(),art:'seitenumbruch'});
+  erpRenderPos();
+  toast('⤵ Seitenumbruch eingefügt');
+});
 
 // ═══════════════════════════════════════════════════════════
 // KONTEXTMENÜ (Rechtsklick) — wenig Klicks statt vieler Buttons.
@@ -2376,6 +2425,7 @@ function erpPosCtx(e,i){
   if(editable){
     items.push({ic:'➕',t:'Neue Position darüber',fn:function(){cur.positionen.splice(i,0,{id:uid(),art:'frei',bez:'',menge:1,einheit:'Stk',ep:'',rabattPct:''});erpRenderPos();}});
     items.push({ic:'➕',t:'Neue Position darunter',fn:function(){cur.positionen.splice(i+1,0,{id:uid(),art:'frei',bez:'',menge:1,einheit:'Stk',ep:'',rabattPct:''});erpRenderPos();}});
+    items.push({ic:'⤵',t:'Seitenumbruch darüber (Ctrl+Enter)',fn:function(){cur.positionen.splice(i,0,{id:uid(),art:'seitenumbruch'});erpRenderPos();}});
     if(_selIds.length>1)items.push({ic:'🗑',t:_selIds.length+' markierte löschen',danger:true,fn:function(){erpPosDeleteSelected();}});
     items.push('-');
   }
@@ -2421,6 +2471,11 @@ function erpSideRender(){
   var editable=erpEditable();
   side.style.display=editable?'':'none';
   var tg=document.querySelector('.ov-side-toggle');if(tg)tg.style.display=editable?'':'none';
+  // Gespeicherte Breite anwenden (nur Desktop — der Mobile-Drawer bleibt fix)
+  var _stw=erpSideLoad();
+  if(_stw.width&&!(window.matchMedia&&matchMedia('(max-width:920px)').matches))side.style.setProperty('--erp-side-w',_stw.width+'px');
+  else side.style.removeProperty('--erp-side-w');
+  erpBindSideResize();
   if(!editable){document.getElementById('edOv').classList.remove('side-open');return;}
   if(!_sideTool){var st=erpSideLoad();_sideTool=(st.tool&&SIDE_TOOLS.some(function(t){return t.id===st.tool;}))?st.tool:'kataloge';}
   document.getElementById('edSideTabs').innerHTML=SIDE_TOOLS.map(function(t){
@@ -2430,6 +2485,21 @@ function erpSideRender(){
 }
 function erpSideTool(id){_sideTool=id;var st=erpSideLoad();st.tool=id;erpSideSave(st);erpSideRender();}
 function erpSideToggle(){document.getElementById('edOv').classList.toggle('side-open');}
+// Seitenleiste per Ziehen am linken Griff verbreitern/verschmälern (nur Desktop).
+var _erpSideRsBound=false;
+function erpBindSideResize(){
+  if(_erpSideRsBound)return;
+  var rs=document.getElementById('edSideRs');if(!rs)return;
+  _erpSideRsBound=true;
+  var drag=false;
+  function isMobile(){return window.matchMedia&&matchMedia('(max-width:920px)').matches;}
+  function down(e){if(isMobile())return;drag=true;document.body.classList.add('erp-resizing');if(e.cancelable)e.preventDefault();}
+  function move(e){if(!drag)return;var x=(e.touches&&e.touches[0])?e.touches[0].clientX:e.clientX;var w=Math.max(260,Math.min(680,window.innerWidth-x));var s=document.getElementById('edSide');if(s)s.style.setProperty('--erp-side-w',w+'px');if(e.cancelable)e.preventDefault();}
+  function up(){if(!drag)return;drag=false;document.body.classList.remove('erp-resizing');var s=document.getElementById('edSide');if(!s)return;var w=Math.max(260,Math.min(680,parseInt(getComputedStyle(s).width,10)||338));var st=erpSideLoad();st.width=w;erpSideSave(st);}
+  rs.addEventListener('mousedown',down);rs.addEventListener('touchstart',down,{passive:false});
+  document.addEventListener('mousemove',move);document.addEventListener('touchmove',move,{passive:false});
+  document.addEventListener('mouseup',up);document.addEventListener('touchend',up);
+}
 // Mobile: Tipp auf den abgedunkelten Bereich neben der Schublade schliesst sie
 document.addEventListener('click',function(e){
   var ov=document.getElementById('edOv');
@@ -2449,7 +2519,7 @@ function erpSideBody(){
 function erpArtRow(pos,ic,name,sub,img,extraBtns){
   var key='ak'+(++_artSeq);_artMap[key]=pos;
   return '<div class="side-art" tabindex="0" data-artkey="'+key+'" data-sn="'+esc((name+' '+(sub||'')).toLowerCase())+'" onclick="erpArtSel(this)" ondblclick="erpArtGoEl(this)" onkeydown="erpArtKey(event,this)" title="Klick markiert · Enter/Doppelklick fügt ein (mit Mengenabfrage)">'
-    +(img?'<img class="sa-img" src="'+esc(img)+'" onerror="this.style.display=\'none\'" alt=""/>':'<span class="sa-ic">'+(ic||'📦')+'</span>')
+    +(img?'<img class="sa-img" src="'+esc(img)+'" onerror="this.style.display=\'none\'" alt=""/>':(ic?'<span class="sa-ic">'+ic+'</span>':''))
     +'<div class="sa-t"><div class="sa-n">'+esc(name)+'</div>'+(sub?'<div class="sa-s">'+esc(sub)+'</div>':'')+'</div>'
     +(extraBtns||'')+'<span class="sa-plus">＋</span></div>';
 }
@@ -2534,14 +2604,20 @@ function _dsVariantLabel(a,base){
 // Gruppen-Zeile (öffnet die Ausführungs-Auswahl statt direkt einzufügen).
 function _dsGroupRow(gid,ic,name,sub){
   return '<div class="side-art" tabindex="0" data-dsgroup="'+esc(gid)+'" data-sn="'+esc((name+' '+(sub||'')).toLowerCase())+'" onclick="erpArtSel(this)" ondblclick="erpArtGoEl(this)" onkeydown="erpArtKey(event,this)" title="Klick markiert · Enter/Doppelklick: Ausführung wählen">'
-    +'<span class="sa-ic">'+(ic||'🎨')+'</span>'
+    +(ic?'<span class="sa-ic">'+ic+'</span>':'')
     +'<div class="sa-t"><div class="sa-n">'+esc(name)+'</div>'+(sub?'<div class="sa-s">'+esc(sub)+'</div>':'')+'</div>'
     +'<span class="sa-plus">▸</span></div>';
 }
 // Suchtreffer nach Basisprodukt gruppieren → HTML (Einzelartikel wie gehabt,
 // Mehrfach-Ausführungen als EIN Eintrag mit «N Ausführungen»).
+// Lieferanten-Textmodus (kurz=Produktname | lang=ausführliche Beschreibung, Default lang).
+function _dsTextLang(anbId){
+  try{var a=(GemaDataSelect.anbieter()||[]).find(function(x){return x.id===String(anbId);});return (a&&a.textLang==='kurz')?'kurz':'lang';}catch(e){return 'lang';}
+}
+// Kurz- bzw. Langtext eines Artikels je nach Lieferanten-Einstellung.
+function _dsBez(a,mode){return (mode==='lang'&&a.bezeichnungLang)?a.bezeichnungLang:(a.bezeichnung||a.artnr||'Artikel');}
 function _dsRenderGrouped(list,anbId){
-  var order=[],gm={};
+  var order=[],gm={};var mode=_dsTextLang(anbId);
   list.forEach(function(a){var bc=_dsBaseCode(a.artnr);if(!gm[bc]){gm[bc]={base:bc,items:[]};order.push(gm[bc]);}gm[bc].items.push(a);});
   _dsGroupMap={};
   var html=order.map(function(g){
@@ -2549,21 +2625,23 @@ function _dsRenderGrouped(list,anbId){
     g.items.forEach(function(a){var k=a.artnr||'';if(!seen[k]){seen[k]=1;uniq.push(a);}});   // Duplikate (gleicher Code) zusammenfassen
     if(uniq.length===1){
       var a=uniq[0],hat=!!(a.hatBild||a.bildUrl);
-      var pos={art:'frei',bez:a.bezeichnung||a.artnr||'Artikel',menge:1,einheit:a.einheit||'Stk',ep:a.preis>0?a.preis:'',produktId:'ds:'+(a.artnr||''),dsArtnr:a.artnr||'',lieferantFirma:a.hersteller||'',_dsAnb:anbId,_dsBild:a.bildUrl||'',_dsHat:hat};
+      var pos={art:'frei',bez:_dsBez(a,mode),menge:1,einheit:a.einheit||'Stk',ep:a.preis>0?a.preis:'',produktId:'ds:'+(a.artnr||''),dsArtnr:a.artnr||'',lieferantFirma:a.hersteller||'',_dsAnb:anbId,_dsBild:a.bildUrl||'',_dsHat:hat};
       var sub=(a.artnr||'')+(a.ean?' · EAN '+a.ean:'')+(a.preis>0?' · CHF '+GemaDataSelect.fmtPreis(a.preis):'')+(a.ausfuehrung?' · '+a.ausfuehrung:'')+(hat?' · 🖼':'');
-      return erpArtRow(pos,'📦',a.bezeichnung||a.artnr||'Artikel',sub,'');
+      return erpArtRow(pos,'',a.bezeichnung||a.artnr||'Artikel',sub,'');   // Anzeige immer Kurzname, eingefügt je Modus
     }
     var base=_dsCommonBase(uniq.map(function(a){return a.bezeichnung||'';}))||g.base;
     var varianten=uniq.map(function(a){
       var hat=!!(a.hatBild||a.bildUrl),lab=_dsVariantLabel(a,base);
-      return {art:'frei',bez:base+(lab?(' — '+lab):''),einheit:a.einheit||'Stk',ep:a.preis>0?a.preis:'',menge:1,
+      // Lang-Modus: ausführliche Beschreibung + Ausführung; Kurz-Modus: Basisname + Ausführung
+      var langBase=(mode==='lang'&&a.bezeichnungLang)?a.bezeichnungLang:base;
+      return {art:'frei',bez:langBase+(lab?(' — '+lab):''),einheit:a.einheit||'Stk',ep:a.preis>0?a.preis:'',menge:1,
         produktId:'ds:'+(a.artnr||''),dsArtnr:a.artnr||'',lieferantFirma:a.hersteller||'',
         _dsAnb:anbId,_dsBild:a.bildUrl||'',_dsHat:hat,_afLabel:lab};
     });
     var gid='g'+(++_dsGSeq);_dsGroupMap[gid]={basisName:base,varianten:varianten};
     var pr=uniq.map(function(a){return a.preis;}).filter(function(p){return p>0;});
     var prTxt=pr.length?('CHF '+GemaDataSelect.fmtPreis(Math.min.apply(null,pr))+(Math.max.apply(null,pr)>Math.min.apply(null,pr)?'–'+GemaDataSelect.fmtPreis(Math.max.apply(null,pr)):'')):'';
-    return _dsGroupRow(gid,'🎨',base,uniq.length+' Ausführungen'+(prTxt?' · '+prTxt:''));
+    return _dsGroupRow(gid,'',base,uniq.length+' Ausführungen'+(prTxt?' · '+prTxt:''));
   }).join('');
   return {html:html,produkte:order.length};
 }
@@ -2585,11 +2663,10 @@ function erpVarAsk(g){
 function _erpVarRender(){
   var el=document.getElementById('evList');
   el.innerHTML=_varList.map(function(v,i){
-    var pr=v.ep>0?('CHF '+GemaDataSelect.fmtPreis(v.ep)):'—';
     return '<div class="ev-opt'+(i===_varSel?' sel':'')+'" tabindex="0" data-vi="'+i+'" onclick="erpVarPick('+i+')" ondblclick="erpVarConfirm()" onkeydown="erpVarKey(event,'+i+')">'
       +'<span class="ev-radio"></span>'
       +'<div class="ev-txt"><div class="ev-lab">'+esc(v._afLabel||('Ausführung '+(i+1)))+'</div><div class="ev-sub">'+esc(v.dsArtnr||'')+'</div></div>'
-      +'<div class="ev-price">'+esc(pr)+'</div></div>';
+      +'</div>';
   }).join('');
   var sel=el.querySelector('.ev-opt.sel');if(sel){try{sel.focus();}catch(_){}}
 }
@@ -2715,16 +2792,19 @@ function erpKatRender(){
   var st=erpSideLoad();var openSet=st.katOpen||{};var h='';
   // ── IGH-Lieferantenkataloge OBEN ──
   if(typeof GemaDataSelect!=='undefined'){
-    h+='<h4>🔎 IGH-Lieferantenkataloge (DataSelect)</h4>';
-    h+='<div class="side-hint">Alle hinterlegten Lieferanten. Die Suche oben filtert nach ID oder Name; im Lieferanten dann Artikel suchen und einfügen. Neue Lieferanten werden gespeichert.</div>';
+    h+='<h4>IGH-Lieferantenkataloge (DataSelect)</h4>';
+    h+='<div class="side-hint">Alle hinterlegten Lieferanten. Die Suche oben filtert nach Name; im Lieferanten dann Artikel suchen und einfügen.</div>';
     var anb=GemaDataSelect.anbieter()||[];
     h+='<div id="ighList">';
     if(!anb.length)h+='<div class="side-empty">Noch kein Lieferant hinterlegt — «＋ Lieferant hinzufügen».</div>';
     anb.forEach(function(a){
-      var open=!!openSet['ds:'+a.id];
-      h+='<div class="side-grp'+(open?' open':'')+'" data-grp="ds:'+esc(a.id)+'" data-dskey="'+esc(a.id)+'" data-dsname="'+esc((a.name||'').toLowerCase())+'"><div class="side-grp-hd" onclick="erpKatGrpToggle(\'ds:'+esc(a.id)+'\')"><span class="cx">▶</span><span>🔎 '+esc(a.name)+' <span style="color:var(--mut2);font-weight:600">('+esc(a.id)+')</span></span></div>'
+      var open=!!openSet['ds:'+a.id];var tl=a.textLang==='kurz'?'kurz':'lang';
+      h+='<div class="side-grp'+(open?' open':'')+'" data-grp="ds:'+esc(a.id)+'" data-dskey="'+esc(a.id)+'" data-dsname="'+esc((a.name||'').toLowerCase())+'"><div class="side-grp-hd" onclick="erpKatGrpToggle(\'ds:'+esc(a.id)+'\')"><span class="cx">▶</span><span>'+esc(a.name)+'</span></div>'
         +'<div class="side-grp-bd" style="padding:8px">'
         +'<div style="display:flex;gap:6px;margin-bottom:6px"><input class="side-search" style="margin:0;flex:1" id="dsq_'+esc(a.id)+'" type="text" placeholder="Artikel-Nr / Bezeichnung / EAN" onkeydown="if(event.key===\'Enter\'){event.preventDefault();erpDsSearch(\''+esc(a.id)+'\');}"/><button class="btn pri" style="min-height:34px;padding:6px 10px" id="dsBtn_'+esc(a.id)+'" onclick="erpDsSearch(\''+esc(a.id)+'\')">🔎</button></div>'
+        +'<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;font-size:11px;color:var(--mut)"><span>Text in Offerte:</span>'
+          +'<button class="btn'+(tl==='kurz'?' pri':'')+'" style="min-height:24px;padding:1px 9px;font-size:11px" onclick="erpDsSetTextLang(\''+esc(a.id)+'\',\'kurz\')">Kurz</button>'
+          +'<button class="btn'+(tl==='lang'?' pri':'')+'" style="min-height:24px;padding:1px 9px;font-size:11px" onclick="erpDsSetTextLang(\''+esc(a.id)+'\',\'lang\')" title="Ausführliche Produktbeschreibung einfügen">Ausführlich</button></div>'
         +'<div id="dsRes_'+esc(a.id)+'"></div>'
         +'<div style="text-align:right;margin-top:4px"><a href="javascript:void(0)" style="font-size:11px;color:var(--mut2);text-decoration:underline" onclick="erpDsDebug(\''+esc(a.id)+'\')" title="Zeigt die rohe Antwort von dataselect.ch — HTTP-Status, Format, erste Zeichen. So sieht man, ob/was dieser Lieferant liefert.">🔍 Rohantwort prüfen</a></div>'
         +'</div></div>';
@@ -2740,13 +2820,13 @@ function erpKatRender(){
     if(!prods.length)return;
     var rows=prods.map(function(p){
       var d=p.daten||{};var name=[d.serie,d.modell].filter(Boolean).join(' ')||k.name;
-      return erpArtRow({art:'frei',bez:name,menge:1,einheit:'Stk',ep:'',produktId:p.id,lieferantFirma:p.lieferantFirma},k.icon||'📦',name,(p.lieferantFirma||''),'');
+      return erpArtRow({art:'frei',bez:name,menge:1,einheit:'Stk',ep:'',produktId:p.id,lieferantFirma:p.lieferantFirma},'',name,(p.lieferantFirma||''),'');
     }).join('');
     var open=!!openSet['gk:'+k.id];
-    gemaGroups+='<div class="side-grp'+(open?' open':'')+'" data-grp="gk:'+esc(k.id)+'" data-cat="1"><div class="side-grp-hd" onclick="erpKatGrpToggle(\'gk:'+esc(k.id)+'\')"><span class="cx">▶</span><span>'+(k.icon||'📦')+' '+esc(k.name)+'</span><span class="cc">'+prods.length+'</span></div>'
+    gemaGroups+='<div class="side-grp'+(open?' open':'')+'" data-grp="gk:'+esc(k.id)+'" data-cat="1"><div class="side-grp-hd" onclick="erpKatGrpToggle(\'gk:'+esc(k.id)+'\')"><span class="cx">▶</span><span>'+esc(k.name)+'</span><span class="cc">'+prods.length+'</span></div>'
       +'<div class="side-grp-bd">'+rows+'</div></div>';
   });
-  h+='<h4>📦 GEMA-Produktkatalog</h4>';
+  h+='<h4>GEMA-Produktkatalog</h4>';
   h+=gemaGroups||'<div class="side-empty">Kein GEMA-Produktkatalog verfügbar.</div>';
   el.innerHTML=h;
 }
@@ -2775,24 +2855,45 @@ function erpKatFilter(v){
 var _dsResults=[];
 // Lieferant hinzufügen (ID + Name) — wird org-weit gespeichert (kein erneutes
 // Hinzufügen nötig). Vorbelegt mit der aktuellen Suche (ID oder Name).
+// Lieferant hinzufügen — EIN Dialog: Name suchen (bekannte füllen die ID
+// automatisch), sonst ID eintragen, «Hinzufügen».
 function erpDsAddAnbieter(){
   var pre=String(_katQ||'').trim();
   var preId=/^\d{1,7}$/.test(pre)?pre:'';
   var preName=preId?'':pre;
-  GemaDialog.prompt({title:'Lieferant hinzufügen',message:'IGH-Mitglieder-ID (id_anbieter) — z.B. 1900 für Geberit. Steht auf Ihrem DataSelect-Vertrag.',placeholder:'ID (Zahl)',defaultValue:preId}).then(function(id){
-    if(id===null)return;
-    id=String(id).replace(/[^0-9]/g,'');
-    if(!id){toast('⚠ Ungültige ID');return;}
-    GemaDialog.prompt({title:'Lieferant hinzufügen',message:'Name des Lieferanten für die ID '+id+'.',placeholder:'z.B. Geberit',defaultValue:preName}).then(function(name){
-      if(name===null)return;
-      if(GemaDataSelect.addAnbieter(id,name||('Lieferant '+id))){
-        _katQ='';var s2=erpSideLoad();s2.katQ='';s2.katOpen=s2.katOpen||{};s2.katOpen['ds:'+id]=true;erpSideSave(s2);
-        var inp=document.getElementById('katSuche');if(inp)inp.value='';
-        erpKatRender();erpKatFilter('');
-        toast('✓ Lieferant «'+(name||id)+'» gespeichert');
-      } else toast('Konnte nicht gespeichert werden');
-    });
-  });
+  // Datalist mit bekannten IGH-Mitgliedern (nur dokumentierte IDs, keine erfundenen)
+  var known=(GemaDataSelect.SEED||[]);
+  var dl=document.getElementById('anbNameList');
+  if(dl)dl.innerHTML=known.map(function(m){return '<option value="'+esc(m.name)+'" data-id="'+esc(m.id)+'">';}).join('');
+  var ni=document.getElementById('anb_name'),ii=document.getElementById('anb_id');
+  if(ni)ni.value=preName;if(ii)ii.value=preId;
+  document.getElementById('erpAnbModal').classList.add('open');
+  setTimeout(function(){try{(preId?ii:ni).focus();}catch(_){}},40);
+}
+function erpAnbNameInput(v){
+  var m=(GemaDataSelect.SEED||[]).find(function(x){return x.name.toLowerCase()===String(v||'').trim().toLowerCase();});
+  var ii=document.getElementById('anb_id');
+  if(m&&ii&&!ii.value.trim())ii.value=m.id;
+}
+function erpAnbClose(){document.getElementById('erpAnbModal').classList.remove('open');}
+function erpAnbSave(){
+  var name=String((document.getElementById('anb_name')||{}).value||'').trim();
+  var id=String((document.getElementById('anb_id')||{}).value||'').replace(/[^0-9]/g,'');
+  if(!id){toast('⚠ Bitte die IGH-Mitglieder-ID angeben');var ii=document.getElementById('anb_id');if(ii)try{ii.focus();}catch(_){}return;}
+  if(GemaDataSelect.addAnbieter(id,name||('Lieferant '+id))){
+    erpAnbClose();
+    _katQ='';var s2=erpSideLoad();s2.katQ='';s2.katOpen=s2.katOpen||{};s2.katOpen['ds:'+id]=true;erpSideSave(s2);
+    var inp=document.getElementById('katSuche');if(inp)inp.value='';
+    erpKatRender();erpKatFilter('');
+    toast('✓ Lieferant «'+(name||id)+'» gespeichert');
+  } else toast('Konnte nicht gespeichert werden');
+}
+// Textmodus (kurz/ausführlich) eines Lieferanten umschalten (org-weit gespeichert).
+function erpDsSetTextLang(id,mode){
+  if(GemaDataSelect.setTextLang&&GemaDataSelect.setTextLang(id,mode)){
+    erpKatRender();erpKatFilter(_katQ||'');
+    toast(mode==='kurz'?'Kurztext (Produktname) wird eingefügt':'Ausführliche Beschreibung wird eingefügt');
+  }
 }
 // Sucheingabe klassifizieren: 12–14 Ziffern = EAN/GTIN (das bexio-Format hat keine
 // EAN-Spalte, aber die API kennt den EAN-Parameter), sonst Zahl = Artikel-Nr,
@@ -3156,7 +3257,7 @@ function erpVorlSpeichern(){
     if(!name||!name.trim())return;
     var u=erpUser();
     // Dokument-spezifisches raus: Akonto-/Abzugszeilen weglassen, Regie-/OA-Verknüpfungen kappen
-    var posn=(cur.positionen||[]).filter(function(p){return p.art!=='akonto'&&p.art!=='abzug';}).map(function(p){
+    var posn=(cur.positionen||[]).filter(function(p){return p.art!=='akonto'&&p.art!=='abzug'&&p.art!=='seitenumbruch';}).map(function(p){
       var art=p.art==='titel'?'titel':(p.art==='rabatt'||p.art==='zuschlag')?p.art:'frei';
       var c={id:uid(),art:art,bez:p.bez,menge:p.menge,einheit:p.einheit,ep:p.ep,rabattPct:p.rabattPct};
       if(p.art==='titel'&&p.bkp)c.bkp=p.bkp;   // BKP-Struktur wandert in die Vorlage mit
@@ -3259,6 +3360,7 @@ function erpRenderFooter(){
   var editable=erpEditable();
   if(erpLocked())ft+='<button class="btn" onclick="erpEntsperren()">🔓 Entsperren</button>';
   // Speichern läuft automatisch (Status unten rechts) — kein manueller Button mehr.
+  if(editable)ft+='<button class="btn" onclick="erpGrunddatenToggle()">📋 Grunddaten '+(_erpGrunddatenOffen?'ausblenden':'anpassen')+'</button>';
   if(d.typ==='offerte'){
     if(d.status==='entwurf')ft+='<button class="btn grn" onclick="erpStatus(\'versendet\',\'📤 Offerte als versendet markiert\')">📤 Versendet</button>';
     // Versendet → direkt Auftrag erstellen (kein «Angenommen»-Zwischenschritt);
@@ -3302,6 +3404,14 @@ function erpEntsperren(){
   cur._unlocked=true;
   toast('🔓 Entsperrt — Änderungen möglich');
   erpOpenEditor();
+}
+// Grunddaten (Objekt/Kunde/Datum/…) ein-/ausblenden. Reines Umschalten der
+// Sichtbarkeit — kein Rebuild, kein Save (ändert cur nicht).
+function erpGrunddatenToggle(){
+  _erpGrunddatenOffen=!_erpGrunddatenOffen;
+  var sec=document.getElementById('secGrund');
+  if(sec){sec.style.display=_erpGrunddatenOffen?'':'none';if(_erpGrunddatenOffen)try{sec.scrollIntoView({behavior:'smooth',block:'start'});}catch(_){}}
+  erpRenderFooter();   // Button-Label aktualisieren (anpassen ⇄ ausblenden)
 }
 function erpLoeschen(){
   GemaDialog.confirm({title:TYP[cur.typ].n+' löschen',message:(cur.nr||'')+' wirklich löschen?',confirmLabel:'Löschen',danger:true}).then(function(ok){
@@ -3378,9 +3488,10 @@ function erpAkonto(){
 var _teilAuswahl=null;
 function erpTeilOpen(){
   erpSaveCur(true);
-  _teilAuswahl=(cur.positionen||[]).map(function(p,i){return {i:i,on:p.art!=='titel'&&p.art!=='rabatt'&&p.art!=='zuschlag',menge:p.menge};});
+  _teilAuswahl=(cur.positionen||[]).map(function(p,i){return {i:i,on:p.art!=='titel'&&p.art!=='rabatt'&&p.art!=='zuschlag'&&p.art!=='seitenumbruch',menge:p.menge};});
   var h='<div style="font-size:12.5px;color:var(--mut);margin-bottom:10px">Positionen für die Teilrechnung wählen — Menge anpassbar (z.B. gelieferter Anteil). Teilrechnungen gelten nicht als Akonto und werden in der Schlussrechnung NICHT abgezogen.</div>';
   (cur.positionen||[]).forEach(function(p,i){
+    if(p.art==='seitenumbruch')return;   // Seitenumbruch nicht in die Teilrechnung-Auswahl
     if(p.art==='titel'){h+='<div style="font-weight:800;font-size:12.5px;margin:10px 0 4px'+(bkpEbene(p.bkp)?';padding-left:'+(bkpEbene(p.bkp)*14)+'px':'')+'">'+(p.bkp?esc(p.bkp)+' ':'')+esc(p.bez)+'</div>';return;}
     if(p.art==='rabatt'||p.art==='zuschlag'){h+='<div style="font-size:11px;color:var(--mut);margin:2px 0 6px">↳ '+esc(p.bez)+' — Rabatt/Zuschlag wird in der Teilrechnung nicht übernommen</div>';return;}
     h+='<div class="pick-item" style="cursor:default">'
@@ -3396,7 +3507,7 @@ function erpTeilErstellen(){
   var pos=[];
   _teilAuswahl.forEach(function(a){
     if(!a.on)return;
-    var p=cur.positionen[a.i];if(!p||p.art==='titel'||p.art==='rabatt'||p.art==='zuschlag')return;
+    var p=cur.positionen[a.i];if(!p||p.art==='titel'||p.art==='rabatt'||p.art==='zuschlag'||p.art==='seitenumbruch')return;
     var np=JSON.parse(JSON.stringify(p));np.id=uid();np.menge=a.menge;
     pos.push(np);
   });
@@ -3701,13 +3812,14 @@ function erpPdf(){
         +'<td class="num"></td><td></td><td class="num"></td><td class="num">'+chf(bz)+'</td></tr>';
       return;
     }
+    if(p.art==='seitenumbruch'){posRows+='<tr class="pgbrk"><td colspan="6"></td></tr>';return;}
     nrPos++;
     var betrag=erpNum(p.menge)*erpNum(p.ep)*(1-erpNum(p.rabattPct)/100);
     kapBasis+=betrag;
     if(!curGrp){curGrp={bez:'Positionen ohne Titel',sum:0,ltr:nextLtr(),bkp:'',ebene:0};gruppen.push(curGrp);}
     curGrp.sum+=betrag;
     var pimg=erpPosImgSrc(p);
-    posRows+='<tr'+(pimg?' class="hasimg"':'')+(p.art==='abzug'?' style="color:#92400e"':'')+'><td class="num" style="color:#888">'+nrPos+'</td><td>'+esc(p.bez)+(p.lieferantFirma?' <span style="color:#888;font-size:8pt">('+esc(p.lieferantFirma)+')</span>':'')+'</td>'
+    posRows+='<tr'+(pimg?' class="hasimg"':'')+(p.art==='abzug'?' style="color:#92400e"':'')+'><td class="num" style="color:#888">'+nrPos+'</td><td>'+esc(p.bez)+'</td>'
       +'<td class="num">'+(p.menge!=null?p.menge:'')+'</td><td>'+esc(p.einheit||'')+'</td><td class="num">'+chf(erpNum(p.ep))+(erpNum(p.rabattPct)?'<br><span style="font-size:8pt;color:#888">−'+p.rabattPct+'%</span>':'')+'</td><td class="num">'+chf(betrag)+'</td></tr>';
     // Positionsbild als eigene Zeile unter der Position
     if(pimg)posRows+='<tr class="bildrow"><td></td><td colspan="5" style="padding:2px 7px 8px"><img src="'+esc(pimg)+'" alt="" style="max-height:34mm;max-width:72mm;border:.5px solid #ccc;border-radius:2mm;display:block"/></td></tr>';
@@ -3751,11 +3863,11 @@ function erpPdf(){
     +'</div>';
   // ── Ab Seite 2: Detailpositionen ──
   var posSec='<div class="sheet pb"><h2>Positionen im Detail</h2>'
-    +'<table><thead><tr><th style="width:24px">Pos</th><th>Bezeichnung</th><th class="num">Menge</th><th>Einheit</th><th class="num">EP CHF</th><th class="num">Betrag CHF</th></tr></thead><tbody>'+posRows+'</tbody></table>'
+    +'<table class="pos"><thead><tr><th style="width:9mm">Pos</th><th>Bezeichnung</th><th class="num" style="width:16mm">Menge</th><th style="width:15mm">Einheit</th><th class="num" style="width:22mm">EP CHF</th><th class="num" style="width:24mm">Betrag CHF</th></tr></thead><tbody>'+posRows+'</tbody></table>'
     +'</div>';
   // ── Zusammenstellung: Zusammenzug pro Titel + Totale ──
   var zusSec='<div class="sheet pb"><h2>Zusammenfassung</h2>'
-    +(hatTitel?'<table class="zus" style="max-width:480px"><tbody>'
+    +(hatTitel?'<table class="zus" style="width:100%"><tbody>'
       +gruppen.map(function(g,gi){
         // BKP-Rollup: Ober-Titel zeigen die Summe ihres Teilbaums (25 = Σ 251…259);
         // Buchstaben-Gruppen bleiben Direktsummen. Das Gesamttotal darunter rechnet
@@ -3765,7 +3877,7 @@ function erpPdf(){
         return '<tr><td class="grpltr">'+esc(g.ltr)+'</td><td'+(g.ebene?' style="padding-left:'+(2+g.ebene*5)+'mm"':'')+'>'+esc(g.bez)+'</td><td class="num">'+chf(sum)+'</td></tr>';
       }).join('')
       +'</tbody></table>':'')
-    +'<table class="tot" style="max-width:480px">'
+    +'<table class="tot" style="width:100%">'
     +((t.rabatt||(t.schluss&&t.schluss.length))
       ?'<tr><td colspan="2">Zwischentotal</td><td class="num">'+chf(t.zwischen)+'</td></tr>'
        +(t.rabatt?'<tr><td colspan="2">Rabatt '+d.rabattPct+' %</td><td class="num">− '+chf(t.rabatt)+'</td></tr>':'')
@@ -3880,6 +3992,10 @@ function erpPdf(){
     // Muster-Typografie: schlichte schwarze Linien statt Farbbalken
     +'th{border-top:1px solid #111;border-bottom:1px solid #111;text-align:left;padding:4px 7px;font-size:8pt;font-weight:800}'
     +'td{border-bottom:.4px solid #ddd;padding:5px 7px;vertical-align:top}'
+    // Positionen: feste Spaltenbreiten + Umbruch, damit lange Texte nie über den Rand laufen
+    +'table.pos{table-layout:fixed}'
+    +'table.pos td{overflow-wrap:anywhere;word-break:break-word}'
+    +'tr.pgbrk td{border:none;padding:0;height:0}'
     +'tr.grprow td{border-bottom:1px solid #111;font-weight:800;font-size:10.5pt;padding-top:12px}'
     +'.grpltr{width:10mm;font-weight:900;color:#111}'
     +'tr.hasimg td{border-bottom:none}'
@@ -3898,6 +4014,7 @@ function erpPdf(){
     +'.sheet{width:auto;max-width:none;min-height:0;margin:0;background:none;box-shadow:none;border-radius:0;padding:0;display:block}'
     +'.cover{display:flex;flex-direction:column;min-height:250mm}'
     +'.pb{page-break-before:always}'
+    +'tr.pgbrk{page-break-before:always}'
     +'.qrpage{display:flex;flex-direction:column;min-height:240mm}'
     +'}'
     +'</style></head><body>'
