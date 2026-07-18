@@ -705,6 +705,15 @@ table.he{border-collapse:collapse;width:100%;font-size:12.5px}
   </div>
 </div>
 
+<div class="g-card" style="margin-top:14px" id="heSchemaCard">
+  <div class="g-card-hd"><h2>📊 Anlagenschema — ein Gefäss, drei Zustände</h2><span style="font-size:11px;color:var(--muted)">Vordruck → gefüllt (kalt) → Betrieb warm</span></div>
+  <div class="g-card-bd">
+    <div id="heSchema" style="width:100%"></div>
+    <div id="heSchemaSim" class="no-print" style="margin-top:8px"></div>
+    <div id="heSchemaNote" class="g-hint" style="margin-top:6px"></div>
+  </div>
+</div>
+
 <div class="g-card" style="margin-top:14px">
   <div class="g-card-hd"><h2>So funktioniert's</h2></div>
   <div class="g-card-bd" style="font-size:12.5px;color:var(--text2);line-height:1.6">
@@ -1025,6 +1034,7 @@ function heRecalc(){
     else if(r.sv.d0ber>30.3){ws.style.display='';ws.innerHTML='⚠ <b>Engster Querschnitt über DN 32</b> — Herstellerangaben beachten.';}
     else ws.style.display='none';
   }
+  if(window._heSchemaDraw)try{window._heSchemaDraw(Object.assign({hst:heNum('he_hst'),pueb:heNum('he_pueb'),tmin:heNum('he_tmin')},r));}catch(e){}
   if(r.vnMin>0&&typeof GemaAnlagenwahl!=='undefined'&&GemaAnlagenwahl.refresh)try{GemaAnlagenwahl.refresh();}catch(e){}
 }
 // Recalc nach AutoSave-Restore (GemaAutoSave feuert change-Events pro Feld)
@@ -1131,6 +1141,162 @@ document.addEventListener('DOMContentLoaded', function(){
 })();</script>
 <script>
 document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('ausdehnungsgefaess', 'Ausdehnungsgefäss HE301');});
+</script>
+<style>
+#heSchema svg{display:block;width:100%;height:auto}
+.he-puls{animation:hePuls 1.4s ease-out 1}
+@keyframes hePuls{0%{box-shadow:0 0 0 0 rgba(194,65,12,.5)}100%{box-shadow:0 0 0 14px rgba(194,65,12,0)}}
+#heSchemaSim{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:12px;color:#334155;font-weight:600}
+#heSchemaSim input[type="range"]{flex:1;min-width:160px;max-width:340px;accent-color:#c2410c}
+</style>
+<script>
+// ── 📊 Anlagenschema MAG: ein Gefäss, drei Zustände (Membran) ──
+// Eigener Script-Block; Aufruf geguardet aus heRecalc via window._heSchemaDraw
+// (Cross-Block-Scope-Regel). NUR literale Hex-Farben (GemaPDF/html2canvas-Regel).
+// Zustände: ① Vordruck p0 (ohne Wasser) · ② gefüllt kalt → Fülldruck (Boyle:
+// VN·(p0+1)/(VN−VWr) − 1) · ③ Betrieb warm → Enddruck ≤ pfin. Der Aufheiz-
+// Slider (Range bewusst OHNE id — AutoSave) morpht Zustand ②→③, Druck über
+// Boyle-Interpolation mit exakten Endpunkten Fülldruck/pfin.
+(function(){
+  function fmt(x,d){if(!isFinite(x))return '–';return x.toLocaleString('de-CH',{minimumFractionDigits:d,maximumFractionDigits:d});}
+  function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+  window._heZielKlick=function(id){
+    var el=document.getElementById(id);
+    if(!el)return;
+    try{el.scrollIntoView({behavior:'smooth',block:'center'});}catch(e){try{el.scrollIntoView();}catch(e2){}}
+    try{el.focus({preventScroll:true});}catch(e){}
+    el.classList.remove('he-puls');void el.offsetWidth;el.classList.add('he-puls');
+    setTimeout(function(){el.classList.remove('he-puls');},1600);
+  };
+  document.addEventListener('click',function(e){
+    var g=e.target&&e.target.closest?e.target.closest('#heSchema [data-heziel]'):null;
+    if(g)window._heZielKlick(g.getAttribute('data-heziel'));
+  });
+  function chip(x,y,txt,ziel,fill,stroke,color,anchor){
+    var w=Math.round(txt.length*6.2)+18;
+    var xx=anchor==='middle'?x-w/2:x;
+    return '<g'+(ziel?' data-heziel="'+ziel+'" style="cursor:pointer"':'')+'>'
+      +'<rect x="'+xx.toFixed(1)+'" y="'+(y-14)+'" width="'+w+'" height="21" rx="10.5" fill="'+(fill||'#ffffff')+'" stroke="'+(stroke||'#cbd5e1')+'" stroke-width="1.2"/>'
+      +'<text x="'+(xx+w/2).toFixed(1)+'" y="'+(y+1)+'" text-anchor="middle" font-size="10.5" font-weight="700" fill="'+(color||'#334155')+'">'+esc(txt)+'</text></g>';
+  }
+  var TOP=112,INH=186,BOT=TOP+INH,VW=128;
+  function memPath(cx,yM,bulge){
+    return 'M'+(cx-VW/2+4)+' '+yM.toFixed(1)+' Q'+cx+' '+(yM+bulge).toFixed(1)+' '+(cx+VW/2-4)+' '+yM.toFixed(1);
+  }
+  // Ein Gefäss zeichnen: f = Wasseranteil (von oben), Wasser oben / Gas unten
+  function vessel(cx,f,idPrefix,wVol){
+    var x=cx-VW/2,clip=idPrefix+'_clip';
+    var yM=TOP+f*INH;
+    var s='<defs><clipPath id="'+clip+'"><rect x="'+x+'" y="'+TOP+'" width="'+VW+'" height="'+INH+'" rx="34"/></clipPath></defs>';
+    s+='<g clip-path="url(#'+clip+')">';
+    s+='<rect x="'+x+'" y="'+TOP+'" width="'+VW+'" height="'+INH+'" fill="#fde68a"/>';                       // Gaspolster
+    s+='<rect '+(idPrefix?'id="'+idPrefix+'_water" ':'')+'x="'+x+'" y="'+TOP+'" width="'+VW+'" height="'+(f*INH).toFixed(1)+'" fill="#93c5fd"/>';
+    s+='</g>';
+    s+='<path '+(idPrefix?'id="'+idPrefix+'_mem" ':'')+'d="'+memPath(cx,yM,f<=0.01?-12:14)+'" fill="none" stroke="#b45309" stroke-width="4" stroke-linecap="round"/>';
+    s+='<rect x="'+x+'" y="'+TOP+'" width="'+VW+'" height="'+INH+'" rx="34" fill="none" stroke="#0f172a" stroke-width="3"/>';
+    // Anschluss-Stutzen oben (Wasserseite → Anlage)
+    s+='<line x1="'+cx+'" y1="'+(TOP-2)+'" x2="'+cx+'" y2="'+(TOP-24)+'" stroke="#0f172a" stroke-width="5"/>';
+    // Beschriftungen Wasser/Gas
+    var wh=f*INH;
+    s+='<text '+(idPrefix?'id="'+idPrefix+'_wlbl" ':'')+'x="'+cx+'" y="'+(TOP+Math.max(13,wh/2)+4).toFixed(1)+'" text-anchor="middle" font-size="10" font-weight="800" fill="#1d4ed8"'+(wh<18?' opacity="0"':'')+'>Wasser'+(wVol!=null?' '+fmt(wVol,0)+' dm³':'')+'</text>';
+    s+='<text '+(idPrefix?'id="'+idPrefix+'_glbl" ':'')+'x="'+cx+'" y="'+(yM+(BOT-yM)/2+4).toFixed(1)+'" text-anchor="middle" font-size="10" font-weight="700" fill="#92400e"'+((BOT-yM)<18?' opacity="0"':'')+'>Gas (N₂)</text>';
+    return s;
+  }
+  window._heSimGeo=null;
+  window._heSimSet=function(pct){
+    var g=window._heSimGeo;if(!g)return;
+    var t=Math.max(0,Math.min(100,parseFloat(pct)||0))/100;
+    var f=g.f2+(g.f3-g.f2)*t;
+    var V=g.VWr+g.Vex*t;
+    var yM=TOP+f*INH;
+    var w=document.getElementById('he_v3_water'),m=document.getElementById('he_v3_mem'),
+        wl=document.getElementById('he_v3_wlbl'),gl=document.getElementById('he_v3_glbl'),
+        pt=document.getElementById('he_v3_ptxt'),out=document.getElementById('he_sim_out');
+    if(w)w.setAttribute('height',(f*INH).toFixed(1));
+    if(m)m.setAttribute('d',memPath(g.cx,yM,f<=0.01?-12:14));
+    if(wl){wl.setAttribute('y',(TOP+Math.max(13,f*INH/2)+4).toFixed(1));wl.setAttribute('opacity',f*INH<18?'0':'1');wl.textContent='Wasser '+fmt(V,0)+' dm³';}
+    if(gl){gl.setAttribute('y',(yM+(BOT-yM)/2+4).toFixed(1));gl.setAttribute('opacity',(BOT-yM)<18?'0':'1');}
+    // Boyle mit exakten Endpunkten (Fülldruck → pfin)
+    var p;
+    var gasV=g.VN-V;
+    if(gasV<=0.001){p=g.pfin;}
+    else{
+      var pB=g.VN*(g.p0+1)/gasV-1;
+      var pBe=g.VN*(g.p0+1)/Math.max(0.001,g.VN-g.VWr-g.Vex)-1;
+      p=(pBe>g.pfill+1e-9)?(g.pfill+(pB-g.pfill)*(g.pfin-g.pfill)/(pBe-g.pfill)):g.pfill;
+    }
+    if(pt)pt.textContent=(t>=0.999?'Enddruck ≤ ':'Druck ')+fmt(p,2)+' barü';
+    if(out)out.textContent=fmt(p,2)+' barü · Ausdehnung +'+fmt(g.Vex*t,1)+' dm³';
+  };
+  window._heSchemaDraw=function(d){
+    var host=document.getElementById('heSchema');
+    var sim=document.getElementById('heSchemaSim');
+    var note=document.getElementById('heSchemaNote');
+    if(!host)return;
+    if(!d||!(d.vsysTot>0)){
+      host.innerHTML='<div style="color:#64748b;font-size:12px;padding:10px">Schema folgt, sobald Anlageinhalt und Drücke erfasst sind.</div>';
+      if(sim)sim.innerHTML='';if(note)note.textContent='';window._heSimGeo=null;return;
+    }
+    if(!d.druckOk){
+      host.innerHTML='<div style="color:#b45309;font-size:12px;padding:10px">⚠ Enddruck pfin ≤ Vordruck p0 — der SV-Ansprechdruck ist für diese Anlagehöhe zu klein. Höheren Ansprechdruck wählen, dann erscheint das Schema.</div>';
+      if(sim)sim.innerHTML='';if(note)note.textContent='';window._heSimGeo=null;return;
+    }
+    if(!(d.vn>0)){
+      host.innerHTML='<div style="color:#b45309;font-size:12px;padding:10px">⚠ Kein Gefäss aus der Standardreihe (VN,min '+fmt(d.vnMin,0)+' dm³ &gt; 800) — Parallelschaltung/Herstellerauslegung nötig; das Zustands-Schema entfällt.</div>';
+      if(sim)sim.innerHTML='';if(note)note.textContent='';window._heSimGeo=null;return;
+    }
+    var W=900,Hgt=406;
+    var VN=d.vn,VWr=Math.max(0,d.vwrTot),Vex=Math.max(0,d.vexTot);
+    var f2=Math.min(0.92,VWr/VN),f3=Math.min(0.92,(VWr+Vex)/VN);
+    var ueberfuellt=(VWr+Vex)/VN>0.92;
+    var cxs=[210,455,700];
+    var s='';
+    // hst-Massband links (Anlagehöhe → p0)
+    s+='<g data-heziel="he_hst" style="cursor:pointer">';
+    s+='<line x1="44" y1="'+TOP+'" x2="44" y2="'+BOT+'" stroke="#64748b" stroke-width="2"/>';
+    s+='<path d="M39 '+(TOP+8)+' L44 '+TOP+' L49 '+(TOP+8)+'" fill="none" stroke="#64748b" stroke-width="2"/>';
+    s+='<path d="M39 '+(BOT-8)+' L44 '+BOT+' L49 '+(BOT-8)+'" fill="none" stroke="#64748b" stroke-width="2"/>';
+    s+='<text x="52" y="'+(TOP+INH/2-6)+'" font-size="10.5" font-weight="800" fill="#334155">hst '+fmt(d.hst,1)+' m</text>';
+    s+='<text x="52" y="'+(TOP+INH/2+8)+'" font-size="9.5" fill="#64748b">p0 = hst/10 + '+fmt(d.pueb,2)+'</text>';
+    s+='</g>';
+    // SV-Chip oben rechts
+    s+=chip(W-12-('SV '+fmt(d.psv,1)+' barü → pfin = '+fmt(d.pfin,2)+' barü').length*6.2-18,26,'SV '+fmt(d.psv,1)+' barü → pfin = '+fmt(d.pfin,2)+' barü','he_psv','#fff7ed','#fdba74','#c2410c');
+    s+=chip(12,26,'Gefäss: '+(d.typ||'—')+' · VN '+fmt(VN,0)+' dm³','he_out_typ','#f0fdf4','#bbf7d0','#15803d');
+    // Drei Zustände
+    var caps=['① Vordruck (vor dem Füllen)','② Gefüllt · kalt ('+fmt(d.tmin,0)+' °C)','③ Betrieb · warm (Auslegung)'];
+    var subs=['Membran ganz oben — nur Gas','Wasservorlage VWr '+fmt(VWr,0)+' dm³','+ Ausdehnung Vex '+fmt(Vex,1)+' dm³'];
+    s+=vessel(cxs[0],0,'he_v1',null);
+    s+=vessel(cxs[1],f2,'he_v2',VWr);
+    s+=vessel(cxs[2],f3,'he_v3',VWr+Vex);
+    // Druck-Chips über den Gefässen (Zustand 3 mit dynamischem Text für den Slider)
+    s+=chip(cxs[0],66,'p0 = '+fmt(d.p0,2)+' barü','he_hst','#f1f5f9','#cbd5e1','#334155','middle');
+    s+=chip(cxs[1],66,'Fülldruck = '+fmt(d.pfill,2)+' barü','he_out_pfill','#eff6ff','#93c5fd','#1d4ed8','middle');
+    var p3txt='Enddruck ≤ '+fmt(d.pfin,2)+' barü';
+    var w3=Math.round(p3txt.length*6.2)+26;
+    s+='<g data-heziel="he_psv" style="cursor:pointer"><rect x="'+(cxs[2]-w3/2)+'" y="52" width="'+w3+'" height="21" rx="10.5" fill="#fff7ed" stroke="#fdba74" stroke-width="1.2"/>'
+      +'<text id="he_v3_ptxt" x="'+cxs[2]+'" y="67" text-anchor="middle" font-size="10.5" font-weight="700" fill="#c2410c">'+esc(p3txt)+'</text></g>';
+    s+='<text x="'+cxs[1]+'" y="'+(TOP-30)+'" text-anchor="middle" font-size="9.5" fill="#64748b">Anschluss an die Heizungsanlage (wasserseitig oben)</text>';
+    // Titel + Untertitel je Zustand
+    cxs.forEach(function(cx,i){
+      s+='<text x="'+cx+'" y="'+(BOT+26)+'" text-anchor="middle" font-size="11" font-weight="800" fill="#0f172a">'+esc(caps[i])+'</text>';
+      s+='<text x="'+cx+'" y="'+(BOT+42)+'" text-anchor="middle" font-size="10" fill="#64748b">'+esc(subs[i])+'</text>';
+    });
+    // Ergebnis-Chips unten
+    var by=Hgt-16;
+    s+=chip(12,by,'VN,min '+fmt(d.vnMin,1)+' dm³','he_out_vnmin');
+    s+=chip(178,by,'Vex,tot '+fmt(Vex,1)+' dm³','he_out_vextot','#fff7ed','#fdba74','#c2410c');
+    s+=chip(340,by,'VWr,tot '+fmt(VWr,1)+' dm³','he_out_vwrtot','#eff6ff','#93c5fd','#1d4ed8');
+    s+=chip(504,by,'P·V = '+fmt(d.pxv,0)+(d.pflichtig?' · pflichtig (≥ 3000)':' · nicht pflichtig'),'he_out_pxv',d.pflichtig?'#fef2f2':'#f0fdf4',d.pflichtig?'#fca5a5':'#bbf7d0',d.pflichtig?'#dc2626':'#15803d');
+    host.innerHTML='<svg viewBox="0 0 '+W+' '+Hgt+'" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Membran-Ausdehnungsgefäss in drei Zuständen">'+s+'</svg>';
+    window._heSimGeo={cx:cxs[2],f2:f2,f3:f3,VN:VN,VWr:VWr,Vex:Vex,p0:d.p0,pfill:d.pfill,pfin:d.pfin};
+    if(sim)sim.innerHTML='🔥 Aufheizen (Zustand ② → ③): '
+      +'<input type="range" min="0" max="100" value="100" oninput="_heSimSet(this.value)"/>'
+      +'<span id="he_sim_out" style="min-width:170px">'+fmt(d.pfin,2)+' barü · Ausdehnung +'+fmt(Vex,1)+' dm³</span>';
+    if(note)note.textContent='Boyle: p0·VN = Fülldruck·(VN − VWr) = Enddruck·(VN − VWr − Vex) (absolute Drücke). '
+      +(ueberfuellt?'⚠ Wasservolumen über ~92 % des Gefässes — Darstellung gekappt, grösseres Gefäss prüfen. ':'')
+      +'Chips sind klickbar und führen zum Eingabefeld bzw. Resultat.';
+  };
+})();
 </script>
 <script src="gema_scroll.js"></script>
 <script src="gema_mobile_menu.js"></script>

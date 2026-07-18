@@ -131,6 +131,16 @@ table.pos{border-collapse:collapse;width:100%;font-size:13px;min-width:680px}
 .pos-bild img{width:38px;height:38px;object-fit:cover;border-radius:8px;border:1px solid var(--brd2);display:block;cursor:zoom-in}
 .pos-bild-x{position:absolute;top:-7px;right:-7px;width:19px;height:19px;border-radius:50%;border:none;background:var(--red);color:#fff;font-size:10px;line-height:1;cursor:pointer}
 #erpLightbox{position:fixed;inset:0;z-index:1600;background:rgba(8,20,40,.86);display:none;align-items:center;justify-content:center;cursor:zoom-out}
+
+/* KONTEXTMENÜ (Rechtsklick auf Karten + Positionen) */
+#erpCtxMenu{position:fixed;z-index:2000;background:var(--sur);border:1.5px solid var(--brd2);border-radius:12px;box-shadow:0 14px 44px rgba(0,0,0,.2);padding:6px;min-width:224px;max-width:300px}
+#erpCtxMenu .ctx-i{display:flex;align-items:center;gap:9px;width:100%;text-align:left;padding:9px 11px;border:none;background:none;border-radius:8px;font-size:13px;font-weight:600;color:var(--txt2);cursor:pointer;font-family:inherit;white-space:nowrap}
+#erpCtxMenu .ctx-i:hover{background:var(--sur2)}
+#erpCtxMenu .ctx-i.danger{color:var(--red)}
+#erpCtxMenu .ctx-i.danger:hover{background:var(--red-bg)}
+#erpCtxMenu .ctx-i .ci{width:20px;text-align:center;flex-shrink:0}
+#erpCtxMenu .ctx-sep{height:1px;background:var(--brd);margin:5px 8px}
+#erpCtxMenu .ctx-hd{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:var(--mut2);padding:5px 11px 3px}
 #erpLightbox.open{display:flex}
 #erpLightbox img{max-width:92vw;max-height:88vh;border-radius:12px}
 .sum-block{margin-top:10px;margin-left:auto;max-width:360px;font-size:13.5px}
@@ -185,6 +195,7 @@ table.pos{border-collapse:collapse;width:100%;font-size:13px;min-width:680px}
 <script src="gema_feedback.js"></script><script src="gema_notify.js"></script><script src="gema_notify_ui.js"></script><script src="gema_chat.js"></script>
 <script src="gema_objekte_api.js"></script>
 <script src="gema_produktkatalog_api.js"></script>
+<script src="gema_bkp_katalog.js"></script>
 <script src="gema_storage.js"></script>
 <script src="gema_dialog.js"></script>
 <link rel="stylesheet" href="gema_responsive.css"/>
@@ -346,6 +357,10 @@ table.pos{border-collapse:collapse;width:100%;font-size:13px;min-width:680px}
         <div class="fld"><label>MwSt-Nr. (UID)</label><input id="s_mwstnr" type="text" placeholder="CHE-123.456.789 MWST"/></div>
       </div>
       <div style="font-size:11px;color:var(--mut);margin:-4px 0 12px">Erscheinen in der Fusszeile von Offerte, Auftragsbestätigung und Rechnung. Logo &amp; Akzentfarbe kommen aus dem Firmenprofil (Logo-Upload in der Benutzerverwaltung, «Berichts-Farben (PDF)» in den Firmendaten).</div>
+      <div style="font-size:11px;font-weight:800;text-transform:uppercase;color:var(--mut);margin:14px 0 6px">Arbeitsbereiche (Offerte → Auftrag → Einsatzplan)</div>
+      <div id="s_abRows"></div>
+      <button class="btn" type="button" style="width:auto" onclick="abRowAdd('s_abRows')">＋ Arbeitsbereich</button>
+      <div style="font-size:11px;color:var(--mut);margin:6px 0 12px">Individuell benannte Bereiche mit Farbe (z.B. Sanitär, Sanitärservice, Heizung). Die Zuweisung passiert bereits bei der Offerte und wird auf Auftrag und Einsatzplan-Termin vererbt — die Termine im Kalender erscheinen in der Bereichsfarbe. Die Liste gilt firmenweit (auch im Einsatzplan editierbar).</div>
       <div style="font-size:11px;font-weight:800;text-transform:uppercase;color:var(--mut);margin:14px 0 6px">Nachkalkulation (Tab «Erfolg»)</div>
       <div class="fld"><label>Kostensatz (% vom Verkaufsansatz)</label><input id="s_kosten" type="text" inputmode="decimal" onblur="fixLeadingZero(this)" placeholder="z.B. 70"/></div>
       <div style="font-size:11px;color:var(--mut);margin:-4px 0 12px">Interner Kostenanteil der Regie-Verkaufsansätze (Lohn + Gemeinkosten). Damit schätzt der Erfolg-Tab Kosten und Deckungsbeitrag pro Auftrag. Leer = keine DB-Schätzung.</div>
@@ -363,6 +378,44 @@ table.pos{border-collapse:collapse;width:100%;font-size:13px;min-width:680px}
   </div>
 </div>
 
+<!-- ═══ ABWEICHENDE ZUSTELLADRESSE ═══ -->
+<div class="modal-bg" id="zustellModal">
+  <div class="modal">
+    <div class="modal-hd"><h3>✉️ Abweichende Zustelladresse</h3><button class="modal-x" onclick="document.getElementById('zustellModal').classList.remove('open')">✕</button></div>
+    <div class="modal-bd">
+      <div style="font-size:12px;color:var(--mut);margin-bottom:12px;line-height:1.55">Wohin das Dokument adressiert/zugestellt wird (z.B. Verwaltung, Architekt, c/o- oder Postfach-Adresse). <b>Rechnungsempfänger und Zahler bleibt der Kunde</b> — bei Rechnungen lautet der QR-Zahlteil weiterhin auf ihn.</div>
+      <div class="fld"><label>Aus Kundenstamm übernehmen (optional)</label><select id="z_pick" onchange="erpZustellPrefill(this.value)"></select></div>
+      <div class="fld"><label>Firma / Name *</label><input id="z_firma" type="text" placeholder="z.B. Liegenschaftsverwaltung Muster AG"/></div>
+      <div class="fld"><label>Kontakt / z.Hd.</label><input id="z_kontakt" type="text" placeholder="z.B. z.Hd. Frau Beispiel"/></div>
+      <div class="fld"><label>Strasse / Nr. / Postfach</label><input id="z_strasse" type="text"/></div>
+      <div class="fld-row">
+        <div class="fld"><label>PLZ</label><input id="z_plz" type="text"/></div>
+        <div class="fld"><label>Ort</label><input id="z_ort" type="text"/></div>
+      </div>
+    </div>
+    <div class="modal-ft">
+      <button class="btn" onclick="document.getElementById('zustellModal').classList.remove('open')">Abbrechen</button>
+      <button class="btn grn" onclick="erpZustellSave()">💾 Übernehmen</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ BKP-TITEL-PICKER (Standard-Baukostenplan) ═══ -->
+<div class="modal-bg" id="bkpModal">
+  <div class="modal">
+    <div class="modal-hd"><h3>🧱 BKP-Titel einfügen</h3><button class="modal-x" onclick="document.getElementById('bkpModal').classList.remove('open')">✕</button></div>
+    <div style="padding:10px 16px;border-bottom:1px solid var(--brd);background:var(--sur2)">
+      <input id="bkpSuche" type="text" placeholder="Suchen … (Nummer oder Text, z.B. 254 oder Sanitärleitungen)" oninput="erpBkpRenderList()" style="width:100%;padding:10px 12px;border:1.5px solid var(--brd2);border-radius:10px;font-size:13.5px;outline:none"/>
+      <div style="font-size:11px;color:var(--mut);margin-top:6px">Standard-Baukostenplan (BKP) — gewählte Nummern werden als eingerückte Titelzeilen eingefügt und bleiben danach einzeln anpassbar (eigene Nummern oder Texte).</div>
+    </div>
+    <div class="modal-bd" id="bkpListe" style="padding:0;max-height:52vh"></div>
+    <div class="modal-ft">
+      <button class="btn" onclick="document.getElementById('bkpModal').classList.remove('open')">Abbrechen</button>
+      <button class="btn grn" id="bkpInsBtn" onclick="erpBkpInsert()" disabled>＋ 0 Titel einfügen</button>
+    </div>
+  </div>
+</div>
+
 <div id="toast"></div>
 
 <script>
@@ -375,15 +428,28 @@ function fixLeadingZero(el){let v=el.value.trim();if(v==='')return;if(/^\./.test
 function erpNum(v){var n=parseFloat(String(v==null?'':v).replace(',','.').replace(/['\s]/g,''));return isFinite(n)?n:0;}
 function erpRound5(v){return Math.round(v*20)/20;}   // Rappenrundung auf 0.05
 
-// Dokument-Summen: Positionen (ohne Titel), Zeilen-Rabatt, Dokument-Rabatt, MwSt
-// Abzugspositionen (art 'abzug'/'akontoabzug') sind negativ erfasst und laufen VOR MwSt.
+// Betrag einer Rabatt-/Zuschlags-POSITION (art 'rabatt'/'zuschlag', frei benennbar):
+// Prozent vom Kapitel-Zwischentotal (= Positionssumme seit dem letzten Titel bis zu
+// dieser Zeile) ODER Pauschal-CHF (modus 'chf'); Rabatt zählt negativ. Mehrere
+// Rabatt-/Zuschlagszeilen im selben Kapitel rechnen alle auf derselben Positions-
+// Basis (keine Verkettung — vorhersehbar).
+function erpAufschlagBetrag(p,basis){
+  var v=erpNum(p.wert);
+  var betrag=(p.modus==='chf')?v:basis*v/100;
+  return p.art==='rabatt'?-betrag:betrag;
+}
+
+// Dokument-Summen: Positionen (ohne Titel), Zeilen-Rabatt, Rabatt-/Zuschlags-
+// Positionen (auf das Kapitel-Zwischentotal), Dokument-Rabatt, MwSt.
+// Abzugspositionen (art 'abzug'/'akonto') sind negativ erfasst und laufen VOR MwSt.
 function erpDocTotals(doc){
-  var zwischen=0;
+  var zwischen=0,kapBasis=0;   // kapBasis = Positionssumme seit dem letzten Titel
   (doc.positionen||[]).forEach(function(p){
-    if(p.art==='titel')return;
+    if(p.art==='titel'){kapBasis=0;return;}
+    if(p.art==='rabatt'||p.art==='zuschlag'){zwischen+=erpAufschlagBetrag(p,kapBasis);return;}
     var z=erpNum(p.menge)*erpNum(p.ep);
     if(erpNum(p.rabattPct))z*=(1-erpNum(p.rabattPct)/100);
-    zwischen+=z;
+    zwischen+=z;kapBasis+=z;
   });
   var rabatt=zwischen*(erpNum(doc.rabattPct)/100);
   var netto=zwischen-rabatt;
@@ -410,14 +476,18 @@ function erpAuftragFakt(docs,auftragId){
     pct:auftragNetto>0?Math.min(100,verrechnetNetto/auftragNetto*100):0};
 }
 
-// Schlussrechnung: alle Auftragspositionen + Abzugszeilen für bereits gestellte Rechnungen (Netto)
+// Schlussrechnung: alle Auftragspositionen (= Offert-/Auftragsbetrag) + Abzugszeilen
+// NUR für bereits GESTELLTE Akontorechnungen (Netto) — der Restbetrag ergibt sich
+// automatisch. Teilrechnungen sind eigenständige Rechnungen und werden bewusst
+// NICHT abgezogen; Entwurfs-Akonti zählen erst nach dem Stellen.
 function erpSchlussPositionen(docs,auftrag){
   var pos=(auftrag.positionen||[]).map(function(p){return JSON.parse(JSON.stringify(p));});
   var fakt=erpAuftragFakt(docs,auftrag.id);
   fakt.rechnungen.forEach(function(r){
+    if(r.rechnungsArt!=='akonto'||r.status!=='gestellt')return;
     var t=erpDocTotals(r);
     if(t.netto===0)return;
-    pos.push({id:'abz_'+r.id,art:'abzug',bez:'./. Bereits verrechnet: '+(r.nr||'Rechnung')+(r.rechnungsArt==='akonto'?' (Akonto)':r.rechnungsArt==='teil'?' (Teilrechnung)':''),
+    pos.push({id:'abz_'+r.id,art:'abzug',bez:'./. Akontorechnung '+(r.nr||'')+(r.datum?' vom '+String(r.datum).split('-').reverse().join('.'):''),
       menge:1,einheit:'pausch.',ep:-t.netto});
   });
   return pos;
@@ -602,6 +672,79 @@ function erpBrand(){
   }
   return {acc:acc,tint:tint};
 }
+// ── BKP-Ebene aus der Nummer (1-stellig=0 · 2-stellig=1 · 3-stellig=2 · mit Punkt=3) ──
+// für die Einrückung der BKP-Titelzeilen (wie die BKP-Checkliste im Ausschreibungsmodul)
+function bkpEbene(nr){
+  if(typeof GemaBKP!=='undefined'&&GemaBKP.level)return GemaBKP.level(nr);
+  nr=String(nr==null?'':nr).trim();if(!nr)return 0;
+  var stamm=nr.split('.')[0].replace(/[^0-9]/g,'');
+  return Math.min(3,Math.max(0,stamm.length-1)+(nr.indexOf('.')>=0?1:0));
+}
+
+// ── Arbeitsbereiche (org.settings.arbeitsbereiche = [{id,name,farbe}]) ──
+// Individuell benannte Bereiche mit Farbe (z.B. Sanitär, Sanitärservice, Heizung).
+// Zuweisung startet bei der Offerte und wird auf Auftrag/Rechnung/Einsatz vererbt;
+// der Einsatzplan färbt die Termine in der Bereichsfarbe.
+function abListe(){
+  var org=erpOrg();
+  var l=(org&&org.settings&&org.settings.arbeitsbereiche)||[];
+  if(!Array.isArray(l))return [];
+  return l.filter(function(b){return b&&b.id&&b.name;}).map(function(b){
+    return {id:String(b.id),name:String(b.name),farbe:/^#[0-9a-fA-F]{6}$/.test(String(b.farbe||''))?b.farbe:'#64748b'};
+  });
+}
+function abById(id){if(!id)return null;var l=abListe();for(var i=0;i<l.length;i++){if(l[i].id===id)return l[i];}return null;}
+function abTint(hex){
+  var m=/^#([0-9a-fA-F]{6})$/.exec(String(hex||''));if(!m)return '#f1f5f9';
+  function mix(v){return Math.round(v+(255-v)*0.86);}
+  return 'rgb('+mix(parseInt(m[1].slice(0,2),16))+','+mix(parseInt(m[1].slice(2,4),16))+','+mix(parseInt(m[1].slice(4,6),16))+')';
+}
+function abChipHtml(id){
+  var b=abById(id);if(!b)return '';
+  return '<span class="ab-chip" style="display:inline-flex;align-items:center;gap:5px;padding:2px 9px;border-radius:999px;border:1.5px solid '+b.farbe+';background:'+abTint(b.farbe)+';font-size:10.5px;font-weight:800;color:var(--txt2);vertical-align:middle"><span style="width:8px;height:8px;border-radius:50%;background:'+b.farbe+';display:inline-block;flex-shrink:0"></span>'+esc(b.name)+'</span>';
+}
+// Editor-Zeilen für die ⚙️-Einstellungen (IDs bleiben beim Umbenennen stabil — data-id)
+var AB_PALETTE=['#16a34a','#2563eb','#d97706','#7c3aed','#dc2626','#0891b2','#475569'];
+function abRowHtml(b){
+  b=b||{};
+  return '<div class="ab-row" data-id="'+esc(b.id||'')+'" style="display:flex;gap:8px;align-items:center;margin-bottom:6px">'
+    +'<input type="color" class="ab-farbe" value="'+esc(b.farbe||'#16a34a')+'" title="Bereichsfarbe" style="width:44px;height:38px;padding:2px;border:1.5px solid var(--brd2);border-radius:9px;background:var(--sur);cursor:pointer;flex-shrink:0"/>'
+    +'<input type="text" class="ab-name" value="'+esc(b.name||'')+'" placeholder="z.B. Sanitär, Sanitärservice, Heizung" style="flex:1;min-width:0;padding:9px 11px;border:1.5px solid var(--brd2);border-radius:9px;font-size:13.5px"/>'
+    +'<button type="button" onclick="this.closest(\'.ab-row\').remove()" title="Bereich entfernen (bestehende Zuweisungen bleiben gespeichert, werden aber nicht mehr farbig angezeigt)" style="width:34px;height:34px;border-radius:9px;border:1px solid var(--brd2);background:var(--sur);color:var(--red);font-weight:900;cursor:pointer;flex-shrink:0">✕</button>'
+    +'</div>';
+}
+function abRowAdd(hostId){
+  var host=document.getElementById(hostId);
+  var n=host.querySelectorAll('.ab-row').length;
+  var tmp=document.createElement('div');
+  tmp.innerHTML=abRowHtml({farbe:AB_PALETTE[n%AB_PALETTE.length]});
+  host.appendChild(tmp.firstChild);
+  var inp=host.lastChild.querySelector('.ab-name');
+  if(inp)inp.focus();
+}
+function abSlug(name,taken){
+  var s='ab_'+String(name).toLowerCase()
+    .replace(/ä/g,'ae').replace(/ö/g,'oe').replace(/ü/g,'ue').replace(/é|è|ê/g,'e')
+    .replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'').slice(0,24);
+  if(s==='ab_'||s==='ab')s='ab_bereich';
+  var b=s,i=2;
+  while(taken[s])s=b+'_'+(i++);
+  taken[s]=1;
+  return s;
+}
+function abRowsCollect(hostId){
+  var out=[],taken={};
+  var rows=document.querySelectorAll('#'+hostId+' .ab-row');
+  rows.forEach(function(row){var id=row.getAttribute('data-id');if(id)taken[id]=1;});
+  rows.forEach(function(row){
+    var name=row.querySelector('.ab-name').value.trim();
+    if(!name)return;
+    var id=row.getAttribute('data-id')||abSlug(name,taken);
+    var farbe=row.querySelector('.ab-farbe').value;
+    out.push({id:id,name:name,farbe:/^#[0-9a-fA-F]{6}$/.test(farbe)?farbe:'#64748b'});
+  });
+  return out;
+}
 var TYP={offerte:{n:'Offerte',pl:'Offerten',ic:'📄',prefix:'OF'},auftrag:{n:'Auftrag',pl:'Aufträge',ic:'📋',prefix:'AU'},rechnung:{n:'Rechnung',pl:'Rechnungen',ic:'💰',prefix:'RE'}};
 var ST={
   entwurf:{n:'Entwurf',c:'#64748b',bg:'#f1f5f9',bd:'#cbd5e1'},
@@ -775,9 +918,10 @@ function erpRenderList(){
       chain+=f.rechnungen.length+' Rechnung'+(f.rechnungen.length===1?'':'en')+' · '+Math.round(f.pct)+'% fakturiert';
     }
     if(d.typ==='rechnung'&&d.verknuepfung&&d.verknuepfung.auftragId){var a2=erpDocs().find(function(x){return x.id===d.verknuepfung.auftragId;});if(a2)chain='zu '+a2.nr+(d.rechnungsArt&&d.rechnungsArt!=='einzel'?' · '+({akonto:'Akonto',teil:'Teilrechnung',schluss:'Schlussrechnung'})[d.rechnungsArt]:'');}
-    return '<div class="card" onclick="erpOpen(\''+d.id+'\')">'
+    var abChip=abChipHtml(d.bereichId);
+    return '<div class="card" onclick="erpOpen(\''+d.id+'\')" oncontextmenu="erpDocCtx(event,\''+d.id+'\')">'
       +'<div class="card-bar" style="background:'+st.c+'"></div><div class="card-bd">'
-      +'<div class="card-top"><span class="card-nr">'+esc(d.nr||'')+'</span><span class="badge" style="background:'+st.bg+';color:'+st.c+';border:1px solid '+st.bd+';margin-left:auto">'+st.n+'</span></div>'
+      +'<div class="card-top"><span class="card-nr">'+esc(d.nr||'')+'</span>'+(abChip?'<span style="margin-left:6px">'+abChip+'</span>':'')+'<span class="badge" style="background:'+st.bg+';color:'+st.c+';border:1px solid '+st.bd+';margin-left:auto">'+st.n+'</span></div>'
       +'<div class="card-title">'+esc(d.titel||erpKundeName(d))+'</div>'
       +'<div class="card-meta">👤 '+esc(erpKundeName(d))+(d.objektName?'<br>🏗 '+esc(d.objektName):'')
       +'<br>📅 '+dfmt(d.datum)+' · <b style="color:var(--txt2)">CHF '+chf(t.brutto)+'</b>'
@@ -831,7 +975,7 @@ function erpRenderErfolg(el){
       var m=NK_HINWEIS[hw.code];if(!m)return '';
       return '<span class="badge" style="background:'+m.bg+';color:'+m.c+';border:1px solid '+m.bd+'">'+m.ic+' '+m.t(hw.betrag)+'</span>';
     }).join(' ');
-    return '<div class="card" onclick="erpOpen(\''+d.id+'\')">'
+    return '<div class="card" onclick="erpOpen(\''+d.id+'\')" oncontextmenu="erpDocCtx(event,\''+d.id+'\')">'
       +'<div class="card-bar" style="background:'+st.c+'"></div><div class="card-bd">'
       +'<div class="card-top"><span class="card-nr">'+esc(d.nr||'')+'</span><span class="badge" style="background:'+st.bg+';color:'+st.c+';border:1px solid '+st.bd+';margin-left:auto">'+st.n+'</span></div>'
       +'<div class="card-title">'+esc(d.titel||erpKundeName(d))+'</div>'
@@ -852,7 +996,7 @@ function erpNeu(typ,vorlage){
   var objId='';try{objId=(document.getElementById('fObjekt')||{}).value||GemaObjekte.getActiveId()||'';}catch(e){}
   cur=Object.assign({
     id:uid(),typ:typ,nr:erpNextNr(typ),orgId:u?u.orgId:'',
-    objektId:objId,titel:'',kundeId:'',kundeSnapshot:null,
+    objektId:objId,titel:'',kundeId:'',kundeSnapshot:null,zustellSnapshot:null,bereichId:'',
     datum:today(),
     gueltigBis:typ==='offerte'?addDays(today(),30):'',
     frist:typ==='rechnung'?addDays(today(),s.fristTage):'',
@@ -929,7 +1073,7 @@ function erpOpenEditor(){
   var kunden=erpKunden();
   h+='<div class="sec"><div class="sec-hd"><h3>'+TYP[d.typ].ic+' Grunddaten</h3></div><div class="sec-bd">'
     +'<div class="fld-row">'
-    +'<div class="fld"><label>Kunde *</label><div style="display:flex;gap:6px">'
+    +'<div class="fld"><label>Kunde (Rechnungsempfänger) *</label><div style="display:flex;gap:6px">'
     +'<select id="e_kunde" style="flex:1"'+dis+' onchange="erpKundeWahl(this.value)">'
     +'<option value="">– Kunde wählen –</option>'
     +kunden.map(function(k){return '<option value="'+k.id+'"'+(k.id===d.kundeId?' selected':'')+'>'+esc(k.firma)+'</option>';}).join('')
@@ -945,8 +1089,29 @@ function erpOpenEditor(){
     +'<div class="fld"><label>Datum</label><input type="date" value="'+esc(d.datum||'')+'"'+dis+' onchange="cur.datum=this.value"/></div>'
     +(d.typ==='offerte'?'<div class="fld"><label>Gültig bis</label><input type="date" value="'+esc(d.gueltigBis||'')+'"'+dis+' onchange="cur.gueltigBis=this.value"/></div>':'')
     +(d.typ==='rechnung'?'<div class="fld"><label>Zahlbar bis</label><input type="date" value="'+esc(d.frist||'')+'"'+dis+' onchange="cur.frist=this.value"/></div>':'')
+    +(function(){
+      var bl=abListe();
+      if(!bl.length)return '';   // keine Bereiche definiert → Feld ausblenden (Definition in ⚙️)
+      return '<div class="fld"><label>Arbeitsbereich</label><select id="e_bereich"'+dis+' onchange="cur.bereichId=this.value">'
+        +'<option value="">– kein Bereich –</option>'
+        +bl.map(function(b){return '<option value="'+b.id+'"'+(b.id===d.bereichId?' selected':'')+'>'+esc(b.name)+'</option>';}).join('')
+        +'</select></div>';
+    })()
     +'</div>'
-    +(d.kundeSnapshot?'<div style="font-size:12px;color:var(--mut);background:var(--sur2);border-radius:9px;padding:8px 11px">📮 '+esc(d.kundeSnapshot.firma)+(d.kundeSnapshot.kontakt?' · '+esc(d.kundeSnapshot.kontakt):'')+'<br>'+esc([d.kundeSnapshot.strasse,[d.kundeSnapshot.plz,d.kundeSnapshot.ort].filter(Boolean).join(' ')].filter(Boolean).join(', ')||'(keine Adresse — für die Rechnung ergänzen)')+'</div>':'')
+    +(d.kundeSnapshot?'<div style="font-size:12px;color:var(--mut);background:var(--sur2);border-radius:9px;padding:8px 11px">👤 <b>Kunde (Rechnungsempfänger/Zahler):</b> '+esc(d.kundeSnapshot.firma)+(d.kundeSnapshot.kontakt?' · '+esc(d.kundeSnapshot.kontakt):'')+'<br>'+esc([d.kundeSnapshot.strasse,[d.kundeSnapshot.plz,d.kundeSnapshot.ort].filter(Boolean).join(' ')].filter(Boolean).join(', ')||'(keine Adresse — für die Rechnung ergänzen)')+'</div>':'')
+    // Abweichende Zustelladresse: wohin das Dokument adressiert wird (Fensteradresse) —
+    // Rechnungsempfänger + QR-Zahlteil bleiben beim Kunden
+    +(function(){
+      var zu=d.zustellSnapshot;
+      if(zu&&zu.firma){
+        return '<div style="font-size:12px;color:var(--txt2);background:var(--blue-bg);border:1px solid var(--blue-bd);border-radius:9px;padding:8px 11px;margin-top:6px;display:flex;gap:8px;align-items:flex-start">'
+          +'<div style="flex:1;min-width:0">✉️ <b>Zustelladresse (abweichend):</b> '+esc(zu.firma)+(zu.kontakt?' · '+esc(zu.kontakt):'')+'<br>'+esc([zu.strasse,[zu.plz,zu.ort].filter(Boolean).join(' ')].filter(Boolean).join(', '))
+          +'<br><span style="font-size:11px;color:var(--mut)">Das Dokument wird an diese Adresse adressiert — Rechnungsempfänger/Zahler'+(d.typ==='rechnung'?' (QR-Zahlteil)':'')+' bleibt der Kunde.</span></div>'
+          +(editable?'<span style="display:flex;gap:5px;flex-shrink:0"><button class="btn" style="min-height:28px;padding:3px 9px;font-size:11.5px" onclick="erpZustellOpen()">✏️</button><button class="btn" style="min-height:28px;padding:3px 9px;font-size:11.5px" onclick="erpZustellRemove()">✕</button></span>':'')
+          +'</div>';
+      }
+      return editable?'<button class="btn ghost" style="margin-top:6px;min-height:34px;font-size:12px" title="Wohin das Dokument adressiert/zugestellt wird (z.B. Verwaltung, Architekt, c/o oder Postfach) — Rechnungsempfänger und Zahler bleibt der Kunde" onclick="erpZustellOpen()">✉️ Abweichende Zustelladresse …</button>':'';
+    })()
     +'</div></div>';
 
   // ── Positionen ──
@@ -957,6 +1122,9 @@ function erpOpenEditor(){
     +(editable?'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">'
       +'<button class="btn ghost" onclick="erpPosAdd(\'frei\')">+ Position</button>'
       +'<button class="btn ghost" onclick="erpPosAdd(\'titel\')">+ Titelzeile</button>'
+      +'<button class="btn ghost" onclick="erpBkpOpen()">🧱 BKP-Titel</button>'
+      +'<button class="btn ghost" title="Rabatt aufs Zwischentotal der Positionen darüber im Kapitel — in % oder pauschal CHF" onclick="erpPosAdd(\'rabatt\')">− Rabatt</button>'
+      +'<button class="btn ghost" title="Frei benennbarer Zuschlag aufs Zwischentotal der Positionen darüber im Kapitel — in % oder pauschal CHF" onclick="erpPosAdd(\'zuschlag\')">+ Zuschlag</button>'
       +'<button class="btn" onclick="erpPickOpen(\'katalog\')">📦 Katalog</button>'
       +'<button class="btn" onclick="erpEigOpen()">⭐ Eigene Artikel</button>'
       +'<button class="btn" onclick="erpPickOpen(\'regie\')">📝 Regierapporte</button>'
@@ -990,19 +1158,46 @@ function erpRenderPos(){
   var tb=document.getElementById('posBody');if(!tb||!cur)return;
   var editable=erpEditable();
   var h='';
+  var kapBasis=0;   // Positionssumme seit dem letzten Titel (Basis für Rabatt-/Zuschlagszeilen)
   (cur.positionen||[]).forEach(function(p,i){
     var dis=editable&&p.art!=='abzug'?'':' disabled';
+    if(p.art==='rabatt'||p.art==='zuschlag'){
+      // Rabatt/Zuschlag als eigene Position: frei benennbar, % vom Kapitel-
+      // Zwischentotal (Positionen darüber im Kapitel) oder Pauschal-CHF
+      var istRab=p.art==='rabatt';
+      var bz=erpAufschlagBetrag(p,kapBasis);
+      h+='<tr'+(istRab?' class="abzug"':'')+' oncontextmenu="erpPosCtx(event,'+i+')">'
+        +'<td><input type="text" value="'+esc(p.bez)+'" placeholder="'+(istRab?'Rabatt':'Zuschlag')+' …"'+dis+' oninput="cur.positionen['+i+'].bez=this.value"/></td>'
+        +'<td><span class="src" style="background:'+(istRab?'var(--red-bg);color:var(--red);border:1px solid var(--red-bd)':'var(--amber-bg);color:var(--amber);border:1px solid var(--amber-bd)')+'">'+(istRab?'− Rabatt':'+ Zuschlag')+'</span></td>'
+        +'<td></td>'
+        +'<td style="width:88px"><select'+dis+' onchange="cur.positionen['+i+'].modus=this.value;erpRenderPos()"><option value="pct"'+(p.modus!=='chf'?' selected':'')+'>%</option><option value="chf"'+(p.modus==='chf'?' selected':'')+'>CHF</option></select></td>'
+        +'<td style="width:104px"><input class="num" type="text" inputmode="decimal" value="'+(p.wert!=null?p.wert:'')+'" placeholder="'+(p.modus==='chf'?'Betrag':'%')+'"'+dis+' onchange="cur.positionen['+i+'].wert=this.value;erpRenderPos()" onblur="fixLeadingZero(this)"/></td>'
+        +'<td class="num" style="font-size:10.5px;color:var(--mut);white-space:nowrap" title="Zwischentotal der Positionen darüber im Kapitel">'+(p.modus==='chf'?'pauschal':'auf '+chf(kapBasis))+'</td>'
+        +'<td class="num" style="font-weight:700;white-space:nowrap;color:'+(bz<0?'var(--red)':'var(--amber)')+'">'+(bz<0?'− ':'+ ')+chf(Math.abs(bz))+'</td>'
+        +(editable?'<td><button class="pos-del" onclick="cur.positionen.splice('+i+',1);erpRenderPos()">✕</button></td>':'')
+        +'</tr>';
+      return;
+    }
     if(p.art==='titel'){
-      h+='<tr class="titel"><td colspan="6"><input type="text" value="'+esc(p.bez)+'" placeholder="Titel …"'+(editable?' oninput="cur.positionen['+i+'].bez=this.value"':' disabled')+'/></td><td></td>'+(editable?'<td><button class="pos-del" onclick="cur.positionen.splice('+i+',1);erpRenderPos()">✕</button></td>':'')+'</tr>';
+      // BKP-Struktur: Nummer bestimmt die Einrückung (2 → 25 → 254 → 254.0, wie die
+      // BKP-Checkliste im Ausschreibungsmodul); Nummer + Text bleiben frei anpassbar
+      kapBasis=0;
+      var eb=bkpEbene(p.bkp);
+      h+='<tr class="titel" oncontextmenu="erpPosCtx(event,'+i+')"><td colspan="6"><div style="display:flex;gap:6px;align-items:center;padding-left:'+(eb*20)+'px">'
+        +(eb?'<span style="color:var(--mut2);font-size:11px;flex-shrink:0">└</span>':'')
+        +'<input type="text" value="'+esc(p.bkp||'')+'" placeholder="BKP" title="BKP-Nr. (z.B. 2, 25, 254, 254.0) — bestimmt die Einrückung; frei anpassbar" style="flex:0 0 76px;width:76px;text-align:left;color:var(--acc,#1d4ed8)"'+(editable?' oninput="cur.positionen['+i+'].bkp=this.value" onchange="erpRenderPos()"':' disabled')+'/>'
+        +'<input type="text" value="'+esc(p.bez)+'" placeholder="Titel …" style="flex:1;min-width:0"'+(editable?' oninput="cur.positionen['+i+'].bez=this.value"':' disabled')+'/>'
+        +'</div></td><td></td>'+(editable?'<td><button class="pos-del" onclick="cur.positionen.splice('+i+',1);erpRenderPos()">✕</button></td>':'')+'</tr>';
       return;
     }
     var betrag=erpNum(p.menge)*erpNum(p.ep)*(1-erpNum(p.rabattPct)/100);
+    kapBasis+=betrag;
     var src=p.art==='regie'?'<span class="src regie">Regie</span>':p.eigenArtikelId?'<span class="src" style="background:var(--tint,#f5f8ff);color:var(--acc,#1d4ed8);border:1px solid var(--brd2)">⭐ Eigen</span>':p.produktId?'<span class="src katalog">Katalog</span>':p.art==='oa'?'<span class="src oa">Lief.-Offerte</span>':p.art==='abzug'?'<span class="src" style="background:var(--amber-bg);color:var(--amber);border:1px solid var(--amber-bd)">Abzug</span>':p.art==='akonto'?'<span class="src" style="background:var(--amber-bg);color:var(--amber);border:1px solid var(--amber-bd)">Akonto</span>':'';
     var img=erpPosImgSrc(p);
     var bildHtml=img
       ?'<div class="pos-bild"><img src="'+esc(img)+'" onclick="erpPosBildView('+i+')" alt=""/>'+(editable?'<button class="pos-bild-x" title="Bild entfernen" onclick="erpPosBildDel('+i+')">✕</button>':'')+'</div>'
       :(editable&&p.art!=='abzug'&&p.art!=='akonto'?'<button class="pos-foto" title="Bild zur Position" onclick="erpPosBildPick('+i+')">📷</button>':'');
-    h+='<tr'+(p.art==='abzug'?' class="abzug"':'')+'>'
+    h+='<tr'+(p.art==='abzug'?' class="abzug"':'')+' oncontextmenu="erpPosCtx(event,'+i+')">'
       +'<td><div style="display:flex;gap:6px;align-items:center"><input type="text" value="'+esc(p.bez)+'"'+dis+' oninput="cur.positionen['+i+'].bez=this.value" style="flex:1"/>'+bildHtml+'</div></td>'
       +'<td>'+src+'</td>'
       +'<td style="width:76px"><input class="num" type="text" inputmode="decimal" value="'+(p.menge!=null?p.menge:'')+'"'+dis+' onchange="cur.positionen['+i+'].menge=this.value;erpRenderPos()" onblur="fixLeadingZero(this)"/></td>'
@@ -1016,7 +1211,7 @@ function erpRenderPos(){
   if(!h)h='<tr><td colspan="8" style="text-align:center;color:var(--mut2);padding:14px">Noch keine Positionen — unten hinzufügen</td></tr>';
   tb.innerHTML=h;
   var t=erpDocTotals(cur);
-  var hint=document.getElementById('posHint');if(hint)hint.textContent=(cur.positionen||[]).filter(function(p){return p.art!=='titel';}).length+' Positionen';
+  var hint=document.getElementById('posHint');if(hint)hint.textContent=(cur.positionen||[]).filter(function(p){return p.art!=='titel';}).length+' Positionen'+(editable&&window.matchMedia&&matchMedia('(hover:hover)').matches?' · Rechtsklick: Kopieren / Einfügen / Verschieben':'');
   var sb=document.getElementById('sumBlock');
   var editableDoc=erpEditable();
   if(sb)sb.innerHTML='<div class="rw"><span>Zwischentotal</span><b>'+chf(t.zwischen)+'</b></div>'
@@ -1027,8 +1222,210 @@ function erpRenderPos(){
     +'<div class="rw tot"><span>Total CHF</span><b>'+chf(t.brutto)+'</b></div>';
 }
 function erpPosAdd(art){
-  cur.positionen.push(art==='titel'?{id:uid(),art:'titel',bez:''}:{id:uid(),art:'frei',bez:'',menge:1,einheit:'Stk',ep:'',rabattPct:''});
+  cur.positionen.push(
+    art==='titel'?{id:uid(),art:'titel',bez:''}
+    :art==='rabatt'?{id:uid(),art:'rabatt',bez:'Rabatt',modus:'pct',wert:''}
+    :art==='zuschlag'?{id:uid(),art:'zuschlag',bez:'Zuschlag',modus:'pct',wert:''}
+    :{id:uid(),art:'frei',bez:'',menge:1,einheit:'Stk',ep:'',rabattPct:''});
   erpRenderPos();
+}
+
+// ═══════════════════════════════════════════════════════════
+// KONTEXTMENÜ (Rechtsklick) — wenig Klicks statt vieler Buttons.
+// Karten: statusabhängige Aktionen (Auftrag/Akonto/Teil/Schluss …);
+// Positions-Editor: Kopieren/Ausschneiden/Einfügen/Verschieben.
+// ═══════════════════════════════════════════════════════════
+var _ctxEl=null;
+function erpCtxClose(){if(_ctxEl){_ctxEl.remove();_ctxEl=null;}}
+document.addEventListener('click',erpCtxClose);
+document.addEventListener('keydown',function(e){if(e.key==='Escape')erpCtxClose();});
+window.addEventListener('scroll',erpCtxClose,true);
+window.addEventListener('resize',erpCtxClose);
+// items: {ic,t,fn,danger?} | '-' (Trenner) | {hd:'Überschrift'}
+function erpCtxShow(e,items){
+  e.preventDefault();e.stopPropagation();
+  erpCtxClose();
+  if(!items||!items.length)return;
+  var m=document.createElement('div');
+  m.id='erpCtxMenu';
+  items.forEach(function(it){
+    if(it==='-'){var s=document.createElement('div');s.className='ctx-sep';m.appendChild(s);return;}
+    if(it.hd){var h=document.createElement('div');h.className='ctx-hd';h.textContent=it.hd;m.appendChild(h);return;}
+    var b=document.createElement('button');
+    b.type='button';
+    b.className='ctx-i'+(it.danger?' danger':'');
+    b.innerHTML='<span class="ci">'+(it.ic||'')+'</span><span>'+esc(it.t)+'</span>';
+    b.onclick=function(ev){ev.stopPropagation();erpCtxClose();it.fn();};
+    m.appendChild(b);
+  });
+  document.body.appendChild(m);
+  var r=m.getBoundingClientRect();
+  m.style.left=Math.max(8,Math.min(e.clientX,window.innerWidth-r.width-8))+'px';
+  m.style.top=Math.max(8,Math.min(e.clientY,window.innerHeight-r.height-8))+'px';
+  _ctxEl=m;
+}
+
+// ── Karten-Menü (Dokument-Liste + Erfolg-Tab) ──
+function erpCtxStatus(id,st,msg){
+  var d=poolRead(DOK_POOL).find(function(x){return x.id===id;});if(!d)return;
+  d.status=st;
+  poolSave(DOK_POOL,DOK_PREFIX,d);
+  toast(msg||('Status: '+st));
+  erpRenderAll();
+}
+// Offerte duplizieren: Kopie als Entwurf mit neuer Nummer; Regie-/OA-Verknüpfungen
+// werden gekappt (sonst doppelte Verrechnung/Nachkalkulation), Kette/Zahlungen leer.
+function erpDuplizieren(id){
+  var d=poolRead(DOK_POOL).find(function(x){return x.id===id;});if(!d)return;
+  var u=erpUser();
+  var c=JSON.parse(JSON.stringify(d));
+  c.id=uid();c.nr=erpNextNr(d.typ);c.status='entwurf';c.datum=today();
+  if(d.typ==='offerte')c.gueltigBis=addDays(today(),30);
+  c.verknuepfung={};c.zahlungen=[];
+  c.erstelltVon={userId:u?u.id:'',name:u?u.name:''};c.erstelltAm=new Date().toISOString();
+  (c.positionen||[]).forEach(function(p){p.id=uid();delete p.regieRapportId;delete p.oaId;});
+  poolSave(DOK_POOL,DOK_PREFIX,c);
+  toast('🗐 '+TYP[d.typ].n+' '+c.nr+' als Kopie erstellt');
+  erpOpen(c.id);
+}
+function erpDocCtx(e,id){
+  var d=erpDocs().find(function(x){return x.id===id;});
+  if(!d)return;
+  var canEdit=erpCanEdit();
+  var s=erpStatusOf(d);
+  var items=[{hd:(d.nr||'')+' · '+TYP[d.typ].n},{ic:'📂',t:'Öffnen',fn:function(){erpOpen(id);}}];
+  if(canEdit){
+    if(d.typ==='offerte'){
+      if(d.status==='entwurf')items.push({ic:'📤',t:'Als versendet markieren',fn:function(){erpCtxStatus(id,'versendet','📤 Offerte als versendet markiert');}});
+      if(d.status==='versendet'){
+        items.push({ic:'✓',t:'Als angenommen markieren',fn:function(){erpCtxStatus(id,'angenommen','🎉 Offerte angenommen');}});
+        items.push({ic:'✕',t:'Als abgelehnt markieren',fn:function(){erpCtxStatus(id,'abgelehnt','Offerte als abgelehnt markiert');}});
+      }
+      if(d.status==='angenommen'&&!(d.verknuepfung&&d.verknuepfung.auftragId))items.push({ic:'📋',t:'Auftrag erstellen',fn:function(){erpOpen(id);erpZuAuftrag();}});
+      items.push({ic:'🗐',t:'Duplizieren',fn:function(){erpDuplizieren(id);}});
+    }
+    if(d.typ==='auftrag'&&d.status!=='abgeschlossen'){
+      items.push('-');
+      items.push({ic:'💰',t:'Akontorechnung erstellen',fn:function(){erpOpen(id);erpAkonto();}});
+      items.push({ic:'💰',t:'Teilrechnung erstellen',fn:function(){erpOpen(id);erpTeilOpen();}});
+      items.push({ic:'💰',t:'Schlussrechnung erstellen',fn:function(){erpOpen(id);erpSchluss();}});
+      items.push('-');
+      if(d.status==='offen')items.push({ic:'▶',t:'In Arbeit setzen',fn:function(){erpCtxStatus(id,'in_arbeit','Auftrag in Arbeit');}});
+      items.push({ic:'✓',t:'Auftrag abschliessen',fn:function(){erpCtxStatus(id,'abgeschlossen','Auftrag abgeschlossen');}});
+    }
+    if(d.typ==='rechnung'){
+      if(d.status==='entwurf')items.push({ic:'📤',t:'Rechnung stellen',fn:function(){erpOpen(id);erpRechnungStellen();}});
+      if(s==='gestellt'||s==='ueberfaellig'){
+        items.push({ic:'💵',t:'Zahlung erfassen',fn:function(){erpOpen(id);erpZahlung();}});
+        items.push({ic:'⊘',t:'Stornieren',fn:function(){erpOpen(id);erpStornieren();}});
+      }
+    }
+  }
+  items.push({ic:'📄',t:'PDF',fn:function(){erpOpen(id);erpPdf();}});
+  if(canEdit&&d.status==='entwurf'){
+    items.push('-');
+    items.push({ic:'🗑',t:'Löschen',danger:true,fn:function(){erpOpen(id);erpLoeschen();}});
+  }
+  erpCtxShow(e,items);
+}
+
+// ── Positions-Menü (Editor): Clipboard lebt pro Seiten-Session — Kopieren in
+// einem Dokument, Einfügen in einem anderen funktioniert. Beim Einfügen werden
+// Regie-/OA-Verknüpfungen gekappt (kein Doppel-Verrechnen/Doppel-Zählen).
+var _posClip=null;
+function _posClipCopy(p){
+  var c=JSON.parse(JSON.stringify(p));
+  c.id=uid();
+  delete c.regieRapportId;delete c.oaId;
+  return c;
+}
+function erpPosMove(i,dir){
+  var j=i+dir;
+  if(j<0||j>=cur.positionen.length)return;
+  var t=cur.positionen[i];cur.positionen[i]=cur.positionen[j];cur.positionen[j]=t;
+  erpRenderPos();
+}
+// Rabatt-/Zuschlagszeile direkt unterhalb der Zeile i einfügen — Modus (% vom
+// Kapitel-Zwischentotal oder pauschal CHF) kommt aus dem Kontextmenü, bleibt in
+// der Zeile aber weiterhin umschaltbar
+function erpPosInsertAufschlag(i,art,modus){
+  cur.positionen.splice(i+1,0,{id:uid(),art:art,bez:art==='rabatt'?'Rabatt':'Zuschlag',modus:modus,wert:''});
+  erpRenderPos();
+}
+function erpPosCtx(e,i){
+  // In Eingabefeldern bleibt das native Menü (Text kopieren/einfügen)
+  if(e.target&&/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName))return;
+  if(!cur)return;
+  var p=cur.positionen[i];if(!p)return;
+  var editable=erpEditable();
+  var lbl=p.art==='titel'?('Titel «'+(p.bez||'—')+'»'):(p.bez||'Position');
+  var items=[{hd:lbl.length>34?lbl.slice(0,33)+'…':lbl}];
+  items.push({ic:'📋',t:'Kopieren',fn:function(){_posClip=JSON.parse(JSON.stringify(p));toast('📋 Kopiert — Rechtsklick → Einfügen (auch in einem anderen Dokument)');}});
+  if(editable){
+    items.push({ic:'✂️',t:'Ausschneiden',fn:function(){_posClip=JSON.parse(JSON.stringify(p));cur.positionen.splice(i,1);erpRenderPos();toast('✂️ Ausgeschnitten');}});
+    if(_posClip)items.push({ic:'📥',t:'Einfügen (unterhalb)',fn:function(){cur.positionen.splice(i+1,0,_posClipCopy(_posClip));erpRenderPos();}});
+    items.push({ic:'🗐',t:'Duplizieren',fn:function(){cur.positionen.splice(i+1,0,_posClipCopy(p));erpRenderPos();}});
+    items.push('-');
+    items.push({hd:'Unterhalb einfügen'});
+    items.push({ic:'−',t:'Rabatt in %',fn:function(){erpPosInsertAufschlag(i,'rabatt','pct');}});
+    items.push({ic:'−',t:'Rabatt pauschal (CHF)',fn:function(){erpPosInsertAufschlag(i,'rabatt','chf');}});
+    items.push({ic:'＋',t:'Zuschlag in %',fn:function(){erpPosInsertAufschlag(i,'zuschlag','pct');}});
+    items.push({ic:'＋',t:'Zuschlag pauschal (CHF)',fn:function(){erpPosInsertAufschlag(i,'zuschlag','chf');}});
+    items.push('-');
+    if(i>0)items.push({ic:'⬆️',t:'Nach oben verschieben',fn:function(){erpPosMove(i,-1);}});
+    if(i<cur.positionen.length-1)items.push({ic:'⬇️',t:'Nach unten verschieben',fn:function(){erpPosMove(i,1);}});
+    items.push('-');
+    items.push({ic:'🗑',t:'Löschen',danger:true,fn:function(){cur.positionen.splice(i,1);erpRenderPos();}});
+  }
+  erpCtxShow(e,items);
+}
+
+// ═══════════════════════════════════════════════════════════
+// BKP-TITEL-PICKER — Standard-Baukostenplan (gema_bkp_katalog.js)
+// Eingerückte Titelzeilen wie die BKP-Checkliste im Ausschreibungs-
+// modul; eingefügte Titel bleiben einzeln anpassbar (Nummer + Text).
+// ═══════════════════════════════════════════════════════════
+var _bkpSel={};
+function erpBkpOpen(){
+  if(typeof GemaBKP==='undefined'){toast('BKP-Katalog nicht geladen');return;}
+  _bkpSel={};
+  document.getElementById('bkpSuche').value='';
+  erpBkpRenderList();
+  document.getElementById('bkpModal').classList.add('open');
+}
+function erpBkpRenderList(){
+  var q=(document.getElementById('bkpSuche').value||'').toLowerCase().trim();
+  var items=GemaBKP.flat();
+  if(q)items=items.filter(function(x){return (x.id+' '+x.titel).toLowerCase().indexOf(q)>=0;});
+  document.getElementById('bkpListe').innerHTML=items.map(function(x){
+    return '<label class="bkp-item" style="display:flex;align-items:center;gap:9px;padding:7px 12px 7px '+(12+x.ebene*20)+'px;border-bottom:1px solid var(--brd);cursor:pointer;font-size:13px'
+      +(x.ebene===0?';background:var(--sur2);font-weight:800':x.ebene===1?';font-weight:700':'')+'">'
+      +'<input type="checkbox" class="bkp-chk" data-bkp="'+esc(x.id)+'" '+(_bkpSel[x.id]?'checked':'')+' onchange="erpBkpToggle(this)" style="width:19px;height:19px;accent-color:var(--acc,#1d4ed8);flex-shrink:0"/>'
+      +'<span style="font-weight:800;min-width:52px;flex-shrink:0;color:var(--acc,#1d4ed8)">'+esc(x.id)+'</span>'
+      +'<span style="min-width:0">'+esc(x.titel)+'</span></label>';
+  }).join('')||'<div style="padding:16px;color:var(--mut2);font-size:12.5px;text-align:center">Keine Treffer.</div>';
+  erpBkpCount();
+}
+function erpBkpToggle(cb){
+  if(cb.checked)_bkpSel[cb.dataset.bkp]=true;else delete _bkpSel[cb.dataset.bkp];
+  erpBkpCount();
+}
+function erpBkpCount(){
+  var n=Object.keys(_bkpSel).length;
+  var btn=document.getElementById('bkpInsBtn');
+  btn.textContent='＋ '+n+' Titel einfügen';
+  btn.disabled=!n;
+}
+function erpBkpInsert(){
+  var ids=Object.keys(_bkpSel).sort();   // lexikografisch = BKP-Baumreihenfolge (2 < 25 < 251 < 251.0 < 3)
+  if(!ids.length||!cur)return;
+  ids.forEach(function(id){
+    var k=GemaBKP.byId(id);
+    cur.positionen.push({id:uid(),art:'titel',bez:(k&&k.titel)||'',bkp:id});
+  });
+  document.getElementById('bkpModal').classList.remove('open');
+  erpRenderPos();
+  toast('＋ '+ids.length+' BKP-Titel eingefügt — Nummern & Texte bleiben anpassbar');
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1232,18 +1629,29 @@ function erpVorlOpen(){
 }
 function erpVorlRender(){
   var el=document.getElementById('vorlList');
-  var vs=erpVorlagen().slice().sort(function(a,b){return String(b.erstelltAm||'').localeCompare(String(a.erstelltAm||''));});
+  // Passende Vorlagen zuerst: gleicher Dokumenttyp (bei Rechnungen zusätzlich
+  // gleiche Rechnungsart — z.B. Akonto-Standardvorlage in der Akontorechnung)
+  var vs=erpVorlagen().slice().sort(function(a,b){
+    if(cur){
+      var ma=(a.typ===cur.typ?1:0)+((cur.typ==='rechnung'&&a.rechnungsArt&&a.rechnungsArt===cur.rechnungsArt)?1:0);
+      var mb=(b.typ===cur.typ?1:0)+((cur.typ==='rechnung'&&b.rechnungsArt&&b.rechnungsArt===cur.rechnungsArt)?1:0);
+      if(ma!==mb)return mb-ma;
+    }
+    return String(b.erstelltAm||'').localeCompare(String(a.erstelltAm||''));
+  });
   var canIns=!!(cur&&erpEditable());
+  var artLbl={akonto:'Akonto',teil:'Teilrechnung',schluss:'Schlussrechnung'};
   el.innerHTML=vs.length?vs.map(function(v){
     var t=erpDocTotals({positionen:v.positionen||[],rabattPct:v.rabattPct||0,mwstPct:v.mwstPct!=null?v.mwstPct:8.1});
     var n=(v.positionen||[]).filter(function(p){return p.art!=='titel';}).length;
+    var artBadge=(v.typ==='rechnung'&&artLbl[v.rechnungsArt])?' <span style="font-size:9.5px;font-weight:800;padding:1px 7px;border-radius:5px;background:var(--amber-bg);color:var(--amber);border:1px solid var(--amber-bd)">'+artLbl[v.rechnungsArt]+'</span>':'';
     return '<div class="pick-item" style="cursor:default"><span style="font-size:19px">'+(TYP[v.typ]?TYP[v.typ].ic:'📑')+'</span>'
-      +'<div class="pi-t"><div class="pi-n">'+esc(v.name)+'</div><div class="pi-s">'+(TYP[v.typ]?TYP[v.typ].n:'')+' · '+n+' Positionen · Total '+chf(t.brutto)+'</div></div>'
+      +'<div class="pi-t"><div class="pi-n">'+esc(v.name)+artBadge+'</div><div class="pi-s">'+(TYP[v.typ]?TYP[v.typ].n:'')+' · '+n+' Positionen · Total '+chf(t.brutto)+'</div></div>'
       +'<span style="display:flex;gap:4px">'
       +(canIns?'<button class="btn grn" style="min-height:32px;padding:4px 10px" onclick="erpVorlApply(\''+v.id+'\')">⬇ Einfügen</button>':'')
       +'<button class="btn" style="min-height:32px;padding:4px 9px" onclick="erpVorlDel(\''+v.id+'\')">🗑</button>'
       +'</span></div>';
-  }).join(''):'<div style="text-align:center;color:var(--mut);font-size:13px;padding:16px">Noch keine Vorlagen.<br>Ein fertiges Dokument öffnen und oben als Vorlage speichern — steht danach der ganzen Firma zur Verfügung.</div>';
+  }).join(''):'<div style="text-align:center;color:var(--mut);font-size:13px;padding:16px">Noch keine Vorlagen.<br>Ein fertiges Dokument öffnen und oben als Vorlage speichern — steht danach der ganzen Firma zur Verfügung (auch für Rechnungen, z.B. eine Akonto-Standardvorlage).</div>';
   document.getElementById('vorlSaveBtn').style.display=cur?'':'none';
 }
 function erpVorlSpeichern(){
@@ -1253,7 +1661,10 @@ function erpVorlSpeichern(){
     var u=erpUser();
     // Dokument-spezifisches raus: Akonto-/Abzugszeilen weglassen, Regie-/OA-Verknüpfungen kappen
     var posn=(cur.positionen||[]).filter(function(p){return p.art!=='akonto'&&p.art!=='abzug';}).map(function(p){
-      var c={id:uid(),art:p.art==='titel'?'titel':'frei',bez:p.bez,menge:p.menge,einheit:p.einheit,ep:p.ep,rabattPct:p.rabattPct};
+      var art=p.art==='titel'?'titel':(p.art==='rabatt'||p.art==='zuschlag')?p.art:'frei';
+      var c={id:uid(),art:art,bez:p.bez,menge:p.menge,einheit:p.einheit,ep:p.ep,rabattPct:p.rabattPct};
+      if(p.art==='titel'&&p.bkp)c.bkp=p.bkp;   // BKP-Struktur wandert in die Vorlage mit
+      if(art==='rabatt'||art==='zuschlag'){c.modus=p.modus;c.wert=p.wert;delete c.menge;delete c.einheit;delete c.ep;delete c.rabattPct;}
       if(p.produktId){c.produktId=p.produktId;c.lieferantFirma=p.lieferantFirma;}
       if(p.eigenArtikelId)c.eigenArtikelId=p.eigenArtikelId;
       if(p.bildUrl)c.bildUrl=p.bildUrl;
@@ -1263,6 +1674,7 @@ function erpVorlSpeichern(){
     var v={id:uid(),orgId:u?u.orgId:'',name:name.trim(),typ:cur.typ,titel:cur.titel||'',einleitung:cur.einleitung||'',schlusstext:cur.schlusstext||'',
       rabattPct:cur.rabattPct||0,mwstPct:cur.mwstPct,positionen:posn,
       erstelltVon:{userId:u?u.id:'',name:u?u.name:''},erstelltAm:new Date().toISOString()};
+    if(cur.typ==='rechnung'&&cur.rechnungsArt)v.rechnungsArt=cur.rechnungsArt;   // z.B. Akonto-Standardvorlage
     poolSave(VORL_POOL,VORL_PREFIX,v);
     erpVorlRender();toast('✓ Vorlage «'+v.name+'» gespeichert (org-weit)');
   });
@@ -1274,18 +1686,21 @@ function erpVorlApply(id){
   var leer=!(cur.positionen||[]).filter(function(p){return p.art!=='titel';}).length;
   if(leer){
     cur.positionen=posn;
-    if(!cur.titel)cur.titel=v.titel||'';
-    if(!cur.einleitung)cur.einleitung=v.einleitung||'';
-    if(!cur.schlusstext)cur.schlusstext=v.schlusstext||'';
     cur.rabattPct=v.rabattPct||0;
     if(v.mwstPct!=null)cur.mwstPct=v.mwstPct;
-    erpOpenEditor();   // Texte neu rendern
   } else {
     cur.positionen=cur.positionen.concat(posn);
-    erpRenderPos();
   }
+  // Die Vorlage bestimmt die Texte: mitgebrachte Einleitung/Schlusstext ersetzen die
+  // gestempelten Standardtexte (so wirkt z.B. eine Akonto-Standardvorlage auch auf
+  // die bereits erzeugte Akontorechnung); Titel nur füllen, wenn noch leer.
+  var texte=false;
+  if(v.einleitung){cur.einleitung=v.einleitung;texte=true;}
+  if(v.schlusstext){cur.schlusstext=v.schlusstext;texte=true;}
+  if(!cur.titel&&v.titel)cur.titel=v.titel;
+  if(leer||texte)erpOpenEditor();else erpRenderPos();
   document.getElementById('vorlModal').classList.remove('open');
-  toast('⬇ Vorlage «'+v.name+'» eingefügt');
+  toast('⬇ Vorlage «'+v.name+'» eingefügt'+(texte?' — Texte übernommen':''));
 }
 function erpVorlDel(id){
   var v=erpVorlagen().find(function(x){return x.id===id;});
@@ -1293,6 +1708,51 @@ function erpVorlDel(id){
     if(!ok)return;
     poolDelete(VORL_POOL,VORL_PREFIX,id);erpVorlRender();
   });
+}
+
+// ═══════════════════════════════════════════════════════════
+// ABWEICHENDE ZUSTELLADRESSE (zustellSnapshot) — Fensteradresse des
+// Dokuments; Rechnungsempfänger/Zahler (QR-Zahlteil) bleibt der Kunde.
+// ═══════════════════════════════════════════════════════════
+function erpZustellOpen(){
+  if(!cur||!erpEditable()){toast('Dokument nicht bearbeitbar');return;}
+  var zu=cur.zustellSnapshot||{};
+  document.getElementById('z_pick').innerHTML='<option value="">– wählen (optional) –</option>'
+    +erpKunden().map(function(kd){return '<option value="'+kd.id+'">'+esc(kd.firma)+'</option>';}).join('');
+  document.getElementById('z_firma').value=zu.firma||'';
+  document.getElementById('z_kontakt').value=zu.kontakt||'';
+  document.getElementById('z_strasse').value=zu.strasse||'';
+  document.getElementById('z_plz').value=zu.plz||'';
+  document.getElementById('z_ort').value=zu.ort||'';
+  document.getElementById('zustellModal').classList.add('open');
+}
+function erpZustellPrefill(id){
+  var kd=erpKunden().find(function(x){return x.id===id;});
+  if(!kd)return;
+  document.getElementById('z_firma').value=kd.firma||'';
+  document.getElementById('z_kontakt').value=kd.kontakt||'';
+  document.getElementById('z_strasse').value=kd.strasse||'';
+  document.getElementById('z_plz').value=kd.plz||'';
+  document.getElementById('z_ort').value=kd.ort||'';
+}
+function erpZustellSave(){
+  var firma=document.getElementById('z_firma').value.trim();
+  if(!firma){toast('⚠ Firma/Name fehlt');return;}
+  cur.zustellSnapshot={
+    firma:firma,
+    kontakt:document.getElementById('z_kontakt').value.trim(),
+    strasse:document.getElementById('z_strasse').value.trim(),
+    plz:document.getElementById('z_plz').value.trim(),
+    ort:document.getElementById('z_ort').value.trim()
+  };
+  document.getElementById('zustellModal').classList.remove('open');
+  erpOpenEditor();
+  toast('✉️ Zustelladresse gesetzt — Rechnungsempfänger bleibt der Kunde');
+}
+function erpZustellRemove(){
+  cur.zustellSnapshot=null;
+  erpOpenEditor();
+  toast('Zustelladresse entfernt — Dokument geht wieder an den Kunden');
 }
 
 // ── Footer-Aktionen (statusabhängig) ──
@@ -1357,7 +1817,8 @@ function erpZuAuftrag(){
   var auftrag={
     id:uid(),typ:'auftrag',nr:erpNextNr('auftrag'),orgId:off.orgId,
     objektId:off.objektId,objektName:off.objektName,titel:off.titel,
-    kundeId:off.kundeId,kundeSnapshot:off.kundeSnapshot,
+    kundeId:off.kundeId,kundeSnapshot:off.kundeSnapshot,bereichId:off.bereichId||'',
+    zustellSnapshot:off.zustellSnapshot?JSON.parse(JSON.stringify(off.zustellSnapshot)):null,
     datum:today(),status:'offen',
     positionen:JSON.parse(JSON.stringify(off.positionen||[])),
     rabattPct:off.rabattPct,mwstPct:off.mwstPct,
@@ -1377,7 +1838,8 @@ function _erpNeueRechnung(auftrag,art,positionen,titelZusatz){
     id:uid(),typ:'rechnung',nr:erpNextNr('rechnung'),orgId:auftrag.orgId,
     objektId:auftrag.objektId,objektName:auftrag.objektName,
     titel:(auftrag.titel||'')+(titelZusatz?' — '+titelZusatz:''),
-    kundeId:auftrag.kundeId,kundeSnapshot:auftrag.kundeSnapshot,
+    kundeId:auftrag.kundeId,kundeSnapshot:auftrag.kundeSnapshot,bereichId:auftrag.bereichId||'',
+    zustellSnapshot:auftrag.zustellSnapshot?JSON.parse(JSON.stringify(auftrag.zustellSnapshot)):null,
     datum:today(),frist:addDays(today(),s.fristTage),status:'entwurf',
     positionen:positionen,rabattPct:0,mwstPct:auftrag.mwstPct!=null?auftrag.mwstPct:s.mwstPct,
     einleitung:s.txtRechnungIntro||'',schlusstext:s.txtRechnung,
@@ -1406,10 +1868,11 @@ function erpAkonto(){
 var _teilAuswahl=null;
 function erpTeilOpen(){
   erpSaveCur(true);
-  _teilAuswahl=(cur.positionen||[]).map(function(p,i){return {i:i,on:p.art!=='titel',menge:p.menge};});
-  var h='<div style="font-size:12.5px;color:var(--mut);margin-bottom:10px">Positionen für die Teilrechnung wählen — Menge anpassbar (z.B. gelieferter Anteil).</div>';
+  _teilAuswahl=(cur.positionen||[]).map(function(p,i){return {i:i,on:p.art!=='titel'&&p.art!=='rabatt'&&p.art!=='zuschlag',menge:p.menge};});
+  var h='<div style="font-size:12.5px;color:var(--mut);margin-bottom:10px">Positionen für die Teilrechnung wählen — Menge anpassbar (z.B. gelieferter Anteil). Teilrechnungen gelten nicht als Akonto und werden in der Schlussrechnung NICHT abgezogen.</div>';
   (cur.positionen||[]).forEach(function(p,i){
-    if(p.art==='titel'){h+='<div style="font-weight:800;font-size:12.5px;margin:10px 0 4px">'+esc(p.bez)+'</div>';return;}
+    if(p.art==='titel'){h+='<div style="font-weight:800;font-size:12.5px;margin:10px 0 4px'+(bkpEbene(p.bkp)?';padding-left:'+(bkpEbene(p.bkp)*14)+'px':'')+'">'+(p.bkp?esc(p.bkp)+' ':'')+esc(p.bez)+'</div>';return;}
+    if(p.art==='rabatt'||p.art==='zuschlag'){h+='<div style="font-size:11px;color:var(--mut);margin:2px 0 6px">↳ '+esc(p.bez)+' — Rabatt/Zuschlag wird in der Teilrechnung nicht übernommen</div>';return;}
     h+='<div class="pick-item" style="cursor:default">'
       +'<input type="checkbox" checked style="width:22px;height:22px" onchange="_teilAuswahl['+i+'].on=this.checked"/>'
       +'<div class="pi-t"><div class="pi-n">'+esc(p.bez||'—')+'</div><div class="pi-s">EP CHF '+chf(erpNum(p.ep))+' / '+esc(p.einheit||'')+'</div></div>'
@@ -1423,7 +1886,7 @@ function erpTeilErstellen(){
   var pos=[];
   _teilAuswahl.forEach(function(a){
     if(!a.on)return;
-    var p=cur.positionen[a.i];if(!p||p.art==='titel')return;
+    var p=cur.positionen[a.i];if(!p||p.art==='titel'||p.art==='rabatt'||p.art==='zuschlag')return;
     var np=JSON.parse(JSON.stringify(p));np.id=uid();np.menge=a.menge;
     pos.push(np);
   });
@@ -1437,7 +1900,7 @@ function erpSchluss(){
   erpSaveCur(true);
   var pos=erpSchlussPositionen(poolRead(DOK_POOL),cur);
   var re=_erpNeueRechnung(cur,'schluss',pos,'Schlussrechnung');
-  toast('💰 Schlussrechnung '+re.nr+' erstellt — bereits Verrechnetes ist abgezogen');
+  toast('💰 Schlussrechnung '+re.nr+' erstellt — gestellte Akontorechnungen sind abgezogen (Teilrechnungen nicht)');
   erpOpen(re.id);
 }
 function erpRechnungStellen(){
@@ -1658,6 +2121,7 @@ function erpOpenSettings(){
   document.getElementById('s_web').value=s.web;
   document.getElementById('s_mwstnr').value=s.mwstNr;
   document.getElementById('s_kosten').value=s.kostenFaktorPct||'';
+  document.getElementById('s_abRows').innerHTML=abListe().map(abRowHtml).join('');
   document.getElementById('s_txtOfferte').value=s.txtOfferte;
   document.getElementById('s_txtRechnung').value=s.txtRechnung;
   document.getElementById('s_txtAuftrag').value=s.txtAuftrag;
@@ -1693,6 +2157,8 @@ function erpSetSave(){
       txtRechnungIntro:document.getElementById('s_txtRechnungIntro').value,
       txtKonditionen:document.getElementById('s_txtKonditionen').value
     };
+    // Arbeitsbereiche liegen TOP-LEVEL in org.settings (geteilt mit dem Einsatzplan)
+    settings.arbeitsbereiche=abRowsCollect('s_abRows');
     GemaAuth.updateOrgSettings(org.id,settings);
     toast('✓ Einstellungen gespeichert');
   }catch(e){toast('Fehler beim Speichern');}
@@ -1708,6 +2174,10 @@ function erpPdf(){
   var org=erpOrg();
   var docName=d.typ==='offerte'?'Offerte':d.typ==='auftrag'?'Auftragsbestätigung':'Rechnung';
   var k=d.kundeSnapshot||{};
+  // Fensteradresse = abweichende Zustelladresse, sonst Kunde. Der Kunde bleibt
+  // Rechnungsempfänger/Zahler — der QR-Zahlteil (erpQrPayload) lautet IMMER auf ihn.
+  var zu=(d.zustellSnapshot&&d.zustellSnapshot.firma)?d.zustellSnapshot:null;
+  var fen=zu||k;
   var brand=erpBrand();
   // Logo oben rechts — Vektor bevorzugt (org.logoVector), sonst Raster; ohne Logo Firmenname als Wortmarke
   var logo=(org&&(org.logoVector||org.logo))
@@ -1716,12 +2186,36 @@ function erpPdf(){
   var posRows='';
   var nrPos=0;
   var GRP_L='ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-  var gruppen=[],curGrp=null,hatTitel=false;   // Zusammenzug pro Kapitel (A, B, C …) für die Zusammenfassung
+  var gruppen=[],curGrp=null,hatTitel=false,kapBasis=0;   // Zusammenzug pro Kapitel für die Zusammenfassung
+  // Kapitel-Label: BKP-Nummer wenn vorhanden, sonst fortlaufender Buchstabe
+  // (Buchstaben-Index zählt nur die Gruppen ohne BKP — keine Lücken im Alphabet)
+  var nextLtr=function(){return GRP_L.charAt(gruppen.filter(function(g){return !g.bkp;}).length)||'';};
   (d.positionen||[]).forEach(function(p){
-    if(p.art==='titel'){hatTitel=true;curGrp={bez:p.bez,sum:0,ltr:GRP_L.charAt(gruppen.length)||''};gruppen.push(curGrp);posRows+='<tr class="grprow"><td class="grpltr">'+curGrp.ltr+'</td><td colspan="5">'+esc(p.bez)+'</td></tr>';return;}
+    if(p.art==='titel'){
+      hatTitel=true;kapBasis=0;
+      var bkp=String(p.bkp||'').trim();
+      var eb=bkp?bkpEbene(bkp):0;
+      curGrp={bez:p.bez,sum:0,ltr:bkp||nextLtr(),bkp:bkp,ebene:eb};
+      gruppen.push(curGrp);
+      posRows+='<tr class="grprow"><td class="grpltr">'+esc(curGrp.ltr)+'</td><td colspan="5"'+(eb?' style="padding-left:'+(2+eb*5)+'mm"':'')+'>'+esc(p.bez)+'</td></tr>';
+      return;
+    }
+    if(p.art==='rabatt'||p.art==='zuschlag'){
+      // Rabatt-/Zuschlagszeile: rechnet aufs Zwischentotal der Positionen darüber
+      // im Kapitel (bei %); das Zwischentotal wird zur Nachvollziehbarkeit ausgewiesen
+      var bz=erpAufschlagBetrag(p,kapBasis);
+      if(!curGrp){curGrp={bez:'Positionen ohne Titel',sum:0,ltr:nextLtr(),bkp:'',ebene:0};gruppen.push(curGrp);}
+      curGrp.sum+=bz;
+      posRows+='<tr'+(bz<0?' style="color:#92400e"':'')+'><td class="num"></td>'
+        +'<td>'+esc(p.bez)+' <span style="color:#888;font-size:8pt">('
+        +(p.modus==='chf'?'pauschal':erpNum(p.wert)+' % auf Zwischentotal CHF '+chf(kapBasis))+')</span></td>'
+        +'<td class="num"></td><td></td><td class="num"></td><td class="num">'+chf(bz)+'</td></tr>';
+      return;
+    }
     nrPos++;
     var betrag=erpNum(p.menge)*erpNum(p.ep)*(1-erpNum(p.rabattPct)/100);
-    if(!curGrp){curGrp={bez:'Positionen ohne Titel',sum:0,ltr:GRP_L.charAt(gruppen.length)||''};gruppen.push(curGrp);}
+    kapBasis+=betrag;
+    if(!curGrp){curGrp={bez:'Positionen ohne Titel',sum:0,ltr:nextLtr(),bkp:'',ebene:0};gruppen.push(curGrp);}
     curGrp.sum+=betrag;
     var pimg=erpPosImgSrc(p);
     posRows+='<tr'+(pimg?' class="hasimg"':'')+(p.art==='abzug'?' style="color:#92400e"':'')+'><td class="num" style="color:#888">'+nrPos+'</td><td>'+esc(p.bez)+(p.lieferantFirma?' <span style="color:#888;font-size:8pt">('+esc(p.lieferantFirma)+')</span>':'')+'</td>'
@@ -1733,6 +2227,9 @@ function erpPdf(){
   var absAdr=[s.strasse,[s.plz,s.ort].filter(Boolean).join(' ')].filter(Boolean).join(' · ');
   var kontaktLine=[s.tel?'Tel. '+s.tel:'',s.email,s.web].filter(Boolean).join(' · ');
   var metaRows=[['Nr.:',esc(d.nr||'')]];
+  // Weicht die Zustelladresse ab, bleibt der Kunde als Rechnungsempfänger/
+  // Auftraggeber im Dokument ausgewiesen (Fenster zeigt die Zustelladresse)
+  if(zu&&k.firma)metaRows.push([d.typ==='rechnung'?'Rechnungsempfänger:':'Auftraggeber:',esc(k.firma)]);
   if(d.objektName)metaRows.push(['Projekt:',esc(d.objektName)]);
   if(d.typ==='offerte'&&d.gueltigBis)metaRows.push(['Gültig bis:',dfmt(d.gueltigBis)]);
   if(d.typ==='rechnung'&&d.frist)metaRows.push(['Zahlbar bis:',dfmt(d.frist)]);
@@ -1750,7 +2247,7 @@ function erpPdf(){
     // Empfänger rechts (CH-Fensterposition), links Projekt-/Objekt-Kontext
     +'<div class="adrzone">'
     +'<div class="adr-l"></div>'
-    +'<div class="adr-r"><b>'+esc(k.firma||'')+'</b>'+(k.kontakt?'<br>'+esc(k.kontakt):'')+(k.strasse?'<br>'+esc(k.strasse):'')+((k.plz||k.ort)?'<br>'+esc((k.plz||'')+' '+(k.ort||'')):'')+'</div>'
+    +'<div class="adr-r"><b>'+esc(fen.firma||'')+'</b>'+(fen.kontakt?'<br>'+esc(fen.kontakt):'')+(fen.strasse?'<br>'+esc(fen.strasse):'')+((fen.plz||fen.ort)?'<br>'+esc((fen.plz||'')+' '+(fen.ort||'')):'')+'</div>'
     +'</div>'
     +'<div class="ortdatum">'+esc((s.ort?s.ort+', ':'')+dfmt(d.datum))+(kz?' / '+esc(kz):'')+'</div>'
     +'<h1>'+docName+'</h1>'
@@ -1769,7 +2266,14 @@ function erpPdf(){
   // ── Zusammenstellung: Zusammenzug pro Titel + Totale ──
   var zusSec='<div class="sheet pb"><h2>Zusammenfassung</h2>'
     +(hatTitel?'<table class="zus" style="max-width:480px"><tbody>'
-      +gruppen.map(function(g){return '<tr><td class="grpltr">'+g.ltr+'</td><td>'+esc(g.bez)+'</td><td class="num">'+chf(g.sum)+'</td></tr>';}).join('')
+      +gruppen.map(function(g,gi){
+        // BKP-Rollup: Ober-Titel zeigen die Summe ihres Teilbaums (25 = Σ 251…259);
+        // Buchstaben-Gruppen bleiben Direktsummen. Das Gesamttotal darunter rechnet
+        // unabhängig über die Positionen — kein Doppelzählen.
+        var sum=g.sum;
+        if(g.bkp)gruppen.forEach(function(o,oi){if(oi!==gi&&o.bkp&&o.bkp.length>g.bkp.length&&o.bkp.indexOf(g.bkp)===0)sum+=o.sum;});
+        return '<tr><td class="grpltr">'+esc(g.ltr)+'</td><td'+(g.ebene?' style="padding-left:'+(2+g.ebene*5)+'mm"':'')+'>'+esc(g.bez)+'</td><td class="num">'+chf(sum)+'</td></tr>';
+      }).join('')
       +'</tbody></table>':'')
     +'<table class="tot" style="max-width:480px">'
     +(t.rabatt

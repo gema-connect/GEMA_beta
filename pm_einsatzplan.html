@@ -224,6 +224,13 @@ table.board{border-collapse:collapse;width:100%;min-width:860px}
         <div class="fld" id="evZeitWrap" style="display:none"><label>Zeit von – bis</label><div style="display:flex;gap:6px;align-items:center"><input id="ev_von" type="time" style="flex:1"/><span>–</span><input id="ev_bis" type="time" style="flex:1"/></div></div>
       </div>
       <div class="fld"><label>Projekt / Objekt</label><select id="ev_objekt"></select></div>
+      <div class="fld" id="evBereichWrap" style="display:none"><label>Arbeitsbereich</label><select id="ev_bereich"></select></div>
+      <div class="fld"><label>Garantie / Nachbesserung</label>
+        <label style="display:flex;align-items:center;gap:10px;font-size:13.5px;font-weight:600;text-transform:none;letter-spacing:0;color:var(--txt);margin:0;cursor:pointer;padding:4px 0">
+          <input type="checkbox" id="ev_garantie" style="width:22px;height:22px;accent-color:var(--amber);flex-shrink:0"/>
+          <span>🛡 Garantiearbeit (Garantie / Eigenverschulden — zählt in die Jahres-Auswertung)</span>
+        </label>
+      </div>
       <div class="fld"><label>Notiz für den Monteur</label><textarea id="ev_notiz" placeholder="z.B. Schlüssel bei Hauswart, Material im Bus"></textarea></div>
     </div>
     <div class="modal-ft" id="evFt"></div>
@@ -254,6 +261,11 @@ table.board{border-collapse:collapse;width:100%;min-width:860px}
           <button class="tchip" id="weJa" onclick="_setWe=true;epSetWeChips()">Sa/So anzeigen</button>
           <button class="tchip" id="weNein" onclick="_setWe=false;epSetWeChips()">Nur Mo–Fr</button>
         </div>
+      </div>
+      <div class="fld"><label>Arbeitsbereiche (Farbe im Kalender)</label>
+        <div style="font-size:11.5px;color:var(--mut);margin-bottom:6px">Individuell benannte Bereiche (z.B. Sanitär, Sanitärservice, Heizung). Zuweisung startet bei der Offerte im ERP, der Auftrag vererbt sie — Termine erscheinen im Kalender in der Bereichsfarbe. Liste gilt firmenweit.</div>
+        <div id="ep_abRows"></div>
+        <button class="btn" type="button" style="min-height:38px" onclick="abRowAdd('ep_abRows')">＋ Arbeitsbereich</button>
       </div>
       <div class="fld"><label>Einplanbare Personen</label>
         <div style="font-size:11.5px;color:var(--mut);margin-bottom:6px">Standard: alle Monteure &amp; Spengler der Firma. Weitere Personen zuschaltbar.</div>
@@ -319,6 +331,76 @@ function epPersonen(){
 }
 
 // ═══════════════════════════════════════════════════════════
+// ARBEITSBEREICHE (org.settings.arbeitsbereiche = [{id,name,farbe}])
+// Geteilt mit dem ERP-Modul: Zuweisung startet bei der Offerte, der
+// Auftrag vererbt sie und die Termine im Kalender tragen die Farbe.
+// ═══════════════════════════════════════════════════════════
+function abListe(){
+  var org=epOrg();
+  var l=(org&&org.settings&&org.settings.arbeitsbereiche)||[];
+  if(!Array.isArray(l))return [];
+  return l.filter(function(b){return b&&b.id&&b.name;}).map(function(b){
+    return {id:String(b.id),name:String(b.name),farbe:/^#[0-9a-fA-F]{6}$/.test(String(b.farbe||''))?b.farbe:'#64748b'};
+  });
+}
+function abById(id){if(!id)return null;var l=abListe();for(var i=0;i<l.length;i++){if(l[i].id===id)return l[i];}return null;}
+function abTint(hex){
+  var m=/^#([0-9a-fA-F]{6})$/.exec(String(hex||''));if(!m)return '#f1f5f9';
+  function mix(v){return Math.round(v+(255-v)*0.86);}
+  return 'rgb('+mix(parseInt(m[1].slice(0,2),16))+','+mix(parseInt(m[1].slice(2,4),16))+','+mix(parseInt(m[1].slice(4,6),16))+')';
+}
+function abChipHtml(id){
+  var b=abById(id);if(!b)return '';
+  return '<span class="ab-chip" style="display:inline-flex;align-items:center;gap:5px;padding:2px 9px;border-radius:999px;border:1.5px solid '+b.farbe+';background:'+abTint(b.farbe)+';font-size:10.5px;font-weight:800;color:var(--txt2);vertical-align:middle"><span style="width:8px;height:8px;border-radius:50%;background:'+b.farbe+';display:inline-block;flex-shrink:0"></span>'+esc(b.name)+'</span>';
+}
+// Inline-Style für Kalender-Karten in der Bereichsfarbe (Tint-Hintergrund, farbiger Rand)
+function abEvStyle(ev){
+  var b=abById(ev&&ev.bereichId);if(!b)return '';
+  return 'background:'+abTint(b.farbe)+';border-color:'+b.farbe+';color:var(--txt)';
+}
+var AB_PALETTE=['#16a34a','#2563eb','#d97706','#7c3aed','#dc2626','#0891b2','#475569'];
+function abRowHtml(b){
+  b=b||{};
+  return '<div class="ab-row" data-id="'+esc(b.id||'')+'" style="display:flex;gap:8px;align-items:center;margin-bottom:6px">'
+    +'<input type="color" class="ab-farbe" value="'+esc(b.farbe||'#16a34a')+'" title="Bereichsfarbe" style="width:44px;height:38px;padding:2px;border:1.5px solid var(--brd2);border-radius:9px;background:var(--sur);cursor:pointer;flex-shrink:0"/>'
+    +'<input type="text" class="ab-name" value="'+esc(b.name||'')+'" placeholder="z.B. Sanitär, Sanitärservice, Heizung" style="flex:1;min-width:0;padding:9px 11px;border:1.5px solid var(--brd2);border-radius:9px;font-size:13.5px"/>'
+    +'<button type="button" onclick="this.closest(\'.ab-row\').remove()" title="Bereich entfernen (bestehende Zuweisungen bleiben gespeichert, werden aber nicht mehr farbig angezeigt)" style="width:34px;height:34px;border-radius:9px;border:1px solid var(--brd2);background:var(--sur);color:var(--red);font-weight:900;cursor:pointer;flex-shrink:0">✕</button>'
+    +'</div>';
+}
+function abRowAdd(hostId){
+  var host=document.getElementById(hostId);
+  var n=host.querySelectorAll('.ab-row').length;
+  var tmp=document.createElement('div');
+  tmp.innerHTML=abRowHtml({farbe:AB_PALETTE[n%AB_PALETTE.length]});
+  host.appendChild(tmp.firstChild);
+  var inp=host.lastChild.querySelector('.ab-name');
+  if(inp)inp.focus();
+}
+function abSlug(name,taken){
+  var s='ab_'+String(name).toLowerCase()
+    .replace(/ä/g,'ae').replace(/ö/g,'oe').replace(/ü/g,'ue').replace(/é|è|ê/g,'e')
+    .replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'').slice(0,24);
+  if(s==='ab_'||s==='ab')s='ab_bereich';
+  var b=s,i=2;
+  while(taken[s])s=b+'_'+(i++);
+  taken[s]=1;
+  return s;
+}
+function abRowsCollect(hostId){
+  var out=[],taken={};
+  var rows=document.querySelectorAll('#'+hostId+' .ab-row');
+  rows.forEach(function(row){var id=row.getAttribute('data-id');if(id)taken[id]=1;});
+  rows.forEach(function(row){
+    var name=row.querySelector('.ab-name').value.trim();
+    if(!name)return;
+    var id=row.getAttribute('data-id')||abSlug(name,taken);
+    var farbe=row.querySelector('.ab-farbe').value;
+    out.push({id:id,name:name,farbe:/^#[0-9a-fA-F]{6}$/.test(farbe)?farbe:'#64748b'});
+  });
+  return out;
+}
+
+// ═══════════════════════════════════════════════════════════
 // DATUM-HELFER
 // ═══════════════════════════════════════════════════════════
 function iso(d){return d.toISOString().slice(0,10);}
@@ -360,6 +442,7 @@ function uid(){return 'ev_'+Date.now()+'_'+Math.random().toString(36).slice(2,7)
 var TYPEN={auftrag:{n:'Auftrag',ic:'📋'},frei:{n:'Einsatz',ic:'🔧'},ferien:{n:'Abwesend',ic:'🏖'}};
 
 function epNav(dir){
+  if(_view==='garantie'){var d=parse(_anker);d.setFullYear(d.getFullYear()+dir);_anker=iso(d);epRender();return;}
   _anker=_view==='monat'?iso(new Date(parse(_anker).setMonth(parse(_anker).getMonth()+dir))):addD(_anker,dir*7);
   epRender();
 }
@@ -384,8 +467,9 @@ function epAuftraege(){
 // RENDER
 // ═══════════════════════════════════════════════════════════
 function epRender(){
-  // View-Tabs
+  // View-Tabs (🛡 Garantie-Auswertung nur für Planende — enthält Beträge)
   var tabs=[['woche','📋 Woche'],['monat','📅 Monat'],['meine','👤 Meine Woche']];
+  if(epCanPlan())tabs.push(['garantie','🛡 Garantie']);
   document.getElementById('vtabs').innerHTML=tabs.map(function(t){
     return '<button class="vtab'+(_view===t[0]?' on':'')+'" onclick="_view=\''+t[0]+'\';epRender()">'+t[1]+'</button>';
   }).join('');
@@ -395,6 +479,8 @@ function epRender(){
   if(_view==='monat'){
     var d=parse(_anker);
     lbl.textContent=['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'][d.getMonth()]+' '+d.getFullYear();
+  } else if(_view==='garantie'){
+    lbl.textContent='Garantiearbeiten '+parse(_anker).getFullYear();
   } else {
     var mo=monday(_anker);
     lbl.textContent='KW '+KW(mo)+' · '+dfmt(mo)+' – '+dfmtLong(addD(mo,6));
@@ -402,6 +488,7 @@ function epRender(){
   var w=document.getElementById('viewWrap');
   if(_view==='woche')w.innerHTML=epRenderWoche();
   else if(_view==='monat')w.innerHTML=epRenderMonat();
+  else if(_view==='garantie')w.innerHTML=epRenderGarantie();
   else w.innerHTML=epRenderMeine();
   epBindDnD();
 }
@@ -424,8 +511,10 @@ function epRenderWoche(){
       var inner=dayEvs.map(function(e){
         var konflikt=dayEvs.some(function(o){return o.id!==e.id&&epOverlap(e,o);});
         var sl=slotLabel(e);
-        return '<div class="ev t-'+(e.typ||'frei')+(konflikt?' konflikt':'')+'" draggable="true" data-ev="'+e.id+'" onclick="event.stopPropagation();epEvOpen(\''+e.id+'\')">'
+        var stl=abEvStyle(e);
+        return '<div class="ev t-'+(e.typ||'frei')+(konflikt?' konflikt':'')+'" draggable="true" data-ev="'+e.id+'"'+(stl?' style="'+stl+'"':'')+' onclick="event.stopPropagation();epEvOpen(\''+e.id+'\')">'
           +(sl?'<span class="slot-pill">'+esc(sl)+'</span>':'')
+          +(e.garantie?'<span class="slot-pill" title="Garantiearbeit (Garantie / Eigenverschulden)">🛡</span>':'')
           +'<span class="ev-t">'+esc(e.titel||(e.auftragNr||''))+'</span>'
           +(e.objektName||e.kunde?'<div class="ev-s">'+esc(e.objektName||e.kunde)+'</div>':'')
           +((e.dauerTage||1)>1?'<div class="ev-s">↔ '+e.dauerTage+' Tage</div>':'')
@@ -445,10 +534,12 @@ function epRenderSide(){
   if(!epCanPlan())return '<div></div>';
   var jobs=epAuftraege();
   var inner=jobs.length?jobs.map(function(a){
-    return '<div class="job" draggable="true" data-job="'+a.id+'" onclick="epJobTap(\''+a.id+'\')">'
+    var b=abById(a.bereichId);
+    return '<div class="job" draggable="true" data-job="'+a.id+'"'+(b?' style="background:'+abTint(b.farbe)+';border-color:'+b.farbe+'"':'')+' onclick="epJobTap(\''+a.id+'\')">'
       +'<div class="j-nr">'+esc(a.nr||'')+'</div>'
       +'<div class="j-t">'+esc(a.titel||(a.kundeSnapshot&&a.kundeSnapshot.firma)||'Auftrag')+'</div>'
       +'<div class="j-s">'+esc((a.kundeSnapshot&&a.kundeSnapshot.firma)||'')+(a.objektName?' · '+esc(a.objektName):'')+'</div>'
+      +(b?'<div style="margin-top:3px">'+abChipHtml(a.bereichId)+'</div>':'')
       +(a._geplant?'<span class="j-badge">✓ eingeplant</span>':'')
       +'</div>';
   }).join(''):'<div class="empty" style="padding:16px">Keine offenen Aufträge.<br><span style="font-size:11.5px">Aufträge entstehen im Modul «Offerten · Aufträge · Rechnungen».</span></div>';
@@ -468,7 +559,8 @@ function epRenderMonat(){
     var out=dd.getMonth()!==mon;
     var dayEvs=evs.filter(function(e){return epCovers(e,day);});
     var dots=dayEvs.slice(0,4).map(function(e){
-      return '<div class="mdot t-'+(e.typ||'frei')+'">'+esc((e.monteurName||'').split(' ')[0])+': '+esc(e.titel||e.auftragNr||'')+'</div>';
+      var b=abById(e.bereichId);
+      return '<div class="mdot t-'+(e.typ||'frei')+'"'+(b?' style="background:'+abTint(b.farbe)+';color:var(--txt);box-shadow:inset 3px 0 0 '+b.farbe+'"':'')+'>'+(e.garantie?'🛡 ':'')+esc((e.monteurName||'').split(' ')[0])+': '+esc(e.titel||e.auftragNr||'')+'</div>';
     }).join('')+(dayEvs.length>4?'<div class="mdot" style="background:var(--sur2)">+'+(dayEvs.length-4)+' weitere</div>':'');
     cells+='<div class="mcell'+(out?' out':'')+(day===t?' today':'')+'" onclick="epDayOpen(\''+day+'\')"><div class="md">'+dd.getDate()+'</div>'+dots+'</div>';
     if(i>=34&&parse(addD(start,i+1)).getMonth()!==mon&&(i+1)%7===0)break;
@@ -480,8 +572,9 @@ function epDayOpen(day){
   evs.sort(function(a,b){return String(a.monteurName||'').localeCompare(String(b.monteurName||''));});
   document.getElementById('dayTitle').textContent=WD[(parse(day).getDay()+6)%7]+', '+dfmtLong(day);
   document.getElementById('dayBody').innerHTML=(evs.length?evs.map(function(e){
-    return '<div class="my-card t-'+(e.typ||'frei')+'" style="margin-bottom:8px;cursor:pointer" onclick="document.getElementById(\'dayModal\').classList.remove(\'open\');epEvOpen(\''+e.id+'\')">'
-      +'<div class="t">'+esc(e.titel||e.auftragNr||'')+'</div>'
+    var b=abById(e.bereichId);
+    return '<div class="my-card t-'+(e.typ||'frei')+'" style="margin-bottom:8px;cursor:pointer'+(b?';border-left-color:'+b.farbe:'')+'" onclick="document.getElementById(\'dayModal\').classList.remove(\'open\');epEvOpen(\''+e.id+'\')">'
+      +'<div class="t">'+(e.garantie?'🛡 ':'')+esc(e.titel||e.auftragNr||'')+(b?' '+abChipHtml(e.bereichId):'')+'</div>'
       +'<div class="s">👤 '+esc(e.monteurName||'')+(slotLabel(e)?' · '+esc(slotLabel(e)):'')+(e.objektName?'<br>🏗 '+esc(e.objektName):'')+'</div></div>';
   }).join(''):'<div class="empty">Keine Einsätze an diesem Tag.</div>')
   +(epCanPlan()?'<button class="btn pri" style="width:100%;margin-top:8px" onclick="document.getElementById(\'dayModal\').classList.remove(\'open\');epNeu(null,\''+day+'\')">＋ Einsatz an diesem Tag</button>':'');
@@ -503,10 +596,12 @@ function epRenderMeine(){
     h+='<div class="my-day">'+WD[i]+' '+dfmtLong(d)+(d===today()?' · HEUTE':'')+'</div>';
     dayEvs.sort(function(a,b){return String(a.zeitVon||'').localeCompare(String(b.zeitVon||''));});
     dayEvs.forEach(function(e){
-      h+='<div class="my-card t-'+(e.typ||'frei')+'">'
-        +'<div class="t">'+(slotLabel(e)?'<span style="font-size:11px;font-weight:900;color:var(--acc)">'+esc(slotLabel(e))+'</span> ':'')+esc(e.titel||e.auftragNr||'')+'</div>'
+      var b=abById(e.bereichId);
+      h+='<div class="my-card t-'+(e.typ||'frei')+'"'+(b?' style="border-left-color:'+b.farbe+'"':'')+'>'
+        +'<div class="t">'+(slotLabel(e)?'<span style="font-size:11px;font-weight:900;color:var(--acc)">'+esc(slotLabel(e))+'</span> ':'')+(e.garantie?'🛡 ':'')+esc(e.titel||e.auftragNr||'')+(b?' '+abChipHtml(e.bereichId):'')+'</div>'
         +'<div class="s">'+(e.auftragNr?'📋 '+esc(e.auftragNr)+(e.kunde?' · '+esc(e.kunde):'')+'<br>':'')
         +(e.objektName?'🏗 '+esc(e.objektName)+'<br>':'')
+        +(e.garantie?'🛡 Garantiearbeit<br>':'')
         +(e.notiz?'💬 '+esc(e.notiz)+'<br>':'')
         +((e.dauerTage||1)>1?'↔ '+e.dauerTage+' Tage ab '+dfmtLong(e.datum):'')
         +'</div>'
@@ -516,6 +611,121 @@ function epRenderMeine(){
   }
   if(!any)h+='<div class="empty">Keine Einsätze in dieser Woche 🎉</div>';
   return h+'</div>';
+}
+
+// ═══════════════════════════════════════════════════════════
+// 🛡 GARANTIE-AUSWERTUNG (Jahres-Sicht)
+// Stunden: Zeiteinträge der Stundenerfassung, die via Einsatzplan-Übernahme
+// auf einen Garantie-Einsatz zeigen (eintrag.einsatzId). Material: die aus
+// diesen Zeiteinträgen erstellten Regierapporte (eintrag.rapportId) —
+// Materialzeilen Σ Menge × EP. Rapporte pro Einsatz dedupliziert; das Total
+// dedupliziert zusätzlich über alle Einsätze.
+// ═══════════════════════════════════════════════════════════
+function epChf(v){return (Math.round(v*100)/100).toLocaleString('de-CH',{minimumFractionDigits:2,maximumFractionDigits:2});}
+function epNum(v){var n=parseFloat(String(v==null?'':v).replace(',','.'));return isFinite(n)?n:0;}
+function _epHm(s){var m=String(s||'').match(/^(\d{1,2}):(\d{2})$/);return m?parseInt(m[1],10)*60+parseInt(m[2],10):null;}
+function epGarantieAuswertung(einsaetze,tage,rapporte,jahr){
+  var evs=(einsaetze||[]).filter(function(e){return e&&e.garantie&&String(e.datum||'').slice(0,4)===String(jahr);});
+  var ids={};evs.forEach(function(e){ids[e.id]=1;});
+  var stunden={},rapIds={},eintraege=0;
+  (tage||[]).forEach(function(t){
+    if(!t||t.typ||!Array.isArray(t.eintraege))return;   // nur Tages-Records (typ-Records = Anträge/Auszahlungen)
+    t.eintraege.forEach(function(en){
+      if(!en||!en.einsatzId||!ids[en.einsatzId])return;
+      var a=_epHm(en.von),b=_epHm(en.bis);
+      if(a==null||b==null)return;
+      if(b<=a)b+=1440;   // über Mitternacht (Regel wie Stundenerfassung)
+      var min=Math.max(0,(b-a)-(parseInt(en.pauseMin,10)||0));
+      stunden[en.einsatzId]=(stunden[en.einsatzId]||0)+min/60;
+      eintraege++;
+      if(en.rapportId)(rapIds[en.einsatzId]=rapIds[en.einsatzId]||{})[en.rapportId]=1;
+    });
+  });
+  var rapById={};(rapporte||[]).forEach(function(r){if(r&&r.id)rapById[r.id]=r;});
+  function rapMaterial(r){var m=0;(r.material||[]).forEach(function(x){m+=epNum(x.menge)*epNum(x.ep);});return m;}
+  var rows=evs.map(function(e){
+    var mat=0,nRap=0;
+    Object.keys(rapIds[e.id]||{}).forEach(function(rid){
+      var r=rapById[rid];if(!r)return;
+      nRap++;mat+=rapMaterial(r);
+    });
+    return {einsatz:e,stunden:stunden[e.id]||0,materialChf:mat,rapporte:nRap};
+  });
+  rows.sort(function(a,b){return String(a.einsatz.datum||'').localeCompare(String(b.einsatz.datum||''));});
+  // Totale (Material global über die Rapport-VEREINIGUNG — kein Doppelzählen,
+  // falls derselbe Rapport an mehreren Einsätzen hängt)
+  var totalStunden=0;rows.forEach(function(r){totalStunden+=r.stunden;});
+  var allRap={};Object.keys(rapIds).forEach(function(eid){Object.keys(rapIds[eid]).forEach(function(rid){allRap[rid]=1;});});
+  var totalMaterial=0,totalRapporte=0;
+  Object.keys(allRap).forEach(function(rid){var r=rapById[rid];if(!r)return;totalRapporte++;totalMaterial+=rapMaterial(r);});
+  return {rows:rows,anzahl:evs.length,totalStunden:totalStunden,totalMaterial:totalMaterial,totalRapporte:totalRapporte,eintraege:eintraege};
+}
+var _epGarBound=false;
+function _epGarantieDaten(){
+  var jahr=parse(_anker).getFullYear();
+  var tage=[],raps=[];
+  try{if(typeof GemaSync!=='undefined'&&GemaSync.getCached){tage=GemaSync.getCached('gema_std_pool_v1')||[];raps=GemaSync.getCached('gema_regie_pool_v1')||[];}}catch(e){}
+  return epGarantieAuswertung(epAll(),tage,raps,jahr);
+}
+function epRenderGarantie(){
+  if(!epCanPlan())return '<div class="empty">Keine Berechtigung.</div>';
+  // Stunden- + Regie-Pool nachladen (frische Daten auf Zweitgeräten) — einmalig, dann Re-Render
+  if(!_epGarBound&&typeof GemaSync!=='undefined'&&GemaSync.bindCollection){
+    _epGarBound=true;
+    Promise.all([
+      GemaSync.bindCollection('stundenerfassung','gema_std_pool_v1','std:','id'),
+      GemaSync.bindCollection('regierapport','gema_regie_pool_v1','regie:','id')
+    ]).then(function(){if(_view==='garantie')epRender();}).catch(function(){});
+  }
+  var jahr=parse(_anker).getFullYear();
+  var res=_epGarantieDaten();
+  var h='<div style="max-width:900px;margin:0 auto">';
+  // KPI-Zeile
+  h+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:12px">'
+    +'<div style="background:var(--sur);border:1.5px solid var(--brd);border-radius:12px;padding:12px 14px"><div style="font-size:24px;font-weight:900">'+res.anzahl+'</div><div style="font-size:10.5px;font-weight:800;text-transform:uppercase;color:var(--mut)">🛡 Einsätze '+jahr+'</div></div>'
+    +'<div style="background:var(--sur);border:1.5px solid var(--brd);border-radius:12px;padding:12px 14px"><div style="font-size:24px;font-weight:900">'+(Math.round(res.totalStunden*100)/100)+' h</div><div style="font-size:10.5px;font-weight:800;text-transform:uppercase;color:var(--mut)">Stunden erfasst</div></div>'
+    +'<div style="background:var(--sur);border:1.5px solid var(--brd);border-radius:12px;padding:12px 14px"><div style="font-size:24px;font-weight:900">CHF '+epChf(res.totalMaterial)+'</div><div style="font-size:10.5px;font-weight:800;text-transform:uppercase;color:var(--mut)">Material (Regierapporte)</div></div>'
+    +'<div style="background:var(--sur);border:1.5px solid var(--brd);border-radius:12px;padding:12px 14px"><div style="font-size:24px;font-weight:900">'+res.totalRapporte+'</div><div style="font-size:10.5px;font-weight:800;text-transform:uppercase;color:var(--mut)">Rapporte verknüpft</div></div>'
+    +'</div>';
+  if(!res.anzahl){
+    h+='<div class="empty" style="background:var(--sur);border:1.5px solid var(--brd);border-radius:14px">🛡 Keine Garantiearbeiten '+jahr+'.<br><span style="font-size:12px">Beim Einsatz das Häkchen «Garantiearbeit» setzen — kleine Nachbesserungen (Garantie / Eigenverschulden) landen dann automatisch hier.</span></div>';
+  } else {
+    h+='<div class="board-wrap"><table class="board" style="min-width:640px"><thead><tr>'
+      +'<th style="text-align:left;padding-left:12px">Datum</th><th style="text-align:left">Einsatz</th><th style="text-align:left">Monteur</th><th style="text-align:left">Bereich</th><th style="text-align:right">Stunden</th><th style="text-align:right;padding-right:12px">Material CHF</th></tr></thead><tbody>'
+      +res.rows.map(function(r){
+        var e=r.einsatz;
+        return '<tr style="cursor:pointer" onclick="epEvOpen(\''+e.id+'\')">'
+          +'<td style="padding:8px 6px 8px 12px;white-space:nowrap;height:auto;min-width:0">'+dfmtLong(e.datum)+'</td>'
+          +'<td style="padding:8px 6px;height:auto;min-width:0"><b>'+esc(e.titel||e.auftragNr||'—')+'</b>'+(e.objektName?'<div style="font-size:11px;color:var(--mut)">🏗 '+esc(e.objektName)+'</div>':'')+'</td>'
+          +'<td style="padding:8px 6px;height:auto;min-width:0">'+esc(e.monteurName||'—')+'</td>'
+          +'<td style="padding:8px 6px;height:auto;min-width:0">'+(abChipHtml(e.bereichId)||'—')+'</td>'
+          +'<td style="padding:8px 6px;text-align:right;white-space:nowrap;height:auto;min-width:0">'+(r.stunden>0?(Math.round(r.stunden*100)/100)+' h':'<span style="color:var(--mut2)" title="Keine Zeiteinträge mit Einsatz-Übernahme verknüpft">—</span>')+'</td>'
+          +'<td style="padding:8px 12px 8px 6px;text-align:right;white-space:nowrap;height:auto;min-width:0">'+(r.rapporte>0?epChf(r.materialChf):'<span style="color:var(--mut2)" title="Kein Regierapport verknüpft">—</span>')+'</td>'
+          +'</tr>';
+      }).join('')
+      +'<tr><td colspan="4" style="padding:9px 6px 9px 12px;font-weight:900;background:var(--sur2);height:auto">Total '+jahr+'</td>'
+      +'<td style="padding:9px 6px;text-align:right;font-weight:900;background:var(--sur2);white-space:nowrap;height:auto">'+(Math.round(res.totalStunden*100)/100)+' h</td>'
+      +'<td style="padding:9px 12px 9px 6px;text-align:right;font-weight:900;background:var(--sur2);white-space:nowrap;height:auto">'+epChf(res.totalMaterial)+'</td></tr>'
+      +'</tbody></table></div>';
+    h+='<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap"><button class="btn" onclick="epGarantieCsv()">⬇ CSV exportieren</button></div>';
+  }
+  h+='<div style="font-size:11.5px;color:var(--mut);margin-top:10px;line-height:1.6">Stunden = Zeiteinträge der Stundenerfassung, die über die Einsatzplan-Übernahme mit dem Garantie-Einsatz verknüpft sind. Material = Materialpositionen der daraus erstellten Regierapporte (Σ Menge × EP). Mit ‹ › wechselst du das Jahr.</div>';
+  return h+'</div>';
+}
+function epGarantieCsv(){
+  var jahr=parse(_anker).getFullYear();
+  var res=_epGarantieDaten();
+  var rows=[['Datum','Einsatz','Monteur','Objekt','Bereich','Garantie-Stunden','Material CHF','Rapporte']];
+  res.rows.forEach(function(r){
+    var e=r.einsatz;var b=abById(e.bereichId);
+    rows.push([e.datum,e.titel||e.auftragNr||'',e.monteurName||'',e.objektName||'',b?b.name:'',String(Math.round(r.stunden*100)/100).replace('.',','),String(Math.round(r.materialChf*100)/100).replace('.',','),String(r.rapporte)]);
+  });
+  rows.push(['Total '+jahr,'','','','',String(Math.round(res.totalStunden*100)/100).replace('.',','),String(Math.round(res.totalMaterial*100)/100).replace('.',','),String(res.totalRapporte)]);
+  var csv='\ufeff'+rows.map(function(r){return r.map(function(c){return '"'+String(c==null?'':c).replace(/"/g,'""')+'"';}).join(';');}).join('\r\n');
+  var a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));
+  a.download='Garantiearbeiten_'+jahr+'.csv';
+  document.body.appendChild(a);a.click();a.remove();
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -606,6 +816,7 @@ function epNeuAusAuftrag(a,monteurId,datum){
     id:uid(),orgId:u?u.orgId:'',typ:'auftrag',
     auftragId:a.id,auftragNr:a.nr,kunde:(a.kundeSnapshot&&a.kundeSnapshot.firma)||'',
     titel:a.titel||a.nr,objektId:a.objektId||'',objektName:a.objektName||'',
+    bereichId:a.bereichId||'',garantie:false,
     monteurUserId:monteurId,monteurName:p?(p.name||p.username):'',
     datum:datum,dauerTage:1,slot:'ganz',zeitVon:'',zeitBis:'',notiz:'',
     erstelltVon:{userId:u?u.id:'',name:u?u.name:''},erstelltAm:new Date().toISOString()
@@ -623,6 +834,7 @@ function epNeu(monteurId,datum){
     monteurUserId:monteurId||'',monteurName:'',
     datum:datum||_anker,dauerTage:1,slot:'ganz',zeitVon:'',zeitBis:'',
     auftragId:'',auftragNr:'',kunde:'',objektId:'',objektName:'',notiz:'',
+    bereichId:'',garantie:false,
     erstelltVon:{userId:u?u.id:'',name:u?u.name:''},erstelltAm:new Date().toISOString(),_neu:true
   };
   epEvRender();
@@ -676,6 +888,20 @@ function epEvRender(){
   document.getElementById('ev_objekt').innerHTML='<option value="">– keins –</option>'+objs.map(function(o){
     return '<option value="'+o.id+'"'+(o.id===ev.objektId?' selected':'')+'>'+esc(o.name+(o.ort?' · '+o.ort:''))+'</option>';
   }).join('');
+  // Arbeitsbereich (Feld nur, wenn Bereiche definiert sind — Definition in ⚙️)
+  var bl=abListe();
+  var bw=document.getElementById('evBereichWrap');
+  if(bl.length){
+    bw.style.display='';
+    var bsel=document.getElementById('ev_bereich');
+    bsel.innerHTML='<option value="">– kein Bereich –</option>'+bl.map(function(b){
+      return '<option value="'+b.id+'"'+(b.id===ev.bereichId?' selected':'')+'>'+esc(b.name)+'</option>';
+    }).join('');
+    bsel.disabled=!canEdit;
+  } else bw.style.display='none';
+  var gchk=document.getElementById('ev_garantie');
+  gchk.checked=!!ev.garantie;
+  gchk.disabled=!canEdit;
   document.getElementById('ev_notiz').value=ev.notiz||'';
   // Footer
   var ft='';
@@ -697,6 +923,7 @@ function epEvAuftragChanged(){
     curEv.auftragNr=a.nr;curEv.kunde=(a.kundeSnapshot&&a.kundeSnapshot.firma)||'';
     if(!document.getElementById('ev_titel').value)document.getElementById('ev_titel').value=a.titel||a.nr;
     if(a.objektId){curEv.objektId=a.objektId;curEv.objektName=a.objektName||'';}
+    if(a.bereichId&&!curEv.bereichId)curEv.bereichId=a.bereichId;   // Bereich der Offerte/des Auftrags übernehmen
     epEvRender();
   }
 }
@@ -710,6 +937,8 @@ function epEvSave(){
   var oo=null;try{oo=GemaObjekte.getAll().find(function(x){return x.id===ev.objektId;});}catch(e){}
   ev.objektName=oo?(oo.name+(oo.ort?' · '+oo.ort:'')):(ev.objektId?ev.objektName:'');
   ev.notiz=document.getElementById('ev_notiz').value;
+  if(abListe().length)ev.bereichId=document.getElementById('ev_bereich').value;
+  ev.garantie=document.getElementById('ev_garantie').checked;
   if(epSettings().raster==='zeit'){ev.zeitVon=document.getElementById('ev_von').value;ev.zeitBis=document.getElementById('ev_bis').value;}
   if(ev.typ==='auftrag')ev.auftragId=document.getElementById('ev_auftrag').value||ev.auftragId;
   if(!ev.titel){toast('⚠ Titel fehlt');return;}
@@ -766,6 +995,7 @@ function epOpenSettings(){
       +'<input type="checkbox" style="width:21px;height:21px" '+(_setUsers[x.id]?'checked':'')+' onchange="_setUsers[\''+x.id+'\']=this.checked"/>'
       +esc(x.name||x.username)+(std?' <span style="font-size:10px;color:var(--mut2)">(Monteur/Spengler)</span>':'')+'</label>';
   }).join('');
+  document.getElementById('ep_abRows').innerHTML=abListe().map(abRowHtml).join('');
   epSetRasterChips();epSetWeChips();
   document.getElementById('setModal').classList.add('open');
 }
@@ -783,6 +1013,8 @@ function epSetSave(){
     var settings=(org&&org.settings)||{};
     var ids=Object.keys(_setUsers).filter(function(id){return _setUsers[id];});
     settings.einsatzplan={raster:_setRaster,wochenende:_setWe,userIds:ids};
+    // Arbeitsbereiche liegen TOP-LEVEL in org.settings (geteilt mit dem ERP)
+    settings.arbeitsbereiche=abRowsCollect('ep_abRows');
     GemaAuth.updateOrgSettings(org.id,settings);
     toast('✓ Einstellungen gespeichert');
   }catch(e){toast('Fehler beim Speichern');}

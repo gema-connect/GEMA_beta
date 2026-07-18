@@ -665,6 +665,14 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important}
       </div>
     </div>
 
+    <div class="g-card" id="sgSchemaCard">
+      <div class="g-card-hd"><h2>📊 Anlagenschema — Höhen-Budget</h2><span style="font-size:11px;color:var(--muted)">Schnittbild &amp; Abzüge von der theoretischen Saughöhe</span></div>
+      <div class="g-card-bd">
+        <div id="sgSchema" style="width:100%"></div>
+        <div id="sgSchemaNote" class="g-hint" style="margin-top:8px"></div>
+      </div>
+    </div>
+
     <div class="g-card">
       <div class="g-card-hd"><h2>Dampfdruck-Tafel Wasser (Sättigung)</h2></div>
       <div class="g-card-bd">
@@ -796,6 +804,7 @@ function sgRecalc(){
     if(warn)warn.style.display='none';
   }
   sgRenderDd(r);
+  if(window._sgSchemaDraw)try{window._sgSchemaDraw(r);}catch(e){}
   if(r.hmax>0&&typeof GemaAnlagenwahl!=='undefined'&&GemaAnlagenwahl.refresh)try{GemaAnlagenwahl.refresh();}catch(e){}
 }
 
@@ -929,6 +938,133 @@ document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('saug
       if (typeof sgRecalc === 'function') try{ sgRecalc(); }catch(e){}
     }
   });
+})();
+</script>
+<style>
+#sgSchema svg{display:block;width:100%;height:auto}
+.sg-puls{animation:sgPuls 1.4s ease-out 1}
+@keyframes sgPuls{0%{box-shadow:0 0 0 0 rgba(37,99,235,.55)}100%{box-shadow:0 0 0 14px rgba(37,99,235,0)}}
+</style>
+<script>
+// ── 📊 Anlagenschema Saugpumpe: Schnittbild + Höhen-Budget ──
+// Eigener Script-Block; Aufruf geguardet aus sgRecalc via window._sgSchemaDraw
+// (Cross-Block-Scope-Regel). NUR literale Hex-Farben (GemaPDF/html2canvas-Regel).
+// Idee: die Barometer-Säule Hb ist das «Budget» — Hf, NPSH, Hs und Hv werden
+// sichtbar abgezogen, der Rest ist die maximale geodätische Saughöhe hmax.
+(function(){
+  function fmt(x,d){if(!isFinite(x))return '–';return x.toLocaleString('de-CH',{minimumFractionDigits:d,maximumFractionDigits:d});}
+  function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+  window._sgZielKlick=function(id){
+    var el=document.getElementById(id);
+    if(!el)return;
+    try{el.scrollIntoView({behavior:'smooth',block:'center'});}catch(e){try{el.scrollIntoView();}catch(e2){}}
+    try{el.focus({preventScroll:true});}catch(e){}
+    el.classList.remove('sg-puls');void el.offsetWidth;el.classList.add('sg-puls');
+    setTimeout(function(){el.classList.remove('sg-puls');},1600);
+  };
+  document.addEventListener('click',function(e){
+    var g=e.target&&e.target.closest?e.target.closest('#sgSchema [data-sgziel]'):null;
+    if(g)window._sgZielKlick(g.getAttribute('data-sgziel'));
+  });
+  function chip(x,y,txt,ziel,fill,stroke,color){
+    var w=Math.round(txt.length*6.2)+18;
+    return '<g'+(ziel?' data-sgziel="'+ziel+'" style="cursor:pointer"':'')+'>'
+      +'<rect x="'+x+'" y="'+(y-14)+'" width="'+w+'" height="21" rx="10.5" fill="'+(fill||'#ffffff')+'" stroke="'+(stroke||'#cbd5e1')+'" stroke-width="1.2"/>'
+      +'<text x="'+(x+w/2)+'" y="'+(y+1)+'" text-anchor="middle" font-size="10.5" font-weight="700" fill="'+(color||'#334155')+'">'+esc(txt)+'</text></g>';
+  }
+  window._sgSchemaDraw=function(r){
+    var host=document.getElementById('sgSchema');
+    var note=document.getElementById('sgSchemaNote');
+    if(!host)return;
+    if(!r||!isFinite(r.Hb)||r.Hb<=0||!isFinite(r.hmax)){
+      host.innerHTML='<div style="color:#64748b;font-size:12px;padding:10px">Schema folgt, sobald die Eingaben vollständig sind (Dichte-Näherung gültig bis ~195 °C).</div>';
+      if(note)note.textContent='';
+      return;
+    }
+    var W=900,Hgt=436;
+    var yTop=62,yWL=342;                       // Zeichenbereich · Wasserspiegel (= 0 m)
+    var scale=(yWL-yTop-4)/r.Hb;               // px pro Meter, Budget-Balken + Schnittbild teilen den Massstab
+    var neg=r.hmax<=0;
+    var yHb=yWL-r.Hb*scale;
+    var abz=[
+      {key:'Hf',  val:r.Hf,  lbl:'Hf — Reibung Saugleitung',  ziel:'sg_pf',  col:'#64748b'},
+      {key:'NPSH',val:r.npsh,lbl:'NPSH — Pumpe (Datenblatt)', ziel:'sg_npsh',col:'#7c3aed'},
+      {key:'Hs',  val:r.hs,  lbl:'Hs — Sicherheitszuschlag',  ziel:'sg_hs',  col:'#d97706'},
+      {key:'Hv',  val:r.Hv,  lbl:'Hv — Verdampfung bei T',    ziel:'sg_pv',  col:'#dc2626'}
+    ];
+    var s='';
+    // Hb-Linie (theoretisches Maximum) über Schnittbild + Balken
+    s+='<line x1="56" y1="'+yHb.toFixed(1)+'" x2="604" y2="'+yHb.toFixed(1)+'" stroke="#94a3b8" stroke-width="1.3" stroke-dasharray="6 5"/>';
+    s+='<text x="58" y="'+(yHb-6).toFixed(1)+'" font-size="10" fill="#64748b">Hb — theoretisches Maximum '+fmt(r.Hb,2)+' m</text>';
+    // Wasserbecken links
+    s+='<rect x="46" y="'+yWL+'" width="250" height="54" fill="#bfdbfe"/>';
+    s+='<path d="M40 '+(yWL-16)+' V400 H302 V'+(yWL-16)+'" fill="none" stroke="#94a3b8" stroke-width="3.5"/>';
+    // Wasserspiegel = Null-Linie, bis unter den Budget-Balken verlängert
+    s+='<line x1="46" y1="'+yWL+'" x2="608" y2="'+yWL+'" stroke="#3b82f6" stroke-width="2" stroke-dasharray="7 4"/>';
+    s+='<text x="306" y="'+(yWL+14)+'" font-size="10" fill="#2563eb" font-weight="700">Wasserspiegel (0 m)</text>';
+    // Pumpe + Saugleitung (Position = hmax über Spiegel; bei negativem hmax symbolisch knapp über Wasser)
+    var yP=neg?(yWL-28):Math.max(yTop+10,yWL-r.hmax*scale);
+    var cx=216;
+    s+='<line x1="'+cx+'" y1="'+(yP+16)+'" x2="'+cx+'" y2="'+(yWL+36)+'" stroke="#0f172a" stroke-width="5"/>';
+    s+='<path d="M'+(cx-8)+' '+(yWL+36)+' h16 l-8 13 z" fill="#0f172a"/>';
+    s+='<text x="'+(cx+10)+'" y="'+(yWL+46)+'" font-size="9.5" fill="#475569">Fussventil</text>';
+    s+='<circle cx="'+cx+'" cy="'+yP+'" r="17" fill="#ffffff" stroke="'+(neg?'#dc2626':'#0f172a')+'" stroke-width="3"/>';
+    s+='<path d="M'+(cx-6)+' '+(yP-8)+' L'+(cx+10)+' '+yP+' L'+(cx-6)+' '+(yP+8)+' Z" fill="'+(neg?'#dc2626':'#0f172a')+'"/>';
+    s+='<line x1="'+(cx+17)+'" y1="'+yP+'" x2="'+(cx+60)+'" y2="'+yP+'" stroke="#0f172a" stroke-width="5"/>';
+    s+='<path d="M'+(cx+60)+' '+(yP-6)+' l12 6 -12 6 z" fill="#0f172a"/>';
+    s+='<text x="'+(cx+20)+'" y="'+(yP-11)+'" font-size="9.5" fill="#64748b">zur Anlage</text>';
+    s+='<text x="'+(cx-24)+'" y="'+(yP-24)+'" font-size="10.5" font-weight="800" fill="'+(neg?'#dc2626':'#0f172a')+'">Pumpe</text>';
+    // Massband hmax (Wasserspiegel ↔ Pumpenachse)
+    var mx=118;
+    s+='<line x1="'+mx+'" y1="'+yWL+'" x2="'+mx+'" y2="'+yP+'" stroke="'+(neg?'#dc2626':'#16a34a')+'" stroke-width="2"/>';
+    s+='<path d="M'+(mx-5)+' '+(yWL-8)+' L'+mx+' '+yWL+' L'+(mx+5)+' '+(yWL-8)+'" fill="none" stroke="'+(neg?'#dc2626':'#16a34a')+'" stroke-width="2"/>';
+    s+='<path d="M'+(mx-5)+' '+(yP+8)+' L'+mx+' '+yP+' L'+(mx+5)+' '+(yP+8)+'" fill="none" stroke="'+(neg?'#dc2626':'#16a34a')+'" stroke-width="2"/>';
+    s+='<text x="'+(mx-8)+'" y="'+((yWL+yP)/2).toFixed(1)+'" text-anchor="end" font-size="11.5" font-weight="800" fill="'+(neg?'#dc2626':'#15803d')+'">hmax = '+fmt(r.hmax,2)+' m</text>';
+    // Chips: Standort (oben) + Wassertemperatur (im Becken)
+    s+=chip(46,24,'⛰ Standort '+fmt(r.h,0)+' m ü.M. · pLuft '+fmt(r.pLuft/100,0)+' mbar','sg_h');
+    s+=chip(58,yWL+30,'💧 T '+fmt(r.t,0)+' °C · ρ '+fmt(r.rho,1)+' kg/m³','sg_t','#eff6ff','#93c5fd','#1d4ed8');
+    // ── Budget-Balken rechts ──
+    var bx=520,bw=86;
+    s+='<text x="'+bx+'" y="'+(yHb-24)+'" font-size="11" font-weight="800" fill="#0f172a">Höhen-Budget</text>';
+    s+='<rect x="'+bx+'" y="'+yHb.toFixed(1)+'" width="'+bw+'" height="'+(yWL-yHb).toFixed(1)+'" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1"/>';
+    var y=yHb;
+    abz.forEach(function(a){
+      var h=Math.max(0,(a.val||0)*scale);
+      if(h>0.4){
+        s+='<rect x="'+bx+'" y="'+y.toFixed(1)+'" width="'+bw+'" height="'+h.toFixed(1)+'" fill="'+a.col+'" opacity="0.88"/>';
+        if(h>=13)s+='<text x="'+(bx+bw/2)+'" y="'+(y+h/2+3.5).toFixed(1)+'" text-anchor="middle" font-size="9.5" font-weight="700" fill="#ffffff">'+a.key+' '+fmt(a.val,2)+'</text>';
+      }
+      y+=h;
+    });
+    if(!neg){
+      s+='<rect x="'+bx+'" y="'+y.toFixed(1)+'" width="'+bw+'" height="'+(yWL-y).toFixed(1)+'" fill="#16a34a" opacity="0.9"/>';
+      if(yWL-y>=15)s+='<text x="'+(bx+bw/2)+'" y="'+((y+yWL)/2+4).toFixed(1)+'" text-anchor="middle" font-size="10.5" font-weight="800" fill="#ffffff">hmax '+fmt(r.hmax,2)+'</text>';
+    } else {
+      // Abzüge laufen unter die Null-Linie: Defizit als gestrichelter Rahmen (Segmente + Labels bleiben sichtbar)
+      var yDef=Math.min(y,yWL+52);
+      s+='<rect x="'+(bx-3)+'" y="'+yWL+'" width="'+(bw+6)+'" height="'+(yDef-yWL).toFixed(1)+'" fill="none" stroke="#dc2626" stroke-width="2" stroke-dasharray="5 4"/>';
+      s+='<text x="'+(bx+bw/2)+'" y="'+(yDef+15).toFixed(1)+'" text-anchor="middle" font-size="10" font-weight="800" fill="#dc2626">Defizit '+fmt(-r.hmax,2)+' m</text>';
+    }
+    // Legende/Werte-Liste rechts (klickbar)
+    var lx=632,ly=yHb+6;
+    var rowsL=[{sw:null,lbl:'Hb — theoretisch',val:fmt(r.Hb,2)+' m',ziel:'sg_h',col:'#0f172a'}]
+      .concat(abz.map(function(a){return {sw:a.col,lbl:a.lbl,val:'− '+fmt(a.val,2)+' m',ziel:a.ziel,col:'#334155'};}))
+      .concat([{sw:neg?'#dc2626':'#16a34a',lbl:'hmax — nutzbare Saughöhe',val:fmt(r.hmax,2)+' m',ziel:null,col:neg?'#dc2626':'#15803d',bold:true}]);
+    rowsL.forEach(function(rw,i){
+      var yy=ly+i*30;
+      s+='<g'+(rw.ziel?' data-sgziel="'+rw.ziel+'" style="cursor:pointer"':'')+'>';
+      if(rw.sw)s+='<rect x="'+lx+'" y="'+(yy-9)+'" width="12" height="12" rx="3" fill="'+rw.sw+'"/>';
+      else s+='<rect x="'+lx+'" y="'+(yy-9)+'" width="12" height="12" rx="3" fill="none" stroke="#94a3b8" stroke-width="1.5"/>';
+      s+='<text x="'+(lx+19)+'" y="'+(yy+1)+'" font-size="10.5" fill="'+rw.col+'"'+(rw.bold?' font-weight="800"':'')+'>'+esc(rw.lbl)+'</text>';
+      s+='<text x="'+(W-12)+'" y="'+(yy+1)+'" text-anchor="end" font-size="10.5" font-weight="800" fill="'+rw.col+'">'+esc(rw.val)+'</text>';
+      s+='</g>';
+    });
+    if(neg)s+='<text x="'+lx+'" y="'+(ly+rowsL.length*30+4)+'" font-size="10" font-weight="700" fill="#dc2626">⚠ Saugbetrieb nicht möglich (Zulauf nötig)</text>';
+    host.innerHTML='<svg viewBox="0 0 '+W+' '+Hgt+'" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Anlagenschema Saugpumpe">'+s+'</svg>';
+    if(note)note.textContent=neg
+      ?'Die Abzüge ('+fmt(r.Hf+r.npsh+r.hs+r.Hv,2)+' m) übersteigen die theoretische Saughöhe Hb ('+fmt(r.Hb,2)+' m) — die Pumpe muss tiefer bzw. mit Zulauf aufgestellt werden. Chips und Legendenzeilen sind klickbar und führen zum Eingabefeld.'
+      :'Von Hb = '+fmt(r.Hb,2)+' m verbleiben nach Abzug von Reibung, NPSH, Sicherheit und Verdampfung hmax = '+fmt(r.hmax,2)+' m zwischen Wasserspiegel und Pumpe. Chips und Legendenzeilen sind klickbar und führen zum Eingabefeld.';
+  };
 })();
 </script>
 <script src="gema_scroll.js"></script>
