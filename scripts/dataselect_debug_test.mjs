@@ -74,6 +74,14 @@ ok(/erreichbar|Netzwerk/i.test(await debugDialogText('NETZ')), 'Netzwerkfehler �
 await debugDialogText('ACCESS');   // hat einen Roh-Auszug
 ok(await page.evaluate(() => !!document.querySelector('.gema-dlg-msg pre')), 'Dialog zeigt den Roh-Auszug in einer <pre>-Box');
 
+console.log('■ Sucheingabe-Klassifizierung (EAN / Artikel-Nr / Bezeichnung)');
+ok(await page.evaluate(() => { const o = {}; _erpDsClassify('7630054958625', o); return o.ean === '7630054958625' && !o.artnr && !o.bez; }),
+  '13-stellige Zahl → EAN');
+ok(await page.evaluate(() => { const o = {}; _erpDsClassify('620.020.00.1', o); return o.artnr === '620.020.00.1' && !o.ean; }),
+  'Artikelnummer (mit Punkten) → artnr');
+ok(await page.evaluate(() => { const o = {}; _erpDsClassify('Spülkasten', o); return o.bez === 'Spülkasten' && !o.artnr && !o.ean; }),
+  'Text → bez');
+
 ok(errors.length === 0, 'Keine JS-Fehler' + (errors.length ? ' — ' + errors.join(' | ') : ''));
 
 await browser.close();
