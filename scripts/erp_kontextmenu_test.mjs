@@ -77,15 +77,15 @@ ok(await page.evaluate(() => poolRead(DOK_POOL).find(d => d.id === window._offId
 await docCtx(await page.evaluate(() => window._offId));
 {
   const items = await ctxItems();
-  ok(items.some(t => t.indexOf('Als angenommen markieren') >= 0) && items.some(t => t.indexOf('Als abgelehnt markieren') >= 0), 'Versendet: angenommen/abgelehnt im Menü');
+  // «Angenommen» ist raus — aus einer versendeten Offerte direkt der Auftrag
+  ok(!items.some(t => t.indexOf('angenommen') >= 0), 'Versendet: kein «Angenommen»-Schritt mehr');
+  ok(items.some(t => t.indexOf('Auftrag erstellen') >= 0) && items.some(t => t.indexOf('Als abgelehnt markieren') >= 0), 'Versendet: «Auftrag erstellen» + «abgelehnt» im Menü');
   ok(!items.some(t => t.indexOf('Löschen') >= 0), 'Versendet: kein Löschen mehr (nur Entwurf)');
 }
-await ctxClick('Als angenommen markieren');
-await page.waitForTimeout(150);
 
 console.log('■ Karten-Menü: Auftrag erstellen → Akonto/Teil/Schluss per Rechtsklick');
 await docCtx(await page.evaluate(() => window._offId));
-ok((await ctxItems()).some(t => t.indexOf('Auftrag erstellen') >= 0), 'Angenommen: «Auftrag erstellen» im Menü');
+ok((await ctxItems()).some(t => t.indexOf('Auftrag erstellen') >= 0), 'Versendet: «Auftrag erstellen» im Menü');
 await ctxClick('Auftrag erstellen');
 await page.waitForTimeout(300);
 ok(await page.evaluate(() => cur && cur.typ === 'auftrag' && cur.verknuepfung.offerteId === window._offId), 'Auftrag erstellt + Editor offen');
