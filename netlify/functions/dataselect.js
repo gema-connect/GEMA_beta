@@ -83,6 +83,18 @@ function _stripHtml(s){
     .replace(/&amp;/gi, '&').replace(/&lt;/gi, '<').replace(/&gt;/gi, '>')
     .replace(/&quot;/gi, '"').replace(/&#39;/gi, "'").replace(/\s+/g, ' ').trim();
 }
+// Ausführung (Farbe/Oberfläche) aus der bexio-Beschreibung ziehen. Muster:
+// «… Schallisolierung\nAF: Pergamon/AFZ: Gleitschutz Antislip» → "Pergamon · Gleitschutz Antislip".
+function _afAusfuehrung(text){
+  var s = _stripHtml(text);
+  if (!s) return '';
+  var af = '', afz = '';
+  var m1 = s.match(/\bAF:\s*([\s\S]*?)(?=\bAFZ:|$)/i);
+  if (m1) af = m1[1].replace(/[\/;,\s]+$/, '').trim();
+  var m2 = s.match(/\bAFZ:\s*([\s\S]*?)$/i);
+  if (m2) afz = m2[1].replace(/[\/;,\s]+$/, '').trim();
+  return [af, afz].filter(Boolean).join(' · ');
+}
 function _normArtikel(raw){
   if (!raw || typeof raw !== 'object') return null;
   // Kandidatenlisten inkl. bexio-CSV (Produktcode/Produktname/Verkaufspreis …)
@@ -104,7 +116,9 @@ function _normArtikel(raw){
     einheit: String(_pick(raw, ['einheit','me','mengeneinheit','vpe','verkaufseinheit','verpackungseinheit','unit','uom','mengeneinheittext','unit_name','unitname']) || '').trim(),
     hersteller: String(_pick(raw, ['hersteller','lieferant','anbieter','marke','brand','manufacturer','fabrikat','lieferantname']) || '').trim(),
     serie: String(_pick(raw, ['serie','produktlinie','produktgruppe','sortiment','linie','series','hauptgruppe','untergruppe']) || '').trim(),
-    bildUrl: _bild(bildRaw)
+    bildUrl: _bild(bildRaw),
+    // Ausführung (AF/AFZ = Farbe/Oberfläche) — fürs Gruppieren gleicher Produkte
+    ausfuehrung: _afAusfuehrung(_pick(raw, ['produktbeschreibung','beschreibung','description','produktbeschreibunglieferant','intern_description']))
   };
 }
 
@@ -331,3 +345,4 @@ exports._pick = _pick;
 exports._bild = _bild;
 exports._parseCsv = _parseCsv;
 exports._stripHtml = _stripHtml;
+exports._afAusfuehrung = _afAusfuehrung;

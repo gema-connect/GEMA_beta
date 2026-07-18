@@ -127,6 +127,7 @@
         ean: String(raw.ean || '').trim(), preis: _num(raw.preis), waehrung: String(raw.waehrung || 'CHF'),
         einheit: String(raw.einheit || '').trim(), hersteller: String(raw.hersteller || '').trim(),
         serie: String(raw.serie || '').trim(), bildUrl: bu,
+        ausfuehrung: String(raw.ausfuehrung || '').trim(),
         hatBild: (raw.hatBild !== undefined ? !!raw.hatBild : !!bu)   // Bild vorhanden? (fürs Nachladen)
       };
     }
@@ -142,6 +143,7 @@
       hersteller: String(_pick(raw, ['hersteller','lieferant','marke','brand']) || '').trim(),
       serie: String(_pick(raw, ['serie','produktlinie','hauptgruppe','untergruppe']) || '').trim(),
       bildUrl: bildUrl,
+      ausfuehrung: String(_pick(raw, ['ausfuehrung','ausführung']) || '').trim(),
       hatBild: (raw.hatBild !== undefined ? !!raw.hatBild : !!bildUrl)
     };
   }
