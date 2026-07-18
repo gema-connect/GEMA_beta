@@ -248,6 +248,19 @@ table.pos{border-collapse:collapse;width:100%;font-size:13px;min-width:680px}
 .pick-search{width:100%;padding:13px;border:1.5px solid var(--brd2);border-radius:11px;font-size:16px;outline:none;margin-bottom:10px}
 #toast{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom));transform:translateX(-50%);background:var(--txt);color:#fff;padding:10px 18px;border-radius:12px;font-size:13.5px;font-weight:700;z-index:1200;box-shadow:0 8px 28px rgba(0,0,0,.3);opacity:0;transition:opacity .3s;pointer-events:none;max-width:90vw;text-align:center}
 #toast.show{opacity:1}
+/* Auto-Speichern-Statusanzeige unten rechts (wie die Berichte) */
+.save-status{position:fixed;bottom:calc(18px + env(safe-area-inset-bottom));right:18px;z-index:600;display:flex;align-items:center;gap:8px;padding:8px 14px;border-radius:99px;background:#fff;border:1px solid #e5e7eb;box-shadow:0 8px 24px rgba(15,23,42,.14);font-size:12.5px;font-weight:600;color:#0f172a;transition:opacity .25s,transform .25s;font-family:'DM Sans',system-ui,sans-serif}
+.save-status.hidden{opacity:0;transform:translateY(8px);pointer-events:none}
+.save-status .save-dot{width:8px;height:8px;border-radius:50%;background:#94a3b8;display:inline-block}
+.save-status .save-spinner{width:14px;height:14px;border:2px solid #e5e7eb;border-top-color:#2563eb;border-radius:50%;animation:erpSaveSpin .7s linear infinite}
+.save-status .save-check{color:#16a34a;font-weight:800;font-size:14px}
+.save-status .save-err{color:#dc2626;font-weight:800;font-size:14px}
+.save-status.pending{color:#64748b}
+.save-status.saving{color:#2563eb;border-color:#bfdbfe}
+.save-status.saved{color:#16a34a;border-color:#bbf7d0;background:#f0fdf4}
+.save-status.error{color:#dc2626;border-color:#fecaca;background:#fef2f2}
+@keyframes erpSaveSpin{to{transform:rotate(360deg)}}
+@media(max-width:640px){.save-status{bottom:calc(14px + env(safe-area-inset-bottom));right:14px;padding:6px 11px;font-size:11.5px}}
 /* Quantity-Mini-Dialog (Artikel aus Sidebar einfügen) */
 #erpQtyModal .modal{max-width:340px}
 #erpQtyModal .eq-name{font-size:13px;font-weight:800;line-height:1.35;margin-bottom:10px}
@@ -729,14 +742,19 @@ function poolRead(key){
   }catch(e){}
   return _memStore[key]||[];
 }
-function poolSave(key,prefix,rec){
+// poolSaveP: schreibt den Record SYNCHRON lokal (localStorage + In-Memory-
+// Spiegel, durable) und liefert die Cloud-Promise zurück — für die Status-
+// Anzeige des Auto-Speicherns.
+function poolSaveP(key,prefix,rec){
   var pool=poolRead(key).slice();
   var i=pool.findIndex(function(x){return x.id===rec.id;});
   if(i>=0)pool[i]=rec;else pool.push(rec);
   _memStore[key]=pool;
   try{localStorage.setItem(key,JSON.stringify(pool));}catch(e){}
-  if(typeof GemaSync!=='undefined'&&GemaSync.saveRecord)GemaSync.saveRecord(ERP_MODULE,prefix+rec.id,rec).catch(function(){});
+  if(typeof GemaSync!=='undefined'&&GemaSync.saveRecord)return GemaSync.saveRecord(ERP_MODULE,prefix+rec.id,rec);
+  return Promise.resolve();
 }
+function poolSave(key,prefix,rec){var p=poolSaveP(key,prefix,rec);if(p&&p.catch)p.catch(function(){});}
 function poolDelete(key,prefix,id){
   var pool=poolRead(key).filter(function(x){return x.id!==id;});
   _memStore[key]=pool;
@@ -773,7 +791,7 @@ function erpOrgUsers(){
 }
 function erpSbWahl(uid){
   var x=erpOrgUsers().find(function(v){return v.id===uid;});
-  if(x)cur.sachbearbeiter={userId:x.id,name:x.name||x.username||''};
+  if(x){cur.sachbearbeiter={userId:x.id,name:x.name||x.username||''};erpTouch();}
 }
 function erpHas(rid){var u=erpUser();return !!(u&&u.roleIds&&u.roleIds.indexOf(rid)>=0);}
 function erpCanEdit(){
@@ -1680,15 +1698,75 @@ function erpOpen(id){
   erpPosSelReset();          // Auswahl beim Öffnen zurücksetzen
   erpOpenEditor();
 }
-function erpCloseEditor(){var ov=document.getElementById('edOv');ov.classList.remove('open');ov.classList.remove('side-open');cur=null;erpPosSelReset();_editCell=null;erpRenderAll();}
+function erpCloseEditor(){erpFlushSave();var ov=document.getElementById('edOv');ov.classList.remove('open');ov.classList.remove('side-open');cur=null;erpPosSelReset();_editCell=null;erpRenderAll();}
+// ── Auto-Speichern mit Status-Indikator unten rechts (wie die Berichte) ──
+// Offerte/Rechnung/Auftrag speichern sich automatisch: jede Änderung (Position,
+// Grunddaten, Titel …) plant einen debounced Save, Statuswechsel u.Ä. speichern
+// sofort. Der lokale Write ist synchron durable, der Cloud-Push treibt die
+// Anzeige (Änderungen → Wird gespeichert → Gespeichert / Fehler).
+var _erpSaveTimer=null,_erpSavePending=false,_erpSaveHide=null,_erpLastSig=null;
+function erpDocSig(d){try{return JSON.stringify(d,function(k,v){return k==='_unlocked'?undefined:v;});}catch(e){return null;}}
+// Schreibt cur synchron lokal + liefert die Cloud-Promise (strippt transientes _unlocked).
+function erpPersistCur(){
+  if(!cur)return Promise.resolve();
+  if(cur.objektId){var o=erpObjekte().find(function(x){return x.id===cur.objektId;});if(o){cur.objektName=o.name+(o.ort?' · '+o.ort:'');}}
+  var unlk=cur._unlocked;delete cur._unlocked;
+  var p=poolSaveP(DOK_POOL,DOK_PREFIX,cur);
+  cur._unlocked=unlk;
+  _erpLastSig=erpDocSig(cur);
+  return p;
+}
+function _erpTrack(p){
+  erpSaveSetStatus('saving');
+  if(p&&p.then){p.then(function(){if(!_erpSavePending)erpSaveSetStatus('saved');}).catch(function(){erpSaveSetStatus('error');});}
+  else erpSaveSetStatus('saved');
+}
+// Sofort speichern (Statuswechsel, Ketten-Sprünge, Tests). Signatur wie bisher.
 function erpSaveCur(silent){
   if(!cur)return;
-  if(cur.objektId){var o=erpObjekte().find(function(x){return x.id===cur.objektId;});if(o){cur.objektName=o.name+(o.ort?' · '+o.ort:'');}}
-  var unlk=cur._unlocked;delete cur._unlocked;   // Entsperren ist transient, nicht speichern
-  poolSave(DOK_POOL,DOK_PREFIX,cur);
-  cur._unlocked=unlk;
-  if(!silent)toast('✓ Gespeichert');
+  if(_erpSaveTimer){clearTimeout(_erpSaveTimer);_erpSaveTimer=null;}
+  _erpSavePending=false;
+  _erpTrack(erpPersistCur());
 }
+// Debounced Auto-Save für laufende Eingaben.
+function erpScheduleSave(){
+  if(!cur)return;
+  _erpSavePending=true;
+  erpSaveSetStatus('pending');
+  if(_erpSaveTimer)clearTimeout(_erpSaveTimer);
+  _erpSaveTimer=setTimeout(function(){
+    _erpSaveTimer=null;_erpSavePending=false;
+    if(!cur)return;
+    _erpTrack(erpPersistCur());
+  },1200);
+}
+// Änderung am offenen Dokument melden — nur bei echter Änderung (Signatur-Diff),
+// damit reines Öffnen/Schliessen einer Zellbearbeitung nichts speichert.
+function erpTouch(){
+  if(!cur)return;
+  var s=erpDocSig(cur);
+  if(s!==null&&s===_erpLastSig)return;
+  _erpLastSig=s;
+  erpScheduleSave();
+}
+// Ausstehende Änderung sofort sichern (beim Schliessen/Verlassen).
+function erpFlushSave(){
+  if(_erpSaveTimer){clearTimeout(_erpSaveTimer);_erpSaveTimer=null;}
+  if(_erpSavePending&&cur){_erpSavePending=false;_erpTrack(erpPersistCur());}
+}
+function erpSaveSetStatus(state){
+  if(_erpSaveHide){clearTimeout(_erpSaveHide);_erpSaveHide=null;}
+  var el=document.getElementById('saveStatus');
+  if(!el){el=document.createElement('div');el.id='saveStatus';el.className='save-status hidden';document.body.appendChild(el);}
+  el.classList.remove('hidden','pending','saving','saved','error');
+  if(state==='pending'){el.classList.add('pending');el.innerHTML='<span class="save-dot"></span><span>Änderungen werden gespeichert …</span>';}
+  else if(state==='saving'){el.classList.add('saving');el.innerHTML='<span class="save-spinner"></span><span>Wird gespeichert …</span>';}
+  else if(state==='saved'){el.classList.add('saved');el.innerHTML='<span class="save-check">✓</span><span>Gespeichert</span>';_erpSaveHide=setTimeout(function(){var e=document.getElementById('saveStatus');if(e)e.classList.add('hidden');},2000);}
+  else if(state==='error'){el.classList.add('error');el.innerHTML='<span class="save-err">⚠</span><span>Lokal gesichert — Cloud-Sync ausstehend</span>';}
+}
+window.addEventListener('beforeunload',erpFlushSave);
+window.addEventListener('pagehide',erpFlushSave);
+document.addEventListener('visibilitychange',function(){if(document.visibilityState==='hidden')erpFlushSave();});
 // Natürlich editierbar (ohne Entsperren): Offerte nur im Entwurf (versendet =
 // gesperrt), Auftrag solange nicht abgeschlossen, Rechnung nur im Entwurf.
 function erpNaturalEditable(d){
@@ -1708,6 +1786,7 @@ function erpOpenEditor(){
   var d=cur;
   erpPosSelReset();          // Auswahl bei vollem Editor-Rebuild zurücksetzen
   _editCell=null;            // offene Zell-Bearbeitung schliessen
+  _erpLastSig=erpDocSig(d);  // Ausgangsstand — reines Öffnen speichert nicht
   // Schlussrabatte normalisieren + Alt-Dokument-Rabatt (rabattPct) einmalig in
   // eine Schlusszeile migrieren (danach läuft alles über cur.schluss)
   if(!Array.isArray(d.schluss))d.schluss=[];
@@ -1773,19 +1852,19 @@ function erpOpenEditor(){
     +'</select>'
     +(editable?'<button class="btn" style="min-width:44px;padding:8px" title="Neuer Kunde / aus Beteiligten" onclick="erpKundeNeu(true)">＋</button>':'')
     +'</div></div>'
-    +'<div class="fld"><label>Projekt / Objekt</label><select id="e_objekt"'+dis+' onchange="cur.objektId=this.value">'
+    +'<div class="fld"><label>Projekt / Objekt</label><select id="e_objekt"'+dis+' onchange="cur.objektId=this.value;erpTouch()">'
     +'<option value="">– keins –</option>'
     +erpObjekte().map(function(o){return '<option value="'+o.id+'"'+(o.id===d.objektId?' selected':'')+'>'+esc(o.name+(o.ort?' · '+o.ort:''))+'</option>';}).join('')
     +'</select></div></div>'
-    +'<div class="fld"><label>Titel / Betreff</label><input type="text" value="'+esc(d.titel||'')+'" placeholder="z.B. Sanitärinstallation Neubau MFH"'+dis+' oninput="cur.titel=this.value"/></div>'
+    +'<div class="fld"><label>Titel / Betreff</label><input type="text" value="'+esc(d.titel||'')+'" placeholder="z.B. Sanitärinstallation Neubau MFH"'+dis+' oninput="cur.titel=this.value;erpTouch()"/></div>'
     +'<div class="fld-row3">'
-    +'<div class="fld"><label>Datum</label><input type="date" value="'+esc(d.datum||'')+'"'+dis+' onchange="cur.datum=this.value"/></div>'
-    +(d.typ==='offerte'?'<div class="fld"><label>Gültig bis</label><input type="date" value="'+esc(d.gueltigBis||'')+'"'+dis+' onchange="cur.gueltigBis=this.value"/></div>':'')
-    +(d.typ==='rechnung'?'<div class="fld"><label>Zahlbar bis</label><input type="date" value="'+esc(d.frist||'')+'"'+dis+' onchange="cur.frist=this.value"/></div>':'')
+    +'<div class="fld"><label>Datum</label><input type="date" value="'+esc(d.datum||'')+'"'+dis+' onchange="cur.datum=this.value;erpTouch()"/></div>'
+    +(d.typ==='offerte'?'<div class="fld"><label>Gültig bis</label><input type="date" value="'+esc(d.gueltigBis||'')+'"'+dis+' onchange="cur.gueltigBis=this.value;erpTouch()"/></div>':'')
+    +(d.typ==='rechnung'?'<div class="fld"><label>Zahlbar bis</label><input type="date" value="'+esc(d.frist||'')+'"'+dis+' onchange="cur.frist=this.value;erpTouch()"/></div>':'')
     +(function(){
       var bl=abListe();
       if(!bl.length)return '';   // keine Bereiche definiert → Feld ausblenden (Definition in ⚙️)
-      return '<div class="fld"><label>Arbeitsbereich</label><select id="e_bereich"'+dis+' onchange="cur.bereichId=this.value">'
+      return '<div class="fld"><label>Arbeitsbereich</label><select id="e_bereich"'+dis+' onchange="cur.bereichId=this.value;erpTouch()">'
         +'<option value="">– kein Bereich –</option>'
         +bl.map(function(b){return '<option value="'+b.id+'"'+(b.id===d.bereichId?' selected':'')+'>'+esc(b.name)+'</option>';}).join('')
         +'</select></div>';
@@ -1821,8 +1900,8 @@ function erpOpenEditor(){
       return '<div style="font-size:12px;background:var(--amber-bg);border:1px solid var(--amber-bd);border-radius:9px;padding:8px 11px;margin-top:6px">'
         +'🔑 <b>Schlüssel / Zutritt</b> <span style="color:var(--mut)">— erscheint beim Monteur auf dem Einsatz im Einsatzplan</span>'
         +'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px">'
-        +'<input type="text" value="'+esc(sk.code||'')+'" placeholder="Schlüsselcode / Tresor-Code" style="flex:0 0 200px;min-width:160px;padding:8px 10px;border:1.5px solid var(--brd2);border-radius:9px;font-size:13px;font-family:inherit" oninput="cur.schluessel=cur.schluessel||{};cur.schluessel.code=this.value"'+(editable?'':' disabled')+'/>'
-        +'<input type="text" value="'+esc(sk.info||'')+'" placeholder="Schlüssel wo / bei wem abholen (z.B. Hauswart Müller, 079 …)" style="flex:1;min-width:220px;padding:8px 10px;border:1.5px solid var(--brd2);border-radius:9px;font-size:13px;font-family:inherit" oninput="cur.schluessel=cur.schluessel||{};cur.schluessel.info=this.value"'+(editable?'':' disabled')+'/>'
+        +'<input type="text" value="'+esc(sk.code||'')+'" placeholder="Schlüsselcode / Tresor-Code" style="flex:0 0 200px;min-width:160px;padding:8px 10px;border:1.5px solid var(--brd2);border-radius:9px;font-size:13px;font-family:inherit" oninput="cur.schluessel=cur.schluessel||{};cur.schluessel.code=this.value;erpTouch()"'+(editable?'':' disabled')+'/>'
+        +'<input type="text" value="'+esc(sk.info||'')+'" placeholder="Schlüssel wo / bei wem abholen (z.B. Hauswart Müller, 079 …)" style="flex:1;min-width:220px;padding:8px 10px;border:1.5px solid var(--brd2);border-radius:9px;font-size:13px;font-family:inherit" oninput="cur.schluessel=cur.schluessel||{};cur.schluessel.info=this.value;erpTouch()"'+(editable?'':' disabled')+'/>'
         +'</div></div>';
     })():'')
     // Aushang (nur Auftrag): Mieter-Info für Arbeiten, die das ganze Gebäude
@@ -1834,8 +1913,8 @@ function erpOpenEditor(){
       return '<div style="font-size:12px;background:var(--sur2);border:1px solid var(--brd);border-radius:9px;padding:8px 11px;margin-top:6px">'
         +'📌 <b>Aushang (Mieter-Info)</b> <span style="color:var(--mut)">— z.B. Wasser-/Stromabstellung im Mehrfamilienhaus; beim Einplanen im Einsatzplan wirst du daran erinnert</span>'
         +'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;align-items:center">'
-        +'<label style="display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:700;cursor:pointer;white-space:nowrap"><input type="checkbox"'+(au.noetig?' checked':'')+(editable?'':' disabled')+' style="width:17px;height:17px" onchange="cur.aushang=cur.aushang||{};cur.aushang.noetig=this.checked"/> Aushang nötig</label>'
-        +'<select style="flex:1;min-width:180px;padding:7px 9px;border:1.5px solid var(--brd2);border-radius:9px;font-size:12.5px;font-family:inherit"'+(editable?'':' disabled')+' onchange="cur.aushang=cur.aushang||{};cur.aushang.vorlageId=this.value">'
+        +'<label style="display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:700;cursor:pointer;white-space:nowrap"><input type="checkbox"'+(au.noetig?' checked':'')+(editable?'':' disabled')+' style="width:17px;height:17px" onchange="cur.aushang=cur.aushang||{};cur.aushang.noetig=this.checked;erpTouch()"/> Aushang nötig</label>'
+        +'<select style="flex:1;min-width:180px;padding:7px 9px;border:1.5px solid var(--brd2);border-radius:9px;font-size:12.5px;font-family:inherit"'+(editable?'':' disabled')+' onchange="cur.aushang=cur.aushang||{};cur.aushang.vorlageId=this.value;erpTouch()">'
         +vl.map(function(v){return '<option value="'+esc(v.id)+'"'+(v.id===(au.vorlageId||vl[0].id)?' selected':'')+'>'+esc((v.ic?v.ic+' ':'')+v.name)+'</option>';}).join('')
         +'</select>'
         +'<button type="button" class="btn" style="min-height:32px;padding:4px 11px;font-size:12px" onclick="erpAushangOpen()">🖨 Aushang erstellen …</button>'
@@ -1897,6 +1976,7 @@ function erpCellKey(e){
 }
 function erpRenderPos(){
   var tb=document.getElementById('posBody');if(!tb||!cur)return;
+  erpTouch();   // Positions-/Zellenänderungen laufen alle hier durch → Auto-Save (Signatur-Diff)
   var editable=erpEditable();
   var h='';
   var kapBasis=0;   // Positionssumme seit dem letzten Titel (Basis für Rabatt-/Zuschlagszeilen)
@@ -1994,7 +2074,7 @@ function erpRenderPos(){
     var istRab=s.art!=='zuschlag';
     if(!editableDoc)return '<div class="rw"><span>'+esc(s.bez||(istRab?'Rabatt':'Zuschlag'))+' '+(s.modus==='chf'?'(pauschal)':(erpNum(s.wert)+' %'))+'</span><b style="color:'+(betrag<0?'var(--red)':'var(--amber)')+'">'+(betrag<0?'− ':'+ ')+chf(Math.abs(betrag))+'</b></div>';
     return '<div class="rw" style="gap:6px;align-items:center">'
-      +'<input type="text" value="'+esc(s.bez||'')+'" placeholder="'+(istRab?'Rabatt':'Zuschlag')+'" style="flex:1;min-width:50px;padding:4px 7px;border:1.5px solid var(--brd2);border-radius:7px;font-size:12px" oninput="cur.schluss['+si+'].bez=this.value"/>'
+      +'<input type="text" value="'+esc(s.bez||'')+'" placeholder="'+(istRab?'Rabatt':'Zuschlag')+'" style="flex:1;min-width:50px;padding:4px 7px;border:1.5px solid var(--brd2);border-radius:7px;font-size:12px" oninput="cur.schluss['+si+'].bez=this.value;erpTouch()"/>'
       +'<select style="padding:4px 4px;border:1.5px solid var(--brd2);border-radius:7px;font-size:12px" onchange="cur.schluss['+si+'].modus=this.value;erpRenderPos()"><option value="pct"'+(s.modus!=='chf'?' selected':'')+'>%</option><option value="chf"'+(s.modus==='chf'?' selected':'')+'>CHF</option></select>'
       +'<input type="text" inputmode="decimal" value="'+(s.wert!=null?s.wert:'')+'" placeholder="'+(s.modus==='chf'?'Betrag':'%')+'" style="width:62px;padding:4px 6px;border:1.5px solid var(--brd2);border-radius:7px;text-align:right;font-size:12px" onchange="cur.schluss['+si+'].wert=this.value;erpRenderPos()" onblur="fixLeadingZero(this)"/>'
       +'<b style="min-width:76px;text-align:right;white-space:nowrap;color:'+(betrag<0?'var(--red)':'var(--amber)')+'">'+(betrag<0?'− ':'+ ')+chf(Math.abs(betrag))+'</b>'
@@ -2981,12 +3061,12 @@ function erpZustellSave(){
     ort:document.getElementById('z_ort').value.trim()
   };
   document.getElementById('zustellModal').classList.remove('open');
-  erpOpenEditor();
+  erpSaveCur(true);erpOpenEditor();
   toast('✉️ Zustelladresse gesetzt — Rechnungsempfänger bleibt der Kunde');
 }
 function erpZustellRemove(){
   cur.zustellSnapshot=null;
-  erpOpenEditor();
+  erpSaveCur(true);erpOpenEditor();
   toast('Zustelladresse entfernt — Dokument geht wieder an den Kunden');
 }
 
@@ -2995,7 +3075,7 @@ function erpRenderFooter(){
   var d=cur;var ft='';var s=erpStatusOf(d);
   var editable=erpEditable();
   if(erpLocked())ft+='<button class="btn" onclick="erpEntsperren()">🔓 Entsperren</button>';
-  if(editable)ft+='<button class="btn pri" onclick="erpDoSave()">💾 Speichern</button>';
+  // Speichern läuft automatisch (Status unten rechts) — kein manueller Button mehr.
   if(d.typ==='offerte'){
     if(d.status==='entwurf')ft+='<button class="btn grn" onclick="erpStatus(\'versendet\',\'📤 Offerte als versendet markiert\')">📤 Versendet</button>';
     // Versendet → direkt Auftrag erstellen (kein «Angenommen»-Zwischenschritt);
@@ -3024,10 +3104,8 @@ function erpRenderFooter(){
   if(editable&&d.status==='entwurf'||d.typ==='offerte'&&d.status==='entwurf')ft+='<button class="btn red" onclick="erpLoeschen()">🗑</button>';
   document.getElementById('edFt').innerHTML=ft;
 }
-function erpDoSave(){
-  if(!cur.kundeId&&!cur.kundeSnapshot){toast('⚠ Bitte Kunde wählen');return;}
-  erpSaveCur();erpRenderAll();erpRenderFooter();
-}
+// Legacy — Speichern läuft automatisch; nur noch Sofort-Flush für Alt-Aufrufer.
+function erpDoSave(){erpSaveCur(true);erpRenderAll();erpRenderFooter();}
 function erpStatus(st,msg){
   cur.status=st;
   erpSaveCur(true);
@@ -3262,7 +3340,7 @@ function erpKundeWahl(id){
   cur.kundeId=id;
   var k=erpKunden().find(function(x){return x.id===id;});
   cur.kundeSnapshot=k?{firma:k.firma,kontakt:k.kontakt,strasse:k.strasse,plz:k.plz,ort:k.ort,email:k.email}:null;
-  erpOpenEditor();
+  erpSaveCur(true);erpOpenEditor();
 }
 function erpKundeNeu(ausEditor){
   _kundeEditId=null;_kundeAusEditor=!!ausEditor;
@@ -3327,7 +3405,7 @@ function erpKundeSave(){
   poolSave(KUN_POOL,KUN_PREFIX,k);
   document.getElementById('kundeModal').classList.remove('open');
   toast('✓ Kunde gespeichert');
-  if(_kundeAusEditor&&cur){cur.kundeId=k.id;cur.kundeSnapshot={firma:k.firma,kontakt:k.kontakt,strasse:k.strasse,plz:k.plz,ort:k.ort,email:k.email};erpOpenEditor();}
+  if(_kundeAusEditor&&cur){cur.kundeId=k.id;cur.kundeSnapshot={firma:k.firma,kontakt:k.kontakt,strasse:k.strasse,plz:k.plz,ort:k.ort,email:k.email};erpSaveCur(true);erpOpenEditor();}
   else erpRenderAll();
 }
 
