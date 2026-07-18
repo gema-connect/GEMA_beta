@@ -248,6 +248,19 @@ table.pos{border-collapse:collapse;width:100%;font-size:13px;min-width:680px}
 .pick-search{width:100%;padding:13px;border:1.5px solid var(--brd2);border-radius:11px;font-size:16px;outline:none;margin-bottom:10px}
 #toast{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom));transform:translateX(-50%);background:var(--txt);color:#fff;padding:10px 18px;border-radius:12px;font-size:13.5px;font-weight:700;z-index:1200;box-shadow:0 8px 28px rgba(0,0,0,.3);opacity:0;transition:opacity .3s;pointer-events:none;max-width:90vw;text-align:center}
 #toast.show{opacity:1}
+/* Auto-Speichern-Statusanzeige unten rechts (wie die Berichte) */
+.save-status{position:fixed;bottom:calc(18px + env(safe-area-inset-bottom));right:18px;z-index:600;display:flex;align-items:center;gap:8px;padding:8px 14px;border-radius:99px;background:#fff;border:1px solid #e5e7eb;box-shadow:0 8px 24px rgba(15,23,42,.14);font-size:12.5px;font-weight:600;color:#0f172a;transition:opacity .25s,transform .25s;font-family:'DM Sans',system-ui,sans-serif}
+.save-status.hidden{opacity:0;transform:translateY(8px);pointer-events:none}
+.save-status .save-dot{width:8px;height:8px;border-radius:50%;background:#94a3b8;display:inline-block}
+.save-status .save-spinner{width:14px;height:14px;border:2px solid #e5e7eb;border-top-color:#2563eb;border-radius:50%;animation:erpSaveSpin .7s linear infinite}
+.save-status .save-check{color:#16a34a;font-weight:800;font-size:14px}
+.save-status .save-err{color:#dc2626;font-weight:800;font-size:14px}
+.save-status.pending{color:#64748b}
+.save-status.saving{color:#2563eb;border-color:#bfdbfe}
+.save-status.saved{color:#16a34a;border-color:#bbf7d0;background:#f0fdf4}
+.save-status.error{color:#dc2626;border-color:#fecaca;background:#fef2f2}
+@keyframes erpSaveSpin{to{transform:rotate(360deg)}}
+@media(max-width:640px){.save-status{bottom:calc(14px + env(safe-area-inset-bottom));right:14px;padding:6px 11px;font-size:11.5px}}
 /* Quantity-Mini-Dialog (Artikel aus Sidebar einfügen) */
 #erpQtyModal .modal{max-width:340px}
 #erpQtyModal .eq-name{font-size:13px;font-weight:800;line-height:1.35;margin-bottom:10px}
@@ -729,14 +742,19 @@ function poolRead(key){
   }catch(e){}
   return _memStore[key]||[];
 }
-function poolSave(key,prefix,rec){
+// poolSaveP: schreibt den Record SYNCHRON lokal (localStorage + In-Memory-
+// Spiegel, durable) und liefert die Cloud-Promise zurück — für die Status-
+// Anzeige des Auto-Speicherns.
+function poolSaveP(key,prefix,rec){
   var pool=poolRead(key).slice();
   var i=pool.findIndex(function(x){return x.id===rec.id;});
   if(i>=0)pool[i]=rec;else pool.push(rec);
   _memStore[key]=pool;
   try{localStorage.setItem(key,JSON.stringify(pool));}catch(e){}
-  if(typeof GemaSync!=='undefined'&&GemaSync.saveRecord)GemaSync.saveRecord(ERP_MODULE,prefix+rec.id,rec).catch(function(){});
+  if(typeof GemaSync!=='undefined'&&GemaSync.saveRecord)return GemaSync.saveRecord(ERP_MODULE,prefix+rec.id,rec);
+  return Promise.resolve();
 }
+function poolSave(key,prefix,rec){var p=poolSaveP(key,prefix,rec);if(p&&p.catch)p.catch(function(){});}
 function poolDelete(key,prefix,id){
   var pool=poolRead(key).filter(function(x){return x.id!==id;});
   _memStore[key]=pool;
@@ -773,7 +791,7 @@ function erpOrgUsers(){
 }
 function erpSbWahl(uid){
   var x=erpOrgUsers().find(function(v){return v.id===uid;});
-  if(x)cur.sachbearbeiter={userId:x.id,name:x.name||x.username||''};
+  if(x){cur.sachbearbeiter={userId:x.id,name:x.name||x.username||''};erpTouch();}
 }
 function erpHas(rid){var u=erpUser();return !!(u&&u.roleIds&&u.roleIds.indexOf(rid)>=0);}
 function erpCanEdit(){
@@ -1680,15 +1698,75 @@ function erpOpen(id){
   erpPosSelReset();          // Auswahl beim Öffnen zurücksetzen
   erpOpenEditor();
 }
-function erpCloseEditor(){var ov=document.getElementById('edOv');ov.classList.remove('open');ov.classList.remove('side-open');cur=null;erpPosSelReset();_editCell=null;erpRenderAll();}
+function erpCloseEditor(){erpFlushSave();var ov=document.getElementById('edOv');ov.classList.remove('open');ov.classList.remove('side-open');cur=null;erpPosSelReset();_editCell=null;erpRenderAll();}
+// ── Auto-Speichern mit Status-Indikator unten rechts (wie die Berichte) ──
+// Offerte/Rechnung/Auftrag speichern sich automatisch: jede Änderung (Position,
+// Grunddaten, Titel …) plant einen debounced Save, Statuswechsel u.Ä. speichern
+// sofort. Der lokale Write ist synchron durable, der Cloud-Push treibt die
+// Anzeige (Änderungen → Wird gespeichert → Gespeichert / Fehler).
+var _erpSaveTimer=null,_erpSavePending=false,_erpSaveHide=null,_erpLastSig=null;
+function erpDocSig(d){try{return JSON.stringify(d,function(k,v){return k==='_unlocked'?undefined:v;});}catch(e){return null;}}
+// Schreibt cur synchron lokal + liefert die Cloud-Promise (strippt transientes _unlocked).
+function erpPersistCur(){
+  if(!cur)return Promise.resolve();
+  if(cur.objektId){var o=erpObjekte().find(function(x){return x.id===cur.objektId;});if(o){cur.objektName=o.name+(o.ort?' · '+o.ort:'');}}
+  var unlk=cur._unlocked;delete cur._unlocked;
+  var p=poolSaveP(DOK_POOL,DOK_PREFIX,cur);
+  cur._unlocked=unlk;
+  _erpLastSig=erpDocSig(cur);
+  return p;
+}
+function _erpTrack(p){
+  erpSaveSetStatus('saving');
+  if(p&&p.then){p.then(function(){if(!_erpSavePending)erpSaveSetStatus('saved');}).catch(function(){erpSaveSetStatus('error');});}
+  else erpSaveSetStatus('saved');
+}
+// Sofort speichern (Statuswechsel, Ketten-Sprünge, Tests). Signatur wie bisher.
 function erpSaveCur(silent){
   if(!cur)return;
-  if(cur.objektId){var o=erpObjekte().find(function(x){return x.id===cur.objektId;});if(o){cur.objektName=o.name+(o.ort?' · '+o.ort:'');}}
-  var unlk=cur._unlocked;delete cur._unlocked;   // Entsperren ist transient, nicht speichern
-  poolSave(DOK_POOL,DOK_PREFIX,cur);
-  cur._unlocked=unlk;
-  if(!silent)toast('✓ Gespeichert');
+  if(_erpSaveTimer){clearTimeout(_erpSaveTimer);_erpSaveTimer=null;}
+  _erpSavePending=false;
+  _erpTrack(erpPersistCur());
 }
+// Debounced Auto-Save für laufende Eingaben.
+function erpScheduleSave(){
+  if(!cur)return;
+  _erpSavePending=true;
+  erpSaveSetStatus('pending');
+  if(_erpSaveTimer)clearTimeout(_erpSaveTimer);
+  _erpSaveTimer=setTimeout(function(){
+    _erpSaveTimer=null;_erpSavePending=false;
+    if(!cur)return;
+    _erpTrack(erpPersistCur());
+  },1200);
+}
+// Änderung am offenen Dokument melden — nur bei echter Änderung (Signatur-Diff),
+// damit reines Öffnen/Schliessen einer Zellbearbeitung nichts speichert.
+function erpTouch(){
+  if(!cur)return;
+  var s=erpDocSig(cur);
+  if(s!==null&&s===_erpLastSig)return;
+  _erpLastSig=s;
+  erpScheduleSave();
+}
+// Ausstehende Änderung sofort sichern (beim Schliessen/Verlassen).
+function erpFlushSave(){
+  if(_erpSaveTimer){clearTimeout(_erpSaveTimer);_erpSaveTimer=null;}
+  if(_erpSavePending&&cur){_erpSavePending=false;_erpTrack(erpPersistCur());}
+}
+function erpSaveSetStatus(state){
+  if(_erpSaveHide){clearTimeout(_erpSaveHide);_erpSaveHide=null;}
+  var el=document.getElementById('saveStatus');
+  if(!el){el=document.createElement('div');el.id='saveStatus';el.className='save-status hidden';document.body.appendChild(el);}
+  el.classList.remove('hidden','pending','saving','saved','error');
+  if(state==='pending'){el.classList.add('pending');el.innerHTML='<span class="save-dot"></span><span>Änderungen werden gespeichert …</span>';}
+  else if(state==='saving'){el.classList.add('saving');el.innerHTML='<span class="save-spinner"></span><span>Wird gespeichert …</span>';}
+  else if(state==='saved'){el.classList.add('saved');el.innerHTML='<span class="save-check">✓</span><span>Gespeichert</span>';_erpSaveHide=setTimeout(function(){var e=document.getElementById('saveStatus');if(e)e.classList.add('hidden');},2000);}
+  else if(state==='error'){el.classList.add('error');el.innerHTML='<span class="save-err">⚠</span><span>Lokal gesichert — Cloud-Sync ausstehend</span>';}
+}
+window.addEventListener('beforeunload',erpFlushSave);
+window.addEventListener('pagehide',erpFlushSave);
+document.addEventListener('visibilitychange',function(){if(document.visibilityState==='hidden')erpFlushSave();});
 // Natürlich editierbar (ohne Entsperren): Offerte nur im Entwurf (versendet =
 // gesperrt), Auftrag solange nicht abgeschlossen, Rechnung nur im Entwurf.
 function erpNaturalEditable(d){
@@ -1708,6 +1786,7 @@ function erpOpenEditor(){
   var d=cur;
   erpPosSelReset();          // Auswahl bei vollem Editor-Rebuild zurücksetzen
   _editCell=null;            // offene Zell-Bearbeitung schliessen
+  _erpLastSig=erpDocSig(d);  // Ausgangsstand — reines Öffnen speichert nicht
   // Schlussrabatte normalisieren + Alt-Dokument-Rabatt (rabattPct) einmalig in
   // eine Schlusszeile migrieren (danach läuft alles über cur.schluss)
   if(!Array.isArray(d.schluss))d.schluss=[];
@@ -1773,19 +1852,19 @@ function erpOpenEditor(){
     +'</select>'
     +(editable?'<button class="btn" style="min-width:44px;padding:8px" title="Neuer Kunde / aus Beteiligten" onclick="erpKundeNeu(true)">＋</button>':'')
     +'</div></div>'
-    +'<div class="fld"><label>Projekt / Objekt</label><select id="e_objekt"'+dis+' onchange="cur.objektId=this.value">'
+    +'<div class="fld"><label>Projekt / Objekt</label><select id="e_objekt"'+dis+' onchange="cur.objektId=this.value;erpTouch()">'
     +'<option value="">– keins –</option>'
     +erpObjekte().map(function(o){return '<option value="'+o.id+'"'+(o.id===d.objektId?' selected':'')+'>'+esc(o.name+(o.ort?' · '+o.ort:''))+'</option>';}).join('')
     +'</select></div></div>'
-    +'<div class="fld"><label>Titel / Betreff</label><input type="text" value="'+esc(d.titel||'')+'" placeholder="z.B. Sanitärinstallation Neubau MFH"'+dis+' oninput="cur.titel=this.value"/></div>'
+    +'<div class="fld"><label>Titel / Betreff</label><input type="text" value="'+esc(d.titel||'')+'" placeholder="z.B. Sanitärinstallation Neubau MFH"'+dis+' oninput="cur.titel=this.value;erpTouch()"/></div>'
     +'<div class="fld-row3">'
-    +'<div class="fld"><label>Datum</label><input type="date" value="'+esc(d.datum||'')+'"'+dis+' onchange="cur.datum=this.value"/></div>'
-    +(d.typ==='offerte'?'<div class="fld"><label>Gültig bis</label><input type="date" value="'+esc(d.gueltigBis||'')+'"'+dis+' onchange="cur.gueltigBis=this.value"/></div>':'')
-    +(d.typ==='rechnung'?'<div class="fld"><label>Zahlbar bis</label><input type="date" value="'+esc(d.frist||'')+'"'+dis+' onchange="cur.frist=this.value"/></div>':'')
+    +'<div class="fld"><label>Datum</label><input type="date" value="'+esc(d.datum||'')+'"'+dis+' onchange="cur.datum=this.value;erpTouch()"/></div>'
+    +(d.typ==='offerte'?'<div class="fld"><label>Gültig bis</label><input type="date" value="'+esc(d.gueltigBis||'')+'"'+dis+' onchange="cur.gueltigBis=this.value;erpTouch()"/></div>':'')
+    +(d.typ==='rechnung'?'<div class="fld"><label>Zahlbar bis</label><input type="date" value="'+esc(d.frist||'')+'"'+dis+' onchange="cur.frist=this.value;erpTouch()"/></div>':'')
     +(function(){
       var bl=abListe();
       if(!bl.length)return '';   // keine Bereiche definiert → Feld ausblenden (Definition in ⚙️)
-      return '<div class="fld"><label>Arbeitsbereich</label><select id="e_bereich"'+dis+' onchange="cur.bereichId=this.value">'
+      return '<div class="fld"><label>Arbeitsbereich</label><select id="e_bereich"'+dis+' onchange="cur.bereichId=this.value;erpTouch()">'
         +'<option value="">– kein Bereich –</option>'
         +bl.map(function(b){return '<option value="'+b.id+'"'+(b.id===d.bereichId?' selected':'')+'>'+esc(b.name)+'</option>';}).join('')
         +'</select></div>';
@@ -1821,8 +1900,8 @@ function erpOpenEditor(){
       return '<div style="font-size:12px;background:var(--amber-bg);border:1px solid var(--amber-bd);border-radius:9px;padding:8px 11px;margin-top:6px">'
         +'🔑 <b>Schlüssel / Zutritt</b> <span style="color:var(--mut)">— erscheint beim Monteur auf dem Einsatz im Einsatzplan</span>'
         +'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px">'
-        +'<input type="text" value="'+esc(sk.code||'')+'" placeholder="Schlüsselcode / Tresor-Code" style="flex:0 0 200px;min-width:160px;padding:8px 10px;border:1.5px solid var(--brd2);border-radius:9px;font-size:13px;font-family:inherit" oninput="cur.schluessel=cur.schluessel||{};cur.schluessel.code=this.value"'+(editable?'':' disabled')+'/>'
-        +'<input type="text" value="'+esc(sk.info||'')+'" placeholder="Schlüssel wo / bei wem abholen (z.B. Hauswart Müller, 079 …)" style="flex:1;min-width:220px;padding:8px 10px;border:1.5px solid var(--brd2);border-radius:9px;font-size:13px;font-family:inherit" oninput="cur.schluessel=cur.schluessel||{};cur.schluessel.info=this.value"'+(editable?'':' disabled')+'/>'
+        +'<input type="text" value="'+esc(sk.code||'')+'" placeholder="Schlüsselcode / Tresor-Code" style="flex:0 0 200px;min-width:160px;padding:8px 10px;border:1.5px solid var(--brd2);border-radius:9px;font-size:13px;font-family:inherit" oninput="cur.schluessel=cur.schluessel||{};cur.schluessel.code=this.value;erpTouch()"'+(editable?'':' disabled')+'/>'
+        +'<input type="text" value="'+esc(sk.info||'')+'" placeholder="Schlüssel wo / bei wem abholen (z.B. Hauswart Müller, 079 …)" style="flex:1;min-width:220px;padding:8px 10px;border:1.5px solid var(--brd2);border-radius:9px;font-size:13px;font-family:inherit" oninput="cur.schluessel=cur.schluessel||{};cur.schluessel.info=this.value;erpTouch()"'+(editable?'':' disabled')+'/>'
         +'</div></div>';
     })():'')
     // Aushang (nur Auftrag): Mieter-Info für Arbeiten, die das ganze Gebäude
@@ -1834,8 +1913,8 @@ function erpOpenEditor(){
       return '<div style="font-size:12px;background:var(--sur2);border:1px solid var(--brd);border-radius:9px;padding:8px 11px;margin-top:6px">'
         +'📌 <b>Aushang (Mieter-Info)</b> <span style="color:var(--mut)">— z.B. Wasser-/Stromabstellung im Mehrfamilienhaus; beim Einplanen im Einsatzplan wirst du daran erinnert</span>'
         +'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;align-items:center">'
-        +'<label style="display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:700;cursor:pointer;white-space:nowrap"><input type="checkbox"'+(au.noetig?' checked':'')+(editable?'':' disabled')+' style="width:17px;height:17px" onchange="cur.aushang=cur.aushang||{};cur.aushang.noetig=this.checked"/> Aushang nötig</label>'
-        +'<select style="flex:1;min-width:180px;padding:7px 9px;border:1.5px solid var(--brd2);border-radius:9px;font-size:12.5px;font-family:inherit"'+(editable?'':' disabled')+' onchange="cur.aushang=cur.aushang||{};cur.aushang.vorlageId=this.value">'
+        +'<label style="display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:700;cursor:pointer;white-space:nowrap"><input type="checkbox"'+(au.noetig?' checked':'')+(editable?'':' disabled')+' style="width:17px;height:17px" onchange="cur.aushang=cur.aushang||{};cur.aushang.noetig=this.checked;erpTouch()"/> Aushang nötig</label>'
+        +'<select style="flex:1;min-width:180px;padding:7px 9px;border:1.5px solid var(--brd2);border-radius:9px;font-size:12.5px;font-family:inherit"'+(editable?'':' disabled')+' onchange="cur.aushang=cur.aushang||{};cur.aushang.vorlageId=this.value;erpTouch()">'
         +vl.map(function(v){return '<option value="'+esc(v.id)+'"'+(v.id===(au.vorlageId||vl[0].id)?' selected':'')+'>'+esc((v.ic?v.ic+' ':'')+v.name)+'</option>';}).join('')
         +'</select>'
         +'<button type="button" class="btn" style="min-height:32px;padding:4px 11px;font-size:12px" onclick="erpAushangOpen()">🖨 Aushang erstellen …</button>'
@@ -1897,6 +1976,7 @@ function erpCellKey(e){
 }
 function erpRenderPos(){
   var tb=document.getElementById('posBody');if(!tb||!cur)return;
+  erpTouch();   // Positions-/Zellenänderungen laufen alle hier durch → Auto-Save (Signatur-Diff)
   var editable=erpEditable();
   var h='';
   var kapBasis=0;   // Positionssumme seit dem letzten Titel (Basis für Rabatt-/Zuschlagszeilen)
@@ -1994,7 +2074,7 @@ function erpRenderPos(){
     var istRab=s.art!=='zuschlag';
     if(!editableDoc)return '<div class="rw"><span>'+esc(s.bez||(istRab?'Rabatt':'Zuschlag'))+' '+(s.modus==='chf'?'(pauschal)':(erpNum(s.wert)+' %'))+'</span><b style="color:'+(betrag<0?'var(--red)':'var(--amber)')+'">'+(betrag<0?'− ':'+ ')+chf(Math.abs(betrag))+'</b></div>';
     return '<div class="rw" style="gap:6px;align-items:center">'
-      +'<input type="text" value="'+esc(s.bez||'')+'" placeholder="'+(istRab?'Rabatt':'Zuschlag')+'" style="flex:1;min-width:50px;padding:4px 7px;border:1.5px solid var(--brd2);border-radius:7px;font-size:12px" oninput="cur.schluss['+si+'].bez=this.value"/>'
+      +'<input type="text" value="'+esc(s.bez||'')+'" placeholder="'+(istRab?'Rabatt':'Zuschlag')+'" style="flex:1;min-width:50px;padding:4px 7px;border:1.5px solid var(--brd2);border-radius:7px;font-size:12px" oninput="cur.schluss['+si+'].bez=this.value;erpTouch()"/>'
       +'<select style="padding:4px 4px;border:1.5px solid var(--brd2);border-radius:7px;font-size:12px" onchange="cur.schluss['+si+'].modus=this.value;erpRenderPos()"><option value="pct"'+(s.modus!=='chf'?' selected':'')+'>%</option><option value="chf"'+(s.modus==='chf'?' selected':'')+'>CHF</option></select>'
       +'<input type="text" inputmode="decimal" value="'+(s.wert!=null?s.wert:'')+'" placeholder="'+(s.modus==='chf'?'Betrag':'%')+'" style="width:62px;padding:4px 6px;border:1.5px solid var(--brd2);border-radius:7px;text-align:right;font-size:12px" onchange="cur.schluss['+si+'].wert=this.value;erpRenderPos()" onblur="fixLeadingZero(this)"/>'
       +'<b style="min-width:76px;text-align:right;white-space:nowrap;color:'+(betrag<0?'var(--red)':'var(--amber)')+'">'+(betrag<0?'− ':'+ ')+chf(Math.abs(betrag))+'</b>'
@@ -2338,7 +2418,7 @@ function erpSideBody(){
 // ── Artikel-Zeile + Stückzahl-Flow (markieren + Enter → Menge → über Markierung) ──
 function erpArtRow(pos,ic,name,sub,img,extraBtns){
   var key='ak'+(++_artSeq);_artMap[key]=pos;
-  return '<div class="side-art" tabindex="0" data-artkey="'+key+'" onclick="erpArtSel(this)" ondblclick="erpArtGoEl(this)" onkeydown="erpArtKey(event,this)" title="Klick markiert · Enter/Doppelklick fügt ein (mit Mengenabfrage)">'
+  return '<div class="side-art" tabindex="0" data-artkey="'+key+'" data-sn="'+esc((name+' '+(sub||'')).toLowerCase())+'" onclick="erpArtSel(this)" ondblclick="erpArtGoEl(this)" onkeydown="erpArtKey(event,this)" title="Klick markiert · Enter/Doppelklick fügt ein (mit Mengenabfrage)">'
     +(img?'<img class="sa-img" src="'+esc(img)+'" onerror="this.style.display=\'none\'" alt=""/>':'<span class="sa-ic">'+(ic||'📦')+'</span>')
     +'<div class="sa-t"><div class="sa-n">'+esc(name)+'</div>'+(sub?'<div class="sa-s">'+esc(sub)+'</div>':'')+'</div>'
     +(extraBtns||'')+'<span class="sa-plus">＋</span></div>';
@@ -2489,61 +2569,102 @@ function erpBkpInsert(){
 // ═══════════════════════════════════════════════════════════
 function erpEigOpen(){erpSideTool('eigene');}   // Kompatibilität
 function erpDsOpen(){erpSideTool('kataloge');}   // Kompatibilität
+var _katQ='';
 function erpSideKat(el){
-  el.innerHTML='<input id="katSuche" class="side-search" type="text" placeholder="Artikel suchen …" oninput="erpKatRender()" onkeydown="if(event.key===\'Enter\'){event.preventDefault();erpArtSearchEnter(\'katList\');}"/>'
+  var st=erpSideLoad();_katQ=st.katQ||'';
+  el.innerHTML='<input id="katSuche" class="side-search" type="text" placeholder="Lieferant oder Artikel suchen (ID/Name) …" value="'+esc(_katQ)+'" oninput="erpKatFilter(this.value)"/>'
     +'<div id="katList"></div>';
   erpKatRender();
+  erpKatFilter(_katQ);
 }
 function erpKatGrpToggle(gid){
   var st=erpSideLoad();st.katOpen=st.katOpen||{};
   var willOpen=!st.katOpen[gid];if(willOpen)st.katOpen[gid]=true;else delete st.katOpen[gid];erpSideSave(st);
   var g=document.querySelector('.side-grp[data-grp="'+gid+'"]');if(g)g.classList.toggle('open',willOpen);
 }
+// Alle Kataloge EINMAL rendern (IGH-Lieferanten oben, GEMA-Katalog unten);
+// die Suche filtert danach nur per Show/Hide (kein Re-Render → Fokus bleibt).
 function erpKatRender(){
-  var q=String((document.getElementById('katSuche')||{}).value||'').toLowerCase().trim();
   var el=document.getElementById('katList');if(!el)return;
   var st=erpSideLoad();var openSet=st.katOpen||{};var h='';
+  // ── IGH-Lieferantenkataloge OBEN ──
+  if(typeof GemaDataSelect!=='undefined'){
+    h+='<h4>🔎 IGH-Lieferantenkataloge (DataSelect)</h4>';
+    h+='<div class="side-hint">Alle hinterlegten Lieferanten. Die Suche oben filtert nach ID oder Name; im Lieferanten dann Artikel suchen und einfügen. Neue Lieferanten werden gespeichert.</div>';
+    var anb=GemaDataSelect.anbieter()||[];
+    h+='<div id="ighList">';
+    if(!anb.length)h+='<div class="side-empty">Noch kein Lieferant hinterlegt — «＋ Lieferant hinzufügen».</div>';
+    anb.forEach(function(a){
+      var open=!!openSet['ds:'+a.id];
+      h+='<div class="side-grp'+(open?' open':'')+'" data-grp="ds:'+esc(a.id)+'" data-dskey="'+esc(a.id)+'" data-dsname="'+esc((a.name||'').toLowerCase())+'"><div class="side-grp-hd" onclick="erpKatGrpToggle(\'ds:'+esc(a.id)+'\')"><span class="cx">▶</span><span>🔎 '+esc(a.name)+' <span style="color:var(--mut2);font-weight:600">('+esc(a.id)+')</span></span></div>'
+        +'<div class="side-grp-bd" style="padding:8px">'
+        +'<div style="display:flex;gap:6px;margin-bottom:6px"><input class="side-search" style="margin:0;flex:1" id="dsq_'+esc(a.id)+'" type="text" placeholder="Artikel-Nr / Bezeichnung / EAN" onkeydown="if(event.key===\'Enter\'){event.preventDefault();erpDsSearch(\''+esc(a.id)+'\');}"/><button class="btn pri" style="min-height:34px;padding:6px 10px" id="dsBtn_'+esc(a.id)+'" onclick="erpDsSearch(\''+esc(a.id)+'\')">🔎</button></div>'
+        +'<div id="dsRes_'+esc(a.id)+'"></div>'
+        +'<div style="text-align:right;margin-top:4px"><a href="javascript:void(0)" style="font-size:11px;color:var(--mut2);text-decoration:underline" onclick="erpDsDebug(\''+esc(a.id)+'\')" title="Zeigt die rohe Antwort von dataselect.ch — HTTP-Status, Format, erste Zeichen. So sieht man, ob/was dieser Lieferant liefert.">🔍 Rohantwort prüfen</a></div>'
+        +'</div></div>';
+    });
+    h+='</div><div id="ighNoHit" class="side-empty" style="display:none">Kein Lieferant gefunden — «＋» hinzufügen.</div>';
+    h+='<button class="btn" style="width:100%;margin-top:4px" onclick="erpDsAddAnbieter()">＋ Lieferant hinzufügen</button>';
+  }
+  // ── GEMA-Produktkatalog UNTEN ──
   var cats=[];try{if(typeof GemaProdukte!=='undefined')cats=GemaProdukte.getKategorien()||[];}catch(e){}
-  h+='<h4>📦 GEMA-Katalog</h4>';var anyCat=false;
+  var gemaGroups='';
   cats.forEach(function(k){
     var prods=[];try{prods=GemaProdukte.getProdukte(k.id)||[];}catch(e){}
     if(!prods.length)return;
     var rows=prods.map(function(p){
       var d=p.daten||{};var name=[d.serie,d.modell].filter(Boolean).join(' ')||k.name;
-      return {name:name,sub:(p.lieferantFirma||''),ic:k.icon||'📦',
-        pos:{art:'frei',bez:name,menge:1,einheit:'Stk',ep:'',produktId:p.id,lieferantFirma:p.lieferantFirma}};
-    }).filter(function(r){return !q||(r.name+' '+r.sub).toLowerCase().indexOf(q)>=0;});
-    if(q&&!rows.length)return;
-    anyCat=true;
-    var open=q?true:!!openSet[k.id];
-    h+='<div class="side-grp'+(open?' open':'')+'" data-grp="'+esc(k.id)+'"><div class="side-grp-hd" onclick="erpKatGrpToggle(\''+esc(k.id)+'\')"><span class="cx">▶</span><span>'+(k.icon||'📦')+' '+esc(k.name)+'</span><span class="cc">'+rows.length+'</span></div>'
-      +'<div class="side-grp-bd">'+(rows.length?rows.map(function(r){return erpArtRow(r.pos,r.ic,r.name,r.sub,'');}).join(''):'<div class="side-empty">—</div>')+'</div></div>';
+      return erpArtRow({art:'frei',bez:name,menge:1,einheit:'Stk',ep:'',produktId:p.id,lieferantFirma:p.lieferantFirma},k.icon||'📦',name,(p.lieferantFirma||''),'');
+    }).join('');
+    var open=!!openSet['gk:'+k.id];
+    gemaGroups+='<div class="side-grp'+(open?' open':'')+'" data-grp="gk:'+esc(k.id)+'" data-cat="1"><div class="side-grp-hd" onclick="erpKatGrpToggle(\'gk:'+esc(k.id)+'\')"><span class="cx">▶</span><span>'+(k.icon||'📦')+' '+esc(k.name)+'</span><span class="cc">'+prods.length+'</span></div>'
+      +'<div class="side-grp-bd">'+rows+'</div></div>';
   });
-  if(!anyCat)h+='<div class="side-empty">'+(q?'Keine Produkte gefunden.':'Kein GEMA-Produktkatalog verfügbar.')+'</div>';
-  if(typeof GemaDataSelect!=='undefined'){
-    h+='<h4>🔎 DataSelect (Online-Lieferantenkataloge)</h4>';
-    (GemaDataSelect.anbieter()||[]).forEach(function(a){
-      var open=!!openSet['ds:'+a.id];
-      h+='<div class="side-grp'+(open?' open':'')+'" data-grp="ds:'+esc(a.id)+'"><div class="side-grp-hd" onclick="erpKatGrpToggle(\'ds:'+esc(a.id)+'\')"><span class="cx">▶</span><span>🔎 '+esc(a.name)+' <span style="color:var(--mut2);font-weight:600">('+esc(a.id)+')</span></span></div>'
-        +'<div class="side-grp-bd" style="padding:8px">'
-        +'<div style="display:flex;gap:6px;margin-bottom:6px"><input class="side-search" style="margin:0;flex:1" id="dsq_'+esc(a.id)+'" type="text" placeholder="Artikel-Nr / Bezeichnung / EAN" value="'+esc(q)+'" onkeydown="if(event.key===\'Enter\'){event.preventDefault();erpDsSearch(\''+esc(a.id)+'\');}"/><button class="btn pri" style="min-height:34px;padding:6px 10px" id="dsBtn_'+esc(a.id)+'" onclick="erpDsSearch(\''+esc(a.id)+'\')">🔎</button></div>'
-        +'<div id="dsRes_'+esc(a.id)+'"></div>'
-        +'</div></div>';
-    });
-    h+='<button class="btn" style="width:100%;margin-top:4px" onclick="erpDsAddAnbieter()">＋ Lieferant hinterlegen</button>';
-  }
+  h+='<h4>📦 GEMA-Produktkatalog</h4>';
+  h+=gemaGroups||'<div class="side-empty">Kein GEMA-Produktkatalog verfügbar.</div>';
   el.innerHTML=h;
 }
+// Suche (leichtgewichtig): filtert IGH-Lieferanten nach ID/Name und GEMA-Artikel
+// nach Name — nur Show/Hide, ohne Re-Render (das Suchfeld behält den Fokus).
+function erpKatFilter(v){
+  _katQ=v||'';var st=erpSideLoad();st.katQ=_katQ;st.katOpen=st.katOpen||{};erpSideSave(st);
+  var openSet=st.katOpen;var q=String(_katQ).toLowerCase().trim();
+  // IGH-Lieferanten nach ID/Name (Treffer bei aktiver Suche aufklappen)
+  var anyIgh=false;
+  [].forEach.call(document.querySelectorAll('#ighList .side-grp[data-dskey]'),function(g){
+    var m=!q||(g.getAttribute('data-dskey')+' '+g.getAttribute('data-dsname')).toLowerCase().indexOf(q)>=0;
+    g.style.display=m?'':'none';if(m)anyIgh=true;
+    if(q)g.classList.toggle('open',m);else g.classList.toggle('open',!!openSet[g.getAttribute('data-grp')]);
+  });
+  var nh=document.getElementById('ighNoHit');if(nh)nh.style.display=(q&&!anyIgh)?'':'none';
+  // GEMA-Artikel nach Name (Kategorie mit Treffern automatisch aufklappen)
+  [].forEach.call(document.querySelectorAll('#katList .side-grp[data-cat]'),function(g){
+    var vis=0;[].forEach.call(g.querySelectorAll('.side-art'),function(a){
+      var m=!q||(a.getAttribute('data-sn')||'').indexOf(q)>=0;a.style.display=m?'':'none';if(m)vis++;
+    });
+    g.style.display=(!q||vis>0)?'':'none';
+    if(q)g.classList.toggle('open',vis>0);else g.classList.toggle('open',!!openSet[g.getAttribute('data-grp')]);
+  });
+}
 var _dsResults=[];
+// Lieferant hinzufügen (ID + Name) — wird org-weit gespeichert (kein erneutes
+// Hinzufügen nötig). Vorbelegt mit der aktuellen Suche (ID oder Name).
 function erpDsAddAnbieter(){
-  GemaDialog.prompt({title:'Lieferant hinterlegen',message:'IGH-Mitglieder-ID (id_anbieter) — z.B. 1900 für Geberit.',placeholder:'ID (Zahl)'}).then(function(id){
+  var pre=String(_katQ||'').trim();
+  var preId=/^\d{1,7}$/.test(pre)?pre:'';
+  var preName=preId?'':pre;
+  GemaDialog.prompt({title:'Lieferant hinzufügen',message:'IGH-Mitglieder-ID (id_anbieter) — z.B. 1900 für Geberit. Steht auf Ihrem DataSelect-Vertrag.',placeholder:'ID (Zahl)',defaultValue:preId}).then(function(id){
     if(id===null)return;
     id=String(id).replace(/[^0-9]/g,'');
     if(!id){toast('⚠ Ungültige ID');return;}
-    GemaDialog.prompt({title:'Lieferant hinterlegen',message:'Name des Lieferanten für die ID '+id+'.',placeholder:'z.B. Geberit',defaultValue:''}).then(function(name){
+    GemaDialog.prompt({title:'Lieferant hinzufügen',message:'Name des Lieferanten für die ID '+id+'.',placeholder:'z.B. Geberit',defaultValue:preName}).then(function(name){
       if(name===null)return;
-      if(GemaDataSelect.addAnbieter(id,name||('Lieferant '+id))){erpKatRender();toast('✓ Lieferant hinterlegt');}
-      else toast('Konnte nicht gespeichert werden');
+      if(GemaDataSelect.addAnbieter(id,name||('Lieferant '+id))){
+        _katQ='';var s2=erpSideLoad();s2.katQ='';s2.katOpen=s2.katOpen||{};s2.katOpen['ds:'+id]=true;erpSideSave(s2);
+        var inp=document.getElementById('katSuche');if(inp)inp.value='';
+        erpKatRender();erpKatFilter('');
+        toast('✓ Lieferant «'+(name||id)+'» gespeichert');
+      } else toast('Konnte nicht gespeichert werden');
     });
   });
 }
@@ -2573,6 +2694,58 @@ function erpDsSearch(anbId){
         var sub=(a.artnr||'')+(a.ean?' · EAN '+a.ean:'')+(a.preis>0?' · CHF '+GemaDataSelect.fmtPreis(a.preis):'')+(hat?' · 🖼':'');
         return erpArtRow(pos,'📦',a.bezeichnung||a.artnr||'Artikel',sub,'');   // KEIN Thumbnail (schnell)
       }).join('');
+  });
+}
+// Diagnose «Rohantwort prüfen»: ruft die rohe Antwort von dataselect.ch ab und
+// zeigt HTTP-Status, Content-Type, erkanntes Format und die ersten Zeichen. So
+// sieht man ohne IGH-Wissen, ob/was ein Lieferant liefert (JSON? XML? Login-
+// seite? Zugang verweigert? leer?).
+function erpDsDebug(anbId){
+  if(typeof GemaDataSelect==='undefined'||!GemaDataSelect.debug){GemaDialog.alert({title:'Diagnose',message:'DataSelect-Client nicht geladen.'});return;}
+  var inp=document.getElementById('dsq_'+anbId);var q=inp?inp.value.trim():'';
+  var opts={anbieter:anbId,sprache:'de'};
+  if(q){if(/^[0-9][0-9.\- ]*$/.test(q))opts.artnr=q;else opts.bez=q;}
+  GemaDialog.alert({title:'🔍 Rohantwort wird geprüft …',message:'Frage dataselect.ch für Lieferant '+anbId+' ab …'});
+  GemaDataSelect.debug(opts).then(function(r){
+    var d=r&&r.debug;
+    var h='';
+    if(!d){
+      h='<div style="color:#dc2626;font-weight:700">Keine Diagnose erhalten.</div><div style="margin-top:6px">'+esc((r&&r.error)||'—')+'</div>';
+    }else{
+      var row=function(l,v){return '<tr><td style="padding:3px 8px 3px 0;color:#64748b;white-space:nowrap;vertical-align:top">'+esc(l)+'</td><td style="padding:3px 0;font-weight:600">'+v+'</td></tr>';};
+      var deutung='';
+      if(d.netzwerkFehler)deutung='<div style="background:#fef2f2;border:1px solid #fca5a5;color:#b91c1c;border-radius:8px;padding:8px 10px;margin-bottom:8px;font-size:12.5px">dataselect.ch war nicht erreichbar.</div>';
+      else if(d.httpStatus===401||d.httpStatus===403)deutung='<div style="background:#fffbeb;border:1px solid #fde68a;color:#92400e;border-radius:8px;padding:8px 10px;margin-bottom:8px;font-size:12.5px">🔒 <b>Zugang verweigert</b> (HTTP '+d.httpStatus+'). Dieser Lieferant gibt seinen Katalog nur an Kunden mit Datenbezug/Vertrag frei — ohne IGH-Zugang kommen hier keine Artikel. GEMA funktioniert trotzdem: nutze den GEMA-Produktkatalog oder eigene Artikel.</div>';
+      else if(d.erkanntesFormat==='JSON'&&d.jsonParsebar)deutung='<div style="background:#f0fdf4;border:1px solid #bbf7d0;color:#166534;border-radius:8px;padding:8px 10px;margin-bottom:8px;font-size:12.5px">✓ <b>JSON</b> — passt. Kommen unten keine sinnvollen Felder, ggf. das Zielformat anpassen (Env <code>DATASELECT_FORMAT_SUCHE</code>).</div>';
+      else if(d.erkanntesFormat==='XML'||d.erkanntesFormat==='HTML/XML')deutung='<div style="background:#fffbeb;border:1px solid #fde68a;color:#92400e;border-radius:8px;padding:8px 10px;margin-bottom:8px;font-size:12.5px">Es kommt <b>'+esc(d.erkanntesFormat)+'</b>, kein JSON. Für den Import ein JSON-Zielformat setzen (Env <code>DATASELECT_FORMAT_SUCHE=bexio</code>) oder mit anderen Formaten testen (unten «Format testen»).</div>';
+      h=deutung+'<table style="width:100%;border-collapse:collapse;font-size:12.5px">'
+        +row('Abgefragte URL','<span style="word-break:break-all;font-family:monospace;font-size:11px">'+esc(d.triedUrl||'—')+'</span>')
+        +row('Zielformat','<code>'+esc(d.format||'—')+'</code>')
+        +(d.netzwerkFehler?row('Netzwerk','<span style="color:#dc2626">'+esc(d.netzwerkFehler)+'</span>'):'')
+        +(d.httpStatus!=null?row('HTTP-Status',esc(d.httpStatus+' '+(d.httpStatusText||''))):'')
+        +(d.contentType!=null?row('Content-Type','<code>'+esc(d.contentType||'—')+'</code>'):'')
+        +(d.erkanntesFormat?row('Erkanntes Format',esc(d.erkanntesFormat)+(d.jsonParsebar?' (JSON-parsebar ✓)':'')):'')
+        +(d.laenge!=null?row('Länge',esc(d.laenge)+' Zeichen'):'')
+        +'</table>';
+      if(d.auszug!=null)h+='<div style="margin-top:8px;color:#64748b;font-size:11.5px">Erste Zeichen der Antwort:</div>'
+        +'<pre style="background:#0f172a;color:#e2e8f0;border-radius:8px;padding:9px 11px;font-size:11px;line-height:1.45;max-height:220px;overflow:auto;white-space:pre-wrap;word-break:break-word">'+esc(d.auszug||'(leer)')+'</pre>';
+      h+='<div style="margin-top:8px;font-size:11.5px;color:#64748b">Anderes Zielformat testen: '
+        +['bexio','debim','idsxml','json'].map(function(f){return '<a href="javascript:void(0)" style="text-decoration:underline;margin-right:8px" onclick="erpDsDebugFormat(\''+esc(anbId)+'\',\''+f+'\')">'+f+'</a>';}).join('')
+        +'</div>';
+    }
+    GemaDialog.alert({title:'🔍 Rohantwort von dataselect.ch',message:h,html:true});
+  });
+}
+// Diagnose mit erzwungenem Zielformat (aus dem «Format testen»-Link).
+function erpDsDebugFormat(anbId,format){
+  if(typeof GemaDataSelect==='undefined'||!GemaDataSelect.debug)return;
+  var inp=document.getElementById('dsq_'+anbId);var q=inp?inp.value.trim():'';
+  var opts={anbieter:anbId,sprache:'de',format:format};
+  if(q){if(/^[0-9][0-9.\- ]*$/.test(q))opts.artnr=q;else opts.bez=q;}
+  GemaDataSelect.debug(opts).then(function(r){
+    var d=r&&r.debug;
+    var h=d?('<div style="margin-bottom:6px"><b>Format:</b> <code>'+esc(d.format||format)+'</code> · <b>HTTP:</b> '+esc((d.httpStatus!=null?d.httpStatus:'—')+' '+(d.httpStatusText||''))+' · <b>'+esc(d.erkanntesFormat||'—')+'</b>'+(d.jsonParsebar?' (JSON ✓)':'')+'</div><pre style="background:#0f172a;color:#e2e8f0;border-radius:8px;padding:9px 11px;font-size:11px;line-height:1.45;max-height:260px;overflow:auto;white-space:pre-wrap;word-break:break-word">'+esc(d.auszug||d.netzwerkFehler||'(leer)')+'</pre>'):('<div style="color:#dc2626">'+esc((r&&r.error)||'Keine Diagnose')+'</div>');
+    GemaDialog.alert({title:'🔍 Format «'+esc(format)+'»',message:h,html:true});
   });
 }
 // Bild einer eingefügten DataSelect-Position verzögert nachladen: verkleinert
@@ -2941,12 +3114,12 @@ function erpZustellSave(){
     ort:document.getElementById('z_ort').value.trim()
   };
   document.getElementById('zustellModal').classList.remove('open');
-  erpOpenEditor();
+  erpSaveCur(true);erpOpenEditor();
   toast('✉️ Zustelladresse gesetzt — Rechnungsempfänger bleibt der Kunde');
 }
 function erpZustellRemove(){
   cur.zustellSnapshot=null;
-  erpOpenEditor();
+  erpSaveCur(true);erpOpenEditor();
   toast('Zustelladresse entfernt — Dokument geht wieder an den Kunden');
 }
 
@@ -2955,7 +3128,7 @@ function erpRenderFooter(){
   var d=cur;var ft='';var s=erpStatusOf(d);
   var editable=erpEditable();
   if(erpLocked())ft+='<button class="btn" onclick="erpEntsperren()">🔓 Entsperren</button>';
-  if(editable)ft+='<button class="btn pri" onclick="erpDoSave()">💾 Speichern</button>';
+  // Speichern läuft automatisch (Status unten rechts) — kein manueller Button mehr.
   if(d.typ==='offerte'){
     if(d.status==='entwurf')ft+='<button class="btn grn" onclick="erpStatus(\'versendet\',\'📤 Offerte als versendet markiert\')">📤 Versendet</button>';
     // Versendet → direkt Auftrag erstellen (kein «Angenommen»-Zwischenschritt);
@@ -2984,10 +3157,8 @@ function erpRenderFooter(){
   if(editable&&d.status==='entwurf'||d.typ==='offerte'&&d.status==='entwurf')ft+='<button class="btn red" onclick="erpLoeschen()">🗑</button>';
   document.getElementById('edFt').innerHTML=ft;
 }
-function erpDoSave(){
-  if(!cur.kundeId&&!cur.kundeSnapshot){toast('⚠ Bitte Kunde wählen');return;}
-  erpSaveCur();erpRenderAll();erpRenderFooter();
-}
+// Legacy — Speichern läuft automatisch; nur noch Sofort-Flush für Alt-Aufrufer.
+function erpDoSave(){erpSaveCur(true);erpRenderAll();erpRenderFooter();}
 function erpStatus(st,msg){
   cur.status=st;
   erpSaveCur(true);
@@ -3222,7 +3393,7 @@ function erpKundeWahl(id){
   cur.kundeId=id;
   var k=erpKunden().find(function(x){return x.id===id;});
   cur.kundeSnapshot=k?{firma:k.firma,kontakt:k.kontakt,strasse:k.strasse,plz:k.plz,ort:k.ort,email:k.email}:null;
-  erpOpenEditor();
+  erpSaveCur(true);erpOpenEditor();
 }
 function erpKundeNeu(ausEditor){
   _kundeEditId=null;_kundeAusEditor=!!ausEditor;
@@ -3287,7 +3458,7 @@ function erpKundeSave(){
   poolSave(KUN_POOL,KUN_PREFIX,k);
   document.getElementById('kundeModal').classList.remove('open');
   toast('✓ Kunde gespeichert');
-  if(_kundeAusEditor&&cur){cur.kundeId=k.id;cur.kundeSnapshot={firma:k.firma,kontakt:k.kontakt,strasse:k.strasse,plz:k.plz,ort:k.ort,email:k.email};erpOpenEditor();}
+  if(_kundeAusEditor&&cur){cur.kundeId=k.id;cur.kundeSnapshot={firma:k.firma,kontakt:k.kontakt,strasse:k.strasse,plz:k.plz,ort:k.ort,email:k.email};erpSaveCur(true);erpOpenEditor();}
   else erpRenderAll();
 }
 

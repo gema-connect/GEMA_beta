@@ -33,8 +33,10 @@
     var card = document.createElement('div');
     card.className = 'gema-dlg';
     var titleHtml = opts.title ? '<div class="gema-dlg-title">'+_esc(opts.title)+'</div>' : '';
+    // opts.html === true: Nachricht ist bereits fertiges (vom Aufrufer escaptes)
+    // HTML — nicht erneut escapen. Sonst wird der Text sicher escaped.
     var msgHtml = opts.message
-      ? '<div class="gema-dlg-msg">'+_esc(opts.message).replace(/\n/g,'<br>')+'</div>'
+      ? '<div class="gema-dlg-msg">'+(opts.html ? String(opts.message) : _esc(opts.message).replace(/\n/g,'<br>'))+'</div>'
       : '';
     var inputHtml = '';
     if(type === 'prompt'){

@@ -130,15 +130,15 @@
         hatBild: (raw.hatBild !== undefined ? !!raw.hatBild : !!bu)   // Bild vorhanden? (fürs Nachladen)
       };
     }
-    var bez = _pick(raw, ['bezeichnung','bez','beschreibung','text','name','description']);
+    var bez = _pick(raw, ['bezeichnung','bez','beschreibung','text','name','description','intern_name','intern_description']);
     var bildUrl = String(_pick(raw, ['bildurl','bild','image','imageurl','picture','foto']) || '').trim();
     return {
-      artnr: String(_pick(raw, ['artnr','artikelnr','artikelnummer','nummer','number']) || '').trim(),
+      artnr: String(_pick(raw, ['artnr','artikelnr','artikelnummer','nummer','number','intern_code','code']) || '').trim(),
       bezeichnung: String(bez || '').trim(),
       ean: String(_pick(raw, ['ean','gtin','barcode']) || '').trim(),
-      preis: _num(_pick(raw, ['bruttopreis','listenpreis','preis','price','vk'])),
+      preis: _num(_pick(raw, ['bruttopreis','listenpreis','preis','price','vk','sale_price','default_price','purchase_price'])),
       waehrung: String(_pick(raw, ['waehrung','currency']) || 'CHF'),
-      einheit: String(_pick(raw, ['einheit','me','vpe','unit']) || '').trim(),
+      einheit: String(_pick(raw, ['einheit','me','vpe','unit','unit_name']) || '').trim(),
       hersteller: String(_pick(raw, ['hersteller','lieferant','marke','brand']) || '').trim(),
       serie: String(_pick(raw, ['serie','produktlinie']) || '').trim(),
       bildUrl: bildUrl,
@@ -151,5 +151,35 @@
     return (Math.round(v * 100) / 100).toLocaleString('de-CH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
 
-  w.GemaDataSelect = { search: search, anbieter: anbieter, addAnbieter: addAnbieter, normArtikel: normArtikel, fmtPreis: fmtPreis, SEED: SEED };
+  // Diagnose: die ROHE Antwort von dataselect.ch abrufen (HTTP-Status, Content-Type,
+  // erkanntes Format, erste ~2500 Zeichen). Damit sieht man ohne IGH-Wissen, WAS ein
+  // Lieferant zurückgibt — JSON, XML, eine Login-/Fehlerseite oder nichts.
+  //   debug({anbieter, artnr?|bez?|ean?, format?, sprache?, preisbuch?})
+  //     → Promise<{ok:false, debug:{triedUrl,format,httpStatus,contentType,
+  //                erkanntesFormat,jsonParsebar,laenge,auszug,…}} | {ok:false,error}>
+  function debug(opts){
+    opts = opts || {};
+    var anb = String(opts.anbieter || '').replace(/[^0-9]/g, '');
+    if (!anb) return Promise.resolve({ ok: false, error: 'Bitte einen Lieferanten wählen.' });
+    var qs = new URLSearchParams();
+    qs.set('anbieter', anb);
+    qs.set('debug', '1');
+    var artnr = String(opts.artnr || '').trim();
+    var bez = String(opts.bez || '').trim();
+    var ean = String(opts.ean || '').trim();
+    // Ohne Suchbegriff einen Platzhalter mitgeben (die Frage ist «welches Format»,
+    // nicht «welcher Artikel») — sonst lehnt der Proxy die Anfrage ab.
+    if (!artnr && !bez && !ean) bez = String(opts.probe || 'wc');
+    if (artnr) qs.set('artnr', artnr);
+    if (bez) qs.set('bez', bez);
+    if (ean) qs.set('ean', ean);
+    if (opts.format) qs.set('format', String(opts.format).trim());
+    qs.set('sprache', (['de','fr','it'].indexOf(String(opts.sprache || 'de')) >= 0) ? opts.sprache : 'de');
+    qs.set('preisbuch', String(opts.preisbuch || '1').replace(/[^0-9]/g, '') || '1');
+    return fetch('/api/dataselect?' + qs.toString(), { method: 'GET', headers: _authHeaders() })
+      .then(function(r){ return r.text().then(function(b){ var d = _parse(r, b); if (d && d.debug) return d; return d && d.ok === false ? d : { ok: false, error: (d && d.error) || 'Keine Diagnose erhalten.' }; }); })
+      .catch(function(e){ return { ok: false, error: 'Verbindungsfehler: ' + (e && e.message ? e.message : '') }; });
+  }
+
+  w.GemaDataSelect = { search: search, debug: debug, anbieter: anbieter, addAnbieter: addAnbieter, normArtikel: normArtikel, fmtPreis: fmtPreis, SEED: SEED };
 })();

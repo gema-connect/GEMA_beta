@@ -79,11 +79,12 @@ function _bild(v){
 
 function _normArtikel(raw){
   if (!raw || typeof raw !== 'object') return null;
-  var bez = _pick(raw, ['bezeichnung','bez','beschreibung','artikelbezeichnung','bezeichnung1','text','name','description','titel','title']);
-  var bez2 = _pick(raw, ['bezeichnung2','bez2','beschreibung2','zusatztext','subtext']);
+  // Kandidatenlisten inkl. bexio-Format (intern_code/intern_name/sale_price …)
+  var bez = _pick(raw, ['bezeichnung','bez','beschreibung','artikelbezeichnung','bezeichnung1','text','name','description','titel','title','intern_name','internname','intern_description','interndescription']);
+  var bez2 = _pick(raw, ['bezeichnung2','bez2','beschreibung2','zusatztext','subtext','intern_description']);
   if (bez2 && String(bez2).trim() && String(bez2).trim() !== String(bez).trim()) bez = (String(bez) + ' ' + String(bez2)).trim();
-  var artnr = _pick(raw, ['artnr','artikelnr','artikelnummer','artikelnrlieferant','articlenumber','artikel','nummer','number','idartikel','artikelid','refnr','referenz']);
-  var preisRaw = _pick(raw, ['bruttopreis','listenpreis','preis','bruttopreis1','preis1','bp','vk','verkaufspreis','price','listprice','grossprice','ep','einzelpreis']);
+  var artnr = _pick(raw, ['artnr','artikelnr','artikelnummer','artikelnrlieferant','articlenumber','artikel','nummer','number','idartikel','artikelid','refnr','referenz','intern_code','interncode','code']);
+  var preisRaw = _pick(raw, ['bruttopreis','listenpreis','preis','bruttopreis1','preis1','bp','vk','verkaufspreis','price','listprice','grossprice','ep','einzelpreis','sale_price','saleprice','default_price','defaultprice','purchase_price','purchaseprice']);
   var bildRaw = raw.Bilder || raw.bilder || raw.Images || raw.images || _pick(raw, ['bildurl','bild','image','imageurl','picture','foto','thumbnail','thumb','bildlink']);
   return {
     artnr: String(artnr || '').trim(),
@@ -91,7 +92,7 @@ function _normArtikel(raw){
     ean: String(_pick(raw, ['ean','gtin','eannr','eancode','barcode']) || '').trim(),
     preis: _num(preisRaw),
     waehrung: String(_pick(raw, ['waehrung','währung','currency','whg']) || 'CHF').trim() || 'CHF',
-    einheit: String(_pick(raw, ['einheit','me','mengeneinheit','vpe','verkaufseinheit','verpackungseinheit','unit','uom','mengeneinheittext']) || '').trim(),
+    einheit: String(_pick(raw, ['einheit','me','mengeneinheit','vpe','verkaufseinheit','verpackungseinheit','unit','uom','mengeneinheittext','unit_name','unitname']) || '').trim(),
     hersteller: String(_pick(raw, ['hersteller','lieferant','anbieter','marke','brand','manufacturer','fabrikat','lieferantname']) || '').trim(),
     serie: String(_pick(raw, ['serie','produktlinie','produktgruppe','sortiment','linie','series']) || '').trim(),
     bildUrl: _bild(bildRaw)
@@ -146,17 +147,29 @@ exports.handler = async function(event){
   // Ohne bilder → SUCHE: schnelle, schlanke Antwort (Inline-/Base64-Bilder werden
   // aus dem Payload entfernt, damit die Trefferliste nicht auf Bild-Bytes wartet).
   var withBilder = (String(p.bilder || '') === '1' || String(p.bilder || '').toLowerCase() === 'true');
+  // debug=1 → Rohantwort von dataselect.ch durchreichen (HTTP-Status, Content-Type,
+  // erkanntes Format, erste ~2500 Zeichen), damit man ohne IGH-Wissen SEHEN kann,
+  // was der Lieferant wirklich zurückgibt (JSON? XML? Login-/Fehlerseite? leer?).
+  var debug = (String(p.debug || '') === '1' || String(p.debug || '').toLowerCase() === 'true');
+  // Beim Debug ein günstiges, weit verbreitetes Format erzwingen (falls nichts
+  // eingegeben) — die Frage ist «was kommt zurück», nicht «findet er den Artikel».
+  var dbgFormat = String(p.format || '').trim();
 
   // Ziel-URL bauen (fixer Host → keine SSRF-Fläche)
   var qs = new URLSearchParams();
   qs.set('id_anbieter', anbieter);
   qs.set('preisbuch_nr', preisbuch);
   qs.set('code_sprache', sprache);
-  // Format je Modus konfigurierbar: für die Suche kann ein leichteres (bildloses,
-  // schnelleres) Format des Katalogs gesetzt werden — Default bleibt debim.
-  qs.set('format', withBilder
-    ? (process.env.DATASELECT_FORMAT_BILD || 'debim')
-    : (process.env.DATASELECT_FORMAT_SUCHE || 'debim'));
+  // `format` wählt bei DataSelect ein Export-FORMAT (Zielsystem), nicht JSON/XML.
+  // `debim` (DataExpert BIM) ist schwer (Geometrie/Bilder) UND liefert kein JSON
+  // → langsam + «kein JSON»-Fehler. `bexio` ist ein schlankes JSON-Format mit den
+  // ERP-Essentials (Artikel-Nr, Kurzbeschreibung, Preis, Einheit, EAN) — Default.
+  // Beide Modi per Env übersteuerbar (z.B. auf ein Format MIT Bildern).
+  // Im Debug darf das Zielformat per Param getestet werden (z.B. &format=debim),
+  // sonst gilt die Env-Vorgabe je Modus.
+  qs.set('format', (debug && dbgFormat) ? dbgFormat : (withBilder
+    ? (process.env.DATASELECT_FORMAT_BILD || 'bexio')
+    : (process.env.DATASELECT_FORMAT_SUCHE || 'bexio')));
   if (artnr) qs.set('artnr', artnr);
   if (bez)   qs.set('Bez', bez);
   if (ean)   qs.set('EAN', ean);
@@ -168,6 +181,11 @@ exports.handler = async function(event){
     else headers['Authorization'] = 'Bearer ' + key;
   }
   var url = BASE + (BASE.indexOf('?') >= 0 ? '&' : '?') + qs.toString();
+  // URL fürs Debug OHNE Zugangs-Token (falls einer als Query-Param mitgeht).
+  var safeUrl = url;
+  if (key && process.env.DATASELECT_KEY_PARAM){
+    try { var sq = new URLSearchParams(qs.toString()); sq.set(process.env.DATASELECT_KEY_PARAM, '***'); safeUrl = BASE + (BASE.indexOf('?') >= 0 ? '&' : '?') + sq.toString(); } catch (e){}
+  }
 
   var ctrl = new AbortController();
   var timer = setTimeout(function(){ ctrl.abort(); }, TIMEOUT_MS);
@@ -177,10 +195,37 @@ exports.handler = async function(event){
     textBody = await resp.text();
   } catch (e){
     clearTimeout(timer);
+    var netMsg = (e && e.name === 'AbortError') ? 'Zeitüberschreitung (dataselect.ch antwortet nicht rechtzeitig).' : ('Netzwerkfehler: ' + (e && e.message ? e.message : '—'));
+    if (debug) return { statusCode: 200, headers: cors, body: JSON.stringify({ ok: false, debug: { triedUrl: safeUrl, format: qs.get('format'), keyGesetzt: !!key, netzwerkFehler: netMsg } }) };
     if (e && e.name === 'AbortError') return _err(504, 'DataSelect antwortet nicht rechtzeitig. Bitte später erneut versuchen.', cors);
     return _err(502, 'DataSelect nicht erreichbar: ' + (e && e.message ? e.message : 'Netzwerkfehler'), cors);
   }
   clearTimeout(timer);
+
+  // DEBUG: Rohantwort so zurückgeben, wie sie kam (unabhängig von Status/Format).
+  if (debug){
+    var _dbg = String(textBody || '');
+    var _t = _dbg.replace(/^﻿/, '').trim();
+    var ct = '';
+    try { ct = (resp.headers && resp.headers.get) ? (resp.headers.get('content-type') || '') : ''; } catch (e){}
+    var looksLike = 'leer/unbekannt';
+    if (_t.charAt(0) === '{' || _t.charAt(0) === '[') looksLike = 'JSON';
+    else if (_t.charAt(0) === '<') looksLike = (/^<\?xml/i.test(_t) || /<\/?[a-z]+:/.test(_t)) ? 'XML' : 'HTML/XML';
+    else if (_t) looksLike = 'Text (kein JSON/XML)';
+    var jsonOk = false; if (looksLike === 'JSON'){ try { JSON.parse(_t); jsonOk = true; } catch (e){} }
+    return { statusCode: 200, headers: cors, body: JSON.stringify({ ok: false, debug: {
+      triedUrl: safeUrl,
+      format: qs.get('format'),
+      keyGesetzt: !!key,
+      httpStatus: resp.status,
+      httpStatusText: resp.statusText || '',
+      contentType: ct,
+      erkanntesFormat: looksLike,
+      jsonParsebar: jsonOk,
+      laenge: _dbg.length,
+      auszug: _dbg.slice(0, 2500)
+    } }) };
+  }
 
   if (!resp.ok){
     // 404 = kein Treffer → leere Liste (nicht als Fehler behandeln)
@@ -191,10 +236,14 @@ exports.handler = async function(event){
   }
 
   var data;
-  try { data = JSON.parse(textBody); }
+  var _raw = String(textBody || '').replace(/^﻿/, '').trim();   // BOM/Whitespace weg
+  try { data = JSON.parse(_raw); }
   catch (e){
-    // Kein JSON → meist HTML-Fehler-/Loginseite (Vertrag/Token) oder falsches Format
-    return _err(502, 'DataSelect lieferte kein JSON (evtl. Zugang/Token nötig oder Format geändert).', cors);
+    // Kein JSON → häufig ein XML/BIM-Format (debim) oder HTML-Fehler-/Loginseite
+    var hint = (_raw.charAt(0) === '<')
+      ? ' — das gewählte Format liefert XML statt JSON. Bitte ein JSON-Format (z.B. bexio) via DATASELECT_FORMAT_SUCHE/DATASELECT_FORMAT_BILD setzen.'
+      : ' (evtl. Zugang/Token nötig oder Format geändert).';
+    return _err(502, 'DataSelect lieferte kein JSON' + hint, cors);
   }
 
   var artikel = _extractArray(data).map(_normArtikel).filter(function(a){
