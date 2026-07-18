@@ -79,11 +79,12 @@ function _bild(v){
 
 function _normArtikel(raw){
   if (!raw || typeof raw !== 'object') return null;
-  var bez = _pick(raw, ['bezeichnung','bez','beschreibung','artikelbezeichnung','bezeichnung1','text','name','description','titel','title']);
-  var bez2 = _pick(raw, ['bezeichnung2','bez2','beschreibung2','zusatztext','subtext']);
+  // Kandidatenlisten inkl. bexio-Format (intern_code/intern_name/sale_price …)
+  var bez = _pick(raw, ['bezeichnung','bez','beschreibung','artikelbezeichnung','bezeichnung1','text','name','description','titel','title','intern_name','internname','intern_description','interndescription']);
+  var bez2 = _pick(raw, ['bezeichnung2','bez2','beschreibung2','zusatztext','subtext','intern_description']);
   if (bez2 && String(bez2).trim() && String(bez2).trim() !== String(bez).trim()) bez = (String(bez) + ' ' + String(bez2)).trim();
-  var artnr = _pick(raw, ['artnr','artikelnr','artikelnummer','artikelnrlieferant','articlenumber','artikel','nummer','number','idartikel','artikelid','refnr','referenz']);
-  var preisRaw = _pick(raw, ['bruttopreis','listenpreis','preis','bruttopreis1','preis1','bp','vk','verkaufspreis','price','listprice','grossprice','ep','einzelpreis']);
+  var artnr = _pick(raw, ['artnr','artikelnr','artikelnummer','artikelnrlieferant','articlenumber','artikel','nummer','number','idartikel','artikelid','refnr','referenz','intern_code','interncode','code']);
+  var preisRaw = _pick(raw, ['bruttopreis','listenpreis','preis','bruttopreis1','preis1','bp','vk','verkaufspreis','price','listprice','grossprice','ep','einzelpreis','sale_price','saleprice','default_price','defaultprice','purchase_price','purchaseprice']);
   var bildRaw = raw.Bilder || raw.bilder || raw.Images || raw.images || _pick(raw, ['bildurl','bild','image','imageurl','picture','foto','thumbnail','thumb','bildlink']);
   return {
     artnr: String(artnr || '').trim(),
@@ -91,7 +92,7 @@ function _normArtikel(raw){
     ean: String(_pick(raw, ['ean','gtin','eannr','eancode','barcode']) || '').trim(),
     preis: _num(preisRaw),
     waehrung: String(_pick(raw, ['waehrung','währung','currency','whg']) || 'CHF').trim() || 'CHF',
-    einheit: String(_pick(raw, ['einheit','me','mengeneinheit','vpe','verkaufseinheit','verpackungseinheit','unit','uom','mengeneinheittext']) || '').trim(),
+    einheit: String(_pick(raw, ['einheit','me','mengeneinheit','vpe','verkaufseinheit','verpackungseinheit','unit','uom','mengeneinheittext','unit_name','unitname']) || '').trim(),
     hersteller: String(_pick(raw, ['hersteller','lieferant','anbieter','marke','brand','manufacturer','fabrikat','lieferantname']) || '').trim(),
     serie: String(_pick(raw, ['serie','produktlinie','produktgruppe','sortiment','linie','series']) || '').trim(),
     bildUrl: _bild(bildRaw)
@@ -152,11 +153,14 @@ exports.handler = async function(event){
   qs.set('id_anbieter', anbieter);
   qs.set('preisbuch_nr', preisbuch);
   qs.set('code_sprache', sprache);
-  // Format je Modus konfigurierbar: für die Suche kann ein leichteres (bildloses,
-  // schnelleres) Format des Katalogs gesetzt werden — Default bleibt debim.
+  // `format` wählt bei DataSelect ein Export-FORMAT (Zielsystem), nicht JSON/XML.
+  // `debim` (DataExpert BIM) ist schwer (Geometrie/Bilder) UND liefert kein JSON
+  // → langsam + «kein JSON»-Fehler. `bexio` ist ein schlankes JSON-Format mit den
+  // ERP-Essentials (Artikel-Nr, Kurzbeschreibung, Preis, Einheit, EAN) — Default.
+  // Beide Modi per Env übersteuerbar (z.B. auf ein Format MIT Bildern).
   qs.set('format', withBilder
-    ? (process.env.DATASELECT_FORMAT_BILD || 'debim')
-    : (process.env.DATASELECT_FORMAT_SUCHE || 'debim'));
+    ? (process.env.DATASELECT_FORMAT_BILD || 'bexio')
+    : (process.env.DATASELECT_FORMAT_SUCHE || 'bexio'));
   if (artnr) qs.set('artnr', artnr);
   if (bez)   qs.set('Bez', bez);
   if (ean)   qs.set('EAN', ean);
@@ -191,10 +195,14 @@ exports.handler = async function(event){
   }
 
   var data;
-  try { data = JSON.parse(textBody); }
+  var _raw = String(textBody || '').replace(/^﻿/, '').trim();   // BOM/Whitespace weg
+  try { data = JSON.parse(_raw); }
   catch (e){
-    // Kein JSON → meist HTML-Fehler-/Loginseite (Vertrag/Token) oder falsches Format
-    return _err(502, 'DataSelect lieferte kein JSON (evtl. Zugang/Token nötig oder Format geändert).', cors);
+    // Kein JSON → häufig ein XML/BIM-Format (debim) oder HTML-Fehler-/Loginseite
+    var hint = (_raw.charAt(0) === '<')
+      ? ' — das gewählte Format liefert XML statt JSON. Bitte ein JSON-Format (z.B. bexio) via DATASELECT_FORMAT_SUCHE/DATASELECT_FORMAT_BILD setzen.'
+      : ' (evtl. Zugang/Token nötig oder Format geändert).';
+    return _err(502, 'DataSelect lieferte kein JSON' + hint, cors);
   }
 
   var artikel = _extractArray(data).map(_normArtikel).filter(function(a){

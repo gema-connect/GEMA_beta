@@ -130,15 +130,15 @@
         hatBild: (raw.hatBild !== undefined ? !!raw.hatBild : !!bu)   // Bild vorhanden? (fürs Nachladen)
       };
     }
-    var bez = _pick(raw, ['bezeichnung','bez','beschreibung','text','name','description']);
+    var bez = _pick(raw, ['bezeichnung','bez','beschreibung','text','name','description','intern_name','intern_description']);
     var bildUrl = String(_pick(raw, ['bildurl','bild','image','imageurl','picture','foto']) || '').trim();
     return {
-      artnr: String(_pick(raw, ['artnr','artikelnr','artikelnummer','nummer','number']) || '').trim(),
+      artnr: String(_pick(raw, ['artnr','artikelnr','artikelnummer','nummer','number','intern_code','code']) || '').trim(),
       bezeichnung: String(bez || '').trim(),
       ean: String(_pick(raw, ['ean','gtin','barcode']) || '').trim(),
-      preis: _num(_pick(raw, ['bruttopreis','listenpreis','preis','price','vk'])),
+      preis: _num(_pick(raw, ['bruttopreis','listenpreis','preis','price','vk','sale_price','default_price','purchase_price'])),
       waehrung: String(_pick(raw, ['waehrung','currency']) || 'CHF'),
-      einheit: String(_pick(raw, ['einheit','me','vpe','unit']) || '').trim(),
+      einheit: String(_pick(raw, ['einheit','me','vpe','unit','unit_name']) || '').trim(),
       hersteller: String(_pick(raw, ['hersteller','lieferant','marke','brand']) || '').trim(),
       serie: String(_pick(raw, ['serie','produktlinie']) || '').trim(),
       bildUrl: bildUrl,

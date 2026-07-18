@@ -2338,7 +2338,7 @@ function erpSideBody(){
 // ── Artikel-Zeile + Stückzahl-Flow (markieren + Enter → Menge → über Markierung) ──
 function erpArtRow(pos,ic,name,sub,img,extraBtns){
   var key='ak'+(++_artSeq);_artMap[key]=pos;
-  return '<div class="side-art" tabindex="0" data-artkey="'+key+'" onclick="erpArtSel(this)" ondblclick="erpArtGoEl(this)" onkeydown="erpArtKey(event,this)" title="Klick markiert · Enter/Doppelklick fügt ein (mit Mengenabfrage)">'
+  return '<div class="side-art" tabindex="0" data-artkey="'+key+'" data-sn="'+esc((name+' '+(sub||'')).toLowerCase())+'" onclick="erpArtSel(this)" ondblclick="erpArtGoEl(this)" onkeydown="erpArtKey(event,this)" title="Klick markiert · Enter/Doppelklick fügt ein (mit Mengenabfrage)">'
     +(img?'<img class="sa-img" src="'+esc(img)+'" onerror="this.style.display=\'none\'" alt=""/>':'<span class="sa-ic">'+(ic||'📦')+'</span>')
     +'<div class="sa-t"><div class="sa-n">'+esc(name)+'</div>'+(sub?'<div class="sa-s">'+esc(sub)+'</div>':'')+'</div>'
     +(extraBtns||'')+'<span class="sa-plus">＋</span></div>';
@@ -2489,61 +2489,101 @@ function erpBkpInsert(){
 // ═══════════════════════════════════════════════════════════
 function erpEigOpen(){erpSideTool('eigene');}   // Kompatibilität
 function erpDsOpen(){erpSideTool('kataloge');}   // Kompatibilität
+var _katQ='';
 function erpSideKat(el){
-  el.innerHTML='<input id="katSuche" class="side-search" type="text" placeholder="Artikel suchen …" oninput="erpKatRender()" onkeydown="if(event.key===\'Enter\'){event.preventDefault();erpArtSearchEnter(\'katList\');}"/>'
+  var st=erpSideLoad();_katQ=st.katQ||'';
+  el.innerHTML='<input id="katSuche" class="side-search" type="text" placeholder="Lieferant oder Artikel suchen (ID/Name) …" value="'+esc(_katQ)+'" oninput="erpKatFilter(this.value)"/>'
     +'<div id="katList"></div>';
   erpKatRender();
+  erpKatFilter(_katQ);
 }
 function erpKatGrpToggle(gid){
   var st=erpSideLoad();st.katOpen=st.katOpen||{};
   var willOpen=!st.katOpen[gid];if(willOpen)st.katOpen[gid]=true;else delete st.katOpen[gid];erpSideSave(st);
   var g=document.querySelector('.side-grp[data-grp="'+gid+'"]');if(g)g.classList.toggle('open',willOpen);
 }
+// Alle Kataloge EINMAL rendern (IGH-Lieferanten oben, GEMA-Katalog unten);
+// die Suche filtert danach nur per Show/Hide (kein Re-Render → Fokus bleibt).
 function erpKatRender(){
-  var q=String((document.getElementById('katSuche')||{}).value||'').toLowerCase().trim();
   var el=document.getElementById('katList');if(!el)return;
   var st=erpSideLoad();var openSet=st.katOpen||{};var h='';
+  // ── IGH-Lieferantenkataloge OBEN ──
+  if(typeof GemaDataSelect!=='undefined'){
+    h+='<h4>🔎 IGH-Lieferantenkataloge (DataSelect)</h4>';
+    h+='<div class="side-hint">Alle hinterlegten Lieferanten. Die Suche oben filtert nach ID oder Name; im Lieferanten dann Artikel suchen und einfügen. Neue Lieferanten werden gespeichert.</div>';
+    var anb=GemaDataSelect.anbieter()||[];
+    h+='<div id="ighList">';
+    if(!anb.length)h+='<div class="side-empty">Noch kein Lieferant hinterlegt — «＋ Lieferant hinzufügen».</div>';
+    anb.forEach(function(a){
+      var open=!!openSet['ds:'+a.id];
+      h+='<div class="side-grp'+(open?' open':'')+'" data-grp="ds:'+esc(a.id)+'" data-dskey="'+esc(a.id)+'" data-dsname="'+esc((a.name||'').toLowerCase())+'"><div class="side-grp-hd" onclick="erpKatGrpToggle(\'ds:'+esc(a.id)+'\')"><span class="cx">▶</span><span>🔎 '+esc(a.name)+' <span style="color:var(--mut2);font-weight:600">('+esc(a.id)+')</span></span></div>'
+        +'<div class="side-grp-bd" style="padding:8px">'
+        +'<div style="display:flex;gap:6px;margin-bottom:6px"><input class="side-search" style="margin:0;flex:1" id="dsq_'+esc(a.id)+'" type="text" placeholder="Artikel-Nr / Bezeichnung / EAN" onkeydown="if(event.key===\'Enter\'){event.preventDefault();erpDsSearch(\''+esc(a.id)+'\');}"/><button class="btn pri" style="min-height:34px;padding:6px 10px" id="dsBtn_'+esc(a.id)+'" onclick="erpDsSearch(\''+esc(a.id)+'\')">🔎</button></div>'
+        +'<div id="dsRes_'+esc(a.id)+'"></div>'
+        +'</div></div>';
+    });
+    h+='</div><div id="ighNoHit" class="side-empty" style="display:none">Kein Lieferant gefunden — «＋» hinzufügen.</div>';
+    h+='<button class="btn" style="width:100%;margin-top:4px" onclick="erpDsAddAnbieter()">＋ Lieferant hinzufügen</button>';
+  }
+  // ── GEMA-Produktkatalog UNTEN ──
   var cats=[];try{if(typeof GemaProdukte!=='undefined')cats=GemaProdukte.getKategorien()||[];}catch(e){}
-  h+='<h4>📦 GEMA-Katalog</h4>';var anyCat=false;
+  var gemaGroups='';
   cats.forEach(function(k){
     var prods=[];try{prods=GemaProdukte.getProdukte(k.id)||[];}catch(e){}
     if(!prods.length)return;
     var rows=prods.map(function(p){
       var d=p.daten||{};var name=[d.serie,d.modell].filter(Boolean).join(' ')||k.name;
-      return {name:name,sub:(p.lieferantFirma||''),ic:k.icon||'📦',
-        pos:{art:'frei',bez:name,menge:1,einheit:'Stk',ep:'',produktId:p.id,lieferantFirma:p.lieferantFirma}};
-    }).filter(function(r){return !q||(r.name+' '+r.sub).toLowerCase().indexOf(q)>=0;});
-    if(q&&!rows.length)return;
-    anyCat=true;
-    var open=q?true:!!openSet[k.id];
-    h+='<div class="side-grp'+(open?' open':'')+'" data-grp="'+esc(k.id)+'"><div class="side-grp-hd" onclick="erpKatGrpToggle(\''+esc(k.id)+'\')"><span class="cx">▶</span><span>'+(k.icon||'📦')+' '+esc(k.name)+'</span><span class="cc">'+rows.length+'</span></div>'
-      +'<div class="side-grp-bd">'+(rows.length?rows.map(function(r){return erpArtRow(r.pos,r.ic,r.name,r.sub,'');}).join(''):'<div class="side-empty">—</div>')+'</div></div>';
+      return erpArtRow({art:'frei',bez:name,menge:1,einheit:'Stk',ep:'',produktId:p.id,lieferantFirma:p.lieferantFirma},k.icon||'📦',name,(p.lieferantFirma||''),'');
+    }).join('');
+    var open=!!openSet['gk:'+k.id];
+    gemaGroups+='<div class="side-grp'+(open?' open':'')+'" data-grp="gk:'+esc(k.id)+'" data-cat="1"><div class="side-grp-hd" onclick="erpKatGrpToggle(\'gk:'+esc(k.id)+'\')"><span class="cx">▶</span><span>'+(k.icon||'📦')+' '+esc(k.name)+'</span><span class="cc">'+prods.length+'</span></div>'
+      +'<div class="side-grp-bd">'+rows+'</div></div>';
   });
-  if(!anyCat)h+='<div class="side-empty">'+(q?'Keine Produkte gefunden.':'Kein GEMA-Produktkatalog verfügbar.')+'</div>';
-  if(typeof GemaDataSelect!=='undefined'){
-    h+='<h4>🔎 DataSelect (Online-Lieferantenkataloge)</h4>';
-    (GemaDataSelect.anbieter()||[]).forEach(function(a){
-      var open=!!openSet['ds:'+a.id];
-      h+='<div class="side-grp'+(open?' open':'')+'" data-grp="ds:'+esc(a.id)+'"><div class="side-grp-hd" onclick="erpKatGrpToggle(\'ds:'+esc(a.id)+'\')"><span class="cx">▶</span><span>🔎 '+esc(a.name)+' <span style="color:var(--mut2);font-weight:600">('+esc(a.id)+')</span></span></div>'
-        +'<div class="side-grp-bd" style="padding:8px">'
-        +'<div style="display:flex;gap:6px;margin-bottom:6px"><input class="side-search" style="margin:0;flex:1" id="dsq_'+esc(a.id)+'" type="text" placeholder="Artikel-Nr / Bezeichnung / EAN" value="'+esc(q)+'" onkeydown="if(event.key===\'Enter\'){event.preventDefault();erpDsSearch(\''+esc(a.id)+'\');}"/><button class="btn pri" style="min-height:34px;padding:6px 10px" id="dsBtn_'+esc(a.id)+'" onclick="erpDsSearch(\''+esc(a.id)+'\')">🔎</button></div>'
-        +'<div id="dsRes_'+esc(a.id)+'"></div>'
-        +'</div></div>';
-    });
-    h+='<button class="btn" style="width:100%;margin-top:4px" onclick="erpDsAddAnbieter()">＋ Lieferant hinterlegen</button>';
-  }
+  h+='<h4>📦 GEMA-Produktkatalog</h4>';
+  h+=gemaGroups||'<div class="side-empty">Kein GEMA-Produktkatalog verfügbar.</div>';
   el.innerHTML=h;
 }
+// Suche (leichtgewichtig): filtert IGH-Lieferanten nach ID/Name und GEMA-Artikel
+// nach Name — nur Show/Hide, ohne Re-Render (das Suchfeld behält den Fokus).
+function erpKatFilter(v){
+  _katQ=v||'';var st=erpSideLoad();st.katQ=_katQ;st.katOpen=st.katOpen||{};erpSideSave(st);
+  var openSet=st.katOpen;var q=String(_katQ).toLowerCase().trim();
+  // IGH-Lieferanten nach ID/Name (Treffer bei aktiver Suche aufklappen)
+  var anyIgh=false;
+  [].forEach.call(document.querySelectorAll('#ighList .side-grp[data-dskey]'),function(g){
+    var m=!q||(g.getAttribute('data-dskey')+' '+g.getAttribute('data-dsname')).toLowerCase().indexOf(q)>=0;
+    g.style.display=m?'':'none';if(m)anyIgh=true;
+    if(q)g.classList.toggle('open',m);else g.classList.toggle('open',!!openSet[g.getAttribute('data-grp')]);
+  });
+  var nh=document.getElementById('ighNoHit');if(nh)nh.style.display=(q&&!anyIgh)?'':'none';
+  // GEMA-Artikel nach Name (Kategorie mit Treffern automatisch aufklappen)
+  [].forEach.call(document.querySelectorAll('#katList .side-grp[data-cat]'),function(g){
+    var vis=0;[].forEach.call(g.querySelectorAll('.side-art'),function(a){
+      var m=!q||(a.getAttribute('data-sn')||'').indexOf(q)>=0;a.style.display=m?'':'none';if(m)vis++;
+    });
+    g.style.display=(!q||vis>0)?'':'none';
+    if(q)g.classList.toggle('open',vis>0);else g.classList.toggle('open',!!openSet[g.getAttribute('data-grp')]);
+  });
+}
 var _dsResults=[];
+// Lieferant hinzufügen (ID + Name) — wird org-weit gespeichert (kein erneutes
+// Hinzufügen nötig). Vorbelegt mit der aktuellen Suche (ID oder Name).
 function erpDsAddAnbieter(){
-  GemaDialog.prompt({title:'Lieferant hinterlegen',message:'IGH-Mitglieder-ID (id_anbieter) — z.B. 1900 für Geberit.',placeholder:'ID (Zahl)'}).then(function(id){
+  var pre=String(_katQ||'').trim();
+  var preId=/^\d{1,7}$/.test(pre)?pre:'';
+  var preName=preId?'':pre;
+  GemaDialog.prompt({title:'Lieferant hinzufügen',message:'IGH-Mitglieder-ID (id_anbieter) — z.B. 1900 für Geberit. Steht auf Ihrem DataSelect-Vertrag.',placeholder:'ID (Zahl)',defaultValue:preId}).then(function(id){
     if(id===null)return;
     id=String(id).replace(/[^0-9]/g,'');
     if(!id){toast('⚠ Ungültige ID');return;}
-    GemaDialog.prompt({title:'Lieferant hinterlegen',message:'Name des Lieferanten für die ID '+id+'.',placeholder:'z.B. Geberit',defaultValue:''}).then(function(name){
+    GemaDialog.prompt({title:'Lieferant hinzufügen',message:'Name des Lieferanten für die ID '+id+'.',placeholder:'z.B. Geberit',defaultValue:preName}).then(function(name){
       if(name===null)return;
-      if(GemaDataSelect.addAnbieter(id,name||('Lieferant '+id))){erpKatRender();toast('✓ Lieferant hinterlegt');}
-      else toast('Konnte nicht gespeichert werden');
+      if(GemaDataSelect.addAnbieter(id,name||('Lieferant '+id))){
+        _katQ='';var s2=erpSideLoad();s2.katQ='';s2.katOpen=s2.katOpen||{};s2.katOpen['ds:'+id]=true;erpSideSave(s2);
+        var inp=document.getElementById('katSuche');if(inp)inp.value='';
+        erpKatRender();erpKatFilter('');
+        toast('✓ Lieferant «'+(name||id)+'» gespeichert');
+      } else toast('Konnte nicht gespeichert werden');
     });
   });
 }
