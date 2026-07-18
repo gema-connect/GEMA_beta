@@ -198,6 +198,7 @@ table.pos{border-collapse:collapse;width:100%;font-size:13px;min-width:680px}
 <script src="gema_bkp_katalog.js"></script>
 <script src="gema_storage.js"></script>
 <script src="gema_dialog.js"></script>
+<script src="gema_aushang.js"></script>
 <link rel="stylesheet" href="gema_responsive.css"/>
 </head>
 <body>
@@ -1490,6 +1491,23 @@ function erpKredAktion(id,aktion){
   } else apply('');
 }
 
+// ── Aushang (Mieter-Info) direkt vom Auftrag — Daten am Dokument gespeichert,
+//    damit der Einsatzplan-Termin denselben Stand wiederverwenden kann ──
+function erpAushangOpen(){
+  if(typeof GemaAushang==='undefined'||!cur)return;
+  var au=cur.aushang||{};
+  GemaAushang.open({
+    vorlageId:au.vorlageId||'',
+    gespeichert:au.daten||null,
+    objektName:cur.objektName||'',
+    onSave:function(data){
+      if(!cur)return;
+      cur.aushang=Object.assign({},cur.aushang||{},{vorlageId:data.vorlageId||'',daten:data});
+      erpSaveCur(true);
+    }
+  });
+}
+
 // ── Beleg im separaten Fenster (Doppelklick auf Karte/Zeile bzw. 📎-Button) ──
 function _erpBelegWindow(beleg,titel,meta){
   var src=beleg&&(beleg.url||beleg.dataUrl);
@@ -1724,6 +1742,22 @@ function erpOpenEditor(){
         +'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px">'
         +'<input type="text" value="'+esc(sk.code||'')+'" placeholder="Schlüsselcode / Tresor-Code" style="flex:0 0 200px;min-width:160px;padding:8px 10px;border:1.5px solid var(--brd2);border-radius:9px;font-size:13px;font-family:inherit" oninput="cur.schluessel=cur.schluessel||{};cur.schluessel.code=this.value"'+(editable?'':' disabled')+'/>'
         +'<input type="text" value="'+esc(sk.info||'')+'" placeholder="Schlüssel wo / bei wem abholen (z.B. Hauswart Müller, 079 …)" style="flex:1;min-width:220px;padding:8px 10px;border:1.5px solid var(--brd2);border-radius:9px;font-size:13px;font-family:inherit" oninput="cur.schluessel=cur.schluessel||{};cur.schluessel.info=this.value"'+(editable?'':' disabled')+'/>'
+        +'</div></div>';
+    })():'')
+    // Aushang (nur Auftrag): Mieter-Info für Arbeiten, die das ganze Gebäude
+    // betreffen (v.a. MFH — Wasser-/Stromabstellung). Ist «Aushang nötig»
+    // gesetzt, erinnert der Einsatzplan beim Einplanen daran.
+    +(d.typ==='auftrag'&&typeof GemaAushang!=='undefined'?(function(){
+      var au=d.aushang||{};
+      var vl=GemaAushang.vorlagen();
+      return '<div style="font-size:12px;background:var(--sur2);border:1px solid var(--brd);border-radius:9px;padding:8px 11px;margin-top:6px">'
+        +'📌 <b>Aushang (Mieter-Info)</b> <span style="color:var(--mut)">— z.B. Wasser-/Stromabstellung im Mehrfamilienhaus; beim Einplanen im Einsatzplan wirst du daran erinnert</span>'
+        +'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;align-items:center">'
+        +'<label style="display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:700;cursor:pointer;white-space:nowrap"><input type="checkbox"'+(au.noetig?' checked':'')+(editable?'':' disabled')+' style="width:17px;height:17px" onchange="cur.aushang=cur.aushang||{};cur.aushang.noetig=this.checked"/> Aushang nötig</label>'
+        +'<select style="flex:1;min-width:180px;padding:7px 9px;border:1.5px solid var(--brd2);border-radius:9px;font-size:12.5px;font-family:inherit"'+(editable?'':' disabled')+' onchange="cur.aushang=cur.aushang||{};cur.aushang.vorlageId=this.value">'
+        +vl.map(function(v){return '<option value="'+esc(v.id)+'"'+(v.id===(au.vorlageId||vl[0].id)?' selected':'')+'>'+esc((v.ic?v.ic+' ':'')+v.name)+'</option>';}).join('')
+        +'</select>'
+        +'<button type="button" class="btn" style="min-height:32px;padding:4px 11px;font-size:12px" onclick="erpAushangOpen()">🖨 Aushang erstellen …</button>'
         +'</div></div>';
     })():'')
     +'</div></div>';

@@ -156,6 +156,7 @@ table.board{border-collapse:collapse;width:100%;min-width:860px}
 <script src="gema_feedback.js"></script><script src="gema_notify.js"></script><script src="gema_notify_ui.js"></script><script src="gema_chat.js"></script>
 <script src="gema_objekte_api.js"></script>
 <script src="gema_dialog.js"></script>
+<script src="gema_aushang.js"></script>
 <link rel="stylesheet" href="gema_responsive.css"/>
 </head>
 <body>
@@ -236,6 +237,7 @@ table.board{border-collapse:collapse;width:100%;min-width:860px}
         </label>
       </div>
       <div class="fld"><label>Notiz für den Monteur</label><textarea id="ev_notiz" placeholder="z.B. Schlüssel bei Hauswart, Material im Bus"></textarea></div>
+      <div id="evAushang" style="display:none"></div>
     </div>
     <div class="modal-ft" id="evFt"></div>
   </div>
@@ -983,6 +985,50 @@ function epNeuAusAuftrag(a,monteurId,datum){
   epNotify(ev,'geplant');
   toast('📋 '+(a.nr||'Auftrag')+' bei '+(ev.monteurName||'?')+' am '+dfmt(datum)+' eingeplant');
   epRender();
+  // Erinnerung: am Auftrag ist «Aushang nötig» hinterlegt (Mieter-Info,
+  // z.B. Wasserabstellung im MFH) → direkt für diesen Termin erstellen
+  if(typeof GemaAushang!=='undefined'&&typeof GemaDialog!=='undefined'&&a.aushang&&a.aushang.noetig){
+    GemaDialog.confirm({
+      title:'📌 Aushang nötig',
+      message:'Für Auftrag '+(a.nr||'')+' ist ein Aushang hinterlegt (Mieter-Info, z.B. Wasser-/Stromabstellung).\n\nJetzt für diesen Termin erstellen und drucken?',
+      confirmLabel:'Aushang erstellen'
+    }).then(function(ok){if(ok)epAushangOpen(ev.id);});
+  }
+}
+// ── Aushang (Mieter-Info) am Termin: Quelle = ev.aushang (eigener Stand)
+//    → sonst Auftrag (a.aushang, Flag + gespeicherte Daten aus pm_erp) ──
+function epAushangInfo(ev){
+  if(ev&&ev.aushang)return {noetig:!!ev.aushang.noetig,vorlageId:ev.aushang.vorlageId||'',daten:ev.aushang.daten||null};
+  var a=ev&&ev.auftragId?_epErpPool().find(function(x){return x.id===ev.auftragId;}):null;
+  var au=(a&&a.aushang)||{};
+  return {noetig:!!au.noetig,vorlageId:au.vorlageId||'',daten:au.daten||null};
+}
+function epAushangOpen(evId){
+  if(typeof GemaAushang==='undefined')return;
+  var ev=poolRead().find(function(x){return x.id===evId;});
+  if(!ev)return;
+  var info=epAushangInfo(ev);
+  var tage=parseInt(ev.dauerTage,10)||1;
+  var bisD='';
+  if(tage>1){var dd=new Date(ev.datum+'T12:00:00');dd.setDate(dd.getDate()+tage-1);bisD=dd.toISOString().slice(0,10);}
+  // Der TERMIN ist die Quelle fürs Datum — gespeicherte Aushang-Daten (Text/
+  // Zusatz/Zeit) bleiben, aber ein verschobener Einsatz druckt nie das alte Datum
+  var g=info.daten?JSON.parse(JSON.stringify(info.daten)):null;
+  if(g){g.datum=ev.datum;g.datumBis=bisD;}
+  GemaAushang.open({
+    vorlageId:info.vorlageId,
+    gespeichert:g,
+    datum:ev.datum,datumBis:bisD,
+    von:ev.zeitVon||'',bis:ev.zeitBis||'',
+    objektName:ev.objektName||'',
+    onSave:function(data){
+      var e2=poolRead().find(function(x){return x.id===evId;});
+      if(!e2)return;
+      e2.aushang=Object.assign({},e2.aushang||{},{noetig:!!(info.noetig||(e2.aushang&&e2.aushang.noetig)),vorlageId:data.vorlageId||'',daten:data});
+      epSave(e2);
+      if(curEv&&curEv.id===evId){curEv.aushang=e2.aushang;if(document.getElementById('evModal').classList.contains('open'))epEvRender();}
+    }
+  });
 }
 function epNeu(monteurId,datum){
   if(!epCanPlan()){toast('Keine Berechtigung');return;}
@@ -1076,6 +1122,18 @@ function epEvRender(){
   gchk.checked=!!ev.garantie;
   gchk.disabled=!canEdit;
   document.getElementById('ev_notiz').value=ev.notiz||'';
+  // Aushang (Mieter-Info): Badge wenn am Auftrag/Einsatz «Aushang nötig»
+  // hinterlegt ist; der Button druckt direkt vom Termin (Datum/Zeit vorbefüllt)
+  var ausWrap=document.getElementById('evAushang');
+  if(typeof GemaAushang!=='undefined'&&!ev._neu&&ev.typ!=='ferien'&&canEdit){
+    var ausInfo=epAushangInfo(ev);
+    ausWrap.style.display='';
+    ausWrap.innerHTML='<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;background:var(--sur2);border:1px solid var(--brd);border-radius:10px;padding:8px 11px">'
+      +(ausInfo.noetig?'<span style="font-size:11.5px;font-weight:800;color:#92400e;background:#fffbeb;border:1px solid #fcd34d;border-radius:999px;padding:3px 10px">📌 Aushang nötig</span>':'<span style="font-size:12px;color:var(--mut)">📌 Aushang (Mieter-Info)</span>')
+      +(ausInfo.daten&&ausInfo.daten.gedrucktAm?'<span style="font-size:11px;color:var(--grn)">✓ erstellt am '+dfmt(String(ausInfo.daten.gedrucktAm).slice(0,10))+'</span>':'')
+      +'<button type="button" class="btn" style="margin-left:auto;min-height:32px;padding:4px 11px;font-size:12px" onclick="epAushangOpen(\''+ev.id+'\')">🖨 Aushang erstellen …</button>'
+      +'</div>';
+  } else {ausWrap.style.display='none';ausWrap.innerHTML='';}
   // Footer
   var ft='';
   if(canEdit){
