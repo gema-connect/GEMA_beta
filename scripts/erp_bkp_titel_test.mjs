@@ -1,9 +1,10 @@
 // Playwright-Smoke: ERP — BKP-Titel in Offerten (07/2026)
 //   - gema_bkp_katalog.js: kompletter Standard-BKP als GemaBKP (flat/level/byId)
-//   - «🧱 BKP-Titel»-Picker: Suche, eingerückte Liste, Mehrfachauswahl → Einfügen
-//     als Titelzeilen in Baumreihenfolge (2 < 25 < 251 < 251.0 < 3)
-//   - Titelzeilen im Editor: BKP-Nr-Feld + Einrückung nach Ebene, Nummer und
-//     Text bleiben frei anpassbar (eigene Nummern erlaubt)
+//   - BKP-Titel-Werkzeug in der Seitenleiste (kein Modal): Baum bis 2-stellig
+//     zugeklappt (Aufklapp-Zustand gespeichert), Suche = flache Trefferliste,
+//     Mehrfachauswahl → Einfügen als Titelzeilen in Baumreihenfolge (2 < 25 < …)
+//   - Titelzeilen im Editor: BKP-Nr als Anzeige-Zelle (Doppelklick bearbeitbar)
+//     + Einrückung nach Ebene, Nummer und Text bleiben frei anpassbar
 //   - PDF: BKP-Nummer als Kapitel-Label (eingerückt), Zusammenfassung mit
 //     Teilbaum-Rollup (25 = Σ 251…), Buchstaben-Kapitel ohne BKP unverändert
 //   - Vorlagen behalten die BKP-Struktur
@@ -33,22 +34,28 @@ ok(await page.evaluate(() => GemaBKP.flat().length > 300), 'Kompletter BKP-Katal
 ok(await page.evaluate(() => GemaBKP.level('2') === 0 && GemaBKP.level('25') === 1 && GemaBKP.level('254') === 2 && GemaBKP.level('254.0') === 3), 'Ebenen: 2→0, 25→1, 254→2, 254.0→3');
 ok(await page.evaluate(() => GemaBKP.byId('254').titel === 'Sanitärleitungen' && GemaBKP.byId('25').titel === 'Sanitäranlagen'), 'byId liefert die Standard-Titel');
 
-console.log('■ Picker: Suche, Einrückung, Einfügen in Baumreihenfolge');
-await page.evaluate(() => { erpNeu('offerte'); cur.titel = 'Testofferte'; erpBkpOpen(); });
-ok(await page.evaluate(() => document.getElementById('bkpModal').classList.contains('open')), 'Picker öffnet');
-ok(await page.evaluate(() => document.querySelectorAll('#bkpListe .bkp-item').length > 300), 'Liste zeigt den ganzen Katalog');
+console.log('■ Seitenleiste: Baum (bis 2-stellig zugeklappt), Suche, Einfügen in Baumreihenfolge');
+await page.evaluate(() => { localStorage.removeItem('gema_erp_side_v1'); erpNeu('offerte'); cur.titel = 'Testofferte'; erpBkpOpen(); });
+ok(await page.evaluate(() => _sideTool === 'bkp' && !!document.getElementById('bkpListe')), 'BKP-Werkzeug öffnet in der Seitenleiste (kein Modal)');
+ok(await page.evaluate(() => document.querySelectorAll('#bkpListe .bkp-node').length > 300), 'Baum enthält den ganzen Katalog');
 {
-  const pads = await page.evaluate(() => {
-    const find = id => [...document.querySelectorAll('#bkpListe .bkp-chk')].find(c => c.dataset.bkp === id).closest('.bkp-item');
-    return { e0: find('2').style.paddingLeft, e2: find('254').style.paddingLeft, e3: find('254.0').style.paddingLeft };
+  // Sichtbarkeit: ebene 0 (2) + ebene 1 (25) offen, ebene 2 (254) zugeklappt
+  const vis = await page.evaluate(() => {
+    const rowVis = id => { const n = document.querySelector('.bkp-node[data-id="' + id + '"]'); const r = n && n.querySelector(':scope > .bkp-row'); return !!(r && r.offsetHeight > 0); };
+    return { e0: rowVis('2'), e1: rowVis('25'), e2: rowVis('254') };
   });
-  ok(pads.e0 === '12px' && pads.e2 === '52px' && pads.e3 === '72px', 'Einrückung nach Ebene (wie BKP-Checkliste): 2=' + pads.e0 + ' · 254=' + pads.e2 + ' · 254.0=' + pads.e3);
+  ok(vis.e0 && vis.e1 && !vis.e2, 'Bis 2-stellig aufgeklappt: 2 + 25 sichtbar, 254 zugeklappt');
 }
+await page.evaluate(() => erpBkpNodeToggle(null, '25'));
+ok(await page.evaluate(() => { const n = document.querySelector('.bkp-node[data-id="254"]'); const r = n && n.querySelector(':scope > .bkp-row'); return !!(r && r.offsetHeight > 0); }), '254 nach Aufklappen von 25 sichtbar');
+// Aufklapp-Zustand ist gespeichert (Neu-Rendern behält 25 offen)
+await page.evaluate(() => erpBkpRenderList());
+ok(await page.evaluate(() => { const n = document.querySelector('.bkp-node[data-id="254"]'); const r = n && n.querySelector(':scope > .bkp-row'); return !!(r && r.offsetHeight > 0) && document.querySelector('.bkp-node[data-id="25"]').classList.contains('open'); }), 'Aufklapp-Zustand bleibt gespeichert');
 await page.evaluate(() => { document.getElementById('bkpSuche').value = 'Sanitärleitungen'; erpBkpRenderList(); });
 ok(await page.evaluate(() => {
   const items = [...document.querySelectorAll('#bkpListe .bkp-chk')].map(c => c.dataset.bkp);
   return items.indexOf('254') >= 0 && items.length < 10;
-}), 'Suche filtert (Text «Sanitärleitungen» → 254)');
+}), 'Suche = flache Trefferliste (Text «Sanitärleitungen» → 254)');
 await page.evaluate(() => { document.getElementById('bkpSuche').value = ''; erpBkpRenderList(); });
 // bewusst in "falscher" Klick-Reihenfolge wählen → Einfügen sortiert baumkonform
 await page.evaluate(() => {
@@ -62,20 +69,21 @@ await page.evaluate(() => erpBkpInsert());
 {
   const titel = await page.evaluate(() => cur.positionen.filter(p => p.art === 'titel').map(p => p.bkp + '|' + p.bez));
   ok(titel.join(';') === '2|Gebäude;25|Sanitäranlagen;254|Sanitärleitungen;254.0|Kalt- und Warmwasser', 'Eingefügt in Baumreihenfolge mit Standard-Texten');
-  ok(await page.evaluate(() => !document.getElementById('bkpModal').classList.contains('open')), 'Picker schliesst nach dem Einfügen');
+  ok(await page.evaluate(() => Object.keys(_bkpSel).length === 0), 'Auswahl nach dem Einfügen zurückgesetzt');
 }
 
-console.log('■ Editor: Einrückung + Nummer/Text einzeln anpassbar');
+console.log('■ Editor: Einrückung + Nummer/Text als Anzeige-Zellen (Doppelklick bearbeitbar)');
 {
   const row = await page.evaluate(() => {
     const trs = [...document.querySelectorAll('#posBody tr.titel')];
     return trs.map(tr => {
       const div = tr.querySelector('td div');
-      return { pad: div.style.paddingLeft, nr: div.querySelectorAll('input')[0].value };
+      const nrCell = div.querySelector('.pcell.bkp');
+      return { pad: div.style.paddingLeft, nr: nrCell ? nrCell.textContent.trim() : '' };
     });
   });
   ok(row.length === 4 && row[0].pad === '0px' && row[1].pad === '20px' && row[2].pad === '40px' && row[3].pad === '60px', 'Titelzeilen eingerückt nach Ebene (0/20/40/60px)');
-  ok(row[3].nr === '254.0', 'BKP-Nr-Feld vorbefüllt');
+  ok(row[3].nr === '254.0', 'BKP-Nr-Zelle vorbefüllt');
 }
 // eigene Nummer + eigener Text
 await page.evaluate(() => {
@@ -86,8 +94,10 @@ await page.evaluate(() => {
 });
 ok(await page.evaluate(() => {
   const tr = [...document.querySelectorAll('#posBody tr.titel')][3];
-  const inp = tr.querySelectorAll('input');
-  return inp[0].value === '254.9' && inp[1].value === 'Eigene Unterkategorie' && tr.querySelector('td div').style.paddingLeft === '60px';
+  const div = tr.querySelector('td div');
+  const nr = div.querySelector('.pcell.bkp').textContent.trim();
+  const bez = div.querySelector('.pcell.titeltxt').textContent.trim();
+  return nr === '254.9' && bez === 'Eigene Unterkategorie' && div.style.paddingLeft === '60px';
 }), 'Eigene Nummer + Text anpassbar (Einrückung folgt der Nummer)');
 
 console.log('■ PDF: BKP-Kapitel + Zusammenfassungs-Rollup');

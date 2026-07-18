@@ -94,10 +94,10 @@ await page.evaluate(() => {
   ok(r.raBasis === 'pauschal' && r.raBetrag === '− 25.00' && r.raClass === 'abzug', 'Rabattzeile pauschal: −25.00 (amber Zeile)');
   ok(r.sum.indexOf("305.00") >= 0, 'Summenblock: Zwischentotal 305.00 (300 + 30 − 25)');
 }
-// eigener Name bleibt editierbar
+// eigener Name als Anzeige-Zelle (Doppelklick öffnet die Bearbeitung)
 ok(await page.evaluate(() => {
   const zu = [...document.querySelectorAll('#posBody tr')][3];
-  return zu.querySelector('input').value === 'Baustellenzuschlag';
+  return zu.cells[1].textContent.trim() === 'Baustellenzuschlag';
 }), 'Zuschlag frei benennbar («Baustellenzuschlag»)');
 
 console.log('■ PDF: Zwischentotal ausgewiesen, Kapitelsumme inkl. Rabatt/Zuschlag');
