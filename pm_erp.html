@@ -268,6 +268,20 @@ table.pos{border-collapse:collapse;width:100%;font-size:13px;min-width:680px}
 #erpQtyModal .eq-row .fld{flex:1;margin:0}
 #erpQtyModal input{width:100%;padding:11px 12px;border:1.5px solid var(--brd2);border-radius:10px;font-size:16px;outline:none;text-align:right;font-variant-numeric:tabular-nums}
 #erpQtyModal input:focus{border-color:var(--acc)}
+/* Ausführungs-Auswahl (gleiches Produkt, verschiedene Farbe/Oberfläche) */
+#erpVarModal .modal{max-width:460px}
+#erpVarModal .ev-name{font-size:13px;font-weight:800;line-height:1.35;margin-bottom:4px}
+#erpVarModal .ev-hint{font-size:11.5px;color:var(--mut);margin-bottom:10px}
+#erpVarModal .ev-list{max-height:52vh;overflow:auto;display:flex;flex-direction:column;gap:6px}
+#erpVarModal .ev-opt{display:flex;align-items:center;gap:10px;padding:9px 11px;border:1.5px solid var(--brd2);border-radius:10px;cursor:pointer;background:#fff}
+#erpVarModal .ev-opt:hover{border-color:#bfdbfe}
+#erpVarModal .ev-opt.sel{border-color:var(--acc);background:#eff5ff}
+#erpVarModal .ev-radio{width:16px;height:16px;border-radius:50%;border:2px solid #cbd5e1;flex-shrink:0}
+#erpVarModal .ev-opt.sel .ev-radio{border-color:var(--acc);box-shadow:inset 0 0 0 3px var(--acc)}
+#erpVarModal .ev-txt{flex:1;min-width:0}
+#erpVarModal .ev-lab{font-size:13px;font-weight:700;line-height:1.3}
+#erpVarModal .ev-sub{font-size:11px;color:var(--mut2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#erpVarModal .ev-price{font-size:12.5px;font-weight:800;color:var(--txt);white-space:nowrap;font-variant-numeric:tabular-nums}
 /* Sidebar auf Mobile: Schublade rechts, per Button umschaltbar */
 @media(max-width:920px){
   .ov-side{position:fixed;top:0;right:0;bottom:0;width:min(360px,88vw);z-index:560;transform:translateX(102%);transition:transform .22s cubic-bezier(.32,.72,0,1);box-shadow:-8px 0 32px rgba(0,0,0,.18);padding-top:env(safe-area-inset-top)}
@@ -351,6 +365,22 @@ table.pos{border-collapse:collapse;width:100%;font-size:13px;min-width:680px}
     <div class="modal-ft">
       <button class="btn" onclick="erpQtyCancel()">Abbrechen</button>
       <button class="btn grn" onclick="erpQtyConfirm()">＋ Einfügen</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ AUSFÜHRUNGS-AUSWAHL (gleiches Produkt, versch. Farbe/Oberfläche) ═══ -->
+<div class="modal-bg" id="erpVarModal">
+  <div class="modal">
+    <div class="modal-hd"><h3>Ausführung wählen</h3><button class="modal-x" onclick="erpVarCancel()">✕</button></div>
+    <div class="modal-bd">
+      <div class="ev-name" id="evName"></div>
+      <div class="ev-hint">Dieses Produkt gibt es in mehreren Ausführungen (Farbe/Oberfläche) — bitte eine wählen:</div>
+      <div class="ev-list" id="evList"></div>
+    </div>
+    <div class="modal-ft">
+      <button class="btn" onclick="erpVarCancel()">Abbrechen</button>
+      <button class="btn grn" onclick="erpVarConfirm()">Weiter →</button>
     </div>
   </div>
 </div>
@@ -2427,7 +2457,10 @@ function erpArtSel(el){
   var p=el.parentNode;if(p)[].forEach.call(p.querySelectorAll('.side-art.sel'),function(x){x.classList.remove('sel');});
   el.classList.add('sel');try{el.focus();}catch(_){}
 }
-function erpArtGoEl(el){var pos=el&&el.dataset&&_artMap[el.dataset.artkey];if(pos)erpArtGo(pos);}
+function erpArtGoEl(el){
+  if(el&&el.dataset&&el.dataset.dsgroup){erpDsGroupGo(el.dataset.dsgroup);return;}   // Produkt mit Ausführungen
+  var pos=el&&el.dataset&&_artMap[el.dataset.artkey];if(pos)erpArtGo(pos);
+}
 function erpArtKey(e,el){
   if(e.key==='Enter'){e.preventDefault();erpArtGoEl(el);}
   else if(e.key==='ArrowDown'||e.key==='ArrowUp'){
@@ -2441,9 +2474,9 @@ function erpArtGo(pos){
   erpQtyAsk(pos.menge!=null?pos.menge:1,pos.bez,pos.einheit).then(function(menge){
     if(menge==null)return;
     var p=JSON.parse(JSON.stringify(pos));p.id=uid();p.menge=menge;
-    // Transiente DataSelect-Bild-Hinweise nicht in der Position speichern
+    // Transiente DataSelect-/Ausführungs-Hinweise nicht in der Position speichern
     var dsAnb=p._dsAnb,dsBild=p._dsBild,dsHat=p._dsHat;
-    delete p._dsAnb;delete p._dsBild;delete p._dsHat;
+    delete p._dsAnb;delete p._dsBild;delete p._dsHat;delete p._afLabel;delete p._afRaw;
     _erpInsertPos(p);erpRenderPos();
     toast('＋ '+(pos.bez||'Position'));
     if(window.matchMedia&&matchMedia('(max-width:920px)').matches)document.getElementById('edOv').classList.remove('side-open');
@@ -2476,6 +2509,99 @@ function erpQtyAsk(def,name,einheit){
 function erpQtyConfirm(){var v=erpNum(document.getElementById('eq_menge').value);if(!(v>0))v=1;erpQtyClose(v);}
 function erpQtyCancel(){erpQtyClose(null);}
 function erpQtyClose(v){document.getElementById('erpQtyModal').classList.remove('open');var r=_qtyRes;_qtyRes=null;if(r)r(v);}
+
+// ── Ausführungs-Gruppierung (gleiches Produkt, versch. Farbe/Oberfläche) ──
+// Basiscode = Produktcode vor dem ersten "/" (z.B. «6130#1313116/143/183» →
+// «6130#1313116»); Artikel mit gleichem Basiscode = Ausführungen eines Produkts.
+var _dsGroupMap={},_dsGSeq=0;
+function _dsBaseCode(artnr){var s=String(artnr||'');var i=s.indexOf('/');return i>=0?s.slice(0,i):s;}
+// Längster gemeinsamer Präfix der Bezeichnungen, an sinnvoller Grenze gekappt.
+function _dsCommonBase(names){
+  if(!names.length)return '';
+  var a=String(names[0]||''),lcp=a.length;
+  for(var i=1;i<names.length;i++){var b=String(names[i]||''),j=0;while(j<lcp&&j<b.length&&a[j]===b[j])j++;lcp=j;}
+  var base=a.slice(0,lcp).replace(/[\s\/,;:_-]+$/,'').trim();
+  return base||a;
+}
+// Ausführungs-Label je Artikel: AF/AFZ vom Server, sonst Namens-/Code-Rest.
+function _dsVariantLabel(a,base){
+  if(a.ausfuehrung)return a.ausfuehrung;
+  var n=String(a.bezeichnung||'');
+  if(base&&n.indexOf(base)===0){var t=n.slice(base.length).replace(/^[\s\/,;:_-]+/,'').trim();if(t)return t;}
+  var code=String(a.artnr||''),i=code.indexOf('/');if(i>=0)return code.slice(i+1);
+  return a.artnr||'Ausführung';
+}
+// Gruppen-Zeile (öffnet die Ausführungs-Auswahl statt direkt einzufügen).
+function _dsGroupRow(gid,ic,name,sub){
+  return '<div class="side-art" tabindex="0" data-dsgroup="'+esc(gid)+'" data-sn="'+esc((name+' '+(sub||'')).toLowerCase())+'" onclick="erpArtSel(this)" ondblclick="erpArtGoEl(this)" onkeydown="erpArtKey(event,this)" title="Klick markiert · Enter/Doppelklick: Ausführung wählen">'
+    +'<span class="sa-ic">'+(ic||'🎨')+'</span>'
+    +'<div class="sa-t"><div class="sa-n">'+esc(name)+'</div>'+(sub?'<div class="sa-s">'+esc(sub)+'</div>':'')+'</div>'
+    +'<span class="sa-plus">▸</span></div>';
+}
+// Suchtreffer nach Basisprodukt gruppieren → HTML (Einzelartikel wie gehabt,
+// Mehrfach-Ausführungen als EIN Eintrag mit «N Ausführungen»).
+function _dsRenderGrouped(list,anbId){
+  var order=[],gm={};
+  list.forEach(function(a){var bc=_dsBaseCode(a.artnr);if(!gm[bc]){gm[bc]={base:bc,items:[]};order.push(gm[bc]);}gm[bc].items.push(a);});
+  _dsGroupMap={};
+  var html=order.map(function(g){
+    var uniq=[],seen={};
+    g.items.forEach(function(a){var k=a.artnr||'';if(!seen[k]){seen[k]=1;uniq.push(a);}});   // Duplikate (gleicher Code) zusammenfassen
+    if(uniq.length===1){
+      var a=uniq[0],hat=!!(a.hatBild||a.bildUrl);
+      var pos={art:'frei',bez:a.bezeichnung||a.artnr||'Artikel',menge:1,einheit:a.einheit||'Stk',ep:a.preis>0?a.preis:'',produktId:'ds:'+(a.artnr||''),dsArtnr:a.artnr||'',lieferantFirma:a.hersteller||'',_dsAnb:anbId,_dsBild:a.bildUrl||'',_dsHat:hat};
+      var sub=(a.artnr||'')+(a.ean?' · EAN '+a.ean:'')+(a.preis>0?' · CHF '+GemaDataSelect.fmtPreis(a.preis):'')+(a.ausfuehrung?' · '+a.ausfuehrung:'')+(hat?' · 🖼':'');
+      return erpArtRow(pos,'📦',a.bezeichnung||a.artnr||'Artikel',sub,'');
+    }
+    var base=_dsCommonBase(uniq.map(function(a){return a.bezeichnung||'';}))||g.base;
+    var varianten=uniq.map(function(a){
+      var hat=!!(a.hatBild||a.bildUrl),lab=_dsVariantLabel(a,base);
+      return {art:'frei',bez:base+(lab?(' — '+lab):''),einheit:a.einheit||'Stk',ep:a.preis>0?a.preis:'',menge:1,
+        produktId:'ds:'+(a.artnr||''),dsArtnr:a.artnr||'',lieferantFirma:a.hersteller||'',
+        _dsAnb:anbId,_dsBild:a.bildUrl||'',_dsHat:hat,_afLabel:lab};
+    });
+    var gid='g'+(++_dsGSeq);_dsGroupMap[gid]={basisName:base,varianten:varianten};
+    var pr=uniq.map(function(a){return a.preis;}).filter(function(p){return p>0;});
+    var prTxt=pr.length?('CHF '+GemaDataSelect.fmtPreis(Math.min.apply(null,pr))+(Math.max.apply(null,pr)>Math.min.apply(null,pr)?'–'+GemaDataSelect.fmtPreis(Math.max.apply(null,pr)):'')):'';
+    return _dsGroupRow(gid,'🎨',base,uniq.length+' Ausführungen'+(prTxt?' · '+prTxt:''));
+  }).join('');
+  return {html:html,produkte:order.length};
+}
+function erpDsGroupGo(gid){
+  if(!cur||!erpEditable())return;
+  var g=_dsGroupMap[gid];if(!g||!g.varianten.length)return;
+  erpVarAsk(g).then(function(pos){if(pos)erpArtGo(pos);});   // → Mengenabfrage → einfügen
+}
+// ── Ausführungs-Dialog (Liste, Auswahl, «Weiter» → Mengenabfrage) ──
+var _varRes=null,_varList=[],_varSel=0;
+function erpVarAsk(g){
+  return new Promise(function(res){
+    _varRes=res;_varList=g.varianten||[];_varSel=0;
+    document.getElementById('evName').textContent=g.basisName||'Produkt';
+    _erpVarRender();
+    document.getElementById('erpVarModal').classList.add('open');
+  });
+}
+function _erpVarRender(){
+  var el=document.getElementById('evList');
+  el.innerHTML=_varList.map(function(v,i){
+    var pr=v.ep>0?('CHF '+GemaDataSelect.fmtPreis(v.ep)):'—';
+    return '<div class="ev-opt'+(i===_varSel?' sel':'')+'" tabindex="0" data-vi="'+i+'" onclick="erpVarPick('+i+')" ondblclick="erpVarConfirm()" onkeydown="erpVarKey(event,'+i+')">'
+      +'<span class="ev-radio"></span>'
+      +'<div class="ev-txt"><div class="ev-lab">'+esc(v._afLabel||('Ausführung '+(i+1)))+'</div><div class="ev-sub">'+esc(v.dsArtnr||'')+'</div></div>'
+      +'<div class="ev-price">'+esc(pr)+'</div></div>';
+  }).join('');
+  var sel=el.querySelector('.ev-opt.sel');if(sel){try{sel.focus();}catch(_){}}
+}
+function erpVarPick(i){_varSel=i;_erpVarRender();}
+function erpVarKey(e,i){
+  if(e.key==='Enter'){e.preventDefault();_varSel=i;erpVarConfirm();}
+  else if(e.key==='Escape'){e.preventDefault();erpVarCancel();}
+  else if(e.key==='ArrowDown'||e.key==='ArrowUp'){e.preventDefault();var n=i+(e.key==='ArrowDown'?1:-1);if(n>=0&&n<_varList.length){_varSel=n;_erpVarRender();}}
+}
+function erpVarConfirm(){var v=_varList[_varSel];erpVarClose(v||null);}
+function erpVarCancel(){erpVarClose(null);}
+function erpVarClose(v){document.getElementById('erpVarModal').classList.remove('open');var r=_varRes;_varRes=null;if(r)r(v);}
 
 // ═══════════════════════════════════════════════════════════
 // BKP-TITEL — Standard-Baukostenplan als Baum (bis 2-stellig zugeklappt,
@@ -2693,15 +2819,11 @@ function erpDsSearch(anbId){
     if(!r.ok){res.innerHTML='<div style="background:#fef2f2;border:1px solid #fca5a5;color:#dc2626;border-radius:9px;padding:9px 11px;font-size:12px;font-weight:600">'+esc(r.error||'Keine Ergebnisse')+'</div>';return;}
     _dsResults=r.artikel||[];
     if(!_dsResults.length){res.innerHTML='<div class="side-empty">Keine Artikel gefunden.</div>';return;}
-    res.innerHTML='<div style="font-size:11px;color:var(--mut);margin-bottom:5px">'+_dsResults.length+' Artikel — Bild lädt beim Einfügen:</div>'
-      +_dsResults.map(function(a){
-        var hat=!!(a.hatBild||a.bildUrl);
-        // Bild-Hinweise (_ds*) sind transient — werden beim Einfügen entfernt und
-        // durch das nachgeladene, verkleinerte Bild ersetzt.
-        var pos={art:'frei',bez:a.bezeichnung||a.artnr||'Artikel',menge:1,einheit:a.einheit||'Stk',ep:a.preis>0?a.preis:'',produktId:'ds:'+(a.artnr||''),dsArtnr:a.artnr||'',lieferantFirma:a.hersteller||'',_dsAnb:anbId,_dsBild:a.bildUrl||'',_dsHat:hat};
-        var sub=(a.artnr||'')+(a.ean?' · EAN '+a.ean:'')+(a.preis>0?' · CHF '+GemaDataSelect.fmtPreis(a.preis):'')+(hat?' · 🖼':'');
-        return erpArtRow(pos,'📦',a.bezeichnung||a.artnr||'Artikel',sub,'');   // KEIN Thumbnail (schnell)
-      }).join('');
+    // Nach Basisprodukt gruppieren: gleiche Artikel mit verschiedener Ausführung
+    // (Farbe/Oberfläche) erscheinen als EIN Eintrag → Ausführungs-Auswahl vor der Menge.
+    var g=_dsRenderGrouped(_dsResults,anbId);
+    var kopf=_dsResults.length+' Treffer'+(g.produkte!==_dsResults.length?' · '+g.produkte+' Produkte':'')+' — Bild lädt beim Einfügen:';
+    res.innerHTML='<div style="font-size:11px;color:var(--mut);margin-bottom:5px">'+esc(kopf)+'</div>'+g.html;
   });
 }
 // Diagnose «Rohantwort prüfen»: ruft die rohe Antwort von dataselect.ch ab und

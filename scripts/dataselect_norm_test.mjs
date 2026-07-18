@@ -119,5 +119,19 @@ console.log('■ _parseCsv — bexio-CSV (Semikolon, gequotet)');
 console.log('■ _stripHtml — HTML aus Beschreibung');
 ok(ds._stripHtml('<b>Sigma</b>&nbsp;UP') === 'Sigma UP', 'Tags + &nbsp; entfernt');
 
+console.log('■ _afAusfuehrung — AF/AFZ aus bexio-Beschreibung');
+ok(ds._afAusfuehrung('Duschwanne …\nAF: Pergamon/AFZ: Gleitschutz Antislip') === 'Pergamon · Gleitschutz Antislip', 'AF + AFZ → "Farbe · Oberfläche"');
+ok(ds._afAusfuehrung('Duschwanne …\nAF: Manhattan/AFZ: ') === 'Manhattan', 'nur AF (AFZ leer)');
+ok(ds._afAusfuehrung('Spülkasten UP ohne Ausführung') === '', 'keine AF-Zeile → leer');
+{
+  // End-to-End: bexio-CSV mit Ausführung → normArtikel trägt ausfuehrung
+  const csv = '"Produktcode";"Produktname";"Produktbeschreibung";"Währung";"Einheit";"Verkaufspreis"\r\n'
+    + '"6130#1313116/143/183";"Duschwanne Kaldewei Duschplan/Pergamon";"Duschwanne\nAF: Pergamon/AFZ: Gleitschutz Antislip";"CHF";"PCE";"1222"';
+  const rows = ds._parseCsv(csv).rows;
+  const a = ds._normArtikel(rows[0]);
+  ok(a.ausfuehrung === 'Pergamon · Gleitschutz Antislip', 'CSV-Zeile → ausfuehrung gesetzt');
+  ok(a.artnr === '6130#1313116/143/183' && Math.abs(a.preis - 1222) < 1e-6, 'artnr (mit Ausführungscode) + Preis');
+}
+
 console.log('\n' + pass + '/' + (pass + fail) + ' Checks grün' + (fail ? ' — ' + fail + ' FEHLER' : ''));
 process.exit(fail ? 1 : 0);
