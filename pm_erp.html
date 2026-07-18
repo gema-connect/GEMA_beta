@@ -199,6 +199,7 @@ table.pos{border-collapse:collapse;width:100%;font-size:13px;min-width:680px}
 <script src="gema_storage.js"></script>
 <script src="gema_dialog.js"></script>
 <script src="gema_aushang.js"></script>
+<script src="gema_dataselect.js"></script>
 <link rel="stylesheet" href="gema_responsive.css"/>
 </head>
 <body>
@@ -340,6 +341,30 @@ table.pos{border-collapse:collapse;width:100%;font-size:13px;min-width:680px}
       <div id="kr_verlauf"></div>
     </div>
     <div class="modal-ft" id="kredFt"></div>
+  </div>
+</div>
+
+<!-- ═══ DATASELECT — LIEFERANTENKATALOG (Artikel inkl. Bild) ═══ -->
+<div class="modal-bg" id="dsModal">
+  <div class="modal">
+    <div class="modal-hd"><h3>🔎 DataSelect — Artikel aus Lieferantenkatalog</h3><button class="modal-x" onclick="document.getElementById('dsModal').classList.remove('open')">✕</button></div>
+    <div class="modal-bd">
+      <div class="fld-row">
+        <div class="fld" style="flex:2"><label>Lieferant</label><div style="display:flex;gap:6px">
+          <select id="ds_anbieter" style="flex:1"></select>
+          <button class="btn" style="min-width:44px;padding:8px" title="Lieferant hinterlegen (IGH-Mitglieder-ID)" onclick="erpDsAddAnbieter()">＋</button>
+        </div></div>
+        <div class="fld"><label>Sprache</label><select id="ds_sprache"><option value="de">de</option><option value="fr">fr</option><option value="it">it</option></select></div>
+      </div>
+      <div class="fld-row3">
+        <div class="fld"><label>Artikel-Nr.</label><input id="ds_artnr" type="text" placeholder="z.B. 620.020.00.1" onkeydown="if(event.key==='Enter')erpDsSearch()"/></div>
+        <div class="fld"><label>Bezeichnung</label><input id="ds_bez" type="text" placeholder="z.B. Spülkasten" onkeydown="if(event.key==='Enter')erpDsSearch()"/></div>
+        <div class="fld"><label>EAN</label><input id="ds_ean" type="text" inputmode="numeric" placeholder="Barcode" onkeydown="if(event.key==='Enter')erpDsSearch()"/></div>
+      </div>
+      <button class="btn pri" style="width:100%" id="ds_searchBtn" onclick="erpDsSearch()">🔎 Suchen</button>
+      <div id="ds_hint" style="font-size:11.5px;color:var(--mut);margin-top:8px">Mindestens Artikel-Nr., Bezeichnung oder EAN angeben. Lieferanten-IDs (id_anbieter) stammen aus der IGH-Mitgliederliste und werden pro Firma hinterlegt.</div>
+      <div id="ds_list" style="margin-top:10px"></div>
+    </div>
   </div>
 </div>
 
@@ -1774,6 +1799,7 @@ function erpOpenEditor(){
       +'<button class="btn ghost" title="Rabatt aufs Zwischentotal der Positionen darüber im Kapitel — in % oder pauschal CHF" onclick="erpPosAdd(\'rabatt\')">− Rabatt</button>'
       +'<button class="btn ghost" title="Frei benennbarer Zuschlag aufs Zwischentotal der Positionen darüber im Kapitel — in % oder pauschal CHF" onclick="erpPosAdd(\'zuschlag\')">+ Zuschlag</button>'
       +'<button class="btn" onclick="erpPickOpen(\'katalog\')">📦 Katalog</button>'
+      +(typeof GemaDataSelect!=='undefined'?'<button class="btn" title="Artikel inkl. Bild aus dem DataSelect-Lieferantenkatalog (dataselect.ch)" onclick="erpDsOpen()">🔎 DataSelect</button>':'')
       +'<button class="btn" onclick="erpEigOpen()">⭐ Eigene Artikel</button>'
       +'<button class="btn" onclick="erpPickOpen(\'regie\')">📝 Regierapporte</button>'
       +'<button class="btn" onclick="erpPickOpen(\'oa\')">🏷 Lieferanten-Offerten</button>'
@@ -2680,6 +2706,85 @@ function erpPickTake(i){
   erpRenderPos();
   toast('＋ '+it.name);
   if(_pickMode!=='katalog'){_pickItems=erpPickLoad(_pickMode);erpPickRender();}
+}
+
+// ═══════════════════════════════════════════════════════════
+// DATASELECT — Artikel inkl. Bild aus dem Lieferantenkatalog
+// (dataselect.ch, DataExpert®BIM) → Position mit Preis + Bild
+// ═══════════════════════════════════════════════════════════
+var _dsResults=[];
+function erpDsOpen(){
+  if(typeof GemaDataSelect==='undefined'){toast('DataSelect nicht verfügbar');return;}
+  if(!cur){toast('Zuerst ein Dokument öffnen');return;}
+  erpDsFillAnbieter();
+  document.getElementById('ds_sprache').value='de';
+  document.getElementById('ds_artnr').value='';
+  document.getElementById('ds_bez').value='';
+  document.getElementById('ds_ean').value='';
+  document.getElementById('ds_list').innerHTML='';
+  _dsResults=[];
+  document.getElementById('dsModal').classList.add('open');
+  setTimeout(function(){var a=document.getElementById('ds_artnr');if(a)a.focus();},80);
+}
+function erpDsFillAnbieter(sel){
+  var list=GemaDataSelect.anbieter();
+  var el=document.getElementById('ds_anbieter');
+  el.innerHTML=list.map(function(a){return '<option value="'+esc(a.id)+'"'+(a.id===sel?' selected':'')+'>'+esc(a.name)+' ('+esc(a.id)+')</option>';}).join('');
+}
+function erpDsAddAnbieter(){
+  GemaDialog.prompt({title:'Lieferant hinterlegen',message:'IGH-Mitglieder-ID (id_anbieter) — z.B. 1900 für Geberit.',placeholder:'ID (Zahl)'}).then(function(id){
+    if(id===null)return;
+    id=String(id).replace(/[^0-9]/g,'');
+    if(!id){toast('⚠ Ungültige ID');return;}
+    GemaDialog.prompt({title:'Lieferant hinterlegen',message:'Name des Lieferanten für die ID '+id+'.',placeholder:'z.B. Geberit',defaultValue:''}).then(function(name){
+      if(name===null)return;
+      if(GemaDataSelect.addAnbieter(id,name||('Lieferant '+id))){erpDsFillAnbieter(id);toast('✓ Lieferant hinterlegt');}
+      else toast('Konnte nicht gespeichert werden');
+    });
+  });
+}
+function erpDsSearch(){
+  var anb=document.getElementById('ds_anbieter').value;
+  var opts={
+    anbieter:anb,
+    artnr:document.getElementById('ds_artnr').value.trim(),
+    bez:document.getElementById('ds_bez').value.trim(),
+    ean:document.getElementById('ds_ean').value.trim(),
+    sprache:document.getElementById('ds_sprache').value
+  };
+  var btn=document.getElementById('ds_searchBtn');
+  var list=document.getElementById('ds_list');
+  btn.disabled=true;btn.textContent='🔎 Suchen …';
+  list.innerHTML='<div style="text-align:center;padding:18px"><svg width="30" height="30" viewBox="0 0 34 34" style="display:block;margin:0 auto"><circle cx="17" cy="17" r="13" fill="none" stroke="#cbd5e1" stroke-width="3.5" stroke-dasharray="55 28"><animateTransform attributeName="transform" type="rotate" from="0 17 17" to="360 17 17" dur="0.9s" repeatCount="indefinite"/></circle></svg></div>';
+  GemaDataSelect.search(opts).then(function(res){
+    btn.disabled=false;btn.textContent='🔎 Suchen';
+    if(!res.ok){
+      list.innerHTML='<div style="background:#fef2f2;border:1px solid #fca5a5;color:#dc2626;border-radius:9px;padding:10px 12px;font-size:12.5px;font-weight:600">'+esc(res.error||'Keine Ergebnisse')+'</div>';
+      return;
+    }
+    _dsResults=res.artikel||[];
+    if(!_dsResults.length){list.innerHTML='<div style="text-align:center;color:var(--mut);font-size:13px;padding:16px">Keine Artikel gefunden.</div>';return;}
+    list.innerHTML='<div style="font-size:11.5px;color:var(--mut);margin-bottom:6px">'+_dsResults.length+' Artikel — klicken zum Einfügen:</div>'
+      +_dsResults.map(function(a,i){
+        var img=a.bildUrl?'<img src="'+esc(a.bildUrl)+'" style="width:44px;height:44px;object-fit:contain;border-radius:7px;border:1px solid var(--brd2);background:#fff;flex-shrink:0" onerror="this.style.display=\'none\'"/>':'<span style="width:44px;height:44px;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">📦</span>';
+        return '<div class="pick-item" onclick="erpDsTake('+i+')">'+img
+          +'<div class="pi-t"><div class="pi-n">'+esc(a.bezeichnung||a.artnr||'Artikel')+'</div>'
+          +'<div class="pi-s">'+esc(a.artnr||'')+(a.ean?' · EAN '+esc(a.ean):'')+(a.preis>0?' · <b style="color:var(--txt2)">CHF '+GemaDataSelect.fmtPreis(a.preis)+'</b>'+(a.einheit?' / '+esc(a.einheit):''):'')+'</div></div>'
+          +'<span style="font-size:18px;color:var(--acc)">＋</span></div>';
+      }).join('');
+  });
+}
+function erpDsTake(i){
+  var a=_dsResults[i];if(!a||!cur)return;
+  var pos={id:uid(),art:'frei',bez:a.bezeichnung||a.artnr||'Artikel',
+    menge:1,einheit:a.einheit||'Stk',ep:a.preis>0?a.preis:'',
+    rabattPct:'',produktId:'ds:'+(a.artnr||''),dsArtnr:a.artnr||'',
+    lieferantFirma:a.hersteller||(document.getElementById('ds_anbieter').selectedOptions[0]||{}).textContent||''};
+  // Bild: externe URL direkt (rendert im Editor + Druck-PDF), data:-URL als Base64
+  if(a.bildUrl){ if(/^data:/i.test(a.bildUrl))pos.bildDataUrl=a.bildUrl; else pos.bildUrl=a.bildUrl; }
+  cur.positionen.push(pos);
+  erpRenderPos();
+  toast('＋ '+(a.bezeichnung||a.artnr||'Artikel'));
 }
 
 // ═══════════════════════════════════════════════════════════
