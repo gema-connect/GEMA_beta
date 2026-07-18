@@ -616,6 +616,7 @@ Gilt auf ALLEN Übersichtsseiten mit Modul-Kacheln (index.html, sb_index.html, a
 - **Gleiche Höhen**: `@media (min-width:641px){ .mod-grid{grid-auto-rows:1fr} }` (Mobile einspaltig bewusst ohne Streckung) + `.mod-title{min-height:2.4em}` (2 Titelzeilen reserviert — 1-zeilige Titel bekommen denselben Raum) + bestehendes flex-column/`flex:1`/Footer-unten. `.mod-pts li::before` = kleines Quadrat in `currentColor` mit Opacity.
 - Die index-Suche filtert über den Kachel-Text — Stichpunkte bleiben durchsuchbar (Playwright-Check «QR-Rechnung → ERP-Kachel»).
 - Neue Kacheln: IMMER 3 Stichpunkte im `mod-pts`-Muster anlegen, nie wieder Fliesstext-`mod-desc`.
+- **Phone ≤640px: Kacheln werden ZEILEN (User-Vorgabe 07/2026, zentral in gema_responsive.css — kein per-Seite-Markup)**: eine schlanke Zeile pro Modul (Icon + Titel + Fav-Stern/Pfeil, ~54px statt ~180px); `.mod-desc`/`.mod-pts`, Badges und Norm-Chips sind per CSS ausgeblendet, bleiben aber im DOM (Suche filtert weiter). Technik: `display:contents` auf den Wrappern (`.mod-card-top`/`.mod-footer` bzw. `.mod-top`), `order` stellt Icon → Titel → Stern → Pfeil sicher; deckt BEIDE Markup-Varianten ab (`.mod-card` auf index/ab_index/pm_ausschreibung, `.mod` + `h3` auf sb_index). Nur der Fav-Stern (`.fav-btn` in `.mod-badges`) und bei `.disabled`-Kacheln der «Bald»-Badge bleiben sichtbar. Drift-Guard: `scripts/mobile_kompakt_test.mjs` (26 Checks inkl. Desktop-Gegenprobe).
 
 ---
 
@@ -2570,7 +2571,7 @@ Als installierte PWA (display:standalone) + `viewport-fit=cover` liegt die Seite
 
 ### Kompakter Modul-Kopf auf Phone (gema_responsive.css Abschnitt 16)
 
-Auf ≤640px zeigt der Modul-Hero nur Icon + Titel (`.gema-hero-norm`, `.gema-hero-sub` und `#gemaDataflowPill` sind ausgeblendet — Norm-Badge/Untertitel sind Desktop-Kontext); die `.project-bar` ist zweispaltig kompakt (Objekt volle Breite, Bearbeiter/Datum/SIA-Phase halbbreit). Damit beginnt die erste Berechnungs-Karte bei ~400px statt ~700px — die Berechnung ist ohne Scrollen im ersten Screen. Desktop/Tablet unverändert.
+Auf ≤640px zeigen ALLE Hero-Varianten nur Emoji-Icon + Titel (User-Vorgabe 07/2026): `.gema-hero` (Berechnungsmodule — `.gema-hero-norm`, `.gema-hero-sub`, `#gemaDataflowPill` ausgeblendet), **`.hero > .hero-in`** (if_/pm_-Module — `.hero-sub`, `.hero-pills`, `.hero-pill`, `.hero-badge`, `.hero-stats` ausgeblendet, Padding 10px) und die **Hub-Heroes** (`.hero:has(> .hero-inner)` auf index/sb_index/ab_index/pm_ausschreibung — Eyebrow, Beschrieb, Badges UND Stats-Zeile weg, nur der Titel). Die `.project-bar` ist zweispaltig kompakt (Objekt volle Breite, Bearbeiter/Datum/SIA-Phase halbbreit). Damit beginnt der Inhalt im ersten Screen. Desktop/Tablet unverändert. Drift-Guard: `scripts/mobile_kompakt_test.mjs`.
 
 ### iOS-Feel auf Touch-Geräten (gema_responsive.css Abschnitt 14)
 
