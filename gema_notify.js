@@ -341,6 +341,17 @@
       modul:'bestellungen',
       defaultOn:true
     },
+    // ── ERP: Kreditoren (Lieferantenrechnungen — Freigabe durch den Sachbearbeiter) ──
+    kreditor_freigabe: {
+      label:'Kreditor zur Freigabe vorgelegt (Sachbearbeiter)',
+      modul:'erp',
+      defaultOn:true
+    },
+    kreditor_entscheid: {
+      label:'Kreditor freigegeben / zurückgewiesen',
+      modul:'erp',
+      defaultOn:true
+    },
     revision_unterlagen_anfrage: {
       label:'Anfrage: Unterlagen für Revisionsdossier',
       modul:'revisionsunterlagen',

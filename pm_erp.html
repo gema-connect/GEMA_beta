@@ -319,6 +319,29 @@ table.pos{border-collapse:collapse;width:100%;font-size:13px;min-width:680px}
   </div>
 </div>
 
+<!-- ═══ KREDITOR (Lieferantenrechnung) ═══ -->
+<div class="modal-bg" id="kredModal">
+  <div class="modal">
+    <div class="modal-hd"><h3 id="kredTitle">💳 Kreditor</h3><button class="modal-x" onclick="document.getElementById('kredModal').classList.remove('open')">✕</button></div>
+    <div class="modal-bd">
+      <div class="fld"><label>Lieferant / Kreditor *</label><input id="kr_lieferant" type="text" list="krLiefList" placeholder="z.B. Sanitas Troesch AG"/><datalist id="krLiefList"></datalist></div>
+      <div class="fld-row">
+        <div class="fld"><label>Rechnungs-Nr.</label><input id="kr_nr" type="text" placeholder="z.B. 784512"/></div>
+        <div class="fld"><label>Betrag CHF (brutto) *</label><input id="kr_betrag" type="text" inputmode="decimal" onblur="fixLeadingZero(this)" placeholder="0.00"/></div>
+      </div>
+      <div class="fld-row">
+        <div class="fld"><label>Rechnungsdatum</label><input id="kr_datum" type="date"/></div>
+        <div class="fld"><label>Zahlbar bis</label><input id="kr_frist" type="date"/></div>
+      </div>
+      <div class="fld"><label>Beschrieb</label><input id="kr_beschrieb" type="text" placeholder="Was wurde geliefert / geleistet?"/></div>
+      <div class="fld"><label>Auftrag zuteilen</label><select id="kr_auftrag" onchange="erpKredFreigeberHint()"></select><div id="kr_freigeberHint" style="font-size:11.5px;color:var(--mut);margin-top:4px"></div></div>
+      <div class="fld"><label>Beleg (PDF oder Foto)</label><div id="kr_belegWrap"></div></div>
+      <div id="kr_verlauf"></div>
+    </div>
+    <div class="modal-ft" id="kredFt"></div>
+  </div>
+</div>
+
 <!-- ═══ TEILRECHNUNG: POSITIONS-AUSWAHL ═══ -->
 <div class="modal-bg" id="teilModal">
   <div class="modal">
@@ -581,6 +604,58 @@ function erpNachkalk(auftrag,docs,rapporte,einsaetze,oas,kostenFaktorPct){
     ekMaterial:ekMaterial,vkMaterial:vkMaterial,geplantTage:geplantTage,
     kostenGeschaetzt:kosten,dbGeschaetzt:db,dbPct:dbPct,hinweise:hinweise};
 }
+
+// ── Stunden pro Auftrag (Stundenerfassung → Einsatzplan → Auftrag) ──
+// einsaetze = gema_einsatz_pool_v1, tage = gema_std_pool_v1 (Tages-Records).
+// Zeiteinträge zählen, wenn ihr einsatzId auf einen Einsatz mit diesem auftragId
+// zeigt. Über-Mitternacht-Regel wie die Stundenerfassung (bis ≤ von → +24 h),
+// Pause wird abgezogen. Liefert die Einzelzeilen (Datum/Person/Zeit/Tätigkeit)
+// für die Übersicht im Auftrag-/Rechnungs-Editor.
+function _erpHm(s){var m=/^(\d{1,2}):(\d{2})$/.exec(String(s||'').trim());if(!m)return null;return parseInt(m[1],10)*60+parseInt(m[2],10);}
+function erpAuftragStunden(auftragId,einsaetze,tage){
+  var ids={};(einsaetze||[]).forEach(function(e){if(e&&e.id&&e.auftragId===auftragId)ids[e.id]=1;});
+  var rows=[],totalMin=0;
+  (tage||[]).forEach(function(t){
+    if(!t||t.typ||!Array.isArray(t.eintraege))return;   // nur Tages-Records (typ-Records = Anträge/Auszahlungen)
+    t.eintraege.forEach(function(en){
+      if(!en||!en.einsatzId||!ids[en.einsatzId])return;
+      var a=_erpHm(en.von),b=_erpHm(en.bis);
+      if(a==null||b==null)return;
+      if(b<=a)b+=1440;
+      var min=Math.max(0,(b-a)-(parseInt(en.pauseMin,10)||0));
+      totalMin+=min;
+      rows.push({datum:t.datum||'',name:t.userName||'',von:en.von||'',bis:en.bis||'',pauseMin:parseInt(en.pauseMin,10)||0,min:min,taetigkeit:en.taetigkeit||''});
+    });
+  });
+  rows.sort(function(a,b){return String(a.datum).localeCompare(String(b.datum))||String(a.von).localeCompare(String(b.von));});
+  return {rows:rows,totalMin:totalMin,totalH:totalMin/60};
+}
+
+// ── Kreditoren (Lieferantenrechnungen): Statusmaschine + Summen ──
+// offen —freigeben→ freigegeben —bezahlen→ bezahlt; zurückweisen geht aus
+// offen UND freigegeben (Fehlfreigabe korrigieren, solange nicht bezahlt);
+// zurückgewiesen —wiedervorlegen→ offen. Ungültiger Übergang = null.
+function erpKredNext(status,aktion){
+  var s=status||'offen';
+  if(aktion==='freigeben')return s==='offen'?'freigegeben':null;
+  if(aktion==='zurueckweisen')return (s==='offen'||s==='freigegeben')?'zurueckgewiesen':null;
+  if(aktion==='bezahlen')return s==='freigegeben'?'bezahlt':null;
+  if(aktion==='wiedervorlegen')return s==='zurueckgewiesen'?'offen':null;
+  return null;
+}
+function erpKredSummen(list){
+  var r={offenN:0,offenChf:0,freiN:0,freiChf:0,bezN:0,bezChf:0,rueckN:0,totalChf:0};
+  (list||[]).forEach(function(k){
+    if(!k)return;
+    var b=erpNum(k.betrag);
+    if(k.status==='offen'){r.offenN++;r.offenChf+=b;}
+    else if(k.status==='freigegeben'){r.freiN++;r.freiChf+=b;}
+    else if(k.status==='bezahlt'){r.bezN++;r.bezChf+=b;}
+    else if(k.status==='zurueckgewiesen'){r.rueckN++;}
+    if(k.status!=='zurueckgewiesen')r.totalChf+=b;
+  });
+  return r;
+}
 /*ENGINE-END*/
 
 // ═══════════════════════════════════════════════════════════
@@ -591,6 +666,7 @@ var DOK_POOL='gema_erp_dok_pool_v1', DOK_PREFIX='erpdok:';
 var KUN_POOL='gema_erp_kunden_pool_v1', KUN_PREFIX='erpkunde:';
 var KAT_POOL='gema_erp_kat_pool_v1', KAT_PREFIX='erpkat:';       // eigene Artikel-Kataloge (org-weit)
 var VORL_POOL='gema_erp_vorl_pool_v1', VORL_PREFIX='erpvorl:';   // Dokument-Vorlagen (org-weit)
+var KRED_POOL='gema_erp_kred_pool_v1', KRED_PREFIX='erpkred:';   // Kreditoren (Lieferantenrechnungen)
 var _erpCloudLoaded=false;
 var _memStore={};
 
@@ -619,6 +695,7 @@ function erpDocs(){var u=erpUser();return poolRead(DOK_POOL).filter(function(d){
 function erpKunden(){var u=erpUser();return poolRead(KUN_POOL).filter(function(k){return u&&k.orgId===u.orgId;});}
 function erpKataloge(){var u=erpUser();return poolRead(KAT_POOL).filter(function(k){return u&&k.orgId===u.orgId;});}
 function erpVorlagen(){var u=erpUser();return poolRead(VORL_POOL).filter(function(v){return u&&v.orgId===u.orgId;});}
+function erpKreditoren(){var u=erpUser();return poolRead(KRED_POOL).filter(function(k){return u&&k.orgId===u.orgId;});}
 
 // ═══════════════════════════════════════════════════════════
 // RECHTE / SETTINGS / HELPERS
@@ -816,6 +893,8 @@ function erpRenderTabs(){
     h+='<button class="mtab'+(_tab===t?' on':'')+'" onclick="_tab=\''+t+'\';erpRenderAll()">'+TYP[t].ic+' '+TYP[t].pl+'<span class="cnt">'+n+'</span></button>';
   });
   if(erpCanEdit()){
+    var kOffen=erpKreditoren().filter(function(k){return k.status==='offen';}).length;
+    h+='<button class="mtab'+(_tab==='kreditoren'?' on':'')+'" onclick="_tab=\'kreditoren\';erpRenderAll()">💳 Kreditoren<span class="cnt"'+(kOffen?' style="background:var(--amber-bg);color:var(--amber)"':'')+'>'+kOffen+'</span></button>';
     var nLauf=docs.filter(function(d){return d.typ==='auftrag'&&d.status!=='abgeschlossen';}).length;
     h+='<button class="mtab'+(_tab==='erfolg'?' on':'')+'" onclick="_tab=\'erfolg\';erpRenderAll()">📈 Erfolg<span class="cnt">'+nLauf+'</span></button>';
   }
@@ -836,6 +915,16 @@ function erpRenderKpis(){
   var docs=erpDocs();var el=document.getElementById('kpis');
   if(_tab==='kunden'){el.innerHTML='';return;}
   var h='';
+  if(_tab==='kreditoren'){
+    var sumK=erpKredSummen(erpKreditoren());
+    var uK=erpUser();
+    var beiMir=erpKreditoren().filter(function(k){var f=erpKredFreigeber(k);return k.status==='offen'&&f&&f.userId===(uK&&uK.id);}).length;
+    el.innerHTML='<div class="kpi"><b style="color:'+(sumK.offenN?'var(--amber)':'var(--grn)')+'">'+sumK.offenN+'</b><span>Zur Freigabe · CHF '+chf(sumK.offenChf)+'</span></div>'
+      +'<div class="kpi"><b style="color:'+(beiMir?'var(--amber)':'inherit')+'">'+beiMir+'</b><span>Zur Freigabe bei mir</span></div>'
+      +'<div class="kpi"><b>'+chf(sumK.freiChf)+'</b><span>Freigegeben — zu zahlen</span></div>'
+      +'<div class="kpi"><b style="color:var(--grn)">'+chf(sumK.bezChf)+'</b><span>Bezahlt</span></div>';
+    return;
+  }
   if(_tab==='erfolg'){
     var aufE=docs.filter(function(d){return d.typ==='auftrag';});
     var nk=erpNkDaten();var s=erpSettings();
@@ -892,6 +981,16 @@ function erpRenderToolbar(){
     el.innerHTML=erpCanEdit()?'<button class="btn pri" style="flex:1;min-width:170px;font-size:15px" onclick="erpKundeNeu()">＋ Neuer Kunde</button>':'';
     return;
   }
+  if(_tab==='kreditoren'){
+    var oldSt=document.getElementById('fKredSt');var oldStV=oldSt?oldSt.value:'';
+    var hk='';
+    if(erpCanEdit())hk+='<button class="btn pri" style="flex:1;min-width:170px;font-size:15px" onclick="erpKredNeu()">＋ Kreditor erfassen</button>';
+    hk+='<select id="fKredSt" onchange="erpRenderList()"><option value="">Alle Status</option><option value="offen">Zur Freigabe</option><option value="freigegeben">Freigegeben</option><option value="zurueckgewiesen">Zurückgewiesen</option><option value="bezahlt">Bezahlt</option></select>';
+    hk+='<input type="text" id="fKredQ" placeholder="🔍 Lieferant, Rechnungs-Nr, Auftrag …" oninput="erpRenderList()"/>';
+    el.innerHTML=hk;
+    if(oldStV&&document.getElementById('fKredSt'))document.getElementById('fKredSt').value=oldStV;
+    return;
+  }
   var objOpts='<option value="">Alle Projekte</option>'+erpObjekte().map(function(o){return '<option value="'+o.id+'">'+esc(o.name+(o.ort?' · '+o.ort:''))+'</option>';}).join('');
   var h='';
   if(erpCanEdit()&&_tab!=='erfolg')h+='<button class="btn pri" style="flex:1;min-width:170px;font-size:15px" onclick="erpNeu(\''+_tab+'\')">＋ Neue '+(_tab==='auftrag'?'r Auftrag':TYP[_tab].n)+'</button>';
@@ -922,6 +1021,7 @@ function erpRenderList(){
     return;
   }
   if(_tab==='erfolg'){erpRenderErfolg(el);return;}
+  if(_tab==='kreditoren'){erpRenderKreditoren(el);return;}
   var docs=erpDocs().filter(function(d){return d.typ===_tab;});
   var fo=document.getElementById('fObjekt');var fs=document.getElementById('fSuche');
   if(fo&&fo.value)docs=docs.filter(function(d){return d.objektId===fo.value;});
@@ -1000,6 +1100,12 @@ function erpRenderErfolg(el){
       +'<div class="nk-row"><span>Regie geleistet ('+(Math.round(r.stunden*4)/4)+' h)</span><b>CHF '+chf(r.regieTotal)+'</b></div>'
       +'<div class="nk-row"><span>Regie verrechnet / offen</span><b>CHF '+chf(r.regieVerrechnet)+' / <span style="color:'+(r.regieUnverrechnet>0.005?'var(--amber)':'inherit')+'">CHF '+chf(r.regieUnverrechnet)+'</span></b></div>'
       +(r.ekMaterial>0||r.vkMaterial>0?'<div class="nk-row"><span>Material EK → VK (Lieferanten-Offerten)</span><b>CHF '+chf(r.ekMaterial)+' → CHF '+chf(r.vkMaterial)+'</b></div>':'')
+      +(function(){
+        var ka=erpKreditoren().filter(function(k){return k.auftragId===d.id&&k.status!=='zurueckgewiesen';});
+        if(!ka.length)return '';
+        var sm=0;ka.forEach(function(k){sm+=erpNum(k.betrag);});
+        return '<div class="nk-row"><span>💳 Kreditoren ('+ka.length+' Lieferantenrechnung'+(ka.length===1?'':'en')+')</span><b>CHF '+chf(sm)+'</b></div>';
+      })()
       +(r.geplantTage>0?'<div class="nk-row"><span>Einsatzplanung</span><b>'+r.geplantTage+' Manntag'+(r.geplantTage===1?'':'e')+' geplant</b></div>':'');
     if(r.dbGeschaetzt!=null){
       rows+='<div class="nk-row nk-db"><span>Deckungsbeitrag (Schätzung, Kostensatz '+s.kostenFaktorPct+'%)</span>'
@@ -1019,6 +1125,459 @@ function erpRenderErfolg(el){
       +'</div></div>';
   }).join('');
 }
+// ═══════════════════════════════════════════════════════════
+// KREDITOREN (Lieferantenrechnungen)
+// Erfassen mit Beleg (PDF/Foto) → Auftrag zuteilen → Freigabe durch den
+// SACHBEARBEITER des Auftrags (erpSb, live aufgelöst) → bezahlt.
+// Doppelklick auf Karte/Zeile öffnet den Beleg im separaten Fenster.
+// ═══════════════════════════════════════════════════════════
+var KRED_ST={
+  offen:{n:'Zur Freigabe',c:'#d97706',bg:'#fffbeb',bd:'#fcd34d'},
+  freigegeben:{n:'Freigegeben',c:'#2563eb',bg:'#eff6ff',bd:'#bfdbfe'},
+  zurueckgewiesen:{n:'Zurückgewiesen',c:'#dc2626',bg:'#fef2f2',bd:'#fca5a5'},
+  bezahlt:{n:'Bezahlt',c:'#16a34a',bg:'#f0fdf4',bd:'#bbf7d0'}
+};
+function erpKredAuftrag(k){if(!k||!k.auftragId)return null;return erpDocs().find(function(d){return d.id===k.auftragId;})||null;}
+// Freigeber = Sachbearbeiter des zugeteilten Auftrags — LIVE aufgelöst (folgt
+// einem SB-Wechsel am Auftrag); der Snapshot k.freigeber ist nur Fallback,
+// falls der Auftrag nicht (mehr) lesbar ist.
+function erpKredFreigeber(k){
+  var a=erpKredAuftrag(k);
+  if(a){var s=erpSb(a);if(s&&s.name)return {userId:s.userId||'',name:s.name};}
+  return (k&&k.freigeber&&k.freigeber.name)?k.freigeber:null;
+}
+function erpKredDarfEntscheiden(k){
+  var u=erpUser();if(!u||!erpCanEdit())return false;
+  if(erpHas('role_admin'))return true;
+  var f=erpKredFreigeber(k);
+  if(!f||!f.userId)return true;          // kein zugewiesener Freigeber → jede berechtigte Person
+  return f.userId===u.id;
+}
+function erpKredEditable(k){return erpCanEdit()&&(!k||k.status==='offen'||k.status==='zurueckgewiesen');}
+function erpKredLog(k,text){
+  var u=erpUser();
+  (k.verlauf=k.verlauf||[]).push({am:new Date().toISOString(),von:u?u.name:'',text:text});
+  if(k.verlauf.length>60)k.verlauf=k.verlauf.slice(-60);
+}
+function erpKredNotifyFreigabe(k,f){
+  try{
+    if(typeof GemaNotify==='undefined')return;
+    var u=erpUser();
+    GemaNotify.push({eventKey:'kreditor_freigabe',empfaengerUserId:f.userId,modul:'erp',typ:'aktion',
+      titel:'💳 Kreditor zur Freigabe',
+      text:(k.lieferant||'')+' · CHF '+chf(erpNum(k.betrag))+(k.auftragNr?' · Auftrag '+k.auftragNr:'')+' — erfasst von '+(u?u.name:''),
+      link:'pm_erp.html?tab=kreditoren&kred='+k.id});
+  }catch(e){}
+}
+function erpKredNotifyEntscheid(k,aktion,grund){
+  try{
+    if(typeof GemaNotify==='undefined')return;
+    var u=erpUser();
+    var an=k.erstelltVon&&k.erstelltVon.userId;
+    if(!an||an===(u&&u.id))return;
+    GemaNotify.push({eventKey:'kreditor_entscheid',empfaengerUserId:an,modul:'erp',
+      typ:aktion==='freigeben'?'erfolg':'warnung',
+      titel:aktion==='freigeben'?'✓ Kreditor freigegeben':'↩ Kreditor zurückgewiesen',
+      text:(k.lieferant||'')+' · CHF '+chf(erpNum(k.betrag))+(k.auftragNr?' · Auftrag '+k.auftragNr:'')+(grund?' — Grund: '+grund:''),
+      link:'pm_erp.html?tab=kreditoren&kred='+k.id});
+  }catch(e){}
+}
+// Doppelklick öffnet den Beleg — Einzelklick (Edit) leicht verzögert, damit
+// der Doppelklick ihn abfangen kann (sonst öffnen sich Modal UND Fenster)
+var _kredClickT=null;
+function erpKredCardClick(id){clearTimeout(_kredClickT);_kredClickT=setTimeout(function(){erpKredEdit(id);},260);}
+function erpKredCardDbl(id){clearTimeout(_kredClickT);erpKredBelegOpen(id);}
+function erpKredCardHtml(k){
+  var st=KRED_ST[k.status]||KRED_ST.offen;
+  var u=erpUser();
+  var f=erpKredFreigeber(k);
+  var darf=erpKredDarfEntscheiden(k);
+  var hatBeleg=!!(k.beleg&&(k.beleg.url||k.beleg.dataUrl));
+  var a=erpKredAuftrag(k);
+  var btns='';
+  if(erpCanEdit()){
+    if(k.status==='offen'&&darf){
+      btns+='<button class="btn grn" style="min-height:34px;padding:5px 11px;font-size:12.5px" onclick="event.stopPropagation();erpKredAktion(\''+k.id+'\',\'freigeben\')">✓ Freigeben</button>'
+        +'<button class="btn red" style="min-height:34px;padding:5px 11px;font-size:12.5px" onclick="event.stopPropagation();erpKredAktion(\''+k.id+'\',\'zurueckweisen\')">✕ Zurückweisen</button>';
+    }
+    if(k.status==='freigegeben')btns+='<button class="btn" style="min-height:34px;padding:5px 11px;font-size:12.5px" onclick="event.stopPropagation();erpKredAktion(\''+k.id+'\',\'bezahlen\')">💵 Bezahlt</button>';
+    if(k.status==='zurueckgewiesen')btns+='<button class="btn" style="min-height:34px;padding:5px 11px;font-size:12.5px" title="Nach Korrektur erneut zur Freigabe vorlegen" onclick="event.stopPropagation();erpKredAktion(\''+k.id+'\',\'wiedervorlegen\')">↻ Erneut vorlegen</button>';
+  }
+  if(hatBeleg)btns+='<button class="btn" style="min-height:34px;padding:5px 11px;font-size:12.5px" onclick="event.stopPropagation();erpKredBelegOpen(\''+k.id+'\')">📎 Beleg</button>';
+  return '<div class="card" onclick="erpKredCardClick(\''+k.id+'\')" ondblclick="erpKredCardDbl(\''+k.id+'\')"'+(hatBeleg?' title="Doppelklick: Beleg im separaten Fenster öffnen"':'')+'>'
+    +'<div class="card-bar" style="background:'+st.c+'"></div><div class="card-bd">'
+    +'<div class="card-top"><span class="card-nr">'+esc(k.rechnungsNr||'—')+'</span>'+(hatBeleg?'<span style="margin-left:6px;font-size:12px" title="Beleg hinterlegt">📎</span>':'')+'<span class="badge" style="background:'+st.bg+';color:'+st.c+';border:1px solid '+st.bd+';margin-left:auto">'+st.n+'</span></div>'
+    +'<div class="card-title">'+esc(k.lieferant||'')+'</div>'
+    +'<div class="card-meta">📅 '+dfmt(k.datum)+' · <b style="color:var(--txt2)">CHF '+chf(erpNum(k.betrag))+'</b>'
+    +(k.beschrieb?'<br>'+esc(k.beschrieb):'')
+    +(k.auftragNr?'<br><span class="chain">🔗 Auftrag '+esc(k.auftragNr)+(a&&a.titel?' · '+esc(a.titel):'')+'</span>':'')
+    +(f?'<br>👔 Freigabe: '+esc(f.name)+(f.userId===(u&&u.id)?' <b style="color:var(--amber)">(du)</b>':''):'<br><span style="color:var(--mut2)">Kein Auftrag zugeteilt — Freigabe offen für alle Bearbeiter</span>')
+    +(k.status==='zurueckgewiesen'&&k.entscheid&&k.entscheid.grund?'<br><span style="color:var(--red)">↩ '+esc(k.entscheid.grund)+'</span>':'')
+    +(k.status==='bezahlt'&&k.bezahlt?'<br><span style="color:var(--grn)">💵 Bezahlt am '+dfmt(String(k.bezahlt.am||'').slice(0,10))+'</span>':'')
+    +'</div>'
+    +(btns?'<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:9px">'+btns+'</div>':'')
+    +'</div></div>';
+}
+function erpRenderKreditoren(el){
+  var u=erpUser();
+  var ks=erpKreditoren();
+  var fst=document.getElementById('fKredSt');var fq=document.getElementById('fKredQ');
+  var list=ks.slice();
+  if(fst&&fst.value)list=list.filter(function(k){return k.status===fst.value;});
+  if(fq&&fq.value.trim()){
+    var q=fq.value.toLowerCase();
+    list=list.filter(function(k){return ((k.lieferant||'')+' '+(k.rechnungsNr||'')+' '+(k.auftragNr||'')+' '+(k.beschrieb||'')).toLowerCase().indexOf(q)>=0;});
+  }
+  var ord={offen:0,freigegeben:1,zurueckgewiesen:2,bezahlt:3};
+  list.sort(function(a,b){return (ord[a.status]||0)-(ord[b.status]||0)||String(b.datum||'').localeCompare(String(a.datum||''));});
+  var h='';
+  var meine=ks.filter(function(k){var f=erpKredFreigeber(k);return k.status==='offen'&&f&&f.userId===(u&&u.id);});
+  if(meine.length&&!(fst&&fst.value))h+='<div class="infobox warn" style="grid-column:1/-1;margin-bottom:0">🔔 <b>'+meine.length+' Kreditor'+(meine.length===1?'':'en')+' zur Freigabe bei dir</b> — als Sachbearbeiter der zugeteilten Aufträge gibst du die Lieferantenrechnungen frei oder weist sie mit Grund zurück.</div>';
+  if(!list.length){
+    el.innerHTML=h+((!_erpCloudLoaded&&!poolRead(KRED_POOL).length)
+      ?'<div class="empty"><svg width="34" height="34" viewBox="0 0 34 34" style="display:block;margin:0 auto 8px"><circle cx="17" cy="17" r="13" fill="none" stroke="#cbd5e1" stroke-width="3.5" stroke-dasharray="55 28"><animateTransform attributeName="transform" type="rotate" from="0 17 17" to="360 17 17" dur="0.9s" repeatCount="indefinite"/></circle></svg>Wird geladen …</div>'
+      :'<div class="empty">💳 Noch keine Kreditoren<br><span style="font-size:12.5px">Lieferantenrechnung mit Beleg erfassen und einem Auftrag zuteilen — der Sachbearbeiter des Auftrags gibt sie frei. Doppelklick auf eine Karte öffnet den Beleg.</span></div>');
+    return;
+  }
+  el.innerHTML=h+list.map(erpKredCardHtml).join('');
+}
+
+// ── Kreditor-Modal (Erfassen/Bearbeiten) ──
+var _kredEditId=null,_kredBeleg=null,_kredFileInp=null;
+function erpKredLiefDatalist(){
+  var seen={},opts='';
+  erpKreditoren().forEach(function(k){
+    var n=String(k.lieferant||'').trim();if(!n)return;
+    var key=n.toLowerCase();if(seen[key])return;seen[key]=1;
+    opts+='<option value="'+esc(n)+'"></option>';
+  });
+  document.getElementById('krLiefList').innerHTML=opts;
+}
+function erpKredAuftragFill(sel){
+  var auf=erpDocs().filter(function(d){return d.typ==='auftrag';});
+  auf.sort(function(a,b){return String(b.datum||'').localeCompare(String(a.datum||''));});
+  document.getElementById('kr_auftrag').innerHTML='<option value="">– kein Auftrag –</option>'
+    +auf.map(function(a){return '<option value="'+a.id+'"'+(a.id===sel?' selected':'')+'>'+esc((a.nr||'')+' · '+(a.titel||erpKundeName(a)))+(a.status==='abgeschlossen'?' (abgeschlossen)':'')+'</option>';}).join('');
+}
+function erpKredFreigeberHint(){
+  var aid=document.getElementById('kr_auftrag').value;
+  var el=document.getElementById('kr_freigeberHint');
+  if(!aid){el.innerHTML='Ohne Auftrag: kein zugewiesener Freigeber — jede berechtigte Person kann freigeben.';return;}
+  var a=erpDocs().find(function(d){return d.id===aid;});
+  var s=a?erpSb(a):null;
+  var me=erpUser();
+  el.innerHTML=s&&s.name?('👔 Freigabe durch den Sachbearbeiter des Auftrags: <b>'+esc(s.name)+'</b>'+(s.userId===(me&&me.id)?' (du)':'')):'—';
+}
+function erpKredBelegWrapRender(editable){
+  var el=document.getElementById('kr_belegWrap');
+  if(_kredBeleg&&(_kredBeleg.url||_kredBeleg.dataUrl)){
+    el.innerHTML='<div style="display:flex;gap:8px;align-items:center;background:var(--sur2);border:1.5px solid var(--brd);border-radius:9px;padding:8px 11px">'
+      +'<span style="font-size:18px">'+(/pdf/i.test(_kredBeleg.mime||'')?'📄':'🖼')+'</span>'
+      +'<span style="flex:1;min-width:0;font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(_kredBeleg.name||'Beleg')+'</span>'
+      +'<button class="btn" style="min-height:30px;padding:4px 10px;font-size:12px" title="Beleg im separaten Fenster öffnen" onclick="erpKredBelegPreview()">👁 Öffnen</button>'
+      +(editable!==false?'<button class="btn" style="min-height:30px;padding:4px 10px;font-size:12px" onclick="_kredBeleg=null;erpKredBelegWrapRender()">✕</button>':'')
+      +'</div>';
+  } else {
+    el.innerHTML=editable!==false
+      ?'<button class="btn ghost" style="width:100%" onclick="erpKredBelegPick()">📎 Beleg hochladen (PDF oder Foto)</button>'
+      :'<div style="font-size:12px;color:var(--mut)">Kein Beleg hinterlegt.</div>';
+  }
+}
+function erpKredBelegPick(){
+  if(_kredFileInp){try{_kredFileInp.remove();}catch(e){}}
+  // File-Input MUSS im DOM hängen (iOS-GC-Muster) — sonst feuert change nie
+  var inp=document.createElement('input');
+  inp.type='file';inp.accept='image/*,application/pdf';
+  inp.style.cssText='position:fixed;left:-9999px;top:0';
+  document.body.appendChild(inp);_kredFileInp=inp;
+  inp.onchange=function(){
+    var fl=inp.files&&inp.files[0];
+    try{inp.remove();}catch(e){}_kredFileInp=null;
+    if(!fl)return;
+    if(fl.type==='application/pdf'||/\.pdf$/i.test(fl.name||'')){
+      if(fl.size>8*1024*1024){GemaDialog.alert({title:'Datei zu gross',message:'PDF-Belege bis 8 MB — grössere Datei bitte verkleinern.'});return;}
+      var rd=new FileReader();
+      rd.onload=function(){erpKredBelegStore(rd.result,fl.name,'application/pdf');};
+      rd.onerror=function(){toast('Beleg konnte nicht gelesen werden');};
+      rd.readAsDataURL(fl);
+    } else {
+      toast('📷 Beleg wird verarbeitet …');
+      erpResizeImage(fl,1600).then(function(dataUrl){erpKredBelegStore(dataUrl,fl.name,'image/jpeg');})
+        .catch(function(){toast('Beleg konnte nicht gelesen werden');});
+    }
+  };
+  inp.click();
+}
+function erpKredBelegStore(dataUrl,name,mime){
+  toast('⬆ Beleg wird hochgeladen …');
+  var u=erpUser();
+  var up=(typeof GemaStorage!=='undefined'&&GemaStorage.uploadDataUrl)
+    ?GemaStorage.uploadDataUrl(dataUrl,'erp/'+(u?u.orgId:'org')+'/kreditoren').then(function(r){return {url:r.url};}).catch(function(){return {dataUrl:dataUrl};})
+    :Promise.resolve({dataUrl:dataUrl});
+  up.then(function(r){
+    if(r.url){_kredBeleg={name:name||'Beleg',url:r.url,mime:mime};}
+    else{
+      // Base64-Fallback nur für kleine Dateien — grosse würden den Record sprengen
+      if(dataUrl.length>3500000){GemaDialog.alert({title:'Upload fehlgeschlagen',message:'Der Beleg konnte nicht in den Speicher hochgeladen werden und ist zu gross für den lokalen Fallback (max. ~2.5 MB). Bitte Verbindung prüfen oder Datei verkleinern.'});return;}
+      _kredBeleg={name:name||'Beleg',dataUrl:dataUrl,mime:mime};
+    }
+    erpKredBelegWrapRender();
+    toast('✓ Beleg angehängt');
+  });
+}
+function erpKredBelegPreview(){
+  if(!_kredBeleg)return;
+  _erpBelegWindow(_kredBeleg,'Beleg · '+(document.getElementById('kr_lieferant').value||''),'');
+}
+function erpKredFields(dis){
+  ['kr_lieferant','kr_nr','kr_betrag','kr_datum','kr_frist','kr_beschrieb','kr_auftrag'].forEach(function(fid){
+    var e=document.getElementById(fid);if(e)e.disabled=!!dis;
+  });
+}
+function erpKredNeu(auftragId){
+  if(!erpCanEdit()){toast('Keine Berechtigung');return;}
+  _kredEditId=null;_kredBeleg=null;
+  document.getElementById('kredTitle').textContent='💳 Kreditor erfassen (Lieferantenrechnung)';
+  document.getElementById('kr_lieferant').value='';
+  document.getElementById('kr_nr').value='';
+  document.getElementById('kr_betrag').value='';
+  document.getElementById('kr_datum').value=today();
+  document.getElementById('kr_frist').value='';
+  document.getElementById('kr_beschrieb').value='';
+  erpKredAuftragFill(auftragId||'');
+  erpKredLiefDatalist();
+  erpKredFields(false);
+  erpKredBelegWrapRender(true);
+  erpKredFreigeberHint();
+  document.getElementById('kr_verlauf').innerHTML='';
+  erpKredFtRender(null);
+  document.getElementById('kredModal').classList.add('open');
+}
+function erpKredEdit(id){
+  var k=erpKreditoren().find(function(x){return x.id===id;});
+  if(!k)return;
+  _kredEditId=id;
+  _kredBeleg=k.beleg?JSON.parse(JSON.stringify(k.beleg)):null;
+  var st=KRED_ST[k.status]||KRED_ST.offen;
+  document.getElementById('kredTitle').innerHTML='💳 Kreditor <span class="badge" style="background:'+st.bg+';color:'+st.c+';border:1px solid '+st.bd+';font-size:11px;vertical-align:middle">'+st.n+'</span>';
+  document.getElementById('kr_lieferant').value=k.lieferant||'';
+  document.getElementById('kr_nr').value=k.rechnungsNr||'';
+  document.getElementById('kr_betrag').value=k.betrag!=null?k.betrag:'';
+  document.getElementById('kr_datum').value=k.datum||'';
+  document.getElementById('kr_frist').value=k.faelligBis||'';
+  document.getElementById('kr_beschrieb').value=k.beschrieb||'';
+  erpKredAuftragFill(k.auftragId||'');
+  erpKredLiefDatalist();
+  var ed=erpKredEditable(k);
+  erpKredFields(!ed);
+  erpKredBelegWrapRender(ed);
+  erpKredFreigeberHint();
+  document.getElementById('kr_verlauf').innerHTML=erpKredVerlaufHtml(k);
+  erpKredFtRender(k);
+  document.getElementById('kredModal').classList.add('open');
+}
+function erpKredVerlaufHtml(k){
+  if(!k||!(k.verlauf||[]).length)return '';
+  var items=k.verlauf.slice(-8).reverse().map(function(v){
+    var d=new Date(v.am);
+    var ds=isNaN(d.getTime())?'':(('0'+d.getDate()).slice(-2)+'.'+('0'+(d.getMonth()+1)).slice(-2)+'.'+d.getFullYear()+' '+('0'+d.getHours()).slice(-2)+':'+('0'+d.getMinutes()).slice(-2));
+    return '<div style="display:flex;gap:8px;font-size:11.5px;color:var(--mut);padding:2px 0"><span style="white-space:nowrap">'+ds+'</span><span style="flex:1;min-width:0">'+esc(v.text)+(v.von?' — '+esc(v.von):'')+'</span></div>';
+  }).join('');
+  return '<div style="margin-top:12px;border-top:1px dashed var(--brd);padding-top:8px"><div style="font-weight:800;font-size:11.5px;color:var(--mut);margin-bottom:3px">🕘 Verlauf</div>'+items+'</div>';
+}
+function erpKredFtRender(k){
+  var h='';
+  if(erpKredEditable(k))h+='<button class="btn grn" onclick="erpKredSave()">💾 Speichern</button>';
+  if(k){
+    var darf=erpKredDarfEntscheiden(k);
+    if(k.status==='offen'&&darf){
+      h+='<button class="btn grn" onclick="erpKredModalAktion(\''+k.id+'\',\'freigeben\')">✓ Freigeben</button>'
+        +'<button class="btn red" onclick="erpKredModalAktion(\''+k.id+'\',\'zurueckweisen\')">✕ Zurückweisen</button>';
+    }
+    if(k.status==='freigegeben'){
+      if(erpCanEdit())h+='<button class="btn" onclick="erpKredModalAktion(\''+k.id+'\',\'bezahlen\')">💵 Als bezahlt markieren</button>';
+      if(darf)h+='<button class="btn red" onclick="erpKredModalAktion(\''+k.id+'\',\'zurueckweisen\')">✕ Zurückweisen</button>';
+    }
+    if(k.status==='zurueckgewiesen'&&erpCanEdit())h+='<button class="btn" onclick="erpKredModalAktion(\''+k.id+'\',\'wiedervorlegen\')">↻ Erneut vorlegen</button>';
+    if(k.beleg&&(k.beleg.url||k.beleg.dataUrl))h+='<button class="btn" onclick="erpKredBelegOpen(\''+k.id+'\')">📎 Beleg</button>';
+    if(erpKredEditable(k))h+='<button class="btn red" onclick="erpKredLoeschen(\''+k.id+'\')">🗑</button>';
+  }
+  document.getElementById('kredFt').innerHTML=h;
+}
+function erpKredModalAktion(id,aktion){
+  document.getElementById('kredModal').classList.remove('open');
+  erpKredAktion(id,aktion);
+}
+function erpKredSave(){
+  if(!erpCanEdit()){toast('Keine Berechtigung');return;}
+  var u=erpUser();
+  var lief=document.getElementById('kr_lieferant').value.trim();
+  var betrag=erpNum(document.getElementById('kr_betrag').value);
+  if(!lief){toast('⚠ Lieferant angeben');return;}
+  if(!(betrag>0)){toast('⚠ Betrag angeben');return;}
+  var k=_kredEditId?erpKreditoren().find(function(x){return x.id===_kredEditId;}):null;
+  if(k&&!erpKredEditable(k)){toast('Nicht mehr editierbar');return;}
+  var neu=!k;
+  k=k?JSON.parse(JSON.stringify(k)):{
+    id:'kred_'+Date.now()+'_'+Math.random().toString(36).slice(2,7),
+    orgId:u?u.orgId:'',status:'offen',verlauf:[],
+    erstelltVon:{userId:u?u.id:'',name:u?u.name:''},erstelltAm:new Date().toISOString()
+  };
+  var altAuftrag=k.auftragId||'';
+  k.lieferant=lief;
+  k.rechnungsNr=document.getElementById('kr_nr').value.trim();
+  k.betrag=Math.round(betrag*100)/100;
+  k.datum=document.getElementById('kr_datum').value||today();
+  k.faelligBis=document.getElementById('kr_frist').value||'';
+  k.beschrieb=document.getElementById('kr_beschrieb').value.trim();
+  k.auftragId=document.getElementById('kr_auftrag').value||'';
+  var a=erpKredAuftrag(k);
+  k.auftragNr=a?(a.nr||''):'';
+  var f=erpKredFreigeber(k);
+  k.freigeber=f?{userId:f.userId||'',name:f.name||''}:null;   // Snapshot (Anzeige-Fallback)
+  if(_kredBeleg)k.beleg=_kredBeleg;else delete k.beleg;
+  erpKredLog(k,neu?'Erfasst':'Geändert');
+  poolSave(KRED_POOL,KRED_PREFIX,k);
+  document.getElementById('kredModal').classList.remove('open');
+  // Freigeber benachrichtigen: bei Neuerfassung oder Auftrags-Wechsel, nie an sich selbst
+  if(k.status==='offen'&&f&&f.userId&&f.userId!==(u&&u.id)&&(neu||k.auftragId!==altAuftrag))erpKredNotifyFreigabe(k,f);
+  erpRenderAll();
+  if(cur&&document.getElementById('edOv').classList.contains('open'))erpOpenEditor();   // Übersicht im Editor nachführen
+  toast(neu?'✓ Kreditor erfasst — '+(f&&f.name?('zur Freigabe bei '+f.name):'ohne Auftrag'):'✓ Gespeichert');
+}
+function erpKredLoeschen(id){
+  var k=erpKreditoren().find(function(x){return x.id===id;});
+  if(!k)return;
+  GemaDialog.confirm({title:'Kreditor löschen',message:(k.lieferant||'')+' · CHF '+chf(erpNum(k.betrag))+' wirklich löschen?',confirmLabel:'Löschen',danger:true}).then(function(ok){
+    if(!ok)return;
+    poolDelete(KRED_POOL,KRED_PREFIX,id);
+    document.getElementById('kredModal').classList.remove('open');
+    erpRenderAll();
+    toast('Gelöscht');
+  });
+}
+function erpKredAktion(id,aktion){
+  var k=erpKreditoren().find(function(x){return x.id===id;});
+  if(!k)return;
+  if(!erpCanEdit()){toast('Keine Berechtigung');return;}
+  if((aktion==='freigeben'||aktion==='zurueckweisen')&&!erpKredDarfEntscheiden(k)){
+    var f0=erpKredFreigeber(k);
+    toast('Nur der zugewiesene Freigeber ('+(f0?f0.name:'—')+') kann entscheiden');
+    return;
+  }
+  var next=erpKredNext(k.status,aktion);
+  if(!next){toast('Aktion in diesem Status nicht möglich');return;}
+  var u=erpUser();
+  function apply(grund){
+    var c=JSON.parse(JSON.stringify(k));
+    c.status=next;
+    if(aktion==='freigeben'||aktion==='zurueckweisen')c.entscheid={von:u?u.name:'',vonUserId:u?u.id:'',am:new Date().toISOString(),grund:grund||''};
+    if(aktion==='bezahlen')c.bezahlt={am:new Date().toISOString(),von:u?u.name:''};
+    if(aktion==='wiedervorlegen')delete c.entscheid;
+    erpKredLog(c,{freigeben:'Freigegeben',zurueckweisen:'Zurückgewiesen'+(grund?' — '+grund:''),bezahlen:'Als bezahlt markiert',wiedervorlegen:'Erneut zur Freigabe vorgelegt'}[aktion]);
+    poolSave(KRED_POOL,KRED_PREFIX,c);
+    if(aktion==='freigeben'||aktion==='zurueckweisen')erpKredNotifyEntscheid(c,aktion,grund);
+    if(aktion==='wiedervorlegen'){var f=erpKredFreigeber(c);if(f&&f.userId&&f.userId!==(u&&u.id))erpKredNotifyFreigabe(c,f);}
+    erpRenderAll();
+    if(cur&&document.getElementById('edOv').classList.contains('open'))erpOpenEditor();
+    toast({freigeben:'✓ Freigegeben',zurueckweisen:'↩ Zurückgewiesen',bezahlen:'💵 Als bezahlt markiert',wiedervorlegen:'↻ Erneut zur Freigabe vorgelegt'}[aktion]);
+  }
+  if(aktion==='zurueckweisen'){
+    GemaDialog.prompt({title:'Kreditor zurückweisen',message:(k.lieferant||'')+' · CHF '+chf(erpNum(k.betrag)),placeholder:'Grund (z.B. Betrag stimmt nicht mit der Bestellung überein)'}).then(function(g){
+      if(g===null)return;
+      apply(String(g||'').trim());
+    });
+  } else apply('');
+}
+
+// ── Beleg im separaten Fenster (Doppelklick auf Karte/Zeile bzw. 📎-Button) ──
+function _erpBelegWindow(beleg,titel,meta){
+  var src=beleg&&(beleg.url||beleg.dataUrl);
+  if(!src){toast('Kein Beleg hinterlegt');return;}
+  var w=window.open('','_blank');
+  if(!w){toast('Popup blockiert — bitte Popups für GEMA erlauben');return;}
+  var isPdf=/pdf/i.test(beleg.mime||'')||/\.pdf(\?|#|$)/i.test(beleg.url||'')||/^data:application\/pdf/i.test(src);
+  w.document.write('<!DOCTYPE html><html lang="de"><head><meta charset="utf-8"><title>'+esc(titel||'Beleg')+'</title>'
+    +'<style>html,body{margin:0;height:100%;background:#1e293b;font-family:system-ui,-apple-system,sans-serif}'
+    +'.hd{position:fixed;top:0;left:0;right:0;background:#0f172a;color:#fff;padding:10px 14px;display:flex;gap:12px;align-items:center;font-size:13px;z-index:5;box-shadow:0 2px 8px rgba(0,0,0,.3)}'
+    +'.hd b{font-size:14px;white-space:nowrap}.hd span{opacity:.75;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}'
+    +'.hd button{margin-left:auto;padding:7px 13px;border-radius:8px;border:0;background:#2563eb;color:#fff;font-weight:700;cursor:pointer;font-family:inherit;flex-shrink:0}'
+    +'.bd{position:absolute;top:46px;left:0;right:0;bottom:0}'
+    +'iframe{width:100%;height:100%;border:0;background:#fff}'
+    +'.imgwrap{width:100%;height:100%;overflow:auto;display:flex;align-items:flex-start;justify-content:center;padding:14px;box-sizing:border-box}'
+    +'img{max-width:100%;height:auto;background:#fff;border-radius:6px}'
+    +'@media print{.hd{display:none}.bd{position:static}}'
+    +'</style></head><body>'
+    +'<div class="hd"><b>'+esc(titel||'Beleg')+'</b>'+(meta?'<span>'+esc(meta)+'</span>':'')+'<button onclick="window.print()">🖨 Drucken</button></div>'
+    +'<div class="bd">'+(isPdf?'<iframe src="'+esc(src)+'"></iframe>':'<div class="imgwrap"><img src="'+esc(src)+'" alt="Beleg"/></div>')+'</div>'
+    +'</body></html>');
+  w.document.close();
+}
+function erpKredBelegOpen(id){
+  var k=erpKreditoren().find(function(x){return x.id===id;});
+  if(!k)return;
+  if(!(k.beleg&&(k.beleg.url||k.beleg.dataUrl))){toast('Kein Beleg hinterlegt — im Kreditor per 📎 hochladen');return;}
+  _erpBelegWindow(k.beleg,'Beleg · '+(k.lieferant||''),
+    (k.rechnungsNr?'Rechnung '+k.rechnungsNr+' · ':'')+'CHF '+chf(erpNum(k.betrag))+(k.auftragNr?' · Auftrag '+k.auftragNr:''));
+}
+
+// ── Auftrags-Übersicht im Editor: alle Stunden (inkl. Datum) + alle
+//    Kreditoren des Auftrags — im Auftrag UND in dessen Rechnungen ──
+function erpAuftragUebersichtHtml(d){
+  var aufId=d.typ==='auftrag'?d.id:(d.typ==='rechnung'&&d.verknuepfung?d.verknuepfung.auftragId:'');
+  if(!aufId)return '';
+  var u=erpUser();
+  var eins=poolRead('gema_einsatz_pool_v1').filter(function(e){return u&&e.orgId===u.orgId;});
+  var tage=poolRead('gema_std_pool_v1').filter(function(t){return u&&t.orgId===u.orgId;});
+  var st=erpAuftragStunden(aufId,eins,tage);
+  var kreds=erpKreditoren().filter(function(k){return k.auftragId===aufId;});
+  kreds.sort(function(a,b){return String(a.datum||'').localeCompare(String(b.datum||''));});
+  var canEdit=erpCanEdit();
+  if(!st.rows.length&&!kreds.length&&!canEdit)return '';
+  var h='<div class="sec"><div class="sec-hd"><h3>📊 Stunden & Kreditoren'+(d.typ==='rechnung'?' des Auftrags':'')+'</h3><span class="hint">Stundenerfassung via Einsatzplan · Lieferantenrechnungen</span></div><div class="sec-bd">';
+  // Stunden
+  h+='<div style="font-weight:800;font-size:12.5px;margin-bottom:6px">⏱ Geleistete Stunden'+(st.rows.length?' ('+st.rows.length+' '+(st.rows.length===1?'Eintrag':'Einträge')+')':'')+'</div>';
+  if(st.rows.length){
+    h+='<div class="pos-wrap"><table class="pos"><thead><tr><th>Datum</th><th>Person</th><th>Zeit</th><th class="num">Dauer h</th><th>Tätigkeit</th></tr></thead><tbody>';
+    st.rows.forEach(function(r){
+      h+='<tr><td style="white-space:nowrap">'+dfmt(r.datum)+'</td><td>'+esc(r.name)+'</td>'
+        +'<td style="white-space:nowrap">'+esc(r.von)+'–'+esc(r.bis)+(r.pauseMin?' <span style="color:var(--mut2);font-size:10.5px">(−'+r.pauseMin+'′)</span>':'')+'</td>'
+        +'<td class="num">'+(Math.round(r.min/60*100)/100).toFixed(2)+'</td>'
+        +'<td>'+esc(r.taetigkeit||'—')+'</td></tr>';
+    });
+    h+='<tr style="font-weight:800"><td colspan="3">Total</td><td class="num">'+(Math.round(st.totalMin/60*100)/100).toFixed(2)+'</td><td></td></tr>';
+    h+='</tbody></table></div>';
+  } else {
+    h+='<div style="font-size:12px;color:var(--mut);margin-bottom:2px">Noch keine Stunden — Zeiteinträge der Stundenerfassung zählen hier, sobald sie über einen Einsatzplan-Termin dieses Auftrags erfasst sind.</div>';
+  }
+  // Kreditoren
+  h+='<div style="display:flex;align-items:center;gap:8px;margin:14px 0 6px;flex-wrap:wrap"><span style="font-weight:800;font-size:12.5px">💳 Kreditoren'+(kreds.length?' ('+kreds.length+')':'')+'</span>'
+    +(kreds.some(function(k){return k.beleg&&(k.beleg.url||k.beleg.dataUrl);})?'<span style="font-size:11px;color:var(--mut)">Doppelklick auf eine Zeile öffnet den Beleg im separaten Fenster</span>':'')
+    +(canEdit?'<button class="btn ghost" style="min-height:30px;padding:3px 10px;font-size:12px;margin-left:auto" onclick="erpKredNeu(\''+aufId+'\')">＋ Kreditor erfassen</button>':'')
+    +'</div>';
+  if(kreds.length){
+    var sum=erpKredSummen(kreds);
+    h+='<div class="pos-wrap"><table class="pos"><thead><tr><th>Datum</th><th>Lieferant</th><th>Rechnungs-Nr.</th><th>Status</th><th>Beleg</th><th class="num">Betrag CHF</th></tr></thead><tbody>';
+    kreds.forEach(function(k){
+      var ks=KRED_ST[k.status]||KRED_ST.offen;
+      var hatBeleg=!!(k.beleg&&(k.beleg.url||k.beleg.dataUrl));
+      h+='<tr ondblclick="erpKredBelegOpen(\''+k.id+'\')" style="cursor:pointer"'+(hatBeleg?' title="Doppelklick: Beleg öffnen"':'')+'>'
+        +'<td style="white-space:nowrap">'+dfmt(k.datum)+'</td>'
+        +'<td>'+esc(k.lieferant||'')+(k.beschrieb?'<div style="font-size:10.5px;color:var(--mut)">'+esc(k.beschrieb)+'</div>':'')+'</td>'
+        +'<td>'+esc(k.rechnungsNr||'—')+'</td>'
+        +'<td><span class="badge" style="background:'+ks.bg+';color:'+ks.c+';border:1px solid '+ks.bd+'">'+ks.n+'</span></td>'
+        +'<td>'+(hatBeleg?'<button class="btn" style="min-height:28px;padding:2px 9px;font-size:12px" onclick="event.stopPropagation();erpKredBelegOpen(\''+k.id+'\')">📎</button>':'<span style="color:var(--mut2)">—</span>')+'</td>'
+        +'<td class="num" style="font-weight:700;white-space:nowrap'+(k.status==='zurueckgewiesen'?';text-decoration:line-through;color:var(--mut2)':'')+'">'+chf(erpNum(k.betrag))+'</td></tr>';
+    });
+    h+='<tr style="font-weight:800"><td colspan="5">Total'+(sum.rueckN?' (ohne zurückgewiesene)':'')+'</td><td class="num">'+chf(sum.totalChf)+'</td></tr>';
+    h+='</tbody></table></div>';
+  } else {
+    h+='<div style="font-size:12px;color:var(--mut)">Noch keine Kreditoren diesem Auftrag zugeteilt.</div>';
+  }
+  h+='</div></div>';
+  return h;
+}
+
 function erpRenderAll(){erpRenderTabs();erpRenderKpis();erpRenderToolbar();erpRenderList();}
 
 // ═══════════════════════════════════════════════════════════
@@ -1187,6 +1746,9 @@ function erpOpenEditor(){
       +'</div>':'')
     +'<div class="sum-block" id="sumBlock"></div>'
     +'</div></div>';
+
+  // ── Stunden & Kreditoren des Auftrags (Auftrag + zugehörige Rechnungen) ──
+  h+=erpAuftragUebersichtHtml(d);
 
   // ── Einleitung/Schlusstext/MwSt: zentral in den ⚙️-Einstellungen (beim Erstellen
   //    gestempelt) — auf der Bearbeitungsoberfläche bewusst nicht mehr sichtbar ──
@@ -1369,6 +1931,7 @@ function erpDocCtx(e,id){
       if(d.status==='offen')items.push({ic:'▶',t:'In Arbeit setzen',fn:function(){erpCtxStatus(id,'in_arbeit','Auftrag in Arbeit');}});
       items.push({ic:'✓',t:'Auftrag abschliessen',fn:function(){erpCtxStatus(id,'abgeschlossen','Auftrag abgeschlossen');}});
     }
+    if(d.typ==='auftrag')items.push({ic:'💳',t:'Kreditor erfassen (Lieferantenrechnung)',fn:function(){erpKredNeu(id);}});
     if(d.typ==='rechnung'){
       if(d.status==='entwurf')items.push({ic:'📤',t:'Rechnung stellen',fn:function(){erpOpen(id);erpRechnungStellen();}});
       if(s==='gestellt'||s==='ueberfaellig'){
@@ -2489,8 +3052,10 @@ document.addEventListener('DOMContentLoaded',function(){
         GemaSync.bindCollection(ERP_MODULE,KUN_POOL,KUN_PREFIX,'id'),
         GemaSync.bindCollection(ERP_MODULE,KAT_POOL,KAT_PREFIX,'id'),
         GemaSync.bindCollection(ERP_MODULE,VORL_POOL,VORL_PREFIX,'id'),
+        GemaSync.bindCollection(ERP_MODULE,KRED_POOL,KRED_PREFIX,'id'),
         GemaSync.bindCollection('regierapport','gema_regie_pool_v1','regie:','id'),
-        GemaSync.bindCollection('einsatzplan','gema_einsatz_pool_v1','einsatz:','id')
+        GemaSync.bindCollection('einsatzplan','gema_einsatz_pool_v1','einsatz:','id'),
+        GemaSync.bindCollection('stundenerfassung','gema_std_pool_v1','std:','id')
       ]),
       new Promise(function(res){setTimeout(res,6000);})
     ]).then(function(){_erpCloudLoaded=true;erpRenderAll();erpDeepLink();}).catch(function(){_erpCloudLoaded=true;erpRenderAll();});
@@ -2504,8 +3069,10 @@ function erpDeepLink(){
   try{
     var m=location.search.match(/[?&]doc=([^&]+)/);
     if(m)erpOpen(decodeURIComponent(m[1]));
-    var t=location.search.match(/[?&]tab=(offerte|auftrag|rechnung|erfolg|kunden)/);
+    var t=location.search.match(/[?&]tab=(offerte|auftrag|rechnung|kreditoren|erfolg|kunden)/);
     if(t){_tab=t[1];erpRenderAll();}
+    var kd=location.search.match(/[?&]kred=([^&]+)/);
+    if(kd){_tab='kreditoren';erpRenderAll();erpKredEdit(decodeURIComponent(kd[1]));}
   }catch(e){}
 }
 </script>
