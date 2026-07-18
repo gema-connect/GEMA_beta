@@ -175,6 +175,11 @@ table.t{border-collapse:collapse;width:100%;font-size:12.5px}
     </div>
     <div class="fld"><label>GEMA-Projekt/Objekt</label><select id="an_objekt"></select></div>
     <div class="fld-row">
+      <div class="fld"><label>🔑 Schlüsselcode / Tresor-Code</label><input id="an_sk_code" type="text" placeholder="z.B. 4711"/></div>
+      <div class="fld"><label>Schlüssel wo / bei wem</label><input id="an_sk_info" type="text" placeholder="z.B. Hauswart Müller, 079 …"/></div>
+    </div>
+    <div class="fld" id="anBereichWrap" style="display:none"><label>Arbeitsbereich (Farbe im Einsatzplan)</label><select id="an_bereich"></select><div class="hint">Schlüssel + Bereich wandern beim Planen automatisch auf den Service-Einsatz — der Monteur sieht sie in «Meine Woche».</div></div>
+    <div class="fld-row">
       <div class="fld"><label>Inbetriebnahme</label><input id="an_inbetrieb" type="date"/></div>
       <div class="fld"><label>Garantie bis</label><input id="an_garantie" type="date"/></div>
     </div>
@@ -205,7 +210,8 @@ table.t{border-collapse:collapse;width:100%;font-size:12.5px}
   <div class="modal-hd"><h3>✓ Wartung dokumentieren</h3><button class="modal-x" onclick="svClose('dokModal')">✕</button></div>
   <div class="modal-bd">
     <div style="font-size:13.5px;font-weight:900" id="dok_anlage"></div>
-    <div style="font-size:11.5px;color:var(--mut);margin:2px 0 12px" id="dok_sub"></div>
+    <div style="font-size:11.5px;color:var(--mut);margin:2px 0 6px" id="dok_sub"></div>
+    <div id="dok_key" style="margin-bottom:10px"></div>
     <div class="fld"><label>Ausgeführt am *</label><input id="dok_datum" type="date"/></div>
     <div class="fld"><label>Arbeitsrapport / ausgeführte Arbeiten *</label><textarea id="dok_rapport" rows="3" placeholder="z.B. Salz nachgefüllt, Härte kontrolliert (12 °fH), Ventile geprüft"></textarea></div>
   </div>
@@ -223,6 +229,11 @@ table.t{border-collapse:collapse;width:100%;font-size:12.5px}
       <div class="fld"><label>Datum *</label><input id="pl_datum" type="date"/></div>
       <div class="fld"><label>Dauer (Tage)</label><input id="pl_dauer" type="text" inputmode="numeric" onblur="fixLeadingZero(this)" value="1"/></div>
     </div>
+    <div class="fld" id="plBesWrap" style="display:none"><label>Besonderheiten für den Monteur</label>
+      <div id="pl_bes" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+      <div class="hint">z.B. Filter/Material mitnehmen — Liste definierbar in den ⚙️ Einsatzplan-Einstellungen.</div>
+    </div>
+    <div id="pl_key"></div>
     <div class="fld"><label>Notiz für den Monteur</label><input id="pl_notiz" type="text" placeholder="optional"/></div>
   </div>
   <div class="modal-ft"><button class="btn pri" onclick="svPlanSave()">📅 In den Einsatzplan</button></div>
@@ -387,6 +398,39 @@ function svHas(r){var u=svUser();return !!(u&&u.roleIds&&u.roleIds.indexOf(r)>=0
 function svCanEdit(){return svHas('role_admin')||svHas('role_planer')||svHas('role_hlkk_planer')||svHas('role_lueftung_planer')||svHas('role_elektro_planer')||svHas('role_abteilungsleiter')||svHas('role_magaziner');}
 function svCanWork(){return svCanEdit()||svHas('role_monteur')||svHas('role_spengler');}   // Wartung dokumentieren
 function myAnlagen(){var u=svUser();return poolRead('anl').filter(function(x){return u&&x.orgId===u.orgId;});}
+// ── Verknüpfung Einsatzplan: Arbeitsbereiche + Besonderheiten (org.settings) ──
+function svOrg(){try{return GemaAuth.getCurrentOrg();}catch(e){return null;}}
+function svBereiche(){
+  var org=svOrg();
+  var l=(org&&org.settings&&org.settings.arbeitsbereiche)||[];
+  if(!Array.isArray(l))return [];
+  return l.filter(function(b){return b&&b.id&&b.name;}).map(function(b){
+    return {id:String(b.id),name:String(b.name),farbe:/^#[0-9a-fA-F]{6}$/.test(String(b.farbe||''))?b.farbe:'#64748b'};
+  });
+}
+function svBereichById(id){if(!id)return null;var l=svBereiche();for(var i=0;i<l.length;i++){if(l[i].id===id)return l[i];}return null;}
+function svBesListe(){
+  var org=svOrg();
+  var l=(org&&org.settings&&org.settings.einsatzplan&&org.settings.einsatzplan.besonderheiten)||[];
+  if(!Array.isArray(l))return [];
+  return l.filter(function(b){return b&&b.id&&b.label;}).map(function(b){
+    return {id:String(b.id),label:String(b.label),ic:String(b.ic||'').trim()};
+  });
+}
+function svAnlSchluessel(a){
+  var s=a&&a.schluessel;
+  if(!s)return null;
+  var code=String(s.code||'').trim(),info=String(s.info||'').trim();
+  if(!code&&!info)return null;
+  return {code:code,info:info};
+}
+function svKeyBoxHtml(a){
+  var s=svAnlSchluessel(a);
+  if(!s)return '';
+  return '<div style="background:#fffbeb;border:1.5px solid #fcd34d;border-radius:9px;padding:7px 10px;font-size:12px;color:#78350f;font-weight:600">🔑 <b>Schlüssel/Zutritt:</b> '
+    +(s.code?'Code <b style="font-size:13px;letter-spacing:.5px">'+esc(s.code)+'</b>':'')
+    +(s.code&&s.info?' · ':'')+esc(s.info)+'</div>';
+}
 function myVertraege(){var u=svUser();return poolRead('vtr').filter(function(x){return u&&x.orgId===u.orgId;});}
 function myAuftraege(){var u=svUser();return poolRead('auf').filter(function(x){return u&&x.orgId===u.orgId;});}
 
@@ -510,6 +554,8 @@ function svRenderAnlagen(){
       +'<div class="anl-meta">'
       +(a.kategorie?'🏷 '+esc(a.kategorie):'')+(a.hersteller||a.modell?' · '+esc([a.hersteller,a.modell].filter(Boolean).join(' ')):'')
       +(a.objektName?'<br>🏗 '+esc(a.objektName):'')+(a.standort?' · 📍 '+esc(a.standort):'')
+      +(svAnlSchluessel(a)?' · <span title="Schlüssel/Zutritt hinterlegt — wandert beim Planen auf den Einsatz">🔑</span>':'')
+      +(function(){var b=svBereichById(a.bereichId);return b?' · <span style="display:inline-flex;align-items:center;gap:4px"><span style="width:8px;height:8px;border-radius:50%;background:'+b.farbe+';display:inline-block"></span>'+esc(b.name)+'</span>':'';})()
       +'<br>🔁 '+(parseInt(a.intervallMonate,10)>0?'alle '+a.intervallMonate+' Monate':'kein Intervall')
       +(a.letzteWartung?' · letzte '+dfmt(a.letzteWartung):'')
       +(svGarantieAktiv(a,today())?'<br><span class="badge b-grn">🛡 Garantie bis '+dfmt(a.garantieBis)+'</span>':'')
@@ -554,12 +600,22 @@ function svRenderVertraege(){
 // ANLAGEN CRUD + IMPORT
 // ═══════════════════════════════════════════════════════════
 var _anlEditId=null;
+function svAnlBereichFill(sel){
+  var bl=svBereiche();
+  var wrap=document.getElementById('anBereichWrap');
+  if(!bl.length){wrap.style.display='none';return;}
+  wrap.style.display='';
+  document.getElementById('an_bereich').innerHTML='<option value="">– kein Bereich –</option>'+bl.map(function(b){
+    return '<option value="'+b.id+'"'+(b.id===sel?' selected':'')+'>'+esc(b.name)+'</option>';
+  }).join('');
+}
 function svAnlNeu(){
   _anlEditId=null;
   document.getElementById('anlTitle').textContent='Neue Anlage';
-  ['an_name','an_kat','an_standort','an_hersteller','an_modell','an_serien','an_lieferant','an_inbetrieb','an_garantie','an_letzte','an_notizen'].forEach(function(i){document.getElementById(i).value='';});
+  ['an_name','an_kat','an_standort','an_hersteller','an_modell','an_serien','an_lieferant','an_inbetrieb','an_garantie','an_letzte','an_notizen','an_sk_code','an_sk_info'].forEach(function(i){document.getElementById(i).value='';});
   document.getElementById('an_intervall').value='12';
   document.getElementById('an_objekt').innerHTML=svObjektOptions('');
+  svAnlBereichFill('');
   document.getElementById('anlDelBtn').style.display='none';
   svOpen('anlModal');
 }
@@ -579,7 +635,10 @@ function svAnlEdit(id){
   document.getElementById('an_intervall').value=a.intervallMonate||'';
   document.getElementById('an_letzte').value=a.letzteWartung||'';
   document.getElementById('an_notizen').value=a.notizen||'';
+  document.getElementById('an_sk_code').value=(a.schluessel&&a.schluessel.code)||'';
+  document.getElementById('an_sk_info').value=(a.schluessel&&a.schluessel.info)||'';
   document.getElementById('an_objekt').innerHTML=svObjektOptions(a.objektId||'');
+  svAnlBereichFill(a.bereichId||'');
   document.getElementById('anlDelBtn').style.display='';
   svOpen('anlModal');
 }
@@ -608,6 +667,11 @@ function svAnlSave(){
     status:old?old.status||'aktiv':'aktiv',
     vertragId:old?old.vertragId||'':'',
     notizen:document.getElementById('an_notizen').value.trim(),
+    schluessel:(function(){
+      var c=document.getElementById('an_sk_code').value.trim(),inf=document.getElementById('an_sk_info').value.trim();
+      return (c||inf)?{code:c,info:inf}:null;
+    })(),
+    bereichId:svBereiche().length?document.getElementById('an_bereich').value:(old?old.bereichId||'':''),
     erstelltVon:old?old.erstelltVon:{userId:u.id,name:u.name},
     erstelltAm:old?old.erstelltAm:new Date().toISOString()
   };
@@ -689,6 +753,7 @@ function svDokuOpen(anlageId,auftragId){
   _dokAufId=auftragId||(myAuftraege().find(function(x){return x.anlageId===anlageId&&(x.status==='offen'||x.status==='eingeplant');})||{}).id||null;
   document.getElementById('dok_anlage').textContent=a.name;
   document.getElementById('dok_sub').textContent=[a.objektName,a.standort].filter(Boolean).join(' · ')||'—';
+  document.getElementById('dok_key').innerHTML=svKeyBoxHtml(a);
   document.getElementById('dok_datum').value=today();
   document.getElementById('dok_rapport').value='';
   svOpen('dokModal');
@@ -721,10 +786,25 @@ function svDokuSave(){
 // ═══════════════════════════════════════════════════════════
 // EINSATZ PLANEN (Cross-Modul → Einsatzplan)
 // ═══════════════════════════════════════════════════════════
-var _planAufId=null;
+var _planAufId=null,_planBes=[];
+function svPlanBesRender(){
+  var bs=svBesListe();
+  var wrap=document.getElementById('plBesWrap');
+  if(!bs.length){wrap.style.display='none';return;}
+  wrap.style.display='';
+  document.getElementById('pl_bes').innerHTML=bs.map(function(b){
+    var on=_planBes.indexOf(b.id)>=0;
+    return '<button type="button" onclick="svPlanBesToggle(\''+b.id+'\')" style="padding:6px 12px;border-radius:999px;border:1.5px solid '+(on?'#d97706':'var(--brd2,#cbd5e1)')+';background:'+(on?'#fffbeb':'var(--sur,#fff)')+';color:'+(on?'#92400e':'inherit')+';font-size:12px;font-weight:700;cursor:pointer;font-family:inherit">'+esc((b.ic?b.ic+' ':'')+b.label)+'</button>';
+  }).join('');
+}
+function svPlanBesToggle(id){
+  var i=_planBes.indexOf(id);
+  if(i>=0)_planBes.splice(i,1);else _planBes.push(id);
+  svPlanBesRender();
+}
 function svPlanOpen(auftragId){
   var x=poolRead('auf').find(function(y){return y.id===auftragId;});if(!x)return;
-  _planAufId=auftragId;
+  _planAufId=auftragId;_planBes=[];
   var u=svUser();
   var users=[];
   try{users=GemaAuth.getUsers().filter(function(us){return us.active!==false&&us.orgId===u.orgId&&us.roleIds&&(us.roleIds.indexOf('role_monteur')>=0||us.roleIds.indexOf('role_spengler')>=0);});}catch(e){}
@@ -736,6 +816,10 @@ function svPlanOpen(auftragId){
   document.getElementById('pl_datum').value=x.faelligAm||today();
   document.getElementById('pl_dauer').value='1';
   document.getElementById('pl_notiz').value='';
+  svPlanBesRender();
+  // Schlüssel/Zutritt der Anlage — wandert als Snapshot auf den Einsatz
+  var anl=poolRead('anl').find(function(y){return y.id===x.anlageId;});
+  document.getElementById('pl_key').innerHTML=anl?svKeyBoxHtml(anl):'';
   svOpen('planModal');
 }
 function svPlanSave(){
@@ -747,6 +831,9 @@ function svPlanSave(){
   var mName=mSel.options[mSel.selectedIndex].textContent;
   var datum=document.getElementById('pl_datum').value;
   if(!datum){toast('Datum fehlt');return;}
+  // Verknüpfung: Schlüssel-Snapshot + Arbeitsbereich von der Anlage,
+  // Besonderheiten aus der Auswahl — der Monteur sieht alles auf dem Einsatz
+  var anl=poolRead('anl').find(function(y){return y.id===x.anlageId;});
   var einsatz={
     id:'einsatz_'+Date.now()+'_'+Math.random().toString(36).slice(2,7),
     orgId:u.orgId,typ:'frei',auftragId:'',auftragNr:'',
@@ -757,15 +844,23 @@ function svPlanSave(){
     slot:'ganz',zeitVon:'',zeitBis:'',
     notiz:(document.getElementById('pl_notiz').value.trim()||('Serviceauftrag fällig am '+dfmt(x.faelligAm))),
     serviceAuftragId:x.id,
+    bereichId:(anl&&anl.bereichId)||'',
+    besonderheiten:_planBes.slice(),
+    schluessel:anl?svAnlSchluessel(anl):null,
     erstelltVon:{userId:u.id,name:u.name},erstelltAm:new Date().toISOString()
   };
   xPoolAdd('gema_einsatz_pool_v1','einsatzplan','einsatz:',einsatz);
   x.status='eingeplant';x.einsatzId=einsatz.id;
   poolSave('auf',x);
   svClose('planModal');toast('📅 Einsatz geplant — '+mName+', '+dfmt(datum));
+  // Besonderheiten in den Notify-Text — der Schlüsselcode bewusst NIE
+  var besTxt=(function(){
+    var map={};svBesListe().forEach(function(b){map[b.id]=b;});
+    return _planBes.map(function(id){return map[id];}).filter(Boolean).map(function(b){return (b.ic?b.ic+' ':'')+b.label;}).join(', ');
+  })();
   if(mId!==u.id)svNotify({eventKey:'einsatz_geplant',empfaengerUserId:mId,modul:'einsatzplan',typ:'aktion',
     titel:'Service-Einsatz geplant: '+x.anlageName,
-    text:dfmt(datum)+(x.objektName?' · '+x.objektName:''),
+    text:dfmt(datum)+(x.objektName?' · '+x.objektName:'')+(besTxt?' · '+besTxt:''),
     link:'pm_einsatzplan.html?d='+datum});
   svRender();
 }
@@ -794,7 +889,8 @@ function svMakeRechnung(opts){
     titel:opts.titel,einleitung:opts.einleitung||'',schlusstext:'',
     positionen:opts.positionen,rabattPct:0,mwstPct:8.1,
     verknuepfung:{},zahlungen:[],
-    erstelltVon:{userId:u.id,name:u.name}
+    erstelltVon:{userId:u.id,name:u.name},
+    sachbearbeiter:{userId:u.id,name:u.name}
   };
   xPoolAdd('gema_erp_dok_pool_v1','erp','erpdok:',doc);
   return doc;
