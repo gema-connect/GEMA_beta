@@ -84,11 +84,12 @@ ok(lastReq && lastReq.anbieter === '1900' && lastReq.artnr === '620.020' && last
   const html = await page.evaluate(() => document.getElementById('dsRes_1900').innerHTML);
   ok(html.indexOf('Spülkasten Sigma UP320') >= 0 && html.indexOf('620.020.00.1') >= 0, 'Ergebnis: Bezeichnung + Artnr');
   ok(html.indexOf('CHF 289.50') >= 0 && html.indexOf('EAN 7612345678901') >= 0, 'Preis + EAN gerendert');
-  ok(html.indexOf('dataselect.ch/img/620020.jpg') >= 0, 'Thumbnail-Bild im Ergebnis');
+  // Suche OHNE Thumbnails (schnell) — Bild lädt erst beim Einfügen; 🖼-Hinweis
+  ok(html.indexOf('<img') < 0 && html.indexOf('🖼') >= 0, 'Trefferliste ohne Thumbnails (Bild lädt beim Einfügen)');
   ok(await page.evaluate(() => document.querySelectorAll('#dsRes_1900 .side-art').length === 2), 'zwei Artikel als auswählbare Zeilen (.side-art)');
 }
 
-console.log('■ Artikel einfügen (markieren + Enter → Menge) inkl. Bild');
+console.log('■ Artikel einfügen (markieren + Enter → Menge) + Bild wird nachgeladen');
 // ersten Treffer markieren + Enter → Mengendialog, Menge 3, bestätigen
 await page.evaluate(() => {
   const row = document.querySelector('#dsRes_1900 .side-art');
@@ -105,10 +106,16 @@ await page.waitForTimeout(60);
   ok(p && p.bez === 'Spülkasten Sigma UP320' && Math.abs(p.menge - 3) < 1e-6, 'Position: Bezeichnung + Menge (3) aus dem Dialog');
   ok(Math.abs(p.ep - 289.5) < 1e-6 && p.einheit === 'Stk', 'Position: Preis (EP) + Einheit');
   ok(p.produktId === 'ds:620.020.00.1' && p.dsArtnr === '620.020.00.1', 'Position: produktId/dsArtnr verknüpft');
-  ok(p.bildUrl === 'https://www.dataselect.ch/img/620020.jpg', 'Position trägt das Bild (bildUrl)');
+  ok(!p._dsAnb && !p._dsBild && p._dsHat === undefined, 'transiente Bild-Hinweise NICHT in der Position gespeichert');
   ok((p.lieferantFirma || '').indexOf('Geberit') >= 0, 'Position: Lieferant Geberit');
+}
+// Bild lädt ASYNCHRON nach (externe Bild-URL im Test blockiert → Fallback auf Roh-URL)
+await page.waitForFunction(() => { const p = cur.positionen[cur.positionen.length - 1]; return p && (p.bildUrl || p.bildDataUrl); }, null, { timeout: 4000 });
+{
+  const p = await page.evaluate(() => cur.positionen[cur.positionen.length - 1]);
+  ok(p.bildUrl === 'https://www.dataselect.ch/img/620020.jpg' || (p.bildDataUrl || '').indexOf('data:image') === 0, 'Bild nach dem Einfügen nachgeladen (komprimiert bzw. Fallback-URL)');
   const posHtml = await page.evaluate(() => document.getElementById('posBody').innerHTML);
-  ok(posHtml.indexOf('620020.jpg') >= 0, 'Bild im Positions-Editor sichtbar (pos-bild)');
+  ok(posHtml.indexOf('620020.jpg') >= 0 || posHtml.indexOf('data:image') >= 0, 'Bild im Positions-Editor sichtbar (pos-bild)');
 }
 // Einfügen ÜBER der markierten Positionszeile
 ok(await page.evaluate(() => {

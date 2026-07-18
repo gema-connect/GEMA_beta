@@ -91,6 +91,7 @@
     if (ean) qs.set('ean', ean);
     qs.set('sprache', (['de','fr','it'].indexOf(String(opts.sprache || 'de')) >= 0) ? opts.sprache : 'de');
     qs.set('preisbuch', String(opts.preisbuch || '1').replace(/[^0-9]/g, '') || '1');
+    if (opts.bilder) qs.set('bilder', '1');   // Detail-Abruf beim Einfügen (mit Bild)
     return fetch('/api/dataselect?' + qs.toString(), { method: 'GET', headers: _authHeaders() })
       .then(function(r){ return r.text().then(function(b){ return _parse(r, b); }); })
       .then(function(d){
@@ -120,14 +121,17 @@
     if (!raw || typeof raw !== 'object') return null;
     // Bereits normalisiert (vom Server)?
     if (raw.bezeichnung !== undefined && raw.preis !== undefined && raw.bildUrl !== undefined && raw.artnr !== undefined){
+      var bu = String(raw.bildUrl || '').trim();
       return {
         artnr: String(raw.artnr || '').trim(), bezeichnung: String(raw.bezeichnung || '').trim(),
         ean: String(raw.ean || '').trim(), preis: _num(raw.preis), waehrung: String(raw.waehrung || 'CHF'),
         einheit: String(raw.einheit || '').trim(), hersteller: String(raw.hersteller || '').trim(),
-        serie: String(raw.serie || '').trim(), bildUrl: String(raw.bildUrl || '').trim()
+        serie: String(raw.serie || '').trim(), bildUrl: bu,
+        hatBild: (raw.hatBild !== undefined ? !!raw.hatBild : !!bu)   // Bild vorhanden? (fürs Nachladen)
       };
     }
     var bez = _pick(raw, ['bezeichnung','bez','beschreibung','text','name','description']);
+    var bildUrl = String(_pick(raw, ['bildurl','bild','image','imageurl','picture','foto']) || '').trim();
     return {
       artnr: String(_pick(raw, ['artnr','artikelnr','artikelnummer','nummer','number']) || '').trim(),
       bezeichnung: String(bez || '').trim(),
@@ -137,7 +141,8 @@
       einheit: String(_pick(raw, ['einheit','me','vpe','unit']) || '').trim(),
       hersteller: String(_pick(raw, ['hersteller','lieferant','marke','brand']) || '').trim(),
       serie: String(_pick(raw, ['serie','produktlinie']) || '').trim(),
-      bildUrl: String(_pick(raw, ['bildurl','bild','image','imageurl','picture','foto']) || '').trim()
+      bildUrl: bildUrl,
+      hatBild: (raw.hatBild !== undefined ? !!raw.hatBild : !!bildUrl)
     };
   }
 

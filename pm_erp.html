@@ -2361,9 +2361,14 @@ function erpArtGo(pos){
   erpQtyAsk(pos.menge!=null?pos.menge:1,pos.bez,pos.einheit).then(function(menge){
     if(menge==null)return;
     var p=JSON.parse(JSON.stringify(pos));p.id=uid();p.menge=menge;
+    // Transiente DataSelect-Bild-Hinweise nicht in der Position speichern
+    var dsAnb=p._dsAnb,dsBild=p._dsBild,dsHat=p._dsHat;
+    delete p._dsAnb;delete p._dsBild;delete p._dsHat;
     _erpInsertPos(p);erpRenderPos();
     toast('＋ '+(pos.bez||'Position'));
     if(window.matchMedia&&matchMedia('(max-width:920px)').matches)document.getElementById('edOv').classList.remove('side-open');
+    // DataSelect-Bild verzögert nachladen (Insert bleibt sofort)
+    if(String(p.produktId||'').indexOf('ds:')===0&&(dsBild||dsHat))erpDsLoadImage(p.id,dsAnb,p.dsArtnr,dsBild);
   });
 }
 // Enter im Suchfeld: genau einen sichtbaren Artikel → einfügen, sonst ersten markieren
@@ -2549,7 +2554,9 @@ function erpDsSearch(anbId){
   if(!q){res.innerHTML='<div class="side-empty">Artikelnummer, Bezeichnung oder EAN eingeben.</div>';return;}
   var btn=document.getElementById('dsBtn_'+anbId);if(btn){btn.disabled=true;btn.textContent='…';}
   res.innerHTML='<div style="text-align:center;padding:14px"><svg width="26" height="26" viewBox="0 0 34 34" style="display:block;margin:0 auto"><circle cx="17" cy="17" r="13" fill="none" stroke="#cbd5e1" stroke-width="3.5" stroke-dasharray="55 28"><animateTransform attributeName="transform" type="rotate" from="0 17 17" to="360 17 17" dur="0.9s" repeatCount="indefinite"/></circle></svg></div>';
-  // Zahl-artige Eingabe → Artikel-Nr, sonst Bezeichnung
+  // Zahl-artige Eingabe → Artikel-Nr, sonst Bezeichnung. SUCHE OHNE BILDER
+  // (schnell — die Trefferliste wartet nicht auf Bild-Bytes); das Bild lädt erst
+  // beim Einfügen der Position nach (klein + komprimiert, `erpDsLoadImage`).
   var opts={anbieter:anbId,sprache:'de'};
   if(/^[0-9][0-9.\- ]*$/.test(q))opts.artnr=q;else opts.bez=q;
   GemaDataSelect.search(opts).then(function(r){
@@ -2557,14 +2564,53 @@ function erpDsSearch(anbId){
     if(!r.ok){res.innerHTML='<div style="background:#fef2f2;border:1px solid #fca5a5;color:#dc2626;border-radius:9px;padding:9px 11px;font-size:12px;font-weight:600">'+esc(r.error||'Keine Ergebnisse')+'</div>';return;}
     _dsResults=r.artikel||[];
     if(!_dsResults.length){res.innerHTML='<div class="side-empty">Keine Artikel gefunden.</div>';return;}
-    res.innerHTML='<div style="font-size:11px;color:var(--mut);margin-bottom:5px">'+_dsResults.length+' Artikel:</div>'
+    res.innerHTML='<div style="font-size:11px;color:var(--mut);margin-bottom:5px">'+_dsResults.length+' Artikel — Bild lädt beim Einfügen:</div>'
       +_dsResults.map(function(a){
-        var pos={art:'frei',bez:a.bezeichnung||a.artnr||'Artikel',menge:1,einheit:a.einheit||'Stk',ep:a.preis>0?a.preis:'',produktId:'ds:'+(a.artnr||''),dsArtnr:a.artnr||'',lieferantFirma:a.hersteller||''};
-        if(a.bildUrl){if(/^data:/i.test(a.bildUrl))pos.bildDataUrl=a.bildUrl;else pos.bildUrl=a.bildUrl;}
-        var sub=(a.artnr||'')+(a.ean?' · EAN '+a.ean:'')+(a.preis>0?' · CHF '+GemaDataSelect.fmtPreis(a.preis):'');
-        var img=(a.bildUrl&&!/^data:/i.test(a.bildUrl))?a.bildUrl:'';
-        return erpArtRow(pos,'📦',a.bezeichnung||a.artnr||'Artikel',sub,img);
+        var hat=!!(a.hatBild||a.bildUrl);
+        // Bild-Hinweise (_ds*) sind transient — werden beim Einfügen entfernt und
+        // durch das nachgeladene, verkleinerte Bild ersetzt.
+        var pos={art:'frei',bez:a.bezeichnung||a.artnr||'Artikel',menge:1,einheit:a.einheit||'Stk',ep:a.preis>0?a.preis:'',produktId:'ds:'+(a.artnr||''),dsArtnr:a.artnr||'',lieferantFirma:a.hersteller||'',_dsAnb:anbId,_dsBild:a.bildUrl||'',_dsHat:hat};
+        var sub=(a.artnr||'')+(a.ean?' · EAN '+a.ean:'')+(a.preis>0?' · CHF '+GemaDataSelect.fmtPreis(a.preis):'')+(hat?' · 🖼':'');
+        return erpArtRow(pos,'📦',a.bezeichnung||a.artnr||'Artikel',sub,'');   // KEIN Thumbnail (schnell)
       }).join('');
+  });
+}
+// Bild einer eingefügten DataSelect-Position verzögert nachladen: verkleinert
+// (~340px) + JPEG-komprimiert = wenige Bytes, Anzeige ~4×4 cm. Fällt bei
+// fehlendem CORS auf die Roh-URL zurück (Anzeige bleibt klein).
+function erpDsLoadImage(posId,anbId,artnr,urlHint){
+  var use=function(url){
+    if(!url)return;
+    erpDsShrink(url).then(function(small){
+      var p=erpPosById(posId);if(!p)return;
+      if(small){p.bildDataUrl=small;delete p.bildUrl;}
+      else{p.bildUrl=url;delete p.bildDataUrl;}
+      if(document.getElementById('posBody'))erpRenderPos();
+    });
+  };
+  if(urlHint){use(urlHint);return;}
+  // kein URL vom Suchlauf (Base64 wurde weggelassen) → Einzelartikel MIT Bild nachladen
+  if(typeof GemaDataSelect==='undefined'||!artnr||!anbId)return;
+  GemaDataSelect.search({anbieter:anbId,artnr:artnr,sprache:'de',bilder:1}).then(function(r){
+    if(r&&r.ok&&r.artikel&&r.artikel[0]&&r.artikel[0].bildUrl)use(r.artikel[0].bildUrl);
+  }).catch(function(){});
+}
+function erpDsShrink(url){
+  return new Promise(function(res){
+    try{
+      var img=new Image();
+      if(!/^data:/i.test(url))img.crossOrigin='anonymous';
+      img.onload=function(){
+        try{
+          var mx=340,w=img.width||mx,h=img.height||mx,f=Math.min(1,mx/Math.max(w,h));
+          var c=document.createElement('canvas');c.width=Math.max(1,Math.round(w*f));c.height=Math.max(1,Math.round(h*f));
+          var ctx=c.getContext('2d');ctx.imageSmoothingQuality='high';ctx.drawImage(img,0,0,c.width,c.height);
+          res(c.toDataURL('image/jpeg',0.72));
+        }catch(e){res(null);}   // tainted (kein CORS) → Roh-URL verwenden
+      };
+      img.onerror=function(){res(null);};
+      img.src=url;
+    }catch(e){res(null);}
   });
 }
 
