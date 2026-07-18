@@ -2668,6 +2668,15 @@ function erpDsAddAnbieter(){
     });
   });
 }
+// Sucheingabe klassifizieren: 12–14 Ziffern = EAN/GTIN (das bexio-Format hat keine
+// EAN-Spalte, aber die API kennt den EAN-Parameter), sonst Zahl = Artikel-Nr,
+// sonst Bezeichnung. Setzt genau ein Feld in opts.
+function _erpDsClassify(q,opts){
+  q=String(q||'').trim();var d=q.replace(/[\s.\-]/g,'');
+  if(/^\d{12,14}$/.test(d))opts.ean=d;
+  else if(q&&/^[0-9][0-9.\- ]*$/.test(q))opts.artnr=q;
+  else if(q)opts.bez=q;
+}
 function erpDsSearch(anbId){
   if(typeof GemaDataSelect==='undefined')return;
   var inp=document.getElementById('dsq_'+anbId);var q=inp?inp.value.trim():'';
@@ -2675,11 +2684,10 @@ function erpDsSearch(anbId){
   if(!q){res.innerHTML='<div class="side-empty">Artikelnummer, Bezeichnung oder EAN eingeben.</div>';return;}
   var btn=document.getElementById('dsBtn_'+anbId);if(btn){btn.disabled=true;btn.textContent='…';}
   res.innerHTML='<div style="text-align:center;padding:14px"><svg width="26" height="26" viewBox="0 0 34 34" style="display:block;margin:0 auto"><circle cx="17" cy="17" r="13" fill="none" stroke="#cbd5e1" stroke-width="3.5" stroke-dasharray="55 28"><animateTransform attributeName="transform" type="rotate" from="0 17 17" to="360 17 17" dur="0.9s" repeatCount="indefinite"/></circle></svg></div>';
-  // Zahl-artige Eingabe → Artikel-Nr, sonst Bezeichnung. SUCHE OHNE BILDER
+  // Eingabe klassifizieren (EAN / Artikel-Nr / Bezeichnung). SUCHE OHNE BILDER
   // (schnell — die Trefferliste wartet nicht auf Bild-Bytes); das Bild lädt erst
   // beim Einfügen der Position nach (klein + komprimiert, `erpDsLoadImage`).
-  var opts={anbieter:anbId,sprache:'de'};
-  if(/^[0-9][0-9.\- ]*$/.test(q))opts.artnr=q;else opts.bez=q;
+  var opts={anbieter:anbId,sprache:'de'};_erpDsClassify(q,opts);
   GemaDataSelect.search(opts).then(function(r){
     if(btn){btn.disabled=false;btn.textContent='🔎';}
     if(!r.ok){res.innerHTML='<div style="background:#fef2f2;border:1px solid #fca5a5;color:#dc2626;border-radius:9px;padding:9px 11px;font-size:12px;font-weight:600">'+esc(r.error||'Keine Ergebnisse')+'</div>';return;}
@@ -2704,7 +2712,7 @@ function erpDsDebug(anbId){
   if(typeof GemaDataSelect==='undefined'||!GemaDataSelect.debug){GemaDialog.alert({title:'Diagnose',message:'DataSelect-Client nicht geladen.'});return;}
   var inp=document.getElementById('dsq_'+anbId);var q=inp?inp.value.trim():'';
   var opts={anbieter:anbId,sprache:'de'};
-  if(q){if(/^[0-9][0-9.\- ]*$/.test(q))opts.artnr=q;else opts.bez=q;}
+  _erpDsClassify(q,opts);
   GemaDialog.alert({title:'🔍 Rohantwort wird geprüft …',message:'Frage dataselect.ch für Lieferant '+anbId+' ab …'});
   GemaDataSelect.debug(opts).then(function(r){
     var d=r&&r.debug;
@@ -2741,7 +2749,7 @@ function erpDsDebugFormat(anbId,format){
   if(typeof GemaDataSelect==='undefined'||!GemaDataSelect.debug)return;
   var inp=document.getElementById('dsq_'+anbId);var q=inp?inp.value.trim():'';
   var opts={anbieter:anbId,sprache:'de',format:format};
-  if(q){if(/^[0-9][0-9.\- ]*$/.test(q))opts.artnr=q;else opts.bez=q;}
+  _erpDsClassify(q,opts);
   GemaDataSelect.debug(opts).then(function(r){
     var d=r&&r.debug;
     var h=d?('<div style="margin-bottom:6px"><b>Format:</b> <code>'+esc(d.format||format)+'</code> · <b>HTTP:</b> '+esc((d.httpStatus!=null?d.httpStatus:'—')+' '+(d.httpStatusText||''))+' · <b>'+esc(d.erkanntesFormat||'—')+'</b>'+(d.jsonParsebar?' (JSON ✓)':'')+'</div><pre style="background:#0f172a;color:#e2e8f0;border-radius:8px;padding:9px 11px;font-size:11px;line-height:1.45;max-height:260px;overflow:auto;white-space:pre-wrap;word-break:break-word">'+esc(d.auszug||d.netzwerkFehler||'(leer)')+'</pre>'):('<div style="color:#dc2626">'+esc((r&&r.error)||'Keine Diagnose')+'</div>');

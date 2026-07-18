@@ -77,14 +77,23 @@ function _bild(v){
   return '';
 }
 
+// HTML-Tags/Entities aus einem Text ziehen (bexio-Beschreibungen sind teils HTML).
+function _stripHtml(s){
+  return String(s || '').replace(/<[^>]*>/g, ' ').replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&').replace(/&lt;/gi, '<').replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"').replace(/&#39;/gi, "'").replace(/\s+/g, ' ').trim();
+}
 function _normArtikel(raw){
   if (!raw || typeof raw !== 'object') return null;
-  // Kandidatenlisten inkl. bexio-Format (intern_code/intern_name/sale_price …)
-  var bez = _pick(raw, ['bezeichnung','bez','beschreibung','artikelbezeichnung','bezeichnung1','text','name','description','titel','title','intern_name','internname','intern_description','interndescription']);
+  // Kandidatenlisten inkl. bexio-CSV (Produktcode/Produktname/Verkaufspreis …)
+  // und bexio-JSON (intern_code/intern_name/sale_price …).
+  var bez = _pick(raw, ['bezeichnung','bez','beschreibung','artikelbezeichnung','bezeichnung1','text','name','description','titel','title','produktname','produktbeschreibung','intern_name','internname','intern_description','interndescription']);
   var bez2 = _pick(raw, ['bezeichnung2','bez2','beschreibung2','zusatztext','subtext','intern_description']);
   if (bez2 && String(bez2).trim() && String(bez2).trim() !== String(bez).trim()) bez = (String(bez) + ' ' + String(bez2)).trim();
-  var artnr = _pick(raw, ['artnr','artikelnr','artikelnummer','artikelnrlieferant','articlenumber','artikel','nummer','number','idartikel','artikelid','refnr','referenz','intern_code','interncode','code']);
-  var preisRaw = _pick(raw, ['bruttopreis','listenpreis','preis','bruttopreis1','preis1','bp','vk','verkaufspreis','price','listprice','grossprice','ep','einzelpreis','sale_price','saleprice','default_price','defaultprice','purchase_price','purchaseprice']);
+  bez = _stripHtml(bez);   // falls eine HTML-Beschreibung durchkommt
+  var artnr = _pick(raw, ['artnr','artikelnr','artikelnummer','artikelnrlieferant','articlenumber','artikel','nummer','number','idartikel','artikelid','refnr','referenz','produktcode','produktcodelieferant','intern_code','interncode','code']);
+  // Verkaufspreis zuerst (bexio-CSV), Einkaufspreis nur als letzter Ausweg.
+  var preisRaw = _pick(raw, ['verkaufspreis','bruttopreis','listenpreis','preis','bruttopreis1','preis1','bp','vk','price','listprice','grossprice','ep','einzelpreis','sale_price','saleprice','default_price','defaultprice','einkaufspreis','purchase_price','purchaseprice']);
   var bildRaw = raw.Bilder || raw.bilder || raw.Images || raw.images || _pick(raw, ['bildurl','bild','image','imageurl','picture','foto','thumbnail','thumb','bildlink']);
   return {
     artnr: String(artnr || '').trim(),
@@ -94,9 +103,53 @@ function _normArtikel(raw){
     waehrung: String(_pick(raw, ['waehrung','währung','currency','whg']) || 'CHF').trim() || 'CHF',
     einheit: String(_pick(raw, ['einheit','me','mengeneinheit','vpe','verkaufseinheit','verpackungseinheit','unit','uom','mengeneinheittext','unit_name','unitname']) || '').trim(),
     hersteller: String(_pick(raw, ['hersteller','lieferant','anbieter','marke','brand','manufacturer','fabrikat','lieferantname']) || '').trim(),
-    serie: String(_pick(raw, ['serie','produktlinie','produktgruppe','sortiment','linie','series']) || '').trim(),
+    serie: String(_pick(raw, ['serie','produktlinie','produktgruppe','sortiment','linie','series','hauptgruppe','untergruppe']) || '').trim(),
     bildUrl: _bild(bildRaw)
   };
+}
+
+// ── CSV-Parser (bexio-Format: Semikolon-getrennt, doppelt-gequotete Felder) ──
+// Sniffed den Delimiter (; , \t) aus der Kopfzeile, respektiert Quotes über
+// Zeilengrenzen. Liefert {header:[…], rows:[{Spalte:Wert}]} oder null (kein CSV).
+function _parseCsvRecords(text, delim){
+  var records = [], field = '', row = [], q = false;
+  for (var i = 0; i < text.length; i++){
+    var c = text[i];
+    if (q){
+      if (c === '"'){ if (text[i + 1] === '"'){ field += '"'; i++; } else q = false; }
+      else field += c;
+    } else {
+      if (c === '"') q = true;
+      else if (c === delim){ row.push(field); field = ''; }
+      else if (c === '\n'){ row.push(field); records.push(row); row = []; field = ''; }
+      else if (c === '\r'){ /* CRLF: auf \n reagieren */ }
+      else field += c;
+    }
+  }
+  if (field !== '' || row.length){ row.push(field); records.push(row); }
+  return records;
+}
+function _parseCsv(text){
+  var t = String(text || '');
+  if (!t.trim() || t.trim().charAt(0) === '<' || t.trim().charAt(0) === '{' || t.trim().charAt(0) === '[') return null;
+  var firstLine = t.split(/\r?\n/)[0] || '';
+  var semi = (firstLine.match(/;/g) || []).length;
+  var comma = (firstLine.match(/,/g) || []).length;
+  var tab = (firstLine.match(/\t/g) || []).length;
+  var delim = (tab > semi && tab > comma) ? '\t' : (semi >= comma ? ';' : ',');
+  var recs = _parseCsvRecords(t, delim);
+  if (!recs.length) return null;
+  var header = (recs[0] || []).map(function(h){ return String(h).trim(); });
+  if (header.length < 2) return null;   // keine echte Tabelle
+  var rows = [];
+  for (var i = 1; i < recs.length; i++){
+    var r = recs[i];
+    if (!r || !r.length || (r.length === 1 && String(r[0]).trim() === '')) continue;
+    var o = {};
+    for (var j = 0; j < header.length; j++){ if (header[j]) o[header[j]] = (j < r.length) ? r[j] : ''; }
+    rows.push(o);
+  }
+  return { header: header, rows: rows };
 }
 
 // Antwort in ein Array von Roh-Artikeln überführen (viele Container-Formen).
@@ -211,7 +264,10 @@ exports.handler = async function(event){
     var looksLike = 'leer/unbekannt';
     if (_t.charAt(0) === '{' || _t.charAt(0) === '[') looksLike = 'JSON';
     else if (_t.charAt(0) === '<') looksLike = (/^<\?xml/i.test(_t) || /<\/?[a-z]+:/.test(_t)) ? 'XML' : 'HTML/XML';
-    else if (_t) looksLike = 'Text (kein JSON/XML)';
+    else if (_t){
+      var _csv = _parseCsv(_t);
+      looksLike = _csv ? ('CSV (' + _csv.header.length + ' Spalten, ' + _csv.rows.length + ' Datenzeilen — wird unterstützt)') : 'Text (kein JSON/XML)';
+    }
     var jsonOk = false; if (looksLike === 'JSON'){ try { JSON.parse(_t); jsonOk = true; } catch (e){} }
     return { statusCode: 200, headers: cors, body: JSON.stringify({ ok: false, debug: {
       triedUrl: safeUrl,
@@ -239,11 +295,16 @@ exports.handler = async function(event){
   var _raw = String(textBody || '').replace(/^﻿/, '').trim();   // BOM/Whitespace weg
   try { data = JSON.parse(_raw); }
   catch (e){
-    // Kein JSON → häufig ein XML/BIM-Format (debim) oder HTML-Fehler-/Loginseite
-    var hint = (_raw.charAt(0) === '<')
-      ? ' — das gewählte Format liefert XML statt JSON. Bitte ein JSON-Format (z.B. bexio) via DATASELECT_FORMAT_SUCHE/DATASELECT_FORMAT_BILD setzen.'
-      : ' (evtl. Zugang/Token nötig oder Format geändert).';
-    return _err(502, 'DataSelect lieferte kein JSON' + hint, cors);
+    // Kein JSON → das bexio-Format ist eine CSV (Semikolon-getrennt). Parsen und
+    // die Zeilen wie Artikel behandeln. Nur-Header (kein Treffer) = leere Liste.
+    var csv = _parseCsv(_raw);
+    if (csv){ data = csv.rows; }
+    else {
+      var hint = (_raw.charAt(0) === '<')
+        ? ' — das gewählte Format liefert XML/HTML statt Daten. Bitte ein Tabellen-/JSON-Format (z.B. bexio) via DATASELECT_FORMAT_SUCHE/DATASELECT_FORMAT_BILD setzen.'
+        : ' (evtl. Zugang/Token nötig oder Format geändert).';
+      return _err(502, 'DataSelect lieferte kein verwertbares Format' + hint, cors);
+    }
   }
 
   var artikel = _extractArray(data).map(_normArtikel).filter(function(a){
@@ -268,3 +329,5 @@ exports._extractArray = _extractArray;
 exports._num = _num;
 exports._pick = _pick;
 exports._bild = _bild;
+exports._parseCsv = _parseCsv;
+exports._stripHtml = _stripHtml;
