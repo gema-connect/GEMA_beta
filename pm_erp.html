@@ -2600,6 +2600,7 @@ function erpKatRender(){
         +'<div class="side-grp-bd" style="padding:8px">'
         +'<div style="display:flex;gap:6px;margin-bottom:6px"><input class="side-search" style="margin:0;flex:1" id="dsq_'+esc(a.id)+'" type="text" placeholder="Artikel-Nr / Bezeichnung / EAN" onkeydown="if(event.key===\'Enter\'){event.preventDefault();erpDsSearch(\''+esc(a.id)+'\');}"/><button class="btn pri" style="min-height:34px;padding:6px 10px" id="dsBtn_'+esc(a.id)+'" onclick="erpDsSearch(\''+esc(a.id)+'\')">🔎</button></div>'
         +'<div id="dsRes_'+esc(a.id)+'"></div>'
+        +'<div style="text-align:right;margin-top:4px"><a href="javascript:void(0)" style="font-size:11px;color:var(--mut2);text-decoration:underline" onclick="erpDsDebug(\''+esc(a.id)+'\')" title="Zeigt die rohe Antwort von dataselect.ch — HTTP-Status, Format, erste Zeichen. So sieht man, ob/was dieser Lieferant liefert.">🔍 Rohantwort prüfen</a></div>'
         +'</div></div>';
     });
     h+='</div><div id="ighNoHit" class="side-empty" style="display:none">Kein Lieferant gefunden — «＋» hinzufügen.</div>';
@@ -2693,6 +2694,58 @@ function erpDsSearch(anbId){
         var sub=(a.artnr||'')+(a.ean?' · EAN '+a.ean:'')+(a.preis>0?' · CHF '+GemaDataSelect.fmtPreis(a.preis):'')+(hat?' · 🖼':'');
         return erpArtRow(pos,'📦',a.bezeichnung||a.artnr||'Artikel',sub,'');   // KEIN Thumbnail (schnell)
       }).join('');
+  });
+}
+// Diagnose «Rohantwort prüfen»: ruft die rohe Antwort von dataselect.ch ab und
+// zeigt HTTP-Status, Content-Type, erkanntes Format und die ersten Zeichen. So
+// sieht man ohne IGH-Wissen, ob/was ein Lieferant liefert (JSON? XML? Login-
+// seite? Zugang verweigert? leer?).
+function erpDsDebug(anbId){
+  if(typeof GemaDataSelect==='undefined'||!GemaDataSelect.debug){GemaDialog.alert({title:'Diagnose',message:'DataSelect-Client nicht geladen.'});return;}
+  var inp=document.getElementById('dsq_'+anbId);var q=inp?inp.value.trim():'';
+  var opts={anbieter:anbId,sprache:'de'};
+  if(q){if(/^[0-9][0-9.\- ]*$/.test(q))opts.artnr=q;else opts.bez=q;}
+  GemaDialog.alert({title:'🔍 Rohantwort wird geprüft …',message:'Frage dataselect.ch für Lieferant '+anbId+' ab …'});
+  GemaDataSelect.debug(opts).then(function(r){
+    var d=r&&r.debug;
+    var h='';
+    if(!d){
+      h='<div style="color:#dc2626;font-weight:700">Keine Diagnose erhalten.</div><div style="margin-top:6px">'+esc((r&&r.error)||'—')+'</div>';
+    }else{
+      var row=function(l,v){return '<tr><td style="padding:3px 8px 3px 0;color:#64748b;white-space:nowrap;vertical-align:top">'+esc(l)+'</td><td style="padding:3px 0;font-weight:600">'+v+'</td></tr>';};
+      var deutung='';
+      if(d.netzwerkFehler)deutung='<div style="background:#fef2f2;border:1px solid #fca5a5;color:#b91c1c;border-radius:8px;padding:8px 10px;margin-bottom:8px;font-size:12.5px">dataselect.ch war nicht erreichbar.</div>';
+      else if(d.httpStatus===401||d.httpStatus===403)deutung='<div style="background:#fffbeb;border:1px solid #fde68a;color:#92400e;border-radius:8px;padding:8px 10px;margin-bottom:8px;font-size:12.5px">🔒 <b>Zugang verweigert</b> (HTTP '+d.httpStatus+'). Dieser Lieferant gibt seinen Katalog nur an Kunden mit Datenbezug/Vertrag frei — ohne IGH-Zugang kommen hier keine Artikel. GEMA funktioniert trotzdem: nutze den GEMA-Produktkatalog oder eigene Artikel.</div>';
+      else if(d.erkanntesFormat==='JSON'&&d.jsonParsebar)deutung='<div style="background:#f0fdf4;border:1px solid #bbf7d0;color:#166534;border-radius:8px;padding:8px 10px;margin-bottom:8px;font-size:12.5px">✓ <b>JSON</b> — passt. Kommen unten keine sinnvollen Felder, ggf. das Zielformat anpassen (Env <code>DATASELECT_FORMAT_SUCHE</code>).</div>';
+      else if(d.erkanntesFormat==='XML'||d.erkanntesFormat==='HTML/XML')deutung='<div style="background:#fffbeb;border:1px solid #fde68a;color:#92400e;border-radius:8px;padding:8px 10px;margin-bottom:8px;font-size:12.5px">Es kommt <b>'+esc(d.erkanntesFormat)+'</b>, kein JSON. Für den Import ein JSON-Zielformat setzen (Env <code>DATASELECT_FORMAT_SUCHE=bexio</code>) oder mit anderen Formaten testen (unten «Format testen»).</div>';
+      h=deutung+'<table style="width:100%;border-collapse:collapse;font-size:12.5px">'
+        +row('Abgefragte URL','<span style="word-break:break-all;font-family:monospace;font-size:11px">'+esc(d.triedUrl||'—')+'</span>')
+        +row('Zielformat','<code>'+esc(d.format||'—')+'</code>')
+        +(d.netzwerkFehler?row('Netzwerk','<span style="color:#dc2626">'+esc(d.netzwerkFehler)+'</span>'):'')
+        +(d.httpStatus!=null?row('HTTP-Status',esc(d.httpStatus+' '+(d.httpStatusText||''))):'')
+        +(d.contentType!=null?row('Content-Type','<code>'+esc(d.contentType||'—')+'</code>'):'')
+        +(d.erkanntesFormat?row('Erkanntes Format',esc(d.erkanntesFormat)+(d.jsonParsebar?' (JSON-parsebar ✓)':'')):'')
+        +(d.laenge!=null?row('Länge',esc(d.laenge)+' Zeichen'):'')
+        +'</table>';
+      if(d.auszug!=null)h+='<div style="margin-top:8px;color:#64748b;font-size:11.5px">Erste Zeichen der Antwort:</div>'
+        +'<pre style="background:#0f172a;color:#e2e8f0;border-radius:8px;padding:9px 11px;font-size:11px;line-height:1.45;max-height:220px;overflow:auto;white-space:pre-wrap;word-break:break-word">'+esc(d.auszug||'(leer)')+'</pre>';
+      h+='<div style="margin-top:8px;font-size:11.5px;color:#64748b">Anderes Zielformat testen: '
+        +['bexio','debim','idsxml','json'].map(function(f){return '<a href="javascript:void(0)" style="text-decoration:underline;margin-right:8px" onclick="erpDsDebugFormat(\''+esc(anbId)+'\',\''+f+'\')">'+f+'</a>';}).join('')
+        +'</div>';
+    }
+    GemaDialog.alert({title:'🔍 Rohantwort von dataselect.ch',message:h,html:true});
+  });
+}
+// Diagnose mit erzwungenem Zielformat (aus dem «Format testen»-Link).
+function erpDsDebugFormat(anbId,format){
+  if(typeof GemaDataSelect==='undefined'||!GemaDataSelect.debug)return;
+  var inp=document.getElementById('dsq_'+anbId);var q=inp?inp.value.trim():'';
+  var opts={anbieter:anbId,sprache:'de',format:format};
+  if(q){if(/^[0-9][0-9.\- ]*$/.test(q))opts.artnr=q;else opts.bez=q;}
+  GemaDataSelect.debug(opts).then(function(r){
+    var d=r&&r.debug;
+    var h=d?('<div style="margin-bottom:6px"><b>Format:</b> <code>'+esc(d.format||format)+'</code> · <b>HTTP:</b> '+esc((d.httpStatus!=null?d.httpStatus:'—')+' '+(d.httpStatusText||''))+' · <b>'+esc(d.erkanntesFormat||'—')+'</b>'+(d.jsonParsebar?' (JSON ✓)':'')+'</div><pre style="background:#0f172a;color:#e2e8f0;border-radius:8px;padding:9px 11px;font-size:11px;line-height:1.45;max-height:260px;overflow:auto;white-space:pre-wrap;word-break:break-word">'+esc(d.auszug||d.netzwerkFehler||'(leer)')+'</pre>'):('<div style="color:#dc2626">'+esc((r&&r.error)||'Keine Diagnose')+'</div>');
+    GemaDialog.alert({title:'🔍 Format «'+esc(format)+'»',message:h,html:true});
   });
 }
 // Bild einer eingefügten DataSelect-Position verzögert nachladen: verkleinert

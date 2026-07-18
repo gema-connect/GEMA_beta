@@ -147,6 +147,13 @@ exports.handler = async function(event){
   // Ohne bilder → SUCHE: schnelle, schlanke Antwort (Inline-/Base64-Bilder werden
   // aus dem Payload entfernt, damit die Trefferliste nicht auf Bild-Bytes wartet).
   var withBilder = (String(p.bilder || '') === '1' || String(p.bilder || '').toLowerCase() === 'true');
+  // debug=1 → Rohantwort von dataselect.ch durchreichen (HTTP-Status, Content-Type,
+  // erkanntes Format, erste ~2500 Zeichen), damit man ohne IGH-Wissen SEHEN kann,
+  // was der Lieferant wirklich zurückgibt (JSON? XML? Login-/Fehlerseite? leer?).
+  var debug = (String(p.debug || '') === '1' || String(p.debug || '').toLowerCase() === 'true');
+  // Beim Debug ein günstiges, weit verbreitetes Format erzwingen (falls nichts
+  // eingegeben) — die Frage ist «was kommt zurück», nicht «findet er den Artikel».
+  var dbgFormat = String(p.format || '').trim();
 
   // Ziel-URL bauen (fixer Host → keine SSRF-Fläche)
   var qs = new URLSearchParams();
@@ -158,9 +165,11 @@ exports.handler = async function(event){
   // → langsam + «kein JSON»-Fehler. `bexio` ist ein schlankes JSON-Format mit den
   // ERP-Essentials (Artikel-Nr, Kurzbeschreibung, Preis, Einheit, EAN) — Default.
   // Beide Modi per Env übersteuerbar (z.B. auf ein Format MIT Bildern).
-  qs.set('format', withBilder
+  // Im Debug darf das Zielformat per Param getestet werden (z.B. &format=debim),
+  // sonst gilt die Env-Vorgabe je Modus.
+  qs.set('format', (debug && dbgFormat) ? dbgFormat : (withBilder
     ? (process.env.DATASELECT_FORMAT_BILD || 'bexio')
-    : (process.env.DATASELECT_FORMAT_SUCHE || 'bexio'));
+    : (process.env.DATASELECT_FORMAT_SUCHE || 'bexio')));
   if (artnr) qs.set('artnr', artnr);
   if (bez)   qs.set('Bez', bez);
   if (ean)   qs.set('EAN', ean);
@@ -172,6 +181,11 @@ exports.handler = async function(event){
     else headers['Authorization'] = 'Bearer ' + key;
   }
   var url = BASE + (BASE.indexOf('?') >= 0 ? '&' : '?') + qs.toString();
+  // URL fürs Debug OHNE Zugangs-Token (falls einer als Query-Param mitgeht).
+  var safeUrl = url;
+  if (key && process.env.DATASELECT_KEY_PARAM){
+    try { var sq = new URLSearchParams(qs.toString()); sq.set(process.env.DATASELECT_KEY_PARAM, '***'); safeUrl = BASE + (BASE.indexOf('?') >= 0 ? '&' : '?') + sq.toString(); } catch (e){}
+  }
 
   var ctrl = new AbortController();
   var timer = setTimeout(function(){ ctrl.abort(); }, TIMEOUT_MS);
@@ -181,10 +195,37 @@ exports.handler = async function(event){
     textBody = await resp.text();
   } catch (e){
     clearTimeout(timer);
+    var netMsg = (e && e.name === 'AbortError') ? 'Zeitüberschreitung (dataselect.ch antwortet nicht rechtzeitig).' : ('Netzwerkfehler: ' + (e && e.message ? e.message : '—'));
+    if (debug) return { statusCode: 200, headers: cors, body: JSON.stringify({ ok: false, debug: { triedUrl: safeUrl, format: qs.get('format'), keyGesetzt: !!key, netzwerkFehler: netMsg } }) };
     if (e && e.name === 'AbortError') return _err(504, 'DataSelect antwortet nicht rechtzeitig. Bitte später erneut versuchen.', cors);
     return _err(502, 'DataSelect nicht erreichbar: ' + (e && e.message ? e.message : 'Netzwerkfehler'), cors);
   }
   clearTimeout(timer);
+
+  // DEBUG: Rohantwort so zurückgeben, wie sie kam (unabhängig von Status/Format).
+  if (debug){
+    var _dbg = String(textBody || '');
+    var _t = _dbg.replace(/^﻿/, '').trim();
+    var ct = '';
+    try { ct = (resp.headers && resp.headers.get) ? (resp.headers.get('content-type') || '') : ''; } catch (e){}
+    var looksLike = 'leer/unbekannt';
+    if (_t.charAt(0) === '{' || _t.charAt(0) === '[') looksLike = 'JSON';
+    else if (_t.charAt(0) === '<') looksLike = (/^<\?xml/i.test(_t) || /<\/?[a-z]+:/.test(_t)) ? 'XML' : 'HTML/XML';
+    else if (_t) looksLike = 'Text (kein JSON/XML)';
+    var jsonOk = false; if (looksLike === 'JSON'){ try { JSON.parse(_t); jsonOk = true; } catch (e){} }
+    return { statusCode: 200, headers: cors, body: JSON.stringify({ ok: false, debug: {
+      triedUrl: safeUrl,
+      format: qs.get('format'),
+      keyGesetzt: !!key,
+      httpStatus: resp.status,
+      httpStatusText: resp.statusText || '',
+      contentType: ct,
+      erkanntesFormat: looksLike,
+      jsonParsebar: jsonOk,
+      laenge: _dbg.length,
+      auszug: _dbg.slice(0, 2500)
+    } }) };
+  }
 
   if (!resp.ok){
     // 404 = kein Treffer → leere Liste (nicht als Fehler behandeln)
