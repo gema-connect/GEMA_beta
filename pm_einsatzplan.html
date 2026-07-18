@@ -156,6 +156,7 @@ table.board{border-collapse:collapse;width:100%;min-width:860px}
 <script src="gema_feedback.js"></script><script src="gema_notify.js"></script><script src="gema_notify_ui.js"></script><script src="gema_chat.js"></script>
 <script src="gema_objekte_api.js"></script>
 <script src="gema_dialog.js"></script>
+<script src="gema_aushang.js"></script>
 <link rel="stylesheet" href="gema_responsive.css"/>
 </head>
 <body>
@@ -212,7 +213,7 @@ table.board{border-collapse:collapse;width:100%;min-width:860px}
     <div class="modal-hd"><h3 id="evTitle">Einsatz</h3><button class="modal-x" onclick="epEvClose()">✕</button></div>
     <div class="modal-bd">
       <div class="fld"><label>Typ</label><div class="typ-chips" id="evTyp"></div></div>
-      <div class="fld" id="evAuftragWrap" style="display:none"><label>Auftrag</label><select id="ev_auftrag" onchange="epEvAuftragChanged()"></select></div>
+      <div class="fld" id="evAuftragWrap" style="display:none"><label>Auftrag</label><select id="ev_auftrag" onchange="epEvAuftragChanged()"></select><div id="evKeyInfo"></div></div>
       <div class="fld"><label>Titel / Arbeit *</label><input id="ev_titel" type="text" placeholder="z.B. Steigzone EG–3.OG"/></div>
       <div class="fld-row">
         <div class="fld"><label>Monteur *</label><select id="ev_monteur"></select></div>
@@ -225,6 +226,10 @@ table.board{border-collapse:collapse;width:100%;min-width:860px}
       </div>
       <div class="fld"><label>Projekt / Objekt</label><select id="ev_objekt"></select></div>
       <div class="fld" id="evBereichWrap" style="display:none"><label>Arbeitsbereich</label><select id="ev_bereich"></select></div>
+      <div class="fld" id="evBesWrap" style="display:none"><label>Besonderheiten für den Monteur</label>
+        <div class="typ-chips" id="evBes"></div>
+        <div style="font-size:11px;color:var(--mut);margin-top:3px">Gut sichtbar auf dem Termin (Kalender, «Meine Woche», Stundenerfassung) — Liste definierbar in ⚙️ Einstellungen.</div>
+      </div>
       <div class="fld"><label>Garantie / Nachbesserung</label>
         <label style="display:flex;align-items:center;gap:10px;font-size:13.5px;font-weight:600;text-transform:none;letter-spacing:0;color:var(--txt);margin:0;cursor:pointer;padding:4px 0">
           <input type="checkbox" id="ev_garantie" style="width:22px;height:22px;accent-color:var(--amber);flex-shrink:0"/>
@@ -232,6 +237,7 @@ table.board{border-collapse:collapse;width:100%;min-width:860px}
         </label>
       </div>
       <div class="fld"><label>Notiz für den Monteur</label><textarea id="ev_notiz" placeholder="z.B. Schlüssel bei Hauswart, Material im Bus"></textarea></div>
+      <div id="evAushang" style="display:none"></div>
     </div>
     <div class="modal-ft" id="evFt"></div>
   </div>
@@ -266,6 +272,14 @@ table.board{border-collapse:collapse;width:100%;min-width:860px}
         <div style="font-size:11.5px;color:var(--mut);margin-bottom:6px">Individuell benannte Bereiche (z.B. Sanitär, Sanitärservice, Heizung). Zuweisung startet bei der Offerte im ERP, der Auftrag vererbt sie — Termine erscheinen im Kalender in der Bereichsfarbe. Liste gilt firmenweit.</div>
         <div id="ep_abRows"></div>
         <button class="btn" type="button" style="min-height:38px" onclick="abRowAdd('ep_abRows')">＋ Arbeitsbereich</button>
+      </div>
+      <div class="fld"><label>Besonderheiten (Hinweise für den Monteur)</label>
+        <div style="font-size:11.5px;color:var(--mut);margin-bottom:6px">Frei definierbare Hinweise, die pro Einsatz angehakt werden — der Monteur sieht sie direkt auf dem Termin (z.B. «Material im Lager bereit», «Grosse Leiter mitnehmen», «Rollgerüst»). Icon + Bezeichnung frei wählbar.</div>
+        <div id="ep_bsRows"></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn" type="button" style="min-height:38px" onclick="bsRowAdd('ep_bsRows')">＋ Besonderheit</button>
+          <button class="btn" type="button" style="min-height:38px" onclick="bsVorlagenEinfuegen()" title="Typische Beispiele als Startliste einfügen">↺ Beispiele einfügen</button>
+        </div>
       </div>
       <div class="fld"><label>Einplanbare Personen</label>
         <div style="font-size:11.5px;color:var(--mut);margin-bottom:6px">Standard: alle Monteure &amp; Spengler der Firma. Weitere Personen zuschaltbar.</div>
@@ -401,6 +415,145 @@ function abRowsCollect(hostId){
 }
 
 // ═══════════════════════════════════════════════════════════
+// BESONDERHEITEN (org.settings.einsatzplan.besonderheiten = [{id,ic,label}])
+// Frei definierbare Monteur-Hinweise («Material im Lager bereit», «Grosse
+// Leiter mitnehmen» …) — pro Einsatz anhakbar, gut sichtbar in allen Sichten.
+// ═══════════════════════════════════════════════════════════
+var BS_VORLAGEN=[
+  {ic:'📦',label:'Material im Lager bereit'},
+  {ic:'🪜',label:'Grosse Leiter mitnehmen'},
+  {ic:'🏗',label:'Rollgerüst mitnehmen'},
+  {ic:'🚚',label:'Anhänger nötig'},
+  {ic:'🅿️',label:'Parkplatz reservieren/beachten'}
+];
+function bsListe(){
+  var org=epOrg();
+  var l=(org&&org.settings&&org.settings.einsatzplan&&org.settings.einsatzplan.besonderheiten)||[];
+  if(!Array.isArray(l))return [];
+  return l.filter(function(b){return b&&b.id&&b.label;}).map(function(b){
+    return {id:String(b.id),label:String(b.label),ic:String(b.ic||'').trim()};
+  });
+}
+function bsById(id){if(!id)return null;var l=bsListe();for(var i=0;i<l.length;i++){if(l[i].id===id)return l[i];}return null;}
+function bsRowHtml(b){
+  b=b||{};
+  return '<div class="bs-row" data-id="'+esc(b.id||'')+'" style="display:flex;gap:8px;align-items:center;margin-bottom:6px">'
+    +'<input type="text" class="bs-ic" value="'+esc(b.ic||'')+'" placeholder="📦" title="Icon/Emoji (erscheint auf den Kalender-Karten)" style="width:54px;text-align:center;padding:9px 4px;border:1.5px solid var(--brd2);border-radius:9px;font-size:15px;flex-shrink:0"/>'
+    +'<input type="text" class="bs-label" value="'+esc(b.label||'')+'" placeholder="z.B. Material im Lager bereit" style="flex:1;min-width:0;padding:9px 11px;border:1.5px solid var(--brd2);border-radius:9px;font-size:13.5px"/>'
+    +'<button type="button" onclick="this.closest(\'.bs-row\').remove()" title="Besonderheit entfernen (bestehende Einsätze behalten den Haken, zeigen ihn aber nicht mehr an)" style="width:34px;height:34px;border-radius:9px;border:1px solid var(--brd2);background:var(--sur);color:var(--red);font-weight:900;cursor:pointer;flex-shrink:0">✕</button>'
+    +'</div>';
+}
+function bsRowAdd(hostId,vorlage){
+  var host=document.getElementById(hostId);
+  var tmp=document.createElement('div');
+  tmp.innerHTML=bsRowHtml(vorlage||{});
+  host.appendChild(tmp.firstChild);
+  if(!vorlage){var inp=host.lastChild.querySelector('.bs-label');if(inp)inp.focus();}
+}
+function bsVorlagenEinfuegen(){
+  var host=document.getElementById('ep_bsRows');
+  var vorhandene={};
+  host.querySelectorAll('.bs-label').forEach(function(i){vorhandene[i.value.trim().toLowerCase()]=1;});
+  BS_VORLAGEN.forEach(function(v){if(!vorhandene[v.label.toLowerCase()])bsRowAdd('ep_bsRows',v);});
+}
+function bsSlug(label,taken){
+  var s='bs_'+String(label).toLowerCase()
+    .replace(/ä/g,'ae').replace(/ö/g,'oe').replace(/ü/g,'ue').replace(/é|è|ê/g,'e')
+    .replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'').slice(0,28);
+  if(s==='bs_'||s==='bs')s='bs_hinweis';
+  var b=s,i=2;
+  while(taken[s])s=b+'_'+(i++);
+  taken[s]=1;
+  return s;
+}
+function bsRowsCollect(hostId){
+  var out=[],taken={};
+  var rows=document.querySelectorAll('#'+hostId+' .bs-row');
+  rows.forEach(function(row){var id=row.getAttribute('data-id');if(id)taken[id]=1;});
+  rows.forEach(function(row){
+    var label=row.querySelector('.bs-label').value.trim();
+    if(!label)return;
+    var id=row.getAttribute('data-id')||bsSlug(label,taken);
+    out.push({id:id,label:label,ic:row.querySelector('.bs-ic').value.trim()});
+  });
+  return out;
+}
+// Anzeige-Helfer: kompakte Icons (Woche/Monat) + volle Pills (Tag/Meine Woche)
+function bsVon(ev){return (ev&&ev.besonderheiten||[]).map(bsById).filter(Boolean);}
+function bsIconsHtml(ev){
+  var l=bsVon(ev);var key=epSchluessel(ev);
+  if(!l.length&&!key)return '';
+  return '<div class="ev-s" style="display:flex;gap:3px;flex-wrap:wrap;font-size:12px;line-height:1.2">'
+    +(key?'<span title="Schlüssel/Zutritt hinterlegt — Details im Einsatz bzw. in «Meine Woche»">🔑</span>':'')
+    +l.map(function(b){return '<span title="'+esc(b.label)+'">'+esc(b.ic||'📌')+'</span>';}).join('')
+    +'</div>';
+}
+function bsIconsText(ev){
+  var t=bsVon(ev).map(function(b){return b.ic||'📌';}).join('');
+  if(epSchluessel(ev))t='🔑'+t;
+  return t?t+' ':'';
+}
+function bsChipsHtml(ev){
+  var l=bsVon(ev);
+  if(!l.length)return '';
+  return '<div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:6px">'+l.map(function(b){
+    return '<span style="background:#fffbeb;border:1.5px solid #fcd34d;color:#92400e;font-size:11px;font-weight:800;border-radius:999px;padding:2px 9px">'+esc((b.ic?b.ic+' ':'')+b.label)+'</span>';
+  }).join('')+'</div>';
+}
+
+// ── Schlüssel/Zutritt vom verknüpften ERP-Auftrag (auftrag.schluessel) ──
+// Live-Lookup im ERP-Pool (beim Boot für alle gebunden) — Quelle bleibt der
+// Auftrag («Daten einmal erfassen»), der Einsatz zeigt sie nur an.
+var _epErpMemo={t:0,l:null};
+function _epErpPool(){
+  var now=Date.now();
+  if(_epErpMemo.l&&now-_epErpMemo.t<1500)return _epErpMemo.l;
+  var all=[];
+  try{if(typeof GemaSync!=='undefined'&&GemaSync.getCached)all=GemaSync.getCached('gema_erp_dok_pool_v1')||[];}catch(e){}
+  _epErpMemo={t:now,l:all};
+  return all;
+}
+function epSchluessel(ev){
+  if(!ev)return null;
+  // Eigenes strukturiertes Feld zuerst — z.B. Service-Einsätze (sv_service)
+  // tragen den Schlüssel-Snapshot der Anlage direkt auf dem Einsatz
+  if(ev.schluessel){
+    var ec=String(ev.schluessel.code||'').trim(),ei=String(ev.schluessel.info||'').trim();
+    if(ec||ei)return {code:ec,info:ei};
+  }
+  if(!ev.auftragId)return null;
+  var u=epUser();
+  var a=_epErpPool().find(function(d){return d&&d.id===ev.auftragId&&(!u||d.orgId===u.orgId);});
+  var s=a&&a.schluessel;
+  if(!s)return null;
+  var code=String(s.code||'').trim(),info=String(s.info||'').trim();
+  if(!code&&!info)return null;
+  return {code:code,info:info};
+}
+function epSchluesselBoxHtml(ev){
+  var s=epSchluessel(ev);
+  if(!s)return '';
+  return '<div style="background:#fffbeb;border:1.5px solid #fcd34d;border-radius:9px;padding:7px 10px;margin-top:6px;font-size:12px;color:#78350f;font-weight:600">🔑 <b>Schlüssel/Zutritt:</b> '
+    +(s.code?'Code <b style="font-size:13px;letter-spacing:.5px">'+esc(s.code)+'</b>':'')
+    +(s.code&&s.info?' · ':'')+esc(s.info)
+    +'</div>';
+}
+// Verantwortliche Person («Sachbearbeiter») für den Monteur: beim Auftrags-
+// Einsatz live vom ERP-Auftrag (sachbearbeiter, Fallback erstelltVon), bei
+// freien Einsätzen die Person, die den Einsatz eingeplant hat.
+function epVerantwortlich(ev){
+  if(ev&&ev.auftragId){
+    var u=epUser();
+    var a=_epErpPool().find(function(d){return d&&d.id===ev.auftragId&&(!u||d.orgId===u.orgId);});
+    if(a){
+      var s=(a.sachbearbeiter&&a.sachbearbeiter.name)?a.sachbearbeiter:a.erstelltVon;
+      if(s&&s.name)return s.name;
+    }
+  }
+  return (ev&&ev.erstelltVon&&ev.erstelltVon.name)||'';
+}
+
+// ═══════════════════════════════════════════════════════════
 // DATUM-HELFER
 // ═══════════════════════════════════════════════════════════
 function iso(d){return d.toISOString().slice(0,10);}
@@ -517,6 +670,7 @@ function epRenderWoche(){
           +(e.garantie?'<span class="slot-pill" title="Garantiearbeit (Garantie / Eigenverschulden)">🛡</span>':'')
           +'<span class="ev-t">'+esc(e.titel||(e.auftragNr||''))+'</span>'
           +(e.objektName||e.kunde?'<div class="ev-s">'+esc(e.objektName||e.kunde)+'</div>':'')
+          +bsIconsHtml(e)
           +((e.dauerTage||1)>1?'<div class="ev-s">↔ '+e.dauerTage+' Tage</div>':'')
           +'</div>';
       }).join('');
@@ -539,6 +693,7 @@ function epRenderSide(){
       +'<div class="j-nr">'+esc(a.nr||'')+'</div>'
       +'<div class="j-t">'+esc(a.titel||(a.kundeSnapshot&&a.kundeSnapshot.firma)||'Auftrag')+'</div>'
       +'<div class="j-s">'+esc((a.kundeSnapshot&&a.kundeSnapshot.firma)||'')+(a.objektName?' · '+esc(a.objektName):'')+'</div>'
+      +(function(){var s=(a.sachbearbeiter&&a.sachbearbeiter.name)?a.sachbearbeiter:a.erstelltVon;return s&&s.name?'<div class="j-s">👔 '+esc(s.name)+'</div>':'';})()
       +(b?'<div style="margin-top:3px">'+abChipHtml(a.bereichId)+'</div>':'')
       +(a._geplant?'<span class="j-badge">✓ eingeplant</span>':'')
       +'</div>';
@@ -560,7 +715,7 @@ function epRenderMonat(){
     var dayEvs=evs.filter(function(e){return epCovers(e,day);});
     var dots=dayEvs.slice(0,4).map(function(e){
       var b=abById(e.bereichId);
-      return '<div class="mdot t-'+(e.typ||'frei')+'"'+(b?' style="background:'+abTint(b.farbe)+';color:var(--txt);box-shadow:inset 3px 0 0 '+b.farbe+'"':'')+'>'+(e.garantie?'🛡 ':'')+esc((e.monteurName||'').split(' ')[0])+': '+esc(e.titel||e.auftragNr||'')+'</div>';
+      return '<div class="mdot t-'+(e.typ||'frei')+'"'+(b?' style="background:'+abTint(b.farbe)+';color:var(--txt);box-shadow:inset 3px 0 0 '+b.farbe+'"':'')+'>'+(e.garantie?'🛡 ':'')+bsIconsText(e)+esc((e.monteurName||'').split(' ')[0])+': '+esc(e.titel||e.auftragNr||'')+'</div>';
     }).join('')+(dayEvs.length>4?'<div class="mdot" style="background:var(--sur2)">+'+(dayEvs.length-4)+' weitere</div>':'');
     cells+='<div class="mcell'+(out?' out':'')+(day===t?' today':'')+'" onclick="epDayOpen(\''+day+'\')"><div class="md">'+dd.getDate()+'</div>'+dots+'</div>';
     if(i>=34&&parse(addD(start,i+1)).getMonth()!==mon&&(i+1)%7===0)break;
@@ -575,7 +730,9 @@ function epDayOpen(day){
     var b=abById(e.bereichId);
     return '<div class="my-card t-'+(e.typ||'frei')+'" style="margin-bottom:8px;cursor:pointer'+(b?';border-left-color:'+b.farbe:'')+'" onclick="document.getElementById(\'dayModal\').classList.remove(\'open\');epEvOpen(\''+e.id+'\')">'
       +'<div class="t">'+(e.garantie?'🛡 ':'')+esc(e.titel||e.auftragNr||'')+(b?' '+abChipHtml(e.bereichId):'')+'</div>'
-      +'<div class="s">👤 '+esc(e.monteurName||'')+(slotLabel(e)?' · '+esc(slotLabel(e)):'')+(e.objektName?'<br>🏗 '+esc(e.objektName):'')+'</div></div>';
+      +'<div class="s">👤 '+esc(e.monteurName||'')+(slotLabel(e)?' · '+esc(slotLabel(e)):'')+(e.objektName?'<br>🏗 '+esc(e.objektName):'')
+      +(function(){var vw=epVerantwortlich(e);return vw?'<br>👔 Verantwortlich: '+esc(vw):'';})()+'</div>'
+      +bsChipsHtml(e)+epSchluesselBoxHtml(e)+'</div>';
   }).join(''):'<div class="empty">Keine Einsätze an diesem Tag.</div>')
   +(epCanPlan()?'<button class="btn pri" style="width:100%;margin-top:8px" onclick="document.getElementById(\'dayModal\').classList.remove(\'open\');epNeu(null,\''+day+'\')">＋ Einsatz an diesem Tag</button>':'');
   document.getElementById('dayModal').classList.add('open');
@@ -601,10 +758,13 @@ function epRenderMeine(){
         +'<div class="t">'+(slotLabel(e)?'<span style="font-size:11px;font-weight:900;color:var(--acc)">'+esc(slotLabel(e))+'</span> ':'')+(e.garantie?'🛡 ':'')+esc(e.titel||e.auftragNr||'')+(b?' '+abChipHtml(e.bereichId):'')+'</div>'
         +'<div class="s">'+(e.auftragNr?'📋 '+esc(e.auftragNr)+(e.kunde?' · '+esc(e.kunde):'')+'<br>':'')
         +(e.objektName?'🏗 '+esc(e.objektName)+'<br>':'')
+        +(function(){var vw=epVerantwortlich(e);return vw?'👔 Verantwortlich: <b>'+esc(vw)+'</b><br>':'';})()
         +(e.garantie?'🛡 Garantiearbeit<br>':'')
         +(e.notiz?'💬 '+esc(e.notiz)+'<br>':'')
         +((e.dauerTage||1)>1?'↔ '+e.dauerTage+' Tage ab '+dfmtLong(e.datum):'')
         +'</div>'
+        +bsChipsHtml(e)
+        +epSchluesselBoxHtml(e)
         +(e.objektId?'<a class="btn" style="margin-top:8px;font-size:12px" href="pm_regierapport.html?objekt='+esc(e.objektId)+'">📝 Regierapport erfassen</a>':'')
         +'</div>';
     });
@@ -816,7 +976,7 @@ function epNeuAusAuftrag(a,monteurId,datum){
     id:uid(),orgId:u?u.orgId:'',typ:'auftrag',
     auftragId:a.id,auftragNr:a.nr,kunde:(a.kundeSnapshot&&a.kundeSnapshot.firma)||'',
     titel:a.titel||a.nr,objektId:a.objektId||'',objektName:a.objektName||'',
-    bereichId:a.bereichId||'',garantie:false,
+    bereichId:a.bereichId||'',garantie:false,besonderheiten:[],
     monteurUserId:monteurId,monteurName:p?(p.name||p.username):'',
     datum:datum,dauerTage:1,slot:'ganz',zeitVon:'',zeitBis:'',notiz:'',
     erstelltVon:{userId:u?u.id:'',name:u?u.name:''},erstelltAm:new Date().toISOString()
@@ -825,6 +985,50 @@ function epNeuAusAuftrag(a,monteurId,datum){
   epNotify(ev,'geplant');
   toast('📋 '+(a.nr||'Auftrag')+' bei '+(ev.monteurName||'?')+' am '+dfmt(datum)+' eingeplant');
   epRender();
+  // Erinnerung: am Auftrag ist «Aushang nötig» hinterlegt (Mieter-Info,
+  // z.B. Wasserabstellung im MFH) → direkt für diesen Termin erstellen
+  if(typeof GemaAushang!=='undefined'&&typeof GemaDialog!=='undefined'&&a.aushang&&a.aushang.noetig){
+    GemaDialog.confirm({
+      title:'📌 Aushang nötig',
+      message:'Für Auftrag '+(a.nr||'')+' ist ein Aushang hinterlegt (Mieter-Info, z.B. Wasser-/Stromabstellung).\n\nJetzt für diesen Termin erstellen und drucken?',
+      confirmLabel:'Aushang erstellen'
+    }).then(function(ok){if(ok)epAushangOpen(ev.id);});
+  }
+}
+// ── Aushang (Mieter-Info) am Termin: Quelle = ev.aushang (eigener Stand)
+//    → sonst Auftrag (a.aushang, Flag + gespeicherte Daten aus pm_erp) ──
+function epAushangInfo(ev){
+  if(ev&&ev.aushang)return {noetig:!!ev.aushang.noetig,vorlageId:ev.aushang.vorlageId||'',daten:ev.aushang.daten||null};
+  var a=ev&&ev.auftragId?_epErpPool().find(function(x){return x.id===ev.auftragId;}):null;
+  var au=(a&&a.aushang)||{};
+  return {noetig:!!au.noetig,vorlageId:au.vorlageId||'',daten:au.daten||null};
+}
+function epAushangOpen(evId){
+  if(typeof GemaAushang==='undefined')return;
+  var ev=poolRead().find(function(x){return x.id===evId;});
+  if(!ev)return;
+  var info=epAushangInfo(ev);
+  var tage=parseInt(ev.dauerTage,10)||1;
+  var bisD='';
+  if(tage>1){var dd=new Date(ev.datum+'T12:00:00');dd.setDate(dd.getDate()+tage-1);bisD=dd.toISOString().slice(0,10);}
+  // Der TERMIN ist die Quelle fürs Datum — gespeicherte Aushang-Daten (Text/
+  // Zusatz/Zeit) bleiben, aber ein verschobener Einsatz druckt nie das alte Datum
+  var g=info.daten?JSON.parse(JSON.stringify(info.daten)):null;
+  if(g){g.datum=ev.datum;g.datumBis=bisD;}
+  GemaAushang.open({
+    vorlageId:info.vorlageId,
+    gespeichert:g,
+    datum:ev.datum,datumBis:bisD,
+    von:ev.zeitVon||'',bis:ev.zeitBis||'',
+    objektName:ev.objektName||'',
+    onSave:function(data){
+      var e2=poolRead().find(function(x){return x.id===evId;});
+      if(!e2)return;
+      e2.aushang=Object.assign({},e2.aushang||{},{noetig:!!(info.noetig||(e2.aushang&&e2.aushang.noetig)),vorlageId:data.vorlageId||'',daten:data});
+      epSave(e2);
+      if(curEv&&curEv.id===evId){curEv.aushang=e2.aushang;if(document.getElementById('evModal').classList.contains('open'))epEvRender();}
+    }
+  });
 }
 function epNeu(monteurId,datum){
   if(!epCanPlan()){toast('Keine Berechtigung');return;}
@@ -834,7 +1038,7 @@ function epNeu(monteurId,datum){
     monteurUserId:monteurId||'',monteurName:'',
     datum:datum||_anker,dauerTage:1,slot:'ganz',zeitVon:'',zeitBis:'',
     auftragId:'',auftragNr:'',kunde:'',objektId:'',objektName:'',notiz:'',
-    bereichId:'',garantie:false,
+    bereichId:'',garantie:false,besonderheiten:[],
     erstelltVon:{userId:u?u.id:'',name:u?u.name:''},erstelltAm:new Date().toISOString(),_neu:true
   };
   epEvRender();
@@ -899,10 +1103,37 @@ function epEvRender(){
     }).join('');
     bsel.disabled=!canEdit;
   } else bw.style.display='none';
+  // Besonderheiten-Chips (Mehrfachauswahl; Liste aus ⚙️ Einstellungen)
+  var bs=bsListe();
+  var besWrap=document.getElementById('evBesWrap');
+  if(bs.length){
+    besWrap.style.display='';
+    document.getElementById('evBes').innerHTML=bs.map(function(b){
+      var on=(ev.besonderheiten||[]).indexOf(b.id)>=0;
+      return '<button class="tchip'+(on?' on':'')+'"'+(canEdit?' onclick="epBesToggle(\''+b.id+'\')"':' disabled')+'>'+esc((b.ic?b.ic+' ':'')+b.label)+'</button>';
+    }).join('');
+  } else besWrap.style.display='none';
+  // Verantwortlicher Sachbearbeiter + Schlüssel/Zutritt des verknüpften Auftrags (read-only)
+  document.getElementById('evKeyInfo').innerHTML=(function(){
+    var vw=ev.auftragId?epVerantwortlich(ev):'';
+    return (vw?'<div style="font-size:11.5px;color:var(--mut);margin-top:4px">👔 Verantwortlich: <b>'+esc(vw)+'</b></div>':'')+epSchluesselBoxHtml(ev);
+  })();
   var gchk=document.getElementById('ev_garantie');
   gchk.checked=!!ev.garantie;
   gchk.disabled=!canEdit;
   document.getElementById('ev_notiz').value=ev.notiz||'';
+  // Aushang (Mieter-Info): Badge wenn am Auftrag/Einsatz «Aushang nötig»
+  // hinterlegt ist; der Button druckt direkt vom Termin (Datum/Zeit vorbefüllt)
+  var ausWrap=document.getElementById('evAushang');
+  if(typeof GemaAushang!=='undefined'&&!ev._neu&&ev.typ!=='ferien'&&canEdit){
+    var ausInfo=epAushangInfo(ev);
+    ausWrap.style.display='';
+    ausWrap.innerHTML='<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;background:var(--sur2);border:1px solid var(--brd);border-radius:10px;padding:8px 11px">'
+      +(ausInfo.noetig?'<span style="font-size:11.5px;font-weight:800;color:#92400e;background:#fffbeb;border:1px solid #fcd34d;border-radius:999px;padding:3px 10px">📌 Aushang nötig</span>':'<span style="font-size:12px;color:var(--mut)">📌 Aushang (Mieter-Info)</span>')
+      +(ausInfo.daten&&ausInfo.daten.gedrucktAm?'<span style="font-size:11px;color:var(--grn)">✓ erstellt am '+dfmt(String(ausInfo.daten.gedrucktAm).slice(0,10))+'</span>':'')
+      +'<button type="button" class="btn" style="margin-left:auto;min-height:32px;padding:4px 11px;font-size:12px" onclick="epAushangOpen(\''+ev.id+'\')">🖨 Aushang erstellen …</button>'
+      +'</div>';
+  } else {ausWrap.style.display='none';ausWrap.innerHTML='';}
   // Footer
   var ft='';
   if(canEdit){
@@ -914,6 +1145,12 @@ function epEvRender(){
   }
   document.getElementById('evFt').innerHTML=ft;
   document.getElementById('evModal').classList.add('open');
+}
+function epBesToggle(id){
+  var l=curEv.besonderheiten=curEv.besonderheiten||[];
+  var i=l.indexOf(id);
+  if(i>=0)l.splice(i,1);else l.push(id);
+  epEvRender();
 }
 function epEvAuftragChanged(){
   var id=document.getElementById('ev_auftrag').value;
@@ -970,9 +1207,12 @@ function epNotify(ev,art){
     if(typeof GemaNotify==='undefined'||!ev.monteurUserId)return;
     var u=epUser();
     if(u&&u.id===ev.monteurUserId)return;   // sich selbst nicht benachrichtigen
+    // Besonderheiten in den Notify-Text (Schlüsselcode bewusst NICHT — der
+    // steht nur im Auftrag/Einsatzplan, nicht in Benachrichtigungs-Records)
+    var besTxt=bsVon(ev).map(function(b){return (b.ic?b.ic+' ':'')+b.label;}).join(', ');
     GemaNotify.push({eventKey:'einsatz_geplant',empfaengerUserId:ev.monteurUserId,modul:'einsatzplan',typ:'aktion',
       titel:art==='verschoben'?'Einsatz verschoben':'Neuer Einsatz eingeplant',
-      text:(ev.titel||ev.auftragNr||'Einsatz')+' — '+WD[(parse(ev.datum).getDay()+6)%7]+' '+dfmtLong(ev.datum)+(slotLabel(ev)?' ('+slotLabel(ev)+')':''),
+      text:(ev.titel||ev.auftragNr||'Einsatz')+' — '+WD[(parse(ev.datum).getDay()+6)%7]+' '+dfmtLong(ev.datum)+(slotLabel(ev)?' ('+slotLabel(ev)+')':'')+(besTxt?' · '+besTxt:''),
       link:'pm_einsatzplan.html?d='+ev.datum});
   }catch(e){}
 }
@@ -996,6 +1236,7 @@ function epOpenSettings(){
       +esc(x.name||x.username)+(std?' <span style="font-size:10px;color:var(--mut2)">(Monteur/Spengler)</span>':'')+'</label>';
   }).join('');
   document.getElementById('ep_abRows').innerHTML=abListe().map(abRowHtml).join('');
+  document.getElementById('ep_bsRows').innerHTML=bsListe().map(bsRowHtml).join('');
   epSetRasterChips();epSetWeChips();
   document.getElementById('setModal').classList.add('open');
 }
@@ -1012,7 +1253,7 @@ function epSetSave(){
     var org=epOrg();
     var settings=(org&&org.settings)||{};
     var ids=Object.keys(_setUsers).filter(function(id){return _setUsers[id];});
-    settings.einsatzplan={raster:_setRaster,wochenende:_setWe,userIds:ids};
+    settings.einsatzplan={raster:_setRaster,wochenende:_setWe,userIds:ids,besonderheiten:bsRowsCollect('ep_bsRows')};
     // Arbeitsbereiche liegen TOP-LEVEL in org.settings (geteilt mit dem ERP)
     settings.arbeitsbereiche=abRowsCollect('ep_abRows');
     GemaAuth.updateOrgSettings(org.id,settings);
