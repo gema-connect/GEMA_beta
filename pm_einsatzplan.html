@@ -529,6 +529,20 @@ function epSchluesselBoxHtml(ev){
     +(s.code&&s.info?' · ':'')+esc(s.info)
     +'</div>';
 }
+// Verantwortliche Person («Sachbearbeiter») für den Monteur: beim Auftrags-
+// Einsatz live vom ERP-Auftrag (sachbearbeiter, Fallback erstelltVon), bei
+// freien Einsätzen die Person, die den Einsatz eingeplant hat.
+function epVerantwortlich(ev){
+  if(ev&&ev.auftragId){
+    var u=epUser();
+    var a=_epErpPool().find(function(d){return d&&d.id===ev.auftragId&&(!u||d.orgId===u.orgId);});
+    if(a){
+      var s=(a.sachbearbeiter&&a.sachbearbeiter.name)?a.sachbearbeiter:a.erstelltVon;
+      if(s&&s.name)return s.name;
+    }
+  }
+  return (ev&&ev.erstelltVon&&ev.erstelltVon.name)||'';
+}
 
 // ═══════════════════════════════════════════════════════════
 // DATUM-HELFER
@@ -670,6 +684,7 @@ function epRenderSide(){
       +'<div class="j-nr">'+esc(a.nr||'')+'</div>'
       +'<div class="j-t">'+esc(a.titel||(a.kundeSnapshot&&a.kundeSnapshot.firma)||'Auftrag')+'</div>'
       +'<div class="j-s">'+esc((a.kundeSnapshot&&a.kundeSnapshot.firma)||'')+(a.objektName?' · '+esc(a.objektName):'')+'</div>'
+      +(function(){var s=(a.sachbearbeiter&&a.sachbearbeiter.name)?a.sachbearbeiter:a.erstelltVon;return s&&s.name?'<div class="j-s">👔 '+esc(s.name)+'</div>':'';})()
       +(b?'<div style="margin-top:3px">'+abChipHtml(a.bereichId)+'</div>':'')
       +(a._geplant?'<span class="j-badge">✓ eingeplant</span>':'')
       +'</div>';
@@ -706,7 +721,8 @@ function epDayOpen(day){
     var b=abById(e.bereichId);
     return '<div class="my-card t-'+(e.typ||'frei')+'" style="margin-bottom:8px;cursor:pointer'+(b?';border-left-color:'+b.farbe:'')+'" onclick="document.getElementById(\'dayModal\').classList.remove(\'open\');epEvOpen(\''+e.id+'\')">'
       +'<div class="t">'+(e.garantie?'🛡 ':'')+esc(e.titel||e.auftragNr||'')+(b?' '+abChipHtml(e.bereichId):'')+'</div>'
-      +'<div class="s">👤 '+esc(e.monteurName||'')+(slotLabel(e)?' · '+esc(slotLabel(e)):'')+(e.objektName?'<br>🏗 '+esc(e.objektName):'')+'</div>'
+      +'<div class="s">👤 '+esc(e.monteurName||'')+(slotLabel(e)?' · '+esc(slotLabel(e)):'')+(e.objektName?'<br>🏗 '+esc(e.objektName):'')
+      +(function(){var vw=epVerantwortlich(e);return vw?'<br>👔 Verantwortlich: '+esc(vw):'';})()+'</div>'
       +bsChipsHtml(e)+epSchluesselBoxHtml(e)+'</div>';
   }).join(''):'<div class="empty">Keine Einsätze an diesem Tag.</div>')
   +(epCanPlan()?'<button class="btn pri" style="width:100%;margin-top:8px" onclick="document.getElementById(\'dayModal\').classList.remove(\'open\');epNeu(null,\''+day+'\')">＋ Einsatz an diesem Tag</button>':'');
@@ -733,6 +749,7 @@ function epRenderMeine(){
         +'<div class="t">'+(slotLabel(e)?'<span style="font-size:11px;font-weight:900;color:var(--acc)">'+esc(slotLabel(e))+'</span> ':'')+(e.garantie?'🛡 ':'')+esc(e.titel||e.auftragNr||'')+(b?' '+abChipHtml(e.bereichId):'')+'</div>'
         +'<div class="s">'+(e.auftragNr?'📋 '+esc(e.auftragNr)+(e.kunde?' · '+esc(e.kunde):'')+'<br>':'')
         +(e.objektName?'🏗 '+esc(e.objektName)+'<br>':'')
+        +(function(){var vw=epVerantwortlich(e);return vw?'👔 Verantwortlich: <b>'+esc(vw)+'</b><br>':'';})()
         +(e.garantie?'🛡 Garantiearbeit<br>':'')
         +(e.notiz?'💬 '+esc(e.notiz)+'<br>':'')
         +((e.dauerTage||1)>1?'↔ '+e.dauerTage+' Tage ab '+dfmtLong(e.datum):'')
@@ -1043,8 +1060,11 @@ function epEvRender(){
       return '<button class="tchip'+(on?' on':'')+'"'+(canEdit?' onclick="epBesToggle(\''+b.id+'\')"':' disabled')+'>'+esc((b.ic?b.ic+' ':'')+b.label)+'</button>';
     }).join('');
   } else besWrap.style.display='none';
-  // Schlüssel/Zutritt des verknüpften Auftrags (read-only Anzeige)
-  document.getElementById('evKeyInfo').innerHTML=epSchluesselBoxHtml(ev);
+  // Verantwortlicher Sachbearbeiter + Schlüssel/Zutritt des verknüpften Auftrags (read-only)
+  document.getElementById('evKeyInfo').innerHTML=(function(){
+    var vw=ev.auftragId?epVerantwortlich(ev):'';
+    return (vw?'<div style="font-size:11.5px;color:var(--mut);margin-top:4px">👔 Verantwortlich: <b>'+esc(vw)+'</b></div>':'')+epSchluesselBoxHtml(ev);
+  })();
   var gchk=document.getElementById('ev_garantie');
   gchk.checked=!!ev.garantie;
   gchk.disabled=!canEdit;

@@ -624,6 +624,28 @@ function erpVorlagen(){var u=erpUser();return poolRead(VORL_POOL).filter(functio
 // RECHTE / SETTINGS / HELPERS
 // ═══════════════════════════════════════════════════════════
 function erpUser(){try{return GemaAuth.getCurrentUser();}catch(e){return null;}}
+// Sachbearbeiter = verantwortliche Person des Dokuments. Default beim Erstellen
+// ist der Ersteller; Altdaten ohne Feld fallen auf erstelltVon zurück.
+function erpSb(d){
+  if(d&&d.sachbearbeiter&&d.sachbearbeiter.name)return d.sachbearbeiter;
+  if(d&&d.erstelltVon&&d.erstelltVon.name)return d.erstelltVon;
+  return null;
+}
+function erpSbNeu(quelle){
+  var s=quelle?erpSb(quelle):null;
+  if(s)return {userId:s.userId||'',name:s.name||''};
+  var u=erpUser();
+  return {userId:u?u.id:'',name:u?(u.name||u.username||''):''};
+}
+function erpOrgUsers(){
+  var u=erpUser();var users=[];
+  try{users=GemaAuth.getUsers()||[];}catch(e){}
+  return users.filter(function(x){return x&&x.active!==false&&u&&x.orgId===u.orgId;});
+}
+function erpSbWahl(uid){
+  var x=erpOrgUsers().find(function(v){return v.id===uid;});
+  if(x)cur.sachbearbeiter={userId:x.id,name:x.name||x.username||''};
+}
 function erpHas(rid){var u=erpUser();return !!(u&&u.roleIds&&u.roleIds.indexOf(rid)>=0);}
 function erpCanEdit(){
   if(erpHas('role_admin')||erpHas('role_planer')||erpHas('role_hlkk_planer')||erpHas('role_lueftung_planer')||erpHas('role_elektro_planer')||erpHas('role_abteilungsleiter'))return true;
@@ -874,10 +896,17 @@ function erpRenderToolbar(){
   var h='';
   if(erpCanEdit()&&_tab!=='erfolg')h+='<button class="btn pri" style="flex:1;min-width:170px;font-size:15px" onclick="erpNeu(\''+_tab+'\')">＋ Neue '+(_tab==='auftrag'?'r Auftrag':TYP[_tab].n)+'</button>';
   h+='<select id="fObjekt" onchange="erpRenderList()">'+objOpts+'</select>';
+  // Sachbearbeiter-Filter — datengetrieben aus den vorhandenen Dokumenten
+  var sbs={};
+  erpDocs().forEach(function(d){var s=erpSb(d);if(s&&s.name)sbs[String(s.userId||s.name)]=s.name;});
+  var sbKeys=Object.keys(sbs).sort(function(a,b){return sbs[a].localeCompare(sbs[b]);});
+  if(sbKeys.length>1)h+='<select id="fSb" onchange="erpRenderList()"><option value="">Alle Sachbearbeiter</option>'+sbKeys.map(function(k){return '<option value="'+esc(k)+'">👔 '+esc(sbs[k])+'</option>';}).join('')+'</select>';
   h+='<input type="text" id="fSuche" placeholder="🔍 Suchen …" oninput="erpRenderList()"/>';
   var old=document.getElementById('fObjekt');var oldV=old?old.value:'';
+  var oldSb=document.getElementById('fSb');var oldSbV=oldSb?oldSb.value:'';
   el.innerHTML=h;
   if(oldV&&document.getElementById('fObjekt'))document.getElementById('fObjekt').value=oldV;
+  if(oldSbV&&document.getElementById('fSb'))document.getElementById('fSb').value=oldSbV;
 }
 function erpRenderList(){
   var el=document.getElementById('docList');
@@ -896,9 +925,11 @@ function erpRenderList(){
   var docs=erpDocs().filter(function(d){return d.typ===_tab;});
   var fo=document.getElementById('fObjekt');var fs=document.getElementById('fSuche');
   if(fo&&fo.value)docs=docs.filter(function(d){return d.objektId===fo.value;});
+  var fb=document.getElementById('fSb');
+  if(fb&&fb.value)docs=docs.filter(function(d){var s=erpSb(d);return s&&String(s.userId||s.name)===fb.value;});
   if(fs&&fs.value.trim()){
     var q=fs.value.toLowerCase();
-    docs=docs.filter(function(d){return ((d.nr||'')+' '+(d.titel||'')+' '+erpKundeName(d)+' '+(d.objektName||'')).toLowerCase().indexOf(q)>=0;});
+    docs=docs.filter(function(d){var sb=erpSb(d);return ((d.nr||'')+' '+(d.titel||'')+' '+erpKundeName(d)+' '+(d.objektName||'')+' '+(sb?sb.name:'')).toLowerCase().indexOf(q)>=0;});
   }
   docs.sort(function(a,b){return String(b.datum||'').localeCompare(String(a.datum||''))||String(b.nr||'').localeCompare(String(a.nr||''));});
   if(!docs.length){
@@ -925,6 +956,7 @@ function erpRenderList(){
       +'<div class="card-title">'+esc(d.titel||erpKundeName(d))+'</div>'
       +'<div class="card-meta">👤 '+esc(erpKundeName(d))+(d.objektName?'<br>🏗 '+esc(d.objektName):'')
       +'<br>📅 '+dfmt(d.datum)+' · <b style="color:var(--txt2)">CHF '+chf(t.brutto)+'</b>'
+      +(function(){var sb=erpSb(d);return sb?' · 👔 '+esc(sb.name):'';})()
       +(chain?'<br><span class="chain">🔗 '+esc(chain)+'</span>':'')+'</div></div></div>';
   }).join('');
 }
@@ -939,6 +971,8 @@ function erpRenderErfolg(el){
   var auf=docs.filter(function(d){return d.typ==='auftrag';});
   var fo=document.getElementById('fObjekt');var fs=document.getElementById('fSuche');
   if(fo&&fo.value)auf=auf.filter(function(d){return d.objektId===fo.value;});
+  var fb=document.getElementById('fSb');
+  if(fb&&fb.value)auf=auf.filter(function(d){var s=erpSb(d);return s&&String(s.userId||s.name)===fb.value;});
   if(fs&&fs.value.trim()){
     var q=fs.value.toLowerCase();
     auf=auf.filter(function(d){return ((d.nr||'')+' '+(d.titel||'')+' '+erpKundeName(d)+' '+(d.objektName||'')).toLowerCase().indexOf(q)>=0;});
@@ -997,6 +1031,7 @@ function erpNeu(typ,vorlage){
   cur=Object.assign({
     id:uid(),typ:typ,nr:erpNextNr(typ),orgId:u?u.orgId:'',
     objektId:objId,titel:'',kundeId:'',kundeSnapshot:null,zustellSnapshot:null,schluessel:null,bereichId:'',
+    sachbearbeiter:erpSbNeu(null),
     datum:today(),
     gueltigBis:typ==='offerte'?addDays(today(),30):'',
     frist:typ==='rechnung'?addDays(today(),s.fristTage):'',
@@ -1096,6 +1131,15 @@ function erpOpenEditor(){
         +'<option value="">– kein Bereich –</option>'
         +bl.map(function(b){return '<option value="'+b.id+'"'+(b.id===d.bereichId?' selected':'')+'>'+esc(b.name)+'</option>';}).join('')
         +'</select></div>';
+    })()
+    // Sachbearbeiter: verantwortliche Person — Default = Ersteller; wird durch
+    // die Kette vererbt und erscheint beim Monteur auf dem Einsatzplan-Termin
+    +(function(){
+      var sb=erpSb(d)||{};
+      var us=erpOrgUsers();
+      var opts=us.map(function(x){return '<option value="'+x.id+'"'+(x.id===sb.userId?' selected':'')+'>'+esc(x.name||x.username||'')+'</option>';}).join('');
+      if(sb.name&&!us.some(function(x){return x.id===sb.userId;}))opts='<option value="" selected>'+esc(sb.name)+'</option>'+opts;
+      return '<div class="fld"><label>Sachbearbeiter</label><select id="e_sb"'+dis+' title="Verantwortliche Person — Standard: wer das Dokument erstellt hat" onchange="erpSbWahl(this.value)">'+opts+'</select></div>';
     })()
     +'</div>'
     +(d.kundeSnapshot?'<div style="font-size:12px;color:var(--mut);background:var(--sur2);border-radius:9px;padding:8px 11px">👤 <b>Kunde (Rechnungsempfänger/Zahler):</b> '+esc(d.kundeSnapshot.firma)+(d.kundeSnapshot.kontakt?' · '+esc(d.kundeSnapshot.kontakt):'')+'<br>'+esc([d.kundeSnapshot.strasse,[d.kundeSnapshot.plz,d.kundeSnapshot.ort].filter(Boolean).join(' ')].filter(Boolean).join(', ')||'(keine Adresse — für die Rechnung ergänzen)')+'</div>':'')
@@ -1294,6 +1338,7 @@ function erpDuplizieren(id){
   if(d.typ==='offerte')c.gueltigBis=addDays(today(),30);
   c.verknuepfung={};c.zahlungen=[];
   c.erstelltVon={userId:u?u.id:'',name:u?u.name:''};c.erstelltAm=new Date().toISOString();
+  c.sachbearbeiter=erpSbNeu(null);   // Kopie gehört dem Duplizierenden
   (c.positionen||[]).forEach(function(p){p.id=uid();delete p.regieRapportId;delete p.oaId;});
   poolSave(DOK_POOL,DOK_PREFIX,c);
   toast('🗐 '+TYP[d.typ].n+' '+c.nr+' als Kopie erstellt');
@@ -1831,6 +1876,7 @@ function erpZuAuftrag(){
     kundeId:off.kundeId,kundeSnapshot:off.kundeSnapshot,bereichId:off.bereichId||'',
     zustellSnapshot:off.zustellSnapshot?JSON.parse(JSON.stringify(off.zustellSnapshot)):null,
     schluessel:null,
+    sachbearbeiter:erpSbNeu(off),
     datum:today(),status:'offen',
     positionen:JSON.parse(JSON.stringify(off.positionen||[])),
     rabattPct:off.rabattPct,mwstPct:off.mwstPct,
@@ -1852,6 +1898,7 @@ function _erpNeueRechnung(auftrag,art,positionen,titelZusatz){
     titel:(auftrag.titel||'')+(titelZusatz?' — '+titelZusatz:''),
     kundeId:auftrag.kundeId,kundeSnapshot:auftrag.kundeSnapshot,bereichId:auftrag.bereichId||'',
     zustellSnapshot:auftrag.zustellSnapshot?JSON.parse(JSON.stringify(auftrag.zustellSnapshot)):null,
+    sachbearbeiter:erpSbNeu(auftrag),
     datum:today(),frist:addDays(today(),s.fristTage),status:'entwurf',
     positionen:positionen,rabattPct:0,mwstPct:auftrag.mwstPct!=null?auftrag.mwstPct:s.mwstPct,
     einleitung:s.txtRechnungIntro||'',schlusstext:s.txtRechnung,
@@ -2248,8 +2295,9 @@ function erpPdf(){
   if(d.verknuepfung&&d.verknuepfung.auftragId&&d.typ==='rechnung'){var _va=poolRead(DOK_POOL).find(function(x){return x.id===d.verknuepfung.auftragId;});if(_va)metaRows.push(['Auftrag:',esc(_va.nr||'')]);}
   var typTotalLabel=d.typ==='offerte'?'Offertsumme':d.typ==='auftrag'?'Auftragssumme':'Rechnungsbetrag';
   // ── Seite 1: Titelblatt (Kopf, Empfänger, Meta mit Projekt, Titel, Einleitung, Summe) ──
-  // Kürzel des Erstellers für die Ort/Datum-Zeile (Muster: «Basel, 13.07.2026 / RJ»)
-  var kz=String((d.erstelltVon&&d.erstelltVon.name)||'').trim().split(/\s+/).map(function(x){return x.charAt(0);}).join('').toUpperCase().slice(0,3);
+  // Kürzel des Sachbearbeiters für die Ort/Datum-Zeile (Muster: «Basel, 13.07.2026 / RJ»)
+  var _kzSb=erpSb(d);
+  var kz=String((_kzSb&&_kzSb.name)||'').trim().split(/\s+/).map(function(x){return x.charAt(0);}).join('').toUpperCase().slice(0,3);
   var cover='<div class="sheet cover"><div class="kopf">'
     +'<div class="kopf-l"><div class="abs-firma">'+esc(s.name||'')+'</div>'
     +'<div class="abs-sub">'+[s.strasse,[s.plz,s.ort].filter(Boolean).join(' ')].filter(Boolean).map(esc).join('<br>')
