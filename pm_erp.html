@@ -2218,7 +2218,7 @@ function erpUpdatePosHint(){
   var hint=document.getElementById('posHint');if(!hint||!cur)return;
   var editable=erpEditable();
   var nSel=editable?_selIds.length:0;
-  hint.textContent=(cur.positionen||[]).filter(function(p){return p.art!=='titel';}).length+' Positionen'
+  hint.textContent=(cur.positionen||[]).filter(function(p){return p.art!=='titel'&&p.art!=='seitenumbruch'&&p.art!=='rabatt'&&p.art!=='zuschlag';}).length+' Positionen'
     +(nSel?' · '+nSel+' markiert (Delete löscht)':(editable&&window.matchMedia&&matchMedia('(hover:hover)').matches?' · Klick markiert · Doppelklick bearbeitet · Rechtsklick: Menü':''));
 }
 function erpPosDeleteSelected(){
@@ -2281,11 +2281,15 @@ document.addEventListener('keydown',function(e){
 // Ctrl/Cmd+Enter → manueller Seitenumbruch (vor der markierten Zeile bzw. am Ende).
 document.addEventListener('keydown',function(e){
   if(!(e.key==='Enter'&&(e.ctrlKey||e.metaKey)))return;
+  // Feld-Editing hat Vorrang: erpCellKey/Menge-Modal/Suchfeld rufen bei Enter
+  // preventDefault() — defaultPrevented ist auch nach dem synchronen blur() noch
+  // gesetzt (activeElement ist dann bereits <body> und der Tag-Guard versagt).
+  if(e.defaultPrevented)return;
   var ov=document.getElementById('edOv');
   if(!ov||!ov.classList.contains('open'))return;
   if(!erpEditable())return;
   var ae=document.activeElement;
-  if(ae&&/^(INPUT|SELECT|TEXTAREA)$/.test(ae.tagName))return;   // Feld-Editing hat Vorrang
+  if(ae&&/^(INPUT|SELECT|TEXTAREA)$/.test(ae.tagName))return;   // Feld noch fokussiert
   e.preventDefault();
   _erpInsertPos({id:uid(),art:'seitenumbruch'});
   erpRenderPos();

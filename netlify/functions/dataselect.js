@@ -26,11 +26,20 @@
  *                         Ohne diesen Namen wird der Key als
  *                         "Authorization: Bearer <key>" gesendet.
  *
- * WICHTIG — Schema-Robustheit: Das exakte JSON-Feldschema des debim-Formats
- * ist vertrags-/versionsabhängig. _normArtikel() bildet darum HEURISTISCH
- * über viele plausible Feldnamen (deutsch/englisch/BIM-üblich) auf das
- * normalisierte Schema ab. Weicht eine reale Antwort ab, hier die
- * Kandidatenlisten ergänzen (Node-Test: scripts/dataselect_norm_test.mjs).
+ * Antwort-Formate (Export-Format via `format`, KEIN JSON-vs-XML-Transport):
+ *   • debim  (DataExpert-BIM, XML) — DEFAULT. Pro Artikel Kurz-/Langtext,
+ *            Einheit, Preis, EAN UND eine Bild-URL (<LinkAdr><Name Bez="Bild
+ *            IGH" …>URL</Name>). Parser: _parseDebimXml().
+ *   • bexio  (CSV, Semikolon-getrennt) — schlank, aber OHNE Bild. Fallback.
+ *   • JSON   — falls ein Lieferant/Vertrag JSON liefert.
+ * Der Parser erkennt das Format automatisch (JSON → debim-XML → CSV).
+ *
+ * WICHTIG — Schema-Robustheit: Das exakte Feldschema ist vertrags-/
+ * versionsabhängig. _normArtikel() bildet darum HEURISTISCH über viele
+ * plausible Feldnamen (deutsch/englisch/BIM-üblich) auf das normalisierte
+ * Schema ab; _parseDebimXml() baut aus dem XML die passenden Roh-Objekte.
+ * Weicht eine reale Antwort ab, hier die Kandidatenlisten/Regex ergänzen
+ * (Node-Test: scripts/dataselect_norm_test.mjs).
  */
 'use strict';
 
@@ -83,12 +92,28 @@ function _stripHtml(s){
     .replace(/&amp;/gi, '&').replace(/&lt;/gi, '<').replace(/&gt;/gi, '>')
     .replace(/&quot;/gi, '"').replace(/&#39;/gi, "'").replace(/\s+/g, ' ').trim();
 }
+// XML-Entities auflösen (debim: &lt; &gt; &quot; &apos; &amp; + numerische Refs).
+// &amp; ZULETZT, damit &amp;lt; nicht doppelt aufgelöst wird.
+function _xmlUnescape(s){
+  return String(s == null ? '' : s)
+    .replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"').replace(/&apos;/g, "'")
+    .replace(/&#x([0-9a-f]+);/gi, function(_, n){ try { return String.fromCharCode(parseInt(n, 16)); } catch (e){ return _; } })
+    .replace(/&#(\d+);/g, function(_, n){ try { return String.fromCharCode(parseInt(n, 10)); } catch (e){ return _; } })
+    .replace(/&amp;/g, '&');
+}
 // Langtext (mehrzeilig) säubern: Tags weg (falls HTML), Leerzeichen normalisieren,
-// aber echte Zeilenumbrüche erhalten.
+// aber echte Zeilenumbrüche ERHALTEN (debim-Langtext ist mehrzeilig; _stripHtml
+// würde alles auf eine Zeile pressen). Block-Tags → Umbruch, Inline-Tags (<sub>/<sup>/<b>…) weg.
 function _cleanLang(t){
-  var s = String(t || '');
-  if (/<[a-z!/]/i.test(s)) return _stripHtml(s);
-  return s.replace(/\r\n?/g, '\n').replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
+  var s = String(t || '').replace(/\r\n?/g, '\n');
+  if (/<[a-z!/]/i.test(s)){
+    s = s.replace(/<br\s*\/?>/gi, '\n').replace(/<\/(p|div|li|tr)>/gi, '\n')
+         .replace(/<[^>]*>/g, '')
+         .replace(/&nbsp;/gi, ' ').replace(/&lt;/gi, '<').replace(/&gt;/gi, '>')
+         .replace(/&quot;/gi, '"').replace(/&#39;/gi, "'").replace(/&amp;/gi, '&');
+  }
+  return s.replace(/[ \t]+/g, ' ').replace(/[ \t]*\n[ \t]*/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 // IGH-/UN-ECE-Einheitencodes → GEMA-Einheiten (bexio liefert z.B. «PCE»).
 var _DS_EINHEIT = { PCE:'Stk', PCS:'Stk', PC:'Stk', H87:'Stk', EA:'Stk', PK:'Stk', PA:'Paar', PAR:'Paar', SET:'Stk', ST:'Stk', STK:'Stk', 'STK.':'Stk', MTR:'m', LM:'lfm', MTK:'m²', MTQ:'m³', LTR:'l', LT:'l', KGM:'kg', KG:'kg', HUR:'h', HR:'h' };
@@ -121,9 +146,15 @@ function _normArtikel(raw){
   var preisRaw = _pick(raw, ['verkaufspreis','bruttopreis','listenpreis','preis','bruttopreis1','preis1','bp','vk','price','listprice','grossprice','ep','einzelpreis','sale_price','saleprice','default_price','defaultprice','einkaufspreis','purchase_price','purchaseprice']);
   var bildRaw = raw.Bilder || raw.bilder || raw.Images || raw.images || _pick(raw, ['bildurl','bild','image','imageurl','picture','foto','thumbnail','thumb','bildlink']);
   // Langtext (ausführliche Produktbeschreibung) getrennt vom Kurztext (Produktname).
-  // Die AF:/AFZ:-Ausführungszeile am Ende wird abgeschnitten (steckt in `ausfuehrung`).
+  var beschr = _pick(raw, ['produktbeschreibung','beschreibunglang','langtext','produktbeschreibunglieferant','description','beschreibung']);
   var kurz = String(bez || '').trim();
-  var lang = _cleanLang(_pick(raw, ['produktbeschreibung','beschreibunglang','langtext','produktbeschreibunglieferant','description','beschreibung'])).replace(/(^|\n)\s*AF:[\s\S]*$/i, '').trim();
+  var af = _afAusfuehrung(_pick(raw, ['produktbeschreibung','beschreibung','description','produktbeschreibunglieferant','intern_description']));
+  // AF:/AFZ:-Ausführungszeile aus dem Langtext entfernen (steckt in `ausfuehrung`) —
+  // NUR wenn wirklich eine AF/AFZ-Ausführung erkannt wurde (kein Fehlschnitt bei
+  // legitimen «AF:»-Inhaltszeilen) und NICHT zeilenverankert (HTML-Beschreibungen
+  // können die Zeilenumbrüche kollabieren → «AF:» steht dann mitten im String).
+  var lang = _cleanLang(beschr);
+  if (af) lang = lang.replace(/\s*\bAF:[\s\S]*$/i, '').trim();
   return {
     artnr: String(artnr || '').trim(),
     bezeichnung: kurz,
@@ -136,7 +167,7 @@ function _normArtikel(raw){
     serie: String(_pick(raw, ['serie','produktlinie','produktgruppe','sortiment','linie','series','hauptgruppe','untergruppe']) || '').trim(),
     bildUrl: _bild(bildRaw),
     // Ausführung (AF/AFZ = Farbe/Oberfläche) — fürs Gruppieren gleicher Produkte
-    ausfuehrung: _afAusfuehrung(_pick(raw, ['produktbeschreibung','beschreibung','description','produktbeschreibunglieferant','intern_description']))
+    ausfuehrung: af
   };
 }
 
@@ -182,6 +213,58 @@ function _parseCsv(text){
     rows.push(o);
   }
   return { header: header, rows: rows };
+}
+
+// ── debim-Parser (DataExpert®BIM XML) ──
+// Das debim-Format liefert pro Artikel KURZ-/LANGTEXT, Einheit, Preis, EAN UND
+// eine Bild-URL (<LinkAdr><Name Bez="Bild IGH" …>URL</Name>) — anders als bexio
+// (CSV ohne Bild). _parseDebimXml zieht die Felder per Regex (kein XML-Parser im
+// Netlify-Runtime nötig) und baut Roh-Objekte, die _normArtikel danach mappt.
+function _debimTag(body, tag){
+  var m = String(body || '').match(new RegExp('<' + tag + '\\b[^>]*>([\\s\\S]*?)<\\/' + tag + '>', 'i'));
+  return m ? m[1] : '';
+}
+// Bild-URL aus dem <LinkAdr>-Block: bevorzugt ein <Name> mit Bild-Endung (Ext) bzw.
+// «Bild»/«Image»-Bezeichnung; sonst eine URL, die auf eine Bildendung endet.
+function _debimBild(body){
+  var re = /<Name\b([^>]*)>([\s\S]*?)<\/Name>/gi, m, imgExt = /^\.?(png|jpe?g|gif|webp|bmp|svg)$/i, fallback = '';
+  while ((m = re.exec(String(body || '')))){
+    var at = m[1] || '', url = _xmlUnescape(String(m[2] || '').trim());
+    if (!url) continue;
+    var ext = (at.match(/\bExt\s*=\s*"([^"]*)"/i) || ['', ''])[1];
+    var bez = (at.match(/\bBez\s*=\s*"([^"]*)"/i) || ['', ''])[1];
+    if (imgExt.test(ext) || /\bbild\b|image|foto|photo/i.test(bez)) return url;
+    if (!fallback && /\.(png|jpe?g|gif|webp|bmp)(\?|#|$)/i.test(url)) fallback = url;
+  }
+  return fallback;
+}
+function _parseDebimXml(text){
+  var t = String(text || '');
+  if (t.indexOf('<Artikel') < 0) return null;   // kein debim/DataExpert-BIM
+  var out = [], re = /<Artikel\b([^>]*)>([\s\S]*?)<\/Artikel>/gi, m;
+  while ((m = re.exec(t))){
+    var attrs = m[1] || '', body = m[2] || '';
+    var artnr = (attrs.match(/\bArtNr\s*=\s*"([^"]*)"/i) || ['', ''])[1];
+    // Einheit: <Menge ISO="PCE" Einh="ST">1</Menge> — ISO bevorzugt, sonst Einh
+    var mgTag = body.match(/<Menge\b([^>]*)>/i);
+    var mgAttr = mgTag ? mgTag[1] : '';
+    var einheit = (mgAttr.match(/\bISO\s*=\s*"([^"]*)"/i) || mgAttr.match(/\bEinh\s*=\s*"([^"]*)"/i) || ['', ''])[1];
+    // Preis + EAN aus dem ersten <Pr Preis="…" EAN="…"/>
+    var pr = body.match(/<Pr\b([^>]*)>/i);
+    var prAttr = pr ? pr[1] : '';
+    var preis = (prAttr.match(/\bPreis\s*=\s*"([^"]*)"/i) || ['', ''])[1];
+    var ean = (prAttr.match(/\bEAN\s*=\s*"([^"]*)"/i) || ['', ''])[1];
+    out.push({
+      produktcode: _xmlUnescape(artnr),
+      produktname: _xmlUnescape(_debimTag(body, 'TKurz')),
+      produktbeschreibung: _xmlUnescape(_debimTag(body, 'TLang')),
+      einheit: _xmlUnescape(einheit),
+      verkaufspreis: _xmlUnescape(preis),
+      ean: _xmlUnescape(ean),
+      bild: _debimBild(body)
+    });
+  }
+  return out.length ? out : null;
 }
 
 // Antwort in ein Array von Roh-Artikeln überführen (viele Container-Formen).
@@ -246,15 +329,15 @@ exports.handler = async function(event){
   qs.set('preisbuch_nr', preisbuch);
   qs.set('code_sprache', sprache);
   // `format` wählt bei DataSelect ein Export-FORMAT (Zielsystem), nicht JSON/XML.
-  // `debim` (DataExpert BIM) ist schwer (Geometrie/Bilder) UND liefert kein JSON
-  // → langsam + «kein JSON»-Fehler. `bexio` ist ein schlankes JSON-Format mit den
-  // ERP-Essentials (Artikel-Nr, Kurzbeschreibung, Preis, Einheit, EAN) — Default.
-  // Beide Modi per Env übersteuerbar (z.B. auf ein Format MIT Bildern).
-  // Im Debug darf das Zielformat per Param getestet werden (z.B. &format=debim),
-  // sonst gilt die Env-Vorgabe je Modus.
+  // `debim` (DataExpert-BIM, XML) liefert pro Artikel Kurz-/Langtext, Einheit,
+  // Preis, EAN UND eine Bild-URL — deshalb Default (IGH-Produktfotos fliessen so
+  // in die Positionen). `bexio` (CSV) ist schlank, aber OHNE Bild — bleibt als
+  // Fallback (der Parser erkennt beide Formate automatisch). Beide Modi per Env
+  // übersteuerbar. Im Debug darf das Zielformat per Param getestet werden
+  // (z.B. &format=bexio), sonst gilt die Env-Vorgabe je Modus.
   qs.set('format', (debug && dbgFormat) ? dbgFormat : (withBilder
-    ? (process.env.DATASELECT_FORMAT_BILD || 'bexio')
-    : (process.env.DATASELECT_FORMAT_SUCHE || 'bexio')));
+    ? (process.env.DATASELECT_FORMAT_BILD || 'debim')
+    : (process.env.DATASELECT_FORMAT_SUCHE || 'debim')));
   if (artnr) qs.set('artnr', artnr);
   if (bez)   qs.set('Bez', bez);
   if (ean)   qs.set('EAN', ean);
@@ -295,6 +378,10 @@ exports.handler = async function(event){
     try { ct = (resp.headers && resp.headers.get) ? (resp.headers.get('content-type') || '') : ''; } catch (e){}
     var looksLike = 'leer/unbekannt';
     if (_t.charAt(0) === '{' || _t.charAt(0) === '[') looksLike = 'JSON';
+    else if (_t.indexOf('<Artikel') >= 0 || /<DataExpert/i.test(_t)){
+      var _dm = _parseDebimXml(_t);
+      looksLike = 'debim-XML (' + ((_dm && _dm.length) || 0) + ' Artikel, mit Bild — wird unterstützt)';
+    }
     else if (_t.charAt(0) === '<') looksLike = (/^<\?xml/i.test(_t) || /<\/?[a-z]+:/.test(_t)) ? 'XML' : 'HTML/XML';
     else if (_t){
       var _csv = _parseCsv(_t);
@@ -327,15 +414,25 @@ exports.handler = async function(event){
   var _raw = String(textBody || '').replace(/^﻿/, '').trim();   // BOM/Whitespace weg
   try { data = JSON.parse(_raw); }
   catch (e){
-    // Kein JSON → das bexio-Format ist eine CSV (Semikolon-getrennt). Parsen und
-    // die Zeilen wie Artikel behandeln. Nur-Header (kein Treffer) = leere Liste.
-    var csv = _parseCsv(_raw);
-    if (csv){ data = csv.rows; }
+    // Kein JSON → Formate der Reihe nach probieren:
+    //  1) debim (DataExpert-BIM XML) — enthält Bild-URL, EAN, Kurz-/Langtext.
+    //  2) bexio (CSV, Semikolon-getrennt) — schlank, aber OHNE Bild.
+    // Nur-Header/leeres XML (kein Treffer) = leere Liste.
+    var debim = _parseDebimXml(_raw);
+    if (debim){ data = debim; }
     else {
-      var hint = (_raw.charAt(0) === '<')
-        ? ' — das gewählte Format liefert XML/HTML statt Daten. Bitte ein Tabellen-/JSON-Format (z.B. bexio) via DATASELECT_FORMAT_SUCHE/DATASELECT_FORMAT_BILD setzen.'
-        : ' (evtl. Zugang/Token nötig oder Format geändert).';
-      return _err(502, 'DataSelect lieferte kein verwertbares Format' + hint, cors);
+      var csv = _parseCsv(_raw);
+      if (csv){ data = csv.rows; }
+      else if (_raw.charAt(0) === '<' && /<(DataExpert|Katalog|Produkte|Body)\b/i.test(_raw)){
+        // debim-Hülle ohne Artikel → kein Treffer (leere Liste, kein Fehler).
+        data = [];
+      }
+      else {
+        var hint = (_raw.charAt(0) === '<')
+          ? ' — das gewählte Format liefert XML/HTML statt Daten. Bitte ein unterstütztes Format (debim mit Bildern oder bexio) via DATASELECT_FORMAT_SUCHE/DATASELECT_FORMAT_BILD setzen.'
+          : ' (evtl. Zugang/Token nötig oder Format geändert).';
+        return _err(502, 'DataSelect lieferte kein verwertbares Format' + hint, cors);
+      }
     }
   }
 
@@ -366,3 +463,6 @@ exports._stripHtml = _stripHtml;
 exports._afAusfuehrung = _afAusfuehrung;
 exports._mapEinheit = _mapEinheit;
 exports._cleanLang = _cleanLang;
+exports._xmlUnescape = _xmlUnescape;
+exports._parseDebimXml = _parseDebimXml;
+exports._debimBild = _debimBild;

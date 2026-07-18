@@ -136,6 +136,21 @@ console.log('■ bezeichnungLang — Kurz- (Produktname) vs. Langtext (Produktbe
   ok(a.ausfuehrung === 'Pergamon · Gleitschutz Antislip', 'ausfuehrung weiterhin aus AF/AFZ');
 }
 ok(ds._normArtikel({ Produktcode: 'B', Produktname: 'WC-Sitz', Verkaufspreis: '50' }).bezeichnungLang === '', 'ohne Langbeschreibung → bezeichnungLang leer');
+{
+  // HTML-Beschreibung (bexio liefert teils HTML): AF/AFZ-Zeile muss AUCH dann aus
+  // bezeichnungLang verschwinden, wenn <br>/kollabierte Newlines das «AF:» in die
+  // Zeilenmitte schieben (Review-Befund: sonst Roh-Marker im Insert + Doppelung).
+  const a = ds._normArtikel({ Produktcode: 'C', Produktname: 'Duschwanne', Produktbeschreibung: 'Duschwanne Kaldewei<br>Stahl emailliert<br>AF: Weiss/AFZ: Gleitschutz Antislip', Verkaufspreis: '999' });
+  ok(a.bezeichnungLang.indexOf('AF:') < 0 && a.bezeichnungLang.indexOf('AFZ:') < 0, 'HTML-Beschreibung: AF/AFZ-Marker aus bezeichnungLang entfernt');
+  ok(a.bezeichnungLang.indexOf('emailliert') >= 0, 'HTML-Beschreibung: Inhalt (emailliert) bleibt');
+  ok(a.ausfuehrung === 'Weiss · Gleitschutz Antislip', 'HTML-Beschreibung: ausfuehrung korrekt extrahiert');
+}
+{
+  // Kein AF/AFZ → Langtext bleibt vollständig, auch wenn eine Zeile legitim mit «AF»
+  // beginnt (nur der echte AF:/AFZ:-Paar-Marker wird geschnitten).
+  const a = ds._normArtikel({ Produktcode: 'D', Produktname: 'Pumpe', Produktbeschreibung: 'Pumpe X\nAFP-Modul inklusive\nGewicht 2 kg', Verkaufspreis: '10' });
+  ok(a.bezeichnungLang.indexOf('AFP-Modul inklusive') >= 0 && a.bezeichnungLang.indexOf('Gewicht 2 kg') >= 0, 'ohne AF:/AFZ:-Marker wird nichts abgeschnitten (kein Fehlschnitt bei «AFP…»)');
+}
 
 console.log('■ _stripHtml — HTML aus Beschreibung');
 ok(ds._stripHtml('<b>Sigma</b>&nbsp;UP') === 'Sigma UP', 'Tags + &nbsp; entfernt');
@@ -152,6 +167,78 @@ ok(ds._afAusfuehrung('Spülkasten UP ohne Ausführung') === '', 'keine AF-Zeile 
   const a = ds._normArtikel(rows[0]);
   ok(a.ausfuehrung === 'Pergamon · Gleitschutz Antislip', 'CSV-Zeile → ausfuehrung gesetzt');
   ok(a.artnr === '6130#1313116/143/183' && Math.abs(a.preis - 1222) < 1e-6, 'artnr (mit Ausführungscode) + Preis');
+}
+
+console.log('■ _xmlUnescape — XML-Entities');
+ok(ds._xmlUnescape('G 1 1/2&quot;') === 'G 1 1/2"', '&quot; → "');
+ok(ds._xmlUnescape('P&lt;sub&gt;1&lt;/sub&gt;') === 'P<sub>1</sub>', '&lt;/&gt; → </>');
+ok(ds._xmlUnescape('a &amp; b') === 'a & b', '&amp; → &');
+ok(ds._xmlUnescape('&#39;x&#39; &#x2013;') === "'x' –", 'numerische Refs (dez + hex)');
+ok(ds._xmlUnescape('&amp;lt;') === '&lt;', '&amp;lt; bleibt literal (kein Doppel-Unescape)');
+
+console.log('■ _parseDebimXml — DataExpert-BIM (mit Bild-URL)');
+{
+  const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<DataExpert-BIM><Body><Katalog><Produkte>
+<Artikel ArtNr="7000001829">
+  <ArtStat>1</ArtStat>
+  <TKurz>BIRAL Heizungs-Umwälzpumpe
+PrimAX 25-3 180 RED</TKurz>
+  <TLang>BIRAL Heizungs-Umwälzpumpe
+PrimAX 25-3 180 RED T2
+Inkl. Wärmedämmschalen
+
+Hocheffiziente Rohreinbaupumpe
+Gewindeanschluss:  G 1 1/2&quot;
+Aufnahmeleistung P&lt;sub&gt;1&lt;/sub&gt;: 2-15 W
+Bruttogewicht: 2.1 kg</TLang>
+  <Menge ISO="PCE" Einh="ST">1</Menge>
+  <PreisEig>
+    <Pr Typ="1" Preis="426" EAN="7630054958625"/>
+  </PreisEig>
+  <LinkAdr>
+    <Name Typ="1" Code="6" Bez="Produkt URL" Ext="html">https://www.biral.ch/de/7000001829</Name>
+    <Name Typ="1" Code="1" Bez="Bild IGH" Ext="png">https://www.biral.ch/fileadmin/Media/images/IGH/PrimAX_RED_T2_s_w_WD.png</Name>
+    <Name Typ="1" Code="6" Bez="Datenblatt PDF" Ext="html">https://oxomi.com/p/2025044/catalog/10228650?page=34</Name>
+  </LinkAdr>
+</Artikel>
+</Produkte></Katalog></Body></DataExpert-BIM>`;
+  const raw = ds._parseDebimXml(xml);
+  ok(Array.isArray(raw) && raw.length === 1, 'ein Artikel geparst');
+  const a = ds._normArtikel(raw[0]);
+  ok(a.artnr === '7000001829', 'ArtNr → artnr');
+  ok(a.bezeichnung === 'BIRAL Heizungs-Umwälzpumpe PrimAX 25-3 180 RED', 'TKurz → bezeichnung (Kurzname, einzeilig)');
+  ok(a.einheit === 'Stk', 'Menge ISO «PCE» → «Stk»');
+  ok(Math.abs(a.preis - 426) < 1e-6, 'Pr Preis → 426');
+  ok(a.ean === '7630054958625', 'Pr EAN → EAN');
+  ok(a.bildUrl === 'https://www.biral.ch/fileadmin/Media/images/IGH/PrimAX_RED_T2_s_w_WD.png', 'Bild IGH (Ext=png) → bildUrl');
+  ok(a.bildUrl.indexOf('oxomi') < 0 && a.bildUrl.indexOf('/de/') < 0, 'HTML-Links (Produkt-URL/Datenblatt) NICHT als Bild');
+  ok(a.bezeichnungLang.indexOf('Hocheffiziente Rohreinbaupumpe') >= 0, 'TLang → bezeichnungLang (ausführlich)');
+  ok(a.bezeichnungLang.indexOf('G 1 1/2"') >= 0, 'Entity &quot; im Langtext aufgelöst');
+  ok(a.bezeichnungLang.indexOf('P1: 2-15 W') >= 0 && a.bezeichnungLang.indexOf('<sub>') < 0, '<sub>-Tag entfernt, Text erhalten');
+  ok(a.bezeichnungLang.indexOf('\n') >= 0, 'Zeilenumbrüche im Langtext ERHALTEN (nicht auf eine Zeile gepresst)');
+  // Bild vorhanden → hatBild greift im Handler; hier direkt am Roh-URL prüfbar
+  ok(!!a.bildUrl, 'Artikel hat ein Bild → fliesst beim Einfügen in die Position');
+}
+{
+  // End-to-End: XML-Hülle → _extractArray reicht das Array durch → normalisierte Liste
+  const xml = '<DataExpert-BIM><Body><Produkte>'
+    + '<Artikel ArtNr="A1"><TKurz>Pumpe A</TKurz><Menge ISO="PCE">1</Menge><PreisEig><Pr Preis="10" EAN="111"/></PreisEig></Artikel>'
+    + '<Artikel ArtNr="B2"><TKurz>Ventil B</TKurz><Menge ISO="MTR">1</Menge><PreisEig><Pr Preis="20"/></PreisEig></Artikel>'
+    + '</Produkte></Body></DataExpert-BIM>';
+  const list = ds._extractArray(ds._parseDebimXml(xml)).map(ds._normArtikel);
+  ok(list.length === 2 && list[0].artnr === 'A1' && list[1].artnr === 'B2', 'zwei Artikel korrekt extrahiert');
+  ok(list[0].einheit === 'Stk' && list[1].einheit === 'm', 'Einheiten pro Artikel (PCE→Stk, MTR→m)');
+  ok(list[0].ean === '111' && list[1].ean === '', 'EAN nur wo vorhanden');
+  ok(ds._parseDebimXml('<html><body>Login</body></html>') === null, 'Nicht-debim-XML → null (Fallback greift)');
+  ok(ds._parseDebimXml('<DataExpert-BIM><Body><Produkte></Produkte></Body></DataExpert-BIM>') === null, 'debim-Hülle ohne Artikel → null (kein Treffer)');
+}
+{
+  // _debimBild — Bild-Auswahl aus <LinkAdr>
+  ok(ds._debimBild('<Name Ext="jpg">https://x/a.jpg</Name>') === 'https://x/a.jpg', 'Ext=jpg → Bild');
+  ok(ds._debimBild('<Name Ext="html">https://x/p.html</Name><Name Bez="Foto">https://x/f.png</Name>') === 'https://x/f.png', 'Bez «Foto» → Bild (html übersprungen)');
+  ok(ds._debimBild('<Name Ext="html">https://x/only.html</Name>') === '', 'nur HTML-Links → kein Bild');
+  ok(ds._debimBild('<Name>https://x/img.webp?v=2</Name>') === 'https://x/img.webp?v=2', 'URL-Endung .webp als Fallback erkannt');
 }
 
 console.log('\n' + pass + '/' + (pass + fail) + ' Checks grün' + (fail ? ' — ' + fail + ' FEHLER' : ''));

@@ -47,6 +47,28 @@ await page.evaluate(() => {
 ok(await page.evaluate(() => cur.positionen.some(p => p.art === 'seitenumbruch')), 'Ctrl+Enter fügt art:seitenumbruch ein');
 ok(await page.evaluate(() => { const t = erpDocTotals(cur); return Math.abs(t.zwischen - 100) < 1e-6; }), 'Seitenumbruch zählt 0 im Total');
 ok(await page.evaluate(() => (document.getElementById('posBody').textContent || '').indexOf('Seitenumbruch') >= 0), 'Editor rendert die Seitenumbruch-Zeile');
+// Review-Fix: Ctrl+Enter WÄHREND der Zellbearbeitung darf KEINEN Seitenumbruch einfügen
+// (erpCellKey ruft preventDefault → defaultPrevented-Guard im Dokument-Handler greift).
+await page.evaluate(() => {
+  cur.positionen = [{ id: 'z', art: 'frei', bez: 'Y', menge: 1, einheit: 'Stk', ep: 50 }];
+  erpOpenEditor();
+  const n0 = cur.positionen.filter(p => p.art === 'seitenumbruch').length;
+  window._pbBefore = n0;
+  // Zelle in Bearbeitung öffnen → Input fokussiert
+  erpCellEdit('z', 'bez');
+});
+await page.waitForTimeout(60);
+await page.evaluate(() => {
+  const inp = document.querySelector('#posBody [data-edit]');
+  if (inp) { inp.focus(); inp.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true, cancelable: true })); }
+});
+ok(await page.evaluate(() => cur.positionen.filter(p => p.art === 'seitenumbruch').length === window._pbBefore), 'Ctrl+Enter in einer Zelle fügt KEINEN Seitenumbruch ein (Feld-Editing hat Vorrang)');
+// Positions-Zähler ignoriert Seitenumbruch/Rabatt/Zuschlag/Titel
+ok(await page.evaluate(() => {
+  cur.positionen = [{ id: '1', art: 'titel', bez: 'T' }, { id: '2', art: 'frei', bez: 'A', menge: 1, ep: 10 }, { id: '3', art: 'seitenumbruch' }, { id: '4', art: 'rabatt', bez: 'R', modus: 'pct', wert: 5 }];
+  erpUpdatePosHint();
+  return (document.getElementById('posHint').textContent || '').indexOf('1 Positionen') === 0;
+}), 'Positions-Zähler zählt nur echte Leistungspositionen (Titel/Umbruch/Rabatt/Zuschlag ausgenommen)');
 
 console.log('■ P1/P6/P12 — DataSelect: Einheit PCE→Stk, Textmodus, keine Emojis');
 await page.evaluate(() => {
