@@ -87,9 +87,9 @@ console.log('■ ERP: Sachbearbeiter-Default + Vererbung');
     const n = await page.evaluate(() => {
       document.getElementById('fSb').value = 'user_petra';
       erpRenderList();
-      return document.querySelectorAll('#docList .card').length;
+      return document.querySelectorAll('#docList .card, #docList .drow').length;
     });
-    ok(n === 1, 'Filter auf Petra: nur ihre Offerte (' + n + ' Karte)');
+    ok(n === 1, 'Filter auf Petra: nur ihre Offerte (' + n + ' Eintrag)');
     await page.evaluate(() => { document.getElementById('fSb').value = ''; erpRenderList(); });
   }
   {
