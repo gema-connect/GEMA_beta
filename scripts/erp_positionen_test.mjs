@@ -53,7 +53,8 @@ ok(await page.evaluate(() => { const html = document.getElementById('posBody').i
 ok(await page.evaluate(() => document.querySelectorAll('#posBody .pos-grip').length === 4), 'jede Zeile hat einen ⠿-Griff');
 // Werte sind Anzeige-Zellen — erst der Doppelklick öffnet ein Eingabefeld
 ok(await page.evaluate(() => document.querySelectorAll('#posBody .pcell').length > 0 && document.querySelectorAll('#posBody input').length === 0), 'Positionen zeigen Anzeige-Zellen (.pcell), keine Roh-Inputs');
-ok(await page.evaluate(() => { erpCellEdit(cur.positionen[0].id, 'bez'); const has = document.querySelectorAll('#posBody input[data-edit]').length === 1; erpCellCommit(); return has; }), 'Doppelklick (erpCellEdit) öffnet ein Eingabefeld, Klick woanders (erpCellCommit) schliesst');
+ok(await page.evaluate(() => { erpCellEdit(cur.positionen[0].id, 'bez'); const has = document.querySelectorAll('#posBody [data-edit]').length === 1 && !!document.querySelector('#posBody .rich-ed[contenteditable="true"]'); erpCellCommit(); return has; }), 'Doppelklick (erpCellEdit) öffnet den Rich-Editor (contenteditable), Klick woanders (erpCellCommit) schliesst');
+ok(await page.evaluate(() => { erpCellEdit(cur.positionen[0].id, 'menge'); const isInp = document.querySelectorAll('#posBody input[data-edit]').length === 1; erpCellCommit(); return isInp; }), 'Zahlenfeld (Menge) öffnet weiterhin ein <input>');
 
 console.log('■ Delete löscht die Auswahl (nicht in Feldern)');
 ok(await page.evaluate(() => { erpPosSelClick({ stopPropagation() {}, preventDefault() {} }, 1); erpPosSelClick({ stopPropagation() {}, preventDefault() {}, ctrlKey: true }, 2); return _selIds.join(',') === 'p2,p3'; }), 'p2+p3 markiert');
@@ -66,14 +67,14 @@ ok(await page.evaluate(() => {
 // Feld-Editing hat Vorrang: Delete im offenen Bearbeitungsfeld löscht KEINE Zeilen
 ok(await page.evaluate(() => {
   erpPosSelClick({ stopPropagation() {}, preventDefault() {} }, 0);
-  erpCellEdit(cur.positionen[0].id, 'bez');   // Doppelklick-Bearbeitung öffnet ein Eingabefeld
-  const inp = document.querySelector('#posBody input[data-edit]');
+  erpCellEdit(cur.positionen[0].id, 'bez');   // Rich-Beschrieb (contenteditable) offen
+  const inp = document.querySelector('#posBody [data-edit]');
   inp.focus();
   document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', bubbles: true }));
-  const okk = cur.positionen.length === 2;   // nichts gelöscht
+  const okk = cur.positionen.length === 2;   // nichts gelöscht (contenteditable = Feld-Editing)
   erpCellCommit();
   return okk;
-}), 'Delete im Eingabefeld löscht keine Zeilen');
+}), 'Delete im Rich-Beschrieb (contenteditable) löscht keine Zeilen');
 
 console.log('■ Einfügen über der Markierung (genau eine) / ans Ende (mehrere)');
 await page.evaluate(() => { cur.positionen = [{ id: 'a', art: 'frei', bez: 'A', menge: 1, einheit: 'Stk', ep: 1 }, { id: 'b', art: 'frei', bez: 'B', menge: 1, einheit: 'Stk', ep: 1 }, { id: 'c', art: 'frei', bez: 'C', menge: 1, einheit: 'Stk', ep: 1 }]; erpPosSelReset(); erpRenderPos(); });

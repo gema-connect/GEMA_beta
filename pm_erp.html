@@ -160,6 +160,10 @@ body.erp-resizing{cursor:col-resize;user-select:none}
 table.pos{border-collapse:collapse;width:100%;font-size:13px}
 .pos th{background:var(--sur2);border-bottom:2px solid var(--brd2);padding:7px 8px;font-size:10px;font-weight:800;color:var(--mut);text-align:left;text-transform:uppercase;letter-spacing:.3px;white-space:nowrap}
 .pos td{border-bottom:1px solid var(--brd);padding:5px 5px;vertical-align:middle}
+/* Beim Markieren mehrerer Positionen (Klick/Shift-Klick) KEINE native Text-Markierung
+   auslösen. Im Edit-Modus (Input/contenteditable) ist Text-Auswahl wieder erlaubt. */
+.pos td,.pos .pcell{-webkit-user-select:none;user-select:none}
+.pos input,.pos select,.pos textarea,.pos [contenteditable="true"]{-webkit-user-select:text;user-select:text}
 .pos input,.pos select{padding:9px 8px;border:1.5px solid var(--brd2);border-radius:8px;font-size:13.5px;background:var(--sur);outline:none;width:100%;min-height:40px}
 .pos input:focus{border-color:var(--acc)}
 .pos .num{text-align:right;font-variant-numeric:tabular-nums}
@@ -191,6 +195,16 @@ table.pos{border-collapse:collapse;width:100%;font-size:13px}
 /* Lange Positionstexte umbrechen — Positionen scrollen NIE horizontal */
 .pos .pcell.bezflex,.pos .pcell.titeltxt{white-space:normal;overflow:visible;text-overflow:clip;overflow-wrap:anywhere;word-break:break-word;line-height:1.35}
 .pos tr.pos-editing td{background:#fff}
+/* Rich-Text-Editor (Positionsbeschrieb) — Toolbar + contenteditable */
+.rich-wrap{border:1.5px solid var(--acc);border-radius:8px;background:var(--sur);overflow:hidden}
+.rich-bar{display:flex;flex-wrap:wrap;align-items:center;gap:3px;padding:4px 5px;background:var(--sur2);border-bottom:1px solid var(--brd)}
+.rich-bar .rb{min-width:26px;height:26px;padding:0 6px;border:1px solid var(--brd2);border-radius:6px;background:var(--sur);color:var(--ink,#111);font-size:12.5px;line-height:1;cursor:pointer}
+.rich-bar .rb:hover{background:var(--acc-bg);border-color:var(--acc-bd)}
+.rich-bar .rb-sel{height:26px;border:1px solid var(--brd2);border-radius:6px;background:var(--sur);font-size:11.5px;padding:0 4px;cursor:pointer;min-height:0;width:auto}
+.rich-bar .rb-col{width:20px;height:20px;padding:0;border:1px solid rgba(0,0,0,.15);border-radius:50%;cursor:pointer}
+.rich-bar .rb-col:hover{transform:scale(1.12)}
+.rich-ed{min-height:40px;padding:8px 9px;font-size:13.5px;line-height:1.4;outline:none;white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word}
+.rich-ed:empty::before{content:attr(data-ph);color:var(--mut2)}
 .pos-foto{width:36px;height:36px;border-radius:8px;border:1.5px dashed var(--brd2);background:var(--sur);font-size:15px;cursor:pointer;flex-shrink:0}
 .pos-bild{position:relative;flex-shrink:0}
 /* Bild ~4×4 cm, ohne Rahmen — schon bei der Erfassung sichtbar (Offerte wird dafür länger). */
@@ -2033,6 +2047,103 @@ function erpCellKey(e){
   if(e.key==='Enter'){e.preventDefault();if(e.target&&e.target.blur)e.target.blur();}
   else if(e.key==='Escape'){e.preventDefault();_editCell=null;erpRenderPos();}
 }
+// ═══════════════════════════════════════════════════════════
+// RICH-TEXT im Positionsbeschrieb (fett/kursiv/unterstrichen/Grösse/Farbe).
+// bez wird als sanitisiertes HTML gespeichert; Anzeige + PDF laufen durch den
+// Sanitizer (Whitelist von Formatier-Tags, alles andere wird escaped).
+// ═══════════════════════════════════════════════════════════
+var _ERP_RICH_TAGS={B:1,STRONG:1,I:1,EM:1,U:1,S:1,SPAN:1};
+var _ERP_RICH_STYLE={'color':1,'background-color':1,'font-size':1,'font-weight':1,'font-style':1,'text-decoration':1};
+var _ERP_RICH_RE=/<(b|strong|i|em|u|s|span|font|br|div|p)\b|<br/i;   // «sieht nach Formatierung aus»
+var ERP_RICH_COLORS=['#dc2626','#2563eb','#16a34a','#d97706','#7c3aed'];
+function _erpSafeStyle(s){
+  if(!s)return '';
+  var out=[];
+  String(s).split(';').forEach(function(decl){
+    var i=decl.indexOf(':');if(i<0)return;
+    var prop=decl.slice(0,i).trim().toLowerCase(),val=decl.slice(i+1).trim();
+    if(!_ERP_RICH_STYLE[prop])return;
+    if(/[<>{}]/.test(val)||/url\(|expression|javascript:|image-set|@import/i.test(val))return;   // rgb(...) erlaubt, url()/expression() nicht
+    if((prop==='color'||prop==='background-color')&&!/^#[0-9a-f]{3,8}$|^rgba?\([\d.,%\s]+\)$|^[a-z]+$/i.test(val))return;
+    if(prop==='font-size'&&!/^\d{1,3}(\.\d+)?(px|pt|em|rem|%)$/i.test(val))return;
+    out.push(prop+':'+val);
+  });
+  return out.join(';');
+}
+function _erpRichNode(node){
+  var out='';
+  for(var i=0;i<node.childNodes.length;i++){
+    var c=node.childNodes[i];
+    if(c.nodeType===3){out+=esc(c.nodeValue).replace(/\n/g,'<br>');}
+    else if(c.nodeType===1){
+      var tag=c.tagName;
+      if(tag==='SCRIPT'||tag==='STYLE'||tag==='IFRAME'||tag==='OBJECT'||tag==='EMBED'||tag==='LINK'||tag==='META')continue;   // Inhalt verwerfen
+      if(tag==='BR'){out+='<br>';continue;}
+      if(tag==='DIV'||tag==='P'){var inner=_erpRichNode(c);out+=inner+(inner&&!/\<br\>$/.test(inner)?'<br>':'');continue;}
+      if(tag==='FONT'){   // execCommand-Altlast → in span[style] übersetzen
+        var st2='',col=c.getAttribute&&c.getAttribute('color');if(col&&/^#?[0-9a-z]+$/i.test(col))st2='color:'+(col.charAt(0)==='#'?col:'#'+col);
+        out+='<span'+(st2?' style="'+st2+'"':'')+'>'+_erpRichNode(c)+'</span>';continue;
+      }
+      if(_ERP_RICH_TAGS[tag]){
+        var attr='';
+        if(tag==='SPAN'){var st=_erpSafeStyle(c.getAttribute&&c.getAttribute('style'));if(st)attr=' style="'+st+'"';}
+        var t=tag.toLowerCase();
+        out+='<'+t+attr+'>'+_erpRichNode(c)+'</'+t+'>';
+      } else out+=_erpRichNode(c);   // unbekanntes Tag: Inhalt behalten, Tag weg
+    }
+  }
+  return out;
+}
+function erpRichSanitize(html){
+  var s=String(html==null?'':html);
+  if(!_ERP_RICH_RE.test(s))return esc(s).replace(/\n/g,'<br>');   // reiner Text (auch mit «<» ohne echtes Tag)
+  var tmp=document.createElement('div');tmp.innerHTML=s;
+  return _erpRichNode(tmp).replace(/(<br>\s*){3,}/g,'<br><br>');
+}
+function erpBezPlain(bez){
+  var s=String(bez==null?'':bez);
+  if(!_ERP_RICH_RE.test(s))return s;
+  var tmp=document.createElement('div');tmp.innerHTML=s.replace(/<br\s*\/?>/gi,'\n').replace(/<\/(div|p)>/gi,'\n');
+  return (tmp.textContent||'').replace(/\n{2,}/g,'\n').trim();
+}
+// Rich-Editor-Widget (Toolbar + contenteditable) für die bez-Zelle.
+var _richEd=null,_richRange=null;
+function inpRich(id,val){
+  var cols=ERP_RICH_COLORS.map(function(c){return '<button type="button" class="rb-col" style="background:'+c+'" onclick="erpRichColor(\''+c+'\')" title="Textfarbe"></button>';}).join('');
+  return '<div class="rich-wrap" onmousedown="erpRichBarDown(event)">'
+    +'<div class="rich-bar">'
+      +'<button type="button" class="rb" onclick="erpRichCmd(\'bold\')" title="Fett (Auswahl markieren)"><b>F</b></button>'
+      +'<button type="button" class="rb" onclick="erpRichCmd(\'italic\')" title="Kursiv"><i>K</i></button>'
+      +'<button type="button" class="rb" onclick="erpRichCmd(\'underline\')" title="Unterstrichen"><u>U</u></button>'
+      +'<select class="rb-sel" onchange="erpRichSize(this.value);this.selectedIndex=0" title="Schriftgrösse"><option value="">Grösse ▾</option><option value="0.8em">klein</option><option value="1.2em">gross</option><option value="1.45em">sehr gross</option></select>'
+      +cols
+      +'<button type="button" class="rb" onclick="erpRichColorReset()" title="Formatierung entfernen">⌫</button>'
+    +'</div>'
+    +'<div class="rich-ed" data-edit="1" contenteditable="true" data-id="'+esc(id)+'" data-ph="Beschrieb …" onfocus="_richEd=this;erpRichSaveSel()" oninput="erpRichInput(this)" onmouseup="erpRichSaveSel()" onkeyup="erpRichSaveSel()" onblur="erpRichBlur(this,event)" onkeydown="erpRichKey(event)">'+erpRichSanitize(val)+'</div>'
+  +'</div>';
+}
+function erpRichInput(el){_richEd=el;erpCellSet(el.getAttribute('data-id'),'bez',erpRichSanitize(el.innerHTML));}
+function erpRichSaveSel(){var s=window.getSelection();if(s&&s.rangeCount&&_richEd&&_richEd.contains(s.anchorNode))_richRange=s.getRangeAt(0).cloneRange();}
+function _richRestore(){if(!_richEd)return;_richEd.focus();if(_richRange){try{var s=window.getSelection();s.removeAllRanges();s.addRange(_richRange);}catch(e){}}}
+function _richFlush(){if(_richEd){erpCellSet(_richEd.getAttribute('data-id'),'bez',erpRichSanitize(_richEd.innerHTML));erpRichSaveSel();}}
+function erpRichBarDown(e){if(e.target&&e.target.closest&&e.target.closest('.rb'))e.preventDefault();}   // Button-Klick stiehlt den Fokus/die Auswahl nicht
+function erpRichCmd(cmd){_richRestore();try{document.execCommand(cmd,false,null);}catch(e){}_richFlush();}
+function erpRichColor(c){_richRestore();erpRichWrapStyle('color',c);_richFlush();}   // Span-Wrap ist zuverlässiger als execCommand('foreColor')
+function erpRichColorReset(){_richRestore();try{document.execCommand('removeFormat',false,null);}catch(e){}_richFlush();}
+function erpRichSize(sz){if(!sz)return;_richRestore();erpRichWrapStyle('fontSize',sz);_richFlush();}
+function erpRichWrapStyle(prop,val){
+  var s=window.getSelection();if(!s||!s.rangeCount)return;var r=s.getRangeAt(0);if(r.collapsed)return;
+  var span=document.createElement('span');span.style[prop]=val;
+  try{r.surroundContents(span);}catch(e){var f=r.extractContents();span.appendChild(f);r.insertNode(span);}
+  try{s.removeAllRanges();var nr=document.createRange();nr.selectNodeContents(span);s.addRange(nr);}catch(e2){}
+}
+function erpRichKey(e){if(e.key==='Escape'){e.preventDefault();if(e.target&&e.target.blur)e.target.blur();}}
+function erpRichBlur(el,e){
+  var to=e&&e.relatedTarget;
+  if(to&&to.closest&&to.closest('.rich-wrap'))return;   // Fokus bleibt in der Toolbar → Bearbeitung offen lassen
+  erpCellSet(el.getAttribute('data-id'),'bez',erpRichSanitize(el.innerHTML));
+  _richEd=null;_richRange=null;erpCellCommit();
+}
 function erpRenderPos(){
   var tb=document.getElementById('posBody');if(!tb||!cur)return;
   erpTouch();   // Positions-/Zellenänderungen laufen alle hier durch → Auto-Save (Signatur-Diff)
@@ -2116,7 +2227,7 @@ function erpRenderPos(){
       :(editable&&p.art!=='abzug'&&p.art!=='akonto'?'<button class="pos-foto" title="Bild zur Position" onclick="event.stopPropagation();erpPosBildPick('+i+')">📷</button>':'');
     var editableRow=editable&&p.art!=='abzug';   // Abzugszeilen (Schlussrechnung) bleiben fix
     h+=trOpen(i,p.art==='abzug'?'abzug':'')+grip(i)
-      +'<td><div style="display:flex;gap:8px;align-items:flex-start">'+pcell(p.id,'bez','bezflex',(p.bez?esc(p.bez):'<span class="mut">—</span>'),inpText(p.id,'bez',p.bez,'','flex:1;min-width:0'),!editableRow)+bildHtml+'</div></td>'
+      +'<td><div style="display:flex;gap:8px;align-items:flex-start">'+pcell(p.id,'bez','bezflex',(p.bez?erpRichSanitize(p.bez):'<span class="mut">—</span>'),inpRich(p.id,p.bez),!editableRow)+bildHtml+'</div></td>'
       +'<td>'+src+'</td>'
       +'<td style="width:76px">'+pcell(p.id,'menge','num',(p.menge!=null&&p.menge!==''?esc(p.menge):'<span class="mut">–</span>'),inpNum(p.id,'menge',p.menge,''),!editableRow)+'</td>'
       +'<td style="width:88px">'+pcell(p.id,'einheit','',esc(p.einheit||'Stk'),inpSel(p.id,'einheit',(function(cu){var L=EINHEITEN.slice();if(cu&&L.indexOf(cu)<0)L.unshift(cu);return L.map(function(e){return '<option'+(cu===e?' selected':'')+'>'+esc(e)+'</option>';}).join('');})(p.einheit)),!editableRow)+'</td>'
@@ -2267,6 +2378,9 @@ function erpPosDrop(e,i){
   erpRenderPos();
 }
 function erpPosDragEnd(){_dragId=null;document.querySelectorAll('#posBody tr.pos-drop,#posBody tr.pos-dragging').forEach(function(x){x.classList.remove('pos-drop','pos-dragging');});}
+// «Fokus liegt in einem Eingabefeld?» — inkl. contenteditable (Rich-Beschrieb),
+// damit Delete/Ctrl+Enter dort nicht Positionen löschen/Umbruch einfügen.
+function _erpInField(el){return !!(el&&(/^(INPUT|SELECT|TEXTAREA)$/.test(el.tagName)||el.isContentEditable));}
 // Delete-Taste löscht die markierten Positionen — nur wenn der Editor offen,
 // editierbar, etwas markiert ist und der Fokus NICHT in einem Feld liegt.
 document.addEventListener('keydown',function(e){
@@ -2274,8 +2388,7 @@ document.addEventListener('keydown',function(e){
   var ov=document.getElementById('edOv');
   if(!ov||!ov.classList.contains('open'))return;
   if(!erpEditable()||!_selIds.length)return;
-  var ae=document.activeElement;
-  if(ae&&/^(INPUT|SELECT|TEXTAREA)$/.test(ae.tagName))return;   // Feld-Editing hat Vorrang
+  if(_erpInField(document.activeElement))return;   // Feld-Editing hat Vorrang
   e.preventDefault();
   erpPosDeleteSelected();
 });
@@ -2289,8 +2402,7 @@ document.addEventListener('keydown',function(e){
   var ov=document.getElementById('edOv');
   if(!ov||!ov.classList.contains('open'))return;
   if(!erpEditable())return;
-  var ae=document.activeElement;
-  if(ae&&/^(INPUT|SELECT|TEXTAREA)$/.test(ae.tagName))return;   // Feld noch fokussiert
+  if(_erpInField(document.activeElement))return;   // Feld noch fokussiert
   e.preventDefault();
   _erpInsertPos({id:uid(),art:'seitenumbruch'});
   erpRenderPos();
@@ -2420,8 +2532,8 @@ function erpPosInsertAufschlag(i,art,modus){
   erpRenderPos();
 }
 function erpPosCtx(e,i){
-  // In Eingabefeldern bleibt das native Menü (Text kopieren/einfügen)
-  if(e.target&&/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName))return;
+  // In Eingabefeldern (inkl. Rich-Beschrieb) bleibt das native Menü (Text kopieren/einfügen)
+  if(_erpInField(e.target))return;
   if(!cur)return;
   var p=cur.positionen[i];if(!p)return;
   var editable=erpEditable();
@@ -2646,7 +2758,8 @@ function _dsRenderGrouped(list,anbId){
       var hat=!!(a.hatBild||a.bildUrl),lab=_dsVariantLabel(a,base);
       // Lang-Modus: ausführliche Beschreibung + Ausführung; Kurz-Modus: Basisname + Ausführung
       var langBase=(mode==='lang'&&a.bezeichnungLang)?a.bezeichnungLang:base;
-      return {art:'frei',bez:langBase+(lab?(' — '+lab):''),einheit:a.einheit||'Stk',ep:a.preis>0?a.preis:'',menge:1,
+      // Ausführung/Farbe auf eigener Zeile + fett (bez ist Rich-Text/HTML)
+      return {art:'frei',bez:esc(langBase)+(lab?('<br><strong>'+esc(lab)+'</strong>'):''),einheit:a.einheit||'Stk',ep:a.preis>0?a.preis:'',menge:1,
         produktId:'ds:'+(a.artnr||''),dsArtnr:a.artnr||'',lieferantFirma:a.hersteller||'',
         _dsAnb:anbId,_dsBild:a.bildUrl||'',_dsHat:hat,_afLabel:lab};
     });
@@ -3151,7 +3264,7 @@ function erpEigRender(){
       +(posn.length?posn.map(function(p){
         var da=(kat.artikel||[]).some(function(a){return a.bez===p.bez;});
         return '<div class="side-art"'+(da?' style="opacity:.45"':' onclick="erpEigAusDokuTake(\''+p.id+'\')"')+'><span class="sa-ic">'+(erpPosImgSrc(p)?'🖼':'📄')+'</span>'
-          +'<div class="sa-t"><div class="sa-n">'+esc(p.bez)+'</div><div class="sa-s">'+esc(p.einheit||'')+' · EP '+chf(erpNum(p.ep))+(da?' · im Katalog':'')+'</div></div>'
+          +'<div class="sa-t"><div class="sa-n">'+esc(erpBezPlain(p.bez))+'</div><div class="sa-s">'+esc(p.einheit||'')+' · EP '+chf(erpNum(p.ep))+(da?' · im Katalog':'')+'</div></div>'
           +(da?'':'<span class="sa-plus">＋</span>')+'</div>';
       }).join(''):'<div class="side-empty">Keine übernehmbaren Positionen im Dokument.</div>')
       +'<button class="btn" style="width:100%;margin-top:8px" onclick="_eigMode=\'list\';erpEigRender()">✓ Fertig</button>';
@@ -3855,7 +3968,7 @@ function erpPdf(){
     if(!curGrp){curGrp={bez:'Positionen ohne Titel',sum:0,ltr:nextLtr(),bkp:'',ebene:0};gruppen.push(curGrp);}
     curGrp.sum+=betrag;
     var pimg=erpPosImgSrc(p);
-    posRows+='<tr'+(pimg?' class="hasimg"':'')+(p.art==='abzug'?' style="color:#92400e"':'')+'><td class="num" style="color:#888">'+nrPos+'</td><td>'+esc(p.bez)+'</td>'
+    posRows+='<tr'+(pimg?' class="hasimg"':'')+(p.art==='abzug'?' style="color:#92400e"':'')+'><td class="num" style="color:#888">'+nrPos+'</td><td>'+erpRichSanitize(p.bez)+'</td>'
       +'<td class="num">'+(p.menge!=null?p.menge:'')+'</td><td>'+esc(p.einheit||'')+'</td><td class="num">'+chf(erpNum(p.ep))+(erpNum(p.rabattPct)?'<br><span style="font-size:8pt;color:#888">−'+p.rabattPct+'%</span>':'')+'</td><td class="num">'+chf(betrag)+'</td></tr>';
     // Positionsbild als eigene Zeile unter der Position
     if(pimg)posRows+='<tr class="bildrow"><td></td><td colspan="5" style="padding:2px 7px 8px"><img src="'+esc(pimg)+'" alt="" style="max-height:40mm;max-width:40mm;border:none;display:block"/></td></tr>';
@@ -3989,6 +4102,8 @@ function erpPdf(){
   if(!w){toast('Pop-up blockiert — bitte erlauben');return;}
   w.document.write('<!DOCTYPE html><html lang="de"><head><meta charset="utf-8"><title>'+esc(docName+' '+(d.nr||''))+'</title>'
     +'<style>@page{size:A4 portrait;margin:18mm 15mm 22mm;'+pageHeadCss+pageFootCss+'}'
+    +'@page:first{@top-right{content:none}}'   // Titelblatt trägt den vollen Briefkopf → keine Laufzeile
+
     +':root{--acc:'+brand.acc+';--tint:'+brand.tint+'}'
     // Bildschirm: graue Bühne, jede Sektion ein weisses A4-Blatt (direkt als A4 gerendert)
     +'body{font-family:"DM Sans",-apple-system,sans-serif;color:#111;font-size:10pt;line-height:1.45;margin:0;background:#e4e8ee;padding:26px 10px 70px}'
@@ -3996,7 +4111,7 @@ function erpPdf(){
     +'.kopf{display:flex;justify-content:space-between;align-items:flex-start;gap:22px;margin-bottom:10mm}'
     +'.abs-firma{font-size:10.5pt;font-weight:800;letter-spacing:.2px}'
     +'.abs-sub{font-size:8.5pt;color:#111;margin-top:2px;line-height:1.6}'
-    +'.kopf-r{flex-shrink:0;text-align:right}'
+    +'.kopf-r{flex-shrink:0;text-align:right;margin-top:-3mm}'   // Logo 3mm hoch → Abstand oben = rechts (15mm)
     +'.adrzone{display:flex;justify-content:space-between;align-items:flex-start;gap:22px;margin-bottom:11mm}'
     +'.adr-l{font-size:9pt;color:#333;line-height:1.55;max-width:80mm}'
     +'.adr-eyebrow{font-size:8pt;font-weight:800;color:#666}'

@@ -44,7 +44,8 @@ const docCtx = (id) => page.evaluate((id) => {
 const rowCtx = (i, onInput) => page.evaluate(({ i, onInput }) => {
   const tr = document.querySelectorAll('#posBody tr')[i];
   if (!tr) return false;
-  const target = onInput ? tr.querySelector('input') : tr;
+  const target = onInput ? tr.querySelector('input,select,textarea,[contenteditable="true"]') : tr;
+  if (!target) return false;
   target.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 200, clientY: 200 }));
   return true;
 }, { i, onInput });
