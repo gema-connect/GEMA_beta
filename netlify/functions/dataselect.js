@@ -148,7 +148,10 @@ function _normArtikel(raw){
   // Langtext (ausführliche Produktbeschreibung) getrennt vom Kurztext (Produktname).
   var beschr = _pick(raw, ['produktbeschreibung','beschreibunglang','langtext','produktbeschreibunglieferant','description','beschreibung']);
   var kurz = String(bez || '').trim();
-  var af = _afAusfuehrung(_pick(raw, ['produktbeschreibung','beschreibung','description','produktbeschreibunglieferant','intern_description']));
+  // Ausführung (Farbe/Oberfläche): debim liefert sie strukturiert (AFZ/AFZNr →
+  // raw.ausfuehrung); sonst aus der bexio-AF:/AFZ:-Zeile der Beschreibung.
+  var af = String(_pick(raw, ['ausfuehrung','ausführung']) || '').trim()
+    || _afAusfuehrung(_pick(raw, ['produktbeschreibung','beschreibung','description','produktbeschreibunglieferant','intern_description']));
   // AF:/AFZ:-Ausführungszeile aus dem Langtext entfernen (steckt in `ausfuehrung`) —
   // NUR wenn wirklich eine AF/AFZ-Ausführung erkannt wurde (kein Fehlschnitt bei
   // legitimen «AF:»-Inhaltszeilen) und NICHT zeilenverankert (HTML-Beschreibungen
@@ -238,31 +241,69 @@ function _debimBild(body){
   }
   return fallback;
 }
+// Ausführungen eines Artikels aus <PreisEig> expandieren:
+//   <AFZ AFNr="143" Txt="Pergamon">
+//     <AFZNr Txt="" Preis="1047" EAN="…">0</AFZNr>
+//     <AFZNr Txt="Gleitschutz Antislip" Preis="1222" EAN="…">183</AFZNr>
+//   </AFZ>
+// → je AFZNr eine Variante mit Voll-Code «ArtNr/AFNr/Suffix» (wie bexio
+// «1313116/143/183», damit _dsBaseCode gruppiert) + Label «Farbe · Oberfläche».
+function _debimVarianten(body, artnr){
+  var out = [], reAfz = /<AFZ\b([^>]*)>([\s\S]*?)<\/AFZ>/gi, m;
+  while ((m = reAfz.exec(String(body || '')))){
+    var afzAttr = m[1] || '', afzBody = m[2] || '';
+    var afNr = (afzAttr.match(/\bAFNr\s*=\s*"([^"]*)"/i) || ['', ''])[1];
+    var afTxt = _xmlUnescape((afzAttr.match(/\bTxt\s*=\s*"([^"]*)"/i) || ['', ''])[1]);
+    var reNr = /<AFZNr\b([^>]*)>([\s\S]*?)<\/AFZNr>/gi, n, hadNr = false;
+    while ((n = reNr.exec(afzBody))){
+      hadNr = true;
+      var nrAttr = n[1] || '', suffix = _xmlUnescape(String(n[2] || '').trim());   // «183» / «0»
+      var nrTxt = _xmlUnescape((nrAttr.match(/\bTxt\s*=\s*"([^"]*)"/i) || ['', ''])[1]);   // «Gleitschutz Antislip»
+      var preis = (nrAttr.match(/\bPreis\s*=\s*"([^"]*)"/i) || ['', ''])[1];
+      var ean = (nrAttr.match(/\bEAN\s*=\s*"([^"]*)"/i) || ['', ''])[1];
+      var code = String(artnr || '') + (afNr ? ('/' + afNr) : '') + (suffix ? ('/' + suffix) : '');
+      out.push({ code: code, label: [afTxt, nrTxt].filter(Boolean).join(' · ') || afNr || suffix, preis: preis, ean: ean });
+    }
+    if (!hadNr){   // AFZ ohne AFZNr: Preis/EAN evtl. direkt am AFZ
+      out.push({
+        code: String(artnr || '') + (afNr ? ('/' + afNr) : ''),
+        label: afTxt || afNr,
+        preis: (afzAttr.match(/\bPreis\s*=\s*"([^"]*)"/i) || ['', ''])[1],
+        ean: (afzAttr.match(/\bEAN\s*=\s*"([^"]*)"/i) || ['', ''])[1]
+      });
+    }
+  }
+  return out;
+}
 function _parseDebimXml(text){
   var t = String(text || '');
   if (t.indexOf('<Artikel') < 0) return null;   // kein debim/DataExpert-BIM
   var out = [], re = /<Artikel\b([^>]*)>([\s\S]*?)<\/Artikel>/gi, m;
   while ((m = re.exec(t))){
     var attrs = m[1] || '', body = m[2] || '';
-    var artnr = (attrs.match(/\bArtNr\s*=\s*"([^"]*)"/i) || ['', ''])[1];
+    var artnr = _xmlUnescape((attrs.match(/\bArtNr\s*=\s*"([^"]*)"/i) || ['', ''])[1]);
+    var kurz = _xmlUnescape(_debimTag(body, 'TKurz'));
+    var lang = _xmlUnescape(_debimTag(body, 'TLang'));
     // Einheit: <Menge ISO="PCE" Einh="ST">1</Menge> — ISO bevorzugt, sonst Einh
-    var mgTag = body.match(/<Menge\b([^>]*)>/i);
-    var mgAttr = mgTag ? mgTag[1] : '';
-    var einheit = (mgAttr.match(/\bISO\s*=\s*"([^"]*)"/i) || mgAttr.match(/\bEinh\s*=\s*"([^"]*)"/i) || ['', ''])[1];
-    // Preis + EAN aus dem ersten <Pr Preis="…" EAN="…"/>
-    var pr = body.match(/<Pr\b([^>]*)>/i);
-    var prAttr = pr ? pr[1] : '';
-    var preis = (prAttr.match(/\bPreis\s*=\s*"([^"]*)"/i) || ['', ''])[1];
-    var ean = (prAttr.match(/\bEAN\s*=\s*"([^"]*)"/i) || ['', ''])[1];
-    out.push({
-      produktcode: _xmlUnescape(artnr),
-      produktname: _xmlUnescape(_debimTag(body, 'TKurz')),
-      produktbeschreibung: _xmlUnescape(_debimTag(body, 'TLang')),
-      einheit: _xmlUnescape(einheit),
-      verkaufspreis: _xmlUnescape(preis),
-      ean: _xmlUnescape(ean),
-      bild: _debimBild(body)
-    });
+    var mgTag = body.match(/<Menge\b([^>]*)>/i), mgAttr = mgTag ? mgTag[1] : '';
+    var einheit = _xmlUnescape((mgAttr.match(/\bISO\s*=\s*"([^"]*)"/i) || mgAttr.match(/\bEinh\s*=\s*"([^"]*)"/i) || ['', ''])[1]);
+    var bild = _debimBild(body);   // Bild liegt auf Artikel-Ebene → für alle Ausführungen gleich
+    var varianten = _debimVarianten(body, artnr);
+    if (varianten.length){
+      // Produkt MIT Ausführungen (Farbe/Oberfläche) — je Variante ein Artikel.
+      varianten.forEach(function(v){
+        out.push({ produktcode: v.code, produktname: kurz, produktbeschreibung: lang, einheit: einheit, verkaufspreis: _xmlUnescape(v.preis), ean: _xmlUnescape(v.ean), bild: bild, ausfuehrung: v.label });
+      });
+    } else {
+      // Einfaches Produkt: Preis/EAN aus dem ersten <Pr Preis="…" EAN="…"/>
+      var pr = body.match(/<Pr\b([^>]*)>/i), prAttr = pr ? pr[1] : '';
+      out.push({
+        produktcode: artnr, produktname: kurz, produktbeschreibung: lang, einheit: einheit,
+        verkaufspreis: _xmlUnescape((prAttr.match(/\bPreis\s*=\s*"([^"]*)"/i) || ['', ''])[1]),
+        ean: _xmlUnescape((prAttr.match(/\bEAN\s*=\s*"([^"]*)"/i) || ['', ''])[1]),
+        bild: bild
+      });
+    }
   }
   return out.length ? out : null;
 }
@@ -466,3 +507,4 @@ exports._cleanLang = _cleanLang;
 exports._xmlUnescape = _xmlUnescape;
 exports._parseDebimXml = _parseDebimXml;
 exports._debimBild = _debimBild;
+exports._debimVarianten = _debimVarianten;

@@ -241,5 +241,54 @@ Bruttogewicht: 2.1 kg</TLang>
   ok(ds._debimBild('<Name>https://x/img.webp?v=2</Name>') === 'https://x/img.webp?v=2', 'URL-Endung .webp als Fallback erkannt');
 }
 
+console.log('■ _parseDebimXml — Ausführungen (AFZ/AFZNr → Varianten mit Farbe/Preis/EAN)');
+{
+  // Reales debim-Beispiel (Kaldewei Duschwanne): EIN <Artikel> mit 7 Farben (AFZ)
+  // à 2 Oberflächen (AFZNr, «» = Standard / «Gleitschutz Antislip») = 14 Varianten.
+  const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<DataExpert-BIM><Body><Katalog><Produkte>
+<Artikel ArtNr="1313116">
+  <TKurz>Duschwanne Kaldewei Duschplan, 80 x 90 x 6,5 cm, Stahl, Schallisolierung</TKurz>
+  <TLang>Duschwanne Kaldewei Duschplan, 80 x 90 x 6,5 cm, Stahl, Schallisolierung</TLang>
+  <Menge ISO="PCE" Einh="Stk.">1</Menge>
+  <PreisEig>
+    <AFZ AFNr="100" Txt="Weiss">
+      <AFZNr Txt="" Typ="1" Preis="806" EAN="4001112310748">0</AFZNr>
+      <AFZNr Txt="Gleitschutz Antislip" Typ="1" Preis="981" EAN="4001112306017">183</AFZNr>
+    </AFZ>
+    <AFZ AFNr="143" Txt="Pergamon">
+      <AFZNr Txt="" Typ="1" Preis="1047" EAN="4001112482773">0</AFZNr>
+      <AFZNr Txt="Gleitschutz Antislip" Typ="1" Preis="1222" EAN="4001112539774">183</AFZNr>
+    </AFZ>
+  </PreisEig>
+  <LinkAdr><Name Bez="Bild IGH" Ext="png">https://x/duschwanne.png</Name></LinkAdr>
+</Artikel>
+</Produkte></Katalog></Body></DataExpert-BIM>`;
+  const raw = ds._parseDebimXml(xml);
+  ok(Array.isArray(raw) && raw.length === 4, '2 Farben × 2 Oberflächen = 4 Varianten-Artikel');
+  const list = raw.map(ds._normArtikel);
+  // Voll-Code ArtNr/AFNr/Suffix — _dsBaseCode (Teil vor «/») gruppiert sie alle unter «1313116»
+  ok(list.every(a => a.artnr.indexOf('1313116/') === 0), 'Voll-Code «1313116/AFNr/Suffix» je Variante');
+  ok(list.every(a => a.artnr.split('/')[0] === '1313116'), 'gemeinsamer Basiscode 1313116 (Gruppierung greift)');
+  const weissStd = list.find(a => a.artnr === '1313116/100/0');
+  const pergAnti = list.find(a => a.artnr === '1313116/143/183');
+  ok(weissStd && weissStd.ausfuehrung === 'Weiss' && Math.abs(weissStd.preis - 806) < 1e-6 && weissStd.ean === '4001112310748', 'Weiss Standard: Label/Preis/EAN');
+  ok(pergAnti && pergAnti.ausfuehrung === 'Pergamon · Gleitschutz Antislip' && Math.abs(pergAnti.preis - 1222) < 1e-6, 'Pergamon · Gleitschutz Antislip: Label + Preis');
+  ok(list.every(a => a.einheit === 'Stk' && a.bezeichnung.indexOf('Duschwanne Kaldewei') === 0), 'Einheit (PCE/Stk.) + gemeinsamer Kurzname pro Variante');
+  ok(list.every(a => a.bildUrl === 'https://x/duschwanne.png'), 'Artikel-Bild für alle Ausführungen übernommen');
+  ok(list.every(a => a.hersteller !== undefined), 'normalisiert ohne Crash');
+}
+{
+  // _debimVarianten direkt
+  const body = '<PreisEig><AFZ AFNr="7" Txt="Chrom"><AFZNr Txt="matt" Preis="50" EAN="111">2</AFZNr></AFZ></PreisEig>';
+  const v = ds._debimVarianten(body, '900');
+  ok(v.length === 1 && v[0].code === '900/7/2' && v[0].label === 'Chrom · matt' && v[0].preis === '50', '_debimVarianten: Code/Label/Preis');
+  // AFZ ohne AFZNr → eine Variante ArtNr/AFNr
+  const v2 = ds._debimVarianten('<AFZ AFNr="1" Txt="Weiss" Preis="99" EAN="222"></AFZ>', '800');
+  ok(v2.length === 1 && v2[0].code === '800/1' && v2[0].label === 'Weiss' && v2[0].preis === '99', 'AFZ ohne AFZNr → Variante mit AFZ-Preis');
+  // debim ohne AFZ (Einzelprodukt) → _debimVarianten leer → <Pr>-Pfad
+  ok(ds._debimVarianten('<PreisEig><Pr Preis="10" EAN="1"/></PreisEig>', 'X').length === 0, 'kein AFZ → keine Varianten (Einzelprodukt-Pfad)');
+}
+
 console.log('\n' + pass + '/' + (pass + fail) + ' Checks grün' + (fail ? ' — ' + fail + ' FEHLER' : ''));
 process.exit(fail ? 1 : 0);
