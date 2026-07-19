@@ -36,7 +36,7 @@ const ctxClick = (lbl) => page.evaluate((lbl) => {
   if (!b) return false; b.click(); return true;
 }, lbl);
 const docCtx = (id) => page.evaluate((id) => {
-  const card = document.querySelector('.card[oncontextmenu*="' + id + '"]');
+  const card = document.querySelector('.card[oncontextmenu*="' + id + '"], .drow[oncontextmenu*="' + id + '"]');
   if (!card) return false;
   card.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 160, clientY: 160 }));
   return true;
@@ -44,7 +44,8 @@ const docCtx = (id) => page.evaluate((id) => {
 const rowCtx = (i, onInput) => page.evaluate(({ i, onInput }) => {
   const tr = document.querySelectorAll('#posBody tr')[i];
   if (!tr) return false;
-  const target = onInput ? tr.querySelector('input') : tr;
+  const target = onInput ? tr.querySelector('input,select,textarea,[contenteditable="true"]') : tr;
+  if (!target) return false;
   target.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 200, clientY: 200 }));
   return true;
 }, { i, onInput });

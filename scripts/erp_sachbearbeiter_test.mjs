@@ -87,9 +87,9 @@ console.log('■ ERP: Sachbearbeiter-Default + Vererbung');
     const n = await page.evaluate(() => {
       document.getElementById('fSb').value = 'user_petra';
       erpRenderList();
-      return document.querySelectorAll('#docList .card').length;
+      return document.querySelectorAll('#docList .card, #docList .drow').length;
     });
-    ok(n === 1, 'Filter auf Petra: nur ihre Offerte (' + n + ' Karte)');
+    ok(n === 1, 'Filter auf Petra: nur ihre Offerte (' + n + ' Eintrag)');
     await page.evaluate(() => { document.getElementById('fSb').value = ''; erpRenderList(); });
   }
   {
@@ -125,7 +125,9 @@ console.log('■ Einsatzplan: Verantwortlicher sichtbar für den Monteur');
     st.einsatzplan = Object.assign({}, st.einsatzplan, { userIds: [u.id] });
     GemaAuth.updateOrgSettings(org.id, st);
     const auftrag = { id: 'au_sb', orgId: u.orgId, typ: 'auftrag', nr: 'AU-2026-021', titel: 'Service Boiler', status: 'offen', positionen: [], kundeSnapshot: { firma: 'Muster AG' }, sachbearbeiter: { userId: 'user_petra', name: 'Petra Muster' }, erstelltVon: { userId: u.id, name: u.name } };
-    localStorage.setItem('gema_erp_dok_pool_v1', JSON.stringify([auftrag]));
+    // zweiter, NICHT eingeplanter Auftrag — der Pool rechts zeigt nur Uneingeplante
+    const auftrag2 = { id: 'au_sb2', orgId: u.orgId, typ: 'auftrag', nr: 'AU-2026-022', titel: 'Filter ersetzen', status: 'offen', positionen: [], kundeSnapshot: { firma: 'Muster AG' }, sachbearbeiter: { userId: 'user_petra', name: 'Petra Muster' }, erstelltVon: { userId: u.id, name: u.name } };
+    localStorage.setItem('gema_erp_dok_pool_v1', JSON.stringify([auftrag, auftrag2]));
     _epErpMemo = { t: 0, l: null };
     epNeuAusAuftrag(auftrag, u.id, '2026-07-22');
     epNeu(u.id, '2026-07-23');
@@ -153,7 +155,7 @@ console.log('■ Einsatzplan: Verantwortlicher sichtbar für den Monteur');
     await page.evaluate(() => epEvClose());
   }
   await page.evaluate(() => { _view = 'woche'; epRender(); });
-  ok(await page.evaluate(() => document.getElementById('viewWrap').innerHTML.indexOf('👔 Petra Muster') >= 0), 'Sidebar «Offene Aufträge»: 👔 Sachbearbeiter am Auftrag');
+  ok(await page.evaluate(() => document.getElementById('viewWrap').innerHTML.indexOf('👔 Petra Muster') >= 0), 'Auftrags-Pool: 👔 Sachbearbeiter am (uneingeplanten) Auftrag');
   ok(errors.length === 0, 'Einsatzplan: keine JS-Fehler' + (errors.length ? ' — ' + errors[0] : ''));
   await ctx.close();
 }

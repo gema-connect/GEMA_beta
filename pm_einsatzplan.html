@@ -63,7 +63,7 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important}
 .layout{display:grid;grid-template-columns:1fr 270px;gap:12px;align-items:start}
 @media(max-width:980px){.layout{grid-template-columns:1fr}}
 
-/* PLANTAFEL (Woche) */
+/* PLANTAFEL (Woche) — Stunden-Zeitachse von links nach rechts */
 .board-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;background:var(--sur);border:1.5px solid var(--brd);border-radius:14px;box-shadow:var(--sh)}
 table.board{border-collapse:collapse;width:100%;min-width:860px}
 .board th{background:var(--sur2);border-bottom:2px solid var(--brd2);padding:8px 6px;font-size:11px;font-weight:800;color:var(--mut);text-align:center;white-space:nowrap;text-transform:uppercase;letter-spacing:.3px}
@@ -72,7 +72,7 @@ table.board{border-collapse:collapse;width:100%;min-width:860px}
 .board td{border-bottom:1px solid var(--brd);border-right:1px solid var(--brd);padding:4px;vertical-align:top;min-width:104px;height:74px}
 .board td.mn{background:var(--sur2);font-size:12.5px;font-weight:800;padding:8px 6px 8px 12px;white-space:nowrap;vertical-align:middle}
 .board td.mn .mn-sub{font-size:10px;color:var(--mut);font-weight:600}
-.board td.day{cursor:pointer;transition:background .12s}
+.board td.day{cursor:pointer;transition:background .12s;padding:2px;min-width:160px}
 .board td.day.today{background:rgba(15,118,110,.045)}
 .board td.day.wkend{background:#fafbfd}
 .board td.day.dropok{background:var(--acc-bg);outline:2px dashed var(--acc);outline-offset:-2px}
@@ -86,6 +86,19 @@ table.board{border-collapse:collapse;width:100%;min-width:860px}
 .ev.moving{outline:2.5px solid var(--acc);outline-offset:1px}
 .ev.konflikt::after{content:'⚠';position:absolute;top:2px;right:4px;font-size:10px}
 .slot-pill{display:inline-block;font-size:9px;font-weight:900;padding:0 5px;border-radius:5px;background:rgba(255,255,255,.75);margin-right:3px}
+/* Stunden-Timeline in der Tages-Zelle */
+.tl{position:relative;min-height:48px;border-radius:7px;cursor:crosshair;
+  background-image:linear-gradient(to right,rgba(100,116,139,.16) 1px,transparent 1px);
+  background-size:calc(100%/var(--hn,12)) 100%}
+.tl-ev{position:absolute;margin:0;padding:2px 6px;overflow:hidden;box-shadow:0 1px 2px rgba(0,0,0,.08)}
+.tl-ev .ev-t{font-size:10.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;word-break:normal}
+.tl-ev .ev-s{font-size:9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.th-scale{position:relative;height:11px;margin-top:3px}
+.th-scale span{position:absolute;top:0;font-size:8.5px;font-weight:700;color:var(--mut2);letter-spacing:0}
+.th-scale .nowtick{position:absolute;top:0;bottom:-3px;width:2px;background:var(--red);border-radius:2px}
+.nowline{position:absolute;top:0;bottom:0;width:2px;background:var(--red);z-index:6;pointer-events:none;border-radius:2px}
+.nowline::before{content:'';position:absolute;top:-2px;left:-2px;width:6px;height:6px;border-radius:50%;background:var(--red)}
+.tl-selbox{position:absolute;top:2px;bottom:2px;background:rgba(15,118,110,.16);border:1.5px dashed var(--acc);border-radius:7px;z-index:5;pointer-events:none;display:flex;align-items:center;justify-content:center;font-size:9.5px;font-weight:900;color:var(--acc);white-space:nowrap;overflow:hidden}
 
 /* SIDEBAR: offene Aufträge */
 .side{background:var(--sur);border:1.5px solid var(--brd);border-radius:14px;box-shadow:var(--sh);overflow:hidden}
@@ -181,7 +194,7 @@ table.board{border-collapse:collapse;width:100%;min-width:860px}
       <div class="hero-ic">🗓️</div>
       <div>
         <div class="hero-title">Einsatzplan</div>
-        <div class="hero-sub">Monteure einplanen — Aufträge per Drag &amp; Drop aus der Seitenleiste, freie Einsätze per Klick auf die Tafel</div>
+        <div class="hero-sub">Monteure im Stundenraster einplanen — Aufträge aus dem Pool rechts ziehen, Zeiten direkt in der Tafel aufziehen</div>
       </div>
     </div>
   </div>
@@ -213,7 +226,8 @@ table.board{border-collapse:collapse;width:100%;min-width:860px}
     <div class="modal-hd"><h3 id="evTitle">Einsatz</h3><button class="modal-x" onclick="epEvClose()">✕</button></div>
     <div class="modal-bd">
       <div class="fld"><label>Typ</label><div class="typ-chips" id="evTyp"></div></div>
-      <div class="fld" id="evAuftragWrap" style="display:none"><label>Auftrag</label><select id="ev_auftrag" onchange="epEvAuftragChanged()"></select><div id="evKeyInfo"></div></div>
+      <div class="fld" id="evAuftragWrap" style="display:none"><label>Auftrag</label><div id="evAuftragPick"></div></div>
+      <div id="evKeyInfo" style="margin-bottom:8px"></div>
       <div class="fld"><label>Titel / Arbeit *</label><input id="ev_titel" type="text" placeholder="z.B. Steigzone EG–3.OG"/></div>
       <div class="fld-row">
         <div class="fld"><label>Monteur *</label><select id="ev_monteur"></select></div>
@@ -224,7 +238,6 @@ table.board{border-collapse:collapse;width:100%;min-width:860px}
         <div class="fld" id="evSlotWrap"><label>Zeitraum</label><div class="slot-chips" id="evSlot"></div></div>
         <div class="fld" id="evZeitWrap" style="display:none"><label>Zeit von – bis</label><div style="display:flex;gap:6px;align-items:center"><input id="ev_von" type="time" style="flex:1"/><span>–</span><input id="ev_bis" type="time" style="flex:1"/></div></div>
       </div>
-      <div class="fld"><label>Projekt / Objekt</label><select id="ev_objekt"></select></div>
       <div class="fld" id="evBereichWrap" style="display:none"><label>Arbeitsbereich</label><select id="ev_bereich"></select></div>
       <div class="fld" id="evBesWrap" style="display:none"><label>Besonderheiten für den Monteur</label>
         <div class="typ-chips" id="evBes"></div>
@@ -240,6 +253,17 @@ table.board{border-collapse:collapse;width:100%;min-width:860px}
       <div id="evAushang" style="display:none"></div>
     </div>
     <div class="modal-ft" id="evFt"></div>
+  </div>
+</div>
+
+<!-- ═══ AUFTRAG-SUCHE (Picker) ═══ -->
+<div class="modal-bg" id="aufModal">
+  <div class="modal">
+    <div class="modal-hd"><h3>📋 Auftrag wählen</h3><button class="modal-x" onclick="epAufClose()">✕</button></div>
+    <div class="modal-bd">
+      <input id="aufSuche" type="text" placeholder="🔍 Suchen — Nummer, Titel, Kunde, Adresse …" oninput="epAufRender(this.value)" style="width:100%;padding:11px 13px;border:1.5px solid var(--brd);border-radius:10px;font-size:15px;margin-bottom:10px"/>
+      <div id="aufList"></div>
+    </div>
   </div>
 </div>
 
@@ -267,6 +291,14 @@ table.board{border-collapse:collapse;width:100%;min-width:860px}
           <button class="tchip" id="weJa" onclick="_setWe=true;epSetWeChips()">Sa/So anzeigen</button>
           <button class="tchip" id="weNein" onclick="_setWe=false;epSetWeChips()">Nur Mo–Fr</button>
         </div>
+      </div>
+      <div class="fld"><label>Arbeitszeit-Fenster (Stunden-Tafel)</label>
+        <div style="display:flex;gap:8px;align-items:center">
+          <select id="setTagVon" style="flex:1"></select>
+          <span style="font-weight:800;color:var(--mut)">–</span>
+          <select id="setTagBis" style="flex:1"></select>
+        </div>
+        <div style="font-size:11.5px;color:var(--mut);margin-top:4px">Sichtbarer Zeitraum pro Tag in der Wochen-Tafel — Einsätze werden im Stundenraster geplant (Zeit im Kalender aufziehen).</div>
       </div>
       <div class="fld"><label>Arbeitsbereiche (Farbe im Kalender)</label>
         <div style="font-size:11.5px;color:var(--mut);margin-bottom:6px">Individuell benannte Bereiche (z.B. Sanitär, Sanitärservice, Heizung). Zuweisung startet bei der Offerte im ERP, der Auftrag vererbt sie — Termine erscheinen im Kalender in der Bereichsfarbe. Liste gilt firmenweit.</div>
@@ -333,7 +365,34 @@ function epCanPlan(){return epHas('role_admin')||epHas('role_planer')||epHas('ro
 function epOrg(){try{return GemaAuth.getCurrentOrg();}catch(e){return null;}}
 function epSettings(){
   var org=epOrg();var s=(org&&org.settings&&org.settings.einsatzplan)||{};
-  return {raster:s.raster||'halbtag',wochenende:s.wochenende!==false?!!s.wochenende:false,userIds:s.userIds||null};
+  var tv=parseInt(s.tagVon,10),tb=parseInt(s.tagBis,10);
+  if(!(tv>=0&&tv<=22))tv=6;
+  if(!(tb>tv&&tb<=24))tb=18;
+  return {raster:s.raster||'zeit',wochenende:s.wochenende!==false?!!s.wochenende:false,userIds:s.userIds||null,tagVon:tv,tagBis:tb};
+}
+// ── Stunden-Helfer (Zeitachse links → rechts) ──
+function epHmToH(s){var m=String(s||'').match(/^(\d{1,2}):(\d{2})$/);return m?parseInt(m[1],10)+parseInt(m[2],10)/60:null;}
+function epHToHm(h){var hh=Math.floor(h),mm=Math.round((h-hh)*60);if(mm>=60){hh++;mm-=60;}return (hh<10?'0':'')+hh+':'+(mm<10?'0':'')+mm;}
+// Einsatz → Stundenfenster im Arbeitszeit-Fenster (Slot-Altdaten: ganz = voller
+// Tag, VM/NM = Tageshälften) — geklemmt auf tagVon..tagBis
+function epEvHours(e,s){
+  var v=epHmToH(e.zeitVon),b=epHmToH(e.zeitBis);
+  var mitte=(s.tagVon+s.tagBis)/2;
+  if(v==null){
+    if(e.slot==='vm'){v=s.tagVon;b=mitte;}
+    else if(e.slot==='nm'){v=mitte;b=s.tagBis;}
+    else {v=s.tagVon;b=s.tagBis;}
+  } else if(b==null){b=Math.min(v+2,s.tagBis);}
+  if(b<=v)b=v+1;
+  v=Math.max(s.tagVon,Math.min(v,s.tagBis-0.25));
+  b=Math.min(s.tagBis,Math.max(b,v+0.5));
+  return {von:v,bis:b};
+}
+// Aktuelle Zeit als Anteil des Arbeitszeit-Fensters (null = ausserhalb)
+function epNowFrac(s){
+  var n=new Date();var h=n.getHours()+n.getMinutes()/60;
+  if(h<s.tagVon||h>s.tagBis)return null;
+  return (h-s.tagVon)/(s.tagBis-s.tagVon);
 }
 function epPersonen(){
   var u=epUser();if(!u)return [];
@@ -493,6 +552,12 @@ function bsIconsText(ev){
   if(epSchluessel(ev))t='🔑'+t;
   return t?t+' ':'';
 }
+// Inline-Icons MIT Label-Tooltip (kompakte Timeline-Karten der Wochen-Tafel)
+function bsIconsInline(ev){
+  var h=bsVon(ev).map(function(b){return '<span title="'+esc(b.label)+'">'+esc(b.ic||'📌')+'</span>';}).join('');
+  if(epSchluessel(ev))h='<span title="Schlüssel/Zutritt hinterlegt — Details im Einsatz bzw. in «Meine Woche»">🔑</span>'+h;
+  return h?h+' ':'';
+}
 function bsChipsHtml(ev){
   var l=bsVon(ev);
   if(!l.length)return '';
@@ -592,7 +657,7 @@ var _tT;
 function toast(m){var el=document.getElementById('toast');el.textContent=m;el.classList.add('show');clearTimeout(_tT);_tT=setTimeout(function(){el.classList.remove('show');},2400);}
 function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 function uid(){return 'ev_'+Date.now()+'_'+Math.random().toString(36).slice(2,7);}
-var TYPEN={auftrag:{n:'Auftrag',ic:'📋'},frei:{n:'Einsatz',ic:'🔧'},ferien:{n:'Abwesend',ic:'🏖'}};
+var TYPEN={auftrag:{n:'Auftrag',ic:'📋'},frei:{n:'Freier Termin',ic:'🔧'},ferien:{n:'Abwesend',ic:'🏖'}};
 
 function epNav(dir){
   if(_view==='garantie'){var d=parse(_anker);d.setFullYear(d.getFullYear()+dir);_anker=iso(d);epRender();return;}
@@ -646,7 +711,7 @@ function epRender(){
   epBindDnD();
 }
 
-// ── Wochen-Plantafel ──
+// ── Wochen-Plantafel (Stundenraster, Zeit läuft von links nach rechts) ──
 function epRenderWoche(){
   var s=epSettings();
   var mo=monday(_anker);
@@ -654,29 +719,20 @@ function epRenderWoche(){
   var pers=epPersonen();
   var evs=epAll();
   var t=today();
-  var head='<tr><th>Monteur</th>'+tage.map(function(d,i){
-    return '<th class="'+(d===t?'today':'')+'">'+WD[(parse(d).getDay()+6)%7]+' '+dfmt(d)+'</th>';
+  var span=s.tagBis-s.tagVon;
+  var nowF=epNowFrac(s);
+  // Stunden-Ticks im Tageskopf (alle 2h bei kurzem Fenster, sonst alle 3h)
+  var step=span<=8?2:3;
+  var ticks='';
+  for(var h=s.tagVon;h<s.tagBis;h+=step){
+    ticks+='<span style="left:'+(((h-s.tagVon)/span)*100)+'%">'+(h<10?'0':'')+h+'</span>';
+  }
+  var head='<tr><th>Monteur</th>'+tage.map(function(d){
+    return '<th class="'+(d===t?'today':'')+'">'+WD[(parse(d).getDay()+6)%7]+' '+dfmt(d)
+      +'<div class="th-scale">'+ticks+(d===t&&nowF!=null?'<i class="nowtick" style="left:'+(nowF*100)+'%"></i>':'')+'</div></th>';
   }).join('')+'</tr>';
   var rows=pers.map(function(p){
-    var cells=tage.map(function(d){
-      var dayEvs=evs.filter(function(e){return e.monteurUserId===p.id&&epCovers(e,d);});
-      dayEvs.sort(function(a,b){return String(a.zeitVon||(a.slot==='nm'?'13':'07')).localeCompare(String(b.zeitVon||(b.slot==='nm'?'13':'07')));});
-      var inner=dayEvs.map(function(e){
-        var konflikt=dayEvs.some(function(o){return o.id!==e.id&&epOverlap(e,o);});
-        var sl=slotLabel(e);
-        var stl=abEvStyle(e);
-        return '<div class="ev t-'+(e.typ||'frei')+(konflikt?' konflikt':'')+'" draggable="true" data-ev="'+e.id+'"'+(stl?' style="'+stl+'"':'')+' onclick="event.stopPropagation();epEvOpen(\''+e.id+'\')">'
-          +(sl?'<span class="slot-pill">'+esc(sl)+'</span>':'')
-          +(e.garantie?'<span class="slot-pill" title="Garantiearbeit (Garantie / Eigenverschulden)">🛡</span>':'')
-          +'<span class="ev-t">'+esc(e.titel||(e.auftragNr||''))+'</span>'
-          +(e.objektName||e.kunde?'<div class="ev-s">'+esc(e.objektName||e.kunde)+'</div>':'')
-          +bsIconsHtml(e)
-          +((e.dauerTage||1)>1?'<div class="ev-s">↔ '+e.dauerTage+' Tage</div>':'')
-          +'</div>';
-      }).join('');
-      var we=(parse(d).getDay()===0||parse(d).getDay()===6);
-      return '<td class="day'+(d===t?' today':'')+(we?' wkend':'')+'" data-cell="'+p.id+'|'+d+'" onclick="epCellClick(\''+p.id+'\',\''+d+'\')">'+inner+'</td>';
-    }).join('');
+    var cells=tage.map(function(d){return epTlCellHtml(p,d,evs,s,t,nowF);}).join('');
     var last=evs.filter(function(e){return e.monteurUserId===p.id;}).length;
     return '<tr><td class="mn">'+esc(p.name||p.username)+'<div class="mn-sub">'+last+' Einsätze total</div></td>'+cells+'</tr>';
   }).join('');
@@ -684,9 +740,68 @@ function epRenderWoche(){
   var side=epRenderSide();
   return '<div class="layout"><div class="board-wrap"><table class="board"><thead>'+head+'</thead><tbody>'+rows+'</tbody></table></div>'+side+'</div>';
 }
+// Eine Person×Tag-Zelle als Stunden-Timeline (Events absolut positioniert,
+// Überlappungen in Spuren gestapelt, Jetzt-Linie am heutigen Tag)
+function epTlCellHtml(p,d,evs,s,t,nowF){
+  var span=s.tagBis-s.tagVon;
+  var dayEvs=evs.filter(function(e){return e.monteurUserId===p.id&&epCovers(e,d);});
+  var items=dayEvs.map(function(e){var hh=epEvHours(e,s);return {e:e,von:hh.von,bis:hh.bis};});
+  items.sort(function(a,b){return a.von-b.von||a.bis-b.bis;});
+  var lanes=[];
+  items.forEach(function(it){
+    var li=0;
+    for(;li<lanes.length;li++){if(it.von>=lanes[li]-0.001)break;}
+    lanes[li]=it.bis;it.lane=li;
+  });
+  var laneN=Math.max(1,lanes.length);
+  var LH=44;
+  var inner=items.map(function(it){
+    var e=it.e;
+    var konflikt=dayEvs.some(function(o){return o.id!==e.id&&epOverlap(e,o);});
+    var stl=abEvStyle(e);
+    var l=(it.von-s.tagVon)/span*100,w=(it.bis-it.von)/span*100;
+    var zl=(e.zeitVon&&e.zeitBis)?(e.zeitVon+'–'+e.zeitBis):slotLabel(e);
+    var pos='left:'+l+'%;width:'+w+'%;top:'+(it.lane*LH+2)+'px;height:'+(LH-6)+'px';
+    return '<div class="ev tl-ev t-'+(e.typ||'frei')+(konflikt?' konflikt':'')+'" draggable="true" data-ev="'+e.id+'" style="'+pos+(stl?';'+stl:'')+'" title="'+esc((zl?zl+' · ':'')+(e.titel||e.auftragNr||''))+'" onclick="event.stopPropagation();epEvOpen(\''+e.id+'\')">'
+      +'<div class="ev-t">'+(e.garantie?'🛡 ':'')+esc(e.titel||(e.auftragNr||''))+'</div>'
+      +'<div class="ev-s">'+bsIconsInline(e)+esc(zl||'')+((e.dauerTage||1)>1?' · ↔'+e.dauerTage+'T':'')+(e.objektName||e.kunde?' · '+esc(e.objektName||e.kunde):'')+'</div>'
+      +'</div>';
+  }).join('');
+  var we=(parse(d).getDay()===0||parse(d).getDay()===6);
+  return '<td class="day'+(d===t?' today':'')+(we?' wkend':'')+'" data-cell="'+p.id+'|'+d+'" onclick="epCellClick(event,\''+p.id+'\',\''+d+'\')">'
+    +'<div class="tl" data-cell="'+p.id+'|'+d+'" style="height:'+(laneN*LH+4)+'px;--hn:'+span+'" onmousedown="epTlDown(event,this)">'
+    +inner
+    +(d===t&&nowF!=null?'<div class="nowline" style="left:'+(nowF*100)+'%"></div>':'')
+    +'</div></td>';
+}
+// ── Auftrags-Pool (rechte Seite): nur noch NICHT eingeplante Aufträge,
+//    Abteilungs-Filter (Arbeitsbereiche) wird pro Gerät gespeichert ──
+var _poolFilter=(function(){try{return localStorage.getItem('gema_ep_poolfilter_v1')||'';}catch(e){return '';}})();
+function epPoolFilterSet(v){
+  _poolFilter=v;
+  try{localStorage.setItem('gema_ep_poolfilter_v1',v);}catch(e){}
+  epRender();
+}
 function epRenderSide(){
   if(!epCanPlan())return '<div></div>';
-  var jobs=epAuftraege();
+  var alle=epAuftraege();
+  var offen=alle.filter(function(a){return !a._geplant;});
+  var geplant=alle.length-offen.length;
+  var bl=abListe();
+  // Unbekannter Bereich (Org-Settings noch nicht geladen ODER gelöscht):
+  // nur fürs Rendern wie «Alle» behandeln — die gespeicherte Wahl bleibt,
+  // damit sie greift, sobald die Bereiche (z.B. nach dem Cloud-Pull) da sind
+  var pf=_poolFilter;
+  if(pf&&pf!=='__ohne'&&!abById(pf))pf='';
+  var jobs=offen;
+  if(pf==='__ohne')jobs=offen.filter(function(a){return !a.bereichId;});
+  else if(pf)jobs=offen.filter(function(a){return a.bereichId===pf;});
+  var filterHtml=bl.length?('<div style="padding:8px 10px;border-bottom:1px solid var(--brd)">'
+    +'<select id="epPoolFilter" onchange="epPoolFilterSet(this.value)" style="width:100%;padding:8px 10px;border:1.5px solid var(--brd2);border-radius:9px;font-size:12.5px;font-weight:700;background:var(--sur)">'
+    +'<option value="">Alle Abteilungen</option>'
+    +bl.map(function(b){return '<option value="'+esc(b.id)+'"'+(pf===b.id?' selected':'')+'>'+esc(b.name)+'</option>';}).join('')
+    +'<option value="__ohne"'+(pf==='__ohne'?' selected':'')+'>– ohne Abteilung –</option>'
+    +'</select></div>'):'';
   var inner=jobs.length?jobs.map(function(a){
     var b=abById(a.bereichId);
     return '<div class="job" draggable="true" data-job="'+a.id+'"'+(b?' style="background:'+abTint(b.farbe)+';border-color:'+b.farbe+'"':'')+' onclick="epJobTap(\''+a.id+'\')">'
@@ -695,10 +810,10 @@ function epRenderSide(){
       +'<div class="j-s">'+esc((a.kundeSnapshot&&a.kundeSnapshot.firma)||'')+(a.objektName?' · '+esc(a.objektName):'')+'</div>'
       +(function(){var s=(a.sachbearbeiter&&a.sachbearbeiter.name)?a.sachbearbeiter:a.erstelltVon;return s&&s.name?'<div class="j-s">👔 '+esc(s.name)+'</div>':'';})()
       +(b?'<div style="margin-top:3px">'+abChipHtml(a.bereichId)+'</div>':'')
-      +(a._geplant?'<span class="j-badge">✓ eingeplant</span>':'')
       +'</div>';
-  }).join(''):'<div class="empty" style="padding:16px">Keine offenen Aufträge.<br><span style="font-size:11.5px">Aufträge entstehen im Modul «Offerten · Aufträge · Rechnungen».</span></div>';
-  return '<div class="side no-print"><div class="side-hd">📋 Offene Aufträge <span style="font-size:10.5px;color:var(--mut);font-weight:600;margin-left:auto">ziehen oder antippen</span></div><div class="side-bd">'+inner+'</div></div>';
+  }).join(''):'<div class="empty" style="padding:16px">'+(offen.length&&pf?'Keine offenen Aufträge in dieser Abteilung.':'Alle Aufträge sind eingeplant 🎉')+'<br><span style="font-size:11.5px">Aufträge entstehen im Modul «Offerten · Aufträge · Rechnungen».</span></div>';
+  var foot=geplant?'<div style="padding:7px 12px;border-top:1px solid var(--brd);font-size:11px;font-weight:700;color:var(--grn)">✓ '+geplant+' Auftr'+(geplant===1?'ag':'äge')+' bereits eingeplant</div>':'';
+  return '<div class="side no-print"><div class="side-hd">📋 Auftrags-Pool <span style="font-size:10.5px;color:var(--mut);font-weight:600;margin-left:auto">ziehen oder antippen</span></div>'+filterHtml+'<div class="side-bd">'+inner+'</div>'+foot+'</div>';
 }
 
 // ── Monat ──
@@ -911,11 +1026,21 @@ function epBindDnD(){
       e.preventDefault();td.classList.remove('dropok');
       var data=e.dataTransfer.getData('text/plain');
       var parts=td.dataset.cell.split('|');
-      epDropOn(data,parts[0],parts[1]);
+      epDropOn(data,parts[0],parts[1],epTdHour(td,e.clientX));
     });
   });
 }
-function epDropOn(data,monteurId,datum){
+// Drop-/Klick-Position → volle Stunde im Arbeitszeit-Fenster (null = unbestimmt)
+function epTdHour(td,clientX){
+  try{
+    var tl=td.querySelector('.tl');if(!tl||clientX==null)return null;
+    var r=tl.getBoundingClientRect();if(!r.width)return null;
+    var s=epSettings();
+    var h=s.tagVon+Math.max(0,Math.min(0.999,(clientX-r.left)/r.width))*(s.tagBis-s.tagVon);
+    return Math.max(s.tagVon,Math.min(Math.floor(h),s.tagBis-1));
+  }catch(e){return null;}
+}
+function epDropOn(data,monteurId,datum,vonH){
   if(!epCanPlan())return;
   if(data.indexOf('ev:')===0){
     var ev=poolRead().find(function(x){return x.id===data.slice(3);});
@@ -924,14 +1049,22 @@ function epDropOn(data,monteurId,datum){
     ev.monteurUserId=monteurId;
     ev.monteurName=(epPersonen().find(function(p){return p.id===monteurId;})||{}).name||ev.monteurName;
     ev.datum=datum;
+    // Zeit-Einsatz an der Drop-Stunde neu starten (Dauer bleibt erhalten)
+    var v=epHmToH(ev.zeitVon),b=epHmToH(ev.zeitBis);
+    if(vonH!=null&&v!=null&&b!=null){
+      var s=epSettings(),dur=Math.max(0.5,b-v);
+      if(vonH!==v){geaendert=true;}
+      ev.zeitVon=epHToHm(vonH);
+      ev.zeitBis=epHToHm(Math.min(vonH+dur,s.tagBis));
+    }
     epSave(ev);
     if(geaendert)epNotify(ev,'verschoben');
-    toast('↔ '+(ev.titel||'Einsatz')+' → '+dfmt(datum));
+    toast('↔ '+(ev.titel||'Einsatz')+' → '+dfmt(datum)+(ev.zeitVon?' '+ev.zeitVon:''));
     epRender();
   } else if(data.indexOf('job:')===0){
     var a=epAuftraege().find(function(x){return x.id===data.slice(4);});
     if(!a)return;
-    epNeuAusAuftrag(a,monteurId,datum);
+    epNeuAusAuftrag(a,monteurId,datum,vonH);
   }
 }
 // Tap-Fallback (iPad/iPhone): Karte antippen → Ziel-Zelle antippen
@@ -955,35 +1088,95 @@ function epMoveCancel(){
   document.getElementById('movebar').classList.remove('on');
   document.querySelectorAll('.moving').forEach(function(el){el.classList.remove('moving');});
 }
-function epCellClick(monteurId,datum){
+function epCellClick(ev,monteurId,datum){
   if(_move){
-    if(_move.einsatzId)epDropOn('ev:'+_move.einsatzId,monteurId,datum);
-    else if(_move.auftragId)epDropOn('job:'+_move.auftragId,monteurId,datum);
+    var td=null;try{td=ev&&ev.target?ev.target.closest('td.day'):null;}catch(e){}
+    var vonH=td?epTdHour(td,ev.clientX):null;
+    if(_move.einsatzId)epDropOn('ev:'+_move.einsatzId,monteurId,datum,vonH);
+    else if(_move.auftragId)epDropOn('job:'+_move.auftragId,monteurId,datum,vonH);
     epMoveCancel();
     return;
   }
+  // Erstellen läuft über die Maus-Geste (epTlDown/-Up, auch Touch-Kompatibilität) —
+  // der nachlaufende click wird unterdrückt; Fallback nur wenn keine Geste lief
+  if(Date.now()-_tlDone<500)return;
   if(epCanPlan())epNeu(monteurId,datum);
+}
+
+// ── Outlook-Muster: Zeit direkt im Kalender aufziehen (klicken–halten–ziehen),
+//    beim Loslassen öffnet der Einsatz-Dialog mit der gewählten Zeit ──
+var _tlSel=null,_tlDone=0;
+function epTlDown(e,tl){
+  if(!epCanPlan()||_move)return;
+  if(e.button!==0)return;
+  if(e.target.closest('.ev'))return;   // Event-Karten: eigenes Drag/Öffnen
+  var s=epSettings();var span=s.tagBis-s.tagVon;
+  var r=tl.getBoundingClientRect();if(!r.width)return;
+  var h=s.tagVon+Math.max(0,Math.min(0.999,(e.clientX-r.left)/r.width))*span;
+  var a=Math.max(s.tagVon,Math.min(Math.floor(h),s.tagBis-1));
+  var parts=String(tl.getAttribute('data-cell')||'').split('|');
+  var box=document.createElement('div');box.className='tl-selbox';
+  tl.appendChild(box);
+  _tlSel={mid:parts[0],datum:parts[1],rect:r,anchor:a,von:a,bis:a+1,box:box,startX:e.clientX,span:span,tagVon:s.tagVon,tagBis:s.tagBis};
+  epTlSelApply();
+  e.preventDefault();
+}
+function epTlSelApply(){
+  var t=_tlSel;if(!t)return;
+  t.box.style.left=((t.von-t.tagVon)/t.span*100)+'%';
+  t.box.style.width=((t.bis-t.von)/t.span*100)+'%';
+  t.box.textContent=epHToHm(t.von)+'–'+epHToHm(t.bis);
+}
+document.addEventListener('mousemove',function(e){
+  var t=_tlSel;if(!t)return;
+  var h=t.tagVon+Math.max(0,Math.min(0.999,(e.clientX-t.rect.left)/t.rect.width))*t.span;
+  if(h>=t.anchor){t.von=t.anchor;t.bis=Math.max(t.anchor+1,Math.min(t.tagBis,Math.floor(h)+1));}
+  else {t.von=Math.max(t.tagVon,Math.floor(h));t.bis=t.anchor+1;}
+  epTlSelApply();
+});
+document.addEventListener('mouseup',function(){
+  var t=_tlSel;if(!t)return;
+  _tlSel=null;
+  try{t.box.remove();}catch(e){}
+  _tlDone=Date.now();
+  epNeuZeit(t.mid,t.datum,t.von,t.bis);
+});
+// Neuer Einsatz mit aufgezogener Zeit (Dialog öffnet zum Auftrag-Zuweisen)
+function epNeuZeit(monteurId,datum,vonH,bisH){
+  if(!epCanPlan())return;
+  epNeu(monteurId,datum);
+  curEv.zeitVon=epHToHm(vonH);
+  curEv.zeitBis=epHToHm(bisH);
+  epEvRender();
 }
 
 // ═══════════════════════════════════════════════════════════
 // EINSATZ ERSTELLEN / BEARBEITEN
 // ═══════════════════════════════════════════════════════════
 var curEv=null;
-function epNeuAusAuftrag(a,monteurId,datum){
+function epNeuAusAuftrag(a,monteurId,datum,vonH){
   var u=epUser();
   var p=epPersonen().find(function(x){return x.id===monteurId;});
+  // Drop-Position im Stundenraster → Startzeit (Standard-Dauer 8 h, ans
+  // Arbeitszeit-Fenster geklemmt); ohne Position wie bisher ganztags
+  var zeitVon='',zeitBis='';
+  if(vonH!=null){
+    var s=epSettings();
+    zeitVon=epHToHm(vonH);
+    zeitBis=epHToHm(Math.min(vonH+8,s.tagBis));
+  }
   var ev={
     id:uid(),orgId:u?u.orgId:'',typ:'auftrag',
     auftragId:a.id,auftragNr:a.nr,kunde:(a.kundeSnapshot&&a.kundeSnapshot.firma)||'',
     titel:a.titel||a.nr,objektId:a.objektId||'',objektName:a.objektName||'',
     bereichId:a.bereichId||'',garantie:false,besonderheiten:[],
     monteurUserId:monteurId,monteurName:p?(p.name||p.username):'',
-    datum:datum,dauerTage:1,slot:'ganz',zeitVon:'',zeitBis:'',notiz:'',
+    datum:datum,dauerTage:1,slot:'ganz',zeitVon:zeitVon,zeitBis:zeitBis,notiz:'',
     erstelltVon:{userId:u?u.id:'',name:u?u.name:''},erstelltAm:new Date().toISOString()
   };
   epSave(ev);
   epNotify(ev,'geplant');
-  toast('📋 '+(a.nr||'Auftrag')+' bei '+(ev.monteurName||'?')+' am '+dfmt(datum)+' eingeplant');
+  toast('📋 '+(a.nr||'Auftrag')+' bei '+(ev.monteurName||'?')+' am '+dfmt(datum)+(zeitVon?' '+zeitVon:'')+' eingeplant');
   epRender();
   // Erinnerung: am Auftrag ist «Aushang nötig» hinterlegt (Mieter-Info,
   // z.B. Wasserabstellung im MFH) → direkt für diesen Termin erstellen
@@ -1034,7 +1227,7 @@ function epNeu(monteurId,datum){
   if(!epCanPlan()){toast('Keine Berechtigung');return;}
   var u=epUser();
   curEv={
-    id:uid(),orgId:u?u.orgId:'',typ:'frei',titel:'',
+    id:uid(),orgId:u?u.orgId:'',typ:'auftrag',titel:'',
     monteurUserId:monteurId||'',monteurName:'',
     datum:datum||_anker,dauerTage:1,slot:'ganz',zeitVon:'',zeitBis:'',
     auftragId:'',auftragNr:'',kunde:'',objektId:'',objektName:'',notiz:'',
@@ -1058,15 +1251,9 @@ function epEvRender(){
   document.getElementById('evTyp').innerHTML=Object.keys(TYPEN).map(function(t){
     return '<button class="tchip'+(ev.typ===t?' on':'')+'"'+(canEdit?' onclick="curEv.typ=\''+t+'\';epEvRender()"':' disabled')+'>'+TYPEN[t].ic+' '+TYPEN[t].n+'</button>';
   }).join('');
-  // Auftrag-Auswahl
+  // Auftrag-Auswahl — Suchfeld/Maske statt Dropdown (Request 4)
   var aw=document.getElementById('evAuftragWrap');
-  if(ev.typ==='auftrag'){
-    aw.style.display='';
-    var jobs=epAuftraege();
-    document.getElementById('ev_auftrag').innerHTML='<option value="">– Auftrag wählen –</option>'+jobs.map(function(a){
-      return '<option value="'+a.id+'"'+(a.id===ev.auftragId?' selected':'')+'>'+esc((a.nr||'')+' · '+(a.titel||(a.kundeSnapshot&&a.kundeSnapshot.firma)||''))+'</option>';
-    }).join('');
-  } else aw.style.display='none';
+  if(ev.typ==='auftrag'){aw.style.display='';epAufPickRender();} else aw.style.display='none';
   document.getElementById('ev_titel').value=ev.titel||'';
   // Monteur
   document.getElementById('ev_monteur').innerHTML='<option value="">– wählen –</option>'+epPersonen().map(function(p){
@@ -1074,8 +1261,10 @@ function epEvRender(){
   }).join('');
   document.getElementById('ev_datum').value=ev.datum||today();
   document.getElementById('ev_dauer').value=ev.dauerTage||1;
-  // Raster
-  if(s.raster==='zeit'){
+  // Raster: Zeitfelder auch im Halbtag-Raster, sobald der Einsatz Zeiten trägt
+  // (z.B. im Kalender aufgezogen) — sonst wären sie nicht editierbar
+  var zeitMode=(s.raster==='zeit')||!!(ev.zeitVon||ev.zeitBis);
+  if(zeitMode){
     document.getElementById('evSlotWrap').style.display='none';
     document.getElementById('evZeitWrap').style.display='';
     document.getElementById('ev_von').value=ev.zeitVon||'';
@@ -1087,11 +1276,9 @@ function epEvRender(){
       return '<button class="tchip'+((ev.slot||'ganz')===x[0]?' on':'')+'"'+(canEdit?' onclick="curEv.slot=\''+x[0]+'\';epEvRender()"':' disabled')+'>'+x[1]+'</button>';
     }).join('');
   }
-  // Objekt
-  var objs=[];try{objs=GemaObjekte.getAll();}catch(e){}
-  document.getElementById('ev_objekt').innerHTML='<option value="">– keins –</option>'+objs.map(function(o){
-    return '<option value="'+o.id+'"'+(o.id===ev.objektId?' selected':'')+'>'+esc(o.name+(o.ort?' · '+o.ort:''))+'</option>';
-  }).join('');
+  // Kein separates Projekt/Objekt-Feld mehr: beim Auftrag kommt das Objekt aus
+  // dem Auftrag, ein «Freier Termin» hat bewusst keines. Bestehende Einsätze
+  // mit Objekt (z.B. Service-Termine aus sv_service) zeigen es read-only.
   // Arbeitsbereich (Feld nur, wenn Bereiche definiert sind — Definition in ⚙️)
   var bl=abListe();
   var bw=document.getElementById('evBereichWrap');
@@ -1113,10 +1300,11 @@ function epEvRender(){
       return '<button class="tchip'+(on?' on':'')+'"'+(canEdit?' onclick="epBesToggle(\''+b.id+'\')"':' disabled')+'>'+esc((b.ic?b.ic+' ':'')+b.label)+'</button>';
     }).join('');
   } else besWrap.style.display='none';
-  // Verantwortlicher Sachbearbeiter + Schlüssel/Zutritt des verknüpften Auftrags (read-only)
+  // Verantwortlicher Sachbearbeiter + Objekt (read-only) + Schlüssel/Zutritt
   document.getElementById('evKeyInfo').innerHTML=(function(){
     var vw=ev.auftragId?epVerantwortlich(ev):'';
-    return (vw?'<div style="font-size:11.5px;color:var(--mut);margin-top:4px">👔 Verantwortlich: <b>'+esc(vw)+'</b></div>':'')+epSchluesselBoxHtml(ev);
+    var obj=(ev.typ!=='auftrag'&&ev.objektName)?'<div style="font-size:11.5px;color:var(--mut);margin-top:4px">🏗 '+esc(ev.objektName)+'</div>':'';
+    return (vw?'<div style="font-size:11.5px;color:var(--mut);margin-top:4px">👔 Verantwortlich: <b>'+esc(vw)+'</b></div>':'')+obj+epSchluesselBoxHtml(ev);
   })();
   var gchk=document.getElementById('ev_garantie');
   gchk.checked=!!ev.garantie;
@@ -1152,17 +1340,93 @@ function epBesToggle(id){
   if(i>=0)l.splice(i,1);else l.push(id);
   epEvRender();
 }
-function epEvAuftragChanged(){
-  var id=document.getElementById('ev_auftrag').value;
-  var a=epAuftraege().find(function(x){return x.id===id;});
-  curEv.auftragId=id;
+// ── Auftrag-Auswahl: Such-Maske statt Dropdown (Request 4) ──
+function epAuftragById(id){
+  var u=epUser();
+  return _epErpPool().find(function(d){return d&&d.id===id&&(!u||d.orgId===u.orgId);})||null;
+}
+// Kompakte Anzeige im Einsatz-Modal (gewählter Auftrag ODER «Auftrag suchen …»)
+function epAufPickRender(){
+  var ev=curEv;if(!ev)return;
+  var box=document.getElementById('evAuftragPick');if(!box)return;
+  var canEdit=epCanPlan();
+  var a=ev.auftragId?epAuftragById(ev.auftragId):null;
   if(a){
-    curEv.auftragNr=a.nr;curEv.kunde=(a.kundeSnapshot&&a.kundeSnapshot.firma)||'';
-    if(!document.getElementById('ev_titel').value)document.getElementById('ev_titel').value=a.titel||a.nr;
-    if(a.objektId){curEv.objektId=a.objektId;curEv.objektName=a.objektName||'';}
-    if(a.bereichId&&!curEv.bereichId)curEv.bereichId=a.bereichId;   // Bereich der Offerte/des Auftrags übernehmen
-    epEvRender();
+    var ks=a.kundeSnapshot||{};
+    box.innerHTML='<div style="display:flex;gap:8px;align-items:center;background:var(--sur2);border:1px solid var(--brd);border-radius:9px;padding:8px 11px">'
+      +'<div style="flex:1;min-width:0"><div style="font-weight:800;font-size:13px">'+esc((a.nr||'')+' · '+(a.titel||ks.firma||''))+'</div>'
+      +'<div style="font-size:11.5px;color:var(--mut);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(ks.firma||'')+(a.objektName?' · '+esc(a.objektName):'')+'</div></div>'
+      +(canEdit?'<button type="button" class="btn" style="min-height:32px;padding:4px 11px;font-size:12px;white-space:nowrap" onclick="epAufOpen()">Ändern</button>':'')
+      +'</div>';
+  } else {
+    box.innerHTML=canEdit
+      ? '<button type="button" class="btn pri" style="width:100%" onclick="epAufOpen()">🔍 Auftrag suchen …</button>'
+      : '<div style="font-size:12px;color:var(--mut)">Kein Auftrag verknüpft</div>';
   }
+}
+// Formularstand in curEv sichern, bevor die Such-Maske öffnet (keine Datenverluste)
+function epEvCollect(){
+  if(!curEv)return;
+  var g=function(id){var el=document.getElementById(id);return el?el.value:'';};
+  var t=(g('ev_titel')||'').trim();if(t)curEv.titel=t;
+  if(g('ev_monteur'))curEv.monteurUserId=g('ev_monteur');
+  if(g('ev_datum'))curEv.datum=g('ev_datum');
+  var d=parseInt(g('ev_dauer'),10);if(d>0)curEv.dauerTage=d;
+  curEv.notiz=g('ev_notiz');
+  var zw=document.getElementById('evZeitWrap');
+  if(zw&&zw.style.display!=='none'){curEv.zeitVon=g('ev_von');curEv.zeitBis=g('ev_bis');}
+  if(abListe().length&&document.getElementById('ev_bereich'))curEv.bereichId=g('ev_bereich');
+  var gk=document.getElementById('ev_garantie');if(gk)curEv.garantie=gk.checked;
+}
+function epAufOpen(){
+  if(!epCanPlan())return;
+  epEvCollect();
+  document.getElementById('aufSuche').value='';
+  epAufRender('');
+  document.getElementById('aufModal').classList.add('open');
+  setTimeout(function(){var s=document.getElementById('aufSuche');if(s)s.focus();},40);
+}
+function epAufClose(){document.getElementById('aufModal').classList.remove('open');}
+function epAufRender(q){
+  q=(q||'').toLowerCase().trim();
+  var list=epAuftraege().slice();
+  // aktuell gewählten Auftrag mit aufnehmen (auch wenn abgeschlossen/gefiltert)
+  if(curEv&&curEv.auftragId&&!list.some(function(a){return a.id===curEv.auftragId;})){
+    var ca=epAuftragById(curEv.auftragId);if(ca)list.unshift(ca);
+  }
+  // nach Erstellungsdatum sortieren, neueste zuerst
+  list.sort(function(a,b){return String(b.erstelltAm||b.datum||'').localeCompare(String(a.erstelltAm||a.datum||''));});
+  if(q){
+    list=list.filter(function(a){
+      var ks=a.kundeSnapshot||{};
+      var hay=[a.nr,a.titel,ks.firma,ks.kontakt,ks.strasse,ks.plz,ks.ort,a.objektName].map(function(x){return String(x||'');}).join(' ').toLowerCase();
+      return hay.indexOf(q)>=0;
+    });
+  }
+  var el=document.getElementById('aufList');
+  if(!list.length){el.innerHTML='<div style="text-align:center;color:var(--mut);padding:26px 8px;font-size:13px">'+(q?'Kein Auftrag gefunden.':'Keine offenen Aufträge vorhanden.')+'</div>';return;}
+  el.innerHTML=list.map(function(a){
+    var ks=a.kundeSnapshot||{};
+    var adr=[ks.strasse,[ks.plz,ks.ort].filter(Boolean).join(' ')].filter(Boolean).join(', ');
+    var sel=(curEv&&a.id===curEv.auftragId);
+    return '<div class="auf-row" onclick="epAufPick(\''+a.id+'\')" style="border:1.5px solid '+(sel?'var(--acc)':'var(--brd)')+';border-radius:10px;padding:9px 11px;margin-bottom:7px;cursor:pointer;background:'+(sel?'var(--sur2)':'var(--sur)')+'">'
+      +'<div style="display:flex;gap:8px;align-items:baseline"><b style="font-size:13.5px">'+esc(a.nr||'')+'</b>'
+      +'<span style="flex:1;min-width:0;font-weight:600;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(a.titel||'')+'</span>'
+      +(a.datum?'<span style="font-size:11px;color:var(--mut);white-space:nowrap">'+dfmtLong(a.datum)+'</span>':'')+'</div>'
+      +'<div style="font-size:11.5px;color:var(--mut);margin-top:2px">'+esc(ks.firma||'')+(adr?' · '+esc(adr):'')+(a.objektName&&a.objektName!==adr&&a.objektName!==ks.ort?' · '+esc(a.objektName):'')+(a._geplant?' · <span style="color:var(--grn);font-weight:700">✓ eingeplant</span>':'')+'</div>'
+      +'</div>';
+  }).join('');
+}
+function epAufPick(id){
+  var a=epAuftragById(id);if(!a){epAufClose();return;}
+  curEv.auftragId=id;
+  curEv.auftragNr=a.nr||'';
+  curEv.kunde=(a.kundeSnapshot&&a.kundeSnapshot.firma)||'';
+  if(!curEv.titel)curEv.titel=a.titel||a.nr||'';   // getippten Titel behalten (via epEvCollect gesichert)
+  if(a.objektId){curEv.objektId=a.objektId;curEv.objektName=a.objektName||'';}
+  if(a.bereichId&&!curEv.bereichId)curEv.bereichId=a.bereichId;   // Bereich der Offerte/des Auftrags übernehmen
+  epAufClose();
+  epEvRender();
 }
 function epEvSave(){
   var ev=curEv;
@@ -1170,14 +1434,15 @@ function epEvSave(){
   ev.monteurUserId=document.getElementById('ev_monteur').value;
   ev.datum=document.getElementById('ev_datum').value;
   ev.dauerTage=Math.max(1,parseInt(document.getElementById('ev_dauer').value,10)||1);
-  ev.objektId=document.getElementById('ev_objekt').value;
-  var oo=null;try{oo=GemaObjekte.getAll().find(function(x){return x.id===ev.objektId;});}catch(e){}
-  ev.objektName=oo?(oo.name+(oo.ort?' · '+oo.ort:'')):(ev.objektId?ev.objektName:'');
+  // Objekt: beim Auftrag kommt es aus dem Auftrag (epAufPick); ein «Freier
+  // Termin» hat bewusst keins — bestehende objektId (z.B. Service-Einsatz
+  // aus sv_service) bleibt unangetastet erhalten.
   ev.notiz=document.getElementById('ev_notiz').value;
   if(abListe().length)ev.bereichId=document.getElementById('ev_bereich').value;
   ev.garantie=document.getElementById('ev_garantie').checked;
-  if(epSettings().raster==='zeit'){ev.zeitVon=document.getElementById('ev_von').value;ev.zeitBis=document.getElementById('ev_bis').value;}
-  if(ev.typ==='auftrag')ev.auftragId=document.getElementById('ev_auftrag').value||ev.auftragId;
+  if(document.getElementById('evZeitWrap').style.display!=='none'){ev.zeitVon=document.getElementById('ev_von').value;ev.zeitBis=document.getElementById('ev_bis').value;}
+  // Auftrag kommt aus der Such-Maske (curEv.auftragId); bei Auftrag ist das Objekt daran gekoppelt
+  if(ev.typ!=='auftrag')ev.auftragId='';
   if(!ev.titel){toast('⚠ Titel fehlt');return;}
   if(!ev.monteurUserId){toast('⚠ Monteur wählen');return;}
   if(!ev.datum){toast('⚠ Datum fehlt');return;}
@@ -1237,6 +1502,11 @@ function epOpenSettings(){
   }).join('');
   document.getElementById('ep_abRows').innerHTML=abListe().map(abRowHtml).join('');
   document.getElementById('ep_bsRows').innerHTML=bsListe().map(bsRowHtml).join('');
+  // Arbeitszeit-Fenster der Stunden-Tafel
+  var vonSel=document.getElementById('setTagVon'),bisSel=document.getElementById('setTagBis');
+  var vh='';for(var h=4;h<=12;h++)vh+='<option value="'+h+'"'+(h===s.tagVon?' selected':'')+'>'+(h<10?'0':'')+h+':00</option>';
+  var bh='';for(var h2=12;h2<=22;h2++)bh+='<option value="'+h2+'"'+(h2===s.tagBis?' selected':'')+'>'+(h2<10?'0':'')+h2+':00</option>';
+  vonSel.innerHTML=vh;bisSel.innerHTML=bh;
   epSetRasterChips();epSetWeChips();
   document.getElementById('setModal').classList.add('open');
 }
@@ -1253,7 +1523,10 @@ function epSetSave(){
     var org=epOrg();
     var settings=(org&&org.settings)||{};
     var ids=Object.keys(_setUsers).filter(function(id){return _setUsers[id];});
-    settings.einsatzplan={raster:_setRaster,wochenende:_setWe,userIds:ids,besonderheiten:bsRowsCollect('ep_bsRows')};
+    var tv=parseInt(document.getElementById('setTagVon').value,10),tb=parseInt(document.getElementById('setTagBis').value,10);
+    if(!(tv>=0&&tv<=22))tv=6;
+    if(!(tb>tv&&tb<=24))tb=18;
+    settings.einsatzplan={raster:_setRaster,wochenende:_setWe,userIds:ids,besonderheiten:bsRowsCollect('ep_bsRows'),tagVon:tv,tagBis:tb};
     // Arbeitsbereiche liegen TOP-LEVEL in org.settings (geteilt mit dem ERP)
     settings.arbeitsbereiche=abRowsCollect('ep_abRows');
     GemaAuth.updateOrgSettings(org.id,settings);
@@ -1284,6 +1557,17 @@ document.addEventListener('DOMContentLoaded',function(){
     ]).then(function(){_epCloudLoaded=true;epRender();}).catch(function(){_epCloudLoaded=true;epRender();});
   }
   window.addEventListener('gema-objekte-loaded',function(){epRender();});
+  // Jetzt-Linie minütlich nachführen (nur Positions-Update, kein Re-Render)
+  setInterval(function(){
+    if(_view!=='woche')return;
+    try{
+      var f=epNowFrac(epSettings());
+      document.querySelectorAll('.nowline,.th-scale .nowtick').forEach(function(el){
+        if(f==null){el.style.display='none';return;}
+        el.style.display='';el.style.left=(f*100)+'%';
+      });
+    }catch(e){}
+  },60000);
   if(typeof GemaFeedback!=='undefined')GemaFeedback.init('einsatzplan','Einsatzplan');
 });
 </script>
