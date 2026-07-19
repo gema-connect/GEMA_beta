@@ -554,6 +554,8 @@ table.pos{border-collapse:collapse;width:100%;font-size:13px}
       <div style="font-size:11px;font-weight:800;text-transform:uppercase;color:var(--mut);margin:14px 0 6px">Nachkalkulation (Tab «Erfolg»)</div>
       <div class="fld"><label>Kostensatz (% vom Verkaufsansatz)</label><input id="s_kosten" type="text" inputmode="decimal" onblur="fixLeadingZero(this)" placeholder="z.B. 70"/></div>
       <div style="font-size:11px;color:var(--mut);margin:-4px 0 12px">Interner Kostenanteil der Regie-Verkaufsansätze (Lohn + Gemeinkosten). Damit schätzt der Erfolg-Tab Kosten und Deckungsbeitrag pro Auftrag. Leer = keine DB-Schätzung.</div>
+      <div style="font-size:11px;font-weight:800;text-transform:uppercase;color:var(--mut);margin:14px 0 6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">Standardtexte (Einleitung / Schluss / Konditionen)<button type="button" class="btn" style="min-height:26px;padding:3px 9px;font-size:11.5px" onclick="erpTxtDefaults()">↺ Standardtexte einsetzen</button></div>
+      <div style="font-size:11px;color:var(--mut);margin:-2px 0 10px">Sind bereits vorausgefüllt und werden beim Erstellen ins Dokument übernommen — einfach anpassen. Leert man ein Feld, greift wieder der Standardtext.</div>
       <div class="fld"><label>Standard-Einleitung Offerte</label><textarea id="s_txtOfferteIntro" placeholder="z.B. Wir danken für Ihre Anfrage und offerieren Ihnen wie folgt:"></textarea></div>
       <div class="fld"><label>Standard-Schlusstext Offerte</label><textarea id="s_txtOfferte" placeholder="z.B. Wir danken für Ihre Anfrage und freuen uns, wenn wir die offerierten Arbeiten für Sie ausführen dürfen."></textarea></div>
       <div class="fld"><label>Standard-Einleitung Auftragsbestätigung</label><textarea id="s_txtAuftragIntro" placeholder="z.B. Wir danken für Ihren Auftrag und bestätigen wie folgt:"></textarea></div>
@@ -895,6 +897,18 @@ function erpCanEdit(){
   try{return !!(typeof GemaAuth!=='undefined'&&GemaAuth.can&&GemaAuth.can('write','erp'));}catch(e){return false;}
 }
 function erpOrg(){try{return GemaAuth.getCurrentOrg();}catch(e){return null;}}
+// Vorgabetexte pro Dokumenttyp — schon ab Werk gefüllt, in den ⚙️-Einstellungen
+// überschreibbar. Sind Einleitung/Schluss/Konditionen leer, greifen diese Defaults,
+// damit Offerte/Rechnung von Anfang an einen sinnvollen Text tragen.
+var ERP_TXT_DEFAULTS={
+  txtOfferteIntro:'Sehr geehrte Damen und Herren\n\nWir danken für Ihre Anfrage und unterbreiten Ihnen gerne folgende Offerte:',
+  txtOfferte:'Wir freuen uns, wenn wir die offerierten Arbeiten für Sie ausführen dürfen, und stehen Ihnen für Rückfragen jederzeit gerne zur Verfügung.',
+  txtAuftragIntro:'Sehr geehrte Damen und Herren\n\nWir danken für Ihren Auftrag und bestätigen diesen wie folgt:',
+  txtAuftrag:'Über die Terminplanung informieren wir Sie rechtzeitig. Besten Dank für Ihr Vertrauen.',
+  txtRechnungIntro:'Sehr geehrte Damen und Herren\n\nFür die ausgeführten Arbeiten erlauben wir uns, Ihnen wie folgt Rechnung zu stellen:',
+  txtRechnung:'Wir danken Ihnen für den geschätzten Auftrag und bitten Sie um Begleichung des Rechnungsbetrags innert der angegebenen Zahlungsfrist.',
+  txtKonditionen:'Zahlbar innert 30 Tagen netto ohne Abzug. Es gelten die zum Zeitpunkt der Ausführung gültigen Material- und Lohnansätze; Teuerungsänderungen bleiben vorbehalten.'
+};
 function erpSettings(){
   var org=erpOrg();
   var s=(org&&org.settings&&org.settings.erp)||{};
@@ -905,9 +919,9 @@ function erpSettings(){
     name:s.name||(org?org.name:''), strasse:s.strasse||'', plz:s.plz||'', ort:s.ort||'',
     tel:s.tel||'', email:s.email||'', web:s.web||'', mwstNr:s.mwstNr||'',
     kostenFaktorPct:s.kostenFaktorPct!=null?s.kostenFaktorPct:0,
-    txtOfferte:s.txtOfferte||'', txtRechnung:s.txtRechnung||'', txtAuftrag:s.txtAuftrag||'',
-    txtOfferteIntro:s.txtOfferteIntro||'', txtAuftragIntro:s.txtAuftragIntro||'', txtRechnungIntro:s.txtRechnungIntro||'',
-    txtKonditionen:s.txtKonditionen||''
+    txtOfferte:s.txtOfferte||ERP_TXT_DEFAULTS.txtOfferte, txtRechnung:s.txtRechnung||ERP_TXT_DEFAULTS.txtRechnung, txtAuftrag:s.txtAuftrag||ERP_TXT_DEFAULTS.txtAuftrag,
+    txtOfferteIntro:s.txtOfferteIntro||ERP_TXT_DEFAULTS.txtOfferteIntro, txtAuftragIntro:s.txtAuftragIntro||ERP_TXT_DEFAULTS.txtAuftragIntro, txtRechnungIntro:s.txtRechnungIntro||ERP_TXT_DEFAULTS.txtRechnungIntro,
+    txtKonditionen:s.txtKonditionen||ERP_TXT_DEFAULTS.txtKonditionen
   };
 }
 // ── Dokument-Branding: Akzentfarbe aus den Berichts-Farben der Org ──
@@ -4021,6 +4035,11 @@ function erpOpenSettings(){
   document.getElementById('s_txtRechnungIntro').value=s.txtRechnungIntro;
   document.getElementById('s_txtKonditionen').value=s.txtKonditionen;
   document.getElementById('setModal').classList.add('open');
+}
+// Alle Standardtext-Felder mit den Vorgabetexten (ERP_TXT_DEFAULTS) füllen.
+function erpTxtDefaults(){
+  Object.keys(ERP_TXT_DEFAULTS).forEach(function(k){var el=document.getElementById('s_'+k);if(el)el.value=ERP_TXT_DEFAULTS[k];});
+  toast('↺ Standardtexte eingesetzt — mit «Speichern» übernehmen');
 }
 function erpSetSave(){
   try{
