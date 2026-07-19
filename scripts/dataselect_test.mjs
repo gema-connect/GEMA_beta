@@ -116,6 +116,8 @@ await page.waitForFunction(() => { const p = cur.positionen[cur.positionen.lengt
   ok(p.bildUrl === 'https://www.dataselect.ch/img/620020.jpg' || (p.bildDataUrl || '').indexOf('data:image') === 0, 'Bild nach dem Einfügen nachgeladen (komprimiert bzw. Fallback-URL)');
   const posHtml = await page.evaluate(() => document.getElementById('posBody').innerHTML);
   ok(posHtml.indexOf('620020.jpg') >= 0 || posHtml.indexOf('data:image') >= 0, 'Bild im Positions-Editor sichtbar (pos-bild)');
+  // Bild ohne Rahmen + ~4×4 cm gross (max 150px) — schon bei der Erfassung sichtbar
+  ok(await page.evaluate(() => { const im = document.querySelector('#posBody .pos-bild img'); if (!im) return false; const cs = getComputedStyle(im); return cs.borderTopWidth === '0px' && cs.borderStyle === 'none' && parseInt(cs.maxWidth) >= 140; }), 'Positionsbild ohne Rahmen + ~4 cm gross (max-width 150px)');
 }
 // Einfügen ÜBER der markierten Positionszeile
 ok(await page.evaluate(() => {
@@ -140,6 +142,25 @@ ok(await page.evaluate(() => {
   const p = cur.positionen[cur.positionen.length - 1];
   return p.bez === 'Betätigungsplatte Sigma50' && !p.bildUrl && Math.abs(p.ep - 145) < 1e-6;
 }), 'Artikel ohne Bild: Position ohne bildUrl, Preis korrekt');
+
+console.log('■ Live-Suche (0.5 s Debounce) markiert den obersten Treffer, Enter fügt ein');
+await page.evaluate(() => { cur.positionen = []; erpPosSelReset(); erpRenderPos(); const i = document.getElementById('dsq_1900'); i.value = '620.020'; i.focus(); i.dispatchEvent(new Event('input', { bubbles: true })); });
+await page.waitForTimeout(750);   // > 500 ms Debounce
+ok(await page.evaluate(() => document.querySelectorAll('#dsRes_1900 .side-art').length === 2), 'Tippen löst die Suche automatisch aus (Debounce)');
+ok(await page.evaluate(() => { const rows = document.querySelectorAll('#dsRes_1900 .side-art'); return rows[0].classList.contains('sel') && document.querySelectorAll('#dsRes_1900 .side-art.sel').length === 1; }), 'oberster Treffer ist automatisch markiert');
+// Auto-Markierung darf den Fokus NICHT in die Trefferliste ziehen (sonst bricht das
+// Weitertippen im Suchfeld). erpArtMark markiert ohne focus() — kein .side-art aktiv.
+ok(await page.evaluate(() => { const a = document.activeElement; return !(a && a.classList && a.classList.contains('side-art')); }), 'Auto-Markierung stiehlt den Fokus NICHT (Weitertippen bleibt möglich)');
+await page.evaluate(() => { document.getElementById('dsq_1900').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); });
+await page.waitForTimeout(60);
+ok(await page.evaluate(() => document.getElementById('erpQtyModal').classList.contains('open')), 'Enter im Suchfeld öffnet den Stückzahl-Dialog (obersten Treffer)');
+await page.evaluate(() => { document.getElementById('eq_menge').value = '1'; erpQtyConfirm(); });
+await page.waitForTimeout(60);
+ok(await page.evaluate(() => { const p = cur.positionen[cur.positionen.length - 1]; return p && p.bez === 'Spülkasten Sigma UP320'; }), 'eingefügt = oberster Treffer');
+// zu kurze Eingabe (<2 Zeichen) löst noch keine Suche aus
+await page.evaluate(() => { const i = document.getElementById('dsq_1900'); i.value = '6'; i.dispatchEvent(new Event('input', { bubbles: true })); });
+await page.waitForTimeout(650);
+ok(await page.evaluate(() => document.getElementById('dsRes_1900').innerHTML.indexOf('eingeben') >= 0), 'unter 2 Zeichen: Hinweis statt Suche');
 
 console.log('■ Leer- und Fehlerzustände');
 await page.evaluate(() => { document.getElementById('dsq_1900').value = 'LEER'; erpDsSearch('1900'); });

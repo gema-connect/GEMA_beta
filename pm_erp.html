@@ -193,7 +193,8 @@ table.pos{border-collapse:collapse;width:100%;font-size:13px}
 .pos tr.pos-editing td{background:#fff}
 .pos-foto{width:36px;height:36px;border-radius:8px;border:1.5px dashed var(--brd2);background:var(--sur);font-size:15px;cursor:pointer;flex-shrink:0}
 .pos-bild{position:relative;flex-shrink:0}
-.pos-bild img{width:38px;height:38px;object-fit:cover;border-radius:8px;border:1px solid var(--brd2);display:block;cursor:zoom-in}
+/* Bild ~4×4 cm, ohne Rahmen — schon bei der Erfassung sichtbar (Offerte wird dafür länger). */
+.pos-bild img{max-width:150px;max-height:150px;width:auto;height:auto;object-fit:contain;border:none;border-radius:0;display:block;cursor:zoom-in}
 .pos-bild-x{position:absolute;top:-7px;right:-7px;width:19px;height:19px;border-radius:50%;border:none;background:var(--red);color:#fff;font-size:10px;line-height:1;cursor:pointer}
 #erpLightbox{position:fixed;inset:0;z-index:1600;background:rgba(8,20,40,.86);display:none;align-items:center;justify-content:center;cursor:zoom-out}
 
@@ -2115,7 +2116,7 @@ function erpRenderPos(){
       :(editable&&p.art!=='abzug'&&p.art!=='akonto'?'<button class="pos-foto" title="Bild zur Position" onclick="event.stopPropagation();erpPosBildPick('+i+')">📷</button>':'');
     var editableRow=editable&&p.art!=='abzug';   // Abzugszeilen (Schlussrechnung) bleiben fix
     h+=trOpen(i,p.art==='abzug'?'abzug':'')+grip(i)
-      +'<td><div style="display:flex;gap:6px;align-items:center">'+pcell(p.id,'bez','bezflex',(p.bez?esc(p.bez):'<span class="mut">—</span>'),inpText(p.id,'bez',p.bez,'','flex:1;min-width:0'),!editableRow)+bildHtml+'</div></td>'
+      +'<td><div style="display:flex;gap:8px;align-items:flex-start">'+pcell(p.id,'bez','bezflex',(p.bez?esc(p.bez):'<span class="mut">—</span>'),inpText(p.id,'bez',p.bez,'','flex:1;min-width:0'),!editableRow)+bildHtml+'</div></td>'
       +'<td>'+src+'</td>'
       +'<td style="width:76px">'+pcell(p.id,'menge','num',(p.menge!=null&&p.menge!==''?esc(p.menge):'<span class="mut">–</span>'),inpNum(p.id,'menge',p.menge,''),!editableRow)+'</td>'
       +'<td style="width:88px">'+pcell(p.id,'einheit','',esc(p.einheit||'Stk'),inpSel(p.id,'einheit',(function(cu){var L=EINHEITEN.slice();if(cu&&L.indexOf(cu)<0)L.unshift(cu);return L.map(function(e){return '<option'+(cu===e?' selected':'')+'>'+esc(e)+'</option>';}).join('');})(p.einheit)),!editableRow)+'</td>'
@@ -2531,6 +2532,13 @@ function erpArtSel(el){
   var p=el.parentNode;if(p)[].forEach.call(p.querySelectorAll('.side-art.sel'),function(x){x.classList.remove('sel');});
   el.classList.add('sel');try{el.focus();}catch(_){}
 }
+// Markieren OHNE Fokus zu stehlen — die Live-Suche behält den Cursor im Suchfeld,
+// damit der Nutzer weitertippen ODER mit Enter direkt den obersten Treffer einfügen kann.
+function erpArtMark(el){
+  var p=el&&el.parentNode;if(!p)return;
+  [].forEach.call(p.querySelectorAll('.side-art.sel'),function(x){x.classList.remove('sel');});
+  el.classList.add('sel');
+}
 function erpArtGoEl(el){
   if(el&&el.dataset&&el.dataset.dsgroup){erpDsGroupGo(el.dataset.dsgroup);return;}   // Produkt mit Ausführungen
   var pos=el&&el.dataset&&_artMap[el.dataset.artkey];if(pos)erpArtGo(pos);
@@ -2805,7 +2813,7 @@ function erpKatRender(){
       var open=!!openSet['ds:'+a.id];var tl=a.textLang==='kurz'?'kurz':'lang';
       h+='<div class="side-grp'+(open?' open':'')+'" data-grp="ds:'+esc(a.id)+'" data-dskey="'+esc(a.id)+'" data-dsname="'+esc((a.name||'').toLowerCase())+'"><div class="side-grp-hd" onclick="erpKatGrpToggle(\'ds:'+esc(a.id)+'\')"><span class="cx">▶</span><span>'+esc(a.name)+'</span></div>'
         +'<div class="side-grp-bd" style="padding:8px">'
-        +'<div style="display:flex;gap:6px;margin-bottom:6px"><input class="side-search" style="margin:0;flex:1" id="dsq_'+esc(a.id)+'" type="text" placeholder="Artikel-Nr / Bezeichnung / EAN" onkeydown="if(event.key===\'Enter\'){event.preventDefault();erpDsSearch(\''+esc(a.id)+'\');}"/><button class="btn pri" style="min-height:34px;padding:6px 10px" id="dsBtn_'+esc(a.id)+'" onclick="erpDsSearch(\''+esc(a.id)+'\')">🔎</button></div>'
+        +'<div style="display:flex;gap:6px;margin-bottom:6px"><input class="side-search" style="margin:0;flex:1" id="dsq_'+esc(a.id)+'" type="text" placeholder="Artikel-Nr / Bezeichnung / EAN — tippen sucht automatisch" oninput="erpDsLive(\''+esc(a.id)+'\')" onkeydown="erpDsInputKey(event,\''+esc(a.id)+'\')"/><button class="btn pri" style="min-height:34px;padding:6px 10px" id="dsBtn_'+esc(a.id)+'" onclick="erpDsSearch(\''+esc(a.id)+'\')">🔎</button></div>'
         +'<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;font-size:11px;color:var(--mut)"><span>Text in Offerte:</span>'
           +'<button class="btn'+(tl==='kurz'?' pri':'')+'" style="min-height:24px;padding:1px 9px;font-size:11px" onclick="erpDsSetTextLang(\''+esc(a.id)+'\',\'kurz\')">Kurz</button>'
           +'<button class="btn'+(tl==='lang'?' pri':'')+'" style="min-height:24px;padding:1px 9px;font-size:11px" onclick="erpDsSetTextLang(\''+esc(a.id)+'\',\'lang\')" title="Ausführliche Produktbeschreibung einfügen">Ausführlich</button></div>'
@@ -2929,7 +2937,31 @@ function erpDsSearch(anbId){
     var g=_dsRenderGrouped(_dsResults,anbId);
     var kopf=_dsResults.length+' Treffer'+(g.produkte!==_dsResults.length?' · '+g.produkte+' Produkte':'')+' — Bild lädt beim Einfügen:';
     res.innerHTML='<div style="font-size:11px;color:var(--mut);margin-bottom:5px">'+esc(kopf)+'</div>'+g.html;
+    // Obersten Treffer (bester Vorschlag) direkt markieren — OHNE den Cursor aus dem
+    // Suchfeld zu ziehen; ein erneutes Enter fügt ihn ein (erpDsEnter).
+    var first=res.querySelector('.side-art');if(first)erpArtMark(first);
   });
+}
+// Live-Suche: bei jeder Eingabe mit kurzer Verzögerung (0.5 s) suchen und den
+// obersten Treffer markieren. Enter fügt den markierten (obersten) Treffer ein.
+var _dsLiveTimers={};
+function erpDsLive(anbId){
+  clearTimeout(_dsLiveTimers[anbId]);
+  var inp=document.getElementById('dsq_'+anbId);var q=inp?inp.value.trim():'';
+  var res=document.getElementById('dsRes_'+anbId);
+  if(q.length<2){if(res)res.innerHTML='<div class="side-empty">Artikelnummer, Bezeichnung oder EAN eingeben.</div>';return;}
+  _dsLiveTimers[anbId]=setTimeout(function(){erpDsSearch(anbId);},500);
+}
+function erpDsInputKey(e,anbId){
+  if(e.key==='Enter'){e.preventDefault();erpDsEnter(anbId);}
+  else if(e.key==='ArrowDown'){var res=document.getElementById('dsRes_'+anbId);var f=res&&res.querySelector('.side-art');if(f){e.preventDefault();erpArtSel(f);}}
+}
+function erpDsEnter(anbId){
+  clearTimeout(_dsLiveTimers[anbId]);
+  var res=document.getElementById('dsRes_'+anbId);
+  var sel=res&&(res.querySelector('.side-art.sel')||res.querySelector('.side-art'));
+  if(sel){erpArtGoEl(sel);return;}   // markierter/oberster Treffer → einfügen (mit Ausführungs-/Mengenabfrage)
+  erpDsSearch(anbId);   // noch keine Treffer geladen → sofort suchen
 }
 // Diagnose «Rohantwort prüfen»: ruft die rohe Antwort von dataselect.ch ab und
 // zeigt HTTP-Status, Content-Type, erkanntes Format und die ersten Zeichen. So
@@ -3826,7 +3858,7 @@ function erpPdf(){
     posRows+='<tr'+(pimg?' class="hasimg"':'')+(p.art==='abzug'?' style="color:#92400e"':'')+'><td class="num" style="color:#888">'+nrPos+'</td><td>'+esc(p.bez)+'</td>'
       +'<td class="num">'+(p.menge!=null?p.menge:'')+'</td><td>'+esc(p.einheit||'')+'</td><td class="num">'+chf(erpNum(p.ep))+(erpNum(p.rabattPct)?'<br><span style="font-size:8pt;color:#888">−'+p.rabattPct+'%</span>':'')+'</td><td class="num">'+chf(betrag)+'</td></tr>';
     // Positionsbild als eigene Zeile unter der Position
-    if(pimg)posRows+='<tr class="bildrow"><td></td><td colspan="5" style="padding:2px 7px 8px"><img src="'+esc(pimg)+'" alt="" style="max-height:34mm;max-width:72mm;border:.5px solid #ccc;border-radius:2mm;display:block"/></td></tr>';
+    if(pimg)posRows+='<tr class="bildrow"><td></td><td colspan="5" style="padding:2px 7px 8px"><img src="'+esc(pimg)+'" alt="" style="max-height:40mm;max-width:40mm;border:none;display:block"/></td></tr>';
   });
   // Briefkopf: Absender links (dezent), Logo oben rechts; darunter Empfänger links + Dokument-Meta rechts
   var absAdr=[s.strasse,[s.plz,s.ort].filter(Boolean).join(' ')].filter(Boolean).join(' · ');
