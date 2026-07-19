@@ -110,9 +110,9 @@ console.log('■ Einsatzplan: Standard-Typ, ausgeblendetes Objekt, Such-Maske (R
   ok(await page.evaluate(() => { epNeu('', '2026-07-20'); return curEv.typ === 'auftrag'; }), 'neuer Einsatz: Standard-Typ = Auftrag');
   ok(await page.evaluate(() => document.getElementById('evAuftragWrap').style.display !== 'none'), 'Auftrag-Auswahl sichtbar');
 
-  // Request 3: Projekt/Objekt-Feld bei Typ Auftrag ausgeblendet
-  ok(await page.evaluate(() => document.getElementById('evObjektWrap').style.display === 'none'), 'bei Typ Auftrag: separate Objekt-Auswahl ausgeblendet');
-  ok(await page.evaluate(() => { curEv.typ = 'frei'; epEvRender(); return document.getElementById('evObjektWrap').style.display !== 'none'; }), 'bei Typ «Einsatz»: Objekt-Auswahl sichtbar');
+  // Request 3: kein separates Projekt/Objekt-Feld mehr (Objekt kommt aus dem Auftrag)
+  ok(await page.evaluate(() => !document.getElementById('ev_objekt')), 'kein separates Objekt-Feld im Dialog (Objekt kommt aus dem Auftrag)');
+  ok(await page.evaluate(() => { curEv.typ = 'frei'; epEvRender(); return document.getElementById('evTyp').innerHTML.indexOf('Freier Termin') >= 0 && document.getElementById('evAuftragWrap').style.display === 'none'; }), 'Typ «frei» heisst «Freier Termin» — ohne Auftrag- und Objekt-Feld');
   await page.evaluate(() => { curEv.typ = 'auftrag'; epEvRender(); });
 
   // Request 4: Such-Maske
@@ -134,7 +134,7 @@ console.log('■ Einsatzplan: Standard-Typ, ausgeblendetes Objekt, Such-Maske (R
     return curEv.auftragId === 'au_AU-2026-001' && curEv.objektId === 'objX' && !document.getElementById('aufModal').classList.contains('open');
   }), 'Auswahl übernimmt Auftrag + verknüpftes Objekt, schliesst Maske');
   ok(await page.evaluate(() => /AU-2026-001/.test(document.getElementById('evAuftragPick').innerHTML) && /Ändern/.test(document.getElementById('evAuftragPick').innerHTML)), 'gewählter Auftrag als Chip mit «Ändern»-Button');
-  ok(await page.evaluate(() => document.getElementById('evObjektWrap').style.display === 'none'), 'nach der Auswahl bleibt die separate Objekt-Auswahl ausgeblendet');
+  ok(await page.evaluate(() => /Wohnhaus Alpha/.test(document.getElementById('evAuftragPick').innerHTML)), 'Chip zeigt das Objekt des Auftrags (statt separatem Feld)');
 
   // getippter Titel überlebt die Auftragswahl
   ok(await page.evaluate(() => {

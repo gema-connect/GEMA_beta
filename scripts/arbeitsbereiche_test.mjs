@@ -110,6 +110,12 @@ await p2.waitForTimeout(600);
 // ERP-Pool NACH dem Boot seeden (der gemockte leere Cloud-Pull würde ihn sonst überschreiben)
 await p2.evaluate(pool => { localStorage.setItem('gema_erp_dok_pool_v1', JSON.stringify(pool)); epRender(); }, erpPool);
 
+// Pool-Karte VOR dem Einplanen prüfen — der Auftrags-Pool zeigt nur noch Uneingeplante
+ok(await p2.evaluate(() => {
+  const j = document.querySelector('.job .ab-chip');
+  return !!j && j.textContent.indexOf('Sanitär') >= 0;
+}), 'Pool-Auftrag zeigt den Bereich-Chip');
+
 const MO = '2026-07-13';
 await p2.evaluate((args) => {
   _anker = args.mo;
@@ -130,11 +136,6 @@ const evId = await p2.evaluate(() => epAll()[0].id);
   ok(card.style && card.style.indexOf('border-color:#16a34a') >= 0, 'Wochen-Karte trägt die Bereichsfarbe (Rand grün)');
   ok(card.bc === 'rgb(22, 163, 74)', 'Farbstil greift im Rendering');
 }
-ok(await p2.evaluate(() => {
-  const j = document.querySelector('.job .ab-chip');
-  return !!j && j.textContent.indexOf('Sanitär') >= 0;
-}), 'Sidebar-Auftrag zeigt den Bereich-Chip');
-
 console.log('■ Garantie-Flag im Einsatz-Modal');
 await p2.evaluate(id => epEvOpen(id), evId);
 ok(await p2.evaluate(() => document.getElementById('evBereichWrap').style.display !== 'none' && document.getElementById('ev_bereich').value === 'ab_sanitaer'), 'Modal: Bereich-Select vorbelegt');
