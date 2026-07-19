@@ -2024,10 +2024,11 @@ function erpOpenEditor(){
     +'</select>'
     +(editable?'<button class="btn" style="min-width:44px;padding:8px" title="Neuer Kunde / aus Beteiligten" onclick="erpKundeNeu(true)">＋</button>':'')
     +'</div></div>'
-    +'<div class="fld"><label>Projekt / Objekt</label><select id="e_objekt"'+dis+' onchange="cur.objektId=this.value;erpTouch()">'
+    +'<div class="fld"><label>Projekt / Objekt</label><select id="e_objekt"'+dis+' onchange="erpObjektWahl(this.value)">'
     +'<option value="">– keins –</option>'
     +erpObjekte().map(function(o){return '<option value="'+o.id+'"'+(o.id===d.objektId?' selected':'')+'>'+esc(o.name+(o.ort?' · '+o.ort:''))+'</option>';}).join('')
     +'</select></div></div>'
+    +'<div id="erpObjBet"></div>'
     +'<div class="fld"><label>Titel / Betreff</label><input type="text" value="'+esc(d.titel||'')+'" placeholder="z.B. Sanitärinstallation Neubau MFH"'+dis+' oninput="cur.titel=this.value;erpTouch()"/></div>'
     +'<div class="fld-row3">'
     +'<div class="fld"><label>Datum</label><input type="date" value="'+esc(d.datum||'')+'"'+dis+' onchange="cur.datum=this.value;erpTouch()"/></div>'
@@ -2118,6 +2119,7 @@ function erpOpenEditor(){
 
   document.getElementById('edBody').innerHTML=h;
   erpRenderPos();
+  erpRenderObjBet();   // Beteiligte des gewählten Objekts direkt sichtbar (Request 1)
   erpRenderFooter();
   erpSideRender();
   if(!_erpHistRestoring)_erpHistReset();   // frische History beim echten Öffnen (nicht beim Undo-Re-Render)
@@ -3935,6 +3937,50 @@ function erpPickLoad(mode){
 // KUNDEN
 // ═══════════════════════════════════════════════════════════
 var _kundeEditId=null,_kundeAusEditor=false;
+// ── Objekt-Wahl im Editor: Beteiligte direkt sichtbar (Request 1) ──
+// Nach der Objektwahl erscheinen die Objekt-Beteiligten unter dem Kunde-Feld
+// als 1-Klick-Rechnungsempfänger — ohne Umweg über den «＋ Kunde»-Dialog.
+function erpObjektWahl(id){
+  if(!cur)return;
+  cur.objektId=id;
+  var oo=null;try{oo=erpObjekte().find(function(x){return x.id===id;});}catch(e){}
+  cur.objektName=oo?(oo.name+(oo.ort?' · '+oo.ort:'')):(id?cur.objektName:'');
+  erpTouch();
+  erpRenderObjBet();
+}
+function erpRenderObjBet(){
+  var box=document.getElementById('erpObjBet');if(!box)return;
+  if(!cur||!erpEditable()||!cur.objektId){box.innerHTML='';return;}
+  var bets=[];try{bets=(typeof GemaObjekte!=='undefined')?(GemaObjekte.getBeteiligte(cur.objektId)||[]):[];}catch(e){}
+  if(!bets.length){box.innerHTML='';return;}
+  window._erpObjBets=bets;
+  box.innerHTML='<div style="background:var(--acc-bg);border:1px solid var(--acc-bd);border-radius:11px;padding:9px 12px;margin-bottom:12px">'
+    +'<div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:var(--acc);margin-bottom:7px">👥 Beteiligte des Objekts — als Rechnungsempfänger übernehmen</div>'
+    +'<div style="display:flex;flex-wrap:wrap;gap:6px">'
+    +bets.slice(0,8).map(function(b,i){
+      var nm=b.firma||b.name||'—';
+      return '<button type="button" class="btn ghost" style="min-height:32px;padding:5px 11px;font-size:12.5px" onclick="erpBetAlsKunde('+i+')">👤 '+esc(nm)+(b.rolle?' <span style="font-size:10px;color:var(--mut2)">('+esc(b.rolle)+')</span>':'')+'</button>';
+    }).join('')
+    +'</div></div>';
+}
+function erpBetAlsKunde(i){
+  var b=(window._erpObjBets||[])[i];if(!b||!cur)return;
+  var u=erpUser();
+  var firma=b.firma||b.name||'';
+  if(!firma){toast('⚠ Beteiligter ohne Name');return;}
+  // bestehenden Kunden gleicher Firma wiederverwenden, sonst neu anlegen
+  var k=erpKunden().find(function(x){return (x.firma||'').toLowerCase()===firma.toLowerCase();});
+  if(!k){
+    k={id:'kd_'+Date.now()+'_'+Math.random().toString(36).slice(2,6),orgId:u?u.orgId:'',
+      firma:firma,kontakt:b.firma?(b.name||b.person||''):'',
+      strasse:b.strasse||b.adresse||'',plz:b.plz||'',ort:b.ort||'',email:b.email||'',tel:b.tel||b.telefon||''};
+    poolSave(KUN_POOL,KUN_PREFIX,k);
+  }
+  cur.kundeId=k.id;
+  cur.kundeSnapshot={firma:k.firma,kontakt:k.kontakt,strasse:k.strasse,plz:k.plz,ort:k.ort,email:k.email};
+  erpSaveCur(true);erpOpenEditor();
+  toast('✓ '+firma+' als Rechnungsempfänger übernommen');
+}
 function erpKundeWahl(id){
   cur.kundeId=id;
   var k=erpKunden().find(function(x){return x.id===id;});

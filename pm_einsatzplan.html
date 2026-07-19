@@ -213,7 +213,7 @@ table.board{border-collapse:collapse;width:100%;min-width:860px}
     <div class="modal-hd"><h3 id="evTitle">Einsatz</h3><button class="modal-x" onclick="epEvClose()">✕</button></div>
     <div class="modal-bd">
       <div class="fld"><label>Typ</label><div class="typ-chips" id="evTyp"></div></div>
-      <div class="fld" id="evAuftragWrap" style="display:none"><label>Auftrag</label><select id="ev_auftrag" onchange="epEvAuftragChanged()"></select><div id="evKeyInfo"></div></div>
+      <div class="fld" id="evAuftragWrap" style="display:none"><label>Auftrag</label><div id="evAuftragPick"></div><div id="evKeyInfo"></div></div>
       <div class="fld"><label>Titel / Arbeit *</label><input id="ev_titel" type="text" placeholder="z.B. Steigzone EG–3.OG"/></div>
       <div class="fld-row">
         <div class="fld"><label>Monteur *</label><select id="ev_monteur"></select></div>
@@ -224,7 +224,7 @@ table.board{border-collapse:collapse;width:100%;min-width:860px}
         <div class="fld" id="evSlotWrap"><label>Zeitraum</label><div class="slot-chips" id="evSlot"></div></div>
         <div class="fld" id="evZeitWrap" style="display:none"><label>Zeit von – bis</label><div style="display:flex;gap:6px;align-items:center"><input id="ev_von" type="time" style="flex:1"/><span>–</span><input id="ev_bis" type="time" style="flex:1"/></div></div>
       </div>
-      <div class="fld"><label>Projekt / Objekt</label><select id="ev_objekt"></select></div>
+      <div class="fld" id="evObjektWrap"><label>Projekt / Objekt</label><select id="ev_objekt"></select></div>
       <div class="fld" id="evBereichWrap" style="display:none"><label>Arbeitsbereich</label><select id="ev_bereich"></select></div>
       <div class="fld" id="evBesWrap" style="display:none"><label>Besonderheiten für den Monteur</label>
         <div class="typ-chips" id="evBes"></div>
@@ -240,6 +240,17 @@ table.board{border-collapse:collapse;width:100%;min-width:860px}
       <div id="evAushang" style="display:none"></div>
     </div>
     <div class="modal-ft" id="evFt"></div>
+  </div>
+</div>
+
+<!-- ═══ AUFTRAG-SUCHE (Picker) ═══ -->
+<div class="modal-bg" id="aufModal">
+  <div class="modal">
+    <div class="modal-hd"><h3>📋 Auftrag wählen</h3><button class="modal-x" onclick="epAufClose()">✕</button></div>
+    <div class="modal-bd">
+      <input id="aufSuche" type="text" placeholder="🔍 Suchen — Nummer, Titel, Kunde, Adresse …" oninput="epAufRender(this.value)" style="width:100%;padding:11px 13px;border:1.5px solid var(--brd);border-radius:10px;font-size:15px;margin-bottom:10px"/>
+      <div id="aufList"></div>
+    </div>
   </div>
 </div>
 
@@ -1034,7 +1045,7 @@ function epNeu(monteurId,datum){
   if(!epCanPlan()){toast('Keine Berechtigung');return;}
   var u=epUser();
   curEv={
-    id:uid(),orgId:u?u.orgId:'',typ:'frei',titel:'',
+    id:uid(),orgId:u?u.orgId:'',typ:'auftrag',titel:'',
     monteurUserId:monteurId||'',monteurName:'',
     datum:datum||_anker,dauerTage:1,slot:'ganz',zeitVon:'',zeitBis:'',
     auftragId:'',auftragNr:'',kunde:'',objektId:'',objektName:'',notiz:'',
@@ -1058,15 +1069,9 @@ function epEvRender(){
   document.getElementById('evTyp').innerHTML=Object.keys(TYPEN).map(function(t){
     return '<button class="tchip'+(ev.typ===t?' on':'')+'"'+(canEdit?' onclick="curEv.typ=\''+t+'\';epEvRender()"':' disabled')+'>'+TYPEN[t].ic+' '+TYPEN[t].n+'</button>';
   }).join('');
-  // Auftrag-Auswahl
+  // Auftrag-Auswahl — Suchfeld/Maske statt Dropdown (Request 4)
   var aw=document.getElementById('evAuftragWrap');
-  if(ev.typ==='auftrag'){
-    aw.style.display='';
-    var jobs=epAuftraege();
-    document.getElementById('ev_auftrag').innerHTML='<option value="">– Auftrag wählen –</option>'+jobs.map(function(a){
-      return '<option value="'+a.id+'"'+(a.id===ev.auftragId?' selected':'')+'>'+esc((a.nr||'')+' · '+(a.titel||(a.kundeSnapshot&&a.kundeSnapshot.firma)||''))+'</option>';
-    }).join('');
-  } else aw.style.display='none';
+  if(ev.typ==='auftrag'){aw.style.display='';epAufPickRender();} else aw.style.display='none';
   document.getElementById('ev_titel').value=ev.titel||'';
   // Monteur
   document.getElementById('ev_monteur').innerHTML='<option value="">– wählen –</option>'+epPersonen().map(function(p){
@@ -1087,11 +1092,12 @@ function epEvRender(){
       return '<button class="tchip'+((ev.slot||'ganz')===x[0]?' on':'')+'"'+(canEdit?' onclick="curEv.slot=\''+x[0]+'\';epEvRender()"':' disabled')+'>'+x[1]+'</button>';
     }).join('');
   }
-  // Objekt
+  // Objekt — bei Auftrag kommt es aus dem Auftrag (Feld ausgeblendet, Request 3)
   var objs=[];try{objs=GemaObjekte.getAll();}catch(e){}
   document.getElementById('ev_objekt').innerHTML='<option value="">– keins –</option>'+objs.map(function(o){
     return '<option value="'+o.id+'"'+(o.id===ev.objektId?' selected':'')+'>'+esc(o.name+(o.ort?' · '+o.ort:''))+'</option>';
   }).join('');
+  document.getElementById('evObjektWrap').style.display=(ev.typ==='auftrag')?'none':'';
   // Arbeitsbereich (Feld nur, wenn Bereiche definiert sind — Definition in ⚙️)
   var bl=abListe();
   var bw=document.getElementById('evBereichWrap');
@@ -1152,17 +1158,92 @@ function epBesToggle(id){
   if(i>=0)l.splice(i,1);else l.push(id);
   epEvRender();
 }
-function epEvAuftragChanged(){
-  var id=document.getElementById('ev_auftrag').value;
-  var a=epAuftraege().find(function(x){return x.id===id;});
-  curEv.auftragId=id;
+// ── Auftrag-Auswahl: Such-Maske statt Dropdown (Request 4) ──
+function epAuftragById(id){
+  var u=epUser();
+  return _epErpPool().find(function(d){return d&&d.id===id&&(!u||d.orgId===u.orgId);})||null;
+}
+// Kompakte Anzeige im Einsatz-Modal (gewählter Auftrag ODER «Auftrag suchen …»)
+function epAufPickRender(){
+  var ev=curEv;if(!ev)return;
+  var box=document.getElementById('evAuftragPick');if(!box)return;
+  var canEdit=epCanPlan();
+  var a=ev.auftragId?epAuftragById(ev.auftragId):null;
   if(a){
-    curEv.auftragNr=a.nr;curEv.kunde=(a.kundeSnapshot&&a.kundeSnapshot.firma)||'';
-    if(!document.getElementById('ev_titel').value)document.getElementById('ev_titel').value=a.titel||a.nr;
-    if(a.objektId){curEv.objektId=a.objektId;curEv.objektName=a.objektName||'';}
-    if(a.bereichId&&!curEv.bereichId)curEv.bereichId=a.bereichId;   // Bereich der Offerte/des Auftrags übernehmen
-    epEvRender();
+    var ks=a.kundeSnapshot||{};
+    box.innerHTML='<div style="display:flex;gap:8px;align-items:center;background:var(--sur2);border:1px solid var(--brd);border-radius:9px;padding:8px 11px">'
+      +'<div style="flex:1;min-width:0"><div style="font-weight:800;font-size:13px">'+esc((a.nr||'')+' · '+(a.titel||ks.firma||''))+'</div>'
+      +'<div style="font-size:11.5px;color:var(--mut);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(ks.firma||'')+(a.objektName?' · '+esc(a.objektName):'')+'</div></div>'
+      +(canEdit?'<button type="button" class="btn" style="min-height:32px;padding:4px 11px;font-size:12px;white-space:nowrap" onclick="epAufOpen()">Ändern</button>':'')
+      +'</div>';
+  } else {
+    box.innerHTML=canEdit
+      ? '<button type="button" class="btn pri" style="width:100%" onclick="epAufOpen()">🔍 Auftrag suchen …</button>'
+      : '<div style="font-size:12px;color:var(--mut)">Kein Auftrag verknüpft</div>';
   }
+}
+// Formularstand in curEv sichern, bevor die Such-Maske öffnet (keine Datenverluste)
+function epEvCollect(){
+  if(!curEv)return;
+  var g=function(id){var el=document.getElementById(id);return el?el.value:'';};
+  var t=(g('ev_titel')||'').trim();if(t)curEv.titel=t;
+  if(g('ev_monteur'))curEv.monteurUserId=g('ev_monteur');
+  if(g('ev_datum'))curEv.datum=g('ev_datum');
+  var d=parseInt(g('ev_dauer'),10);if(d>0)curEv.dauerTage=d;
+  curEv.notiz=g('ev_notiz');
+  if(epSettings().raster==='zeit'){curEv.zeitVon=g('ev_von');curEv.zeitBis=g('ev_bis');}
+  if(abListe().length&&document.getElementById('ev_bereich'))curEv.bereichId=g('ev_bereich');
+  var gk=document.getElementById('ev_garantie');if(gk)curEv.garantie=gk.checked;
+}
+function epAufOpen(){
+  if(!epCanPlan())return;
+  epEvCollect();
+  document.getElementById('aufSuche').value='';
+  epAufRender('');
+  document.getElementById('aufModal').classList.add('open');
+  setTimeout(function(){var s=document.getElementById('aufSuche');if(s)s.focus();},40);
+}
+function epAufClose(){document.getElementById('aufModal').classList.remove('open');}
+function epAufRender(q){
+  q=(q||'').toLowerCase().trim();
+  var list=epAuftraege().slice();
+  // aktuell gewählten Auftrag mit aufnehmen (auch wenn abgeschlossen/gefiltert)
+  if(curEv&&curEv.auftragId&&!list.some(function(a){return a.id===curEv.auftragId;})){
+    var ca=epAuftragById(curEv.auftragId);if(ca)list.unshift(ca);
+  }
+  // nach Erstellungsdatum sortieren, neueste zuerst
+  list.sort(function(a,b){return String(b.erstelltAm||b.datum||'').localeCompare(String(a.erstelltAm||a.datum||''));});
+  if(q){
+    list=list.filter(function(a){
+      var ks=a.kundeSnapshot||{};
+      var hay=[a.nr,a.titel,ks.firma,ks.kontakt,ks.strasse,ks.plz,ks.ort,a.objektName].map(function(x){return String(x||'');}).join(' ').toLowerCase();
+      return hay.indexOf(q)>=0;
+    });
+  }
+  var el=document.getElementById('aufList');
+  if(!list.length){el.innerHTML='<div style="text-align:center;color:var(--mut);padding:26px 8px;font-size:13px">'+(q?'Kein Auftrag gefunden.':'Keine offenen Aufträge vorhanden.')+'</div>';return;}
+  el.innerHTML=list.map(function(a){
+    var ks=a.kundeSnapshot||{};
+    var adr=[ks.strasse,[ks.plz,ks.ort].filter(Boolean).join(' ')].filter(Boolean).join(', ');
+    var sel=(curEv&&a.id===curEv.auftragId);
+    return '<div class="auf-row" onclick="epAufPick(\''+a.id+'\')" style="border:1.5px solid '+(sel?'var(--acc)':'var(--brd)')+';border-radius:10px;padding:9px 11px;margin-bottom:7px;cursor:pointer;background:'+(sel?'var(--sur2)':'var(--sur)')+'">'
+      +'<div style="display:flex;gap:8px;align-items:baseline"><b style="font-size:13.5px">'+esc(a.nr||'')+'</b>'
+      +'<span style="flex:1;min-width:0;font-weight:600;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(a.titel||'')+'</span>'
+      +(a.datum?'<span style="font-size:11px;color:var(--mut);white-space:nowrap">'+dfmtLong(a.datum)+'</span>':'')+'</div>'
+      +'<div style="font-size:11.5px;color:var(--mut);margin-top:2px">'+esc(ks.firma||'')+(adr?' · '+esc(adr):'')+(a.objektName&&a.objektName!==adr&&a.objektName!==ks.ort?' · '+esc(a.objektName):'')+(a._geplant?' · <span style="color:var(--grn);font-weight:700">✓ eingeplant</span>':'')+'</div>'
+      +'</div>';
+  }).join('');
+}
+function epAufPick(id){
+  var a=epAuftragById(id);if(!a){epAufClose();return;}
+  curEv.auftragId=id;
+  curEv.auftragNr=a.nr||'';
+  curEv.kunde=(a.kundeSnapshot&&a.kundeSnapshot.firma)||'';
+  if(!curEv.titel)curEv.titel=a.titel||a.nr||'';   // getippten Titel behalten (via epEvCollect gesichert)
+  if(a.objektId){curEv.objektId=a.objektId;curEv.objektName=a.objektName||'';}
+  if(a.bereichId&&!curEv.bereichId)curEv.bereichId=a.bereichId;   // Bereich der Offerte/des Auftrags übernehmen
+  epAufClose();
+  epEvRender();
 }
 function epEvSave(){
   var ev=curEv;
@@ -1170,14 +1251,20 @@ function epEvSave(){
   ev.monteurUserId=document.getElementById('ev_monteur').value;
   ev.datum=document.getElementById('ev_datum').value;
   ev.dauerTage=Math.max(1,parseInt(document.getElementById('ev_dauer').value,10)||1);
-  ev.objektId=document.getElementById('ev_objekt').value;
-  var oo=null;try{oo=GemaObjekte.getAll().find(function(x){return x.id===ev.objektId;});}catch(e){}
-  ev.objektName=oo?(oo.name+(oo.ort?' · '+oo.ort:'')):(ev.objektId?ev.objektName:'');
+  // Bei Typ Auftrag ist das Objekt-Feld ausgeblendet — objektId/objektName kommen
+  // aus dem Auftrag (curEv, via epAufPick), NICHT aus dem versteckten Select
+  // (dessen Option fehlt bei denormalisierten/fremden Objekten).
+  if(ev.typ!=='auftrag'){
+    ev.objektId=document.getElementById('ev_objekt').value;
+    var oo=null;try{oo=GemaObjekte.getAll().find(function(x){return x.id===ev.objektId;});}catch(e){}
+    ev.objektName=oo?(oo.name+(oo.ort?' · '+oo.ort:'')):(ev.objektId?ev.objektName:'');
+  }
   ev.notiz=document.getElementById('ev_notiz').value;
   if(abListe().length)ev.bereichId=document.getElementById('ev_bereich').value;
   ev.garantie=document.getElementById('ev_garantie').checked;
   if(epSettings().raster==='zeit'){ev.zeitVon=document.getElementById('ev_von').value;ev.zeitBis=document.getElementById('ev_bis').value;}
-  if(ev.typ==='auftrag')ev.auftragId=document.getElementById('ev_auftrag').value||ev.auftragId;
+  // Auftrag kommt aus der Such-Maske (curEv.auftragId); bei Auftrag ist das Objekt daran gekoppelt
+  if(ev.typ!=='auftrag')ev.auftragId='';
   if(!ev.titel){toast('⚠ Titel fehlt');return;}
   if(!ev.monteurUserId){toast('⚠ Monteur wählen');return;}
   if(!ev.datum){toast('⚠ Datum fehlt');return;}
