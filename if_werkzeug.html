@@ -651,6 +651,7 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
           <select id="f_lifecycle">
             <option value="aktiv">✅ Aktiv (im Einsatz)</option>
             <option value="in_reparatur">🔧 In Reparatur</option>
+            <option value="verloren">❓ Verloren</option>
             <option value="ausgemustert">📦 Ausgemustert</option>
             <option value="verkauft">💰 Verkauft</option>
           </select>
@@ -1317,7 +1318,7 @@ window._wzBulkEdit=function(){
     +row('notes','Standort / Notizen','<input id="be_v_notes" class="dlg-inp" placeholder="z.B. Lager EG"/>')
     +row('zuw','Zugewiesen an','<select id="be_v_zuw" class="dlg-inp" onchange="_wzBeZuwChange()">'+zuwOpts+'</select>'
       +'<input id="be_v_zuwPlatz" class="dlg-inp" placeholder="z.B. Lager Halle B, Bus 3" style="display:none;margin-top:6px"/>')
-    +row('lifecycle','Status','<select id="be_v_lifecycle" class="dlg-inp"><option value="aktiv">✅ Aktiv</option><option value="in_reparatur">🔧 In Reparatur</option><option value="ausgemustert">📦 Ausgemustert</option><option value="verkauft">💰 Verkauft</option></select>')
+    +row('lifecycle','Status','<select id="be_v_lifecycle" class="dlg-inp"><option value="aktiv">✅ Aktiv</option><option value="in_reparatur">🔧 In Reparatur</option><option value="verloren">❓ Verloren</option><option value="ausgemustert">📦 Ausgemustert</option><option value="verkauft">💰 Verkauft</option></select>')
     +row('bought','Kaufdatum','<input id="be_v_bought" class="dlg-inp" type="date"/>')
     +row('warranty','Garantie bis','<input id="be_v_warranty" class="dlg-inp" type="date"/>')
     +row('service','Service-Intervall (Monate)',pruefSel('service'))
@@ -2486,7 +2487,7 @@ function renderCard(t){
   const hasPruef=t.hasElec||t.hasLeiter;
 
   const lc=t.lifecycleStatus||'aktiv';
-  const lcMeta={aktiv:null,in_reparatur:{label:'🔧 In Reparatur',bg:'#dbeafe',color:'#1d4ed8',brd:'#bfdbfe'},ausgemustert:{label:'📦 Ausgemustert',bg:'#f1f5f9',color:'#475569',brd:'#cbd5e1'},verkauft:{label:'💰 Verkauft',bg:'#f0fdf4',color:'#15803d',brd:'#bbf7d0'}}[lc];
+  const lcMeta={aktiv:null,in_reparatur:{label:'🔧 In Reparatur',bg:'#dbeafe',color:'#1d4ed8',brd:'#bfdbfe'},verloren:{label:'❓ Verloren',bg:'#fef2f2',color:'#b91c1c',brd:'#fecaca'},ausgemustert:{label:'📦 Ausgemustert',bg:'#f1f5f9',color:'#475569',brd:'#cbd5e1'},verkauft:{label:'💰 Verkauft',bg:'#f0fdf4',color:'#15803d',brd:'#bbf7d0'}}[lc];
   const cardOpacity=(lc==='ausgemustert'||lc==='verkauft')?'opacity:.7;':'';
   const bulkCb=_wzBulkMode?`<div class="wz-bulk-cb" onclick="_wzBulkToggle('${t.id}',event)" style="position:absolute;top:8px;left:8px;width:26px;height:26px;background:#fff;border:1.5px solid var(--brd);border-radius:6px;display:grid;place-items:center;cursor:pointer;font-size:14px;font-weight:800;color:var(--plan);z-index:5">${_wzBulkSelected[t.id]?'✓':''}</div>`:'';
   const bulkSel=_wzBulkSelected[t.id]?' wz-bulk-sel':'';
@@ -3658,11 +3659,11 @@ window._wzKofferSearch=function(kofferId){
   var box=document.getElementById('kofSearchRes');if(!box)return;
   var q=(document.getElementById('kofSearch').value||'').trim().toLowerCase();
   // Kandidaten: eigene Werkzeuge, keine Koffer, noch in keinem Koffer,
-  // nicht ausgemustert/verkauft.
+  // nicht ausgemustert/verkauft/verloren.
   var cands=tools.filter(function(t){
     if(_wzIsKoffer(t))return false;
     var lc=t.lifecycleStatus||'aktiv';
-    if(lc==='ausgemustert'||lc==='verkauft')return false;
+    if(lc==='ausgemustert'||lc==='verkauft'||lc==='verloren')return false;
     if(_wzKofferOf(t.id))return false;
     if(!q)return true;
     var hay=((t.name||'')+' '+(t.brand||'')+' '+(t.model||'')+' '+(t.internKennung||'')+' '+(t.serial||'')).toLowerCase();
@@ -4155,9 +4156,17 @@ function _wzScanAusleihe(toolId){
     var itemsHtml=ki.length?ki.map(function(it){
       var borrowed=(!kofRet&&it.ausgeliehenAn)?' <span style="font-size:10px;color:#b45309;font-weight:600">🔄 ausgeliehen an '+esc(it.ausgeliehenAn.name||'—')+'</span>':'';
       var defekt=_wzBadDefect(it)?' <span style="font-size:10px;color:#dc2626;font-weight:700">⚠ Defekt</span>':'';
+      // Typ (Kategorie), Hersteller/Modell und Serien-Nr. als zweite Zeile —
+      // damit ist beim Scan eindeutig, WELCHES Gerät gemeint ist (User-Wunsch).
+      var itCat=CATS[it.cat]||CATS.sonstige;
+      var typZeile=[itCat.icon+' '+itCat.label,[it.brand,it.model].filter(Boolean).join(' '),(it.serial?'SN '+it.serial:'')]
+        .filter(Boolean).map(esc).join(' · ');
       return '<label style="display:flex;align-items:center;gap:10px;padding:11px 12px;border:1px solid #e5e7eb;border-radius:10px;background:#fff;cursor:pointer">'
         +'<input type="checkbox" class="kofCtrlItem" value="'+esc(it.id)+'" checked style="width:22px;height:22px;accent-color:#16a34a;flex-shrink:0"/>'
-        +'<span style="flex:1;min-width:0;font-size:14px;font-weight:600;color:#0f172a">'+esc(it.name)+(it.internKennung?' <span style="font-size:10px;color:#94a3b8;font-weight:500">'+esc(it.internKennung)+'</span>':'')+borrowed+defekt+'</span></label>';
+        +'<span style="flex:1;min-width:0">'
+        +'<span style="display:block;font-size:14px;font-weight:600;color:#0f172a">'+esc(it.name)+(it.internKennung?' <span style="font-size:10px;color:#94a3b8;font-weight:500">'+esc(it.internKennung)+'</span>':'')+borrowed+defekt+'</span>'
+        +(typZeile?'<span style="display:block;font-size:11px;color:#64748b;margin-top:2px">'+typZeile+'</span>':'')
+        +'</span></label>';
     }).join(''):'<div style="font-size:13px;color:#94a3b8;text-align:center;padding:14px">'
       +(kofRet?'Es wurden keine Teile mit dem Koffer ausgeliehen — es wird nur der Koffer selbst zurückgegeben.':'Dieser Koffer hat noch keine Teile hinterlegt.<br>Inhalt über «🧰 Inhalt» in der Geräteliste erfassen.')+'</div>';
     var lk=t.letzteKofferKontrolle;
@@ -4174,6 +4183,8 @@ function _wzScanAusleihe(toolId){
       +'<div style="font-size:12.5px;color:#64748b;margin-bottom:14px">'+kofSub+'</div>'
       +'<div style="display:flex;flex-direction:column;gap:6px'+(ki.length>6?';max-height:44vh;overflow-y:auto':'')+'">'+itemsHtml+'</div>'
       +(showBtn?'<button onclick="_wzKofferKontrolleSave(\''+t.id+'\')" style="width:100%;margin-top:14px;padding:14px;border-radius:12px;border:none;background:#16a34a;color:#fff;font-size:15px;font-weight:800;cursor:pointer;font-family:inherit;display:flex;align-items:center;justify-content:center;gap:8px">'+kofBtn+'</button>':'')
+      // Was der Button macht — sonst wirkt «Kontrolle bestätigen» wie eine Pflicht
+      +(showBtn&&!kofRet?'<div style="margin-top:8px;font-size:11px;color:#94a3b8;text-align:center">Dokumentiert die Kontrolle am Koffer (wer/wann/Ergebnis) — Fehlteile werden dem Magaziner gemeldet. Nur schauen? Einfach «← Zurück».</div>':'')
       +lkHtml
       +'</div>';
   }
@@ -4197,7 +4208,10 @@ function _wzScanAusleihe(toolId){
     +'<div style="background:#fff;border-radius:16px;border:1px solid #E5E7EB;padding:16px;margin-bottom:20px">'
     +(t.zugewiesenAn?'<div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid #EEF1F4"><span style="font-size:13px;color:#94a3b8">Zugewiesen an</span><span style="font-size:13px;font-weight:600;color:#3730a3">👷 '+esc(t.zugewiesenAn.name)+'</span></div>':'')
     +(t.ausgeliehenAn?'<div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid #EEF1F4"><span style="font-size:13px;color:#94a3b8">Ausgeliehen an</span><span style="font-size:13px;font-weight:600;color:#92400e">🔄 '+esc(t.ausgeliehenAn.name)+'</span></div>':'')
-    +(!t.ausgeliehenAn?'<div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid #EEF1F4"><span style="font-size:13px;color:#94a3b8">Status</span><span style="font-size:13px;font-weight:600;color:#16a34a">✅ Verfügbar</span></div>':'')
+    +(!t.ausgeliehenAn?'<div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid #EEF1F4"><span style="font-size:13px;color:#94a3b8">Status</span>'
+      +((t.lifecycleStatus||'aktiv')==='verloren'?'<span style="font-size:13px;font-weight:700;color:#b91c1c">❓ Verloren gemeldet</span>'
+        :(t.lifecycleStatus==='in_reparatur'?'<span style="font-size:13px;font-weight:600;color:#1d4ed8">🔧 In Reparatur</span>'
+        :'<span style="font-size:13px;font-weight:600;color:#16a34a">✅ Verfügbar</span>'))+'</div>':'')
     +'<div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid #EEF1F4"><span style="font-size:13px;color:#94a3b8">Kategorie</span><span style="font-size:13px;font-weight:500">'+cat.icon+' '+esc(cat.label)+'</span></div>'
     +(_wzBadDefect(t)?'<div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid #EEF1F4"><span style="font-size:13px;color:#94a3b8">Defekt</span><span style="font-size:13px;font-weight:700;color:#dc2626">⚠ Defekt offen</span></div>':'')
     +'</div>'
@@ -4213,12 +4227,17 @@ function _wzScanAusleihe(toolId){
        +'</div>':'')
     // Defekt melden — prominenter Sekundaer-Button (rot)
     +(_wzCanReportDefect()?'<button onclick="_wzCloseScan();setTimeout(function(){openDefektMelden(\''+toolId+'\')},200)" style="width:100%;padding:14px;border-radius:12px;border:1.5px solid #fecaca;background:#fef2f2;color:#b91c1c;font-size:15px;font-weight:800;cursor:pointer;font-family:inherit;display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:8px">🚨 Defekt melden</button>':'')
-    // Lifecycle-Quick-Toggle fuer Magaziner/Admin
+    // Lifecycle-Quick-Aktionen fuer Magaziner/Admin (Reparatur + Verloren)
     +(_wzCanEdit()?'<div style="display:flex;gap:6px;margin-bottom:8px">'
        +((t.lifecycleStatus||'aktiv')==='in_reparatur'
           ?'<button onclick="_wzScanLifecycle(\''+toolId+'\',\'aktiv\')" style="flex:1;padding:11px;border-radius:10px;border:1.5px solid #bbf7d0;background:#f0fdf4;color:#15803d;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">✅ Reparatur abschliessen</button>'
-          :'<button onclick="_wzScanLifecycle(\''+toolId+'\',\'in_reparatur\')" style="flex:1;padding:11px;border-radius:10px;border:1.5px solid #bfdbfe;background:#eff6ff;color:#1d4ed8;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">🔧 In Reparatur setzen</button>')
+          :((t.lifecycleStatus||'aktiv')==='verloren'
+            ?'<button onclick="_wzMarkGefunden(\''+toolId+'\')" style="flex:1;padding:11px;border-radius:10px;border:1.5px solid #bbf7d0;background:#f0fdf4;color:#15803d;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">✅ Wieder gefunden</button>'
+            :'<button onclick="_wzScanLifecycle(\''+toolId+'\',\'in_reparatur\')" style="flex:1;padding:11px;border-radius:10px;border:1.5px solid #bfdbfe;background:#eff6ff;color:#1d4ed8;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">🔧 In Reparatur setzen</button>'
+             +'<button onclick="_wzMarkVerloren(\''+toolId+'\')" style="flex:1;padding:11px;border-radius:10px;border:1.5px solid #fecaca;background:#fef2f2;color:#b91c1c;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">❓ Verloren melden</button>'))
        +'</div>':'')
+    // Aktivitaeten dieses Werkzeugs (Magaziner/Admin)
+    +(_wzCanEdit()?'<button onclick="_wzCloseScan();setTimeout(function(){_wzToolActLog(\''+toolId+'\')},150)" style="width:100%;padding:11px;border-radius:10px;border:1.5px solid #e5e7eb;background:#fff;color:#475569;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;display:flex;align-items:center;justify-content:center;gap:6px;margin-bottom:8px">📋 Aktivitäten dieses Werkzeugs</button>':'')
     // Berichte ansehen (Read-Link fuer alle, falls vorhanden)
     +(t.berichte&&t.berichte.length?'<button onclick="_wzCloseScan();setTimeout(function(){openBerichte(\''+toolId+'\')},200)" style="width:100%;padding:11px;border-radius:10px;border:1.5px solid #e5e7eb;background:#fff;color:#475569;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;display:flex;align-items:center;justify-content:center;gap:6px">📝 Berichte ansehen ('+t.berichte.length+')</button>':'')
     +'</div>';
@@ -4292,6 +4311,67 @@ window._wzScanLifecycle=function(toolId, newStatus){
   renderList();
 };
 window._wzCloseScan=_wzCloseScan;
+
+// ── Verloren melden / Wieder gefunden (Magaziner/Admin) ──────────────
+// Setzt lifecycleStatus 'verloren' (rotes Band auf der Karte, bleibt in der
+// Standard-Sicht sichtbar, damit es nicht vergessen geht) bzw. zurueck auf
+// 'aktiv'. Ausleihe/Zuweisung bleiben BEWUSST stehen — so ist nachvollzieh-
+// bar, bei wem das Werkzeug zuletzt war. Beides landet im Aktivitätenlog.
+// Re-rendert die Oberflaeche, aus der die Aktion kam (Scan-View/Detail).
+function _wzVerlorenRefresh(toolId){
+  save();renderList();
+  var scanOpen=!!document.getElementById('wzScanOverlay');
+  var viewOpen=!document.getElementById('viewModal').classList.contains('hidden');
+  if(scanOpen){_wzCloseScan();setTimeout(function(){_wzScanAusleihe(toolId);},120);}
+  else if(viewOpen){openViewTool(toolId);}
+}
+window._wzMarkVerloren=function(toolId){
+  if(!_wzCanEdit()){alert('Nur Magaziner/Admin können Werkzeuge als verloren melden.');return;}
+  var t=tools.find(function(x){return x.id===toolId;});if(!t)return;
+  var zuletzt=t.ausgeliehenAn?('Zuletzt ausgeliehen an '+(t.ausgeliehenAn.name||'—')+(t.ausgeliehenAn.seit?' (seit '+fmt(t.ausgeliehenAn.seit)+')':'')+'.')
+    :(t.zugewiesenAn?('Zugewiesen an '+(t.zugewiesenAn.name||'—')+'.'):'');
+  GemaDialog.confirm({
+    title:'Als verloren melden',
+    message:'«'+t.name+'» als verloren markieren?\n\n'+(zuletzt?zuletzt+'\n':'')+'Die Zuordnung bleibt zur Nachverfolgung erhalten. Der Vorgang wird im Aktivitätenlog dokumentiert.',
+    confirmLabel:'❓ Verloren melden', danger:true
+  }).then(function(ok){
+    if(!ok)return;
+    t.lifecycleStatus='verloren';
+    t.verlorenAm=new Date().toISOString();
+    _wzActLog('verloren','Als verloren gemeldet'+(zuletzt?' — '+zuletzt:''),t);
+    _wzVerlorenRefresh(toolId);
+  });
+};
+window._wzMarkGefunden=function(toolId){
+  if(!_wzCanEdit())return;
+  var t=tools.find(function(x){return x.id===toolId;});if(!t)return;
+  t.lifecycleStatus='aktiv';
+  delete t.verlorenAm;
+  _wzActLog('gefunden','Wieder gefunden — Status zurück auf Aktiv',t);
+  _wzVerlorenRefresh(toolId);
+};
+
+// ── Aktivitäten EINES Werkzeugs (Magaziner/Admin) ────────────────────
+// Oeffnet das zentrale Aktivitäten-Modal vorgefiltert auf diesen Datensatz.
+window._wzToolActLog=function(toolId){
+  if(!_wzCanEdit())return;
+  var t=tools.find(function(x){return x.id===toolId;});if(!t)return;
+  if(typeof GemaActivityLog==='undefined'||!GemaActivityLog.openModal){alert('Aktivitätenlog nicht geladen.');return;}
+  GemaActivityLog.openModal({modul:'werkzeug',titel:'Aktivitäten — '+(t.name||''),recordId:t.id,recordName:t.name||''});
+};
+
+// ── Scan-Routing ─────────────────────────────────────────────────────
+// Magaziner/Admin landen beim Scan eines NICHT-Koffers direkt in der
+// Detailansicht (alle Aktionen dort im «Aktionen»-Block — Ausleihen an,
+// Zuweisen, Defekt, Verloren, Aktivitäten …). Koffer behalten die
+// Scan-Ansicht (Vollständigkeitskontrolle/Rückgabe ist dort die Haupt-
+// funktion), Monteure den Selbst-Ausleihe-Flow.
+function _wzScanOpen(toolId){
+  var t=tools.find(function(x){return x.id===toolId;});
+  if(t&&_wzCanEdit()&&!_wzIsKoffer(t)){openViewTool(toolId);return;}
+  _wzScanAusleihe(toolId);
+}
+window._wzScanOpen=_wzScanOpen;
 
 // ── Sammel-Ausleihe ──
 var _sammelList=[];
@@ -4470,8 +4550,10 @@ function _wzScanWithCamera(){
     else if(code && code.indexOf('view=')>=0)id=code.split('view=')[1].split('&')[0];
     id = decodeURIComponent(id||'');
     if(!id) return;
-    // Fremd-Tool: erst Detail/Scan-Ansicht oeffnen
-    if(typeof _wzScanAusleihe === 'function') _wzScanAusleihe(id);
+    // Magaziner/Admin: direkt die Detailansicht (alle Aktionen dort);
+    // Koffer/Monteure: Scan-Ansicht (Kontrolle bzw. Selbst-Ausleihe).
+    if(typeof _wzScanOpen === 'function') _wzScanOpen(id);
+    else if(typeof _wzScanAusleihe === 'function') _wzScanAusleihe(id);
   });
 }
 window._wzScanWithCamera = _wzScanWithCamera;
@@ -5384,7 +5466,7 @@ window._wzExportBerichtePDF=async function(toolId){
   var infoLines=[
     'Hersteller / Modell: '+(t.brand||'—')+(t.model?' · '+t.model:''),
     'Serien-Nr.: '+(t.serial||'—'),
-    'Status: '+({aktiv:'Aktiv',in_reparatur:'In Reparatur',ausgemustert:'Ausgemustert',verkauft:'Verkauft'}[t.lifecycleStatus||'aktiv']),
+    'Status: '+({aktiv:'Aktiv',in_reparatur:'In Reparatur',verloren:'Verloren',ausgemustert:'Ausgemustert',verkauft:'Verkauft'}[t.lifecycleStatus||'aktiv']||t.lifecycleStatus),
     'Lieferant: '+(t.supplier||'—'),
     'PDF erstellt: '+new Date().toLocaleString('de-CH')
   ];
@@ -6668,10 +6750,17 @@ function openViewTool(id){
   // Badges
   const statusEmoji=wdc==='red'?'🚨':wdc==='amber'?'⏰':'✅';
   const statusText=wd!==null?dt(wd):'Alles OK';
+  const vmLc=t.lifecycleStatus||'aktiv';
+  const vmLcBadge={in_reparatur:'<span class="badge" style="background:#dbeafe;color:#1d4ed8">🔧 In Reparatur</span>',
+    verloren:'<span class="badge" style="background:#fee2e2;color:#b91c1c">❓ Verloren</span>',
+    ausgemustert:'<span class="badge" style="background:#f1f5f9;color:#475569">📦 Ausgemustert</span>',
+    verkauft:'<span class="badge" style="background:#f0fdf4;color:#15803d">💰 Verkauft</span>'}[vmLc]||'';
   document.getElementById('vm_badges').innerHTML=
     `<span class="badge ${cat.cls}">${cat.icon} ${cat.label}</span>`+
     `<span class="badge ${badgeC(wd)}">${statusEmoji} ${statusText}</span>`+
-    (t.serial?`<span class="badge badge-mut">SN: ${esc(t.serial)}</span>`:'');
+    vmLcBadge+
+    (t.serial?`<span class="badge badge-mut">SN: ${esc(t.serial)}</span>`:'')+
+    (t.ausgeliehenAn?`<span class="badge" style="background:#fefce8;color:#92400e">🔄 ${esc(t.ausgeliehenAn.name||'')}</span>`:'');
 
   // Body
   let html='';
@@ -6754,6 +6843,34 @@ function openViewTool(id){
         <span style="font-size:11.5px;color:var(--mut);margin-left:auto">${esc(p.note||'')}</span>
       </div>`
     ).join('');
+  }
+
+  // ── Aktionen — alles direkt aus der Detailansicht (v.a. nach dem Scan:
+  // Magaziner landen hier statt in der Scan-Ansicht und brauchen Ausleihen/
+  // Zuweisen/Defekt/Verloren ohne Umweg über die Geräteliste) ──
+  const vmPend=_wzIsPendingEinbuchung(t);
+  function vmBtn(label,onclick,c){
+    c=c||{};
+    return '<button onclick="'+onclick+'" style="padding:11px 10px;border-radius:10px;border:1.5px solid '+(c.brd||'#e5e7eb')+';background:'+(c.bg||'#fff')+';color:'+(c.col||'#475569')+';font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;display:flex;align-items:center;justify-content:center;gap:6px">'+label+'</button>';
+  }
+  let act='';
+  if(_wzCanEdit()&&!vmPend){
+    act+=vmBtn('🔄 Ausleihen an …',`closeView();_wzOpenAusleihe('${t.id}')`,{brd:'#fde68a',bg:'#fefce8',col:'#92400e'});
+    act+=vmBtn('👷 Zuweisen',`closeView();openZuweisung('${t.id}')`,{brd:'#c7d2fe',bg:'#eef2ff',col:'#3730a3'});
+    if(t.ausgeliehenAn) act+=vmBtn('↩ Zurück ins Lager',`closeView();_wzScanConfirmReturn('${t.id}')`,{brd:'#bbf7d0',bg:'#f0fdf4',col:'#15803d'});
+  }
+  if(_wzCanReportDefect()) act+=vmBtn('🚨 Defekt melden',`closeView();openDefektMelden('${t.id}')`,{brd:'#fecaca',bg:'#fef2f2',col:'#b91c1c'});
+  act+=vmBtn('📝 Berichte'+(t.berichte&&t.berichte.length?' ('+t.berichte.length+')':''),`closeView();openBerichte('${t.id}')`);
+  if(_wzCanEdit()){
+    act+=vmBtn('🔲 QR / Etikette',`closeView();openQR('${t.id}')`);
+    act+=vmBtn('📋 Aktivitäten',`closeView();_wzToolActLog('${t.id}')`);
+    act+= vmLc==='verloren'
+      ? vmBtn('✅ Wieder gefunden',`_wzMarkGefunden('${t.id}')`,{brd:'#bbf7d0',bg:'#f0fdf4',col:'#15803d'})
+      : vmBtn('❓ Als verloren melden',`_wzMarkVerloren('${t.id}')`,{brd:'#fecaca',bg:'#fef2f2',col:'#b91c1c'});
+  }
+  if(act){
+    html+='<div class="vm-section">Aktionen</div>';
+    html+='<div id="vm_actions_grid" style="display:grid;grid-template-columns:1fr 1fr;gap:8px">'+act+'</div>';
   }
 
   document.getElementById('vm_body').innerHTML=html;
@@ -6871,7 +6988,7 @@ try{ if(window.GemaActivityLog) window.GemaActivityLog.bootstrap(); }catch(e){}
   try{ renderList(); }catch(e){}
   const p=new URLSearchParams(location.search);
   if(p.get('view'))setTimeout(()=>openViewTool(p.get('view')),400);
-    else if(p.get('scan'))setTimeout(()=>_wzScanAusleihe(p.get('scan')),400);
+    else if(p.get('scan'))setTimeout(()=>_wzScanOpen(p.get('scan')),400);
     else if(p.get('edit'))setTimeout(()=>editTool(p.get('edit')),400);
     else if(p.get('tool'))setTimeout(()=>openQR(p.get('tool')),400);
     else if(p.get('pruef_lief'))setTimeout(()=>openPruefLiefAnsicht(p.get('pruef_lief')),400);

@@ -1071,7 +1071,14 @@ Ein **Koffer** bündelt mehrere Werkzeuge (z.B. Bohrhammer + Akku + Ladegerät) 
 
 ### QR-Code & Etiketten (if_werkzeug.html)
 
-**Hero-Kamera-Scan (nur Touch-Geräte)**: `#wzHeroScan` («📷 Scannen») im Hero-Header öffnet `_wzScanWithCamera()` (In-App-Kamera via GemaQR → `_wzScanAusleihe`-Detail-Ansicht mit Aktionen) — sichtbar nur bei `matchMedia('(hover: none) and (pointer: coarse)')` (iPhone/Tablet). Hintergrund: Die System-Kamera öffnet den QR-Link jedes Mal in einem neuen Tab samt Neu-Anmeldung; der In-App-Scan bleibt in der laufenden Session. Alle Rollen (auch Monteur).
+**Hero-Kamera-Scan (nur Touch-Geräte)**: `#wzHeroScan` («📷 Scannen») im Hero-Header öffnet `_wzScanWithCamera()` (In-App-Kamera via GemaQR) — sichtbar nur bei `matchMedia('(hover: none) and (pointer: coarse)')` (iPhone/Tablet). Hintergrund: Die System-Kamera öffnet den QR-Link jedes Mal in einem neuen Tab samt Neu-Anmeldung; der In-App-Scan bleibt in der laufenden Session. Alle Rollen (auch Monteur).
+
+**Scan-Routing, Verloren-Status & Aktivitäten pro Werkzeug (07/2026, `scripts/werkzeug_scan_detail_test.mjs` 40 Checks)**:
+- **Scan-Routing `_wzScanOpen(id)`** (Kamera-Scan UND `?scan=`-Deep-Link): Magaziner/Admin landen bei NICHT-Koffern **direkt in der Detailansicht** (`openViewTool`) statt in der Scan-Ansicht; Koffer behalten die Scan-Ansicht (Vollständigkeitskontrolle/Rückgabe ist dort die Hauptfunktion), Monteure den Selbst-Ausleihe-Flow (`_wzScanAusleihe`).
+- **«Aktionen»-Block im Detail-Modal** (`#vm_actions_grid` am Ende von `vm_body`): 🔄 Ausleihen an … / 👷 Zuweisen / ↩ Zurück ins Lager (bei Ausleihe) für `_wzCanEdit()` (bei ausstehender Einbuchung ausgeblendet), 🚨 Defekt melden (alle), 📝 Berichte, 🔲 QR/Etikette, 📋 Aktivitäten, ❓ Verloren/✅ Wieder gefunden — alle Aktionen ohne Umweg über die Geräteliste (Buttons schliessen das Modal via `closeView()` und öffnen den jeweiligen Dialog). Kopf-Badges zeigen Lifecycle + SN + aktuellen Ausleiher.
+- **Verloren-Status**: `lifecycleStatus:'verloren'` (+`verlorenAm`) via `_wzMarkVerloren` (GemaDialog danger-Confirm, nur Magaziner/Admin) / zurück via `_wzMarkGefunden`. Ausleihe/Zuweisung bleiben BEWUSST stehen (Nachverfolgung «zuletzt bei X»); rotes Karten-Band, bleibt in der Standard-Sicht sichtbar (nicht Archiv — nur ausgemustert/verkauft sind archiviert); Formular-/Bulk-Select, PDF-Statusmap und Scan-Quick-Buttons kennen den Wert; Koffer-Kandidaten-Suche schliesst verlorene aus. Aktivitätenlog-Aktionen `verloren`/`gefunden`.
+- **Aktivitäten pro Werkzeug**: `_wzToolActLog(id)` öffnet `GemaActivityLog.openModal({modul,titel,recordId,recordName})` — das zentrale Modal gefiltert auf EINEN Datensatz (Anzeige + CSV; `recordName` als Fallback-Match für Alt-Einträge ohne `modulRecordId`). Buttons: Detail-Modal-Aktionen + Scan-Ansicht («📋 Aktivitäten dieses Werkzeugs»), nur `_wzCanEdit()`.
+- **Koffer-Scan-Teileliste**: jede Position zeigt eine zweite Zeile mit **Typ (Kategorie), Hersteller/Modell und SN** (`typZeile` in `_wzScanAusleihe`); unter «✓ Kontrolle bestätigen» erklärt ein Hinweis, dass der Button die Kontrolle nur DOKUMENTIERT (wer/wann/Ergebnis + Fehlteil-Meldung an den Magaziner) — reines Anschauen braucht keinen Klick.
 
 Werkzeug hat **dasselbe Etiketten-System wie das Trocknungs-Modul** (siehe Abschnitt «Etiketten-System (komplett)» unter Trocknungsgeräte für die vollständige Logik) — portiert mit `_wz`-Prefix:
 - QR-Dialog mit Umschalter **«QR-Code | Etikette»** (`setQrMode`); `_wzCurrentQRTool` wird in `openQR` gesetzt. QR-URL = `?scan=<id>`.
@@ -2116,7 +2123,7 @@ Toolbar-Button **„📋 Aktivitäten"** — nur sichtbar für `role_admin` und 
 
 ### Aktion-Typen (`aktion`)
 
-`erfasst`, `geaendert`, `geloescht`, `zuweisung`, `ausleihe`, `rueckgabe`, `einsatz`, `einsatz_ende`, `pruefung`, `service`, `pruefanfrage`, `defekt`, `defekt_erledigt`, `ersatzanfrage`, `km_update`, `kosten`, `reifen`, `offerte`, `reparatur`, `garage_ein`, `garage_aus`. Jede mit farbiger Pill im Modal.
+`erfasst`, `geaendert`, `geloescht`, `zuweisung`, `ausleihe`, `rueckgabe`, `einsatz`, `einsatz_ende`, `pruefung`, `service`, `pruefanfrage`, `defekt`, `defekt_erledigt`, `ersatzanfrage`, `km_update`, `kosten`, `reifen`, `offerte`, `reparatur`, `garage_ein`, `garage_aus`, `verloren`, `gefunden`. Jede mit farbiger Pill im Modal.
 
 **Org-Regel (KRITISCH bei Cross-Org-Aktionen):** `log()` akzeptiert `opts.orgId` — der Eintrag gehört zur Org des DATENSATZES (Werkzeug/Fahrzeug), nicht zur Org des Bearbeiters. Externe Lieferanten/Prüfer/Garagisten loggen so ins Log der Auftraggeber-Org (Wrapper `_wzActLog`/`_fzActLog` übergeben `tool.orgId`/`v.orgId`; Dashboards nutzen `_dwzLog`/`_dashLog`). Geloggt wird auch aus `sys_lieferant_dashboard.html` (Quittieren, Prüfbericht, Offerte, Reparatur) und `sys_garagist_dashboard.html` (km-Update, Garage ein/aus, Reparatur-Doku) — beide laden `gema_aktivitaetslog.js`.
 
@@ -2128,7 +2135,7 @@ GemaActivityLog.log({modul, modulRecordId,
   modulRecordName, aktion, beschreibung, details}) // fire-and-forget
 GemaActivityLog.getAll(orgId?)                     // Array, neueste zuerst
 GemaActivityLog.getForModul(modul, orgId?)         // gefiltert pro Modul
-GemaActivityLog.openModal({modul, titel?})         // einheitliches Modal
+GemaActivityLog.openModal({modul, titel?, recordId?, recordName?}) // einheitliches Modal; mit recordId nur EIN Datensatz
 ```
 
 ### Modul-Integration
@@ -2681,7 +2688,7 @@ UI-Anbindung:
 | Datei | Zweck |
 |-------|-------|
 | `gema_adresse.js` | Adress-Autocomplete (swisstopo geo.admin.ch). Auto-Init via `data-gema-adresse` + `data-target-strasse/plz/ort/kanton`-Attribute, oder programmatisch via `GemaAdresse.attach(input, opts)` |
-| `gema_aktivitaetslog.js` | **Aktivitätenlog** für Infrastruktur-Module. `GemaActivityLog.log({modul,modulRecordId,modulRecordName,aktion,beschreibung,details})` pusht einen Eintrag; `getForModul(modul, orgId?)` liefert die gefilterte Historie. Cloud-First via `gema_sync.js` (Collection `gema_aktivitaetslog_v1`, moduleKey `aktivitaetslog`, prefix `log:`). `openModal({modul,titel})` zeigt das einheitliche Tabellen-Modal mit Suche, Aktion-Filter und CSV-Export. |
+| `gema_aktivitaetslog.js` | **Aktivitätenlog** für Infrastruktur-Module. `GemaActivityLog.log({modul,modulRecordId,modulRecordName,aktion,beschreibung,details})` pusht einen Eintrag; `getForModul(modul, orgId?)` liefert die gefilterte Historie. Cloud-First via `gema_sync.js` (Collection `gema_aktivitaetslog_v1`, moduleKey `aktivitaetslog`, prefix `log:`). `openModal({modul,titel,recordId?,recordName?})` zeigt das einheitliche Tabellen-Modal mit Suche, Aktion-Filter und CSV-Export — mit `recordId` gefiltert auf EINEN Datensatz (per-Werkzeug-Historie). |
 | `gema_abo_api.js` | **Abo-, Preis- & Token-System** (`window.GemaAbo`). Preiskonfiguration `abocfg:main`, Abos `abosub:*`, Token-Ledger `abotok:*` (moduleKey `abos`). Preis-Engine (Zusatz-Gewerk, Jahres-/Promo-Rabatt, MwSt, Rappenrundung), `charge(aktionId)` für Token-Verbrauch, `bestellen()/setStatus()`, Stripe-Checkout-Client (vorbereitet). Konsumenten: sys_preise, sys_abos. Siehe «Abo- & Preissystem». |
 | `gema_anlagenwahl.js` | Anlagenauswahl-Widget für Berechnungen |
 | `gema_avatar.js` | Profilbild-Upload + Renderer. `GemaAvatar.render(user, size, opts)` liefert HTML mit `<img>` oder Initialen-Fallback. `compress(file)` resized auf 256×256 JPEG. Avatar als Base64 unter `user.avatar` |
