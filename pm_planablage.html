@@ -574,9 +574,33 @@ function fixLeadingZero(el){
         of.appendChild(opt);
       });
     }
+    // Dropdown mit dem wirksamen Filter synchron halten — z.B. nach der
+    // Objekt-Vorauswahl (?objekt= / aktives Objekt) zeigte es sonst weiter
+    // «Alle Projekte», obwohl bereits gefiltert wurde.
+    if(of && of.value !== _objFilter) of.value = _objFilter;
   }
   window.pabTab = function(t){ TAB = t; render(); };
-  window.pabObjChanged = function(v){ _objFilter = v; render(); };
+  var _objFilterTouched = false;
+  window.pabObjChanged = function(v){ _objFilter = v; _objFilterTouched = true; render(); };
+
+  // ── Objekt-Vorauswahl ────────────────────────────────────────────
+  // Kommt der Nutzer mit ?objekt=<id> (z.B. aus dem Workspace-Eimer —
+  // dessen Modul-Kacheln tragen den Param) ODER mit gesetztem aktivem
+  // GEMA-Objekt, startet der Objekt-Filter direkt auf diesem Projekt.
+  // Nur wenn das Objekt in der sichtbaren Liste existiert; eine manuelle
+  // Filter-Wahl (_objFilterTouched) wird NIE überschrieben.
+  function _objFilterInit(){
+    if(_objFilterTouched || _objFilter) return false;
+    var kandidat = '';
+    try{ kandidat = new URLSearchParams(location.search).get('objekt') || ''; }catch(e){}
+    if(!kandidat){
+      try{ kandidat = (typeof GemaObjekte !== 'undefined' && GemaObjekte.getActiveId && GemaObjekte.getActiveId()) || ''; }catch(e){}
+    }
+    if(!kandidat) return false;
+    if(!objekte().some(function(o){ return o.id === kandidat; })) return false;
+    _objFilter = kandidat;
+    return true;
+  }
 
   function spinnerHtml(){
     return '<div class="empty"><svg width="34" height="34" viewBox="0 0 50 50"><circle cx="25" cy="25" r="20" fill="none" stroke="#b45309" stroke-width="5" stroke-linecap="round" stroke-dasharray="90 40"><animateTransform attributeName="transform" type="rotate" from="0 25 25" to="360 25 25" dur="0.9s" repeatCount="indefinite"/></circle></svg><div style="margin-top:8px">Daten werden geladen …</div></div>';
@@ -1557,6 +1581,7 @@ function fixLeadingZero(el){
       svg.addEventListener('pointerup', onUp);
       svg.addEventListener('pointerleave', onUp);
     }
+    _objFilterInit();
     render();
     var timeout = new Promise(function(r){ setTimeout(r, 6000); });
     if(typeof GemaSync !== 'undefined' && GemaSync.bindCollection){
@@ -1572,7 +1597,9 @@ function fixLeadingZero(el){
       _bootDone = true; _cloudLoaded = true; render();
     }
     if(typeof GemaObjekte !== 'undefined' && GemaObjekte.ready){
-      GemaObjekte.ready.then(function(){ render(); }).catch(function(){});
+      // Nach dem Cloud-Pull erneut versuchen — auf frischen Geräten ist die
+      // Objektliste beim Boot noch leer und die Vorauswahl griff ins Leere.
+      GemaObjekte.ready.then(function(){ _objFilterInit(); render(); }).catch(function(){});
     }
     setTimeout(deepLink, 800);
   });
@@ -1598,6 +1625,7 @@ function fixLeadingZero(el){
     saveDok: function(rec){ saveRec(LSD, PFD, rec); }, savePend: function(rec){ saveRec(LSP, PFP, rec); },
     annotFor: annotFor, seiteShapes: function(){ return seiteShapes(); }, PV: PV,
     setTab: function(t){ TAB = t; render(); }, cloudLoaded: function(){ return _cloudLoaded; },
+    objFilter: function(){ return _objFilter; }, objFilterInit: _objFilterInit,
     myGewerk: myGewerk, layerSichtbar: layerSichtbar, multi: function(){ return _pvMulti; },
     saveAnnot: function(rec){ saveRec(LSA, PFA, rec); }
   };
