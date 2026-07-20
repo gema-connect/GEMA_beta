@@ -939,6 +939,14 @@ Bei **gleicher Spezifitaet** gewinnt im Cascade die **spaeter geladene** Regel �
 
 **Nicht wieder einbauen!** Wenn man Anti-FOUC braucht, lieber ein **leichtes Overlay** mit Loader-Spinner einblenden, das durch einen kurzen Timer (max. 500ms) wieder weg ist — kein body-Level visibility:hidden.
 
+### Funktion NIE per zweiter `function`-Deklaration im selben Scope wrappen (setTab-Rekursion, BEHOBEN)
+
+**Symptom (pm_abnahme)**: Die Tab-Buttons Mängelliste/Prüfliste/Pläne (und «Zur Mängelliste →») taten NICHTS — jeder Klick warf `RangeError: Maximum call stack size exceeded`.
+
+**Ursache**: Die Pläne-Tab-Erweiterung wrappte `setTab` per `var _origSetTab=setTab; function setTab(t){_origSetTab(t);…}` im SELBEN IIFE-Scope wie das originale `function setTab`. Function-Declarations werden gehoisted, die zweite gewinnt für den GANZEN Scope — `_origSetTab` zeigte damit auf den Wrapper selbst → Endlos-Rekursion bei jedem Aufruf.
+
+**Regel**: Zum Wrappen entweder (a) die Logik direkt in die Original-Funktion integrieren (so gelöst — `if(t==='plaene')_planRenderList()` in setTab), oder (b) per **Zuweisung** wrappen (`recalcAll = function(){…}` nach `const _orig=recalcAll` — Muster sb_niederschlag; Zuweisungen laufen in Code-Reihenfolge, keine Hoisting-Falle), oder (c) `window.x`-Property wrappen. NIE eine zweite `function NAME(){}`-Deklaration desselben Namens im selben Scope. Drift-Guard: `scripts/abnahme_tabs_test.mjs` (17 Checks — alle 4 Tabs + Sprung-Button, pageerror-Überwachung).
+
 ### Doppelte CSS-Regelbloecke aus alten Media-Queries
 
 Wenn ein Media-Query entfernt wurde, blieben in einigen Modulen die innerhalb der `@media`-Klammer eingerueckten Regeln stehen — also als globale Regeln. Diese kollidieren dann mit den gleichen Regeln weiter oben im Stylesheet (gleiche Spezifitaet, spaetere gewinnt, Werte oft abweichend).
