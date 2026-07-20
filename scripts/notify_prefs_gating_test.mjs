@@ -73,17 +73,17 @@ async function visibleGroups(roleIds, page_, extraSeed) {
   return { ctx, page, groups };
 }
 
-// Alle 25 Laufzeit-Gruppen (EVENT_KEYS; «objekte» kommt nur in Demo-Seeds vor)
-const ALLE = ['ausschreibung','werkzeug','fahrzeug','lu','schadensbericht','trocknung','produktkatalog','bestellungen','erp','regierapport','einsatzplan','goodel','abnahme','legionellen','spuelmanager','immobilien','arbeitskleider','service','stundenerfassung','revisionsunterlagen','behoerden_formulare','planablage','abos','chat','schule'];
+// Alle 26 Laufzeit-Gruppen (EVENT_KEYS; «objekte» kommt nur in Demo-Seeds vor)
+const ALLE = ['ausschreibung','werkzeug','fahrzeug','lu','schadensbericht','trocknung','produktkatalog','bestellungen','erp','regierapport','einsatzplan','goodel','abnahme','legionellen','spuelmanager','immobilien','arbeitskleider','service','stundenerfassung','revisionsunterlagen','behoerden_formulare','planablage','abos','chat','schule','pruefliste'];
 
 console.log('■ Layer 2 — Sichtbarkeits-Matrix pro Rolle');
 {
   let r = await visibleGroups(['role_admin'], 'index.html');
-  eqSet('Admin sieht alle 25 Gruppen', r.groups, ALLE);
+  eqSet('Admin sieht alle 26 Gruppen', r.groups, ALLE);
   await r.ctx.close();
 
   r = await visibleGroups(['role_planer'], 'sys_workspace.html');
-  eqSet('Planer sieht alle 25 Gruppen (Vollzugang)', r.groups, ALLE);
+  eqSet('Planer sieht alle 26 Gruppen (Vollzugang)', r.groups, ALLE);
   await r.ctx.close();
 
   r = await visibleGroups(['role_monteur'], 'index.html');
@@ -145,7 +145,7 @@ console.log('■ Layer 2 — Admin-Panel unverändert (alle Gruppen, keine Hinwe
   await page.evaluate(() => _gnHooks.openSettings());
   await page.waitForSelector('#gnSettingsOverlay', { timeout: 5000 });
   const sektionen = await page.$$eval('#gnPrefList > div', els => els.filter(e => e.id !== 'gnPrefHint').length);
-  ok(sektionen === 25, 'Admin: alle 25 Gruppen-Sektionen (' + sektionen + ')');
+  ok(sektionen === 26, 'Admin: alle 26 Gruppen-Sektionen (' + sektionen + ')');
   ok(await page.$('#gnPrefHint') == null, 'keine Hinweiszeile, wenn nichts ausgeblendet ist');
   await ctx.close();
 }
