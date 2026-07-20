@@ -1378,31 +1378,348 @@ function deleteObjekt(){
   // Aus dem Modal heraus — liest die ID aus dem Hidden-Field.
   deleteObjektById($('objEditId').value);
 }
+
+// ════════════════════════════════════════════════════════════════════
+// OBJEKT LÖSCHEN MIT DATEN-CHECK
+// Vor dem Löschen wird geprüft, OB und WO für dieses Objekt Daten
+// gespeichert wurden. Zwei Klassen:
+//  1) Objekt-eigene Modul-Stände — alle Cloud-Rows/localStorage-Keys im
+//     per-Objekt-Muster `<base>__<objektId>[@phase]` (GemaAutoSave-
+//     Snapshots, _GemaDB-Blobs wie Abnahme/Terminplan/VKF, Anlagenwahl).
+//     Diese werden beim Bestätigen MITGELÖSCHT (Cloud + lokal + Index).
+//  2) Verknüpfte Datensätze in anderen Modulen (per-Record-Pools mit
+//     objektId-Feld: Schadensberichte, Regierapporte, ERP, Ausschreibung,
+//     Bestellungen, Einsätze …). Das sind eigenständige Prozesse mit
+//     eigenen (teils fremden/Cross-Org-)Beteiligten — sie werden bewusst
+//     NICHT mitgelöscht, nur aufgelistet: sie verlieren den Objekt-Bezug.
+// Der Bestätigungs-Dialog listet beides pro Modul auf.
+// ════════════════════════════════════════════════════════════════════
+
+// Label-Auflösung für module_keys/Basis-Keys, die nicht in MODUL_MAP
+// stehen (_GemaDB-Blob-Module + neuere GemaAutoSave-Namen).
+var _DEL_ALIAS = {
+  'abnahme':                {label:'Abnahmeprotokolle SIA 118', icon:'✅'},
+  'abnahme_sia':            {label:'Abnahmeprotokolle SIA 118', icon:'✅'},
+  'inspektion':             {label:'Inspektion & Wartung',      icon:'🔍'},
+  'inspektion_wartung':     {label:'Inspektion & Wartung',      icon:'🔍'},
+  'hebeanlage':             {label:'Abwasserhebeanlage',        icon:'⬆️'},
+  'thermische_solar':       {label:'Thermische Solaranlage',    icon:'☀️'},
+  'zirkulation':            {label:'Zirkulationsberechnung',    icon:'🔄'},
+  'druckanstieg':           {label:'Druckanstieg Temperatur',   icon:'🛡️'},
+  'saugpumpe':              {label:'Saugpumpe (Saughöhe)',      icon:'⛲'},
+  'ausdehnungsgefaess':     {label:'Ausdehnungsgefäss HE301',   icon:'🫧'},
+  'heizungsleitungen':      {label:'Heizungsleitungen',         icon:'♨️'},
+  'waermegruppen':          {label:'Wärmegruppen SIA 384',      icon:'🔥'},
+  'heizlast_verbrauch':     {label:'Heizlast aus Verbrauch',    icon:'📈'},
+  'hx_diagramm':            {label:'h,x-Diagramm',              icon:'💨'},
+  'fluessiggas':            {label:'Flüssiggas LPG',            icon:'🛢️'},
+  'druckverlust_erdgas':    {label:'Druckverlust Erdgas',       icon:'🔥'},
+  'druckverlust_medizinalgas':{label:'Druckverlust Medizinalgase', icon:'🏥'},
+  'gasloeschung':           {label:'Gaslöschanlagen',           icon:'🧯'},
+  'terminplan':             {label:'Terminplan',                icon:'📅'},
+  'besprechungsprotokoll':  {label:'Besprechungsprotokolle',    icon:'🗒'},
+  'kostenkontrolle':        {label:'Kostenkontrolle',           icon:'💰'},
+  'baustellencheckliste':   {label:'Baustellencheckliste',      icon:'📋'},
+  'planungshonorar':        {label:'Planungshonorar SIA 108',   icon:'🧾'},
+  'w12':                    {label:'Selbstkontrolle W12',       icon:'🚰'},
+  'elektroangaben':         {label:'Elektroangaben',            icon:'⚡'}
+};
+function _delModulInfo(moduleKey, dataKey){
+  var key = moduleKey || '';
+  if (key && MODUL_MAP[key]) return MODUL_MAP[key];
+  if (key && _DEL_ALIAS[key]) return _DEL_ALIAS[key];
+  var dk = String(dataKey||'');
+  // VKF-Formulare: module_key 'vkf_<form>' bzw. Key gema_vkf_<form>__oid
+  var vkf = /^vkf_(.+)$/.exec(key) || /^gema_vkf_([a-z0-9_]+?)__/.exec(dk);
+  if (vkf) return {label:'VKF-Formular ('+vkf[1].replace(/_/g,' ')+')', icon:'🧯'};
+  // Anlagenwahl (gewählte Anlage pro Kategorie)
+  var aw = /^gema_aw_chosen_([a-z0-9_]+?)__/.exec(dk);
+  if (aw) return {label:'Anlagen-Auswahl ('+aw[1].replace(/_/g,' ')+')', icon:'🏭'};
+  // GemaAuth-Modulliste als generischer Fallback
+  try {
+    var m=(GemaAuth.getModules()||[]).find(function(x){return x.key===key;});
+    if(m) return {label:m.label, icon:'🧩'};
+  } catch(e){}
+  // Basis-Key prettifizieren (gema_ + Versions-Suffix weg)
+  var base = (dk.split('__')[0]||key).replace(/^gema_/,'').replace(/[._-]v\d+$/,'').replace(/\.webapp$/,'');
+  if (base && _DEL_ALIAS[base]) return _DEL_ALIAS[base];
+  return {label:(base||key||'Unbekanntes Modul').replace(/_/g,' '), icon:'🧩'};
+}
+// Verknüpfte per-Record-Pools (Referenzen, bleiben bestehen)
+var _DEL_REF_LABELS = {
+  'schadensbericht':     {label:'Schadensberichte',                icon:'💧'},
+  'dachbericht':         {label:'Dachberichte (Spenglerei)',       icon:'🏠'},
+  'regierapport':        {label:'Regierapporte',                   icon:'📝'},
+  'erp':                 {label:'Offerten / Aufträge / Rechnungen',icon:'🧾'},
+  'einsatzplan':         {label:'Einsatzplan (Termine)',           icon:'📅'},
+  'ausschreibung':       {label:'Ausschreibung & Vergabe',         icon:'📑'},
+  'schnellausschreibung':{label:'Schnellausschreibungen',          icon:'⚡'},
+  'bestellungen':        {label:'Bestellungen (Anlagen)',          icon:'🛒'},
+  'revisionsunterlagen': {label:'Revisionsunterlagen',             icon:'📚'},
+  'behoerden_formulare': {label:'Behörden & Formulare',            icon:'🏛'},
+  'planablage':          {label:'Plandialog (Pläne & Pendenzen)',  icon:'📐'},
+  'plaene':              {label:'Pläne & Flächen',                 icon:'📏'},
+  'service':             {label:'Service & Wartung',               icon:'🛠'},
+  'legionellen':         {label:'Hygienemanagement',               icon:'🧫'},
+  'spuelmanager':        {label:'Spülmanager',                     icon:'🚿'},
+  'produktkatalog':      {label:'Offertanfragen an Lieferanten',   icon:'📨'},
+  'goodel':              {label:'Goodel (Terminabstimmung)',       icon:'🗳'},
+  'immobilien':          {label:'Immobilienverwaltung',            icon:'🏢'},
+  'wareneingang':        {label:'Wareneingang',                    icon:'📦'},
+  'stundenerfassung':    {label:'Stundenerfassung',                icon:'⏱'}
+};
+function _delRefLabel(moduleKey){
+  if (_DEL_REF_LABELS[moduleKey]) return _DEL_REF_LABELS[moduleKey];
+  var mi=_delModulInfo(moduleKey,'');
+  return {label:mi.label, icon:mi.icon};
+}
+// Referenz-Module, die im Dialog NICHT als «Daten» erscheinen:
+// Notifikationen (transient), objekte (objekt:/bet: — werden ohnehin über
+// den Stammdaten-Flow entfernt bzw. separat als Beteiligte ausgewiesen).
+var _DEL_REF_SKIP = {'notify':1,'objekte':1};
+
+// Direkter (leichter) Cloud-Read auf gema_data — GemaSync hat keinen
+// Pattern-Query-Helper. Nutzt denselben Auth-/Proxy-Weg wie GemaSync.
+function _delSbFetch(qs){
+  if (typeof GemaSync==='undefined' || !GemaSync.SB_URL) return Promise.reject(new Error('GemaSync fehlt'));
+  var ctl=(typeof AbortController!=='undefined')?new AbortController():null;
+  var t=ctl?setTimeout(function(){try{ctl.abort();}catch(e){}},9000):null;
+  return fetch(GemaSync.SB_URL+'/rest/v1/'+(GemaSync.SB_TABLE||'gema_data')+qs,{
+    headers:{'apikey':GemaSync.SB_KEY,'Authorization':'Bearer '+((GemaSync.getAuthToken&&GemaSync.getAuthToken())||GemaSync.SB_KEY)},
+    signal:ctl?ctl.signal:undefined
+  }).then(function(r){
+    if(t)clearTimeout(t);
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    return r.json();
+  }).catch(function(e){ if(t)clearTimeout(t); throw e; });
+}
+
+// Scan: wo liegen Daten für dieses Objekt?
+// → Promise<{rows:[{moduleKey|null,dataKey}], refs:[{moduleKey,count}], cloudOk}>
+function _objDatenScan(oid){
+  var marker='__'+oid;
+  var rowMap={};                       // dataKey → {moduleKey,dataKey}
+  var refCount={};                     // moduleKey → Anzahl Datensätze
+  function addRow(moduleKey,dataKey){
+    if(!dataKey || dataKey.indexOf(marker)<0) return;
+    if(/^(objekt:|bet:)/.test(dataKey)) return;   // Stammdaten-Rows nicht doppelt listen
+    var ex=rowMap[dataKey];
+    if(ex){ if(!ex.moduleKey&&moduleKey) ex.moduleKey=moduleKey; return; }
+    rowMap[dataKey]={moduleKey:moduleKey||null,dataKey:dataKey};
+  }
+  // Lokale per-Objekt-Keys IMMER einsammeln (offline-fest; Cloud ergänzt module_key)
+  try{
+    for(var i=0;i<localStorage.length;i++){
+      var k=localStorage.key(i);
+      if(k && k.indexOf(marker)>=0) addRow(null,k);
+    }
+  }catch(e){}
+
+  // Cloud: (1) per-Objekt-Keys nach data_key-Muster, (2) Pool-Records mit
+  // objektId-Feld, (3) Offertanfragen (projekt.objektId verschachtelt).
+  var cloudOk=false;
+  var q1=_delSbFetch('?data_key=like.'+encodeURIComponent('*'+marker+'*')+'&select=module_key,data_key&limit=1000')
+    .then(function(rows){ cloudOk=true; (rows||[]).forEach(function(r){ addRow(r.module_key,r.data_key); }); })
+    .catch(function(){});
+  function countRefs(rows){
+    (rows||[]).forEach(function(r){
+      var mk=r.module_key||'?';
+      if(_DEL_REF_SKIP[mk]) return;
+      if(rowMap[r.data_key]) return;               // schon als per-Objekt-Key erfasst
+      refCount[mk]=(refCount[mk]||0)+1;
+    });
+  }
+  var q2=_delSbFetch('?payload->data->>objektId=eq.'+encodeURIComponent(oid)+'&select=module_key,data_key&limit=2000')
+    .then(function(rows){ cloudOk=true; countRefs(rows); })
+    .catch(function(){});
+  var q3=_delSbFetch('?payload->data->projekt->>objektId=eq.'+encodeURIComponent(oid)+'&select=module_key,data_key&limit=1000')
+    .then(function(rows){ cloudOk=true; countRefs(rows); })
+    .catch(function(){});
+
+  return Promise.all([q1,q2,q3]).then(function(){
+    // Offline-Fallback für die Referenzen: lokale Pool-Caches scannen
+    if(!cloudOk){
+      var pools=[
+        {cache:'gema_schadensbericht_v1', module:'schadensbericht'},
+        {cache:'gema_dachbericht_v1',     module:'dachbericht'},
+        {cache:'gema_regie_pool_v1',      module:'regierapport'},
+        {cache:'gema_erp_dok_pool_v1',    module:'erp'},
+        {cache:'gema_einsatz_pool_v1',    module:'einsatzplan'},
+        {cache:'gema_aus_pool_v1',        module:'ausschreibung'},
+        {cache:'gema_sa_pool_v1',         module:'schnellausschreibung'},
+        {cache:'gema_best_pool_v1',       module:'bestellungen'},
+        {cache:'gema_rev_pool_v1',        module:'revisionsunterlagen'},
+        {cache:'gema_bform_pool_v1',      module:'behoerden_formulare'},
+        {cache:'gema_pab_dok_pool_v1',    module:'planablage'},
+        {cache:'gema_pab_pend_pool_v1',   module:'planablage'},
+        {cache:'gema_sv_anlagen_pool_v1', module:'service'},
+        {cache:'gema_sv_auftraege_pool_v1',module:'service'},
+        {cache:'gema_hy_geb_pool_v1',     module:'legionellen'},
+        {cache:'gema_sp_obj_pool_v1',     module:'spuelmanager'},
+        {cache:'gema_pk_oa_pool_v1',      module:'produktkatalog', nested:'projekt'}
+      ];
+      pools.forEach(function(p){
+        try{
+          var arr=(typeof GemaSync!=='undefined'&&GemaSync.getCached)?GemaSync.getCached(p.cache):JSON.parse(localStorage.getItem(p.cache)||'[]');
+          (arr||[]).forEach(function(rec){
+            if(!rec) return;
+            var hit=p.nested ? (rec[p.nested]&&rec[p.nested].objektId===oid) : (rec.objektId===oid);
+            if(hit) refCount[p.module]=(refCount[p.module]||0)+1;
+          });
+        }catch(e){}
+      });
+    }
+    var rows=Object.keys(rowMap).map(function(k){return rowMap[k];});
+    var refs=Object.keys(refCount).map(function(mk){return {moduleKey:mk,count:refCount[mk]};});
+    refs.sort(function(a,b){return b.count-a.count;});
+    return {rows:rows, refs:refs, cloudOk:cloudOk};
+  });
+}
+
+// Kaskadiertes Löschen der objekt-eigenen Modul-Daten:
+// Cloud-Rows (module_key+data_key exakt), localStorage-Keys, Berechnungs-Index.
+function _objDatenLoeschen(oid, rows){
+  // Lokal immer (auch offline)
+  try{
+    var kill=[];
+    for(var i=0;i<localStorage.length;i++){
+      var k=localStorage.key(i);
+      if(k && k.indexOf('__'+oid)>=0) kill.push(k);
+    }
+    kill.forEach(function(k){ try{localStorage.removeItem(k);}catch(e){} });
+  }catch(e){}
+  // Berechnungs-Index bereinigen
+  try{
+    if(typeof GemaObjekte!=='undefined'&&GemaObjekte.getBerechnungenForObjekt){
+      (GemaObjekte.getBerechnungenForObjekt(oid)||[]).forEach(function(e){
+        try{ GemaObjekte.removeBerechnung(e.modul, oid); }catch(_e){}
+      });
+    }
+  }catch(e){}
+  // Cloud-Rows (nur die mit bekanntem module_key — kommen aus dem Scan)
+  return new Promise(function(resolve){
+    var cl=(rows||[]).filter(function(r){return r&&r.moduleKey&&r.dataKey;});
+    if(!cl.length || typeof GemaSync==='undefined' || !GemaSync.deleteRecord){ resolve({ok:0,fail:0,total:cl.length}); return; }
+    var okC=0, failC=0, pend=cl.length, done=false;
+    function fin(){ if(done)return; done=true; resolve({ok:okC,fail:failC,total:cl.length}); }
+    cl.forEach(function(r){
+      GemaSync.deleteRecord(r.moduleKey, r.dataKey)
+        .then(function(){okC++;},function(){failC++;})
+        .then(function(){ pend--; if(pend<=0) fin(); });
+    });
+    setTimeout(fin, 15000); // Sicherheitsnetz gegen hängende Requests
+  });
+}
+
+// Dialog-HTML: pro Modul auflisten, was gefunden wurde.
+function _objDeleteDialogHtml(obj, scan){
+  var id=obj.id;
+  var kinder=_mem.objekte.filter(function(o){return o.parentObjektId===id;});
+  var betCount=_mem.beteiligte.filter(function(b){return b.objektId===id;}).length;
+  var phasen=[]; try{ phasen=GemaObjekte.getPhases()||[]; }catch(e){}
+  // Zuletzt-geändert aus dem Berechnungs-Index (storageKey-Match)
+  var lmMap={};
+  try{
+    (GemaObjekte.getBerechnungenForObjekt(id)||[]).forEach(function(e){
+      if(e.storageKey) lmMap[e.storageKey]=e.lastModified||'';
+    });
+  }catch(e){}
+  function fmtD(iso){ if(!iso)return ''; try{ return new Date(iso).toLocaleDateString('de-CH'); }catch(e){ return ''; } }
+  function phaseChip(dk){
+    var m=/@([a-z_]+)$/.exec(String(dk||''));
+    if(!m) return '';
+    var ph=phasen.find(function(p){return p.id===m[1];});
+    return ' <span style="display:inline-block;padding:0 6px;border-radius:6px;background:#eef2ff;border:1px solid #c7d2fe;color:#3730a3;font-size:10px;font-weight:700">'+esc(ph&&ph.kurz?ph.kurz:m[1])+'</span>';
+  }
+  var html='<div style="text-align:left">';
+  html+='<div>Soll das Projekt «<b>'+esc(obj.name||'Ohne Name')+'</b>» wirklich gelöscht werden?</div>';
+  var meta=[];
+  if(betCount>0) meta.push(betCount+' Beteiligte'+(betCount!==1?' werden':' wird')+' ebenfalls entfernt.');
+  if(kinder.length) meta.push(kinder.length+' Sub-Objekt'+(kinder.length!==1?'e':'')+' werden zu eigenständigen Objekten (bleiben erhalten).');
+  if(meta.length) html+='<div style="margin-top:8px;font-size:12.5px;color:#475569">'+meta.map(esc).join('<br>')+'</div>';
+
+  // Sortierte Anzeige-Zeilen für die Modul-Daten
+  var items=(scan.rows||[]).map(function(r){
+    var info=_delModulInfo(r.moduleKey, r.dataKey);
+    return {label:info.label, icon:info.icon, dataKey:r.dataKey, lm:lmMap[r.dataKey]||''};
+  }).sort(function(a,b){ return a.label.localeCompare(b.label)||a.dataKey.localeCompare(b.dataKey); });
+
+  if(items.length){
+    html+='<div style="margin-top:12px;font-size:12px;font-weight:800;color:#b91c1c">📊 Gespeicherte Modul-Daten — werden mitgelöscht ('+items.length+')</div>'
+       + '<div style="margin-top:5px;max-height:190px;overflow:auto;border:1px solid #fecaca;background:#fef2f2;border-radius:10px;padding:7px 10px">'
+       + items.map(function(it){
+           return '<div style="display:flex;align-items:center;gap:7px;padding:2.5px 0;font-size:12.5px;line-height:1.35">'
+             + '<span style="flex:0 0 auto">'+it.icon+'</span>'
+             + '<span style="flex:1;min-width:0;font-weight:600;color:#0f172a">'+esc(it.label)+phaseChip(it.dataKey)+'</span>'
+             + (it.lm?'<span style="flex:0 0 auto;font-size:11px;color:#64748b">'+esc(fmtD(it.lm))+'</span>':'')
+             + '</div>';
+         }).join('')
+       + '</div>';
+  } else {
+    html+='<div style="margin-top:12px;font-size:12.5px;color:#166534;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:7px 10px">✓ Keine gespeicherten Modul-Daten (Berechnungen etc.) für dieses Objekt gefunden.</div>';
+  }
+
+  if(scan.refs && scan.refs.length){
+    html+='<div style="margin-top:10px;font-size:12px;font-weight:800;color:#475569">🔗 Verknüpfte Datensätze in anderen Modulen — bleiben erhalten, verlieren aber den Projekt-Bezug</div>'
+       + '<div style="margin-top:5px;max-height:130px;overflow:auto;border:1px solid #e2e8f0;background:#f8fafc;border-radius:10px;padding:7px 10px">'
+       + scan.refs.map(function(rf){
+           var info=_delRefLabel(rf.moduleKey);
+           return '<div style="display:flex;align-items:center;gap:7px;padding:2.5px 0;font-size:12.5px">'
+             + '<span>'+info.icon+'</span>'
+             + '<span style="flex:1;font-weight:600;color:#0f172a">'+esc(info.label)+'</span>'
+             + '<span style="font-size:11px;color:#64748b">'+rf.count+' '+(rf.count!==1?'Datensätze':'Datensatz')+'</span>'
+             + '</div>';
+         }).join('')
+       + '</div>';
+  }
+
+  if(!scan.cloudOk){
+    html+='<div style="margin-top:10px;font-size:12px;color:#92400e;background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:7px 10px">⚠ Cloud nicht erreichbar — geprüft wurden nur die lokal vorhandenen Daten. Die Liste kann unvollständig sein.</div>';
+  }
+  html+='<div style="margin-top:12px;font-size:12.5px;font-weight:700;color:#b91c1c">Dieser Vorgang kann nicht rückgängig gemacht werden.</div>';
+  html+='</div>';
+  return html;
+}
+
 // Eigene Funktion mit direkter ID, damit der Loeschen-Button
 // auch direkt auf der Card funktioniert (ohne offenes Modal).
 function deleteObjektById(id){
   if(!id)return;
   var obj=_mem.objekte.find(function(o){return o.id===id;});
   if(!obj)return;
-  var kinder=_mem.objekte.filter(function(o){return o.parentObjektId===id;});
-  var betCount=_mem.beteiligte.filter(function(b){return b.objektId===id;}).length;
-  // Beschreibender Bestaetigungs-Dialog
-  var msg='Soll das Projekt «' + (obj.name||'Ohne Name') + '» wirklich gelöscht werden?';
-  if(betCount>0) msg+='\n\n' + betCount + ' Beteiligte' + (betCount!==1?' werden':' wird') + ' ebenfalls entfernt.';
-  if(kinder.length) msg+='\n' + kinder.length + ' Sub-Objekt' + (kinder.length!==1?'e':'') + ' werden zu eigenständigen Objekten (bleiben erhalten).';
-  GemaDialog.confirm({title:'Objekt löschen', message:msg, confirmLabel:'Löschen', danger:true}).then(function(ok){
-    if(!ok) return;
-    // Kinder entkoppeln, damit sie nicht zu Waisen werden
-    _mem.objekte.forEach(function(o){if(o.parentObjektId===id)o.parentObjektId='';});
-    _mem.objekte=_mem.objekte.filter(function(x){return x.id!==id;});
-    _mem.beteiligte=_mem.beteiligte.filter(function(b){return b.objektId!==id;});
-    if(_mem.activeObjektId===id)_mem.activeObjektId=_mem.objekte[0]?.id||null;
-    save();try{closeModal('objModal');}catch(e){}renderObjekte();updateBadges();
-    toast('🗑 Objekt «'+(obj.name||'')+' » gelöscht');
+  toast('🔎 Prüfe gespeicherte Daten für «'+(obj.name||'')+'» …');
+  _objDatenScan(id).then(function(scan){
+    var hatDaten=(scan.rows||[]).length>0;
+    GemaDialog.confirm({
+      title:'Objekt löschen',
+      message:_objDeleteDialogHtml(obj, scan),
+      html:true,
+      confirmLabel:hatDaten?'Objekt + Daten löschen':'Löschen',
+      danger:true
+    }).then(function(ok){
+      if(!ok) return;
+      // Kinder entkoppeln, damit sie nicht zu Waisen werden
+      _mem.objekte.forEach(function(o){if(o.parentObjektId===id)o.parentObjektId='';});
+      _mem.objekte=_mem.objekte.filter(function(x){return x.id!==id;});
+      _mem.beteiligte=_mem.beteiligte.filter(function(b){return b.objektId!==id;});
+      if(_mem.activeObjektId===id)_mem.activeObjektId=_mem.objekte[0]?.id||null;
+      save();try{closeModal('objModal');}catch(e){}renderObjekte();updateBadges();
+      if(hatDaten){
+        _objDatenLoeschen(id, scan.rows).then(function(res){
+          if(res.fail>0) toast('🗑 Objekt gelöscht — '+res.fail+' Cloud-Datensätze konnten nicht entfernt werden (werden beim nächsten Versuch nicht erneut angezeigt)');
+          else toast('🗑 Objekt «'+(obj.name||'')+'» + '+scan.rows.length+' Modul-Datensätze gelöscht');
+        });
+      } else {
+        _objDatenLoeschen(id, []); // lokale Reste + Berechnungs-Index defensiv räumen
+        toast('🗑 Objekt «'+(obj.name||'')+'» gelöscht');
+      }
+    });
   });
 }
 window.deleteObjekt=deleteObjekt;
 window.deleteObjektById=deleteObjektById;
+// Test-Hooks (Playwright)
+window._objDelHooks={scan:_objDatenScan, loeschen:_objDatenLoeschen, modulInfo:_delModulInfo, refLabel:_delRefLabel, dialogHtml:_objDeleteDialogHtml};
 
 function duplicateObjekt(id){
   const src=_mem.objekte.find(x=>x.id===id);
