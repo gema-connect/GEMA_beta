@@ -512,6 +512,15 @@ input,select,button,textarea{font-family:var(--sans)}
         <strong>Schreiben</strong> = Daten bearbeiten + speichern ·
         <strong>Admin</strong> = Löschen + Einstellungen
       </div>
+
+      <div style="margin:18px 0 8px;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--mut)">Verfügbar für Unternehmenskategorien</div>
+      <div style="margin-bottom:8px;font-size:11.5px;color:var(--mut);line-height:1.5">Bestimmt, bei welchen Firmen-Kategorien diese Rolle im Benutzer-Modal zur Auswahl steht. <strong>Ohne Häkchen ist die Rolle nur bei Firmen der Kategorie «Sonstiges» wählbar.</strong></div>
+      <div style="margin-bottom:10px;display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-sm" onclick="setAllRoleKats(true)">Alle Kategorien</button>
+        <button class="btn btn-sm" onclick="setAllRoleKats(false)">Keine</button>
+      </div>
+      <div id="roleKatRows"></div>
+
       <div style="color:var(--red);font-size:12px;font-weight:700;min-height:16px;margin-top:8px" id="roleErr"></div>
     </div>
     <div class="modal-footer">
@@ -744,7 +753,7 @@ function _renderUserRoleCheckboxes(u){
     '</label>';
   }).filter(Boolean);
   var hint = allowed
-    ? '<div style="grid-column:1/-1;font-size:10.5px;color:var(--mut);margin-bottom:2px">Rollen gefiltert nach Firmen-Kategorie — Kategorie im Unternehmen ändern, um andere Rollen zu sehen.</div>'
+    ? '<div style="grid-column:1/-1;font-size:10.5px;color:var(--mut);margin-bottom:2px">Rollen gefiltert nach Firmen-Kategorie. Fehlt eine Rolle? Im <strong>Rolleneditor</strong> (Tab «Rollen») unter «Verfügbar für Unternehmenskategorien» die passende Kategorie anhaken — oder die Firmen-Kategorie im Unternehmen ändern.</div>'
     : '';
   el.innerHTML=hint+rows.join('');
 }
@@ -889,7 +898,45 @@ function openRoleModal(rid){
   delBtn.onclick=function(){deleteRole(rid);};
   // Build permission rows
   buildPermRows(r);
+  buildRoleKatRows(r);
   openModal('roleModal');
+}
+
+// Unternehmenskategorien-Checkboxen im Rolleneditor: gruppiert wie die
+// Firmen-Kategorien, vorangehakt aus role.kategorien (bzw. Default-Ableitung
+// aus KATEGORIE_ROLLEN via GemaAuth.getRoleKategorien).
+function buildRoleKatRows(r){
+  var el=document.getElementById('roleKatRows');
+  if(!el) return;
+  var cats=(GemaAuth.getOrgCats&&GemaAuth.getOrgCats())||[];
+  var pre=[]; try{ pre=r?(GemaAuth.getRoleKategorien?GemaAuth.getRoleKategorien(r):[]):[]; }catch(e){}
+  var GRUPPEN={gebaeudetechnik:'Gebäudetechnik',bau:'Bau / Projektbeteiligte',lieferant:'Lieferanten',andere:'Andere'};
+  var byGrp={};
+  cats.forEach(function(c){ var g=c.gruppe||'andere'; (byGrp[g]=byGrp[g]||[]).push(c); });
+  var html='';
+  Object.keys(GRUPPEN).forEach(function(g){
+    var list=byGrp[g]; if(!list||!list.length) return;
+    html+='<div style="font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:var(--mut);margin:10px 0 6px">'+esc(GRUPPEN[g])+'</div>'+
+      '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:6px 12px;margin-bottom:4px">';
+    list.forEach(function(c){
+      var checked=pre.indexOf(c.id)>=0;
+      var note=c.id==='sonstiges'?' <span style="font-size:10px;color:var(--mut)">(zeigt immer alle Rollen)</span>':'';
+      html+='<label style="display:flex;align-items:center;gap:7px;cursor:pointer;font-size:12.5px;font-weight:600">'+
+        '<input type="checkbox" class="rolekat-cb" value="'+esc(c.id)+'" '+(checked?'checked':'')+' style="width:15px;height:15px;accent-color:#2563eb">'+
+        '<span>'+(c.icon?c.icon+' ':'')+esc(c.name)+'</span>'+note+
+      '</label>';
+    });
+    html+='</div>';
+  });
+  el.innerHTML=html||'<div style="font-size:12px;color:var(--mut)">Keine Unternehmenskategorien definiert.</div>';
+}
+
+function setAllRoleKats(on){
+  document.querySelectorAll('#roleKatRows .rolekat-cb').forEach(function(cb){ cb.checked=!!on; });
+}
+
+function _collectRoleKats(){
+  return Array.from(document.querySelectorAll('#roleKatRows .rolekat-cb:checked')).map(function(cb){return cb.value;});
 }
 
 function buildPermRows(r){
@@ -958,11 +1005,12 @@ function saveRole(){
   var color=document.getElementById('r_color').value;
   if(!name){document.getElementById('roleErr').textContent='Rollenname ist Pflichtfeld.';return;}
   var perms=_collectPerms();
+  var kategorien=_collectRoleKats();
   if(rid){
     var idx=roles.findIndex(r=>r.id===rid);
-    if(idx>=0){roles[idx].name=name;roles[idx].color=color;roles[idx].permissions=perms;}
+    if(idx>=0){roles[idx].name=name;roles[idx].color=color;roles[idx].permissions=perms;roles[idx].kategorien=kategorien;}
   } else {
-    roles.push({id:'r_'+Date.now(),name,color,permissions:perms});
+    roles.push({id:'r_'+Date.now(),name,color,permissions:perms,kategorien:kategorien});
   }
   GemaAuth.saveRoles(roles);
   closeModal('roleModal');

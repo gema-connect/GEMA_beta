@@ -534,6 +534,27 @@
     sonstiges:            null
   };
 
+  // Default-Kategorien einer (System-)Rolle = alle Kategorien, in deren
+  // KATEGORIE_ROLLEN-Liste die Rolle vorkommt. Dient als Startwert, solange
+  // die Rolle KEIN eigenes `kategorien`-Feld traegt (rueckwaertskompatibel).
+  function _defaultKatsForRole(roleId){
+    var out=[];
+    Object.keys(KATEGORIE_ROLLEN).forEach(function(cat){
+      var list=KATEGORIE_ROLLEN[cat];
+      if(Array.isArray(list) && list.indexOf(roleId)>=0) out.push(cat);
+    });
+    return out;
+  }
+  // Wirksame Kategorien einer Rolle: das gespeicherte `kategorien`-Array
+  // (Admin-editierbar, autoritativ) ODER — falls (noch) nicht gesetzt — die
+  // Default-Ableitung aus KATEGORIE_ROLLEN. So braucht es KEINE Migration:
+  // eine unveraenderte System-Rolle verhaelt sich exakt wie bisher, eine im
+  // Rolleneditor bearbeitete Rolle folgt ihrer eigenen Auswahl.
+  function _roleKats(role){
+    if(!role) return [];
+    return Array.isArray(role.kategorien) ? role.kategorien : _defaultKatsForRole(role.id);
+  }
+
   var DEFAULT_USERS = [
     {id:'user_admin', username:'admin@gema.ch', name:'Administrator',
      password:_hash('gema2025'), roleIds:['role_admin'], orgId:'org_default',
@@ -1358,16 +1379,32 @@
       if(!org)return null;
       var kats=(org.kategorien&&org.kategorien.length)?org.kategorien:(org.kategorie?[org.kategorie]:[]);
       if(!kats.length)return null;
+      // Rollen-getrieben: eine Rolle ist fuer eine Kategorie waehlbar, wenn
+      // ihre wirksamen Kategorien (_roleKats: gespeichertes `kategorien`-Array
+      // oder Default aus KATEGORIE_ROLLEN) diese Kategorie enthalten. Damit
+      // sind neu erstellte Rollen ueber den Rolleneditor direkt einer
+      // Kategorie zuweisbar (frueher nur ueber die harte KATEGORIE_ROLLEN-Map,
+      // weshalb Custom-Rollen nur unter 'sonstiges' auftauchten).
+      var roles=_getRoles()||[];
+      if(!roles.length)return null;   // Rollen noch nicht geladen → nicht einschraenken
       var out={},unrestricted=false;
       kats.forEach(function(k){
-        if(!(k in KATEGORIE_ROLLEN)){unrestricted=true;return;} // unbekannte/eigene Kategorie → nicht einschraenken
-        var list=KATEGORIE_ROLLEN[k];
-        if(list===null){unrestricted=true;return;}              // 'sonstiges'
-        list.forEach(function(rid){out[rid]=true;});
+        if(k==='sonstiges'){unrestricted=true;return;}   // Sammelkategorie: alle Rollen
+        var claimed=false;
+        roles.forEach(function(r){
+          if(!r||!r.id)return;
+          if(_roleKats(r).indexOf(k)>=0){out[r.id]=true;claimed=true;}
+        });
+        // Kategorie, die KEINE Rolle beansprucht UND nicht im Default-Map
+        // steht → unbekannte/eigene Kategorie, nicht einschraenken.
+        if(!claimed && !(k in KATEGORIE_ROLLEN))unrestricted=true;
       });
       if(unrestricted)return null;
       return Object.keys(out);
     },
+    // Wirksame Unternehmenskategorien einer Rolle (fuer den Rolleneditor):
+    // gespeichertes `kategorien`-Array oder Default aus KATEGORIE_ROLLEN.
+    getRoleKategorien:function(role){ return _roleKats(role).slice(); },
 
     getCurrentUser:function(){
       var s=_getSession();if(!s)return null;
