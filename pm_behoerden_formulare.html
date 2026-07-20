@@ -160,7 +160,7 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important}
     <div class="seg"><button id="segPool" class="on" onclick="setView('pool')">📚 Pool (Vorlagen)</button><button id="segInst" onclick="setView('inst')">📋 Ausgefüllte</button></div>
     <button class="btn pri" id="btnNew" onclick="wizOpen()">＋ Formular erfassen</button>
     <button class="btn" onclick="checkAll()">🔎 Alle prüfen</button>
-    <select class="sel" id="objFilter" onchange="render()" style="display:none"><option value="">Alle Projekte</option></select>
+    <select class="sel" id="objFilter" onchange="_bfObjTouched=true;render()" style="display:none"><option value="">Alle Projekte</option></select>
     <input class="srch" id="srch" type="text" placeholder="Suchen…" oninput="render()"/>
   </div>
 
@@ -342,7 +342,8 @@ async function bfFillPdf(bytes, felder){
 
 // ══════════════ LISTE ══════════════
 function setView(v){ _view=v; _kpiFilter=''; document.getElementById('segPool').classList.toggle('on',v==='pool'); document.getElementById('segInst').classList.toggle('on',v==='inst'); document.getElementById('objFilter').style.display=(v==='inst')?'':'none'; render(); }
-function _objName(id){ try{ var o=(GemaObjekte.getAll()||[]).find(function(x){return x.id===id;}); return o?o.name:''; }catch(e){return '';} }
+function _objName(id){ try{ var o=(GemaObjekte.getAll()||[]).find(function(x){return x.id===id;}); return o?GemaObjekte.displayName(o):''; }catch(e){return '';} }
+var _bfObjTouched=false;
 function render(){
   var defs=getDefs(), insts=getInstances();
   var changed=defs.filter(function(d){return d.sourceChanged;}).length;
@@ -351,7 +352,14 @@ function render(){
     '<div class="kpi" onclick="setView(\'inst\')"><div class="v" style="color:var(--blue)">'+insts.length+'</div><div class="l">Ausgefüllte</div></div>'+
     '<div class="kpi" onclick="setKpiChanged()"><div class="v" style="color:'+(changed?'var(--amber)':'var(--mut)')+'">'+changed+'</div><div class="l">Quelle geändert</div></div>';
   var of=document.getElementById('objFilter'); var objs=[]; try{objs=(GemaObjekte.getAll()||[]);}catch(e){}
-  var cur=of.value; of.innerHTML='<option value="">Alle Projekte</option>'+objs.map(function(o){return '<option value="'+E(o.id)+'"'+(cur===o.id?' selected':'')+'>'+E(o.name)+'</option>';}).join('');
+  var cur=of.value; of.innerHTML='<option value="">Alle Projekte</option>'+objs.map(function(o){return '<option value="'+E(o.id)+'"'+(cur===o.id?' selected':'')+'>'+E(GemaObjekte.displayName(o))+'</option>';}).join('');
+  // Preselect: ?objekt=<id> (Workspace-Eimer) bzw. aktives GEMA-Objekt —
+  // nur solange der Nutzer nicht selbst gefiltert hat (_bfObjTouched).
+  if(!_bfObjTouched && !cur){
+    var pre='';try{pre=new URLSearchParams(location.search).get('objekt')||'';}catch(e){}
+    if(!pre){try{pre=(GemaObjekte.getActiveId&&GemaObjekte.getActiveId())||'';}catch(e){}}
+    if(pre&&objs.some(function(o){return o.id===pre;})) of.value=pre;
+  }
   var q=(document.getElementById('srch').value||'').toLowerCase().trim();
   var wrap=document.getElementById('listWrap');
   if(!_cloudLoaded && !defs.length && !insts.length){ wrap.innerHTML='<div class="card"><div class="empty"><svg width="26" height="26" viewBox="0 0 26 26" style="vertical-align:middle;margin-right:8px"><circle cx="13" cy="13" r="10" fill="none" stroke="#cbd5e1" stroke-width="3"/><path d="M13 3 a10 10 0 0 1 10 10" fill="none" stroke="#0369a1" stroke-width="3" stroke-linecap="round"><animateTransform attributeName="transform" type="rotate" from="0 13 13" to="360 13 13" dur="0.9s" repeatCount="indefinite"/></path></svg>Wird geladen …</div></div>'; return; }
@@ -441,7 +449,7 @@ function instNew(defId){
   if(!objs.length){ toast('Kein Projekt vorhanden — bitte zuerst ein Objekt anlegen.'); return; }
   var active=''; try{active=GemaObjekte.getActiveId?GemaObjekte.getActiveId():'';}catch(e){}
   var h='<div class="hintbox">Für welches Projekt soll «'+E(d.name)+'» ausgefüllt werden? Objekt- und Beteiligtendaten werden aus dem Projekt vorbefüllt.</div>';
-  h+='<div class="fg"><label class="fl">Projekt / Objekt</label><select class="fc" id="iObj">'+objs.map(function(o){return '<option value="'+E(o.id)+'"'+(active===o.id?' selected':'')+'>'+E(o.name)+'</option>';}).join('')+'</select></div>';
+  h+='<div class="fg"><label class="fl">Projekt / Objekt</label><select class="fc" id="iObj">'+objs.map(function(o){return '<option value="'+E(o.id)+'"'+(active===o.id?' selected':'')+'>'+E(GemaObjekte.displayName(o))+'</option>';}).join('')+'</select></div>';
   window._instDefId=defId;
   mOpen('Für Projekt ausfüllen', h, [{label:'Abbrechen',fn:'mClose()'},{label:'Erstellen & ausfüllen',cls:'pri',fn:'instCreate()'}]);
 }

@@ -177,7 +177,7 @@ textarea.fc{min-height:80px;resize:vertical;line-height:1.5}
   <div class="tb no-print">
     <button class="btn pri" id="btnNew" onclick="wizOpen()">＋ Neues Dossier</button>
     <button class="btn" onclick="vorlagenOpen()">⚙ Vorlagen</button>
-    <select class="sel" id="objFilter" onchange="render()"><option value="">Alle Projekte</option></select>
+    <select class="sel" id="objFilter" onchange="_revObjTouched=true;render()"><option value="">Alle Projekte</option></select>
     <input class="srch" id="srch" type="text" placeholder="Suchen (Titel, Projekt)…" oninput="render()"/>
   </div>
 
@@ -744,7 +744,8 @@ function revSammelnLauf(dossier, silent){
 }
 
 // ══════════════ LISTE ══════════════
-function _objName(oid){ try{ var o=(GemaObjekte.getAll()||[]).find(function(x){return x.id===oid;}); return o?o.name:''; }catch(e){return '';} }
+function _objName(oid){ try{ var o=(GemaObjekte.getAll()||[]).find(function(x){return x.id===oid;}); return o?GemaObjekte.displayName(o):''; }catch(e){return '';} }
+var _revObjTouched=false;
 function render(){
   var list=getDossiers();
   var byStatus={in_arbeit:0,bereit:0,uebergeben:0};
@@ -758,7 +759,14 @@ function render(){
   var of=document.getElementById('objFilter');
   var objs=[]; try{ objs=(GemaObjekte.getAll()||[]); }catch(e){}
   var cur=of.value;
-  of.innerHTML='<option value="">Alle Projekte</option>'+objs.map(function(o){return '<option value="'+E(o.id)+'"'+(cur===o.id?' selected':'')+'>'+E(o.name)+'</option>';}).join('');
+  of.innerHTML='<option value="">Alle Projekte</option>'+objs.map(function(o){return '<option value="'+E(o.id)+'"'+(cur===o.id?' selected':'')+'>'+E(GemaObjekte.displayName(o))+'</option>';}).join('');
+  // Preselect: ?objekt=<id> (Workspace-Eimer) bzw. aktives GEMA-Objekt —
+  // nur solange der Nutzer nicht selbst gefiltert hat (_revObjTouched).
+  if(!_revObjTouched && !cur){
+    var pre='';try{pre=new URLSearchParams(location.search).get('objekt')||'';}catch(e){}
+    if(!pre){try{pre=(GemaObjekte.getActiveId&&GemaObjekte.getActiveId())||'';}catch(e){}}
+    if(pre&&objs.some(function(o){return o.id===pre;})) of.value=pre;
+  }
   var objF=of.value, q=(document.getElementById('srch').value||'').toLowerCase().trim();
   var rows=list.filter(function(d){
     if(_kpiFilter&&d.status!==_kpiFilter)return false;
@@ -804,7 +812,7 @@ function wizOpen(){
 function wizBody(){
   var objs=[]; try{ objs=(GemaObjekte.getAll()||[]); }catch(e){}
   var vorl=getVorlagen().filter(function(v){return v.gewerk===_wiz.gewerk;});
-  var h='<div class="fg"><label class="fl">Projekt / Objekt</label><select class="fc" id="wizObj" onchange="_wiz.objektId=this.value">'+objs.map(function(o){return '<option value="'+E(o.id)+'"'+(_wiz.objektId===o.id?' selected':'')+'>'+E(o.name)+'</option>';}).join('')+'</select></div>';
+  var h='<div class="fg"><label class="fl">Projekt / Objekt</label><select class="fc" id="wizObj" onchange="_wiz.objektId=this.value">'+objs.map(function(o){return '<option value="'+E(o.id)+'"'+(_wiz.objektId===o.id?' selected':'')+'>'+E(GemaObjekte.displayName(o))+'</option>';}).join('')+'</select></div>';
   h+='<div class="fg"><label class="fl">Gewerk</label><div class="opt-grid">'+Object.keys(REV_GEWERKE).map(function(g){var ge=REV_GEWERKE[g];return '<div class="opt'+(_wiz.gewerk===g?' on':'')+'" onclick="_wiz.gewerk=\''+g+'\';_wiz.vorlageId=\'\';wizRefresh()"><div class="ot">'+ge.icon+' '+E(ge.label)+'</div></div>';}).join('')+'</div></div>';
   h+='<div class="fg"><label class="fl">Vorlage</label><select class="fc" id="wizVorl" onchange="_wiz.vorlageId=this.value">';
   var defV=REV_GEWERKE[_wiz.gewerk].vorlage;
