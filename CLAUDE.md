@@ -939,6 +939,14 @@ Bei **gleicher Spezifitaet** gewinnt im Cascade die **spaeter geladene** Regel �
 
 **Nicht wieder einbauen!** Wenn man Anti-FOUC braucht, lieber ein **leichtes Overlay** mit Loader-Spinner einblenden, das durch einen kurzen Timer (max. 500ms) wieder weg ist — kein body-Level visibility:hidden.
 
+### Funktion NIE per zweiter `function`-Deklaration im selben Scope wrappen (setTab-Rekursion, BEHOBEN)
+
+**Symptom (pm_abnahme)**: Die Tab-Buttons Mängelliste/Prüfliste/Pläne (und «Zur Mängelliste →») taten NICHTS — jeder Klick warf `RangeError: Maximum call stack size exceeded`.
+
+**Ursache**: Die Pläne-Tab-Erweiterung wrappte `setTab` per `var _origSetTab=setTab; function setTab(t){_origSetTab(t);…}` im SELBEN IIFE-Scope wie das originale `function setTab`. Function-Declarations werden gehoisted, die zweite gewinnt für den GANZEN Scope — `_origSetTab` zeigte damit auf den Wrapper selbst → Endlos-Rekursion bei jedem Aufruf.
+
+**Regel**: Zum Wrappen entweder (a) die Logik direkt in die Original-Funktion integrieren (so gelöst — `if(t==='plaene')_planRenderList()` in setTab), oder (b) per **Zuweisung** wrappen (`recalcAll = function(){…}` nach `const _orig=recalcAll` — Muster sb_niederschlag; Zuweisungen laufen in Code-Reihenfolge, keine Hoisting-Falle), oder (c) `window.x`-Property wrappen. NIE eine zweite `function NAME(){}`-Deklaration desselben Namens im selben Scope. Drift-Guard: `scripts/abnahme_tabs_test.mjs` (17 Checks — alle 4 Tabs + Sprung-Button, pageerror-Überwachung).
+
 ### Doppelte CSS-Regelbloecke aus alten Media-Queries
 
 Wenn ein Media-Query entfernt wurde, blieben in einigen Modulen die innerhalb der `@media`-Klammer eingerueckten Regeln stehen — also als globale Regeln. Diese kollidieren dann mit den gleichen Regeln weiter oben im Stylesheet (gleiche Spezifitaet, spaetere gewinnt, Werte oft abweichend).
@@ -975,7 +983,7 @@ Spülregimes mit QR-Start-Timer und lückenloser Doku. **Komplett neu** (der alt
 
 ## Service & Wartung mit Anlagenregister (sv_service.html)
 
-Anlagenregister + Wartungsverträge + automatische Serviceaufträge — schliesst den Kreis «Anlage geliefert → Anlage gewartet → Wartung verrechnet». **Neues Präfix `sv_`**, moduleKey `service`, cat Hygiene (Kachel in «Hygiene & Betrieb»; das ältere `hy_inspektion.html` bleibt als einfaches Inventar-Tool unangetastet).
+Anlagenregister + Wartungsverträge + automatische Serviceaufträge — schliesst den Kreis «Anlage geliefert → Anlage gewartet → Wartung verrechnet». **Neues Präfix `sv_`**, moduleKey `service`, cat Hygiene (Kachel in «Hygiene & Betrieb»). **Ersetzt das alte `hy_inspektion.html` («Inspektion & Wartung», moduleKey `inspektion_wartung`, einfaches Anlagen-Inventar) — dieses wurde 07/2026 komplett entfernt** (Datei + alle Registrierungen: gema_auth MODULES/FILE_MAP + Rollen-Permissions, index.html-Kachel, sw.js, sys_workspace, gema_recent, sys_beta-Feedbackboard, sys_unternehmen-Preiskategorie, Rollen-Golden regeneriert → 75 Module). Die `_delModulInfo`-Labels (`inspektion`/`inspektion_wartung`) in pm_objekte bleiben bewusst — sie beschriften evtl. noch vorhandene Altdaten (`gema_inspektion__<oid>`) beim Objekt-Löschen.
 
 - **Pools (per-Record)**: Anlage `svanl:`→`gema_sv_anlagen_pool_v1` (`{name,kategorie,hersteller,modell,serienNr,standort,objektId/objektName,produktId?,quelleOaId?,lieferantFirma?,inbetriebnahme,garantieBis,intervallMonate,letzteWartung,status,vertragId?,notizen}`) · Vertrag `svvtr:`→`gema_sv_vertraege_pool_v1` (`{titel,kundeText,objektId,anlagenIds[],pauschaleNetto,startDatum,status}`) · Serviceauftrag `svauf:`→`gema_sv_auftraege_pool_v1` (`{anlageId,anlageName,objektId/Name,vertragId?,faelligAm,status offen|eingeplant|erledigt|verrechnet,erledigtAm/Von,rapport,einsatzId?,rechnungId?}`).
 - **Engine** (`/*ENGINE-START*/`, Node-testbar): `svAddMonths` (mit Monatsende-Klemme), `svNextWartung` (Basis: letzteWartung → Inbetriebnahme → Erfassungsdatum; ohne Intervall null), `svDaysUntil/svUrgency` (überfällig/≤7 fällig/≤30 bald), `svGarantieAktiv`, **`svScanFaellig`** (Seitenstart-Scan: Anlagen mit Wartung ≤30 Tage → offener Serviceauftrag; idempotent über (anlageId,faelligAm), offener/eingeplanter Auftrag blockiert Duplikate), `svNextReNr` (ERP-Nummernkreis RE-Jahr-NNN repliziert).
