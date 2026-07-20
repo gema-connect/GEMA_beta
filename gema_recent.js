@@ -21,7 +21,6 @@
     'br_vkf_formular':'VKF-Formular',
     'br_vkf_formulare':'VKF-Formulare Sprinkler',
     'el_angaben':'Elektroangaben',
-    'hy_inspektion':'Inspektion & Wartung',
     'hy_legionellen':'Hygienemanagement',
     'hy_spuelmanager':'Spülmanager',
     'hy_w12':'Selbstkontrolle W12',
