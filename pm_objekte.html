@@ -300,6 +300,7 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important}
         <option value="status">Status</option>
         <option value="newest">Neueste zuerst</option>
       </select>
+      <button class="btn btn-ghost" onclick="_objWartungOpen()" title="Verwaiste / Test-Objekte aufräumen, die in Auswahllisten erscheinen aber hier fehlen">🧹 Aufräumen</button>
       <button class="btn btn-primary" onclick="openObjektModal()">+ Neues Objekt</button>
     </div>
     <div class="filter-bar" id="objFilterBar">
@@ -700,7 +701,7 @@ function populateBerObjFilter(){
   var objs = (typeof GemaObjekte!=='undefined') ? (GemaObjekte.getAll()||[]) : [];
   sel.innerHTML = '<option value="">Alle Objekte</option>' +
     objs.map(function(o){
-      return '<option value="'+esc(o.id)+'">'+esc((o.nummer?o.nummer+' · ':'')+ (o.name||o.projekt||o.id))+'</option>';
+      return '<option value="'+esc(o.id)+'">'+esc((o.nummer?o.nummer+' · ':'')+ (GemaObjekte.displayName?GemaObjekte.displayName(o):(o.name||o.projekt||o.id)))+'</option>';
     }).join('');
   if(cur) sel.value = cur;
 }
@@ -733,7 +734,7 @@ function renderBerechnungen(){
   function objLabel(oid){
     var o = objs.find(function(x){return x.id===oid;});
     if(!o) return oid;
-    return (o.nummer?o.nummer+' · ':'') + (o.name||o.projekt||o.id);
+    return (o.nummer?o.nummer+' · ':'') + (GemaObjekte.displayName?GemaObjekte.displayName(o):(o.name||o.projekt||o.id));
   }
   function fmtDate(iso){
     if(!iso) return '—';
@@ -803,7 +804,7 @@ function populateOffObjFilter(){
   var objs = (typeof GemaObjekte!=='undefined') ? (GemaObjekte.getAll()||[]) : [];
   sel.innerHTML = '<option value="">Alle Objekte</option>' +
     objs.map(function(o){
-      return '<option value="'+esc(o.id)+'">'+esc((o.nummer?o.nummer+' · ':'')+ (o.name||o.projekt||o.id))+'</option>';
+      return '<option value="'+esc(o.id)+'">'+esc((o.nummer?o.nummer+' · ':'')+ (GemaObjekte.displayName?GemaObjekte.displayName(o):(o.name||o.projekt||o.id)))+'</option>';
     }).join('');
   if(cur) sel.value = cur;
 }
@@ -836,7 +837,7 @@ function renderOfferten(){
     if(!oid) return '—';
     var o = objs.find(function(x){return x.id===oid;});
     if(!o) return oid;
-    return (o.nummer?o.nummer+' · ':'') + (o.name||o.projekt||o.id);
+    return (o.nummer?o.nummer+' · ':'') + (GemaObjekte.displayName?GemaObjekte.displayName(o):(o.name||o.projekt||o.id));
   }
   var ST = {
     offen:       {label:'⟳ Offen',       bg:'#fffbeb', fg:'#d97706'},
@@ -1118,7 +1119,7 @@ function populateParentSelect(currentEditId){
     if(excluded[o.id])return;
     const depth=o._depth||0;
     const indent='&nbsp;'.repeat(depth*3)+(depth>0?'↳ ':'');
-    opts.push('<option value="'+esc(o.id)+'">'+indent+esc(o.name||'–')+'</option>');
+    opts.push('<option value="'+esc(o.id)+'">'+indent+esc((GemaObjekte.displayName?GemaObjekte.displayName(o):o.name)||'–')+'</option>');
   });
   sel.innerHTML=opts.join('');
 }
@@ -1683,11 +1684,46 @@ function _objDeleteDialogHtml(obj, scan){
 
 // Eigene Funktion mit direkter ID, damit der Loeschen-Button
 // auch direkt auf der Card funktioniert (ohne offenes Modal).
+// ── Hard-Cleanup: räumt ein Objekt ÜBERALL weg ──────────────────────
+// Deckt auch «Geister»-Objekte ab, die zwar in Dropdowns erscheinen, aber
+// nicht (mehr) in der pm_objekte-Liste: local-only Records (nie in die Cloud
+// gelangt), die der normale persistBlob-Diff nicht als Löschung erkennt, weil
+// sie nie im OBJ_POOL-Cache lagen. Zusätzlich wird der Resurrection-Loop
+// gebrochen (Workspace-Eimer, die das Objekt via `_wsEnsureObjekt` neu anlegen).
+function _objArrRemove(key,id){
+  try{ var a=JSON.parse(localStorage.getItem(key)||'[]'); if(Array.isArray(a)){ var b=a.filter(function(x){return !x||x.id!==id;}); if(b.length!==a.length) localStorage.setItem(key,JSON.stringify(b)); } }catch(e){}
+}
+function _objScrubEverywhere(id, betIds){
+  // 1) Cloud-Rows explizit löschen (persistBlob-Diff greift bei Ghosts nicht)
+  try{
+    if(typeof GemaSync!=='undefined'&&GemaSync.deleteRecord){
+      GemaSync.deleteRecord('objekte','objekt:'+id).catch(function(){});
+      (betIds||[]).forEach(function(bid){ GemaSync.deleteRecord('objekte','bet:'+bid).catch(function(){}); });
+    }
+  }catch(e){}
+  // 2) Pool-Diff-Caches bereinigen (sonst bleibt der Record im Dropdown /
+  //    ersteht beim nächsten Diff wieder auf)
+  _objArrRemove('gema_objpool_v1', id);
+  (betIds||[]).forEach(function(bid){ _objArrRemove('gema_betpool_v1', bid); });
+  // 3) Resurrection-Loop brechen: Workspace-Eimer entkoppeln
+  try{
+    var ws=JSON.parse(localStorage.getItem('gema_workspace_v1')||'[]');
+    if(Array.isArray(ws)){
+      var changed=false;
+      ws.forEach(function(b){ if(b&&b.objektId===id){ b.objektId=null; changed=true; } });
+      if(changed) localStorage.setItem('gema_workspace_v1', JSON.stringify(ws));
+    }
+  }catch(e){}
+}
+
 function deleteObjektById(id){
   if(!id)return;
+  // Objekt kann ein «Geist» sein (nicht in _mem, aber in Dropdowns) — dann aus
+  // dem Cloud-Cache auflösen bzw. mit Stub weiterarbeiten, damit es löschbar ist.
   var obj=_mem.objekte.find(function(o){return o.id===id;});
-  if(!obj)return;
-  toast('🔎 Prüfe gespeicherte Daten für «'+(obj.name||'')+'» …');
+  if(!obj){ try{ obj=(GemaObjekte.getAllUnfiltered?GemaObjekte.getAllUnfiltered():[]).find(function(o){return o.id===id;}); }catch(e){} }
+  if(!obj) obj={id:id, name:id};
+  toast('🔎 Prüfe gespeicherte Daten für «'+(GemaObjekte.displayName?GemaObjekte.displayName(obj):(obj.name||''))+'» …');
   _objDatenScan(id).then(function(scan){
     var hatDaten=(scan.rows||[]).length>0;
     GemaDialog.confirm({
@@ -1698,28 +1734,125 @@ function deleteObjektById(id){
       danger:true
     }).then(function(ok){
       if(!ok) return;
+      var betIds=_mem.beteiligte.filter(function(b){return b.objektId===id;}).map(function(b){return b.id;});
       // Kinder entkoppeln, damit sie nicht zu Waisen werden
       _mem.objekte.forEach(function(o){if(o.parentObjektId===id)o.parentObjektId='';});
       _mem.objekte=_mem.objekte.filter(function(x){return x.id!==id;});
       _mem.beteiligte=_mem.beteiligte.filter(function(b){return b.objektId!==id;});
       if(_mem.activeObjektId===id)_mem.activeObjektId=_mem.objekte[0]?.id||null;
-      save();try{closeModal('objModal');}catch(e){}renderObjekte();updateBadges();
+      save();
+      _objScrubEverywhere(id, betIds);   // Cloud + Pool-Cache + Workspace-Loop
+      try{closeModal('objModal');}catch(e){}renderObjekte();updateBadges();
+      try{ if(document.getElementById('objWartungOverlay')) _objWartungRender(); }catch(e){}
+      var nm=obj.name||id;
       if(hatDaten){
         _objDatenLoeschen(id, scan.rows).then(function(res){
           if(res.fail>0) toast('🗑 Objekt gelöscht — '+res.fail+' Cloud-Datensätze konnten nicht entfernt werden (werden beim nächsten Versuch nicht erneut angezeigt)');
-          else toast('🗑 Objekt «'+(obj.name||'')+'» + '+scan.rows.length+' Modul-Datensätze gelöscht');
+          else toast('🗑 Objekt «'+nm+'» + '+scan.rows.length+' Modul-Datensätze gelöscht');
         });
       } else {
         _objDatenLoeschen(id, []); // lokale Reste + Berechnungs-Index defensiv räumen
-        toast('🗑 Objekt «'+(obj.name||'')+'» gelöscht');
+        toast('🗑 Objekt «'+nm+'» gelöscht');
       }
     });
   });
 }
 window.deleteObjekt=deleteObjekt;
 window.deleteObjektById=deleteObjektById;
+
+// ════════════════════════════════════════════════════════════════════
+// WARTUNG: Verwaiste / Test-Objekte aufräumen
+// Zeigt die UNION aus (a) Cloud/Blob-Objekten (getAllUnfiltered, org-scoped,
+// alle Status) und (b) obj_ws_*-IDs, die Workspace-Eimer referenzieren — also
+// auch Objekte, die in Dropdowns auftauchen, in der normalen Liste aber fehlen.
+// Pro Zeile Herkunft + Direkt-Löschen (nutzt deleteObjektById → Hard-Cleanup).
+// ════════════════════════════════════════════════════════════════════
+function _objWorkspaceRefs(){
+  // id → [Eimer-Namen]  (gema_workspace_v1 ist geräte-lokal)
+  var map={};
+  try{
+    var ws=JSON.parse(localStorage.getItem('gema_workspace_v1')||'[]');
+    (Array.isArray(ws)?ws:[]).forEach(function(b){ if(b&&b.objektId){ (map[b.objektId]=map[b.objektId]||[]).push(b.name||'Eimer'); } });
+  }catch(e){}
+  return map;
+}
+function _objWartungRows(cloudIds){
+  var wsRefs=_objWorkspaceRefs();
+  var inList={}; try{ (_mem.objekte||[]).forEach(function(o){ inList[o.id]=true; }); }catch(e){}
+  var union={};
+  var base=[];
+  try{ base=(GemaObjekte.getAllUnfiltered?GemaObjekte.getAllUnfiltered():(_mem.objekte||[]))||[]; }catch(e){ base=_mem.objekte||[]; }
+  base.forEach(function(o){ if(o&&o.id) union[o.id]=o; });
+  // Workspace-referenzierte IDs, die (nicht mehr) im Bestand sind
+  Object.keys(wsRefs).forEach(function(id){ if(!union[id]) union[id]={id:id, name:'', _wsOnly:true}; });
+  return Object.keys(union).map(function(id){
+    var o=union[id];
+    return {
+      id:id, o:o,
+      label:(GemaObjekte.displayName?GemaObjekte.displayName(o):'')||o.name||id,
+      status:o.status||'aktiv',
+      orgId:o.orgId||'',
+      inList:!!inList[id],
+      inCloud:cloudIds?(cloudIds[id]===true):null,   // null = Cloud nicht geprüft
+      ws:wsRefs[id]||null,
+      wsOnly:!!o._wsOnly
+    };
+  }).sort(function(a,b){ return a.label.localeCompare(b.label,'de'); });
+}
+function _objWartungRender(){
+  var body=document.getElementById('objWartungBody');
+  if(!body) return;
+  var rows=_objWartungCloudIds ? _objWartungRows(_objWartungCloudIds) : _objWartungRows(null);
+  var ghosts=rows.filter(function(r){ return !r.inList || r.inCloud===false || r.ws; });
+  var head='<div style="font-size:12.5px;color:#475569;margin-bottom:10px;line-height:1.55">Hier siehst du <b>alle</b> deiner Org bekannten Objekte — auch solche, die in Auswahllisten erscheinen, in der normalen Objektliste aber fehlen (z.B. alte Test-Objekte, die ein Workspace-Eimer immer wieder anlegt). «Löschen» entfernt sie überall (Cloud, lokaler Cache, verknüpfte Modul-Daten) und koppelt referenzierende Workspace-Eimer ab.</div>';
+  if(!rows.length){ body.innerHTML=head+'<div style="padding:24px;text-align:center;color:#94a3b8">Keine Objekte gefunden.</div>'; return; }
+  var list=rows.map(function(r){
+    var badges='';
+    if(!r.inList) badges+='<span style="display:inline-block;padding:1px 7px;border-radius:6px;background:#fffbeb;border:1px solid #fde68a;color:#92400e;font-size:10px;font-weight:700;margin-left:4px">nicht in Liste</span>';
+    if(r.inCloud===false) badges+='<span style="display:inline-block;padding:1px 7px;border-radius:6px;background:#fef2f2;border:1px solid #fecaca;color:#b91c1c;font-size:10px;font-weight:700;margin-left:4px">nur lokal</span>';
+    if(r.ws) badges+='<span style="display:inline-block;padding:1px 7px;border-radius:6px;background:#f0fdf4;border:1px solid #bbf7d0;color:#166534;font-size:10px;font-weight:700;margin-left:4px" title="'+esc(r.ws.join(', '))+'">🗂 Workspace-Eimer</span>';
+    if(r.status&&r.status!=='aktiv') badges+='<span style="display:inline-block;padding:1px 7px;border-radius:6px;background:#f1f5f9;border:1px solid #cbd5e1;color:#475569;font-size:10px;font-weight:700;margin-left:4px">'+esc(r.status)+'</span>';
+    return '<div style="display:flex;align-items:center;gap:10px;padding:9px 4px;border-bottom:1px solid #eef1f4">'
+      +'<div style="flex:1;min-width:0"><div style="font-weight:600;color:#0f172a;font-size:13.5px">'+esc(r.label||r.id)+badges+'</div>'
+      +'<div style="font-size:10.5px;color:#94a3b8;font-family:ui-monospace,monospace">'+esc(r.id)+(r.orgId&&r.orgId!==(_currentOrgId||'org_default')?' · org '+esc(r.orgId):'')+'</div></div>'
+      +'<button class="btn btn-ghost btn-xs" style="color:#dc2626;flex:0 0 auto" onclick="deleteObjektById(\''+esc(r.id)+'\')">🗑 Löschen</button>'
+      +'</div>';
+  }).join('');
+  body.innerHTML=head
+    +'<div style="font-size:12px;font-weight:700;color:#0f172a;margin:4px 0 2px">'+rows.length+' Objekt'+(rows.length!==1?'e':'')+(ghosts.length?' · '+ghosts.length+' auffällig':'')+'</div>'
+    +'<div style="max-height:52vh;overflow:auto;border:1px solid #e2e8f0;border-radius:10px;padding:0 10px">'+list+'</div>';
+}
+var _objWartungCloudIds=null;
+function _objWartungOpen(){
+  var ov=document.getElementById('objWartungOverlay');
+  if(!ov){
+    ov=document.createElement('div');
+    ov.id='objWartungOverlay';
+    ov.className='modal-bg';
+    ov.style.cssText='position:fixed;inset:0;z-index:9500;background:rgba(15,23,42,.5);display:flex;align-items:center;justify-content:center;padding:16px';
+    ov.innerHTML='<div class="modal" style="max-width:680px;width:100%;background:#fff;border-radius:16px;max-height:88vh;display:flex;flex-direction:column;overflow:hidden">'
+      +'<div class="modal-hd" style="display:flex;align-items:center;gap:10px;padding:16px 20px;border-bottom:1px solid #e5e7eb"><h3 style="flex:1;margin:0;font-size:17px">🧹 Objekte aufräumen</h3><button class="modal-close" onclick="_objWartungClose()" style="border:none;background:#f3f4f6;width:34px;height:34px;border-radius:50%;cursor:pointer;font-size:17px">✕</button></div>'
+      +'<div id="objWartungBody" style="padding:16px 20px;overflow:auto"></div></div>';
+    ov.addEventListener('click',function(e){ if(e.target===ov) _objWartungClose(); });
+    document.body.appendChild(ov);
+  } else { ov.style.display='flex'; }
+  _objWartungRender(); // sofort aus dem lokalen Bestand
+  // Cloud-IDs nachladen, um «nur lokal» korrekt zu markieren
+  _objWartungCloudIds=null;
+  try{
+    _delSbFetch('?module_key=eq.objekte&data_key=like.'+encodeURIComponent('objekt:*')+'&select=data_key&limit=3000')
+      .then(function(rows){
+        var set={}; (rows||[]).forEach(function(r){ var k=String(r.data_key||''); if(k.indexOf('objekt:')===0) set[k.slice(7)]=true; });
+        _objWartungCloudIds=set; _objWartungRender();
+      }).catch(function(){});
+  }catch(e){}
+}
+function _objWartungClose(){ var ov=document.getElementById('objWartungOverlay'); if(ov) ov.style.display='none'; }
+window._objWartungOpen=_objWartungOpen;
+window._objWartungClose=_objWartungClose;
+
 // Test-Hooks (Playwright)
-window._objDelHooks={scan:_objDatenScan, loeschen:_objDatenLoeschen, modulInfo:_delModulInfo, refLabel:_delRefLabel, dialogHtml:_objDeleteDialogHtml};
+window._objDelHooks={scan:_objDatenScan, loeschen:_objDatenLoeschen, modulInfo:_delModulInfo, refLabel:_delRefLabel, dialogHtml:_objDeleteDialogHtml, scrub:_objScrubEverywhere, wartungRows:_objWartungRows, wsRefs:_objWorkspaceRefs};
 
 function duplicateObjekt(id){
   const src=_mem.objekte.find(x=>x.id===id);
@@ -1742,12 +1875,12 @@ window.duplicateObjekt=duplicateObjekt;
 function populateObjFilter(){
   const sel=$('betObjFilter');
   sel.innerHTML='<option value="">Alle Objekte</option>'+_mem.objekte.map(o=>
-    `<option value="${o.id}"${o.id===_mem.activeObjektId?' selected':''}>${esc(o.name||'–')}</option>`
+    `<option value="${o.id}"${o.id===_mem.activeObjektId?' selected':''}>${esc((GemaObjekte.displayName?GemaObjekte.displayName(o):o.name)||'–')}</option>`
   ).join('');
   // Also populate modal dropdown
   const msel=$('betObjekt');
   msel.innerHTML=_mem.objekte.map(o=>
-    `<option value="${o.id}"${o.id===_mem.activeObjektId?' selected':''}>${esc(o.name||'–')}</option>`
+    `<option value="${o.id}"${o.id===_mem.activeObjektId?' selected':''}>${esc((GemaObjekte.displayName?GemaObjekte.displayName(o):o.name)||'–')}</option>`
   ).join('');
 }
 

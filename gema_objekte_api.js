@@ -238,7 +238,17 @@
     var bet = Array.isArray(data.beteiligte) ? data.beteiligte : [];
     _writeLocalBlob(arr, bet, _readActiveLocal());
     if (typeof w.GemaSync !== 'undefined' && w.GemaSync.saveRecord){
-      try { w.GemaSync.saveRecord(MODULE, OBJ_PREFIX + obj.id, obj).catch(function(){}); } catch(e){}
+      // Bounded Retry (saveRecord kennt KEINE Outbox): ein transienter Fehler
+      // (Offline-Moment, abgelaufenes Token) darf das Objekt nicht dauerhaft
+      // local-only lassen — sonst entsteht ein «Geist», der in Dropdowns
+      // erscheint, in pm_objekte aber nie ankommt (siehe Wartungs-Panel dort).
+      (function(o, n){
+        function _try(k){
+          try { w.GemaSync.saveRecord(MODULE, OBJ_PREFIX + o.id, o).catch(function(){ if (k > 0) setTimeout(function(){ _try(k - 1); }, 5000); }); }
+          catch(e){ if (k > 0) setTimeout(function(){ _try(k - 1); }, 5000); }
+        }
+        _try(n);
+      })(obj, 3);
       // Pool-Diff-Cache mitziehen, damit ein spaeterer persistCollection-
       // Diff diesen Record nicht als "neu" doppelt sieht.
       try {
@@ -432,6 +442,81 @@
     if (!b) return '';
     return [b.strasse, [b.plz, b.ort].filter(Boolean).join(' ')].filter(Boolean).join(', ');
   }
+
+  // \u2500\u2500 Objekt-Anzeige: Bezeichnung \u21c4 Adresse (per-User-Einstellung) \u2500\u2500\u2500\u2500
+  // Der Nutzer waehlt in den Einstellungen, ob Objekte primaer mit ihrer
+  // BEZEICHNUNG (name) oder ihrer ADRESSE angezeigt werden. Diese Wahl gilt
+  // fuer SAEMTLICHE Objekt-Dropdowns, -Karten und -Chips in allen Modulen \u2014
+  // deshalb ist die Aufloesung hier zentral (GemaObjekte.displayName).
+  //
+  // Persistenz: pro User in `user.profile.objektAnzeige` (synct via GemaAuth
+  // cross-device) + lokaler Cache `gema_obj_anzeige_v1` fuer den SYNCHRONEN
+  // Lesepfad (Dropdowns rendern synchron und koennen nicht auf einen async
+  // User-Load warten). getCurrentUser() ist selbst synchron; der Cache ist
+  // nur Absicherung, falls GemaAuth (noch) nicht verfuegbar ist.
+  var ANZEIGE_KEY = 'gema_obj_anzeige_v1';
+  var _anzeigeModus = null; // 'name' | 'adresse' \u2014 lazy initialisiert
+  function _readAnzeigeModus() {
+    // 1) autoritativ: eingeloggter User
+    try {
+      if (typeof GemaAuth !== 'undefined' && GemaAuth.getCurrentUser) {
+        var u = GemaAuth.getCurrentUser();
+        var m = u && u.profile && u.profile.objektAnzeige;
+        if (m === 'name' || m === 'adresse') {
+          try { localStorage.setItem(ANZEIGE_KEY, JSON.stringify({ userId: u.id, modus: m })); } catch(e) {}
+          return m;
+        }
+      }
+    } catch(e) {}
+    // 2) lokaler Cache (nur wenn er zum aktuellen User passt)
+    try {
+      var raw = JSON.parse(localStorage.getItem(ANZEIGE_KEY) || 'null');
+      if (raw && (raw.modus === 'name' || raw.modus === 'adresse')) {
+        var cu = null; try { cu = (typeof GemaAuth !== 'undefined' && GemaAuth.getCurrentUser) ? GemaAuth.getCurrentUser() : null; } catch(e) {}
+        if (!cu || !raw.userId || raw.userId === cu.id) return raw.modus;
+      }
+    } catch(e) {}
+    return 'name';
+  }
+  function getAnzeigeModus() {
+    if (_anzeigeModus == null) _anzeigeModus = _readAnzeigeModus();
+    return _anzeigeModus;
+  }
+  function refreshAnzeigeModus() { _anzeigeModus = _readAnzeigeModus(); return _anzeigeModus; }
+  function setAnzeigeModus(modus) {
+    modus = (modus === 'adresse') ? 'adresse' : 'name';
+    _anzeigeModus = modus;
+    var uid = null;
+    try { if (typeof GemaAuth !== 'undefined' && GemaAuth.getCurrentUser) { var u = GemaAuth.getCurrentUser(); uid = u && u.id; if (u && GemaAuth.updateProfile) GemaAuth.updateProfile(u.id, { objektAnzeige: modus }); } } catch(e) {}
+    try { localStorage.setItem(ANZEIGE_KEY, JSON.stringify({ userId: uid, modus: modus })); } catch(e) {}
+    try { window.dispatchEvent(new CustomEvent('gema-obj-anzeige-changed', { detail: { modus: modus } })); } catch(e) {}
+    return modus;
+  }
+
+  // Adresse eines Objekts als einzeiliger String (Strasse, PLZ Ort).
+  function objektAdresse(o) {
+    if (!o) return '';
+    return [o.strasse, [o.plz, o.ort].filter(Boolean).join(' ')].filter(Boolean).join(', ');
+  }
+  // ZENTRALE Anzeige eines Objekts. Respektiert den Anzeige-Modus:
+  //  \u2022 'name'    \u2192 Bezeichnung (Fallback Adresse \u2192 nummer \u2192 id)
+  //  \u2022 'adresse' \u2192 Adresse (Fallback Bezeichnung \u2192 nummer \u2192 id)
+  // opts.modus erzwingt einen Modus (z.B. fuer Tests); opts.withNummer
+  // stellt die Objekt-Nummer voran (\u00ab12 \u00b7 <Label>\u00bb), wie es viele
+  // Dropdowns bereits taten.
+  function displayName(o, opts) {
+    if (!o) return '';
+    opts = opts || {};
+    var modus = opts.modus || getAnzeigeModus();
+    var name = o.name || o.projektName || o.projekt || '';
+    var adr = objektAdresse(o);
+    var label;
+    if (modus === 'adresse') label = adr || name || o.nummer || o.id || '';
+    else label = name || adr || o.nummer || o.id || '';
+    if (opts.withNummer && o.nummer) return o.nummer + ' \u00b7 ' + label;
+    return label;
+  }
+
   function renderObjektSelect(selectId, includeEmpty) {
     var sel = document.getElementById(selectId);
     if (!sel) return;
@@ -439,7 +524,7 @@
     var activeId = getActiveId();
     sel.innerHTML = (includeEmpty !== false ? '<option value="">\u2013 Objekt w\u00e4hlen \u2013</option>' : '') +
       objekte.map(function(o) {
-        return '<option value="' + o.id + '"' + (o.id === activeId ? ' selected' : '') + '>' + (o.name || 'Ohne Name') + (o.ort ? ' \u00b7 ' + o.ort : '') + '</option>';
+        return '<option value="' + o.id + '"' + (o.id === activeId ? ' selected' : '') + '>' + (displayName(o) || 'Ohne Name') + '</option>';
       }).join('');
   }
   function renderBeteiligteSelect(selectId, rolle, objektId) {
@@ -600,6 +685,9 @@
     getParent: getParent, getChildren: getChildren, getDescendants: getDescendants, getBreadcrumb: getBreadcrumb,
     getBauherrschaft: getBauherrschaft, getArchitekt: getArchitekt, getPlaner: getPlaner, getUnternehmer: getUnternehmer,
     formatKurz: formatKurz, formatAdresse: formatAdresse,
+    // Objekt-Anzeige (Bezeichnung ⇄ Adresse) — zentral fuer ALLE Module
+    displayName: displayName, objektAdresse: objektAdresse,
+    getAnzeigeModus: getAnzeigeModus, setAnzeigeModus: setAnzeigeModus, refreshAnzeigeModus: refreshAnzeigeModus,
     renderObjektSelect: renderObjektSelect, renderBeteiligteSelect: renderBeteiligteSelect,
     refresh: refresh, reload: reload, ready: _readyPromise,
     persistBlob: persistBlob, upsertObjekt: upsertObjekt,

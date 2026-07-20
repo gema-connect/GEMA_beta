@@ -1039,6 +1039,20 @@ var ST={
 };
 var EINHEITEN=['Stk','h','m','m²','m³','lfm','kg','l','Paar','pausch.'];
 var cur=null, _tab='offerte', _tT;
+// Objekt-Filter (#fObjekt) + Preselect. Kommt der Nutzer mit ?objekt=<id>
+// (Workspace-Eimer) oder mit gesetztem aktivem GEMA-Objekt, startet der
+// Projekt-Filter direkt auf diesem Projekt (Muster pm_planablage). Manuelle
+// Wahl (_erpObjFilterTouched) wird NIE überschrieben.
+var _erpObjFilter='', _erpObjFilterTouched=false;
+function _erpObjFilterInit(){
+  if(_erpObjFilterTouched || _erpObjFilter) return false;
+  var kand='';
+  try{ kand=new URLSearchParams(location.search).get('objekt')||''; }catch(e){}
+  if(!kand){ try{ kand=(typeof GemaObjekte!=='undefined'&&GemaObjekte.getActiveId&&GemaObjekte.getActiveId())||''; }catch(e){} }
+  if(!kand) return false;
+  if(!erpObjekte().some(function(o){return o.id===kand;})) return false;
+  _erpObjFilter=kand; return true;
+}
 // Dokument-Ansicht: Liste (Default) oder Karten, pro Gerät gemerkt.
 var _erpDocView=(function(){try{return localStorage.getItem('gema_erp_docview_v1')==='karten'?'karten':'liste';}catch(e){return 'liste';}})();
 function erpSetDocView(v){_erpDocView=(v==='karten'?'karten':'liste');try{localStorage.setItem('gema_erp_docview_v1',_erpDocView);}catch(e){}erpRenderToolbar();erpRenderList();}
@@ -1050,7 +1064,7 @@ function dfmt(d){if(!d)return '—';var p=String(d).slice(0,10).split('-');retur
 function addDays(d,n){var x=new Date(d+'T12:00:00');x.setDate(x.getDate()+n);return x.toISOString().slice(0,10);}
 function uid(){return 'erp_'+Date.now()+'_'+Math.random().toString(36).slice(2,7);}
 function erpObjekte(){try{return (typeof GemaObjekte!=='undefined')?GemaObjekte.getAll():[];}catch(e){return [];}}
-function erpObjName(id){var o=erpObjekte().find(function(x){return x.id===id;});return o?(o.name+(o.ort?' · '+o.ort:'')):null;}
+function erpObjName(id){var o=erpObjekte().find(function(x){return x.id===id;});return o?GemaObjekte.displayName(o):null;}
 function erpNextNr(typ){
   var u=erpUser();var jahr=new Date().getFullYear();var max=0;
   poolRead(DOK_POOL).forEach(function(d){
@@ -1173,10 +1187,10 @@ function erpRenderToolbar(){
     if(oldStV&&document.getElementById('fKredSt'))document.getElementById('fKredSt').value=oldStV;
     return;
   }
-  var objOpts='<option value="">Alle Projekte</option>'+erpObjekte().map(function(o){return '<option value="'+o.id+'">'+esc(o.name+(o.ort?' · '+o.ort:''))+'</option>';}).join('');
+  var objOpts='<option value="">Alle Projekte</option>'+erpObjekte().map(function(o){return '<option value="'+o.id+'"'+(o.id===_erpObjFilter?' selected':'')+'>'+esc(GemaObjekte.displayName(o))+'</option>';}).join('');
   var h='';
   if(erpCanEdit()&&_tab!=='erfolg')h+='<button class="btn pri" style="flex:1;min-width:170px;font-size:15px" onclick="erpNeu(\''+_tab+'\')">＋ Neue '+(_tab==='auftrag'?'r Auftrag':TYP[_tab].n)+'</button>';
-  h+='<select id="fObjekt" onchange="erpRenderList()">'+objOpts+'</select>';
+  h+='<select id="fObjekt" onchange="_erpObjFilter=this.value;_erpObjFilterTouched=true;erpRenderList()">'+objOpts+'</select>';
   // Sachbearbeiter-Filter — datengetrieben aus den vorhandenen Dokumenten
   var sbs={};
   erpDocs().forEach(function(d){var s=erpSb(d);if(s&&s.name)sbs[String(s.userId||s.name)]=s.name;});
@@ -1188,7 +1202,7 @@ function erpRenderToolbar(){
     +'<button class="vsg'+(_erpDocView==='liste'?' on':'')+'" title="Liste" onclick="erpSetDocView(\'liste\')">☰</button>'
     +'<button class="vsg'+(_erpDocView==='karten'?' on':'')+'" title="Karten" onclick="erpSetDocView(\'karten\')">▦</button>'
   +'</div>';
-  var old=document.getElementById('fObjekt');var oldV=old?old.value:'';
+  var old=document.getElementById('fObjekt');var oldV=old?old.value:_erpObjFilter;
   var oldSb=document.getElementById('fSb');var oldSbV=oldSb?oldSb.value:'';
   el.innerHTML=h;
   if(oldV&&document.getElementById('fObjekt'))document.getElementById('fObjekt').value=oldV;
@@ -2026,7 +2040,7 @@ function erpOpenEditor(){
     +'</div></div>'
     +'<div class="fld"><label>Projekt / Objekt</label><select id="e_objekt"'+dis+' onchange="erpObjektWahl(this.value)">'
     +'<option value="">– keins –</option>'
-    +erpObjekte().map(function(o){return '<option value="'+o.id+'"'+(o.id===d.objektId?' selected':'')+'>'+esc(o.name+(o.ort?' · '+o.ort:''))+'</option>';}).join('')
+    +erpObjekte().map(function(o){return '<option value="'+o.id+'"'+(o.id===d.objektId?' selected':'')+'>'+esc(GemaObjekte.displayName(o))+'</option>';}).join('')
     +'</select></div></div>'
     +'<div id="erpObjBet"></div>'
     +'<div class="fld"><label>Titel / Betreff</label><input type="text" value="'+esc(d.titel||'')+'" placeholder="z.B. Sanitärinstallation Neubau MFH"'+dis+' oninput="cur.titel=this.value;erpTouch()"/></div>'
@@ -4391,6 +4405,7 @@ function erpPdf(){
 // INIT
 // ═══════════════════════════════════════════════════════════
 document.addEventListener('DOMContentLoaded',function(){
+  _erpObjFilterInit();
   erpRenderAll();
   if(typeof GemaSync!=='undefined'&&GemaSync.bindCollection){
     Promise.race([
@@ -4405,9 +4420,9 @@ document.addEventListener('DOMContentLoaded',function(){
         GemaSync.bindCollection('stundenerfassung','gema_std_pool_v1','std:','id')
       ]),
       new Promise(function(res){setTimeout(res,6000);})
-    ]).then(function(){_erpCloudLoaded=true;erpRenderAll();erpDeepLink();}).catch(function(){_erpCloudLoaded=true;erpRenderAll();});
+    ]).then(function(){_erpCloudLoaded=true;_erpObjFilterInit();erpRenderAll();erpDeepLink();}).catch(function(){_erpCloudLoaded=true;erpRenderAll();});
   } else {_erpCloudLoaded=true;erpDeepLink();}
-  window.addEventListener('gema-objekte-loaded',function(){erpRenderAll();});
+  window.addEventListener('gema-objekte-loaded',function(){_erpObjFilterInit();erpRenderAll();});
   if(typeof GemaFeedback!=='undefined')GemaFeedback.init('erp','Offerten · Aufträge · Rechnungen');
 });
 var _dlDone=false;

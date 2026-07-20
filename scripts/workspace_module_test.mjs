@@ -140,7 +140,8 @@ ok(picker.items.length >= 60, 'Picker zeigt >= 60 Module (' + picker.items.lengt
 await page.evaluate(() => window._wsPickModule('pm_erp'));
 await page.waitForTimeout(300);
 const tile = await page.evaluate(() => {
-  const t = Array.from(document.querySelectorAll('.ws-mod-tile')).find(x => (x.getAttribute('href') || '') === 'pm_erp.html');
+  // href kann das Eimer-Objekt als ?objekt=<id> tragen
+  const t = Array.from(document.querySelectorAll('.ws-mod-tile')).find(x => (x.getAttribute('href') || '').indexOf('pm_erp.html') === 0);
   return t ? t.textContent : '';
 });
 ok(/Offerten \/ Aufträge \/ Rechnungen/.test(tile), 'Modul hinzugefügt → Kachel «pm_erp» im Eimer');

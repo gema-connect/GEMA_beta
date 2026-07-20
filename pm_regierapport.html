@@ -403,7 +403,7 @@ function dfmt(d){if(!d)return '—';var p=String(d).slice(0,10).split('-');retur
 function uid(){return 'rr_'+Date.now()+'_'+Math.random().toString(36).slice(2,7);}
 
 function rrObjekte(){try{return (typeof GemaObjekte!=='undefined')?GemaObjekte.getAll():[];}catch(e){return [];}}
-function rrObjName(id){var o=rrObjekte().find(function(x){return x.id===id;});return o?(o.name+(o.ort?' · '+o.ort:'')):null;}
+function rrObjName(id){var o=rrObjekte().find(function(x){return x.id===id;});return o?GemaObjekte.displayName(o):null;}
 
 // Rapport-Summen (nur bepreiste Werte; für Monteure irrelevant)
 function rrTotals(r){
@@ -476,7 +476,13 @@ function rrFillObjektFilter(){
   rrObjekte().forEach(function(o){objIds[o.id]=o.name+(o.ort?' · '+o.ort:'');});
   sel.innerHTML='<option value="">Alle Projekte</option>'+Object.keys(objIds).map(function(id){return '<option value="'+id+'">'+esc(objIds[id])+'</option>';}).join('');
   sel.value=val||'';
-  if(!sel.value){try{var act=GemaObjekte.getActiveId&&GemaObjekte.getActiveId();if(act&&objIds[act])sel.value=act;}catch(e){}}
+  // Preselect: ?objekt=<id> (Workspace-Eimer) hat Vorrang, sonst aktives
+  // GEMA-Objekt — nur wenn es im Filter existiert.
+  if(!sel.value){
+    var pre='';try{pre=new URLSearchParams(location.search).get('objekt')||'';}catch(e){}
+    if(!pre){try{pre=(GemaObjekte.getActiveId&&GemaObjekte.getActiveId())||'';}catch(e){}}
+    if(pre&&objIds[pre])sel.value=pre;
+  }
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -561,7 +567,7 @@ function rrOpenEditor(isNew){
   h+='<div class="sec"><div class="sec-hd"><h3>📋 Rapport</h3></div><div class="sec-bd">'
     +'<div class="fld"><label>Projekt / Objekt *</label><select id="e_objekt"'+dis+' onchange="cur.objektId=this.value">'
     +'<option value="">– Objekt wählen –</option>'
-    +rrObjekte().map(function(o){return '<option value="'+o.id+'"'+(o.id===r.objektId?' selected':'')+'>'+esc(o.name+(o.ort?' · '+o.ort:''))+'</option>';}).join('')
+    +rrObjekte().map(function(o){return '<option value="'+o.id+'"'+(o.id===r.objektId?' selected':'')+'>'+esc(GemaObjekte.displayName(o))+'</option>';}).join('')
     +(r.objektId&&!rrObjekte().some(function(o){return o.id===r.objektId;})?'<option value="'+esc(r.objektId)+'" selected>'+esc(r.objektName||r.objektId)+'</option>':'')
     +'</select></div>'
     +'<div class="fld-row">'

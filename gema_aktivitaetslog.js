@@ -181,7 +181,9 @@
     offerte: { l:'Offerte', c:'#0e7490', bg:'#cffafe' },
     reparatur: { l:'Reparatur', c:'#3730a3', bg:'#e0e7ff' },
     garage_ein: { l:'In Garage', c:'#7c2d12', bg:'#ffedd5' },
-    garage_aus: { l:'Aus Garage', c:'#065f46', bg:'#d1fae5' }
+    garage_aus: { l:'Aus Garage', c:'#065f46', bg:'#d1fae5' },
+    verloren: { l:'Verloren', c:'#991b1b', bg:'#fee2e2' },
+    gefunden: { l:'Wieder gefunden', c:'#065f46', bg:'#d1fae5' }
   };
 
   function _esc(s){
@@ -207,13 +209,31 @@
   }
 
   // Oeffnet das Aktivitaeten-Modal fuer ein bestimmtes Modul.
-  // opts: { modul:'werkzeug'|'fahrzeug'|'trocknung', titel?:string }
+  // opts: { modul:'werkzeug'|'fahrzeug'|'trocknung', titel?:string,
+  //         recordId?:string, recordName?:string }
+  // Mit recordId werden NUR die Aktivitaeten dieses einen Datensatzes
+  // gezeigt (per-Werkzeug-/per-Fahrzeug-Historie). recordName dient als
+  // Fallback-Match fuer Alt-Eintraege ohne modulRecordId.
   function openModal(opts){
     opts = opts || {};
     var modul = opts.modul || 'werkzeug';
     var titel = opts.titel || 'Aktivitäten';
+    var recordId = opts.recordId || null;
+    var recordName = opts.recordName || '';
     var u = _currentUser();
     var orgId = u && u.orgId;
+
+    // Vorfilter auf EINEN Datensatz (Anzeige + CSV nutzen dieselbe Quelle)
+    function _entries(){
+      var list = getForModul(modul, orgId);
+      if (recordId){
+        list = list.filter(function(e){
+          if (e.modulRecordId) return e.modulRecordId === recordId;
+          return !!recordName && e.modulRecordName === recordName;
+        });
+      }
+      return list;
+    }
 
     // Existierendes Modal entfernen (falls noch da)
     var prev = document.getElementById('gema-actlog-modal');
@@ -250,6 +270,8 @@
             + '<option value="defekt">Defekt</option>'
             + '<option value="defekt_erledigt">Defekt erledigt</option>'
             + '<option value="ersatzanfrage">Ersatzanfrage</option>'
+            + '<option value="verloren">Verloren</option>'
+            + '<option value="gefunden">Wieder gefunden</option>'
           + '</select>'
           + '<button id="actlogExport" class="nbtn" style="padding:9px 14px;border:1.5px solid #e5e7eb;border-radius:10px;background:#fff;cursor:pointer;font-weight:700">CSV-Export</button>'
         + '</div>'
@@ -265,7 +287,7 @@
     function render(){
       var q = (bg.querySelector('#actlogSearch').value || '').toLowerCase().trim();
       var aktion = bg.querySelector('#actlogAktionFilter').value || '';
-      var entries = getForModul(modul, orgId);
+      var entries = _entries();
       if (aktion) entries = entries.filter(function(e){ return e.aktion === aktion; });
       if (q) entries = entries.filter(function(e){
         return (e.modulRecordName||'').toLowerCase().indexOf(q) >= 0
@@ -303,7 +325,7 @@
     }
 
     function exportCsv(){
-      var entries = getForModul(modul, orgId);
+      var entries = _entries();
       var header = ['Datum','Aktion','Datensatz','Beschreibung','User'];
       var rows = entries.map(function(e){
         return [_fmtTs(e.ts), (AKTION_LABEL[e.aktion]||{l:e.aktion}).l, e.modulRecordName||'', e.beschreibung||'', e.userName||''];
