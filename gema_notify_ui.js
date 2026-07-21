@@ -280,7 +280,8 @@
     planablage:'📐 Plandialog',
     abos:'💳 Abos & Preise',
     chat:'💬 Chat',
-    schule:'🎓 Schule & Klassen'
+    schule:'🎓 Schule & Klassen',
+    pruefliste:'📋 Prüfliste'
   };
   function _modulLabel(key){
     if(!key)return 'Weitere';
@@ -329,7 +330,8 @@
     planablage:{mods:['planablage']},
     abos:{immer:true},
     chat:{immer:true},
-    schule:{mods:['klassen','pruefungen']}
+    schule:{mods:['klassen','pruefungen']},
+    pruefliste:{mods:['pruefliste']}
   };
   function _gruppeSichtbar(mod, empfangeneGruppen){
     try{

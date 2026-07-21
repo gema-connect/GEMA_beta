@@ -441,6 +441,21 @@
       label:'Neues Klassenmitglied (Dozent)',
       modul:'schule',
       defaultOn:true
+    },
+    pruefliste_vorschlag: {
+      label:'Prüflisten-Vorschlag zur Freigabe',
+      modul:'pruefliste',
+      defaultOn:true
+    },
+    pruefliste_freigegeben: {
+      label:'Prüflisten-Vorschlag freigegeben',
+      modul:'pruefliste',
+      defaultOn:true
+    },
+    pruefliste_abgelehnt: {
+      label:'Prüflisten-Vorschlag abgelehnt',
+      modul:'pruefliste',
+      defaultOn:true
     }
   };
 

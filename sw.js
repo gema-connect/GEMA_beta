@@ -20,7 +20,7 @@ var CACHE_FILES = [
   '/sys_preise.html', '/sys_abos.html', '/sys_beta.html', '/sys_workspace.html', '/sys_unternehmen.html',
   '/br_vkf_formulare.html', '/br_vkf_formular.html', '/br_gasloeschung.html',
   '/el_angaben.html', '/if_fahrzeug.html', '/if_werkzeug.html', '/if_trocknung.html', '/if_wareneingang.html', '/if_arbeitskleider.html', '/iv_immobilien.html', '/sd_schadensbericht.html', '/sp_dachbericht.html',
-  '/pm_goodel.html', '/pm_schnellausschreibung.html', '/pm_crbx.html', '/pm_regierapport.html', '/pm_erp.html', '/pm_einsatzplan.html', '/pm_stunden.html', '/pm_bestellungen.html', '/pm_revisionsunterlagen.html', '/pm_behoerden_formulare.html', '/pm_plaene.html', '/pm_planablage.html',
+  '/pm_goodel.html', '/pm_schnellausschreibung.html', '/pm_crbx.html', '/pm_regierapport.html', '/pm_erp.html', '/pm_einsatzplan.html', '/pm_stunden.html', '/pm_bestellungen.html', '/pm_revisionsunterlagen.html', '/pm_behoerden_formulare.html', '/pm_plaene.html', '/pm_planablage.html', '/pm_pruefliste.html',
   '/gema_sync.js', '/gema_auth.js', '/gema_db.js', '/gema_feedback.js', '/gema_autosave.js',
   '/gema_objekte_api.js', '/gema_produktkatalog_api.js', '/gema_armaturen_api.js', '/gema_armaturen_picker.js', '/gema_bestellungen_api.js', '/gema_bkp_katalog.js',
   '/gema_lu_api.js', '/gema_osmose_api.js', '/gema_offer_request.js', '/gema_offerten_tab.js',

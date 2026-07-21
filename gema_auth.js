@@ -285,6 +285,7 @@
     {key:'regierapport',            label:'Regierapporte',             cat:'Projektmanagement'},
     {key:'erp',                     label:'Offerten/Aufträge/Rechnungen', cat:'Projektmanagement'},
     {key:'einsatzplan',             label:'Einsatzplan',               cat:'Projektmanagement'},
+    {key:'pruefliste',              label:'Prüfliste',                 cat:'Projektmanagement'},
     {key:'stundenerfassung',        label:'Stundenerfassung',          cat:'Projektmanagement'},
     {key:'apparateliste',           label:'Apparateliste',             cat:'Projektmanagement'},
     {key:'elektroangaben',          label:'Elektroangaben',            cat:'Projektmanagement'},
@@ -338,7 +339,7 @@
     'sd_schadensbericht':'schadensbericht',
     'sp_dachbericht':'dachbericht',
     'if_trocknung':'trocknungsgeraete','if_wareneingang':'wareneingang','if_arbeitskleider':'arbeitskleider','iv_immobilien':'immobilien',
-    'pm_crbx':'crbx_offertvergleich','pm_schnellausschreibung':'schnellausschreibung','pm_bestellungen':'bestellungen','pm_revisionsunterlagen':'revisionsunterlagen','pm_behoerden_formulare':'behoerden_formulare','pm_plaene':'plaene','pm_planablage':'planablage','pm_regierapport':'regierapport','pm_erp':'erp','pm_einsatzplan':'einsatzplan',
+    'pm_crbx':'crbx_offertvergleich','pm_schnellausschreibung':'schnellausschreibung','pm_bestellungen':'bestellungen','pm_revisionsunterlagen':'revisionsunterlagen','pm_behoerden_formulare':'behoerden_formulare','pm_plaene':'plaene','pm_planablage':'planablage','pm_regierapport':'regierapport','pm_erp':'erp','pm_einsatzplan':'einsatzplan','pm_pruefliste':'pruefliste',
     'sys_lieferanten':'lieferantenverwaltung','sys_produktkatalog':'produktkatalog',
     'sys_workspace':'workspace',
   };
