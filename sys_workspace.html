@@ -80,6 +80,13 @@ input::placeholder{color:#cbd5e1}
 .ws-bucket-row.active{background:#EDF1F7;color:var(--navy);font-weight:500}
 .ws-bucket-row__icon{display:inline-flex;flex-shrink:0}
 .ws-bucket-row__name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* Rechtsklick-Kontextmenü (Eimer) */
+.ws-ctx{position:fixed;z-index:9500;background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:0 12px 40px rgba(15,23,42,.18);padding:6px;min-width:210px}
+.ws-ctx button{display:flex;align-items:center;gap:9px;width:100%;padding:9px 12px;border:none;background:none;border-radius:8px;font-size:13px;color:var(--ink);cursor:pointer;text-align:left;font-family:inherit;transition:background var(--t)}
+.ws-ctx button:hover{background:#F4F5F7}
+.ws-ctx button.danger{color:#dc2626}
+.ws-ctx button.danger:hover{background:#fef2f2}
+.ws-ctx-sep{height:1px;background:var(--line);margin:5px 4px}
 .ws-sidebar-new{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:500;padding:7px 10px;margin-top:4px;border-radius:var(--r-sm);color:var(--ink-2);border:1px dashed var(--line);align-self:flex-start}
 .ws-sidebar-new:hover{color:var(--navy);border-color:var(--navy);background:#F8FAFC}
 .ws-icon-btn{display:inline-grid;place-items:center;width:26px;height:26px;border-radius:8px;color:var(--ink-2);transition:var(--t)}
@@ -663,15 +670,22 @@ input::placeholder{color:#cbd5e1}
   ];
 
   // Permission-Gating im Picker: nur Module anbieten, die das Konto lesen
-  // darf (Datei-Basename → Modul-Key via GemaAuth.FILE_MAP; Dateien ohne
-  // Mapping — z.B. Hub-Seiten — bleiben sichtbar). Bereits in Eimern
+  // darf (Datei-Basename → Modul-Key via GemaAuth.FILE_MAP). Hub-Seiten ohne
+  // FILE_MAP-Eintrag folgen ihren UNTER-Modulen (HUB_SUBMODS) — sonst sah
+  // z.B. eine Nur-Prüfliste-Rolle die Ausschreibungs-Kachel. Unbekannte
+  // Dateien ohne Mapping bleiben sichtbar (fail-open). Bereits in Eimern
   // liegende Module rendern unabhaengig davon weiter (kein Datenverlust).
+  var HUB_SUBMODS={ pm_ausschreibung:['ausschreibungsunterlagen','schnellausschreibung','crbx_offertvergleich'] };
   function _wsModAllowed(m){
     try{
       if(typeof GemaAuth==='undefined'||!GemaAuth.can) return true;
       var fm=(GemaAuth.getFileMap&&GemaAuth.getFileMap())||{};
       var key=fm[m.id];
-      if(!key) return true;
+      if(!key){
+        var subs=HUB_SUBMODS[m.id];
+        if(subs) return subs.some(function(k){ return !!GemaAuth.can('read', k); });
+        return true;
+      }
       return !!GemaAuth.can('read', key);
     }catch(e){ return true; }
   }
@@ -874,6 +888,20 @@ input::placeholder{color:#cbd5e1}
     if(typeof _GemaDB!=='undefined'){try{_GemaDB.save(KEY,JSON.stringify(buckets));}catch(e){}}
   }
   function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c];});}
+
+  // Rollen-ANZEIGENAME statt roher Rollen-ID: Custom-Rollen aus dem
+  // Rolleneditor heissen id-seitig «r_<timestamp>» — das frühere
+  // roleIds[0].replace('role_','') zeigte dann den Timestamp im UI
+  // («r 1784…»). Immer über GemaAuth.getRoles() auflösen; Mehrfach-Rollen
+  // wie im Nav-Badge als «Erste +N».
+  function _wsRoleName(u){
+    if(!u||!u.roleIds||!u.roleIds.length)return '';
+    var roles=[];try{roles=(typeof GemaAuth!=='undefined'&&GemaAuth.getRoles&&GemaAuth.getRoles())||[];}catch(e){}
+    var names=u.roleIds.map(function(id){var r=roles.find(function(x){return x&&x.id===id;});return r&&r.name?r.name:null;}).filter(Boolean);
+    if(names.length)return names[0]+(names.length>1?' +'+(names.length-1):'');
+    var raw=String(u.roleIds[0]||'').replace(/^role_/,'').replace(/^r_\d+$/,'').replace(/_/g,' ').trim();
+    return raw;
+  }
 
   // ── Toast ──
   function toast(text,iconName){
@@ -1222,6 +1250,85 @@ input::placeholder{color:#cbd5e1}
     el.classList.remove('editing');
     if(txt&&txt!==b.name){b.name=txt;save();renderSidebar();toast('Name aktualisiert','pencil');}
     else{el.innerText=b.name;}
+  };
+
+  // ── Kontextmenü (Rechtsklick) für Eimer — Sidebar, Tab-Leiste, Drawer ──
+  var _wsCtxEl=null;
+  function _wsCtxClose(){
+    if(_wsCtxEl&&_wsCtxEl.parentNode){try{_wsCtxEl.parentNode.removeChild(_wsCtxEl);}catch(e){}}
+    _wsCtxEl=null;
+  }
+  function _wsCtxShow(ev,items){
+    ev.preventDefault();ev.stopPropagation();
+    _wsCtxClose();
+    var el=document.createElement('div');el.className='ws-ctx';
+    items.forEach(function(it){
+      if(it.sep){var sp=document.createElement('div');sp.className='ws-ctx-sep';el.appendChild(sp);return;}
+      var btn=document.createElement('button');
+      if(it.danger)btn.className='danger';
+      btn.innerHTML=(it.ic?icon(it.ic,14,2):'')+'<span>'+esc(it.label)+'</span>';
+      btn.onclick=function(e){e.stopPropagation();_wsCtxClose();it.fn();};
+      el.appendChild(btn);
+    });
+    document.body.appendChild(el);
+    var W=el.offsetWidth||210,H=el.offsetHeight||10;
+    el.style.left=Math.max(8,Math.min(ev.clientX,window.innerWidth-W-8))+'px';
+    el.style.top=Math.max(8,Math.min(ev.clientY,window.innerHeight-H-8))+'px';
+    _wsCtxEl=el;
+    setTimeout(function(){document.addEventListener('click',_wsCtxClose,{once:true});},0);
+    return false;
+  }
+  document.addEventListener('keydown',function(e){if(e.key==='Escape')_wsCtxClose();});
+  window.addEventListener('resize',_wsCtxClose);
+  document.addEventListener('scroll',_wsCtxClose,true);
+  window._wsCtxBucket=function(ev,id){
+    var b=buckets.find(function(x){return x.id===id;});if(!b)return true;
+    return _wsCtxShow(ev,[
+      {ic:'bucket',label:'Öffnen',fn:function(){_wsOpen(id);}},
+      {ic:'plus',label:'Modul hinzufügen',fn:function(){_wsOpen(id);window._wsOpenModulePicker();}},
+      {ic:'pencil',label:'Umbenennen',fn:function(){window._wsCtxRename(id);}},
+      {ic:'note',label:'Duplizieren',fn:function(){window._wsDuplicateBucket(id);}},
+      {sep:true},
+      {ic:'x',label:'Löschen',danger:true,fn:function(){window._wsConfirmDelete(id);}}
+    ]);
+  };
+
+  // Umbenennen via Kontextmenü (auch für nicht-aktive Eimer)
+  window._wsCtxRename=function(id){
+    var b=buckets.find(function(x){return x.id===id;});if(!b)return;
+    var body='<div class="ws-form"><div class="ws-form-field"><label>Name</label>'
+      +'<input class="ws-input" id="wsRenameInp" value="'+esc(b.name)+'" maxlength="80" onkeydown="if(event.key===\'Enter\')_wsCtxRenameSave(\''+id+'\')"></div>'
+      +'<div class="ws-form-actions"><button class="ws-btn ws-btn-ghost" onclick="_wsCloseModal()">Abbrechen</button>'
+      +'<button class="ws-btn ws-btn-primary" onclick="_wsCtxRenameSave(\''+id+'\')">Speichern</button></div></div>';
+    openModal('Eimer umbenennen',body,420);
+    setTimeout(function(){var i=document.getElementById('wsRenameInp');if(i){i.focus();i.select();}},60);
+  };
+  window._wsCtxRenameSave=function(id){
+    var b=buckets.find(function(x){return x.id===id;});if(!b)return;
+    var i=document.getElementById('wsRenameInp');
+    var v=((i&&i.value)||'').trim();
+    if(!v){if(i)i.focus();return;}
+    b.name=v;
+    _wsCloseModal();save();render();
+    toast('Name aktualisiert','pencil');
+  };
+
+  // Duplizieren: Kopie mit eigenem Objekt-Kontext — objektId wird bewusst
+  // NICHT übernommen (zwei Eimer dürfen sich nie ein Auto-Objekt teilen,
+  // sonst greift die Ghost-Resurrection-Falle aus pm_objekte).
+  window._wsDuplicateBucket=function(id){
+    var b=buckets.find(function(x){return x.id===id;});if(!b)return;
+    var copy=JSON.parse(JSON.stringify(b));
+    copy.id='ws_'+Date.now();
+    copy.name=b.name+' (Kopie)';
+    copy.objektId=null;
+    copy.createdAt=new Date().toISOString();
+    var cu=_curUser();
+    if(cu&&cu.id)copy.createdBy=cu.id;
+    copy.activity=[{who:(cu&&cu.name)||'Du',text:'hat den Eimer aus „'+b.name+'” dupliziert',when:'gerade eben'}];
+    buckets.push(copy);
+    save();render();
+    toast('Eimer dupliziert','check');
   };
 
   // ── Org Helper ──
@@ -1638,7 +1745,7 @@ input::placeholder{color:#cbd5e1}
     var u=null;
     try{if(typeof GemaAuth!=='undefined')u=GemaAuth.getCurrentUser();}catch(e){}
     var name=u?(u.name||((u.vorname||'')+' '+(u.nachname||'')).trim()||u.username):'Benutzer';
-    var role=u&&u.roleIds?u.roleIds[0].replace('role_','').replace(/_/g,' '):'Planer';
+    var role=_wsRoleName(u)||'Mitglied';
     var initials=name.split(' ').map(function(s){return s[0]||'';}).join('').slice(0,2).toUpperCase()||'??';
     document.getElementById('wsUser').innerHTML=avatar(initials,40,'#0c4a2e')
       +'<div class="ws-user-meta"><div class="ws-user-name">'+esc(name)+'</div><div class="ws-user-role">'+esc(role)+'</div></div>';
@@ -1699,7 +1806,7 @@ input::placeholder{color:#cbd5e1}
   function bucketRowHtml(b){
     var isActive=activeTab===b.id;
     var isOpen=openTabs.indexOf(b.id)>=0;
-    return '<button class="ws-bucket-row'+(isActive?' active':'')+'" onclick="_wsOpen(\''+b.id+'\')" style="'+(isOpen?'':'')+'position:relative">'
+    return '<button class="ws-bucket-row'+(isActive?' active':'')+'" onclick="_wsOpen(\''+b.id+'\')" oncontextmenu="return _wsCtxBucket(event,\''+b.id+'\')" style="'+(isOpen?'':'')+'position:relative">'
       +(isOpen?'<span style="position:absolute;left:2px;top:50%;transform:translateY(-50%);width:3px;height:14px;border-radius:2px;background:var(--gradient)"></span>':'')
       +'<span class="ws-bucket-row__icon">'+typeIcon(b.type)+'</span>'
       +'<span class="ws-bucket-row__name">'+esc(b.name)+'</span>'
@@ -1715,7 +1822,7 @@ input::placeholder{color:#cbd5e1}
       +openTabs.map(function(id){
         var b=buckets.find(function(x){return x.id===id;});if(!b)return '';
         var isActive=id===activeTab;
-        return '<div class="ws-tab'+(isActive?' active':'')+'" onclick="_wsActivateTab(\''+id+'\')" title="'+esc(b.name)+'">'
+        return '<div class="ws-tab'+(isActive?' active':'')+'" onclick="_wsActivateTab(\''+id+'\')" oncontextmenu="return _wsCtxBucket(event,\''+id+'\')" title="'+esc(b.name)+'">'
           +'<span class="ws-tab-icon">'+typeIcon(b.type,14)+'</span>'
           +'<span class="ws-tab-name">'+esc(b.name)+'</span>'
           +'<button class="ws-tab-close" onclick="event.stopPropagation();_wsCloseTab(\''+id+'\')" title="Tab schliessen">'+icon('x',12,2)+'</button></div>';
@@ -1961,7 +2068,7 @@ input::placeholder{color:#cbd5e1}
     var persB=visible.filter(function(b){return b.ownerType==='personal';});
     var guestB=visible.filter(function(b){return _isGuestBucket(b);});
     function drawerRow(b){
-      return '<button class="ws-bucket-row'+(activeTab===b.id?' active':'')+'" onclick="_wsOpen(\''+b.id+'\');_wsToggleDrawer(false)">'
+      return '<button class="ws-bucket-row'+(activeTab===b.id?' active':'')+'" onclick="_wsOpen(\''+b.id+'\');_wsToggleDrawer(false)" oncontextmenu="return _wsCtxBucket(event,\''+b.id+'\')">'
         +'<span class="ws-bucket-row__icon">'+typeIcon(b.type)+'</span>'
         +'<span class="ws-bucket-row__name">'+esc(b.name)+'</span></button>';
     }
@@ -2371,7 +2478,7 @@ input::placeholder{color:#cbd5e1}
 
     var orgListHtml=orgUsers.length?orgUsers.map(function(u){
       var already=existingIds.indexOf(u.id)>=0;
-      var role=u.roleIds&&u.roleIds[0]?u.roleIds[0].replace('role_','').replace(/_/g,' '):'';
+      var role=_wsRoleName(u);
       return '<button class="ws-modpicker-item'+(already?' disabled':'')+'" '
         +(already?'disabled':'onclick="_wsAddOrgUser(\''+u.id+'\')"')+'>'
         +avatar(_initials(u.name),36,AVATAR_COLORS[orgUsers.indexOf(u)%AVATAR_COLORS.length])
@@ -2408,7 +2515,7 @@ input::placeholder{color:#cbd5e1}
     var b=buckets.find(function(x){return x.id===activeTab;});if(!b)return;
     var allUsers=_getOrgUsers();
     var u=allUsers.find(function(x){return x.id===userId;});if(!u)return;
-    var role=u.roleIds&&u.roleIds[0]?u.roleIds[0].replace('role_','').replace(/_/g,' '):'Mitglied';
+    var role=_wsRoleName(u)||'Mitglied';
     var orgName='';
     try{if(typeof GemaAuth!=='undefined'){var o=GemaAuth.getCurrentOrg();if(o)orgName=o.name||o.id;}}catch(e){}
     b.members.push(_initials(u.name));
