@@ -29,7 +29,11 @@ eq('ja → gut', E.prAutoBewertung('ja_nein_nb', 'ja'), 'gut');
 eq('nein → schlecht', E.prAutoBewertung('ja_nein_nb', 'nein'), 'schlecht');
 eq('nb → nicht_bewertet', E.prAutoBewertung('ja_nein_nb', 'nb'), 'nicht_bewertet');
 eq('vorhanden → gut', E.prAutoBewertung('vorhanden_nb', 'vorhanden'), 'gut');
-eq('nicht_vorhanden → schlecht', E.prAutoBewertung('vorhanden_nb', 'nicht_vorhanden'), 'schlecht');
+// «nicht vorhanden» ist KEIN Mangel: Zustand entfällt (grau) statt schlecht (User-Entscheid 07/2026)
+eq('nicht_vorhanden → nicht_bewertet (entfällt)', E.prAutoBewertung('vorhanden_nb', 'nicht_vorhanden'), 'nicht_bewertet');
+t('prZustandEntfaellt: vorhanden_nb + nicht_vorhanden', E.prZustandEntfaellt({ antworttyp: 'vorhanden_nb', antwort: 'nicht_vorhanden' }));
+t('prZustandEntfaellt: vorhanden_nb + vorhanden → false', !E.prZustandEntfaellt({ antworttyp: 'vorhanden_nb', antwort: 'vorhanden' }));
+t('prZustandEntfaellt: ja_nein_nb + nein → false', !E.prZustandEntfaellt({ antworttyp: 'ja_nein_nb', antwort: 'nein' }));
 eq('zustand maessig → maessig', E.prAutoBewertung('zustand', 'maessig'), 'maessig');
 eq('auffaellig vorhanden → schlecht', E.prAutoBewertung('auffaellig', 'vorhanden'), 'schlecht');
 eq('unbekannte Antwort → nicht_bewertet', E.prAutoBewertung('ja_nein_nb', 'xxx'), 'nicht_bewertet');
@@ -65,6 +69,15 @@ eq('gesamt maessig ohne schlecht', E.prBegehungBewertung([{ antwort: 'x', bewert
 eq('gesamt gut', E.prBegehungBewertung([{ antwort: 'x', bewertung: 'gut' }]).gesamt, 'gut');
 eq('gesamt nicht_bewertet (nur offen)', E.prBegehungBewertung([{ antwort: null }]).gesamt, 'nicht_bewertet');
 eq('leere Liste total 0', E.prBegehungBewertung([]).total, 0);
+// nicht_vorhanden zählt NIE als schlecht — auch Altdaten mit gespeicherter
+// Bewertung «schlecht» werden in der Aggregation zu nicht_bewertet normalisiert
+const zNv = E.prBegehungBewertung([
+  { antwort: 'nicht_vorhanden', antworttyp: 'vorhanden_nb', bewertung: 'schlecht' },
+  { antwort: 'vorhanden', antworttyp: 'vorhanden_nb', bewertung: 'gut' }
+]);
+eq('nicht_vorhanden (Altdaten schlecht) → nicht_bewertet', zNv.schlecht, 0);
+eq('nicht_vorhanden zählt als nicht_bewertet', zNv.nicht_bewertet, 1);
+eq('gesamt bleibt gut trotz nicht_vorhanden', zNv.gesamt, 'gut');
 
 console.log('— Normalisierung + Ähnlichkeit (Duplikat, item 6) —');
 eq('Umlaute → ae/oe/ue', E.prNorm('Prüfung Öl Ärger'), 'pruefung oel aerger');

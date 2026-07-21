@@ -175,6 +175,19 @@ canvas.sig{width:100%;height:150px;background:#fff;display:block;touch-action:no
 .foto-thumb:hover{transform:scale(1.07);box-shadow:var(--sh)}
 .foto-del{position:absolute;top:-5px;right:-5px;width:18px;height:18px;border-radius:50%;background:var(--red);color:#fff;font-size:10px;font-weight:800;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1}
 .foto-wrap{position:relative;display:inline-block}
+/* Fotos in der rechten Spalte: grösser, 2-spaltig (Feedback 07/2026) */
+.foto-grid-r{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px}
+.foto-grid-r .foto-wrap{display:block}
+.foto-grid-r .foto-thumb{width:100%;height:120px}
+/* Mangel/Pendenz-Umschalter + Typ-Badge */
+.typ-seg{display:inline-flex;border:1.5px solid var(--brd2);border-radius:9px;overflow:hidden}
+.typ-seg button{border:none;background:var(--bg2);padding:7px 14px;font-size:12.5px;font-weight:800;color:var(--mut);cursor:pointer;font-family:inherit}
+.typ-seg button.on-mangel{background:var(--red);color:#fff}
+.typ-seg button.on-pendenz{background:var(--amb,#d97706);color:#fff}
+.typ-pill{display:inline-flex;align-items:center;padding:2px 9px;border-radius:999px;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.3px}
+.typ-pill.mangel{background:var(--red-bg,#fef2f2);color:var(--red);border:1px solid #fca5a5}
+.typ-pill.pendenz{background:#fffbeb;color:#b45309;border:1px solid #fcd34d}
+.status-badge.sb-teil{background:#fffbeb;color:#b45309;border:1px solid #fcd34d}
 
 /* mangel detail */
 .mangel-detail{border-top:1.5px dashed var(--brd2);background:var(--bg2);padding:14px 16px;display:none}
@@ -260,6 +273,20 @@ canvas.sig{width:100%;height:150px;background:#fff;display:block;touch-action:no
 .obj-combo-toggle{font-size:10px;font-weight:700;color:var(--blue,#2563eb);cursor:pointer;background:none;border:none;padding:0;text-decoration:none;white-space:nowrap;margin-left:auto;text-transform:none;letter-spacing:0}
 .obj-combo-toggle:hover{opacity:.7}
 .fg label{display:flex;align-items:center}
+/* Auto-Save-Statusanzeige unten rechts (Kanon if_trocknung/pm_erp) —
+   ÜBER der fixen .footer-bar positioniert, damit der Reset-Button frei bleibt */
+.save-status{position:fixed;bottom:calc(74px + env(safe-area-inset-bottom,0px));right:18px;z-index:280;display:flex;align-items:center;gap:8px;padding:8px 14px;border-radius:99px;background:#fff;border:1px solid #e5e7eb;box-shadow:0 8px 24px rgba(15,23,42,.14);font-size:12.5px;font-weight:600;color:#0f172a;transition:opacity .25s,transform .25s;font-family:'DM Sans',system-ui,sans-serif}
+.save-status.hidden{opacity:0;transform:translateY(8px);pointer-events:none}
+.save-status .save-dot{width:8px;height:8px;border-radius:50%;background:#94a3b8;display:inline-block}
+.save-status .save-spinner{width:14px;height:14px;border:2px solid #e5e7eb;border-top-color:#2563eb;border-radius:50%;animation:saveSpin .7s linear infinite}
+.save-status .save-check{color:#16a34a;font-weight:800;font-size:14px}
+.save-status .save-err{color:#dc2626;font-weight:800;font-size:14px}
+.save-status.pending{color:#64748b}
+.save-status.saving{color:#2563eb;border-color:#bfdbfe}
+.save-status.saved{color:#16a34a;border-color:#bbf7d0;background:#f0fdf4}
+.save-status.error{color:#dc2626;border-color:#fecaca;background:#fef2f2}
+@keyframes saveSpin{to{transform:rotate(360deg)}}
+@media(max-width:640px){.save-status{bottom:calc(66px + env(safe-area-inset-bottom,0px));right:14px;padding:6px 11px;font-size:11.5px}}
 </style>
 <link rel="stylesheet" href="gema_responsive.css"/>
 </head>
@@ -341,9 +368,10 @@ canvas.sig{width:100%;height:150px;background:#fff;display:block;touch-action:no
 
   <div class="tabs-bar">
     <button class="tab active" id="tab_abnahme"  onclick="setTab('abnahme')">📜 Abnahmeprotokoll</button>
-    <button class="tab"        id="tab_maengel"  onclick="setTab('maengel')">🔍 Mängelliste</button>
+    <button class="tab"        id="tab_maengel"  onclick="setTab('maengel')">🔍 Mängel &amp; Pendenzen</button>
     <button class="tab"        id="tab_pruefliste" onclick="setTab('pruefliste')">✅ Prüfliste</button>
     <button class="tab"        id="tab_plaene" onclick="setTab('plaene')">📐 Pläne</button>
+    <button class="tab"        id="tab_anhang" onclick="setTab('anhang')">📎 Anhang</button>
   </div>
 
   <!-- ══════ TAB: ABNAHMEPROTOKOLL ══════ -->
@@ -351,13 +379,19 @@ canvas.sig{width:100%;height:150px;background:#fff;display:block;touch-action:no
 
     <!-- Protokollkopf -->
     <div class="card" style="margin-bottom:14px">
-      <div class="card-hd">
+      <div class="card-hd" style="flex-wrap:wrap">
         <div class="card-hd-ic">🏛</div>
         <div>
-          <div class="card-hd-title">Werkprüfung / Werksabnahme</div>
+          <div class="card-hd-title" id="protoArtTitle">Werkprüfung / Werksabnahme</div>
           <div class="card-hd-sub">SIA 118 · Protokoll zur Prüfung und Abnahme</div>
         </div>
-        <div style="margin-left:auto;display:flex;gap:8px;flex-wrap:wrap">
+        <div style="margin-left:auto;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          <select id="protoArt" title="Art der Abnahme" style="padding:8px 11px;border:1.5px solid var(--brd2);border-radius:9px;font-size:13px;font-weight:700;background:var(--bg2);color:var(--txt2);outline:none">
+            <option value="">Werkprüfung / Werksabnahme</option>
+            <option value="sichtkontrolle">Sichtkontrolle</option>
+            <option value="teilabnahme">Teilabnahme</option>
+            <option value="schlussabnahme">Schlussabnahme</option>
+          </select>
           <label class="check-item" id="ci_art158"><input type="checkbox" id="chkArt158"><span>Art. 158 Abs. 2</span></label>
           <label class="check-item" id="ci_art161"><input type="checkbox" id="chkArt161"><span>Art. 161 Abs. 3</span></label>
         </div>
@@ -391,15 +425,22 @@ canvas.sig{width:100%;height:150px;background:#fff;display:block;touch-action:no
             </select>
             <input id="unternehmer" placeholder="Firma / Adresse" style="display:none;margin-top:4px"/>
           </div>
-          <div class="fg"><label>Arbeitsgattung</label><input id="arbeitsgattung" placeholder="z.B. Sanitärinstallation / Rohinstallation"/></div>
+          <div class="fg"><label>Arbeitsgattung <span style="font-size:9px;color:var(--mut);text-transform:none;letter-spacing:0;margin-left:auto;font-weight:600">BKP-Katalog</span></label><input id="arbeitsgattung" list="bkpGattungen" placeholder="z.B. BKP 250 Sanitäranlagen"/><datalist id="bkpGattungen"></datalist></div>
           <div class="fg"><label>Vertrag vom</label><input id="vertragVom" placeholder="TT.MM.JJJJ"/></div>
         </div>
         <div class="divider"></div>
         <div class="grid2" style="margin-bottom:13px">
           <div class="fg">
             <label>Geprüfter Teil</label>
+            <select id="geprueftTyp" style="margin-bottom:6px">
+              <option value="frei">✏ Freie Eingabe (Werkteil)</option>
+              <option value="komplett">🏠 Komplettes Werk</option>
+              <option value="steigzone">🧱 Steigzone / Vorwand</option>
+              <option value="einlage">🏗 Einlage: Decke über …</option>
+            </select>
+            <div id="gtZusatz" style="display:none;margin-bottom:6px"></div>
             <input id="gepruefterTeil" placeholder="z.B. komplette Installationselemente"/>
-            <div class="hint">Falls nicht ganzes Werk geprüft</div>
+            <div class="hint" id="gtHint">Falls nicht ganzes Werk geprüft</div>
           </div>
           <div class="fg">
             <label>Frist zur Behebung der Mängel</label>
@@ -416,7 +457,7 @@ canvas.sig{width:100%;height:150px;background:#fff;display:block;touch-action:no
         <div class="divider"></div>
         <div class="section-label">Dokumentation</div>
         <div class="checks" style="margin-bottom:13px;flex-wrap:wrap;gap:8px">
-          <label class="check-item"><input type="checkbox" id="docHilfsblaetter"><span>gemäss Hilfsblätter</span></label>
+          <label class="check-item"><input type="checkbox" id="docHilfsblaetter"><span>gemäss Anhang (Plan / Zusatzblatt)</span></label>
           <label class="check-item"><input type="checkbox" id="docMaengelliste" checked><span>gemäss Mängelliste / Schreiben vom</span></label>
           <div class="fg" style="flex:1;min-width:200px"><input id="schreibenVom" placeholder="TT.MM.JJJJ (optional)" style="min-height:0;padding:9px 12px"/></div>
         </div>
@@ -430,6 +471,7 @@ canvas.sig{width:100%;height:150px;background:#fff;display:block;touch-action:no
           <label class="check-item"><input type="radio" name="entscheid" id="entAbgenommen" value="abgenommen"><span>✅ Das Werk gilt als abgenommen (Art. 159, 160)</span></label>
           <label class="check-item"><input type="radio" name="entscheid" id="entZurueck" value="zurueckgestellt"><span>⏸ Die Abnahme wird zurückgestellt (Art. 161)</span></label>
         </div>
+        <div id="siaZusatz" style="display:none;margin-bottom:13px"></div>
         <div class="hint">Die Bedingungen für die Prüfung und den Garantiebeginn richten sich nach dem Werkvertrag.</div>
         <div class="divider"></div>
         <div class="grid2">
@@ -470,32 +512,32 @@ canvas.sig{width:100%;height:150px;background:#fff;display:block;touch-action:no
             <div class="sig-card-hd"><span class="sig-name">Der Unternehmer</span><button class="sig-clear-btn" data-sig-clear="sigUnternehmer">✕ Löschen</button></div>
             <canvas class="sig" id="sigUnternehmer"></canvas>
             <div class="sig-meta">
-              <div class="fg"><label>Name</label><input id="sigUnternehmerName" placeholder="Name" style="min-height:0;padding:8px 11px"/></div>
-              <div class="fg"><label>Visum</label><input id="sigUnternehmerVisum" placeholder="z.B. JV" style="min-height:0;padding:8px 11px"/></div>
+              <div class="fg"><label>Name / Vorname</label><input id="sigUnternehmerName" placeholder="Name / Vorname" style="min-height:0;padding:8px 11px"/></div>
+              <div class="fg"><label>Firma</label><input id="sigUnternehmerVisum" placeholder="aus «Unternehmer» oben" style="min-height:0;padding:8px 11px"/></div>
             </div>
           </div>
           <div class="sig-card">
             <div class="sig-card-hd"><span class="sig-name">Der Bauherr</span><button class="sig-clear-btn" data-sig-clear="sigBauherr">✕ Löschen</button></div>
             <canvas class="sig" id="sigBauherr"></canvas>
             <div class="sig-meta">
-              <div class="fg"><label>Name</label><input id="sigBauherrName" placeholder="Name" style="min-height:0;padding:8px 11px"/></div>
-              <div class="fg"><label>Visum</label><input id="sigBauherrVisum" placeholder="z.B. BK" style="min-height:0;padding:8px 11px"/></div>
+              <div class="fg"><label>Name / Vorname</label><input id="sigBauherrName" placeholder="Name / Vorname" style="min-height:0;padding:8px 11px"/></div>
+              <div class="fg"><label>Firma</label><input id="sigBauherrVisum" placeholder="aus «Bauherr» oben" style="min-height:0;padding:8px 11px"/></div>
             </div>
           </div>
           <div class="sig-card">
             <div class="sig-card-hd"><span class="sig-name">Die Bauleitung</span><button class="sig-clear-btn" data-sig-clear="sigBauleitung">✕ Löschen</button></div>
             <canvas class="sig" id="sigBauleitung"></canvas>
             <div class="sig-meta">
-              <div class="fg"><label>Name</label><input id="sigBauleitungName" placeholder="Name" style="min-height:0;padding:8px 11px"/></div>
-              <div class="fg"><label>Visum</label><input id="sigBauleitungVisum" placeholder="z.B. MN" style="min-height:0;padding:8px 11px"/></div>
+              <div class="fg"><label>Name / Vorname</label><input id="sigBauleitungName" placeholder="Name / Vorname" style="min-height:0;padding:8px 11px"/></div>
+              <div class="fg"><label>Firma</label><input id="sigBauleitungVisum" placeholder="aus «Bauleitung» oben" style="min-height:0;padding:8px 11px"/></div>
             </div>
           </div>
           <div class="sig-card">
             <div class="sig-card-hd"><span class="sig-name">Die Fachbauleitung</span><button class="sig-clear-btn" data-sig-clear="sigFachbauleitung">✕ Löschen</button></div>
             <canvas class="sig" id="sigFachbauleitung"></canvas>
             <div class="sig-meta">
-              <div class="fg"><label>Name</label><input id="sigFachbauleitungName" placeholder="Name" style="min-height:0;padding:8px 11px"/></div>
-              <div class="fg"><label>Visum</label><input id="sigFachbauleitungVisum" placeholder="z.B. RJ" style="min-height:0;padding:8px 11px"/></div>
+              <div class="fg"><label>Name / Vorname</label><input id="sigFachbauleitungName" placeholder="Name / Vorname" style="min-height:0;padding:8px 11px"/></div>
+              <div class="fg"><label>Firma</label><input id="sigFachbauleitungVisum" placeholder="Firma" style="min-height:0;padding:8px 11px"/></div>
             </div>
           </div>
         </div>
@@ -513,7 +555,7 @@ canvas.sig{width:100%;height:150px;background:#fff;display:block;touch-action:no
     <div class="card" style="margin-bottom:14px">
       <div class="card-hd">
         <div class="card-hd-ic">📝</div>
-        <div><div class="card-hd-title">Mängelliste</div><div class="card-hd-sub">Mängel und Pendenzen mit Frist, Zuständigkeit und Fotos</div></div>
+        <div><div class="card-hd-title">Mängel- &amp; Pendenzenliste</div><div class="card-hd-sub">Jeder Punkt ist als Mangel ODER Pendenz erfassbar — mit Frist, Zuständigkeit und Fotos</div></div>
       </div>
       <div class="card-body sm">
         <div class="grid2" style="margin-bottom:12px">
@@ -533,10 +575,11 @@ canvas.sig{width:100%;height:150px;background:#fff;display:block;touch-action:no
       <div class="filter-btns">
         <button class="fb active" id="mf_all"  onclick="setMFilter('all')">Alle</button>
         <button class="fb"        id="mf_open" onclick="setMFilter('open')">🔴 Offen</button>
+        <button class="fb"        id="mf_teil" onclick="setMFilter('teil')">🟡 Teilweise</button>
         <button class="fb"        id="mf_done" onclick="setMFilter('done')">✅ Erledigt</button>
       </div>
       <button class="act-btn" id="btnMlAssign" style="margin-left:auto" onclick="abMlOpenAssign()">📋 An Monteur übergeben</button>
-      <button class="act-btn primary" id="addTop">+ Neuer Mängelpunkt</button>
+      <button class="act-btn primary" id="addTop">+ Neuer Punkt</button>
     </div>
 
     <div class="maengel-list" id="items"></div>
@@ -615,6 +658,31 @@ canvas.sig{width:100%;height:150px;background:#fff;display:block;touch-action:no
     </div>
   </div>
 
+  <!-- ══════ TAB: ANHANG ══════ -->
+  <div id="view_anhang" style="display:none">
+    <div class="card">
+      <div class="card-hd">
+        <div class="card-hd-ic">📎</div>
+        <div>
+          <div class="card-hd-title">Anhang</div>
+          <div class="card-hd-sub">Pläne, Zusatzblätter und weitere Beilagen zum Protokoll — erscheinen im PDF-Export</div>
+        </div>
+        <label style="margin-left:auto;padding:7px 14px;border-radius:8px;border:1.5px dashed var(--brd2);cursor:pointer;font-size:12px;font-weight:700;color:var(--mut);display:inline-flex;align-items:center;gap:5px">
+          📎 Datei hochladen
+          <input type="file" accept=".pdf,.jpg,.jpeg,.png" multiple style="display:none" onchange="_anhUpload(this)"/>
+        </label>
+      </div>
+      <div class="card-body" id="anhangBody">
+        <div id="anhangList" style="display:flex;flex-direction:column;gap:10px"></div>
+        <div id="anhangEmpty" style="padding:40px;text-align:center;color:var(--mut)">
+          <div style="font-size:40px;margin-bottom:10px">📎</div>
+          <div style="font-size:14px;font-weight:700;margin-bottom:4px">Keine Anhänge</div>
+          <div style="font-size:12px">Plan oder Zusatzblatt hochladen (PDF oder Bild, max. 10 MB) — im Protokoll unter «Dokumentation: gemäss Anhang» referenziert.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
 </div><!-- /pg -->
 
 <!-- STICKY FOOTER -->
@@ -628,8 +696,6 @@ canvas.sig{width:100%;height:150px;background:#fff;display:block;touch-action:no
       </label>
     </div>
     <div class="footer-actions">
-      <button class="nbtn primary" onclick="saveFn()">💾 Speichern</button>
-      <button class="nbtn" onclick="loadFn()">📂 Laden</button>
       <button class="nbtn warn" id="exportPdfBtn2">📄 PDF erstellen</button>
       <button class="nbtn" id="resetBtn" style="color:var(--red)">↺ Reset</button>
     </div>
@@ -663,6 +729,7 @@ function fixLeadingZero(el){var v=el.value.trim();if(!v)return;if(v.charAt(0)===
 <script src="gema_db.js"></script>
 <script src="gema_feedback.js"></script><script src="gema_notify.js"></script><script src="gema_notify_ui.js"></script><script src="gema_chat.js"></script>
 <script src="gema_objekte_api.js"></script>
+<script src="gema_bkp_katalog.js"></script>
 <script src="gema_dialog.js"></script>
 <script src="gema_pdf.js"></script>
 <script src="gema_autosave.js"></script>
@@ -679,7 +746,7 @@ if(typeof _GemaDB==='undefined'){
 // ── Tabs immer funktionsfähig, unabhängig von Supabase-Init ─────────────────
 (function() {
   function switchTab(t) {
-    ['abnahme','maengel','pruefliste','plaene'].forEach(function(x) {
+    ['abnahme','maengel','pruefliste','plaene','anhang'].forEach(function(x) {
       var btn = document.getElementById('tab_'+x);
       var view = document.getElementById('view_'+x);
       if (btn)  btn.classList.toggle('active', x===t);
@@ -689,7 +756,7 @@ if(typeof _GemaDB==='undefined'){
   window.setTab = switchTab;
   // Wires up tab buttons immediately on DOMContentLoaded
   document.addEventListener('DOMContentLoaded', function() {
-    ['abnahme','maengel','pruefliste','plaene'].forEach(function(t) {
+    ['abnahme','maengel','pruefliste','plaene','anhang'].forEach(function(t) {
       var btn = document.getElementById('tab_'+t);
       if (btn) btn.addEventListener('click', function() { window.setTab(t); });
     });
@@ -738,10 +805,11 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
 
   let state = {
     abnahme: {
-      art158:false, art161:false,
+      art158:false, art161:false, protokollArt:'',
       bauobjekt:'', bauherr:'', bauleitung:'', _bauleitungId:'', unternehmer:'', _unternehmerId:'',
       arbeitsgattung:'', vertragVom:'',
-      gepruefterTeil:'', fristMaengel:'siehe Mängelliste',
+      gepruefterTeil:'', geprueftTyp:'frei', geprueftZusatz:{geschoss:'',raum:'',steigzone:'',wohnung:'',umfang:'komplett'},
+      fristMaengel:'siehe Mängelliste',
       ergebnis:'', docHilfsblaetter:false, docMaengelliste:true,
       schreibenVom:'', bemerkungen:'', entscheid:'',
       ort:'', datum:fmtDate(),
@@ -757,13 +825,22 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
     items:[]
   };
 
+  // «Durch wen»-Vorschlag = Unternehmer aus dem Protokollkopf (erster
+  // Adressteil, überschreibbar — Feedback 07/2026).
+  const kuerzelVorschlag = () => {
+    const u=(state.abnahme.unternehmer||'').split(/[,\n]/)[0].trim();
+    return u.length>40 ? u.slice(0,40)+'…' : u;
+  };
+
   const createItem = (seed={}) => ({
     id: uid(),
+    typ: seed.typ??'mangel',              // 'mangel' | 'pendenz' (wählbar)
     ort: seed.ort??'',
     mangel: seed.mangel??'',
     akzeptiert: seed.akzeptiert??'Ja',
     erledigungBis: seed.erledigungBis??(state.maengelMeta.standardErledigenBis||defaultDue()),
-    kuerzel: seed.kuerzel??'',
+    kuerzel: seed.kuerzel??kuerzelVorschlag(),
+    teilweise: seed.teilweise??false,     // teilweise erledigt (Zwischenstatus)
     erledigt: seed.erledigt??'',
     notizen: seed.notizen??'',
     photos: seed.photos??[]
@@ -816,6 +893,8 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
       ectx.fillStyle='#ffffff'; ectx.fillRect(0,0,ec.width,ec.height);
       ectx.drawImage(canvas,0,0,ec.width,ec.height);
       state.abnahme.sig[storeKey].dataUrl=ec.toDataURL('image/png');
+      // Unterschriften speichern automatisch (kein eigener Speichern-Button)
+      scheduleSave();
       e.preventDefault();
     };
 
@@ -870,9 +949,20 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
     $('ergWes').checked=state.abnahme.ergebnis==='wesentliche';
     $('entAbgenommen').checked=state.abnahme.entscheid==='abgenommen';
     $('entZurueck').checked=state.abnahme.entscheid==='zurueckgestellt';
+    // Art der Abnahme (Sichtkontrolle/Teilabnahme/Schlussabnahme) → Titel folgt der Wahl
+    if(document.activeElement!==$('protoArt')) $('protoArt').value=state.abnahme.protokollArt||'';
+    $('protoArtTitle').textContent=_protoArtLabel();
+    _gtRender();
+    _siaZusatzRender();
     ['Unternehmer','Bauherr','Bauleitung','Fachbauleitung'].forEach(k=>{
       const lk=k.charAt(0).toLowerCase()+k.slice(1);
       const sig=(state.abnahme.sig&&state.abnahme.sig[lk])||{};
+      // Firma-Feld (ehem. Visum) aus dem Protokollkopf vorbefüllen —
+      // überschreibbar; bewusst geleerte Felder (_visumTouched) nie erneut füllen.
+      if(!sig.visum && !sig._visumTouched){
+        const head={unternehmer:state.abnahme.unternehmer,bauherr:state.abnahme.bauherr,bauleitung:state.abnahme.bauleitung,fachbauleitung:''}[lk]||'';
+        if(head) sig.visum=head.split(/[,\n]/)[0].trim();
+      }
       const nEl=$(('sig'+k+'Name')), vEl=$(('sig'+k+'Visum'));
       if(nEl&&document.activeElement!==nEl) nEl.value=sig.name||'';
       if(vEl&&document.activeElement!==vEl) vEl.value=sig.visum||'';
@@ -885,20 +975,28 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
 
     // Render Mängel
     renderMaengel(visible, hideDone);
+
+    // Auto-Save-Chokepoint: jede Button-Aktion (Status, Typ, Zeilen, Fotos …)
+    // rendert neu → Änderung landet debounced in der Cloud.
+    scheduleSave();
   }
+
+  const itemDone = it => (it.erledigt||'').trim().length>0;
+  const itemTeil = it => !itemDone(it) && !!it.teilweise;
 
   function renderMaengel(visible, hideDone){
     const container=$('items');
     const items = visible.filter(it => {
-      if(mFilter==='open') return !(it.erledigt||'').trim();
-      if(mFilter==='done') return !!(it.erledigt||'').trim();
+      if(mFilter==='open') return !itemDone(it) && !itemTeil(it);
+      if(mFilter==='teil') return itemTeil(it);
+      if(mFilter==='done') return itemDone(it);
       return true;
     });
     container.innerHTML='';
     if(!items.length){
       container.innerHTML=`<div style="padding:40px;text-align:center;color:var(--mut);font-size:13px">
         <div style="font-size:40px;margin-bottom:10px">📋</div>
-        <strong>Keine Mängelpunkte</strong><br>Klicken Sie auf „+ Neuer Mängelpunkt"
+        <strong>Keine Punkte</strong><br>Klicken Sie auf „+ Neuer Punkt"
       </div>`;
       return;
     }
@@ -906,16 +1004,19 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
       if(!Array.isArray(it.photos)) it.photos=[];
       const idx=state.items.findIndex(x=>x.id===it.id);
       const nr=idx+1;
-      const done=(it.erledigt||'').trim().length>0;
+      const done=itemDone(it);
+      const teil=itemTeil(it);
+      const typ=it.typ==='pendenz'?'pendenz':'mangel';
       const isOpen=openItemId===it.id;
 
       const card=document.createElement('div');
       card.className='mangel-card '+(done?'done':'open-card');
       card.dataset.id=it.id;
 
-      // foto html
+      // Fotos RECHTS in der Schnellaktionen-Spalte: grösser, 2-spaltig,
+      // mehrere sichtbar (Feedback 07/2026)
       const fotoHtml = it.photos.length ? `
-        <div class="foto-row" id="fotos_${it.id}">
+        <div class="foto-grid-r" id="fotos_${it.id}">
           ${it.photos.map((ph,pi)=>`
             <div class="foto-wrap">
               <img class="foto-thumb" src="${_abImgSrc(ph)}" title="${esc(ph.name)}" onclick="openLightbox(this.src);event.stopPropagation()"/>
@@ -923,16 +1024,20 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
             </div>`).join('')}
         </div>` : '';
 
+      const statusBadge = done ? '<span class="status-badge sb-done">✅ Erledigt</span>'
+        : teil ? '<span class="status-badge sb-teil">🟡 Teilweise erledigt</span>'
+        : '<span class="status-badge sb-open">🔴 Offen</span>';
+
       card.innerHTML=`
         <div class="mangel-summary">
           <div class="mangel-nr">${nr}</div>
           <div>
             <div class="mangel-ort">${esc(it.ort)||'<span style="color:var(--mut2)">Ort ausfüllen</span>'}</div>
-            <div class="mangel-sub">${it.photos.length?'📷 '+it.photos.length+' Foto(s)':''}</div>
+            <div class="mangel-sub"><span class="typ-pill ${typ}">${typ==='pendenz'?'Pendenz':'Mangel'}</span>${it.photos.length?' 📷 '+it.photos.length:''}</div>
           </div>
-          <div class="mangel-mangel">${esc(it.mangel)||'<span style="color:var(--mut2)">Mangel beschreiben</span>'}</div>
+          <div class="mangel-mangel">${esc(it.mangel)||'<span style="color:var(--mut2)">Beschreibung ausfüllen</span>'}</div>
           <div class="mangel-status-col">
-            <span class="status-badge ${done?'sb-done':'sb-open'}">${done?'✅ Erledigt':'🔴 Offen'}</span>
+            ${statusBadge}
             ${it.erledigungBis?`<span class="status-badge sb-mut" style="font-size:11px">bis ${esc(it.erledigungBis)}</span>`:''}
           </div>
         </div>
@@ -949,41 +1054,44 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
                 </div>
               </div>
               <div class="fg" style="margin-bottom:11px">
-                <label>Mangel / Pendenz</label>
-                <textarea data-field="mangel" rows="3" placeholder="Beschreibung des Mangels …">${esc(it.mangel)}</textarea>
+                <label style="display:flex;align-items:center;gap:10px">Mangel / Pendenz
+                  <span class="typ-seg" style="margin-left:auto">
+                    <button type="button" data-typ="mangel" class="${typ==='mangel'?'on-mangel':''}">Mangel</button>
+                    <button type="button" data-typ="pendenz" class="${typ==='pendenz'?'on-pendenz':''}">Pendenz</button>
+                  </span>
+                </label>
+                <textarea data-field="mangel" rows="3" placeholder="${typ==='pendenz'?'Beschreibung der Pendenz …':'Beschreibung des Mangels …'}">${esc(it.mangel)}</textarea>
               </div>
               <div class="grid2" style="margin-bottom:11px">
                 <div class="fg">
                   <label>Erledigen bis</label>
                   <input data-field="erledigungBis" value="${escAttr(it.erledigungBis)}" placeholder="${escAttr(state.maengelMeta.standardErledigenBis||'')}"/>
                 </div>
-                <div class="fg"><label>Durch wen (Kürzel)</label><input data-field="kuerzel" value="${escAttr(it.kuerzel)}" placeholder="z.B. JV / SP"/></div>
+                <div class="fg"><label>Durch wen</label><input data-field="kuerzel" value="${escAttr(it.kuerzel)}" placeholder="${escAttr(kuerzelVorschlag()||'z.B. JV / SP')}"/></div>
               </div>
               <div class="grid2" style="margin-bottom:11px">
                 <div class="fg"><label>Erledigt (Datum / Visum)</label><input data-field="erledigt" value="${escAttr(it.erledigt)}" placeholder="z.B. ${fmtDate()} / RJ"/></div>
                 <div class="fg"><label>Notizen</label><input data-field="notizen" value="${escAttr(it.notizen)}" placeholder="Kurznotiz …"/></div>
               </div>
-              ${fotoHtml}
               <div class="act-row">
-                <button class="act-btn primary" data-action="addPhoto">📷 Foto</button>
                 <button class="act-btn" data-action="insertBelow">+ Zeile</button>
                 <button class="act-btn danger" data-action="delete">🗑 Löschen</button>
               </div>
             </div>
             <div class="card" style="padding:14px;background:var(--sur)">
+              <div style="font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--mut);margin-bottom:12px">Fotos</div>
+              ${fotoHtml}
+              <button class="act-btn primary" data-action="addPhoto" style="width:100%;justify-content:center;margin-bottom:14px">📷 Foto(s) hinzufügen</button>
               <div style="font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--mut);margin-bottom:12px">Schnellaktionen</div>
               <button class="act-btn success" data-action="markDoneToday" style="width:100%;justify-content:center;margin-bottom:8px">
                 ✅ Erledigt setzen (heute)
               </button>
-              <button class="act-btn warn" data-action="markUndone" style="width:100%;justify-content:center;margin-bottom:14px">
+              <button class="act-btn" data-action="markTeilweise" style="width:100%;justify-content:center;margin-bottom:8px;border-color:#fcd34d;background:#fffbeb;color:#b45309">
+                🟡 Teilweise erledigt
+              </button>
+              <button class="act-btn warn" data-action="markUndone" style="width:100%;justify-content:center">
                 ↩ Als offen markieren
               </button>
-              <div class="hint">
-                <strong>Tipps:</strong><br>
-                • „+ Zeile" kopiert alle Werte ausser „Erledigt"<br>
-                • Fotos erscheinen als Thumbnails und im PDF<br>
-                • Klick auf Thumbnail = Vollbild
-              </div>
             </div>
           </div>
         </div>`;
@@ -1009,16 +1117,26 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
         btn.addEventListener('click',async e=>{
           e.stopPropagation();
           const a=btn.dataset.action;
-          if(a==='delete'){ if(!confirm('Mängelpunkt löschen?'))return; state.items.splice(idx,1); openItemId=null; render(); return; }
+          if(a==='delete'){ if(!confirm((it.typ==='pendenz'?'Pendenz':'Mängelpunkt')+' löschen?'))return; state.items.splice(idx,1); openItemId=null; render(); return; }
           if(a==='insertBelow'){
             const cur=state.items[idx];
-            const clone=createItem({ort:cur.ort,mangel:cur.mangel,akzeptiert:cur.akzeptiert,erledigungBis:cur.erledigungBis,kuerzel:cur.kuerzel,notizen:cur.notizen});
+            const clone=createItem({typ:cur.typ,ort:cur.ort,mangel:cur.mangel,akzeptiert:cur.akzeptiert,erledigungBis:cur.erledigungBis,kuerzel:cur.kuerzel,notizen:cur.notizen});
             state.items.splice(idx+1,0,clone);
             openItemId=clone.id; render(); return;
           }
           if(a==='addPhoto'){ await pickPhotoFor(it.id); render(); return; }
-          if(a==='markDoneToday'){ state.items[idx].erledigt=fmtDate()+' / '; openItemId=it.id; render(); return; }
-          if(a==='markUndone'){ state.items[idx].erledigt=''; openItemId=it.id; render(); return; }
+          if(a==='markDoneToday'){ state.items[idx].erledigt=fmtDate()+' / '; state.items[idx].teilweise=false; openItemId=it.id; render(); return; }
+          if(a==='markTeilweise'){ state.items[idx].teilweise=true; state.items[idx].erledigt=''; openItemId=it.id; render(); return; }
+          if(a==='markUndone'){ state.items[idx].erledigt=''; state.items[idx].teilweise=false; openItemId=it.id; render(); return; }
+        });
+      });
+
+      // Mangel ⇄ Pendenz umschalten (Feedback 07/2026 — Unternehmer-sensibel)
+      card.querySelectorAll('[data-typ]').forEach(btn=>{
+        btn.addEventListener('click',e=>{
+          e.stopPropagation();
+          state.items[idx].typ=btn.dataset.typ;
+          openItemId=it.id; render();
         });
       });
 
@@ -1028,12 +1146,15 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
 
   function updateSummary(card,id){
     const it=state.items.find(x=>x.id===id); if(!it)return;
-    const done=(it.erledigt||'').trim().length>0;
+    const done=itemDone(it), teil=itemTeil(it);
     card.className='mangel-card '+(done?'done':'open-card');
     const ortEl=card.querySelector('.mangel-ort');
     if(ortEl) ortEl.innerHTML=esc(it.ort)||'<span style="color:var(--mut2)">Ort ausfüllen</span>';
     const sb=card.querySelector('.status-badge');
-    if(sb){ sb.className='status-badge '+(done?'sb-done':'sb-open'); sb.textContent=done?'✅ Erledigt':'🔴 Offen'; }
+    if(sb){
+      sb.className='status-badge '+(done?'sb-done':teil?'sb-teil':'sb-open');
+      sb.textContent=done?'✅ Erledigt':teil?'🟡 Teilweise erledigt':'🔴 Offen';
+    }
     updateStats();
   }
 
@@ -1070,16 +1191,20 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
     const cleanup=()=>{ chooser.classList.add('hidden'); bc.onclick=bl.onclick=bx.onclick=null; };
     const openPicker=async({useCamera})=>{
       const inp=document.createElement('input');
-      inp.type='file'; inp.accept='image/*'; inp.multiple=false;
+      // Mediathek: MEHRERE Fotos in einem Durchgang (Feedback 07/2026);
+      // Kamera-Aufnahme bleibt einzeln (capture liefert genau ein Bild).
+      inp.type='file'; inp.accept='image/*'; inp.multiple=!useCamera;
       if(useCamera) inp.setAttribute('capture','environment');
       inp.onchange=async()=>{
         try{
-          const file=inp.files&&inp.files[0];
-          if(!file){ cleanup(); return resolve(); }
-          const dataUrl=await fileToDataURL(file);
-          const comp=await compressImage(dataUrl,1280,0.78);
+          const files=Array.from(inp.files||[]);
+          if(!files.length){ cleanup(); return resolve(); }
           const it=state.items.find(x=>x.id===itemId);
-          if(it) it.photos.push({name:file.name||`foto_${fmtDate()}.jpg`,dataUrl:comp,type:'image/jpeg'});
+          for(const file of files){
+            const dataUrl=await fileToDataURL(file);
+            const comp=await compressImage(dataUrl,1280,0.78);
+            if(it) it.photos.push({name:file.name||`foto_${fmtDate()}.jpg`,dataUrl:comp,type:'image/jpeg'});
+          }
         }catch(e){ console.error(e); toast('Foto konnte nicht hinzugefügt werden.'); }
         finally{ cleanup(); resolve(); }
       };
@@ -1108,21 +1233,100 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
   // ── TABS ──
   function setTab(t){
     currentTab=t;
-    ['abnahme','maengel','pruefliste','plaene'].forEach(x=>{
+    ['abnahme','maengel','pruefliste','plaene','anhang'].forEach(x=>{
       $('tab_'+x).classList.toggle('active',x===t);
       $('view_'+x).style.display=x===t?'':'none';
     });
     if(t==='plaene')_planRenderList();
+    if(t==='anhang')_anhRender();
   }
   window.setTab=setTab; // exported immediately after definition
 
   // ── FILTER ──
   window.setMFilter = f => {
     mFilter=f;
-    ['all','open','done'].forEach(x=>$('mf_'+x).classList.remove('active','active-red','active-grn'));
+    ['all','open','teil','done'].forEach(x=>$('mf_'+x).classList.remove('active','active-red','active-grn'));
     $('mf_'+f).classList.add(f==='open'?'active-red':f==='done'?'active-grn':'active');
     render();
   };
+
+  // ── ART DER ABNAHME (Sichtkontrolle / Teilabnahme / Schlussabnahme) ──
+  const PROTO_ART_LABELS={'':'Werkprüfung / Werksabnahme',sichtkontrolle:'Sichtkontrolle',teilabnahme:'Teilabnahme',schlussabnahme:'Schlussabnahme'};
+  function _protoArtLabel(){ return PROTO_ART_LABELS[state.abnahme.protokollArt||'']||PROTO_ART_LABELS['']; }
+
+  // ── GEPRÜFTER TEIL: Schnellwahl (komplett / frei / Steigzone / Einlage) ──
+  function _gtCompose(){
+    const z=state.abnahme.geprueftZusatz||{};
+    const t=state.abnahme.geprueftTyp;
+    if(t==='komplett') return 'Komplettes Werk';
+    if(t==='steigzone'){
+      const teile=[z.geschoss?'Geschoss '+z.geschoss:'',z.wohnung?'Wohnung '+z.wohnung:'',z.raum?'Raum '+z.raum:'',z.steigzone?'Steigzone '+z.steigzone:''].filter(Boolean);
+      return 'Steigzone/Vorwand'+(teile.length?' — '+teile.join(', '):'');
+    }
+    if(t==='einlage'){
+      return 'Einlage: Decke über '+(z.geschoss||'…')+' ('+(z.umfang==='teil'?'nur Teil':'komplett')+')';
+    }
+    return state.abnahme.gepruefterTeil||'';
+  }
+  function _gtRender(){
+    const t=state.abnahme.geprueftTyp||'frei';
+    const z=state.abnahme.geprueftZusatz||{};
+    if(document.activeElement!==$('geprueftTyp')) $('geprueftTyp').value=t;
+    const inp=$('gepruefterTeil');
+    inp.disabled=(t==='komplett');
+    inp.style.opacity=(t==='komplett')?'.55':'';
+    const box=$('gtZusatz');
+    const focusIn=box.contains(document.activeElement);
+    if(t==='steigzone'){
+      box.style.display='';
+      if(!focusIn) box.innerHTML=
+        '<div class="grid2" style="gap:6px;grid-template-columns:1fr 1fr">'
+        +'<input id="gtGeschoss" placeholder="Geschoss (z.B. EG)" value="'+escAttr(z.geschoss||'')+'" style="min-height:0;padding:8px 11px"/>'
+        +'<input id="gtWohnung" placeholder="Wohnung (z.B. 2A)" value="'+escAttr(z.wohnung||'')+'" style="min-height:0;padding:8px 11px"/>'
+        +'<input id="gtRaum" placeholder="Raum (z.B. Bad)" value="'+escAttr(z.raum||'')+'" style="min-height:0;padding:8px 11px"/>'
+        +'<input id="gtSteigzone" placeholder="Steigzone (z.B. S1)" value="'+escAttr(z.steigzone||'')+'" style="min-height:0;padding:8px 11px"/></div>';
+      _gtBindZusatz(['gtGeschoss','geschoss'],['gtWohnung','wohnung'],['gtRaum','raum'],['gtSteigzone','steigzone']);
+    } else if(t==='einlage'){
+      box.style.display='';
+      if(!focusIn) box.innerHTML=
+        '<div class="grid2" style="gap:6px;grid-template-columns:1fr 1fr">'
+        +'<input id="gtGeschoss" placeholder="Geschoss (z.B. EG)" value="'+escAttr(z.geschoss||'')+'" style="min-height:0;padding:8px 11px"/>'
+        +'<select id="gtUmfang" style="min-height:0;padding:8px 11px"><option value="komplett"'+(z.umfang!=='teil'?' selected':'')+'>komplett</option><option value="teil"'+(z.umfang==='teil'?' selected':'')+'>nur Teil</option></select></div>';
+      _gtBindZusatz(['gtGeschoss','geschoss'],['gtUmfang','umfang']);
+    } else {
+      box.style.display='none';
+    }
+    $('gtHint').textContent = t==='komplett' ? 'Das ganze Werk wurde geprüft.' : t==='frei' ? 'Falls nicht ganzes Werk geprüft' : 'Zusatzfelder ausfüllen — der Text wird automatisch zusammengesetzt.';
+  }
+  function _gtBindZusatz(...pairs){
+    pairs.forEach(([id,key])=>{
+      const el=$(id); if(!el) return;
+      el.addEventListener(el.tagName==='SELECT'?'change':'input',()=>{
+        state.abnahme.geprueftZusatz[key]=el.value;
+        state.abnahme.gepruefterTeil=_gtCompose();
+        const inp=$('gepruefterTeil'); if(document.activeElement!==inp) inp.value=state.abnahme.gepruefterTeil;
+      });
+    });
+  }
+
+  // ── SIA-118-ZUSATZTEXTE unter dem Entscheid (Ergebnis + Art. 158/161) ──
+  function _siaZusatzTexte(){
+    const out=[];
+    const erg=state.abnahme.ergebnis;
+    if(erg==='keine') out.push('Das Werk ist mängelfrei geprüft — es gilt als abgenommen (SIA 118 Art. 159/160).');
+    if(erg==='unwesentliche') out.push('Unwesentliche Mängel: Das Werk gilt mit der Abnahme als abgenommen; die gerügten Mängel sind innert der angesetzten Frist gemäss Mängelliste zu beheben (SIA 118 Art. 160).');
+    if(erg==='wesentliche') out.push('Wesentliche Mängel: Die Abnahme wird zurückgestellt; nach der Behebung der gerügten Mängel findet eine neue Prüfung statt (SIA 118 Art. 161).');
+    if(state.abnahme.art158) out.push('Zusatz nach SIA 118 Art. 158 Abs. 2: Die gemeinsame Prüfung wurde trotz Anzeige des Unternehmers nicht fristgerecht durchgeführt — das Werk gilt einen Monat nach der Anzeige als abgenommen.');
+    if(state.abnahme.art161) out.push('Zusatz nach SIA 118 Art. 161 Abs. 3: Auf eine Wiederholung der Prüfung wird verzichtet — das Werk gilt als abgenommen, sobald die gerügten wesentlichen Mängel behoben sind.');
+    return out;
+  }
+  function _siaZusatzRender(){
+    const box=$('siaZusatz'); if(!box) return;
+    const texte=_siaZusatzTexte();
+    if(!texte.length){ box.style.display='none'; box.innerHTML=''; return; }
+    box.style.display='';
+    box.innerHTML='<div class="hint" style="border-left:3px solid var(--blue);background:var(--blue-bg)"><strong>Nach SIA 118:</strong><br>'+texte.map(t=>'• '+esc(t)).join('<br>')+'</div>';
+  }
 
   // ── BINDINGS: ABNAHME ──
   const bindChk=(id,path)=>$(id).addEventListener('change',()=>{ let o=state;for(let i=0;i<path.length-1;i++)o=o[path[i]]; o[path[path.length-1]]=$(id).checked; });
@@ -1130,6 +1334,8 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
 
   bindChk('chkArt158',['abnahme','art158']);
   bindChk('chkArt161',['abnahme','art161']);
+  $('chkArt158').addEventListener('change',_siaZusatzRender);
+  $('chkArt161').addEventListener('change',_siaZusatzRender);
   bindChk('docHilfsblaetter',['abnahme','docHilfsblaetter']);
   bindChk('docMaengelliste',['abnahme','docMaengelliste']);
   ['bauobjekt','bauherr','bauleitung','unternehmer','arbeitsgattung','vertragVom',
@@ -1137,12 +1343,34 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
 
   $safe('abnahmeDatum').addEventListener('input',()=>state.abnahme.datum=$('abnahmeDatum').value);
   $safe('arbeitsgattung').addEventListener('input',()=>renderProtocolSelector());
-  [['ergKeine','keine'],['ergUnw','unwesentliche'],['ergWes','wesentliche']].forEach(([id,v])=>$(id).addEventListener('change',()=>{ if($(id).checked)state.abnahme.ergebnis=v; render(); }));
+  $safe('protoArt').addEventListener('change',()=>{ state.abnahme.protokollArt=$('protoArt').value; $('protoArtTitle').textContent=_protoArtLabel(); renderProtocolSelector(); });
+  $safe('geprueftTyp').addEventListener('change',()=>{
+    state.abnahme.geprueftTyp=$('geprueftTyp').value;
+    if(state.abnahme.geprueftTyp==='komplett') state.abnahme.gepruefterTeil='Komplettes Werk';
+    else if(state.abnahme.geprueftTyp==='frei'){ if(state.abnahme.gepruefterTeil==='Komplettes Werk') state.abnahme.gepruefterTeil=''; }
+    else state.abnahme.gepruefterTeil=_gtCompose();
+    $('gepruefterTeil').value=state.abnahme.gepruefterTeil;
+    _gtRender();
+  });
+  // Entscheid folgt dem Ergebnis automatisch (Feedback 07/2026): keine Mängel →
+  // abgenommen, wesentliche → zurückgestellt; unwesentliche bleibt manuell wählbar.
+  [['ergKeine','keine'],['ergUnw','unwesentliche'],['ergWes','wesentliche']].forEach(([id,v])=>$(id).addEventListener('change',()=>{
+    if($(id).checked){
+      state.abnahme.ergebnis=v;
+      if(v==='keine') state.abnahme.entscheid='abgenommen';
+      else if(v==='wesentliche') state.abnahme.entscheid='zurueckgestellt';
+    }
+    render();
+  }));
   [['entAbgenommen','abgenommen'],['entZurueck','zurueckgestellt']].forEach(([id,v])=>$(id).addEventListener('change',()=>{ if($(id).checked){state.abnahme.entscheid=v; render();} }));
   ['Unternehmer','Bauherr','Bauleitung','Fachbauleitung'].forEach(k=>{
     const lk=k.charAt(0).toLowerCase()+k.slice(1);
     $('sig'+k+'Name').addEventListener('input',()=>state.abnahme.sig[lk].name=$('sig'+k+'Name').value);
-    $('sig'+k+'Visum').addEventListener('input',()=>state.abnahme.sig[lk].visum=$('sig'+k+'Visum').value);
+    $('sig'+k+'Visum').addEventListener('input',()=>{
+      state.abnahme.sig[lk].visum=$('sig'+k+'Visum').value;
+      // bewusst geleert → nicht wieder aus dem Kopf vorbefüllen
+      state.abnahme.sig[lk]._visumTouched=true;
+    });
   });
 
   document.querySelectorAll('[data-sig-clear]').forEach(btn=>btn.addEventListener('click',()=>{
@@ -1151,6 +1379,7 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
     const key=map[id]; if(!key)return;
     state.abnahme.sig[key].dataUrl='';
     const c=$(id); c.getContext('2d').clearRect(0,0,c.width,c.height);
+    scheduleSave();
   }));
 
   // BINDINGS: MÄNGEL META
@@ -1381,51 +1610,134 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
       });
     }, Promise.resolve()).then(function(){ return n; });
   }
-  function _abPersistCore(){
-    // Save current state into active protocol
-    var idx=protocols.findIndex(p=>p.id===activeProtocolId);
-    if(idx>=0) protocols[idx].state=JSON.parse(JSON.stringify(state));
-    try{if(typeof _GemaDB!=='undefined')_GemaDB.save(STORAGE_KEY,JSON.stringify({protocols:protocols,activeProtocolId:activeProtocolId}));}catch(e){}
-  }
-  function persistAll(){
-    // Sofort speichern (synchron, unveraenderte Semantik), dann im Hintergrund
-    // die Fotos auslagern und — nur wenn dabei etwas verkleinert wurde — den
-    // jetzt kleinen Blob nachspeichern. So bleibt der Datensatz klein genug
-    // fuer Cloud + localStorage (kein Verlust), ohne den Speichern-Pfad zu
-    // verzoegern.
-    _abPersistCore();
-    _abUploadFotosToStorage().then(function(n){ if(n>0) _abPersistCore(); }).catch(function(){});
-  }
-  function persist(){ persistAll(); }
+  // ══════════════════════════════════════════════════════════════
+  // AUTO-SPEICHERN PER-RECORD (07/2026 — «wie Schadensbericht»)
+  // Jedes Protokoll ist eine eigene Cloud-Row (moduleKey abnahme,
+  // prefix abproto: → Pool gema_abnahme_proto_pool_v1, gescoped über
+  // scopeKey = alter per-Objekt-Blob-Key). Der alte Blob wird NUR noch
+  // als einmalige Migrations-Quelle gelesen, nie mehr geschrieben.
+  // Kein Speichern-Button — OneDrive-Status-Badge unten rechts
+  // (pending → saving → saved/error, Muster if_trocknung/pm_erp).
+  // ══════════════════════════════════════════════════════════════
+  var PROTO_SYNC='abnahme', PROTO_POOL='gema_abnahme_proto_pool_v1', PROTO_PREFIX='abproto:';
+  var PROTO_OID=(typeof GemaObjekte!=='undefined'&&GemaObjekte.getActiveId&&GemaObjekte.getActiveId())||'';
+  var ACTIVE_LS='gema_abnahme_active_v1__'+STORAGE_KEY;   // aktives Protokoll = Geräte-UI-State
+  var _abSaveTimer=null,_abSaveHideTimer=null,_abSavePending=false,_abSaveInFlight=false;
+  var _abDirty={},_abBootDone=false,_abAdopting=false;
 
-  window.saveFn = () => {
-    persistAll();
-    toast('✓ Gespeichert');
-    const ind=$('autosaveInd'); if(ind){ ind.classList.add('show'); setTimeout(()=>ind.classList.remove('show'),2500); }
-  };
-  window.loadFn = () => {
-    const raw=(typeof _GemaDB!=='undefined'&&_GemaDB.c)?(_GemaDB.c[STORAGE_KEY]??null):null;
-    if(!raw)return toast('Keine gespeicherte Version gefunden.');
-    try{
-      const loaded=JSON.parse(raw);
-      if(loaded&&loaded.protocols){
-        protocols=loaded.protocols;
-        activeProtocolId=loaded.activeProtocolId;
-      } else if(loaded&&loaded.items){
-        // Migration: old single-state format
-        protocols=[{id:uid(),name:'Protokoll 1',createdAt:new Date().toISOString(),state:loaded}];
-        activeProtocolId=protocols[0].id;
-      }
-      // Load active protocol state
-      var active=protocols.find(p=>p.id===activeProtocolId);
-      if(active){
-        state=active.state;
-        _migrateState();
-      }
-      renderProtocolSelector();
-      render(); initSignatures(); toast('✓ Geladen');
-    }catch(e){ toast('Konnte nicht laden.'); }
-  };
+  function _abPoolCache(){
+    try{ if(typeof GemaSync!=='undefined'&&GemaSync.getCached){ var a=GemaSync.getCached(PROTO_POOL); if(a&&a.length) return a; } }catch(e){}
+    try{ var r=localStorage.getItem(PROTO_POOL); if(r){ var d=JSON.parse(r); if(Array.isArray(d)) return d; } }catch(e){}
+    return [];
+  }
+  function _abPoolWriteLocal(pool){ try{ localStorage.setItem(PROTO_POOL,JSON.stringify(pool)); }catch(e){} }
+  function _abProtoRec(p){
+    return { id:p.id, scopeKey:STORAGE_KEY, objektId:PROTO_OID,
+      orgId:(_getUser()&&_getUser().orgId)||'', name:p.name||'Protokoll',
+      createdAt:p.createdAt||new Date().toISOString(), updatedAt:new Date().toISOString(),
+      state:p.state };
+  }
+  function _abProtoFromPool(){
+    return _abPoolCache().filter(function(r){ return r&&r.scopeKey===STORAGE_KEY&&r.state; })
+      .sort(function(a,b){ return String(a.createdAt||'').localeCompare(String(b.createdAt||'')); })
+      .map(function(r){ return { id:r.id, name:r.name||'Protokoll', createdAt:r.createdAt, state:r.state }; });
+  }
+  function _abActiveLoad(){ try{ return localStorage.getItem(ACTIVE_LS)||''; }catch(e){ return ''; } }
+  function _abActiveSave(){ try{ localStorage.setItem(ACTIVE_LS,activeProtocolId||''); }catch(e){} }
+  function _abProtoDeleteRec(id){
+    delete _abDirty[id];
+    _abPoolWriteLocal(_abPoolCache().filter(function(r){ return r&&r.id!==id; }));
+    try{ if(typeof GemaSync!=='undefined'&&GemaSync.deleteRecord) GemaSync.deleteRecord(PROTO_SYNC,PROTO_PREFIX+id).catch(function(){}); }catch(e){}
+  }
+  // Live-state ins protocols[]-Array spiegeln (SYNCHRON — auch vor jedem
+  // Protokoll-Wechsel nötig, weil _abSaveDirty asynchron läuft und sonst das
+  // falsche, schon gewechselte Protokoll snapshotten würde).
+  function _abSnapActive(){
+    var i=protocols.findIndex(function(p){ return p.id===activeProtocolId; });
+    if(i>=0) protocols[i].state=JSON.parse(JSON.stringify(state));
+  }
+  // _abAcked[id] = Signatur des letzten Stands, der NACHWEISLICH in der Cloud
+  // liegt (Seed aus dem bindCollection-Pull, Update nach erfolgreichem Push).
+  // Der Inhalts-Diff läuft dagegen — NICHT gegen den lokalen Pool, der wird
+  // vor dem Cloud-Push geschrieben und würde einen fehlgeschlagenen Push beim
+  // Retry als «unverändert» maskieren.
+  var _abAcked={};
+  // Alle geänderten Protokolle sichern: localStorage SOFORT (durable),
+  // Cloud als Promise (Indikator + Retry hängen daran).
+  function _abSaveDirty(){
+    _abSnapActive();
+    var ids=Object.keys(_abDirty); _abDirty={};
+    if(!ids.length) return Promise.resolve();
+    var pool=_abPoolCache().slice(), recs=[];
+    ids.forEach(function(id){
+      var p=protocols.find(function(x){ return x.id===id; });
+      if(!p) return;
+      var rec=_abProtoRec(p);
+      var sig=JSON.stringify({n:rec.name,s:rec.state});
+      var i=pool.findIndex(function(x){ return x&&x.id===id; });
+      if(i>=0) pool[i]=rec; else pool.push(rec);
+      // Inhalts-Diff: reine UI-Renders (Aufklappen, Filter …) erzeugen keine
+      // Cloud-Writes — nur wirklich geänderte Protokolle werden gepusht.
+      if(_abAcked[id]===sig) return;
+      recs.push({rec:rec,sig:sig});
+    });
+    _abPoolWriteLocal(pool);
+    if(!recs.length) return Promise.resolve();
+    if(typeof GemaSync==='undefined'||!GemaSync.saveRecord){
+      recs.forEach(function(r){ _abAcked[r.rec.id]=r.sig; });
+      return Promise.resolve();
+    }
+    return Promise.all(recs.map(function(r){
+      return GemaSync.saveRecord(PROTO_SYNC,PROTO_PREFIX+r.rec.id,r.rec).then(function(){ _abAcked[r.rec.id]=r.sig; });
+    })).catch(function(e){
+      recs.forEach(function(r){ if(_abAcked[r.rec.id]!==r.sig) _abDirty[r.rec.id]=1; });
+      throw e;
+    });
+  }
+  function scheduleSave(immediate){
+    if(!_abBootDone||_abAdopting) return;
+    if(activeProtocolId) _abDirty[activeProtocolId]=1;
+    _abSavePending=true;
+    _abSetStatus('pending');
+    if(_abSaveTimer){ clearTimeout(_abSaveTimer); _abSaveTimer=null; }
+    if(immediate){ _doSave(); }
+    else { _abSaveTimer=setTimeout(_doSave,1200); }
+  }
+  function flushSave(){
+    if(_abSaveTimer){ clearTimeout(_abSaveTimer); _abSaveTimer=null; }
+    if(_abSavePending&&!_abSaveInFlight) _doSave();
+  }
+  function _doSave(){
+    if(_abSaveInFlight) return;   // nach Abschluss wird pending erneut geprueft
+    _abSaveTimer=null; _abSavePending=false; _abSaveInFlight=true;
+    _abSetStatus('saving');
+    // Fotos zuerst auslagern (dataUrl → Storage-URL), dann die kleinen Records sichern
+    _abUploadFotosToStorage().catch(function(){ return 0; }).then(function(){ return _abSaveDirty(); }).then(function(){
+      _abSaveInFlight=false;
+      if(_abSavePending){ _doSave(); }
+      else { _abSetStatus('saved'); }
+    }).catch(function(e){
+      _abSaveInFlight=false; _abSavePending=true;   // NICHT als gespeichert markieren — Retry
+      console.warn('[Abnahme] Save fehlgeschlagen:',e&&e.message);
+      _abSetStatus('error');
+      if(!_abSaveTimer) _abSaveTimer=setTimeout(_doSave,10000);
+    });
+  }
+  function _abSetStatus(s){
+    if(_abSaveHideTimer){ clearTimeout(_abSaveHideTimer); _abSaveHideTimer=null; }
+    var el=document.getElementById('saveStatus');
+    if(!el){ el=document.createElement('div'); el.id='saveStatus'; el.className='save-status hidden'; document.body.appendChild(el); }
+    el.classList.remove('hidden','pending','saving','saved','error');
+    if(s==='pending'){ el.classList.add('pending'); el.innerHTML='<span class="save-dot"></span><span>Änderungen werden gespeichert …</span>'; }
+    else if(s==='saving'){ el.classList.add('saving'); el.innerHTML='<span class="save-spinner"></span><span>Wird gespeichert …</span>'; }
+    else if(s==='saved'){ el.classList.add('saved'); el.innerHTML='<span class="save-check">✓</span><span>Gespeichert</span>';
+      _abSaveHideTimer=setTimeout(function(){ var e=document.getElementById('saveStatus'); if(e) e.classList.add('hidden'); },2000); }
+    else if(s==='error'){ el.classList.add('error'); el.innerHTML='<span class="save-err">⚠</span><span>Speichern fehlgeschlagen — Verbindung prüfen</span>'; }
+  }
+  function persistAll(){ scheduleSave(true); }
+  function persist(){ persistAll(); }
+  window.addEventListener('pagehide',flushSave);
+  document.addEventListener('visibilitychange',function(){ if(document.visibilityState==='hidden') flushSave(); });
 
   function _migrateState(){
     state.abnahme=state.abnahme||{};
@@ -1435,27 +1747,36 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
     ['unternehmer','bauherr','bauleitung','fachbauleitung'].forEach(function(k){
       state.abnahme.sig[k]=Object.assign({},_ds,state.abnahme.sig[k]||{});
     });
-    (state.items||[]).forEach(function(it){ if(!Array.isArray(it.photos)) it.photos=[]; });
+    (state.items||[]).forEach(function(it){
+      if(!Array.isArray(it.photos)) it.photos=[];
+      if(!it.typ) it.typ='mangel';                 // Altdaten: bisherige Punkte = Mangel
+      if(it.teilweise==null) it.teilweise=false;
+    });
     state.maengelMeta=state.maengelMeta||{};
     state._objektId=state._objektId||'';
     if(state._objektId) _prevObjektId=state._objektId;
     state.maengelMeta.standardErledigenBis=state.maengelMeta.standardErledigenBis||defaultDue();
     state.pruefliste=state.pruefliste||defaultCheck;
     state.abnahme._bauleitungId=state.abnahme._bauleitungId||'';
+    state.abnahme.protokollArt=state.abnahme.protokollArt||'';
+    state.abnahme.geprueftTyp=state.abnahme.geprueftTyp||'frei';
+    state.abnahme.geprueftZusatz=Object.assign({geschoss:'',raum:'',steigzone:'',wohnung:'',umfang:'komplett'},state.abnahme.geprueftZusatz||{});
+    if(!Array.isArray(state.anhaenge)) state.anhaenge=[];
   }
 
   // ── PROTOCOL MANAGEMENT ──
   function _defaultState(){
     return {
-      abnahme:{art158:false,art161:false,bauobjekt:'',bauherr:'',bauleitung:'',_bauleitungId:'',unternehmer:'',_unternehmerId:'',arbeitsgattung:'',vertragVom:'',gepruefterTeil:'',fristMaengel:'siehe Mängelliste',ergebnis:'',docHilfsblaetter:false,docMaengelliste:true,schreibenVom:'',bemerkungen:'',entscheid:'',ort:'',datum:fmtDate(),sig:{unternehmer:{dataUrl:'',name:'',visum:''},bauherr:{dataUrl:'',name:'',visum:''},bauleitung:{dataUrl:'',name:'',visum:''},fachbauleitung:{dataUrl:'',name:'',visum:''}}},
+      abnahme:{art158:false,art161:false,protokollArt:'',bauobjekt:'',bauherr:'',bauleitung:'',_bauleitungId:'',unternehmer:'',_unternehmerId:'',arbeitsgattung:'',vertragVom:'',gepruefterTeil:'',geprueftTyp:'frei',geprueftZusatz:{geschoss:'',raum:'',steigzone:'',wohnung:'',umfang:'komplett'},fristMaengel:'siehe Mängelliste',ergebnis:'',docHilfsblaetter:false,docMaengelliste:true,schreibenVom:'',bemerkungen:'',entscheid:'',ort:'',datum:fmtDate(),sig:{unternehmer:{dataUrl:'',name:'',visum:''},bauherr:{dataUrl:'',name:'',visum:''},bauleitung:{dataUrl:'',name:'',visum:''},fachbauleitung:{dataUrl:'',name:'',visum:''}}},
       maengelMeta:{datum:fmtDate(),pruefer:'',objekt:'',bereich:'',standardErledigenBis:defaultDue()},
       _objektId:'',
-      pruefliste:defaultCheck, items:[], plaene:[]
+      pruefliste:defaultCheck, items:[], plaene:[], anhaenge:[]
     };
   }
 
   function newProtocol(){
-    // Save current first
+    // Aktuelles Protokoll SYNCHRON snapshotten + sichern, bevor gewechselt wird
+    _abSnapActive();
     persistAll();
     var nr=protocols.length+1;
     var name='Protokoll '+nr;
@@ -1463,6 +1784,7 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
     protocols.push(p);
     activeProtocolId=p.id;
     state=p.state;
+    _abActiveSave();
     persistAll();
     renderProtocolSelector();
     render(); initSignatures();
@@ -1473,7 +1795,8 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
   function switchProtocol(){
     var sel=$('protoSelect');
     if(!sel||sel.value===activeProtocolId) return;
-    // Save current
+    // Aktuelles Protokoll SYNCHRON snapshotten + sichern, bevor gewechselt wird
+    _abSnapActive();
     persistAll();
     activeProtocolId=sel.value;
     var active=protocols.find(p=>p.id===activeProtocolId);
@@ -1481,6 +1804,7 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
       state=active.state;
       _migrateState();
     }
+    _abActiveSave();
     persistAll();
     renderProtocolSelector();
     populateObjektDropdown();
@@ -1491,10 +1815,12 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
   function deleteProtocol(){
     if(protocols.length<=1){ toast('Letztes Protokoll kann nicht gelöscht werden'); return; }
     if(!confirm('Dieses Protokoll wirklich löschen?')) return;
+    _abProtoDeleteRec(activeProtocolId);   // Cloud-Row + Pool-Cache entfernen
     protocols=protocols.filter(p=>p.id!==activeProtocolId);
     activeProtocolId=protocols[0].id;
     state=protocols[0].state;
     _migrateState();
+    _abActiveSave();
     persistAll();
     renderProtocolSelector();
     render(); initSignatures();
@@ -1690,6 +2016,68 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
     reader.readAsDataURL(file);
   };
 
+  // ══════════════════════════════════════════════════════════════
+  // ANHANG — Plan, Zusatzblatt & weitere Beilagen (Feedback 07/2026)
+  // ══════════════════════════════════════════════════════════════
+  const ANH_TYPEN={plan:'📐 Plan',zusatzblatt:'📄 Zusatzblatt',sonstiges:'📎 Sonstiges'};
+  function _ensureAnhaenge(){ if(!Array.isArray(state.anhaenge)) state.anhaenge=[]; return state.anhaenge; }
+  window._anhUpload=function(inp){
+    const files=Array.from(inp.files||[]);
+    inp.value='';
+    if(!files.length) return;
+    let pending=files.length;
+    const doneOne=()=>{ if(--pending===0){ persistAll(); _anhRender(); } };
+    files.forEach(file=>{
+      if(file.size>10*1024*1024){ toast('«'+file.name+'» ist zu gross (max. 10 MB)'); doneOne(); return; }
+      const reader=new FileReader();
+      reader.onload=e=>{
+        _ensureAnhaenge().push({
+          name:file.name,
+          typ:/plan/i.test(file.name)?'plan':'zusatzblatt',
+          dataUrl:e.target.result, type:file.type,
+          uploadedAt:new Date().toISOString()
+        });
+        toast('✓ Anhang hinzugefügt');
+        doneOne();
+      };
+      reader.onerror=doneOne;
+      reader.readAsDataURL(file);
+    });
+  };
+  window._anhRender=function(){
+    const list=$('anhangList'), empty=$('anhangEmpty');
+    if(!list) return;
+    const anh=_ensureAnhaenge();
+    if(!anh.length){ list.innerHTML=''; empty.style.display=''; return; }
+    empty.style.display='none';
+    list.innerHTML=anh.map((a,i)=>
+      '<div style="display:flex;align-items:center;gap:12px;padding:12px;border:1.5px solid var(--brd);border-radius:10px">'
+      +'<div style="width:44px;height:44px;border-radius:10px;background:var(--blue-bg);display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0">'+((a.type||'').indexOf('pdf')>=0?'📄':'🖼')+'</div>'
+      +'<div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(a.name)+'</div>'
+      +'<div style="font-size:11px;color:var(--mut);margin-top:2px">'+esc(a.uploadedAt?new Date(a.uploadedAt).toLocaleDateString('de-CH'):'')+'</div></div>'
+      +'<select onchange="_anhTyp('+i+',this.value)" style="padding:7px 10px;border:1.5px solid var(--brd2);border-radius:8px;font-size:12px;font-weight:700;background:var(--bg2);outline:none">'
+      +Object.keys(ANH_TYPEN).map(k=>'<option value="'+k+'"'+((a.typ||'sonstiges')===k?' selected':'')+'>'+ANH_TYPEN[k]+'</option>').join('')
+      +'</select>'
+      +'<button onclick="_anhOpen('+i+')" style="border:none;background:none;color:var(--blue);cursor:pointer;font-size:16px" title="Öffnen">👁</button>'
+      +'<button onclick="_anhRemove('+i+')" style="border:none;background:none;color:var(--mut);cursor:pointer;font-size:16px" title="Entfernen">🗑</button>'
+      +'</div>').join('');
+  };
+  window._anhTyp=function(i,v){ const a=_ensureAnhaenge()[i]; if(a){ a.typ=v; persistAll(); } };
+  window._anhOpen=function(i){
+    const a=_ensureAnhaenge()[i]; if(!a) return;
+    if((a.type||'').indexOf('pdf')>=0){
+      try{
+        const raw=atob(a.dataUrl.split(',')[1]);
+        const arr=new Uint8Array(raw.length); for(let j=0;j<raw.length;j++) arr[j]=raw.charCodeAt(j);
+        window.open(URL.createObjectURL(new Blob([arr],{type:'application/pdf'})),'_blank');
+      }catch(e){ toast('PDF konnte nicht geöffnet werden'); }
+    } else { openLightbox(a.dataUrl); }
+  };
+  window._anhRemove=function(i){
+    if(!confirm('Anhang entfernen?')) return;
+    _ensureAnhaenge().splice(i,1); persistAll(); _anhRender();
+  };
+
   function _loadPdfJs(cb){
     if(window.pdfjsLib){cb();return;}
     var s=document.createElement('script');
@@ -1728,12 +2116,19 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
     openItemId=null; ensureDemo(); persistAll(); render(); initSignatures(); toast('Reset.');
   });
 
-  // Auto-save every 60s
-  setInterval(()=>{
-    persistAll();
-    const ind=$('autosaveInd'); if(ind){ ind.textContent='✓ Auto-gespeichert'; ind.classList.add('show');
-    setTimeout(()=>ind.classList.remove('show'),2000); }
-  },60000);
+  // Backstop: alle 60s ausstehende Debounce-Saves nachziehen (still)
+  setInterval(flushSave,60000);
+
+  // ── AUTO-SPEICHERN: JEDE Eingabe (Felder, Selects, Checkboxen) triggert
+  // den Debounce-Save — ein delegierter Listener statt vieler Einzel-Hooks.
+  ['input','change'].forEach(function(evt){
+    document.addEventListener(evt,function(e){
+      var t=e.target;
+      if(!t||!t.matches||!t.matches('input,select,textarea')) return;
+      if(t.type==='file') return;   // Uploads persistieren in ihren Handlern
+      if(t.closest&&t.closest('#view_abnahme,#view_maengel,#view_pruefliste,#view_anhang,#view_plaene')) scheduleSave();
+    },true);
+  });
 
   // ── PDF EXPORT ──
   const exportPdf = async () => {
@@ -1742,9 +2137,9 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
       const doc=new jsPDF({unit:'pt',format:'a4'});
       const M=40; let y=46;
 
-      // Page 1: Abnahmeprotokoll
+      // Page 1: Abnahmeprotokoll (Titel folgt der gewählten Art der Abnahme)
       doc.setFont('helvetica','bold'); doc.setFontSize(14);
-      doc.text('WERKPRÜFUNG / WERKSABNAHME (SIA 118)',M,y); y+=20;
+      doc.text(_protoArtLabel().toUpperCase()+' (SIA 118)',M,y); y+=20;
       doc.setFont('helvetica','normal'); doc.setFontSize(10);
       doc.text(`Datum: ${state.abnahme.datum}`,M,y); y+=14;
 
@@ -1758,8 +2153,12 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
       const art=[state.abnahme.art158?'Art. 158 Abs. 2':null,state.abnahme.art161?'Art. 161 Abs. 3':null].filter(Boolean).join(' / ')||'-';
       doc.text(`Prüfung gemäss: ${art}`,M,y); y+=12;
       doc.text(`Ergebnis: ${state.abnahme.ergebnis||'-'}`,M,y); y+=12;
-      const docu=[state.abnahme.docHilfsblaetter?'gemäss Hilfsblätter':null,state.abnahme.docMaengelliste?`gemäss Mängelliste${state.abnahme.schreibenVom?' / Schreiben vom '+state.abnahme.schreibenVom:''}`:null].filter(Boolean).join(' | ')||'-';
+      const docu=[state.abnahme.docHilfsblaetter?'gemäss Anhang (Plan / Zusatzblatt)':null,state.abnahme.docMaengelliste?`gemäss Mängelliste${state.abnahme.schreibenVom?' / Schreiben vom '+state.abnahme.schreibenVom:''}`:null].filter(Boolean).join(' | ')||'-';
       const docuL=doc.splitTextToSize(`Dokumentation: ${docu}`,515); doc.text(docuL,M,y); y+=docuL.length*12+4;
+      if((state.anhaenge||[]).length){
+        const anhTxt='Anhang: '+state.anhaenge.map(a=>({plan:'Plan',zusatzblatt:'Zusatzblatt',sonstiges:'Beilage'}[a.typ||'sonstiges'])+' «'+(a.name||'')+'»').join(' | ');
+        const anhL=doc.splitTextToSize(anhTxt,515); doc.text(anhL,M,y); y+=anhL.length*12+4;
+      }
       doc.text(`Frist Mängelbehebung: ${state.abnahme.fristMaengel||'-'}`,M,y); y+=12;
 
       const bem=(state.abnahme.bemerkungen||'').trim()||'-';
@@ -1768,6 +2167,14 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
 
       doc.setFont('helvetica','bold'); doc.text('Entscheid:',M,y); y+=12;
       doc.setFont('helvetica','normal'); doc.text(state.abnahme.entscheid==='abgenommen'?'Das Werk gilt als abgenommen (Art. 159, 160)':state.abnahme.entscheid==='zurueckgestellt'?'Die Abnahme wird zurückgestellt (Art. 161)':'-',M,y); y+=14;
+      // SIA-118-Zusatztexte (Ergebnis + Art. 158/161) — Feedback 07/2026
+      const zusatz=_siaZusatzTexte();
+      if(zusatz.length){
+        doc.setFont('helvetica','bold'); doc.setFontSize(9); doc.text('Nach SIA 118:',M,y); y+=11;
+        doc.setFont('helvetica','normal');
+        zusatz.forEach(t=>{ const zl=doc.splitTextToSize('• '+t,505); if(y+zl.length*11>780){doc.addPage();y=46;} doc.text(zl,M+8,y); y+=zl.length*11+3; });
+        doc.setFontSize(10); y+=4;
+      }
       doc.text(`Ort: ${state.abnahme.ort||'-'}`,M,y); y+=16;
 
       doc.setFont('helvetica','bold'); doc.text('Unterschriften:',M,y); y+=12;
@@ -1791,14 +2198,14 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
       doc.setFont('helvetica','bold'); doc.text(`Fortschritt: ${doneN} / ${total} erledigt (${total?Math.round(doneN/total*100):0}%)`,M,y); y+=14;
       doc.setFont('helvetica','normal'); doc.setDrawColor(180); doc.line(M,y,555,y); y+=12;
 
-      const rows=state.items.map((it,i)=>[String(i+1),it.ort||'',it.mangel||'',it.akzeptiert||'Ja',it.erledigungBis||state.maengelMeta.standardErledigenBis||'',it.kuerzel||'',it.erledigt||'']);
+      const rows=state.items.map((it,i)=>[String(i+1),it.typ==='pendenz'?'Pendenz':'Mangel',it.ort||'',it.mangel||'',it.akzeptiert||'Ja',it.erledigungBis||state.maengelMeta.standardErledigenBis||'',it.kuerzel||'',(it.erledigt||'').trim()||(it.teilweise?'teilweise erledigt':'')]);
       doc.autoTable({
         startY:y,
-        head:[['Nr.','Ort/Raum','Mangel / Pendenz','Akzept.','Erledigen bis','Kürzel','Erledigt']],
+        head:[['Nr.','Typ','Ort/Raum','Mangel / Pendenz','Akzept.','Erledigen bis','Durch wen','Erledigt']],
         body:rows,
         styles:{font:'helvetica',fontSize:8,cellPadding:4,overflow:'linebreak'},
         headStyles:{fillColor:[29,78,216],textColor:255},
-        columnStyles:{0:{cellWidth:26},1:{cellWidth:80},2:{cellWidth:175},3:{cellWidth:50},4:{cellWidth:68},5:{cellWidth:60},6:{cellWidth:72}},
+        columnStyles:{0:{cellWidth:24},1:{cellWidth:42},2:{cellWidth:66},3:{cellWidth:140},4:{cellWidth:40},5:{cellWidth:58},6:{cellWidth:68},7:{cellWidth:70}},
         margin:{left:M,right:M}
       });
 
@@ -1832,6 +2239,32 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
         }
       }
 
+      // Anhang-Seiten: Bild-Anhänge einbetten, PDFs als Beilage referenzieren
+      const anh=state.anhaenge||[];
+      if(anh.length){
+        doc.addPage(); let y3=46;
+        doc.setFont('helvetica','bold'); doc.setFontSize(12); doc.text('ANHANG',M,y3); y3+=16;
+        doc.setFont('helvetica','normal'); doc.setFontSize(9);
+        for(let i=0;i<anh.length;i++){
+          const a=anh[i];
+          const typLbl={plan:'Plan',zusatzblatt:'Zusatzblatt',sonstiges:'Beilage'}[a.typ||'sonstiges'];
+          if(y3>760){doc.addPage();y3=46;}
+          doc.setFont('helvetica','bold'); doc.text(`${i+1}. ${typLbl}: ${(a.name||'').slice(0,80)}`,M,y3); y3+=12;
+          doc.setFont('helvetica','normal');
+          if((a.type||'').indexOf('image')>=0 && a.dataUrl){
+            const info=await new Promise(res=>{ const img=new Image(); img.onload=()=>res({w:img.width,h:img.height}); img.onerror=()=>res(null); img.src=a.dataUrl; });
+            if(info){
+              const scale=Math.min(515/info.w,600/info.h,1);
+              const w=Math.round(info.w*scale), h=Math.round(info.h*scale);
+              if(y3+h>780){doc.addPage();y3=46;}
+              try{ doc.addImage(a.dataUrl,'JPEG',M,y3,w,h); y3+=h+16; }catch(e){ y3+=4; }
+            }
+          } else {
+            doc.text('(PDF-Beilage — liegt dem Protokoll separat bei)',M,y3); y3+=16;
+          }
+        }
+      }
+
       doc.save(`Abnahme_SIA118_${state.abnahme.datum.replace(/\./g,'-')}.pdf`);
       toast('✓ PDF erstellt');
     }catch(e){ console.error(e); toast('PDF konnte nicht erstellt werden.'); }
@@ -1857,20 +2290,30 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
 
   state.abnahme.datum=fmtDate();
   // ── INIT: Load protocols ──
+  // Per-Record zuerst (Pool-Cache aus der letzten Sitzung), sonst der alte
+  // per-Objekt-Blob als einmalige Migrations-Quelle. Nach dem Cloud-Pull
+  // gleicht _abProtoAfterCloud() mit dem frischen Pool ab.
   (function(){
-    var raw=(typeof _GemaDB!=='undefined'&&_GemaDB.c)?(_GemaDB.c[STORAGE_KEY]??null):null;
-    if(raw){
-      try{
-        var loaded=JSON.parse(raw);
-        if(loaded&&loaded.protocols){
-          protocols=loaded.protocols;
-          activeProtocolId=loaded.activeProtocolId;
-        } else if(loaded&&loaded.items){
-          // Migration from old single-state
-          protocols=[{id:uid(),name:'Protokoll 1',createdAt:new Date().toISOString(),state:loaded}];
-          activeProtocolId=protocols[0].id;
-        }
-      }catch(e){}
+    var recs=_abProtoFromPool();
+    if(recs.length){
+      protocols=recs;
+      activeProtocolId=_abActiveLoad();
+      if(!protocols.find(function(p){return p.id===activeProtocolId;})) activeProtocolId=protocols[0].id;
+    } else {
+      var raw=(typeof _GemaDB!=='undefined'&&_GemaDB.c)?(_GemaDB.c[STORAGE_KEY]??null):null;
+      if(raw){
+        try{
+          var loaded=JSON.parse(raw);
+          if(loaded&&loaded.protocols){
+            protocols=loaded.protocols;
+            activeProtocolId=loaded.activeProtocolId;
+          } else if(loaded&&loaded.items){
+            // Migration from old single-state
+            protocols=[{id:uid(),name:'Protokoll 1',createdAt:new Date().toISOString(),state:loaded}];
+            activeProtocolId=protocols[0].id;
+          }
+        }catch(e){}
+      }
     }
     if(!protocols.length){
       protocols=[{id:uid(),name:'Protokoll 1',createdAt:new Date().toISOString(),state:_defaultState()}];
@@ -1879,7 +2322,41 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
     var active=protocols.find(function(p){return p.id===activeProtocolId;});
     if(active) state=active.state;
     _migrateState();
+    _abActiveSave();
   })();
+
+  // Nach dem Cloud-Pull: frischen Pool übernehmen bzw. Blob-Altstand
+  // einmalig in Records migrieren (idempotent — nur wenn der Pool für
+  // diesen scopeKey leer ist).
+  function _abProtoAfterCloud(){
+    try{
+      var recs=_abProtoFromPool();
+      // Cloud-Stand als «acked» seeden — bindCollection hat gerade frisch
+      // gepullt, diese Signaturen liegen nachweislich in der Cloud.
+      recs.forEach(function(r){ _abAcked[r.id]=JSON.stringify({n:r.name,s:r.state}); });
+      if(recs.length){
+        if(_abSavePending||_abSaveInFlight) return;   // lokale Änderung unterwegs — nicht überschreiben
+        var cur=JSON.stringify(protocols.map(function(p){return {id:p.id,name:p.name,state:p.state};}));
+        var neu=JSON.stringify(recs.map(function(p){return {id:p.id,name:p.name,state:p.state};}));
+        if(cur!==neu){
+          _abAdopting=true;
+          try{
+            protocols=recs;
+            if(!protocols.find(function(p){return p.id===activeProtocolId;})) activeProtocolId=protocols[0].id;
+            var act=protocols.find(function(p){return p.id===activeProtocolId;});
+            if(act){ state=act.state; _migrateState(); }
+            _abActiveSave();
+            renderProtocolSelector(); render(); initSignatures();
+          }finally{ _abAdopting=false; }
+        }
+      } else if(protocols.length){
+        // Cloud kennt diesen scopeKey noch nicht → lokale Protokolle (Blob-
+        // Migration bzw. frisch angelegtes Default-Protokoll) hochschreiben.
+        protocols.forEach(function(p){ _abDirty[p.id]=1; });
+        _abSavePending=true; _doSave();
+      }
+    }catch(e){ console.warn('[Abnahme] Proto-Cloud-Abgleich:',e&&e.message); }
+  }
 
   // ══════════════════════════════════════════════════════════════
   // TEILNEHMER & GEWERK · DIGITALE FREIGABE · MONTEUR-MÄNGELLISTE
@@ -2296,21 +2773,33 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
   window._abRenderTasks=abRenderTasks;
   window._abActiveProtoId=function(){return activeProtocolId;};
 
-  // ── Cloud-Pull der Freigabe-/Mängellisten-Pools (non-blocking) ──
+  // ── Cloud-Pull der Protokoll-/Freigabe-/Mängellisten-Pools (non-blocking) ──
   if(typeof GemaSync!=='undefined'&&GemaSync.bindCollection){
     Promise.race([
       Promise.all([
+        GemaSync.bindCollection(PROTO_SYNC,PROTO_POOL,PROTO_PREFIX,'id'),
         GemaSync.bindCollection(AB_SYNC,FRG_POOL,FRG_PREFIX,'id'),
         GemaSync.bindCollection(AB_SYNC,ML_POOL,ML_PREFIX,'id')
       ]),
       new Promise(function(res){setTimeout(res,6000);})
-    ]).then(function(){abRenderTasks();try{abRenderTeilnehmer();}catch(e){}}).catch(function(){});
+    ]).then(function(){_abProtoAfterCloud();abRenderTasks();try{abRenderTeilnehmer();}catch(e){}}).catch(function(){});
   }
   abRenderTasks();
+
+  // Arbeitsgattung: kompletter BKP-Katalog (CRB) als Vorschläge (Feedback 07/2026)
+  try{
+    const dl=$('bkpGattungen');
+    if(dl && typeof GemaBKP!=='undefined' && GemaBKP.flat){
+      dl.innerHTML=GemaBKP.flat().map(e=>'<option value="BKP '+esc(e.id)+' '+esc(e.titel)+'"></option>').join('');
+    }
+  }catch(e){}
 
   renderProtocolSelector();
   populateObjektDropdown();
   ensureDemo(); render(); initSignatures();
+  // Ab hier ist jede Eingabe scharf fürs Auto-Speichern (Boot-Renders davor
+  // erzeugen bewusst keinen Save — sonst würde jeder Seitenaufruf pushen).
+  _abBootDone=true;
 })().catch(function(e){console.error("[GEMA] Kritischer Fehler:",e),document.body.insertAdjacentHTML("beforeend","<div style='position:fixed;bottom:10px;right:10px;background:#dc2626;color:#fff;padding:10px 16px;border-radius:10px;font-size:12px;font-weight:700;z-index:9999'>⚠ Skript-Fehler: "+e.message+"</div>");});</script>
 <script>document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('abnahme', 'Abnahmeprotokolle SIA');});</script>
 <script>if(typeof GemaAutoSave!=='undefined') GemaAutoSave.init('abnahme_sia');</script>
