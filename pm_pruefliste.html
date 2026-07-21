@@ -102,9 +102,12 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important}
 .ov-hd{background:var(--sur);border-bottom:1.5px solid var(--brd);padding:10px 14px;padding-top:calc(10px + env(safe-area-inset-top));display:flex;align-items:center;gap:10px;flex-shrink:0}
 .ov-back{width:42px;height:42px;border-radius:10px;border:1.5px solid var(--brd2);background:var(--sur);font-size:17px;cursor:pointer;flex-shrink:0}
 .ov-title{font-size:15px;font-weight:900;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.ov-bd{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:14px;padding-bottom:calc(96px + env(safe-area-inset-bottom))}
-.ov-ft{position:absolute;left:0;right:0;bottom:0;background:rgba(255,255,255,.96);backdrop-filter:blur(10px);border-top:1.5px solid var(--brd);padding:10px 14px;padding-bottom:calc(10px + env(safe-area-inset-bottom));display:flex;gap:8px;flex-wrap:wrap}
-.ov-ft .btn{flex:1;min-width:120px}
+.ov-bd{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:14px;padding-bottom:calc(24px + env(safe-area-inset-bottom))}
+/* Aktionsleiste OBEN (Muster pm_erp #edFt): kleine, einheitliche Buttons, horizontal scrollbar */
+.ov-ft{background:var(--sur);border-bottom:1.5px solid var(--brd);padding:7px 12px;display:flex;gap:6px;align-items:center;overflow-x:auto;-webkit-overflow-scrolling:touch;flex-shrink:0}
+.ov-ft::-webkit-scrollbar{height:0}
+.ov-ft .btn{flex:0 0 auto;min-width:auto;min-height:32px;padding:6px 12px;font-size:12.5px;border-radius:8px;font-weight:700}
+.ov-ft .gema-feedback-btn{margin-left:auto;flex:0 0 auto;padding:6px 11px;font-size:12px}
 .wrap{max-width:820px;margin-left:auto;margin-right:auto}
 .sec{background:var(--sur);border:1.5px solid var(--brd);border-radius:14px;margin-bottom:12px;overflow:hidden}
 .sec-hd{padding:11px 14px;background:var(--sur2);border-bottom:1px solid var(--brd);display:flex;align-items:center;gap:8px}
@@ -239,7 +242,7 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important}
       <div class="hero-ic">✅</div>
       <div>
         <div class="hero-title">Prüfliste</div>
-        <div class="hero-sub">Begehungen mit Prüfpunkten je Anlage · individuelle Punkte in wenigen Klicks ergänzen · Standardliste mit Freigabe · Bericht mit Bewertung, Fotos &amp; Empfehlung</div>
+        <div class="hero-sub">Begehungen mit Prüfpunkten je Anlage · individuelle Punkte in wenigen Klicks ergänzen · Standardliste mit Freigabe · Bericht mit Zustand, Fotos &amp; Empfehlungen</div>
       </div>
     </div>
   </div>
@@ -254,8 +257,8 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important}
     <button class="ov-back" onclick="prCloseEditor()">←</button>
     <div class="ov-title" id="edTitle">Begehung</div>
   </div>
-  <div class="ov-bd"><div class="wrap" id="edBody"></div></div>
   <div class="ov-ft no-print" id="edFt"></div>
+  <div class="ov-bd"><div class="wrap" id="edBody"></div></div>
 </div>
 
 <!-- ═══ PRÜFPUNKT-EDITOR (Verwaltung) ═══ -->
@@ -294,9 +297,11 @@ var PR_ANTWORTTYPEN = {
     { v:'ja',   l:'Ja',                bewertung:'gut' },
     { v:'nein', l:'Nein',              bewertung:'schlecht' },
     { v:'nb',   l:'nicht beurteilbar', bewertung:'nicht_bewertet' } ] },
+  /* «nicht vorhanden» ist KEIN Mangel: es gibt nichts zu beurteilen → Zustand
+     entfällt (grau, nicht bearbeitbar) statt «schlecht» (User-Entscheid 07/2026). */
   vorhanden_nb: { label:'vorhanden / nicht vorhanden / n.b.', kurz:'Vorhanden', kind:'select', optionen:[
     { v:'vorhanden',       l:'vorhanden',          bewertung:'gut' },
-    { v:'nicht_vorhanden', l:'nicht vorhanden',    bewertung:'schlecht' },
+    { v:'nicht_vorhanden', l:'nicht vorhanden',    bewertung:'nicht_bewertet' },
     { v:'nb',              l:'nicht beurteilbar',  bewertung:'nicht_bewertet' } ] },
   zustand: { label:'gut / mässig / schlecht / nicht geprüft', kurz:'Zustand', kind:'select', optionen:[
     { v:'gut',            l:'gut',            bewertung:'gut' },
@@ -332,15 +337,18 @@ function prAntwortLabel(antworttyp, antwortV){
   return o ? o.l : (antwortV==null?'':String(antwortV));
 }
 function prIstNegativ(bw){ return bw==='schlecht'||bw==='maessig'; }
+/* «nicht vorhanden» → Zustand entfällt (auch für Altdaten mit gespeicherter
+   Bewertung «schlecht» — Anzeige/Aggregation erzwingen den grauen Zustand). */
+function prZustandEntfaellt(p){ return !!(p && p.antworttyp==='vorhanden_nb' && p.antwort==='nicht_vorhanden'); }
 
-/* Bewertungs-Zusammenzug: zeilen=[{antwort,bewertung}] */
+/* Zustands-Zusammenzug: zeilen=[{antwort,bewertung,antworttyp?}] */
 function prBegehungBewertung(zeilen){
   var z = { gut:0, maessig:0, schlecht:0, nicht_bewertet:0, offen:0, total:0 };
   (zeilen||[]).forEach(function(r){
     z.total++;
     var beantwortet = r.antwort!==undefined && r.antwort!==null && r.antwort!=='';
     if(!beantwortet){ z.offen++; return; }
-    var b = r.bewertung||'nicht_bewertet';
+    var b = prZustandEntfaellt(r) ? 'nicht_bewertet' : (r.bewertung||'nicht_bewertet');
     z[b] = (z[b]||0)+1;
   });
   var gesamt = 'nicht_bewertet';
@@ -455,7 +463,7 @@ function prDefaultRecords(){
 
 var _prEngine = { PR_ANTWORTTYPEN:PR_ANTWORTTYPEN, PR_ANTWORTTYP_DEFAULT:PR_ANTWORTTYP_DEFAULT, PR_BEWERTUNGEN:PR_BEWERTUNGEN,
   PR_ANLAGENARTEN_DEFAULT:PR_ANLAGENARTEN_DEFAULT, PR_DEFAULT_KATALOG:PR_DEFAULT_KATALOG,
-  prAutoBewertung:prAutoBewertung, prAntwortLabel:prAntwortLabel, prIstNegativ:prIstNegativ,
+  prAutoBewertung:prAutoBewertung, prAntwortLabel:prAntwortLabel, prIstNegativ:prIstNegativ, prZustandEntfaellt:prZustandEntfaellt,
   prBegehungBewertung:prBegehungBewertung, prNorm:prNorm, prTokens:prTokens, prAehnlichkeit:prAehnlichkeit,
   prFindeAehnliche:prFindeAehnliche, prEffektivePunkte:prEffektivePunkte, prDefaultRecords:prDefaultRecords };
 if(typeof window!=='undefined') window._prEngine = _prEngine;
@@ -535,7 +543,9 @@ function stdGlobalMerged(){
   var byId={};
   prDefaultRecords().forEach(function(d){ byId[d.id]=d; });
   cached(STD_POOL).forEach(function(r){ if(r && r.scope==='global') byId[r.id]=r; });
-  return Object.keys(byId).map(function(k){ return byId[k]; });
+  // Tombstones (deleted:true) blenden auch die GEMA-Basis-Seeds dauerhaft aus
+  // (Muster Armaturen-Katalog: Default-Löschung via Tombstone-Record gleicher id).
+  return Object.keys(byId).map(function(k){ return byId[k]; }).filter(function(r){ return !r.deleted; });
 }
 function stdOrgAll(){ var oid=myOrgId(); return cached(STD_POOL).filter(function(r){ return r && r.scope==='org' && r.orgId===oid; }); }
 function stdOrgAktiv(){ return stdOrgAll().filter(function(r){ return r.status==='aktiv' && r.aktiv!==false; }); }
@@ -702,7 +712,7 @@ window.prNeu=function(){
   if(!prCanBegehung()){ toast('Keine Berechtigung'); return; }
   var oid = _objFilter || (function(){ try{ return (GemaObjekte.getActiveId&&GemaObjekte.getActiveId())||''; }catch(e){ return ''; } })();
   _cur = { id:uid('prbeg'), nr:nextNr(), orgId:myOrgId(), objektId:oid, objektName:objName(oid), objektAdresse:objAdr(oid),
-    datum:heute(), prueferId:(me()||{}).id||'', prueferName:myName(), status:'offen', anlagen:[], berichtMarkIndividuell:false,
+    datum:heute(), prueferId:(me()||{}).id||'', prueferName:myName(), status:'offen', anlagen:[],
     erstelltVon:{userId:(me()||{}).id||'', name:myName()}, erstelltAm:new Date().toISOString() };
   saveBeg(_cur);
   openEditor();
@@ -744,9 +754,9 @@ function renderEditor(){
   h+='<div class="fld"><label>Titel (optional)</label><input type="text" id="eTitel" placeholder="z.B. Jährliche Kontrolle Technikzentrale" value="'+esc(b.titel||'')+'" '+(abg?'disabled':'')+' onchange="prEField(\'titel\',this.value)"></div>';
   h+='</div></div>';
 
-  /* Bewertungs-KPI */
+  /* Zustands-KPI */
   var bw=begBewertung(b);
-  h+='<div class="sec"><div class="sec-hd"><h3>📊 Bewertung</h3><span class="hint">Gesamt: '+bwChip(bw.gesamt)+'</span></div><div class="sec-bd"><div class="bwkpi">'
+  h+='<div class="sec"><div class="sec-hd"><h3>📊 Zustand</h3><span class="hint">Gesamt: '+bwChip(bw.gesamt)+'</span></div><div class="sec-bd"><div class="bwkpi">'
     +'<div class="b"><b style="color:var(--grn)">'+bw.gut+'</b><span>gut</span></div>'
     +'<div class="b"><b style="color:var(--amber)">'+bw.maessig+'</b><span>mässig</span></div>'
     +'<div class="b"><b style="color:var(--red)">'+bw.schlecht+'</b><span>schlecht</span></div>'
@@ -763,21 +773,23 @@ function renderEditor(){
 
   $id('edBody').innerHTML=h;
 
-  /* Footer */
+  /* Aktionsleiste oben (Muster pm_erp) — inkl. Feedback, weil der Vollbild-
+     Editor die Nav (und damit den Nav-Feedback-Button) verdeckt. */
   var ft='';
   ft+='<button class="btn" onclick="prBericht()">📄 Bericht</button>';
   if(!abg){ ft+='<button class="btn grn" onclick="prAbschliessen()">✓ Abschliessen</button>'; }
   else { ft+='<button class="btn" onclick="prReopen()">↩ Wieder öffnen</button>'; }
-  if(prCanBegehung()) ft+='<button class="btn red" onclick="prDelBegehung()">🗑</button>';
+  if(prCanBegehung()) ft+='<button class="btn red" onclick="prDelBegehung()" title="Begehung löschen">🗑</button>';
+  ft+='<button class="gema-feedback-btn no-print" onclick="GemaFeedback.start()">🔴 Feedback</button>';
   $id('edFt').innerHTML=ft;
 }
 function bwChip(bw){ var b=PR_BEWERTUNGEN[bw]||PR_BEWERTUNGEN.nicht_bewertet; return '<span class="bw-chip bw-'+bw+'">'+esc(b.label)+'</span>'; }
-/* Zahl/Text haben keine Antwort→Bewertungs-Zuordnung — Bewertung direkt als
+/* Zahl/Text haben keine Antwort→Zustands-Zuordnung — Zustand direkt als
    1-Klick-Chips neben der Eingabe (erneuter Klick = zurück auf nicht bewertet). */
 function bwInlineBtns(ai,pi,bw,abg){
   return ['gut','maessig','schlecht'].map(function(k){
     var on=(bw===k);
-    return '<button class="ans-btn'+(on?' on on-'+k:'')+'" '+(abg?'disabled':'')+' title="Bewertung" onclick="prSetBewertung('+ai+','+pi+',\''+(on?'nicht_bewertet':k)+'\')">'+esc(PR_BEWERTUNGEN[k].label)+'</button>';
+    return '<button class="ans-btn'+(on?' on on-'+k:'')+'" '+(abg?'disabled':'')+' title="Zustand" onclick="prSetBewertung('+ai+','+pi+',\''+(on?'nicht_bewertet':k)+'\')">'+esc(PR_BEWERTUNGEN[k].label)+'</button>';
   }).join('');
 }
 
@@ -800,13 +812,15 @@ function renderAnlage(a, ai, abg){
 
 function renderPunkt(a, ai, p, pi, abg){
   var t=PR_ANTWORTTYPEN[p.antworttyp]||PR_ANTWORTTYPEN[PR_ANTWORTTYP_DEFAULT];
-  var bw=p.bewertung||'nicht_bewertet';
+  var entf=prZustandEntfaellt(p);   // nicht vorhanden → Zustand entfällt (grau, gesperrt)
+  var bw=entf?'nicht_bewertet':(p.bewertung||'nicht_bewertet');
+  var bwLbl=entf?'entfällt':((PR_BEWERTUNGEN[bw]||{}).label||'—');
   var qClass='q-'+(p.quelle||'global');
   var qLbl={global:'Standard',org:'Firma',objekt:'Objekt',begehung:'individuell'}[p.quelle||'global'];
   var fotoN=(p.fotos||[]).length;
   var h='<div class="pkt" id="pkt_'+ai+'_'+pi+'"><div class="pkt-hd"><div class="pkt-t">'
     +'<div class="pkt-name">'+(p.pflicht?'<span class="pflicht-star">*</span> ':'')+esc(p.bezeichnung)+'</div>'
-    +'<div class="pkt-sub"><span class="q-badge '+qClass+'">'+esc(qLbl)+'</span>'+(p.untergruppe?'<span>'+esc(p.untergruppe)+'</span>':'')+'<span class="bw-chip bw-'+bw+'">'+esc((PR_BEWERTUNGEN[bw]||{}).label||'—')+'</span></div>'
+    +'<div class="pkt-sub"><span class="q-badge '+qClass+'">'+esc(qLbl)+'</span>'+(p.untergruppe?'<span>'+esc(p.untergruppe)+'</span>':'')+'<span class="bw-chip bw-'+bw+'">'+esc(bwLbl)+'</span></div>'
     +'</div><div class="pkt-tools">';
   h+='<button class="icobtn" title="Notiz / Empfehlung / Foto" onclick="prTogglePkt('+ai+','+pi+')">📝'+(fotoN||p.bemerkung||p.empfehlung?'<span class="cnt">'+(fotoN||'•')+'</span>':'')+'</button>';
   if(p.individuell && !abg) h+='<button class="row-del" title="Punkt entfernen" onclick="prDelPunkt('+ai+','+pi+')">🗑</button>';
@@ -828,11 +842,12 @@ function renderPunkt(a, ai, p, pi, abg){
   }
   h+='</div>';
 
-  /* Mehr (Bewertung/Bemerkung/Empfehlung/Foto) */
+  /* Mehr (Zustand/Bemerkung/Empfehlung/Foto) */
   var openCls = p._open?'open':'';
   h+='<div class="pkt-more '+openCls+'" id="more_'+ai+'_'+pi+'">';
-  h+='<label>Bewertung</label><select '+(abg?'disabled':'')+' onchange="prSetBewertung('+ai+','+pi+',this.value)">'
+  h+='<label>Zustand</label><select '+((abg||entf)?'disabled':'')+' onchange="prSetBewertung('+ai+','+pi+',this.value)">'
     + Object.keys(PR_BEWERTUNGEN).map(function(k){ return '<option value="'+k+'" '+(bw===k?'selected':'')+'>'+esc(PR_BEWERTUNGEN[k].label)+'</option>'; }).join('') +'</select>';
+  if(entf) h+='<div style="font-size:11px;color:var(--mut);margin-top:3px">Nicht vorhanden — der Zustand entfällt und ist nicht bearbeitbar.</div>';
   h+='<label>Bemerkung</label><textarea '+(abg?'disabled':'')+' placeholder="Beobachtung / Bemerkung…" onchange="prPktField('+ai+','+pi+',\'bemerkung\',this.value)">'+esc(p.bemerkung||'')+'</textarea>';
   h+='<label>Empfehlung</label><textarea '+(abg?'disabled':'')+' placeholder="Empfohlene Massnahme…" onchange="prPktField('+ai+','+pi+',\'empfehlung\',this.value)">'+esc(p.empfehlung||'')+'</textarea>';
   h+='<label>Fotos</label><div class="fotos" id="fotos_'+ai+'_'+pi+'">'+ (p.fotos||[]).map(function(f,fi){ return '<div class="foto"><img src="'+esc(imgSrc(f))+'" onclick="prLightbox(this.src)">'+(abg?'':'<button class="fx" onclick="prDelFoto('+ai+','+pi+','+fi+')">✕</button>')+'</div>'; }).join('')
@@ -878,7 +893,7 @@ window.prSetAntwortRaw=function(ai,pi,v){
   if(/^\./.test(v))v='0'+v; if(/^-\./.test(v))v='-0'+v.slice(1);   // change feuert VOR blur/fixLeadingZero
   p.antwort=v; touch();
 };
-window.prSetBewertung=function(ai,pi,v){ if(!_cur)return; var p=_cur.anlagen[ai].punkte[pi]; p.bewertung=v; if(prIstNegativ(v) && !p.empfehlung && p.empfehlungVorlage) p.empfehlung=p.empfehlungVorlage; saveBeg(_cur); refreshPunkt(ai,pi); };
+window.prSetBewertung=function(ai,pi,v){ if(!_cur)return; var p=_cur.anlagen[ai].punkte[pi]; if(prZustandEntfaellt(p))return; p.bewertung=v; if(prIstNegativ(v) && !p.empfehlung && p.empfehlungVorlage) p.empfehlung=p.empfehlungVorlage; saveBeg(_cur); refreshPunkt(ai,pi); };
 window.prPktField=function(ai,pi,f,v){ if(!_cur)return; _cur.anlagen[ai].punkte[pi][f]=v; touch(); };
 window.prDelPunkt=function(ai,pi){ if(!_cur)return; _cur.anlagen[ai].punkte.splice(pi,1); saveBeg(_cur); renderEditor(); };
 function refreshPunkt(ai,pi){
@@ -1208,6 +1223,7 @@ function stdRow(p, scope, canM, canSuper, ovr){
     h+='<button class="btn sm" onclick="prPkLog(\''+esc(p.id)+'\',\''+scope+'\')" title="Änderungsprotokoll">🕘</button>';
     if(scope==='global'){
       h+='<button class="btn sm" onclick="prPkToggleGlobal(\''+esc(p.id)+'\')">'+(p.aktiv===false?'Aktiv':'Inaktiv')+'</button>';
+      h+='<button class="btn sm red" onclick="prPkDelGlobal(\''+esc(p.id)+'\')">🗑</button>';
     } else {
       h+='<button class="btn sm" onclick="prPkToggleOrg(\''+esc(p.id)+'\')">'+(p.aktiv===false?'Aktiv':'Inaktiv')+'</button>';
       h+='<button class="btn sm red" onclick="prPkDelOrg(\''+esc(p.id)+'\')">🗑</button>';
@@ -1242,7 +1258,7 @@ function openPkEditor(title){
   h+='<div class="fld-row"><div class="fld"><label>Anlagenart</label><select id="pkArt">'+arts.map(function(a){return '<option value="'+esc(a.id)+'" '+(a.id===p.anlagenart?'selected':'')+'>'+esc(a.label)+'</option>';}).join('')+'</select></div>'
     +'<div class="fld"><label>Untergruppe / Bauteil</label><input type="text" id="pkUnter" value="'+esc(p.untergruppe||'')+'"></div></div>';
   h+='<div class="fld-row"><div class="fld"><label>Antworttyp</label><select id="pkTyp">'+Object.keys(PR_ANTWORTTYPEN).map(function(k){return '<option value="'+k+'" '+(k===p.antworttyp?'selected':'')+'>'+esc(PR_ANTWORTTYPEN[k].label)+'</option>';}).join('')+'</select></div>'
-    +'<div class="fld"><label>Standardbewertung (bei neg.)</label><select id="pkStdBw">'+Object.keys(PR_BEWERTUNGEN).map(function(k){return '<option value="'+k+'" '+(k===(p.standardbewertung||'schlecht')?'selected':'')+'>'+esc(PR_BEWERTUNGEN[k].label)+'</option>';}).join('')+'</select></div></div>';
+    +'<div class="fld"><label>Standard-Zustand (bei neg.)</label><select id="pkStdBw">'+Object.keys(PR_BEWERTUNGEN).map(function(k){return '<option value="'+k+'" '+(k===(p.standardbewertung||'schlecht')?'selected':'')+'>'+esc(PR_BEWERTUNGEN[k].label)+'</option>';}).join('')+'</select></div></div>';
   h+='<div class="fld"><label>Empfehlung (Vorlage)</label><textarea id="pkEmpf">'+esc(p.empfehlung||'')+'</textarea></div>';
   h+='<div class="fld-row"><div class="fld"><label>Reihenfolge</label><input type="text" inputmode="numeric" id="pkReih" value="'+esc(p.reihenfolge||0)+'"></div>'
     +'<div class="fld"><label>Pflichtfeld</label><select id="pkPflicht"><option value="0" '+(!p.pflicht?'selected':'')+'>Nein</option><option value="1" '+(p.pflicht?'selected':'')+'>Ja</option></select></div></div>';
@@ -1279,6 +1295,22 @@ window.prPkToggleOrg=function(id){
 window.prPkDelOrg=function(id){
   GemaDialog.confirm({title:'Prüfpunkt löschen',message:'Firmen-Prüfpunkt löschen? Bereits erstellte Berichte bleiben unverändert.',confirmLabel:'Löschen',danger:true}).then(function(ok){
     if(!ok)return; delRec(STD_POOL,STD_PF,id); renderStandardliste(); toast('Gelöscht');
+  });
+};
+/* GEMA-Standardpunkt löschen (nur Super-Admin, wirkt für ALLE Firmen).
+   Basis-Seeds (prstd_def_*) brauchen einen Tombstone-Record — ein reines
+   delRec liesse den lokalen Seed beim nächsten Merge wieder auferstehen. */
+window.prPkDelGlobal=function(id){
+  if(!prIsSuper()){ toast('Nur GEMA-Admin'); return; }
+  GemaDialog.confirm({title:'GEMA-Prüfpunkt löschen',message:'Diesen GEMA-Standardpunkt für ALLE Firmen löschen? Bereits erstellte Berichte bleiben unverändert.',confirmLabel:'Löschen',danger:true}).then(function(ok){
+    if(!ok)return;
+    if(String(id).indexOf('prstd_def_')===0){
+      saveRec(STD_POOL,STD_PF,{ id:id, scope:'global', orgId:null, deleted:true,
+        geloeschtVon:myName(), geloeschtAm:new Date().toISOString() });
+    } else {
+      delRec(STD_POOL,STD_PF,id);
+    }
+    renderStandardliste(); toast('Gelöscht');
   });
 };
 window.prPkToggleGlobal=function(id){
@@ -1497,44 +1529,97 @@ function notifyEntscheid(rec, eventKey, titel, text, typ){
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
-   BERICHT (Print-Fenster A4) — item 9
+   BERICHT (Print-Fenster A4) — gebrandet wie Offerte/Schadensbericht
    ═══════════════════════════════════════════════════════════════════════ */
-window.prBericht=function(){
-  var b=_cur; if(!b) return;
-  GemaDialog.confirm({title:'Bericht erstellen',message:'Individuell ergänzte Prüfpunkte im Bericht als «ergänzt» markieren? (Für Kundenberichte i.d.R. nicht nötig.)',confirmLabel:'Mit Markierung',cancelLabel:'Ohne Markierung'}).then(function(withMark){
-    printBericht(b, !!withMark);
-  });
-};
-function printBericht(b, markInd){
+/* Branding-Helfer (Kontrastschutz, dupliziert nach Kanon gema_schaden_pdf):
+   Firmenfarbe wird NIE 1:1 als Text-/Flächenfarbe genutzt, sondern Richtung
+   Schwarz skaliert, bis der WCAG-Kontrast gegen Weiss >= 4.5:1 ist. */
+function _hexToRgb(hex){
+  hex=String(hex||'').trim().replace(/^#/,'');
+  if(hex.length===3) hex=hex.charAt(0)+hex.charAt(0)+hex.charAt(1)+hex.charAt(1)+hex.charAt(2)+hex.charAt(2);
+  if(!/^[0-9a-fA-F]{6}$/.test(hex)) return null;
+  return { r:parseInt(hex.slice(0,2),16), g:parseInt(hex.slice(2,4),16), b:parseInt(hex.slice(4,6),16) };
+}
+function _rgbToHex(r,g,b){ function x(n){ n=Math.max(0,Math.min(255,Math.round(n))); return (n<16?'0':'')+n.toString(16); } return '#'+x(r)+x(g)+x(b); }
+function _relLum(rgb){
+  var a=[rgb.r,rgb.g,rgb.b].map(function(v){ v/=255; return v<=0.03928 ? v/12.92 : Math.pow((v+0.055)/1.055,2.4); });
+  return 0.2126*a[0]+0.7152*a[1]+0.0722*a[2];
+}
+function _contrastVsWhite(rgb){ return 1.05/(_relLum(rgb)+0.05); }
+function _darkenForWhiteBg(hex, target){
+  var rgb=_hexToRgb(hex); if(!rgb) return null;
+  if(_contrastVsWhite(rgb)>=target) return _rgbToHex(rgb.r,rgb.g,rgb.b);
+  var f=1.0;
+  for(var i=0;i<40;i++){ f-=0.025; var c={r:rgb.r*f,g:rgb.g*f,b:rgb.b*f}; if(_contrastVsWhite(c)>=target) return _rgbToHex(c.r,c.g,c.b); }
+  return '#1f2933';
+}
+function _lightTint(hex, whiteMix){
+  var rgb=_hexToRgb(hex); if(!rgb) return null;
+  var m=whiteMix==null?0.92:whiteMix;
+  return _rgbToHex(rgb.r+(255-rgb.r)*m, rgb.g+(255-rgb.g)*m, rgb.b+(255-rgb.b)*m);
+}
+/* org.settings.pdfFarben → {acc, deep, forest, tint}; ohne Branding GEMA-Default
+   (Modul-Cyan + Navy als Verlauf-Tail — Muster gema_schaden_pdf). */
+function prBrand(){
+  var o=org(), pf=o&&o.settings&&o.settings.pdfFarben;
+  if(pf && pf.primary && _hexToRgb(pf.primary)){
+    var acc=_darkenForWhiteBg(pf.primary,4.5);
+    var deep=_darkenForWhiteBg(pf.primary,7)||acc;
+    var forest=(pf.secondary&&_darkenForWhiteBg(pf.secondary,4.5))||deep;
+    return { acc:acc, deep:deep, forest:forest, tint:_lightTint(pf.primary)||'#eef2f6' };
+  }
+  return { acc:'#0e7490', deep:'#155e75', forest:'#0f172a', tint:'#ecfeff' };
+}
+/* Empfehlung → Liste: mehrere Zeilen/Punkte werden als <ul> gerendert. */
+function empfItems(e){
+  return String(e||'').split(/\n+/).map(function(s){ return s.replace(/^[-•*]\s*/,'').trim(); }).filter(Boolean);
+}
+function empfHtml(e){
+  var items=empfItems(e);
+  if(!items.length) return '';
+  if(items.length===1) return '<div class="empf"><b>Empfehlung:</b> '+esc(items[0])+'</div>';
+  return '<div class="empf"><b>Empfehlungen:</b><ul>'+items.map(function(x){ return '<li>'+esc(x)+'</li>'; }).join('')+'</ul></div>';
+}
+window.prBericht=function(){ var b=_cur; if(!b) return; printBericht(b); };
+function printBericht(b){
   var o=org(); var orgName=(o&&o.name)||''; var logo=''; try{ logo=(o&&(o.logoVector||o.logo))||''; }catch(e){}
   var adr='';
   try{ adr=[o&&o.strasse,[o&&o.plz,o&&o.ort].filter(Boolean).join(' ')].filter(Boolean).join(', '); }catch(e){}
   var w=window.open('','_blank');
   if(!w){ toast('Pop-up blockiert — bitte erlauben'); return; }
   var bw=begBewertung(b);
+  var br=prBrand();
   function E(s){ return esc(s); }
-  var accent='#0e7490';
   var h='<!DOCTYPE html><html lang="de"><head><meta charset="UTF-8"><title>'+E(b.nr||'Prüfliste')+' – Prüfbericht</title>';
   h+='<link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,700;9..40,900&display=swap" rel="stylesheet">';
   h+='<style>@page{size:A4 portrait;margin:18mm}*{box-sizing:border-box;margin:0;padding:0}'
     +'body{font-family:"DM Sans",sans-serif;color:#000;font-size:11pt;line-height:1.5;font-optical-sizing:auto;font-variation-settings:"opsz" 14}'
-    +'.top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:22px;gap:16px}'
+    +'.top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;gap:16px}'
     +'.abs{font-size:9pt;color:#333}.abs strong{font-size:11pt;color:#000}'
-    +'.logo img{max-height:18mm;max-width:60mm}.logo .wm{font-size:16pt;font-weight:900;color:'+accent+'}'
-    +'h1{font-size:18pt;font-weight:900;margin:8px 0 2px}.sub{color:#555;font-size:10pt;margin-bottom:12px}'
+    +'.logo img{max-height:18mm;max-width:60mm}.logo .wm{font-size:16pt;font-weight:900;color:'+br.acc+'}'
+    +'.coverbar{height:3mm;border-radius:2mm;background:linear-gradient(90deg,'+br.acc+','+br.forest+');margin-bottom:14px}'
+    +'h1{font-size:18pt;font-weight:900;margin:8px 0 2px;color:'+br.acc+'}.sub{color:#555;font-size:10pt;margin-bottom:12px}'
     +'.meta{width:100%;border-collapse:collapse;margin:6px 0 14px}.meta td{padding:4px 8px;font-size:10pt;border-bottom:1px solid #eee;vertical-align:top}.meta td.l{color:#666;width:34%;font-weight:700}'
     +'.sum{display:flex;gap:8px;margin:6px 0 16px;flex-wrap:wrap}.sumb{border:1px solid #ddd;border-radius:8px;padding:6px 12px;font-size:9.5pt}'
-    +'.anl{margin:14px 0 6px;border-left:4px solid '+accent+';padding:4px 0 4px 10px;break-inside:avoid}.anl h2{font-size:12.5pt;font-weight:900}.anl .s{font-size:9pt;color:#666}'
-    +'table.pk{border-collapse:collapse;width:100%;margin:4px 0 10px}table.pk th{background:#f4f4f4;border-bottom:1.6px solid #999;text-align:left;padding:6px 8px;font-size:8pt;text-transform:uppercase;letter-spacing:.3px}'
+    +'.anl{margin:14px 0 6px;border-left:4px solid '+br.acc+';padding:4px 0 4px 10px;break-inside:avoid}.anl h2{font-size:12.5pt;font-weight:900;color:'+br.acc+'}.anl .s{font-size:9pt;color:#666}'
+    +'table.pk{border-collapse:collapse;width:100%;margin:4px 0 10px}table.pk th{background:'+br.tint+';color:'+br.deep+';border-bottom:1.6px solid '+br.acc+';text-align:left;padding:6px 8px;font-size:8pt;text-transform:uppercase;letter-spacing:.3px}'
     +'table.pk td{border-bottom:1px solid #e2e2e2;padding:7px 8px;font-size:10pt;vertical-align:top}tr{break-inside:avoid}'
     +'.bw{font-weight:800}.bw-gut{color:#16a34a}.bw-maessig{color:#d97706}.bw-schlecht{color:#dc2626}.bw-nicht_bewertet{color:#94a3b8}'
-    +'.ft{font-size:9pt;color:#555}.imgs{display:flex;gap:5px;flex-wrap:wrap;margin-top:4px}.imgs img{width:34mm;height:26mm;object-fit:cover;border:1px solid #ccc;border-radius:4px}'
-    +'.tag{display:inline-block;font-size:7.5pt;font-weight:800;color:'+accent+';border:1px solid '+accent+';border-radius:4px;padding:0 4px;margin-left:5px;vertical-align:middle}'
+    +'.ft{font-size:9pt;color:#555;border-top:2px solid '+br.acc+';padding-top:6px}'
+    +'.empf{margin-top:6px;font-size:10pt}.empf b{color:'+br.deep+'}.empf ul{margin:3px 0 0 16px;padding:0}.empf li{margin:2px 0}'
+    +'.pk .empf{margin-top:4px;font-size:9.5pt}'
+    /* Foto-Blöcke: Bilder 2-spaltig über die volle Seitenbreite, Empfehlung darunter */
+    +'.pblock{margin:6px 0 12px;border:1px solid #e2e2e2;border-radius:8px;padding:8px 10px}'
+    +'.pblock.avoid{break-inside:avoid}'
+    +'.pblock-t{font-size:10pt;font-weight:800;margin-bottom:6px;break-after:avoid}.pblock-t .u{font-weight:600;color:#666;font-size:9pt}'
+    +'.pgrid{display:grid;grid-template-columns:1fr 1fr;gap:4mm}'
+    +'.pgrid img{width:100%;height:58mm;object-fit:cover;border:1px solid #ccc;border-radius:6px;break-inside:avoid}'
     +'.no-print{position:fixed;top:10px;right:10px;display:flex;gap:8px}.no-print button{padding:9px 16px;border-radius:9px;border:1.5px solid #ccc;background:#fff;font-weight:700;cursor:pointer;font-family:inherit}'
     +'@media print{.no-print{display:none!important}}</style></head><body>';
   h+='<div class="no-print"><button onclick="window.print()">🖨 Drucken / Als PDF speichern</button><button onclick="window.close()">Schliessen</button></div>';
   h+='<div class="top"><div class="abs"><strong>'+E(orgName||'GEMA')+'</strong>'+(adr?'<br>'+E(adr):'')+'</div>'
     +'<div class="logo">'+(logo?'<img src="'+E(logo)+'" alt="">':'<span class="wm">GEMA</span>')+'</div></div>';
+  h+='<div class="coverbar"></div>';
   h+='<h1>Prüfbericht / Begehung</h1><div class="sub">'+E(b.titel||b.objektName||objName(b.objektId)||'Begehung')+'</div>';
   h+='<table class="meta">'
     +'<tr><td class="l">Objekt / Projekt</td><td>'+E(b.objektName||objName(b.objektId)||'—')+(b.objektAdresse?'<br>'+E(b.objektAdresse):'')+'</td></tr>'
@@ -1548,20 +1633,33 @@ function printBericht(b, markInd){
   (b.anlagen||[]).forEach(function(a){
     var art=prArt(a.anlagenart);
     h+='<div class="anl"><h2>'+E(art.ic||'')+' '+E(a.name||art.label)+'</h2><div class="s">'+(a.standort?'Standort: '+E(a.standort):'')+'</div></div>';
-    h+='<table class="pk"><thead><tr><th style="width:38%">Prüfpunkt</th><th>Antwort</th><th>Bewertung</th><th style="width:34%">Bemerkung / Empfehlung</th></tr></thead><tbody>';
+    h+='<table class="pk"><thead><tr><th style="width:40%">Prüfpunkt</th><th>Antwort</th><th>Zustand</th><th style="width:32%">Bemerkung</th></tr></thead><tbody>';
     (a.punkte||[]).forEach(function(p){
-      var bwk=p.bewertung||'nicht_bewertet';
-      var tag = (markInd && p.individuell) ? '<span class="tag">ergänzt</span>' : '';
+      var entf=prZustandEntfaellt(p);
+      var bwk=entf?'nicht_bewertet':(p.bewertung||'nicht_bewertet');
+      var bwLbl=entf?'entfällt':((PR_BEWERTUNGEN[bwk]||{}).label||'—');
+      var hatFotos=(p.fotos||[]).some(function(f){ return !!imgSrc(f); });
       var bem='';
       if(p.bemerkung) bem+=E(p.bemerkung);
-      if(p.empfehlung) bem+=(bem?'<br>':'')+'<b>Empfehlung:</b> '+E(p.empfehlung);
-      var imgs=(p.fotos||[]).map(function(f){ var s=imgSrc(f); return s?'<img src="'+E(s)+'">':''; }).join('');
-      h+='<tr><td>'+(p.pflicht?'* ':'')+E(p.bezeichnung)+tag+(p.untergruppe?'<br><span class="ft">'+E(p.untergruppe)+'</span>':'')+'</td>'
+      /* Empfehlung: bei Fotos unter dem Foto-Block (unten), sonst in der Tabelle */
+      if(p.empfehlung && !hatFotos) bem+=empfHtml(p.empfehlung);
+      h+='<tr><td>'+(p.pflicht?'* ':'')+E(p.bezeichnung)+(p.untergruppe?'<br><span style="font-size:9pt;color:#555">'+E(p.untergruppe)+'</span>':'')+'</td>'
         +'<td>'+E(prAntwortLabel(p.antworttyp,p.antwort)||'—')+'</td>'
-        +'<td class="bw bw-'+bwk+'">'+E((PR_BEWERTUNGEN[bwk]||{}).label||'—')+'</td>'
-        +'<td>'+(bem||'—')+(imgs?'<div class="imgs">'+imgs+'</div>':'')+'</td></tr>';
+        +'<td class="bw bw-'+bwk+'">'+E(bwLbl)+'</td>'
+        +'<td>'+(bem||'—')+'</td></tr>';
     });
     h+='</tbody></table>';
+    /* Foto-Blöcke pro Prüfpunkt: 2 Bilder pro Zeile über die Seitenbreite,
+       Empfehlung(en) direkt unter den Bildern. */
+    (a.punkte||[]).forEach(function(p){
+      var fotos=(p.fotos||[]).map(function(f){ return imgSrc(f); }).filter(Boolean);
+      if(!fotos.length) return;
+      h+='<div class="pblock'+(fotos.length<=4?' avoid':'')+'">'
+        +'<div class="pblock-t">'+E(p.bezeichnung)+(p.untergruppe?' <span class="u">· '+E(p.untergruppe)+'</span>':'')+'</div>'
+        +'<div class="pgrid">'+fotos.map(function(s){ return '<img src="'+E(s)+'">'; }).join('')+'</div>'
+        +empfHtml(p.empfehlung)
+        +'</div>';
+    });
   });
   if(!(b.anlagen||[]).length) h+='<p style="color:#666">Keine Anlagen erfasst.</p>';
   h+='<div class="ft" style="margin-top:20px">Erstellt: '+E(fmtDatum(heute()))+' · '+E(orgName||'GEMA')+' · GEMA Prüfliste</div>';

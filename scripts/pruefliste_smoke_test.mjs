@@ -1,12 +1,14 @@
 // Playwright-Smoke-Test für pm_pruefliste.html — treibt die echte UI:
-// Boot ohne pageerror, Tabs, Begehung anlegen, Anlage laden (Default-Punkte),
-// Punkt beantworten (Auto-Bewertung + Empfehlung-Vorbelegung), Prüfpunkt
-// ergänzen (Bemerkung, nur Begehung), Duplikat-Hinweis + Anpassungs-Vorschlag
-// (aenderungZu → Freigabe aktualisiert den Ziel-Punkt), Vorschlag→Freigabe,
-// Inline-Bewertung Zahl/Text, Editor-Close-Flush, transiente _open-Flags,
-// Objekt-Prüfpunkte (erstellen/verwalten/löschen), Standardliste, Anlagen-
-// arten (updateOrgSettings), Bericht-HTML, Deep-Link ?tab=verwaltung,
-// Kein-Zugriff für Monteur.
+// Boot ohne pageerror, Tabs, Begehung anlegen (Aktionsleiste oben + Feedback-
+// Button), Anlage laden (Default-Punkte), Punkt beantworten (Auto-Zustand +
+// Empfehlung-Vorbelegung), «nicht vorhanden» → Zustand entfällt (grau,
+// gesperrt), Prüfpunkt ergänzen (Bemerkung, nur Begehung), Duplikat-Hinweis +
+// Anpassungs-Vorschlag (aenderungZu → Freigabe aktualisiert den Ziel-Punkt),
+// Vorschlag→Freigabe, Inline-Zustand Zahl/Text, Editor-Close-Flush, transiente
+// _open-Flags, Objekt-Prüfpunkte (erstellen/verwalten/löschen), Standardliste,
+// GEMA-Punkt löschen (Tombstone), Anlagenarten (updateOrgSettings), gebrandeter
+// Bericht (Cover-Bar, «Zustand», Foto-Grid 2-spaltig, kein «ergänzt»-Badge),
+// Deep-Link ?tab=verwaltung, Kein-Zugriff für Monteur.
 // Aufruf: CHROME=<chromium> node scripts/pruefliste_smoke_test.mjs
 import { chromium } from 'playwright-core';
 import { startServer, BASE, newPage, seed } from './rolematrix_harness.mjs';
@@ -42,6 +44,8 @@ try {
   console.log('■ Begehung anlegen + Anlage laden');
   await page.evaluate(() => window.prNeu());
   ok('Editor offen', await page.$eval('#edOv', el => el.classList.contains('open')));
+  ok('Aktionsleiste OBEN (direkt nach .ov-hd, Muster pm_erp)', await page.$eval('#edOv', ov => ov.children[1] && ov.children[1].id === 'edFt'));
+  ok('Feedback-Button in der Editor-Leiste', await page.$('#edFt .gema-feedback-btn') != null);
   let begs = await page.evaluate(() => window._prHooks.cached(window._prHooks.POOLS.BEG));
   ok('1 Begehung persistiert', begs.length === 1);
   ok('Nummer BEG-JJJJ-001', /^BEG-\d{4}-001$/.test(begs[0].nr));
@@ -129,21 +133,44 @@ try {
   ok('Bewertung schlecht + Empfehlung vorbefüllt', zp.bewertung === 'schlecht' && !!zp.empfehlung);
   ok('transiente _open-Flags nicht persistiert', !('_open' in zp));
 
+  console.log('■ «nicht vorhanden» → Zustand entfällt (grau, gesperrt)');
+  const vi = await page.evaluate(() => {
+    const b = window._prHooks.cached(window._prHooks.POOLS.BEG)[0];
+    const ai = b.anlagen.length - 1;
+    return { ai, pi: b.anlagen[ai].punkte.findIndex(p => p.antworttyp === 'vorhanden_nb') };
+  });
+  ok('vorhanden_nb-Punkt vorhanden (Rückflussverhinderer)', vi.pi >= 0);
+  await page.evaluate(v => window.prSetAntwort(v.ai, v.pi, 'vorhanden'), vi);
+  let vp = await page.evaluate(v => window._prHooks.cached(window._prHooks.POOLS.BEG)[0].anlagen[v.ai].punkte[v.pi], vi);
+  ok('vorhanden → Zustand automatisch gut', vp.bewertung === 'gut');
+  await page.evaluate(v => window.prSetAntwort(v.ai, v.pi, 'nicht_vorhanden'), vi);
+  vp = await page.evaluate(v => window._prHooks.cached(window._prHooks.POOLS.BEG)[0].anlagen[v.ai].punkte[v.pi], vi);
+  ok('nicht vorhanden → Zustand NICHT schlecht (nicht_bewertet)', vp.bewertung === 'nicht_bewertet');
+  ok('Chip zeigt «entfällt» (grau)', (await page.$eval('#pkt_' + vi.ai + '_' + vi.pi + ' .bw-chip', el => el.textContent.trim())) === 'entfällt');
+  ok('Zustand-Select gesperrt', await page.$eval('#more_' + vi.ai + '_' + vi.pi + ' select', el => el.disabled));
+  await page.evaluate(v => window.prSetBewertung(v.ai, v.pi, 'schlecht'), vi);
+  vp = await page.evaluate(v => window._prHooks.cached(window._prHooks.POOLS.BEG)[0].anlagen[v.ai].punkte[v.pi], vi);
+  ok('prSetBewertung wird ignoriert (nicht bearbeitbar)', vp.bewertung === 'nicht_bewertet');
+
   console.log('■ Bericht (HTML)');
   await page.evaluate(() => {
     window.__rep = '';
     window.GemaPrintA4 = null; // Print-A4-Wrapper überspringen
     window.open = function () { return { document: { write: function (h) { window.__rep += h; }, close: function () {} }, print: function () {}, focus: function () {} }; };
   });
-  await page.evaluate(() => window.prBericht());
-  await page.waitForSelector('.gema-dlg-bg', { timeout: 4000 });
-  await page.click('.gema-dlg-bg [data-act="cancel"]'); // «Ohne Markierung»
+  await page.evaluate(() => window.prBericht());   // kein «ergänzt»-Dialog mehr — druckt direkt
   await page.waitForFunction(() => (window.__rep || '').length > 0, null, { timeout: 4000 });
   const rep = await page.evaluate(() => window.__rep);
   ok('Bericht enthält Titel «Prüfbericht»', rep.indexOf('Prüfbericht') >= 0);
   ok('Bericht enthält opsz-14-Kanon', rep.indexOf('font-variation-settings:"opsz" 14') >= 0);
   ok('Bericht listet beantworteten Punkt', rep.indexOf('Pendelgasleitung') >= 0 || rep.indexOf('Individueller Testpunkt') >= 0);
-  ok('Bericht zeigt Bewertung schlecht', rep.indexOf('schlecht') >= 0);
+  ok('Bericht zeigt Zustand schlecht', rep.indexOf('schlecht') >= 0);
+  ok('Spalte heisst «Zustand» (nicht Bewertung)', rep.indexOf('<th>Zustand</th>') >= 0 && rep.indexOf('>Bewertung<') < 0);
+  ok('Bericht gebrandet: Cover-Bar mit Farbverlauf', rep.indexOf('coverbar') >= 0 && rep.indexOf('linear-gradient(90deg,#0e7490') >= 0);
+  ok('Foto-Grid-Regel 2-spaltig über Seitenbreite', rep.indexOf('.pgrid{display:grid;grid-template-columns:1fr 1fr') >= 0);
+  ok('KEIN «ergänzt»-Badge im Bericht', rep.indexOf('class="tag"') < 0 && rep.indexOf('>ergänzt<') < 0);
+  ok('nicht vorhanden → «entfällt» im Bericht', rep.indexOf('entfällt') >= 0);
+  ok('Empfehlung im Bericht ausgewiesen', rep.indexOf('Empfehlung') >= 0);
 
   console.log('■ Editor-Schliessen flusht pending Debounce-Save');
   await page.evaluate(() => { window.prEField('titel', 'Flush-Test'); window.prCloseEditor(); });
@@ -176,6 +203,18 @@ try {
   ok('Standardliste zeigt GEMA-Basis (Pendelgasleitung)', vc.indexOf('Pendelgasleitung') >= 0);
   const stdRows = await page.$$eval('#vContent .vrow', els => els.length);
   ok('mind. 20 Standard-Zeilen', stdRows >= 20);
+
+  console.log('■ GEMA-Standardpunkt löschen (Super-Admin, Tombstone)');
+  ok('🗑-Button auch bei GEMA-Punkten', await page.$('#vContent button[onclick*="prPkDelGlobal"]') != null);
+  const globBefore = await page.evaluate(() => window._prHooks.stdGlobalMerged().length);
+  await page.evaluate(() => window.prPkDelGlobal('prstd_def_1'));
+  await page.waitForSelector('.gema-dlg-bg', { timeout: 4000 });
+  await page.click('.gema-dlg-bg [data-act="ok"]');
+  await page.waitForFunction(n => window._prHooks.stdGlobalMerged().length === n - 1, globBefore, { timeout: 4000 });
+  ok('GEMA-Basis-Punkt aus der Standardliste entfernt', true);
+  const tomb = await page.evaluate(() => window._prHooks.cached(window._prHooks.POOLS.STD).filter(r => r.id === 'prstd_def_1')[0]);
+  ok('Tombstone-Record (deleted:true) — Seed kann nicht wiederauferstehen', !!tomb && tomb.deleted === true);
+  ok('effektive Punkte ohne gelöschten Punkt', await page.evaluate(() => !window._prHooks.effektivePunkte('gas', '').some(p => p.id === 'prstd_def_1')));
 
   console.log('■ Verwaltung — Anlagenarten speichern (updateOrgSettings)');
   await page.evaluate(() => window.prVView('anlagenarten'));
