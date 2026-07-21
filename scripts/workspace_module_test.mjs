@@ -153,15 +153,24 @@ const gated = await page.evaluate(() => {
   const origCan = window.GemaAuth.can;
   window.GemaAuth.can = function (a, mod) { if (mod === 'stundenerfassung') return false; return origCan.apply(window.GemaAuth, arguments); };
   const after = h.allowed({ id: 'pm_stunden' });
-  const hub = h.allowed({ id: 'pm_ausschreibung' });   // ohne FILE_MAP-Eintrag → immer sichtbar
+  // Hub folgt seinen Unter-Modulen (HUB_SUBMODS): sichtbar, solange eines lesbar ist …
+  const hub = h.allowed({ id: 'pm_ausschreibung' });
+  // … und ausgeblendet, wenn ALLE Ausschreibungs-Unter-Module gesperrt sind
+  // (Nur-Prüfliste-Rolle sah sonst die Ausschreibungs-Kachel).
+  window.GemaAuth.can = function (a, mod) {
+    if (['stundenerfassung', 'ausschreibungsunterlagen', 'schnellausschreibung', 'crbx_offertvergleich'].indexOf(mod) >= 0) return false;
+    return origCan.apply(window.GemaAuth, arguments);
+  };
+  const hubDenied = h.allowed({ id: 'pm_ausschreibung' });
   window._wsOpenModulePicker();
   const names = Array.from(document.querySelectorAll('.ws-modpicker .ws-modpicker-name')).map(n => n.textContent.trim());
   window.GemaAuth.can = origCan;
-  return { before, after, hub, hidden: names.indexOf('Stundenerfassung') < 0, other: names.indexOf('Einsatzplan') >= 0 };
+  return { before, after, hub, hubDenied, hidden: names.indexOf('Stundenerfassung') < 0, other: names.indexOf('Einsatzplan') >= 0 };
 });
 ok(gated.before === true, '_wsModAllowed: erlaubt mit read-Permission');
 ok(gated.after === false, '_wsModAllowed: verweigert ohne read-Permission');
-ok(gated.hub === true, 'Hub-Seite ohne FILE_MAP-Eintrag bleibt sichtbar');
+ok(gated.hub === true, 'Hub sichtbar, solange ein Ausschreibungs-Unter-Modul lesbar ist');
+ok(gated.hubDenied === false, 'Hub ausgeblendet, wenn ALLE Unter-Module gesperrt sind');
 ok(gated.hidden, 'Picker blendet verbotenes Modul aus');
 ok(gated.other, 'übrige Module bleiben im Picker');
 ok(page.errs.length === 0, 'keine pageerrors nach Picker-Interaktionen');
