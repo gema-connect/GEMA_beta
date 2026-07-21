@@ -4,8 +4,12 @@
 //  Steigzone/Einlage mit Zusatzfeldern), Ergebnis→Entscheid-Automatik +
 //  SIA-118-Zusatztexte, Mangel⇄Pendenz pro Punkt, Status «teilweise erledigt»,
 //  Fotos rechts (grösser, mehrere), «Durch wen»-Vorschlag aus dem Unternehmer,
-//  Unterschriften Name/Vorname + Firma-Vorbefüllung + einzeln speicherbar,
+//  Unterschriften Name/Vorname + Firma-Vorbefüllung,
 //  BKP-Katalog als Arbeitsgattungs-Vorschläge.
+//  Auto-Speichern per-Record (07/2026): KEIN Speichern-/Laden-Button mehr,
+//  Status-Badge unten rechts, Protokolle als abproto:-Records (Pool
+//  gema_abnahme_proto_pool_v1, scopeKey = alter Blob-Key), Unterschriften
+//  speichern automatisch, Inhalts-Diff gegen UI-Render-Spam, Blob-Migration.
 //  sb_apparateliste: Ausbaustandard (einfach/mittel/hoch), Abmessungen
 //  (Standardmasse + eigenes Mass), Waschtisch-Zubehör (Befestigung/Siphon/
 //  Schallschutz) + Garnituren (Glashalter/Handtuchhalter/…), WC-Garnituren.
@@ -41,10 +45,16 @@ const SESSION = { token: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpYXQiOjQwMDAwM
 
 const browser = await chromium.launch({ executablePath: CHROME });
 const ctx = await browser.newContext();
+const cloudWrites = [];   // alle gema_data-POST-Bodies (Auto-Save-Kontrolle)
 await ctx.route('**/*', route => {
   const u = route.request().url();
   if (u.startsWith(BASE)) return route.continue();
-  if (u.indexOf('/rest/v1/') >= 0 || u.indexOf('/sb/') >= 0 || u.indexOf('supabase') >= 0) return route.fulfill({ contentType: 'application/json', body: '[]' });
+  if (u.indexOf('/rest/v1/') >= 0 || u.indexOf('/sb/') >= 0 || u.indexOf('supabase') >= 0) {
+    if (route.request().method() === 'POST' && u.indexOf('gema_data') >= 0) {
+      try { const b = route.request().postDataJSON(); (Array.isArray(b) ? b : [b]).forEach(r => cloudWrites.push(r)); } catch (e) {}
+    }
+    return route.fulfill({ contentType: 'application/json', body: '[]' });
+  }
   if (u.indexOf('/api/') >= 0 || u.indexOf('/.netlify/') >= 0) return route.fulfill({ contentType: 'application/json', body: '{}' });
   return route.abort();
 });
@@ -123,19 +133,65 @@ await page.check('#chkArt158');
 await page.waitForTimeout(150);
 ok((await page.evaluate(() => document.getElementById('siaZusatz').textContent)).indexOf('158') >= 0, 'Art. 158 Abs. 2 → Zusatztext unten ergänzt');
 
-console.log('— Unterschriften: Name/Vorname + Firma von oben + einzeln speicherbar —');
+console.log('— Unterschriften: Name/Vorname + Firma von oben —');
 await page.evaluate(() => { const st = window._abState(); st.abnahme.unternehmer = 'Muster Haustechnik AG, Basel'; st.abnahme.bauherr = 'Bauherr GmbH'; window._abRender(); });
 const sig = await page.evaluate(() => ({
   lblName: Array.from(document.querySelectorAll('.sig-meta label')).some(l => l.textContent === 'Name / Vorname'),
   lblFirma: Array.from(document.querySelectorAll('.sig-meta label')).some(l => l.textContent === 'Firma'),
   untFirma: document.getElementById('sigUnternehmerVisum').value,
-  bhFirma: document.getElementById('sigBauherrVisum').value,
-  saveBtns: document.querySelectorAll('[data-sig-save]').length
+  bhFirma: document.getElementById('sigBauherrVisum').value
 }));
 ok(sig.lblName && sig.lblFirma, 'Labels «Name / Vorname» + «Firma»');
 ok(sig.untFirma === 'Muster Haustechnik AG', 'Firma des Unternehmers aus dem Kopf vorbefüllt');
 ok(sig.bhFirma === 'Bauherr GmbH', 'Firma des Bauherrn aus dem Kopf vorbefüllt');
-ok(sig.saveBtns === 4, 'jede Unterschrift einzeln speicherbar (4 × 💾)');
+
+console.log('— Auto-Speichern per-Record (kein Speichern-Button, Badge, abproto:-Pool) —');
+const noBtns = await page.evaluate(() => ({
+  sigSave: document.querySelectorAll('[data-sig-save]').length,
+  footer: (document.querySelector('.footer-actions') || {}).textContent || ''
+}));
+ok(noBtns.sigSave === 0, 'keine einzelnen Unterschrift-Speichern-Buttons mehr');
+ok(noBtns.footer.indexOf('Speichern') < 0 && noBtns.footer.indexOf('Laden') < 0, 'Footer ohne Speichern/Laden (nur PDF + Reset)');
+// Migration beim Boot: leerer Cloud-Pool + lokales Default-Protokoll → hochgeschrieben
+ok(cloudWrites.some(r => r && String(r.data_key || '').indexOf('abproto:') === 0), 'Boot: Protokoll als abproto:-Record in die Cloud geschrieben');
+// Eingabe → Badge «pending» → Debounce → Pool-Cache + Cloud-Write tragen den Wert
+const preWrites = cloudWrites.length;
+await page.fill('#ort', 'Basel Auto-Save');
+await page.waitForTimeout(250);
+ok(await page.evaluate(() => { const el = document.getElementById('saveStatus'); return !!el && !el.classList.contains('hidden'); }), 'Status-Badge erscheint nach der Eingabe (unten rechts)');
+await page.waitForTimeout(1700);
+const autos = await page.evaluate(() => {
+  const pool = JSON.parse(localStorage.getItem('gema_abnahme_proto_pool_v1') || '[]');
+  const rec = pool.find(r => r && r.state && r.state.abnahme && r.state.abnahme.ort === 'Basel Auto-Save');
+  const el = document.getElementById('saveStatus');
+  return { inPool: !!rec, scope: rec ? rec.scopeKey : '', badgeSaved: !!el && el.classList.contains('saved') };
+});
+ok(autos.inPool, 'Pool-Cache trägt die Eingabe nach dem Debounce (localStorage-first)');
+ok(autos.scope === 'gema_abnahme_sia_v1', 'Record gescoped über scopeKey (per-Objekt-Key)');
+ok(autos.badgeSaved, 'Badge zeigt «Gespeichert» (saved)');
+ok(cloudWrites.length > preWrites && cloudWrites.slice(preWrites).some(r => {
+  try { return String(r.data_key).indexOf('abproto:') === 0 && r.payload.data.state.abnahme.ort === 'Basel Auto-Save'; } catch (e) { return false; }
+}), 'Cloud-Write (GemaSync.saveRecord) trägt die Eingabe');
+// UI-only-Render erzeugt KEINEN weiteren Cloud-Write (Inhalts-Diff)
+const preUi = cloudWrites.length;
+await page.evaluate(() => window._abRender());
+await page.waitForTimeout(1700);
+ok(cloudWrites.length === preUi, 'reiner Re-Render ohne Änderung → kein Cloud-Write (Inhalts-Diff)');
+// Unterschrift zeichnen → speichert automatisch mit
+await page.evaluate(() => document.getElementById('sigUnternehmer').scrollIntoView({ block: 'center', behavior: 'instant' }));
+await page.waitForTimeout(350);   // Scroll settlen lassen (scroll-behavior:smooth)
+const sigBox = await page.evaluate(() => { const r = document.getElementById('sigUnternehmer').getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; });
+await page.mouse.move(sigBox.x + 20, sigBox.y + sigBox.h / 2);
+await page.mouse.down();
+await page.mouse.move(sigBox.x + sigBox.w - 30, sigBox.y + sigBox.h / 2, { steps: 6 });
+await page.mouse.up();
+await page.waitForTimeout(1700);
+const sigSaved = await page.evaluate(() => {
+  const pool = JSON.parse(localStorage.getItem('gema_abnahme_proto_pool_v1') || '[]');
+  const rec = pool.find(r => r && r.state && r.state.abnahme && r.state.abnahme.ort === 'Basel Auto-Save');
+  return !!(rec && rec.state.abnahme.sig && rec.state.abnahme.sig.unternehmer && (rec.state.abnahme.sig.unternehmer.dataUrl || '').indexOf('data:image') === 0);
+});
+ok(sigSaved, 'Unterschrift wird automatisch mitgespeichert (dataUrl im Record)');
 
 console.log('— «Durch wen»-Vorschlag aus dem Unternehmer —');
 ok((await page.evaluate(() => window._abCreateItem({}).kuerzel)) === 'Muster Haustechnik AG', 'Neuer Punkt: Durch-wen = Unternehmer (überschreibbar)');
@@ -185,6 +241,66 @@ ok(foto.hasGrid && foto.imgs === 1, 'Foto im grossen 2-spaltigen Grid');
 ok(foto.inRight, 'Fotos stehen in der RECHTEN Spalte');
 ok(errs.length === 0, 'keine pageerrors nach allen Interaktionen');
 await page.close();
+
+/* ════════ Blob-Migration: alter per-Objekt-Blob → abproto:-Records ════════ */
+console.log('— Migration: Legacy-Blob wird einmalig in Records gesplittet —');
+const LEGACY = JSON.stringify({
+  protocols: [{ id: 'p_legacy', name: 'Protokoll Alt', createdAt: '2026-01-05T08:00:00.000Z',
+    state: { abnahme: { bauobjekt: 'Altes Objekt', bauleitung: 'Alt BL' }, items: [], check: [] } }],
+  activeProtocolId: 'p_legacy'
+});
+const ctx2 = await browser.newContext();
+const migWrites = [];
+let cloudProtoRow = null;   // wenn gesetzt: bindCollection-GET liefert diesen abproto:-Record
+await ctx2.route('**/*', route => {
+  const u = route.request().url();
+  if (u.startsWith(BASE)) return route.continue();
+  if (u.indexOf('/rest/v1/') >= 0 || u.indexOf('/sb/') >= 0 || u.indexOf('supabase') >= 0) {
+    if (route.request().method() === 'GET' && u.indexOf('data_key=in.') >= 0 && u.indexOf('gema_abnahme_sia_v1') >= 0)
+      return route.fulfill({ contentType: 'application/json', body: JSON.stringify([{ data_key: 'gema_abnahme_sia_v1', payload: { v: LEGACY } }]) });
+    if (cloudProtoRow && route.request().method() === 'GET' && u.indexOf('like.abproto') >= 0)
+      return route.fulfill({ contentType: 'application/json', body: JSON.stringify([cloudProtoRow]) });
+    if (route.request().method() === 'POST' && u.indexOf('gema_data') >= 0) {
+      try { const b = route.request().postDataJSON(); (Array.isArray(b) ? b : [b]).forEach(r => migWrites.push(r)); } catch (e) {}
+    }
+    return route.fulfill({ contentType: 'application/json', body: '[]' });
+  }
+  if (u.indexOf('/api/') >= 0 || u.indexOf('/.netlify/') >= 0) return route.fulfill({ contentType: 'application/json', body: '{}' });
+  return route.abort();
+});
+await ctx2.addInitScript(s => { for (const [k, v] of Object.entries(s)) localStorage.setItem(k, typeof v === 'string' ? v : JSON.stringify(v)); },
+  { gema_orgs_v1: JSON.stringify([ORG]), gema_users_v1: JSON.stringify(USERS), gema_session_v1: JSON.stringify(SESSION) });
+const pm = await ctx2.newPage();
+const errsM = []; pm.on('pageerror', e => errsM.push(e.message));
+await pm.goto(BASE + '/pm_abnahme.html', { waitUntil: 'domcontentloaded' });
+await pm.waitForTimeout(2200);
+ok(errsM.length === 0, 'Migration-Boot ohne pageerrors (' + errsM.slice(0, 2).join(' | ') + ')');
+const mig = await pm.evaluate(() => ({
+  proto: window._abActiveProtoId(),
+  bl: window._abState().abnahme.bauleitung,
+  pool: JSON.parse(localStorage.getItem('gema_abnahme_proto_pool_v1') || '[]')
+}));
+ok(mig.proto === 'p_legacy' && mig.bl === 'Alt BL', 'Blob-Protokoll geladen (aktiv + Inhalt da)');
+ok(mig.pool.some(r => r && r.id === 'p_legacy' && r.scopeKey === 'gema_abnahme_sia_v1'), 'Blob → abproto:-Record im Pool-Cache');
+ok(migWrites.some(r => {
+  try { return r.data_key === 'abproto:p_legacy' && r.payload.data.name === 'Protokoll Alt' && r.payload.data.state.abnahme.bauleitung === 'Alt BL'; } catch (e) { return false; }
+}), 'Blob-Protokoll in die Cloud migriert (abproto:p_legacy)');
+await pm.close();
+
+// Zweitgerät-Sicht: Cloud hat inzwischen einen NEUEREN Stand → wird adoptiert
+console.log('— Cross-Device: frischer Cloud-Stand gewinnt beim Boot —');
+cloudProtoRow = { data_key: 'abproto:p_legacy', payload: { _lm: Date.now(), data: {
+  id: 'p_legacy', scopeKey: 'gema_abnahme_sia_v1', objektId: '', orgId: 'org_t',
+  name: 'Protokoll Alt', createdAt: '2026-01-05T08:00:00.000Z', updatedAt: new Date().toISOString(),
+  state: { abnahme: { bauobjekt: 'Altes Objekt', bauleitung: 'Cloud BL' }, items: [], check: [] }
+} } };
+const pm2 = await ctx2.newPage();
+const errsA = []; pm2.on('pageerror', e => errsA.push(e.message));
+await pm2.goto(BASE + '/pm_abnahme.html', { waitUntil: 'domcontentloaded' });
+await pm2.waitForTimeout(2200);
+ok(errsA.length === 0, 'Adoption-Boot ohne pageerrors (' + errsA.slice(0, 2).join(' | ') + ')');
+ok((await pm2.evaluate(() => window._abState().abnahme.bauleitung)) === 'Cloud BL', 'Cloud-Stand adoptiert (bauleitung «Cloud BL»)');
+await pm2.close(); await ctx2.close();
 
 /* ════════ sb_apparateliste ════════ */
 console.log('— Apparateliste: Standard / Abmessungen / Garnituren —');
