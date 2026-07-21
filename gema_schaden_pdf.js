@@ -704,10 +704,17 @@
         if(t > raumAgg[rm].tage) raumAgg[rm].tage = t;
       });
       var totH = 0, totKwh = 0, totAnz = 0;
+      // Bereichs-Abschluss (s.trocknung.bereichEnde) — Spalte nur, wenn
+      // mindestens ein Raum abgeschlossen wurde (Alt-Berichte unverändert).
+      var be = tr.bereichEnde || {};
+      var hatBe = Object.keys(be).length > 0;
+      // Abgeschlossene Räume ohne Geräte trotzdem in der Zusammenfassung zeigen
+      if(hatBe) Object.keys(be).forEach(function(rm){ if(!raumAgg[rm]) raumAgg[rm] = { anz:0, h:0, kwh:0, tage:0 }; });
       h += '<div class="tbl-block">'
         + '<div class="subhead">Zusammenfassung pro Raum</div>'
         + '<table class="tbl"><thead><tr>'
           + '<th>Raum</th><th class="num">Geräte</th><th class="num">Tage</th><th class="num">Stunden</th><th class="num">Energie</th>'
+          + (hatBe ? '<th>Trocknung beendet</th>' : '')
         + '</tr></thead><tbody>';
       Object.keys(raumAgg).forEach(function(rm){
         var a = raumAgg[rm];
@@ -718,9 +725,10 @@
           + '<td class="num">'+(a.tage||'—')+'</td>'
           + '<td class="num">'+(a.h?a.h.toFixed(1):'—')+' h</td>'
           + '<td class="num">'+(Math.round(a.kwh*10)/10)+' kWh</td>'
+          + (hatBe ? '<td>'+(be[rm] && be[rm].am ? '✓ '+esc(fmtDate(be[rm].am)) : '—')+'</td>' : '')
         + '</tr>';
       });
-      h += '<tr class="sum"><td>Total</td><td class="num">'+totAnz+'</td><td class="num">—</td><td class="num">'+(totH?totH.toFixed(1):'—')+' h</td><td class="num">'+(Math.round(totKwh*10)/10)+' kWh</td></tr>';
+      h += '<tr class="sum"><td>Total</td><td class="num">'+totAnz+'</td><td class="num">—</td><td class="num">'+(totH?totH.toFixed(1):'—')+' h</td><td class="num">'+(Math.round(totKwh*10)/10)+' kWh</td>'+(hatBe?'<td></td>':'')+'</tr>';
       h += '</tbody></table></div>';  // /tbl-block
     }
 
