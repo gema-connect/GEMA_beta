@@ -704,20 +704,29 @@ window.prNeu=function(){
   _cur = { id:uid('prbeg'), nr:nextNr(), orgId:myOrgId(), objektId:oid, objektName:objName(oid), objektAdresse:objAdr(oid),
     datum:heute(), prueferId:(me()||{}).id||'', prueferName:myName(), status:'offen', anlagen:[], berichtMarkIndividuell:false,
     erstelltVon:{userId:(me()||{}).id||'', name:myName()}, erstelltAm:new Date().toISOString() };
-  saveBeg(_cur, true);
+  saveBeg(_cur);
   openEditor();
 };
 window.prOpen=function(id){ var b=begById(id); if(!b){ toast('Nicht gefunden'); return; } _cur=JSON.parse(JSON.stringify(b)); openEditor(); };
 function openEditor(){ renderEditor(); $id('edOv').classList.add('open'); }
-window.prCloseEditor=function(){ $id('edOv').classList.remove('open'); _cur=null; render(); };
+window.prCloseEditor=function(){
+  flushSave();                                  // pending Debounce-Save NIE verlieren
+  $id('edOv').classList.remove('open'); _cur=null; render();
+};
 
 var _saveT=null;
-function saveBeg(b, immediate){
+/* Transiente UI-Flags (_open …) nie in den Record serialisieren. */
+function _cleanBeg(b){
+  return JSON.parse(JSON.stringify(b, function(k,v){ return (typeof k==='string' && k.charAt(0)==='_') ? undefined : v; }));
+}
+function saveBeg(b){
   b=b||_cur; if(!b) return;
-  saveRec(BEG_POOL, BEG_PF, b);
-  if(immediate){ /* schon gespeichert */ }
+  clearTimeout(_saveT); _saveT=null;
+  saveRec(BEG_POOL, BEG_PF, _cleanBeg(b));
 }
 function touch(){ if(!_cur) return; clearTimeout(_saveT); _saveT=setTimeout(function(){ saveBeg(_cur); },700); }
+function flushSave(){ if(_saveT && _cur){ saveBeg(_cur); } }
+window.addEventListener('pagehide', flushSave);
 
 function renderEditor(){
   var b=_cur; if(!b) return;
@@ -763,6 +772,14 @@ function renderEditor(){
   $id('edFt').innerHTML=ft;
 }
 function bwChip(bw){ var b=PR_BEWERTUNGEN[bw]||PR_BEWERTUNGEN.nicht_bewertet; return '<span class="bw-chip bw-'+bw+'">'+esc(b.label)+'</span>'; }
+/* Zahl/Text haben keine Antwort→Bewertungs-Zuordnung — Bewertung direkt als
+   1-Klick-Chips neben der Eingabe (erneuter Klick = zurück auf nicht bewertet). */
+function bwInlineBtns(ai,pi,bw,abg){
+  return ['gut','maessig','schlecht'].map(function(k){
+    var on=(bw===k);
+    return '<button class="ans-btn'+(on?' on on-'+k:'')+'" '+(abg?'disabled':'')+' title="Bewertung" onclick="prSetBewertung('+ai+','+pi+',\''+(on?'nicht_bewertet':k)+'\')">'+esc(PR_BEWERTUNGEN[k].label)+'</button>';
+  }).join('');
+}
 
 function renderAnlage(a, ai, abg){
   var art=prArt(a.anlagenart);
@@ -804,8 +821,10 @@ function renderPunkt(a, ai, p, pi, abg){
     });
   } else if(t.kind==='zahl'){
     h+='<input class="numin" type="text" inputmode="decimal" '+(abg?'disabled':'')+' placeholder="0.0" value="'+esc(p.antwort==null?'':p.antwort)+'" onblur="fixLeadingZero(this)" onchange="prSetAntwortRaw('+ai+','+pi+',this.value)">';
+    h+=bwInlineBtns(ai,pi,bw,abg);
   } else {
     h+='<input class="txtin" type="text" '+(abg?'disabled':'')+' placeholder="Eingabe…" value="'+esc(p.antwort==null?'':p.antwort)+'" onchange="prSetAntwortRaw('+ai+','+pi+',this.value)">';
+    h+=bwInlineBtns(ai,pi,bw,abg);
   }
   h+='</div>';
 
@@ -816,7 +835,7 @@ function renderPunkt(a, ai, p, pi, abg){
     + Object.keys(PR_BEWERTUNGEN).map(function(k){ return '<option value="'+k+'" '+(bw===k?'selected':'')+'>'+esc(PR_BEWERTUNGEN[k].label)+'</option>'; }).join('') +'</select>';
   h+='<label>Bemerkung</label><textarea '+(abg?'disabled':'')+' placeholder="Beobachtung / Bemerkung…" onchange="prPktField('+ai+','+pi+',\'bemerkung\',this.value)">'+esc(p.bemerkung||'')+'</textarea>';
   h+='<label>Empfehlung</label><textarea '+(abg?'disabled':'')+' placeholder="Empfohlene Massnahme…" onchange="prPktField('+ai+','+pi+',\'empfehlung\',this.value)">'+esc(p.empfehlung||'')+'</textarea>';
-  h+='<label>Fotos</label><div class="fotos" id="fotos_'+ai+'_'+pi+'">'+ (p.fotos||[]).map(function(f,fi){ return '<div class="foto"><img src="'+esc(imgSrc(f))+'" onclick="prLightbox(\''+esc(imgSrc(f))+'\')">'+(abg?'':'<button class="fx" onclick="prDelFoto('+ai+','+pi+','+fi+')">✕</button>')+'</div>'; }).join('')
+  h+='<label>Fotos</label><div class="fotos" id="fotos_'+ai+'_'+pi+'">'+ (p.fotos||[]).map(function(f,fi){ return '<div class="foto"><img src="'+esc(imgSrc(f))+'" onclick="prLightbox(this.src)">'+(abg?'':'<button class="fx" onclick="prDelFoto('+ai+','+pi+','+fi+')">✕</button>')+'</div>'; }).join('')
     + (abg?'':'<button class="icobtn" style="width:64px;height:64px" onclick="prAddFoto('+ai+','+pi+')">📷</button>') +'</div>';
   h+='</div>';
   h+='</div>';
@@ -853,7 +872,12 @@ window.prSetAntwort=function(ai,pi,v){
   if(prIstNegativ(p.bewertung) && !p.empfehlung && p.empfehlungVorlage) p.empfehlung=p.empfehlungVorlage;
   saveBeg(_cur); refreshPunkt(ai,pi);
 };
-window.prSetAntwortRaw=function(ai,pi,v){ if(!_cur)return; var p=_cur.anlagen[ai].punkte[pi]; p.antwort=v; if(p.bewertung==='nicht_bewertet' && v!=='' ) { /* Zahl/Text: Bewertung manuell */ } touch(); };
+window.prSetAntwortRaw=function(ai,pi,v){
+  if(!_cur)return; var p=_cur.anlagen[ai].punkte[pi];
+  v=String(v==null?'':v).trim();
+  if(/^\./.test(v))v='0'+v; if(/^-\./.test(v))v='-0'+v.slice(1);   // change feuert VOR blur/fixLeadingZero
+  p.antwort=v; touch();
+};
 window.prSetBewertung=function(ai,pi,v){ if(!_cur)return; var p=_cur.anlagen[ai].punkte[pi]; p.bewertung=v; if(prIstNegativ(v) && !p.empfehlung && p.empfehlungVorlage) p.empfehlung=p.empfehlungVorlage; saveBeg(_cur); refreshPunkt(ai,pi); };
 window.prPktField=function(ai,pi,f,v){ if(!_cur)return; _cur.anlagen[ai].punkte[pi][f]=v; touch(); };
 window.prDelPunkt=function(ai,pi){ if(!_cur)return; _cur.anlagen[ai].punkte.splice(pi,1); saveBeg(_cur); renderEditor(); };
@@ -905,14 +929,15 @@ function prResizeStoreFoto(file){
       if(du.length>2*1024*1024) du=c.toDataURL('image/jpeg',0.5);
       if(du.length>2*1024*1024){ GemaDialog.alert({title:'Foto zu gross',message:'Bitte kleineres Bild verwenden.'}); return; }
       var t=_photoTarget; if(!t||!_cur) return;
-      var p=_cur.anlagen[t.ai].punkte[t.pi]; p.fotos=p.fotos||[];
+      var begRef=_cur;   // Referenz halten: Upload endet evtl. NACH dem Editor-Schliessen
+      var p=begRef.anlagen[t.ai].punkte[t.pi]; p.fotos=p.fotos||[];
       var foto={dataUrl:du, kommentar:''}; p.fotos.push(foto); p._open=true;
-      saveBeg(_cur); refreshPunkt(t.ai,t.pi);
+      saveBeg(begRef); refreshPunkt(t.ai,t.pi);
       // Auslagern nach Storage (Record klein halten)
       if(typeof window.GemaStorage!=='undefined' && GemaStorage.isConfigured && GemaStorage.isConfigured()){
         var oid=(myOrgId()||'org').replace(/[^A-Za-z0-9_-]/g,'');
         GemaStorage.uploadDataUrl(du,'pruefliste/'+oid).then(function(res){
-          if(res&&res.url){ foto.url=res.url; delete foto.dataUrl; saveBeg(_cur); }
+          if(res&&res.url){ foto.url=res.url; delete foto.dataUrl; saveBeg(begRef); }
         }).catch(function(){});
       }
     };
@@ -946,12 +971,13 @@ window.prDelBegehung=function(){
 /* ═══════════════════════════════════════════════════════════════════════
    „PRÜFPUNKT ERGÄNZEN" (item 1/2/3/4/6)
    ═══════════════════════════════════════════════════════════════════════ */
-var _addPktAnlage=-1, _addPktForceCreate=false;
+var _addPktAnlage=-1, _addPktAnpassung=null;
 window.prAddPktOpen=function(ai){
-  _addPktAnlage=ai; _addPktForceCreate=false;
+  _addPktAnlage=ai; _addPktAnpassung=null;
   var a=_cur.anlagen[ai];
   var arts=prAnlagenarten();
   var canStd = prCanManageOrg() || prCanBegehung(); // Vorschlag darf jede berechtigte Fachperson
+  var hatObjekt = !!_cur.objektId;                  // «Für Objekt» nur mit zugeordnetem Objekt (sonst Geister-Records)
   var h='';
   h+='<div class="fld"><label>Bezeichnung des Prüfpunkts</label><input type="text" id="apBez" placeholder="z.B. Pendelgasleitung vorhanden?" oninput="prAddPktDupCheck()"></div>';
   h+='<div id="apDup"></div>';
@@ -959,9 +985,12 @@ window.prAddPktOpen=function(ai){
     +'<div class="fld"><label>Untergruppe / Bauteil</label><input type="text" id="apUnter" placeholder="optional"></div></div>';
   h+='<div class="fld"><label>Antworttyp</label><select id="apTyp">'+Object.keys(PR_ANTWORTTYPEN).map(function(k){ return '<option value="'+k+'" '+(k===PR_ANTWORTTYP_DEFAULT?'selected':'')+'>'+esc(PR_ANTWORTTYPEN[k].label)+'</option>'; }).join('')+'</select></div>';
   h+='<div class="fld"><label>Empfehlung (Vorlage, optional)</label><textarea id="apEmpf" placeholder="z.B. Leitungsführung durch eine Fachperson prüfen."></textarea></div>';
+  h+='<div class="fld"><label>Bemerkung (optional, zu dieser Begehung)</label><textarea id="apBem" placeholder="Beobachtung vor Ort…"></textarea></div>';
   h+='<div class="fld"><label>Verwendung</label><div class="radio-list" id="apScope">'
-    +'<label class="on"><input type="radio" name="apScope" value="begehung" checked onchange="prAddScopeChg()"><div><b>Nur für diese Begehung</b><div style="font-size:11.5px;color:var(--mut);font-weight:600">Einmalig, nicht gespeichert.</div></div></label>'
-    +'<label><input type="radio" name="apScope" value="objekt" onchange="prAddScopeChg()"><div><b>Für dieses Objekt speichern</b><div style="font-size:11.5px;color:var(--mut);font-weight:600">Erscheint bei künftigen Begehungen dieses Objekts.</div></div></label>';
+    +'<label class="on"><input type="radio" name="apScope" value="begehung" checked onchange="prAddScopeChg()"><div><b>Nur für diese Begehung</b><div style="font-size:11.5px;color:var(--mut);font-weight:600">Einmalig, nicht gespeichert.</div></div></label>';
+  if(hatObjekt){
+    h+='<label><input type="radio" name="apScope" value="objekt" onchange="prAddScopeChg()"><div><b>Für dieses Objekt speichern</b><div style="font-size:11.5px;color:var(--mut);font-weight:600">Erscheint bei künftigen Begehungen von «'+esc(_cur.objektName||'Objekt')+'».</div></div></label>';
+  }
   if(canStd){
     h+='<label><input type="radio" name="apScope" value="org" onchange="prAddScopeChg()"><div><b>Firmen-Standardliste vorschlagen</b><div style="font-size:11.5px;color:var(--mut);font-weight:600">Abteilungsleiter/Admin prüft &amp; gibt frei.</div></div></label>';
     h+='<label><input type="radio" name="apScope" value="global" onchange="prAddScopeChg()"><div><b>GEMA-Standardliste vorschlagen</b><div style="font-size:11.5px;color:var(--mut);font-weight:600">GEMA prüft &amp; gibt frei (für alle Firmen).</div></div></label>';
@@ -979,19 +1008,37 @@ window.prAddScopeChg=function(){
   $id('addPktSave').textContent = (v==='org'||v==='global')?'Vorschlagen & hinzufügen':'Hinzufügen';
 };
 window.prAddPktDupCheck=function(){
+  if(_addPktAnpassung) return;                       // Änderungsmodus: Referenz-Box stehen lassen
   var bez=($id('apBez').value||'').trim();
   var art=$id('apArt').value;
   var box=$id('apDup'); if(!box) return;
   if(bez.length<4){ box.innerHTML=''; return; }
   var hits=prFindeAehnliche(bez, art, alleStandardFuerDup(_cur?_cur.objektId:''), 0.6).slice(0,4);
-  if(!hits.length){ box.innerHTML=''; _addPktForceCreate=false; return; }
+  if(!hits.length){ box.innerHTML=''; return; }
   var h='<div class="dup"><b>⚠ Ein ähnlicher Prüfpunkt ist bereits vorhanden.</b>';
   hits.forEach(function(x){
+    var kannAnp = (x.punkt.scope==='global'||x.punkt.scope==='org');   // Anpassung nur für Standardpunkte
     h+='<div class="dupitem"><span class="dn">'+esc(x.punkt.bezeichnung)+' <span class="mini">'+esc(prArt(x.punkt.anlagenart).label)+'</span></span>'
-      +'<button class="btn sm" onclick="prAddUseExisting(\''+esc(x.punkt.id)+'\')">Verwenden</button></div>';
+      +'<button class="btn sm" onclick="prAddUseExisting(\''+esc(x.punkt.id)+'\')">Verwenden</button>'
+      +(kannAnp?'<button class="btn sm" title="Anpassung des bestehenden Punkts vorschlagen" onclick="prAddAnpassung(\''+esc(x.punkt.id)+'\')">✎ Anpassung</button>':'')
+      +'</div>';
   });
   h+='<div style="margin-top:7px;font-size:11.5px">Oder trotzdem als neuen Punkt erfassen.</div></div>';
   box.innerHTML=h;
+};
+/* Item 6: «Anpassung des bestehenden Prüfpunkts vorschlagen» — die Eingaben
+   werden als Änderungsvorschlag (aenderungZu) eingereicht; der Punkt wird mit
+   dem neuen Wortlaut in die aktuelle Begehung übernommen. */
+window.prAddAnpassung=function(pid){
+  var p=alleStandardFuerDup(_cur?_cur.objektId:'').filter(function(x){return x.id===pid;})[0];
+  if(!p || !(p.scope==='global'||p.scope==='org')){ toast('Nur für Standardpunkte möglich'); return; }
+  _addPktAnpassung={ id:p.id, scope:p.scope, bezeichnung:p.bezeichnung };
+  var box=$id('apDup');
+  if(box) box.innerHTML='<div class="dup"><b>✎ Änderungsvorschlag zu:</b> '+esc(p.bezeichnung)
+    +' <span class="mini">'+(p.scope==='global'?'GEMA-Standard':'Firmen-Standard')+'</span>'
+    +'<div style="margin-top:6px;font-size:11.5px">Deine Eingaben werden zur Freigabe eingereicht; der Punkt wird mit dem neuen Wortlaut in diese Begehung übernommen.</div></div>';
+  var scopeBox=$id('apScope'); if(scopeBox && scopeBox.closest('.fld')) scopeBox.closest('.fld').style.display='none';
+  $id('addPktSave').textContent='Anpassung vorschlagen';
 };
 window.prAddUseExisting=function(pid){
   // bestehenden Standard-/Objektpunkt als Zeile in die aktuelle Anlage übernehmen
@@ -1007,7 +1054,8 @@ window.prAddUseExisting=function(pid){
 };
 function addPunktZeile(ai, zeile){
   _cur.anlagen[ai].punkte.push(zeile); saveBeg(_cur); renderEditor();
-  var el=$id('anlage_'+ai); if(el) el.scrollIntoView({behavior:'smooth',block:'center'});
+  var el=$id('pkt_'+ai+'_'+(_cur.anlagen[ai].punkte.length-1)) || $id('anlage_'+ai);
+  if(el) el.scrollIntoView({behavior:'smooth',block:'center'});
   toast('Prüfpunkt hinzugefügt');
 }
 window.prAddPktSave=function(){
@@ -1015,33 +1063,55 @@ window.prAddPktSave=function(){
   var bez=($id('apBez').value||'').trim();
   if(!bez){ toast('Bezeichnung fehlt'); $id('apBez').focus(); return; }
   var art=$id('apArt').value, unter=($id('apUnter').value||'').trim(), typ=$id('apTyp').value, empf=($id('apEmpf').value||'').trim();
-  var scope=(document.querySelector('input[name="apScope"]:checked')||{}).value||'begehung';
+  var bem=($id('apBem')?$id('apBem').value:'').trim();
+  var jetzt=new Date().toISOString();
 
-  var punktId='lokal';
+  // Änderungsvorschlag zu einem bestehenden Standardpunkt (Duplikat-Flow)
+  if(_addPktAnpassung){
+    var ap=_addPktAnpassung;
+    var av={ id:uid('prstd'), scope:ap.scope, orgId:myOrgId(), bezeichnung:bez, anlagenart:art, untergruppe:unter, antworttyp:typ,
+      pflicht:false, standardbewertung:'schlecht', empfehlung:empf, aktiv:true, reihenfolge:9999,
+      status:'vorschlag', aenderungZu:{id:ap.id, bezeichnung:ap.bezeichnung},
+      vorschlagVon:{userId:(me()||{}).id||'',name:myName()}, vorschlagFuer:ap.scope,
+      ersteller:{userId:(me()||{}).id||'',name:myName()}, erstelltAm:jetzt, version:1,
+      log:[{alt:ap.bezeichnung,neu:bez,von:myName(),am:jetzt,grund:'Anpassung vorgeschlagen',status:'vorschlag'}] };
+    saveRec(STD_POOL,STD_PF,av);
+    notifyVorschlag(av);
+    addPunktZeile(_addPktAnlage, {
+      key:uid('pk'), punktId:ap.id, quelle:'begehung', individuell:true, _open:!!bem,
+      bezeichnung:bez, untergruppe:unter, antworttyp:typ, pflicht:false,
+      standardbewertung:'schlecht', empfehlungVorlage:empf,
+      antwort:null, bewertung:'nicht_bewertet', bemerkung:bem, empfehlung:'', fotos:[] });
+    prAddPktClose();
+    toast('Anpassung vorgeschlagen — Punkt in Begehung übernommen');
+    return;
+  }
+
+  var scope=(document.querySelector('input[name="apScope"]:checked')||{}).value||'begehung';
+  var punktId='';
   // Speicherziel anlegen
   if(scope==='objekt'){
     var rec={ id:uid('probj'), orgId:myOrgId(), objektId:_cur.objektId, objektName:_cur.objektName, bezeichnung:bez, anlagenart:art,
       untergruppe:unter, antworttyp:typ, empfehlung:empf, standardbewertung:'schlecht', aktiv:true,
-      ersteller:{userId:(me()||{}).id||'',name:myName()}, erstelltAm:new Date().toISOString() };
+      ersteller:{userId:(me()||{}).id||'',name:myName()}, erstelltAm:jetzt };
     saveRec(OBJ_POOL,OBJ_PF,rec); punktId=rec.id;
     toast('Objekt-Prüfpunkt gespeichert');
   } else if(scope==='org' || scope==='global'){
     var v={ id:uid('prstd'), scope:scope, orgId:myOrgId(), bezeichnung:bez, anlagenart:art, untergruppe:unter, antworttyp:typ,
       pflicht:false, standardbewertung:'schlecht', empfehlung:empf, aktiv:true, reihenfolge:9999,
       status:'vorschlag', vorschlagVon:{userId:(me()||{}).id||'',name:myName()}, vorschlagFuer:scope,
-      ersteller:{userId:(me()||{}).id||'',name:myName()}, erstelltAm:new Date().toISOString(), version:1,
-      log:[{alt:'',neu:bez,von:myName(),am:new Date().toISOString(),grund:'Vorschlag erstellt',status:'vorschlag'}] };
+      ersteller:{userId:(me()||{}).id||'',name:myName()}, erstelltAm:jetzt, version:1,
+      log:[{alt:'',neu:bez,von:myName(),am:jetzt,grund:'Vorschlag erstellt',status:'vorschlag'}] };
     saveRec(STD_POOL,STD_PF,v); punktId=v.id;
     notifyVorschlag(v);
     toast('Vorschlag eingereicht');
   }
 
-  var quelle = scope==='objekt'?'objekt':(scope==='begehung'?'begehung':'begehung');
   addPunktZeile(_addPktAnlage, {
-    key:uid('pk'), punktId:punktId, quelle:quelle, individuell:true,
+    key:uid('pk'), punktId:punktId, quelle:(scope==='objekt'?'objekt':'begehung'), individuell:true, _open:!!bem,
     bezeichnung:bez, untergruppe:unter, antworttyp:typ, pflicht:false,
     standardbewertung:'schlecht', empfehlungVorlage:empf,
-    antwort:null, bewertung:'nicht_bewertet', bemerkung:'', empfehlung:'', fotos:[] });
+    antwort:null, bewertung:'nicht_bewertet', bemerkung:bem, empfehlung:'', fotos:[] });
   prAddPktClose();
 };
 
@@ -1053,15 +1123,45 @@ function renderVerwaltung(){
   var vorN=canM?vorschlaegeVisible().length:0;
   var h='<div class="vseg no-print">';
   h+='<button class="'+(_vview==='standard'?'on':'')+'" onclick="prVView(\'standard\')">📋 Standardliste</button>';
+  h+='<button class="'+(_vview==='objekt'?'on':'')+'" onclick="prVView(\'objekt\')">🏗 Objekt-Punkte</button>';
   if(canM) h+='<button class="'+(_vview==='vorschlaege'?'on':'')+'" onclick="prVView(\'vorschlaege\')">📥 Vorschläge'+(vorN?' ('+vorN+')':'')+'</button>';
   if(canM) h+='<button class="'+(_vview==='anlagenarten'?'on':'')+'" onclick="prVView(\'anlagenarten\')">🏷 Anlagenarten</button>';
   h+='</div><div id="vContent"></div>';
   $id('prBody').innerHTML=h;
   if(_vview==='vorschlaege' && canM) renderVorschlaege();
   else if(_vview==='anlagenarten' && canM) renderAnlagenartenVerw();
+  else if(_vview==='objekt') renderObjektPunkte();
   else renderStandardliste();
 }
 window.prVView=function(v){ _vview=v; renderVerwaltung(); };
+
+/* Objektbezogene Prüfpunkte (item 7) — pro Objekt gruppiert, löschbar. */
+function renderObjektPunkte(){
+  var el=$id('vContent'); if(!el) return;
+  var list=objAll('');
+  if(!list.length){ el.innerHTML='<div class="empty">Keine objektbezogenen Prüfpunkte. Sie entstehen in der Begehung über «Prüfpunkt ergänzen → Für dieses Objekt speichern» und erscheinen bei jeder künftigen Begehung des Objekts.</div>'; return; }
+  var canW=prCanBegehung();
+  var byObj={};
+  list.forEach(function(p){ (byObj[p.objektId||'']=byObj[p.objektId||'']||[]).push(p); });
+  var h='';
+  Object.keys(byObj).forEach(function(oid){
+    var lbl=objName(oid) || (byObj[oid][0]||{}).objektName || (oid?('Objekt '+oid):'Ohne Objekt');
+    h+='<div class="subhd">🏗 '+esc(lbl)+'</div>';
+    byObj[oid].forEach(function(p){
+      var t=PR_ANTWORTTYPEN[p.antworttyp]||{};
+      h+='<div class="vrow'+(p.aktiv===false?' inaktiv':'')+'"><div class="vt"><div class="vn">'+esc(p.bezeichnung)+'</div>'
+        +'<div class="vs"><span class="mini">'+esc(prArt(p.anlagenart).label)+'</span>'+(p.untergruppe?'<span class="mini">'+esc(p.untergruppe)+'</span>':'')
+        +'<span class="mini">'+esc(t.kurz||p.antworttyp)+'</span><span class="mini">von '+esc((p.ersteller||{}).name||'—')+'</span></div></div>'
+        +'<div class="vtools">'+(canW?'<button class="btn sm red" onclick="prObjPktDel(\''+esc(p.id)+'\')">🗑</button>':'')+'</div></div>';
+    });
+  });
+  el.innerHTML=h;
+}
+window.prObjPktDel=function(id){
+  GemaDialog.confirm({title:'Objekt-Prüfpunkt löschen',message:'Dieser Punkt erscheint bei künftigen Begehungen des Objekts nicht mehr. Bestehende Berichte bleiben unverändert.',confirmLabel:'Löschen',danger:true}).then(function(ok){
+    if(!ok)return; delRec(OBJ_POOL,OBJ_PF,id); renderVerwaltung(); toast('Gelöscht');
+  });
+};
 
 function renderStandardliste(){
   var el=$id('vContent'); if(!el) return;
@@ -1121,10 +1221,8 @@ function stdRow(p, scope, canM, canSuper, ovr){
 }
 
 /* Prüfpunkt-Editor (Modal) */
-var _pkEdit=null, _pkEditScope='org';
+var _pkEdit=null;
 window.prPkNew=function(){
-  var canSuper=prIsSuper();
-  _pkEditScope = canSuper ? 'org' : 'org'; // Neuanlage-Ziel wählbar im Modal
   _pkEdit={ id:uid('prstd'), scope:'org', orgId:myOrgId(), bezeichnung:'', anlagenart:(prAnlagenarten()[0]||{}).id||'allgemein', untergruppe:'',
     antworttyp:PR_ANTWORTTYP_DEFAULT, pflicht:false, standardbewertung:'schlecht', empfehlung:'', aktiv:true, reihenfolge:9999,
     status:'aktiv', ersteller:{userId:(me()||{}).id||'',name:myName()}, erstelltAm:new Date().toISOString(), version:1, log:[] , _new:true };
@@ -1133,7 +1231,7 @@ window.prPkNew=function(){
 window.prPkEdit=function(id,scope){
   var src = scope==='global'? stdGlobalMerged() : stdOrgAll();
   var p=src.filter(function(x){return x.id===id;})[0]; if(!p){ toast('Nicht gefunden'); return; }
-  _pkEdit=JSON.parse(JSON.stringify(p)); _pkEdit.scope=scope; _pkEditScope=scope; _pkEdit._new=false;
+  _pkEdit=JSON.parse(JSON.stringify(p)); _pkEdit.scope=scope; _pkEdit._new=false;
   openPkEditor('Prüfpunkt bearbeiten');
 };
 function openPkEditor(title){
@@ -1202,7 +1300,7 @@ window.prPkLog=function(id,scope){
   var p=src.filter(function(x){return x.id===id;})[0]; if(!p) return;
   var log=(p.log||[]);
   var h='<div style="font-size:13px;color:var(--txt2)">';
-  h+='<div style="margin-bottom:8px"><b>'+esc(p.bezeichnung)+'</b><br><span style="font-size:11.5px;color:var(--mut)">Version '+(p.version||1)+' · Ersteller: '+esc((p.ersteller||{}).name||'—')+' · '+fmtDatum(p.erstelltAm)+'</span></div>';
+  h+='<div style="margin-bottom:8px"><b>'+esc(p.bezeichnung)+'</b><br><span style="font-size:11.5px;color:var(--mut)">Version '+(p.version||1)+' · Ersteller: '+esc((p.ersteller||{}).name||'—')+' · erstellt '+fmtDatum(p.erstelltAm)+(p.geaendertAm?' · geändert '+fmtDatum(p.geaendertAm):'')+'</span></div>';
   if(!log.length) h+='<div style="color:var(--mut)">Keine protokollierten Änderungen.</div>';
   log.forEach(function(e){
     h+='<div style="border-left:3px solid var(--brd2);padding:4px 0 4px 10px;margin-bottom:7px">'
@@ -1225,6 +1323,7 @@ function renderVorschlaege(){
     var h='<div class="vrow"><div class="vt">';
     h+='<div class="vn">'+esc(p.bezeichnung)+'</div>';
     h+='<div class="vs"><span class="mini" style="background:'+(p.scope==='global'?'#eef2ff;color:#4338ca':'var(--acc-bg);color:var(--acc)')+'">'+(p.scope==='global'?'→ GEMA-global':'→ Firma')+'</span>'
+      +(p.aenderungZu?'<span class="mini" style="background:var(--viol-bg);color:var(--viol)">✎ Änderung zu «'+esc(p.aenderungZu.bezeichnung)+'»</span>':'')
       +'<span class="mini">'+esc(prArt(p.anlagenart).label)+'</span><span class="mini">'+esc(t.kurz||p.antworttyp)+'</span>'
       +'<span class="mini">von '+esc((p.vorschlagVon||{}).name||'—')+'</span></div>';
     if(p.empfehlung) h+='<div style="font-size:11.5px;color:var(--mut);margin-top:4px">Empfehlung: '+esc(p.empfehlung)+'</div>';
@@ -1237,14 +1336,44 @@ function renderVorschlaege(){
   }).join('');
 }
 function vorschlagById(id){ return cached(STD_POOL).filter(function(x){return x&&x.id===id&&x.status==='vorschlag';})[0]||null; }
+/* Freigabe-Kern: normaler Vorschlag → aktiver Punkt; Änderungsvorschlag
+   (aenderungZu) → AKTUALISIERT den Ziel-Punkt (Version +1, Protokoll) und
+   entfernt den Vorschlags-Record. Rückgabe = der wirksame Punkt. */
+function applyVorschlag(rec, grund){
+  var jetzt=new Date().toISOString();
+  if(rec.aenderungZu && rec.aenderungZu.id){
+    var src = rec.scope==='global' ? stdGlobalMerged() : stdOrgAll();
+    var target = src.filter(function(x){return x.id===rec.aenderungZu.id;})[0];
+    if(target){
+      var t=JSON.parse(JSON.stringify(target)); delete t._default;
+      t.scope=rec.scope; t.orgId = rec.scope==='global' ? null : myOrgId();
+      var altBez=t.bezeichnung;
+      t.bezeichnung=rec.bezeichnung;
+      t.untergruppe=rec.untergruppe||t.untergruppe;
+      t.antworttyp=rec.antworttyp||t.antworttyp;
+      if(rec.empfehlung) t.empfehlung=rec.empfehlung;
+      t.status='aktiv'; t.aktiv=t.aktiv!==false;
+      t.version=(t.version||1)+1; t.geaendertAm=jetzt;
+      t.log=(t.log||[]).slice(0,60);
+      t.log.unshift({alt:altBez,neu:t.bezeichnung,von:myName(),am:jetzt,grund:'Anpassung übernommen (Vorschlag von '+((rec.vorschlagVon||{}).name||'—')+')',status:'aktiv'});
+      saveRec(STD_POOL,STD_PF,t);
+      delRec(STD_POOL,STD_PF,rec.id);
+      return t;
+    }
+    // Ziel nicht mehr vorhanden → als neuer Punkt freigeben (Fallthrough)
+  }
+  var out=JSON.parse(JSON.stringify(rec));
+  out.status='aktiv'; out.aktiv=true; out.geaendertAm=jetzt;
+  if(out.scope==='global') out.orgId=null;
+  out.log=(out.log||[]).slice(0,60);
+  out.log.unshift({alt:'',neu:out.bezeichnung,von:myName(),am:jetzt,grund:grund||'Freigegeben',status:'aktiv'});
+  saveRec(STD_POOL,STD_PF,out);
+  return out;
+}
 window.prVApprove=function(id){
   var p=vorschlagById(id); if(!p) return;
-  var rec=JSON.parse(JSON.stringify(p));
-  rec.status='aktiv'; rec.aktiv=true; rec.geaendertAm=new Date().toISOString();
-  if(rec.scope==='global') rec.orgId=null;
-  rec.log=(rec.log||[]); rec.log.unshift({alt:'',neu:rec.bezeichnung,von:myName(),am:rec.geaendertAm,grund:'Freigegeben',status:'aktiv'});
-  saveRec(STD_POOL,STD_PF,rec);
-  notifyEntscheid(rec,'pruefliste_freigegeben','Vorschlag freigegeben','Dein Prüflisten-Vorschlag «'+rec.bezeichnung+'» wurde freigegeben.','erfolg');
+  var rec=applyVorschlag(p);
+  notifyEntscheid(p,'pruefliste_freigegeben','Vorschlag freigegeben','Dein Prüflisten-Vorschlag «'+rec.bezeichnung+'» wurde freigegeben.','erfolg');
   renderVerwaltung(); toast('Freigegeben');
 };
 window.prVReject=function(id){
@@ -1288,10 +1417,9 @@ function collectVorschlag(){
 }
 window.prVSaveOnly=function(){ var p=collectVorschlag(); p.log=(p.log||[]); p.log.unshift({alt:'',neu:p.bezeichnung,von:myName(),am:p.geaendertAm,grund:'Vorschlag bearbeitet',status:'vorschlag'}); saveRec(STD_POOL,STD_PF,p); prPkClose(); renderVerwaltung(); toast('Gespeichert'); };
 window.prVSaveApprove=function(){
-  var p=collectVorschlag(); p.status='aktiv'; p.aktiv=true; if(p.scope==='global') p.orgId=null;
-  p.log=(p.log||[]); p.log.unshift({alt:'',neu:p.bezeichnung,von:myName(),am:p.geaendertAm,grund:'Bearbeitet & freigegeben',status:'aktiv'});
-  saveRec(STD_POOL,STD_PF,p);
-  notifyEntscheid(p,'pruefliste_freigegeben','Vorschlag freigegeben','Dein Prüflisten-Vorschlag «'+p.bezeichnung+'» wurde (bearbeitet) freigegeben.','erfolg');
+  var p=collectVorschlag();
+  var rec=applyVorschlag(p,'Bearbeitet & freigegeben');
+  notifyEntscheid(p,'pruefliste_freigegeben','Vorschlag freigegeben','Dein Prüflisten-Vorschlag «'+rec.bezeichnung+'» wurde (bearbeitet) freigegeben.','erfolg');
   prPkClose(); renderVerwaltung(); toast('Freigegeben');
 };
 
@@ -1348,14 +1476,16 @@ window.prArtReset=function(){
    ═══════════════════════════════════════════════════════════════════════ */
 function notifyVorschlag(v){
   if(typeof GemaNotify==='undefined') return;
-  var link='pm_pruefliste.html';
+  var link='pm_pruefliste.html?tab=verwaltung';
+  var istAend=!!(v.aenderungZu&&v.aenderungZu.id);
+  var titel=(istAend?'Prüflisten-Änderungsvorschlag':'Neuer Prüflisten-Vorschlag');
   try{
     if(v.scope==='global'){
       GemaNotify.push({ eventKey:'pruefliste_vorschlag', empfaengerRoleId:'role_admin', modul:'pruefliste', typ:'aktion',
-        titel:'Neuer Prüflisten-Vorschlag (GEMA-global)', text:'«'+v.bezeichnung+'» wartet auf Freigabe.', link:link });
+        titel:titel+' (GEMA-global)', text:'«'+v.bezeichnung+'» wartet auf Freigabe.', link:link });
     } else {
       GemaNotify.push({ eventKey:'pruefliste_vorschlag', empfaengerRoleId:'role_abteilungsleiter', empfaengerOrgId:myOrgId(), modul:'pruefliste', typ:'aktion',
-        titel:'Neuer Prüflisten-Vorschlag', text:'«'+v.bezeichnung+'» wartet auf Freigabe.', link:link });
+        titel:titel, text:'«'+v.bezeichnung+'» wartet auf Freigabe.', link:link });
     }
   }catch(e){}
 }
@@ -1465,7 +1595,9 @@ function boot(){
 }
 function openDeepLink(){
   try{
-    var beg=new URLSearchParams(location.search).get('beg');
+    var q=new URLSearchParams(location.search);
+    if(q.get('tab')==='verwaltung' && _tab!=='verwaltung'){ _tab='verwaltung'; render(); }
+    var beg=q.get('beg');
     if(beg){ var b=begById(beg); if(b){ _cur=JSON.parse(JSON.stringify(b)); openEditor(); } }
   }catch(e){}
 }
