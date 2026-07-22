@@ -202,6 +202,7 @@ table.t{border-collapse:collapse;width:100%;font-size:12.5px}
 <script src="gema_storage.js"></script>
 <script src="gema_dialog.js"></script><script src="gema_print_a4.js"></script>
 <link rel="stylesheet" href="gema_responsive.css"/>
+<link rel="stylesheet" href="gema-native.css"/>
 </head>
 <body>
 <nav class="g-nav">
@@ -3246,5 +3247,115 @@ document.addEventListener('DOMContentLoaded',function(){
 </script>
 <script src="gema_scroll.js"></script>
 <script src="gema_mobile_menu.js"></script>
+<script src="gema-native.js"></script>
+<script src="gema_native_mobil.js"></script>
+<script>
+/* ═══ GEMA Native — iPhone-Ansicht (Screen «Stundenerfassung» aus gema-native-screens.html) ═══
+   Echte Wochen-/Tagesdaten (stTagFor/stdEintragMin); Erfassen/Bearbeiten läuft über die
+   bestehenden Modul-Dialoge (stEinNeu/stEinEdit/stAbsOpen/stWocheEinreichen). */
+(function(){
+  if(typeof GemaNativeMobil==='undefined') return;
+  var NE=GemaNativeMobil.esc, nat=null;
+  var WT=['Sonntag','Montag','Dienstag','Mittwoch','Donnerstag','Freitag','Samstag'];
+  var MON=['Jan.','Feb.','März','April','Mai','Juni','Juli','Aug.','Sept.','Okt.','Nov.','Dez.'];
+  var IC_CLOCK='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l2.5 2.5"/></svg>';
+  function heute(){ return new Date().toISOString().slice(0,10); }
+  function natH(min){ return (Math.round(min/6)/10).toFixed(1).replace('.',','); }
+  function tagLbl(iso){ var d=new Date(iso+'T12:00:00'); return WT[d.getDay()]+' · '+d.getDate()+'. '+MON[d.getMonth()]; }
+  function wocheTage(){
+    var u=null; try{ u=stUser(); }catch(e){}
+    if(!u) return [];
+    var out=[], ws=_wkStart;
+    for(var i=0;i<7;i++){
+      var iso=stdAddTage(ws,i), t=null; try{ t=stTagFor(iso,u.id); }catch(e){}
+      out.push({iso:iso,tag:t});
+    }
+    return out;
+  }
+  function tagMin(t){ return (t&&t.eintraege||[]).reduce(function(s,e){ return s+stdEintragMin(e); },0); }
+  function absHtml(t,iso){
+    if(!t||!t.absenz) return '';
+    var lbl=t.absenz.typ, ic='🌴';
+    try{ var u=stUser(); var def=stdAbsenzDef(stParamsFor(u.id),t.absenz.typ); if(def){ lbl=def.name; ic=def.ic||ic; } }catch(e){}
+    var um=t.absenz.stunden!=null?(natH(t.absenz.stunden*60)+' h'):(t.absenz.anteil===0.5?'½ Tag':'1 Tag');
+    return '<div class="gn-row" data-nat-abs="'+NE(iso)+'"><span class="gn-row-ic" style="--gn-row-bg:var(--gn-c-hygiene)">'+ic+'</span>'
+      +'<span class="gn-row-body"><span class="gn-row-title">'+NE(lbl)+'</span></span><span class="gn-row-val">'+NE(um)+'</span></div>';
+  }
+  function tagGruppe(d){
+    var min=tagMin(d.tag);
+    if(!min&&!(d.tag&&d.tag.absenz)&&d.iso!==heute()) return '';
+    var rows=(d.tag&&d.tag.eintraege||[]).map(function(e){
+      var titel=[e.objektName||'Ohne Projekt',e.taetigkeit||''].filter(Boolean).join(' · ');
+      return '<div class="gn-row" data-nat-edit="'+NE(d.iso)+'" data-nat-ein="'+NE(e.id)+'">'
+        +'<span class="gn-row-ic" style="--gn-row-bg:var(--gn-c-sanitaer)">'+IC_CLOCK+'</span>'
+        +'<span class="gn-row-body"><span class="gn-row-title">'+NE(titel)+'</span><span class="gn-row-sub">'+NE((e.von||'')+' – '+(e.bis||'')+(e.pauseMin?(' · '+e.pauseMin+"′ Pause"):''))+'</span></span>'
+        +'<span class="gn-row-val">'+natH(stdEintragMin(e))+' h</span></div>';
+    }).join('')+absHtml(d.tag,d.iso);
+    var status=d.tag&&d.tag.status&&d.tag.status!=='offen'?d.tag.status:'';
+    var stPill=status==='eingereicht'?' 📤':status==='genehmigt'?' ✅':status==='zurueck'?' ↩':'';
+    return '<div class="gn-label" style="display:flex;justify-content:space-between"><span>'+NE(tagLbl(d.iso))+stPill+'</span>'
+      +'<span style="color:var(--gn-ink);font-variant-numeric:tabular-nums">'+natH(min)+' h</span></div>'
+      +'<div class="gn-list">'+(rows||('<div class="gn-row" data-nat-neu="'+NE(d.iso)+'"><span class="gn-row-ic" style="--gn-row-bg:var(--gn-c-projekt)">＋</span><span class="gn-row-body"><span class="gn-row-title" style="color:var(--gn-ink-2)">Zeit erfassen …</span></span></div>'))+'</div>';
+  }
+  function render(root){
+    var tage=wocheTage();
+    var wkMin=tage.reduce(function(s,d){ return s+tagMin(d.tag); },0);
+    var kw=''; try{ kw=stKw(_wkStart); }catch(e){}
+    root.innerHTML=
+      '<div class="gn-compact" data-gn-compact><b>Stunden</b></div>'
+      +'<div class="gn-screen" data-gn-scroll>'
+        +'<div class="gn-toolbar">'
+          +'<div class="gn-large-title"><h1>Stunden</h1><p>Woche '+NE(kw)+' · '+natH(wkMin)+' h erfasst</p></div>'
+          +'<button class="gn-icon-btn" data-gn-classic title="Klassische Ansicht"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>'
+        +'</div>'
+        +'<div class="gn-seg" data-nat-wk>'
+          +'<button class="gn-seg-opt" data-value="prev">‹ Vorwoche</button>'
+          +'<button class="gn-seg-opt is-active" data-value="cur">Diese Woche</button>'
+          +'<button class="gn-seg-opt" data-value="next">Nächste ›</button>'
+        +'</div>'
+        +'<div class="gn-card" style="padding:6px 0 14px">'
+          +'<div class="gn-list" style="margin:0 0 12px;box-shadow:none">'
+            +'<button class="gn-select" data-nat-act="absenz"><span class="k">🌴 Absenz eintragen</span><span class="v">›</span></button>'
+            +'<button class="gn-select" data-nat-act="einreichen"><span class="k">📤 Woche einreichen</span><span class="v">›</span></button>'
+          +'</div>'
+          +'<div style="padding:0 14px"><button class="gn-btn" data-nat-act="neu">＋ Zeit erfassen</button></div>'
+        +'</div>'
+        +tage.map(tagGruppe).join('')
+      +'</div>';
+    root.querySelector('[data-nat-wk]').addEventListener('gn:segment',function(e){
+      var v=e.detail.value;
+      try{
+        if(v==='prev') _wkStart=stdAddTage(_wkStart,-7);
+        else if(v==='next') _wkStart=stdAddTage(_wkStart,7);
+        else _wkStart=stdWochenStart(heute());
+        stRender();
+      }catch(err){}
+      if(nat) nat.refresh();
+    });
+    root.addEventListener('click',function(e){
+      var el=e.target.closest&&e.target.closest('[data-nat-act],[data-nat-edit],[data-nat-neu],[data-nat-abs]');
+      if(!el) return;
+      if(el.hasAttribute('data-nat-act')){
+        var a=el.getAttribute('data-nat-act');
+        try{
+          if(a==='neu') stEinNeu(heute());
+          else if(a==='absenz') stAbsOpen(heute());
+          else if(a==='einreichen') stWocheEinreichen();
+        }catch(err){}
+      } else if(el.hasAttribute('data-nat-edit')){
+        if(el.__gnCtxFired){ el.__gnCtxFired=false; return; }
+        try{ stEinEdit(el.getAttribute('data-nat-edit'),el.getAttribute('data-nat-ein')); }catch(err){}
+      } else if(el.hasAttribute('data-nat-neu')){
+        try{ stEinNeu(el.getAttribute('data-nat-neu')); }catch(err){}
+      } else if(el.hasAttribute('data-nat-abs')){
+        try{ stAbsOpen(el.getAttribute('data-nat-abs')); }catch(err){}
+      }
+    });
+  }
+  nat=GemaNativeMobil.mount({render:render});
+  var _oSR=window.stRender;
+  if(typeof _oSR==='function'){ window.stRender=function(){ var r=_oSR.apply(this,arguments); try{ if(nat&&GemaNativeMobil.enabled()) nat.refresh(); }catch(e){} return r; }; }
+})();
+</script>
 </body>
 </html>

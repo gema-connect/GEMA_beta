@@ -171,6 +171,7 @@ table.board{border-collapse:collapse;width:100%;min-width:860px}
 <script src="gema_dialog.js"></script>
 <script src="gema_aushang.js"></script>
 <link rel="stylesheet" href="gema_responsive.css"/>
+<link rel="stylesheet" href="gema-native.css"/>
 </head>
 <body>
 <nav class="g-nav">
@@ -1573,5 +1574,126 @@ document.addEventListener('DOMContentLoaded',function(){
 </script>
 <script src="gema_scroll.js"></script>
 <script src="gema_mobile_menu.js"></script>
+<script src="gema-native.js"></script>
+<script src="gema_native_mobil.js"></script>
+<script>
+/* ═══ GEMA Native — iPhone-Ansicht (Screen «Einsatzplan» aus gema-native-screens.html) ═══
+   Wochenstreifen + Agenda aus dem echten Einsatz-Pool (epAll/epCovers); Monteure sehen
+   die eigenen Einsätze inkl. Besonderheiten + Schlüssel-Box, Planende alle + Bearbeiten. */
+(function(){
+  if(typeof GemaNativeMobil==='undefined') return;
+  var NE=GemaNativeMobil.esc, nat=null;
+  var WT2=['So','Mo','Di','Mi','Do','Fr','Sa'];
+  var MON=['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
+  function heute(){ return new Date().toISOString().slice(0,10); }
+  function moStart(isoS){
+    var d=new Date(isoS+'T12:00:00'); var w=(d.getDay()+6)%7; d.setDate(d.getDate()-w);
+    return d.toISOString().slice(0,10);
+  }
+  var natTag=heute(), natWs=moStart(heute());
+  function meine(){
+    var u=null; try{ u=epUser(); }catch(e){}
+    var all=[]; try{ all=epAll(); }catch(e){}
+    var plan=false; try{ plan=epCanPlan(); }catch(e){}
+    if(plan||!u) return all;
+    return all.filter(function(ev){ return ev.monteurUserId===u.id; });
+  }
+  function evsAm(iso){
+    return meine().filter(function(ev){ try{ return epCovers(ev,iso); }catch(e){ return ev.datum===iso; } })
+      .sort(function(a,b){ return String(a.zeitVon||(a.slot==='nm'?'13:00':'07:00')).localeCompare(String(b.zeitVon||(b.slot==='nm'?'13:00':'07:00'))); });
+  }
+  function evFarbe(ev){
+    if(ev.typ==='ferien') return '#16a34a';
+    try{ var b=abById(ev.bereichId); if(b&&b.farbe) return b.farbe; }catch(e){}
+    return '#2563eb';
+  }
+  function evZeit(ev){
+    if(ev.zeitVon) return NE(ev.zeitVon)+'<span>'+NE(ev.zeitBis||'')+'</span>';
+    if(ev.slot==='vm') return 'VM<span>bis 12</span>';
+    if(ev.slot==='nm') return 'NM<span>ab 13</span>';
+    return 'Tag<span>ganz</span>';
+  }
+  function initialen(name){ return String(name||'').trim().split(/\s+/).map(function(p){return p.charAt(0);}).join('').slice(0,2).toUpperCase(); }
+  function kwVon(isoS){
+    var d=new Date(isoS+'T12:00:00');
+    var t=new Date(d); t.setDate(d.getDate()+3-((d.getDay()+6)%7));
+    var j1=new Date(t.getFullYear(),0,4);
+    return 1+Math.round(((t-j1)/86400000-3+((j1.getDay()+6)%7))/7);
+  }
+  function agendaHtml(){
+    var evs=evsAm(natTag);
+    if(!evs.length) return '<div class="gn-label" style="text-transform:none;font-weight:500;padding-top:6px">Keine Einsätze an diesem Tag.</div>';
+    var plan=false; try{ plan=epCanPlan(); }catch(e){}
+    return '<div class="gn-agenda">'+evs.map(function(ev){
+      var meta=[ev.objektName||ev.kunde||'',plan?(ev.monteurName||''):''].filter(Boolean).join(' · ');
+      var extra='';
+      try{ extra+=bsChipsHtml(ev)||''; }catch(e){}
+      try{ extra+=epSchluesselBoxHtml(ev)||''; }catch(e){}
+      return '<div class="gn-event" data-nat-id="'+NE(ev.id)+'" style="--gn-event-c:'+NE(evFarbe(ev))+'">'
+        +'<div class="gn-event-time">'+evZeit(ev)+'</div>'
+        +'<div class="gn-event-body"><div class="gn-event-title">'+NE(ev.titel||((ev.typ==='ferien'?'🏖 ':'')+(ev.auftragNr?('Auftrag '+ev.auftragNr):'Einsatz')))+'</div>'
+        +(meta?'<div class="gn-event-meta">'+NE(meta)+'</div>':'')
+        +(ev.monteurName?'<div class="gn-avatars"><span class="gn-ava-sm">'+NE(initialen(ev.monteurName))+'</span></div>':'')
+        +extra+'</div></div>';
+    }).join('')+'</div>';
+  }
+  function stripHtml(){
+    var out='';
+    for(var i=0;i<7;i++){
+      var d=addD(natWs,i), dd=new Date(d+'T12:00:00');
+      out+='<button class="gn-day'+(d===natTag?' is-active':'')+(evsAm(d).length?' has-dot':'')+'" data-value="'+NE(d)+'"><small>'+WT2[dd.getDay()]+'</small><b>'+dd.getDate()+'</b><i></i></button>';
+    }
+    return '<div class="gn-weekstrip" data-nat-strip>'+out+'</div>';
+  }
+  function render(root){
+    var dd=new Date(natWs+'T12:00:00');
+    var plan=false; try{ plan=epCanPlan(); }catch(e){}
+    var tagN=evsAm(natTag).length;
+    var dTag=new Date(natTag+'T12:00:00');
+    root.innerHTML=
+      '<div class="gn-compact" data-gn-compact><b>Einsatzplan</b></div>'
+      +'<div class="gn-screen" data-gn-scroll>'
+        +'<div class="gn-toolbar">'
+          +'<div class="gn-large-title"><h1>Einsatzplan</h1><p>KW '+kwVon(natWs)+' · '+MON[dd.getMonth()]+' '+dd.getFullYear()+'</p></div>'
+          +'<button class="gn-icon-btn" data-gn-classic title="Klassische Ansicht"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>'
+          +(plan?'<button class="gn-icon-btn gn-icon-btn--primary" data-nat-add title="Neuer Einsatz"><svg viewBox="0 0 24 24" fill="none" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button>':'')
+        +'</div>'
+        +'<div class="gn-seg" data-nat-wk>'
+          +'<button class="gn-seg-opt" data-value="prev">‹</button>'
+          +'<button class="gn-seg-opt is-active" data-value="cur">Diese Woche</button>'
+          +'<button class="gn-seg-opt" data-value="next">›</button>'
+        +'</div>'
+        +stripHtml()
+        +'<div class="gn-label" style="display:flex;justify-content:space-between"><span>'+NE(WT2[dTag.getDay()])+' · '+dTag.getDate()+'. '+MON[dTag.getMonth()].slice(0,4)+'.</span><span style="color:var(--gn-ink)">'+tagN+' Einsätze</span></div>'
+        +'<div data-nat-agenda>'+agendaHtml()+'</div>'
+      +'</div>';
+    root.querySelector('[data-nat-wk]').addEventListener('gn:segment',function(e){
+      var v=e.detail.value;
+      if(v==='prev') natWs=addD(natWs,-7);
+      else if(v==='next') natWs=addD(natWs,7);
+      else natWs=moStart(heute());
+      natTag=(natWs<=heute()&&heute()<=addD(natWs,6))?heute():natWs;
+      if(nat) nat.refresh();
+    });
+    root.querySelector('[data-nat-strip]').addEventListener('gn:day',function(e){
+      natTag=e.detail.value;
+      if(nat) nat.refresh();
+    });
+    root.querySelector('[data-nat-agenda]').addEventListener('click',function(e){
+      var card=e.target.closest&&e.target.closest('[data-nat-id]'); if(!card) return;
+      var plan2=false; try{ plan2=epCanPlan(); }catch(err){}
+      if(plan2){ try{ epEvOpen(card.getAttribute('data-nat-id')); }catch(err){} }
+    });
+    var add=root.querySelector('[data-nat-add]');
+    if(add) add.addEventListener('click',function(){
+      var u=null; try{ u=epUser(); }catch(e){}
+      try{ epNeu(u?u.id:'',natTag); }catch(e){}
+    });
+  }
+  nat=GemaNativeMobil.mount({render:render});
+  var _oER=window.epRender;
+  if(typeof _oER==='function'){ window.epRender=function(){ var r=_oER.apply(this,arguments); try{ if(nat&&GemaNativeMobil.enabled()) nat.refresh(); }catch(e){} return r; }; }
+})();
+</script>
 </body>
 </html>
