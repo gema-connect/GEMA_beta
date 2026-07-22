@@ -239,6 +239,7 @@ function fixLeadingZero(el){
 <script src="gema_adresse.js"></script>
 <script src="gema_hoehe.js"></script>
 <link rel="stylesheet" href="gema_responsive.css"/>
+<link rel="stylesheet" href="gema-native.css"/>
 </head>
 <body>
 
@@ -1033,5 +1034,112 @@ GemaFeedback.init('druckdispositiv', 'Druckdispositiv');
 </script>
 <script src="gema_scroll.js"></script>
 <script src="gema_mobile_menu.js"></script>
+<script src="gema-native.js"></script>
+<script src="gema_native_mobil.js"></script>
+<script>
+/* ═══ GEMA Native — iPhone-Ansicht (Screen «Druckdispositiv» aus gema-native-screens.html) ═══
+   DOM-Proxy auf die ECHTE Berechnung: Native-Felder spiegeln die klassischen Inputs
+   (Wert setzen → recalc()), das Ergebnis liest die out-*-Werte + Normstatus des Moduls. */
+(function(){
+  if(typeof GemaNativeMobil==='undefined') return;
+  var NE=GemaNativeMobil.esc, nat=null, natSeg='eingabe';
+  var F_HOEHEN=[
+    ['hReservoir','Reservoir Wasserspiegel','m ü.M.'],
+    ['hVerteilbatterie','Verteilbatterie / Strassenniveau','m ü.M.'],
+    ['schwankungReserve','Druckschwankung Versorgung','bar'],
+    ['dvHauszuleitung','Δp Hauszuleitung','bar'],
+    ['dvWasserzaehler','Δp Wasserzähler','bar'],
+    ['hHoechste','Höchste Entnahmestelle','m ↑'],
+    ['dvInstallation','Δp Installation','bar']
+  ];
+  var F_DIREKT=[
+    ['versorgungsdruck','Versorgungsdruck am Anschluss','bar'],
+    ['hoehengewinn','Höhengewinn bis Gebäude','m'],
+    ['schwankungNetz','Druckschwankung Netz','bar'],
+    ['dvHauszuleitung','Δp Hauszuleitung','bar'],
+    ['dvWasserzaehler','Δp Wasserzähler','bar'],
+    ['hHoechste','Höchste Entnahmestelle','m ↑'],
+    ['dvInstallation','Δp Installation','bar']
+  ];
+  function cv(id){ var el=document.getElementById(id); return el?el.value:''; }
+  function outTxt(id){ var el=document.getElementById(id); return el?el.textContent:'—'; }
+  function unitTxt(){ var el=document.querySelector('.unit-bar-txt'); return el?el.textContent.trim():'bar'; }
+  function modus(){ var m=document.getElementById('modeHoehen'); return (m&&m.classList.contains('active'))?'hoehen':'direkt'; }
+  function resStyle(){
+    var card=document.getElementById('rc-fliessdruck'), c=card?card.className:'';
+    if(c.indexOf('crit')>=0) return 'linear-gradient(135deg,#dc2626,#f87171);box-shadow:0 8px 22px -6px rgba(220,38,38,.5)';
+    if(c.indexOf('warn')>=0) return 'linear-gradient(135deg,#ea580c,#f59e0b);box-shadow:0 8px 22px -6px rgba(234,88,12,.5)';
+    if(c.indexOf('ok')>=0)   return 'linear-gradient(135deg,#16a34a,#22c55e);box-shadow:0 8px 22px -6px rgba(22,163,74,.5)';
+    return 'linear-gradient(135deg,#2563eb,#3b82f6);box-shadow:0 8px 22px -6px rgba(37,99,235,.5)';
+  }
+  function feldHtml(){
+    var fs=modus()==='hoehen'?F_HOEHEN:F_DIREKT;
+    return fs.map(function(f){
+      return '<div class="gn-field"><label>'+NE(f[1])+'</label>'
+        +'<div style="display:flex;gap:8px;align-items:center">'
+        +'<input class="gn-input" type="text" inputmode="decimal" data-nat-proxy="'+NE(f[0])+'" value="'+NE(cv(f[0]))+'" placeholder="0" style="flex:1">'
+        +'<span style="font-size:13px;font-weight:600;color:var(--gn-ink-2);flex:none;min-width:44px">'+NE(f[2])+'</span></div></div>';
+    }).join('');
+  }
+  function ergebnisHtml(){
+    var u=unitTxt();
+    var kv=[['Ruhedruck tiefste Stelle','out-ruhedruck',u],['Druckdifferenz','out-druckdiff',u],
+            ['Druckreserve Fliessdruck','out-maxdv',u],['Eingangsdruck Gebäude','out-eingangsdruck',u],
+            ['Höhendifferenz','out-hoehendiff','m']];
+    return '<div class="gn-result" style="background:'+resStyle()+'">'
+      +'<small>Fliessdruck höchste Entnahmestelle</small>'
+      +'<div class="gn-val">'+NE(outTxt('out-fliessdruck'))+' <u>'+NE(u)+'</u></div>'
+      +'<div class="gn-note">'+NE((document.getElementById('rs-fliessdruck')||{}).textContent||'')+'</div></div>'
+      +'<div class="gn-list">'+kv.map(function(k){
+        return '<div class="gn-kv"><span class="k">'+NE(k[0])+'</span><span class="v is-strong">'+NE(outTxt(k[1]))+' '+NE(k[2])+'</span></div>';
+      }).join('')+'</div>';
+  }
+  function render(root){
+    var m=modus();
+    root.innerHTML=
+      '<div class="gn-compact" data-gn-compact><b>Druckdispositiv</b></div>'
+      +'<div class="gn-screen" data-gn-scroll>'
+        +'<button class="gn-back" data-nat-back><svg viewBox="0 0 11 18" fill="none" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m9.5 1.5-8 7.5 8 7.5"/></svg>Berechnungen</button>'
+        +'<div class="gn-toolbar">'
+          +'<div class="gn-large-title"><h1>Druckdispositiv</h1><p>Versorgungs- &amp; Netzdruck · SVGW W3</p></div>'
+          +'<button class="gn-icon-btn" data-gn-classic title="Klassische Ansicht"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>'
+        +'</div>'
+        +'<div class="gn-seg" data-nat-seg>'
+          +'<button class="gn-seg-opt'+(natSeg==='eingabe'?' is-active':'')+'" data-value="eingabe">Eingabe</button>'
+          +'<button class="gn-seg-opt'+(natSeg==='ergebnis'?' is-active':'')+'" data-value="ergebnis">Ergebnis</button>'
+        +'</div>'
+        +'<div data-nat-eingabe'+(natSeg==='eingabe'?'':' style="display:none"')+'>'
+          +'<div class="gn-seg" data-nat-mode>'
+            +'<button class="gn-seg-opt'+(m==='hoehen'?' is-active':'')+'" data-value="hoehen">Reservoir</button>'
+            +'<button class="gn-seg-opt'+(m==='direkt'?' is-active':'')+'" data-value="direkt">Netzdruck</button>'
+          +'</div>'
+          +'<div data-nat-felder>'+feldHtml()+'</div>'
+        +'</div>'
+        +'<div data-nat-ergebnis'+(natSeg==='ergebnis'?'':' style="display:none"')+'>'
+          +'<div class="gn-label" style="text-transform:none;font-weight:500;color:var(--gn-ink-2)">Ergebnis nach SVGW W3</div>'
+          +ergebnisHtml()
+        +'</div>'
+      +'</div>';
+    root.querySelector('[data-nat-back]').addEventListener('click',function(){ location.href='sb_index.html'; });
+    root.querySelector('[data-nat-seg]').addEventListener('gn:segment',function(e){
+      natSeg=e.detail.value;
+      root.querySelector('[data-nat-eingabe]').style.display=natSeg==='eingabe'?'':'none';
+      var erg=root.querySelector('[data-nat-ergebnis]');
+      erg.style.display=natSeg==='ergebnis'?'':'none';
+      if(natSeg==='ergebnis') erg.innerHTML='<div class="gn-label" style="text-transform:none;font-weight:500;color:var(--gn-ink-2)">Ergebnis nach SVGW W3</div>'+ergebnisHtml();
+    });
+    root.querySelector('[data-nat-mode]').addEventListener('gn:segment',function(e){
+      try{ setMode(e.detail.value); }catch(err){}
+      root.querySelector('[data-nat-felder]').innerHTML=feldHtml();
+    });
+    root.addEventListener('input',function(e){
+      var p=e.target.closest&&e.target.closest('[data-nat-proxy]'); if(!p) return;
+      var el=document.getElementById(p.getAttribute('data-nat-proxy'));
+      if(el){ el.value=p.value; try{ recalc(); }catch(err){} }
+    });
+  }
+  nat=GemaNativeMobil.mount({render:render});
+})();
+</script>
 </body>
 </html>

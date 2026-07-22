@@ -464,6 +464,7 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
 .gema-feedback-btn:hover{background:#b91c1c}
 </style>
 <link rel="stylesheet" href="gema_responsive.css"/>
+<link rel="stylesheet" href="gema-native.css"/>
 </head>
 <body>
 
@@ -7080,5 +7081,117 @@ try{ if(window.GemaActivityLog) window.GemaActivityLog.bootstrap(); }catch(e){}
 <script src="gema_scroll.js"></script>
 <script src="gema_mobile_menu.js"></script>
 <script src="gema_dialog.js"></script>
+<script src="gema-native.js"></script>
+<script src="gema_native_mobil.js"></script>
+<script>
+/* ═══ GEMA Native — iPhone-Ansicht (Screen «Werkzeugmanagement» aus gema-native-screens.html) ═══
+   Vollbild-Overlay ≤740px mit ECHTEN Daten (tools) + bestehenden Modul-Aktionen
+   (openViewTool/openQR/openDefektMelden/openAdd/_wzScanWithCamera). Desktop unverändert. */
+(function(){
+  if(typeof GemaNativeMobil==='undefined') return;
+  var NE=GemaNativeMobil.esc, nst={q:'',seg:'alle'}, natCtxId=null, nat=null;
+  var IC_TOOL='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15.5 6.5a3.8 3.8 0 0 1-4.9 4.9l-5.3 5.3 1.9 1.9 5.3-5.3a3.8 3.8 0 0 1 4.9-4.9l-2.4 2.4-1.9-1.9Z"/></svg>';
+  var IC_KOF='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="8" width="18" height="12" rx="2"/><path d="M9 8V5h6v3M3 13h18"/></svg>';
+  function natTools(){
+    try{ return (tools||[]).filter(function(t){ var lc=t.lifecycleStatus||'aktiv'; return lc!=='ausgemustert'&&lc!=='verkauft'; }); }catch(e){ return []; }
+  }
+  function natWd(t){ try{ return worstDays(t); }catch(e){ return null; } }
+  function natStatus(t){
+    try{ if(typeof _wzIsPendingEinbuchung==='function'&&_wzIsPendingEinbuchung(t)) return {cls:'gn-badge--info',lbl:'Einbuchung'}; }catch(e){}
+    var lc=t.lifecycleStatus||'aktiv';
+    if(lc==='verloren') return {cls:'gn-badge--danger',lbl:'Verloren'};
+    if(lc==='in_reparatur') return {cls:'gn-badge--warn',lbl:'Reparatur'};
+    if((t.berichte||[]).some(function(b){return b&&b.typ==='defekt'&&!b.erledigt;})) return {cls:'gn-badge--danger',lbl:'Defekt'};
+    var wd=natWd(t);
+    if(wd!==null&&wd<=14) return {cls:'gn-badge--danger',lbl:wd<0?'Prüfung überfällig':'Prüfung fällig'};
+    if(t.ausgeliehenAn) return {cls:'gn-badge--warn',lbl:'Ausgeliehen'};
+    return {cls:'gn-badge--ok',lbl:'Verfügbar'};
+  }
+  function natMatch(t){
+    if(nst.seg==='frei'&&(t.ausgeliehenAn||natStatus(t).lbl!=='Verfügbar')) return false;
+    if(nst.seg==='aus'&&!t.ausgeliehenAn) return false;
+    if(nst.seg==='pruef'){ var wd=natWd(t); if(wd===null||wd>30) return false; }
+    if(nst.q){
+      var h=((t.name||'')+' '+(t.internKennung||'')+' '+(t.serial||'')+' '+(t.brand||'')+' '+(t.model||'')+' '
+        +((t.ausgeliehenAn&&t.ausgeliehenAn.name)||'')+' '+((t.zugewiesenAn&&t.zugewiesenAn.name)||'')).toLowerCase();
+      if(h.indexOf(nst.q.toLowerCase())<0) return false;
+    }
+    return true;
+  }
+  function natSub(t){
+    var inv=t.internKennung||t.serial||'';
+    var wo=(t.ausgeliehenAn&&t.ausgeliehenAn.name)||(t.zugewiesenAn&&t.zugewiesenAn.name)||'';
+    return [inv?('Inv. '+inv):'',wo].filter(Boolean).join(' · ')||(t.brand||'')||'—';
+  }
+  function listHtml(){
+    var rows=natTools().filter(natMatch);
+    if(!rows.length) return '<div class="gn-label" style="text-transform:none;font-weight:500;padding-top:8px">Keine Geräte gefunden.</div>';
+    return '<div class="gn-list">'+rows.map(function(t){
+      var s=natStatus(t), kof=false; try{ kof=_wzIsKoffer(t); }catch(e){}
+      return '<div class="gn-row gn-row--lg" data-nat-id="'+NE(t.id)+'" data-gn-ctx="'+NE(t.name||'Gerät')+'">'
+        +'<span class="gn-row-ic" style="--gn-row-bg:var(--gn-c-lueftung)">'+(kof?IC_KOF:IC_TOOL)+'</span>'
+        +'<span class="gn-row-body"><span class="gn-row-title">'+NE(t.name||'—')+'</span><span class="gn-row-sub">'+NE(natSub(t))+'</span></span>'
+        +'<span class="gn-badge '+s.cls+'">'+NE(s.lbl)+'</span></div>';
+    }).join('')+'</div>';
+  }
+  function render(root){
+    var ts=natTools();
+    var pruef=ts.filter(function(t){ var wd=natWd(t); return wd!==null&&wd<=30; }).length;
+    var canEdit=false; try{ canEdit=_wzCanEdit(); }catch(e){}
+    root.innerHTML=
+      '<div class="gn-compact" data-gn-compact><b>Werkzeug</b></div>'
+      +'<div class="gn-screen" data-gn-scroll>'
+        +'<div class="gn-toolbar">'
+          +'<div class="gn-large-title"><h1>Werkzeug</h1><p>'+ts.length+' Geräte · '+pruef+' Prüfungen fällig</p></div>'
+          +'<button class="gn-icon-btn" data-gn-classic title="Klassische Ansicht"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>'
+          +'<button class="gn-icon-btn" data-nat-scan title="QR scannen"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><path d="M14 14h3v3M20 14v6M17 20h3"/></svg></button>'
+          +(canEdit?'<button class="gn-icon-btn gn-icon-btn--primary" data-nat-add title="Neues Gerät"><svg viewBox="0 0 24 24" fill="none" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button>':'')
+        +'</div>'
+        +'<div class="gn-searchbar"><svg viewBox="0 0 24 24" fill="none" stroke-width="2.1" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-3.6-3.6"/></svg><input data-nat-q placeholder="Gerät, Inv-Nr. oder Person" value="'+NE(nst.q)+'"></div>'
+        +'<div class="gn-seg" data-nat-seg>'
+          +['alle:Alle','frei:Verfügbar','aus:Ausgeliehen','pruef:Prüfung'].map(function(o){var p=o.split(':');
+            return '<button class="gn-seg-opt'+(nst.seg===p[0]?' is-active':'')+'" data-value="'+p[0]+'">'+p[1]+'</button>';}).join('')
+        +'</div>'
+        +'<div data-nat-list>'+listHtml()+'</div>'
+      +'</div>'
+      +'<div class="gn-backdrop gn-ctx-backdrop" data-gn-ctx-backdrop>'
+        +'<div class="gn-ctx-preview"><b data-gn-ctx-title>Gerät</b><small>Schnellaktionen</small></div>'
+        +'<div class="gn-ctx-menu">'
+          +'<div class="gn-ctx-item" data-nat-act="open">Öffnen<svg viewBox="0 0 24 24" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M9 7h8v8"/></svg></div>'
+          +'<div class="gn-ctx-item" data-nat-act="qr">QR anzeigen<svg viewBox="0 0 24 24" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><path d="M14 14h3v3M20 14v6M17 20h3"/></svg></div>'
+          +'<div class="gn-ctx-item gn-ctx-item--danger" data-nat-act="defekt">Defekt melden<svg viewBox="0 0 24 24" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg></div>'
+        +'</div>'
+      +'</div>';
+    var q=root.querySelector('[data-nat-q]');
+    q.addEventListener('input',function(){ nst.q=q.value; root.querySelector('[data-nat-list]').innerHTML=listHtml(); });
+    root.querySelector('[data-nat-seg]').addEventListener('gn:segment',function(e){ nst.seg=e.detail.value; root.querySelector('[data-nat-list]').innerHTML=listHtml(); });
+    root.querySelector('[data-nat-list]').addEventListener('click',function(e){
+      var row=e.target.closest&&e.target.closest('[data-nat-id]'); if(!row) return;
+      if(row.__gnCtxFired){ row.__gnCtxFired=false; return; }   // Long-Press hat Vorrang
+      try{ openViewTool(row.getAttribute('data-nat-id')); }catch(err){}
+    });
+    var scan=root.querySelector('[data-nat-scan]');
+    if(scan) scan.addEventListener('click',function(){ try{ _wzScanWithCamera(); }catch(e){} });
+    var add=root.querySelector('[data-nat-add]');
+    if(add) add.addEventListener('click',function(){ try{ openAdd(); }catch(e){} });
+    var bg=root.querySelector('[data-gn-ctx-backdrop]');
+    bg.addEventListener('gn:context',function(e){ natCtxId=e.detail.row?e.detail.row.getAttribute('data-nat-id'):null; });
+    bg.addEventListener('click',function(e){
+      var it=e.target.closest&&e.target.closest('[data-nat-act]');
+      if(!it||!natCtxId) return;
+      var act=it.getAttribute('data-nat-act'), id=natCtxId;
+      setTimeout(function(){ try{
+        if(act==='open') openViewTool(id);
+        else if(act==='qr') openQR(id);
+        else if(act==='defekt') openDefektMelden(id);
+      }catch(err){} },60);
+    });
+  }
+  nat=GemaNativeMobil.mount({render:render});
+  // Modul-Re-Renders (Cloud-Pull, Saves) ziehen die Native-Liste nach
+  var _oRL=window.renderList;
+  if(typeof _oRL==='function'){ window.renderList=function(){ var r=_oRL.apply(this,arguments); try{ if(nat&&GemaNativeMobil.enabled()) nat.refresh(); }catch(e){} return r; }; }
+})();
+</script>
 </body>
 </html>

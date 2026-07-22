@@ -372,6 +372,7 @@ tbody td.mono{font-family:var(--mono);font-weight:500;}
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <link rel="stylesheet" href="gema_responsive.css"/>
+<link rel="stylesheet" href="gema-native.css"/>
 </head>
 <body>
 
@@ -4642,5 +4643,120 @@ window.openBerichte = openBerichte;
 <script src="gema_scroll.js"></script>
 <script src="gema_mobile_menu.js"></script>
 <script src="gema_dialog.js"></script>
+<script src="gema-native.js"></script>
+<script src="gema_native_mobil.js"></script>
+<script>
+/* ═══ GEMA Native — iPhone-Ansicht (Screen «Fahrzeugmanagement» aus gema-native-screens.html) ═══
+   Daten via window._fzPermHooks.vehicles(), Aktionen via window-exponierte Modul-Funktionen
+   (openViewFzg/_fzQuickKmEdit/openDefekt/openAddVehicle). Desktop unverändert. */
+(function(){
+  if(typeof GemaNativeMobil==='undefined') return;
+  var NE=GemaNativeMobil.esc, nst={q:'',seg:'alle'}, natCtxId=null, nat=null, lastSig='';
+  var IC_CAR='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h11v9H3zM14 9h4l3 3v3h-7z"/><circle cx="7" cy="17" r="1.6"/><circle cx="17.5" cy="17" r="1.6"/></svg>';
+  function natVs(){
+    try{ return (window._fzPermHooks&&_fzPermHooks.vehicles()||[]).filter(function(v){ return (v.status||'aktiv')!=='stillgelegt'; }); }catch(e){ return []; }
+  }
+  function mfkDays(v){
+    if(!v.mfk) return null;
+    var d=new Date(v.mfk); if(isNaN(d)) return null;
+    return Math.round((d-new Date().setHours(0,0,0,0))/86400000);
+  }
+  function natStatus(v){
+    var md=mfkDays(v);
+    if(md!==null&&md<=30) return {cls:'gn-badge--danger',lbl:md<0?'MFK überfällig':'MFK fällig'};
+    if((v.status||'')==='service') return {cls:'gn-badge--warn',lbl:'Im Service'};
+    if(v.ausgeliehenAn) return {cls:'gn-badge--warn',lbl:'Unterwegs'};
+    return {cls:'gn-badge--ok',lbl:'Verfügbar'};
+  }
+  function natMatch(v){
+    var s=natStatus(v);
+    if(nst.seg==='frei'&&s.lbl!=='Verfügbar') return false;
+    if(nst.seg==='weg'&&!v.ausgeliehenAn) return false;
+    if(nst.seg==='service'&&(v.status||'')!=='service') return false;
+    if(nst.q){
+      var h=((v.model||'')+' '+(v.plate||'')+' '+(v.nr||'')+' '+(v.driver||'')+' '+((v.ausgeliehenAn&&v.ausgeliehenAn.name)||'')).toLowerCase();
+      if(h.indexOf(nst.q.toLowerCase())<0) return false;
+    }
+    return true;
+  }
+  function initialen(name){
+    return String(name||'').trim().split(/\s+/).map(function(p){return p.charAt(0);}).join('').slice(0,2).toUpperCase();
+  }
+  function fmtKmN(k){ if(!k) return ''; try{ return parseInt(k,10).toLocaleString('de-CH')+' km'; }catch(e){ return k+' km'; } }
+  function listHtml(){
+    var rows=natVs().filter(natMatch);
+    if(!rows.length) return '<div class="gn-label" style="text-transform:none;font-weight:500;padding-top:8px">Keine Fahrzeuge gefunden.</div>';
+    return '<div class="gn-list">'+rows.map(function(v){
+      var s=natStatus(v);
+      var fahrer=(v.ausgeliehenAn&&v.ausgeliehenAn.name)||v.driver||'';
+      var sub=[v.nr?('Bus '+v.nr):'',fmtKmN(v.km)].filter(Boolean).join(' · ')||(v.year||'');
+      return '<div class="gn-row gn-row--lg" data-nat-id="'+NE(v.id)+'" data-gn-ctx="'+NE((v.model||'Fahrzeug')+(v.plate?(' · '+v.plate):''))+'">'
+        +'<span class="gn-row-ic" style="--gn-row-bg:var(--gn-c-projekt)">'+IC_CAR+'</span>'
+        +'<span class="gn-row-body"><span class="gn-row-title">'+NE([v.model,v.plate].filter(Boolean).join(' · ')||'—')+'</span><span class="gn-row-sub">'+NE(sub)+'</span></span>'
+        +(fahrer?'<span class="gn-ava-sm">'+NE(initialen(fahrer))+'</span>':'')
+        +'<span class="gn-badge '+s.cls+'">'+NE(s.lbl)+'</span></div>';
+    }).join('')+'</div>';
+  }
+  function render(root){
+    var vs=natVs();
+    var mfk=vs.filter(function(v){ var d=mfkDays(v); return d!==null&&d<=30; }).length;
+    var canCreate=false; try{ canCreate=_fzPermHooks.canCreate(); }catch(e){}
+    root.innerHTML=
+      '<div class="gn-compact" data-gn-compact><b>Fahrzeuge</b></div>'
+      +'<div class="gn-screen" data-gn-scroll>'
+        +'<div class="gn-toolbar">'
+          +'<div class="gn-large-title"><h1>Fahrzeuge</h1><p>'+vs.length+' Fahrzeuge · '+mfk+' MFK fällig</p></div>'
+          +'<button class="gn-icon-btn" data-gn-classic title="Klassische Ansicht"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>'
+          +(canCreate?'<button class="gn-icon-btn gn-icon-btn--primary" data-nat-add title="Neues Fahrzeug"><svg viewBox="0 0 24 24" fill="none" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button>':'')
+        +'</div>'
+        +'<div class="gn-searchbar"><svg viewBox="0 0 24 24" fill="none" stroke-width="2.1" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-3.6-3.6"/></svg><input data-nat-q placeholder="Kennzeichen oder Fahrer" value="'+NE(nst.q)+'"></div>'
+        +'<div class="gn-seg" data-nat-seg>'
+          +['alle:Alle','frei:Verfügbar','weg:Unterwegs','service:Service'].map(function(o){var p=o.split(':');
+            return '<button class="gn-seg-opt'+(nst.seg===p[0]?' is-active':'')+'" data-value="'+p[0]+'">'+p[1]+'</button>';}).join('')
+        +'</div>'
+        +'<div data-nat-list>'+listHtml()+'</div>'
+      +'</div>'
+      +'<div class="gn-backdrop gn-ctx-backdrop" data-gn-ctx-backdrop>'
+        +'<div class="gn-ctx-preview"><b data-gn-ctx-title>Fahrzeug</b><small>Schnellaktionen</small></div>'
+        +'<div class="gn-ctx-menu">'
+          +'<div class="gn-ctx-item" data-nat-act="open">Öffnen<svg viewBox="0 0 24 24" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M9 7h8v8"/></svg></div>'
+          +'<div class="gn-ctx-item gn-ctx-item--accent" data-nat-act="km">km erfassen<svg viewBox="0 0 24 24" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l2.5 2.5"/></svg></div>'
+          +'<div class="gn-ctx-item gn-ctx-item--danger" data-nat-act="defekt">Defekt melden<svg viewBox="0 0 24 24" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg></div>'
+        +'</div>'
+      +'</div>';
+    var q=root.querySelector('[data-nat-q]');
+    q.addEventListener('input',function(){ nst.q=q.value; root.querySelector('[data-nat-list]').innerHTML=listHtml(); });
+    root.querySelector('[data-nat-seg]').addEventListener('gn:segment',function(e){ nst.seg=e.detail.value; root.querySelector('[data-nat-list]').innerHTML=listHtml(); });
+    root.querySelector('[data-nat-list]').addEventListener('click',function(e){
+      var row=e.target.closest&&e.target.closest('[data-nat-id]'); if(!row) return;
+      if(row.__gnCtxFired){ row.__gnCtxFired=false; return; }
+      try{ openViewFzg(row.getAttribute('data-nat-id')); }catch(err){}
+    });
+    var add=root.querySelector('[data-nat-add]');
+    if(add) add.addEventListener('click',function(){ try{ openAddVehicle(); }catch(e){} });
+    var bg=root.querySelector('[data-gn-ctx-backdrop]');
+    bg.addEventListener('gn:context',function(e){ natCtxId=e.detail.row?e.detail.row.getAttribute('data-nat-id'):null; });
+    bg.addEventListener('click',function(e){
+      var it=e.target.closest&&e.target.closest('[data-nat-act]');
+      if(!it||!natCtxId) return;
+      var act=it.getAttribute('data-nat-act'), id=natCtxId;
+      setTimeout(function(){ try{
+        if(act==='open') openViewFzg(id);
+        else if(act==='km') _fzQuickKmEdit(id);
+        else if(act==='defekt') openDefekt(id);
+      }catch(err){} },60);
+    });
+  }
+  nat=GemaNativeMobil.mount({render:render});
+  // Auto-Refresh über eine leichte Daten-Signatur (das Modul-render() ist IIFE-intern
+  // und nicht wrapbar): nur neu rendern, wenn sich der Bestand wirklich geändert hat.
+  function sig(){ try{ return natVs().map(function(v){return v.id+':'+(v.km||'')+':'+(v.status||'')+':'+(v.ausgeliehenAn?1:0);}).join('|'); }catch(e){ return ''; } }
+  setInterval(function(){
+    if(!nat||!GemaNativeMobil.enabled()||document.visibilityState==='hidden') return;
+    var s=sig(); if(s!==lastSig){ lastSig=s; nat.refresh(); }
+  },3000);
+  lastSig=sig();
+})();
+</script>
 </body>
 </html>

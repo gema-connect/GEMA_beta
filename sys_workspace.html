@@ -414,6 +414,7 @@ input::placeholder{color:#cbd5e1}
 <script src="gema_apparate_api.js"></script>
 <script src="gema_schaden_api.js"></script>
 <link rel="stylesheet" href="gema_responsive.css"/>
+<link rel="stylesheet" href="gema-native.css"/>
 </head>
 <body>
 
@@ -2631,5 +2632,98 @@ document.addEventListener('DOMContentLoaded',function(){
 <script src="gema_scroll.js"></script>
 <script src="gema_mobile_menu.js"></script>
 <script src="gema_dialog.js"></script>
+<script src="gema-native.js"></script>
+<script src="gema_native_mobil.js"></script>
+<script>
+/* ═══ GEMA Native — iPhone-Ansicht (Screen «Workspace» aus gema-native-screens.html) ═══
+   Cockpit mit ECHTEN KPIs aus den Sync-Pools (Stunden Woche, Einsätze heute, Prüfungen
+   fällig, offene Rapporte), Zuletzt-verwendet (GemaRecent) + Eimer-Liste. Die kleinen
+   Fälligkeits-/Minuten-Helfer sind bewusst lokal dupliziert (Engines leben in den Modulen). */
+(function(){
+  if(typeof GemaNativeMobil==='undefined') return;
+  var NE=GemaNativeMobil.esc, nat=null;
+  function pool(k){ try{ if(typeof GemaSync!=='undefined'&&GemaSync.getCached){var a=GemaSync.getCached(k);if(a&&a.length)return a;} var r=localStorage.getItem(k); if(r){var d=JSON.parse(r); if(Array.isArray(d)) return d;} }catch(e){} return []; }
+  function user(){ try{ return GemaAuth.getCurrentUser(); }catch(e){ return null; } }
+  function heute(){ return new Date().toISOString().slice(0,10); }
+  function moStart(){ var d=new Date(); var w=(d.getDay()+6)%7; d.setDate(d.getDate()-w); return d.toISOString().slice(0,10); }
+  function einMin(e){
+    function m(s){ if(!s||!/^\d{1,2}:\d{2}$/.test(s)) return null; var p=s.split(':'); return (+p[0])*60+(+p[1]); }
+    var a=m(e.von),b=m(e.bis); if(a==null||b==null) return 0; if(b<=a) b+=1440;
+    return Math.max(0,(b-a)-(parseInt(e.pauseMin,10)||0));
+  }
+  function addMonate(isoS,n){ var d=new Date(isoS+'T12:00:00'); if(isNaN(d)) return null; d.setMonth(d.getMonth()+n); return d; }
+  function tageBis(d){ if(!d) return null; return Math.round((d-new Date().setHours(0,0,0,0))/86400000); }
+  function kpis(){
+    var u=user(); if(!u) return {std:'0,0',eins:0,pruef:0,rap:0};
+    var ws=moStart(), we=heute();
+    var min=pool('gema_std_pool_v1').filter(function(t){ return !t.typ&&t.userId===u.id&&t.datum>=ws; })
+      .reduce(function(s,t){ return s+(t.eintraege||[]).reduce(function(x,e){ return x+einMin(e); },0); },0);
+    var eins=pool('gema_einsatz_pool_v1').filter(function(ev){
+      if(ev.orgId!==u.orgId||ev.typ==='ferien') return false;
+      var d=ev.dauerTage||1, end=new Date(ev.datum+'T12:00:00'); if(isNaN(end)) return false;
+      end.setDate(end.getDate()+d-1);
+      return ev.datum<=we&&we<=end.toISOString().slice(0,10);
+    }).length;
+    var pruef=pool('gema_werkzeug').filter(function(t){
+      if(t.orgId!==u.orgId) return false;
+      var lc=t.lifecycleStatus||'aktiv'; if(lc==='ausgemustert'||lc==='verkauft') return false;
+      var due=[];
+      if(t.hasService&&t.lastService&&t.serviceInterval) due.push(addMonate(t.lastService,+t.serviceInterval));
+      if(t.hasElec&&t.lastElec&&t.elecInterval) due.push(addMonate(t.lastElec,+t.elecInterval));
+      if(t.hasLeiter&&t.lastLeiter&&t.leiterInterval) due.push(addMonate(t.lastLeiter,+t.leiterInterval));
+      return due.some(function(d){ var td=tageBis(d); return td!==null&&td<=30; });
+    }).length;
+    var rap=pool('gema_regie_pool_v1').filter(function(r){ return r.orgId===u.orgId&&(r.status==='entwurf'||r.status==='eingereicht'); }).length;
+    return {std:(Math.round(min/6)/10).toFixed(1).replace('.',','),eins:eins,pruef:pruef,rap:rap};
+  }
+  function buckets(){ try{ var r=localStorage.getItem('gema_workspace_v1'); if(r){ var d=JSON.parse(r); if(Array.isArray(d)) return d; } }catch(e){} return []; }
+  var TYP_IC={bauprojekt:'🏗',uebung:'🎓',privat:'👤',team:'👥'};
+  function render(root){
+    var k=kpis(), u=user();
+    var org=''; try{ var o=GemaAuth.getCurrentOrg(); org=(o&&o.name)||''; }catch(e){}
+    var recent=[]; try{
+      var cur=(GemaRecent.currentKey)||'sys_workspace';
+      recent=(GemaRecent.list()||[]).filter(function(r){ return r&&r.key&&r.key!==cur&&r.key!=='sys_workspace'; }).slice(0,6);
+    }catch(e){}
+    var bks=buckets();
+    root.innerHTML=
+      '<div class="gn-compact" data-gn-compact><b>Workspace</b></div>'
+      +'<div class="gn-screen" data-gn-scroll>'
+        +'<button class="gn-back" data-nat-home><svg viewBox="0 0 11 18" fill="none" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m9.5 1.5-8 7.5 8 7.5"/></svg>Start</button>'
+        +'<div class="gn-toolbar">'
+          +'<div class="gn-large-title"><h1>Workspace</h1><p>'+NE(org||(u&&u.name)||'')+'</p></div>'
+          +'<button class="gn-icon-btn" data-gn-classic title="Klassische Ansicht"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>'
+        +'</div>'
+        +'<div class="gn-stats">'
+          +'<div class="gn-stat"><div class="gn-stat-k">Stunden Woche</div><div class="gn-stat-v">'+NE(k.std)+'</div><div class="gn-stat-sub">erfasst</div></div>'
+          +'<div class="gn-stat"><div class="gn-stat-k">Einsätze heute</div><div class="gn-stat-v">'+k.eins+'</div><div class="gn-stat-sub">Einsatzplan</div></div>'
+          +'<div class="gn-stat"><div class="gn-stat-k">Prüfungen fällig</div><div class="gn-stat-v"'+(k.pruef?' style="color:var(--gn-danger)"':'')+'>'+k.pruef+'</div><div class="gn-stat-sub">Werkzeug ≤ 30 Tage</div></div>'
+          +'<div class="gn-stat"><div class="gn-stat-k">Offene Rapporte</div><div class="gn-stat-v">'+k.rap+'</div><div class="gn-stat-sub">Regie</div></div>'
+        +'</div>'
+        +(recent.length?('<div class="gn-label">Zuletzt verwendet</div><div class="gn-list">'
+          +recent.map(function(r){
+            var lbl=''; try{ lbl=GemaRecent.label(r.key); }catch(e){ lbl=r.key; }
+            return '<div class="gn-row" data-nat-href="'+NE(r.key)+'.html"><span class="gn-row-ic" style="--gn-row-bg:var(--gn-c-sanitaer)">📄</span>'
+              +'<span class="gn-row-body"><span class="gn-row-title">'+NE(lbl)+'</span></span>'
+              +'<svg class="gn-chevron" viewBox="0 0 8 13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m1.5 1.5 5 5-5 5"/></svg></div>';
+          }).join('')+'</div>'):'')
+        +(bks.length?('<div class="gn-label">Meine Eimer</div><div class="gn-list">'
+          +bks.map(function(b){
+            return '<div class="gn-row gn-row--lg" data-nat-bucket><span class="gn-row-ic" style="--gn-row-bg:var(--gn-c-projekt)">'+(TYP_IC[b.type]||'🗂')+'</span>'
+              +'<span class="gn-row-body"><span class="gn-row-title">'+NE(b.name||'Eimer')+'</span><span class="gn-row-sub">'+((b.modules||[]).length)+' Module</span></span>'
+              +'<svg class="gn-chevron" viewBox="0 0 8 13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m1.5 1.5 5 5-5 5"/></svg></div>';
+          }).join('')+'</div>'):'')
+      +'</div>';
+    root.querySelector('[data-nat-home]').addEventListener('click',function(){ location.href='index.html'; });
+    root.addEventListener('click',function(e){
+      var h=e.target.closest&&e.target.closest('[data-nat-href]');
+      if(h){ location.href=h.getAttribute('data-nat-href'); return; }
+      var b=e.target.closest&&e.target.closest('[data-nat-bucket]');
+      if(b){ GemaNativeMobil.setPref('klassisch'); if(nat) nat.refresh(); }
+    });
+  }
+  nat=GemaNativeMobil.mount({render:render});
+})();
+</script>
 </body>
 </html>
