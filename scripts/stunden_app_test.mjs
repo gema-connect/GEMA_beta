@@ -72,7 +72,7 @@ ok(await p1.evaluate(() => document.getElementById('btnSet').style.display) === 
 await p1.evaluate(() => stSetWkMode('tag'));
 {
   const t = await p1.evaluate(() => document.getElementById('viewWrap').textContent);
-  ok(t.includes('Geplante Einsätze') && t.includes('Steigzone sanieren'), 'Tagesansicht zeigt den geplanten Einsatz aus dem Einsatzplan');
+  ok(t.includes('Geplante Termine') && t.includes('Steigzone sanieren'), 'Tagesansicht zeigt den geplanten Termin aus dem Termine-Kalender');
   ok(t.includes('Σ KW'), 'Schlanke Wochen-Bilanz in der Tagesansicht');
 }
 // Einsatz-Übernahme → Eintrag-Modal vorbefüllt

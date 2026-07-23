@@ -1,12 +1,16 @@
-// Playwright-Smoke: Einsatzplan — Stunden-Tafel (Feedback 19.07.2026)
+// Playwright-Smoke: Einsatzplan — Stunden-Tafel (Feedback 19.07. + 23.07.2026)
 //   - Wochen-Plantafel im Stundenraster, Zeit läuft von links nach rechts
 //     (Timeline pro Person×Tag, Events absolut positioniert, Spuren-Stapelung)
 //   - Jetzt-Linie (aktuelle Zeit) am heutigen Tag + Stunden-Ticks im Kopf
 //   - Outlook-Muster: Zeit per Klicken–Halten–Ziehen direkt im Kalender
 //     aufziehen → Dialog öffnet mit der gewählten Zeit (Auftrag zuweisen)
 //   - Auftrags-Pool rechts: nur NICHT eingeplante Aufträge, Abteilungs-Filter
-//     (Arbeitsbereiche) pro Gerät gespeichert; Drag&Drop setzt die Startstunde
+//     (Arbeitsbereiche) pro Gerät gespeichert; Drag&Drop setzt die Startstunde;
+//     EINKLAPPBAR (23.07. — mehr Breite für die Tafel, Zustand pro Gerät)
 //   - «Freier Termin» ohne Auftrag/Objekt; Zeitfelder im Dialog sobald Zeiten da
+//   - Karten hoch + lesbar (23.07.): Zeit / Arbeit / ADRESSE (Objekt-Stamm) /
+//     Besonderheiten-Text; Klick MARKIERT (Doppelklick öffnet), Stretch-Griffe
+//     links/rechts passen die Zeit im 30-min-Raster direkt an
 // Ausführen: CHROME=<chromium> node scripts/einsatzplan_stundenplan_test.mjs
 import { chromium } from 'playwright-core';
 import { startServer, BASE, seed, newPage } from './rolematrix_harness.mjs';
@@ -85,10 +89,15 @@ ok(await page.evaluate(() => {
   return a && a.classList.contains('konflikt');
 }), 'Überlappung trägt die ⚠-Konflikt-Markierung');
 ok(await page.evaluate(() => {
+  // Linie erscheint nur, wenn die aktuelle Zeit im Arbeitsfenster liegt UND
+  // der heutige Tag in der (hier auf KW 2026-07-13 verankerten) Woche sichtbar
+  // ist — sonst wäre der Check datumsabhängig (Test-Drift nach dieser Woche).
   const f = epNowFrac(epSettings());
   const line = document.querySelector('.nowline');
-  return (f == null) === (line == null);
-}), 'Jetzt-Linie konsistent: sichtbar genau dann, wenn die aktuelle Zeit im Arbeitsfenster liegt');
+  const mo = monday(_anker);
+  const heuteSichtbar = today() >= mo && today() <= addD(mo, 6);
+  return ((f != null && heuteSichtbar)) === (line != null);
+}), 'Jetzt-Linie konsistent: sichtbar genau dann, wenn heute in der Woche liegt und die Zeit im Arbeitsfenster ist');
 
 console.log('■ Outlook-Muster: Zeit im Kalender aufziehen → Dialog mit Zeit');
 {
@@ -245,6 +254,115 @@ ok(await page.evaluate(() => {
   const ev = poolRead().find(e => e.id === 'evSvc');
   return info.indexOf('MFH Servicehaus') >= 0 && info.indexOf('9999') >= 0 && ev.objektId === 'objS';
 }), 'Service-Einsatz: Objekt read-only sichtbar + bleibt beim Speichern erhalten');
+
+console.log('■ Karten-Inhalt: Arbeit + Adresse (Feedback 23.07.2026)');
+ok(await page.evaluate(() => {
+  const u = GemaAuth.getCurrentUser();
+  GemaObjekte.upsertObjekt({ id: 'objX', name: 'Neubau Sonnental', strasse: 'Sonnenweg 3', plz: '4600', ort: 'Olten', orgId: u.orgId, status: 'aktiv' });
+  const pool = poolRead().slice();
+  pool.push({ id: 'ort1', orgId: u.orgId, typ: 'auftrag', titel: 'Steigzone sanieren', objektId: 'objX', objektName: '', monteurUserId: u.id, monteurName: u.name, datum: '2026-07-14', dauerTage: 1, slot: 'ganz', zeitVon: '08:00', zeitBis: '12:00', besonderheitenFrei: ['Schuhe ausziehen beim Kunden'], erstelltVon: {} });
+  localStorage.setItem('gema_einsatz_pool_v1', JSON.stringify(pool));
+  _epObjMemo = { t: 0, m: null };
+  epRender();
+  const el = document.querySelector('.tl-ev[data-ev="ort1"]');
+  return el && el.querySelector('.ev-t').textContent === 'Steigzone sanieren'
+    && el.querySelector('.ev-o').textContent.indexOf('Sonnenweg 3, 4600 Olten') >= 0;
+}), 'Karte zeigt Arbeit (Titel) + Adresse aus dem Objekt-Stamm');
+ok(await page.evaluate(() => {
+  const b = document.querySelector('.tl-ev[data-ev="ort1"] .ev-b');
+  return b && b.textContent === 'Schuhe ausziehen beim Kunden' && b.textContent.indexOf('📌') < 0;
+}), 'Besonderheiten als Text ohne Emoji auf der Karte');
+ok(await page.evaluate(() => {
+  const t = document.querySelector('.tl-ev[data-ev="ort1"]').getAttribute('title') || '';
+  return t.indexOf('Sonnenweg 3') >= 0 && t.indexOf('Schuhe ausziehen') >= 0 && t.indexOf('08:00–12:00') >= 0;
+}), 'Tooltip trägt Zeit · Arbeit · Adresse · Besonderheiten (Voll-Lesekanal kurzer Termine)');
+ok(await page.evaluate(() => parseFloat(document.querySelector('.tl-ev[data-ev="ort1"]').style.height) >= 80), 'Karten sind hoch (Zeit/Arbeit/Adresse mit Zeilenumbrüchen)');
+
+console.log('■ Klick markiert + Doppelklick öffnet (23.07.2026)');
+{
+  await page.evaluate(() => document.querySelector('.tl-ev[data-ev="ort1"]').scrollIntoView({ block: 'center' }));
+  const b = await page.evaluate(() => { const r = document.querySelector('.tl-ev[data-ev="ort1"]').getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
+  await page.mouse.click(b.x, b.y);
+  await page.waitForTimeout(80);
+  ok(await page.evaluate(() => _epSel === 'ort1' && document.querySelector('.tl-ev[data-ev="ort1"]').classList.contains('sel')), 'Klick markiert den Termin (.sel)');
+  ok(await page.evaluate(() => {
+    const h = document.querySelector('.tl-ev[data-ev="ort1"] .rsh.r');
+    return h && getComputedStyle(h).display !== 'none';
+  }), 'Stretch-Griffe am markierten Termin sichtbar');
+  ok(await page.evaluate(() => !document.getElementById('evModal').classList.contains('open')), 'einfacher Klick öffnet den Dialog NICHT mehr');
+  await page.mouse.dblclick(b.x, b.y);
+  await page.waitForTimeout(120);
+  ok(await page.evaluate(() => document.getElementById('evModal').classList.contains('open')), 'Doppelklick öffnet den Bearbeiten-Dialog');
+  await page.evaluate(() => epEvClose());
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(60);
+  ok(await page.evaluate(() => _epSel === null), 'Escape hebt die Markierung auf');
+}
+
+console.log('■ Stretchen: Zeit an den Griffen anpassen (30-min-Raster)');
+{
+  await page.evaluate(() => document.querySelector('.tl-ev[data-ev="ort1"]').scrollIntoView({ block: 'center' }));
+  const b = await page.evaluate(() => { const r = document.querySelector('.tl-ev[data-ev="ort1"]').getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
+  await page.mouse.click(b.x, b.y);
+  await page.waitForTimeout(450);
+  // rechter Griff: 12:00 → 14:30 (Snap auf halbe Stunden)
+  const g = await page.evaluate(() => {
+    const h = document.querySelector('.tl-ev[data-ev="ort1"] .rsh.r').getBoundingClientRect();
+    const tl = document.querySelector('.tl-ev[data-ev="ort1"]').closest('.tl').getBoundingClientRect();
+    return { hx: h.left + h.width / 2, hy: h.top + h.height / 2, tlLeft: tl.left, tlW: tl.width };
+  });
+  await page.mouse.move(g.hx, g.hy);
+  await page.mouse.down();
+  await page.mouse.move(g.tlLeft + ((14.5 - 6) / 12) * g.tlW, g.hy, { steps: 4 });
+  ok(await page.evaluate(() => !!document.querySelector('.tl-rstag')), 'Zeit-Tag während des Ziehens sichtbar');
+  await page.mouse.up();
+  await page.waitForTimeout(150);
+  ok(await page.evaluate(() => { const e = poolRead().find(x => x.id === 'ort1'); return e.zeitVon === '08:00' && e.zeitBis === '14:30'; }), 'rechter Griff: Ende 12:00 → 14:30 (30-min-Raster) gespeichert');
+  ok(await page.evaluate(() => _epSel === 'ort1' && document.querySelector('.tl-ev[data-ev="ort1"]').classList.contains('sel')), 'Markierung übersteht das Re-Render nach dem Stretchen');
+  // linker Griff: 08:00 → 09:00
+  const g2 = await page.evaluate(() => {
+    const h = document.querySelector('.tl-ev[data-ev="ort1"] .rsh.l').getBoundingClientRect();
+    const tl = document.querySelector('.tl-ev[data-ev="ort1"]').closest('.tl').getBoundingClientRect();
+    return { hx: h.left + h.width / 2, hy: h.top + h.height / 2, tlLeft: tl.left, tlW: tl.width };
+  });
+  await page.mouse.move(g2.hx, g2.hy);
+  await page.mouse.down();
+  await page.mouse.move(g2.tlLeft + ((9 - 6) / 12) * g2.tlW, g2.hy, { steps: 4 });
+  await page.mouse.up();
+  await page.waitForTimeout(150);
+  ok(await page.evaluate(() => { const e = poolRead().find(x => x.id === 'ort1'); return e.zeitVon === '09:00' && e.zeitBis === '14:30'; }), 'linker Griff: Start 08:00 → 09:00');
+  ok(await page.evaluate(() => !document.getElementById('evModal').classList.contains('open')), 'Stretchen öffnet keinen Dialog');
+}
+
+console.log('■ Klick ins Leere: erst Markierung lösen, dann erstellen');
+{
+  const cell = await page.evaluate(() => {
+    const tl = document.querySelector('.tl[data-cell$="|2026-07-13"]');
+    tl.scrollIntoView({ block: 'center' });
+    const r = tl.getBoundingClientRect();
+    return { x: r.left + r.width * 0.25, y: r.top + r.height / 2 };
+  });
+  await page.mouse.click(cell.x, cell.y);
+  await page.waitForTimeout(120);
+  ok(await page.evaluate(() => _epSel === null && !document.getElementById('evModal').classList.contains('open')), 'Klick ins Leere löst nur die Markierung (kein neuer Termin)');
+  await page.waitForTimeout(600);
+  await page.mouse.click(cell.x, cell.y);
+  await page.waitForTimeout(120);
+  ok(await page.evaluate(() => document.getElementById('evModal').classList.contains('open')), 'nächster Klick erstellt wieder (1-h-Termin)');
+  await page.evaluate(() => epEvClose());
+}
+
+console.log('■ Auftrags-Pool einklappbar (mehr Platz für die Tafel)');
+ok(await page.evaluate(() => {
+  epSideToggle();
+  return !!document.querySelector('.side-rail') && !document.getElementById('epPoolFilter')
+    && document.querySelector('.layout').classList.contains('side-min')
+    && localStorage.getItem('gema_ep_side_v1') === 'zu';
+}), 'Einklappen: schmale Leiste, Zustand pro Gerät gespeichert');
+ok(await page.evaluate(() => {
+  epSideToggle();
+  return !document.querySelector('.side-rail') && !!document.querySelector('.side-hd');
+}), 'Ausklappen stellt den Pool wieder her');
 
 console.log('■ Arbeitszeit-Fenster einstellbar');
 ok(await page.evaluate(() => {

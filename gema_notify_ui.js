@@ -266,7 +266,7 @@
     bestellungen:'🛒 Bestellungen (Anlagen)',
     erp:'💼 Offerten · Aufträge · Rechnungen (ERP)',
     regierapport:'📝 Regierapporte',
-    einsatzplan:'📅 Einsatzplan',
+    einsatzplan:'📅 Termine',
     goodel:'🗳 Goodel (Terminabstimmung)',
     abnahme:'✅ Abnahmeprotokolle SIA',
     legionellen:'🦠 Hygienemanagement',

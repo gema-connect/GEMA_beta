@@ -4020,7 +4020,7 @@ window._fzSaveAusleihe=_fzSaveAusleihe;
 window._fzReturnVehicle=_fzReturnVehicle;
 window._fzCanReturn=_fzCanReturn;
 // Test-/Debug-Hooks (Playwright) — Permission-Helper + Fahrzeug-Pool
-window._fzPermHooks={canEdit:_fzCanEdit,canAssign:_fzCanAssign,canLend:_fzCanLend,canCreate:_fzCanCreate,canReportDefect:_fzCanReportDefect,vehicles:function(){return vehicles;}};
+window._fzPermHooks={canEdit:_fzCanEdit,canAssign:_fzCanAssign,canLend:_fzCanLend,canCreate:_fzCanCreate,canReportDefect:_fzCanReportDefect,vehicles:function(){return vehicles;},katalog:_fzGetKatalogEntries};
 
 /* ═══ DEFEKT ═══ */
 function openDefekt(vehicleId) {
@@ -4658,7 +4658,7 @@ window.openBerichte = openBerichte;
    .modal-overlay in gema_native_mobil). Desktop unverändert. */
 (function(){
   if(typeof GemaNativeMobil==='undefined') return;
-  var NE=GemaNativeMobil.esc, nst={q:'',seg:'alle'}, natCtxId=null, nat=null, lastSig='';
+  var NE=GemaNativeMobil.esc, nst={q:'',seg:'alle',typ:'',zut:'',dept:''}, natCtxId=null, nat=null, lastSig='';
   var IC_CAR='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h11v9H3zM14 9h4l3 3v3h-7z"/><circle cx="7" cy="17" r="1.6"/><circle cx="17.5" cy="17" r="1.6"/></svg>';
   function natVs(){
     try{ return (window._fzPermHooks&&_fzPermHooks.vehicles()||[]).filter(function(v){ return (v.status||'aktiv')!=='stillgelegt'; }); }catch(e){ return []; }
@@ -4677,14 +4677,53 @@ window.openBerichte = openBerichte;
   }
   function natMatch(v){
     var s=natStatus(v);
+    if(nst.typ&&(v.type||'')!==nst.typ) return false;
+    if(nst.zut&&(v.assignment||'')!==nst.zut) return false;
+    if(nst.dept&&(v.dept||'').toLowerCase().indexOf(nst.dept.toLowerCase())<0) return false;
     if(nst.seg==='frei'&&s.lbl!=='Verfügbar') return false;
     if(nst.seg==='weg'&&!v.ausgeliehenAn) return false;
     if(nst.seg==='service'&&(v.status||'')!=='service') return false;
     if(nst.q){
-      var h=((v.model||'')+' '+(v.plate||'')+' '+(v.nr||'')+' '+(v.driver||'')+' '+((v.ausgeliehenAn&&v.ausgeliehenAn.name)||'')).toLowerCase();
+      var h=((v.model||'')+' '+(v.plate||'')+' '+(v.nr||'')+' '+(v.driver||'')+' '+(v.dept||'')+' '+((v.ausgeliehenAn&&v.ausgeliehenAn.name)||'')).toLowerCase();
       if(h.indexOf(nst.q.toLowerCase())<0) return false;
     }
     return true;
+  }
+  function natAdvCount(){ return (nst.zut?1:0)+(nst.dept?1:0); }
+  /* ── Vorschlags-Quellen (Katalog via _fzPermHooks — das Modul ist eine
+     async-IIFE, nur window-exponierte Funktionen sind erreichbar) ── */
+  function natModelSugg(q){
+    var entries=[]; try{ entries=_fzPermHooks.katalog()||[]; }catch(e){}
+    var ql=(q||'').toLowerCase(),res=[];
+    entries.forEach(function(e){
+      if(!e.model) return;
+      if(ql&&e.model.toLowerCase().indexOf(ql)<0) return;
+      res.push({label:e.model,value:e.model,hint:e.src==='vehicles'?'eigener Eintrag':[e.fuel,e.type].filter(Boolean).join(' · ')});
+    });
+    return res;
+  }
+  function natDriverSugg(q){
+    var ql=(q||'').toLowerCase(),seen={},res=[];
+    function add(n,hint){ n=(n||'').trim(); if(!n)return; var k=n.toLowerCase(); if(ql&&k.indexOf(ql)<0)return; if(seen[k])return; seen[k]=true; res.push({label:n,value:n,hint:hint||''}); }
+    try{
+      var me=natMe();
+      (GemaAuth.getUsers()||[]).forEach(function(u){
+        if(!u.active) return;
+        if(me.orgId&&u.orgId!==me.orgId&&(me.roleIds||[]).indexOf('role_admin')<0) return;
+        add(u.name||u.username,'Team');
+      });
+    }catch(e){}
+    natVs().forEach(function(v){ add(v.driver,'Bestehend'); });
+    return res;
+  }
+  function natDeptSugg(q){
+    var ql=(q||'').toLowerCase(),seen={},res=[];
+    natVs().forEach(function(v){
+      var d=(v.dept||'').trim(); if(!d)return;
+      var k=d.toLowerCase(); if(ql&&k.indexOf(ql)<0)return; if(seen[k])return; seen[k]=true;
+      res.push({label:d,value:d});
+    });
+    return res;
   }
   function initialen(name){
     return String(name||'').trim().split(/\s+/).map(function(p){return p.charAt(0);}).join('').slice(0,2).toUpperCase();
@@ -4704,21 +4743,37 @@ window.openBerichte = openBerichte;
         +'<span class="gn-badge '+s.cls+'">'+NE(s.lbl)+'</span></div>';
     }).join('')+'</div>';
   }
+  // Typ-Chips (Pendant zum klassischen «Alle Typen»-Select — datengetrieben)
+  function chipbarHtml(){
+    var counts={};
+    natVs().forEach(function(v){ var t=(v.type||'').trim(); if(t) counts[t]=(counts[t]||0)+1; });
+    var types=Object.keys(counts).sort();
+    if(types.length<2) return '';
+    if(nst.typ&&!counts[nst.typ]) nst.typ='';
+    var html='<button type="button" class="gn-chip-sel'+(nst.typ===''?' is-active':'')+'" data-nat-typ="">Alle<span class="gn-chip-ct">'+natVs().length+'</span></button>';
+    types.forEach(function(t){
+      html+='<button type="button" class="gn-chip-sel'+(nst.typ===t?' is-active':'')+'" data-nat-typ="'+NE(t)+'">'+NE(t)+'<span class="gn-chip-ct">'+counts[t]+'</span></button>';
+    });
+    return '<div class="gn-chipbar" data-nat-typs>'+html+'</div>';
+  }
   function render(root){
     var vs=natVs();
     var mfk=vs.filter(function(v){ var d=mfkDays(v); return d!==null&&d<=30; }).length;
     var canCreate=false; try{ canCreate=_fzPermHooks.canCreate(); }catch(e){}
+    var advN=natAdvCount();
     root.innerHTML=
       '<div class="gn-compact" data-gn-compact><b>Fahrzeuge</b></div>'
       +'<div class="gn-screen" data-gn-scroll>'
         +'<div class="gn-toolbar">'
-          +'<div class="gn-large-title"><h1>Fahrzeuge</h1><p>'+vs.length+' Fahrzeuge · '+mfk+' MFK fällig</p></div>'          +(canCreate?'<button class="gn-icon-btn gn-icon-btn--primary" data-nat-add title="Neues Fahrzeug"><svg viewBox="0 0 24 24" fill="none" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button>':'')
+          +'<div class="gn-large-title"><h1>Fahrzeuge</h1><p>'+vs.length+' Fahrzeuge · '+mfk+' MFK fällig</p></div>'          +'<button class="gn-icon-btn" data-nat-filter title="Filter"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M7 12h10M10 18h4"/></svg>'+(advN?'<span class="gn-dot">'+advN+'</span>':'')+'</button>'
+          +(canCreate?'<button class="gn-icon-btn gn-icon-btn--primary" data-nat-add title="Neues Fahrzeug"><svg viewBox="0 0 24 24" fill="none" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button>':'')
         +'</div>'
         +'<div class="gn-searchbar"><svg viewBox="0 0 24 24" fill="none" stroke-width="2.1" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-3.6-3.6"/></svg><input data-nat-q placeholder="Kennzeichen oder Fahrer" value="'+NE(nst.q)+'"></div>'
         +'<div class="gn-seg" data-nat-seg>'
           +['alle:Alle','frei:Verfügbar','weg:Unterwegs','service:Service'].map(function(o){var p=o.split(':');
             return '<button class="gn-seg-opt'+(nst.seg===p[0]?' is-active':'')+'" data-value="'+p[0]+'">'+p[1]+'</button>';}).join('')
         +'</div>'
+        +chipbarHtml()
         +'<div data-nat-list>'+listHtml()+'</div>'
       +'</div>'
       +'<div class="gn-backdrop gn-ctx-backdrop" data-gn-ctx-backdrop>'
@@ -4732,6 +4787,13 @@ window.openBerichte = openBerichte;
     var q=root.querySelector('[data-nat-q]');
     q.addEventListener('input',function(){ nst.q=q.value; root.querySelector('[data-nat-list]').innerHTML=listHtml(); });
     root.querySelector('[data-nat-seg]').addEventListener('gn:segment',function(e){ nst.seg=e.detail.value; root.querySelector('[data-nat-list]').innerHTML=listHtml(); });
+    var cb=root.querySelector('[data-nat-typs]');
+    if(cb) cb.addEventListener('click',function(e){
+      var chip=e.target.closest&&e.target.closest('[data-nat-typ]'); if(!chip) return;
+      nst.typ=chip.getAttribute('data-nat-typ')||'';
+      cb.querySelectorAll('.gn-chip-sel').forEach(function(c){ c.classList.toggle('is-active',c===chip); });
+      root.querySelector('[data-nat-list]').innerHTML=listHtml();
+    });
     root.querySelector('[data-nat-list]').addEventListener('click',function(e){
       var row=e.target.closest&&e.target.closest('[data-nat-id]'); if(!row) return;
       if(row.__gnCtxFired){ row.__gnCtxFired=false; return; }
@@ -4739,6 +4801,8 @@ window.openBerichte = openBerichte;
     });
     var add=root.querySelector('[data-nat-add]');
     if(add) add.addEventListener('click',function(){ try{ openFzgForm(null); }catch(e){} });
+    var flt=root.querySelector('[data-nat-filter]');
+    if(flt) flt.addEventListener('click',function(){ try{ openFzgFilterSheet(); }catch(e){} });
     var bg=root.querySelector('[data-gn-ctx-backdrop]');
     bg.addEventListener('gn:context',function(e){ natCtxId=e.detail.row?e.detail.row.getAttribute('data-nat-id'):null; });
     bg.addEventListener('click',function(e){
@@ -4853,7 +4917,7 @@ window.openBerichte = openBerichte;
       +'<div class="gn-field"><label>Fahrer</label><input class="gn-input" data-f="driver" value="'+NE(v?(v.driver||''):'')+'"></div>'
       +'<div class="gn-field"><label>MFK (nächste Prüfung)</label><input class="gn-input" type="date" data-f="mfk" value="'+NE(v?(v.mfk||''):'')+'"></div>'
       +(id?'':'<div class="gn-label" style="text-transform:none;font-weight:500">Service-Intervalle, Tankkarten, Versicherung &amp; Details lassen sich später über «Bearbeiten» am Desktop ergänzen.</div>');
-    nat.sheet({
+    var sh=nat.sheet({
       title:id?'Fahrzeug bearbeiten':'Neues Fahrzeug',
       saveLabel:'💾 Speichern',
       html:html,
@@ -4868,6 +4932,9 @@ window.openBerichte = openBerichte;
           if(!ov||!ov.classList.contains('open')) return true;   // Guard hat abgebrochen
           if(g('nr')) natSet('fNr',g('nr'));                      // neu: leere Nr = Auto-Nummer
           natSet('fPlate',g('plate')); natSet('fModel',g('model'));
+          // Katalog-Autofill (Treibstoff/Fahrzeugtyp) läuft klassisch per
+          // oninput — beim programmatischen Setzen explizit nachziehen.
+          try{ _fzKatalogAutofill(); }catch(e){}
           natSet('fYear',g('year')); natSet('fKm',g('km'));
           natSet('fDriver',g('driver')); natSet('fMfk',g('mfk'));
           var rid=saveVehicle();                                  // speichert + schliesst
@@ -4876,6 +4943,41 @@ window.openBerichte = openBerichte;
         return true;
       }
     });
+    // Vorschläge: Modell aus Basiskatalog + eigenem Bestand, Fahrer aus Team
+    GemaNativeMobil.ac(sh.querySelector('[data-f="model"]'),natModelSugg,null);
+    GemaNativeMobil.ac(sh.querySelector('[data-f="driver"]'),natDriverSugg,null);
+  }
+
+  /* ── Filter (natives Sheet — Pendant zu den klassischen Selects
+     Zuteilung/Abteilung; Status + Typ laufen über Segmente + Typ-Chips) ── */
+  function openFzgFilterSheet(){
+    var selOpts=function(list,cur){
+      return '<option value="">Alle</option>'+list.map(function(o){
+        return '<option value="'+o.v+'"'+(cur===o.v?' selected':'')+'>'+o.l+'</option>';
+      }).join('');
+    };
+    var html=
+      '<div class="gn-label" style="text-transform:none;font-weight:500">Kombinierbar — leere Felder werden ignoriert.</div>'
+      +'<div class="gn-field"><label>Zuteilung</label><select class="gn-native-select" data-f="zut">'+selOpts([{v:'fix',l:'Fix zugeteilt'},{v:'sharing',l:'Sharing / Pool'}],nst.zut)+'</select></div>'
+      +'<div class="gn-field"><label>Abteilung</label><input class="gn-input" data-f="dept" value="'+NE(nst.dept)+'" placeholder="z.B. Service"></div>'
+      +'<button type="button" class="gn-btn gn-btn-ghost" data-nat-freset style="margin:2px 16px 12px;width:calc(100% - 32px)">↻ Filter zurücksetzen</button>';
+    var sh=nat.sheet({
+      title:'🔍 Filter',
+      saveLabel:'✓ Anwenden',
+      html:html,
+      onSave:function(s){
+        var g=function(f){ var el=s.querySelector('[data-f="'+f+'"]'); return el?el.value.trim():''; };
+        nst.zut=g('zut'); nst.dept=g('dept');
+        setTimeout(function(){ nat.refresh(); },420);
+        return true;
+      }
+    });
+    sh.querySelector('[data-nat-freset]').addEventListener('click',function(){
+      nst.zut=''; nst.dept='';
+      nat.closeSheet();
+      setTimeout(function(){ nat.refresh(); },420);
+    });
+    GemaNativeMobil.ac(sh.querySelector('[data-f="dept"]'),natDeptSugg,null);
   }
 
   /* ── km-Stand (natives Sheet → _fzQuickKmEdit mit synchron gestubbtem prompt) ── */
@@ -4990,9 +5092,9 @@ window.openBerichte = openBerichte;
       +'<div class="gn-field"><label>Abteilung</label><input class="gn-input" data-f="dept" value="'+NE(v.dept||'')+'"></div>'
       +'<div class="gn-field"><label>Zuteilung</label><select class="gn-native-select" data-f="type">'
         +'<option value="fix"'+((v.assignment||'fix')==='fix'?' selected':'')+'>Fix zugeteilt</option>'
-        +'<option value="pool"'+(v.assignment==='pool'?' selected':'')+'>Sharing / Pool</option></select></div>'
+        +'<option value="sharing"'+(v.assignment==='sharing'?' selected':'')+'>Sharing / Pool</option></select></div>'
       +'<div class="gn-field"><label>Notiz (optional)</label><input class="gn-input" data-f="note"></div>';
-    nat.sheet({
+    var sh=nat.sheet({
       title:'👥 Fahrer zuweisen',
       saveLabel:'✓ Speichern',
       html:html,
@@ -5008,6 +5110,10 @@ window.openBerichte = openBerichte;
         return true;
       }
     });
+    // Vorschläge wie im klassischen Modul: Fahrer aus Team + Bestand,
+    // Abteilung aus bereits erfassten Fahrzeugen
+    GemaNativeMobil.ac(sh.querySelector('[data-f="driver"]'),natDriverSugg,null);
+    GemaNativeMobil.ac(sh.querySelector('[data-f="dept"]'),natDeptSugg,null);
   }
 
   nat=GemaNativeMobil.mount({render:render});

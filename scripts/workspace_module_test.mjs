@@ -131,7 +131,7 @@ const picker = await page.evaluate(() => {
   return { items, cats };
 });
 ok(picker.items.length >= 60, 'Picker zeigt >= 60 Module (' + picker.items.length + ')');
-['Offerten / Aufträge / Rechnungen', 'Einsatzplan', 'Stundenerfassung', 'Zirkulation', 'Ausdehnungsgefäss', 'h,x-Diagramm', 'Gaslöschanlagen', 'Hygienemanagement', 'Immobilienverwaltung', 'Wareneingang', 'Arbeitskleider', 'Plandialog', 'Pläne & Flächen', 'Dachbericht']
+['Offerten / Aufträge / Rechnungen', 'Termine', 'Stundenerfassung', 'Zirkulation', 'Ausdehnungsgefäss', 'h,x-Diagramm', 'Gaslöschanlagen', 'Hygienemanagement', 'Immobilienverwaltung', 'Wareneingang', 'Arbeitskleider', 'Plandialog', 'Pläne & Flächen', 'Dachbericht']
   .forEach(n => ok(picker.items.indexOf(n) >= 0, 'Picker enthält «' + n + '»'));
 ['Heizung & Wärmeerzeugung', 'Lüftung & Klimatisierung', 'Gas', 'Brandschutz & Sprinkler', 'Immobilien']
   .forEach(c => ok(picker.cats.some(x => x.indexOf(c) >= 0), 'Kategorie «' + c + '» sichtbar'));
@@ -165,7 +165,7 @@ const gated = await page.evaluate(() => {
   window._wsOpenModulePicker();
   const names = Array.from(document.querySelectorAll('.ws-modpicker .ws-modpicker-name')).map(n => n.textContent.trim());
   window.GemaAuth.can = origCan;
-  return { before, after, hub, hubDenied, hidden: names.indexOf('Stundenerfassung') < 0, other: names.indexOf('Einsatzplan') >= 0 };
+  return { before, after, hub, hubDenied, hidden: names.indexOf('Stundenerfassung') < 0, other: names.indexOf('Termine') >= 0 };
 });
 ok(gated.before === true, '_wsModAllowed: erlaubt mit read-Permission');
 ok(gated.after === false, '_wsModAllowed: verweigert ohne read-Permission');

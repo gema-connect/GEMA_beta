@@ -1990,6 +1990,90 @@ function _wzAutoPruefungenFromExisting(){
   });
 }
 
+// ── Vorschlags-Quellen (geteilt zwischen klassischem Formular UND den
+//    nativen iPhone-Sheets — Parameter statt f_-Feld-Reads, damit beide
+//    Ansichten exakt dieselbe Logik nutzen und nichts driftet) ──
+function _wzNameSuggestions(q){
+  var entries=_wzGetKatalogEntries();
+  var ql=(q||'').toLowerCase(),seen={},result=[];
+  entries.forEach(function(e){
+    if(!e.name)return;
+    if(ql&&e.name.toLowerCase().indexOf(ql)<0)return;
+    if(seen[e.name])return;
+    seen[e.name]=true;
+    var brands=[];
+    entries.forEach(function(x){if(x.name===e.name&&x.brand&&brands.indexOf(x.brand)<0)brands.push(x.brand);});
+    result.push({label:e.name,value:e.name,hint:brands.length?brands.slice(0,3).join(', ')+(brands.length>3?' …':''):''});
+  });
+  return result;
+}
+function _wzBrandSuggestions(q,curNameRaw){
+  var entries=_wzGetKatalogEntries();
+  var curName=(curNameRaw||'').trim().toLowerCase();
+  var ql=(q||'').toLowerCase(),seen={},result=[];
+  entries.forEach(function(e){
+    if(!e.brand)return;
+    if(curName&&e.name.toLowerCase()!==curName)return;
+    if(ql&&e.brand.toLowerCase().indexOf(ql)<0)return;
+    if(seen[e.brand])return;
+    seen[e.brand]=true;
+    var count=0;
+    entries.forEach(function(x){if(x.brand===e.brand&&(!curName||x.name.toLowerCase()===curName))count++;});
+    result.push({label:e.brand,value:e.brand,hint:count>1?count+' Modelle':''});
+  });
+  return result;
+}
+function _wzModelSuggestions(q,curNameRaw,curBrandRaw){
+  var entries=_wzGetKatalogEntries();
+  var curName=(curNameRaw||'').trim().toLowerCase();
+  var curBrand=(curBrandRaw||'').trim().toLowerCase();
+  var ql=(q||'').toLowerCase(),result=[];
+  entries.forEach(function(e){
+    if(!e.model)return;
+    if(curBrand&&e.brand.toLowerCase()!==curBrand)return;
+    if(curName&&e.name.toLowerCase()!==curName)return;
+    if(ql&&e.model.toLowerCase().indexOf(ql)<0)return;
+    var hint=[];
+    if(!curBrand&&e.brand)hint.push(e.brand);
+    if(!curName&&e.name)hint.push(e.name);
+    if(e.src==='lieferant'&&e.lieferantFirma)hint.push('🏷 '+e.lieferantFirma);
+    result.push({label:e.model,value:e.model,hint:hint.join(' · '),entry:e});
+  });
+  var seen={};
+  return result.filter(function(r){var k=r.label+'|'+(r.entry?r.entry.brand:'');if(seen[k])return false;seen[k]=true;return true;});
+}
+function _wzSupplierSuggestions(q){
+  var ql=(q||'').toLowerCase(),seen={},result=[];
+  // Aus bestehenden Geräten
+  tools.forEach(function(t){
+    if(!t.supplier)return;
+    if(ql&&t.supplier.toLowerCase().indexOf(ql)<0)return;
+    if(seen[t.supplier])return;
+    seen[t.supplier]=true;
+    result.push({label:t.supplier,value:t.supplier,hint:'Eigene Geräte',supplierId:t.supplierId||''});
+  });
+  // Aus Lieferanten-Accounts (GemaAuth) — nur Kategorie 'werkzeuge'
+  if(typeof GemaAuth!=='undefined'){
+    try{
+      var users=GemaAuth.getUsers()||[];
+      users.forEach(function(u){
+        if(!u.active||!u.roleIds||!u.roleIds.some(function(r){return typeof r==='string'&&(r.indexOf('role_lieferant')===0||r.indexOf('role_produktlieferant')===0);}))return;
+        if(typeof GemaProdukte!=='undefined'&&GemaProdukte.getAllLieferanten){
+          var lief=GemaProdukte.getAllLieferanten().find(function(l){return l.orgId===u.orgId||l.firma===(u.profile&&u.profile.firma);});
+          if(lief&&lief.lieferantKategorien&&lief.lieferantKategorien.length>0&&lief.lieferantKategorien.indexOf('werkzeuge')<0)return;
+        }
+        var firma=(u.profile&&u.profile.firma)||u.name||u.username||'';
+        if(!firma)return;
+        if(ql&&firma.toLowerCase().indexOf(ql)<0)return;
+        if(seen[firma])return;
+        seen[firma]=true;
+        result.push({label:firma,value:firma,hint:'Werkzeug-Lieferant',supplierId:u.id});
+      });
+    }catch(e){}
+  }
+  return result;
+}
+
 function _wzSetupAutocomplete(){
   // KEIN close-on-scroll auf dem Modal-Body mehr: Beim Fokus scrollen
   // scrollIntoSpace() bzw. die aufgehende Handy-Tastatur den Body — der
@@ -2004,20 +2088,7 @@ function _wzSetupAutocomplete(){
     if(el)el.addEventListener('change',_wzAutoPruefungenFromExisting);
   });
 
-  _wzInitAC('f_name',function(q){
-    var entries=_wzGetKatalogEntries();
-    var ql=q.toLowerCase(),seen={},result=[];
-    entries.forEach(function(e){
-      if(!e.name)return;
-      if(ql&&e.name.toLowerCase().indexOf(ql)<0)return;
-      if(seen[e.name])return;
-      seen[e.name]=true;
-      var brands=[];
-      entries.forEach(function(x){if(x.name===e.name&&x.brand&&brands.indexOf(x.brand)<0)brands.push(x.brand);});
-      result.push({label:e.name,value:e.name,hint:brands.length?brands.slice(0,3).join(', ')+(brands.length>3?' …':''):''});
-    });
-    return result;
-  },function(sel){
+  _wzInitAC('f_name',_wzNameSuggestions,function(sel){
     var entries=_wzGetKatalogEntries();
     var matching=entries.filter(function(e){return e.name===sel.value;});
     // Nur die Kategorie vorschlagen (eigene Geraete priorisiert via
@@ -2039,20 +2110,7 @@ function _wzSetupAutocomplete(){
   });
 
   _wzInitAC('f_brand',function(q){
-    var entries=_wzGetKatalogEntries();
-    var curName=document.getElementById('f_name').value.trim().toLowerCase();
-    var ql=q.toLowerCase(),seen={},result=[];
-    entries.forEach(function(e){
-      if(!e.brand)return;
-      if(curName&&e.name.toLowerCase()!==curName)return;
-      if(ql&&e.brand.toLowerCase().indexOf(ql)<0)return;
-      if(seen[e.brand])return;
-      seen[e.brand]=true;
-      var count=0;
-      entries.forEach(function(x){if(x.brand===e.brand&&(!curName||x.name.toLowerCase()===curName))count++;});
-      result.push({label:e.brand,value:e.brand,hint:count>1?count+' Modelle':''});
-    });
-    return result;
+    return _wzBrandSuggestions(q,document.getElementById('f_name').value.trim());
   },function(sel){
     // Beim Klick auf eine Marke: passende Kategorie (und ggf. Bezeichnung
     // bei eindeutigem Match) vorbefuellen. Eigene Geraete priorisiert.
@@ -2076,23 +2134,7 @@ function _wzSetupAutocomplete(){
   });
 
   _wzInitAC('f_model',function(q){
-    var entries=_wzGetKatalogEntries();
-    var curName=document.getElementById('f_name').value.trim().toLowerCase();
-    var curBrand=document.getElementById('f_brand').value.trim().toLowerCase();
-    var ql=q.toLowerCase(),result=[];
-    entries.forEach(function(e){
-      if(!e.model)return;
-      if(curBrand&&e.brand.toLowerCase()!==curBrand)return;
-      if(curName&&e.name.toLowerCase()!==curName)return;
-      if(ql&&e.model.toLowerCase().indexOf(ql)<0)return;
-      var hint=[];
-      if(!curBrand&&e.brand)hint.push(e.brand);
-      if(!curName&&e.name)hint.push(e.name);
-      if(e.src==='lieferant'&&e.lieferantFirma)hint.push('🏷 '+e.lieferantFirma);
-      result.push({label:e.model,value:e.model,hint:hint.join(' · '),entry:e});
-    });
-    var seen={};
-    return result.filter(function(r){var k=r.label+'|'+(r.entry?r.entry.brand:'');if(seen[k])return false;seen[k]=true;return true;});
+    return _wzModelSuggestions(q,document.getElementById('f_name').value.trim(),document.getElementById('f_brand').value.trim());
   },function(sel){
     if(!sel.entry)return;
     var e=sel.entry;
@@ -2106,37 +2148,7 @@ function _wzSetupAutocomplete(){
     _wzAutoPruefungenFromExisting();
   });
 
-  _wzInitAC('f_supplier',function(q){
-    var ql=q.toLowerCase(),seen={},result=[];
-    // Aus bestehenden Geräten
-    tools.forEach(function(t){
-      if(!t.supplier)return;
-      if(ql&&t.supplier.toLowerCase().indexOf(ql)<0)return;
-      if(seen[t.supplier])return;
-      seen[t.supplier]=true;
-      result.push({label:t.supplier,value:t.supplier,hint:'Eigene Geräte',supplierId:t.supplierId||''});
-    });
-    // Aus Lieferanten-Accounts (GemaAuth) — nur Kategorie 'werkzeuge'
-    if(typeof GemaAuth!=='undefined'){
-      try{
-        var users=GemaAuth.getUsers()||[];
-        users.forEach(function(u){
-          if(!u.active||!u.roleIds||!u.roleIds.some(function(r){return typeof r==='string'&&(r.indexOf('role_lieferant')===0||r.indexOf('role_produktlieferant')===0);}))return;
-          if(typeof GemaProdukte!=='undefined'&&GemaProdukte.getAllLieferanten){
-            var lief=GemaProdukte.getAllLieferanten().find(function(l){return l.orgId===u.orgId||l.firma===(u.profile&&u.profile.firma);});
-            if(lief&&lief.lieferantKategorien&&lief.lieferantKategorien.length>0&&lief.lieferantKategorien.indexOf('werkzeuge')<0)return;
-          }
-          var firma=(u.profile&&u.profile.firma)||u.name||u.username||'';
-          if(!firma)return;
-          if(ql&&firma.toLowerCase().indexOf(ql)<0)return;
-          if(seen[firma])return;
-          seen[firma]=true;
-          result.push({label:firma,value:firma,hint:'Werkzeug-Lieferant',supplierId:u.id});
-        });
-      }catch(e){}
-    }
-    return result;
-  },function(sel){
+  _wzInitAC('f_supplier',_wzSupplierSuggestions,function(sel){
     if(sel.supplierId){document.getElementById('f_supplierId').value=sel.supplierId;}
   });
 
@@ -7096,7 +7108,7 @@ try{ if(window.GemaActivityLog) window.GemaActivityLog.bootstrap(); }catch(e){}
    dem Screen. Desktop unverändert. */
 (function(){
   if(typeof GemaNativeMobil==='undefined') return;
-  var NE=GemaNativeMobil.esc, nst={q:'',seg:'alle'}, natCtxId=null, nat=null;
+  var NE=GemaNativeMobil.esc, nst={q:'',seg:'alle',cat:''}, natCtxId=null, nat=null;
   var IC_TOOL='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15.5 6.5a3.8 3.8 0 0 1-4.9 4.9l-5.3 5.3 1.9 1.9 5.3-5.3a3.8 3.8 0 0 1 4.9-4.9l-2.4 2.4-1.9-1.9Z"/></svg>';
   var IC_KOF='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="8" width="18" height="12" rx="2"/><path d="M9 8V5h6v3M3 13h18"/></svg>';
   function natTools(){
@@ -7115,6 +7127,7 @@ try{ if(window.GemaActivityLog) window.GemaActivityLog.bootstrap(); }catch(e){}
     return {cls:'gn-badge--ok',lbl:'Verfügbar'};
   }
   function natMatch(t){
+    if(nst.cat&&(t.cat||'sonstige')!==nst.cat) return false;
     if(nst.seg==='frei'&&(t.ausgeliehenAn||natStatus(t).lbl!=='Verfügbar')) return false;
     if(nst.seg==='aus'&&!t.ausgeliehenAn) return false;
     if(nst.seg==='pruef'){ var wd=natWd(t); if(wd===null||wd>30) return false; }
@@ -7125,6 +7138,9 @@ try{ if(window.GemaActivityLog) window.GemaActivityLog.bootstrap(); }catch(e){}
     }
     return true;
   }
+  // Aktive erweiterte Filter (teilt sich den Filter-Motor _wzAdvFilter /
+  // _wzApplyAdvFilter mit der klassischen Ansicht — identische Semantik)
+  function natAdvCount(){ try{ return Object.keys(_wzAdvFilter||{}).length; }catch(e){ return 0; } }
   function natSub(t){
     var inv=t.internKennung||t.serial||'';
     var wo=(t.ausgeliehenAn&&t.ausgeliehenAn.name)||(t.zugewiesenAn&&t.zugewiesenAn.name)||'';
@@ -7132,6 +7148,7 @@ try{ if(window.GemaActivityLog) window.GemaActivityLog.bootstrap(); }catch(e){}
   }
   function listHtml(){
     var rows=natTools().filter(natMatch);
+    try{ rows=_wzApplyAdvFilter(rows); }catch(e){}
     if(!rows.length) return '<div class="gn-label" style="text-transform:none;font-weight:500;padding-top:8px">Keine Geräte gefunden.</div>';
     return '<div class="gn-list">'+rows.map(function(t){
       var s=natStatus(t), kof=false; try{ kof=_wzIsKoffer(t); }catch(e){}
@@ -7141,15 +7158,34 @@ try{ if(window.GemaActivityLog) window.GemaActivityLog.bootstrap(); }catch(e){}
         +'<span class="gn-badge '+s.cls+'">'+NE(s.lbl)+'</span></div>';
     }).join('')+'</div>';
   }
+  // Kategorie-Chips (Pendant zur klassischen catFilterBar — datengetrieben,
+  // nur vorhandene Kategorien, mit Zähler; < 2 Kategorien = keine Leiste)
+  function chipbarHtml(){
+    var counts={};
+    natTools().forEach(function(t){ var c=t.cat||'sonstige'; counts[c]=(counts[c]||0)+1; });
+    var present=Object.keys(counts);
+    if(present.length<2) return '';
+    if(nst.cat&&!counts[nst.cat]) nst.cat='';
+    var cats=[];
+    try{ cats=_wzGetCats().filter(function(c){ return counts[c.id]; }); }catch(e){ cats=present.map(function(id){ return (typeof CATS!=='undefined'&&CATS[id])?Object.assign({id:id},CATS[id]):{id:id,label:id}; }); }
+    var total=0; present.forEach(function(k){ total+=counts[k]; });
+    var html='<button type="button" class="gn-chip-sel'+(nst.cat===''?' is-active':'')+'" data-nat-cat="">Alle<span class="gn-chip-ct">'+total+'</span></button>';
+    cats.forEach(function(c){
+      html+='<button type="button" class="gn-chip-sel'+(nst.cat===c.id?' is-active':'')+'" data-nat-cat="'+NE(c.id)+'">'+NE((c.icon?c.icon+' ':'')+c.label)+'<span class="gn-chip-ct">'+counts[c.id]+'</span></button>';
+    });
+    return '<div class="gn-chipbar" data-nat-cats>'+html+'</div>';
+  }
   function render(root){
     var ts=natTools();
     var pruef=ts.filter(function(t){ var wd=natWd(t); return wd!==null&&wd<=30; }).length;
     var canEdit=false; try{ canEdit=_wzCanEdit(); }catch(e){}
+    var advN=natAdvCount();
     root.innerHTML=
       '<div class="gn-compact" data-gn-compact><b>Werkzeug</b></div>'
       +'<div class="gn-screen" data-gn-scroll>'
         +'<div class="gn-toolbar">'
-          +'<div class="gn-large-title"><h1>Werkzeug</h1><p>'+ts.length+' Geräte · '+pruef+' Prüfungen fällig</p></div>'          +'<button class="gn-icon-btn" data-nat-scan title="QR scannen"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><path d="M14 14h3v3M20 14v6M17 20h3"/></svg></button>'
+          +'<div class="gn-large-title"><h1>Werkzeug</h1><p>'+ts.length+' Geräte · '+pruef+' Prüfungen fällig</p></div>'          +'<button class="gn-icon-btn" data-nat-filter title="Erweiterte Filter"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M7 12h10M10 18h4"/></svg>'+(advN?'<span class="gn-dot">'+advN+'</span>':'')+'</button>'
+          +'<button class="gn-icon-btn" data-nat-scan title="QR scannen"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><path d="M14 14h3v3M20 14v6M17 20h3"/></svg></button>'
           +(canEdit?'<button class="gn-icon-btn gn-icon-btn--primary" data-nat-add title="Neues Gerät"><svg viewBox="0 0 24 24" fill="none" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button>':'')
         +'</div>'
         +'<div class="gn-searchbar"><svg viewBox="0 0 24 24" fill="none" stroke-width="2.1" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-3.6-3.6"/></svg><input data-nat-q placeholder="Gerät, Inv-Nr. oder Person" value="'+NE(nst.q)+'"></div>'
@@ -7157,6 +7193,7 @@ try{ if(window.GemaActivityLog) window.GemaActivityLog.bootstrap(); }catch(e){}
           +['alle:Alle','frei:Verfügbar','aus:Ausgeliehen','pruef:Prüfung'].map(function(o){var p=o.split(':');
             return '<button class="gn-seg-opt'+(nst.seg===p[0]?' is-active':'')+'" data-value="'+p[0]+'">'+p[1]+'</button>';}).join('')
         +'</div>'
+        +chipbarHtml()
         +'<div data-nat-list>'+listHtml()+'</div>'
       +'</div>'
       +'<div class="gn-backdrop gn-ctx-backdrop" data-gn-ctx-backdrop>'
@@ -7170,6 +7207,13 @@ try{ if(window.GemaActivityLog) window.GemaActivityLog.bootstrap(); }catch(e){}
     var q=root.querySelector('[data-nat-q]');
     q.addEventListener('input',function(){ nst.q=q.value; root.querySelector('[data-nat-list]').innerHTML=listHtml(); });
     root.querySelector('[data-nat-seg]').addEventListener('gn:segment',function(e){ nst.seg=e.detail.value; root.querySelector('[data-nat-list]').innerHTML=listHtml(); });
+    var cb=root.querySelector('[data-nat-cats]');
+    if(cb) cb.addEventListener('click',function(e){
+      var chip=e.target.closest&&e.target.closest('[data-nat-cat]'); if(!chip) return;
+      nst.cat=chip.getAttribute('data-nat-cat')||'';
+      cb.querySelectorAll('.gn-chip-sel').forEach(function(c){ c.classList.toggle('is-active',c===chip); });
+      root.querySelector('[data-nat-list]').innerHTML=listHtml();
+    });
     root.querySelector('[data-nat-list]').addEventListener('click',function(e){
       var row=e.target.closest&&e.target.closest('[data-nat-id]'); if(!row) return;
       if(row.__gnCtxFired){ row.__gnCtxFired=false; return; }   // Long-Press hat Vorrang
@@ -7179,6 +7223,8 @@ try{ if(window.GemaActivityLog) window.GemaActivityLog.bootstrap(); }catch(e){}
     if(scan) scan.addEventListener('click',function(){ try{ _wzScanWithCamera(); }catch(e){} });
     var add=root.querySelector('[data-nat-add]');
     if(add) add.addEventListener('click',function(){ try{ openToolForm(null); }catch(e){} });
+    var flt=root.querySelector('[data-nat-filter]');
+    if(flt) flt.addEventListener('click',function(){ try{ openFilterSheet(); }catch(e){} });
     var bg=root.querySelector('[data-gn-ctx-backdrop]');
     bg.addEventListener('gn:context',function(e){ natCtxId=e.detail.row?e.detail.row.getAttribute('data-nat-id'):null; });
     bg.addEventListener('click',function(e){
@@ -7307,7 +7353,12 @@ try{ if(window.GemaActivityLog) window.GemaActivityLog.bootstrap(); }catch(e){}
     });
   }
 
-  /* ── Erfassen/Bearbeiten (natives Sheet → openAdd/editTool + submitForm) ── */
+  /* ── Erfassen/Bearbeiten (natives Sheet → openAdd/editTool + submitForm) ──
+     Mit den GLEICHEN Vorschlags-Quellen wie das klassische Formular
+     (_wzNameSuggestions/_wzBrandSuggestions/_wzModelSuggestions/
+     _wzSupplierSuggestions/_wzStandortSuggestions) — die Kreuz-Logik
+     (Bezeichnung filtert Hersteller, Auswahl füllt Kategorie, Lieferanten-
+     Katalog-Pick nimmt Bild + Produkt-Verknüpfung mit) läuft nativ mit. */
   function openToolForm(id){
     var t=id?natT(id):null;
     if(id&&!t) return;
@@ -7320,12 +7371,16 @@ try{ if(window.GemaActivityLog) window.GemaActivityLog.bootstrap(); }catch(e){}
       '<div class="gn-field"><label>Bezeichnung *</label><input class="gn-input" data-f="name" placeholder="z.B. Bohrschrauber Hilti TE 6" value="'+NE(t?t.name:'')+'"></div>'
       +'<div class="gn-field"><label>Kategorie *</label><select class="gn-native-select" data-f="cat">'+catOpts+'</select></div>'
       +'<div class="gn-field"><label>Interne Kennung</label><input class="gn-input" data-f="intern" placeholder="z.B. WZ-014" value="'+NE(t?(t.internKennung||''):'')+'"></div>'
-      +'<div class="gn-field"><label>Hersteller / Modell</label><div class="gn-timepair"><input class="gn-input" data-f="brand" placeholder="Hersteller" value="'+NE(t?(t.brand||''):'')+'"><input class="gn-input" data-f="model" placeholder="Modell" value="'+NE(t?(t.model||''):'')+'"></div></div>'
+      +'<div class="gn-field"><label>Hersteller</label><input class="gn-input" data-f="brand" placeholder="z.B. Hilti" value="'+NE(t?(t.brand||''):'')+'"></div>'
+      +'<div class="gn-field"><label>Modell</label><input class="gn-input" data-f="model" placeholder="z.B. TE 6-A22" value="'+NE(t?(t.model||''):'')+'"></div>'
+      +'<div class="gn-field"><label>Lieferant / Grosshändler</label><input class="gn-input" data-f="supplier" placeholder="z.B. Debrunner" value="'+NE(t?(t.supplier||''):'')+'"></div>'
       +'<div class="gn-field"><label>Seriennummer</label><input class="gn-input" data-f="serial" value="'+NE(t?(t.serial||''):'')+'"></div>'
       +'<div class="gn-field"><label>Kaufdatum *</label><input class="gn-input" type="date" data-f="bought" value="'+NE(t?(t.bought||''):heute)+'"></div>'
       +'<div class="gn-field"><label>Standort / Notiz</label><input class="gn-input" data-f="notes" placeholder="z.B. Lager Halle B" value="'+NE(t?(t.notes||''):'')+'"></div>'
       +(id?'':'<div class="gn-label" style="text-transform:none;font-weight:500">Prüfungen, Kaufbeleg &amp; Details lassen sich später über «Bearbeiten» am Desktop ergänzen — Service/NIV-Standards werden automatisch gesetzt.</div>');
-    nat.sheet({
+    var natPick=null;                                  // Lieferanten-Katalog-Pick des Sheets
+    var supplierId=(t&&t.supplierId)||'';
+    var sh=nat.sheet({
       title:id?'Gerät bearbeiten':'Neues Gerät',
       saveLabel:'💾 Speichern',
       html:html,
@@ -7340,9 +7395,14 @@ try{ if(window.GemaActivityLog) window.GemaActivityLog.bootstrap(); }catch(e){}
           // (Edit erhält Kaufbeleg/Prüfungen etc.), native Werte übersteuern.
           if(id) editTool(id); else openAdd();
           if(!document.getElementById('addModal')||document.getElementById('addModal').classList.contains('hidden')) return true;
+          // clearForm (in openAdd) nullt window._wzKatalogPick — den Pick des
+          // Sheets DANACH wiederherstellen, damit submitForm Bild + Produkt-
+          // Verknüpfung des Lieferanten-Katalogs mergt (Muster Defekt-Fotos).
+          if(natPick) window._wzKatalogPick=natPick;
           natSet('f_name',g('name')); natSet('f_cat',g('cat'));
           try{ onCatChange(); }catch(e){}
           natSet('f_intern',g('intern')); natSet('f_brand',g('brand')); natSet('f_model',g('model'));
+          natSet('f_supplier',g('supplier')); natSet('f_supplierId',g('supplier')?supplierId:'');
           natSet('f_serial',g('serial')); natSet('f_bought',g('bought')); natSet('f_notes',g('notes'));
           var rid=submitForm();               // speichert + schliesst das Modal
           if(!rid){ try{ closeAdd(); }catch(e){} return false; }
@@ -7350,6 +7410,130 @@ try{ if(window.GemaActivityLog) window.GemaActivityLog.bootstrap(); }catch(e){}
         return true;
       }
     });
+    // ── Vorschläge (gleiche Quellen wie das klassische Formular) ──
+    var fName=sh.querySelector('[data-f="name"]'), fBrand=sh.querySelector('[data-f="brand"]'),
+        fModel=sh.querySelector('[data-f="model"]'), fSup=sh.querySelector('[data-f="supplier"]'),
+        fNotes=sh.querySelector('[data-f="notes"]'), fCat=sh.querySelector('[data-f="cat"]');
+    function setCatIf(catId){
+      if(!catId||!fCat||fCat.value) return;
+      var has=Array.prototype.some.call(fCat.options,function(o){return o.value===catId;});
+      if(has) fCat.value=catId;
+    }
+    function applyLiefPick(e){
+      if(!e||e.src!=='lieferant') return;
+      natPick={name:e.name||'',model:e.model||'',bildUrl:e.bild||'',katalogProduktId:e.prodId||'',lieferantFirma:e.lieferantFirma||'',lieferantId:e.lieferantId||''};
+      if(fSup&&!fSup.value.trim()&&e.lieferantFirma){
+        fSup.value=e.lieferantFirma;
+        try{
+          var su=(GemaAuth.getUsers()||[]).find(function(x){return x.active&&x.lieferantId===e.lieferantId;});
+          if(su) supplierId=su.id;
+        }catch(err){}
+      }
+    }
+    GemaNativeMobil.ac(fName,_wzNameSuggestions,function(sel){
+      var matching=_wzGetKatalogEntries().filter(function(e){return e.name===sel.value;});
+      setCatIf(_wzMostFrequent(matching,function(e){return e.cat;}));
+      var liefE=matching.find(function(e){return e.src==='lieferant';});
+      if(liefE) applyLiefPick(liefE);
+    });
+    GemaNativeMobil.ac(fBrand,function(q){ return _wzBrandSuggestions(q,fName.value); },function(sel){
+      var curName=fName.value.trim().toLowerCase();
+      var matching=_wzGetKatalogEntries().filter(function(e){
+        if(e.brand!==sel.value) return false;
+        if(curName&&e.name.toLowerCase()!==curName) return false;
+        return true;
+      });
+      var bestName=_wzMostFrequent(matching,function(e){return e.name;});
+      if(bestName&&!fName.value.trim()) fName.value=bestName;
+      setCatIf(_wzMostFrequent(matching,function(e){return e.cat;}));
+    });
+    GemaNativeMobil.ac(fModel,function(q){ return _wzModelSuggestions(q,fName.value,fBrand.value); },function(sel){
+      if(!sel.entry) return;
+      var e=sel.entry;
+      if(e.brand&&!fBrand.value.trim()) fBrand.value=e.brand;
+      if(e.name&&!fName.value.trim()) fName.value=e.name;
+      setCatIf(e.cat);
+      applyLiefPick(e);
+    });
+    GemaNativeMobil.ac(fSup,_wzSupplierSuggestions,function(sel){ supplierId=sel.supplierId||''; });
+    if(fSup) fSup.addEventListener('input',function(){ supplierId=''; });   // manuell getippt = keine User-Verknüpfung
+    GemaNativeMobil.ac(fNotes,_wzStandortSuggestions,null);
+  }
+
+  /* ── Erweiterte Filter (natives Sheet → derselbe Motor _wzAdvFilter wie
+     der klassische «🔍 Filter»-Dialog, inkl. Vorschlägen in den Feldern) ── */
+  function openFilterSheet(){
+    var f={}; try{ f=_wzAdvFilter||{}; }catch(e){}
+    var cats=[]; try{ cats=_wzGetActiveCats(); }catch(e){}
+    var catOpts='<option value="">Alle</option>'+cats.map(function(c){
+      return '<option value="'+NE(c.id)+'"'+(f.kategorie===c.id?' selected':'')+'>'+NE(c.label)+'</option>';
+    }).join('');
+    var persOpts=function(cur){
+      return '<option value="">Alle</option>'+natPersonen(null).map(function(p){
+        var n=p.name||p.username;
+        return '<option value="'+NE(n)+'"'+(cur===n?' selected':'')+'>'+NE(n)+'</option>';
+      }).join('');
+    };
+    var selOpts=function(list,cur){
+      return '<option value="">Alle</option>'+list.map(function(o){
+        return '<option value="'+o.v+'"'+(cur===o.v?' selected':'')+'>'+o.l+'</option>';
+      }).join('');
+    };
+    var html=
+      '<div class="gn-label" style="text-transform:none;font-weight:500">Kombinierbar — leere Felder werden ignoriert.</div>'
+      +'<div class="gn-field"><label>Kategorie</label><select class="gn-native-select" data-f="kat">'+catOpts+'</select></div>'
+      +'<div class="gn-field"><label>Hersteller</label><input class="gn-input" data-f="brand" value="'+NE(f.hersteller||'')+'" placeholder="z.B. Hilti"></div>'
+      +'<div class="gn-field"><label>Modell</label><input class="gn-input" data-f="model" value="'+NE(f.modell||'')+'" placeholder="z.B. SF 6H"></div>'
+      +'<div class="gn-field"><label>Lieferant</label><input class="gn-input" data-f="supplier" value="'+NE(f.lieferant||'')+'" placeholder="z.B. Debrunner"></div>'
+      +'<div class="gn-field"><label>Standort / Notiz</label><input class="gn-input" data-f="standort" value="'+NE(f.standort||'')+'" placeholder="z.B. Lager 2"></div>'
+      +'<div class="gn-field"><label>Zugewiesen an</label><select class="gn-native-select" data-f="zu">'+persOpts(f.zugewiesenAn)+'</select></div>'
+      +'<div class="gn-field"><label>Ausgeliehen an</label><select class="gn-native-select" data-f="aus">'+persOpts(f.ausgeliehenAn)+'</select></div>'
+      +'<div class="gn-field"><label>Seriennummer</label><input class="gn-input" data-f="serial" value="'+NE(f.serial||'')+'" placeholder="SN …"></div>'
+      +'<div class="gn-field"><label>Prüfstatus</label><select class="gn-native-select" data-f="pruef">'+selOpts([{v:'overdue',l:'Überfällig'},{v:'soon',l:'Fällig ≤ 30 Tage'},{v:'ok',l:'In Ordnung'}],f.pruefStatus)+'</select></div>'
+      +'<div class="gn-field"><label>Defekt offen</label><select class="gn-native-select" data-f="defekt">'+selOpts([{v:'ja',l:'Ja'},{v:'nein',l:'Nein'}],f.defektOffen)+'</select></div>'
+      +'<div class="gn-field"><label>Garantie</label><select class="gn-native-select" data-f="garantie">'+selOpts([{v:'aktiv',l:'Aktiv'},{v:'abgelaufen',l:'Abgelaufen'}],f.garantieStatus)+'</select></div>'
+      +'<div class="gn-field"><label>Kaufdatum von / bis</label><div class="gn-timepair">'
+        +'<input class="gn-input" type="date" data-f="kaufVon" value="'+NE(f.kaufVon||'')+'">'
+        +'<input class="gn-input" type="date" data-f="kaufBis" value="'+NE(f.kaufBis||'')+'"></div></div>'
+      +'<button type="button" class="gn-btn gn-btn-ghost" data-nat-freset style="margin:2px 16px 12px;width:calc(100% - 32px)">↻ Filter zurücksetzen</button>';
+    var sh=nat.sheet({
+      title:'🔍 Filter',
+      saveLabel:'✓ Anwenden',
+      html:html,
+      onSave:function(s){
+        var g=function(fd){ var el=s.querySelector('[data-f="'+fd+'"]'); return el?el.value.trim():''; };
+        _wzAdvFilter={};
+        if(g('kat'))_wzAdvFilter.kategorie=g('kat');
+        if(g('brand'))_wzAdvFilter.hersteller=g('brand');
+        if(g('model'))_wzAdvFilter.modell=g('model');
+        if(g('supplier'))_wzAdvFilter.lieferant=g('supplier');
+        if(g('standort'))_wzAdvFilter.standort=g('standort');
+        if(g('zu'))_wzAdvFilter.zugewiesenAn=g('zu');
+        if(g('aus'))_wzAdvFilter.ausgeliehenAn=g('aus');
+        if(g('serial'))_wzAdvFilter.serial=g('serial');
+        if(g('pruef'))_wzAdvFilter.pruefStatus=g('pruef');
+        if(g('defekt'))_wzAdvFilter.defektOffen=g('defekt');
+        if(g('garantie'))_wzAdvFilter.garantieStatus=g('garantie');
+        if(g('kaufVon'))_wzAdvFilter.kaufVon=g('kaufVon');
+        if(g('kaufBis'))_wzAdvFilter.kaufBis=g('kaufBis');
+        try{ _wzUpdateFilterBadge(); }catch(e){}
+        // Re-Render NACH der Schliess-Animation — render() ersetzt root.innerHTML
+        // und würde das noch animierende Sheet sonst hart wegreissen.
+        setTimeout(function(){ nat.refresh(); },420);
+        return true;
+      }
+    });
+    sh.querySelector('[data-nat-freset]').addEventListener('click',function(){
+      _wzAdvFilter={};
+      try{ _wzUpdateFilterBadge(); }catch(e){}
+      nat.closeSheet();
+      setTimeout(function(){ nat.refresh(); },420);
+    });
+    // Vorschläge in den Filter-Feldern (gleiche Quellen wie das Formular)
+    GemaNativeMobil.ac(sh.querySelector('[data-f="brand"]'),function(q){ return _wzBrandSuggestions(q,''); },null);
+    GemaNativeMobil.ac(sh.querySelector('[data-f="model"]'),function(q){ return _wzModelSuggestions(q,'',''); },null);
+    GemaNativeMobil.ac(sh.querySelector('[data-f="supplier"]'),_wzSupplierSuggestions,null);
+    GemaNativeMobil.ac(sh.querySelector('[data-f="standort"]'),_wzStandortSuggestions,null);
   }
 
   /* ── Defekt melden (natives Sheet → openDefektMelden + _wzSaveDefekt) ── */
@@ -7458,6 +7642,8 @@ try{ if(window.GemaActivityLog) window.GemaActivityLog.bootstrap(); }catch(e){}
       sh.querySelector('[data-pane="user"]').style.display=(m==='user')?'':'none';
       sh.querySelector('[data-pane="platz"]').style.display=(m==='platz')?'':'none';
     });
+    // Platz-Feld mit denselben Standort-Vorschlägen wie das klassische Modal
+    GemaNativeMobil.ac(sh.querySelector('[data-f="platz"]'),_wzStandortSuggestions,null);
   }
 
   nat=GemaNativeMobil.mount({render:render});

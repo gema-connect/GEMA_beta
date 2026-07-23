@@ -1,8 +1,10 @@
 // Playwright-Smoke: Einsatzplan — Besonderheiten + Schlüssel/Zutritt (07/2026)
 //   - org.settings.einsatzplan.besonderheiten: frei definierbare Monteur-Hinweise
-//     (Icon + Label, Editor in ⚙️ mit «Beispiele einfügen», IDs bleiben stabil)
-//   - Pro Einsatz anhakbar (Mehrfachauswahl) — sichtbar als Icons (Woche/Monat)
-//     und volle Pills (Tages-Modal, «Meine Woche», pm_stunden «Geplante Einsätze»)
+//     (NUR Label, OHNE Emojis — User-Vorgabe 23.07.2026; Editor in ⚙️ mit
+//     «Beispiele einfügen», IDs bleiben stabil; Altdaten-`ic` wird ignoriert)
+//   - Pro Einsatz anhakbar (Mehrfachauswahl) — sichtbar als Text auf der Karte
+//     (Woche), im Tooltip (Monat) und als volle Pills (Tages-Modal, «Meine
+//     Woche», pm_stunden «Geplante Termine»)
 //   - ERP-Auftrag trägt 🔑 schluessel {code, info} — der Einsatz zeigt Code +
 //     Abholort live vom Auftrag (Meine Woche + Einsatz-Modal); Offerte hat das
 //     Feld nicht; Notify-Text nennt Besonderheiten, NIE den Schlüsselcode
@@ -33,11 +35,12 @@ await page.evaluate(() => epOpenSettings());
 ok(await page.evaluate(() => document.querySelectorAll('#ep_bsRows .bs-row').length === 0), 'Editor startet leer');
 await page.evaluate(() => bsVorlagenEinfuegen());
 ok(await page.evaluate(() => document.querySelectorAll('#ep_bsRows .bs-row').length >= 5), '«Beispiele einfügen» legt die Startliste an');
+ok(await page.evaluate(() => document.querySelector('#ep_bsRows .bs-ic') === null), 'Editor hat KEINE Icon-Spalte mehr (nur Text)');
 await page.evaluate(() => epSetSave());
 await page.waitForTimeout(300);
 {
   const l = await page.evaluate(() => bsListe());
-  ok(l.length >= 5 && l[0].id.indexOf('bs_') === 0 && l.some(b => b.label === 'Material im Lager bereit' && b.ic === '📦'), 'Gespeichert: ' + l.length + ' Besonderheiten mit bs_-IDs');
+  ok(l.length >= 5 && l[0].id.indexOf('bs_') === 0 && l.some(b => b.label === 'Material im Lager bereit'), 'Gespeichert: ' + l.length + ' Besonderheiten mit bs_-IDs');
 }
 // Umbenennen behält die ID (data-id-Pfad)
 await page.evaluate(() => epOpenSettings());
@@ -79,11 +82,16 @@ await page.waitForTimeout(200);
 }
 await page.evaluate(() => { _anker = '2026-07-20'; _view = 'woche'; epRender(); });
 ok(await page.evaluate(() => {
-  const html = document.getElementById('viewWrap').innerHTML;
-  return html.indexOf('title="Material bereitgestellt (Lager 2)"') >= 0 && html.indexOf('📦') >= 0;
-}), 'Woche: Icons mit Label-Tooltip auf der Karte');
+  const el = document.querySelector('.tl-ev .ev-b');
+  return el && el.textContent.indexOf('Material bereitgestellt (Lager 2)') >= 0
+    && document.getElementById('viewWrap').innerHTML.indexOf('📦') < 0;
+}), 'Woche: Besonderheiten als TEXT auf der Karte — ohne Emoji');
 await page.evaluate(() => { _view = 'monat'; epRender(); });
-ok(await page.evaluate(() => document.getElementById('viewWrap').innerHTML.indexOf('📦') >= 0), 'Monat: Icon in der Tages-Zelle');
+ok(await page.evaluate(() => {
+  const w = document.getElementById('viewWrap');
+  const dot = [...w.querySelectorAll('.mdot')].find(d => (d.getAttribute('title') || '').indexOf('Material bereitgestellt (Lager 2)') >= 0);
+  return !!dot && w.innerHTML.indexOf('📦') < 0;
+}), 'Monat: Besonderheiten im Tooltip der Tages-Zelle — ohne Emoji');
 await page.evaluate(() => epDayOpen('2026-07-20'));
 ok(await page.evaluate(() => document.getElementById('dayBody').innerHTML.indexOf('Material bereitgestellt (Lager 2)') >= 0), 'Tages-Modal: volle Pills');
 await page.evaluate(() => document.getElementById('dayModal').classList.remove('open'));
@@ -178,8 +186,8 @@ console.log('■ pm_stunden: Besonderheiten in der Tagesansicht');
   await page.waitForTimeout(200);
   {
     const html = await page.evaluate(() => document.body.innerHTML);
-    ok(html.indexOf('Geplante Einsätze') >= 0 && html.indexOf('Service Meier') >= 0, 'Karte «Geplante Einsätze» zeigt den Einsatz');
-    ok(html.indexOf('🪜 Grosse Leiter mitnehmen') >= 0, 'Besonderheiten-Chip sichtbar beim Monteur');
+    ok(html.indexOf('Geplante Termine') >= 0 && html.indexOf('Service Meier') >= 0, 'Karte «Geplante Termine» zeigt den Einsatz');
+    ok(html.indexOf('Grosse Leiter mitnehmen') >= 0 && html.indexOf('🪜') < 0, 'Besonderheiten-Chip beim Monteur — Text ohne Emoji (Altdaten-ic ignoriert)');
   }
   ok(errs.length === 0, 'pm_stunden: keine JS-Fehler' + (errs.length ? ' — ' + errs[0] : ''));
   await ctx.close();

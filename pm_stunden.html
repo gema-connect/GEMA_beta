@@ -226,7 +226,7 @@ table.t{border-collapse:collapse;width:100%;font-size:12.5px}
       <div class="hero-ic">⏱</div>
       <div>
         <div class="hero-title">Stundenerfassung</div>
-        <div class="hero-sub">Arbeitszeit direkt am Handy erfassen — Zuschläge und Spesen nach GAV Gebäudetechnik (suissetec, Nordwestschweiz) automatisch, Woche einreichen, Freigabe durch die Projektleitung</div>
+        <div class="hero-sub">Arbeitszeit direkt am Handy erfassen — Zuschläge und Spesen nach GAV Gebäudetechnik (suissetec, Nordwestschweiz) automatisch, Tag freigeben, Freigabe durch die Projektleitung</div>
       </div>
     </div>
   </div>
@@ -245,7 +245,7 @@ table.t{border-collapse:collapse;width:100%;font-size:12.5px}
   <div class="modal-hd"><h3 id="einTitle">Arbeitszeit erfassen</h3><button class="modal-x" onclick="stClose('einModal')">✕</button></div>
   <div class="modal-bd">
     <div style="font-size:12.5px;font-weight:800;color:var(--txt2);margin-bottom:10px" id="ein_datumLbl"></div>
-    <div class="fld" id="ein_einsatzWrap" style="display:none"><label>Aus Einsatzplan übernehmen</label><select id="ein_einsatz" onchange="stEinsatzPick()"></select></div>
+    <div class="fld" id="ein_einsatzWrap" style="display:none"><label>Aus Termin übernehmen</label><select id="ein_einsatz" onchange="stEinsatzPick()"></select></div>
     <div class="fld-row3">
       <div class="fld"><label>Von *</label><input id="ein_von" type="time"/></div>
       <div class="fld"><label>Bis *</label><input id="ein_bis" type="time"/></div>
@@ -286,7 +286,7 @@ table.t{border-collapse:collapse;width:100%;font-size:12.5px}
     </div>
   </div>
   <div class="modal-ft">
-    <button class="btn" onclick="stRrSkip()">✕ Kein Rapport</button>
+    <button class="btn" onclick="stRrSkip()" title="Die Material-Frage bleibt offen — ohne Antwort kann der Tag nicht freigegeben werden (❓ beim Eintrag)">⏳ Später</button>
     <button class="btn pri" id="rr_saveBtn" onclick="stRrSave()" style="display:none">💾 Rapport erstellen</button>
   </div>
 </div></div>
@@ -317,7 +317,7 @@ table.t{border-collapse:collapse;width:100%;font-size:12.5px}
     </div>
     <div class="fld"><label>Bemerkung</label><input id="fa_bem" type="text" placeholder="z.B. Familienferien"/></div>
     <div class="card" style="margin:0 0 10px"><div class="card-bd" id="fa_calc" style="padding:10px 13px"></div></div>
-    <div class="gavnote">Der Antrag geht zur Freigabe an die Projektleitung. Nach der Genehmigung werden die Tage automatisch in deiner Stundenerfassung und im Einsatzplan-Kalender eingetragen — du musst nichts mehr nachtragen.</div>
+    <div class="gavnote">Der Antrag geht zur Freigabe an die Projektleitung. Nach der Genehmigung werden die Tage automatisch in deiner Stundenerfassung und im Termine-Kalender eingetragen — du musst nichts mehr nachtragen.</div>
   </div>
   <div class="modal-ft"><button class="btn pri" onclick="stFerienSubmit()">📤 Antrag einreichen</button></div>
 </div></div>
@@ -1272,7 +1272,7 @@ function stRenderWoche(){
     +(aus.nacht>0.004?'<div class="sumline"><span>Nacht '+p.nachtVon+'–'+p.nachtBis+' (+'+p.zuschlagNacht+'%)</span><b>'+stdFmtH(aus.nacht)+' h</b></div>':'')
     +(aus.zuschlagZeit>0.004?'<div class="sumline"><span>Zuschläge (Zeitwert)</span><b>+'+stdFmtH(aus.zuschlagZeit)+' h</b></div>':'')
     +((aus.mittage||aus.km)?'<div class="sumline"><span>Spesen: '+stSpesenText(aus,p)+'</span><b>CHF '+(aus.chfMittag+aus.chfKm).toFixed(2)+'</b></div>':'')
-    +(offeneMitDaten.length?'<div style="margin-top:10px"><button class="btn pri" style="width:100%" onclick="stWocheEinreichen()">📤 Woche einreichen ('+offeneMitDaten.length+' Tag'+(offeneMitDaten.length===1?'':'e')+')</button></div>':'')
+    +(offeneMitDaten.length?'<div style="margin-top:10px;font-size:11.5px;font-weight:800;color:var(--txt2)">📤 '+offeneMitDaten.length+' Tag'+(offeneMitDaten.length===1?'':'e')+' offen — die Freigabe läuft pro Tag («📤 Tag freigeben» auf der Tages-Karte).</div>':'')
     +'</div></div>';
   // Tages-Karten
   tage.forEach(function(x){h+=stTagKarte(x.datum,p,false);});
@@ -1300,19 +1300,37 @@ function stTagKarte(datum,p,gross){
     +'<div class="day-bd">';
   if(t&&(t.eintraege||[]).length){
     t.eintraege.forEach(function(e){
+      // Material-Frage: aktive Antwort Pflicht für die Tages-Freigabe —
+      // unbeantwortet = amber ❓ (Tap öffnet den Material-Dialog)
+      var matOffen=e.objektId&&!e.rapportId&&e.materialAntwort!=='rapport'&&e.materialAntwort!=='kein';
+      var rrTitle=e.rapportId?'Regierapport öffnen'+(e.rapportNr?' ('+esc(e.rapportNr)+')':''):(e.materialAntwort==='kein'?'Kein Material (beantwortet) — Rapport erstellen':(matOffen?'Material-Frage offen — für die Tages-Freigabe beantworten':'Regierapport erstellen'));
+      var rrStyle=e.rapportId?' style="border-color:var(--grn);color:var(--grn)"':(matOffen?' style="border-color:#fcd34d;background:#fffbeb;color:#92400e"':(e.materialAntwort==='kein'?' style="color:var(--mut)"':''));
+      var rrIcon=e.rapportId?'📝✓':(matOffen?'📝❓':(e.materialAntwort==='kein'?'📝—':'📝'));
       h+='<div class="ein"><span class="zeit">'+esc(e.von)+'–'+esc(e.bis)+'</span>'
         +'<span class="obj">'+esc(e.objektName||'—')+(e.taetigkeit?' · '+esc(e.taetigkeit):'')+((parseInt(e.pauseMin,10)||0)>0?' · ☕ '+e.pauseMin+'′':'')+'</span>'
         +'<span class="h">'+stdFmtH(stdEintragMin(e)/60)+' h</span>'
         +(editable?'<button class="btn sm" onclick="stEinEdit(\''+datum+'\',\''+e.id+'\')">✏️</button>':'')
-        +(e.objektId?'<button class="btn sm" onclick="stRrStart(\''+datum+'\',\''+e.id+'\')" title="'+(e.rapportId?'Regierapport öffnen'+(e.rapportNr?' ('+esc(e.rapportNr)+')':''):'Regierapport erstellen')+'"'+(e.rapportId?' style="border-color:var(--grn);color:var(--grn)"':'')+'>'+(e.rapportId?'📝✓':'📝')+'</button>':'')
+        +(e.objektId?'<button class="btn sm" onclick="stRrStart(\''+datum+'\',\''+e.id+'\')" title="'+rrTitle+'"'+rrStyle+'>'+rrIcon+'</button>':'')
         +'</div>';
     });
   } else if(!abs){
     h+='<div style="font-size:12px;color:var(--mut2);padding:4px 0">Keine Einträge</div>';
   }
+  // Offene Pflichten des Tages (Foto-Pflicht-Termine / Material-Fragen)
+  if(editable&&stTagHatDaten(t)){
+    var fFehlt=stFotoFehlt(datum,t),mFehlt=stMatFehlt(t);
+    if(fFehlt.length||mFehlt.length){
+      h+='<div style="font-size:11px;font-weight:800;color:var(--amber);margin-top:4px">'
+        +(fFehlt.length?'📷 '+fFehlt.length+' Termin-Foto'+(fFehlt.length===1?'':'s')+' offen ':'')
+        +(mFehlt.length?'❓ '+mFehlt.length+' Material-Frage'+(mFehlt.length===1?'':'n')+' offen':'')
+        +'</div>';
+    }
+  }
   if(editable){
     h+='<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap"><button class="btn sm'+(gross?' pri':'')+'" onclick="stEinNeu(\''+datum+'\')">＋ Arbeitszeit</button>'
-      +'<button class="btn sm" onclick="stAbsOpen(\''+datum+'\')">'+(abs?abs.ic+' Absenz ändern':'🌴 Absenz')+'</button></div>';
+      +'<button class="btn sm" onclick="stAbsOpen(\''+datum+'\')">'+(abs?abs.ic+' Absenz ändern':'🌴 Absenz')+'</button>'
+      +(stTagHatDaten(t)?'<button class="btn sm" style="border-color:var(--pri,#2563eb);color:var(--pri,#2563eb)" onclick="stTagEinreichen(\''+datum+'\')">📤 Tag freigeben</button>':'')
+      +'</div>';
     h+='<div class="spesen-row">'
       +'<label><input type="checkbox" '+(t&&t.spesen&&t.spesen.mittag?'checked':'')+' onchange="stSpesen(\''+datum+'\',\'mittag\',this.checked)"/> 🍽 Mittag auswärts</label>'
       // km-Spesen nur wenn org-weit aktiv — bereits erfasste km bleiben korrigierbar
@@ -1336,31 +1354,36 @@ function stRenderTag(){
     +'<button onclick="stTagNav(1)" aria-label="Nächster Tag">›</button>'
     +(_tagDatum!==today()?'<button class="btn sm" style="width:auto" onclick="_tagDatum=today();_wkStart=stdWochenStart(today());stRender()">Heute</button>':'')
     +'</div></div>';
-  // Geplante Einsätze aus dem Einsatzplan — direkt übernehmbar
+  // Geplante Termine aus dem Termine-Kalender — direkt übernehmbar,
+  // inkl. Foto-Pflicht-Status (Bereiche mit 📷 in den Einstellungen)
   var eins=stMeineEinsaetze(_tagDatum);
+  var tDay=stTagFor(_tagDatum,u.id);
+  var tagEditable=!tDay||stTagEditable(tDay);
   if(eins.length){
-    h+='<div class="card"><div class="card-hd"><h3>📅 Geplante Einsätze</h3><span class="sub">aus dem Einsatzplan</span></div><div class="card-bd">'
+    h+='<div class="card"><div class="card-hd"><h3>📅 Geplante Termine</h3><span class="sub">aus dem Termine-Kalender</span></div><div class="card-bd">'
       +eins.map(function(e){
         var zeit=e.slot==='vm'?'Vormittag':e.slot==='nm'?'Nachmittag':(e.zeitVon?esc(e.zeitVon)+'–'+esc(e.zeitBis||''):'Ganzer Tag');
         return '<div class="einsatz-row">'
-          +'<div style="flex:1;min-width:0"><div style="font-weight:800;font-size:13px">'+esc(e.titel||e.auftragNr||'Einsatz')+'</div>'
+          +'<div style="flex:1;min-width:0"><div style="font-weight:800;font-size:13px">'+esc(e.titel||e.auftragNr||'Termin')+'</div>'
           +'<div style="font-size:11.5px;color:var(--mut)">'+esc(e.objektName||e.kunde||'')+' · '+zeit+(e.notiz?' · '+esc(e.notiz):'')+'</div>'
-          +stBesChips(e)+'</div>'
+          +stBesChips(e)
+          +stTerminFotoHtml(_tagDatum,e,tDay,tagEditable)+'</div>'
           +'<button class="btn sm pri" style="width:auto;white-space:nowrap" onclick="stEinNeuVonEinsatz(\''+_tagDatum+'\',\''+esc(e.id)+'\')">＋ Zeit</button>'
           +'</div>';
       }).join('')
       +'</div></div>';
   }
   h+=stTagKarte(_tagDatum,p,true);
-  // Schlanke Wochen-Bilanz + Einreichen
+  // Schlanke Wochen-Bilanz + Tages-Freigabe (User-Entscheid 07/2026: die
+  // Freigabe läuft PRO TAG — der Monteur gibt jeden Tag einzeln frei)
   var wkS=stdWochenStart(_tagDatum);
   var wochenTage=[];for(var i=0;i<7;i++){var r=stTagFor(stdAddTage(wkS,i),u.id);if(r)wochenTage.push(r);}
   var aus=stdWochenAuswertung(wochenTage,wkS,p);
-  var offene=wochenTage.filter(function(t){return stTagHatDaten(t)&&(t.status==='offen'||t.status==='zurueck');});
+  var kannFrei=tDay&&stTagHatDaten(tDay)&&(tDay.status==='offen'||tDay.status==='zurueck');
   h+='<div class="card"><div class="card-bd" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">'
     +'<div style="flex:1;min-width:180px;font-size:12.5px;font-weight:700;color:var(--txt2)">Σ KW '+stKw(wkS)+': <b>'+stdFmtH(aus.ist)+' / '+stdFmtH(aus.soll)+' h</b>'
     +' · Saldo <b style="color:'+(aus.saldo>=0?'var(--grn)':'var(--red)')+'">'+(aus.saldo>=0?'+':'')+stdFmtH(aus.saldo)+' h</b></div>'
-    +(offene.length?'<button class="btn pri" style="width:auto" onclick="stWocheEinreichen()">📤 Woche einreichen ('+offene.length+')</button>':'')
+    +(kannFrei?'<button class="btn pri" style="width:auto" onclick="stTagEinreichen(\''+_tagDatum+'\')">📤 Tag freigeben</button>':'')
     +'</div></div>';
   return h;
 }
@@ -1405,7 +1428,7 @@ function stRenderMonat(){
       +(std>0.004?'<div class="kal-h">'+stdFmtH(std)+'</div>':'')
       +'<div class="kal-marks">'
       +(abs?'<span title="'+abs.n+'">'+abs.ic+'</span>':'')
-      +(einsN?'<span title="'+einsN+' Einsatz'+(einsN===1?'':'/Einsätze')+' geplant">📅</span>':'')
+      +(einsN?'<span title="'+einsN+' Termin'+(einsN===1?'':'e')+' geplant">📅</span>':'')
       +(rec&&rec.status==='eingereicht'?'<span title="Eingereicht">📤</span>':'')
       +(rec&&rec.status==='genehmigt'?'<span title="Genehmigt">✅</span>':'')
       +(rec&&rec.status==='zurueck'?'<span title="Zurückgewiesen">↩</span>':'')
@@ -1416,7 +1439,7 @@ function stRenderMonat(){
     +'<div class="kal-grid">'+cells+'</div>'
     +'<div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:10px;font-size:11px;color:var(--mut);font-weight:700">'
     +'<span>Σ Monat: <b style="color:var(--txt)">'+stdFmtH(sumH)+' h</b></span>'
-    +'<span>📅 Einsatz geplant</span><span>📤 eingereicht</span><span>✅ genehmigt</span>'
+    +'<span>📅 Termin geplant</span><span>📤 eingereicht</span><span>✅ genehmigt</span>'
     +'<span style="color:var(--grn)">x.xx = erfasste Stunden</span>'
     +'</div>'
     +'</div></div>';
@@ -1437,7 +1460,7 @@ function stKw(datum){
 var _einDatum=null,_einId=null;
 // Besonderheiten-Chips des Einsatzplans (org.settings.einsatzplan.besonderheiten)
 // — der Monteur sieht «Material im Lager bereit», «Grosse Leiter» etc. direkt
-// in der Karte «Geplante Einsätze» seiner Tagesansicht
+// in der Karte «Geplante Termine» seiner Tagesansicht
 function stBesChips(e){
   var l=[];
   try{
@@ -1445,10 +1468,15 @@ function stBesChips(e){
     var defs=(org&&org.settings&&org.settings.einsatzplan&&org.settings.einsatzplan.besonderheiten)||[];
     var map={};(Array.isArray(defs)?defs:[]).forEach(function(b){if(b&&b.id)map[b.id]=b;});
     l=(e&&e.besonderheiten||[]).map(function(id){return map[id];}).filter(Boolean);
+    // Freitext-Besonderheiten direkt am Termin (ev.besonderheitenFrei)
+    (e&&Array.isArray(e.besonderheitenFrei)?e.besonderheitenFrei:[]).forEach(function(t){
+      t=String(t||'').trim();if(t)l.push({label:t});
+    });
   }catch(err){}
   if(!l.length)return '';
+  // Reiner Text ohne Emojis (User-Vorgabe 23.07.2026 — wie im Termine-Modul)
   return '<div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:4px">'+l.map(function(b){
-    return '<span style="background:#fffbeb;border:1px solid #fcd34d;color:#92400e;font-size:10.5px;font-weight:800;border-radius:999px;padding:1px 8px">'+esc((b.ic?String(b.ic)+' ':'')+b.label)+'</span>';
+    return '<span style="background:#fffbeb;border:1px solid #fcd34d;color:#92400e;font-size:10.5px;font-weight:800;border-radius:999px;padding:1px 8px">'+esc(b.label)+'</span>';
   }).join('')+'</div>';
 }
 function stMeineEinsaetze(datum){
@@ -1462,6 +1490,164 @@ function stMeineEinsaetze(datum){
     var dauer=parseInt(e.dauerTage,10)||1;
     return e.datum<=datum&&stdAddTage(e.datum,dauer-1)>=datum;
   });
+}
+// Termin-Lookup NUR über die id (org-gescoped, ohne Monteur-Filter) — die
+// Freigabe-Ansicht der Projektleitung muss fremde Termine auflösen können
+function stEinsatzById(id){
+  if(!id)return null;
+  var u=stUser();var pool=[];
+  try{
+    if(typeof GemaSync!=='undefined'&&GemaSync.getCached){var a=GemaSync.getCached('gema_einsatz_pool_v1');if(a&&a.length)pool=a;}
+    if(!pool.length){var r=localStorage.getItem('gema_einsatz_pool_v1');if(r){var d=JSON.parse(r);if(Array.isArray(d))pool=d;}}
+  }catch(e){}
+  return pool.find(function(e){return e&&e.id===id&&(!u||e.orgId===u.orgId);})||null;
+}
+function stTerminName(id){
+  var e=stEinsatzById(id);
+  return e?(e.titel||e.auftragNr||'Termin'):'Termin';
+}
+
+// ═══════════════════════════════════════════════════════════
+// FOTO-PFLICHT PRO ARBEITSBEREICH (org.settings.arbeitsbereiche[].fotoPflicht)
+// Termine eines 📷-Bereichs (z.B. Service) lassen sich nur mit Foto der
+// Arbeit freigeben — «Kein Foto» braucht eine Begründung, die die
+// Projektleitung bei der Freigabe klar sieht. Ablage am Tages-Record:
+// tag.terminFotos = { [einsatzId]: {url|dataUrl, ts, von} | {keinFoto, grund} }
+// ═══════════════════════════════════════════════════════════
+function stBereiche(){
+  try{
+    var org=GemaAuth.getCurrentOrg();
+    var l=(org&&org.settings&&org.settings.arbeitsbereiche)||[];
+    return Array.isArray(l)?l.filter(function(b){return b&&b.id&&b.name;}):[];
+  }catch(e){return [];}
+}
+function stBereichName(id){
+  var b=stBereiche().find(function(x){return String(x.id)===String(id);});
+  return b?b.name:'';
+}
+function stFotoPflichtIds(){
+  return stBereiche().filter(function(b){return b.fotoPflicht;}).map(function(b){return String(b.id);});
+}
+// Termine des Tages, die ein Foto verlangen (Bereich mit 📷-Pflicht)
+function stFotoTermine(datum){
+  var ids=stFotoPflichtIds();if(!ids.length)return [];
+  return stMeineEinsaetze(datum).filter(function(e){
+    return e.typ!=='ferien'&&e.bereichId&&ids.indexOf(String(e.bereichId))>=0;
+  });
+}
+function stFotoStatus(t,einsatzId){
+  var m=(t&&t.terminFotos)||{};
+  return m[einsatzId]||null;
+}
+// Termine ohne gültige Foto-Antwort (weder Foto noch «Kein Foto» mit Grund)
+function stFotoFehlt(datum,t){
+  return stFotoTermine(datum).filter(function(e){
+    var s=stFotoStatus(t,e.id);
+    return !(s&&(s.url||s.dataUrl||(s.keinFoto&&String(s.grund||'').trim())));
+  });
+}
+// Zeiteinträge mit Projekt, deren Material-Frage noch unbeantwortet ist
+// (aktive Antwort = Rapport erstellt ODER materialAntwort gesetzt)
+function stMatFehlt(t){
+  return (t&&t.eintraege||[]).filter(function(e){
+    return e.objektId&&!e.rapportId&&e.materialAntwort!=='rapport'&&e.materialAntwort!=='kein';
+  });
+}
+function stTagRecOrNew(datum){
+  var u=stUser();if(!u)return null;
+  return stTagFor(datum,u.id)||{id:uid(),orgId:u.orgId,userId:u.id,userName:u.name,datum:datum,eintraege:[],spesen:{},status:'offen',erstelltAm:new Date().toISOString()};
+}
+// Foto-Status-Zeile eines Termins (Tagesansicht «Geplante Termine»)
+function stTerminFotoHtml(datum,e,t,editable){
+  var ids=stFotoPflichtIds();
+  if(!e.bereichId||ids.indexOf(String(e.bereichId))<0)return '';
+  var s=stFotoStatus(t,e.id);
+  var h='<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:5px">';
+  if(s&&(s.url||s.dataUrl)){
+    h+='<img src="'+esc(s.url||s.dataUrl)+'" alt="Foto" style="width:44px;height:44px;object-fit:cover;border-radius:8px;border:1.5px solid var(--brd2);cursor:pointer" onclick="stFotoView(this.src)"/>'
+      +'<span style="font-size:11px;font-weight:800;color:var(--grn)">📷 Foto erfasst</span>'
+      +(editable?'<button class="btn sm" style="width:auto" title="Foto entfernen" onclick="stTerminFotoDel(\''+datum+'\',\''+esc(e.id)+'\')">✕</button>':'');
+  } else if(s&&s.keinFoto){
+    h+='<span style="font-size:11px;font-weight:800;color:var(--red);background:var(--red-bg);border:1px solid var(--red-bd);border-radius:999px;padding:2px 9px">🚫 Kein Foto: '+esc(s.grund||'')+'</span>'
+      +(editable?'<button class="btn sm" style="width:auto" title="Zurücksetzen" onclick="stTerminFotoDel(\''+datum+'\',\''+esc(e.id)+'\')">↺</button>':'');
+  } else {
+    h+='<span style="font-size:11px;font-weight:800;color:var(--amber)">📷 Foto-Pflicht'+(stBereichName(e.bereichId)?' ('+esc(stBereichName(e.bereichId))+')':'')+'</span>'
+      +(editable?'<button class="btn sm pri" style="width:auto" onclick="stTerminFotoAdd(\''+datum+'\',\''+esc(e.id)+'\')">📷 Foto</button>'
+      +'<button class="btn sm" style="width:auto" onclick="stTerminKeinFoto(\''+datum+'\',\''+esc(e.id)+'\')">🚫 Kein Foto</button>':'');
+  }
+  return h+'</div>';
+}
+// Foto aufnehmen — File-Input MUSS im DOM hängen (iOS-GC-Muster, vgl. stRrFotoAdd)
+var _stTerminFotoInput=null;
+function stTerminFotoAdd(datum,einsatzId){
+  var u=stUser();if(!u)return;
+  var t0=stTagFor(datum,u.id);
+  if(t0&&!stTagEditable(t0)){toast('Tag ist eingereicht — nicht mehr änderbar');return;}
+  if(_stTerminFotoInput&&_stTerminFotoInput.parentNode)_stTerminFotoInput.parentNode.removeChild(_stTerminFotoInput);
+  var inp=document.createElement('input');
+  inp.type='file';inp.accept='image/*';inp.setAttribute('capture','environment');
+  inp.style.cssText='position:fixed;left:-9999px;top:0;width:1px;height:1px;opacity:0';
+  document.body.appendChild(inp);_stTerminFotoInput=inp;
+  inp.onchange=function(){
+    var f=inp.files&&inp.files[0];
+    if(inp.parentNode)inp.parentNode.removeChild(inp);
+    _stTerminFotoInput=null;
+    if(!f)return;
+    stRrResize(f,function(dataUrl){
+      if(!dataUrl){toast('Foto konnte nicht gelesen werden');return;}
+      var t=stTagRecOrNew(datum);if(!t)return;
+      if(!stTagEditable(t)){toast('Tag ist eingereicht — nicht mehr änderbar');return;}
+      t.terminFotos=t.terminFotos||{};
+      t.terminFotos[einsatzId]={dataUrl:dataUrl,ts:new Date().toISOString(),von:u.name||''};
+      poolSave(t);stRender();
+      toast('📷 Foto gespeichert');
+      // best-effort nach GemaStorage auslagern (Base64 bleibt Fallback)
+      if(typeof GemaStorage!=='undefined'&&GemaStorage.uploadDataUrl){
+        GemaStorage.uploadDataUrl(dataUrl,'stunden/'+(u.orgId||'org')).then(function(res){
+          if(!res||!res.url)return;
+          var t2=stTagFor(datum,u.id);
+          if(t2&&t2.terminFotos&&t2.terminFotos[einsatzId]&&t2.terminFotos[einsatzId].dataUrl){
+            t2.terminFotos[einsatzId]={url:res.url,ts:t2.terminFotos[einsatzId].ts,von:t2.terminFotos[einsatzId].von};
+            poolSave(t2);stRender();
+          }
+        }).catch(function(){});
+      }
+    });
+  };
+  inp.click();
+}
+function stTerminKeinFoto(datum,einsatzId){
+  var u=stUser();if(!u)return;
+  var t0=stTagFor(datum,u.id);
+  if(t0&&!stTagEditable(t0)){toast('Tag ist eingereicht — nicht mehr änderbar');return;}
+  GemaDialog.prompt({
+    title:'🚫 Kein Foto möglich',
+    message:'Begründung (Pflicht) — die Projektleitung sieht sie bei der Freigabe deutlich:',
+    placeholder:'z.B. Zutritt nur mit Kunde, Foto nicht erlaubt'
+  }).then(function(grund){
+    if(grund===null)return;
+    grund=String(grund).trim();
+    if(!grund){toast('Ohne Begründung nicht möglich');return;}
+    var t=stTagRecOrNew(datum);if(!t)return;
+    t.terminFotos=t.terminFotos||{};
+    t.terminFotos[einsatzId]={keinFoto:true,grund:grund,ts:new Date().toISOString(),von:u.name||''};
+    poolSave(t);stRender();
+  });
+}
+function stTerminFotoDel(datum,einsatzId){
+  var u=stUser();if(!u)return;
+  var t=stTagFor(datum,u.id);if(!t||!t.terminFotos)return;
+  if(!stTagEditable(t)){toast('Tag ist eingereicht — nicht mehr änderbar');return;}
+  delete t.terminFotos[einsatzId];
+  poolSave(t);stRender();
+}
+// Mini-Lightbox für Termin-Fotos (Monteur + Freigabe-Ansicht)
+function stFotoView(src){
+  var bg=document.createElement('div');
+  bg.style.cssText='position:fixed;inset:0;background:rgba(15,23,42,.82);z-index:12600;display:flex;align-items:center;justify-content:center;padding:18px;cursor:pointer';
+  bg.innerHTML='<img src="'+esc(src)+'" style="max-width:96%;max-height:92%;border-radius:12px;box-shadow:0 18px 60px rgba(0,0,0,.5)" alt="Foto"/>';
+  bg.onclick=function(){bg.remove();};
+  document.body.appendChild(bg);
 }
 function stEinNeu(datum){
   _einDatum=datum;_einId=null;
@@ -1480,7 +1666,7 @@ function stEinNeu(datum){
   if(eins.length){
     wrap.style.display='';
     document.getElementById('ein_einsatz').innerHTML='<option value="">— manuell erfassen —</option>'+eins.map(function(e){
-      return '<option value="'+esc(e.id)+'" data-objekt="'+esc(e.objektId||'')+'" data-titel="'+esc(e.titel||'')+'">'+esc((e.titel||e.auftragNr||'Einsatz')+(e.objektName?' · '+e.objektName:''))+'</option>';
+      return '<option value="'+esc(e.id)+'" data-objekt="'+esc(e.objektId||'')+'" data-titel="'+esc(e.titel||'')+'">'+esc((e.titel||e.auftragNr||'Termin')+(e.objektName?' · '+e.objektName:''))+'</option>';
     }).join('');
   } else wrap.style.display='none';
   document.getElementById('einDelBtn').style.display='none';
@@ -1534,9 +1720,10 @@ function stEinSave(){
   var i=(t.eintraege||[]).findIndex(function(x){return x.id===e.id;});
   var neu=i<0;
   if(i>=0){
-    // Rapport-Verknüpfung überlebt das Bearbeiten (e wird neu aufgebaut)
+    // Rapport-Verknüpfung + Material-Antwort überleben das Bearbeiten (e wird neu aufgebaut)
     e.rapportId=t.eintraege[i].rapportId;
     e.rapportNr=t.eintraege[i].rapportNr;
+    e.materialAntwort=t.eintraege[i].materialAntwort;
     t.eintraege[i]=e;
   } else t.eintraege.push(e);
   if(t.status==='zurueck')t.status='offen';
@@ -1796,11 +1983,12 @@ function stRrSave(){
       try{localStorage.setItem('gema_regie_pool_v1',JSON.stringify(pool));}catch(e){}
       if(typeof GemaSync!=='undefined'&&GemaSync.saveRecord)GemaSync.saveRecord('regierapport','regie:'+rec.id,rec).catch(function(){});
     }catch(e){}
-    // Zeiteintrag mit dem Rapport verlinken (📝✓ statt 📝)
+    // Zeiteintrag mit dem Rapport verlinken (📝✓ statt 📝) — die Material-
+    // Frage gilt damit als AKTIV beantwortet (Pflicht für die Tages-Freigabe)
     var t=stTagFor(st.datum,u.id);
     if(t){
       var e=(t.eintraege||[]).find(function(x){return x.id===st.eintragId;});
-      if(e){e.rapportId=rec.id;e.rapportNr=rec.nr;poolSave(t);}
+      if(e){e.rapportId=rec.id;e.rapportNr=rec.nr;e.materialAntwort='rapport';poolSave(t);}
     }
     _rr=null;
     fertig();
@@ -2088,7 +2276,7 @@ function stFerienEntscheid(id,ok){
     }
     stNotify({eventKey:'ferien_entscheid',empfaengerUserId:a.userId,modul:'stundenerfassung',typ:ok?'erfolg':'warnung',
       titel:ft.n+'-Antrag '+(ok?'genehmigt':'abgelehnt'),
-      text:dfmt(a.von)+' – '+dfmt(a.bis)+(ok?' — die Tage sind in Stundenerfassung und Einsatzplan eingetragen.':' — '+(grund||'ohne Begründung'))+' ('+u.name+')',
+      text:dfmt(a.von)+' – '+dfmt(a.bis)+(ok?' — die Tage sind in Stundenerfassung und Termine-Kalender eingetragen.':' — '+(grund||'ohne Begründung'))+' ('+u.name+')',
       link:'pm_stunden.html?d='+stdWochenStart(a.von)});
     toast(ok?'✅ Genehmigt & eingetragen':'↩ Antrag abgelehnt');stRender();
   };
@@ -2148,27 +2336,54 @@ function stBetriebsferienScan(){
 // ═══════════════════════════════════════════════════════════
 // EINREICHEN + FREIGABE
 // ═══════════════════════════════════════════════════════════
-function stWocheEinreichen(){
+// ── Tages-Freigabe (User-Entscheid 07/2026: NUR pro Tag, keine Wochen-
+// Einreichung mehr). Der Tag lässt sich erst freigeben, wenn (1) für alle
+// Foto-Pflicht-Termine ein Foto ODER «Kein Foto» mit Begründung vorliegt und
+// (2) jede Material-Frage der Projekt-Einträge aktiv beantwortet ist. ──
+function stTagEinreichen(datum){
   var u=stUser();if(!u)return;
-  var tage=meineTage().filter(function(t){
-    return t.datum>=_wkStart&&t.datum<=stdAddTage(_wkStart,6)&&stTagHatDaten(t)&&(t.status==='offen'||t.status==='zurueck');
-  });
-  if(!tage.length){toast('Nichts zum Einreichen');return;}
-  var aus=stdWochenAuswertung(tage,_wkStart,stParamsFor(u.id));
+  var t=stTagFor(datum,u.id);
+  if(!t||!stTagHatDaten(t)||(t.status!=='offen'&&t.status!=='zurueck')){toast('Nichts zum Freigeben');return;}
+  var wtKurz=WOCHENTAGE[(new Date(datum+'T12:00:00Z').getUTCDay()+6)%7];
+  // Pflicht 1: Material-Frage aktiv beantwortet (Rapport ODER «kein Material»)
+  var mFehlt=stMatFehlt(t);
+  if(mFehlt.length){
+    var e0=mFehlt[0];
+    GemaDialog.confirm({
+      title:'❓ Material-Frage offen',
+      message:'Für '+mFehlt.length+' Eintrag'+(mFehlt.length===1?'':'e')+' mit Projekt ist die Material-Frage noch unbeantwortet ('+mFehlt.map(function(e){return e.objektName||'Projekt';}).join(', ')+'). Ohne aktive Antwort («Ja» mit Material oder «Nein») kann der Tag nicht freigegeben werden.\n\nJetzt beantworten?',
+      confirmLabel:'Jetzt beantworten'
+    }).then(function(ok){ if(ok)stRrStart(datum,e0.id); });
+    return;
+  }
+  // Pflicht 2: Foto für jeden Foto-Pflicht-Termin (oder «Kein Foto» mit Grund)
+  var fFehlt=stFotoFehlt(datum,t);
+  if(fFehlt.length){
+    var f0=fFehlt[0];
+    GemaDialog.confirm({
+      title:'📷 Foto fehlt',
+      message:'Für folgende Termine ist ein Foto der Arbeit Pflicht: '+fFehlt.map(function(e){return e.titel||e.auftragNr||'Termin';}).join(', ')+'.\n\nFoto aufnehmen — oder in der Tagesansicht «🚫 Kein Foto» mit Begründung wählen.',
+      confirmLabel:'📷 Foto aufnehmen'
+    }).then(function(ok){ if(ok)stTerminFotoAdd(datum,f0.id); });
+    return;
+  }
+  var p=stParamsFor(u.id);
+  var std=stdTagStunden(t,p);
+  var keinFotoN=Object.keys(t.terminFotos||{}).filter(function(id){var s=t.terminFotos[id];return s&&s.keinFoto;}).length;
   GemaDialog.confirm({
-    title:'Woche einreichen',
-    message:'KW '+stKw(_wkStart)+' mit '+stdFmtH(aus.ist)+' h ('+tage.length+' Tage) zur Freigabe einreichen? Danach sind die Tage gesperrt.',
-    confirmLabel:'Einreichen'
+    title:'Tag freigeben',
+    message:wtKurz+', '+dfmt(datum)+' mit '+stdFmtH(std)+' h zur Freigabe einreichen? Danach ist der Tag gesperrt.',
+    confirmLabel:'📤 Freigeben'
   }).then(function(ok){
     if(!ok)return;
-    var now=new Date().toISOString();
-    tage.forEach(function(t){t.status='eingereicht';t.eingereichtAm=now;delete t.entscheid;poolSave(t);});
-    stTopfBCheck(_wkStart);
+    t.status='eingereicht';t.eingereichtAm=new Date().toISOString();delete t.entscheid;
+    poolSave(t);
+    stTopfBCheck(datum);
     stNotify({eventKey:'stunden_eingereicht',empfaengerRoleId:'role_planer',empfaengerOrgId:u.orgId,modul:'stundenerfassung',typ:'aktion',
       titel:'Stundenrapport eingereicht: '+u.name,
-      text:'KW '+stKw(_wkStart)+' · '+stdFmtH(aus.ist)+' h'+(aus.zuschlagZeit>0.004?' (+'+stdFmtH(aus.zuschlagZeit)+' h Zuschläge)':''),
-      link:'pm_stunden.html'});
-    toast('📤 Woche eingereicht');stRender();
+      text:wtKurz+' '+dfmt(datum)+' · '+stdFmtH(std)+' h'+(keinFotoN?' · 🚫 '+keinFotoN+'× ohne Foto (mit Begründung)':''),
+      link:'pm_stunden.html?d='+datum});
+    toast('📤 Tag freigegeben');stRender();
   });
 }
 function stRenderFreigabe(){
@@ -2196,10 +2411,26 @@ function stRenderFreigabe(){
       var abs=t.absenz?stdAbsenzDef(pu,t.absenz.typ):null;
       var teile=[];
       if(abs)teile.push(abs.ic+' '+abs.n+stAbsSuffix(t));
-      (t.eintraege||[]).forEach(function(e){teile.push(e.von+'–'+e.bis+(e.objektName?' '+e.objektName:''));});
-      return '<div class="sumline"><span>'+WOCHENTAGE[(new Date(t.datum+'T12:00:00Z').getUTCDay()+6)%7].slice(0,2)+' '+dfmt(t.datum)
+      (t.eintraege||[]).forEach(function(e){teile.push(e.von+'–'+e.bis+(e.objektName?' '+e.objektName:'')+(e.rapportNr?' 📝'+e.rapportNr:''));});
+      var h='<div class="sumline"><span>'+WOCHENTAGE[(new Date(t.datum+'T12:00:00Z').getUTCDay()+6)%7].slice(0,2)+' '+dfmt(t.datum)
         +' — '+esc(teile.join(' · '))
         +'</span><b>'+stdFmtH(stdTagStunden(t,p))+' h</b></div>';
+      // Termin-Fotos des Tages: Thumbnails zum Antippen; «Kein Foto» mit
+      // Begründung ROT und unübersehbar (User-Vorgabe — die Projektleitung
+      // muss das bei der Freigabe klar sehen)
+      var tf=t.terminFotos||{};
+      var thumbs='',warn='';
+      Object.keys(tf).forEach(function(eid){
+        var s=tf[eid];if(!s)return;
+        var nm=stTerminName(eid);
+        if(s.url||s.dataUrl){
+          thumbs+='<img src="'+esc(s.url||s.dataUrl)+'" alt="Foto" title="📷 '+esc(nm)+'" style="width:46px;height:46px;object-fit:cover;border-radius:8px;border:1.5px solid var(--brd2);cursor:pointer" onclick="stFotoView(this.src)"/>';
+        } else if(s.keinFoto){
+          warn+='<div class="gavnote" style="margin-top:5px;background:var(--red-bg);border-color:var(--red-bd);color:var(--red)"><b>🚫 Kein Foto («'+esc(nm)+'»)</b> — Begründung: '+esc(s.grund||'—')+'</div>';
+        }
+      });
+      if(thumbs)h+='<div style="display:flex;gap:6px;flex-wrap:wrap;margin:4px 0 2px">'+thumbs+'</div>';
+      return h+warn;
     }).join('');
     return '<div class="card"><div class="card-hd"><h3>👷 '+esc(tage[0].userName||'')+'</h3><span class="sub">KW '+stKw(ws)+' · '+dfmt(ws)+' – '+dfmt(stdAddTage(ws,6))+'</span>'
       +stIndBadges(aus,pu,false)
@@ -3299,9 +3530,21 @@ document.addEventListener('DOMContentLoaded',function(){
     }).join('')+absHtml(d.tag,d.iso);
     var status=d.tag&&d.tag.status&&d.tag.status!=='offen'?d.tag.status:'';
     var stPill=status==='eingereicht'?' 📤':status==='genehmigt'?' ✅':status==='zurueck'?' ↩':'';
+    // Foto-Pflicht-Termine des Tages (Bereich mit 📷) — Tap öffnet die Foto-Aktionen
+    var fotoRows='';
+    try{
+      stFotoTermine(d.iso).forEach(function(e){
+        var s=stFotoStatus(d.tag,e.id);
+        var ok=s&&(s.url||s.dataUrl),kein=s&&s.keinFoto;
+        fotoRows+='<div class="gn-row" data-nat-foto="'+NE(d.iso)+'" data-nat-fein="'+NE(e.id)+'">'
+          +'<span class="gn-row-ic" style="--gn-row-bg:var(--gn-c-projekt)">📷</span>'
+          +'<span class="gn-row-body"><span class="gn-row-title">'+NE(e.titel||e.auftragNr||'Termin')+'</span><span class="gn-row-sub">Foto-Pflicht'+(stBereichName(e.bereichId)?' · '+NE(stBereichName(e.bereichId)):'')+'</span></span>'
+          +'<span class="gn-badge '+(ok?'gn-badge--ok':kein?'gn-badge--danger':'gn-badge--warn')+'">'+(ok?'✓ Foto':kein?'🚫 Kein Foto':'Foto offen')+'</span></div>';
+      });
+    }catch(e){}
     return '<div class="gn-label" style="display:flex;justify-content:space-between"><span>'+NE(tagLbl(d.iso))+stPill+'</span>'
       +'<span style="color:var(--gn-ink);font-variant-numeric:tabular-nums">'+natH(min)+' h</span></div>'
-      +'<div class="gn-list">'+(rows||('<div class="gn-row" data-nat-neu="'+NE(d.iso)+'"><span class="gn-row-ic" style="--gn-row-bg:var(--gn-c-projekt)">＋</span><span class="gn-row-body"><span class="gn-row-title" style="color:var(--gn-ink-2)">Zeit erfassen …</span></span></div>'))+'</div>';
+      +'<div class="gn-list">'+(rows||('<div class="gn-row" data-nat-neu="'+NE(d.iso)+'"><span class="gn-row-ic" style="--gn-row-bg:var(--gn-c-projekt)">＋</span><span class="gn-row-body"><span class="gn-row-title" style="color:var(--gn-ink-2)">Zeit erfassen …</span></span></div>'))+fotoRows+'</div>';
   }
   function render(root){
     var tage=wocheTage();
@@ -3320,7 +3563,7 @@ document.addEventListener('DOMContentLoaded',function(){
         +'<div class="gn-card" style="padding:6px 0 14px">'
           +'<div class="gn-list" style="margin:0 0 12px;box-shadow:none">'
             +'<button class="gn-select" data-nat-act="absenz"><span class="k">🌴 Absenz eintragen</span><span class="v">›</span></button>'
-            +'<button class="gn-select" data-nat-act="einreichen"><span class="k">📤 Woche einreichen</span><span class="v">›</span></button>'
+            +'<button class="gn-select" data-nat-act="einreichen"><span class="k">📤 Tag freigeben</span><span class="v">›</span></button>'
           +'</div>'
           +'<div style="padding:0 14px"><button class="gn-btn" data-nat-act="neu">＋ Zeit erfassen</button></div>'
         +'</div>'
@@ -3336,13 +3579,15 @@ document.addEventListener('DOMContentLoaded',function(){
       if(nat) nat.refresh();
     });
     root.addEventListener('click',function(e){
-      var el=e.target.closest&&e.target.closest('[data-nat-act],[data-nat-edit],[data-nat-neu],[data-nat-abs]');
+      var el=e.target.closest&&e.target.closest('[data-nat-act],[data-nat-edit],[data-nat-neu],[data-nat-abs],[data-nat-foto]');
       if(!el) return;
       if(el.hasAttribute('data-nat-act')){
         var a=el.getAttribute('data-nat-act');
         if(a==='neu') openEinSheet(heute(),null);
         else if(a==='absenz') openAbsSheet(heute());
-        else if(a==='einreichen'){ try{ stWocheEinreichen(); }catch(err){} }
+        else if(a==='einreichen'){ try{ openFreigabeSheet(); }catch(err){} }
+      } else if(el.hasAttribute('data-nat-foto')){
+        openFotoSheet(el.getAttribute('data-nat-foto'),el.getAttribute('data-nat-fein'));
       } else if(el.hasAttribute('data-nat-edit')){
         openEinSheet(el.getAttribute('data-nat-edit'),el.getAttribute('data-nat-ein'));
       } else if(el.hasAttribute('data-nat-neu')){
@@ -3350,6 +3595,64 @@ document.addEventListener('DOMContentLoaded',function(){
       } else if(el.hasAttribute('data-nat-abs')){
         openAbsSheet(el.getAttribute('data-nat-abs'));
       }
+    });
+  }
+
+  // ── Tages-Freigabe (nativ): bei mehreren offenen Tagen zuerst wählen ──
+  function openFreigabeSheet(){
+    var u=null; try{ u=stUser(); }catch(e){}
+    if(!u||!nat) return;
+    var offen=[];
+    for(var i=0;i<7;i++){
+      var iso=stdAddTage(_wkStart,i), t=null; try{ t=stTagFor(iso,u.id); }catch(e){}
+      if(t&&stTagHatDaten(t)&&(t.status==='offen'||t.status==='zurueck')) offen.push({iso:iso,t:t});
+    }
+    if(!offen.length){ try{ toast('Nichts zum Freigeben'); }catch(e){} return; }
+    if(offen.length===1){ try{ stTagEinreichen(offen[0].iso); }catch(e){} return; }
+    var html='<div class="gn-label" style="text-transform:none;font-weight:500">Die Freigabe läuft pro Tag — welchen Tag freigeben?</div>'
+      +'<div class="gn-list">'+offen.map(function(x){
+        return '<button class="gn-select" data-nat-frei="'+NE(x.iso)+'"><span class="k">'+NE(tagLbl(x.iso))+'</span><span class="v">'+natH(tagMin(x.t))+' h ›</span></button>';
+      }).join('')+'</div>';
+    var sh=nat.sheet({title:'📤 Tag freigeben',html:html});
+    sh.addEventListener('click',function(e){
+      var b=e.target.closest&&e.target.closest('[data-nat-frei]'); if(!b) return;
+      var iso=b.getAttribute('data-nat-frei');
+      nat.closeSheet();
+      setTimeout(function(){ try{ stTagEinreichen(iso); }catch(err){} },80);
+    });
+  }
+
+  // ── Foto-Aktionen eines Foto-Pflicht-Termins (nativ) ──
+  function openFotoSheet(datum,einsatzId){
+    if(!nat) return;
+    var u=null; try{ u=stUser(); }catch(e){}
+    var t=null; try{ t=u?stTagFor(datum,u.id):null; }catch(e){}
+    var s=null; try{ s=stFotoStatus(t,einsatzId); }catch(e){}
+    var ev=null; try{ ev=stEinsatzById(einsatzId); }catch(e){}
+    var editable=!t||stTagEditable(t);
+    var html='<div class="gn-label" style="text-transform:none;font-weight:600">'+NE((ev&&(ev.titel||ev.auftragNr))||'Termin')+' · '+NE(tagLbl(datum))+'</div>';
+    if(s&&(s.url||s.dataUrl)) html+='<div style="padding:0 16px 12px"><img src="'+NE(s.url||s.dataUrl)+'" alt="Foto" style="max-width:100%;border-radius:12px"/></div>';
+    if(s&&s.keinFoto) html+='<div style="margin:0 16px 12px;padding:11px 13px;background:#fef2f2;border:1.5px solid #fecaca;border-radius:12px;font-size:13px;color:#b91c1c"><b>🚫 Kein Foto</b> — '+NE(s.grund||'')+'</div>';
+    var acts='';
+    if(editable){
+      acts+='<button class="gn-select" data-fa="foto"><span class="k">📷 '+(s&&(s.url||s.dataUrl)?'Foto ersetzen':'Foto aufnehmen')+'</span><span class="v">›</span></button>';
+      if(!(s&&(s.url||s.dataUrl)))acts+='<button class="gn-select" data-fa="kein"><span class="k">🚫 Kein Foto (mit Begründung)</span><span class="v">›</span></button>';
+      if(s)acts+='<button class="gn-select" data-fa="del" style="color:var(--gn-danger)"><span class="k" style="color:var(--gn-danger)">✕ Zurücksetzen</span><span class="v">›</span></button>';
+    } else {
+      acts+='<div class="gn-label" style="text-transform:none;font-weight:500">Tag ist eingereicht — nicht mehr änderbar.</div>';
+    }
+    var sh=nat.sheet({title:'📷 Foto der Arbeit',html:html+'<div class="gn-list">'+acts+'</div>'});
+    sh.addEventListener('click',function(e){
+      var b=e.target.closest&&e.target.closest('[data-fa]'); if(!b) return;
+      var a=b.getAttribute('data-fa');
+      // Kamera SOFORT im Tap-Kontext starten (iOS braucht die User-Geste),
+      // das Sheet schliesst parallel
+      if(a==='foto'){ try{ stTerminFotoAdd(datum,einsatzId); }catch(err){} nat.closeSheet(); return; }
+      nat.closeSheet();
+      setTimeout(function(){ try{
+        if(a==='kein') stTerminKeinFoto(datum,einsatzId);
+        else if(a==='del') stTerminFotoDel(datum,einsatzId);
+      }catch(err){} },80);
     });
   }
 
@@ -3365,9 +3668,9 @@ document.addEventListener('DOMContentLoaded',function(){
     var eins=[]; try{ eins=stMeineEinsaetze(datum); }catch(e){}
     var objOpts='<option value="">— ohne Projekt —</option>'+objekte().map(function(o){ return '<option value="'+NE(o.id)+'"'+(objId===o.id?' selected':'')+'>'+NE(objName(o))+'</option>'; }).join('');
     var einWrap=eins.length?(
-      '<div class="gn-field"><label>Aus Einsatzplan übernehmen</label><select class="gn-native-select" data-f="einsatz">'
+      '<div class="gn-field"><label>Aus Termin übernehmen</label><select class="gn-native-select" data-f="einsatz">'
       +'<option value="">— manuell erfassen —</option>'
-      +eins.map(function(x){ return '<option value="'+NE(x.id)+'" data-objekt="'+NE(x.objektId||'')+'" data-titel="'+NE(x.titel||'')+'">'+NE((x.titel||x.auftragNr||'Einsatz')+(x.objektName?' · '+x.objektName:''))+'</option>'; }).join('')
+      +eins.map(function(x){ return '<option value="'+NE(x.id)+'" data-objekt="'+NE(x.objektId||'')+'" data-titel="'+NE(x.titel||'')+'">'+NE((x.titel||x.auftragNr||'Termin')+(x.objektName?' · '+x.objektName:''))+'</option>'; }).join('')
       +'</select></div>'):'';
     var html=
       '<div class="gn-label" style="text-transform:none;font-weight:600">'+NE(tagLbl(datum))+'</div>'
