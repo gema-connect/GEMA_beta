@@ -443,28 +443,48 @@
     return [b.strasse, [b.plz, b.ort].filter(Boolean).join(' ')].filter(Boolean).join(', ');
   }
 
-  // \u2500\u2500 Objekt-Anzeige: Bezeichnung \u21c4 Adresse (per-User-Einstellung) \u2500\u2500\u2500\u2500
-  // Der Nutzer waehlt in den Einstellungen, ob Objekte primaer mit ihrer
-  // BEZEICHNUNG (name) oder ihrer ADRESSE angezeigt werden. Diese Wahl gilt
-  // fuer SAEMTLICHE Objekt-Dropdowns, -Karten und -Chips in allen Modulen \u2014
-  // deshalb ist die Aufloesung hier zentral (GemaObjekte.displayName).
+  // \u2500\u2500 Objekt-Anzeige: Bezeichnung \u21c4 Adresse (Firmen-Standard + Override) \u2500
+  // ORG-WEITER Fokus (User-Feedback 23.07.2026): die Firma legt in den
+  // Firmen-Einstellungen fest, ob Objekte primaer mit ihrer BEZEICHNUNG
+  // (name) oder ihrer ADRESSE angezeigt werden \u2014 gilt fuer SAEMTLICHE
+  // Objekt-Dropdowns, -Karten und -Chips in allen Modulen (zentral ueber
+  // GemaObjekte.displayName). Jeder Nutzer kann den Standard im Profil
+  // bewusst uebersteuern.
   //
-  // Persistenz: pro User in `user.profile.objektAnzeige` (synct via GemaAuth
-  // cross-device) + lokaler Cache `gema_obj_anzeige_v1` fuer den SYNCHRONEN
-  // Lesepfad (Dropdowns rendern synchron und koennen nicht auf einen async
-  // User-Load warten). getCurrentUser() ist selbst synchron; der Cache ist
-  // nur Absicherung, falls GemaAuth (noch) nicht verfuegbar ist.
+  // Aufloesung: profile.objektAnzeige 'adresse' | 'bezeichnung' = bewusste
+  // persoenliche Uebersteuerung \u2192 sonst org.settings.objektAnzeige
+  // ('name'|'adresse', Firmen-Standard) \u2192 sonst 'name'.
+  // LEGACY (KRITISCH): sys_profil stempelte frueher bei JEDEM Profil-Save
+  // 'name' ins Feld \u2014 dieser Wert zaehlt deshalb NICHT als Uebersteuerung
+  // (sonst waere der neue Firmen-Standard fuer Bestandsnutzer wirkungslos);
+  // die bewusste Bezeichnungs-Wahl heisst seither 'bezeichnung'.
+  //
+  // Persistenz: Override in `user.profile.objektAnzeige`, Standard in
+  // `org.settings.objektAnzeige` (beides cross-device via GemaAuth) +
+  // lokaler Cache `gema_obj_anzeige_v1` mit dem AUFGELOESTEN Modus fuer
+  // den synchronen Lesepfad, falls GemaAuth (noch) nicht verfuegbar ist.
   var ANZEIGE_KEY = 'gema_obj_anzeige_v1';
   var _anzeigeModus = null; // 'name' | 'adresse' \u2014 lazy initialisiert
+  function _orgAnzeige() {
+    try {
+      if (typeof GemaAuth !== 'undefined' && GemaAuth.getCurrentOrg) {
+        var org = GemaAuth.getCurrentOrg();
+        var m = org && org.settings && org.settings.objektAnzeige;
+        if (m === 'name' || m === 'adresse') return m;
+      }
+    } catch(e) {}
+    return null;
+  }
   function _readAnzeigeModus() {
-    // 1) autoritativ: eingeloggter User
+    // 1) autoritativ: persoenliche Uebersteuerung \u2192 Firmen-Standard
     try {
       if (typeof GemaAuth !== 'undefined' && GemaAuth.getCurrentUser) {
         var u = GemaAuth.getCurrentUser();
         var m = u && u.profile && u.profile.objektAnzeige;
-        if (m === 'name' || m === 'adresse') {
-          try { localStorage.setItem(ANZEIGE_KEY, JSON.stringify({ userId: u.id, modus: m })); } catch(e) {}
-          return m;
+        var eff = (m === 'adresse') ? 'adresse' : (m === 'bezeichnung') ? 'name' : _orgAnzeige();
+        if (eff === 'name' || eff === 'adresse') {
+          try { localStorage.setItem(ANZEIGE_KEY, JSON.stringify({ userId: u && u.id, modus: eff })); } catch(e) {}
+          return eff;
         }
       }
     } catch(e) {}
@@ -483,14 +503,34 @@
     return _anzeigeModus;
   }
   function refreshAnzeigeModus() { _anzeigeModus = _readAnzeigeModus(); return _anzeigeModus; }
+  // Persoenliche Uebersteuerung setzen: 'adresse' | 'bezeichnung' (auch
+  // Legacy-Aufrufer 'name' = bewusst Bezeichnung) | '' = Firmen-Standard.
+  // Rueckgabe = der EFFEKTIVE Modus ('name'|'adresse').
   function setAnzeigeModus(modus) {
-    modus = (modus === 'adresse') ? 'adresse' : 'name';
-    _anzeigeModus = modus;
+    var stored = (modus === 'adresse') ? 'adresse' : (modus === 'bezeichnung' || modus === 'name') ? 'bezeichnung' : '';
     var uid = null;
-    try { if (typeof GemaAuth !== 'undefined' && GemaAuth.getCurrentUser) { var u = GemaAuth.getCurrentUser(); uid = u && u.id; if (u && GemaAuth.updateProfile) GemaAuth.updateProfile(u.id, { objektAnzeige: modus }); } } catch(e) {}
-    try { localStorage.setItem(ANZEIGE_KEY, JSON.stringify({ userId: uid, modus: modus })); } catch(e) {}
-    try { window.dispatchEvent(new CustomEvent('gema-obj-anzeige-changed', { detail: { modus: modus } })); } catch(e) {}
-    return modus;
+    try { if (typeof GemaAuth !== 'undefined' && GemaAuth.getCurrentUser) { var u = GemaAuth.getCurrentUser(); uid = u && u.id; if (u && GemaAuth.updateProfile) GemaAuth.updateProfile(u.id, { objektAnzeige: stored }); } } catch(e) {}
+    var eff = (stored === 'adresse') ? 'adresse' : (stored === 'bezeichnung') ? 'name' : (_orgAnzeige() || 'name');
+    _anzeigeModus = eff;
+    try { localStorage.setItem(ANZEIGE_KEY, JSON.stringify({ userId: uid, modus: eff })); } catch(e) {}
+    try { window.dispatchEvent(new CustomEvent('gema-obj-anzeige-changed', { detail: { modus: eff } })); } catch(e) {}
+    return eff;
+  }
+  // Firmen-Standard lesen/setzen (sys_unternehmen \u2192 Firmendaten). '' = kein
+  // expliziter Standard (Default Bezeichnung). Wirkt fuer alle Nutzer ohne
+  // persoenliche Uebersteuerung; feuert das Change-Event fuer offene Ansichten.
+  function getOrgAnzeigeModus() { return _orgAnzeige() || ''; }
+  function setOrgAnzeigeModus(modus) {
+    modus = (modus === 'adresse') ? 'adresse' : (modus === 'name') ? 'name' : '';
+    try {
+      if (typeof GemaAuth !== 'undefined' && GemaAuth.getCurrentOrg && GemaAuth.updateOrgSettings) {
+        var org = GemaAuth.getCurrentOrg();
+        if (org) GemaAuth.updateOrgSettings(org.id, { objektAnzeige: modus || null });
+      }
+    } catch(e) {}
+    var eff = refreshAnzeigeModus();
+    try { window.dispatchEvent(new CustomEvent('gema-obj-anzeige-changed', { detail: { modus: eff } })); } catch(e) {}
+    return eff;
   }
 
   // Adresse eines Objekts als einzeiliger String (Strasse, PLZ Ort).
@@ -688,6 +728,7 @@
     // Objekt-Anzeige (Bezeichnung ⇄ Adresse) — zentral fuer ALLE Module
     displayName: displayName, objektAdresse: objektAdresse,
     getAnzeigeModus: getAnzeigeModus, setAnzeigeModus: setAnzeigeModus, refreshAnzeigeModus: refreshAnzeigeModus,
+    getOrgAnzeigeModus: getOrgAnzeigeModus, setOrgAnzeigeModus: setOrgAnzeigeModus,
     renderObjektSelect: renderObjektSelect, renderBeteiligteSelect: renderBeteiligteSelect,
     refresh: refresh, reload: reload, ready: _readyPromise,
     persistBlob: persistBlob, upsertObjekt: upsertObjekt,

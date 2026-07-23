@@ -1,7 +1,9 @@
-// Objekt-Anzeige (Bezeichnung ⇄ Adresse) als per-User-Einstellung, zentral
-// über GemaObjekte.displayName — gilt für ALLE Objekt-Dropdowns in allen
-// Modulen. Plus: universeller Objekt-Preselect (pm_erp) und die sys_profil-
-// Einstellung (persistiert ins User-Profil).
+// Objekt-Anzeige (Bezeichnung ⇄ Adresse), zentral über GemaObjekte.displayName
+// — gilt für ALLE Objekt-Dropdowns in allen Modulen. Seit 23.07.2026 mit
+// ORG-WEITEM Firmen-Standard (org.settings.objektAnzeige, sys_unternehmen →
+// Firmendaten) + persönlicher Übersteuerung im Profil ('bezeichnung'/'adresse';
+// Legacy-Stempel 'name' aus früheren Profil-Saves folgt dem Firmen-Standard).
+// Plus: universeller Objekt-Preselect (pm_erp) und die sys_profil-Einstellung.
 //
 // Aufruf:  CHROME=<chromium> node scripts/objekt_anzeige_test.mjs
 import { createServer } from 'http';
@@ -155,12 +157,76 @@ console.log('— 6) sys_profil-Einstellung schreibt ins Profil —');
     if(!sel) return {noSel:true};
     sel.value='adresse'; sel.dispatchEvent(new Event('change',{bubbles:true}));
     var u=GemaAuth.getCurrentUser();
-    return { modus:(typeof GemaObjekte!=='undefined'?GemaObjekte.getAnzeigeModus():null), profil:u&&u.profile&&u.profile.objektAnzeige };
+    return { modus:(typeof GemaObjekte!=='undefined'?GemaObjekte.getAnzeigeModus():null), profil:u&&u.profile&&u.profile.objektAnzeige,
+      opts:Array.from(sel.options).map(o=>o.value) };
   });
   ok(!r.noSel,'Einstellungs-Select vorhanden');
   ok(r.modus==='adresse','onchange setzt GemaObjekte-Modus');
   ok(r.profil==='adresse','Profil bekommt objektAnzeige=adresse');
+  ok(r.opts.join(',')===',bezeichnung,adresse','Optionen: Firmen-Standard / bezeichnung / adresse');
   ok(page.errs.length===0,'keine pageerrors (profil)');
+  await ctx.close();
+}
+
+console.log('— 7) Firmen-Standard (org.settings.objektAnzeige) + Override-Auflösung —');
+{
+  seed();
+  const ORG_ADR=Object.assign({},ORG,{settings:{objektAnzeige:'adresse'}});
+  const {ctx,page}=await open('/pm_planablage.html',{gema_orgs_v1:[ORG_ADR]});
+  const r=await page.evaluate((oa)=>{
+    var out={};
+    // (a) kein persönlicher Override → Firmen-Standard adresse greift
+    out.orgStd=GemaObjekte.refreshAnzeigeModus();
+    out.orgGet=GemaObjekte.getOrgAnzeigeModus();
+    out.label=GemaObjekte.displayName(oa);
+    // (b) bewusste Übersteuerung 'bezeichnung' gewinnt gegen Org-adresse
+    GemaObjekte.setAnzeigeModus('bezeichnung');
+    out.overrideBez=GemaObjekte.getAnzeigeModus();
+    out.profilBez=(GemaAuth.getCurrentUser().profile||{}).objektAnzeige;
+    // (c) '' = «Wie Firmen-Standard» kehrt zum Org-Standard zurück
+    GemaObjekte.setAnzeigeModus('');
+    out.backToOrg=GemaObjekte.getAnzeigeModus();
+    // (d) Legacy-Stempel 'name' (alte Profil-Saves) zählt NICHT als Override
+    GemaAuth.updateProfile(GemaAuth.getCurrentUser().id,{objektAnzeige:'name'});
+    out.legacyName=GemaObjekte.refreshAnzeigeModus();
+    // (e) Override 'adresse' bleibt Override, auch wenn Org auf name stünde
+    GemaObjekte.setAnzeigeModus('adresse');
+    out.overrideAdr=GemaObjekte.getAnzeigeModus();
+    return out;
+  }, OBJ_A);
+  ok(r.orgStd==='adresse','ohne Override greift der Firmen-Standard (adresse)');
+  ok(r.orgGet==='adresse','getOrgAnzeigeModus() liest org.settings');
+  ok(r.label===ADR_A,'displayName folgt dem Firmen-Standard');
+  ok(r.overrideBez==='name','Override bezeichnung schlägt Org-adresse');
+  ok(r.profilBez==='bezeichnung','Override wird als \'bezeichnung\' im Profil gespeichert');
+  ok(r.backToOrg==='adresse','\'\' (Wie Firmen-Standard) kehrt zum Org-Standard zurück');
+  ok(r.legacyName==='adresse','Legacy-Stempel \'name\' folgt dem Firmen-Standard (kein Override)');
+  ok(r.overrideAdr==='adresse','Override adresse bleibt persönlich wirksam');
+  ok(page.errs.length===0,'keine pageerrors (org-standard)');
+  await ctx.close();
+}
+
+console.log('— 8) sys_unternehmen: Firmen-Standard-Select schreibt org.settings —');
+{
+  seed(); const {ctx,page}=await open('/sys_unternehmen.html');
+  await page.waitForTimeout(600);
+  const r=await page.evaluate(()=>{
+    var sel=document.getElementById('orgObjAnzeige');
+    if(!sel) return {noSel:true};
+    var initial=sel.value;
+    sel.value='adresse';
+    saveOrgInfo();
+    var org=GemaAuth.getCurrentOrg();
+    return { initial:initial, saved:(org.settings||{}).objektAnzeige,
+      modus:(typeof GemaObjekte!=='undefined'?GemaObjekte.getAnzeigeModus():null),
+      orgGet:(typeof GemaObjekte!=='undefined'?GemaObjekte.getOrgAnzeigeModus():null) };
+  });
+  ok(!r.noSel,'Firmen-Standard-Select vorhanden');
+  ok(r.initial==='name','Default zeigt Fokus Bezeichnung');
+  ok(r.saved==='adresse','saveOrgInfo schreibt org.settings.objektAnzeige');
+  ok(r.modus==='adresse','aufgelöster Modus folgt sofort dem neuen Standard');
+  ok(r.orgGet==='adresse','getOrgAnzeigeModus() liefert den neuen Standard');
+  ok(page.errs.length===0,'keine pageerrors (unternehmen)');
   await ctx.close();
 }
 
