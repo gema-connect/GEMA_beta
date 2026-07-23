@@ -117,18 +117,36 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important}
 .obj-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px}
 .obj-card{background:var(--sur);border:1.5px solid var(--brd);border-radius:var(--r);padding:16px;cursor:pointer;transition:.15s;position:relative}
 .obj-card.is-child{border-left:3px solid var(--acc-bd);background:linear-gradient(90deg,var(--acc-bg) 0,var(--sur) 40px)}
-.obj-card .obj-parent-crumb{font-size:11px;color:var(--acc);font-weight:600;margin-bottom:4px;display:flex;align-items:center;gap:4px}
-.obj-card .obj-parent-crumb::before{content:'↳';font-size:13px;opacity:.7}
+.obj-card .obj-parent-crumb{font-size:11px;color:var(--acc);font-weight:600;margin-bottom:4px;display:flex;align-items:center;gap:4px;padding-right:92px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.obj-card .obj-parent-crumb::before{content:'↳';font-size:13px;opacity:.7;flex-shrink:0}
+.obj-card .obj-parent-crumb .pc-txt{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .obj-card .obj-child-count{display:inline-flex;align-items:center;gap:3px;font-size:10px;font-weight:700;padding:2px 7px;border-radius:5px;background:var(--acc-bg);color:var(--acc);border:1px solid var(--acc-bd);margin-left:6px}
 .obj-card:hover{border-color:var(--acc-bd);box-shadow:var(--sh)}
 .obj-card.active{border-color:var(--acc);box-shadow:0 0 0 3px rgba(8,145,178,.12)}
-.obj-name{font-size:14px;font-weight:800;color:var(--txt);margin-bottom:4px}
+.obj-name{font-size:14px;font-weight:800;color:var(--txt);margin-bottom:4px;padding-right:88px}
 .obj-loc{font-size:12px;color:var(--mut)}
 .obj-status{position:absolute;top:12px;right:12px;font-size:10px;font-weight:700;padding:2px 8px;border-radius:6px}
 .obj-status.aktiv{background:var(--grn-bg);color:var(--grn);border:1px solid var(--grn-bd)}
 .obj-status.abgeschlossen{background:var(--blue-bg);color:var(--blue);border:1px solid var(--blue-bd)}
 .obj-status.archiviert{background:var(--bg2);color:var(--mut2);border:1px solid var(--brd)}
 .obj-meta{display:flex;gap:12px;margin-top:8px;font-size:11px;color:var(--mut)}
+/* Karten ⇄ Listen-Umschalter */
+.view-seg{display:inline-flex;border:1.5px solid var(--brd2);border-radius:9px;overflow:hidden;flex-shrink:0}
+.view-seg button{border:none;background:var(--sur);padding:8px 12px;font-size:12.5px;font-weight:700;color:var(--mut);cursor:pointer;display:inline-flex;align-items:center;gap:5px}
+.view-seg button.on{background:var(--acc);color:#fff}
+/* Listenansicht */
+.obj-table-wrap{overflow-x:auto;border:1.5px solid var(--brd);border-radius:var(--r);background:var(--sur)}
+table.obj-table{width:100%;border-collapse:collapse;font-size:12.5px}
+table.obj-table th{text-align:left;padding:10px 12px;background:var(--bg2);border-bottom:1.5px solid var(--brd2);font-size:11px;font-weight:800;color:var(--mut);text-transform:uppercase;letter-spacing:.3px;white-space:nowrap}
+table.obj-table td{padding:9px 12px;border-bottom:1px solid var(--brd);vertical-align:middle}
+table.obj-table tr.orow{cursor:pointer;transition:.12s}
+table.obj-table tr.orow:hover{background:var(--acc-bg)}
+table.obj-table tr.orow.active{background:rgba(8,145,178,.10)}
+table.obj-table .ot-name{font-weight:800;color:var(--txt)}
+table.obj-table .ot-sub{font-size:11px;color:var(--mut);font-weight:500}
+table.obj-table .ot-crumb{font-size:10.5px;color:var(--acc);font-weight:600}
+table.obj-table .ot-act{display:flex;gap:5px;justify-content:flex-end;white-space:nowrap}
+@media(max-width:900px){table.obj-table .ot-hide{display:none}}
 
 /* BETEILIGTE TABLE */
 .bet-table{width:100%;border-collapse:collapse}
@@ -300,6 +318,10 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important}
         <option value="status">Status</option>
         <option value="newest">Neueste zuerst</option>
       </select>
+      <div class="view-seg" id="objViewSeg">
+        <button type="button" id="objViewKarten" onclick="setObjView('karten')" title="Kartenansicht">▦ Karten</button>
+        <button type="button" id="objViewListe" onclick="setObjView('liste')" title="Listenansicht">☰ Liste</button>
+      </div>
       <button class="btn btn-ghost" onclick="_objWartungOpen()" title="Verwaiste / Test-Objekte aufräumen, die in Auswahllisten erscheinen aber hier fehlen">🧹 Aufräumen</button>
       <button class="btn btn-primary" onclick="openObjektModal()">+ Neues Objekt</button>
     </div>
@@ -330,6 +352,7 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important}
       </select>
     </div>
     <div class="obj-grid" id="objGrid"></div>
+    <div class="obj-table-wrap" id="objTableWrap" style="display:none"></div>
     <div class="empty" id="objEmpty" style="display:none"></div>
   </div>
 
@@ -516,9 +539,10 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important}
     </div>
     <div class="modal-ft" style="justify-content:space-between">
       <button class="btn btn-danger btn-sm" id="objDelBtn" onclick="deleteObjekt()" style="display:none">🗑 Löschen</button>
-      <div style="display:flex;gap:8px;margin-left:auto">
+      <div style="display:flex;gap:8px;margin-left:auto;flex-wrap:wrap;justify-content:flex-end">
         <button class="btn btn-ghost" id="objWzBack" onclick="_objWzPrev()" style="display:none">← Zurück</button>
         <button class="btn btn-ghost" id="objWzSkip" onclick="_objWzNext()">Überspringen →</button>
+        <button class="btn btn-ghost" id="objWzDone" onclick="_objWzFinish()" title="Restliche Schritte überspringen, Objekt speichern und schliessen" style="color:var(--grn);border-color:var(--grn-bd)">✓ Fertig stellen</button>
         <button class="btn btn-primary" id="objWzNext" onclick="_objWzNext()">Weiter →</button>
         <button class="btn btn-primary" id="objWzSave" onclick="saveObjekt()" style="display:none">💾 Speichern</button>
       </div>
@@ -611,13 +635,20 @@ var _objCloudLoaded=false; // true sobald der erste Cloud-Pull durch ist (Ladean
 // Wird nach DOMContentLoaded gesetzt, sobald GemaAuth verfügbar ist.
 let _currentOrgId = null;
 let _isAdminUser   = false;
-document.addEventListener('DOMContentLoaded', function() {
-  if (typeof GemaAuth !== 'undefined') {
-    _isAdminUser   = GemaAuth.isAdmin();
-    const _u       = GemaAuth.getCurrentUser();
-    _currentOrgId  = _u ? (_u.orgId || 'org_default') : null;
-  }
-});
+// Admin-/Org-Kontext (neu) erfassen. WICHTIG: nicht nur einmalig im
+// DOMContentLoaded — löst GemaAuth den User erst nach dem ersten Cloud-Pull
+// auf (langsame Session/Zweitgerät), blieb `_currentOrgId` sonst null und der
+// Org-Filter blendete ALLE Objekte aus. `load()` ruft dies nach dem Pull erneut.
+function _refreshAuthCtx() {
+  try {
+    if (typeof GemaAuth !== 'undefined' && GemaAuth.getCurrentUser) {
+      _isAdminUser = GemaAuth.isAdmin();
+      const _u = GemaAuth.getCurrentUser();
+      if (_u) _currentOrgId = _u.orgId || 'org_default';
+    }
+  } catch(e) {}
+}
+document.addEventListener('DOMContentLoaded', _refreshAuthCtx);
 
 async function load(){
   // Per-Record-Cloud-Sync ueber die zentrale API: wartet auf den frischen
@@ -626,6 +657,9 @@ async function load(){
   if(typeof GemaObjekte!=='undefined' && GemaObjekte.ready){
     try{ await GemaObjekte.ready; }catch(e){}
   }
+  // Admin-/Org-Kontext nach dem Cloud-Pull sicher erfassen (GemaAuth ist jetzt
+  // aufgelöst — sonst blendet der Org-Filter bei später Session alles aus).
+  _refreshAuthCtx();
   // localStorage zuerst (von der API frisch aus der Cloud aufgebaut)
   try{
     const raw=localStorage.getItem(KEY);
@@ -931,7 +965,7 @@ function getObjektBreadcrumb(objektId){
   while(cur&&cur.parentObjektId&&guard<10){
     const p=_mem.objekte.find(o=>o.id===cur.parentObjektId);
     if(!p)break;
-    names.unshift(p.name||'–');
+    names.unshift((GemaObjekte&&GemaObjekte.displayName?GemaObjekte.displayName(p):p.name)||'–');
     cur=p;guard++;
   }
   return names;
@@ -940,6 +974,26 @@ function getObjektBreadcrumb(objektId){
 // ── RENDER OBJEKTE ──
 var _objFilter='aktiv'; // default: show only active
 var _objScope='buero';  // default: Büro-Ansicht (alle Objekte der Org)
+// Karten- ⇄ Listenansicht (pro Gerät gespeichert)
+var _objView=(function(){try{return localStorage.getItem('gema_obj_view_v1')==='liste'?'liste':'karten';}catch(e){return 'karten';}})();
+function setObjView(v){
+  _objView=(v==='liste')?'liste':'karten';
+  try{localStorage.setItem('gema_obj_view_v1',_objView);}catch(e){}
+  renderObjekte();
+}
+window.setObjView=setObjView;
+// Anzeige-Paar eines Objekts: Titel = displayName (folgt Firmen-Standard/Override),
+// Untertitel = die JEWEILS ANDERE Angabe (Adresse ⇄ Bezeichnung), dedupliziert —
+// so erscheint eine Adresse nie doppelt (Titel + Untertitel identisch → kein Sub).
+function _objLabelPair(o){
+  var adr=(GemaObjekte&&GemaObjekte.objektAdresse)?GemaObjekte.objektAdresse(o):[o.strasse,[o.plz,o.ort].filter(Boolean).join(' ')].filter(Boolean).join(', ');
+  var title=(GemaObjekte&&GemaObjekte.displayName)?GemaObjekte.displayName(o):(o.name||adr||o.id||'');
+  var nm=o.name||'';
+  // Untertitel = das, was NICHT im Titel steht
+  var sub=(title.trim()===adr.trim())?nm:adr;
+  if(!sub||sub.trim().toLowerCase()===title.trim().toLowerCase())sub='';
+  return {title:title,sub:sub};
+}
 function setObjFilter(val,btn){
   _objFilter=val;
   // Nur Status-Buttons (data-filter) togglen, Scope-Buttons unberührt lassen
@@ -1012,8 +1066,13 @@ function renderObjekte(){
 
   $('objTitle').textContent=`${list.length} Objekt${list.length!==1?'e':''}`+(_objFilter!=='all'?' ('+{aktiv:'Aktiv',abgeschlossen:'Abgeschlossen',archiviert:'Archiviert'}[_objFilter]+')':'');
   $('badgeObj').textContent=visibleObjekte.length;
+  // View-Umschalter spiegeln
+  if($('objViewKarten'))$('objViewKarten').classList.toggle('on',_objView!=='liste');
+  if($('objViewListe'))$('objViewListe').classList.toggle('on',_objView==='liste');
+  const _tw=$('objTableWrap');
   if(!list.length){
-    $('objGrid').innerHTML='';
+    $('objGrid').innerHTML='';$('objGrid').style.display='none';
+    if(_tw){_tw.innerHTML='';_tw.style.display='none';}
     if(visibleObjekte.length>0){
       $('objEmpty').style.display='';
       $('objEmpty').innerHTML='<div class="empty-ic">🔍</div><h3>Keine Treffer</h3><p>Keine Objekte für diesen Filter gefunden.</p><button class="btn btn-ghost" onclick="setObjFilter(\'all\',document.querySelector(\'[data-filter=all]\'))">Alle anzeigen</button>';
@@ -1054,25 +1113,69 @@ function renderObjekte(){
     return '<div style="display:flex;align-items:center;margin-left:4px" onclick="event.stopPropagation()">'+html+plus+'</div>';
   }
 
+  const SIA_LBL={vorprojekt:'SIA 32 · Vorprojekt',bauprojekt:'SIA 33 · Bauprojekt',ausschreibung:'SIA 41 · Ausschreibung',ausfuehrung:'SIA 51-53 · Ausführung'};
+  const STAT_LBL={aktiv:'✓ Aktiv',abgeschlossen:'Abgeschlossen',archiviert:'Archiviert'};
+
+  if(_objView==='liste'){
+    // ── LISTENANSICHT ──
+    $('objGrid').style.display='none';$('objGrid').innerHTML='';
+    if(_tw){
+      _tw.style.display='';
+      const rows=list.map(o=>{
+        const betCount=_mem.beteiligte.filter(b=>b.objektId===o.id).length;
+        const isActive=o.id===_mem.activeObjektId;
+        const depth=(typeof o._depth==='number')?o._depth:0;
+        const isChild=depth>0;
+        const kindCount=getChildCount(o.id);
+        const crumbs=isChild?getObjektBreadcrumb(o.id):[];
+        const lp=_objLabelPair(o);
+        const indent=depth>0?'padding-left:'+(12+Math.min(depth,3)*16)+'px;':'';
+        return `<tr class="orow${isActive?' active':''}" onclick="selectObjekt('${esc(o.id)}')">
+          <td style="${indent}">
+            ${crumbs.length?'<div class="ot-crumb" title="'+esc(crumbs.join(' › '))+'">↳ '+esc(crumbs.join(' › '))+'</div>':''}
+            <div class="ot-name">${esc(lp.title)}${kindCount>0?'<span class="obj-child-count" title="Sub-Objekte">⎘ '+kindCount+'</span>':''}${isActive?' <span style="color:var(--acc);font-size:11px">●</span>':''}</div>
+            ${lp.sub?'<div class="ot-sub">'+esc(lp.sub)+'</div>':''}
+          </td>
+          <td class="ot-hide">${esc(o.bauvorhaben||'–')}</td>
+          <td class="ot-hide">${o.aktivePhase?'<span style="background:#eff4ff;color:#1d4ed8;padding:2px 8px;border-radius:6px;font-weight:700;border:1px solid #bfdbfe;font-size:11px">'+SIA_LBL[o.aktivePhase]+'</span>':'<span style="color:var(--mut2)">–</span>'}</td>
+          <td class="ot-hide" style="text-align:center">${betCount}</td>
+          <td><span class="obj-status ${o.status||'aktiv'}" style="position:static">${STAT_LBL[o.status||'aktiv']}</span></td>
+          <td class="no-print"><div class="ot-act">
+            <button class="btn btn-ghost btn-xs" onclick="event.stopPropagation();openObjektModal('${esc(o.id)}')" title="Bearbeiten">✏</button>
+            <button class="btn btn-ghost btn-xs" onclick="event.stopPropagation();duplicateObjekt('${esc(o.id)}')" title="Duplizieren">📋</button>
+            <button class="btn btn-ghost btn-xs" style="color:#dc2626" onclick="event.stopPropagation();deleteObjektById('${esc(o.id)}')" title="Löschen">🗑</button>
+          </div></td>
+        </tr>`;
+      }).join('');
+      _tw.innerHTML=`<table class="obj-table"><thead><tr>
+        <th>Objekt</th><th class="ot-hide">Bauvorhaben</th><th class="ot-hide">SIA-Phase</th><th class="ot-hide" style="text-align:center">👷</th><th>Status</th><th class="no-print"></th>
+      </tr></thead><tbody>${rows}</tbody></table>`;
+    }
+    return;
+  }
+
+  // ── KARTENANSICHT ──
+  if(_tw){_tw.style.display='none';_tw.innerHTML='';}
+  $('objGrid').style.display='';
   $('objGrid').innerHTML=list.map(o=>{
     const betCount=_mem.beteiligte.filter(b=>b.objektId===o.id).length;
     const isActive=o.id===_mem.activeObjektId;
-    const loc=[o.plz,o.ort].filter(Boolean).join(' ');
     const depth=(typeof o._depth==='number')?o._depth:0;
     const isChild=depth>0;
     const kindCount=getChildCount(o.id);
     const crumbs=isChild?getObjektBreadcrumb(o.id):[];
+    const lp=_objLabelPair(o);
     const indentStyle=depth>0?'margin-left:'+Math.min(depth,3)*18+'px;':'';
     return `<div class="obj-card${isActive?' active':''}${isChild?' is-child':''}" style="${indentStyle}" onclick="selectObjekt('${esc(o.id)}')">
-      <span class="obj-status ${o.status||'aktiv'}">${({aktiv:'✓ Aktiv',abgeschlossen:'Abgeschlossen',archiviert:'Archiviert'})[o.status||'aktiv']}</span>
-      ${crumbs.length?'<div class="obj-parent-crumb">'+crumbs.map(esc).join(' › ')+'</div>':''}
-      <div class="obj-name">${esc(o.name)}${kindCount>0?'<span class="obj-child-count" title="Sub-Objekte">⎘ '+kindCount+'</span>':''}</div>
-      <div class="obj-loc">${o.strasse?esc(o.strasse)+', ':''}${esc(loc)}</div>
+      <span class="obj-status ${o.status||'aktiv'}">${STAT_LBL[o.status||'aktiv']}</span>
+      ${crumbs.length?'<div class="obj-parent-crumb" title="'+esc(crumbs.join(' › '))+'"><span class="pc-txt">'+crumbs.map(esc).join(' › ')+'</span></div>':''}
+      <div class="obj-name">${esc(lp.title)}${kindCount>0?'<span class="obj-child-count" title="Sub-Objekte">⎘ '+kindCount+'</span>':''}</div>
+      ${lp.sub?'<div class="obj-loc">'+esc(lp.sub)+'</div>':''}
       <div class="obj-meta">
         <span>🏗 ${esc(o.bauvorhaben||'–')}</span>
         <span>👷 ${betCount} Beteiligte</span>
         ${o.gemeinde?'<span>📍 '+esc(o.gemeinde)+'</span>':''}
-        ${o.aktivePhase?'<span style="background:#eff4ff;color:#1d4ed8;padding:2px 8px;border-radius:6px;font-weight:700;border:1px solid #bfdbfe">'+({vorprojekt:'SIA 32 · Vorprojekt',bauprojekt:'SIA 33 · Bauprojekt',ausschreibung:'SIA 41 · Ausschreibung',ausfuehrung:'SIA 51-53 · Ausführung'})[o.aktivePhase]+'</span>':''}
+        ${o.aktivePhase?'<span style="background:#eff4ff;color:#1d4ed8;padding:2px 8px;border-radius:6px;font-weight:700;border:1px solid #bfdbfe">'+SIA_LBL[o.aktivePhase]+'</span>':''}
       </div>
       ${_teamBubbles(o)}
       <div style="margin-top:8px;display:flex;gap:6px;align-items:center" class="no-print">
@@ -1149,14 +1252,18 @@ function populateTeamSelects(editId) {
   var users = _orgUsers();
   var obj = editId ? _mem.objekte.find(function(x){return x.id===editId;}) : null;
   var canEdit = !editId || (typeof GemaObjekte !== 'undefined' && GemaObjekte.canEditTeam ? GemaObjekte.canEditTeam(obj) : true);
+  // Eigene User-ID — für ein NEUES Objekt ist der Ersteller standardmässig der
+  // Verantwortliche (Projektleiter), User-Vorgabe 23.07.2026.
+  var myId=null; try{ var _me=GemaAuth.getCurrentUser&&GemaAuth.getCurrentUser(); myId=_me&&_me.id; }catch(e){}
 
   ['objProjektLeiterId','objAbteilungsLeiterId'].forEach(function(selId){
     var sel = $(selId);
     if (!sel) return;
-    var cur = obj ? obj[selId.replace('obj','').replace('Id','Id').charAt(0).toLowerCase() + selId.replace('obj','').replace('Id','Id').slice(1)] : '';
     // Keys: objProjektLeiterId -> projektLeiterId, objAbteilungsLeiterId -> abteilungsLeiterId
     var fieldName = selId === 'objProjektLeiterId' ? 'projektLeiterId' : 'abteilungsLeiterId';
-    var curVal = obj ? (obj[fieldName] || '') : '';
+    // Default beim Erfassen: Projektleiter = ich selbst (sofern in der Org-Liste)
+    var selfDefault = (!obj && selId==='objProjektLeiterId' && myId && users.some(function(u){return u.id===myId;})) ? myId : '';
+    var curVal = obj ? (obj[fieldName] || '') : selfDefault;
     sel.innerHTML = '<option value="">— Keiner —</option>' + users.map(function(u){
       return '<option value="'+u.id+'"'+(u.id===curVal?' selected':'')+'>'+esc(_userLabel(u))+'</option>';
     }).join('');
@@ -1251,12 +1358,21 @@ function _objWzGo(step){
     }
     $('objWzBack').style.display=step>1?'':'none';
     $('objWzSkip').style.display=step<4?'':'none';
+    // «Fertig stellen» = alle restlichen Schritte überspringen + speichern (Schritt 1–3;
+    // auf Schritt 4 übernimmt «Speichern»)
+    if($('objWzDone'))$('objWzDone').style.display=step<4?'':'none';
     $('objWzNext').style.display=step<4?'':'none';
     $('objWzSave').style.display=step===4?'':'none';
   } else {
     toast('⚠ Bitte Projektname eingeben');
   }
 }
+// Wizard sofort abschliessen: restliche Schritte überspringen, speichern, schliessen.
+function _objWzFinish(){
+  if(!$('objName').value.trim()&&!$('objEditId').value){ _objWzGo(1); toast('⚠ Projektname erforderlich'); return; }
+  saveObjekt();
+}
+window._objWzFinish=_objWzFinish;
 function _objWzNext(){
   if(_objWzStep===1&&!$('objName').value.trim()&&!$('objEditId').value){toast('⚠ Projektname erforderlich');return;}
   if(_objWzStep<4)_objWzGo(_objWzStep+1);
@@ -1298,15 +1414,9 @@ function openObjektModal(editId){
     _objBeteiligte=[];
     ['objName','objStrasse','objPlz','objOrt','objGemeinde','objKanton','objNotizen','objProjektnummer','objRevision'].forEach(id=>{if($(id))$(id).value='';});
     $('objBauvorhaben').value='Neubau';$('objStatus').value='aktiv';$('objAktivePhase').value='';
+    // Übergeordnetes Objekt standardmässig «Kein» (User-Vorgabe 23.07.2026 —
+    // ein neues Objekt ist per Default eigenständig, kein Sub-Objekt des aktiven).
     if($('objParentId'))$('objParentId').value='';
-    // Wenn ein aktives Objekt existiert, dieses als Vorgabe für den Parent anbieten
-    // (typischer Workflow: User legt ein Sub-Objekt zum aktuell aktiven Projekt an).
-    try{
-      if(_mem.activeObjektId&&$('objParentId')){
-        const hasOpt=Array.from($('objParentId').options).some(op=>op.value===_mem.activeObjektId);
-        if(hasOpt)$('objParentId').value=_mem.activeObjektId;
-      }
-    }catch(e){}
     $('objAdrSearch').value='';
     const tag=$('objAdrTag');if(tag)tag.style.display='none';
     if(detail){detail.style.display='none';detail.innerHTML='';}

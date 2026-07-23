@@ -54,6 +54,10 @@ const ADR_A='Bahnhofstrasse 4, 8000 Zürich';
 function seed(){ store.clear(); [OBJ_A,OBJ_B].forEach(o=>store.set('objekte|objekt:'+o.id,{data:o,_lm:'2026-07-01T00:00:00Z'})); }
 
 const FUTURE=new Date(Date.now()+30*86400000).toISOString();
+// Gültig aussehendes JWT (uid/org-Claims) — GemaAuth löst den User damit
+// synchron beim Boot auf (nötig für pm_objekte, das _isAdminUser/_currentOrgId
+// im DOMContentLoaded einmal erfasst).
+const JWT='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpYXQiOjQwMDAwMDAwMDAsImV4cCI6NDEwMjQ0NDgwMCwidWlkIjoidTEiLCJvcmciOiJvcmdfdCIsInJvbGUiOiJhdXRoZW50aWNhdGVkIn0.testsig';
 const ORG={id:'org_t',name:'T AG',kategorie:'sanitaerplaner',kategorien:['sanitaerplaner'],admins:['u1'],active:true};
 const USERS=[{id:'u1',username:'a@t.ch',name:'User A',roleIds:['role_admin'],orgId:'org_t',active:true,profile:{email:'a@t.ch'}}];
 const OBJ_BLOB={objekte:[OBJ_A,OBJ_B],beteiligte:[],activeObjektId:null};
@@ -67,7 +71,7 @@ async function open(path, extraLs){
     if(u.indexOf('/api/')>=0||u.indexOf('/.netlify/')>=0)return route.fulfill({contentType:'application/json',body:'{}'});
     return route.abort(); });
   await ctx.addInitScript(s=>{ for(const [k,v] of Object.entries(s)) localStorage.setItem(k, typeof v==='string'?v:JSON.stringify(v)); },
-    Object.assign({gema_orgs_v1:[ORG],gema_users_v1:USERS,gema_session_v1:{token:'x.y.z',userId:'u1',expires:FUTURE},gema_objekte_v1:OBJ_BLOB},extraLs||{}));
+    Object.assign({gema_orgs_v1:[ORG],gema_users_v1:USERS,gema_session_v1:{token:JWT,userId:'u1',expires:FUTURE},gema_objekte_v1:OBJ_BLOB},extraLs||{}));
   const page=await ctx.newPage(); page.errs=[]; page.on('pageerror',e=>page.errs.push(e.message));
   await page.goto(BASE+path,{waitUntil:'domcontentloaded'});
   await page.waitForTimeout(1100);
@@ -227,6 +231,80 @@ console.log('— 8) sys_unternehmen: Firmen-Standard-Select schreibt org.setting
   ok(r.modus==='adresse','aufgelöster Modus folgt sofort dem neuen Standard');
   ok(r.orgGet==='adresse','getOrgAnzeigeModus() liefert den neuen Standard');
   ok(page.errs.length===0,'keine pageerrors (unternehmen)');
+  await ctx.close();
+}
+
+console.log('— 9) pm_objekte: Karten/Liste + Wizard-Defaults (23.07.2026) —');
+{
+  // Zusatz-Objekte: obj_c (Name = Adresse → der gemeldete Doppel-Bug), obj_child (Kind von obj_a)
+  seed();
+  const OBJ_C={id:'obj_c',name:'Musterweg 1, 3000 Bern',strasse:'Musterweg 1',plz:'3000',ort:'Bern',orgId:'org_t',status:'aktiv'};
+  const OBJ_CHILD={id:'obj_child',name:'Haus A',parentObjektId:'obj_a',strasse:'Weg 9',plz:'8000',ort:'Zürich',orgId:'org_t',status:'aktiv'};
+  [OBJ_C,OBJ_CHILD].forEach(o=>store.set('objekte|objekt:'+o.id,{data:o,_lm:'2026-07-02T00:00:00Z'}));
+  const BLOB2={objekte:[OBJ_A,OBJ_B,OBJ_C,OBJ_CHILD],beteiligte:[],activeObjektId:'obj_a'};
+  const {ctx,page}=await open('/pm_objekte.html',{gema_objekte_v1:BLOB2,gema_active_objekt_v1:'obj_a'});
+  await page.waitForFunction(()=>typeof renderObjekte==='function'&&typeof setObjView==='function'&&typeof openObjektModal==='function',null,{timeout:12000});
+  await page.waitForTimeout(600);
+  await page.evaluate(()=>{ setObjView('karten'); renderObjekte(); });
+  // Karten-Dedup: Objekt, dessen Name = seine Adresse
+  {
+    const r=await page.evaluate(()=>{
+      const cards=[...document.querySelectorAll('#objGrid .obj-card')];
+      const cardC=cards.find(c=>c.querySelector('.obj-name')&&c.querySelector('.obj-name').textContent.indexOf('Musterweg 1')>=0);
+      const cardA=cards.find(c=>c.querySelector('.obj-name')&&c.querySelector('.obj-name').textContent.indexOf('Neubau Alpha')>=0);
+      return {
+        cLocs: cardC?[...cardC.querySelectorAll('.obj-loc')].map(e=>e.textContent):null,
+        aTitle: cardA?cardA.querySelector('.obj-name').textContent.trim():null,
+        aLoc: cardA&&cardA.querySelector('.obj-loc')?cardA.querySelector('.obj-loc').textContent:null
+      };
+    });
+    ok(r.cLocs&&r.cLocs.length===0,'Karte mit Name=Adresse zeigt die Adresse NICHT doppelt (kein Untertitel)');
+    ok(r.aTitle&&r.aTitle.indexOf('Neubau Alpha')===0&&r.aTitle.indexOf('Bahnhofstrasse')<0,'Karte: Titel = Bezeichnung (Name-Modus, ohne Adresse)');
+    ok(r.aLoc&&r.aLoc.indexOf('Bahnhofstrasse 4')>=0,'Karte: Untertitel = Adresse (unterschiedlich → sichtbar)');
+  }
+  // Parent-Crumb: Kind-Objekt bekommt padding-right (kollidiert nicht mit Badge)
+  ok(await page.evaluate(()=>{
+    const c=[...document.querySelectorAll('#objGrid .obj-parent-crumb')][0];
+    if(!c)return false;
+    const pr=parseFloat(getComputedStyle(c).paddingRight);
+    return pr>=80 && c.textContent.indexOf('Neubau Alpha')>=0;
+  }),'Kind-Karte: Parent-Crumb hat Badge-Freiraum (padding-right ≥ 80px)');
+  // Listenansicht-Umschalter
+  await page.evaluate(()=>setObjView('liste'));
+  {
+    const r=await page.evaluate(()=>({
+      tableVisible: getComputedStyle(document.getElementById('objTableWrap')).display!=='none',
+      gridHidden: getComputedStyle(document.getElementById('objGrid')).display==='none',
+      rows: document.querySelectorAll('#objTableWrap table.obj-table tr.orow').length,
+      segOn: document.getElementById('objViewListe').classList.contains('on'),
+      stored: localStorage.getItem('gema_obj_view_v1')
+    }));
+    ok(r.tableVisible&&r.gridHidden,'Liste: Tabelle sichtbar, Karten-Grid ausgeblendet');
+    ok(r.rows>=4,'Liste: Objekt-Zeilen gerendert ('+r.rows+')');
+    ok(r.segOn&&r.stored==='liste','Umschalter aktiv + pro Gerät gespeichert');
+  }
+  await page.evaluate(()=>setObjView('karten'));
+  ok(await page.evaluate(()=>getComputedStyle(document.getElementById('objGrid')).display!=='none'&&getComputedStyle(document.getElementById('objTableWrap')).display==='none'),'Zurück auf Karten: Grid sichtbar, Tabelle weg');
+  // Wizard: übergeordnetes Objekt Default «kein» (trotz aktivem Objekt obj_a)
+  await page.evaluate(()=>openObjektModal());
+  await page.waitForTimeout(200);
+  ok(await page.evaluate(()=>document.getElementById('objParentId').value===''),'Wizard: «Übergeordnetes Objekt» Default = Kein (trotz aktivem Objekt)');
+  // Wizard: Verantwortlich (Projektleiter) Default = ich selbst
+  ok(await page.evaluate(()=>document.getElementById('objProjektLeiterId').value==='u1'),'Wizard: Projektleiter Default = eingeloggter User');
+  // Wizard: «Fertig stellen»-Button auf Schritt 1 sichtbar + speichert + schliesst
+  ok(await page.evaluate(()=>{const b=document.getElementById('objWzDone');return b&&getComputedStyle(b).display!=='none';}),'Wizard: «Fertig stellen» auf Schritt 1 sichtbar');
+  await page.evaluate(()=>{ document.getElementById('objName').value='Blitz-Projekt'; _objWzFinish(); });
+  await page.waitForTimeout(300);
+  {
+    const r=await page.evaluate(()=>{
+      const blob=JSON.parse(localStorage.getItem('gema_objekte_v1')||'{}');
+      const saved=(blob.objekte||[]).find(o=>o.name==='Blitz-Projekt');
+      return { open: document.getElementById('objModal').classList.contains('open'), saved: saved };
+    });
+    ok(!r.open,'«Fertig stellen» schliesst den Wizard');
+    ok(r.saved && !r.saved.parentObjektId && r.saved.projektLeiterId==='u1','«Fertig stellen» speichert (kein Parent, Projektleiter = ich)');
+  }
+  ok(page.errs.length===0,'keine pageerrors (pm_objekte)'+(page.errs.length?' — '+page.errs[0]:''));
   await ctx.close();
 }
 
