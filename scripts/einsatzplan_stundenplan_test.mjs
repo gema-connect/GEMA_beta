@@ -85,10 +85,15 @@ ok(await page.evaluate(() => {
   return a && a.classList.contains('konflikt');
 }), 'Überlappung trägt die ⚠-Konflikt-Markierung');
 ok(await page.evaluate(() => {
+  // Linie erscheint nur, wenn die aktuelle Zeit im Arbeitsfenster liegt UND
+  // der heutige Tag in der (hier auf KW 2026-07-13 verankerten) Woche sichtbar
+  // ist — sonst wäre der Check datumsabhängig (Test-Drift nach dieser Woche).
   const f = epNowFrac(epSettings());
   const line = document.querySelector('.nowline');
-  return (f == null) === (line == null);
-}), 'Jetzt-Linie konsistent: sichtbar genau dann, wenn die aktuelle Zeit im Arbeitsfenster liegt');
+  const mo = monday(_anker);
+  const heuteSichtbar = today() >= mo && today() <= addD(mo, 6);
+  return ((f != null && heuteSichtbar)) === (line != null);
+}), 'Jetzt-Linie konsistent: sichtbar genau dann, wenn heute in der Woche liegt und die Zeit im Arbeitsfenster ist');
 
 console.log('■ Outlook-Muster: Zeit im Kalender aufziehen → Dialog mit Zeit');
 {

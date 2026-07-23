@@ -284,7 +284,7 @@
     {key:'planablage',              label:'Plandialog',                cat:'Projektmanagement'},
     {key:'regierapport',            label:'Regierapporte',             cat:'Projektmanagement'},
     {key:'erp',                     label:'Offerten/Aufträge/Rechnungen', cat:'Projektmanagement'},
-    {key:'einsatzplan',             label:'Einsatzplan',               cat:'Projektmanagement'},
+    {key:'einsatzplan',             label:'Termine',                   cat:'Projektmanagement'},
     {key:'pruefliste',              label:'Prüfliste',                 cat:'Projektmanagement'},
     {key:'stundenerfassung',        label:'Stundenerfassung',          cat:'Projektmanagement'},
     {key:'apparateliste',           label:'Apparateliste',             cat:'Projektmanagement'},

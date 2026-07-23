@@ -48,7 +48,7 @@
     'pm_planablage':'Plandialog',
     'pm_pruefliste':'Prüfliste',
     'pm_crbx':'CRBX Offertvergleich',
-    'pm_einsatzplan':'Einsatzplan',
+    'pm_einsatzplan':'Termine',
     'pm_erp':'Offerten · Aufträge · Rechnungen',
     'pm_goodel':'Goodel',
     'pm_honorar':'Planungshonorar SIA 108',
