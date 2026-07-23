@@ -4,8 +4,12 @@
 //  Steigzone/Einlage mit Zusatzfeldern), Ergebnis→Entscheid-Automatik +
 //  SIA-118-Zusatztexte, Mangel⇄Pendenz pro Punkt, Status «teilweise erledigt»,
 //  Fotos rechts (grösser, mehrere), «Durch wen»-Vorschlag aus dem Unternehmer,
-//  Unterschriften Name/Vorname + Firma-Vorbefüllung,
-//  BKP-Katalog als Arbeitsgattungs-Vorschläge.
+//  Unterschriften Name/Vorname + Firma-Vorbefüllung.
+//  Feedback 22.07.2026 (Sandro): Kopf mit Name/Unternehmen-Paaren + weitere
+//  Beteiligte, Freies Objekt = Gebäude/Adresse/PLZ-Ort, Arbeitsgattung NUR
+//  BKP-Hauptkapitel (Select statt datalist), Garantiedauer 2/5 J + Frist-Auto,
+//  Datum Standard heute, Unterschrift-Bestätigung (einfrieren + Stempel),
+//  Mängel-Summary folgt live dem Beschrieb, PDF öffnen + Speichern-unter.
 //  Auto-Speichern per-Record (07/2026): KEIN Speichern-/Laden-Button mehr,
 //  Status-Badge unten rechts, Protokolle als abproto:-Records (Pool
 //  gema_abnahme_proto_pool_v1, scopeKey = alter Blob-Key), Unterschriften
@@ -151,7 +155,7 @@ const noBtns = await page.evaluate(() => ({
   footer: (document.querySelector('.footer-actions') || {}).textContent || ''
 }));
 ok(noBtns.sigSave === 0, 'keine einzelnen Unterschrift-Speichern-Buttons mehr');
-ok(noBtns.footer.indexOf('Speichern') < 0 && noBtns.footer.indexOf('Laden') < 0, 'Footer ohne Speichern/Laden (nur PDF + Reset)');
+ok(noBtns.footer.indexOf('PDF öffnen') >= 0 && noBtns.footer.indexOf('Speichern unter') >= 0 && noBtns.footer.indexOf('Laden') < 0, 'Footer: «PDF öffnen» + «Speichern unter»-Variante (kein Protokoll-Speichern/Laden)');
 // Migration beim Boot: leerer Cloud-Pool + lokales Default-Protokoll → hochgeschrieben
 ok(cloudWrites.some(r => r && String(r.data_key || '').indexOf('abproto:') === 0), 'Boot: Protokoll als abproto:-Record in die Cloud geschrieben');
 // Eingabe → Badge «pending» → Debounce → Pool-Cache + Cloud-Write tragen den Wert
@@ -194,10 +198,113 @@ const sigSaved = await page.evaluate(() => {
 ok(sigSaved, 'Unterschrift wird automatisch mitgespeichert (dataUrl im Record)');
 
 console.log('— «Durch wen»-Vorschlag aus dem Unternehmer —');
-ok((await page.evaluate(() => window._abCreateItem({}).kuerzel)) === 'Muster Haustechnik AG', 'Neuer Punkt: Durch-wen = Unternehmer (überschreibbar)');
+ok((await page.evaluate(() => window._abCreateItem({}).kuerzel)) === 'Muster Haustechnik AG', 'Neuer Punkt: Durch-wen = Unternehmer (überschreibbar, Legacy-Fallback)');
 
-console.log('— BKP-Katalog als Arbeitsgattung —');
-ok((await page.evaluate(() => document.querySelectorAll('#bkpGattungen option').length)) > 300, 'komplette BKP-Liste als Vorschläge (>300)');
+console.log('— Kopf: Name/Unternehmen-Paare + Freies Objekt + weitere Beteiligte —');
+await page.click('#tab_abnahme');
+await page.waitForTimeout(200);
+await page.fill('#unternehmerName', 'Hans Muster');
+await page.fill('#unternehmerFirma', 'Muster Haustechnik AG');
+const kopf = await page.evaluate(() => ({ u: window._abState().abnahme.unternehmer, uf: window._abState().abnahme.unternehmerFirma }));
+ok(kopf.uf === 'Muster Haustechnik AG' && kopf.u === 'Muster Haustechnik AG, Hans Muster', 'Unternehmer-Paar → zusammengesetzter Daten-Kanal (Firma zuerst)');
+ok((await page.evaluate(() => window._abCreateItem({}).kuerzel)) === 'Muster Haustechnik AG', 'Durch-wen-Vorschlag = Unternehmen-Feld');
+await page.evaluate(() => toggleObjektInput(true));
+ok(await page.evaluate(() => ['bo_gebaeude', 'bo_adresse', 'bo_plzort'].every(id => { const el = document.getElementById(id); return !!el && el.offsetParent !== null; })), 'Freies Objekt → Felder Gebäude/Adresse/PLZ-Ort');
+await page.fill('#bo_gebaeude', 'EFH Muster');
+await page.fill('#bo_adresse', 'Musterweg 1');
+await page.fill('#bo_plzort', '4000 Basel');
+ok((await page.evaluate(() => window._abState().abnahme.bauobjekt)) === 'EFH Muster, Musterweg 1, 4000 Basel', 'Teile → zusammengesetztes Bauobjekt');
+await page.click('#wbAdd');
+await page.waitForTimeout(150);
+await page.fill('#wbList [data-wbf="funktion"]', 'Fachbauleitung');
+await page.fill('#wbList [data-wbf="name"]', 'F. Fach');
+await page.fill('#wbList [data-wbf="firma"]', 'Fach AG');
+const wb = await page.evaluate(() => window._abState().abnahme.weitereBeteiligte[0]);
+ok(wb && wb.funktion === 'Fachbauleitung' && wb.name === 'F. Fach' && wb.firma === 'Fach AG', 'Weitere Beteiligte erfasst (Funktion/Name/Unternehmen)');
+await page.evaluate(() => window._abRender());
+const fbSig = await page.evaluate(() => ({ n: document.getElementById('sigFachbauleitungName').value, f: document.getElementById('sigFachbauleitungVisum').value }));
+ok(fbSig.n === 'F. Fach' && fbSig.f === 'Fach AG', 'Fachbauleitung-Unterschrift aus «Weitere Beteiligte» vorbefüllt');
+
+console.log('— Arbeitsgattung: NUR BKP-Hauptkapitel + eigene Eingabe —');
+const ag = await page.evaluate(() => Array.from(document.querySelectorAll('#arbeitsgattungSel option')).map(o => o.value));
+ok(ag.filter(v => v.indexOf('BKP ') === 0).length === 9, 'genau 9 BKP-Hauptkapitel im Select (statt 349er-datalist)');
+ok(ag.indexOf('BKP 250 Sanitäranlagen') >= 0 && ag.indexOf('BKP 219 Inlinerarbeiten') >= 0 && ag.indexOf('BKP 257 Löschanlagen') >= 0, 'Liste = Hauptkapitel gemäss Vorgabe (250/219/257 …)');
+await page.selectOption('#arbeitsgattungSel', 'BKP 250 Sanitäranlagen');
+ok((await page.evaluate(() => window._abState().abnahme.arbeitsgattung)) === 'BKP 250 Sanitäranlagen', 'Auswahl schreibt die Arbeitsgattung');
+await page.selectOption('#arbeitsgattungSel', '_manual');
+await page.waitForTimeout(120);
+ok(await page.evaluate(() => document.getElementById('arbeitsgattung').style.display !== 'none'), '«Eigene Eingabe…» blendet das Freitextfeld ein');
+await page.fill('#arbeitsgattung', 'Spezialgewerk XY');
+await page.evaluate(() => window._abRender());
+const agM = await page.evaluate(() => ({ st: window._abState().abnahme.arbeitsgattung, sel: document.getElementById('arbeitsgattungSel').value, vis: document.getElementById('arbeitsgattung').style.display !== 'none' }));
+ok(agM.st === 'Spezialgewerk XY' && agM.sel === '_manual' && agM.vis, 'Eigener Text bleibt erhalten (Select auf «Eigene Eingabe», Feld sichtbar)');
+await page.selectOption('#arbeitsgattungSel', 'BKP 250 Sanitäranlagen');
+
+console.log('— Garantie: Dauer 2/5 Jahre + Frist automatisch —');
+const heuteStr = (d => `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.${d.getFullYear()}`)(new Date());
+const frist2 = (d => `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.${d.getFullYear() + 2}`)(new Date());
+await page.check('#gar2');
+let gar = await page.evaluate(() => ({ j: window._abState().abnahme.garantieJahre, chip: document.getElementById('garFrist').textContent, vis: document.getElementById('garFrist').style.display !== 'none' }));
+ok(gar.j === 2 && gar.vis, 'Kästchen «2 Jahre» → garantieJahre 2 + Frist-Chip sichtbar');
+ok(gar.chip.indexOf(frist2) >= 0, 'Garantiefrist = Abnahmedatum + 2 Jahre («' + gar.chip + '»)');
+await page.check('#gar5');
+gar = await page.evaluate(() => ({ j: window._abState().abnahme.garantieJahre, g2: document.getElementById('gar2').checked }));
+ok(gar.j === 5 && !gar.g2, '«5 Jahre» schaltet um (2er-Kästchen abgewählt)');
+await page.uncheck('#gar5');
+ok((await page.evaluate(() => window._abState().abnahme.garantieJahre)) === 0, 'Abwählen → keine Garantie-Angabe');
+
+console.log('— Datum: Standard heutiger Tag —');
+ok((await page.evaluate(() => document.getElementById('abnahmeDatum').value)) === heuteStr, 'Abnahmedatum = heute (Standard, folgt dem Tag)');
+await page.fill('#abnahmeDatum', '01.07.2026');
+await page.evaluate(() => window._abRender());
+const dat = await page.evaluate(() => ({ v: document.getElementById('abnahmeDatum').value, t: window._abState().abnahme._datumTouched }));
+ok(dat.v === '01.07.2026' && dat.t === true, 'manuell gesetztes Datum bleibt fixiert (folgt nicht mehr heute)');
+
+console.log('— Unterschrift bestätigen: einfrieren + Datum/Ort-Stempel —');
+await page.evaluate(() => document.querySelector('[data-sig-confirm="unternehmer"]').scrollIntoView({ block: 'center', behavior: 'instant' }));
+await page.click('[data-sig-confirm="unternehmer"]');
+await page.waitForTimeout(350);
+await page.click('.gema-dlg-bg [data-act="ok"]');
+await page.waitForTimeout(350);
+const conf = await page.evaluate(() => ({
+  best: window._abState().abnahme.sig.unternehmer.bestaetigt,
+  stamp: document.getElementById('sigStampUnternehmer').textContent,
+  stampVis: document.getElementById('sigStampUnternehmer').style.display !== 'none',
+  confirmed: document.getElementById('sigCardUnternehmer').classList.contains('confirmed'),
+  btnWeg: document.querySelector('[data-sig-confirm="unternehmer"]').style.display === 'none',
+  clearWeg: document.querySelector('[data-sig-clear="sigUnternehmer"]').style.display === 'none'
+}));
+ok(conf.best && conf.best.am === heuteStr && conf.best.ort === 'Basel Auto-Save', 'Bestätigung mit Datum/Ort-Stempel gespeichert');
+ok(conf.stampVis && conf.stamp.indexOf('Bestätigt am') >= 0, 'Stempel sichtbar in der Karte');
+ok(conf.confirmed && conf.btnWeg && conf.clearWeg, 'Unterschrift eingefroren (kein Bestätigen/Löschen mehr)');
+// Zeichnen auf dem eingefrorenen Pad ändert die Unterschrift NICHT
+const sigLenBefore = await page.evaluate(() => (window._abState().abnahme.sig.unternehmer.dataUrl || '').length);
+await page.evaluate(() => document.getElementById('sigUnternehmer').scrollIntoView({ block: 'center', behavior: 'instant' }));
+await page.waitForTimeout(300);
+const frozenBox = await page.evaluate(() => { const r = document.getElementById('sigUnternehmer').getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; });
+await page.mouse.move(frozenBox.x + 30, frozenBox.y + 30);
+await page.mouse.down();
+await page.mouse.move(frozenBox.x + frozenBox.w - 40, frozenBox.y + frozenBox.h - 30, { steps: 4 });
+await page.mouse.up();
+await page.waitForTimeout(300);
+ok((await page.evaluate(() => (window._abState().abnahme.sig.unternehmer.dataUrl || '').length)) === sigLenBefore, 'Pad eingefroren — Zeichnen ohne Wirkung');
+// ↩ Fehlklick-Korrektur: Bestätigung aufheben
+await page.click('[data-sig-unconfirm="unternehmer"]');
+await page.waitForTimeout(350);
+await page.click('.gema-dlg-bg [data-act="ok"]');
+await page.waitForTimeout(350);
+ok(await page.evaluate(() => !window._abState().abnahme.sig.unternehmer.bestaetigt && document.querySelector('[data-sig-confirm="unternehmer"]').style.display !== 'none'), '↩ hebt die Bestätigung auf (wieder bearbeitbar)');
+
+console.log('— Mängel-Summary folgt live dem Beschrieb —');
+await page.click('#tab_maengel');
+await page.waitForTimeout(300);
+await page.click('.mangel-card .mangel-summary');
+await page.waitForTimeout(300);
+await page.fill('.mangel-detail.open [data-field="mangel"]', 'Neuer Beschrieb ABC');
+const sum = await page.evaluate(() => document.querySelector('.mangel-card .mangel-mangel').textContent);
+ok(sum === 'Neuer Beschrieb ABC', 'Kopfzeile übernimmt den Mangelbeschrieb LIVE beim Tippen');
+await page.click('.mangel-card .mangel-summary');   // wieder schliessen — Folge-Checks öffnen selbst
+await page.waitForTimeout(250);
 
 console.log('— Mangel ⇄ Pendenz + teilweise erledigt + Fotos rechts —');
 await page.click('#tab_maengel');

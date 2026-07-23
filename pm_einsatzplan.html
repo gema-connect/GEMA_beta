@@ -1577,20 +1577,21 @@ document.addEventListener('DOMContentLoaded',function(){
 <script src="gema-native.js"></script>
 <script src="gema_native_mobil.js"></script>
 <script>
-/* ═══ GEMA Native — iPhone-Ansicht (Screen «Einsatzplan» aus gema-native-screens.html) ═══
-   Wochenstreifen + Agenda aus dem echten Einsatz-Pool (epAll/epCovers); Monteure sehen
-   die eigenen Einsätze inkl. Besonderheiten + Schlüssel-Box, Planende alle + Bearbeiten. */
+/* ═══ GEMA Native — iPhone-Ansicht (Screen «Einsatzplan») ═══
+   DURCHGÄNGIG nativ: Wochenstreifen + Agenda + native Bottom-Sheets zum Termin
+   erfassen/bearbeiten. Die Sheets sammeln die Eingaben und rufen die ECHTEN
+   Modul-Funktionen (epNeu/epEvOpen/epAufPick/epEvSave/epEvDelete) über curEv +
+   die klassischen Modal-Felder als Datenkanal auf — inkl. Notify + Sync. Kein
+   klassisches Modal wird sichtbar (die Save-Kette läuft synchron). */
 (function(){
   if(typeof GemaNativeMobil==='undefined') return;
   var NE=GemaNativeMobil.esc, nat=null;
   var WT2=['So','Mo','Di','Mi','Do','Fr','Sa'];
   var MON=['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
   function heute(){ return new Date().toISOString().slice(0,10); }
-  function moStart(isoS){
-    var d=new Date(isoS+'T12:00:00'); var w=(d.getDay()+6)%7; d.setDate(d.getDate()-w);
-    return d.toISOString().slice(0,10);
-  }
+  function moStart(isoS){ var d=new Date(isoS+'T12:00:00'); var w=(d.getDay()+6)%7; d.setDate(d.getDate()-w); return d.toISOString().slice(0,10); }
   var natTag=heute(), natWs=moStart(heute());
+  function addDl(iso,n){ var d=new Date(iso+'T12:00:00'); d.setDate(d.getDate()+n); return d.toISOString().slice(0,10); }
   function meine(){
     var u=null; try{ u=epUser(); }catch(e){}
     var all=[]; try{ all=epAll(); }catch(e){}
@@ -1640,7 +1641,7 @@ document.addEventListener('DOMContentLoaded',function(){
   function stripHtml(){
     var out='';
     for(var i=0;i<7;i++){
-      var d=addD(natWs,i), dd=new Date(d+'T12:00:00');
+      var d=addDl(natWs,i), dd=new Date(d+'T12:00:00');
       out+='<button class="gn-day'+(d===natTag?' is-active':'')+(evsAm(d).length?' has-dot':'')+'" data-value="'+NE(d)+'"><small>'+WT2[dd.getDay()]+'</small><b>'+dd.getDate()+'</b><i></i></button>';
     }
     return '<div class="gn-weekstrip" data-nat-strip>'+out+'</div>';
@@ -1654,9 +1655,7 @@ document.addEventListener('DOMContentLoaded',function(){
       '<div class="gn-compact" data-gn-compact><b>Einsatzplan</b></div>'
       +'<div class="gn-screen" data-gn-scroll>'
         +'<div class="gn-toolbar">'
-          +'<div class="gn-large-title"><h1>Einsatzplan</h1><p>KW '+kwVon(natWs)+' · '+MON[dd.getMonth()]+' '+dd.getFullYear()+'</p></div>'
-          +'<button class="gn-icon-btn" data-gn-classic title="Klassische Ansicht"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>'
-          +(plan?'<button class="gn-icon-btn gn-icon-btn--primary" data-nat-add title="Neuer Einsatz"><svg viewBox="0 0 24 24" fill="none" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button>':'')
+          +'<div class="gn-large-title"><h1>Einsatzplan</h1><p>KW '+kwVon(natWs)+' · '+MON[dd.getMonth()]+' '+dd.getFullYear()+'</p></div>'          +(plan?'<button class="gn-icon-btn gn-icon-btn--primary" data-nat-add title="Neuer Einsatz"><svg viewBox="0 0 24 24" fill="none" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button>':'')
         +'</div>'
         +'<div class="gn-seg" data-nat-wk>'
           +'<button class="gn-seg-opt" data-value="prev">‹</button>'
@@ -1669,27 +1668,116 @@ document.addEventListener('DOMContentLoaded',function(){
       +'</div>';
     root.querySelector('[data-nat-wk]').addEventListener('gn:segment',function(e){
       var v=e.detail.value;
-      if(v==='prev') natWs=addD(natWs,-7);
-      else if(v==='next') natWs=addD(natWs,7);
+      if(v==='prev') natWs=addDl(natWs,-7);
+      else if(v==='next') natWs=addDl(natWs,7);
       else natWs=moStart(heute());
-      natTag=(natWs<=heute()&&heute()<=addD(natWs,6))?heute():natWs;
+      natTag=(natWs<=heute()&&heute()<=addDl(natWs,6))?heute():natWs;
       if(nat) nat.refresh();
     });
-    root.querySelector('[data-nat-strip]').addEventListener('gn:day',function(e){
-      natTag=e.detail.value;
-      if(nat) nat.refresh();
-    });
+    root.querySelector('[data-nat-strip]').addEventListener('gn:day',function(e){ natTag=e.detail.value; if(nat) nat.refresh(); });
     root.querySelector('[data-nat-agenda]').addEventListener('click',function(e){
       var card=e.target.closest&&e.target.closest('[data-nat-id]'); if(!card) return;
       var plan2=false; try{ plan2=epCanPlan(); }catch(err){}
-      if(plan2){ try{ epEvOpen(card.getAttribute('data-nat-id')); }catch(err){} }
+      if(plan2) openEvSheet(card.getAttribute('data-nat-id'));
     });
     var add=root.querySelector('[data-nat-add]');
-    if(add) add.addEventListener('click',function(){
-      var u=null; try{ u=epUser(); }catch(e){}
-      try{ epNeu(u?u.id:'',natTag); }catch(e){}
+    if(add) add.addEventListener('click',function(){ openEvSheet(null); });
+  }
+
+  // ── Termin erfassen/bearbeiten (natives Sheet) ──
+  function openEvSheet(evId){
+    if(!nat) return;
+    var plan=false; try{ plan=epCanPlan(); }catch(e){}
+    if(!plan){ try{ toast('Keine Berechtigung'); }catch(e){} return; }
+    var u=null; try{ u=epUser(); }catch(e){}
+    var ev0=null;
+    if(evId){ try{ ev0=(epAll()||[]).find(function(x){return x.id===evId;}); }catch(e){} if(!ev0) return; }
+    var typ=ev0?ev0.typ:'auftrag';
+    var titel=ev0?(ev0.titel||''):'';
+    var monteurId=ev0?ev0.monteurUserId:'';
+    var datum=ev0?ev0.datum:natTag;
+    var dauer=ev0?(ev0.dauerTage||1):1;
+    var von=ev0?(ev0.zeitVon||''):'', bis=ev0?(ev0.zeitBis||''):'';
+    var bereichId=ev0?(ev0.bereichId||''):'';
+    var notiz=ev0?(ev0.notiz||''):'';
+    var garantie=ev0?!!ev0.garantie:false;
+    var auftragId=ev0?(ev0.auftragId||''):'';
+    if(!von&&typ!=='ferien'){ try{ var s=epSettings(); von=(s.tagVon<10?'0':'')+s.tagVon+':00'; var e=Math.min(s.tagVon+4,s.tagBis); bis=(e<10?'0':'')+e+':00'; }catch(e){ von='07:00'; bis='11:00'; } }
+    var pers=[]; try{ pers=epPersonen(); }catch(e){}
+    var ber=[]; try{ ber=abListe(); }catch(e){}
+    var aufs=[]; try{ aufs=epAuftraege()||[]; }catch(e){}
+    if(auftragId&&!aufs.some(function(a){return a.id===auftragId;})){ try{ var ca=epAuftragById(auftragId); if(ca) aufs.unshift(ca); }catch(e){} }
+    var TYP={auftrag:'📋 Auftrag',frei:'🔧 Frei',ferien:'🏖 Abwesend'};
+    function chips(){
+      return '<div class="gn-seg-chips" data-nat-typ>'+Object.keys(TYP).map(function(k){
+        return '<button type="button" class="gn-chip-sel'+(typ===k?' is-active':'')+'" data-t="'+k+'">'+TYP[k]+'</button>';
+      }).join('')+'</div>';
+    }
+    function aufSelect(){
+      return '<div class="gn-field" data-nat-aufwrap'+(typ==='auftrag'?'':' style="display:none"')+'><label>Auftrag</label><select class="gn-native-select" data-f="auftrag">'
+        +'<option value="">— kein Auftrag —</option>'
+        +aufs.map(function(a){ var ks=a.kundeSnapshot||{}; return '<option value="'+NE(a.id)+'"'+(auftragId===a.id?' selected':'')+'>'+NE((a.nr||'')+' · '+(a.titel||ks.firma||''))+'</option>'; }).join('')
+        +'</select></div>';
+    }
+    var html=
+      chips()
+      +'<div class="gn-field"><label>Titel / Arbeit *</label><input class="gn-input" type="text" data-f="titel" placeholder="z.B. Steigzone EG–3.OG" value="'+NE(titel)+'"></div>'
+      +aufSelect()
+      +'<div class="gn-field"><label>Monteur *</label><select class="gn-native-select" data-f="monteur"><option value="">— wählen —</option>'
+        +pers.map(function(x){ return '<option value="'+NE(x.id)+'"'+(monteurId===x.id?' selected':'')+'>'+NE(x.name||x.username)+'</option>'; }).join('')+'</select></div>'
+      +'<div class="gn-field"><label>Datum *</label><input class="gn-input" type="date" data-f="datum" value="'+NE(datum)+'"></div>'
+      +'<div class="gn-field"><label>Zeit von – bis</label><div class="gn-timepair"><input class="gn-input" type="time" data-f="von" value="'+NE(von)+'"><input class="gn-input" type="time" data-f="bis" value="'+NE(bis)+'"></div></div>'
+      +'<div class="gn-field"><label>Dauer (Tage)</label><input class="gn-input" type="text" inputmode="numeric" data-f="dauer" value="'+NE(String(dauer))+'"></div>'
+      +(ber.length?('<div class="gn-field"><label>Arbeitsbereich</label><select class="gn-native-select" data-f="bereich"><option value="">— ohne —</option>'
+        +ber.map(function(b){ return '<option value="'+NE(b.id)+'"'+(bereichId===b.id?' selected':'')+'>'+NE(b.name)+'</option>'; }).join('')+'</select></div>'):'')
+      +'<div class="gn-field"><label>Notiz für den Monteur</label><input class="gn-input" type="text" data-f="notiz" placeholder="z.B. Schlüssel bei Hauswart" value="'+NE(notiz)+'"></div>'
+      +'<label class="gn-check"><input type="checkbox" data-f="garantie"'+(garantie?' checked':'')+'><span>🛡 Garantiearbeit (Garantie / Eigenverschulden)</span></label>';
+    var sheetEl=nat.sheet({
+      title: evId?'✏️ Einsatz bearbeiten':'＋ Neuer Einsatz',
+      html: html,
+      saveLabel: '💾 Speichern',
+      deleteLabel: evId?'Löschen':null,
+      onDelete: evId?function(){
+        try{ epEvOpen(evId); var m=document.getElementById('evModal'); if(m) m.classList.remove('open'); nat.closeSheet(); epEvDelete(); }catch(err){}
+      }:null,
+      onSave: function(s){
+        var g=function(f){ var el=s.querySelector('[data-f="'+f+'"]'); return el?el.value:''; };
+        var chip=s.querySelector('[data-nat-typ] .gn-chip-sel.is-active');
+        var vTyp=chip?chip.getAttribute('data-t'):'auftrag';
+        if(!g('titel').trim()){ try{ toast('⚠ Titel fehlt'); }catch(e){} return false; }
+        if(!g('monteur')){ try{ toast('⚠ Monteur wählen'); }catch(e){} return false; }
+        if(!g('datum')){ try{ toast('⚠ Datum fehlt'); }catch(e){} return false; }
+        try{
+          if(evId) epEvOpen(evId); else epNeu(g('monteur'),g('datum'));
+          if(window.curEv){ window.curEv.typ=vTyp; }
+          if(vTyp==='auftrag'&&g('auftrag')){ try{ epAufPick(g('auftrag')); }catch(e){} }
+          else if(window.curEv){ window.curEv.auftragId=''; }
+          var set=function(id,v){ var el=document.getElementById(id); if(el) el.value=v; };
+          var setChk=function(id,b){ var el=document.getElementById(id); if(el) el.checked=b; };
+          set('ev_titel',g('titel')); set('ev_monteur',g('monteur')); set('ev_datum',g('datum'));
+          set('ev_dauer',g('dauer')||'1'); set('ev_notiz',g('notiz'));
+          set('ev_von',g('von')); set('ev_bis',g('bis'));
+          var bsel=document.getElementById('ev_bereich'); if(bsel) bsel.value=g('bereich');
+          setChk('ev_garantie',!!s.querySelector('[data-f="garantie"]').checked);
+          // Zeit-Wrap sichtbar erzwingen, damit epEvSave zeitVon/Bis übernimmt
+          var zw=document.getElementById('evZeitWrap'); if(zw&&g('von')) zw.style.display='';
+          epEvSave();
+          var m=document.getElementById('evModal'); if(m) m.classList.remove('open');
+        }catch(err){ console.warn('[nat einsatz] save:',err&&err.message); }
+        return true;
+      }
+    });
+    // Typ-Chips: Auftrag-Select ein-/ausblenden
+    var chipRow=sheetEl.querySelector('[data-nat-typ]');
+    if(chipRow) chipRow.addEventListener('click',function(e){
+      var b=e.target.closest&&e.target.closest('.gn-chip-sel'); if(!b) return;
+      chipRow.querySelectorAll('.gn-chip-sel').forEach(function(x){ x.classList.remove('is-active'); });
+      b.classList.add('is-active');
+      var aw=sheetEl.querySelector('[data-nat-aufwrap]');
+      if(aw) aw.style.display=(b.getAttribute('data-t')==='auftrag')?'':'none';
     });
   }
+
   nat=GemaNativeMobil.mount({render:render});
   var _oER=window.epRender;
   if(typeof _oER==='function'){ window.epRender=function(){ var r=_oER.apply(this,arguments); try{ if(nat&&GemaNativeMobil.enabled()) nat.refresh(); }catch(e){} return r; }; }

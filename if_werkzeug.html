@@ -7084,9 +7084,16 @@ try{ if(window.GemaActivityLog) window.GemaActivityLog.bootstrap(); }catch(e){}
 <script src="gema-native.js"></script>
 <script src="gema_native_mobil.js"></script>
 <script>
-/* ═══ GEMA Native — iPhone-Ansicht (Screen «Werkzeugmanagement» aus gema-native-screens.html) ═══
-   Vollbild-Overlay ≤740px mit ECHTEN Daten (tools) + bestehenden Modul-Aktionen
-   (openViewTool/openQR/openDefektMelden/openAdd/_wzScanWithCamera). Desktop unverändert. */
+/* ═══ GEMA Native — iPhone-Ansicht (Screen «Werkzeugmanagement») ═══
+   DURCHGÄNGIG nativ: Liste + natives Detail-Sheet + native Bottom-Sheets für
+   Erfassen/Bearbeiten, Ausleihen, Zuweisen und Defekt melden. Die Sheets
+   sammeln die Eingaben und rufen die ECHTEN Modul-Funktionen über die
+   klassischen Modal-Felder als Datenkanal auf (openAdd/editTool→submitForm,
+   openDefektMelden→_wzSaveDefekt, _wzOpenAusleihe→_wzSaveAusleihe,
+   openZuweisung→_wzSaveZuweisung) — inkl. Guards, Logging, Notify und Sync;
+   die Ketten laufen synchron (kein Modal-Flash). Koffer + Power-Features
+   (QR/Etikette, Berichte, Inhalt-Scan) öffnen die klassischen Dialoge ÜBER
+   dem Screen. Desktop unverändert. */
 (function(){
   if(typeof GemaNativeMobil==='undefined') return;
   var NE=GemaNativeMobil.esc, nst={q:'',seg:'alle'}, natCtxId=null, nat=null;
@@ -7142,9 +7149,7 @@ try{ if(window.GemaActivityLog) window.GemaActivityLog.bootstrap(); }catch(e){}
       '<div class="gn-compact" data-gn-compact><b>Werkzeug</b></div>'
       +'<div class="gn-screen" data-gn-scroll>'
         +'<div class="gn-toolbar">'
-          +'<div class="gn-large-title"><h1>Werkzeug</h1><p>'+ts.length+' Geräte · '+pruef+' Prüfungen fällig</p></div>'
-          +'<button class="gn-icon-btn" data-gn-classic title="Klassische Ansicht"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>'
-          +'<button class="gn-icon-btn" data-nat-scan title="QR scannen"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><path d="M14 14h3v3M20 14v6M17 20h3"/></svg></button>'
+          +'<div class="gn-large-title"><h1>Werkzeug</h1><p>'+ts.length+' Geräte · '+pruef+' Prüfungen fällig</p></div>'          +'<button class="gn-icon-btn" data-nat-scan title="QR scannen"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><path d="M14 14h3v3M20 14v6M17 20h3"/></svg></button>'
           +(canEdit?'<button class="gn-icon-btn gn-icon-btn--primary" data-nat-add title="Neues Gerät"><svg viewBox="0 0 24 24" fill="none" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button>':'')
         +'</div>'
         +'<div class="gn-searchbar"><svg viewBox="0 0 24 24" fill="none" stroke-width="2.1" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-3.6-3.6"/></svg><input data-nat-q placeholder="Gerät, Inv-Nr. oder Person" value="'+NE(nst.q)+'"></div>'
@@ -7168,12 +7173,12 @@ try{ if(window.GemaActivityLog) window.GemaActivityLog.bootstrap(); }catch(e){}
     root.querySelector('[data-nat-list]').addEventListener('click',function(e){
       var row=e.target.closest&&e.target.closest('[data-nat-id]'); if(!row) return;
       if(row.__gnCtxFired){ row.__gnCtxFired=false; return; }   // Long-Press hat Vorrang
-      try{ openViewTool(row.getAttribute('data-nat-id')); }catch(err){}
+      try{ openToolSheet(row.getAttribute('data-nat-id')); }catch(err){}
     });
     var scan=root.querySelector('[data-nat-scan]');
     if(scan) scan.addEventListener('click',function(){ try{ _wzScanWithCamera(); }catch(e){} });
     var add=root.querySelector('[data-nat-add]');
-    if(add) add.addEventListener('click',function(){ try{ openAdd(); }catch(e){} });
+    if(add) add.addEventListener('click',function(){ try{ openToolForm(null); }catch(e){} });
     var bg=root.querySelector('[data-gn-ctx-backdrop]');
     bg.addEventListener('gn:context',function(e){ natCtxId=e.detail.row?e.detail.row.getAttribute('data-nat-id'):null; });
     bg.addEventListener('click',function(e){
@@ -7181,13 +7186,291 @@ try{ if(window.GemaActivityLog) window.GemaActivityLog.bootstrap(); }catch(e){}
       if(!it||!natCtxId) return;
       var act=it.getAttribute('data-nat-act'), id=natCtxId;
       setTimeout(function(){ try{
-        if(act==='open') openViewTool(id);
+        if(act==='open') openToolSheet(id);
         else if(act==='qr') openQR(id);
-        else if(act==='defekt') openDefektMelden(id);
+        else if(act==='defekt') openDefektSheet(id);
       }catch(err){} },60);
     });
   }
+
+  /* ── Sheet-Bausteine ── */
+  function natT(id){ try{ return (tools||[]).find(function(x){return x.id===id;}); }catch(e){ return null; } }
+  function natKv(k,v,color){
+    return '<div class="gn-kv"><span class="k">'+NE(k)+'</span><span class="v is-strong"'+(color?' style="color:'+color+'"':'')+'>'+NE(v||'—')+'</span></div>';
+  }
+  function natAct(act,label,danger){
+    return '<button class="gn-select" data-nats="'+NE(act)+'"'+(danger?' style="color:var(--gn-danger)"':'')+'><span class="k"'+(danger?' style="color:var(--gn-danger)"':'')+'>'+label+'</span><span class="v">›</span></button>';
+  }
+  function natPersonen(roles){
+    var out=[];
+    try{
+      var me=_wzGetUser()||{};
+      (GemaAuth.getUsers()||[]).forEach(function(u){
+        if(!u.active) return;
+        if(me.orgId&&u.orgId!==me.orgId&&!_wzIsAdmin()) return;
+        if(roles&&!(u.roleIds||[]).some(function(r){return roles.indexOf(r)>=0;})) return;
+        out.push(u);
+      });
+    }catch(e){}
+    return out;
+  }
+  function natSet(fid,v){ var el=document.getElementById(fid); if(el) el.value=v; }
+  function natToast(msg){
+    try{
+      var el=document.createElement('div');
+      el.textContent=msg;
+      el.style.cssText='position:fixed;left:50%;bottom:calc(96px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:rgba(28,28,30,.92);color:#fff;padding:10px 16px;border-radius:12px;font:600 13.5px "DM Sans",system-ui,sans-serif;z-index:12500;max-width:86vw;text-align:center;pointer-events:none';
+      document.body.appendChild(el);
+      setTimeout(function(){ try{ el.remove(); }catch(e){} },2200);
+    }catch(e){}
+  }
+
+  /* ── Natives Detail-Sheet (Zeilen-Tap, Scan, ?view=-Deep-Link) ── */
+  function openToolSheet(id){
+    var t=natT(id);
+    if(!t){ try{ _oOVT(id); }catch(e){} return; }
+    // Koffer: volle Funktionalität (Inhalt/Scan/Kontrolle) im klassischen Detail
+    var kof=false; try{ kof=_wzIsKoffer(t); }catch(e){}
+    if(kof){ try{ _oOVT(id); }catch(e){} return; }
+    var canEdit=false; try{ canEdit=_wzCanEdit(); }catch(e){}
+    var pend=false; try{ pend=_wzIsPendingEinbuchung(t); }catch(e){}
+    var s=natStatus(t), cat=(typeof CATS!=='undefined'&&CATS[t.cat])||{icon:'📦',label:t.cat||'—'};
+    var info='';
+    info+='<div style="display:flex;gap:6px;flex-wrap:wrap;padding:0 16px 12px">'
+      +'<span class="gn-badge '+s.cls+'">'+NE(s.lbl)+'</span>'
+      +'<span class="gn-badge gn-badge--info">'+NE(cat.icon+' '+cat.label)+'</span>'
+      +(t.ausgeliehenAn?'<span class="gn-badge gn-badge--warn">🔄 '+NE(t.ausgeliehenAn.name||'')+'</span>':'')
+      +'</div>';
+    if(pend){
+      info+='<div style="margin:0 16px 12px;padding:11px 13px;background:#fffbeb;border:1.5px solid #fcd34d;border-radius:12px;font-size:13px;color:#92400e"><b>📥 Einbuchung durch Lieferant</b><br>'+NE(t.einbuchung&&t.einbuchung.lieferantFirma||'—')+' — zuerst akzeptieren oder ablehnen.</div>';
+    }
+    var rows='';
+    if(t.internKennung) rows+=natKv('Interne Kennung',t.internKennung);
+    if(t.brand||t.model) rows+=natKv('Hersteller / Modell',[t.brand,t.model].filter(Boolean).join(' '));
+    if(t.serial) rows+=natKv('Seriennummer',t.serial);
+    if(t.notes) rows+=natKv('Standort / Notiz',t.notes);
+    if(t.zugewiesenAn) rows+=natKv(t.zugewiesenAn.typ==='platz'?'Platz':'Zugewiesen an',t.zugewiesenAn.name||'—');
+    if(t.bought) rows+=natKv('Kaufdatum',fmt(t.bought));
+    if(t.warranty) rows+=natKv('Garantie bis',fmt(t.warranty));
+    try{
+      var sd=nextService(t), ed=nextElec(t), ld=nextLeiter(t);
+      var pruefC=function(d){ var c=dc(daysFrom(d)); return c==='red'?'var(--gn-danger)':c==='amber'?'var(--gn-warn)':''; };
+      if(sd) rows+=natKv('Nächster Service',fmt(sd)+' · '+dt(daysFrom(sd)),pruefC(sd));
+      if(ed) rows+=natKv('Elektroprüfung (NIV)',fmt(ed)+' · '+dt(daysFrom(ed)),pruefC(ed));
+      if(ld) rows+=natKv('Leiterprüfung (EKAS)',fmt(ld)+' · '+dt(daysFrom(ld)),pruefC(ld));
+    }catch(e){}
+    if(rows) info+='<div class="gn-list" style="margin-bottom:14px">'+rows+'</div>';
+    var acts='';
+    if(pend&&canEdit){
+      acts+=natAct('einAkzept','✓ Einbuchung akzeptieren');
+      acts+=natAct('einAblehn','✕ Einbuchung ablehnen',true);
+    }
+    if(canEdit&&!pend){
+      acts+=natAct('edit','✏️ Bearbeiten');
+      acts+=natAct('ausleihe','🔄 Ausleihen an …');
+      acts+=natAct('zuweisen','👷 Zuweisen');
+      if(t.ausgeliehenAn) acts+=natAct('rueckgabe','↩ Zurück ins Lager');
+    }
+    if(!canEdit&&!pend){
+      var meId=''; try{ meId=(_wzGetUser()||{}).id||''; }catch(e){}
+      if(!t.ausgeliehenAn) acts+=natAct('selbst','🔄 Auf mich ausleihen');
+      else if(t.ausgeliehenAn.userId===meId) acts+=natAct('rueckgabe','↩ Zurückgeben');
+    }
+    var canDef=false; try{ canDef=_wzCanReportDefect(); }catch(e){}
+    if(canDef) acts+=natAct('defekt','🚨 Defekt melden',true);
+    acts+=natAct('berichte','📝 Berichte'+((t.berichte&&t.berichte.length)?' ('+t.berichte.length+')':''));
+    if(canEdit){
+      acts+=natAct('qr','🔲 QR / Etikette');
+      acts+=natAct('aktlog','📋 Aktivitäten');
+      acts+= (t.lifecycleStatus==='verloren') ? natAct('gefunden','✅ Wieder gefunden') : natAct('verloren','❓ Als verloren melden',true);
+    }
+    var sh=nat.sheet({ title:t.name||'Gerät', html:info+'<div class="gn-list">'+acts+'</div>' });
+    sh.addEventListener('click',function(e){
+      var b=e.target.closest&&e.target.closest('[data-nats]'); if(!b) return;
+      var a=b.getAttribute('data-nats');
+      nat.closeSheet();
+      setTimeout(function(){ try{
+        if(a==='edit') openToolForm(id);
+        else if(a==='ausleihe') openAusleiheSheet(id);
+        else if(a==='zuweisen') openZuwSheet(id);
+        else if(a==='rueckgabe') _wzReturnTool(id);
+        else if(a==='selbst') _wzLendToSelf(id);
+        else if(a==='defekt') openDefektSheet(id);
+        else if(a==='berichte') openBerichte(id);
+        else if(a==='qr') openQR(id);
+        else if(a==='aktlog') _wzToolActLog(id);
+        else if(a==='verloren') _wzMarkVerloren(id);
+        else if(a==='gefunden') _wzMarkGefunden(id);
+        else if(a==='einAkzept') _wzEinbuchungAkzeptieren(id);
+        else if(a==='einAblehn') _wzEinbuchungAblehnen(id);
+      }catch(err){} },80);
+    });
+  }
+
+  /* ── Erfassen/Bearbeiten (natives Sheet → openAdd/editTool + submitForm) ── */
+  function openToolForm(id){
+    var t=id?natT(id):null;
+    if(id&&!t) return;
+    var cats=[]; try{ cats=_wzGetActiveCats().filter(function(c){return c.id!=='koffer';}); }catch(e){}
+    var catOpts='<option value="">— Kategorie wählen —</option>'+cats.map(function(c){
+      return '<option value="'+NE(c.id)+'"'+((t&&t.cat===c.id)?' selected':'')+'>'+NE((c.icon||'')+' '+c.label)+'</option>';
+    }).join('');
+    var heute=''; try{ heute=today(); }catch(e){ heute=new Date().toISOString().slice(0,10); }
+    var html=
+      '<div class="gn-field"><label>Bezeichnung *</label><input class="gn-input" data-f="name" placeholder="z.B. Bohrschrauber Hilti TE 6" value="'+NE(t?t.name:'')+'"></div>'
+      +'<div class="gn-field"><label>Kategorie *</label><select class="gn-native-select" data-f="cat">'+catOpts+'</select></div>'
+      +'<div class="gn-field"><label>Interne Kennung</label><input class="gn-input" data-f="intern" placeholder="z.B. WZ-014" value="'+NE(t?(t.internKennung||''):'')+'"></div>'
+      +'<div class="gn-field"><label>Hersteller / Modell</label><div class="gn-timepair"><input class="gn-input" data-f="brand" placeholder="Hersteller" value="'+NE(t?(t.brand||''):'')+'"><input class="gn-input" data-f="model" placeholder="Modell" value="'+NE(t?(t.model||''):'')+'"></div></div>'
+      +'<div class="gn-field"><label>Seriennummer</label><input class="gn-input" data-f="serial" value="'+NE(t?(t.serial||''):'')+'"></div>'
+      +'<div class="gn-field"><label>Kaufdatum *</label><input class="gn-input" type="date" data-f="bought" value="'+NE(t?(t.bought||''):heute)+'"></div>'
+      +'<div class="gn-field"><label>Standort / Notiz</label><input class="gn-input" data-f="notes" placeholder="z.B. Lager Halle B" value="'+NE(t?(t.notes||''):'')+'"></div>'
+      +(id?'':'<div class="gn-label" style="text-transform:none;font-weight:500">Prüfungen, Kaufbeleg &amp; Details lassen sich später über «Bearbeiten» am Desktop ergänzen — Service/NIV-Standards werden automatisch gesetzt.</div>');
+    nat.sheet({
+      title:id?'Gerät bearbeiten':'Neues Gerät',
+      saveLabel:'💾 Speichern',
+      html:html,
+      onSave:function(s){
+        var g=function(f){ var el=s.querySelector('[data-f="'+f+'"]'); return el?el.value.trim():''; };
+        if(!g('name')||!g('cat')||!g('bought')){ natToast('Bezeichnung, Kategorie + Kaufdatum ausfüllen'); return false; }
+        try{
+          // Coachmark-Tour des klassischen Formulars auf diesem Gerät stilllegen
+          // (openAdd würde sie 400 ms später über dem GESCHLOSSENEN Modal starten)
+          try{ if(window.GemaCoachmarks) GemaCoachmarks.markDone('werkzeug_erfassen_v1'); }catch(e){}
+          // echte Save-Kette: Modul-Setup befüllt ALLE klassischen Felder
+          // (Edit erhält Kaufbeleg/Prüfungen etc.), native Werte übersteuern.
+          if(id) editTool(id); else openAdd();
+          if(!document.getElementById('addModal')||document.getElementById('addModal').classList.contains('hidden')) return true;
+          natSet('f_name',g('name')); natSet('f_cat',g('cat'));
+          try{ onCatChange(); }catch(e){}
+          natSet('f_intern',g('intern')); natSet('f_brand',g('brand')); natSet('f_model',g('model'));
+          natSet('f_serial',g('serial')); natSet('f_bought',g('bought')); natSet('f_notes',g('notes'));
+          var rid=submitForm();               // speichert + schliesst das Modal
+          if(!rid){ try{ closeAdd(); }catch(e){} return false; }
+        }catch(err){ console.warn('[nat wz] form:',err&&err.message); try{ closeAdd(); }catch(e){} }
+        return true;
+      }
+    });
+  }
+
+  /* ── Defekt melden (natives Sheet → openDefektMelden + _wzSaveDefekt) ── */
+  function openDefektSheet(id){
+    var t=natT(id); if(!t) return;
+    var canDef=false; try{ canDef=_wzCanReportDefect(); }catch(e){}
+    if(!canDef) return;
+    window._wzReportPhotos=[];
+    var html=
+      '<div class="gn-label" style="text-transform:none;font-weight:600">'+NE(t.name||'Gerät')+'</div>'
+      +'<div class="gn-field"><label>Titel *</label><input class="gn-input" data-f="titel" placeholder="z.B. Akku defekt"></div>'
+      +'<div class="gn-field"><label>Schweregrad</label><select class="gn-native-select" data-f="sev">'
+        +'<option value="leicht">Leicht (nutzbar)</option><option value="mittel" selected>Mittel (eingeschränkt)</option>'
+        +'<option value="schwer">Schwer (nicht nutzbar)</option><option value="ausser_betrieb">Ausser Betrieb</option></select></div>'
+      +'<div class="gn-field"><label>Beschreibung *</label><textarea class="gn-input" data-f="beschr" rows="4" placeholder="Was ist kaputt? Wann ist es aufgefallen?"></textarea></div>'
+      +'<div class="gn-field"><label>Fotos (max 3, optional)</label>'
+        +'<input class="gn-input" type="file" accept="image/*" multiple capture="environment" onchange="_wzReportPhotosChanged(this)">'
+        +'<div id="wzPhotoPreview" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px"></div></div>';
+    nat.sheet({
+      title:'🚨 Defekt melden',
+      saveLabel:'⚠ Melden',
+      html:html,
+      onSave:function(s){
+        var g=function(f){ var el=s.querySelector('[data-f="'+f+'"]'); return el?el.value.trim():''; };
+        if(!g('titel')||!g('beschr')){ natToast('Titel + Beschreibung ausfüllen'); return false; }
+        try{
+          var ph=Array.isArray(window._wzReportPhotos)?window._wzReportPhotos.slice():[];
+          openDefektMelden(id);                 // baut das klassische Modal (resetet Fotos)
+          window._wzReportPhotos=ph;            // Sheet-Fotos wiederherstellen
+          natSet('defTitel',g('titel')); natSet('defSev',g('sev')); natSet('defBeschr',g('beschr'));
+          _wzSaveDefekt(id);                    // validiert, speichert, Notify, schliesst
+        }catch(err){ console.warn('[nat wz] defekt:',err&&err.message); try{ _wzCloseModal(); }catch(e){} }
+        return true;
+      }
+    });
+  }
+
+  /* ── Ausleihen an … (natives Sheet → _wzOpenAusleihe + _wzSaveAusleihe) ── */
+  function openAusleiheSheet(id){
+    var t=natT(id); if(!t) return;
+    var cur=t.ausgeliehenAn||{};
+    var opts='<option value="">— Nicht ausgeliehen —</option>'+natPersonen(null).map(function(p){
+      return '<option value="'+NE(p.id)+'"'+(cur.userId===p.id?' selected':'')+'>'+NE(p.name||p.username)+'</option>';
+    }).join('');
+    var html=
+      '<div class="gn-label" style="text-transform:none;font-weight:600">'+NE(t.name||'Gerät')+'</div>'
+      +'<div class="gn-field"><label>Ausgeliehen an</label><select class="gn-native-select" data-f="user">'+opts+'</select></div>'
+      +(cur.userId?'<div class="gn-label" style="text-transform:none;font-weight:500">Aktuell bei '+NE(cur.name||'—')+(cur.seit?' seit '+NE(fmt(cur.seit)):'')+' — «Nicht ausgeliehen» hebt die Ausleihe auf.</div>':'');
+    nat.sheet({
+      title:'🔄 Werkzeug ausleihen',
+      saveLabel:'✓ Speichern',
+      html:html,
+      onSave:function(s){
+        var uid=(s.querySelector('[data-f="user"]')||{}).value||'';
+        try{
+          _wzOpenAusleihe(id);                  // baut das klassische Modal (inkl. Guards)
+          if(!document.getElementById('ausleiheUser')){ return true; }   // Guard hat abgebrochen
+          natSet('ausleiheUser',uid);
+          _wzSaveAusleihe(id);
+        }catch(err){ console.warn('[nat wz] ausleihe:',err&&err.message); try{ _wzCloseModal(); }catch(e){} }
+        return true;
+      }
+    });
+  }
+
+  /* ── Zuweisen (natives Sheet → openZuweisung + _wzSaveZuweisung) ── */
+  function openZuwSheet(id){
+    var t=natT(id); if(!t) return;
+    var cur=t.zugewiesenAn||{};
+    var mode=cur.typ==='platz'?'platz':'user';
+    var opts='<option value="">— Niemandem zugewiesen —</option>'
+      +natPersonen(['role_monteur','role_unternehmer','role_magaziner']).map(function(p){
+        return '<option value="'+NE(p.id)+'"'+(cur.userId===p.id?' selected':'')+'>'+NE(p.name||p.username)+'</option>';
+      }).join('');
+    var html=
+      '<div class="gn-label" style="text-transform:none;font-weight:600">'+NE(t.name||'Gerät')+'</div>'
+      +'<div class="gn-seg-chips" data-zmode>'
+        +'<button type="button" class="gn-chip-sel'+(mode==='user'?' is-active':'')+'" data-m="user">👤 Hauptnutzer</button>'
+        +'<button type="button" class="gn-chip-sel'+(mode==='platz'?' is-active':'')+'" data-m="platz">📍 Platz / Standort</button>'
+      +'</div>'
+      +'<div class="gn-field" data-pane="user"'+(mode==='platz'?' style="display:none"':'')+'><label>Hauptnutzer (verantwortlich)</label><select class="gn-native-select" data-f="user">'+opts+'</select></div>'
+      +'<div class="gn-field" data-pane="platz"'+(mode==='platz'?'':' style="display:none"')+'><label>Platz / Standort</label><input class="gn-input" data-f="platz" placeholder="z.B. Lager Halle B" value="'+NE(cur.platz||'')+'"></div>'
+      +'<div class="gn-label" style="text-transform:none;font-weight:500">Bei Platz-Zuweisung darf jeder Monteur das Werkzeug selbstständig ausleihen und zurückbringen.</div>';
+    var sh=nat.sheet({
+      title:'👷 Zuweisung',
+      saveLabel:'✓ Speichern',
+      html:html,
+      onSave:function(s){
+        var m=(s.querySelector('[data-zmode] .is-active')||{}).getAttribute?s.querySelector('[data-zmode] .is-active').getAttribute('data-m'):'user';
+        var uid=(s.querySelector('[data-f="user"]')||{}).value||'';
+        var platz=((s.querySelector('[data-f="platz"]')||{}).value||'').trim();
+        try{
+          openZuweisung(id);                    // baut das klassische Modal (inkl. Guards)
+          if(!document.getElementById('zuwUser')){ return true; }        // Guard hat abgebrochen
+          _wzZuwTab(m);
+          if(m==='platz') natSet('zuwPlatz',platz); else natSet('zuwUser',uid);
+          _wzSaveZuweisung(id);
+        }catch(err){ console.warn('[nat wz] zuweisung:',err&&err.message); try{ _wzCloseModal(); }catch(e){} }
+        return true;
+      }
+    });
+    sh.addEventListener('click',function(e){
+      var b=e.target.closest&&e.target.closest('[data-m]'); if(!b) return;
+      sh.querySelectorAll('[data-zmode] .gn-chip-sel').forEach(function(c){ c.classList.toggle('is-active',c===b); });
+      var m=b.getAttribute('data-m');
+      sh.querySelector('[data-pane="user"]').style.display=(m==='user')?'':'none';
+      sh.querySelector('[data-pane="platz"]').style.display=(m==='platz')?'':'none';
+    });
+  }
+
   nat=GemaNativeMobil.mount({render:render});
+  // Scan-/Deep-Link-Einstieg (?view=, _wzScanOpen) landet auf dem Phone im
+  // nativen Detail-Sheet; Koffer + Nicht-gefunden fallen aufs klassische Modal.
+  var _oOVT=window.openViewTool;
+  window.openViewTool=function(id){
+    if(nat&&GemaNativeMobil.enabled()){
+      var t=natT(id), kof=false; try{ kof=t&&_wzIsKoffer(t); }catch(e){}
+      if(t&&!kof){ try{ openToolSheet(id); return; }catch(e){} }
+    }
+    return _oOVT.apply(this,arguments);
+  };
   // Modul-Re-Renders (Cloud-Pull, Saves) ziehen die Native-Liste nach
   var _oRL=window.renderList;
   if(typeof _oRL==='function'){ window.renderList=function(){ var r=_oRL.apply(this,arguments); try{ if(nat&&GemaNativeMobil.enabled()) nat.refresh(); }catch(e){} return r; }; }

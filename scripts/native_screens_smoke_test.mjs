@@ -1,7 +1,12 @@
 // GEMA Native — iPhone-Ansicht der 6 vorbereiteten Screens (gema_native_mobil.js).
 //  Prüft pro Modul: Native-Overlay erscheint auf Phone-Viewport (390×844) mit ECHTEN
-//  Daten aus den geseedeten Pools, Aktionen/Filter funktionieren, Umschalter
-//  «Klassische Ansicht» + 📱-Rückkehr-Pill, Desktop (1280×800) bleibt klassisch.
+//  Daten aus den geseedeten Pools, Aktionen/Filter funktionieren, die Ansicht folgt
+//  der USER-EINSTELLUNG (profile.nativeAnsicht / Cache gema_native_view_v1, Standard AN)
+//  ohne In-Modul-Umschalter/Pill, Desktop (1280×800) bleibt klassisch.
+//  DURCHGÄNGIG nativ (07/2026): pm_stunden/pm_einsatzplan (Erfassungs-Sheets) UND
+//  if_werkzeug/if_fahrzeug — natives Detail-Sheet + Sheets für Erfassen/Bearbeiten,
+//  Defekt, km-Stand; alle über die echten Modul-Speicherketten (submitForm/saveVehicle/
+//  _wzSaveDefekt/saveDefekt/_fzQuickKmEdit) verifiziert am Pool-Inhalt.
 //  Module: if_werkzeug, if_fahrzeug, pm_stunden, pm_einsatzplan, sys_workspace,
 //  sb_druckdispositiv (DOM-Proxy auf die echte Berechnung).
 //
@@ -32,7 +37,10 @@ const TODAY = new Date().toISOString().slice(0, 10);
 const FUTURE = new Date(Date.now() + 30 * 86400000).toISOString();
 const MFK_BALD = new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10);
 const ORG = { id: 'org_t', name: 'Muster Haustechnik AG', kategorie: 'sanitaerplaner', kategorien: ['sanitaerplaner'], admins: ['u1'], active: true };
-const USERS = [{ id: 'u1', username: 'a@t.ch', name: 'Robin Muster', roleIds: ['role_admin'], orgId: 'org_t', active: true, profile: { email: 'a@t.ch' } }];
+const USERS = [
+  { id: 'u1', username: 'a@t.ch', name: 'Robin Muster', roleIds: ['role_admin'], orgId: 'org_t', active: true, profile: { email: 'a@t.ch' } },
+  { id: 'u2', username: 'm@t.ch', name: 'M. Keller', roleIds: ['role_monteur'], orgId: 'org_t', active: true, profile: { email: 'm@t.ch' } }
+];
 const SESSION = { token: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpYXQiOjQwMDAwMDAwMDAsImV4cCI6NDEwMjQ0NDgwMCwidWlkIjoidTEiLCJvcmciOiJvcmdfdCIsInJvbGUiOiJhdXRoZW50aWNhdGVkIn0.testsig', userId: 'u1', expires: FUTURE };
 
 const SEED = {
@@ -135,22 +143,85 @@ console.log('— Werkzeug (Liste/Badges/Filter/Toggle) —');
   await page.waitForTimeout(200);
   const s1 = await page.evaluate(() => document.querySelectorAll('.gn--page [data-nat-list] .gn-row').length);
   ok(s1 === 1, 'Suche «Leiter» filtert auf 1');
-  // Zeile öffnet das ECHTE Detail-Modal des Moduls
+  // Zeilen-Tap öffnet das NATIVE Detail-Sheet (durchgängig nativ — kein Modal)
   await page.click('.gn--page [data-nat-list] .gn-row');
+  await page.waitForTimeout(450);
+  const det = await page.evaluate(() => {
+    const sh = document.querySelector('.gn--page .gn-sheet.is-open');
+    const vm = document.getElementById('viewModal');
+    return {
+      open: !!sh,
+      titel: sh ? sh.querySelector('.gn-sheet-head h2').textContent : '',
+      kv: sh ? sh.querySelectorAll('.gn-kv').length : 0,
+      acts: sh ? Array.from(sh.querySelectorAll('[data-nats]')).map(b => b.getAttribute('data-nats')) : [],
+      classicHidden: !vm || vm.classList.contains('hidden')
+    };
+  });
+  ok(det.open && det.titel.indexOf('Leiter') >= 0, 'Zeilen-Tap öffnet natives Detail-Sheet («' + det.titel + '»)');
+  ok(det.kv >= 3, 'Detail-Sheet zeigt Grunddaten (' + det.kv + ' Zeilen)');
+  ok(det.acts.indexOf('edit') >= 0 && det.acts.indexOf('ausleihe') >= 0 && det.acts.indexOf('defekt') >= 0 && det.acts.indexOf('qr') >= 0, 'Aktionen im Sheet (Bearbeiten/Ausleihen/Defekt/QR)');
+  ok(det.classicHidden, 'kein klassisches Modal sichtbar (durchgängig nativ)');
+  // ✏️ Bearbeiten → natives Formular-Sheet (vorbefüllt) → echte Save-Kette (submitForm)
+  await page.click('.gn--page .gn-sheet.is-open [data-nats="edit"]');
+  await page.waitForTimeout(500);
+  const edit = await page.evaluate(() => {
+    const sh = document.querySelector('.gn--page .gn-sheet.is-open');
+    return { open: !!sh, name: sh ? sh.querySelector('[data-f="name"]').value : '', cat: sh ? sh.querySelector('[data-f="cat"]').value : '' };
+  });
+  ok(edit.open && edit.name === 'Leiter 3-teilig Alu' && edit.cat === 'leiter', 'Bearbeiten-Sheet mit echten Werten vorbefüllt');
+  await page.fill('.gn--page .gn-sheet.is-open [data-f="name"]', 'Leiter 3-teilig Alu NEU');
+  await page.click('.gn--page .gn-sheet.is-open [data-gn-save]');
+  await page.waitForTimeout(500);
+  const saved = await page.evaluate(() => {
+    const pool = JSON.parse(localStorage.getItem('gema_werkzeug') || '[]');
+    const t = pool.find(x => x.id === 'w3');
+    return { name: t && t.name, leiter: t && t.hasLeiter, addHidden: document.getElementById('addModal').classList.contains('hidden') };
+  });
+  ok(saved.name === 'Leiter 3-teilig Alu NEU', 'Speichern läuft über die echte Kette (submitForm → Pool)');
+  ok(saved.leiter === true, 'nicht-native Felder bleiben erhalten (hasLeiter aus editTool-Populate)');
+  ok(saved.addHidden, 'klassisches Formular-Modal blieb zu (synchrone Brücke)');
+  // ＋ Neues Gerät → natives Formular-Sheet → echter neuer Pool-Eintrag
+  await page.fill('.gn--page [data-nat-q]', '');
+  await page.waitForTimeout(200);
+  await page.click('.gn--page [data-nat-add]');
   await page.waitForTimeout(400);
-  ok(await page.evaluate(() => { const m = document.getElementById('viewModal'); return !!m && getComputedStyle(m).display !== 'none'; }) ||
-     await page.evaluate(() => !!document.querySelector('.wz-modal-bg,.modal-bg') && Array.from(document.querySelectorAll('.wz-modal-bg,.modal-bg')).some(x => getComputedStyle(x).display !== 'none')),
-     'Zeilen-Tap öffnet Modul-Detail (klassisches Modal über dem Screen)');
-  await page.keyboard.press('Escape');
-  // Klassisch-Toggle + Rückkehr-Pill
-  await page.click('.gn--page [data-gn-classic]');
-  await page.waitForTimeout(250);
-  ok(!(await natVisible(page)), 'Umschalter → klassische Ansicht (Overlay weg)');
-  ok(await page.evaluate(() => { const p = document.querySelector('.gn-return-pill'); return !!p && p.style.display !== 'none'; }), '📱-Rückkehr-Pill sichtbar');
-  await page.click('.gn-return-pill');
-  await page.waitForTimeout(250);
-  ok(await natVisible(page), 'Pill → Native-Ansicht wieder aktiv');
-  await page.evaluate(() => localStorage.setItem('gema_native_view_v1', 'native'));
+  await page.fill('.gn--page .gn-sheet.is-open [data-f="name"]', 'Testgerät Nativ');
+  await page.selectOption('.gn--page .gn-sheet.is-open [data-f="cat"]', 'handwerkzeug');
+  await page.click('.gn--page .gn-sheet.is-open [data-gn-save]');
+  await page.waitForTimeout(500);
+  ok(await page.evaluate(() => JSON.parse(localStorage.getItem('gema_werkzeug') || '[]').some(t => t.name === 'Testgerät Nativ' && t.cat === 'handwerkzeug')), 'Neues Gerät via natives Sheet erfasst (echter Pool-Eintrag)');
+  ok((await page.evaluate(() => document.querySelectorAll('.gn--page [data-nat-list] .gn-row').length)) === 4, 'Liste zeigt das neue Gerät sofort');
+  // 🚨 Defekt melden → natives Sheet → echter Bericht + Notify-Kette
+  await page.click('.gn--page [data-nat-list] .gn-row');
+  await page.waitForTimeout(450);
+  await page.click('.gn--page .gn-sheet.is-open [data-nats="defekt"]');
+  await page.waitForTimeout(450);
+  ok(await page.evaluate(() => { const sh = document.querySelector('.gn--page .gn-sheet.is-open'); return !!sh && !!sh.querySelector('[data-f="titel"]'); }), 'Defekt-Sheet öffnet (Titel/Schweregrad/Beschreibung)');
+  await page.fill('.gn--page .gn-sheet.is-open [data-f="titel"]', 'Akku defekt');
+  await page.fill('.gn--page .gn-sheet.is-open [data-f="beschr"]', 'Lädt nicht mehr');
+  await page.selectOption('.gn--page .gn-sheet.is-open [data-f="sev"]', 'schwer');
+  await page.click('.gn--page .gn-sheet.is-open [data-gn-save]');
+  await page.waitForTimeout(500);
+  const defekt = await page.evaluate(() => {
+    const pool = JSON.parse(localStorage.getItem('gema_werkzeug') || '[]');
+    const withDef = pool.find(t => (t.berichte || []).some(b => b.typ === 'defekt' && b.titel === 'Akku defekt'));
+    const b = withDef && withDef.berichte.find(x => x.titel === 'Akku defekt');
+    return { ok: !!withDef, sev: b && b.schweregrad };
+  });
+  ok(defekt.ok && defekt.sev === 'schwer', 'Defekt via natives Sheet gemeldet (echter Bericht via _wzSaveDefekt)');
+  await page.evaluate(() => { try { if (window.GemaDialog) document.querySelectorAll('.gema-dlg-bg').forEach(d => d.remove()); } catch (e) {} });
+  // Native-Ansicht = USER-EINSTELLUNG (sys_profil → profile.nativeAnsicht, synchroner
+  // Cache gema_native_view_v1). KEIN In-Modul-Umschalter/Pill mehr.
+  ok(await page.evaluate(() => !document.querySelector('.gn--page [data-gn-classic]')), 'kein In-Modul-Umschalter mehr');
+  ok(await page.evaluate(() => !document.querySelector('.gn-return-pill')), 'keine 📱-Rückkehr-Pill mehr');
+  // Einstellung «klassisch» → Native aus (genau der Cache, den sys_profil schreibt)
+  await page.evaluate(() => { localStorage.setItem('gema_native_view_v1', 'klassisch'); window.dispatchEvent(new Event('resize')); });
+  await page.waitForTimeout(300);
+  ok(!(await natVisible(page)), 'Einstellung «klassisch» → Native-Overlay aus');
+  // Einstellung «native» → wieder aktiv (Standard)
+  await page.evaluate(() => { localStorage.setItem('gema_native_view_v1', 'native'); window.dispatchEvent(new Event('resize')); });
+  await page.waitForTimeout(300);
+  ok(await natVisible(page), 'Einstellung «native» → Native-Ansicht wieder aktiv');
   await page.close();
 }
 
@@ -169,6 +240,67 @@ console.log('— Fahrzeuge (Liste/MFK/Fahrer-Chip) —');
   ok(f.sub.indexOf('2 Fahrzeuge') >= 0 && f.sub.indexOf('1 MFK fällig') >= 0, 'Zähler echt («' + f.sub + '»)');
   ok(f.rows === 2 && f.badges.some(b => /MFK fällig/.test(b)), '2 Fahrzeuge + MFK-Badge');
   ok(f.ava === 'MK', 'Fahrer-Initialen-Chip («' + f.ava + '»)');
+  // Zeilen-Tap öffnet das NATIVE Detail-Sheet (durchgängig nativ)
+  await page.click('.gn--page [data-nat-list] .gn-row');
+  await page.waitForTimeout(450);
+  const fdet = await page.evaluate(() => {
+    const sh = document.querySelector('.gn--page .gn-sheet.is-open');
+    return {
+      open: !!sh,
+      titel: sh ? sh.querySelector('.gn-sheet-head h2').textContent : '',
+      kv: sh ? sh.querySelectorAll('.gn-kv').length : 0,
+      acts: sh ? Array.from(sh.querySelectorAll('[data-nats]')).map(b => b.getAttribute('data-nats')) : []
+    };
+  });
+  ok(fdet.open && fdet.titel.indexOf('VW Crafter') >= 0, 'Zeilen-Tap öffnet natives Detail-Sheet («' + fdet.titel + '»)');
+  ok(fdet.kv >= 4, 'Detail-Sheet zeigt Fahrzeugdaten (' + fdet.kv + ' Zeilen)');
+  ok(fdet.acts.indexOf('edit') >= 0 && fdet.acts.indexOf('km') >= 0 && fdet.acts.indexOf('defekt') >= 0, 'Aktionen im Sheet (Bearbeiten/km/Defekt)');
+  // 🧭 km-Stand → natives Sheet → echte Kette (_fzQuickKmEdit mit gestubbtem prompt)
+  await page.click('.gn--page .gn-sheet.is-open [data-nats="km"]');
+  await page.waitForTimeout(450);
+  ok(await page.evaluate(() => { const sh = document.querySelector('.gn--page .gn-sheet.is-open'); return !!sh && !!sh.querySelector('[data-f="km"]'); }), 'km-Sheet öffnet mit aktuellem Stand');
+  await page.fill('.gn--page .gn-sheet.is-open [data-f="km"]', '90000');
+  await page.click('.gn--page .gn-sheet.is-open [data-gn-save]');
+  await page.waitForTimeout(500);
+  ok(await page.evaluate(() => {
+    const pool = JSON.parse(localStorage.getItem('gema_vehicles') || '[]');
+    const v = pool.find(x => x.id === 'v1');
+    return v && v.km === '90000' && !!v.kmUpdatedAt;
+  }), 'km-Update läuft über die echte Kette (persist → Pool, 90000)');
+  // tieferer km-Stand → native Zwei-Tap-Bestätigung statt window.confirm
+  await page.click('.gn--page [data-nat-list] .gn-row');
+  await page.waitForTimeout(400);
+  await page.click('.gn--page .gn-sheet.is-open [data-nats="km"]');
+  await page.waitForTimeout(400);
+  await page.fill('.gn--page .gn-sheet.is-open [data-f="km"]', '80000');
+  await page.click('.gn--page .gn-sheet.is-open [data-gn-save]');
+  await page.waitForTimeout(250);
+  const warn = await page.evaluate(() => {
+    const sh = document.querySelector('.gn--page .gn-sheet.is-open');
+    const w = sh && sh.querySelector('[data-kmwarn]');
+    return { open: !!sh, warn: !!(w && w.style.display !== 'none' && w.textContent.indexOf('tiefer') >= 0) };
+  });
+  ok(warn.open && warn.warn, 'tieferer km-Stand → Warnhinweis, Sheet bleibt offen (Zwei-Tap)');
+  await page.click('.gn--page .gn-sheet.is-open [data-gn-save]');
+  await page.waitForTimeout(450);
+  ok(await page.evaluate(() => (JSON.parse(localStorage.getItem('gema_vehicles') || '[]').find(x => x.id === 'v1') || {}).km === '80000'), 'zweiter Tap bestätigt den tieferen Stand');
+  // 🔧 Defekt melden → natives Sheet → echter events-Eintrag (saveDefekt)
+  await page.click('.gn--page [data-nat-list] .gn-row');
+  await page.waitForTimeout(400);
+  await page.click('.gn--page .gn-sheet.is-open [data-nats="defekt"]');
+  await page.waitForTimeout(450);
+  await page.fill('.gn--page .gn-sheet.is-open [data-f="desc"]', 'Bremsen quietschen vorne');
+  await page.selectOption('.gn--page .gn-sheet.is-open [data-f="prio"]', 'hoch');
+  await page.click('.gn--page .gn-sheet.is-open [data-gn-save]');
+  await page.waitForTimeout(500);
+  const fdef = await page.evaluate(() => {
+    const pool = JSON.parse(localStorage.getItem('gema_vehicles') || '[]');
+    const v = pool.find(x => x.id === 'v1');
+    const e = v && (v.events || []).find(ev => ev.type === 'defekt' && /Bremsen quietschen/.test(ev.detail || ev.label || ''));
+    return { ok: !!e, prio: e && e.prio, overlayOffen: (() => { const o = document.getElementById('mgmtDefektOverlay'); return !!o && getComputedStyle(o).display !== 'none' && o.classList.contains('open'); })() };
+  });
+  ok(fdef.ok && fdef.prio === 'hoch', 'Defekt via natives Sheet gemeldet (echter events-Eintrag via saveDefekt)');
+  ok(!fdef.overlayOffen, 'klassisches Defekt-Overlay blieb zu (synchrone Brücke)');
   await page.close();
 }
 
@@ -186,10 +318,37 @@ console.log('— Stunden (Wochen-Summe/Tages-Gruppen) —');
   ok(/Woche \d+ · 8,3 h erfasst/.test(s.sub), 'Wochen-Summe echt («' + s.sub + '»)');
   ok(s.rows.some(r => r.indexOf('Lindenpark') >= 0) && s.rows.some(r => r.indexOf('Büro') >= 0), 'Tages-Einträge aus dem Pool');
   ok(s.vals.some(v => v === '4,3 h') && s.vals.some(v => v === '4,0 h'), 'Eintrags-Stunden berechnet (4,3 / 4,0)');
-  // ＋ Zeit erfassen öffnet das echte Modul-Modal
+  // ＋ Zeit erfassen öffnet ein NATIVES Sheet (kein klassisches Modal)
   await page.click('.gn--page [data-nat-act="neu"]');
+  await page.waitForTimeout(450);
+  const sheetShown = await page.evaluate(() => {
+    const sh = document.querySelector('.gn--page .gn-sheet--form.is-open');
+    const cls = document.getElementById('einModal');
+    return { native: !!sh, classicVisible: !!cls && cls.classList.contains('open'), fields: sh ? sh.querySelectorAll('[data-f]').length : 0 };
+  });
+  ok(sheetShown.native && sheetShown.fields >= 4, 'Natives Erfassungs-Sheet öffnet (Von/Bis/Pause/Projekt/Tätigkeit)');
+  ok(!sheetShown.classicVisible, 'kein klassisches Modal sichtbar (durchgängig nativ)');
+  // Felder befüllen + Speichern → echter Eintrag im Pool (via stEinSave)
+  await page.evaluate(() => {
+    const sh = document.querySelector('.gn--page .gn-sheet--form.is-open');
+    const set = (f, v) => { const el = sh.querySelector('[data-f="' + f + '"]'); if (el) el.value = v; };
+    set('von', '08:00'); set('bis', '12:00'); set('pause', '0'); set('taetigkeit', 'Native Montage');
+  });
+  await page.click('.gn--page .gn-sheet--form [data-gn-save]');
+  await page.waitForTimeout(600);
+  const saved = await page.evaluate(() => {
+    const u = { id: 'u1' };
+    const t = (window.stTagFor ? stTagFor(new Date().toISOString().slice(0, 10), u.id) : null);
+    const e = t && (t.eintraege || []).find(x => x.taetigkeit === 'Native Montage');
+    return { has: !!e, von: e && e.von, min: e ? (window.stdEintragMin ? stdEintragMin(e) : 0) : 0, sheetGone: !document.querySelector('.gn--page .gn-sheet--form.is-open') };
+  });
+  ok(saved.has && saved.von === '08:00' && saved.min === 240, 'Speichern schreibt den echten Eintrag (4,0 h via stEinSave)');
+  ok(saved.sheetGone, 'Sheet schliesst nach dem Speichern');
+  ok(await page.evaluate(() => Array.from(document.querySelectorAll('.gn--page .gn-row .gn-row-title')).some(x => x.textContent.indexOf('Native Montage') >= 0)), 'neue Zeile erscheint im nativen Screen');
+  // Eintrag-Tap öffnet Edit-Sheet mit Löschen
+  await page.click('.gn--page .gn-row[data-nat-edit]');
   await page.waitForTimeout(400);
-  ok(await page.evaluate(() => { const m = document.getElementById('einModal'); return !!m && Array.from(document.querySelectorAll('.modal-bg')).some(x => getComputedStyle(x).display !== 'none'); }), '＋ Zeit erfassen öffnet das Erfassungs-Modal');
+  ok(await page.evaluate(() => { const sh = document.querySelector('.gn--page .gn-sheet--form.is-open'); return !!sh && !!sh.querySelector('[data-gn-del]'); }), 'Eintrag-Tap öffnet Bearbeiten-Sheet mit Löschen');
   await page.close();
 }
 
@@ -209,6 +368,38 @@ console.log('— Einsatzplan (Weekstrip/Agenda) —');
   ok(e.dot, 'Heute aktiv + Event-Punkt');
   ok(e.ev === 'Montage Sanitär · Lindenpark', 'Agenda zeigt den echten Einsatz');
   ok(e.zeit && e.zeit.indexOf('07:30') >= 0, 'Einsatz-Zeit aus dem Record');
+  // ＋ öffnet ein NATIVES Termin-Sheet; Freier Termin erfassen + speichern
+  await page.click('.gn--page [data-nat-add]');
+  await page.waitForTimeout(450);
+  const evSheet = await page.evaluate(() => {
+    const sh = document.querySelector('.gn--page .gn-sheet--form.is-open');
+    const cls = document.getElementById('evModal');
+    return { native: !!sh, classicVisible: !!cls && cls.classList.contains('open'), typChips: sh ? sh.querySelectorAll('[data-nat-typ] .gn-chip-sel').length : 0, monteur: sh ? sh.querySelectorAll('[data-f="monteur"] option').length : 0 };
+  });
+  ok(evSheet.native && evSheet.typChips === 3, 'Natives Termin-Sheet öffnet (Typ-Chips Auftrag/Frei/Abwesend)');
+  ok(!evSheet.classicVisible, 'kein klassisches evModal sichtbar');
+  ok(evSheet.monteur >= 2, 'Monteur-Select aus echten Personen (inkl. Leer-Option)');
+  await page.evaluate(() => {
+    const sh = document.querySelector('.gn--page .gn-sheet--form.is-open');
+    sh.querySelector('[data-nat-typ] .gn-chip-sel[data-t="frei"]').click();       // Typ «Frei»
+    const set = (f, v) => { const el = sh.querySelector('[data-f="' + f + '"]'); if (el) el.value = v; };
+    set('titel', 'Native Termin');
+    const mon = sh.querySelector('[data-f="monteur"]'); mon.value = 'u2';
+    set('von', '09:00'); set('bis', '11:00');
+  });
+  await page.click('.gn--page .gn-sheet--form [data-gn-save]');
+  await page.waitForTimeout(600);
+  const evSaved = await page.evaluate(() => {
+    const all = window.epAll ? epAll() : [];
+    const ev = all.find(x => x.titel === 'Native Termin');
+    return { has: !!ev, typ: ev && ev.typ, von: ev && ev.zeitVon, mon: ev && ev.monteurUserId, sheetGone: !document.querySelector('.gn--page .gn-sheet--form.is-open') };
+  });
+  ok(evSaved.has && evSaved.typ === 'frei' && evSaved.von === '09:00' && evSaved.mon === 'u2', 'Termin gespeichert via epEvSave (Typ/Zeit/Monteur echt)');
+  ok(evSaved.sheetGone, 'Termin-Sheet schliesst nach dem Speichern');
+  // Agenda-Tap öffnet Bearbeiten-Sheet mit Löschen
+  await page.click('.gn--page .gn-event[data-nat-id]');
+  await page.waitForTimeout(400);
+  ok(await page.evaluate(() => { const sh = document.querySelector('.gn--page .gn-sheet--form.is-open'); return !!sh && !!sh.querySelector('[data-gn-del]') && sh.querySelector('[data-f="titel"]').value.length > 0; }), 'Termin-Tap öffnet Bearbeiten-Sheet (vorbelegt + Löschen)');
   await page.close();
 }
 
@@ -276,7 +467,7 @@ console.log('— Desktop bleibt klassisch —');
   await page.waitForTimeout(1400);
   ok(errs.length === 0, 'Desktop-Boot ohne pageerrors');
   ok(!(await natVisible(page)), 'Native-Overlay auf Desktop unsichtbar');
-  ok(await page.evaluate(() => !document.querySelector('.gn-return-pill') || document.querySelector('.gn-return-pill').style.display === 'none' || getComputedStyle(document.querySelector('.gn-return-pill')).display === 'none'), 'keine Rückkehr-Pill auf Desktop');
+  ok(await page.evaluate(() => !document.querySelector('.gn-return-pill') && !document.querySelector('[data-gn-classic]')), 'kein Native-Umschalter/Pill auf Desktop');
   ok(await page.evaluate(() => !!document.querySelector('.g-nav') && getComputedStyle(document.querySelector('.g-nav')).display !== 'none'), 'GEMA-Nav auf Desktop sichtbar');
   await dctx.close();
 }
