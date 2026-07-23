@@ -69,10 +69,69 @@
       'font:400 16px var(--gn-font);color:var(--gn-ink);outline:none;box-shadow:var(--gn-shadow-card);-webkit-appearance:none;appearance:none;' +
       'background-image:url("data:image/svg+xml;utf8,<svg xmlns=\'http://www.w3.org/2000/svg\' width=\'12\' height=\'8\' fill=\'none\' stroke=\'%236b7280\' stroke-width=\'2\'><path d=\'M1 1.5 6 6.5 11 1.5\'/></svg>");background-repeat:no-repeat;background-position:right 14px center}' +
       '.gn .gn-timepair{display:flex;gap:9px}' +
+      /* ── Zurück-Taste (Toolbar + Kompakt-Leiste, zentral injiziert) ── */
+      '.gn .gn-back{flex:none}' +
+      '.gn .gn-back svg{stroke:var(--gn-accent)}' +
+      '.gn .gn-back-c{position:absolute;left:6px;bottom:2px;width:38px;height:38px;border:none;background:transparent;' +
+      'display:flex;align-items:center;justify-content:center;pointer-events:auto;cursor:pointer;-webkit-tap-highlight-color:transparent}' +
+      '.gn .gn-back-c svg{width:21px;height:21px;stroke:var(--gn-accent);fill:none}' +
+      '.gn .gn-back-c:active,.gn .gn-back:active{transform:scale(.92)}' +
+      /* ── Natives Autocomplete (Vorschlags-Liste im Formularfluss) ── */
+      '.gn .gn-ac{display:none;margin-top:6px;background:var(--gn-card);border:1px solid var(--gn-hair);border-radius:12px;' +
+      'box-shadow:var(--gn-shadow-card);overflow:hidden;max-height:226px;overflow-y:auto;scrollbar-width:none}' +
+      '.gn .gn-ac::-webkit-scrollbar{display:none}' +
+      '.gn .gn-ac.is-open{display:block}' +
+      '.gn .gn-ac-it{display:flex;width:100%;align-items:center;justify-content:space-between;gap:10px;padding:11px 13px;' +
+      'border:none;background:none;font:500 15px var(--gn-font);color:var(--gn-ink);text-align:left;cursor:pointer;-webkit-tap-highlight-color:transparent}' +
+      '.gn .gn-ac-it + .gn-ac-it{border-top:1px solid var(--gn-hair)}' +
+      '.gn .gn-ac-it:active{background:var(--gn-fill)}' +
+      '.gn .gn-ac-l{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}' +
+      '.gn .gn-ac-h{flex:none;font-size:12px;color:var(--gn-ink-2);max-width:45%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}' +
+      /* ── Horizontale Chip-Leiste (Kategorie-/Typ-Filter der Listen-Screens) ── */
+      '.gn .gn-chipbar{display:flex;gap:7px;overflow-x:auto;padding:0 16px 12px;scrollbar-width:none;-webkit-overflow-scrolling:touch}' +
+      '.gn .gn-chipbar::-webkit-scrollbar{display:none}' +
+      '.gn .gn-chipbar .gn-chip-sel{white-space:nowrap}' +
+      '.gn .gn-chip-ct{font-size:11px;font-weight:800;opacity:.55;margin-left:3px}' +
+      /* Filter-Punkt auf Icon-Buttons (aktiver erweiterter Filter) */
+      '.gn .gn-icon-btn{position:relative}' +
+      '.gn .gn-icon-btn .gn-dot{position:absolute;top:-4px;right:-4px;min-width:17px;height:17px;padding:0 4px;border-radius:9px;' +
+      'background:var(--gn-accent);color:#fff;font:800 11px/17px var(--gn-font);text-align:center}' +
       '.gn .gn-check{display:flex;align-items:center;gap:11px;margin:0 16px 14px;background:var(--gn-card);border-radius:12px;padding:12px 14px;box-shadow:var(--gn-shadow-card);cursor:pointer}' +
       '.gn .gn-check input{width:24px;height:24px;accent-color:var(--gn-accent);flex:none}' +
       '.gn .gn-check span{font-size:15px;color:var(--gn-ink)}';
     document.head.appendChild(st);
+  }
+
+  /* Zurück-Navigation: die Native-Ansicht blendet die .g-nav aus — ohne
+     eigene Zurück-Taste gäbe es keinen Weg zur vorherigen Seite. Gleiche
+     Origin + Verlauf vorhanden → history.back(), sonst zur Modulübersicht. */
+  function goBack() {
+    try {
+      var ref = document.referrer;
+      if (history.length > 1 && ref && new URL(ref).origin === location.origin && ref !== location.href) { history.back(); return; }
+    } catch (e) {}
+    location.href = 'index.html';
+  }
+  var SVG_BACK = '<svg viewBox="0 0 24 24" fill="none" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>';
+  function injectBack(root) {
+    var tb = root.querySelector('.gn-toolbar');
+    if (tb && !tb.querySelector('[data-gn-back]')) {
+      var b = document.createElement('button');
+      b.className = 'gn-icon-btn gn-back';
+      b.setAttribute('data-gn-back', '');
+      b.title = 'Zurück';
+      b.innerHTML = SVG_BACK;
+      tb.insertBefore(b, tb.firstChild);
+    }
+    var cp = root.querySelector('[data-gn-compact]');
+    if (cp && !cp.querySelector('[data-gn-back]')) {
+      var c = document.createElement('button');
+      c.className = 'gn-back-c';
+      c.setAttribute('data-gn-back', '');
+      c.title = 'Zurück';
+      c.innerHTML = SVG_BACK;
+      cp.appendChild(c);
+    }
   }
 
   function mount(opts) {
@@ -82,14 +141,23 @@
     root.setAttribute('data-gn-app', '');
     root.style.display = 'none';
     document.body.appendChild(root);
+    // Delegiert: die Zurück-Taste überlebt jedes Re-Render (Injektion in apply)
+    root.addEventListener('click', function (e) {
+      if (e.target.closest && e.target.closest('[data-gn-back]')) goBack();
+    });
 
-    var lastOn = null;
+    var lastOn = null, pendingRefresh = false;
     function apply(force) {
       var on = enabled();
       if (on) {
+        // Offenes Sheet → Re-Render AUFSCHIEBEN: render() ersetzt root.innerHTML
+        // und würde das Sheet (samt halb getippter Eingabe) wegwischen — z.B.
+        // wenn ein Cloud-Pull/Signatur-Poll mitten im Ausfüllen refresht.
+        if (curSheet && lastOn === true) { pendingRefresh = true; return; }
         var sc = root.querySelector('[data-gn-scroll]');
         var st = sc ? sc.scrollTop : 0;
         try { opts.render(root); } catch (e) { console.warn('[GemaNativeMobil] render:', e && e.message); }
+        try { injectBack(root); } catch (e) {}
         root.__gnInit = false;
         if (window.GemaNative) { try { GemaNative.init(root); } catch (e) {} }
         var sc2 = root.querySelector('[data-gn-scroll]');
@@ -121,6 +189,14 @@
       var s = curSheet, bg = s._bg; curSheet = null;
       s.classList.remove('is-open'); if (bg) bg.classList.remove('is-open');
       setTimeout(function () { if (s.parentNode) s.parentNode.removeChild(s); if (bg && bg.parentNode) bg.parentNode.removeChild(bg); }, 380);
+      // Während des offenen Sheets aufgeschobene Re-Renders jetzt nachholen
+      // (nach der Schliess-Animation, damit sie nicht hart abreisst). Ist bis
+      // dahin schon das NÄCHSTE Sheet offen (Detail → Aktion), bleibt der
+      // Refresh vorgemerkt und läuft nach dessen Schliessen.
+      if (pendingRefresh) {
+        pendingRefresh = false;
+        setTimeout(function () { if (curSheet) { pendingRefresh = true; return; } apply(); }, 400);
+      }
     }
     function sheet(o) {
       closeSheet();
@@ -166,8 +242,52 @@
     document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && curSheet) closeSheet(); });
 
     apply();
-    return { refresh: apply, root: root, enabled: enabled, sheet: sheet, closeSheet: closeSheet };
+    return { refresh: apply, root: root, enabled: enabled, sheet: sheet, closeSheet: closeSheet, sheetOpen: function () { return !!curSheet; } };
   }
 
-  window.GemaNativeMobil = { phone: phone, enabled: enabled, pref: pref, setPref: setPref, mount: mount, esc: esc };
+  /* ── Natives Autocomplete für Sheet-/Screen-Inputs ──
+     ac(inputEl, getSugg, onSelect): rendert die Vorschläge als Liste IM
+     Formularfluss direkt unter dem Feld (kein position:fixed-Drop — der
+     Sheet-Container ist während des Zieh-Schliessens transformiert und
+     scrollt selbst; ein Flow-Element bleibt immer korrekt platziert).
+     getSugg(q) liefert [{label, value?, hint?, …}] (derselbe Item-Kontrakt
+     wie _wzInitAC in if_werkzeug); onSelect(item) läuft nach der Übernahme. */
+  function ac(inp, getSugg, onSelect) {
+    if (!inp || inp.__gnAc) return; inp.__gnAc = true;
+    var wrap = document.createElement('div');
+    wrap.className = 'gn-ac';
+    inp.insertAdjacentElement('afterend', wrap);
+    var items = [];
+    function hide() { wrap.classList.remove('is-open'); wrap.innerHTML = ''; }
+    function show() {
+      var q = (inp.value || '').trim();
+      items = []; try { items = getSugg(q) || []; } catch (e) { items = []; }
+      if (!items.length) { hide(); return; }
+      wrap.innerHTML = items.slice(0, 8).map(function (it, i) {
+        return '<button type="button" class="gn-ac-it" data-i="' + i + '">'
+          + '<span class="gn-ac-l">' + esc(it.label) + '</span>'
+          + (it.hint ? '<span class="gn-ac-h">' + esc(it.hint) + '</span>' : '')
+          + '</button>';
+      }).join('');
+      wrap.classList.add('is-open');
+    }
+    inp.addEventListener('input', show);
+    // Auch bei Fokus/Tap SOFORT zeigen — «erst beim Tippen» ist auf dem
+    // Phone nicht akzeptabel (gleiches Verhalten wie _wzInitAC).
+    inp.addEventListener('focus', show);
+    inp.addEventListener('click', function () { if (!wrap.classList.contains('is-open')) show(); });
+    inp.addEventListener('blur', function () { setTimeout(hide, 200); });
+    inp.addEventListener('keydown', function (e) { if (e.key === 'Escape') hide(); });
+    wrap.addEventListener('mousedown', function (e) { e.preventDefault(); });  // kein Blur vor dem Tap
+    wrap.addEventListener('click', function (e) {
+      var b = e.target.closest && e.target.closest('.gn-ac-it'); if (!b) return;
+      var it = items[+b.getAttribute('data-i')]; if (!it) return;
+      inp.value = it.value != null ? it.value : it.label;
+      hide();
+      if (onSelect) { try { onSelect(it); } catch (err) {} }
+      try { inp.dispatchEvent(new Event('change', { bubbles: true })); } catch (err) {}
+    });
+  }
+
+  window.GemaNativeMobil = { phone: phone, enabled: enabled, pref: pref, setPref: setPref, mount: mount, esc: esc, ac: ac, goBack: goBack };
 })();

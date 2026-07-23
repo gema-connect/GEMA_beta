@@ -7,6 +7,11 @@
 //  if_werkzeug/if_fahrzeug — natives Detail-Sheet + Sheets für Erfassen/Bearbeiten,
 //  Defekt, km-Stand; alle über die echten Modul-Speicherketten (submitForm/saveVehicle/
 //  _wzSaveDefekt/saveDefekt/_fzQuickKmEdit) verifiziert am Pool-Inhalt.
+//  Dazu (Feedback 23.07.): zentral injizierte ‹Zurück-Taste (Toolbar + Kompakt-
+//  Leiste, Navigation zu index.html ohne Verlauf), Autocomplete-Vorschläge in den
+//  Sheets (GemaNativeMobil.ac + geteilte _wz*Suggestions-Quellen), Kategorie-/
+//  Typ-Chips und der erweiterte Filter (Werkzeug: _wzAdvFilter-Motor) — plus
+//  Aufschub-Guard: ein Refresh wischt NIE ein offenes Sheet weg.
 //  Module: if_werkzeug, if_fahrzeug, pm_stunden, pm_einsatzplan, sys_workspace,
 //  sb_druckdispositiv (DOM-Proxy auf die echte Berechnung).
 //
@@ -48,13 +53,13 @@ const SEED = {
   gema_users_v1: JSON.stringify(USERS),
   gema_session_v1: JSON.stringify(SESSION),
   gema_werkzeug: JSON.stringify([
-    { id: 'w1', orgId: 'org_t', name: 'Bohrschrauber Hilti TE 6', internKennung: 'W-0421', cat: 'maschine', bought: '2024-01-01' },
+    { id: 'w1', orgId: 'org_t', name: 'Bohrschrauber Hilti TE 6', internKennung: 'W-0421', cat: 'maschine', bought: '2024-01-01', brand: 'Hilti', model: 'TE 6-A22' },
     { id: 'w2', orgId: 'org_t', name: 'Kernbohrgerät Weka DK32', internKennung: 'W-0113', cat: 'maschine', bought: '2024-01-01', ausgeliehenAn: { userId: 'u1', name: 'M. Keller' } },
     { id: 'w3', orgId: 'org_t', name: 'Leiter 3-teilig Alu', internKennung: 'W-0088', cat: 'leiter', bought: '2023-01-01', hasLeiter: true, leiterInterval: 12, lastLeiter: '2025-01-10' }
   ]),
   gema_vehicles: JSON.stringify([
-    { id: 'v1', orgId: 'org_t', model: 'VW Crafter', plate: 'BS 12345', nr: 'BS-4', driver: 'M. Keller', km: 84200, status: 'aktiv' },
-    { id: 'v2', orgId: 'org_t', model: 'Renault Master', plate: 'BS 45677', nr: 'BS-7', km: 122400, status: 'aktiv', mfk: MFK_BALD }
+    { id: 'v1', orgId: 'org_t', model: 'VW Crafter', plate: 'BS 12345', nr: 'BS-4', driver: 'M. Keller', km: 84200, status: 'aktiv', type: 'Servicefahrzeug', assignment: 'fix' },
+    { id: 'v2', orgId: 'org_t', model: 'Renault Master', plate: 'BS 45677', nr: 'BS-7', km: 122400, status: 'aktiv', mfk: MFK_BALD, type: 'Monteurenfahrzeug', assignment: 'sharing' }
   ]),
   gema_std_pool_v1: JSON.stringify([
     { id: 'std1', orgId: 'org_t', userId: 'u1', userName: 'Robin Muster', datum: TODAY, status: 'offen', spesen: {},
@@ -135,6 +140,21 @@ console.log('— Werkzeug (Liste/Badges/Filter/Toggle) —');
   ok(w.sub.indexOf('3 Geräte') >= 0 && w.sub.indexOf('1 Prüfungen fällig') >= 0, 'Zähler echt («' + w.sub + '»)');
   ok(w.rows === 3, 'alle 3 Werkzeuge gelistet');
   ok(w.badges.some(b => /Ausgeliehen/.test(b)) && w.badges.some(b => /Prüfung überfällig/.test(b)) && w.badges.some(b => /Verfügbar/.test(b)), 'Status-Badges (Verfügbar/Ausgeliehen/Prüfung)');
+  // ‹ Zurück-Taste — zentral injiziert (Toolbar + Kompakt-Leiste)
+  const back = await page.evaluate(() => ({
+    tb: !!document.querySelector('.gn--page .gn-toolbar [data-gn-back]'),
+    cp: !!document.querySelector('.gn--page [data-gn-compact] [data-gn-back]')
+  }));
+  ok(back.tb && back.cp, 'Zurück-Taste in Toolbar + Kompakt-Leiste injiziert');
+  // Kategorie-Chips (2 Kategorien im Seed → Leiste erscheint, Zähler stimmen)
+  const chips = await page.evaluate(() => Array.from(document.querySelectorAll('.gn--page [data-nat-cats] .gn-chip-sel')).map(c => c.textContent));
+  ok(chips.length === 3 && chips[0].indexOf('Alle') === 0, 'Kategorie-Chips (Alle + 2 Kategorien): ' + chips.join(' | '));
+  await page.click('.gn--page [data-nat-cats] [data-nat-cat="leiter"]');
+  await page.waitForTimeout(200);
+  ok((await page.evaluate(() => document.querySelectorAll('.gn--page [data-nat-list] .gn-row').length)) === 1, 'Kategorie-Chip «Leiter» filtert auf 1');
+  await page.click('.gn--page [data-nat-cats] [data-nat-cat=""]');
+  await page.waitForTimeout(200);
+  ok((await page.evaluate(() => document.querySelectorAll('.gn--page [data-nat-list] .gn-row').length)) === 3, 'Chip «Alle» hebt den Kategorie-Filter auf');
   await page.click('.gn--page [data-nat-seg] [data-value="aus"]');
   await page.waitForTimeout(200);
   ok((await page.evaluate(() => document.querySelectorAll('.gn--page [data-nat-list] .gn-row').length)) === 1, 'Segment «Ausgeliehen» filtert auf 1');
@@ -185,6 +205,30 @@ console.log('— Werkzeug (Liste/Badges/Filter/Toggle) —');
   await page.waitForTimeout(200);
   await page.click('.gn--page [data-nat-add]');
   await page.waitForTimeout(400);
+  // Autocomplete-Vorschläge im Sheet: Tippen zeigt Katalog+Bestand, die
+  // Übernahme setzt die Kategorie automatisch (gleiche Quellen wie klassisch)
+  await page.fill('.gn--page .gn-sheet.is-open [data-f="name"]', 'Bohrschrauber');
+  await page.waitForTimeout(250);
+  const acItems = await page.evaluate(() => Array.from(document.querySelectorAll('.gn--page .gn-sheet.is-open .gn-ac.is-open .gn-ac-it .gn-ac-l')).map(e => e.textContent));
+  ok(acItems.some(t => t === 'Bohrschrauber Hilti TE 6'), 'Vorschläge im Bezeichnung-Feld (eigener Bestand): ' + acItems.slice(0, 3).join(' | '));
+  await page.evaluate(() => {
+    const items = Array.from(document.querySelectorAll('.gn--page .gn-sheet.is-open .gn-ac.is-open .gn-ac-it'));
+    const it = items.find(b => b.querySelector('.gn-ac-l').textContent === 'Bohrschrauber Hilti TE 6');
+    if (it) it.click();
+  });
+  await page.waitForTimeout(200);
+  const acPick = await page.evaluate(() => {
+    const sh = document.querySelector('.gn--page .gn-sheet.is-open');
+    return { name: sh.querySelector('[data-f="name"]').value, cat: sh.querySelector('[data-f="cat"]').value };
+  });
+  ok(acPick.name === 'Bohrschrauber Hilti TE 6' && acPick.cat === 'maschine', 'Vorschlag übernommen + Kategorie automatisch gesetzt («' + acPick.cat + '»)');
+  // Hersteller-Vorschläge folgen der Bezeichnung (Kreuzfilterung)
+  await page.click('.gn--page .gn-sheet.is-open [data-f="brand"]');
+  await page.waitForTimeout(250);
+  const brandAc = await page.evaluate(() => Array.from(document.querySelectorAll('.gn--page .gn-sheet.is-open .gn-ac.is-open .gn-ac-it .gn-ac-l')).map(e => e.textContent));
+  ok(brandAc.length >= 1 && brandAc.indexOf('Hilti') >= 0, 'Hersteller-Vorschläge gefiltert nach Bezeichnung: ' + brandAc.join(' | '));
+  // Lieferant-Feld vorhanden (mit Vorschlags-Quelle) — dann normal ausfüllen
+  ok(await page.evaluate(() => !!document.querySelector('.gn--page .gn-sheet.is-open [data-f="supplier"]')), 'Lieferant-Feld im nativen Formular');
   await page.fill('.gn--page .gn-sheet.is-open [data-f="name"]', 'Testgerät Nativ');
   await page.selectOption('.gn--page .gn-sheet.is-open [data-f="cat"]', 'handwerkzeug');
   await page.click('.gn--page .gn-sheet.is-open [data-gn-save]');
@@ -210,6 +254,28 @@ console.log('— Werkzeug (Liste/Badges/Filter/Toggle) —');
   });
   ok(defekt.ok && defekt.sev === 'schwer', 'Defekt via natives Sheet gemeldet (echter Bericht via _wzSaveDefekt)');
   await page.evaluate(() => { try { if (window.GemaDialog) document.querySelectorAll('.gema-dlg-bg').forEach(d => d.remove()); } catch (e) {} });
+  // 🔍 Erweiterter Filter (natives Sheet → derselbe Motor _wzAdvFilter)
+  await page.click('.gn--page [data-nat-filter]');
+  await page.waitForTimeout(450);
+  const fsheet = await page.evaluate(() => {
+    const sh = document.querySelector('.gn--page .gn-sheet.is-open');
+    return { open: !!sh, felder: sh ? ['kat', 'brand', 'model', 'supplier', 'standort', 'zu', 'aus', 'serial', 'pruef', 'defekt', 'garantie', 'kaufVon', 'kaufBis'].filter(f => !!sh.querySelector('[data-f="' + f + '"]')).length : 0 };
+  });
+  ok(fsheet.open && fsheet.felder === 13, 'Filter-Sheet mit allen 13 Kriterien (' + fsheet.felder + ')');
+  await page.selectOption('.gn--page .gn-sheet.is-open [data-f="kat"]', 'leiter');
+  await page.click('.gn--page .gn-sheet.is-open [data-gn-save]');
+  await page.waitForTimeout(900);
+  const flt = await page.evaluate(() => ({
+    rows: document.querySelectorAll('.gn--page [data-nat-list] .gn-row').length,
+    dot: (document.querySelector('.gn--page [data-nat-filter] .gn-dot') || {}).textContent || ''
+  }));
+  ok(flt.rows === 1, 'Filter «Kategorie Leiter» wirkt auf die Liste (1 Treffer)');
+  ok(flt.dot === '1', 'Filter-Badge am Button zeigt aktive Kriterien («' + flt.dot + '»)');
+  await page.click('.gn--page [data-nat-filter]');
+  await page.waitForTimeout(450);
+  await page.click('.gn--page .gn-sheet.is-open [data-nat-freset]');
+  await page.waitForTimeout(900);
+  ok((await page.evaluate(() => document.querySelectorAll('.gn--page [data-nat-list] .gn-row').length)) === 4, '«↻ Zurücksetzen» hebt den Filter auf (4 Geräte)');
   // Native-Ansicht = USER-EINSTELLUNG (sys_profil → profile.nativeAnsicht, synchroner
   // Cache gema_native_view_v1). KEIN In-Modul-Umschalter/Pill mehr.
   ok(await page.evaluate(() => !document.querySelector('.gn--page [data-gn-classic]')), 'kein In-Modul-Umschalter mehr');
@@ -240,6 +306,16 @@ console.log('— Fahrzeuge (Liste/MFK/Fahrer-Chip) —');
   ok(f.sub.indexOf('2 Fahrzeuge') >= 0 && f.sub.indexOf('1 MFK fällig') >= 0, 'Zähler echt («' + f.sub + '»)');
   ok(f.rows === 2 && f.badges.some(b => /MFK fällig/.test(b)), '2 Fahrzeuge + MFK-Badge');
   ok(f.ava === 'MK', 'Fahrer-Initialen-Chip («' + f.ava + '»)');
+  // ‹ Zurück-Taste auch hier (zentrale Injektion aus gema_native_mobil)
+  ok(await page.evaluate(() => !!document.querySelector('.gn--page .gn-toolbar [data-gn-back]')), 'Zurück-Taste in der Toolbar');
+  // Typ-Chips (2 Typen im Seed → Leiste erscheint, Filter wirkt)
+  const ftyps = await page.evaluate(() => Array.from(document.querySelectorAll('.gn--page [data-nat-typs] .gn-chip-sel')).map(c => c.textContent));
+  ok(ftyps.length === 3 && ftyps.some(t => t.indexOf('Servicefahrzeug') >= 0), 'Typ-Chips (Alle + 2 Typen): ' + ftyps.join(' | '));
+  await page.click('.gn--page [data-nat-typs] [data-nat-typ="Servicefahrzeug"]');
+  await page.waitForTimeout(200);
+  ok((await page.evaluate(() => document.querySelectorAll('.gn--page [data-nat-list] .gn-row').length)) === 1, 'Typ-Chip «Servicefahrzeug» filtert auf 1');
+  await page.click('.gn--page [data-nat-typs] [data-nat-typ=""]');
+  await page.waitForTimeout(200);
   // Zeilen-Tap öffnet das NATIVE Detail-Sheet (durchgängig nativ)
   await page.click('.gn--page [data-nat-list] .gn-row');
   await page.waitForTimeout(450);
@@ -301,6 +377,43 @@ console.log('— Fahrzeuge (Liste/MFK/Fahrer-Chip) —');
   });
   ok(fdef.ok && fdef.prio === 'hoch', 'Defekt via natives Sheet gemeldet (echter events-Eintrag via saveDefekt)');
   ok(!fdef.overlayOffen, 'klassisches Defekt-Overlay blieb zu (synchrone Brücke)');
+  // Modell-Vorschläge im Formular-Sheet (Basiskatalog via _fzPermHooks.katalog)
+  await page.click('.gn--page [data-nat-add]');
+  await page.waitForTimeout(400);
+  await page.fill('.gn--page .gn-sheet.is-open [data-f="model"]', 'Craf');
+  await page.waitForTimeout(250);
+  const fac = await page.evaluate(() => Array.from(document.querySelectorAll('.gn--page .gn-sheet.is-open .gn-ac.is-open .gn-ac-it .gn-ac-l')).map(e => e.textContent));
+  ok(fac.indexOf('VW Crafter') >= 0, 'Modell-Vorschläge aus dem Basiskatalog: ' + fac.join(' | '));
+  await page.evaluate(() => {
+    const items = Array.from(document.querySelectorAll('.gn--page .gn-sheet.is-open .gn-ac.is-open .gn-ac-it'));
+    const it = items.find(b => b.querySelector('.gn-ac-l').textContent === 'VW Crafter');
+    if (it) it.click();
+  });
+  await page.waitForTimeout(150);
+  ok(await page.evaluate(() => document.querySelector('.gn--page .gn-sheet.is-open [data-f="model"]').value === 'VW Crafter'), 'Modell-Vorschlag übernommen');
+  // Fahrer-Vorschläge (Team + Bestand)
+  await page.click('.gn--page .gn-sheet.is-open [data-f="driver"]');
+  await page.waitForTimeout(250);
+  const fdrv = await page.evaluate(() => Array.from(document.querySelectorAll('.gn--page .gn-sheet.is-open .gn-ac.is-open .gn-ac-it .gn-ac-l')).map(e => e.textContent));
+  ok(fdrv.indexOf('M. Keller') >= 0 && fdrv.indexOf('Robin Muster') >= 0, 'Fahrer-Vorschläge (Team + Bestand): ' + fdrv.join(' | '));
+  await page.click('.gn--page .gn-sheet.is-open [data-gn-cancel]');
+  await page.waitForTimeout(500);
+  // 🔍 Filter-Sheet (Zuteilung fix/sharing wie die klassischen Selects)
+  await page.click('.gn--page [data-nat-filter]');
+  await page.waitForTimeout(450);
+  await page.selectOption('.gn--page .gn-sheet.is-open [data-f="zut"]', 'fix');
+  await page.click('.gn--page .gn-sheet.is-open [data-gn-save]');
+  await page.waitForTimeout(900);
+  const fflt = await page.evaluate(() => ({
+    rows: document.querySelectorAll('.gn--page [data-nat-list] .gn-row').length,
+    dot: (document.querySelector('.gn--page [data-nat-filter] .gn-dot') || {}).textContent || ''
+  }));
+  ok(fflt.rows === 1 && fflt.dot === '1', 'Filter «Zuteilung fix» wirkt (1 Fahrzeug, Badge «' + fflt.dot + '»)');
+  await page.click('.gn--page [data-nat-filter]');
+  await page.waitForTimeout(450);
+  await page.click('.gn--page .gn-sheet.is-open [data-nat-freset]');
+  await page.waitForTimeout(900);
+  ok((await page.evaluate(() => document.querySelectorAll('.gn--page [data-nat-list] .gn-row').length)) === 2, '«↻ Zurücksetzen» hebt den Filter auf');
   await page.close();
 }
 
@@ -452,6 +565,19 @@ console.log('— Druckdispositiv (Eingabe→echte Berechnung→Ergebnis) —');
   ok(erg.val && erg.val.replace(',', '.').indexOf('3.52') >= 0, 'Ergebnis-Karte zeigt den Modul-Wert («' + erg.val + '»)');
   ok(/Erhöht|Norm|tief/.test(erg.note), 'Normstatus übernommen («' + erg.note + '»)');
   ok(erg.kv === 5, 'Zwischenwerte-Liste (5 kv-Zeilen)');
+  await page.close();
+}
+
+/* ════════ Zurück-Navigation ════════ */
+console.log('— Zurück-Taste navigiert —');
+{
+  // Direkt geöffnet (kein Verlauf/Referrer) → Zurück führt zur Modulübersicht
+  const { page } = await openPage('/if_werkzeug.html');
+  await Promise.all([
+    page.waitForURL('**/index.html', { timeout: 8000 }),
+    page.click('.gn--page .gn-toolbar [data-gn-back]')
+  ]).then(() => ok(true, 'Zurück ohne Verlauf → index.html'))
+    .catch(e => ok(false, 'Zurück ohne Verlauf → index.html (' + e.message.split('\n')[0] + ')'));
   await page.close();
 }
 
