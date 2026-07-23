@@ -1,7 +1,8 @@
 // GEMA Native — iPhone-Ansicht der 6 vorbereiteten Screens (gema_native_mobil.js).
 //  Prüft pro Modul: Native-Overlay erscheint auf Phone-Viewport (390×844) mit ECHTEN
-//  Daten aus den geseedeten Pools, Aktionen/Filter funktionieren, Umschalter
-//  «Klassische Ansicht» + 📱-Rückkehr-Pill, Desktop (1280×800) bleibt klassisch.
+//  Daten aus den geseedeten Pools, Aktionen/Filter funktionieren, die Ansicht folgt
+//  der USER-EINSTELLUNG (profile.nativeAnsicht / Cache gema_native_view_v1, Standard AN)
+//  ohne In-Modul-Umschalter/Pill, Desktop (1280×800) bleibt klassisch.
 //  Module: if_werkzeug, if_fahrzeug, pm_stunden, pm_einsatzplan, sys_workspace,
 //  sb_druckdispositiv (DOM-Proxy auf die echte Berechnung).
 //
@@ -147,15 +148,18 @@ console.log('— Werkzeug (Liste/Badges/Filter/Toggle) —');
   // Detail-Modal schliessen (liegt jetzt korrekt ÜBER dem Screen, würde sonst Klicks abfangen)
   await page.evaluate(() => { try { if (window.closeView) closeView(); } catch (e) {} document.querySelectorAll('.modal-bg,.wz-modal-bg').forEach(m => { m.style.display = 'none'; m.classList.remove('open'); }); });
   await page.waitForTimeout(150);
-  // Klassisch-Toggle + Rückkehr-Pill
-  await page.click('.gn--page [data-gn-classic]');
-  await page.waitForTimeout(250);
-  ok(!(await natVisible(page)), 'Umschalter → klassische Ansicht (Overlay weg)');
-  ok(await page.evaluate(() => { const p = document.querySelector('.gn-return-pill'); return !!p && p.style.display !== 'none'; }), '📱-Rückkehr-Pill sichtbar');
-  await page.click('.gn-return-pill');
-  await page.waitForTimeout(250);
-  ok(await natVisible(page), 'Pill → Native-Ansicht wieder aktiv');
-  await page.evaluate(() => localStorage.setItem('gema_native_view_v1', 'native'));
+  // Native-Ansicht = USER-EINSTELLUNG (sys_profil → profile.nativeAnsicht, synchroner
+  // Cache gema_native_view_v1). KEIN In-Modul-Umschalter/Pill mehr.
+  ok(await page.evaluate(() => !document.querySelector('.gn--page [data-gn-classic]')), 'kein In-Modul-Umschalter mehr');
+  ok(await page.evaluate(() => !document.querySelector('.gn-return-pill')), 'keine 📱-Rückkehr-Pill mehr');
+  // Einstellung «klassisch» → Native aus (genau der Cache, den sys_profil schreibt)
+  await page.evaluate(() => { localStorage.setItem('gema_native_view_v1', 'klassisch'); window.dispatchEvent(new Event('resize')); });
+  await page.waitForTimeout(300);
+  ok(!(await natVisible(page)), 'Einstellung «klassisch» → Native-Overlay aus');
+  // Einstellung «native» → wieder aktiv (Standard)
+  await page.evaluate(() => { localStorage.setItem('gema_native_view_v1', 'native'); window.dispatchEvent(new Event('resize')); });
+  await page.waitForTimeout(300);
+  ok(await natVisible(page), 'Einstellung «native» → Native-Ansicht wieder aktiv');
   await page.close();
 }
 
@@ -340,7 +344,7 @@ console.log('— Desktop bleibt klassisch —');
   await page.waitForTimeout(1400);
   ok(errs.length === 0, 'Desktop-Boot ohne pageerrors');
   ok(!(await natVisible(page)), 'Native-Overlay auf Desktop unsichtbar');
-  ok(await page.evaluate(() => !document.querySelector('.gn-return-pill') || document.querySelector('.gn-return-pill').style.display === 'none' || getComputedStyle(document.querySelector('.gn-return-pill')).display === 'none'), 'keine Rückkehr-Pill auf Desktop');
+  ok(await page.evaluate(() => !document.querySelector('.gn-return-pill') && !document.querySelector('[data-gn-classic]')), 'kein Native-Umschalter/Pill auf Desktop');
   ok(await page.evaluate(() => !!document.querySelector('.g-nav') && getComputedStyle(document.querySelector('.g-nav')).display !== 'none'), 'GEMA-Nav auf Desktop sichtbar');
   await dctx.close();
 }

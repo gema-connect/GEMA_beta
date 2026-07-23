@@ -200,6 +200,9 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
 .fb-card.sel{border-color:#a5b4fc;box-shadow:0 0 0 3px rgba(124,58,237,.09)}
 .fb-card.ci-erledigt{opacity:.6;background:var(--bg2)}
 .fb-card.ci-erledigt .fb-text{text-decoration:line-through}
+/* «Meine Feedbacks»-Filter: nur eigene Punkte einblenden */
+body.beta-mine-only .fb-card:not(.fb-mine){display:none}
+body.beta-mine-only .fbp-input{display:none}
 .fb-check{width:19px;height:19px;accent-color:var(--pur);margin-top:2px;flex-shrink:0;cursor:pointer}
 .fb-main{flex:1;min-width:0}
 .fb-text{font-size:13px;color:var(--txt2);line-height:1.55;margin-top:4px;white-space:pre-wrap;word-break:break-word}
@@ -337,6 +340,7 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
       <button class="fb" data-f="open" onclick="setFilter(this)">◌ Offen</button>
       <button class="fb" data-f="comments" onclick="setFilter(this)">💬 Mit Kommentaren</button>
       <button class="fb" data-f="opencomments" onclick="setFilter(this)">🔴 Offene Feedbacks</button>
+      <button class="fb" data-f="mine" onclick="setFilter(this)">🙋 Meine Feedbacks</button>
     </div>
   </div>
 
@@ -646,6 +650,28 @@ const totalComments = (id) => {
   return (mState(id).comments || []).length + getFeedback(id).length;
 };
 
+// ── «Meine Feedbacks»-Filter ──────────────────────────────────
+// Autor-Namen sind Freitext; GemaFeedback stempelt user.name||user.username vor.
+// «Mein» = Autor matcht (case-insensitive) Name ODER Benutzername des Users.
+let _betaMineCache = null;
+const _betaMineNames = () => {
+  if (_betaMineCache) return _betaMineCache;
+  try {
+    const u = (typeof GemaAuth !== 'undefined' && GemaAuth.getCurrentUser) ? GemaAuth.getCurrentUser() : null;
+    _betaMineCache = u ? [u.name, u.username].filter(Boolean).map(s => String(s).toLowerCase().trim()) : [];
+  } catch (e) { _betaMineCache = []; }
+  return _betaMineCache;
+};
+const _betaIsMine = (author) => {
+  const a = String(author || '').toLowerCase().trim();
+  if (!a || a === 'anonym') return false;
+  return _betaMineNames().indexOf(a) >= 0;
+};
+const moduleHasMine = (id) => {
+  return getFeedback(id).some(c => _betaIsMine(c.author))
+      || (mState(id).comments || []).some(c => _betaIsMine(c.author));
+};
+
 // ── ACTIVITY LOG ──────────────────────────────────────────────
 const logActivity = (type, text) => {
   state.activity.unshift({ type, text, ts: nowStr() });
@@ -863,7 +889,7 @@ const renderComments = (id) => {
       ? `<div class="fb-shot"><img src="${c.screenshot}" loading="lazy" alt="Screenshot" onclick="fbLightbox(this.src)"/><div class="fb-shot-hint">🔍 Klicken zum Vergrössern</div></div>`
       : '';
     return `
-    <div class="fb-card ${ciCls}${_fbSel[key]?' sel':''}" data-fbcard="${key}">
+    <div class="fb-card ${ciCls}${_fbSel[key]?' sel':''}${_betaIsMine(c.author)?' fb-mine':''}" data-fbcard="${key}">
       <input type="checkbox" class="fb-check" data-fbkey="${key}" ${_fbSel[key]?'checked':''} onchange="fbSelToggle(this)" title="Punkt markieren — Status gemeinsam wechseln"/>
       <div class="fb-main">
         <div class="comment-meta">
@@ -1116,6 +1142,9 @@ const setFilter = (btn) => {
 };
 const applyFilter = () => {
   const q = document.getElementById('searchInp').value.toLowerCase().trim();
+  const mineOnly = currentFilter === 'mine';
+  // Body-Klasse blendet fremde Feedback-Karten aus (CSS: .fb-card:not(.fb-mine))
+  document.body.classList.toggle('beta-mine-only', mineOnly);
   document.querySelectorAll('tr.mod-row').forEach(tr => {
     const st  = tr.dataset.status || '';
     const hc  = tr.dataset.hasComments === '1';
@@ -1126,10 +1155,14 @@ const applyFilter = () => {
     if (currentFilter !== 'all') {
       if (currentFilter === 'comments') show = hc;
       else if (currentFilter === 'opencomments') show = mid && countOpenComments(mid) > 0;
+      else if (mineOnly) show = !!mid && moduleHasMine(mid);
       else show = st === currentFilter;
     }
     if (show && q) show = txt.includes(q);
     tr.style.display = show ? '' : 'none';
+    // Bei «Meine Feedbacks» die betroffenen Panels automatisch aufklappen,
+    // damit die eigenen Punkte sofort sichtbar sind.
+    if (mineOnly && show && panel) panel.dataset.open = '1';
     // Panel folgt der Modul-Zeile: versteckt wenn die Zeile gefiltert ist,
     // sonst gemäss Auf-/Zuklapp-Zustand
     if (panel) panel.style.display = (show && panel.dataset.open === '1') ? '' : 'none';

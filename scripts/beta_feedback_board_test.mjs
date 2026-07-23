@@ -5,6 +5,7 @@
 //   - Checkbox-Mehrfachauswahl («Alle markieren» pro Modul, auch modulübergreifend)
 //     + Bulk-Leiste unten: Status gemeinsam wechseln (offen/bearbeitung/erledigt)
 //   - Einzel-Status/Löschen weiterhin pro Punkt; Filter versteckt Panels mit
+//   - «Meine Feedbacks»-Filter: nur Module + Karten des eingeloggten Users
 // Ausführen: CHROME=<chromium> node scripts/beta_feedback_board_test.mjs
 import { chromium } from 'playwright-core';
 import { startServer, BASE, seed, newPage } from './rolematrix_harness.mjs';
@@ -132,6 +133,34 @@ await page.evaluate(() => { document.getElementById('searchInp').value = 'Einhei
 }
 await page.evaluate(() => { document.getElementById('searchInp').value = ''; filterRows(); });
 ok(await page.evaluate(() => document.getElementById('fbp-lu_tabelle').style.display !== 'none'), 'Filter weg → offenes Panel wieder sichtbar');
+
+console.log('■ «Meine Feedbacks»-Filter (nur eigene Punkte)');
+// eigenen Feedback-Punkt (author = Name des eingeloggten Users «Test User») ergänzen
+await page.evaluate(() => {
+  const arr = JSON.parse(_GemaDB.c['feedback_lu_tabelle']);
+  arr.push({ type: 'kommentar', author: 'Test User', text: 'Mein eigener Punkt', ts: '17.07.26, 10:00' });
+  _GemaDB.c['feedback_lu_tabelle'] = JSON.stringify(arr);
+  renderAll();
+});
+await page.click('.fb[data-f="mine"]');
+ok(await page.evaluate(() => document.body.classList.contains('beta-mine-only')), 'Body-Klasse beta-mine-only aktiv');
+{
+  const r = await page.evaluate(() => ({
+    lu: document.querySelector('tr[data-id=lu_tabelle]').style.display,
+    dd: document.querySelector('tr[data-id=druckdispositiv]').style.display,
+    open: document.getElementById('fbp-lu_tabelle').dataset.open,
+    mineVis: (() => { const c = document.querySelector('#cl-lu_tabelle .fb-card.fb-mine'); return !!c && getComputedStyle(c).display !== 'none'; })(),
+    otherHidden: (() => { const c = document.querySelector('#cl-lu_tabelle .fb-card:not(.fb-mine)'); return !!c && getComputedStyle(c).display === 'none'; })()
+  }));
+  ok(r.lu !== 'none', 'Modul mit eigenem Feedback bleibt sichtbar');
+  ok(r.dd === 'none', 'Modul nur mit fremdem Feedback wird ausgeblendet');
+  ok(r.open === '1', 'Panel des eigenen Moduls automatisch aufgeklappt');
+  ok(r.mineVis, 'Eigene Feedback-Karte (.fb-mine) sichtbar');
+  ok(r.otherHidden, 'Fremde Feedback-Karten ausgeblendet');
+}
+await page.evaluate(() => document.querySelector('.fb[data-f="all"]').click());
+ok(await page.evaluate(() => !document.body.classList.contains('beta-mine-only')
+  && document.querySelector('tr[data-id=druckdispositiv]').style.display !== 'none'), 'Filter «Alle» → beta-mine-only weg, fremde Module wieder sichtbar');
 
 ok(errors.length === 0, 'Keine JS-Fehler' + (errors.length ? ' — ' + errors[0] : ''));
 

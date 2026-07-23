@@ -3,8 +3,9 @@
    Bindet einen GEMA-Native-Screen (gema-native.css/js) als
    Vollbild-Overlay in eine bestehende Modulseite ein:
    - NUR auf Phones aktiv (≤740px), Desktop/Tablet unverändert
-   - Umschalter «Klassische Ansicht» (persistiert pro Gerät,
-     [data-gn-classic] im Screen-Markup) + 📱-Rückkehr-Pill
+   - Ein-/Ausschalten über die User-Einstellung (sys_profil →
+     user.profile.nativeAnsicht, Standard AN) — KEIN In-Modul-
+     Umschalter mehr (früher [data-gn-classic] + 📱-Pill)
    - Re-Render erhält die Scroll-Position der .gn-screen
    Reines UI-Overlay: die Modul-Logik (Modals, Storage, Sync)
    läuft unverändert darunter weiter — Modals (z-index ≥10500)
@@ -18,10 +19,16 @@
   function phone() { try { return window.matchMedia(MQ).matches; } catch (e) { return false; } }
   function pref() {
     try {
-      var q = new URLSearchParams(location.search).get('native');
+      var q = new URLSearchParams(location.search).get('native');   // Debug/Test-Override
       if (q === '0') return 'klassisch';
       if (q === '1') return 'native';
     } catch (e) {}
+    // Primär die User-Einstellung (sys_profil → user.profile.nativeAnsicht), Standard AN.
+    try {
+      var u = (typeof GemaAuth !== 'undefined' && GemaAuth.getCurrentUser) ? GemaAuth.getCurrentUser() : null;
+      if (u && u.profile && typeof u.profile.nativeAnsicht === 'boolean') return u.profile.nativeAnsicht ? 'native' : 'klassisch';
+    } catch (e) {}
+    // Fallback: lokaler Cache (Profil noch nicht geladen), sonst Standard aktiv.
     try { return localStorage.getItem(KEY) || 'native'; } catch (e) { return 'native'; }
   }
   function setPref(v) { try { localStorage.setItem(KEY, v); } catch (e) {} }
@@ -43,10 +50,6 @@
          heben, damit selten genutzte Sub-Dialoge (Auftrag-Suche, Einstellungen)
          trotzdem bedienbar sind. Die Haupt-Formulare laufen über native Sheets. */
       'html.gn-native-on .modal-bg{z-index:10600!important}' +
-      '.gn-return-pill{position:fixed;left:14px;bottom:calc(14px + env(safe-area-inset-bottom,0px));z-index:899;' +
-      'display:flex;align-items:center;gap:7px;background:rgba(28,28,30,.9);color:#fff;border:none;border-radius:22px;' +
-      'padding:10px 15px;font:600 13px "DM Sans",system-ui,sans-serif;box-shadow:0 10px 26px -8px rgba(0,0,0,.5);cursor:pointer}' +
-      '@media (min-width: 741px){.gn-return-pill{display:none}}' +
       /* Native Bottom-Sheet (Formular-Layer) — z-index über dem Screen-Inhalt.
          .gn-sheet aus dem Kit hat height:80%; hier passt es sich dem Inhalt an. */
       '.gn .gn-sheet.gn-sheet--form{height:auto;max-height:92%}' +
@@ -78,18 +81,6 @@
     root.style.display = 'none';
     document.body.appendChild(root);
 
-    var pill = null;
-    function ensurePill() {
-      if (pill) return pill;
-      pill = document.createElement('button');
-      pill.type = 'button';
-      pill.className = 'gn-return-pill no-print';
-      pill.innerHTML = '📱 Native Ansicht';
-      pill.addEventListener('click', function () { setPref('native'); apply(true); });
-      document.body.appendChild(pill);
-      return pill;
-    }
-
     var lastOn = null;
     function apply(force) {
       var on = enabled();
@@ -103,21 +94,12 @@
         if (sc2 && st) sc2.scrollTop = st;
         root.style.display = '';
         document.documentElement.classList.add('gn-native-on');
-        if (pill) pill.style.display = 'none';
       } else {
         root.style.display = 'none';
         document.documentElement.classList.remove('gn-native-on');
-        if (phone()) { ensurePill().style.display = ''; }
-        else if (pill) { pill.style.display = 'none'; }
       }
       lastOn = on;
     }
-
-    /* «Klassische Ansicht» aus dem Screen heraus (Button mit data-gn-classic) */
-    root.addEventListener('click', function (e) {
-      var b = e.target.closest && e.target.closest('[data-gn-classic]');
-      if (b) { setPref('klassisch'); apply(true); }
-    });
 
     var rt = null;
     window.addEventListener('resize', function () {
