@@ -3250,9 +3250,13 @@ document.addEventListener('DOMContentLoaded',function(){
 <script src="gema-native.js"></script>
 <script src="gema_native_mobil.js"></script>
 <script>
-/* ═══ GEMA Native — iPhone-Ansicht (Screen «Stundenerfassung» aus gema-native-screens.html) ═══
-   Echte Wochen-/Tagesdaten (stTagFor/stdEintragMin); Erfassen/Bearbeiten läuft über die
-   bestehenden Modul-Dialoge (stEinNeu/stEinEdit/stAbsOpen/stWocheEinreichen). */
+/* ═══ GEMA Native — iPhone-Ansicht (Screen «Stundenerfassung») ═══
+   DURCHGÄNGIG nativ: Liste + native Bottom-Sheets für Zeit erfassen/bearbeiten
+   und Absenz. Die Sheets sammeln die Eingaben und rufen die ECHTEN Modul-
+   Speicherfunktionen (stEinSave/stEinDelete/stAbsSave/stAbsRemove) über die
+   klassischen Modal-Felder als Datenkanal auf — inkl. Auto-Kompensation,
+   Topf-B-Check, Rapport-Start und Sync. Kein klassisches Modal wird sichtbar
+   (die Save-Kette läuft synchron). Desktop unverändert. */
 (function(){
   if(typeof GemaNativeMobil==='undefined') return;
   var NE=GemaNativeMobil.esc, nat=null;
@@ -3262,6 +3266,8 @@ document.addEventListener('DOMContentLoaded',function(){
   function heute(){ return new Date().toISOString().slice(0,10); }
   function natH(min){ return (Math.round(min/6)/10).toFixed(1).replace('.',','); }
   function tagLbl(iso){ var d=new Date(iso+'T12:00:00'); return WT[d.getDay()]+' · '+d.getDate()+'. '+MON[d.getMonth()]; }
+  function objekte(){ try{ return (typeof GemaObjekte!=='undefined')?GemaObjekte.getAll():[]; }catch(e){ return []; } }
+  function objName(o){ try{ return GemaObjekte.displayName(o); }catch(e){ return o.name||o.id; } }
   function wocheTage(){
     var u=null; try{ u=stUser(); }catch(e){}
     if(!u) return [];
@@ -3276,7 +3282,7 @@ document.addEventListener('DOMContentLoaded',function(){
   function absHtml(t,iso){
     if(!t||!t.absenz) return '';
     var lbl=t.absenz.typ, ic='🌴';
-    try{ var u=stUser(); var def=stdAbsenzDef(stParamsFor(u.id),t.absenz.typ); if(def){ lbl=def.name; ic=def.ic||ic; } }catch(e){}
+    try{ var u=stUser(); var def=stdAbsenzDef(stParamsFor(u.id),t.absenz.typ); if(def){ lbl=def.n||def.name; ic=def.ic||ic; } }catch(e){}
     var um=t.absenz.stunden!=null?(natH(t.absenz.stunden*60)+' h'):(t.absenz.anteil===0.5?'½ Tag':'1 Tag');
     return '<div class="gn-row" data-nat-abs="'+NE(iso)+'"><span class="gn-row-ic" style="--gn-row-bg:var(--gn-c-hygiene)">'+ic+'</span>'
       +'<span class="gn-row-body"><span class="gn-row-title">'+NE(lbl)+'</span></span><span class="gn-row-val">'+NE(um)+'</span></div>';
@@ -3328,7 +3334,6 @@ document.addEventListener('DOMContentLoaded',function(){
         if(v==='prev') _wkStart=stdAddTage(_wkStart,-7);
         else if(v==='next') _wkStart=stdAddTage(_wkStart,7);
         else _wkStart=stdWochenStart(heute());
-        stRender();
       }catch(err){}
       if(nat) nat.refresh();
     });
@@ -3337,21 +3342,117 @@ document.addEventListener('DOMContentLoaded',function(){
       if(!el) return;
       if(el.hasAttribute('data-nat-act')){
         var a=el.getAttribute('data-nat-act');
-        try{
-          if(a==='neu') stEinNeu(heute());
-          else if(a==='absenz') stAbsOpen(heute());
-          else if(a==='einreichen') stWocheEinreichen();
-        }catch(err){}
+        if(a==='neu') openEinSheet(heute(),null);
+        else if(a==='absenz') openAbsSheet(heute());
+        else if(a==='einreichen'){ try{ stWocheEinreichen(); }catch(err){} }
       } else if(el.hasAttribute('data-nat-edit')){
-        if(el.__gnCtxFired){ el.__gnCtxFired=false; return; }
-        try{ stEinEdit(el.getAttribute('data-nat-edit'),el.getAttribute('data-nat-ein')); }catch(err){}
+        openEinSheet(el.getAttribute('data-nat-edit'),el.getAttribute('data-nat-ein'));
       } else if(el.hasAttribute('data-nat-neu')){
-        try{ stEinNeu(el.getAttribute('data-nat-neu')); }catch(err){}
+        openEinSheet(el.getAttribute('data-nat-neu'),null);
       } else if(el.hasAttribute('data-nat-abs')){
-        try{ stAbsOpen(el.getAttribute('data-nat-abs')); }catch(err){}
+        openAbsSheet(el.getAttribute('data-nat-abs'));
       }
     });
   }
+
+  // ── Zeit erfassen/bearbeiten (natives Sheet) ──
+  function openEinSheet(datum,einId){
+    if(!nat) return;
+    var u=null; try{ u=stUser(); }catch(e){}
+    if(!u) return;
+    var t=null; try{ t=stTagFor(datum,u.id); }catch(e){}
+    if(t&&typeof stTagEditable==='function'&&!stTagEditable(t)){ try{ toast('Tag ist eingereicht — nicht mehr änderbar'); }catch(e){} return; }
+    var e0=einId&&t?(t.eintraege||[]).find(function(x){return x.id===einId;}):null;
+    var von=e0?e0.von:'07:00', bis=e0?e0.bis:'17:00', pause=e0?(e0.pauseMin||0):60, taet=e0?(e0.taetigkeit||''):'', objId=e0?(e0.objektId||''):'';
+    var eins=[]; try{ eins=stMeineEinsaetze(datum); }catch(e){}
+    var objOpts='<option value="">— ohne Projekt —</option>'+objekte().map(function(o){ return '<option value="'+NE(o.id)+'"'+(objId===o.id?' selected':'')+'>'+NE(objName(o))+'</option>'; }).join('');
+    var einWrap=eins.length?(
+      '<div class="gn-field"><label>Aus Einsatzplan übernehmen</label><select class="gn-native-select" data-f="einsatz">'
+      +'<option value="">— manuell erfassen —</option>'
+      +eins.map(function(x){ return '<option value="'+NE(x.id)+'" data-objekt="'+NE(x.objektId||'')+'" data-titel="'+NE(x.titel||'')+'">'+NE((x.titel||x.auftragNr||'Einsatz')+(x.objektName?' · '+x.objektName:''))+'</option>'; }).join('')
+      +'</select></div>'):'';
+    var html=
+      '<div class="gn-label" style="text-transform:none;font-weight:600">'+NE(tagLbl(datum))+'</div>'
+      +einWrap
+      +'<div class="gn-field"><label>Von – Bis *</label><div class="gn-timepair"><input class="gn-input" type="time" data-f="von" value="'+NE(von)+'"><input class="gn-input" type="time" data-f="bis" value="'+NE(bis)+'"></div></div>'
+      +'<div class="gn-field"><label>Pause (Min.)</label><input class="gn-input" type="text" inputmode="numeric" data-f="pause" value="'+NE(String(pause))+'"></div>'
+      +'<div class="gn-field"><label>Projekt / Objekt</label><select class="gn-native-select" data-f="objekt">'+objOpts+'</select></div>'
+      +'<div class="gn-field"><label>Tätigkeit</label><input class="gn-input" type="text" data-f="taetigkeit" placeholder="z.B. Steigzone 2.OG, Montage" value="'+NE(taet)+'"></div>';
+    nat.sheet({
+      title: einId?'Eintrag bearbeiten':'Arbeitszeit erfassen',
+      html: html,
+      saveLabel: '💾 Speichern',
+      deleteLabel: einId?'Löschen':null,
+      onDelete: einId?function(){
+        // echte Löschung: stEinEdit setzt _einDatum/_einId, Modal sofort wieder zu
+        try{ stEinEdit(datum,einId); stClose&&stClose('einModal'); nat.closeSheet(); stEinDelete(); }catch(err){}
+      }:null,
+      onSave: function(s){
+        var g=function(f){ var el=s.querySelector('[data-f="'+f+'"]'); return el?el.value:''; };
+        if(!g('von')||!g('bis')){ try{ toast('Von/Bis fehlt'); }catch(e){} return false; }
+        // echte Save-Kette: Modul-Setup aufrufen (setzt _einDatum/_einId + befüllt
+        // Objekt-Dropdown), native Werte in die klassischen Felder, dann stEinSave.
+        try{
+          if(einId) stEinEdit(datum,einId); else stEinNeu(datum);
+          var set=function(id,v){ var el=document.getElementById(id); if(el) el.value=v; };
+          set('ein_von',g('von')); set('ein_bis',g('bis')); set('ein_pause',g('pause'));
+          set('ein_taetigkeit',g('taetigkeit')); set('ein_objekt',g('objekt'));
+          var ew=document.getElementById('ein_einsatzWrap');
+          if(ew&&ew.style.display!=='none'){ set('ein_einsatz',g('einsatz')||''); }
+          stEinSave();
+          stClose&&stClose('einModal');   // Sicherheit, falls Validierung durchlief ohne Close
+        }catch(err){ console.warn('[nat stunden] save:',err&&err.message); }
+        return true;
+      }
+    });
+    // Einsatz-Übernahme: Objekt/Tätigkeit im Sheet vorbelegen
+    var sh=nat.root.querySelector('.gn-sheet');
+    var einSel=sh&&sh.querySelector('[data-f="einsatz"]');
+    if(einSel) einSel.addEventListener('change',function(){
+      var opt=einSel.options[einSel.selectedIndex]; if(!opt||!opt.value) return;
+      var os=sh.querySelector('[data-f="objekt"]'), ts=sh.querySelector('[data-f="taetigkeit"]');
+      if(opt.getAttribute('data-objekt')&&os) os.value=opt.getAttribute('data-objekt');
+      if(opt.getAttribute('data-titel')&&ts&&!ts.value) ts.value=opt.getAttribute('data-titel');
+    });
+  }
+
+  // ── Absenz eintragen (natives Sheet) ──
+  function openAbsSheet(datum){
+    if(!nat) return;
+    var u=null; try{ u=stUser(); }catch(e){}
+    if(!u) return;
+    var t=null; try{ t=stTagFor(datum,u.id); }catch(e){}
+    if(t&&typeof stTagEditable==='function'&&!stTagEditable(t)){ try{ toast('Tag ist eingereicht — nicht mehr änderbar'); }catch(e){} return; }
+    var p=null; try{ p=stParams(); }catch(e){}
+    var cur=t&&t.absenz?t.absenz.typ:'ferien';
+    var typen=[]; try{ typen=stAbsTypenFuer(u.id); }catch(e){}
+    if(cur&&!typen.some(function(x){return x.id===cur;})){ try{ var cd=stdAbsenzDef(p,cur); typen.push({id:cur,ic:cd.ic,n:cd.n}); }catch(e){} }
+    var anteil=(t&&t.absenz&&t.absenz.anteil===0.5)?'0.5':'1';
+    var html=
+      '<div class="gn-label" style="text-transform:none;font-weight:600">'+NE(tagLbl(datum))+'</div>'
+      +'<div class="gn-field"><label>Absenz-Typ</label><select class="gn-native-select" data-f="typ">'
+      +typen.map(function(x){ return '<option value="'+NE(x.id)+'"'+(x.id===cur?' selected':'')+'>'+(x.ic||'')+' '+NE(x.n)+'</option>'; }).join('')+'</select></div>'
+      +'<div class="gn-field"><label>Umfang</label><select class="gn-native-select" data-f="anteil"><option value="1"'+(anteil==='1'?' selected':'')+'>Ganzer Tag</option><option value="0.5"'+(anteil==='0.5'?' selected':'')+'>Halber Tag</option></select></div>';
+    nat.sheet({
+      title:'Absenz eintragen',
+      html:html,
+      saveLabel:'💾 Speichern',
+      onDelete:(t&&t.absenz)?function(){ try{ _absDatum=datum; nat.closeSheet(); stAbsRemove(); }catch(err){} }:null,
+      onSave:function(s){
+        var typ=s.querySelector('[data-f="typ"]').value, ant=s.querySelector('[data-f="anteil"]').value;
+        try{
+          // stAbsOpen setzt _absDatum + befüllt die klassischen Felder, dann übersteuern
+          stAbsOpen(datum); stClose&&stClose('absModal');
+          var tSel=document.getElementById('abs_typ'), aSel=document.getElementById('abs_anteil');
+          if(tSel) tSel.value=typ; if(aSel) aSel.value=ant;
+          stAbsSave();
+          stClose&&stClose('absModal');
+        }catch(err){ console.warn('[nat stunden] abs:',err&&err.message); }
+        return true;
+      }
+    });
+  }
+
   nat=GemaNativeMobil.mount({render:render});
   var _oSR=window.stRender;
   if(typeof _oSR==='function'){ window.stRender=function(){ var r=_oSR.apply(this,arguments); try{ if(nat&&GemaNativeMobil.enabled()) nat.refresh(); }catch(e){} return r; }; }

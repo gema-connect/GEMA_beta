@@ -32,7 +32,10 @@ const TODAY = new Date().toISOString().slice(0, 10);
 const FUTURE = new Date(Date.now() + 30 * 86400000).toISOString();
 const MFK_BALD = new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10);
 const ORG = { id: 'org_t', name: 'Muster Haustechnik AG', kategorie: 'sanitaerplaner', kategorien: ['sanitaerplaner'], admins: ['u1'], active: true };
-const USERS = [{ id: 'u1', username: 'a@t.ch', name: 'Robin Muster', roleIds: ['role_admin'], orgId: 'org_t', active: true, profile: { email: 'a@t.ch' } }];
+const USERS = [
+  { id: 'u1', username: 'a@t.ch', name: 'Robin Muster', roleIds: ['role_admin'], orgId: 'org_t', active: true, profile: { email: 'a@t.ch' } },
+  { id: 'u2', username: 'm@t.ch', name: 'M. Keller', roleIds: ['role_monteur'], orgId: 'org_t', active: true, profile: { email: 'm@t.ch' } }
+];
 const SESSION = { token: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpYXQiOjQwMDAwMDAwMDAsImV4cCI6NDEwMjQ0NDgwMCwidWlkIjoidTEiLCJvcmciOiJvcmdfdCIsInJvbGUiOiJhdXRoZW50aWNhdGVkIn0.testsig', userId: 'u1', expires: FUTURE };
 
 const SEED = {
@@ -141,7 +144,9 @@ console.log('— Werkzeug (Liste/Badges/Filter/Toggle) —');
   ok(await page.evaluate(() => { const m = document.getElementById('viewModal'); return !!m && getComputedStyle(m).display !== 'none'; }) ||
      await page.evaluate(() => !!document.querySelector('.wz-modal-bg,.modal-bg') && Array.from(document.querySelectorAll('.wz-modal-bg,.modal-bg')).some(x => getComputedStyle(x).display !== 'none')),
      'Zeilen-Tap öffnet Modul-Detail (klassisches Modal über dem Screen)');
-  await page.keyboard.press('Escape');
+  // Detail-Modal schliessen (liegt jetzt korrekt ÜBER dem Screen, würde sonst Klicks abfangen)
+  await page.evaluate(() => { try { if (window.closeView) closeView(); } catch (e) {} document.querySelectorAll('.modal-bg,.wz-modal-bg').forEach(m => { m.style.display = 'none'; m.classList.remove('open'); }); });
+  await page.waitForTimeout(150);
   // Klassisch-Toggle + Rückkehr-Pill
   await page.click('.gn--page [data-gn-classic]');
   await page.waitForTimeout(250);
@@ -186,10 +191,37 @@ console.log('— Stunden (Wochen-Summe/Tages-Gruppen) —');
   ok(/Woche \d+ · 8,3 h erfasst/.test(s.sub), 'Wochen-Summe echt («' + s.sub + '»)');
   ok(s.rows.some(r => r.indexOf('Lindenpark') >= 0) && s.rows.some(r => r.indexOf('Büro') >= 0), 'Tages-Einträge aus dem Pool');
   ok(s.vals.some(v => v === '4,3 h') && s.vals.some(v => v === '4,0 h'), 'Eintrags-Stunden berechnet (4,3 / 4,0)');
-  // ＋ Zeit erfassen öffnet das echte Modul-Modal
+  // ＋ Zeit erfassen öffnet ein NATIVES Sheet (kein klassisches Modal)
   await page.click('.gn--page [data-nat-act="neu"]');
+  await page.waitForTimeout(450);
+  const sheetShown = await page.evaluate(() => {
+    const sh = document.querySelector('.gn--page .gn-sheet--form.is-open');
+    const cls = document.getElementById('einModal');
+    return { native: !!sh, classicVisible: !!cls && cls.classList.contains('open'), fields: sh ? sh.querySelectorAll('[data-f]').length : 0 };
+  });
+  ok(sheetShown.native && sheetShown.fields >= 4, 'Natives Erfassungs-Sheet öffnet (Von/Bis/Pause/Projekt/Tätigkeit)');
+  ok(!sheetShown.classicVisible, 'kein klassisches Modal sichtbar (durchgängig nativ)');
+  // Felder befüllen + Speichern → echter Eintrag im Pool (via stEinSave)
+  await page.evaluate(() => {
+    const sh = document.querySelector('.gn--page .gn-sheet--form.is-open');
+    const set = (f, v) => { const el = sh.querySelector('[data-f="' + f + '"]'); if (el) el.value = v; };
+    set('von', '08:00'); set('bis', '12:00'); set('pause', '0'); set('taetigkeit', 'Native Montage');
+  });
+  await page.click('.gn--page .gn-sheet--form [data-gn-save]');
+  await page.waitForTimeout(600);
+  const saved = await page.evaluate(() => {
+    const u = { id: 'u1' };
+    const t = (window.stTagFor ? stTagFor(new Date().toISOString().slice(0, 10), u.id) : null);
+    const e = t && (t.eintraege || []).find(x => x.taetigkeit === 'Native Montage');
+    return { has: !!e, von: e && e.von, min: e ? (window.stdEintragMin ? stdEintragMin(e) : 0) : 0, sheetGone: !document.querySelector('.gn--page .gn-sheet--form.is-open') };
+  });
+  ok(saved.has && saved.von === '08:00' && saved.min === 240, 'Speichern schreibt den echten Eintrag (4,0 h via stEinSave)');
+  ok(saved.sheetGone, 'Sheet schliesst nach dem Speichern');
+  ok(await page.evaluate(() => Array.from(document.querySelectorAll('.gn--page .gn-row .gn-row-title')).some(x => x.textContent.indexOf('Native Montage') >= 0)), 'neue Zeile erscheint im nativen Screen');
+  // Eintrag-Tap öffnet Edit-Sheet mit Löschen
+  await page.click('.gn--page .gn-row[data-nat-edit]');
   await page.waitForTimeout(400);
-  ok(await page.evaluate(() => { const m = document.getElementById('einModal'); return !!m && Array.from(document.querySelectorAll('.modal-bg')).some(x => getComputedStyle(x).display !== 'none'); }), '＋ Zeit erfassen öffnet das Erfassungs-Modal');
+  ok(await page.evaluate(() => { const sh = document.querySelector('.gn--page .gn-sheet--form.is-open'); return !!sh && !!sh.querySelector('[data-gn-del]'); }), 'Eintrag-Tap öffnet Bearbeiten-Sheet mit Löschen');
   await page.close();
 }
 
@@ -209,6 +241,38 @@ console.log('— Einsatzplan (Weekstrip/Agenda) —');
   ok(e.dot, 'Heute aktiv + Event-Punkt');
   ok(e.ev === 'Montage Sanitär · Lindenpark', 'Agenda zeigt den echten Einsatz');
   ok(e.zeit && e.zeit.indexOf('07:30') >= 0, 'Einsatz-Zeit aus dem Record');
+  // ＋ öffnet ein NATIVES Termin-Sheet; Freier Termin erfassen + speichern
+  await page.click('.gn--page [data-nat-add]');
+  await page.waitForTimeout(450);
+  const evSheet = await page.evaluate(() => {
+    const sh = document.querySelector('.gn--page .gn-sheet--form.is-open');
+    const cls = document.getElementById('evModal');
+    return { native: !!sh, classicVisible: !!cls && cls.classList.contains('open'), typChips: sh ? sh.querySelectorAll('[data-nat-typ] .gn-chip-sel').length : 0, monteur: sh ? sh.querySelectorAll('[data-f="monteur"] option').length : 0 };
+  });
+  ok(evSheet.native && evSheet.typChips === 3, 'Natives Termin-Sheet öffnet (Typ-Chips Auftrag/Frei/Abwesend)');
+  ok(!evSheet.classicVisible, 'kein klassisches evModal sichtbar');
+  ok(evSheet.monteur >= 2, 'Monteur-Select aus echten Personen (inkl. Leer-Option)');
+  await page.evaluate(() => {
+    const sh = document.querySelector('.gn--page .gn-sheet--form.is-open');
+    sh.querySelector('[data-nat-typ] .gn-chip-sel[data-t="frei"]').click();       // Typ «Frei»
+    const set = (f, v) => { const el = sh.querySelector('[data-f="' + f + '"]'); if (el) el.value = v; };
+    set('titel', 'Native Termin');
+    const mon = sh.querySelector('[data-f="monteur"]'); mon.value = 'u2';
+    set('von', '09:00'); set('bis', '11:00');
+  });
+  await page.click('.gn--page .gn-sheet--form [data-gn-save]');
+  await page.waitForTimeout(600);
+  const evSaved = await page.evaluate(() => {
+    const all = window.epAll ? epAll() : [];
+    const ev = all.find(x => x.titel === 'Native Termin');
+    return { has: !!ev, typ: ev && ev.typ, von: ev && ev.zeitVon, mon: ev && ev.monteurUserId, sheetGone: !document.querySelector('.gn--page .gn-sheet--form.is-open') };
+  });
+  ok(evSaved.has && evSaved.typ === 'frei' && evSaved.von === '09:00' && evSaved.mon === 'u2', 'Termin gespeichert via epEvSave (Typ/Zeit/Monteur echt)');
+  ok(evSaved.sheetGone, 'Termin-Sheet schliesst nach dem Speichern');
+  // Agenda-Tap öffnet Bearbeiten-Sheet mit Löschen
+  await page.click('.gn--page .gn-event[data-nat-id]');
+  await page.waitForTimeout(400);
+  ok(await page.evaluate(() => { const sh = document.querySelector('.gn--page .gn-sheet--form.is-open'); return !!sh && !!sh.querySelector('[data-gn-del]') && sh.querySelector('[data-f="titel"]').value.length > 0; }), 'Termin-Tap öffnet Bearbeiten-Sheet (vorbelegt + Löschen)');
   await page.close();
 }
 

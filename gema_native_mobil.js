@@ -38,10 +38,35 @@
       'html.gn-native-on,html.gn-native-on body{overflow:hidden;overscroll-behavior:none}' +
       /* GEMA-Nav + Safe-Area-Streifen unter dem Native-Screen ausblenden */
       'html.gn-native-on .g-nav{display:none!important}' +
+      /* Sicherheitsnetz: klassische Modul-Modals (.modal-bg) liegen teils bei
+         z-index 900 = gleich wie .gn--page → im Native-Modus über den Screen
+         heben, damit selten genutzte Sub-Dialoge (Auftrag-Suche, Einstellungen)
+         trotzdem bedienbar sind. Die Haupt-Formulare laufen über native Sheets. */
+      'html.gn-native-on .modal-bg{z-index:10600!important}' +
       '.gn-return-pill{position:fixed;left:14px;bottom:calc(14px + env(safe-area-inset-bottom,0px));z-index:899;' +
       'display:flex;align-items:center;gap:7px;background:rgba(28,28,30,.9);color:#fff;border:none;border-radius:22px;' +
       'padding:10px 15px;font:600 13px "DM Sans",system-ui,sans-serif;box-shadow:0 10px 26px -8px rgba(0,0,0,.5);cursor:pointer}' +
-      '@media (min-width: 741px){.gn-return-pill{display:none}}';
+      '@media (min-width: 741px){.gn-return-pill{display:none}}' +
+      /* Native Bottom-Sheet (Formular-Layer) — z-index über dem Screen-Inhalt.
+         .gn-sheet aus dem Kit hat height:80%; hier passt es sich dem Inhalt an. */
+      '.gn .gn-sheet.gn-sheet--form{height:auto;max-height:92%}' +
+      '.gn .gn-sheet-form{flex:1;overflow-y:auto;padding:2px 0 10px;scrollbar-width:none}' +
+      '.gn .gn-sheet-form::-webkit-scrollbar{display:none}' +
+      '.gn .gn-sheet-cta{flex-shrink:0;padding:10px 16px calc(var(--gn-safe-bottom) + 14px);border-top:1px solid var(--gn-hair);display:flex;gap:9px}' +
+      '.gn .gn-sheet-cta .gn-btn{flex:1}' +
+      '.gn .gn-btn-ghost{background:var(--gn-fill);color:var(--gn-ink);box-shadow:none}' +
+      '.gn .gn-btn-danger{background:var(--gn-danger);box-shadow:0 6px 16px -4px rgba(220,38,38,.5)}' +
+      '.gn .gn-seg-chips{display:flex;gap:7px;flex-wrap:wrap;padding:0 16px 14px}' +
+      '.gn .gn-chip-sel{flex:none;padding:9px 14px;border-radius:11px;border:1.5px solid var(--gn-hair);background:var(--gn-card);' +
+      'font:600 13.5px var(--gn-font);color:var(--gn-ink-2);cursor:pointer}' +
+      '.gn .gn-chip-sel.is-active{border-color:var(--gn-accent);background:#eff4ff;color:var(--gn-accent)}' +
+      '.gn .gn-native-select{width:100%;background:var(--gn-card);border:1px solid var(--gn-hair);border-radius:12px;padding:12px 14px;' +
+      'font:400 16px var(--gn-font);color:var(--gn-ink);outline:none;box-shadow:var(--gn-shadow-card);-webkit-appearance:none;appearance:none;' +
+      'background-image:url("data:image/svg+xml;utf8,<svg xmlns=\'http://www.w3.org/2000/svg\' width=\'12\' height=\'8\' fill=\'none\' stroke=\'%236b7280\' stroke-width=\'2\'><path d=\'M1 1.5 6 6.5 11 1.5\'/></svg>");background-repeat:no-repeat;background-position:right 14px center}' +
+      '.gn .gn-timepair{display:flex;gap:9px}' +
+      '.gn .gn-check{display:flex;align-items:center;gap:11px;margin:0 16px 14px;background:var(--gn-card);border-radius:12px;padding:12px 14px;box-shadow:var(--gn-shadow-card);cursor:pointer}' +
+      '.gn .gn-check input{width:24px;height:24px;accent-color:var(--gn-accent);flex:none}' +
+      '.gn .gn-check span{font-size:15px;color:var(--gn-ink)}';
     document.head.appendChild(st);
   }
 
@@ -100,8 +125,56 @@
       rt = setTimeout(function () { if (enabled() !== lastOn) apply(); }, 200);
     });
 
+    /* ── Natives Bottom-Sheet als Formular-Layer ──
+       sheet({title, html, saveLabel, onSave, deleteLabel, onDelete}) baut ein
+       .gn-sheet in den Screen, öffnet es animiert (.is-open), verdrahtet
+       Speichern/Löschen/Abbrechen + Zieh-zu-schliessen + Escape. onSave/onDelete
+       bekommen das Sheet-Root-Element (zum Auslesen der Felder). Rückgabe true
+       (oder kein Rückgabewert) schliesst das Sheet; false lässt es offen. */
+    var curSheet = null;
+    function closeSheet() {
+      if (!curSheet) return;
+      var s = curSheet, bg = s._bg; curSheet = null;
+      s.classList.remove('is-open'); if (bg) bg.classList.remove('is-open');
+      setTimeout(function () { if (s.parentNode) s.parentNode.removeChild(s); if (bg && bg.parentNode) bg.parentNode.removeChild(bg); }, 380);
+    }
+    function sheet(o) {
+      closeSheet();
+      var bg = document.createElement('div');
+      bg.className = 'gn-backdrop gn-sheet-backdrop';
+      var s = document.createElement('div');
+      s.className = 'gn-sheet gn-sheet--form';
+      s.innerHTML =
+        '<div class="gn-grab" data-gn-grab><i></i></div>'
+        + '<div class="gn-sheet-head"><h2>' + esc(o.title || '') + '</h2>'
+        + '<button class="gn-x" data-gn-x><svg viewBox="0 0 24 24" fill="none" stroke-width="2.4" stroke-linecap="round"><path d="M5 5l14 14M19 5 5 19"/></svg></button></div>'
+        + '<div class="gn-sheet-form">' + (o.html || '') + '</div>'
+        + '<div class="gn-sheet-cta">'
+        + (o.onDelete ? '<button class="gn-btn gn-btn-danger" data-gn-del style="flex:0 0 auto;min-width:58px">🗑</button>' : '')
+        + '<button class="gn-btn gn-btn-ghost" data-gn-cancel style="flex:0 0 auto">Abbrechen</button>'
+        + '<button class="gn-btn" data-gn-save>' + esc(o.saveLabel || 'Speichern') + '</button></div>';
+      root.appendChild(bg); root.appendChild(s);
+      s._bg = curSheet && curSheet._bg; curSheet = s; s._bg = bg;
+      // Öffnen im nächsten Frame (Transition greift)
+      requestAnimationFrame(function () { requestAnimationFrame(function () { s.classList.add('is-open'); bg.classList.add('is-open'); }); });
+      var doSave = function () { var r = o.onSave ? o.onSave(s) : true; if (r !== false) closeSheet(); };
+      s.querySelector('[data-gn-save]').addEventListener('click', doSave);
+      s.querySelector('[data-gn-cancel]').addEventListener('click', closeSheet);
+      s.querySelector('[data-gn-x]').addEventListener('click', closeSheet);
+      var del = s.querySelector('[data-gn-del]');
+      if (del) del.addEventListener('click', function () { if (o.onDelete) o.onDelete(s); });
+      bg.addEventListener('click', closeSheet);
+      // Zieh-zu-schliessen am Griff
+      var grab = s.querySelector('[data-gn-grab]'), gy = null;
+      grab.addEventListener('pointerdown', function (e) { gy = e.clientY; s.style.transition = 'none'; grab.setPointerCapture && grab.setPointerCapture(e.pointerId); });
+      window.addEventListener('pointermove', function (e) { if (gy == null) return; var dy = Math.max(0, e.clientY - gy); s.style.transform = 'translateY(' + dy + 'px)'; });
+      window.addEventListener('pointerup', function (e) { if (gy == null) return; s.style.transition = ''; s.style.transform = ''; if ((e.clientY || gy) - gy > 90) closeSheet(); gy = null; });
+      return s;
+    }
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && curSheet) closeSheet(); });
+
     apply();
-    return { refresh: apply, root: root, enabled: enabled };
+    return { refresh: apply, root: root, enabled: enabled, sheet: sheet, closeSheet: closeSheet };
   }
 
   window.GemaNativeMobil = { phone: phone, enabled: enabled, pref: pref, setPref: setPref, mount: mount, esc: esc };
