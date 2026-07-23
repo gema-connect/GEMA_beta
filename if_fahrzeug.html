@@ -4646,9 +4646,16 @@ window.openBerichte = openBerichte;
 <script src="gema-native.js"></script>
 <script src="gema_native_mobil.js"></script>
 <script>
-/* ═══ GEMA Native — iPhone-Ansicht (Screen «Fahrzeugmanagement» aus gema-native-screens.html) ═══
-   Daten via window._fzPermHooks.vehicles(), Aktionen via window-exponierte Modul-Funktionen
-   (openViewFzg/_fzQuickKmEdit/openDefekt/openAddVehicle). Desktop unverändert. */
+/* ═══ GEMA Native — iPhone-Ansicht (Screen «Fahrzeugmanagement») ═══
+   DURCHGÄNGIG nativ: Liste + natives Detail-Sheet + native Bottom-Sheets für
+   Erfassen/Bearbeiten, km-Stand, Defekt, Ausleihe und Fahrer-Zuweisung. Die
+   Sheets rufen die ECHTEN (window-exponierten) Modul-Funktionen über die
+   klassischen Modal-Felder als Datenkanal auf (openModal→saveVehicle,
+   openDefekt→saveDefekt, _fzOpenAusleihe→_fzSaveAusleihe, openZuweisung→
+   saveZuweisung; km via _fzQuickKmEdit mit synchron gestubbtem prompt) —
+   inkl. Guards, Logging, Notify und Sync. Power-Features (Kosten, Garage,
+   QR/Etikette) öffnen die klassischen Dialoge ÜBER dem Screen (z-index-Fix
+   .modal-overlay in gema_native_mobil). Desktop unverändert. */
 (function(){
   if(typeof GemaNativeMobil==='undefined') return;
   var NE=GemaNativeMobil.esc, nst={q:'',seg:'alle'}, natCtxId=null, nat=null, lastSig='';
@@ -4728,10 +4735,10 @@ window.openBerichte = openBerichte;
     root.querySelector('[data-nat-list]').addEventListener('click',function(e){
       var row=e.target.closest&&e.target.closest('[data-nat-id]'); if(!row) return;
       if(row.__gnCtxFired){ row.__gnCtxFired=false; return; }
-      try{ openViewFzg(row.getAttribute('data-nat-id')); }catch(err){}
+      try{ openFzgSheet(row.getAttribute('data-nat-id')); }catch(err){}
     });
     var add=root.querySelector('[data-nat-add]');
-    if(add) add.addEventListener('click',function(){ try{ openAddVehicle(); }catch(e){} });
+    if(add) add.addEventListener('click',function(){ try{ openFzgForm(null); }catch(e){} });
     var bg=root.querySelector('[data-gn-ctx-backdrop]');
     bg.addEventListener('gn:context',function(e){ natCtxId=e.detail.row?e.detail.row.getAttribute('data-nat-id'):null; });
     bg.addEventListener('click',function(e){
@@ -4739,13 +4746,277 @@ window.openBerichte = openBerichte;
       if(!it||!natCtxId) return;
       var act=it.getAttribute('data-nat-act'), id=natCtxId;
       setTimeout(function(){ try{
-        if(act==='open') openViewFzg(id);
-        else if(act==='km') _fzQuickKmEdit(id);
-        else if(act==='defekt') openDefekt(id);
+        if(act==='open') openFzgSheet(id);
+        else if(act==='km') openKmSheet(id);
+        else if(act==='defekt') openFzgDefektSheet(id);
       }catch(err){} },60);
     });
   }
+
+  /* ── Sheet-Bausteine (nur window-exponierte Modul-Funktionen — das
+     Fahrzeug-Modul lebt in einer async-IIFE) ── */
+  function natV(id){ try{ return (_fzPermHooks.vehicles()||[]).find(function(x){return x.id===id;}); }catch(e){ return null; } }
+  function can(fn){ try{ return !!_fzPermHooks[fn](); }catch(e){ return false; } }
+  function natMe(){ try{ return GemaAuth.getCurrentUser()||{}; }catch(e){ return {}; } }
+  function natFmtD(d){ if(!d) return '—'; try{ var x=new Date(d); return isNaN(x)?String(d):x.toLocaleDateString('de-CH'); }catch(e){ return String(d); } }
+  function natKv(k,v,color){
+    return '<div class="gn-kv"><span class="k">'+NE(k)+'</span><span class="v is-strong"'+(color?' style="color:'+color+'"':'')+'>'+NE(v||'—')+'</span></div>';
+  }
+  function natAct(act,label,danger){
+    return '<button class="gn-select" data-nats="'+NE(act)+'"'+(danger?' style="color:var(--gn-danger)"':'')+'><span class="k"'+(danger?' style="color:var(--gn-danger)"':'')+'>'+label+'</span><span class="v">›</span></button>';
+  }
+  function natSet(fid,v){ var el=document.getElementById(fid); if(el) el.value=v; }
+  function natToast(msg){
+    try{
+      var el=document.createElement('div');
+      el.textContent=msg;
+      el.style.cssText='position:fixed;left:50%;bottom:calc(96px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:rgba(28,28,30,.92);color:#fff;padding:10px 16px;border-radius:12px;font:600 13.5px "DM Sans",system-ui,sans-serif;z-index:12500;max-width:86vw;text-align:center;pointer-events:none';
+      document.body.appendChild(el);
+      setTimeout(function(){ try{ el.remove(); }catch(e){} },2200);
+    }catch(e){}
+  }
+
+  /* ── Natives Detail-Sheet (Zeilen-Tap, ?view=-Deep-Link) ── */
+  function openFzgSheet(id){
+    var v=natV(id);
+    if(!v){ try{ _oOVF(id); }catch(e){} return; }
+    var canEdit=can('canEdit');
+    var s=natStatus(v);
+    var info='<div style="display:flex;gap:6px;flex-wrap:wrap;padding:0 16px 12px">'
+      +'<span class="gn-badge '+s.cls+'">'+NE(s.lbl)+'</span>'
+      +(v.fuel?'<span class="gn-badge gn-badge--info">⛽ '+NE(v.fuel)+'</span>':'')
+      +(v.ausgeliehenAn?'<span class="gn-badge gn-badge--warn">🔄 '+NE(v.ausgeliehenAn.name||'')+'</span>':'')
+      +'</div>';
+    var openDefs=Array.isArray(v.events)?v.events.filter(function(e){return e&&e.type==='defekt'&&!e.resolved;}):[];
+    if(openDefs.length){
+      info+='<div style="margin:0 16px 12px;padding:11px 13px;background:#fef2f2;border:1.5px solid #fecaca;border-radius:12px;font-size:13px;color:#b91c1c"><b>🚨 '+openDefs.length+' offene Defektmeldung'+(openDefs.length>1?'en':'')+'</b>'
+        +openDefs.slice(0,2).map(function(d){ return '<br>'+NE((d.detail||d.label||'').slice(0,90)); }).join('')+'</div>';
+    }
+    var rows='';
+    rows+=natKv('Interne Nr.',v.nr);
+    rows+=natKv('Kennzeichen',v.plate);
+    rows+=natKv('Marke / Modell',v.model+(v.year?' · '+v.year:''));
+    rows+=natKv('km-Stand',fmtKmN(v.km)||'—');
+    if(v.driver) rows+=natKv('Fahrer',v.driver);
+    if(v.dept) rows+=natKv('Abteilung',v.dept);
+    if(v.mfk){ var md=mfkDays(v); rows+=natKv('MFK',natFmtD(v.mfk)+(md!==null?' · '+(md<0?Math.abs(md)+' Tage überfällig':'in '+md+' Tagen'):''),(md!==null&&md<=30)?'var(--gn-danger)':''); }
+    if(v.lastService) rows+=natKv('Letzter Service',natFmtD(v.lastService)+(v.lastServiceKm?' · '+fmtKmN(v.lastServiceKm):''));
+    if(v.stellplatz) rows+=natKv('Stellplatz',v.stellplatz);
+    info+='<div class="gn-list" style="margin-bottom:14px">'+rows+'</div>';
+    var acts='';
+    if(canEdit){
+      acts+=natAct('edit','✏️ Bearbeiten');
+      acts+=natAct('km','🧭 km-Stand erfassen');
+    }
+    if(can('canLend')){
+      acts+=natAct('ausleihe','🔄 Ausleihen an …');
+    }
+    try{ if(v.ausgeliehenAn&&_fzCanReturn(v)) acts+=natAct('rueckgabe','↩ Zurückgeben'); }catch(e){}
+    if(can('canAssign')) acts+=natAct('zuweisen','👥 Fahrer zuweisen');
+    if(can('canReportDefect')) acts+=natAct('defekt','🔧 Defekt melden',true);
+    if(canEdit&&openDefs.length) acts+=natAct('beheben','✅ Defekte beheben (Doku)');
+    if(canEdit){
+      acts+=natAct('kosten','💰 Kosten erfassen');
+      acts+=natAct('garage','🏭 Garage ein-/ausbuchen');
+      acts+=natAct('qr','🔲 QR / Etikette');
+    }
+    var sh=nat.sheet({ title:[v.model,v.plate].filter(Boolean).join(' · ')||'Fahrzeug', html:info+'<div class="gn-list">'+acts+'</div>' });
+    sh.addEventListener('click',function(e){
+      var b=e.target.closest&&e.target.closest('[data-nats]'); if(!b) return;
+      var a=b.getAttribute('data-nats');
+      nat.closeSheet();
+      setTimeout(function(){ try{
+        if(a==='edit') openFzgForm(id);
+        else if(a==='km') openKmSheet(id);
+        else if(a==='ausleihe') openFzgAusleiheSheet(id);
+        else if(a==='rueckgabe') _fzReturnVehicle(id);
+        else if(a==='zuweisen') openFzgZuwSheet(id);
+        else if(a==='defekt') openFzgDefektSheet(id);
+        else if(a==='beheben') _fzResolveAllDefects(id);
+        else if(a==='kosten') openKosten(id);
+        else if(a==='garage') _fzGarageToggle(id);
+        else if(a==='qr') openFzgQR(id);
+      }catch(err){} },80);
+    });
+  }
+
+  /* ── Erfassen/Bearbeiten (natives Sheet → openModal + saveVehicle) ── */
+  function openFzgForm(id){
+    var v=id?natV(id):null;
+    if(id&&!v) return;
+    var html=
+      '<div class="gn-field"><label>Interne Nr.'+(id?' *':'')+'</label><input class="gn-input" data-f="nr" placeholder="'+(id?'':'automatisch (FZG-00X)')+'" value="'+NE(v?(v.nr||''):'')+'"></div>'
+      +'<div class="gn-field"><label>Kennzeichen *</label><input class="gn-input" data-f="plate" placeholder="z.B. BS 12345" value="'+NE(v?(v.plate||''):'')+'" style="text-transform:uppercase"></div>'
+      +'<div class="gn-field"><label>Marke / Modell *</label><input class="gn-input" data-f="model" placeholder="z.B. VW Crafter" value="'+NE(v?(v.model||''):'')+'"></div>'
+      +'<div class="gn-field"><label>Jahrgang</label><input class="gn-input" type="text" inputmode="numeric" data-f="year" value="'+NE(v?(v.year||''):'')+'"></div>'
+      +'<div class="gn-field"><label>km-Stand</label><input class="gn-input" type="text" inputmode="numeric" data-f="km" value="'+NE(v?(v.km||''):'')+'"></div>'
+      +'<div class="gn-field"><label>Fahrer</label><input class="gn-input" data-f="driver" value="'+NE(v?(v.driver||''):'')+'"></div>'
+      +'<div class="gn-field"><label>MFK (nächste Prüfung)</label><input class="gn-input" type="date" data-f="mfk" value="'+NE(v?(v.mfk||''):'')+'"></div>'
+      +(id?'':'<div class="gn-label" style="text-transform:none;font-weight:500">Service-Intervalle, Tankkarten, Versicherung &amp; Details lassen sich später über «Bearbeiten» am Desktop ergänzen.</div>');
+    nat.sheet({
+      title:id?'Fahrzeug bearbeiten':'Neues Fahrzeug',
+      saveLabel:'💾 Speichern',
+      html:html,
+      onSave:function(s){
+        var g=function(f){ var el=s.querySelector('[data-f="'+f+'"]'); return el?el.value.trim():''; };
+        if(!g('plate')||!g('model')){ natToast('Kennzeichen + Marke/Modell ausfüllen'); return false; }
+        try{
+          // echte Save-Kette: openModal befüllt ALLE klassischen Felder
+          // (Edit erhält Tankkarten/Versicherung etc.), native Werte übersteuern.
+          if(id) openModal(id); else openAddVehicle();
+          var ov=document.getElementById('modalOverlay');
+          if(!ov||!ov.classList.contains('open')) return true;   // Guard hat abgebrochen
+          if(g('nr')) natSet('fNr',g('nr'));                      // neu: leere Nr = Auto-Nummer
+          natSet('fPlate',g('plate')); natSet('fModel',g('model'));
+          natSet('fYear',g('year')); natSet('fKm',g('km'));
+          natSet('fDriver',g('driver')); natSet('fMfk',g('mfk'));
+          var rid=saveVehicle();                                  // speichert + schliesst
+          if(!rid){ try{ closeModal(); }catch(e){} return false; }
+        }catch(err){ console.warn('[nat fz] form:',err&&err.message); try{ closeModal(); }catch(e){} }
+        return true;
+      }
+    });
+  }
+
+  /* ── km-Stand (natives Sheet → _fzQuickKmEdit mit synchron gestubbtem prompt) ── */
+  function openKmSheet(id){
+    var v=natV(id); if(!v) return;
+    if(!can('canEdit')) return;
+    var html=
+      '<div class="gn-label" style="text-transform:none;font-weight:600">'+NE([v.model,v.plate].filter(Boolean).join(' · '))+'</div>'
+      +natKv('Aktueller Stand',fmtKmN(v.km)||'—')
+      +'<div class="gn-field" style="margin-top:12px"><label>Neuer km-Stand</label><input class="gn-input" type="text" inputmode="numeric" data-f="km" value="'+NE(v.km||'')+'"></div>'
+      +'<div class="gn-label" data-kmwarn style="display:none;text-transform:none;font-weight:600;color:var(--gn-danger)"></div>';
+    nat.sheet({
+      title:'🧭 km-Stand erfassen',
+      saveLabel:'💾 Speichern',
+      html:html,
+      onSave:function(s){
+        var raw=((s.querySelector('[data-f="km"]')||{}).value||'').replace(/[^0-9]/g,'');
+        if(!raw){ natToast('Ungültige Eingabe.'); return false; }
+        var neuNum=parseInt(raw,10), alt=parseInt(v.km||'0',10);
+        if(neuNum<alt&&!s._kmConfirmed){
+          s._kmConfirmed=true;
+          var w=s.querySelector('[data-kmwarn]');
+          if(w){ w.style.display=''; w.textContent='Neuer Stand ('+neuNum.toLocaleString('de-CH')+') ist tiefer als bisher ('+alt.toLocaleString('de-CH')+') — nochmals «Speichern» tippen zum Bestätigen.'; }
+          return false;
+        }
+        // echte Kette (persist/Log/render sind Modul-intern): prompt/confirm
+        // synchron stubben, _fzQuickKmEdit macht Validierung + Save + Log.
+        var oP=window.prompt, oC=window.confirm;
+        window.prompt=function(){ return String(neuNum); };
+        window.confirm=function(){ return true; };
+        try{ _fzQuickKmEdit(id); }
+        finally{ window.prompt=oP; window.confirm=oC; }
+        return true;
+      }
+    });
+  }
+
+  /* ── Defekt melden (natives Sheet → openDefekt + saveDefekt) ── */
+  function openFzgDefektSheet(id){
+    var v=natV(id); if(!v) return;
+    if(!can('canReportDefect')) return;
+    var html=
+      '<div class="gn-label" style="text-transform:none;font-weight:600">'+NE([v.model,v.plate].filter(Boolean).join(' · '))+'</div>'
+      +'<div class="gn-field"><label>Was ist defekt? *</label><textarea class="gn-input" data-f="desc" rows="4" placeholder="z.B. Bremsen quietschen, Warnleuchte Motor"></textarea></div>'
+      +'<div class="gn-field"><label>Priorität</label><select class="gn-native-select" data-f="prio">'
+        +'<option value="normal" selected>Normal</option><option value="hoch">⚠️ Hoch</option><option value="kritisch">🚨 Kritisch (nicht fahren)</option></select></div>'
+      +'<div class="gn-field"><label>km-Stand (optional)</label><input class="gn-input" type="text" inputmode="numeric" data-f="km" value="'+NE(v.km||'')+'"></div>';
+    nat.sheet({
+      title:'🔧 Defekt melden',
+      saveLabel:'⚠ Melden',
+      html:html,
+      onSave:function(s){
+        var g=function(f){ var el=s.querySelector('[data-f="'+f+'"]'); return el?el.value.trim():''; };
+        if(!g('desc')){ natToast('Bitte Defekt beschreiben.'); return false; }
+        try{
+          openDefekt(id);                       // baut das klassische Overlay + setzt _mgmtVehicleId
+          natSet('defektDesc',g('desc')); natSet('defektPrio',g('prio')); natSet('defektKm',g('km'));
+          saveDefekt();                          // speichert, Notify, Log, schliesst
+        }catch(err){ console.warn('[nat fz] defekt:',err&&err.message); }
+        return true;
+      }
+    });
+  }
+
+  /* ── Ausleihen (natives Sheet → _fzOpenAusleihe + _fzSaveAusleihe) ── */
+  function openFzgAusleiheSheet(id){
+    var v=natV(id); if(!v) return;
+    var me=natMe(), selfOnly=!can('canEdit');
+    var cur=v.ausgeliehenAn||{};
+    if(selfOnly&&cur.userId&&cur.userId!==me.id){
+      // Monteur: fremde Ausleihe ist tabu — klare Meldung statt leerem Sheet
+      try{ GemaDialog.alert({title:'Bereits ausgeliehen',message:'Bereits ausgeliehen an '+(cur.name||'—')+' — nur Magaziner/Admin können das ändern.'}); }catch(e){}
+      return;
+    }
+    var personen=[];
+    try{
+      var users=GemaAuth.getUsers()||[];
+      personen=selfOnly?users.filter(function(u){return u.id===me.id;})
+        :users.filter(function(u){return u.active&&(!me.orgId||u.orgId===me.orgId||(me.roleIds||[]).indexOf('role_admin')>=0);});
+    }catch(e){}
+    var opts='<option value="">— Nicht ausgeliehen —</option>'+personen.map(function(p){
+      return '<option value="'+NE(p.id)+'"'+(cur.userId===p.id?' selected':'')+'>'+NE(p.name||p.username)+'</option>';
+    }).join('');
+    var html=
+      '<div class="gn-label" style="text-transform:none;font-weight:600">'+NE([v.model,v.plate].filter(Boolean).join(' · '))+'</div>'
+      +'<div class="gn-field"><label>Ausgeliehen an</label><select class="gn-native-select" data-f="user">'+opts+'</select></div>'
+      +(cur.userId?'<div class="gn-label" style="text-transform:none;font-weight:500">Aktuell bei '+NE(cur.name||'—')+' — «Nicht ausgeliehen» hebt die Ausleihe auf.</div>':'');
+    nat.sheet({
+      title:'🔄 Fahrzeug ausleihen',
+      saveLabel:'✓ Speichern',
+      html:html,
+      onSave:function(s){
+        var uid=(s.querySelector('[data-f="user"]')||{}).value||'';
+        try{
+          _fzOpenAusleihe(id);                  // baut das klassische Overlay (inkl. Guards)
+          if(!document.getElementById('fzAusleiheUser')){ return true; }  // Guard hat abgebrochen
+          natSet('fzAusleiheUser',uid);
+          _fzSaveAusleihe(id);
+        }catch(err){ console.warn('[nat fz] ausleihe:',err&&err.message); }
+        return true;
+      }
+    });
+  }
+
+  /* ── Fahrer zuweisen (natives Sheet → openZuweisung + saveZuweisung) ── */
+  function openFzgZuwSheet(id){
+    var v=natV(id); if(!v) return;
+    if(!can('canAssign')) return;
+    var html=
+      '<div class="gn-label" style="text-transform:none;font-weight:600">'+NE([v.model,v.plate].filter(Boolean).join(' · '))+'</div>'
+      +'<div class="gn-field"><label>Fahrer</label><input class="gn-input" data-f="driver" placeholder="Name des Fahrers" value="'+NE(v.driver||'')+'"></div>'
+      +'<div class="gn-field"><label>Abteilung</label><input class="gn-input" data-f="dept" value="'+NE(v.dept||'')+'"></div>'
+      +'<div class="gn-field"><label>Zuteilung</label><select class="gn-native-select" data-f="type">'
+        +'<option value="fix"'+((v.assignment||'fix')==='fix'?' selected':'')+'>Fix zugeteilt</option>'
+        +'<option value="pool"'+(v.assignment==='pool'?' selected':'')+'>Sharing / Pool</option></select></div>'
+      +'<div class="gn-field"><label>Notiz (optional)</label><input class="gn-input" data-f="note"></div>';
+    nat.sheet({
+      title:'👥 Fahrer zuweisen',
+      saveLabel:'✓ Speichern',
+      html:html,
+      onSave:function(s){
+        var g=function(f){ var el=s.querySelector('[data-f="'+f+'"]'); return el?el.value:''; };
+        try{
+          openZuweisung(id);                    // baut das klassische Overlay (inkl. Guards)
+          if(!document.getElementById('zuweisungDriver')){ return true; }
+          natSet('zuweisungDriver',g('driver')); natSet('zuweisungDept',g('dept'));
+          natSet('zuweisungType',g('type')); natSet('zuweisungNote',g('note'));
+          saveZuweisung();
+        }catch(err){ console.warn('[nat fz] zuweisung:',err&&err.message); }
+        return true;
+      }
+    });
+  }
+
   nat=GemaNativeMobil.mount({render:render});
+  // Deep-Link-/Scan-Einstieg (?view=) landet auf dem Phone im nativen Detail-Sheet
+  var _oOVF=window.openViewFzg;
+  window.openViewFzg=function(id){
+    if(nat&&GemaNativeMobil.enabled()&&natV(id)){ try{ openFzgSheet(id); return; }catch(e){} }
+    return _oOVF.apply(this,arguments);
+  };
   // Auto-Refresh über eine leichte Daten-Signatur (das Modul-render() ist IIFE-intern
   // und nicht wrapbar): nur neu rendern, wenn sich der Bestand wirklich geändert hat.
   function sig(){ try{ return natVs().map(function(v){return v.id+':'+(v.km||'')+':'+(v.status||'')+':'+(v.ausgeliehenAn?1:0);}).join('|'); }catch(e){ return ''; } }

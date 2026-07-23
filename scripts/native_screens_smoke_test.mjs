@@ -3,6 +3,10 @@
 //  Daten aus den geseedeten Pools, Aktionen/Filter funktionieren, die Ansicht folgt
 //  der USER-EINSTELLUNG (profile.nativeAnsicht / Cache gema_native_view_v1, Standard AN)
 //  ohne In-Modul-Umschalter/Pill, Desktop (1280×800) bleibt klassisch.
+//  DURCHGÄNGIG nativ (07/2026): pm_stunden/pm_einsatzplan (Erfassungs-Sheets) UND
+//  if_werkzeug/if_fahrzeug — natives Detail-Sheet + Sheets für Erfassen/Bearbeiten,
+//  Defekt, km-Stand; alle über die echten Modul-Speicherketten (submitForm/saveVehicle/
+//  _wzSaveDefekt/saveDefekt/_fzQuickKmEdit) verifiziert am Pool-Inhalt.
 //  Module: if_werkzeug, if_fahrzeug, pm_stunden, pm_einsatzplan, sys_workspace,
 //  sb_druckdispositiv (DOM-Proxy auf die echte Berechnung).
 //
@@ -139,15 +143,73 @@ console.log('— Werkzeug (Liste/Badges/Filter/Toggle) —');
   await page.waitForTimeout(200);
   const s1 = await page.evaluate(() => document.querySelectorAll('.gn--page [data-nat-list] .gn-row').length);
   ok(s1 === 1, 'Suche «Leiter» filtert auf 1');
-  // Zeile öffnet das ECHTE Detail-Modal des Moduls
+  // Zeilen-Tap öffnet das NATIVE Detail-Sheet (durchgängig nativ — kein Modal)
   await page.click('.gn--page [data-nat-list] .gn-row');
+  await page.waitForTimeout(450);
+  const det = await page.evaluate(() => {
+    const sh = document.querySelector('.gn--page .gn-sheet.is-open');
+    const vm = document.getElementById('viewModal');
+    return {
+      open: !!sh,
+      titel: sh ? sh.querySelector('.gn-sheet-head h2').textContent : '',
+      kv: sh ? sh.querySelectorAll('.gn-kv').length : 0,
+      acts: sh ? Array.from(sh.querySelectorAll('[data-nats]')).map(b => b.getAttribute('data-nats')) : [],
+      classicHidden: !vm || vm.classList.contains('hidden')
+    };
+  });
+  ok(det.open && det.titel.indexOf('Leiter') >= 0, 'Zeilen-Tap öffnet natives Detail-Sheet («' + det.titel + '»)');
+  ok(det.kv >= 3, 'Detail-Sheet zeigt Grunddaten (' + det.kv + ' Zeilen)');
+  ok(det.acts.indexOf('edit') >= 0 && det.acts.indexOf('ausleihe') >= 0 && det.acts.indexOf('defekt') >= 0 && det.acts.indexOf('qr') >= 0, 'Aktionen im Sheet (Bearbeiten/Ausleihen/Defekt/QR)');
+  ok(det.classicHidden, 'kein klassisches Modal sichtbar (durchgängig nativ)');
+  // ✏️ Bearbeiten → natives Formular-Sheet (vorbefüllt) → echte Save-Kette (submitForm)
+  await page.click('.gn--page .gn-sheet.is-open [data-nats="edit"]');
+  await page.waitForTimeout(500);
+  const edit = await page.evaluate(() => {
+    const sh = document.querySelector('.gn--page .gn-sheet.is-open');
+    return { open: !!sh, name: sh ? sh.querySelector('[data-f="name"]').value : '', cat: sh ? sh.querySelector('[data-f="cat"]').value : '' };
+  });
+  ok(edit.open && edit.name === 'Leiter 3-teilig Alu' && edit.cat === 'leiter', 'Bearbeiten-Sheet mit echten Werten vorbefüllt');
+  await page.fill('.gn--page .gn-sheet.is-open [data-f="name"]', 'Leiter 3-teilig Alu NEU');
+  await page.click('.gn--page .gn-sheet.is-open [data-gn-save]');
+  await page.waitForTimeout(500);
+  const saved = await page.evaluate(() => {
+    const pool = JSON.parse(localStorage.getItem('gema_werkzeug') || '[]');
+    const t = pool.find(x => x.id === 'w3');
+    return { name: t && t.name, leiter: t && t.hasLeiter, addHidden: document.getElementById('addModal').classList.contains('hidden') };
+  });
+  ok(saved.name === 'Leiter 3-teilig Alu NEU', 'Speichern läuft über die echte Kette (submitForm → Pool)');
+  ok(saved.leiter === true, 'nicht-native Felder bleiben erhalten (hasLeiter aus editTool-Populate)');
+  ok(saved.addHidden, 'klassisches Formular-Modal blieb zu (synchrone Brücke)');
+  // ＋ Neues Gerät → natives Formular-Sheet → echter neuer Pool-Eintrag
+  await page.fill('.gn--page [data-nat-q]', '');
+  await page.waitForTimeout(200);
+  await page.click('.gn--page [data-nat-add]');
   await page.waitForTimeout(400);
-  ok(await page.evaluate(() => { const m = document.getElementById('viewModal'); return !!m && getComputedStyle(m).display !== 'none'; }) ||
-     await page.evaluate(() => !!document.querySelector('.wz-modal-bg,.modal-bg') && Array.from(document.querySelectorAll('.wz-modal-bg,.modal-bg')).some(x => getComputedStyle(x).display !== 'none')),
-     'Zeilen-Tap öffnet Modul-Detail (klassisches Modal über dem Screen)');
-  // Detail-Modal schliessen (liegt jetzt korrekt ÜBER dem Screen, würde sonst Klicks abfangen)
-  await page.evaluate(() => { try { if (window.closeView) closeView(); } catch (e) {} document.querySelectorAll('.modal-bg,.wz-modal-bg').forEach(m => { m.style.display = 'none'; m.classList.remove('open'); }); });
-  await page.waitForTimeout(150);
+  await page.fill('.gn--page .gn-sheet.is-open [data-f="name"]', 'Testgerät Nativ');
+  await page.selectOption('.gn--page .gn-sheet.is-open [data-f="cat"]', 'handwerkzeug');
+  await page.click('.gn--page .gn-sheet.is-open [data-gn-save]');
+  await page.waitForTimeout(500);
+  ok(await page.evaluate(() => JSON.parse(localStorage.getItem('gema_werkzeug') || '[]').some(t => t.name === 'Testgerät Nativ' && t.cat === 'handwerkzeug')), 'Neues Gerät via natives Sheet erfasst (echter Pool-Eintrag)');
+  ok((await page.evaluate(() => document.querySelectorAll('.gn--page [data-nat-list] .gn-row').length)) === 4, 'Liste zeigt das neue Gerät sofort');
+  // 🚨 Defekt melden → natives Sheet → echter Bericht + Notify-Kette
+  await page.click('.gn--page [data-nat-list] .gn-row');
+  await page.waitForTimeout(450);
+  await page.click('.gn--page .gn-sheet.is-open [data-nats="defekt"]');
+  await page.waitForTimeout(450);
+  ok(await page.evaluate(() => { const sh = document.querySelector('.gn--page .gn-sheet.is-open'); return !!sh && !!sh.querySelector('[data-f="titel"]'); }), 'Defekt-Sheet öffnet (Titel/Schweregrad/Beschreibung)');
+  await page.fill('.gn--page .gn-sheet.is-open [data-f="titel"]', 'Akku defekt');
+  await page.fill('.gn--page .gn-sheet.is-open [data-f="beschr"]', 'Lädt nicht mehr');
+  await page.selectOption('.gn--page .gn-sheet.is-open [data-f="sev"]', 'schwer');
+  await page.click('.gn--page .gn-sheet.is-open [data-gn-save]');
+  await page.waitForTimeout(500);
+  const defekt = await page.evaluate(() => {
+    const pool = JSON.parse(localStorage.getItem('gema_werkzeug') || '[]');
+    const withDef = pool.find(t => (t.berichte || []).some(b => b.typ === 'defekt' && b.titel === 'Akku defekt'));
+    const b = withDef && withDef.berichte.find(x => x.titel === 'Akku defekt');
+    return { ok: !!withDef, sev: b && b.schweregrad };
+  });
+  ok(defekt.ok && defekt.sev === 'schwer', 'Defekt via natives Sheet gemeldet (echter Bericht via _wzSaveDefekt)');
+  await page.evaluate(() => { try { if (window.GemaDialog) document.querySelectorAll('.gema-dlg-bg').forEach(d => d.remove()); } catch (e) {} });
   // Native-Ansicht = USER-EINSTELLUNG (sys_profil → profile.nativeAnsicht, synchroner
   // Cache gema_native_view_v1). KEIN In-Modul-Umschalter/Pill mehr.
   ok(await page.evaluate(() => !document.querySelector('.gn--page [data-gn-classic]')), 'kein In-Modul-Umschalter mehr');
@@ -178,6 +240,67 @@ console.log('— Fahrzeuge (Liste/MFK/Fahrer-Chip) —');
   ok(f.sub.indexOf('2 Fahrzeuge') >= 0 && f.sub.indexOf('1 MFK fällig') >= 0, 'Zähler echt («' + f.sub + '»)');
   ok(f.rows === 2 && f.badges.some(b => /MFK fällig/.test(b)), '2 Fahrzeuge + MFK-Badge');
   ok(f.ava === 'MK', 'Fahrer-Initialen-Chip («' + f.ava + '»)');
+  // Zeilen-Tap öffnet das NATIVE Detail-Sheet (durchgängig nativ)
+  await page.click('.gn--page [data-nat-list] .gn-row');
+  await page.waitForTimeout(450);
+  const fdet = await page.evaluate(() => {
+    const sh = document.querySelector('.gn--page .gn-sheet.is-open');
+    return {
+      open: !!sh,
+      titel: sh ? sh.querySelector('.gn-sheet-head h2').textContent : '',
+      kv: sh ? sh.querySelectorAll('.gn-kv').length : 0,
+      acts: sh ? Array.from(sh.querySelectorAll('[data-nats]')).map(b => b.getAttribute('data-nats')) : []
+    };
+  });
+  ok(fdet.open && fdet.titel.indexOf('VW Crafter') >= 0, 'Zeilen-Tap öffnet natives Detail-Sheet («' + fdet.titel + '»)');
+  ok(fdet.kv >= 4, 'Detail-Sheet zeigt Fahrzeugdaten (' + fdet.kv + ' Zeilen)');
+  ok(fdet.acts.indexOf('edit') >= 0 && fdet.acts.indexOf('km') >= 0 && fdet.acts.indexOf('defekt') >= 0, 'Aktionen im Sheet (Bearbeiten/km/Defekt)');
+  // 🧭 km-Stand → natives Sheet → echte Kette (_fzQuickKmEdit mit gestubbtem prompt)
+  await page.click('.gn--page .gn-sheet.is-open [data-nats="km"]');
+  await page.waitForTimeout(450);
+  ok(await page.evaluate(() => { const sh = document.querySelector('.gn--page .gn-sheet.is-open'); return !!sh && !!sh.querySelector('[data-f="km"]'); }), 'km-Sheet öffnet mit aktuellem Stand');
+  await page.fill('.gn--page .gn-sheet.is-open [data-f="km"]', '90000');
+  await page.click('.gn--page .gn-sheet.is-open [data-gn-save]');
+  await page.waitForTimeout(500);
+  ok(await page.evaluate(() => {
+    const pool = JSON.parse(localStorage.getItem('gema_vehicles') || '[]');
+    const v = pool.find(x => x.id === 'v1');
+    return v && v.km === '90000' && !!v.kmUpdatedAt;
+  }), 'km-Update läuft über die echte Kette (persist → Pool, 90000)');
+  // tieferer km-Stand → native Zwei-Tap-Bestätigung statt window.confirm
+  await page.click('.gn--page [data-nat-list] .gn-row');
+  await page.waitForTimeout(400);
+  await page.click('.gn--page .gn-sheet.is-open [data-nats="km"]');
+  await page.waitForTimeout(400);
+  await page.fill('.gn--page .gn-sheet.is-open [data-f="km"]', '80000');
+  await page.click('.gn--page .gn-sheet.is-open [data-gn-save]');
+  await page.waitForTimeout(250);
+  const warn = await page.evaluate(() => {
+    const sh = document.querySelector('.gn--page .gn-sheet.is-open');
+    const w = sh && sh.querySelector('[data-kmwarn]');
+    return { open: !!sh, warn: !!(w && w.style.display !== 'none' && w.textContent.indexOf('tiefer') >= 0) };
+  });
+  ok(warn.open && warn.warn, 'tieferer km-Stand → Warnhinweis, Sheet bleibt offen (Zwei-Tap)');
+  await page.click('.gn--page .gn-sheet.is-open [data-gn-save]');
+  await page.waitForTimeout(450);
+  ok(await page.evaluate(() => (JSON.parse(localStorage.getItem('gema_vehicles') || '[]').find(x => x.id === 'v1') || {}).km === '80000'), 'zweiter Tap bestätigt den tieferen Stand');
+  // 🔧 Defekt melden → natives Sheet → echter events-Eintrag (saveDefekt)
+  await page.click('.gn--page [data-nat-list] .gn-row');
+  await page.waitForTimeout(400);
+  await page.click('.gn--page .gn-sheet.is-open [data-nats="defekt"]');
+  await page.waitForTimeout(450);
+  await page.fill('.gn--page .gn-sheet.is-open [data-f="desc"]', 'Bremsen quietschen vorne');
+  await page.selectOption('.gn--page .gn-sheet.is-open [data-f="prio"]', 'hoch');
+  await page.click('.gn--page .gn-sheet.is-open [data-gn-save]');
+  await page.waitForTimeout(500);
+  const fdef = await page.evaluate(() => {
+    const pool = JSON.parse(localStorage.getItem('gema_vehicles') || '[]');
+    const v = pool.find(x => x.id === 'v1');
+    const e = v && (v.events || []).find(ev => ev.type === 'defekt' && /Bremsen quietschen/.test(ev.detail || ev.label || ''));
+    return { ok: !!e, prio: e && e.prio, overlayOffen: (() => { const o = document.getElementById('mgmtDefektOverlay'); return !!o && getComputedStyle(o).display !== 'none' && o.classList.contains('open'); })() };
+  });
+  ok(fdef.ok && fdef.prio === 'hoch', 'Defekt via natives Sheet gemeldet (echter events-Eintrag via saveDefekt)');
+  ok(!fdef.overlayOffen, 'klassisches Defekt-Overlay blieb zu (synchrone Brücke)');
   await page.close();
 }
 

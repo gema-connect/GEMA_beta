@@ -50,6 +50,8 @@
          heben, damit selten genutzte Sub-Dialoge (Auftrag-Suche, Einstellungen)
          trotzdem bedienbar sind. Die Haupt-Formulare laufen über native Sheets. */
       'html.gn-native-on .modal-bg{z-index:10600!important}' +
+      /* if_fahrzeug nutzt .modal-overlay (z-index 500 — läge UNTER dem Screen) */
+      'html.gn-native-on .modal-overlay{z-index:10600!important}' +
       /* Native Bottom-Sheet (Formular-Layer) — z-index über dem Screen-Inhalt.
          .gn-sheet aus dem Kit hat height:80%; hier passt es sich dem Inhalt an. */
       '.gn .gn-sheet.gn-sheet--form{height:auto;max-height:92%}' +
@@ -126,22 +128,30 @@
       bg.className = 'gn-backdrop gn-sheet-backdrop';
       var s = document.createElement('div');
       s.className = 'gn-sheet gn-sheet--form';
+      // Detail-/Info-Sheets ohne onSave/onDelete kommen OHNE CTA-Zeile
+      // (Schliessen via ✕ / Backdrop / Zieh-zu-schliessen).
+      var hasCta = !!(o.onSave || o.onDelete);
       s.innerHTML =
         '<div class="gn-grab" data-gn-grab><i></i></div>'
         + '<div class="gn-sheet-head"><h2>' + esc(o.title || '') + '</h2>'
         + '<button class="gn-x" data-gn-x><svg viewBox="0 0 24 24" fill="none" stroke-width="2.4" stroke-linecap="round"><path d="M5 5l14 14M19 5 5 19"/></svg></button></div>'
         + '<div class="gn-sheet-form">' + (o.html || '') + '</div>'
-        + '<div class="gn-sheet-cta">'
-        + (o.onDelete ? '<button class="gn-btn gn-btn-danger" data-gn-del style="flex:0 0 auto;min-width:58px">🗑</button>' : '')
-        + '<button class="gn-btn gn-btn-ghost" data-gn-cancel style="flex:0 0 auto">Abbrechen</button>'
-        + '<button class="gn-btn" data-gn-save>' + esc(o.saveLabel || 'Speichern') + '</button></div>';
+        + (hasCta
+          ? ('<div class="gn-sheet-cta">'
+            + (o.onDelete ? '<button class="gn-btn gn-btn-danger" data-gn-del style="flex:0 0 auto;min-width:58px">🗑</button>' : '')
+            + '<button class="gn-btn gn-btn-ghost" data-gn-cancel style="flex:0 0 auto">Abbrechen</button>'
+            + (o.onSave ? '<button class="gn-btn" data-gn-save>' + esc(o.saveLabel || 'Speichern') + '</button>' : '')
+            + '</div>')
+          : '');
       root.appendChild(bg); root.appendChild(s);
       s._bg = curSheet && curSheet._bg; curSheet = s; s._bg = bg;
       // Öffnen im nächsten Frame (Transition greift)
       requestAnimationFrame(function () { requestAnimationFrame(function () { s.classList.add('is-open'); bg.classList.add('is-open'); }); });
       var doSave = function () { var r = o.onSave ? o.onSave(s) : true; if (r !== false) closeSheet(); };
-      s.querySelector('[data-gn-save]').addEventListener('click', doSave);
-      s.querySelector('[data-gn-cancel]').addEventListener('click', closeSheet);
+      var saveBtn = s.querySelector('[data-gn-save]');
+      if (saveBtn) saveBtn.addEventListener('click', doSave);
+      var cancelBtn = s.querySelector('[data-gn-cancel]');
+      if (cancelBtn) cancelBtn.addEventListener('click', closeSheet);
       s.querySelector('[data-gn-x]').addEventListener('click', closeSheet);
       var del = s.querySelector('[data-gn-del]');
       if (del) del.addEventListener('click', function () { if (o.onDelete) o.onDelete(s); });
