@@ -120,11 +120,11 @@ console.log('■ Termine: Umbenennung + Freitext-Besonderheiten im Termin');
   const gespeichert = await page.evaluate(() => {
     const pool = JSON.parse(localStorage.getItem('gema_einsatz_pool_v1') || '[]');
     const ev = pool.find(e => e.titel === 'Boiler-Service Meier');
-    return { frei: ev && ev.besonderheitenFrei, chips: ev ? bsChipsHtml(ev) : '', icons: ev ? bsIconsText(ev) : '' };
+    return { frei: ev && ev.besonderheitenFrei, chips: ev ? bsChipsHtml(ev) : '', texte: ev ? bsTextListe(ev).join(' · ') : '' };
   });
   ok(gespeichert.frei && gespeichert.frei[0] === 'Schuhe ausziehen beim Kunden', 'Gespeicherter Termin trägt die Freitext-Besonderheit');
   ok(gespeichert.chips.indexOf('Schuhe ausziehen') >= 0 && gespeichert.chips.indexOf('Hund im Haus') >= 0, 'bsChipsHtml zeigt Vorlagen-Chip UND Freitext als Badge');
-  ok(gespeichert.icons.indexOf('📌') >= 0, 'bsIconsText enthält das 📌-Icon des Freitexts (Kalender-Karten)');
+  ok(gespeichert.texte.indexOf('Schuhe ausziehen beim Kunden') >= 0 && gespeichert.texte.indexOf('📌') < 0, 'bsTextListe: Freitext als reiner Text ohne Emoji (Kalender-Karten)');
   ok(errs.length === 0, 'Keine JS-Fehler in pm_einsatzplan (' + errs.slice(0, 2).join(' | ') + ')');
   await ctx.close();
 }
