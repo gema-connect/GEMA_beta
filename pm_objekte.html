@@ -136,16 +136,39 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important}
 .view-seg button.on{background:var(--acc);color:#fff}
 /* Listenansicht */
 .obj-table-wrap{overflow-x:auto;border:1.5px solid var(--brd);border-radius:var(--r);background:var(--sur)}
-table.obj-table{width:100%;border-collapse:collapse;font-size:12.5px}
-table.obj-table th{text-align:left;padding:10px 12px;background:var(--bg2);border-bottom:1.5px solid var(--brd2);font-size:11px;font-weight:800;color:var(--mut);text-transform:uppercase;letter-spacing:.3px;white-space:nowrap}
-table.obj-table td{padding:9px 12px;border-bottom:1px solid var(--brd);vertical-align:middle}
+/* Filterzeile direkt über der Tabelle */
+.obj-lfilter{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;padding:10px 12px;border-bottom:1.5px solid var(--brd2);background:var(--bg2)}
+.obj-lfilter .lf{display:flex;flex-direction:column;gap:3px;min-width:120px}
+.obj-lfilter .lf label{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;color:var(--mut)}
+.obj-lfilter .lf select{padding:6px 9px;border:1.5px solid var(--brd2);border-radius:8px;font-size:12.5px;background:var(--sur);font-weight:600;color:var(--txt);cursor:pointer}
+.obj-lfilter .lf select.act{border-color:var(--acc);background:var(--acc-bg);color:var(--acc)}
+.obj-lfilter .lf-reset{align-self:flex-end;padding:6px 11px;border:1.5px solid var(--brd2);border-radius:8px;background:var(--sur);font-size:12px;font-weight:700;color:#dc2626;cursor:pointer}
+.obj-lfilter .lf-hint{align-self:center;font-size:11.5px;color:var(--mut)}
+table.obj-table{width:100%;border-collapse:collapse;font-size:12.5px;table-layout:fixed}
+table.obj-table th{position:relative;text-align:left;padding:10px 12px;background:var(--bg2);border-bottom:1.5px solid var(--brd2);font-size:11px;font-weight:800;color:var(--mut);text-transform:uppercase;letter-spacing:.3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+table.obj-table td{padding:9px 12px;border-bottom:1px solid var(--brd);vertical-align:middle;overflow:hidden}
+table.obj-table td .ellip{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 table.obj-table tr.orow{cursor:pointer;transition:.12s}
 table.obj-table tr.orow:hover{background:var(--acc-bg)}
 table.obj-table tr.orow.active{background:rgba(8,145,178,.10)}
-table.obj-table .ot-name{font-weight:800;color:var(--txt)}
-table.obj-table .ot-sub{font-size:11px;color:var(--mut);font-weight:500}
-table.obj-table .ot-crumb{font-size:10.5px;color:var(--acc);font-weight:600}
+table.obj-table .ot-name{font-weight:800;color:var(--txt);overflow:hidden;text-overflow:ellipsis}
+table.obj-table .ot-sub{font-size:11px;color:var(--mut);font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+table.obj-table .ot-crumb{font-size:10.5px;color:var(--acc);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 table.obj-table .ot-act{display:flex;gap:5px;justify-content:flex-end;white-space:nowrap}
+/* Spaltenbreite per Drag anpassen */
+table.obj-table th .col-rsz{position:absolute;top:0;right:-4px;width:9px;height:100%;cursor:col-resize;z-index:2;touch-action:none}
+table.obj-table th .col-rsz::after{content:'';position:absolute;top:22%;right:4px;width:2px;height:56%;background:var(--brd2);border-radius:2px}
+table.obj-table th.rsz-on .col-rsz::after,table.obj-table th .col-rsz:hover::after{background:var(--acc)}
+table.obj-table thead tr{cursor:context-menu}
+/* Kontextmenü (Zeilen/Karten/Kopfzeile) */
+.obj-ctx{position:fixed;z-index:9000;background:var(--sur);border:1.5px solid var(--brd2);border-radius:10px;box-shadow:0 12px 34px rgba(8,20,40,.22);padding:5px;min-width:190px;font-size:13px}
+.obj-ctx button{display:flex;align-items:center;gap:9px;width:100%;text-align:left;border:none;background:transparent;padding:8px 11px;border-radius:7px;font-size:13px;font-weight:600;color:var(--txt);cursor:pointer}
+.obj-ctx button:hover{background:var(--acc-bg)}
+.obj-ctx button.danger{color:#dc2626}
+.obj-ctx button.danger:hover{background:#fef2f2}
+.obj-ctx button .ck{width:16px;text-align:center;color:var(--acc);font-weight:900}
+.obj-ctx .ctx-sep{height:1px;background:var(--brd);margin:5px 4px}
+.obj-ctx .ctx-head{padding:5px 11px 3px;font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;color:var(--mut)}
 @media(max-width:900px){table.obj-table .ot-hide{display:none}}
 
 /* BETEILIGTE TABLE */
@@ -994,6 +1017,192 @@ function _objLabelPair(o){
   if(!sub||sub.trim().toLowerCase()===title.trim().toLowerCase())sub='';
   return {title:title,sub:sub};
 }
+
+// ═══════════════════════════════════════════════════════════
+// LISTENANSICHT: Spalten-Registry + Filter + Resize + Sichtbarkeit
+// (Feedback 24.07.2026) — Sichtbarkeit/Breite/Filter pro Gerät gespeichert.
+// ═══════════════════════════════════════════════════════════
+var OBJ_COLS=[
+  {id:'objekt',       label:'Objekt',       always:true, filter:false, w:260, min:170},
+  {id:'nummer',       label:'Nummer',       filter:true,  w:110, min:80},
+  {id:'bauvorhaben',  label:'Bauvorhaben',  filter:true,  w:130, min:100},
+  {id:'phase',        label:'SIA-Phase',    filter:true,  w:150, min:110},
+  {id:'ort',          label:'Ort',          filter:true,  w:130, min:90},
+  {id:'kanton',       label:'Kanton',       filter:true,  w:80,  min:60},
+  {id:'projektleiter',label:'Projektleiter',filter:true,  w:150, min:110},
+  {id:'beteiligte',   label:'Beteiligte',   filter:false, w:100, min:70, align:'center'},
+  {id:'status',       label:'Status',       filter:true,  w:130, min:100},
+  {id:'erstellt',     label:'Erstellt',     filter:false, w:110, min:90},
+  {id:'aktionen',     label:'',             always:true, filter:false, noHide:true, noResize:true, w:120, min:110}
+];
+var OBJ_COLS_DEFAULT=['objekt','bauvorhaben','phase','beteiligte','status','aktionen'];
+function _objColById(id){for(var i=0;i<OBJ_COLS.length;i++)if(OBJ_COLS[i].id===id)return OBJ_COLS[i];return null;}
+var _objColsVis=(function(){try{var r=JSON.parse(localStorage.getItem('gema_obj_cols_v1'));if(Array.isArray(r)&&r.length)return r;}catch(e){}return OBJ_COLS_DEFAULT.slice();})();
+var _objColW=(function(){try{return JSON.parse(localStorage.getItem('gema_obj_colw_v1'))||{};}catch(e){return {};}})();
+var _objLFilter=(function(){try{return JSON.parse(localStorage.getItem('gema_obj_lfilter_v1'))||{};}catch(e){return {};}})();
+function _objSaveCols(){try{localStorage.setItem('gema_obj_cols_v1',JSON.stringify(_objColsVis));}catch(e){}}
+function _objSaveColW(){try{localStorage.setItem('gema_obj_colw_v1',JSON.stringify(_objColW));}catch(e){}}
+function _objSaveLFilter(){try{localStorage.setItem('gema_obj_lfilter_v1',JSON.stringify(_objLFilter));}catch(e){}}
+// Sichtbare Spalten in Registry-Reihenfolge (always immer dabei)
+function _objVisCols(){return OBJ_COLS.filter(function(c){return c.always||_objColsVis.indexOf(c.id)>=0;});}
+function _objColWidth(c){var w=_objColW[c.id];return (w&&w>=c.min)?w:(c.w||120);}
+// Roh-Vergleichswert einer Spalte (für Filter-Match) bzw. Options-Key
+function _objColKey(cid,o){
+  switch(cid){
+    case 'nummer': return o.projektnummer||o.nummer||'';
+    case 'bauvorhaben': return o.bauvorhaben||'';
+    case 'phase': return o.aktivePhase||'';
+    case 'ort': return o.ort||'';
+    case 'kanton': return o.kanton||'';
+    case 'projektleiter': return o.projektLeiterId||'';
+    case 'status': return o.status||'aktiv';
+    default: return '';
+  }
+}
+// Aktive Filter auf eine Objektliste anwenden (nur Listenansicht)
+function _objApplyListFilter(list){
+  Object.keys(_objLFilter).forEach(function(cid){
+    var v=_objLFilter[cid]; if(v==null||v==='')return;
+    var col=_objColById(cid); if(!col||!col.filter)return;
+    list=list.filter(function(o){return String(_objColKey(cid,o))===String(v);});
+  });
+  return list;
+}
+var OBJ_SIA_LBL={vorprojekt:'SIA 32 · Vorprojekt',bauprojekt:'SIA 33 · Bauprojekt',ausschreibung:'SIA 41 · Ausschreibung',ausfuehrung:'SIA 51-53 · Ausführung'};
+var OBJ_STAT_LBL={aktiv:'✓ Aktiv',abgeschlossen:'Abgeschlossen',archiviert:'Archiviert'};
+function _objUserName(id){
+  if(!id)return '';
+  try{ var us=(typeof GemaAuth!=='undefined'&&GemaAuth.getUsers)?(GemaAuth.getUsers()||[]):[]; var u=us.find(function(x){return x.id===id;}); if(u)return _userLabel(u); }catch(e){}
+  return id;
+}
+function _objFmtDate(iso){var m=String(iso||'').match(/^(\d{4})-(\d{2})-(\d{2})/);return m?(m[3]+'.'+m[2]+'.'+m[1]):'';}
+// Anzeige-Wert (Label) einer Spalte für die Filter-Dropdowns
+function _objColKeyLabel(cid,key){
+  if(key===''||key==null)return '';
+  switch(cid){
+    case 'phase': return OBJ_SIA_LBL[key]||key;
+    case 'status': return OBJ_STAT_LBL[key]||key;
+    case 'projektleiter': return _objUserName(key);
+    default: return String(key);
+  }
+}
+// Zell-HTML einer Spalte für die Listenzeile
+function _objCellHtml(cid,o,ctx){
+  switch(cid){
+    case 'objekt':
+      return (ctx.crumbs.length?'<div class="ot-crumb" title="'+esc(ctx.crumbs.join(' › '))+'">↳ '+esc(ctx.crumbs.join(' › '))+'</div>':'')
+        +'<div class="ot-name">'+esc(ctx.lp.title)+(ctx.kindCount>0?'<span class="obj-child-count" title="Sub-Objekte">⎘ '+ctx.kindCount+'</span>':'')+(ctx.isActive?' <span style="color:var(--acc);font-size:11px">●</span>':'')+'</div>'
+        +(ctx.lp.sub?'<div class="ot-sub">'+esc(ctx.lp.sub)+'</div>':'');
+    case 'nummer': return '<span class="ellip">'+esc(o.projektnummer||o.nummer||'–')+'</span>';
+    case 'bauvorhaben': return '<span class="ellip">'+esc(o.bauvorhaben||'–')+'</span>';
+    case 'phase': return o.aktivePhase?'<span style="background:#eff4ff;color:#1d4ed8;padding:2px 8px;border-radius:6px;font-weight:700;border:1px solid #bfdbfe;font-size:11px">'+OBJ_SIA_LBL[o.aktivePhase]+'</span>':'<span style="color:var(--mut2)">–</span>';
+    case 'ort': return '<span class="ellip">'+esc([o.plz,o.ort].filter(Boolean).join(' ')||'–')+'</span>';
+    case 'kanton': return '<span class="ellip">'+esc(o.kanton||'–')+'</span>';
+    case 'projektleiter': { var n=_objUserName(o.projektLeiterId); return '<span class="ellip">'+(n?esc(n):'<span style="color:var(--mut2)">–</span>')+'</span>'; }
+    case 'beteiligte': return String(ctx.betCount);
+    case 'status': return '<span class="obj-status '+(o.status||'aktiv')+'" style="position:static">'+OBJ_STAT_LBL[o.status||'aktiv']+'</span>';
+    case 'erstellt': return '<span class="ellip" style="color:var(--mut)">'+esc(_objFmtDate(o.createdAt)||'–')+'</span>';
+    case 'aktionen':
+      return '<div class="ot-act">'
+        +'<button class="btn btn-ghost btn-xs" onclick="event.stopPropagation();openObjektModal(\''+esc(o.id)+'\')" title="Bearbeiten">✏</button>'
+        +'<button class="btn btn-ghost btn-xs" onclick="event.stopPropagation();duplicateObjekt(\''+esc(o.id)+'\')" title="Duplizieren">📋</button>'
+        +'<button class="btn btn-ghost btn-xs" style="color:#dc2626" onclick="event.stopPropagation();deleteObjektById(\''+esc(o.id)+'\')" title="Löschen">🗑</button>'
+        +'</div>';
+    default: return '';
+  }
+}
+
+// ── Kontextmenü (Rechtsklick) — für Zeilen, Karten UND die Kopfzeile ──
+function _objCtxClose(){var m=document.getElementById('objCtxMenu');if(m)m.remove();document.removeEventListener('click',_objCtxClose);document.removeEventListener('scroll',_objCtxClose,true);window.removeEventListener('resize',_objCtxClose);window.removeEventListener('keydown',_objCtxEsc);}
+function _objCtxEsc(e){if(e.key==='Escape')_objCtxClose();}
+// items: [{head}|{sep}|{label,ic,check,danger,on}]
+function _objCtxShow(x,y,items){
+  _objCtxClose();
+  var m=document.createElement('div');m.id='objCtxMenu';m.className='obj-ctx';
+  items.forEach(function(it,i){
+    if(it.sep){var s=document.createElement('div');s.className='ctx-sep';m.appendChild(s);return;}
+    if(it.head){var h=document.createElement('div');h.className='ctx-head';h.textContent=it.head;m.appendChild(h);return;}
+    var b=document.createElement('button');
+    if(it.danger)b.className='danger';
+    b.innerHTML=(typeof it.check!=='undefined'?'<span class="ck">'+(it.check?'✓':'')+'</span>':'')+(it.ic?'<span>'+it.ic+'</span>':'')+'<span>'+esc(it.label)+'</span>';
+    b.onclick=function(ev){ev.stopPropagation();var keep=it.keepOpen;if(!keep)_objCtxClose();try{it.on&&it.on();}catch(e){}};
+    m.appendChild(b);
+  });
+  m.style.visibility='hidden';
+  document.body.appendChild(m);
+  // Viewport-Klemmung
+  var r=m.getBoundingClientRect();
+  var px=Math.min(x,window.innerWidth-r.width-8),py=Math.min(y,window.innerHeight-r.height-8);
+  m.style.left=Math.max(6,px)+'px';m.style.top=Math.max(6,py)+'px';m.style.visibility='';
+  setTimeout(function(){document.addEventListener('click',_objCtxClose);document.addEventListener('scroll',_objCtxClose,true);window.addEventListener('resize',_objCtxClose);window.addEventListener('keydown',_objCtxEsc);},0);
+}
+// Aktionen-Menü für EIN Objekt (Zeile/Karte)
+function _objRowCtx(e,id){
+  e.preventDefault();e.stopPropagation();
+  var o=_mem.objekte.find(function(x){return x.id===id;});if(!o)return;
+  var isActive=o.id===_mem.activeObjektId;
+  _objCtxShow(e.clientX,e.clientY,[
+    {head:_objLabelPair(o).title},
+    {label:isActive?'● Bereits selektiert':'Selektieren',ic:'●',on:function(){setActive(id);}},
+    {label:'Bearbeiten',ic:'✏',on:function(){openObjektModal(id);}},
+    {label:'Duplizieren',ic:'📋',on:function(){duplicateObjekt(id);}},
+    {sep:true},
+    {label:'Löschen',ic:'🗑',danger:true,on:function(){deleteObjektById(id);}}
+  ]);
+}
+window._objRowCtx=_objRowCtx;
+// Spalten ein-/ausblenden-Menü (Rechtsklick auf die Kopfzeile)
+function _objHeaderCtx(e){
+  e.preventDefault();e.stopPropagation();
+  var items=[{head:'Spalten anzeigen'}];
+  OBJ_COLS.forEach(function(c){
+    if(c.noHide||c.always)return;
+    items.push({label:c.label,check:_objColsVis.indexOf(c.id)>=0,keepOpen:true,on:function(){
+      var i=_objColsVis.indexOf(c.id);
+      if(i>=0)_objColsVis.splice(i,1); else _objColsVis.push(c.id);
+      _objSaveCols();renderObjekte();
+      // Menü mit aktualisierten Haken neu öffnen
+      _objHeaderCtx(e);
+    }});
+  });
+  items.push({sep:true});
+  items.push({label:'Standard-Spalten',ic:'↺',on:function(){_objColsVis=OBJ_COLS_DEFAULT.slice();_objSaveCols();renderObjekte();}});
+  _objCtxShow(e.clientX,e.clientY,items);
+}
+window._objHeaderCtx=_objHeaderCtx;
+
+// ── Spaltenbreite per Drag ──
+var _objRs=null;
+function _objColRsDown(e,cid){
+  e.preventDefault();e.stopPropagation();
+  var col=_objColById(cid);if(!col)return;
+  var th=e.target.closest('th');
+  _objRs={cid:cid,startX:e.clientX,startW:th?th.getBoundingClientRect().width:_objColWidth(col),min:col.min,th:th};
+  if(th)th.classList.add('rsz-on');
+  try{if(e.target.setPointerCapture)e.target.setPointerCapture(e.pointerId);}catch(err){}
+}
+window._objColRsDown=_objColRsDown;
+document.addEventListener('pointermove',function(e){
+  var t=_objRs;if(!t)return;
+  var w=Math.max(t.min,Math.round(t.startW+(e.clientX-t.startX)));
+  var colEl=document.querySelector('#objTableWrap col[data-col="'+t.cid+'"]');
+  if(colEl)colEl.style.width=w+'px';
+  t.w=w;
+});
+document.addEventListener('pointerup',function(){
+  var t=_objRs;if(!t)return;_objRs=null;
+  if(t.th)t.th.classList.remove('rsz-on');
+  if(t.w){_objColW[t.cid]=t.w;_objSaveColW();}
+});
+
+// Per-Spalte-Filter der Liste setzen/leeren (Dropdowns über der Tabelle)
+function setObjColFilter(cid,val){
+  if(val==null||val==='')delete _objLFilter[cid]; else _objLFilter[cid]=val;
+  _objSaveLFilter();renderObjekte();
+}
+window.setObjColFilter=setObjColFilter;
+function clearObjColFilters(){_objLFilter={};_objSaveLFilter();renderObjekte();}
+window.clearObjColFilters=clearObjColFilters;
 function setObjFilter(val,btn){
   _objFilter=val;
   // Nur Status-Buttons (data-filter) togglen, Scope-Buttons unberührt lassen
@@ -1121,6 +1330,35 @@ function renderObjekte(){
     $('objGrid').style.display='none';$('objGrid').innerHTML='';
     if(_tw){
       _tw.style.display='';
+      // Filter direkt über der Liste anwenden (kombiniert mit den globalen Filtern)
+      list=_objApplyListFilter(list);
+      const cols=_objVisCols();
+      // Filter-Optionen aus dem GESAMTEN Org-Bestand (nicht der gefilterten Liste),
+      // damit Optionen beim Filtern nicht verschwinden
+      const filterCols=cols.filter(c=>c.filter);
+      const lfHtml=(function(){
+        const sels=filterCols.map(c=>{
+          const vals={};
+          visibleObjekte.forEach(o=>{const k=_objColKey(c.id,o);if(k!=='')vals[k]=true;});
+          const opts=Object.keys(vals).map(k=>({k,lbl:_objColKeyLabel(c.id,k)})).sort((a,b)=>a.lbl.localeCompare(b.lbl,'de'));
+          const cur=_objLFilter[c.id]||'';
+          return `<div class="lf"><label>${esc(c.label)}</label><select class="${cur?'act':''}" onchange="setObjColFilter('${c.id}',this.value)">
+            <option value="">Alle</option>
+            ${opts.map(op=>`<option value="${esc(op.k)}"${String(op.k)===String(cur)?' selected':''}>${esc(op.lbl)}</option>`).join('')}
+          </select></div>`;
+        }).join('');
+        const anyActive=Object.keys(_objLFilter).some(k=>_objLFilter[k]);
+        const reset=anyActive?'<button class="lf-reset" onclick="clearObjColFilters()">✕ Filter zurücksetzen</button>':'';
+        const hint='<span class="lf-hint" title="Rechtsklick auf die Kopfzeile: Spalten ein-/ausblenden · Spaltenrand ziehen: Breite">Rechtsklick auf Titelzeile = Spalten wählen</span>';
+        return sels||anyActive?`<div class="obj-lfilter">${sels}${reset}${hint}</div>`:`<div class="obj-lfilter">${hint}</div>`;
+      })();
+      const colgroup='<colgroup>'+cols.map(c=>`<col data-col="${c.id}" style="width:${_objColWidth(c)}px">`).join('')+'</colgroup>';
+      const thead='<thead oncontextmenu="_objHeaderCtx(event)"><tr>'+cols.map((c,i)=>{
+        const align=c.align==='center'?' style="text-align:center"':'';
+        const rsz=(!c.noResize&&i<cols.length-1)?`<span class="col-rsz" onpointerdown="_objColRsDown(event,'${c.id}')"></span>`:'';
+        const lbl=c.id==='beteiligte'?'👷':esc(c.label);
+        return `<th${align}>${lbl}${rsz}</th>`;
+      }).join('')+'</tr></thead>';
       const rows=list.map(o=>{
         const betCount=_mem.beteiligte.filter(b=>b.objektId===o.id).length;
         const isActive=o.id===_mem.activeObjektId;
@@ -1129,27 +1367,16 @@ function renderObjekte(){
         const kindCount=getChildCount(o.id);
         const crumbs=isChild?getObjektBreadcrumb(o.id):[];
         const lp=_objLabelPair(o);
-        const indent=depth>0?'padding-left:'+(12+Math.min(depth,3)*16)+'px;':'';
-        return `<tr class="orow${isActive?' active':''}" onclick="selectObjekt('${esc(o.id)}')">
-          <td style="${indent}">
-            ${crumbs.length?'<div class="ot-crumb" title="'+esc(crumbs.join(' › '))+'">↳ '+esc(crumbs.join(' › '))+'</div>':''}
-            <div class="ot-name">${esc(lp.title)}${kindCount>0?'<span class="obj-child-count" title="Sub-Objekte">⎘ '+kindCount+'</span>':''}${isActive?' <span style="color:var(--acc);font-size:11px">●</span>':''}</div>
-            ${lp.sub?'<div class="ot-sub">'+esc(lp.sub)+'</div>':''}
-          </td>
-          <td class="ot-hide">${esc(o.bauvorhaben||'–')}</td>
-          <td class="ot-hide">${o.aktivePhase?'<span style="background:#eff4ff;color:#1d4ed8;padding:2px 8px;border-radius:6px;font-weight:700;border:1px solid #bfdbfe;font-size:11px">'+SIA_LBL[o.aktivePhase]+'</span>':'<span style="color:var(--mut2)">–</span>'}</td>
-          <td class="ot-hide" style="text-align:center">${betCount}</td>
-          <td><span class="obj-status ${o.status||'aktiv'}" style="position:static">${STAT_LBL[o.status||'aktiv']}</span></td>
-          <td class="no-print"><div class="ot-act">
-            <button class="btn btn-ghost btn-xs" onclick="event.stopPropagation();openObjektModal('${esc(o.id)}')" title="Bearbeiten">✏</button>
-            <button class="btn btn-ghost btn-xs" onclick="event.stopPropagation();duplicateObjekt('${esc(o.id)}')" title="Duplizieren">📋</button>
-            <button class="btn btn-ghost btn-xs" style="color:#dc2626" onclick="event.stopPropagation();deleteObjektById('${esc(o.id)}')" title="Löschen">🗑</button>
-          </div></td>
-        </tr>`;
+        const ctx={betCount,isActive,kindCount,crumbs,lp};
+        const tds=cols.map((c,i)=>{
+          const indent=(c.id==='objekt'&&depth>0)?`padding-left:${12+Math.min(depth,3)*16}px;`:'';
+          const align=c.align==='center'?'text-align:center;':'';
+          const cls=c.id==='aktionen'?' class="no-print"':'';
+          return `<td${cls} style="${indent}${align}">${_objCellHtml(c.id,o,ctx)}</td>`;
+        }).join('');
+        return `<tr class="orow${isActive?' active':''}" onclick="selectObjekt('${esc(o.id)}')" oncontextmenu="_objRowCtx(event,'${esc(o.id)}')">${tds}</tr>`;
       }).join('');
-      _tw.innerHTML=`<table class="obj-table"><thead><tr>
-        <th>Objekt</th><th class="ot-hide">Bauvorhaben</th><th class="ot-hide">SIA-Phase</th><th class="ot-hide" style="text-align:center">👷</th><th>Status</th><th class="no-print"></th>
-      </tr></thead><tbody>${rows}</tbody></table>`;
+      _tw.innerHTML=lfHtml+`<div style="overflow-x:auto"><table class="obj-table">${colgroup}${thead}<tbody>${rows}</tbody></table></div>`;
     }
     return;
   }
@@ -1166,7 +1393,7 @@ function renderObjekte(){
     const crumbs=isChild?getObjektBreadcrumb(o.id):[];
     const lp=_objLabelPair(o);
     const indentStyle=depth>0?'margin-left:'+Math.min(depth,3)*18+'px;':'';
-    return `<div class="obj-card${isActive?' active':''}${isChild?' is-child':''}" style="${indentStyle}" onclick="selectObjekt('${esc(o.id)}')">
+    return `<div class="obj-card${isActive?' active':''}${isChild?' is-child':''}" style="${indentStyle}" onclick="selectObjekt('${esc(o.id)}')" oncontextmenu="_objRowCtx(event,'${esc(o.id)}')">
       <span class="obj-status ${o.status||'aktiv'}">${STAT_LBL[o.status||'aktiv']}</span>
       ${crumbs.length?'<div class="obj-parent-crumb" title="'+esc(crumbs.join(' › '))+'"><span class="pc-txt">'+crumbs.map(esc).join(' › ')+'</span></div>':''}
       <div class="obj-name">${esc(lp.title)}${kindCount>0?'<span class="obj-child-count" title="Sub-Objekte">⎘ '+kindCount+'</span>':''}</div>
