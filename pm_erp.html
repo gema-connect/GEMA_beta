@@ -360,6 +360,8 @@ table.pos{border-collapse:collapse;width:100%;font-size:13px}
 <script src="gema_dialog.js"></script>
 <script src="gema_aushang.js"></script>
 <script src="gema_dataselect.js"></script>
+<script src="gema_adresse.js"></script>
+<script src="gema_zefix.js"></script>
 <link rel="stylesheet" href="gema_responsive.css"/>
 </head>
 <body>
@@ -481,7 +483,7 @@ table.pos{border-collapse:collapse;width:100%;font-size:13px}
     <div class="modal-hd"><h3 id="kundeTitle">Kunde</h3><button class="modal-x" onclick="document.getElementById('kundeModal').classList.remove('open')">✕</button></div>
     <div class="modal-bd">
       <div id="kundeBetHint"></div>
-      <div class="fld"><label>Firma / Name *</label><input id="k_firma" type="text" placeholder="z.B. Immo Basel AG"/></div>
+      <div class="fld"><label>Firma / Name *</label><input id="k_firma" type="text" placeholder="z.B. Immo Basel AG"/><div id="k_hrHint"></div></div>
       <div class="fld"><label>Kontaktperson</label><input id="k_kontakt" type="text"/></div>
       <div class="fld"><label>Strasse / Nr.</label><input id="k_strasse" type="text"/></div>
       <div class="fld-row">
@@ -545,7 +547,7 @@ table.pos{border-collapse:collapse;width:100%;font-size:13px}
       <div class="fld"><label>IBAN (für QR-Rechnung) *</label><input id="s_iban" type="text" placeholder="CH93 0076 2011 6238 5295 7"/></div>
       <div class="fld"><label>QR-IBAN (optional — aktiviert QR-Referenz)</label><input id="s_qriban" type="text" placeholder="CH44 3199 9123 0008 8901 2"/></div>
       <div style="font-size:11px;font-weight:800;text-transform:uppercase;color:var(--mut);margin:14px 0 6px">Zahlungsempfänger (Briefkopf)</div>
-      <div class="fld"><label>Firma</label><input id="s_name" type="text"/></div>
+      <div class="fld"><label>Firma</label><input id="s_name" type="text"/><div id="s_hrHint"></div></div>
       <div class="fld"><label>Strasse / Nr.</label><input id="s_strasse" type="text"/></div>
       <div class="fld-row">
         <div class="fld"><label>PLZ</label><input id="s_plz" type="text"/></div>
@@ -590,7 +592,7 @@ table.pos{border-collapse:collapse;width:100%;font-size:13px}
     <div class="modal-bd">
       <div style="font-size:12px;color:var(--mut);margin-bottom:12px;line-height:1.55">Wohin das Dokument adressiert/zugestellt wird (z.B. Verwaltung, Architekt, c/o- oder Postfach-Adresse). <b>Rechnungsempfänger und Zahler bleibt der Kunde</b> — bei Rechnungen lautet der QR-Zahlteil weiterhin auf ihn.</div>
       <div class="fld"><label>Aus Kundenstamm übernehmen (optional)</label><select id="z_pick" onchange="erpZustellPrefill(this.value)"></select></div>
-      <div class="fld"><label>Firma / Name *</label><input id="z_firma" type="text" placeholder="z.B. Liegenschaftsverwaltung Muster AG"/></div>
+      <div class="fld"><label>Firma / Name *</label><input id="z_firma" type="text" placeholder="z.B. Liegenschaftsverwaltung Muster AG"/><div id="z_hrHint"></div></div>
       <div class="fld"><label>Kontakt / z.Hd.</label><input id="z_kontakt" type="text" placeholder="z.B. z.Hd. Frau Beispiel"/></div>
       <div class="fld"><label>Strasse / Nr. / Postfach</label><input id="z_strasse" type="text"/></div>
       <div class="fld-row">
@@ -3655,6 +3657,7 @@ function erpZustellOpen(){
   document.getElementById('z_strasse').value=zu.strasse||'';
   document.getElementById('z_plz').value=zu.plz||'';
   document.getElementById('z_ort').value=zu.ort||'';
+  _erpHr['z_firma']=null;_erpHrHint('z_hrHint',null);
   document.getElementById('zustellModal').classList.add('open');
 }
 function erpZustellPrefill(id){
@@ -4093,9 +4096,68 @@ function erpKundeWahl(id){
   cur.kundeSnapshot=k?{firma:k.firma,kontakt:k.kontakt,strasse:k.strasse,plz:k.plz,ort:k.ort,email:k.email}:null;
   erpSaveCur(true);erpOpenEditor();
 }
+// Adress-Autocomplete (swisstopo) für die Adressfelder der Dialoge.
+// Muster if_wareneingang: das Strassen-Feld IST das Such-Input; die Auswahl
+// schreibt nur Strasse+Nr zurück, PLZ/Ort in die eigenen Felder. Bewusst OHNE
+// Target-Bindung von GemaAdresse — sonst würde jedes Nachtippen in der Strasse
+// bereits erfasste PLZ/Ort still leeren.
+function _erpAdrBind(strId,plzId,ortId){
+  try{
+    var el=document.getElementById(strId);
+    if(!el||typeof GemaAdresse==='undefined'||!GemaAdresse.attach)return;
+    GemaAdresse.attach(el,{onSelect:function(r){
+      el.value=r.strasse||'';
+      var p=document.getElementById(plzId);if(p)p.value=r.plz||'';
+      var o=document.getElementById(ortId);if(o)o.value=r.ort||'';
+    }});
+  }catch(e){}
+}
+// ── Handelsregister (Zefix) am Firma-Feld ──
+// Auswahl setzt den OFFIZIELLEN Firmennamen und füllt NUR LEERE Adressfelder
+// (bereits Erfasstes wird nie überschrieben). Der Handelsregister-Bezug
+// (UID/Rechtsform/Sitz) wird pro Feld gemerkt und beim Kunden mitgespeichert;
+// tippt der Benutzer den Namen wieder um, fällt er weg (kein falsches Siegel).
+var _erpHr={};
+function _erpHrHint(hintId,f){
+  var el=document.getElementById(hintId);if(!el)return;
+  if(!f){el.innerHTML='';el.className='';return;}
+  var teile=[f.uidFormatted||f.uid,f.rechtsformKurz||f.rechtsform,f.sitz].filter(Boolean).map(esc);
+  el.className='gema-hr-hint';
+  el.innerHTML='✓ Handelsregister: '+teile.join(' · ')
+    +(f.aktiv===false?' <b>(gelöscht)</b>':'')
+    +(f.zefixUrl?' · <a href="'+esc(f.zefixUrl)+'" target="_blank" rel="noopener">Eintrag ↗</a>':'');
+}
+function _erpHrBind(firmaId,hintId,adr){
+  try{
+    var el=document.getElementById(firmaId);
+    if(!el||typeof GemaZefix==='undefined'||!GemaZefix.attach)return;
+    GemaZefix.attach(el,{
+      onSelect:function(f){
+        _erpHr[firmaId]=f;
+        if(adr){
+          [['strasse',f.strasse],['plz',f.plz],['ort',f.ort]].forEach(function(p){
+            var t=adr[p[0]]&&document.getElementById(adr[p[0]]);
+            if(t&&!t.value.trim()&&p[1])t.value=p[1];
+          });
+        }
+        _erpHrHint(hintId,f);
+      },
+      onClear:function(){ _erpHr[firmaId]=null; _erpHrHint(hintId,null); }
+    });
+  }catch(e){}
+}
+function erpAdrInit(){
+  _erpAdrBind('k_strasse','k_plz','k_ort');   // Kunde
+  _erpAdrBind('z_strasse','z_plz','z_ort');   // Abweichende Zustelladresse
+  _erpAdrBind('s_strasse','s_plz','s_ort');   // Absender (Einstellungen)
+  _erpHrBind('k_firma','k_hrHint',{strasse:'k_strasse',plz:'k_plz',ort:'k_ort'});
+  _erpHrBind('z_firma','z_hrHint',{strasse:'z_strasse',plz:'z_plz',ort:'z_ort'});
+  _erpHrBind('s_name','s_hrHint',{strasse:'s_strasse',plz:'s_plz',ort:'s_ort'});
+}
 function erpKundeNeu(ausEditor){
   _kundeEditId=null;_kundeAusEditor=!!ausEditor;
   ['k_firma','k_kontakt','k_strasse','k_plz','k_ort','k_email','k_tel'].forEach(function(id){document.getElementById(id).value='';});
+  _erpHr['k_firma']=null;_erpHrHint('k_hrHint',null);
   document.getElementById('kundeTitle').textContent='➕ Neuer Kunde';
   // Beteiligte des Objekts als Schnellübernahme
   var hint='';
@@ -4137,6 +4199,7 @@ function erpKundeEdit(id){
   document.getElementById('k_ort').value=k.ort||'';
   document.getElementById('k_email').value=k.email||'';
   document.getElementById('k_tel').value=k.tel||'';
+  _erpHr['k_firma']=k.hr||null;_erpHrHint('k_hrHint',k.hr||null);
   document.getElementById('kundeModal').classList.add('open');
 }
 function erpKundeSave(){
@@ -4153,6 +4216,14 @@ function erpKundeSave(){
     email:document.getElementById('k_email').value.trim(),
     tel:document.getElementById('k_tel').value.trim()
   };
+  // Handelsregister-Bezug nur mitspeichern, solange der Name unverändert
+  // zum gewählten Eintrag passt (sonst wäre die UID ein falsches Siegel).
+  var hr=_erpHr['k_firma'];
+  if(hr&&hr.name&&hr.name.toLowerCase()===firma.toLowerCase()){
+    k.hr={name:hr.name,uid:hr.uid||'',uidFormatted:hr.uidFormatted||'',chid:hr.chid||'',
+          rechtsform:hr.rechtsform||'',rechtsformKurz:hr.rechtsformKurz||'',sitz:hr.sitz||'',
+          status:hr.status||'',aktiv:hr.aktiv!==false,zefixUrl:hr.zefixUrl||''};
+  }
   poolSave(KUN_POOL,KUN_PREFIX,k);
   document.getElementById('kundeModal').classList.remove('open');
   toast('✓ Kunde gespeichert');
@@ -4186,6 +4257,7 @@ function erpOpenSettings(){
   document.getElementById('s_txtAuftragIntro').value=s.txtAuftragIntro;
   document.getElementById('s_txtRechnungIntro').value=s.txtRechnungIntro;
   document.getElementById('s_txtKonditionen').value=s.txtKonditionen;
+  _erpHr['s_name']=null;_erpHrHint('s_hrHint',null);
   document.getElementById('setModal').classList.add('open');
 }
 // Alle Standardtext-Felder mit den Vorgabetexten (ERP_TXT_DEFAULTS) füllen.
@@ -4498,6 +4570,7 @@ function erpPdf(){
 // ═══════════════════════════════════════════════════════════
 document.addEventListener('DOMContentLoaded',function(){
   _erpObjFilterInit();
+  erpAdrInit();
   erpRenderAll();
   if(typeof GemaSync!=='undefined'&&GemaSync.bindCollection){
     Promise.race([
