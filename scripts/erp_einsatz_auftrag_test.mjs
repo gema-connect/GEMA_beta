@@ -72,6 +72,36 @@ console.log('■ ERP: Beteiligte des Objekts direkt im Editor sichtbar (Request 
     return /Immo Basel AG/.test(document.getElementById('erpObjBet').innerHTML);
   }), 'beim Wiederöffnen mit gesetztem Objekt erscheint die Box direkt');
 
+  // ── Objekt-Wahl als Such-Dropdown (Combobox) — Feedback 24.07.2026 ──
+  await page.evaluate(() => { erpNeu('offerte'); erpObjektWahl(''); erpOpenEditor(); });
+  ok(await page.evaluate(() => { const el=document.getElementById('e_objekt'); return el && el.tagName==='INPUT' && el.closest('.erp-combo'); }), 'Objektfeld ist ein Such-Textfeld (Combobox), kein <select>');
+  ok(await page.evaluate(() => document.getElementById('e_objektClear').style.display==='none'), 'ohne Objekt: kein ✕-Clear');
+  // tippen → gefilterte Vorschläge
+  ok(await page.evaluate(() => { erpObjInput('muster'); const d=document.getElementById('e_objektDrop'); return d.classList.contains('open') && [...d.querySelectorAll('.co-item')].some(x=>x.getAttribute('data-id')==='obj1'); }), 'Tippen «muster» zeigt obj1 als Vorschlag');
+  ok(await page.evaluate(() => { erpObjInput('zznope'); return document.getElementById('e_objektDrop').textContent.indexOf('Kein Projekt gefunden')>=0; }), 'kein Treffer → «Kein Projekt gefunden»');
+  // Vorschlag wählen → objektId gesetzt + Beteiligte + Clear sichtbar
+  ok(await page.evaluate(() => {
+    erpObjPick('obj1');
+    const inp=document.getElementById('e_objekt');
+    return cur.objektId==='obj1' && inp.value.indexOf('Musterstrasse')>=0
+      && document.getElementById('e_objektClear').style.display!=='none'
+      && !document.getElementById('e_objektDrop').classList.contains('open')
+      && /Immo Basel AG/.test(document.getElementById('erpObjBet').innerHTML);
+  }), 'Pick setzt objektId + Textfeld + Beteiligten-Box, Drop schliesst');
+  // Enter wählt den ersten/aktiven Vorschlag
+  ok(await page.evaluate(() => {
+    erpObjClear(); erpObjInput('basel');
+    const drop=document.getElementById('e_objektDrop');
+    const inp=document.getElementById('e_objekt');
+    inp.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true}));
+    return cur.objektId==='obj1';
+  }), 'Enter im Suchfeld übernimmt den Treffer');
+  // ✕ leert die Auswahl
+  ok(await page.evaluate(() => {
+    erpObjClear();
+    return cur.objektId==='' && document.getElementById('e_objekt').value==='' && document.getElementById('e_objektClear').style.display==='none' && document.getElementById('erpObjBet').innerHTML==='';
+  }), '✕ entfernt das Objekt (objektId leer, Box weg)');
+
   ok(errors.length === 0, 'ERP: keine JS-Fehler' + (errors.length ? ' — ' + errors[0] : ''));
   await ctx.close();
 }

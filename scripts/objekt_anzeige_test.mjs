@@ -308,6 +308,89 @@ console.log('— 9) pm_objekte: Karten/Liste + Wizard-Defaults (23.07.2026) —'
   await ctx.close();
 }
 
+console.log('— 10) pm_objekte Liste: Filter, Spalten (Resize/Ein-Aus), Kontextmenü (24.07.2026) —');
+{
+  store.clear();   // nur die zwei Objekte dieser Sektion (kein OBJ_A/OBJ_B)
+  const U2={id:'u2',name:'Anna Muster',roleIds:['role_planer'],orgId:'org_t',active:true,profile:{}};
+  const O1={id:'lo1',name:'Neubau Weiler',strasse:'Weilerweg 20',plz:'4057',ort:'Basel',kanton:'BS',orgId:'org_t',status:'aktiv',bauvorhaben:'Neubau',projektnummer:'2026-01',projektLeiterId:'u1',createdAt:'2026-05-01T00:00:00Z'};
+  const O2={id:'lo2',name:'Sanierung Olten',strasse:'Sonnenweg 3',plz:'4600',ort:'Olten',kanton:'SO',orgId:'org_t',status:'abgeschlossen',bauvorhaben:'Sanierung',projektLeiterId:'u2',createdAt:'2026-05-02T00:00:00Z'};
+  [O1,O2].forEach(o=>store.set('objekte|objekt:'+o.id,{data:o,_lm:'2026-07-02T00:00:00Z'}));
+  const BLOB={objekte:[O1,O2],beteiligte:[],activeObjektId:'lo1'};
+  const RICH=JSON.stringify(['objekt','nummer','bauvorhaben','phase','ort','kanton','projektleiter','beteiligte','status','erstellt','aktionen']);
+  const {ctx,page}=await open('/pm_objekte.html',{gema_users_v1:[USERS[0],U2],gema_objekte_v1:BLOB,gema_active_objekt_v1:'lo1',gema_obj_view_v1:'liste',gema_obj_cols_v1:RICH});
+  await page.waitForFunction(()=>typeof renderObjekte==='function'&&typeof setObjColFilter==='function'&&typeof _objHeaderCtx==='function',null,{timeout:12000});
+  await page.waitForTimeout(700);
+  // Status-Filter der Toolbar auf «Alle» (O2 ist abgeschlossen) — die per-Spalte-Filter testen wir separat
+  await page.evaluate(()=>setObjFilter('all'));
+  await page.waitForTimeout(150);
+  // Spalten + Filter vorhanden
+  ok(await page.evaluate(()=>document.querySelectorAll('#objTableWrap tr.orow').length===2),'Liste: beide Objekte als Zeilen');
+  ok(await page.evaluate(()=>{
+    const h=[...document.querySelectorAll('#objTableWrap thead th')].map(t=>t.textContent.replace(/[↔\s]/g,'').replace('👷','Bet'));
+    return h.some(x=>x.indexOf('Projektleiter')>=0)&&h.some(x=>x.indexOf('Kanton')>=0)&&h.some(x=>x.indexOf('Nummer')>=0);
+  }),'Liste: Rich-Spalten (Nummer/Kanton/Projektleiter) sichtbar');
+  ok(await page.evaluate(()=>{
+    const r=[...document.querySelectorAll('#objTableWrap tr.orow')].find(x=>x.textContent.indexOf('Weiler')>=0);
+    return r && r.textContent.indexOf('User A')>=0;   // Projektleiter-Name (u1) aufgelöst
+  }),'Liste: Projektleiter-Name aufgelöst (nicht die ID)');
+  ok(await page.evaluate(()=>document.querySelectorAll('.obj-lfilter .lf select').length===7),'Filterzeile: 7 Dropdowns (je filterbare Spalte)');
+  // Filter anwenden → narrows + persistiert
+  await page.evaluate(()=>setObjColFilter('status','aktiv'));
+  await page.waitForTimeout(150);
+  ok(await page.evaluate(()=>document.querySelectorAll('#objTableWrap tr.orow').length===1),'Filter status=aktiv: nur 1 Zeile');
+  ok(await page.evaluate(()=>{const f=JSON.parse(localStorage.getItem('gema_obj_lfilter_v1')||'{}');return f.status==='aktiv';}),'Filter pro Gerät gespeichert');
+  ok(await page.evaluate(()=>{const s=[...document.querySelectorAll('.obj-lfilter .lf select')].find(x=>x.value==='aktiv');return !!s && s.classList.contains('act');}),'aktiver Filter-Select markiert (.act)');
+  await page.evaluate(()=>clearObjColFilters());
+  await page.waitForTimeout(120);
+  ok(await page.evaluate(()=>document.querySelectorAll('#objTableWrap tr.orow').length===2),'«Filter zurücksetzen» zeigt wieder alle');
+  // Ort-Filter (per-Spalte)
+  await page.evaluate(()=>setObjColFilter('ort','Olten'));
+  await page.waitForTimeout(120);
+  ok(await page.evaluate(()=>{const r=[...document.querySelectorAll('#objTableWrap tr.orow')];return r.length===1&&r[0].textContent.indexOf('Olten')>=0;}),'Ort-Filter «Olten»: nur das Olten-Objekt');
+  await page.evaluate(()=>clearObjColFilters());
+  await page.waitForTimeout(120);
+  // Spaltenbreite per Drag (Nummer-Spalte breiter ziehen)
+  {
+    const before=await page.evaluate(()=>{const c=document.querySelector('#objTableWrap col[data-col="nummer"]');return c?parseFloat(c.style.width):0;});
+    await page.evaluate(()=>{
+      const th=[...document.querySelectorAll('#objTableWrap thead th')][1];
+      const handle=th.querySelector('.col-rsz'); const rect=th.getBoundingClientRect();
+      handle.dispatchEvent(new PointerEvent('pointerdown',{clientX:rect.right,clientY:rect.top+5,bubbles:true,pointerId:1}));
+      document.dispatchEvent(new PointerEvent('pointermove',{clientX:rect.right+60,clientY:rect.top+5,bubbles:true,pointerId:1}));
+      document.dispatchEvent(new PointerEvent('pointerup',{clientX:rect.right+60,clientY:rect.top+5,bubbles:true,pointerId:1}));
+    });
+    await page.waitForTimeout(120);
+    const after=await page.evaluate(()=>({w:(JSON.parse(localStorage.getItem('gema_obj_colw_v1')||'{}')).nummer,col:parseFloat((document.querySelector('#objTableWrap col[data-col="nummer"]')||{}).style?.width||'0')}));
+    ok(after.w && after.w>before+30,'Spaltenbreite per Drag angepasst (Nummer +≈60px) — before '+before+' → '+after.w);
+    ok(after.w && Math.abs(after.col-after.w)<2,'neue Breite auch im colgroup + pro Gerät gespeichert');
+  }
+  // Kopfzeilen-Rechtsklick: Spalte ausblenden
+  await page.evaluate(()=>_objHeaderCtx({preventDefault(){},stopPropagation(){},clientX:200,clientY:120}));
+  ok(await page.evaluate(()=>document.getElementById('objCtxMenu')&&[...document.querySelectorAll('#objCtxMenu button')].some(b=>b.textContent.indexOf('Kanton')>=0)),'Kopfzeilen-Menü listet die Spalten');
+  await page.evaluate(()=>{const b=[...document.querySelectorAll('#objCtxMenu button')].find(x=>x.textContent.indexOf('Kanton')>=0);b.click();});
+  await page.waitForTimeout(150);
+  ok(await page.evaluate(()=>![...document.querySelectorAll('#objTableWrap thead th')].some(t=>t.textContent.indexOf('Kanton')>=0)),'Spalte «Kanton» ausgeblendet');
+  ok(await page.evaluate(()=>{const c=JSON.parse(localStorage.getItem('gema_obj_cols_v1')||'[]');return c.indexOf('kanton')<0;}),'Spalten-Sichtbarkeit pro Gerät gespeichert');
+  await page.evaluate(()=>{const m=document.getElementById('objCtxMenu');if(m)m.remove();});
+  // Zeilen-Rechtsklick: Kontextmenü mit Aktionen
+  await page.evaluate(()=>{const r=document.querySelector('#objTableWrap tr.orow');r.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,clientX:120,clientY:200}));});
+  await page.waitForTimeout(100);
+  ok(await page.evaluate(()=>{const m=document.getElementById('objCtxMenu');if(!m)return false;const t=m.textContent;return t.indexOf('Bearbeiten')>=0&&t.indexOf('Duplizieren')>=0&&t.indexOf('Löschen')>=0&&t.toLowerCase().indexOf('selekti')>=0;}),'Zeilen-Rechtsklick: Kontextmenü mit Aktionen');
+  await page.evaluate(()=>{const b=[...document.querySelectorAll('#objCtxMenu button')].find(x=>x.textContent.indexOf('Bearbeiten')>=0);b.click();});
+  await page.waitForTimeout(150);
+  ok(await page.evaluate(()=>document.getElementById('objModal').classList.contains('open')),'Kontextmenü «Bearbeiten» öffnet den Editor');
+  await page.evaluate(()=>closeModal('objModal'));
+  // Karten-Rechtsklick funktioniert ebenso
+  await page.evaluate(()=>{setObjView('karten');});
+  await page.waitForTimeout(200);
+  await page.evaluate(()=>{const c=document.querySelector('#objGrid .obj-card');c.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,clientX:120,clientY:200}));});
+  await page.waitForTimeout(100);
+  ok(await page.evaluate(()=>{const m=document.getElementById('objCtxMenu');return m&&m.textContent.indexOf('Duplizieren')>=0;}),'Karten-Rechtsklick: gleiches Kontextmenü');
+  await page.evaluate(()=>{const m=document.getElementById('objCtxMenu');if(m)m.remove();});
+  ok(page.errs.length===0,'keine pageerrors (Liste-Features)'+(page.errs.length?' — '+page.errs[0]:''));
+  await ctx.close();
+}
+
 console.log('');
 console.log(pass+' passed, '+fail+' failed');
 await browser.close(); server.close();

@@ -171,6 +171,19 @@ body.erp-resizing{cursor:col-resize;user-select:none}
 .fld label{display:block;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:var(--mut);margin-bottom:5px}
 .fld input,.fld select,.fld textarea{width:100%;padding:11px 12px;border:1.5px solid var(--brd2);border-radius:10px;font-size:14.5px;background:var(--sur);outline:none}
 .fld input:focus,.fld select:focus,.fld textarea:focus{border-color:var(--acc)}
+/* Such-Dropdown (Combobox) für die Objekt-/Projekt-Wahl */
+.erp-combo{position:relative}
+.erp-combo input{padding-right:34px}
+.erp-combo-clear{position:absolute;right:7px;top:9px;width:28px;height:28px;border:none;background:transparent;color:var(--mut);font-size:15px;cursor:pointer;border-radius:7px;line-height:1}
+.erp-combo-clear:hover{background:var(--bg2);color:#dc2626}
+.erp-combo-drop{position:absolute;left:0;right:0;top:calc(100% + 4px);z-index:60;background:var(--sur);border:1.5px solid var(--brd2);border-radius:11px;box-shadow:0 14px 34px rgba(8,20,40,.18);max-height:280px;overflow-y:auto;-webkit-overflow-scrolling:touch;display:none}
+.erp-combo-drop.open{display:block}
+.erp-combo-drop .co-item{padding:9px 12px;cursor:pointer;border-bottom:1px solid var(--brd)}
+.erp-combo-drop .co-item:last-child{border-bottom:none}
+.erp-combo-drop .co-item:hover,.erp-combo-drop .co-item.hi{background:var(--acc-bg)}
+.erp-combo-drop .co-t{font-size:13.5px;font-weight:700;color:var(--txt);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.erp-combo-drop .co-s{font-size:11.5px;color:var(--mut);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.erp-combo-drop .co-empty{padding:11px 12px;font-size:12.5px;color:var(--mut)}
 .fld textarea{min-height:70px;resize:vertical;line-height:1.45}
 .fld-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .fld-row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
@@ -2043,10 +2056,7 @@ function erpOpenEditor(){
     +'</select>'
     +(editable?'<button class="btn" style="min-width:44px;padding:8px" title="Neuer Kunde / aus Beteiligten" onclick="erpKundeNeu(true)">＋</button>':'')
     +'</div></div>'
-    +'<div class="fld"><label>Projekt / Objekt</label><select id="e_objekt"'+dis+' onchange="erpObjektWahl(this.value)">'
-    +'<option value="">– keins –</option>'
-    +erpObjekte().map(function(o){return '<option value="'+o.id+'"'+(o.id===d.objektId?' selected':'')+'>'+esc(GemaObjekte.displayName(o))+'</option>';}).join('')
-    +'</select></div></div>'
+    +'<div class="fld"><label>Projekt / Objekt</label>'+erpObjComboHtml(d,editable)+'</div></div>'
     +'<div id="erpObjBet"></div>'
     +'<div class="fld"><label>Titel / Betreff</label><input type="text" value="'+esc(d.titel||'')+'" placeholder="z.B. Sanitärinstallation Neubau MFH"'+dis+' oninput="cur.titel=this.value;erpTouch()"/></div>'
     +'<div class="fld-row3">'
@@ -3959,6 +3969,83 @@ var _kundeEditId=null,_kundeAusEditor=false;
 // ── Objekt-Wahl im Editor: Beteiligte direkt sichtbar (Request 1) ──
 // Nach der Objektwahl erscheinen die Objekt-Beteiligten unter dem Kunde-Feld
 // als 1-Klick-Rechnungsempfänger — ohne Umweg über den «＋ Kunde»-Dialog.
+// ── Objekt-/Projekt-Wahl als Such-Dropdown (Combobox) ──
+// Textfeld mit Live-Vorschlägen (Name/Adresse/Nummer) statt reinem <select>.
+// Der Pick setzt die echte objektId (nicht nur den Text) → Beteiligte/Kette
+// funktionieren unverändert. Read-only zeigt ein deaktiviertes Feld.
+var _erpObjHi=-1;
+function erpObjComboHtml(d,editable){
+  var curName=(d&&d.objektId)?(erpObjName(d.objektId)||d.objektName||''):'';
+  if(!editable){
+    return '<input type="text" value="'+esc(curName)+'" disabled placeholder="– keins –"/>';
+  }
+  return '<div class="erp-combo" id="e_objektCombo">'
+    +'<input id="e_objekt" type="text" autocomplete="off" placeholder="Projekt suchen oder wählen …" value="'+esc(curName)+'" '
+    +'oninput="erpObjInput(this.value)" onfocus="erpObjOpen()" onkeydown="erpObjKey(event)" onblur="erpObjBlur()"/>'
+    +'<button type="button" id="e_objektClear" class="erp-combo-clear" title="Objekt entfernen" style="'+((d&&d.objektId)?'':'display:none')+'" onmousedown="event.preventDefault()" onclick="erpObjClear()">✕</button>'
+    +'<div class="erp-combo-drop" id="e_objektDrop"></div>'
+    +'</div>';
+}
+function erpObjMatches(q){
+  q=(q||'').trim().toLowerCase();
+  var all=[];try{all=erpObjekte();}catch(e){}
+  var scored=all.map(function(o){
+    var label=(GemaObjekte.displayName?GemaObjekte.displayName(o):o.name)||'';
+    var adr='';try{adr=(GemaObjekte.objektAdresse?GemaObjekte.objektAdresse(o):'')||'';}catch(e){}
+    var nr=o.projektnummer||o.nummer||'';
+    return {o:o,label:label,adr:adr,nr:nr,hay:(label+' '+adr+' '+nr+' '+(o.name||'')).toLowerCase()};
+  });
+  if(!q)return scored.slice(0,20);
+  return scored.filter(function(x){return x.hay.indexOf(q)>=0;}).slice(0,20);
+}
+function erpObjRenderDrop(q){
+  var drop=document.getElementById('e_objektDrop');if(!drop)return;
+  var items=erpObjMatches(q);_erpObjHi=-1;
+  if(!items.length){drop.innerHTML='<div class="co-empty">Kein Projekt gefunden — im Modul «Objekte» erfassen.</div>';drop.classList.add('open');return;}
+  drop.innerHTML=items.map(function(x){
+    var sub=[x.nr,x.adr].filter(function(s){return s&&s.trim()&&s.trim()!==x.label.trim();}).join(' · ');
+    return '<div class="co-item" data-id="'+esc(x.o.id)+'" onmousedown="event.preventDefault();erpObjPick(\''+esc(x.o.id)+'\')">'
+      +'<div class="co-t">'+esc(x.label)+'</div>'+(sub?'<div class="co-s">'+esc(sub)+'</div>':'')+'</div>';
+  }).join('');
+  drop.classList.add('open');
+}
+function erpObjOpen(){var inp=document.getElementById('e_objekt');erpObjRenderDrop(inp?inp.value:'');}
+function erpObjInput(v){erpObjRenderDrop(v);}
+function erpObjCloseDrop(){var d=document.getElementById('e_objektDrop');if(d)d.classList.remove('open');_erpObjHi=-1;}
+function erpObjSyncClear(){var b=document.getElementById('e_objektClear');if(b)b.style.display=(cur&&cur.objektId)?'':'none';}
+function erpObjPick(id){
+  var inp=document.getElementById('e_objekt');
+  if(inp)inp.value=erpObjName(id)||'';
+  erpObjCloseDrop();
+  erpObjektWahl(id);
+  erpObjSyncClear();
+}
+function erpObjClear(){
+  var inp=document.getElementById('e_objekt');if(inp)inp.value='';
+  erpObjCloseDrop();
+  erpObjektWahl('');
+  erpObjSyncClear();
+  if(inp)inp.focus();
+}
+function erpObjBlur(){
+  // verzögert schliessen (Item-Klick zuerst) + Textfeld auf den gewählten Stand
+  // zurücksetzen, damit freier Text nie eine „halbe" Auswahl vortäuscht
+  setTimeout(function(){
+    erpObjCloseDrop();
+    var inp=document.getElementById('e_objekt');if(!inp||!cur)return;
+    inp.value=cur.objektId?(erpObjName(cur.objektId)||cur.objektName||''):'';
+  },160);
+}
+function erpObjKey(e){
+  var drop=document.getElementById('e_objektDrop');if(!drop)return;
+  var items=[].slice.call(drop.querySelectorAll('.co-item'));
+  if(e.key==='ArrowDown'){e.preventDefault();if(!drop.classList.contains('open')){erpObjOpen();return;}_erpObjHi=Math.min(items.length-1,_erpObjHi+1);_erpObjHiApply(items);}
+  else if(e.key==='ArrowUp'){e.preventDefault();_erpObjHi=Math.max(0,_erpObjHi-1);_erpObjHiApply(items);}
+  else if(e.key==='Enter'){if(drop.classList.contains('open')&&items.length){e.preventDefault();var el=items[_erpObjHi>=0?_erpObjHi:0];if(el)erpObjPick(el.getAttribute('data-id'));}}
+  else if(e.key==='Escape'){erpObjCloseDrop();}
+}
+function _erpObjHiApply(items){items.forEach(function(el,i){el.classList.toggle('hi',i===_erpObjHi);if(i===_erpObjHi)el.scrollIntoView({block:'nearest'});});}
+
 function erpObjektWahl(id){
   if(!cur)return;
   cur.objektId=id;
