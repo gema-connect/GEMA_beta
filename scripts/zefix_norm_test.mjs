@@ -1,7 +1,8 @@
-// Node-Test: Zefix-Normalisierung (netlify/functions/zefix.js)
-// Prüft die Abbildung der Handelsregister-Antwort auf das GEMA-Schema —
-// inkl. mehrsprachiger Felder, UID-Formatierung, Adress-Zusammenbau und
-// der Container-Varianten (Array / {list:[…]} / Einzelobjekt).
+// Node-Test: Handelsregister-Normalisierung (netlify/functions/zefix.js)
+//   - LINDAS SPARQL (Open Data, Default-Quelle): Bindings → GEMA-Schema,
+//     Gruppierung mehrerer Zeilen pro Firma, Abfrage-Bau + Literal-Escaping
+//   - Zefix REST (Fallback): JSON → GEMA-Schema
+//   - gemeinsam: UID-Format, Adress-Zusammenbau, Status→aktiv, Container
 // Ausführen: node scripts/zefix_norm_test.mjs
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
@@ -109,6 +110,119 @@ eq(Z._extractList({ list: [{ name: 'A' }] }).length, 1, '{list:[…]}');
 eq(Z._extractList({ data: [{ name: 'A' }, { name: 'B' }] }).length, 2, '{data:[…]}');
 eq(Z._extractList({ name: 'Einzel AG' }).length, 1, 'Einzelobjekt (Detail-Antwort)');
 eq(Z._extractList(null).length, 0, 'null → leere Liste');
+
+console.log('■ Status → aktiv');
+ok(Z._istAktiv('') === true, 'fehlender Status → aktiv (nie fälschlich als gelöscht)');
+ok(Z._istAktiv('ACTIVE') === true, 'ACTIVE');
+ok(Z._istAktiv('CANCELLED') === false, 'CANCELLED');
+ok(Z._istAktiv('https://schema.ld.admin.ch/Deleted') === false, 'Status als URI (…Deleted)');
+ok(Z._istAktiv('gelöscht') === false, 'deutsche Schreibweise');
+ok(Z._istAktiv('IN LIQUIDATION') === false, 'in Liquidation');
+
+// ═══════════════════ LINDAS SPARQL (Open Data, Default) ═══════════════════
+const L = (b) => ({ results: { bindings: b } });
+const lit = (v) => ({ type: 'literal', value: v });
+const uri = (v) => ({ type: 'uri', value: v });
+
+console.log('■ LINDAS: Literal-Escaping (kein Injection-Pfad)');
+eq(Z._sparqlLit('Muster'), 'Muster', 'harmloser Text unverändert');
+eq(Z._sparqlLit('Anführungs"zeichen'), 'Anführungs\\"zeichen', 'Anführungszeichen escapt');
+eq(Z._sparqlLit('Back\\slash'), 'Back\\\\slash', 'Backslash escapt');
+eq(Z._sparqlLit('mehr\nzeilig'), 'mehr zeilig', 'Zeilenumbruch entschärft');
+ok(Z._sparqlLit('a" } INSERT DATA { <x> <y> "z').indexOf('\\"') > 0, 'Ausbruchsversuch wird escapt');
+
+console.log('■ LINDAS: Abfrage-Bau');
+{
+  const q = Z._lindasSearchQuery('Muster AG', 20);
+  ok(/FROM <https:\/\/lindas\.admin\.ch\/foj\/zefix>/.test(q), 'Zefix-Graph des Bundesamts für Justiz');
+  ok(/schema:legalName \?name/.test(q), 'sucht über schema:legalName');
+  ok(/STRSTARTS\(LCASE\(STR\(\?name\)\), "muster ag"\)/.test(q), 'Prefix-Match, kleingeschrieben');
+  ok(/LIMIT 20/.test(q), 'LIMIT gesetzt');
+  const pflicht = q.split('\n').filter(l => /schema:(identifier|address|additionalType|organizationStatus)/.test(l) && !/OPTIONAL/.test(l) && !/^\s+OPTIONAL/.test(l));
+  // Jede dieser Zeilen muss innerhalb eines OPTIONAL-Blocks stehen
+  ok((q.match(/OPTIONAL \{ \?company schema:identifier/g) || []).length === 2, 'beide Identifier optional');
+  ok(/OPTIONAL \{ \?company schema:address/.test(q), 'Adresse optional');
+  ok(/OPTIONAL \{ \?company schema:additionalType/.test(q), 'Rechtsform optional');
+  ok(/OPTIONAL \{ \?company schema:organizationStatus/.test(q), 'Status optional');
+}
+{
+  const q = Z._lindasDetailQuery('CHE-123.456.789', 'CHE123456789');
+  ok(/VALUES \?uidGesucht \{ "CHE-123\.456\.789" "CHE123456789" \}/.test(q), 'Detail fragt beide UID-Schreibweisen ab');
+  ok(/\?company schema:identifier \?idGesucht/.test(q), 'Einstieg über den Identifier-Wert');
+}
+{
+  process.env.ZEFIX_LINDAS_QUERY = 'SELECT * WHERE { ?s ?p "{{Q}}" } LIMIT {{LIMIT}}';
+  const q = Z._lindasSearchQuery('Muster', 5);
+  eq(q, 'SELECT * WHERE { ?s ?p "muster" } LIMIT 5', 'ZEFIX_LINDAS_QUERY überschreibt die Abfrage (Notausgang ohne Deploy)');
+  delete process.env.ZEFIX_LINDAS_QUERY;
+}
+
+console.log('■ LINDAS: Bindings → GEMA-Schema');
+{
+  const f = Z._normBindings(L([{
+    company: uri('https://ld.admin.ch/company/CHE123456789'),
+    name: lit('Muster AG'), uid: lit('CHE-123.456.789'), chid: lit('CH-270.3.014.395-4'),
+    legalFormName: lit('Aktiengesellschaft'), legalFormShort: lit('AG'),
+    street: lit('Bahnhofstrasse 1'), zip: lit('8001'), locality: lit('Zürich')
+  }]))[0];
+  eq(f.name, 'Muster AG', 'Name');
+  eq(f.uid, 'CHE123456789', 'UID auf Ziffernform normalisiert');
+  eq(f.uidFormatted, 'CHE-123.456.789', 'UID formatiert');
+  eq(f.chid, 'CH-270.3.014.395-4', 'CHID');
+  eq(f.rechtsform, 'Aktiengesellschaft', 'Rechtsform');
+  eq(f.rechtsformKurz, 'AG', 'Rechtsform kurz');
+  eq(f.strasse, 'Bahnhofstrasse 1', 'Strasse');
+  eq(f.plz, '8001', 'PLZ');
+  eq(f.ort, 'Zürich', 'Ort');
+  eq(f.sitz, 'Zürich', 'Sitz fällt auf den Ort zurück');
+  eq(f.lindasUri, 'https://ld.admin.ch/company/CHE123456789', 'LINDAS-URI mitgeführt');
+  ok(f.aktiv === true, 'ohne Status aktiv');
+  ok(/zefix\.ch/.test(f.zefixUrl), 'Zefix-Link erzeugt');
+}
+
+console.log('■ LINDAS: mehrere Zeilen pro Firma werden gruppiert');
+{
+  // Realistisch: je Identifier eine Zeile, Adresse nur auf einer davon
+  const list = Z._normBindings(L([
+    { company: uri('c1'), name: lit('Muster AG'), uid: lit('CHE-123.456.789') },
+    { company: uri('c1'), name: lit('Muster AG'), chid: lit('CH-270.3.014.395-4'), street: lit('Bahnhofstrasse 1'), zip: lit('8001'), locality: lit('Zürich') },
+    { company: uri('c2'), name: lit('Zweite GmbH'), uid: lit('CHE-987.654.321') }
+  ]));
+  eq(list.length, 2, 'zwei Firmen statt drei Zeilen');
+  eq(list[0].uid, 'CHE123456789', 'UID aus Zeile 1');
+  eq(list[0].strasse, 'Bahnhofstrasse 1', 'Adresse aus Zeile 2 ergänzt');
+  eq(list[0].chid, 'CH-270.3.014.395-4', 'CHID aus Zeile 2 ergänzt');
+  eq(list[1].name, 'Zweite GmbH', 'Reihenfolge bleibt erhalten');
+}
+{
+  // Erster nicht-leerer Wert gewinnt (z.B. mehrsprachige Rechtsform)
+  const f = Z._normBindings(L([
+    { company: uri('c1'), name: lit('Muster AG'), legalFormName: lit('Aktiengesellschaft') },
+    { company: uri('c1'), name: lit('Muster AG'), legalFormName: lit('Société anonyme') }
+  ]))[0];
+  eq(f.rechtsform, 'Aktiengesellschaft', 'erste Sprachvariante gewinnt');
+}
+
+console.log('■ LINDAS: Robustheit');
+eq(Z._normBindings(L([])).length, 0, 'keine Treffer → leere Liste');
+eq(Z._normBindings(null).length, 0, 'null → leere Liste');
+eq(Z._normBindings({}).length, 0, 'Antwort ohne results → leere Liste');
+eq(Z._normBindings(L([{ company: uri('c1') }])).length, 0, 'Zeile ohne Namen wird verworfen');
+{
+  // Fehlen alle OPTIONAL-Felder (Modell weicht ab), bleibt die Trefferliste
+  const f = Z._normBindings(L([{ name: lit('Nur Name AG') }]))[0];
+  eq(f.name, 'Nur Name AG', 'nur legalName reicht — Suche funktioniert weiter');
+  eq(f.uid, '', 'UID leer statt Absturz');
+  ok(f.aktiv === true, 'ohne Status aktiv');
+}
+{
+  const f = Z._normBindings(L([{ company: uri('c1'), name: lit('Alt AG'), status: uri('https://schema.ld.admin.ch/Cancelled') }]))[0];
+  ok(f.aktiv === false, 'Status-URI wird als gelöscht erkannt');
+}
+{
+  const list = Z._normBindings(L(Array.from({ length: 40 }, (_, i) => ({ company: uri('c' + i), name: lit('Firma ' + i) }))));
+  eq(list.length, 20, 'auf MAX_ENTRIES begrenzt');
+}
 
 console.log('\n' + (fail === 0 ? '✅' : '❌') + ' ' + pass + '/' + (pass + fail) + ' Checks');
 process.exit(fail === 0 ? 0 : 1);

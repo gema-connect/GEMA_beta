@@ -84,6 +84,18 @@
       return (d.firmen && d.firmen[0]) || null;
     });
   }
+  // Diagnose: liefert zusätzlich die abgesetzte SPARQL-Abfrage und den Anfang
+  // der Rohantwort. Gedacht für die Konsole, um das publizierte Datenmodell
+  // gegen den Live-Dienst zu prüfen:
+  //   GemaZefix.debug({name:'Muster'}).then(d => console.log(d.debug))
+  function _debug(opts) {
+    opts = opts || {};
+    var qs = (opts.uid ? 'uid=' + encodeURIComponent(opts.uid) : 'name=' + encodeURIComponent(opts.name || '')) + '&debug=1';
+    return fetch(ENDPOINT + '?' + qs, { headers: _authHeaders() })
+      .then(function (r) { return r.text().then(function (t) {
+        try { return JSON.parse(t); } catch (e) { return { ok: false, error: 'Keine JSON-Antwort (HTTP ' + r.status + ')', rohantwort: t.slice(0, 2000) }; }
+      }); });
+  }
 
   function _ensureDrop(input) {
     if (input._gzDrop && input._gzDrop.parentNode) return input._gzDrop;
@@ -223,5 +235,5 @@
     });
   });
 
-  w.GemaZefix = { attach: _attach, search: _search, detail: _detail, ENDPOINT: ENDPOINT };
+  w.GemaZefix = { attach: _attach, search: _search, detail: _detail, debug: _debug, ENDPOINT: ENDPOINT };
 })(window);
