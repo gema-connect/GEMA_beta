@@ -248,6 +248,21 @@
       .catch(function(e){ out.fn = 'NICHT erreichbar — ' + ((e && e.message) || e); out.fnOk = false; });
     return Promise.all([p1, p2]).then(function(){ return out; });
   }
+  // Banner-Text: sagt WAS mit den Daten passiert. Sie sind lokal dauerhaft
+  // gesichert (Outbox) und gehen automatisch in die Cloud, sobald wieder
+  // Verbindung besteht — der frueher hier stehende Satz «Aenderungen werden
+  // nicht gespeichert» war falsch und hat unnoetig Angst gemacht.
+  function _bannerText(){
+    var n = _outboxCount();
+    return '⚠ Offline — Ihre Aenderungen werden lokal gespeichert'
+      + (n ? ' (' + n + ' ' + (n === 1 ? 'Aenderung wartet' : 'Aenderungen warten') + ')' : '')
+      + ' und automatisch in die Cloud hochgeladen, sobald wieder Internet da ist.';
+  }
+  function _bannerRefresh(){
+    if(!_banner) return;
+    var el = _banner.querySelector('#gema-sync-msg');
+    if(el) el.textContent = _bannerText();
+  }
   function _broadcastBanner(reachable){
     if(typeof document === 'undefined') return;
     if(reachable){
@@ -268,7 +283,7 @@
       boxShadow:'0 2px 6px rgba(0,0,0,.18)'
     });
     var btnCss = 'margin-left:10px;padding:3px 10px;border:1px solid rgba(255,255,255,.6);border-radius:7px;background:transparent;color:#fff;font:inherit;font-size:12px;font-weight:700;cursor:pointer';
-    _banner.innerHTML = '<span>⚠ Cloud nicht erreichbar — Aenderungen werden nicht gespeichert.</span>'
+    _banner.innerHTML = '<span id="gema-sync-msg">' + _bannerText() + '</span>'
       + '<button type="button" id="gema-sync-retry" style="' + btnCss + '">↻ Erneut pruefen</button>'
       + '<button type="button" id="gema-sync-diag" style="' + btnCss + '">Details</button>'
       + '<div id="gema-sync-diag-out" style="display:none;margin-top:6px;font-weight:400;font-size:12px;text-align:left;max-width:640px;margin-left:auto;margin-right:auto;background:rgba(0,0,0,.18);border-radius:8px;padding:8px 10px"></div>';
@@ -431,6 +446,30 @@
     });
   }
 
+  // KRITISCH — verlustfreies Speichern fuer JEDEN Schreibweg:
+  // Scheitert der Cloud-Push (offline, Timeout, 413, 5xx), landet die
+  // Operation in der Outbox und wird automatisch nachgesendet. Ohne das
+  // ginge ein Datensatz verloren, sobald bindCollection beim naechsten
+  // Seitenstart den Cloud-Stand in den lokalen Cache schreibt — der lokal
+  // gespeicherte, nie hochgeladene Record waere dann weg. Betrifft ALLE
+  // per-Record-Pools (ERP, Regierapport, Termine, Stunden, Immobilien,
+  // Planablage, Pruefliste, …), die ueber saveRecord/deleteRecord gehen.
+  //   opts.noQueue  → nicht einreihen (nutzt persistCollection intern,
+  //                   das seine eigene Outbox-Buchung macht)
+  // Ausgenommen sind auth-Records: die laufen ueber die gema-auth-Function
+  // (Rechtepruefung) und sind per RLS direkt gar nicht schreibbar — sie
+  // wuerden die Outbox nur dauerhaft verstopfen.
+  function _queueOnFail(moduleKey, upserts, delKeys, e, opts){
+    if(opts && opts.noQueue) return Promise.reject(e);
+    if(moduleKey === 'auth') return Promise.reject(e);
+    _outboxEnqueue(moduleKey, upserts, delKeys);
+    _scheduleFlush(2000);
+    _bannerRefresh();
+    var err = new Error('Sync verzoegert — lokal gespeichert, wird automatisch nachgeholt');
+    err.queued = true; err.cause = e;
+    return Promise.reject(err);
+  }
+
   function saveRecord(moduleKey, dataKey, data, opts){
     var lm = _now();
     if(moduleKey === 'auth' && _isAuthKey(dataKey)){
@@ -440,7 +479,14 @@
       }).then(function(){ return { ok:true, lm: lm }; });
     }
     var body = [{ module_key: moduleKey, data_key: dataKey, payload: { data: data, _lm: lm } }];
-    return _postRecords(body, opts).then(function(){ return { ok:true, lm: lm }; });
+    return _postRecords(body, opts).then(function(){
+      // Ein aelterer Outbox-Eintrag desselben Records darf den jetzt
+      // frischen Cloud-Stand spaeter nicht wieder ueberschreiben.
+      _outboxClear(moduleKey, [dataKey]);
+      return { ok:true, lm: lm };
+    }).catch(function(e){
+      return _queueOnFail(moduleKey, [{ key: dataKey, data: data }], [], e, opts);
+    });
   }
 
   /**
@@ -466,7 +512,10 @@
       };
     });
     return _postRecords(body, opts).then(function(){
+      _outboxClear(moduleKey, records.map(function(r){ return r.key; }));
       return { ok:true, count: records.length, lm: lm };
+    }).catch(function(e){
+      return _queueOnFail(moduleKey, records.map(function(r){ return { key: r.key, data: r.data }; }), [], e, opts);
     });
   }
 
@@ -490,11 +539,14 @@
         if(r.status === 401) _handle401();
         if(!r.ok && r.status !== 404) throw new Error('HTTP ' + r.status);
         _noteSuccess();
+        _outboxClear(moduleKey, [dataKey]);
         return { ok:true };
       })
       .catch(function(e){
         _noteFailure(e);
-        throw e;
+        // Auch Loeschungen verlustfrei nachholen — sonst taucht ein offline
+        // geloeschter Datensatz beim naechsten Cloud-Pull wieder auf.
+        return _queueOnFail(moduleKey, [], [dataKey], e, opts);
       });
   }
 
@@ -785,10 +837,10 @@
       });
     });
     return chain.then(function(){
-      _flushing = false; _outboxPersist();
+      _flushing = false; _outboxPersist(); _bannerRefresh();
     }, function(e){
       // Teilerfolg moeglich — bereits gesendete Eintraege sind raus.
-      _flushing = false; _outboxPersist();
+      _flushing = false; _outboxPersist(); _bannerRefresh();
       if(_outboxCount()) _scheduleFlush(15000); // spaeter erneut versuchen
     });
   }
@@ -832,10 +884,16 @@
     var upserts = d.toUpsert.map(function(it){ return { key: prefix + it[idField], data: it }; });
     var delKeys = d.toDelete.map(function(id){ return prefix + id; });
 
+    // noQueue: saveRecords/deleteRecords sollen NICHT selbst einreihen —
+    // persistCollection bucht Upserts UND Deletes gemeinsam in _queueAndReject.
+    var innerOpts = {};
+    Object.keys(opts || {}).forEach(function(k){ innerOpts[k] = opts[k]; });
+    innerOpts.noQueue = true;
+
     function _push(){
-      return saveRecords(moduleKey, upserts, opts).then(function(){
+      return saveRecords(moduleKey, upserts, innerOpts).then(function(){
         if(!delKeys.length) return null;
-        return deleteRecords(moduleKey, delKeys, opts);
+        return deleteRecords(moduleKey, delKeys, innerOpts);
       }).then(function(){
         // Erfolgreich in der Cloud → evtl. aeltere Outbox-Eintraege fuer
         // dieselben Records verwerfen, damit sie den frischen Stand nicht
