@@ -660,6 +660,38 @@ function erpDocTotals(doc){
   return {zwischen:zwischen,rabatt:rabatt,schluss:schluss,schlussTotal:schlussTotal,netto:netto,mwst:mwst,brutto:brutto,rundung:rundung};
 }
 
+// Endsumme direkt vorgeben: ermittelt die Schluss-Korrektur (netto, CHF), damit
+// das Brutto-Total EXAKT den Zielwert trifft. Gibt {art:'rabatt'|'zuschlag',
+// wert, ziel} zurück bzw. {wert:0} wenn schon gestimmt hat.
+//
+// Rechenweg: eine CHF-Schlusszeile verschiebt das Netto um ±wert, das Brutto
+// also um ±wert·(1+MwSt/100). Der erste Wurf ist damit direkt berechenbar; die
+// Rappenrundung (erpRound5) kann ihn um 1–2 Rappen verfehlen, darum der
+// Feinabgleich in 0.01-Schritten. Bereits vorhandene Auto-Korrekturen
+// (autoTotal) werden vorher herausgerechnet, damit sich nichts aufschaukelt.
+function erpTotalKorrektur(doc,ziel){
+  ziel=erpRound5(erpNum(ziel));
+  var basis={};for(var k in doc)basis[k]=doc[k];
+  basis.schluss=(doc.schluss||[]).filter(function(s){return !s.autoTotal;});
+  var t0=erpDocTotals(basis);
+  if(Math.abs(t0.brutto-ziel)<0.005)return {art:null,wert:0,ziel:ziel,vorher:t0.brutto};
+  var f=1+erpNum(doc.mwstPct)/100;
+  var delta=(ziel-t0.brutto)/(f||1);
+  var art=delta<0?'rabatt':'zuschlag';
+  var wert=Math.round(Math.abs(delta)*100)/100;
+  for(var i=0;i<20;i++){
+    var probe={};for(var k2 in basis)probe[k2]=basis[k2];
+    probe.schluss=basis.schluss.concat([{id:'_probe',art:art,modus:'chf',wert:wert,autoTotal:true}]);
+    var b=erpDocTotals(probe).brutto;
+    if(Math.abs(b-ziel)<0.005)break;
+    // Rabatt senkt das Brutto, Zuschlag hebt es — Schrittrichtung entsprechend.
+    var step=(b>ziel)?(art==='rabatt'?0.01:-0.01):(art==='rabatt'?-0.01:0.01);
+    wert=Math.round((wert+step)*100)/100;
+    if(wert<0){art=(art==='rabatt')?'zuschlag':'rabatt';wert=Math.abs(wert);}
+  }
+  return {art:art,wert:wert,ziel:ziel,vorher:t0.brutto};
+}
+
 // Fakturierungsstand eines Auftrags über alle zugehörigen Rechnungen (ohne stornierte)
 function erpAuftragFakt(docs,auftragId){
   var auftrag=docs.find(function(d){return d.id===auftragId;});
@@ -2129,7 +2161,7 @@ function erpOpenEditor(){
   // ── Positionen ──
   h+='<div class="sec"><div class="sec-hd"><h3>📑 Positionen</h3><span class="hint" id="posHint"></span></div>'
     +'<div class="sec-bd"><div class="pos-wrap"><table class="pos"><thead><tr>'
-    +(editable?'<th style="width:26px"></th>':'')+'<th style="width:32%">Bezeichnung</th><th>Quelle</th><th class="num">Menge</th><th>Einheit</th><th class="num">EP CHF</th><th class="num">Rabatt %</th><th class="num">Betrag</th>'+(editable?'<th></th>':'')+'</tr></thead>'
+    +(editable?'<th style="width:26px"></th>':'')+'<th style="width:32%">Bezeichnung</th><th>Quelle</th><th class="num">Menge</th><th>Einheit</th><th class="num">EP CHF</th><th class="num">Rabatt %</th><th class="num">Betrag</th></tr></thead>'
     +'<tbody id="posBody"></tbody></table></div>'
     +(editable?'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">'
       +'<button class="btn ghost" onclick="erpPosAdd(\'frei\')">+ Position</button>'
@@ -2328,7 +2360,7 @@ function erpRenderPos(){
         +'<td style="width:104px">'+pcell(p.id,'wert','num',(p.wert!=null&&p.wert!==''?esc(p.wert):'<span class="mut">–</span>'),inpNum(p.id,'wert',p.wert,p.modus==='chf'?'Betrag':'%'))+'</td>'
         +'<td class="num" style="font-size:10.5px;color:var(--mut);white-space:nowrap" title="Zwischentotal der Positionen darüber im Kapitel">'+(p.modus==='chf'?'pauschal':'auf '+chf(kapBasis))+'</td>'
         +'<td class="num" style="font-weight:700;white-space:nowrap;color:'+(bz<0?'var(--red)':'var(--amber)')+'">'+(bz<0?'− ':'+ ')+chf(Math.abs(bz))+'</td>'
-        +(editable?'<td><button class="pos-del" onclick="event.stopPropagation();cur.positionen.splice('+i+',1);erpRenderPos()">✕</button></td>':'')
+        
         +'</tr>';
       return;
     }
@@ -2336,7 +2368,7 @@ function erpRenderPos(){
       // Manueller Seitenumbruch (Ctrl+Enter) — im Editor als Trenner, im PDF page-break
       h+=trOpen(i,'seitenumbruch')+grip(i)
         +'<td colspan="6" style="text-align:center;color:var(--mut2);font-size:11px;font-weight:800;letter-spacing:.5px;border-top:1.5px dashed var(--brd2);border-bottom:1.5px dashed var(--brd2)">— — —  Seitenumbruch  — — —</td><td></td>'
-        +(editable?'<td><button class="pos-del" onclick="event.stopPropagation();cur.positionen.splice('+i+',1);erpRenderPos()">✕</button></td>':'')
+        
         +'</tr>';
       return;
     }
@@ -2349,7 +2381,7 @@ function erpRenderPos(){
         +(eb?'<span style="color:var(--mut2);font-size:11px;flex-shrink:0">└</span>':'')
         +pcell(p.id,'bkp','bkp',(p.bkp?esc(p.bkp):'<span class="mut">BKP</span>'),inpText(p.id,'bkp',p.bkp,'BKP','flex:0 0 76px;width:76px;text-align:left;color:var(--acc,#1d4ed8)'))
         +pcell(p.id,'bez','titeltxt',(p.bez?esc(p.bez):'<span class="mut">Titel …</span>'),inpText(p.id,'bez',p.bez,'Titel …','flex:1;min-width:0'))
-        +'</div></td><td></td>'+(editable?'<td><button class="pos-del" onclick="event.stopPropagation();cur.positionen.splice('+i+',1);erpRenderPos()">✕</button></td>':'')+'</tr>';
+        +'</div></td><td></td>'+'</tr>';
       return;
     }
     var betrag=erpNum(p.menge)*erpNum(p.ep)*(1-erpNum(p.rabattPct)/100);
@@ -2368,7 +2400,7 @@ function erpRenderPos(){
       +'<td style="width:104px">'+pcell(p.id,'ep','num',(p.ep!=null&&p.ep!==''?esc(p.ep):'<span class="mut">–</span>'),inpNum(p.id,'ep',p.ep,''),!editableRow)+'</td>'
       +'<td style="width:76px">'+pcell(p.id,'rabattPct','num',(p.rabattPct?esc(p.rabattPct)+' %':'<span class="mut">–</span>'),inpNum(p.id,'rabattPct',p.rabattPct,'–'),!editableRow)+'</td>'
       +'<td class="num" style="font-weight:700;white-space:nowrap">'+chf(betrag)+'</td>'
-      +(editable?'<td><button class="pos-del" onclick="event.stopPropagation();cur.positionen.splice('+i+',1);erpRenderPos()">✕</button></td>':'')
+      
       +'</tr>';
   });
   var _ncols=(editable?9:7);
@@ -2401,7 +2433,51 @@ function erpRenderPos(){
     +'<div class="rw"><span>Netto</span><b>'+chf(t.netto)+'</b></div>'
     +'<div class="rw"><span>MwSt. '+cur.mwstPct+' %</span><b>'+chf(t.mwst)+'</b></div>'
     +(Math.abs(t.rundung)>=0.005?'<div class="rw"><span>Rundung</span><b>'+chf(t.rundung)+'</b></div>':'')
-    +'<div class="rw tot"><span>Total CHF</span><b>'+chf(t.brutto)+'</b></div>';
+    +'<div class="rw tot"'+(editableDoc?' ondblclick="erpTotEdit()" title="Doppelklick: Endsumme direkt eingeben — die Differenz wird automatisch als Schlussrabatt bzw. Zuschlag eingetragen"':'')+'>'
+    +'<span>Total CHF'+(editableDoc?' <span style="font-weight:600;font-size:10px;color:var(--mut2)">(Doppelklick)</span>':'')+'</span>'
+    +'<b id="erpTotVal">'+chf(t.brutto)+'</b></div>';
+}
+// Endsumme direkt eingeben: das <b> wird durch ein Eingabefeld ersetzt (kein
+// Re-Render — der wuerde den Fokus sofort wieder wegnehmen). Enter/Verlassen
+// uebernimmt, Escape bricht ab.
+function erpTotEdit(){
+  if(!cur||!erpEditable())return;
+  var b=document.getElementById('erpTotVal');
+  if(!b||b.dataset.editing)return;
+  var t=erpDocTotals(cur);
+  b.dataset.editing='1';
+  b.innerHTML='<input id="erpTotInp" type="text" inputmode="decimal" value="'+t.brutto.toFixed(2)+'"'
+    +' style="width:104px;padding:3px 6px;border:1.5px solid var(--acc);border-radius:7px;text-align:right;font-size:inherit;font-weight:800"/>';
+  var inp=document.getElementById('erpTotInp');
+  if(!inp){b.dataset.editing='';erpRenderPos();return;}
+  var fertig=false;
+  var uebernehmen=function(){ if(fertig)return; fertig=true; erpTotalAnwenden(inp.value); };
+  inp.onkeydown=function(ev){
+    if(ev.key==='Enter'){ev.preventDefault();uebernehmen();}
+    else if(ev.key==='Escape'){ev.preventDefault();fertig=true;erpRenderPos();}
+  };
+  inp.onblur=uebernehmen;
+  inp.focus();inp.select();
+}
+// Setzt die Endsumme: alte Auto-Korrektur raus, neue Schlusszeile rein.
+function erpTotalAnwenden(v){
+  var ziel=erpNum(v);
+  if(!isFinite(ziel)||ziel<0){erpRenderPos();return;}
+  var k=erpTotalKorrektur(cur,ziel);
+  cur.schluss=(cur.schluss||[]).filter(function(s){return !s.autoTotal;});
+  if(k&&k.art&&k.wert>0.004){
+    // Kleine Differenz = Rundung, grosse = echter Rabatt/Zuschlag. Der Text
+    // bleibt in der Zeile frei editierbar.
+    var klein=Math.abs(k.ziel-k.vorher)<1;
+    cur.schluss.push({id:uid(),art:k.art,
+      bez: klein?'Rundung':(k.art==='rabatt'?'Schlussrabatt':'Zuschlag'),
+      modus:'chf',wert:k.wert,autoTotal:true});
+  }
+  erpRenderPos();
+  var neu=erpDocTotals(cur).brutto;
+  if(Math.abs(neu-ziel)>=0.005)toast('Endsumme auf '+chf(neu)+' gesetzt (5-Rappen-Rundung)');
+  else if(k&&k.art)toast('✓ Endsumme '+chf(neu)+' — '+(k.art==='rabatt'?'Rabatt':'Zuschlag')+' '+chf(k.wert)+' eingetragen');
+  else toast('✓ Endsumme unverändert');
 }
 function erpPosAdd(art){
   _erpInsertPos(
@@ -3030,8 +3106,13 @@ function erpBkpNodeToggle(e,id){
 }
 function erpBkpNodeHtml(n,openSet){
   var hasKids=n.kids.length>0,open=!!openSet[n.id];
+  // Einrueckung nach der Stellenzahl der BKP-Nummer (GemaBKP.level: 1-stellig=0,
+  // 2-stellig=1, 3-stellig=2, mit Punkt wie 254.0 = 3) — wie im
+  // Ausschreibungs-Modul. Der Baum war bisher optisch flach, Ober- und
+  // Unterkapitel standen auf derselben Hoehe.
+  var eb=(window.GemaBKP&&GemaBKP.level)?GemaBKP.level(n.id):0;
   return '<div class="bkp-node'+(open?' open':'')+'" data-id="'+esc(n.id)+'">'
-    +'<div class="bkp-row"'+(hasKids?' onclick="erpBkpNodeToggle(event,\''+esc(n.id)+'\')"':'')+'>'
+    +'<div class="bkp-row" style="padding-left:'+(8+eb*15)+'px"'+(hasKids?' onclick="erpBkpNodeToggle(event,\''+esc(n.id)+'\')"':'')+'>'
     +'<span class="cx">'+(hasKids?'▶':'')+'</span>'
     +'<input type="checkbox" class="bkp-chk" data-bkp="'+esc(n.id)+'"'+(_bkpSel[n.id]?' checked':'')+' onclick="event.stopPropagation()" onchange="erpBkpToggle(this)" style="width:17px;height:17px;accent-color:var(--acc);flex-shrink:0"/>'
     +'<span class="bkp-nr">'+esc(n.id)+'</span><span class="bkp-t">'+esc(n.titel)+'</span></div>'
@@ -3725,6 +3806,9 @@ function erpRenderFooter(){
   ft+='<button class="btn" onclick="erpVorlOpen()">📑 Vorlagen</button>';
   ft+='<button class="btn" onclick="erpPdf()">📄 PDF</button>';
   if(editable&&d.status==='entwurf'||d.typ==='offerte'&&d.status==='entwurf')ft+='<button class="btn red" onclick="erpLoeschen()">🗑</button>';
+  // Feedback auch im Editor erreichbar: der Vollbild-Editor legt sich über die
+  // Nav, der 🔴-Knopf oben wäre sonst nicht klickbar (Muster pm_pruefliste).
+  ft+='<button class="gema-feedback-btn no-print" style="margin-left:auto" onclick="GemaFeedback.start()">🔴 Feedback</button>';
   document.getElementById('edFt').innerHTML=ft;
   erpUpdateUndoBtns();
 }
