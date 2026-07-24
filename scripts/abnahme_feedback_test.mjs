@@ -89,17 +89,29 @@ const anh = await page.evaluate(() => ({
 ok(anh.txt.indexOf('Plan_OG.pdf') >= 0, 'Anhang gelistet');
 ok(anh.sel === 'plan', 'Typ-Select (Plan/Zusatzblatt) vorbelegt');
 
-console.log('— Art der Abnahme (Sichtkontrolle/Teil-/Schlussabnahme) —');
+console.log('— Art der Abnahme: 3 Optionen (Feedback 24.07.2026 #2) —');
 await page.click('#tab_abnahme');
+const paOpts = await page.evaluate(() => Array.from(document.getElementById('protoArt').options).map(o => o.value + '|' + o.textContent).join(';'));
+ok(paOpts === '|Werkprüfung / Schlussabnahme;teilabnahme|Teilabnahme;sichtkontrolle|Sichtprüfung', 'Auswahl = Werkprüfung/Schlussabnahme · Teilabnahme · Sichtprüfung (' + paOpts + ')');
 await page.selectOption('#protoArt', 'sichtkontrolle');
-await page.waitForTimeout(150);
+await page.waitForTimeout(200);
 const pa = await page.evaluate(() => ({
   titel: document.getElementById('protoArtTitle').textContent,
   st: window._abState().abnahme.protokollArt
 }));
-ok(pa.titel === 'Sichtkontrolle' && pa.st === 'sichtkontrolle', 'Titel folgt der Wahl («' + pa.titel + '»)');
-await page.selectOption('#protoArt', 'schlussabnahme');
-ok((await page.evaluate(() => document.getElementById('protoArtTitle').textContent)) === 'Schlussabnahme', 'Wechsel auf Schlussabnahme');
+ok(pa.titel === 'Sichtprüfung' && pa.st === 'sichtkontrolle', 'Titel folgt der Wahl («' + pa.titel + '»)');
+// Legacy-Wert «schlussabnahme» (Altdaten) → Zusatz-Option + unveränderter Titel
+await page.evaluate(() => { window._abState().abnahme.protokollArt = 'schlussabnahme'; window._abRender(); });
+await page.waitForTimeout(150);
+const leg = await page.evaluate(() => ({
+  titel: document.getElementById('protoArtTitle').textContent,
+  hasOpt: !!document.querySelector('#protoArt option[value="schlussabnahme"]'),
+  selVal: document.getElementById('protoArt').value
+}));
+ok(leg.titel === 'Schlussabnahme' && leg.hasOpt && leg.selVal === 'schlussabnahme', 'Legacy «Schlussabnahme» bleibt als Zusatz-Option (Bestandsschutz)');
+await page.evaluate(() => { window._abState().abnahme.protokollArt = ''; window._abRender(); });
+await page.waitForTimeout(150);
+ok(await page.evaluate(() => !document.querySelector('#protoArt option[value="schlussabnahme"]')), 'ohne Legacy-Wert verschwindet die Zusatz-Option');
 
 console.log('— Geprüfter Teil: Schnellwahl —');
 await page.selectOption('#geprueftTyp', 'komplett');
@@ -136,6 +148,101 @@ ok((await page.evaluate(() => window._abState().abnahme.entscheid)) === 'zurueck
 await page.check('#chkArt158');
 await page.waitForTimeout(150);
 ok((await page.evaluate(() => document.getElementById('siaZusatz').textContent)).indexOf('158') >= 0, 'Art. 158 Abs. 2 → Zusatztext unten ergänzt');
+
+console.log('— Geprüft-Art im Titel: Installationselemente / Rohinstallation (#3) —');
+const gtOpts = await page.evaluate(() => Array.from(document.getElementById('geprueftTyp').options).map(o => o.value));
+ok(gtOpts.indexOf('instelemente') >= 0 && gtOpts.indexOf('rohinstallation') >= 0, 'Geprüft-Auswahl kennt Installationselemente + Rohinstallation');
+await page.selectOption('#geprueftTyp', 'instelemente');
+await page.waitForTimeout(150);
+let gtT = await page.evaluate(() => ({
+  teil: window._abState().abnahme.gepruefterTeil,
+  titel: document.getElementById('protoArtTitle').textContent,
+  dis: document.getElementById('gepruefterTeil').disabled
+}));
+ok(gtT.teil === 'Installationselemente' && !gtT.dis, 'Installationselemente → Text gesetzt, Feld bleibt verfeinerbar');
+ok(gtT.titel === 'Werkprüfung / Schlussabnahme — Installationselemente', 'Geprüft-Art erscheint im Titel («' + gtT.titel + '»)');
+await page.selectOption('#geprueftTyp', 'rohinstallation');
+await page.waitForTimeout(150);
+ok((await page.evaluate(() => document.getElementById('protoArtTitle').textContent)) === 'Werkprüfung / Schlussabnahme — Rohinstallation', 'Wechsel auf Rohinstallation folgt im Titel');
+
+console.log('— Sichtprüfung: keine SIA-Artikel, Bestätigung + Fixtext (#4/#5/#6) —');
+await page.selectOption('#protoArt', 'sichtkontrolle');
+await page.waitForTimeout(250);
+const sicht = await page.evaluate(() => {
+  const vis = id => { const el = document.getElementById(id); return !!el && el.style.display !== 'none'; };
+  return {
+    titel: document.getElementById('protoArtTitle').textContent,
+    art158: vis('ci_art158'), art161: vis('ci_art161'),
+    entAbg: vis('ci_entAbg'), entZur: vis('ci_entZur'),
+    sichtChk: vis('ci_sichtChk'),
+    entLabel: document.getElementById('entLabel').textContent,
+    hinweisVis: vis('sichtHinweis'),
+    hinweisTxt: document.getElementById('sichtHinweis').textContent,
+    zusatz: document.getElementById('siaZusatz').style.display === 'none'
+  };
+});
+ok(sicht.titel === 'Sichtprüfung — Rohinstallation', 'Titel «Sichtprüfung — Rohinstallation»');
+ok(!sicht.art158 && !sicht.art161, 'Art.-158/161-Checkboxen im Kopf ausgeblendet (#6)');
+ok(!sicht.entAbg && !sicht.entZur && sicht.sichtChk, 'SIA-Entscheid weg — Checkbox «Sichtkontrolle gemäss beiliegender Checkliste» da (#5)');
+ok(sicht.entLabel === 'Bestätigung', 'Sektions-Label heisst «Bestätigung»');
+ok(sicht.hinweisVis && sicht.hinweisTxt.indexOf('keiner Abnahme im Sinne von Nutzen und Schaden') >= 0, 'fixer Hinweistext sichtbar (#4)');
+ok(sicht.zusatz, 'SIA-Zusatztexte unterdrückt (trotz gesetztem Art.-158-Flag)');
+await page.check('#chkSichtChk');
+ok(await page.evaluate(() => window._abState().abnahme.sichtCheckliste === true), 'Bestätigungs-Checkbox → state.sichtCheckliste');
+// Ergebnis-Wahl setzt bei Sichtprüfung KEINEN SIA-Entscheid
+await page.evaluate(() => { window._abState().abnahme.entscheid = ''; });
+await page.check('#ergKeine');
+await page.waitForTimeout(200);
+ok(await page.evaluate(() => window._abState().abnahme.entscheid === ''), 'Keine Mängel bei Sichtprüfung → Entscheid bleibt leer (keine Automatik)');
+
+console.log('— Checkliste zur Kontrolle der Installationswände (#1) —');
+const cw = await page.evaluate(() => ({
+  card: !!document.getElementById('chkWandCard'),
+  open: document.getElementById('chkWandBody').style.display !== 'none',
+  rows: document.querySelectorAll('#chkWandBody .cw-row').length,
+  count: document.getElementById('chkWandCount').textContent,
+  legende: (document.querySelector('#chkWandBody .cw-leg') || {}).textContent || '',
+  firstRow: (document.querySelector('#chkWandBody .cw-row .cw-lbl') || {}).textContent || ''
+}));
+ok(cw.card && cw.rows === 11, 'Karte mit 11 Kontrollpunkten vorhanden');
+ok(cw.open, 'bei Sichtprüfung automatisch aufgeklappt');
+ok(cw.count === '11 Punkte', 'Fortschritts-Chip zeigt «11 Punkte» (nichts beurteilt)');
+ok(cw.firstRow.indexOf('Raum- / Achsmasse') >= 0, 'erster Kontrollpunkt = Raum-/Achsmasse nach Plan');
+ok(cw.legende.indexOf('nicht kontrolliert') >= 0 && cw.legende.indexOf('in Ordnung') >= 0, 'Legende i.O. / nicht i.O. / n.K. unter der Liste');
+await page.click('#chkWandBody .cw-row:first-child .cw-seg button.io');
+await page.waitForTimeout(200);
+let cwSt = await page.evaluate(() => ({
+  v: window._abState().abnahme.instwandChk.masse,
+  on: !!document.querySelector('#chkWandBody .cw-row:first-child .cw-seg button.io.on'),
+  count: document.getElementById('chkWandCount').textContent
+}));
+ok(cwSt.v === 'io' && cwSt.on, 'Klick «i.O.» → Zustand gespeichert + Button markiert');
+ok(cwSt.count === '1 / 11 beurteilt', 'Chip zählt beurteilte Punkte');
+await page.click('#chkWandBody .cw-row:first-child .cw-seg button.io');
+await page.waitForTimeout(200);
+ok(await page.evaluate(() => window._abState().abnahme.instwandChk.masse === undefined), 'erneuter Klick setzt den Punkt zurück');
+await page.click('#chkWandBody .cw-row:nth-child(2) .cw-seg button.nio');
+await page.waitForTimeout(200);
+ok(await page.evaluate(() => window._abState().abnahme.instwandChk.montage === 'nio'), '«nicht i.O.» auf dem zweiten Punkt (stabile ID montage)');
+// Kopf-Klick klappt zu/auf
+await page.click('#chkWandCard .card-hd');
+await page.waitForTimeout(150);
+ok(await page.evaluate(() => document.getElementById('chkWandBody').style.display === 'none'), 'Kopf-Klick klappt die Checkliste zu');
+await page.click('#chkWandCard .card-hd');
+await page.waitForTimeout(150);
+ok(await page.evaluate(() => document.getElementById('chkWandBody').style.display !== 'none'), '… und wieder auf');
+
+// zurück auf Werkprüfung: alles wieder sichtbar
+await page.selectOption('#protoArt', '');
+await page.selectOption('#geprueftTyp', 'frei');
+await page.waitForTimeout(250);
+const back = await page.evaluate(() => {
+  const vis = id => { const el = document.getElementById(id); return !!el && el.style.display !== 'none'; };
+  return { art158: vis('ci_art158'), entAbg: vis('ci_entAbg'), sichtChk: vis('ci_sichtChk'), hinweis: vis('sichtHinweis'), lbl: document.getElementById('entLabel').textContent };
+});
+ok(back.art158 && back.entAbg && !back.sichtChk && !back.hinweis && back.lbl === 'Entscheid', 'Rückwechsel auf Werkprüfung stellt SIA-Elemente wieder her');
+await page.evaluate(() => { const st = window._abState(); st.abnahme.instwandChk = {}; st.abnahme.sichtCheckliste = false; st.abnahme.art158 = false; window._abRender(); });
+await page.waitForTimeout(150);
 
 console.log('— Unterschriften: Name/Vorname + Firma von oben —');
 await page.evaluate(() => { const st = window._abState(); st.abnahme.unternehmer = 'Muster Haustechnik AG, Basel'; st.abnahme.bauherr = 'Bauherr GmbH'; window._abRender(); });
