@@ -210,7 +210,7 @@ await page.evaluate(() => erpKundeSave());
   await page.evaluate(() => document.getElementById('kundeModal').classList.remove('open'));
 }
 
-console.log('■ Handelsregister: bestehende Adresse wird NICHT überschrieben');
+console.log('■ Handelsregister: Adresse wird direkt übernommen und bleibt bearbeitbar');
 await page.evaluate(() => {
   erpKundeNeu();
   document.getElementById('k_strasse').value = 'Eigene Gasse 7';
@@ -221,15 +221,68 @@ await page.click('#k_firma');
 await page.type('#k_firma', 'Muster', { delay: 12 });
 await page.waitForSelector('#kundeModal .gema-hr-drop.open .gema-hr-item', { timeout: 6000 });
 await page.$eval('#kundeModal .gema-hr-drop .gema-hr-item', el => el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })));
+await page.waitForFunction(() => document.getElementById('k_strasse').value === 'Bahnhofstrasse 1', null, { timeout: 6000 });
+{
+  const v = await page.evaluate(() => ({
+    str: document.getElementById('k_strasse').value,
+    plz: document.getElementById('k_plz').value,
+    ort: document.getElementById('k_ort').value,
+    hint: document.getElementById('k_hrHint').textContent,
+    ro: ['k_strasse', 'k_plz', 'k_ort'].some(id => { const e = document.getElementById(id); return e.readOnly || e.disabled; })
+  }));
+  ok(v.str === 'Bahnhofstrasse 1' && v.plz === '8001' && v.ort === 'Zürich', 'Adresse ersetzt die zuvor erfasste');
+  ok(/Adresse übernommen/.test(v.hint), 'Hinweis nennt die Übernahme');
+  ok(v.ro === false, 'Adressfelder bleiben editierbar (nicht readonly/disabled)');
+}
+// Nach der Übernahme von Hand anpassen — der Wert muss stehen bleiben
+await page.fill('#k_strasse', 'Bahnhofstrasse 1a');
+await page.fill('#k_plz', '8002');
+await page.waitForTimeout(60);
+{
+  const v = await page.evaluate(() => ({ str: document.getElementById('k_strasse').value, plz: document.getElementById('k_plz').value, ort: document.getElementById('k_ort').value }));
+  ok(v.str === 'Bahnhofstrasse 1a' && v.plz === '8002' && v.ort === 'Zürich', 'Manuelle Korrektur nach der Übernahme bleibt erhalten');
+}
+
+console.log('■ Handelsregister: Eintrag ohne Adresse leert nichts');
+await page.unroute('**/functions/zefix*');
+await page.route('**/functions/zefix*', route => {
+  const detail = /[?&]uid=/.test(route.request().url());
+  const ohneAdr = { ok: true, firmen: [Object.assign({}, ZEFIX_DETAIL.firmen[0], { strasse: '', plz: '', ort: '' })] };
+  route.fulfill({ contentType: 'application/json', body: JSON.stringify(detail ? ohneAdr : ZEFIX_SUCHE) });
+});
+await page.evaluate(() => {
+  erpKundeNeu();
+  document.getElementById('k_strasse').value = 'Handerfasst 3';
+  document.getElementById('k_plz').value = '3000';
+  document.getElementById('k_ort').value = 'Bern';
+});
+await page.click('#k_firma');
+await page.type('#k_firma', 'Muster', { delay: 12 });
+await page.waitForSelector('#kundeModal .gema-hr-drop.open .gema-hr-item', { timeout: 6000 });
+await page.$eval('#kundeModal .gema-hr-drop .gema-hr-item', el => el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })));
 await page.waitForFunction(() => document.getElementById('k_hrHint').textContent !== '', null, { timeout: 6000 });
 {
   const v = await page.evaluate(() => ({
     str: document.getElementById('k_strasse').value,
     plz: document.getElementById('k_plz').value,
-    ort: document.getElementById('k_ort').value
+    ort: document.getElementById('k_ort').value,
+    hint: document.getElementById('k_hrHint').textContent
   }));
-  ok(v.str === 'Eigene Gasse 7' && v.plz === '4500' && v.ort === 'Solothurn', 'Manuell erfasste Adresse bleibt unangetastet');
+  ok(v.str === 'Handerfasst 3' && v.plz === '3000' && v.ort === 'Bern', 'Firma ohne publizierte Adresse leert die erfasste nicht');
+  ok(!/Adresse übernommen/.test(v.hint), 'kein Übernahme-Hinweis, wenn nichts übernommen wurde');
 }
+// Standard-Mock für die folgenden Abschnitte wiederherstellen
+await page.unroute('**/functions/zefix*');
+await page.route('**/functions/zefix*', route => {
+  const detail = /[?&]uid=/.test(route.request().url());
+  route.fulfill({ contentType: 'application/json', body: JSON.stringify(detail ? ZEFIX_DETAIL : ZEFIX_SUCHE) });
+});
+await page.evaluate(() => erpKundeNeu());
+await page.click('#k_firma');
+await page.type('#k_firma', 'Muster', { delay: 12 });
+await page.waitForSelector('#kundeModal .gema-hr-drop.open .gema-hr-item', { timeout: 6000 });
+await page.$eval('#kundeModal .gema-hr-drop .gema-hr-item', el => el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })));
+await page.waitForFunction(() => document.getElementById('k_hrHint').textContent !== '', null, { timeout: 6000 });
 
 console.log('■ Handelsregister: Umtippen löst den Bezug wieder');
 await page.click('#k_firma');

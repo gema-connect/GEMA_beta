@@ -4118,14 +4118,15 @@ function _erpAdrBind(strId,plzId,ortId){
 // (UID/Rechtsform/Sitz) wird pro Feld gemerkt und beim Kunden mitgespeichert;
 // tippt der Benutzer den Namen wieder um, fällt er weg (kein falsches Siegel).
 var _erpHr={};
-function _erpHrHint(hintId,f){
+function _erpHrHint(hintId,f,adrUebernommen){
   var el=document.getElementById(hintId);if(!el)return;
   if(!f){el.innerHTML='';el.className='';return;}
   var teile=[f.uidFormatted||f.uid,f.rechtsformKurz||f.rechtsform,f.sitz].filter(Boolean).map(esc);
   el.className='gema-hr-hint';
   el.innerHTML='✓ Handelsregister: '+teile.join(' · ')
     +(f.aktiv===false?' <b>(gelöscht)</b>':'')
-    +(f.zefixUrl?' · <a href="'+esc(f.zefixUrl)+'" target="_blank" rel="noopener">Eintrag ↗</a>':'');
+    +(f.zefixUrl?' · <a href="'+esc(f.zefixUrl)+'" target="_blank" rel="noopener">Eintrag ↗</a>':'')
+    +(adrUebernommen?'<div class="gema-hr-hint-sub">Adresse übernommen — jederzeit anpassbar.</div>':'');
 }
 function _erpHrBind(firmaId,hintId,adr){
   try{
@@ -4134,13 +4135,18 @@ function _erpHrBind(firmaId,hintId,adr){
     GemaZefix.attach(el,{
       onSelect:function(f){
         _erpHr[firmaId]=f;
+        // Adresse IMMER direkt übernehmen (User-Entscheid 24.07.2026); die
+        // Felder bleiben normale Eingaben und damit jederzeit anpassbar.
+        // Gesetzt wird nur, was das Register auch führt — ein Eintrag ohne
+        // publizierte Adresse darf eine bereits erfasste nicht leeren.
+        var uebernommen=false;
         if(adr){
           [['strasse',f.strasse],['plz',f.plz],['ort',f.ort]].forEach(function(p){
             var t=adr[p[0]]&&document.getElementById(adr[p[0]]);
-            if(t&&!t.value.trim()&&p[1])t.value=p[1];
+            if(t&&p[1]){t.value=p[1];uebernommen=true;}
           });
         }
-        _erpHrHint(hintId,f);
+        _erpHrHint(hintId,f,uebernommen);
       },
       onClear:function(){ _erpHr[firmaId]=null; _erpHrHint(hintId,null); }
     });
