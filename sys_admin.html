@@ -464,7 +464,7 @@ input,select,button,textarea{font-family:var(--sans)}
     </div>
     <div class="modal-footer">
       <button class="btn" onclick="closeModal('userModal')">Abbrechen</button>
-      <button class="btn btn-primary" onclick="saveUser()">Speichern</button>
+      <button class="btn btn-primary" id="userSaveBtn" onclick="saveUser()">Speichern</button>
     </div>
   </div>
 </div>
@@ -807,10 +807,32 @@ function saveUser(){
     users.push({id:'u_'+Date.now(),username:username,name:name||username,password:GemaAuth.hash(pw),roleIds:roleIds,active:active,orgId:orgId,profile:{email:username,telefon:'',sprache:'de',benachrichtigungen:true,einheiten:'metrisch'},createdAt:new Date().toISOString()});
   }
 
-  GemaAuth.saveUsers(users);
-  closeModal('userModal');
-  renderUsers();
-  toast('✓ Benutzer gespeichert');
+  // KRITISCH: erst nach der Server-Antwort «gespeichert» melden. Der Save
+  // laeuft ueber die gema-auth-Function mit serverseitiger Rechtepruefung —
+  // eine Ablehnung (z.B. «role_admin kann nur der GEMA-Admin vergeben»)
+  // oder ein Netzfehler blieb frueher unsichtbar: Modal zu, gruener Toast,
+  // Rolle in der Liste — und nach dem Reload war die Aenderung weg.
+  _saveUserPending(true);
+  Promise.resolve(GemaAuth.saveUsers(users)).then(function(res){
+    _saveUserPending(false);
+    if(res && res.ok === false){
+      // Modal offen lassen, damit die Eingabe nicht verloren geht.
+      errEl.textContent = (res.denied ? '⛔ ' : '⚠ ') + (res.error || 'Speichern fehlgeschlagen');
+      users = GemaAuth.getUsers();   // lokalen Stand zuruecksetzen
+      renderUsers();
+      return;
+    }
+    closeModal('userModal');
+    renderUsers();
+    toast('✓ Benutzer gespeichert');
+  });
+}
+// Speichern-Knopf waehrend des Cloud-Saves sperren (Doppelklick-Schutz).
+function _saveUserPending(on){
+  var b=document.getElementById('userSaveBtn');
+  if(!b) return;
+  if(on){ b.dataset.lbl=b.textContent; b.textContent='Speichert …'; b.disabled=true; }
+  else { if(b.dataset.lbl) b.textContent=b.dataset.lbl; b.disabled=false; }
 }
 
 function toggleOrgAdmin(uid){
@@ -830,9 +852,11 @@ function toggleOrgAdmin(uid){
     } else {
       o.admins.push(uid);
     }
-    GemaAuth.saveOrgs(orgs);
-    toast('✓ Org-Admin aktualisiert');
-    renderUsers();
+    Promise.resolve(GemaAuth.saveOrgs(orgs)).then(function(res){
+      if(res && res.ok === false){ orgs = GemaAuth.getOrgs(); renderUsers(); return; }
+      toast('✓ Org-Admin aktualisiert');
+      renderUsers();
+    });
   });
 }
 
@@ -1012,11 +1036,20 @@ function saveRole(){
   } else {
     roles.push({id:'r_'+Date.now(),name,color,permissions:perms,kategorien:kategorien});
   }
-  GemaAuth.saveRoles(roles);
-  closeModal('roleModal');
-  renderRoles();
-  renderUsers(); // refresh badges
-  toast('✓ Rolle gespeichert');
+  // Erst nach der Server-Antwort «gespeichert» melden (siehe saveUser).
+  Promise.resolve(GemaAuth.saveRoles(roles)).then(function(res){
+    if(res && res.ok === false){
+      var el=document.getElementById('roleErr');
+      if(el) el.textContent=(res.denied?'⛔ ':'⚠ ')+(res.error||'Speichern fehlgeschlagen');
+      roles = GemaAuth.getRoles();
+      renderRoles();
+      return;
+    }
+    closeModal('roleModal');
+    renderRoles();
+    renderUsers(); // refresh badges
+    toast('✓ Rolle gespeichert');
+  });
 }
 
 function deleteRole(rid){
@@ -1295,11 +1328,19 @@ function saveOrg(){
   } else {
     orgs.push(Object.assign({id:'org_'+Date.now(),createdAt:new Date().toISOString()},data));
   }
-  GemaAuth.saveOrgs(orgs);
-  closeModal('orgModal');
-  renderOrgs();
-  renderOrgCats();
-  toast('✓ Unternehmen gespeichert');
+  Promise.resolve(GemaAuth.saveOrgs(orgs)).then(function(res){
+    if(res && res.ok === false){
+      var el=document.getElementById('orgErr');
+      if(el) el.textContent=(res.denied?'⛔ ':'⚠ ')+(res.error||'Speichern fehlgeschlagen');
+      orgs = GemaAuth.getOrgs();
+      renderOrgs();
+      return;
+    }
+    closeModal('orgModal');
+    renderOrgs();
+    renderOrgCats();
+    toast('✓ Unternehmen gespeichert');
+  });
 }
 
 function deleteOrg(oid){
