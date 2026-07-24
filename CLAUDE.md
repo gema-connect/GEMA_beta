@@ -2618,6 +2618,19 @@ Umgesetzt in: `if_werkzeug`, `if_fahrzeug`, `if_trocknung`, `sd_schadensbericht`
 2. Falls 0 Records: prüft ob die alte Blob-Row noch da ist und splittet sie auf — User-Wahl „Auto-Migration ohne Backup": alte Row wird nach Aufsplittung gelöscht
 3. Legt offene Outbox-Operationen über den Cloud-Stand (`_outboxApplyTo`) und schreibt das resultierende Array in `localStorage[storageKey]` als sync-Cache
 
+### Verlustfreies Speichern gilt für JEDEN Schreibweg (KRITISCH, 07/2026)
+
+**`saveRecord`/`saveRecords`/`deleteRecord` sind seit 07/2026 selbst outbox-gestützt** — nicht mehr nur `persistCollection`. Vorher rejecteten sie bei einem gescheiterten Cloud-Push einfach, und die Module fangen die Rejection typischerweise mit `.catch(function(){})` ab (`poolSave`-Muster in pm_erp, pm_planablage, iv_immobilien, pm_pruefliste, … — ~28 Dateien). Ergebnis war ein **reproduzierbarer Datenverlust**: offline erfasster Datensatz landete lokal im Pool, der Cloud-Push starb still, niemand sendete ihn nach — und beim nächsten Seitenstart überschrieb `bindCollection` den lokalen Cache mit dem Cloud-Stand (`_writeCache`), in dem der Datensatz fehlte. Der Eintrag war weg, ohne jede Meldung. `_outboxApplyTo` konnte nicht helfen, weil nie etwas eingereiht wurde.
+
+Jetzt: jeder fehlgeschlagene Push (offline, Timeout, 413, 5xx) geht über `_queueOnFail` in die Outbox, wird automatisch nachgesendet und überlagert bis dahin den Cloud-Stand beim Laden. Regeln:
+- **`opts.noQueue`** unterdrückt das Einreihen — `persistCollection` setzt es auf seinen inneren `saveRecords`/`deleteRecords`-Aufrufen, damit Upserts UND Deletes gemeinsam in seinem eigenen `_queueAndReject` gebucht werden (keine Doppelbuchung).
+- **`moduleKey==='auth'` wird NIE eingereiht** — Auth-Records laufen über die `gema-auth`-Function (serverseitige Rechteprüfung) und sind per RLS direkt gar nicht schreibbar; ein Outbox-Eintrag würde dort ewig hängenbleiben.
+- **Erfolgreicher Push räumt ältere Outbox-Einträge desselben Records ab** (`_outboxClear`) — sonst könnte ein später geflushter Altstand den frischen Cloud-Stand überschreiben.
+- Die Rejection trägt weiterhin `err.queued === true`; Module dürfen sie ignorieren, die Daten sind sicher.
+- **Bewusste Grenze**: Der Nachsende-Mechanismus ist Last-Write-Wins. Ein Gerät, das lange offline war, überschreibt beim Flush eine zwischenzeitlich von einem anderen Gerät gemachte Änderung desselben Records. Das ist die Design-Entscheidung der ganzen Sync-Schicht (kein Merge/CRDT) — aber immer noch besser als den Datensatz zu verlieren.
+
+**Offline-Banner** sagt jetzt, was wirklich passiert: «⚠ Offline — Ihre Änderungen werden lokal gespeichert (N Änderungen warten) und automatisch in die Cloud hochgeladen, sobald wieder Internet da ist.» (`_bannerText`/`_bannerRefresh`, Zähler folgt der Outbox). Der frühere Satz «Änderungen werden nicht gespeichert» war nach dem Fix schlicht falsch. Drift-Guard: **`scripts/sync_outbox_test.mjs`** (16 Checks — offline erfassen, Reload offline, Reload online mit noch leerer Cloud [der Moment, in dem der Datensatz früher verschwand], automatischer Upload, Banner-Wortlaut, Offline-Löschung wird nachgeholt, und die Gegenprobe, dass eine echte Cloud-Löschung sich lokal durchsetzt statt Zombies zu erzeugen).
+
 ### Save — per-Record-Diff (local-first + Outbox, verlustfrei)
 
 Jedes Modul ersetzt die alte `_xxWriteAllRaw(arr)` durch:
