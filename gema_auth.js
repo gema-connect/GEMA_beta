@@ -181,18 +181,27 @@
   // Offline-Verhalten (User-Wahl: 'Read-only weiter, Saves blockiert'):
   // wenn die Cloud unerreichbar ist, wird gar nicht gespeichert — weder
   // lokal noch remote. Aufrufer bekommt einen GemaDialog-Alert.
+  // Liefert IMMER ein Ergebnis-Objekt {ok, error, denied} — nie eine
+  // Rejection (viele Aufrufer ignorieren den Rueckgabewert; eine Rejection
+  // waere ein unhandled promise rejection). Aufrufer, die dem Benutzer eine
+  // Rueckmeldung geben (sys_admin), pruefen .ok — siehe saveUsers/saveOrgs/
+  // saveRoles, die dieses Promise durchreichen.
   function _persistCollection(storageKey, newArr){
     var def = _COLL[storageKey];
-    if(!def) return Promise.resolve(false);
+    if(!def) return Promise.resolve({ ok:false, error:'Unbekannte Collection' });
     if(!_S()){
       console.warn('[GemaAuth] gema_sync.js fehlt — Save blockiert');
-      _showOfflineAlert();
-      return Promise.resolve(false);
+      var e0 = { ok:false, error:'Speicher-Modul nicht geladen (gema_sync.js fehlt).' };
+      _showSaveAlert(e0);
+      return Promise.resolve(e0);
     }
     if(!_S().isReachable()){
       // Probe einmal aktiv — vielleicht ist die Verbindung wieder da
       return _S().probe().then(function(reachable){
-        if(!reachable){ _showOfflineAlert(); return false; }
+        if(!reachable){
+          var e1 = { ok:false, error:'Keine Verbindung zur Cloud.', offline:true };
+          _showSaveAlert(e1); return e1;
+        }
         return _doPersist(storageKey, newArr);
       });
     }
@@ -211,26 +220,44 @@
       .then(function(res){
         // Erst nach erfolgreichem Cloud-Save den lokalen Cache aktualisieren.
         _writeLocalCache(storageKey, newArr);
-        return res;
+        return { ok:true, res:res };
       })
       .catch(function(e){
         console.warn('[GemaAuth] Cloud-Save fehlgeschlagen ('+storageKey+'):', e && e.message);
-        _showOfflineAlert();
-        return false;
+        // In-Memory-Spiegel zuruecksetzen: der optimistische Stand oben darf
+        // nach einem gescheiterten Save nicht als gespeichert gelten, sonst
+        // zeigt die UI bis zum Reload eine Aenderung, die es nicht gibt.
+        try{ _memCache[storageKey] = localStorage.getItem(storageKey) || '[]'; }catch(_e){}
+        var out = {
+          ok:false,
+          // KRITISCH: den ECHTEN Grund durchreichen. Eine abgelehnte
+          // Berechtigung (403 aus der gema-auth-Function, z.B. «role_admin
+          // kann nur der GEMA-Admin vergeben») ist KEIN Verbindungsproblem —
+          // frueher stand hier pauschal «Bitte Verbindung pruefen», und die
+          // eigentliche Ursache war nirgends sichtbar.
+          error: (e && e.message) || 'Speichern fehlgeschlagen',
+          denied: !!(e && e.denied),
+          offline: !(e && e.denied)
+        };
+        _showSaveAlert(out);
+        return out;
       });
   }
-  var _offlineAlertShown = false;
-  function _showOfflineAlert(){
-    if(_offlineAlertShown) return;
-    _offlineAlertShown = true;
-    setTimeout(function(){ _offlineAlertShown = false; }, 6000);
+  var _saveAlertShown = false;
+  function _showSaveAlert(info){
+    if(_saveAlertShown) return;
+    _saveAlertShown = true;
+    setTimeout(function(){ _saveAlertShown = false; }, 6000);
+    var titel = (info && info.denied) ? 'Keine Berechtigung' : 'Nicht gespeichert';
+    var text = (info && info.denied)
+      ? ((info.error || 'Diese Aenderung ist nicht erlaubt.') + '\n\nDie Aenderung wurde NICHT gespeichert.')
+      : ('Die Aenderung konnte nicht in der Cloud gespeichert werden'
+         + (info && info.error ? ' (' + info.error + ')' : '')
+         + '.\n\nBitte Verbindung pruefen und erneut versuchen.');
     if(typeof window !== 'undefined' && window.GemaDialog && window.GemaDialog.alert){
-      window.GemaDialog.alert({
-        title:'Offline',
-        message:'Aenderungen koennen nicht gespeichert werden. Bitte Verbindung pruefen und erneut versuchen.'
-      });
+      window.GemaDialog.alert({ title: titel, message: text });
     } else if(typeof alert === 'function'){
-      try{ alert('Offline — Aenderungen koennen nicht gespeichert werden.'); }catch(e){}
+      try{ alert(titel + ' — ' + text); }catch(e){}
     }
   }
 
@@ -1646,18 +1673,21 @@
       return gewerke.length?gewerke:['sanitaer'];
     },
 
+    // Liefern das Persist-Promise ({ok,error,denied}) — Aufrufer, die dem
+    // Benutzer «gespeichert» melden, MUESSEN darauf warten und .ok pruefen.
+    // Frueher gaben sie synchron `true` zurueck; ein serverseitig
+    // abgelehnter Save (403) oder ein Netzfehler blieb dadurch unsichtbar,
+    // die UI meldete Erfolg und die Aenderung war nach dem Reload weg.
+    // Aufrufer, die den Rueckgabewert ignorieren, sind unveraendert.
     saveOrgs:function(o){
-      _persistCollection(STORAGE_ORGS, o);
-      return true;
+      return _persistCollection(STORAGE_ORGS, o);
     },
     saveOrgCats:function(c){try{localStorage.setItem(STORAGE_ORG_CATS,JSON.stringify(c));return true;}catch(e){return false;}},
     saveUsers:function(u){
-      _persistCollection(STORAGE_USERS, u);
-      return true;
+      return _persistCollection(STORAGE_USERS, u);
     },
     saveRoles:function(r){
-      _persistCollection(STORAGE_ROLES, r);
-      return true;
+      return _persistCollection(STORAGE_ROLES, r);
     },
 
     /**

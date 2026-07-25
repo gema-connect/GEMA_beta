@@ -523,14 +523,20 @@ table.obj-table thead tr{cursor:context-menu}
 
       <!-- STEP 2: Standort -->
       <div class="wz-page" id="objWz2" style="display:none">
-        <div class="fg"><label>Adresse <span class="adr-tag" id="objAdrTag" style="display:none">✓ Verifiziert</span></label>
-          <div class="adr-wrap">
-            <input id="objAdrSearch" class="adr-input" placeholder="Adresse eingeben — z.B. Bläsiring 153 Basel" autocomplete="off" oninput="adrSearch(this,'objAdrDrop','obj')" onkeydown="adrKey(event,'objAdrDrop','obj')"/>
-            <div class="adr-drop" id="objAdrDrop"></div>
-          </div>
-          <div id="objAdrDetail" style="display:none;margin-top:6px;gap:6px;flex-wrap:wrap"></div>
-          <input type="hidden" id="objStrasse"/><input type="hidden" id="objPlz"/><input type="hidden" id="objOrt"/><input type="hidden" id="objGemeinde"/><input type="hidden" id="objKanton"/>
+        <!-- Adresse: das Strassen-Feld IST das Such-Input (Muster if_wareneingang /
+             pm_erp, Helper gema_adresse.js). Strasse/PLZ/Ort sind SICHTBAR und
+             frei editierbar — findet swisstopo eine Adresse nicht (Neubau,
+             ungewohnte Schreibweise), kann sie trotzdem erfasst werden. Frueher
+             schrieb die Suche in versteckte Felder: ohne Treffer war gar keine
+             Adresse erfassbar. -->
+        <div class="fg"><label>Strasse / Nr.</label>
+          <input id="objStrasse" placeholder="Adresse eingeben — z.B. Bläsiring 153" autocomplete="off"/>
         </div>
+        <div class="frow">
+          <div class="fg"><label>PLZ</label><input id="objPlz" placeholder="4057"/></div>
+          <div class="fg"><label>Ort</label><input id="objOrt" placeholder="Basel"/></div>
+        </div>
+        <input type="hidden" id="objGemeinde"/><input type="hidden" id="objKanton"/>
         <div class="fg"><label>Notizen</label><textarea id="objNotizen" placeholder="Zusätzliche Informationen zum Standort…"></textarea></div>
       </div>
 
@@ -642,6 +648,7 @@ function fixLeadingZero(el){var v=el.value.trim();if(!v)return;if(v.charAt(0)===
 <script src="gema_produktkatalog_api.js"></script>
 <script src="gema_feedback.js"></script><script src="gema_notify.js"></script><script src="gema_notify_ui.js"></script><script src="gema_chat.js"></script>
 <script src="gema_autosave.js"></script>
+<script src="gema_adresse.js"></script>
 <script>
 (async()=>{
 if(typeof _GemaDB!=='undefined'){try{await _GemaDB.init('objekte',['gema_objekte_v1']);}catch(e){console.warn('GemaDB:',e);}}
@@ -1615,7 +1622,6 @@ function openObjektModal(editId){
   $('objEditId').value=editId||'';
   populateParentSelect(editId);
   populateTeamSelects(editId);
-  const detail=$('objAdrDetail');
   if(isEdit){
     const o=_mem.objekte.find(x=>x.id===editId);
     if(!o)return;
@@ -1628,14 +1634,6 @@ function openObjektModal(editId){
     $('objAktivePhase').value=o.aktivePhase||'';
     if($('objParentId'))$('objParentId').value=o.parentObjektId||'';
     $('objStatus').value=o.status||'aktiv';$('objNotizen').value=o.notizen||'';
-    $('objAdrSearch').value=o.strasse?((o.strasse||'')+', '+(o.plz||'')+' '+(o.ort||'')):'';
-    const tag=$('objAdrTag');if(tag)tag.style.display=o.strasse?'inline-flex':'none';
-    if(detail&&o.strasse){
-      detail.style.display='flex';
-      detail.innerHTML=`<span class="adr-chip">${esc(o.strasse)}</span><span class="adr-chip">${esc(o.plz)} ${esc(o.ort)}</span>`+
-        (o.gemeinde&&o.gemeinde!==o.ort?`<span class="adr-chip">${esc(o.gemeinde)}</span>`:'')+
-        (o.kanton?`<span class="adr-chip adr-chip-kt">${esc(o.kanton)}</span>`:'');
-    } else if(detail){detail.style.display='none';detail.innerHTML='';}
     _objBeteiligte=(o.beteiligte||[]).map(function(b){return{rolle:b.rolle,firma:b.firma,person:b.person||''};});
   } else {
     _objBeteiligte=[];
@@ -1644,15 +1642,39 @@ function openObjektModal(editId){
     // Übergeordnetes Objekt standardmässig «Kein» (User-Vorgabe 23.07.2026 —
     // ein neues Objekt ist per Default eigenständig, kein Sub-Objekt des aktiven).
     if($('objParentId'))$('objParentId').value='';
-    $('objAdrSearch').value='';
-    const tag=$('objAdrTag');if(tag)tag.style.display='none';
-    if(detail){detail.style.display='none';detail.innerHTML='';}
   }
   _objRenderBeteiligte();
   _objWzGo(1);
+  try{ _objAdrInit(); }catch(e){}   // idempotent — Sicherheitsnetz
   openModal('objModal');
 }
 window.openObjektModal=openObjektModal;
+
+// Adress-Autocomplete (swisstopo) am Strassen-Feld des Objekt-Dialogs.
+// Muster if_wareneingang/pm_erp: das Strassen-Feld IST das Such-Input, die
+// Auswahl schreibt nur Strasse+Nr zurueck (GemaAdresse setzt sonst den vollen
+// Anzeige-String ins Input) und PLZ/Ort/Gemeinde/Kanton in ihre eigenen Felder.
+// Bewusst OHNE Target-Bindung: GemaAdresse leert bei jedem Tastendruck seine
+// Targets — ein Korrigieren der Strasse wuerde sonst erfasste PLZ/Ort loeschen.
+function _objAdrInit(){
+  try{
+    var el=$('objStrasse');
+    if(!el||typeof GemaAdresse==='undefined'||!GemaAdresse.attach)return;
+    GemaAdresse.attach(el,{onSelect:function(r){
+      el.value=r.strasse||'';
+      if($('objPlz'))$('objPlz').value=r.plz||'';
+      if($('objOrt'))$('objOrt').value=r.ort||'';
+      if($('objGemeinde'))$('objGemeinde').value=r.gemeinde||'';
+      if($('objKanton'))$('objKanton').value=r.kanton||'';
+    }});
+  }catch(e){}
+}
+// Zustandsunabhaengig anbinden: je nachdem, wann dieser Block ausgefuehrt
+// wird, ist DOMContentLoaded schon durch. GemaAdresse.attach ist idempotent,
+// darum zusaetzlich beim Oeffnen des Dialogs (Sicherheitsnetz).
+window._objAdrInit=_objAdrInit;
+if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',_objAdrInit);
+else _objAdrInit();
 
 function saveObjekt(){
   const name=$('objName').value.trim();
