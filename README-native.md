@@ -102,6 +102,10 @@ Modul-Icon einfärben: `<span class="gn-tile-ic" style="--gn-tile-bg:var(--gn-c-
 
 ## Referenz-Screens
 
+- **`index.html` — der Home-Screen ist live** (Springboard: `.gn-header` · `.gn-search` + Command-Palette ·
+  `.gn-quick`/`.gn-chip` · `.gn-grid`/`.gn-tile` je Kategorie · `.gn-pill`). Die Kacheln liest der Screen
+  aus dem DOM der klassischen Übersicht — er folgt damit automatisch der Permission-Filterung und jeder
+  neuen Modul-Kachel. Details siehe CLAUDE.md › «GEMA Native».
 - `gema-native-screens.html` — sechs gebaute Beispiele, jedes ein eigenständiger `.gn`-Screen:
   **Workspace** (KPI-Cockpit), **Druckdispositiv** (Berechnung/Formular),
   **Werkzeugmanagement** & **Fahrzeugmanagement** (Listen/Tabellen mit Badges + Long-Press),

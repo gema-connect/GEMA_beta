@@ -402,6 +402,7 @@ body {
 .gema-feedback-btn{display:inline-flex;align-items:center;gap:5px;padding:6px 13px;border-radius:8px;border:none;background:#dc2626;color:#fff;font-size:12.5px;font-weight:700;cursor:pointer;transition:.15s;white-space:nowrap;font-family:inherit}
 .gema-feedback-btn:hover{background:#b91c1c}
 </style>
+<link rel="stylesheet" href="gema-native.css"/>
 <link rel="stylesheet" href="gema_responsive.css"/>
 </head>
 <body>
@@ -1987,6 +1988,251 @@ document.addEventListener('DOMContentLoaded',function(){
     _show();
     GemaPWA.onChange(_show);
   });
+})();
+</script>
+<script src="gema-native.js"></script>
+<script src="gema_native_mobil.js"></script>
+<script>
+/* ═══ GEMA Native — iPhone-Ansicht der Modulübersicht (Screen «Home») ═══
+   Springboard exakt nach der Home-Zeile der Klassen-Kurzreferenz
+   (README-native.md): .gn-header · .gn-search (öffnet die Command-Palette) ·
+   .gn-quick/.gn-chip (Favoriten + zuletzt verwendet) · .gn-label + .gn-grid/
+   .gn-tile je Kategorie · .gn-pill (Mitteilungen/Chat/Workspace).
+
+   KRITISCH — die Module werden AUS DEM DOM gelesen (a.mod-card[data-module]):
+   damit folgt der Screen automatisch der Permission-Filterung (data-perm-hidden)
+   und jeder neuen Kachel. Ein zweiter Modul-Katalog (Muster sys_workspace) würde
+   bei jedem neuen Modul driften. */
+(function(){
+  if(typeof GemaNativeMobil==='undefined') return;
+  var NE=GemaNativeMobil.esc, nat=null, ctxHref='', favSig='';
+
+  /* data-cat der Übersicht → Farbverlauf des Kits */
+  var GRAD={plan:'projekt',san:'sanitaer',hei:'heizung',lueft:'lueftung',elek:'elektro',hyg:'hygiene',
+            brand:'brand',infra:'infra',schaden:'schaden',immo:'immo',spengler:'spengler',ausb:'ausb',admin:'admin'};
+  function grad(cat){ return 'var(--gn-c-'+(GRAD[cat]||'sanitaer')+')'; }
+
+  var SVG_SUCHE='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-3.6-3.6"/></svg>';
+  var SVG_X='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M5 5l14 14M19 5 5 19"/></svg>';
+  var SVG_GLOCKE='<svg viewBox="0 0 24 24" fill="none" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8.5a6 6 0 1 0-12 0c0 6-2 7.5-2 7.5h16s-2-1.5-2-7.5"/><path d="M13.7 20a2 2 0 0 1-3.4 0"/></svg>';
+  var SVG_CHAT='<svg viewBox="0 0 24 24" fill="none" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a7.5 7.5 0 0 1-10.9 6.7L4 20l1.4-4.3A7.5 7.5 0 1 1 20 12Z"/></svg>';
+  var SVG_RASTER='<svg viewBox="0 0 24 24" fill="none" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="3.5" width="7" height="7" rx="2"/><rect x="13.5" y="3.5" width="7" height="7" rx="2"/><rect x="3.5" y="13.5" width="7" height="7" rx="2"/><rect x="13.5" y="13.5" width="7" height="7" rx="2"/></svg>';
+
+  function gruss(){
+    var h=new Date().getHours();
+    return h<5?'Gute Nacht':h<11?'Guten Morgen':h<14?'Guten Tag':h<18?'Guten Nachmittag':'Guten Abend';
+  }
+  function initialen(n){
+    var p=String(n||'').trim().split(/\s+/).filter(Boolean);
+    if(!p.length) return 'GE';
+    return (p[0].charAt(0)+(p.length>1?p[p.length-1].charAt(0):'')).toUpperCase();
+  }
+  function favs(){ try{ return (window._favHooks&&_favHooks.get())||[]; }catch(e){ return []; } }
+  function istFav(h){ try{ return !!(window._favHooks&&_favHooks.has(h)); }catch(e){ return false; } }
+
+  /* Kategorien + Module aus der bereits gefilterten Übersicht */
+  function lesen(){
+    var cats=[];
+    document.querySelectorAll('main .cat-section[data-cat]').forEach(function(sec){
+      var cat=sec.getAttribute('data-cat');
+      if(cat==='fav') return;                       // Favoriten haben ihre eigene Chip-Zeile
+      var mods=[];
+      sec.querySelectorAll('a.mod-card[data-module]').forEach(function(a){
+        if(a.getAttribute('data-perm-hidden')) return;
+        var href=(a.getAttribute('href')||'').trim(); if(!href) return;
+        var t=(a.querySelector('.mod-title')||{}).textContent||href;
+        var ic=(a.querySelector('.mod-icon-box')||{}).textContent||'📄';
+        var normen=[]; a.querySelectorAll('.mod-norm').forEach(function(n){ normen.push((n.textContent||'').trim()); });
+        mods.push({href:href,cat:cat,titel:t.trim(),ic:ic.trim(),norm:normen.join(' · '),
+                   such:(a.textContent||'').toLowerCase()});
+      });
+      if(mods.length) cats.push({cat:cat,titel:((sec.querySelector('.cat-title-text')||{}).textContent||cat).trim(),mods:mods});
+    });
+    return cats;
+  }
+
+  var CATS=[], IDX={};
+  /* Schriftgrad nach dem LÄNGSTEN WORT — ein Wort wie «Baustellencheckliste»
+     passt bei 11px nicht in eine Rasterspalte und würde sonst mitten im Wort
+     umbrechen. */
+  function tileKlasse(titel){
+    var max=0;
+    String(titel||'').split(/\s+/).forEach(function(w){ if(w.length>max) max=w.length; });
+    return max>=19?' is-xs':(max>=15?' is-s':'');
+  }
+  function kachel(m){
+    return '<button class="gn-tile'+tileKlasse(m.titel)+'" data-nat-href="'+NE(m.href)+'" data-gn-ctx="'+NE(m.titel)+'">'
+      +'<span class="gn-tile-ic" style="--gn-tile-bg:'+grad(m.cat)+'">'+NE(m.ic)
+      +(istFav(m.href)?'<i class="gn-tile-fav">★</i>':'')+'</span>'
+      +'<span>'+NE(m.titel)+'</span></button>';
+  }
+  function chip(m){
+    return '<button class="gn-chip" data-nat-href="'+NE(m.href)+'">'+NE(m.ic)+' '+NE(m.titel)+'</button>';
+  }
+  function treffer(q){
+    q=String(q||'').toLowerCase().trim();
+    var html='', n=0;
+    CATS.forEach(function(c){
+      var hits=c.mods.filter(function(m){ return !q||m.such.indexOf(q)>=0; });
+      if(!hits.length) return;
+      n+=hits.length;
+      html+='<div class="gn-cmd-group">'+NE(c.titel)+'</div>'+hits.map(function(m){
+        return '<div class="gn-cmd-item" data-nat-href="'+NE(m.href)+'">'
+          +'<span class="gn-cmd-ic">'+NE(m.ic)+'</span>'
+          +'<span><b>'+NE(m.titel)+'</b>'+(m.norm?'<small>'+NE(m.norm)+'</small>':'')+'</span></div>';
+      }).join('');
+    });
+    return n?html:'<div class="gn-cmd-group">Kein Modul gefunden</div>';
+  }
+
+  function render(root){
+    CATS=lesen(); IDX={};
+    var anzahl=0;
+    CATS.forEach(function(c){ c.mods.forEach(function(m){ IDX[m.href]=m; anzahl++; }); });
+
+    var u=null; try{ u=GemaAuth.getCurrentUser(); }catch(e){}
+    var name=(u&&(u.name||u.username))||'GEMA';
+    var org=''; try{ var o=GemaAuth.getCurrentOrg(); org=(o&&o.name)||''; }catch(e){}
+
+    favSig=favs().join('|');
+    var favM=[]; favs().forEach(function(h){ if(IDX[h]) favM.push(IDX[h]); });
+    var favSet={}; favM.forEach(function(m){ favSet[m.href]=1; });
+    var recM=[];
+    try{
+      (GemaRecent.list()||[]).forEach(function(r){
+        if(!r||!r.key||recM.length>=8) return;
+        var h=r.key+'.html';
+        if(h==='index.html'||favSet[h]||!IDX[h]) return;
+        recM.push(IDX[h]);
+      });
+    }catch(e){}
+
+    var unread=0; try{ unread=GemaNotify.getUnreadCount()||0; }catch(e){}
+
+    root.innerHTML=
+      '<div class="gn-screen" data-gn-scroll>'
+        +'<div class="gn-header">'
+          +'<div><div class="gn-hello">'+NE(gruss())+(org?' · '+NE(org):'')+'</div>'
+          +'<div class="gn-name">'+NE(name)+'</div></div>'
+          +'<div class="gn-avatar" data-nat-href="sys_profil.html" title="Profil">'+NE(initialen(name))+'</div>'
+        +'</div>'
+        +'<button class="gn-search" data-gn-cmd-open>'
+          +SVG_SUCHE.replace('<svg ','<svg style="width:18px;height:18px;flex:none;color:#9ca3af" ')
+          +'<span>Modul suchen…</span><kbd>'+anzahl+'</kbd></button>'
+        +(favM.length?('<div class="gn-label">Favoriten</div><div class="gn-quick">'+favM.map(chip).join('')+'</div>'):'')
+        +(recM.length?('<div class="gn-label">Zuletzt verwendet</div><div class="gn-quick">'+recM.map(chip).join('')+'</div>'):'')
+        +CATS.map(function(c){
+          return '<div class="gn-label">'+NE(c.titel)+'</div><div class="gn-grid">'+c.mods.map(kachel).join('')+'</div>';
+        }).join('')
+        +(anzahl?'':'<div class="gn-label">Keine Module freigeschaltet</div>')
+      +'</div>'
+      /* schwebende Leiste — Glocke und Chat sitzen sonst in der .g-nav, die
+         die Native-Ansicht ausblendet, und wären auf dem Phone unerreichbar */
+      +'<div class="gn-pill">'
+        +'<button class="gn-pill-btn" data-nat-notify title="Mitteilungen">'+SVG_GLOCKE
+          +(unread?'<i class="gn-pill-dot">'+(unread>99?'99+':unread)+'</i>':'')+'</button>'
+        +'<button class="gn-pill-btn" data-nat-chat title="Chat">'+SVG_CHAT+'</button>'
+        +'<button class="gn-pill-btn gn-pill-btn--primary" data-nat-href="sys_workspace.html" title="Workspace">'+SVG_RASTER+'</button>'
+      +'</div>'
+      /* Command-Palette (Volltextsuche über alle freigeschalteten Module) */
+      +'<div class="gn-backdrop gn-cmd-backdrop" data-gn-cmd-backdrop></div>'
+      +'<div class="gn-cmd" data-gn-cmd>'
+        +'<div class="gn-cmd-field">'+SVG_SUCHE
+          +'<input class="gn-cmd-input" type="search" placeholder="Modul, Norm oder Stichwort…" data-nat-q>'
+          +'<button class="gn-x" data-gn-cmd-close>'+SVG_X+'</button></div>'
+        +'<div class="gn-cmd-list" data-nat-res>'+treffer('')+'</div>'
+      +'</div>'
+      /* Long-Press auf einer Kachel → Favorit setzen/entfernen */
+      +'<div class="gn-backdrop gn-ctx-backdrop" data-gn-ctx-backdrop>'
+        +'<div class="gn-ctx-preview"><b data-gn-ctx-title>Modul</b><small>Schnellaktionen</small></div>'
+        +'<div class="gn-ctx-menu">'
+          +'<div class="gn-ctx-item" data-nat-ctx="open">Öffnen'
+            +'<svg viewBox="0 0 24 24" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M9 7h8v8"/></svg></div>'
+          +'<div class="gn-ctx-item gn-ctx-item--accent" data-nat-ctx="fav" data-nat-favlabel>Favorit'
+            +'<svg viewBox="0 0 24 24" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="m12 4 2.4 5 5.6.8-4 3.9 1 5.5-5-2.6-5 2.6 1-5.5-4-3.9 5.6-.8Z"/></svg></div>'
+        +'</div>'
+      +'</div>';
+
+    /* Suche live */
+    var q=root.querySelector('[data-nat-q]'), res=root.querySelector('[data-nat-res]');
+    if(q&&res) q.addEventListener('input',function(){ res.innerHTML=treffer(q.value); });
+
+    /* Kontextmenü: Titel merken + Beschriftung nach aktuellem Favoriten-Stand */
+    var ctxBg=root.querySelector('[data-gn-ctx-backdrop]');
+    if(ctxBg) ctxBg.addEventListener('gn:context',function(e){
+      var row=e.detail&&e.detail.row;
+      ctxHref=row?(row.getAttribute('data-nat-href')||''):'';
+      var lbl=root.querySelector('[data-nat-favlabel]');
+      if(lbl) lbl.childNodes[0].nodeValue=istFav(ctxHref)?'Favorit entfernen':'Als Favorit';
+    });
+
+    /* Delegierte Klicks NUR EINMAL binden — render() ersetzt nur root.innerHTML,
+       das Root-Element selbst überlebt; ein Listener pro Render würde sich
+       aufsummieren (jeder Favoriten-Klick liefe dann doppelt = wirkungslos). */
+    if(root.__natWired) return;
+    root.__natWired=true;
+    root.addEventListener('click',function(e){
+      var c=e.target.closest&&e.target.closest('[data-nat-ctx]');
+      if(c){
+        var akt=c.getAttribute('data-nat-ctx');
+        if(akt==='open'&&ctxHref) location.href=ctxHref;
+        else if(akt==='fav'&&ctxHref){
+          try{ window._favHooks&&_favHooks.toggle(ctxHref); }catch(err){}
+          if(nat) nat.refresh();
+        }
+        return;
+      }
+      if(e.target.closest&&e.target.closest('[data-nat-notify]')){
+        /* stopPropagation: die Glocke schliesst ihr Panel bei jedem Klick
+           ausserhalb — der eigene Auslöser-Klick würde es sonst sofort wieder zu. */
+        e.stopPropagation();
+        var b=document.querySelector('.g-nav .gn-btn'); if(b) b.click();
+        return;
+      }
+      if(e.target.closest&&e.target.closest('[data-nat-chat]')){
+        e.stopPropagation();
+        try{ if(typeof GemaChat!=='undefined') GemaChat.open(); }catch(err){}
+        return;
+      }
+      var t=e.target.closest&&e.target.closest('[data-nat-href]');
+      if(t){
+        if(t.__gnCtxFired){ t.__gnCtxFired=false; return; }               // Long-Press hatte Vorrang
+        var h=t.getAttribute('data-nat-href'); if(h) location.href=h;
+      }
+    });
+  }
+
+  /* Ungelesen-Zähler NUR am Pill-Knopf nachführen — ein voller Re-Render würde
+     eine offene Command-Palette samt Sucheingabe wegwischen. */
+  function badgeSync(){
+    if(!nat||!nat.root) return;
+    var btn=nat.root.querySelector('[data-nat-notify]'); if(!btn) return;
+    var n=0; try{ n=GemaNotify.getUnreadCount()||0; }catch(e){}
+    var d=btn.querySelector('.gn-pill-dot');
+    if(n){
+      if(!d){ d=document.createElement('i'); d.className='gn-pill-dot'; btn.appendChild(d); }
+      d.textContent=n>99?'99+':String(n);
+    } else if(d && d.parentNode) d.parentNode.removeChild(d);
+  }
+
+  nat=GemaNativeMobil.mount({render:render});
+  try{ if(typeof GemaNotify!=='undefined') GemaNotify.onChange(badgeSync); }catch(e){}
+  window._natHome={refresh:function(){ if(nat) nat.refresh(); },modules:lesen,badge:badgeSync};
+
+  if(GemaNativeMobil.enabled()){
+    /* Die Coachmarks-Tour zeigt auf Filter-/Suchleiste — beides liegt in der
+       Native-Ansicht unter dem Screen. Tour stilllegen statt ins Leere zeigen. */
+    try{ if(typeof GemaCoachmarks!=='undefined') GemaCoachmarks.markDone('index'); }catch(e){}
+    /* Favoriten kommen pro User aus der Cloud (_favCloudPull, 0 + 1500 ms).
+       KRITISCH: nur neu zeichnen, wenn sich wirklich etwas geändert hat UND
+       kein Overlay offen ist — ein blinder Refresh würde eine gerade offene
+       Command-Palette samt getippter Suche wegwischen. */
+    setTimeout(function(){
+      if(!nat||!nat.root||favs().join('|')===favSig) return;
+      if(nat.root.querySelector('.gn-cmd.is-open,.gn-ctx-backdrop.is-open')) return;
+      nat.refresh();
+    },2200);
+  }
 })();
 </script>
 </body>
