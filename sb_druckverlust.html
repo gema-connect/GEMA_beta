@@ -422,6 +422,7 @@ function fixLeadingZero(el){
   <!-- PARAMETER -->
   <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;padding:10px 14px;background:var(--sur);border:1.5px solid var(--brd);border-radius:10px;align-items:center">
     <div style="display:flex;flex-direction:column;gap:2px;flex:2;min-width:160px"><span style="font-size:10px;font-weight:700;color:var(--mut);text-transform:uppercase;letter-spacing:.4px">Apparat / Strang</span><input id="inp_apparat" type="text" placeholder="z.B. Lavabo EG, Strang A" style="padding:7px 10px;border:1.5px solid var(--brd2);border-radius:8px;font-size:13px;width:100%"/></div>
+    <div style="display:flex;flex-direction:column;gap:2px;flex:1.6;min-width:190px"><span style="font-size:10px;font-weight:700;color:var(--mut);text-transform:uppercase;letter-spacing:.4px">Rohrsystem</span><select id="inp_globalsys" title="Gilt für alle Teilstrecken — bei «gemischter Installation» pro Teilstrecke wählbar" style="padding:7px 10px;border:1.5px solid var(--brd2);border-radius:8px;font-size:13px"></select><label style="display:flex;align-items:center;gap:5px;font-size:10.5px;color:var(--mut);font-weight:600;cursor:pointer;white-space:nowrap;margin-top:1px"><input type="checkbox" id="inp_gemischt" style="accent-color:#1d4ed8;width:13px;height:13px;cursor:pointer"/> gemischte Installation</label></div>
     <div style="display:flex;flex-direction:column;gap:2px;min-width:110px"><span style="font-size:10px;font-weight:700;color:var(--mut);text-transform:uppercase;letter-spacing:.4px">Medium</span><select id="inp_medium" title="Weitere Medien folgen — Stoffwerte aktuell für Wasser" style="padding:7px 10px;border:1.5px solid var(--brd2);border-radius:8px;font-size:13px"><option value="wasser">Wasser</option><option value="" disabled>weitere folgen …</option></select></div>
     <div style="display:flex;flex-direction:column;gap:2px"><span style="font-size:10px;font-weight:700;color:var(--mut);text-transform:uppercase;letter-spacing:.4px">Temperatur</span><div class="g-inp-group"><input id="inp_temp" class="g-inp" type="text" inputmode="decimal" value="10" onblur="fixLeadingZero(this)" style="padding:7px 10px;border:1.5px solid var(--brd2);border-radius:8px 0 0 8px;border-right:0;width:55px;font-size:13px"/><span class="g-inp-unit" style="padding:7px 8px">°C</span></div></div>
     <div style="display:flex;flex-direction:column;gap:2px;min-width:120px"><span style="font-size:10px;font-weight:700;color:var(--mut);text-transform:uppercase;letter-spacing:.4px">Durchfluss</span><select id="inp_flowmode" style="padding:7px 10px;border:1.5px solid var(--brd2);border-radius:8px;font-size:13px"><option value="lu">LU (nach W3)</option><option value="direct">Q direkt [l/s]</option></select></div>
@@ -727,6 +728,10 @@ function luToQ(n, grLU=5){
 // ═══════════════════════════════════════════════════════════
 // CALCULATION
 // ═══════════════════════════════════════════════════════════
+// Zahlen-Guard: Eingaben liegen als Text vor (type="text") — ohne Parse
+// wuerde z.B. qBase + "0.5" zu einem String-Concat statt einer Addition.
+function numv(x){ x = parseFloat(String(x==null?'':x).replace(',','.')); return isFinite(x) ? x : 0; }
+
 function calcRow(row, rho, nu){
   const sys = SYSTEMS.find(s=>s.id===row.sysId);
   if(!sys) return null;
@@ -734,8 +739,8 @@ function calcRow(row, rho, nu){
   if(!dim) return null;
   const di_m = dim.di/1000;
   const k = sys.k;
-  const qBase = row.flowMode==='direct' ? (row.q_direct||0) : luToQ(row.lu||0, row.grLU||5);
-  const Q = qBase + (row.qZusatz||0); // Zusatz-l/s werden 100% addiert (ohne W3-Reduktion)
+  const qBase = row.flowMode==='direct' ? numv(row.q_direct) : luToQ(numv(row.lu), numv(row.grLU)||5);
+  const Q = qBase + numv(row.qZusatz); // Zusatz-l/s werden 100% addiert (ohne W3-Reduktion)
   const Q_m3s = Q/1000;
   const A = Math.PI/4*di_m*di_m;
   const v = A>0 ? Q_m3s/A : 0;
@@ -749,9 +754,9 @@ function calcRow(row, rho, nu){
     }
   }
   const regime = Re<2300?'laminar':Re<4000?'Übergang':'turbulent';
-  const L = row.length_m||0;
-  const zeta_sum = row.zeta_sum||0;
-  const eq_rl = row.eq_rl||0;
+  const L = numv(row.length_m);
+  const zeta_sum = numv(row.zeta_sum);
+  const eq_rl = numv(row.eq_rl);
   const dp_pipe = lam*(L/di_m)*(rho/2)*v*v/1000;
   const dp_local = zeta_sum*(rho/2)*v*v/1000;
   const dp_eq = lam*(eq_rl/di_m)*(rho/2)*v*v/1000;
@@ -822,13 +827,45 @@ function loadAllCalcs(){
   loadActiveCalc();
 }
 function newCalc(name,mediumId){
-  return{id:'dv_'+Date.now()+'_'+Math.random().toString(36).substring(2,5),name:name||'Neue Berechnung',medium:mediumId||'kw',state:{project:'',owner:'',apparat:'',tempC:mediumId==='ww'?60:mediumId==='zirk'?55:10,rows:[newRow('1'),newRow('2'),newRow('3')]}};
+  return{id:'dv_'+Date.now()+'_'+Math.random().toString(36).substring(2,5),name:name||'Neue Berechnung',medium:mediumId||'kw',state:{project:'',owner:'',apparat:'',tempC:mediumId==='ww'?60:mediumId==='zirk'?55:10,gemischt:false,globalSysId:'optipress',rows:[newRow('1'),newRow('2'),newRow('3')]}};
+}
+// Rohrsystem-Vorgabe (Feedback 25.07.2026): das System wird EINMAL oben
+// gewählt und gilt für alle Teilstrecken; der Haken «gemischte
+// Installation» schaltet die Wahl pro Teilstrecke frei. Alte Stände ohne
+// die Felder werden hergeleitet (unterschiedliche Systeme → gemischt).
+function ensureSysFields(st){
+  if(!st) return;
+  if(typeof st.gemischt==='undefined'){
+    var uniq=[];(st.rows||[]).forEach(function(r){if(uniq.indexOf(r.sysId)<0)uniq.push(r.sysId);});
+    st.gemischt=uniq.length>1;
+    st.globalSysId=uniq[0]||'optipress';
+  }
+  if(!st.globalSysId) st.globalSysId=(st.rows&&st.rows[0]&&st.rows[0].sysId)||'optipress';
+}
+function applySysToAllRows(sysId){
+  var s=SYSTEMS.find(function(x){return x.id===sysId;});
+  if(!s)return;
+  state.rows.forEach(function(r){
+    if(r.sysId===sysId)return;
+    r.sysId=sysId;
+    // Dimension behalten, wenn es sie im neuen System gibt — sonst erste
+    if(!s.dims.find(function(d){return d.dn===r.dimDn;})) r.dimDn=s.dims[0].dn;
+    // Formstücke sind systemspezifisch → zurücksetzen
+    r.fittings={};
+    recalcRowZeta(r);
+  });
 }
 function loadActiveCalc(){
   var c=allCalcs.find(function(x){return x.id===activeCalcId;});
   if(c){state=c.state;} else if(allCalcs.length){activeCalcId=allCalcs[0].id;state=allCalcs[0].state;}
+  ensureSysFields(state);
 }
 function saveActiveCalc(){
+  // Guard (KRITISCH): das initiale render() am Skript-Ende läuft VOR
+  // loadAllCalcs() (DOMContentLoaded) — ohne Guard überschrieb dieser
+  // erste Save den gespeicherten Stand bei JEDEM Seitenaufruf mit
+  // {calcs:[]} (Teilstrecken überlebten keinen Reload).
+  if(!allCalcs.length) return;
   var c=allCalcs.find(function(x){return x.id===activeCalcId;});
   if(c)c.state=state;
   saveAllCalcs();
@@ -892,6 +929,7 @@ function renderCalcTabs(){
 
 let state={
   project:'', owner:'', apparat:'', tempC:10,
+  gemischt:false, globalSysId:'optipress',
   rows:[newRow('1'), newRow('2'), newRow('3')],
 };
 // Aufgeklappt-Zustand der Formstück-Auswahl pro Teilstrecke (nur UI, nicht persistiert)
@@ -930,6 +968,28 @@ function render(){
   if($('inp_apparat'))$('inp_apparat').value=state.apparat||'';
   if($('inp_medium'))$('inp_medium').value=state.medium||'wasser';
   if($('inp_temp'))$('inp_temp').value=state.tempC;
+
+  // Globales Rohrsystem + «gemischte Installation» synchronisieren
+  ensureSysFields(state);
+  const gsSel=$('inp_globalsys');
+  if(gsSel){
+    gsSel.value=state.globalSysId;
+    gsSel.disabled=!!state.gemischt;
+    gsSel.title=state.gemischt?'Gemischte Installation aktiv — Rohrsystem pro Teilstrecke wählen':'Gilt für alle Teilstrecken';
+  }
+  if($('inp_gemischt'))$('inp_gemischt').checked=!!state.gemischt;
+
+  // Fokus-Erhalt (Feedback 25.07.2026): render() baut alle Teilstrecken-
+  // Karten neu — ohne Merken/Wiederherstellen verlor das aktive Eingabe-
+  // feld nach JEDER Ziffer den Fokus («10» brauchte zwei Anläufe). Der
+  // rohe Eingabetext wird mitgerettet, damit z.B. «1.» beim Tippen von
+  // «1.5» nicht zu «1» normalisiert wird.
+  const _ae=document.activeElement;
+  let _foc=null;
+  if(_ae&&_ae.dataset&&_ae.dataset.k&&_ae.closest&&_ae.closest('.ts-card')){
+    const _card=_ae.closest('.ts-card');
+    _foc={rowId:_card.dataset.row,k:_ae.dataset.k,val:_ae.value,ss:_ae.selectionStart,se:_ae.selectionEnd,isSel:_ae.tagName==='SELECT'};
+  }
 
   let cum=0, checks=[];
   const container=$('tsContainer');
@@ -1022,14 +1082,19 @@ function render(){
         <div class="ts-fg hd-res hd-first"><label>Q</label><div class="hd-val">${fmt(calc2.Q,3)}<small> l/s</small></div></div>
         <div class="ts-fg hd-res"><label>v</label><div class="hd-val ${vClass}">${fmt(calc2.v,2)}<small> m/s</small></div></div>
         <div class="ts-fg hd-res"><label>Δp TS</label><div class="hd-val blue">${dpFmt(calc2.dp_ts)}<small> ${dpU()}</small></div></div>`;
-    div.innerHTML=`
-      <div class="ts-head">
-        <div class="ts-fg"><label>TS-Nr.</label><input class="ts-num" type="text" value="${row.label}" data-k="label" title="Nummer z.B. 1, 1.1, 2a"/></div>
+    // Rohrsystem-Zelle nur bei «gemischter Installation» — sonst gilt die
+    // einmalige Wahl oben (Feedback 25.07.2026, keine Mehrfach-Eingabe).
+    const sysCell=state.gemischt?`
         <div class="ts-fg" style="flex:2 1 175px"><label>Rohrsystem</label>
           <select class="ts-select" data-k="sysId" style="width:100%">
             ${SYSTEMS.map(s=>`<option value="${s.id}"${s.id===row.sysId?' selected':''}>${s.status==='verifiziert'?'✓ ':'⚠ '}${s.name}</option>`).join('')}
           </select>
-        </div>
+        </div>`:'';
+    div.dataset.row=row.id;
+    div.innerHTML=`
+      <div class="ts-head">
+        <div class="ts-fg"><label>TS-Nr.</label><input class="ts-num" type="text" value="${row.label}" data-k="label" title="Nummer z.B. 1, 1.1, 2a"/></div>
+        ${sysCell}
         <div class="ts-fg" style="flex:1.3 1 130px"><label>Dimension</label><select class="ts-select" data-k="dimDn" style="width:100%">${dimOpts}</select></div>
         <div class="ts-fg"><label>Leitungstyp</label>${ltBtns}</div>
         <div class="ts-fg"><label>Länge</label><div class="g-inp-group"><input class="ts-inp g-inp" style="width:70px" type="text" inputmode="decimal" value="${row.length_m}" data-k="length_m" onblur="fixLeadingZero(this)"/><span class="g-inp-unit">m</span></div></div>
@@ -1064,37 +1129,27 @@ function render(){
       </div>
     `;
 
-    // bindings
+    // bindings — Zahlenfelder werden beim Übernehmen geparst (Eingaben
+    // sind type="text"; ungeparst ergab qBase + "0.5" ein String-Concat)
+    const NUM_KEYS={length_m:1,lu:1,q_direct:1,qZusatz:1,zeta_sum:1,eq_rl:1,grLU:1};
+    const applyRowInput=e=>{
+      const k=e.target.dataset.k;
+      let v=e.target.value;
+      if(NUM_KEYS[k]) v=numv(v);
+      row[k]=v;
+      // If system changes, reset dim to first valid
+      if(k==='sysId'){
+        const s=SYSTEMS.find(x=>x.id===v);
+        if(s&&!s.dims.find(d=>d.dn===row.dimDn)) row.dimDn=s.dims[0].dn;
+        row.fittings={};
+        recalcRowZeta(row);
+      }
+      if(k==='dimDn')recalcRowZeta(row);
+      render();
+    };
     div.querySelectorAll('[data-k]').forEach(el=>{
-      el.addEventListener('input',e=>{
-        const k=e.target.dataset.k;
-        let v=e.target.value;
-        if(e.target.type==='number') v=parseFloat(v)||0;
-        row[k]=v;
-        // If system changes, reset dim to first valid
-        if(k==='sysId'){
-          const s=SYSTEMS.find(x=>x.id===v);
-          if(s) row.dimDn=s.dims[0].dn;
-          row.fittings={};
-          recalcRowZeta(row);
-        }
-        if(k==='dimDn')recalcRowZeta(row);
-        render();
-      });
-      el.addEventListener('change',e=>{
-        const k=e.target.dataset.k;
-        let v=e.target.value;
-        if(e.target.type==='number') v=parseFloat(v)||0;
-        row[k]=v;
-        if(k==='sysId'){
-          const s=SYSTEMS.find(x=>x.id===v);
-          if(s) row.dimDn=s.dims[0].dn;
-          row.fittings={};
-          recalcRowZeta(row);
-        }
-        if(k==='dimDn')recalcRowZeta(row);
-        render();
-      });
+      el.addEventListener('input',applyRowInput);
+      el.addEventListener('change',applyRowInput);
     });
 
     div.querySelector('[data-del]').addEventListener('click',()=>{
@@ -1139,6 +1194,16 @@ function render(){
     if(calc2.v>vMax) checks.push({type:'warn',text:`TS ${row.label}: v=${fmt(calc2.v,2)} m/s > ${vMax} m/s (${ltName})`});
     if(calc2.v>0&&calc2.Re>0&&calc2.Re<2300) checks.push({type:'info',text:`TS ${row.label}: laminar (Re=${fmt(calc2.Re,0)})`});
   });
+
+  // Fokus + Eingabestand des aktiven Feldes wiederherstellen (siehe oben)
+  if(_foc){
+    const el=container.querySelector('.ts-card[data-row="'+_foc.rowId+'"] [data-k="'+_foc.k+'"]');
+    if(el){
+      if(!_foc.isSel&&typeof _foc.val==='string') el.value=_foc.val;
+      try{el.focus({preventScroll:true});}catch(e){el.focus();}
+      if(!_foc.isSel&&el.setSelectionRange&&_foc.ss!=null){try{el.setSelectionRange(_foc.ss,_foc.se);}catch(e){}}
+    }
+  }
 
   // totals
   $('s_ts').textContent=state.rows.length;
@@ -1258,8 +1323,18 @@ function addRow(){
     row.leitungstyp=last.leitungstyp;
     row.grLU=last.grLU;
   }
+  _applyGlobalSys(row);
   state.rows.push(row);
   render();
+}
+// Ohne «gemischte Installation» folgt jede neue Teilstrecke dem oben
+// gewählten Rohrsystem (Dimension bleibt, wenn es sie dort gibt).
+function _applyGlobalSys(row){
+  if(state.gemischt||!state.globalSysId)return;
+  const s=SYSTEMS.find(x=>x.id===state.globalSysId);
+  if(!s)return;
+  row.sysId=state.globalSysId;
+  if(!s.dims.find(d=>d.dn===row.dimDn)) row.dimDn=s.dims[0].dn;
 }
 function addSubRow(){
   const last=state.rows[state.rows.length-1];
@@ -1270,6 +1345,7 @@ function addSubRow(){
   row.sysId=last?.sysId||'optipress';
   row.dimDn=last?.dimDn||'22x1.2';
   row.flowMode=last?.flowMode||'lu';
+  _applyGlobalSys(row);
   state.rows.push(row);
   render();
 }
@@ -1287,6 +1363,33 @@ $('inp_temp').addEventListener('input',e=>{state.tempC=parseFloat(e.target.value
 $('inp_flowmode').addEventListener('change',e=>{
   state.rows.forEach(r=>r.flowMode=e.target.value);
   render();
+});
+
+// Globales Rohrsystem + «gemischte Installation» (Feedback 25.07.2026)
+(function(){
+  var gs=$('inp_globalsys');
+  if(gs) gs.innerHTML=SYSTEMS.map(function(s){return '<option value="'+s.id+'">'+(s.status==='verifiziert'?'✓ ':'⚠ ')+s.name+'</option>';}).join('');
+})();
+$('inp_globalsys')?.addEventListener('change',e=>{
+  state.globalSysId=e.target.value;
+  if(!state.gemischt) applySysToAllRows(state.globalSysId);
+  saveActiveCalc();
+  render();
+});
+$('inp_gemischt')?.addEventListener('change',e=>{
+  if(e.target.checked){ state.gemischt=true; saveActiveCalc(); render(); return; }
+  // Haken entfernt → alle Teilstrecken aufs globale System stellen
+  const uniq=[...new Set(state.rows.map(r=>r.sysId))];
+  const target=state.globalSysId||uniq[0]||'optipress';
+  const apply=()=>{ state.gemischt=false; state.globalSysId=target; applySysToAllRows(target); saveActiveCalc(); render(); };
+  if(uniq.length>1&&typeof GemaDialog!=='undefined'){
+    const s=SYSTEMS.find(x=>x.id===target);
+    GemaDialog.confirm({
+      title:'Einheitliches Rohrsystem',
+      message:'Die Teilstrecken verwenden unterschiedliche Rohrsysteme. Alle Teilstrecken auf «'+(s?s.name:target)+'» umstellen? Formstücke der umgestellten Teilstrecken werden zurückgesetzt.',
+      confirmLabel:'Umstellen'
+    }).then(ok=>{ if(ok) apply(); else { e.target.checked=true; } });
+  } else apply();
 });
 
 // ═══════════════════════════════════════════════════════════

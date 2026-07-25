@@ -33,7 +33,7 @@
     ww:   { id: 'ww',   label: 'Warmwasser (WW)',                     alias: 'warmwasser',   color: '#dc2626' },
     nd:   { id: 'nd',   label: 'Netzdruck (ND)',                      alias: 'netzdruck',    color: '#2563eb' },
     bw:   { id: 'bw',   label: 'Enthärtetes Wasser (BW)',             alias: 'enthaertet',   color: '#7c3aed' },
-    ow:   { id: 'ow',   label: 'Enthärtetes Wasser für Osmose (OW)',  alias: 'osmose',       color: '#0d9488' },
+    ow:   { id: 'ow',   label: 'Osmose (OW)',                         alias: 'osmose',       color: '#0d9488' },
     gw:   { id: 'gw',   label: 'Regenwasser (RW)',                    alias: 'regenwasser',  color: '#0891b2' },
     grau: { id: 'grau', label: 'Grauwasser (GW)',                     alias: 'grauwasser',   color: '#64748b' },
     frei: { id: 'frei', label: 'Freie Eingabe',                       alias: 'frei',         color: '#374151' }
@@ -52,6 +52,17 @@
   function _resolveMedium(medium) {
     if (!medium) return null;
     return ALIAS_MAP[medium.toLowerCase()] || null;
+  }
+
+  // ── Volumenstrom-Einheit der Spezial-/Dauer-Zeilen ──
+  // Seit 07/2026 koennen Zeilen in l/s, l/min oder l/h erfasst sein
+  // (row.flowUnit) — gespeichert wird der EINGEGEBENE Wert, gerechnet
+  // wird immer in l/s. Identische Faktoren wie sb_lu_tabelle.html.
+  var FLOW_UNIT_FACTOR = { ls: 1, lmin: 1/60, lh: 1/3600 };
+  function _rowFlowLs(r) {
+    var flow = Math.max(0, Number(r && r.flow) || 0);
+    var f = FLOW_UNIT_FACTOR[(r && r.flowUnit) || 'ls'];
+    return flow * (f || 1);
   }
 
   // ── Storage Key (phase-aware) ──
@@ -166,7 +177,7 @@
     // Spezial-Verbraucher
     (state.special || []).forEach(function(r) {
       var qty = Math.max(0, Number(r.qty) || 0);
-      var flow = Math.max(0, Number(r.flow) || 0);
+      var flow = _rowFlowLs(r);
       if (qty <= 0 && flow <= 0) return;
       result.push({
         name: r.freiName || r.label || 'Spezial',
@@ -181,7 +192,7 @@
     // Dauerverbraucher
     (state.dauer || []).forEach(function(r) {
       var qty = Math.max(0, Number(r.qty) || 0);
-      var flow = Math.max(0, Number(r.flow) || 0);
+      var flow = _rowFlowLs(r);
       if (qty <= 0 && flow <= 0) return;
       result.push({
         name: r.freiName || r.label || 'Dauerverbraucher',
@@ -240,8 +251,7 @@
     (state.special || []).forEach(function(r) {
       if ((r.medium || 'kw') !== med) return;
       var qty = Math.max(0, Number(r.qty) || 0);
-      var flow = Math.max(0, Number(r.flow) || 0);
-      specialFlow += flow * qty;
+      specialFlow += _rowFlowLs(r) * qty;
     });
 
     // 2. Dauer-Flow
@@ -249,8 +259,7 @@
     (state.dauer || []).forEach(function(r) {
       if ((r.medium || 'kw') !== med) return;
       var qty = Math.max(0, Number(r.qty) || 0);
-      var flow = Math.max(0, Number(r.flow) || 0);
-      dauerFlow += flow * qty;
+      dauerFlow += _rowFlowLs(r) * qty;
     });
 
     // 3. LU-basierter Flow (nur für kw, ww, nd)
