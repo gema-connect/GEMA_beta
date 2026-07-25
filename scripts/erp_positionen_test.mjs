@@ -88,13 +88,136 @@ ok(await page.evaluate(() => {
 ok(await page.evaluate(() => { cur.positionen = [{ id: 'a', art: 'frei', bez: 'A', menge: 1, einheit: 'Stk', ep: 1 }]; erpPosSelReset(); erpPosAdd('frei'); return cur.positionen.length === 2; }), 'ohne Markierung → ans Ende');
 
 console.log('■ Drag & Drop verschiebt die Reihenfolge');
+// Ablage-Helfer: obere/untere Hälfte der Zielzeile entscheidet vor/dahinter.
+await page.evaluate(() => {
+  window.__dnd = (vonIdx, zuIdx, unten) => {
+    cur.positionen = [{ id: 'x1', art: 'frei', bez: 'X1', menge: 1, einheit: 'Stk', ep: 1 },
+                      { id: 'x2', art: 'frei', bez: 'X2', menge: 1, einheit: 'Stk', ep: 1 },
+                      { id: 'x3', art: 'frei', bez: 'X3', menge: 1, einheit: 'Stk', ep: 1 }];
+    erpRenderPos();
+    const tr = document.querySelectorAll('#posBody tr')[zuIdx];
+    const r = tr.getBoundingClientRect();
+    const y = r.top + (unten ? r.height * 0.8 : r.height * 0.2);
+    erpPosDragStart({ target: { closest: () => null }, dataTransfer: { setData() {} } }, vonIdx);
+    erpPosDrop({ preventDefault() {}, clientY: y, target: { closest: () => tr } }, zuIdx);
+    return cur.positionen.map(p => p.id).join(',');
+  };
+});
+ok(await page.evaluate(() => __dnd(2, 0, false) === 'x3,x1,x2'), 'obere Hälfte von x1 → x3 davor (x3,x1,x2)');
+ok(await page.evaluate(() => __dnd(2, 0, true) === 'x1,x3,x2'), 'untere Hälfte von x1 → x3 dahinter (x1,x3,x2)');
+// DER Fehlerfall: bis zur LETZTEN Position ziehen — vorher kam man nur auf den vorletzten Platz
+ok(await page.evaluate(() => __dnd(0, 2, true) === 'x2,x3,x1'), 'x1 auf die untere Hälfte der letzten Zeile → ans Listenende (x2,x3,x1)');
+ok(await page.evaluate(() => __dnd(0, 2, false) === 'x2,x1,x3'), 'obere Hälfte der letzten Zeile → davor (x2,x1,x3)');
 ok(await page.evaluate(() => {
-  cur.positionen = [{ id: 'x1', art: 'frei', bez: 'X1', menge: 1, einheit: 'Stk', ep: 1 }, { id: 'x2', art: 'frei', bez: 'X2', menge: 1, einheit: 'Stk', ep: 1 }, { id: 'x3', art: 'frei', bez: 'X3', menge: 1, einheit: 'Stk', ep: 1 }];
+  // Ablegen auf sich selbst ändert nichts
+  return __dnd(1, 1, true) === 'x1,x2,x3';
+}), 'Ablegen auf der eigenen Zeile lässt die Reihenfolge unverändert');
+ok(await page.evaluate(() => {
+  cur.positionen = [{ id: 'y1', art: 'frei', bez: 'Y1', menge: 1, einheit: 'Stk', ep: 1 }, { id: 'y2', art: 'frei', bez: 'Y2', menge: 1, einheit: 'Stk', ep: 1 }];
   erpRenderPos();
-  erpPosDragStart({ target: { closest: () => null }, dataTransfer: { setData() {} } }, 2); // x3 aufnehmen
-  erpPosDrop({ preventDefault() {}, target: { closest: () => null } }, 0);                 // vor x1 ablegen
-  return cur.positionen.map(p => p.id).join(',') === 'x3,x1,x2';
-}), 'x3 vor x1 gezogen → x3,x1,x2');
+  const tr = document.querySelectorAll('#posBody tr')[1];
+  return !!(tr.getAttribute('ondragover') && tr.getAttribute('ondrop'));
+}), 'die GANZE Zeile ist Ablagefläche (nicht nur der 26-px-Griff)');
+
+console.log('■ + Text: freie Textzeile über die ganze Breite');
+ok(await page.evaluate(() => {
+  cur.positionen = []; erpPosSelReset(); erpPosAdd('text'); erpRenderPos();
+  const p = cur.positionen[0];
+  const tr = document.querySelector('#posBody tr.postext');
+  const td = tr && tr.querySelector('td[colspan="6"]');
+  return p.art === 'text' && p.menge === undefined && p.ep === undefined && !!td;
+}), 'Textzeile ohne Menge/Preis, Beschrieb über die volle Breite');
+ok(await page.evaluate(() => {
+  const btns = Array.from(document.querySelectorAll('.pos-add .btn, #edBody .btn')).map(b => b.textContent.trim());
+  const iT = btns.indexOf('+ Titelzeile'), iX = btns.indexOf('+ Text');
+  return iT >= 0 && iX === iT + 1;
+}), '«+ Text» steht direkt neben «+ Titelzeile»');
+ok(await page.evaluate(() => {
+  cur.positionen = [{ id: 'a', art: 'frei', bez: 'A', menge: 1, einheit: 'Stk', ep: 100 },
+                    { id: 't', art: 'text', bez: 'Hinweis' }];
+  erpRenderPos();
+  return document.getElementById('posHint').textContent.indexOf('1 Positionen') === 0;
+}), 'Textzeile zählt nicht als Position');
+
+console.log('■ Menge 0 → «per», kein Betrag');
+ok(await page.evaluate(() => {
+  cur.positionen = [{ id: 'q', art: 'frei', bez: 'Zuschlag Sonderfarbe', menge: 0, einheit: 'Stk', ep: 12.5 }];
+  erpRenderPos();
+  const tr = document.querySelector('#posBody tr[data-posid="q"]');
+  const per = tr.querySelector('.per-tag');
+  const betrag = tr.children[tr.children.length - 1].textContent.trim();
+  return per && per.textContent === 'per' && betrag === '—';
+}), 'Mengenspalte zeigt «per», Betragsspalte bleibt leer');
+ok(await page.evaluate(() => {
+  cur.positionen[0].menge = 3; erpRenderPos();
+  const tr = document.querySelector('#posBody tr[data-posid="q"]');
+  return !tr.querySelector('.per-tag') && /37\.50/.test(tr.children[tr.children.length - 1].textContent);
+}), 'Menge wieder > 0 → normale Anzeige (37.50)');
+ok(await page.evaluate(() => {
+  cur.positionen[0].menge = ''; erpRenderPos();
+  return !document.querySelector('#posBody tr[data-posid="q"] .per-tag');
+}), 'leere Menge ist NICHT «per» (nur die echte 0)');
+
+console.log('■ Variante per Rechtsklick');
+ok(await page.evaluate(() => {
+  cur.positionen = [{ id: 'v1', art: 'frei', bez: 'Standard-Armatur', menge: 1, einheit: 'Stk', ep: 100 },
+                    { id: 'v2', art: 'frei', bez: 'Design-Armatur', menge: 1, einheit: 'Stk', ep: 400 }];
+  erpPosSelReset(); erpRenderPos();
+  let items = null; const orig = erpCtxShow; window.erpCtxShow = (e, it) => { items = it; };
+  erpPosCtx({ preventDefault() {}, stopPropagation() {}, target: { tagName: 'TD' } }, 1);
+  window.erpCtxShow = orig;
+  const e = items.find(x => x && x.t && /Als Variante markieren/.test(x.t));
+  if (!e) return false;
+  e.fn();
+  return cur.positionen[1].variante === true && cur.positionen[0].variante === undefined;
+}), 'Rechtsklick markiert die angeklickte Position als Variante');
+ok(await page.evaluate(() => {
+  const tr = document.querySelector('#posBody tr[data-posid="v2"]');
+  const tag = tr.querySelector('.vari-tag');
+  const betrag = tr.children[tr.children.length - 1].textContent.trim();
+  const st = getComputedStyle(tr.querySelector('.pcell'));
+  const stTag = getComputedStyle(tag);
+  return tag && tag.textContent === 'Variante' && st.fontStyle === 'italic' && stTag.fontStyle === 'normal'
+      && +stTag.fontWeight >= 700 && betrag === '(400.00)';
+}), '«Variante» fett+aufrecht in der ersten Zeile, Text kursiv, Betrag in Klammern');
+ok(await page.evaluate(() => Math.abs(erpDocTotals(cur).zwischen - 100) < 0.005),
+   'Variante fehlt im Total (nur 100.00)');
+ok(await page.evaluate(() => {
+  let items = null; const orig = erpCtxShow; window.erpCtxShow = (e, it) => { items = it; };
+  erpPosCtx({ preventDefault() {}, stopPropagation() {}, target: { tagName: 'TD' } }, 1);
+  window.erpCtxShow = orig;
+  const e = items.find(x => x && x.t && /Variante aufheben/.test(x.t));
+  if (!e) return false;
+  e.fn();
+  const tr = document.querySelector('#posBody tr[data-posid="v2"]');
+  return !('variante' in cur.positionen[1]) && !tr.querySelector('.vari-tag')
+      && getComputedStyle(tr.querySelector('.pcell')).fontStyle === 'normal'
+      && Math.abs(erpDocTotals(cur).zwischen - 500) < 0.005;
+}), 'Aufheben entfernt Marke, Kursiv und Klammern — Total wieder 500.00');
+ok(await page.evaluate(() => {
+  // Mehrfachauswahl: alle markierten auf einmal
+  cur.positionen = ['m1', 'm2', 'm3'].map((id, i) => ({ id: id, art: 'frei', bez: id, menge: 1, einheit: 'Stk', ep: 100 }));
+  erpRenderPos();
+  erpPosSelClick({ shiftKey: false, ctrlKey: false, metaKey: false, stopPropagation() {} }, 1);
+  erpPosSelClick({ shiftKey: false, ctrlKey: true, metaKey: false, stopPropagation() {} }, 2);
+  let items = null; const orig = erpCtxShow; window.erpCtxShow = (e, it) => { items = it; };
+  erpPosCtx({ preventDefault() {}, stopPropagation() {}, target: { tagName: 'TD' } }, 1);
+  window.erpCtxShow = orig;
+  const e = items.find(x => x && x.t && /Als Variante markieren \(2\)/.test(x.t));
+  if (!e) return false;
+  e.fn();
+  return cur.positionen[1].variante && cur.positionen[2].variante && !cur.positionen[0].variante
+      && Math.abs(erpDocTotals(cur).zwischen - 100) < 0.005;
+}), 'Mehrfachauswahl: beide markierten Positionen werden Variante');
+ok(await page.evaluate(() => {
+  // Titel/Text/Umbruch können keine Variante sein
+  cur.positionen = [{ id: 'ti', art: 'titel', bez: 'K' }, { id: 'tx', art: 'text', bez: 'T' }];
+  erpPosSelReset(); erpRenderPos();
+  let items = null; const orig = erpCtxShow; window.erpCtxShow = (e, it) => { items = it; };
+  erpPosCtx({ preventDefault() {}, stopPropagation() {}, target: { tagName: 'TD' } }, 0);
+  window.erpCtxShow = orig;
+  return !items.some(x => x && x.t && /Variante/.test(x.t));
+}), 'Titelzeile bietet keine Variante an');
 
 console.log('■ Rechtsklick: neue Position darüber / darunter');
 ok(await page.evaluate(() => {

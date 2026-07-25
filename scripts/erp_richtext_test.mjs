@@ -51,7 +51,16 @@ await page.evaluate(() => { erpNeu('offerte'); cur.kundeSnapshot = { firma: 'X A
 await page.evaluate(() => erpCellEdit('p1', 'bez'));
 await page.waitForTimeout(60);
 ok(await page.evaluate(() => !!document.querySelector('#posBody .rich-ed[contenteditable="true"]')), 'Doppelklick öffnet contenteditable');
-ok(await page.evaluate(() => { const b = document.querySelector('#posBody .rich-bar'); return b && b.querySelectorAll('.rb').length >= 3 && b.querySelectorAll('.rb-col').length >= 3 && !!b.querySelector('.rb-sel'); }), 'Toolbar hat Fett/Kursiv/Unterstr. + Farb-Buttons + Grössen-Select');
+// Die Werkzeuge sitzen FEST in der Aktionsleiste oben (neben Vorlagen/PDF) —
+// nicht mehr als Leiste in der Tabellenzelle.
+ok(await page.evaluate(() => { const b = document.querySelector('#edFt #edRich'); return b && b.querySelectorAll('.rb').length >= 4 && b.querySelectorAll('.rb-col').length >= 3 && !!b.querySelector('.rb-sel'); }), 'Werkzeug-Leiste oben hat Fett/Kursiv/Unterstr./Zurücksetzen + Farben + Grösse');
+ok(await page.evaluate(() => !document.querySelector('#posBody .rich-bar')), 'keine Werkzeug-Leiste mehr in der Zelle');
+ok(await page.evaluate(() => {
+  const ft = document.getElementById('edFt'), g = document.getElementById('edRich');
+  return g && g.parentElement === ft && Array.from(ft.children).indexOf(g) < Array.from(ft.children).findIndex(x => /Vorlagen/.test(x.textContent));
+}), 'Leiste steht in derselben Zeile wie Vorlagen/PDF');
+ok(await page.evaluate(() => document.getElementById('edRich').classList.contains('is-on')),
+   'Leiste ist aktiv, solange ein Beschrieb bearbeitet wird (Auto-Fokus)');
 // gesamten Text markieren → Fett → bez enthält <b>/<strong>
 await page.evaluate(() => {
   const ed = document.querySelector('#posBody .rich-ed'); ed.focus();
@@ -68,6 +77,14 @@ ok(await page.evaluate(() => /color/i.test(cur.positionen[0].bez)), 'Farbe → b
 await page.evaluate(() => { const ed = document.querySelector('#posBody .rich-ed'); ed.blur(); });
 await page.waitForTimeout(40);
 ok(await page.evaluate(() => !document.querySelector('#posBody .rich-ed')), 'Blur (ausserhalb Toolbar) schliesst den Editor');
+ok(await page.evaluate(() => !document.getElementById('edRich').classList.contains('is-on')), 'Leiste danach wieder gedimmt');
+ok(await page.evaluate(() => {
+  erpCellEdit('p1', 'bez');
+  const ed = document.querySelector('#posBody .rich-ed'); if (!ed) return false;
+  ed.focus();
+  return document.getElementById('edRich').classList.contains('is-on');
+}), 'erneutes Bearbeiten schaltet die Leiste wieder scharf');
+await page.evaluate(() => { const ed = document.querySelector('#posBody .rich-ed'); if (ed) ed.blur(); });
 
 console.log('■ Multi-Select markiert keinen Text; contenteditable erlaubt Text');
 ok(await page.evaluate(() => { const td = document.querySelector('#posBody td'); return td && getComputedStyle(td).userSelect === 'none'; }), '.pos td: user-select:none');

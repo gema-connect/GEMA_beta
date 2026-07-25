@@ -636,21 +636,36 @@ var _epObjMemo={t:0,m:null};
 function _epObjekte(){
   var now=Date.now();
   if(_epObjMemo.m&&now-_epObjMemo.t<1500)return _epObjMemo.m;
-  var m={};
+  var m={},n=0;
   try{
     if(typeof GemaObjekte!=='undefined'&&GemaObjekte.getAll)
-      (GemaObjekte.getAll()||[]).forEach(function(o){if(o&&o.id)m[o.id]=o;});
+      (GemaObjekte.getAll()||[]).forEach(function(o){if(o&&o.id){m[o.id]=o;n++;}});
   }catch(e){}
-  _epObjMemo={t:now,m:m};
+  // Ein LEERES Ergebnis nicht merken — beim Boot ist der Objekt-Pull oft noch
+  // unterwegs; sonst zeigt der Kalender 1.5 s lang den gespeicherten Namen
+  // statt der eingestellten Anzeige (Bezeichnung ⇄ Adresse).
+  if(n)_epObjMemo={t:now,m:m};
   return m;
+}
+/* Anzeigename eines Objekts — folgt der Einstellung «Objekte anzeigen als»
+   (Bezeichnung ⇄ Adresse). `ev.objektName` ist ein Schnappschuss aus der
+   Erfassung und darf die Einstellung NICHT überstimmen: existiert das Objekt
+   noch, gewinnt GemaObjekte.displayName. */
+function epObjName(objektId,fallback){
+  try{
+    var o=objektId?_epObjekte()[objektId]:null;
+    if(o)return GemaObjekte.displayName(o)||o.name||String(fallback||'');
+  }catch(e){}
+  return String(fallback||'');
 }
 function epOrtText(e){
   if(!e)return '';
-  var name=String(e.objektName||'').trim(),adr='';
+  var name='',adr='';
   try{
     var o=e.objektId?_epObjekte()[e.objektId]:null;
-    if(o){adr=GemaObjekte.objektAdresse(o)||'';if(!name)name=o.name||'';}
+    if(o){adr=GemaObjekte.objektAdresse(o)||'';name=GemaObjekte.displayName(o)||'';}
   }catch(err){}
+  if(!name)name=String(e.objektName||'').trim();
   if(!adr&&e.auftragId){
     try{
       var a=_epErpPool().find(function(x){return x&&x.id===e.auftragId;});
@@ -892,7 +907,7 @@ function epRenderSide(){
     return '<div class="job" draggable="true" data-job="'+a.id+'"'+(b?' style="background:'+abTint(b.farbe)+';border-color:'+b.farbe+'"':'')+' onclick="epJobTap(\''+a.id+'\')">'
       +'<div class="j-nr">'+esc(a.nr||'')+'</div>'
       +'<div class="j-t">'+esc(a.titel||(a.kundeSnapshot&&a.kundeSnapshot.firma)||'Auftrag')+'</div>'
-      +'<div class="j-s">'+esc((a.kundeSnapshot&&a.kundeSnapshot.firma)||'')+(a.objektName?' · '+esc(a.objektName):'')+'</div>'
+      +'<div class="j-s">'+esc((a.kundeSnapshot&&a.kundeSnapshot.firma)||'')+(a.objektName?' · '+esc(epObjName(a.objektId,a.objektName)):'')+'</div>'
       +(function(){var s=(a.sachbearbeiter&&a.sachbearbeiter.name)?a.sachbearbeiter:a.erstelltVon;return s&&s.name?'<div class="j-s">👔 '+esc(s.name)+'</div>':'';})()
       +(b?'<div style="margin-top:3px">'+abChipHtml(a.bereichId)+'</div>':'')
       +'</div>';
@@ -933,7 +948,7 @@ function epDayOpen(day){
     return '<div class="my-card t-'+(e.typ||'frei')+'" style="margin-bottom:8px;cursor:pointer'+(b?';border-left-color:'+b.farbe:'')+'" onclick="document.getElementById(\'dayModal\').classList.remove(\'open\');epEvOpen(\''+e.id+'\')">'
       +'<div class="t">'+(e.garantie?'🛡 ':'')+esc(e.titel||e.auftragNr||'')+(b?' '+abChipHtml(e.bereichId):'')+'</div>'
       +'<div class="s">👤 '+esc(e.monteurName||'')+(slotLabel(e)?' · '+esc(slotLabel(e)):'')
-      +(function(){var o=epOrtText(e)||e.objektName;return o?'<br>🏗 '+esc(o):'';})()
+      +(function(){var o=epOrtText(e)||epObjName(e.objektId,e.objektName);return o?'<br>🏗 '+esc(o):'';})()
       +(function(){var vw=epVerantwortlich(e);return vw?'<br>👔 Verantwortlich: '+esc(vw):'';})()+'</div>'
       +bsChipsHtml(e)+epSchluesselBoxHtml(e)+'</div>';
   }).join(''):'<div class="empty">Keine Einsätze an diesem Tag.</div>')
@@ -960,7 +975,7 @@ function epRenderMeine(){
       h+='<div class="my-card t-'+(e.typ||'frei')+'"'+(b?' style="border-left-color:'+b.farbe+'"':'')+'>'
         +'<div class="t">'+(slotLabel(e)?'<span style="font-size:11px;font-weight:900;color:var(--acc)">'+esc(slotLabel(e))+'</span> ':'')+(e.garantie?'🛡 ':'')+esc(e.titel||e.auftragNr||'')+(b?' '+abChipHtml(e.bereichId):'')+'</div>'
         +'<div class="s">'+(e.auftragNr?'📋 '+esc(e.auftragNr)+(e.kunde?' · '+esc(e.kunde):'')+'<br>':'')
-        +(function(){var o=epOrtText(e)||e.objektName;return o?'🏗 '+esc(o)+'<br>':'';})()
+        +(function(){var o=epOrtText(e)||epObjName(e.objektId,e.objektName);return o?'🏗 '+esc(o)+'<br>':'';})()
         +(function(){var vw=epVerantwortlich(e);return vw?'👔 Verantwortlich: <b>'+esc(vw)+'</b><br>':'';})()
         +(e.garantie?'🛡 Garantiearbeit<br>':'')
         +(e.notiz?'💬 '+esc(e.notiz)+'<br>':'')
@@ -1059,7 +1074,7 @@ function epRenderGarantie(){
         var e=r.einsatz;
         return '<tr style="cursor:pointer" onclick="epEvOpen(\''+e.id+'\')">'
           +'<td style="padding:8px 6px 8px 12px;white-space:nowrap;height:auto;min-width:0">'+dfmtLong(e.datum)+'</td>'
-          +'<td style="padding:8px 6px;height:auto;min-width:0"><b>'+esc(e.titel||e.auftragNr||'—')+'</b>'+(e.objektName?'<div style="font-size:11px;color:var(--mut)">🏗 '+esc(e.objektName)+'</div>':'')+'</td>'
+          +'<td style="padding:8px 6px;height:auto;min-width:0"><b>'+esc(e.titel||e.auftragNr||'—')+'</b>'+(e.objektName?'<div style="font-size:11px;color:var(--mut)">🏗 '+esc(epObjName(e.objektId,e.objektName))+'</div>':'')+'</td>'
           +'<td style="padding:8px 6px;height:auto;min-width:0">'+esc(e.monteurName||'—')+'</td>'
           +'<td style="padding:8px 6px;height:auto;min-width:0">'+(abChipHtml(e.bereichId)||'—')+'</td>'
           +'<td style="padding:8px 6px;text-align:right;white-space:nowrap;height:auto;min-width:0">'+(r.stunden>0?(Math.round(r.stunden*100)/100)+' h':'<span style="color:var(--mut2)" title="Keine Zeiteinträge mit Einsatz-Übernahme verknüpft">—</span>')+'</td>'
@@ -1081,7 +1096,7 @@ function epGarantieCsv(){
   var rows=[['Datum','Einsatz','Monteur','Objekt','Bereich','Garantie-Stunden','Material CHF','Rapporte']];
   res.rows.forEach(function(r){
     var e=r.einsatz;var b=abById(e.bereichId);
-    rows.push([e.datum,e.titel||e.auftragNr||'',e.monteurName||'',e.objektName||'',b?b.name:'',String(Math.round(r.stunden*100)/100).replace('.',','),String(Math.round(r.materialChf*100)/100).replace('.',','),String(r.rapporte)]);
+    rows.push([e.datum,e.titel||e.auftragNr||'',e.monteurName||'',epObjName(e.objektId,e.objektName),b?b.name:'',String(Math.round(r.stunden*100)/100).replace('.',','),String(Math.round(r.materialChf*100)/100).replace('.',','),String(r.rapporte)]);
   });
   rows.push(['Total '+jahr,'','','','',String(Math.round(res.totalStunden*100)/100).replace('.',','),String(Math.round(res.totalMaterial*100)/100).replace('.',','),String(res.totalRapporte)]);
   var csv='\ufeff'+rows.map(function(r){return r.map(function(c){return '"'+String(c==null?'':c).replace(/"/g,'""')+'"';}).join(';');}).join('\r\n');
@@ -1455,7 +1470,7 @@ function epEvRender(){
   // Verantwortlicher Sachbearbeiter + Objekt (read-only) + Schlüssel/Zutritt
   document.getElementById('evKeyInfo').innerHTML=(function(){
     var vw=ev.auftragId?epVerantwortlich(ev):'';
-    var obj=(ev.typ!=='auftrag'&&ev.objektName)?'<div style="font-size:11.5px;color:var(--mut);margin-top:4px">🏗 '+esc(ev.objektName)+'</div>':'';
+    var obj=(ev.typ!=='auftrag'&&ev.objektName)?'<div style="font-size:11.5px;color:var(--mut);margin-top:4px">🏗 '+esc(epObjName(ev.objektId,ev.objektName))+'</div>':'';
     return (vw?'<div style="font-size:11.5px;color:var(--mut);margin-top:4px">👔 Verantwortlich: <b>'+esc(vw)+'</b></div>':'')+obj+epSchluesselBoxHtml(ev);
   })();
   var gchk=document.getElementById('ev_garantie');
@@ -1574,7 +1589,7 @@ function epAufPickRender(){
     var ks=a.kundeSnapshot||{};
     box.innerHTML='<div style="display:flex;gap:8px;align-items:center;background:var(--sur2);border:1px solid var(--brd);border-radius:9px;padding:8px 11px">'
       +'<div style="flex:1;min-width:0"><div style="font-weight:800;font-size:13px">'+esc((a.nr||'')+' · '+(a.titel||ks.firma||''))+'</div>'
-      +'<div style="font-size:11.5px;color:var(--mut);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(ks.firma||'')+(a.objektName?' · '+esc(a.objektName):'')+'</div></div>'
+      +'<div style="font-size:11.5px;color:var(--mut);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(ks.firma||'')+(a.objektName?' · '+esc(epObjName(a.objektId,a.objektName)):'')+'</div></div>'
       +(canEdit?'<button type="button" class="btn" style="min-height:32px;padding:4px 11px;font-size:12px;white-space:nowrap" onclick="epAufOpen()">Ändern</button>':'')
       +'</div>';
   } else {
@@ -1618,7 +1633,7 @@ function epAufRender(q){
   if(q){
     list=list.filter(function(a){
       var ks=a.kundeSnapshot||{};
-      var hay=[a.nr,a.titel,ks.firma,ks.kontakt,ks.strasse,ks.plz,ks.ort,a.objektName].map(function(x){return String(x||'');}).join(' ').toLowerCase();
+      var hay=[a.nr,a.titel,ks.firma,ks.kontakt,ks.strasse,ks.plz,ks.ort,a.objektName,epObjName(a.objektId,'')].map(function(x){return String(x||'');}).join(' ').toLowerCase();
       return hay.indexOf(q)>=0;
     });
   }
@@ -1632,7 +1647,7 @@ function epAufRender(q){
       +'<div style="display:flex;gap:8px;align-items:baseline"><b style="font-size:13.5px">'+esc(a.nr||'')+'</b>'
       +'<span style="flex:1;min-width:0;font-weight:600;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(a.titel||'')+'</span>'
       +(a.datum?'<span style="font-size:11px;color:var(--mut);white-space:nowrap">'+dfmtLong(a.datum)+'</span>':'')+'</div>'
-      +'<div style="font-size:11.5px;color:var(--mut);margin-top:2px">'+esc(ks.firma||'')+(adr?' · '+esc(adr):'')+(a.objektName&&a.objektName!==adr&&a.objektName!==ks.ort?' · '+esc(a.objektName):'')+(a._geplant?' · <span style="color:var(--grn);font-weight:700">✓ eingeplant</span>':'')+'</div>'
+      +'<div style="font-size:11.5px;color:var(--mut);margin-top:2px">'+esc(ks.firma||'')+(adr?' · '+esc(adr):'')+(function(){var on=epObjName(a.objektId,a.objektName);return (on&&on!==adr&&on!==ks.ort&&adr.indexOf(on)<0)?' · '+esc(on):'';})()+(a._geplant?' · <span style="color:var(--grn);font-weight:700">✓ eingeplant</span>':'')+'</div>'
       +'</div>';
   }).join('');
 }
@@ -1844,7 +1859,7 @@ document.addEventListener('DOMContentLoaded',function(){
     if(!evs.length) return '<div class="gn-label" style="text-transform:none;font-weight:500;padding-top:6px">Keine Einsätze an diesem Tag.</div>';
     var plan=false; try{ plan=epCanPlan(); }catch(e){}
     return '<div class="gn-agenda">'+evs.map(function(ev){
-      var meta=[ev.objektName||ev.kunde||'',plan?(ev.monteurName||''):''].filter(Boolean).join(' · ');
+      var meta=[epObjName(ev.objektId,ev.objektName)||ev.kunde||'',plan?(ev.monteurName||''):''].filter(Boolean).join(' · ');
       var extra='';
       try{ extra+=bsChipsHtml(ev)||''; }catch(e){}
       try{ extra+=epSchluesselBoxHtml(ev)||''; }catch(e){}

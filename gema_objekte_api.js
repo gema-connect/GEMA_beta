@@ -498,8 +498,25 @@
     } catch(e) {}
     return 'name';
   }
+  // Erst merken, wenn die Auflösung wirklich belastbar ist: ein Aufruf beim
+  // Boot (Modul rendert, bevor Session/Org geladen sind) hat sonst 'name' für
+  // die ganze Seitenlebensdauer eingefroren — genau das liess die Einstellung
+  // in früh rendernden Modulen (Termine, Wareneingang) wirkungslos aussehen.
+  function _anzeigeStabil() {
+    try {
+      if (typeof GemaAuth === 'undefined' || !GemaAuth.getCurrentUser) return false;
+      var u = GemaAuth.getCurrentUser(); if (!u) return false;
+      var m = u.profile && u.profile.objektAnzeige;
+      if (m === 'adresse' || m === 'bezeichnung') return true;      // persönliche Wahl steht fest
+      return !!(GemaAuth.getCurrentOrg && GemaAuth.getCurrentOrg());  // Firmen-Standard lesbar
+    } catch (e) { return false; }
+  }
   function getAnzeigeModus() {
-    if (_anzeigeModus == null) _anzeigeModus = _readAnzeigeModus();
+    if (_anzeigeModus == null) {
+      var m = _readAnzeigeModus();
+      if (!_anzeigeStabil()) return m;      // noch nicht merken
+      _anzeigeModus = m;
+    }
     return _anzeigeModus;
   }
   function refreshAnzeigeModus() { _anzeigeModus = _readAnzeigeModus(); return _anzeigeModus; }

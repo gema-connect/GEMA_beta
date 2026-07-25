@@ -71,7 +71,7 @@ async function open(path, extraLs){
     if(u.indexOf('/api/')>=0||u.indexOf('/.netlify/')>=0)return route.fulfill({contentType:'application/json',body:'{}'});
     return route.abort(); });
   await ctx.addInitScript(s=>{ for(const [k,v] of Object.entries(s)) localStorage.setItem(k, typeof v==='string'?v:JSON.stringify(v)); },
-    Object.assign({gema_orgs_v1:[ORG],gema_users_v1:USERS,gema_session_v1:{token:JWT,userId:'u1',expires:FUTURE},gema_objekte_v1:OBJ_BLOB},extraLs||{}));
+    Object.assign({gema_orgs_v1:[ORG],gema_users_v1:USERS,gema_session_v1:{token:JWT,userId:'u1',expires:FUTURE},gema_objekte_v1:OBJ_BLOB,gema_objpool_v1:[OBJ_A,OBJ_B]},extraLs||{}));
   const page=await ctx.newPage(); page.errs=[]; page.on('pageerror',e=>page.errs.push(e.message));
   await page.goto(BASE+path,{waitUntil:'domcontentloaded'});
   await page.waitForTimeout(1100);
@@ -388,6 +388,88 @@ console.log('— 10) pm_objekte Liste: Filter, Spalten (Resize/Ein-Aus), Kontext
   ok(await page.evaluate(()=>{const m=document.getElementById('objCtxMenu');return m&&m.textContent.indexOf('Duplizieren')>=0;}),'Karten-Rechtsklick: gleiches Kontextmenü');
   await page.evaluate(()=>{const m=document.getElementById('objCtxMenu');if(m)m.remove();});
   ok(page.errs.length===0,'keine pageerrors (Liste-Features)'+(page.errs.length?' — '+page.errs[0]:''));
+  await ctx.close();
+}
+
+/* ── Termine (pm_einsatzplan): der Schnappschuss objektName darf die
+      Einstellung nicht überstimmen ── */
+console.log('— Termine: Objekt-Anzeige folgt der Einstellung —');
+const EINSATZ={id:'ev1',orgId:'org_t',typ:'auftrag',titel:'Montage Sanitär',
+  objektId:'obj_a',objektName:'Neubau Alpha',monteurUserId:'u1',monteurName:'User A',
+  datum:new Date().toISOString().slice(0,10),dauerTage:1,zeitVon:'07:30',zeitBis:'11:00',
+  erstelltVon:{userId:'u1',name:'User A'}};
+for (const [modus, lbl] of [['adresse','Adresse'],['bezeichnung','Bezeichnung']]) {
+  seed();
+  store.set('einsatzplan|einsatz:ev1',{data:EINSATZ,_lm:'2026-07-20T00:00:00Z'});
+  const {ctx,page}=await open('/pm_einsatzplan.html',{
+    gema_einsatz_pool_v1:[EINSATZ],
+    gema_users_v1:[Object.assign({},USERS[0],{profile:{email:'a@t.ch',objektAnzeige:modus}})]
+  });
+  await page.waitForFunction(()=>typeof epOrtText==='function',null,{timeout:12000});
+  await page.waitForTimeout(1200);
+  const r=await page.evaluate(()=>({ort:epOrtText((GemaSync.getCached('gema_einsatz_pool_v1')||[])[0]||{objektId:'obj_a',objektName:'Neubau Alpha'}),
+                                    nm:epObjName('obj_a','Neubau Alpha')}));
+  if(modus==='adresse'){
+    ok(r.nm===ADR_A,'Adress-Modus: epObjName liefert die Adresse («'+r.nm+'»)');
+    ok(r.ort.indexOf('Neubau Alpha')<0,'Adress-Modus: die Bezeichnung erscheint NICHT in der Wo-Zeile («'+r.ort+'»)');
+    ok(r.ort.indexOf('Bahnhofstrasse 4')>=0,'Adress-Modus: die Adresse steht da');
+  } else {
+    ok(r.nm==='Neubau Alpha','Bezeichnungs-Modus: epObjName liefert die Bezeichnung');
+    ok(r.ort.indexOf('Neubau Alpha')>=0&&r.ort.indexOf('Bahnhofstrasse 4')>=0,'Bezeichnungs-Modus: Bezeichnung + Adresse («'+r.ort+'»)');
+  }
+  ok(page.errs.length===0,'Termine ohne pageerrors ('+lbl+')'+(page.errs.length?' — '+page.errs[0]:''));
+  await ctx.close();
+}
+
+/* ── Wareneingang: Projektname folgt der Einstellung + Projekt-Aufstellung ── */
+console.log('— Wareneingang: Projektname + Aufstellung pro Lieferung —');
+const LIEF={id:'we1',orgId:'org_t',lieferantFirma:'Sanitas Troesch',bestellnummer:'B-4711',
+  importDatum:'2026-07-20',bestelldatum:'2026-07-18',status:'teilweise',
+  positionen:[
+    {id:'p1',sortindex:0,posNr:'1',artikelNr:'A1',bezeichnung:'Waschtisch',menge:4,eingegangenMenge:4,status:'eingegangen',projekt:{objektId:'obj_a',name:'Neubau Alpha',strasse:'Bahnhofstrasse 4',plz:'8000',ort:'Zürich'}},
+    {id:'p2',sortindex:1,posNr:'2',artikelNr:'A2',bezeichnung:'Armatur',menge:4,eingegangenMenge:1,status:'teilweise',projekt:{objektId:'obj_a',name:'Neubau Alpha',strasse:'Bahnhofstrasse 4',plz:'8000',ort:'Zürich'}},
+    {id:'p3',sortindex:2,posNr:'3',artikelNr:'B1',bezeichnung:'WC',menge:2,eingegangenMenge:0,status:'offen',projekt:{objektId:'obj_b',name:'Umbau Beta',strasse:'Seeweg 2',plz:'6000',ort:'Luzern'}},
+    {id:'p4',sortindex:3,posNr:'4',artikelNr:'C1',bezeichnung:'Dichtungen',menge:10,eingegangenMenge:10,status:'eingegangen',projekt:{objektId:'',istLager:true,name:'Lager / kein Projekt',strasse:'',plz:'',ort:''}}
+  ]};
+{
+  seed();
+  store.set('wareneingang|we:we1',{data:LIEF,_lm:'2026-07-20T00:00:00Z'});
+  const {ctx,page}=await open('/if_wareneingang.html',{
+    gema_we_pool_v1:[LIEF],
+    gema_users_v1:[Object.assign({},USERS[0],{profile:{email:'a@t.ch',objektAnzeige:'adresse'}})]
+  });
+  await page.waitForFunction(()=>window._weHooks&&typeof _weHooks.liefProjGruppen==='function',null,{timeout:12000});
+  await page.waitForTimeout(1200);
+  const g=await page.evaluate(()=>_weHooks.liefProjGruppen(_weHooks.liefById('we1')).map(x=>({n:_weHooks.projName(x.projekt),pos:x.pos,voll:x.voll,soll:x.soll,ist:x.ist,lager:x.lager})));
+  ok(g.length===3,'drei Projekt-Gruppen (2 Objekte + Lager)');
+  ok(g[0].n===ADR_A,'Adress-Modus schlägt auf den Projekt-Schnappschuss durch («'+g[0].n+'»)');
+  ok(g[0].pos===2&&g[0].voll===1,'Gruppe A: 2 Positionen, 1 vollständig geliefert');
+  ok(g[0].soll===8&&g[0].ist===5,'Gruppe A: Menge 5 von 8');
+  ok(g[1].pos===1&&g[1].voll===0,'Gruppe B: 1 Position, nichts geliefert');
+  ok(g[2].lager===true&&g[2].voll===1,'Lager-Gruppe erkannt und vollständig');
+  const html=await page.evaluate(()=>_weHooks.liefCardHtml(_weHooks.liefById('we1')));
+  ok(html.indexOf('lc-projs')>=0,'die Karte zeigt die Projekt-Aufstellung');
+  ok((html.match(/lc-proj"/g)||[]).length===3,'eine Zeile pro Projekt');
+  ok(html.indexOf('2 Pos. · 1 geliefert')>=0,'Positionszahl + gelieferte Positionen stehen auf der Karte');
+  ok(html.indexOf('Menge 5/8')>=0,'Teilmenge wird ausgewiesen');
+  ok(html.indexOf('Neubau Alpha')<0&&html.indexOf('Bahnhofstrasse 4')>=0,'im Adress-Modus steht die Adresse, nicht die Bezeichnung');
+  ok(html.indexOf('3 Projekte')>=0,'Kopfzeile nennt die Anzahl Projekte');
+  ok(page.errs.length===0,'Wareneingang ohne pageerrors'+(page.errs.length?' — '+page.errs[0]:''));
+  await ctx.close();
+}
+{
+  seed();
+  store.set('wareneingang|we:we1',{data:LIEF,_lm:'2026-07-20T00:00:00Z'});
+  const {ctx,page}=await open('/if_wareneingang.html',{
+    gema_we_pool_v1:[LIEF],
+    gema_users_v1:[Object.assign({},USERS[0],{profile:{email:'a@t.ch',objektAnzeige:'bezeichnung'}})]
+  });
+  await page.waitForFunction(()=>window._weHooks&&typeof _weHooks.liefCardHtml==='function',null,{timeout:12000});
+  await page.waitForTimeout(1200);
+  const html=await page.evaluate(()=>_weHooks.liefCardHtml(_weHooks.liefById('we1')));
+  ok(html.indexOf('Neubau Alpha')>=0,'Bezeichnungs-Modus: die Bezeichnung steht auf der Karte');
+  const f=await page.evaluate(()=>_weHooks.uniqueProj([_weHooks.liefById('we1')]));
+  ok(f.indexOf('Neubau Alpha')>=0,'Projekt-Filter listet die Bezeichnung');
   await ctx.close();
 }
 

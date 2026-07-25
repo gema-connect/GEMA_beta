@@ -98,6 +98,15 @@ table.gt input.cell.mini{max-width:74px;text-align:right}
 .lief-card .lc-t{font-size:14px;font-weight:800}
 .lief-card .lc-meta{font-size:12px;color:#64748b;margin-top:2px;display:flex;gap:10px;flex-wrap:wrap}
 .lief-card .lc-r{text-align:right;flex:none;display:flex;flex-direction:column;align-items:flex-end;gap:6px}
+/* Projekte der Lieferung: je Zeile Positionszahl + gelieferte Positionen */
+.lief-card .lc-projs{margin-top:7px;display:flex;flex-direction:column;gap:3px}
+.lief-card .lc-proj{display:flex;align-items:baseline;gap:7px;font-size:12px;color:#334155;min-width:0}
+.lief-card .lc-proj .pn{font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:0 1 auto}
+.lief-card .lc-proj .pz{color:#64748b;white-space:nowrap;flex:none}
+.lief-card .pdot{width:8px;height:8px;border-radius:50%;flex:none;background:#cbd5e1;align-self:center}
+.lief-card .pdot.komplett{background:#16a34a}
+.lief-card .pdot.teil{background:#d97706}
+.lief-card .pdot.offen{background:#cbd5e1}
 .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px}
 .kpi{background:#fff;border:1px solid #e6eaf2;border-radius:14px;padding:12px 13px;cursor:pointer}
 .kpi.on{border-color:#0f766e;background:#f0fdfa}
@@ -305,8 +314,21 @@ function liefStatus(l){
 
 /* Projekte = GemaObjekte (Kernprinzip: Daten einmal erfassen) */
 function projekte(){
-  try{return (GemaObjekte.getAll()||[]).map(function(o){return {objektId:o.id,name:o.name||'Ohne Name',strasse:o.strasse||'',plz:o.plz||'',ort:o.ort||''};});}
+  try{return (GemaObjekte.getAll()||[]).map(function(o){return {objektId:o.id,name:GemaObjekte.displayName(o)||o.name||'Ohne Name',strasse:o.strasse||'',plz:o.plz||'',ort:o.ort||''};});}
   catch(e){return [];}
+}
+/* Anzeigename eines Projekt-Snapshots. Der Name wurde beim Import kopiert —
+   bei einem GEMA-Objekt gewinnt die AKTUELLE Anzeige-Einstellung (Bezeichnung
+   ⇄ Adresse, org-weiter Standard + persönlicher Override). */
+function projName(pj){
+  if(!pj)return '—';
+  if(pj.objektId){
+    try{
+      var o=(GemaObjekte.getAll()||[]).find(function(x){return x.id===pj.objektId;});
+      if(o)return GemaObjekte.displayName(o)||pj.name||'—';
+    }catch(e){}
+  }
+  return pj.name||'—';
 }
 function lagerProjekt(){var l=settings().lager||{};return {objektId:'',istLager:true,name:l.name||'Lager / kein Projekt',strasse:l.strasse||'',plz:l.plz||'',ort:l.ort||''};}
 // Lager-Position: wird im Wareneingang kontrolliert, aber NICHT als Etikette gedruckt.
@@ -335,8 +357,9 @@ function projAdrLines(p){
 }
 function projLabel(p){
   if(!p)return '—';
-  var a=projAdrLines(p);
-  return p.name+(a.length?' · '+a.join(', '):'');
+  var n=projName(p),a=projAdrLines(p).join(', ');
+  // Im Adress-Modus IST der Name schon die Adresse — nicht doppelt anhängen
+  return n+(a&&a!==n?' · '+a:'');
 }
 
 /* Lieferanten = KOMPLETT FREI (kein Produkt-/Lieferantenkatalog). Als
@@ -556,14 +579,14 @@ function kpi(key,n,label){
   return '<div class="kpi'+(on?' on':'')+'" onclick="weFilterStatus(\''+(key==='all'?'':key)+'\')"><div class="k-n">'+n+'</div><div class="k-l">'+label+'</div></div>';
 }
 function uniqueLief(arr){var s={};arr.forEach(function(l){if(l.lieferantFirma)s[l.lieferantFirma]=1;});return Object.keys(s).sort();}
-function uniqueProj(arr){var s={};arr.forEach(function(l){(l.positionen||[]).forEach(function(p){if(p.projekt&&p.projekt.name)s[p.projekt.name]=1;});});return Object.keys(s).sort();}
+function uniqueProj(arr){var s={};arr.forEach(function(l){(l.positionen||[]).forEach(function(p){if(p.projekt)s[projName(p.projekt)]=1;});});return Object.keys(s).sort();}
 function applyFilters(arr){
   var out=arr.filter(function(l){
     if(_fStatus&&liefStatus(l)!==_fStatus)return false;
     if(_fLief&&l.lieferantFirma!==_fLief)return false;
-    if(_fProj&&!(l.positionen||[]).some(function(p){return p.projekt&&p.projekt.name===_fProj;}))return false;
+    if(_fProj&&!(l.positionen||[]).some(function(p){return p.projekt&&projName(p.projekt)===_fProj;}))return false;
     if(_fSearch){
-      var hay=(l.bestellnummer+' '+l.lieferantFirma+' '+(l.positionen||[]).map(function(p){return p.artikelNr+' '+p.bezeichnung+' '+(p.projekt&&p.projekt.name||'');}).join(' ')).toLowerCase();
+      var hay=(l.bestellnummer+' '+l.lieferantFirma+' '+(l.positionen||[]).map(function(p){return p.artikelNr+' '+p.bezeichnung+' '+(p.projekt?projName(p.projekt)+' '+(p.projekt.name||''):'');}).join(' ')).toLowerCase();
       if(hay.indexOf(_fSearch.toLowerCase())<0)return false;
     }
     return true;
@@ -581,20 +604,53 @@ function renderUeberList(list){/* light rerender of just the list keeps focus in
 window.weFilterSet=function(k,v){if(k==='lief')_fLief=v;else if(k==='proj')_fProj=v;else if(k==='sort')_fSort=v;renderUeber();};
 window.weFilterStatus=function(s){_fStatus=s;renderUeber();};
 
+/* Positionen einer Lieferung nach Projekt gruppieren — Reihenfolge = erstes
+   Auftreten. Liefert je Gruppe Positionszahl, vollständig gelieferte Positionen
+   und Mengen (Soll/Ist), damit die Übersicht ohne Öffnen aussagekräftig ist. */
+function liefProjGruppen(l){
+  var map={},order=[];
+  (l.positionen||[]).forEach(function(p){
+    var pj=p.projekt||lagerProjekt();
+    var key=pj.objektId||('frei:'+(pj.name||'')+'|'+(pj.strasse||'')+'|'+(pj.plz||'')+'|'+(pj.ort||''));
+    if(!map[key]){map[key]={key:key,projekt:pj,lager:isLagerProj(pj),pos:0,voll:0,soll:0,ist:0};order.push(key);}
+    var g=map[key];g.pos++;
+    if(posStatus(p)==='eingegangen')g.voll++;
+    var m=num(p.menge),e=num(p.eingegangenMenge);
+    g.soll+=m;g.ist+=Math.min(e,m);
+  });
+  return order.map(function(k){return map[k];});
+}
+function liefProjZeilen(l,max){
+  var gr=liefProjGruppen(l);
+  if(!gr.length)return '';
+  var zeigen=gr.slice(0,max||4);
+  var h=zeigen.map(function(g){
+    var st=g.voll>=g.pos?'komplett':(g.voll>0||g.ist>0?'teil':'offen');
+    var mengen=(g.soll&&(g.ist!==g.soll||g.soll!==g.pos))?' <span class="mut">· Menge '+fmtM(g.ist)+'/'+fmtM(g.soll)+'</span>':'';
+    return '<div class="lc-proj"><span class="pdot '+st+'"></span>'
+      +'<span class="pn">'+(g.lager?'📦 ':'📍 ')+E(projName(g.projekt))+'</span>'
+      +'<span class="pz">'+g.pos+' Pos. · '+g.voll+' geliefert'+mengen+'</span></div>';
+  }).join('');
+  if(gr.length>zeigen.length)h+='<div class="lc-proj mut" style="padding-left:14px">+ '+(gr.length-zeigen.length)+' weitere</div>';
+  return '<div class="lc-projs">'+h+'</div>';
+}
+function fmtM(n){var v=Math.round(n*100)/100;return String(v).replace('.',',');}
 function liefCardHtml(l){
   var st=liefStatus(l);
   var badge=statusBadge(st);
   var posN=(l.positionen||[]).length;
   var offenPos=(l.positionen||[]).filter(function(p){return posStatus(p)!=='eingegangen';}).length;
-  var projSet={};(l.positionen||[]).forEach(function(p){if(p.projekt&&p.projekt.name)projSet[p.projekt.name]=1;});
-  var projs=Object.keys(projSet);
-  var projTxt=projs.length===0?'—':(projs.length===1?projs[0]:projs.length+' Projekte');
+  var gr=liefProjGruppen(l);
   var editBtn=canEdit()?'<button class="btn sm" title="Lieferung bearbeiten" onclick="event.stopPropagation();weEditLief(\''+l.id+'\')">✏️</button>':'';
   return '<div class="lief-card" onclick="weOpenLief(\''+l.id+'\')">'
     +'<div class="lc-ic">🚚</div>'
     +'<div class="lc-main">'
       +'<div class="lc-t">'+E(l.lieferantFirma||'Lieferant?')+(l.bestellnummer?' <span class="mut" style="font-weight:600">· '+E(l.bestellnummer)+'</span>':'')+'</div>'
-      +'<div class="lc-meta"><span>📅 '+fD(l.bestelldatum||l.importDatum)+'</span><span>📍 '+E(projTxt)+'</span><span>📦 '+posN+' Position'+(posN!==1?'en':'')+'</span>'+(offenPos>0?'<span class="tag-flag">⏳ '+offenPos+' offen</span>':'')+'</div>'
+      +'<div class="lc-meta"><span>📅 '+fD(l.bestelldatum||l.importDatum)+'</span>'
+        +'<span>📦 '+posN+' Position'+(posN!==1?'en':'')+'</span>'
+        +(gr.length>1?'<span>📍 '+gr.length+' Projekte</span>':'')
+        +(offenPos>0?'<span class="tag-flag">⏳ '+offenPos+' offen</span>':'')+'</div>'
+      +liefProjZeilen(l)
     +'</div>'
     +'<div class="lc-r">'+badge+'<div style="display:flex;gap:6px;align-items:center">'+editBtn+'<span class="mut" style="font-size:11px">Details →</span></div></div>'
   +'</div>';
@@ -627,7 +683,7 @@ function renderLiefModal(l){
         +'</div>'
       ):(e+' / '+m);
     var lag=isLagerProj(p.projekt);
-    var projLine=(p.projekt&&p.projekt.name)?'<br><span class="mut" style="font-size:11px">'+(lag?'📦':'📍')+' '+E(p.projekt.name)+'</span>':'';
+    var projLine=p.projekt?'<br><span class="mut" style="font-size:11px">'+(lag?'📦':'📍')+' '+E(projName(p.projekt))+'</span>':'';
     return '<tr>'
       +'<td><strong>'+E(p.posNr||(i+1))+'</strong></td>'
       +'<td>'+E(p.artikelNr||'—')+'</td>'
@@ -799,13 +855,13 @@ function labelInner(lbl,s){
   var p=lbl.projekt||{};
   var strasse=abbrevStrasse((p.strasse||'').trim());   // Strasse+Nr, gekürzt, DOMINANT
   var ort=(p.ort||'').trim();                            // Ort klein, KEINE PLZ
-  var nm=(p.name||'').trim();
+  var nm=projName(p);nm=(nm==='—'?'':String(nm)).trim();
   var bigLines,cityLine='';
   if(strasse){ bigLines=[strasse]; cityLine=ort; }
   else if(ort){ bigLines=[ort]; }                        // nur Ort → Ort gross
   else { bigLines=[nm]; }                                // Fallback: Bezeichnung
   // Eyebrow nur bei echtem Projektnamen (GEMA-Objekt), nicht wenn Name = Adresse
-  var eyebrow=(nm && nm!==strasse && nm!==(p.strasse||'').trim() && nm!==ort)?nm:'';
+  var eyebrow=(nm && nm!==strasse && nm!==(p.strasse||'').trim() && nm!==ort && nm.indexOf((p.strasse||'').trim())<0)?nm:'';
   var startFs=Math.max(13,Math.round(s.labelH*3.7795*0.36));
   var artHtml='';
   if(s.showArtikel&&(lbl.artikel||lbl.artikelNr)){
@@ -1757,7 +1813,7 @@ function offCardHtml(o){
     +'<div class="lc-ic">🔀</div>'
     +'<div class="lc-main">'
       +'<div class="lc-t">'+E(o.lieferantFirma||'Grosshändler?')+(o.offertNr?' <span class="mut" style="font-weight:600">· '+E(o.offertNr)+'</span>':'')+'</div>'
-      +'<div class="lc-meta"><span>📅 '+fD(o.offertDatum||o.importDatum)+'</span>'+(o.projekt&&o.projekt.name?'<span>📋 '+E(o.projekt.name)+'</span>':'')+'<span>📦 '+(o.positionen||[]).length+' Positionen</span></div>'
+      +'<div class="lc-meta"><span>📅 '+fD(o.offertDatum||o.importDatum)+'</span>'+(o.projekt&&o.projekt.name?'<span>📋 '+E(projName(o.projekt))+'</span>':'')+'<span>📦 '+(o.positionen||[]).length+' Positionen</span></div>'
       +'<div style="margin-top:5px">'+chips+'</div>'
     +'</div>'
     +'<div class="lc-r">'+offStatusBadge(offStatus(o,abd))+'<span class="mut" style="font-size:11px">Details →</span></div>'
@@ -1913,7 +1969,7 @@ function renderOffModal(o){
     +infoCol('Datum',fD(o.offertDatum||o.importDatum))
     +infoCol('Original-PDF',pdfLink)
     +'</div>';
-  if(o.projekt&&o.projekt.name)head+='<div class="infobox">📋 Projekt: '+E(o.projekt.name)+'</div>';
+  if(o.projekt&&o.projekt.name)head+='<div class="infobox">📋 Projekt: '+E(projName(o.projekt))+'</div>';
   if(o.notiz)head+='<div class="infobox">📝 '+E(o.notiz)+'</div>';
   var chips='<div style="margin-bottom:10px"><span class="chip">🛒 '+g.grosshaendler.length+' beim Grosshändler</span> '
     +'<span class="chip" style="background:#ecfccb;color:#3f6212">📦 '+g.lager.length+' ab Lager</span> '
@@ -2018,7 +2074,7 @@ window.weOffListen=function(offId){
   var html='<!doctype html><html><head><meta charset="utf-8"><title>Bestell-Listen — '+E(o.lieferantFirma||'Offerte')+'</title>'
     +'<style>@page{size:A4;margin:16mm}body{font-family:"DM Sans",Arial,sans-serif;color:#0f172a;font-size:13px}h1{font-size:19px;margin:0 0 2px}.sub{color:#64748b;font-size:12px;margin-bottom:16px}h2{font-size:15px;margin:0 0 4px}.hint{color:#64748b;font-size:11px;margin-bottom:8px}table{width:100%;border-collapse:collapse;margin-bottom:18px}td{border:1px solid #dbe0ea;padding:6px 9px}.pb{page-break-before:always}.tb{position:fixed;top:10px;right:10px}@media print{.tb{display:none}}</style></head><body>'
     +'<div class="tb"><button onclick="window.print()">Drucken / PDF</button></div>'
-    +'<h1>Bestell-Listen</h1><div class="sub">Offerte '+E(o.lieferantFirma||'')+(o.offertNr?' · '+E(o.offertNr):'')+' vom '+fD(o.offertDatum||o.importDatum)+(o.projekt&&o.projekt.name?' · Projekt: '+E(o.projekt.name):'')+' — erstellt '+fD(_now())+'</div>'
+    +'<h1>Bestell-Listen</h1><div class="sub">Offerte '+E(o.lieferantFirma||'')+(o.offertNr?' · '+E(o.offertNr):'')+' vom '+fD(o.offertDatum||o.importDatum)+(o.projekt&&o.projekt.name?' · Projekt: '+E(projName(o.projekt)):'')+' — erstellt '+fD(_now())+'</div>'
     +sect+'</body></html>';
   w.document.write(html);w.document.close();
   if(window.GemaPrintA4)GemaPrintA4.apply(w);
@@ -2132,7 +2188,7 @@ window.weOffAnpassung=function(offId){
               });
             }
             line('Anpassung zur Offerte '+(o.offertNr?o.offertNr+' ':'')+'- '+(o.lieferantFirma||''),bold,15);
-            line((o.projekt&&o.projekt.name?'Projekt: '+o.projekt.name+' - ':'')+'erstellt am '+fD(_now()),font,10,PDFLib.rgb(0.39,0.45,0.55));
+            line((o.projekt&&o.projekt.name?'Projekt: '+projName(o.projekt)+' - ':'')+'erstellt am '+fD(_now()),font,10,PDFLib.rgb(0.39,0.45,0.55));
             y-=8;
             line('Die folgenden Positionen entfallen aus unserer Bestellung. Wir bitten um eine angepasste Offerte / Auftragsbestätigung über die verbleibenden Positionen.',font,11);
             y-=6;
@@ -2328,7 +2384,7 @@ document.addEventListener('DOMContentLoaded',function(){
 });
 
 /* Debug/Test-Hooks */
-window._weHooks={settings:settings,liefStatus:liefStatus,posStatus:posStatus,extractHtmlGrid:extractHtmlGrid,extractTextGrid:extractTextGrid,guessCols:guessCols,applyGridMapping:applyGridMapping,pdfItemsToGrid:pdfItemsToGrid,applyPdfBands:applyPdfBands,mkPos:mkPos,projModus:projModus,gemaObjekteAn:gemaObjekteAn,freieAdrAn:freieAdrAn,defaultProjekt:defaultProjekt,lieferantKey:lieferantKey,findMapping:findMapping,saveMapping:saveMapping,kiApplyResult:kiApplyResult,kiArtNrRepair:kiArtNrRepair,parseDateLoose:parseDateLoose,newImp:newImp,getImp:function(){return IMP;},setImp:function(x){IMP=x;},lagerProjekt:lagerProjekt,isLagerProj:isLagerProj,abbrevStrasse:abbrevStrasse,labelsFromLief:labelsFromLief,labelInner:labelInner,lieferantHistory:lieferantHistory,getLEdit:function(){return LEDIT;},liefById:liefById,
+window._weHooks={settings:settings,projName:projName,projLabel:projLabel,liefProjGruppen:liefProjGruppen,liefCardHtml:liefCardHtml,uniqueProj:uniqueProj,liefStatus:liefStatus,posStatus:posStatus,extractHtmlGrid:extractHtmlGrid,extractTextGrid:extractTextGrid,guessCols:guessCols,applyGridMapping:applyGridMapping,pdfItemsToGrid:pdfItemsToGrid,applyPdfBands:applyPdfBands,mkPos:mkPos,projModus:projModus,gemaObjekteAn:gemaObjekteAn,freieAdrAn:freieAdrAn,defaultProjekt:defaultProjekt,lieferantKey:lieferantKey,findMapping:findMapping,saveMapping:saveMapping,kiApplyResult:kiApplyResult,kiArtNrRepair:kiArtNrRepair,parseDateLoose:parseDateLoose,newImp:newImp,getImp:function(){return IMP;},setImp:function(x){IMP=x;},lagerProjekt:lagerProjekt,isLagerProj:isLagerProj,abbrevStrasse:abbrevStrasse,labelsFromLief:labelsFromLief,labelInner:labelInner,lieferantHistory:lieferantHistory,getLEdit:function(){return LEDIT;},liefById:liefById,
   // Offerten-Split
   offerten:offerten,offById:offById,offKlassifiziere:offKlassifiziere,offGruppen:offGruppen,offAbdeckung:offAbdeckung,offStatus:offStatus,offMatchZeilen:offMatchZeilen,offListenText:offListenText,offBeiblattLines:offBeiblattLines,normArt:normArt,dataUrlBytes:dataUrlBytes,
   // KI-Payload-Entscheid + Chunking (Text-vor-Datei + Parallel-Teile gegen Netlify-504)
