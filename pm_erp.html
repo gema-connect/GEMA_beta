@@ -217,6 +217,15 @@ table.pos{border-collapse:collapse;width:100%;font-size:13px}
 .pos tr.pos-sel .pos-grip{color:var(--acc,#1d4ed8)}
 .pos tr.pos-drop td{box-shadow:inset 0 3px 0 var(--acc,#1d4ed8)}
 .pos tr.pos-drop-b td{box-shadow:inset 0 -3px 0 var(--acc,#1d4ed8)}
+/* Variante: Alternativ-Position — kursiv, Betrag in Klammern, zählt nicht ins Total */
+.pos tr.pos-variante .pcell,.pos tr.pos-variante td.num{font-style:italic;color:var(--mut)}
+/* .pcell ist ein Flex-Container → Marke und Text müssen untereinander stehen */
+.pos tr.pos-variante .pcell.bezflex{flex-direction:column;align-items:flex-start;gap:1px}
+.pos tr.pos-variante .vari-tag{font-style:normal;font-weight:800;color:var(--acc,#1d4ed8);letter-spacing:.2px}
+.pos tr.pos-variante .vari-txt{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pos .per-tag{font-weight:700;color:var(--mut)}
+/* Freie Textzeile: über die ganze Breite, ohne Menge/Preis */
+.pos tr.postext td{background:var(--sur2,#f8fafc)}
 .pos tr.pos-dragging td{opacity:.45}
 /* Anzeige-Zellen: Werte erst per Doppelklick bearbeitbar */
 .pos .pcell{min-height:38px;display:flex;align-items:center;padding:6px 8px;border:1.5px solid transparent;border-radius:8px;cursor:text;font-size:13.5px;line-height:1.3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
@@ -644,6 +653,12 @@ function erpDocTotals(doc){
   var zwischen=0,kapBasis=0;   // kapBasis = Positionssumme seit dem letzten Titel
   (doc.positionen||[]).forEach(function(p){
     if(p.art==='seitenumbruch')return;   // Layout-Marker, zählt nicht
+    // Freier Text (Beschrieb ohne Menge/Preis) zählt nicht — setzt aber, anders
+    // als ein Titel, die Kapitel-Basis NICHT zurück.
+    if(p.art==='text')return;
+    // Variante: Alternativ-Position. Wird ausgewiesen (Preis in Klammern), zählt
+    // aber weder ins Total noch in die Kapitel-Basis der %-Rabatte.
+    if(p.variante)return;
     if(p.art==='titel'){kapBasis=0;return;}
     if(p.art==='rabatt'||p.art==='zuschlag'){zwischen+=erpAufschlagBetrag(p,kapBasis);return;}
     var z=erpNum(p.menge)*erpNum(p.ep);
@@ -2172,6 +2187,7 @@ function erpOpenEditor(){
     +(editable?'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">'
       +'<button class="btn ghost" onclick="erpPosAdd(\'frei\')">+ Position</button>'
       +'<button class="btn ghost" onclick="erpPosAdd(\'titel\')">+ Titelzeile</button>'
+      +'<button class="btn ghost" title="Freier Text/Beschrieb über die ganze Breite — ohne Menge und Preis" onclick="erpPosAdd(\'text\')">+ Text</button>'
       +'<button class="btn ghost" title="Rabatt aufs Zwischentotal der Positionen darüber im Kapitel — in % oder pauschal CHF" onclick="erpPosAdd(\'rabatt\')">− Rabatt</button>'
       +'<button class="btn ghost" title="Frei benennbarer Zuschlag aufs Zwischentotal der Positionen darüber im Kapitel — in % oder pauschal CHF" onclick="erpPosAdd(\'zuschlag\')">+ Zuschlag</button>'
       +'<span style="font-size:11.5px;color:var(--mut);align-self:center">Kataloge, BKP-Titel, Regierapporte & Lieferanten-Offerten stehen rechts in der Seitenleiste 🧰</span>'
@@ -2404,23 +2420,35 @@ function erpRenderPos(){
         +'</div></td><td></td>'+'</tr>';
       return;
     }
+    if(p.art==='text'){
+      // Freier Text/Beschrieb über die ganze Breite — keine Menge, kein Preis
+      h+=trOpen(i,'postext')+grip(i)+'<td colspan="6">'
+        +pcell(p.id,'bez','bezflex',(p.bez?erpRichSanitize(p.bez):'<span class="mut">Text …</span>'),inpRich(p.id,p.bez),!editable)
+        +'</td><td></td></tr>';
+      return;
+    }
+    var istVar=!!p.variante;
     var betrag=erpNum(p.menge)*erpNum(p.ep)*(1-erpNum(p.rabattPct)/100);
-    kapBasis+=betrag;
+    if(!istVar)kapBasis+=betrag;   // Variante zählt weder ins Total noch in die Kapitel-Basis
+    var mengeLeer=(p.menge==null||p.menge==='');
+    var istPer=!mengeLeer&&erpNum(p.menge)===0;   // Menge 0 = Einheitspreis «per», ohne Betrag
     var src=p.art==='regie'?'<span class="src regie">Regie</span>':p.eigenArtikelId?'<span class="src" style="background:var(--tint,#f5f8ff);color:var(--acc,#1d4ed8);border:1px solid var(--brd2)">⭐ Eigen</span>':p.produktId?'<span class="src katalog">'+(String(p.produktId).indexOf('ds:')===0?'🔎 DataSelect':'Katalog')+'</span>':p.art==='oa'?'<span class="src oa">Lief.-Offerte</span>':p.art==='abzug'?'<span class="src" style="background:var(--amber-bg);color:var(--amber);border:1px solid var(--amber-bd)">Abzug</span>':p.art==='akonto'?'<span class="src" style="background:var(--amber-bg);color:var(--amber);border:1px solid var(--amber-bd)">Akonto</span>':'';
     var img=erpPosImgSrc(p);
     var bildHtml=img
       ?'<div class="pos-bild"><img src="'+esc(img)+'" onclick="erpPosBildView('+i+')" alt=""/>'+(editable?'<button class="pos-bild-x" title="Bild entfernen" onclick="event.stopPropagation();erpPosBildDel('+i+')">✕</button>':'')+'</div>'
       :(editable&&p.art!=='abzug'&&p.art!=='akonto'?'<button class="pos-foto" title="Bild zur Position" onclick="event.stopPropagation();erpPosBildPick('+i+')">📷</button>':'');
     var editableRow=editable&&p.art!=='abzug';   // Abzugszeilen (Schlussrechnung) bleiben fix
-    h+=trOpen(i,p.art==='abzug'?'abzug':'')+grip(i)
-      +'<td><div style="display:flex;gap:8px;align-items:flex-start">'+pcell(p.id,'bez','bezflex',(p.bez?erpRichSanitize(p.bez):'<span class="mut">—</span>'),inpRich(p.id,p.bez),!editableRow)+bildHtml+'</div></td>'
+    var bezAnz=(p.bez?erpRichSanitize(p.bez):'<span class="mut">—</span>');
+    if(istVar)bezAnz='<b class="vari-tag">Variante</b><span class="vari-txt">'+bezAnz+'</span>';
+    h+=trOpen(i,(p.art==='abzug'?'abzug':'')+(istVar?' pos-variante':''))+grip(i)
+      +'<td><div style="display:flex;gap:8px;align-items:flex-start">'+pcell(p.id,'bez','bezflex',bezAnz,inpRich(p.id,p.bez),!editableRow)+bildHtml+'</div></td>'
       +'<td>'+src+'</td>'
-      +'<td style="width:76px">'+pcell(p.id,'menge','num',(p.menge!=null&&p.menge!==''?esc(p.menge):'<span class="mut">–</span>'),inpNum(p.id,'menge',p.menge,''),!editableRow)+'</td>'
+      +'<td style="width:76px">'+pcell(p.id,'menge','num',(istPer?'<span class="per-tag">per</span>':mengeLeer?'<span class="mut">–</span>':esc(p.menge)),inpNum(p.id,'menge',p.menge,''),!editableRow)+'</td>'
       +'<td style="width:88px">'+pcell(p.id,'einheit','',esc(p.einheit||'Stk'),inpSel(p.id,'einheit',(function(cu){var L=EINHEITEN.slice();if(cu&&L.indexOf(cu)<0)L.unshift(cu);return L.map(function(e){return '<option'+(cu===e?' selected':'')+'>'+esc(e)+'</option>';}).join('');})(p.einheit)),!editableRow)+'</td>'
       +'<td style="width:104px">'+pcell(p.id,'ep','num',(p.ep!=null&&p.ep!==''?esc(p.ep):'<span class="mut">–</span>'),inpNum(p.id,'ep',p.ep,''),!editableRow)+'</td>'
       +'<td style="width:76px">'+pcell(p.id,'rabattPct','num',(p.rabattPct?esc(p.rabattPct)+' %':'<span class="mut">–</span>'),inpNum(p.id,'rabattPct',p.rabattPct,'–'),!editableRow)+'</td>'
-      +'<td class="num" style="font-weight:700;white-space:nowrap">'+chf(betrag)+'</td>'
-      
+      +'<td class="num" style="font-weight:700;white-space:nowrap">'
+        +(istPer?'<span class="mut">—</span>':istVar?'('+chf(betrag)+')':chf(betrag))+'</td>'
       +'</tr>';
   });
   var _ncols=(editable?9:7);
@@ -2502,6 +2530,7 @@ function erpTotalAnwenden(v){
 function erpPosAdd(art){
   _erpInsertPos(
     art==='titel'?{id:uid(),art:'titel',bez:''}
+    :art==='text'?{id:uid(),art:'text',bez:''}
     :art==='rabatt'?{id:uid(),art:'rabatt',bez:'Rabatt',modus:'pct',wert:''}
     :art==='zuschlag'?{id:uid(),art:'zuschlag',bez:'Zuschlag',modus:'pct',wert:''}
     :{id:uid(),art:'frei',bez:'',menge:1,einheit:'Stk',ep:'',rabattPct:''});
@@ -2561,7 +2590,7 @@ function erpUpdatePosHint(){
   var hint=document.getElementById('posHint');if(!hint||!cur)return;
   var editable=erpEditable();
   var nSel=editable?_selIds.length:0;
-  hint.textContent=(cur.positionen||[]).filter(function(p){return p.art!=='titel'&&p.art!=='seitenumbruch'&&p.art!=='rabatt'&&p.art!=='zuschlag';}).length+' Positionen'
+  hint.textContent=(cur.positionen||[]).filter(function(p){return p.art!=='titel'&&p.art!=='text'&&p.art!=='seitenumbruch'&&p.art!=='rabatt'&&p.art!=='zuschlag';}).length+' Positionen'
     +(nSel?' · '+nSel+' markiert (Delete löscht)':(editable&&window.matchMedia&&matchMedia('(hover:hover)').matches?' · Klick markiert · Doppelklick bearbeitet · Rechtsklick: Menü':''));
 }
 function erpPosDeleteSelected(){
@@ -2834,6 +2863,23 @@ function erpPosInsertAufschlag(i,art,modus){
   cur.positionen.splice(i+1,0,{id:uid(),art:art,bez:art==='rabatt'?'Rabatt':'Zuschlag',modus:modus,wert:''});
   erpRenderPos();
 }
+/* Variante (Alternativ-Position): kursiv, Betrag in Klammern, NICHT im Total.
+   Zielmenge = die Markierung, sonst die angeklickte Zeile. Titel-, Text-,
+   Umbruch- und Rabatt-/Zuschlagszeilen können keine Variante sein. */
+function erpVarFaehig(p){ return !!p&&p.art!=='titel'&&p.art!=='text'&&p.art!=='seitenumbruch'&&p.art!=='rabatt'&&p.art!=='zuschlag'; }
+function erpVarZiele(p){
+  var ids=(_selIds.length>1&&_selIds.indexOf(p.id)>=0)?_selIds.slice():[p.id];
+  return ids.filter(function(id){ return erpVarFaehig((cur.positionen||[]).find(function(q){return q.id===id;})); });
+}
+function erpVarSet(ids,an){
+  (cur.positionen||[]).forEach(function(p){
+    if(ids.indexOf(p.id)<0)return;
+    if(an)p.variante=true; else delete p.variante;   // aufheben = Feld entfernen (Altstand bleibt sauber)
+  });
+  erpRenderPos();
+  toast(an?('◇ '+ids.length+' Position'+(ids.length>1?'en':'')+' als Variante markiert — nicht im Total')
+          :('Variante aufgehoben — '+ids.length+' Position'+(ids.length>1?'en':'')+' zählt wieder'));
+}
 function erpPosCtx(e,i){
   // In Eingabefeldern (inkl. Rich-Beschrieb) bleibt das native Menü (Text kopieren/einfügen)
   if(_erpInField(e.target))return;
@@ -2845,7 +2891,15 @@ function erpPosCtx(e,i){
   if(editable){
     items.push({ic:'➕',t:'Neue Position darüber',fn:function(){cur.positionen.splice(i,0,{id:uid(),art:'frei',bez:'',menge:1,einheit:'Stk',ep:'',rabattPct:''});erpRenderPos();}});
     items.push({ic:'➕',t:'Neue Position darunter',fn:function(){cur.positionen.splice(i+1,0,{id:uid(),art:'frei',bez:'',menge:1,einheit:'Stk',ep:'',rabattPct:''});erpRenderPos();}});
+    items.push({ic:'📝',t:'Neue Textzeile darunter',fn:function(){cur.positionen.splice(i+1,0,{id:uid(),art:'text',bez:''});erpRenderPos();}});
     items.push({ic:'⤵',t:'Seitenumbruch darüber (Ctrl+Enter)',fn:function(){cur.positionen.splice(i,0,{id:uid(),art:'seitenumbruch'});erpRenderPos();}});
+    // Variante: gilt für die Markierung, sonst für die angeklickte Zeile
+    var vIds=erpVarZiele(p);
+    if(vIds.length){
+      var allesVar=vIds.every(function(id){var x=cur.positionen.find(function(q){return q.id===id;});return x&&x.variante;});
+      items.push({ic:'◇',t:(allesVar?'Variante aufheben':'Als Variante markieren')+(vIds.length>1?' ('+vIds.length+')':''),
+        fn:function(){erpVarSet(vIds,!allesVar);}});
+    }
     if(_selIds.length>1)items.push({ic:'🗑',t:_selIds.length+' markierte löschen',danger:true,fn:function(){erpPosDeleteSelected();}});
     items.push('-');
   }
@@ -3574,7 +3628,7 @@ function erpEigRender(){
   if(_eigMode==='form'){el.innerHTML='';return;}
   if(!kat){el.innerHTML='<div class="side-empty">Noch kein eigener Katalog.<br>Mit «＋» oben beginnen — z.B. «Sanitärapparate Standard».</div>';return;}
   if(_eigMode==='pick-doc'){
-    var posn=(cur&&cur.positionen||[]).filter(function(p){return p.art!=='titel'&&p.art!=='abzug'&&p.art!=='akonto'&&p.art!=='rabatt'&&p.art!=='zuschlag'&&String(p.bez||'').trim();});
+    var posn=(cur&&cur.positionen||[]).filter(function(p){return p.art!=='titel'&&p.art!=='text'&&p.art!=='abzug'&&p.art!=='akonto'&&p.art!=='rabatt'&&p.art!=='zuschlag'&&String(p.bez||'').trim();});
     el.innerHTML='<div style="font-size:11.5px;font-weight:700;color:var(--mut);margin-bottom:6px">Positionen aus «'+esc(cur&&cur.nr||'Dokument')+'» übernehmen:</div>'
       +(posn.length?posn.map(function(p){
         var da=(kat.artikel||[]).some(function(a){return a.bez===p.bez;});
@@ -3722,7 +3776,7 @@ function erpVorlSpeichern(){
     var u=erpUser();
     // Dokument-spezifisches raus: Akonto-/Abzugszeilen weglassen, Regie-/OA-Verknüpfungen kappen
     var posn=(cur.positionen||[]).filter(function(p){return p.art!=='akonto'&&p.art!=='abzug'&&p.art!=='seitenumbruch';}).map(function(p){
-      var art=p.art==='titel'?'titel':(p.art==='rabatt'||p.art==='zuschlag')?p.art:'frei';
+      var art=(p.art==='titel'||p.art==='text')?p.art:(p.art==='rabatt'||p.art==='zuschlag')?p.art:'frei';
       var c={id:uid(),art:art,bez:p.bez,menge:p.menge,einheit:p.einheit,ep:p.ep,rabattPct:p.rabattPct};
       if(p.art==='titel'&&p.bkp)c.bkp=p.bkp;   // BKP-Struktur wandert in die Vorlage mit
       if(art==='rabatt'||art==='zuschlag'){c.modus=p.modus;c.wert=p.wert;delete c.menge;delete c.einheit;delete c.ep;delete c.rabattPct;}
@@ -3962,12 +4016,14 @@ function erpAkonto(){
 var _teilAuswahl=null;
 function erpTeilOpen(){
   erpSaveCur(true);
-  _teilAuswahl=(cur.positionen||[]).map(function(p,i){return {i:i,on:p.art!=='titel'&&p.art!=='rabatt'&&p.art!=='zuschlag'&&p.art!=='seitenumbruch',menge:p.menge};});
+  _teilAuswahl=(cur.positionen||[]).map(function(p,i){return {i:i,on:p.art!=='titel'&&p.art!=='text'&&p.art!=='rabatt'&&p.art!=='zuschlag'&&p.art!=='seitenumbruch'&&!p.variante,menge:p.menge};});
   var h='<div style="font-size:12.5px;color:var(--mut);margin-bottom:10px">Positionen für die Teilrechnung wählen — Menge anpassbar (z.B. gelieferter Anteil). Teilrechnungen gelten nicht als Akonto und werden in der Schlussrechnung NICHT abgezogen.</div>';
   (cur.positionen||[]).forEach(function(p,i){
     if(p.art==='seitenumbruch')return;   // Seitenumbruch nicht in die Teilrechnung-Auswahl
     if(p.art==='titel'){h+='<div style="font-weight:800;font-size:12.5px;margin:10px 0 4px'+(bkpEbene(p.bkp)?';padding-left:'+(bkpEbene(p.bkp)*14)+'px':'')+'">'+(p.bkp?esc(p.bkp)+' ':'')+esc(p.bez)+'</div>';return;}
     if(p.art==='rabatt'||p.art==='zuschlag'){h+='<div style="font-size:11px;color:var(--mut);margin:2px 0 6px">↳ '+esc(p.bez)+' — Rabatt/Zuschlag wird in der Teilrechnung nicht übernommen</div>';return;}
+    if(p.art==='text'){h+='<div style="font-size:11.5px;color:var(--mut);margin:2px 0 6px;font-style:italic">'+erpRichSanitize(p.bez)+'</div>';return;}
+    if(p.variante){h+='<div style="font-size:11px;color:var(--mut);margin:2px 0 6px;font-style:italic">◇ '+esc(erpBezPlain(p.bez)||'—')+' — Variante, nicht verrechenbar</div>';return;}
     h+='<div class="pick-item" style="cursor:default">'
       +'<input type="checkbox" checked style="width:22px;height:22px" onchange="_teilAuswahl['+i+'].on=this.checked"/>'
       +'<div class="pi-t"><div class="pi-n">'+esc(p.bez||'—')+'</div><div class="pi-s">EP CHF '+chf(erpNum(p.ep))+' / '+esc(p.einheit||'')+'</div></div>'
@@ -3981,7 +4037,7 @@ function erpTeilErstellen(){
   var pos=[];
   _teilAuswahl.forEach(function(a){
     if(!a.on)return;
-    var p=cur.positionen[a.i];if(!p||p.art==='titel'||p.art==='rabatt'||p.art==='zuschlag'||p.art==='seitenumbruch')return;
+    var p=cur.positionen[a.i];if(!p||p.art==='titel'||p.art==='text'||p.art==='rabatt'||p.art==='zuschlag'||p.art==='seitenumbruch')return;
     var np=JSON.parse(JSON.stringify(p));np.id=uid();np.menge=a.menge;
     pos.push(np);
   });
@@ -4488,14 +4544,24 @@ function erpPdf(){
       return;
     }
     if(p.art==='seitenumbruch'){posRows+='<tr class="pgbrk"><td colspan="6"></td></tr>';return;}
+    if(p.art==='text'){
+      // Freier Text/Beschrieb über die Textbreite — keine Nummer, keine Werte
+      posRows+='<tr class="txtrow"><td class="num"></td><td colspan="5">'+erpRichSanitize(p.bez)+'</td></tr>';
+      return;
+    }
+    var istVar=!!p.variante;
     nrPos++;
     var betrag=erpNum(p.menge)*erpNum(p.ep)*(1-erpNum(p.rabattPct)/100);
-    kapBasis+=betrag;
     if(!curGrp){curGrp={bez:'Positionen ohne Titel',sum:0,ltr:nextLtr(),bkp:'',ebene:0};gruppen.push(curGrp);}
-    curGrp.sum+=betrag;
+    if(!istVar){kapBasis+=betrag;curGrp.sum+=betrag;}   // Variante zählt nicht mit
+    var mengeLeer=(p.menge==null||p.menge==='');
+    var istPer=!mengeLeer&&erpNum(p.menge)===0;
     var pimg=erpPosImgSrc(p);
-    posRows+='<tr'+(pimg?' class="hasimg"':'')+(p.art==='abzug'?' style="color:#92400e"':'')+'><td class="num" style="color:#888">'+nrPos+'</td><td>'+erpRichSanitize(p.bez)+'</td>'
-      +'<td class="num">'+(p.menge!=null?p.menge:'')+'</td><td>'+esc(p.einheit||'')+'</td><td class="num">'+chf(erpNum(p.ep))+(erpNum(p.rabattPct)?'<br><span style="font-size:8pt;color:#888">−'+p.rabattPct+'%</span>':'')+'</td><td class="num">'+chf(betrag)+'</td></tr>';
+    var bezPdf=(istVar?'<b class="varitag">Variante</b>':'')+erpRichSanitize(p.bez);
+    posRows+='<tr'+(pimg?' class="hasimg'+(istVar?' varirow':'')+'"':(istVar?' class="varirow"':''))+(p.art==='abzug'?' style="color:#92400e"':'')
+      +'><td class="num" style="color:#888">'+nrPos+'</td><td>'+bezPdf+'</td>'
+      +'<td class="num">'+(istPer?'per':mengeLeer?'':p.menge)+'</td><td>'+esc(p.einheit||'')+'</td><td class="num">'+chf(erpNum(p.ep))+(erpNum(p.rabattPct)?'<br><span style="font-size:8pt;color:#888">−'+p.rabattPct+'%</span>':'')+'</td>'
+      +'<td class="num">'+(istPer?'':istVar?'('+chf(betrag)+')':chf(betrag))+'</td></tr>';
     // Positionsbild als eigene Zeile unter der Position
     if(pimg)posRows+='<tr class="bildrow"><td></td><td colspan="5" style="padding:2px 7px 8px"><img src="'+esc(pimg)+'" alt="" style="max-height:40mm;max-width:40mm;border:none;display:block"/></td></tr>';
   });
@@ -4674,6 +4740,11 @@ function erpPdf(){
     +'table.pos td{overflow-wrap:anywhere;word-break:break-word}'
     +'tr.pgbrk td{border:none;padding:0;height:0}'
     +'tr.grprow td{border-bottom:1px solid #111;font-weight:800;font-size:10.5pt;padding-top:12px}'
+    // Variante: kursiv, Betrag steht in Klammern und fehlt in der Kapitelsumme
+    +'tr.varirow td{font-style:italic}'
+    +'tr.varirow .varitag{display:block;font-style:normal;font-weight:700}'
+    // Freie Textzeile: kein Rahmen-Bruch, läuft als Fliesstext mit
+    +'tr.txtrow td{border-bottom:none;padding-top:2px}'
     +'.grpltr{width:10mm;font-weight:900;color:#111}'
     +'tr.hasimg td{border-bottom:none}'
     +'tr.bildrow{page-break-inside:avoid}'

@@ -1,5 +1,5 @@
 /* GEMA Service Worker — Offline Cache + Push Vorbereitung */
-var CACHE_NAME = 'gema-v359';
+var CACHE_NAME = 'gema-v360';
 var CACHE_FILES = [
   '/', '/index.html', '/sb_index.html',
   '/sa_enthaertung.html', '/sa_osmose.html', '/sa_fettabscheider.html',
