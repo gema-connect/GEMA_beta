@@ -88,13 +88,36 @@ ok(await page.evaluate(() => {
 ok(await page.evaluate(() => { cur.positionen = [{ id: 'a', art: 'frei', bez: 'A', menge: 1, einheit: 'Stk', ep: 1 }]; erpPosSelReset(); erpPosAdd('frei'); return cur.positionen.length === 2; }), 'ohne Markierung → ans Ende');
 
 console.log('■ Drag & Drop verschiebt die Reihenfolge');
+// Ablage-Helfer: obere/untere Hälfte der Zielzeile entscheidet vor/dahinter.
+await page.evaluate(() => {
+  window.__dnd = (vonIdx, zuIdx, unten) => {
+    cur.positionen = [{ id: 'x1', art: 'frei', bez: 'X1', menge: 1, einheit: 'Stk', ep: 1 },
+                      { id: 'x2', art: 'frei', bez: 'X2', menge: 1, einheit: 'Stk', ep: 1 },
+                      { id: 'x3', art: 'frei', bez: 'X3', menge: 1, einheit: 'Stk', ep: 1 }];
+    erpRenderPos();
+    const tr = document.querySelectorAll('#posBody tr')[zuIdx];
+    const r = tr.getBoundingClientRect();
+    const y = r.top + (unten ? r.height * 0.8 : r.height * 0.2);
+    erpPosDragStart({ target: { closest: () => null }, dataTransfer: { setData() {} } }, vonIdx);
+    erpPosDrop({ preventDefault() {}, clientY: y, target: { closest: () => tr } }, zuIdx);
+    return cur.positionen.map(p => p.id).join(',');
+  };
+});
+ok(await page.evaluate(() => __dnd(2, 0, false) === 'x3,x1,x2'), 'obere Hälfte von x1 → x3 davor (x3,x1,x2)');
+ok(await page.evaluate(() => __dnd(2, 0, true) === 'x1,x3,x2'), 'untere Hälfte von x1 → x3 dahinter (x1,x3,x2)');
+// DER Fehlerfall: bis zur LETZTEN Position ziehen — vorher kam man nur auf den vorletzten Platz
+ok(await page.evaluate(() => __dnd(0, 2, true) === 'x2,x3,x1'), 'x1 auf die untere Hälfte der letzten Zeile → ans Listenende (x2,x3,x1)');
+ok(await page.evaluate(() => __dnd(0, 2, false) === 'x2,x1,x3'), 'obere Hälfte der letzten Zeile → davor (x2,x1,x3)');
 ok(await page.evaluate(() => {
-  cur.positionen = [{ id: 'x1', art: 'frei', bez: 'X1', menge: 1, einheit: 'Stk', ep: 1 }, { id: 'x2', art: 'frei', bez: 'X2', menge: 1, einheit: 'Stk', ep: 1 }, { id: 'x3', art: 'frei', bez: 'X3', menge: 1, einheit: 'Stk', ep: 1 }];
+  // Ablegen auf sich selbst ändert nichts
+  return __dnd(1, 1, true) === 'x1,x2,x3';
+}), 'Ablegen auf der eigenen Zeile lässt die Reihenfolge unverändert');
+ok(await page.evaluate(() => {
+  cur.positionen = [{ id: 'y1', art: 'frei', bez: 'Y1', menge: 1, einheit: 'Stk', ep: 1 }, { id: 'y2', art: 'frei', bez: 'Y2', menge: 1, einheit: 'Stk', ep: 1 }];
   erpRenderPos();
-  erpPosDragStart({ target: { closest: () => null }, dataTransfer: { setData() {} } }, 2); // x3 aufnehmen
-  erpPosDrop({ preventDefault() {}, target: { closest: () => null } }, 0);                 // vor x1 ablegen
-  return cur.positionen.map(p => p.id).join(',') === 'x3,x1,x2';
-}), 'x3 vor x1 gezogen → x3,x1,x2');
+  const tr = document.querySelectorAll('#posBody tr')[1];
+  return !!(tr.getAttribute('ondragover') && tr.getAttribute('ondrop'));
+}), 'die GANZE Zeile ist Ablagefläche (nicht nur der 26-px-Griff)');
 
 console.log('■ Rechtsklick: neue Position darüber / darunter');
 ok(await page.evaluate(() => {

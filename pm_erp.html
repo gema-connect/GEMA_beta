@@ -216,6 +216,7 @@ table.pos{border-collapse:collapse;width:100%;font-size:13px}
 .pos tr.pos-sel.titel td{background:#dde8fd!important}
 .pos tr.pos-sel .pos-grip{color:var(--acc,#1d4ed8)}
 .pos tr.pos-drop td{box-shadow:inset 0 3px 0 var(--acc,#1d4ed8)}
+.pos tr.pos-drop-b td{box-shadow:inset 0 -3px 0 var(--acc,#1d4ed8)}
 .pos tr.pos-dragging td{opacity:.45}
 /* Anzeige-Zellen: Werte erst per Doppelklick bearbeitbar */
 .pos .pcell{min-height:38px;display:flex;align-items:center;padding:6px 8px;border:1.5px solid transparent;border-radius:8px;cursor:text;font-size:13.5px;line-height:1.3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
@@ -235,12 +236,17 @@ table.pos{border-collapse:collapse;width:100%;font-size:13px}
 .pos tr.pos-pbtop td:first-child::before{content:"✂ Seite";position:absolute;top:-8px;left:2px;font-size:8.5px;font-weight:700;letter-spacing:.2px;color:#64748b;background:var(--sur);padding:0 4px;border-radius:3px;white-space:nowrap}
 /* Rich-Text-Editor (Positionsbeschrieb) — Toolbar + contenteditable */
 .rich-wrap{border:1.5px solid var(--acc);border-radius:8px;background:var(--sur);overflow:hidden}
-.rich-bar{display:flex;flex-wrap:wrap;align-items:center;gap:3px;padding:4px 5px;background:var(--sur2);border-bottom:1px solid var(--brd)}
-.rich-bar .rb{min-width:26px;height:26px;padding:0 6px;border:1px solid var(--brd2);border-radius:6px;background:var(--sur);color:var(--ink,#111);font-size:12.5px;line-height:1;cursor:pointer}
-.rich-bar .rb:hover{background:var(--acc-bg);border-color:var(--acc-bd)}
-.rich-bar .rb-sel{height:26px;border:1px solid var(--brd2);border-radius:6px;background:var(--sur);font-size:11.5px;padding:0 4px;cursor:pointer;min-height:0;width:auto}
-.rich-bar .rb-col{width:20px;height:20px;padding:0;border:1px solid rgba(0,0,0,.15);border-radius:50%;cursor:pointer}
-.rich-bar .rb-col:hover{transform:scale(1.12)}
+/* Textformatierung sitzt FEST in der Aktionsleiste oben (neben Vorlagen/PDF) —
+   nicht mehr als Leiste in der Zelle: die Tabellenzeile bleibt so kompakt. */
+.rt-grp{flex:0 0 auto;display:flex;align-items:center;gap:3px;padding:0 8px;margin:0 2px;
+  border-left:1px solid var(--brd);border-right:1px solid var(--brd);opacity:.42;transition:opacity .15s}
+.rt-grp.is-on{opacity:1}
+.rt-grp .rb{min-width:28px;height:28px;padding:0 7px;border:1px solid var(--brd2);border-radius:7px;background:var(--sur);color:var(--txt);font-size:12.5px;line-height:1;cursor:pointer;font-family:inherit}
+.rt-grp .rb:hover{background:var(--acc-bg);border-color:var(--acc-bd)}
+.rt-grp .rb-sel{height:28px;border:1px solid var(--brd2);border-radius:7px;background:var(--sur);font-size:11.5px;padding:0 4px;cursor:pointer;min-height:0;width:auto;font-family:inherit}
+.rt-grp .rb-col{width:19px;height:19px;padding:0;border:1px solid rgba(0,0,0,.18);border-radius:50%;cursor:pointer}
+.rt-grp .rb-col:hover{transform:scale(1.14)}
+.rt-grp .rt-hint{font-size:11px;color:var(--mut2);white-space:nowrap;margin-left:2px}
 .rich-ed{min-height:40px;padding:8px 9px;font-size:13.5px;line-height:1.4;outline:none;white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word}
 .rich-ed:empty::before{content:attr(data-ph);color:var(--mut2)}
 .pos-foto{width:36px;height:36px;border-radius:8px;border:1.5px dashed var(--brd2);background:var(--sur);font-size:15px;cursor:pointer;flex-shrink:0}
@@ -2275,24 +2281,34 @@ function erpBezPlain(bez){
 // Rich-Editor-Widget (Toolbar + contenteditable) für die bez-Zelle.
 var _richEd=null,_richRange=null;
 function inpRich(id,val){
-  var cols=ERP_RICH_COLORS.map(function(c){return '<button type="button" class="rb-col" style="background:'+c+'" onclick="erpRichColor(\''+c+'\')" title="Textfarbe"></button>';}).join('');
-  return '<div class="rich-wrap" onmousedown="erpRichBarDown(event)">'
-    +'<div class="rich-bar">'
-      +'<button type="button" class="rb" onclick="erpRichCmd(\'bold\')" title="Fett (Auswahl markieren)"><b>F</b></button>'
-      +'<button type="button" class="rb" onclick="erpRichCmd(\'italic\')" title="Kursiv"><i>K</i></button>'
-      +'<button type="button" class="rb" onclick="erpRichCmd(\'underline\')" title="Unterstrichen"><u>U</u></button>'
-      +'<select class="rb-sel" onchange="erpRichSize(this.value);this.selectedIndex=0" title="Schriftgrösse"><option value="">Grösse ▾</option><option value="0.8em">klein</option><option value="1.2em">gross</option><option value="1.45em">sehr gross</option></select>'
-      +cols
-      +'<button type="button" class="rb" onclick="erpRichColorReset()" title="Formatierung entfernen">⌫</button>'
-    +'</div>'
-    +'<div class="rich-ed" data-edit="1" contenteditable="true" data-id="'+esc(id)+'" data-ph="Beschrieb …" onfocus="_richEd=this;erpRichSaveSel()" oninput="erpRichInput(this)" onmouseup="erpRichSaveSel()" onkeyup="erpRichSaveSel()" onblur="erpRichBlur(this,event)" onkeydown="erpRichKey(event)">'+erpRichSanitize(val)+'</div>'
+  // NUR das Eingabefeld — die Formatier-Werkzeuge stehen fest in der
+  // Aktionsleiste oben (erpRichBarHtml) und wirken auf das aktive Feld.
+  return '<div class="rich-wrap">'
+    +'<div class="rich-ed" data-edit="1" contenteditable="true" data-id="'+esc(id)+'" data-ph="Beschrieb …" onfocus="erpRichFocus(this)" oninput="erpRichInput(this)" onmouseup="erpRichSaveSel()" onkeyup="erpRichSaveSel()" onblur="erpRichBlur(this,event)" onkeydown="erpRichKey(event)">'+erpRichSanitize(val)+'</div>'
   +'</div>';
 }
+/* Formatier-Werkzeuge in der Aktionsleiste (fix oben, neben Vorlagen/PDF).
+   Sie sind gedimmt, solange kein Beschrieb-Feld bearbeitet wird. */
+function erpRichBarHtml(){
+  var cols=ERP_RICH_COLORS.map(function(c){return '<button type="button" class="rb-col" style="background:'+c+'" onclick="erpRichColor(\''+c+'\')" title="Textfarbe"></button>';}).join('');
+  return '<span class="rt-grp" id="edRich" onmousedown="erpRichBarDown(event)" title="Beschrieb formatieren — Text im Positions-Beschrieb markieren">'
+    +'<button type="button" class="rb" onclick="erpRichCmd(\'bold\')" title="Fett"><b>F</b></button>'
+    +'<button type="button" class="rb" onclick="erpRichCmd(\'italic\')" title="Kursiv"><i>K</i></button>'
+    +'<button type="button" class="rb" onclick="erpRichCmd(\'underline\')" title="Unterstrichen"><u>U</u></button>'
+    +'<select class="rb-sel" onchange="erpRichSize(this.value);this.selectedIndex=0" title="Schriftgrösse"><option value="">Grösse ▾</option><option value="0.8em">klein</option><option value="1.2em">gross</option><option value="1.45em">sehr gross</option></select>'
+    +cols
+    +'<button type="button" class="rb" onclick="erpRichColorReset()" title="Formatierung entfernen">⌫</button>'
+  +'</span>';
+}
+function erpRichFocus(el){_richEd=el;erpRichSaveSel();erpRichBarAktiv(true);}
+function erpRichBarAktiv(on){var g=document.getElementById('edRich');if(g)g.classList.toggle('is-on',!!on);}
 function erpRichInput(el){_richEd=el;erpCellSet(el.getAttribute('data-id'),'bez',erpRichSanitize(el.innerHTML));}
 function erpRichSaveSel(){var s=window.getSelection();if(s&&s.rangeCount&&_richEd&&_richEd.contains(s.anchorNode))_richRange=s.getRangeAt(0).cloneRange();}
 function _richRestore(){if(!_richEd)return;_richEd.focus();if(_richRange){try{var s=window.getSelection();s.removeAllRanges();s.addRange(_richRange);}catch(e){}}}
 function _richFlush(){if(_richEd){erpCellSet(_richEd.getAttribute('data-id'),'bez',erpRichSanitize(_richEd.innerHTML));erpRichSaveSel();}}
-function erpRichBarDown(e){if(e.target&&e.target.closest&&e.target.closest('.rb'))e.preventDefault();}   // Button-Klick stiehlt den Fokus/die Auswahl nicht
+// Button-Klick in der Leiste darf dem Feld weder Fokus noch Auswahl stehlen
+// (das <select> braucht den Fokus zum Aufklappen → nicht unterdrücken).
+function erpRichBarDown(e){if(e.target&&e.target.closest&&e.target.closest('button'))e.preventDefault();}
 function erpRichCmd(cmd){_richRestore();try{document.execCommand(cmd,false,null);}catch(e){}_richFlush();}
 function erpRichColor(c){_richRestore();erpRichWrapStyle('color',c);_richFlush();}   // Span-Wrap ist zuverlässiger als execCommand('foreColor')
 function erpRichColorReset(){_richRestore();try{document.execCommand('removeFormat',false,null);}catch(e){}_richFlush();}
@@ -2306,9 +2322,10 @@ function erpRichWrapStyle(prop,val){
 function erpRichKey(e){if(e.key==='Escape'){e.preventDefault();if(e.target&&e.target.blur)e.target.blur();}}
 function erpRichBlur(el,e){
   var to=e&&e.relatedTarget;
-  if(to&&to.closest&&to.closest('.rich-wrap'))return;   // Fokus bleibt in der Toolbar → Bearbeitung offen lassen
+  // Fokus in die Werkzeug-Leiste oben → Bearbeitung offen lassen
+  if(to&&to.closest&&(to.closest('#edRich')||to.closest('.rich-wrap')))return;
   erpCellSet(el.getAttribute('data-id'),'bez',erpRichSanitize(el.innerHTML));
-  _richEd=null;_richRange=null;erpCellCommit();
+  _richEd=null;_richRange=null;erpRichBarAktiv(false);erpCellCommit();
 }
 function erpRenderPos(){
   var tb=document.getElementById('posBody');if(!tb||!cur)return;
@@ -2338,13 +2355,16 @@ function erpRenderPos(){
   function grip(i){
     if(!editable)return '';
     return '<td class="pos-grip" draggable="true" title="Ziehen zum Verschieben · Klick auf die Zeile markiert (Shift: Bereich, Ctrl/Cmd: mehrere) · Delete löscht die Markierung"'
-      +' onclick="erpPosSelClick(event,'+i+')" ondragstart="erpPosDragStart(event,'+i+')" ondragover="erpPosDragOver(event,'+i+')" ondragleave="erpPosDragLeave(event,'+i+')" ondrop="erpPosDrop(event,'+i+')" ondragend="erpPosDragEnd()">⠿</td>';
+      +' onclick="erpPosSelClick(event,'+i+')" ondragstart="erpPosDragStart(event,'+i+')" ondragend="erpPosDragEnd()">⠿</td>';
   }
   function trOpen(i,extra){
     var p=cur.positionen[i];var c=extra?[extra]:[];
     if(editable&&_selIds.indexOf(p.id)>=0)c.push('pos-sel');
     if(editable&&_editCell&&_editCell.id===p.id)c.push('pos-editing');
-    return '<tr'+(c.length?' class="'+c.join(' ')+'"':'')+' data-posid="'+esc(p.id)+'" oncontextmenu="erpPosCtx(event,'+i+')"'+(editable?' onclick="erpPosRowClick(event,'+i+')"':'')+'>';
+    // Drop-Behandlung auf der GANZEN Zeile (nicht nur auf dem schmalen Griff) —
+    // sonst muss man beim Verschieben die 26-px-Spalte treffen.
+    return '<tr'+(c.length?' class="'+c.join(' ')+'"':'')+' data-posid="'+esc(p.id)+'" oncontextmenu="erpPosCtx(event,'+i+')"'
+      +(editable?' onclick="erpPosRowClick(event,'+i+')" ondragover="erpPosDragOver(event,'+i+')" ondragleave="erpPosDragLeave(event,'+i+')" ondrop="erpPosDrop(event,'+i+')"':'')+'>';
   }
   (cur.positionen||[]).forEach(function(p,i){
     if(p.art==='rabatt'||p.art==='zuschlag'){
@@ -2567,16 +2587,44 @@ function erpPosDragStart(e,i){
   try{e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/plain',_dragId);}catch(_){}
   var tr=e.target&&e.target.closest?e.target.closest('tr'):null;if(tr)tr.classList.add('pos-dragging');
 }
+/* Untere Zeilenhälfte = «dahinter einfügen». KRITISCH: früher landete die Zeile
+   IMMER vor der Zielzeile — die letzte Position war damit unerreichbar (man kam
+   nur bis auf den vorletzten Platz). */
+function _erpDropUnten(e,tr){
+  if(!tr||e.clientY==null)return false;
+  var r=tr.getBoundingClientRect();
+  if(!r.height)return false;
+  return (e.clientY-r.top)>r.height/2;
+}
+function _erpDropMarker(tr,unten){
+  document.querySelectorAll('#posBody tr.pos-drop,#posBody tr.pos-drop-b').forEach(function(x){
+    if(x!==tr)x.classList.remove('pos-drop','pos-drop-b');
+  });
+  if(!tr)return;
+  tr.classList.toggle('pos-drop',!unten);
+  tr.classList.toggle('pos-drop-b',!!unten);
+}
 function erpPosDragOver(e,i){
   if(_dragId==null)return;
   e.preventDefault();try{e.dataTransfer.dropEffect='move';}catch(_){}
   var tr=e.target&&e.target.closest?e.target.closest('tr'):null;
-  if(tr){document.querySelectorAll('#posBody tr.pos-drop').forEach(function(x){if(x!==tr)x.classList.remove('pos-drop');});tr.classList.add('pos-drop');}
+  if(!tr)return;
+  // Über der gezogenen Zeile selbst keinen Marker zeigen
+  if(tr.getAttribute('data-posid')===_dragId){_erpDropMarker(null);return;}
+  _erpDropMarker(tr,_erpDropUnten(e,tr));
 }
-function erpPosDragLeave(e,i){var tr=e.target&&e.target.closest?e.target.closest('tr'):null;if(tr)tr.classList.remove('pos-drop');}
+function erpPosDragLeave(e,i){
+  var tr=e.target&&e.target.closest?e.target.closest('tr'):null;
+  if(!tr)return;
+  // Wechsel zwischen Zellen DERSELBEN Zeile ist kein Verlassen (sonst flackert der Marker)
+  if(e.relatedTarget&&tr.contains(e.relatedTarget))return;
+  tr.classList.remove('pos-drop','pos-drop-b');
+}
 function erpPosDrop(e,i){
   e.preventDefault();
-  document.querySelectorAll('#posBody tr.pos-drop').forEach(function(x){x.classList.remove('pos-drop');});
+  var tr=e.target&&e.target.closest?e.target.closest('tr'):null;
+  var unten=_erpDropUnten(e,tr);
+  _erpDropMarker(null);
   if(_dragId==null||!cur)return;
   var toId=cur.positionen[i]&&cur.positionen[i].id;
   var fromId=_dragId;_dragId=null;
@@ -2585,10 +2633,11 @@ function erpPosDrop(e,i){
   if(fi<0)return;
   var it=cur.positionen.splice(fi,1)[0];
   var ti=cur.positionen.findIndex(function(p){return p.id===toId;});
-  if(ti<0)cur.positionen.push(it);else cur.positionen.splice(ti,0,it);   // vor der Zielzeile
+  if(ti<0)cur.positionen.push(it);
+  else cur.positionen.splice(unten?ti+1:ti,0,it);   // untere Hälfte → dahinter (auch ans Listenende)
   erpRenderPos();
 }
-function erpPosDragEnd(){_dragId=null;document.querySelectorAll('#posBody tr.pos-drop,#posBody tr.pos-dragging').forEach(function(x){x.classList.remove('pos-drop','pos-dragging');});}
+function erpPosDragEnd(){_dragId=null;_erpDropMarker(null);document.querySelectorAll('#posBody tr.pos-dragging').forEach(function(x){x.classList.remove('pos-dragging');});}
 // Ctrl+Z / Ctrl+Shift+Z (bzw. Ctrl+Y) → Rückgängig/Wiederholen. In einem Eingabefeld
 // bleibt die native Text-Rückgängig-Funktion; das Positions-Undo greift nur ausserhalb.
 document.addEventListener('keydown',function(e){
@@ -3777,6 +3826,7 @@ function erpRenderFooter(){
   // Rückgängig / Wiederholen (Ctrl+Z / Ctrl+Shift+Z)
   if(editable)ft+='<button class="btn btn-ico" id="edUndo" title="Rückgängig (Ctrl+Z)" onclick="erpUndo()">↶</button>'
     +'<button class="btn btn-ico" id="edRedo" title="Wiederholen (Ctrl+Shift+Z)" onclick="erpRedo()">↷</button>';
+  if(editable)ft+=erpRichBarHtml();
   if(erpLocked())ft+='<button class="btn" onclick="erpEntsperren()">🔓 Entsperren</button>';
   // Speichern läuft automatisch (Status unten rechts) — kein manueller Button mehr.
   if(editable)ft+='<button class="btn" onclick="erpGrunddatenToggle()">📋 Grunddaten '+(_erpGrunddatenOffen?'ausblenden':'anpassen')+'</button>';
@@ -3810,6 +3860,7 @@ function erpRenderFooter(){
   // Nav, der 🔴-Knopf oben wäre sonst nicht klickbar (Muster pm_pruefliste).
   ft+='<button class="gema-feedback-btn no-print" style="margin-left:auto" onclick="GemaFeedback.start()">🔴 Feedback</button>';
   document.getElementById('edFt').innerHTML=ft;
+  erpRichBarAktiv(!!_richEd);   // Zustand über ein Neuzeichnen der Leiste retten
   erpUpdateUndoBtns();
 }
 // Legacy — Speichern läuft automatisch; nur noch Sofort-Flush für Alt-Aufrufer.
