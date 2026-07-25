@@ -2030,6 +2030,34 @@ document.addEventListener('DOMContentLoaded',function(){
   function favs(){ try{ return (window._favHooks&&_favHooks.get())||[]; }catch(e){ return []; } }
   function istFav(h){ try{ return !!(window._favHooks&&_favHooks.has(h)); }catch(e){ return false; } }
 
+  /* ── Offene Mitteilungen pro Modul (rote Zahl auf der Kachel, iOS-Kanon) ──
+     Primär über den Deep-Link der Meldung (jede Notifikation trägt eine Ziel-
+     seite), sonst über das `modul`-Feld der EVENT_KEYS. Meldungen ohne Kachel
+     (Chat, Abos, Lieferanten-Dashboard) zählen bewusst nicht mit. */
+  var MODUL_SEITE={ausschreibung:'pm_ausschreibung.html',werkzeug:'if_werkzeug.html',fahrzeug:'if_fahrzeug.html',
+    trocknung:'if_trocknung.html',lu:'sb_index.html',schadensbericht:'sd_schadensbericht.html',
+    produktkatalog:'pm_objekte.html',bestellungen:'pm_bestellungen.html',erp:'pm_erp.html',
+    regierapport:'pm_regierapport.html',einsatzplan:'pm_einsatzplan.html',goodel:'pm_goodel.html',
+    abnahme:'pm_abnahme.html',legionellen:'hy_legionellen.html',spuelmanager:'hy_spuelmanager.html',
+    immobilien:'iv_immobilien.html',arbeitskleider:'if_arbeitskleider.html',service:'sv_service.html',
+    stundenerfassung:'pm_stunden.html',revisionsunterlagen:'pm_revisionsunterlagen.html',
+    behoerden_formulare:'pm_behoerden_formulare.html',planablage:'pm_planablage.html',
+    pruefliste:'pm_pruefliste.html',schule:'ab_klassen.html'};
+  function offeneMeldungen(){
+    var m={},list=[];
+    try{ list=GemaNotify.getForCurrentUser()||[]; }catch(e){ return m; }
+    list.forEach(function(n){
+      if(n.gelesen) return;
+      var h='';
+      if(n.link) h=String(n.link).split('?')[0].split('#')[0].replace(/^[.\/]+/,'');
+      if(!IDX[h]) h=MODUL_SEITE[n.modul]||'';
+      if(!IDX[h]) return;                      // kein sichtbares Modul → nicht zählen
+      m[h]=(m[h]||0)+1;
+    });
+    return m;
+  }
+  function badgeHtml(n){ return n?'<i class="gn-badge-ios">'+(n>99?'99+':n)+'</i>':''; }
+
   /* Kategorien + Module aus der bereits gefilterten Übersicht */
   function lesen(){
     var cats=[];
@@ -2060,14 +2088,15 @@ document.addEventListener('DOMContentLoaded',function(){
     String(titel||'').split(/\s+/).forEach(function(w){ if(w.length>max) max=w.length; });
     return max>=19?' is-xs':(max>=15?' is-s':'');
   }
+  var MELD={};
   function kachel(m){
     return '<button class="gn-tile'+tileKlasse(m.titel)+'" data-nat-href="'+NE(m.href)+'" data-gn-ctx="'+NE(m.titel)+'">'
       +'<span class="gn-tile-ic" style="--gn-tile-bg:'+grad(m.cat)+'">'+NE(m.ic)
-      +(istFav(m.href)?'<i class="gn-tile-fav">★</i>':'')+'</span>'
+      +(istFav(m.href)?'<i class="gn-tile-fav">★</i>':'')+badgeHtml(MELD[m.href])+'</span>'
       +'<span>'+NE(m.titel)+'</span></button>';
   }
   function chip(m){
-    return '<button class="gn-chip" data-nat-href="'+NE(m.href)+'">'+NE(m.ic)+' '+NE(m.titel)+'</button>';
+    return '<button class="gn-chip" data-nat-href="'+NE(m.href)+'">'+NE(m.ic)+' '+NE(m.titel)+badgeHtml(MELD[m.href])+'</button>';
   }
   function treffer(q){
     q=String(q||'').toLowerCase().trim();
@@ -2090,6 +2119,7 @@ document.addEventListener('DOMContentLoaded',function(){
     var anzahl=0;
     CATS.forEach(function(c){ c.mods.forEach(function(m){ IDX[m.href]=m; anzahl++; }); });
 
+    MELD=offeneMeldungen();
     var u=null; try{ u=GemaAuth.getCurrentUser(); }catch(e){}
     var name=(u&&(u.name||u.username))||'GEMA';
     var org=''; try{ var o=GemaAuth.getCurrentOrg(); org=(o&&o.name)||''; }catch(e){}
@@ -2202,17 +2232,27 @@ document.addEventListener('DOMContentLoaded',function(){
     });
   }
 
-  /* Ungelesen-Zähler NUR am Pill-Knopf nachführen — ein voller Re-Render würde
+  /* Zähler IM DOM nachführen statt neu zu rendern — ein voller Re-Render würde
      eine offene Command-Palette samt Sucheingabe wegwischen. */
+  function setBadge(host,cls,n){
+    if(!host) return;
+    var b=host.querySelector(':scope > .'+cls);
+    if(n){
+      if(!b){ b=document.createElement('i'); b.className=cls; host.appendChild(b); }
+      b.textContent=n>99?'99+':String(n);
+    } else if(b && b.parentNode) b.parentNode.removeChild(b);
+  }
   function badgeSync(){
     if(!nat||!nat.root) return;
-    var btn=nat.root.querySelector('[data-nat-notify]'); if(!btn) return;
     var n=0; try{ n=GemaNotify.getUnreadCount()||0; }catch(e){}
-    var d=btn.querySelector('.gn-pill-dot');
-    if(n){
-      if(!d){ d=document.createElement('i'); d.className='gn-pill-dot'; btn.appendChild(d); }
-      d.textContent=n>99?'99+':String(n);
-    } else if(d && d.parentNode) d.parentNode.removeChild(d);
+    setBadge(nat.root.querySelector('[data-nat-notify]'),'gn-pill-dot',n);
+    MELD=offeneMeldungen();
+    nat.root.querySelectorAll('.gn-tile[data-nat-href]').forEach(function(t){
+      setBadge(t.querySelector('.gn-tile-ic'),'gn-badge-ios',MELD[t.getAttribute('data-nat-href')]||0);
+    });
+    nat.root.querySelectorAll('.gn-chip[data-nat-href]').forEach(function(c){
+      setBadge(c,'gn-badge-ios',MELD[c.getAttribute('data-nat-href')]||0);
+    });
   }
 
   nat=GemaNativeMobil.mount({render:render});

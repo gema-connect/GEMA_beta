@@ -288,6 +288,70 @@ console.log('— Schwebende Aktionsleiste —');
   await ctx.close();
 }
 
+/* ════════ 4b · Rote Zahl am Modul (iPhone-Kanon) ════════ */
+console.log('— Offene Mitteilungen als rote Zahl am Modul —');
+{
+  const t = new Date().toISOString();
+  const notif = [
+    // per Deep-Link zugeordnet
+    { id: 'n1', eventKey: 'regie_eingereicht', empfaengerUserId: 'u1', modul: 'regierapport', typ: 'aktion', titel: 'Rapport', text: 'a', link: 'pm_regierapport.html?rr=1', gelesen: false, ts: t },
+    { id: 'n2', eventKey: 'regie_eingereicht', empfaengerUserId: 'u1', modul: 'regierapport', typ: 'aktion', titel: 'Rapport', text: 'b', link: 'pm_regierapport.html?rr=2', gelesen: false, ts: t },
+    { id: 'n3', eventKey: 'regie_freigegeben', empfaengerUserId: 'u1', modul: 'regierapport', typ: 'erfolg', titel: 'Rapport', text: 'c', link: 'pm_regierapport.html?rr=3', gelesen: false, ts: t },
+    // ohne Link → über das modul-Feld
+    { id: 'n4', eventKey: 'werkzeug_defekt', empfaengerUserId: 'u1', modul: 'werkzeug', typ: 'warnung', titel: 'Defekt', text: 'd', link: '', gelesen: false, ts: t },
+    // gelesen → zählt nicht
+    { id: 'n5', eventKey: 'werkzeug_defekt', empfaengerUserId: 'u1', modul: 'werkzeug', typ: 'warnung', titel: 'Defekt', text: 'e', link: '', gelesen: true, ts: t },
+    // Modul ohne Kachel (Chat) → zählt nicht mit
+    { id: 'n6', eventKey: 'chat_nachricht', empfaengerUserId: 'u1', modul: 'chat', typ: 'info', titel: 'Chat', text: 'f', link: 'index.html?chat=1', gelesen: false, ts: t }
+  ];
+  const { ctx, page, errs } = await open('u1', {
+    gema_notifications_v1: JSON.stringify(notif),
+    gema_favourites_u1: JSON.stringify(['pm_regierapport.html'])
+  });
+  const b = await page.evaluate(() => {
+    const g = h => document.querySelector('.gn--page .gn-tile[data-nat-href="' + h + '"] .gn-badge-ios');
+    const chip = document.querySelector('.gn--page .gn-chip[data-nat-href="pm_regierapport.html"] .gn-badge-ios');
+    const st = g('pm_regierapport.html') ? getComputedStyle(g('pm_regierapport.html')) : null;
+    return {
+      regie: g('pm_regierapport.html') ? g('pm_regierapport.html').textContent : '',
+      wz: g('if_werkzeug.html') ? g('if_werkzeug.html').textContent : '',
+      erp: !!g('pm_erp.html'),
+      chip: chip ? chip.textContent : '',
+      farbe: st ? st.backgroundColor : '',
+      rund: st ? st.borderRadius : '',
+      total: document.querySelectorAll('.gn--page .gn-tile .gn-badge-ios').length
+    };
+  });
+  ok(b.regie === '3', 'Regierapporte trägt die «3» (Deep-Link-Zuordnung)');
+  ok(b.wz === '1', 'Werkzeug trägt die «1» (Zuordnung über das modul-Feld)');
+  ok(!b.erp, 'Module ohne offene Meldung bleiben ohne Abzeichen');
+  ok(b.total === 2, 'genau 2 Module mit Abzeichen — Chat hat keine Kachel und zählt nicht');
+  ok(b.chip === '3', 'auch der Favoriten-Chip trägt die Zahl');
+  ok(/rgb\(255,\s*59,\s*48\)/.test(b.farbe), 'iOS-Rot (' + b.farbe + ')');
+
+  /* Stern links, Zahl rechts — die beiden Marker kollidieren nicht */
+  const pos = await page.evaluate(() => {
+    const ic = document.querySelector('.gn--page .gn-tile[data-nat-href="pm_regierapport.html"] .gn-tile-ic');
+    const s = ic.querySelector('.gn-tile-fav').getBoundingClientRect();
+    const n = ic.querySelector('.gn-badge-ios').getBoundingClientRect();
+    return { star: s.left, badge: n.left, ueberlappt: s.right > n.left };
+  });
+  ok(pos.star < pos.badge && !pos.ueberlappt, 'Favoriten-Stern links, Mitteilungs-Zahl rechts (keine Überlappung)');
+
+  /* Live: gelesen markieren → Abzeichen verschwindet OHNE Re-Render */
+  await page.evaluate(() => { window.__cmdMarker = 1; GemaNotify.markAllRead(); });
+  await page.waitForTimeout(400);
+  const nach = await page.evaluate(() => ({
+    tiles: document.querySelectorAll('.gn--page .gn-tile .gn-badge-ios').length,
+    pill: !!document.querySelector('.gn--page .gn-pill-dot'),
+    marker: window.__cmdMarker            // überlebt = kein Re-Render der Seite
+  }));
+  ok(nach.tiles === 0 && !nach.pill, 'Abzeichen verschwinden, sobald alles gelesen ist');
+  ok(nach.marker === 1, 'Aktualisierung läuft im DOM (kein Re-Render, offene Suche bliebe erhalten)');
+  ok(errs.length === 0, 'keine pageerrors' + (errs.length ? ' — ' + errs.slice(0, 2).join(' | ') : ''));
+  await ctx.close();
+}
+
 /* ════════ 5 · Kachel öffnet das Modul ════════ */
 console.log('— Navigation —');
 {
