@@ -69,6 +69,24 @@
       'font:400 16px var(--gn-font);color:var(--gn-ink);outline:none;box-shadow:var(--gn-shadow-card);-webkit-appearance:none;appearance:none;' +
       'background-image:url("data:image/svg+xml;utf8,<svg xmlns=\'http://www.w3.org/2000/svg\' width=\'12\' height=\'8\' fill=\'none\' stroke=\'%236b7280\' stroke-width=\'2\'><path d=\'M1 1.5 6 6.5 11 1.5\'/></svg>");background-repeat:no-repeat;background-position:right 14px center}' +
       '.gn .gn-timepair{display:flex;gap:9px}' +
+      /* ── Chat als VOLLBILD-Overlay im Native-Modus ──
+         Das Panel beginnt normal bei top:72px (Platz für die .g-nav) — die ist
+         hier ausgeblendet, dort schaut also der Screen durch. Auf dem Home-
+         Screen liegt genau da der Avatar: ein Tap neben/nach dem Schliessen
+         landete in sys_profil («ich lande in den Einstellungen»). Vollbild +
+         eigener Safe-Area-Abstand; Schliessen bringt einen an dieselbe Stelle
+         zurück, weil nichts navigiert wird. */
+      'html.gn-native-on .gc-panel{top:0!important;left:0;right:0;width:100vw!important;max-width:none;' +
+      'border-left:none!important;z-index:10800!important;padding-top:env(safe-area-inset-top,0px)}' +
+      /* ── Bottom-Navbar: auf JEDEM nativen Screen (zentral injiziert) ──
+         Aussehen kommt aus dem Kit (.gn-pill); hier nur die Lage über allen
+         Screen-Inhalten und der Freiraum, damit nichts darunter endet. */
+      '.gn .gn-navbar{z-index:24}' +
+      '.gn [data-gn-scroll]{padding-bottom:calc(var(--gn-safe-bottom) + 96px)}' +
+      /* ── Firmenlogo oben links (Home-Header + Modul-Toolbar) ── */
+      '.gn .gn-orglogo{height:26px;max-width:132px;width:auto;object-fit:contain;object-position:left center;display:block;flex:none}' +
+      '.gn .gn-header .gn-orglogo{margin-bottom:7px;height:28px}' +
+      '.gn .gn-toolbar .gn-orglogo{height:22px;max-width:96px;margin-right:2px}' +
       /* ── Zurück-Taste (Toolbar + Kompakt-Leiste, zentral injiziert) ── */
       '.gn .gn-back{flex:none}' +
       '.gn .gn-back svg{stroke:var(--gn-accent)}' +
@@ -134,6 +152,102 @@
     }
   }
 
+  /* ── Firmenlogo oben links ──────────────────────────────────────────
+     Quelle wie überall in GEMA: org.logoVector (SVG, gestochen) vor
+     org.logo (JPEG-Raster). Ohne hinterlegtes Logo passiert nichts —
+     KEIN Platzhalter, damit der Kopf sauber bleibt. */
+  function orgLogoSrc() {
+    try {
+      if (typeof GemaAuth === 'undefined' || !GemaAuth.getCurrentOrg) return '';
+      var o = GemaAuth.getCurrentOrg();
+      return (o && (o.logoVector || o.logo)) || '';
+    } catch (e) { return ''; }
+  }
+  function injectLogo(root) {
+    var src = orgLogoSrc();
+    if (!src) return;
+    if (root.querySelector('.gn-orglogo')) return;
+    var img = document.createElement('img');
+    img.className = 'gn-orglogo';
+    img.alt = '';
+    img.src = src;
+    // Home-Screen: über dem Gruss (oben links). Modul-Screens: in der
+    // Toolbar direkt nach der Zurück-Taste.
+    var head = root.querySelector('.gn-header');
+    if (head) {
+      var links = head.firstElementChild;
+      if (links) links.insertBefore(img, links.firstChild); else head.insertBefore(img, head.firstChild);
+      return;
+    }
+    var tb = root.querySelector('.gn-toolbar');
+    if (tb) {
+      var back = tb.querySelector('[data-gn-back]');
+      if (back && back.nextSibling) tb.insertBefore(img, back.nextSibling);
+      else if (back) tb.appendChild(img);
+      else tb.insertBefore(img, tb.firstChild);
+    }
+  }
+
+  /* ── Bottom-Navbar auf JEDEM nativen Screen ─────────────────────────
+     Mitteilungen und Chat sitzen sonst in der .g-nav, die die Native-
+     Ansicht ausblendet — ohne diese Leiste wären sie auf allen Modul-
+     Screens unerreichbar. Die Knöpfe tragen dieselben data-Attribute wie
+     die frühere Home-eigene Leiste, damit deren Zähler-Sync weiterläuft. */
+  var SVG_GLOCKE = '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>';
+  var SVG_CHAT = '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 8.5 8.5 0 0 1-3.9-.9L3 20.5l1.5-4.6A8.4 8.4 0 0 1 12 3.1a8.4 8.4 0 0 1 9 8.4Z"/></svg>';
+  var SVG_RASTER = '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.9" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></svg>';
+  function istHome() {
+    var p = (location.pathname || '').split('/').pop() || '';
+    return p === '' || p === 'index.html';
+  }
+  function unreadCount() { try { return GemaNotify.getUnreadCount() || 0; } catch (e) { return 0; } }
+  function injectNavbar(root) {
+    // Der Home-Screen bringt seine Leiste selbst mit (.gn-pill) — dort nicht
+    // doppelt injizieren.
+    if (root.querySelector('.gn-navbar')) return;
+    var n = unreadCount();
+    var ziel = istHome() ? 'sys_workspace.html' : 'index.html';
+    var bar = document.createElement('div');
+    // Beide Klassen: .gn-pill trägt das bestehende Aussehen aus dem Kit,
+    // .gn-navbar markiert die zentral injizierte Leiste.
+    bar.className = 'gn-pill gn-navbar';
+    bar.innerHTML =
+      '<button class="gn-pill-btn" data-nat-notify title="Mitteilungen">' + SVG_GLOCKE
+      + (n ? '<i class="gn-pill-dot">' + (n > 99 ? '99+' : n) + '</i>' : '') + '</button>'
+      + '<button class="gn-pill-btn" data-nat-chat title="Chat">' + SVG_CHAT + '</button>'
+      + '<button class="gn-pill-btn gn-pill-btn--primary" data-nat-nav-home title="' + (istHome() ? 'Workspace' : 'Übersicht') + '">' + SVG_RASTER + '</button>';
+    bar.querySelector('[data-nat-nav-home]').addEventListener('click', function () { location.href = ziel; });
+    root.appendChild(bar);
+  }
+  /* Glocke und Chat aus der ausgeblendeten .g-nav bedienbar machen.
+     stopPropagation: beide Panels schliessen bei jedem Klick ausserhalb —
+     der eigene Auslöser-Klick würde sie sonst sofort wieder zumachen. */
+  function wireNavbar(root) {
+    if (root.__gnNavWired) return; root.__gnNavWired = true;
+    root.addEventListener('click', function (e) {
+      if (!e.target.closest) return;
+      if (e.target.closest('[data-nat-notify]')) {
+        e.stopPropagation();
+        var b = document.querySelector('.g-nav .gn-btn'); if (b) b.click();
+        return;
+      }
+      if (e.target.closest('[data-nat-chat]')) {
+        e.stopPropagation();
+        try { if (typeof GemaChat !== 'undefined') GemaChat.open(); } catch (err) {}
+      }
+    });
+  }
+  function navbarBadge(root) {
+    var host = root && root.querySelector('[data-nat-notify]');
+    if (!host) return;
+    var n = unreadCount();
+    var b = host.querySelector('.gn-pill-dot');
+    if (n) {
+      if (!b) { b = document.createElement('i'); b.className = 'gn-pill-dot'; host.appendChild(b); }
+      b.textContent = n > 99 ? '99+' : String(n);
+    } else if (b && b.parentNode) b.parentNode.removeChild(b);
+  }
+
   function mount(opts) {
     ensureCss();
     var root = document.createElement('div');
@@ -158,6 +272,8 @@
         var st = sc ? sc.scrollTop : 0;
         try { opts.render(root); } catch (e) { console.warn('[GemaNativeMobil] render:', e && e.message); }
         try { injectBack(root); } catch (e) {}
+        try { injectLogo(root); } catch (e) {}
+        try { injectNavbar(root); wireNavbar(root); } catch (e) {}
         root.__gnInit = false;
         if (window.GemaNative) { try { GemaNative.init(root); } catch (e) {} }
         var sc2 = root.querySelector('[data-gn-scroll]');
@@ -242,6 +358,9 @@
     document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && curSheet) closeSheet(); });
 
     apply();
+    // Ungelesen-Zähler der Navbar IM DOM nachführen (kein Re-Render — der
+    // würde ein offenes Overlay/eine Eingabe wegwischen).
+    try { if (typeof GemaNotify !== 'undefined' && GemaNotify.onChange) GemaNotify.onChange(function () { navbarBadge(root); }); } catch (e) {}
     return { refresh: apply, root: root, enabled: enabled, sheet: sheet, closeSheet: closeSheet, sheetOpen: function () { return !!curSheet; } };
   }
 
@@ -289,5 +408,6 @@
     });
   }
 
-  window.GemaNativeMobil = { phone: phone, enabled: enabled, pref: pref, setPref: setPref, mount: mount, esc: esc, ac: ac, goBack: goBack };
+  window.GemaNativeMobil = { phone: phone, enabled: enabled, pref: pref, setPref: setPref, mount: mount, esc: esc, ac: ac, goBack: goBack,
+    orgLogoSrc: orgLogoSrc, istHome: istHome };
 })();

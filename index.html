@@ -2014,9 +2014,6 @@ document.addEventListener('DOMContentLoaded',function(){
 
   var SVG_SUCHE='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-3.6-3.6"/></svg>';
   var SVG_X='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M5 5l14 14M19 5 5 19"/></svg>';
-  var SVG_GLOCKE='<svg viewBox="0 0 24 24" fill="none" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8.5a6 6 0 1 0-12 0c0 6-2 7.5-2 7.5h16s-2-1.5-2-7.5"/><path d="M13.7 20a2 2 0 0 1-3.4 0"/></svg>';
-  var SVG_CHAT='<svg viewBox="0 0 24 24" fill="none" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a7.5 7.5 0 0 1-10.9 6.7L4 20l1.4-4.3A7.5 7.5 0 1 1 20 12Z"/></svg>';
-  var SVG_RASTER='<svg viewBox="0 0 24 24" fill="none" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="3.5" width="7" height="7" rx="2"/><rect x="13.5" y="3.5" width="7" height="7" rx="2"/><rect x="3.5" y="13.5" width="7" height="7" rx="2"/><rect x="13.5" y="13.5" width="7" height="7" rx="2"/></svg>';
 
   function gruss(){
     var h=new Date().getHours();
@@ -2086,13 +2083,20 @@ document.addEventListener('DOMContentLoaded',function(){
   function tileKlasse(titel){
     var max=0;
     String(titel||'').split(/\s+/).forEach(function(w){ if(w.length>max) max=w.length; });
-    return max>=19?' is-xs':(max>=15?' is-s':'');
+    /* Schwelle 17 (nicht 19): «Werkzeugmanagement»/«Fahrzeugmanagement» (18)
+       brachen bei 10px mitten im Wort um — Silbentrennung greift nur, wo der
+       Browser deutsche Trennmuster hat, darauf ist kein Verlass. */
+    return max>=17?' is-xs':(max>=15?' is-s':'');
   }
   var MELD={};
-  function kachel(m){
-    return '<button class="gn-tile'+tileKlasse(m.titel)+'" data-nat-href="'+NE(m.href)+'" data-gn-ctx="'+NE(m.titel)+'">'
+  /* Kachel. `fav:true` = Darstellung in der Favoriten-Sektion: dezenter gelber
+     Rahmen ums Symbol statt des ★-Markers (Feedback 26.07.2026 — Favoriten sind
+     jetzt ebenfalls Apps und stehen NUR noch oben, nicht mehr zusätzlich in
+     ihrer Kategorie). */
+  function kachel(m,fav){
+    return '<button class="gn-tile'+tileKlasse(m.titel)+(fav?' gn-tile--fav':'')+'" data-nat-href="'+NE(m.href)+'" data-gn-ctx="'+NE(m.titel)+'">'
       +'<span class="gn-tile-ic" style="--gn-tile-bg:'+grad(m.cat)+'">'+NE(m.ic)
-      +(istFav(m.href)?'<i class="gn-tile-fav">★</i>':'')+badgeHtml(MELD[m.href])+'</span>'
+      +badgeHtml(MELD[m.href])+'</span>'
       +'<span>'+NE(m.titel)+'</span></button>';
   }
   function chip(m){
@@ -2137,8 +2141,6 @@ document.addEventListener('DOMContentLoaded',function(){
       });
     }catch(e){}
 
-    var unread=0; try{ unread=GemaNotify.getUnreadCount()||0; }catch(e){}
-
     root.innerHTML=
       '<div class="gn-screen" data-gn-scroll>'
         +'<div class="gn-header">'
@@ -2149,21 +2151,23 @@ document.addEventListener('DOMContentLoaded',function(){
         +'<button class="gn-search" data-gn-cmd-open>'
           +SVG_SUCHE.replace('<svg ','<svg style="width:18px;height:18px;flex:none;color:#9ca3af" ')
           +'<span>Modul suchen…</span><kbd>'+anzahl+'</kbd></button>'
-        +(favM.length?('<div class="gn-label">Favoriten</div><div class="gn-quick">'+favM.map(chip).join('')+'</div>'):'')
+        +(favM.length?('<div class="gn-label">Favoriten</div><div class="gn-grid gn-grid--fav">'+favM.map(function(m){return kachel(m,true);}).join('')+'</div>'):'')
         +(recM.length?('<div class="gn-label">Zuletzt verwendet</div><div class="gn-quick">'+recM.map(chip).join('')+'</div>'):'')
+        /* Favoriten stehen bereits oben — hier NICHT nochmals zeigen
+           (Feedback 26.07.2026). Eine Kategorie, deren Module alle Favoriten
+           sind, entfällt komplett. */
         +CATS.map(function(c){
-          return '<div class="gn-label">'+NE(c.titel)+'</div><div class="gn-grid">'+c.mods.map(kachel).join('')+'</div>';
+          var rest=c.mods.filter(function(m){ return !favSet[m.href]; });
+          if(!rest.length) return '';
+          return '<div class="gn-label">'+NE(c.titel)+'</div><div class="gn-grid">'+rest.map(function(m){return kachel(m,false);}).join('')+'</div>';
         }).join('')
         +(anzahl?'':'<div class="gn-label">Keine Module freigeschaltet</div>')
       +'</div>'
-      /* schwebende Leiste — Glocke und Chat sitzen sonst in der .g-nav, die
-         die Native-Ansicht ausblendet, und wären auf dem Phone unerreichbar */
-      +'<div class="gn-pill">'
-        +'<button class="gn-pill-btn" data-nat-notify title="Mitteilungen">'+SVG_GLOCKE
-          +(unread?'<i class="gn-pill-dot">'+(unread>99?'99+':unread)+'</i>':'')+'</button>'
-        +'<button class="gn-pill-btn" data-nat-chat title="Chat">'+SVG_CHAT+'</button>'
-        +'<button class="gn-pill-btn gn-pill-btn--primary" data-nat-href="sys_workspace.html" title="Workspace">'+SVG_RASTER+'</button>'
-      +'</div>'
+      /* Die schwebende Leiste (Mitteilungen/Chat/Workspace) injiziert
+         gema_native_mobil.js zentral — sie erscheint damit auf JEDEM nativen
+         Screen, nicht nur hier (Feedback 26.07.2026). Auch die Klick-Behandlung
+         für Glocke und Chat liegt dort; hier NICHT doppelt verdrahten, sonst
+         öffnet und schliesst ein Klick das Glocken-Panel sofort wieder. */
       /* Command-Palette (Volltextsuche über alle freigeschalteten Module) */
       +'<div class="gn-backdrop gn-cmd-backdrop" data-gn-cmd-backdrop></div>'
       +'<div class="gn-cmd" data-gn-cmd>'
@@ -2212,18 +2216,8 @@ document.addEventListener('DOMContentLoaded',function(){
         }
         return;
       }
-      if(e.target.closest&&e.target.closest('[data-nat-notify]')){
-        /* stopPropagation: die Glocke schliesst ihr Panel bei jedem Klick
-           ausserhalb — der eigene Auslöser-Klick würde es sonst sofort wieder zu. */
-        e.stopPropagation();
-        var b=document.querySelector('.g-nav .gn-btn'); if(b) b.click();
-        return;
-      }
-      if(e.target.closest&&e.target.closest('[data-nat-chat]')){
-        e.stopPropagation();
-        try{ if(typeof GemaChat!=='undefined') GemaChat.open(); }catch(err){}
-        return;
-      }
+      /* Glocke + Chat der Bottom-Navbar sind zentral in gema_native_mobil.js
+         verdrahtet (die Leiste steht auf allen nativen Screens). */
       var t=e.target.closest&&e.target.closest('[data-nat-href]');
       if(t){
         if(t.__gnCtxFired){ t.__gnCtxFired=false; return; }               // Long-Press hatte Vorrang
