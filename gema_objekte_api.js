@@ -230,6 +230,16 @@
   // Blob NICHT versehentlich fremde Objekte aus der Cloud entfernt.
   function upsertObjekt(obj){
     if (!obj || !obj.id) return Promise.resolve();
+    // Org-Stempel sicherstellen: ein Objekt ohne orgId waere fuer die ganze
+    // Firma unsichtbar (siehe effektiveOrgId). Die Quick-Add-Aufrufer setzen
+    // sie zwar, aber mit Fallbacks, die bei noch nicht aufgeloester Session
+    // leer bleiben — hier ist der letzte gemeinsame Punkt vor dem Schreiben.
+    try {
+      if (!obj.orgId && typeof GemaAuth !== 'undefined' && GemaAuth.getCurrentUser) {
+        var _cu = GemaAuth.getCurrentUser();
+        if (_cu && _cu.orgId) obj.orgId = _cu.orgId;
+      }
+    } catch(e){}
     var data = _load() || { objekte: [], beteiligte: [], activeObjektId: null };
     var arr = Array.isArray(data.objekte) ? data.objekte.slice() : [];
     var idx = -1;
@@ -264,6 +274,32 @@
   }
 
 
+  // ── Org-Zuordnung eines Objekts (KRITISCH fuer die Sichtbarkeit) ──
+  // Ein Objekt OHNE `orgId` (bzw. mit dem Sammel-Stempel 'org_default',
+  // den `_currentOrgId` bei einem User ohne Org setzt) war fuer die ganze
+  // Firma unsichtbar: der Filter verglich es mit der eigenen orgId und
+  // nur ein GEMA-Admin (role_admin) sah es. Entstanden ist das, wenn beim
+  // Anlegen die Session noch nicht aufgeloest war (pm_objekte stempelte
+  // die orgId nur `if(_currentOrgId)`) oder der Ersteller selbst keine
+  // orgId trug. Deshalb wird die Zuordnung hier ABGELEITET: eigenes Feld
+  // → Org des Erstellers. Liefert null, wenn nichts aufloesbar ist
+  // («herrenlos») — solche Objekte bleiben sichtbar, statt fuer immer zu
+  // verschwinden (Muster Goodel: defensiv sichtbar bis zum naechsten Save).
+  function _userOrgOf(userId) {
+    if (!userId || typeof GemaAuth === 'undefined' || !GemaAuth.getUsers) return null;
+    try {
+      var u = (GemaAuth.getUsers() || []).find(function(x){ return x && x.id === userId; });
+      return (u && u.orgId) || null;
+    } catch(e) { return null; }
+  }
+  function effektiveOrgId(o) {
+    if (!o) return null;
+    var oid = o.orgId || '';
+    // Fehlend ODER Sammel-Stempel 'org_default': Ersteller entscheidet.
+    if (!oid || oid === 'org_default') return _userOrgOf(o.erstelltVon) || oid || null;
+    return oid;
+  }
+
   // ── Tenant-Filter mit Abteilungen + Gastzugang ─────────────────
   function _filterByOrg(list) {
     if (typeof GemaAuth === 'undefined') return list;
@@ -278,9 +314,11 @@
       GemaAuth.getGastOrgs(user.id).forEach(function(g) { sichtbareOrgs.push(g.orgId); });
     }
 
-    // Filter nach Org
+    // Filter nach Org (abgeleitete Zuordnung; herrenlos = sichtbar)
     var orgFiltered = list.filter(function(o) {
-      return sichtbareOrgs.indexOf(o.orgId || 'org_default') >= 0;
+      var eff = effektiveOrgId(o);
+      if (!eff) return true;
+      return sichtbareOrgs.indexOf(eff) >= 0;
     });
 
     // Abteilungs-Filter (wenn aktiviert)
@@ -291,7 +329,7 @@
       if (typeof GemaAuth.isOrgAdmin === 'function' && GemaAuth.isOrgAdmin(user.id)) return orgFiltered;
       // Normaler User: nur Projekte seiner Abteilung (oder ohne Abteilung)
       return orgFiltered.filter(function(o) {
-        if ((o.orgId || 'org_default') !== orgId) return true; // Gast-Orgs: keine Abt-Filterung
+        if ((effektiveOrgId(o) || orgId) !== orgId) return true; // Gast-Orgs: keine Abt-Filterung
         return !o.abteilungId || o.abteilungId === user.abteilungId
           || (Array.isArray(o.abteilungIds) && o.abteilungIds.indexOf(user.abteilungId) >= 0);
       });
@@ -737,6 +775,10 @@
 
   w.GemaObjekte = {
     getAll: getAll, getAllUnfiltered: getAllUnfiltered, getAktive: getAktive, getActive: getActive, getActiveId: getActiveId,
+    // Abgeleitete Org-Zuordnung (orgId → Ersteller-Org); null = herrenlos.
+    // Jede modul-eigene Org-Filterung MUSS darüber laufen, sonst sind
+    // Objekte ohne sauberen Org-Stempel für die ganze Firma unsichtbar.
+    effektiveOrgId: effektiveOrgId,
     setObjektStatus: setObjektStatus, setActiveId: setActiveId,
     getBeteiligte: getBeteiligte, getByRolle: getByRolle, getBeteiligterById: getBeteiligterById,
     getParent: getParent, getChildren: getChildren, getDescendants: getDescendants, getBreadcrumb: getBreadcrumb,
