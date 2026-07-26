@@ -4,8 +4,13 @@
 //     ohne Bestätigungsklick. «Stimmt die Zeit, gibt er einfach den Tag frei»
 //     → beim Freigeben werden die Planzeiten zu echten Zeiteinträgen.
 //  B) Zeit anpassen (Planzeit vorbelegt, Monteur korrigiert die Abweichung)
-//  C) «Nicht stattgefunden» mit Pflicht-Grund; Zeit für die Hinfahrt bleibt
-//     erfassbar (verrechenbar) — Begründung sieht die Projektleitung ROT
+//  C) «Nicht stattgefunden» — drei Szenarien:
+//       1. Projektleitung löscht den Termin vorher → gar nicht erst in der
+//          Zeiterfassung, nichts zu tun
+//       2. Termin bleibt, Monteur war nie dort → 0 h, keine Foto-/Material-
+//          Pflicht
+//       3. Monteur war vor Ort (kein Zugang) → Zeit ganz normal erfassen UND
+//          Termin als nicht stattgefunden markieren, in BELIEBIGER Reihenfolge
 //  D) Ganztags-Termin: Standard-Arbeitszeit als Planzeit (Tagessoll INKL.
 //     Vorholzeit); Gate greift nur ohne konfiguriertes Tagessoll
 //  E) Rück-Meldung an den Termine-Kalender: ev.ist mit Ist-Zeiten + Stand
@@ -222,26 +227,92 @@ console.log('■ C · «Nicht stattgefunden» — keine Rückfrage, keine Pflich
   ok(nachAusfall.fotoFehlt.indexOf('ev_b') < 0, 'ausgefallener Termin fehlt nicht in der Foto-Prüfung');
   ok(nachAusfall.istStatus === 'ausgefallen' && nachAusfall.istGrund === 'Kunde nicht angetroffen', 'Rück-Meldung an den Termin (ausgefallen + Grund)');
 
-  // Anfahrt trotzdem erfassen — ohne Material-Pflicht
+  // Szenario 3a: Ausfall zuerst, danach die tatsächliche Zeit erfassen —
+  // ohne separate «Anfahrt»-Erfassung, ohne Material-Pflicht
   await page.evaluate(d => {
     const t = stTagFor(d, 'u_test');
-    t.eintraege.push({ id: 'e_fahrt', von: '07:00', bis: '07:45', pauseMin: 0, objektId: 'obj2', objektName: 'EFH Huber', taetigkeit: 'Anfahrt — Termin nicht stattgefunden', einsatzId: 'ev_b' });
+    t.eintraege.push({ id: 'e_zeit', von: '07:00', bis: '07:30', pauseMin: 0, objektId: 'obj2', objektName: 'EFH Huber', taetigkeit: '', einsatzId: 'ev_b' });
     poolSave(t); stEinsatzIstSync('ev_b', d);
     _tagDatum = d; _wkMode = 'tag'; stRender();
   }, HEUTE);
   await page.waitForTimeout(300);
-  const mitFahrt = await page.evaluate(d => {
+  const mitZeit = await page.evaluate(d => {
     const t = stTagFor(d, 'u_test');
     const z = stTerminZustand(t, stEinsatzById('ev_b'));
     const ev = (GemaSync.getCached('gema_einsatz_pool_v1') || []).find(x => x.id === 'ev_b');
     return { typ: z.typ, std: z.stunden, ist: ev && ev.ist ? ev.ist.stunden : -1,
-             matFehlt: stMatFehlt(t).map(e => e.id), txt: document.body.innerText };
+             matFehlt: stMatFehlt(t).map(e => e.id), fotoFehlt: stFotoFehlt(d, t).map(e => e.id),
+             txt: document.body.innerText };
   }, HEUTE);
-  ok(mitFahrt.typ === 'ausgefallen' && mitFahrt.std === 0.75, 'Ausfall bleibt, Anfahrt (0.75 h) ist erfasst');
-  ok(mitFahrt.ist === 0.75, 'Anfahrt fliesst als Ist-Zeit an den Termin zurück');
-  ok(mitFahrt.matFehlt.indexOf('e_fahrt') < 0, 'Material-Pflicht entfällt für die Zeit eines ausgefallenen Termins');
-  ok(mitFahrt.txt.indexOf('0.75 h erfasst') >= 0, 'Tagesansicht zeigt die erfasste Zeit trotz Ausfall');
+  ok(mitZeit.typ === 'ausgefallen' && mitZeit.std === 0.5, 'Ausfall bleibt, 0.5 h erfasst (Szenario 3)');
+  ok(mitZeit.ist === 0.5, 'die erfasste Zeit fliesst an den Termin zurück');
+  ok(mitZeit.matFehlt.indexOf('e_zeit') < 0, 'keine Material-Pflicht für die Zeit eines ausgefallenen Termins');
+  ok(mitZeit.fotoFehlt.indexOf('ev_b') < 0, 'keine Foto-Pflicht für den ausgefallenen Termin');
+  ok(mitZeit.txt.indexOf('0.50 h erfasst') >= 0, 'Tagesansicht zeigt Ausfall UND erfasste Zeit');
+  ok(mitZeit.txt.indexOf('Anfahrt —') < 0, 'keine aufgezwungene «Anfahrt»-Tätigkeit');
   ok(errs.length === 0, 'keine pageerrors (C)');
+  await ctx.close();
+}
+
+/* ════════ C2 · Szenario 3 in der anderen Reihenfolge ════════ */
+console.log('■ C2 · Erst Zeit erfassen, dann «nicht stattgefunden»');
+{
+  const { ctx, page, errs } = await stundenSeite(browser, ls());
+  // Zeit für ev_a erfassen (Monteur war vor Ort)
+  await page.evaluate(d => {
+    let t = stTagFor(d, 'u_test');
+    if (!t) t = { id: 'tZ', orgId: 'org_test', userId: 'u_test', userName: 'Test User', datum: d, eintraege: [], spesen: {}, status: 'offen' };
+    t.eintraege.push({ id: 'e_vorort', von: '07:00', bis: '07:30', pauseMin: 0, objektId: 'obj1', objektName: 'MFH Musterstrasse', taetigkeit: 'Zugang fehlte', einsatzId: 'ev_a' });
+    poolSave(t);
+    _tagDatum = d; _wkMode = 'tag'; stRender();
+  }, HEUTE);
+  await page.waitForTimeout(300);
+  const vorher = await page.evaluate(d => {
+    const t = stTagFor(d, 'u_test');
+    return { typ: stTerminZustand(t, stEinsatzById('ev_a')).typ, txt: document.body.innerText };
+  }, HEUTE);
+  ok(vorher.typ === 'erfasst', 'Termin gilt zunächst als erfasst');
+  ok(vorher.txt.indexOf('Nicht stattgefunden') >= 0, 'Ausfall-Knopf bleibt auch bei erfasster Zeit sichtbar');
+
+  // Jetzt nachträglich als nicht stattgefunden markieren
+  await page.evaluate(d => stTerminAusfall(d, 'ev_a'), HEUTE);
+  await page.waitForTimeout(300);
+  const hinweis = await page.evaluate(() => (document.querySelector('.gema-dlg-msg') || {}).textContent || '');
+  ok(/0\.50 h bleiben bestehen/.test(hinweis), 'Dialog sichert die bereits erfasste Zeit zu');
+  await page.evaluate(() => { document.querySelector('.gema-dlg-input').value = 'Kein Zugang zur Wohnung'; });
+  await page.click('[data-act="ok"]');
+  await page.waitForTimeout(400);
+  const nachher = await page.evaluate(d => {
+    const t = stTagFor(d, 'u_test');
+    const z = stTerminZustand(t, stEinsatzById('ev_a'));
+    const ev = (GemaSync.getCached('gema_einsatz_pool_v1') || []).find(x => x.id === 'ev_a');
+    return { typ: z.typ, std: z.stunden, grund: z.grund, ist: ev && ev.ist ? ev.ist.status : '',
+             istStd: ev && ev.ist ? ev.ist.stunden : -1, matFehlt: stMatFehlt(t).map(e => e.id) };
+  }, HEUTE);
+  ok(nachher.typ === 'ausgefallen' && nachher.grund === 'Kein Zugang zur Wohnung', 'nachträglicher Ausfall-Vermerk');
+  ok(nachher.std === 0.5, 'die erfasste Zeit bleibt erhalten');
+  ok(nachher.ist === 'ausgefallen' && nachher.istStd === 0.5, 'Termin meldet Ausfall MIT der erfassten Zeit zurück');
+  ok(nachher.matFehlt.indexOf('e_vorort') < 0, 'Material-Pflicht entfällt rückwirkend');
+  ok(errs.length === 0, 'keine pageerrors (C2)');
+  await ctx.close();
+}
+
+/* ════════ C3 · Szenario 1: Termin gelöscht → nichts zu tun ════════ */
+console.log('■ C3 · Von der Planung gelöschter Termin taucht nicht auf');
+{
+  const { ctx, page, errs } = await stundenSeite(browser, ls());
+  await poolsSetzen(page, { ev: [EINSAETZE[0]] });   // ev_b von der Planung entfernt
+  const st = await page.evaluate(d => ({
+    offen: stTermineOffen(d).map(e => e.id),
+    fotoPflicht: stFotoTermine(d).map(e => e.id)
+  }), HEUTE);
+  ok(JSON.stringify(st.offen) === JSON.stringify(['ev_a']), 'gelöschter Termin ist gar nicht erst in der Zeiterfassung');
+  ok(st.fotoPflicht.indexOf('ev_b') < 0, 'keine Foto-Pflicht für einen gelöschten Termin');
+  await page.evaluate(d => stTagEinreichen(d), HEUTE);
+  await page.waitForTimeout(400);
+  ok(!(await page.evaluate(() => /Zeit fehlt/.test((document.querySelector('.gema-dlg-title') || {}).textContent || ''))), 'Freigabe wird davon nicht blockiert');
+  await page.click('[data-act="cancel"]');
+  ok(errs.length === 0, 'keine pageerrors (C3)');
   await ctx.close();
 }
 

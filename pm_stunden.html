@@ -1667,21 +1667,29 @@ function stEinsaetzeIstSyncTag(datum,userId,status){
 }
 
 // ── «Nicht stattgefunden» ────────────────────────────────────────
-// Der Termin fiel aus (Kunde nicht da, verschoben …): Begründung ist
-// Pflicht, danach ist der Termin erledigt — er zählt 0 h und ist von der
-// Foto- UND Material-Pflicht befreit (User-Entscheid 26.07.2026; wo nicht
-// gearbeitet wurde, gibt es weder Foto noch Material). War der Monteur
-// trotzdem unterwegs (Anfahrt, Wartezeit), erfasst er die Zeit über
-// «✎ Zeit anpassen» ganz normal — dafür braucht es keine Rückfrage.
+// Drei Fälle (User-Entscheid 26.07.2026):
+//  1. Die Projektleitung löscht den Termin vorher → er taucht in der
+//     Zeiterfassung gar nicht auf, nichts zu tun.
+//  2. Termin bleibt stehen, der Monteur war nie dort → «nicht
+//     stattgefunden» mit Begründung, 0 h, keine Foto-/Material-Pflicht.
+//  3. Der Monteur war vor Ort und erfährt erst dort, dass es nicht geht
+//     (kein Zugang): er erfasst seine Zeit ganz normal (z.B. 0.5 h) UND
+//     markiert den Termin als nicht stattgefunden — beides unabhängig
+//     voneinander, keine separate «Anfahrt»-Erfassung nötig.
+// In allen Fällen entfallen Foto- und Material-Pflicht für diesen Termin.
 function stTerminAusfall(datum,einsatzId){
   var u=stUser();if(!u)return;
   var ev=stEinsatzById(einsatzId);if(!ev)return;
   var t=stTagFor(datum,u.id);
   if(t&&!stTagEditable(t)){toast('Tag ist freigegeben — nicht mehr änderbar');return;}
   var name=ev.titel||ev.auftragNr||'Termin';
+  var z0=stTerminZustand(t,ev);
   GemaDialog.prompt({
     title:'Termin nicht stattgefunden',
-    message:'«'+name+'» — weshalb hat der Termin nicht stattgefunden?\n\nDie Begründung sieht die Projektleitung bei der Freigabe. Der Termin zählt dann 0 h; war Zeit für die Anfahrt nötig, kannst du sie danach über «✎ Zeit anpassen» erfassen.',
+    message:'«'+name+'» — weshalb hat der Termin nicht stattgefunden?\n\nDie Begründung sieht die Projektleitung bei der Freigabe. Foto und Material entfallen für diesen Termin.'
+      +(z0.stunden>0
+        ? '\n\nDeine erfassten '+stdFmtH(z0.stunden)+' h bleiben bestehen.'
+        : '\n\nWarst du vor Ort, erfasse die angefallene Zeit anschliessend ganz normal — sonst zählt der Termin 0 h.'),
     placeholder:'z.B. Kunde nicht angetroffen'
   }).then(function(grund){
     if(grund===null)return;
@@ -1724,10 +1732,10 @@ function stTerminZeit(datum,einsatzId){
   var vf=document.getElementById('ein_von'),bf=document.getElementById('ein_bis');
   if(z.typ==='ausgefallen'){
     // Ausgefallener Termin: die Planzeit wäre falsch — der Monteur trägt
-    // die tatsächliche Anfahrt/Wartezeit ein.
+    // die tatsächlich angefallene Zeit ein (z.B. 0.5 h für die vergebliche
+    // Anfahrt). Bewusst OHNE Tätigkeits-Vorbelegung: dass der Termin nicht
+    // stattgefunden hat, steht bereits am Termin selbst.
     if(vf)vf.value='';if(bf)bf.value='';
-    var tf=document.getElementById('ein_taetigkeit');
-    if(tf&&!tf.value)tf.value='Anfahrt — Termin nicht stattgefunden';
     return;
   }
   var pz=stTerminPlanzeit(ev);
@@ -1832,16 +1840,21 @@ function stTagRecOrNew(datum){
 function stTerminZeitHtml(datum,ev,t,editable){
   if(ev.typ==='ferien')return '';
   var z=stTerminZustand(t,ev);
+  // «✕ Nicht stattgefunden» ist von der Zeiterfassung UNABHÄNGIG (User-
+  // Entscheid 26.07.2026): Wer vor Ort war und erst dort erfährt, dass es
+  // nicht geht (kein Zugang), erfasst seine 0.5 h ganz normal UND markiert
+  // den Termin als nicht stattgefunden — beides in beliebiger Reihenfolge.
+  var ausfallBtn=editable?'<button class="btn sm" style="width:auto" onclick="stTerminAusfall(\''+datum+'\',\''+esc(ev.id)+'\')">✕ Nicht stattgefunden</button>':'';
   var h='<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:5px">';
   if(z.typ==='erfasst'){
     h+='<span style="font-size:11px;font-weight:800;color:var(--grn)">✓ '+esc(z.eintraege[0].von)+'–'+esc(z.eintraege[z.eintraege.length-1].bis)+' · '+stdFmtH(z.stunden)+' h erfasst</span>'
-      +(editable?'<button class="btn sm" style="width:auto" onclick="stTerminZeit(\''+datum+'\',\''+esc(ev.id)+'\')">✎ ändern</button>':'');
+      +(editable?'<button class="btn sm" style="width:auto" onclick="stTerminZeit(\''+datum+'\',\''+esc(ev.id)+'\')">✎ ändern</button>':'')
+      +ausfallBtn;
   } else if(z.typ==='ausgefallen'){
     h+='<span style="font-size:11px;font-weight:800;color:var(--red);background:var(--red-bg);border:1px solid var(--red-bd);border-radius:999px;padding:2px 9px">✕ Nicht stattgefunden: '+esc(z.grund)+'</span>'
       +(z.stunden>0?'<span style="font-size:11px;font-weight:800;color:var(--txt2)">· '+stdFmtH(z.stunden)+' h erfasst</span>'
                    :'<span style="font-size:10.5px;color:var(--mut)">zählt 0 h · kein Foto/Material nötig</span>')
-      // Anfahrt/Wartezeit bleibt verrechenbar — ohne Rückfrage, einfach hier
-      +(editable?'<button class="btn sm" style="width:auto" onclick="stTerminZeit(\''+datum+'\',\''+esc(ev.id)+'\')">'+(z.stunden>0?'✎ Zeit':'＋ Anfahrt')+'</button>'
+      +(editable?'<button class="btn sm" style="width:auto" onclick="stTerminZeit(\''+datum+'\',\''+esc(ev.id)+'\')">'+(z.stunden>0?'✎ Zeit':'＋ Zeit')+'</button>'
         +'<button class="btn sm" style="width:auto" title="Zurücksetzen" onclick="stTerminAusfallWeg(\''+datum+'\',\''+esc(ev.id)+'\')">↺</button>':'');
   } else {
     var pz=stTerminPlanzeit(ev);
@@ -3950,18 +3963,31 @@ document.addEventListener('DOMContentLoaded',function(){
           +'<span class="gn-badge '+(ok?'gn-badge--ok':kein?'gn-badge--danger':'gn-badge--warn')+'">'+(ok?'✓ Foto':kein?'🚫 Kein Foto':'Foto offen')+'</span></div>';
       });
     }catch(e){}
-    // Geplante Termine ohne erfasste Zeit: Planzeit gilt und wird beim
-    // Freigeben übernommen — Tap öffnet Anpassen / Nicht stattgefunden
+    // ALLE Termine des Tages mit ihrem Stand — Tap öffnet die Aktionen
+    // (Zeit anpassen / nicht stattgefunden). Offene tragen ihre Planzeit,
+    // die beim Freigeben übernommen wird.
     var planRows='',planMin=0;
     try{
-      (stTermineOffen(d.iso)||[]).forEach(function(ev){
-        var pz=stTerminPlanzeit(ev);
+      (stMeineEinsaetze(d.iso)||[]).filter(function(ev){return ev.typ!=='ferien';}).forEach(function(ev){
+        var z=stTerminZustand(d.tag,ev);
+        var pz=z.typ==='offen'?stTerminPlanzeit(ev):null;
         if(pz)planMin+=stdEintragMin({von:pz.von,bis:pz.bis,pauseMin:0});
+        var sub,badge,bcls;
+        if(z.typ==='ausgefallen'){
+          sub='Nicht stattgefunden'+(z.grund?' · '+NE(z.grund):'');
+          badge=z.stunden>0?natH(z.stunden*60)+' h':'0 h'; bcls='gn-badge--danger';
+        } else if(z.typ==='erfasst'){
+          sub='erfasst'; badge=natH(z.stunden*60)+' h'; bcls='gn-badge--ok';
+        } else {
+          sub=pz?NE(pz.von+'–'+pz.bis)+' · geplant':'Zeit erfassen';
+          badge=pz?natH(stdEintragMin({von:pz.von,bis:pz.bis,pauseMin:0}))+' h':'offen';
+          bcls=pz?'gn-badge--ok':'gn-badge--warn';
+        }
         planRows+='<div class="gn-row" data-nat-plan="'+NE(d.iso)+'" data-nat-pein="'+NE(ev.id)+'">'
-          +'<span class="gn-row-ic" style="--gn-row-bg:var(--gn-c-projekt)">📅</span>'
+          +'<span class="gn-row-ic" style="--gn-row-bg:var(--gn-c-projekt)">'+(z.typ==='ausgefallen'?'✕':'📅')+'</span>'
           +'<span class="gn-row-body"><span class="gn-row-title">'+NE(ev.titel||ev.auftragNr||'Termin')+'</span>'
-          +'<span class="gn-row-sub">'+(pz?NE(pz.von+'–'+pz.bis)+' · geplant':'Zeit erfassen')+(ev.objektName?' · '+NE(ev.objektName):'')+'</span></span>'
-          +'<span class="gn-badge '+(pz?'gn-badge--ok':'gn-badge--warn')+'">'+(pz?natH(stdEintragMin({von:pz.von,bis:pz.bis,pauseMin:0}))+' h':'offen')+'</span></div>';
+          +'<span class="gn-row-sub">'+sub+(ev.objektName?' · '+NE(ev.objektName):'')+'</span></span>'
+          +'<span class="gn-badge '+bcls+'">'+badge+'</span></div>';
       });
     }catch(e){}
     return '<div class="gn-label" style="display:flex;justify-content:space-between"><span>'+NE(tagLbl(d.iso))+stPill+'</span>'
@@ -4089,24 +4115,43 @@ document.addEventListener('DOMContentLoaded',function(){
     var u=null; try{ u=stUser(); }catch(e){}
     var t=null; try{ t=stTagFor(datum,u&&u.id); }catch(e){}
     if(t&&typeof stTagEditable==='function'&&!stTagEditable(t)){ try{ toast('Tag ist freigegeben — nicht mehr änderbar'); }catch(e){} return; }
-    var pz=null; try{ pz=stTerminPlanzeit(ev); }catch(e){}
+    var z=null; try{ z=stTerminZustand(t,ev); }catch(e){ z={typ:'offen',eintraege:[],stunden:0}; }
+    var pz=null; try{ pz=z.typ==='offen'?stTerminPlanzeit(ev):null; }catch(e){}
+    var standZeile=z.typ==='ausgefallen'
+      ? '<div class="gn-kv"><span>Stand</span><b>✕ Nicht stattgefunden'+(z.grund?' — '+NE(z.grund):'')+'</b></div>'
+        +'<div class="gn-kv"><span>Erfasste Zeit</span><b>'+(z.stunden>0?natH(z.stunden*60)+' h':'0 h')+'</b></div>'
+      : z.typ==='erfasst'
+      ? '<div class="gn-kv"><span>Erfasste Zeit</span><b>'+natH(z.stunden*60)+' h</b></div>'
+      : '<div class="gn-kv"><span>Geplante Zeit</span><b>'+(pz?NE(pz.von+'–'+pz.bis):'keine Uhrzeit')+'</b></div>';
+    var hinweis=z.typ==='ausgefallen'
+      ? 'Foto und Material entfallen. Warst du vor Ort, erfasse die angefallene Zeit — sonst zählt der Termin 0 h.'
+      : z.typ==='erfasst'
+      ? 'Zeit ist erfasst. Hat der Termin trotzdem nicht stattgefunden, kannst du das hier vermerken.'
+      : (pz?'Stimmt die Zeit, musst du nichts tun — sie wird beim Freigeben übernommen.':'Für diesen Termin ist keine Uhrzeit geplant — bitte Zeit erfassen.');
     var html='<div class="gn-kv"><span>Termin</span><b>'+NE(ev.titel||ev.auftragNr||'Termin')+'</b></div>'
       +(ev.objektName?'<div class="gn-kv"><span>Projekt</span><b>'+NE(ev.objektName)+'</b></div>':'')
-      +'<div class="gn-kv"><span>Geplante Zeit</span><b>'+(pz?NE(pz.von+'–'+pz.bis):'keine Uhrzeit')+'</b></div>'
-      +'<div class="gn-label" style="text-transform:none;font-weight:600;margin-top:10px">'
-      +(pz?'Stimmt die Zeit, musst du nichts tun — sie wird beim Freigeben übernommen.':'Für diesen Termin ist keine Uhrzeit geplant — bitte Zeit erfassen.')+'</div>'
+      +standZeile
+      +'<div class="gn-label" style="text-transform:none;font-weight:600;margin-top:10px">'+hinweis+'</div>'
       +'<div class="gn-list" style="margin-top:8px">'
-      +'<button class="gn-select" data-t-act="zeit"><span class="k">✎ Zeit anpassen</span><span class="v">›</span></button>'
-      +'<button class="gn-select" data-t-act="ausfall"><span class="k">✕ Nicht stattgefunden</span><span class="v">›</span></button>'
+      +'<button class="gn-select" data-t-act="zeit"><span class="k">'+(z.typ==='offen'?'✎ Zeit anpassen':(z.stunden>0?'✎ Zeit ändern':'＋ Zeit erfassen'))+'</span><span class="v">›</span></button>'
+      +(z.typ==='ausgefallen'
+        ? '<button class="gn-select" data-t-act="zurueck"><span class="k">↺ Vermerk zurücknehmen</span><span class="v">›</span></button>'
+        : '<button class="gn-select" data-t-act="ausfall"><span class="k">✕ Nicht stattgefunden</span><span class="v">›</span></button>')
       +'</div>';
-    var sh=nat.sheet({ title:'Geplanter Termin', html:html });
+    var sh=nat.sheet({ title:'Termin', html:html });
     if(sh) sh.addEventListener('click',function(e){
       var b=e.target.closest&&e.target.closest('[data-t-act]'); if(!b) return;
       var a=b.getAttribute('data-t-act');
       nat.closeSheet();
       setTimeout(function(){
-        if(a==='zeit') openEinSheet(datum,null,{einsatzId:einsatzId,von:pz?pz.von:'',bis:pz?pz.bis:'',taetigkeit:ev.titel||ev.auftragNr||'',objektId:ev.objektId||''});
+        if(a==='zeit'){
+          // Bestehenden Eintrag bearbeiten, sonst neu — bei einem
+          // ausgefallenen Termin bewusst OHNE Planzeit-Vorbelegung
+          if(z.eintraege.length) openEinSheet(datum,z.eintraege[0].id);
+          else openEinSheet(datum,null,{einsatzId:einsatzId,von:pz?pz.von:'',bis:pz?pz.bis:'',taetigkeit:ev.titel||ev.auftragNr||'',objektId:ev.objektId||''});
+        }
         else if(a==='ausfall'){ try{ stTerminAusfall(datum,einsatzId); }catch(err){} }
+        else if(a==='zurueck'){ try{ stTerminAusfallWeg(datum,einsatzId); }catch(err){} }
       },420);
     });
   }
