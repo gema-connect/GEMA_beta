@@ -1285,6 +1285,11 @@ function stTagKarte(datum,p,gross){
   var t=stTagFor(datum,u.id);
   var typ=stdTagTyp(datum,p.feiertage);
   var editable=stTagEditable(t);
+  // Noch nicht erfasste Termine: solange der Tag offen ist, gelten ihre
+  // Planzeiten (sie werden beim Freigeben übernommen) — darum erscheinen
+  // sie hier als Vorschlags-Zeilen und in der Tages-Summe als «+ x h».
+  var offeneTermine=editable?stTermineOffen(datum):[];
+  var vorschauStd=offeneTermine.reduce(function(a,ev){return a+stTerminPlanStd(ev);},0);
   var st=t?(ST_STATUS[t.status]||ST_STATUS.offen):null;
   var abs=t&&t.absenz?stdAbsenzDef(p,t.absenz.typ):null;
   var wt=WOCHENTAGE[(new Date(datum+'T12:00:00Z').getUTCDay()+6)%7];
@@ -1296,7 +1301,7 @@ function stTagKarte(datum,p,gross){
     +(stTagHatDaten(t)&&st?'<span class="badge '+st.cls+'">'+st.n+'</span>':'')
     +(t&&t.status==='zurueck'&&t.entscheid&&t.entscheid.grund?'<span class="badge b-red" title="'+esc(t.entscheid.grund)+'">💬</span>':'')
     +(p.pauseBezahlt===false&&t&&(t.eintraege||[]).length?'<span class="badge" title="Znüni-Pause unbezahlt — automatisch abgezogen" style="background:var(--sur2);border:1px solid var(--brd2);color:var(--mut)">− '+(parseFloat(p.bezahltePauseMin)||0)+'′ Znüni</span>':'')
-    +'<span class="tot">'+(t?stdFmtH(stdTagStunden(t,p)):'0.00')+' h</span></div>'
+    +'<span class="tot">'+(t?stdFmtH(stdTagStunden(t,p)):'0.00')+(vorschauStd>0?' <span style="font-weight:700;color:var(--pri,#2563eb)" title="aus geplanten Terminen — wird beim Freigeben übernommen">+'+stdFmtH(vorschauStd)+'</span>':'')+' h</span></div>'
     +'<div class="day-bd">';
   if(t&&(t.eintraege||[]).length){
     t.eintraege.forEach(function(e){
@@ -1313,9 +1318,22 @@ function stTagKarte(datum,p,gross){
         +(e.objektId?'<button class="btn sm" onclick="stRrStart(\''+datum+'\',\''+e.id+'\')" title="'+rrTitle+'"'+rrStyle+'>'+rrIcon+'</button>':'')
         +'</div>';
     });
-  } else if(!abs){
+  } else if(!abs&&!offeneTermine.length){
     h+='<div style="font-size:12px;color:var(--mut2);padding:4px 0">Keine Einträge</div>';
   }
+  // Geplante Termine, die noch keine erfasste Zeit haben — als Vorschlag
+  // (gestrichelt) mit ihrer Planzeit. Ohne Zutun werden sie beim Freigeben
+  // genau so übernommen; Anpassen/Ausfall laufen über die Termin-Karte.
+  offeneTermine.forEach(function(ev){
+    var pz=stTerminPlanzeit(ev);
+    h+='<div class="ein" style="border-style:dashed;opacity:.85">'
+      +'<span class="zeit">'+(pz?esc(pz.von)+'–'+esc(pz.bis):'—')+'</span>'
+      +'<span class="obj">'+esc(ev.objektName||ev.kunde||'—')+(ev.titel?' · '+esc(ev.titel):'')
+      +' <span style="font-size:10px;font-weight:800;color:var(--pri,#2563eb);border:1px solid currentColor;border-radius:999px;padding:0 6px">geplant</span></span>'
+      +'<span class="h">'+(pz?stdFmtH(stTerminPlanStd(ev))+' h':'—')+'</span>'
+      +(editable?'<button class="btn sm" title="Zeit anpassen" onclick="stTerminZeit(\''+datum+'\',\''+esc(ev.id)+'\')">✏️</button>':'')
+      +'</div>';
+  });
   // Offene Pflichten des Tages (Foto-Pflicht-Termine / Material-Fragen)
   if(editable&&stTagHatDaten(t)){
     var fFehlt=stFotoFehlt(datum,t),mFehlt=stMatFehlt(t);
@@ -1329,7 +1347,7 @@ function stTagKarte(datum,p,gross){
   if(editable){
     h+='<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap"><button class="btn sm'+(gross?' pri':'')+'" onclick="stEinNeu(\''+datum+'\')">＋ Arbeitszeit</button>'
       +'<button class="btn sm" onclick="stAbsOpen(\''+datum+'\')">'+(abs?abs.ic+' Absenz ändern':'🌴 Absenz')+'</button>'
-      +(stTagHatDaten(t)?'<button class="btn sm" style="border-color:var(--pri,#2563eb);color:var(--pri,#2563eb)" onclick="stTagEinreichen(\''+datum+'\')">📤 Tag freigeben</button>':'')
+      +(stTagHatDaten(t)||offeneTermine.length?'<button class="btn sm" style="border-color:var(--pri,#2563eb);color:var(--pri,#2563eb)" onclick="stTagEinreichen(\''+datum+'\')">📤 Tag freigeben</button>':'')
       +'</div>';
     h+='<div class="spesen-row">'
       +'<label><input type="checkbox" '+(t&&t.spesen&&t.spesen.mittag?'checked':'')+' onchange="stSpesen(\''+datum+'\',\'mittag\',this.checked)"/> 🍽 Mittag auswärts</label>'
@@ -1360,15 +1378,15 @@ function stRenderTag(){
   var tDay=stTagFor(_tagDatum,u.id);
   var tagEditable=!tDay||stTagEditable(tDay);
   if(eins.length){
-    h+='<div class="card"><div class="card-hd"><h3>📅 Geplante Termine</h3><span class="sub">aus dem Termine-Kalender</span></div><div class="card-bd">'
+    h+='<div class="card"><div class="card-hd"><h3>📅 Geplante Termine</h3><span class="sub">Zeit stimmt? Einfach den Tag freigeben</span></div><div class="card-bd">'
       +eins.map(function(e){
         var zeit=e.slot==='vm'?'Vormittag':e.slot==='nm'?'Nachmittag':(e.zeitVon?esc(e.zeitVon)+'–'+esc(e.zeitBis||''):'Ganzer Tag');
         return '<div class="einsatz-row">'
           +'<div style="flex:1;min-width:0"><div style="font-weight:800;font-size:13px">'+esc(e.titel||e.auftragNr||'Termin')+'</div>'
           +'<div style="font-size:11.5px;color:var(--mut)">'+esc(e.objektName||e.kunde||'')+' · '+zeit+(e.notiz?' · '+esc(e.notiz):'')+'</div>'
           +stBesChips(e)
+          +stTerminZeitHtml(_tagDatum,e,tDay,tagEditable)
           +stTerminFotoHtml(_tagDatum,e,tDay,tagEditable)+'</div>'
-          +'<button class="btn sm pri" style="width:auto;white-space:nowrap" onclick="stEinNeuVonEinsatz(\''+_tagDatum+'\',\''+esc(e.id)+'\')">＋ Zeit</button>'
           +'</div>';
       }).join('')
       +'</div></div>';
@@ -1379,10 +1397,16 @@ function stRenderTag(){
   var wkS=stdWochenStart(_tagDatum);
   var wochenTage=[];for(var i=0;i<7;i++){var r=stTagFor(stdAddTage(wkS,i),u.id);if(r)wochenTage.push(r);}
   var aus=stdWochenAuswertung(wochenTage,wkS,p);
-  var kannFrei=tDay&&stTagHatDaten(tDay)&&(tDay.status==='offen'||tDay.status==='zurueck');
+  // Freigeben geht auch, wenn NUR geplante Termine vorliegen — sie werden
+  // dabei mit ihrer Planzeit übernommen (User-Entscheid: kein Extra-Klick)
+  var offeneT=tagEditable?stTermineOffen(_tagDatum):[];
+  var vorschau=offeneT.reduce(function(a,ev){return a+stTerminPlanStd(ev);},0);
+  var kannFrei=tagEditable&&((tDay&&stTagHatDaten(tDay))||offeneT.length)&&(!tDay||tDay.status==='offen'||tDay.status==='zurueck');
   h+='<div class="card"><div class="card-bd" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">'
     +'<div style="flex:1;min-width:180px;font-size:12.5px;font-weight:700;color:var(--txt2)">Σ KW '+stKw(wkS)+': <b>'+stdFmtH(aus.ist)+' / '+stdFmtH(aus.soll)+' h</b>'
-    +' · Saldo <b style="color:'+(aus.saldo>=0?'var(--grn)':'var(--red)')+'">'+(aus.saldo>=0?'+':'')+stdFmtH(aus.saldo)+' h</b></div>'
+    +' · Saldo <b style="color:'+(aus.saldo>=0?'var(--grn)':'var(--red)')+'">'+(aus.saldo>=0?'+':'')+stdFmtH(aus.saldo)+' h</b>'
+    +(vorschau>0?'<div style="font-weight:700;color:var(--pri,#2563eb);font-size:11.5px;margin-top:2px">+ '+stdFmtH(vorschau)+' h aus '+offeneT.length+' geplanten Termin'+(offeneT.length===1?'':'en')+' — werden beim Freigeben übernommen</div>':'')
+    +'</div>'
     +(kannFrei?'<button class="btn pri" style="width:auto" onclick="stTagEinreichen(\''+_tagDatum+'\')">📤 Tag freigeben</button>':'')
     +'</div></div>';
   return h;
@@ -1508,6 +1532,218 @@ function stTerminName(id){
 }
 
 // ═══════════════════════════════════════════════════════════
+// GEPLANTE TERMINE → ZEITERFASSUNG (User-Entscheid 26.07.2026)
+// Ein eingeplanter Termin ist ein VORSCHLAG mit seiner geplanten Zeit —
+// KEIN Bestätigungsklick nötig: stimmt die Zeit, gibt der Monteur einfach
+// den Tag frei, und die Planzeiten werden dabei zu echten Zeiteinträgen
+// (stTerminMaterialisieren). Wer anders gearbeitet hat, passt die Zeit an;
+// wer gar nicht dort war, markiert «nicht stattgefunden» — dabei ist eine
+// Zeit trotzdem erfassbar (z.B. Hinfahrt), damit sie verrechenbar bleibt.
+//
+// Ablage am Tages-Record (additiv, Muster terminFotos):
+//   tag.terminStatus = { [einsatzId]: {ausfall:true, grund, ts, von} }
+// Am Eintrag: e.einsatzId (bestehend), e.ausPlan (aus Planzeit erzeugt),
+//             e.ausfall {grund} (Zeit trotz Ausfall, z.B. Anfahrt)
+// ═══════════════════════════════════════════════════════════
+
+// Geplante Zeit eines Termins → {von,bis} oder null.
+// Bewusst NUR bei echten Zeiten: ein Halbtags-/Ganztags-Termin ohne Uhrzeit
+// bekommt KEINE erfundene Zeit — dort muss der Monteur selbst erfassen
+// (die Freigabe fragt ihn danach).
+function stTerminPlanzeit(ev){
+  if(!ev||!ev.zeitVon||!ev.zeitBis)return null;
+  if(stdMin(ev.zeitVon)==null||stdMin(ev.zeitBis)==null)return null;
+  return {von:ev.zeitVon,bis:ev.zeitBis};
+}
+function stTerminPlanStd(ev){
+  var pz=stTerminPlanzeit(ev);
+  if(!pz)return 0;
+  return stdEintragMin({von:pz.von,bis:pz.bis,pauseMin:0})/60;
+}
+// Zustand eines Termins an einem Tag:
+//   {typ:'erfasst'|'ausgefallen'|'offen', eintraege:[…], grund, stunden}
+function stTerminZustand(t,ev){
+  if(!ev)return {typ:'offen',eintraege:[],stunden:0};
+  var eintraege=((t&&t.eintraege)||[]).filter(function(e){return e.einsatzId===ev.id;});
+  var std=eintraege.reduce(function(a,e){return a+stdEintragMin(e)/60;},0);
+  var aus=(t&&t.terminStatus&&t.terminStatus[ev.id])||null;
+  if(aus&&aus.ausfall)return {typ:'ausgefallen',eintraege:eintraege,grund:aus.grund||'',stunden:std};
+  if(eintraege.length)return {typ:'erfasst',eintraege:eintraege,stunden:std};
+  return {typ:'offen',eintraege:[],stunden:0};
+}
+// Termine des Tages, die noch keine Antwort haben. `nurOhneZeit` liefert
+// die Teilmenge ohne geplante Zeit — nur die blockieren die Freigabe,
+// alle anderen werden beim Freigeben automatisch übernommen.
+function stTermineOffen(datum,nurOhneZeit){
+  var u=stUser();if(!u)return [];
+  var t=stTagFor(datum,u.id);
+  return stMeineEinsaetze(datum).filter(function(ev){
+    if(ev.typ==='ferien')return false;                      // Absenz, keine Arbeitszeit
+    if(stTerminZustand(t,ev).typ!=='offen')return false;
+    return nurOhneZeit ? !stTerminPlanzeit(ev) : true;
+  });
+}
+// Vorschau-Stunden des Tages aus noch offenen Terminen (Anzeige, kein Save)
+function stTerminVorschauStd(datum){
+  return stTermineOffen(datum).reduce(function(a,ev){return a+stTerminPlanStd(ev);},0);
+}
+
+// ── Rück-Meldung an den Termine-Kalender ─────────────────────────
+// Der Einsatz bekommt die Ist-Zeiten und seinen Stand — so sieht die
+// Planung ohne Umweg, wo die Schätzung danebenlag (Soll-Ist), und ob der
+// Tag bereits freigegeben ist. Cross-Modul-Write ADD-ONLY (saveRecord auf
+// den fremden Pool, nie persistCollection — Muster stFerienInEinsatzplan).
+function stEinsatzIstSync(einsatzId,datum,status){
+  try{
+    var u=stUser();if(!u||!einsatzId)return;
+    var key='gema_einsatz_pool_v1';
+    var pool=[];
+    try{if(typeof GemaSync!=='undefined'&&GemaSync.getCached)pool=GemaSync.getCached(key)||[];}catch(e){}
+    if(!pool.length){try{var r=localStorage.getItem(key);if(r){var dd=JSON.parse(r);if(Array.isArray(dd))pool=dd;}}catch(e){}}
+    pool=Array.isArray(pool)?pool.slice():[];
+    var i=pool.findIndex(function(x){return x&&x.id===einsatzId;});
+    if(i<0)return;
+    var ev=pool[i];
+    if(ev.orgId&&u.orgId&&ev.orgId!==u.orgId)return;      // nie fremde Org anfassen
+    var t=stTagFor(datum,u.id);
+    var z=stTerminZustand(t,ev);
+    var eintraege=z.eintraege||[];
+    var ist={
+      // Ein ausgefallener Termin bleibt ausgefallen — auch wenn der Tag
+      // insgesamt freigegeben wird (sonst stünde «freigegeben» an einem
+      // Termin, der gar nicht stattgefunden hat)
+      status:z.typ==='ausgefallen'?'ausgefallen':(status||(eintraege.length?'erfasst':'offen')),
+      stunden:Math.round(z.stunden*100)/100,
+      von:eintraege.length?eintraege[0].von:'',
+      bis:eintraege.length?eintraege[eintraege.length-1].bis:'',
+      datum:datum,
+      am:new Date().toISOString(),
+      vonName:u.name||''
+    };
+    if(z.typ==='ausgefallen')ist.grund=z.grund||'';
+    // «offen» heisst: es gibt nichts zu melden → Feld wieder entfernen,
+    // damit die Termin-Karte nicht mit einem leeren Ist-Chip stehenbleibt.
+    if(ist.status==='offen'&&!eintraege.length)delete ev.ist; else ev.ist=ist;
+    pool[i]=ev;
+    try{localStorage.setItem(key,JSON.stringify(pool));}catch(e){}
+    if(typeof GemaSync!=='undefined'&&GemaSync.saveRecord)GemaSync.saveRecord('einsatzplan','einsatz:'+ev.id,ev).catch(function(){});
+  }catch(e){}
+}
+// Alle Termine eines Tages nachführen (nach Freigabe / Entsperren)
+function stEinsaetzeIstSyncTag(datum,userId,status){
+  try{
+    var u=stUser();
+    var t=stTagFor(datum,userId||(u&&u.id));
+    var ids={};
+    ((t&&t.eintraege)||[]).forEach(function(e){if(e.einsatzId)ids[e.einsatzId]=1;});
+    Object.keys((t&&t.terminStatus)||{}).forEach(function(id){ids[id]=1;});
+    Object.keys(ids).forEach(function(id){stEinsatzIstSync(id,datum,status);});
+  }catch(e){}
+}
+
+// ── «Nicht stattgefunden» — mit optionaler Zeit (z.B. Hinfahrt) ──
+// Der Termin fiel aus (Kunde nicht da, verschoben …), Anfahrt oder
+// Bereitschaft sollen aber verrechenbar bleiben: Grund ist Pflicht, eine
+// Zeit optional. Wird eine Zeit erfasst, entsteht ein normaler Eintrag
+// (mit Projekt-Bezug → Material-Frage/Regierapport greifen wie sonst).
+function stTerminAusfall(datum,einsatzId){
+  var u=stUser();if(!u)return;
+  var ev=stEinsatzById(einsatzId);if(!ev)return;
+  var t=stTagFor(datum,u.id);
+  if(t&&!stTagEditable(t)){toast('Tag ist freigegeben — nicht mehr änderbar');return;}
+  var name=ev.titel||ev.auftragNr||'Termin';
+  GemaDialog.prompt({
+    title:'Termin nicht stattgefunden',
+    message:'«'+name+'» — weshalb hat der Termin nicht stattgefunden?\n\nDie Begründung sieht die Projektleitung bei der Freigabe.',
+    placeholder:'z.B. Kunde nicht angetroffen'
+  }).then(function(grund){
+    if(grund===null)return;
+    grund=String(grund||'').trim();
+    if(!grund){toast('Begründung nötig');return;}
+    GemaDialog.confirm({
+      title:'Zeit trotzdem erfassen?',
+      message:'Ist Zeit angefallen, die verrechnet werden soll (z.B. Hin- und Rückfahrt, Wartezeit)?',
+      confirmLabel:'Ja, Zeit erfassen', cancelLabel:'Nein, keine Zeit'
+    }).then(function(mitZeit){
+      var tt=stTagFor(datum,u.id);
+      if(!tt)tt={id:uid(),orgId:u.orgId,userId:u.id,userName:u.name,datum:datum,eintraege:[],spesen:{},status:'offen',erstelltAm:new Date().toISOString()};
+      if(!tt.terminStatus)tt.terminStatus={};
+      tt.terminStatus[einsatzId]={ausfall:true,grund:grund,ts:new Date().toISOString(),von:u.name||''};
+      if(tt.status==='zurueck')tt.status='offen';
+      poolSave(tt);
+      stEinsatzIstSync(einsatzId,datum,'ausgefallen');
+      if(mitZeit){
+        // Eintrag-Dialog mit dem Termin vorbelegt; Zeiten leer, damit der
+        // Monteur die TATSÄCHLICHE Anfahrt erfasst statt der Planzeit.
+        stEinNeu(datum);
+        var wrap=document.getElementById('ein_einsatzWrap'),sel=document.getElementById('ein_einsatz');
+        if(sel&&wrap&&wrap.style.display!=='none'){sel.value=einsatzId;stEinsatzPick();}
+        var tf=document.getElementById('ein_taetigkeit');
+        if(tf&&!tf.value)tf.value='Anfahrt — Termin nicht stattgefunden';
+        var vf=document.getElementById('ein_von');if(vf)vf.value='';
+        var bf=document.getElementById('ein_bis');if(bf)bf.value='';
+      } else {
+        toast('✕ «'+name+'» als nicht stattgefunden vermerkt');
+        stRender();
+      }
+    });
+  });
+}
+// Ausfall-Vermerk zurücknehmen (Fehlklick)
+function stTerminAusfallWeg(datum,einsatzId){
+  var u=stUser();if(!u)return;
+  var t=stTagFor(datum,u.id);
+  if(!t||!t.terminStatus||!t.terminStatus[einsatzId])return;
+  if(!stTagEditable(t)){toast('Tag ist freigegeben — nicht mehr änderbar');return;}
+  delete t.terminStatus[einsatzId];
+  poolSave(t);
+  stEinsatzIstSync(einsatzId,datum);
+  stRender();
+}
+// Zeit eines Termins anpassen: bestehenden Eintrag bearbeiten, sonst einen
+// neuen mit der PLANZEIT vorbelegen (der Monteur korrigiert nur die Abweichung)
+function stTerminZeit(datum,einsatzId){
+  var u=stUser();if(!u)return;
+  var ev=stEinsatzById(einsatzId);if(!ev)return;
+  var t=stTagFor(datum,u.id);
+  if(t&&!stTagEditable(t)){toast('Tag ist freigegeben — nicht mehr änderbar');return;}
+  var z=stTerminZustand(t,ev);
+  if(z.eintraege.length){stEinEdit(datum,z.eintraege[0].id);return;}
+  stEinNeu(datum);
+  var wrap=document.getElementById('ein_einsatzWrap'),sel=document.getElementById('ein_einsatz');
+  if(sel&&wrap&&wrap.style.display!=='none'){sel.value=einsatzId;stEinsatzPick();}
+  var pz=stTerminPlanzeit(ev);
+  if(pz){
+    var vf=document.getElementById('ein_von');if(vf)vf.value=pz.von;
+    var bf=document.getElementById('ein_bis');if(bf)bf.value=pz.bis;
+  }
+}
+
+// Offene Termine MIT Planzeit in echte Zeiteinträge überführen.
+// Läuft beim Freigeben des Tages; liefert die Anzahl übernommener Termine.
+function stTerminMaterialisieren(datum){
+  var u=stUser();if(!u)return 0;
+  var offen=stTermineOffen(datum).filter(stTerminPlanzeit);
+  if(!offen.length)return 0;
+  var t=stTagFor(datum,u.id);
+  if(!t)t={id:uid(),orgId:u.orgId,userId:u.id,userName:u.name,datum:datum,eintraege:[],spesen:{},status:'offen',erstelltAm:new Date().toISOString()};
+  if(!Array.isArray(t.eintraege))t.eintraege=[];
+  offen.forEach(function(ev){
+    var pz=stTerminPlanzeit(ev);
+    t.eintraege.push({
+      id:uid(), von:pz.von, bis:pz.bis, pauseMin:0,
+      objektId:ev.objektId||'', objektName:ev.objektName||ev.kunde||'',
+      taetigkeit:ev.titel||ev.auftragNr||'',
+      einsatzId:ev.id, ausPlan:true
+    });
+  });
+  // Zeitlich sortiert halten, damit der Tag lesbar bleibt
+  t.eintraege.sort(function(a,b){return String(a.von||'').localeCompare(String(b.von||''));});
+  poolSave(t);
+  return offen.length;
+}
+
+// ═══════════════════════════════════════════════════════════
 // FOTO-PFLICHT PRO ARBEITSBEREICH (org.settings.arbeitsbereiche[].fotoPflicht)
 // Termine eines 📷-Bereichs (z.B. Service) lassen sich nur mit Foto der
 // Arbeit freigeben — «Kein Foto» braucht eine Begründung, die die
@@ -1558,6 +1794,37 @@ function stTagRecOrNew(datum){
   return stTagFor(datum,u.id)||{id:uid(),orgId:u.orgId,userId:u.id,userName:u.name,datum:datum,eintraege:[],spesen:{},status:'offen',erstelltAm:new Date().toISOString()};
 }
 // Foto-Status-Zeile eines Termins (Tagesansicht «Geplante Termine»)
+// Zeit-Zeile eines Termins in der Tagesansicht: zeigt den Stand und —
+// solange der Tag offen ist — die beiden Handlungen «Zeit anpassen» und
+// «nicht stattgefunden». Ohne Zutun gilt die Planzeit; sie wird beim
+// Freigeben übernommen (deshalb hier der Hinweis statt eines Knopfes).
+function stTerminZeitHtml(datum,ev,t,editable){
+  if(ev.typ==='ferien')return '';
+  var z=stTerminZustand(t,ev);
+  var h='<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:5px">';
+  if(z.typ==='erfasst'){
+    h+='<span style="font-size:11px;font-weight:800;color:var(--grn)">✓ '+esc(z.eintraege[0].von)+'–'+esc(z.eintraege[z.eintraege.length-1].bis)+' · '+stdFmtH(z.stunden)+' h erfasst</span>'
+      +(editable?'<button class="btn sm" style="width:auto" onclick="stTerminZeit(\''+datum+'\',\''+esc(ev.id)+'\')">✎ ändern</button>':'');
+  } else if(z.typ==='ausgefallen'){
+    h+='<span style="font-size:11px;font-weight:800;color:var(--red);background:var(--red-bg);border:1px solid var(--red-bd);border-radius:999px;padding:2px 9px">✕ Nicht stattgefunden: '+esc(z.grund)+'</span>'
+      +(z.stunden>0?'<span style="font-size:11px;font-weight:800;color:var(--txt2)">· '+stdFmtH(z.stunden)+' h erfasst</span>':'')
+      +(editable?'<button class="btn sm" style="width:auto" title="Zurücksetzen" onclick="stTerminAusfallWeg(\''+datum+'\',\''+esc(ev.id)+'\')">↺</button>':'');
+  } else {
+    var pz=stTerminPlanzeit(ev);
+    if(pz){
+      h+='<span style="font-size:11px;font-weight:800;color:var(--pri,#2563eb)">⏱ '+esc(pz.von)+'–'+esc(pz.bis)+' · '+stdFmtH(stTerminPlanStd(ev))+' h</span>'
+        +'<span style="font-size:10.5px;color:var(--mut)">wird beim Freigeben übernommen</span>';
+    } else {
+      h+='<span style="font-size:11px;font-weight:800;color:var(--amber)">⏱ Zeit erfassen — keine Uhrzeit geplant</span>';
+    }
+    if(editable){
+      h+='<button class="btn sm'+(pz?'':' pri')+'" style="width:auto" onclick="stTerminZeit(\''+datum+'\',\''+esc(ev.id)+'\')">'+(pz?'✎ Zeit anpassen':'＋ Zeit')+'</button>'
+        +'<button class="btn sm" style="width:auto" onclick="stTerminAusfall(\''+datum+'\',\''+esc(ev.id)+'\')">✕ Nicht stattgefunden</button>';
+    }
+  }
+  return h+'</div>';
+}
+
 function stTerminFotoHtml(datum,e,t,editable){
   var ids=stFotoPflichtIds();
   if(!e.bereichId||ids.indexOf(String(e.bereichId))<0)return '';
@@ -1728,6 +1995,9 @@ function stEinSave(){
   } else t.eintraege.push(e);
   if(t.status==='zurueck')t.status='offen';
   poolSave(t);
+  // Termine-Kalender nachführen (Ist-Zeiten), wenn der Eintrag zu einem
+  // geplanten Termin gehört — die Planung sieht die Abweichung sofort
+  if(e.einsatzId)stEinsatzIstSync(e.einsatzId,_einDatum);
   var autoK=stAutoKomp(_einDatum);
   stTopfBCheck(_einDatum);
   var tNeu=stTagFor(_einDatum,u.id);
@@ -1743,8 +2013,10 @@ function stEinDelete(){
   var u=stUser();var t=stTagFor(_einDatum,u.id);if(!t||!_einId)return;
   GemaDialog.confirm({title:'Eintrag löschen',message:'Diesen Zeiteintrag wirklich löschen?',confirmLabel:'Löschen',danger:true}).then(function(ok){
     if(!ok)return;
+    var weg=(t.eintraege||[]).find(function(x){return x.id===_einId;});
     t.eintraege=(t.eintraege||[]).filter(function(x){return x.id!==_einId;});
     poolSave(t);
+    if(weg&&weg.einsatzId)stEinsatzIstSync(weg.einsatzId,_einDatum);
     stAutoKomp(_einDatum);
     stClose('einModal');toast('🗑 Eintrag gelöscht');stRender();
   });
@@ -2342,8 +2614,26 @@ function stBetriebsferienScan(){
 // (2) jede Material-Frage der Projekt-Einträge aktiv beantwortet ist. ──
 function stTagEinreichen(datum){
   var u=stUser();if(!u)return;
+  var t0=stTagFor(datum,u.id);
+  if(t0&&t0.status!=='offen'&&t0.status!=='zurueck'){toast('Tag ist bereits freigegeben');return;}
+  // Pflicht 0: jeder geplante Termin braucht eine Antwort. Termine MIT
+  // geplanter Uhrzeit beantworten sich selbst — sie werden hier mit ihrer
+  // Planzeit übernommen (User-Entscheid: «stimmt die Zeit, gibt er einfach
+  // den Tag frei»). Nur Termine OHNE Uhrzeit muss der Monteur selbst
+  // erfassen oder als «nicht stattgefunden» markieren.
+  var ohneZeit=stTermineOffen(datum,true);
+  if(ohneZeit.length){
+    var o0=ohneZeit[0];
+    GemaDialog.confirm({
+      title:'⏱ Zeit fehlt',
+      message:'Für '+ohneZeit.length+' geplante'+(ohneZeit.length===1?'n Termin':' Termine')+' ohne Uhrzeit ist noch keine Zeit erfasst ('+ohneZeit.map(function(e){return e.titel||e.auftragNr||'Termin';}).join(', ')+').\n\nZeit erfassen — oder den Termin als «nicht stattgefunden» markieren.',
+      confirmLabel:'⏱ Zeit erfassen'
+    }).then(function(ok){ if(ok)stTerminZeit(datum,o0.id); });
+    return;
+  }
+  var uebernommen=stTerminMaterialisieren(datum);
   var t=stTagFor(datum,u.id);
-  if(!t||!stTagHatDaten(t)||(t.status!=='offen'&&t.status!=='zurueck')){toast('Nichts zum Freigeben');return;}
+  if(!t||!stTagHatDaten(t)){toast('Nichts zum Freigeben');return;}
   var wtKurz=WOCHENTAGE[(new Date(datum+'T12:00:00Z').getUTCDay()+6)%7];
   // Pflicht 1: Material-Frage aktiv beantwortet (Rapport ODER «kein Material»)
   var mFehlt=stMatFehlt(t);
@@ -2372,12 +2662,16 @@ function stTagEinreichen(datum){
   var keinFotoN=Object.keys(t.terminFotos||{}).filter(function(id){var s=t.terminFotos[id];return s&&s.keinFoto;}).length;
   GemaDialog.confirm({
     title:'Tag freigeben',
-    message:wtKurz+', '+dfmt(datum)+' mit '+stdFmtH(std)+' h zur Freigabe einreichen? Danach ist der Tag gesperrt.',
+    message:wtKurz+', '+dfmt(datum)+' mit '+stdFmtH(std)+' h zur Freigabe einreichen?'
+      +(uebernommen?'\n\n📅 '+uebernommen+' geplante'+(uebernommen===1?'r Termin wird':' Termine werden')+' mit der geplanten Zeit übernommen.':'')
+      +'\n\nDanach ist der Tag gesperrt.',
     confirmLabel:'📤 Freigeben'
   }).then(function(ok){
     if(!ok)return;
     t.status='eingereicht';t.eingereichtAm=new Date().toISOString();delete t.entscheid;
     poolSave(t);
+    // Termine-Kalender nachführen: Ist-Zeiten + Stand «freigegeben»
+    stEinsaetzeIstSyncTag(datum,u.id,'freigegeben');
     stTopfBCheck(datum);
     stNotify({eventKey:'stunden_eingereicht',empfaengerRoleId:'role_planer',empfaengerOrgId:u.orgId,modul:'stundenerfassung',typ:'aktion',
       titel:'Stundenrapport eingereicht: '+u.name,
@@ -2430,6 +2724,16 @@ function stRenderFreigabe(){
         }
       });
       if(thumbs)h+='<div style="display:flex;gap:6px;flex-wrap:wrap;margin:4px 0 2px">'+thumbs+'</div>';
+      // Nicht stattgefundene Termine mit Begründung — für die Projektleitung
+      // genauso deutlich wie ein fehlendes Foto
+      var ts=t.terminStatus||{};
+      Object.keys(ts).forEach(function(eid){
+        var s=ts[eid];if(!s||!s.ausfall)return;
+        var mitZeit=(t.eintraege||[]).some(function(e){return e.einsatzId===eid;});
+        warn+='<div class="gavnote" style="margin-top:5px;background:var(--red-bg);border-color:var(--red-bd);color:var(--red)">'
+          +'<b>✕ Nicht stattgefunden («'+esc(stTerminName(eid))+'»)</b> — Begründung: '+esc(s.grund||'—')
+          +(mitZeit?' · <b>Zeit trotzdem erfasst</b>':'')+'</div>';
+      });
       return h+warn;
     }).join('');
     return '<div class="card"><div class="card-hd"><h3>👷 '+esc(tage[0].userName||'')+'</h3><span class="sub">KW '+stKw(ws)+' · '+dfmt(ws)+' – '+dfmt(stdAddTage(ws,6))+'</span>'
@@ -2445,8 +2749,31 @@ function stRenderFreigabe(){
       +'<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">'
       +'<button class="btn grn" style="flex:1" onclick="stEntscheid(\''+esc(k)+'\',true)">✅ Genehmigen</button>'
       +'<button class="btn red" style="flex:1" onclick="stEntscheid(\''+esc(k)+'\',false)">↩ Zurückweisen</button>'
+      +(stCanUnlock()?'<button class="btn" style="flex:1" title="Ohne Begründung wieder zur Bearbeitung öffnen" onclick="stWocheEntsperren(\''+esc(k)+'\')">🔓 Entsperren</button>':'')
       +'</div></div></div>';
-  }).join('');
+  }).join('')+stRenderFreigegeben();
+}
+
+// Bereits genehmigte Wochen (letzte 45 Tage) — eingeklappt, mit Entsperren
+function stRenderFreigegeben(){
+  if(!stCanUnlock())return '';
+  var grp=stFreigegebeneWochen();
+  var keys=Object.keys(grp).sort().reverse();
+  if(!keys.length)return '';
+  return '<div class="card"><div class="card-bd" style="padding-top:10px">'
+    +'<details><summary style="cursor:pointer;font-weight:800;font-size:13px;color:var(--txt2)">✅ Bereits freigegeben ('+keys.length+' Woche'+(keys.length===1?'':'n')+', letzte 45 Tage) — zum Entsperren</summary>'
+    +'<div style="margin-top:8px">'
+    +keys.map(function(k){
+      var tage=grp[k],ws=k.split('|')[1];
+      var pu=stParamsFor(k.split('|')[0]);
+      var aus=stdWochenAuswertung(tage,ws,pu);
+      return '<div class="sumline" style="align-items:center;gap:8px">'
+        +'<span>👷 '+esc(tage[0].userName||'')+' · KW '+stKw(ws)+' · '+tage.length+' Tag'+(tage.length===1?'':'e')+'</span>'
+        +'<b style="margin-left:auto">'+stdFmtH(aus.ist)+' h</b>'
+        +'<button class="btn sm" style="width:auto" onclick="stWocheEntsperren(\''+esc(k)+'\')">🔓 Entsperren</button>'
+        +'</div>';
+    }).join('')
+    +'</div></details></div></div>';
 }
 // Offene Ferienanträge für die Projektleitung — mit Saldo des Mitarbeiters
 // und Konflikt-Übersicht (wer ist im Zeitraum ebenfalls abwesend/beantragt)
@@ -2516,6 +2843,53 @@ function stEntscheid(key,ok){
     if(g===null)return;
     apply(g);
   });
+}
+
+// ── Entsperren (User-Entscheid 26.07.2026) ───────────────────────
+// Ein freigegebener Tag ist für den Monteur gesperrt. Admin, Firmen-Admin
+// und die Projektleitung können ihn wieder öffnen, damit der Monteur
+// korrigieren und erneut freigeben kann — ohne Pflicht-Begründung
+// (das «Zurückweisen mit Grund» bleibt als eigener Weg bestehen).
+function stCanUnlock(){return stCanApprove()||stIsOrgAdmin();}
+function stWocheEntsperren(key){
+  var u=stUser();if(!stCanUnlock())return;
+  var parts=key.split('|');var userId=parts[0],ws=parts[1];
+  var tage=orgTage().filter(function(t){
+    return t.userId===userId&&stdWochenStart(t.datum)===ws&&(t.status==='eingereicht'||t.status==='genehmigt');
+  });
+  if(!tage.length){toast('Nichts zu entsperren');return;}
+  var name=tage[0].userName||'';
+  GemaDialog.confirm({
+    title:'Tage wieder öffnen',
+    message:name+', KW '+stKw(ws)+': '+tage.length+' Tag'+(tage.length===1?'':'e')+' wieder zur Bearbeitung öffnen?\n\n'+name.split(' ')[0]+' kann die Zeiten dann anpassen und erneut freigeben.',
+    confirmLabel:'🔓 Entsperren'
+  }).then(function(ok){
+    if(!ok)return;
+    var now=new Date().toISOString();
+    tage.forEach(function(t){
+      t.status='offen';
+      delete t.entscheid;
+      t.entsperrt={von:u.name,userId:u.id,am:now};
+      poolSave(t);
+      // Termine-Kalender: zurück auf «erfasst» (nicht mehr freigegeben)
+      stEinsaetzeIstSyncTag(t.datum,userId,'erfasst');
+    });
+    stNotify({eventKey:'stunden_entscheid',empfaengerUserId:userId,modul:'stundenerfassung',typ:'aktion',
+      titel:'Stundenrapport KW '+stKw(ws)+' wieder geöffnet',
+      text:u.name+' hat '+tage.length+' Tag'+(tage.length===1?'':'e')+' zur Korrektur freigegeben — bitte prüfen und erneut freigeben.',
+      link:'pm_stunden.html?d='+ws});
+    toast('🔓 '+tage.length+' Tag'+(tage.length===1?'':'e')+' entsperrt');stRender();
+  });
+}
+// Zuletzt freigegebene Wochen (genehmigt) — zum nachträglichen Entsperren
+function stFreigegebeneWochen(){
+  var grenze=stdAddTage(today(),-45);
+  var grp={};
+  orgTage().filter(function(t){return t.status==='genehmigt'&&t.datum>=grenze;}).forEach(function(t){
+    var k=t.userId+'|'+stdWochenStart(t.datum);
+    (grp[k]=grp[k]||[]).push(t);
+  });
+  return grp;
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -3542,9 +3916,23 @@ document.addEventListener('DOMContentLoaded',function(){
           +'<span class="gn-badge '+(ok?'gn-badge--ok':kein?'gn-badge--danger':'gn-badge--warn')+'">'+(ok?'✓ Foto':kein?'🚫 Kein Foto':'Foto offen')+'</span></div>';
       });
     }catch(e){}
+    // Geplante Termine ohne erfasste Zeit: Planzeit gilt und wird beim
+    // Freigeben übernommen — Tap öffnet Anpassen / Nicht stattgefunden
+    var planRows='',planMin=0;
+    try{
+      (stTermineOffen(d.iso)||[]).forEach(function(ev){
+        var pz=stTerminPlanzeit(ev);
+        if(pz)planMin+=stdEintragMin({von:pz.von,bis:pz.bis,pauseMin:0});
+        planRows+='<div class="gn-row" data-nat-plan="'+NE(d.iso)+'" data-nat-pein="'+NE(ev.id)+'">'
+          +'<span class="gn-row-ic" style="--gn-row-bg:var(--gn-c-projekt)">📅</span>'
+          +'<span class="gn-row-body"><span class="gn-row-title">'+NE(ev.titel||ev.auftragNr||'Termin')+'</span>'
+          +'<span class="gn-row-sub">'+(pz?NE(pz.von+'–'+pz.bis)+' · geplant':'Zeit erfassen')+(ev.objektName?' · '+NE(ev.objektName):'')+'</span></span>'
+          +'<span class="gn-badge '+(pz?'gn-badge--ok':'gn-badge--warn')+'">'+(pz?natH(stdEintragMin({von:pz.von,bis:pz.bis,pauseMin:0}))+' h':'offen')+'</span></div>';
+      });
+    }catch(e){}
     return '<div class="gn-label" style="display:flex;justify-content:space-between"><span>'+NE(tagLbl(d.iso))+stPill+'</span>'
-      +'<span style="color:var(--gn-ink);font-variant-numeric:tabular-nums">'+natH(min)+' h</span></div>'
-      +'<div class="gn-list">'+(rows||('<div class="gn-row" data-nat-neu="'+NE(d.iso)+'"><span class="gn-row-ic" style="--gn-row-bg:var(--gn-c-projekt)">＋</span><span class="gn-row-body"><span class="gn-row-title" style="color:var(--gn-ink-2)">Zeit erfassen …</span></span></div>'))+fotoRows+'</div>';
+      +'<span style="color:var(--gn-ink);font-variant-numeric:tabular-nums">'+natH(min)+(planMin?' <span style="color:var(--gn-c-projekt)">+'+natH(planMin)+'</span>':'')+' h</span></div>'
+      +'<div class="gn-list">'+(rows||(planRows?'':'<div class="gn-row" data-nat-neu="'+NE(d.iso)+'"><span class="gn-row-ic" style="--gn-row-bg:var(--gn-c-projekt)">＋</span><span class="gn-row-body"><span class="gn-row-title" style="color:var(--gn-ink-2)">Zeit erfassen …</span></span></div>'))+planRows+fotoRows+'</div>';
   }
   function render(root){
     var tage=wocheTage();
@@ -3579,13 +3967,15 @@ document.addEventListener('DOMContentLoaded',function(){
       if(nat) nat.refresh();
     });
     root.addEventListener('click',function(e){
-      var el=e.target.closest&&e.target.closest('[data-nat-act],[data-nat-edit],[data-nat-neu],[data-nat-abs],[data-nat-foto]');
+      var el=e.target.closest&&e.target.closest('[data-nat-act],[data-nat-edit],[data-nat-neu],[data-nat-abs],[data-nat-foto],[data-nat-plan]');
       if(!el) return;
       if(el.hasAttribute('data-nat-act')){
         var a=el.getAttribute('data-nat-act');
         if(a==='neu') openEinSheet(heute(),null);
         else if(a==='absenz') openAbsSheet(heute());
         else if(a==='einreichen'){ try{ openFreigabeSheet(); }catch(err){} }
+      } else if(el.hasAttribute('data-nat-plan')){
+        openTerminSheet(el.getAttribute('data-nat-plan'),el.getAttribute('data-nat-pein'));
       } else if(el.hasAttribute('data-nat-foto')){
         openFotoSheet(el.getAttribute('data-nat-foto'),el.getAttribute('data-nat-fein'));
       } else if(el.hasAttribute('data-nat-edit')){
@@ -3656,21 +4046,53 @@ document.addEventListener('DOMContentLoaded',function(){
     });
   }
 
+  // ── Geplanter Termin (natives Sheet): anpassen oder Ausfall ──
+  // Ohne Zutun gilt die Planzeit — sie wird beim Freigeben übernommen.
+  function openTerminSheet(datum,einsatzId){
+    if(!nat) return;
+    var ev=null; try{ ev=stEinsatzById(einsatzId); }catch(e){}
+    if(!ev) return;
+    var u=null; try{ u=stUser(); }catch(e){}
+    var t=null; try{ t=stTagFor(datum,u&&u.id); }catch(e){}
+    if(t&&typeof stTagEditable==='function'&&!stTagEditable(t)){ try{ toast('Tag ist freigegeben — nicht mehr änderbar'); }catch(e){} return; }
+    var pz=null; try{ pz=stTerminPlanzeit(ev); }catch(e){}
+    var html='<div class="gn-kv"><span>Termin</span><b>'+NE(ev.titel||ev.auftragNr||'Termin')+'</b></div>'
+      +(ev.objektName?'<div class="gn-kv"><span>Projekt</span><b>'+NE(ev.objektName)+'</b></div>':'')
+      +'<div class="gn-kv"><span>Geplante Zeit</span><b>'+(pz?NE(pz.von+'–'+pz.bis):'keine Uhrzeit')+'</b></div>'
+      +'<div class="gn-label" style="text-transform:none;font-weight:600;margin-top:10px">'
+      +(pz?'Stimmt die Zeit, musst du nichts tun — sie wird beim Freigeben übernommen.':'Für diesen Termin ist keine Uhrzeit geplant — bitte Zeit erfassen.')+'</div>'
+      +'<div class="gn-list" style="margin-top:8px">'
+      +'<button class="gn-select" data-t-act="zeit"><span class="k">✎ Zeit anpassen</span><span class="v">›</span></button>'
+      +'<button class="gn-select" data-t-act="ausfall"><span class="k">✕ Nicht stattgefunden</span><span class="v">›</span></button>'
+      +'</div>';
+    var sh=nat.sheet({ title:'Geplanter Termin', html:html });
+    if(sh) sh.addEventListener('click',function(e){
+      var b=e.target.closest&&e.target.closest('[data-t-act]'); if(!b) return;
+      var a=b.getAttribute('data-t-act');
+      nat.closeSheet();
+      setTimeout(function(){
+        if(a==='zeit') openEinSheet(datum,null,{einsatzId:einsatzId,von:pz?pz.von:'',bis:pz?pz.bis:'',taetigkeit:ev.titel||ev.auftragNr||'',objektId:ev.objektId||''});
+        else if(a==='ausfall'){ try{ stTerminAusfall(datum,einsatzId); }catch(err){} }
+      },420);
+    });
+  }
+
   // ── Zeit erfassen/bearbeiten (natives Sheet) ──
-  function openEinSheet(datum,einId){
+  function openEinSheet(datum,einId,vor){
     if(!nat) return;
     var u=null; try{ u=stUser(); }catch(e){}
     if(!u) return;
     var t=null; try{ t=stTagFor(datum,u.id); }catch(e){}
     if(t&&typeof stTagEditable==='function'&&!stTagEditable(t)){ try{ toast('Tag ist eingereicht — nicht mehr änderbar'); }catch(e){} return; }
     var e0=einId&&t?(t.eintraege||[]).find(function(x){return x.id===einId;}):null;
-    var von=e0?e0.von:'07:00', bis=e0?e0.bis:'17:00', pause=e0?(e0.pauseMin||0):60, taet=e0?(e0.taetigkeit||''):'', objId=e0?(e0.objektId||''):'';
+    var von=e0?e0.von:((vor&&vor.von)||'07:00'), bis=e0?e0.bis:((vor&&vor.bis)||'17:00'), pause=e0?(e0.pauseMin||0):(vor?0:60),
+        taet=e0?(e0.taetigkeit||''):((vor&&vor.taetigkeit)||''), objId=e0?(e0.objektId||''):((vor&&vor.objektId)||'');
     var eins=[]; try{ eins=stMeineEinsaetze(datum); }catch(e){}
     var objOpts='<option value="">— ohne Projekt —</option>'+objekte().map(function(o){ return '<option value="'+NE(o.id)+'"'+(objId===o.id?' selected':'')+'>'+NE(objName(o))+'</option>'; }).join('');
     var einWrap=eins.length?(
       '<div class="gn-field"><label>Aus Termin übernehmen</label><select class="gn-native-select" data-f="einsatz">'
       +'<option value="">— manuell erfassen —</option>'
-      +eins.map(function(x){ return '<option value="'+NE(x.id)+'" data-objekt="'+NE(x.objektId||'')+'" data-titel="'+NE(x.titel||'')+'">'+NE((x.titel||x.auftragNr||'Termin')+(x.objektName?' · '+x.objektName:''))+'</option>'; }).join('')
+      +eins.map(function(x){ return '<option value="'+NE(x.id)+'" data-objekt="'+NE(x.objektId||'')+'" data-titel="'+NE(x.titel||'')+'"'+((vor&&vor.einsatzId===x.id)||(e0&&e0.einsatzId===x.id)?' selected':'')+'>'+NE((x.titel||x.auftragNr||'Termin')+(x.objektName?' · '+x.objektName:''))+'</option>'; }).join('')
       +'</select></div>'):'';
     var html=
       '<div class="gn-label" style="text-transform:none;font-weight:600">'+NE(tagLbl(datum))+'</div>'

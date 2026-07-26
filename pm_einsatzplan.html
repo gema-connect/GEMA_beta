@@ -591,6 +591,56 @@ function bsChipsHtml(ev){
   }).join('')+'</div>';
 }
 
+// ── Rückmeldung aus der Stundenerfassung (ev.ist) ────────────────
+// Der Monteur erfasst seine Zeit in pm_stunden; von dort kommen Ist-Zeiten
+// und Stand zurück (offen → erfasst → freigegeben, bzw. ausgefallen). Die
+// Planung sieht damit direkt am Termin, wo die Schätzung danebenlag.
+var IST_INFO={
+  erfasst:     {ic:'⏱', n:'erfasst',            bg:'#eff6ff', bd:'#93c5fd', c:'#1d4ed8'},
+  freigegeben: {ic:'✅', n:'freigegeben',        bg:'#ecfdf5', bd:'#6ee7b7', c:'#047857'},
+  ausgefallen: {ic:'✕',  n:'nicht stattgefunden',bg:'#fef2f2', bd:'#fca5a5', c:'#b91c1c'}
+};
+function epIstStd(ev){
+  var i=ev&&ev.ist;
+  return (i&&typeof i.stunden==='number')?i.stunden:0;
+}
+function epPlanStd(ev){
+  if(!ev||!ev.zeitVon||!ev.zeitBis)return 0;
+  var v=epHmToH(ev.zeitVon),b=epHmToH(ev.zeitBis);
+  if(v==null||b==null)return 0;
+  if(b<=v)b+=24;
+  return Math.round((b-v)*100)/100;
+}
+function epFmtH(x){return (Math.round(x*100)/100).toFixed(2).replace(/\.?0+$/,'');}
+// Kompakter Chip für die Wochen-/Monats-Karten (nur Zeichen, kein Umbruch)
+function epIstKurz(ev){
+  var i=ev&&ev.ist;if(!i||!i.status||i.status==='offen')return '';
+  if(i.status==='ausgefallen')return '<span title="Nicht stattgefunden: '+esc(i.grund||'')+'">✕</span> ';
+  var plan=epPlanStd(ev),ist=epIstStd(ev);
+  var abw=(plan&&ist)?(ist-plan):0;
+  var t='Ist '+epFmtH(ist)+' h'+(plan?' (geplant '+epFmtH(plan)+' h)':'')+(i.status==='freigegeben'?' · freigegeben':'');
+  return '<span title="'+esc(t)+'">'+(i.status==='freigegeben'?'✅':'⏱')+(Math.abs(abw)>=0.25?(abw>0?' +':' ')+epFmtH(abw):'')+'</span> ';
+}
+// Ausführliche Zeile für «Meine Woche», Tages-Modal und Termin-Dialog
+function epIstZeile(ev){
+  var i=ev&&ev.ist;if(!i||!i.status||i.status==='offen')return '';
+  var inf=IST_INFO[i.status];if(!inf)return '';
+  var plan=epPlanStd(ev),ist=epIstStd(ev);
+  var txt=inf.ic+' '+inf.n;
+  if(i.status==='ausgefallen'){
+    txt+=i.grund?': '+esc(i.grund):'';
+    if(ist>0)txt+=' · Zeit trotzdem erfasst: '+epFmtH(ist)+' h';
+  } else {
+    txt+=': '+(i.von?esc(i.von)+'–'+esc(i.bis||''):'')+' · <b>'+epFmtH(ist)+' h</b>';
+    if(plan){
+      var abw=ist-plan;
+      txt+=' <span style="opacity:.75">(geplant '+epFmtH(plan)+' h'+(Math.abs(abw)>=0.25?', '+(abw>0?'+':'')+epFmtH(abw)+' h':'')+')</span>';
+    }
+  }
+  return '<div style="margin-top:6px;background:'+inf.bg+';border:1.5px solid '+inf.bd+';color:'+inf.c
+    +';border-radius:8px;padding:5px 10px;font-size:12.5px;font-weight:700">'+txt+'</div>';
+}
+
 // ── Schlüssel/Zutritt vom verknüpften ERP-Auftrag (auftrag.schluessel) ──
 // Live-Lookup im ERP-Pool (beim Boot für alle gebunden) — Quelle bleibt der
 // Auftrag («Daten einmal erfassen»), der Einsatz zeigt sie nur an.
@@ -848,7 +898,7 @@ function epTlCellHtml(p,d,evs,s,t,nowF){
     // User-Entscheid) ist er der Voll-Lesekanal
     var tip=(zl?zl+' · ':'')+(e.titel||e.auftragNr||'')+(ort?' · '+ort:'')+(besTxt?' · '+besTxt:'');
     return '<div class="ev tl-ev t-'+(e.typ||'frei')+(konflikt?' konflikt':'')+(_epSel===e.id?' sel':'')+'" draggable="true" data-ev="'+e.id+'" style="'+pos+(stl?';'+stl:'')+'" title="'+esc(tip)+'" onclick="epEvCardClick(event,\''+e.id+'\')" ondblclick="event.stopPropagation();epEvOpen(\''+e.id+'\')">'
-      +'<div class="ev-z">'+(e.garantie?'🛡 ':'')+(epSchluessel(e)?'<span title="Schlüssel/Zutritt hinterlegt — Details im Termin bzw. in «Meine Woche»">🔑</span> ':'')+esc(zl||'')+((e.dauerTage||1)>1?' · ↔'+e.dauerTage+'T':'')+'</div>'
+      +'<div class="ev-z">'+epIstKurz(e)+(e.garantie?'🛡 ':'')+(epSchluessel(e)?'<span title="Schlüssel/Zutritt hinterlegt — Details im Termin bzw. in «Meine Woche»">🔑</span> ':'')+esc(zl||'')+((e.dauerTage||1)>1?' · ↔'+e.dauerTage+'T':'')+'</div>'
       +'<div class="ev-t">'+esc(e.titel||(e.auftragNr||''))+'</div>'
       +(ort?'<div class="ev-o">'+esc(ort)+'</div>':'')
       +(besTxt?'<div class="ev-b" title="'+esc(besTxt)+'">'+esc(besTxt)+'</div>':'')
@@ -952,7 +1002,7 @@ function epDayOpen(day){
       +'<div class="s">👤 '+esc(e.monteurName||'')+(slotLabel(e)?' · '+esc(slotLabel(e)):'')
       +(function(){var o=epOrtText(e)||epObjName(e.objektId,e.objektName);return o?'<br>🏗 '+esc(o):'';})()
       +(function(){var vw=epVerantwortlich(e);return vw?'<br>👔 Verantwortlich: '+esc(vw):'';})()+'</div>'
-      +bsChipsHtml(e)+epSchluesselBoxHtml(e)+'</div>';
+      +epIstZeile(e)+bsChipsHtml(e)+epSchluesselBoxHtml(e)+'</div>';
   }).join(''):'<div class="empty">Keine Einsätze an diesem Tag.</div>')
   +(epCanPlan()?'<button class="btn pri" style="width:100%;margin-top:8px" onclick="document.getElementById(\'dayModal\').classList.remove(\'open\');epNeu(null,\''+day+'\')">＋ Einsatz an diesem Tag</button>':'');
   document.getElementById('dayModal').classList.add('open');
@@ -983,6 +1033,7 @@ function epRenderMeine(){
         +(e.notiz?'💬 '+esc(e.notiz)+'<br>':'')
         +((e.dauerTage||1)>1?'↔ '+e.dauerTage+' Tage ab '+dfmtLong(e.datum):'')
         +'</div>'
+        +epIstZeile(e)
         +bsChipsHtml(e)
         +epSchluesselBoxHtml(e)
         +(e.objektId?'<a class="btn" style="margin-top:8px;font-size:12px" href="pm_regierapport.html?objekt='+esc(e.objektId)+'">📝 Regierapport erfassen</a>':'')
@@ -1473,7 +1524,7 @@ function epEvRender(){
   document.getElementById('evKeyInfo').innerHTML=(function(){
     var vw=ev.auftragId?epVerantwortlich(ev):'';
     var obj=(ev.typ!=='auftrag'&&ev.objektName)?'<div style="font-size:11.5px;color:var(--mut);margin-top:4px">🏗 '+esc(epObjName(ev.objektId,ev.objektName))+'</div>':'';
-    return (vw?'<div style="font-size:11.5px;color:var(--mut);margin-top:4px">👔 Verantwortlich: <b>'+esc(vw)+'</b></div>':'')+obj+epSchluesselBoxHtml(ev);
+    return (vw?'<div style="font-size:11.5px;color:var(--mut);margin-top:4px">👔 Verantwortlich: <b>'+esc(vw)+'</b></div>':'')+obj+epIstZeile(ev)+epSchluesselBoxHtml(ev);
   })();
   var gchk=document.getElementById('ev_garantie');
   gchk.checked=!!ev.garantie;
