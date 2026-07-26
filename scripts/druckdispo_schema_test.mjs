@@ -41,9 +41,36 @@ await page.waitForTimeout(200);
   ok(t.indexOf('NB −0,20 bar') >= 0, 'Nachbehandlungs-Chip');
   ok(t.indexOf('1,78 bar · Erhöht') >= 0, 'Fliessdruck-Kasten 1,78 bar · Erhöht');
   ok(t.indexOf('Ruhe 4,20 bar') >= 0, 'tiefste Stelle Ruhe 4,20 bar (4 + 2 m Höhe)');
-  ok(t.indexOf('+3,1 m') >= 0 && t.indexOf('Ruhe 3,70 bar') >= 0, 'Geschossraster mit Ruhedruck je Ebene');
+  // Feedback 25.07.2026: Geschosse alle 2.8 m (statt gleichmässiger Teilung),
+  // oberste Kante = exakte Höhe (12.4 m → 2.8/5.6/8.4/11.2/12.4)
+  ok(t.indexOf('+2,8 m') >= 0 && t.indexOf('Ruhe 3,73 bar') >= 0, 'Geschossraster alle 2.8 m mit Ruhedruck je Ebene');
+  ok(t.indexOf('+12,4 m') >= 0, 'oberstes Geschoss = exakte Höhe (+12,4 m)');
   ok(t.indexOf('Δp Inst −0,80 bar') >= 0, 'Installations-Verlust-Chip');
   ok((await noteText()).indexOf('Massstab-Bruch') >= 0, 'Massstab-Bruch-Hinweis bei 95 m Differenz');
+  // Feedback 25.07.2026: Fliessdruck-Kasten-Text untereinander (3 Zeilen)
+  ok(t.indexOf('FLIESSDRUCK') >= 0 && t.indexOf('HÖCHSTE ENTNAHMESTELLE (+12,4 M)') >= 0, 'Fliessdruck-Kasten mit gestapeltem Text');
+  // Feedback 25.07.2026: WZ/NB/DM sind IM (breiteren) Gebäude dargestellt
+  const stationenImHaus = await page.evaluate(() => {
+    const svg = document.getElementById('ddSchema');
+    const geb = [...svg.querySelectorAll('rect')].map(r => ({ x: parseFloat(r.getAttribute('x')), w: parseFloat(r.getAttribute('width')) }))
+      .sort((a, b) => b.w - a.w)[0]; // grösstes Rect = Gebäude
+    const wz = [...svg.querySelectorAll('text')].find(x => x.textContent === 'WZ');
+    return geb && wz && parseFloat(wz.getAttribute('x')) > geb.x && parseFloat(wz.getAttribute('x')) < geb.x + geb.w && geb.w >= 380;
+  });
+  ok(stationenImHaus, 'Wasserzähler im (breiteren) Gebäude dargestellt');
+  // Feedback 25.07.2026: m-ü.M.-Chip UNTER dem Terrain-Strich
+  const chipUnterTerrain = await page.evaluate(() => {
+    const svg = document.getElementById('ddSchema');
+    const g = [...svg.querySelectorAll('.dd-chipbtn')].find(x => x.getAttribute('data-ziel') === 'hVerteilbatterie');
+    if (!g) return false;
+    const r = g.querySelector('rect');
+    const terr = svg.querySelector('path[stroke="#a8a29e"]');
+    const bodenMatch = terr && terr.getAttribute('d').match(/H 1000$/) ? null : null;
+    // Gebäude-Oberkante des UG = Terrain: Chip-y muss unter der EG-Linie liegen
+    const egLine = [...svg.querySelectorAll('line')].find(l => l.getAttribute('stroke-width') === '1.6');
+    return r && egLine && parseFloat(r.getAttribute('y')) > parseFloat(egLine.getAttribute('y1'));
+  });
+  ok(chipUnterTerrain, 'm-ü.M.-Chip liegt unter dem Terrain-Strich');
   // Farbe = Norm-Bewertung (amber für erhöht, grün für Ruhe ok)
   const farben = await page.evaluate(() => {
     const svg = document.getElementById('ddSchema');
@@ -127,6 +154,82 @@ console.log('■ Optionale Stationen verschwinden ohne Werte');
   const t = await svgText();
   ok(t.indexOf('NB −') < 0, 'kein NB-Symbol ohne Nachbehandlungs-Verlust');
   ok(t.indexOf('DM →') < 0 && t.indexOf('Δp DM') < 0, 'kein DM-Symbol ohne Druckminderer-Angaben');
+}
+
+console.log('■ Feedback 25.07.2026: UGs, Ruhedruck-Hinweise, Δh-Zeile, Eingaben');
+{
+  // zurück in den Reservoir-Modus mit Basiswerten
+  await page.click('#modeHoehen');
+  for (const [id, v] of [['hReservoir', '523'], ['hVerteilbatterie', '428'], ['ruhedruckDM', '4'], ['hHoechste', '12.4']]) {
+    await page.fill('#' + id, v);
+  }
+  // UGs nach unten: tiefste Entnahmestelle 6 m unter VB → 3 UG-Zonen à 2.8 m
+  await page.fill('#hTiefste', '6');
+  await page.waitForTimeout(200);
+  let t = await svgText();
+  ok(t.indexOf('−2,8 m') >= 0 && t.indexOf('Ruhe 4,27 bar') >= 0, 'UG-Zonen alle 2.8 m nach unten mit Ruhedruck (−2,8 m → 4,27 bar)');
+  ok(t.indexOf('(−6 m)') >= 0 && t.indexOf('Ruhe 4,59 bar') >= 0, 'tiefste Stelle im untersten UG (Ruhe 4 + 6 m = 4,59 bar)');
+  await page.fill('#hTiefste', '2');
+  await page.waitForTimeout(150);
+
+  // Δh-Zeile unter den Höhenfeldern (Höhenunterschied + gewählter Druck)
+  const dhInfo = await page.evaluate(() => {
+    const el = document.getElementById('ddDhInfo');
+    return { sichtbar: el && el.style.display !== 'none', txt: el ? el.textContent : '' };
+  });
+  ok(dhInfo.sichtbar && dhInfo.txt.indexOf('95 m') >= 0 && dhInfo.txt.indexOf('9,32 bar') >= 0, 'Δh-Zeile unter den Höhenfeldern (95 m → 9,32 bar)');
+
+  // Label «Ruhedruck» ohne «nach Druckminderer» (DM nicht zwingend)
+  const lblTxt = await page.evaluate(() => {
+    const inp = document.getElementById('ruhedruckDM');
+    const fg = inp && inp.closest('.fg');
+    const lbl = fg && fg.querySelector('label');
+    return lbl ? lbl.childNodes[0].textContent.trim() : '';
+  });
+  ok(lblTxt === 'Ruhedruck', 'Feld-Label heisst «Ruhedruck» (nicht «nach Druckminderer»)');
+
+  // Druckminderer nötig: Betriebsdruck (8,47) > gewählter Ruhedruck (4)
+  const hintDm = await page.evaluate(() => {
+    const el = document.getElementById('ddRdHinweis');
+    const row = document.getElementById('ddDmBedarf');
+    return { cls: el ? el.className : '', txt: el ? el.textContent : '',
+      rowSichtbar: row && row.style.display !== 'none', rowTxt: row ? row.textContent : '' };
+  });
+  ok(hintDm.cls.indexOf('dm') >= 0 && hintDm.txt.indexOf('Druckminderer nötig') >= 0, 'Hinweis «Druckminderer nötig» (Betriebsdruck über Ruhedruck)');
+  ok(hintDm.rowSichtbar && hintDm.rowTxt.indexOf('Druckminderer nötig') >= 0, 'Zwischenwerte-Zeile «Druckminderer nötig»');
+
+  // Druckerhöhung nötig: gewählter Ruhedruck (10) über Betriebsdruck (8,47)
+  await page.fill('#ruhedruckDM', '10');
+  await page.waitForTimeout(150);
+  const hintDea = await page.evaluate(() => {
+    const el = document.getElementById('ddRdHinweis');
+    const row = document.getElementById('ddDmBedarf');
+    return { cls: el ? el.className : '', txt: el ? el.textContent : '', rowTxt: row ? row.textContent : '' };
+  });
+  ok(hintDea.cls.indexOf('dea') >= 0 && hintDea.txt.indexOf('Druckerhöhung nötig') >= 0, 'Fehler «Druckerhöhung nötig» (Ruhedruck über Betriebsdruck)');
+  ok(hintDea.rowTxt.indexOf('Druckerhöhung nötig') >= 0, 'Zwischenwerte-Zeile «Druckerhöhung nötig»');
+  await page.fill('#ruhedruckDM', '4');
+
+  // Eingabe «.5» wird beim Verlassen zu «0.5» (fixLeadingZero auf allen Feldern)
+  await page.fill('#schwankungNetz', '.5');
+  await page.evaluate(() => { const el = document.getElementById('schwankungNetz'); el.dispatchEvent(new Event('blur')); if (typeof fixLeadingZero === 'function') fixLeadingZero(el); });
+  ok(await page.evaluate(() => document.getElementById('schwankungNetz').value) === '0.5', '«.5» wird beim Verlassen zu «0.5»');
+  // Komma-Eingabe bleibt Komma («,5» → «0,5» — nie zu Ganzzahl gekappt)
+  await page.fill('#schwankungNetz', '2,5');
+  await page.evaluate(() => { const el = document.getElementById('schwankungNetz'); if (typeof fixLeadingZero === 'function') fixLeadingZero(el); });
+  ok(await page.evaluate(() => document.getElementById('schwankungNetz').value) === '2,5', '«2,5» bleibt beim Verlassen «2,5» (Komma-Dezimal erhalten)');
+  await page.fill('#schwankungNetz', '');
+
+  // «+ weitere Position»-Button + Einheiten-Chips im Standard-Look (Klassen definiert)
+  const styled = await page.evaluate(() => {
+    const btn = document.querySelector('button.g-btn.sm');
+    const chipGrp = document.querySelector('#unitChips');
+    const bs = btn && getComputedStyle(btn);
+    const cs = chipGrp && getComputedStyle(chipGrp);
+    return { btnRadius: bs ? bs.borderRadius : '', grpRadius: cs ? cs.borderRadius : '' };
+  });
+  ok(styled.btnRadius === '8px', '«+ weitere Position»-Button trägt den GEMA-Button-Look (8px-Radius)');
+  ok(styled.grpRadius === '9px', 'Einheiten-Umschalter als Segment-Gruppe gestylt');
 }
 
 await browser.close();

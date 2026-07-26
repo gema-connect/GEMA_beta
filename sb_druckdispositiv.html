@@ -207,6 +207,27 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important}
 .gema-feedback-btn{display:inline-flex;align-items:center;gap:5px;padding:6px 13px;border-radius:8px;border:none;background:#dc2626;color:#fff;font-size:12.5px;font-weight:700;cursor:pointer;transition:.15s;white-space:nowrap;font-family:inherit}
 .gema-feedback-btn:hover{background:#b91c1c}
 .result-thresholds{margin-top:6px;font-size:10.5px;color:var(--mut,#6b7280);line-height:1.5;border-top:1px dashed var(--brd,#e2e7f0);padding-top:5px}
+/* ── Standard-Bausteine (Feedback 25.07.2026): der «+ weitere Position»-
+   Button und die Einheiten-Chips nutzten Klassen, die auf dieser Seite
+   nie definiert waren → ungestylte Browser-Buttons. ── */
+.g-btn{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border-radius:8px;border:1.5px solid var(--brd2);background:var(--sur);color:var(--txt2);font-size:12.5px;font-weight:700;cursor:pointer;transition:.15s;font-family:var(--sans);text-decoration:none;white-space:nowrap}
+.g-btn:hover{background:var(--bg2);transform:translateY(-1px);box-shadow:var(--sh-sm)}
+.g-btn.sm{padding:5px 10px;font-size:11.5px}
+.g-chip-group{display:flex;gap:4px;background:var(--bg2);padding:3px;border-radius:9px;border:1.5px solid var(--brd)}
+.g-chip{padding:5px 13px;border-radius:7px;border:none;background:transparent;color:var(--mut);font-size:12px;font-weight:700;cursor:pointer;transition:.15s;font-family:var(--sans)}
+.g-chip:hover{background:rgba(255,255,255,.6)}
+.g-chip.active{background:var(--sur);color:var(--blue);box-shadow:var(--sh-sm)}
+/* Δh-Zeile unter den Höhenfeldern + Ruhedruck-Hinweise */
+.dd-dh-info{display:none;margin:2px 0 8px;padding:7px 12px;border-radius:8px;background:var(--blue-bg);border:1px solid var(--blue-bd);font-size:12px;font-weight:700;color:var(--blue-dk)}
+.dd-dh-info b{font-variant-numeric:tabular-nums}
+.dd-dh-info.neg{background:var(--red-bg);border-color:var(--red-bd);color:var(--red)}
+.dd-rd-hint{display:none;margin:2px 0 8px;padding:9px 12px;border-radius:8px;font-size:12px;font-weight:700;line-height:1.45}
+.dd-rd-hint.dea{background:var(--red-bg);border:1px solid var(--red-bd);color:var(--red)}
+.dd-rd-hint.dm{background:var(--blue-bg);border:1px solid var(--blue-bd);color:var(--blue-dk)}
+.sec-row.dea{background:var(--red-bg);border-color:var(--red-bd)}
+.sec-row.dea .sec-row-lbl,.sec-row.dea .sec-row-val{color:var(--red)}
+.sec-row.dm{background:var(--blue-bg);border-color:var(--blue-bd)}
+.sec-row.dm .sec-row-lbl,.sec-row.dm .sec-row-val{color:var(--blue-dk)}
 /* ── Druckschema (SVG-Szene) ── */
 .dd-schemawrap{overflow-x:auto}
 .dd-schemawrap svg{display:block;width:100%;min-width:740px;height:auto}
@@ -222,12 +243,16 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important}
 <script defer src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script>
 function fixLeadingZero(el){
+  // Komma-tauglich (diese Seite zeigt Werte mit Komma an): «.5» → «0.5»,
+  // «,5» → «0,5» — ein Komma-Dezimal wird NIE zu einer Ganzzahl gekappt.
   var v=el.value.trim();
   if(!v)return;
-  if(v.charAt(0)==='.')v='0'+v;
-  else if(v.charAt(0)==='-'&&v.charAt(1)==='.')v='-0'+v.substring(1);
-  var n=parseFloat(v);
-  if(isFinite(n))el.value=String(n);
+  var hadComma=v.indexOf(',')>=0;
+  var v2=v.replace(',','.');
+  if(v2.charAt(0)==='.')v2='0'+v2;
+  else if(v2.charAt(0)==='-'&&v2.charAt(1)==='.')v2='-0'+v2.substring(1);
+  var n=parseFloat(v2);
+  if(isFinite(n))el.value=hadComma?String(n).replace('.',','):String(n);
 }
 </script>
 <script src="gema_db.js"></script>
@@ -334,42 +359,43 @@ function fixLeadingZero(el){
         <div id="blockHoehen">
           <div class="fg">
             <label>Höhe Reservoir</label>
-            <div class="input-row"><input id="hReservoir" type="text" placeholder="0" oninput="recalc()"/><span class="unit">m ü.M.</span></div>
+            <div class="input-row"><input id="hReservoir" type="text" inputmode="decimal" placeholder="0" oninput="recalc()" onblur="fixLeadingZero(this)"/><span class="unit">m ü.M.</span></div>
           </div>
           <div class="fg">
             <label>Höhe Verteilbatterie</label>
-            <div class="input-row"><input id="hVerteilbatterie" type="text" placeholder="0" oninput="recalc()"/><span class="unit">m ü.M.</span></div>
+            <div class="input-row"><input id="hVerteilbatterie" type="text" inputmode="decimal" placeholder="0" oninput="recalc()" onblur="fixLeadingZero(this)"/><span class="unit">m ü.M.</span></div>
           </div>
+          <div class="dd-dh-info" id="ddDhInfo"></div>
           <div id="ddHoehe"></div>
           <div class="fg">
             <label>Druckschwankungen Netz<br><span class="lbl-hint">absolut oder in % des statischen Drucks</span></label>
-            <div class="input-row"><input id="schwankungNetz" type="text" placeholder="0" oninput="recalc()"/><select id="schwankungNetzMode" class="unit schw-mode" style="cursor:pointer" onchange="recalc()"><option value="unit" class="unit-bar-opt">bar</option><option value="pct">%</option></select></div>
+            <div class="input-row"><input id="schwankungNetz" type="text" inputmode="decimal" placeholder="0" oninput="recalc()" onblur="fixLeadingZero(this)"/><select id="schwankungNetzMode" class="unit schw-mode" style="cursor:pointer" onchange="recalc()"><option value="unit" class="unit-bar-opt">bar</option><option value="pct">%</option></select></div>
           </div>
         </div>
 
         <div id="blockDirekt" style="display:none">
           <div class="fg">
             <label>Versorgungsdruck<br><span class="lbl-hint">Angabe Gemeinde am Hausanschluss</span></label>
-            <div class="input-row"><input id="versorgungsdruck" type="text" placeholder="0" oninput="recalc()"/><span class="unit unit-bar">bar</span></div>
+            <div class="input-row"><input id="versorgungsdruck" type="text" inputmode="decimal" placeholder="0" oninput="recalc()" onblur="fixLeadingZero(this)"/><span class="unit unit-bar">bar</span></div>
           </div>
           <div class="fg">
             <label>Höhengewinn Strasse → Verteilbatterie<br><span class="lbl-hint">positiv = VB tiefer als Strasse</span></label>
-            <div class="input-row"><input id="hoehengewinn" type="text" placeholder="0" oninput="recalc()"/><span class="unit">m</span></div>
+            <div class="input-row"><input id="hoehengewinn" type="text" inputmode="decimal" placeholder="0" oninput="recalc()" onblur="fixLeadingZero(this)"/><span class="unit">m</span></div>
           </div>
           <div class="fg">
             <label>Druckschwankungen (Reserve)<br><span class="lbl-hint">absolut oder in % des Versorgungsdrucks</span></label>
-            <div class="input-row"><input id="schwankungReserve" type="text" placeholder="0" oninput="recalc()"/><select id="schwankungReserveMode" class="unit schw-mode" style="cursor:pointer" onchange="recalc()"><option value="unit" class="unit-bar-opt">bar</option><option value="pct">%</option></select></div>
+            <div class="input-row"><input id="schwankungReserve" type="text" inputmode="decimal" placeholder="0" oninput="recalc()" onblur="fixLeadingZero(this)"/><select id="schwankungReserveMode" class="unit schw-mode" style="cursor:pointer" onchange="recalc()"><option value="unit" class="unit-bar-opt">bar</option><option value="pct">%</option></select></div>
           </div>
         </div>
 
         <div class="divider-lbl">Verluste bis Wasserzähler</div>
         <div class="fg">
           <label>Druckverlust Hauszuleitung<br><span class="lbl-hint">Q<sub>HA</sub> aus der <a href="sb_lu_tabelle.html" style="color:var(--acc,#2563eb);text-decoration:none">→ LU-Zusammenstellung</a></span></label>
-          <div class="input-row"><input id="dvHauszuleitung" type="text" placeholder="0" oninput="recalc()"/><span class="unit unit-bar">bar</span></div>
+          <div class="input-row"><input id="dvHauszuleitung" type="text" inputmode="decimal" placeholder="0" oninput="recalc()" onblur="fixLeadingZero(this)"/><span class="unit unit-bar">bar</span></div>
         </div>
         <div class="fg">
           <label>Druckverlust Wasserzähler<br><span class="lbl-hint">Angabe Wasserwerk bzw. Zähler-Datenblatt (Hersteller)</span></label>
-          <div class="input-row"><input id="dvWasserzaehler" type="text" placeholder="0" oninput="recalc()"/><span class="unit unit-bar">bar</span></div>
+          <div class="input-row"><input id="dvWasserzaehler" type="text" inputmode="decimal" placeholder="0" oninput="recalc()" onblur="fixLeadingZero(this)"/><span class="unit unit-bar">bar</span></div>
         </div>
 
         <div style="margin-top:14px">
@@ -394,39 +420,40 @@ function fixLeadingZero(el){
       </div>
       <div class="card-bd">
         <div class="fg">
-          <label>Ruhedruck nach Druckminderer<br><span class="lbl-hint">oder Einschaltdruck DEA · leer = Betriebsdruck</span></label>
-          <div class="input-row"><input id="ruhedruckDM" type="text" placeholder="0" oninput="recalc()"/><span class="unit unit-bar">bar</span></div>
+          <label>Ruhedruck<br><span class="lbl-hint">gewählter Soll-Wert (nach Druckminderer, falls vorhanden) · oder Einschaltdruck DEA · leer = Betriebsdruck</span></label>
+          <div class="input-row"><input id="ruhedruckDM" type="text" inputmode="decimal" placeholder="0" oninput="recalc()" onblur="fixLeadingZero(this)"/><span class="unit unit-bar">bar</span></div>
         </div>
+        <div class="dd-rd-hint" id="ddRdHinweis"></div>
         <div class="fg">
           <label>Druckverlust Druckminderer</label>
-          <div class="input-row"><input id="dvDruckminderer" type="text" placeholder="0" oninput="recalc()"/><span class="unit unit-bar">bar</span></div>
+          <div class="input-row"><input id="dvDruckminderer" type="text" inputmode="decimal" placeholder="0" oninput="recalc()" onblur="fixLeadingZero(this)"/><span class="unit unit-bar">bar</span></div>
         </div>
         <div class="fg">
           <label>Druckverlust Wassernachbehandlung</label>
-          <div class="input-row"><input id="dvNachbehandlung" type="text" placeholder="0" oninput="recalc()"/><span class="unit unit-bar">bar</span></div>
+          <div class="input-row"><input id="dvNachbehandlung" type="text" inputmode="decimal" placeholder="0" oninput="recalc()" onblur="fixLeadingZero(this)"/><span class="unit unit-bar">bar</span></div>
         </div>
           <div class="fg extra-nb" style="display:none">
             <label><input type="text" id="dvNachbehandlungN2" placeholder="z.B. Feinfilter" style="border:none;background:transparent;font:inherit;font-weight:600;color:var(--text);outline:none;border-bottom:1px dashed var(--brd);padding:2px 0;width:100%"/></label>
-            <div class="input-row"><input id="dvNachbehandlung2" type="text" placeholder="0" oninput="recalc()"/><span class="unit unit-bar">bar</span></div>
+            <div class="input-row"><input id="dvNachbehandlung2" type="text" inputmode="decimal" placeholder="0" oninput="recalc()" onblur="fixLeadingZero(this)"/><span class="unit unit-bar">bar</span></div>
           </div>
           <div class="fg extra-nb" style="display:none">
             <label><input type="text" id="dvNachbehandlungN3" placeholder="z.B. Rückflussverhinderer" style="border:none;background:transparent;font:inherit;font-weight:600;color:var(--text);outline:none;border-bottom:1px dashed var(--brd);padding:2px 0;width:100%"/></label>
-            <div class="input-row"><input id="dvNachbehandlung3" type="text" placeholder="0" oninput="recalc()"/><span class="unit unit-bar">bar</span></div>
+            <div class="input-row"><input id="dvNachbehandlung3" type="text" inputmode="decimal" placeholder="0" oninput="recalc()" onblur="fixLeadingZero(this)"/><span class="unit unit-bar">bar</span></div>
           </div>
           <div style="margin:2px 0 6px"><button type="button" class="g-btn sm no-print" onclick="window._ddAddNb&&window._ddAddNb()">＋ weitere Position (Filter, Rückflussverhinderer …)</button></div>
 
         <div class="divider-lbl">Höhenunterschiede ab Verteilbatterie</div>
         <div class="fg">
           <label>Höchste Entnahmestelle<br><span class="lbl-hint">positiv = über Verteilbatterie</span></label>
-          <div class="input-row"><input id="hHoechste" type="text" placeholder="0" oninput="recalc()"/><span class="unit">m ↑</span></div>
+          <div class="input-row"><input id="hHoechste" type="text" inputmode="decimal" placeholder="0" oninput="recalc()" onblur="fixLeadingZero(this)"/><span class="unit">m ↑</span></div>
         </div>
         <div class="fg">
           <label>Tiefste Entnahmestelle<br><span class="lbl-hint">positiv = unter Verteilbatterie</span></label>
-          <div class="input-row"><input id="hTiefste" type="text" placeholder="0" oninput="recalc()"/><span class="unit">m ↓</span></div>
+          <div class="input-row"><input id="hTiefste" type="text" inputmode="decimal" placeholder="0" oninput="recalc()" onblur="fixLeadingZero(this)"/><span class="unit">m ↓</span></div>
         </div>
         <div class="fg">
           <label>Druckverlust Installation<br><span class="lbl-hint"><a href="sb_druckverlust.html" style="color:var(--acc,#2563eb);text-decoration:none">→ Wert aus der Druckverlustberechnung</a></span></label>
-          <div class="input-row"><input id="dvInstallation" type="text" placeholder="0" oninput="recalc()"/><span class="unit unit-bar">bar</span></div>
+          <div class="input-row"><input id="dvInstallation" type="text" inputmode="decimal" placeholder="0" oninput="recalc()" onblur="fixLeadingZero(this)"/><span class="unit unit-bar">bar</span></div>
         </div>
       </div>
     </div>
@@ -506,8 +533,12 @@ function fixLeadingZero(el){
           <span><span class="sec-row-val" id="out-statisch">—</span><span class="sec-row-unit unit-bar-txt">bar</span></span>
         </div>
         <div class="sec-row">
-          <span class="sec-row-lbl">Einstelldruck Druckminderer (Ruhedruck nach DM)</span>
+          <span class="sec-row-lbl">Gewählter Ruhedruck (Einstelldruck Druckminderer)</span>
           <span><span class="sec-row-val" id="out-dmEinstell">—</span><span class="sec-row-unit unit-bar-txt">bar</span></span>
+        </div>
+        <div class="sec-row" id="ddDmBedarf" style="display:none">
+          <span class="sec-row-lbl" id="ddDmBedarfLbl"></span>
+          <span><span class="sec-row-val" id="ddDmBedarfVal">—</span><span class="sec-row-unit unit-bar-txt">bar</span></span>
         </div>
         <div class="sec-row">
           <span class="sec-row-lbl">Eingangsdruck 2. Teil (Basis)</span>
@@ -631,9 +662,71 @@ const recalc = () => {
   // Druckreserve: was über dem Norm-Mindestfliessdruck (1.0 bar) übrig bleibt
   const maxDV       = fliessdruck - 1.0;
 
-  // Vorschlagswert für «Ruhedruck nach Druckminderer» = Betriebsdruck nach Wasserzähler
+  // Vorschlagswert für «Ruhedruck» = Betriebsdruck nach Wasserzähler
   const rdEl = document.getElementById('ruhedruckDM');
   if(rdEl) rdEl.placeholder = (typeof betrieb==='number' && !isNaN(betrieb)) ? ('Vorschlag: ' + fmt(fromBar(betrieb))) : 'oder Einschaltdruck DEA';
+
+  // Δh-Zeile unter den Höhenfeldern (Feedback 25.07.2026): Höhenunterschied
+  // in Metern + der daraus gewählte Druck, direkt bei der Eingabe sichtbar.
+  const dhInfo = document.getElementById('ddDhInfo');
+  if(dhInfo){
+    const beideH = currentMode==='hoehen' &&
+      String(document.getElementById('hReservoir')?.value||'').trim() !== '' &&
+      String(document.getElementById('hVerteilbatterie')?.value||'').trim() !== '';
+    if(beideH && isFinite(hoehendiff)){
+      dhInfo.className = 'dd-dh-info' + (hoehendiff < 0 ? ' neg' : '');
+      dhInfo.innerHTML = 'Δh <b>' + String(Math.round(hoehendiff*10)/10).replace('.',',') + ' m</b> → statischer Druck <b>' +
+        fmt(fromBar(statisch)) + ' ' + currentUnit + '</b>' +
+        (hoehendiff < 0 ? ' — Reservoir liegt nicht über der Verteilbatterie' : '');
+      dhInfo.style.display = '';
+    } else {
+      dhInfo.style.display = 'none';
+    }
+  }
+
+  // Druckerhöhung / Druckminderer nötig (Feedback 25.07.2026):
+  // Soll-Ruhedruck ÜBER dem Betriebsdruck nach Wasserzähler → ohne
+  // Druckerhöhungsanlage nicht erreichbar (Fehler). Betriebsdruck ÜBER dem
+  // Soll-Ruhedruck → ein Druckminderer muss den Druck reduzieren (Hinweis).
+  const EPS_DM = 0.05;
+  let dmBedarf = null;
+  if(rdDM > 0 && typeof betrieb==='number' && !isNaN(betrieb)){
+    if(rdDM > betrieb + EPS_DM)      dmBedarf = { typ:'dea', diff: rdDM - betrieb };
+    else if(betrieb > rdDM + EPS_DM) dmBedarf = { typ:'dm',  diff: betrieb - rdDM };
+  }
+  const rdHint = document.getElementById('ddRdHinweis');
+  if(rdHint){
+    if(dmBedarf && dmBedarf.typ==='dea'){
+      rdHint.className = 'dd-rd-hint dea';
+      rdHint.innerHTML = '⚠ <b>Druckerhöhung nötig</b> — der gewählte Ruhedruck (' + fmt(fromBar(rdDM)) + ' ' + currentUnit +
+        ') liegt über dem Betriebsdruck nach Wasserzähler (' + fmt(fromBar(betrieb)) + ' ' + currentUnit + '). Fehlbetrag ' +
+        fmt(fromBar(dmBedarf.diff)) + ' ' + currentUnit + ' → Druckerhöhungsanlage vorsehen.';
+      rdHint.style.display = '';
+    } else if(dmBedarf && dmBedarf.typ==='dm'){
+      rdHint.className = 'dd-rd-hint dm';
+      rdHint.innerHTML = '<b>Druckminderer nötig</b> — der Betriebsdruck nach Wasserzähler (' + fmt(fromBar(betrieb)) + ' ' + currentUnit +
+        ') liegt über dem gewählten Ruhedruck (' + fmt(fromBar(rdDM)) + ' ' + currentUnit + '). Reduktion um ' +
+        fmt(fromBar(dmBedarf.diff)) + ' ' + currentUnit + '.';
+      rdHint.style.display = '';
+    } else {
+      rdHint.style.display = 'none';
+    }
+  }
+  const dmRow = document.getElementById('ddDmBedarf');
+  if(dmRow){
+    const dmLbl = document.getElementById('ddDmBedarfLbl');
+    const dmVal = document.getElementById('ddDmBedarfVal');
+    if(dmBedarf){
+      dmRow.className = 'sec-row ' + dmBedarf.typ;
+      if(dmLbl) dmLbl.textContent = dmBedarf.typ==='dea'
+        ? '⚠ Druckerhöhung nötig — Ruhedruck über Betriebsdruck nach WZ, Fehlbetrag'
+        : 'Druckminderer nötig — Reduktion Betriebsdruck → Ruhedruck';
+      if(dmVal) dmVal.textContent = fmt(fromBar(dmBedarf.diff));
+      dmRow.style.display = '';
+    } else {
+      dmRow.style.display = 'none';
+    }
+  }
 
   const setO = (id, v) => { const el=document.getElementById(id); if(el) el.textContent = (typeof v==='number'&&!isNaN(v)) ? fmt(v) : '—'; };
   setO('out-betrieb',      fromBar(betrieb));
@@ -812,16 +905,39 @@ GemaFeedback.init('druckdispositiv', 'Druckdispositiv');
     var hint = document.getElementById('ddSchemaHint');
     if(hint) hint.style.display = hatDaten ? 'none' : '';
 
-    var W = 1020, H = 600;
-    var gebX = 560, gebW = 310, bodenY = H - 128, kellerH = 66;
-    var einY = bodenY + Math.round(kellerH/2) + 6;
+    /* ── Geometrie (Feedback 25.07.2026) ──
+       · Geschosse alle 2.8 m (oberste Kante = exakte Höhe), UGs ebenso
+         nach unten, wenn die tiefste Entnahmestelle unter der VB liegt
+       · Haus breiter — Wasserzähler/Nachbehandlung/Druckminderer sind IM
+         Gebäude dargestellt (Hausanschluss im UG)
+       · SVG-Höhe dynamisch (viele Geschosse → höheres Schema) */
+    var W = 1020;
+    var gebX = 520, gebW = 390;
+    var FLOOR_M = 2.8;
     var hHo = Math.max(0, d.hHo||0), hTi = Math.max(0, d.hTi||0);
-    var n = hHo > 0 ? Math.min(8, Math.max(1, Math.round(hHo/2.8))) : 1;
-    var floorM = hHo > 0 ? hHo/n : 0;
-    var gH = Math.min(58, Math.max(36, 300/n));
-    var gebTopY = bodenY - n*gH;
-    var steigX = gebX + 110;
-    var mScale = gH / (floorM > 0 ? floorM : 2.8);
+    var n = hHo > 0 ? Math.max(1, Math.ceil(hHo/FLOOR_M - 1e-9)) : 1;
+    var gH = Math.min(58, Math.max(26, 320/n));
+    var mScale = gH / FLOOR_M;
+    var buildingH = hHo > 0 ? hHo*mScale : gH;
+    var gebTopY = 200;
+    var bodenY = gebTopY + buildingH;
+    var steigX = gebX + 250;
+    var einY = bodenY + 34;
+    /* UG-Zonen: Zone 1 traegt den Hausanschluss (WZ/NB/DM) und ist darum
+       mindestens 104 px hoch; tiefere Zonen folgen dem Meter-Massstab. */
+    var nUG = hTi > 0 ? Math.max(1, Math.ceil(hTi/FLOOR_M - 1e-9)) : 0;
+    var ugZonen = [];
+    var kellerH = 104;
+    if(nUG > 0){
+      kellerH = 0;
+      for(var u=1; u<=nUG; u++){
+        var topM = (u-1)*FLOOR_M, botM = Math.min(u*FLOOR_M, hTi);
+        var px = (u===1) ? Math.max(104, (botM-topM)*mScale) : Math.max(30, (botM-topM)*mScale);
+        ugZonen.push({ topM:topM, botM:botM, px:px });
+        kellerH += px;
+      }
+    }
+    var H = bodenY + kellerH + 46;
 
     var s = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Druckschema">';
     s += '<defs><linearGradient id="ddws" x1="0" y1="0" x2="0" y2="1">' +
@@ -839,11 +955,11 @@ GemaFeedback.init('druckdispositiv', 'Druckdispositiv');
       var terr = 'M 30 ' + (resY+resH) + ' H ' + (resX+resW+46) +
         (echt || (isFinite(dh) && dh<=0)
           ? ' L ' + (gebX-60) + ' ' + bodenY
-          : ' L ' + (resX+resW+130) + ' ' + (resY+resH+60) + ' L ' + (gebX-190) + ' ' + (bodenY-40) + ' L ' + (gebX-60) + ' ' + bodenY) +
+          : ' L ' + (resX+resW+116) + ' ' + (resY+resH+60) + ' L ' + (gebX-100) + ' ' + (bodenY-40) + ' L ' + (gebX-60) + ' ' + bodenY) +
         ' H ' + (W-20);
       s += '<path d="' + terr + '" fill="none" stroke="' + C.terrain + '" stroke-width="2.5"/>';
       if(!echt && isFinite(dh) && dh > 0){
-        var bx = (resX+resW+130 + gebX-190)/2, by = (resY+resH+60 + bodenY-40)/2;
+        var bx = (resX+resW+116 + gebX-100)/2, by = (resY+resH+60 + bodenY-40)/2;
         s += '<g transform="translate(' + bx + ' ' + by + ') rotate(18)"><rect x="-16" y="-9" width="32" height="18" fill="' + C.card + '"/>' +
           '<path d="M -14 -7 L -4 3 M -8 -9 L 2 1" stroke="' + C.terrain + '" stroke-width="2.2"/>' +
           '<path d="M -2 -3 L 8 7 M 4 -1 L 14 9" stroke="' + C.terrain + '" stroke-width="2.2"/></g>';
@@ -878,7 +994,7 @@ GemaFeedback.init('druckdispositiv', 'Druckdispositiv');
         '<text x="' + netzX + '" y="' + (einY+3.5) + '" text-anchor="middle" font-size="8.5" font-weight="800" fill="' + C.wasser + '">NETZ</text>' +
         '<text x="' + netzX + '" y="' + (einY+32) + '" text-anchor="middle" font-size="11" font-weight="800" fill="' + C.ink + '">Netzanschluss</text>';
       /* Chips als Spalte über dem Netzanschluss — kollisionsfrei */
-      var ny = einY - 40;
+      var ny = bodenY - 30;
       s += chip(netzX+26, ny, 'Δp HZ −' + fmtP(d.dvHZ), 'dvHauszuleitung'); ny -= 26;
       if(d.schwBar > 0){ s += chip(netzX+26, ny, 'Schwankung −' + fmtP(d.schwBar), 'schwankungReserve'); ny -= 26; }
       if(d.hGewinnM){ s += chip(netzX+26, ny, 'Höhengewinn ' + (d.hGewinnM>0?'+':'') + fmtM(d.hGewinnM) + ' m → ' + (d.hGewinnM>0?'+':'−') + fmtP(Math.abs(d.hGewinnM)*0.0981), 'hoehengewinn'); ny -= 26; }
@@ -886,65 +1002,96 @@ GemaFeedback.init('druckdispositiv', 'Druckdispositiv');
       note = hatDaten ? 'Direktangabe Versorgungsdruck — Terrain schematisch (keine Höhenangaben).' : '';
     }
 
-    /* ── Gebäude ── */
-    s += '<rect x="' + gebX + '" y="' + gebTopY + '" width="' + gebW + '" height="' + (bodenY-gebTopY+kellerH) + '" fill="' + C.geb + '" stroke="' + C.gebBrd + '" stroke-width="2" rx="3"/>';
+    /* ── Gebäude (inkl. Keller/UGs) ── */
+    s += '<rect x="' + gebX + '" y="' + gebTopY + '" width="' + gebW + '" height="' + (buildingH+kellerH) + '" fill="' + C.geb + '" stroke="' + C.gebBrd + '" stroke-width="2" rx="3"/>';
     s += '<path d="M ' + (gebX-14) + ' ' + gebTopY + ' L ' + (gebX+gebW/2) + ' ' + (gebTopY-54) + ' L ' + (gebX+gebW+14) + ' ' + gebTopY + ' Z" fill="' + C.card + '" stroke="' + C.gebBrd + '" stroke-width="2"/>';
-    for(var i=0;i<n;i++){
-      var fy = bodenY - (i+1)*gH;
-      s += '<line x1="' + gebX + '" y1="' + (fy+gH) + '" x2="' + (gebX+gebW) + '" y2="' + (fy+gH) + '" stroke="' + C.gebBrd + '" stroke-width="1" opacity=".5"/>';
-      if(floorM > 0 && isFinite(d.basis)){
-        var hM = (i+1)*floorM;
-        s += '<text x="' + (gebX+10) + '" y="' + (fy+gH/2+4) + '" font-size="10" font-weight="700" fill="' + C.mut + '" style="font-variant-numeric:tabular-nums">+' + fmtM(hM) + ' m</text>';
-        s += '<text x="' + (gebX+gebW-10) + '" y="' + (fy+gH/2+4) + '" text-anchor="end" font-size="10.5" fill="' + C.txt + '" style="font-variant-numeric:tabular-nums">Ruhe ' + fmtP(d.basis - hM*0.0981) + '</text>';
+    /* Geschosse: alle 2.8 m eine Decke, oberste Kante = exakte Höhe */
+    for(var i=1;i<=n;i++){
+      var hTopM = hHo > 0 ? Math.min(i*FLOOR_M, hHo) : 0;
+      var hBotM = (i-1)*FLOOR_M;
+      var yTop = bodenY - hTopM*mScale;
+      var yBot = bodenY - hBotM*mScale;
+      if(i < n) s += '<line x1="' + gebX + '" y1="' + yTop + '" x2="' + (gebX+gebW) + '" y2="' + yTop + '" stroke="' + C.gebBrd + '" stroke-width="1" opacity=".5"/>';
+      if(hHo > 0 && isFinite(d.basis) && (yBot - yTop) >= 15){
+        var yMid = (yTop + yBot)/2 + 4;
+        s += '<text x="' + (gebX+10) + '" y="' + yMid + '" font-size="10" font-weight="700" fill="' + C.mut + '" style="font-variant-numeric:tabular-nums">+' + fmtM(hTopM) + ' m</text>';
+        s += '<text x="' + (gebX+gebW-10) + '" y="' + yMid + '" text-anchor="end" font-size="10.5" fill="' + C.txt + '" style="font-variant-numeric:tabular-nums">Ruhe ' + fmtP(d.basis - hTopM*0.0981) + '</text>';
       }
     }
     s += '<line x1="' + gebX + '" y1="' + bodenY + '" x2="' + (gebX+gebW) + '" y2="' + bodenY + '" stroke="' + C.gebBrd + '" stroke-width="1.6"/>';
     s += '<text x="' + (gebX+10) + '" y="' + (bodenY+16) + '" font-size="10.5" font-weight="700" fill="' + C.mut + '">UG · Verteilbatterie</text>';
-    if(d.mode === 'hoehen') s += chip(gebX+gebW+20, bodenY-32, (isFinite(d.hVert)?fmtM(d.hVert):'—') + ' m ü.M.', 'hVerteilbatterie');
+    /* m-ü.M.-Chip UNTER dem Terrain-Strich (Feedback 25.07.2026) */
+    if(d.mode === 'hoehen') s += chip(gebX+gebW+18, bodenY+10, (isFinite(d.hVert)?fmtM(d.hVert):'—') + ' m ü.M.', 'hVerteilbatterie');
+    /* UG-Zonen nach unten: Deckenlinien + Tiefe/Ruhedruck je 2.8 m */
+    if(nUG > 0){
+      var accY = bodenY;
+      for(var u2=0; u2<ugZonen.length; u2++){
+        accY += ugZonen[u2].px;
+        if(u2 < ugZonen.length-1){
+          s += '<line x1="' + gebX + '" y1="' + accY + '" x2="' + (gebX+gebW) + '" y2="' + accY + '" stroke="' + C.gebBrd + '" stroke-width="1" opacity=".5"/>';
+          if(isFinite(d.basis)){
+            s += '<text x="' + (gebX+10) + '" y="' + (accY+13) + '" font-size="10" font-weight="700" fill="' + C.mut + '" style="font-variant-numeric:tabular-nums">−' + fmtM(ugZonen[u2].botM) + ' m</text>';
+            // Auf der letzten Zwischendecke kollidiert das Ruhe-Label mit der
+            // Tiefste-Stelle-Beschriftung, wenn die unterste Zone klein ist.
+            var platzUnten = !(u2 === ugZonen.length-2 && ugZonen[ugZonen.length-1].px < 60);
+            if(platzUnten) s += '<text x="' + (gebX+gebW-10) + '" y="' + (accY+13) + '" text-anchor="end" font-size="10.5" fill="' + C.txt + '" style="font-variant-numeric:tabular-nums">Ruhe ' + fmtP(d.basis + ugZonen[u2].botM*0.0981) + '</text>';
+          }
+        }
+      }
+    }
 
     /* Steigleitung + höchste Entnahmestelle */
-    var topY = gebTopY + gH*0.45;
+    var topY = gebTopY + Math.min(gH, buildingH)*0.45;
     s += '<path d="M ' + steigX + ' ' + einY + ' V ' + topY + '" fill="none" stroke="' + C.wasser + '" stroke-width="4" opacity=".9"/>';
     var fF = fliessFarbe(d.fliessdruck);
     s += hahn(steigX, topY, fF);
+    /* Fliessdruck-Kasten: Text untereinander (Feedback 25.07.2026) */
     var fbTxt = fmtP(d.fliessdruck) + (fliessText(d.fliessdruck) ? ' · ' + fliessText(d.fliessdruck) : '');
-    var fbW = Math.max(24 + fbTxt.length*6.6, 230);
-    var fbX = gebX + gebW/2 - fbW/2, fbY = gebTopY - 54 - 52;
-    s += '<line x1="' + (steigX+6) + '" y1="' + (topY-8) + '" x2="' + (gebX+gebW/2) + '" y2="' + (fbY+40) + '" stroke="' + fF + '" stroke-width="1.3" stroke-dasharray="3 3" opacity=".7"/>';
-    s += '<g class="dd-chipbtn" data-ziel="hHoechste"><rect x="' + fbX + '" y="' + fbY + '" width="' + fbW + '" height="40" rx="8" fill="' + C.card + '" stroke="' + fF + '" stroke-width="1.6"/>' +
-      '<text x="' + (fbX+fbW/2) + '" y="' + (fbY+15) + '" text-anchor="middle" font-size="9.5" font-weight="800" fill="' + C.mut + '" letter-spacing=".05em">FLIESSDRUCK HÖCHSTE ENTNAHMESTELLE' + (hHo>0 ? ' (+' + fmtM(hHo) + ' M)' : '') + '</text>' +
-      '<text x="' + (fbX+fbW/2) + '" y="' + (fbY+31) + '" text-anchor="middle" font-size="12.5" font-weight="800" fill="' + fF + '" style="font-variant-numeric:tabular-nums">' + fbTxt + '</text></g>';
-    /* Δp Installation unter dem Fliessdruck-Kasten (frei im Dachbereich) */
+    var fbT2 = 'HÖCHSTE ENTNAHMESTELLE' + (hHo>0 ? ' (+' + fmtM(hHo) + ' M)' : '');
+    var fbW = Math.max(200, 26 + Math.max(fbT2.length*6.2, fbTxt.length*6.8));
+    var fbH = 56;
+    var fbX = gebX + gebW/2 - fbW/2, fbY = gebTopY - 54 - 12 - fbH;
+    s += '<line x1="' + (steigX+6) + '" y1="' + (topY-8) + '" x2="' + (gebX+gebW/2) + '" y2="' + (fbY+fbH) + '" stroke="' + fF + '" stroke-width="1.3" stroke-dasharray="3 3" opacity=".7"/>';
+    s += '<g class="dd-chipbtn" data-ziel="hHoechste"><rect x="' + fbX + '" y="' + fbY + '" width="' + fbW + '" height="' + fbH + '" rx="8" fill="' + C.card + '" stroke="' + fF + '" stroke-width="1.6"/>' +
+      '<text x="' + (fbX+fbW/2) + '" y="' + (fbY+15) + '" text-anchor="middle" font-size="9.5" font-weight="800" fill="' + C.mut + '" letter-spacing=".05em">FLIESSDRUCK</text>' +
+      '<text x="' + (fbX+fbW/2) + '" y="' + (fbY+28) + '" text-anchor="middle" font-size="9.5" font-weight="800" fill="' + C.mut + '" letter-spacing=".05em">' + fbT2 + '</text>' +
+      '<text x="' + (fbX+fbW/2) + '" y="' + (fbY+46) + '" text-anchor="middle" font-size="12.5" font-weight="800" fill="' + fF + '" style="font-variant-numeric:tabular-nums">' + fbTxt + '</text></g>';
+    /* Δp Installation weiter unten — an der Steigleitung im Gebäude (Feedback 25.07.2026) */
     if(d.dvInst > 0){
-      var instTxt = 'Δp Inst −' + fmtP(d.dvInst), instW = 14 + instTxt.length*6.4;
-      s += chip(gebX + gebW/2 - instW/2, fbY + 44, instTxt, 'dvInstallation');
+      s += chip(steigX-138, bodenY - buildingH/2 - 10, 'Δp Inst −' + fmtP(d.dvInst), 'dvInstallation');
     }
 
-    /* tiefste Entnahmestelle (im UG) */
+    /* tiefste Entnahmestelle — im untersten UG (2.8-m-Raster nach unten) */
     var rF = ruheFarbe(d.ruhedruck);
-    s += hahn(steigX+58, einY-22, rF);
+    var tY = nUG > 0 ? (bodenY + kellerH - 22) : (einY - 22);
+    if(nUG > 0){
+      s += '<path d="M ' + steigX + ' ' + einY + ' V ' + tY + ' H ' + (steigX+6) + '" fill="none" stroke="' + C.wasser + '" stroke-width="3" opacity=".75"/>';
+      s += hahn(steigX+14, tY, rF);
+    } else {
+      s += hahn(steigX+58, tY, rF);
+    }
     s += '<g class="dd-chipbtn" data-ziel="hTiefste">' +
-      '<text x="' + (steigX+76) + '" y="' + (einY-22) + '" font-size="9.5" fill="' + C.mut + '">tiefste Stelle' + (hTi>0 ? ' (−' + fmtM(hTi) + ' m)' : '') + '</text>' +
-      '<text x="' + (steigX+76) + '" y="' + (einY-9) + '" font-size="11" font-weight="800" fill="' + rF + '" style="font-variant-numeric:tabular-nums">Ruhe ' + fmtP(d.ruhedruck) + '</text></g>';
+      '<text x="' + (gebX+gebW-12) + '" y="' + (tY-11) + '" text-anchor="end" font-size="9.5" fill="' + C.mut + '">tiefste Stelle' + (hTi>0 ? ' (−' + fmtM(hTi) + ' m)' : '') + '</text>' +
+      '<text x="' + (gebX+gebW-12) + '" y="' + (tY+2) + '" text-anchor="end" font-size="11" font-weight="800" fill="' + rF + '" style="font-variant-numeric:tabular-nums">Ruhe ' + fmtP(d.ruhedruck) + '</text></g>';
 
-    /* Stationen im Zulauf: WZ → Nachbehandlung → DM */
-    var wzX = gebX - 190;
+    /* Hausanschluss IM Gebäude (Feedback 25.07.2026): WZ → Nachbehandlung → DM */
+    var wzX = gebX + 50;
     s += '<circle cx="' + wzX + '" cy="' + einY + '" r="11" fill="' + C.card + '" stroke="' + C.ink + '" stroke-width="2"/>' +
       '<text x="' + wzX + '" y="' + (einY+3.5) + '" text-anchor="middle" font-size="9" font-weight="800" fill="' + C.ink + '">WZ</text>';
-    s += chip(wzX-38, einY+18, '−' + fmtP(d.dvWZ), 'dvWasserzaehler');
+    s += chip(wzX-36, einY+16, '−' + fmtP(d.dvWZ), 'dvWasserzaehler');
     if(d.dvNB > 0){
-      var nbX = gebX - 122;
+      var nbX = gebX + 120;
       s += '<path d="M ' + (nbX-8) + ' ' + (einY-9) + ' h 16 l -5 9 v 8 h -6 v -8 z" fill="' + C.card + '" stroke="' + C.ink + '" stroke-width="1.8"/>';
-      s += chip(nbX-40, einY-42, 'NB −' + fmtP(d.dvNB), 'dvNachbehandlung');
+      s += chip(nbX-34, einY+42, 'NB −' + fmtP(d.dvNB), 'dvNachbehandlung');
     }
     var dmAktiv = d.rdDM > 0 || d.dvDM > 0;
     if(dmAktiv){
-      var dmX = gebX - 56;
+      var dmX = gebX + 186;
       s += '<path d="M ' + (dmX-10) + ' ' + (einY-9) + ' L ' + (dmX+10) + ' ' + (einY+9) + ' L ' + (dmX+10) + ' ' + (einY-9) + ' L ' + (dmX-10) + ' ' + (einY+9) + ' Z" fill="' + C.card + '" stroke="' + C.ink + '" stroke-width="2"/>';
-      s += chip(dmX-42, einY+18, d.rdDM > 0 ? 'DM → ' + fmtP(d.basis) : 'Δp DM −' + fmtP(d.dvDM), d.rdDM > 0 ? 'ruhedruckDM' : 'dvDruckminderer');
+      s += chip(dmX-40, einY+16, d.rdDM > 0 ? 'DM → ' + fmtP(d.basis) : 'Δp DM −' + fmtP(d.dvDM), d.rdDM > 0 ? 'ruhedruckDM' : 'dvDruckminderer');
     }
-    /* Betriebsdruck nach WZ — Hauptwert Teil 1 */
-    s += chip(wzX+34, einY+46, 'Betrieb nach WZ: ' + fmtP(d.betrieb), null, true);
+    /* Betriebsdruck nach WZ — Hauptwert Teil 1, auf der Zuleitung vor dem Haus */
+    s += chip(gebX-186, einY-32, 'Betrieb nach WZ: ' + fmtP(d.betrieb), null, true);
 
     s += '</svg>';
     box.innerHTML = s;
