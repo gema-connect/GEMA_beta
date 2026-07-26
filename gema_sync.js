@@ -370,30 +370,64 @@
   /**
    * Lädt alle Records eines Moduls mit gegebenem data_key-Prefix.
    * Liefert Array<{key, data, lm}>. Reject bei Netz-Fehler.
+   *
+   * PAGINIERT (KRITISCH): PostgREST/Supabase deckelt jede Antwort auf
+   * db-max-rows (Hosted-Default 1000). Ohne Pagination wurde eine
+   * Collection ab dem 1001. Record STILL abgeschnitten — und weil
+   * bindCollection den lokalen Cache mit dem (unvollstaendigen) Cloud-
+   * Stand ueberschreibt, «verschwanden» Datensaetze scheinbar. Darum:
+   * deterministische Reihenfolge (order=data_key.asc) + limit/offset-
+   * Schleife, bis eine Seite nicht mehr voll ist. Sicherheits-Deckel
+   * LOAD_MAX_PAGES gegen Endlosschleifen (mit console.warn — nie still).
+   *
+   * opts (optional, alle Bestands-Aufrufer unveraendert):
+   *   - filter:  zusaetzliches PostgREST-Query-Fragment (bereits encodiert),
+   *              z.B. 'or=(payload->data->>empfaengerUserId.eq.u1,...)' —
+   *              genutzt vom Notify-Empfaenger-Filter.
+   *   - maxRows: weiches Limit — Schleife stoppt, sobald so viele Rows
+   *              geladen sind (z.B. Retention-Scans).
    */
-  function loadCollection(moduleKey, prefix){
-    var url = _sbBase() + '/rest/v1/' + SB_TABLE
+  var LOAD_PAGE = 1000;      // = PostgREST db-max-rows Default (mehr kommt eh nie)
+  var LOAD_MAX_PAGES = 30;   // Deckel: 30'000 Rows pro Collection-Pull
+  function loadCollection(moduleKey, prefix, opts){
+    opts = opts || {};
+    var base = _sbBase() + '/rest/v1/' + SB_TABLE
       + '?module_key=eq.' + encodeURIComponent(moduleKey)
       + '&data_key=like.' + encodeURIComponent(prefix) + '*'
-      + '&select=data_key,payload';
-    return fetch(url, { headers: _hdrs() })
-      .then(function(r){
-        if(r.status === 401) _handle401();   // abgelaufene Session → Login (wie Writes)
-        if(!r.ok) throw new Error('HTTP ' + r.status);
-        _noteSuccess();
-        return r.json();
-      })
-      .then(function(rows){
-        if(!Array.isArray(rows)) return [];
-        return rows.map(function(row){
-          var p = row.payload || {};
-          return { key: row.data_key, data: p.data, lm: p._lm || null };
+      + (opts.filter ? '&' + opts.filter : '')
+      + '&select=data_key,payload'
+      + '&order=data_key.asc';
+    var maxRows = (typeof opts.maxRows === 'number' && opts.maxRows > 0) ? opts.maxRows : 0;
+    var out = [];
+    function _page(offset, pageNr){
+      var url = base + '&limit=' + LOAD_PAGE + (offset ? ('&offset=' + offset) : '');
+      return fetch(url, { headers: _hdrs() })
+        .then(function(r){
+          if(r.status === 401) _handle401();   // abgelaufene Session → Login (wie Writes)
+          if(!r.ok) throw new Error('HTTP ' + r.status);
+          _noteSuccess();
+          return r.json();
+        })
+        .then(function(rows){
+          if(!Array.isArray(rows)) rows = [];
+          for(var i = 0; i < rows.length; i++){
+            var p = rows[i].payload || {};
+            out.push({ key: rows[i].data_key, data: p.data, lm: p._lm || null });
+          }
+          var vollePage = rows.length >= LOAD_PAGE;
+          if(vollePage && maxRows && out.length >= maxRows) return out;
+          if(vollePage && pageNr + 1 >= LOAD_MAX_PAGES){
+            try{ console.warn('[GemaSync] loadCollection: Seiten-Deckel erreicht (' + moduleKey + '/' + prefix + ', ' + out.length + ' Rows) — Ergebnis evtl. unvollstaendig'); }catch(e){}
+            return out;
+          }
+          if(vollePage) return _page(offset + LOAD_PAGE, pageNr + 1);
+          return out;
         });
-      })
-      .catch(function(e){
-        _noteFailure(e);
-        throw e;
-      });
+    }
+    return _page(0, 0).catch(function(e){
+      _noteFailure(e);
+      throw e;
+    });
   }
 
   /**

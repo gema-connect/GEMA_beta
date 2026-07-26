@@ -486,6 +486,14 @@
   var SYNC_MODULE = 'notify';
   var SYNC_PREFIX = 'notif:';
   var CLOUD_PULL_MS = 60000;
+  // Cloud-Aufbewahrung: Rollen-/Org-adressierte Rows werden nie via
+  // _cloudDelete geloescht (mehrere Empfaenger) — ohne Retention wuchse
+  // die notify-Collection unbegrenzt und jeder 60s-Pull wuerde immer
+  // teurer. Nach CLOUD_RETENTION_DAYS gelten Notifikationen als stale
+  // und werden serverseitig geloescht (auch ungelesene — lokal bleiben
+  // sie via _cleanup erhalten, solange ungelesen).
+  var CLOUD_RETENTION_DAYS = 60;
+  var RET_LOCK_KEY = 'gema_notify_ret_v1';   // 1x pro Tag pro Geraet
 
   function _syncApi(){
     return (typeof w.GemaSync !== 'undefined' && w.GemaSync.saveRecord) ? w.GemaSync : null;
@@ -504,10 +512,30 @@
     var s=_syncApi(); if(!s || !id) return;
     try{ s.deleteRecord(SYNC_MODULE, SYNC_PREFIX+id).catch(function(){}); }catch(e){}
   }
+  // Serverseitiger Empfaenger-Vorfilter (Skalierung): statt der GANZEN
+  // notif:-Collection holt der Pull nur Rows, die den eingeloggten User
+  // ueberhaupt betreffen KOENNEN (userId ODER orgId ODER eine seiner
+  // Rollen). Der Filter over-fetcht bewusst (Rolle+Org-Kombis matcht er
+  // schon bei Rollen-Treffer) — _matchesUser bleibt die autoritative
+  // Pruefung beim Anzeigen. Werte werden fuer die or=()-Syntax von
+  // PostgREST-Sonderzeichen befreit (IDs enthalten die eh nicht).
+  function _recipientFilter(u){
+    if(!u || !u.id) return null;
+    function val(v){ return encodeURIComponent(String(v).replace(/[,()"\s]/g,'')); }
+    var ors = ['payload->data->>empfaengerUserId.eq.' + val(u.id)];
+    if(u.orgId) ors.push('payload->data->>empfaengerOrgId.eq.' + val(u.orgId));
+    (u.roleIds || []).forEach(function(rid){
+      if(rid) ors.push('payload->data->>empfaengerRoleId.eq.' + val(rid));
+    });
+    return 'or=(' + ors.join(',') + ')';
+  }
+
   function _cloudPull(){
     var s=_syncApi(); if(!s || !s.loadCollection) return;
+    var u=_me(); if(!u) return;   // ohne Login gibt es nichts Zustellbares
+    var filter=_recipientFilter(u);
     try{
-      s.loadCollection(SYNC_MODULE, SYNC_PREFIX).then(function(recs){
+      s.loadCollection(SYNC_MODULE, SYNC_PREFIX, filter ? { filter: filter } : undefined).then(function(recs){
         if(!recs || !recs.length) return;
         var arr=_readAll(), byId={}, changed=false;
         arr.forEach(function(n){ byId[n.id]=n; });
@@ -522,6 +550,33 @@
           }
         });
         if(changed){ _writeAll(_cleanup(arr)); _notifyListeners(); }
+      }).catch(function(){});
+    }catch(e){}
+    _cloudRetention();
+  }
+
+  // Cloud-Retention: loescht notif:-Rows aelter als CLOUD_RETENTION_DAYS
+  // direkt in der Cloud (ts-Cutoff — ISO-Strings vergleichen lexikografisch
+  // korrekt). Max. 1x pro Tag pro Geraet (Tages-Lock) und gedeckelt auf
+  // 400 Rows pro Lauf, damit der Aufraeum-Scan selbst nie zur Last wird.
+  // Best-effort (noQueue): ein fehlgeschlagener Delete wird schlicht am
+  // naechsten Tag erneut versucht, nie in die Outbox gelegt.
+  var RET_MAX_PER_RUN = 400;
+  function _cloudRetention(){
+    var s=_syncApi(); if(!s || !s.loadCollection || !s.deleteRecords) return;
+    var u=_me(); if(!u) return;
+    var today = new Date().toISOString().slice(0,10);
+    try{ if(localStorage.getItem(RET_LOCK_KEY) === today) return; }catch(e){}
+    try{ localStorage.setItem(RET_LOCK_KEY, today); }catch(e){}
+    var cutoff = new Date(Date.now() - CLOUD_RETENTION_DAYS*24*3600*1000).toISOString();
+    try{
+      s.loadCollection(SYNC_MODULE, SYNC_PREFIX, {
+        filter: 'payload->data->>ts=lt.' + encodeURIComponent(cutoff),
+        maxRows: RET_MAX_PER_RUN
+      }).then(function(recs){
+        var keys=(recs||[]).map(function(r){ return r && r.key; })
+          .filter(Boolean).slice(0, RET_MAX_PER_RUN);
+        if(keys.length) s.deleteRecords(SYNC_MODULE, keys, { noQueue:true }).catch(function(){});
       }).catch(function(){});
     }catch(e){}
   }

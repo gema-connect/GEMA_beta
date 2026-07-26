@@ -2390,6 +2390,8 @@ Notifikationen lagen früher NUR im localStorage — sie erreichten damit nie ei
 
 **Matching-Regel (KRITISCH seit Cloud-Sync):** Sind `empfaengerRoleId` UND `empfaengerOrgId` gesetzt, müssen BEIDE passen (früher ODER — damit hätte z.B. ein `role_magaziner`-Push jeder Org alle Magaziner aller Orgs erreicht, sobald Notifikationen cloud-synced sind).
 
+**Skalierung (07/2026, Drift-Guard `scripts/skalierung_sync_test.mjs`):** (1) **Serverseitiger Empfänger-Vorfilter** — `_cloudPull` lädt NICHT mehr die ganze `notif:`-Collection, sondern nur Rows, die den eingeloggten User betreffen KÖNNEN: `_recipientFilter(u)` baut ein PostgREST-`or=(payload->data->>empfaengerUserId.eq.<uid>, …orgId…, …je Rolle…)`-Fragment (via `loadCollection`-`opts.filter`). Der Filter over-fetcht bewusst (Rolle+Org-Kombis matchen schon bei Rollen-Treffer) — `_matchesUser` bleibt die autoritative Prüfung; ohne eingeloggten User kein Pull. (2) **Cloud-Retention** — Rollen-/Org-adressierte Rows werden nie via `_cloudDelete` gelöscht (mehrere Empfänger) und wuchsen unbegrenzt; `_cloudRetention` löscht jetzt Rows mit `ts` älter als `CLOUD_RETENTION_DAYS` (60) serverseitig (ts-lt-Filter, ISO-Strings vergleichen lexikografisch), max. 1×/Tag/Gerät (Lock `gema_notify_ret_v1`), gedeckelt 400 Rows/Lauf, `deleteRecords` mit `noQueue` (best-effort — nächster Tag holt nach). Lokal bleibt `_cleanup` unverändert (ungelesen bleibt).
+
 ### Public API
 
 ```javascript
@@ -2596,7 +2598,19 @@ GemaSync.probe()          // aktiv probieren — Promise<bool>
 GemaSync.onConnectivityChange(cb)
 
 // Per-Record-Primitive
-GemaSync.loadCollection(moduleKey, prefix)      // Promise<Array<{key,data,lm}>>
+GemaSync.loadCollection(moduleKey, prefix, opts?) // Promise<Array<{key,data,lm}>>
+   // PAGINIERT (KRITISCH, 07/2026): Supabase/PostgREST deckelt jede Antwort
+   // auf db-max-rows (Hosted-Default 1000) — ohne Pagination wurde eine
+   // Collection ab dem 1001. Record STILL abgeschnitten und bindCollection
+   // ueberschrieb den lokalen Cache mit dem unvollstaendigen Stand
+   // («Datensaetze verschwinden»). loadCollection laedt jetzt deterministisch
+   // (order=data_key.asc) in 1000er-Seiten via limit/offset, bis eine Seite
+   // nicht mehr voll ist (Deckel LOAD_MAX_PAGES=30 → console.warn, nie still).
+   // opts.filter = zusaetzliches PostgREST-Query-Fragment (bereits encodiert,
+   // z.B. der or=()-Empfaenger-Filter von gema_notify), opts.maxRows = weiches
+   // Limit (stoppt das Nachladen weiterer Seiten, z.B. Retention-Scans).
+   // Das Supabase-Setting «Max Rows» darf NICHT unter 1000 gesenkt werden
+   // (die Schleife erkennt «fertig» an einer nicht-vollen 1000er-Seite).
 GemaSync.loadRecord(moduleKey, dataKey)         // Promise<{key,data,lm} | null>
 GemaSync.saveRecord(moduleKey, dataKey, data)   // Promise<{ok,lm}>
 GemaSync.saveRecords(moduleKey, [{key,data},..])// Batch-Upsert in einer POST
@@ -2846,6 +2860,7 @@ UI-Anbindung:
 | `gema_db.js` | Legacy Storage-Layer (`_GemaDB`). Cloud-First, aber Blob-pro-Modulkey. Neue Module nutzen stattdessen `gema_sync.js`. **`_GemaDB.ensure(dataKeys)`**: lädt fehlende Keys des aktuellen Moduls zur Laufzeit in den Cache nach (für per-Objekt-Keys beim Objektwechsel — siehe «Storage-Audit der _GemaDB-Blob-Module»). |
 | `gema_sync.js` | **Cloud-First Per-Record-Sync.** Single source of truth Supabase, eine Row pro Datensatz, Diff-Saves, Offline-Banner. `bindCollection`/`persistCollection` als Modul-Helper. Siehe „Cloud-First Storage-Architektur". |
 | `gema_dialog.js` | Eigene Alert/Confirm/Prompt-Dialoge im GEMA-Style. `window.alert` global ueberschrieben. `GemaDialog.confirm({title,message,danger}).then(ok=>…)` und `GemaDialog.prompt(...)` als Promise-API. `window.confirm` bleibt nativ (sync), neue Stellen sollen GemaDialog nutzen. **`opts.html:true`** = `message` ist bereits fertiges HTML (vom Aufrufer selbst escaped, wird NICHT erneut escaped) — für formatierte Dialoge (z.B. Diagnose-Ausgaben) |
+| `gema_editlock.js` | **Gleichzeitig-Bearbeiten-Warnung** (`window.GemaEditLock`): amber, nicht-blockierender Banner, wenn zwei Personen denselben Datensatz (gleiches Modul + gleiches Projekt/Dokument) bearbeiten — Sync ist Last-Write-Wins, der Banner macht den Konflikt sichtbar. `watch({key,label})` / `stop()` / `active()`; genau EIN Watch pro Seite (gleicher Key = No-Op → kein Churn bei Editor-Rebuilds). Mechanik: Heartbeat-Lock-Rows (moduleKey `editlock`, `lock:<key>__<userId>` — eine Row PRO USER, Muster `chatread:`), Heartbeat 30s / TTL 75s (Absturz/Standby löst sich selbst), pagehide-Release mit keepalive, Stale-Housekeeping (>10 min). **KRITISCH**: alle Cloud-Calls `noQueue:true` (Locks NIE in die Outbox — nachgesendete Heartbeats wären Geister-Locks); versteckter Tab pausiert den Heartbeat; Check-Fehler ändern den Banner-Zustand nicht (kein Flackern offline). Verdrahtet: **gema_autosave.js** (lazy-Load per Script-Injection, Watch-Key = AutoSave-Storage-Key pro Objekt/Phase → deckt ALLE Berechnungsmodule ohne HTML-Änderung; folgt Objekt-/Phasenwechsel) + **pm_erp.html** (`erpOpenEditor` → `watch({key:'erpdok:'+id})`, `erpCloseEditor` → `stop()`). Drift-Guard `scripts/skalierung_sync_test.mjs` |
 | `gema_feedback.js` | Feedback-Overlay mit Annotation |
 | `gema_hoehe.js` | **Höhen-Übernahme ab Karte (swisstopo)** — `GemaHoehe.attach({container, stateId, autosaveModul, mode:'m'\|'mbar', applyLabel, onApply})`. Adresse → Geocoding (SearchServer) → LV95 → Höhendienst `api3.geo.admin.ch/rest/services/height` (swissALTI3D) → m ü.M.; gezoomte Luftbild-Mini-Karte + Vollbild-Modal mit verschiebbarem Punkt (jede Verschiebung fragt die Höhe neu ab), «Übernehmen» schreibt ins Modul-Feld. Siehe Abschnitt «Höhen-Übernahme ab Karte». |
 | `gema_lu_api.js` | LU-Zusammenstellung Cross-Modul-API |

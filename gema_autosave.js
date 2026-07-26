@@ -215,11 +215,36 @@
     _timer = setTimeout(function() { _save(false); }, 5000);
   }
 
+  // ── Gleichzeitig-Bearbeiten-Warnung (GemaEditLock) ──
+  // Der AutoSave-Storage-Key IST die Datensatz-Identitaet (Modul + Objekt
+  // + Phase) — genau darauf laeuft der Edit-Lock: bearbeiten zwei Personen
+  // dasselbe Projekt im selben Berechnungsmodul, erscheint bei beiden der
+  // amber Warn-Banner. gema_editlock.js wird lazy nachgeladen, damit kein
+  // einziges Modul-HTML angefasst werden muss. Best-effort: ohne Script/
+  // Cloud aendert sich nichts am AutoSave.
+  function _lockWatch() {
+    try {
+      if (!w.GemaEditLock) return;
+      var label = (document.title || _module).replace(/\s*[—–-]\s*GEMA.*$/i, '').trim();
+      w.GemaEditLock.watch({ key: _key(), label: label });
+    } catch(e) {}
+  }
+  function _lockSetup() {
+    if (w.GemaEditLock) { _lockWatch(); return; }
+    try {
+      var s = document.createElement('script');
+      s.src = 'gema_editlock.js';
+      s.onload = _lockWatch;
+      document.head.appendChild(s);
+    } catch(e) {}
+  }
+
   // ── Objekt-Wechsel ──
   function _switchObjekt(newId) {
     // Save current
     _save(true);
     _objId = newId || '';
+    _lockWatch();
 
     if (!newId) return;
 
@@ -264,6 +289,7 @@
       // Save before switch
       _save(true);
       _objId = newId;
+      _lockWatch();
 
       // Call original (fills project name, saves meta)
       if (typeof _origFn === 'function') _origFn();
@@ -315,6 +341,7 @@
       } catch(e){}
       // Lade mit neuem Key
       _prevKey = _key();
+      _lockWatch();
       _load(_objId, function(data) {
         if (data) _restore(data);
         else _clear();
@@ -329,6 +356,11 @@
         if (data) _restore(data);
       });
     }
+
+    // Gleichzeitig-Bearbeiten-Warnung aktivieren (lazy, best-effort).
+    // Verzoegert, damit ein evtl. spaeter gesetztes Objekt-Dropdown
+    // (Cloud-Pull) den ersten Watch nicht sofort wieder ersetzt.
+    setTimeout(_lockSetup, 1500);
 
     _initialized = true;
   }

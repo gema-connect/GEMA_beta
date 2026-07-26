@@ -402,6 +402,7 @@ table.pos{border-collapse:collapse;width:100%;font-size:13px}
 <script src="gema_bkp_katalog.js"></script>
 <script src="gema_storage.js"></script>
 <script src="gema_dialog.js"></script>
+<script src="gema_editlock.js"></script>
 <script src="gema_aushang.js"></script>
 <script src="gema_dataselect.js"></script>
 <script src="gema_adresse.js"></script>
@@ -1948,7 +1949,7 @@ function erpOpen(id){
   erpPosSelReset();          // Auswahl beim Öffnen zurücksetzen
   erpOpenEditor();
 }
-function erpCloseEditor(){erpFlushSave();var ov=document.getElementById('edOv');ov.classList.remove('open');ov.classList.remove('side-open');cur=null;erpPosSelReset();_editCell=null;erpRenderAll();}
+function erpCloseEditor(){erpFlushSave();try{if(window.GemaEditLock)GemaEditLock.stop();}catch(e){}var ov=document.getElementById('edOv');ov.classList.remove('open');ov.classList.remove('side-open');cur=null;erpPosSelReset();_editCell=null;erpRenderAll();}
 // ── Auto-Speichern mit Status-Indikator unten rechts (wie die Berichte) ──
 // Offerte/Rechnung/Auftrag speichern sich automatisch: jede Änderung (Position,
 // Grunddaten, Titel …) plant einen debounced Save, Statuswechsel u.Ä. speichern
@@ -2074,6 +2075,9 @@ function erpOpenEditor(){
   var d=cur;
   erpPosSelReset();          // Auswahl bei vollem Editor-Rebuild zurücksetzen
   _editCell=null;            // offene Zell-Bearbeitung schliessen
+  // Gleichzeitig-Bearbeiten-Warnung: Lock pro DOKUMENT (watch mit gleichem
+  // Key ist ein No-Op — Editor-Rebuilds erzeugen keinen Lock-Churn)
+  try{ if(window.GemaEditLock) GemaEditLock.watch({key:'erpdok:'+d.id, label:(d.nr||'')+(d.titel?' · '+d.titel:'')}); }catch(e){}
   _erpLastSig=erpDocSig(d);  // Ausgangsstand — reines Öffnen speichert nicht
   // Schlussrabatte normalisieren + Alt-Dokument-Rabatt (rabattPct) einmalig in
   // eine Schlusszeile migrieren (danach läuft alles über cur.schluss)
