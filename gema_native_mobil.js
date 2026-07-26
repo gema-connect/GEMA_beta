@@ -102,7 +102,8 @@
       '.gn [data-gn-scroll]{padding-bottom:calc(var(--gn-safe-bottom) + 96px)}' +
       /* ── Firmenlogo oben links (Home-Header + Modul-Toolbar) ── */
       '.gn .gn-orglogo{height:26px;max-width:132px;width:auto;object-fit:contain;object-position:left center;display:block;flex:none}' +
-      '.gn .gn-header .gn-orglogo{margin-bottom:7px;height:28px}' +
+      /* Höhe = der ersetzte Gruss-/Namensblock (13px + 23px + Zeilenhöhen) */
+      '.gn .gn-header .gn-orglogo{height:46px;max-width:calc(100vw - 108px);margin:0}' +
       /* ── Zurück-Taste (Toolbar + Kompakt-Leiste, zentral injiziert) ── */
       '.gn .gn-back{flex:none}' +
       '.gn .gn-back svg{stroke:var(--gn-accent)}' +
@@ -192,8 +193,13 @@
     // Titel und wirkte verloren — dort zählt der Modul-Titel, nicht die Marke.
     var head = root.querySelector('.gn-header');
     if (!head) return;
-    var links = head.firstElementChild;
-    if (links) links.insertBefore(img, links.firstChild); else head.insertBefore(img, head.firstChild);
+    // Das Logo ERSETZT Gruss + Name (Feedback 26.07.2026) und ist so hoch wie
+    // dieser Textblock war. Ohne hinterlegtes Logo bleibt der Gruss stehen —
+    // der Kopf wäre sonst leer.
+    var txt = head.querySelector('.gn-hello');
+    txt = txt ? txt.parentNode : head.firstElementChild;
+    if (txt && txt !== head && txt.parentNode === head) head.replaceChild(img, txt);
+    else head.insertBefore(img, head.firstChild);
   }
 
   /* ── Bottom-Navbar auf JEDEM nativen Screen ─────────────────────────

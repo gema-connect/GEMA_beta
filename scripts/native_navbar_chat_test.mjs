@@ -151,7 +151,33 @@ console.log('■ 5 · Firmenlogo NUR auf dem Startbildschirm');
   });
   ok(l.da, 'Startbildschirm: Logo vorhanden');
   ok(l.da && l.imHost && l.links, 'Startbildschirm: sitzt links im .gn-header (' + Math.round(l.abstand || 0) + 'px vom Rand)');
-  ok(l.da && l.oben && l.hoehe > 10, 'Startbildschirm: oben und sichtbar (' + Math.round(l.hoehe || 0) + 'px hoch)');
+  ok(l.da && l.oben && l.hoehe >= 40, 'Startbildschirm: so hoch wie der frühere Gruss-Block (' + Math.round(l.hoehe || 0) + 'px)');
+  // Das Logo ERSETZT Gruss + Name (Feedback 26.07.2026)
+  const h = await page.evaluate(() => {
+    const head = document.querySelector('.gn--page .gn-header');
+    return { hello: !!(head && head.querySelector('.gn-hello')), name: !!(head && head.querySelector('.gn-name')),
+             avatar: !!(head && head.querySelector('.gn-avatar')), imBild: (() => {
+               const i = head && head.querySelector('.gn-orglogo'); if (!i) return false;
+               const r = i.getBoundingClientRect(); return r.left >= -1 && r.right <= innerWidth + 1;
+             })() };
+  });
+  ok(!h.hello && !h.name, 'Gruss und Name sind dem Logo gewichen');
+  ok(h.avatar, 'der Avatar bleibt (Weg ins Profil)');
+  ok(h.imBild, 'Logo läuft nicht über den Rand');
+  await ctx.close();
+}
+{
+  // Ohne Logo bleibt der Gruss stehen — der Kopf wäre sonst leer
+  const s2 = seed(['role_admin']);      // bleibt auf index.html (kein Rollen-Redirect)
+  s2.gema_coachmarks_done_index = '1';
+  const { ctx, page } = await newPage(browser, s2);
+  await page.setViewportSize(PHONE);
+  await page.goto(BASE + '/index.html', { waitUntil: 'domcontentloaded' });
+  await page.waitForTimeout(1400);
+  ok(await page.evaluate(() => {
+    const head = document.querySelector('.gn--page .gn-header');
+    return !!(head && head.querySelector('.gn-hello') && head.querySelector('.gn-name')) && !head.querySelector('.gn-orglogo');
+  }), 'ohne Firmenlogo bleibt der Gruss als Kopf stehen');
   await ctx.close();
 }
 {
