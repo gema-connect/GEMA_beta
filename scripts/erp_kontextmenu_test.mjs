@@ -36,7 +36,7 @@ const ctxClick = (lbl) => page.evaluate((lbl) => {
   if (!b) return false; b.click(); return true;
 }, lbl);
 const docCtx = (id) => page.evaluate((id) => {
-  const card = document.querySelector('.card[oncontextmenu*="' + id + '"], .drow[oncontextmenu*="' + id + '"]');
+  const card = document.querySelector('.card[oncontextmenu*="' + id + '"], tr.dtr[oncontextmenu*="' + id + '"]');
   if (!card) return false;
   card.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 160, clientY: 160 }));
   return true;

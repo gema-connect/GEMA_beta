@@ -35,7 +35,8 @@ await page.waitForTimeout(200);
 
 console.log('■ Dokumentliste standardmässig als Liste');
 ok(await page.evaluate(() => _erpDocView === 'liste'), 'Default-Ansicht = Liste');
-ok(await page.evaluate(() => document.getElementById('docList').className === 'doclist' && document.querySelectorAll('#docList .drow').length >= 3), 'Container «doclist» mit .drow-Zeilen');
+// Seit 26.07.2026 ist die Listenansicht eine Tabelle mit frei anordenbaren Spalten
+ok(await page.evaluate(() => !!document.querySelector('#docList table.dtbl') && document.querySelectorAll('#docList table.dtbl tbody tr.dtr').length >= 3), 'Listenansicht als Tabelle mit Zeilen');
 ok(await page.evaluate(() => !!document.querySelector('.viewseg .vsg.on')), 'Ansicht-Umschalter vorhanden');
 await page.evaluate(() => erpSetDocView('karten'));
 ok(await page.evaluate(() => document.getElementById('docList').className === 'cards' && document.querySelectorAll('#docList .card').length >= 3), 'Umschalten auf Karten → .card');

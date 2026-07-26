@@ -70,19 +70,29 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important}
 @media(max-width:720px){.cards{grid-template-columns:1fr}}
 /* Listen-Ansicht der Dokumente (Default) */
 .doclist{display:flex;flex-direction:column;gap:6px}
-.drow{display:flex;align-items:center;gap:10px;background:var(--sur);border:1.5px solid var(--brd);border-radius:10px;padding:8px 12px 8px 0;overflow:hidden;cursor:pointer;transition:.1s}
-.drow:hover{border-color:var(--acc-bd);background:var(--acc-bg)}
-.drow:active{transform:scale(.995)}
-.drow-bar{flex:0 0 5px;align-self:stretch;border-radius:10px 0 0 10px}
-.drow-nr{flex:0 0 auto;font-size:12px;font-weight:900;color:var(--acc);background:var(--acc-bg);border:1px solid var(--acc-bd);border-radius:6px;padding:2px 8px;white-space:nowrap}
-.drow-main{flex:1;min-width:0}
-.drow-tit{font-size:14px;font-weight:800;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.drow-ab{font-weight:600}
-.drow-sub{font-size:12px;color:var(--mut);line-height:1.35;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.drow-date{flex:0 0 auto;font-size:12.5px;color:var(--mut);white-space:nowrap}
-.drow-sum{flex:0 0 auto;font-size:13px;font-weight:800;color:var(--txt2);font-variant-numeric:tabular-nums;white-space:nowrap}
-.drow-st{flex:0 0 auto;white-space:nowrap}
-@media(max-width:640px){.drow-date{display:none}.drow-sub{white-space:normal}}
+/* ── Dokumentliste als Tabelle: Spalten frei anordnen (Drag&Drop) ── */
+.dtbl-wrap{overflow-x:auto;border:1.5px solid var(--brd);border-radius:12px;background:var(--sur)}
+table.dtbl{width:100%;border-collapse:collapse;font-size:12.5px;table-layout:fixed}
+table.dtbl th{position:relative;text-align:left;padding:10px 12px;background:var(--bg2);border-bottom:1.5px solid var(--brd2);
+  font-size:11px;font-weight:800;color:var(--mut);text-transform:uppercase;letter-spacing:.3px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:grab;user-select:none;-webkit-user-select:none}
+table.dtbl th:active{cursor:grabbing}
+table.dtbl th.drag-src{opacity:.4}
+table.dtbl th.drop-l{box-shadow:inset 3px 0 0 0 var(--acc)}
+table.dtbl th.drop-r{box-shadow:inset -3px 0 0 0 var(--acc)}
+table.dtbl td{padding:9px 12px;border-bottom:1px solid var(--brd);vertical-align:middle;overflow:hidden}
+table.dtbl tr.dtr{cursor:pointer;transition:.12s}
+table.dtbl tr.dtr:hover{background:var(--acc-bg)}
+table.dtbl tr.dtr:last-child td{border-bottom:none}
+table.dtbl .ell{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+table.dtbl .dt-nr{font-size:12px;font-weight:900;color:var(--acc);background:var(--acc-bg);border:1px solid var(--acc-bd);border-radius:6px;padding:2px 8px;white-space:nowrap;display:inline-block}
+table.dtbl .dt-tit{font-weight:800;color:var(--txt)}
+table.dtbl .dt-sum{font-variant-numeric:tabular-nums;font-weight:800;color:var(--txt2);text-align:right;white-space:nowrap}
+table.dtbl .dt-bar{width:4px;padding:0;border-bottom:1px solid var(--brd)}
+table.dtbl th .col-rsz{position:absolute;top:0;right:-4px;width:9px;height:100%;cursor:col-resize;z-index:2;touch-action:none}
+table.dtbl th .col-rsz::after{content:'';position:absolute;top:22%;right:4px;width:2px;height:56%;background:var(--brd2);border-radius:2px}
+table.dtbl th.rsz-on .col-rsz::after,table.dtbl th .col-rsz:hover::after{background:var(--acc)}
+.dtbl-hint{padding:7px 12px;font-size:11.5px;color:var(--mut);border-top:1px solid var(--brd)}
 /* Ansicht-Umschalter Liste ⇄ Karten */
 .viewseg{display:inline-flex;flex:0 0 auto;border:1.5px solid var(--brd2);border-radius:8px;overflow:hidden;background:var(--sur)}
 .viewseg .vsg{border:none;background:transparent;color:var(--mut);font-size:15px;line-height:1;padding:0 11px;height:38px;cursor:pointer}
@@ -1162,6 +1172,186 @@ function _erpObjFilterInit(){
 }
 // Dokument-Ansicht: Liste (Default) oder Karten, pro Gerät gemerkt.
 var _erpDocView=(function(){try{return localStorage.getItem('gema_erp_docview_v1')==='karten'?'karten':'liste';}catch(e){return 'liste';}})();
+/* ── Spalten der Dokumentliste (Feedback 26.07.2026) ──────────────
+   Reihenfolge UND Sichtbarkeit stecken in EINEM Array (_erpCols): was
+   drinsteht, wird angezeigt — in genau dieser Reihenfolge. Verschieben per
+   Drag&Drop an der Kopfzeile, auf Touch über das Kopf-Kontextmenü
+   (◀/▶). Alles pro Gerät gespeichert, Muster OBJ_COLS in pm_objekte. */
+var ERP_COLS=[
+  {id:'nr',      label:'Nr.',            w:110, min:80},
+  {id:'titel',   label:'Titel',          w:240, min:140},
+  {id:'kunde',   label:'Kunde',          w:180, min:110},
+  {id:'objekt',  label:'Projekt',        w:180, min:110},
+  {id:'sb',      label:'Sachbearbeiter', w:150, min:100},
+  {id:'bereich', label:'Bereich',        w:140, min:90},
+  {id:'datum',   label:'Datum',          w:100, min:80},
+  {id:'frist',   label:'Frist',          w:110, min:80},
+  {id:'kette',   label:'Verknüpfung',    w:190, min:110},
+  {id:'betrag',  label:'Betrag',         w:120, min:90,  align:'right'},
+  {id:'status',  label:'Status',         w:130, min:95}
+];
+var ERP_COLS_DEFAULT=['nr','titel','kunde','objekt','datum','betrag','status'];
+function erpColById(id){for(var i=0;i<ERP_COLS.length;i++)if(ERP_COLS[i].id===id)return ERP_COLS[i];return null;}
+var _erpCols=(function(){
+  try{
+    var r=JSON.parse(localStorage.getItem('gema_erp_cols_v1'));
+    if(Array.isArray(r)){
+      // Unbekannte IDs (z.B. nach einem Umbau) still verwerfen, Rest behalten
+      r=r.filter(function(id){return !!erpColById(id);});
+      if(r.length)return r;
+    }
+  }catch(e){}
+  return ERP_COLS_DEFAULT.slice();
+})();
+var _erpColW=(function(){try{return JSON.parse(localStorage.getItem('gema_erp_colw_v1'))||{};}catch(e){return {};}})();
+function erpSaveCols(){try{localStorage.setItem('gema_erp_cols_v1',JSON.stringify(_erpCols));}catch(e){}}
+function erpSaveColW(){try{localStorage.setItem('gema_erp_colw_v1',JSON.stringify(_erpColW));}catch(e){}}
+function erpColWidth(c){var w=parseInt(_erpColW[c.id],10);return (w&&w>=c.min)?w:c.w;}
+function erpSichtbareCols(){
+  var out=_erpCols.map(erpColById).filter(Boolean);
+  // Ohne Spalten wäre die Liste leer — auf den Standard zurückfallen
+  return out.length?out:ERP_COLS_DEFAULT.map(erpColById).filter(Boolean);
+}
+// Spalte an eine neue Position schieben (Drag&Drop + ◀/▶ im Kontextmenü)
+function erpColMove(id,ziel){
+  var i=_erpCols.indexOf(id);if(i<0)return false;
+  ziel=Math.max(0,Math.min(_erpCols.length-1,ziel));
+  if(ziel===i)return false;
+  _erpCols.splice(i,1);
+  _erpCols.splice(ziel,0,id);
+  erpSaveCols();
+  return true;
+}
+function erpColToggle(id){
+  var i=_erpCols.indexOf(id);
+  if(i>=0){
+    if(_erpCols.length<=1)return;          // die letzte Spalte bleibt
+    _erpCols.splice(i,1);
+  } else if(erpColById(id)) _erpCols.push(id);
+  erpSaveCols();erpRenderList();
+}
+function erpColsReset(){_erpCols=ERP_COLS_DEFAULT.slice();_erpColW={};erpSaveCols();erpSaveColW();erpRenderList();}
+
+// Inhalt einer Zelle. `ctx` bringt die schon berechneten Werte mit
+// (Status/Totale/Kette), damit pro Zeile nicht mehrfach gerechnet wird.
+function erpZelle(cid,d,ctx){
+  switch(cid){
+    case 'nr':      return '<span class="dt-nr">'+esc(d.nr||'')+'</span>';
+    // Der Bereich-Chip hing früher am Titel. Er bleibt dort, SOLANGE keine
+    // eigene Bereich-Spalte gewählt ist — so geht in der Standard-Ansicht
+    // keine Information verloren und es steht nie doppelt da.
+    case 'titel':   return '<div class="ell dt-tit">'+esc(d.titel||erpKundeName(d))
+                      +(ctx.abChip&&_erpCols.indexOf('bereich')<0?' '+ctx.abChip:'')+'</div>';
+    case 'kunde':   return '<div class="ell">'+esc(erpKundeName(d))+'</div>';
+    case 'objekt':  return '<div class="ell">'+esc(d.objektName||'')+'</div>';
+    case 'sb':      return '<div class="ell">'+esc(ctx.sb?ctx.sb.name:'')+'</div>';
+    case 'bereich': return ctx.abChip||'';
+    case 'datum':   return dfmt(d.datum);
+    case 'frist':   return d.typ==='rechnung'?(d.frist?dfmt(d.frist):''):(d.gueltigBis?dfmt(d.gueltigBis):'');
+    case 'kette':   return ctx.chain?'<div class="ell" title="'+esc(ctx.chain)+'">🔗 '+esc(ctx.chain)+'</div>':'';
+    case 'betrag':  return '<div class="dt-sum">CHF '+chf(ctx.brutto)+'</div>';
+    case 'status':  return '<span class="badge" style="background:'+ctx.st.bg+';color:'+ctx.st.c+';border:1px solid '+ctx.st.bd+'">'+ctx.st.n+'</span>';
+  }
+  return '';
+}
+
+/* ── Kopfzeile: Spalten per Drag&Drop umordnen ────────────────────
+   Die Kopf-Zellen sind draggable; beim Ziehen zeigt ein farbiger Rand die
+   Einfügestelle (linke/rechte Hälfte entscheidet davor/dahinter — sonst
+   wäre die letzte Position unerreichbar, dieselbe Falle wie im
+   Positions-Editor). Der Breiten-Griff sperrt das Ziehen kurzzeitig. */
+var _erpColDrag=null;
+function erpColDragStart(e,cid){
+  if(_erpRs){e.preventDefault();return;}
+  _erpColDrag=cid;
+  try{e.dataTransfer.setData('text/plain','col:'+cid);e.dataTransfer.effectAllowed='move';}catch(err){}
+  var th=e.target.closest&&e.target.closest('th');
+  if(th)th.classList.add('drag-src');
+}
+function _erpDropRechts(e,th){
+  var r=th.getBoundingClientRect();
+  return (e.clientX-r.left)>r.width/2;
+}
+function erpColDragOver(e,cid){
+  if(!_erpColDrag||_erpColDrag===cid)return;
+  e.preventDefault();
+  var th=e.target.closest&&e.target.closest('th');if(!th)return;
+  var rechts=_erpDropRechts(e,th);
+  th.classList.toggle('drop-r',rechts);
+  th.classList.toggle('drop-l',!rechts);
+}
+function erpColDragLeave(e){
+  var th=e.target.closest&&e.target.closest('th');
+  if(th)th.classList.remove('drop-l','drop-r');
+}
+function erpColDrop(e,cid){
+  e.preventDefault();
+  var th=e.target.closest&&e.target.closest('th');
+  if(th)th.classList.remove('drop-l','drop-r');
+  var src=_erpColDrag;_erpColDrag=null;
+  if(!src||src===cid)return;
+  var rechts=th?_erpDropRechts(e,th):false;
+  var ziel=_erpCols.indexOf(cid);
+  if(ziel<0)return;
+  // Beim Verschieben nach rechts rutscht der Rest um eine Position nach
+  // links, sobald die Quelle entfernt wird — das gleicht sich hier aus.
+  if(rechts&&_erpCols.indexOf(src)>ziel)ziel=ziel+1;
+  if(!rechts&&_erpCols.indexOf(src)<ziel)ziel=ziel-1;
+  if(erpColMove(src,ziel))erpRenderList();
+}
+function erpColDragEnd(){
+  _erpColDrag=null;
+  document.querySelectorAll('table.dtbl th').forEach(function(t){t.classList.remove('drag-src','drop-l','drop-r');});
+}
+// Kopf-Kontextmenü: verschieben (auch auf Touch), aus-/einblenden, Standard
+function erpColCtx(e,cid){
+  var cols=erpSichtbareCols();
+  var i=_erpCols.indexOf(cid);
+  var c=erpColById(cid);
+  var items=[];
+  if(c){
+    items.push({hd:c.label});
+    if(i>0)items.push({ic:'◀',t:'Nach links',fn:function(){if(erpColMove(cid,i-1))erpRenderList();}});
+    if(i>=0&&i<_erpCols.length-1)items.push({ic:'▶',t:'Nach rechts',fn:function(){if(erpColMove(cid,i+1))erpRenderList();}});
+    if(cols.length>1)items.push({ic:'✕',t:'Spalte ausblenden',fn:function(){erpColToggle(cid);}});
+    items.push('-');
+  }
+  items.push({hd:'Spalten anzeigen'});
+  ERP_COLS.forEach(function(x){
+    var an=_erpCols.indexOf(x.id)>=0;
+    items.push({ic:an?'☑':'☐',t:x.label,fn:function(){erpColToggle(x.id);}});
+  });
+  items.push('-');
+  items.push({ic:'↺',t:'Standard-Spalten',fn:erpColsReset});
+  erpCtxShow(e,items);
+}
+// ── Spaltenbreite per Drag (Muster pm_objekte) ──
+var _erpRs=null;
+function erpColRsDown(e,cid){
+  e.preventDefault();e.stopPropagation();
+  var col=erpColById(cid);if(!col)return;
+  var th=e.target.closest('th');
+  _erpRs={cid:cid,startX:e.clientX,startW:th?th.getBoundingClientRect().width:erpColWidth(col),min:col.min,th:th};
+  if(th){th.classList.add('rsz-on');th.draggable=false;}   // Breite ziehen ≠ Spalte ziehen
+  try{if(e.target.setPointerCapture)e.target.setPointerCapture(e.pointerId);}catch(err){}
+  window.addEventListener('pointermove',erpColRsMove);
+  window.addEventListener('pointerup',erpColRsUp);
+}
+function erpColRsMove(e){
+  if(!_erpRs)return;
+  var w=Math.max(_erpRs.min,Math.round(_erpRs.startW+(e.clientX-_erpRs.startX)));
+  _erpColW[_erpRs.cid]=w;
+  var col=document.querySelector('table.dtbl col[data-col="'+_erpRs.cid+'"]');
+  if(col)col.style.width=w+'px';
+}
+function erpColRsUp(){
+  if(!_erpRs)return;
+  if(_erpRs.th){_erpRs.th.classList.remove('rsz-on');_erpRs.th.draggable=true;}
+  _erpRs=null;
+  erpSaveColW();
+  window.removeEventListener('pointermove',erpColRsMove);
+  window.removeEventListener('pointerup',erpColRsUp);
+}
 function erpSetDocView(v){_erpDocView=(v==='karten'?'karten':'liste');try{localStorage.setItem('gema_erp_docview_v1',_erpDocView);}catch(e){}erpRenderToolbar();erpRenderList();}
 function toast(m){var el=document.getElementById('toast');el.textContent=m;el.classList.add('show');clearTimeout(_tT);_tT=setTimeout(function(){el.classList.remove('show');},2400);}
 function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
@@ -1331,7 +1521,7 @@ function erpRenderList(){
   }
   if(_tab==='erfolg'){erpRenderErfolg(el);return;}
   if(_tab==='kreditoren'){erpRenderKreditoren(el);return;}
-  el.className=(_erpDocView==='liste'?'doclist':'cards');
+  el.className='cards';
   var docs=erpDocs().filter(function(d){return d.typ===_tab;});
   var fo=document.getElementById('fObjekt');var fs=document.getElementById('fSuche');
   if(fo&&fo.value)docs=docs.filter(function(d){return d.objektId===fo.value;});
@@ -1348,6 +1538,48 @@ function erpRenderList(){
       :'<div class="empty">'+TYP[_tab].ic+' Noch keine '+TYP[_tab].pl+(_tab==='auftrag'?'<br><span style="font-size:12.5px">Aufträge entstehen mit einem Klick aus angenommenen Offerten — oder direkt mit «＋ Neuer Auftrag».</span>':_tab==='rechnung'?'<br><span style="font-size:12.5px">Rechnungen (Akonto / Teil / Schluss) erstellst du direkt aus einem Auftrag.</span>':'')+'</div>';
     return;
   }
+  // Für jedes Dokument einmal die Anzeige-Werte berechnen (Status, Totale,
+  // Kette, Bereich-Chip) — Tabelle UND Karten greifen darauf zu.
+  function docCtx(d){
+    var st=ST[erpStatusOf(d)]||ST.entwurf;
+    var t=erpDocTotals(d);
+    var chain='';
+    if(d.typ==='offerte'&&d.verknuepfung&&d.verknuepfung.auftragId){var a=erpDocs().find(function(x){return x.id===d.verknuepfung.auftragId;});if(a)chain='→ '+a.nr;}
+    if(d.typ==='auftrag'){
+      var f=erpAuftragFakt(erpDocs(),d.id);
+      if(d.verknuepfung&&d.verknuepfung.offerteId){var o=erpDocs().find(function(x){return x.id===d.verknuepfung.offerteId;});if(o)chain='aus '+o.nr+' · ';}
+      chain+=f.rechnungen.length+' Rechnung'+(f.rechnungen.length===1?'':'en')+' · '+Math.round(f.pct)+'% fakturiert';
+    }
+    if(d.typ==='rechnung'&&d.verknuepfung&&d.verknuepfung.auftragId){var a2=erpDocs().find(function(x){return x.id===d.verknuepfung.auftragId;});if(a2)chain='zu '+a2.nr+(d.rechnungsArt&&d.rechnungsArt!=='einzel'?' · '+({akonto:'Akonto',teil:'Teilrechnung',schluss:'Schlussrechnung'})[d.rechnungsArt]:'');}
+    return {st:st,brutto:t.brutto,chain:chain,abChip:abChipHtml(d.bereichId),sb:erpSb(d)};
+  }
+  if(_erpDocView==='liste'){
+    var cols=erpSichtbareCols();
+    var colgroup='<colgroup><col style="width:4px">'+cols.map(function(c){
+      return '<col data-col="'+c.id+'" style="width:'+erpColWidth(c)+'px">';
+    }).join('')+'</colgroup>';
+    var thead='<thead><tr><th class="dt-bar" oncontextmenu="erpColCtx(event,\'\')"></th>'+cols.map(function(c,i){
+      var al=c.align==='right'?' style="text-align:right"':'';
+      var rsz=(i<cols.length-1)?'<span class="col-rsz" onpointerdown="erpColRsDown(event,\''+c.id+'\')"></span>':'';
+      return '<th draggable="true"'+al+' data-col="'+c.id+'" title="Ziehen: Spalte verschieben · Rechtsklick: Spalten wählen"'
+        +' ondragstart="erpColDragStart(event,\''+c.id+'\')" ondragover="erpColDragOver(event,\''+c.id+'\')"'
+        +' ondragleave="erpColDragLeave(event)" ondrop="erpColDrop(event,\''+c.id+'\')" ondragend="erpColDragEnd()"'
+        +' oncontextmenu="erpColCtx(event,\''+c.id+'\')">'+esc(c.label)+rsz+'</th>';
+    }).join('')+'</tr></thead>';
+    var body=docs.map(function(d){
+      var ctx=docCtx(d);
+      var tds=cols.map(function(c){
+        var al=c.align==='right'?' style="text-align:right"':'';
+        return '<td'+al+'>'+erpZelle(c.id,d,ctx)+'</td>';
+      }).join('');
+      return '<tr class="dtr" onclick="erpOpen(\''+d.id+'\')" oncontextmenu="erpDocCtx(event,\''+d.id+'\')">'
+        +'<td class="dt-bar" style="background:'+ctx.st.c+'"></td>'+tds+'</tr>';
+    }).join('');
+    el.className='';
+    el.innerHTML='<div class="dtbl-wrap"><table class="dtbl">'+colgroup+thead+'<tbody>'+body+'</tbody></table>'
+      +'<div class="dtbl-hint">Spalten-Titel ziehen ordnet die Spalten um · Rechtsklick auf die Titelzeile: Spalten ein-/ausblenden · Spaltenrand ziehen: Breite</div></div>';
+    return;
+  }
   el.innerHTML=docs.map(function(d){
     var s=erpStatusOf(d);var st=ST[s]||ST.entwurf;
     var t=erpDocTotals(d);
@@ -1361,18 +1593,6 @@ function erpRenderList(){
     if(d.typ==='rechnung'&&d.verknuepfung&&d.verknuepfung.auftragId){var a2=erpDocs().find(function(x){return x.id===d.verknuepfung.auftragId;});if(a2)chain='zu '+a2.nr+(d.rechnungsArt&&d.rechnungsArt!=='einzel'?' · '+({akonto:'Akonto',teil:'Teilrechnung',schluss:'Schlussrechnung'})[d.rechnungsArt]:'');}
     var abChip=abChipHtml(d.bereichId);
     var sbD=erpSb(d);
-    if(_erpDocView==='liste'){
-      // Kompakte Listenzeile: Statusstreifen · Nr · Titel/Kunde · Meta · Betrag · Status
-      return '<div class="drow" onclick="erpOpen(\''+d.id+'\')" oncontextmenu="erpDocCtx(event,\''+d.id+'\')">'
-        +'<span class="drow-bar" style="background:'+st.c+'"></span>'
-        +'<span class="drow-nr">'+esc(d.nr||'')+'</span>'
-        +'<div class="drow-main"><div class="drow-tit">'+esc(d.titel||erpKundeName(d))+(abChip?' <span class="drow-ab">'+abChip+'</span>':'')+'</div>'
-        +'<div class="drow-sub">👤 '+esc(erpKundeName(d))+(d.objektName?' · 🏗 '+esc(d.objektName):'')+(sbD?' · 👔 '+esc(sbD.name):'')+(chain?' · 🔗 '+esc(chain):'')+'</div></div>'
-        +'<span class="drow-date">'+dfmt(d.datum)+'</span>'
-        +'<span class="drow-sum">CHF '+chf(t.brutto)+'</span>'
-        +'<span class="badge drow-st" style="background:'+st.bg+';color:'+st.c+';border:1px solid '+st.bd+'">'+st.n+'</span>'
-      +'</div>';
-    }
     return '<div class="card" onclick="erpOpen(\''+d.id+'\')" oncontextmenu="erpDocCtx(event,\''+d.id+'\')">'
       +'<div class="card-bar" style="background:'+st.c+'"></div><div class="card-bd">'
       +'<div class="card-top"><span class="card-nr">'+esc(d.nr||'')+'</span>'+(abChip?'<span style="margin-left:6px">'+abChip+'</span>':'')+'<span class="badge" style="background:'+st.bg+';color:'+st.c+';border:1px solid '+st.bd+';margin-left:auto">'+st.n+'</span></div>'
