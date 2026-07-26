@@ -189,9 +189,35 @@ body.erp-resizing{cursor:col-resize;user-select:none}
 .fld-row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
 @media(max-width:560px){.fld-row,.fld-row3{grid-template-columns:1fr}}
 
-/* POSITIONEN */
+/* POSITIONEN
+   WYSIWYG-Umbrüche (Feedback 26.07.2026): Die Bezeichnungs-Spalte ist im
+   Editor GENAU so breit wie im PDF und nutzt dieselbe Schrift — damit bricht
+   der Beschrieb an derselben Stelle um, und ein Umbruch mit Shift+Enter sitzt
+   im Druck dort, wo man ihn gesetzt hat. Rechnung (identisch in _erpPredictBreaks
+   und in der PDF-Tabelle):
+     Blatt 210mm − 2×15mm Rand      = 180mm Textbreite
+     − Pos 9 − Menge 16 − Einheit 15 − EP 22 − Betrag 24 = 86mm Zahlenspalten
+     ⇒ Bezeichnung 94mm, Schrift 9.5pt / line-height 1.45, td-Padding 7px
+   Die .pcell trägt 1.5px transparenten Rahmen (Hover-Rahmen), darum
+   5.5px Innenabstand: 2×5.5 + 2×1.5 = 14px = das PDF-Zellpadding. */
+:root{--pos-bezw:94mm}
 .pos-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
 table.pos{border-collapse:collapse;width:100%;font-size:13px}
+/* Nur der Dokument-Editor (Positionen) folgt der A4-Geometrie — die anderen
+   .pos-Tabellen (Stunden-/Kreditoren-Übersicht) bleiben fluid.
+   Die Breite erzwingt der INHALT (.bezwrap mit fixer Breite), nicht
+   table-layout:fixed: bei width:100% würde der Browser die Restbreite auf die
+   Spalten verteilen und die 94mm wieder aufweichen. Passt die Tabelle nicht
+   ins Fenster, scrollt .pos-wrap horizontal. */
+.pos th.bez-th{width:var(--pos-bezw)}
+.pos td.bezcell{padding-left:0;padding-right:0}
+.pos td.bezcell>.bezwrap{display:flex;flex-direction:column;align-items:flex-start;gap:6px;width:var(--pos-bezw)}
+/* Schrift wie im PDF — auch für die freie Textzeile (art:'text') */
+.pos .pcell.bezflex{font-size:9.5pt;line-height:1.45}
+.pos td.bezcell .pcell.bezflex{width:100%;box-sizing:border-box;padding:6px 5.5px}
+/* Positionsbild: UNTER dem Beschrieb (wie im PDF), nicht daneben — sonst
+   quetscht es die Textspalte und der Beschrieb bricht nach jedem Wort um. */
+.pos td.bezcell .pos-bild{margin-left:5.5px}
 .pos th{background:var(--sur2);border-bottom:2px solid var(--brd2);padding:7px 8px;font-size:10px;font-weight:800;color:var(--mut);text-align:left;text-transform:uppercase;letter-spacing:.3px;white-space:nowrap}
 .pos td{border-bottom:1px solid var(--brd);padding:5px 5px;vertical-align:middle}
 /* Beim Markieren mehrerer Positionen (Klick/Shift-Klick) KEINE native Text-Markierung
@@ -236,8 +262,11 @@ table.pos{border-collapse:collapse;width:100%;font-size:13px}
 .pos .pcell.bezflex{flex:1;min-width:0}
 .pos .pcell.bkp{color:var(--acc);font-weight:800;flex:0 0 auto;min-width:44px}
 .pos .pcell.titeltxt{font-weight:800;flex:1}
-/* Lange Positionstexte umbrechen — Positionen scrollen NIE horizontal */
-.pos .pcell.bezflex,.pos .pcell.titeltxt{white-space:normal;overflow:visible;text-overflow:clip;overflow-wrap:anywhere;word-break:break-word;line-height:1.35}
+/* Lange Positionstexte umbrechen — Positionen scrollen NIE horizontal.
+   Zeilenhöhe/Schrift des Beschriebs kommen aus der WYSIWYG-Regel oben
+   (9.5pt / 1.45 wie die PDF-Tabelle) — hier NICHT überschreiben. */
+.pos .pcell.bezflex,.pos .pcell.titeltxt{white-space:normal;overflow:visible;text-overflow:clip;overflow-wrap:anywhere;word-break:break-word}
+.pos .pcell.titeltxt{line-height:1.35}
 .pos tr.pos-editing td{background:#fff}
 /* Seitenwechsel-Vorschau: gestrichelte Linie oben an der Position, die auf eine neue Seite fällt */
 .pos tr.pos-pbtop td{border-top:2px dashed #94a3b8}
@@ -2182,7 +2211,7 @@ function erpOpenEditor(){
   // ── Positionen ──
   h+='<div class="sec"><div class="sec-hd"><h3>📑 Positionen</h3><span class="hint" id="posHint"></span></div>'
     +'<div class="sec-bd"><div class="pos-wrap"><table class="pos"><thead><tr>'
-    +(editable?'<th style="width:26px"></th>':'')+'<th style="width:32%">Bezeichnung</th><th>Quelle</th><th class="num">Menge</th><th>Einheit</th><th class="num">EP CHF</th><th class="num">Rabatt %</th><th class="num">Betrag</th></tr></thead>'
+    +(editable?'<th style="width:26px"></th>':'')+'<th class="bez-th">Bezeichnung</th><th style="width:104px">Quelle</th><th class="num" style="width:76px">Menge</th><th style="width:88px">Einheit</th><th class="num" style="width:104px">EP CHF</th><th class="num" style="width:76px">Rabatt %</th><th class="num" style="width:96px">Betrag</th></tr></thead>'
     +'<tbody id="posBody"></tbody></table></div>'
     +(editable?'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">'
       +'<button class="btn ghost" onclick="erpPosAdd(\'frei\')">+ Position</button>'
@@ -2335,7 +2364,21 @@ function erpRichWrapStyle(prop,val){
   try{r.surroundContents(span);}catch(e){var f=r.extractContents();span.appendChild(f);r.insertNode(span);}
   try{s.removeAllRanges();var nr=document.createRange();nr.selectNodeContents(span);s.addRange(nr);}catch(e2){}
 }
-function erpRichKey(e){if(e.key==='Escape'){e.preventDefault();if(e.target&&e.target.blur)e.target.blur();}}
+function erpRichKey(e){
+  if(e.key==='Escape'){e.preventDefault();if(e.target&&e.target.blur)e.target.blur();return;}
+  // Zeilenumbruch im Beschrieb (Shift+Enter — und Enter, das im mehrzeiligen
+  // Beschrieb dasselbe tun soll). IMMER ein sauberes <br> einfügen statt der
+  // Browser-Vorgabe (<div>/<p>-Verschachtelung): so steht der Umbruch im
+  // Editor GENAU dort, wo er im PDF erscheint (erpRichSanitize lässt <br>
+  // durch, die PDF-Zelle rendert dieselbe Breite/Schrift).
+  // Ctrl/Cmd+Enter bleibt der Seitenumbruch-Befehl (globaler Handler).
+  if(e.key==='Enter'&&!e.ctrlKey&&!e.metaKey&&!e.altKey){
+    e.preventDefault();
+    try{ document.execCommand('insertLineBreak'); }
+    catch(_){ try{ document.execCommand('insertHTML',false,'<br>'); }catch(__){} }
+    if(e.target&&e.target.getAttribute&&e.target.getAttribute('data-id'))erpRichInput(e.target);
+  }
+}
 function erpRichBlur(el,e){
   var to=e&&e.relatedTarget;
   // Fokus in die Werkzeug-Leiste oben → Bearbeitung offen lassen
@@ -2434,19 +2477,24 @@ function erpRenderPos(){
     var istPer=!mengeLeer&&erpNum(p.menge)===0;   // Menge 0 = Einheitspreis «per», ohne Betrag
     var src=p.art==='regie'?'<span class="src regie">Regie</span>':p.eigenArtikelId?'<span class="src" style="background:var(--tint,#f5f8ff);color:var(--acc,#1d4ed8);border:1px solid var(--brd2)">⭐ Eigen</span>':p.produktId?'<span class="src katalog">'+(String(p.produktId).indexOf('ds:')===0?'🔎 DataSelect':'Katalog')+'</span>':p.art==='oa'?'<span class="src oa">Lief.-Offerte</span>':p.art==='abzug'?'<span class="src" style="background:var(--amber-bg);color:var(--amber);border:1px solid var(--amber-bd)">Abzug</span>':p.art==='akonto'?'<span class="src" style="background:var(--amber-bg);color:var(--amber);border:1px solid var(--amber-bd)">Akonto</span>':'';
     var img=erpPosImgSrc(p);
+    // Bild UNTER dem Beschrieb (wie im PDF). Der 📷-Aufnahmeknopf ist reines
+    // Editor-Chrome und sitzt in der Quelle-Spalte — so kostet er weder
+    // Texthöhe noch Textbreite, und der Beschrieb behält die volle A4-Breite.
     var bildHtml=img
       ?'<div class="pos-bild"><img src="'+esc(img)+'" onclick="erpPosBildView('+i+')" alt=""/>'+(editable?'<button class="pos-bild-x" title="Bild entfernen" onclick="event.stopPropagation();erpPosBildDel('+i+')">✕</button>':'')+'</div>'
-      :(editable&&p.art!=='abzug'&&p.art!=='akonto'?'<button class="pos-foto" title="Bild zur Position" onclick="event.stopPropagation();erpPosBildPick('+i+')">📷</button>':'');
+      :'';
+    var fotoBtn=(!img&&editable&&p.art!=='abzug'&&p.art!=='akonto')
+      ?'<button class="pos-foto" title="Bild zur Position" onclick="event.stopPropagation();erpPosBildPick('+i+')">📷</button>':'';
     var editableRow=editable&&p.art!=='abzug';   // Abzugszeilen (Schlussrechnung) bleiben fix
     var bezAnz=(p.bez?erpRichSanitize(p.bez):'<span class="mut">—</span>');
     if(istVar)bezAnz='<b class="vari-tag">Variante</b><span class="vari-txt">'+bezAnz+'</span>';
     h+=trOpen(i,(p.art==='abzug'?'abzug':'')+(istVar?' pos-variante':''))+grip(i)
-      +'<td><div style="display:flex;gap:8px;align-items:flex-start">'+pcell(p.id,'bez','bezflex',bezAnz,inpRich(p.id,p.bez),!editableRow)+bildHtml+'</div></td>'
-      +'<td>'+src+'</td>'
-      +'<td style="width:76px">'+pcell(p.id,'menge','num',(istPer?'<span class="per-tag">per</span>':mengeLeer?'<span class="mut">–</span>':esc(p.menge)),inpNum(p.id,'menge',p.menge,''),!editableRow)+'</td>'
-      +'<td style="width:88px">'+pcell(p.id,'einheit','',esc(p.einheit||'Stk'),inpSel(p.id,'einheit',(function(cu){var L=EINHEITEN.slice();if(cu&&L.indexOf(cu)<0)L.unshift(cu);return L.map(function(e){return '<option'+(cu===e?' selected':'')+'>'+esc(e)+'</option>';}).join('');})(p.einheit)),!editableRow)+'</td>'
-      +'<td style="width:104px">'+pcell(p.id,'ep','num',(p.ep!=null&&p.ep!==''?esc(p.ep):'<span class="mut">–</span>'),inpNum(p.id,'ep',p.ep,''),!editableRow)+'</td>'
-      +'<td style="width:76px">'+pcell(p.id,'rabattPct','num',(p.rabattPct?esc(p.rabattPct)+' %':'<span class="mut">–</span>'),inpNum(p.id,'rabattPct',p.rabattPct,'–'),!editableRow)+'</td>'
+      +'<td class="bezcell"><div class="bezwrap">'+pcell(p.id,'bez','bezflex',bezAnz,inpRich(p.id,p.bez),!editableRow)+bildHtml+'</div></td>'
+      +'<td>'+src+(src&&fotoBtn?' ':'')+fotoBtn+'</td>'
+      +'<td>'+pcell(p.id,'menge','num',(istPer?'<span class="per-tag">per</span>':mengeLeer?'<span class="mut">–</span>':esc(p.menge)),inpNum(p.id,'menge',p.menge,''),!editableRow)+'</td>'
+      +'<td>'+pcell(p.id,'einheit','',esc(p.einheit||'Stk'),inpSel(p.id,'einheit',(function(cu){var L=EINHEITEN.slice();if(cu&&L.indexOf(cu)<0)L.unshift(cu);return L.map(function(e){return '<option'+(cu===e?' selected':'')+'>'+esc(e)+'</option>';}).join('');})(p.einheit)),!editableRow)+'</td>'
+      +'<td>'+pcell(p.id,'ep','num',(p.ep!=null&&p.ep!==''?esc(p.ep):'<span class="mut">–</span>'),inpNum(p.id,'ep',p.ep,''),!editableRow)+'</td>'
+      +'<td>'+pcell(p.id,'rabattPct','num',(p.rabattPct?esc(p.rabattPct)+' %':'<span class="mut">–</span>'),inpNum(p.id,'rabattPct',p.rabattPct,'–'),!editableRow)+'</td>'
       +'<td class="num" style="font-weight:700;white-space:nowrap">'
         +(istPer?'<span class="mut">—</span>':istVar?'('+chf(betrag)+')':chf(betrag))+'</td>'
       +'</tr>';
@@ -2696,10 +2744,13 @@ function _erpPredictBreaks(){
   var mm=96/25.4;
   var pageUsable=(297-18-22)*mm;        // A4-Nutzhöhe ≈ 257mm
   var firstOffset=16*mm;                 // «Positionen im Detail»-Überschrift + Tabellenkopf auf Seite 1
-  var bezW=94*mm;                        // Bezeichnungs-Spaltenbreite im PDF (≈ 180 − 86mm Zahlenspalten)
+  // Bezeichnungs-Spalte im PDF: 180mm Textbreite − 86mm Zahlenspalten = 94mm,
+  // davon 2×7px Zellpadding. Schrift/Zeilenhöhe exakt wie die PDF-Tabelle
+  // (9.5pt / 1.45) — dieselben Werte trägt die Editor-Zelle (--pos-bezw).
+  var bezW=94*mm-14;
   var m=_erpMeasEl;
   if(!m){m=_erpMeasEl=document.createElement('div');m.setAttribute('aria-hidden','true');document.body.appendChild(m);}
-  m.style.cssText='position:absolute;left:-9999px;top:0;visibility:hidden;font-family:"DM Sans",-apple-system,sans-serif;font-size:10pt;line-height:1.35;width:'+Math.round(bezW)+'px';
+  m.style.cssText='position:absolute;left:-9999px;top:0;visibility:hidden;font-family:"DM Sans",ui-sans-serif,system-ui,sans-serif;font-size:9.5pt;line-height:1.45;overflow-wrap:anywhere;word-break:break-word;width:'+Math.round(bezW)+'px';
   var curTop=firstOffset,pageBottom=pageUsable,marks=[];
   pos.forEach(function(p){
     if(p.art==='seitenumbruch'){var np=Math.ceil((curTop+1)/pageUsable);curTop=np*pageUsable;pageBottom=curTop+pageUsable;return;}
@@ -4698,7 +4749,7 @@ function erpPdf(){
 
     +':root{--acc:'+brand.acc+';--tint:'+brand.tint+'}'
     // Bildschirm: graue Bühne, jede Sektion ein weisses A4-Blatt (direkt als A4 gerendert)
-    +'body{font-family:"DM Sans",-apple-system,sans-serif;color:#111;font-size:10pt;line-height:1.45;margin:0;background:#e4e8ee;padding:26px 10px 70px}'
+    +'body{font-family:"DM Sans",ui-sans-serif,system-ui,sans-serif;color:#111;font-size:10pt;line-height:1.45;margin:0;background:#e4e8ee;padding:26px 10px 70px}'
     +'.sheet{width:210mm;max-width:calc(100vw - 20px);min-height:296mm;margin:0 auto 26px;background:#fff;box-shadow:0 3px 24px rgba(15,23,42,.22);border-radius:2px;padding:18mm 15mm 22mm;box-sizing:border-box;display:flex;flex-direction:column}'
     +'.kopf{display:flex;justify-content:space-between;align-items:flex-start;gap:22px;margin-bottom:10mm}'
     +'.abs-firma{font-size:10.5pt;font-weight:800;letter-spacing:.2px}'
@@ -4735,8 +4786,16 @@ function erpPdf(){
     // Muster-Typografie: schlichte schwarze Linien statt Farbbalken
     +'th{border-top:1px solid #111;border-bottom:1px solid #111;text-align:left;padding:4px 7px;font-size:8pt;font-weight:800}'
     +'td{border-bottom:.4px solid #ddd;padding:5px 7px;vertical-align:top}'
-    // Positionen: feste Spaltenbreiten + Umbruch, damit lange Texte nie über den Rand laufen
-    +'table.pos{table-layout:fixed}'
+    // Positionen: feste Spaltenbreiten + Umbruch, damit lange Texte nie über den Rand laufen.
+    // Breite FEST in mm (nicht 100%): auf einem schmalen Vorschau-Fenster wird das
+    // Blatt gekappt (.sheet max-width) — mit width:100% würde die Bezeichnungs-
+    // Spalte mitschrumpfen und die Vorschau andere Umbrüche zeigen als der Druck
+    // (und als der Editor, der auf dieselben 94mm ausgelegt ist).
+    +'table.pos{table-layout:fixed;width:180mm;max-width:none}'
+    // box-sizing:border-box — sonst rechnet der Browser das Zellpadding (2×7px)
+    // ZUSÄTZLICH zu den deklarierten mm: die fünf Zahlenspalten frassen so 70px
+    // mehr, und die Bezeichnung blieb real bei ~75mm statt der deklarierten 94mm.
+    +'table.pos th,table.pos td{box-sizing:border-box}'
     +'table.pos td{overflow-wrap:anywhere;word-break:break-word}'
     +'tr.pgbrk td{border:none;padding:0;height:0}'
     +'tr.grprow td{border-bottom:1px solid #111;font-weight:800;font-size:10.5pt;padding-top:12px}'
