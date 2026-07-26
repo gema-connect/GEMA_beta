@@ -612,10 +612,15 @@ function epPlanStd(ev){
   return Math.round((b-v)*100)/100;
 }
 function epFmtH(x){return (Math.round(x*100)/100).toFixed(2).replace(/\.?0+$/,'');}
+// Zahlen (Ist-Stunden, Soll-Ist-Abweichung) sieht NUR die Planung —
+// Projektleitung und Admin (User-Entscheid 26.07.2026). Der Monteur sieht
+// an seinem Termin lediglich den Stand, ohne Stunden und ohne Vergleich.
+function epIstZahlenSichtbar(){ try{ return epCanPlan(); }catch(e){ return false; } }
 // Kompakter Chip für die Wochen-/Monats-Karten (nur Zeichen, kein Umbruch)
 function epIstKurz(ev){
   var i=ev&&ev.ist;if(!i||!i.status||i.status==='offen')return '';
-  if(i.status==='ausgefallen')return '<span title="Nicht stattgefunden: '+esc(i.grund||'')+'">✕</span> ';
+  if(i.status==='ausgefallen')return '<span title="Nicht stattgefunden'+(epIstZahlenSichtbar()&&i.grund?': '+esc(i.grund):'')+'">✕</span> ';
+  if(!epIstZahlenSichtbar())return '<span title="'+(i.status==='freigegeben'?'freigegeben':'Zeit erfasst')+'">'+(i.status==='freigegeben'?'✅':'⏱')+'</span> ';
   var plan=epPlanStd(ev),ist=epIstStd(ev);
   var abw=(plan&&ist)?(ist-plan):0;
   var t='Ist '+epFmtH(ist)+' h'+(plan?' (geplant '+epFmtH(plan)+' h)':'')+(i.status==='freigegeben'?' · freigegeben':'');
@@ -625,6 +630,12 @@ function epIstKurz(ev){
 function epIstZeile(ev){
   var i=ev&&ev.ist;if(!i||!i.status||i.status==='offen')return '';
   var inf=IST_INFO[i.status];if(!inf)return '';
+  var box=function(txt){
+    return '<div style="margin-top:6px;background:'+inf.bg+';border:1.5px solid '+inf.bd+';color:'+inf.c
+      +';border-radius:8px;padding:5px 10px;font-size:12.5px;font-weight:700">'+txt+'</div>';
+  };
+  // Monteur-Sicht: nur der Stand — keine Stunden, kein Soll-Ist-Vergleich
+  if(!epIstZahlenSichtbar())return box(inf.ic+' '+inf.n);
   var plan=epPlanStd(ev),ist=epIstStd(ev);
   var txt=inf.ic+' '+inf.n;
   if(i.status==='ausgefallen'){
@@ -637,8 +648,7 @@ function epIstZeile(ev){
       txt+=' <span style="opacity:.75">(geplant '+epFmtH(plan)+' h'+(Math.abs(abw)>=0.25?', '+(abw>0?'+':'')+epFmtH(abw)+' h':'')+')</span>';
     }
   }
-  return '<div style="margin-top:6px;background:'+inf.bg+';border:1.5px solid '+inf.bd+';color:'+inf.c
-    +';border-radius:8px;padding:5px 10px;font-size:12.5px;font-weight:700">'+txt+'</div>';
+  return box(txt);
 }
 
 // ── Schlüssel/Zutritt vom verknüpften ERP-Auftrag (auftrag.schluessel) ──
@@ -1499,9 +1509,17 @@ function epEvRender(){
   } else {
     document.getElementById('evSlotWrap').style.display='';
     document.getElementById('evZeitWrap').style.display='none';
-    document.getElementById('evSlot').innerHTML=[['ganz','Ganztag'],['vm','Vormittag'],['nm','Nachmittag']].map(function(x){
+    // Ein Termin ist entweder GANZTAGS oder auf eine FIXE ZEIT geplant
+    // (User-Entscheid 26.07.2026) — Vormittag/Nachmittag sind als Auswahl
+    // entfallen. Altdaten mit vm/nm bleiben lesbar (slotLabel, Tafel) und
+    // erscheinen hier als abwählbarer ⚠-Zusatz, damit ein bestehender
+    // Termin nicht still auf «Ganztag» umspringt.
+    var slots=[['ganz','Ganztag']];
+    if(ev.slot==='vm'||ev.slot==='nm')slots.push([ev.slot,'⚠ '+(ev.slot==='vm'?'Vormittag':'Nachmittag')+' (alt)']);
+    document.getElementById('evSlot').innerHTML=slots.map(function(x){
       return '<button class="tchip'+((ev.slot||'ganz')===x[0]?' on':'')+'"'+(canEdit?' onclick="curEv.slot=\''+x[0]+'\';epEvRender()"':' disabled')+'>'+x[1]+'</button>';
-    }).join('');
+    }).join('')
+      +'<div style="font-size:11.5px;color:var(--mut);margin-top:6px">Ganztags: der Monteur bekommt die Standard-Arbeitszeit als Vorschlag. Für eine feste Zeit oben «Zeit» wählen.</div>';
   }
   // Kein separates Projekt/Objekt-Feld mehr: beim Auftrag kommt das Objekt aus
   // dem Auftrag, ein «Freier Termin» hat bewusst keines. Bestehende Einsätze

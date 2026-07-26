@@ -1546,14 +1546,39 @@ function stTerminName(id){
 //             e.ausfall {grund} (Zeit trotz Ausfall, z.B. Anfahrt)
 // ═══════════════════════════════════════════════════════════
 
-// Geplante Zeit eines Termins → {von,bis} oder null.
-// Bewusst NUR bei echten Zeiten: ein Halbtags-/Ganztags-Termin ohne Uhrzeit
-// bekommt KEINE erfundene Zeit — dort muss der Monteur selbst erfassen
-// (die Freigabe fragt ihn danach).
+function stHm(min){
+  min=((Math.round(min)%1440)+1440)%1440;
+  return ('0'+Math.floor(min/60)).slice(-2)+':'+('0'+(min%60)).slice(-2);
+}
+// Beginn der Firmen-Arbeitszeit (Termine-Einstellungen, Default 07:00)
+function stTagVonHm(){
+  try{
+    var org=GemaAuth.getCurrentOrg();
+    var s=(org&&org.settings&&org.settings.einsatzplan)||{};
+    var v=parseFloat(s.tagVon);
+    if(!isNaN(v)&&v>=0&&v<24)return stHm(Math.round(v*60));
+  }catch(e){}
+  return '07:00';
+}
+// Geplante Zeit eines Termins → {von,bis,quelle} oder null.
+// Ein Termin ist entweder auf eine FIXE ZEIT geplant (dann gilt sie) oder
+// GANZTAGS — dann schlägt GEMA die Standard-Arbeitszeit der Firma vor:
+// Beginn aus den Termine-Einstellungen, Dauer = Tagessoll INKLUSIVE
+// Vorholzeit (User-Entscheid 26.07.2026). Eine unbezahlte Znüni-Pause wird
+// auf die Spanne aufgeschlagen, damit netto genau das Tagessoll dasteht.
 function stTerminPlanzeit(ev){
-  if(!ev||!ev.zeitVon||!ev.zeitBis)return null;
-  if(stdMin(ev.zeitVon)==null||stdMin(ev.zeitBis)==null)return null;
-  return {von:ev.zeitVon,bis:ev.zeitBis};
+  if(!ev||ev.typ==='ferien')return null;
+  if(ev.zeitVon&&ev.zeitBis&&stdMin(ev.zeitVon)!=null&&stdMin(ev.zeitBis)!=null){
+    return {von:ev.zeitVon,bis:ev.zeitBis,quelle:'termin'};
+  }
+  var u=stUser();if(!u)return null;
+  var p=stParamsFor(u.id);
+  var soll=stdTagSollH(p);
+  if(!(soll>0))return null;
+  var extra=(p.pauseBezahlt===false?(parseFloat(p.bezahltePauseMin)||0)/60:0);
+  var von=stTagVonHm(),m0=stdMin(von);
+  if(m0==null)return null;
+  return {von:von,bis:stHm(m0+Math.round((soll+extra)*60)),quelle:'standard'};
 }
 function stTerminPlanStd(ev){
   var pz=stTerminPlanzeit(ev);
@@ -1641,11 +1666,13 @@ function stEinsaetzeIstSyncTag(datum,userId,status){
   }catch(e){}
 }
 
-// ── «Nicht stattgefunden» — mit optionaler Zeit (z.B. Hinfahrt) ──
-// Der Termin fiel aus (Kunde nicht da, verschoben …), Anfahrt oder
-// Bereitschaft sollen aber verrechenbar bleiben: Grund ist Pflicht, eine
-// Zeit optional. Wird eine Zeit erfasst, entsteht ein normaler Eintrag
-// (mit Projekt-Bezug → Material-Frage/Regierapport greifen wie sonst).
+// ── «Nicht stattgefunden» ────────────────────────────────────────
+// Der Termin fiel aus (Kunde nicht da, verschoben …): Begründung ist
+// Pflicht, danach ist der Termin erledigt — er zählt 0 h und ist von der
+// Foto- UND Material-Pflicht befreit (User-Entscheid 26.07.2026; wo nicht
+// gearbeitet wurde, gibt es weder Foto noch Material). War der Monteur
+// trotzdem unterwegs (Anfahrt, Wartezeit), erfasst er die Zeit über
+// «✎ Zeit anpassen» ganz normal — dafür braucht es keine Rückfrage.
 function stTerminAusfall(datum,einsatzId){
   var u=stUser();if(!u)return;
   var ev=stEinsatzById(einsatzId);if(!ev)return;
@@ -1654,39 +1681,21 @@ function stTerminAusfall(datum,einsatzId){
   var name=ev.titel||ev.auftragNr||'Termin';
   GemaDialog.prompt({
     title:'Termin nicht stattgefunden',
-    message:'«'+name+'» — weshalb hat der Termin nicht stattgefunden?\n\nDie Begründung sieht die Projektleitung bei der Freigabe.',
+    message:'«'+name+'» — weshalb hat der Termin nicht stattgefunden?\n\nDie Begründung sieht die Projektleitung bei der Freigabe. Der Termin zählt dann 0 h; war Zeit für die Anfahrt nötig, kannst du sie danach über «✎ Zeit anpassen» erfassen.',
     placeholder:'z.B. Kunde nicht angetroffen'
   }).then(function(grund){
     if(grund===null)return;
     grund=String(grund||'').trim();
     if(!grund){toast('Begründung nötig');return;}
-    GemaDialog.confirm({
-      title:'Zeit trotzdem erfassen?',
-      message:'Ist Zeit angefallen, die verrechnet werden soll (z.B. Hin- und Rückfahrt, Wartezeit)?',
-      confirmLabel:'Ja, Zeit erfassen', cancelLabel:'Nein, keine Zeit'
-    }).then(function(mitZeit){
-      var tt=stTagFor(datum,u.id);
-      if(!tt)tt={id:uid(),orgId:u.orgId,userId:u.id,userName:u.name,datum:datum,eintraege:[],spesen:{},status:'offen',erstelltAm:new Date().toISOString()};
-      if(!tt.terminStatus)tt.terminStatus={};
-      tt.terminStatus[einsatzId]={ausfall:true,grund:grund,ts:new Date().toISOString(),von:u.name||''};
-      if(tt.status==='zurueck')tt.status='offen';
-      poolSave(tt);
-      stEinsatzIstSync(einsatzId,datum,'ausgefallen');
-      if(mitZeit){
-        // Eintrag-Dialog mit dem Termin vorbelegt; Zeiten leer, damit der
-        // Monteur die TATSÄCHLICHE Anfahrt erfasst statt der Planzeit.
-        stEinNeu(datum);
-        var wrap=document.getElementById('ein_einsatzWrap'),sel=document.getElementById('ein_einsatz');
-        if(sel&&wrap&&wrap.style.display!=='none'){sel.value=einsatzId;stEinsatzPick();}
-        var tf=document.getElementById('ein_taetigkeit');
-        if(tf&&!tf.value)tf.value='Anfahrt — Termin nicht stattgefunden';
-        var vf=document.getElementById('ein_von');if(vf)vf.value='';
-        var bf=document.getElementById('ein_bis');if(bf)bf.value='';
-      } else {
-        toast('✕ «'+name+'» als nicht stattgefunden vermerkt');
-        stRender();
-      }
-    });
+    var tt=stTagFor(datum,u.id);
+    if(!tt)tt={id:uid(),orgId:u.orgId,userId:u.id,userName:u.name,datum:datum,eintraege:[],spesen:{},status:'offen',erstelltAm:new Date().toISOString()};
+    if(!tt.terminStatus)tt.terminStatus={};
+    tt.terminStatus[einsatzId]={ausfall:true,grund:grund,ts:new Date().toISOString(),von:u.name||''};
+    if(tt.status==='zurueck')tt.status='offen';
+    poolSave(tt);
+    stEinsatzIstSync(einsatzId,datum,'ausgefallen');
+    toast('✕ «'+name+'» als nicht stattgefunden vermerkt');
+    stRender();
   });
 }
 // Ausfall-Vermerk zurücknehmen (Fehlklick)
@@ -1712,10 +1721,19 @@ function stTerminZeit(datum,einsatzId){
   stEinNeu(datum);
   var wrap=document.getElementById('ein_einsatzWrap'),sel=document.getElementById('ein_einsatz');
   if(sel&&wrap&&wrap.style.display!=='none'){sel.value=einsatzId;stEinsatzPick();}
+  var vf=document.getElementById('ein_von'),bf=document.getElementById('ein_bis');
+  if(z.typ==='ausgefallen'){
+    // Ausgefallener Termin: die Planzeit wäre falsch — der Monteur trägt
+    // die tatsächliche Anfahrt/Wartezeit ein.
+    if(vf)vf.value='';if(bf)bf.value='';
+    var tf=document.getElementById('ein_taetigkeit');
+    if(tf&&!tf.value)tf.value='Anfahrt — Termin nicht stattgefunden';
+    return;
+  }
   var pz=stTerminPlanzeit(ev);
   if(pz){
-    var vf=document.getElementById('ein_von');if(vf)vf.value=pz.von;
-    var bf=document.getElementById('ein_bis');if(bf)bf.value=pz.bis;
+    if(vf)vf.value=pz.von;
+    if(bf)bf.value=pz.bis;
   }
 }
 
@@ -1765,10 +1783,18 @@ function stFotoPflichtIds(){
   return stBereiche().filter(function(b){return b.fotoPflicht;}).map(function(b){return String(b.id);});
 }
 // Termine des Tages, die ein Foto verlangen (Bereich mit 📷-Pflicht)
+// Foto-Pflicht-Termine des Tages. Ein als «nicht stattgefunden» vermerkter
+// Termin ist ausgenommen (User-Entscheid 26.07.2026: dort entfällt die
+// Foto- UND die Material-Pflicht — es gibt schlicht nichts zu fotografieren).
 function stFotoTermine(datum){
   var ids=stFotoPflichtIds();if(!ids.length)return [];
+  var u=stUser();
+  var t=u?stTagFor(datum,u.id):null;
+  var aus=(t&&t.terminStatus)||{};
   return stMeineEinsaetze(datum).filter(function(e){
-    return e.typ!=='ferien'&&e.bereichId&&ids.indexOf(String(e.bereichId))>=0;
+    if(e.typ==='ferien'||!e.bereichId)return false;
+    if(aus[e.id]&&aus[e.id].ausfall)return false;
+    return ids.indexOf(String(e.bereichId))>=0;
   });
 }
 function stFotoStatus(t,einsatzId){
@@ -1784,8 +1810,13 @@ function stFotoFehlt(datum,t){
 }
 // Zeiteinträge mit Projekt, deren Material-Frage noch unbeantwortet ist
 // (aktive Antwort = Rapport erstellt ODER materialAntwort gesetzt)
+// Einträge mit Projekt ohne aktive Material-Antwort. Zeiten zu einem
+// ausgefallenen Termin (z.B. reine Anfahrt) sind ausgenommen — dort wurde
+// nicht gearbeitet, also gibt es auch kein Material.
 function stMatFehlt(t){
+  var aus=(t&&t.terminStatus)||{};
   return (t&&t.eintraege||[]).filter(function(e){
+    if(e.einsatzId&&aus[e.einsatzId]&&aus[e.einsatzId].ausfall)return false;
     return e.objektId&&!e.rapportId&&e.materialAntwort!=='rapport'&&e.materialAntwort!=='kein';
   });
 }
@@ -1807,8 +1838,11 @@ function stTerminZeitHtml(datum,ev,t,editable){
       +(editable?'<button class="btn sm" style="width:auto" onclick="stTerminZeit(\''+datum+'\',\''+esc(ev.id)+'\')">✎ ändern</button>':'');
   } else if(z.typ==='ausgefallen'){
     h+='<span style="font-size:11px;font-weight:800;color:var(--red);background:var(--red-bg);border:1px solid var(--red-bd);border-radius:999px;padding:2px 9px">✕ Nicht stattgefunden: '+esc(z.grund)+'</span>'
-      +(z.stunden>0?'<span style="font-size:11px;font-weight:800;color:var(--txt2)">· '+stdFmtH(z.stunden)+' h erfasst</span>':'')
-      +(editable?'<button class="btn sm" style="width:auto" title="Zurücksetzen" onclick="stTerminAusfallWeg(\''+datum+'\',\''+esc(ev.id)+'\')">↺</button>':'');
+      +(z.stunden>0?'<span style="font-size:11px;font-weight:800;color:var(--txt2)">· '+stdFmtH(z.stunden)+' h erfasst</span>'
+                   :'<span style="font-size:10.5px;color:var(--mut)">zählt 0 h · kein Foto/Material nötig</span>')
+      // Anfahrt/Wartezeit bleibt verrechenbar — ohne Rückfrage, einfach hier
+      +(editable?'<button class="btn sm" style="width:auto" onclick="stTerminZeit(\''+datum+'\',\''+esc(ev.id)+'\')">'+(z.stunden>0?'✎ Zeit':'＋ Anfahrt')+'</button>'
+        +'<button class="btn sm" style="width:auto" title="Zurücksetzen" onclick="stTerminAusfallWeg(\''+datum+'\',\''+esc(ev.id)+'\')">↺</button>':'');
   } else {
     var pz=stTerminPlanzeit(ev);
     if(pz){
