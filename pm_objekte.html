@@ -1452,27 +1452,45 @@ function populateParentSelect(currentEditId){
   // Baum-Reihenfolge für die Auswahl, damit Eltern über Kindern stehen
   const tree=buildObjektTree([...visible]);
   const opts=['<option value="">— Kein Oberprojekt (eigenständiges Objekt) —</option>'];
+  const rendered={};
   tree.forEach(o=>{
     if(excluded[o.id])return;
+    rendered[o.id]=true;
     const depth=o._depth||0;
     const indent='&nbsp;'.repeat(depth*3)+(depth>0?'↳ ':'');
     opts.push('<option value="'+esc(o.id)+'">'+indent+esc((GemaObjekte.displayName?GemaObjekte.displayName(o):o.name)||'–')+'</option>');
   });
+  // Gespeichertes Oberprojekt ohne Option (andere Org/Filter/noch nicht
+  // geladen): Option ergänzen, sonst fällt das Select still auf «Kein» und
+  // das Speichern löst die Verknüpfung.
+  if(currentEditId){
+    const cur=_mem.objekte.find(x=>x.id===currentEditId);
+    const pid=cur&&cur.parentObjektId;
+    if(pid&&!rendered[pid]){
+      const po=_mem.objekte.find(x=>x.id===pid);
+      opts.push('<option value="'+esc(pid)+'">⚠ '+esc(po?((GemaObjekte.displayName?GemaObjekte.displayName(po):po.name)||'–'):pid)+'</option>');
+    }
+  }
   sel.innerHTML=opts.join('');
 }
 
 // ── TEAM-ZUWEISUNG (P08) ──
 // Liste aller User der eigenen Org (für Dropdowns + Chips).
 var _teamChipState = [];
-function _orgUsers() {
+function _orgUsers(forOrgId) {
   try {
     if (typeof GemaAuth === 'undefined' || !GemaAuth.getUsers) return [];
     var me = GemaAuth.getCurrentUser && GemaAuth.getCurrentUser();
-    var myOrg = me && me.orgId;
+    // Team-Auswahl gehört zur Org des OBJEKTS (Admin bearbeitet fremde Org:
+    // deren User anbieten, nicht die eigenen), sonst eigene Org.
+    var org = forOrgId || (me && me.orgId);
     return (GemaAuth.getUsers() || []).filter(function(u) {
-      return u.active !== false && (!myOrg || u.orgId === myOrg);
+      return u.active !== false && (!org || u.orgId === org);
     });
   } catch(e) { return []; }
+}
+function _userById(id) {
+  try { return (GemaAuth.getUsers() || []).find(function(u){ return u.id === id; }) || null; } catch(e) { return null; }
 }
 function _userLabel(u) {
   var name = (u.profile && (u.profile.person || u.profile.name)) || u.name || u.username || u.id;
@@ -1483,8 +1501,8 @@ function _userInitials(u) {
   return name.split(/\s+/).map(function(w){return w[0];}).join('').toUpperCase().slice(0,2);
 }
 function populateTeamSelects(editId) {
-  var users = _orgUsers();
   var obj = editId ? _mem.objekte.find(function(x){return x.id===editId;}) : null;
+  var users = _orgUsers(obj && obj.orgId);
   var canEdit = !editId || (typeof GemaObjekte !== 'undefined' && GemaObjekte.canEditTeam ? GemaObjekte.canEditTeam(obj) : true);
   // Eigene User-ID — für ein NEUES Objekt ist der Ersteller standardmässig der
   // Verantwortliche (Projektleiter), User-Vorgabe 23.07.2026.
@@ -1498,9 +1516,18 @@ function populateTeamSelects(editId) {
     // Default beim Erfassen: Projektleiter = ich selbst (sofern in der Org-Liste)
     var selfDefault = (!obj && selId==='objProjektLeiterId' && myId && users.some(function(u){return u.id===myId;})) ? myId : '';
     var curVal = obj ? (obj[fieldName] || '') : selfDefault;
-    sel.innerHTML = '<option value="">— Keiner —</option>' + users.map(function(u){
-      return '<option value="'+u.id+'"'+(u.id===curVal?' selected':'')+'>'+esc(_userLabel(u))+'</option>';
+    var opts = '<option value="">— Keiner —</option>' + users.map(function(u){
+      return '<option value="'+esc(u.id)+'"'+(u.id===curVal?' selected':'')+'>'+esc(_userLabel(u))+'</option>';
     }).join('');
+    // Gespeicherter Wert ohne Option (User deaktiviert/andere Org/Liste noch
+    // nicht geladen): Option ergänzen statt still auf «Keiner» fallen — sonst
+    // löscht «Fertig stellen» die Zuweisung (Muster sys_admin-Rollen: sichtbar
+    // + bewusst abwählbar mit ⚠).
+    if (curVal && !users.some(function(u){return u.id===curVal;})) {
+      var known = _userById(curVal);
+      opts += '<option value="'+esc(curVal)+'" selected>⚠ '+esc(known ? _userLabel(known) : curVal)+'</option>';
+    }
+    sel.innerHTML = opts;
     sel.disabled = !canEdit;
   });
 
@@ -1514,21 +1541,31 @@ function populateTeamSelects(editId) {
 function _renderTeamChips(users, canEdit) {
   var box = $('objTeamChips');
   if (!box) return;
-  if (!users || !users.length) {
+  // Team-Mitglieder ohne Eintrag in der Org-Liste (deaktiviert/andere Org/
+  // Liste noch nicht geladen) SICHTBAR halten — sie bleiben zugewiesen und
+  // sind bewusst abwählbar, statt unsichtbar mitzulaufen.
+  var extra = (_teamChipState || []).filter(function(id){ return !(users || []).some(function(u){ return u.id === id; }); });
+  if ((!users || !users.length) && !extra.length) {
     box.innerHTML = '<span style="font-size:12px;color:var(--mut)">Keine weiteren User in deiner Org</span>';
     return;
   }
-  box.innerHTML = users.map(function(u){
+  var disabled = !canEdit ? 'opacity:.6;pointer-events:none' : '';
+  box.innerHTML = (users || []).map(function(u){
     var active = _teamChipState.indexOf(u.id) >= 0;
     var bg = active ? '#eff4ff' : '#fff';
     var bd = active ? '#2563eb' : 'var(--brd2)';
     var col = active ? '#1d4ed8' : 'var(--mut)';
-    var disabled = !canEdit ? 'opacity:.6;pointer-events:none' : '';
-    return '<span data-uid="'+u.id+'" style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:20px;font-size:12px;font-weight:600;cursor:pointer;background:'+bg+';border:1.5px solid '+bd+';color:'+col+';'+disabled+'">'
+    return '<span data-uid="'+esc(u.id)+'" style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:20px;font-size:12px;font-weight:600;cursor:pointer;background:'+bg+';border:1.5px solid '+bd+';color:'+col+';'+disabled+'">'
       + '<span style="width:18px;height:18px;border-radius:50%;background:'+(active?'#2563eb':'#e2e8f0')+';color:'+(active?'#fff':'#64748b')+';font-size:9px;font-weight:800;display:inline-flex;align-items:center;justify-content:center">'+_userInitials(u)+'</span>'
       + esc(_userLabel(u))
       + (active?' ✓':' +')
       + '</span>';
+  }).join('') + extra.map(function(id){
+    var known = _userById(id);
+    var label = known ? _userLabel(known) : id;
+    return '<span data-uid="'+esc(id)+'" title="Nicht in der Benutzerliste dieser Org (deaktiviert oder andere Org) — Klick entfernt aus dem Team" style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:20px;font-size:12px;font-weight:600;cursor:pointer;background:#fffbeb;border:1.5px solid #fcd34d;color:#92400e;'+disabled+'">⚠ '
+      + esc(label)
+      + ' ✓</span>';
   }).join('');
   if (canEdit) {
     box.querySelectorAll('[data-uid]').forEach(function(el){
@@ -1634,7 +1671,9 @@ function openObjektModal(editId){
     $('objAktivePhase').value=o.aktivePhase||'';
     if($('objParentId'))$('objParentId').value=o.parentObjektId||'';
     $('objStatus').value=o.status||'aktiv';$('objNotizen').value=o.notizen||'';
-    _objBeteiligte=(o.beteiligte||[]).map(function(b){return{rolle:b.rolle,firma:b.firma,person:b.person||''};});
+    // Object.assign statt Feld-Picking: unbekannte Zusatzfelder eines
+    // Beteiligten überleben den Edit-Roundtrip (nichts still verwerfen).
+    _objBeteiligte=(o.beteiligte||[]).map(function(b){return Object.assign({},b,{person:b.person||''});});
   } else {
     _objBeteiligte=[];
     ['objName','objStrasse','objPlz','objOrt','objGemeinde','objKanton','objNotizen','objProjektnummer','objRevision'].forEach(id=>{if($(id))$(id).value='';});
@@ -1676,17 +1715,34 @@ window._objAdrInit=_objAdrInit;
 if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',_objAdrInit);
 else _objAdrInit();
 
+// Select-Wert lesen, ohne beim Bearbeiten still zu löschen: liefert das
+// Select leer, obwohl ein Wert gespeichert ist UND dessen Option gar nicht
+// existiert (Select konnte den Wert nie darstellen — Userliste/Objekte noch
+// nicht geladen, Element fehlt), bleibt der gespeicherte Wert. Eine bewusste
+// Wahl von «— Keiner —» geht weiter durch, weil die ⚠-Option des gespeicherten
+// Werts seit populateTeamSelects/populateParentSelect immer gerendert wird.
+function _objSelKeep(id, prevVal){
+  var el=$(id);
+  if(!el) return prevVal||'';
+  var v=el.value;
+  if(v===''&&prevVal){
+    var has=false;
+    for(var i=0;i<el.options.length;i++){ if(el.options[i].value===prevVal){has=true;break;} }
+    if(!has) return prevVal;
+  }
+  return v;
+}
 function saveObjekt(){
   const name=$('objName').value.trim();
   if(!name){toast('⚠ Projektname erforderlich');return;}
   const editId=$('objEditId').value;
-  const parentId=($('objParentId')?$('objParentId').value:'')||'';
+  const prev=editId?_mem.objekte.find(x=>x.id===editId):null;
   const data={name,strasse:$('objStrasse').value.trim(),plz:$('objPlz').value.trim(),ort:$('objOrt').value.trim(),
-    gemeinde:$('objGemeinde').value.trim(),kanton:$('objKanton').value.trim(),bauvorhaben:$('objBauvorhaben').value,status:$('objStatus').value,notizen:$('objNotizen').value.trim(),
+    gemeinde:$('objGemeinde').value.trim(),kanton:$('objKanton').value.trim(),bauvorhaben:_objSelKeep('objBauvorhaben',prev&&prev.bauvorhaben)||'Neubau',status:_objSelKeep('objStatus',prev&&prev.status)||'aktiv',notizen:$('objNotizen').value.trim(),
     projektnummer:$('objProjektnummer').value.trim(),revision:$('objRevision').value.trim(),
-    aktivePhase:$('objAktivePhase').value,parentObjektId:parentId,
-    projektLeiterId:$('objProjektLeiterId')?$('objProjektLeiterId').value:'',
-    abteilungsLeiterId:$('objAbteilungsLeiterId')?$('objAbteilungsLeiterId').value:'',
+    aktivePhase:_objSelKeep('objAktivePhase',prev&&prev.aktivePhase),parentObjektId:_objSelKeep('objParentId',prev&&prev.parentObjektId),
+    projektLeiterId:_objSelKeep('objProjektLeiterId',prev&&prev.projektLeiterId),
+    abteilungsLeiterId:_objSelKeep('objAbteilungsLeiterId',prev&&prev.abteilungsLeiterId),
     teamUserIds:(_teamChipState||[]).slice(),
     beteiligte:_objGetBeteiligte()};
   var _abschlussTrigger=null;
