@@ -131,6 +131,8 @@ table.board{border-collapse:collapse;width:100%;min-width:1000px}
 .job .j-s{font-size:10.5px;color:var(--mut)}
 .job .j-badge{display:inline-block;font-size:9.5px;font-weight:800;padding:1px 7px;border-radius:999px;background:var(--grn-bg);color:var(--grn);border:1px solid var(--grn-bd);margin-top:3px}
 .job.moving{outline:2.5px solid var(--acc)}
+.job-folge{position:relative;padding-bottom:32px}
+.job-folge .fg-done{position:absolute;right:9px;bottom:8px;padding:4px 9px;border-radius:999px;border:1px solid var(--brd2);background:var(--sur);font-size:10.5px;font-weight:800;color:var(--txt2);cursor:pointer;font-family:inherit}
 
 /* MOVE-LEISTE */
 .movebar{position:fixed;left:50%;bottom:calc(18px + env(safe-area-inset-bottom));transform:translateX(-50%);z-index:600;background:var(--txt);color:#fff;border-radius:14px;padding:11px 16px;font-size:13px;font-weight:700;display:none;align-items:center;gap:12px;box-shadow:0 10px 32px rgba(0,0,0,.35);max-width:92vw}
@@ -327,7 +329,7 @@ table.board{border-collapse:collapse;width:100%;min-width:1000px}
         <div style="font-size:11.5px;color:var(--mut);margin-top:4px">Sichtbarer Zeitraum pro Tag in der Wochen-Tafel — Einsätze werden im Stundenraster geplant (Zeit im Kalender aufziehen).</div>
       </div>
       <div class="fld"><label>Arbeitsbereiche (Farbe im Kalender)</label>
-        <div style="font-size:11.5px;color:var(--mut);margin-bottom:6px">Individuell benannte Bereiche (z.B. Sanitär, Sanitärservice, Heizung). Zuweisung startet bei der Offerte im ERP, der Auftrag vererbt sie — Termine erscheinen im Kalender in der Bereichsfarbe. Liste gilt firmenweit. <b>📷 = Foto-Pflicht</b>: Termine dieses Bereichs (z.B. Service) lassen sich in der Stundenerfassung nur mit Foto der Arbeit freigeben — «Kein Foto» braucht eine Begründung, die die Projektleitung bei der Freigabe sieht.</div>
+        <div style="font-size:11.5px;color:var(--mut);margin-bottom:6px">Individuell benannte Bereiche (z.B. Sanitär, Sanitärservice, Heizung). Zuweisung startet bei der Offerte im ERP, der Auftrag vererbt sie — Termine erscheinen im Kalender in der Bereichsfarbe. Liste gilt firmenweit. <b>📷 = Foto-Pflicht</b>: Termine dieses Bereichs (z.B. Service) lassen sich in der Stundenerfassung nur mit Foto der Arbeit freigeben — «Kein Foto» braucht eine Begründung, die die Projektleitung bei der Freigabe sieht. <b>✅ = Abschluss-Frage</b>: nach dem Zeit-Erfassen fragt GEMA, ob die Arbeit abgeschlossen ist, ein Folgetermin nötig ist oder eine Offerte gebraucht wird — offene Antworten blockieren die Tages-Freigabe.</div>
         <div id="ep_abRows"></div>
         <button class="btn" type="button" style="min-height:38px" onclick="abRowAdd('ep_abRows')">＋ Arbeitsbereich</button>
       </div>
@@ -337,6 +339,14 @@ table.board{border-collapse:collapse;width:100%;min-width:1000px}
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           <button class="btn" type="button" style="min-height:38px" onclick="bsRowAdd('ep_bsRows')">＋ Besonderheit</button>
           <button class="btn" type="button" style="min-height:38px" onclick="bsVorlagenEinfuegen()" title="Typische Beispiele als Startliste einfügen">↺ Beispiele einfügen</button>
+        </div>
+      </div>
+      <div class="fld"><label>Folgetermin-Gründe (Vorlagen)</label>
+        <div style="font-size:11.5px;color:var(--mut);margin-bottom:6px">Meldet der Monteur «Folgetermin nötig», wählt er einen dieser Gründe (oder schreibt einen eigenen). Der Termin landet danach im Pool «🔁 Folgetermin nötig» und kann direkt neu eingeplant werden.</div>
+        <div id="ep_fgRows"></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn" type="button" style="min-height:38px" onclick="fgRowAdd('ep_fgRows')">＋ Grund</button>
+          <button class="btn" type="button" style="min-height:38px" onclick="fgVorlagenEinfuegen()" title="Typische Gründe als Startliste einfügen">↺ Beispiele einfügen</button>
         </div>
       </div>
       <div class="fld"><label>Einplanbare Personen</label>
@@ -439,7 +449,7 @@ function abListe(){
   var l=(org&&org.settings&&org.settings.arbeitsbereiche)||[];
   if(!Array.isArray(l))return [];
   return l.filter(function(b){return b&&b.id&&b.name;}).map(function(b){
-    return {id:String(b.id),name:String(b.name),farbe:/^#[0-9a-fA-F]{6}$/.test(String(b.farbe||''))?b.farbe:'#64748b',fotoPflicht:!!b.fotoPflicht};
+    return {id:String(b.id),name:String(b.name),farbe:/^#[0-9a-fA-F]{6}$/.test(String(b.farbe||''))?b.farbe:'#64748b',fotoPflicht:!!b.fotoPflicht,abschlussPflicht:!!b.abschlussPflicht};
   });
 }
 function abById(id){if(!id)return null;var l=abListe();for(var i=0;i<l.length;i++){if(l[i].id===id)return l[i];}return null;}
@@ -465,6 +475,8 @@ function abRowHtml(b){
     +'<input type="text" class="ab-name" value="'+esc(b.name||'')+'" placeholder="z.B. Sanitär, Sanitärservice, Heizung" style="flex:1;min-width:0;padding:9px 11px;border:1.5px solid var(--brd2);border-radius:9px;font-size:13.5px"/>'
     +'<label title="Foto-Pflicht: Termine dieses Bereichs können in der Stundenerfassung nur mit Foto der Arbeit freigegeben werden («Kein Foto» nur mit Begründung — für die Projektleitung sichtbar)" style="display:flex;align-items:center;gap:5px;font-size:12px;font-weight:800;color:var(--txt2);cursor:pointer;flex-shrink:0;text-transform:none;letter-spacing:0;margin:0">'
     +'<input type="checkbox" class="ab-foto" '+(b.fotoPflicht?'checked':'')+' style="width:19px;height:19px;accent-color:var(--pri,#2563eb)"/>📷</label>'
+    +'<label title="Abschluss-Frage: Nach dem Zeit-Erfassen fragt GEMA den Monteur, ob die Arbeit abgeschlossen ist, ein Folgetermin nötig ist oder eine Offerte für zusätzliche Arbeit gebraucht wird. Unbeantwortete Termine blockieren die Tages-Freigabe." style="display:flex;align-items:center;gap:5px;font-size:12px;font-weight:800;color:var(--txt2);cursor:pointer;flex-shrink:0;text-transform:none;letter-spacing:0;margin:0">'
+    +'<input type="checkbox" class="ab-abschluss" '+(b.abschlussPflicht?'checked':'')+' style="width:19px;height:19px;accent-color:var(--pri,#2563eb)"/>✅</label>'
     +'<button type="button" onclick="this.closest(\'.ab-row\').remove()" title="Bereich entfernen (bestehende Zuweisungen bleiben gespeichert, werden aber nicht mehr farbig angezeigt)" style="width:34px;height:34px;border-radius:9px;border:1px solid var(--brd2);background:var(--sur);color:var(--red);font-weight:900;cursor:pointer;flex-shrink:0">✕</button>'
     +'</div>';
 }
@@ -499,6 +511,8 @@ function abRowsCollect(hostId){
     var rec={id:id,name:name,farbe:/^#[0-9a-fA-F]{6}$/.test(farbe)?farbe:'#64748b'};
     var foto=row.querySelector('.ab-foto');
     if(foto&&foto.checked)rec.fotoPflicht=true;
+    var absch=row.querySelector('.ab-abschluss');
+    if(absch&&absch.checked)rec.abschlussPflicht=true;
     out.push(rec);
   });
   return out;
@@ -569,6 +583,61 @@ function bsRowsCollect(hostId){
   });
   return out;
 }
+// ═══════════════════════════════════════════════════════════
+// FOLGETERMIN-GRÜNDE (org.settings.einsatzplan.folgegruende = [{id,label}])
+// Vorlagen-Chips für die Rückmeldung «Folgetermin nötig» aus der
+// Stundenerfassung — gleiches Muster wie die Besonderheiten.
+// ═══════════════════════════════════════════════════════════
+var FG_VORLAGEN=[
+  {label:'Fehlendes Material'},
+  {label:'Falsches Material geliefert'},
+  {label:'Zusatzarbeit entdeckt'},
+  {label:'Zeit reichte nicht'},
+  {label:'Zugang fehlte'},
+  {label:'Fremdgewerk noch nicht bereit'},
+  {label:'Ersatzteil bestellt'}
+];
+function fgListe(){
+  var org=epOrg();
+  var l=(org&&org.settings&&org.settings.einsatzplan&&org.settings.einsatzplan.folgegruende)||[];
+  if(!Array.isArray(l))return [];
+  return l.filter(function(b){return b&&b.id&&b.label;}).map(function(b){
+    return {id:String(b.id),label:String(b.label)};
+  });
+}
+function fgRowHtml(b){
+  b=b||{};
+  return '<div class="fg-row" data-id="'+esc(b.id||'')+'" style="display:flex;gap:8px;align-items:center;margin-bottom:6px">'
+    +'<input type="text" class="fg-label" value="'+esc(b.label||'')+'" placeholder="z.B. Fehlendes Material" style="flex:1;min-width:0;padding:9px 11px;border:1.5px solid var(--brd2);border-radius:9px;font-size:13.5px"/>'
+    +'<button type="button" onclick="this.closest(\'.fg-row\').remove()" title="Grund entfernen (bereits gemeldete Termine behalten ihren Text)" style="width:34px;height:34px;border-radius:9px;border:1px solid var(--brd2);background:var(--sur);color:var(--red);font-weight:900;cursor:pointer;flex-shrink:0">✕</button>'
+    +'</div>';
+}
+function fgRowAdd(hostId,vorlage){
+  var host=document.getElementById(hostId);
+  var tmp=document.createElement('div');
+  tmp.innerHTML=fgRowHtml(vorlage||{});
+  host.appendChild(tmp.firstChild);
+  if(!vorlage){var inp=host.lastChild.querySelector('.fg-label');if(inp)inp.focus();}
+}
+function fgVorlagenEinfuegen(){
+  var host=document.getElementById('ep_fgRows');
+  var vorhandene={};
+  host.querySelectorAll('.fg-label').forEach(function(i){vorhandene[i.value.trim().toLowerCase()]=1;});
+  FG_VORLAGEN.forEach(function(v){if(!vorhandene[v.label.toLowerCase()])fgRowAdd('ep_fgRows',v);});
+}
+function fgRowsCollect(hostId){
+  var out=[],taken={};
+  var rows=document.querySelectorAll('#'+hostId+' .fg-row');
+  rows.forEach(function(row){var id=row.getAttribute('data-id');if(id)taken[id]=1;});
+  rows.forEach(function(row){
+    var label=row.querySelector('.fg-label').value.trim();
+    if(!label)return;
+    var id=row.getAttribute('data-id')||bsSlug(label,taken).replace(/^bs_/,'fg_');
+    out.push({id:id,label:label});
+  });
+  return out;
+}
+
 // Anzeige-Helfer: Text-Zeile (Woche/Monat-Tooltip) + volle Pills (Tag/Meine Woche)
 function bsVon(ev){return (ev&&ev.besonderheiten||[]).map(bsById).filter(Boolean);}
 // Freitext-Besonderheiten DIREKT am Termin (ev.besonderheitenFrei = ['…']) —
@@ -589,6 +658,84 @@ function bsChipsHtml(ev){
   return '<div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:6px">'+l.map(function(b){
     return '<span style="background:#fffbeb;border:1.5px solid #fcd34d;color:#92400e;font-size:12px;font-weight:800;border-radius:999px;padding:3px 10px">'+esc(b.label)+'</span>';
   }).join('')+'</div>';
+}
+
+// ── Rückmeldung aus der Stundenerfassung (ev.ist) ────────────────
+// Der Monteur erfasst seine Zeit in pm_stunden; von dort kommen Ist-Zeiten
+// und Stand zurück (offen → erfasst → freigegeben, bzw. ausgefallen). Die
+// Planung sieht damit direkt am Termin, wo die Schätzung danebenlag.
+var IST_INFO={
+  erfasst:     {ic:'⏱', n:'erfasst',            bg:'#eff6ff', bd:'#93c5fd', c:'#1d4ed8'},
+  freigegeben: {ic:'✅', n:'freigegeben',        bg:'#ecfdf5', bd:'#6ee7b7', c:'#047857'},
+  ausgefallen: {ic:'✕',  n:'nicht stattgefunden',bg:'#fef2f2', bd:'#fca5a5', c:'#b91c1c'}
+};
+function epIstStd(ev){
+  var i=ev&&ev.ist;
+  return (i&&typeof i.stunden==='number')?i.stunden:0;
+}
+function epPlanStd(ev){
+  if(!ev||!ev.zeitVon||!ev.zeitBis)return 0;
+  var v=epHmToH(ev.zeitVon),b=epHmToH(ev.zeitBis);
+  if(v==null||b==null)return 0;
+  if(b<=v)b+=24;
+  return Math.round((b-v)*100)/100;
+}
+function epFmtH(x){return (Math.round(x*100)/100).toFixed(2).replace(/\.?0+$/,'');}
+// Zahlen (Ist-Stunden, Soll-Ist-Abweichung) sieht NUR die Planung —
+// Projektleitung und Admin (User-Entscheid 26.07.2026). Der Monteur sieht
+// an seinem Termin lediglich den Stand, ohne Stunden und ohne Vergleich.
+function epIstZahlenSichtbar(){ try{ return epCanPlan(); }catch(e){ return false; } }
+// Kompakter Chip für die Wochen-/Monats-Karten (nur Zeichen, kein Umbruch)
+function epIstKurz(ev){
+  var i=ev&&ev.ist;if(!i||!i.status||i.status==='offen')return '';
+  if(i.status==='ausgefallen')return '<span title="Nicht stattgefunden'+(epIstZahlenSichtbar()&&i.grund?': '+esc(i.grund):'')+'">✕</span> ';
+  if(!epIstZahlenSichtbar())return '<span title="'+(i.status==='freigegeben'?'freigegeben':'Zeit erfasst')+'">'+(i.status==='freigegeben'?'✅':'⏱')+'</span> ';
+  var plan=epPlanStd(ev),ist=epIstStd(ev);
+  var abw=(plan&&ist)?(ist-plan):0;
+  var t='Ist '+epFmtH(ist)+' h'+(plan?' (geplant '+epFmtH(plan)+' h)':'')+(i.status==='freigegeben'?' · freigegeben':'');
+  return '<span title="'+esc(t)+'">'+(i.status==='freigegeben'?'✅':'⏱')+(Math.abs(abw)>=0.25?(abw>0?' +':' ')+epFmtH(abw):'')+'</span> ';
+}
+// Ausführliche Zeile für «Meine Woche», Tages-Modal und Termin-Dialog
+function epIstZeile(ev){
+  var i=ev&&ev.ist;if(!i||!i.status||i.status==='offen')return '';
+  var inf=IST_INFO[i.status];if(!inf)return '';
+  var box=function(txt){
+    return '<div style="margin-top:6px;background:'+inf.bg+';border:1.5px solid '+inf.bd+';color:'+inf.c
+      +';border-radius:8px;padding:5px 10px;font-size:12.5px;font-weight:700">'+txt+'</div>';
+  };
+  // Monteur-Sicht: nur der Stand — keine Stunden, kein Soll-Ist-Vergleich
+  if(!epIstZahlenSichtbar())return box(inf.ic+' '+inf.n);
+  var plan=epPlanStd(ev),ist=epIstStd(ev);
+  var txt=inf.ic+' '+inf.n;
+  if(i.status==='ausgefallen'){
+    txt+=i.grund?': '+esc(i.grund):'';
+    if(ist>0)txt+=' · Zeit trotzdem erfasst: '+epFmtH(ist)+' h';
+  } else {
+    txt+=': '+(i.von?esc(i.von)+'–'+esc(i.bis||''):'')+' · <b>'+epFmtH(ist)+' h</b>';
+    if(plan){
+      var abw=ist-plan;
+      txt+=' <span style="opacity:.75">(geplant '+epFmtH(plan)+' h'+(Math.abs(abw)>=0.25?', '+(abw>0?'+':'')+epFmtH(abw)+' h':'')+')</span>';
+    }
+  }
+  return box(txt);
+}
+// Abschluss-Rückmeldung des Monteurs (ev.abschluss aus der Stundenerfassung)
+var AB_INFO={
+  fertig :{ic:'✓', n:'Arbeit abgeschlossen', bg:'#f0fdf4',bd:'#86efac',c:'#166534'},
+  folge  :{ic:'🔁',n:'Folgetermin nötig',    bg:'#fffbeb',bd:'#fcd34d',c:'#b45309'},
+  offerte:{ic:'📄',n:'Offerte nötig',        bg:'#eff6ff',bd:'#bfdbfe',c:'#1d4ed8'}
+};
+function epAbschlussZeile(ev){
+  var a=ev&&ev.abschluss;if(!a||!a.status)return '';
+  var inf=AB_INFO[a.status];if(!inf)return '';
+  var txt=inf.ic+' '+inf.n;
+  if(a.status==='folge'&&a.grund)txt+=': '+esc(a.grund);
+  if(a.status==='offerte'&&a.beschrieb)txt+=': '+esc(a.beschrieb);
+  if(a.status==='offerte'&&a.offerteNr&&epCanPlan())
+    txt+=' <a href="pm_erp.html?doc='+encodeURIComponent(a.offerteId||'')+'" style="color:inherit;font-weight:900">→ '+esc(a.offerteNr)+'</a>';
+  if(ev.folgeErledigt&&a.status==='folge')txt+=' <span style="opacity:.7">· eingeplant</span>';
+  return '<div style="margin-top:6px;background:'+inf.bg+';border:1.5px solid '+inf.bd+';color:'+inf.c
+    +';border-radius:8px;padding:5px 10px;font-size:12.5px;font-weight:700">'+txt+'</div>';
 }
 
 // ── Schlüssel/Zutritt vom verknüpften ERP-Auftrag (auftrag.schluessel) ──
@@ -848,7 +995,7 @@ function epTlCellHtml(p,d,evs,s,t,nowF){
     // User-Entscheid) ist er der Voll-Lesekanal
     var tip=(zl?zl+' · ':'')+(e.titel||e.auftragNr||'')+(ort?' · '+ort:'')+(besTxt?' · '+besTxt:'');
     return '<div class="ev tl-ev t-'+(e.typ||'frei')+(konflikt?' konflikt':'')+(_epSel===e.id?' sel':'')+'" draggable="true" data-ev="'+e.id+'" style="'+pos+(stl?';'+stl:'')+'" title="'+esc(tip)+'" onclick="epEvCardClick(event,\''+e.id+'\')" ondblclick="event.stopPropagation();epEvOpen(\''+e.id+'\')">'
-      +'<div class="ev-z">'+(e.garantie?'🛡 ':'')+(epSchluessel(e)?'<span title="Schlüssel/Zutritt hinterlegt — Details im Termin bzw. in «Meine Woche»">🔑</span> ':'')+esc(zl||'')+((e.dauerTage||1)>1?' · ↔'+e.dauerTage+'T':'')+'</div>'
+      +'<div class="ev-z">'+epIstKurz(e)+(e.garantie?'🛡 ':'')+(epSchluessel(e)?'<span title="Schlüssel/Zutritt hinterlegt — Details im Termin bzw. in «Meine Woche»">🔑</span> ':'')+esc(zl||'')+((e.dauerTage||1)>1?' · ↔'+e.dauerTage+'T':'')+'</div>'
       +'<div class="ev-t">'+esc(e.titel||(e.auftragNr||''))+'</div>'
       +(ort?'<div class="ev-o">'+esc(ort)+'</div>':'')
       +(besTxt?'<div class="ev-b" title="'+esc(besTxt)+'">'+esc(besTxt)+'</div>':'')
@@ -877,18 +1024,115 @@ function epPoolFilterSet(v){
   try{localStorage.setItem('gema_ep_poolfilter_v1',v);}catch(e){}
   epRender();
 }
+// ═══════════════════════════════════════════════════════════
+// FOLGETERMIN-POOL — Rückmeldungen aus der Stundenerfassung
+// Zwei Quellen: der Monteur hat «Folgetermin nötig» gemeldet
+// (ev.abschluss.status==='folge') ODER der Termin hat gar nicht
+// stattgefunden (ev.ist.status==='ausgefallen'). Beides heisst für die
+// Planung dasselbe: hier ist noch ein Termin nötig. Erledigt ist ein
+// Eintrag, sobald daraus ein neuer Termin geplant (oder er von Hand
+// abgehakt) wurde — Marker ev.folgeErledigt.
+// ═══════════════════════════════════════════════════════════
+function epFolgeInfo(ev){
+  if(!ev||ev.folgeErledigt)return null;
+  if(ev.abschluss&&ev.abschluss.status==='folge'){
+    return {art:'folge',ic:'🔁',grund:ev.abschluss.grund||'',
+            datum:ev.abschluss.datum||ev.datum,von:ev.abschluss.vonName||''};
+  }
+  if(ev.ist&&ev.ist.status==='ausgefallen'){
+    return {art:'ausgefallen',ic:'✕',grund:ev.ist.grund||'',
+            datum:ev.ist.datum||ev.datum,von:ev.ist.vonName||''};
+  }
+  return null;
+}
+function epFolgePool(){
+  return epAll().map(function(ev){
+    var i=epFolgeInfo(ev);
+    return i?{ev:ev,info:i}:null;
+  }).filter(Boolean).sort(function(a,b){
+    return String(b.info.datum||'').localeCompare(String(a.info.datum||''));
+  });
+}
+function epFolgeErledigt(id){
+  if(!epCanPlan())return;
+  var ev=poolRead().find(function(x){return x.id===id;});if(!ev)return;
+  var u=epUser();
+  ev.folgeErledigt={am:new Date().toISOString(),von:u?(u.name||''):''};
+  epSave(ev);
+  toast('✓ Aus dem Folgetermin-Pool entfernt');
+  epRender();
+}
+// Neuen Termin aus einer Pool-Meldung planen (Drop oder Tap)
+function epNeuAusFolge(quelle,monteurId,datum,vonH){
+  var u=epUser();
+  var p=epPersonen().find(function(x){return x.id===monteurId;});
+  var info=epFolgeInfo(quelle)||{grund:'',art:'folge'};
+  var zeitVon='',zeitBis='';
+  if(vonH!=null){
+    var s=epSettings();
+    zeitVon=epHToHm(vonH);
+    zeitBis=epHToHm(Math.min(vonH+8,s.tagBis));
+  }
+  var ev={
+    id:uid(),orgId:u?u.orgId:'',typ:quelle.typ||'frei',
+    auftragId:quelle.auftragId||'',auftragNr:quelle.auftragNr||'',kunde:quelle.kunde||'',
+    titel:quelle.titel||'Folgetermin',
+    objektId:quelle.objektId||'',objektName:quelle.objektName||'',
+    bereichId:quelle.bereichId||'',garantie:!!quelle.garantie,
+    besonderheiten:(quelle.besonderheiten||[]).slice(),
+    besonderheitenFrei:(quelle.besonderheitenFrei||[]).slice(),
+    monteurUserId:monteurId,monteurName:p?(p.name||p.username):'',
+    datum:datum,dauerTage:1,slot:'ganz',zeitVon:zeitVon,zeitBis:zeitBis,
+    notiz:(info.art==='ausgefallen'?'Neuansetzung':'Folgetermin')+(info.grund?': '+info.grund:''),
+    folgeVon:{einsatzId:quelle.id,datum:info.datum||quelle.datum,grund:info.grund||'',art:info.art},
+    erstelltVon:{userId:u?u.id:'',name:u?u.name:''},erstelltAm:new Date().toISOString()
+  };
+  epSave(ev);
+  // Quelle aus dem Pool nehmen — die Meldung ist beantwortet
+  var q=poolRead().find(function(x){return x.id===quelle.id;});
+  if(q){q.folgeErledigt={am:new Date().toISOString(),von:u?(u.name||''):'',neuerEinsatzId:ev.id};epSave(q);}
+  epNotify(ev,'geplant');
+  toast('🔁 Folgetermin bei '+(ev.monteurName||'?')+' am '+dfmt(datum)+(zeitVon?' '+zeitVon:'')+' eingeplant');
+  epRender();
+}
+function epFolgeTap(id){
+  if(!epCanPlan())return;
+  _move={folgeId:id};
+  document.querySelectorAll('.job').forEach(function(el){el.classList.toggle('moving',el.dataset.folge===id);});
+  var ev=epAll().find(function(x){return x.id===id;});
+  document.getElementById('movebarTxt').textContent='🔁 '+((ev&&(ev.titel||ev.auftragNr))||'Folgetermin')+' — Ziel-Zelle antippen';
+  document.getElementById('movebar').classList.add('on');
+}
+function epFolgeCardHtml(row){
+  var ev=row.ev,i=row.info;
+  var b=abById(ev.bereichId);
+  var rot=i.art==='ausgefallen';
+  return '<div class="job job-folge" draggable="true" data-folge="'+esc(ev.id)+'" style="border-color:'+(rot?'#fca5a5':'#fcd34d')+';background:'+(rot?'#fef2f2':'#fffbeb')+'" onclick="epFolgeTap(\''+esc(ev.id)+'\')">'
+    +'<div class="j-nr" style="color:'+(rot?'#b91c1c':'#b45309')+'">'+i.ic+' '+(rot?'Nicht stattgefunden':'Folgetermin')+' · '+esc(dfmt(i.datum||ev.datum))+'</div>'
+    +'<div class="j-t">'+esc(ev.titel||ev.auftragNr||'Termin')+'</div>'
+    +(ev.objektName?'<div class="j-s">'+esc(epObjName(ev.objektId,ev.objektName))+'</div>':'')
+    +(i.grund?'<div class="j-s" style="color:'+(rot?'#b91c1c':'#b45309')+';font-weight:700">'+esc(i.grund)+'</div>':'')
+    +(i.von?'<div class="j-s">👷 '+esc(i.von)+'</div>':'')
+    +(b?'<div style="margin-top:3px">'+abChipHtml(ev.bereichId)+'</div>':'')
+    +'<button type="button" class="fg-done" title="Ohne neuen Termin erledigen" onclick="event.stopPropagation();epFolgeErledigt(\''+esc(ev.id)+'\')">✓ erledigt</button>'
+    +'</div>';
+}
 function epRenderSide(){
   if(!epCanPlan())return '<div></div>';
   var alle=epAuftraege();
   var offen=alle.filter(function(a){return !a._geplant;});
   var geplant=alle.length-offen.length;
+  var folge=epFolgePool();
   if(_epSideZu){
     return '<div class="side no-print"><div class="side-rail" onclick="epSideToggle()" title="Auftrags-Pool einblenden">'
       +'<span style="font-size:15px;font-weight:900;color:var(--mut)">⟨</span>'
+      +(folge.length?'<span class="side-ct" style="background:#b45309">'+folge.length+'</span>':'')
       +(offen.length?'<span class="side-ct">'+offen.length+'</span>':'')
       +'<b>Auftrags-Pool</b>'
       +'</div></div>';
   }
+  var folgeHtml=folge.length?('<div class="side-hd" style="background:#fffbeb;color:#b45309">🔁 Folgetermin nötig <span style="font-size:10.5px;font-weight:700;margin-left:auto">'+folge.length+'</span></div>'
+    +'<div class="side-bd" style="max-height:38vh">'+folge.map(epFolgeCardHtml).join('')+'</div>'):'';
   var bl=abListe();
   // Unbekannter Bereich (Org-Settings noch nicht geladen ODER gelöscht):
   // nur fürs Rendern wie «Alle» behandeln — die gespeicherte Wahl bleibt,
@@ -915,7 +1159,7 @@ function epRenderSide(){
       +'</div>';
   }).join(''):'<div class="empty" style="padding:16px">'+(offen.length&&pf?'Keine offenen Aufträge in dieser Abteilung.':'Alle Aufträge sind eingeplant 🎉')+'<br><span style="font-size:11.5px">Aufträge entstehen im Modul «Offerten · Aufträge · Rechnungen».</span></div>';
   var foot=geplant?'<div style="padding:7px 12px;border-top:1px solid var(--brd);font-size:11px;font-weight:700;color:var(--grn)">✓ '+geplant+' Auftr'+(geplant===1?'ag':'äge')+' bereits eingeplant</div>':'';
-  return '<div class="side no-print"><div class="side-hd">📋 Auftrags-Pool <span style="font-size:10.5px;color:var(--mut);font-weight:600;margin-left:auto">ziehen oder antippen</span><button type="button" class="side-tgl" onclick="epSideToggle()" title="Auftrags-Pool ausblenden (mehr Platz für die Tafel)">⟩</button></div>'+filterHtml+'<div class="side-bd">'+inner+'</div>'+foot+'</div>';
+  return '<div class="side no-print">'+folgeHtml+'<div class="side-hd">📋 Auftrags-Pool <span style="font-size:10.5px;color:var(--mut);font-weight:600;margin-left:auto">ziehen oder antippen</span><button type="button" class="side-tgl" onclick="epSideToggle()" title="Auftrags-Pool ausblenden (mehr Platz für die Tafel)">⟩</button></div>'+filterHtml+'<div class="side-bd">'+inner+'</div>'+foot+'</div>';
 }
 
 // ── Monat ──
@@ -952,7 +1196,7 @@ function epDayOpen(day){
       +'<div class="s">👤 '+esc(e.monteurName||'')+(slotLabel(e)?' · '+esc(slotLabel(e)):'')
       +(function(){var o=epOrtText(e)||epObjName(e.objektId,e.objektName);return o?'<br>🏗 '+esc(o):'';})()
       +(function(){var vw=epVerantwortlich(e);return vw?'<br>👔 Verantwortlich: '+esc(vw):'';})()+'</div>'
-      +bsChipsHtml(e)+epSchluesselBoxHtml(e)+'</div>';
+      +epIstZeile(e)+epAbschlussZeile(e)+bsChipsHtml(e)+epSchluesselBoxHtml(e)+'</div>';
   }).join(''):'<div class="empty">Keine Einsätze an diesem Tag.</div>')
   +(epCanPlan()?'<button class="btn pri" style="width:100%;margin-top:8px" onclick="document.getElementById(\'dayModal\').classList.remove(\'open\');epNeu(null,\''+day+'\')">＋ Einsatz an diesem Tag</button>':'');
   document.getElementById('dayModal').classList.add('open');
@@ -983,6 +1227,7 @@ function epRenderMeine(){
         +(e.notiz?'💬 '+esc(e.notiz)+'<br>':'')
         +((e.dauerTage||1)>1?'↔ '+e.dauerTage+' Tage ab '+dfmtLong(e.datum):'')
         +'</div>'
+        +epIstZeile(e)+epAbschlussZeile(e)
         +bsChipsHtml(e)
         +epSchluesselBoxHtml(e)
         +(e.objektId?'<a class="btn" style="margin-top:8px;font-size:12px" href="pm_regierapport.html?objekt='+esc(e.objektId)+'">📝 Regierapport erfassen</a>':'')
@@ -1121,7 +1366,7 @@ function epBindDnD(){
   });
   document.querySelectorAll('.job[draggable]').forEach(function(el){
     el.addEventListener('dragstart',function(e){
-      e.dataTransfer.setData('text/plain','job:'+el.dataset.job);
+      e.dataTransfer.setData('text/plain',el.dataset.folge?('folge:'+el.dataset.folge):('job:'+el.dataset.job));
       e.dataTransfer.effectAllowed='copy';
     });
   });
@@ -1167,6 +1412,10 @@ function epDropOn(data,monteurId,datum,vonH){
     if(geaendert)epNotify(ev,'verschoben');
     toast('↔ '+(ev.titel||'Einsatz')+' → '+dfmt(datum)+(ev.zeitVon?' '+ev.zeitVon:''));
     epRender();
+  } else if(data.indexOf('folge:')===0){
+    var q=epAll().find(function(x){return x.id===data.slice(6);});
+    if(!q)return;
+    epNeuAusFolge(q,monteurId,datum,vonH);
   } else if(data.indexOf('job:')===0){
     var a=epAuftraege().find(function(x){return x.id===data.slice(4);});
     if(!a)return;
@@ -1200,6 +1449,7 @@ function epCellClick(ev,monteurId,datum){
     var vonH=td?epTdHour(td,ev.clientX):null;
     if(_move.einsatzId)epDropOn('ev:'+_move.einsatzId,monteurId,datum,vonH);
     else if(_move.auftragId)epDropOn('job:'+_move.auftragId,monteurId,datum,vonH);
+    else if(_move.folgeId)epDropOn('folge:'+_move.folgeId,monteurId,datum,vonH);
     epMoveCancel();
     return;
   }
@@ -1448,9 +1698,17 @@ function epEvRender(){
   } else {
     document.getElementById('evSlotWrap').style.display='';
     document.getElementById('evZeitWrap').style.display='none';
-    document.getElementById('evSlot').innerHTML=[['ganz','Ganztag'],['vm','Vormittag'],['nm','Nachmittag']].map(function(x){
+    // Ein Termin ist entweder GANZTAGS oder auf eine FIXE ZEIT geplant
+    // (User-Entscheid 26.07.2026) — Vormittag/Nachmittag sind als Auswahl
+    // entfallen. Altdaten mit vm/nm bleiben lesbar (slotLabel, Tafel) und
+    // erscheinen hier als abwählbarer ⚠-Zusatz, damit ein bestehender
+    // Termin nicht still auf «Ganztag» umspringt.
+    var slots=[['ganz','Ganztag']];
+    if(ev.slot==='vm'||ev.slot==='nm')slots.push([ev.slot,'⚠ '+(ev.slot==='vm'?'Vormittag':'Nachmittag')+' (alt)']);
+    document.getElementById('evSlot').innerHTML=slots.map(function(x){
       return '<button class="tchip'+((ev.slot||'ganz')===x[0]?' on':'')+'"'+(canEdit?' onclick="curEv.slot=\''+x[0]+'\';epEvRender()"':' disabled')+'>'+x[1]+'</button>';
-    }).join('');
+    }).join('')
+      +'<div style="font-size:11.5px;color:var(--mut);margin-top:6px">Ganztags: der Monteur bekommt die Standard-Arbeitszeit als Vorschlag. Für eine feste Zeit oben «Zeit» wählen.</div>';
   }
   // Kein separates Projekt/Objekt-Feld mehr: beim Auftrag kommt das Objekt aus
   // dem Auftrag, ein «Freier Termin» hat bewusst keines. Bestehende Einsätze
@@ -1473,7 +1731,7 @@ function epEvRender(){
   document.getElementById('evKeyInfo').innerHTML=(function(){
     var vw=ev.auftragId?epVerantwortlich(ev):'';
     var obj=(ev.typ!=='auftrag'&&ev.objektName)?'<div style="font-size:11.5px;color:var(--mut);margin-top:4px">🏗 '+esc(epObjName(ev.objektId,ev.objektName))+'</div>':'';
-    return (vw?'<div style="font-size:11.5px;color:var(--mut);margin-top:4px">👔 Verantwortlich: <b>'+esc(vw)+'</b></div>':'')+obj+epSchluesselBoxHtml(ev);
+    return (vw?'<div style="font-size:11.5px;color:var(--mut);margin-top:4px">👔 Verantwortlich: <b>'+esc(vw)+'</b></div>':'')+obj+epIstZeile(ev)+epAbschlussZeile(ev)+epSchluesselBoxHtml(ev);
   })();
   var gchk=document.getElementById('ev_garantie');
   gchk.checked=!!ev.garantie;
@@ -1738,6 +1996,7 @@ function epOpenSettings(){
   }).join('');
   document.getElementById('ep_abRows').innerHTML=abListe().map(abRowHtml).join('');
   document.getElementById('ep_bsRows').innerHTML=bsListe().map(bsRowHtml).join('');
+  document.getElementById('ep_fgRows').innerHTML=fgListe().map(fgRowHtml).join('');
   // Arbeitszeit-Fenster der Stunden-Tafel
   var vonSel=document.getElementById('setTagVon'),bisSel=document.getElementById('setTagBis');
   var vh='';for(var h=4;h<=12;h++)vh+='<option value="'+h+'"'+(h===s.tagVon?' selected':'')+'>'+(h<10?'0':'')+h+':00</option>';
@@ -1762,7 +2021,7 @@ function epSetSave(){
     var tv=parseInt(document.getElementById('setTagVon').value,10),tb=parseInt(document.getElementById('setTagBis').value,10);
     if(!(tv>=0&&tv<=22))tv=6;
     if(!(tb>tv&&tb<=24))tb=18;
-    settings.einsatzplan={raster:_setRaster,wochenende:_setWe,userIds:ids,besonderheiten:bsRowsCollect('ep_bsRows'),tagVon:tv,tagBis:tb};
+    settings.einsatzplan={raster:_setRaster,wochenende:_setWe,userIds:ids,besonderheiten:bsRowsCollect('ep_bsRows'),folgegruende:fgRowsCollect('ep_fgRows'),tagVon:tv,tagBis:tb};
     // Arbeitsbereiche liegen TOP-LEVEL in org.settings (geteilt mit dem ERP)
     settings.arbeitsbereiche=abRowsCollect('ep_abRows');
     GemaAuth.updateOrgSettings(org.id,settings);

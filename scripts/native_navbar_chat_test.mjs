@@ -41,7 +41,8 @@ async function open(pfad, extra) {
 }
 
 console.log('■ 1 · Bottom-Navbar auf JEDEM nativen Screen');
-for (const [pfad, name] of [['/index.html', 'Startbildschirm'], ['/if_werkzeug.html', 'Werkzeug'], ['/pm_stunden.html', 'Stundenerfassung'], ['/pm_einsatzplan.html', 'Termine'], ['/if_fahrzeug.html', 'Fahrzeug']]) {
+// soll = erwartete Knopfzahl (Werkzeug hat zusätzlich den «＋» der Haupt-Aktion)
+for (const [pfad, name, soll] of [['/index.html', 'Startbildschirm', 3], ['/if_werkzeug.html', 'Werkzeug', 4], ['/pm_stunden.html', 'Stundenerfassung', 3], ['/pm_einsatzplan.html', 'Termine', 3], ['/if_fahrzeug.html', 'Fahrzeug', 3]]) {
   const { ctx, page, errs } = await open(pfad);
   const r = await page.evaluate(() => {
     const bar = document.querySelector('.gn--page .gn-navbar');
@@ -59,7 +60,7 @@ for (const [pfad, name] of [['/index.html', 'Startbildschirm'], ['/if_werkzeug.h
       doppelt: document.querySelectorAll('.gn--page .gn-navbar').length
     };
   });
-  ok(r.da && r.knoepfe === 3 && r.notify && r.chat && r.home, name + ': Navbar mit Mitteilungen/Chat/Übersicht');
+  ok(r.da && r.knoepfe === soll && r.notify && r.chat && r.home, name + ': Navbar mit Mitteilungen/Chat/Übersicht' + (soll > 3 ? ' + ＋' : ''));
   ok(r.da && r.sichtbar && r.untenImBild, name + ': Leiste sichtbar am unteren Rand');
   ok(r.doppelt === 1, name + ': genau EINE Leiste (keine doppelte Injektion)');
   ok(errs.length === 0, name + ': keine JS-Fehler' + (errs.length ? ' — ' + errs[0].slice(0, 90) : ''));
@@ -133,23 +134,56 @@ console.log('■ 4 · Chat vom Startbildschirm: Avatar liegt NICHT mehr frei');
   await ctx.close();
 }
 
-console.log('■ 5 · Firmenlogo oben links');
-for (const [pfad, name, sel] of [['/index.html', 'Startbildschirm', '.gn-header'], ['/if_werkzeug.html', 'Modul-Screen', '.gn-toolbar']]) {
-  const { ctx, page } = await open(pfad);
-  const l = await page.evaluate((sel) => {
+// Das Firmenlogo trägt NUR der Startbildschirm (User-Entscheid 26.07.2026):
+// auf einem Modul-Screen sass es zwischen Zurück-Taste und Titel und wirkte
+// verloren — dort zählt der Modul-Titel.
+console.log('■ 5 · Firmenlogo NUR auf dem Startbildschirm');
+{
+  const { ctx, page } = await open('/index.html');
+  const l = await page.evaluate(() => {
     const img = document.querySelector('.gn--page .gn-orglogo');
     if (!img) return { da: false };
     const r = img.getBoundingClientRect();
-    const host = img.closest(sel);
+    const host = img.closest('.gn-header');
     const hr = host ? host.getBoundingClientRect() : null;
-    return { da: true, src: img.getAttribute('src').slice(0, 22), imHost: !!host, abstand: hr ? r.left - hr.left : 0,
-      // Startbildschirm: ganz links. Modul-Screen: direkt NACH der Zurück-Taste
-      // (die bleibt iOS-konform am linken Rand) — daher der grössere Spielraum.
+    return { da: true, imHost: !!host, abstand: hr ? r.left - hr.left : 0,
       links: hr ? (r.left - hr.left) < 90 : false, oben: r.top < innerHeight / 3, hoehe: r.height };
-  }, sel);
-  ok(l.da, name + ': Logo vorhanden');
-  ok(l.da && l.imHost && l.links, name + ': sitzt links im ' + sel + ' (' + Math.round(l.abstand || 0) + 'px vom Rand)');
-  ok(l.da && l.oben && l.hoehe > 10, name + ': oben und sichtbar (' + Math.round(l.hoehe || 0) + 'px hoch)');
+  });
+  ok(l.da, 'Startbildschirm: Logo vorhanden');
+  ok(l.da && l.imHost && l.links, 'Startbildschirm: sitzt links im .gn-header (' + Math.round(l.abstand || 0) + 'px vom Rand)');
+  ok(l.da && l.oben && l.hoehe >= 40, 'Startbildschirm: so hoch wie der frühere Gruss-Block (' + Math.round(l.hoehe || 0) + 'px)');
+  // Das Logo ERSETZT Gruss + Name (Feedback 26.07.2026)
+  const h = await page.evaluate(() => {
+    const head = document.querySelector('.gn--page .gn-header');
+    return { hello: !!(head && head.querySelector('.gn-hello')), name: !!(head && head.querySelector('.gn-name')),
+             avatar: !!(head && head.querySelector('.gn-avatar')), imBild: (() => {
+               const i = head && head.querySelector('.gn-orglogo'); if (!i) return false;
+               const r = i.getBoundingClientRect(); return r.left >= -1 && r.right <= innerWidth + 1;
+             })() };
+  });
+  ok(!h.hello && !h.name, 'Gruss und Name sind dem Logo gewichen');
+  ok(h.avatar, 'der Avatar bleibt (Weg ins Profil)');
+  ok(h.imBild, 'Logo läuft nicht über den Rand');
+  await ctx.close();
+}
+{
+  // Ohne Logo bleibt der Gruss stehen — der Kopf wäre sonst leer
+  const s2 = seed(['role_admin']);      // bleibt auf index.html (kein Rollen-Redirect)
+  s2.gema_coachmarks_done_index = '1';
+  const { ctx, page } = await newPage(browser, s2);
+  await page.setViewportSize(PHONE);
+  await page.goto(BASE + '/index.html', { waitUntil: 'domcontentloaded' });
+  await page.waitForTimeout(1400);
+  ok(await page.evaluate(() => {
+    const head = document.querySelector('.gn--page .gn-header');
+    return !!(head && head.querySelector('.gn-hello') && head.querySelector('.gn-name')) && !head.querySelector('.gn-orglogo');
+  }), 'ohne Firmenlogo bleibt der Gruss als Kopf stehen');
+  await ctx.close();
+}
+{
+  const { ctx, page } = await open('/if_werkzeug.html');
+  ok(await page.evaluate(() => !document.querySelector('.gn--page .gn-orglogo')), 'Modul-Screen: KEIN Logo (nur der Modul-Titel)');
+  ok(await page.evaluate(() => !!document.querySelector('.gn--page .gn-toolbar .gn-large-title h1')), 'Modul-Screen: der Titel steht');
   await ctx.close();
 }
 {
@@ -161,6 +195,59 @@ for (const [pfad, name, sel] of [['/index.html', 'Startbildschirm', '.gn-header'
   await page.goto(BASE + '/if_werkzeug.html', { waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(1400);
   ok(await page.evaluate(() => !document.querySelector('.gn--page .gn-orglogo')), 'ohne Firmenlogo bleibt der Kopf leer (kein Platzhalter)');
+  await ctx.close();
+}
+// ── «＋» in der Bottom-Navbar statt oben rechts ──
+console.log('■ 5b · Plus-Knopf in der Navbar (Werkzeug)');
+{
+  const { ctx, page } = await open('/if_werkzeug.html');
+  ok(await page.evaluate(() => !document.querySelector('.gn--page .gn-toolbar [data-nat-add]')), 'oben rechts kein «+» mehr');
+  ok(await page.evaluate(() => !!document.querySelector('.gn--page .gn-navbar [data-nat-nav-plus]')), '«＋» sitzt in der Bottom-Navbar');
+  // Alle Navbar-Knöpfe liegen im Bild
+  ok(await page.evaluate(() => {
+    const bar = document.querySelector('.gn--page .gn-navbar'); if (!bar) return false;
+    const r = bar.getBoundingClientRect();
+    return r.left >= -1 && r.right <= innerWidth + 1 && bar.querySelectorAll('.gn-pill-btn').length === 4;
+  }), 'vier Knöpfe, komplett im Bild');
+  await page.click('.gn--page .gn-navbar [data-nat-nav-plus]');
+  await page.waitForTimeout(600);
+  const sheet = await page.evaluate(() => {
+    const s = document.querySelector('.gn--page .gn-sheet.is-open');
+    return s ? { titel: (s.querySelector('h2') || {}).textContent || '', txt: s.textContent } : null;
+  });
+  ok(sheet && /Neu erfassen/.test(sheet.titel), 'Aktions-Sheet öffnet sich');
+  ok(sheet && /Neues Gerät/.test(sheet.txt) && /Neuer Koffer/.test(sheet.txt), 'Gerät UND Koffer stehen zur Wahl');
+  // Auswahl «Neues Gerät» öffnet das Erfassungs-Sheet
+  await page.click('.gn--page .gn-sheet [data-nat-plus-i="0"]');
+  await page.waitForTimeout(900);
+  ok(await page.evaluate(() => {
+    const s = document.querySelector('.gn--page .gn-sheet.is-open');
+    return !!(s && /Neues Gerät/.test((s.querySelector('h2') || {}).textContent || ''));
+  }), 'Auswahl öffnet das Erfassungs-Sheet');
+  // CTA-Zeile: BEIDE Knöpfe im Bild (früher schob «Abbrechen» «Speichern» raus)
+  const cta = await page.evaluate(() => {
+    const c = document.querySelector('.gn--page .gn-sheet.is-open .gn-sheet-cta');
+    if (!c) return null;
+    return Array.from(c.querySelectorAll('.gn-btn')).map(b => {
+      const r = b.getBoundingClientRect();
+      return { t: (b.textContent || '').trim().slice(0, 12), l: Math.round(r.left), r: Math.round(r.right), w: Math.round(r.width) };
+    });
+  });
+  ok(cta && cta.length >= 2, 'CTA-Zeile mit Abbrechen + Speichern');
+  ok(cta && cta.every(b => b.l >= -1 && b.r <= 391 && b.w > 40), 'alle CTA-Knöpfe vollständig im Bild [' + (cta || []).map(b => b.t + ' ' + b.l + '–' + b.r).join(' | ') + ']');
+  await ctx.close();
+}
+// ── Kein seitliches Scrollen ──
+console.log('■ 5c · Native Screens scrollen nicht seitlich');
+for (const pfad of ['/index.html', '/if_werkzeug.html', '/pm_stunden.html']) {
+  const { ctx, page } = await open(pfad);
+  const s = await page.evaluate(() => {
+    const p = document.querySelector('.gn--page');
+    const sc = document.querySelector('.gn--page [data-gn-scroll]');
+    return { page: p ? p.scrollWidth - p.clientWidth : 0, scroll: sc ? sc.scrollWidth - sc.clientWidth : 0,
+             body: document.documentElement.scrollWidth - document.documentElement.clientWidth };
+  });
+  ok(s.page <= 1 && s.scroll <= 1 && s.body <= 1, pfad + ': keine horizontale Überbreite (' + s.page + '/' + s.scroll + '/' + s.body + ')');
   await ctx.close();
 }
 

@@ -200,11 +200,15 @@ console.log('— Werkzeug (Liste/Badges/Filter/Toggle) —');
   ok(saved.name === 'Leiter 3-teilig Alu NEU', 'Speichern läuft über die echte Kette (submitForm → Pool)');
   ok(saved.leiter === true, 'nicht-native Felder bleiben erhalten (hasLeiter aus editTool-Populate)');
   ok(saved.addHidden, 'klassisches Formular-Modal blieb zu (synchrone Brücke)');
-  // ＋ Neues Gerät → natives Formular-Sheet → echter neuer Pool-Eintrag
+  // ＋ Neues Gerät → natives Formular-Sheet → echter neuer Pool-Eintrag.
+  // Der «＋» sitzt seit 26.07.2026 in der Bottom-Navbar und öffnet zuerst
+  // die Auswahl Gerät/Koffer.
   await page.fill('.gn--page [data-nat-q]', '');
   await page.waitForTimeout(200);
-  await page.click('.gn--page [data-nat-add]');
-  await page.waitForTimeout(400);
+  await page.click('.gn--page .gn-navbar [data-nat-nav-plus]');
+  await page.waitForTimeout(550);
+  await page.click('.gn--page .gn-sheet [data-nat-plus-i="0"]');
+  await page.waitForTimeout(900);
   // Autocomplete-Vorschläge im Sheet: Tippen zeigt Katalog+Bestand, die
   // Übernahme setzt die Kategorie automatisch (gleiche Quellen wie klassisch)
   await page.fill('.gn--page .gn-sheet.is-open [data-f="name"]', 'Bohrschrauber');

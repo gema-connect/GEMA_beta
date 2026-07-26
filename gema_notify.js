@@ -165,6 +165,21 @@
       modul:'einsatzplan',
       defaultOn:true
     },
+    termin_ausgefallen: {
+      label:'Termin hat nicht stattgefunden',
+      modul:'einsatzplan',
+      defaultOn:true
+    },
+    termin_folgetermin: {
+      label:'Folgetermin nötig (Rückmeldung Monteur)',
+      modul:'einsatzplan',
+      defaultOn:true
+    },
+    termin_offerte: {
+      label:'Offerte nötig (Rückmeldung Monteur)',
+      modul:'einsatzplan',
+      defaultOn:true
+    },
     goodel_neu: {
       label:'Neue Terminabstimmung (Goodel)',
       modul:'goodel',
