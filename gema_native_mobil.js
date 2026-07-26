@@ -41,7 +41,14 @@
     var st = document.createElement('style');
     st.id = '_gnMobilCss';
     st.textContent =
-      '.gn--page{position:fixed;inset:0;z-index:900;height:auto}' +
+      '.gn--page{position:fixed;inset:0;z-index:900;height:auto;overflow-x:hidden;max-width:100vw}' +
+      /* Seitliches Scrollen gibt es im Native-Screen nirgends: die einzige
+         horizontale Fläche ist die Chip-Leiste, die scrollt in sich selbst.
+         Läuft doch einmal ein Inhalt über, wird er geklippt statt den ganzen
+         Screen verschiebbar zu machen (Feedback 26.07.2026). */
+      '.gn [data-gn-scroll]{overflow-x:hidden}' +
+      '.gn .gn-sheet{max-width:100vw;overflow-x:hidden}' +
+      '.gn .gn-sheet-form,.gn .gn-sheet-body{overflow-x:hidden}' +
       'html.gn-native-on,html.gn-native-on body{overflow:hidden;overscroll-behavior:none}' +
       /* GEMA-Nav + Safe-Area-Streifen unter dem Native-Screen ausblenden */
       'html.gn-native-on .g-nav{display:none!important}' +
@@ -58,7 +65,15 @@
       '.gn .gn-sheet-form{flex:1;overflow-y:auto;padding:2px 0 10px;scrollbar-width:none}' +
       '.gn .gn-sheet-form::-webkit-scrollbar{display:none}' +
       '.gn .gn-sheet-cta{flex-shrink:0;padding:10px 16px calc(var(--gn-safe-bottom) + 14px);border-top:1px solid var(--gn-hair);display:flex;gap:9px}' +
-      '.gn .gn-sheet-cta .gn-btn{flex:1}' +
+      /* KRITISCH: .gn-btn ist width:100% — in einer Flex-Zeile MUSS das
+         zurückgesetzt werden, sonst beansprucht schon «Abbrechen» die volle
+         Breite und schiebt «Speichern» aus dem Bild (Feedback 26.07.2026).
+         Speichern wächst, Abbrechen/🗑 bleiben inhaltsbreit und dürfen
+         schrumpfen — nichts verlässt den Bildschirm. */
+      '.gn .gn-sheet-cta .gn-btn{flex:1 1 0;width:auto;min-width:0;padding-left:12px;padding-right:12px;' +
+      'white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
+      '.gn .gn-sheet-cta [data-gn-cancel]{flex:0 1 auto}' +
+      '.gn .gn-sheet-cta [data-gn-del]{flex:0 0 auto}' +
       '.gn .gn-btn-ghost{background:var(--gn-fill);color:var(--gn-ink);box-shadow:none}' +
       '.gn .gn-btn-danger{background:var(--gn-danger);box-shadow:0 6px 16px -4px rgba(220,38,38,.5)}' +
       '.gn .gn-seg-chips{display:flex;gap:7px;flex-wrap:wrap;padding:0 16px 14px}' +
@@ -82,11 +97,12 @@
          Aussehen kommt aus dem Kit (.gn-pill); hier nur die Lage über allen
          Screen-Inhalten und der Freiraum, damit nichts darunter endet. */
       '.gn .gn-navbar{z-index:24}' +
+      '.gn .gn-pill-btn--plus{background:var(--gn-accent);box-shadow:0 4px 12px -2px rgba(37,99,235,.7)}' +
+      '.gn .gn-pill-btn--plus + .gn-pill-btn--primary{background:rgba(255,255,255,.16);box-shadow:none}' +
       '.gn [data-gn-scroll]{padding-bottom:calc(var(--gn-safe-bottom) + 96px)}' +
       /* ── Firmenlogo oben links (Home-Header + Modul-Toolbar) ── */
       '.gn .gn-orglogo{height:26px;max-width:132px;width:auto;object-fit:contain;object-position:left center;display:block;flex:none}' +
       '.gn .gn-header .gn-orglogo{margin-bottom:7px;height:28px}' +
-      '.gn .gn-toolbar .gn-orglogo{height:22px;max-width:96px;margin-right:2px}' +
       /* ── Zurück-Taste (Toolbar + Kompakt-Leiste, zentral injiziert) ── */
       '.gn .gn-back{flex:none}' +
       '.gn .gn-back svg{stroke:var(--gn-accent)}' +
@@ -171,21 +187,13 @@
     img.className = 'gn-orglogo';
     img.alt = '';
     img.src = src;
-    // Home-Screen: über dem Gruss (oben links). Modul-Screens: in der
-    // Toolbar direkt nach der Zurück-Taste.
+    // NUR der Startbildschirm trägt das Firmenlogo (User-Entscheid
+    // 26.07.2026): Auf einem Modul-Screen sass es zwischen Zurück-Taste und
+    // Titel und wirkte verloren — dort zählt der Modul-Titel, nicht die Marke.
     var head = root.querySelector('.gn-header');
-    if (head) {
-      var links = head.firstElementChild;
-      if (links) links.insertBefore(img, links.firstChild); else head.insertBefore(img, head.firstChild);
-      return;
-    }
-    var tb = root.querySelector('.gn-toolbar');
-    if (tb) {
-      var back = tb.querySelector('[data-gn-back]');
-      if (back && back.nextSibling) tb.insertBefore(img, back.nextSibling);
-      else if (back) tb.appendChild(img);
-      else tb.insertBefore(img, tb.firstChild);
-    }
+    if (!head) return;
+    var links = head.firstElementChild;
+    if (links) links.insertBefore(img, links.firstChild); else head.insertBefore(img, head.firstChild);
   }
 
   /* ── Bottom-Navbar auf JEDEM nativen Screen ─────────────────────────
@@ -196,12 +204,18 @@
   var SVG_GLOCKE = '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>';
   var SVG_CHAT = '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 8.5 8.5 0 0 1-3.9-.9L3 20.5l1.5-4.6A8.4 8.4 0 0 1 12 3.1a8.4 8.4 0 0 1 9 8.4Z"/></svg>';
   var SVG_RASTER = '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.9" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></svg>';
+  var SVG_PLUS = '<svg viewBox="0 0 24 24" fill="none" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>';
   function istHome() {
     var p = (location.pathname || '').split('/').pop() || '';
     return p === '' || p === 'index.html';
   }
   function unreadCount() { try { return GemaNotify.getUnreadCount() || 0; } catch (e) { return 0; } }
-  function injectNavbar(root) {
+  /* Der «＋»-Knopf ist die Haupt-Aktion des Screens und gehört auf dem
+     Handy an den Daumen — nicht oben rechts in die Toolbar (User-Entscheid
+     26.07.2026). Das Modul liefert ihn über mount({plus:{title,items}});
+     `items` ist eine Liste {label, hint, fn} und öffnet ein Aktions-Sheet.
+     Genau EIN Eintrag → direkt ausführen, ohne Zwischen-Sheet. */
+  function injectNavbar(root, plus) {
     // Der Home-Screen bringt seine Leiste selbst mit (.gn-pill) — dort nicht
     // doppelt injizieren.
     if (root.querySelector('.gn-navbar')) return;
@@ -215,6 +229,7 @@
       '<button class="gn-pill-btn" data-nat-notify title="Mitteilungen">' + SVG_GLOCKE
       + (n ? '<i class="gn-pill-dot">' + (n > 99 ? '99+' : n) + '</i>' : '') + '</button>'
       + '<button class="gn-pill-btn" data-nat-chat title="Chat">' + SVG_CHAT + '</button>'
+      + (plus ? '<button class="gn-pill-btn gn-pill-btn--plus" data-nat-nav-plus title="' + esc(plus.title || 'Neu') + '">' + SVG_PLUS + '</button>' : '')
       + '<button class="gn-pill-btn gn-pill-btn--primary" data-nat-nav-home title="' + (istHome() ? 'Workspace' : 'Übersicht') + '">' + SVG_RASTER + '</button>';
     bar.querySelector('[data-nat-nav-home]').addEventListener('click', function () { location.href = ziel; });
     root.appendChild(bar);
@@ -234,6 +249,11 @@
       if (e.target.closest('[data-nat-chat]')) {
         e.stopPropagation();
         try { if (typeof GemaChat !== 'undefined') GemaChat.open(); } catch (err) {}
+        return;
+      }
+      if (e.target.closest('[data-nat-nav-plus]')) {
+        e.stopPropagation();
+        if (root.__gnPlusOpen) root.__gnPlusOpen();
       }
     });
   }
@@ -273,7 +293,7 @@
         try { opts.render(root); } catch (e) { console.warn('[GemaNativeMobil] render:', e && e.message); }
         try { injectBack(root); } catch (e) {}
         try { injectLogo(root); } catch (e) {}
-        try { injectNavbar(root); wireNavbar(root); } catch (e) {}
+        try { injectNavbar(root, opts.plus); wireNavbar(root); } catch (e) {}
         root.__gnInit = false;
         if (window.GemaNative) { try { GemaNative.init(root); } catch (e) {} }
         var sc2 = root.querySelector('[data-gn-scroll]');
@@ -286,6 +306,34 @@
       }
       lastOn = on;
     }
+
+    /* «＋» der Bottom-Navbar: Aktions-Sheet aus opts.plus.
+       items darf eine Funktion sein (Rechte/Zustand erst beim Tippen prüfen).
+       Genau ein Eintrag → direkt ausführen statt ein Sheet mit einer Zeile. */
+    function plusItems() {
+      var p = opts.plus; if (!p) return [];
+      var it = typeof p.items === 'function' ? p.items() : p.items;
+      return (it || []).filter(Boolean);
+    }
+    function openPlus() {
+      var items = plusItems();
+      if (!items.length) return;
+      if (items.length === 1) { try { items[0].fn(); } catch (e) {} return; }
+      var html = '<div class="gn-list">' + items.map(function (x, i) {
+        return '<button class="gn-select" data-nat-plus-i="' + i + '"><span class="k">' + esc(x.label || '')
+          + (x.hint ? '<small style="display:block;font-weight:400;color:var(--gn-ink-3)">' + esc(x.hint) + '</small>' : '')
+          + '</span><span class="v">›</span></button>';
+      }).join('') + '</div>';
+      var sh = sheet({ title: (opts.plus && opts.plus.title) || 'Neu', html: html });
+      if (!sh) return;
+      sh.addEventListener('click', function (e) {
+        var b = e.target.closest && e.target.closest('[data-nat-plus-i]'); if (!b) return;
+        var i = parseInt(b.getAttribute('data-nat-plus-i'), 10);
+        closeSheet();
+        setTimeout(function () { try { if (items[i]) items[i].fn(); } catch (err) {} }, 420);
+      });
+    }
+    root.__gnPlusOpen = openPlus;
 
     var rt = null;
     window.addEventListener('resize', function () {
@@ -330,8 +378,8 @@
         + '<div class="gn-sheet-form">' + (o.html || '') + '</div>'
         + (hasCta
           ? ('<div class="gn-sheet-cta">'
-            + (o.onDelete ? '<button class="gn-btn gn-btn-danger" data-gn-del style="flex:0 0 auto;min-width:58px">🗑</button>' : '')
-            + '<button class="gn-btn gn-btn-ghost" data-gn-cancel style="flex:0 0 auto">Abbrechen</button>'
+            + (o.onDelete ? '<button class="gn-btn gn-btn-danger" data-gn-del>🗑</button>' : '')
+            + '<button class="gn-btn gn-btn-ghost" data-gn-cancel>Abbrechen</button>'
             + (o.onSave ? '<button class="gn-btn" data-gn-save>' + esc(o.saveLabel || 'Speichern') + '</button>' : '')
             + '</div>')
           : '');
