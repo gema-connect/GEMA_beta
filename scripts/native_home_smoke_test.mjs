@@ -192,22 +192,30 @@ console.log('— Command-Palette —');
 console.log('— Schnellzugriff: Favoriten & zuletzt verwendet —');
 {
   const { ctx, page, errs } = await open('u1', { gema_favourites_u1: JSON.stringify(['pm_erp.html', 'pm_stunden.html']) });
+  // Favoriten sind seit 26.07.2026 KACHELN (gelber Rahmen) und stehen NUR oben
   const q = await page.evaluate(() => {
     const r = document.querySelector('.gn--page');
+    const favGrid = r.querySelector('.gn-grid--fav');
     const rows = Array.from(r.querySelectorAll('.gn-quick'));
-    const lbl = rows.map(x => x.previousElementSibling.textContent);
+    const alle = Array.from(r.querySelectorAll('.gn-tile')).map(t => t.getAttribute('data-nat-href'));
     return {
-      reihen: rows.length, labels: lbl,
-      favs: rows[0] ? Array.from(rows[0].querySelectorAll('.gn-chip')).map(c => c.getAttribute('data-nat-href')) : [],
-      recent: rows[1] ? Array.from(rows[1].querySelectorAll('.gn-chip')).map(c => c.getAttribute('data-nat-href')) : [],
-      sterne: Array.from(r.querySelectorAll('.gn-tile')).filter(t => t.querySelector('.gn-tile-fav')).map(t => t.getAttribute('data-nat-href'))
+      favLabel: favGrid ? favGrid.previousElementSibling.textContent : '',
+      favs: favGrid ? Array.from(favGrid.querySelectorAll('.gn-tile')).map(c => c.getAttribute('data-nat-href')) : [],
+      favKlasse: favGrid ? Array.from(favGrid.querySelectorAll('.gn-tile')).every(t => t.classList.contains('gn-tile--fav')) : false,
+      quickReihen: rows.length,
+      quickLabel: rows[0] ? rows[0].previousElementSibling.textContent : '',
+      recent: rows[0] ? Array.from(rows[0].querySelectorAll('.gn-chip')).map(c => c.getAttribute('data-nat-href')) : [],
+      // Doppelte: eine href darf nur EINMAL als Kachel vorkommen
+      doppelt: alle.filter((h, i) => alle.indexOf(h) !== i)
     };
   });
-  ok(q.reihen === 2 && q.labels[0] === 'Favoriten' && q.labels[1] === 'Zuletzt verwendet', 'zwei beschriftete Chip-Zeilen');
-  ok(q.favs.length === 2 && q.favs.indexOf('pm_erp.html') >= 0, 'Favoriten-Chips aus dem per-User-Cache');
+  ok(q.favLabel === 'Favoriten' && q.favs.length === 2, 'Favoriten als eigene Kachel-Gruppe');
+  ok(q.favs.indexOf('pm_erp.html') >= 0 && q.favs.indexOf('pm_stunden.html') >= 0, 'Favoriten-Kacheln aus dem per-User-Cache');
+  ok(q.favKlasse, 'Favoriten-Kacheln tragen .gn-tile--fav (gelber Rahmen)');
+  ok(!q.doppelt.length, 'KEIN Favorit erscheint doppelt in seiner Kategorie (' + (q.doppelt.join(', ') || 'keine Doppel') + ')');
+  ok(q.quickReihen === 1 && q.quickLabel === 'Zuletzt verwendet', 'nur noch eine Chip-Zeile («Zuletzt verwendet»)');
   ok(q.recent.indexOf('pm_objekte.html') >= 0, 'zuletzt verwendet aus GemaRecent');
   ok(q.recent.indexOf('pm_erp.html') < 0, 'ein Favorit erscheint nicht doppelt in «Zuletzt»');
-  ok(q.sterne.length === 2 && q.sterne.indexOf('pm_stunden.html') >= 0, 'Favoriten-Kacheln tragen den Stern');
 
   /* Long-Press (Desktop: Rechtsklick) → Kontextmenü mit Favoriten-Umschalter */
   await page.dispatchEvent('.gn--page .gn-tile[data-nat-href="pm_erp.html"]', 'contextmenu');
@@ -224,16 +232,18 @@ console.log('— Schnellzugriff: Favoriten & zuletzt verwendet —');
   await page.click('.gn--page [data-nat-ctx="fav"]');
   await page.waitForTimeout(500);
   const nachher = await page.evaluate(() => {
-    const rows = document.querySelectorAll('.gn--page .gn-quick');
+    const fg = document.querySelector('.gn--page .gn-grid--fav');
     return {
       liste: (window._favHooks && _favHooks.get()) || [],
-      favChips: rows[0] ? Array.from(rows[0].querySelectorAll('.gn-chip')).map(c => c.getAttribute('data-nat-href')) : [],
-      stern: !!document.querySelector('.gn--page .gn-tile[data-nat-href="pm_erp.html"] .gn-tile-fav')
+      favKacheln: fg ? Array.from(fg.querySelectorAll('.gn-tile')).map(c => c.getAttribute('data-nat-href')) : [],
+      markiert: !!document.querySelector('.gn--page .gn-tile[data-nat-href="pm_erp.html"].gn-tile--fav'),
+      wiederInKategorie: !!document.querySelector('.gn--page .gn-grid:not(.gn-grid--fav) .gn-tile[data-nat-href="pm_erp.html"]')
     };
   });
   ok(nachher.liste.indexOf('pm_erp.html') < 0, 'Favorit wurde entfernt (im echten Favoriten-Store)');
-  ok(!nachher.stern, 'Stern von der Kachel verschwunden');
-  ok(nachher.favChips.length === 1 && nachher.favChips[0] === 'pm_stunden.html', 'Favoriten-Zeile neu gezeichnet (nur noch 1 Chip)');
+  ok(!nachher.markiert, 'gelber Rahmen von der Kachel verschwunden');
+  ok(nachher.favKacheln.length === 1 && nachher.favKacheln[0] === 'pm_stunden.html', 'Favoriten-Gruppe neu gezeichnet (nur noch 1 Kachel)');
+  ok(nachher.wiederInKategorie, 'entfernter Favorit steht wieder in seiner Kategorie');
 
   /* umgekehrt: neuen Favoriten setzen */
   await page.dispatchEvent('.gn--page .gn-tile[data-nat-href="pm_objekte.html"]', 'contextmenu');
@@ -242,7 +252,7 @@ console.log('— Schnellzugriff: Favoriten & zuletzt verwendet —');
   await page.click('.gn--page [data-nat-ctx="fav"]');
   await page.waitForTimeout(500);
   ok(await page.evaluate(() => ((window._favHooks && _favHooks.get()) || []).indexOf('pm_objekte.html') >= 0), 'neuer Favorit gesetzt');
-  ok(await page.evaluate(() => !!document.querySelector('.gn--page .gn-tile[data-nat-href="pm_objekte.html"] .gn-tile-fav')), 'Stern erscheint');
+  ok(await page.evaluate(() => !!document.querySelector('.gn--page .gn-grid--fav .gn-tile[data-nat-href="pm_objekte.html"].gn-tile--fav')), 'neue Favoriten-Kachel mit gelbem Rahmen erscheint');
   ok(await page.evaluate(() => localStorage.getItem('gema_favourites_u1').indexOf('pm_objekte.html') >= 0), 'im per-User-Cache gespeichert');
 
   /* Long-Press darf nicht navigieren */
@@ -281,7 +291,7 @@ console.log('— Schwebende Aktionsleiste —');
   await page.evaluate(() => { try { GemaChat.close(); } catch (e) {} });
   await page.waitForTimeout(300);
 
-  await page.click('.gn--page [data-nat-href="sys_workspace.html"]');
+  await page.click('.gn--page .gn-navbar [data-nat-nav-home]');
   await page.waitForTimeout(900);
   ok(/sys_workspace\.html/.test(page.url()), 'Workspace-Knopf navigiert');
   ok(errs.length === 0, 'keine pageerrors' + (errs.length ? ' — ' + errs.slice(0, 2).join(' | ') : ''));
@@ -310,13 +320,13 @@ console.log('— Offene Mitteilungen als rote Zahl am Modul —');
   });
   const b = await page.evaluate(() => {
     const g = h => document.querySelector('.gn--page .gn-tile[data-nat-href="' + h + '"] .gn-badge-ios');
-    const chip = document.querySelector('.gn--page .gn-chip[data-nat-href="pm_regierapport.html"] .gn-badge-ios');
+    const favB = document.querySelector('.gn--page .gn-grid--fav .gn-tile[data-nat-href="pm_regierapport.html"] .gn-badge-ios');
     const st = g('pm_regierapport.html') ? getComputedStyle(g('pm_regierapport.html')) : null;
     return {
       regie: g('pm_regierapport.html') ? g('pm_regierapport.html').textContent : '',
       wz: g('if_werkzeug.html') ? g('if_werkzeug.html').textContent : '',
       erp: !!g('pm_erp.html'),
-      chip: chip ? chip.textContent : '',
+      chip: favB ? favB.textContent : '',
       farbe: st ? st.backgroundColor : '',
       rund: st ? st.borderRadius : '',
       total: document.querySelectorAll('.gn--page .gn-tile .gn-badge-ios').length
@@ -325,18 +335,22 @@ console.log('— Offene Mitteilungen als rote Zahl am Modul —');
   ok(b.regie === '3', 'Regierapporte trägt die «3» (Deep-Link-Zuordnung)');
   ok(b.wz === '1', 'Werkzeug trägt die «1» (Zuordnung über das modul-Feld)');
   ok(!b.erp, 'Module ohne offene Meldung bleiben ohne Abzeichen');
-  ok(b.total === 2, 'genau 2 Module mit Abzeichen — Chat hat keine Kachel und zählt nicht');
-  ok(b.chip === '3', 'auch der Favoriten-Chip trägt die Zahl');
+  ok(b.total === 2, 'genau 2 Kacheln mit Abzeichen — Chat hat keine Kachel und zählt nicht (Favoriten stehen nur einmal)');
+  ok(b.chip === '3', 'auch die Favoriten-Kachel trägt die Zahl');
   ok(/rgb\(255,\s*59,\s*48\)/.test(b.farbe), 'iOS-Rot (' + b.farbe + ')');
 
-  /* Stern links, Zahl rechts — die beiden Marker kollidieren nicht */
+  /* Favoriten-Markierung ist der gelbe Rahmen (kein ★ mehr) — die Zahl rechts
+     oben bleibt frei stehen und wird vom Rahmen nicht verdeckt. */
   const pos = await page.evaluate(() => {
-    const ic = document.querySelector('.gn--page .gn-tile[data-nat-href="pm_regierapport.html"] .gn-tile-ic');
-    const s = ic.querySelector('.gn-tile-fav').getBoundingClientRect();
+    const t = document.querySelector('.gn--page .gn-grid--fav .gn-tile[data-nat-href="pm_regierapport.html"]');
+    const ic = t.querySelector('.gn-tile-ic');
     const n = ic.querySelector('.gn-badge-ios').getBoundingClientRect();
-    return { star: s.left, badge: n.left, ueberlappt: s.right > n.left };
+    const r = ic.getBoundingClientRect();
+    return { rahmen: getComputedStyle(ic).boxShadow, keinStern: !ic.querySelector('.gn-tile-fav'), badgeRechts: n.left > r.left + r.width / 2 };
   });
-  ok(pos.star < pos.badge && !pos.ueberlappt, 'Favoriten-Stern links, Mitteilungs-Zahl rechts (keine Überlappung)');
+  ok(/f5c04a|245,\s*192,\s*74/.test(pos.rahmen), 'Favoriten-Kachel hat den gelben Rahmen (' + pos.rahmen.slice(0, 42) + '…)');
+  ok(pos.keinStern, 'kein ★ mehr — der Rahmen ist die Markierung');
+  ok(pos.badgeRechts, 'Mitteilungs-Zahl sitzt weiterhin rechts oben');
 
   /* Live: gelesen markieren → Abzeichen verschwindet OHNE Re-Render */
   await page.evaluate(() => { window.__cmdMarker = 1; GemaNotify.markAllRead(); });

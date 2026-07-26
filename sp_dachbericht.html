@@ -2208,11 +2208,32 @@ function exportPdf(id){
 }
 
 // ── DELETE ────────────────────────────────────────────────────
+// Mit dem Bericht verschwinden auch seine hochgeladenen Bilder aus dem
+// Storage — sonst blieben sie fuer immer liegen (der Record, der sie
+// referenziert, ist ja weg). Der Dialog nennt vorher die Anzahl und
+// bietet an, die Bilder als ZIP zu sichern.
 function delReport(id){
-  GemaDialog.confirm({title:'Bericht löschen', message:'Bericht inkl. aller Bilder unwiderruflich löschen?', danger:true, confirmLabel:'Löschen'}).then(function(ok){
+  var r = getById(id);
+  var files = (r && window.GemaStorage && GemaStorage.collectFiles) ? GemaStorage.collectFiles(r) : [];
+  var titel = (r && (r.titel || r.name)) || 'Dachbericht';
+  var weiter = (window.GemaStorage && GemaStorage.confirmDelete)
+    ? GemaStorage.confirmDelete({
+        files: files,
+        title: 'Bericht löschen',
+        message: 'Bericht «' + titel + '» unwiderruflich löschen?',
+        zipName: 'Dachbericht_' + titel
+      })
+    : GemaDialog.confirm({title:'Bericht löschen', message:'Bericht inkl. aller Bilder unwiderruflich löschen?', danger:true, confirmLabel:'Löschen'});
+  weiter.then(function(ok){
     if(!ok) return;
     removeById(id);
     closeDetail();
+    // Dateien best-effort hinterher (Record ist bereits weg)
+    if(files.length && window.GemaStorage && GemaStorage.deleteFiles){
+      GemaStorage.deleteFiles(files).then(function(res){
+        if(!res.ok) console.warn('[Dachbericht] Bilder nicht geloescht:', res.fehler);
+      });
+    }
   });
 }
 

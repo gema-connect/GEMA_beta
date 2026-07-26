@@ -1784,17 +1784,38 @@ function sdSaveNew() {
 }
 
 // ── DELETE ──
+// Mit dem Bericht verschwinden auch seine ausgelagerten Fotos aus dem
+// Storage (Analyse-/Trocknungs-/Abschluss-Fotos, Messwert-Belege) — sonst
+// blieben sie fuer immer im Bucket liegen, unsichtbar und unaufraeumbar.
+// Der Dialog nennt vorher die Anzahl und bietet den ZIP-Download an.
 function sdDelete(id) {
-  GemaDialog.confirm({
-    title:'Schadensbericht löschen',
-    message:'Diesen Schadensbericht wirklich löschen?',
-    confirmLabel:'Löschen', danger:true
-  }).then(function(ok){
+  var s = sdGetById(id);
+  var files = (s && window.GemaStorage && GemaStorage.collectFiles) ? GemaStorage.collectFiles(s) : [];
+  var titel = (s && s.titel) || 'Schadensbericht';
+  var weiter = (window.GemaStorage && GemaStorage.confirmDelete)
+    ? GemaStorage.confirmDelete({
+        files: files,
+        title: 'Schadensbericht löschen',
+        message: 'Bericht «' + titel + '» wirklich löschen?',
+        zipName: 'Schadensbericht_' + titel
+      })
+    : GemaDialog.confirm({
+        title:'Schadensbericht löschen',
+        message:'Diesen Schadensbericht wirklich löschen?',
+        confirmLabel:'Löschen', danger:true
+      });
+  weiter.then(function(ok){
     if(!ok) return;
-    schaeden = schaeden.filter(function(s) { return s.id !== id; });
+    schaeden = schaeden.filter(function(x) { return x.id !== id; });
     sdSave();
     if (detailId === id) sdCloseDetail();
     sdRenderList();
+    // Fotos best-effort hinterher (Record ist bereits weg)
+    if(files.length && window.GemaStorage && GemaStorage.deleteFiles){
+      GemaStorage.deleteFiles(files).then(function(res){
+        if(!res.ok) console.warn('[Schadensbericht] Fotos nicht geloescht:', res.fehler);
+      });
+    }
   });
 }
 

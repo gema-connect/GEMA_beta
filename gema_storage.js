@@ -141,10 +141,263 @@
     });
   }
 
+  // ═══════════════════════════════════════════════════════════════
+  // LOESCHEN — Dateien eines Datensatzes mit entfernen
+  // ═══════════════════════════════════════════════════════════════
+  // Wird ein Datensatz geloescht (Schadensbericht, Dachbericht …), muessen
+  // auch seine hochgeladenen Bilder weg — sonst bleiben sie fuer immer im
+  // Bucket liegen: unsichtbar fuer die App, aber Speicherplatz kostend.
+  // Der Browser darf per RLS bewusst nicht loeschen (nur INSERT+SELECT auf
+  // dem Bucket); das erledigt die Netlify-Function /api/storage-delete mit
+  // dem Service-Key (JWT-gated, nur im Ordner der eigenen Firma).
+
+  var DEL_FN = '/api/storage-delete';
+  var PUB_MARKER = '/storage/v1/object/public/' + BUCKET + '/';
+
+  function _esc(s){
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){
+      return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c];
+    });
+  }
+
+  /**
+   * Storage-Pfad aus einer oeffentlichen URL. Erkennt auch den
+   * Same-Origin-Proxy-Weg (/sb/storage/v1/object/public/…), auf den
+   * gema_sync.js umschaltet, wenn supabase.co blockiert ist.
+   * Liefert null, wenn die URL nicht auf unseren Bucket zeigt.
+   */
+  function pathFromUrl(url){
+    if(typeof url !== 'string') return null;
+    var i = url.indexOf(PUB_MARKER);
+    if(i < 0) return null;
+    var p = url.slice(i + PUB_MARKER.length).split('?')[0].split('#')[0];
+    try{ p = decodeURIComponent(p); }catch(e){}
+    return p || null;
+  }
+
+  /**
+   * Sammelt ALLE Storage-Dateien eines Datensatzes — rekursiv ueber das
+   * ganze Objekt. Bewusst generisch statt Feld fuer Feld: die Foto-Felder
+   * heissen je nach Modul anders (foto.url, bilder[].url, m.foto, bildUrl,
+   * beleg.url, pdfUrl …) und kommen laufend dazu. Was wie eine Bucket-URL
+   * aussieht, wird gefunden — auch in kuenftigen Feldern.
+   *
+   * Liefert [{ path, url, label, ext }] (nach Pfad dedupliziert).
+   * Base64-Fotos (dataUrl) sind NICHT enthalten — die stecken im Record
+   * selbst und verschwinden mit ihm.
+   */
+  function collectFiles(rec){
+    var out = [], seen = {};
+    function beschriftung(o){
+      if(!o || typeof o !== 'object') return '';
+      return String(o.kommentar || o.name || o.titel || o.bez || o.bezeichnung || o.dateiname || '').trim();
+    }
+    function walk(v, label, tiefe){
+      if(v == null || tiefe > 14) return;
+      if(typeof v === 'string'){
+        var p = pathFromUrl(v);
+        if(p && !seen[p]){
+          seen[p] = 1;
+          var m = /\.([a-zA-Z0-9]{1,5})$/.exec(p);
+          out.push({ path: p, url: v, label: label || '', ext: m ? m[1].toLowerCase() : 'dat' });
+        }
+        return;
+      }
+      if(Array.isArray(v)){
+        for(var i = 0; i < v.length; i++) walk(v[i], label, tiefe + 1);
+        return;
+      }
+      if(typeof v === 'object'){
+        var eigen = beschriftung(v) || label;
+        for(var k in v){ if(Object.prototype.hasOwnProperty.call(v, k)) walk(v[k], eigen, tiefe + 1); }
+      }
+    }
+    walk(rec, '', 0);
+    return out;
+  }
+
+  /**
+   * Loescht die uebergebenen Dateien (Objekte aus collectFiles ODER reine
+   * Pfad-Strings). Wirft NIE — Loeschen ist best-effort: der Datensatz ist
+   * zu diesem Zeitpunkt bereits weg, ein Fehlschlag darf den Ablauf nicht
+   * abbrechen (es bleibt dann eine Datei-Leiche liegen, mehr nicht).
+   * Liefert { ok, geloescht, fehler }.
+   */
+  function deleteFiles(files){
+    var paths = (files || []).map(function(f){
+      return typeof f === 'string' ? (pathFromUrl(f) || f) : (f && f.path);
+    }).filter(Boolean);
+    if(!paths.length) return Promise.resolve({ ok:true, geloescht:0 });
+    var s = _sb();
+    var tok = (s && s.getAuthToken && s.getAuthToken()) || '';
+    var h = { 'Content-Type':'application/json' };
+    if(tok) h['Authorization'] = 'Bearer ' + tok;
+    return fetch(DEL_FN, { method:'POST', headers:h, body: JSON.stringify({ paths: paths }) })
+      .then(function(r){
+        return r.json().catch(function(){ return {}; }).then(function(j){
+          if(!r.ok) return { ok:false, geloescht:0, fehler:(j && j.error) || ('HTTP ' + r.status) };
+          return { ok:true, geloescht: (j && j.geloescht) || 0 };
+        });
+      })
+      .catch(function(e){ return { ok:false, geloescht:0, fehler:(e && e.message) || 'Netzwerkfehler' }; });
+  }
+
+  // ── ZIP-Export (STORE, ohne externe Library) ────────────────────
+  // Bilder sind bereits komprimiert (JPEG/PNG) — Deflate braeuchte eine
+  // CDN-Library und braechte praktisch nichts. Ein STORE-ZIP ist ein paar
+  // Zeilen, laeuft offline und oeffnet in jedem Betriebssystem.
+  var _crcTab = null;
+  function _crcTable(){
+    if(_crcTab) return _crcTab;
+    var t = new Uint32Array(256);
+    for(var n = 0; n < 256; n++){
+      var c = n;
+      for(var k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+      t[n] = c >>> 0;
+    }
+    _crcTab = t; return t;
+  }
+  function _crc32(buf){
+    var t = _crcTable(), c = 0xFFFFFFFF;
+    for(var i = 0; i < buf.length; i++) c = t[(c ^ buf[i]) & 0xFF] ^ (c >>> 8);
+    return (c ^ 0xFFFFFFFF) >>> 0;
+  }
+  function _zipBlob(entries){
+    var enc = new TextEncoder(), parts = [], central = [], offset = 0;
+    entries.forEach(function(e){
+      var nb = enc.encode(e.name), crc = _crc32(e.bytes), len = e.bytes.length;
+      var lh = new Uint8Array(30 + nb.length), dv = new DataView(lh.buffer);
+      dv.setUint32(0, 0x04034b50, true); dv.setUint16(4, 20, true);
+      dv.setUint16(6, 0x0800, true);                 // UTF-8-Dateinamen
+      dv.setUint16(8, 0, true);                      // STORE
+      dv.setUint16(10, 0, true); dv.setUint16(12, 0x21, true);
+      dv.setUint32(14, crc, true); dv.setUint32(18, len, true); dv.setUint32(22, len, true);
+      dv.setUint16(26, nb.length, true); dv.setUint16(28, 0, true);
+      lh.set(nb, 30);
+      parts.push(lh, e.bytes);
+      var ch = new Uint8Array(46 + nb.length), cv = new DataView(ch.buffer);
+      cv.setUint32(0, 0x02014b50, true); cv.setUint16(4, 20, true); cv.setUint16(6, 20, true);
+      cv.setUint16(8, 0x0800, true); cv.setUint16(10, 0, true);
+      cv.setUint16(12, 0, true); cv.setUint16(14, 0x21, true);
+      cv.setUint32(16, crc, true); cv.setUint32(20, len, true); cv.setUint32(24, len, true);
+      cv.setUint16(28, nb.length, true); cv.setUint32(42, offset, true);
+      ch.set(nb, 46);
+      central.push(ch);
+      offset += lh.length + len;
+    });
+    var cdSize = central.reduce(function(a, c){ return a + c.length; }, 0);
+    var eo = new Uint8Array(22), ev = new DataView(eo.buffer);
+    ev.setUint32(0, 0x06054b50, true);
+    ev.setUint16(8, entries.length, true); ev.setUint16(10, entries.length, true);
+    ev.setUint32(12, cdSize, true); ev.setUint32(16, offset, true);
+    return new Blob(parts.concat(central, [eo]), { type:'application/zip' });
+  }
+  function _safeName(s){
+    return String(s || '').replace(/[^\wÀ-ſ .\-]/g, '_').replace(/\s+/g, ' ').trim().slice(0, 60);
+  }
+
+  /**
+   * Laedt die Dateien herunter und bietet sie als EIN ZIP zum Speichern an.
+   * onProgress(fertig, total) fuer eine Fortschrittsanzeige.
+   * Liefert { ok, dabei, fehlend }.
+   */
+  function zipDownload(files, zipName, onProgress){
+    var list = (files || []).filter(function(f){ return f && f.url; });
+    if(!list.length) return Promise.resolve({ ok:false, dabei:0, fehlend:0 });
+    var fertig = 0, entries = [], fehlend = 0;
+    if(onProgress) onProgress(0, list.length);
+    return list.reduce(function(kette, f, i){
+      return kette.then(function(){
+        return fetch(f.url).then(function(r){
+          if(!r.ok) throw new Error('HTTP ' + r.status);
+          return r.arrayBuffer();
+        }).then(function(buf){
+          var nr = String(i + 1).padStart(2, '0');
+          var basis = _safeName(f.label) || 'datei';
+          entries.push({ name: nr + '_' + basis + '.' + (f.ext || 'dat'), bytes: new Uint8Array(buf) });
+        }).catch(function(){ fehlend++; }).then(function(){
+          fertig++; if(onProgress) onProgress(fertig, list.length);
+        });
+      });
+    }, Promise.resolve()).then(function(){
+      if(!entries.length) return { ok:false, dabei:0, fehlend: fehlend };
+      var blob = _zipBlob(entries);
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = (_safeName(zipName) || 'GEMA-Dateien') + '.zip';
+      document.body.appendChild(a); a.click();
+      setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); }, 4000);
+      return { ok:true, dabei: entries.length, fehlend: fehlend };
+    });
+  }
+
+  /**
+   * Bestaetigungs-Dialog vor dem Loeschen eines Datensatzes: nennt die
+   * Anzahl der zugehoerigen Dateien, listet sie auf und bietet an, sie
+   * vorher als ZIP zu sichern. Muster wie die Objekt-Loeschung in
+   * pm_objekte (GemaDialog mit html:true).
+   *
+   * opts: { files, title, message, confirmLabel, zipName }
+   * Liefert Promise<bool> — true = loeschen. Die Dateien loescht der
+   * Aufrufer danach selbst mit deleteFiles(files) (erst den Datensatz).
+   */
+  var _zipPending = null;
+  function confirmDelete(opts){
+    opts = opts || {};
+    var files = opts.files || [];
+    var n = files.length;
+    var msg = '<div style="margin-bottom:' + (n ? '12px' : '0') + '">' + _esc(opts.message || 'Wirklich löschen?') + '</div>';
+    if(n){
+      _zipPending = { files: files, name: opts.zipName || 'GEMA-Dateien' };
+      var bilder = files.filter(function(f){ return ['jpg','jpeg','png','webp','gif'].indexOf(f.ext) >= 0; }).length;
+      var wort = n === 1 ? (bilder ? 'Foto' : 'Datei') : (bilder === n ? 'Fotos' : 'Dateien');
+      var liste = files.slice(0, 8).map(function(f, i){
+        var ic = ['jpg','jpeg','png','webp','gif'].indexOf(f.ext) >= 0 ? '🖼' : (f.ext === 'pdf' ? '📄' : '📎');
+        return '<li style="margin:2px 0">' + ic + ' ' + _esc(f.label || ('Datei ' + (i + 1)))
+             + ' <span style="opacity:.6">· ' + _esc(f.ext.toUpperCase()) + '</span></li>';
+      }).join('');
+      if(n > 8) liste += '<li style="margin:2px 0;opacity:.7">… und ' + (n - 8) + ' weitere</li>';
+      msg += '<div style="background:#fef3c7;border:1px solid #f59e0b;border-radius:6px;padding:11px 13px;font-size:13.5px;color:#92400e">'
+           + '<div style="font-weight:700;margin-bottom:6px">' + n + ' ' + wort + ' werden mitgelöscht</div>'
+           + '<ul style="margin:0 0 10px;padding-left:18px;max-height:170px;overflow:auto">' + liste + '</ul>'
+           + '<button type="button" id="gsZipBtn" onclick="GemaStorage._zipFromDialog(this)" '
+           + 'style="border:1px solid #92400e;background:#fff;color:#92400e;border-radius:6px;'
+           + 'padding:6px 12px;font:600 12.5px/1.2 inherit;cursor:pointer">⬇ Vorher als ZIP herunterladen</button>'
+           + '</div>';
+    }
+    return GemaDialog.confirm({
+      title: opts.title || 'Löschen',
+      message: msg,
+      html: true,
+      confirmLabel: opts.confirmLabel || (n ? 'Löschen (inkl. ' + n + ')' : 'Löschen'),
+      danger: true
+    }).then(function(ok){ _zipPending = null; return !!ok; });
+  }
+  // Handler des ZIP-Buttons im Dialog (der Dialog bleibt dabei offen).
+  function _zipFromDialog(btn){
+    if(!_zipPending || !btn) return;
+    var orig = btn.textContent;
+    btn.disabled = true;
+    zipDownload(_zipPending.files, _zipPending.name, function(f, t){
+      btn.textContent = 'Lade ' + f + ' / ' + t + ' …';
+    }).then(function(res){
+      btn.textContent = res.ok
+        ? ('✓ Heruntergeladen' + (res.fehlend ? ' (' + res.fehlend + ' nicht erreichbar)' : ''))
+        : '✕ Download fehlgeschlagen';
+      setTimeout(function(){ if(btn.isConnected){ btn.textContent = orig; btn.disabled = false; } }, 3500);
+    });
+  }
+
   w.GemaStorage = {
     BUCKET: BUCKET,
     isConfigured: isConfigured,
     publicUrl: publicUrl,
-    uploadDataUrl: uploadDataUrl
+    uploadDataUrl: uploadDataUrl,
+    pathFromUrl: pathFromUrl,
+    collectFiles: collectFiles,
+    deleteFiles: deleteFiles,
+    zipDownload: zipDownload,
+    confirmDelete: confirmDelete,
+    _zipFromDialog: _zipFromDialog
   };
 })(window);

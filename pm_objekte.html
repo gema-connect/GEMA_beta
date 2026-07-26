@@ -678,6 +678,24 @@ function _refreshAuthCtx() {
     }
   } catch(e) {}
 }
+// Org-Sichtbarkeit EINES Objekts — zentral über GemaObjekte.effektiveOrgId
+// (orgId → Org des Erstellers; null = herrenlos). KRITISCH: der frühere
+// direkte Vergleich `(o.orgId||'org_default')===_currentOrgId` blendete
+// Objekte von Kolleg:innen aus, sobald der Org-Stempel fehlte oder auf
+// 'org_default' stand — für alle ausser GEMA-Admins unsichtbar. Neue
+// Org-Filter in diesem Modul IMMER über diesen Helper.
+function _objOrgId(o){
+  try{
+    if (typeof GemaObjekte !== 'undefined' && GemaObjekte.effektiveOrgId) return GemaObjekte.effektiveOrgId(o);
+  }catch(e){}
+  return (o && o.orgId) || null;
+}
+function _objSichtbar(o){
+  if (_isAdminUser) return true;
+  var eff = _objOrgId(o);
+  if (!eff) return true;                       // herrenlos → sichtbar (sonst für immer weg)
+  return eff === (_currentOrgId || 'org_default');
+}
 document.addEventListener('DOMContentLoaded', _refreshAuthCtx);
 
 async function load(){
@@ -1233,9 +1251,7 @@ function renderObjekte(){
   const sortBy=$('objSort')?.value||'name';
 
   // Tenant-Filter: Nicht-Admins sehen nur Objekte ihrer eigenen Org
-  const visibleObjekte = _isAdminUser
-    ? _mem.objekte
-    : _mem.objekte.filter(o=>(o.orgId||'org_default')===(_currentOrgId||'org_default'));
+  const visibleObjekte = _mem.objekte.filter(_objSichtbar);
 
   // Scope-Filter (Meine vs. Büro) — P08
   const myId=(typeof GemaAuth!=='undefined'&&GemaAuth.getCurrentUser)?(GemaAuth.getCurrentUser()?.id):null;
@@ -1441,9 +1457,7 @@ window.setActive=setActive;
 // Objekt selbst und alle seine Nachkommen ausgeschlossen, um Zyklen zu verhindern.
 function populateParentSelect(currentEditId){
   const sel=$('objParentId');if(!sel)return;
-  const visible=_isAdminUser
-    ? _mem.objekte
-    : _mem.objekte.filter(o=>(o.orgId||'org_default')===(_currentOrgId||'org_default'));
+  const visible=_mem.objekte.filter(_objSichtbar);
   const excluded={};
   if(currentEditId){
     excluded[currentEditId]=true;
@@ -1452,27 +1466,45 @@ function populateParentSelect(currentEditId){
   // Baum-Reihenfolge für die Auswahl, damit Eltern über Kindern stehen
   const tree=buildObjektTree([...visible]);
   const opts=['<option value="">— Kein Oberprojekt (eigenständiges Objekt) —</option>'];
+  const rendered={};
   tree.forEach(o=>{
     if(excluded[o.id])return;
+    rendered[o.id]=true;
     const depth=o._depth||0;
     const indent='&nbsp;'.repeat(depth*3)+(depth>0?'↳ ':'');
     opts.push('<option value="'+esc(o.id)+'">'+indent+esc((GemaObjekte.displayName?GemaObjekte.displayName(o):o.name)||'–')+'</option>');
   });
+  // Gespeichertes Oberprojekt ohne Option (andere Org/Filter/noch nicht
+  // geladen): Option ergänzen, sonst fällt das Select still auf «Kein» und
+  // das Speichern löst die Verknüpfung.
+  if(currentEditId){
+    const cur=_mem.objekte.find(x=>x.id===currentEditId);
+    const pid=cur&&cur.parentObjektId;
+    if(pid&&!rendered[pid]){
+      const po=_mem.objekte.find(x=>x.id===pid);
+      opts.push('<option value="'+esc(pid)+'">⚠ '+esc(po?((GemaObjekte.displayName?GemaObjekte.displayName(po):po.name)||'–'):pid)+'</option>');
+    }
+  }
   sel.innerHTML=opts.join('');
 }
 
 // ── TEAM-ZUWEISUNG (P08) ──
 // Liste aller User der eigenen Org (für Dropdowns + Chips).
 var _teamChipState = [];
-function _orgUsers() {
+function _orgUsers(forOrgId) {
   try {
     if (typeof GemaAuth === 'undefined' || !GemaAuth.getUsers) return [];
     var me = GemaAuth.getCurrentUser && GemaAuth.getCurrentUser();
-    var myOrg = me && me.orgId;
+    // Team-Auswahl gehört zur Org des OBJEKTS (Admin bearbeitet fremde Org:
+    // deren User anbieten, nicht die eigenen), sonst eigene Org.
+    var org = forOrgId || (me && me.orgId);
     return (GemaAuth.getUsers() || []).filter(function(u) {
-      return u.active !== false && (!myOrg || u.orgId === myOrg);
+      return u.active !== false && (!org || u.orgId === org);
     });
   } catch(e) { return []; }
+}
+function _userById(id) {
+  try { return (GemaAuth.getUsers() || []).find(function(u){ return u.id === id; }) || null; } catch(e) { return null; }
 }
 function _userLabel(u) {
   var name = (u.profile && (u.profile.person || u.profile.name)) || u.name || u.username || u.id;
@@ -1483,8 +1515,8 @@ function _userInitials(u) {
   return name.split(/\s+/).map(function(w){return w[0];}).join('').toUpperCase().slice(0,2);
 }
 function populateTeamSelects(editId) {
-  var users = _orgUsers();
   var obj = editId ? _mem.objekte.find(function(x){return x.id===editId;}) : null;
+  var users = _orgUsers(obj && obj.orgId);
   var canEdit = !editId || (typeof GemaObjekte !== 'undefined' && GemaObjekte.canEditTeam ? GemaObjekte.canEditTeam(obj) : true);
   // Eigene User-ID — für ein NEUES Objekt ist der Ersteller standardmässig der
   // Verantwortliche (Projektleiter), User-Vorgabe 23.07.2026.
@@ -1498,9 +1530,18 @@ function populateTeamSelects(editId) {
     // Default beim Erfassen: Projektleiter = ich selbst (sofern in der Org-Liste)
     var selfDefault = (!obj && selId==='objProjektLeiterId' && myId && users.some(function(u){return u.id===myId;})) ? myId : '';
     var curVal = obj ? (obj[fieldName] || '') : selfDefault;
-    sel.innerHTML = '<option value="">— Keiner —</option>' + users.map(function(u){
-      return '<option value="'+u.id+'"'+(u.id===curVal?' selected':'')+'>'+esc(_userLabel(u))+'</option>';
+    var opts = '<option value="">— Keiner —</option>' + users.map(function(u){
+      return '<option value="'+esc(u.id)+'"'+(u.id===curVal?' selected':'')+'>'+esc(_userLabel(u))+'</option>';
     }).join('');
+    // Gespeicherter Wert ohne Option (User deaktiviert/andere Org/Liste noch
+    // nicht geladen): Option ergänzen statt still auf «Keiner» fallen — sonst
+    // löscht «Fertig stellen» die Zuweisung (Muster sys_admin-Rollen: sichtbar
+    // + bewusst abwählbar mit ⚠).
+    if (curVal && !users.some(function(u){return u.id===curVal;})) {
+      var known = _userById(curVal);
+      opts += '<option value="'+esc(curVal)+'" selected>⚠ '+esc(known ? _userLabel(known) : curVal)+'</option>';
+    }
+    sel.innerHTML = opts;
     sel.disabled = !canEdit;
   });
 
@@ -1514,21 +1555,31 @@ function populateTeamSelects(editId) {
 function _renderTeamChips(users, canEdit) {
   var box = $('objTeamChips');
   if (!box) return;
-  if (!users || !users.length) {
+  // Team-Mitglieder ohne Eintrag in der Org-Liste (deaktiviert/andere Org/
+  // Liste noch nicht geladen) SICHTBAR halten — sie bleiben zugewiesen und
+  // sind bewusst abwählbar, statt unsichtbar mitzulaufen.
+  var extra = (_teamChipState || []).filter(function(id){ return !(users || []).some(function(u){ return u.id === id; }); });
+  if ((!users || !users.length) && !extra.length) {
     box.innerHTML = '<span style="font-size:12px;color:var(--mut)">Keine weiteren User in deiner Org</span>';
     return;
   }
-  box.innerHTML = users.map(function(u){
+  var disabled = !canEdit ? 'opacity:.6;pointer-events:none' : '';
+  box.innerHTML = (users || []).map(function(u){
     var active = _teamChipState.indexOf(u.id) >= 0;
     var bg = active ? '#eff4ff' : '#fff';
     var bd = active ? '#2563eb' : 'var(--brd2)';
     var col = active ? '#1d4ed8' : 'var(--mut)';
-    var disabled = !canEdit ? 'opacity:.6;pointer-events:none' : '';
-    return '<span data-uid="'+u.id+'" style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:20px;font-size:12px;font-weight:600;cursor:pointer;background:'+bg+';border:1.5px solid '+bd+';color:'+col+';'+disabled+'">'
+    return '<span data-uid="'+esc(u.id)+'" style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:20px;font-size:12px;font-weight:600;cursor:pointer;background:'+bg+';border:1.5px solid '+bd+';color:'+col+';'+disabled+'">'
       + '<span style="width:18px;height:18px;border-radius:50%;background:'+(active?'#2563eb':'#e2e8f0')+';color:'+(active?'#fff':'#64748b')+';font-size:9px;font-weight:800;display:inline-flex;align-items:center;justify-content:center">'+_userInitials(u)+'</span>'
       + esc(_userLabel(u))
       + (active?' ✓':' +')
       + '</span>';
+  }).join('') + extra.map(function(id){
+    var known = _userById(id);
+    var label = known ? _userLabel(known) : id;
+    return '<span data-uid="'+esc(id)+'" title="Nicht in der Benutzerliste dieser Org (deaktiviert oder andere Org) — Klick entfernt aus dem Team" style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:20px;font-size:12px;font-weight:600;cursor:pointer;background:#fffbeb;border:1.5px solid #fcd34d;color:#92400e;'+disabled+'">⚠ '
+      + esc(label)
+      + ' ✓</span>';
   }).join('');
   if (canEdit) {
     box.querySelectorAll('[data-uid]').forEach(function(el){
@@ -1634,7 +1685,9 @@ function openObjektModal(editId){
     $('objAktivePhase').value=o.aktivePhase||'';
     if($('objParentId'))$('objParentId').value=o.parentObjektId||'';
     $('objStatus').value=o.status||'aktiv';$('objNotizen').value=o.notizen||'';
-    _objBeteiligte=(o.beteiligte||[]).map(function(b){return{rolle:b.rolle,firma:b.firma,person:b.person||''};});
+    // Object.assign statt Feld-Picking: unbekannte Zusatzfelder eines
+    // Beteiligten überleben den Edit-Roundtrip (nichts still verwerfen).
+    _objBeteiligte=(o.beteiligte||[]).map(function(b){return Object.assign({},b,{person:b.person||''});});
   } else {
     _objBeteiligte=[];
     ['objName','objStrasse','objPlz','objOrt','objGemeinde','objKanton','objNotizen','objProjektnummer','objRevision'].forEach(id=>{if($(id))$(id).value='';});
@@ -1676,32 +1729,63 @@ window._objAdrInit=_objAdrInit;
 if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',_objAdrInit);
 else _objAdrInit();
 
+// Select-Wert lesen, ohne beim Bearbeiten still zu löschen: liefert das
+// Select leer, obwohl ein Wert gespeichert ist UND dessen Option gar nicht
+// existiert (Select konnte den Wert nie darstellen — Userliste/Objekte noch
+// nicht geladen, Element fehlt), bleibt der gespeicherte Wert. Eine bewusste
+// Wahl von «— Keiner —» geht weiter durch, weil die ⚠-Option des gespeicherten
+// Werts seit populateTeamSelects/populateParentSelect immer gerendert wird.
+function _objSelKeep(id, prevVal){
+  var el=$(id);
+  if(!el) return prevVal||'';
+  var v=el.value;
+  if(v===''&&prevVal){
+    var has=false;
+    for(var i=0;i<el.options.length;i++){ if(el.options[i].value===prevVal){has=true;break;} }
+    if(!has) return prevVal;
+  }
+  return v;
+}
 function saveObjekt(){
   const name=$('objName').value.trim();
   if(!name){toast('⚠ Projektname erforderlich');return;}
   const editId=$('objEditId').value;
-  const parentId=($('objParentId')?$('objParentId').value:'')||'';
+  const prev=editId?_mem.objekte.find(x=>x.id===editId):null;
   const data={name,strasse:$('objStrasse').value.trim(),plz:$('objPlz').value.trim(),ort:$('objOrt').value.trim(),
-    gemeinde:$('objGemeinde').value.trim(),kanton:$('objKanton').value.trim(),bauvorhaben:$('objBauvorhaben').value,status:$('objStatus').value,notizen:$('objNotizen').value.trim(),
+    gemeinde:$('objGemeinde').value.trim(),kanton:$('objKanton').value.trim(),bauvorhaben:_objSelKeep('objBauvorhaben',prev&&prev.bauvorhaben)||'Neubau',status:_objSelKeep('objStatus',prev&&prev.status)||'aktiv',notizen:$('objNotizen').value.trim(),
     projektnummer:$('objProjektnummer').value.trim(),revision:$('objRevision').value.trim(),
-    aktivePhase:$('objAktivePhase').value,parentObjektId:parentId,
-    projektLeiterId:$('objProjektLeiterId')?$('objProjektLeiterId').value:'',
-    abteilungsLeiterId:$('objAbteilungsLeiterId')?$('objAbteilungsLeiterId').value:'',
+    aktivePhase:_objSelKeep('objAktivePhase',prev&&prev.aktivePhase),parentObjektId:_objSelKeep('objParentId',prev&&prev.parentObjektId),
+    projektLeiterId:_objSelKeep('objProjektLeiterId',prev&&prev.projektLeiterId),
+    abteilungsLeiterId:_objSelKeep('objAbteilungsLeiterId',prev&&prev.abteilungsLeiterId),
     teamUserIds:(_teamChipState||[]).slice(),
     beteiligte:_objGetBeteiligte()};
+  // Auth-Kontext frisch auflösen: wurde die Session beim Seitenstart noch
+  // nicht aufgelöst, blieb `_currentOrgId` null — das Objekt bekam dann KEINEN
+  // Org-Stempel und war für die ganze Firma unsichtbar (nur GEMA-Admins sahen
+  // es). Deshalb hier erneut, direkt vor dem Schreiben.
+  _refreshAuthCtx();
+  var _myOrg=_currentOrgId; try{ var _mu=GemaAuth.getCurrentUser(); if(_mu&&_mu.orgId) _myOrg=_mu.orgId; }catch(e){}
   var _abschlussTrigger=null;
   if(editId){
     const idx=_mem.objekte.findIndex(x=>x.id===editId);
     if(idx>=0){
       var _prevStatus=_mem.objekte[idx].status||'';
       Object.assign(_mem.objekte[idx],data);
+      // Heilung von Altbestand: fehlt der Org-Stempel und gehört das Objekt
+      // ableitbar zu MEINER Org (bzw. ist es herrenlos), wird er beim
+      // Speichern gesetzt — danach sieht es die ganze Firma regulär.
+      // Ein fremder Stempel wird NIE überschrieben.
+      if(!_mem.objekte[idx].orgId && _myOrg){
+        var _eff=_objOrgId(_mem.objekte[idx]);
+        if(!_eff || _eff===_myOrg) _mem.objekte[idx].orgId=_myOrg;
+      }
       // Projekt-Abschluss: Trigger fuer Revisionsunterlagen
       if(_prevStatus!=='abgeschlossen' && data.status==='abgeschlossen'){ _abschlussTrigger={id:editId,name:data.name}; }
     }
   } else {
     data.id=uid();data.createdAt=new Date().toISOString();
-    // Org-Zuordnung
-    if(_currentOrgId) data.orgId=_currentOrgId;
+    // Org-Zuordnung — IMMER stempeln (siehe _refreshAuthCtx oben)
+    if(_myOrg) data.orgId=_myOrg;
     // Abteilungs-Zuordnung (wenn aktiviert)
     try{var _cu=GemaAuth.getCurrentUser();if(_cu&&_cu.abteilungId)data.abteilungId=_cu.abteilungId;}catch(e){}
     // Ersteller
@@ -2151,6 +2235,10 @@ function _objWartungRows(cloudIds){
       label:(GemaObjekte.displayName?GemaObjekte.displayName(o):'')||o.name||id,
       status:o.status||'aktiv',
       orgId:o.orgId||'',
+      // Fehlender Org-Stempel: das Objekt hing bis 26.07.2026 in der Luft
+      // (für die ganze Firma unsichtbar). Jetzt sichtbar + hier reparierbar.
+      ohneOrg:!o.orgId&&!o._wsOnly,
+      effOrg:_objOrgId(o)||'',
       inList:!!inList[id],
       inCloud:cloudIds?(cloudIds[id]===true):null,   // null = Cloud nicht geprüft
       ws:wsRefs[id]||null,
@@ -2171,9 +2259,11 @@ function _objWartungRender(){
     if(r.inCloud===false) badges+='<span style="display:inline-block;padding:1px 7px;border-radius:6px;background:#fef2f2;border:1px solid #fecaca;color:#b91c1c;font-size:10px;font-weight:700;margin-left:4px">nur lokal</span>';
     if(r.ws) badges+='<span style="display:inline-block;padding:1px 7px;border-radius:6px;background:#f0fdf4;border:1px solid #bbf7d0;color:#166534;font-size:10px;font-weight:700;margin-left:4px" title="'+esc(r.ws.join(', '))+'">🗂 Workspace-Eimer</span>';
     if(r.status&&r.status!=='aktiv') badges+='<span style="display:inline-block;padding:1px 7px;border-radius:6px;background:#f1f5f9;border:1px solid #cbd5e1;color:#475569;font-size:10px;font-weight:700;margin-left:4px">'+esc(r.status)+'</span>';
+    if(r.ohneOrg) badges+='<span style="display:inline-block;padding:1px 7px;border-radius:6px;background:#eff6ff;border:1px solid #bfdbfe;color:#1d4ed8;font-size:10px;font-weight:700;margin-left:4px" title="Ohne Firmen-Zuordnung gespeichert — war dadurch in der Objektliste unsichtbar. «Zuordnen» stempelt deine Firma.">⚠ ohne Firma</span>';
     return '<div style="display:flex;align-items:center;gap:10px;padding:9px 4px;border-bottom:1px solid #eef1f4">'
       +'<div style="flex:1;min-width:0"><div style="font-weight:600;color:#0f172a;font-size:13.5px">'+esc(r.label||r.id)+badges+'</div>'
       +'<div style="font-size:10.5px;color:#94a3b8;font-family:ui-monospace,monospace">'+esc(r.id)+(r.orgId&&r.orgId!==(_currentOrgId||'org_default')?' · org '+esc(r.orgId):'')+'</div></div>'
+      +(r.ohneOrg?'<button class="btn btn-ghost btn-xs" style="color:#1d4ed8;flex:0 0 auto" onclick="_objOrgZuordnen(\''+esc(r.id)+'\')">🏢 Zuordnen</button>':'')
       +'<button class="btn btn-ghost btn-xs" style="color:#dc2626;flex:0 0 auto" onclick="deleteObjektById(\''+esc(r.id)+'\')">🗑 Löschen</button>'
       +'</div>';
   }).join('');
@@ -2207,11 +2297,28 @@ function _objWartungOpen(){
   }catch(e){}
 }
 function _objWartungClose(){ var ov=document.getElementById('objWartungOverlay'); if(ov) ov.style.display='none'; }
+// Objekt ohne Firmen-Stempel der eigenen Org zuordnen (Heilung von Altbestand,
+// das ohne aufgelöste Session angelegt wurde). Ein FREMDER Stempel wird nie
+// überschrieben — der Button erscheint nur bei leerer orgId.
+function _objOrgZuordnen(id){
+  _refreshAuthCtx();
+  var myOrg=_currentOrgId; try{ var u=GemaAuth.getCurrentUser(); if(u&&u.orgId) myOrg=u.orgId; }catch(e){}
+  if(!myOrg){ toast('⚠ Keine Firma auflösbar'); return; }
+  var o=_mem.objekte.find(function(x){return x.id===id;});
+  if(!o){ toast('⚠ Objekt nicht gefunden'); return; }
+  if(o.orgId){ toast('Objekt hat bereits eine Firma'); return; }
+  o.orgId=myOrg;
+  save();renderObjekte();updateBadges();_objWartungRender();
+  toast('✓ Objekt deiner Firma zugeordnet');
+}
+window._objOrgZuordnen=_objOrgZuordnen;
 window._objWartungOpen=_objWartungOpen;
 window._objWartungClose=_objWartungClose;
 
 // Test-Hooks (Playwright)
-window._objDelHooks={scan:_objDatenScan, loeschen:_objDatenLoeschen, modulInfo:_delModulInfo, refLabel:_delRefLabel, dialogHtml:_objDeleteDialogHtml, scrub:_objScrubEverywhere, wartungRows:_objWartungRows, wsRefs:_objWorkspaceRefs};
+window._objDelHooks={scan:_objDatenScan, loeschen:_objDatenLoeschen, modulInfo:_delModulInfo, refLabel:_delRefLabel, dialogHtml:_objDeleteDialogHtml, scrub:_objScrubEverywhere, wartungRows:_objWartungRows, wsRefs:_objWorkspaceRefs,
+  // Org-Sichtbarkeit (Drift-Guard objekt_org_sichtbarkeit_test)
+  sichtbar:_objSichtbar, orgOf:_objOrgId, alle:function(){ return _mem.objekte; }};
 
 function duplicateObjekt(id){
   const src=_mem.objekte.find(x=>x.id===id);
@@ -2453,9 +2560,7 @@ function _showInviteLink(bet,url){
 }
 
 function updateBadges(){
-  const _vis = _isAdminUser
-    ? _mem.objekte
-    : _mem.objekte.filter(o=>(o.orgId||'org_default')===(_currentOrgId||'org_default'));
+  const _vis = _mem.objekte.filter(_objSichtbar);
   $('badgeObj').textContent=_vis.length;
   $('badgeBet').textContent=_mem.beteiligte.length;
 }
