@@ -167,6 +167,14 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important}
 .foto{position:relative;width:64px;height:64px;border-radius:9px;overflow:hidden;border:1.5px solid var(--brd);background:#000}
 .foto img{width:100%;height:100%;object-fit:cover;cursor:pointer}
 .foto .fx{position:absolute;top:2px;right:2px;width:20px;height:20px;border-radius:6px;border:none;background:rgba(0,0,0,.6);color:#fff;font-size:11px;cursor:pointer;line-height:1}
+/* Titelbild (Deckblatt des Berichts) */
+.titelbild{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:2px}
+.titelbild .tb-add{width:52px;height:52px;font-size:19px}
+.titelbild .tb-hint{font-size:11.5px;color:var(--mut);font-weight:600}
+.titelbild .tb-empty{font-size:12px;color:var(--mut);font-weight:600}
+.tb-prev{position:relative;width:100%;max-width:280px;border-radius:11px;overflow:hidden;border:1.5px solid var(--brd);background:#000}
+.tb-prev img{display:block;width:100%;max-height:170px;object-fit:cover;cursor:pointer}
+.tb-prev .fx{position:absolute;top:5px;right:5px;width:24px;height:24px;border-radius:7px;border:none;background:rgba(0,0,0,.62);color:#fff;font-size:12px;cursor:pointer;line-height:1}
 .art-grid{display:flex;gap:7px;flex-wrap:wrap}
 .art-chip{padding:9px 13px;border-radius:10px;border:1.5px solid var(--brd2);background:var(--sur);font-size:13px;font-weight:700;color:var(--txt2);cursor:pointer;display:inline-flex;gap:6px;align-items:center;min-height:42px}
 .art-chip:active{background:var(--acc-bg);border-color:var(--acc-bd)}
@@ -322,6 +330,38 @@ var PR_BEWERTUNGEN = {
   schlecht:       { label:'schlecht',      farbe:'#dc2626' },
   nicht_bewertet: { label:'nicht bewertet', farbe:'#94a3b8' }
 };
+/* Zustands-Auswahl im Editor: «nicht bewertet» steht ZUERST — der Zustand wird
+   nie automatisch gesetzt (Feedback 25.07.2026), das Feld startet also leer. */
+var PR_BEWERTUNG_REIHE = ['nicht_bewertet','gut','maessig','schlecht'];
+
+/* Objekttyp der Begehung (Feedback 25.07.2026) — gilt für Stammdaten- UND
+   freie Objekte; «sonstiges» blendet ein Freitextfeld ein. */
+var PR_OBJEKTTYPEN = [
+  { id:'efh',        label:'Einfamilienhaus (EFH)' },
+  { id:'mfh',        label:'Mehrfamilienhaus (MFH)' },
+  { id:'wgh',        label:'Wohn- und Geschäftshaus' },
+  { id:'schulhaus',  label:'Schulhaus' },
+  { id:'restaurant', label:'Restaurant' },
+  { id:'buero',      label:'Bürogebäude' },
+  { id:'hotel',      label:'Hotel' },
+  { id:'gewerbe',    label:'Gewerbe- / Industriebau' },
+  { id:'spital',     label:'Spital / Heim' },
+  { id:'oeffentlich',label:'Öffentliches Gebäude' },
+  { id:'landwirt',   label:'Landwirtschaftsbau' },
+  { id:'sonstiges',  label:'Sonstiges …' }
+];
+function prObjekttypLabel(id, frei){
+  if(id==='sonstiges') return String(frei||'').trim() || 'Sonstiges';
+  var t=PR_OBJEKTTYPEN.filter(function(x){return x.id===id;})[0];
+  return t?t.label:'';
+}
+/* Freie Adresse → eine Zeile «Strasse Nr., PLZ Ort» (leere Teile entfallen) */
+function prFreieAdresse(a){
+  a=a||{};
+  var s=[a.strasse,a.nr].filter(function(x){return String(x||'').trim();}).join(' ').trim();
+  var o=[a.plz,a.ort].filter(function(x){return String(x||'').trim();}).join(' ').trim();
+  return [s,o].filter(Boolean).join(', ');
+}
 
 function prAutoBewertung(antworttyp, antwortV){
   var t = PR_ANTWORTTYPEN[antworttyp];
@@ -465,7 +505,9 @@ var _prEngine = { PR_ANTWORTTYPEN:PR_ANTWORTTYPEN, PR_ANTWORTTYP_DEFAULT:PR_ANTW
   PR_ANLAGENARTEN_DEFAULT:PR_ANLAGENARTEN_DEFAULT, PR_DEFAULT_KATALOG:PR_DEFAULT_KATALOG,
   prAutoBewertung:prAutoBewertung, prAntwortLabel:prAntwortLabel, prIstNegativ:prIstNegativ, prZustandEntfaellt:prZustandEntfaellt,
   prBegehungBewertung:prBegehungBewertung, prNorm:prNorm, prTokens:prTokens, prAehnlichkeit:prAehnlichkeit,
-  prFindeAehnliche:prFindeAehnliche, prEffektivePunkte:prEffektivePunkte, prDefaultRecords:prDefaultRecords };
+  prFindeAehnliche:prFindeAehnliche, prEffektivePunkte:prEffektivePunkte, prDefaultRecords:prDefaultRecords,
+  PR_BEWERTUNG_REIHE:PR_BEWERTUNG_REIHE, PR_OBJEKTTYPEN:PR_OBJEKTTYPEN,
+  prObjekttypLabel:prObjekttypLabel, prFreieAdresse:prFreieAdresse };
 if(typeof window!=='undefined') window._prEngine = _prEngine;
 if(typeof module!=='undefined' && module.exports) module.exports = _prEngine;
 /*ENGINE-END*/
@@ -687,7 +729,10 @@ function renderBegList(){
     var bw=begBewertung(b);
     var st=(b.status||'offen');
     var barCol = bw.gesamt==='schlecht'?'var(--red)':bw.gesamt==='maessig'?'var(--amber)':bw.gesamt==='gut'?'var(--grn)':'var(--brd2)';
-    var meta = esc(b.objektName||objName(b.objektId)||'Freies Objekt')
+    /* Freies Objekt: die erfasste Adresse ist die aussagekräftigere Kennung */
+    var objLbl = b.objektName || objName(b.objektId) || b.objektAdresse || prFreieAdresse(b.freieAdresse) || 'Freies Objekt';
+    var typLbl = prObjekttypLabel(b.objekttyp, b.objekttypFrei);
+    var meta = esc(objLbl) + (typLbl?' · '+esc(typLbl):'')
       + ' · ' + fmtDatum(b.datum) + ' · ' + esc(b.prueferName||'')
       + '<br>'+ (b.anlagen||[]).length +' Anlage(n) · '+ bw.total +' Prüfpunkte'
       + (bw.schlecht? ' · <b style="color:var(--red)">'+bw.schlecht+' schlecht</b>':'')
@@ -749,9 +794,30 @@ function renderEditor(){
   h+='<div class="fld"><label>Objekt / Projekt</label><select id="eObjekt" '+(abg?'disabled':'')+' onchange="prEObjekt(this.value)"><option value="">Freies Objekt</option>'
     + objekte().map(function(o){ var lbl; try{lbl=GemaObjekte.displayName(o)||o.nummer||o.id;}catch(e){lbl=o.name||o.id;} return '<option value="'+esc(o.id)+'" '+(o.id===b.objektId?'selected':'')+'>'+esc(lbl)+'</option>'; }).join('')
     +'</select></div>';
+  /* Adresse: bei «Freies Objekt» erfassbar, sonst aus den Objekt-Stammdaten */
+  if(!b.objektId){
+    var fa=b.freieAdresse||{};
+    h+='<div class="fld-row"><div class="fld" style="flex:3"><label>Strasse</label><input type="text" id="eStrasse" placeholder="Musterstrasse" value="'+esc(fa.strasse||'')+'" '+(abg?'disabled':'')+' onchange="prEAdr(\'strasse\',this.value)"></div>'
+      +'<div class="fld" style="flex:1"><label>Nr.</label><input type="text" id="eNr" placeholder="12a" value="'+esc(fa.nr||'')+'" '+(abg?'disabled':'')+' onchange="prEAdr(\'nr\',this.value)"></div></div>';
+    h+='<div class="fld-row"><div class="fld" style="flex:1"><label>PLZ</label><input type="text" id="ePlz" inputmode="numeric" placeholder="4000" value="'+esc(fa.plz||'')+'" '+(abg?'disabled':'')+' onchange="prEAdr(\'plz\',this.value)"></div>'
+      +'<div class="fld" style="flex:3"><label>Ort</label><input type="text" id="eOrt" placeholder="Basel" value="'+esc(fa.ort||'')+'" '+(abg?'disabled':'')+' onchange="prEAdr(\'ort\',this.value)"></div></div>';
+  } else if(b.objektAdresse){
+    h+='<div class="fld"><label>Adresse</label><input type="text" value="'+esc(b.objektAdresse)+'" disabled title="Aus den Objekt-Stammdaten"></div>';
+  }
+  /* Objekttyp — IMMER wählbar (Feedback 25.07.2026) */
+  h+='<div class="fld"><label>Objekttyp</label><select id="eObjTyp" '+(abg?'disabled':'')+' onchange="prEObjTyp(this.value)">'
+    +'<option value="">– Objekttyp wählen –</option>'
+    + PR_OBJEKTTYPEN.map(function(t){ return '<option value="'+esc(t.id)+'" '+(t.id===b.objekttyp?'selected':'')+'>'+esc(t.label)+'</option>'; }).join('')
+    +'</select></div>';
+  h+='<div class="fld" id="eObjTypFreiWrap" style="'+(b.objekttyp==='sonstiges'?'':'display:none')+'"><label>Objekttyp (Freitext)</label>'
+    +'<input type="text" id="eObjTypFrei" placeholder="z.B. Museum, Kirche, Werkhof" value="'+esc(b.objekttypFrei||'')+'" '+(abg?'disabled':'')+' onchange="prEField(\'objekttypFrei\',this.value)"></div>';
+
   h+='<div class="fld-row"><div class="fld"><label>Datum</label><input type="date" id="eDatum" value="'+esc(b.datum||'')+'" '+(abg?'disabled':'')+' onchange="prEField(\'datum\',this.value)"></div>'
     +'<div class="fld"><label>Prüfer / Fachperson</label><input type="text" id="ePruefer" value="'+esc(b.prueferName||'')+'" '+(abg?'disabled':'')+' onchange="prEField(\'prueferName\',this.value)"></div></div>';
   h+='<div class="fld"><label>Titel (optional)</label><input type="text" id="eTitel" placeholder="z.B. Jährliche Kontrolle Technikzentrale" value="'+esc(b.titel||'')+'" '+(abg?'disabled':'')+' onchange="prEField(\'titel\',this.value)"></div>';
+  /* Titelbild fürs Deckblatt des Berichts (Feedback 25.07.2026) */
+  h+='<div class="fld"><label>Titelbild (optional) <span style="font-weight:600;color:var(--mut)">— erscheint auf dem Deckblatt des Berichts</span></label>'
+    +'<div class="titelbild" id="eTitelbild">'+titelbildHtml(b,abg)+'</div></div>';
   h+='</div></div>';
 
   /* Zustands-KPI */
@@ -823,7 +889,9 @@ function renderPunkt(a, ai, p, pi, abg){
     +'<div class="pkt-sub"><span class="q-badge '+qClass+'">'+esc(qLbl)+'</span>'+(p.untergruppe?'<span>'+esc(p.untergruppe)+'</span>':'')+'<span class="bw-chip bw-'+bw+'">'+esc(bwLbl)+'</span></div>'
     +'</div><div class="pkt-tools">';
   h+='<button class="icobtn" title="Notiz / Empfehlung / Foto" onclick="prTogglePkt('+ai+','+pi+')">📝'+(fotoN||p.bemerkung||p.empfehlung?'<span class="cnt">'+(fotoN||'•')+'</span>':'')+'</button>';
-  if(p.individuell && !abg) h+='<button class="row-del" title="Punkt entfernen" onclick="prDelPunkt('+ai+','+pi+')">🗑</button>';
+  /* Jeder Prüfpunkt ist einzeln aus der Begehung entfernbar (Feedback
+     25.07.2026) — die Standardliste selbst bleibt davon unberührt. */
+  if(!abg) h+='<button class="row-del" title="Prüfpunkt aus dieser Begehung entfernen" onclick="prDelPunkt('+ai+','+pi+')">🗑</button>';
   h+='</div></div>';
 
   /* Antwort */
@@ -846,19 +914,59 @@ function renderPunkt(a, ai, p, pi, abg){
   var openCls = p._open?'open':'';
   h+='<div class="pkt-more '+openCls+'" id="more_'+ai+'_'+pi+'">';
   h+='<label>Zustand</label><select '+((abg||entf)?'disabled':'')+' onchange="prSetBewertung('+ai+','+pi+',this.value)">'
-    + Object.keys(PR_BEWERTUNGEN).map(function(k){ return '<option value="'+k+'" '+(bw===k?'selected':'')+'>'+esc(PR_BEWERTUNGEN[k].label)+'</option>'; }).join('') +'</select>';
+    + PR_BEWERTUNG_REIHE.map(function(k){
+        var lbl = (k==='nicht_bewertet') ? '— nicht bewertet —' : PR_BEWERTUNGEN[k].label;
+        return '<option value="'+k+'" '+(bw===k?'selected':'')+'>'+esc(lbl)+'</option>';
+      }).join('') +'</select>';
   if(entf) h+='<div style="font-size:11px;color:var(--mut);margin-top:3px">Nicht vorhanden — der Zustand entfällt und ist nicht bearbeitbar.</div>';
   h+='<label>Bemerkung</label><textarea '+(abg?'disabled':'')+' placeholder="Beobachtung / Bemerkung…" onchange="prPktField('+ai+','+pi+',\'bemerkung\',this.value)">'+esc(p.bemerkung||'')+'</textarea>';
   h+='<label>Empfehlung</label><textarea '+(abg?'disabled':'')+' placeholder="Empfohlene Massnahme…" onchange="prPktField('+ai+','+pi+',\'empfehlung\',this.value)">'+esc(p.empfehlung||'')+'</textarea>';
   h+='<label>Fotos</label><div class="fotos" id="fotos_'+ai+'_'+pi+'">'+ (p.fotos||[]).map(function(f,fi){ return '<div class="foto"><img src="'+esc(imgSrc(f))+'" onclick="prLightbox(this.src)">'+(abg?'':'<button class="fx" onclick="prDelFoto('+ai+','+pi+','+fi+')">✕</button>')+'</div>'; }).join('')
-    + (abg?'':'<button class="icobtn" style="width:64px;height:64px" onclick="prAddFoto('+ai+','+pi+')">📷</button>') +'</div>';
+    + (abg?'':'<button class="icobtn" style="width:64px;height:64px" title="Foto aufnehmen" onclick="prAddFoto('+ai+','+pi+',\'kamera\')">📷</button>'
+            +'<button class="icobtn" style="width:64px;height:64px" title="Aus Mediathek wählen (mehrere möglich)" onclick="prAddFoto('+ai+','+pi+',\'galerie\')">🖼</button>') +'</div>';
   h+='</div>';
   h+='</div>';
   return h;
 }
 
+/* Titelbild-Kachel (Vorschau + Aktionen) */
+function titelbildHtml(b, abg){
+  var src=imgSrc(b.titelbild);
+  if(src){
+    return '<div class="tb-prev"><img src="'+esc(src)+'" onclick="prLightbox(this.src)" alt="Titelbild">'
+      + (abg?'':'<button class="fx" title="Titelbild entfernen" onclick="prTitelbildDel()">✕</button>') + '</div>';
+  }
+  if(abg) return '<div class="tb-empty">Kein Titelbild</div>';
+  return '<button class="icobtn tb-add" title="Foto aufnehmen" onclick="prTitelbildAdd(\'kamera\')">📷</button>'
+    + '<button class="icobtn tb-add" title="Aus Mediathek wählen" onclick="prTitelbildAdd(\'galerie\')">🖼</button>'
+    + '<span class="tb-hint">Foto aufnehmen oder aus der Mediathek wählen</span>';
+}
+function refreshTitelbild(){
+  var el=$id('eTitelbild'); if(!el||!_cur) return;
+  el.innerHTML=titelbildHtml(_cur, _cur.status==='abgeschlossen');
+}
+
 /* Editor-Handler */
-window.prEObjekt=function(v){ if(!_cur)return; _cur.objektId=v; _cur.objektName=objName(v); _cur.objektAdresse=objAdr(v); touch(); };
+window.prEObjekt=function(v){
+  if(!_cur)return;
+  _cur.objektId=v; _cur.objektName=objName(v);
+  /* Stammdaten-Objekt → Adresse von dort; freies Objekt → selbst erfasste Adresse */
+  _cur.objektAdresse = v ? objAdr(v) : prFreieAdresse(_cur.freieAdresse);
+  saveBeg(_cur); renderEditor();      // Adressfelder erscheinen/verschwinden
+};
+window.prEAdr=function(f,v){
+  if(!_cur)return;
+  _cur.freieAdresse=_cur.freieAdresse||{};
+  _cur.freieAdresse[f]=v;
+  _cur.objektAdresse=prFreieAdresse(_cur.freieAdresse);   // Kanal für Liste + Bericht
+  touch();
+};
+window.prEObjTyp=function(v){
+  if(!_cur)return;
+  _cur.objekttyp=v;
+  var wrap=$id('eObjTypFreiWrap'); if(wrap) wrap.style.display = (v==='sonstiges'?'':'none');
+  touch();
+};
 window.prEField=function(f,v){ if(!_cur)return; _cur[f]=v; touch(); };
 window.prAnlField=function(ai,f,v){ if(!_cur)return; _cur.anlagen[ai][f]=v; touch(); };
 window.prAddAnlage=function(art){
@@ -883,8 +991,12 @@ window.prTogglePkt=function(ai,pi){ if(!_cur)return; var p=_cur.anlagen[ai].punk
 window.prSetAntwort=function(ai,pi,v){
   if(!_cur)return; var p=_cur.anlagen[ai].punkte[pi];
   p.antwort = (p.antwort===v)? null : v;
-  p.bewertung = p.antwort==null ? 'nicht_bewertet' : prAutoBewertung(p.antworttyp, p.antwort);
-  if(prIstNegativ(p.bewertung) && !p.empfehlung && p.empfehlungVorlage) p.empfehlung=p.empfehlungVorlage;
+  /* Der Zustand wird NICHT mehr automatisch aus der Antwort abgeleitet
+     (Feedback 25.07.2026) — er bleibt leer, bis die Fachperson ihn wählt.
+     Die Empfehlungs-Vorlage greift weiterhin, wenn die gewählte Antwort
+     fachlich auf einen Mangel deutet. */
+  if(p.antwort!=null && prIstNegativ(prAutoBewertung(p.antworttyp,p.antwort))
+     && !p.empfehlung && p.empfehlungVorlage) p.empfehlung=p.empfehlungVorlage;
   saveBeg(_cur); refreshPunkt(ai,pi);
 };
 window.prSetAntwortRaw=function(ai,pi,v){
@@ -912,29 +1024,49 @@ function refreshPunkt(ai,pi){
 
 /* Fotos */
 var _prPhotoInput=null, _photoTarget=null;
-window.prAddFoto=function(ai,pi){
-  _photoTarget={ai:ai,pi:pi};
+/* Datei-Auswahl. quelle='kamera' erzwingt die Kamera, 'galerie' öffnet die
+   Mediathek und erlaubt Mehrfachauswahl (Feedback 25.07.2026 — am Handy war
+   bisher NUR die Kamera erreichbar).
+   KRITISCH (iOS): Der Input MUSS im DOM hängen. WebKit sammelt einen detached
+   Input ein, während die Kamera offen ist → das change-Event feuert nie und
+   das Foto ist still weg. */
+function prPickFiles(quelle, multiple, cb){
   if(_prPhotoInput && _prPhotoInput.parentNode){ try{_prPhotoInput.parentNode.removeChild(_prPhotoInput);}catch(e){} }
   _prPhotoInput=null;
   var inp=document.createElement('input');
-  inp.type='file'; inp.accept='image/*'; inp.setAttribute('capture','environment');
+  inp.type='file'; inp.accept='image/*';
+  if(quelle==='kamera') inp.setAttribute('capture','environment');
+  if(multiple) inp.multiple=true;
   inp.style.cssText='position:fixed;top:-100px;left:-100px;width:1px;height:1px;opacity:0;pointer-events:none';
   inp.onchange=function(){
-    var file=inp.files&&inp.files[0];
+    var files=Array.prototype.slice.call(inp.files||[]);
     if(inp.parentNode){ try{inp.parentNode.removeChild(inp);}catch(e){} }
     if(_prPhotoInput===inp) _prPhotoInput=null;
-    if(!file) return;
-    if(file.size>10*1024*1024){ GemaDialog.alert({title:'Datei zu gross',message:'Maximal 10 MB Originalgrösse.'}); return; }
-    prResizeStoreFoto(file);
+    if(!files.length) return;
+    var zuGross=files.filter(function(f){ return f.size>10*1024*1024; }).length;
+    files=files.filter(function(f){ return f.size<=10*1024*1024; });
+    if(zuGross) GemaDialog.alert({title:'Datei zu gross',message:zuGross+' Bild(er) über 10 MB wurden übersprungen.'});
+    if(files.length) cb(files);
   };
   document.body.appendChild(inp); _prPhotoInput=inp; inp.click();
+}
+window.prAddFoto=function(ai,pi,quelle){
+  _photoTarget={ai:ai,pi:pi};
+  prPickFiles(quelle||'kamera', quelle==='galerie', function(files){
+    /* seriell, damit die Reihenfolge der Auswahl erhalten bleibt */
+    (function next(i){
+      if(i>=files.length) return;
+      prResizeStoreFoto(files[i], function(){ next(i+1); });
+    })(0);
+  });
 };
-function prResizeStoreFoto(file){
+/* Bild verkleinern → dataUrl (JPEG). cb(dataUrl) bzw. cb(null) bei Fehler. */
+function prResizeToDataUrl(file, cb){
   var reader=new FileReader();
-  reader.onerror=function(){ GemaDialog.alert({title:'Fehler',message:'Foto konnte nicht gelesen werden.'}); };
+  reader.onerror=function(){ GemaDialog.alert({title:'Fehler',message:'Foto konnte nicht gelesen werden.'}); cb(null); };
   reader.onload=function(e){
     var img=new Image();
-    img.onerror=function(){ GemaDialog.alert({title:'Fehler',message:'Foto-Format nicht unterstützt.'}); };
+    img.onerror=function(){ GemaDialog.alert({title:'Fehler',message:'Foto-Format nicht unterstützt.'}); cb(null); };
     img.onload=function(){
       var maxW=1600, w=img.width, h=img.height;
       if(w>maxW){ h=Math.round(h*maxW/w); w=maxW; }
@@ -942,24 +1074,55 @@ function prResizeStoreFoto(file){
       c.getContext('2d').drawImage(img,0,0,w,h);
       var du=c.toDataURL('image/jpeg',0.82);
       if(du.length>2*1024*1024) du=c.toDataURL('image/jpeg',0.5);
-      if(du.length>2*1024*1024){ GemaDialog.alert({title:'Foto zu gross',message:'Bitte kleineres Bild verwenden.'}); return; }
-      var t=_photoTarget; if(!t||!_cur) return;
-      var begRef=_cur;   // Referenz halten: Upload endet evtl. NACH dem Editor-Schliessen
-      var p=begRef.anlagen[t.ai].punkte[t.pi]; p.fotos=p.fotos||[];
-      var foto={dataUrl:du, kommentar:''}; p.fotos.push(foto); p._open=true;
-      saveBeg(begRef); refreshPunkt(t.ai,t.pi);
-      // Auslagern nach Storage (Record klein halten)
-      if(typeof window.GemaStorage!=='undefined' && GemaStorage.isConfigured && GemaStorage.isConfigured()){
-        var oid=(myOrgId()||'org').replace(/[^A-Za-z0-9_-]/g,'');
-        GemaStorage.uploadDataUrl(du,'pruefliste/'+oid).then(function(res){
-          if(res&&res.url){ foto.url=res.url; delete foto.dataUrl; saveBeg(begRef); }
-        }).catch(function(){});
-      }
+      if(du.length>2*1024*1024){ GemaDialog.alert({title:'Foto zu gross',message:'Bitte kleineres Bild verwenden.'}); cb(null); return; }
+      cb(du);
     };
     img.src=e.target.result;
   };
   reader.readAsDataURL(file);
 }
+/* Base64 nach Storage auslagern (Record klein halten) — best effort. */
+function prOffloadFoto(foto, du, begRef){
+  if(typeof window.GemaStorage==='undefined' || !GemaStorage.isConfigured || !GemaStorage.isConfigured()) return;
+  var oid=(myOrgId()||'org').replace(/[^A-Za-z0-9_-]/g,'');
+  GemaStorage.uploadDataUrl(du,'pruefliste/'+oid).then(function(res){
+    if(res&&res.url){ foto.url=res.url; delete foto.dataUrl; saveBeg(begRef); }
+  }).catch(function(){});
+}
+function prResizeStoreFoto(file, done){
+  prResizeToDataUrl(file, function(du){
+    if(!du){ if(done)done(); return; }
+    var t=_photoTarget; if(!t||!_cur){ if(done)done(); return; }
+    var begRef=_cur;   // Referenz halten: Upload endet evtl. NACH dem Editor-Schliessen
+    var p=begRef.anlagen[t.ai].punkte[t.pi]; p.fotos=p.fotos||[];
+    var foto={dataUrl:du, kommentar:''}; p.fotos.push(foto); p._open=true;
+    saveBeg(begRef); refreshPunkt(t.ai,t.pi);
+    prOffloadFoto(foto, du, begRef);
+    if(done) done();
+  });
+}
+
+/* Titelbild fürs Deckblatt des Berichts */
+window.prTitelbildAdd=function(quelle){
+  if(!_cur) return;
+  prPickFiles(quelle||'kamera', false, function(files){
+    prResizeToDataUrl(files[0], function(du){
+      if(!du||!_cur) return;
+      var begRef=_cur;
+      var bild={dataUrl:du};
+      begRef.titelbild=bild;
+      saveBeg(begRef); refreshTitelbild();
+      prOffloadFoto(bild, du, begRef);
+    });
+  });
+};
+window.prTitelbildDel=function(){
+  if(!_cur) return;
+  GemaDialog.confirm({title:'Titelbild entfernen',message:'Das Titelbild aus dem Bericht entfernen?',confirmLabel:'Entfernen',danger:true}).then(function(ok){
+    if(!ok||!_cur) return;
+    delete _cur.titelbild; saveBeg(_cur); refreshTitelbild();
+  });
+};
 window.prDelFoto=function(ai,pi,fi){ if(!_cur)return; _cur.anlagen[ai].punkte[pi].fotos.splice(fi,1); saveBeg(_cur); refreshPunkt(ai,pi); };
 window.prLightbox=function(src){
   if(!src)return;
@@ -1599,6 +1762,7 @@ function printBericht(b){
     +'.logo img{max-height:18mm;max-width:60mm}.logo .wm{font-size:16pt;font-weight:900;color:'+br.acc+'}'
     +'.coverbar{height:3mm;border-radius:2mm;background:linear-gradient(90deg,'+br.acc+','+br.forest+');margin-bottom:14px}'
     +'h1{font-size:18pt;font-weight:900;margin:8px 0 2px;color:'+br.acc+'}.sub{color:#555;font-size:10pt;margin-bottom:12px}'
+    +'.titelbild{margin:0 0 14px;break-inside:avoid}.titelbild img{width:100%;max-height:95mm;object-fit:cover;border:1px solid #ccc;border-radius:8px;display:block}'
     +'.meta{width:100%;border-collapse:collapse;margin:6px 0 14px}.meta td{padding:4px 8px;font-size:10pt;border-bottom:1px solid #eee;vertical-align:top}.meta td.l{color:#666;width:34%;font-weight:700}'
     +'.sum{display:flex;gap:8px;margin:6px 0 16px;flex-wrap:wrap}.sumb{border:1px solid #ddd;border-radius:8px;padding:6px 12px;font-size:9.5pt}'
     +'.anl{margin:14px 0 6px;border-left:4px solid '+br.acc+';padding:4px 0 4px 10px;break-inside:avoid}.anl h2{font-size:12.5pt;font-weight:900;color:'+br.acc+'}.anl .s{font-size:9pt;color:#666}'
@@ -1621,8 +1785,14 @@ function printBericht(b){
     +'<div class="logo">'+(logo?'<img src="'+E(logo)+'" alt="">':'<span class="wm">GEMA</span>')+'</div></div>';
   h+='<div class="coverbar"></div>';
   h+='<h1>Prüfbericht / Begehung</h1><div class="sub">'+E(b.titel||b.objektName||objName(b.objektId)||'Begehung')+'</div>';
+  /* Titelbild auf dem Deckblatt (Feedback 25.07.2026) */
+  var tbSrc=imgSrc(b.titelbild);
+  if(tbSrc) h+='<div class="titelbild"><img src="'+E(tbSrc)+'" alt=""></div>';
+  var objTypLbl=prObjekttypLabel(b.objekttyp, b.objekttypFrei);
+  var adrPdf=b.objektAdresse || prFreieAdresse(b.freieAdresse);
   h+='<table class="meta">'
-    +'<tr><td class="l">Objekt / Projekt</td><td>'+E(b.objektName||objName(b.objektId)||'—')+(b.objektAdresse?'<br>'+E(b.objektAdresse):'')+'</td></tr>'
+    +'<tr><td class="l">Objekt / Projekt</td><td>'+E(b.objektName||objName(b.objektId)||'Freies Objekt')+(adrPdf?'<br>'+E(adrPdf):'')+'</td></tr>'
+    +(objTypLbl?'<tr><td class="l">Objekttyp</td><td>'+E(objTypLbl)+'</td></tr>':'')
     +'<tr><td class="l">Begehungs-Nr.</td><td>'+E(b.nr||'—')+'</td></tr>'
     +'<tr><td class="l">Datum</td><td>'+E(fmtDatum(b.datum))+'</td></tr>'
     +'<tr><td class="l">Prüfer / Fachperson</td><td>'+E(b.prueferName||'—')+'</td></tr>'
@@ -1704,7 +1874,11 @@ if(document.readyState==='loading') document.addEventListener('DOMContentLoaded'
 /* Test-Hooks */
 window._prHooks={ begVisible:begVisible, stdGlobalMerged:stdGlobalMerged, stdOrgAll:stdOrgAll, effektivePunkte:effektivePunkte,
   vorschlaege:vorschlaegeVisible, saveRec:saveRec, delRec:delRec, cached:cached, POOLS:{STD:STD_POOL,OVR:OVR_POOL,OBJ:OBJ_POOL,BEG:BEG_POOL},
-  rechte:function(){ return {begehung:prCanBegehung(),manage:prCanManageOrg(),super:prIsSuper()}; }, render:render, nextNr:nextNr };
+  rechte:function(){ return {begehung:prCanBegehung(),manage:prCanManageOrg(),super:prIsSuper()}; }, render:render, nextNr:nextNr,
+  aktuelle:function(){ return _cur; }, refreshTitelbild:refreshTitelbild };
+/* Kurzzugriff auf die offene Begehung (Tests + Titelbild-Refresh) */
+window.prCurrent=function(){ return _cur; };
+window.prRefreshTitelbild=refreshTitelbild;
 
 })();
 /* fixLeadingZero (Kanon) */

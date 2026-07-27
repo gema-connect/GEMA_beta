@@ -64,6 +64,77 @@
   let _pending = {};
   let _timer   = null;
 
+  /* ── Outbox: fehlgeschlagene Pushes ueberleben Offline + Reload ──
+     Muster GemaSync-Outbox: schlaegt ein Cloud-Push fehl (offline,
+     Timeout, 5xx), landet der Wert persistent in der Outbox und wird
+     beim naechsten flush()/init() nachgesendet. Ohne das war ein
+     offline gespeicherter Blob-Stand (sb_druckverlust, pm_crbx,
+     Ausschreibungs-Vorlagen …) endgueltig verloren UND der naechste
+     Online-Boot haette ihn mit dem aelteren Cloud-Stand ueberschrieben
+     (stale-while-revalidate-Adopt liest _cache). init()/ensure() legen
+     offene Outbox-Werte deshalb UEBER den Cloud-Stand (lokal gewinnt,
+     bis der Push durch ist). Eintrag: «<module>|<dataKey>» → {v:wert}
+     (v:null = ausstehendes Delete). */
+  const OUTBOX_KEY = 'gema_db_outbox_v1';
+  let _obMem = {};                    // Fallback, falls localStorage-Write scheitert (Quota)
+  function _obRead() {
+    try {
+      const s = localStorage.getItem(OUTBOX_KEY);
+      if (s != null) return JSON.parse(s) || {};
+    } catch (e) {}
+    return _obMem;
+  }
+  function _obWrite(o) {
+    _obMem = o;
+    try {
+      if (Object.keys(o).length) {
+        try { localStorage.setItem(OUTBOX_KEY, JSON.stringify(o)); }
+        catch (e) { localStorage.removeItem(OUTBOX_KEY); }  // Quota → Read faellt auf _obMem
+      } else {
+        localStorage.removeItem(OUTBOX_KEY);
+      }
+    } catch (e) {}
+  }
+  function _obSetOne(mod, key, val) {
+    const o = Object.assign({}, _obRead());
+    o[mod + '|' + key] = { v: val };
+    _obWrite(o);
+  }
+  function _obClearOne(mod, key) {
+    const o = _obRead(), ck = mod + '|' + key;
+    if (!(ck in o)) return;
+    const n = Object.assign({}, o); delete n[ck];
+    _obWrite(n);
+  }
+  /* Offene Outbox-Werte des aktuellen Moduls in den Cache legen (lokal
+     gewinnt ueber Cloud) + Nachsenden planen. keysFilter (optional)
+     beschraenkt auf bestimmte dataKeys (ensure-Pfad). Ein Key, der mit
+     einem ABWEICHENDEN Wert frisch in _pending liegt (echte neuere
+     Eingabe dieser Sitzung), wird nie ueberschrieben — ein blosses
+     Boot-Echo desselben Werts (AutoSave-Restore feuert change-Events →
+     Modul-Save mit identischem Stand) blockiert den Overlay dagegen
+     NICHT, sonst wuerde der stale-while-revalidate-Adopt den Offline-
+     Stand doch noch mit dem aelteren Cloud-Stand ueberschreiben. */
+  function _obOverlay(keysFilter) {
+    if (!_module) return;
+    const ob = _obRead(); let n = 0;
+    for (const ck of Object.keys(ob)) {
+      const i = ck.indexOf('|');
+      if (i <= 0 || ck.slice(0, i) !== _module) continue;
+      const k = ck.slice(i + 1);
+      if (keysFilter && keysFilter.indexOf(k) < 0) continue;
+      const v = (ob[ck] && 'v' in ob[ck]) ? ob[ck].v : null;
+      if (k in _pending) {
+        let same = false;
+        try { same = JSON.stringify(_pending[k]) === JSON.stringify(v); } catch (e) {}
+        if (!same) continue;           // echte neuere Eingabe gewinnt
+      }
+      if (v === null) delete _cache[k]; else _cache[k] = v;
+      n++;
+    }
+    if (n) { clearTimeout(_timer); _timer = setTimeout(() => flush(), 1500); }
+  }
+
   /* ── Debounced Flush → Supabase ────────────────────────────────── */
   function schedule(key, val) {
     _pending[key] = val;
@@ -81,6 +152,17 @@
     if (!_module) return;
     const batch = Object.assign({}, _pending);
     _pending = {};
+    /* Outbox-Eintraege des aktuellen Moduls mitnehmen (Retry) —
+       frische _pending-Werte gewinnen ueber gequeue-te. */
+    const ob = _obRead();
+    for (const ck of Object.keys(ob)) {
+      const i = ck.indexOf('|');
+      if (i > 0 && ck.slice(0, i) === _module) {
+        const k = ck.slice(i + 1);
+        if (!(k in batch)) batch[k] = (ob[ck] && 'v' in ob[ck]) ? ob[ck].v : null;
+      }
+    }
+    if (!Object.keys(batch).length) return;
     let errors = 0;
 
     for (const [k, v] of Object.entries(batch)) {
@@ -93,7 +175,8 @@
             `&data_key=eq.${encodeURIComponent(k)}`,
             { method: 'DELETE', headers: hdrs() }
           );
-          if (!r.ok) { errors++; console.warn('[GemaDB] DELETE Fehler', k, r.status); }
+          if (!r.ok) { errors++; _obSetOne(_module, k, v); console.warn('[GemaDB] DELETE Fehler', k, r.status); }
+          else _obClearOne(_module, k);
 
         } else {
           /* UPSERT — on_conflict im URL-Parameter ist PFLICHT!
@@ -113,17 +196,28 @@
           );
           if (!r.ok) {
             errors++;
+            _obSetOne(_module, k, v);
             console.warn('[GemaDB] UPSERT Fehler', k, r.status, await r.text());
+          } else {
+            _obClearOne(_module, k);
           }
         }
       } catch (e) {
         errors++;
+        _obSetOne(_module, k, v);
         console.warn('[GemaDB] Netzwerk-Fehler', k, e.message);
       }
     }
 
-    if (errors === 0) showBadge('✓ Gespeichert', 'green');
-    else showBadge(`⚠ ${errors} Fehler beim Speichern`, 'red');
+    if (errors === 0) {
+      showBadge('✓ Gespeichert', 'green');
+    } else {
+      /* Lokal ist der Stand gesichert (Cache + Outbox) — nur der Upload
+         steht aus. Automatischer Retry in 30 s (ein Timer, kein Sturm). */
+      showBadge('⚠ Cloud nicht erreichbar — lokal gesichert', 'yellow');
+      clearTimeout(_timer);
+      _timer = setTimeout(() => flush(), 30000);
+    }
   }
 
   /* ── PUBLIC API ────────────────────────────────────────────────── */
@@ -142,7 +236,7 @@
     async init(moduleName, dataKeys) {
       _module = moduleName;
       _cache  = {};
-      if (!Array.isArray(dataKeys) || !dataKeys.length) return;
+      if (!Array.isArray(dataKeys) || !dataKeys.length) { _obOverlay(); return; }
 
       showBadge('⟳ Lade Daten…', 'blue');
       try {
@@ -160,6 +254,7 @@
         if (!r.ok) {
           console.warn('[GemaDB] Lade-Fehler', r.status, await r.text());
           showBadge('⚠ Ladefehler', 'red');
+          _obOverlay();
           return;
         }
         const rows = await r.json();
@@ -172,6 +267,12 @@
         console.warn('[GemaDB] Verbindungsfehler:', e.message);
         showBadge('⚠ Keine Verbindung', 'red');
       }
+      /* Offene Outbox-Werte (offline gespeicherte Aenderungen frueherer
+         Sitzungen) UEBER den Cloud-Stand legen + Nachsenden planen —
+         sonst wuerde der stale-while-revalidate-Adopt der Blob-Module
+         den neueren lokalen Stand mit dem aelteren Cloud-Stand
+         ueberschreiben (Datenverlust). */
+      _obOverlay();
     },
 
     /**
@@ -216,7 +317,7 @@
         const timeoutId = setTimeout(() => controller.abort(), 4000);
         const r = await fetch(url, { headers: hdrs(), signal: controller.signal });
         clearTimeout(timeoutId);
-        if (!r.ok) return;
+        if (!r.ok) { _obOverlay(missing); return; }
         const rows = await r.json();
         rows.forEach(row => {
           if (!(row.data_key in _cache)) {
@@ -226,6 +327,9 @@
       } catch (e) {
         console.warn('[GemaDB] ensure Fehler:', e.message);
       }
+      /* Offene Outbox-Werte der nachgeladenen Keys gewinnen ueber Cloud
+         (nur die missing-Keys — bereits gecachte bleiben unangetastet). */
+      _obOverlay(missing);
     },
 
     /**

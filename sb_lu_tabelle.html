@@ -1250,51 +1250,69 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
         medSel.innerHTML = DEVICE_MEDIA.map(m =>
           `<option value="${m.id}" ${(row.medium||'trinkwasser')===m.id?'selected':''}>${m.label}</option>`
         ).join('');
-        medSel.style.cssText = "font-size:11px;font-weight:700;color:" +
-          (DEVICE_MEDIA.find(m=>m.id===(row.medium||'trinkwasser'))||DEVICE_MEDIA[0]).color + ";";
-
-        const dev = DEVICE_BY_NAME.get(row.deviceName);
-        const q = row.qty || 0;
-        const netzMedium = { enthaertet:'bw', osmose:'ow', regenwasser:'gw', grauwasser:'grau' }[row.medium || 'trinkwasser'] || null;
-        const netzInfo = netzMedium ? (DEVICE_MEDIA.find(m => m.id === (row.medium || 'trinkwasser')) || null) : null;
+        /* Farbe des Medium-Selects setzt paintCells() (eine Wahrheit) */
 
         const kwSpan = document.createElement("span");
         kwSpan.style.cssText = "font-family:var(--mono);font-size:12px;font-weight:700;color:var(--green);text-align:center;";
-        kwSpan.textContent = dev && q && !netzMedium ? (dev.lu_kw > 0 ? String(dev.lu_kw * q) : "–") : "–";
 
         const wwSpan = document.createElement("span");
         wwSpan.style.cssText = "font-family:var(--mono);font-size:12px;font-weight:700;color:var(--red);text-align:center;";
-        wwSpan.textContent = dev && q && !netzMedium ? (dev.lu_ww > 0 ? String(dev.lu_ww * q) : "–") : "–";
 
         const ndSpan = document.createElement("span");
         ndSpan.style.cssText = "font-family:var(--mono);font-size:12px;font-weight:700;color:var(--accent);text-align:center;";
-        ndSpan.textContent = dev && q && !netzMedium ? (dev.lu_nd > 0 ? String(dev.lu_nd * q) : "–") : "–";
 
         // Eigene Spalte pro alternativem Leitungsnetz (Feedback 25.07.2026):
         // EW / OW / RW / GW statt einer Sammel-Spalte «Netz».
         const altSpans = {};
-        for (const altId of ['bw','ow','gw','grau']) {
-          const info = ALT_NETZ_INFO[altId];
-          const sp = document.createElement("span");
-          sp.style.cssText = "font-family:var(--mono);font-size:12px;font-weight:700;text-align:center;color:" +
-            (netzMedium === altId ? info.color : "var(--muted)") + ";";
-          if (dev && q && netzMedium === altId) {
-            sp.textContent = String(dev.lu_total * q);
-            sp.title = info.label + " (" + info.short + ") — LU zählen im eigenen Leitungsnetz";
-          } else {
-            sp.textContent = "–";
-          }
-          altSpans[altId] = sp;
-        }
+        for (const altId of ['bw','ow','gw','grau']) altSpans[altId] = document.createElement("span");
 
         const totalSpan = document.createElement("span");
         totalSpan.style.cssText = "font-family:var(--mono);font-size:13px;font-weight:800;color:var(--text);text-align:right;white-space:nowrap;";
-        if (dev && q) {
-          totalSpan.textContent = String(dev.lu_total * q) + " LU";
-          if (netzInfo) totalSpan.title = netzInfo.label + " — zählt im Medium " + netzInfo.short + ", nicht in KW/WW/ND";
-        } else {
-          totalSpan.textContent = "–";
+
+        // KRITISCH (Feedback 27.07.2026 «Eingabe 10 geht nicht»): Die Ergebnis-
+        // Zellen dieser Zeile werden NUR nachgezeichnet, nie die ganze Liste neu
+        // gebaut. renderDeviceList() leert host.innerHTML — beim Tippen ins
+        // Anzahl-Feld war nach der ersten Ziffer der Fokus weg, die zweite
+        // Ziffer landete im Nichts («10» blieb «1»).
+        function paintCells(){
+          const cur = state.devices[idx] || row;
+          const dev = DEVICE_BY_NAME.get(cur.deviceName);
+          const q = clampNum(cur.qty ?? 0, 0, 1e6);
+          const med = cur.medium || 'trinkwasser';
+          const netzMedium = NETZ_ZU_MEDIUM[med] || null;
+          const netzInfo = netzMedium ? (DEVICE_MEDIA.find(m => m.id === med) || null) : null;
+
+          kwSpan.textContent = dev && q && !netzMedium ? (dev.lu_kw > 0 ? String(dev.lu_kw * q) : "–") : "–";
+          wwSpan.textContent = dev && q && !netzMedium ? (dev.lu_ww > 0 ? String(dev.lu_ww * q) : "–") : "–";
+          ndSpan.textContent = dev && q && !netzMedium ? (dev.lu_nd > 0 ? String(dev.lu_nd * q) : "–") : "–";
+
+          for (const altId of ['bw','ow','gw','grau']) {
+            const info = ALT_NETZ_INFO[altId];
+            const sp = altSpans[altId];
+            sp.style.cssText = "font-family:var(--mono);font-size:12px;font-weight:700;text-align:center;color:" +
+              (netzMedium === altId ? info.color : "var(--muted)") + ";";
+            if (dev && q && netzMedium === altId) {
+              sp.textContent = String(dev.lu_total * q);
+              sp.title = info.label + " (" + info.short + ") — LU zählen im eigenen Leitungsnetz";
+            } else {
+              sp.textContent = "–";
+              sp.removeAttribute("title");
+            }
+          }
+
+          if (dev && q) {
+            totalSpan.textContent = String(dev.lu_total * q) + " LU";
+            if (netzInfo) totalSpan.title = netzInfo.label + " — zählt im Medium " + netzInfo.short + ", nicht in KW/WW/ND";
+            else totalSpan.removeAttribute("title");
+          } else {
+            totalSpan.textContent = "–";
+            totalSpan.removeAttribute("title");
+          }
+
+          medSel.style.cssText = "font-size:11px;font-weight:700;color:" +
+            (DEVICE_MEDIA.find(m => m.id === med) || DEVICE_MEDIA[0]).color + ";";
         }
+        paintCells();
 
         const remove = document.createElement("button");
         remove.className = "iconBtn"; remove.title = "Zeile entfernen"; remove.textContent = "✕";
@@ -1302,16 +1320,16 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
 
         select.addEventListener("change", (e) => {
           state.devices[idx].deviceName = e.target.value;
-          if ((state.devices[idx].qty ?? 0) === 0) state.devices[idx].qty = 1;
-          renderDeviceList(); applyAutoMaxLU(); calcAndRender();
+          if ((state.devices[idx].qty ?? 0) === 0) { state.devices[idx].qty = 1; qty.value = "1"; }
+          paintCells(); refreshDeviceTotalRow(); applyAutoMaxLU(); calcAndRender();
         });
         qty.addEventListener("input", (e) => {
           state.devices[idx].qty = clampNum(e.target.value, 0, 1e6);
-          renderDeviceList(); applyAutoMaxLU(); calcAndRender();
+          paintCells(); refreshDeviceTotalRow(); applyAutoMaxLU(); calcAndRender();
         });
         medSel.addEventListener("change", (e) => {
           state.devices[idx].medium = e.target.value;
-          renderDeviceList(); calcAndRender();
+          paintCells(); refreshDeviceTotalRow(); calcAndRender();
         });
         remove.addEventListener("click", () => {
           if (state.devices.length <= 1) return;
@@ -1335,6 +1353,15 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
       });
 
       host.appendChild(_deviceTotalRow());
+    }
+
+    /* Nur die Total-Fusszeile ersetzen — ohne die Zeilen (und damit den Fokus
+       im gerade bearbeiteten Anzahl-Feld) anzufassen. */
+    function refreshDeviceTotalRow(){
+      const host = $("deviceList"); if (!host) return;
+      const old = host.querySelector(".device-total");
+      const neu = _deviceTotalRow();
+      if (old) host.replaceChild(neu, old); else host.appendChild(neu);
     }
 
     // Kurz-Infos der alternativen Leitungsnetze (Spalten EW/OW/RW/GW)

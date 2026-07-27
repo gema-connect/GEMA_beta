@@ -517,7 +517,13 @@ input::placeholder{color:#cbd5e1}
 
 <script>
 (function(){
+  // ── Storage: per-Record in der Cloud (moduleKey `workspace`, prefix `ws:`) ──
+  // KEY (alter localStorage-Blob) ist NUR noch einmalige Migrations-Quelle:
+  // der frühere Cloud-Pfad (_GemaDB.save ohne _GemaDB.init) war ein No-Op —
+  // Eimer existierten ausschliesslich auf dem Erstell-Gerät.
   var KEY='gema_workspace_v1';
+  var POOL='gema_ws_pool_v1';   // per-Record-Pool-Cache (bindCollection)
+  var MK='workspace', PF='ws:';
   var buckets=[];
   var openTabs=[];
   var activeTab=null;
@@ -882,11 +888,86 @@ input::placeholder{color:#cbd5e1}
     return null;
   }
 
-  // ── Storage ──
-  function load(){try{var r=localStorage.getItem(KEY);if(r)buckets=JSON.parse(r);}catch(e){}}
+  // ── Storage (per-Record via GemaSync; Sichtbarkeit filtert das Rendering) ──
+  // `buckets` hält den GANZEN Pool (auch fremde Orgs/Gast-Eimer — wie früher
+  // der Geräte-Blob); _canSeeBucket filtert an den Render-Stellen.
+  var _snap={};          // id → JSON des zuletzt in die Cloud gepushten Stands
+  var _saveT=null;       // Debounce (Notizen-Editor speichert pro Tastendruck)
+  function _poolRead(){
+    try{ if(typeof GemaSync!=='undefined'&&GemaSync.getCached){ var a=GemaSync.getCached(POOL); if(Array.isArray(a)) return a; } }catch(e){}
+    try{ var r=localStorage.getItem(POOL); if(r){ var d=JSON.parse(r); if(Array.isArray(d)) return d; } }catch(e){}
+    return [];
+  }
+  function load(){
+    buckets=_poolRead().filter(function(b){ return b&&b.id; });
+    // Defensive Normalisierung: ein unvollständiger Cloud-Record (fehlende
+    // Arrays) darf nie den ganzen Workspace-Render abreissen.
+    buckets.forEach(function(b){
+      ['members','modules','activity','beteiligte','notes'].forEach(function(k){ if(!Array.isArray(b[k])) b[k]=b[k]||[]; });
+    });
+    _snap={};
+    buckets.forEach(function(b){ _snap[b.id]=JSON.stringify(b); });
+  }
   function save(){
-    try{localStorage.setItem(KEY,JSON.stringify(buckets));}catch(e){}
-    if(typeof _GemaDB!=='undefined'){try{_GemaDB.save(KEY,JSON.stringify(buckets));}catch(e){}}
+    // Lokal SOFORT durable (Pool-Cache — auch Quelle für index.html-Chips
+    // und den nativen Workspace-Screen) …
+    try{ localStorage.setItem(POOL, JSON.stringify(buckets)); }catch(e){}
+    // … Cloud debounced (Notizen tippen = save() pro Zeichen). Nur GEÄNDERTE
+    // Records gehen raus (Diff gegen _snap) — NIE persistCollection: der Pool
+    // ist org-übergreifend (Gast-Eimer), ein unvollständiger Stand dürfte
+    // fremde Records nie löschen.
+    clearTimeout(_saveT);
+    _saveT=setTimeout(_savePush, 900);
+  }
+  function _savePush(){
+    clearTimeout(_saveT); _saveT=null;
+    if(typeof GemaSync==='undefined'||!GemaSync.saveRecord) return;
+    var ids={};
+    buckets.forEach(function(b){
+      if(!b||!b.id) return;
+      ids[b.id]=1;
+      var j=JSON.stringify(b);
+      if(_snap[b.id]===j) return;
+      _snap[b.id]=j;
+      GemaSync.saveRecord(MK, PF+b.id, JSON.parse(j)).catch(function(){});
+    });
+    // In dieser Sitzung gelöschte Eimer → Cloud-Delete (Sichtbarkeit ändert
+    // sich zur Laufzeit nicht; was aus `buckets` verschwindet, wurde gelöscht)
+    Object.keys(_snap).forEach(function(id){
+      if(ids[id]) return;
+      delete _snap[id];
+      GemaSync.deleteRecord(MK, PF+id).catch(function(){});
+    });
+  }
+  function _saveFlush(){ if(_saveT) _savePush(); }
+  window.addEventListener('pagehide', _saveFlush);
+  document.addEventListener('visibilitychange', function(){ if(document.visibilityState==='hidden') _saveFlush(); });
+
+  // Einmalige Migration: Alt-Blob des Geräts → per-Record-Pool. Läuft NACH
+  // einem erfolgreichen Cloud-Pull (sonst würden Alt-Stände einen bereits
+  // migrierten, neueren Cloud-Stand überdecken). Der Blob wird danach
+  // ENTFERNT — sonst erstünde jeder später gelöschte Eimer beim nächsten
+  // Boot aus dem Blob wieder auf.
+  function _migrateLegacy(){
+    var legacy=null;
+    try{ var r=localStorage.getItem(KEY); if(r) legacy=JSON.parse(r); }catch(e){}
+    if(!Array.isArray(legacy)){ return false; }
+    var have={}; buckets.forEach(function(b){ if(b&&b.id) have[b.id]=1; });
+    var u=_curUser(), moved=0;
+    legacy.forEach(function(b){
+      if(!b||!b.id||have[b.id]) return;
+      // Besitz-Stempel: Alt-Eimer waren gerätelokal → sie gehören der Person,
+      // die sie migriert (createdBy deckt Cross-Device desselben Kontos ab).
+      // ownerOrgId wird bewusst NICHT nachgestempelt — ein alter «privater»
+      // Eimer soll durch die Migration nicht plötzlich der ganzen Org gehören.
+      if(u&&!b.createdBy) b.createdBy=u.id;
+      buckets.push(b); moved++;
+      _snap[b.id]=JSON.stringify(b);
+      if(typeof GemaSync!=='undefined'&&GemaSync.saveRecord) GemaSync.saveRecord(MK, PF+b.id, b).catch(function(){});
+    });
+    try{ localStorage.setItem(POOL, JSON.stringify(buckets)); }catch(e){}
+    try{ localStorage.removeItem(KEY); }catch(e){}
+    return moved>0;
   }
   function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c];});}
 
@@ -1212,7 +1293,7 @@ input::placeholder{color:#cbd5e1}
   };
   window._wsActivateTab=function(id){activeTab=id;render();};
   window._wsOpenBucketPicker=function(){
-    var closed=buckets.filter(function(b){return openTabs.indexOf(b.id)<0;});
+    var closed=buckets.filter(_canSeeBucket).filter(function(b){return openTabs.indexOf(b.id)<0;});
     if(!closed.length){
       var body='<div class="ws-empty-hint" style="padding:24px 0">Alle Eimer sind bereits geöffnet.</div>';
     }else{
@@ -1844,7 +1925,7 @@ input::placeholder{color:#cbd5e1}
       _renderSettings();
       return;
     }
-    if(!activeTab||!buckets.length){
+    if(!activeTab||!buckets.filter(_canSeeBucket).length){
       empty.style.display='';
       content.style.display='none';
       if(notesCol)notesCol.style.display='none';
@@ -2082,11 +2163,33 @@ input::placeholder{color:#cbd5e1}
     var gs=document.getElementById('wsGuestDrawerSection');if(gs)gs.style.display=guestB.length?'':'none';
   }
 
-  // ── Templates (Vorlagen) ──
+  // ── Templates (Vorlagen) — cloud-synct pro ORG (07/2026) ──
+  // Eimer-Vorlagen sind gemeinsame Arbeitspraxis der Firma und lagen
+  // vorher NUR im localStorage des Geräts. Ein Record pro Org
+  // (`wstpl:<orgId>`), localStorage bleibt Lese-Cache; Änderungen sind
+  // Last-Write-Wins (selten gleichzeitig editiert).
   var TPL_KEY='gema_ws_templates_v1';
   var SETTINGS_KEY='gema_ws_settings_v1';
   function loadTemplates(){try{return JSON.parse(localStorage.getItem(TPL_KEY)||'[]');}catch(e){return [];}}
-  function saveTemplates(t){try{localStorage.setItem(TPL_KEY,JSON.stringify(t));}catch(e){}}
+  function saveTemplates(t){
+    try{localStorage.setItem(TPL_KEY,JSON.stringify(t));}catch(e){}
+    try{
+      var oid=_curOrgId();
+      if(oid&&typeof GemaSync!=='undefined'&&GemaSync.saveRecord)
+        GemaSync.saveRecord(MK,'wstpl:'+oid,{orgId:oid,templates:t||[]}).catch(function(){});
+    }catch(e){}
+  }
+  (function(){
+    // Boot-Pull der Org-Vorlagen (Cloud gewinnt)
+    try{
+      var oid=_curOrgId();
+      if(!oid||typeof GemaSync==='undefined'||!GemaSync.loadRecord)return;
+      GemaSync.loadRecord(MK,'wstpl:'+oid).then(function(rec){
+        if(!rec||!rec.data||!Array.isArray(rec.data.templates))return;
+        try{localStorage.setItem(TPL_KEY,JSON.stringify(rec.data.templates));}catch(e){}
+      }).catch(function(){});
+    }catch(e){}
+  })();
   function loadSettings(){try{return JSON.parse(localStorage.getItem(SETTINGS_KEY)||'{}');}catch(e){return {};}}
   function saveSettingsData(s){try{localStorage.setItem(SETTINGS_KEY,JSON.stringify(s));}catch(e){}}
 
@@ -2411,7 +2514,7 @@ input::placeholder{color:#cbd5e1}
     q=(q||'').trim().toLowerCase();
     if(!q){res.style.display='none';return;}
     var hits=[];
-    buckets.forEach(function(b){
+    buckets.filter(_canSeeBucket).forEach(function(b){
       if(b.name.toLowerCase().indexOf(q)>=0)hits.push({type:'bucket',id:b.id,name:b.name,sub:(TYPES[b.type]||TYPES.project).label,icon:TYPES[b.type]?TYPES[b.type].icon:'building'});
     });
     MODULES.forEach(function(m){
@@ -2590,7 +2693,26 @@ input::placeholder{color:#cbd5e1}
   }
 
   // ── Init ──
+  // Stale-while-revalidate: sofort aus dem Pool-Cache rendern, danach
+  // Cloud-Pull (bindCollection) + einmalige Legacy-Blob-Migration.
   load();loadTabs();render();
+  (function(){
+    if(typeof GemaSync==='undefined'||!GemaSync.bindCollection) return;
+    GemaSync.bindCollection(MK, POOL, PF, 'id').then(function(){
+      // Ungespeicherte lokale Änderung unterwegs? Dann den frischen Stand
+      // nicht adoptieren (der Push läuft gleich; nächster Boot pullt neu).
+      if(_saveT) { _migrateLegacy(); }
+      else { load(); _migrateLegacy(); render(); }
+      // Native Handy-Screen liest den Pool nur beim Render — nach dem
+      // asynchronen Pull/der Migration explizit auffrischen, sonst bleibt
+      // die Eimer-Liste dort bis zur nächsten Interaktion leer.
+      try{ if(window._wsNatRefresh) window._wsNatRefresh(); }catch(e){}
+    }).catch(function(){});
+  })();
+  // Test-/Cross-Modul-Hooks (Leser in index.html/pm_objekte + Native-Screen)
+  window._wsHooks={ pool:_poolRead, canSee:_canSeeBucket, buckets:function(){return buckets;},
+    save:save, flush:_saveFlush, migrate:_migrateLegacy, load:function(){load();render();},
+    templates:{load:function(){return loadTemplates();}, save:function(t){saveTemplates(t);}} };
   initResize('wsResizeSidebar','wsSidebar','left');
   initResize('wsResizeNotes','wsNotesCol','right');
 })();
@@ -2676,7 +2798,13 @@ document.addEventListener('DOMContentLoaded',function(){
     var rap=pool('gema_regie_pool_v1').filter(function(r){ return r.orgId===u.orgId&&(r.status==='entwurf'||r.status==='eingereicht'); }).length;
     return {std:(Math.round(min/6)/10).toFixed(1).replace('.',','),eins:eins,pruef:pruef,rap:rap};
   }
-  function buckets(){ try{ var r=localStorage.getItem('gema_workspace_v1'); if(r){ var d=JSON.parse(r); if(Array.isArray(d)) return d; } }catch(e){} return []; }
+  function buckets(){
+    // per-Record-Pool (Haupt-IIFE) inkl. Sichtbarkeits-Filter; der alte
+    // Geräte-Blob bleibt Fallback für den Boot-Moment vor der Migration.
+    try{ if(window._wsHooks) return _wsHooks.pool().filter(_wsHooks.canSee); }catch(e){}
+    try{ var r=localStorage.getItem('gema_ws_pool_v1')||localStorage.getItem('gema_workspace_v1'); if(r){ var d=JSON.parse(r); if(Array.isArray(d)) return d; } }catch(e){}
+    return [];
+  }
   var TYP_IC={bauprojekt:'🏗',uebung:'🎓',privat:'👤',team:'👥'};
   function render(root){
     var k=kpis(), u=user();
@@ -2721,6 +2849,8 @@ document.addEventListener('DOMContentLoaded',function(){
     });
   }
   nat=GemaNativeMobil.mount({render:render});
+  // Auffrisch-Hook für die Haupt-IIFE (nach Cloud-Pull/Legacy-Migration)
+  window._wsNatRefresh=function(){ try{ if(nat) nat.refresh(); }catch(e){} };
 })();
 </script>
 </body>

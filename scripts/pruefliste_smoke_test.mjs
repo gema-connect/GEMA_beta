@@ -57,7 +57,10 @@ try {
   ok('Punkt trägt Quelle global', anl.punkte[0].quelle === 'global');
   ok('Snapshot: antworttyp + empfehlungVorlage vorhanden', anl.punkte.some(p => p.empfehlungVorlage));
 
-  console.log('■ Punkt beantworten → Auto-Bewertung + Empfehlung');
+  /* Feedback 25.07.2026: Der Zustand wird NICHT mehr aus der Antwort
+     abgeleitet — er bleibt leer, bis die Fachperson ihn wählt. Die
+     Empfehlungs-Vorlage greift weiterhin bei mangelverdächtiger Antwort. */
+  console.log('■ Punkt beantworten → kein Auto-Zustand, aber Empfehlung');
   const idxJa = await page.evaluate(() => {
     const b = window._prHooks.cached(window._prHooks.POOLS.BEG)[0];
     return b.anlagen[0].punkte.findIndex(p => p.antworttyp === 'ja_nein_nb');
@@ -66,7 +69,7 @@ try {
   begs = await page.evaluate(() => window._prHooks.cached(window._prHooks.POOLS.BEG));
   const pAns = begs[0].anlagen[0].punkte[idxJa];
   ok('Antwort = nein', pAns.antwort === 'nein');
-  ok('Auto-Bewertung = schlecht', pAns.bewertung === 'schlecht');
+  ok('Zustand bleibt «nicht bewertet» (kein Auto-Zustand)', pAns.bewertung === 'nicht_bewertet');
   ok('Empfehlung aus Vorlage vorbefüllt', !!pAns.empfehlung && pAns.empfehlung === pAns.empfehlungVorlage);
 
   console.log('■ «Prüfpunkt ergänzen» — Bemerkung, Duplikat-Hinweis, nur Begehung');
@@ -142,7 +145,7 @@ try {
   ok('vorhanden_nb-Punkt vorhanden (Rückflussverhinderer)', vi.pi >= 0);
   await page.evaluate(v => window.prSetAntwort(v.ai, v.pi, 'vorhanden'), vi);
   let vp = await page.evaluate(v => window._prHooks.cached(window._prHooks.POOLS.BEG)[0].anlagen[v.ai].punkte[v.pi], vi);
-  ok('vorhanden → Zustand automatisch gut', vp.bewertung === 'gut');
+  ok('vorhanden → Zustand bleibt offen (kein Auto-Zustand)', vp.bewertung === 'nicht_bewertet');
   await page.evaluate(v => window.prSetAntwort(v.ai, v.pi, 'nicht_vorhanden'), vi);
   vp = await page.evaluate(v => window._prHooks.cached(window._prHooks.POOLS.BEG)[0].anlagen[v.ai].punkte[v.pi], vi);
   ok('nicht vorhanden → Zustand NICHT schlecht (nicht_bewertet)', vp.bewertung === 'nicht_bewertet');

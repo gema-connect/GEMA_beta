@@ -806,17 +806,34 @@ var CALC_SK='gema_druckverlust_v2';
 
 function getCalcSK(){return(typeof GemaObjekte!=='undefined')?GemaObjekte.storageKey(CALC_SK):CALC_SK;}
 
+// Cloud-Persistenz (07/2026): der frühere `_GemaDB.put`-Aufruf war ein
+// No-Op — die Funktion existiert in gema_db.js nicht, und die Seite rief
+// nie `_GemaDB.init`. Die Teilstrecken-Berechnungen lebten damit NUR im
+// localStorage des Geräts. Jetzt: `_GemaDB.init('druckverlust',[Keys])`
+// beim Boot (lädt den Cloud-Stand in `_GemaDB.c`), Save via `_GemaDB.save`
+// (debounced Cloud-Push), Lesen bevorzugt den Cloud-Cache.
 function saveAllCalcs(){
-  try{var json=JSON.stringify({calcs:allCalcs,activeId:activeCalcId});localStorage.setItem(getCalcSK(),json);if(typeof _GemaDB!=='undefined')_GemaDB.put(getCalcSK(),json).catch(function(){});}catch(e){}
+  try{
+    var json=JSON.stringify({calcs:allCalcs,activeId:activeCalcId});
+    localStorage.setItem(getCalcSK(),json);
+    if(typeof _GemaDB!=='undefined'){try{_GemaDB.save(getCalcSK(),json);}catch(e){}}
+  }catch(e){}
+}
+function _calcRaw(key){
+  // Cloud-Cache zuerst (nach init/ensure der frische Stand), localStorage
+  // als Fallback (offline / vor dem ersten Pull).
+  try{if(typeof _GemaDB!=='undefined'&&_GemaDB.c&&_GemaDB.c[key]!=null)return _GemaDB.c[key];}catch(e){}
+  try{return localStorage.getItem(key);}catch(e){return null;}
 }
 function loadAllCalcs(){
+  allCalcs=[];activeCalcId=null;
   try{
-    var r=localStorage.getItem(getCalcSK());
+    var r=_calcRaw(getCalcSK());
     if(r){var d=JSON.parse(r);allCalcs=d.calcs||[];activeCalcId=d.activeId||null;}
   }catch(e){}
   // Fallback: try old global key
   if(!allCalcs.length){
-    try{var g=localStorage.getItem(CALC_SK);if(g){var d=JSON.parse(g);allCalcs=d.calcs||[];activeCalcId=d.activeId||null;}}catch(e){}
+    try{var g=_calcRaw(CALC_SK);if(g){var d=JSON.parse(g);allCalcs=d.calcs||[];activeCalcId=d.activeId||null;}}catch(e){}
   }
   if(!allCalcs.length){
     // Create default calculation
@@ -1489,8 +1506,31 @@ document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('druc
   window.onObjektSelect=onObjektSelect;
   window.toggleObjektInput=toggleObjektInput;
   window.populateObjektDropdown=populateObjektDropdown;
-  document.addEventListener('DOMContentLoaded',function(){loadMeta();populateObjektDropdown();loadAllCalcs();renderCalcTabs();render();if(typeof GemaAutoSave!=='undefined') GemaAutoSave.init('druckverlust');});
+  document.addEventListener('DOMContentLoaded',function(){
+    loadMeta();populateObjektDropdown();loadAllCalcs();renderCalcTabs();render();
+    if(typeof GemaAutoSave!=='undefined') GemaAutoSave.init('druckverlust');
+    // Cloud-Pull (stale-while-revalidate): erst lokal rendern (oben), dann
+    // den Cloud-Stand laden und übernehmen — nur solange der Nutzer noch
+    // nichts geändert hat (sonst gewinnt die frische lokale Eingabe).
+    if(typeof _GemaDB!=='undefined'&&_GemaDB.init){
+      var _sigVorPull=JSON.stringify({calcs:allCalcs,activeId:activeCalcId});
+      _GemaDB.init('druckverlust',[...new Set([CALC_SK,getCalcSK()])]).then(function(){
+        var jetzt=JSON.stringify({calcs:allCalcs,activeId:activeCalcId});
+        if(jetzt!==_sigVorPull) return;              // lokale Änderung unterwegs
+        var cloud=_GemaDB.c&&_GemaDB.c[getCalcSK()];
+        if(cloud&&cloud!==jetzt){ loadAllCalcs();renderCalcTabs();render(); }
+      }).catch(function(){});
+    }
+  });
   window.addEventListener('gema-objekte-loaded',function(){populateObjektDropdown();if(typeof GemaAutoSave!=='undefined') GemaAutoSave.init('druckverlust');});
+  // Objektwechsel zur Laufzeit: neuen per-Objekt-Key nachladen (ensure lädt
+  // nur fehlende Keys — bereits gecachte werden nie überschrieben), dann die
+  // Berechnungen des neuen Objekts übernehmen.
+  window.addEventListener('gema-objekt-changed',function(){
+    if(typeof _GemaDB!=='undefined'&&_GemaDB.ensure){
+      _GemaDB.ensure([getCalcSK()]).then(function(){ loadAllCalcs();renderCalcTabs();render(); }).catch(function(){});
+    } else { loadAllCalcs();renderCalcTabs();render(); }
+  });
   ['metaProjekt','metaBearbeiter','metaDatum'].forEach(function(id){var el=document.getElementById(id);if(el)el.addEventListener('input',saveMeta);});
 })();
 </script>

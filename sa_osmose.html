@@ -1840,7 +1840,30 @@ document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('osmo
   }
   function _saveLUOverrides(objektId){
     try{ localStorage.setItem(_luOverrideKey(objektId), JSON.stringify(_luRowOverrides)); }catch(e){}
+    // Cloud-Spiegel (07/2026): ohne die Marker überschreibt _prefillFromLU
+    // auf einem ZWEITGERÄT die manuell angepassten Werte wieder mit LU-Daten
+    // (die Feld-WERTE kommen via AutoSave-Cloud an, die Marker vorher nicht).
+    try{
+      if(typeof GemaSync!=='undefined'&&GemaSync.saveRecord)
+        GemaSync.saveRecord('osmose', _luOverrideKey(objektId), _luRowOverrides).catch(function(){});
+    }catch(e){}
   }
+  // Boot-Pull der Override-Marker (Cloud → localStorage, vor den
+  // verzögerten _prefillFromLU-Läufen; Cloud gewinnt)
+  (function(){
+    function pull(){
+      try{
+        if(typeof GemaSync==='undefined'||!GemaSync.loadCollection)return;
+        GemaSync.loadCollection('osmose','gema_osmose_lu_overrides_v1__').then(function(rows){
+          (rows||[]).forEach(function(r){
+            if(r&&r.key&&r.data!=null){ try{localStorage.setItem(r.key,JSON.stringify(r.data));}catch(e){} }
+          });
+        }).catch(function(){});
+      }catch(e){}
+    }
+    if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',function(){setTimeout(pull,300);});
+    else setTimeout(pull,300);
+  })();
 
   function _prefillFromLU(objektId){
     var bar = document.getElementById('luInfoBar');
