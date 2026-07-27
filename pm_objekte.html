@@ -2148,7 +2148,26 @@ function _objScrubEverywhere(id, betIds){
   //    ersteht beim nächsten Diff wieder auf)
   _objArrRemove('gema_objpool_v1', id);
   (betIds||[]).forEach(function(bid){ _objArrRemove('gema_betpool_v1', bid); });
-  // 3) Resurrection-Loop brechen: Workspace-Eimer entkoppeln
+  // 3) Resurrection-Loop brechen: Workspace-Eimer entkoppeln.
+  //    Eimer liegen per-Record in der Cloud (Pool gema_ws_pool_v1, ws:) —
+  //    geänderte Records mitpushen, sonst legt ein Zweitgerät das Objekt
+  //    beim nächsten Eimer-Öffnen wieder an. Der alte Geräte-Blob wird
+  //    (solange noch nicht migriert) weiterhin lokal bereinigt.
+  try{
+    var wsPool=null;
+    try{ if(typeof GemaSync!=='undefined'&&GemaSync.getCached) wsPool=GemaSync.getCached('gema_ws_pool_v1'); }catch(e){}
+    if(!Array.isArray(wsPool)||!wsPool.length){ var wr=localStorage.getItem('gema_ws_pool_v1'); wsPool=wr?JSON.parse(wr):[]; }
+    if(Array.isArray(wsPool)){
+      var wchanged=false;
+      wsPool.forEach(function(b){
+        if(b&&b.objektId===id){
+          b.objektId=null; wchanged=true;
+          try{ if(typeof GemaSync!=='undefined'&&GemaSync.saveRecord) GemaSync.saveRecord('workspace','ws:'+b.id,b).catch(function(){}); }catch(e){}
+        }
+      });
+      if(wchanged) localStorage.setItem('gema_ws_pool_v1', JSON.stringify(wsPool));
+    }
+  }catch(e){}
   try{
     var ws=JSON.parse(localStorage.getItem('gema_workspace_v1')||'[]');
     if(Array.isArray(ws)){
@@ -2211,11 +2230,18 @@ window.deleteObjektById=deleteObjektById;
 // Pro Zeile Herkunft + Direkt-Löschen (nutzt deleteObjektById → Hard-Cleanup).
 // ════════════════════════════════════════════════════════════════════
 function _objWorkspaceRefs(){
-  // id → [Eimer-Namen]  (gema_workspace_v1 ist geräte-lokal)
+  // id → [Eimer-Namen]  (per-Record-Pool gema_ws_pool_v1; der alte
+  // Geräte-Blob bleibt Fallback für noch nicht migrierte Geräte)
   var map={};
+  function addAll(arr){
+    (Array.isArray(arr)?arr:[]).forEach(function(b){ if(b&&b.objektId){ (map[b.objektId]=map[b.objektId]||[]).push(b.name||'Eimer'); } });
+  }
   try{
-    var ws=JSON.parse(localStorage.getItem('gema_workspace_v1')||'[]');
-    (Array.isArray(ws)?ws:[]).forEach(function(b){ if(b&&b.objektId){ (map[b.objektId]=map[b.objektId]||[]).push(b.name||'Eimer'); } });
+    var pool=null;
+    try{ if(typeof GemaSync!=='undefined'&&GemaSync.getCached) pool=GemaSync.getCached('gema_ws_pool_v1'); }catch(e){}
+    if(!Array.isArray(pool)||!pool.length){ var r=localStorage.getItem('gema_ws_pool_v1'); pool=r?JSON.parse(r):[]; }
+    addAll(pool);
+    addAll(JSON.parse(localStorage.getItem('gema_workspace_v1')||'[]'));
   }catch(e){}
   return map;
 }

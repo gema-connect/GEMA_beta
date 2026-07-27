@@ -124,7 +124,7 @@ await p1.locator('#wsOrgBuckets .ws-bucket-row', { hasText: 'Neubau Testweg 7' }
 await p1.locator('.ws-ctx button', { hasText: 'Duplizieren' }).click();
 await p1.waitForTimeout(250);
 const dup = await p1.evaluate(() => {
-  const buckets = JSON.parse(localStorage.getItem('gema_workspace_v1') || '[]');
+  const buckets = (window._wsHooks && window._wsHooks.buckets()) || JSON.parse(localStorage.getItem('gema_ws_pool_v1') || '[]');
   const orig = buckets.find(b => b.name === 'Neubau Testweg 7');
   const copy = buckets.find(b => b.name === 'Neubau Testweg 7 (Kopie)');
   return {
@@ -153,7 +153,7 @@ ok(delModal && delModal.danger, 'Bestätigungs-Modal hat den roten Löschen-Butt
 await p1.locator('.ws-modal .ws-btn-danger').click();
 await p1.waitForTimeout(250);
 const afterDel = await p1.evaluate(() => {
-  const buckets = JSON.parse(localStorage.getItem('gema_workspace_v1') || '[]');
+  const buckets = (window._wsHooks && window._wsHooks.buckets()) || JSON.parse(localStorage.getItem('gema_ws_pool_v1') || '[]');
   const toast = (document.querySelector('#wsToastRoot .ws-toast') || {}).textContent || '';
   return { n: buckets.length, names: buckets.map(b => b.name), toast };
 });

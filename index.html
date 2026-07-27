@@ -492,7 +492,25 @@ body {
     if(!canWorkspace) return;
     var bar = document.getElementById('wsBar');
     if(bar) bar.style.display = 'flex';
-    var b=JSON.parse(localStorage.getItem('gema_workspace_v1')||'[]');
+    // Workspace-Eimer liegen per-Record in der Cloud (Pool-Cache
+    // gema_ws_pool_v1); der alte Geräte-Blob bleibt Fallback, bis
+    // sys_workspace ihn migriert hat. Der Pool ist org-übergreifend →
+    // hier dieselbe Sichtbarkeits-Regel wie _canSeeBucket im Workspace.
+    var b=[];
+    try{ if(typeof GemaSync!=='undefined'&&GemaSync.getCached){ var a=GemaSync.getCached('gema_ws_pool_v1'); if(Array.isArray(a)) b=a; } }catch(e){}
+    if(!b.length){ try{ b=JSON.parse(localStorage.getItem('gema_ws_pool_v1')||localStorage.getItem('gema_workspace_v1')||'[]'); }catch(e){} }
+    var u=null; try{ u=GemaAuth.getCurrentUser(); }catch(e){}
+    var uid=u&&u.id, oid=u&&u.orgId;
+    b=(Array.isArray(b)?b:[]).filter(function(x){
+      if(!x) return false;
+      if(!uid) return true;
+      if(x.ownerType==='personal') return x.createdBy===uid;
+      var ac=x.accessControl||{};
+      if((ac.revokedUsers||[]).indexOf(uid)>=0) return false;
+      if(x.ownerOrgId===oid) return true;
+      if((ac.invitedUsers||[]).indexOf(uid)>=0) return true;
+      return x.createdBy===uid;
+    });
     if(!b.length)return;
     var icons={project:'🏗',training:'🎓','private':'🔒',shared:'👥'};
     var recent=b.slice(-3).reverse();
