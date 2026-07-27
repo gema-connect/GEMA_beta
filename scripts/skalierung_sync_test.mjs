@@ -58,7 +58,9 @@ console.log('— 0) Statische Verdrahtung —');
   ok(erp.includes('GemaEditLock.stop()'), 'pm_erp: stop in erpCloseEditor');
 
   const sw = readFileSync(join(ROOT, 'sw.js'), 'utf8');
-  ok(sw.includes("'gema-v368'"), 'sw.js: Cache-Version v368');
+  // Version NICHT festnageln — sie wird bei jeder Änderung hochgezogen; hier
+  // zählt nur, dass überhaupt eine Cache-Version gesetzt ist.
+  ok(/gema-v\d+/.test(sw), 'sw.js: Cache-Version gesetzt (' + ((sw.match(/gema-v\d+/) || [])[0] || '?') + ')');
   ok(sw.includes('/gema_editlock.js'), 'sw.js: gema_editlock.js im Cache');
 }
 

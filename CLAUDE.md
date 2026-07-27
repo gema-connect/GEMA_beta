@@ -2604,7 +2604,7 @@ Umsetzung der Review-Befunde S2–S7 + S1-Register-Drossel (Branch `claude/secur
 
 **Vorher** (`saveOrgs` / `saveUsers`): Das gesamte Array wurde als JSON-Blob in eine einzige Supabase-Row mit `merge-duplicates` geschrieben. Folge:
 1. **Org-Admin verschwindet am Tag danach**: Gerät A macht User X zum Admin → Cloud aktualisiert. Gerät B mit altem Cache (User X = nicht-Admin) macht eine Mini-Änderung → schreibt das ganze Array zurück → Admin-Status weg.
-2. **Alle User plötzlich in Admin-Org**: Bei leerem localStorage schrieb `_initDefaults` `DEFAULT_USERS` (1 User: `admin@gema.ch` mit `orgId='org_default'`) lokal. Wenn vor dem async Cloud-Fetch ein Save lief, ging die Default-Liste in die Cloud → alle echten User weg.
+2. **Alle User plötzlich in Admin-Org**: Bei leerem localStorage schrieb `_initDefaults` damals einen Default-User (`orgId='org_default'`) lokal — dieser Seed ist seit 27.07.2026 entfernt (siehe «Kein Default-Benutzer im Code»). Wenn vor dem async Cloud-Fetch ein Save lief, ging die Default-Liste in die Cloud → alle echten User weg.
 
 **Jetzt**: per-Record. Gerät A speichert nur `user:userX` mit dem Admin-Flag. Andere User-Records in der Cloud sind unangetastet. Gerät B mit altem Cache hat User X immer noch nicht-Admin lokal — aber beim nächsten Bootstrap überschreibt der Cloud-Load den lokalen Cache (Cloud gewinnt). User-X-Admin bleibt.
 
@@ -2808,7 +2808,17 @@ Bewusst NICHT umgestellt (geprüft, ok): sb_grobauslegung (kein Objekt-Dropdown 
 
 ### Bootstrap-Defaults (kein Demo-Daten)
 
-`DEFAULT_ORGS` enthält **nur** `org_default` (GEMA-Org), `DEFAULT_USERS` enthält **nur** `admin@gema.ch` (Passwort: `gema2025`). DEFAULTS werden nur lokal beim allerersten Aufruf befüllt — nie nach Cloud gepusht. Sobald die Cloud antwortet, gewinnt sie und überschreibt den lokalen Cache.
+`DEFAULT_ORGS` enthält **nur** `org_default` (GEMA-Org) und `DEFAULT_ROLES` die System-Rollen. **Benutzer haben KEINE Defaults** — siehe «Kein Default-Benutzer im Code». DEFAULTS werden nur lokal beim allerersten Aufruf befüllt — nie nach Cloud gepusht. Sobald die Cloud antwortet, gewinnt sie und überschreibt den lokalen Cache.
+
+### Kein Default-Benutzer im Code (Sicherheits-Bereinigung 27.07.2026)
+
+`gema_auth.js` enthielt bis dahin ein `DEFAULT_USERS`-Array mit genau einem Eintrag: `admin@gema.ch` und dem Passwort **im Klartext im Quelltext**. Da die Datei an jeden Browser ausgeliefert wird, war diese Zugangsdatei über den Seitenquelltext öffentlich lesbar — unabhängig davon, ob das Repository privat ist. Über den **Legacy-Login-Pfad** (`GemaAuth.login`, greift wenn die `gema-auth`-Function 404/5xx liefert) war das ein funktionierender Admin-Zugang; `_mergeWithDefaults` schrieb den Datensatz nach jedem Cloud-Load wieder in den lokalen Cache, auch wenn er in der Cloud gar nicht existierte.
+
+**Entfernt** wurden: die Konstante, das Seeding in `_initDefaults`, der Benutzer-Zweig in `_mergeWithDefaults`, die drei `||DEFAULT_USERS`-Fallbacks (jetzt `||[]` wie an allen anderen ~28 Stellen), der Seed-Bezug in `_isOnlyDefaults` und die verwaiste `admins:['user_admin']`-Referenz in `DEFAULT_ORGS`. **Die Login-Logik ist unverändert** — `loginAsync` läuft weiter Function-first mit Legacy-Fallback, nur ohne mitgeliefertes Konto.
+
+**Benutzer entstehen ausschliesslich serverseitig** über `netlify/functions/gema-auth.js`: `register` (Erstinstallation, nur mit `GEMA_REGISTRATION_OPEN=1`), `activate` (Einladungs-Token) und `persist_auth` (Anlage durch einen Admin). Das Passwort liegt immer im geschützten `cred:`-Record. **Erstinstallation auf einer leeren Datenbank**: `GEMA_REGISTRATION_OPEN=1` setzen, das erste Admin-Konto über die Registrierung anlegen, Variable wieder auf `0` — oder den `user:`- plus `cred:`-Record direkt per SQL einsetzen. Drift-Guard: `node scripts/kein_default_admin_test.mjs` (kein Browser nötig; failt bei jedem neuen hartcodierten Passwort in `.js`/`.html`/`.mjs`).
+
+**Folge für Tests**: Wer eine Session seedet, muss den Benutzer auch in `gema_users_v1` legen — der Boot-Check gleicht die Sitzung gegen den lokalen Cache ab, der Cloud-Pull läuft asynchron (`scripts/rollen_kategorien_test.mjs` als Muster). Der `seed()`-Helper in `scripts/rolematrix_harness.mjs` tut das bereits.
 
 ### Backup-Snapshots (entfallen)
 

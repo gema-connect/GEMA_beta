@@ -51,9 +51,10 @@
 
   // Lade alle Records einer Collection aus der Cloud, schreibe Cache.
   // Liefert Promise<Array> oder reject bei Netz-Fehler.
-  // Mergt DEFAULTS rein: System-Eintraege (DEFAULT_ROLES, DEFAULT_ORGS,
-  // DEFAULT_USERS), deren ID NICHT in der Cloud existiert, bleiben lokal
-  // erhalten. Cloud-Versionen einer ID gewinnen (Override moeglich).
+  // Mergt DEFAULTS rein: System-Eintraege (DEFAULT_ROLES, DEFAULT_ORGS),
+  // deren ID NICHT in der Cloud existiert, bleiben lokal erhalten.
+  // Cloud-Versionen einer ID gewinnen (Override moeglich). Fuer BENUTZER
+  // gibt es bewusst keine Defaults.
   function _loadCollectionFromCloud(storageKey){
     var def = _COLL[storageKey];
     if(!def || !_S()) return Promise.resolve(null);
@@ -82,9 +83,10 @@
   // DEFAULT-IDs, die NICHT in der Cloud sind, werden lokal ergaenzt.
   function _mergeWithDefaults(storageKey, cloudArr){
     cloudArr = Array.isArray(cloudArr) ? cloudArr.slice() : [];
+    // Benutzer haben KEINE Defaults (siehe oben) — sie kommen ausschliesslich
+    // aus der Cloud bzw. über die gema-auth-Function.
     var defaults = storageKey === STORAGE_ROLES ? DEFAULT_ROLES
                 : storageKey === STORAGE_ORGS  ? DEFAULT_ORGS
-                : storageKey === STORAGE_USERS ? DEFAULT_USERS
                 : null;
     if(!defaults || !defaults.length) return cloudArr;
     var have = {};
@@ -489,7 +491,7 @@
     settings:{waehrung:'CHF',land:'CH',sichtbarkeit:'organisation',abteilungenAktiv:false},
     abteilungen:[],
     lizenzen:{typ:'pool',maxUser:50,aktiveUser:1,aboStart:'2025-01-01',aboEnde:'2030-12-31',gewerke:['sanitaer','hlkk','lueftung','elektro']},
-    admins:['user_admin'],
+    admins:[],                 // kein Default-Benutzer mehr (s. unten)
     active:true,
     createdAt:'2025-01-01T08:00:00Z'
   }];
@@ -583,12 +585,17 @@
     return Array.isArray(role.kategorien) ? role.kategorien : _defaultKatsForRole(role.id);
   }
 
-  var DEFAULT_USERS = [
-    {id:'user_admin', username:'admin@gema.ch', name:'Administrator',
-     password:_hash('gema2025'), roleIds:['role_admin'], orgId:'org_default',
-     active:true, createdAt:'2025-01-01T08:00:00Z',
-     profile:{email:'admin@gema.ch',telefon:'',sprache:'de',benachrichtigungen:true,standardObjekt:'',einheiten:'metrisch'}}
-  ];
+  // KEIN Default-Benutzer (Sicherheits-Bereinigung 27.07.2026).
+  // Hier stand bis dahin ein fest eingebauter Administrator mit einem im
+  // Quelltext lesbaren Passwort. Da gema_auth.js an jeden Browser
+  // ausgeliefert wird, war diese Zugangsdatei öffentlich einsehbar — und
+  // über den Legacy-Login-Pfad (greift, wenn die gema-auth-Function nicht
+  // erreichbar ist) ein funktionierender Admin-Zugang.
+  // Benutzer entstehen ausschliesslich über die Netlify-Function
+  // `netlify/functions/gema-auth.js`: `register` (Erstinstallation, nur
+  // solange GEMA_REGISTRATION_OPEN=1), `activate` (Einladung) und
+  // `persist_auth` (Anlage durch einen Admin). Das Passwort liegt dabei
+  // immer im geschützten `cred:`-Record, nie im Code.
 
   // ── Storage ────────────────────────────────────────────────────────
   function _getOrgs()    {try{var r=_readCache(STORAGE_ORGS);   return r?JSON.parse(r):null;}catch(e){return null;}}
@@ -611,7 +618,6 @@
     // existiert, erzeugt keinen Save (Cache stimmt nach _loadCollectionFromCloud).
     if(!_getOrgs()) _writeLocalCache(STORAGE_ORGS, DEFAULT_ORGS);
     if(!_getOrgCats()) try{localStorage.setItem(STORAGE_ORG_CATS,JSON.stringify(DEFAULT_ORG_CATS));}catch(e){}
-    if(!_getUsers()) _writeLocalCache(STORAGE_USERS, DEFAULT_USERS);
     if(!_getRoles()) _writeLocalCache(STORAGE_ROLES, DEFAULT_ROLES);
     // ── Migration: org.kategorie (Einzel) -> org.kategorien (Array) ──
     // Die Unternehmens-Kategorien sind jetzt Mehrfach-Auswahl. Alte Orgs
@@ -1270,7 +1276,7 @@
     if(!session){
       _redirectLogin();
     } else {
-      var users=_getUsers()||DEFAULT_USERS;
+      var users=_getUsers()||[];
       var roles=_getRoles()||DEFAULT_ROLES;
       var orgs=_getOrgs()||DEFAULT_ORGS;
       var user=users.find(function(u){return u.id===session.userId&&u.active;});
@@ -1458,7 +1464,7 @@
       return false;
     },
     login:function(username,password,remember){
-      var users=_getUsers()||DEFAULT_USERS;
+      var users=_getUsers()||[];
       var h=_hash(password);
       var input=username.toLowerCase();
       var user=users.find(function(u){
@@ -1752,12 +1758,11 @@
     _isOnlyDefaults:function(){
       var orgs = _getOrgs() || [];
       var users = _getUsers() || [];
-      // DEFAULTS: 1 default-Org + 5 Demo-Orgs (siehe DEFAULT_ORGS)
+      // DEFAULTS gibt es nur fuer Orgs (siehe DEFAULT_ORGS) — Benutzer
+      // kommen immer aus der Cloud, jeder vorhandene zaehlt also als «echt».
       var defaultOrgIds = DEFAULT_ORGS.map(function(o){return o.id;});
-      var defaultUserIds = DEFAULT_USERS.map(function(u){return u.id;});
       var nonDefaultOrgs = orgs.filter(function(o){ return defaultOrgIds.indexOf(o.id) < 0; });
-      var nonDefaultUsers = users.filter(function(u){ return defaultUserIds.indexOf(u.id) < 0; });
-      return nonDefaultOrgs.length === 0 && nonDefaultUsers.length === 0;
+      return nonDefaultOrgs.length === 0 && users.length === 0;
     },
 
     // ── Einladungssystem ──
