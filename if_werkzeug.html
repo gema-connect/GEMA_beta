@@ -1088,18 +1088,31 @@ window._wzSetLifecycle=function(v){currentLifecycle=v;document.querySelectorAll(
 //          erfasst:{toolId:{ts, userId, name}}, status:'laufend'|'beendet',
 //          beendetAm, beendetReport:{erfasstIds[], missingIds[]}}
 // ─────────────────────────────────────────────────────────────────
+// Inventur-Läufe: cloud-synct per-Record (07/2026) — vorher rein
+// gerätelokal, dabei ist genau das der Handy-und-Desktop-Workflow (mit dem
+// Telefon scannen, am PC den Fortschritt sehen). Pool ist org-übergreifend
+// (gleicher moduleKey wie die Werkzeuge) → NUR saveRecord, nie
+// persistCollection; Lesen filtert auf die eigene Org.
 var _WZ_INV_KEY='gema_werkzeug_inventur_v1';
+function _wzInvOrgOk(x){
+  try{var u=_wzGetUser();return !x.orgId||!u||!u.orgId||x.orgId===u.orgId;}catch(e){return true;}
+}
 function _wzGetActiveInventur(){
   try{var arr=JSON.parse(localStorage.getItem(_WZ_INV_KEY)||'[]');
-    return arr.find(function(x){return x.status==='laufend';})||null;
+    return arr.find(function(x){return x.status==='laufend'&&_wzInvOrgOk(x);})||null;
   }catch(e){return null;}
 }
 function _wzSaveInventur(inv){
   try{
+    if(!inv.orgId){var u=_wzGetUser();if(u&&u.orgId)inv.orgId=u.orgId;}
     var arr=[];try{arr=JSON.parse(localStorage.getItem(_WZ_INV_KEY)||'[]');}catch(e){}
     var idx=arr.findIndex(function(x){return x.id===inv.id;});
     if(idx>=0)arr[idx]=inv;else arr.unshift(inv);
     localStorage.setItem(_WZ_INV_KEY,JSON.stringify(arr.slice(0,30)));
+    try{
+      if(typeof GemaSync!=='undefined'&&GemaSync.saveRecord)
+        GemaSync.saveRecord('werkzeugmanagement','inv:'+inv.id,inv).catch(function(){});
+    }catch(e){}
   }catch(e){}
 }
 window._wzStartInventur=function(){
@@ -6990,6 +7003,25 @@ if(typeof window.GemaSync !== 'undefined'){
 _wzCloudLoaded = true; // ab jetzt: echter "keine Geraete"-Zustand statt Spinner
 // Aktivitaetenlog-Collection laden (im Hintergrund, blockiert UI nicht)
 try{ if(window.GemaActivityLog) window.GemaActivityLog.bootstrap(); }catch(e){}
+// Inventur-Läufe aus der Cloud (im Hintergrund): lokale Alt-Läufe, die die
+// Cloud noch nicht kennt, werden id-idempotent nachgepusht (Migration).
+try{
+  if(typeof window.GemaSync!=='undefined'&&window.GemaSync.bindCollection){
+    var _invLokal=[];try{_invLokal=JSON.parse(localStorage.getItem(_WZ_INV_KEY)||'[]');}catch(e){}
+    window.GemaSync.bindCollection('werkzeugmanagement',_WZ_INV_KEY,'inv:','id').then(function(cloud){
+      cloud=Array.isArray(cloud)?cloud:[];
+      var have={};cloud.forEach(function(x){if(x&&x.id)have[x.id]=1;});
+      var merged=cloud.slice(),moved=false;
+      _invLokal.forEach(function(x){
+        if(!x||!x.id||have[x.id])return;
+        merged.push(x);moved=true;
+        try{window.GemaSync.saveRecord('werkzeugmanagement','inv:'+x.id,x).catch(function(){});}catch(e){}
+      });
+      if(moved){try{localStorage.setItem(_WZ_INV_KEY,JSON.stringify(merged.slice(0,30)));}catch(e){}}
+      try{renderList();}catch(e){}
+    }).catch(function(){});
+  }
+}catch(e){}
 
   load(_wzCloudTools);
   if(!tools.length){

@@ -59,8 +59,56 @@
     return base;
   }
   function _getChosen(cfg){ try { var r = localStorage.getItem(_chosenKey(cfg)); return r ? JSON.parse(r) : null; } catch(e){ return null; } }
-  function _saveChosen(cfg, data){ try { localStorage.setItem(_chosenKey(cfg), JSON.stringify(data)); } catch(e){} }
-  function _clearChosen(cfg){ try { localStorage.removeItem(_chosenKey(cfg)); } catch(e){} }
+  // Cloud-Spiegel (07/2026): die gewählte Anlage ist REALE Projekt-Info
+  // (fliesst u.a. in die Revisionsunterlagen-Sammlung) und lag vorher NUR im
+  // localStorage des wählenden Geräts. Jede Wahl wird als eigener Record
+  // gepusht (moduleKey `anlagenwahl`, data_key `aw:<localStorage-Key>`) und
+  // beim Boot zurück in die localStorage-Keys gespiegelt — ALLE bestehenden
+  // Leser (Module, Revisionsunterlagen, Workspace-Status) lesen unverändert
+  // localStorage. Der Objekt-Lösch-Scan findet die Rows über `*__<oid>*`.
+  function _cloudPush(key, data){
+    try { if(typeof GemaSync !== 'undefined' && GemaSync.saveRecord) GemaSync.saveRecord('anlagenwahl', 'aw:' + key, data).catch(function(){}); } catch(e){}
+  }
+  function _cloudDelete(key){
+    try { if(typeof GemaSync !== 'undefined' && GemaSync.deleteRecord) GemaSync.deleteRecord('anlagenwahl', 'aw:' + key).catch(function(){}); } catch(e){}
+  }
+  function _saveChosen(cfg, data){
+    var key = _chosenKey(cfg);
+    try { localStorage.setItem(key, JSON.stringify(data)); } catch(e){}
+    _cloudPush(key, data);
+  }
+  function _clearChosen(cfg){
+    var key = _chosenKey(cfg);
+    try { localStorage.removeItem(key); } catch(e){}
+    _cloudDelete(key);
+  }
+  // Boot-Pull: alle aw:-Records in die localStorage-Keys spiegeln (Cloud
+  // gewinnt — Muster «Cloud ist die Wahrheit»), danach offene Widgets neu
+  // rendern. Läuft nur auf Seiten, die dieses Script einbinden.
+  function _cloudPull(){
+    try {
+      if(typeof GemaSync === 'undefined' || !GemaSync.loadCollection) return;
+      GemaSync.loadCollection('anlagenwahl', 'aw:').then(function(rows){
+        var touched = false;
+        (rows || []).forEach(function(r){
+          if(!r || !r.key || r.data == null) return;
+          var lsKey = String(r.key).slice(3);            // 'aw:' abschneiden
+          if(lsKey.indexOf('gema_aw_chosen_') !== 0) return;
+          try {
+            var neu = JSON.stringify(r.data);
+            if(localStorage.getItem(lsKey) !== neu){ localStorage.setItem(lsKey, neu); touched = true; }
+          } catch(e){}
+        });
+        if(touched){
+          Object.keys(_instances).forEach(function(k){ try { _renderChosen(_instances[k]); } catch(e){} });
+        }
+      }).catch(function(){});
+    } catch(e){}
+  }
+  if(typeof document !== 'undefined'){
+    if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', function(){ setTimeout(_cloudPull, 400); });
+    else setTimeout(_cloudPull, 400);
+  }
 
   function _renderChosen(state){
     var cfg = state.cfg;

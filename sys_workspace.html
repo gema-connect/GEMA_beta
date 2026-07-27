@@ -2163,11 +2163,33 @@ input::placeholder{color:#cbd5e1}
     var gs=document.getElementById('wsGuestDrawerSection');if(gs)gs.style.display=guestB.length?'':'none';
   }
 
-  // ── Templates (Vorlagen) ──
+  // ── Templates (Vorlagen) — cloud-synct pro ORG (07/2026) ──
+  // Eimer-Vorlagen sind gemeinsame Arbeitspraxis der Firma und lagen
+  // vorher NUR im localStorage des Geräts. Ein Record pro Org
+  // (`wstpl:<orgId>`), localStorage bleibt Lese-Cache; Änderungen sind
+  // Last-Write-Wins (selten gleichzeitig editiert).
   var TPL_KEY='gema_ws_templates_v1';
   var SETTINGS_KEY='gema_ws_settings_v1';
   function loadTemplates(){try{return JSON.parse(localStorage.getItem(TPL_KEY)||'[]');}catch(e){return [];}}
-  function saveTemplates(t){try{localStorage.setItem(TPL_KEY,JSON.stringify(t));}catch(e){}}
+  function saveTemplates(t){
+    try{localStorage.setItem(TPL_KEY,JSON.stringify(t));}catch(e){}
+    try{
+      var oid=_curOrgId();
+      if(oid&&typeof GemaSync!=='undefined'&&GemaSync.saveRecord)
+        GemaSync.saveRecord(MK,'wstpl:'+oid,{orgId:oid,templates:t||[]}).catch(function(){});
+    }catch(e){}
+  }
+  (function(){
+    // Boot-Pull der Org-Vorlagen (Cloud gewinnt)
+    try{
+      var oid=_curOrgId();
+      if(!oid||typeof GemaSync==='undefined'||!GemaSync.loadRecord)return;
+      GemaSync.loadRecord(MK,'wstpl:'+oid).then(function(rec){
+        if(!rec||!rec.data||!Array.isArray(rec.data.templates))return;
+        try{localStorage.setItem(TPL_KEY,JSON.stringify(rec.data.templates));}catch(e){}
+      }).catch(function(){});
+    }catch(e){}
+  })();
   function loadSettings(){try{return JSON.parse(localStorage.getItem(SETTINGS_KEY)||'{}');}catch(e){return {};}}
   function saveSettingsData(s){try{localStorage.setItem(SETTINGS_KEY,JSON.stringify(s));}catch(e){}}
 
@@ -2687,7 +2709,8 @@ input::placeholder{color:#cbd5e1}
   })();
   // Test-/Cross-Modul-Hooks (Leser in index.html/pm_objekte + Native-Screen)
   window._wsHooks={ pool:_poolRead, canSee:_canSeeBucket, buckets:function(){return buckets;},
-    save:save, flush:_saveFlush, migrate:_migrateLegacy, load:function(){load();render();} };
+    save:save, flush:_saveFlush, migrate:_migrateLegacy, load:function(){load();render();},
+    templates:{load:function(){return loadTemplates();}, save:function(t){saveTemplates(t);}} };
   initResize('wsResizeSidebar','wsSidebar','left');
   initResize('wsResizeNotes','wsNotesCol','right');
 })();

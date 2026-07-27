@@ -1020,12 +1020,33 @@ function rrAnsSave(){
 // ═══════════════════════════════════════════════════════════
 // ZUSAMMENSTELLUNG
 // ═══════════════════════════════════════════════════════════
+// Zuschlag/Rabatt/MwSt pro Objekt: cloud-synct (07/2026) — die Parameter
+// der Zusammenstellung lagen vorher NUR im localStorage des Geräts (der
+// PL druckte auf dem Zweitgerät mit falschen Zuschlägen). Ein Record pro
+// Objekt (`regiezus:<objektId>`), die lokale Map bleibt Lese-Cache.
 function rrZusParams(objId){
   try{var m=JSON.parse(localStorage.getItem('gema_regie_zus_v1')||'{}');return m[objId]||{zuschlag:0,rabatt:0,mwst:8.1};}catch(e){return {zuschlag:0,rabatt:0,mwst:8.1};}
 }
 function rrZusSaveParams(objId,p){
   try{var m=JSON.parse(localStorage.getItem('gema_regie_zus_v1')||'{}');m[objId]=p;localStorage.setItem('gema_regie_zus_v1',JSON.stringify(m));}catch(e){}
+  try{if(typeof GemaSync!=='undefined'&&GemaSync.saveRecord)GemaSync.saveRecord('regierapport','regiezus:'+objId,p).catch(function(){});}catch(e){}
 }
+// Boot-Pull: Cloud-Stand in die lokale Map spiegeln (Cloud gewinnt).
+(function(){
+  function pull(){
+    try{
+      if(typeof GemaSync==='undefined'||!GemaSync.loadCollection)return;
+      GemaSync.loadCollection('regierapport','regiezus:').then(function(rows){
+        if(!rows||!rows.length)return;
+        var m={};try{m=JSON.parse(localStorage.getItem('gema_regie_zus_v1')||'{}');}catch(e){}
+        rows.forEach(function(r){ if(r&&r.key&&r.data) m[String(r.key).slice(9)]=r.data; });
+        try{localStorage.setItem('gema_regie_zus_v1',JSON.stringify(m));}catch(e){}
+      }).catch(function(){});
+    }catch(e){}
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',function(){setTimeout(pull,500);});
+  else setTimeout(pull,500);
+})();
 function rrOpenZus(){
   var objId=document.getElementById('fObjekt').value;
   if(!objId){toast('⚠ Bitte oben zuerst ein Projekt wählen');return;}

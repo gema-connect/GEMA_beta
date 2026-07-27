@@ -942,7 +942,9 @@ function svBKP(){
       var key=SK_BKP+'__'+(a.objektId||a.id);
       var data=JSON.stringify({lose:a.lose,crbxVergleich:a.crbxVergleich||null});
       try{localStorage.setItem(key,data);}catch(e){_m[key]=data;}
-      if(typeof _GemaDB!=='undefined')try{_GemaDB.put(key,data).catch(function(){});}catch(e){}
+      // bewusst NUR lokal: der per-Objekt-BKP ist dokumentierter Fallback —
+      // die Wahrheit liegt in den aus:-Pool-Records (a.lose). Der frühere
+      // _GemaDB.put-Aufruf war ohnehin ein No-Op (Funktion existiert nicht).
     });
   }catch(e){}
 }
@@ -1605,23 +1607,33 @@ function getCurrentUserInfo(){
   return info;
 }
 
+// Vorlagen: cloud-synct pro ORG (07/2026). Der frühere `_GemaDB.put`-Aufruf
+// war ein No-Op (Funktion existiert nicht) und der Key war nie im
+// init-Load — Vorlagen lebten NUR im localStorage des Geräts. Jetzt:
+// org-gescopter Key (ein globaler Blob würde die Vorlagen aller Firmen
+// mischen), geladen via _GemaDB.init (Boot), gespeichert via _GemaDB.save.
+// Der alte flache Key bleibt lokale Migrations-Quelle.
+function vorlSK(){
+  try{var u=GemaAuth.getCurrentUser();if(u&&u.orgId)return SK_VORLAGEN+'__org_'+u.orgId;}catch(e){}
+  return SK_VORLAGEN;
+}
 function ldVorlagen(){
   try{
-    var raw=localStorage.getItem(SK_VORLAGEN);
-    if(raw)return JSON.parse(raw)||[];
+    if(typeof _GemaDB!=='undefined'&&_GemaDB.c&&_GemaDB.c[vorlSK()]!=null){
+      return JSON.parse(_GemaDB.c[vorlSK()])||[];
+    }
   }catch(e){}
   try{
-    if(typeof _GemaDB!=='undefined'&&_GemaDB.c&&_GemaDB.c[SK_VORLAGEN]){
-      return JSON.parse(_GemaDB.c[SK_VORLAGEN])||[];
-    }
+    var raw=localStorage.getItem(vorlSK())||localStorage.getItem(SK_VORLAGEN);
+    if(raw)return JSON.parse(raw)||[];
   }catch(e){}
   return [];
 }
 
 function svVorlagen(list){
   var json=JSON.stringify(list||[]);
-  try{localStorage.setItem(SK_VORLAGEN,json);}catch(e){}
-  try{if(typeof _GemaDB!=='undefined')_GemaDB.put(SK_VORLAGEN,json).catch(function(){});}catch(e){}
+  try{localStorage.setItem(vorlSK(),json);}catch(e){}
+  try{if(typeof _GemaDB!=='undefined')_GemaDB.save(vorlSK(),json);}catch(e){}
 }
 
 // Gibt Vorlagen zurück, die für den aktuellen User sichtbar sind:
@@ -5835,7 +5847,7 @@ function initDropZones(){
 // ═══════════════════════════════════════════════
 (async()=>{
   // Legacy-Blob (nur noch als Migrations-Quelle + lokaler UI-State-Cache)
-  try{if(typeof _GemaDB!=='undefined')await _GemaDB.init('ausschreibung',['gema_ausschreibung_v4']);}catch(e){}
+  try{if(typeof _GemaDB!=='undefined')await _GemaDB.init('ausschreibung',[...new Set(['gema_ausschreibung_v4',vorlSK()])]);}catch(e){}
   // 1) Sofort aus lokalem Stand rendern (stale-while-revalidate)
   ld();
   // Rolle aus eingeloggtem User ableiten (statt aus der entfernten

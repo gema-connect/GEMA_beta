@@ -595,9 +595,27 @@
       }).catch(function(){});
     }catch(e){}
   }
+  // Benachrichtigungs-Einstellungen des Users aus der Cloud spiegeln
+  // (einmal pro Seitenstart; Cloud gewinnt — setPref pusht jede Änderung).
+  function _prefsPull(){
+    try{
+      var u=_me(); if(!u)return;
+      if(typeof w.GemaSync==='undefined'||!w.GemaSync.loadRecord)return;
+      w.GemaSync.loadRecord('notify','nprefs:'+u.id).then(function(rec){
+        if(!rec||!rec.data||typeof rec.data!=='object')return;
+        var all=_readPrefs();
+        var vorher=JSON.stringify(all[u.id]||{});
+        if(vorher===JSON.stringify(rec.data))return;
+        all[u.id]=rec.data;
+        _writePrefs(all);
+        _notifyListeners();   // Glocke/Zähler folgen den frischen Filtern
+      }).catch(function(){});
+    }catch(e){}
+  }
   // Initial-Pull (verzoegert, damit gema_sync.js sein Bootstrap machen kann)
   // + periodischer Merge + Pull beim Tab-Fokus.
   setTimeout(_cloudPull, 2500);
+  setTimeout(_prefsPull, 2800);
   setInterval(_cloudPull, CLOUD_PULL_MS);
   d.addEventListener('visibilitychange', function(){
     if(d.visibilityState==='visible') _cloudPull();
@@ -777,6 +795,12 @@
       if(!all[u.id])all[u.id]={};
       all[u.id][eventKey]=!!enabled;
       _writePrefs(all);
+      // Cloud-Sync pro User (07/2026): die Einstellungen filtern, welche
+      // Meldungen sichtbar sind — sie müssen auf allen Geräten gleich sein.
+      try{
+        if(typeof w.GemaSync!=='undefined'&&w.GemaSync.saveRecord)
+          w.GemaSync.saveRecord('notify','nprefs:'+u.id, all[u.id]).catch(function(){});
+      }catch(e){}
     },
     isEventEnabled: function(eventKey){
       var p=this.getPrefs();

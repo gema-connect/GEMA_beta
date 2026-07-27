@@ -184,6 +184,7 @@
     if (typeof w.GemaSync === 'undefined' || !w.GemaSync.bindCollection){
       _load(); _loaded = true; return Promise.resolve(_cache);
     }
+    _pullBerIndex();   // Berechnungs-Index parallel (blockiert die Objekte nicht)
     return Promise.all([
       w.GemaSync.bindCollection(MODULE, OBJ_POOL, OBJ_PREFIX, 'id'),
       w.GemaSync.bindCollection(MODULE, BET_POOL, BET_PREFIX, 'id')
@@ -674,9 +675,9 @@
     var key = storageKey(baseKey);
     var json = typeof data === 'string' ? data : JSON.stringify(data);
     try { localStorage.setItem(key, json); } catch(e) {}
-    if (typeof _GemaDB !== 'undefined') {
-      try { _GemaDB.put(key, json).catch(function(){}); } catch(e) {}
-    }
+    // Hinweis: der frühere _GemaDB.put-Aufruf war ein No-Op (die Funktion
+    // existiert in gema_db.js nicht) — Cloud-Persistenz läuft über die
+    // Module selbst (GemaAutoSave / _GemaDB.save mit init).
   }
   function loadPerObjekt(baseKey) {
     var key = storageKey(baseKey);
@@ -716,6 +717,35 @@
   function _saveBerIndex(arr){
     try { localStorage.setItem(_BK_IDX, JSON.stringify(arr || [])); } catch(e){}
   }
+  // Cloud-Sync des Berechnungs-Index (07/2026): der Index war reiner
+  // localStorage — der «Berechnungen»-Tab in pm_objekte und der Workspace-
+  // Status zeigten damit nur die Berechnungen des EIGENEN Geräts, obwohl
+  // die Team-Sichtbarkeit (orgId-Filter) das Design-Ziel war. Der frühere
+  // Cloud-Pfad (_GemaDB.put) existierte in gema_db.js gar nicht (No-Op).
+  // Jetzt: ein Record pro Eintrag (moduleKey `berechnungsindex`,
+  // data_key `bidx:<modul__objektId>`), Cache bleibt _BK_IDX.
+  function _pushBerEntry(e){
+    try { if (w.GemaSync && w.GemaSync.saveRecord) w.GemaSync.saveRecord('berechnungsindex', 'bidx:' + e.key, e).catch(function(){}); } catch(_e){}
+  }
+  function _pullBerIndex(){
+    try {
+      if (!w.GemaSync || !w.GemaSync.bindCollection) return;
+      var lokal = _loadBerIndex();   // VOR dem Bind sichern (Cache wird überschrieben)
+      w.GemaSync.bindCollection('berechnungsindex', _BK_IDX, 'bidx:', 'key').then(function(cloud){
+        // Einmalige Migration: lokale Alt-Einträge, die die Cloud nicht kennt,
+        // nachpushen (id-idempotent über `key`) — sonst verlöre das Erst-Gerät
+        // seinen Index beim ersten Pull.
+        cloud = Array.isArray(cloud) ? cloud : [];
+        var have = {}; cloud.forEach(function(e){ if (e && e.key) have[e.key] = 1; });
+        var merged = cloud.slice(), moved = false;
+        (lokal || []).forEach(function(e){
+          if (!e || !e.key || have[e.key]) return;
+          merged.push(e); _pushBerEntry(e); moved = true;
+        });
+        if (moved) _saveBerIndex(merged);
+      }).catch(function(){});
+    } catch(e){}
+  }
   function _currentOrgId(){
     try { return (w.GemaAuth && w.GemaAuth.getCurrentUser && w.GemaAuth.getCurrentUser()) ? w.GemaAuth.getCurrentUser().orgId : null; } catch(e){ return null; }
   }
@@ -734,13 +764,15 @@
     var existing = idx.find(function(e){ return e.key === key; });
     var orgId = entry.orgId || _currentOrgId();
     var userId = entry.userId || _currentUserId();
+    var rec;
     if (existing) {
       existing.lastModified = now;
       existing.lastUserId = userId;
       if (entry.titel) existing.titel = entry.titel;
       if (entry.storageKey) existing.storageKey = entry.storageKey;
+      rec = existing;
     } else {
-      idx.push({
+      rec = {
         key: key,
         modul: entry.modul,
         objektId: objektId,
@@ -751,9 +783,11 @@
         createdBy: userId,
         lastModified: now,
         lastUserId: userId
-      });
+      };
+      idx.push(rec);
     }
     _saveBerIndex(idx);
+    _pushBerEntry(rec);
   }
   function getBerechnungenForObjekt(objektId){
     if (!objektId) objektId = getActiveId();
@@ -771,6 +805,7 @@
     var idx = _loadBerIndex();
     var key = modul + '__' + objektId;
     _saveBerIndex(idx.filter(function(e){ return e.key !== key; }));
+    try { if (w.GemaSync && w.GemaSync.deleteRecord) w.GemaSync.deleteRecord('berechnungsindex', 'bidx:' + key).catch(function(){}); } catch(e){}
   }
 
   w.GemaObjekte = {

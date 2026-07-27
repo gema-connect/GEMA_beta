@@ -219,8 +219,28 @@ let S={lv:null,offerten:[],settings:{}};
 const _m={};
 
 function fixLeadingZero(el){let v=el.value.trim();if(!v)return;if(v.startsWith('.'))v='0'+v;if(v.startsWith('-.'))v='-0'+v.substring(1);const n=parseFloat(v);if(!isNaN(n))el.value=n;}
-function save(){try{const j=JSON.stringify(S);if(typeof _GemaDB!=='undefined')_GemaDB.put(SK,j).catch(()=>{});try{localStorage.setItem(SK,j)}catch(e){_m[SK]=j}}catch(e){}}
-function load(){try{let r;try{r=localStorage.getItem(SK)}catch(e){r=_m[SK]||null}if(r)Object.assign(S,JSON.parse(r))}catch(e){}}
+// Cloud-Persistenz (07/2026): der frühere `_GemaDB.put`-Aufruf war ein
+// No-Op (Funktion existiert nicht) — der Offertvergleich lebte NUR im
+// localStorage des Geräts. Jetzt `_GemaDB.save` auf einen ORG-gescopten
+// Key (`gema_crbx_v1__org_<orgId>` — ein globaler Blob würde die
+// CRBX-Daten aller Firmen teilen); der alte flache Key bleibt lokale
+// Migrations-Quelle für Altbestand.
+function orgSK(){
+  try{var u=GemaAuth.getCurrentUser();if(u&&u.orgId)return SK+'__org_'+u.orgId;}catch(e){}
+  return SK;
+}
+function save(){try{const j=JSON.stringify(S);if(typeof _GemaDB!=='undefined')try{_GemaDB.save(orgSK(),j)}catch(e){};try{localStorage.setItem(orgSK(),j)}catch(e){_m[orgSK()]=j}}catch(e){}}
+function load(){
+  try{
+    let r=null;
+    // Cloud-Cache zuerst (init hat den Org-Key geladen), dann lokaler
+    // Org-Key, dann der alte flache Geräte-Key (Altbestand).
+    try{if(typeof _GemaDB!=='undefined'&&_GemaDB.c&&_GemaDB.c[orgSK()]!=null)r=_GemaDB.c[orgSK()];}catch(e){}
+    if(!r){try{r=localStorage.getItem(orgSK())}catch(e){r=_m[orgSK()]||null}}
+    if(!r){try{r=localStorage.getItem(SK)}catch(e){}}
+    if(r)Object.assign(S,JSON.parse(r))
+  }catch(e){}
+}
 
 // ── TABS ──
 function switchTab(t){
@@ -746,7 +766,7 @@ function setupDrop(z,inp){const el=document.getElementById(z);if(!el)return;el.a
 // ═══════════════════════════════════════════════
 
 (async()=>{
-  try{if(typeof _GemaDB!=='undefined')await _GemaDB.init('crbx',['gema_crbx_v1']);}catch(e){console.warn('GemaDB:',e);}
+  try{if(typeof _GemaDB!=='undefined')await _GemaDB.init('crbx',[...new Set(['gema_crbx_v1',orgSK()])]);}catch(e){console.warn('GemaDB:',e);}
   load();renderImport();updateBadges();setupDrop('uploadZoneLV','fileLV');
 })().catch(e=>console.error('[GEMA] CRBX:',e));
 </script>
