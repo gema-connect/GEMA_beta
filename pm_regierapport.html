@@ -3,6 +3,7 @@
 <head>
 <script src="gema_sync.js"></script>
 <script src="gema_auth.js"></script>
+<script src="gema_editlock.js"></script>
 <script src="gema_recent.js"></script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
@@ -518,6 +519,7 @@ function rrOpen(id){
   rrOpenEditor(false);
 }
 function rrCloseEditor(){
+  try{ if(window.GemaEditLock) GemaEditLock.stop(); }catch(e){}
   document.getElementById('edOv').classList.remove('open');
   cur=null;
   rrRender();
@@ -532,6 +534,15 @@ function rrSaveCur(silent){
 function rrOpenEditor(isNew){
   var r=cur;
   var editable=rrCanEditRec(r)||isNew;
+  // Gleichzeitig-Bearbeiten-Warnung: Lock pro RAPPORT (Datensatz) und nur,
+  // wenn er wirklich bearbeitbar ist — ein neuer Rapport (noch nicht in der
+  // Cloud) lockt nichts. rrCloseEditor loest ihn wieder.
+  try{
+    if(window.GemaEditLock){
+      if(editable && !isNew) GemaEditLock.watch({key:'regie:'+r.id, label:(r.nr||'Regierapport')+(r.objektName?' · '+r.objektName:'')});
+      else GemaEditLock.stop();
+    }
+  }catch(e){}
   var canPrice=_rrCanPrice();
   var showPrice=canPrice&&(r.status==='freigegeben'||r.status==='ausgewiesen'||r.status==='eingereicht');
   var st=STATUS[r.status]||STATUS.entwurf;

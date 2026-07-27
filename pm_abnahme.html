@@ -4,6 +4,7 @@
 <script src="gema_sync.js"></script>
 <script src="gema_storage.js"></script>
 <script src="gema_auth.js"></script>
+<script src="gema_editlock.js"></script>
 <script src="gema_recent.js"></script>
 <meta charset="utf-8"/>
 <meta name="theme-color" content="#0f172a"/>
@@ -2043,8 +2044,26 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
       throw e;
     });
   }
+  // Gleichzeitig-Bearbeiten-Warnung: der Lock gilt EINEM Protokoll, nicht
+  // dem Modul/Objekt (ein Objekt hat mehrere Protokolle) — und er entsteht
+  // erst, wenn wirklich etwas geaendert wurde (scheduleSave ist der
+  // Aenderungs-Chokepoint). Protokollwechsel loest ihn wieder.
+  var _abLockId='';
+  function _abLockArm(){
+    try{
+      if(!window.GemaEditLock||!activeProtocolId||_abLockId===activeProtocolId) return;
+      var p=protocols.find(function(x){ return x.id===activeProtocolId; });
+      _abLockId=activeProtocolId;
+      GemaEditLock.watch({key:PROTO_PREFIX+activeProtocolId, label:((p&&p.name)||'Abnahmeprotokoll')});
+    }catch(e){}
+  }
+  function _abLockRelease(){
+    _abLockId='';
+    try{ if(window.GemaEditLock) GemaEditLock.stop(); }catch(e){}
+  }
   function scheduleSave(immediate){
     if(!_abBootDone||_abAdopting) return;
+    _abLockArm();
     if(activeProtocolId) _abDirty[activeProtocolId]=1;
     _abSavePending=true;
     _abSetStatus('pending');
@@ -2154,6 +2173,7 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
     var name='Protokoll '+nr;
     var p={id:uid(), name:name, createdAt:new Date().toISOString(), state:_defaultState()};
     protocols.push(p);
+    _abLockRelease();
     activeProtocolId=p.id;
     state=p.state;
     _abActiveSave();
@@ -2170,6 +2190,7 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
     // Aktuelles Protokoll SYNCHRON snapshotten + sichern, bevor gewechselt wird
     _abSnapActive();
     persistAll();
+    _abLockRelease();
     activeProtocolId=sel.value;
     var active=protocols.find(p=>p.id===activeProtocolId);
     if(active){
@@ -2189,6 +2210,7 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
     if(!confirm('Dieses Protokoll wirklich löschen?')) return;
     _abProtoDeleteRec(activeProtocolId);   // Cloud-Row + Pool-Cache entfernen
     protocols=protocols.filter(p=>p.id!==activeProtocolId);
+    _abLockRelease();
     activeProtocolId=protocols[0].id;
     state=protocols[0].state;
     _migrateState();
@@ -3283,7 +3305,7 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
   _abBootDone=true;
 })().catch(function(e){console.error("[GEMA] Kritischer Fehler:",e),document.body.insertAdjacentHTML("beforeend","<div style='position:fixed;bottom:10px;right:10px;background:#dc2626;color:#fff;padding:10px 16px;border-radius:10px;font-size:12px;font-weight:700;z-index:9999'>⚠ Skript-Fehler: "+e.message+"</div>");});</script>
 <script>document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('abnahme', 'Abnahmeprotokolle SIA');});</script>
-<script>if(typeof GemaAutoSave!=='undefined') GemaAutoSave.init('abnahme_sia');</script>
+<script>if(typeof GemaAutoSave!=='undefined') GemaAutoSave.init('abnahme_sia',{editLock:false});</script>
 <script src="gema_scroll.js"></script>
 <script src="gema_mobile_menu.js"></script>
 </body>

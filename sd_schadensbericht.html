@@ -4,6 +4,7 @@
 <script src="gema_sync.js"></script>
 <script src="gema_storage.js"></script>
 <script src="gema_auth.js"></script>
+<script src="gema_editlock.js"></script>
 <script src="gema_recent.js"></script>
 <meta charset="utf-8"/>
 <meta name="theme-color" content="#0f172a"/>
@@ -1833,11 +1834,16 @@ function sdOpenDetail(id) {
   var s = sdGetById(id);
   if (!s) return;
   detailId = id;
+  // Gleichzeitig-Bearbeiten-Warnung: Lock pro SCHADEN (Datensatz) — die
+  // Detailansicht IST die Bearbeitungsflaeche (jede Eingabe speichert).
+  // Nur fuer Bearbeitende; sdCloseDetail loest den Lock wieder.
+  try{ if(window.GemaEditLock && _sdCanMeasure()) GemaEditLock.watch({key:'schaden:'+id, label:(s.titel||'Schadensbericht')}); }catch(e){}
   sdRenderDetail(s);
   document.getElementById('detailOverlay').classList.remove('hidden');
   document.body.style.overflow = 'hidden';
 }
 function sdCloseDetail() {
+  try{ if(window.GemaEditLock) GemaEditLock.stop(); }catch(e){}
   detailId = null;
   document.getElementById('detailOverlay').classList.add('hidden');
   document.body.style.overflow = '';

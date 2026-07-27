@@ -3,6 +3,7 @@
 <head>
 <script src="gema_sync.js"></script>
 <script src="gema_auth.js"></script>
+<script src="gema_editlock.js"></script>
 <script src="gema_recent.js"></script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
@@ -763,8 +764,20 @@ window.prNeu=function(){
   openEditor();
 };
 window.prOpen=function(id){ var b=begById(id); if(!b){ toast('Nicht gefunden'); return; } _cur=JSON.parse(JSON.stringify(b)); openEditor(); };
-function openEditor(){ renderEditor(); $id('edOv').classList.add('open'); }
+function openEditor(){
+  // Gleichzeitig-Bearbeiten-Warnung: Lock pro BEGEHUNG (Datensatz) — nur
+  // solange sie offen ist; eine abgeschlossene Begehung wird nicht mehr
+  // bearbeitet. prCloseEditor loest den Lock wieder.
+  try{
+    if(window.GemaEditLock && _cur){
+      if(_cur.status!=='abgeschlossen') GemaEditLock.watch({key:'prbeg:'+_cur.id, label:(_cur.nr||'Begehung')+(_cur.objektName?' · '+_cur.objektName:'')});
+      else GemaEditLock.stop();
+    }
+  }catch(e){}
+  renderEditor(); $id('edOv').classList.add('open');
+}
 window.prCloseEditor=function(){
+  try{ if(window.GemaEditLock) GemaEditLock.stop(); }catch(e){}
   flushSave();                                  // pending Debounce-Save NIE verlieren
   $id('edOv').classList.remove('open'); _cur=null; render();
 };
