@@ -238,7 +238,10 @@ table.pos{border-collapse:collapse;width:100%;font-size:13px}
 .pos input:focus{border-color:var(--acc)}
 .pos .num{text-align:right;font-variant-numeric:tabular-nums}
 .pos tr.titel td{background:var(--sur2)}
-.pos tr.titel input{font-weight:800;border-color:transparent;background:transparent}
+/* Titel-Eingabe: fett wie die Anzeige, aber als SICHTBARE Box — Eingaben
+   erscheinen nur im Bearbeiten-Modus (Doppelklick), ein rahmenloses
+   transparentes Feld sah dort aus wie normaler Text. */
+.pos tr.titel input{font-weight:800;background:var(--sur);border-color:var(--acc)}
 .pos tr.abzug td{background:var(--amber-bg)}
 .pos .src{font-size:10px;font-weight:800;border-radius:5px;padding:2px 6px;white-space:nowrap}
 .src.katalog{background:var(--acc-bg);color:var(--acc);border:1px solid var(--acc-bd)}
@@ -255,9 +258,7 @@ table.pos{border-collapse:collapse;width:100%;font-size:13px}
 .pos tr.pos-drop-b td{box-shadow:inset 0 -3px 0 var(--acc,#1d4ed8)}
 /* Variante: Alternativ-Position — kursiv, Betrag in Klammern, zählt nicht ins Total */
 .pos tr.pos-variante .pcell,.pos tr.pos-variante td.num{font-style:italic;color:var(--mut)}
-/* .pcell ist ein Flex-Container → Marke und Text müssen untereinander stehen */
-.pos tr.pos-variante .pcell.bezflex{flex-direction:column;align-items:flex-start;gap:1px}
-.pos tr.pos-variante .vari-tag{font-style:normal;font-weight:800;color:var(--acc,#1d4ed8);letter-spacing:.2px}
+.pos tr.pos-variante .vari-tag{display:block;font-style:normal;font-weight:800;color:var(--acc,#1d4ed8);letter-spacing:.2px}
 .pos tr.pos-variante .vari-txt{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pos .per-tag{font-weight:700;color:var(--mut)}
 /* Freie Textzeile: über die ganze Breite, ohne Menge/Preis */
@@ -276,6 +277,12 @@ table.pos{border-collapse:collapse;width:100%;font-size:13px}
    Zeilenhöhe/Schrift des Beschriebs kommen aus der WYSIWYG-Regel oben
    (9.5pt / 1.45 wie die PDF-Tabelle) — hier NICHT überschreiben. */
 .pos .pcell.bezflex,.pos .pcell.titeltxt{white-space:normal;overflow:visible;text-overflow:clip;overflow-wrap:anywhere;word-break:break-word}
+/* Beschrieb + Titel fliessen wie im PDF: .pcell ist sonst ein Flex-Container,
+   dann wird jedes Inline-Element (z.B. die fette Ausführung aus DataSelect,
+   die Varianten-Marke) zu einer eigenen SPALTE neben dem Text und bricht dort
+   mitten im Wort um. Als Block stehen <br> und <strong> untereinander —
+   identisch zum Druck. */
+.pos .pcell.bezflex,.pos .pcell.titeltxt{display:block}
 .pos .pcell.titeltxt{line-height:1.35}
 .pos tr.pos-editing td{background:#fff}
 /* Seitenwechsel-Vorschau: gestrichelte Linie oben an der Position, die auf eine neue Seite fällt */
@@ -2542,8 +2549,20 @@ function _erpRichNode(node){
 function erpRichSanitize(html){
   var s=String(html==null?'':html);
   if(!_ERP_RICH_RE.test(s))return esc(s).replace(/\n/g,'<br>');   // reiner Text (auch mit «<» ohne echtes Tag)
-  var tmp=document.createElement('div');tmp.innerHTML=s;
-  return _erpRichNode(tmp).replace(/(<br>\s*){3,}/g,'<br><br>');
+  // KRITISCH — Fremd-HTML NIE via innerHTML parsen: ein losgeloestes <div>
+  // fuehrt zwar kein <script> aus, ABER der Browser laedt <img src=x> und
+  // feuert dessen onerror → eingeschleuster Code liefe beim blossen
+  // Sanitisieren. DOMParser erzeugt ein INERTES Dokument (keine Skripte,
+  // keine Ressourcen-Ladevorgaenge).
+  var doc;
+  try{doc=new DOMParser().parseFromString('<body>'+s,'text/html');}catch(e){}
+  var root=doc&&doc.body;
+  if(!root){root=document.createElement('div');root.textContent=String(html==null?'':html);}
+  // KEINE Umbrueche zusammenfassen: was der Nutzer eingibt, steht im Editor
+  // UND im PDF genau so. (Eine frühere Fassung kappte 3+ <br> auf 2 — die
+  // dritte Leerzeile verschwand beim Anzeigen und war beim naechsten
+  // Speichern endgueltig weg.)
+  return _erpRichNode(root);
 }
 function erpBezPlain(bez){
   var s=String(bez==null?'':bez);
@@ -2564,7 +2583,7 @@ function inpRich(id,val){
    Sie sind gedimmt, solange kein Beschrieb-Feld bearbeitet wird. */
 function erpRichBarHtml(){
   var cols=ERP_RICH_COLORS.map(function(c){return '<button type="button" class="rb-col" style="background:'+c+'" onclick="erpRichColor(\''+c+'\')" title="Textfarbe"></button>';}).join('');
-  return '<span class="rt-grp" id="edRich" onmousedown="erpRichBarDown(event)" title="Beschrieb formatieren — Text im Positions-Beschrieb markieren">'
+  return '<span class="rt-grp" id="edRich" onmousedown="erpRichBarDown(event)" ontouchstart="erpRichBarDown(event)" title="Beschrieb formatieren — Text im Positions-Beschrieb markieren">'
     +'<button type="button" class="rb" onclick="erpRichCmd(\'bold\')" title="Fett"><b>F</b></button>'
     +'<button type="button" class="rb" onclick="erpRichCmd(\'italic\')" title="Kursiv"><i>K</i></button>'
     +'<button type="button" class="rb" onclick="erpRichCmd(\'underline\')" title="Unterstrichen"><u>U</u></button>'
@@ -2576,22 +2595,69 @@ function erpRichBarHtml(){
 function erpRichFocus(el){_richEd=el;erpRichSaveSel();erpRichBarAktiv(true);}
 function erpRichBarAktiv(on){var g=document.getElementById('edRich');if(g)g.classList.toggle('is-on',!!on);}
 function erpRichInput(el){_richEd=el;erpCellSet(el.getAttribute('data-id'),'bez',erpRichSanitize(el.innerHTML));}
-function erpRichSaveSel(){var s=window.getSelection();if(s&&s.rangeCount&&_richEd&&_richEd.contains(s.anchorNode))_richRange=s.getRangeAt(0).cloneRange();}
-function _richRestore(){if(!_richEd)return;_richEd.focus();if(_richRange){try{var s=window.getSelection();s.removeAllRanges();s.addRange(_richRange);}catch(e){}}}
+// NUR echte (nicht-leere) Auswahlen merken. Ein kollabierter Cursor darf den
+// gemerkten Bereich NICHT ueberschreiben — sonst waere er genau dann weg, wenn
+// man ihn braucht: auf Touch-Geraeten hebt der Tipper auf den Werkzeug-Knopf
+// die Markierung auf, BEVOR der Klick-Handler laeuft.
+function erpRichSaveSel(){
+  var s=window.getSelection();if(!s||!s.rangeCount||!_richEd)return;
+  var r=s.getRangeAt(0);
+  if(r.collapsed||!_richEd.contains(r.commonAncestorContainer))return;
+  _richRange=r.cloneRange();
+}
+// Bereich, auf den ein Werkzeug wirkt: die aktuelle Auswahl, wenn sie im Feld
+// liegt — sonst die zuletzt gemerkte (Touch-Fall). null = nichts markiert.
+function _richLiveRange(){
+  if(!_richEd)return null;
+  var s=window.getSelection();
+  if(s&&s.rangeCount){var r=s.getRangeAt(0);if(!r.collapsed&&_richEd.contains(r.commonAncestorContainer))return r;}
+  if(_richRange&&!_richRange.collapsed&&_richEd.contains(_richRange.commonAncestorContainer))return _richRange;
+  return null;
+}
+// Fokus + Auswahl zurueck ins Feld. Rueckgabe: der Bereich (oder null, wenn
+// nur der Cursor steht — dann toggelt execCommand die Eingabe-Formatierung).
+function _richRestore(){
+  if(!_richEd)return null;
+  try{_richEd.focus({preventScroll:true});}catch(e){try{_richEd.focus();}catch(_){}}
+  var r=_richLiveRange();
+  if(r){try{var s=window.getSelection();s.removeAllRanges();s.addRange(r);}catch(e2){}}
+  return r;
+}
 function _richFlush(){if(_richEd){erpCellSet(_richEd.getAttribute('data-id'),'bez',erpRichSanitize(_richEd.innerHTML));erpRichSaveSel();}}
 // Button-Klick in der Leiste darf dem Feld weder Fokus noch Auswahl stehlen
 // (das <select> braucht den Fokus zum Aufklappen → nicht unterdrücken).
-function erpRichBarDown(e){if(e.target&&e.target.closest&&e.target.closest('button'))e.preventDefault();}
-function erpRichCmd(cmd){_richRestore();try{document.execCommand(cmd,false,null);}catch(e){}_richFlush();}
+// Auf Touch laesst sich das nicht verhindern (preventDefault auf touchstart
+// wuerde den Knopf ganz tot legen) — darum wird der Griff GEMERKT und
+// erpRichBlur haelt die Bearbeitung so lange offen.
+var _richBarHit=0;
+function erpRichBarDown(e){
+  _richBarHit=Date.now();
+  if(e&&e.type==='mousedown'&&e.target&&e.target.closest&&e.target.closest('button'))e.preventDefault();
+}
+var _ERP_RICH_STYLE_CMD={bold:['fontWeight','700'],italic:['fontStyle','italic'],underline:['textDecoration','underline']};
+function erpRichCmd(cmd){
+  var r=_richRestore();if(!_richEd)return;
+  var vor=_richEd.innerHTML;
+  try{document.execCommand(cmd,false,null);}catch(e){}
+  // Ersatzweg: execCommand wirkt nur auf ein fokussiertes Feld mit lebender
+  // Auswahl — auf Touch/Safari kommt der Klick an, ohne dass beides gilt.
+  // Dann wird die Formatierung direkt als span[style] auf den gemerkten
+  // Bereich gelegt (derselbe Weg wie Farbe/Groesse).
+  if(r&&_richEd.innerHTML===vor){var m=_ERP_RICH_STYLE_CMD[cmd];if(m)erpRichWrapStyle(m[0],m[1]);}
+  _richFlush();
+}
 function erpRichColor(c){_richRestore();erpRichWrapStyle('color',c);_richFlush();}   // Span-Wrap ist zuverlässiger als execCommand('foreColor')
 function erpRichColorReset(){_richRestore();try{document.execCommand('removeFormat',false,null);}catch(e){}_richFlush();}
 function erpRichSize(sz){if(!sz)return;_richRestore();erpRichWrapStyle('fontSize',sz);_richFlush();}
 function erpRichWrapStyle(prop,val){
-  var s=window.getSelection();if(!s||!s.rangeCount)return;var r=s.getRangeAt(0);if(r.collapsed)return;
+  var r=_richLiveRange();if(!r)return;
   var span=document.createElement('span');span.style[prop]=val;
   try{r.surroundContents(span);}catch(e){var f=r.extractContents();span.appendChild(f);r.insertNode(span);}
-  try{s.removeAllRanges();var nr=document.createRange();nr.selectNodeContents(span);s.addRange(nr);}catch(e2){}
+  try{var s=window.getSelection();s.removeAllRanges();var nr=document.createRange();nr.selectNodeContents(span);s.addRange(nr);}catch(e2){}
 }
+// Auswahl per Finger/Trackpad loest kein mouseup im Feld aus (iOS-Griffe) —
+// deshalb den gemerkten Bereich zusaetzlich hier nachfuehren.
+document.addEventListener('selectionchange',function(){if(_richEd)erpRichSaveSel();});
 function erpRichKey(e){
   if(e.key==='Escape'){e.preventDefault();if(e.target&&e.target.blur)e.target.blur();return;}
   // Zeilenumbruch im Beschrieb (Shift+Enter — und Enter, das im mehrzeiligen
@@ -2611,6 +2677,9 @@ function erpRichBlur(el,e){
   var to=e&&e.relatedTarget;
   // Fokus in die Werkzeug-Leiste oben → Bearbeitung offen lassen
   if(to&&to.closest&&(to.closest('#edRich')||to.closest('.rich-wrap')))return;
+  // Auf Touch ist relatedTarget leer: der Tipper auf ein Werkzeug haette die
+  // Bearbeitung sonst geschlossen, bevor der Klick-Handler formatieren kann.
+  if(Date.now()-_richBarHit<700)return;
   erpCellSet(el.getAttribute('data-id'),'bez',erpRichSanitize(el.innerHTML));
   _richEd=null;_richRange=null;erpRichBarAktiv(false);erpCellCommit();
 }
@@ -3380,6 +3449,14 @@ function _dsTextLang(anbId){
 }
 // Kurz- bzw. Langtext eines Artikels je nach Lieferanten-Einstellung.
 function _dsBez(a,mode){return (mode==='lang'&&a.bezeichnungLang)?a.bezeichnungLang:(a.bezeichnung||a.artnr||'Artikel');}
+// Positions-Beschrieb aus einem DataSelect-Artikel (bez ist Rich-Text/HTML):
+// Beschreibung · Ausfuehrung/Farbe FETT auf eigener Zeile · Artikelnummer
+// darunter (normal) — genau so steht es im gedruckten Dokument.
+function _dsPosBez(basis,lab,artnr){
+  return esc(basis||'')
+    +(lab?('<br><strong>'+esc(lab)+'</strong>'):'')
+    +(artnr?('<br>'+esc(artnr)):'');
+}
 function _dsRenderGrouped(list,anbId){
   var order=[],gm={};var mode=_dsTextLang(anbId);
   list.forEach(function(a){var bc=_dsBaseCode(a.artnr);if(!gm[bc]){gm[bc]={base:bc,items:[]};order.push(gm[bc]);}gm[bc].items.push(a);});
@@ -3389,7 +3466,7 @@ function _dsRenderGrouped(list,anbId){
     g.items.forEach(function(a){var k=a.artnr||'';if(!seen[k]){seen[k]=1;uniq.push(a);}});   // Duplikate (gleicher Code) zusammenfassen
     if(uniq.length===1){
       var a=uniq[0],hat=!!(a.hatBild||a.bildUrl);
-      var pos={art:'frei',bez:_dsBez(a,mode),menge:1,einheit:a.einheit||'Stk',ep:a.preis>0?a.preis:'',produktId:'ds:'+(a.artnr||''),dsArtnr:a.artnr||'',lieferantFirma:a.hersteller||'',_dsAnb:anbId,_dsBild:a.bildUrl||'',_dsHat:hat};
+      var pos={art:'frei',bez:_dsPosBez(_dsBez(a,mode),a.ausfuehrung||'',a.artnr||''),menge:1,einheit:a.einheit||'Stk',ep:a.preis>0?a.preis:'',produktId:'ds:'+(a.artnr||''),dsArtnr:a.artnr||'',lieferantFirma:a.hersteller||'',_dsAnb:anbId,_dsBild:a.bildUrl||'',_dsHat:hat};
       var sub=(a.artnr||'')+(a.ean?' · EAN '+a.ean:'')+(a.preis>0?' · CHF '+GemaDataSelect.fmtPreis(a.preis):'')+(a.ausfuehrung?' · '+a.ausfuehrung:'')+(hat?' · 🖼':'');
       return erpArtRow(pos,'',a.bezeichnung||a.artnr||'Artikel',sub,'');   // Anzeige immer Kurzname, eingefügt je Modus
     }
@@ -3399,7 +3476,7 @@ function _dsRenderGrouped(list,anbId){
       // Lang-Modus: ausführliche Beschreibung + Ausführung; Kurz-Modus: Basisname + Ausführung
       var langBase=(mode==='lang'&&a.bezeichnungLang)?a.bezeichnungLang:base;
       // Ausführung/Farbe auf eigener Zeile + fett (bez ist Rich-Text/HTML)
-      return {art:'frei',bez:esc(langBase)+(lab?('<br><strong>'+esc(lab)+'</strong>'):''),einheit:a.einheit||'Stk',ep:a.preis>0?a.preis:'',menge:1,
+      return {art:'frei',bez:_dsPosBez(langBase,lab,a.artnr||''),einheit:a.einheit||'Stk',ep:a.preis>0?a.preis:'',menge:1,
         produktId:'ds:'+(a.artnr||''),dsArtnr:a.artnr||'',lieferantFirma:a.hersteller||'',
         _dsAnb:anbId,_dsBild:a.bildUrl||'',_dsHat:hat,_afLabel:lab};
     });

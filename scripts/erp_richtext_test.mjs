@@ -109,6 +109,16 @@ await page.waitForTimeout(80);
   ok(/Pergamon/.test(bez) && /Duschwanne Kaldewei/.test(bez), 'Basisname + Ausführungslabel enthalten');
   // Anzeige rendert das Label bold auf eigener Zeile
   ok(await page.evaluate(() => { const pc = document.querySelector('#posBody .pcell.bezflex'); return pc && pc.querySelector('br') && pc.querySelector('strong'); }), 'Editor-Anzeige zeigt <br>+<strong>');
+  // Artikelnummer nach der Farbe, auf eigener Zeile und NICHT fett
+  ok(/<br>1313116\/143\/183$/.test(bez) || /<br>1313116\/100\/0$/.test(bez), 'Artikelnummer als letzte Zeile (nicht fett): ' + JSON.stringify(bez));
+  ok(await page.evaluate(() => {
+    const pc = document.querySelector('#posBody .pcell.bezflex');
+    const st = pc.querySelector('strong');
+    // .pcell ist sonst ein Flex-Container → <strong> waere eine eigene SPALTE
+    // neben dem Text (bricht mitten im Wort um). Als Block steht es darunter.
+    return getComputedStyle(pc).display === 'block'
+        && st.getBoundingClientRect().left < pc.getBoundingClientRect().left + 30;
+  }), 'Beschrieb fliesst wie im Druck (Block, Ausführung auf eigener Zeile links)');
 }
 
 console.log('■ PDF: Logo 3mm hoch + @page:first ohne Laufzeile + Rich-bez sanitisiert');
@@ -126,6 +136,84 @@ console.log('■ PDF: Logo 3mm hoch + @page:first ohne Laufzeile + Rich-bez sani
   ok(/<strong>/.test(html), 'Rich-bez (Ausführung) im Druck als <strong> gerendert');
   ok(html.indexOf('<script') < 0 || html.indexOf('alert(1)') < 0, 'kein injizierter Script im Druck');
 }
+
+/* ── Feedback 27.07.2026 ───────────────────────────────────────────────
+   (a) Titel-Eingabe war beim Doppelklick unsichtbar (transparente Box).
+   (b) Umbrüche im Text-Beschrieb wurden gekappt (3+ <br> → 2).
+   (c) Fett/Kursiv griffen nicht, wenn die Auswahl beim Tippen auf den
+       Werkzeug-Knopf verloren geht (Touch/Safari) — und die Bearbeitung
+       schloss sich dabei, weil blur ohne relatedTarget kommt.            */
+console.log('■ Feedback 27.07.: sichtbare Titel-Eingabe, Umbrüche, Touch-Formatierung');
+await page.evaluate(() => {
+  erpNeu('offerte'); cur.kundeSnapshot = { firma: 'X AG' };
+  cur.positionen = [{ id: 't1', art: 'titel', bkp: '25', bez: 'Sanitäranlagen' },
+                    { id: 'x1', art: 'text', bez: 'Zeile A' }];
+  erpSaveCur(true); erpOpenEditor();
+});
+await page.waitForTimeout(120);
+await page.evaluate(() => erpCellEdit('t1', 'bez'));
+await page.waitForTimeout(60);
+{
+  const t = await page.evaluate(() => {
+    const i = document.querySelector('#posBody tr.titel input[data-edit]');
+    if (!i) return null;
+    const c = getComputedStyle(i), r = i.getBoundingClientRect();
+    return { bg: c.backgroundColor, bc: c.borderColor, w: Math.round(r.width), h: Math.round(r.height), fett: c.fontWeight };
+  });
+  ok(!!t && t.w > 40 && t.h > 20, 'Titel-Doppelklick öffnet ein Eingabefeld');
+  ok(t && t.bg !== 'rgba(0, 0, 0, 0)' && t.bg !== 'transparent', 'Titel-Eingabe hat sichtbaren Hintergrund (' + (t && t.bg) + ')');
+  ok(t && t.bc !== 'rgba(0, 0, 0, 0)', 'Titel-Eingabe hat sichtbaren Rahmen (' + (t && t.bc) + ')');
+  ok(t && +t.fett >= 700, 'Titel-Eingabe bleibt fett wie die Anzeige');
+}
+await page.evaluate(() => erpCellCommit());
+
+// (b) Umbrüche bleiben EXAKT wie eingegeben — auch mehrere leere Zeilen
+ok(await page.evaluate(() => erpRichSanitize('A<br><br><br>B') === 'A<br><br><br>B'), 'drei <br> bleiben drei (keine Kappung)');
+ok(await page.evaluate(() => erpRichSanitize('A\n\n\n\nB') === 'A<br><br><br><br>B'), 'vier Zeilenumbrüche bleiben vier');
+await page.evaluate(() => erpCellEdit('x1', 'bez'));
+await page.waitForTimeout(60);
+await page.click('#posBody tr.postext .rich-ed');
+await page.keyboard.press('Control+End');
+await page.keyboard.press('Enter'); await page.keyboard.press('Enter'); await page.keyboard.press('Enter');
+await page.keyboard.type('Zeile B');
+await page.waitForTimeout(120);
+await page.evaluate(() => document.querySelector('#posBody tr.postext .rich-ed').blur());
+await page.waitForTimeout(150);
+{
+  const bez = await page.evaluate(() => erpPosById('x1').bez);
+  const anz = await page.evaluate(() => document.querySelector('#posBody tr.postext .pcell.bezflex').innerHTML);
+  ok((bez.match(/<br>/g) || []).length === 3, 'getippte Leerzeilen überleben das Speichern (' + JSON.stringify(bez) + ')');
+  ok((anz.match(/<br>/g) || []).length === 3, 'die Anzeige zeigt dieselben Umbrüche');
+}
+
+// (c) Touch/Safari: Auswahl kollabiert vor dem Klick, blur ohne relatedTarget
+await page.evaluate(() => { erpPosById('x1').bez = 'Delta Epsilon'; _editCell = null; erpRenderPos(); erpCellEdit('x1', 'bez'); });
+await page.waitForTimeout(80);
+{
+  const r = await page.evaluate(() => {
+    const e = document.querySelector('#posBody tr.postext .rich-ed'); e.focus();
+    const rg = document.createRange(); rg.setStart(e.firstChild, 0); rg.setEnd(e.firstChild, 5);
+    const s = window.getSelection(); s.removeAllRanges(); s.addRange(rg); erpRichSaveSel();
+    const btn = document.querySelector('#edRich .rb');
+    btn.dispatchEvent(new Event('touchstart', { bubbles: true }));   // Touch: kein mousedown
+    s.removeAllRanges();                                             // iOS hebt die Markierung auf
+    e.dispatchEvent(new FocusEvent('blur'));                         // relatedTarget = null
+    btn.click();
+    return { bez: erpPosById('x1').bez, offen: !!document.querySelector('#posBody tr.postext .rich-ed') };
+  });
+  ok(/<(b|strong)\b/i.test(r.bez) && /Delta/.test(r.bez), 'Fett greift auch ohne lebende Auswahl (' + JSON.stringify(r.bez) + ')');
+  ok(r.offen, 'Tippen auf ein Werkzeug schliesst die Bearbeitung nicht');
+}
+// Ein kollabierter Cursor darf den gemerkten Bereich nicht überschreiben
+ok(await page.evaluate(() => {
+  const e = document.querySelector('#posBody tr.postext .rich-ed'); if (!e) return false;
+  const s = window.getSelection(); s.removeAllRanges();
+  const c = document.createRange(); c.setStart(e, 0); c.collapse(true); s.addRange(c);
+  erpRichSaveSel();
+  return !!_richRange && !_richRange.collapsed;
+}), 'erpRichSaveSel merkt nur echte Auswahlen (Cursor überschreibt sie nicht)');
+await page.evaluate(() => { _editCell = null; erpRenderPos(); });
+
 
 ok(errors.length === 0, 'keine JS-Fehler' + (errors.length ? ' — ' + errors.join(' | ') : ''));
 
