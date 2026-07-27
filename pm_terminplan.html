@@ -181,6 +181,8 @@ input::placeholder,textarea::placeholder{color:#cbd5e1 !important;}
 .gtb-sel:focus{outline:none;border-color:var(--accent);}
 .gtb-inp{padding:6px 9px;border:1.5px solid var(--border2);border-radius:var(--r-sm);background:var(--surface);color:var(--text);font-size:12px;font-family:var(--sans);width:130px;}
 .gtb-inp:focus{outline:none;border-color:var(--accent);}
+.gtb-btn{padding:6px 10px;border:1.5px solid var(--border2);border-radius:var(--r-sm);background:var(--surface);color:var(--text2);font-size:12px;font-weight:600;font-family:var(--sans);cursor:pointer;white-space:nowrap;}
+.gtb-btn:hover{border-color:var(--accent);color:var(--accent);}
 .gtb-sep{width:1px;height:20px;background:var(--border);flex-shrink:0;}
 .gtb-search{position:relative;}
 .gtb-search-ic{position:absolute;left:8px;top:50%;transform:translateY(-50%);font-size:13px;pointer-events:none;}
@@ -516,7 +518,9 @@ td.inline-edit:hover::after{content:" ✏";opacity:.5;margin-left:4px;font-size:
             <option value="90">3 Monate</option>
             <option value="__all__">Ganzes Projekt</option>
           </select>
-          <input class="gtb-inp" id="windowStart" type="date" title="Startdatum der Ansicht"/>
+          <span class="gtb-label" style="margin-left:2px">ab</span>
+          <input class="gtb-inp" id="windowStart" type="date" title="Startdatum der Ansicht — ab welchem Datum der Plan angezeigt wird"/>
+          <button class="gtb-btn" onclick="goToProjektStart()" title="Ansicht an den Projektstart setzen (Startdatum unter ⚙ Einstellungen)">⌖ Projektstart</button>
         </div>
         <div class="gtb-group">
           <span class="gtb-label">Zoom</span>
@@ -1202,17 +1206,16 @@ function renderStats(){
 
 // ── GANTT ──
 let gantt=null;
+/* KRITISCH — kein eigenes «+1 Tag» auf das Enddatum!
+   frappe-gantt hängt in prepare_tasks selbst 24 h an, sobald das Ende
+   keine Uhrzeit trägt («2026-10-12 00:00» → der 12.10. zählt als voller
+   Tag). Der frühere Zuschlag hier war eine ZWEITE Korrektur: jede Bar
+   wurde eine Spalte zu lang gezeichnet (1 Tag Dauer = 2 Tage im Plan).
+   Gegenstück in on_date_change: frappe meldet das Ende bereits als
+   «letzter Tag 23:59:59» — dort darf ebenfalls kein Tag abgezogen werden. */
 function taskToFrappe(t){
-  const cat=categoryById(t.categoryId);
-  // Use start-of-day for start, end-of-day+1 for end to fill entire columns
   const s=t.start+" 00:00";
-  let e;
-  if(isMilestone(t)){
-    e=t.start+" 00:00";
-  } else {
-    const ed=parseISO(t.end); ed.setDate(ed.getDate()+1);
-    e=toISO(ed)+" 00:00";
-  }
+  const e=(isMilestone(t)?t.start:t.end)+" 00:00";
   return { id:t.id, name:t.name+(isMilestone(t)?" ◆":""), start:s, end:e, progress:0, custom_class:`cat_${t.categoryId}${isMilestone(t)?" milestone":""}${t.done?" done":""}` };
 }
 
@@ -1229,8 +1232,31 @@ function _tpPatchGantt(){
     orig.call(this,m);
     if(this.options && this.options.gema_column_width>0) this.options.column_width=this.options.gema_column_width;
   };
+  /* Zeichenfläche beginnt am Projektstart statt einen MONAT davor.
+     frappe padded in der Tagesansicht hart mit -1 Monat / +1 Monat
+     (setup_gantt_dates) — bei einer Baustelle ab Oktober war deshalb der
+     ganze September im Plan sichtbar. Wir kürzen auf wenige Tage Luft und
+     beziehen Projektstart/-ende mit ein (state.projectStart/-End sind die
+     Klammer des Bauzeitenplans). */
+  const origDates=Gantt.prototype.setup_gantt_dates;
+  Gantt.prototype.setup_gantt_dates=function(){
+    origDates.call(this);
+    try{
+      let min=null,max=null;
+      (this.tasks||[]).forEach(t=>{ if(!min||t._start<min)min=t._start; if(!max||t._end>max)max=t._end; });
+      if(!min||!max) return;
+      const ps=state.projectStart?parseISO(state.projectStart):null;
+      const pe=state.projectEnd?parseISO(state.projectEnd):null;
+      if(ps&&ps<min) min=ps;
+      if(pe&&pe>max) max=pe;
+      const s=new Date(min); s.setHours(0,0,0,0); s.setDate(s.getDate()-TP_PAD_VOR);
+      const e=new Date(max); e.setHours(0,0,0,0); e.setDate(e.getDate()+TP_PAD_NACH);
+      this.gantt_start=s; this.gantt_end=e;
+    }catch(err){ /* Fallback: frappe-Standard behalten */ }
+  };
   Gantt._gemaCwPatched=true;
 }
+const TP_PAD_VOR=2, TP_PAD_NACH=14;   // Tage Luft links/rechts der Zeichenfläche
 function _tpProjectSpanDays(){
   let min=null,max=null;
   state.tasks.forEach(t=>{ if(!min||t.start<min)min=t.start; if(!max||t.end>max)max=t.end; });
@@ -1325,6 +1351,8 @@ function syncTaskListScroll(){
 
 function renderGantt(){
   injectCatStyles();
+  // Sichtbaren Ausschnitt merken, BEVOR der Container neu gebaut wird
+  _tpCaptureScroll();
   const tasks=filteredTasks().map(taskToFrappe);
   const mode="Day";
   const el=document.getElementById("ganttEl");
@@ -1361,11 +1389,24 @@ function renderGantt(){
         </div>`;
       },
       on_click:(task)=>openEdit(task.id),
+      /* Verschieben vs. Grösse ändern (KRITISCH):
+         frappe meldet Start + Ende (Ende bereits als «letzter Tag
+         23:59:59» — kein Tagesabzug nötig, siehe taskToFrappe).
+         Bleibt die Kalenderlänge gleich, war es ein VERSCHIEBEN: dann
+         muss die Dauer exakt erhalten bleiben. Früher wurden Start und
+         Ende unabhängig auf Arbeitstage geschnappt (Start vorwärts, Ende
+         rückwärts) — ein Termin, der auf einem Wochenende landete, wurde
+         dabei kürzer. Jetzt zählt beim Verschieben die alte Arbeitstag-
+         Dauer, beim Ziehen am Rand die neue. */
       on_date_change:(task,start,end)=>{
         const t=state.tasks.find(x=>x.id===task.id); if(!t) return;
-        t.start=snapStartForward(toISO(start));
+        const rawStart=toISO(start), rawEnd=toISO(end);
+        const verschoben=diffDays(rawStart,rawEnd)===diffDays(t.start,t.end);
+        const dauerAT=Math.max(1,countWorkingDays(t.start,t.end));
+        t.start=snapStartForward(rawStart);
         if(isMilestone(t)){ t.end=t.start; }
-        else { const ed=new Date(end); ed.setDate(ed.getDate()-1); t.end=snapEndBackward(toISO(ed)); }
+        else if(verschoben){ t.end=toISO(addWorkingDays(parseISO(t.start),dauerAT)); }
+        else { t.end=snapEndBackward(rawEnd); if(t.end<t.start) t.end=t.start; }
         saveState(false); renderAll();
       }
     });
@@ -1396,20 +1437,19 @@ function snapBarsToGrid(){
   try{
     const svg=document.querySelector("#ganttEl svg"); if(!svg) return;
     const opts=gantt.options;
-    const step=opts.step||24, cw=opts.column_width||38;
-    const gs=gantt.gantt_start;
-    const pad=opts.padding||18;
-    // Snap each bar rect to nearest day boundary
+    const cw=opts.column_width||38;
+    /* KEIN horizontaler Versatz: options.padding ist in frappe der
+       VERTIKALE Zeilenabstand (compute_y), die Spalten beginnen bei x=0.
+       Der frühere «pad»-Zuschlag schob jede Bar um 14 px nach rechts —
+       sie sass damit sichtbar zwischen zwei Tagesspalten. */
     svg.querySelectorAll(".bar-wrapper .bar").forEach(bar=>{
       const x=parseFloat(bar.getAttribute("x"));
       const w=parseFloat(bar.getAttribute("width"));
       // Find which day column this bar starts in
-      const dayOffset=(x-pad)/cw;
-      const snappedStart=Math.round(dayOffset);
-      const newX=pad+snappedStart*cw;
+      const snappedStart=Math.round(x/cw);
+      const newX=snappedStart*cw;
       // Find which day column the bar ends in
-      const endOffset=(x+w-pad)/cw;
-      const snappedEnd=Math.round(endOffset);
+      const snappedEnd=Math.round((x+w)/cw);
       const newW=Math.max(cw, (snappedEnd-snappedStart)*cw);
       bar.setAttribute("x", newX);
       bar.setAttribute("width", newW);
@@ -1546,19 +1586,54 @@ function updateGanttHeight(){
    in unskalierten Einheiten gerechnet (Ansicht begann am falschen
    Datum) und der uniforme scale() verzog die Y-Positionen — die Bars
    sassen nicht mehr auf ihren Zeilen der Task-Liste. */
-function applyViewport(){
+/* Scroll-Anker: die Ansicht darf beim Neuzeichnen (jede Änderung ruft
+   renderAll → renderGantt) NICHT an den Fenster-Start zurückspringen.
+   Gemerkt wird das links sichtbare DATUM (nicht die Pixel) — damit
+   überlebt die Position auch geänderte Spaltenbreiten (Zoom/Resize) und
+   eine verschobene Zeichenfläche. `force` = bewusster Sprung (Fenster-
+   Start/Spanne/Zoom geändert, «⌖ Projektstart», erster Aufbau). */
+let _tpAnchor=null;   // {datum, px, gs, cw} — Datum trägt über Zoom/Resize, px hält die Position pixelgenau
+function _tpCaptureScroll(){
+  const sc=_tpScroller();
+  if(!sc||!gantt||!gantt.gantt_start) return;
+  const cw=gantt.options.column_width||38;
+  const gs=new Date(gantt.gantt_start);
+  const d=new Date(gs);
+  d.setDate(d.getDate()+Math.round(sc.scrollLeft/cw));
+  _tpAnchor={datum:toISO(d), px:sc.scrollLeft, gs:toISO(gs), cw:cw};
+}
+function applyViewport(force){
   if(!gantt) return;
   const container=document.getElementById("ganttEl");
   const svg=container?.querySelector("svg"); if(!svg) return;
   svg.style.transform=""; svg.style.transformOrigin="";
   const area=_tpScroller(); if(!area) return;
-  const startStr=document.getElementById("windowStart")?.value;
   const gs=gantt.gantt_start?new Date(gantt.gantt_start):null;
-  if(!startStr||!gs) return;
-  const cw=gantt.options.column_width||38, pad=gantt.options.padding||18;
+  if(!gs) return;
+  const cw=gantt.options.column_width||38;
+  if(!force&&_tpAnchor){
+    // Unveränderte Zeichenfläche + Spaltenbreite → Position pixelgenau halten
+    if(_tpAnchor.gs===toISO(gs)&&Math.abs(_tpAnchor.cw-cw)<0.01){ area.scrollLeft=_tpAnchor.px; return; }
+    const off=Math.max(0,_ganttDayOffset(parseISO(_tpAnchor.datum),gs));
+    area.scrollLeft=off*cw;
+    _tpAnchor={datum:_tpAnchor.datum,px:area.scrollLeft,gs:toISO(gs),cw:cw};
+    return;
+  }
+  const startStr=document.getElementById("windowStart")?.value;
+  if(!startStr) return;
   const offsetDays=Math.max(0,_ganttDayOffset(parseISO(startStr),gs));
-  area.scrollLeft=Math.max(0,pad+offsetDays*cw-1);
+  area.scrollLeft=Math.max(0,offsetDays*cw);
+  _tpAnchor={datum:startStr,px:area.scrollLeft,gs:toISO(gs),cw:cw};
 }
+/* Ansicht bewusst an den Projektstart setzen (Toolbar-Button) */
+function goToProjektStart(){
+  const ws=document.getElementById("windowStart");
+  if(ws&&state.projectStart) ws.value=state.projectStart;
+  _tpAnchor=null;
+  applyViewport(true);
+  toast("⌖ Ansicht am Projektstart");
+}
+window.goToProjektStart=goToProjektStart;
 // Liefert die Anzahl ganzer Tage zwischen zwei Daten, gerundet —
 // damit Sommer-/Winterzeit-Uebergaenge (Tag mit 23 oder 25 Stunden)
 // nicht zu Bruchteilen fuehren, die Spalten und Today-Marker um eine
@@ -1603,6 +1678,10 @@ function applyHolidayShading(){
     const todayISO=toISO(new Date());
     const opts=gantt.options;
     const cw=opts.column_width||38;
+    /* Raster/Schattierung/Heute-Linie zeichnen bei x = Tagesoffset·Spalten-
+       breite — genau dort sitzen auch die Bars. options.padding ist in
+       frappe der VERTIKALE Zeilenabstand; der frühere Zuschlag verschob
+       das ganze Overlay um 14 px gegen die Balken. */
     const gs=gantt.gantt_start, ge=gantt.gantt_end;
     if(!gs||!ge) return;
     const monthNames=["Jan","Feb","Mär","Apr","Mai","Jun","Jul","Aug","Sep","Okt","Nov","Dez"];
@@ -1617,7 +1696,7 @@ function applyHolidayShading(){
       const day=cur.getDay();
       const iso=toISO(cur);
       // DST-sicher: ganze Tage rechnen, nicht Stunden/24
-      const x=(opts.padding||18)+_ganttDayOffset(cur, gs)*cw;
+      const x=_ganttDayOffset(cur, gs)*cw;
 
       // ── Single vertical line per day (full height) ──
       if(showEveryDay||day===1){
@@ -1695,7 +1774,7 @@ function applyHolidayShading(){
     // ── Holiday overlays ──
     holidays.forEach(iso=>{
       const d=parseISO(iso); if(d<gs||d>ge) return;
-      const x=(opts.padding||18)+_ganttDayOffset(d, gs)*cw;
+      const x=_ganttDayOffset(d, gs)*cw;
       const r=document.createElementNS(ns,"rect");
       r.setAttribute("x",x); r.setAttribute("y",headerH);
       // Im Month-Modus ist cw klein (~4px pro Tag) — voller-Breite-
@@ -1723,7 +1802,7 @@ function applyHolidayShading(){
 
     // ── Today highlight ── plus markante Today-Linie + Pin oben
     const td=parseISO(todayISO); if(td>=gs&&td<=ge){
-      const x=(opts.padding||18)+_ganttDayOffset(td, gs)*cw;
+      const x=_ganttDayOffset(td, gs)*cw;
       // Im Month-Modus ist cw klein — Highlight mind. 4px breit
       const todayW=Math.max(4, cw);
       const todayCenter=x+todayW/2;
@@ -2369,6 +2448,15 @@ function calcTaskDuration(){
 window.calcTaskEnd=calcTaskEnd;
 window.calcTaskDuration=calcTaskDuration;
 window.renderGantt=renderGantt;
+/* Test-Hooks — das Modul ist eine async-IIFE: state/gantt/renderAll sind
+   NUR hierüber von aussen (Drift-Guard scripts/terminplan_ansicht_test.mjs)
+   erreichbar. Muster window._fzPermHooks / _nbHooks. */
+window._tpHooks={
+  state:()=>state, gantt:()=>gantt, renderAll:()=>renderAll(),
+  openEdit:(id)=>openEdit(id), updateTask:()=>updateTask(),
+  scroller:()=>_tpScroller(), columnWidth:()=>_tpColumnWidth(),
+  applyViewport:()=>applyViewport(), goToProjektStart:()=>goToProjektStart()
+};
 
 // ── Shift plan ──
 function shiftToDate(){
@@ -3088,8 +3176,9 @@ document.getElementById("subdivision").addEventListener("change",e=>{
   if(state.holidaysEnabled) loadHolidays();
 });
 
+// Fenster-Start/-Spanne/Zoom = bewusster Sprung → force (Anker verwerfen)
 ["windowSpan","windowStart","zoomPreset"].forEach(id=>{
-  document.getElementById(id).addEventListener("change",()=>{ renderGantt(); requestAnimationFrame(()=>{applyViewport();localizeHeaders();}); });
+  document.getElementById(id).addEventListener("change",()=>{ _tpAnchor=null; renderGantt(); requestAnimationFrame(()=>{applyViewport(true);localizeHeaders();}); });
 });
 ["filterCategory","filterOwner","search"].forEach(id=>{
   document.getElementById(id).addEventListener(id==="search"?"input":"change",()=>{ renderGantt(); requestAnimationFrame(()=>{applyViewport();localizeHeaders();}); });
