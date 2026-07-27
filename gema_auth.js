@@ -386,6 +386,11 @@
   }
 
   // ── Hash ───────────────────────────────────────────────────────────
+  // NUR Transportformat fuer Passwort-Aenderungen: sys_admin/sys_profil
+  // legen den Wert als user.password in den persist_auth-Payload, die
+  // gema-auth-Function erkennt ihn (looksLikeDjb2), speichert scrypt im
+  // geschuetzten cred:-Record und entfernt das Feld aus dem User.
+  // Im Client wird NIE ein Passwort verglichen (kein Client-Login mehr).
   function _hash(str) {
     var h=5381;for(var i=0;i<str.length;i++){h=((h<<5)+h)+str.charCodeAt(i);h=h&0xffffffff;}
     return 'gh_'+Math.abs(h).toString(16)+'_'+str.length;
@@ -1463,39 +1468,19 @@
       if((action==='read'||action==='write')&&_studentModAllowed(user,key))return true;
       return false;
     },
-    login:function(username,password,remember){
-      var users=_getUsers()||[];
-      var h=_hash(password);
-      var input=username.toLowerCase();
-      var user=users.find(function(u){
-        if(!u.active||u.password!==h)return false;
-        if(u.username&&u.username.toLowerCase()===input)return true;
-        if(u.profile&&u.profile.email&&u.profile.email.toLowerCase()===input)return true;
-        return false;
-      });
-      if(!user)return null;
-      var exp=new Date();exp.setDate(exp.getDate()+(remember?SESSION_DAYS:1));
-      var s={userId:user.id,expires:exp.toISOString()};
-      try{localStorage.setItem(STORAGE_SESSION,JSON.stringify(s));}catch(e){}
-      return user;
-    },
+    // KEIN client-seitiger Login mehr (Sicherheits-Bereinigung 27.07.2026).
+    // Hier stand ein Fallback, der das Passwort im Browser gegen den
+    // djb2-Hash im lokalen Benutzer-Cache prueft. Er erzeugte eine Sitzung
+    // OHNE JWT — unter RLS also ohnehin unbrauchbar (der Tokenless-Guard in
+    // gema_sync.js meldet sie sofort wieder ab) — war aber der letzte Weg,
+    // auf dem ein Passwort-Vergleich im Browser stattfand. Anmelden laeuft
+    // ausschliesslich ueber die gema-auth Netlify Function.
     loginAsync:function(username,password,remember){
       var self=this;
       // GEMA Secure v1: Login laeuft ueber die gema-auth Netlify Function —
       // sie prueft die Zugangsdaten SERVER-seitig und stellt das JWT aus,
-      // mit dem alle weiteren Supabase-Calls unter RLS laufen. Ist die
-      // Function (noch) nicht deployed, greift der Legacy-Pfad (anon-Read
-      // + Client-Hash) — funktioniert nur, solange RLS nicht aktiv ist.
-      function legacyLogin(){
-        return new Promise(function(resolve){
-          var resolved=false;
-          function done(u){if(!resolved){resolved=true;resolve(u);}}
-          _loadCollectionFromCloud(STORAGE_USERS).then(function(){
-            done(self.login(username,password,remember));
-          }).catch(function(){ done(null); });
-          setTimeout(function(){done(null);},6000);
-        });
-      }
+      // mit dem alle weiteren Supabase-Calls unter RLS laufen. Ist sie nicht
+      // erreichbar, ist keine Anmeldung moeglich (kein stiller Ausweg).
       var fnUrl=(w.GemaSync&&w.GemaSync.authFnUrl)||'/.netlify/functions/gema-auth';
       return fetch(fnUrl,{
         method:'POST',headers:{'Content-Type':'application/json'},
@@ -1505,16 +1490,14 @@
         return r.json().catch(function(){return {};}).then(function(j){return {status:r.status,j:j};});
       }).then(function(res){
         if(!res.j||!res.j.ok||!res.j.token){
-          // 401 = falsche Zugangsdaten (endgueltig). ALLE anderen Fehler
-          // (500 Fehlkonfiguration, Supabase-Fehler, kaputte Antwort) sind
-          // SERVER-Probleme → Fehler merken und auf Legacy ausweichen,
-          // damit ein Function-Defekt nie alle Logins blockiert (solange
-          // RLS noch nicht aktiv ist, funktioniert der Legacy-Pfad).
+          // 401 = falsche Zugangsdaten. Alles andere ist ein SERVER-Problem
+          // (Fehlkonfiguration, Supabase-Ausfall, kaputte Antwort) — das
+          // wird als solches gemeldet, nicht stillschweigend umgangen.
           if(res.status===401){w.GemaAuth.lastLoginError='';return null;}
           var msg=(res.j&&res.j.error)||('HTTP '+res.status);
-          w.GemaAuth.lastLoginError='Server-Login fehlgeschlagen: '+msg;
-          console.warn('[GemaAuth] '+w.GemaAuth.lastLoginError+' — Legacy-Fallback');
-          var e=new Error('fn-error');e.fnMissing=true;throw e;
+          w.GemaAuth.lastLoginError='Anmeldedienst antwortet nicht: '+msg;
+          console.warn('[GemaAuth] '+w.GemaAuth.lastLoginError);
+          return null;
         }
         w.GemaAuth.lastLoginError='';
         var u=res.j.user;
@@ -1550,12 +1533,14 @@
           return self.getCurrentUser()||u;
         });
       }).catch(function(e){
-        if(e&&e.fnMissing){
-          console.warn('[GemaAuth] gema-auth Function nicht verfuegbar — Legacy-Login');
-          return legacyLogin();
-        }
-        // Netzfehler → Legacy versuchen (deckt lokale Dev-Umgebung ab)
-        return legacyLogin();
+        // Function fehlt (404) oder Netzfehler → keine Anmeldung. Die
+        // Login-Seite zeigt `lastLoginError` an, damit man «falsches
+        // Passwort» von «Dienst nicht erreichbar» unterscheiden kann.
+        w.GemaAuth.lastLoginError=(e&&e.fnMissing)
+          ? 'Anmeldedienst nicht erreichbar (gema-auth Function fehlt).'
+          : 'Anmeldedienst nicht erreichbar — bitte Verbindung pruefen.';
+        console.warn('[GemaAuth] '+w.GemaAuth.lastLoginError);
+        return null;
       });
     },
 
@@ -1563,14 +1548,14 @@
     // unterscheidet «falsches Passwort» von «Function fehlkonfiguriert»)
     lastLoginError:'',
 
-    // GEMA Secure v1: JWT der aktuellen Sitzung (leer, wenn Legacy-Login)
+    // GEMA Secure v1: JWT der aktuellen Sitzung (jede Anmeldung liefert eines)
     getToken:function(){
       try{var s=JSON.parse(localStorage.getItem(STORAGE_SESSION)||'null');return (s&&s.token)||'';}catch(e){return '';}
     },
 
     // Einladungs-Aktivierung ueber die Function (Server prueft: Konto hat
-    // noch kein Passwort). Fallback auf den Legacy-Pfad, wenn die Function
-    // fehlt. Gibt {user, token?} zurueck oder null.
+    // noch kein Passwort) — ohne erreichbare Function keine Aktivierung.
+    // Gibt den User zurueck oder null.
     activateInvitationAsync:function(inviteToken,password,regData){
       var self=this;
       var fnUrl=(w.GemaSync&&w.GemaSync.authFnUrl)||'/.netlify/functions/gema-auth';
@@ -1585,6 +1570,9 @@
           if(res.status===500&&res.j&&/nicht konfiguriert/i.test(res.j.error||'')){
             var e=new Error('fn-unconfigured');e.fnMissing=true;throw e;
           }
+          // Token ungueltig/abgelaufen: kein Dienst-Problem — die Login-Seite
+          // soll ihre eigene Meldung zeigen, nicht einen alten Fehlertext.
+          w.GemaAuth.lastLoginError='';
           return null;
         }
         var u=res.j.user;
@@ -1597,11 +1585,10 @@
         }catch(e){}
         return u;
       }).catch(function(e){
-        if(e&&e.fnMissing){
-          var u=self.activateInvitation(inviteToken,password,regData);
-          if(u)self.login(u.username,password,true);
-          return u;
-        }
+        w.GemaAuth.lastLoginError=(e&&e.fnMissing)
+          ? 'Anmeldedienst nicht erreichbar (gema-auth Function fehlt).'
+          : 'Anmeldedienst nicht erreichbar — bitte Verbindung pruefen.';
+        console.warn('[GemaAuth] Aktivierung fehlgeschlagen: '+w.GemaAuth.lastLoginError);
         return null;
       });
     },
@@ -1935,26 +1922,12 @@
       })||null;
     },
 
-    // Token-basiertes Erstlogin (erweitert mit Registrierungsfeldern)
-    activateInvitation:function(token,password,regData){
-      var users=_getUsers()||[];
-      var user=users.find(function(u){return u.einladung&&u.einladung.token===token;});
-      if(!user)return null;
-      user.password=_hash(password);
-      user.einladung.angenommenAm=new Date().toISOString();
-      user.einladung.passwortGesetzt=true;
-      // Registrierungsdaten übernehmen
-      if(regData){
-        if(regData.name)user.name=regData.name;
-        if(regData.firma&&user.profile)user.profile.firma=regData.firma;
-        if(regData.person&&user.profile)user.profile.person=regData.name||regData.person;
-      }
-      // 30-Tage Testphase starten
-      var testEnde=new Date();testEnde.setDate(testEnde.getDate()+30);
-      user.abo={typ:'testphase',testphaseEnde:testEnde.toISOString().split('T')[0]};
-      w.GemaAuth.saveUsers(users);
-      return user;
-    },
+    // Token-basiertes Erstlogin laeuft ausschliesslich ueber
+    // activateInvitationAsync -> gema-auth-Function (action 'activate'):
+    // das Passwort landet dort im geschuetzten cred:-Record. Die frueher
+    // hier stehende Client-Variante (schrieb user.password direkt) ist
+    // entfallen - sie erzeugte eine Session ohne Token, die unter RLS
+    // ohnehin nichts lesen kann.
 
     // Rollenspezifische Weiterleitung nach Login/Aktivierung
     getRedirectForUser:_getRedirectForUser,

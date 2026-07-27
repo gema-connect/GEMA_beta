@@ -448,11 +448,16 @@ body::before{
       if(!name){err.textContent='Bitte geben Sie Ihren Namen ein.';err.style.display='';return;}
       if(!pw1||pw1.length<4){err.textContent='Passwort muss mind. 4 Zeichen haben.';err.style.display='';return;}
       if(pw1!==pw2){err.textContent='Passwörter stimmen nicht überein.';err.style.display='';return;}
-      // GEMA Secure v1: Aktivierung serverseitig (Function setzt das
-      // Passwort in den geschuetzten cred:-Record und liefert das JWT);
-      // Fallback auf den Legacy-Pfad steckt in activateInvitationAsync.
+      // GEMA Secure: Aktivierung laeuft ausschliesslich serverseitig — die
+      // Function setzt das Passwort in den geschuetzten cred:-Record und
+      // liefert das JWT zurueck. Keinen Client-Fallback (siehe gema_auth.js).
       GemaAuth.activateInvitationAsync(inviteToken,pw1,{name:name,firma:firma}).then(function(user){
-        if(!user){err.textContent='Einladungslink ungültig oder abgelaufen.';err.style.display='';return;}
+        if(!user){
+          err.textContent=(GemaAuth.lastLoginError&&GemaAuth.lastLoginError.length)
+            ? GemaAuth.lastLoginError
+            : 'Einladungslink ungültig oder abgelaufen.';
+          err.style.display='';return;
+        }
         location.href=GemaAuth.getRedirectForUser(user);
       });
     };
@@ -635,12 +640,11 @@ function _regSubmit(){
         _regErr(res.j&&res.j.error||'Registrierung fehlgeschlagen.');
       })
       .catch(function(e){
-        // Function fehlt → Legacy (direkter Cloud-Write, vor RLS ok)
-        GemaAuth.saveOrgs(orgs);
-        existingUsers.push(_regUser);
-        GemaAuth.saveUsers(existingUsers);
-        GemaAuth.login(email,pw);
-        _regDone();
+        // GEMA Secure: Konten entstehen AUSSCHLIESSLICH serverseitig — das
+        // Passwort landet im geschuetzten cred:-Record. Es gibt keinen
+        // Client-Fallback mehr: ein client-seitig angelegtes Konto waere
+        // unter RLS ohnehin nicht schreibbar und ohne cred:-Record tot.
+        _regErr('Registrierung derzeit nicht möglich — der Anmeldedienst ist nicht erreichbar. Bitte später erneut versuchen oder den GEMA-Administrator kontaktieren.');
       });
     function _regDone(){
     document.getElementById('registerView').style.display='none';
@@ -744,44 +748,10 @@ function _studSubmit(){
     })
     .catch(function(e){
       if(!e||!e.fnMissing){fail('Netzwerkfehler — bitte erneut versuchen.');return;}
-      // Legacy-Fallback (Function nicht deployed, RLS noch aus):
-      // Klasse direkt suchen, User client-seitig anlegen, Beitritt schreiben.
-      try{
-        if(!(window.GemaSync&&GemaSync.loadCollection)){fail('Cloud nicht erreichbar.');return;}
-        GemaSync.loadCollection('schule','sklasse:').then(function(rows){
-          var norm=code.replace(/[^A-Z0-9]/g,'');
-          var klasse=(rows||[]).map(function(r){return r.data;}).find(function(x){
-            return x&&!x.archiviert&&String(x.code||'').toUpperCase().replace(/[^A-Z0-9]/g,'')===norm;
-          });
-          if(!klasse){fail('Klassencode ungültig.');return;}
-          var users=GemaAuth.getUsers()||[];
-          var exists=users.find(function(u){
-            return u&&((u.username&&u.username.toLowerCase()===email)||(u.profile&&u.profile.email&&u.profile.email.toLowerCase()===email));
-          });
-          var uid;
-          if(exists){
-            // Bestehendes Konto: Login prüfen, dann nur Klassen-Beitritt
-            var lu=GemaAuth.login(email,pw);
-            if(!lu){fail('E-Mail bereits registriert — Passwort stimmt nicht.');return;}
-            uid=exists.id;
-          }else{
-            uid='user_stud_'+Date.now();
-            users.push({
-              id:uid,username:email,name:name,
-              password:GemaAuth.hashPassword?GemaAuth.hashPassword(pw):pw,
-              roleIds:['role_student'],orgId:klasse.orgId,active:true,
-              profile:{email:email,person:name},createdAt:new Date().toISOString()
-            });
-            GemaAuth.saveUsers(users);
-            GemaAuth.login(email,pw);
-          }
-          klasse.studentIds=klasse.studentIds||[];
-          if(klasse.studentIds.indexOf(uid)<0)klasse.studentIds.push(uid);
-          GemaSync.saveRecord('schule','sklasse:'+klasse.id,klasse).catch(function(){});
-          var exp=new Date();exp.setDate(exp.getDate()+30);
-          done(uid,exp.toISOString(),'',klasse.name);
-        }).catch(function(){fail('Cloud nicht erreichbar.');});
-      }catch(err){fail('Fehler: '+err.message);}
+      // GEMA Secure: Studierenden-Konten entstehen AUSSCHLIESSLICH
+      // serverseitig (Passwort im geschuetzten cred:-Record, Klassen-Beitritt
+      // mit Rechtepruefung). Kein Client-Fallback mehr.
+      fail('Anmeldedienst nicht erreichbar — Registrierung derzeit nicht möglich. Bitte später erneut versuchen.');
     });
 }
 window._showStudent=_showStudent;window._studSubmit=_studSubmit;window._studCodeCheck=_studCodeCheck;

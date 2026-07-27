@@ -34,6 +34,46 @@ console.log('■ gema_auth.js');
   ok(!/_writeLocalCache\(\s*STORAGE_USERS\s*,\s*DEFAULT/.test(s), '_initDefaults seedet KEINE Benutzer');
 }
 
+/* ── 1b) Kein Client-seitiger Login mehr ──────────────────────── */
+// Der Legacy-Pfad verglich Passwoerter IM BROWSER und legte eine Sitzung
+// OHNE JWT an. Unter RLS liest so eine Sitzung nichts (gema_sync loggt sie
+// aus) — und solange die Function fehlt, waere sie ein Login am
+// serverseitigen Rechte-Check vorbei. Anmeldung laeuft ausschliesslich
+// ueber netlify/functions/gema-auth.js.
+console.log('■ Kein Client-Login');
+{
+  const s = readFileSync(join(ROOT, 'gema_auth.js'), 'utf8');
+  ok(!/\blogin\s*:\s*function/.test(s), 'gema_auth.js hat keine login()-Methode mehr');
+  ok(/loginAsync\s*:\s*function/.test(s), 'loginAsync (Function-Weg) ist weiterhin da');
+  ok(!/\bactivateInvitation\s*:\s*function/.test(s), 'keine synchrone activateInvitation mehr');
+  ok(/activateInvitationAsync\s*:\s*function/.test(s), 'activateInvitationAsync bleibt');
+  ok(!/\.password\s*===|===\s*[a-z_]*\.password\b/i.test(s), 'kein Passwort-Vergleich im Client');
+
+  const l = readFileSync(join(ROOT, 'sys_login.html'), 'utf8');
+  ok(!/GemaAuth\.login\s*\(/.test(l), 'sys_login.html ruft kein GemaAuth.login mehr');
+  ok(!/GemaAuth\.saveUsers\s*\(/.test(l), 'sys_login.html legt keine Benutzer client-seitig an');
+
+  // Repo-weit: niemand sonst darf den Legacy-Einstieg wiederbeleben
+  const EXT2 = new Set(['.js', '.html']);
+  const SKIP2 = new Set(['node_modules', '.git', 'vorlagen', 'scripts', 'netlify']);
+  const treffer2 = [];
+  (function walk(dir) {
+    for (const n of readdirSync(dir)) {
+      if (SKIP2.has(n)) continue;
+      const p = join(dir, n);
+      if (statSync(p).isDirectory()) { walk(p); continue; }
+      if (!EXT2.has(extname(n))) continue;
+      const txt = readFileSync(p, 'utf8');
+      txt.split('\n').forEach((z, i) => {
+        if (/GemaAuth\.(login|activateInvitation)\s*\(/.test(z))
+          treffer2.push(p.slice(ROOT.length + 1) + ':' + (i + 1) + ' → ' + z.trim().slice(0, 90));
+      });
+    }
+  })(ROOT);
+  if (treffer2.length) treffer2.forEach(t => console.log('    ' + t));
+  ok(treffer2.length === 0, 'kein Modul ruft den Legacy-Login auf');
+}
+
 /* ── 2) Repo-weit: keine hartcodierten Zugangsdaten ───────────── */
 console.log('■ Repo-Scan (.js/.html/.mjs)');
 {
