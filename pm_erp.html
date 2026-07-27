@@ -2306,9 +2306,6 @@ function erpOpenEditor(){
   var d=cur;
   erpPosSelReset();          // Auswahl bei vollem Editor-Rebuild zurücksetzen
   _editCell=null;            // offene Zell-Bearbeitung schliessen
-  // Gleichzeitig-Bearbeiten-Warnung: Lock pro DOKUMENT (watch mit gleichem
-  // Key ist ein No-Op — Editor-Rebuilds erzeugen keinen Lock-Churn)
-  try{ if(window.GemaEditLock) GemaEditLock.watch({key:'erpdok:'+d.id, label:(d.nr||'')+(d.titel?' · '+d.titel:'')}); }catch(e){}
   _erpLastSig=erpDocSig(d);  // Ausgangsstand — reines Öffnen speichert nicht
   // Schlussrabatte normalisieren + Alt-Dokument-Rabatt (rabattPct) einmalig in
   // eine Schlusszeile migrieren (danach läuft alles über cur.schluss)
@@ -2318,6 +2315,16 @@ function erpOpenEditor(){
     d.rabattPct=0;
   }
   var editable=erpEditable();
+  // Gleichzeitig-Bearbeiten-Warnung: Lock pro DOKUMENT — und NUR wenn das
+  // Dokument wirklich bearbeitbar ist (ein gesperrtes/nur gelesenes Dokument
+  // kann nichts überschreiben). Entsperren ruft erpOpenEditor erneut → Lock
+  // greift dann. watch mit gleichem Key ist ein No-Op (kein Rebuild-Churn).
+  try{
+    if(window.GemaEditLock){
+      if(editable) GemaEditLock.watch({key:'erpdok:'+d.id, label:(d.nr||'')+(d.titel?' · '+d.titel:'')});
+      else GemaEditLock.stop();
+    }
+  }catch(e){}
   var s=erpStatusOf(d);var st=ST[s]||ST.entwurf;
   document.getElementById('edTitle').textContent=d.nr+' · '+TYP[d.typ].n+(d.rechnungsArt&&d.rechnungsArt!=='einzel'?' ('+({akonto:'Akonto',teil:'Teil',schluss:'Schluss'})[d.rechnungsArt]+')':'');
   var bd=document.getElementById('edBadge');

@@ -24,6 +24,8 @@
   var _initialized = false;
   var _badge = null;
   var _badgeTimer = null;
+  var _lockOff = false;     // opts.editLock:false — Modul lockt selbst pro Datensatz
+  var _lockArmed = false;   // erst nach der ersten ECHTEN Eingabe
 
   // IDs to never save (UI controls)
   var SKIP = {};
@@ -209,27 +211,58 @@
   }
 
   // ── Debounce ──
-  function _onChange() {
+  function _onChange(ev) {
     if (_loading) return;
+    // Erste ECHTE Eingabe → ab jetzt bearbeitet diese Person den Datensatz
+    if (ev && ev.isTrusted) _lockArm();
     clearTimeout(_timer);
     _timer = setTimeout(function() { _save(false); }, 5000);
   }
 
   // ── Gleichzeitig-Bearbeiten-Warnung (GemaEditLock) ──
-  // Der AutoSave-Storage-Key IST die Datensatz-Identitaet (Modul + Objekt
-  // + Phase) — genau darauf laeuft der Edit-Lock: bearbeiten zwei Personen
-  // dasselbe Projekt im selben Berechnungsmodul, erscheint bei beiden der
-  // amber Warn-Banner. gema_editlock.js wird lazy nachgeladen, damit kein
-  // einziges Modul-HTML angefasst werden muss. Best-effort: ohne Script/
-  // Cloud aendert sich nichts am AutoSave.
+  // GRANULARITAET (KRITISCH): Der Lock gilt dem DATENSATZ, nie dem Modul.
+  // Zwei Bedingungen, sonst wird gar nichts gelockt:
+  //  (a) Die Seite hat ein Objekt-Dropdown (#metaObjektDropdown). NUR dort
+  //      IST der AutoSave-Snapshot der fachliche Datensatz (Berechnung des
+  //      Projekts). Listen-/Pool-Module (Werkzeug, Fahrzeug, Objekte,
+  //      Terminplan …) rufen init() ebenfalls auf, speichern hier aber nur
+  //      Seiten-UI unter EINEM modulweiten Key — ein Lock darauf hiess
+  //      faelschlich «jemand arbeitet im ganzen Modul».
+  //  (b) Der Nutzer hat wirklich etwas geaendert (_lockArm bei der ersten
+  //      isTrusted-Eingabe). Reines Oeffnen/Anschauen erzeugt keinen Lock
+  //      und keinen Banner.
+  // gema_editlock.js wird lazy nachgeladen, damit kein Modul-HTML angefasst
+  // werden muss. Best-effort: ohne Script/Cloud aendert sich nichts am AutoSave.
+  function _lockEligible() {
+    if (_lockOff) return false;
+    return !!document.getElementById('metaObjektDropdown');
+  }
+  function _lockLabel() {
+    var t = (document.title || _module).replace(/\s*[—–-]\s*GEMA.*$/i, '').trim();
+    try {
+      var sel = document.getElementById('metaObjektDropdown');
+      if (sel && sel.value && sel.selectedIndex >= 0) {
+        var o = (sel.options[sel.selectedIndex].text || '').trim();
+        if (o) t += ' · ' + o;
+      }
+    } catch(e) {}
+    return t;
+  }
   function _lockWatch() {
     try {
-      if (!w.GemaEditLock) return;
-      var label = (document.title || _module).replace(/\s*[—–-]\s*GEMA.*$/i, '').trim();
-      w.GemaEditLock.watch({ key: _key(), label: label });
+      if (!w.GemaEditLock || !_lockArmed || !_lockEligible()) return;
+      w.GemaEditLock.watch({ key: _key(), label: _lockLabel() });
     } catch(e) {}
   }
-  function _lockSetup() {
+  // Datensatz gewechselt (Objekt/Phase) → alten Lock loesen; der neue
+  // entsteht erst wieder mit der ersten Eingabe im neuen Datensatz.
+  function _lockRelease() {
+    _lockArmed = false;
+    try { if (w.GemaEditLock) w.GemaEditLock.stop(); } catch(e) {}
+  }
+  function _lockArm() {
+    if (_lockArmed || !_lockEligible()) return;
+    _lockArmed = true;
     if (w.GemaEditLock) { _lockWatch(); return; }
     try {
       var s = document.createElement('script');
@@ -244,7 +277,7 @@
     // Save current
     _save(true);
     _objId = newId || '';
-    _lockWatch();
+    _lockRelease();
 
     if (!newId) return;
 
@@ -279,6 +312,9 @@
 
     // Extra skip IDs
     if (opts.skipIds) opts.skipIds.forEach(function(id) { SKIP[id] = 1; });
+    // Module, deren fachliche Daten NICHT im AutoSave-Snapshot liegen
+    // (eigene per-Record-Pools), setzen den Lock selbst pro Datensatz.
+    if (opts.editLock === false) _lockOff = true;
 
     // Patch onObjektSelect
     var _origFn = w.onObjektSelect;
@@ -289,7 +325,7 @@
       // Save before switch
       _save(true);
       _objId = newId;
-      _lockWatch();
+      _lockRelease();
 
       // Call original (fills project name, saves meta)
       if (typeof _origFn === 'function') _origFn();
@@ -321,10 +357,10 @@
 
     // Listen for changes
     document.addEventListener('input', function(e) {
-      if (e.target.id && !SKIP[e.target.id] && !e.target.closest('.modal-bg,.modal')) _onChange();
+      if (e.target.id && !SKIP[e.target.id] && !e.target.closest('.modal-bg,.modal')) _onChange(e);
     }, true);
     document.addEventListener('change', function(e) {
-      if (e.target.id && !SKIP[e.target.id] && !e.target.closest('.modal-bg,.modal')) _onChange();
+      if (e.target.id && !SKIP[e.target.id] && !e.target.closest('.modal-bg,.modal')) _onChange(e);
     }, true);
 
     // Save on page leave
@@ -341,7 +377,7 @@
       } catch(e){}
       // Lade mit neuem Key
       _prevKey = _key();
-      _lockWatch();
+      _lockRelease();
       _load(_objId, function(data) {
         if (data) _restore(data);
         else _clear();
@@ -357,10 +393,8 @@
       });
     }
 
-    // Gleichzeitig-Bearbeiten-Warnung aktivieren (lazy, best-effort).
-    // Verzoegert, damit ein evtl. spaeter gesetztes Objekt-Dropdown
-    // (Cloud-Pull) den ersten Watch nicht sofort wieder ersetzt.
-    setTimeout(_lockSetup, 1500);
+    // Die Gleichzeitig-Bearbeiten-Warnung wird NICHT beim Oeffnen gesetzt,
+    // sondern erst mit der ersten echten Eingabe (_lockArm in _onChange).
 
     _initialized = true;
   }

@@ -3,6 +3,7 @@
 <head>
 <script src="gema_sync.js"></script>
 <script src="gema_auth.js"></script>
+<script src="gema_editlock.js"></script>
 <script src="gema_recent.js"></script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
@@ -1174,6 +1175,15 @@ function fixLeadingZero(el){
     var d = dokById(dokId); if(!d || !kannLesen(d)) return;
     PV.dok = d; PV.seite = seite || 1; PV.sel = null; PV.hiPend = hiPendId || null;
     PV.canEdit = kannBearbeiten(d);
+    // Gleichzeitig-Bearbeiten-Warnung: Lock pro DOKUMENT (Datensatz) — die
+    // Markierungen liegen in EINEM annot-Record je Dokument (Last-Write-Wins).
+    // Nur fuer Markier-Berechtigte; pabViewerClose loest den Lock wieder.
+    try{
+      if(window.GemaEditLock){
+        if(PV.canEdit) GemaEditLock.watch({ key: 'pabd:' + d.id, label: (d.name || 'Plan') });
+        else GemaEditLock.stop();
+      }
+    }catch(e){}
     var me = user();
     PV.extern = !!(me && d.orgId !== me.orgId);
     PV.sicht = pabLayerSicht(d, me);                       // null = alle | Array
@@ -1211,6 +1221,7 @@ function fixLeadingZero(el){
     });
   };
   window.pabViewerClose = function(){
+    try{ if(window.GemaEditLock) GemaEditLock.stop(); }catch(e){}
     flushAnnot();
     // EIN Log-Eintrag pro Viewer-Session (statt einem pro Autosave-Flush)
     var chgSeiten = Object.keys(PV.chg || {});

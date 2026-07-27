@@ -49,13 +49,38 @@ console.log('— 0) Statische Verdrahtung —');
   ok(el.includes('TTL_MS'), 'gema_editlock: TTL-Ablauf');
 
   const asave = readFileSync(join(ROOT, 'gema_autosave.js'), 'utf8');
-  ok(asave.includes('_lockSetup') && asave.includes('_lockWatch'), 'gema_autosave: Editlock-Integration');
+  ok(asave.includes('_lockArm') && asave.includes('_lockWatch'), 'gema_autosave: Editlock-Integration');
   ok(asave.includes("'gema_editlock.js'"), 'gema_autosave: lazy-Load des Editlock-Scripts');
+  ok(asave.includes('_lockEligible') && asave.includes("getElementById('metaObjektDropdown')"),
+    'gema_autosave: Lock nur auf Datensatz-Seiten (Objekt-Dropdown)');
+  ok(asave.includes('ev.isTrusted') && asave.includes('_lockArm()'),
+    'gema_autosave: Lock erst bei echter Eingabe, nicht beim Öffnen');
+  ok(!/setTimeout\(_lockSetup/.test(asave), 'gema_autosave: kein Lock beim Seitenaufruf mehr');
+  ok(asave.includes('opts.editLock === false'), 'gema_autosave: Opt-out für Module mit eigenem Datensatz-Lock');
 
   const erp = readFileSync(join(ROOT, 'pm_erp.html'), 'utf8');
   ok(erp.includes('gema_editlock.js'), 'pm_erp: Script eingebunden');
-  ok(erp.includes("GemaEditLock.watch({key:'erpdok:'+d.id"), 'pm_erp: watch pro Dokument in erpOpenEditor');
+  ok(erp.includes("if(editable) GemaEditLock.watch({key:'erpdok:'+d.id"),
+    'pm_erp: watch pro Dokument, nur wenn bearbeitbar');
   ok(erp.includes('GemaEditLock.stop()'), 'pm_erp: stop in erpCloseEditor');
+
+  // Datensatz-genaue Locks in den Pool-Modulen (kein modulweiter Lock mehr)
+  [['if_werkzeug.html', "'tool:'+t.id", 'Werkzeug'],
+   ['if_fahrzeug.html', "'vehicle:'+v.id", 'Fahrzeug'],
+   ['sd_schadensbericht.html', "'schaden:'+id", 'Schadensbericht'],
+   ['pm_regierapport.html', "'regie:'+r.id", 'Regierapport'],
+   ['pm_pruefliste.html', "'prbeg:'+_cur.id", 'Prüfliste'],
+   ['pm_planablage.html', "'pabd:' + d.id", 'Plandialog'],
+   ['pm_abnahme.html', 'PROTO_PREFIX+activeProtocolId', 'Abnahme (pro Protokoll)']
+  ].forEach(function(t){
+    const src = readFileSync(join(ROOT, t[0]), 'utf8');
+    ok(src.includes('gema_editlock.js'), t[2] + ': Script eingebunden');
+    ok(src.includes('GemaEditLock.watch({key:' + t[1]) || src.includes('GemaEditLock.watch({ key: ' + t[1]),
+      t[2] + ': Lock pro Datensatz (' + t[1] + ')');
+    ok(src.includes('GemaEditLock.stop()'), t[2] + ': Lock wird wieder gelöst');
+  });
+  ok(readFileSync(join(ROOT, 'pm_abnahme.html'), 'utf8').includes("GemaAutoSave.init('abnahme_sia',{editLock:false})"),
+    'pm_abnahme: kein modulweiter AutoSave-Lock (eigener Protokoll-Lock)');
 
   const sw = readFileSync(join(ROOT, 'sw.js'), 'utf8');
   // Version NICHT festnageln — sie wird bei jeder Änderung hochgezogen; hier
@@ -152,6 +177,13 @@ const PAGE_ASAVE = `<!doctype html><html><head><meta charset="utf-8"><title>Test
 </div>
 <script src="/gema_sync.js"></script><script src="/gema_auth.js"></script><script src="/gema_autosave.js"></script>
 <script>GemaAutoSave.init('testmodul');</script>
+</body></html>`;
+// Listen-/Pool-Modul (Muster if_werkzeug): ruft AutoSave.init auf, hat aber
+// KEIN Objekt-Dropdown — hier darf NIE ein modulweiter Lock entstehen.
+const PAGE_POOL = `<!doctype html><html><head><meta charset="utf-8"><title>Werkzeug – GEMA</title></head>
+<body><div id="app"><input id="feld1" type="text"></div>
+<script src="/gema_sync.js"></script><script src="/gema_auth.js"></script><script src="/gema_autosave.js"></script>
+<script>GemaAutoSave.init('poolmodul');</script>
 </body></html>`;
 
 const FUTURE = new Date(Date.now() + 30 * 86400000).toISOString();
@@ -310,25 +342,57 @@ console.log('— C) Editlock-Banner (2 Kontexte, TTL, Dismiss, Release) —');
   await a.ctx.close(); await b.ctx.close();
 }
 
-// ── D) Autosave-Integration (lazy) ───────────────────────────────
-console.log('— D) Editlock via GemaAutoSave (lazy-Load, Key = AutoSave-Key) —');
+// ── D) Autosave-Integration (lazy, DATENSATZ-genau) ──────────────
+console.log('— D) Editlock via GemaAutoSave (erst bei echter Eingabe, pro Datensatz) —');
 {
   const { ctx, page } = await device('u_a', PAGE_ASAVE, '/__asavetest.html');
-  await page.waitForTimeout(2300);   // _lockSetup nach 1.5s + Script-Load
+  await page.waitForTimeout(2300);   // frueher wurde hier blind gelockt
+  const st0 = await page.evaluate(() => ({
+    loaded: typeof window.GemaEditLock !== 'undefined',
+    active: window.GemaEditLock ? window.GemaEditLock.active() : null
+  }));
+  ok(!st0.loaded && !st0.active, 'reines Öffnen erzeugt KEINEN Lock');
+  ok(!store.get('editlock|lock:gema_testmodul__obj9__u_a'), 'reines Öffnen schreibt keine Lock-Row');
+
+  // Echte Eingabe (isTrusted) → Lock auf den Datensatz Modul+Objekt
+  await page.click('#feld1');
+  await page.keyboard.type('12');
+  await page.waitForTimeout(900);
   const st = await page.evaluate(() => ({
     loaded: typeof window.GemaEditLock !== 'undefined',
     active: window.GemaEditLock ? window.GemaEditLock.active() : null
   }));
-  ok(st.loaded, 'gema_editlock.js lazy nachgeladen');
+  ok(st.loaded, 'gema_editlock.js lazy nachgeladen (erste Eingabe)');
   ok(st.active === 'gema_testmodul__obj9', 'Watch-Key = AutoSave-Key (Modul + Objekt) — ' + st.active);
   ok(!!store.get('editlock|lock:gema_testmodul__obj9__u_a'), 'Lock-Row für das Objekt in der Cloud');
-  // Objektwechsel → Watch folgt
+  const lrow = store.get('editlock|lock:gema_testmodul__obj9__u_a');
+  ok(lrow && lrow.data && /Objekt 9/.test(lrow.data.label || ''), 'Label nennt den Datensatz (Modul · Objekt)');
+
+  // Objektwechsel → alter Lock gelöst, neuer erst wieder bei Eingabe
   await page.evaluate(() => { document.getElementById('metaObjektDropdown').value = ''; window.onObjektSelect(); });
   await page.waitForTimeout(500);
-  const st2 = await page.evaluate(() => window.GemaEditLock.active());
-  ok(st2 === 'gema_testmodul', 'Objektwechsel zieht den Watch-Key nach — ' + st2);
+  ok(await page.evaluate(() => window.GemaEditLock.active()) === null, 'Objektwechsel löst den Lock');
   ok(!store.get('editlock|lock:gema_testmodul__obj9__u_a'), 'alter Objekt-Lock beim Wechsel gelöst');
   ok(page.errs.length === 0, 'keine pageerrors (Autosave-Integration)');
+  await ctx.close();
+}
+
+// ── E) Pool-/Listen-Modul: NIE ein modulweiter Lock ──────────────
+console.log('— E) Listen-Modul ohne Objekt-Dropdown (Werkzeug-Muster) —');
+{
+  const { ctx, page } = await device('u_a', PAGE_POOL, '/__pooltest.html');
+  await page.waitForTimeout(2300);
+  await page.click('#feld1');
+  await page.keyboard.type('Bohrmaschine');
+  await page.waitForTimeout(900);
+  const st = await page.evaluate(() => ({
+    loaded: typeof window.GemaEditLock !== 'undefined',
+    active: window.GemaEditLock ? window.GemaEditLock.active() : null
+  }));
+  ok(!st.loaded && !st.active, 'kein Lock im Listen-Modul (auch nicht beim Tippen)');
+  ok(![...store.keys()].some(k => k.startsWith('editlock|lock:gema_poolmodul')),
+    'keine modulweite Lock-Row (gema_poolmodul)');
+  ok(page.errs.length === 0, 'keine pageerrors (Pool-Modul)');
   await ctx.close();
 }
 

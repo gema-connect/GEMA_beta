@@ -4,6 +4,7 @@
 <script src="gema_sync.js"></script>
 <script src="gema_aktivitaetslog.js"></script>
 <script src="gema_auth.js"></script>
+<script src="gema_editlock.js"></script>
 <script src="gema_recent.js"></script>
 <meta charset="utf-8"/>
 <meta name="theme-color" content="#0f172a"/>
@@ -1040,6 +1041,7 @@ function openModal(id){
   }
   else if(!_fzCanCreate()){alert('Keine Berechtigung — nur Magaziner/Admin dürfen Fahrzeuge erfassen.');return;}
   editId=id||null;
+  if(!id){ try{ if(window.GemaEditLock) GemaEditLock.stop(); }catch(e){} }   // Neuerfassung lockt nichts
   const m=document.getElementById("modalOverlay");
   document.getElementById("modalTitle").textContent=id?"Fahrzeug bearbeiten":"Fahrzeug erfassen";
   document.getElementById("deleteBtn").style.display=id?"inline-flex":"none";
@@ -1047,6 +1049,9 @@ function openModal(id){
   if(id){
     const v=vehicles.find(x=>x.id===id);
     if(!v) return;
+    // Gleichzeitig-Bearbeiten-Warnung: Lock pro FAHRZEUG (Datensatz), nur
+    // beim Bearbeiten-Formular — closeModal loest ihn wieder.
+    try{ if(window.GemaEditLock) GemaEditLock.watch({key:'vehicle:'+v.id, label:(v.plate||v.nr||'Fahrzeug')+(v.model?' · '+v.model:'')}); }catch(e){}
     _fzPopulateDriverDropdown(v.driver);
     _fzPopulateDeptDropdown(v.dept);
     _fzPopulateGarageDropdown(v.garage, v.garagistUserId||'');
@@ -1112,6 +1117,7 @@ window.openModal = openModal;
 window.openAddVehicle = function(){ openModal(); };
 
 function closeModal(){
+  try{ if(window.GemaEditLock) GemaEditLock.stop(); }catch(e){}
   document.getElementById("modalOverlay").classList.remove("open");
   document.body.classList.remove('modal-open');
   editId=null;
