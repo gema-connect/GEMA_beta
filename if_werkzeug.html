@@ -2476,15 +2476,29 @@ function renderList(){
   var showLoading = !_wzCloudLoaded && !tools.length;
   if(currentView==='cards'){
     var emptyMsg=_wzIsMonteurView()
-      ?'<div class="empty-state"><div class="ei">🔧</div><h3>Keine Werkzeuge zugewiesen</h3><p>Dir ist aktuell kein Werkzeug fest zugewiesen oder ausgeliehen.<br>Scanne den QR-Code eines Werkzeugs, um es auszuleihen.</p><button class="nbtn primary" onclick="_wzScanWithCamera()" style="margin-top:8px">📷 Werkzeug scannen</button></div>'
+      ?('<div class="empty-state"><div class="ei">🔒</div><h3>Keine Werkzeuge zugewiesen</h3><p>'+_wzMonteurEmptyText(true)+'</p><button class="nbtn primary" onclick="_wzScanWithCamera()" style="margin-top:8px">📷 Werkzeug scannen &amp; ausleihen</button></div>')
       :'<div class="empty-state"><div class="ei">🔧</div><h3>Keine Geräte gefunden</h3><p>Passen Sie den Filter an oder erfassen Sie ein neues Gerät.</p><button class="nbtn primary" onclick="openAdd()">+ Gerät hinzufügen</button></div>';
     grid.innerHTML = showLoading ? _WZ_LOADING_HTML : (f.length?f.map(renderCard).join(''):emptyMsg);
   } else {
+    var emptyRow=_wzIsMonteurView()
+      ? `<tr><td colspan="8" style="padding:44px 24px;text-align:center;color:var(--mut)">🔒 ${_wzMonteurEmptyText(false)}</td></tr>`
+      : `<tr><td colspan="8" style="padding:44px;text-align:center;color:var(--mut)">Keine Geräte gefunden</td></tr>`;
     tbody.innerHTML = showLoading
       ? `<tr><td colspan="8" style="padding:44px;text-align:center;color:var(--mut)">Wird geladen …</td></tr>`
-      : (f.length?f.map(renderRow).join(''):`<tr><td colspan="8" style="padding:44px;text-align:center;color:var(--mut)">Keine Geräte gefunden</td></tr>`);
+      : (f.length?f.map(renderRow).join(''):emptyRow);
   }
   updateStats();
+}
+// Berechtigungs-Meldung statt leerer Liste (User-Wunsch 27.07.2026): erklaert
+// dem Monteur/Nicht-Editor, WARUM er nichts sieht (Rollen-Sicht), statt einen
+// scheinbar leeren Bestand zu zeigen. Nennt den Org-Gesamtbestand als Beleg,
+// dass die Daten da sind.
+function _wzMonteurEmptyText(html){
+  var b=html?'<b>':'', be=html?'</b>':'', br=html?'<br>':' ';
+  var txt='Deine Rolle zeigt nur Werkzeuge, die '+b+'dir zugewiesen'+be+' oder von dir ausgeliehen sind — aktuell keine.';
+  try{ if(tools.length) txt+=br+'Der Gesamtbestand deiner Firma ('+tools.length+' Geräte) ist der Magaziner- bzw. Admin-Rolle vorbehalten.'; }catch(e){}
+  txt+=br+'Brauchst du vollen Zugriff? Bitte deinen Magaziner oder Admin, dir die Magaziner-Rolle zuzuweisen.';
+  return txt;
 }
 
 function _wzCardClick(e,id){
@@ -7144,7 +7158,13 @@ try{
   var IC_TOOL='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15.5 6.5a3.8 3.8 0 0 1-4.9 4.9l-5.3 5.3 1.9 1.9 5.3-5.3a3.8 3.8 0 0 1 4.9-4.9l-2.4 2.4-1.9-1.9Z"/></svg>';
   var IC_KOF='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="8" width="18" height="12" rx="2"/><path d="M9 8V5h6v3M3 13h18"/></svg>';
   function natTools(){
-    try{ return (tools||[]).filter(function(t){ var lc=t.lifecycleStatus||'aktiv'; return lc!=='ausgemustert'&&lc!=='verkauft'; }); }catch(e){ return []; }
+    try{
+      // Gleiche Rollen-Sicht wie die klassische Liste (getFiltered): Monteure/
+      // Nicht-Editoren sehen nur dir zugewiesene/ausgeliehene Geräte — die
+      // native Handy-Ansicht zeigte vorher versehentlich den ganzen Bestand.
+      var base=(typeof _wzIsMonteurView==='function'&&_wzIsMonteurView())?_wzGetMyTools(tools||[]):(tools||[]);
+      return base.filter(function(t){ var lc=t.lifecycleStatus||'aktiv'; return lc!=='ausgemustert'&&lc!=='verkauft'; });
+    }catch(e){ return []; }
   }
   function natWd(t){ try{ return worstDays(t); }catch(e){ return null; } }
   function natStatus(t){
@@ -7181,7 +7201,15 @@ try{
   function listHtml(){
     var rows=natTools().filter(natMatch);
     try{ rows=_wzApplyAdvFilter(rows); }catch(e){}
-    if(!rows.length) return '<div class="gn-label" style="text-transform:none;font-weight:500;padding-top:8px">Keine Geräte gefunden.</div>';
+    if(!rows.length){
+      // Berechtigungs-Meldung statt leerer Liste (wie klassische Ansicht)
+      var monteurLeer=false; try{ monteurLeer=_wzIsMonteurView(); }catch(e){}
+      if(monteurLeer){
+        var mtxt=''; try{ mtxt=_wzMonteurEmptyText(false); }catch(e){ mtxt='Deine Rolle zeigt nur dir zugewiesene Werkzeuge.'; }
+        return '<div class="gn-label" style="text-transform:none;font-weight:500;padding-top:8px;line-height:1.5">🔒 '+NE(mtxt)+'</div>';
+      }
+      return '<div class="gn-label" style="text-transform:none;font-weight:500;padding-top:8px">Keine Geräte gefunden.</div>';
+    }
     return '<div class="gn-list">'+rows.map(function(t){
       var s=natStatus(t), kof=false; try{ kof=_wzIsKoffer(t); }catch(e){}
       return '<div class="gn-row gn-row--lg" data-nat-id="'+NE(t.id)+'" data-gn-ctx="'+NE(t.name||'Gerät')+'">'

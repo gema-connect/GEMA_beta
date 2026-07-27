@@ -2701,10 +2701,12 @@ input::placeholder{color:#cbd5e1}
     GemaSync.bindCollection(MK, POOL, PF, 'id').then(function(){
       // Ungespeicherte lokale Änderung unterwegs? Dann den frischen Stand
       // nicht adoptieren (der Push läuft gleich; nächster Boot pullt neu).
-      if(_saveT) { _migrateLegacy(); return; }
-      load();
-      _migrateLegacy();
-      render();
+      if(_saveT) { _migrateLegacy(); }
+      else { load(); _migrateLegacy(); render(); }
+      // Native Handy-Screen liest den Pool nur beim Render — nach dem
+      // asynchronen Pull/der Migration explizit auffrischen, sonst bleibt
+      // die Eimer-Liste dort bis zur nächsten Interaktion leer.
+      try{ if(window._wsNatRefresh) window._wsNatRefresh(); }catch(e){}
     }).catch(function(){});
   })();
   // Test-/Cross-Modul-Hooks (Leser in index.html/pm_objekte + Native-Screen)
@@ -2847,6 +2849,8 @@ document.addEventListener('DOMContentLoaded',function(){
     });
   }
   nat=GemaNativeMobil.mount({render:render});
+  // Auffrisch-Hook für die Haupt-IIFE (nach Cloud-Pull/Legacy-Migration)
+  window._wsNatRefresh=function(){ try{ if(nat) nat.refresh(); }catch(e){} };
 })();
 </script>
 </body>

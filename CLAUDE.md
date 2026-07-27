@@ -1166,7 +1166,7 @@ _wzCanReturnTool(t)  // siehe Regeln unten
 **Monteur ist HARD-LOCKED**: Selbst wenn ein Admin in `sys_admin.html` der Monteur-Rolle `write` oder `admin` aktiviert, gibt `_wzCanEdit()` für Monteur **immer false** zurück — Edit-Rechte gibt's nur über Admin- oder Magaziner-Rolle.
 
 **Was der Monteur in if_werkzeug.html darf**:
-- Eigene Werkzeuge sehen (`t.zugewiesenAn.userId === me` ODER `t.ausgeliehenAn.userId === me`)
+- Eigene Werkzeuge sehen (`t.zugewiesenAn.userId === me` ODER `t.ausgeliehenAn.userId === me`). **Berechtigungs-Meldung statt leerer Liste (27.07.2026, `scripts/werkzeug_monteur_sicht_test.mjs` 15 Checks)**: Hat der Monteur/Nicht-Editor KEINE zugewiesenen Geräte, erklärt der Leerzustand (Karten + Tabelle + native Handy-Liste, `_wzMonteurEmptyText`) die Rollen-Sicht («Deine Rolle zeigt nur dir zugewiesene Werkzeuge»), nennt den Org-Gesamtbestand als Beleg und den Weg zur Magaziner-Rolle — vorher wirkte es wie ein leerer Bestand (Praxisfall: Nutzer ohne role_magaziner hielt sich für den Magaziner). Die **native Handy-Ansicht wendet dieselbe Rollen-Sicht an** (`natTools` filtert via `_wzIsMonteurView`/`_wzGetMyTools` — vorher zeigte sie dem Monteur versehentlich den ganzen Org-Bestand).
 - Fremde Werkzeuge scannen (QR/NFC) → Scan-Detail-Ansicht mit Aktionen
 - Werkzeug **auf sich selbst** ausleihen (`_wzLendToSelf`) — ohne Personen-Picker, ein Klick
 - Defekt melden (alle Werkzeuge — eigene und fremde)
