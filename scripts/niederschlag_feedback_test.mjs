@@ -163,7 +163,7 @@ const sbi = await page.evaluate(() => {
 ok(!sbi.ids.includes('heizung') && !sbi.ids.includes('lueftung'), 'Heizung/Lüftung-Gruppen entfernt');
 ok(sbi.order[sbi.order.length - 1] === 'gas', 'Gas ist letzte Gruppe (Reihenfolge: ' + sbi.order.join(' → ') + ')');
 ok(sbi.pills.join(',') === '#kaltwasser,#warmwasser,#abwasser,#niederschlag,#gas', 'Sprungleiste: Gas zuletzt, ohne Heizung/Lüftung');
-ok(/26 Module/.test(sbi.stats) && /5 Kategorien/.test(sbi.stats), 'Hero-Stats 26 Module · 5 Kategorien (ist: ' + sbi.stats + ')');
+ok(/27 Module/.test(sbi.stats) && /5 Kategorien/.test(sbi.stats), 'Hero-Stats 27 Module · 5 Kategorien (ist: ' + sbi.stats + ')');   // 27 seit Grundleitungen (07/2026)
 ok(!sbi.hz, 'keine hz_-Kacheln mehr auf sb_index');
 
 // ═══ index.html: echte Kacheln in Heizung/Lüftung ═══
