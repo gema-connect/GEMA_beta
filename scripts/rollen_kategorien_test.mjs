@@ -51,10 +51,16 @@ function handleSb(route){
   return route.fulfill({contentType:'application/json',body:'{}'});
 }
 
+const ADMIN = {id:'user_admin', name:'Administrator', username:'admin@test.ch',
+  roleIds:['role_admin'], orgId:'org_default', active:true, profile:{email:'admin@test.ch'}};
+
 function seed(){
   store.clear();
   const put=(mk,dk,data)=>store.set(mk+'|'+dk,{data,_lm:'2026-07-01T00:00:00Z'});
-  // Orgs (org_default + user_admin + System-Rollen kommen aus DEFAULTS via _mergeWithDefaults)
+  // org_default + System-Rollen kommen aus den DEFAULTS via _mergeWithDefaults.
+  // Der Super-Admin ist ein CLOUD-Record: gema_auth.js hat seit der
+  // Sicherheits-Bereinigung (27.07.2026) keinen Default-Benutzer mehr.
+  put('auth','user:user_admin', ADMIN);
   put('auth','org:org_san',   {id:'org_san',   name:'San AG',   kategorien:['sanitaerplaner'], admins:[], active:true});
   put('auth','org:org_sonst', {id:'org_sonst', name:'Sonst AG', kategorien:['sonstiges'],      admins:[], active:true});
   put('auth','org:org_multi', {id:'org_multi', name:'Multi AG', kategorien:['sanitaerplaner','heizungsplaner'], admins:[], active:true});
@@ -65,7 +71,7 @@ function seed(){
 }
 
 const FUTURE = new Date(Date.now() + 30 * 86400000).toISOString();
-// Session als Super-Admin (user_admin kommt aus DEFAULT_USERS, org_default)
+// Session als Super-Admin (der user_admin-Record wird in seed() angelegt)
 const SESSION = { token: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpYXQiOjQwMDAwMDAwMDAsImV4cCI6NDEwMjQ0NDgwMCwidWlkIjoidXNlcl9hZG1pbiIsIm9yZyI6Im9yZ19kZWZhdWx0Iiwicm9sZSI6ImF1dGhlbnRpY2F0ZWQifQ.sig', userId: 'user_admin', expires: FUTURE };
 
 const browser = await chromium.launch({ executablePath: CHROME });
@@ -78,7 +84,14 @@ async function open(){
     if (u.indexOf('/api/') >= 0 || u.indexOf('/.netlify/') >= 0) return route.fulfill({ contentType: 'application/json', body: '{}' });
     return route.abort();
   });
-  await ctx.addInitScript(s => { localStorage.setItem('gema_session_v1', s); }, JSON.stringify(SESSION));
+  // Wie ein echter, angemeldeter Browser: Session UND lokaler Benutzer-Cache.
+  // gema_auth.js prüft die Sitzung beim Boot gegen den Cache (der Cloud-Pull
+  // läuft asynchron) — seit dem Wegfall des Default-Benutzers muss der
+  // Super-Admin darum auch lokal vorliegen, sonst landet die Seite im Login.
+  await ctx.addInitScript(d => {
+    localStorage.setItem('gema_session_v1', d.s);
+    localStorage.setItem('gema_users_v1', d.u);
+  }, { s: JSON.stringify(SESSION), u: JSON.stringify([ADMIN]) });
   const page = await ctx.newPage();
   page.errs = []; page.on('pageerror', e => page.errs.push(e.message));
   await page.goto(BASE + '/sys_admin.html', { waitUntil: 'domcontentloaded' });

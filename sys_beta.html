@@ -503,13 +503,32 @@ const MODULES = [
 // aktualisiert hat. Faellt in eine Sammel-Kategorie '🆕 Weitere Module
 // (Auto-erkannt)'. Du kannst sie dann oben einsortieren mit href und
 // passender Kategorie.
+// gema_auth-Kategorie → Kategorie-Block im Board. Fehlt ein Eintrag, wird
+// unten automatisch ein neuer Block angelegt (kein Sammel-Eimer mehr).
+const AUTO_CAT = {
+  'Projektmanagement':      { catId:'plan',        cat:'📋 Projektmanagement' },
+  'Sanitärberechnungen':    { catId:'san',         cat:'💧 Sanitär – Berechnungen' },
+  'Heizungsberechnungen':   { catId:'hei',         cat:'🔥 Heizung' },
+  'Lüftungsberechnungen':   { catId:'lueft',       cat:'🌀 Lüftung' },
+  'Brandschutz':            { catId:'brand',       cat:'🔥 Brandschutz & Sprinkler' },
+  'Hygiene':                { catId:'hyg',         cat:'🧬 Hygiene & Betrieb' },
+  'Infrastruktur':          { catId:'infra',       cat:'🏭 Infrastruktur' },
+  'Immobilien':             { catId:'immo',        cat:'🏢 Immobilien' },
+  'Schadensdokumentation':  { catId:'schaden',     cat:'🏚️ Schadensdokumentation' },
+  'Spenglerei':             { catId:'spengler',    cat:'🏠 Spenglerei' },
+  'Ausbildung':             { catId:'ausb',        cat:'🎓 Ausbildung' },
+  'System':                 { catId:'system',      cat:'⚙️ System' },
+  'Sonstiges':              { catId:'auto',        cat:'🆕 Weitere Module' }
+};
 (function autoDiscoverModules(){
   if(typeof GemaAuth === 'undefined' || !GemaAuth.getModules) return;
-  // Reverse-Map key → filename (z.B. 'dachbericht' → 'sp_dachbericht.html')
-  var fileMap = {};
+  // Reverse-Map Modul-Key → Datei ('pruefliste' → 'pm_pruefliste.html').
+  // FILE_MAP ist Datei→Key, darum umdrehen — geraten wird NICHTS (sonst
+  // stehen 404-Links im Board).
+  var href = {};
   try {
-    var raw = GemaAuth._getFileMap ? GemaAuth._getFileMap() : null;
-    // Falls _getFileMap nicht exponiert: per Modul-Liste ableiten unten
+    var fm = GemaAuth.getFileMap ? GemaAuth.getFileMap() : null;
+    if(fm) Object.keys(fm).forEach(function(datei){ if(!href[fm[datei]]) href[fm[datei]] = datei + '.html'; });
   } catch(e){}
   // Gegen Doppelung: sammle alle keys die bereits in MODULES sind
   var existingKeys = {};
@@ -523,49 +542,28 @@ const MODULES = [
   var authMods = GemaAuth.getModules();
   var missing = authMods.filter(function(m){ return !existingKeys[m.key]; });
   if(!missing.length) return;
-  // Filename heuristisch raten — wir probieren gaengige Praefixe.
-  // Lieber kein href als ein kaputter Link.
-  function guessHref(key){
-    var candidates = [
-      'sb_'+key+'.html', 'sa_'+key+'.html', 'pm_'+key+'.html',
-      'hy_'+key+'.html', 'el_'+key+'.html', 'br_'+key+'.html',
-      'if_'+key+'.html', 'sd_'+key+'.html', 'sp_'+key+'.html',
-      'ab_'+key+'.html', 'sys_'+key+'.html',
-      key+'.html'
-    ];
-    // Nur Vermutungen — der User kann das oben manuell einsortieren.
-    return null; // bewusst null, sonst kommen 404-Links
-  }
-  // Nach cat gruppieren — falls mehrere Kategorien dabei, in eine
-  // Sammel-Kategorie
-  var cats = {};
+  // In die ECHTE Kategorie einsortieren (frueher landete alles in einem
+  // Sammel-Block ohne Link — dort suchte niemand sein Modul).
+  var byCat = {};
+  MODULES.forEach(function(c){ byCat[c.catId] = c; });
   missing.forEach(function(m){
-    var c = m.cat || 'Sonstiges';
-    cats[c] = cats[c] || [];
-    cats[c].push({
+    var map = AUTO_CAT[m.cat] || AUTO_CAT['Sonstiges'];
+    var block = byCat[map.catId];
+    if(!block){
+      block = { cat: map.cat, catId: map.catId, items: [] };
+      byCat[map.catId] = block; MODULES.push(block);
+    }
+    block.items.push({
       id: m.key,
       name: m.label || m.key,
-      href: guessHref(m.key),
-      defaultStatus: 'open',
+      href: href[m.key] || null,
+      defaultStatus: 'open',   // Beta-Stand pflegt der Mensch — nicht behaupten
       _autoDiscovered: true
     });
   });
-  // Eine eigene Top-Kategorie ans Ende anhaengen
-  var items = [];
-  Object.keys(cats).forEach(function(c){
-    cats[c].forEach(function(it){
-      it.name = it.name + ' · ' + c;
-      items.push(it);
-    });
-  });
-  MODULES.push({
-    cat: '🆕 Weitere Module (auto-erkannt)',
-    catId: 'auto',
-    items: items
-  });
   // Console-Hinweis fuer Devs
   try {
-    console.info('[sys_beta] Auto-Discovery: ' + missing.length + ' fehlende Module ergaenzt:',
+    console.info('[sys_beta] Auto-Discovery: ' + missing.length + ' Module ergaenzt:',
       missing.map(function(m){ return m.key; }).join(', '));
   } catch(e){}
 })();
@@ -588,7 +586,14 @@ const PRIO_OPTS = [
 // ── STATE ─────────────────────────────────────────────────────
 const SK = 'gema_beta_pruefungen_v1';
 
-// All module IDs that can send feedback via gema_feedback.js
+// Modul-IDs, unter denen Feedback liegen kann (gema_feedback.js schreibt
+// nach data_key 'feedback_<modul>' im Modul gema_beta_pruefungen_v1).
+// KRITISCH — das ist die Quelle des Markdown-Exports: was hier fehlt, wird
+// weder geladen noch exportiert. Die Liste unten ist deshalb nur noch ein
+// SEED fuer Alt-IDs, die kein Modul mehr registriert; ergaenzt wird sie
+// automatisch (a) um alle IDs aus MODULES inkl. Auto-Discovery und
+// (b) um alle 'feedback_*'-Schluessel, die in der Cloud wirklich liegen
+// (_fbDiscoverIds beim Seitenstart) — siehe _fbAddIds.
 const FEEDBACK_IDS = [
   // Projektmanagement
   'terminplan','abnahme','baustelle','kostenkontrolle','ausschrunterlagen',
@@ -614,6 +619,59 @@ const FEEDBACK_IDS = [
   'objekte','vkf_formular','vkf_formulare','vonroll_tabellen',
   'warmwasser_sia385','module','ausbildung_mod','beta_pruefungen','preise','profil'
 ];
+
+// Ergaenzt IDs ohne Doppelung (FEEDBACK_IDS bleibt const, wir mutieren).
+function _fbAddIds(ids){
+  var da = {};FEEDBACK_IDS.forEach(function(i){da[i]=1;});
+  var neu = [];
+  (ids||[]).forEach(function(i){ if(i&&!da[i]){da[i]=1;FEEDBACK_IDS.push(i);neu.push(i);} });
+  return neu;
+}
+// (a) Jede ID aus dem Board (inkl. Auto-Discovery aus gema_auth) kann
+//     Feedback tragen — direkt nach dem Aufbau von MODULES uebernehmen.
+(function(){
+  var ids = [];
+  MODULES.forEach(function(c){(c.items||[]).forEach(function(it){
+    ids.push(it.id);(it.sub||[]).forEach(function(s){ids.push(s.id);});
+  });});
+  _fbAddIds(ids);
+})();
+// (b) Alles, was in der Cloud wirklich als 'feedback_*' liegt — deckt IDs
+//     ab, die ein Modul selbst waehlt (GemaFeedback.init) und die weder im
+//     Board noch in gema_auth so heissen. Ohne das fehlten sie im Export.
+async function _fbDiscoverIds(){
+  try{
+    if(typeof GemaSync==='undefined'||!GemaSync.loadCollection) return [];
+    var rows = await Promise.race([
+      GemaSync.loadCollection(SK, 'feedback_'),
+      new Promise(function(r){ setTimeout(function(){ r([]); }, 5000); })
+    ]) || [];
+    var neu = _fbAddIds(rows.map(function(r){ return String(r.key||'').slice('feedback_'.length); }));
+    // Was hier neu ist, steht in KEINEM Kategorie-Block (Schritt a hat alle
+    // Board-IDs schon uebernommen) — als eigene Zeilen anhaengen, sonst
+    // laege das Feedback im Export, waere aber im Board unsichtbar.
+    if(neu.length){
+      var auto = MODULES.find(function(c){ return c.catId === 'auto'; });
+      if(!auto){ auto = { cat:'🆕 Weitere Module', catId:'auto', items:[] }; MODULES.push(auto); }
+      neu.forEach(function(id){
+        auto.items.push({ id:id, name:_modLabelFallback(id), href:null, defaultStatus:'open', _autoDiscovered:true });
+      });
+      console.info('[sys_beta] Feedback-IDs aus der Cloud ergaenzt:', neu.join(', '));
+    }
+    return neu;
+  }catch(e){ return []; }
+}
+// Anzeigename fuer eine ID, die das Board nicht kennt: erst gema_auth
+// fragen, sonst die ID lesbar machen.
+function _modLabelFallback(id){
+  try{
+    if(typeof GemaAuth!=='undefined'&&GemaAuth.getModules){
+      var m=(GemaAuth.getModules()||[]).find(function(x){return x.key===id;});
+      if(m&&m.label) return m.label;
+    }
+  }catch(e){}
+  return String(id).replace(/_/g,' ').replace(/^./,function(c){return c.toUpperCase();});
+}
 
 let state = { mods:{}, activity:[] };
 
@@ -1198,6 +1256,10 @@ const toast = (msg) => {
 // ── INIT ──────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
   const SK_COMMQ = 'gema_quiz_community_v1';
+  // Erst herausfinden, welche Feedback-Schluessel es WIRKLICH gibt —
+  // _GemaDB.init laedt nur die angefragten data_keys, ein unbekannter
+  // Schluessel waere weder im Board noch im Markdown-Export sichtbar.
+  await _fbDiscoverIds();
   const feedbackKeys = FEEDBACK_IDS.map(id => 'feedback_' + id);
   if(typeof _GemaDB!=='undefined') await Promise.race([
     _GemaDB.init(SK, [SK, SK_COMMQ, ...feedbackKeys]),
@@ -1355,7 +1417,7 @@ function _exModuleLabel(modId){
       }
     }
   }
-  return modId; // fallback: ID selbst
+  return _modLabelFallback(modId);   // unbekannte ID: gema_auth-Label bzw. lesbare ID
 }
 
 // Sammelt alle Feedback-Eintraege ueber alle FEEDBACK_IDS und liefert

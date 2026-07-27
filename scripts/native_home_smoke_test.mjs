@@ -366,6 +366,33 @@ console.log('— Offene Mitteilungen als rote Zahl am Modul —');
   await ctx.close();
 }
 
+/* ════════ 4c · Auswahl nur dort aus, wo ein Kontextmenü hängt ════════ */
+console.log('— Text-Markierung: nur bei Kontextmenü aus —');
+{
+  const { ctx, page } = await open('u1');
+  const sel = await page.evaluate(() => {
+    const r = document.querySelector('.gn--page');
+    const us = el => { if (!el) return 'fehlt'; const s = getComputedStyle(el); return s.userSelect || s.webkitUserSelect; };
+    const tile = r.querySelector('.gn-tile[data-gn-ctx]');
+    return {
+      ctxTraeger: tile ? tile.getAttribute('data-gn-ctx') : null,
+      tile: us(tile),
+      tileLabel: us(tile && tile.querySelector('span:not(.gn-tile-ic)')),
+      screen: us(r),
+      // Etwas OHNE Kontextmenü: die Kategorie-Beschriftung
+      ohneCtx: us(r.querySelector('.gn-label')),
+      feld: us(r.querySelector('input'))
+    };
+  });
+  ok(!!sel.ctxTraeger, 'Kacheln tragen data-gn-ctx (' + sel.ctxTraeger + ')');
+  ok(sel.tile === 'none', 'Kachel MIT Kontextmenü: keine Auswahl');
+  ok(sel.tileLabel === 'none', 'Beschriftung darin: keine Auswahl');
+  ok(sel.screen !== 'none', 'Screen selbst bleibt markierbar (' + sel.screen + ')');
+  ok(sel.ohneCtx !== 'none', 'Element ohne Kontextmenü bleibt markierbar (' + sel.ohneCtx + ')');
+  ok(sel.feld === 'fehlt' || sel.feld !== 'none', 'Eingabefelder bleiben selektierbar (' + sel.feld + ')');
+  await ctx.close();
+}
+
 /* ════════ 5 · Kachel öffnet das Modul ════════ */
 console.log('— Navigation —');
 {
