@@ -41,7 +41,9 @@ await new Promise(r => server.listen(PORT, r));
 
 // ── In-Memory-PostgREST: GET eq/like/in + POST batch + DELETE eq ──
 const store = new Map(); // «mk|dk» → payload
+let sbOffline = false;   // Szenario 11: Cloud vorübergehend unerreichbar
 function handleSb(route) {
+  if (sbOffline) return route.abort();
   const req = route.request(), url = req.url(), method = req.method();
   const mkm = (url.match(/module_key=eq\.([^&]+)/) || [])[1];
   const mk = mkm ? decodeURIComponent(mkm) : null;
@@ -285,6 +287,39 @@ console.log('— 10) Werkzeug-Inventur: per-Record + Org-Filter —');
   await f.page.waitForTimeout(2200);
   ok(await f.page.evaluate(() => !window._wzGetActiveInventur()), 'fremde Org sieht den Lauf NICHT');
   await b.ctx.close(); await f.ctx.close();
+}
+
+console.log('— 11) gema_db-Outbox: Offline-Edit überlebt Reload + älteren Cloud-Stand —');
+{
+  // Ausgangslage: Cloud hält einen ONLINE erfassten Stand.
+  const a = await device('u1', 'sb_druckverlust.html');
+  await a.page.waitForTimeout(1200);
+  await a.page.evaluate(() => { allCalcs[0].name = 'Online-Stand'; saveActiveCalc(); });
+  await a.page.waitForTimeout(1200);
+  ok(String((store.get('druckverlust|gema_druckverlust_v2') || {}).v || '').indexOf('Online-Stand') >= 0, 'Cloud hält den Online-Stand');
+  await a.ctx.close();
+
+  // Gerät B: online booten (pullt Cloud), dann OFFLINE editieren.
+  const b = await device('u1', 'sb_druckverlust.html');
+  await b.page.waitForTimeout(1500);
+  sbOffline = true;
+  await b.page.evaluate(() => { allCalcs[0].name = 'Offline-Stand'; saveActiveCalc(); });
+  await b.page.waitForTimeout(1600);   // Flush schlägt fehl → Outbox
+  const obx = await b.page.evaluate(() => { try { return JSON.parse(localStorage.getItem('gema_db_outbox_v1') || 'null'); } catch (e) { return null; } });
+  ok(!!obx && Object.keys(obx).some(k => k.startsWith('druckverlust|')), 'fehlgeschlagener Push liegt persistent in der Outbox');
+  ok(String((store.get('druckverlust|gema_druckverlust_v2') || {}).v || '').indexOf('Online-Stand') >= 0, 'Cloud noch auf dem älteren Online-Stand');
+
+  // Wieder online + Reload: der ältere Cloud-Stand darf den Offline-Edit
+  // NICHT zurückdrehen; die Outbox sendet ihn stattdessen nach.
+  sbOffline = false;
+  await b.page.reload({ waitUntil: 'domcontentloaded' });
+  await b.page.waitForTimeout(3200);   // init + Overlay + Retry-Flush (1.5 s)
+  ok(await b.page.evaluate(() => allCalcs[0].name) === 'Offline-Stand', 'Offline-Edit wird beim Online-Boot NICHT vom Cloud-Stand überschrieben');
+  ok(String((store.get('druckverlust|gema_druckverlust_v2') || {}).v || '').indexOf('Offline-Stand') >= 0, 'Outbox hat den Offline-Stand in die Cloud nachgesendet');
+  const obx2 = await b.page.evaluate(() => { try { return JSON.parse(localStorage.getItem('gema_db_outbox_v1') || 'null'); } catch (e) { return null; } });
+  ok(!obx2 || !Object.keys(obx2).length, 'Outbox nach erfolgreichem Upload geleert');
+  ok(b.page.errs.length === 0, 'keine pageerrors (Outbox-Szenario): ' + b.page.errs.join('|').slice(0, 120));
+  await b.ctx.close();
 }
 
 await browser.close(); server.close();
