@@ -366,35 +366,30 @@ console.log('— Offene Mitteilungen als rote Zahl am Modul —');
   await ctx.close();
 }
 
-/* ════════ 4c · Long-Press markiert keinen Text ════════ */
-console.log('— Keine Text-Markierung —');
+/* ════════ 4c · Auswahl nur dort aus, wo ein Kontextmenü hängt ════════ */
+console.log('— Text-Markierung: nur bei Kontextmenü aus —');
 {
   const { ctx, page } = await open('u1');
   const sel = await page.evaluate(() => {
     const r = document.querySelector('.gn--page');
-    const t = r.querySelector('.gn-tile');
-    const q = r.querySelector('.gn-search input, .gn-search');
-    const cs = el => el ? getComputedStyle(el) : null;
-    const st = cs(t), sq = cs(q);
+    const us = el => { if (!el) return 'fehlt'; const s = getComputedStyle(el); return s.userSelect || s.webkitUserSelect; };
+    const tile = r.querySelector('.gn-tile[data-gn-ctx]');
     return {
-      tile: st.userSelect || st.webkitUserSelect,
-      tileLabel: (() => { const s = cs(t.querySelector('span:not(.gn-tile-ic)')); return s.userSelect || s.webkitUserSelect; })(),
-      screen: (() => { const s = cs(r); return s.userSelect || s.webkitUserSelect; })(),
-      feld: sq ? (sq.userSelect || sq.webkitUserSelect) : 'kein-feld'
+      ctxTraeger: tile ? tile.getAttribute('data-gn-ctx') : null,
+      tile: us(tile),
+      tileLabel: us(tile && tile.querySelector('span:not(.gn-tile-ic)')),
+      screen: us(r),
+      // Etwas OHNE Kontextmenü: die Kategorie-Beschriftung
+      ohneCtx: us(r.querySelector('.gn-label')),
+      feld: us(r.querySelector('input'))
     };
   });
-  ok(sel.screen === 'none', 'Screen selbst: keine Auswahl (' + sel.screen + ')');
-  ok(sel.tile === 'none', 'Kachel (Long-Press-Ziel): keine Auswahl');
-  ok(sel.tileLabel === 'none', 'Kachel-Beschriftung: keine Auswahl');
-  // Eingaben muessen selektierbar bleiben — sonst kann man im Sheet nichts
-  // korrigieren. Die Suchleiste des Startbildschirms ist ein div (oeffnet die
-  // Palette), darum nur pruefen, wenn wirklich ein Feld da ist.
-  const inp = await page.evaluate(() => {
-    const i = document.querySelector('.gn--page input');
-    if (!i) return 'kein-feld';
-    const s = getComputedStyle(i); return s.userSelect || s.webkitUserSelect;
-  });
-  ok(inp === 'kein-feld' || inp === 'text', 'Eingabefelder bleiben selektierbar (' + inp + ')');
+  ok(!!sel.ctxTraeger, 'Kacheln tragen data-gn-ctx (' + sel.ctxTraeger + ')');
+  ok(sel.tile === 'none', 'Kachel MIT Kontextmenü: keine Auswahl');
+  ok(sel.tileLabel === 'none', 'Beschriftung darin: keine Auswahl');
+  ok(sel.screen !== 'none', 'Screen selbst bleibt markierbar (' + sel.screen + ')');
+  ok(sel.ohneCtx !== 'none', 'Element ohne Kontextmenü bleibt markierbar (' + sel.ohneCtx + ')');
+  ok(sel.feld === 'fehlt' || sel.feld !== 'none', 'Eingabefelder bleiben selektierbar (' + sel.feld + ')');
   await ctx.close();
 }
 
