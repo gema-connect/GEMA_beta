@@ -252,6 +252,38 @@ ok(geholt.items === 1, 'geholtes Protokoll bringt seine Mängel mit');
 ok(geholt.gattung === '250 Sanitäranlagen', 'geholtes Protokoll bringt seine Kopfdaten mit');
 ok(geholt.origNochDa, 'das Original bleibt unter seiner alten Zuordnung erhalten (Kopie, kein Verschieben)');
 
+// ── D) Keine Demo-Mängel in einer echten Abnahme ─────────────────────────
+console.log('— D) Neues Protokoll startet LEER (keine Demo-Mängel) —');
+// Bis 28.07.2026 füllte ensureDemo() jedes leere Protokoll mit 5 als «Offen»
+// markierten Punkten («Installationshöhe Vorwandelement prüfen» …). Die sahen
+// aus wie echte Feststellungen, landeten so in Cloud und PDF — der Nutzer
+// konnte Demo nicht von Erfassung unterscheiden.
+await page.close();
+({ page, errs } = await neueSeite());
+await page.waitForTimeout(700);
+const nachNeu = await page.evaluate(() => {
+  window.newProtocol();
+  const st = (window._abState && window._abState()) || null;
+  return {
+    items: st && Array.isArray(st.items) ? st.items.length : -1,
+    leerText: (document.getElementById('items') || {}).textContent || '',
+    btn: !!document.getElementById('btnBeispiel')
+  };
+});
+ok(nachNeu.items === 0, 'neues Protokoll hat 0 Mängel (' + nachNeu.items + ')');
+ok(/Keine Punkte/.test(nachNeu.leerText), 'Mängelliste zeigt den Leer-Zustand');
+ok(nachNeu.btn, '«＋ Standardpunkte» steht als bewusste Aktion bereit');
+
+const nachVorlage = await page.evaluate(() => {
+  window.abBeispielPunkte();
+  const st = (window._abState && window._abState()) || null;
+  return { items: st && st.items ? st.items.length : -1, erste: st && st.items[0] ? st.items[0].mangel : '' };
+});
+ok(nachVorlage.items === 5, 'Standardpunkte fügen genau 5 Punkte ein');
+ok(/Installationshöhe Vorwandelement/.test(nachVorlage.erste), 'die bekannten Prüfpunkte bleiben verfügbar');
+const nochmal = await page.evaluate(() => { window.abBeispielPunkte(); const st = window._abState(); return st.items.length; });
+ok(nochmal === 10, 'erneutes Einfügen hängt an, überschreibt nie (' + nochmal + ')');
+
 console.log('— C) Statische Absicherung —');
 const src = await readFile(join(ROOT, 'pm_abnahme.html'), 'utf8');
 ok(/function _abScopeKey\(\)/.test(src), 'STORAGE_KEY wird über _abScopeKey() berechnet (friert nicht ein)');
@@ -259,6 +291,8 @@ ok(!/const\s+STORAGE_KEY/.test(src), 'STORAGE_KEY ist nicht mehr const');
 ok(/scopeKey:p\._scope\|\|STORAGE_KEY/.test(src), 'scopeKey hängt am Protokoll, nicht am globalen Schlüssel');
 ok(/addEventListener\('gema-objekt-changed'/.test(src), 'externer Objektwechsel wird nachgezogen');
 ok(/GemaObjekte\.setActiveId\(sel\.value/.test(src), 'Objektwahl im Modul setzt das aktive Objekt');
+ok(!/ensureDemo/.test(src), 'kein ensureDemo mehr — nichts wird automatisch in die Mängelliste geschrieben');
+ok(/AB_BEISPIEL_PUNKTE/.test(src), 'Standardpunkte existieren als bewusst aufrufbare Vorlage');
 
 console.log('\n' + (fail ? '❌' : '✅') + '  ' + pass + ' bestanden, ' + fail + ' fehlgeschlagen');
 await browser.close(); server.close();
