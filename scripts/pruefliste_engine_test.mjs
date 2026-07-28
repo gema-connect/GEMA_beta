@@ -25,7 +25,10 @@ t('«nicht sichtbar» → Zustand entfällt', E.prZustandEntfaellt({antworttyp:'
 t('«k.A.» → Zustand entfällt', E.prZustandEntfaellt({antworttyp:'sichtbar_nb',antwort:'ka'}));
 t('«nicht beurteilbar» → Zustand entfällt', E.prZustandEntfaellt({antworttyp:'ja_nein_nb',antwort:'nb'}));
 t('«ja» → Zustand entfällt NICHT', !E.prZustandEntfaellt({antworttyp:'ja_nein_nb',antwort:'ja'}));
-t('4 Arten (Begehung/Kontrolle/Zustandsanalyse/Einschätzung)', E.PR_ARTEN.length === 4);
+t('5 Arten (Begehung/Kontrolle/Zustandsanalyse/Einschätzung/eigene)', E.PR_ARTEN.length === 5);
+t('«frei» = eigene Bezeichnung', E.PR_ARTEN.some(a => a.id === 'frei'));
+t('prArtLabel nimmt den Freitext', E.prArtLabel('frei', 'Zustandsaufnahme vor Umbau') === 'Zustandsaufnahme vor Umbau');
+t('prArtLabel ohne Freitext faellt auf das Label zurueck', /Bezeichnung|Begehung/.test(E.prArtLabel('frei', '')));
 t('prArtLabel fällt auf Begehung zurück', E.prArtLabel('') === 'Begehung' && E.prArtLabel('kontrolle') === 'Kontrolle');
 t('6 Nutzungen', E.PR_NUTZUNGEN.length === 6);
 t('prNutzungenText mit Freitext', E.prNutzungenText({nutzungen:['wohnungen','andere'],nutzungFrei:'Arztpraxis'}) === 'Wohnungen · Arztpraxis');

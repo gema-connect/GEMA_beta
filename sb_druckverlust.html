@@ -477,6 +477,17 @@ function fixLeadingZero(el){
     <input id="out_rho" type="hidden"/><input id="out_nu" type="hidden"/>
   </div>
 
+  <!-- Schema der Teilstrecken (Feedback 28.07.2026: ganz nach oben, standardmässig
+       ausgeklappt, manuell einklappbar; Titel ohne «Strang») -->
+  <div class="g-card" id="dvSchemaCard" style="margin-bottom:14px;background:var(--sur);border:1.5px solid var(--brd);border-radius:11px;overflow:hidden">
+    <div class="dv-foldhd" onclick="dvSchemaToggle()" title="Ein-/ausklappen" style="padding:10px 14px;display:flex;align-items:center;gap:10px;background:var(--sur2);border-bottom:1px solid var(--brd);cursor:pointer;user-select:none">
+      <span id="dvSchemaCx" style="font-size:11px;color:var(--mut2);transition:transform .15s;display:inline-block;transform:rotate(90deg)">▸</span>
+      <span style="font-size:12.5px;font-weight:800">📊 Schema</span>
+      <span style="font-size:10.5px;color:var(--mut)">Farbe = Fliessgeschwindigkeit · wird live nachgeführt</span>
+    </div>
+    <div style="padding:12px 14px;overflow-x:auto" id="dvSchema"></div>
+  </div>
+
   <!-- TEILSTRECKEN -->
   <div>
       <div id="tsContainer" class="ts-container"></div>
@@ -496,15 +507,6 @@ function fixLeadingZero(el){
           <div style="width:1px;height:36px;background:var(--blue-bd)"></div>
           <div class="tb-item"><div class="tb-lbl">= mWS</div><div class="tb-val" id="tb_mws">0.00</div><div class="tb-unit">mWS</div></div>
         </div>
-      </div>
-
-      <!-- Strang-Schema der Teilstrecken (Feedback 28.07.2026, live) -->
-      <div class="g-card" id="dvSchemaCard" style="margin-top:14px;background:var(--sur);border:1.5px solid var(--brd);border-radius:11px;overflow:hidden">
-        <div style="padding:10px 14px;display:flex;align-items:center;gap:10px;background:var(--sur2);border-bottom:1px solid var(--brd)">
-          <span style="font-size:12.5px;font-weight:800">📊 Strang-Schema</span>
-          <span style="font-size:10.5px;color:var(--mut)">Farbe = Fliessgeschwindigkeit · wird live nachgeführt</span>
-        </div>
-        <div style="padding:12px 14px;overflow-x:auto" id="dvSchema"></div>
       </div>
 
       <!-- Formel-Legende zur Teilstrecken-Berechnung -->
@@ -1677,16 +1679,39 @@ document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('druc
   }
   function f(v,d){ return (v==null||!isFinite(v))?'–':Number(v).toFixed(d==null?2:d); }
 
+  /* Ein-/ausklappen (Feedback 28.07.2026) — Standard OFFEN, Wahl pro Gerät.
+     Zugeklappt wird gar nicht gezeichnet; beim Aufklappen zeichnet der letzte
+     Datenstand nach (Muster sb_saugpumpe / #sgDdCard). */
+  var DV_SCHEMA_KEY = 'gema_dv_schemaopen_v1';
+  function dvSchemaOpen(){
+    try{ var v=localStorage.getItem(DV_SCHEMA_KEY); return v===null?true:v==='1'; }catch(e){ return true; }
+  }
+  function dvSchemaApply(){
+    var card=document.getElementById('dvSchemaCard'); if(!card) return;
+    var body=document.getElementById('dvSchema'), cx=document.getElementById('dvSchemaCx');
+    var on=dvSchemaOpen();
+    if(body) body.style.display = on ? '' : 'none';
+    if(cx) cx.style.transform = on ? 'rotate(90deg)' : 'rotate(0deg)';
+  }
+  window.dvSchemaToggle = function(){
+    try{ localStorage.setItem(DV_SCHEMA_KEY, dvSchemaOpen()?'0':'1'); }catch(e){}
+    dvSchemaApply();
+    if(dvSchemaOpen() && window._dvSchemaLast) window._dvSchemaDraw(window._dvSchemaLast.rows, window._dvSchemaLast.opt);
+  };
+
   window._dvSchemaDraw = function(rows, opt){
     var host = document.getElementById('dvSchema');
     var card = document.getElementById('dvSchemaCard');
     if(!host) return;
     rows = (rows||[]).filter(function(r){ return r; });
+    window._dvSchemaLast = { rows: rows, opt: opt };
     if(!rows.length){
       if(card) card.style.display='none';
       host.innerHTML=''; return;
     }
     if(card) card.style.display='';
+    dvSchemaApply();
+    if(!dvSchemaOpen()) return;   // zugeklappt: nicht zeichnen
     opt = opt || {};
     var dpU = opt.dpUnit || 'kPa';
     var dpF = typeof opt.dpFmt === 'function' ? opt.dpFmt : function(x){ return f(x,2); };
