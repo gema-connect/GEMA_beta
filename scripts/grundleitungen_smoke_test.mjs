@@ -205,6 +205,88 @@ console.log('■ Einstellungen wirken (Mindest-DN)');
   ok(/160|200/.test(mindDn), 'Mindest-DN-Einstellung schlägt durch: ' + mindDn.trim());
 }
 
+console.log('■ ⊞ im Schema: Hinzufügen direkt an der Stelle');
+{
+  // Stand: 2 Abschnitte (Anschluss + Zulauf) → 2 Abschnitts-⊞ + 1 HSK-⊞
+  const plusse = await page.evaluate(() => (document.querySelector('#glSchema svg').innerHTML.match(/data-gladd="/g) || []).length);
+  ok(plusse === 3, '⊞ pro Abschnitt + ⊞ am HSK (2 Abschnitte → 3 Plusse): ' + plusse);
+  await page.evaluate(() => {
+    const st = JSON.parse(document.getElementById('gl_rows').value);
+    document.querySelector('#glSchema svg [data-gladd="' + st.abschnitte[0].id + '"]')
+      .dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: 300, clientY: 300 }));
+  });
+  await page.waitForSelector('#glCtxAdd', { timeout: 4000 });
+  ok(await page.evaluate(() => document.querySelectorAll('#glCtxAdd button').length) === 4, 'Menü: 3 Verbraucher-Typen + Zulauf-Strang');
+  await page.evaluate(() => { [...document.querySelectorAll('#glCtxAdd button')].find(b => /Fallstrang/.test(b.textContent)).click(); });
+  await page.waitForFunction(() => document.querySelectorAll('#glQBody tr').length === 5);
+  ok(await page.evaluate(() => {
+    const st = JSON.parse(document.getElementById('gl_rows').value);
+    const q = st.quellen[st.quellen.length - 1];
+    return q.typ === 'fallstrang' && q.ziel === st.abschnitte[0].id;
+  }), 'Neue Quelle hängt am angeklickten Abschnitt');
+  ok(await page.evaluate(() => !document.getElementById('glCtxAdd')), 'Menü nach Auswahl geschlossen');
+  ok(await page.evaluate(() => !!document.querySelector('#glQBody tr.gl-puls')), 'Neue Zeile pulsiert (Fokus)');
+  // Zulauf-Strang VORSCHALTEN auf den bestehenden Zulauf → 3-stufige Kette
+  await page.evaluate(() => {
+    const st = JSON.parse(document.getElementById('gl_rows').value);
+    document.querySelector('#glSchema svg [data-gladd="' + st.abschnitte[1].id + '"]')
+      .dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: 300, clientY: 300 }));
+  });
+  await page.waitForSelector('#glCtxAdd', { timeout: 4000 });
+  await page.evaluate(() => { [...document.querySelectorAll('#glCtxAdd button')].find(b => /Zulauf-Strang/.test(b.textContent)).click(); });
+  await page.waitForFunction(() => document.querySelectorAll('#glABody tr').length === 3);
+  ok(await page.evaluate(() => {
+    const st = JSON.parse(document.getElementById('gl_rows').value);
+    return st.abschnitte[2].ziel === st.abschnitte[1].id && st.abschnitte[1].ziel === st.abschnitte[0].id;
+  }), 'Strang vor Strang: a3 → a2 → a1 (mehrstufiger Zusammenfluss)');
+  ok(await page.evaluate(() => (document.querySelector('#glSchema svg').innerHTML.match(/data-gladd="/g) || []).length) === 4, 'Neuer Strang trägt sofort ein eigenes ⊞');
+  // ⊞ am HSK → weitere Anschlussleitung (direkt, ohne Menü)
+  await page.evaluate(() => {
+    document.querySelector('#glSchema svg [data-gladd="hsk"]')
+      .dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: 300, clientY: 300 }));
+  });
+  await page.waitForFunction(() => document.querySelectorAll('#glABody tr').length === 4);
+  ok(await page.evaluate(() => {
+    const st = JSON.parse(document.getElementById('gl_rows').value);
+    return st.abschnitte[3].ziel === 'hsk';
+  }), 'HSK-⊞ legt eine weitere Anschlussleitung an (2 Roots)');
+  ok(await page.evaluate(() => (document.querySelector('#glSchema svg').innerHTML.match(/Anschlussleitung/g) || []).length) >= 2, 'SVG: 2 rote Anschluss-Boxen');
+}
+
+console.log('■ Vollbild: öffnen, zoomen, ⊞ im Vollbild, schliessen');
+{
+  await page.click('button:has-text("⛶ Vollbild")');
+  await page.waitForFunction(() => document.getElementById('glFsBg').classList.contains('open'));
+  ok(true, 'Vollbild öffnet');
+  ok(await page.evaluate(() => !!document.querySelector('#glFsHost svg')), 'SVG im Vollbild gerendert');
+  const w1 = await page.evaluate(() => parseFloat(document.querySelector('#glFsHost svg').style.width));
+  await page.click('.gl-fs-tools button[title="Vergrössern"]');
+  const w2 = await page.evaluate(() => parseFloat(document.querySelector('#glFsHost svg').style.width));
+  ok(w2 > w1, 'Zoom ＋ vergrössert das SVG (' + w1 + ' → ' + w2 + ' px)');
+  ok(await page.evaluate(() => /%/.test(document.getElementById('glFsPct').textContent)), 'Zoom-Prozentanzeige aktualisiert');
+  await page.evaluate(() => {
+    const st = JSON.parse(document.getElementById('gl_rows').value);
+    document.querySelector('#glFsHost svg [data-gladd="' + st.abschnitte[0].id + '"]')
+      .dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: 400, clientY: 400 }));
+  });
+  await page.waitForSelector('#glCtxAdd', { timeout: 4000 });
+  await page.evaluate(() => { [...document.querySelectorAll('#glCtxAdd button')].find(b => /Regenwasser/.test(b.textContent)).click(); });
+  await page.waitForFunction(() => document.querySelectorAll('#glQBody tr').length === 6);
+  ok(await page.evaluate(() => document.getElementById('glFsBg').classList.contains('open')), 'Vollbild bleibt beim Hinzufügen offen');
+  ok(await page.evaluate(() => (document.querySelector('#glFsHost svg').innerHTML.match(/data-glziel="q:/g) || []).length) === 6, 'Vollbild-SVG zeigt die neue Quelle sofort');
+  await page.evaluate(() => {
+    document.querySelector('#glFsHost svg [data-glziel^="q:"]').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  });
+  await page.waitForFunction(() => !document.getElementById('glFsBg').classList.contains('open'));
+  ok(true, 'Box-Klick im Vollbild schliesst und springt zur Zeile');
+  ok(await page.evaluate(() => !!document.querySelector('#glQBody tr.gl-puls, #glABody tr.gl-puls')), 'Zeile pulsiert nach dem Vollbild-Sprung');
+  await page.click('button:has-text("⛶ Vollbild")');
+  await page.waitForFunction(() => document.getElementById('glFsBg').classList.contains('open'));
+  await page.keyboard.press('Escape');
+  await page.waitForFunction(() => !document.getElementById('glFsBg').classList.contains('open'));
+  ok(true, 'ESC schliesst das Vollbild');
+}
+
 console.log('■ Kein Zugriff für Monteur');
 {
   const { page: p2 } = await newPage(browser, seed(['role_monteur']));
