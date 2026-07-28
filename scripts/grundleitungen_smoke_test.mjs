@@ -213,23 +213,26 @@ console.log('■ ⊞ im Schema: Hinzufügen direkt an der Stelle');
   const pinfo = await page.evaluate(() => {
     const st = JSON.parse(document.getElementById('gl_rows').value);
     const html = document.querySelector('#glSchema svg').innerHTML;
+    const leer = st.abschnitte.filter(a => !st.quellen.some(q => q.ziel === a.id) && !st.abschnitte.some(x => x.ziel === a.id)).length;
     return { alle: (html.match(/data-gladd="/g) || []).length,
              gap: (html.match(/data-gladd="[^"]*@/g) || []).length,
-             a: st.abschnitte.length, q: st.quellen.length };
+             a: st.abschnitte.length, q: st.quellen.length, leer };
   });
-  ok(pinfo.alle === pinfo.a + 1 + pinfo.q, '⊞ ueberall: je Abschnitt + HSK + je Quelle ein Zwischen-⊞ (' + pinfo.alle + ')');
-  ok(pinfo.gap === pinfo.q, 'Zwischen-⊞ vor jeder Quelle (' + pinfo.gap + '/' + pinfo.q + ')');
+  ok(pinfo.alle === pinfo.a + 1 + pinfo.q + pinfo.leer, '⊞ ueberall: je Abschnitt + HSK + je Quelle + Start-⊞ leerer Straenge (' + pinfo.alle + ')');
+  ok(pinfo.gap === pinfo.q, 'Einfuege-⊞ vor jeder Quelle — Box-⊞ am Start, Zwischen-⊞ in den Luecken (' + pinfo.gap + '/' + pinfo.q + ')');
   // 45°-Darstellung (Feedback 28.07.2026): Quellen-Stiche + Zulauf-Einbindungen
   // schraeg in Fliessrichtung, Start-Punkt je Abschnitt, HSK-Anschluss 45°
   const svg45 = await page.evaluate(() => {
     const st = JSON.parse(document.getElementById('gl_rows').value);
     const html = document.querySelector('#glSchema svg').innerHTML;
     return { stiche: (html.match(/stroke-width="2\.4"/g) || []).length, q: st.quellen.length,
-             dots: (html.match(/r="4\.5"/g) || []).length, a: st.abschnitte.length,
+             offene: (html.match(/r="4\.5"/g) || []).length,
+             seg: (html.match(/class="glseg"/g) || []).length,
              hsk45: /H\d+(?:\.\d+)? L\d/.test(html) };
   });
   ok(svg45.stiche === svg45.q * 2, 'Quellen via eigener Stich-Leitung + 45°-T-Stueck (' + svg45.stiche + ' Segmente fuer ' + svg45.q + ' Quellen)');
-  ok(svg45.dots === svg45.a, 'Start-Punkt je Abschnitt — Trennung klar (' + svg45.dots + '/' + svg45.a + ')');
+  ok(svg45.offene === 0, 'keine offenen Startpunkte — die Leitung beginnt beim ersten Verbraucher');
+  ok(svg45.seg >= 2, 'Teilstrecken-Beschriftung nach jeder Einbindung (' + svg45.seg + ' Wert-Chips)');
   ok(svg45.hsk45, 'HSK-Anschluss ueber 45°-Schenkel');
   await page.evaluate(() => {
     const st = JSON.parse(document.getElementById('gl_rows').value);
@@ -262,9 +265,10 @@ console.log('■ ⊞ im Schema: Hinzufügen direkt an der Stelle');
   }), 'Strang vor Strang: a3 → a2 → a1 (mehrstufiger Zusammenfluss)');
   ok(await page.evaluate(() => {
     const st = JSON.parse(document.getElementById('gl_rows').value);
+    const leer = st.abschnitte.filter(a => !st.quellen.some(q => q.ziel === a.id) && !st.abschnitte.some(x => x.ziel === a.id)).length;
     return (document.querySelector('#glSchema svg').innerHTML.match(/data-gladd="/g) || []).length
-      === st.abschnitte.length + 1 + st.quellen.length;
-  }), 'Neuer Strang trägt sofort ein eigenes ⊞ (Formel Abschnitte + HSK + Zwischen-⊞)');
+      === st.abschnitte.length + 1 + st.quellen.length + leer;
+  }), 'Neuer (leerer) Strang trägt sofort ein Start-⊞ + End-⊞ (Formel inkl. leerer Straenge)');
   // Zwischen-⊞: fuegt VOR der angeklickten Quelle ein (zwischen zwei Fallstraengen)
   await page.evaluate(() => {
     const st = JSON.parse(document.getElementById('gl_rows').value);
