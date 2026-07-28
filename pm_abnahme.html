@@ -2804,6 +2804,89 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
     return A[k]||'-';
   }
   // mode: 'open' = PDF direkt öffnen (Standard) · 'save' = «Speichern unter»
+  // ═══ BRANDING FÜRS PDF (Kanon gema_schaden_pdf / pm_pruefliste) ═══
+  // Firmenfarben aus org.settings.pdfFarben mit demselben Kontrastschutz:
+  // eine helle Marke wird Richtung Schwarz skaliert, bis sie gegen Weiss
+  // ≥ 4.5:1 erreicht — damit ist sie als Text auf Weiss UND als Fläche
+  // unter weisser Schrift lesbar. Ohne Branding: GEMA-Navy/Forest.
+  function _abHexToRgb(hex){
+    hex=String(hex||'').trim().replace(/^#/,'');
+    if(hex.length===3) hex=hex.charAt(0)+hex.charAt(0)+hex.charAt(1)+hex.charAt(1)+hex.charAt(2)+hex.charAt(2);
+    if(!/^[0-9a-fA-F]{6}$/.test(hex)) return null;
+    return { r:parseInt(hex.slice(0,2),16), g:parseInt(hex.slice(2,4),16), b:parseInt(hex.slice(4,6),16) };
+  }
+  function _abRelLum(c){
+    var a=[c.r,c.g,c.b].map(function(v){ v/=255; return v<=0.03928 ? v/12.92 : Math.pow((v+0.055)/1.055,2.4); });
+    return 0.2126*a[0]+0.7152*a[1]+0.0722*a[2];
+  }
+  function _abContrastVsWhite(c){ return 1.05/(_abRelLum(c)+0.05); }
+  function _abDarken(hex,target){
+    var c=_abHexToRgb(hex); if(!c) return null;
+    if(_abContrastVsWhite(c)>=target) return c;
+    var f=1.0;
+    for(var i=0;i<40;i++){ f-=0.025; var d={r:c.r*f,g:c.g*f,b:c.b*f}; if(_abContrastVsWhite(d)>=target) return {r:Math.round(d.r),g:Math.round(d.g),b:Math.round(d.b)}; }
+    return {r:31,g:41,b:51};
+  }
+  function _abTint(hex,mix){
+    var c=_abHexToRgb(hex); if(!c) return null;
+    var m=(mix==null)?0.92:mix;
+    return {r:Math.round(c.r+(255-c.r)*m),g:Math.round(c.g+(255-c.g)*m),b:Math.round(c.b+(255-c.b)*m)};
+  }
+  function _abBrand(){
+    var o=null; try{ o=GemaAuth.getCurrentOrg&&GemaAuth.getCurrentOrg(); }catch(e){}
+    var pf=o&&o.settings&&o.settings.pdfFarben;
+    if(pf&&pf.primary&&_abHexToRgb(pf.primary)){
+      var acc=_abDarken(pf.primary,4.5);
+      var deep=_abDarken(pf.primary,7)||acc;
+      var tail=(pf.secondary&&_abDarken(pf.secondary,4.5))||deep;
+      return { acc:acc, deep:deep, tail:tail, tint:_abTint(pf.primary)||{r:238,g:242,b:246}, org:o };
+    }
+    return { acc:{r:15,g:23,b:42}, deep:{r:30,g:58,b:95}, tail:{r:12,g:74,b:46}, tint:{r:238,g:242,b:246}, org:o };
+  }
+  function _abRgb(d,fn,c){ d[fn](c.r,c.g,c.b); }
+  // Farbband oben auf dem Deckblatt (Primär → Sekundär, wie die Cover-Bar
+  // im Schadensbericht — dort ein CSS-Verlauf, hier in Streifen gezeichnet).
+  function _abCoverBar(doc,br){
+    var x=0,w=595,h=9,n=48;
+    for(var i=0;i<n;i++){
+      var t=i/(n-1);
+      doc.setFillColor(Math.round(br.acc.r+(br.tail.r-br.acc.r)*t),
+                       Math.round(br.acc.g+(br.tail.g-br.acc.g)*t),
+                       Math.round(br.acc.b+(br.tail.b-br.acc.b)*t));
+      doc.rect(x+i*(w/n),0,(w/n)+0.6,h,'F');
+    }
+  }
+  // Abschnitts-Band über die Textbreite (Muster «report-section» im Schadensbericht)
+  function _abBand(doc,br,M,y,text){
+    doc.setFillColor(br.acc.r,br.acc.g,br.acc.b);
+    doc.rect(M,y-10,515,18,'F');
+    doc.setTextColor(255,255,255); doc.setFont('helvetica','bold'); doc.setFontSize(10);
+    doc.text(String(text).toUpperCase(),M+8,y+2.5);
+    doc.setTextColor(0,0,0); doc.setFont('helvetica','normal'); doc.setFontSize(10);
+    return y+18;
+  }
+  // Kopf-/Fusszeile auf JEDER Seite (im Schadensbericht die @page-Boxen)
+  function _abKopfFuss(doc,br,titel){
+    var o=br.org, orgName=(o&&o.name)||'GEMA', n=doc.internal.getNumberOfPages();
+    var adr=''; try{ adr=[o&&o.strasse,[o&&o.plz,o&&o.ort].filter(Boolean).join(' ')].filter(Boolean).join(', '); }catch(e){}
+    for(var i=1;i<=n;i++){
+      doc.setPage(i);
+      doc.setFont('helvetica','normal'); doc.setFontSize(7.5);
+      if(i>1){   // Deckblatt traegt Logo + Farbband, dort keine Laufzeile
+        doc.setTextColor(br.acc.r,br.acc.g,br.acc.b);
+        doc.text(orgName,40,30);
+        doc.text(titel,555,30,{align:'right'});
+        doc.setDrawColor(br.acc.r,br.acc.g,br.acc.b); doc.setLineWidth(0.6);
+        doc.line(40,34,555,34);
+      }
+      doc.setTextColor(120,130,145); doc.setFontSize(7);
+      doc.setDrawColor(210,215,222); doc.setLineWidth(0.4); doc.line(40,806,555,806);
+      doc.text([orgName,adr].filter(Boolean).join(' · '),40,816);
+      doc.text('Seite '+i+' / '+n,555,816,{align:'right'});
+      doc.setTextColor(0,0,0); doc.setLineWidth(0.2);
+    }
+  }
+
   const exportPdf = async (mode) => {
     // Popup-Fenster SYNCHRON im Klick-Kontext öffnen (sonst blockt der
     // Popup-Blocker das spätere window.open nach den await-Schritten).
@@ -2813,18 +2896,29 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
       const {jsPDF}=window.jspdf;
       const doc=new jsPDF({unit:'pt',format:'a4'});
       const M=40; let y=46;
+      const br=_abBrand();
+      const _pdfTitel=_protoTitel()+' (SIA 118)';
 
-      // Page 1: Abnahmeprotokoll (Titel folgt der gewählten Art der Abnahme)
-      // Firmenlogo oben rechts (Feedback 07/2026)
+      // Page 1: Deckblatt im Kanon Schadensbericht/Prüfliste —
+      // Farbband, Firmenlogo, Titel in der Markenfarbe.
+      _abCoverBar(doc,br);
+      y=58;
       const logo=await _abPdfLogo();
       if(logo){
         const lw=Math.min(120,54*logo.ratio), lh=lw/logo.ratio;
-        try{ doc.addImage(logo.dataUrl,'JPEG',555-lw,y-14,lw,Math.min(54,lh)); }catch(e){}
+        try{ doc.addImage(logo.dataUrl,'JPEG',555-lw,y-16,lw,Math.min(54,lh)); }catch(e){}
       }
-      doc.setFont('helvetica','bold'); doc.setFontSize(14);
+      // Eyebrow (Firmenname) über dem Titel
+      doc.setFont('helvetica','bold'); doc.setFontSize(8);
+      doc.setTextColor(br.acc.r,br.acc.g,br.acc.b);
+      doc.text(((br.org&&br.org.name)||'GEMA').toUpperCase(),M,y-6);
+      doc.setFontSize(17);
       // Titel inkl. Geprüft-Art (Feedback 24.07.2026 #3), umbrechend neben dem Logo
-      const titelL=doc.splitTextToSize(_protoTitel().toUpperCase()+' (SIA 118)',logo?390:515);
-      doc.text(titelL,M,y); y+=titelL.length*18+2;
+      const titelL=doc.splitTextToSize(_pdfTitel,logo?380:515);
+      doc.text(titelL,M,y+12); y+=12+titelL.length*20+4;
+      doc.setTextColor(0,0,0);
+      doc.setDrawColor(br.acc.r,br.acc.g,br.acc.b); doc.setLineWidth(1.4);
+      doc.line(M,y-6,M+54,y-6); doc.setLineWidth(0.2); y+=8;
       doc.setFont('helvetica','normal'); doc.setFontSize(10);
       doc.text(`Datum: ${state.abnahme.datum}`,M,y); y+=14;
 
@@ -2835,10 +2929,9 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
       });
       lines1.push(`Arbeitsgattung: ${state.abnahme.arbeitsgattung||'-'}`,`Vertrag vom: ${state.abnahme.vertragVom||'-'}`);
       lines1.forEach(l=>{ const ll=doc.splitTextToSize(l,logo?400:515); doc.text(ll,M,y); y+=ll.length*12; });
-      y+=6; doc.setDrawColor(180); doc.line(M,y,555,y); y+=14;
+      y+=14;
 
-      doc.setFont('helvetica','bold'); doc.text('Prüfungs-Protokoll',M,y); y+=12;
-      doc.setFont('helvetica','normal');
+      y=_abBand(doc,br,M,y,'Prüfungs-Protokoll'); y+=4;
       doc.text(`Geprüfter Teil: ${state.abnahme.gepruefterTeil||'-'}`,M,y); y+=12;
       if(_isSicht()){
         // Sichtprüfung: SIA-Artikel entfallen — Bestätigung drucken (Feedback 24.07.2026 #5/#6)
@@ -2867,7 +2960,8 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
           head:[['Kontrollpunkt','i.O.','nicht i.O.','n.K.']],
           body:AB_INSTWAND_CHECK.map(p=>{ const v=cwVals[p.id]||''; return [p.t,v==='io'?'X':'',v==='nio'?'X':'',v==='nk'?'X':'']; }),
           styles:{font:'helvetica',fontSize:8,cellPadding:4,overflow:'linebreak'},
-          headStyles:{fillColor:[29,78,216],textColor:255},
+          headStyles:{fillColor:[br.acc.r,br.acc.g,br.acc.b],textColor:255},
+          alternateRowStyles:{fillColor:[br.tint.r,br.tint.g,br.tint.b]},
           columnStyles:{0:{cellWidth:365},1:{cellWidth:44,halign:'center'},2:{cellWidth:62,halign:'center'},3:{cellWidth:44,halign:'center'}},
           margin:{left:M,right:M}
         });
@@ -2910,7 +3004,8 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
       }
       doc.text(`Ort: ${state.abnahme.ort||'-'}`,M,y); y+=16;
 
-      doc.setFont('helvetica','bold'); doc.text('Unterschriften:',M,y); y+=12;
+      if(y>690){doc.addPage();y=56;}
+      y=_abBand(doc,br,M,y+4,'Unterschriften'); y+=8;
       const sigBlocks=[['Unternehmer',state.abnahme.sig.unternehmer],['Bauherr',state.abnahme.sig.bauherr],['Bauleitung',state.abnahme.sig.bauleitung],['Fachbauleitung',state.abnahme.sig.fachbauleitung]];
       for(const [label,s] of sigBlocks){
         if(y>750){doc.addPage();y=46;}
@@ -2927,15 +3022,21 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
       }
 
       // Page 2: Mängelliste
-      doc.addPage(); y=46;
-      doc.setFont('helvetica','bold'); doc.setFontSize(14); doc.text('MÄNGELLISTE (Details)',M,y); y+=16;
+      doc.addPage(); y=56;
+      y=_abBand(doc,br,M,y,'Mängel- & Pendenzenliste'); y+=6;
       doc.setFont('helvetica','normal'); doc.setFontSize(10);
       [`Datum: ${state.maengelMeta.datum}`,`Prüfer: ${state.maengelMeta.pruefer||'-'}`,`Objekt: ${state.abnahme.bauobjekt||'-'}`,`Standard „Erledigen bis": ${state.maengelMeta.standardErledigenBis||'-'}`].forEach(l=>{doc.text(l,M,y);y+=12;});
-      y+=6; doc.setDrawColor(180); doc.line(M,y,555,y); y+=14;
+      y+=6;
 
+      // Fortschritts-Kachel in der Markenfarbe (Muster KPI-Strip)
       const total=state.items.length, doneN=state.items.filter(it=>(it.erledigt||'').trim()).length;
-      doc.setFont('helvetica','bold'); doc.text(`Fortschritt: ${doneN} / ${total} erledigt (${total?Math.round(doneN/total*100):0}%)`,M,y); y+=14;
-      doc.setFont('helvetica','normal'); doc.setDrawColor(180); doc.line(M,y,555,y); y+=12;
+      const pct=total?Math.round(doneN/total*100):0;
+      doc.setFillColor(br.tint.r,br.tint.g,br.tint.b); doc.rect(M,y,515,26,'F');
+      doc.setDrawColor(br.acc.r,br.acc.g,br.acc.b); doc.setLineWidth(2);
+      doc.line(M,y,M,y+26); doc.setLineWidth(0.2);
+      doc.setFont('helvetica','bold'); doc.setFontSize(10); doc.setTextColor(br.acc.r,br.acc.g,br.acc.b);
+      doc.text(`Fortschritt: ${doneN} / ${total} erledigt (${pct} %)`,M+10,y+17);
+      doc.setTextColor(0,0,0); doc.setFont('helvetica','normal'); y+=38;
 
       // «Durch wen» leer → Standard = Unternehmer aus dem Kopf (Feedback 07/2026)
       const rows=state.items.map((it,i)=>[String(i+1),it.typ==='pendenz'?'Pendenz':'Mangel',it.ort||'',it.mangel||'',it.akzeptiert||'Ja',it.erledigungBis||state.maengelMeta.standardErledigenBis||'',it.kuerzel||kuerzelVorschlag()||'',(it.erledigt||'').trim()||(it.teilweise?'teilweise erledigt':'')]);
@@ -2944,7 +3045,8 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
         head:[['Nr.','Typ','Ort/Raum','Mangel / Pendenz','Akzept.','Erledigen bis','Durch wen','Erledigt']],
         body:rows,
         styles:{font:'helvetica',fontSize:8,cellPadding:4,overflow:'linebreak'},
-        headStyles:{fillColor:[29,78,216],textColor:255},
+        headStyles:{fillColor:[br.acc.r,br.acc.g,br.acc.b],textColor:255},
+        alternateRowStyles:{fillColor:[br.tint.r,br.tint.g,br.tint.b]},
         columnStyles:{0:{cellWidth:24},1:{cellWidth:42},2:{cellWidth:66},3:{cellWidth:140},4:{cellWidth:40},5:{cellWidth:58},6:{cellWidth:68},7:{cellWidth:70}},
         margin:{left:M,right:M}
       });
@@ -2952,7 +3054,8 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
       // Foto-Anhang
       let y2=doc.lastAutoTable.finalY+20;
       if(state.items.some(it=>it.photos?.length)){
-        doc.setFont('helvetica','bold'); doc.setFontSize(12); doc.text('Foto-Anhang',M,y2); y2+=14;
+        if(y2>720){doc.addPage();y2=56;}
+        y2=_abBand(doc,br,M,y2,'Foto-Anhang'); y2+=6;
         doc.setFont('helvetica','normal'); doc.setFontSize(9); doc.text('Fotos pro Mängelpunkt.',M,y2); y2+=14;
         for(let i=0;i<state.items.length;i++){
           const it=state.items[i]; if(!it.photos?.length)continue;
@@ -2982,8 +3085,8 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
       // Anhang-Seiten: Bild-Anhänge einbetten, PDFs als Beilage referenzieren
       const anh=state.anhaenge||[];
       if(anh.length){
-        doc.addPage(); let y3=46;
-        doc.setFont('helvetica','bold'); doc.setFontSize(12); doc.text('ANHANG',M,y3); y3+=16;
+        doc.addPage(); let y3=56;
+        y3=_abBand(doc,br,M,y3,'Anhang'); y3+=8;
         doc.setFont('helvetica','normal'); doc.setFontSize(9);
         for(let i=0;i<anh.length;i++){
           const a=anh[i];
@@ -3004,6 +3107,9 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
           }
         }
       }
+
+      // Kopf-/Fusszeile + Seitenzahlen ZULETZT (die Gesamtzahl steht erst jetzt fest)
+      _abKopfFuss(doc,br,_pdfTitel);
 
       const fname=`Abnahme_SIA118_${state.abnahme.datum.replace(/\./g,'-')}.pdf`;
       if(mode==='save'){
