@@ -67,13 +67,16 @@ console.log('■ A · Bericht: Bilder direkt unter ihrem Prüfpunkt');
   ok(idxF1 > idxP1, 'die Bild-Zeile folgt direkt auf ihren Prüfpunkt');
   // Reihenfolge: pkrow(Hebeanlage) → fotorow → pkrow(Test) → fotorow → pkrow(Ohne Bild)
   const seq = [];
-  const re = /<tr class="(pkrow|fotorow[^"]*)"[^>]*>([\s\S]*?)<\/tr>/g; let m;
+  const re = /<tr class="(pkrow[^"]*|fotorow[^"]*)"[^>]*>([\s\S]*?)<\/tr>/g; let m;
   while ((m = re.exec(tbody))) seq.push(m[1].split(' ')[0] + (m[1].indexOf('foto') < 0 ? ':' + (m[2].match(/>([^<]*Hebeanlage|[^<]*Test|[^<]*Ohne Bild)/) ? 'x' : '') : ''));
   ok(seq.join('|').indexOf('pkrow') === 0 && seq[1] === 'fotorow' && seq[3] === 'fotorow',
     'Reihenfolge Punkt → Bilder → Punkt → Bilder (' + seq.join(' ') + ')');
   ok(tbody.indexOf('Empfehlung') > 0, 'Empfehlung erscheint unter den Bildern');
   ok(html.indexOf('class="pblock"') < 0 && html.indexOf('pblock-t') < 0, 'keine separaten Foto-Blöcke mehr nach der Tabelle');
-  ok(html.indexOf('tr.pkrow{break-after:avoid') > 0, 'Prüfpunkt und seine Bilder bleiben im Druck zusammen');
+  // Feedback 28.07.2026: die Verkettung steht NUR noch auf Punkten mit Bildern
+  // (auf jeder Zeile machte sie die ganze Tabelle unteilbar).
+  ok(html.indexOf('tr.pkrow.mitfoto{break-after:avoid') > 0, 'Prüfpunkt und seine Bilder bleiben im Druck zusammen');
+  ok(html.indexOf('tr.pkrow{break-after:avoid') < 0, 'kein pauschales break-after auf allen Punktzeilen');
   ok(html.indexOf('🔩 Biral · Test · Bj. 2026 · Kunststoff') > 0, 'Bauteil-Zeile unverändert am Prüfpunkt');
 
   ok(errs.length === 0, 'keine JS-Fehler' + (errs.length ? ': ' + errs[0] : ''));
