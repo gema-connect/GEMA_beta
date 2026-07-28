@@ -66,6 +66,15 @@
   // 5xx, 408, 429) schalten erst nach ZWEI Fehlern in Folge auf offline —
   // ein einzelner Aussetzer soll das Banner nicht ausloesen.
   var _lastFailMsg = '';   // letzter echter Fehler — fuer die Banner-Diagnose
+  // KRITISCH (Bugreport 28.07.2026 «Schadensbericht meldet offline, obwohl
+  // die ganze Zeit Internet da war»): Ein fehlgeschlagener SCHREIBVORGANG ist
+  // KEIN Beweis fuer eine fehlende Verbindung. Bildlastige Records (Schadens-/
+  // Dachbericht) erzeugen mehrere MB grosse Requests — die koennen an einer
+  // Groessengrenze scheitern oder in einen Timeout laufen und werfen dann
+  // dieselbe Exception wie ein echter Netzausfall. Zwei davon in Folge
+  // schalteten frueher direkt auf «Offline». Jetzt entscheidet eine BILLIGE
+  // Gegenprobe (_probeOnce): antwortet der Server, bleibt der Zustand online
+  // und der Nutzer sieht stattdessen den ehrlichen Upload-Hinweis.
   function _noteFailure(e){
     var msg = (e && e.message) || '';
     var m = /HTTP (\d+)/.exec(msg);
@@ -73,9 +82,14 @@
       var code = +m[1];
       if(code >= 400 && code < 500 && code !== 408 && code !== 429) return;
     }
+    _markFail(msg);
+    if(_failStreak >= 2 && !_probing) _probeOnce();   // Verifikation entscheidet
+  }
+  // Fehler nur buchen (ohne Gegenprobe) — von der Probe selbst benutzt,
+  // damit sie sich nicht rekursiv aufruft.
+  function _markFail(msg){
     _lastFailMsg = msg || 'Netzwerkfehler';
     _failStreak++;
-    if(_failStreak >= 2) _setReachable(false);
   }
   if(typeof window !== 'undefined'){
     window.addEventListener('online',  function(){ _online = true;  _probeOnce(); });
@@ -254,24 +268,39 @@
   // nicht gespeichert» war falsch und hat unnoetig Angst gemacht.
   function _bannerText(){
     var n = _outboxCount();
-    return '⚠ Offline — Ihre Aenderungen werden lokal gespeichert'
+    var warten = n ? (' (' + n + ' ' + (n === 1 ? 'Aenderung' : 'Aenderungen') + ')') : '';
+    // Verbindung steht, aber ein Upload kommt nicht durch (z.B. sehr grosser
+    // bildlastiger Datensatz): dann NICHT «Offline» behaupten — das war der
+    // Bugreport 28.07.2026 aus dem Schadensbericht.
+    if(_lastReachable){
+      return '⏳ Noch nicht hochgeladen' + warten + ' — lokal gesichert, GEMA versucht es automatisch weiter.'
+        + ' Die Verbindung ist in Ordnung; bei sehr grossen Datensaetzen (viele Fotos) kann es mehrere Anlaeufe brauchen.';
+    }
+    return '⚠ Cloud nicht erreichbar — Ihre Aenderungen werden lokal gespeichert'
       + (n ? ' (' + n + ' ' + (n === 1 ? 'Aenderung wartet' : 'Aenderungen warten') + ')' : '')
-      + ' und automatisch in die Cloud hochgeladen, sobald wieder Internet da ist.';
+      + ' und automatisch hochgeladen, sobald die Verbindung wieder da ist.';
   }
   function _bannerRefresh(){
     if(!_banner) return;
     var el = _banner.querySelector('#gema-sync-msg');
     if(el) el.textContent = _bannerText();
+    _banner.style.background = _lastReachable ? '#0f766e' : '#b45309';
   }
+  // Banner zeigen/verstecken. `reachable` = Cloud erreichbar. Bei erreichbarer
+  // Cloud bleibt der Hinweis nur stehen, solange noch etwas in der Outbox
+  // liegt (ehrlicher Upload-Rueckstand statt falscher Offline-Meldung).
   function _broadcastBanner(reachable){
     if(typeof document === 'undefined') return;
     if(reachable){
       _stopReprobe();
-      if(_banner){ try{ _banner.remove(); }catch(e){} _banner = null; }
-      return;
+      if(!_outboxCount()){
+        if(_banner){ try{ _banner.remove(); }catch(e){} _banner = null; }
+        return;
+      }
+    } else {
+      _startReprobe();
     }
-    _startReprobe();
-    if(_banner) return;
+    if(_banner){ _bannerRefresh(); return; }
     _banner = document.createElement('div');
     _banner.id = 'gema-sync-offline-banner';
     Object.assign(_banner.style, {
@@ -325,7 +354,10 @@
   // sollen den Weg-Wechsel nicht beliebig verzoegern.
   function _probeFetch(url){
     var ctl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
-    var t = ctl ? setTimeout(function(){ try{ ctl.abort(); }catch(e){} }, 6000) : null;
+    // 12s statt 6s: laeuft parallel ein grosser Upload (Fotos), ist die
+    // Leitung ausgelastet — eine zu knapp abgebrochene Probe wuerde faelsch
+    // «unerreichbar» melden.
+    var t = ctl ? setTimeout(function(){ try{ ctl.abort(); }catch(e){} }, 12000) : null;
     return fetch(url, { headers: _hdrs(), method: 'GET', signal: ctl ? ctl.signal : undefined })
       .finally(function(){ if(t) clearTimeout(t); });
   }
@@ -345,7 +377,8 @@
         _noteSuccess();          // Server hat geantwortet → erreichbar
         return true;
       }
-      _noteFailure(new Error('HTTP ' + r.status));  // 5xx/408/429 → Streak-Regel
+      _markFail('HTTP ' + r.status);               // 5xx/408/429 → Streak-Regel
+      if(_failStreak >= 2) _setReachable(false);
       return false;
     }).catch(function(){
       // Aktueller Weg wirft (wirklich unerreichbar) → anderen Weg testen:
@@ -498,7 +531,7 @@
     if(moduleKey === 'auth') return Promise.reject(e);
     _outboxEnqueue(moduleKey, upserts, delKeys);
     _scheduleFlush(2000);
-    _bannerRefresh();
+    _outboxSync();
     var err = new Error('Sync verzoegert — lokal gespeichert, wird automatisch nachgeholt');
     err.queued = true; err.cause = e;
     return Promise.reject(err);
@@ -822,6 +855,9 @@
     _outboxPersist();
   }
   function _outboxCount(){ return Object.keys(_outboxLoad()).length; }
+  // Outbox-Stand hat sich geaendert → Banner neu bewerten (erscheint bei
+  // Rueckstand trotz Verbindung, verschwindet sobald alles oben ist).
+  function _outboxSync(){ try{ _broadcastBanner(_lastReachable); }catch(e){} }
   // Entfernt Eintraege fuer bereits erfolgreich gepushte Records — sonst
   // koennte ein spaeter geflushter, veralteter Outbox-Eintrag den frischen
   // Cloud-Stand desselben Records ueberschreiben (Regression).
@@ -871,10 +907,10 @@
       });
     });
     return chain.then(function(){
-      _flushing = false; _outboxPersist(); _bannerRefresh();
+      _flushing = false; _outboxPersist(); _outboxSync();
     }, function(e){
       // Teilerfolg moeglich — bereits gesendete Eintraege sind raus.
-      _flushing = false; _outboxPersist(); _bannerRefresh();
+      _flushing = false; _outboxPersist(); _outboxSync();
       if(_outboxCount()) _scheduleFlush(15000); // spaeter erneut versuchen
     });
   }

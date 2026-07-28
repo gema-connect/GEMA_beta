@@ -496,7 +496,17 @@
       var st = _instances[id];
       if(st){ _renderGrid(st); _renderChosen(st); }
     },
-    scrollToResults: scrollToResults
+    scrollToResults: scrollToResults,
+    /* Gewählte Anlage einer Kategorie fürs AKTIVE Objekt lesen (Feedback
+       28.07.2026) — z.B. um den Anlagetyp als Text ins Anlagenschema zu
+       übernehmen. Liefert den gespeicherten Datensatz oder null. */
+    getChosen: function(kategorie){ return _getChosen({ kategorie: kategorie }); },
+    /* Kurzbezeichnung «Firma Serie Modell» (leer, wenn nichts gewählt). */
+    chosenLabel: function(kategorie){
+      var c = _getChosen({ kategorie: kategorie });
+      if(!c) return '';
+      return [c.lieferantFirma, c.serie, c.modell].filter(function(x){ return String(x||'').trim(); }).join(' ').trim();
+    }
   };
 
   // Bei Objektwechsel die (pro Objekt gespeicherte) gewählte Anlage aller

@@ -96,7 +96,8 @@ async function run() {
     ok(await page.locator('#eNr').count() === 1, 'freies Objekt: Hausnummer-Feld vorhanden');
     ok(await page.locator('#ePlz').count() === 1, 'freies Objekt: PLZ-Feld vorhanden');
     ok(await page.locator('#eOrt').count() === 1, 'freies Objekt: Ort-Feld vorhanden');
-    ok(await page.locator('#eObjTyp').count() === 1, 'Objekttyp-Select vorhanden');
+    // Feedback 28.07.2026: Objekttyp ist jetzt eine Chip-Auswahl (wie die Nutzungen)
+    ok(await page.locator('#eObjTypChips .chip').count() >= 5, 'Objekttyp-Chips vorhanden');
 
     await page.fill('#eStrasse', 'Musterstrasse');
     await page.dispatchEvent('#eStrasse', 'change');
@@ -106,7 +107,7 @@ async function run() {
     await page.dispatchEvent('#ePlz', 'change');
     await page.fill('#eOrt', 'Basel');
     await page.dispatchEvent('#eOrt', 'change');
-    await page.selectOption('#eObjTyp', 'mfh');
+    await page.evaluate(() => prEObjTyp('mfh'));
     const nachAdr = await page.evaluate(() => ({ adr: window._prHooks ? null : null, cur: JSON.parse(JSON.stringify(window.__cur || {})) })).catch(() => null);
     const state1 = await page.evaluate(() => {
       const b = (window.prCurrent && window.prCurrent()) || null;
@@ -116,9 +117,9 @@ async function run() {
     ok(state1 && state1.typ === 'mfh', 'Objekttyp im Record gespeichert');
 
     // «Sonstiges» blendet das Freitextfeld ein
-    await page.selectOption('#eObjTyp', 'sonstiges');
+    await page.evaluate(() => prEObjTyp('sonstiges'));
     ok(await page.locator('#eObjTypFreiWrap').isVisible(), '«Sonstiges» blendet das Freitextfeld ein');
-    await page.selectOption('#eObjTyp', 'mfh');
+    await page.evaluate(() => prEObjTyp('mfh'));
     ok(!(await page.locator('#eObjTypFreiWrap').isVisible()), 'Freitextfeld wieder ausgeblendet');
 
     // (2) Titelbild-Bedienung vorhanden

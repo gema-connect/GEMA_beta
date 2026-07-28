@@ -1977,7 +1977,7 @@ document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('enth
     var n = d.straenge.length;
     var X0 = 26;                 // Start Rohwasserlinie
     var XB = 168;                // Abzweig Umgehung (hoch)
-    var XV1 = 236, XV2 = 296;    // Enthärter: Fallleitung / Steigleitung
+    var XV1 = 236, XV2 = 282;    // Enthärter: Fallleitung / Steigleitung (schmal — Feedback 28.07.2026)
     var STR0 = 400;              // erster Strang
     var DX = 176;                // Strang-Abstand
     var UOFF = 30;               // Versatz der Umgehungs-Fallleitung links vom Riser
@@ -2005,16 +2005,26 @@ document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('enth
     s += chip(X0 + 2, YM + 44, 'H<tspan baseline-shift="sub" font-size="7">R</tspan> ' + esc(d.hrDisp || (f2(d.hrFh, 1) + ' °fH')), { col: C.roh, ziel: 'hr_fh', w: 92 });
     s += chip(X0 + 96, YM + 44, 'Q<tspan baseline-shift="sub" font-size="7">D</tspan> ges ' + f2(d.qdTot, 2) + ' l/s', { col: C.roh, ziel: 'qd_ges', w: 112 });
 
-    // ── Umgehung: Abzweig hoch + Sammelleitung (nur wenn nötig) ──
+    // ── Umgehung: EIGENE Leitung je aufgehärtetem Strang (Feedback 28.07.2026:
+    //    «Separate Leitungen bei Aufhärtungen mit Ventilen») — vorher eine
+    //    gemeinsame Sammelleitung mit Abzweigen. Jeder Strang bekommt eine
+    //    eigene Spur (lane) vom Abzweig bis zu seinem Verschneide-Ventil.
     var umgStrs = d.straenge.filter(function (x) { return x.umg > 0.0005; });
+    var umgLane = {};            // Strang-Index → Y der eigenen Leitung
     if (d.umgTot > 0.0005 && umgStrs.length) {
-      var lastUmgX = STR0 + (n - 1) * DX;
-      for (var iu = n - 1; iu >= 0; iu--) { if (d.straenge[iu].umg > 0.0005) { lastUmgX = STR0 + iu * DX; break; } }
+      var li = 0, laneMax = YB;
+      d.straenge.forEach(function (st, i) {
+        if (st.umg > 0.0005) { umgLane[i] = YB + li * 12; laneMax = Math.max(laneMax, umgLane[i]); li++; }
+      });
       s += '<circle cx="' + XB + '" cy="' + YM + '" r="3.4" fill="' + C.roh + '"/>';
-      s += line(XB, YM, XB, YB, C.umg, 2.2, '6 4');
-      s += line(XB, YB, lastUmgX - UOFF, YB, C.umg, 2.2, '6 4');
-      s += lbl(XB + 10, YB - 10, 'Umgehung (Rohwasser zur Aufhärtung)', { col: C.umg, fs: 10, fw: 700 });
-      s += chip(XB + 10, YB + 16, f2(d.umgTot, 2) + ' l/s', { col: C.umg, ziel: 'umg_total', w: 74 });
+      s += line(XB, YM, XB, YB, C.umg, 2.2, '6 4');           // gemeinsamer Abzweig hoch
+      Object.keys(umgLane).forEach(function (k) {
+        var xEnd = STR0 + (+k) * DX - UOFF;
+        s += line(XB, umgLane[k], xEnd, umgLane[k], C.umg, 2.2, '6 4');   // eigene Leitung
+      });
+      if (laneMax > YB) s += line(XB, YB, XB, laneMax, C.umg, 2.2, '6 4');
+      s += lbl(XB + 10, YB - 12, 'Umgehung (Rohwasser zur Aufhärtung) — je Strang eine Leitung', { col: C.umg, fs: 10, fw: 700 });
+      s += chip(XB - 84, YM - 34, f2(d.umgTot, 2) + ' l/s', { col: C.umg, ziel: 'umg_total', w: 74 });
     }
 
     // ── Enthärter: Fallleitung → Behälter → Steigleitung ──
@@ -2023,14 +2033,32 @@ document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('enth
     s += ventil(XV1, YM + 64, true, C.roh);
     s += line(XV2, YV + 14, XV2, YM, C.weich, 3, null, 'esArrWeich');
     s += ventil(XV2, YM + 64, true, C.weich);
-    // Behälter
-    s += '<rect x="' + (XV1 - 26) + '" y="' + YV + '" width="' + (XV2 - XV1 + 52) + '" height="72" rx="12" fill="' + C.box + '" stroke="#64748b" stroke-width="1.8"/>';
+    // Behälter — schmal (nur zwischen den beiden Leitungen), Beschriftung
+    // steht RECHTS daneben (Feedback 28.07.2026: «weniger breit darstellen,
+    // Text Enthärtungsanlage nebendran»).
+    var vx0 = XV1 - 14, vw = (XV2 - XV1) + 28;
+    s += '<rect x="' + vx0 + '" y="' + YV + '" width="' + vw + '" height="72" rx="10" fill="' + C.box + '" stroke="#64748b" stroke-width="1.8"/>';
     var vcx = (XV1 + XV2) / 2;
-    for (var p = 0; p < 14; p++) {
-      s += '<circle cx="' + (XV1 - 12 + (p % 7) * ((XV2 - XV1 + 24) / 6)) + '" cy="' + (YV + 46 + Math.floor(p / 7) * 13) + '" r="2.6" fill="#cbd5e1"/>';
+    for (var p = 0; p < 12; p++) {
+      s += '<circle cx="' + (vx0 + 12 + (p % 4) * ((vw - 24) / 3)) + '" cy="' + (YV + 34 + Math.floor(p / 4) * 13) + '" r="2.6" fill="#cbd5e1"/>';
     }
-    s += lbl(vcx, YV + 22, 'Enthärtungsanlage', { col: C.text, fs: 11.5, fw: 800, anchor: 'middle' });
-    s += lbl(vcx, YV + 34, 'Ionenaustausch', { col: C.mut, fs: 9, anchor: 'middle' });
+    var tx = vx0 + vw + 12;
+    s += lbl(tx, YV + 26, 'Enthärtungsanlage', { col: C.text, fs: 11.5, fw: 800 });
+    s += lbl(tx, YV + 40, 'Ionenaustausch', { col: C.mut, fs: 9 });
+    /* Gewählter Anlagetyp als Text übernehmen (Feedback 28.07.2026).
+       Quelle ist die modul-eigene Anlagenwahl (_enthGetChosenAnlage → Key
+       gema_enthaertung_anlage[__objektId]); GemaAnlagenwahl ist hier bewusst
+       NICHT eingebunden und dient nur als Fallback für andere Module. */
+    var anlTyp = '';
+    try {
+      var _ca = (typeof window._enthGetChosenAnlage === 'function') ? window._enthGetChosenAnlage() : null;
+      if (_ca) anlTyp = [_ca.lieferant, _ca.serie, _ca.modell].filter(function (x) { return String(x || '').trim(); }).join(' ').trim();
+      if (!anlTyp && typeof GemaAnlagenwahl !== 'undefined' && GemaAnlagenwahl.chosenLabel) anlTyp = GemaAnlagenwahl.chosenLabel('enthaertungsanlage');
+    } catch (e) {}
+    if (anlTyp) {
+      if (anlTyp.length > 30) anlTyp = anlTyp.slice(0, 29) + '…';
+      s += lbl(tx, YV + 56, '✓ ' + esc(anlTyp), { col: C.weich, fs: 9.5, fw: 700 });
+    }
     s += chip(vcx, YV + 88, 'V’E ' + f2(d.veTot, 2) + ' l/s · ' + f2(d.veM3h, 2) + ' m³/h', { col: C.weich, anchor: 'middle', ziel: 've_total_ls', w: 168 });
 
     // ── Weichwasser-Verteilleitung zu den Strängen ──
@@ -2052,10 +2080,11 @@ document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('enth
         // Verschneide-Armatur erkennbar IN der orangen Leitung sitzt
         // (Feedback 28.07.2026 — vorher lag sie deckungsgleich auf dem Riser).
         var xu = x - UOFF;
-        s += line(xu, YB, xu, YMIX, C.umg, 2.2, '6 4');
+        var yLane = (umgLane[i] != null) ? umgLane[i] : YB;
+        s += line(xu, yLane, xu, YMIX, C.umg, 2.2, '6 4');
         s += line(xu, YMIX, x - 5, YMIX, C.umg, 2.2, '6 4', 'esArrUmg');
-        s += verschneideVentil(xu, YB + 30, C.umg);
-        s += lbl(xu - 8, YB + 52, f2(st.umg, 2) + ' l/s', { col: C.umg, fs: 9.5, fw: 700, anchor: 'end' });
+        s += verschneideVentil(xu, (yLane + YMIX) / 2, C.umg);
+        s += lbl(xu - 8, (yLane + YMIX) / 2 + 22, f2(st.umg, 2) + ' l/s', { col: C.umg, fs: 9.5, fw: 700, anchor: 'end' });
         s += '<circle cx="' + x + '" cy="' + YMIX + '" r="4.6" fill="#ffffff" stroke="' + C.umg + '" stroke-width="2"/>';
         s += lbl(x + 12, YMIX + 3, 'Mischpunkt', { col: C.mut, fs: 8.5 });
       }
@@ -2729,9 +2758,13 @@ document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('enth
   function _enthGetChosenAnlage(){
     try { var r = localStorage.getItem(_enthAnlKey()); return r ? JSON.parse(r) : null; } catch(e){ return null; }
   }
+  // Das Anlagenschema liegt in einem EIGENEN Script-Block (Cross-Block-Regel:
+  // erreichbar sind nur window-exponierte Namen) und zeigt den gewählten Typ an.
+  window._enthGetChosenAnlage = _enthGetChosenAnlage;
   window._enthClearChosenAnlage = function(){
     try { localStorage.removeItem(_enthAnlKey()); } catch(e){}
     renderChosenAnlage();
+    if(typeof recalc === 'function') recalc();
   };
 
   // Lokaler HTML-Escaper — im Modul war keiner namens 'esc' definiert,
@@ -2807,6 +2840,9 @@ document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('enth
 
     // Persistente Übernahme-Box rendern + dorthin scrollen.
     renderChosenAnlage();
+    // Schema zeigt den gewählten Typ als Text — nach dem Speichern neu zeichnen
+    // (das recalc() weiter oben lief noch vor dem localStorage-Write).
+    if(typeof recalc === 'function') recalc();
     if(typeof GemaAnlagenwahl!=='undefined'&&GemaAnlagenwahl.scrollToResults) GemaAnlagenwahl.scrollToResults('anlagenSection');
     else { var sec=document.getElementById('anlagenSection'); if(sec){ try{sec.scrollIntoView({behavior:'smooth',block:'start'});}catch(e){} } }
   };
