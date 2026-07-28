@@ -2151,32 +2151,6 @@ function printBericht(b){
   h+='<div class="no-print"><button onclick="window.print()">🖨 Drucken / Als PDF speichern</button>'
     +'<button class="fbb" onclick="gemaBerichtFeedback()">🔴 Feedback</button>'
     +'<button onclick="window.close()">Schliessen</button></div>';
-  /* Feedback DIREKT aus dem Bericht (Feedback 28.07.2026 «Beim Bericht kann ich
-     kein Feedback geben»). Das Druckfenster ist ein eigenes Dokument ohne
-     GemaFeedback — es erfasst darum seinen sichtbaren Bereich selbst und
-     übergibt das Bild dem Hauptfenster (GemaFeedback.startWithImage).
-     Ohne html2canvas (offline/CDN blockiert) geht es ohne Bild weiter, damit
-     Feedback IMMER möglich ist. */
-  h+='<script>(function(){'
-    +'var CDN='+JSON.stringify((window.GemaFeedback&&GemaFeedback.H2C_CDN)||'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js')+';'
-    +'var busy=false;'
-    +'function opener(){try{return window.opener&&!window.opener.closed&&window.opener.GemaFeedback?window.opener:null;}catch(e){return null;}}'
-    +'function send(img){var o=opener();if(!o){alert("Das GEMA-Fenster ist geschlossen — Feedback bitte dort geben.");return;}'
-      +'try{o.GemaFeedback.startWithImage(img||"");o.focus();}catch(e){alert("Feedback konnte nicht geöffnet werden.");}}'
-    +'function shot(){try{'
-      +'return html2canvas(document.body,{x:window.scrollX,y:window.scrollY,width:window.innerWidth,height:window.innerHeight,scale:1.5,logging:false,useCORS:true,allowTaint:true})'
-        +'.then(function(c){return c.toDataURL("image/jpeg",0.82);});'
-      +'}catch(e){return Promise.reject(e);}}'
-    +'window.gemaBerichtFeedback=function(){'
-      +'if(busy)return;busy=true;'
-      +'var btn=document.querySelector(".no-print .fbb");if(btn){btn.disabled=true;btn.textContent="⧗ Bild …";}'
-      +'function fertig(img){busy=false;if(btn){btn.disabled=false;btn.textContent="🔴 Feedback";}send(img);}'
-      +'if(typeof html2canvas==="function"){shot().then(fertig).catch(function(){fertig("");});return;}'
-      +'var s=document.createElement("script");s.src=CDN;'
-      +'s.onload=function(){shot().then(fertig).catch(function(){fertig("");});};'
-      +'s.onerror=function(){fertig("");};'   /* offline: Feedback ohne Bild */
-      +'document.head.appendChild(s);'
-    +'};})();<\/script>';
   h+='<div class="top"><div class="abs"><strong>'+E(orgName||'GEMA')+'</strong>'+(adr?'<br>'+E(adr):'')+'</div>'
     +'<div class="logo">'+(logo?'<img src="'+E(logo)+'" alt="">':'<span class="wm">GEMA</span>')+'</div></div>';
   h+='<div class="coverbar"></div>';
@@ -2254,6 +2228,38 @@ function printBericht(b){
   });
   if(!(b.anlagen||[]).length) h+='<p style="color:#666">Keine Anlagen erfasst.</p>';
   h+='<div class="ft" style="margin-top:20px">Erstellt: '+E(fmtDatum(heute()))+' · '+E(orgName||'GEMA')+' · GEMA Prüfliste</div>';
+  /* Feedback DIREKT aus dem Bericht (Feedback 28.07.2026 «Beim Bericht kann ich
+     kein Feedback geben»). Das Druckfenster ist ein eigenes Dokument ohne
+     GemaFeedback — es erfasst darum seinen sichtbaren Bereich selbst und
+     übergibt das Bild dem Hauptfenster (GemaFeedback.startWithImage).
+     Ohne html2canvas (offline/CDN blockiert) geht es ohne Bild weiter, damit
+     Feedback IMMER möglich ist.
+     KRITISCH — der Block steht GANZ AM ENDE des Dokuments: ein noch ladender
+     Stylesheet-Link (Google Fonts, beim ERSTEN Öffnen nicht im Cache) hält
+     ein nachfolgendes Inline-Script an, der Parser stoppt dort, und das vom
+     Aufrufer gerufene document.close() verwirft ALLES, was im Markup danach
+     kommt — der Bericht war beim ersten Öffnen leer und beim zweiten (Font
+     im Cache) korrekt. Am Dokumentende ist der ganze Inhalt bereits geparst. */
+  h+='<script>(function(){'
+    +'var CDN='+JSON.stringify((window.GemaFeedback&&GemaFeedback.H2C_CDN)||'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js')+';'
+    +'var busy=false;'
+    +'function opener(){try{return window.opener&&!window.opener.closed&&window.opener.GemaFeedback?window.opener:null;}catch(e){return null;}}'
+    +'function send(img){var o=opener();if(!o){alert("Das GEMA-Fenster ist geschlossen — Feedback bitte dort geben.");return;}'
+      +'try{o.GemaFeedback.startWithImage(img||"");o.focus();}catch(e){alert("Feedback konnte nicht geöffnet werden.");}}'
+    +'function shot(){try{'
+      +'return html2canvas(document.body,{x:window.scrollX,y:window.scrollY,width:window.innerWidth,height:window.innerHeight,scale:1.5,logging:false,useCORS:true,allowTaint:true})'
+        +'.then(function(c){return c.toDataURL("image/jpeg",0.82);});'
+      +'}catch(e){return Promise.reject(e);}}'
+    +'window.gemaBerichtFeedback=function(){'
+      +'if(busy)return;busy=true;'
+      +'var btn=document.querySelector(".no-print .fbb");if(btn){btn.disabled=true;btn.textContent="⧗ Bild …";}'
+      +'function fertig(img){busy=false;if(btn){btn.disabled=false;btn.textContent="🔴 Feedback";}send(img);}'
+      +'if(typeof html2canvas==="function"){shot().then(fertig).catch(function(){fertig("");});return;}'
+      +'var s=document.createElement("script");s.src=CDN;'
+      +'s.onload=function(){shot().then(fertig).catch(function(){fertig("");});};'
+      +'s.onerror=function(){fertig("");};'   /* offline: Feedback ohne Bild */
+      +'document.head.appendChild(s);'
+    +'};})();<\/script>';
   h+='</body></html>';
   w.document.write(h); w.document.close();
   if(window.GemaPrintA4) GemaPrintA4.apply(w);

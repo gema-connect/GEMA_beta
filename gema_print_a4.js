@@ -27,9 +27,49 @@
     + 'body{background:none!important;padding:0!important}'
     + '.gpa4-sheet{width:auto;max-width:none;min-height:0;margin:0;background:none;box-shadow:none;border-radius:0;padding:0;overflow:visible}'
     + '}';
-  w.GemaPrintA4 = {
+  var API = {
     css: function () { return CSS; },
+    /**
+     * KRITISCH — erst wrappen, wenn das Fenster fertig geparst ist.
+     * Der Aufrufer ruft apply() direkt nach document.close(). Ist der Parser
+     * zu diesem Zeitpunkt noch nicht durch (typisch beim ERSTEN Öffnen: ein
+     * Stylesheet-Link ist noch unterwegs und haelt den Parser an), lagen erst
+     * ein paar Knoten im Dokument — apply() legte NUR die aufs Blatt, alles
+     * spaeter Geparste landete daneben. Genau das sah der Nutzer: eine leere
+     * A4-Seite und Inhalt, der nicht auf dem Blatt sitzt; beim zweiten Mal
+     * (alles im Cache) war es korrekt.
+     */
     apply: function (win) {
+      try {
+        var d = win && win.document;
+        if (!d) return;
+        if (d.readyState === 'loading') {
+          var fertig = false;
+          var nachher = function () { if (fertig) return; fertig = true; try { API._wrap(win); } catch (e) {} };
+          d.addEventListener('DOMContentLoaded', nachher, { once: true });
+          win.addEventListener('load', nachher, { once: true });
+          // Sicherheitsnetz: bleibt der Parser an einer nie eintreffenden
+          // Ressource haengen (readyState kommt dann nie ueber «loading»
+          // hinaus), wird gewrappt, sobald der Inhalt nicht mehr waechst.
+          var letzte = -1, ruhig = 0;
+          var puls = function () {
+            if (fertig) return;
+            try {
+              if (!d.body) { setTimeout(puls, 120); return; }
+              var n = d.body.childNodes.length;
+              ruhig = (n === letzte && n > 0) ? ruhig + 1 : 0;
+              letzte = n;
+              if (ruhig >= 3 || d.readyState !== 'loading') { nachher(); return; }
+            } catch (e) { nachher(); return; }
+            setTimeout(puls, 120);
+          };
+          setTimeout(puls, 120);
+          return;
+        }
+        API._wrap(win);
+      } catch (e) {}
+    },
+    _wrap: function (win) {
       try {
         var d = win && win.document;
         if (!d || !d.body || d.getElementById('gpa4Style')) return;
@@ -53,4 +93,5 @@
       } catch (e) {}
     }
   };
+  w.GemaPrintA4 = API;
 })(window);
