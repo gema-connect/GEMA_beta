@@ -225,12 +225,22 @@ console.log('■ ⊞ im Schema: Hinzufügen direkt an der Stelle');
   const svg45 = await page.evaluate(() => {
     const st = JSON.parse(document.getElementById('gl_rows').value);
     const html = document.querySelector('#glSchema svg').innerHTML;
-    return { stiche: (html.match(/stroke-width="2\.4"/g) || []).length, q: st.quellen.length,
+    // Anschluss-Stich der Quelle laeuft in der MEDIUM-Farbe (braun/cyan),
+    // nicht in der Typ-Farbe der Box (Feedback 28.07.2026)
+    const stich = [...html.matchAll(/stroke="(#[0-9a-f]{6})" stroke-width="3\.2"/g)].map(m => m[1]);
+    return { stiche: stich.length, q: st.quellen.length,
+             braun: stich.filter(c => c === '#b45309').length,
+             typfarbe: stich.filter(c => c === '#334155' || c === '#0d9488').length,
+             // altes Junction-Symbol: weisses 16x16-Kaestchen mit rx=3.5
+             // (das Legenden-⊞ hat rx=4.5 + hellblauen Fill und zaehlt nicht)
+             kaestchen: (html.match(/width="16" height="16" rx="3\.5"/g) || []).length,
              offene: (html.match(/r="4\.5"/g) || []).length,
              seg: (html.match(/class="glseg"/g) || []).length,
              hsk45: /H\d+(?:\.\d+)? L\d/.test(html) };
   });
-  ok(svg45.stiche === svg45.q * 2, 'Quellen via eigener Stich-Leitung + 45°-T-Stueck (' + svg45.stiche + ' Segmente fuer ' + svg45.q + ' Quellen)');
+  ok(svg45.stiche === svg45.q * 2, 'Quellen via eigener Stich-Leitung + 45° (' + svg45.stiche + ' Segmente fuer ' + svg45.q + ' Quellen)');
+  ok(svg45.braun >= 2 && svg45.typfarbe === 0, 'Anschluss-Stich in der Leitungsfarbe, nicht in der Box-Typfarbe (' + svg45.braun + ' braun)');
+  ok(svg45.kaestchen === 0, 'Zusammenfuehrungen ohne Kaestchen-Symbol — die Leitungen treffen sich normal');
   ok(svg45.offene === 0, 'keine offenen Startpunkte — die Leitung beginnt beim ersten Verbraucher');
   ok(svg45.seg >= 2, 'Teilstrecken-Beschriftung nach jeder Einbindung (' + svg45.seg + ' Wert-Chips)');
   ok(svg45.hsk45, 'HSK-Anschluss ueber 45°-Schenkel');
