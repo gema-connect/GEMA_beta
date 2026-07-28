@@ -182,6 +182,10 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important}
 .foto{position:relative;width:64px;height:64px;border-radius:9px;overflow:hidden;border:1.5px solid var(--brd);background:#000}
 .foto img{width:100%;height:100%;object-fit:cover;cursor:pointer}
 .foto .fx{position:absolute;top:2px;right:2px;width:20px;height:20px;border-radius:6px;border:none;background:rgba(0,0,0,.6);color:#fff;font-size:11px;cursor:pointer;line-height:1}
+/* Foto wartet noch auf den Bucket (offline aufgenommen) */
+.foto.wartet{border-color:#f59e0b}
+.foto .foto-wait{position:absolute;left:2px;bottom:2px;background:rgba(245,158,11,.94);color:#fff;font-size:10px;border-radius:5px;padding:1px 4px;line-height:1.35}
+.foto .foto-fehlt{width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:20px;background:#f1f5f9;color:#94a3b8}
 /* Titelbild (Deckblatt des Berichts) */
 .titelbild{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:2px}
 .titelbild .tb-add{width:52px;height:52px;font-size:19px}
@@ -695,7 +699,10 @@ function myName(){ var u=me(); return u?(u.name||u.username||'—'):'—'; }
 function myOrgId(){ var u=me(); return u?u.orgId:''; }
 function heute(){ var d=new Date(); return d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2); }
 function fmtDatum(iso){ if(!iso)return '—'; var p=String(iso).slice(0,10).split('-'); return p.length===3?(p[2]+'.'+p[1]+'.'+p[0]):iso; }
-function imgSrc(f){ return f?(f.url||f.dataUrl||''):''; }
+/* Bildquelle: hochgeladene URL → lokal wartendes Original (pendingId) →
+   Altdaten mit eingebettetem Base64 (dataUrl). Neue Fotos erzeugen NIE
+   mehr ein dataUrl-Feld — siehe prResizeStoreFoto/prFotoUpload. */
+function imgSrc(f){ return f ? (f.url || _fotoQGet(f.pendingId) || f.dataUrl || '') : ''; }
 
 /* ─── Rechte ─── */
 function _hasRole(rid){ var u=me(); return !!(u && u.roleIds && u.roleIds.indexOf(rid)>=0); }
@@ -1128,7 +1135,12 @@ function renderPunkt(a, ai, p, pi, abg){
     +' — der Zustand entfällt und ist nicht bearbeitbar.</div>';
   h+='<label>Bemerkung</label><textarea '+(abg?'disabled':'')+' placeholder="Beobachtung / Bemerkung…" onchange="prPktField('+ai+','+pi+',\'bemerkung\',this.value)">'+esc(p.bemerkung||'')+'</textarea>';
   h+='<label>Empfehlung</label><textarea '+(abg?'disabled':'')+' placeholder="Empfohlene Massnahme…" onchange="prPktField('+ai+','+pi+',\'empfehlung\',this.value)">'+esc(p.empfehlung||'')+'</textarea>';
-  h+='<label>Fotos</label><div class="fotos" id="fotos_'+ai+'_'+pi+'">'+ (p.fotos||[]).map(function(f,fi){ return '<div class="foto"><img src="'+esc(imgSrc(f))+'" onclick="prLightbox(this.src)">'+(abg?'':'<button class="fx" onclick="prDelFoto('+ai+','+pi+','+fi+')">✕</button>')+'</div>'; }).join('')
+  h+='<label>Fotos</label><div class="fotos" id="fotos_'+ai+'_'+pi+'">'+ (p.fotos||[]).map(function(f,fi){
+      var src=imgSrc(f);
+      return '<div class="foto'+(fotoWartet(f)?' wartet':'')+'">'
+        + (src ? '<img src="'+esc(src)+'" onclick="prLightbox(this.src)">' : '<div class="foto-fehlt" title="Dieses Foto wurde auf einem anderen Gerät aufgenommen und ist dort noch nicht hochgeladen.">📷</div>')
+        + (fotoWartet(f)?'<span class="foto-wait" title="Foto liegt noch auf diesem Gerät und wird hochgeladen, sobald wieder Verbindung besteht">⏳</span>':'')
+        + (abg?'':'<button class="fx" onclick="prDelFoto('+ai+','+pi+','+fi+')">✕</button>')+'</div>'; }).join('')
     + (abg?'':'<button class="icobtn" style="width:64px;height:64px" title="Foto aufnehmen" onclick="prAddFoto('+ai+','+pi+',\'kamera\')">📷</button>'
             +'<button class="icobtn" style="width:64px;height:64px" title="Aus Mediathek wählen (mehrere möglich)" onclick="prAddFoto('+ai+','+pi+',\'galerie\')">🖼</button>') +'</div>';
   h+='</div>';
@@ -1353,23 +1365,83 @@ function prResizeToDataUrl(file, cb){
   };
   reader.readAsDataURL(file);
 }
-/* Base64 nach Storage auslagern (Record klein halten) — best effort. */
-function prOffloadFoto(foto, du, begRef){
-  if(typeof window.GemaStorage==='undefined' || !GemaStorage.isConfigured || !GemaStorage.isConfigured()) return;
+/* ═══ FOTOS LIEGEN IM BUCKET, NIE ALS BASE64 IM DATENSATZ ═══
+   Früher wanderte das frisch aufgenommene Bild als `dataUrl` in den Record
+   und wurde SOFORT gespeichert — das Base64 landete damit in der Cloud
+   (mehrere hundert KB pro Foto) und blieb dort für immer, wenn der spätere
+   Storage-Upload scheiterte. Jetzt trägt der Record NUR `{url}` bzw.
+   solange der Upload aussteht `{pendingId}`; das Bild selbst liegt in einer
+   eigenen, rein LOKALEN Warteschlange und wird nachgesendet, sobald wieder
+   Netz da ist. So bleibt die Erfassung auf der Baustelle offline möglich,
+   ohne dass je ein Base64-Bild in die Cloud geht. */
+var PR_FOTOQ='gema_pr_fotoq_v1';
+function _fotoQAll(){ try{ return JSON.parse(localStorage.getItem(PR_FOTOQ)||'{}')||{}; }catch(e){ return {}; } }
+function _fotoQWrite(q){ try{ localStorage.setItem(PR_FOTOQ, JSON.stringify(q)); return true; }catch(e){ return false; } }
+function _fotoQPut(id,du){ var q=_fotoQAll(); q[id]=du; return _fotoQWrite(q); }
+function _fotoQGet(id){ return id? (_fotoQAll()[id]||'') : ''; }
+function _fotoQDel(id){ var q=_fotoQAll(); if(q[id]){ delete q[id]; _fotoQWrite(q); } }
+/* Wartet dieses Foto noch auf den Bucket? (Anzeige = imgSrc, s.o.) */
+function fotoWartet(f){ return !!(f && !f.url && f.pendingId); }
+
+/* Alle wartenden Bilder aller Begehungen hochladen (nach dem Erfassen, bei
+   «online», beim Seitenstart). Erfolg → Record bekommt die URL, das lokale
+   Original wird gelöscht. */
+var _fotoUpLauft=false;
+function prFotoUpload(){
+  if(_fotoUpLauft) return Promise.resolve(0);
+  if(typeof window.GemaStorage==='undefined' || !GemaStorage.isConfigured || !GemaStorage.isConfigured()) return Promise.resolve(0);
+  var q=_fotoQAll(); var ids=Object.keys(q);
+  if(!ids.length) return Promise.resolve(0);
+  _fotoUpLauft=true;
   var oid=(myOrgId()||'org').replace(/[^A-Za-z0-9_-]/g,'');
-  GemaStorage.uploadDataUrl(du,'pruefliste/'+oid).then(function(res){
-    if(res&&res.url){ foto.url=res.url; delete foto.dataUrl; saveBeg(begRef); }
-  }).catch(function(){});
+  var begs=cached(BEG_POOL), erledigt=0;
+  /* pendingId → alle Stellen, an denen es vorkommt (Record + evtl. _cur) */
+  function stellen(id){
+    var out=[];
+    function scan(b){
+      if(!b) return;
+      if(b.titelbild && b.titelbild.pendingId===id) out.push({b:b,f:b.titelbild});
+      (b.anlagen||[]).forEach(function(a){ (a.punkte||[]).forEach(function(p){
+        (p.fotos||[]).forEach(function(f){ if(f&&f.pendingId===id) out.push({b:b,f:f}); });
+      }); });
+    }
+    begs.forEach(scan); if(_cur) scan(_cur);
+    return out;
+  }
+  var kette=Promise.resolve();
+  ids.forEach(function(id){
+    kette=kette.then(function(){
+      var ziele=stellen(id);
+      if(!ziele.length){ _fotoQDel(id); return; }   // verwaist → aufräumen
+      return GemaStorage.uploadDataUrl(q[id],'pruefliste/'+oid).then(function(res){
+        if(!res||!res.url) return;
+        var betroffen=[];
+        ziele.forEach(function(z){ z.f.url=res.url; delete z.f.pendingId; if(betroffen.indexOf(z.b)<0) betroffen.push(z.b); });
+        betroffen.forEach(function(b){ saveRec(BEG_POOL, BEG_PF, _cleanBeg(b)); });
+        _fotoQDel(id); erledigt++;
+        if(_cur && betroffen.indexOf(_cur)>=0) renderEditor();
+      }).catch(function(){ /* offline/Storage weg → bleibt in der Warteschlange */ });
+    });
+  });
+  return kette.then(function(){ _fotoUpLauft=false; return erledigt; })
+              .catch(function(){ _fotoUpLauft=false; return erledigt; });
 }
+window.addEventListener('online', function(){ prFotoUpload(); });
+
 function prResizeStoreFoto(file, done){
   prResizeToDataUrl(file, function(du){
     if(!du){ if(done)done(); return; }
     var t=_photoTarget; if(!t||!_cur){ if(done)done(); return; }
     var begRef=_cur;   // Referenz halten: Upload endet evtl. NACH dem Editor-Schliessen
     var p=begRef.anlagen[t.ai].punkte[t.pi]; p.fotos=p.fotos||[];
-    var foto={dataUrl:du, kommentar:''}; p.fotos.push(foto); p._open=true;
+    var pid=uid('pf');
+    if(!_fotoQPut(pid,du)){
+      GemaDialog.alert({title:'Speicher voll',message:'Das Foto konnte auf diesem Gerät nicht zwischengespeichert werden. Bitte bestehende Fotos hochladen lassen (Verbindung prüfen) und erneut versuchen.'});
+      if(done)done(); return;
+    }
+    var foto={pendingId:pid, kommentar:''}; p.fotos.push(foto); p._open=true;
     saveBeg(begRef); refreshPunkt(t.ai,t.pi);
-    prOffloadFoto(foto, du, begRef);
+    prFotoUpload().then(function(n){ if(n) refreshPunkt(t.ai,t.pi); });
     if(done) done();
   });
 }
@@ -1380,11 +1452,11 @@ window.prTitelbildAdd=function(quelle){
   prPickFiles(quelle||'kamera', false, function(files){
     prResizeToDataUrl(files[0], function(du){
       if(!du||!_cur) return;
-      var begRef=_cur;
-      var bild={dataUrl:du};
-      begRef.titelbild=bild;
+      var begRef=_cur, pid=uid('pf');
+      if(!_fotoQPut(pid,du)){ GemaDialog.alert({title:'Speicher voll',message:'Das Titelbild konnte auf diesem Gerät nicht zwischengespeichert werden.'}); return; }
+      begRef.titelbild={pendingId:pid};
       saveBeg(begRef); refreshTitelbild();
-      prOffloadFoto(bild, du, begRef);
+      prFotoUpload().then(function(n){ if(n) refreshTitelbild(); });
     });
   });
 };
@@ -1392,10 +1464,16 @@ window.prTitelbildDel=function(){
   if(!_cur) return;
   GemaDialog.confirm({title:'Titelbild entfernen',message:'Das Titelbild aus dem Bericht entfernen?',confirmLabel:'Entfernen',danger:true}).then(function(ok){
     if(!ok||!_cur) return;
+    if(_cur.titelbild&&_cur.titelbild.pendingId) _fotoQDel(_cur.titelbild.pendingId);
     delete _cur.titelbild; saveBeg(_cur); refreshTitelbild();
   });
 };
-window.prDelFoto=function(ai,pi,fi){ if(!_cur)return; _cur.anlagen[ai].punkte[pi].fotos.splice(fi,1); saveBeg(_cur); refreshPunkt(ai,pi); };
+window.prDelFoto=function(ai,pi,fi){
+  if(!_cur)return;
+  var weg=_cur.anlagen[ai].punkte[pi].fotos.splice(fi,1)[0];
+  if(weg&&weg.pendingId) _fotoQDel(weg.pendingId);   // lokales Original mit entfernen
+  saveBeg(_cur); refreshPunkt(ai,pi);
+};
 window.prLightbox=function(src){
   if(!src)return;
   var bg=document.createElement('div'); bg.style.cssText='position:fixed;inset:0;z-index:1500;background:rgba(0,0,0,.9);display:flex;align-items:center;justify-content:center;padding:16px';
@@ -2178,9 +2256,11 @@ function boot(){
       GemaSync.bindCollection(MK,BEG_POOL,BEG_PF,'id')
     ]);
     Promise.race([bindP,timeout]).then(function(){ _cloudLoaded=true; _objFilterInit(); render(); openDeepLink(); });
-    bindP.then(function(){ _bootDone=true; _preBootApply(); _cloudLoaded=true; render(); })
-         .catch(function(){ _bootDone=true; _preBootApply(); _cloudLoaded=true; render(); });
-  } else { _bootDone=true; _cloudLoaded=true; render(); openDeepLink(); }
+    bindP.then(function(){ _bootDone=true; _preBootApply(); _cloudLoaded=true; render(); prFotoUpload(); })
+         .catch(function(){ _bootDone=true; _preBootApply(); _cloudLoaded=true; render(); prFotoUpload(); });
+  } else { _bootDone=true; _cloudLoaded=true; render(); openDeepLink(); prFotoUpload(); }
+  // Fotos, die beim letzten Mal offline aufgenommen wurden, nachsenden
+  setInterval(prFotoUpload, 90000);
   window.addEventListener('gema-objekte-loaded',function(){ _objFilterInit(); if(_tab==='begehungen') { fillObjektFilter(); renderBegList(); } });
   if(typeof GemaObjekte!=='undefined' && GemaObjekte.ready){ GemaObjekte.ready.then(function(){ _objFilterInit(); if(_tab==='begehungen'){ fillObjektFilter(); renderBegList(); } }).catch(function(){}); }
   if(typeof GemaFeedback!=='undefined') GemaFeedback.init('pruefliste','Prüfliste');
@@ -2199,7 +2279,8 @@ if(document.readyState==='loading') document.addEventListener('DOMContentLoaded'
 window._prHooks={ begVisible:begVisible, stdGlobalMerged:stdGlobalMerged, stdOrgAll:stdOrgAll, effektivePunkte:effektivePunkte,
   vorschlaege:vorschlaegeVisible, saveRec:saveRec, delRec:delRec, cached:cached, POOLS:{STD:STD_POOL,OVR:OVR_POOL,OBJ:OBJ_POOL,BEG:BEG_POOL},
   rechte:function(){ return {begehung:prCanBegehung(),manage:prCanManageOrg(),super:prIsSuper()}; }, render:render, nextNr:nextNr,
-  aktuelle:function(){ return _cur; }, refreshTitelbild:refreshTitelbild };
+  aktuelle:function(){ return _cur; }, refreshTitelbild:refreshTitelbild,
+  imgSrc:imgSrc, fotoQ:_fotoQAll, fotoUpload:prFotoUpload };
 /* Kurzzugriff auf die offene Begehung (Tests + Titelbild-Refresh) */
 window.prCurrent=function(){ return _cur; };
 window.prRefreshTitelbild=refreshTitelbild;
