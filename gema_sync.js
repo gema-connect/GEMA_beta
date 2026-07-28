@@ -51,6 +51,7 @@
   function _setReachable(state){
     if(state === _lastReachable) return;
     _lastReachable = state;
+    _bannerSnoozeUntil = 0;   // echter Zustandswechsel darf wieder melden
     _connListeners.forEach(function(cb){ try{ cb(state); }catch(e){} });
     _broadcastBanner(state);
     // Verbindung zurueck → die Outbox (nicht synchronisierte Saves) leeren.
@@ -286,6 +287,39 @@
     if(el) el.textContent = _bannerText();
     _banner.style.background = _lastReachable ? '#0f766e' : '#b45309';
   }
+  // ── Ruhe-Regeln (Nachtrag Bugreport 28.07.2026 «das nervt») ──
+  // Der Upload-Rueckstand-Hinweis soll NIE bei einem kurzen Aussetzer
+  // aufblitzen: die schnellen automatischen Wiederholungen (2 s / 15 s)
+  // raeumen einen Huepfer lautlos weg. Sichtbar wird der Hinweis erst, wenn
+  // (a) mindestens ein Nachsende-Versuch WIRKLICH gescheitert ist UND
+  // (b) der aelteste wartende Eintrag laenger als BANNER_GRACE_MS liegt.
+  // Dazu ist jeder Banner per ✕ stummschaltbar (Snooze; ein echter
+  // Zustandswechsel online⇄offline hebt den Snooze wieder auf).
+  var BANNER_GRACE_MS = 30000;          // via GemaSync.bannerGraceMs testbar
+  var _flushFailed = false;             // in dieser Sitzung ist ein Flush gescheitert
+  var _bannerSnoozeUntil = 0;
+  var _bannerRecheckTimer = null;
+  function _bannerRecheck(delay){
+    if(typeof setTimeout === 'undefined') return;
+    // Bewusst NEU planen (nicht abwehren): ein frueher gesetzter, laengerer
+    // Timer wuerde sonst die kuerzere Rest-Frist ueberdecken. Die Anzeige
+    // haengt nicht am Timer — jeder _broadcastBanner-Aufruf prueft die
+    // Bedingung selbst, der Timer ist nur das Sicherheitsnetz fuer Ruhe.
+    if(_bannerRecheckTimer) clearTimeout(_bannerRecheckTimer);
+    _bannerRecheckTimer = setTimeout(function(){
+      _bannerRecheckTimer = null;
+      _broadcastBanner(_lastReachable);
+    }, delay || 4000);
+  }
+  function _outboxOldestMs(){
+    var ob = _outboxLoad(), oldest = 0;
+    Object.keys(ob).forEach(function(k){
+      var t = Date.parse(ob[k].lm || '') || 0;
+      if(t && (!oldest || t < oldest)) oldest = t;
+    });
+    return oldest;
+  }
+  function _bannerRemove(){ if(_banner){ try{ _banner.remove(); }catch(e){} _banner = null; } }
   // Banner zeigen/verstecken. `reachable` = Cloud erreichbar. Bei erreichbarer
   // Cloud bleibt der Hinweis nur stehen, solange noch etwas in der Outbox
   // liegt (ehrlicher Upload-Rueckstand statt falscher Offline-Meldung).
@@ -293,13 +327,20 @@
     if(typeof document === 'undefined') return;
     if(reachable){
       _stopReprobe();
-      if(!_outboxCount()){
-        if(_banner){ try{ _banner.remove(); }catch(e){} _banner = null; }
+      if(!_outboxCount()){ _flushFailed = false; _bannerRemove(); return; }
+      // Rueckstand vorhanden — aber erst melden, wenn er WIRKLICH haengt.
+      if(!_flushFailed){ _bannerRemove(); _bannerRecheck(); return; }
+      var oldest = _outboxOldestMs();
+      var age = oldest ? (Date.now() - oldest) : 0;
+      if(age < BANNER_GRACE_MS){
+        _bannerRemove();
+        _bannerRecheck(Math.max(500, BANNER_GRACE_MS - age + 500));
         return;
       }
     } else {
       _startReprobe();
     }
+    if(Date.now() < _bannerSnoozeUntil){ _bannerRemove(); return; }
     if(_banner){ _bannerRefresh(); return; }
     _banner = document.createElement('div');
     _banner.id = 'gema-sync-offline-banner';
@@ -315,10 +356,15 @@
     _banner.innerHTML = '<span id="gema-sync-msg">' + _bannerText() + '</span>'
       + '<button type="button" id="gema-sync-retry" style="' + btnCss + '">↻ Erneut pruefen</button>'
       + '<button type="button" id="gema-sync-diag" style="' + btnCss + '">Details</button>'
+      + '<button type="button" id="gema-sync-hide" title="Hinweis 10 Minuten ausblenden — Daten bleiben lokal gesichert und werden weiter automatisch hochgeladen" style="' + btnCss + ';border:none;font-size:14px;padding:3px 8px">✕</button>'
       + '<div id="gema-sync-diag-out" style="display:none;margin-top:6px;font-weight:400;font-size:12px;text-align:left;max-width:640px;margin-left:auto;margin-right:auto;background:rgba(0,0,0,.18);border-radius:8px;padding:8px 10px"></div>';
     _banner.querySelector('#gema-sync-retry').onclick = function(){
       var b = this; b.textContent = '…';
       _probeOnce().then(function(ok){ if(!ok && b) b.textContent = '↻ Erneut pruefen'; });
+    };
+    _banner.querySelector('#gema-sync-hide').onclick = function(){
+      _bannerSnoozeUntil = Date.now() + 10 * 60 * 1000;
+      _bannerRemove();
     };
     _banner.querySelector('#gema-sync-diag').onclick = function(){
       var box = _banner && _banner.querySelector('#gema-sync-diag-out');
@@ -867,7 +913,7 @@
     if(changed) _outboxPersist();
   }
 
-  var _flushTimer = null, _flushing = false;
+  var _flushTimer = null, _flushing = false, _flushStart = 0;
   function _scheduleFlush(delay){
     if(_flushTimer || _flushing) return;
     if(typeof setTimeout === 'undefined') return;
@@ -877,12 +923,26 @@
   // Sendet alle eingereihten Operationen, gruppiert nach Modul. Erfolgreich
   // gesendete Eintraege werden aus der Outbox entfernt; fehlgeschlagene
   // bleiben fuer den naechsten Versuch. opts.keepalive fuer den Unload-Pfad.
+  //
+  // KRITISCH — EIN Problem-Record darf NIE alle anderen blockieren (Nachtrag
+  // Bugreport 28.07.2026): Der Sammel-POST pro Modul schickte frueher alle
+  // wartenden Records in EINER Anfrage. Ein einziger uebergrosser/haengender
+  // Datensatz liess damit die GANZE Anfrage scheitern — nichts wurde je
+  // hochgeladen, der Rueckstand wuchs, der Hinweis blieb fuer immer stehen
+  // («es hat immer geklappt und jetzt nicht mehr»). Jetzt: scheitert der
+  // Sammel-POST, wird jeder Record EINZELN gesendet — nur der wirklich
+  // problematische bleibt in der Warteschlange, alles andere geht hoch.
   function _outboxFlush(opts){
-    if(_flushing) return Promise.resolve();
+    if(_flushing){
+      // Watchdog: ein haengender Upload (fetch ohne Timeout) darf den Flush
+      // nicht fuer den Rest der Sitzung blockieren.
+      if(Date.now() - _flushStart < 180000) return Promise.resolve();
+      _flushing = false;
+    }
     var ob = _outboxLoad();
     var keys = Object.keys(ob);
     if(!keys.length) return Promise.resolve();
-    _flushing = true;
+    _flushing = true; _flushStart = Date.now();
     var byModule = {};
     keys.forEach(function(k){ var op = ob[k]; (byModule[op.m] = byModule[op.m] || []).push(op); });
     var chain = Promise.resolve();
@@ -896,23 +956,37 @@
           var body = ups.map(function(o){ return { module_key: m, data_key: o.key, payload: { data: o.data, _lm: o.lm } }; });
           step = step.then(function(){ return _postRecords(body, opts); }).then(function(){
             ups.forEach(function(o){ delete _outboxMem[m + '|' + o.key]; });
+          }, function(batchErr){
+            // Einzeln nachsenden — nur wirklich abgelehnte Records bleiben.
+            var single = Promise.resolve(), anyFail = false;
+            ups.forEach(function(o){
+              single = single.then(function(){
+                return _postRecords([{ module_key: m, data_key: o.key, payload: { data: o.data, _lm: o.lm } }], opts)
+                  .then(function(){ delete _outboxMem[m + '|' + o.key]; },
+                        function(){ anyFail = true; });
+              });
+            });
+            return single.then(function(){ if(anyFail) throw batchErr; });
           });
         }
         if(dels.length){
+          // deleteRecords loescht bereits pro Key (Promise.all) — Teilerfolge
+          // raeumt der jeweilige _outboxClear im Erfolgspfad selbst ab.
           step = step.then(function(){ return deleteRecords(m, dels.map(function(o){ return o.key; }), opts); }).then(function(){
             dels.forEach(function(o){ delete _outboxMem[m + '|' + o.key]; });
           });
         }
-        return step;
+        // Ein scheiterndes Modul darf die uebrigen Module nicht ueberspringen.
+        return step.catch(function(){});
       });
     });
-    return chain.then(function(){
-      _flushing = false; _outboxPersist(); _outboxSync();
-    }, function(e){
-      // Teilerfolg moeglich — bereits gesendete Eintraege sind raus.
-      _flushing = false; _outboxPersist(); _outboxSync();
-      if(_outboxCount()) _scheduleFlush(15000); // spaeter erneut versuchen
-    });
+    function _done(){
+      _flushing = false; _outboxPersist();
+      if(_outboxCount()){ _flushFailed = true; _scheduleFlush(15000); }
+      else _flushFailed = false;
+      _outboxSync();
+    }
+    return chain.then(_done, _done);
   }
   // Legt ausstehende (noch nicht synchronisierte) Outbox-Operationen ueber ein
   // frisch aus der Cloud geladenes Array — so bleiben lokal gespeicherte, aber
@@ -1034,6 +1108,14 @@
   try{
     Object.defineProperty(w.GemaSync, 'SB_URL', { get: _sbBase });
   }catch(e){ w.GemaSync.SB_URL = SB_URL; }
+  // Ruhe-Frist des Upload-Rueckstand-Hinweises (Test-Hook — die Drift-Guards
+  // verkuerzen sie, um das Banner-Verhalten ohne 30-s-Wartezeit zu pruefen).
+  try{
+    Object.defineProperty(w.GemaSync, 'bannerGraceMs', {
+      get: function(){ return BANNER_GRACE_MS; },
+      set: function(v){ if(typeof v === 'number' && v >= 0) BANNER_GRACE_MS = v; }
+    });
+  }catch(e){}
 
   // ── C: Flush-Ausloeser ──────────────────────────────────────────────
   // Outbox bei jeder Gelegenheit leeren, damit nicht synchronisierte Saves

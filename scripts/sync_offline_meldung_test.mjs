@@ -9,11 +9,15 @@
 // das wie ein Netzausfall aus, obwohl die Leitung einwandfrei ist.
 //
 // Erwartetes Verhalten jetzt:
-//  A) Schreibfehler bei intakter Verbindung → KEINE Offline-Meldung; stattdessen
-//     der ehrliche Hinweis «Noch nicht hochgeladen … Verbindung ist in Ordnung»
+//  A) Schreibfehler bei intakter Verbindung → KEINE Offline-Meldung; kurzer
+//     Aussetzer bleibt komplett LAUTLOS (Ruhe-Frist); erst ein wirklich
+//     haengender Rueckstand zeigt den ehrlichen Hinweis «Noch nicht
+//     hochgeladen … Verbindung ist in Ordnung» — per ✕ stummschaltbar
 //  B) Der Hinweis verschwindet, sobald der Upload durch ist
 //  C) Echter Netzausfall → weiterhin die Offline-Meldung
 //  D) 4xx (z.B. 413 «zu gross») schaltet nie auf offline
+//  E) EIN Gift-Record blockiert NIE die uebrigen: scheitert der Sammel-POST,
+//     werden die Records einzeln gesendet — nur der problematische bleibt
 //
 // Ausführen: CHROME=<chromium> node scripts/sync_offline_meldung_test.mjs
 import { chromium } from 'playwright-core';
@@ -29,7 +33,7 @@ const { ctx, page } = await newPage(browser, seed(['role_planer']));
 
 // «Cloud»: Schreibvorgänge (POST) und Lesevorgänge/Probe (GET) getrennt steuerbar
 const cloud = new Map();
-let schreibModus = 'ok';     // ok | fehler (fetch wirft) | zuGross (HTTP 413)
+let schreibModus = 'ok';     // ok | fehler (fetch wirft) | zuGross (HTTP 413) | gift (nur schaden:gift wird abgelehnt, Sammel-POSTs auch)
 let leseModus = 'ok';        // ok | tot  (auch die Probe schlägt fehl)
 
 await page.route('**/rest/v1/gema_data*', route => {
@@ -42,6 +46,13 @@ await page.route('**/rest/v1/gema_data*', route => {
     if (schreibModus === 'fehler') return route.abort('internetdisconnected');
     if (schreibModus === 'zuGross') return route.fulfill({ status: 413, contentType: 'application/json', body: '{"message":"payload too large"}' });
     let rows = []; try { rows = JSON.parse(req.postData() || '[]'); } catch (e) { }
+    if (schreibModus === 'gift') {
+      // Sammel-POST (mehrere Rows) wird abgelehnt; einzeln geht alles durch
+      // AUSSER dem Gift-Record — exakt das 413-Szenario eines zu grossen
+      // Datensatzes im Batch.
+      if (rows.length > 1) return route.fulfill({ status: 413, contentType: 'application/json', body: '{"message":"payload too large"}' });
+      if (rows.length === 1 && rows[0].data_key === 'schaden:gift') return route.fulfill({ status: 413, contentType: 'application/json', body: '{"message":"payload too large"}' });
+    }
     rows.forEach(r => cloud.set(r.data_key, r));
     return route.fulfill({ status: 201, contentType: 'application/json', body: '[]' });
   }
@@ -62,16 +73,26 @@ const schreibe = (key, data) => page.evaluate(([k, d]) =>
 /* ════════ A · Schreibfehler bei intakter Verbindung ════════ */
 console.log('■ A · Upload scheitert, Internet ist da');
 {
+  await page.evaluate(() => { GemaSync.bannerGraceMs = 600; });   // Ruhe-Frist fürs Testen verkürzen
   schreibModus = 'fehler';                 // POST wirft, GET (Probe) antwortet weiter
   ok(await schreibe('schaden:s1', { titel: 'Wasserschaden', fotos: 'viele' }) === 'queued', 'erster Versuch: lokal gesichert (Outbox)');
   ok(await schreibe('schaden:s2', { titel: 'Rohrbruch' }) === 'queued', 'zweiter Versuch: lokal gesichert');
-  await page.waitForTimeout(900);          // Gegenprobe läuft
+  // Ruhe-Frist: ein kurzer Aussetzer zeigt GAR NICHTS (die schnellen
+  // Wiederholungen räumen ihn lautlos weg — genau das «nervt»-Feedback).
+  ok(await banner() === null, 'kein Banner direkt nach dem Fehlversuch (Ruhe-Frist)');
+  await page.evaluate(() => GemaSync.flushOutbox());   // Nachsenden scheitert wirklich
+  await page.waitForTimeout(1600);                     // > Ruhe-Frist + Recheck
   const t = await banner();
   ok(await page.evaluate(() => GemaSync.isReachable()) === true, 'Verbindung wird als INTAKT erkannt (Gegenprobe entscheidet)');
   ok(t && t.indexOf('Offline') < 0, 'kein «Offline» im Hinweis: ' + JSON.stringify(t));
-  ok(t && /Noch nicht hochgeladen/.test(t), 'ehrlicher Hinweis «Noch nicht hochgeladen»');
+  ok(t && /Noch nicht hochgeladen/.test(t), 'ehrlicher Hinweis «Noch nicht hochgeladen» (erst nach echtem Hängen)');
   ok(t && /Verbindung ist in Ordnung/.test(t), 'Hinweis nennt die intakte Verbindung');
   ok(await page.evaluate(() => GemaSync.pendingCount()) === 2, '2 Änderungen warten');
+  // ✕ schaltet den Hinweis stumm — Daten bleiben gesichert
+  await page.click('#gema-sync-hide');
+  await page.evaluate(() => GemaSync.flushOutbox()).catch(() => {});
+  await page.waitForTimeout(900);
+  ok(await banner() === null, '✕ blendet den Hinweis aus (Snooze), auch nach weiterem Fehlversuch');
 }
 
 /* ════════ B · Hinweis verschwindet nach dem Upload ════════ */
@@ -118,6 +139,35 @@ console.log('■ D · Abgelehnter Request (413) schaltet nie auf offline');
   const t = await banner();
   ok(!t || t.indexOf('Offline') < 0, 'keine Offline-Meldung');
   ok(await page.evaluate(() => GemaSync.pendingCount()) >= 1, 'Daten trotzdem lokal gesichert (Outbox)');
+}
+
+/* ════════ E · Gift-Record blockiert die übrigen NICHT ════════ */
+console.log('■ E · Ein zu grosser Datensatz blockiert die anderen nicht mehr');
+{
+  // Aufräumen: Outbox leeren (alles zustellbar machen)
+  schreibModus = 'ok'; leseModus = 'ok';
+  await page.evaluate(() => GemaSync.flushOutbox());
+  await page.waitForTimeout(500);
+  // Zwei Datensätze einreihen (beide scheitern zunächst)
+  schreibModus = 'fehler';
+  await schreibe('schaden:gift', { titel: 'Riesig — bleibt hängen' });
+  await schreibe('schaden:normal', { titel: 'Normaler Bericht' });
+  ok(await page.evaluate(() => GemaSync.pendingCount()) >= 2, 'beide warten in der Outbox');
+  // Jetzt: Sammel-POST wird abgelehnt, einzeln geht alles ausser dem Gift durch
+  schreibModus = 'gift';
+  await page.evaluate(() => GemaSync.flushOutbox());
+  await page.waitForTimeout(700);
+  ok(cloud.has('schaden:normal'), 'der normale Datensatz ist in der Cloud (Einzel-Fallback)');
+  ok(!cloud.has('schaden:gift'), 'der Gift-Record ist (noch) nicht oben');
+  ok(await page.evaluate(() => GemaSync.pendingCount()) === 1, 'nur noch der Gift-Record wartet');
+  ok(await page.evaluate(() => GemaSync.isReachable()) === true, 'bleibt online (413 ist kein Netzausfall)');
+  // Und sobald auch er zustellbar ist, räumt sich alles auf
+  schreibModus = 'ok';
+  await page.evaluate(() => GemaSync.flushOutbox());
+  await page.waitForTimeout(500);
+  ok(cloud.has('schaden:gift'), 'Gift-Record nachgeliefert, sobald möglich');
+  ok(await page.evaluate(() => GemaSync.pendingCount()) === 0, 'Outbox leer');
+  ok(await banner() === null, 'kein Banner mehr');
 }
 
 await ctx.close();
