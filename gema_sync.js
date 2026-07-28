@@ -1092,6 +1092,26 @@
                 return sendOne(o).then(function(){ delete _outboxMem[m + '|' + o.key]; }, function(err){
                   o.tries = (o.tries || 0) + 1;
                   o.err = String((err && err.message) || err || '').slice(0, 220);
+                  // RLS-Heilung (Praxisfall 28.07.2026): Die org-gescopten
+                  // Policies (gema_rls_v2) verlangen payload->data->>orgId =
+                  // JWT-org — ein Record OHNE orgId-Feld wird mit 403
+                  // «row-level security» abgelehnt, fuer immer. Fehlt das
+                  // Feld, stempelt GemaSync die EIGENE Org nach und sendet
+                  // sofort erneut. Ein Record mit FREMDER orgId wird bewusst
+                  // NIE umgestempelt (kein Cross-Org-Ueberschreiben).
+                  if(/row.level security|42501/i.test(o.err)
+                     && o.data && typeof o.data === 'object' && !Array.isArray(o.data)
+                     && !o.data.orgId){
+                    var org = _claimOrg();
+                    if(org){
+                      o.data.orgId = org;
+                      _cacheUpdateRecord(m, o.key, o.data);
+                      return sendOne(o).then(function(){ delete _outboxMem[m + '|' + o.key]; }, function(e3){
+                        o.tries++; o.err = String((e3 && e3.message) || e3 || '').slice(0, 220);
+                        anyFail = true;
+                      });
+                    }
+                  }
                   // Dauerhaft abgelehnter GROSSER Record → Base64-Fotos in den
                   // Storage auslagern und den geschrumpften Stand SOFORT
                   // erneut senden (haeufigste Ursache: «Verbindung ok, aber

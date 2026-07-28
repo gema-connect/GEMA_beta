@@ -1170,7 +1170,20 @@ function _sdUploadFotosToStorage(){
 
 // ── STORAGE ── Per-Record in Supabase (data_key='schaden:<id>')
 var _sdSyncHintShownAt = 0;
+// Altbestand heilen: Berichte aus der Zeit VOR der Org-Stempelung tragen kein
+// orgId — unter den org-gescopten RLS-Policies (gema_rls_v2) wird jeder Write
+// eines solchen Records mit 403 abgelehnt. Beim Speichern bekommt jeder
+// orgId-lose Bericht die eigene Org (die Lese-Filterung zeigte sie ohnehin
+// nur der eigenen Sicht); ein FREMDER Org-Stempel wird nie angetastet.
+function _sdStampOrg() {
+  try {
+    var u = _sdGetUser();
+    if (!u || !u.orgId) return;
+    (schaeden || []).forEach(function(s){ if (s && !s.orgId) s.orgId = u.orgId; });
+  } catch(e) {}
+}
 function sdSave() {
+  _sdStampOrg();
   if (typeof window.GemaSync !== 'undefined') {
     // Erst die Fotos in den Storage auslagern (Records bleiben klein), DANN
     // per-Record persistieren. So kann der Cloud-POST nicht mehr am 413
@@ -1718,6 +1731,10 @@ function sdSaveNew() {
   } catch(e) {}
   var sd = {
     id: 'sd_' + Date.now(),
+    // KRITISCH (RLS v2): schadensbericht ist org-gescopt — ein Record OHNE
+    // orgId wird von der Datenbank mit 403 «row-level security» abgelehnt
+    // (Praxisfall 28.07.2026: «es laedt nicht hoch»).
+    orgId: (u && u.orgId) || '',
     typ: typ,
     titel: titel,
     beschreibung: document.getElementById('f_beschreibung').value.trim(),
