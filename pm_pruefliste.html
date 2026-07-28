@@ -239,7 +239,21 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important}
 
 #toast{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom));transform:translateX(-50%);background:var(--txt);color:#fff;padding:10px 18px;border-radius:12px;font-size:13.5px;font-weight:700;z-index:1200;box-shadow:0 8px 28px rgba(0,0,0,.3);opacity:0;transition:opacity .3s;pointer-events:none;max-width:90vw;text-align:center}
 #toast.show{opacity:1}
-@media print{.g-nav,.no-print{display:none!important}}
+/* Speicher-Status unten rechts (Kanon if_trocknung/pm_erp/pm_abnahme) —
+   der Vollbild-Editor liegt bei z-index 900, das Badge MUSS darüber. */
+.save-status{position:fixed;bottom:calc(18px + env(safe-area-inset-bottom));right:18px;z-index:1150;display:flex;align-items:center;gap:8px;padding:8px 14px;border-radius:99px;background:#fff;border:1px solid var(--brd2);box-shadow:0 8px 24px rgba(15,23,42,.14);font-size:12.5px;font-weight:600;color:var(--txt);transition:opacity .25s,transform .25s}
+.save-status.hidden{opacity:0;transform:translateY(8px);pointer-events:none}
+.save-status .save-dot{width:8px;height:8px;border-radius:50%;background:#94a3b8;display:inline-block}
+.save-status .save-spinner{width:14px;height:14px;border:2px solid var(--brd2);border-top-color:#2563eb;border-radius:50%;animation:saveSpin .7s linear infinite}
+.save-status .save-check{color:#16a34a;font-weight:800;font-size:14px}
+.save-status .save-err{color:#dc2626;font-weight:800;font-size:14px}
+.save-status.pending{color:#64748b}
+.save-status.saving{color:#2563eb;border-color:#bfdbfe}
+.save-status.saved{color:#16a34a;border-color:#bbf7d0;background:#f0fdf4}
+.save-status.error{color:#dc2626;border-color:#fecaca;background:#fef2f2}
+@keyframes saveSpin{to{transform:rotate(360deg)}}
+@media(max-width:640px){.save-status{bottom:calc(14px + env(safe-area-inset-bottom));right:14px;padding:6px 11px;font-size:11.5px}}
+@media print{.g-nav,.no-print,.save-status{display:none!important}}
 </style>
 <script src="gema_db.js"></script>
 <script src="gema_feedback.js"></script><script src="gema_notify.js"></script><script src="gema_notify_ui.js"></script><script src="gema_chat.js"></script>
@@ -627,20 +641,47 @@ function _preBootApply(){
   });
   _preBoot=[];
 }
+/* Speichern ist local-first: der lokale Pool wird IMMER zuerst geschrieben
+   (durable), der Cloud-Push haengt daran. Faellt das Internet aus, reiht
+   GemaSync den Record in seine Outbox und sendet ihn automatisch nach —
+   verloren geht nichts. Sichtbar wird das ueber das Status-Badge unten
+   rechts (Kanon if_trocknung/pm_erp/pm_abnahme). Scheitert schon der
+   LOKALE Write (Speicher-Quota, z.B. grosse Fotos im Record), ist das ein
+   echter Fehler und wird ebenfalls gemeldet — frueher verschwand er still
+   im leeren catch. */
 function saveRec(storageKey, prefix, rec){
   rec.updatedAt = new Date().toISOString();
   var all = cached(storageKey).slice();
   var i = all.findIndex(function(x){return x&&x.id===rec.id;});
   if(i>=0) all[i]=rec; else all.push(rec);
-  try{ localStorage.setItem(storageKey, JSON.stringify(all)); }catch(e){}
+  var lokalOk = true;
+  try{ localStorage.setItem(storageKey, JSON.stringify(all)); }
+  catch(e){ lokalOk = false; try{ console.warn('[Prüfliste] Lokal speichern fehlgeschlagen:', e && e.message); }catch(_){} }
   if(!_bootDone) _preBoot.push({t:'save', k:storageKey, rec:rec});
-  if(typeof GemaSync!=='undefined' && GemaSync.saveRecord) GemaSync.saveRecord(MK, prefix+rec.id, rec).catch(function(){});
+  if(!lokalOk) _setSaveStatus('error','Speicher voll — bitte Fotos verkleinern');
+  if(typeof GemaSync==='undefined' || !GemaSync.saveRecord) return Promise.resolve(lokalOk);
+  return GemaSync.saveRecord(MK, prefix+rec.id, rec)
+    .then(function(){ return lokalOk; })
+    .catch(function(e){ if(lokalOk) _setSaveStatus('error', (e && e.queued) ? 'Noch nicht hochgeladen — wird nachgeholt' : ''); return false; });
 }
 function delRec(storageKey, prefix, id){
   var all = cached(storageKey).filter(function(x){return x&&x.id!==id;});
   try{ localStorage.setItem(storageKey, JSON.stringify(all)); }catch(e){}
   if(!_bootDone) _preBoot.push({t:'del', k:storageKey, id:id});
   if(typeof GemaSync!=='undefined' && GemaSync.deleteRecord) GemaSync.deleteRecord(MK, prefix+id).catch(function(){});
+}
+/* ─── Speicher-Status-Badge ─── */
+var _saveHideT=null;
+function _setSaveStatus(s, txt){
+  if(_saveHideT){ clearTimeout(_saveHideT); _saveHideT=null; }
+  var el=$id('saveStatus');
+  if(!el){ el=document.createElement('div'); el.id='saveStatus'; el.className='save-status hidden'; document.body.appendChild(el); }
+  el.classList.remove('hidden','pending','saving','saved','error');
+  if(s==='pending'){ el.classList.add('pending'); el.innerHTML='<span class="save-dot"></span><span>Änderungen werden gespeichert …</span>'; }
+  else if(s==='saving'){ el.classList.add('saving'); el.innerHTML='<span class="save-spinner"></span><span>Wird gespeichert …</span>'; }
+  else if(s==='saved'){ el.classList.add('saved'); el.innerHTML='<span class="save-check">✓</span><span>Gespeichert</span>';
+    _saveHideT=setTimeout(function(){ var e=$id('saveStatus'); if(e) e.classList.add('hidden'); },2000); }
+  else if(s==='error'){ el.classList.add('error'); el.innerHTML='<span class="save-err">⚠</span><span>'+esc(txt||'Noch nicht hochgeladen — wird nachgeholt')+'</span>'; }
 }
 
 /* ─── Helfer ─── */
@@ -882,11 +923,20 @@ function _cleanBeg(b){
 function saveBeg(b){
   b=b||_cur; if(!b) return;
   clearTimeout(_saveT); _saveT=null;
-  saveRec(BEG_POOL, BEG_PF, _cleanBeg(b));
+  _setSaveStatus('saving');
+  return saveRec(BEG_POOL, BEG_PF, _cleanBeg(b)).then(function(ok){
+    if(ok) _setSaveStatus('saved');
+    return ok;
+  });
 }
-function touch(){ if(!_cur) return; clearTimeout(_saveT); _saveT=setTimeout(function(){ saveBeg(_cur); },700); }
+function touch(){ if(!_cur) return; _setSaveStatus('pending'); clearTimeout(_saveT); _saveT=setTimeout(function(){ saveBeg(_cur); },700); }
 function flushSave(){ if(_saveT && _cur){ saveBeg(_cur); } }
+// pagehide allein ist auf iOS-Safari unzuverlaessig — visibilitychange
+// deckt Tab-Wechsel/App-in-den-Hintergrund mit ab (Kanon pm_abnahme/pm_erp).
 window.addEventListener('pagehide', flushSave);
+document.addEventListener('visibilitychange', function(){ if(document.visibilityState==='hidden') flushSave(); });
+// Backstop: eine haengengebliebene Debounce-Aenderung nie vergessen
+setInterval(flushSave, 60000);
 
 function renderEditor(){
   var b=_cur; if(!b) return;
