@@ -17,7 +17,18 @@ function t(name, cond) { n++; if (cond) console.log('  ✓ ' + name); else { fai
 function eq(name, a, b) { t(name + ' (' + JSON.stringify(a) + ' = ' + JSON.stringify(b) + ')', JSON.stringify(a) === JSON.stringify(b)); }
 
 console.log('— Antworttypen —');
-t('6 Antworttypen', Object.keys(E.PR_ANTWORTTYPEN).length === 6);
+// Feedback 28.07.2026: + sichtbar_nb + geruch
+t('8 Antworttypen', Object.keys(E.PR_ANTWORTTYPEN).length === 8);
+t('Antworttyp «sichtbar / nicht sichtbar / k.A.»', !!E.PR_ANTWORTTYPEN.sichtbar_nb);
+t('Antworttyp «Geruchsemission» mit Prüfart', !!(E.PR_ANTWORTTYPEN.geruch && E.PR_ANTWORTTYPEN.geruch.pruefart));
+t('«nicht sichtbar» → Zustand entfällt', E.prZustandEntfaellt({antworttyp:'sichtbar_nb',antwort:'nicht_sichtbar'}));
+t('«k.A.» → Zustand entfällt', E.prZustandEntfaellt({antworttyp:'sichtbar_nb',antwort:'ka'}));
+t('«nicht beurteilbar» → Zustand entfällt', E.prZustandEntfaellt({antworttyp:'ja_nein_nb',antwort:'nb'}));
+t('«ja» → Zustand entfällt NICHT', !E.prZustandEntfaellt({antworttyp:'ja_nein_nb',antwort:'ja'}));
+t('4 Arten (Begehung/Kontrolle/Zustandsanalyse/Einschätzung)', E.PR_ARTEN.length === 4);
+t('prArtLabel fällt auf Begehung zurück', E.prArtLabel('') === 'Begehung' && E.prArtLabel('kontrolle') === 'Kontrolle');
+t('6 Nutzungen', E.PR_NUTZUNGEN.length === 6);
+t('prNutzungenText mit Freitext', E.prNutzungenText({nutzungen:['wohnungen','andere'],nutzungFrei:'Arztpraxis'}) === 'Wohnungen · Arztpraxis');
 eq('Default = ja_nein_nb', E.PR_ANTWORTTYP_DEFAULT, 'ja_nein_nb');
 t('ja_nein_nb hat 3 Optionen', E.PR_ANTWORTTYPEN.ja_nein_nb.optionen.length === 3);
 t('zahl kind=zahl', E.PR_ANTWORTTYPEN.zahl.kind === 'zahl');

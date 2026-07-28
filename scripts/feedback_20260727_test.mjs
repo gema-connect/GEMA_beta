@@ -309,6 +309,14 @@ async function run() {
     ok(!(await page.evaluate(() => document.getElementById('sg_pf').readOnly)), 'Rechner aus → pf wieder manuell erfassbar');
 
     // ── (7) Dampfdruck-Kurve ──
+    // Feedback 28.07.2026: die Karte startet EINGEKLAPPT und zeichnet erst
+    // beim Aufklappen — Drift-Guard muss sie darum zuerst öffnen.
+    ok(await page.evaluate(() => document.getElementById('sgDdBody').style.display === 'none'),
+       'Dampfdruck-Kurve startet eingeklappt');
+    await page.click('#sgDdCard .sg-foldhd');
+    await page.waitForTimeout(200);
+    ok(await page.evaluate(() => document.getElementById('sgDdBody').style.display !== 'none'),
+       'Aufklappen öffnet die Dampfdruck-Kurve');
     await page.fill('#sg_t', '20');
     await page.dispatchEvent('#sg_t', 'input');
     await page.waitForTimeout(150);

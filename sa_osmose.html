@@ -855,7 +855,7 @@ function fixLeadingZero(el){
   </div>
 
   <!-- Sektion 3: Tankoptimierung (24-h-Profil) — Offline-Betrieb mit Tank -->
-  <div class="g-section" id="tankoptSection" style="display:none;margin-top:18px">
+  <div class="g-section" id="tankoptSection" style="margin-top:18px">
     <div class="g-section-hd">
       <div class="g-section-num">3</div>
       <div>
@@ -864,9 +864,16 @@ function fixLeadingZero(el){
       </div>
     </div>
     <div class="g-section-bd">
+      <div class="g-hint" id="otLeerHint" style="display:none;margin:0">
+        Erfassen Sie oben die Verbraucher (Sektion 1) und die Anlageleistung V<sub>A</sub> (Sektion 2) — danach erscheint hier
+        das 24-h-Profil mit Bedarfs-/Produktionsverteilung, Tanksimulation und Vorschlag für die Tankgrösse.
+      </div>
       <div class="g-hint" id="otOnlineHint" style="display:none;margin:0">
-        ✅ Online-Anlage möglich (Anlageleistung ≥ Spitzenbedarf) — eine Tankoptimierung ist nicht erforderlich.
+        ✅ Online-Anlage möglich (Anlageleistung ≥ Spitzenbedarf) — eine Tankoptimierung ist nicht zwingend.
         Sie wird aktiv, sobald ein Reinwassertank zwingend ist (V̇<sub>B</sub> ≥ V<sub>A</sub>) oder eine Tankgrösse erfasst wird.
+        <div style="margin-top:8px">
+          <button class="g-btn sm no-print" type="button" onclick="otTankErfassen()">→ Tankgrösse erfassen &amp; Profil öffnen</button>
+        </div>
       </div>
       <div id="otBody" style="display:none">
         <div class="ot-kpis">
@@ -1313,9 +1320,12 @@ function fixLeadingZero(el){
       // Sichtbarkeits-Regel (User-Entscheid): automatisch bei Offline/Tank —
       // Tank zwingend (VB >= VA) ODER eine Tankgrösse ist erfasst.
       var relevant = (ctx.va > 0 && ctx.vb > 0 && ctx.vb >= ctx.va) || (ctx.tankSelected > 0);
-      if(!anyData){ sec.style.display = 'none'; return; }
+      // Sektion bleibt IMMER sichtbar (Feedback 28.07.2026: sie war ohne Daten
+      // komplett ausgeblendet und darum unauffindbar) — nur der Inhalt wechselt.
       sec.style.display = '';
-      document.getElementById('otOnlineHint').style.display = relevant ? 'none' : '';
+      var leer = document.getElementById('otLeerHint');
+      if(leer) leer.style.display = anyData ? 'none' : '';
+      document.getElementById('otOnlineHint').style.display = (anyData && !relevant) ? '' : 'none';
       document.getElementById('otBody').style.display = relevant ? '' : 'none';
       if(!relevant) return;
       var cons = otConsumers();
@@ -1403,6 +1413,14 @@ function fixLeadingZero(el){
       var el = document.getElementById('tankSelected');
       if(el){ el.value = String(v); }
       recalc();
+    };
+    // Feedback 28.07.2026: aus dem «Online möglich»-Hinweis direkt ins Tankfeld
+    // springen — das Profil öffnet, sobald eine Tankgrösse erfasst ist.
+    window.otTankErfassen = function(){
+      var el = document.getElementById('tankSelected');
+      if(!el) return;
+      try { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch(e){ el.scrollIntoView(); }
+      el.focus(); el.select && el.select();
     };
 
     function otUpdate(){

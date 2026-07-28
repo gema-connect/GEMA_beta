@@ -498,6 +498,9 @@ body {
 .redu-track{position:relative;height:16px;border-radius:6px;background:#eef1f7;border:1px solid #e2e7f0;overflow:hidden}
 .redu-track .b100{position:absolute;left:0;top:0;bottom:0;background:#d7deeb;border-radius:5px}
 .redu-track .bred{position:absolute;left:0;top:0;bottom:0;border-radius:5px}
+/* Gestapelter Balken: LU-Anteil (W3) · Spezial · Dauer — Feedback 28.07.2026 */
+.redu-track .bstack{position:absolute;left:0;top:0;bottom:0;display:flex;border-radius:5px;overflow:hidden}
+.redu-track .bstack .bseg{display:block;height:100%}
 
 /* LU buttons */
 .lu-btn{padding:7px 14px;border:1.5px solid var(--border2);border-radius:10px;background:var(--surface);color:var(--text);font-size:13px;font-weight:700;cursor:pointer;transition:.15s;}
@@ -1740,27 +1743,42 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
           frml: (m.lu > 0 ? "Q = f(LU) + Q<sub>s</sub>" : "Q = Q<sub>s</sub>") + (m.dauer>0?' + Q<sub>d</sub>':''),
           maxlu: m.lu > 0 ? _maxLUButtons(mid) : "" });
       }
-      // Summe
-      itemsMain.push({ title:"Summe alle Medien", hint:"KW + WW + ND + weitere",
-        rawVal: fmtFlow(Object.values(obj.media).reduce((a,m)=>a+m.luRaw+m.special+m.dauer, 0), 2),
-        value: fmtFlow(obj.qSumAll,2), unit:fu, cls:"", frml:"\u03a3Q = Q<sub>KW</sub> + Q<sub>WW</sub> + Q<sub>ND</sub> + \u2026", maxlu:"" });
+      // Feedback 28.07.2026: das \u00abSumme alle Medien\u00bb-Total ist hier entfallen \u2014
+      // die Summenbildung steht unten in der Aufteilung (Hausanschlussleitung).
 
       main.innerHTML = itemsMain.map(k => kpiHtmlEx(k)).join("");
 
       // === AUFTEILUNG ===
+      // Feedback 28.07.2026: ALLE genutzten Medien mit ihren LU auflisten \u2014
+      // inkl. Regenwasser/Grauwasser (bisher nur wenn sie LU trugen) \u2014 und je
+      // Zeile die Umrechnung nach l/s als Formel-Chip mitgeben.
       const itemsSplit = [
         { title:"Total LU (QT)", hint:"Summe Apparate", value: fmt(obj.luTotal,0), unit:"LU", cls:"", frml:"LU<sub>tot</sub> = \u03a3(LU<sub>i</sub> \u00d7 n<sub>i</sub>)" },
       ];
-      if (usedMedia.has('kw') && obj.luKw > 0) itemsSplit.push({ title:"Kaltwasser \u2013 LU", hint:"Summe LU KW", value: fmt(obj.luKw,0), unit:"LU", cls:"kw", frml:"" });
-      if (usedMedia.has('ww') && obj.luWw > 0) itemsSplit.push({ title:"Warmwasser \u2013 LU", hint:"Summe LU WW", value: fmt(obj.luWw,0), unit:"LU", cls:"ww", frml:"" });
-      if (usedMedia.has('nd') && obj.luNd > 0) itemsSplit.push({ title:"Netzdruck \u2013 LU", hint:"Summe LU ND", value: fmt(obj.luNd,0), unit:"LU", cls:"nd", frml:"" });
-      for (const mid of ['bw','ow','gw','grau']) {
-        if (obj.luAlt && obj.luAlt[mid] > 0) {
-          const mi = MEDIA_MAP.get(mid) || {label:mid};
-          itemsSplit.push({ title: mi.label + " \u2013 LU", hint:"Summe LU " + (mi.short||mid), value: fmt(obj.luAlt[mid],0), unit:"LU", cls:"", frml:"" });
-        }
+      const LU_CLS = { kw:'kw', ww:'ww', nd:'nd' };
+      for (const mid of ['kw','ww','nd','bw','ow','gw','grau','frei']) {
+        if (!usedMedia.has(mid)) continue;
+        const m = obj.media[mid];
+        if (!m) continue;
+        const luM = mid === 'kw' ? obj.luKw : mid === 'ww' ? obj.luWw : mid === 'nd' ? obj.luNd
+                  : ((obj.luAlt && obj.luAlt[mid]) || 0);
+        const qLu = Math.max(0, m.total - m.special - m.dauer);   // W3-reduzierter LU-Anteil
+        if (luM <= 0 && m.special <= 0 && m.dauer <= 0) continue;
+        const mi = MEDIA_MAP.get(mid) || { label: mid, short: mid };
+        itemsSplit.push({ title: mi.label + " \u2013 LU", hint: "Summe LU " + (mi.short || mid),
+          value: fmt(luM, 0), unit: "LU", cls: LU_CLS[mid] || "",
+          frml: luM > 0
+            ? "f(" + fmt(luM,0) + " LU) = " + fmtFlow(qLu, 2) + " " + fu
+            : "kein LU-Anteil \u2014 nur Spezial/Dauer" });
       }
       itemsSplit.push({ title:"l/s Hausanschlussleitung", hint:"max(KW, WW) + Spezial + weitere Medien", value: fmtFlow(obj.qHausanschluss,2), unit:fu, cls:"", frml:"Q<sub>HA</sub> = max(Q<sub>KW</sub>, Q<sub>WW</sub>) + \u03a3Q<sub>spez</sub>" });
+      // Spezial- und Dauerverbraucher separat ausweisen (Feedback 28.07.2026)
+      const qSpezAll = Object.values(obj.media).reduce((a,m)=>a+(m.special||0), 0);
+      const qDauerAll = Object.values(obj.media).reduce((a,m)=>a+(m.dauer||0), 0);
+      if (qSpezAll > 0) itemsSplit.push({ title:"Spezielle Apparate \u2013 \u03a3", hint:"1:1 addiert (keine Diagramm-Berechnung)",
+        value: fmtFlow(qSpezAll,2), unit:fu, cls:"", frml:"\u03a3Q<sub>s</sub>" });
+      if (qDauerAll > 0) itemsSplit.push({ title:"Dauerverbraucher \u2013 \u03a3", hint:"1:1 addiert (>15 min)",
+        value: fmtFlow(qDauerAll,2), unit:fu, cls:"", frml:"\u03a3Q<sub>d</sub>" });
       const specialUnits = state.special.reduce((a,s) => a + (s.label || s.flow > 0 ? clampNum(s.qty,0,1e6) : 0), 0);
       const dauerUnits = state.dauer.reduce((a,s) => a + (s.label || s.flow > 0 ? clampNum(s.qty,0,1e6) : 0), 0);
       itemsSplit.push({ title:"Apparate aktiv", hint:"LU-Apparate + Spezial + Dauer", value: String(obj.totalUnits + specialUnits + dauerUnits), unit:"Stk.", cls:"", frml:"" });
@@ -1814,22 +1832,33 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
         const v100 = m.luRaw + m.special + m.dauer;
         if (v100 <= 0) continue;
         const mInfo = MEDIA_MAP.get(mid) || {label:mid};
-        rows.push({ name:mInfo.label, v100:v100, vRed:m.total, color:REDU_COLORS[mid]||'#475569' });
+        rows.push({ name:mInfo.label, v100:v100, vRed:m.total, color:REDU_COLORS[mid]||'#475569',
+                    spez:m.special||0, dauer:m.dauer||0 });
       }
       // Ohne LU-Anteil gibt es keine Reduktion — Karte ausblenden
       const anyReduction = rows.some(r => r.vRed < r.v100 - 1e-9);
       if (!rows.length || !anyReduction){ card.style.display = 'none'; host.innerHTML = ''; return; }
       const sum100 = rows.reduce((a,r)=>a+r.v100,0);
       const sumRed = rows.reduce((a,r)=>a+r.vRed,0);
-      rows.push({ name:'Summe alle Medien', v100:sum100, vRed:sumRed, color:'#0f172a' });
+      rows.push({ name:'Summe alle Medien', v100:sum100, vRed:sumRed, color:'#0f172a',
+                  spez: rows.reduce((a,r)=>a+r.spez,0), dauer: rows.reduce((a,r)=>a+r.dauer,0) });
       const maxV = Math.max(...rows.map(r=>r.v100), 1e-9);
       const fu = flowUnit();
+      // Feedback 28.07.2026: Spezial- und Dauerverbraucher als eigene Segmente
+      // im reduzierten Balken sichtbar machen (andere Grüntöne).
+      const C_SPEZ = '#22c55e', C_DAUER = '#15803d';
+      let anySpez = false, anyDauer = false;
       host.innerHTML = rows.map(r => {
         const w100 = Math.max(2, r.v100 / maxV * 100);
-        const wRed = Math.max(2, r.vRed / maxV * 100);
+        const qLu = Math.max(0, r.vRed - r.spez - r.dauer);      // W3-reduzierter LU-Anteil
+        const wLu = qLu / maxV * 100, wSp = r.spez / maxV * 100, wDa = r.dauer / maxV * 100;
+        if (r.spez > 0) anySpez = true;
+        if (r.dauer > 0) anyDauer = true;
         const pct = r.v100 > 0 ? (1 - r.vRed / r.v100) * 100 : 0;
         const pctTxt = pct > 0.05 ? '−' + fmt(pct,0) + ' %' : '±0 %';
         const pctColor = pct > 0.05 ? '#16a34a' : '#6b7280';
+        const seg = (w, col, titel) => w > 0.01
+          ? '<span class="bseg" style="width:'+w.toFixed(2)+'%;background:'+col+'" title="'+escapeHtml(titel)+'"></span>' : '';
         return '<div class="redu-row">'+
           '<div class="redu-top">'+
             '<span class="redu-name">'+escapeHtml(r.name)+'</span>'+
@@ -1838,13 +1867,19 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
           '</div>'+
           '<div class="redu-track">'+
             '<span class="b100" style="width:'+w100.toFixed(2)+'%"></span>'+
-            '<span class="bred" style="width:'+wRed.toFixed(2)+'%;background:'+r.color+'"></span>'+
+            '<span class="bstack">'+
+              seg(Math.max(wLu, (r.spez+r.dauer) > 0 ? 0 : 2), r.color, 'LU-Anteil nach W3: '+fmtFlow(qLu,2)+' '+fu)+
+              seg(wSp, C_SPEZ, 'Spezielle Apparate: '+fmtFlow(r.spez,2)+' '+fu)+
+              seg(wDa, C_DAUER, 'Dauerverbraucher: '+fmtFlow(r.dauer,2)+' '+fu)+
+            '</span>'+
           '</div>'+
         '</div>';
       }).join('') +
       '<div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:10px;font-size:11px;color:#6b7280">'+
         '<span style="display:inline-flex;align-items:center;gap:5px"><span style="width:18px;height:9px;border-radius:3px;background:#d7deeb;display:inline-block"></span>100 % (ΣLU/10 + Spezial + Dauer)</span>'+
-        '<span style="display:inline-flex;align-items:center;gap:5px"><span style="width:18px;height:9px;border-radius:3px;background:#0f172a;display:inline-block"></span>Reduziert nach W3 Diagramm 1</span>'+
+        '<span style="display:inline-flex;align-items:center;gap:5px"><span style="width:18px;height:9px;border-radius:3px;background:#0f172a;display:inline-block"></span>LU-Anteil reduziert nach W3 Diagramm 1</span>'+
+        (anySpez ? '<span style="display:inline-flex;align-items:center;gap:5px"><span style="width:18px;height:9px;border-radius:3px;background:'+C_SPEZ+';display:inline-block"></span>Spezielle Apparate (1:1)</span>' : '')+
+        (anyDauer ? '<span style="display:inline-flex;align-items:center;gap:5px"><span style="width:18px;height:9px;border-radius:3px;background:'+C_DAUER+';display:inline-block"></span>Dauerverbraucher (1:1)</span>' : '')+
       '</div>';
       card.style.display = '';
     }
