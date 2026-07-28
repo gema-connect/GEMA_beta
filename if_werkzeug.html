@@ -495,7 +495,10 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
       </div>
       <!-- In-App-Kamera-Scan (nur Touch-Geräte: iPhone/Tablet) — die System-
            Kamera öffnet sonst jedes Mal einen neuen Tab samt Neu-Anmeldung -->
-      <button id="wzHeroScan" onclick="_wzScanWithCamera()" style="display:none;align-items:center;gap:8px;padding:11px 18px;border-radius:12px;border:1.5px solid rgba(255,255,255,.35);background:rgba(255,255,255,.16);color:#fff;font-size:14px;font-weight:800;cursor:pointer;font-family:inherit;min-height:44px;backdrop-filter:blur(4px)">📷 Scannen</button>
+      <div id="wzHeroScanWrap" style="display:none;gap:8px;flex-wrap:wrap">
+        <button id="wzHeroScan" onclick="_wzScanWithCamera()" style="display:none;align-items:center;gap:8px;padding:11px 18px;border-radius:12px;border:1.5px solid rgba(255,255,255,.35);background:rgba(255,255,255,.16);color:#fff;font-size:14px;font-weight:800;cursor:pointer;font-family:inherit;min-height:44px;backdrop-filter:blur(4px)">📷 QR scannen</button>
+        <button id="wzHeroNfc" onclick="_wzScanWithNFC()" style="display:none;align-items:center;gap:8px;padding:11px 18px;border-radius:12px;border:1.5px solid rgba(255,255,255,.35);background:rgba(255,255,255,.16);color:#fff;font-size:14px;font-weight:800;cursor:pointer;font-family:inherit;min-height:44px;backdrop-filter:blur(4px)">📡 NFC scannen</button>
+      </div>
       <div class="hero-pills">
         <span class="hero-pill">⚡ NIV / NIN</span>
         <span class="hero-pill">🪜 EKAS 6512</span>
@@ -4415,12 +4418,32 @@ window._wzToolActLog=function(toolId){
 // Zuweisen, Defekt, Verloren, Aktivitäten …). Koffer behalten die
 // Scan-Ansicht (Vollständigkeitskontrolle/Rückgabe ist dort die Haupt-
 // funktion), Monteure den Selbst-Ausleihe-Flow.
+// ── Prüfer (Elektro-/Leiterprüfung): Scan → direkt in den Prüfauftrag ──
+// Ein externer Prüfer arbeitet Geräte im Akkord ab; jeder Umweg über Liste
+// und Suche kostet Zeit. Scannt er QR oder NFC, landet er sofort im
+// Prüfungsauftrag-Dialog des betreffenden Werkzeugs.
+function _wzIsPruefer(){
+  var u=_wzGetUser();
+  if(!u||!Array.isArray(u.roleIds))return false;
+  return u.roleIds.indexOf('role_pruefer')>=0 || u.roleIds.indexOf('role_leiterpruefer')>=0;
+}
+// Offener Prüfauftrag dieses Prüfers (team-tolerant wie openPruefLiefAnsicht)
+function _wzOffenerPruefauftrag(t){
+  if(!t||!t.pruefAnfrage||t.pruefAnfrage.status==='erledigt')return null;
+  if(_wzIsAdmin())return t.pruefAnfrage;
+  return (_wzMyLiefUserIds().indexOf(t.pruefAnfrage.lieferantId)>=0)?t.pruefAnfrage:null;
+}
 function _wzScanOpen(toolId){
   var t=tools.find(function(x){return x.id===toolId;});
+  // Prüfer zuerst: offener Auftrag → Prüfungsansicht (quittieren + Bericht)
+  if(t&&_wzIsPruefer()&&_wzOffenerPruefauftrag(t)){ openPruefLiefAnsicht(toolId); return; }
   if(t&&_wzCanEdit()&&!_wzIsKoffer(t)){openViewTool(toolId);return;}
+  if(t&&_wzIsPruefer()){ openViewTool(toolId); return; }   // kein offener Auftrag → Detail
   _wzScanAusleihe(toolId);
 }
 window._wzScanOpen=_wzScanOpen;
+window._wzIsPruefer=_wzIsPruefer;
+window._wzOffenerPruefauftrag=_wzOffenerPruefauftrag;
 
 // ── Sammel-Ausleihe ──
 var _sammelList=[];
@@ -4606,6 +4629,61 @@ function _wzScanWithCamera(){
   });
 }
 window._wzScanWithCamera = _wzScanWithCamera;
+
+// ── NFC-Scan: Tag ans Gerät halten → Werkzeug öffnet sich ──
+// Nutzt den EINEN persistenten Lese-Reader (_wzNfcListen, siehe NFC-Muster);
+// keine eigene Reader-Instanz, kein abort/scan-Zyklus. Ohne Web-NFC
+// (iPhone, Desktop) fällt der Knopf auf den Kamera-Scan zurück.
+function _wzNfcIdAus(ev){
+  try{
+    var m=ev&&ev.message; if(!m||!m.records)return '';
+    for(var i=0;i<m.records.length;i++){
+      var r=m.records[i], txt='';
+      if(r.recordType==='url') txt=new TextDecoder().decode(r.data);
+      else if(r.recordType==='text') txt=new TextDecoder(r.encoding||'utf-8').decode(r.data);
+      else continue;
+      if(!txt)continue;
+      if(txt.indexOf('scan=')>=0) return decodeURIComponent(txt.split('scan=')[1].split('&')[0]);
+      if(txt.indexOf('view=')>=0) return decodeURIComponent(txt.split('view=')[1].split('&')[0]);
+      if(/^wz_/.test(txt.trim())) return txt.trim();
+    }
+  }catch(e){}
+  return '';
+}
+function _wzScanWithNFC(){
+  if(!('NDEFReader' in window)){
+    // iPhone/Desktop: kein Browser-NFC — Kamera ist der gleichwertige Weg
+    if(typeof GemaDialog!=='undefined'){
+      GemaDialog.alert({title:'NFC hier nicht verfügbar',
+        message:'Dieses Gerät/Browser unterstützt kein NFC-Lesen in der App (iPhone, Desktop). Auf dem iPhone genügt es, den Tag bei gesperrtem Bildschirm ans Gerät zu halten — die hinterlegte Adresse öffnet das Werkzeug direkt. Alternativ den QR-Code scannen.'});
+    }
+    _wzScanWithCamera();
+    return;
+  }
+  var gen=_wzScanNewSession();
+  var st=document.createElement('div');
+  st.id='pruefNfcStatus';
+  st.style.cssText='position:fixed;left:50%;bottom:26px;transform:translateX(-50%);z-index:12200;background:#0f172a;color:#fff;padding:12px 18px;border-radius:12px;font-size:13.5px;font-weight:700;font-family:inherit;box-shadow:0 12px 30px rgba(0,0,0,.28);display:flex;align-items:center;gap:12px';
+  st.innerHTML='<span>📡 NFC bereit — Tag ans Gerät halten …</span>'
+    +'<button type="button" style="padding:5px 11px;border-radius:8px;border:1px solid rgba(255,255,255,.45);background:transparent;color:#fff;font:inherit;font-size:12px;font-weight:700;cursor:pointer">✕ Abbrechen</button>';
+  st.querySelector('button').onclick=function(){ _wzScanNewSession(); };
+  document.body.appendChild(st);
+  _wzNfcListen(function(ev){
+    if(gen!==_wzScanGen)return;                 // alte Session — Handler ist tot
+    var id=_wzNfcIdAus(ev);
+    if(!id)return;
+    _wzScanNewSession();                        // Status-Pill weg, Session beenden
+    try{ if(navigator.vibrate)navigator.vibrate(60); }catch(e){}
+    _wzScanOpen(id);
+  }).catch(function(e){
+    _wzScanNewSession();
+    if(typeof GemaDialog!=='undefined'){
+      GemaDialog.alert({title:'NFC konnte nicht gestartet werden',
+        message:String((e&&e.message)||e)+'\n\nHinweis: NFC muss in den Android-Einstellungen aktiv sein. Alternativ den QR-Code scannen.'});
+    }
+  });
+}
+window._wzScanWithNFC=_wzScanWithNFC;
 
 function _wzSammelConfirm(){
   if(!_sammelList.length)return;
@@ -7066,9 +7144,20 @@ try{
   // dort ersetzt er die System-Kamera (die einen neuen Tab samt
   // Neu-Anmeldung oeffnet). Desktop hat i.d.R. keine Scan-Kamera.
   try{
-    if(window.matchMedia&&matchMedia('(hover: none) and (pointer: coarse)').matches){
-      var heroScan=document.getElementById('wzHeroScan');
+    var istTouch=!!(window.matchMedia&&matchMedia('(hover: none) and (pointer: coarse)').matches);
+    // Prüfer sehen die Scan-Knöpfe IMMER — Scannen ist ihr Haupt-Einstieg
+    // (Gerät scannen → Prüfauftrag öffnet sich), auch auf einem Tablet, das
+    // sich als Desktop meldet.
+    var istPruefer=(typeof _wzIsPruefer==='function')&&_wzIsPruefer();
+    var wrap=document.getElementById('wzHeroScanWrap');
+    var heroScan=document.getElementById('wzHeroScan');
+    var heroNfc=document.getElementById('wzHeroNfc');
+    if((istTouch||istPruefer)&&wrap){
+      wrap.style.display='flex';
       if(heroScan)heroScan.style.display='inline-flex';
+      // NFC nur zeigen, wo der Browser es kann (Android/Chrome) — sonst
+      // wäre der Knopf eine Sackgasse.
+      if(heroNfc&&('NDEFReader' in window))heroNfc.style.display='inline-flex';
     }
   }catch(e){}
   // Einmal pro Sitzung: Faelligkeits-Scan fuer Magaziner/Admin ausloesen
@@ -7255,6 +7344,7 @@ try{
         +'<div class="gn-toolbar">'
           +'<div class="gn-large-title"><h1>Werkzeug</h1><p>'+ts.length+' Geräte · '+pruef+' Prüfungen fällig</p></div>'          +'<button class="gn-icon-btn" data-nat-filter title="Erweiterte Filter"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M7 12h10M10 18h4"/></svg>'+(advN?'<span class="gn-dot">'+advN+'</span>':'')+'</button>'
           +'<button class="gn-icon-btn" data-nat-scan title="QR scannen"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><path d="M14 14h3v3M20 14v6M17 20h3"/></svg></button>'
+          +(('NDEFReader' in window)?'<button class="gn-icon-btn" data-nat-nfc title="NFC scannen"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8.5a7 7 0 0 0 0 7M9.5 10.5a3 3 0 0 0 0 3M14.5 13.5a3 3 0 0 0 0-3M18 15.5a7 7 0 0 0 0-7"/></svg></button>':'')
         +'</div>'
         +'<div class="gn-searchbar"><svg viewBox="0 0 24 24" fill="none" stroke-width="2.1" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-3.6-3.6"/></svg><input data-nat-q placeholder="Gerät, Inv-Nr. oder Person" value="'+NE(nst.q)+'"></div>'
         +'<div class="gn-seg" data-nat-seg>'
@@ -7289,6 +7379,8 @@ try{
     });
     var scan=root.querySelector('[data-nat-scan]');
     if(scan) scan.addEventListener('click',function(){ try{ _wzScanWithCamera(); }catch(e){} });
+    var nfc=root.querySelector('[data-nat-nfc]');
+    if(nfc) nfc.addEventListener('click',function(){ try{ _wzScanWithNFC(); }catch(e){} });
     var flt=root.querySelector('[data-nat-filter]');
     if(flt) flt.addEventListener('click',function(){ try{ openFilterSheet(); }catch(e){} });
     var bg=root.querySelector('[data-gn-ctx-backdrop]');
