@@ -139,23 +139,22 @@
       if (_snipRect && _snipRect.w >= 10 && _snipRect.h >= 10) {
         try {
           if (typeof html2canvas === 'function') {
-            // Save scroll position before capture
-            var sx = Math.round(window.scrollX);
-            var sy = Math.round(window.scrollY);
-            // Force html2canvas to render from top-left of document (no scroll offset)
-            var fullCanvas = await html2canvas(document.body, {
-              scrollX: 0, scrollY: 0,
-              windowWidth: document.documentElement.scrollWidth,
-              windowHeight: document.documentElement.scrollHeight,
-              scale: 1.5, logging: false, useCORS: true, allowTaint: true
-            });
-            // _snipRect is viewport-relative (clientX/Y), add scroll for document coords
             var sc = 1.5;
-            var cropX = Math.round((_snipRect.x + sx) * sc);
-            var cropY = Math.round((_snipRect.y + sy) * sc);
+            // Der Ausschnitt ist VIEWPORT-relativ (clientX/Y) — deshalb wird
+            // auch der Viewport erfasst (siehe _captureViewport). Fruehere
+            // Fassung rendete das ganze Dokument ab (0,0) und addierte den
+            // Seiten-Scroll auf die Crop-Koordinaten: bei Inhalt in einem
+            // position:fixed-Overlay (Vollbild-Editoren wie Pruefliste, ERP,
+            // Schadensbericht) lag der Ausschnitt dann um den Scroll-Offset
+            // daneben — bis hin zum komplett weissen Bild.
+            var fullCanvas = await _captureViewport(sc);
+            var cropX = Math.round(_snipRect.x * sc);
+            var cropY = Math.round(_snipRect.y * sc);
             var cropW = Math.round(_snipRect.w * sc);
             var cropH = Math.round(_snipRect.h * sc);
             // Clamp to canvas bounds
+            cropW = Math.min(cropW, fullCanvas.width);
+            cropH = Math.min(cropH, fullCanvas.height);
             cropX = Math.max(0, Math.min(cropX, fullCanvas.width - cropW));
             cropY = Math.max(0, Math.min(cropY, fullCanvas.height - cropH));
             var cropCanvas = document.createElement('canvas');
@@ -520,6 +519,24 @@
     if (ov) { ov.style.display = 'block'; document.body.style.cursor = 'crosshair'; }
   }
 
+  // ── Viewport erfassen (EINE Wahrheit fuer Snip + Fullscreen) ──
+  // KRITISCH: nur den SICHTBAREN Viewport rendern, nicht das ganze Dokument.
+  // Nur so landen position:fixed-Elemente (Vollbild-Editoren, Modals, Nav)
+  // dort im Bild, wo sie auf dem Bildschirm stehen — und Bildkoordinaten
+  // entsprechen 1:1 den Viewport-Koordinaten (clientX/Y) der Auswahl.
+  // KRITISCH #2: NUR x/y/width/height setzen — scrollX/scrollY bleiben auf
+  // ihrem Default (pageXOffset/pageYOffset). html2canvas rechnet die Bounds
+  // jedes Elements als clientRect + windowBounds(scrollX,scrollY); ein
+  // zusaetzliches scrollX:-scrollX zaehlt den Offset doppelt und liefert bei
+  // gescrollter Seite ein WEISSES Bild (per Varianten-Vergleich verifiziert).
+  function _captureViewport(scale) {
+    return html2canvas(document.body, {
+      x: w.scrollX, y: w.scrollY,
+      width: w.innerWidth, height: w.innerHeight,
+      scale: scale, logging: false, useCORS: true, allowTaint: true
+    });
+  }
+
   // Fullscreen-Screenshot fuer Touch-Devices: erfasst den sichtbaren
   // Viewport (keine Auswahl noetig), zeigt dann die Rotstift-Annotation.
   async function _captureFullScreen() {
@@ -533,13 +550,7 @@
       // Nur den sichtbaren Viewport erfassen (nicht die ganze Seite),
       // damit der User genau sieht, was er beim Klick auf Feedback
       // vor sich hatte.
-      var fullCanvas = await html2canvas(document.body, {
-        x: w.scrollX, y: w.scrollY,
-        width: w.innerWidth, height: w.innerHeight,
-        scrollX: -w.scrollX, scrollY: -w.scrollY,
-        scale: Math.min(2, w.devicePixelRatio || 1),
-        logging: false, useCORS: true, allowTaint: true
-      });
+      var fullCanvas = await _captureViewport(Math.min(2, w.devicePixelRatio || 1));
       _screenshotDataUrl = fullCanvas.toDataURL('image/jpeg', 0.82);
       if (_screenshotDataUrl) {
         _openAnnotation(_screenshotDataUrl);
