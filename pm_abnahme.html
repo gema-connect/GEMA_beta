@@ -658,6 +658,7 @@ canvas.sig{width:100%;height:150px;background:#fff;display:block;touch-action:no
         <button class="fb"        id="mf_done" onclick="setMFilter('done')">✅ Erledigt</button>
       </div>
       <button class="act-btn" id="btnMlAssign" style="margin-left:auto" onclick="abMlOpenAssign()">📋 An Monteur übergeben</button>
+      <button class="act-btn" id="btnBeispiel" onclick="abBeispielPunkte()" title="Fünf typische Prüfpunkte einer Sanitär-Abnahme anhängen">＋ Standardpunkte</button>
       <button class="act-btn primary" id="addTop">+ Neuer Punkt</button>
     </div>
 
@@ -950,17 +951,27 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
     photos: seed.photos??[]
   });
 
-  const ensureDemo = () => {
-    if (!state.items.length) {
-      state.items = [
-        createItem({ort:'WC / Bad',mangel:'Installationshöhe Vorwandelement prüfen'}),
-        createItem({ort:'Küche',mangel:'Kalt-/Warmwasser Anschlüsse korrekt positioniert und gekennzeichnet'}),
-        createItem({ort:'Steigzone',mangel:'Fixpunkte/Gleiter vorhanden, keine Verspannungen sichtbar'}),
-        createItem({ort:'Dusche',mangel:'Durchdringungen vorbereitet: Dichtmanschetten / Abdichtungskonzept klären'}),
-        createItem({ort:'Technik',mangel:'Revision / Zugänglichkeit für Armaturen und Absperrungen sichergestellt'})
-      ];
-    }
-  };
+  // Beispiel-Punkte einer Sanitär-Abnahme. KRITISCH: die werden NIE
+  // automatisch eingefüllt — bis 28.07.2026 startete jedes neue Protokoll
+  // mit genau diesen 5 Einträgen als «Offen»-Mängel. Sie sahen aus wie
+  // echte Feststellungen, landeten als solche in der Cloud und im PDF, und
+  // niemand konnte Demo von Erfassung unterscheiden. Eine leere Abnahme
+  // ist eine leere Abnahme.
+  const AB_BEISPIEL_PUNKTE = [
+    {ort:'WC / Bad',   mangel:'Installationshöhe Vorwandelement prüfen'},
+    {ort:'Küche',      mangel:'Kalt-/Warmwasser Anschlüsse korrekt positioniert und gekennzeichnet'},
+    {ort:'Steigzone',  mangel:'Fixpunkte/Gleiter vorhanden, keine Verspannungen sichtbar'},
+    {ort:'Dusche',     mangel:'Durchdringungen vorbereitet: Dichtmanschetten / Abdichtungskonzept klären'},
+    {ort:'Technik',    mangel:'Revision / Zugänglichkeit für Armaturen und Absperrungen sichergestellt'}
+  ];
+  // Bewusste Aktion des Nutzers (Button in der Mängel-Toolbar) — hängt die
+  // Punkte an, überschreibt nie Erfasstes.
+  function abBeispielPunkte(){
+    AB_BEISPIEL_PUNKTE.forEach(function(v){ state.items.push(createItem(v)); });
+    persistAll(); render();
+    toast('+ '+AB_BEISPIEL_PUNKTE.length+' Standardpunkte eingefügt');
+  }
+  window.abBeispielPunkte=abBeispielPunkte;
 
   // ── SIGNATURE PADS ──
   function setupSignature(canvasId, storeKey){
@@ -1132,7 +1143,7 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
     if(!items.length){
       container.innerHTML=`<div style="padding:40px;text-align:center;color:var(--mut);font-size:13px">
         <div style="font-size:40px;margin-bottom:10px">📋</div>
-        <strong>Keine Punkte</strong><br>Klicken Sie auf „+ Neuer Punkt"
+        <strong>Keine Punkte</strong><br>Über „+ Neuer Punkt" erfassen — oder „＋ Standardpunkte" für fünf typische Prüfpunkte.
       </div>`;
       return;
     }
@@ -2736,7 +2747,7 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
     state=_defaultState();
     var idx=protocols.findIndex(p=>p.id===activeProtocolId);
     if(idx>=0) protocols[idx].state=state;
-    openItemId=null; ensureDemo(); persistAll(); render(); initSignatures(); toast('Reset.');
+    openItemId=null; persistAll(); render(); initSignatures(); toast('Reset.');
   });
 
   // Backstop: alle 60s ausstehende Debounce-Saves nachziehen (still)
@@ -3535,7 +3546,7 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
 
   renderProtocolSelector();
   populateObjektDropdown();
-  ensureDemo(); render(); initSignatures();
+  render(); initSignatures();
   // Ab hier ist jede Eingabe scharf fürs Auto-Speichern (Boot-Renders davor
   // erzeugen bewusst keinen Save — sonst würde jeder Seitenaufruf pushen).
   _abBootDone=true;

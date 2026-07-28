@@ -405,6 +405,10 @@ ok(await page.evaluate(() => !window._abState().abnahme.sig.unternehmer.bestaeti
 console.log('— Mängel-Summary folgt live dem Beschrieb —');
 await page.click('#tab_maengel');
 await page.waitForTimeout(300);
+// Eine neue Abnahme startet seit 28.07.2026 LEER (kein ensureDemo mehr) —
+// die Punkte für die folgenden Checks bewusst über die Vorlage einfügen.
+await page.evaluate(() => { if (!window._abState().items.length) window.abBeispielPunkte(); });
+await page.waitForTimeout(300);
 await page.click('.mangel-card .mangel-summary');
 await page.waitForTimeout(300);
 await page.fill('.mangel-detail.open [data-field="mangel"]', 'Neuer Beschrieb ABC');
