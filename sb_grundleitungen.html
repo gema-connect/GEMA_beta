@@ -1560,10 +1560,11 @@ document.addEventListener('DOMContentLoaded', function(){
 // Eigener Script-Block; Aufruf geguardet aus glRecalc via window._glSchemaDraw
 // (Cross-Block-Scope-Regel). NUR literale Hex-Farben (GemaPDF/html2canvas
 // rastert var() falsch). Layout wächst dynamisch mit Quellen/Abschnitten:
-// Quellen-Boxen oben, ⊞-Einleitstellen auf der Leitung, Zusammenflüsse als
-// orthogonale Fallrohre, Anschlussleitung mit roter Info-Box → HSK-Kreis.
+// Quellen-Boxen oben mit eigenem Anschluss-Stich in der Leitungsfarbe,
+// Zusammenführungen ohne Symbol (45° in Fliessrichtung), Anschlussleitung
+// mit roter Info-Box → HSK-Kreis.
 (function(){
-  var ROWH=132, SLOTW=200, BOXW=172, TAILW=64, PADT=34, PADL=16;
+  var ROWH=150, SLOTW=200, BOXW=172, TAILW=64, PADT=34, PADL=16;
   // Feedback 28.07.2026: LEAD = sichtbarer Vorlauf jeder Leitung vor dem ersten
   // Anschluss (klare Trennung Abschnitt⇄Abschnitt), BR = 45°-Schenkel der
   // T-Stücke (Einbindung IMMER schräg in Fliessrichtung, auch am HSK).
@@ -1571,6 +1572,10 @@ document.addEventListener('DOMContentLoaded', function(){
 
   var MEDCOL={sw:'#b45309', rw:'#0891b2', mw:'#7c3aed'};
   var TYPCOL={fallstrang:'#334155', regen:'#0891b2', dauer:'#0d9488'};
+  // Anschluss-Stich einer Quelle laeuft in der MEDIUM-Farbe (Feedback
+  // 28.07.2026: «anschluss in braun und dann die box») — er ist eine echte
+  // Leitung, nicht ein Box-Rahmen; TYPCOL bleibt die Rahmenfarbe der Box.
+  var QMED={fallstrang:'sw', dauer:'sw', regen:'rw'};
   function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
   function fm(x,d){ if(!isFinite(x)) return '–'; return x.toLocaleString('de-CH',{minimumFractionDigits:d,maximumFractionDigits:d}); }
   function n(v){ if(v==null||v==='') return 0; var f=parseFloat(String(v).replace(',','.')); return isFinite(f)?f:0; }
@@ -1652,11 +1657,6 @@ document.addEventListener('DOMContentLoaded', function(){
 
     function lineY(id){ return PADT+rowOf[id]*ROWH+(ROWH-34); }
 
-    function junction(x,y,col){
-      return '<rect x="'+(x-8)+'" y="'+(y-8)+'" width="16" height="16" rx="3.5" fill="#ffffff" stroke="'+col+'" stroke-width="2"/>'
-        +'<line x1="'+(x-4)+'" y1="'+y+'" x2="'+(x+4)+'" y2="'+y+'" stroke="'+col+'" stroke-width="2"/>'
-        +'<line x1="'+x+'" y1="'+(y-4)+'" x2="'+x+'" y2="'+(y+4)+'" stroke="'+col+'" stroke-width="2"/>';
-    }
     function addPlus(x,y,ziel,titel,lineY2,klein){
       // Klickbares blaues ⊞ (Skizzen-Farbe #2563eb) mit grosszügiger Hit-Fläche;
       // klein = Zwischen-⊞ in den Lücken (auch zwischen zwei Fallsträngen)
@@ -1677,9 +1677,12 @@ document.addEventListener('DOMContentLoaded', function(){
       // Leitung ist, ist auch ein Verbraucher»). prependZiel = ⊞ an der Box
       // («davor noch einen Verbraucher einfügen»).
       var lines=srcLines(q,K), col=TYPCOL[q.typ]||'#334155';
-      var bh=24+lines.length*14+7, bx=jx-BOXW/2, by=y-24-bh;
-      var o='<line x1="'+jx+'" y1="'+(by+bh)+'" x2="'+jx+'" y2="'+(y-BR)+'" stroke="'+col+'" stroke-width="2.4"/>';
-      o+='<line x1="'+jx+'" y1="'+(y-BR)+'" x2="'+(jx+BR)+'" y2="'+y+'" stroke="'+col+'" stroke-width="2.4"/>';
+      var lcol=MEDCOL[QMED[q.typ]||'sw'];          // Anschluss = Leitungsfarbe
+      // Box mit Abstand ueber der Leitung: das Zwischen-⊞ in der Luecke sass
+      // sonst unter der Box-Unterkante (Feedback 28.07.2026, gelb markiert).
+      var bh=24+lines.length*14+7, bx=jx-BOXW/2, by=y-46-bh;
+      var o='<line x1="'+jx+'" y1="'+(by+bh)+'" x2="'+jx+'" y2="'+(y-BR)+'" stroke="'+lcol+'" stroke-width="3.2" stroke-linecap="round"/>';
+      o+='<line x1="'+jx+'" y1="'+(y-BR)+'" x2="'+(jx+BR)+'" y2="'+y+'" stroke="'+lcol+'" stroke-width="3.2" stroke-linecap="round"/>';
       o+='<g data-glziel="q:'+esc(q.id)+'" style="cursor:pointer">';
       o+='<rect x="'+bx+'" y="'+by+'" width="'+BOXW+'" height="'+bh+'" rx="8" fill="#ffffff" stroke="'+col+'" stroke-width="1.8"/>';
       o+='<text x="'+(bx+9)+'" y="'+(by+16)+'" font-size="11" font-weight="800" fill="#0f172a">'+esc(trunc(q.name||'—',22))+'</text>';
@@ -1689,11 +1692,11 @@ document.addEventListener('DOMContentLoaded', function(){
       o+='</g>';
       if(prependZiel) o+=addPlus(bx-16, by+13, prependZiel, 'Vor «'+esc(q.name||'?')+'» noch einen Verbraucher einfügen', null, true);
       if(q.typ==='regen'&&q.ss){
-        o+='<circle cx="'+(jx-16)+'" cy="'+(y-13)+'" r="8" fill="#ecfeff" stroke="#0891b2" stroke-width="1.6"/>'
-          +'<text x="'+(jx-16)+'" y="'+(y-10.4)+'" text-anchor="middle" font-size="7" font-weight="800" fill="#0e7490">SS</text>';
+        o+='<circle cx="'+(jx-15)+'" cy="'+(y-26)+'" r="8" fill="#ecfeff" stroke="#0891b2" stroke-width="1.6"/>'
+          +'<text x="'+(jx-15)+'" y="'+(y-23.4)+'" text-anchor="middle" font-size="7" font-weight="800" fill="#0e7490">SS</text>';
       }
-      if(!istStart) o+=junction(jx+BR,y,col);
-      return o;
+      return o;   // Zusammenfuehrung ohne Symbol — die Leitungen treffen sich
+
     }
 
     function drawSeg(id, xEnd){
@@ -1719,7 +1722,6 @@ document.addEventListener('DOMContentLoaded', function(){
         s+='<line x1="'+jx+'" y1="'+cy+'" x2="'+jx+'" y2="'+(y-BR)+'" stroke="'+ccol+'" stroke-width="3.5"/>';
         s+='<line x1="'+jx+'" y1="'+(y-BR)+'" x2="'+(jx+BR)+'" y2="'+y+'" stroke="'+ccol+'" stroke-width="3.5"/>';
         s+='<path d="M'+(jx-5)+' '+(y-BR-16)+' L'+jx+' '+(y-BR-8)+' L'+(jx+5)+' '+(y-BR-16)+'" fill="none" stroke="'+ccol+'" stroke-width="2"/>';
-        if(fi>0) s+=junction(jx+BR,y,ccol);
         cum.du+=cres.sumDU||0; if((cres.duMax||0)>cum.duMax) cum.duMax=cres.duMax||0;
         cum.qc+=cres.qc||0; cum.qr+=cres.qr||0;
         junct.push({x:jx+BR, cum:{du:cum.du,duMax:cum.duMax,qc:cum.qc,qr:cum.qr}});
@@ -1843,7 +1845,7 @@ document.addEventListener('DOMContentLoaded', function(){
     s+='<line x1="'+PADL+'" y1="'+lgy+'" x2="'+(PADL+26)+'" y2="'+lgy+'" stroke="#b45309" stroke-width="4" stroke-linecap="round"/><text x="'+(PADL+32)+'" y="'+(lgy+3)+'">Schmutzwasser</text>';
     s+='<line x1="'+(PADL+128)+'" y1="'+lgy+'" x2="'+(PADL+154)+'" y2="'+lgy+'" stroke="#0891b2" stroke-width="4" stroke-linecap="round"/><text x="'+(PADL+160)+'" y="'+(lgy+3)+'">Regenwasser</text>';
     s+='<line x1="'+(PADL+248)+'" y1="'+lgy+'" x2="'+(PADL+274)+'" y2="'+lgy+'" stroke="#7c3aed" stroke-width="4" stroke-linecap="round"/><text x="'+(PADL+280)+'" y="'+(lgy+3)+'">Mischwasser</text>';
-    s+='<text x="'+(PADL+372)+'" y="'+(lgy+3)+'">⊞ Einleitstelle · ⧖ Retention/Drossel · SS Schlammsammler</text>';
+    s+='<text x="'+(PADL+372)+'" y="'+(lgy+3)+'">⧖ Retention/Drossel · SS Schlammsammler</text>';
     s+='<rect x="'+(PADL+700)+'" y="'+(lgy-8)+'" width="16" height="16" rx="4.5" fill="#eff4ff" stroke="#2563eb" stroke-width="1.8"/>';
     s+='<line x1="'+(PADL+704)+'" y1="'+lgy+'" x2="'+(PADL+712)+'" y2="'+lgy+'" stroke="#2563eb" stroke-width="2"/>';
     s+='<line x1="'+(PADL+708)+'" y1="'+(lgy-4)+'" x2="'+(PADL+708)+'" y2="'+(lgy+4)+'" stroke="#2563eb" stroke-width="2"/>';
