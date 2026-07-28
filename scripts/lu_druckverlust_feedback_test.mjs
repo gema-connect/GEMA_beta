@@ -192,7 +192,9 @@ const browser = await chromium.launch({ executablePath: CHROME, args: ['--no-san
     gemischt: (document.getElementById('inp_gemischt') || {}).checked
   }));
   ok(top.perRow === 0, 'Standard: KEIN Rohrsystem-Select pro Teilstrecke');
-  ok(top.topSys === 'optipress' && !top.disabled && top.gemischt === false, 'Kopf-Select aktiv, Haken aus');
+  // Feedback 28.07.2026: Default ist das zusammengefasste Nussbaum-System
+  // (Optipress + Optiflex); die Einzelsysteme sind aus der Auswahl genommen.
+  ok(top.topSys === 'nussbaum' && !top.disabled && top.gemischt === false, 'Kopf-Select aktiv, Haken aus');
   await page.selectOption('#inp_globalsys', 'mapress');
   await page.waitForTimeout(150);
   ok(await page.evaluate(() => document.querySelector('.ts-card [data-k="dimDn"]').value === '22x1.2'),
