@@ -1670,9 +1670,12 @@ document.addEventListener('DOMContentLoaded', function(){
       o+='</g>';
       return o;
     }
-    function srcBox(q,jx,y){
-      // Quelle mit EIGENER Stich-Leitung, die via 45°-T-Stück in Fliessrichtung
-      // einbindet (Feedback 28.07.2026 — vorher senkrecht auf die Leitung).
+    function srcBox(q,jx,y,istStart,prependZiel){
+      // Quelle mit EIGENER Stich-Leitung, die via 45° in Fliessrichtung
+      // einbindet. istStart = erste Einleitung des Abschnitts: die Leitung
+      // BEGINNT hier (Bogen statt T-Stück, kein Junction-Marker — «wo eine
+      // Leitung ist, ist auch ein Verbraucher»). prependZiel = ⊞ an der Box
+      // («davor noch einen Verbraucher einfügen»).
       var lines=srcLines(q,K), col=TYPCOL[q.typ]||'#334155';
       var bh=24+lines.length*14+7, bx=jx-BOXW/2, by=y-24-bh;
       var o='<line x1="'+jx+'" y1="'+(by+bh)+'" x2="'+jx+'" y2="'+(y-BR)+'" stroke="'+col+'" stroke-width="2.4"/>';
@@ -1684,11 +1687,12 @@ document.addEventListener('DOMContentLoaded', function(){
         o+='<text x="'+(bx+9)+'" y="'+(by+30+i*14)+'" font-size="10" fill="#475569">'+esc(t)+'</text>';
       });
       o+='</g>';
+      if(prependZiel) o+=addPlus(bx-16, by+13, prependZiel, 'Vor «'+esc(q.name||'?')+'» noch einen Verbraucher einfügen', null, true);
       if(q.typ==='regen'&&q.ss){
         o+='<circle cx="'+(jx-16)+'" cy="'+(y-13)+'" r="8" fill="#ecfeff" stroke="#0891b2" stroke-width="1.6"/>'
           +'<text x="'+(jx-16)+'" y="'+(y-10.4)+'" text-anchor="middle" font-size="7" font-weight="800" fill="#0e7490">SS</text>';
       }
-      o+=junction(jx+BR,y,col);
+      if(!istStart) o+=junction(jx+BR,y,col);
       return o;
     }
 
@@ -1698,31 +1702,68 @@ document.addEventListener('DOMContentLoaded', function(){
       var xStart=xEnd-Math.max(wMemo[id]||SLOTW,SLOTW);
       var cursor=xStart+LEAD;
       var feats=[];                 // belegte Zonen auf der Leitung (Chip-Platzierung)
-      // Zulauf-Abschnitte: 45°-Einbindung in Fliessrichtung (T-Stück als Abzweiger)
+      var junct=[];                 // Einbindungs-Punkte + kumulierte Werte danach
+      var cum={du:0,duMax:0,qc:0,qr:0}, fi=0;
+      function cumQ(c){
+        var qww=(typeof glQww==='function')?glQww(K,c.du):(K*Math.sqrt(c.du||0));
+        if(c.du>0&&c.duMax>qww) qww=c.duMax;
+        return qww+c.qc+c.qr;
+      }
+      // Zulauf-Abschnitte: 45°-Einbindung in Fliessrichtung (T-Stück als Abzweiger;
+      // die ERSTE Einbindung ist der Anfang der Leitung — Bogen, kein T-Stück)
       (kinder[id]||[]).forEach(function(cid){
         var cw=(wMemo[cid]||SLOTW)+CHPAD;
         var jx=cursor+cw-TAILW/2-8-BR;   // Kind-Linie endet hier — beginnt IM Slot
         drawSeg(cid,jx);
-        var cy=lineY(cid), ccol=MEDCOL[(calc.res[cid]||{}).medium||'sw'];
+        var cy=lineY(cid), cres=calc.res[cid]||{}, ccol=MEDCOL[cres.medium||'sw'];
         s+='<line x1="'+jx+'" y1="'+cy+'" x2="'+jx+'" y2="'+(y-BR)+'" stroke="'+ccol+'" stroke-width="3.5"/>';
         s+='<line x1="'+jx+'" y1="'+(y-BR)+'" x2="'+(jx+BR)+'" y2="'+y+'" stroke="'+ccol+'" stroke-width="3.5"/>';
         s+='<path d="M'+(jx-5)+' '+(y-BR-16)+' L'+jx+' '+(y-BR-8)+' L'+(jx+5)+' '+(y-BR-16)+'" fill="none" stroke="'+ccol+'" stroke-width="2"/>';
-        s+=junction(jx+BR,y,ccol);
+        if(fi>0) s+=junction(jx+BR,y,ccol);
+        cum.du+=cres.sumDU||0; if((cres.duMax||0)>cum.duMax) cum.duMax=cres.duMax||0;
+        cum.qc+=cres.qc||0; cum.qr+=cres.qr||0;
+        junct.push({x:jx+BR, cum:{du:cum.du,duMax:cum.duMax,qc:cum.qc,qr:cum.qr}});
         feats.push([jx-8, jx+BR+12]);
-        cursor+=cw;
+        cursor+=cw; fi++;
       });
-      // Quellen: eigene Stich-Leitung via 45°-T-Stück; in JEDER Lücke davor ein
-      // kleines ⊞ — damit auch ZWISCHEN zwei Fallsträngen eingefügt werden kann
+      // Quellen: eigene Stich-Leitung via 45°; die erste Einleitung IST der
+      // Leitungsanfang (kein offener Startpunkt — wo eine Leitung ist, ist
+      // auch ein Verbraucher). ⊞ zum Davor-Einfügen: beim Start an der BOX,
+      // sonst klein in der Lücke (auch zwischen zwei Fallsträngen).
       (quellenVon[id]||[]).forEach(function(q){
-        s+=addPlus(cursor+2, y-26, esc(id)+'@'+esc(q.id), 'Hier einfügen — neuer Verbraucher vor «'+esc(q.name||'?')+'» an «'+esc(a.name||id)+'»', y, true);
+        var istStart=(fi===0);
+        var prependZiel=esc(id)+'@'+esc(q.id);
+        if(!istStart) s+=addPlus(cursor+2, y-26, prependZiel, 'Hier einfügen — neuer Verbraucher vor «'+esc(q.name||'?')+'» an «'+esc(a.name||id)+'»', y, true);
         var jx=cursor+SLOTW/2-BR/2;
-        s+=srcBox(q,jx,y);
+        s+=srcBox(q,jx,y,istStart,istStart?prependZiel:null);
+        if(q.typ==='regen'){ var q0=n(q.q); cum.qr+=q0; }
+        else if(q.typ==='dauer'){ cum.qc+=n(q.q); }
+        else { cum.du+=n(q.du); if(n(q.duMax)>cum.duMax) cum.duMax=n(q.duMax); cum.qc+=n(q.qc); }
+        junct.push({x:jx+BR, cum:{du:cum.du,duMax:cum.duMax,qc:cum.qc,qr:cum.qr}});
         feats.push([jx+BR-14, jx+BR+14]);
-        cursor+=SLOTW;
+        cursor+=SLOTW; fi++;
       });
-      // Leitung — mit Start-Punkt (klare Trennung: hier BEGINNT dieser Abschnitt)
-      s+='<line x1="'+xStart+'" y1="'+y+'" x2="'+xEnd+'" y2="'+y+'" stroke="'+col+'" stroke-width="4" stroke-linecap="round"/>';
-      s+='<circle cx="'+xStart+'" cy="'+y+'" r="4.5" fill="#ffffff" stroke="'+col+'" stroke-width="2.6"/>';
+      // Leitung: beginnt bei der ersten Einbindung (Bogen) — ohne Einleitungen
+      // (frisch eingefügter Abzweig) mit ⊞ am Anfang zum Erfassen
+      var x0=junct.length?junct[0].x:xStart;
+      s+='<line x1="'+x0+'" y1="'+y+'" x2="'+xEnd+'" y2="'+y+'" stroke="'+col+'" stroke-width="4" stroke-linecap="round"/>';
+      if(!junct.length) s+=addPlus(xStart+10, y, esc(id), 'Leitungsanfang «'+esc(a.name||id)+'» — hier den ersten Verbraucher oder Zulauf-Strang anlegen', null, true);
+      // Teilstrecken-Beschriftung: NACH JEDER Einbindung ein kompakter
+      // Wert-Chip (kumuliert ΣDU · Q) unter der Leitung (Feedback 28.07.2026)
+      junct.forEach(function(j,ji){
+        var von=j.x+12;
+        var bis=(ji<junct.length-1)?(junct[ji+1].x-14):(a.retAktiv?(xEnd-TAILW-34):(xEnd-8));
+        var q2=cumQ(j.cum);
+        var lbl2=(j.cum.du>0?('ΣDU '+fm(j.cum.du,1)+' · '):'')+'Q '+fm(q2,2)+' l/s';
+        var lw2=Math.round(lbl2.length*5.3)+14;
+        if(lw2>bis-von){ lbl2='Q '+fm(q2,2); lw2=Math.round(lbl2.length*5.3)+14; }
+        if(lw2>bis-von) return;
+        var lx2=von+((bis-von)-lw2)/2;
+        s+='<g class="glseg" data-glziel="a:'+esc(id)+'" style="cursor:pointer">'
+          +'<rect x="'+lx2+'" y="'+(y+11)+'" width="'+lw2+'" height="17" rx="8.5" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1" opacity="0.97"/>'
+          +'<text x="'+(lx2+lw2/2)+'" y="'+(y+23)+'" text-anchor="middle" font-size="8.8" font-weight="700" fill="#475569">'+esc(lbl2)+'</text></g>';
+        feats.push([lx2-4, lx2+lw2+4]);
+      });
       // Fliessrichtungs-Pfeil
       var ax=xEnd-26;
       s+='<path d="M'+(ax-7)+' '+(y-5)+' L'+(ax+3)+' '+y+' L'+(ax-7)+' '+(y+5)+'" fill="none" stroke="'+col+'" stroke-width="2"/>';
@@ -1743,7 +1784,7 @@ document.addEventListener('DOMContentLoaded', function(){
       // oft direkt bei den T-Stücken)
       var lbl=trunc(a.name||id,20)+' · '+(r.sumDU>0?'ΣDU '+fm(r.sumDU,2)+' · ':'')+'Q '+fm(r.qtot||0,2)+' l/s · DN '+(r.dnEff||'–');
       var lw=Math.round(lbl.length*5.6)+18, ly=y+13;
-      var lo=xStart+8, hi=xEnd-56;                     // Pfeil-/⊞-Zone aussparen
+      var lo=x0+8, hi=xEnd-56;                        // Pfeil-/⊞-Zone aussparen
       var zones=feats.filter(function(f){ return f[1]>lo&&f[0]<hi; })
                      .sort(function(p,q2){ return p[0]-q2[0]; });
       var gaps=[], pos=lo;
@@ -1755,7 +1796,9 @@ document.addEventListener('DOMContentLoaded', function(){
       if(best&&(best[1]-best[0])>=lw+6){
         lx=Math.max(best[0], Math.min(best[0]+((best[1]-best[0])-lw)/2, best[1]-lw));
       } else {
-        lx=xStart+Math.max(6,((xEnd-xStart)-lw)/2);   // Fallback: zentriert
+        // Kein freies Stück in der Chip-Zeile → eine Zeile tiefer (nie über
+        // den Teilstrecken-Chips oder einer Zusammenführung)
+        lx=Math.max(x0+6, x0+((xEnd-x0)-lw)/2); ly=y+34;
       }
       s+='<g data-glziel="a:'+esc(id)+'" style="cursor:pointer">'
         +'<rect x="'+lx+'" y="'+ly+'" width="'+lw+'" height="19" rx="9.5" fill="#ffffff" stroke="'+col+'" stroke-width="1.2" opacity="0.96"/>'
