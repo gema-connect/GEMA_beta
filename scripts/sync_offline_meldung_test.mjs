@@ -23,6 +23,10 @@
 //     erneut gesendet — «Verbindung ok, aber es laedt nicht hoch» heilt sich
 //  G) Der GRUND eines abgelehnten Uploads ist sichtbar (pendingInfo: Modul,
 //     Groesse, Versuche, letzter Fehler) — kein Blindflug mehr
+//  H) RLS-Heilung: Ein Record OHNE orgId wird von den org-gescopten Policies
+//     (gema_rls_v2) mit 403 «row-level security» abgelehnt — GemaSync stempelt
+//     die eigene Org (JWT-Claim) nach und sendet sofort erneut; ein Record
+//     mit FREMDER orgId wird NIE umgestempelt
 //
 // Ausführen: CHROME=<chromium> node scripts/sync_offline_meldung_test.mjs
 import { chromium } from 'playwright-core';
@@ -38,7 +42,7 @@ const { ctx, page } = await newPage(browser, seed(['role_planer']));
 
 // «Cloud»: Schreibvorgänge (POST) und Lesevorgänge/Probe (GET) getrennt steuerbar
 const cloud = new Map();
-let schreibModus = 'ok';     // ok | fehler (fetch wirft) | zuGross (HTTP 413) | gift | nurKlein (Body > 5000 Zeichen → 413)
+let schreibModus = 'ok';     // ok | fehler | zuGross | gift | nurKlein | rls (Rows ohne data.orgId='org_test' → 403 wie die v2-Policies)
 let leseModus = 'ok';        // ok | tot  (auch die Probe schlägt fehl)
 
 await page.route('**/rest/v1/gema_data*', route => {
@@ -51,6 +55,13 @@ await page.route('**/rest/v1/gema_data*', route => {
     if (schreibModus === 'fehler') return route.abort('internetdisconnected');
     if (schreibModus === 'zuGross') return route.fulfill({ status: 413, contentType: 'application/json', body: '{"message":"payload too large"}' });
     let rows = []; try { rows = JSON.parse(req.postData() || '[]'); } catch (e) { }
+    if (schreibModus === 'rls') {
+      let rows = []; try { rows = JSON.parse(req.postData() || '[]'); } catch (e) { }
+      const verletzt = rows.some(r => ((r.payload || {}).data || {}).orgId !== 'org_test');
+      if (verletzt) return route.fulfill({ status: 403, contentType: 'application/json', body: JSON.stringify({ code: '42501', details: null, hint: null, message: 'new row violates row-level security policy for table \"gema_data\"' }) });
+      rows.forEach(r => cloud.set(r.data_key, r));
+      return route.fulfill({ status: 201, contentType: 'application/json', body: '[]' });
+    }
     if (schreibModus === 'nurKlein' && (req.postData() || '').length > 5000)
       return route.fulfill({ status: 413, contentType: 'application/json', body: '{"message":"Payload too large"}' });
     if (schreibModus === 'gift') {
@@ -222,6 +233,42 @@ console.log('■ G · pendingInfo nennt Modul, Groesse, Versuche und Fehler');
   await page.evaluate(() => GemaSync.flushOutbox());
   await page.waitForTimeout(400);
   ok(await page.evaluate(() => GemaSync.pendingCount()) === 0, 'raeumt sich auf, sobald zustellbar');
+}
+
+/* ════════ H · RLS-Heilung: fehlende orgId wird nachgestempelt ════════ */
+console.log('■ H · 403 «row-level security» bei fehlender orgId heilt sich selbst');
+{
+  schreibModus = 'fehler';   // einreihen
+  await schreibe('schaden:sd_ohne_org', { titel: 'Wasserschaden ohne Org-Stempel', phase: 'erfasst' });
+  await schreibe('schaden:sd_fremd', { titel: 'Fremder Bericht', orgId: 'org_fremd' });
+  ok(await page.evaluate(() => GemaSync.pendingCount()) >= 2, 'beide warten in der Outbox');
+  schreibModus = 'rls';      // Cloud verhaelt sich wie die v2-Policies
+  await page.evaluate(() => GemaSync.flushOutbox());
+  await page.waitForTimeout(800);
+  const heil = cloud.get('schaden:sd_ohne_org');
+  ok(!!heil, 'orgId-loser Record wurde geheilt und hochgeladen');
+  ok(heil && heil.payload.data.orgId === 'org_test', 'nachgestempelte orgId = eigene Org aus dem JWT');
+  ok(heil && heil.payload.data.titel === 'Wasserschaden ohne Org-Stempel', 'Inhalt unveraendert');
+  ok(!cloud.has('schaden:sd_fremd'), 'Record mit FREMDER orgId wird NIE umgestempelt (bleibt abgelehnt)');
+  const infoH = await page.evaluate(() => GemaSync.pendingInfo());
+  ok(infoH.length === 1 && infoH[0].key === 'schaden:sd_fremd' && /row-level security/.test(infoH[0].err),
+    'fremder Record wartet mit sichtbarem RLS-Grund');
+  // aufräumen
+  schreibModus = 'ok';
+  await page.evaluate(() => GemaSync.flushOutbox());
+  await page.waitForTimeout(400);
+}
+
+/* ════════ I · Modul-Drift: Schadensbericht stempelt orgId selbst ════════ */
+console.log('■ I · sd_schadensbericht stempelt orgId (Neuanlage + Heilung beim Speichern)');
+{
+  const fs = await import('fs');
+  const sd = fs.readFileSync(new URL('../sd_schadensbericht.html', import.meta.url), 'utf8');
+  const neu = sd.slice(sd.indexOf('function sdSaveNew()'), sd.indexOf('function sdSaveNew()') + 2600);
+  ok(/orgId:\s*\(u && u\.orgId\) \|\| ''/.test(neu), 'sdSaveNew stempelt orgId auf den neuen Bericht');
+  ok(/function _sdStampOrg/.test(sd), 'Heilungs-Helfer _sdStampOrg vorhanden');
+  const save = sd.slice(sd.indexOf('function sdSave()'), sd.indexOf('function sdSave()') + 400);
+  ok(/_sdStampOrg\(\)/.test(save), 'sdSave heilt orgId-lose Altberichte vor dem Persistieren');
 }
 
 await ctx.close();

@@ -69,6 +69,23 @@
 --          'behoerden_formulare','einsatzplan','stundenerfassung',
 --          'arbeitskleider','goodel','schnellausschreibung')
 --    group by 1,2 order by 1,2;
+--
+-- (c) BEREINIGUNG von orgId-losen Altbestaenden (Praxisfall 28.07.2026):
+--     sd_schadensbericht schrieb Records bis 07/2026 OHNE orgId-Feld —
+--     unter v2 ist so ein Record unsichtbar UND jeder Write darauf wird
+--     mit 403 «row-level security» abgelehnt. Die App stempelt seither
+--     selbst nach (sdSaveNew/_sdStampOrg + RLS-Heilung in gema_sync);
+--     bereits in der Cloud liegende orgId-lose Rows brauchen EINMALIG
+--     diesen Stempel (Ziel-Org einsetzen — bei einer Ein-Firmen-
+--     Installation die einzige echte Org):
+--
+--   update public.gema_data
+--      set payload = jsonb_set(payload, '{data,orgId}', to_jsonb('org_XXX'::text), true)
+--    where module_key in ('erp','schadensbericht','dachbericht','plaene',
+--          'behoerden_formulare','einsatzplan','stundenerfassung',
+--          'arbeitskleider','goodel','schnellausschreibung')
+--      and data_key not like 'cred:%'
+--      and coalesce(payload->'data'->>'orgId','') = '';
 
 -- ── Schritt 1: v1-Policies durch org-bewusste v2-Policies ersetzen ──────
 -- (RLS bleibt aktiv; die Namen sind dieselben wie in v1 → sauberer Ersatz.)
