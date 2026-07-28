@@ -22,9 +22,133 @@
   if (window.GemaDataSelect) return;
   var w = window;
 
-  // Nur der dokumentierte Beispiel-Lieferant ist voreingestellt — weitere
-  // IDs pflegt die Organisation selbst (keine erfundenen IDs).
+  // Nur der dokumentierte Beispiel-Lieferant ist VOREINGESTELLT — welche
+  // Kataloge eine Firma wirklich beziehen darf, hängt am IGH-Vertrag.
   var SEED = [{ id: '1900', name: 'Geberit' }];
+
+  /* ── IGH-Mitglieder-Katalog (Nachschlagliste, Stand 07/2026) ────────────
+     Reine SUCHLISTE für den «Lieferant hinterlegen»-Dialog: Firma suchen →
+     id_anbieter wird übernommen, damit niemand die ID online heraussuchen
+     muss. Der Katalog wird NICHT automatisch als Lieferant hinterlegt —
+     hinzugefügt wird nur, was die Organisation selbst auswählt.
+     `sortimente` = die Preisbücher/Sortimente der Firma (helfen beim Finden,
+     z.B. «Badmöbel» → BR Bauhandel / Gétaz-Miauton / Regusci Reco).
+     Neue Mitglieder hier ergänzen — eine Firma hat GENAU EINE id_anbieter. */
+  var KATALOG = [
+    { id:'1345', name:'Aalberts hfc', sortimente:['HLKS'] },
+    { id:'4354', name:'Accum Wärmetechnik GmbH', sortimente:['Wärmetechnik'] },
+    { id:'2930', name:'ACO AG', sortimente:['HLKS'] },
+    { id:'1380', name:'ait Schweiz AG', sortimente:['AlphaInnoTec'] },
+    { id:'1810', name:'Aliaxis Utilities & Industry AG', sortimente:['Haustechnik'] },
+    { id:'4311', name:'Arthur Flury AG', sortimente:['Blitzschutz, Erdung'] },
+    { id:'1075', name:'Arthur Weber AG', sortimente:['Sanitär, Heizung, Lüftung, Klima'] },
+    { id:'1330', name:'Belimo Automation AG', sortimente:['Antriebs- und Ventiltechnologie'] },
+    { id:'1285', name:'Biral AG', sortimente:['Pumpen und Steuerungen'] },
+    { id:'1300', name:'Bodenschatz AG', sortimente:['Badezimmer-Accessoires / Sanitär'] },
+    { id:'1240', name:'Borer Heizkörper AG', sortimente:['Heizkörper'] },
+    { id:'2110', name:'Bosch Thermotechnik AG, Buderus Schweiz', sortimente:['Heizungstechnik'] },
+    { id:'6150', name:'BR Bauhandel AG', sortimente:['Badmöbel', 'Sanitärapparate'] },
+    { id:'1205', name:'Breitenmoser & Keller AG', sortimente:['BREMO Heizkörper'] },
+    { id:'6175', name:'Bringhen Group c/o Crea Ceram AG', sortimente:['Sanitärapparate'] },
+    { id:'1485', name:'CTA AG', sortimente:['Heizung, Lüftung, Kälte, Service'] },
+    { id:'1400', name:'CTC AG', sortimente:['Heizung'] },
+    { id:'2460', name:'Danfoss AG', sortimente:['Haustechnik'] },
+    { id:'1515', name:'Debrunner Acifer AG', sortimente:['Befestigungstechnik / Werkzeuge', 'Tiefbau / Baubedarf', 'Wasser- und Gebäudetechnik'] },
+    { id:'1510', name:'Domotec AG', sortimente:['Wassererwärmer'] },
+    { id:'4345', name:'Duravit Schweiz AG', sortimente:['Gesamtsortiment'] },
+    { id:'1560', name:'Durex SA', sortimente:['Heizung'] },
+    { id:'1600', name:'Elcotherm AG', sortimente:['Heizung'] },
+    { id:'2915', name:'Engel AG', sortimente:['Sanitär, Heizung, Lüftung, Klima'] },
+    { id:'300008', name:'ESYLUX Swiss AG', sortimente:['Bewegungs- und Präsenzmelder'] },
+    { id:'300004', name:'Feller AG', sortimente:['Elektro'] },
+    { id:'4350', name:'Fischer + Cie. AG', sortimente:['Baustoffe und Haustechnikprodukte'] },
+    { id:'1900', name:'Geberit Vertriebs AG', sortimente:['Sanitärtechnik'] },
+    { id:'2500', name:'Gebr. Kemper GmbH + Co. KG', sortimente:['Sanitär'] },
+    { id:'1910', name:'Georg Fischer Rohrleitungssysteme (Schweiz) AG', sortimente:['Haustechnik', 'Versorgungssysteme', 'Industriesortiment', 'Metallsysteme'] },
+    { id:'4358', name:'Glas Trösch AG, SWISSDOUCHE', sortimente:['Glas im Bad'] },
+    { id:'1975', name:'GROHE Switzerland SA', sortimente:['Sanitär'] },
+    { id:'1970', name:'Grundfos Pumpen AG', sortimente:['Pumpen'] },
+    { id:'1960', name:'GWF AG', sortimente:['Sanitär'] },
+    { id:'6140', name:'Gétaz-Miauton SA', sortimente:['Badmöbel', 'Sanitärapparate'] },
+    { id:'2126', name:'Hansgrohe AG', sortimente:['Sanitär-Armaturen und Systeme'] },
+    { id:'4351', name:'Heim AG Heizsysteme', sortimente:['Heizung'] },
+    { id:'2560', name:'Helios Ventilatoren AG', sortimente:['Ventilatorentechnik'] },
+    { id:'4348', name:'HEWI Heinrich Wilke GmbH', sortimente:['Sanitär'] },
+    { id:'2130', name:'Hilti (Schweiz) AG', sortimente:['Befestigungen'] },
+    { id:'2100', name:'Hoval AG', sortimente:['Heizung -Luft-/Klimatechnik-/Pumpen'] },
+    { id:'4359', name:'HSB Heizsysteme und Brenner AG', sortimente:['Heizung'] },
+    { id:'4310', name:'Häny AG', sortimente:['Haus- und Gebäudetechnik'] },
+    { id:'3270', name:'IMI Hydronic Engineering Switzerland AG', sortimente:['Heiztechnik'] },
+    { id:'2317', name:'Inhaus AG', sortimente:['Installationstechnik', 'Einrichtung Sanitär, Küche', 'Wärmetechnik Heizung Lüftung'] },
+    { id:'4316', name:'InterApp AG', sortimente:['Haustechnik'] },
+    { id:'2315', name:'ISO-CENTER AG', sortimente:['Technische Isolationen'] },
+    { id:'2330', name:'ista swiss ag', sortimente:['Energiedienstleistung'] },
+    { id:'4326', name:'JUDO Wasseraufbereitung AG', sortimente:['Wasseraufbereitung'] },
+    { id:'4337', name:'Keller Spiegelschränke AG', sortimente:['Spiegelschränke'] },
+    { id:'1010', name:'KERMI Schweiz AG', sortimente:['Heizsysteme'] },
+    { id:'4341', name:'Kessel Schweiz AG', sortimente:['Entwässerungstechnik'] },
+    { id:'4334', name:'Kibernetik AG', sortimente:['Gebäudetechnik'] },
+    { id:'4317', name:'Kindlimann AG', sortimente:['Stahl- und Edelstahlrohre'] },
+    { id:'2450', name:'KSB (Schweiz) AG', sortimente:['Haustechnik'] },
+    { id:'2480', name:'KWC Group AG', sortimente:['Armaturen'] },
+    { id:'6290', name:'LAUFEN Schweiz AG', sortimente:['Armaturen', 'Sanitärkeramik'] },
+    { id:'3500', name:'Meier Tobler AG', sortimente:['Haustechniksysteme'] },
+    { id:'2670', name:'Mueller AG Komponenten + Service', sortimente:['Sanitär, Heizung, Lüftung, Klima'] },
+    { id:'2725', name:'NEOPERL AG', sortimente:['Sanitärbranche'] },
+    { id:'2730', name:'NeoVac ATA AG', sortimente:['Wärme- und Wassermess-Systeme'] },
+    { id:'4344', name:'NOSAG AG', sortimente:['HLKS'] },
+    { id:'2710', name:'Nyffenegger Armaturen AG', sortimente:['Haustechnik'] },
+    { id:'4353', name:'Oppermann Suisse AG', sortimente:['Gebäudeautomation'] },
+    { id:'2815', name:'Oventrop (Schweiz) GmbH', sortimente:['Haustechnik'] },
+    { id:'2900', name:'Pestalozzi AG', sortimente:['Sanitär, Heizung, Lüftung, Klima'] },
+    { id:'2150', name:'Pittway Sarl', sortimente:['Haustechnik'] },
+    { id:'2950', name:'Prolux Solutions AG', sortimente:['Heizkörper'] },
+    { id:'2700', name:'R. Nussbaum AG', sortimente:['Sanitär-Armaturen'] },
+    { id:'4339', name:'Reflex Schweiz GmbH', sortimente:['Sanitärapparate'] },
+    { id:'6145', name:'Regusci Reco SA', sortimente:['Sanitärapparate', 'Badmöbel'] },
+    { id:'6160', name:'SABAG Gruppe', sortimente:['Sanitärapparate'] },
+    { id:'3220', name:'Samvaz SA', sortimente:['Befestigung für Gebäudetechnik'] },
+    { id:'6130', name:'Sanitas Troesch AG', sortimente:['Sanitärapparate'] },
+    { id:'4342', name:'Sauter Building Control Schweiz AG', sortimente:['Gebäudemanagement und Raumautomation'] },
+    { id:'3465', name:'Schwarz Stahl AG', sortimente:['Sanitär, Heizung, Lüftung, Klima'] },
+    { id:'4352', name:'SFA Switzerland AG', sortimente:['Kinedo', 'Sanitär'] },
+    { id:'3251', name:'SFS Group Schweiz AG', sortimente:['Befestigungstechnik'] },
+    { id:'2600', name:'Siemens Schweiz AG', sortimente:['HLKS/Elektro'] },
+    { id:'1410', name:'SPAETER Gruppe', sortimente:['Haustechnik'] },
+    { id:'3295', name:'Stiebel Eltron AG', sortimente:['Erneuerbare Energien'] },
+    { id:'4356', name:'Stocker Stahl AG', sortimente:['Sanitär/Heizung/Wasserversorgung'] },
+    { id:'4357', name:'talsee AG', sortimente:['HLKS'] },
+    { id:'6180', name:'team-Katalog-Gruppe c/o SGVSB', sortimente:['TeamSaniDusch', 'TeamKappeler', 'TeamHug', 'TeamMaga', 'TeamSABBurgener', 'TeamWDS'] },
+    { id:'3536', name:'Techem (Schweiz) AG', sortimente:['Messtechnik und Energiedienstleistungen'] },
+    { id:'3515', name:'Tocafix AG', sortimente:['Befestigungs- und Montagetechnik'] },
+    { id:'3610', name:'Urfer Müpro AG', sortimente:['Befestigungs- und Schallschutzsysteme'] },
+    { id:'4346', name:'URIMAT Schweiz AG', sortimente:['Sanitärapparate'] },
+    { id:'3710', name:'Vaillant GmbH Schweiz', sortimente:['Heiztechnik'] },
+    { id:'3700', name:'Viessmann (Schweiz) GmbH', sortimente:['Lüftung - Preisliste', 'Heizung - Hauptpreisliste', 'Heizung - Vitoset'] },
+    { id:'4355', name:'Weber AG', sortimente:['Sanitär, Heizung, Lüftung, Klima'] },
+    { id:'3945', name:'Weishaupt AG', sortimente:['Heizsysteme'] },
+    { id:'1630', name:'WILO Schweiz AG', sortimente:['Pumpen und Zubehör'] },
+    { id:'3920', name:'Windhager Zentralheizung Schweiz AG', sortimente:['Heizung'] },
+    { id:'4327', name:'Würth AG Schweiz', sortimente:['Montage- und Befestigungsmaterial'] },
+    { id:'4200', name:'Zehnder Group Schweiz AG', sortimente:['Elektroheizkörper', 'Komfortlüftung, Kompaktenergiezentralen', 'Heizkörper'] },
+    { id:'4230', name:'Zisola AG', sortimente:['Wärme- und Schallisolationen'] },
+    { id:'300001', name:'Zumtobel Licht AG', sortimente:['Elektro'] }
+  ];
+  /** Katalog-Suche: Firma, ID oder Sortiment. Leere Suche → ganze Liste. */
+  function katalog(q){
+    var s = String(q == null ? '' : q).trim().toLowerCase();
+    if (!s) return KATALOG.slice();
+    return KATALOG.filter(function(m){
+      if (m.id.indexOf(s) === 0) return true;
+      if (m.name.toLowerCase().indexOf(s) >= 0) return true;
+      return (m.sortimente || []).some(function(x){ return x.toLowerCase().indexOf(s) >= 0; });
+    });
+  }
+  /** Katalog-Eintrag zu einer id_anbieter (oder null). */
+  function katalogById(id){
+    var k = String(id || '').replace(/[^0-9]/g, '');
+    return KATALOG.filter(function(m){ return m.id === k; })[0] || null;
+  }
 
   // IGH-/UN-ECE-Einheitencodes → GEMA-Einheiten (Spiegel des Server-Mappings).
   var _DS_EINHEIT = { PCE:'Stk', PCS:'Stk', PC:'Stk', H87:'Stk', EA:'Stk', PK:'Stk', PA:'Paar', PAR:'Paar', SET:'Stk', ST:'Stk', STK:'Stk', 'STK.':'Stk', MTR:'m', LM:'lfm', MTK:'m²', MTQ:'m³', LTR:'l', LT:'l', KGM:'kg', KG:'kg', HUR:'h', HR:'h' };
@@ -198,5 +322,5 @@
       .catch(function(e){ return { ok: false, error: 'Verbindungsfehler: ' + (e && e.message ? e.message : '') }; });
   }
 
-  w.GemaDataSelect = { search: search, debug: debug, anbieter: anbieter, addAnbieter: addAnbieter, setTextLang: setTextLang, normArtikel: normArtikel, mapEinheit: _mapEinheit, fmtPreis: fmtPreis, SEED: SEED };
+  w.GemaDataSelect = { search: search, debug: debug, anbieter: anbieter, addAnbieter: addAnbieter, setTextLang: setTextLang, normArtikel: normArtikel, mapEinheit: _mapEinheit, fmtPreis: fmtPreis, SEED: SEED, KATALOG: KATALOG, katalog: katalog, katalogById: katalogById };
 })();

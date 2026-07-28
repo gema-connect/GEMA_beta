@@ -124,8 +124,12 @@ ok(await page.evaluate(() => {
   cur.positionen = []; erpPosSelReset(); erpPosAdd('text'); erpRenderPos();
   const p = cur.positionen[0];
   const tr = document.querySelector('#posBody tr.postext');
-  const td = tr && tr.querySelector('td[colspan="6"]');
-  return p.art === 'text' && p.menge === undefined && p.ep === undefined && !!td;
+  // colspan folgt seit Feedback 28.07.2026 den konfigurierten Spalten —
+  // die Zeile muss die Kopfzeile exakt füllen (Bezeichnung + Quelle + Mitte)
+  const td = tr && tr.querySelector('td[colspan]');
+  const nTh = document.querySelectorAll('#posHead th').length;
+  let n = 0; Array.prototype.forEach.call(tr.children, c => { n += parseInt(c.getAttribute('colspan') || '1', 10); });
+  return p.art === 'text' && p.menge === undefined && p.ep === undefined && !!td && n === nTh;
 }), 'Textzeile ohne Menge/Preis, Beschrieb über die volle Breite');
 ok(await page.evaluate(() => {
   const btns = Array.from(document.querySelectorAll('.pos-add .btn, #edBody .btn')).map(b => b.textContent.trim());

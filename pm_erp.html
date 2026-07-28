@@ -164,6 +164,20 @@ body.erp-resizing{cursor:col-resize;user-select:none}
 .side-art .sa-btns{display:flex;gap:4px;flex-shrink:0}
 .side-art .sa-btns .btn{min-height:28px;padding:3px 8px;font-size:11px}
 .side-empty{text-align:center;color:var(--mut);font-size:12.5px;padding:16px 8px}
+/* Lieferanten-Nachschlagliste (IGH-Katalog) im «Lieferant hinterlegen»-Dialog */
+.anb-list{max-height:230px;overflow-y:auto;-webkit-overflow-scrolling:touch;border:1.5px solid var(--brd2);border-radius:9px;margin:-4px 0 10px;background:var(--sur)}
+.anb-item{display:flex;align-items:center;gap:8px;width:100%;text-align:left;padding:8px 10px;border:none;border-bottom:1px solid var(--brd);background:none;cursor:pointer;font:inherit;font-size:12.5px;color:inherit}
+.anb-item:last-child{border-bottom:none}
+.anb-item:hover{background:var(--sur2)}
+.anb-item.sel{background:var(--acc-bg);box-shadow:inset 3px 0 0 var(--acc)}
+.anb-item.da{opacity:.55;cursor:default}
+.anb-item.da:hover{background:none}
+.anb-item .anb-t{flex:1;min-width:0;display:block}
+.anb-n{display:block;font-weight:600;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.anb-s{display:block;font-size:10.5px;color:var(--mut);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.anb-id{font-size:11px;font-weight:800;color:var(--acc);flex-shrink:0;font-variant-numeric:tabular-nums}
+.anb-item.da .anb-id{color:var(--mut)}
+.anb-leer{text-align:center;color:var(--mut);font-size:12px;padding:14px 8px}
 .bkp-node .bkp-row{display:flex;align-items:center;gap:6px;padding:6px 8px;border-bottom:1px solid var(--brd);font-size:12.5px;cursor:pointer}
 .bkp-node .bkp-row:hover{background:var(--sur2)}
 .bkp-row .cx{width:13px;font-size:10px;color:var(--mut2);transition:transform .15s;flex-shrink:0;text-align:center}
@@ -515,9 +529,14 @@ table.pos{border-collapse:collapse;width:100%;font-size:13px}
   <div class="modal">
     <div class="modal-hd"><h3>Lieferant hinzufügen</h3><button class="modal-x" onclick="erpAnbClose()">✕</button></div>
     <div class="modal-bd">
-      <div class="fld"><label>Name des Lieferanten</label><input id="anb_name" type="text" list="anbNameList" placeholder="z.B. Geberit" autocomplete="off" oninput="erpAnbNameInput(this.value)" onkeydown="if(event.key==='Enter'){event.preventDefault();document.getElementById('anb_id').focus();}"/><datalist id="anbNameList"></datalist></div>
+      <div class="fld"><label>Lieferant suchen</label>
+        <input id="anb_such" type="text" placeholder="Firma, Sortiment oder ID — z.B. «Nussbaum», «Badmöbel», «1900»" autocomplete="off"
+               oninput="erpAnbSuche(this.value)" onkeydown="erpAnbKey(event)"/>
+      </div>
+      <div class="anb-list" id="anbListe"></div>
+      <div class="fld"><label>Name des Lieferanten</label><input id="anb_name" type="text" placeholder="z.B. Geberit" autocomplete="off" oninput="erpAnbNameInput(this.value)" onkeydown="if(event.key==='Enter'){event.preventDefault();document.getElementById('anb_id').focus();}"/></div>
       <div class="fld"><label>IGH-Mitglieder-ID (id_anbieter)</label><input id="anb_id" type="text" inputmode="numeric" placeholder="z.B. 1900" autocomplete="off" onkeydown="if(event.key==='Enter'){event.preventDefault();erpAnbSave();}"/></div>
-      <div class="side-hint">Bekannte Lieferanten füllen die ID automatisch. Sonst steht die numerische ID auf Ihrem DataSelect-Vertrag.</div>
+      <div class="side-hint">Aus der Liste wählen — die ID wird übernommen. Steht Ihr Lieferant nicht drin, Name und numerische ID von Hand eintragen (die ID steht auf Ihrem DataSelect-Vertrag).</div>
     </div>
     <div class="modal-ft">
       <button class="btn" onclick="erpAnbClose()">Abbrechen</button>
@@ -628,6 +647,9 @@ table.pos{border-collapse:collapse;width:100%;font-size:13px}
       <div id="s_abRows"></div>
       <button class="btn" type="button" style="width:auto" onclick="abRowAdd('s_abRows')">＋ Arbeitsbereich</button>
       <div style="font-size:11px;color:var(--mut);margin:6px 0 12px">Individuell benannte Bereiche mit Farbe (z.B. Sanitär, Sanitärservice, Heizung). Die Zuweisung passiert bereits bei der Offerte und wird auf Auftrag und Einsatzplan-Termin vererbt — die Termine im Kalender erscheinen in der Bereichsfarbe. Die Liste gilt firmenweit (auch im Einsatzplan editierbar).</div>
+      <div style="font-size:11px;font-weight:800;text-transform:uppercase;color:var(--mut);margin:14px 0 6px">Spalten im Dokument (Positionen)</div>
+      <div id="s_posCols" style="display:flex;flex-wrap:wrap;gap:8px 16px;margin-bottom:6px"></div>
+      <div style="font-size:11px;color:var(--mut);margin:0 0 12px">Gilt für Offerte, Auftragsbestätigung und Rechnung — im Editor UND im Druck. «Bezeichnung» ist immer dabei und wird umso breiter, je weniger Spalten angezeigt werden. Pro Dokument übersteuerbar: Rechtsklick auf die Kopfzeile der Positionen. Hinweis: die Rabatt-Spalte blendet sich im Editor automatisch ein, sobald eine Position einen Rabatt trägt — im Druck steckt der Rabatt ohnehin im Betrag.</div>
       <div style="font-size:11px;font-weight:800;text-transform:uppercase;color:var(--mut);margin:14px 0 6px">Nachkalkulation (Tab «Erfolg»)</div>
       <div class="fld"><label>Kostensatz (% vom Verkaufsansatz)</label><input id="s_kosten" type="text" inputmode="decimal" onblur="fixLeadingZero(this)" placeholder="z.B. 70"/></div>
       <div style="font-size:11px;color:var(--mut);margin:-4px 0 12px">Interner Kostenanteil der Regie-Verkaufsansätze (Lohn + Gemeinkosten). Damit schätzt der Erfolg-Tab Kosten und Deckungsbeitrag pro Auftrag. Leer = keine DB-Schätzung.</div>
@@ -1238,6 +1260,97 @@ function erpColToggle(id){
   erpSaveCols();erpRenderList();
 }
 function erpColsReset(){_erpCols=ERP_COLS_DEFAULT.slice();_erpColW={};erpSaveCols();erpSaveColW();erpRenderList();}
+
+/* ══ Spalten IM DOKUMENT (Positionstabelle) — Feedback 28.07.2026 ══════════
+   EINE Registry für Editor UND Druck: welche Spalten die Offerte/Rechnung
+   zeigt, entscheidet die Firma (⚙️ Einstellungen → Firmen-Standard) und lässt
+   sich pro Dokument übersteuern (Rechtsklick auf die Kopfzeile der Positionen).
+   Die REIHENFOLGE ist fix (Registry-Reihenfolge) — hier geht es um «welche
+   Spalten erscheinen»; das freie Anordnen gibt es in der Dokumentliste.
+   `bez` ist Pflichtspalte. Die Breite der Bezeichnung ergibt sich aus dem Rest
+   der 180 mm Textbreite (erpPosBezMm) — Editor und PDF brechen damit an
+   derselben Stelle um (WYSIWYG-Regel, siehe --pos-bezw).
+   Die «Quelle»-Spalte ist reines Editor-Chrome und wird NIE gedruckt. */
+var ERP_POSCOLS=[
+  {id:'posnr',  label:'Pos.',        pdfW:9,  edW:44,  num:true},
+  {id:'bez',    label:'Bezeichnung', always:true},
+  {id:'menge',  label:'Menge',       pdfW:16, edW:76,  num:true},
+  {id:'einheit',label:'Einheit',     pdfW:15, edW:88},
+  {id:'ep',     label:'EP CHF',      pdfW:22, edW:104, num:true},
+  {id:'rabatt', label:'Rabatt %',    pdfW:16, edW:76,  num:true},
+  {id:'betrag', label:'Betrag CHF',  pdfW:24, edW:96,  num:true}
+];
+var ERP_POSCOLS_DEFAULT=['posnr','bez','menge','einheit','ep','betrag'];
+function erpPosColById(id){for(var i=0;i<ERP_POSCOLS.length;i++)if(ERP_POSCOLS[i].id===id)return ERP_POSCOLS[i];return null;}
+// Gespeicherte Auswahl säubern: unbekannte IDs verwerfen, `bez` erzwingen,
+// Registry-Reihenfolge herstellen. Bleibt nur `bez` übrig → null (= Standard).
+function _erpPosColsNorm(arr){
+  if(!Array.isArray(arr))return null;
+  var set={};arr.forEach(function(id){if(erpPosColById(id))set[id]=1;});
+  set.bez=1;
+  var out=ERP_POSCOLS.filter(function(c){return set[c.id];}).map(function(c){return c.id;});
+  return out.length>1?out:null;
+}
+function erpPosColsOrg(){
+  var s=(erpOrg()&&erpOrg().settings&&erpOrg().settings.erp)||{};
+  return _erpPosColsNorm(s.posCols)||ERP_POSCOLS_DEFAULT.slice();
+}
+function erpPosColsFor(d){return _erpPosColsNorm(d&&d.posCols)||erpPosColsOrg();}
+// Im EDITOR wird die Rabatt-Spalte eingeblendet, sobald eine Position einen
+// Rabatt trägt — ein erfasster Wert darf nie unsichtbar werden. Im Druck folgt
+// die Spalte strikt der Einstellung (der Rabatt steckt ohnehin im Betrag).
+function erpPosColsEdit(d){
+  var ids=erpPosColsFor(d);
+  if(ids.indexOf('rabatt')<0&&(d&&d.positionen||[]).some(function(p){return erpNum(p.rabattPct)>0;}))
+    ids=_erpPosColsNorm(ids.concat('rabatt'))||ids;
+  return ids;
+}
+function erpPosColSpec(ids){return (ids||[]).map(erpPosColById).filter(Boolean);}
+// Bezeichnungs-Breite in mm = 180 mm Textbreite − Summe der Zahlenspalten
+function erpPosBezMm(ids){
+  var used=0;
+  erpPosColSpec(ids).forEach(function(c){if(c.id!=='bez')used+=c.pdfW;});
+  return Math.max(40,180-used);
+}
+// Spalte im aktuellen Dokument ein-/ausschalten (pro Dokument gespeichert)
+function erpPosColToggle(id){
+  if(!cur||!erpEditable()||id==='bez')return;
+  var ids=erpPosColsFor(cur).slice();
+  var i=ids.indexOf(id);
+  if(i>=0){if(ids.length<=2)return;ids.splice(i,1);} else ids.push(id);
+  cur.posCols=_erpPosColsNorm(ids)||ERP_POSCOLS_DEFAULT.slice();
+  erpRenderPos();
+}
+function erpPosColsDocReset(){if(!cur||!erpEditable())return;delete cur.posCols;erpRenderPos();toast('Spalten folgen wieder dem Firmen-Standard');}
+function erpPosColsAlsStandard(){
+  if(!cur)return;
+  var ids=erpPosColsFor(cur);
+  try{
+    var org=erpOrg();if(!org)return;
+    var s=Object.assign({},(org.settings&&org.settings.erp)||{});
+    s.posCols=ids.slice();
+    GemaAuth.updateOrgSettings(org.id,{erp:s});
+    delete cur.posCols;   // Dokument folgt jetzt wieder dem (neuen) Standard
+    erpRenderPos();
+    toast('✓ Als Firmen-Standard gespeichert');
+  }catch(e){toast('Konnte nicht gespeichert werden');}
+}
+function erpPosColCtx(e){
+  if(!cur)return;
+  var ids=erpPosColsEdit(cur);
+  var items=[{hd:'Spalten im Dokument'}];
+  ERP_POSCOLS.forEach(function(c){
+    var an=ids.indexOf(c.id)>=0;
+    if(c.always){items.push({ic:'☑',t:c.label+' (immer)',fn:function(){}});return;}
+    items.push({ic:an?'☑':'☐',t:c.label,fn:function(){erpPosColToggle(c.id);}});
+  });
+  if(erpEditable()){
+    items.push('-');
+    if(cur.posCols)items.push({ic:'↺',t:'Firmen-Standard übernehmen',fn:erpPosColsDocReset});
+    items.push({ic:'🏢',t:'Als Firmen-Standard speichern',fn:erpPosColsAlsStandard});
+  }
+  erpCtxShow(e,items);
+}
 
 // Inhalt einer Zelle. `ctx` bringt die schon berechneten Werte mit
 // (Status/Totale/Kette), damit pro Zeile nicht mehrfach gerechnet wird.
@@ -2452,8 +2565,7 @@ function erpOpenEditor(){
 
   // ── Positionen ──
   h+='<div class="sec"><div class="sec-hd"><h3>📑 Positionen</h3><span class="hint" id="posHint"></span></div>'
-    +'<div class="sec-bd"><div class="pos-wrap"><table class="pos"><thead><tr>'
-    +(editable?'<th style="width:26px"></th>':'')+'<th class="bez-th">Bezeichnung</th><th style="width:104px">Quelle</th><th class="num" style="width:76px">Menge</th><th style="width:88px">Einheit</th><th class="num" style="width:104px">EP CHF</th><th class="num" style="width:76px">Rabatt %</th><th class="num" style="width:96px">Betrag</th></tr></thead>'
+    +'<div class="sec-bd"><div class="pos-wrap"><table class="pos"><thead id="posHead"></thead>'
     +'<tbody id="posBody"></tbody></table></div>'
     +(editable?'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">'
       +'<button class="btn ghost" onclick="erpPosAdd(\'frei\')">+ Position</button>'
@@ -2696,6 +2808,28 @@ function erpRenderPos(){
   var editable=erpEditable();
   var h='';
   var kapBasis=0;   // Positionssumme seit dem letzten Titel (Basis für Rabatt-/Zuschlagszeilen)
+  // ── Sichtbare Spalten (Firmen-Standard bzw. Dokument-Übersteuerung) ──
+  // Aufbau je Zeile: [Griff] [Pos.] Bezeichnung [Quelle] [Menge] [Einheit] [EP]
+  // [Rabatt] [Betrag] — «Quelle» ist Editor-Chrome und immer dabei.
+  var pcIds=erpPosColsEdit(cur);
+  var hasNr=pcIds.indexOf('posnr')>=0, hasBtr=pcIds.indexOf('betrag')>=0;
+  var midCols=erpPosColSpec(pcIds).filter(function(c){return c.id!=='posnr'&&c.id!=='bez'&&c.id!=='betrag';});
+  var nrPos=0;   // laufende Positionsnummer (wie im PDF — zählt nur echte Positionen)
+  // Bezeichnungs-Spalte exakt so breit wie im DRUCK (WYSIWYG-Umbrüche) — darum
+  // erpPosColsFor (konfigurierte Spalten) und NICHT die im Editor zusätzlich
+  // eingeblendete Rabatt-Spalte; die Tabelle scrollt dann eben in .pos-wrap.
+  try{document.documentElement.style.setProperty('--pos-bezw',erpPosBezMm(erpPosColsFor(cur))+'mm');}catch(_){}
+  var hd=document.getElementById('posHead');
+  if(hd)hd.innerHTML='<tr oncontextmenu="erpPosColCtx(event)" title="Rechtsklick: Spalten ein-/ausblenden">'
+    +(editable?'<th style="width:26px"></th>':'')
+    +(hasNr?'<th class="num" style="width:44px">Pos.</th>':'')
+    +'<th class="bez-th">Bezeichnung</th><th style="width:104px">Quelle</th>'
+    +midCols.map(function(c){return '<th'+(c.num?' class="num"':'')+' style="width:'+c.edW+'px">'+esc(c.label)+'</th>';}).join('')
+    +(hasBtr?'<th class="num" style="width:96px">Betrag</th>':'')
+    +'</tr>';
+  // Leere Zellen für die mittleren Spalten (Titel-/Rabatt-/Umbruch-Zeilen)
+  function tdNr(txt){return hasNr?('<td class="num" style="color:var(--mut2)">'+(txt==null?'':txt)+'</td>'):'';}
+  function tdBtr(inner){return hasBtr?('<td class="num" style="font-weight:700;white-space:nowrap">'+(inner==null?'':inner)+'</td>'):'';}
   function editing(id,field){return editable&&_editCell&&_editCell.id===id&&_editCell.field===field;}
   // Anzeige-Zelle (Doppelklick öffnet Bearbeitung) bzw. Eingabe im Edit-Modus.
   function pcell(id,field,cls,disp,inputHtml,noEdit){
@@ -2735,23 +2869,25 @@ function erpRenderPos(){
       // Zwischentotal (Positionen darüber im Kapitel) oder Pauschal-CHF
       var istRab=p.art==='rabatt';
       var bz=erpAufschlagBetrag(p,kapBasis);
-      h+=trOpen(i,istRab?'abzug':'')+grip(i)
-        +'<td>'+pcell(p.id,'bez','',(p.bez?esc(p.bez):'<span class="mut">'+(istRab?'Rabatt':'Zuschlag')+' …</span>'),inpText(p.id,'bez',p.bez,istRab?'Rabatt …':'Zuschlag …'))+'</td>'
+      // Modus/Wert/Basis stehen gemeinsam in den mittleren Spalten (deren Anzahl
+      // konfigurierbar ist) — ohne mittlere Spalte wandern sie unter die Bezeichnung
+      var aufCtrl='<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">'
+        +pcell(p.id,'modus','',(p.modus==='chf'?'CHF':'%'),inpSel(p.id,'modus','<option value="pct"'+(p.modus!=='chf'?' selected':'')+'>%</option><option value="chf"'+(p.modus==='chf'?' selected':'')+'>CHF</option>'))
+        +pcell(p.id,'wert','num',(p.wert!=null&&p.wert!==''?esc(p.wert):'<span class="mut">–</span>'),inpNum(p.id,'wert',p.wert,p.modus==='chf'?'Betrag':'%'))
+        +'<span style="font-size:10.5px;color:var(--mut);white-space:nowrap" title="Zwischentotal der Positionen darüber im Kapitel">'+(p.modus==='chf'?'pauschal':'auf '+chf(kapBasis))+'</span>'
+        +'</div>';
+      h+=trOpen(i,istRab?'abzug':'')+grip(i)+tdNr('')
+        +'<td>'+pcell(p.id,'bez','',(p.bez?esc(p.bez):'<span class="mut">'+(istRab?'Rabatt':'Zuschlag')+' …</span>'),inpText(p.id,'bez',p.bez,istRab?'Rabatt …':'Zuschlag …'))+(midCols.length?'':aufCtrl)+'</td>'
         +'<td><span class="src" style="background:'+(istRab?'var(--red-bg);color:var(--red);border:1px solid var(--red-bd)':'var(--amber-bg);color:var(--amber);border:1px solid var(--amber-bd)')+'">'+(istRab?'− Rabatt':'+ Zuschlag')+'</span></td>'
-        +'<td></td>'
-        +'<td style="width:88px">'+pcell(p.id,'modus','',(p.modus==='chf'?'CHF':'%'),inpSel(p.id,'modus','<option value="pct"'+(p.modus!=='chf'?' selected':'')+'>%</option><option value="chf"'+(p.modus==='chf'?' selected':'')+'>CHF</option>'))+'</td>'
-        +'<td style="width:104px">'+pcell(p.id,'wert','num',(p.wert!=null&&p.wert!==''?esc(p.wert):'<span class="mut">–</span>'),inpNum(p.id,'wert',p.wert,p.modus==='chf'?'Betrag':'%'))+'</td>'
-        +'<td class="num" style="font-size:10.5px;color:var(--mut);white-space:nowrap" title="Zwischentotal der Positionen darüber im Kapitel">'+(p.modus==='chf'?'pauschal':'auf '+chf(kapBasis))+'</td>'
-        +'<td class="num" style="font-weight:700;white-space:nowrap;color:'+(bz<0?'var(--red)':'var(--amber)')+'">'+(bz<0?'− ':'+ ')+chf(Math.abs(bz))+'</td>'
-        
+        +(midCols.length?'<td colspan="'+midCols.length+'">'+aufCtrl+'</td>':'')
+        +(hasBtr?'<td class="num" style="font-weight:700;white-space:nowrap;color:'+(bz<0?'var(--red)':'var(--amber)')+'">'+(bz<0?'− ':'+ ')+chf(Math.abs(bz))+'</td>':'')
         +'</tr>';
       return;
     }
     if(p.art==='seitenumbruch'){
       // Manueller Seitenumbruch (Ctrl+Enter) — im Editor als Trenner, im PDF page-break
       h+=trOpen(i,'seitenumbruch')+grip(i)
-        +'<td colspan="6" style="text-align:center;color:var(--mut2);font-size:11px;font-weight:800;letter-spacing:.5px;border-top:1.5px dashed var(--brd2);border-bottom:1.5px dashed var(--brd2)">— — —  Seitenumbruch  — — —</td><td></td>'
-        
+        +'<td colspan="'+((hasNr?1:0)+2+midCols.length+(hasBtr?1:0))+'" style="text-align:center;color:var(--mut2);font-size:11px;font-weight:800;letter-spacing:.5px;border-top:1.5px dashed var(--brd2);border-bottom:1.5px dashed var(--brd2)">— — —  Seitenumbruch  — — —</td>'
         +'</tr>';
       return;
     }
@@ -2760,18 +2896,18 @@ function erpRenderPos(){
       // BKP-Checkliste im Ausschreibungsmodul); Nummer + Text bleiben frei anpassbar
       kapBasis=0;
       var eb=bkpEbene(p.bkp);
-      h+=trOpen(i,'titel')+grip(i)+'<td colspan="6"><div style="display:flex;gap:6px;align-items:center;padding-left:'+(eb*20)+'px">'
+      h+=trOpen(i,'titel')+grip(i)+tdNr('')+'<td colspan="'+(2+midCols.length)+'"><div style="display:flex;gap:6px;align-items:center;padding-left:'+(eb*20)+'px">'
         +(eb?'<span style="color:var(--mut2);font-size:11px;flex-shrink:0">└</span>':'')
         +pcell(p.id,'bkp','bkp',(p.bkp?esc(p.bkp):'<span class="mut">BKP</span>'),inpText(p.id,'bkp',p.bkp,'BKP','flex:0 0 76px;width:76px;text-align:left;color:var(--acc,#1d4ed8)'))
         +pcell(p.id,'bez','titeltxt',(p.bez?esc(p.bez):'<span class="mut">Titel …</span>'),inpText(p.id,'bez',p.bez,'Titel …','flex:1;min-width:0'))
-        +'</div></td><td></td>'+'</tr>';
+        +'</div></td>'+tdBtr('')+'</tr>';
       return;
     }
     if(p.art==='text'){
       // Freier Text/Beschrieb über die ganze Breite — keine Menge, kein Preis
-      h+=trOpen(i,'postext')+grip(i)+'<td colspan="6">'
+      h+=trOpen(i,'postext')+grip(i)+tdNr('')+'<td colspan="'+(2+midCols.length)+'">'
         +pcell(p.id,'bez','bezflex',(p.bez?erpRichSanitize(p.bez):'<span class="mut">Text …</span>'),inpRich(p.id,p.bez),!editable)
-        +'</td><td></td></tr>';
+        +'</td>'+tdBtr('')+'</tr>';
       return;
     }
     var istVar=!!p.variante;
@@ -2792,18 +2928,22 @@ function erpRenderPos(){
     var editableRow=editable&&p.art!=='abzug';   // Abzugszeilen (Schlussrechnung) bleiben fix
     var bezAnz=(p.bez?erpRichSanitize(p.bez):'<span class="mut">—</span>');
     if(istVar)bezAnz='<b class="vari-tag">Variante</b><span class="vari-txt">'+bezAnz+'</span>';
-    h+=trOpen(i,(p.art==='abzug'?'abzug':'')+(istVar?' pos-variante':''))+grip(i)
+    nrPos++;
+    var midHtml=midCols.map(function(c){
+      if(c.id==='menge')  return '<td>'+pcell(p.id,'menge','num',(istPer?'<span class="per-tag">per</span>':mengeLeer?'<span class="mut">–</span>':esc(p.menge)),inpNum(p.id,'menge',p.menge,''),!editableRow)+'</td>';
+      if(c.id==='einheit')return '<td>'+pcell(p.id,'einheit','',esc(p.einheit||'Stk'),inpSel(p.id,'einheit',(function(cu){var L=EINHEITEN.slice();if(cu&&L.indexOf(cu)<0)L.unshift(cu);return L.map(function(e){return '<option'+(cu===e?' selected':'')+'>'+esc(e)+'</option>';}).join('');})(p.einheit)),!editableRow)+'</td>';
+      if(c.id==='ep')     return '<td>'+pcell(p.id,'ep','num',(p.ep!=null&&p.ep!==''?esc(p.ep):'<span class="mut">–</span>'),inpNum(p.id,'ep',p.ep,''),!editableRow)+'</td>';
+      if(c.id==='rabatt') return '<td>'+pcell(p.id,'rabattPct','num',(p.rabattPct?esc(p.rabattPct)+' %':'<span class="mut">–</span>'),inpNum(p.id,'rabattPct',p.rabattPct,'–'),!editableRow)+'</td>';
+      return '<td></td>';
+    }).join('');
+    h+=trOpen(i,(p.art==='abzug'?'abzug':'')+(istVar?' pos-variante':''))+grip(i)+tdNr(nrPos)
       +'<td class="bezcell"><div class="bezwrap">'+pcell(p.id,'bez','bezflex',bezAnz,inpRich(p.id,p.bez),!editableRow)+bildHtml+'</div></td>'
       +'<td>'+src+(src&&fotoBtn?' ':'')+fotoBtn+'</td>'
-      +'<td>'+pcell(p.id,'menge','num',(istPer?'<span class="per-tag">per</span>':mengeLeer?'<span class="mut">–</span>':esc(p.menge)),inpNum(p.id,'menge',p.menge,''),!editableRow)+'</td>'
-      +'<td>'+pcell(p.id,'einheit','',esc(p.einheit||'Stk'),inpSel(p.id,'einheit',(function(cu){var L=EINHEITEN.slice();if(cu&&L.indexOf(cu)<0)L.unshift(cu);return L.map(function(e){return '<option'+(cu===e?' selected':'')+'>'+esc(e)+'</option>';}).join('');})(p.einheit)),!editableRow)+'</td>'
-      +'<td>'+pcell(p.id,'ep','num',(p.ep!=null&&p.ep!==''?esc(p.ep):'<span class="mut">–</span>'),inpNum(p.id,'ep',p.ep,''),!editableRow)+'</td>'
-      +'<td>'+pcell(p.id,'rabattPct','num',(p.rabattPct?esc(p.rabattPct)+' %':'<span class="mut">–</span>'),inpNum(p.id,'rabattPct',p.rabattPct,'–'),!editableRow)+'</td>'
-      +'<td class="num" style="font-weight:700;white-space:nowrap">'
-        +(istPer?'<span class="mut">—</span>':istVar?'('+chf(betrag)+')':chf(betrag))+'</td>'
+      +midHtml
+      +tdBtr(istPer?'<span class="mut">—</span>':istVar?'('+chf(betrag)+')':chf(betrag))
       +'</tr>';
   });
-  var _ncols=(editable?9:7);
+  var _ncols=(editable?1:0)+(hasNr?1:0)+2+midCols.length+(hasBtr?1:0);
   if(!h)h='<tr><td colspan="'+_ncols+'" style="text-align:center;color:var(--mut2);padding:14px">Noch keine Positionen — links hinzufügen oder aus der Seitenleiste 🧰 einfügen</td></tr>';
   tb.innerHTML=h;
   // Post-Render-Fokus auf die aktive Bearbeitungs-Zelle
@@ -3048,10 +3188,11 @@ function _erpPredictBreaks(){
   var mm=96/25.4;
   var pageUsable=(297-18-22)*mm;        // A4-Nutzhöhe ≈ 257mm
   var firstOffset=16*mm;                 // «Positionen im Detail»-Überschrift + Tabellenkopf auf Seite 1
-  // Bezeichnungs-Spalte im PDF: 180mm Textbreite − 86mm Zahlenspalten = 94mm,
-  // davon 2×7px Zellpadding. Schrift/Zeilenhöhe exakt wie die PDF-Tabelle
-  // (9.5pt / 1.45) — dieselben Werte trägt die Editor-Zelle (--pos-bezw).
-  var bezW=94*mm-14;
+  // Bezeichnungs-Spalte im PDF: 180mm Textbreite − Zahlenspalten (bei den
+  // Standard-Spalten 86mm → 94mm), davon 2×7px Zellpadding. Schrift/Zeilenhöhe
+  // exakt wie die PDF-Tabelle (9.5pt / 1.45) — dieselben Werte trägt die
+  // Editor-Zelle (--pos-bezw). Blendet man Spalten aus, wächst die Bezeichnung.
+  var bezW=erpPosBezMm(erpPosColsFor(cur))*mm-14;
   var m=_erpMeasEl;
   if(!m){m=_erpMeasEl=document.createElement('div');m.setAttribute('aria-hidden','true');document.body.appendChild(m);}
   m.style.cssText='position:absolute;left:-9999px;top:0;visibility:hidden;font-family:"DM Sans",ui-sans-serif,system-ui,sans-serif;font-size:9.5pt;line-height:1.45;overflow-wrap:anywhere;word-break:break-word;width:'+Math.round(bezW)+'px';
@@ -3710,25 +3851,72 @@ function erpKatFilter(v){
   });
 }
 var _dsResults=[];
-// Lieferant hinzufügen (ID + Name) — wird org-weit gespeichert (kein erneutes
-// Hinzufügen nötig). Vorbelegt mit der aktuellen Suche (ID oder Name).
-// Lieferant hinzufügen — EIN Dialog: Name suchen (bekannte füllen die ID
-// automatisch), sonst ID eintragen, «Hinzufügen».
+// Lieferant hinzufügen — EIN Dialog, org-weit gespeichert (kein erneutes
+// Hinzufügen nötig). Oben die Suche im IGH-Mitglieder-Katalog (Klick übernimmt
+// Name + id_anbieter), darunter die Felder für Lieferanten ausserhalb des
+// Katalogs. Vorbelegt mit der aktuellen Katalog-Suche (ID oder Name).
 function erpDsAddAnbieter(){
   var pre=String(_katQ||'').trim();
   var preId=/^\d{1,7}$/.test(pre)?pre:'';
   var preName=preId?'':pre;
-  // Datalist mit bekannten IGH-Mitgliedern (nur dokumentierte IDs, keine erfundenen)
-  var known=(GemaDataSelect.SEED||[]);
-  var dl=document.getElementById('anbNameList');
-  if(dl)dl.innerHTML=known.map(function(m){return '<option value="'+esc(m.name)+'" data-id="'+esc(m.id)+'">';}).join('');
-  var ni=document.getElementById('anb_name'),ii=document.getElementById('anb_id');
-  if(ni)ni.value=preName;if(ii)ii.value=preId;
+  var ni=document.getElementById('anb_name'),ii=document.getElementById('anb_id'),si=document.getElementById('anb_such');
+  if(ni)ni.value=preName;if(ii)ii.value=preId;if(si)si.value=pre;
+  _anbSel=-1;
+  erpAnbSuche(pre);
   document.getElementById('erpAnbModal').classList.add('open');
-  setTimeout(function(){try{(preId?ii:ni).focus();}catch(_){}},40);
+  setTimeout(function(){try{(si||ni).focus();}catch(_){}},40);
+}
+/* IGH-Mitglieder-Katalog: suchen → Klick übernimmt Name UND id_anbieter,
+   damit niemand die ID online heraussuchen muss (Feedback 28.07.2026).
+   Bereits hinterlegte Lieferanten sind markiert und nicht erneut wählbar. */
+var _anbTreffer=[], _anbSel=-1;
+function erpAnbSuche(q){
+  var host=document.getElementById('anbListe'); if(!host) return;
+  var kat=(typeof GemaDataSelect!=='undefined'&&GemaDataSelect.katalog)?GemaDataSelect.katalog(q):[];
+  var schon={}; ((typeof GemaDataSelect!=='undefined'&&GemaDataSelect.anbieter)?GemaDataSelect.anbieter():[])
+    .forEach(function(a){ schon[a.id]=1; });
+  _anbTreffer=kat.slice(0,40); _anbSel=-1;
+  if(!kat.length){
+    host.innerHTML='<div class="anb-leer">Kein Treffer im IGH-Katalog — Name und ID unten von Hand eintragen.</div>';
+    return;
+  }
+  host.innerHTML=_anbTreffer.map(function(m,i){
+    var da=!!schon[m.id];
+    return '<button type="button" class="anb-item'+(da?' da':'')+'" data-anbi="'+i+'"'+(da?' disabled':'')
+      + ' onclick="erpAnbPick('+i+')">'
+      + '<span class="anb-t"><span class="anb-n">'+esc(m.name)+'</span>'
+      + '<span class="anb-s">'+esc((m.sortimente||[]).join(' · '))+'</span></span>'
+      + '<span class="anb-id">'+esc(m.id)+(da?' ✓':'')+'</span></button>';
+  }).join('')
+  + (kat.length>_anbTreffer.length?'<div class="anb-leer">… '+(kat.length-_anbTreffer.length)+' weitere — Suche verfeinern</div>':'');
+}
+function erpAnbPick(i){
+  var m=_anbTreffer[i]; if(!m) return;
+  var ni=document.getElementById('anb_name'),ii=document.getElementById('anb_id');
+  if(ni)ni.value=m.name; if(ii)ii.value=m.id;
+  erpAnbSave();
+}
+function erpAnbKey(ev){
+  var host=document.getElementById('anbListe'); if(!host) return;
+  var btns=[].slice.call(host.querySelectorAll('.anb-item:not([disabled])'));
+  if(ev.key==='ArrowDown'||ev.key==='ArrowUp'){
+    ev.preventDefault();
+    if(!btns.length) return;
+    _anbSel=Math.max(0,Math.min(btns.length-1,_anbSel+(ev.key==='ArrowDown'?1:-1)));
+    btns.forEach(function(b,k){ b.classList.toggle('sel',k===_anbSel); });
+    try{ btns[_anbSel].scrollIntoView({block:'nearest'}); }catch(_){}
+    return;
+  }
+  if(ev.key==='Enter'){
+    ev.preventDefault();
+    if(_anbSel>=0&&btns[_anbSel]) btns[_anbSel].click();
+    else if(btns.length===1) btns[0].click();
+    else document.getElementById('anb_name').focus();
+  }
 }
 function erpAnbNameInput(v){
-  var m=(GemaDataSelect.SEED||[]).find(function(x){return x.name.toLowerCase()===String(v||'').trim().toLowerCase();});
+  var kat=(typeof GemaDataSelect!=='undefined'&&GemaDataSelect.katalog)?GemaDataSelect.katalog(''):[];
+  var m=kat.find(function(x){return x.name.toLowerCase()===String(v||'').trim().toLowerCase();});
   var ii=document.getElementById('anb_id');
   if(m&&ii&&!ii.value.trim())ii.value=m.id;
 }
@@ -4329,6 +4517,7 @@ function erpZuAuftrag(){
     datum:today(),status:'offen',
     positionen:JSON.parse(JSON.stringify(off.positionen||[])),
     rabattPct:off.rabattPct,schluss:JSON.parse(JSON.stringify(off.schluss||[])),mwstPct:off.mwstPct,
+    posCols:off.posCols?off.posCols.slice():undefined,
     einleitung:s.txtAuftragIntro||'',schlusstext:s.txtAuftrag||'',
     verknuepfung:{offerteId:off.id},zahlungen:[],
     erstelltVon:{userId:u?u.id:'',name:u?u.name:''},erstelltAm:new Date().toISOString()
@@ -4353,6 +4542,7 @@ function _erpNeueRechnung(auftrag,art,positionen,titelZusatz){
     sachbearbeiter:erpSbNeu(auftrag),
     datum:today(),frist:addDays(today(),s.fristTage),status:'entwurf',
     positionen:positionen,rabattPct:0,schluss:schluss,mwstPct:auftrag.mwstPct!=null?auftrag.mwstPct:s.mwstPct,
+    posCols:auftrag.posCols?auftrag.posCols.slice():undefined,
     einleitung:s.txtRechnungIntro||'',schlusstext:s.txtRechnung,
     verknuepfung:{auftragId:auftrag.id,offerteId:auftrag.verknuepfung?auftrag.verknuepfung.offerteId:undefined},
     rechnungsArt:art,zahlungen:[],
@@ -4810,6 +5000,15 @@ function erpOpenSettings(){
   document.getElementById('s_mwstnr').value=s.mwstNr;
   document.getElementById('s_kosten').value=s.kostenFaktorPct||'';
   document.getElementById('s_abRows').innerHTML=abListe().map(abRowHtml).join('');
+  // Spalten im Dokument (Firmen-Standard)
+  (function(){
+    var an=erpPosColsOrg();
+    document.getElementById('s_posCols').innerHTML=ERP_POSCOLS.map(function(c){
+      return '<label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:'+(c.always?'default':'pointer')+'">'
+        +'<input type="checkbox" class="s-poscol" data-col="'+c.id+'"'+(an.indexOf(c.id)>=0||c.always?' checked':'')+(c.always?' disabled':'')+'/>'
+        +'<span>'+esc(c.label)+(c.always?' <span style="color:var(--mut);font-size:11px">(immer)</span>':'')+'</span></label>';
+    }).join('');
+  })();
   document.getElementById('s_txtOfferte').value=s.txtOfferte;
   document.getElementById('s_txtRechnung').value=s.txtRechnung;
   document.getElementById('s_txtAuftrag').value=s.txtAuftrag;
@@ -4849,11 +5048,17 @@ function erpSetSave(){
       txtOfferteIntro:document.getElementById('s_txtOfferteIntro').value,
       txtAuftragIntro:document.getElementById('s_txtAuftragIntro').value,
       txtRechnungIntro:document.getElementById('s_txtRechnungIntro').value,
-      txtKonditionen:document.getElementById('s_txtKonditionen').value
+      txtKonditionen:document.getElementById('s_txtKonditionen').value,
+      posCols:(function(){
+        var ids=[].slice.call(document.querySelectorAll('#s_posCols .s-poscol'))
+          .filter(function(cb){return cb.checked;}).map(function(cb){return cb.getAttribute('data-col');});
+        return _erpPosColsNorm(ids)||ERP_POSCOLS_DEFAULT.slice();
+      })()
     };
     // Arbeitsbereiche liegen TOP-LEVEL in org.settings (geteilt mit dem Einsatzplan)
     settings.arbeitsbereiche=abRowsCollect('s_abRows');
     GemaAuth.updateOrgSettings(org.id,settings);
+    if(cur&&document.getElementById('edOv').classList.contains('open'))erpRenderPos();
     toast('✓ Einstellungen gespeichert');
   }catch(e){toast('Fehler beim Speichern');}
   document.getElementById('setModal').classList.remove('open');
@@ -4884,6 +5089,14 @@ function erpPdf(){
   // Kapitel-Label: BKP-Nummer wenn vorhanden, sonst fortlaufender Buchstabe
   // (Buchstaben-Index zählt nur die Gruppen ohne BKP — keine Lücken im Alphabet)
   var nextLtr=function(){return GRP_L.charAt(gruppen.filter(function(g){return !g.bkp;}).length)||'';};
+  // ── Sichtbare Spalten des Dokuments (Firmen-Standard bzw. Dokument-Wahl) ──
+  var pcIds=erpPosColsFor(d);
+  var pcNr=pcIds.indexOf('posnr')>=0, pcBtr=pcIds.indexOf('betrag')>=0;
+  var pcMid=erpPosColSpec(pcIds).filter(function(c){return c.id!=='posnr'&&c.id!=='bez'&&c.id!=='betrag';});
+  var pcAll=(pcNr?1:0)+1+pcMid.length+(pcBtr?1:0);
+  var pNr=function(t){return pcNr?('<td class="num" style="color:#888">'+(t==null?'':t)+'</td>'):'';};
+  var pBtr=function(t){return pcBtr?('<td class="num">'+(t==null?'':t)+'</td>'):'';};
+  var pMidLeer=pcMid.map(function(c){return '<td'+(c.num?' class="num"':'')+'></td>';}).join('');
   (d.positionen||[]).forEach(function(p){
     if(p.art==='titel'){
       hatTitel=true;kapBasis=0;
@@ -4891,7 +5104,12 @@ function erpPdf(){
       var eb=bkp?bkpEbene(bkp):0;
       curGrp={bez:p.bez,sum:0,ltr:bkp||nextLtr(),bkp:bkp,ebene:eb};
       gruppen.push(curGrp);
-      posRows+='<tr class="grprow"><td class="grpltr">'+esc(curGrp.ltr)+'</td><td colspan="5"'+(eb?' style="padding-left:'+(2+eb*5)+'mm"':'')+'>'+esc(p.bez)+'</td></tr>';
+      // Ohne Pos.-Spalte wandert das Kapitel-Kürzel vor den Titeltext
+      posRows+='<tr class="grprow">'
+        +(pcNr?'<td class="grpltr">'+esc(curGrp.ltr)+'</td>':'')
+        +'<td colspan="'+(pcAll-(pcNr?1:0))+'"'+(eb?' style="padding-left:'+(2+eb*5)+'mm"':'')+'>'
+        +(pcNr?'':'<span class="grpltr" style="margin-right:3mm">'+esc(curGrp.ltr)+'</span>')
+        +esc(p.bez)+'</td></tr>';
       return;
     }
     if(p.art==='rabatt'||p.art==='zuschlag'){
@@ -4900,16 +5118,16 @@ function erpPdf(){
       var bz=erpAufschlagBetrag(p,kapBasis);
       if(!curGrp){curGrp={bez:'Positionen ohne Titel',sum:0,ltr:nextLtr(),bkp:'',ebene:0};gruppen.push(curGrp);}
       curGrp.sum+=bz;
-      posRows+='<tr'+(bz<0?' style="color:#92400e"':'')+'><td class="num"></td>'
+      posRows+='<tr'+(bz<0?' style="color:#92400e"':'')+'>'+pNr('')
         +'<td>'+esc(p.bez)+' <span style="color:#888;font-size:8pt">('
         +(p.modus==='chf'?'pauschal':erpNum(p.wert)+' % auf Zwischentotal CHF '+chf(kapBasis))+')</span></td>'
-        +'<td class="num"></td><td></td><td class="num"></td><td class="num">'+chf(bz)+'</td></tr>';
+        +pMidLeer+pBtr(chf(bz))+'</tr>';
       return;
     }
-    if(p.art==='seitenumbruch'){posRows+='<tr class="pgbrk"><td colspan="6"></td></tr>';return;}
+    if(p.art==='seitenumbruch'){posRows+='<tr class="pgbrk"><td colspan="'+pcAll+'"></td></tr>';return;}
     if(p.art==='text'){
       // Freier Text/Beschrieb über die Textbreite — keine Nummer, keine Werte
-      posRows+='<tr class="txtrow"><td class="num"></td><td colspan="5">'+erpRichSanitize(p.bez)+'</td></tr>';
+      posRows+='<tr class="txtrow">'+pNr('')+'<td colspan="'+(pcAll-(pcNr?1:0))+'">'+erpRichSanitize(p.bez)+'</td></tr>';
       return;
     }
     var istVar=!!p.variante;
@@ -4921,12 +5139,22 @@ function erpPdf(){
     var istPer=!mengeLeer&&erpNum(p.menge)===0;
     var pimg=erpPosImgSrc(p);
     var bezPdf=(istVar?'<b class="varitag">Variante</b>':'')+erpRichSanitize(p.bez);
+    // Rabatt-Vermerk: eigene Spalte, wenn eingeblendet — sonst wie bisher als
+    // kleiner Zusatz unter dem Einheitspreis (der Betrag ist ohnehin netto)
+    var rabTxt=erpNum(p.rabattPct)?('−'+p.rabattPct+'%'):'';
+    var pcRab=pcIds.indexOf('rabatt')>=0;
+    var midHtml=pcMid.map(function(c){
+      if(c.id==='menge')  return '<td class="num">'+(istPer?'per':mengeLeer?'':esc(p.menge))+'</td>';
+      if(c.id==='einheit')return '<td>'+esc(p.einheit||'')+'</td>';
+      if(c.id==='ep')     return '<td class="num">'+chf(erpNum(p.ep))+((rabTxt&&!pcRab)?'<br><span style="font-size:8pt;color:#888">'+rabTxt+'</span>':'')+'</td>';
+      if(c.id==='rabatt') return '<td class="num">'+(rabTxt?esc(p.rabattPct)+' %':'')+'</td>';
+      return '<td></td>';
+    }).join('');
     posRows+='<tr'+(pimg?' class="hasimg'+(istVar?' varirow':'')+'"':(istVar?' class="varirow"':''))+(p.art==='abzug'?' style="color:#92400e"':'')
-      +'><td class="num" style="color:#888">'+nrPos+'</td><td>'+bezPdf+'</td>'
-      +'<td class="num">'+(istPer?'per':mengeLeer?'':p.menge)+'</td><td>'+esc(p.einheit||'')+'</td><td class="num">'+chf(erpNum(p.ep))+(erpNum(p.rabattPct)?'<br><span style="font-size:8pt;color:#888">−'+p.rabattPct+'%</span>':'')+'</td>'
-      +'<td class="num">'+(istPer?'':istVar?'('+chf(betrag)+')':chf(betrag))+'</td></tr>';
+      +'>'+pNr(nrPos)+'<td>'+bezPdf+'</td>'+midHtml
+      +pBtr(istPer?'':istVar?'('+chf(betrag)+')':chf(betrag))+'</tr>';
     // Positionsbild als eigene Zeile unter der Position
-    if(pimg)posRows+='<tr class="bildrow"><td></td><td colspan="5" style="padding:2px 7px 8px"><img src="'+esc(pimg)+'" alt="" style="max-height:40mm;max-width:40mm;border:none;display:block"/></td></tr>';
+    if(pimg)posRows+='<tr class="bildrow">'+(pcNr?'<td></td>':'')+'<td colspan="'+(pcAll-(pcNr?1:0))+'" style="padding:2px 7px 8px"><img src="'+esc(pimg)+'" alt="" style="max-height:40mm;max-width:40mm;border:none;display:block"/></td></tr>';
   });
   // Briefkopf: Absender links (dezent), Logo oben rechts; darunter Empfänger links + Dokument-Meta rechts
   var absAdr=[s.strasse,[s.plz,s.ort].filter(Boolean).join(' ')].filter(Boolean).join(' · ');
@@ -4967,7 +5195,12 @@ function erpPdf(){
     +'</div>';
   // ── Ab Seite 2: Detailpositionen ──
   var posSec='<div class="sheet pb"><h2>Positionen im Detail</h2>'
-    +'<table class="pos"><thead><tr><th style="width:9mm">Pos</th><th>Bezeichnung</th><th class="num" style="width:16mm">Menge</th><th style="width:15mm">Einheit</th><th class="num" style="width:22mm">EP CHF</th><th class="num" style="width:24mm">Betrag CHF</th></tr></thead><tbody>'+posRows+'</tbody></table>'
+    +'<table class="pos"><thead><tr>'
+    +erpPosColSpec(pcIds).map(function(c){
+      if(c.id==='bez')return '<th style="width:'+erpPosBezMm(pcIds)+'mm">Bezeichnung</th>';
+      return '<th'+(c.num?' class="num"':'')+' style="width:'+c.pdfW+'mm">'+esc(c.id==='posnr'?'Pos':c.label)+'</th>';
+    }).join('')
+    +'</tr></thead><tbody>'+posRows+'</tbody></table>'
     +'</div>';
   // ── Zusammenstellung: Zusammenzug pro Titel + Totale ──
   var zusSec='<div class="sheet pb"><h2>Zusammenfassung</h2>'

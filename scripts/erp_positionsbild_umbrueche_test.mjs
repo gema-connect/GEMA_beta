@@ -86,7 +86,9 @@ await page.waitForTimeout(400);
       fs:parseFloat(cs.fontSize), lh:cs.lineHeight,
       imgTop:img.getBoundingClientRect().top, txtBottom:pc.getBoundingClientRect().bottom,
       imgLeft:img.getBoundingClientRect().left, txtLeft:pc.getBoundingClientRect().left,
-      fotoInQuelle:!!document.querySelector('#posBody tr:nth-child(2) td:nth-child(3) .pos-foto'),
+      // Quelle-Spalte = td direkt nach der Beschrieb-Zelle (die Spaltenzahl davor
+      // ist seit Feedback 28.07.2026 konfigurierbar → nicht auf nth-child fixieren)
+      fotoInQuelle:!!document.querySelector('#posBody td.bezcell + td .pos-foto'),
       fotoInBez:!!document.querySelector('#posBody td.bezcell .pos-foto') };
   });
   ok(Math.abs(g.wrapW-94*MM)<1.5, 'Beschrieb-Spalte = 94mm wie im PDF ('+g.wrapW.toFixed(0)+'px)');
