@@ -81,7 +81,15 @@
     var m = /HTTP (\d+)/.exec(msg);
     if(m){
       var code = +m[1];
-      if(code >= 400 && code < 500 && code !== 408 && code !== 429) return;
+      if(code >= 400 && code < 500 && code !== 408 && code !== 429){
+        // Abgelehnte Anfrage (413/403/400 …): kein Verbindungsproblem — aber
+        // der GRUND muss fuer die Diagnose sichtbar bleiben. Frueher lief
+        // dieser Pfad ohne Aufzeichnung: die Details-Box zeigte «alles
+        // antwortet», obwohl jeder Upload abgelehnt wurde — genau der blinde
+        // Fleck des Bugreports 28.07.2026.
+        _lastFailMsg = msg;
+        return;
+      }
     }
     _markFail(msg);
     if(_failStreak >= 2 && !_probing) _probeOnce();   // Verifikation entscheidet
@@ -372,15 +380,42 @@
       box.style.display = ''; box.textContent = 'Pruefe Verbindung …';
       _selfTest().then(function(t){
         if(!box || !_banner) return;
+        var esc = function(s){ return String(s == null ? '' : s).replace(/[<>&]/g, ''); };
+        var pend = _pendingInfo();
+        var hatFehler = pend.some(function(p){ return p.err; });
         var hint;
         if(!t.sbOk && t.fnOk) hint = '→ Internet funktioniert, aber die Cloud-Datenbank (supabase.co) ist von diesem Geraet aus blockiert. GEMA weicht automatisch auf den GEMA-Server-Proxy aus («Erneut pruefen» klicken); dauerhaft besser: Firewall, Werbeblocker (AdGuard/uBlock), Antivirus oder DNS-Filter pruefen.';
         else if(!t.sbOk && !t.fnOk) hint = '→ Keine Verbindung zum Server — Internet/WLAN/VPN pruefen.';
+        else if(pend.length && hatFehler) hint = '→ Die Verbindung ist in Ordnung — der Upload selbst wird abgelehnt (Gruende unten pro Eintrag). «⬆ Jetzt hochladen» versucht es sofort erneut.';
+        else if(pend.length) hint = '→ Verbindung in Ordnung — «⬆ Jetzt hochladen» klicken.';
         else hint = '→ Verbindung scheint wieder da — «Erneut pruefen» klicken.';
+        var pendHtml = '';
+        if(pend.length){
+          pendHtml = '<div style="margin-top:6px;font-weight:700">Wartende Uploads (' + pend.length + '):</div>'
+            + pend.slice(0, 6).map(function(p){
+                var grund = '';
+                if(/413|payload|too large|exceed/i.test(p.err)) grund = ' → Datensatz zu gross; GEMA lagert die Fotos automatisch aus und sendet erneut';
+                else if(/403/.test(p.err)) grund = ' → Zugriff abgelehnt — bitte einmal ab- und wieder anmelden; besteht das weiter, den Administrator informieren';
+                return '<div>• ' + esc(p.module) + ' / ' + esc(p.key) + ' — ' + p.kb + ' KB — '
+                  + p.tries + ' Versuche' + (p.err ? ' — ' + esc(p.err) : '') + esc(grund) + '</div>';
+              }).join('')
+            + (pend.length > 6 ? '<div>… und ' + (pend.length - 6) + ' weitere</div>' : '')
+            + '<button type="button" id="gema-sync-upnow" style="margin-top:6px;padding:3px 10px;border:1px solid rgba(255,255,255,.6);border-radius:7px;background:transparent;color:#fff;font:inherit;font-size:12px;font-weight:700;cursor:pointer">⬆ Jetzt hochladen</button>';
+        }
         box.innerHTML = '<div>Cloud-Datenbank (Supabase, direkt): ' + t.supabase + '</div>'
           + '<div>GEMA-Server (Netlify): ' + t.fn + '</div>'
           + '<div>Aktiver Verbindungsweg: ' + (_sbProxy ? 'GEMA-Server-Proxy (/sb)' : 'direkt (supabase.co)') + '</div>'
-          + (_lastFailMsg ? '<div>Letzter Fehler: ' + String(_lastFailMsg).replace(/[<>&]/g,'') + '</div>' : '')
-          + '<div style="margin-top:4px;font-weight:600">' + hint + '</div>';
+          + (_lastFailMsg ? '<div>Letzter Fehler: ' + esc(_lastFailMsg) + '</div>' : '')
+          + '<div style="margin-top:4px;font-weight:600">' + hint + '</div>'
+          + pendHtml;
+        var up = box.querySelector('#gema-sync-upnow');
+        if(up) up.onclick = function(){
+          up.textContent = '…laedt hoch';
+          _outboxFlush().then(function(){
+            var rest = _outboxCount();
+            if(up) up.textContent = rest ? ('⬆ Jetzt hochladen (' + rest + ' verbleiben)') : '✓ alles oben';
+          });
+        };
       });
     };
     if(document.body) document.body.appendChild(_banner);
@@ -550,7 +585,13 @@
       keepalive: !!(opts && opts.keepalive)
     }).then(function(r){
       if(r.status === 401) _handle401();
-      if(!r.ok) throw new Error('HTTP ' + r.status);
+      if(!r.ok){
+        // Antwort-Text mitnehmen (PostgREST erklaert den Grund als JSON) —
+        // ohne ihn ist ein abgelehnter Upload in der Diagnose unsichtbar.
+        return r.text().then(function(t){
+          throw new Error('HTTP ' + r.status + (t ? ' — ' + String(t).slice(0, 220) : ''));
+        }, function(){ throw new Error('HTTP ' + r.status); });
+      }
       _noteSuccess();
       return true;
     }).catch(function(e){
@@ -814,6 +855,8 @@
 
   function bindCollection(moduleKey, storageKey, prefix, idField){
     if(!idField) idField = 'id';
+    var reg = (_collReg[moduleKey] = _collReg[moduleKey] || []);
+    if(!reg.some(function(r){ return r.prefix === prefix; })) reg.push({ storageKey: storageKey, prefix: prefix, idField: idField });
     return loadCollection(moduleKey, prefix).then(function(rows){
       if(rows && rows.length){
         var arr = rows.map(function(r){ return r.data; }).filter(function(d){ return d && d[idField] != null; });
@@ -901,6 +944,88 @@
     _outboxPersist();
   }
   function _outboxCount(){ return Object.keys(_outboxLoad()).length; }
+  // Sichtbare Diagnose der wartenden Uploads: Modul, Schluessel, Groesse,
+  // Versuche und der LETZTE ECHTE FEHLER pro Eintrag — damit «es laedt nicht
+  // hoch» nie wieder ein Blindflug ist (Details-Box im Banner + Test-Hook).
+  function _pendingInfo(){
+    var ob = _outboxLoad();
+    return Object.keys(ob).map(function(k){
+      var o = ob[k];
+      var kb = 0;
+      try{ kb = o.data ? Math.round(JSON.stringify(o.data).length / 1024) : 0; }catch(e){}
+      return { module: o.m, key: o.key, type: o.type, kb: kb,
+               tries: o.tries || 0, err: o.err || '', seit: o.lm || '' };
+    }).sort(function(a, b){ return a.seit < b.seit ? -1 : 1; });
+  }
+  // Org-Claim aus dem JWT — nur fuer den Storage-Pfad der Auto-Verkleinerung.
+  function _claimOrg(){
+    try{
+      var tok = _authToken(); if(!tok) return '';
+      var p = JSON.parse(atob(String(tok.split('.')[1] || '').replace(/-/g, '+').replace(/_/g, '/')));
+      return p.org || '';
+    }catch(e){ return ''; }
+  }
+  // ── Auto-Verkleinerung (Nachtrag Bugreport 28.07.2026 «es laedt nicht
+  // hoch, aber alle Verbindungen funktionieren») ──
+  // Haeufigste Ursache eines DAUERHAFT abgelehnten Uploads: der Record traegt
+  // eingebettete Base64-Fotos (Storage-Upload war beim Erfassen offline/
+  // gescheitert) und ist damit zu gross fuer den Write. GEMA repariert das
+  // jetzt selbst: grosse data:-Strings werden in den Foto-Storage ausgelagert
+  // (GemaStorage, Muster url||dataUrl wie in den Modulen) und der geschrumpfte
+  // Record sofort erneut gesendet. Ersetzt wird NUR ein verifizierter Upload;
+  // scheitert einer, bleibt das Feld unveraendert (kein Datenverlust).
+  var SHRINK_MIN_CHARS = 60000;   // ~45 KB Bild — darunter lohnt sich nichts
+  function _shrinkRecordData(data){
+    if(typeof GemaStorage === 'undefined' || !GemaStorage.uploadDataUrl) return Promise.resolve(false);
+    var jobs = [];
+    function walk(node, tiefe){
+      if(!node || typeof node !== 'object' || tiefe > 12) return;
+      if(Array.isArray(node)){ for(var i = 0; i < node.length; i++) walk(node[i], tiefe + 1); return; }
+      Object.keys(node).forEach(function(k){
+        var v = node[k];
+        if(typeof v === 'string' && v.length > SHRINK_MIN_CHARS && /^data:(image\/|application\/pdf)/.test(v)){
+          jobs.push({ obj: node, key: k, val: v });
+        } else if(v && typeof v === 'object'){ walk(v, tiefe + 1); }
+      });
+    }
+    walk(data, 0);
+    if(!jobs.length) return Promise.resolve(false);
+    var org = _claimOrg() || 'unbekannt';
+    var chain = Promise.resolve(), changed = false;
+    jobs.forEach(function(j){
+      chain = chain.then(function(){
+        return GemaStorage.uploadDataUrl(j.val, 'sync/' + org).then(function(res){
+          if(!res || !res.url) return;
+          changed = true;
+          // Modul-Kanon url||dataUrl: dataUrl-Felder wandern ins url-Feld,
+          // freie String-Felder (z.B. m.foto) werden zur URL.
+          if(j.key === 'dataUrl'){ j.obj.url = res.url; delete j.obj.dataUrl; }
+          else if(j.key === 'pdfDataUrl'){ j.obj.pdfUrl = res.url; delete j.obj.pdfDataUrl; }
+          else if(j.key === 'bildDataUrl'){ j.obj.bildUrl = res.url; delete j.obj.bildDataUrl; }
+          else j.obj[j.key] = res.url;
+        }, function(){ /* einzelner Upload-Fehler → Feld unveraendert lassen */ });
+      });
+    });
+    return chain.then(function(){ return changed; });
+  }
+  // bindCollection registriert moduleKey→storageKey — damit kann die
+  // Auto-Verkleinerung den lokalen Cache-Record mit-aktualisieren (sonst
+  // wuerde der naechste Save denselben grossen Stand erneut einreihen).
+  var _collReg = {};
+  function _cacheUpdateRecord(moduleKey, dataKey, data){
+    var regs = _collReg[moduleKey] || [];
+    for(var i = 0; i < regs.length; i++){
+      var r = regs[i];
+      if(dataKey.indexOf(r.prefix) !== 0) continue;
+      var id = dataKey.slice(r.prefix.length);
+      var arr = _readCache(r.storageKey);
+      var hit = false;
+      for(var n = 0; n < arr.length; n++){
+        if(arr[n] && String(arr[n][r.idField]) === id){ arr[n] = data; hit = true; break; }
+      }
+      if(hit) _writeCache(r.storageKey, arr);
+    }
+  }
   // Outbox-Stand hat sich geaendert → Banner neu bewerten (erscheint bei
   // Rueckstand trotz Verbindung, verschwindet sobald alles oben ist).
   function _outboxSync(){ try{ _broadcastBanner(_lastReachable); }catch(e){} }
@@ -959,11 +1084,35 @@
           }, function(batchErr){
             // Einzeln nachsenden — nur wirklich abgelehnte Records bleiben.
             var single = Promise.resolve(), anyFail = false;
+            function sendOne(o){
+              return _postRecords([{ module_key: m, data_key: o.key, payload: { data: o.data, _lm: o.lm } }], opts);
+            }
             ups.forEach(function(o){
               single = single.then(function(){
-                return _postRecords([{ module_key: m, data_key: o.key, payload: { data: o.data, _lm: o.lm } }], opts)
-                  .then(function(){ delete _outboxMem[m + '|' + o.key]; },
-                        function(){ anyFail = true; });
+                return sendOne(o).then(function(){ delete _outboxMem[m + '|' + o.key]; }, function(err){
+                  o.tries = (o.tries || 0) + 1;
+                  o.err = String((err && err.message) || err || '').slice(0, 220);
+                  // Dauerhaft abgelehnter GROSSER Record → Base64-Fotos in den
+                  // Storage auslagern und den geschrumpften Stand SOFORT
+                  // erneut senden (haeufigste Ursache: «Verbindung ok, aber
+                  // es laedt nicht hoch»).
+                  // Abgelehnt (4xx) → immer Verkleinerung versuchen (die
+                  // Suche nach Base64-Feldern ist billig; ohne Fund passiert
+                  // nichts). Reiner Netzfehler → erst ab dem 2. Versuch und
+                  // nur bei wirklich grossen Records (Timeout-Verdacht).
+                  var gross = false;
+                  try{ gross = JSON.stringify(o.data || '').length > 300000; }catch(e){}
+                  var abgelehnt = /HTTP 4\d\d/.test(o.err) || /payload|too large|exceed/i.test(o.err);
+                  if(!(abgelehnt || (gross && o.tries >= 2))){ anyFail = true; return; }
+                  return _shrinkRecordData(o.data).then(function(changed){
+                    if(!changed){ anyFail = true; return; }
+                    _cacheUpdateRecord(m, o.key, o.data);   // naechster Save bleibt klein
+                    return sendOne(o).then(function(){ delete _outboxMem[m + '|' + o.key]; }, function(e2){
+                      o.tries++; o.err = String((e2 && e2.message) || e2 || '').slice(0, 220);
+                      anyFail = true;
+                    });
+                  }, function(){ anyFail = true; });
+                });
               });
             });
             return single.then(function(){ if(anyFail) throw batchErr; });
@@ -1099,7 +1248,8 @@
 
     // Outbox: nicht synchronisierte Saves manuell nachsenden / Anzahl abfragen.
     flushOutbox: function(opts){ return _outboxFlush(opts); },
-    pendingCount: _outboxCount
+    pendingCount: _outboxCount,
+    pendingInfo: _pendingInfo
   };
   // SB_URL folgt dem aktiven Verbindungsweg (direkt supabase.co ODER
   // Same-Origin-Proxy /sb) — als Getter, damit alle Konsumenten
