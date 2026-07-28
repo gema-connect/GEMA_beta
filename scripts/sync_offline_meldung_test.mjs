@@ -18,6 +18,11 @@
 //  D) 4xx (z.B. 413 «zu gross») schaltet nie auf offline
 //  E) EIN Gift-Record blockiert NIE die uebrigen: scheitert der Sammel-POST,
 //     werden die Records einzeln gesendet — nur der problematische bleibt
+//  F) Ein ZU GROSSER Record repariert sich selbst: Base64-Fotos werden in den
+//     Storage ausgelagert (GemaStorage) und der geschrumpfte Record sofort
+//     erneut gesendet — «Verbindung ok, aber es laedt nicht hoch» heilt sich
+//  G) Der GRUND eines abgelehnten Uploads ist sichtbar (pendingInfo: Modul,
+//     Groesse, Versuche, letzter Fehler) — kein Blindflug mehr
 //
 // Ausführen: CHROME=<chromium> node scripts/sync_offline_meldung_test.mjs
 import { chromium } from 'playwright-core';
@@ -33,7 +38,7 @@ const { ctx, page } = await newPage(browser, seed(['role_planer']));
 
 // «Cloud»: Schreibvorgänge (POST) und Lesevorgänge/Probe (GET) getrennt steuerbar
 const cloud = new Map();
-let schreibModus = 'ok';     // ok | fehler (fetch wirft) | zuGross (HTTP 413) | gift (nur schaden:gift wird abgelehnt, Sammel-POSTs auch)
+let schreibModus = 'ok';     // ok | fehler (fetch wirft) | zuGross (HTTP 413) | gift | nurKlein (Body > 5000 Zeichen → 413)
 let leseModus = 'ok';        // ok | tot  (auch die Probe schlägt fehl)
 
 await page.route('**/rest/v1/gema_data*', route => {
@@ -46,6 +51,8 @@ await page.route('**/rest/v1/gema_data*', route => {
     if (schreibModus === 'fehler') return route.abort('internetdisconnected');
     if (schreibModus === 'zuGross') return route.fulfill({ status: 413, contentType: 'application/json', body: '{"message":"payload too large"}' });
     let rows = []; try { rows = JSON.parse(req.postData() || '[]'); } catch (e) { }
+    if (schreibModus === 'nurKlein' && (req.postData() || '').length > 5000)
+      return route.fulfill({ status: 413, contentType: 'application/json', body: '{"message":"Payload too large"}' });
     if (schreibModus === 'gift') {
       // Sammel-POST (mehrere Rows) wird abgelehnt; einzeln geht alles durch
       // AUSSER dem Gift-Record — exakt das 413-Szenario eines zu grossen
@@ -168,6 +175,53 @@ console.log('■ E · Ein zu grosser Datensatz blockiert die anderen nicht mehr'
   ok(cloud.has('schaden:gift'), 'Gift-Record nachgeliefert, sobald möglich');
   ok(await page.evaluate(() => GemaSync.pendingCount()) === 0, 'Outbox leer');
   ok(await banner() === null, 'kein Banner mehr');
+}
+
+/* ════════ F · Zu grosser Record repariert sich selbst ════════ */
+console.log('■ F · Base64-Fotos werden ausgelagert, der Record schrumpft und geht hoch');
+{
+  // GemaStorage-Stub: «Upload» liefert eine Storage-URL
+  await page.evaluate(() => {
+    window._stUploads = [];
+    window.GemaStorage = { uploadDataUrl: d => { window._stUploads.push(d.length);
+      return Promise.resolve({ url: 'https://x.supabase.co/storage/v1/object/public/gema-fotos/sync/org_test/f' + window._stUploads.length + '.jpg', path: 'sync/org_test/f.jpg' }); } };
+  });
+  const gross = 'data:image/jpeg;base64,' + 'A'.repeat(70000);
+  schreibModus = 'fehler';   // erst einreihen
+  await schreibe('schaden:big', { titel: 'Bericht mit Foto', fotos: [{ kommentar: 'Leck', dataUrl: gross }], messpunkte: [{ name: 'Wand', foto: gross }] });
+  ok(await page.evaluate(() => GemaSync.pendingCount()) === 1, 'grosser Record wartet in der Outbox');
+  schreibModus = 'nurKlein'; // Cloud lehnt grosse Bodies ab — genau der Praxisfall
+  await page.evaluate(() => GemaSync.flushOutbox());
+  await page.waitForTimeout(900);
+  ok(await page.evaluate(() => GemaSync.pendingCount()) === 0, 'Record wurde verkleinert und hochgeladen');
+  ok(await page.evaluate(() => window._stUploads.length) === 2, 'beide Base64-Fotos in den Storage ausgelagert');
+  const rec = JSON.parse(cloud.get('schaden:big').payload ? JSON.stringify(cloud.get('schaden:big').payload.data) : '{}');
+  ok(rec.fotos && rec.fotos[0].url && !rec.fotos[0].dataUrl, 'Foto-Objekt folgt dem url||dataUrl-Kanon (url gesetzt, dataUrl weg)');
+  ok(/^https:/.test(rec.messpunkte[0].foto), 'String-Foto (Messpunkt) zeigt jetzt auf die Storage-URL');
+  ok(rec.titel === 'Bericht mit Foto' && rec.fotos[0].kommentar === 'Leck', 'uebrige Felder unveraendert');
+  ok(await banner() === null, 'kein Banner');
+}
+
+/* ════════ G · Der Grund ist sichtbar ════════ */
+console.log('■ G · pendingInfo nennt Modul, Groesse, Versuche und Fehler');
+{
+  await page.evaluate(() => { delete window.GemaStorage; });   // keine Reparatur moeglich
+  schreibModus = 'fehler';
+  await schreibe('schaden:blind', { titel: 'haengt', blob: 'x'.repeat(400000) });
+  schreibModus = 'zuGross';
+  await page.evaluate(() => GemaSync.flushOutbox());
+  await page.waitForTimeout(600);
+  const info = await page.evaluate(() => GemaSync.pendingInfo());
+  ok(info.length === 1 && info[0].module === 'schadensbericht' && info[0].key === 'schaden:blind', 'Eintrag gelistet');
+  ok(info[0].kb > 300, 'Groesse ausgewiesen (' + info[0].kb + ' KB)');
+  ok(info[0].tries >= 1, 'Versuche gezaehlt (' + info[0].tries + ')');
+  ok(/HTTP 413/.test(info[0].err), 'letzter Fehler mit HTTP-Status: ' + JSON.stringify(info[0].err));
+  ok(/payload too large/i.test(info[0].err), 'Antwort-Text der Cloud ist im Fehler enthalten');
+  // aufräumen
+  schreibModus = 'ok';
+  await page.evaluate(() => GemaSync.flushOutbox());
+  await page.waitForTimeout(400);
+  ok(await page.evaluate(() => GemaSync.pendingCount()) === 0, 'raeumt sich auf, sobald zustellbar');
 }
 
 await ctx.close();
