@@ -388,6 +388,7 @@ canvas.sig{width:100%;height:150px;background:#fff;display:block;touch-action:no
     <select class="proto-sel-dd" id="protoSelect" onchange="switchProtocol()"></select>
     <button class="proto-sel-btn" onclick="newProtocol()">+ Neu</button>
     <button class="proto-sel-btn proto-sel-del" id="protoDelBtn" onclick="deleteProtocol()">🗑</button>
+    <button class="proto-sel-btn" id="protoFindBtn" onclick="abProtokolleSuchen()" title="Protokolle dieser Firma suchen — auch solche, die einem anderen Projekt/einer anderen Phase zugeordnet sind">🔍 Suchen</button>
   </div>
 
   <!-- Aufgaben: Meine Freigaben (digital), Meine Mängellisten (Monteur), Kontrolle (Verantwortlicher) -->
@@ -863,7 +864,18 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
   const esc = s => (s??'').toString().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;');
   const escAttr = s => esc(s).replace(/\n/g,' ');
 
-  var STORAGE_KEY = (typeof GemaObjekte!=='undefined') ? GemaObjekte.storageKey('gema_abnahme_sia_v1') : 'gema_abnahme_sia_v1';
+  // KRITISCH (Datenverlust 28.07.2026): Der Schlüssel darf NICHT beim
+  // Seitenstart einfrieren. Wird im Modul ein anderes Objekt gewählt (oder
+  // ändert sich die SIA-Phase), landete die ganze Abnahme sonst unter dem
+  // BOOT-Schlüssel — beim nächsten Öffnen mit dem richtigen Objekt filterte
+  // _abProtoFromPool() auf einen anderen scopeKey und zeigte ein leeres
+  // Protokoll (die Daten lagen unsichtbar unter dem alten Schlüssel).
+  // _abScopeKey() rechnet den Schlüssel IMMER aktuell aus; _abSwitchScope()
+  // lädt beim Wechsel die Protokolle des neuen Kontexts.
+  function _abScopeKey(){
+    return (typeof GemaObjekte!=='undefined') ? GemaObjekte.storageKey('gema_abnahme_sia_v1') : 'gema_abnahme_sia_v1';
+  }
+  var STORAGE_KEY = _abScopeKey();
   let protocols = []; // [{id, name, createdAt, state}]
   let activeProtocolId = null;
 
@@ -1820,6 +1832,15 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
     state._objektId=sel.value;
     _prevObjektId=sel.value;
     persist();
+    // Die Wahl im Modul IST die Projektwahl — aktives Objekt nachziehen und
+    // den Speicher-Schlüssel umstellen, sonst landet die Abnahme unter dem
+    // Boot-Schlüssel (Datenverlust 28.07.2026).
+    try{
+      if(typeof GemaObjekte!=='undefined'&&GemaObjekte.setActiveId&&GemaObjekte.getActiveId()!==sel.value){
+        GemaObjekte.setActiveId(sel.value||'');
+      }
+    }catch(e){}
+    try{ if(typeof _abSwitchScope==='function') _abSwitchScope(); }catch(e){}
   }
 
   // Dropdown = Schnell-Pick aus den Objekt-Stammdaten; die Paar-Felder
@@ -1971,7 +1992,7 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
   // ══════════════════════════════════════════════════════════════
   var PROTO_SYNC='abnahme', PROTO_POOL='gema_abnahme_proto_pool_v1', PROTO_PREFIX='abproto:';
   var PROTO_OID=(typeof GemaObjekte!=='undefined'&&GemaObjekte.getActiveId&&GemaObjekte.getActiveId())||'';
-  var ACTIVE_LS='gema_abnahme_active_v1__'+STORAGE_KEY;   // aktives Protokoll = Geräte-UI-State
+  function _abActiveKey(){ return 'gema_abnahme_active_v1__'+STORAGE_KEY; }   // aktives Protokoll = Geräte-UI-State
   var _abSaveTimer=null,_abSaveHideTimer=null,_abSavePending=false,_abSaveInFlight=false;
   var _abDirty={},_abBootDone=false,_abAdopting=false;
 
@@ -1981,8 +2002,12 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
     return [];
   }
   function _abPoolWriteLocal(pool){ try{ localStorage.setItem(PROTO_POOL,JSON.stringify(pool)); }catch(e){} }
+  // KRITISCH: der scopeKey haengt am PROTOKOLL (_scope), nicht am globalen
+  // STORAGE_KEY. Sonst bekaeme ein noch laufender (asynchroner) Save nach
+  // einem Objekt-/Phasenwechsel den NEUEN Schluessel aufgestempelt und das
+  // Protokoll waere unter dem alten Kontext verschwunden.
   function _abProtoRec(p){
-    return { id:p.id, scopeKey:STORAGE_KEY, objektId:PROTO_OID,
+    return { id:p.id, scopeKey:p._scope||STORAGE_KEY, objektId:(p._oid!=null?p._oid:PROTO_OID),
       orgId:(_getUser()&&_getUser().orgId)||'', name:p.name||'Protokoll',
       createdAt:p.createdAt||new Date().toISOString(), updatedAt:new Date().toISOString(),
       state:p.state };
@@ -1990,10 +2015,11 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
   function _abProtoFromPool(){
     return _abPoolCache().filter(function(r){ return r&&r.scopeKey===STORAGE_KEY&&r.state; })
       .sort(function(a,b){ return String(a.createdAt||'').localeCompare(String(b.createdAt||'')); })
-      .map(function(r){ return { id:r.id, name:r.name||'Protokoll', createdAt:r.createdAt, state:r.state }; });
+      .map(function(r){ return { id:r.id, name:r.name||'Protokoll', createdAt:r.createdAt, state:r.state,
+        _scope:r.scopeKey, _oid:r.objektId||'' }; });
   }
-  function _abActiveLoad(){ try{ return localStorage.getItem(ACTIVE_LS)||''; }catch(e){ return ''; } }
-  function _abActiveSave(){ try{ localStorage.setItem(ACTIVE_LS,activeProtocolId||''); }catch(e){} }
+  function _abActiveLoad(){ try{ return localStorage.getItem(_abActiveKey())||''; }catch(e){ return ''; } }
+  function _abActiveSave(){ try{ localStorage.setItem(_abActiveKey(),activeProtocolId||''); }catch(e){} }
   function _abProtoDeleteRec(id){
     delete _abDirty[id];
     _abPoolWriteLocal(_abPoolCache().filter(function(r){ return r&&r.id!==id; }));
@@ -2221,6 +2247,209 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
     toast('🗑 Protokoll gelöscht');
   }
   window.deleteProtocol=deleteProtocol;
+
+  // Objekt-/Phasenwechsel im laufenden Betrieb: den JETZIGEN Stand unter dem
+  // ALTEN Schlüssel sichern, dann auf den neuen Kontext umschalten. Ohne das
+  // liefe die weitere Erfassung in den falschen Schlüssel (Datenverlust
+  // 28.07.2026) bzw. das Protokoll des neuen Projekts bliebe unsichtbar.
+  function _abSwitchScope(){
+    var neu=_abScopeKey();
+    if(neu===STORAGE_KEY) return false;
+    var altScope=STORAGE_KEY, altOid=PROTO_OID;
+    // Alle jetzigen Protokolle fest auf den ALTEN Kontext stempeln, dann
+    // sichern — ein noch laufender Save darf sie nie mit dem neuen
+    // Schluessel wegschreiben.
+    protocols.forEach(function(p){ if(!p._scope){ p._scope=altScope; p._oid=altOid; } });
+    _abSnapActive();
+    // War bisher KEIN Objekt gewählt (freies Objekt) und ist bereits etwas
+    // erfasst, wandert die Abnahme mit ins gewählte Projekt — genau das ist
+    // gemeint, wenn jemand mitten in der Erfassung das Objekt zuordnet.
+    // (Nur aus dem objektlosen Kontext heraus; Objekt A → Objekt B nie.)
+    var mitnehmen = !altOid && protocols.some(function(p){ return _abInhalt(p.state); });
+    try{ if(!mitnehmen) flushSave(); }catch(e){}           // Altstand sichern
+    STORAGE_KEY=neu;
+    PROTO_OID=(typeof GemaObjekte!=='undefined'&&GemaObjekte.getActiveId&&GemaObjekte.getActiveId())||'';
+    var recs=_abProtoFromPool();
+    _abAdopting=true;
+    try{
+      if(mitnehmen && !recs.length){
+        // Dieselben Records, nur neuer scopeKey → kein Duplikat, nichts verloren.
+        protocols.forEach(function(p){ p._scope=STORAGE_KEY; p._oid=PROTO_OID; _abDirty[p.id]=1; });
+        _abAdopting=false; _abSavePending=true; _doSave(); _abAdopting=true;
+      } else if(recs.length){
+        protocols=recs;
+        activeProtocolId=_abActiveLoad();
+        if(!protocols.find(function(p){return p.id===activeProtocolId;})) activeProtocolId=protocols[0].id;
+      } else {
+        // Neuer Kontext ohne Protokoll → leeres anlegen (wird beim ersten
+        // Speichern hochgeschrieben)
+        protocols=[{id:uid(),name:'Protokoll 1',createdAt:new Date().toISOString(),state:_defaultState(),
+          _scope:STORAGE_KEY,_oid:PROTO_OID}];
+        activeProtocolId=protocols[0].id;
+      }
+      var act=protocols.find(function(p){return p.id===activeProtocolId;});
+      if(act){ state=act.state; _migrateState(); }
+      _abActiveSave();
+      renderProtocolSelector(); render(); initSignatures();
+    } finally { _abAdopting=false; }
+    return true;
+  }
+  window._abSwitchScope=_abSwitchScope;
+
+  // ══════════════════════════════════════════════════════════════
+  // PROTOKOLLE SUCHEN — Rettung bei «Daten weg»
+  // ══════════════════════════════════════════════════════════════
+  // Der scopeKey eines Protokolls (gema_abnahme_sia_v1__<objektId>[@phase])
+  // wird beim Seitenstart fixiert. Wechselt danach das Objekt oder die
+  // SIA-Phase, filtert _abProtoFromPool() auf einen ANDEREN scopeKey — das
+  // Protokoll ist unsichtbar, aber NICHT weg (es liegt unter dem alten
+  // Schlüssel in der Cloud). Dieses Werkzeug zeigt ALLE Protokolle der
+  // Organisation, egal unter welchem Schlüssel, und holt sie zurück.
+  function _abScopeLesbar(sk){
+    sk=String(sk||'');
+    var m=/^gema_abnahme_sia_v1(?:__([^@]+))?(?:@(.+))?$/.exec(sk);
+    if(!m) return { objektId:'', phase:'', text:sk||'—' };
+    var oid=m[1]||'', ph=m[2]||'';
+    var name='';
+    try{
+      if(oid && typeof GemaObjekte!=='undefined'){
+        var o=(GemaObjekte.getAll()||[]).find(function(x){ return x.id===oid; });
+        if(o) name=GemaObjekte.displayName(o);
+      }
+    }catch(e){}
+    var txt = oid ? (name||('Projekt '+oid)) : 'ohne Projekt erfasst';
+    if(ph) txt+=' · Phase '+ph;
+    return { objektId:oid, phase:ph, text:txt };
+  }
+  // Wie viel steckt drin? (damit man ein volles Protokoll von einem leeren
+  // Default unterscheiden kann)
+  function _abInhalt(st){
+    if(!st) return { leer:true, text:'leer' };
+    var a=st.abnahme||{}, items=Array.isArray(st.items)?st.items:[];
+    var teile=[];
+    if(items.length) teile.push(items.length+' Mängel/Pendenzen');
+    var felder=['bauobjekt','arbeitsgattung','gepruefterTeil','datum','bauherr','unternehmer','bauleitung'];
+    var n=felder.filter(function(k){ return String(a[k]||'').trim(); }).length;
+    if(n) teile.push(n+' Kopf-Angaben');
+    try{
+      var sig=st.sig||{}; var ns=Object.keys(sig).filter(function(k){ return sig[k]&&sig[k].data; }).length;
+      if(ns) teile.push(ns+' Unterschriften');
+    }catch(e){}
+    try{ if(Array.isArray(st.anhaenge)&&st.anhaenge.length) teile.push(st.anhaenge.length+' Anhänge'); }catch(e){}
+    var fotos=0;
+    items.forEach(function(it){ if(Array.isArray(it.fotos)) fotos+=it.fotos.length; });
+    if(fotos) teile.push(fotos+' Fotos');
+    return { leer:!teile.length, text:teile.length?teile.join(' · '):'leer' };
+  }
+  // Alle Protokolle der Org — Pool-Cache + (falls vorhanden) direkt aus der
+  // Cloud nachgeladen, damit auch ein frisches Gerät fündig wird.
+  function _abAlleProtokolle(){
+    return Promise.resolve().then(function(){
+      if(typeof GemaSync!=='undefined'&&GemaSync.loadCollection){
+        return GemaSync.loadCollection(PROTO_SYNC,PROTO_PREFIX)
+          .then(function(rows){ return (rows||[]).map(function(r){ return r.data; }).filter(Boolean); })
+          .catch(function(){ return null; });
+      }
+      return null;
+    }).then(function(cloud){
+      var lokal=_abPoolCache();
+      if(!cloud) return lokal;
+      // Cloud + lokal vereinen (lokal kann noch nicht hochgeladene Stände
+      // enthalten — die sind für die Rettung die wichtigsten).
+      var byId={};
+      cloud.forEach(function(r){ if(r&&r.id) byId[r.id]=r; });
+      lokal.forEach(function(r){
+        if(!r||!r.id) return;
+        var alt=byId[r.id];
+        if(!alt || String(r.updatedAt||'')>String(alt.updatedAt||'')) byId[r.id]=r;
+      });
+      return Object.keys(byId).map(function(k){ return byId[k]; });
+    });
+  }
+  var _abFundListe=[];
+  function abProtokolleSuchen(){
+    _abShowSuchModal('<div style="padding:26px;text-align:center;color:#64748b;font-size:13px">Protokolle werden gesucht …</div>');
+    _abAlleProtokolle().then(function(alle){
+      var meineOrg=(_getUser()&&_getUser().orgId)||'';
+      var liste=(alle||[]).filter(function(r){
+        if(!r||!r.state) return false;
+        if(meineOrg && r.orgId && r.orgId!==meineOrg) return false;   // fremde Firma nie zeigen
+        return true;
+      }).sort(function(a,b){ return String(b.updatedAt||b.createdAt||'').localeCompare(String(a.updatedAt||a.createdAt||'')); });
+      _abFundListe=liste;
+      if(!liste.length){
+        _abShowSuchModal('<h3 style="margin:0 0 8px;font-size:17px;font-weight:800">🔍 Protokolle suchen</h3>'
+          +'<div style="font-size:13px;color:#475569;line-height:1.6">Es wurden keine gespeicherten Protokolle gefunden — weder auf diesem Gerät noch in der Cloud.<br><br>'
+          +'Falls die Abnahme auf einem <b>anderen Gerät</b> erfasst wurde, bitte dort nachsehen: Möglicherweise wartet der Stand noch auf den Upload (Hinweis unten am Bildschirmrand → «Details» → «Jetzt hochladen»).</div>'
+          +'<div style="display:flex;justify-content:flex-end;margin-top:16px"><button class="btn" onclick="_abCloseSuchModal()">Schliessen</button></div>');
+        return;
+      }
+      var rows=liste.map(function(r,i){
+        var sc=_abScopeLesbar(r.scopeKey);
+        var inh=_abInhalt(r.state);
+        var hier=(r.scopeKey===STORAGE_KEY);
+        var dat=r.updatedAt||r.createdAt||'';
+        var datTxt=dat?new Date(dat).toLocaleString('de-CH'):'—';
+        var gattung=(r.state&&r.state.abnahme&&r.state.abnahme.arbeitsgattung)||'';
+        var bauobj=(r.state&&r.state.abnahme&&r.state.abnahme.bauobjekt)||'';
+        return '<div style="border:1.5px solid '+(hier?'#bbf7d0':'#e2e8f0')+';background:'+(hier?'#f0fdf4':'#fff')+';border-radius:10px;padding:12px 14px;margin-bottom:10px">'
+          +'<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">'
+            +'<b style="font-size:13.5px;color:#0f172a">'+esc(r.name||'Protokoll')+(gattung?' · '+esc(gattung):'')+'</b>'
+            +(hier?'<span style="font-size:10.5px;font-weight:800;color:#15803d;background:#dcfce7;border-radius:6px;padding:2px 7px">bereits hier sichtbar</span>':'')
+            +(inh.leer?'<span style="font-size:10.5px;font-weight:800;color:#92400e;background:#fef3c7;border-radius:6px;padding:2px 7px">leer</span>':'')
+          +'</div>'
+          +'<div style="font-size:12px;color:#475569;margin-top:4px">'+esc(inh.text)+'</div>'
+          +(bauobj?'<div style="font-size:12px;color:#475569;margin-top:2px">🏗 '+esc(bauobj)+'</div>':'')
+          +'<div style="font-size:11.5px;color:#64748b;margin-top:4px">Zugeordnet: <b>'+esc(sc.text)+'</b> · zuletzt geändert '+esc(datTxt)+'</div>'
+          +(hier?'':'<div style="margin-top:9px"><button class="btn primary" style="font-size:12px;padding:7px 13px" onclick="abProtokollHolen('+i+')">⤵ In dieses Projekt holen</button></div>')
+          +'</div>';
+      }).join('');
+      var akt=_abScopeLesbar(STORAGE_KEY);
+      _abShowSuchModal('<h3 style="margin:0 0 4px;font-size:17px;font-weight:800">🔍 Protokolle suchen</h3>'
+        +'<div style="font-size:12px;color:#64748b;margin-bottom:12px">Aktuelle Zuordnung dieser Seite: <b>'+esc(akt.text)+'</b>. '
+        +'Protokolle, die einem anderen Projekt oder einer anderen Phase zugeordnet sind, erscheinen hier und lassen sich zurückholen.</div>'
+        +'<div style="max-height:52vh;overflow-y:auto;padding-right:4px">'+rows+'</div>'
+        +'<div style="display:flex;justify-content:flex-end;margin-top:14px"><button class="btn" onclick="_abCloseSuchModal()">Schliessen</button></div>');
+    });
+  }
+  // Holt ein Protokoll in den aktuellen Kontext: Kopie mit neuem scopeKey
+  // (das Original bleibt unangetastet — nichts geht dabei verloren).
+  function abProtokollHolen(i){
+    var r=_abFundListe[i];
+    if(!r||!r.state) return;
+    var kopie={ id:uid(), name:(r.name||'Protokoll'), createdAt:r.createdAt||new Date().toISOString(),
+                state:JSON.parse(JSON.stringify(r.state)) };
+    _abSnapActive();
+    protocols.push(kopie);
+    activeProtocolId=kopie.id;
+    state=kopie.state;
+    _migrateState();
+    _abActiveSave();
+    _abDirty[kopie.id]=1;
+    _abSavePending=true; _doSave();
+    renderProtocolSelector(); render(); initSignatures();
+    _abCloseSuchModal();
+    toast('✓ Protokoll übernommen — das Original bleibt unter seiner alten Zuordnung erhalten');
+  }
+  function _abShowSuchModal(inner){
+    var bg=document.getElementById('abSuchBg');
+    if(!bg){
+      bg=document.createElement('div');
+      bg.id='abSuchBg';
+      bg.style.cssText='position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:11000;display:flex;align-items:center;justify-content:center;padding:16px';
+      bg.onclick=function(ev){ if(ev.target===bg) _abCloseSuchModal(); };
+      bg.innerHTML='<div id="abSuchCard" style="background:#fff;border-radius:14px;padding:22px;max-width:640px;width:100%;max-height:88vh;overflow-y:auto;box-shadow:0 20px 60px -10px rgba(0,0,0,.3)"></div>';
+      document.body.appendChild(bg);
+    }
+    document.getElementById('abSuchCard').innerHTML=inner;
+    bg.style.display='flex';
+  }
+  function _abCloseSuchModal(){ var bg=document.getElementById('abSuchBg'); if(bg) bg.style.display='none'; }
+  window.abProtokolleSuchen=abProtokolleSuchen;
+  window.abProtokollHolen=abProtokollHolen;
+  window._abCloseSuchModal=_abCloseSuchModal;
+  window._abScopeLesbar=_abScopeLesbar;
+  window._abInhalt=_abInhalt;
 
   function renameProtocol(){
     var active=protocols.find(p=>p.id===activeProtocolId);
@@ -3296,6 +3525,13 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
     ]).then(function(){_abProtoAfterCloud();abRenderTasks();try{abRenderTeilnehmer();}catch(e){}}).catch(function(){});
   }
   abRenderTasks();
+
+  // Objektwechsel von aussen (anderes Modul, Deep-Link ?objekt=…): Schlüssel
+  // nachziehen, sonst schriebe die Erfassung weiter in den Boot-Kontext.
+  window.addEventListener('gema-objekt-changed',function(){
+    try{ if(_abBootDone) _abSwitchScope(); }catch(e){}
+    try{ populateObjektDropdown(); }catch(e){}
+  });
 
   renderProtocolSelector();
   populateObjektDropdown();
