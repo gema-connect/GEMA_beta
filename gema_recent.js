@@ -78,6 +78,7 @@
     'sb_du_zusammenstellung':'DU-Zusammenstellung',
     'sb_fluessiggas':'Flüssiggas LPG',
     'sb_grobauslegung':'Grobauslegung',
+    'sb_grundleitungen':'Grundleitungen',
     'sb_index':'Sanitärberechnungen',
     'sb_laengenausdehnung':'Längenausdehnung',
     'sb_lu_tabelle':'LU-Tabelle & Spitzenvolumenstrom',

@@ -982,7 +982,21 @@ function save() {
     qc2: document.getElementById('qc2')?.value || '0',
     qc3: document.getElementById('qc3')?.value || '0'
   };
-  try { if(typeof _GemaDB!=='undefined') _GemaDB.save(_sk, JSON.stringify({qty, varDU, K, meta, qc})); } catch(e){}
+  // Berechnete Totale mitspeichern — Lesekanal für sb_grundleitungen (additiv,
+  // Alt-Leser ignorieren das Feld; Formeln identisch zu calc()).
+  let tQzu = 0, tDuMax = 0;
+  for (const grp of GROUPS) {
+    for (const it of grp.items) {
+      const n = qty[it.id] || 0;
+      const du = grp.variable ? (parseFloat(varDU[it.id]) || 0) : it.du;
+      tQzu += du * n;
+      if (n > 0 && du > tDuMax) tDuMax = du;
+    }
+  }
+  const tQc = (parseFloat(qc.qc1) || 0) + (parseFloat(qc.qc2) || 0) + (parseFloat(qc.qc3) || 0);
+  const tQww = K * Math.sqrt(tQzu);
+  const totals = { qzu: tQzu, duMax: tDuMax, qww: tQww, qc: tQc, qtot: Math.max(tQww, tDuMax) + tQc, k: K };
+  try { if(typeof _GemaDB!=='undefined') _GemaDB.save(_sk, JSON.stringify({qty, varDU, K, meta, qc, totals})); } catch(e){}
 }
 
 function loadSaved() {
