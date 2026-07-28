@@ -2119,17 +2119,28 @@ function printBericht(b){
     +'.titelbild{margin:0 0 14px;break-inside:avoid}.titelbild img{width:100%;max-height:95mm;object-fit:cover;border:1px solid #ccc;border-radius:8px;display:block}'
     +'.meta{width:100%;border-collapse:collapse;margin:6px 0 14px}.meta td{padding:4px 8px;font-size:10pt;border-bottom:1px solid #eee;vertical-align:top}.meta td.l{color:#666;width:34%;font-weight:700}'
     +'.sum{display:flex;gap:8px;margin:6px 0 16px;flex-wrap:wrap}.sumb{border:1px solid #ddd;border-radius:8px;padding:6px 12px;font-size:9.5pt}'
-    +'.anl{margin:14px 0 6px;border-left:4px solid '+br.acc+';padding:4px 0 4px 10px;break-inside:avoid}.anl h2{font-size:12.5pt;font-weight:900;color:'+br.acc+'}.anl .s{font-size:9pt;color:#666}'
-    +'table.pk{border-collapse:collapse;width:100%;margin:4px 0 10px}table.pk th{background:'+br.tint+';color:'+br.deep+';border-bottom:1.6px solid '+br.acc+';text-align:left;padding:6px 8px;font-size:8pt;text-transform:uppercase;letter-spacing:.3px}'
+    +'table.pk{border-collapse:collapse;width:100%;margin:14px 0 10px}table.pk th{background:'+br.tint+';color:'+br.deep+';border-bottom:1.6px solid '+br.acc+';text-align:left;padding:6px 8px;font-size:8pt;text-transform:uppercase;letter-spacing:.3px}'
+    /* Anlagen-Titel als erste Kopfzeile der Tabelle: er kann nie mehr alleine
+       am Seitenende stehen und wiederholt sich auf Folgeseiten. */
+    +'table.pk thead{display:table-header-group}'
+    +'table.pk tr.anlrow th{background:#fff;border-bottom:none;border-left:4px solid '+br.acc+';padding:2px 0 4px 10px;'
+      +'font-size:12.5pt;font-weight:900;color:'+br.acc+';text-transform:none;letter-spacing:0}'
+    +'table.pk tr.anlrow th .s{display:block;font-size:9pt;font-weight:600;color:#666;text-transform:none}'
+    +'table.pk thead tr{break-inside:avoid;break-after:avoid;page-break-after:avoid}'
     +'table.pk td{border-bottom:1px solid #e2e2e2;padding:7px 8px;font-size:10pt;vertical-align:top}tr{break-inside:avoid}'
     +'.bw{font-weight:800}.bw-gut{color:#16a34a}.bw-maessig{color:#d97706}.bw-schlecht{color:#dc2626}.bw-nicht_bewertet{color:#94a3b8}'
     +'.ft{font-size:9pt;color:#555;border-top:2px solid '+br.acc+';padding-top:6px}'
     +'.empf{margin-top:6px;font-size:10pt}.empf b{color:'+br.deep+'}.empf ul{margin:3px 0 0 16px;padding:0}.empf li{margin:2px 0}'
     +'.pk .empf{margin-top:4px;font-size:9.5pt}'
     /* Bilder direkt unter ihrem Prüfpunkt: 2-spaltig über die volle Breite.
-       Die Zeile bleibt mit dem Prüfpunkt zusammen (break-after:avoid auf der
-       Punktzeile); nur sehr viele Bilder dürfen umbrechen (.many). */
-    +'table.pk tr.pkrow{break-after:avoid;page-break-after:avoid}'
+       Die Bilder-Zeile bleibt mit IHREM Prüfpunkt zusammen — «break-after»
+       steht darum NUR auf Punkten, denen wirklich eine folgt (.mitfoto);
+       auf jeder Zeile würde es die ganze Tabelle verketten. Sehr viele
+       Bilder dürfen umbrechen (.many). */
+    +'table.pk tr.pkrow.mitfoto{break-after:avoid;page-break-after:avoid}'
+    /* Keine einzelne Zeile am Seitenanfang/-ende zurücklassen */
+    +'table.pk tbody tr:first-child{break-before:avoid;page-break-before:avoid}'
+    +'p,li,.empf{orphans:3;widows:3}'
     +'table.pk tr.fotorow>td{padding:4px 8px 10px;border-bottom:1.5px solid #e2e2e2}'
     +'table.pk tr.fotorow.many{break-inside:auto}'
     +'.pgrid{display:grid;grid-template-columns:1fr 1fr;gap:4mm}'
@@ -2188,8 +2199,18 @@ function printBericht(b){
 
   (b.anlagen||[]).forEach(function(a){
     var art=prArt(a.anlagenart);
-    h+='<div class="anl"><h2>'+E(art.ic||'')+' '+E(a.name||art.label)+'</h2><div class="s">'+(a.standort?'Standort: '+E(a.standort):'')+'</div></div>';
-    h+='<table class="pk"><thead><tr><th style="width:40%">Prüfpunkt</th><th>Antwort</th><th>Zustand</th><th style="width:32%">Bemerkung</th></tr></thead><tbody>';
+    /* Die Anlagen-Überschrift steht IM Tabellenkopf (Feedback 28.07.2026:
+       «Titel nicht alleine auf einer Seite»). Ein <thead> wird vom Browser
+       nie ohne mindestens eine Datenzeile gedruckt — der Titel kann damit
+       gar nicht mehr alleine am Seitenende landen — und er wiederholt sich
+       auf Folgeseiten, sodass immer klar ist, zu welcher Anlage die Punkte
+       gehören. Ein davorstehendes <div> hätte nur ein «break-after:avoid»,
+       auf das im Druck kein Verlass ist. */
+    h+='<table class="pk"><thead>'
+      +'<tr class="anlrow"><th colspan="4" class="anlhd">'+E(art.ic||'')+' '+E(a.name||art.label)
+        +(a.standort?'<span class="s">Standort: '+E(a.standort)+'</span>':'')+'</th></tr>'
+      +'<tr class="colhd"><th style="width:40%">Prüfpunkt</th><th>Antwort</th><th>Zustand</th><th style="width:32%">Bemerkung</th></tr>'
+      +'</thead><tbody>';
     (a.punkte||[]).forEach(function(p){
       var entf=prZustandEntfaellt(p);
       var bwk=entf?'nicht_bewertet':(p.bewertung||'nicht_bewertet');
@@ -2209,7 +2230,11 @@ function printBericht(b){
       /* Prüfart (z.B. Geruchsemission: Nasal / Messgerät) */
       var paLbl='';
       (PR_PRUEFARTEN||[]).forEach(function(o){ if(o.v===p.pruefart) paLbl=o.l; });
-      h+='<tr class="pkrow"><td>'+(p.pflicht?'* ':'')+E(p.bezeichnung)+(p.untergruppe?'<br><span style="font-size:9pt;color:#555">'+E(p.untergruppe)+'</span>':'')+btZeile+'</td>'
+      /* «break-after:avoid» NUR auf Punkten, denen wirklich eine Bilder-Zeile
+         folgt. Auf JEDER Zeile würde es die ganze Tabelle zu einem einzigen
+         unteilbaren Block verketten — der Browser bricht dann irgendwo. */
+      var fotos=(p.fotos||[]).map(function(f){ return imgSrc(f); }).filter(Boolean);
+      h+='<tr class="pkrow'+(fotos.length?' mitfoto':'')+'"><td>'+(p.pflicht?'* ':'')+E(p.bezeichnung)+(p.untergruppe?'<br><span style="font-size:9pt;color:#555">'+E(p.untergruppe)+'</span>':'')+btZeile+'</td>'
         +'<td>'+E(prAntwortLabel(p.antworttyp,p.antwort)||'—')+(paLbl?'<br><span style="font-size:9pt;color:#555">Prüfung: '+E(paLbl)+'</span>':'')+'</td>'
         +'<td class="bw bw-'+bwk+'">'+E(bwLbl)+'</td>'
         +'<td>'+(bem||'—')+'</td></tr>';
@@ -2218,7 +2243,6 @@ function printBericht(b){
          unter dem Prüfpunkt») — als eigene Tabellenzeile statt als Block nach
          der Tabelle. Die Zuordnung ist damit ohne Titel-Wiederholung klar.
          Empfehlung(en) stehen unter den Bildern. */
-      var fotos=(p.fotos||[]).map(function(f){ return imgSrc(f); }).filter(Boolean);
       if(fotos.length){
         h+='<tr class="fotorow'+(fotos.length>4?' many':'')+'"><td colspan="4">'
           +'<div class="pgrid">'+fotos.map(function(s){ return '<img src="'+E(s)+'">'; }).join('')+'</div>'
