@@ -173,6 +173,103 @@ await page.waitForTimeout(300);
 ok((await page.evaluate(() => window._prHooks.cached(window._prHooks.POOLS.BEG)[0].titel)) === 'Beim Schliessen gesichert',
    'Editor-Schliessen flusht die pending Änderung');
 
+// ── Fotos gehören in den Bucket, nie als Base64 in den Datensatz ─────────
+console.log('— Fotos: Bucket statt Base64 —');
+// Bucket-Mock: nimmt Uploads an und liefert eine öffentliche URL zurück
+let bucket = [];
+const JPG_1PX = Buffer.from('/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AKp//2Q==', 'base64');
+await ctx.route('**/storage/v1/**', route => {
+  const u = route.request().url();
+  if (offline) return route.abort('failed');
+  if (route.request().method() === 'POST') {
+    const m = /\/object\/([^?]+)/.exec(u);
+    const pfad = m ? decodeURIComponent(m[1]) : 'x';
+    bucket.push(pfad);
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ Key: pfad }) });
+  }
+  // Verifikation: GemaStorage lädt die Public-URL als <img> — es MUSS ein
+  // echtes Bild zurückkommen, sonst gilt der Upload als fehlgeschlagen.
+  return route.fulfill({ status: 200, contentType: 'image/jpeg', body: JPG_1PX });
+});
+
+async function fotoAufnehmen(page) {
+  // 1×1-JPEG als File in den zuletzt erzeugten File-Input schieben
+  await page.evaluate(() => window.prAddFoto(0, 0, 'kamera'));
+  await page.waitForTimeout(200);
+  const handle = await page.$('input[type=file]');
+  await handle.setInputFiles({ name: 'f.jpg', mimeType: 'image/jpeg', buffer: JPG_1PX });
+  await page.waitForTimeout(1600);
+}
+
+await page.evaluate(() => { window.prOpen(window._prHooks.cached(window._prHooks.POOLS.BEG)[0].id); });
+await page.waitForTimeout(300);
+await fotoAufnehmen(page);
+const fotoOnline = await page.evaluate(() => {
+  const b = window._prHooks.cached(window._prHooks.POOLS.BEG)[0];
+  const f = b.anlagen[0].punkte[0].fotos[0];
+  return { hatFoto: !!f, url: f && f.url, dataUrl: !!(f && f.dataUrl), pending: !!(f && f.pendingId),
+           roh: JSON.stringify(b).indexOf('data:image') >= 0,
+           queue: Object.keys(JSON.parse(localStorage.getItem('gema_pr_fotoq_v1') || '{}')).length };
+});
+ok(fotoOnline.hatFoto, 'Foto ist am Prüfpunkt erfasst');
+ok(!!fotoOnline.url, 'Foto trägt eine Bucket-URL');
+ok(!fotoOnline.dataUrl && !fotoOnline.pending, 'kein dataUrl/pendingId mehr am Foto');
+ok(!fotoOnline.roh, 'im GANZEN Datensatz steckt kein «data:image» (Base64) mehr');
+ok(fotoOnline.queue === 0, 'lokale Warteschlange ist nach dem Upload leer');
+ok(bucket.length === 1, 'genau ein Upload im Bucket (' + bucket.length + ')');
+ok(bucket[0] && bucket[0].indexOf('pruefliste/') >= 0, 'Upload liegt unter pruefliste/<orgId>');
+
+const cloudBeg = () => cloud.get('pruefliste|prbeg:' + begId);
+ok(JSON.stringify(cloudBeg().payload.data).indexOf('data:image') < 0, 'auch in der CLOUD kein Base64');
+
+console.log('— Foto offline aufnehmen: wartet lokal, geht nie als Base64 in die Cloud —');
+offline = true;
+await fotoAufnehmen(page);
+const fotoOffline = await page.evaluate(() => {
+  const b = window._prHooks.cached(window._prHooks.POOLS.BEG)[0];
+  const f = b.anlagen[0].punkte[0].fotos[1];
+  return { pending: !!(f && f.pendingId), dataUrl: !!(f && f.dataUrl),
+           roh: JSON.stringify(b).indexOf('data:image') >= 0,
+           queue: Object.keys(JSON.parse(localStorage.getItem('gema_pr_fotoq_v1') || '{}')).length };
+});
+ok(fotoOffline.pending, 'offline aufgenommenes Foto trägt eine pendingId');
+ok(!fotoOffline.dataUrl, 'kein dataUrl im Datensatz');
+ok(!fotoOffline.roh, 'auch offline steckt kein Base64 im Datensatz');
+ok(fotoOffline.queue === 1, 'das Bild wartet in der lokalen Warteschlange');
+const angezeigt = await page.evaluate(() => {
+  const el = document.querySelector('#fotos_0_0 .foto.wartet');
+  return { markiert: !!el, bildDa: !!(el && el.querySelector('img') && el.querySelector('img').src.indexOf('data:image') === 0) };
+});
+ok(angezeigt.markiert, 'wartendes Foto ist in der UI als solches markiert');
+ok(angezeigt.bildDa, 'der Nutzer sieht sein Foto trotzdem sofort');
+
+// Reload offline — Foto darf nicht verschwinden
+await page.close();
+({ page, errs } = await neueSeite());
+const nachReload = await page.evaluate(() => {
+  const b = window._prHooks.cached(window._prHooks.POOLS.BEG)[0];
+  const f = b.anlagen[0].punkte[0].fotos[1];
+  return { pending: !!(f && f.pendingId), src: window._prHooks.imgSrc ? window._prHooks.imgSrc(f) : '' };
+});
+ok(nachReload.pending, 'nach Reload offline: Foto noch am Prüfpunkt');
+ok(nachReload.src.indexOf('data:image') === 0, 'nach Reload offline: Bild wird aus der lokalen Warteschlange angezeigt');
+
+console.log('— Netz zurück: Foto wandert automatisch in den Bucket —');
+offline = false;
+await page.evaluate(() => window._prHooks.fotoUpload());
+await page.waitForTimeout(1600);
+const nachUpload = await page.evaluate(() => {
+  const b = window._prHooks.cached(window._prHooks.POOLS.BEG)[0];
+  const f = b.anlagen[0].punkte[0].fotos[1];
+  return { url: f && f.url, pending: !!(f && f.pendingId),
+           queue: Object.keys(JSON.parse(localStorage.getItem('gema_pr_fotoq_v1') || '{}')).length };
+});
+ok(!!nachUpload.url, 'Foto hat jetzt eine Bucket-URL');
+ok(!nachUpload.pending, 'pendingId ist entfernt');
+ok(nachUpload.queue === 0, 'lokale Warteschlange geleert');
+ok(bucket.length === 2, 'zweiter Upload im Bucket angekommen (' + bucket.length + ')');
+ok(JSON.stringify(cloudBeg().payload.data).indexOf('data:image') < 0, 'Cloud-Record blieb die ganze Zeit Base64-frei');
+
 console.log('— Statische Absicherung —');
 const src = await readFile(join(ROOT, 'pm_pruefliste.html'), 'utf8');
 ok(/addEventListener\('pagehide', *flushSave\)/.test(src), 'flushSave auf pagehide');
@@ -180,6 +277,10 @@ ok(/visibilitychange[\s\S]{0,120}flushSave\(\)/.test(src), 'flushSave auf visibi
 ok(/setInterval\(flushSave/.test(src), 'Backstop-Interval für hängengebliebene Debounce-Saves');
 ok(/lokalOk *= *false/.test(src), 'gescheiterter LOKALER Write wird erkannt (Quota), nicht verschluckt');
 ok(/function _setSaveStatus/.test(src), 'Speicher-Status-Badge vorhanden');
+ok(!/dataUrl *: *du/.test(src), 'kein Foto wird mehr mit dataUrl in den Record geschrieben');
+ok(/pendingId *: *pid/.test(src), 'wartende Fotos referenzieren die lokale Warteschlange');
+ok(/PR_FOTOQ *= *'gema_pr_fotoq_v1'/.test(src), 'lokale Foto-Warteschlange getrennt vom Datensatz');
+ok(/addEventListener\('online'[\s\S]{0,80}prFotoUpload/.test(src), 'Nachsenden bei «online»');
 
 console.log('\n' + (fail ? '❌' : '✅') + '  ' + pass + ' bestanden, ' + fail + ' fehlgeschlagen');
 await browser.close(); server.close();
