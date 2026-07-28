@@ -223,6 +223,9 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important}
 .modal-hd{padding:14px 16px;border-bottom:1px solid var(--brd);display:flex;align-items:center;gap:10px;flex-shrink:0}
 .modal-hd h3{font-size:15px;font-weight:900;flex:1}
 .modal-x{width:38px;height:38px;border-radius:9px;border:1.5px solid var(--brd2);background:var(--sur2);font-size:14px;cursor:pointer}
+/* Feedback aus dem Modal heraus — die Modals verdecken die Nav (und damit den
+   Nav-Feedback-Knopf), sonst gäbe es in diesen Ansichten kein Feedback. */
+.modal-x.fb-x{border-color:#fecaca;background:#fef2f2}
 .modal-bd{padding:14px 16px;overflow-y:auto;-webkit-overflow-scrolling:touch}
 .modal-ft{padding:12px 16px;padding-bottom:calc(12px + env(safe-area-inset-bottom));border-top:1px solid var(--brd);display:flex;gap:8px;flex-shrink:0}
 .modal-ft .btn{flex:1}
@@ -289,7 +292,7 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important}
 <!-- ═══ PRÜFPUNKT-EDITOR (Verwaltung) ═══ -->
 <div class="modal-bg" id="pkEditBg">
   <div class="modal">
-    <div class="modal-hd"><h3 id="pkEditTitle">Prüfpunkt</h3><button class="modal-x" onclick="prPkClose()">✕</button></div>
+    <div class="modal-hd"><h3 id="pkEditTitle">Prüfpunkt</h3><button class="modal-x fb-x" title="Feedback zu dieser Ansicht" onclick="GemaFeedback.start()">🔴</button><button class="modal-x" onclick="prPkClose()">✕</button></div>
     <div class="modal-bd" id="pkEditBody"></div>
     <div class="modal-ft" id="pkEditFt"></div>
   </div>
@@ -298,7 +301,7 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important}
 <!-- ═══ „PRÜFPUNKT ERGÄNZEN" (in Begehung) ═══ -->
 <div class="modal-bg" id="addPktBg">
   <div class="modal">
-    <div class="modal-hd"><h3>Prüfpunkt ergänzen</h3><button class="modal-x" onclick="prAddPktClose()">✕</button></div>
+    <div class="modal-hd"><h3>Prüfpunkt ergänzen</h3><button class="modal-x fb-x" title="Feedback zu dieser Ansicht" onclick="GemaFeedback.start()">🔴</button><button class="modal-x" onclick="prAddPktClose()">✕</button></div>
     <div class="modal-bd" id="addPktBody"></div>
     <div class="modal-ft"><button class="btn ghost" onclick="prAddPktClose()">Abbrechen</button><button class="btn pri" id="addPktSave" onclick="prAddPktSave()">Hinzufügen</button></div>
   </div>
@@ -1962,15 +1965,46 @@ function printBericht(b){
     +'.ft{font-size:9pt;color:#555;border-top:2px solid '+br.acc+';padding-top:6px}'
     +'.empf{margin-top:6px;font-size:10pt}.empf b{color:'+br.deep+'}.empf ul{margin:3px 0 0 16px;padding:0}.empf li{margin:2px 0}'
     +'.pk .empf{margin-top:4px;font-size:9.5pt}'
-    /* Foto-Blöcke: Bilder 2-spaltig über die volle Seitenbreite, Empfehlung darunter */
-    +'.pblock{margin:6px 0 12px;border:1px solid #e2e2e2;border-radius:8px;padding:8px 10px}'
-    +'.pblock.avoid{break-inside:avoid}'
-    +'.pblock-t{font-size:10pt;font-weight:800;margin-bottom:6px;break-after:avoid}.pblock-t .u{font-weight:600;color:#666;font-size:9pt}'
+    /* Bilder direkt unter ihrem Prüfpunkt: 2-spaltig über die volle Breite.
+       Die Zeile bleibt mit dem Prüfpunkt zusammen (break-after:avoid auf der
+       Punktzeile); nur sehr viele Bilder dürfen umbrechen (.many). */
+    +'table.pk tr.pkrow{break-after:avoid;page-break-after:avoid}'
+    +'table.pk tr.fotorow>td{padding:4px 8px 10px;border-bottom:1.5px solid #e2e2e2}'
+    +'table.pk tr.fotorow.many{break-inside:auto}'
     +'.pgrid{display:grid;grid-template-columns:1fr 1fr;gap:4mm}'
     +'.pgrid img{width:100%;height:58mm;object-fit:cover;border:1px solid #ccc;border-radius:6px;break-inside:avoid}'
-    +'.no-print{position:fixed;top:10px;right:10px;display:flex;gap:8px}.no-print button{padding:9px 16px;border-radius:9px;border:1.5px solid #ccc;background:#fff;font-weight:700;cursor:pointer;font-family:inherit}'
+    +'.no-print{position:fixed;top:10px;right:10px;display:flex;gap:8px;z-index:50}.no-print button{padding:9px 16px;border-radius:9px;border:1.5px solid #ccc;background:#fff;font-weight:700;cursor:pointer;font-family:inherit}'
+    +'.no-print button.fbb{border-color:#dc2626;color:#dc2626}.no-print button[disabled]{opacity:.6;cursor:default}'
     +'@media print{.no-print{display:none!important}}</style></head><body>';
-  h+='<div class="no-print"><button onclick="window.print()">🖨 Drucken / Als PDF speichern</button><button onclick="window.close()">Schliessen</button></div>';
+  h+='<div class="no-print"><button onclick="window.print()">🖨 Drucken / Als PDF speichern</button>'
+    +'<button class="fbb" onclick="gemaBerichtFeedback()">🔴 Feedback</button>'
+    +'<button onclick="window.close()">Schliessen</button></div>';
+  /* Feedback DIREKT aus dem Bericht (Feedback 28.07.2026 «Beim Bericht kann ich
+     kein Feedback geben»). Das Druckfenster ist ein eigenes Dokument ohne
+     GemaFeedback — es erfasst darum seinen sichtbaren Bereich selbst und
+     übergibt das Bild dem Hauptfenster (GemaFeedback.startWithImage).
+     Ohne html2canvas (offline/CDN blockiert) geht es ohne Bild weiter, damit
+     Feedback IMMER möglich ist. */
+  h+='<script>(function(){'
+    +'var CDN='+JSON.stringify((window.GemaFeedback&&GemaFeedback.H2C_CDN)||'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js')+';'
+    +'var busy=false;'
+    +'function opener(){try{return window.opener&&!window.opener.closed&&window.opener.GemaFeedback?window.opener:null;}catch(e){return null;}}'
+    +'function send(img){var o=opener();if(!o){alert("Das GEMA-Fenster ist geschlossen — Feedback bitte dort geben.");return;}'
+      +'try{o.GemaFeedback.startWithImage(img||"");o.focus();}catch(e){alert("Feedback konnte nicht geöffnet werden.");}}'
+    +'function shot(){try{'
+      +'return html2canvas(document.body,{x:window.scrollX,y:window.scrollY,width:window.innerWidth,height:window.innerHeight,scale:1.5,logging:false,useCORS:true,allowTaint:true})'
+        +'.then(function(c){return c.toDataURL("image/jpeg",0.82);});'
+      +'}catch(e){return Promise.reject(e);}}'
+    +'window.gemaBerichtFeedback=function(){'
+      +'if(busy)return;busy=true;'
+      +'var btn=document.querySelector(".no-print .fbb");if(btn){btn.disabled=true;btn.textContent="⧗ Bild …";}'
+      +'function fertig(img){busy=false;if(btn){btn.disabled=false;btn.textContent="🔴 Feedback";}send(img);}'
+      +'if(typeof html2canvas==="function"){shot().then(fertig).catch(function(){fertig("");});return;}'
+      +'var s=document.createElement("script");s.src=CDN;'
+      +'s.onload=function(){shot().then(fertig).catch(function(){fertig("");});};'
+      +'s.onerror=function(){fertig("");};'   /* offline: Feedback ohne Bild */
+      +'document.head.appendChild(s);'
+    +'};})();<\/script>';
   h+='<div class="top"><div class="abs"><strong>'+E(orgName||'GEMA')+'</strong>'+(adr?'<br>'+E(adr):'')+'</div>'
     +'<div class="logo">'+(logo?'<img src="'+E(logo)+'" alt="">':'<span class="wm">GEMA</span>')+'</div></div>';
   h+='<div class="coverbar"></div>';
@@ -2014,23 +2048,24 @@ function printBericht(b){
       /* Prüfart (z.B. Geruchsemission: Nasal / Messgerät) */
       var paLbl='';
       (PR_PRUEFARTEN||[]).forEach(function(o){ if(o.v===p.pruefart) paLbl=o.l; });
-      h+='<tr><td>'+(p.pflicht?'* ':'')+E(p.bezeichnung)+(p.untergruppe?'<br><span style="font-size:9pt;color:#555">'+E(p.untergruppe)+'</span>':'')+btZeile+'</td>'
+      h+='<tr class="pkrow"><td>'+(p.pflicht?'* ':'')+E(p.bezeichnung)+(p.untergruppe?'<br><span style="font-size:9pt;color:#555">'+E(p.untergruppe)+'</span>':'')+btZeile+'</td>'
         +'<td>'+E(prAntwortLabel(p.antworttyp,p.antwort)||'—')+(paLbl?'<br><span style="font-size:9pt;color:#555">Prüfung: '+E(paLbl)+'</span>':'')+'</td>'
         +'<td class="bw bw-'+bwk+'">'+E(bwLbl)+'</td>'
         +'<td>'+(bem||'—')+'</td></tr>';
+      /* Bilder DIREKT unter ihrem Prüfpunkt (Feedback 28.07.2026: «Prüfpunkt
+         soll immer untereinander dargestellt werden, also die Bilder gleich
+         unter dem Prüfpunkt») — als eigene Tabellenzeile statt als Block nach
+         der Tabelle. Die Zuordnung ist damit ohne Titel-Wiederholung klar.
+         Empfehlung(en) stehen unter den Bildern. */
+      var fotos=(p.fotos||[]).map(function(f){ return imgSrc(f); }).filter(Boolean);
+      if(fotos.length){
+        h+='<tr class="fotorow'+(fotos.length>4?' many':'')+'"><td colspan="4">'
+          +'<div class="pgrid">'+fotos.map(function(s){ return '<img src="'+E(s)+'">'; }).join('')+'</div>'
+          +empfHtml(p.empfehlung)
+          +'</td></tr>';
+      }
     });
     h+='</tbody></table>';
-    /* Foto-Blöcke pro Prüfpunkt: 2 Bilder pro Zeile über die Seitenbreite,
-       Empfehlung(en) direkt unter den Bildern. */
-    (a.punkte||[]).forEach(function(p){
-      var fotos=(p.fotos||[]).map(function(f){ return imgSrc(f); }).filter(Boolean);
-      if(!fotos.length) return;
-      h+='<div class="pblock'+(fotos.length<=4?' avoid':'')+'">'
-        +'<div class="pblock-t">'+E(p.bezeichnung)+(p.untergruppe?' <span class="u">· '+E(p.untergruppe)+'</span>':'')+'</div>'
-        +'<div class="pgrid">'+fotos.map(function(s){ return '<img src="'+E(s)+'">'; }).join('')+'</div>'
-        +empfHtml(p.empfehlung)
-        +'</div>';
-    });
   });
   if(!(b.anlagen||[]).length) h+='<p style="color:#666">Keine Anlagen erfasst.</p>';
   h+='<div class="ft" style="margin-top:20px">Erstellt: '+E(fmtDatum(heute()))+' · '+E(orgName||'GEMA')+' · GEMA Prüfliste</div>';

@@ -18,6 +18,16 @@
   let _annotCanvas = null, _annotCtx = null;
   let _annotDrawing = false, _annotShapes = [], _annotTemp = null;
   let _annotTool = 'pen', _annotTextInput = null;
+  // Zeichenfarbe (Feedback 28.07.2026 «verschiedene Farben waeren noch cool»).
+  // Jede Form merkt sich ihre Farbe (s.c) — Altformen ohne Feld bleiben rot.
+  const GFB_COLORS = [
+    { c: '#dc2626', n: 'Rot' },
+    { c: '#f59e0b', n: 'Orange' },
+    { c: '#16a34a', n: 'Gruen' },
+    { c: '#2563eb', n: 'Blau' },
+    { c: '#0f172a', n: 'Schwarz' }
+  ];
+  let _annotColor = GFB_COLORS[0].c;
 
   function init(moduleId, moduleName) {
     _moduleId   = moduleId;
@@ -60,6 +70,12 @@
             '<button type="button" class="gfb-tool" data-tool="arrow" style="padding:6px 12px;border-radius:8px;border:1.5px solid #475569;background:rgba(255,255,255,.08);color:#cbd5e1;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;transition:.15s">↗ Pfeil</button>' +
             '<button type="button" class="gfb-tool" data-tool="rect" style="padding:6px 12px;border-radius:8px;border:1.5px solid #475569;background:rgba(255,255,255,.08);color:#cbd5e1;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;transition:.15s">▭ Rechteck</button>' +
             '<button type="button" class="gfb-tool" data-tool="text" style="padding:6px 12px;border-radius:8px;border:1.5px solid #475569;background:rgba(255,255,255,.08);color:#cbd5e1;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;transition:.15s">T Text</button>' +
+          '</div>' +
+          '<div id="gfb-colors" style="display:flex;gap:5px;align-items:center">' +
+            GFB_COLORS.map(function(x) {
+              return '<button type="button" class="gfb-col" data-col="' + x.c + '" title="' + x.n + '" ' +
+                'style="width:26px;height:26px;border-radius:50%;border:2.5px solid transparent;background:' + x.c + ';cursor:pointer;padding:0;box-shadow:0 0 0 1.5px rgba(255,255,255,.25) inset"></button>';
+            }).join('') +
           '</div>' +
           '<span id="gfb-annot-hint" style="color:#94a3b8;font-size:12px;font-weight:600;flex:1;min-width:150px">Klick &amp; ziehen zum Zeichnen</span>' +
         '</div>' +
@@ -187,6 +203,11 @@
       b.addEventListener('click', function() { _setAnnotTool(b.dataset.tool); });
     });
 
+    // ── Farbwahl ──
+    document.querySelectorAll('#gfb-colors .gfb-col').forEach(function(b) {
+      b.addEventListener('click', function() { _setAnnotColor(b.dataset.col); });
+    });
+
     // ── Preview click → re-annotate ──
     var preview = document.getElementById('gfb-preview');
     if (preview) preview.addEventListener('click', function() {
@@ -237,6 +258,17 @@
     if (_annotCanvas) _annotCanvas.style.cursor = (t === 'text') ? 'text' : 'crosshair';
   }
 
+  // ── Zeichenfarbe waehlen (gilt fuer die naechste Form; bestehende bleiben) ──
+  function _setAnnotColor(c) {
+    _commitTextInput();
+    _annotColor = c;
+    document.querySelectorAll('#gfb-colors .gfb-col').forEach(function(b) {
+      var on = b.dataset.col === c;
+      b.style.borderColor = on ? '#fff' : 'transparent';
+      b.style.transform   = on ? 'scale(1.12)' : 'scale(1)';
+    });
+  }
+
   function _annotLW() {
     return Math.max(3, (_annotCanvas ? _annotCanvas.width : 600) / 180);
   }
@@ -245,8 +277,9 @@
   }
 
   function _drawShape(ctx, s, lw) {
-    ctx.strokeStyle = '#dc2626';
-    ctx.fillStyle   = '#dc2626';
+    var col = s.c || '#dc2626';   // Altformen ohne Farbe bleiben rot
+    ctx.strokeStyle = col;
+    ctx.fillStyle   = col;
     ctx.lineWidth   = lw;
     ctx.lineCap  = 'round';
     ctx.lineJoin = 'round';
@@ -282,6 +315,7 @@
       ctx.lineWidth = Math.max(2, s.size / 7);
       ctx.strokeStyle = 'rgba(255,255,255,.88)';
       ctx.strokeText(s.text, s.x, s.y);
+      ctx.fillStyle = col;
       ctx.fillText(s.text, s.x, s.y);
     }
   }
@@ -300,9 +334,9 @@
     inp.placeholder = 'Text…';
     inp.autocomplete = 'off';
     inp.style.cssText = 'position:absolute;z-index:5;left:' + Math.round(pos.x * dispScale) + 'px;top:' + Math.round(pos.y * dispScale) + 'px;' +
-      'font:700 ' + Math.max(11, fontCanvas * dispScale) + 'px "DM Sans",ui-sans-serif,sans-serif;color:#dc2626;' +
-      'background:rgba(255,255,255,.92);border:1.5px dashed #dc2626;border-radius:4px;padding:1px 4px;outline:none;min-width:70px;max-width:92%';
-    inp._gfbMeta = { x: pos.x, y: pos.y, size: fontCanvas };
+      'font:700 ' + Math.max(11, fontCanvas * dispScale) + 'px "DM Sans",ui-sans-serif,sans-serif;color:' + _annotColor + ';' +
+      'background:rgba(255,255,255,.92);border:1.5px dashed ' + _annotColor + ';border-radius:4px;padding:1px 4px;outline:none;min-width:70px;max-width:92%';
+    inp._gfbMeta = { x: pos.x, y: pos.y, size: fontCanvas, c: _annotColor };
     inp.addEventListener('keydown', function(e) {
       e.stopPropagation();  // ESC/Enter nicht an den globalen Handler durchreichen
       if (e.key === 'Enter') _commitTextInput();
@@ -324,7 +358,7 @@
     var meta = inp._gfbMeta;
     try { inp.remove(); } catch(e) {}
     if (val && meta) {
-      _annotShapes.push({ tool: 'text', x: meta.x, y: meta.y, text: val, size: meta.size });
+      _annotShapes.push({ tool: 'text', x: meta.x, y: meta.y, text: val, size: meta.size, c: meta.c || _annotColor });
       _redrawAnnotation();
     }
   }
@@ -380,9 +414,9 @@
         _commitTextInput();
         downPos = pos; moved = false;
         if (_annotTool === 'pen') {
-          _annotTemp = { tool: 'pen', points: [pos] };
+          _annotTemp = { tool: 'pen', points: [pos], c: _annotColor };
         } else if (_annotTool === 'arrow' || _annotTool === 'rect') {
-          _annotTemp = { tool: _annotTool, x1: pos.x, y1: pos.y, x2: pos.x, y2: pos.y };
+          _annotTemp = { tool: _annotTool, x1: pos.x, y1: pos.y, x2: pos.x, y2: pos.y, c: _annotColor };
         } else {
           _annotTemp = null;  // Text: wird beim Loslassen platziert
         }
@@ -428,6 +462,7 @@
     img.src = dataUrl;
     annot.style.display = 'flex';
     _setAnnotTool(_annotTool || 'pen');
+    _setAnnotColor(_annotColor);
   }
 
   function _redrawAnnotation() {
@@ -517,6 +552,26 @@
     // Desktop: Snipping-Overlay oeffnen (Bereich mit Maus auswaehlen)
     var ov = document.getElementById('gfb-overlay');
     if (ov) { ov.style.display = 'block'; document.body.style.cursor = 'crosshair'; }
+  }
+
+  // ── Feedback mit FERTIGEM Bild starten (Feedback 28.07.2026) ──
+  // Fuer Inhalte, die in einem EIGENEN Fenster stehen (Druckfenster wie der
+  // Pruefbericht): dort gibt es kein GemaFeedback, das Fenster erfasst sich
+  // selbst und uebergibt das Bild hierher. Ohne Bild geht es direkt ins
+  // Formular — Feedback ist so aus jeder Ansicht moeglich.
+  function startWithImage(dataUrl, opts) {
+    _snipRect = null;
+    _annotShapes = [];
+    _annotTemp = null;
+    _cancelTextInput();
+    _screenshotDataUrl = (typeof dataUrl === 'string' && dataUrl.indexOf('data:image') === 0) ? dataUrl : '';
+    var p = document.getElementById('gfb-preview');
+    if (p) { p.src = ''; p.style.display = 'none'; }
+    var t = document.getElementById('gfb-text');
+    if (t && opts && opts.text) t.value = opts.text;
+    try { w.focus(); } catch (e) {}
+    if (_screenshotDataUrl) _openAnnotation(_screenshotDataUrl);
+    else _showModal();
   }
 
   // ── Viewport erfassen (EINE Wahrheit fuer Snip + Fullscreen) ──
@@ -664,11 +719,14 @@
     }, 2800);
   }
 
-  w.GemaFeedback = { init: init, start: start, close: close, submit: submit };
+  w.GemaFeedback = { init: init, start: start, startWithImage: startWithImage, close: close, submit: submit, H2C_CDN: H2C_CDN };
 
   // Test-Hooks (Playwright) — kein Public API
   w._gfbHooks = {
     openAnnotation: _openAnnotation,
+    setColor: _setAnnotColor,
+    color: function() { return _annotColor; },
+    colors: GFB_COLORS,
     setTool: _setAnnotTool,
     tool: function() { return _annotTool; },
     shapes: function() { return _annotShapes; },

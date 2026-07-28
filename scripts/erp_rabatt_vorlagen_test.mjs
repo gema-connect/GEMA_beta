@@ -83,10 +83,14 @@ await page.evaluate(() => {
   const r = await page.evaluate(() => {
     const rows = [...document.querySelectorAll('#posBody tr')];
     const zu = rows[3], ra = rows[4];
+    // Seit Feedback 28.07.2026 stehen Modus/Wert/Basis gemeinsam in den (frei
+    // ein-/ausblendbaren) mittleren Spalten — Basis über den Tooltip lesen,
+    // Betrag ist die letzte Zelle der Zeile.
+    const basis = tr => (tr.querySelector('[title^="Zwischentotal"]') || {}).textContent.trim();
+    const letzte = tr => tr.cells[tr.cells.length - 1].textContent.trim();
     return {
-      // cells[0] ist neu die Auswahl-/DnD-Griff-Spalte → Basis/Betrag um 1 verschoben
-      zuBadge: zu.querySelector('.src').textContent, zuBasis: zu.cells[6].textContent.trim(), zuBetrag: zu.cells[7].textContent.trim(),
-      raBasis: ra.cells[6].textContent.trim(), raBetrag: ra.cells[7].textContent.trim(),
+      zuBadge: zu.querySelector('.src').textContent, zuBasis: basis(zu), zuBetrag: letzte(zu),
+      raBasis: basis(ra), raBetrag: letzte(ra),
       raClass: ra.className, sum: document.getElementById('sumBlock').textContent
     };
   });
@@ -96,8 +100,12 @@ await page.evaluate(() => {
 }
 // eigener Name als Anzeige-Zelle (Doppelklick öffnet die Bearbeitung)
 ok(await page.evaluate(() => {
+  // Bezeichnung ist die Zelle direkt vor der Quelle-Zelle (Spaltenzahl davor
+  // ist seit Feedback 28.07.2026 konfigurierbar)
   const zu = [...document.querySelectorAll('#posBody tr')][3];
-  return zu.cells[1].textContent.trim() === 'Baustellenzuschlag';
+  const src = zu.querySelector('.src');
+  const bez = src && src.closest('td').previousElementSibling;
+  return !!bez && bez.textContent.trim() === 'Baustellenzuschlag';
 }), 'Zuschlag frei benennbar («Baustellenzuschlag»)');
 
 console.log('■ PDF: Zwischentotal ausgewiesen, Kapitelsumme inkl. Rabatt/Zuschlag');

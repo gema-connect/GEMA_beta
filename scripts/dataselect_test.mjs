@@ -103,7 +103,9 @@ await page.evaluate(() => { document.getElementById('eq_menge').value = '3'; erp
 await page.waitForTimeout(60);
 {
   const p = await page.evaluate(() => cur.positionen[cur.positionen.length - 1]);
-  ok(p && p.bez === 'Spülkasten Sigma UP320' && Math.abs(p.menge - 3) < 1e-6, 'Position: Bezeichnung + Menge (3) aus dem Dialog');
+  // Der Beschrieb trägt seit Feedback 18.07.2026 zusätzlich Ausführung/Artikel-Nr
+  // auf eigenen Zeilen (_dsPosBez) — auf den Produktnamen prüfen, nicht auf Gleichheit
+  ok(p && p.bez.indexOf('Spülkasten Sigma UP320') === 0 && Math.abs(p.menge - 3) < 1e-6, 'Position: Bezeichnung + Menge (3) aus dem Dialog');
   ok(Math.abs(p.ep - 289.5) < 1e-6 && p.einheit === 'Stk', 'Position: Preis (EP) + Einheit');
   ok(p.produktId === 'ds:620.020.00.1' && p.dsArtnr === '620.020.00.1', 'Position: produktId/dsArtnr verknüpft');
   ok(!p._dsAnb && !p._dsBild && p._dsHat === undefined, 'transiente Bild-Hinweise NICHT in der Position gespeichert');
@@ -140,7 +142,7 @@ await page.waitForTimeout(60);
 await page.evaluate(() => erpQtyConfirm());
 ok(await page.evaluate(() => {
   const p = cur.positionen[cur.positionen.length - 1];
-  return p.bez === 'Betätigungsplatte Sigma50' && !p.bildUrl && Math.abs(p.ep - 145) < 1e-6;
+  return p.bez.indexOf('Betätigungsplatte Sigma50') === 0 && !p.bildUrl && Math.abs(p.ep - 145) < 1e-6;
 }), 'Artikel ohne Bild: Position ohne bildUrl, Preis korrekt');
 
 console.log('■ Live-Suche (0.5 s Debounce) markiert den obersten Treffer, Enter fügt ein');
@@ -156,7 +158,7 @@ await page.waitForTimeout(60);
 ok(await page.evaluate(() => document.getElementById('erpQtyModal').classList.contains('open')), 'Enter im Suchfeld öffnet den Stückzahl-Dialog (obersten Treffer)');
 await page.evaluate(() => { document.getElementById('eq_menge').value = '1'; erpQtyConfirm(); });
 await page.waitForTimeout(60);
-ok(await page.evaluate(() => { const p = cur.positionen[cur.positionen.length - 1]; return p && p.bez === 'Spülkasten Sigma UP320'; }), 'eingefügt = oberster Treffer');
+ok(await page.evaluate(() => { const p = cur.positionen[cur.positionen.length - 1]; return p && p.bez.indexOf('Spülkasten Sigma UP320') === 0; }), 'eingefügt = oberster Treffer');
 // zu kurze Eingabe (<2 Zeichen) löst noch keine Suche aus
 await page.evaluate(() => { const i = document.getElementById('dsq_1900'); i.value = '6'; i.dispatchEvent(new Event('input', { bubbles: true })); });
 await page.waitForTimeout(650);
