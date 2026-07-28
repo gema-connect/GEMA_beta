@@ -207,9 +207,30 @@ console.log('■ Einstellungen wirken (Mindest-DN)');
 
 console.log('■ ⊞ im Schema: Hinzufügen direkt an der Stelle');
 {
-  // Stand: 2 Abschnitte (Anschluss + Zulauf) → 2 Abschnitts-⊞ + 1 HSK-⊞
-  const plusse = await page.evaluate(() => (document.querySelector('#glSchema svg').innerHTML.match(/data-gladd="/g) || []).length);
-  ok(plusse === 3, '⊞ pro Abschnitt + ⊞ am HSK (2 Abschnitte → 3 Plusse): ' + plusse);
+  // Stand: 2 Abschnitte (Anschluss + Zulauf) → je Abschnitt ein ⊞ + HSK-⊞
+  // + seit Feedback 28.07.2026 ein kleines Zwischen-⊞ VOR jeder Quelle
+  // (damit auch zwischen zwei Fallsträngen eingefügt werden kann)
+  const pinfo = await page.evaluate(() => {
+    const st = JSON.parse(document.getElementById('gl_rows').value);
+    const html = document.querySelector('#glSchema svg').innerHTML;
+    return { alle: (html.match(/data-gladd="/g) || []).length,
+             gap: (html.match(/data-gladd="[^"]*@/g) || []).length,
+             a: st.abschnitte.length, q: st.quellen.length };
+  });
+  ok(pinfo.alle === pinfo.a + 1 + pinfo.q, '⊞ ueberall: je Abschnitt + HSK + je Quelle ein Zwischen-⊞ (' + pinfo.alle + ')');
+  ok(pinfo.gap === pinfo.q, 'Zwischen-⊞ vor jeder Quelle (' + pinfo.gap + '/' + pinfo.q + ')');
+  // 45°-Darstellung (Feedback 28.07.2026): Quellen-Stiche + Zulauf-Einbindungen
+  // schraeg in Fliessrichtung, Start-Punkt je Abschnitt, HSK-Anschluss 45°
+  const svg45 = await page.evaluate(() => {
+    const st = JSON.parse(document.getElementById('gl_rows').value);
+    const html = document.querySelector('#glSchema svg').innerHTML;
+    return { stiche: (html.match(/stroke-width="2\.4"/g) || []).length, q: st.quellen.length,
+             dots: (html.match(/r="4\.5"/g) || []).length, a: st.abschnitte.length,
+             hsk45: /H\d+(?:\.\d+)? L\d/.test(html) };
+  });
+  ok(svg45.stiche === svg45.q * 2, 'Quellen via eigener Stich-Leitung + 45°-T-Stueck (' + svg45.stiche + ' Segmente fuer ' + svg45.q + ' Quellen)');
+  ok(svg45.dots === svg45.a, 'Start-Punkt je Abschnitt — Trennung klar (' + svg45.dots + '/' + svg45.a + ')');
+  ok(svg45.hsk45, 'HSK-Anschluss ueber 45°-Schenkel');
   await page.evaluate(() => {
     const st = JSON.parse(document.getElementById('gl_rows').value);
     document.querySelector('#glSchema svg [data-gladd="' + st.abschnitte[0].id + '"]')
@@ -239,7 +260,30 @@ console.log('■ ⊞ im Schema: Hinzufügen direkt an der Stelle');
     const st = JSON.parse(document.getElementById('gl_rows').value);
     return st.abschnitte[2].ziel === st.abschnitte[1].id && st.abschnitte[1].ziel === st.abschnitte[0].id;
   }), 'Strang vor Strang: a3 → a2 → a1 (mehrstufiger Zusammenfluss)');
-  ok(await page.evaluate(() => (document.querySelector('#glSchema svg').innerHTML.match(/data-gladd="/g) || []).length) === 4, 'Neuer Strang trägt sofort ein eigenes ⊞');
+  ok(await page.evaluate(() => {
+    const st = JSON.parse(document.getElementById('gl_rows').value);
+    return (document.querySelector('#glSchema svg').innerHTML.match(/data-gladd="/g) || []).length
+      === st.abschnitte.length + 1 + st.quellen.length;
+  }), 'Neuer Strang trägt sofort ein eigenes ⊞ (Formel Abschnitte + HSK + Zwischen-⊞)');
+  // Zwischen-⊞: fuegt VOR der angeklickten Quelle ein (zwischen zwei Fallstraengen)
+  await page.evaluate(() => {
+    const st = JSON.parse(document.getElementById('gl_rows').value);
+    const ziel = st.abschnitte[0].id;
+    const qsA = st.quellen.filter(q => q.ziel === ziel);
+    const vor = qsA[qsA.length - 1];
+    window.__vorQ = vor.id;
+    document.querySelector('#glSchema svg [data-gladd="' + ziel + '@' + vor.id + '"]')
+      .dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: 300, clientY: 300 }));
+  });
+  await page.waitForSelector('#glCtxAdd', { timeout: 4000 });
+  await page.evaluate(() => { [...document.querySelectorAll('#glCtxAdd button')].find(b => /Fallstrang/.test(b.textContent)).click(); });
+  await page.waitForTimeout(400);
+  ok(await page.evaluate(() => {
+    const st = JSON.parse(document.getElementById('gl_rows').value);
+    const vi = st.quellen.findIndex(q => q.id === window.__vorQ);
+    const neu = st.quellen[vi - 1];
+    return vi > 0 && neu && neu.typ === 'fallstrang' && neu.ziel === st.abschnitte[0].id;
+  }), 'Zwischen-⊞ fuegt den neuen Verbraucher VOR der Quelle ein (Position erhalten)');
   // ⊞ am HSK → weitere Anschlussleitung (direkt, ohne Menü)
   await page.evaluate(() => {
     document.querySelector('#glSchema svg [data-gladd="hsk"]')
@@ -270,10 +314,11 @@ console.log('■ Vollbild: öffnen, zoomen, ⊞ im Vollbild, schliessen');
       .dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: 400, clientY: 400 }));
   });
   await page.waitForSelector('#glCtxAdd', { timeout: 4000 });
+  const qn0 = await page.evaluate(() => document.querySelectorAll('#glQBody tr').length);
   await page.evaluate(() => { [...document.querySelectorAll('#glCtxAdd button')].find(b => /Regenwasser/.test(b.textContent)).click(); });
-  await page.waitForFunction(() => document.querySelectorAll('#glQBody tr').length === 6);
+  await page.waitForFunction(n => document.querySelectorAll('#glQBody tr').length === n + 1, qn0);
   ok(await page.evaluate(() => document.getElementById('glFsBg').classList.contains('open')), 'Vollbild bleibt beim Hinzufügen offen');
-  ok(await page.evaluate(() => (document.querySelector('#glFsHost svg').innerHTML.match(/data-glziel="q:/g) || []).length) === 6, 'Vollbild-SVG zeigt die neue Quelle sofort');
+  ok(await page.evaluate(n => (document.querySelector('#glFsHost svg').innerHTML.match(/data-glziel="q:/g) || []).length === n + 1, qn0), 'Vollbild-SVG zeigt die neue Quelle sofort');
   await page.evaluate(() => {
     document.querySelector('#glFsHost svg [data-glziel^="q:"]').dispatchEvent(new MouseEvent('click', { bubbles: true }));
   });
