@@ -67,12 +67,17 @@ console.log('■ Strang anlegen über das Zeilen-Dropdown');
     hw: esState.straenge[0] && esState.straenge[0].hw, zu: esState.zu.A,
     vLocked: document.getElementById('v_A').readOnly,
     vClass: document.getElementById('v_A').classList.contains('v-strang'),
+    vEdit: document.getElementById('v_A').classList.contains('v-strang-edit'),
+    vStrang: document.getElementById('v_A').dataset.strang || '',
     veTag: document.getElementById('ve_A').textContent
   }));
   ok(s1.n === 1 && s1.name === 'Strang 1', 'Strang 1 angelegt («＋ Neuer Strang …»)');
   ok(s1.zu === '1', 'Zeile A dem Strang zugeordnet');
   ok(s1.hw === '10', 'HW-Vorbelegung = kleinste Zeilen-Härte (10 °fH)');
-  ok(s1.vLocked && s1.vClass, 'Härte-Feld der Zeile gesperrt (Härte über Strang)');
+  // Feedback 28.07.2026: die Härte einer zugeordneten Zeile ist NICHT mehr
+  // gesperrt — sie bleibt editierbar und schreibt die Härte des Strangs.
+  ok(!s1.vLocked && !s1.vClass && s1.vEdit && s1.vStrang === '1',
+     'Härte-Feld der Zeile editierbar und auf den Strang verdrahtet');
   ok(s1.veTag.includes('Strang 1'), '«über Enthärter»-Zelle zeigt «→ Strang 1»');
   ok((await txt('ve_total_ls')).startsWith('0.86'), 'Totale unverändert (gleiches Modell)');
 
