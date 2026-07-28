@@ -13,6 +13,10 @@
 //  C) Gerät ohne offenen Auftrag → Detailansicht statt Selbst-Ausleihe
 //  D) NFC-Nutzlast wird aus URL (scan=/view=) und roher ID gelesen
 //  E) Der Prüfbericht landet mit Prüfername + Datum am Gerät
+//  F) Rechte-Grenze (Feedback 28.07.2026): Der Externe darf NUR seine
+//     Prüfarbeit — erfassen/ändern/löschen/ausleihen/zuweisen/Einstellungen
+//     sind gesperrt, obwohl die Rolle `write` trägt; seine Auftrags-Sicht
+//     bleibt ihm aber erhalten (nicht die Monteur-Sicht «mir zugewiesen»)
 //
 // Ausführen: CHROME=<chromium> node scripts/werkzeug_pruefer_scan_test.mjs
 import { chromium } from 'playwright-core';
@@ -71,11 +75,10 @@ await page.waitForTimeout(1400);
 console.log('■ A · Prüfer sieht QR- und NFC-Knopf');
 {
   ok(await page.evaluate(() => _wzIsPruefer()) === true, 'Prüfer-Rolle erkannt');
-  // Feststellung (Drift-Guard, KEIN Soll-Wert): role_pruefer hat in
-  // gema_auth WRITE auf werkzeugmanagement — der Prüfer ist damit heute
-  // faktisch Voll-Editor im Modul. Ändert sich das bewusst, failt dieser
-  // Check und die Scan-Routen unten sind nachzuziehen.
-  ok(await page.evaluate(() => _wzCanEdit()) === true, 'Ist-Zustand: Prüfer hat write auf werkzeugmanagement');
+  // Hard-Lock: die Rolle trägt zwar `write` in der Permission-Matrix, das
+  // Modul sperrt den externen Partner aber wie den Monteur.
+  ok(await page.evaluate(() => _wzCanEdit()) === false, 'Externer Prüfer hat KEINE Edit-Rechte (Hard-Lock trotz write-Permission)');
+  ok(await page.evaluate(() => GemaAuth.can('write','werkzeugmanagement')) === true, 'Gegenprobe: die Permission-Matrix erlaubt write — das Modul sperrt bewusst härter');
   const sicht = await page.evaluate(() => {
     const wrap = document.getElementById('wzHeroScanWrap');
     const qr = document.getElementById('wzHeroScan');
@@ -108,7 +111,7 @@ console.log('■ C · Erledigter Auftrag → Detailansicht');
   await page.waitForTimeout(350);
   const zust = await page.evaluate(() => ({
     txt: document.body.innerText,
-    detail: !!document.getElementById('vm_actions_grid'),   // Marker der Detailansicht
+    detail: !!document.getElementById('vm_body'),           // Marker der Detailansicht
     auftrag: /Prüfungsauftrag/.test(document.body.innerText)
   }));
   ok(zust.detail, 'Detailansicht offen (nicht der Scan-Ausleihe-Screen)');
@@ -161,6 +164,72 @@ console.log('■ E · Prüfbericht wird mit Name und Datum abgelegt');
   ok(b && !!b.next, 'Nächste Prüfung gesetzt');
   ok(b && !!b.lastElec, 'Fälligkeit nachgeführt (lastElec)');
   ok(b && b.status === 'erledigt', 'Auftrag auf erledigt');
+}
+
+/* ════════ F · Rechte-Grenze des Externen ════════ */
+console.log('■ F · Externer darf nur seine Prüfarbeit');
+{
+  // Sicht bleibt: die beauftragten Geräte (NICHT die Monteur-Sicht)
+  const sicht = await page.evaluate(() => ({
+    partner: _wzIsPartnerView(), monteur: _wzIsMonteurView(),
+    n: getFiltered().length, ids: getFiltered().map(t => t.id)
+  }));
+  ok(sicht.partner === true, 'Partner-Sicht aktiv');
+  ok(sicht.monteur === false, 'NICHT die Monteur-Sicht («mir zugewiesen» wäre leer)');
+  ok(sicht.n === 2 && sicht.ids.indexOf('wz_elektro') >= 0, 'beide beauftragten Geräte sichtbar (' + sicht.n + ')');
+
+  // Verwaltungs-Knöpfe in der Kopfleiste sind weg
+  const btn = await page.evaluate(() => {
+    const sicht = id => { const e = document.getElementById(id); return !!(e && getComputedStyle(e).display !== 'none'); };
+    return { add: sicht('btnAddTool'), set: sicht('btnWzSettings'), inv: sicht('btnInventur'), koffer: sicht('btnNeuKoffer'), bulk: sicht('btnBulkMode') };
+  });
+  ok(!btn.add, '«Neues Gerät» ausgeblendet');
+  ok(!btn.set, 'Einstellungen ausgeblendet');
+  ok(!btn.inv, 'Inventur ausgeblendet');
+  ok(!btn.koffer, 'Koffer-Verwaltung ausgeblendet');
+  ok(!btn.bulk, 'Sammel-Bearbeitung ausgeblendet');
+
+  // Schreib-Aktionen greifen auch bei direktem Aufruf nicht (Guards)
+  const vorher = await page.evaluate(() => JSON.stringify(tools.find(t => t.id === 'wz_elektro')));
+  await page.evaluate(() => { window.__alerts = []; window.alert = m => window.__alerts.push(String(m)); });
+  const nach = await page.evaluate(() => {
+    const vor = tools.length;
+    try { editTool('wz_elektro'); } catch (e) { }
+    try { openZuweisung('wz_elektro'); } catch (e) { }
+    try { _wzSaveZuweisung('wz_elektro'); } catch (e) { }
+    try { _wzSaveAusleihe('wz_elektro'); } catch (e) { }
+    try { deleteTool('wz_elektro'); } catch (e) { }
+    return { len: tools.length, vorLen: vor, alerts: window.__alerts.length,
+             rec: JSON.stringify(tools.find(t => t.id === 'wz_elektro')) };
+  });
+  ok(nach.len === nach.vorLen, 'Löschen ohne Wirkung');
+  ok(nach.rec === vorher, 'Gerät unverändert (kein Feld überschrieben)');
+  ok(nach.alerts >= 3, 'Jeder Versuch wird abgewiesen (' + nach.alerts + ' Hinweise)');
+
+  // Detailansicht zeigt dem Partner nur Prüfen/Melden/Ansehen.
+  // (Sektion E hat den Auftrag abgeschlossen — für diesen Check wieder auf
+  // «quittiert» stellen, sonst gibt es korrekterweise nichts mehr zu prüfen.)
+  await page.evaluate(() => { try { _wzCloseModal(); } catch (e) { } try { closeView(); } catch (e) { } });
+  await page.evaluate(() => { tools.find(t => t.id === 'wz_elektro').pruefAnfrage.status = 'quittiert'; });
+  await page.evaluate(() => openViewTool('wz_elektro'));
+  await page.waitForTimeout(300);
+  const akt = await page.evaluate(() => {
+    const g = document.getElementById('vm_actions_grid');
+    const eb = document.getElementById('vm_editBtn');
+    return { txt: g ? g.innerText : '', edit: !!(eb && getComputedStyle(eb).display !== 'none') };
+  });
+  ok(!akt.edit, '✏️-Bearbeiten im Kopf ausgeblendet');
+  ok(!/Ausleihen an|Zuweisen|verloren/.test(akt.txt), 'keine Ausleih-/Zuweis-/Verloren-Aktion');
+  ok(/Prüfauftrag öffnen/.test(akt.txt), 'Prüfauftrag ist als Aktion da');
+  ok(/Defekt melden/.test(akt.txt), 'Defekt melden bleibt möglich (Mangel bei der Prüfung)');
+  ok(/Berichte/.test(akt.txt), 'Berichte einsehbar');
+  await page.evaluate(() => { try { closeView(); } catch (e) { } });
+
+  // Und die Prüfarbeit selbst funktioniert weiterhin
+  await page.evaluate(() => openPruefLiefAnsicht('wz_elektro'));
+  await page.waitForTimeout(300);
+  ok(/Prüfungsauftrag/.test(await page.evaluate(() => document.body.innerText)), 'Prüfauftrag trotz Sperre bedienbar');
+  await page.evaluate(() => _wzCloseModal());
 }
 
 ok(errs.filter(e => !/Cannot read|null|undefined/.test(e)).length === 0, 'keine JS-Fehler' + (errs.length ? ': ' + errs[0] : ''));

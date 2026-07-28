@@ -990,8 +990,69 @@ function _wzIsMonteur(){
 // die Monteur-Rolle keine voll-Edit-Rechte bekommen (er bleibt im
 // Self-Service-Modus: eigene Werkzeuge sehen + Ausleihen + Defekt
 // melden). Voll-Edit nur durch Admin- oder Magaziner-Rolle.
+// ── Externe Partner (Prüfer, Leiternprüfer, Lieferanten) ──────────────
+// Sie arbeiten cross-org an FREMDEN Geräten und dürfen dort NUR das tun,
+// wofür sie beauftragt sind: Prüfauftrag quittieren, Prüfbericht einreichen,
+// Reparatur/Offerte melden, Defekt melden. Alles andere (erfassen, ändern,
+// löschen, ausleihen, zuweisen, Koffer, Etiketten, NFC schreiben, Inventur,
+// Einstellungen) ist gesperrt — auch wenn die Rolle in der Permission-Matrix
+// `write` trägt (role_pruefer/role_lieferant tun das heute). Gleiches
+// Hard-Lock-Muster wie beim Monteur.
+function _wzIsExternerPartner(){
+  var u=_wzGetUser();
+  if(!u||!Array.isArray(u.roleIds))return false;
+  return u.roleIds.some(function(r){
+    return typeof r==='string' && (r==='role_pruefer' || r==='role_leiterpruefer'
+      || r.indexOf('role_lieferant')===0 || r.indexOf('role_produktlieferant')===0);
+  });
+}
+// Reiner Externer = ohne eigene Verwaltungsrolle. Ein Betrieb, der zugleich
+// Magaziner der eigenen Geräte ist, behält dort seine Rechte — fremde Geräte
+// bleiben trotzdem gesperrt (siehe _wzCanEditTool).
+function _wzIsNurExtern(){
+  return _wzIsExternerPartner() && !_wzIsAdmin() && !_wzIsMagaziner();
+}
+// Gehört das Gerät einer fremden Organisation? (Cross-Org-Prüfauftrag)
+function _wzIstFremdesTool(t){
+  var u=_wzGetUser();
+  if(!t||!u||!u.orgId)return false;
+  return !!t.orgId && t.orgId!==u.orgId;
+}
+// Bearbeitungsrecht PRO GERÄT — die eine Wahrheit für alle Schreib-Aktionen.
+// Externe Partner dürfen fremde Geräte nie bearbeiten, auch wenn sie in der
+// eigenen Firma Magaziner sind.
+function _wzCanEditTool(t){
+  if(!_wzCanEdit())return false;
+  if(_wzIsAdmin())return true;
+  if(_wzIsExternerPartner() && _wzIstFremdesTool(t))return false;
+  return true;
+}
+// Sicht des externen Partners: die Geräte, an denen er BEAUFTRAGT ist
+// (Prüfauftrag, Lieferant des Geräts, Ersatzanfrage) — nicht der Org-Bestand
+// und nicht die «mir zugewiesenen» des Monteurs.
+function _wzIsPartnerView(){
+  return !!(_wzGetUser() && _wzIsNurExtern());
+}
+function _wzGetPartnerTools(list){
+  var ids=_wzMyLiefUserIds();
+  return (list||[]).filter(function(t){ return _wzIsBeauftragt(t, ids); });
+}
+// Basis-Bestand der aktuellen Rollen-Sicht (eine Wahrheit für Liste,
+// Kategorie-Chips und Statistik).
+function _wzViewBase(){
+  if(_wzIsPartnerView()) return _wzGetPartnerTools(tools);
+  if(_wzIsMonteurView()) return _wzGetMyTools(tools);
+  return tools;
+}
+window._wzIsExternerPartner=_wzIsExternerPartner;
+window._wzIsNurExtern=_wzIsNurExtern;
+window._wzCanEditTool=_wzCanEditTool;
+window._wzIstFremdesTool=_wzIstFremdesTool;
+window._wzIsPartnerView=_wzIsPartnerView;
+
 function _wzCanEdit(){
   if(_wzIsMonteur()) return false;
+  if(_wzIsNurExtern()) return false;   // externer Partner: nur Prüf-/Auftragsarbeit
   if(_wzIsAdmin()||_wzIsMagaziner())return true;
   try{if(typeof GemaAuth!=='undefined'&&typeof GemaAuth.can==='function'){
     if(GemaAuth.can('write','werkzeugmanagement')||GemaAuth.can('admin','werkzeugmanagement'))return true;
@@ -2396,7 +2457,7 @@ function _wzCreatedTs(t){
   return 0;
 }
 function getFiltered(){
-  var base=_wzIsMonteurView()?_wzGetMyTools(tools):tools;
+  var base=_wzViewBase();
   base=_wzApplyAdvFilter(base);
   const q=(document.getElementById('searchInp')?.value||'').toLowerCase();
   // Lebenszyklus-Filter: Standard zeigt nur aktive + in Reparatur.
@@ -2435,7 +2496,7 @@ function _wzRenderCatFilter(){
   if(!_wzIsMonteurView()){ bar.style.display='none'; bar.innerHTML=''; if(currentCat!=='all'){currentCat='all';} return; }
   // Basis = derselbe Bestand wie renderList, aber OHNE den Kategorie-Filter,
   // damit die Chips stabil bleiben und die Zaehler stimmen.
-  var base=_wzIsMonteurView()?_wzGetMyTools(tools):tools;
+  var base=_wzViewBase();
   base=base.filter(function(t){
     var lc=t.lifecycleStatus||'aktiv';
     if(currentLifecycle==='archive') return lc==='ausgemustert'||lc==='verkauft';
@@ -2479,12 +2540,16 @@ function renderList(){
   // wirkt es faelschlich wie ein leerer Bestand.
   var showLoading = !_wzCloudLoaded && !tools.length;
   if(currentView==='cards'){
-    var emptyMsg=_wzIsMonteurView()
+    var emptyMsg=_wzIsPartnerView()
+      ?('<div class="empty-state"><div class="ei">📋</div><h3>Keine Prüfaufträge</h3><p>'+_wzPartnerEmptyText(true)+'</p><button class="nbtn primary" onclick="_wzScanWithCamera()" style="margin-top:8px">📷 Gerät scannen</button></div>')
+      :_wzIsMonteurView()
       ?('<div class="empty-state"><div class="ei">🔒</div><h3>Keine Werkzeuge zugewiesen</h3><p>'+_wzMonteurEmptyText(true)+'</p><button class="nbtn primary" onclick="_wzScanWithCamera()" style="margin-top:8px">📷 Werkzeug scannen &amp; ausleihen</button></div>')
       :'<div class="empty-state"><div class="ei">🔧</div><h3>Keine Geräte gefunden</h3><p>Passen Sie den Filter an oder erfassen Sie ein neues Gerät.</p><button class="nbtn primary" onclick="openAdd()">+ Gerät hinzufügen</button></div>';
     grid.innerHTML = showLoading ? _WZ_LOADING_HTML : (f.length?f.map(renderCard).join(''):emptyMsg);
   } else {
-    var emptyRow=_wzIsMonteurView()
+    var emptyRow=_wzIsPartnerView()
+      ? `<tr><td colspan="8" style="padding:44px 24px;text-align:center;color:var(--mut)">📋 ${_wzPartnerEmptyText(false)}</td></tr>`
+      : _wzIsMonteurView()
       ? `<tr><td colspan="8" style="padding:44px 24px;text-align:center;color:var(--mut)">🔒 ${_wzMonteurEmptyText(false)}</td></tr>`
       : `<tr><td colspan="8" style="padding:44px;text-align:center;color:var(--mut)">Keine Geräte gefunden</td></tr>`;
     tbody.innerHTML = showLoading
@@ -2497,6 +2562,14 @@ function renderList(){
 // dem Monteur/Nicht-Editor, WARUM er nichts sieht (Rollen-Sicht), statt einen
 // scheinbar leeren Bestand zu zeigen. Nennt den Org-Gesamtbestand als Beleg,
 // dass die Daten da sind.
+// Leerzustand des externen Partners: erklärt die Auftrags-Sicht statt einen
+// scheinbar leeren Bestand zu zeigen (Muster _wzMonteurEmptyText).
+function _wzPartnerEmptyText(html){
+  var br=html?'<br>':' ', b=html?'<b>':'', be=html?'</b>':'';
+  return 'Sie sehen hier die Geräte, für die Sie '+b+'beauftragt'+be+' sind (Prüfauftrag, Reparatur, Ersatz) — aktuell keine.'
+    + br + 'Sobald ein Auftraggeber eine Prüfung anfordert, erscheint das Gerät hier; Sie werden zusätzlich benachrichtigt.'
+    + br + 'Ein Gerät vor Ort können Sie jederzeit per QR- oder NFC-Scan öffnen.';
+}
 function _wzMonteurEmptyText(html){
   var b=html?'<b>':'', be=html?'</b>':'', br=html?'<br>':' ';
   var txt='Deine Rolle zeigt nur Werkzeuge, die '+b+'dir zugewiesen'+be+' oder von dir ausgeliehen sind — aktuell keine.';
@@ -2705,7 +2778,7 @@ function renderRow(t){
 }
 
 function updateStats(){
-  var base=_wzIsMonteurView()?_wzGetMyTools(tools):tools;
+  var base=_wzViewBase();
   base=_wzApplyAdvFilter(base);
   let ov=0,so=0,ok=0;
   base.forEach(t=>{const w=worstDays(t);if(w!==null){if(w<0)ov++;else if(w<=30)so++;else ok++;}else ok++;});
@@ -2997,6 +3070,7 @@ function _wzSaveAndQR(){
 function editTool(id){
   if(!_wzCanEdit()){alert('Keine Berechtigung — nur Magaziner/Admin dürfen Geräte bearbeiten.');return;}
   const t=tools.find(x=>x.id===id);if(!t)return;
+  if(!_wzCanEditTool(t)){alert('Dieses Gerät gehört einer anderen Firma. Als beauftragter Partner können Sie nur den Prüfauftrag bearbeiten (quittieren, Prüfbericht, Reparatur/Offerte) und Defekte melden.');return;}
   // Koffer: eigener kompakter Dialog (Name/Kennung/Zuteilung/Notizen) —
   // das Werkzeug-Formular verlangt Kaufdatum/Kategorie, die ein Koffer
   // nicht hat, und liesse sich nicht speichern.
@@ -3034,6 +3108,7 @@ function editTool(id){
 function deleteTool(id){
   if(!_wzCanEdit()){alert('Keine Berechtigung — nur Magaziner/Admin dürfen löschen.');return;}
   var t=tools.find(function(x){return x.id===id;});
+  if(t&&!_wzCanEditTool(t)){alert('Dieses Gerät gehört einer anderen Firma. Als beauftragter Partner können Sie nur den Prüfauftrag bearbeiten (quittieren, Prüfbericht, Reparatur/Offerte) und Defekte melden.');return;}
   GemaDialog.confirm({title:'Gerät löschen', message:'Gerät «'+((t&&t.name)||id)+'» wirklich löschen?', confirmLabel:'Löschen', danger:true}).then(function(ok){
     if(!ok) return;
     var del = t;
@@ -3189,6 +3264,7 @@ function openZuweisung(toolId){
   if(!_wzCanAssign()){alert('Keine Berechtigung');return;}
   var t=tools.find(function(x){return x.id===toolId;});
   if(!t)return;
+  if(!_wzCanEditTool(t)){alert('Dieses Gerät gehört einer anderen Firma. Als beauftragter Partner können Sie nur den Prüfauftrag bearbeiten (quittieren, Prüfbericht, Reparatur/Offerte) und Defekte melden.');return;}
   if(_wzIsPendingEinbuchung(t)){GemaDialog.alert({title:'Einbuchung ausstehend',message:'Dieses Werkzeug wurde vom Lieferanten eingebucht und muss zuerst akzeptiert werden, bevor es zugewiesen werden kann.'});return;}
   // Monteure aus GemaAuth laden (nur eigene Org)
   var personen=[];
@@ -3267,6 +3343,7 @@ window._wzZuwTab = _wzZuwTab;
 function _wzSaveZuweisung(toolId){
   var t=tools.find(function(x){return x.id===toolId;});
   if(!t)return;
+  if(!_wzCanEditTool(t)){alert('Dieses Gerät gehört einer anderen Firma. Als beauftragter Partner können Sie nur den Prüfauftrag bearbeiten (quittieren, Prüfbericht, Reparatur/Offerte) und Defekte melden.');return;}
   // Welcher Tab ist aktiv?
   var sel=document.getElementById('zuwUser');
   var platzInp=document.getElementById('zuwPlatz');
@@ -3405,6 +3482,7 @@ function _wzGetSignatureDataUrl(){
 }
 function _wzSaveAusleihe(toolId){
   var t=tools.find(function(x){return x.id===toolId;});if(!t)return;
+  if(_wzIsExternerPartner()&&_wzIstFremdesTool(t)){alert('Dieses Gerät gehört einer anderen Firma. Als beauftragter Partner können Sie nur den Prüfauftrag bearbeiten (quittieren, Prüfbericht, Reparatur/Offerte) und Defekte melden.');return;}
   var sel=document.getElementById('ausleiheUser');
   var uid=sel?sel.value:'';
   var protoChk=document.getElementById('aLProto');
@@ -3476,6 +3554,7 @@ function _wzLendToSelf(toolId){
   var u=_wzGetUser();
   if(!u){ GemaDialog.alert({message:'Bitte zuerst einloggen.'}); return; }
   var t=tools.find(function(x){return x.id===toolId;});
+  if(t&&_wzIsExternerPartner()&&_wzIstFremdesTool(t)){ GemaDialog.alert({message:'Dieses Gerät gehört einer anderen Firma. Als beauftragter Partner können Sie nur den Prüfauftrag bearbeiten (quittieren, Prüfbericht, Reparatur/Offerte) und Defekte melden.'}); return; }
   if(!t) return;
   if(_wzIsPendingEinbuchung(t)){GemaDialog.alert({title:'Einbuchung ausstehend',message:'Dieses Werkzeug wurde vom Lieferanten eingebucht und muss zuerst akzeptiert werden, bevor es ausgeliehen werden kann.'});return;}
   if(_wzIsKoffer(t)) return _wzKofferAusleihe(toolId);
@@ -4722,6 +4801,7 @@ window._wzSammelConfirm=_wzSammelConfirm;
 function _wzIsMonteurView(){
   var u=_wzGetUser();if(!u)return false;
   if(_wzIsAdmin())return false;
+  if(_wzIsNurExtern())return false;    // Partner hat eine eigene Sicht
   if(_wzCanEdit())return false;
   return true;
 }
@@ -6981,14 +7061,19 @@ function openViewTool(id){
     return '<button onclick="'+onclick+'" style="padding:11px 10px;border-radius:10px;border:1.5px solid '+(c.brd||'#e5e7eb')+';background:'+(c.bg||'#fff')+';color:'+(c.col||'#475569')+';font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;display:flex;align-items:center;justify-content:center;gap:6px">'+label+'</button>';
   }
   let act='';
-  if(_wzCanEdit()&&!vmPend){
+  var vmEdit=_wzCanEditTool(t);          // Recht PRO GERÄT (Partner: fremd = nein)
+  // Beauftragter Partner: der Prüfauftrag ist SEINE Aktion — zuoberst
+  if(typeof _wzOffenerPruefauftrag==='function' && _wzOffenerPruefauftrag(t)){
+    act+=vmBtn('📋 Prüfauftrag öffnen',`closeView();openPruefLiefAnsicht('${t.id}')`,{brd:'#bfdbfe',bg:'#eff6ff',col:'#1d4ed8'});
+  }
+  if(vmEdit&&!vmPend){
     act+=vmBtn('🔄 Ausleihen an …',`closeView();_wzOpenAusleihe('${t.id}')`,{brd:'#fde68a',bg:'#fefce8',col:'#92400e'});
     act+=vmBtn('👷 Zuweisen',`closeView();openZuweisung('${t.id}')`,{brd:'#c7d2fe',bg:'#eef2ff',col:'#3730a3'});
     if(t.ausgeliehenAn) act+=vmBtn('↩ Zurück ins Lager',`closeView();_wzScanConfirmReturn('${t.id}')`,{brd:'#bbf7d0',bg:'#f0fdf4',col:'#15803d'});
   }
   if(_wzCanReportDefect()) act+=vmBtn('🚨 Defekt melden',`closeView();openDefektMelden('${t.id}')`,{brd:'#fecaca',bg:'#fef2f2',col:'#b91c1c'});
   act+=vmBtn('📝 Berichte'+(t.berichte&&t.berichte.length?' ('+t.berichte.length+')':''),`closeView();openBerichte('${t.id}')`);
-  if(_wzCanEdit()){
+  if(vmEdit){
     act+=vmBtn('🔲 QR / Etikette',`closeView();openQR('${t.id}')`);
     act+=vmBtn('📋 Aktivitäten',`closeView();_wzToolActLog('${t.id}')`);
     act+= vmLc==='verloren'
@@ -7004,7 +7089,7 @@ function openViewTool(id){
 
   // Edit button — nur fuer Magaziner/Admin sichtbar (Monteur=read-only)
   const editBtn=document.getElementById('vm_editBtn');
-  if(_wzCanEdit()){
+  if(vmEdit){
     editBtn.style.display='';
     editBtn.onclick=function(){ closeView(); editTool(id); };
   } else {
