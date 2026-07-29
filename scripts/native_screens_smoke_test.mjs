@@ -284,14 +284,32 @@ console.log('— Werkzeug (Liste/Badges/Filter/Toggle) —');
   // Cache gema_native_view_v1). KEIN In-Modul-Umschalter/Pill mehr.
   ok(await page.evaluate(() => !document.querySelector('.gn--page [data-gn-classic]')), 'kein In-Modul-Umschalter mehr');
   ok(await page.evaluate(() => !document.querySelector('.gn-return-pill')), 'keine 📱-Rückkehr-Pill mehr');
-  // Einstellung «klassisch» → Native aus (genau der Cache, den sys_profil schreibt)
-  await page.evaluate(() => { localStorage.setItem('gema_native_view_v1', 'klassisch'); window.dispatchEvent(new Event('resize')); });
+  // Einstellung «klassisch» — wie sys_profil sie WIRKLICH schreibt: Profil-Flag
+  // + Geräte-Cache. Ein NUR-Cache-'klassisch' ohne Profil-Flag ist seit dem
+  // 29.07.2026 eine Trap-Altlast (Workspace-Eimer-Tap) und wird geheilt.
+  // (Profil-Flag im Test als getCurrentUser-Stub — der echte updateProfile-Weg
+  // würde am gemockten Auth-Save scheitern und in-memory zurückrollen.)
+  await page.evaluate(() => {
+    if (!window.__origGCU) window.__origGCU = GemaAuth.getCurrentUser.bind(GemaAuth);
+    window.__natFlag = false;
+    GemaAuth.getCurrentUser = function () {
+      var u = window.__origGCU(); if (!u) return u;
+      u.profile = Object.assign({}, u.profile);
+      if (window.__natFlag === undefined) delete u.profile.nativeAnsicht; else u.profile.nativeAnsicht = window.__natFlag;
+      return u;
+    };
+    localStorage.setItem('gema_native_view_v1', 'klassisch'); window.dispatchEvent(new Event('resize'));
+  });
   await page.waitForTimeout(300);
   ok(!(await natVisible(page)), 'Einstellung «klassisch» → Native-Overlay aus');
   // Einstellung «native» → wieder aktiv (Standard)
-  await page.evaluate(() => { localStorage.setItem('gema_native_view_v1', 'native'); window.dispatchEvent(new Event('resize')); });
+  await page.evaluate(() => { window.__natFlag = true; localStorage.setItem('gema_native_view_v1', 'native'); window.dispatchEvent(new Event('resize')); });
   await page.waitForTimeout(300);
   ok(await natVisible(page), 'Einstellung «native» → Native-Ansicht wieder aktiv');
+  // Trap-Altlast: NUR-Cache-'klassisch' ohne Profil-Flag → Heilung, nativ bleibt
+  await page.evaluate(() => { window.__natFlag = undefined; localStorage.setItem('gema_native_view_v1', 'klassisch'); window.dispatchEvent(new Event('resize')); });
+  await page.waitForTimeout(300);
+  ok(await natVisible(page), 'Nur-Cache-«klassisch» ohne Profil-Flag wird geheilt (nativ bleibt)');
   await page.close();
 }
 

@@ -1166,10 +1166,13 @@ input::placeholder{color:#cbd5e1}
     toast('Eimer „'+name+'” erstellt','check');
   };
 
-  // ── Quick Create (Empty State) ──
-  window._wsQuickCreate=function(typeId){
-    var presets={project:'Mein erstes Bauprojekt',training:'Übungsumgebung','private':'Privater Eimer'};
-    var name=presets[typeId]||'Neuer Eimer';
+  // ── Quick Create (Empty State) + native Handy-Ansicht ──
+  // _wsNatCreate = EINE modallose Erstellung (Name + Typ), genutzt vom
+  // Quick-Create UND vom nativen ＋-Sheet (Feedback 29.07.2026). Gibt die
+  // neue Eimer-ID zurück, damit der native Screen direkt hineinspringt.
+  window._wsNatCreate=function(name,typeId){
+    name=String(name||'').trim(); if(!name) return null;
+    if(!TYPES[typeId]) typeId='project';
     var isPersonal=typeId==='private';
     var orgId=isPersonal?null:_resolveOrg();
     var uid=_curUserId();
@@ -1186,6 +1189,11 @@ input::placeholder{color:#cbd5e1}
     if(openTabs.indexOf(b.id)<0)openTabs.push(b.id);
     save();render();
     toast('Eimer „'+name+'” erstellt','check');
+    return b.id;
+  };
+  window._wsQuickCreate=function(typeId){
+    var presets={project:'Mein erstes Bauprojekt',training:'Übungsumgebung','private':'Privater Eimer'};
+    window._wsNatCreate(presets[typeId]||'Neuer Eimer',typeId);
   };
 
   // ── Module Picker Modal ──
@@ -2733,7 +2741,12 @@ document.addEventListener('DOMContentLoaded',function(){
       }
     }
   }catch(e){}
-  if(typeof GemaCoachmarks!=='undefined'){
+  // Coachmark-Tour NICHT auf dem Handy (Feedback 29.07.2026): die Schritte
+  // zeigen auf Sidebar/Tab-Leiste/Resize-Griffe, die es auf ≤740px gar nicht
+  // gibt — der Spotlight-Backdrop legte sich dann als unbedienbarer Schleier
+  // über die ganze Seite («verschwommene Ansicht» auf dem iPhone).
+  var _wsPhone=false; try{ _wsPhone=window.matchMedia('(max-width: 740px)').matches; }catch(e){}
+  if(typeof GemaCoachmarks!=='undefined' && !_wsPhone){
     var steps=[
       {selector:'.ws-sidebar',title:'Willkommen im Workspace',text:'Der Workspace ist dein zentraler Arbeitsplatz. Links siehst du deine Eimer — jeder Eimer gruppiert Module, Notizen und Beteiligte für ein Projekt oder eine Aufgabe.',placement:'right',icon:'🪣'},
       {selector:'.ws-sidebar-new',title:'Eimer erstellen',text:'Klicke hier, um einen neuen Eimer zu erstellen. Wähle einen Typ (Bauprojekt, Übung oder Privat) und optional eine Vorlage, die automatisch Module hinzufügt.',placement:'right',icon:'➕'},
@@ -2807,8 +2820,34 @@ document.addEventListener('DOMContentLoaded',function(){
     try{ var r=localStorage.getItem('gema_ws_pool_v1')||localStorage.getItem('gema_workspace_v1'); if(r){ var d=JSON.parse(r); if(Array.isArray(d)) return d; } }catch(e){}
     return [];
   }
-  var TYP_IC={bauprojekt:'🏗',uebung:'🎓',privat:'👤',team:'👥'};
-  function render(root){
+  /* Eimer-Navigation KOMPLETT nativ (Feedback 29.07.2026): Übersicht →
+     Eimer-Detail (Module öffnen/hinzufügen) → zurück; neuer Eimer via ＋ in
+     der Bottom-Navbar. Der frühere Eimer-Tap schaltete via setPref('klassisch')
+     DAUERHAFT auf die Desktop-Ansicht um — auf dem iPhone unbenutzbar
+     (Coachmark-Schleier über der Desktop-Sidebar). Der Trap ist entfernt;
+     ein damit gesetzter Geräte-Cache wird in gema_native_mobil geheilt. */
+  var TYP_LBL={project:'Bauprojekt',training:'Übung','private':'Privat'};
+  var TYP_IC={project:'🏗',training:'🎓','private':'👤'};
+  var CAT_EMO={sanitaer:'💧',gas:'🛢',heizung:'🔥',lueftung:'🌬',brandschutz:'🧯',pm:'📁',hygiene:'🚿',schaden:'💦',spengler:'🏠',infra:'🔧',immo:'🏢'};
+  // Status-Werte wie der Desktop-Auto-Status (_wsAutoStatus) sie liefert
+  var ST_COL={offen:'#94a3b8',bearbeitung:'#d97706','in Bearbeitung':'#d97706',berechnet:'#16a34a','Anlage gewählt':'#7c3aed','Offerte angefragt':'#2563eb'};
+  var ST_LBL={offen:'offen',bearbeitung:'in Bearbeitung'};
+  var curId=null;   // geöffneter Eimer (null = Übersicht)
+
+  function katalog(){ try{ return window._wsModulesHook?window._wsModulesHook():null; }catch(e){ return null; } }
+  function bucketById(id){ return buckets().find(function(b){ return b&&b.id===id; })||null; }
+  function modMeta(modId){
+    var k=katalog();
+    return (k&&(k.modules||[]).find(function(m){ return m.id===modId; }))||{id:modId,name:modId,cat:''};
+  }
+  function modStatus(b,m){
+    var st=m.status||'offen';
+    try{ if(window._wsAutoStatusHook){ var a=window._wsAutoStatusHook(m.mod,b.objektId); if(a) st=a; } }catch(e){}
+    return st;
+  }
+  function chevron(){ return '<svg class="gn-chevron" viewBox="0 0 8 13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m1.5 1.5 5 5-5 5"/></svg>'; }
+
+  function renderUebersicht(root){
     var k=kpis(), u=user();
     var org=''; try{ var o=GemaAuth.getCurrentOrg(); org=(o&&o.name)||''; }catch(e){}
     var recent=[]; try{
@@ -2821,36 +2860,146 @@ document.addEventListener('DOMContentLoaded',function(){
       +'<div class="gn-screen" data-gn-scroll>'
         +'<button class="gn-back" data-nat-home><svg viewBox="0 0 11 18" fill="none" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m9.5 1.5-8 7.5 8 7.5"/></svg>Start</button>'
         +'<div class="gn-toolbar">'
-          +'<div class="gn-large-title"><h1>Workspace</h1><p>'+NE(org||(u&&u.name)||'')+'</p></div>'        +'</div>'
+          +'<div class="gn-large-title"><h1>Workspace</h1><p>'+NE(org||(u&&u.name)||'')+'</p></div>'
+        +'</div>'
         +'<div class="gn-stats">'
           +'<div class="gn-stat"><div class="gn-stat-k">Stunden Woche</div><div class="gn-stat-v">'+NE(k.std)+'</div><div class="gn-stat-sub">erfasst</div></div>'
           +'<div class="gn-stat"><div class="gn-stat-k">Einsätze heute</div><div class="gn-stat-v">'+k.eins+'</div><div class="gn-stat-sub">Termine</div></div>'
           +'<div class="gn-stat"><div class="gn-stat-k">Prüfungen fällig</div><div class="gn-stat-v"'+(k.pruef?' style="color:var(--gn-danger)"':'')+'>'+k.pruef+'</div><div class="gn-stat-sub">Werkzeug ≤ 30 Tage</div></div>'
           +'<div class="gn-stat"><div class="gn-stat-k">Offene Rapporte</div><div class="gn-stat-v">'+k.rap+'</div><div class="gn-stat-sub">Regie</div></div>'
         +'</div>'
+        +'<div class="gn-label">Meine Eimer</div><div class="gn-list">'
+          +(bks.length?bks.map(function(b){
+            return '<div class="gn-row gn-row--lg" data-nat-bucket="'+NE(b.id)+'"><span class="gn-row-ic" style="--gn-row-bg:var(--gn-c-projekt)">'+(TYP_IC[b.type]||'🗂')+'</span>'
+              +'<span class="gn-row-body"><span class="gn-row-title">'+NE(b.name||'Eimer')+'</span><span class="gn-row-sub">'+((b.modules||[]).length)+' Module · '+(TYP_LBL[b.type]||'Eimer')+'</span></span>'
+              +chevron()+'</div>';
+          }).join(''):'<div class="gn-row"><span class="gn-row-body"><span class="gn-row-title" style="color:var(--gn-ink-3);font-weight:500">Noch kein Eimer — unten mit ＋ erstellen</span></span></div>')
+        +'</div>'
         +(recent.length?('<div class="gn-label">Zuletzt verwendet</div><div class="gn-list">'
           +recent.map(function(r){
             var lbl=''; try{ lbl=GemaRecent.label(r.key); }catch(e){ lbl=r.key; }
             return '<div class="gn-row" data-nat-href="'+NE(r.key)+'.html"><span class="gn-row-ic" style="--gn-row-bg:var(--gn-c-sanitaer)">📄</span>'
-              +'<span class="gn-row-body"><span class="gn-row-title">'+NE(lbl)+'</span></span>'
-              +'<svg class="gn-chevron" viewBox="0 0 8 13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m1.5 1.5 5 5-5 5"/></svg></div>';
-          }).join('')+'</div>'):'')
-        +(bks.length?('<div class="gn-label">Meine Eimer</div><div class="gn-list">'
-          +bks.map(function(b){
-            return '<div class="gn-row gn-row--lg" data-nat-bucket><span class="gn-row-ic" style="--gn-row-bg:var(--gn-c-projekt)">'+(TYP_IC[b.type]||'🗂')+'</span>'
-              +'<span class="gn-row-body"><span class="gn-row-title">'+NE(b.name||'Eimer')+'</span><span class="gn-row-sub">'+((b.modules||[]).length)+' Module</span></span>'
-              +'<svg class="gn-chevron" viewBox="0 0 8 13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m1.5 1.5 5 5-5 5"/></svg></div>';
+              +'<span class="gn-row-body"><span class="gn-row-title">'+NE(lbl)+'</span></span>'+chevron()+'</div>';
           }).join('')+'</div>'):'')
       +'</div>';
-    root.querySelector('[data-nat-home]').addEventListener('click',function(){ location.href='index.html'; });
+  }
+
+  function renderDetail(root,b){
+    var mods=(b.modules||[]);
+    var rows=mods.map(function(m){
+      var meta=modMeta(m.mod), st=modStatus(b,m);
+      var href=(meta.href||meta.id+'.html')+(b.objektId?'?objekt='+encodeURIComponent(b.objektId):'');
+      return '<div class="gn-row" data-nat-href="'+NE(href)+'"><span class="gn-row-ic" style="--gn-row-bg:var(--gn-c-projekt)">'+(CAT_EMO[meta.cat]||'📄')+'</span>'
+        +'<span class="gn-row-body"><span class="gn-row-title">'+NE(meta.name)+'</span>'
+        +'<span class="gn-row-sub"><span style="display:inline-block;width:8px;height:8px;border-radius:99px;background:'+(ST_COL[st]||ST_COL.offen)+';margin-right:5px;vertical-align:1px"></span>'+NE(ST_LBL[st]||st)+'</span></span>'
+        +chevron()+'</div>';
+    }).join('');
+    if(!rows) rows='<div class="gn-row"><span class="gn-row-body"><span class="gn-row-title" style="color:var(--gn-ink-3);font-weight:500">Noch keine Module in diesem Eimer</span></span></div>';
+    root.innerHTML=
+      '<div class="gn-compact" data-gn-compact><b>'+NE(b.name||'Eimer')+'</b></div>'
+      +'<div class="gn-screen" data-gn-scroll>'
+        +'<button class="gn-back" data-nat-zurueck><svg viewBox="0 0 11 18" fill="none" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m9.5 1.5-8 7.5 8 7.5"/></svg>Eimer</button>'
+        +'<div class="gn-toolbar"><div class="gn-large-title"><h1>'+NE(b.name||'Eimer')+'</h1>'
+          +'<p>'+(TYP_IC[b.type]||'🗂')+' '+(TYP_LBL[b.type]||'Eimer')+' · '+mods.length+' Module</p></div></div>'
+        +'<div class="gn-label">Module</div><div class="gn-list">'+rows+'</div>'
+        +'<div class="gn-list" style="margin-top:10px"><button class="gn-select" data-nat-addmod><span class="k">＋ Modul hinzufügen</span><span class="v">›</span></button></div>'
+      +'</div>';
+  }
+
+  function render(root){
+    var b=curId?bucketById(curId):null;
+    if(curId&&!b) curId=null;   // Eimer gelöscht/entzogen → zurück zur Übersicht
+    if(b) renderDetail(root,b); else renderUebersicht(root);
+    wire(root);
+  }
+
+  // Delegierte Klicks NUR EINMAL binden (render ersetzt nur innerHTML — ein
+  // Listener pro Render würde sich aufsummieren; Muster index-Home-Screen).
+  function wire(root){
+    if(root.__wsNatWired) return; root.__wsNatWired=true;
+    // Die zentral injizierte ‹-Toolbar-Taste (data-gn-back) macht history.back —
+    // im Eimer-Detail soll sie stattdessen zur Übersicht führen (capture-Phase
+    // läuft VOR dem goBack-Listener von gema_native_mobil).
     root.addEventListener('click',function(e){
-      var h=e.target.closest&&e.target.closest('[data-nat-href]');
+      if(curId&&e.target.closest&&e.target.closest('[data-gn-back]')){
+        e.stopPropagation();e.preventDefault();
+        curId=null; if(nat) nat.refresh();
+      }
+    },true);
+    root.addEventListener('click',function(e){
+      var t=e.target;
+      if(t.closest&&t.closest('[data-nat-home]')){ location.href='index.html'; return; }
+      if(t.closest&&t.closest('[data-nat-zurueck]')){ curId=null; if(nat) nat.refresh(); return; }
+      var bk=t.closest&&t.closest('[data-nat-bucket]');
+      if(bk){ curId=bk.getAttribute('data-nat-bucket'); if(nat) nat.refresh(); return; }
+      var am=t.closest&&t.closest('[data-nat-addmod]');
+      if(am){ openAddModSheet(); return; }
+      var h=t.closest&&t.closest('[data-nat-href]');
       if(h){ location.href=h.getAttribute('data-nat-href'); return; }
-      var b=e.target.closest&&e.target.closest('[data-nat-bucket]');
-      if(b){ GemaNativeMobil.setPref('klassisch'); if(nat) nat.refresh(); }
     });
   }
-  nat=GemaNativeMobil.mount({render:render});
+
+  // ＋ Modul hinzufügen — natives Sheet, permission-gefiltert über den EINEN
+  // Modul-Katalog der Seite (_wsModulesHook); das Hinzufügen läuft über die
+  // echten Funktionen _wsOpen + _wsPickModule (Validierung/Save/Activity).
+  function openAddModSheet(){
+    var b=bucketById(curId), k=katalog();
+    if(!b||!k||!nat) return;
+    var existing=(b.modules||[]).map(function(m){ return m.mod; });
+    var html='';
+    (k.cats||[]).forEach(function(cat){
+      var mods=(k.modules||[]).filter(function(m){ return m.cat===cat.id&&(!k.allowed||k.allowed(m)); });
+      if(!mods.length) return;
+      html+='<div class="gn-label">'+NE(cat.label)+'</div><div class="gn-list">'
+        +mods.map(function(m){
+          var da=existing.indexOf(m.id)>=0;
+          return '<button type="button" class="gn-select"'+(da?' disabled style="opacity:.45"':' data-nat-addpick="'+NE(m.id)+'"')+'>'
+            +'<span class="k">'+(CAT_EMO[cat.id]||'📄')+' '+NE(m.name)
+            +(da?'<small style="display:block;font-weight:400;color:var(--gn-ink-3)">bereits hinzugefügt</small>':'')
+            +'</span><span class="v">'+(da?'✓':'＋')+'</span></button>';
+        }).join('')+'</div>';
+    });
+    var sh=nat.sheet({title:'Modul hinzufügen',html:html});
+    if(!sh) return;
+    sh.addEventListener('click',function(e){
+      var p=e.target.closest&&e.target.closest('[data-nat-addpick]'); if(!p) return;
+      var modId=p.getAttribute('data-nat-addpick');
+      try{ window._wsOpen(curId); window._wsPickModule(modId); }catch(err){}
+      nat.closeSheet();
+      setTimeout(function(){ if(nat) nat.refresh(); },450);
+    });
+  }
+
+  // ＋ Neuer Eimer — Name + Typ im Sheet → echte Erstellung via _wsNatCreate,
+  // danach direkt ins Detail des neuen Eimers.
+  function openCreateSheet(){
+    if(!nat) return;
+    var typ={v:'project'};
+    var sh=nat.sheet({title:'Neuer Eimer',saveLabel:'Erstellen',
+      html:'<div class="gn-field"><label>Bezeichnung *</label><input class="gn-input" id="wsNatNeuName" placeholder="z.B. Neubau Musterstrasse"></div>'
+        +'<div class="gn-field"><label>Typ</label><div class="gn-seg-chips">'
+        +['project','training','private'].map(function(t,i){
+          return '<button type="button" class="gn-chip-sel'+(i===0?' on':'')+'" data-nat-typ="'+t+'">'+TYP_IC[t]+' '+TYP_LBL[t]+'</button>';
+        }).join('')
+        +'</div></div>',
+      onSave:function(s){
+        var name=((s.querySelector('#wsNatNeuName')||{}).value||'').trim();
+        if(!name){ try{ alert('Bitte eine Bezeichnung eingeben.'); }catch(e){} return false; }
+        var id=null; try{ id=window._wsNatCreate(name,typ.v); }catch(e){}
+        if(id){ curId=id; setTimeout(function(){ if(nat) nat.refresh(); },450); }
+      }});
+    if(!sh) return;
+    sh.addEventListener('click',function(e){
+      var c=e.target.closest&&e.target.closest('[data-nat-typ]'); if(!c) return;
+      typ.v=c.getAttribute('data-nat-typ');
+      var all=sh.querySelectorAll('[data-nat-typ]');
+      for(var i=0;i<all.length;i++) all[i].classList.toggle('on',all[i]===c);
+    });
+  }
+
+  nat=GemaNativeMobil.mount({render:render,plus:{title:'Neu',items:function(){
+    return [{label:'🪣 Neuer Eimer',hint:'Bauprojekt, Übung oder privat',fn:openCreateSheet}];
+  }}});
   // Auffrisch-Hook für die Haupt-IIFE (nach Cloud-Pull/Legacy-Migration)
   window._wsNatRefresh=function(){ try{ if(nat) nat.refresh(); }catch(e){} };
 })();

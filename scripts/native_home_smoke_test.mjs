@@ -438,10 +438,24 @@ console.log('— Rollen-Filterung —');
 /* ════════ 7 · Einstellung + Desktop ════════ */
 console.log('— Einstellung «App-Ansicht» und Desktop —');
 {
-  const { ctx, page } = await open('u1', { gema_native_view_v1: 'klassisch' });
+  // Bewusste Wahl wie sys_profil sie schreibt: Profil-Flag + Geräte-Cache.
+  // Ein NUR-Cache-'klassisch' ohne Profil-Flag ist seit 29.07.2026 eine
+  // Trap-Altlast (Workspace-Eimer-Tap) und wird von gema_native_mobil geheilt.
+  const usersKlassisch = USERS.map(u => u.id === 'u1'
+    ? Object.assign({}, u, { profile: Object.assign({}, u.profile, { nativeAnsicht: false }) }) : u);
+  const { ctx, page } = await open('u1', {
+    gema_native_view_v1: 'klassisch',
+    gema_users_v1: JSON.stringify(usersKlassisch)
+  });
   ok(!(await natVisible(page)), 'Einstellung «klassisch» → klassische Übersicht');
   ok(await page.evaluate(() => getComputedStyle(document.querySelector('.g-nav')).display !== 'none'), 'Nav bleibt sichtbar');
   ok(await page.evaluate(() => document.querySelectorAll('main .mod-card').length > 20), 'klassische Kacheln gerendert');
+  await ctx.close();
+}
+{
+  // Trap-Altlast: Cache 'klassisch' OHNE Profil-Flag → Heilung, nativ bleibt
+  const { ctx, page } = await open('u1', { gema_native_view_v1: 'klassisch' });
+  ok(await natVisible(page), 'Nur-Cache-«klassisch» ohne Profil-Flag wird geheilt (nativ bleibt)');
   await ctx.close();
 }
 {
