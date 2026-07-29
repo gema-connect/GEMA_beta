@@ -191,9 +191,13 @@ console.log('■ Prüfliste');
   ok(await page.locator('#eNutzungen .chip').count() >= 3, 'Nutzungen weiterhin als Chips');
   await page.click('#eObjTypChips .chip >> nth=1');
   await page.waitForTimeout(150);
-  ok(await page.locator('#eObjTypChips .chip.on').count() === 1, 'Einfachauswahl: genau ein Chip aktiv');
-  const typ1 = await page.evaluate(() => _prHooks ? null : null);
-  await page.click('#eObjTypChips .chip.on');
+  ok(await page.locator('#eObjTypChips .chip.on').count() === 1, 'Chip lässt sich wählen');
+  // Seit Feedback 29.07.2026 mehrfach wählbar (vorher Einfachauswahl)
+  await page.click('#eObjTypChips .chip >> nth=2');
+  await page.waitForTimeout(150);
+  ok(await page.locator('#eObjTypChips .chip.on').count() === 2, 'Mehrfachauswahl (Feedback 29.07.2026)');
+  await page.click('#eObjTypChips .chip.on >> nth=0');
+  await page.click('#eObjTypChips .chip.on >> nth=0');
   await page.waitForTimeout(150);
   ok(await page.locator('#eObjTypChips .chip.on').count() === 0, 'erneuter Klick hebt die Wahl auf');
 

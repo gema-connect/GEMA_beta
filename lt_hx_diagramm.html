@@ -186,6 +186,10 @@ body {
 .g-card-hd h2 { font-size: 13.5px; font-weight: 700; color: var(--text); }
 .g-card-hd h3 { font-size: 13px; font-weight: 700; color: var(--text); }
 .g-card-bd { padding: 18px; }
+/* Karten ein-/ausklappen (Feedback 29.07.2026) — Zustand pro Gerät */
+.g-card-hd.hx-foldhd { cursor: pointer; user-select: none; }
+.hx-fold-cx { display: inline-block; font-size: 11px; color: var(--muted2); margin-right: 5px; }
+@media print { .g-card-bd { display: block !important; } .hx-fold-cx { display: none; } }
 
 /* ── TABS ── */
 .g-tabs {
@@ -1904,6 +1908,53 @@ document.addEventListener('DOMContentLoaded', function(){
 })();</script>
 <script>
 document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('hx_diagramm', 'h,x-Diagramm');});
+</script>
+<script>
+/* ── Karten ein-/ausklappen (Feedback 29.07.2026 «Fenster einklappbar machen»)
+   Datengetrieben über alle Karten der Seite: Klick auf den Kopf klappt zu,
+   Chevron zeigt den Zustand, Zustand pro Gerät in localStorage. Muster
+   sb_zirkulation (zkFold) — nur ohne Handpflege je Karte, damit eine neue
+   Karte automatisch mitspielt. Default: alle offen. Reine Geräte-UI, NIE im
+   AutoSave-Snapshot (sonst reist der Zustand mit der Berechnung mit). */
+(function(){
+  var KEY='gema_hx_fold_v1';
+  function slug(t){ return String(t||'').toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_|_$/g,'').slice(0,40); }
+  function state(){ try{ return JSON.parse(localStorage.getItem(KEY)||'{}')||{}; }catch(e){ return {}; } }
+  function save(st){ try{ localStorage.setItem(KEY, JSON.stringify(st)); }catch(e){} }
+  function apply(card, offen){
+    var bd=card.querySelector('.g-card-bd'), cx=card.querySelector('.hx-fold-cx');
+    if(bd) bd.style.display = offen ? '' : 'none';
+    if(cx) cx.textContent = offen ? '▾' : '▸';
+  }
+  function init(){
+    var st=state();
+    document.querySelectorAll('.g-card').forEach(function(card){
+      var hd=card.querySelector('.g-card-hd'), bd=card.querySelector('.g-card-bd');
+      if(!hd || !bd || hd.classList.contains('hx-foldhd')) return;
+      var t=hd.querySelector('h2') || hd.querySelector('h3');
+      if(!t) return;
+      var k=slug(t.textContent);
+      if(!k) return;
+      hd.classList.add('hx-foldhd');
+      hd.title='Ein-/ausklappen';
+      var cx=document.createElement('span');
+      cx.className='hx-fold-cx'; cx.textContent='▾';
+      t.insertBefore(cx, t.firstChild);
+      var offen = (k in st) ? !!st[k] : true;      // Default offen
+      apply(card, offen);
+      hd.addEventListener('click', function(e){
+        if(e.target.closest('button,a,input,select')) return;   // Bedienelemente im Kopf bleiben nutzbar
+        var s=state(), neu = !((k in s) ? !!s[k] : true);
+        s[k]=neu; save(s); apply(card, neu);
+        // Canvas/Tabellen zeichnen nur sichtbar sauber → beim Aufklappen neu rechnen
+        if(neu && typeof hxRecalc==='function') try{ hxRecalc(); }catch(err){}
+      });
+    });
+  }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+  window._hxFoldHooks={ init:init, state:state, KEY:KEY };
+})();
 </script>
 <script src="gema_scroll.js"></script>
 <script src="gema_mobile_menu.js"></script>

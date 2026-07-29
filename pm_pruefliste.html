@@ -455,6 +455,19 @@ function prObjekttypLabel(id, frei){
   var t=PR_OBJEKTTYPEN.filter(function(x){return x.id===id;})[0];
   return t?t.label:'';
 }
+/* Objekttyp seit Feedback 29.07.2026 MEHRFACH wählbar (ein Gebäude ist oft
+   Wohn- UND Geschäftshaus). Gespeichert wird `objekttypen` (Array); der
+   frühere Einzelwert `objekttyp` bleibt als Spiegel des ersten Eintrags
+   erhalten — Altdaten und ältere Auswertungen lesen unverändert weiter. */
+function prObjekttypIds(b){
+  b=b||{};
+  if(Array.isArray(b.objekttypen)) return b.objekttypen.filter(Boolean);
+  return b.objekttyp ? [b.objekttyp] : [];
+}
+function prObjekttypenText(b){
+  return prObjekttypIds(b).map(function(id){ return prObjekttypLabel(id, (b||{}).objekttypFrei); })
+    .filter(Boolean).join(' · ');
+}
 /* Freie Adresse → eine Zeile «Strasse Nr., PLZ Ort» (leere Teile entfallen) */
 function prFreieAdresse(a){
   a=a||{};
@@ -615,7 +628,8 @@ var _prEngine = { PR_ANTWORTTYPEN:PR_ANTWORTTYPEN, PR_ANTWORTTYP_DEFAULT:PR_ANTW
   prBegehungBewertung:prBegehungBewertung, prNorm:prNorm, prTokens:prTokens, prAehnlichkeit:prAehnlichkeit,
   prFindeAehnliche:prFindeAehnliche, prEffektivePunkte:prEffektivePunkte, prDefaultRecords:prDefaultRecords,
   PR_BEWERTUNG_REIHE:PR_BEWERTUNG_REIHE, PR_OBJEKTTYPEN:PR_OBJEKTTYPEN,
-  prObjekttypLabel:prObjekttypLabel, prFreieAdresse:prFreieAdresse,
+  prObjekttypLabel:prObjekttypLabel, prObjekttypIds:prObjekttypIds, prObjekttypenText:prObjekttypenText,
+  prFreieAdresse:prFreieAdresse,
   PR_PRUEFARTEN:PR_PRUEFARTEN, PR_HERSTELLER:PR_HERSTELLER, PR_MATERIALIEN:PR_MATERIALIEN,
   PR_NUTZUNGEN:PR_NUTZUNGEN, prNutzungLabel:prNutzungLabel, prNutzungenText:prNutzungenText,
   PR_ARTEN:PR_ARTEN, prArtLabel:prArtLabel, PR_ZUSTAND_ENTFAELLT:PR_ZUSTAND_ENTFAELLT };
@@ -872,7 +886,7 @@ function renderBegList(){
     var barCol = bw.gesamt==='schlecht'?'var(--red)':bw.gesamt==='maessig'?'var(--amber)':bw.gesamt==='gut'?'var(--grn)':'var(--brd2)';
     /* Freies Objekt: die erfasste Adresse ist die aussagekräftigere Kennung */
     var objLbl = b.objektName || objName(b.objektId) || b.objektAdresse || prFreieAdresse(b.freieAdresse) || 'Freies Objekt';
-    var typLbl = prObjekttypLabel(b.objekttyp, b.objekttypFrei);
+    var typLbl = prObjekttypenText(b);
     var meta = esc(objLbl) + (typLbl?' · '+esc(typLbl):'')
       + ' · ' + fmtDatum(b.datum) + ' · ' + esc(b.prueferName||'')
       + '<br>'+ (b.anlagen||[]).length +' Anlage(n) · '+ bw.total +' Prüfpunkte'
@@ -979,14 +993,15 @@ function renderEditor(){
     h+='<div class="fld"><label>Adresse</label><input type="text" value="'+esc(b.objektAdresse)+'" disabled title="Aus den Objekt-Stammdaten"></div>';
   }
   /* Objekttyp — IMMER wählbar (Feedback 25.07.2026), seit 28.07.2026 als Chips
-     wie die Nutzungen (Einfachauswahl: erneuter Klick hebt sie auf). */
-  h+='<div class="fld"><label>Objekttyp</label>'
+     wie die Nutzungen, seit 29.07.2026 MEHRFACH wählbar. */
+  var otIds = prObjekttypIds(b);
+  h+='<div class="fld"><label>Objekttyp <span style="font-weight:600;color:var(--mut)">— mehrfach wählbar</span></label>'
     +'<div class="chipsel" id="eObjTypChips">'
     + PR_OBJEKTTYPEN.map(function(t){
-        return '<button type="button" class="chip'+(t.id===b.objekttyp?' on':'')+'" '+(abg?'disabled':'')
+        return '<button type="button" class="chip'+(otIds.indexOf(t.id)>=0?' on':'')+'" '+(abg?'disabled':'')
              + ' onclick="prEObjTyp(\''+t.id+'\')">'+esc(t.label)+'</button>'; }).join('')
     +'</div></div>';
-  h+='<div class="fld" id="eObjTypFreiWrap" style="'+(b.objekttyp==='sonstiges'?'':'display:none')+'"><label>Objekttyp (Freitext)</label>'
+  h+='<div class="fld" id="eObjTypFreiWrap" style="'+(otIds.indexOf('sonstiges')>=0?'':'display:none')+'"><label>Objekttyp (Freitext)</label>'
     +'<input type="text" id="eObjTypFrei" placeholder="z.B. Museum, Kirche, Werkhof" value="'+esc(b.objekttypFrei||'')+'" '+(abg?'disabled':'')+' onchange="prEField(\'objekttypFrei\',this.value)"></div>';
   /* Nutzungen der Liegenschaft — Mehrfachauswahl (Feedback 28.07.2026) */
   var nz = Array.isArray(b.nutzungen)?b.nutzungen:[];
@@ -1194,16 +1209,21 @@ window.prEAdr=function(f,v){
 };
 window.prEObjTyp=function(v){
   if(!_cur || _cur.status==='abgeschlossen') return;
-  /* Chip-Einfachauswahl: erneuter Klick auf den aktiven Chip hebt ihn auf */
-  _cur.objekttyp = (_cur.objekttyp===v ? '' : v);
-  if(_cur.objekttyp!=='sonstiges') _cur.objekttypFrei='';
+  /* Mehrfachauswahl (Feedback 29.07.2026): Chip an/aus. `objekttyp` bleibt
+     als Spiegel des ersten Eintrags erhalten (Altdaten/ältere Leser). */
+  var arr = prObjekttypIds(_cur).slice();
+  var i = arr.indexOf(v);
+  if(i>=0) arr.splice(i,1); else arr.push(v);
+  _cur.objekttypen = arr;
+  _cur.objekttyp = arr[0] || '';
+  if(arr.indexOf('sonstiges')<0) _cur.objekttypFrei='';
   touch();
   var host=$id('eObjTypChips');
   if(host) host.querySelectorAll('.chip').forEach(function(btn){
     var m=/prEObjTyp\('([^']+)'\)/.exec(btn.getAttribute('onclick')||'');
-    if(m) btn.classList.toggle('on', _cur.objekttyp===m[1]);
+    if(m) btn.classList.toggle('on', arr.indexOf(m[1])>=0);
   });
-  var wrap=$id('eObjTypFreiWrap'); if(wrap) wrap.style.display = (_cur.objekttyp==='sonstiges'?'':'none');
+  var wrap=$id('eObjTypFreiWrap'); if(wrap) wrap.style.display = (arr.indexOf('sonstiges')>=0?'':'none');
 };
 /* Art: "frei" blendet das Textfeld ein (Feedback 28.07.2026) */
 window.prEArt=function(v){
@@ -1245,7 +1265,7 @@ window.prToggleNutzung=function(id){
 var PR_KOPF_KEY='gema_pr_kopfzu_v1';
 function _prKopfZu(){ try{ return localStorage.getItem(PR_KOPF_KEY)==='1'; }catch(e){ return false; } }
 function _prKopfKurz(b){
-  return [b.objektAdresse||'', prObjekttypLabel(b.objekttyp,b.objekttypFrei), b.datum||'']
+  return [b.objektAdresse||'', prObjekttypenText(b), b.datum||'']
     .filter(function(x){return String(x||'').trim();}).join(' · ');
 }
 window.prKopfToggle=function(){
@@ -2158,7 +2178,7 @@ function printBericht(b){
   /* Titelbild auf dem Deckblatt (Feedback 25.07.2026) */
   var tbSrc=imgSrc(b.titelbild);
   if(tbSrc) h+='<div class="titelbild"><img src="'+E(tbSrc)+'" alt=""></div>';
-  var objTypLbl=prObjekttypLabel(b.objekttyp, b.objekttypFrei);
+  var objTypLbl=prObjekttypenText(b);
   var adrPdf=b.objektAdresse || prFreieAdresse(b.freieAdresse);
   h+='<table class="meta">'
     +'<tr><td class="l">Objekt / Projekt</td><td>'+E(b.objektName||objName(b.objektId)||'Freies Objekt')+(adrPdf?'<br>'+E(adrPdf):'')+'</td></tr>'

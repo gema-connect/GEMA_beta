@@ -124,9 +124,18 @@
        '<button class="gap-sort'+(_st.sort==='hersteller'?' active':'')+'" onclick="GemaArmaturenPicker._sort(\'hersteller\')">Nach Hersteller</button>'+
        '<button class="gap-sort'+(_st.sort==='typ'?' active':'')+'" onclick="GemaArmaturenPicker._sort(\'typ\')">Nach Typ</button></div>';
     var all=GemaArmaturen.getAll();
+    // Optionaler Typ-Filter (opts.typen, z.B. ['druckminderer'] im Druckdispositiv):
+    // ohne Angabe bleibt der volle Katalog sichtbar (Bestandsschutz).
+    if(Array.isArray(o.typen)&&o.typen.length){
+      var tf=all.filter(function(a){return o.typen.indexOf(a.typ)>=0;});
+      if(tf.length)all=tf;
+    }
     var groups=[];
     if(_st.sort==='hersteller'){
-      GemaArmaturen.getHersteller().forEach(function(hn){groups.push({t:hn,items:all.filter(function(a){return a.hersteller===hn;})});});
+      GemaArmaturen.getHersteller().forEach(function(hn){
+        var it=all.filter(function(a){return a.hersteller===hn;});
+        if(it.length)groups.push({t:hn,items:it});
+      });
       var gen=all.filter(function(a){return !a.hersteller||a.hersteller==='—';});
       if(gen.length)groups.push({t:'Standard (herstellerunabhängig)',items:gen});
     } else {
