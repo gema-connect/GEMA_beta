@@ -404,7 +404,13 @@ function dfmt(d){if(!d)return '—';var p=String(d).slice(0,10).split('-');retur
 function uid(){return 'rr_'+Date.now()+'_'+Math.random().toString(36).slice(2,7);}
 
 function rrObjekte(){try{return (typeof GemaObjekte!=='undefined')?GemaObjekte.getAll():[];}catch(e){return [];}}
-function rrObjName(id){var o=rrObjekte().find(function(x){return x.id===id;});return o?GemaObjekte.displayName(o):null;}
+function rrObjName(id){
+  // Anzeige-Lookup: ALLE Status (getAll filtert auf aktiv — ein abgeschlossenes
+  // Projekt zeigte sonst die rohe obj_…-ID, Bugreport 29.07.2026)
+  var pool; try{ pool=(GemaObjekte.getAllUnfiltered?GemaObjekte.getAllUnfiltered():rrObjekte())||[]; }catch(e){ pool=rrObjekte(); }
+  var o=pool.find(function(x){return x.id===id;});
+  return o?GemaObjekte.displayName(o):null;
+}
 
 // Rapport-Summen (nur bepreiste Werte; für Monteure irrelevant)
 function rrTotals(r){
@@ -473,7 +479,7 @@ function rrRender(){
 function rrFillObjektFilter(){
   var sel=document.getElementById('fObjekt');
   var val=sel.value;
-  var objIds={};rrVisible().forEach(function(r){if(r.objektId)objIds[r.objektId]=r.objektName||rrObjName(r.objektId)||r.objektId;});
+  var objIds={};rrVisible().forEach(function(r){if(r.objektId)objIds[r.objektId]=r.objektName||rrObjName(r.objektId)||'⚠ Objekt nicht gefunden';});
   rrObjekte().forEach(function(o){objIds[o.id]=o.name+(o.ort?' · '+o.ort:'');});
   sel.innerHTML='<option value="">Alle Projekte</option>'+Object.keys(objIds).map(function(id){return '<option value="'+id+'">'+esc(objIds[id])+'</option>';}).join('');
   sel.value=val||'';
@@ -579,7 +585,7 @@ function rrOpenEditor(isNew){
     +'<div class="fld"><label>Projekt / Objekt *</label><select id="e_objekt"'+dis+' onchange="cur.objektId=this.value">'
     +'<option value="">– Objekt wählen –</option>'
     +rrObjekte().map(function(o){return '<option value="'+o.id+'"'+(o.id===r.objektId?' selected':'')+'>'+esc(GemaObjekte.displayName(o))+'</option>';}).join('')
-    +(r.objektId&&!rrObjekte().some(function(o){return o.id===r.objektId;})?'<option value="'+esc(r.objektId)+'" selected>'+esc(r.objektName||r.objektId)+'</option>':'')
+    +(r.objektId&&!rrObjekte().some(function(o){return o.id===r.objektId;})?'<option value="'+esc(r.objektId)+'" selected>'+esc(r.objektName||'⚠ Objekt nicht gefunden')+'</option>':'')
     +'</select></div>'
     +'<div class="fld-row">'
     +'<div class="fld"><label>Datum der Arbeit *</label><input id="e_datum" type="date" value="'+esc(r.datum||today())+'"'+dis+' onchange="cur.datum=this.value"/></div>'

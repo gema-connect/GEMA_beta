@@ -346,6 +346,15 @@
     return getAllUnfiltered().filter(function(o){ return !o.status || o.status === 'aktiv'; });
   }
   function getAktive() { return getAll(); }
+  // Einzelnes Objekt auflösen — ALLE Status (auch abgeschlossen/archiviert).
+  // KANON für Anzeige-Lookups (objektId → Name/Adresse bestehender Records):
+  // getAll() filtert auf status=aktiv und ist NUR für Auswahl-Dropdowns
+  // gedacht — ein abgeschlossenes Projekt liess die Anzeige sonst auf die
+  // rohe obj_…-ID zurückfallen (Bugreport Schadensbericht 29.07.2026).
+  function getById(id) {
+    if (!id) return null;
+    return getAllUnfiltered().find(function(o){ return o && o.id === id; }) || null;
+  }
   function setObjektStatus(objektId, status) {
     var data = _load();
     var obj = (data.objekte || []).find(function(o){ return o.id === objektId; });
@@ -809,7 +818,7 @@
   }
 
   w.GemaObjekte = {
-    getAll: getAll, getAllUnfiltered: getAllUnfiltered, getAktive: getAktive, getActive: getActive, getActiveId: getActiveId,
+    getAll: getAll, getAllUnfiltered: getAllUnfiltered, getById: getById, getAktive: getAktive, getActive: getActive, getActiveId: getActiveId,
     // Abgeleitete Org-Zuordnung (orgId → Ersteller-Org); null = herrenlos.
     // Jede modul-eigene Org-Filterung MUSS darüber laufen, sonst sind
     // Objekte ohne sauberen Org-Stempel für die ganze Firma unsichtbar.

@@ -1227,17 +1227,32 @@ function sdLoad() {
 
 // ── OBJEKT HELPERS ──
 function sdGetObjekte() {
+  // NUR fuer die AUSWAHL (Picker beim Erfassen): aktive Objekte
   if (typeof GemaObjekte !== 'undefined') {
     try { return GemaObjekte.getAll() || []; } catch(e) {}
   }
   return [];
 }
+function sdGetObjekteAlle() {
+  // Fuer die ANZEIGE bestehender Schaeden: ALLE Status (auch abgeschlossen/
+  // archiviert) — getAll() filtert auf status=aktiv, ein abgeschlossenes
+  // Projekt liess die Karte sonst auf die rohe obj_…-ID zurueckfallen
+  // (Bugreport 29.07.2026; Muster sp_dachbericht objektName).
+  if (typeof GemaObjekte !== 'undefined') {
+    try { return (GemaObjekte.getAllUnfiltered ? GemaObjekte.getAllUnfiltered() : GemaObjekte.getAll()) || []; } catch(e) {}
+  }
+  return [];
+}
 function sdObjektName(id) {
-  var all = sdGetObjekte();
+  if (!id) return '—';
+  var all = sdGetObjekteAlle();
   for (var i = 0; i < all.length; i++) {
     if (all[i].id === id) return (typeof GemaObjekte!=='undefined'&&GemaObjekte.displayName?GemaObjekte.displayName(all[i]):'')||all[i].name||all[i].bezeichnung||id;
   }
-  return id || '—';
+  // Objekt nicht (mehr) im sichtbaren Pool (geloescht oder auf einem anderen
+  // Geraet erfasst und noch nicht gesynct): User-freundlicher Hinweis statt
+  // kryptischer obj_xxxxx-ID.
+  return '⚠ Objekt nicht gefunden';
 }
 function sdPopulateObjekte() {
   var sel = document.getElementById('f_objekt');
@@ -4387,7 +4402,7 @@ function sdExportHtmlPrint(id){
     var org  = (typeof GemaAuth !== 'undefined' && GemaAuth.getCurrentOrg)  ? GemaAuth.getCurrentOrg()  : null;
     var objektName = '', objektAdresse = '';
     if(s.objektId){
-      var objekte = (typeof sdGetObjekte === 'function') ? sdGetObjekte() : [];
+      var objekte = (typeof sdGetObjekteAlle === 'function') ? sdGetObjekteAlle() : [];
       var o = objekte.find(function(x){ return x.id === s.objektId; });
       if(o){
         objektName = o.bezeichnung || o.name || '';
