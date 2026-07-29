@@ -29,7 +29,22 @@
       if (u && u.profile && typeof u.profile.nativeAnsicht === 'boolean') return u.profile.nativeAnsicht ? 'native' : 'klassisch';
     } catch (e) {}
     // Fallback: lokaler Cache (Profil noch nicht geladen), sonst Standard aktiv.
-    try { return localStorage.getItem(KEY) || 'native'; } catch (e) { return 'native'; }
+    try {
+      var c = localStorage.getItem(KEY);
+      // Heilung (Bugreport 29.07.2026): der frühere Eimer-Tap im Workspace-
+      // Screen schrieb 'klassisch' NUR in diesen Geräte-Cache — nie ins
+      // Profil. Eine BEWUSSTE Wahl (sys_profil) stempelt immer auch
+      // user.profile.nativeAnsicht. Liegt also ein eingeloggter User OHNE
+      // Profil-Flag vor, ist ein 'klassisch'-Cache eine Altlast des Traps
+      // und wird verworfen (der Kollege hing sonst dauerhaft in der
+      // Desktop-Ansicht auf dem iPhone fest).
+      if (c === 'klassisch') {
+        var u2 = null;
+        try { u2 = (typeof GemaAuth !== 'undefined' && GemaAuth.getCurrentUser) ? GemaAuth.getCurrentUser() : null; } catch (e2) {}
+        if (u2) { try { localStorage.removeItem(KEY); } catch (e3) {} return 'native'; }
+      }
+      return c || 'native';
+    } catch (e) { return 'native'; }
   }
   function setPref(v) { try { localStorage.setItem(KEY, v); } catch (e) {} }
   function enabled() { return phone() && pref() !== 'klassisch'; }
