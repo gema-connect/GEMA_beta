@@ -116,10 +116,11 @@ async function run() {
     ok(state1 && state1.adr === 'Musterstrasse 12a, 4000 Basel', 'Adresse landet als objektAdresse im Record');
     ok(state1 && state1.typ === 'mfh', 'Objekttyp im Record gespeichert');
 
-    // «Sonstiges» blendet das Freitextfeld ein
+    // «Sonstiges» blendet das Freitextfeld ein (seit Feedback 29.07.2026 ist der
+    // Objekttyp mehrfach wählbar — abgewählt wird derselbe Chip erneut)
     await page.evaluate(() => prEObjTyp('sonstiges'));
     ok(await page.locator('#eObjTypFreiWrap').isVisible(), '«Sonstiges» blendet das Freitextfeld ein');
-    await page.evaluate(() => prEObjTyp('mfh'));
+    await page.evaluate(() => prEObjTyp('sonstiges'));
     ok(!(await page.locator('#eObjTypFreiWrap').isVisible()), 'Freitextfeld wieder ausgeblendet');
 
     // (2) Titelbild-Bedienung vorhanden

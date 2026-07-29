@@ -584,7 +584,47 @@
   // jedes Elements als clientRect + windowBounds(scrollX,scrollY); ein
   // zusaetzliches scrollX:-scrollX zaehlt den Offset doppelt und liefert bei
   // gescrollter Seite ein WEISSES Bild (per Varianten-Vergleich verifiziert).
+  // KRITISCH #3 (Feedback 29.07.2026, iPad-Pruefliste): steht ein OPAKER
+  // Vollbild-Editor (position:fixed, deckt den Viewport) offen, wird DIESES
+  // ELEMENT direkt erfasst statt document.body. Hintergrund: html2canvas
+  // scrollt sein Clone-iframe — auf iOS-Safari expandieren iframes aber auf
+  // Inhaltshoehe (Scroll wird ignoriert), fixed-Elemente landen damit am
+  // Dokument-ANFANG, waehrend der Crop bei scrollY beginnt → oben fehlte der
+  // Editor-Kopf, unten war das Bild weiss. Die Element-Erfassung braucht
+  // keinerlei Scroll-Mathematik (Element-Ursprung = Viewport-Ursprung);
+  // halbtransparente Modal-Backdrops behalten bewusst den Body-Pfad (dort
+  // soll die Seite hinter dem Modal mit aufs Bild).
+  function _fullscreenOverlayEl() {
+    try {
+      var vw = w.innerWidth, vh = w.innerHeight;
+      if (!document.elementsFromPoint) return null;
+      var stack = document.elementsFromPoint(Math.floor(vw / 2), Math.floor(vh / 2)) || [];
+      for (var i = 0; i < stack.length; i++) {
+        var el = stack[i];
+        if (!el || el === document.documentElement || el === document.body) continue;
+        if (el.closest && el.closest('#gfb-root')) continue;  // eigenes Feedback-UI
+        var cs = getComputedStyle(el);
+        if (cs.position !== 'fixed') continue;
+        var r = el.getBoundingClientRect();
+        if (r.top > 2 || r.left > 2 || r.width < vw - 4 || r.height < vh - 4) continue;
+        var m = String(cs.backgroundColor || '').match(/rgba?\(([^)]+)\)/);
+        var parts = m ? m[1].split(',') : null;
+        var alpha = parts ? (parts[3] !== undefined ? parseFloat(parts[3]) : 1) : 0;
+        if (!(alpha >= 0.99)) continue;   // Backdrop (rgba .5) → Body-Pfad
+        return el;
+      }
+    } catch (e) {}
+    return null;
+  }
   function _captureViewport(scale) {
+    var ov = _fullscreenOverlayEl();
+    if (ov) {
+      return html2canvas(ov, {
+        width: w.innerWidth, height: w.innerHeight,
+        scale: scale, logging: false, useCORS: true, allowTaint: true,
+        backgroundColor: '#ffffff'
+      });
+    }
     return html2canvas(document.body, {
       x: w.scrollX, y: w.scrollY,
       width: w.innerWidth, height: w.innerHeight,
