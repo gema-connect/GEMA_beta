@@ -88,6 +88,10 @@ input,select,button,textarea{font-family:var(--sans)}
 
 .card{background:var(--sur);border:1px solid var(--brd);border-radius:var(--r);box-shadow:var(--sh-sm);overflow:hidden}
 .card-hd{padding:12px 16px;border-bottom:1px solid var(--brd);background:var(--sur2);display:flex;align-items:center;gap:10px}
+/* Karten ein-/ausklappen (Feedback 29.07.2026) — Zustand pro Gerät */
+.card-hd.dd-foldhd{cursor:pointer;user-select:none}
+.dd-fold-cx{font-size:11px;color:var(--mut2,#94a3b8);margin-right:5px}
+@media print{.card-bd{display:block !important}.dd-fold-cx{display:none}}
 .card-hd-num{width:26px;height:26px;border-radius:50%;background:var(--blue);color:#fff;font-size:11px;font-weight:900;display:flex;align-items:center;justify-content:center;flex-shrink:0}
 .card-hd-title{font-size:13.5px;font-weight:800;color:var(--txt);flex:1}
 .card-hd-sub{font-size:11.5px;color:var(--mut)}
@@ -106,6 +110,10 @@ input,select,button,textarea{font-family:var(--sans)}
 .input-row input{width:120px;padding:8px 12px;border:1.5px solid var(--brd2);border-radius:10px 0 0 10px;font-size:14px;font-family:var(--mono);font-variant-numeric:tabular-nums;background:var(--sur);color:var(--txt);outline:none;transition:.15s;text-align:right;min-height:var(--tap);border-right:0}
 .input-row input:focus{border-color:var(--blue);background:var(--sur);box-shadow:0 0 0 3px rgba(29,78,216,.1)}
 .input-row .unit{font-size:13px;font-weight:600;color:var(--mut);white-space:nowrap;min-width:60px;padding:8px 10px;background:var(--bg2);border:1.5px solid var(--brd2);border-left:0;border-radius:0 10px 10px 0;min-height:var(--tap);display:flex;align-items:center}
+/* Modus-Selects (bar/% · Ja/Nein) exakt in der Optik der Einheiten-Box — der
+   native Select rendert sonst mit UA-Font/-Höhe grösser als die Nachbar-Felder
+   (Feedback 29.07.2026 «Feld und Schriftgrösse gleich wie bei den anderen»). */
+.input-row select.schw-mode{font-family:inherit;font-size:13px;font-weight:600;line-height:1.2;height:auto;box-sizing:border-box;appearance:none;-webkit-appearance:none;-moz-appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5'%3E%3Cpath d='M0 0l4 5 4-5z' fill='%2364748b'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 8px center;padding-right:22px}
 @media(max-width:600px){.fg{flex-direction:column;align-items:stretch;gap:4px}.fg label{min-width:0}.input-row{width:100%}.input-row input{flex:1;width:auto}}
 
 .divider-lbl{display:flex;align-items:center;gap:8px;margin:10px 0 8px;color:var(--mut);font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px}
@@ -227,10 +235,13 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important}
 .dd-rd-hint{display:none;margin:2px 0 8px;padding:9px 12px;border-radius:8px;font-size:12px;font-weight:700;line-height:1.45}
 .dd-rd-hint.dea{background:var(--red-bg);border:1px solid var(--red-bd);color:var(--red)}
 .dd-rd-hint.dm{background:var(--blue-bg);border:1px solid var(--blue-bd);color:var(--blue-dk)}
+.dd-rd-hint.deaok{background:var(--grn-bg);border:1px solid var(--grn-bd);color:var(--grn)}
 .sec-row.dea{background:var(--red-bg);border-color:var(--red-bd)}
 .sec-row.dea .sec-row-lbl,.sec-row.dea .sec-row-val{color:var(--red)}
 .sec-row.dm{background:var(--blue-bg);border-color:var(--blue-bd)}
 .sec-row.dm .sec-row-lbl,.sec-row.dm .sec-row-val{color:var(--blue-dk)}
+.sec-row.deaok{background:var(--grn-bg);border-color:var(--grn-bd)}
+.sec-row.deaok .sec-row-lbl,.sec-row.deaok .sec-row-val{color:var(--grn)}
 /* ── Druckschema (SVG-Szene) ── */
 .dd-schemawrap{overflow-x:auto}
 .dd-schemawrap svg{display:block;width:100%;min-width:740px;height:auto}
@@ -428,6 +439,10 @@ function fixLeadingZero(el){
         <div class="fg">
           <label>Ruhedruck<br><span class="lbl-hint">gewählter Soll-Wert (nach Druckminderer, falls vorhanden) · oder Einschaltdruck DEA · leer = Betriebsdruck</span></label>
           <div class="input-row"><input id="ruhedruckDM" type="text" inputmode="decimal" placeholder="0" oninput="recalc()" onblur="fixLeadingZero(this)"/><span class="unit unit-bar">bar</span></div>
+        </div>
+        <div class="fg">
+          <label>Druckerhöhung vorgesehen<br><span class="lbl-hint">Ja = eine Druckerhöhungsanlage hebt den Druck auf den gewählten Ruhedruck</span></label>
+          <div class="input-row"><select id="deaVorgesehen" class="unit schw-mode" style="cursor:pointer;border-radius:10px;border-left:1.5px solid var(--brd2);width:120px;justify-content:center" onchange="recalc()"><option value="">Nein</option><option value="ja">Ja</option></select></div>
         </div>
         <div class="dd-rd-hint" id="ddRdHinweis"></div>
         <div class="fg">
@@ -714,7 +729,7 @@ const recalc = () => {
       dhInfo.innerHTML = 'Δh <b>' + String(Math.round(hoehendiff*10)/10).replace('.',',') + ' m</b> → statischer Druck <b>' +
         fmt(fromBar(statisch)) + ' ' + currentUnit + '</b>' +
         (hoehendiff < 0 ? ' — Reservoir liegt nicht über der Verteilbatterie' : '');
-      dhInfo.style.display = '';
+      dhInfo.style.display = 'block';   // KRITISCH: '' fällt auf die CSS-Basis display:none zurück
     } else {
       dhInfo.style.display = 'none';
     }
@@ -730,20 +745,30 @@ const recalc = () => {
     if(rdDM > betrieb + EPS_DM)      dmBedarf = { typ:'dea', diff: rdDM - betrieb };
     else if(betrieb > rdDM + EPS_DM) dmBedarf = { typ:'dm',  diff: betrieb - rdDM };
   }
+  // «Druckerhöhung vorgesehen» (Feedback 29.07.2026): Ist eine DEA eingeplant,
+  // ist der Ruhedruck ÜBER dem Betriebsdruck kein Fehler mehr — die Meldung
+  // wird zur neutralen Bestätigung statt zum roten Alarm.
+  const deaVorgesehen = (document.getElementById('deaVorgesehen')||{}).value === 'ja';
   const rdHint = document.getElementById('ddRdHinweis');
   if(rdHint){
-    if(dmBedarf && dmBedarf.typ==='dea'){
+    if(dmBedarf && dmBedarf.typ==='dea' && deaVorgesehen){
+      rdHint.className = 'dd-rd-hint deaok';
+      rdHint.innerHTML = '✓ <b>Druckerhöhung vorgesehen</b> — die Druckerhöhungsanlage hebt den Druck vom Betriebsdruck nach Wasserzähler (' +
+        fmt(fromBar(betrieb)) + ' ' + currentUnit + ') auf den gewählten Ruhedruck (' + fmt(fromBar(rdDM)) + ' ' + currentUnit + '), Anhebung ' +
+        fmt(fromBar(dmBedarf.diff)) + ' ' + currentUnit + '.';
+      rdHint.style.display = 'block';
+    } else if(dmBedarf && dmBedarf.typ==='dea'){
       rdHint.className = 'dd-rd-hint dea';
       rdHint.innerHTML = '⚠ <b>Druckerhöhung nötig</b> — der gewählte Ruhedruck (' + fmt(fromBar(rdDM)) + ' ' + currentUnit +
-        ') liegt über dem Betriebsdruck nach Wasserzähler (' + fmt(fromBar(betrieb)) + ' ' + currentUnit + '). Fehlbetrag ' +
-        fmt(fromBar(dmBedarf.diff)) + ' ' + currentUnit + ' → Druckerhöhungsanlage vorsehen.';
-      rdHint.style.display = '';
+        ') liegt über dem Betriebsdruck nach Wasserzähler (' + fmt(fromBar(betrieb)) + ' ' + currentUnit + '). Erforderliche Anhebung ' +
+        fmt(fromBar(dmBedarf.diff)) + ' ' + currentUnit + ' → Druckerhöhungsanlage vorsehen (oben «Ja» wählen).';
+      rdHint.style.display = 'block';
     } else if(dmBedarf && dmBedarf.typ==='dm'){
       rdHint.className = 'dd-rd-hint dm';
       rdHint.innerHTML = '<b>Druckminderer nötig</b> — der Betriebsdruck nach Wasserzähler (' + fmt(fromBar(betrieb)) + ' ' + currentUnit +
         ') liegt über dem gewählten Ruhedruck (' + fmt(fromBar(rdDM)) + ' ' + currentUnit + '). Reduktion um ' +
         fmt(fromBar(dmBedarf.diff)) + ' ' + currentUnit + '.';
-      rdHint.style.display = '';
+      rdHint.style.display = 'block';
     } else {
       rdHint.style.display = 'none';
     }
@@ -753,9 +778,11 @@ const recalc = () => {
     const dmLbl = document.getElementById('ddDmBedarfLbl');
     const dmVal = document.getElementById('ddDmBedarfVal');
     if(dmBedarf){
-      dmRow.className = 'sec-row ' + dmBedarf.typ;
+      dmRow.className = 'sec-row ' + (dmBedarf.typ==='dea' && deaVorgesehen ? 'deaok' : dmBedarf.typ);
       if(dmLbl) dmLbl.textContent = dmBedarf.typ==='dea'
-        ? '⚠ Druckerhöhung nötig — Ruhedruck über Betriebsdruck nach WZ, Fehlbetrag'
+        ? (deaVorgesehen
+            ? '✓ Druckerhöhung vorgesehen — Anhebung Betriebsdruck nach WZ → Ruhedruck'
+            : '⚠ Druckerhöhung nötig — Ruhedruck über Betriebsdruck nach WZ')
         : 'Druckminderer nötig — Reduktion Betriebsdruck → Ruhedruck';
       if(dmVal) dmVal.textContent = fmt(fromBar(dmBedarf.diff));
       dmRow.style.display = '';
@@ -816,7 +843,7 @@ const styleResult = (cardId, valBar, mode, statusId) => {
     // Fliessdruck höchste Entnahmestelle: < 1 zu tief · 1–1.49 gemäss Norm · ≥ 1.5 erhöht
     if(valBar<1)        {cls='crit';txt='⚠ Zu tief (< 1 bar)';}
     else if(valBar<1.5) {cls='ok';  txt='✓ Gemäss Norm (1–1.49 bar)';}
-    else                {cls='warn';txt='! Erhöht (≥ 1.5 bar)';}
+    else                {cls='warn';txt='Erhöht (> 1 bar)';}   // ohne «!» — über dem Mindestwert ist kein Fehler (Feedback 29.07.2026)
   } else if(mode==='ruhe'){
     // Ruhedruck tiefste Entnahmestelle: ≤ 5 gemäss Norm · > 5 zu hoch
     if(valBar>5) {cls='crit';txt='⚠ Zu hoch (> 5 bar) — Druckminderer';}
@@ -1365,6 +1392,52 @@ GemaFeedback.init('druckdispositiv', 'Druckdispositiv');
   window.addEventListener('gema-objekte-loaded',function(){populateObjektDropdown();if(typeof GemaAutoSave!=='undefined') GemaAutoSave.init('druckdispositiv');});
   ['metaProjekt','metaBearbeiter','metaDatum'].forEach(function(id){var el=document.getElementById(id);if(el)el.addEventListener('input',saveMeta);});
 })();</script>
+<script>
+/* ── Karten ein-/ausklappen (Feedback 29.07.2026 «Alle Felder einklappbar machen»)
+   Datengetrieben über alle .card mit .card-hd + .card-bd (Muster lt_hx_diagramm):
+   Klick auf den Kopf klappt zu, Chevron zeigt den Zustand, Zustand pro Gerät.
+   Default alle offen; reine Geräte-UI, NIE im AutoSave-Snapshot; @media print
+   zeigt alle Karten. Beim Aufklappen recalc() (Schema/Diagramm zeichnen nur
+   sichtbar sauber). */
+(function(){
+  var KEY='gema_dd_fold_v1';
+  function slug(t){ return String(t||'').toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_|_$/g,'').slice(0,40); }
+  function state(){ try{ return JSON.parse(localStorage.getItem(KEY)||'{}')||{}; }catch(e){ return {}; } }
+  function save(st){ try{ localStorage.setItem(KEY, JSON.stringify(st)); }catch(e){} }
+  function apply(card, offen){
+    var bd=card.querySelector('.card-bd'), cx=card.querySelector('.dd-fold-cx');
+    if(bd) bd.style.display = offen ? '' : 'none';
+    if(cx) cx.textContent = offen ? '▾' : '▸';
+  }
+  function init(){
+    var st=state();
+    document.querySelectorAll('.card').forEach(function(card){
+      var hd=card.querySelector('.card-hd'), bd=card.querySelector('.card-bd');
+      if(!hd || !bd || hd.classList.contains('dd-foldhd')) return;
+      var t=hd.querySelector('.card-hd-title');
+      if(!t) return;
+      var k=slug(t.textContent);
+      if(!k) return;
+      hd.classList.add('dd-foldhd');
+      hd.title='Ein-/ausklappen';
+      var cx=document.createElement('span');
+      cx.className='dd-fold-cx'; cx.textContent='▾';
+      t.insertBefore(cx, t.firstChild);
+      var offen = (k in st) ? !!st[k] : true;
+      apply(card, offen);
+      hd.addEventListener('click', function(e){
+        if(e.target.closest('button,a,input,select')) return;
+        var s=state(), neu = !((k in s) ? !!s[k] : true);
+        s[k]=neu; save(s); apply(card, neu);
+        if(neu && typeof recalc==='function') try{ recalc(); }catch(err){}
+      });
+    });
+  }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+  window._ddFoldHooks={ init:init, state:state, KEY:KEY };
+})();
+</script>
 <script>
 // Höhe ab Karte (swisstopo) → Feld «Höhe Verteilbatterie» (Strassenniveau am Objekt)
 (function(){

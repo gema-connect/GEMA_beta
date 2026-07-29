@@ -182,7 +182,7 @@ const browser = await chromium.launch({ executablePath: CHROME, args: ['--no-san
   await page.keyboard.type('0.5', { delay: 60 });
   await page.waitForTimeout(150);
   const qChip = await page.evaluate(() => document.querySelector('.ts-card .hd-val').textContent);
-  ok(qChip.indexOf('1.092') >= 0, '«+ Q 0.5» wird als Zahl addiert (Q = 0.592 + 0.5 — kein String-Concat)');
+  ok(qChip.indexOf('1.09') >= 0, '«+ Q 0.5» wird als Zahl addiert (Q = 0.592 + 0.5 — kein String-Concat; 2 Dezimalstellen seit Feedback 29.07.2026)');
 
   console.log('■ DV: Rohrsystem einmal oben + «gemischte Installation»');
   const top = await page.evaluate(() => ({
