@@ -83,6 +83,7 @@
     'sb_laengenausdehnung':'Längenausdehnung',
     'sb_lu_tabelle':'LU-Tabelle & Spitzenvolumenstrom',
     'sb_niederschlag':'Niederschlagsanfall',
+    'sb_regenwasserrechner':'Regenwasserrechner AWEL',
     'sb_vonroll':'Von-Roll Tabellen',
     'sb_warmwasser':'Warmwasser SIA 385',
     'sb_zirkulation':'Zirkulationsberechnung',
