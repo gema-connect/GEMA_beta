@@ -147,7 +147,7 @@ try {
   console.log('■ #3 — Bauteil-Felder einzeln (Editoren + Panel)');
   // Verwaltungs-Editor: 4 Checkboxen statt Ja/Nein-Select
   await page.evaluate(() => window.prPkNew());
-  ok('4 Bauteil-Checkboxen im Prüfpunkt-Editor', (await page.$$eval('#pkEditBody .btchk input', els => els.length)) === 4);
+  ok('5 Bauteil-Checkboxen im Prüfpunkt-Editor (inkl. Wartung/Ersatz — Feedback 30.07.2026)', (await page.$$eval('#pkEditBody .btchk input', els => els.length)) === 5 && (await page.$('#pkBt_wartung')) != null);
   ok('kein pkBauteil-Select mehr', !(await page.$('#pkBauteil')));
   await page.fill('#pkBez', 'Testpunkt Bauteil einzeln');
   await page.evaluate(() => { document.getElementById('pkBt_hersteller').checked = true; document.getElementById('pkBt_baujahr').checked = true; });
@@ -165,7 +165,7 @@ try {
   ok('Panel zeigt nur Hersteller + Baujahr', JSON.stringify(btLabels) === '["Hersteller","Baujahr"]');
   // «Prüfpunkt ergänzen»-Dialog: gleiche Checkboxen
   await page.evaluate(() => window.prAddPktOpen(0));
-  ok('Ergänzen-Dialog: 4 Bauteil-Checkboxen (apBt_)', (await page.$$eval('#addPktBody .btchk input', els => els.length)) === 4 && (await page.$('#apBt_material')) != null);
+  ok('Ergänzen-Dialog: 5 Bauteil-Checkboxen (apBt_, inkl. Wartung/Ersatz)', (await page.$$eval('#addPktBody .btchk input', els => els.length)) === 5 && (await page.$('#apBt_material')) != null && (await page.$('#apBt_wartung')) != null);
   await page.evaluate(() => window.prAddPktClose());
 
   console.log('■ #1 — Vorlagen-Änderung fliesst in OFFENE Begehung');
