@@ -7,8 +7,11 @@
 | Bericht | Datei | Status |
 |---|---|---|
 | 1 | BEG-2026-011 (Dornacherstrasse 210, «Test 1», 4 Seiten) | ✅ analysiert (unten) |
-| 2 | — | ⏳ ausstehend |
+| 2 | BEG-2026-012 (Dornacherstrasse 210, «Test 2», 4 Seiten — Browser-Druck mit URL-Fusszeile) | ✅ analysiert (unten) |
 | 3 | — | ⏳ ausstehend |
+
+**Klärung des Users (30.07.2026):** «S+P» = **Schmutz + Partner AG** — das ist die Organisation,
+und das hinterlegte Org-Logo ist das S+P-Logo (mit Schriftzug). → fliesst in A6 ein.
 
 ---
 
@@ -59,21 +62,32 @@ Fix (Engine + Anzeige):
   Beispiel: 2 + 0 + 0 + 2 + 3 = 7 ✓
 - **Editor-Zustand-Karte** (`.bwkpi`, GUT/MÄSSIG/SCHLECHT/OFFEN) analog: 5. Kachel «ENTFÄLLT»
   (grau), gleiche offen-Semantik (siehe auch B3 — dorthin zeigt derselbe Pfeil).
+- **Zusatz-Facette aus Bericht 2 (Hausanschluss: Zustand «schlecht», Antwort «—»):** Ein Punkt
+  mit gesetztem Zustand aber OHNE Antwort darf nicht als «offen» verschluckt werden —
+  `prBegehungBewertung` returned heute bei `!beantwortet` VOR der Zustands-Zählung (Z. 670).
+  Neu: ist eine Bewertung gut/mässig/schlecht gesetzt, zählt der Zustand (auch ohne Antwort);
+  «offen» nur, wenn weder Antwort noch Zustand vorliegen.
 - Drift-Guards (`pruefliste_engine_test` / `_smoke_test` / Feedback-Tests) nachziehen.
+- *Bug in Bericht 2 reproduziert:* `7 · gut 1 · mässig 1 · schlecht 1 · offen 1` — es fehlen
+  genau die 3 entfällt-Punkte (Fettabscheider «nicht vorhanden», Rückstauklappe «nicht
+  vorhanden», Schlammsammler «nicht beurteilbar»).
 
-**A6 · Logo mit Firmennamen + Druck-Fusszeile** (Seite 1, unten)
-> «S+P Logo mit Namen übernehmen» (Pfeil auf die Browser-Fusszeile «about:blank»)
+**A6 · Druck-Fusszeile: Org statt URL/about:blank** (Seite 1 unten — in BEIDEN Berichten angemerkt)
+> «S+P Logo mit Namen übernehmen» — Bericht 1: Pfeil auf «about:blank», Bericht 2: Pfeil auf die
+> rot umrahmte URL-Fusszeile `https://dev.gema-connect.ch/pm_pruefliste.html`.
+> **Deutung GEKLÄRT** (User-Nachricht + Bericht 2): S+P = Schmutz + Partner AG = die Org mit
+> ihrem hinterlegten Logo. In der Fusszeile jeder Druckseite soll die **Org** erscheinen statt
+> der Browser-Defaults (URL bzw. about:blank).
 
-Zwei Bausteine (Deutung, bei Bericht 2/3 verifizieren):
-1. Im Bericht-Kopf (Z. 2490 f.) die **Logo-Variante MIT Firmennamen/Schriftzug** verwenden.
-   `printBericht` nimmt bereits `org.logoVector || org.logo` — prüfen, ob das hinterlegte
-   S+P-Logo nur das Signet ist; ggf. Kopf so anpassen, dass Logo + Name als Einheit wirken
-   (Logo etwas grösser, `max-height` heute 18 mm).
-2. **`@page`-Margin-Boxen** einführen (Kanon `gema_schaden_pdf.js`): unten links Firmenname
-   (+ Erstellt-Datum), unten rechts «Seite X / Y», oben rechts «<Adresse> – Prüfbericht».
-   Damit verschwinden die Browser-Defaults (`about:blank`, URL, Datum) aus Kopf-/Fusszeile.
-   (Ein Logo-BILD ist in Margin-Boxen technisch nicht möglich — nur Text; das Logo bleibt im
-   Dokument-Kopf.)
+Umsetzung: **`@page`-Margin-Boxen** einführen (Kanon `gema_schaden_pdf.js`):
+- unten links: **Firmenname** «Schmutz + Partner AG» (aus `org.name`; ersetzt die URL)
+- unten rechts: «Seite X / Y» (bleibt sinngemäss wie der Browser-Default)
+- oben rechts: «<Adresse> – Prüfbericht» (konsistent mit A1)
+
+Technische Grenze (dokumentieren): Ein Logo-**Bild** ist in `@page`-Margin-Boxen nicht möglich
+(nur Text/counter) — das Logo als Bild bleibt im Dokument-Kopf auf Seite 1; die Fusszeile trägt
+den Firmennamen als Text. Der Kopf (Z. 2490 f.) nutzt bereits `org.logoVector || org.logo` —
+in Bericht 2 ist das S+P-Logo MIT Schriftzug sichtbar → Kopf-Logo ist korrekt, dort keine Änderung.
 
 **A7 · Prüfpunkt-Titel fett + etwas grösser** (Seite 2, «Allgemein»)
 > «Allgemein: Titel Fett und bisschen grösser» (2× angemerkt: Geruchsemission, Fettabscheider)
@@ -163,9 +177,55 @@ beantwortet-ohne-Zustand. Der Gesamt-Chip («Gesamt: nicht bewertet») bleibt wi
 
 ---
 
-## Bericht 2 — (ausstehend)
+## Bericht 2 — BEG-2026-012 (Dornacherstrasse 210, «Test 2»)
 
-*Wird ergänzt, sobald das PDF vorliegt.*
+Direkt aus dem Browser gedruckt (`dev.gema-connect.ch/pm_pruefliste.html` in der Fusszeile).
+Nur zwei neue Anmerkungen — der Rest bestätigt Bericht 1.
+
+**A13 · Saubere Seitenumbrüche im ganzen Dossier** — **NEU, Kernanmerkung** (Seite 2)
+> «sauberer Seitenumbruch (in ganzem Dossier)» — Pfeil auf den unnötig leeren unteren
+> Seitenbereich; oben auf Seite 2 sind die ZERRISSENEN Fragmente der Geruchsemission-Zeile
+> gelb markiert («Hygiene», «Auffälligkeiten», «bewertet», «Prüfung: Messgerät»).
+
+Befund: Die erste Prüfpunkt-Zeile (Geruchsemission, mehrzeilig, mit 3 Fotos) wurde über den
+Seitenwechsel S.1→S.2 **mitten in der Zeile** gerissen — obwohl `tr{break-inside:avoid}`
+(Z. 2461) gesetzt ist. Ursachen-Analyse: Die avoid-Kette ist **überbestimmt** —
+`tr.pkrow.mitfoto{break-after:avoid}` (Z. 2471) will die Punktzeile bei ihrer Foto-Zeile
+halten, die Foto-Zeile (3 Hochformat-Fotos = 2 Grid-Zeilen à bis 85 mm) ist aber selbst fast
+seitenfüllend und hat via `tr{break-inside:avoid}` ebenfalls ein Umbruch-Verbot (`.many`
+lockert erst ab >4 Fotos). Passt das Paket nicht auf die Restseite, ignoriert der Browser die
+avoid-Regeln und bricht irgendwo — hier mitten durch die Punktzeile.
+
+Fix-Ansatz (bei Umsetzung verifizieren, gilt fürs ganze Dossier):
+- `tr.fotorow` darf IMMER innerhalb brechen (`break-inside:auto` statt nur `.many`) — jedes
+  `img` behält sein eigenes `break-inside:avoid`, es bricht also zwischen den Bildern, nie
+  durch ein Bild.
+- Damit ist die Kette entlastet: `pkrow` (break-inside:avoid) + `break-after:avoid` hält die
+  Punktzeile zuverlässig mit der ERSTEN Bildzeile zusammen; grosse Foto-Blöcke fliessen über
+  Seiten.
+- Gegenprüfen mit dem bestehenden Drift-Guard `scripts/pruefliste_bericht_umbruch_test.mjs`
+  (Regel dort: «Zusammenhalt über Struktur, nicht über break-after-Ketten») — der Test prüft
+  aktuell das ALTE Sollverhalten (`.many` ab >4) und muss nachgezogen werden.
+
+**A6-Klärung** (Seite 1): Pfeil «S+P Logo mit Namen übernehmen» zeigt hier eindeutig auf die
+**URL-Fusszeile** → Deutung in A6 aktualisiert (Org-Name in @page-Fusszeile statt URL).
+
+**Bestätigungen aus Bericht 2 (keine neuen Massnahmen):**
+- A5-Bug reproduziert: KPI `7 · gut 1 · mässig 1 · schlecht 1 · offen 1` — die 3
+  entfällt-Punkte fehlen; zusätzlich die Facette «Zustand ohne Antwort» (Hausanschluss:
+  Zustand **schlecht**, Antwort «—») → in A5 eingearbeitet.
+- A10 visuell bestätigt (weisser Rahmen-Streifen rechts neben allen Hochformat-Fotos).
+- A9 visuell bestätigt (Bauteil-Zeilen «🔩 Bj. 2015 · Inliner» / «🔩 Biral · FSC 1300 ·
+  Bj. 2008 · Kunststoff» klein und mit «Bj.»-Abkürzung).
+- Meta-Tabelle: «Nutzungen»-Zeile fehlt hier, weil nicht erfasst (bedingtes Rendern ok);
+  Begehungs-Nr.-Zeile vorhanden → entfällt mit A4.
+
+**Beobachtung (keine Prüfer-Anmerkung, aber auffällig):** Mehrere Prüfpunkt-Fotos sind
+iPhone-Screenshots der GEMA-App mit dem Dialog **«Speicher voll — Das Foto konnte auf diesem
+Gerät nicht zwischengespeichert werden…»** (lokale Foto-Warteschlange `gema_pr_fotoq_v1`,
+localStorage-Quota). Der Prüfer hat den Fehler offenbar dokumentiert. → Beim Umsetzen prüfen,
+ob die Quota-Behandlung der Foto-Warteschlange auf iOS zu streng ist (z.B. Warteschlange in
+IndexedDB statt localStorage) — ggf. als eigener Punkt, falls Bericht 3 ihn anspricht.
 
 ## Bericht 3 — (ausstehend)
 
@@ -181,14 +241,15 @@ beantwortet-ohne-Zustand. Der Gesamt-Chip («Gesamt: nicht bewertet») bleibt wi
 | A2 | H1 = Adresse, «Prüfbericht — Art» als Untertitel | `printBericht` Z. 2493 | Bericht | offen |
 | A3 | Meta-Label «Projekt» statt «Objekt / Projekt» | Z. 2500 | Bericht | offen |
 | A4 | Meta-Zeile Begehungs-Nr. entfernen | Z. 2503 | Bericht | offen |
-| A5 | KPI-Zahlen aufgehend: `entfaellt`-Zähler + Chip, offen inkl. nicht bewertet | `prBegehungBewertung` Z. 665 + Z. 2508 + `.bwkpi` | Engine + Bericht + Editor | offen |
-| A6 | Logo mit Firmennamen; @page-Fusszeilen statt about:blank | Z. 2443 ff. / 2490 | Bericht | offen (Deutung verifizieren) |
+| A5 | KPI-Zahlen aufgehend: `entfaellt`-Zähler + Chip; offen inkl. nicht bewertet; Zustand-ohne-Antwort zählt beim Zustand | `prBegehungBewertung` Z. 665 + Z. 2508 + `.bwkpi` | Engine + Bericht + Editor | offen (Bug 2× bestätigt) |
+| A6 | @page-Fusszeilen: Org-Name statt URL/about:blank (+ Seite X/Y, Kopfzeile Adresse) | Z. 2443 ff. | Bericht | offen (Deutung geklärt) |
 | A7 | Prüfpunkt-Titel fett + grösser | Z. 2551 (CSS) | Bericht | offen |
 | A8 | «Prüfung: Messgerät» einzeilig (nowrap) | Z. 2552 | Bericht | offen |
 | A9 | Bauteil-Zeile: 10 pt + Labels ausschreiben (Baujahr statt Bj.) | Z. 2537–2543 | Bericht | offen |
 | A10 | Bilder ohne Rahmen, kein leerer Rahmen-Streifen (pgrid + Titelbild) | Z. 2450 / 2482 | Bericht | offen |
 | A11 | Kein Trenner zwischen Punktzeile und Bildzeile | CSS `tr.pkrow.mitfoto td` | Bericht | offen |
 | A12 | Vertikale Spaltentrenner in allen Zeilen | `table.pk` CSS | Bericht | offen (Prüfer-Frage «sinnvoll?») |
+| A13 | Saubere Seitenumbrüche im ganzen Dossier (Zeile nie zerreissen; fotorow darf zwischen Bildern brechen) | `table.pk`-CSS Z. 2461/2471/2476 | Bericht | offen |
 | B1 | `auffaellig` + Option «nicht beurteilbar» | `PR_ANTWORTTYPEN` Z. 404 | Editor/Engine | offen |
 | B2 | Zahl-(/Text-)Punkte: «nicht beurteilbar»-Chip (`antwort='nb'`) | Editor + `prAntwortLabel` | Editor/Engine | offen |
 | B3 | Editor-Zustand-Karte: Kachel «Entfällt», offen-Semantik | `.bwkpi`-Renderer | Editor | offen |
@@ -198,12 +259,16 @@ beantwortet-ohne-Zustand. Der Gesamt-Chip («Gesamt: nicht bewertet») bleibt wi
 `scripts/pruefliste_bericht_umbruch_test.mjs`, `scripts/pruefliste_feedback_20260730_test.mjs`
 (KPI-Chips, Antworttyp-Optionen, Bericht-CSS werden dort teils exakt geprüft).
 
-## Offene Fragen / Deutungen (mit Bericht 2 + 3 abgleichen)
+## Offene Fragen / Deutungen (mit Bericht 3 abgleichen)
 
-1. **A6**: Meint «S+P Logo mit Namen übernehmen» die Logo-Variante im Kopf, die Druck-Fusszeile
-   (Pfeil zeigt auf «about:blank») — oder beides? Umsetzung deckt beides ab.
-2. **A2**: Soll der interne Begehungs-Titel («Test 1») im PDF ganz entfallen oder als Zusatz im
-   Untertitel bleiben? Vorschlag: im Untertitel behalten (kein Informationsverlust).
-3. **A12**: «Zeilentrenner sinnvoll?» ist als Frage formuliert — Empfehlung: dezent umsetzen,
-   bei Bericht 2/3 auf Bestätigung achten.
+1. ~~**A6**: Kopf-Logo oder Fusszeile?~~ **GEKLÄRT** (Bericht 2 + User-Nachricht): S+P =
+   Schmutz + Partner AG (Org, Logo hinterlegt); die Fusszeile soll die Org zeigen statt
+   URL/about:blank → @page-Margin-Boxen mit Firmenname; Kopf-Logo bleibt unverändert.
+2. **A2**: Soll der interne Begehungs-Titel («Test 1» / «Test 2») im PDF ganz entfallen oder als
+   Zusatz im Untertitel bleiben? Vorschlag: im Untertitel behalten (kein Informationsverlust).
+3. **A12**: «Zeilentrenner sinnvoll?» ist als Frage formuliert — Empfehlung: dezent umsetzen;
+   in Bericht 2 nicht erneut angemerkt, bei Bericht 3 auf Bestätigung achten.
 4. **A1**: Titel-Suffix «– Prüfbericht» behalten (Vorschlag: ja) oder Dateiname = nur Adresse?
+5. **Beobachtung Bericht 2**: «Speicher voll»-Dialoge der Foto-Warteschlange auf dem iPhone
+   (in den Prüfpunkt-Fotos dokumentiert) — falls Bericht 3 das anspricht, als eigenen
+   Massnahmen-Punkt aufnehmen (Foto-Queue localStorage → IndexedDB).
