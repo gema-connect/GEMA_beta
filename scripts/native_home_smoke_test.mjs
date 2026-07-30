@@ -403,10 +403,19 @@ console.log('— Navigation —');
   await ctx.close();
 }
 {
+  /* Der Avatar öffnet seit 30.07.2026 das Konto-Menü (Profil, Firmendaten,
+     Abos, Feedback, Abmelden) statt direkt nach sys_profil zu springen — im
+     Native-Modus ist die .g-nav ausgeblendet, es gab sonst KEINEN Weg zu
+     Einstellungen/Abmelden. Der erste Eintrag führt weiterhin ins Profil. */
   const { ctx, page } = await open('u1');
   await page.click('.gn--page .gn-avatar');
+  await page.waitForTimeout(600);
+  ok(!!(await page.$('.gn-sheet [data-gn-konto-i]')), 'Avatar öffnet das Konto-Menü');
+  const kt = await page.textContent('.gn-sheet');
+  ok(/Profil & Einstellungen/.test(kt) && /Abmelden/.test(kt), 'Konto-Menü mit Profil + Abmelden');
+  await page.evaluate(() => { const b = document.querySelector('[data-gn-konto-i]'); if (b) b.click(); });
   await page.waitForTimeout(900);
-  ok(/sys_profil\.html/.test(page.url()), 'Avatar führt ins Profil');
+  ok(/sys_profil\.html/.test(page.url()), 'Profil-Eintrag führt ins Profil');
   await ctx.close();
 }
 

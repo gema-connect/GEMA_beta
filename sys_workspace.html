@@ -2856,10 +2856,13 @@ document.addEventListener('DOMContentLoaded',function(){
     }catch(e){}
     var bks=buckets();
     root.innerHTML=
-      '<div class="gn-compact" data-gn-compact><b>Workspace</b></div>'
+      /* data-gn-noback: die Übersicht IST die Startseite des Projektleiters —
+         eine Zurück-Taste zeigte auf index.html, von wo der Rollen-Redirect
+         sofort hierher zurückwirft. Der Benutzeravatar kommt zentral aus
+         gema_native_mobil (injectAvatar) in die Toolbar. */
+      '<div class="gn-compact" data-gn-compact data-gn-noback><b>Workspace</b></div>'
       +'<div class="gn-screen" data-gn-scroll>'
-        +'<button class="gn-back" data-nat-home><svg viewBox="0 0 11 18" fill="none" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m9.5 1.5-8 7.5 8 7.5"/></svg>Start</button>'
-        +'<div class="gn-toolbar">'
+        +'<div class="gn-toolbar" data-gn-noback>'
           +'<div class="gn-large-title"><h1>Workspace</h1><p>'+NE(org||(u&&u.name)||'')+'</p></div>'
         +'</div>'
         +'<div class="gn-stats">'
@@ -2919,16 +2922,15 @@ document.addEventListener('DOMContentLoaded',function(){
     if(root.__wsNatWired) return; root.__wsNatWired=true;
     // Die zentral injizierte ‹-Toolbar-Taste (data-gn-back) macht history.back —
     // im Eimer-Detail soll sie stattdessen zur Übersicht führen (capture-Phase
-    // läuft VOR dem goBack-Listener von gema_native_mobil).
+    // läuft VOR dem goBack-Listener von gema_native_mobil). Die Übersicht selbst
+    // trägt data-gn-noback und hat gar keine.
     root.addEventListener('click',function(e){
-      if(curId&&e.target.closest&&e.target.closest('[data-gn-back]')){
-        e.stopPropagation();e.preventDefault();
-        curId=null; if(nat) nat.refresh();
-      }
+      if(!curId||!e.target.closest||!e.target.closest('[data-gn-back]')) return;
+      e.stopPropagation();e.preventDefault();
+      curId=null; if(nat) nat.refresh();
     },true);
     root.addEventListener('click',function(e){
       var t=e.target;
-      if(t.closest&&t.closest('[data-nat-home]')){ location.href='index.html'; return; }
       if(t.closest&&t.closest('[data-nat-zurueck]')){ curId=null; if(nat) nat.refresh(); return; }
       var bk=t.closest&&t.closest('[data-nat-bucket]');
       if(bk){ curId=bk.getAttribute('data-nat-bucket'); if(nat) nat.refresh(); return; }
@@ -2979,7 +2981,7 @@ document.addEventListener('DOMContentLoaded',function(){
       html:'<div class="gn-field"><label>Bezeichnung *</label><input class="gn-input" id="wsNatNeuName" placeholder="z.B. Neubau Musterstrasse"></div>'
         +'<div class="gn-field"><label>Typ</label><div class="gn-seg-chips">'
         +['project','training','private'].map(function(t,i){
-          return '<button type="button" class="gn-chip-sel'+(i===0?' on':'')+'" data-nat-typ="'+t+'">'+TYP_IC[t]+' '+TYP_LBL[t]+'</button>';
+          return '<button type="button" class="gn-chip-sel'+(i===0?' is-active':'')+'" data-nat-typ="'+t+'">'+TYP_IC[t]+' '+TYP_LBL[t]+'</button>';
         }).join('')
         +'</div></div>',
       onSave:function(s){
@@ -2993,7 +2995,7 @@ document.addEventListener('DOMContentLoaded',function(){
       var c=e.target.closest&&e.target.closest('[data-nat-typ]'); if(!c) return;
       typ.v=c.getAttribute('data-nat-typ');
       var all=sh.querySelectorAll('[data-nat-typ]');
-      for(var i=0;i<all.length;i++) all[i].classList.toggle('on',all[i]===c);
+      for(var i=0;i<all.length;i++) all[i].classList.toggle('is-active',all[i]===c);
     });
   }
 
