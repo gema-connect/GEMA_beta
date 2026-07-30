@@ -144,6 +144,7 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important}
 <script src="gema_feedback.js"></script><script src="gema_notify.js"></script><script src="gema_notify_ui.js"></script><script src="gema_chat.js"></script>
 <script src="gema_dialog.js"></script>
 <script src="gema_storage.js"></script>
+<script src="gema_fotoqueue.js"></script>
 <script src="gema_objekte_api.js"></script>
 <link rel="stylesheet" href="gema_responsive.css"/>
 <script>
@@ -351,6 +352,12 @@ function fixLeadingZero(el){
   ];
   var FARBEN = ['#dc2626','#2563eb','#16a34a','#d97706','#111827'];
   var TAB = 'doks', _cloudLoaded = false, _objFilter = '', _katFilter = '', _pendFilter = 'offen';
+  // OFFLINE-FOTOQUEUE (geteilte IndexedDB, Kanon pm_pruefliste): Pendenz-
+  // Fotos tragen statt dataUrl nur ein kleines {pendingId} — das Bild liegt
+  // lokal in IndexedDB und wird nachgesendet, sobald online. Base64 im
+  // Record sprengte auf iOS das localStorage-Quota nach wenigen Fotos.
+  var _pabQ = (typeof GemaFotoQueue !== 'undefined' && GemaFotoQueue.verfuegbar()) ? GemaFotoQueue.scope('planablage') : null;
+  function pabFotoSrc(f){ return _pabQ ? _pabQ.src(f) : ((f && (f.url || f.dataUrl)) || ''); }
 
   function $id(id){ return document.getElementById(id); }
   function esc(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
@@ -912,7 +919,7 @@ function fixLeadingZero(el){
     var d = p.dokId ? dokById(p.dokId) : null;
     var edit = canWrite() && p.orgId === (user() || {}).orgId;
     var fotos = (p.fotos || []).map(function(f, i){
-      var src = f.url || f.dataUrl || '';
+      var src = pabFotoSrc(f);
       return src ? '<img class="pfoto" src="' + esc(src) + '" onclick="window.open(\'' + esc(src) + '\',\'_blank\')"/>' : '';
     }).join('');
     return '<div class="itm" id="pend_' + esc(p.id) + '"><div class="itm-bd">' +
@@ -984,7 +991,7 @@ function fixLeadingZero(el){
         '<div class="fld"><label>… oder externe E-Mail</label><input type="email" id="pd_zust_mail" value="' + esc(zust.userId ? '' : (zust.email || '')) + '" placeholder="monteur@firma.ch"/></div>' +
       '</div>' +
       '<div class="fld"><label>Fotos</label><input type="file" accept="image/*" capture="environment" id="pd_foto" onchange="pabPendFoto(this)"/>' +
-      '<div id="pd_fotos" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">' + _pendFotos.map(function(f){ return '<img class="pfoto" src="' + esc(f.url || f.dataUrl || '') + '"/>'; }).join('') + '</div></div>' +
+      '<div id="pd_fotos" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">' + _pendFotos.map(function(f){ return '<img class="pfoto" src="' + esc(pabFotoSrc(f)) + '"/>'; }).join('') + '</div></div>' +
       '<input type="hidden" id="pd_pin" value="' + esc(JSON.stringify(preset.pin || (p && p.pin) || null)) + '"/>' +
       '<input type="hidden" id="pd_seite" value="' + esc(preset.seite || (p && p.seite) || '') + '"/>' +
       '<input type="hidden" id="pd_edit" value="' + esc(editId || '') + '"/>' +
@@ -1004,13 +1011,22 @@ function fixLeadingZero(el){
         var c = document.createElement('canvas'); c.width = w; c.height = h;
         c.getContext('2d').drawImage(img, 0, 0, w, h);
         var dataUrl = c.toDataURL('image/jpeg', 0.82);
-        var eintrag = { dataUrl: dataUrl };
+        // NIE Base64 in den Record — mit IndexedDB nur ein pendingId; der
+        // Direkt-Upload versucht es sofort, sonst sendet der Runner nach.
+        // Ein abgebrochener Dialog hinterlässt höchstens einen Queue-
+        // Waisen, den der Runner nach 48 h abräumt.
+        var eintrag = _pabQ ? { pendingId: _pabQ.put(dataUrl) } : { dataUrl: dataUrl };
         _pendFotos.push(eintrag);
         var host = $id('pd_fotos');
         if(host) host.innerHTML += '<img class="pfoto" src="' + dataUrl + '"/>';
         if(typeof GemaStorage !== 'undefined' && GemaStorage.uploadDataUrl){
           GemaStorage.uploadDataUrl(dataUrl, 'planablage/' + ((user() || {}).orgId || 'x') + '/pendenzen')
-            .then(function(res){ eintrag.url = res.url; delete eintrag.dataUrl; })
+            .then(function(res){
+              if(!res || !res.url) return;
+              var pid = eintrag.pendingId;
+              eintrag.url = res.url; delete eintrag.dataUrl; delete eintrag.pendingId;
+              if(pid && _pabQ) _pabQ.del(pid);
+            })
             .catch(function(){});
         }
       };
@@ -1051,6 +1067,19 @@ function fixLeadingZero(el){
     rec.prioritaet = ($id('pd_prio') || {}).value || 'mittel';
     rec.layer = ($id('pd_layer') || {}).value || rec.layer || 'allgemein';
     rec.fotos = _pendFotos.slice();
+    // Runner-Rettung: wurde ein wartendes Foto WÄHREND des offenen Dialogs
+    // vom Nachsende-Runner hochgeladen (Queue-Eintrag weg, URL steht am
+    // gespeicherten Stand), übernimmt der Save die URL statt des toten
+    // pendingId. Bestehende Fotos behalten im Dialog ihren Index (nur push).
+    if(_pabQ && alt){
+      rec.fotos = rec.fotos.map(function(f, i){
+        if(f && f.pendingId && !f.url && !_pabQ.get(f.pendingId)){
+          var g = (alt.fotos || [])[i];
+          if(g && g.url) return { url: g.url };
+        }
+        return f;
+      });
+    }
     var vorherZust = alt && alt.zustaendig ? pabNormMail(alt.zustaendig.email) : '';
     rec.zustaendig = zust;
     if(alt) pabLog(rec, 'geaendert', ''); else { rec.log = []; pabLog(rec, 'erfasst', rec.titel); }
@@ -1114,9 +1143,46 @@ function fixLeadingZero(el){
     var p = pendById(id); if(!p || !(canWrite() && p.orgId === (user() || {}).orgId)) return;
     GemaDialog.confirm({ title: 'Pendenz löschen', message: '«' + p.titel + '» endgültig löschen?', confirmLabel: 'Löschen', danger: true }).then(function(ok){
       if(!ok) return;
+      if(_pabQ) (p.fotos || []).forEach(function(f){ if(f && f.pendingId) _pabQ.del(f.pendingId); });
       delRec(LSP, PFP, id); toast('Pendenz gelöscht'); render();
     });
   };
+  // ── Nachsende-Runner Pendenz-Fotos (Scope 'planablage') ──
+  // KRITISCH: den Pool EINMAL pro Lauf lesen — cached() liefert pro Aufruf
+  // frische Kopien, die Setter mehrerer Fotos derselben Pendenz müssen auf
+  // DENSELBEN Objekten arbeiten; geänderte Pendenzen am Ende via saveRec.
+  function pabQueueUpload(){
+    if(!_pabQ) return;
+    var u = user(); if(!u) return;
+    var pool = cached(LSP);
+    var dirty = {};
+    _pabQ.upload({
+      pfad: function(){ return 'planablage/' + (u.orgId || 'x') + '/pendenzen'; },
+      stellen: function(pid){
+        var out = [];
+        pool.forEach(function(p){
+          (p && p.fotos || []).forEach(function(f){
+            if(f && f.pendingId === pid && !f.url){
+              out.push(function(url){
+                f.url = url; delete f.pendingId;
+                dirty[p.id] = p;
+              });
+            }
+          });
+        });
+        return out;
+      },
+      fertig: function(){
+        Object.keys(dirty).forEach(function(id){ saveRec(LSP, PFP, dirty[id]); });
+        dirty = {};
+        try{
+          var ae = document.activeElement;
+          if(!(ae && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName))) render();
+        }catch(e){}
+      }
+    });
+  }
+  if(_pabQ) _pabQ.auto(function(){ pabQueueUpload(); });
 
   // ── PDF-Viewer + Annotation ───────────────────────────────────────
   var PV = { dok:null, pdf:null, seite:1, seiten:1, scale:1, tool:'hand', farbe:FARBEN[0], shapes:{}, sel:null, dirty:false, temp:null, pts:null, canEdit:false, hiPend:null,
