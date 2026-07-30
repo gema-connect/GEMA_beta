@@ -16,12 +16,15 @@ const PX = 'data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAA
 const BEG = {
   id: 'b1', nr: 'BEG-2026-001', orgId: 'org_test', status: 'offen', datum: '2026-07-28',
   art: 'begehung', titel: 'Testbegehung', prueferName: 'Sandro', objekttyp: 'mfh',
+  objektAdresse: 'Dornacherstrasse 210, 4053 Basel',
   anlagen: [{ anlagenart: 'sanitaer', name: 'Abwasser / Entwässerung', standort: 'UG', punkte: [
     { id: 'pp1', bezeichnung: 'Hebeanlage', antworttyp: 'vorhanden_nb', antwort: 'vorhanden',
       bewertung: 'gut', fotos: [{ dataUrl: PX }, { dataUrl: PX }], empfehlung: 'Wartung jährlich' },
     { id: 'pp2', bezeichnung: 'Test', antworttyp: 'ja_nein_nb', bewertung: 'gut',
       hersteller: 'Biral', typ: 'Test', baujahr: '2026', material: 'Kunststoff', fotos: [{ dataUrl: PX }] },
-    { id: 'pp3', bezeichnung: 'Ohne Bild', antworttyp: 'ja_nein_nb', bewertung: 'maessig', empfehlung: 'Prüfen' }
+    { id: 'pp3', bezeichnung: 'Ohne Bild', antworttyp: 'ja_nein_nb', bewertung: 'maessig', empfehlung: 'Prüfen' },
+    { id: 'pp4', bezeichnung: 'Geruchsemission', antworttyp: 'geruch', antwort: 'keine', pruefart: 'messgeraet' },
+    { id: 'pp5', bezeichnung: 'Rückstauklappe', antworttyp: 'vorhanden_nb', antwort: 'nicht_vorhanden' }
   ] }]
 };
 function ls() {
@@ -77,7 +80,41 @@ console.log('■ A · Bericht: Bilder direkt unter ihrem Prüfpunkt');
   // (auf jeder Zeile machte sie die ganze Tabelle unteilbar).
   ok(html.indexOf('tr.pkrow.mitfoto{break-after:avoid') > 0, 'Prüfpunkt und seine Bilder bleiben im Druck zusammen');
   ok(html.indexOf('tr.pkrow{break-after:avoid') < 0, 'kein pauschales break-after auf allen Punktzeilen');
-  ok(html.indexOf('🔩 Biral · Test · Bj. 2026 · Kunststoff') > 0, 'Bauteil-Zeile unverändert am Prüfpunkt');
+  // Feedback 30.07.2026: Labels AUSGESCHRIEBEN («Baujahr» statt «Bj.») + .btz (10pt)
+  ok(html.indexOf('🔩 Hersteller Biral · Typ Test · Baujahr 2026 · Material Kunststoff') > 0,
+    'Bauteil-Zeile mit ausgeschriebenen Labels');
+
+  /* ── Prüfbericht-Feedback 30.07.2026 (Berichte BEG-2026-011/-012) ── */
+  console.log('■ Prüfbericht-Feedback 30.07.2026 (Titel/Meta/KPI/Fusszeile/Trenner/Umbrüche)');
+  ok(html.indexOf('<title>Dornacherstrasse 210 – Prüfbericht</title>') > 0,
+    'Fenster-/PDF-Titel = Strasse + Hausnr. (statt Begehungs-Nr.)');
+  ok(html.indexOf('<h1>Dornacherstrasse 210</h1>') > 0, 'H1 = Adresse');
+  ok(html.indexOf('Prüfbericht — Begehung · Testbegehung') > 0,
+    'Untertitel «Prüfbericht — Art · Begehungs-Titel»');
+  ok(html.indexOf('>Projekt</td>') > 0 && html.indexOf('Objekt / Projekt') < 0,
+    'Meta-Label heisst nur noch «Projekt»');
+  ok(html.indexOf('Begehungs-Nr.') < 0, 'keine Begehungs-Nr.-Zeile mehr im Bericht');
+  ok(html.indexOf('entfällt: <b>1</b>') > 0, 'KPI-Chip «entfällt» (Rückstauklappe nicht vorhanden)');
+  /* Summe geht auf: 5 Punkte = gut 2 (pp1 + pp2 mit Zustand ohne Antwort) +
+     mässig 1 (pp3) + entfällt 1 (pp5) + offen 1 (pp4 beantwortet ohne Zustand) */
+  ok(html.indexOf('Prüfpunkte: <b>5</b>') > 0 && html.indexOf('gut: <b>2</b>') > 0
+    && html.indexOf('mässig: <b>1</b>') > 0 && html.indexOf('offen: <b>1</b>') > 0,
+    'KPI-Zahlen gehen auf (2+1+0+1+1 = 5; Zustand ohne Antwort zählt beim Zustand)');
+  ok(html.indexOf('@bottom-left{content:') > 0 && html.indexOf('counter(pages)') > 0,
+    '@page-Fusszeile: Org statt URL/about:blank + Seite X/Y');
+  ok(html.indexOf('@page:first{@top-right{content:none}}') > 0, 'Deckblatt ohne Kopf-Laufzeile');
+  ok(html.indexOf('class="pkname"') > 0 && html.indexOf('.pkname{font-weight:800;font-size:10.5pt}') > 0,
+    'Prüfpunkt-Titel fett + grösser');
+  ok(html.indexOf('white-space:nowrap">Prüfung: Messgerät') > 0, '«Prüfung: Messgerät» bleibt einzeilig');
+  ok(html.indexOf('.pgrid img{width:auto;max-width:100%') > 0 && !/\.pgrid img\{[^}]*border:1px/.test(html),
+    'Bilder ohne Rahmen, kein leerer Rahmen-Streifen (width:auto)');
+  ok(!/\.titelbild img\{[^}]*border:1px/.test(html), 'Titelbild ohne Rahmen');
+  ok(html.indexOf('table.pk tr.pkrow.mitfoto td{border-bottom:none}') > 0,
+    'keine Trennlinie zwischen Prüfpunkt und seiner Bild-Zeile');
+  ok(html.indexOf('table.pk td+td,table.pk tr.colhd th+th{border-left:1px solid') > 0,
+    'vertikale Spaltentrenner in allen Zeilen');
+  ok(html.indexOf('table.pk tr.fotorow{break-inside:auto') > 0,
+    'Bild-Zeile darf zwischen den Bildern brechen (saubere Seitenumbrüche)');
 
   ok(errs.length === 0, 'keine JS-Fehler' + (errs.length ? ': ' + errs[0] : ''));
   await ctx.close();

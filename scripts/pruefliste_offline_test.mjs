@@ -209,7 +209,7 @@ const fotoOnline = await page.evaluate(() => {
   const f = b.anlagen[0].punkte[0].fotos[0];
   return { hatFoto: !!f, url: f && f.url, dataUrl: !!(f && f.dataUrl), pending: !!(f && f.pendingId),
            roh: JSON.stringify(b).indexOf('data:image') >= 0,
-           queue: Object.keys(JSON.parse(localStorage.getItem('gema_pr_fotoq_v1') || '{}')).length };
+           queue: Object.keys(window._prHooks.fotoQ()).length };
 });
 ok(fotoOnline.hatFoto, 'Foto ist am Prüfpunkt erfasst');
 ok(!!fotoOnline.url, 'Foto trägt eine Bucket-URL');
@@ -230,12 +230,17 @@ const fotoOffline = await page.evaluate(() => {
   const f = b.anlagen[0].punkte[0].fotos[1];
   return { pending: !!(f && f.pendingId), dataUrl: !!(f && f.dataUrl),
            roh: JSON.stringify(b).indexOf('data:image') >= 0,
-           queue: Object.keys(JSON.parse(localStorage.getItem('gema_pr_fotoq_v1') || '{}')).length };
+           queue: Object.keys(window._prHooks.fotoQ()).length,
+           lsFrei: !localStorage.getItem('gema_pr_fotoq_v1') };
 });
 ok(fotoOffline.pending, 'offline aufgenommenes Foto trägt eine pendingId');
 ok(!fotoOffline.dataUrl, 'kein dataUrl im Datensatz');
 ok(!fotoOffline.roh, 'auch offline steckt kein Base64 im Datensatz');
 ok(fotoOffline.queue === 1, 'das Bild wartet in der lokalen Warteschlange');
+// Prüfbericht-Feedback 30.07.2026 (Bericht 3: «offline nur 4+2 Fotos, dann
+// blockiert es») — die Warteschlange liegt in INDEXEDDB, localStorage (~5 MB,
+// geteilt mit allen Pool-Caches) bleibt frei und kann nicht mehr volllaufen.
+ok(fotoOffline.lsFrei, 'localStorage bleibt frei — das Bild liegt in IndexedDB');
 const angezeigt = await page.evaluate(() => {
   const el = document.querySelector('#fotos_0_0 .foto.wartet');
   return { markiert: !!el, bildDa: !!(el && el.querySelector('img') && el.querySelector('img').src.indexOf('data:image') === 0) };
@@ -243,10 +248,12 @@ const angezeigt = await page.evaluate(() => {
 ok(angezeigt.markiert, 'wartendes Foto ist in der UI als solches markiert');
 ok(angezeigt.bildDa, 'der Nutzer sieht sein Foto trotzdem sofort');
 
-// Reload offline — Foto darf nicht verschwinden
+// Reload offline — Foto darf nicht verschwinden (Queue liegt in IndexedDB;
+// die Init lädt sie in den synchronen Memory-Spiegel, auf den imgSrc liest)
 await page.close();
 ({ page, errs } = await neueSeite());
-const nachReload = await page.evaluate(() => {
+const nachReload = await page.evaluate(async () => {
+  await window._prHooks.fotoQInit();
   const b = window._prHooks.cached(window._prHooks.POOLS.BEG)[0];
   const f = b.anlagen[0].punkte[0].fotos[1];
   return { pending: !!(f && f.pendingId), src: window._prHooks.imgSrc ? window._prHooks.imgSrc(f) : '' };
@@ -262,13 +269,38 @@ const nachUpload = await page.evaluate(() => {
   const b = window._prHooks.cached(window._prHooks.POOLS.BEG)[0];
   const f = b.anlagen[0].punkte[0].fotos[1];
   return { url: f && f.url, pending: !!(f && f.pendingId),
-           queue: Object.keys(JSON.parse(localStorage.getItem('gema_pr_fotoq_v1') || '{}')).length };
+           queue: Object.keys(window._prHooks.fotoQ()).length };
 });
 ok(!!nachUpload.url, 'Foto hat jetzt eine Bucket-URL');
 ok(!nachUpload.pending, 'pendingId ist entfernt');
 ok(nachUpload.queue === 0, 'lokale Warteschlange geleert');
 ok(bucket.length === 2, 'zweiter Upload im Bucket angekommen (' + bucket.length + ')');
 ok(JSON.stringify(cloudBeg().payload.data).indexOf('data:image') < 0, 'Cloud-Record blieb die ganze Zeit Base64-frei');
+
+console.log('— Migration: Alt-Einträge aus localStorage wandern nach IndexedDB —');
+offline = true;
+await page.evaluate(() => { window.prOpen(window._prHooks.cached(window._prHooks.POOLS.BEG)[0].id); });
+await page.waitForTimeout(300);
+await fotoAufnehmen(page);                     // drittes Foto — wartet offline in der Queue
+const pidInfo = await page.evaluate(() => {
+  const b = window._prHooks.cached(window._prHooks.POOLS.BEG)[0];
+  const f = b.anlagen[0].punkte[0].fotos[2];
+  const pid = f.pendingId, du = window._prHooks.fotoQ()[pid];
+  // Alt-Zustand simulieren (Version VOR IndexedDB): das Bild liegt im localStorage
+  localStorage.setItem('gema_pr_fotoq_v1', JSON.stringify({ [pid]: du }));
+  return { pid, hatDu: (du || '').indexOf('data:image') === 0 };
+});
+ok(pidInfo.hatDu, 'Ausgangslage: wartendes Bild + Alt-Eintrag im localStorage');
+await page.close();
+({ page, errs } = await neueSeite());
+const mig = await page.evaluate(async (pid) => {
+  await window._prHooks.fotoQInit();
+  return { imMem: (window._prHooks.fotoQ()[pid] || '').indexOf('data:image') === 0,
+           lsLeer: !localStorage.getItem('gema_pr_fotoq_v1') };
+}, pidInfo.pid);
+ok(mig.imMem, 'Alt-Eintrag ist nach dem Boot in der Queue (Memory-Spiegel)');
+ok(mig.lsLeer, 'Migration hat den localStorage-Key geleert — Quota sofort entlastet');
+offline = false;
 
 console.log('— Statische Absicherung —');
 const src = await readFile(join(ROOT, 'pm_pruefliste.html'), 'utf8');
@@ -281,6 +313,10 @@ ok(!/dataUrl *: *du/.test(src), 'kein Foto wird mehr mit dataUrl in den Record g
 ok(/pendingId *: *pid/.test(src), 'wartende Fotos referenzieren die lokale Warteschlange');
 ok(/PR_FOTOQ *= *'gema_pr_fotoq_v1'/.test(src), 'lokale Foto-Warteschlange getrennt vom Datensatz');
 ok(/addEventListener\('online'[\s\S]{0,80}prFotoUpload/.test(src), 'Nachsenden bei «online»');
+// IndexedDB-Queue (Prüfbericht-Feedback 30.07.2026, Bericht 3)
+ok(/indexedDB\.open\('gema_pruefliste_fotoq_v1'/.test(src), 'Queue liegt in IndexedDB (localStorage-Quota entlastet)');
+ok(/localStorage\.removeItem\(PR_FOTOQ\)/.test(src), 'Migration leert den alten localStorage-Key');
+ok(/return true; *\/\/ Memory-Put kann nicht scheitern/.test(src.replace(/\s+/g, ' ')) || /Memory-Put kann nicht scheitern/.test(src), '_fotoQPut blockiert nie mehr (Memory-Spiegel)');
 
 console.log('\n' + (fail ? '❌' : '✅') + '  ' + pass + ' bestanden, ' + fail + ' fehlgeschlagen');
 await browser.close(); server.close();

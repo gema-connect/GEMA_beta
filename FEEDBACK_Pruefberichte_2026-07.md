@@ -8,7 +8,7 @@
 |---|---|---|
 | 1 | BEG-2026-011 (Dornacherstrasse 210, «Test 1», 4 Seiten) | ✅ analysiert (unten) |
 | 2 | BEG-2026-012 (Dornacherstrasse 210, «Test 2», 4 Seiten — Browser-Druck mit URL-Fusszeile) | ✅ analysiert (unten) |
-| 3 | — | ⏳ ausstehend |
+| 3 | (mündlich übermittelt, 30.07.2026) — Offline-Foto-Limit | ✅ analysiert (unten) |
 
 **Klärung des Users (30.07.2026):** «S+P» = **Schmutz + Partner AG** — das ist die Organisation,
 und das hinterlegte Org-Logo ist das S+P-Logo (mit Schriftzug). → fliesst in A6 ein.
@@ -227,9 +227,33 @@ localStorage-Quota). Der Prüfer hat den Fehler offenbar dokumentiert. → Beim 
 ob die Quota-Behandlung der Foto-Warteschlange auf iOS zu streng ist (z.B. Warteschlange in
 IndexedDB statt localStorage) — ggf. als eigener Punkt, falls Bericht 3 ihn anspricht.
 
-## Bericht 3 — (ausstehend)
+## Bericht 3 — Offline-Foto-Limit (mündlich übermittelt, 30.07.2026)
 
-*Wird ergänzt, sobald das PDF vorliegt.*
+> «Ohne Internet können nur 4 Bilder mit der Direktkamera und 2 aus der Mediathek eingefügt
+> werden, dann blockiert es.»
+
+**B4 · Offline-Foto-Warteschlange: localStorage → IndexedDB** — **NEU, Kernpunkt Bericht 3**
+
+Deckt sich exakt mit der Beobachtung aus Bericht 2 (fotografierte «Speicher voll»-Dialoge).
+Ursache: Die Offline-Foto-Warteschlange `gema_pr_fotoq_v1` (`_fotoQPut/_fotoQGet/_fotoQDel`,
+Z. 1632 ff.) liegt in **localStorage** — auf iOS sind das nur ~5 MB, GETEILT mit allen
+GEMA-Pool-Caches. Ein Foto (1600 px, JPEG 0.82, Base64 +33 %) belegt ~300–800 KB → nach
+4–6 Fotos ist das Quota erschöpft, `_fotoQWrite` liefert `false`, der «Speicher voll»-Dialog
+blockiert jede weitere Aufnahme.
+
+Fix: Warteschlange auf **IndexedDB** umstellen (Quota: hunderte MB statt ~5 MB):
+- **Synchroner In-Memory-Spiegel `_fotoQMem`** (KRITISCH): `imgSrc()` liest die Queue SYNCHRON
+  beim Rendern — IndexedDB ist async. Beim Boot werden alle IDB-Einträge in die Memory-Map
+  geladen; `_fotoQGet` liest daraus, `_fotoQPut` schreibt Memory sofort (kann nicht scheitern
+  → kein Blockieren mehr) + IDB asynchron, `_fotoQDel` löscht beides.
+- **Einmalige Migration**: bestehende `gema_pr_fotoq_v1`-Einträge aus localStorage → IDB
+  verschieben und den localStorage-Key leeren — entlastet das Quota SOFORT (auch für die
+  Pool-Caches, deren `saveRec`-Write auf demselben Quota scheiterte, Z. 844).
+- **Fallback**: ohne IndexedDB (exotische Browser) bleibt der bisherige localStorage-Weg;
+  scheitert auch der IDB-Write asynchron, bleibt das Foto im Memory (Upload beim nächsten
+  Online-Moment funktioniert trotzdem) + dezenter Hinweis statt blockierendem Dialog.
+- `prFotoUpload()` (Nachsenden) arbeitet unverändert auf der Queue.
+- Drift-Guard `scripts/pruefliste_offline_test.mjs` (Foto-Queue-Checks) nachziehen.
 
 ---
 
@@ -237,22 +261,23 @@ IndexedDB statt localStorage) — ggf. als eigener Punkt, falls Bericht 3 ihn an
 
 | Nr | Änderung | Ort | Art | Status |
 |---|---|---|---|---|
-| A1 | Fenster-/PDF-Titel = Strasse + Hausnr. | `printBericht` Z. 2441 | Bericht | offen |
-| A2 | H1 = Adresse, «Prüfbericht — Art» als Untertitel | `printBericht` Z. 2493 | Bericht | offen |
-| A3 | Meta-Label «Projekt» statt «Objekt / Projekt» | Z. 2500 | Bericht | offen |
-| A4 | Meta-Zeile Begehungs-Nr. entfernen | Z. 2503 | Bericht | offen |
-| A5 | KPI-Zahlen aufgehend: `entfaellt`-Zähler + Chip; offen inkl. nicht bewertet; Zustand-ohne-Antwort zählt beim Zustand | `prBegehungBewertung` Z. 665 + Z. 2508 + `.bwkpi` | Engine + Bericht + Editor | offen (Bug 2× bestätigt) |
-| A6 | @page-Fusszeilen: Org-Name statt URL/about:blank (+ Seite X/Y, Kopfzeile Adresse) | Z. 2443 ff. | Bericht | offen (Deutung geklärt) |
-| A7 | Prüfpunkt-Titel fett + grösser | Z. 2551 (CSS) | Bericht | offen |
-| A8 | «Prüfung: Messgerät» einzeilig (nowrap) | Z. 2552 | Bericht | offen |
-| A9 | Bauteil-Zeile: 10 pt + Labels ausschreiben (Baujahr statt Bj.) | Z. 2537–2543 | Bericht | offen |
-| A10 | Bilder ohne Rahmen, kein leerer Rahmen-Streifen (pgrid + Titelbild) | Z. 2450 / 2482 | Bericht | offen |
-| A11 | Kein Trenner zwischen Punktzeile und Bildzeile | CSS `tr.pkrow.mitfoto td` | Bericht | offen |
-| A12 | Vertikale Spaltentrenner in allen Zeilen | `table.pk` CSS | Bericht | offen (Prüfer-Frage «sinnvoll?») |
-| A13 | Saubere Seitenumbrüche im ganzen Dossier (Zeile nie zerreissen; fotorow darf zwischen Bildern brechen) | `table.pk`-CSS Z. 2461/2471/2476 | Bericht | offen |
-| B1 | `auffaellig` + Option «nicht beurteilbar» | `PR_ANTWORTTYPEN` Z. 404 | Editor/Engine | offen |
-| B2 | Zahl-(/Text-)Punkte: «nicht beurteilbar»-Chip (`antwort='nb'`) | Editor + `prAntwortLabel` | Editor/Engine | offen |
-| B3 | Editor-Zustand-Karte: Kachel «Entfällt», offen-Semantik | `.bwkpi`-Renderer | Editor | offen |
+| A1 | Fenster-/PDF-Titel = Strasse + Hausnr. | `printBericht` Z. 2441 | Bericht | ✅ umgesetzt |
+| A2 | H1 = Adresse, «Prüfbericht — Art» als Untertitel | `printBericht` Z. 2493 | Bericht | ✅ umgesetzt |
+| A3 | Meta-Label «Projekt» statt «Objekt / Projekt» | Z. 2500 | Bericht | ✅ umgesetzt |
+| A4 | Meta-Zeile Begehungs-Nr. entfernen | Z. 2503 | Bericht | ✅ umgesetzt |
+| A5 | KPI-Zahlen aufgehend: `entfaellt`-Zähler + Chip; offen inkl. nicht bewertet; Zustand-ohne-Antwort zählt beim Zustand | `prBegehungBewertung` Z. 665 + Z. 2508 + `.bwkpi` | Engine + Bericht + Editor | ✅ umgesetzt |
+| A6 | @page-Fusszeilen: Org-Name statt URL/about:blank (+ Seite X/Y, Kopfzeile Adresse) | Z. 2443 ff. | Bericht | ✅ umgesetzt |
+| A7 | Prüfpunkt-Titel fett + grösser | Z. 2551 (CSS) | Bericht | ✅ umgesetzt |
+| A8 | «Prüfung: Messgerät» einzeilig (nowrap) | Z. 2552 | Bericht | ✅ umgesetzt |
+| A9 | Bauteil-Zeile: 10 pt + Labels ausschreiben (Baujahr statt Bj.) | Z. 2537–2543 | Bericht | ✅ umgesetzt |
+| A10 | Bilder ohne Rahmen, kein leerer Rahmen-Streifen (pgrid + Titelbild) | Z. 2450 / 2482 | Bericht | ✅ umgesetzt |
+| A11 | Kein Trenner zwischen Punktzeile und Bildzeile | CSS `tr.pkrow.mitfoto td` | Bericht | ✅ umgesetzt |
+| A12 | Vertikale Spaltentrenner in allen Zeilen | `table.pk` CSS | Bericht | ✅ umgesetzt (dezent) |
+| A13 | Saubere Seitenumbrüche im ganzen Dossier (Zeile nie zerreissen; fotorow darf zwischen Bildern brechen) | `table.pk`-CSS Z. 2461/2471/2476 | Bericht | ✅ umgesetzt |
+| B1 | `auffaellig` + Option «nicht beurteilbar» | `PR_ANTWORTTYPEN` Z. 404 | Editor/Engine | ✅ umgesetzt |
+| B2 | Zahl-(/Text-)Punkte: «nicht beurteilbar»-Chip (`antwort='nb'`) | Editor + `prAntwortLabel` | Editor/Engine | ✅ umgesetzt |
+| B3 | Editor-Zustand-Karte: Kachel «Entfällt», offen-Semantik | `.bwkpi`-Renderer | Editor | ✅ umgesetzt |
+| B4 | Offline-Foto-Warteschlange localStorage → IndexedDB (+ Migration, Memory-Spiegel) | `_fotoQ*` Z. 1632 ff. | Editor/Offline | ✅ umgesetzt |
 
 **Betroffene Drift-Guards beim Umsetzen nachziehen:** `scripts/pruefliste_engine_test.mjs`,
 `scripts/pruefliste_smoke_test.mjs`, `scripts/pruefliste_bericht_feedback_test.mjs`,
@@ -269,6 +294,6 @@ IndexedDB statt localStorage) — ggf. als eigener Punkt, falls Bericht 3 ihn an
 3. **A12**: «Zeilentrenner sinnvoll?» ist als Frage formuliert — Empfehlung: dezent umsetzen;
    in Bericht 2 nicht erneut angemerkt, bei Bericht 3 auf Bestätigung achten.
 4. **A1**: Titel-Suffix «– Prüfbericht» behalten (Vorschlag: ja) oder Dateiname = nur Adresse?
-5. **Beobachtung Bericht 2**: «Speicher voll»-Dialoge der Foto-Warteschlange auf dem iPhone
-   (in den Prüfpunkt-Fotos dokumentiert) — falls Bericht 3 das anspricht, als eigenen
-   Massnahmen-Punkt aufnehmen (Foto-Queue localStorage → IndexedDB).
+5. ~~**Beobachtung Bericht 2**: «Speicher voll»-Dialoge~~ **GEKLÄRT** — Bericht 3 bestätigt
+   genau das (offline nur 4+2 Fotos, dann blockiert) → als **B4** aufgenommen
+   (Foto-Queue localStorage → IndexedDB).
