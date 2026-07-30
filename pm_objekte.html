@@ -664,6 +664,7 @@ var _objCloudLoaded=false; // true sobald der erste Cloud-Pull durch ist (Ladean
 // ── Tenant-Kontext ─────────────────────────────────────────────────
 // Wird nach DOMContentLoaded gesetzt, sobald GemaAuth verfügbar ist.
 let _currentOrgId = null;
+let _currentUserId = null;
 let _isAdminUser   = false;
 // Admin-/Org-Kontext (neu) erfassen. WICHTIG: nicht nur einmalig im
 // DOMContentLoaded — löst GemaAuth den User erst nach dem ersten Cloud-Pull
@@ -674,7 +675,7 @@ function _refreshAuthCtx() {
     if (typeof GemaAuth !== 'undefined' && GemaAuth.getCurrentUser) {
       _isAdminUser = GemaAuth.isAdmin();
       const _u = GemaAuth.getCurrentUser();
-      if (_u) _currentOrgId = _u.orgId || 'org_default';
+      if (_u) { _currentOrgId = _u.orgId || 'org_default'; _currentUserId = _u.id || null; }
     }
   } catch(e) {}
 }
@@ -693,7 +694,17 @@ function _objOrgId(o){
 function _objSichtbar(o){
   if (_isAdminUser) return true;
   var eff = _objOrgId(o);
-  if (!eff) return true;                       // herrenlos → sichtbar (sonst für immer weg)
+  if (!eff) {
+    // Herrenlos: seit 30.07.2026 NUR noch für Ersteller + Objekt-Team
+    // sichtbar — nicht mehr für alle Firmen (Datenleck: Alt-Projekte ohne
+    // Stempel erschienen in jeder fremden Org). GEMA-Admins ordnen sie im
+    // Wartungs-Panel zu; Regel identisch mit GemaObjekte._filterByOrg.
+    if (o && o.erstelltVon && o.erstelltVon === _currentUserId) return true;
+    try {
+      if (typeof GemaObjekte !== 'undefined' && GemaObjekte.isAssignedToCurrentUser) return GemaObjekte.isAssignedToCurrentUser(o);
+    } catch(e) {}
+    return false;
+  }
   return eff === (_currentOrgId || 'org_default');
 }
 document.addEventListener('DOMContentLoaded', _refreshAuthCtx);

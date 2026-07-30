@@ -1245,6 +1245,43 @@ function sdLoad() {
   }
 }
 
+// ── ORG-SICHTBARKEIT (Leak-Fix 30.07.2026) ──
+// bindCollection laedt die GANZE Collection — ohne die (manuell auszurollenden)
+// org-gescopten RLS-v2-Policies kommen damit auch Schadensberichte FREMDER Orgs
+// in den Cache. Die Anzeige filtert deshalb defensiv client-seitig (dieselbe
+// Regel wie GemaObjekte.effektiveOrgId): orgId des Records → sonst Org des
+// Erstellers → sonst nur der Ersteller selbst. GEMA-Admin sieht alles.
+// KRITISCH: NIE das schaeden-Array selbst filtern — _sdPersistSchaeden difft
+// das VOLLE Array gegen den Cache; herausgefilterte fremde Records wuerden als
+// Loeschung interpretiert und aus der Cloud entfernt (if_werkzeug-Falle).
+function _sdEffOrg(s) {
+  if (!s) return null;
+  if (s.orgId) return s.orgId;
+  var cid = s.erstelltVon && s.erstelltVon.userId;
+  if (cid && typeof GemaAuth !== 'undefined' && GemaAuth.getUsers) {
+    try {
+      var us = GemaAuth.getUsers() || [];
+      for (var i = 0; i < us.length; i++) {
+        if (us[i] && us[i].id === cid) return us[i].orgId || null;
+      }
+    } catch(e) {}
+  }
+  return null;
+}
+function _sdSichtbar(s) {
+  try {
+    var u = _sdGetUser();
+    if (!u) return true; // Boot-Race: Auth gated die Seite ohnehin
+    if (typeof GemaAuth !== 'undefined' && GemaAuth.isAdmin && GemaAuth.isAdmin()) return true;
+    var eff = _sdEffOrg(s);
+    if (!eff) return !!(s && s.erstelltVon && s.erstelltVon.userId === u.id);
+    return eff === (u.orgId || '');
+  } catch(e) { return true; }
+}
+function sdVisible() {
+  return (schaeden || []).filter(_sdSichtbar);
+}
+
 // ── OBJEKT HELPERS ──
 function sdGetObjekte() {
   // NUR fuer die AUSWAHL (Picker beim Erfassen): aktive Objekte
@@ -1527,9 +1564,10 @@ function sdSyncSearch(el) {
 
 // ── STATS ──
 function sdUpdateStats() {
-  var total = schaeden.length;
+  var vis = sdVisible();
+  var total = vis.length;
   var analyse = 0, trocknung = 0, abschluss = 0;
-  schaeden.forEach(function(s) {
+  vis.forEach(function(s) {
     if (s.phase === 'erfasst' || s.phase === 'analyse') analyse++;
     else if (s.phase === 'trocknung') trocknung++;
     else if (s.phase === 'abschluss') abschluss++;
@@ -1544,7 +1582,7 @@ function sdUpdateStats() {
 function sdRenderList() {
   sdUpdateStats();
   var q = (document.getElementById('searchInp').value || '').toLowerCase().trim();
-  var filtered = schaeden.filter(function(s) {
+  var filtered = sdVisible().filter(function(s) {
     if (currentFilter === 'analyse' && s.phase !== 'erfasst' && s.phase !== 'analyse') return false;
     if (currentFilter === 'trocknung' && s.phase !== 'trocknung') return false;
     if (currentFilter === 'abschluss' && s.phase !== 'abschluss') return false;
@@ -1896,6 +1934,11 @@ function sdGetById(id) {
 function sdOpenDetail(id) {
   var s = sdGetById(id);
   if (!s) return;
+  // Org-Guard: Deep-Link (?id=) darf keinen fremden Bericht oeffnen
+  if (!_sdSichtbar(s)) {
+    if (typeof GemaDialog !== 'undefined') GemaDialog.alert({ title: 'Kein Zugriff', message: 'Dieser Schadensbericht gehört zu einer anderen Organisation.' });
+    return;
+  }
   detailId = id;
   // Gleichzeitig-Bearbeiten-Warnung: Lock pro SCHADEN (Datensatz) — die
   // Detailansicht IST die Bearbeitungsflaeche (jede Eingabe speichert).
@@ -2057,7 +2100,26 @@ function sdRenderErfassung(s, canEdit) {
   h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">';
   h += '<div class="sum-card"><div class="sum-row"><span class="lbl">Typ</span><span class="val">' + esc((TYPEN[s.typ] || {}).label || s.typ) + '</span></div></div>';
   h += '<div class="sum-card"><div class="sum-row"><span class="lbl">Datum</span><span class="val">' + sdFmtDate(s.erstelltAm) + '</span></div></div>';
-  h += '<div class="sum-card"><div class="sum-row"><span class="lbl">Objekt</span><span class="val">' + esc(sdObjektName(s.objektId)) + '</span></div></div>';
+  // Objekt-Zuordnung nachträglich änderbar (Feedback 30.07.2026): der Schaden
+  // wandert mitsamt allen Phasen/Fotos zum gewählten Objekt — Anzeige,
+  // Filter und Exporte folgen der objektId automatisch.
+  h += '<div class="sum-card"><div class="sum-row"><span class="lbl">Objekt</span>';
+  if (canEdit) {
+    var _objs = sdGetObjekte();
+    var _curIn = _objs.some(function(o){ return o.id === s.objektId; });
+    h += '<select class="val" id="erf_objekt_' + s.id + '" onchange="sdObjektWechsel(\'' + s.id + '\',this.value)" style="max-width:60%;padding:6px 8px;border:1.5px solid var(--brd2);border-radius:8px;font-size:12.5px;font-family:var(--sans);background:var(--bg2);color:var(--txt)" title="Objekt-Zuordnung ändern — der Schaden wechselt zum gewählten Objekt">';
+    // Bestehender Wert immer darstellbar — auch wenn das Objekt nicht mehr
+    // aktiv ist (⚠-Option, Muster pm_objekte: kein stilles Leeren).
+    if (s.objektId && !_curIn) h += '<option value="' + esc(s.objektId) + '" selected>⚠ ' + esc(sdObjektName(s.objektId)) + '</option>';
+    h += _objs.map(function(o){
+      var nm = (typeof GemaObjekte !== 'undefined' && GemaObjekte.displayName ? GemaObjekte.displayName(o) : '') || o.name || o.bezeichnung || o.id;
+      return '<option value="' + esc(o.id) + '"' + (o.id === s.objektId ? ' selected' : '') + '>' + esc(nm) + '</option>';
+    }).join('');
+    h += '</select>';
+  } else {
+    h += '<span class="val">' + esc(sdObjektName(s.objektId)) + '</span>';
+  }
+  h += '</div></div>';
   h += '<div class="sum-card"><div class="sum-row"><span class="lbl">Erstellt von</span><span class="val">' + esc(s.erstelltVon ? s.erstelltVon.name : '—') + '</span></div></div>';
   h += '</div>';
 
@@ -3635,6 +3697,35 @@ function sdErfRemRaum(schadenId, idx){
   });
 }
 window.sdErfRemRaum = sdErfRemRaum;
+
+// Objekt-Zuordnung eines bestehenden Schadens wechseln (Feedback 30.07.2026).
+// Der Schaden ist danach dem neuen Objekt zugeordnet — Liste, Detail,
+// Exporte und der Objekt-Lösch-Scan folgen der objektId automatisch.
+// Leeren ist nicht erlaubt (die Objekt-Zuordnung ist Pflicht, wie bei der
+// Erfassung) — die Auswahl springt dann auf den gespeicherten Stand zurück.
+function sdObjektWechsel(schadenId, objektId){
+  var s = sdGetById(schadenId); if(!s || !_sdCanEdit()) return;
+  objektId = objektId || '';
+  if(objektId === (s.objektId || '')) return;
+  if(!objektId){
+    GemaDialog.alert({ title:'Objekt erforderlich', message:'Jeder Schaden braucht eine Objekt-Zuordnung — bitte ein Objekt wählen.' });
+    try { sdRenderDetail(s); } catch(e){}
+    return;
+  }
+  var neuName = sdObjektName(objektId);
+  GemaDialog.confirm({
+    title: 'Objekt wechseln',
+    message: 'Diesen Schaden dem Objekt «' + neuName + '» zuordnen? Alle Phasen, Fotos und Messwerte bleiben erhalten und wandern mit.',
+    confirmLabel: 'Zuordnen'
+  }).then(function(ok){
+    if(!ok){ try { sdRenderDetail(s); } catch(e){} return; }
+    s.objektId = objektId;
+    sdSave();
+    try { sdRenderDetail(s); } catch(e){}
+    try { sdRenderList(); } catch(e){}
+  });
+}
+window.sdObjektWechsel = sdObjektWechsel;
 
 // Setzt im Trocknungs-Modul (gema_trocknung_v1) das Geraet auf
 // 'im_einsatz' und verknuepft es mit dem Schaden — analog zu
