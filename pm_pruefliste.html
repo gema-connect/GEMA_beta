@@ -363,6 +363,15 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important}
   </div>
 </div>
 
+<!-- ═══ „STANDARDPUNKT EINFÜGEN" (Feedback 30.07.2026 — auch entfernte / zweites Exemplar) ═══ -->
+<div class="modal-bg" id="stdPickBg">
+  <div class="modal">
+    <div class="modal-hd"><h3>Standardpunkt einfügen</h3><button class="modal-x fb-x" title="Feedback zu dieser Ansicht" onclick="GemaFeedback.start()">🔴</button><button class="modal-x" onclick="prStdPickClose()">✕</button></div>
+    <div class="modal-bd" id="stdPickBody"></div>
+    <div class="modal-ft"><button class="btn ghost" onclick="prStdPickClose()">Schliessen</button></div>
+  </div>
+</div>
+
 <div id="toast"></div>
 
 <script>
@@ -501,7 +510,8 @@ var PR_BAUTEIL_FELDER = [
   { id:'hersteller', label:'Hersteller' },
   { id:'typ',        label:'Typ' },
   { id:'baujahr',    label:'Baujahr' },
-  { id:'material',   label:'Material' }
+  { id:'material',   label:'Material' },
+  { id:'wartung',    label:'Letzte Wartung / Ersatz' }   // Feedback 30.07.2026
 ];
 function prBauteilFelder(def){
   def=def||{};
@@ -509,8 +519,25 @@ function prBauteilFelder(def){
   if(f && typeof f==='object'){
     return PR_BAUTEIL_FELDER.map(function(x){return x.id;}).filter(function(id){ return !!f[id]; });
   }
-  if(def.bauteil) return PR_BAUTEIL_FELDER.map(function(x){return x.id;});
+  /* Legacy bauteil:true = die klassischen VIER Felder (Bestandsschutz) —
+     «Letzte Wartung / Ersatz» erscheint nur, wenn es explizit gewählt ist. */
+  if(def.bauteil) return ['hersteller','typ','baujahr','material'];
   return [];
+}
+/* Laufende Nummer bei mehrfach vorhandenen gleichen Prüfpunkten in einer
+   Anlage (Feedback 30.07.2026: «2. gleicher Prüfpunkt → Nummerierung 1/2/…»).
+   Reine ANZEIGE — die Bezeichnung im Datensatz bleibt unverändert, damit der
+   Standardlisten-Sync sie weiter nachziehen kann. '' wenn eindeutig. */
+function prPunktNr(anlage, pi){
+  var punkte=(anlage&&anlage.punkte)||[];
+  var p=punkte[pi]; if(!p) return '';
+  var key=String(p.bezeichnung||'').trim().toLowerCase();
+  if(!key) return '';
+  var gleiche=[], idx=-1;
+  punkte.forEach(function(r,i){
+    if(String(r.bezeichnung||'').trim().toLowerCase()===key){ if(i===pi) idx=gleiche.length; gleiche.push(i); }
+  });
+  return (gleiche.length>1 && idx>=0) ? String(idx+1) : '';
 }
 
 /* Empfehlungs-Vorlagen: EINE pro Zeile — in der Begehung einzeln wählbar
@@ -534,11 +561,13 @@ function prSyncPunkte(anlage, effektiv){
   var res={neu:0, aktualisiert:0};
   if(!anlage) return res;
   anlage.punkte=anlage.punkte||[];
+  /* Mehrfach eingefügte gleiche Punkte (Feedback 30.07.2026): pro punktId ALLE
+     Zeilen führen — jede Kopie bekommt die Definitions-Änderungen nachgezogen. */
   var byId={};
-  anlage.punkte.forEach(function(r){ if(r && r.punktId) byId[r.punktId]=r; });
+  anlage.punkte.forEach(function(r){ if(r && r.punktId) (byId[r.punktId]=byId[r.punktId]||[]).push(r); });
   (effektiv||[]).forEach(function(p){
-    var row=byId[p.id];
-    if(!row){
+    var rows=byId[p.id];
+    if(!rows || !rows.length){
       anlage.punkte.push({ key:'pk_sync_'+p.id, punktId:p.id, quelle:p.quelle||'global', individuell:false,
         bezeichnung:p.bezeichnung, untergruppe:p.untergruppe||'', antworttyp:p.antworttyp||'ja_nein_nb', pflicht:!!p.pflicht,
         standardbewertung:p.standardbewertung||'schlecht', empfehlungVorlage:p.empfehlung||'',
@@ -547,20 +576,22 @@ function prSyncPunkte(anlage, effektiv){
       res.neu++;
       return;
     }
-    if(row.individuell) return;                       // in der Begehung angepasst → nie überschreiben
-    var vorher=JSON.stringify([row.bezeichnung,row.untergruppe,row.pflicht,row.standardbewertung,row.empfehlungVorlage,row.bauteil,row.bauteilFelder,row.antworttyp]);
-    row.bezeichnung=p.bezeichnung;
-    row.untergruppe=p.untergruppe||'';
-    row.pflicht=!!p.pflicht;
-    row.standardbewertung=p.standardbewertung||'schlecht';
-    row.empfehlungVorlage=p.empfehlung||'';
-    row.bauteil=!!p.bauteil;
-    row.bauteilFelder=p.bauteilFelder||null;
-    var unbeantwortet = (row.antwort===undefined||row.antwort===null||row.antwort==='')
-      && (row.bewertung==null||row.bewertung==='nicht_bewertet');
-    if(unbeantwortet) row.antworttyp=p.antworttyp||'ja_nein_nb';
-    var nachher=JSON.stringify([row.bezeichnung,row.untergruppe,row.pflicht,row.standardbewertung,row.empfehlungVorlage,row.bauteil,row.bauteilFelder,row.antworttyp]);
-    if(vorher!==nachher) res.aktualisiert++;
+    rows.forEach(function(row){
+      if(row.individuell) return;                     // in der Begehung angepasst → nie überschreiben
+      var vorher=JSON.stringify([row.bezeichnung,row.untergruppe,row.pflicht,row.standardbewertung,row.empfehlungVorlage,row.bauteil,row.bauteilFelder,row.antworttyp]);
+      row.bezeichnung=p.bezeichnung;
+      row.untergruppe=p.untergruppe||'';
+      row.pflicht=!!p.pflicht;
+      row.standardbewertung=p.standardbewertung||'schlecht';
+      row.empfehlungVorlage=p.empfehlung||'';
+      row.bauteil=!!p.bauteil;
+      row.bauteilFelder=p.bauteilFelder||null;
+      var unbeantwortet = (row.antwort===undefined||row.antwort===null||row.antwort==='')
+        && (row.bewertung==null||row.bewertung==='nicht_bewertet');
+      if(unbeantwortet) row.antworttyp=p.antworttyp||'ja_nein_nb';
+      var nachher=JSON.stringify([row.bezeichnung,row.untergruppe,row.pflicht,row.standardbewertung,row.empfehlungVorlage,row.bauteil,row.bauteilFelder,row.antworttyp]);
+      if(vorher!==nachher) res.aktualisiert++;
+    });
   });
   return res;
 }
@@ -766,7 +797,7 @@ var _prEngine = { PR_ANTWORTTYPEN:PR_ANTWORTTYPEN, PR_ANTWORTTYP_DEFAULT:PR_ANTW
   PR_ARTEN:PR_ARTEN, prArtLabel:prArtLabel, PR_ZUSTAND_ENTFAELLT:PR_ZUSTAND_ENTFAELLT,
   PR_ZUSTAND_SKALEN:PR_ZUSTAND_SKALEN, prZustandSkala:prZustandSkala, prZustandLabel:prZustandLabel,
   PR_BAUTEIL_FELDER:PR_BAUTEIL_FELDER, prBauteilFelder:prBauteilFelder,
-  prEmpfItems:prEmpfItems, prSyncPunkte:prSyncPunkte };
+  prEmpfItems:prEmpfItems, prSyncPunkte:prSyncPunkte, prPunktNr:prPunktNr };
 if(typeof window!=='undefined') window._prEngine = _prEngine;
 if(typeof module!=='undefined' && module.exports) module.exports = _prEngine;
 /*ENGINE-END*/
@@ -962,7 +993,7 @@ function fillObjektFilter(){
   var sel=$id('fObjekt'); if(!sel) return;
   var val=sel.value||_objFilter;
   var ids={};
-  begVisible().forEach(function(b){ if(b.objektId) ids[b.objektId]=b.objektName||objName(b.objektId)||'⚠ Objekt nicht gefunden'; });
+  begVisible().forEach(function(b){ if(b.objektId) ids[b.objektId]=objName(b.objektId)||b.objektName||'⚠ Objekt nicht gefunden'; });
   objekte().forEach(function(o){ try{ ids[o.id]=GemaObjekte.displayName(o)||o.nummer||o.id; }catch(e){ ids[o.id]=o.name||o.id; } });
   sel.innerHTML='<option value="">Alle Projekte</option>'+Object.keys(ids).map(function(id){ return '<option value="'+esc(id)+'">'+esc(ids[id])+'</option>'; }).join('');
   sel.value = val || '';
@@ -1018,8 +1049,11 @@ function renderBegList(){
     var bw=begBewertung(b);
     var st=(b.status||'offen');
     var barCol = bw.gesamt==='schlecht'?'var(--red)':bw.gesamt==='maessig'?'var(--amber)':bw.gesamt==='gut'?'var(--grn)':'var(--brd2)';
-    /* Freies Objekt: die erfasste Adresse ist die aussagekräftigere Kennung */
-    var objLbl = b.objektName || objName(b.objektId) || b.objektAdresse || prFreieAdresse(b.freieAdresse) || 'Freies Objekt';
+    /* Anzeige-Einstellung gewinnt (Feedback 30.07.2026): existiert das Objekt
+       noch, liefert objName() die zentrale displayName-Beschriftung («Immer
+       Adresse primär») — der objektName-SNAPSHOT ist nur noch Fallback.
+       Freies Objekt: die erfasste Adresse ist die aussagekräftigere Kennung. */
+    var objLbl = objName(b.objektId) || b.objektName || b.objektAdresse || prFreieAdresse(b.freieAdresse) || 'Freies Objekt';
     var typLbl = prObjekttypenText(b);
     var meta = esc(objLbl) + (typLbl?' · '+esc(typLbl):'')
       + ' · ' + fmtDatum(b.datum) + ' · ' + esc(b.prueferName||'')
@@ -1029,7 +1063,7 @@ function renderBegList(){
       + (bw.offen? ' · '+bw.offen+' offen':'');
     return '<div class="card" onclick="prOpen(\''+b.id+'\')"><div class="card-bar" style="background:'+barCol+'"></div><div class="card-bd">'
       +'<div class="card-top"><span class="card-nr">'+esc(b.nr||'—')+'</span><span class="badge b-'+st+'">'+(st==='abgeschlossen'?'Abgeschlossen':'Offen')+'</span></div>'
-      +'<div class="card-title">'+esc(b.titel||b.objektName||objName(b.objektId)||'Begehung')+'</div>'
+      +'<div class="card-title">'+esc(b.titel||objName(b.objektId)||b.objektName||'Begehung')+'</div>'
       +'<div class="card-meta">'+meta+'</div></div></div>';
   }).join('');
 }
@@ -1219,10 +1253,15 @@ function bwInlineBtns(ai,pi,bw,dis,antworttyp){
 function renderAnlage(a, ai, abg){
   var art=prArt(a.anlagenart);
   var h='<div class="anlage" id="anlage_'+ai+'"><div class="anlage-hd"><span class="anlage-ic">'+esc(art.ic||'📋')+'</span>';
+  /* Feedback 30.07.2026: Titelfeld kompakt (max-width statt volle Breite), das
+     Standort-Feld ist ENTFERNT (bestehende Werte bleiben in Altdaten/Bericht
+     sichtbar); dafür «＋ Standardpunkt» — fügt Punkte aus der Standardliste
+     direkt ein (auch früher entfernte oder ein zweites Exemplar). */
   if(abg){ h+='<div style="flex:1;font-weight:800;font-size:14px">'+esc(a.name||art.label)+(a.standort?' · '+esc(a.standort):'')+'</div>'; }
   else{
-    h+='<input type="text" value="'+esc(a.name||'')+'" placeholder="'+esc(art.label)+'" onchange="prAnlField('+ai+',\'name\',this.value)">';
-    h+='<input class="small" type="text" value="'+esc(a.standort||'')+'" placeholder="Standort" onchange="prAnlField('+ai+',\'standort\',this.value)">';
+    h+='<input type="text" style="flex:0 1 300px;min-width:150px" value="'+esc(a.name||'')+'" placeholder="'+esc(art.label)+'" onchange="prAnlField('+ai+',\'name\',this.value)">';
+    h+='<span style="flex:1"></span>';
+    h+='<button class="btn ghost sm" style="white-space:nowrap" title="Prüfpunkt aus der Standardliste einfügen — auch entfernte oder ein zweites Exemplar (wird automatisch nummeriert)" onclick="prStdPickOpen('+ai+')">＋ Standardpunkt</button>';
     h+='<button class="row-del" title="Anlage entfernen" onclick="prDelAnlage('+ai+')">🗑</button>';
   }
   h+='</div><div class="anlage-bd">';
@@ -1241,11 +1280,15 @@ function renderPunkt(a, ai, p, pi, abg){
   var qClass='q-'+(p.quelle||'global');
   var qLbl={global:'Standard',org:'Firma',objekt:'Objekt',begehung:'individuell'}[p.quelle||'global'];
   var fotoN=(p.fotos||[]).length;
+  /* Laufende Nummer bei mehrfach gleichem Prüfpunkt (Feedback 30.07.2026) */
+  var lfdNr=prPunktNr(a,pi);
   var h='<div class="pkt" id="pkt_'+ai+'_'+pi+'"><div class="pkt-hd"><div class="pkt-t">'
-    +'<div class="pkt-name">'+(p.pflicht?'<span class="pflicht-star">*</span> ':'')+esc(p.bezeichnung)+'</div>'
+    +'<div class="pkt-name">'+(p.pflicht?'<span class="pflicht-star">*</span> ':'')+esc(p.bezeichnung)+(lfdNr?' '+lfdNr:'')+'</div>'
     +'<div class="pkt-sub"><span class="q-badge '+qClass+'">'+esc(qLbl)+'</span>'+(p.untergruppe?'<span>'+esc(p.untergruppe)+'</span>':'')+'<span class="bw-chip bw-'+bw+'">'+esc(bwLbl)+'</span></div>'
     +'</div><div class="pkt-tools">';
-  h+='<button class="icobtn" title="Notiz / Empfehlung / Foto" onclick="prTogglePkt('+ai+','+pi+')">📝'+(fotoN||p.bemerkung||p.empfehlung?'<span class="cnt">'+(fotoN||'•')+'</span>':'')+'</button>';
+  /* Auf-/Zuklapp-Pfeil statt 📝 (Feedback 30.07.2026) — der Zähler-Badge für
+     Fotos/Notizen bleibt am Knopf. */
+  h+='<button class="icobtn" id="pktcaret_'+ai+'_'+pi+'" title="Details ein-/ausklappen (Bauteil · Zustand · Bemerkung · Foto)" onclick="prTogglePkt('+ai+','+pi+')">'+(p._open?'▾':'▸')+(fotoN||p.bemerkung||p.empfehlung?'<span class="cnt">'+(fotoN||'•')+'</span>':'')+'</button>';
   /* Jeder Prüfpunkt ist einzeln aus der Begehung entfernbar (Feedback
      25.07.2026) — die Standardliste selbst bleibt davon unberührt. */
   if(!abg) h+='<button class="row-del" title="Prüfpunkt aus dieser Begehung entfernen" onclick="prDelPunkt('+ai+','+pi+')">🗑</button>';
@@ -1289,7 +1332,8 @@ function renderPunkt(a, ai, p, pi, abg){
       typ:'<div class="fld"><label>Typ</label><input type="text" '+(abg?'disabled':'')+' placeholder="Typenbezeichnung" value="'+esc(p.typ||'')+'" onchange="prPktField('+ai+','+pi+',\'typ\',this.value)"></div>',
       /* Baujahr frei beschreibbar — Jahre als Vorschlag, Freitext für «ca. 1985» */
       baujahr:'<div class="fld"><label>Baujahr</label><input type="text" list="prJahrList" '+(abg?'disabled':'')+' placeholder="z.B. 1998 oder «ca. 1985»" value="'+esc(p.baujahr||'')+'" onchange="prPktField('+ai+','+pi+',\'baujahr\',this.value)"></div>',
-      material:'<div class="fld"><label>Material</label><input type="text" list="prMaterialList" '+(abg?'disabled':'')+' placeholder="z.B. Gusseisen" value="'+esc(p.material||'')+'" onchange="prPktField('+ai+','+pi+',\'material\',this.value)"></div>'
+      material:'<div class="fld"><label>Material</label><input type="text" list="prMaterialList" '+(abg?'disabled':'')+' placeholder="z.B. Gusseisen" value="'+esc(p.material||'')+'" onchange="prPktField('+ai+','+pi+',\'material\',this.value)"></div>',
+      wartung:'<div class="fld"><label>Letzte Wartung / Ersatz</label><input type="text" '+(abg?'disabled':'')+' placeholder="z.B. 2021 oder «Ersatz 2019»" value="'+esc(p.wartung||'')+'" onchange="prPktField('+ai+','+pi+',\'wartung\',this.value)"></div>'
     };
     h+='<div class="bauteil"><div class="bt-hd">🔩 Bauteil</div>';
     for(var bi=0;bi<btf.length;bi+=2){
@@ -1459,7 +1503,14 @@ window.prDelAnlage=function(ai){
     if(!ok)return; _cur.anlagen.splice(ai,1); saveBeg(_cur); renderEditor();
   });
 };
-window.prTogglePkt=function(ai,pi){ if(!_cur)return; var p=_cur.anlagen[ai].punkte[pi]; p._open=!p._open; var el=$id('more_'+ai+'_'+pi); if(el) el.classList.toggle('open', !!p._open); };
+window.prTogglePkt=function(ai,pi){
+  if(!_cur)return; var p=_cur.anlagen[ai].punkte[pi]; p._open=!p._open;
+  var el=$id('more_'+ai+'_'+pi); if(el) el.classList.toggle('open', !!p._open);
+  /* Pfeil folgt dem Zustand (Feedback 30.07.2026) — nur die Glyphe tauschen,
+     der Zähler-Badge im Knopf bleibt stehen. */
+  var c=$id('pktcaret_'+ai+'_'+pi);
+  if(c && c.firstChild && c.firstChild.nodeType===3) c.firstChild.nodeValue = p._open?'▾':'▸';
+};
 window.prSetAntwort=function(ai,pi,v){
   if(!_cur)return; var p=_cur.anlagen[ai].punkte[pi];
   p.antwort = (p.antwort===v)? null : v;
@@ -1792,6 +1843,51 @@ function addPunktZeile(ai, zeile){
   if(el) el.scrollIntoView({behavior:'smooth',block:'center'});
   toast('Prüfpunkt hinzugefügt');
 }
+
+/* «＋ Standardpunkt» (Feedback 30.07.2026): Punkte aus der effektiven
+   Standardliste DIREKT in die Anlage einfügen — auch solche, die aus der
+   Begehung entfernt wurden, und bewusst auch ein zweites Exemplar (zwei
+   Fettabscheider …). Gleiche Punkte werden in der Anzeige automatisch
+   1/2/… nummeriert (prPunktNr); die Bezeichnung im Datensatz bleibt
+   unverändert, damit der Standardlisten-Sync weiter greift. */
+var _stdPickAnlage=-1;
+window.prStdPickOpen=function(ai){
+  if(!_cur) return;
+  _stdPickAnlage=ai;
+  var a=_cur.anlagen[ai]; if(!a) return;
+  var liste=effektivePunkte(a.anlagenart, _cur.objektId);
+  var inAnlage={};
+  (a.punkte||[]).forEach(function(r){ if(r&&r.punktId) inAnlage[r.punktId]=(inAnlage[r.punktId]||0)+1; });
+  var h='<div class="empty" style="text-align:left;padding:10px 12px;margin-bottom:10px">Standardliste «'+esc(prArt(a.anlagenart).label)+'» — Klick fügt den Punkt in diese Anlage ein. Bereits vorhandene Punkte lassen sich ein zweites Mal einfügen und werden automatisch nummeriert.</div>';
+  if(!liste.length) h+='<div class="empty">Keine aktiven Standardpunkte für diese Anlagenart.</div>';
+  liste.forEach(function(p){
+    var n=inAnlage[p.id]||0;
+    var qLbl={global:'Standard',org:'Firma',objekt:'Objekt'}[p.quelle||'global']||'Standard';
+    h+='<div class="vrow"><div class="vt"><b>'+esc(p.bezeichnung)+'</b>'
+      +'<div class="vm"><span class="q-badge q-'+esc(p.quelle||'global')+'">'+esc(qLbl)+'</span>'
+      +(p.untergruppe?' '+esc(p.untergruppe):'')
+      +(n?' · <b>'+n+'× in der Anlage</b>':'')+'</div></div>'
+      +'<div class="vtools"><button class="btn sm pri" onclick="prStdPickAdd(\''+esc(p.id)+'\')">＋ '+(n?'2. Exemplar':'Einfügen')+'</button></div></div>';
+  });
+  $id('stdPickBody').innerHTML=h;
+  $id('stdPickBg').classList.add('open');
+};
+window.prStdPickClose=function(){ $id('stdPickBg').classList.remove('open'); _stdPickAnlage=-1; };
+window.prStdPickAdd=function(pid){
+  if(!_cur || _stdPickAnlage<0) return;
+  var a=_cur.anlagen[_stdPickAnlage]; if(!a) return;
+  var p=effektivePunkte(a.anlagenart, _cur.objektId).filter(function(x){return x.id===pid;})[0];
+  if(!p){ toast('Nicht gefunden'); return; }
+  var ai=_stdPickAnlage;
+  addPunktZeile(ai, {
+    key:uid('pk'), punktId:p.id, quelle:p.quelle||'global', individuell:false,
+    bezeichnung:p.bezeichnung, untergruppe:p.untergruppe||'', antworttyp:p.antworttyp||'ja_nein_nb', pflicht:!!p.pflicht,
+    standardbewertung:p.standardbewertung||'schlecht', empfehlungVorlage:p.empfehlung||'',
+    bauteil:!!p.bauteil, bauteilFelder:p.bauteilFelder||null,
+    antwort:null, bewertung:'nicht_bewertet', bemerkung:'', empfehlung:'', fotos:[] });
+  /* Picker offen lassen (mehrere Punkte nacheinander), Zähler nachführen */
+  prStdPickOpen(ai);
+};
 window.prAddPktSave=function(){
   if(!_cur || _addPktAnlage<0) return;
   var bez=($id('apBez').value||'').trim();
@@ -2394,14 +2490,14 @@ function printBericht(b){
   h+='<div class="top"><div class="abs"><strong>'+E(orgName||'GEMA')+'</strong>'+(adr?'<br>'+E(adr):'')+'</div>'
     +'<div class="logo">'+(logo?'<img src="'+E(logo)+'" alt="">':'<span class="wm">GEMA</span>')+'</div></div>';
   h+='<div class="coverbar"></div>';
-  h+='<h1>Prüfbericht — '+E(prArtLabel(b.art,b.artFrei))+'</h1><div class="sub">'+E(b.titel||b.objektName||objName(b.objektId)||'Begehung')+'</div>';
+  h+='<h1>Prüfbericht — '+E(prArtLabel(b.art,b.artFrei))+'</h1><div class="sub">'+E(b.titel||objName(b.objektId)||b.objektName||'Begehung')+'</div>';
   /* Titelbild auf dem Deckblatt (Feedback 25.07.2026) */
   var tbSrc=imgSrc(b.titelbild);
   if(tbSrc) h+='<div class="titelbild"><img src="'+E(tbSrc)+'" alt=""></div>';
   var objTypLbl=prObjekttypenText(b);
   var adrPdf=b.objektAdresse || prFreieAdresse(b.freieAdresse);
   h+='<table class="meta">'
-    +'<tr><td class="l">Objekt / Projekt</td><td>'+E(b.objektName||objName(b.objektId)||'Freies Objekt')+(adrPdf?'<br>'+E(adrPdf):'')+'</td></tr>'
+    +'<tr><td class="l">Objekt / Projekt</td><td>'+E(objName(b.objektId)||b.objektName||'Freies Objekt')+(adrPdf?'<br>'+E(adrPdf):'')+'</td></tr>'
     +(objTypLbl?'<tr><td class="l">Objekttyp</td><td>'+E(objTypLbl)+'</td></tr>':'')
     +(prNutzungenText(b)?'<tr><td class="l">Nutzungen</td><td>'+E(prNutzungenText(b))+'</td></tr>':'')
     +'<tr><td class="l">Begehungs-Nr.</td><td>'+E(b.nr||'—')+'</td></tr>'
@@ -2425,11 +2521,13 @@ function printBericht(b){
         +(a.standort?'<span class="s">Standort: '+E(a.standort)+'</span>':'')+'</th></tr>'
       +'<tr class="colhd"><th style="width:40%">Prüfpunkt</th><th>Antwort</th><th>Zustand</th><th style="width:32%">Bemerkung</th></tr>'
       +'</thead><tbody>';
-    (a.punkte||[]).forEach(function(p){
+    (a.punkte||[]).forEach(function(p,pi){
       var entf=prZustandEntfaellt(p);
       var bwk=entf?'nicht_bewertet':(p.bewertung||'nicht_bewertet');
       /* Zustands-Label folgt der Skala des Antworttyps (Geruch: tief/mittel/hoch) */
       var bwLbl=entf?'entfällt':(bwk==='nicht_bewertet'?'nicht bewertet':prZustandLabel(p.antworttyp,bwk));
+      /* Laufende Nummer bei mehrfach gleichem Prüfpunkt (Feedback 30.07.2026) */
+      var lfdNr=prPunktNr(a,pi);
       var hatFotos=(p.fotos||[]).some(function(f){ return !!imgSrc(f); });
       var bem='';
       if(p.bemerkung) bem+=E(p.bemerkung);
@@ -2441,6 +2539,7 @@ function printBericht(b){
       if(p.typ)        btTeile.push(E(p.typ));
       if(p.baujahr)    btTeile.push('Bj. '+E(p.baujahr));
       if(p.material)   btTeile.push(E(p.material));
+      if(p.wartung)    btTeile.push('Wartung/Ersatz '+E(p.wartung));
       var btZeile = btTeile.length ? '<br><span style="font-size:9pt;color:#333">🔩 '+btTeile.join(' · ')+'</span>' : '';
       /* Prüfart (z.B. Geruchsemission: Nasal / Messgerät) */
       var paLbl='';
@@ -2449,7 +2548,7 @@ function printBericht(b){
          folgt. Auf JEDER Zeile würde es die ganze Tabelle zu einem einzigen
          unteilbaren Block verketten — der Browser bricht dann irgendwo. */
       var fotos=(p.fotos||[]).map(function(f){ return imgSrc(f); }).filter(Boolean);
-      h+='<tr class="pkrow'+(fotos.length?' mitfoto':'')+'"><td>'+(p.pflicht?'* ':'')+E(p.bezeichnung)+(p.untergruppe?'<br><span style="font-size:9pt;color:#555">'+E(p.untergruppe)+'</span>':'')+btZeile+'</td>'
+      h+='<tr class="pkrow'+(fotos.length?' mitfoto':'')+'"><td>'+(p.pflicht?'* ':'')+E(p.bezeichnung)+(lfdNr?' '+lfdNr:'')+(p.untergruppe?'<br><span style="font-size:9pt;color:#555">'+E(p.untergruppe)+'</span>':'')+btZeile+'</td>'
         +'<td>'+E(prAntwortLabel(p.antworttyp,p.antwort)||'—')+(paLbl?'<br><span style="font-size:9pt;color:#555">Prüfung: '+E(paLbl)+'</span>':'')+'</td>'
         +'<td class="bw bw-'+bwk+'">'+E(bwLbl)+'</td>'
         +'<td>'+(bem||'—')+'</td></tr>';
@@ -2543,20 +2642,33 @@ function boot(){
   // pullte nur beim Boot — ein auf dem Handy erfasster Stand erschien auf dem
   // bereits offenen Desktop/iPad erst nach einem Reload. Beim Sichtbarwerden
   // des Tabs (Throttle 45 s) werden die Pools neu gepullt und die Liste neu
-  // gezeichnet — NUR bei geschlossenem Editor (eine offene Bearbeitung wird
-  // nie unter den Händen ersetzt; Last-Write-Wins bleibt).
+  // gezeichnet. Bei OFFENEM Editor (Feedback 30.07.2026 «Änderungen im Bereich
+  // Prüfpunkt müssen in die aktuell offenen Berichte übernommen werden»)
+  // werden die Standardlisten-Pools trotzdem gepullt und die offene Begehung
+  // via syncOffeneBegehung nachgezogen (ergänzt/aktualisiert nur Definitionen,
+  // nie Antworten/Fotos); neu gezeichnet wird NUR ohne fokussiertes
+  // Eingabefeld — eine laufende Eingabe wird nie unter den Händen ersetzt.
   var _lastRepull=0;
   document.addEventListener('visibilitychange',function(){
     if(document.visibilityState!=='visible' || !_bootDone) return;
-    var ed=$id('edOv'); if(ed && ed.classList.contains('open')) return;
     var now=Date.now(); if(now-_lastRepull<45000) return; _lastRepull=now;
     if(typeof GemaSync==='undefined' || !GemaSync.bindCollection) return;
-    Promise.all([
+    var ed=$id('edOv'), edOffen=!!(ed && ed.classList.contains('open'));
+    var pools=[
       GemaSync.bindCollection(MK,STD_POOL,STD_PF,'id'),
       GemaSync.bindCollection(MK,OVR_POOL,OVR_PF,'id'),
-      GemaSync.bindCollection(MK,OBJ_POOL,OBJ_PF,'id'),
-      GemaSync.bindCollection(MK,BEG_POOL,BEG_PF,'id')
-    ]).then(function(){ render(); prFotoUpload(); }).catch(function(){});
+      GemaSync.bindCollection(MK,OBJ_POOL,OBJ_PF,'id')
+    ];
+    if(!edOffen) pools.push(GemaSync.bindCollection(MK,BEG_POOL,BEG_PF,'id'));
+    Promise.all(pools).then(function(){
+      if(edOffen){
+        try{ syncOffeneBegehung(); }catch(e){}
+        var ae=document.activeElement;
+        var tippt=!!(ae && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName||''));
+        if(!tippt) renderEditor();
+      } else { render(); }
+      prFotoUpload();
+    }).catch(function(){});
   });
   window.addEventListener('gema-objekte-loaded',function(){ _objFilterInit(); if(_tab==='begehungen') { fillObjektFilter(); renderBegList(); } });
   if(typeof GemaObjekte!=='undefined' && GemaObjekte.ready){ GemaObjekte.ready.then(function(){ _objFilterInit(); if(_tab==='begehungen'){ fillObjektFilter(); renderBegList(); } }).catch(function(){}); }

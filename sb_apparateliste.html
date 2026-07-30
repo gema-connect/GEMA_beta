@@ -407,6 +407,7 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important}
           <div class="g-section-title">Räume</div>
           <span class="card-hd-badge" id="roomCount">0 Räume</span>
           <button class="nbtn" style="margin-left:auto" onclick="openSettings()" title="Standardwerte">⚙️</button>
+          <button class="nbtn" onclick="openWizardOhneRaum()" title="Apparate direkt wählen, ohne einen Raum zu definieren (Feedback 30.07.2026)">+ Apparate ohne Raum</button>
           <button class="nbtn primary" onclick="openWizardAdd()">+ Raum</button>
         </div>
         <div class="g-section-bd" style="padding:12px">
@@ -572,7 +573,7 @@ function _DKO(){
   }catch(e){}
   return DK;
 }
-const ICONS = {Badezimmer:'🛁',WC:'🚽',Duschraum:'🚿',Küche:'🍽️',Waschküche:'🧺',Umgebung:'🌿',Stockwerk:'🏢'};
+const ICONS = {Badezimmer:'🛁',WC:'🚽',Duschraum:'🚿',Küche:'🍽️',Waschküche:'🧺',Umgebung:'🌿',Stockwerk:'🏢','Ohne Raum':'🧩'};
 const uid = () => crypto?.randomUUID ? crypto.randomUUID() : (Math.random().toString(36).slice(2)+Date.now().toString(36));
 
 const DEF_DEFS = {
@@ -787,6 +788,9 @@ var AP_ZUBEHOER=[
 function apExtraNeu(){ return {id:uid(),grund:'Waschtisch',ausfuehrung:'',material:'',zub:{},spezielles:'',menge:1}; }
 
 function stepsFor(rt){
+  /* «Apparate ohne Raum» (Feedback 30.07.2026): die Apparate-Auswahl ist auch
+     OHNE Raum-Definition möglich — gleiche Schritte, nur ohne den Raum-Schritt. */
+  if(rt==='Ohne Raum') return [{k:'bath',t:'Badewanne',i:'🛁'},{k:'washbasin',t:'Waschtisch',i:'🪞'},{k:'wc',t:'WC',i:'🚽'},{k:'shower',t:'Dusche',i:'🚿'},{k:'bidet',t:'Bidet',i:'🧼'},{k:'extras',t:'Weitere',i:'➕'}];
   if(rt==='Küche')     return [{k:'base',t:'Raum',i:'🏷️'},{k:'kitchen',t:'Küche',i:'🍽️'},{k:'extras',t:'Weitere',i:'➕'}];
   if(rt==='Waschküche')return [{k:'base',t:'Raum',i:'🏷️'},{k:'laundry',t:'Waschküche',i:'🧺'},{k:'extras',t:'Weitere',i:'➕'}];
   if(rt==='Umgebung')  return [{k:'base',t:'Raum',i:'🏷️'},{k:'garden',t:'Umgebung',i:'🌿'},{k:'extras',t:'Weitere',i:'➕'}];
@@ -836,6 +840,19 @@ window.openWizardAdd = () => {
   wizard.open=true;wizard.mode='add';wizard.editId=null;wizard.step=0;wizard.draft=newDraft();
   wizard.steps=stepsFor(wizard.draft.roomType);
   $('wiz_title').textContent='Raum hinzufügen';
+  $('wizardModal').classList.remove('hidden');renderWiz();
+};
+/* Apparate ohne Raum wählen (Feedback 30.07.2026): startet den Wizard direkt
+   bei den Apparaten — alle Apparate-Gruppen sind AUS, man aktiviert nur, was
+   man braucht; der Eintrag erscheint als «Ohne Raum» in Liste + Tabelle. */
+window.openWizardOhneRaum = () => {
+  wizard.open=true;wizard.mode='add';wizard.editId=null;wizard.step=0;
+  const d=newDraft();
+  d.roomType='Ohne Raum'; d.floor=''; d.qty=1;
+  d.hasBathtub=false; d.hasWashbasin=false; d.hasWC=false; d.hasShower=false; d.hasBidet=false;
+  wizard.draft=d;
+  wizard.steps=stepsFor('Ohne Raum');
+  $('wiz_title').textContent='Apparate ohne Raum';
   $('wizardModal').classList.remove('hidden');renderWiz();
 };
 function openWizardEdit(room){

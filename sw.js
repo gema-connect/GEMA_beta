@@ -1,14 +1,15 @@
 /* GEMA Service Worker — Offline Cache + Push Vorbereitung */
-var CACHE_NAME = 'gema-v416';
+var CACHE_NAME = 'gema-v419';
 var CACHE_FILES = [
   '/', '/index.html', '/sb_index.html',
   '/sa_enthaertung.html', '/sa_osmose.html', '/sa_fettabscheider.html',
   '/sa_frischwasserstation.html', '/sa_oelabscheider.html', '/sa_schlammsammler.html',
   '/sa_solaranlage.html', '/sa_abwasserhebeanlage.html',
   '/sb_lu_tabelle.html', '/sb_druckerhoehung.html', '/sb_zirkulation.html', '/sb_druckanstieg.html', '/sb_saugpumpe.html', '/hz_ausdehnungsgefaess.html', '/hz_heizungsleitungen.html', '/hz_waermegruppen.html', '/hz_heizlast.html', '/lt_hx_diagramm.html', '/sb_fluessiggas.html', '/sb_druckverlust_erdgas.html', '/sb_druckverlust_medizinalgas.html', '/sb_druckverlust.html',
-  '/sb_warmwasser.html', '/sb_niederschlag.html', '/sb_vonroll.html',
+  '/sb_warmwasser.html', '/sb_niederschlag.html', '/sb_regenwasserrechner.html', '/sb_vonroll.html',
   '/sb_grobauslegung.html', '/sb_ausstosszeiten.html', '/sb_laengenausdehnung.html',
   '/sb_druckdispositiv.html', '/sb_apparateliste.html', '/sb_du_zusammenstellung.html', '/sb_grundleitungen.html',
+  '/sb_kreisprofil.html',
   '/pm_objekte.html', '/pm_ausschreibungsunterlagen.html', '/pm_ausschreibung.html',
   '/pm_terminplan.html', '/pm_besprechung.html', '/pm_baustelle.html',
   '/pm_abnahme.html', '/pm_kostenkontrolle.html', '/pm_honorar.html',

@@ -52,7 +52,7 @@ mods.forEach(m => {
 });
 ok(fmOk, 'jede Modul-ID (ausser Hubs) in GemaAuth.FILE_MAP');
 // Pflicht-Module: die neuen Bereiche muessen im Katalog sein
-['sb_zirkulation', 'sb_druckanstieg', 'sb_saugpumpe', 'sa_frischwasserstation', 'sb_grundleitungen',
+['sb_zirkulation', 'sb_druckanstieg', 'sb_saugpumpe', 'sa_frischwasserstation', 'sb_grundleitungen', 'sb_regenwasserrechner', 'sb_kreisprofil',
  'sb_fluessiggas', 'sb_druckverlust_erdgas', 'sb_druckverlust_medizinalgas',
  'hz_ausdehnungsgefaess', 'hz_heizungsleitungen', 'hz_waermegruppen', 'hz_heizlast',
  'lt_hx_diagramm', 'br_gasloeschung', 'br_vkf_formulare',

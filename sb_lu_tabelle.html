@@ -483,6 +483,8 @@ body {
 #kpiMain .g-result-row.ex .g-result-val,#kpiMain .g-result-row.ex .g-result-val-raw{min-width:0}
 .maxlu-col{display:flex;justify-content:flex-start}
 .maxlu-col .maxlu-inline{margin-left:0}
+/* Gewählter grösster LU als Wert (Feedback 30.07.2026 — Buttons stehen links beim Label) */
+.glu-val{font-family:var(--mono);font-size:13px;font-weight:800;color:var(--text)}
 @media (max-width:640px){
   .kpi-ex-head,#kpiMain .g-result-row.ex{grid-template-columns:minmax(80px,1fr) 98px 66px 86px;gap:5px}
   #kpiMain .g-result-row.ex .frml{display:none}
@@ -499,7 +501,11 @@ body {
 .redu-track .b100{position:absolute;left:0;top:0;bottom:0;background:#d7deeb;border-radius:5px}
 .redu-track .bred{position:absolute;left:0;top:0;bottom:0;border-radius:5px}
 /* Gestapelter Balken: LU-Anteil (W3) · Spezial · Dauer — Feedback 28.07.2026 */
-.redu-track .bstack{position:absolute;left:0;top:0;bottom:0;display:flex;border-radius:5px;overflow:hidden}
+/* KRITISCH: right:0 — ohne Breite kollabieren die %-Segmente auf 0 (ein
+   absoluter Flex-Container ist shrink-to-fit, die Kinderbreiten in % zeigten
+   auf «auto» → die farbigen Balken waren unsichtbar; Feedback 30.07.2026). */
+.redu-track .bstack{position:absolute;left:0;right:0;top:0;bottom:0;display:flex;border-radius:5px;overflow:hidden;pointer-events:none}
+.redu-track .bstack .bseg{pointer-events:auto}
 .redu-track .bstack .bseg{display:block;height:100%}
 
 /* LU buttons */
@@ -777,7 +783,7 @@ function fixLeadingZero(el){
         <div class="g-card-bd">
           <div class="lu-scroll"><div class="lu-scroll-in">
           <div class="list-head devices">
-            <div>Apparat</div><div>Anz.</div><div>Medium</div><div>KW</div><div>WW</div><div>ND</div><div title="Enthärtetes Wasser — LU zählen im eigenen Leitungsnetz">EW</div><div title="Enthärtetes Wasser für Osmose — LU zählen im eigenen Leitungsnetz">OW</div><div title="Regenwasser — LU zählen im eigenen Leitungsnetz">RW</div><div title="Grauwasser — LU zählen im eigenen Leitungsnetz">GW</div><div>Total</div><div></div>
+            <div>Apparat</div><div>Anz.</div><div>Medium</div><div style="color:#16a34a">KW</div><div style="color:#dc2626">WW</div><div style="color:#2563eb">ND</div><div style="color:#7c3aed" title="Enthärtetes Wasser — LU zählen im eigenen Leitungsnetz">EW</div><div style="color:#0d9488" title="Enthärtetes Wasser für Osmose — LU zählen im eigenen Leitungsnetz">OW</div><div style="color:#0891b2" title="Regenwasser — LU zählen im eigenen Leitungsnetz">RW</div><div style="color:#64748b" title="Grauwasser — LU zählen im eigenen Leitungsnetz">GW</div><div>Total</div><div></div>
           </div>
           <div id="deviceList"></div>
           </div></div>
@@ -922,6 +928,12 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
       {id:'frei', label:'Freie Eingabe', short:'Frei', cls:'medium-frei', color:'var(--text)'}
     ];
     const MEDIA_MAP = new Map(MEDIA.map(m=>[m.id,m]));
+
+    // EINE Medium-Farbpalette für die ganze Seite (Feedback 30.07.2026:
+    // «Farben sollen überall gleich sein, pro Medium verschiedene Farbe») —
+    // Spaltenköpfe, Medium-Selects, Hauptwerte, Aufteilung und Reduktions-
+    // Balken nutzen alle DIESE literalen Hex-Werte (GemaPDF-Regel).
+    const MED_COLORS = { kw:'#16a34a', ww:'#dc2626', nd:'#2563eb', bw:'#7c3aed', ow:'#0d9488', gw:'#0891b2', grau:'#64748b', frei:'#475569' };
 
     // Medien/Leitungsnetze für Standard-Apparate (gemäss Datenfluss-Architektur)
     //
@@ -1464,6 +1476,9 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
           medSel.innerHTML = MEDIA.map(m =>
             '<option value="'+m.id+'"'+(m.id===row.medium?' selected':'')+'>'+(m.id==='frei'?m.label:m.label)+'</option>'
           ).join('');
+          /* Medium-Farbe wie in der Apparate-Tabelle (Feedback 30.07.2026) —
+             der change-Handler rendert die Liste neu, die Farbe folgt damit. */
+          medSel.style.cssText = "font-weight:700;color:" + (MED_COLORS[row.medium||'kw'] || '#0f172a') + ";";
           medSel.addEventListener("change", (e) => {
             state[stateKey][idx].medium = e.target.value;
             if (e.target.value === 'frei') {
@@ -1707,7 +1722,7 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
       // KW
       if (usedMedia.has('kw')) {
         const m = obj.media.kw;
-        itemsMain.push({ title:"Kaltwasser total", hint:"LU-Anteil + Spezial + Dauer (KW)",
+        itemsMain.push({ title:"Kaltwasser total", hint:"LU-Anteil + Spezial + Dauer (KW)", mid:'kw',
           rawVal: fmtFlow(m.luRaw + m.special + m.dauer, 2),
           value: fmtFlow(m.total,2), unit:fu, cls:"kw",
           frml:"Q<sub>KW</sub> = f(LU<sub>KW</sub>) + Q<sub>s</sub>" + (m.dauer>0?' + Q<sub>d</sub>':''),
@@ -1716,7 +1731,7 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
       // WW
       if (usedMedia.has('ww')) {
         const m = obj.media.ww;
-        itemsMain.push({ title:"Warmwasser total", hint:"LU-Anteil + Spezial + Dauer (WW)",
+        itemsMain.push({ title:"Warmwasser total", hint:"LU-Anteil + Spezial + Dauer (WW)", mid:'ww',
           rawVal: fmtFlow(m.luRaw + m.special + m.dauer, 2),
           value: fmtFlow(m.total,2), unit:fu, cls:"ww",
           frml:"Q<sub>WW</sub> = f(LU<sub>WW</sub>) + Q<sub>s</sub>" + (m.dauer>0?' + Q<sub>d</sub>':''),
@@ -1725,7 +1740,7 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
       // ND
       if (usedMedia.has('nd')) {
         const m = obj.media.nd;
-        itemsMain.push({ title:"Netzdruck Volumenstrom", hint:"Diagramm 1 (T=5)",
+        itemsMain.push({ title:"Netzdruck Volumenstrom", hint:"Diagramm 1 (T=5)", mid:'nd',
           rawVal: fmtFlow(m.luRaw + m.special + m.dauer, 2),
           value: fmtFlow(m.total,2), unit:fu, cls:"nd",
           frml:"Q<sub>ND</sub> = f(LU<sub>ND</sub>)",
@@ -1737,7 +1752,7 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
         const m = obj.media[mid];
         if (!m) continue;
         const mInfo = MEDIA_MAP.get(mid) || {short:mid, label:mid};
-        itemsMain.push({ title: mInfo.label + " total", hint: m.lu > 0 ? "LU-Anteil + Spezial + Dauer" : "Spezial + Dauer",
+        itemsMain.push({ title: mInfo.label + " total", hint: m.lu > 0 ? "LU-Anteil + Spezial + Dauer" : "Spezial + Dauer", mid:mid,
           rawVal: fmtFlow(m.luRaw + m.special + m.dauer, 2),
           value: fmtFlow(m.total,2), unit:fu, cls:"",
           frml: (m.lu > 0 ? "Q = f(LU) + Q<sub>s</sub>" : "Q = Q<sub>s</sub>") + (m.dauer>0?' + Q<sub>d</sub>':''),
@@ -1755,7 +1770,6 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
       const itemsSplit = [
         { title:"Total LU (QT)", hint:"Summe Apparate", value: fmt(obj.luTotal,0), unit:"LU", cls:"", frml:"LU<sub>tot</sub> = \u03a3(LU<sub>i</sub> \u00d7 n<sub>i</sub>)" },
       ];
-      const LU_CLS = { kw:'kw', ww:'ww', nd:'nd' };
       for (const mid of ['kw','ww','nd','bw','ow','gw','grau','frei']) {
         if (!usedMedia.has(mid)) continue;
         const m = obj.media[mid];
@@ -1766,7 +1780,7 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
         if (luM <= 0 && m.special <= 0 && m.dauer <= 0) continue;
         const mi = MEDIA_MAP.get(mid) || { label: mid, short: mid };
         itemsSplit.push({ title: mi.label + " \u2013 LU", hint: "Summe LU " + (mi.short || mid),
-          value: fmt(luM, 0), unit: "LU", cls: LU_CLS[mid] || "",
+          value: fmt(luM, 0), unit: "LU", mid: mid,
           frml: luM > 0
             ? "f(" + fmt(luM,0) + " LU) = " + fmtFlow(qLu, 2) + " " + fu
             : "kein LU-Anteil \u2014 nur Spezial/Dauer" });
@@ -1789,12 +1803,14 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
     }
 
     function kpiHtml(it){
-      const valCls = it.cls ? 'g-result-val '+(it.cls==='kw'?'green':it.cls==='ww'?'red':it.cls==='nd'?'blue':'') : 'g-result-val';
+      /* Medium-Farbe überall gleich (Feedback 30.07.2026) — it.mid gewinnt,
+         die alten kw/ww/nd-Klassen bleiben als Fallback für Altaufrufer. */
+      const col = MED_COLORS[it.mid] || MED_COLORS[it.cls] || '';
       const frmlHtml = it.frml ? '<span class="frml" style="display:inline;margin:0;">'+it.frml+'</span>' : '';
       return '<div class="g-result-row">'+
         '<span class="g-result-lbl">'+it.title+'</span>'+
         frmlHtml+
-        '<span class="'+valCls+'">'+escapeHtml(it.value)+(it.unit ? ' '+escapeHtml(it.unit) : '')+'</span>'+
+        '<span class="g-result-val"'+(col?' style="color:'+col+'"':'')+'>'+escapeHtml(it.value)+(it.unit ? ' '+escapeHtml(it.unit) : '')+'</span>'+
       '</div>';
     }
 
@@ -1802,14 +1818,22 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
     // Label (+Formel inline) | Grösster LU (eigene, ausgerichtete Spalte
     // mit Kopf-Beschriftung) | 100 % | Red. W3
     function kpiHtmlEx(it){
-      const valCls = it.cls ? 'g-result-val '+(it.cls==='kw'?'green':it.cls==='ww'?'red':it.cls==='nd'?'blue':'') : 'g-result-val';
+      /* Feedback 30.07.2026: die 3/5/Auto-Buttons stehen LINKS beim Label,
+         die Spalte «Grösster LU» zeigt den GEWÄHLTEN/effektiven Wert (auch
+         bei Auto — Transparenz, welche Kurve wirklich rechnet); Ergebniswert
+         in der Medium-Farbe (überall dieselbe Palette). */
+      const col = MED_COLORS[it.mid] || '';
       const frmlHtml = it.frml ? ' <span class="frml" style="display:inline;margin:0;">'+it.frml+'</span>' : '';
+      const btnHtml = it.maxlu ? ' '+it.maxlu : '';
+      const gluHtml = it.maxlu
+        ? '<span class="glu-val">'+escapeHtml(String(state.maxLU[it.mid] || (it.mid==='nd'?5:3)))+' LU</span>'
+        : '<span class="g-result-val-raw">–</span>';
       const rawHtml = '<span class="g-result-val-raw">'+escapeHtml(it.rawVal)+' '+escapeHtml(it.unit)+'</span>';
       return '<div class="g-result-row ex">'+
-        '<span class="g-result-lbl">'+it.title + frmlHtml + '</span>'+
-        '<span class="maxlu-col">'+(it.maxlu || '')+'</span>'+
+        '<span class="g-result-lbl">'+it.title + frmlHtml + btnHtml + '</span>'+
+        '<span class="maxlu-col">'+gluHtml+'</span>'+
         rawHtml+
-        '<span class="'+valCls+'">'+escapeHtml(it.value)+' '+escapeHtml(it.unit)+'</span>'+
+        '<span class="g-result-val"'+(col?' style="color:'+col+'"':'')+'>'+escapeHtml(it.value)+' '+escapeHtml(it.unit)+'</span>'+
       '</div>';
     }
 
@@ -1818,7 +1842,7 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
     // gegen den nach W3 Diagramm 1 reduzierten Wert (farbiger Balken) —
     // die Reduktion ist als nicht gefüllter Rest direkt erkennbar.
     // NUR literale Hex-Farben (GemaPDF-Regel).
-    const REDU_COLORS = { kw:'#16a34a', ww:'#dc2626', nd:'#2563eb', bw:'#7c3aed', ow:'#0d9488', gw:'#0891b2', grau:'#64748b', frei:'#475569' };
+    const REDU_COLORS = MED_COLORS;   // eine Wahrheit — Balken in denselben Medium-Farben wie Tabelle/Hauptwerte
     function renderReduChart(obj, usedMedia){
       const card = document.getElementById('reduCard');
       const host = document.getElementById('reduChart');
