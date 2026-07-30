@@ -3,6 +3,7 @@
 <head>
 <script src="gema_sync.js"></script>
 <script src="gema_storage.js"></script>
+<script src="gema_fotoqueue.js"></script>
 <script src="gema_auth.js"></script>
 <script src="gema_editlock.js"></script>
 <script src="gema_recent.js"></script>
@@ -1354,7 +1355,12 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
           for(const file of files){
             const dataUrl=await fileToDataURL(file);
             const comp=await compressImage(dataUrl,1280,0.78);
-            if(it) it.photos.push({name:file.name||`foto_${fmtDate()}.jpg`,dataUrl:comp,type:'image/jpeg'});
+            if(it){
+              const ph={name:file.name||`foto_${fmtDate()}.jpg`,type:'image/jpeg'};
+              if(_abQ) ph.pendingId=_abQ.put(comp);   // offline-fest: Bild in die IndexedDB-Queue
+              else ph.dataUrl=comp;
+              it.photos.push(ph);
+            }
           }
         }catch(e){ console.error(e); toast('Foto konnte nicht hinzugefügt werden.'); }
         finally{ cleanup(); resolve(); }
@@ -1943,6 +1949,15 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
   // Storage-Helper akzeptiert nur Bilder, und der Plan wird per pdf.js auf
   // Canvas gerendert.)
   var _abStorageDisabled = false, _abStorageOkOnce = false;
+  /* Offline-Foto-Warteschlange (IndexedDB, Kanon pm_pruefliste — 30.07.2026):
+     neue Mangel-/Pin-/Beweisfotos gehen als {pendingId} bzw. 'idbfoto:<pid>'
+     in den Record, das Bild liegt in der geteilten IndexedDB → Records
+     bleiben auch OFFLINE klein (kein localStorage-Quota-Kollaps mehr).
+     Nachgesendet wird über den EINEN Runner _abQueueUpload() (scannt
+     Protokolle UND Monteur-Mängellisten — nur er räumt Verwaiste ab). */
+  var _abQ = (typeof GemaFotoQueue !== 'undefined' && GemaFotoQueue.verfuegbar()) ? GemaFotoQueue.scope('abnahme') : null;
+  function _abFotoSrc(ph){ return _abQ ? _abQ.src(ph) : ((ph && (ph.url || ph.dataUrl)) || ''); }
+  function _abPinFotoSrc(fs){ return _abQ ? _abQ.srcStr(fs) : (fs || ''); }
   function _abImgSrc(o){ return (o && (o.url || o.dataUrl)) || ''; }
   function _abUrlToDataUrl(url){
     return fetch(url).then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.blob(); })
@@ -2116,7 +2131,9 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
     if(_abSaveInFlight) return;   // nach Abschluss wird pending erneut geprueft
     _abSaveTimer=null; _abSavePending=false; _abSaveInFlight=true;
     _abSetStatus('saving');
-    // Fotos zuerst auslagern (dataUrl → Storage-URL), dann die kleinen Records sichern
+    // Fotos zuerst auslagern (dataUrl → Storage-URL), dann die kleinen Records sichern;
+    // wartende Queue-Fotos (pendingId) sendet der Runner nach (fire-and-forget)
+    try{ _abQueueUpload(); }catch(e){}
     _abUploadFotosToStorage().catch(function(){ return 0; }).then(function(){ return _abSaveDirty(); }).then(function(){
       _abSaveInFlight=false;
       if(_abSavePending){ _doSave(); }
@@ -2604,7 +2621,7 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
       var col=pin.status==='erledigt'?'var(--grn)':pin.status==='in_arbeit'?'var(--amb)':'var(--red)';
       var bg=pin.status==='erledigt'?'var(--grn-bg)':pin.status==='in_arbeit'?'var(--amb-bg)':'var(--red-bg)';
       var statusLabel=pin.status==='erledigt'?'Erledigt':pin.status==='in_arbeit'?'In Arbeit':'Offen';
-      var fotoHtml=(pin.fotos||[]).map(function(f,fi){return '<img src="'+f+'" style="width:48px;height:48px;object-fit:cover;border-radius:6px;border:1px solid var(--brd);cursor:pointer" onclick="event.stopPropagation();_planViewFoto(\''+f.substring(0,50)+'\')" />';}).join('');
+      var fotoHtml=(pin.fotos||[]).map(function(f,fi){return '<img src="'+_abPinFotoSrc(f)+'" style="width:48px;height:48px;object-fit:cover;border-radius:6px;border:1px solid var(--brd);cursor:pointer" onclick="event.stopPropagation();openLightbox(this.src)" />';}).join('');
       return '<div style="display:flex;align-items:flex-start;gap:10px;padding:12px 14px;border-bottom:1px solid var(--brd)">'
         +'<div style="width:28px;height:28px;border-radius:50%;background:'+bg+';color:'+col+';display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:900;flex-shrink:0;border:2px solid '+col+'">'+(i+1)+'</div>'
         +'<div style="flex:1;min-width:0">'
@@ -2644,7 +2661,7 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
     reader.onload=function(e){
       var p=_ensurePlaene()[planIdx];
       if(!p.pins[pinIdx].fotos)p.pins[pinIdx].fotos=[];
-      p.pins[pinIdx].fotos.push(e.target.result);
+      p.pins[pinIdx].fotos.push(_abQ ? ('idbfoto:'+_abQ.put(e.target.result)) : e.target.result);
       persistAll();_planRenderPins(p);
     };
     reader.readAsDataURL(file);
@@ -3069,6 +3086,7 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
             // Ausgelagerte Fotos (nur url) fuer den PDF-Embed zurueck zu
             // DataURL holen — jsPDF braucht Base64.
             let _src = ph.dataUrl || '';
+            if(!_src && ph.pendingId && _abQ) _src = _abQ.get(ph.pendingId) || '';
             if(!_src && ph.url){ try{ _src = await _abUrlToDataUrl(ph.url); }catch(_e){ _src=''; } }
             if(!_src) continue;
             const info=await new Promise(res=>{ const img=new Image(); img.onload=()=>res({w:img.width,h:img.height}); img.onerror=()=>res({w:4,h:3}); img.src=_src; });
@@ -3226,6 +3244,65 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
   var FRG_POOL='gema_abnahme_frg_pool_v1', FRG_PREFIX='abfrg:';
   var ML_POOL='gema_abnahme_ml_pool_v1', ML_PREFIX='abml:';
   var _abMemPools={};
+  /* ── Nachsende-Runner der Offline-Foto-Queue (EINE Wahrheit — 30.07.2026):
+     scannt ALLE Foto-Orte des Scopes (aktives Protokoll, weitere Protokolle,
+     Plan-Pins, Monteur-Mängellisten) und lädt wartende Bilder hoch; nur ER
+     räumt verwaiste Queue-Einträge ab. Trigger: Boot + online + 90-s-Intervall
+     (GemaFotoQueue.auto) sowie fire-and-forget aus _doSave. */
+  function _abQueueUpload(){
+    if(!_abQ) return Promise.resolve(0);
+    var u=_getUser();
+    var orgId=(u&&u.orgId)?String(u.orgId).replace(/[^a-zA-Z0-9_-]/g,''):'org';
+    var mlDirty={}, protoDirty=false;
+    /* ML-Pool EINMAL pro Lauf lesen (abPoolRead liefert pro Aufruf frische
+       Kopien — sonst ueberschreiben sich Setter mehrerer Fotos desselben
+       Records gegenseitig). state/protocols sind stabile Referenzen. */
+    var mlPool=abPoolRead(ML_POOL);
+    return _abQ.upload({
+      pfad:'abnahme/'+orgId,
+      stellen:function(pid){
+        var out=[];
+        function scanState(st){
+          (st&&st.items||[]).forEach(function(it){
+            (it.photos||[]).forEach(function(ph){
+              if(ph&&ph.pendingId===pid) out.push(function(url){ ph.url=url; delete ph.pendingId; protoDirty=true; });
+            });
+          });
+          (st&&st.plaene||[]).forEach(function(pl){
+            (pl.pins||[]).forEach(function(pin){
+              var arr=pin.fotos; if(!Array.isArray(arr)) return;
+              arr.forEach(function(fs,fi){
+                if(fs==='idbfoto:'+pid) out.push(function(url){ arr[fi]=url; protoDirty=true; });
+              });
+            });
+          });
+        }
+        scanState(state);
+        (protocols||[]).forEach(function(pr){ if(pr&&pr.state&&pr.id!==activeProtocolId) scanState(pr.state); });
+        mlPool.forEach(function(ml){
+          (ml.items||[]).forEach(function(it){
+            (it.fixFotos||[]).forEach(function(ff){
+              if(ff&&ff.pendingId===pid) out.push(function(url){ ff.url=url; delete ff.pendingId; delete ff.dataUrl; mlDirty[ml.id]=ml; });
+            });
+          });
+        });
+        return out;
+      },
+      fertig:function(n){
+        Object.keys(mlDirty).forEach(function(id){ try{ abPoolSave(ML_POOL,ML_PREFIX,mlDirty[id]); }catch(e){} });
+        mlDirty={};
+        if(protoDirty){ protoDirty=false; try{ scheduleSave(); }catch(e){} }
+        try{ abRenderTasks(); }catch(e){}
+        /* Fokus-Regel: nie mitten in einer Eingabe neu zeichnen */
+        try{
+          var ae=document.activeElement;
+          if(!(ae && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName))) render();
+        }catch(e){}
+      }
+    });
+  }
+  if(_abQ) _abQ.auto(function(){ _abStorageDisabled=false; _abQueueUpload(); });
+
   function abPoolRead(key){
     try{
       if(typeof GemaSync!=='undefined'&&GemaSync.getCached){var a=GemaSync.getCached(key);if(a&&a.length)return a;}
@@ -3431,9 +3508,10 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
           it.fixFotos=it.fixFotos||[];it.fixFotos.push(obj);
           abPoolSave(ML_POOL,ML_PREFIX,ml);abRenderTasks();toast('📷 Foto-Beweis gespeichert');
         };
+        var fallback=function(){ fin(_abQ ? {pendingId:_abQ.put(comp),name:f.name||''} : {dataUrl:comp,name:f.name||''}); };
         if(typeof GemaStorage!=='undefined'&&GemaStorage.uploadDataUrl){
-          GemaStorage.uploadDataUrl(comp,'abnahme/'+(u?u.orgId:'org')).then(function(r){fin({url:r.url,name:f.name||''});}).catch(function(){fin({dataUrl:comp,name:f.name||''});});
-        } else fin({dataUrl:comp,name:f.name||''});
+          GemaStorage.uploadDataUrl(comp,'abnahme/'+(u?u.orgId:'org')).then(function(r){fin({url:r.url,name:f.name||''});}).catch(fallback);
+        } else fallback();
       }).catch(function(){toast('Foto konnte nicht gelesen werden');});
     };
     inp.click();
@@ -3478,7 +3556,15 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
           var it=(target.items||[]).find(function(x){return x.id===mi.itemId;});
           if(it){
             it.erledigt=(mi.erledigtAm||new Date().toISOString()).slice(0,10).split('-').reverse().join('.')+' / '+(ml.monteurName||'');
-            (mi.fixFotos||[]).forEach(function(ff){it.photos=it.photos||[];it.photos.push({name:ff.name||'beweis.jpg',url:ff.url||'',dataUrl:ff.url?'':(ff.dataUrl||''),type:'image/jpeg'});});
+            (mi.fixFotos||[]).forEach(function(ff){
+              it.photos=it.photos||[];
+              var kopie={name:ff.name||'beweis.jpg',url:ff.url||'',dataUrl:ff.url?'':(ff.dataUrl||''),type:'image/jpeg'};
+              if(!kopie.url && !kopie.dataUrl && ff.pendingId){
+                var du=_abQ?_abQ.get(ff.pendingId):'';
+                if(du) kopie.dataUrl=du; else kopie.pendingId=ff.pendingId;   // fremdes Gerät → Platzhalter bis Upload
+              }
+              it.photos.push(kopie);
+            });
             if(mi.kommentar)it.notizen=[it.notizen,mi.kommentar].filter(Boolean).join(' · ');
           }
         });
@@ -3502,7 +3588,7 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
   };
   function abMlFotoThumbs(fotos,klein){
     return (fotos||[]).map(function(f){
-      var src=(f.url||f.dataUrl||'');if(!src)return '';
+      var src=_abFotoSrc(f);if(!src)return '';
       return '<img src="'+esc(src)+'" style="width:'+(klein?34:46)+'px;height:'+(klein?34:46)+'px;object-fit:cover;border-radius:7px;border:1px solid var(--brd2);cursor:zoom-in" onclick="openLightbox(this.src)"/>';
     }).join('');
   }

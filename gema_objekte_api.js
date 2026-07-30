@@ -315,10 +315,19 @@
       GemaAuth.getGastOrgs(user.id).forEach(function(g) { sichtbareOrgs.push(g.orgId); });
     }
 
-    // Filter nach Org (abgeleitete Zuordnung; herrenlos = sichtbar)
+    // Filter nach Org (abgeleitete Zuordnung). Herrenlos (weder Org-Stempel
+    // noch auflösbarer Ersteller) ist seit 30.07.2026 NICHT mehr für alle
+    // Firmen sichtbar — das war ein Datenleck: Alt-/Testprojekte ohne
+    // Stempel erschienen in JEDER fremden Org. Sichtbar bleiben sie für den
+    // Ersteller selbst und fürs Objekt-Team (Anti-Verlust); GEMA-Admins
+    // sehen sie ohnehin (early return oben) und ordnen sie im Wartungs-Panel
+    // («🧹 Aufräumen» → «🏢 Zuordnen») einer Firma zu.
     var orgFiltered = list.filter(function(o) {
       var eff = effektiveOrgId(o);
-      if (!eff) return true;
+      if (!eff) {
+        if (o.erstelltVon && o.erstelltVon === user.id) return true;
+        return getAssignedUserIds(o).indexOf(user.id) >= 0;
+      }
       return sichtbareOrgs.indexOf(eff) >= 0;
     });
 

@@ -11,7 +11,7 @@
 // role_admin → sahen es auch nicht.
 //
 // Fix: Zuordnung wird abgeleitet (GemaObjekte.effektiveOrgId: orgId → Org des
-// Erstellers, null = herrenlos → sichtbar statt für immer verloren); pm_objekte
+// Erstellers, null = herrenlos → NUR Ersteller/Team, nie fremde Orgs); pm_objekte
 // filtert über _objSichtbar; Neuanlage stempelt die orgId immer; Bearbeiten
 // und das Wartungs-Panel heilen Altbestand. Fremde Orgs bleiben unsichtbar.
 //
@@ -64,7 +64,8 @@ const O_NOORG ={id:'o_noorg',name:'Kollege ohne Stempel',            erstelltVon
 const O_DEF   ={id:'o_def',  name:'Kollege mit org_default', orgId:'org_default', erstelltVon:'u_koll', status:'aktiv'};
 const O_FREMD ={id:'o_fremd',name:'Fremde Firma', orgId:'org_x', erstelltVon:'u_x', status:'aktiv'};
 const O_WAISE ={id:'o_waise',name:'Herrenlos', erstelltVon:'u_geloescht', status:'aktiv'};                     // nichts auflösbar
-const ALLE=[O_OK,O_NOORG,O_DEF,O_FREMD,O_WAISE];
+const O_WAISE_TEAM={id:'o_waise_team',name:'Herrenlos im Team', erstelltVon:'u_geloescht', teamUserIds:['u_me'], status:'aktiv'}; // herrenlos, aber Team-zugewiesen
+const ALLE=[O_OK,O_NOORG,O_DEF,O_FREMD,O_WAISE,O_WAISE_TEAM];
 function seed(){ store.clear(); ALLE.forEach(o=>store.set('objekte|objekt:'+o.id,{data:o,_lm:'2026-07-01T00:00:00Z'})); }
 
 const FUTURE=new Date(Date.now()+30*86400000).toISOString();
@@ -105,7 +106,8 @@ console.log('— 1) Firmen-Admin (kein role_admin) sieht die Objekte der Kolleg:
   ok(vis.indexOf('o_ok')>=0,'sauber gestempeltes Objekt sichtbar');
   ok(vis.indexOf('o_noorg')>=0,'Objekt OHNE orgId sichtbar (Kern des Feedbacks)');
   ok(vis.indexOf('o_def')>=0,'Objekt mit Sammel-Stempel org_default sichtbar (Ersteller entscheidet)');
-  ok(vis.indexOf('o_waise')>=0,'herrenloses Objekt sichtbar statt für immer verloren');
+  ok(vis.indexOf('o_waise')<0,'herrenloses Objekt OHNE Bezug nicht mehr sichtbar (Datenleck-Fix 30.07.2026 — erschien vorher in JEDER Org)');
+  ok(vis.indexOf('o_waise_team')>=0,'herrenloses Objekt MIT Team-Zuweisung bleibt sichtbar (Anti-Verlust)');
   ok(vis.indexOf('o_fremd')<0,'Objekt einer FREMDEN Firma bleibt unsichtbar (kein Leak)');
   ok(await page.evaluate(()=>!GemaAuth.isAdmin()),'Testkonto ist bewusst kein GEMA-Admin');
   const html=await cardHtml(page);
@@ -129,6 +131,8 @@ console.log('— 2) Cross-Modul-API (Dropdowns aller Module) —');
   }));
   ok(r.all.indexOf('o_noorg')>=0&&r.all.indexOf('o_def')>=0,'GemaObjekte.getAll() liefert die Kollegen-Objekte');
   ok(r.all.indexOf('o_fremd')<0,'getAll() blendet die fremde Firma aus');
+  ok(r.all.indexOf('o_waise')<0,'getAll() blendet herrenlose Objekte ohne Bezug aus (Leak-Fix)');
+  ok(r.all.indexOf('o_waise_team')>=0,'getAll() behält herrenlose Objekte mit Team-Zuweisung');
   ok(r.effNo==='org_t','effektiveOrgId: ohne orgId → Org des Erstellers');
   ok(r.effDef==='org_t','effektiveOrgId: org_default → Org des Erstellers');
   ok(r.effOwn==='org_x','effektiveOrgId: echter Stempel gewinnt (wird nie überschrieben)');
@@ -206,6 +210,7 @@ console.log('— 6) Gegenprobe: fremde Firma sieht unsere Objekte nicht —');
   const vis=await visIds(page);
   ok(vis.indexOf('o_fremd')>=0,'Fremd-Firma sieht ihr eigenes Objekt');
   ok(vis.indexOf('o_ok')<0&&vis.indexOf('o_noorg')<0&&vis.indexOf('o_def')<0,'… aber KEINES unserer Objekte (auch nicht die ungestempelten)');
+  ok(vis.indexOf('o_waise')<0&&vis.indexOf('o_waise_team')<0,'… und auch keine HERRENLOSEN Objekte (der gemeldete Leak: «in einer anderen Org sehe ich meine Projekte»)');
   await ctx.close();
 }
 

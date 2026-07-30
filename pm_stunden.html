@@ -208,6 +208,7 @@ table.t{border-collapse:collapse;width:100%;font-size:12.5px}
 <script src="gema_feedback.js"></script><script src="gema_notify.js"></script><script src="gema_notify_ui.js"></script><script src="gema_chat.js"></script>
 <script src="gema_objekte_api.js"></script>
 <script src="gema_storage.js"></script>
+<script src="gema_fotoqueue.js"></script>
 <script src="gema_dialog.js"></script><script src="gema_print_a4.js"></script>
 <link rel="stylesheet" href="gema_responsive.css"/>
 <link rel="stylesheet" href="gema-native.css"/>
@@ -1854,11 +1855,22 @@ function stFotoStatus(t,einsatzId){
   var m=(t&&t.terminFotos)||{};
   return m[einsatzId]||null;
 }
+// ═══ OFFLINE-FOTOQUEUE (geteilte IndexedDB, Kanon pm_pruefliste) ═══
+// Termin-Fotos tragen statt dataUrl nur ein kleines {pendingId} im
+// Tages-Record — das Bild liegt lokal in IndexedDB (Scope 'stunden') und
+// wird nachgesendet, sobald online. Base64 im Record sprengte auf iOS das
+// localStorage-Quota nach wenigen Fotos («Speicher voll»). Rapport-Fotos
+// aus dem Material-Dialog gehen in den Scope 'regierapport' — dieselbe
+// IndexedDB, die auch pm_regierapport nachsendet.
+var _stQ=(typeof GemaFotoQueue!=='undefined'&&GemaFotoQueue.verfuegbar())?GemaFotoQueue.scope('stunden'):null;
+var _stRegieQ=(typeof GemaFotoQueue!=='undefined'&&GemaFotoQueue.verfuegbar())?GemaFotoQueue.scope('regierapport'):null;
+function stTermFotoSrc(s){ return _stQ?_stQ.src(s):((s&&(s.url||s.dataUrl))||''); }
+function stTermFotoOk(s){ return !!(s&&(s.url||s.dataUrl||s.pendingId)); }
 // Termine ohne gültige Foto-Antwort (weder Foto noch «Kein Foto» mit Grund)
 function stFotoFehlt(datum,t){
   return stFotoTermine(datum).filter(function(e){
     var s=stFotoStatus(t,e.id);
-    return !(s&&(s.url||s.dataUrl||(s.keinFoto&&String(s.grund||'').trim())));
+    return !(s&&(s.url||s.dataUrl||s.pendingId||(s.keinFoto&&String(s.grund||'').trim())));
   });
 }
 // Zeiteinträge mit Projekt, deren Material-Frage noch unbeantwortet ist
@@ -2206,9 +2218,9 @@ function stTerminFotoHtml(datum,e,t,editable){
   if(!e.bereichId||ids.indexOf(String(e.bereichId))<0)return '';
   var s=stFotoStatus(t,e.id);
   var h='<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:5px">';
-  if(s&&(s.url||s.dataUrl)){
-    h+='<img src="'+esc(s.url||s.dataUrl)+'" alt="Foto" style="width:44px;height:44px;object-fit:cover;border-radius:8px;border:1.5px solid var(--brd2);cursor:pointer" onclick="stFotoView(this.src)"/>'
-      +'<span style="font-size:11px;font-weight:800;color:var(--grn)">📷 Foto erfasst</span>'
+  if(stTermFotoOk(s)){
+    h+='<img src="'+esc(stTermFotoSrc(s))+'" alt="Foto" style="width:44px;height:44px;object-fit:cover;border-radius:8px;border:1.5px solid var(--brd2);cursor:pointer" onclick="stFotoView(this.src)"/>'
+      +'<span style="font-size:11px;font-weight:800;color:var(--grn)">📷 Foto erfasst'+(_stQ&&_stQ.wartet(s)?' <span title="wartet auf Internet">⏳</span>':'')+'</span>'
       +(editable?'<button class="btn sm" style="width:auto" title="Foto entfernen" onclick="stTerminFotoDel(\''+datum+'\',\''+esc(e.id)+'\')">✕</button>':'');
   } else if(s&&s.keinFoto){
     h+='<span style="font-size:11px;font-weight:800;color:var(--red);background:var(--red-bg);border:1px solid var(--red-bd);border-radius:999px;padding:2px 9px">🚫 Kein Foto: '+esc(s.grund||'')+'</span>'
@@ -2241,19 +2253,34 @@ function stTerminFotoAdd(datum,einsatzId){
       var t=stTagRecOrNew(datum);if(!t)return;
       if(!stTagEditable(t)){toast('Tag ist eingereicht — nicht mehr änderbar');return;}
       t.terminFotos=t.terminFotos||{};
-      t.terminFotos[einsatzId]={dataUrl:dataUrl,ts:new Date().toISOString(),von:u.name||''};
-      poolSave(t);stRender();
-      toast('📷 Foto gespeichert');
-      // best-effort nach GemaStorage auslagern (Base64 bleibt Fallback)
-      if(typeof GemaStorage!=='undefined'&&GemaStorage.uploadDataUrl){
-        GemaStorage.uploadDataUrl(dataUrl,'stunden/'+(u.orgId||'org')).then(function(res){
-          if(!res||!res.url)return;
-          var t2=stTagFor(datum,u.id);
-          if(t2&&t2.terminFotos&&t2.terminFotos[einsatzId]&&t2.terminFotos[einsatzId].dataUrl){
-            t2.terminFotos[einsatzId]={url:res.url,ts:t2.terminFotos[einsatzId].ts,von:t2.terminFotos[einsatzId].von};
-            poolSave(t2);stRender();
-          }
-        }).catch(function(){});
+      // altes wartendes Bild aufräumen (Foto ersetzen)
+      var alt=t.terminFotos[einsatzId];
+      if(alt&&alt.pendingId&&_stQ)_stQ.del(alt.pendingId);
+      var eintrag={ts:new Date().toISOString(),von:u.name||''};
+      if(_stQ){
+        // NIE Base64 in den Record — Bild in die IndexedDB-Warteschlange,
+        // der Runner sendet nach, sobald online (Kanon pm_pruefliste)
+        eintrag.pendingId=_stQ.put(dataUrl);
+        t.terminFotos[einsatzId]=eintrag;
+        poolSave(t);stRender();
+        toast('📷 Foto gespeichert');
+        stQueueUpload();
+      } else {
+        eintrag.dataUrl=dataUrl;
+        t.terminFotos[einsatzId]=eintrag;
+        poolSave(t);stRender();
+        toast('📷 Foto gespeichert');
+        // ohne IndexedDB: best-effort direkt auslagern (Base64 bleibt Fallback)
+        if(typeof GemaStorage!=='undefined'&&GemaStorage.uploadDataUrl){
+          GemaStorage.uploadDataUrl(dataUrl,'stunden/'+(u.orgId||'org')).then(function(res){
+            if(!res||!res.url)return;
+            var t2=stTagFor(datum,u.id);
+            if(t2&&t2.terminFotos&&t2.terminFotos[einsatzId]&&t2.terminFotos[einsatzId].dataUrl){
+              t2.terminFotos[einsatzId]={url:res.url,ts:t2.terminFotos[einsatzId].ts,von:t2.terminFotos[einsatzId].von};
+              poolSave(t2);stRender();
+            }
+          }).catch(function(){});
+        }
       }
     });
   };
@@ -2273,6 +2300,8 @@ function stTerminKeinFoto(datum,einsatzId){
     if(!grund){toast('Ohne Begründung nicht möglich');return;}
     var t=stTagRecOrNew(datum);if(!t)return;
     t.terminFotos=t.terminFotos||{};
+    var alt=t.terminFotos[einsatzId];
+    if(alt&&alt.pendingId&&_stQ)_stQ.del(alt.pendingId);
     t.terminFotos[einsatzId]={keinFoto:true,grund:grund,ts:new Date().toISOString(),von:u.name||''};
     poolSave(t);stRender();
   });
@@ -2281,6 +2310,8 @@ function stTerminFotoDel(datum,einsatzId){
   var u=stUser();if(!u)return;
   var t=stTagFor(datum,u.id);if(!t||!t.terminFotos)return;
   if(!stTagEditable(t)){toast('Tag ist eingereicht — nicht mehr änderbar');return;}
+  var alt=t.terminFotos[einsatzId];
+  if(alt&&alt.pendingId&&_stQ)_stQ.del(alt.pendingId);
   delete t.terminFotos[einsatzId];
   poolSave(t);stRender();
 }
@@ -2292,6 +2323,85 @@ function stFotoView(src){
   bg.onclick=function(){bg.remove();};
   document.body.appendChild(bg);
 }
+// ── Nachsende-Runner Termin-Fotos (Scope 'stunden') ──
+// KRITISCH: den Pool EINMAL pro Lauf lesen — poolRead() liefert pro Aufruf
+// frische Kopien, die Setter mehrerer Fotos desselben Tages müssen auf
+// DENSELBEN Objekten arbeiten; geänderte Tage am Ende einzeln poolSave.
+function stQueueUpload(){
+  if(!_stQ)return;
+  var u=stUser();if(!u)return;
+  var pool=poolRead();
+  var dirty={};
+  _stQ.upload({
+    pfad:function(){return 'stunden/'+(u.orgId||'org');},
+    stellen:function(pid){
+      var out=[];
+      pool.forEach(function(t){
+        if(!t||t.typ||!t.terminFotos)return;
+        Object.keys(t.terminFotos).forEach(function(eid){
+          var s=t.terminFotos[eid];
+          if(s&&s.pendingId===pid&&!s.url){
+            out.push(function(url){
+              t.terminFotos[eid]={url:url,ts:s.ts,von:s.von};
+              dirty[t.id]=t;
+            });
+          }
+        });
+      });
+      return out;
+    },
+    fertig:function(){
+      Object.keys(dirty).forEach(function(id){poolSave(dirty[id]);});
+      dirty={};
+      try{
+        var ae=document.activeElement;
+        if(!(ae&&/^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName)))stRender();
+      }catch(e){}
+    }
+  });
+}
+// ── Nachsende-Runner Rapport-Fotos (Scope 'regierapport') ──
+// Rapporte aus der Stunden-Brücke liegen im Regie-Pool (Cross-Modul-Write).
+// pm_regierapport sendet dieselbe Queue ebenfalls nach — wer zuerst online
+// ist, gewinnt (der andere findet den Eintrag nicht mehr vor).
+function stRegieQueueUpload(){
+  if(!_stRegieQ)return;
+  var u=stUser();if(!u)return;
+  var pool=stRrPool();
+  var dirty={};
+  _stRegieQ.upload({
+    pfad:function(){return 'regierapport/'+(u.orgId||'org');},
+    stellen:function(pid){
+      var out=[];
+      pool.forEach(function(r){
+        (r&&r.fotos||[]).forEach(function(f,i){
+          if(f&&f.pendingId===pid&&!f.url){
+            out.push(function(url){
+              r.fotos[i]={url:url,ts:f.ts};
+              dirty[r.id]=r;
+            });
+          }
+        });
+      });
+      return out;
+    },
+    fertig:function(){
+      Object.keys(dirty).forEach(function(id){
+        var r=dirty[id];
+        try{
+          var pool2=stRrPool().slice();
+          var i=pool2.findIndex(function(x){return x.id===r.id;});
+          if(i>=0)pool2[i]=r;else pool2.push(r);
+          localStorage.setItem('gema_regie_pool_v1',JSON.stringify(pool2));
+        }catch(e){}
+        if(typeof GemaSync!=='undefined'&&GemaSync.saveRecord)GemaSync.saveRecord('regierapport','regie:'+r.id,r).catch(function(){});
+      });
+      dirty={};
+    }
+  });
+}
+if(_stQ)_stQ.auto(function(){stQueueUpload();});
+if(_stRegieQ)_stRegieQ.auto(function(){stRegieQueueUpload();});
 function stEinNeu(datum){
   _einDatum=datum;_einId=null;
   document.getElementById('einTitle').textContent='Arbeitszeit erfassen';
@@ -2613,13 +2723,20 @@ function stRrSave(){
       material.push({id:uid(),bez:String(m.bez).trim(),menge:(isFinite(mge)&&mge>0)?mge:1,einheit:m.einheit||'Stk',ep:''});
     });
   }
-  // Fotos best-effort nach GemaStorage auslagern (Base64 bleibt Fallback)
+  // Fotos: erst GemaStorage-Upload versuchen; scheitert er (offline),
+  // wandert das Bild in die geteilte Regie-Fotoqueue (IndexedDB) und der
+  // Rapport trägt nur ein kleines pendingId — der Runner hier UND
+  // pm_regierapport senden nach, sobald online. NIE Base64 in den Record
+  // (localStorage-Quota, Kanon pm_pruefliste).
   var fotos=_rr.fotos.slice();
   var uploads=fotos.map(function(f,i){
-    if(!f.dataUrl||typeof GemaStorage==='undefined'||!GemaStorage.uploadDataUrl)return Promise.resolve();
+    if(!f.dataUrl)return Promise.resolve();
+    var queue=function(){ if(_stRegieQ)fotos[i]={pendingId:_stRegieQ.put(f.dataUrl),ts:f.ts}; };
+    if(typeof GemaStorage==='undefined'||!GemaStorage.uploadDataUrl){queue();return Promise.resolve();}
     return GemaStorage.uploadDataUrl(f.dataUrl,'regierapport/'+(u.orgId||'org')).then(function(res){
       if(res&&res.url)fotos[i]={url:res.url,ts:f.ts};
-    }).catch(function(){});
+      else queue();
+    }).catch(function(){queue();});
   });
   Promise.all(uploads).then(function(){
     var st=_rr;if(!st){fertig();return;}
@@ -3120,8 +3237,8 @@ function stRenderFreigabe(){
       Object.keys(tf).forEach(function(eid){
         var s=tf[eid];if(!s)return;
         var nm=stTerminName(eid);
-        if(s.url||s.dataUrl){
-          thumbs+='<img src="'+esc(s.url||s.dataUrl)+'" alt="Foto" title="📷 '+esc(nm)+'" style="width:46px;height:46px;object-fit:cover;border-radius:8px;border:1.5px solid var(--brd2);cursor:pointer" onclick="stFotoView(this.src)"/>';
+        if(stTermFotoOk(s)){
+          thumbs+='<img src="'+esc(stTermFotoSrc(s))+'" alt="Foto" title="📷 '+esc(nm)+'" style="width:46px;height:46px;object-fit:cover;border-radius:8px;border:1.5px solid var(--brd2);cursor:pointer" onclick="stFotoView(this.src)"/>';
         } else if(s.keinFoto){
           warn+='<div class="gavnote" style="margin-top:5px;background:var(--red-bg);border-color:var(--red-bd);color:var(--red)"><b>🚫 Kein Foto («'+esc(nm)+'»)</b> — Begründung: '+esc(s.grund||'—')+'</div>';
         }
@@ -4312,7 +4429,7 @@ document.addEventListener('DOMContentLoaded',function(){
     try{
       stFotoTermine(d.iso).forEach(function(e){
         var s=stFotoStatus(d.tag,e.id);
-        var ok=s&&(s.url||s.dataUrl),kein=s&&s.keinFoto;
+        var ok=stTermFotoOk(s),kein=s&&s.keinFoto;
         fotoRows+='<div class="gn-row" data-nat-foto="'+NE(d.iso)+'" data-nat-fein="'+NE(e.id)+'">'
           +'<span class="gn-row-ic" style="--gn-row-bg:var(--gn-c-projekt)">📷</span>'
           +'<span class="gn-row-body"><span class="gn-row-title">'+NE(e.titel||e.auftragNr||'Termin')+'</span><span class="gn-row-sub">Foto-Pflicht'+(stBereichName(e.bereichId)?' · '+NE(stBereichName(e.bereichId)):'')+'</span></span>'
@@ -4437,12 +4554,12 @@ document.addEventListener('DOMContentLoaded',function(){
     var ev=null; try{ ev=stEinsatzById(einsatzId); }catch(e){}
     var editable=!t||stTagEditable(t);
     var html='<div class="gn-label" style="text-transform:none;font-weight:600">'+NE((ev&&(ev.titel||ev.auftragNr))||'Termin')+' · '+NE(tagLbl(datum))+'</div>';
-    if(s&&(s.url||s.dataUrl)) html+='<div style="padding:0 16px 12px"><img src="'+NE(s.url||s.dataUrl)+'" alt="Foto" style="max-width:100%;border-radius:12px"/></div>';
+    if(stTermFotoOk(s)) html+='<div style="padding:0 16px 12px"><img src="'+NE(stTermFotoSrc(s))+'" alt="Foto" style="max-width:100%;border-radius:12px"/></div>';
     if(s&&s.keinFoto) html+='<div style="margin:0 16px 12px;padding:11px 13px;background:#fef2f2;border:1.5px solid #fecaca;border-radius:12px;font-size:13px;color:#b91c1c"><b>🚫 Kein Foto</b> — '+NE(s.grund||'')+'</div>';
     var acts='';
     if(editable){
-      acts+='<button class="gn-select" data-fa="foto"><span class="k">📷 '+(s&&(s.url||s.dataUrl)?'Foto ersetzen':'Foto aufnehmen')+'</span><span class="v">›</span></button>';
-      if(!(s&&(s.url||s.dataUrl)))acts+='<button class="gn-select" data-fa="kein"><span class="k">🚫 Kein Foto (mit Begründung)</span><span class="v">›</span></button>';
+      acts+='<button class="gn-select" data-fa="foto"><span class="k">📷 '+(stTermFotoOk(s)?'Foto ersetzen':'Foto aufnehmen')+'</span><span class="v">›</span></button>';
+      if(!stTermFotoOk(s))acts+='<button class="gn-select" data-fa="kein"><span class="k">🚫 Kein Foto (mit Begründung)</span><span class="v">›</span></button>';
       if(s)acts+='<button class="gn-select" data-fa="del" style="color:var(--gn-danger)"><span class="k" style="color:var(--gn-danger)">✕ Zurücksetzen</span><span class="v">›</span></button>';
     } else {
       acts+='<div class="gn-label" style="text-transform:none;font-weight:500">Tag ist eingereicht — nicht mehr änderbar.</div>';

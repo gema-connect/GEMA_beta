@@ -190,6 +190,7 @@ table.ztbl{border-collapse:collapse;width:100%;font-size:12.5px}
 <script src="gema_objekte_api.js"></script>
 <script src="gema_produktkatalog_api.js"></script>
 <script src="gema_storage.js"></script>
+<script src="gema_fotoqueue.js"></script>
 <script src="gema_dialog.js"></script><script src="gema_print_a4.js"></script>
 <link rel="stylesheet" href="gema_responsive.css"/>
 </head>
@@ -714,7 +715,12 @@ function rrRenderMat(){
 function rrMatAdd(){cur.material.push({id:uid(),bez:'',menge:1,einheit:'Stk',ep:''});rrRenderMat();}
 
 // ── Fotos der Arbeit (additiv: r.fotos = [{url|dataUrl, ts}]) ──
-function _rrImgSrc(f){return (f&&(f.url||f.dataUrl))||'';}
+/* Offline-Foto-Warteschlange (IndexedDB, Kanon pm_pruefliste — 30.07.2026):
+   neue Fotos gehen als {pendingId} in den Rapport, das Bild liegt in der
+   geteilten IndexedDB (Scope 'regierapport' — pm_stunden legt seine
+   Rapport-Fotos in DENSELBEN Scope). Records bleiben auch offline klein. */
+var _rrQ=(typeof GemaFotoQueue!=='undefined'&&GemaFotoQueue.verfuegbar())?GemaFotoQueue.scope('regierapport'):null;
+function _rrImgSrc(f){return _rrQ?_rrQ.src(f):((f&&(f.url||f.dataUrl))||'');}
 function rrRenderFotos(){
   var el=document.getElementById('fotoRows');if(!el||!cur)return;
   var editable=rrCanEditRec(cur);
@@ -724,7 +730,7 @@ function rrRenderFotos(){
   el.innerHTML='<div style="display:flex;gap:8px;flex-wrap:wrap">'+fotos.map(function(f,i){
     return '<div style="position:relative">'
       +'<img src="'+esc(_rrImgSrc(f))+'" alt="Foto" style="width:86px;height:86px;object-fit:cover;border-radius:10px;border:1.5px solid var(--brd);cursor:pointer" onclick="rrFotoView('+i+')"/>'
-      +(editable?'<button class="row-del" style="position:absolute;top:-7px;right:-7px" onclick="cur.fotos.splice('+i+',1);rrRenderFotos()">✕</button>':'')
+      +(editable?'<button class="row-del" style="position:absolute;top:-7px;right:-7px" onclick="rrFotoDel('+i+')">✕</button>':'')
       +'</div>';
   }).join('')+'</div>';
 }
@@ -746,7 +752,7 @@ function rrFotoAdd(){
       if(!dataUrl){toast('Foto konnte nicht gelesen werden');return;}
       if(!cur)return;
       cur.fotos=cur.fotos||[];
-      cur.fotos.push({dataUrl:dataUrl,ts:new Date().toISOString()});
+      cur.fotos.push(_rrQ?{pendingId:_rrQ.put(dataUrl),ts:new Date().toISOString()}:{dataUrl:dataUrl,ts:new Date().toISOString()});
       rrRenderFotos();
       rrFotoUpload(cur.fotos.length-1);
     });
@@ -776,15 +782,57 @@ function rrFotoUpload(i){
   try{
     if(typeof GemaStorage==='undefined'||!GemaStorage.uploadDataUrl)return;
     var u=rrUser();var f=cur&&cur.fotos&&cur.fotos[i];
-    if(!f||!f.dataUrl)return;
-    GemaStorage.uploadDataUrl(f.dataUrl,'regierapport/'+(u&&u.orgId?u.orgId:'org')).then(function(res){
+    if(!f||f.url)return;
+    var src=f.dataUrl||(f.pendingId&&_rrQ?_rrQ.get(f.pendingId):'');
+    if(!src)return;
+    GemaStorage.uploadDataUrl(src,'regierapport/'+(u&&u.orgId?u.orgId:'org')).then(function(res){
       if(res&&res.url&&cur&&cur.fotos&&cur.fotos[i]){
+        if(f.pendingId&&_rrQ)_rrQ.del(f.pendingId);
         cur.fotos[i]={url:res.url,ts:f.ts};
         rrRenderFotos();
       }
     }).catch(function(){});
   }catch(e){}
 }
+function rrFotoDel(i){
+  if(!cur||!cur.fotos)return;
+  var weg=cur.fotos.splice(i,1)[0];
+  if(weg&&weg.pendingId&&_rrQ)_rrQ.del(weg.pendingId);
+  rrRenderFotos();
+}
+/* Nachsende-Runner (Boot + online + 90 s): scannt ALLE Rapporte des Pools
+   (+ den offenen) nach wartenden Fotos — auch die aus der Stundenerfassung
+   erzeugten Rapporte (gleicher Scope 'regierapport'). Nur er räumt
+   verwaiste Queue-Einträge ab. */
+function rrQueueUpload(){
+  if(!_rrQ)return Promise.resolve(0);
+  var u=rrUser();
+  var dirty={};
+  /* Pool EINMAL pro Lauf lesen — rrReadPool() liefert pro Aufruf frische
+     Kopien; pro pid neu gelesen wuerden sich die Setter mehrerer Fotos
+     desselben Rapports gegenseitig ueberschreiben. */
+  var pool=rrReadPool();
+  return _rrQ.upload({
+    pfad:'regierapport/'+(u&&u.orgId?u.orgId:'org'),
+    stellen:function(pid){
+      var out=[];
+      function scan(r){
+        (r&&r.fotos||[]).forEach(function(f,i){
+          if(f&&f.pendingId===pid) out.push(function(url){ r.fotos[i]={url:url,ts:f.ts}; if(r.id)dirty[r.id]=r; });
+        });
+      }
+      pool.forEach(scan);
+      if(cur)scan(cur);
+      return out;
+    },
+    fertig:function(n){
+      Object.keys(dirty).forEach(function(id){ try{ rrSaveRecord(dirty[id]); }catch(e){} });
+      dirty={};
+      try{ rrRenderFotos(); }catch(e){}
+    }
+  });
+}
+if(_rrQ)_rrQ.auto(function(){ rrQueueUpload(); });
 function rrFotoView(i){
   var f=cur&&cur.fotos&&cur.fotos[i];if(!f)return;
   var ov=document.createElement('div');

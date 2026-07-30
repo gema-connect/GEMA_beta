@@ -3,6 +3,7 @@
 <head>
 <script src="gema_sync.js"></script>
 <script src="gema_storage.js"></script>
+<script src="gema_fotoqueue.js"></script>
 <script src="gema_auth.js"></script>
 <script src="gema_editlock.js"></script>
 <script src="gema_recent.js"></script>
@@ -1098,7 +1099,16 @@ function _sdCanMeasure() {
 // ausgelagert; im Record steht dann nur noch eine kleine URL. Best-effort:
 // ist der Bucket nicht eingerichtet, bleibt das Base64 erhalten (Fallback).
 var _sdStorageDisabled = false, _sdStorageOkOnce = false;
-function _sdImgSrc(b){ return (b && (b.url || b.dataUrl)) || ''; }
+/* Offline-Foto-Warteschlange (IndexedDB, Kanon pm_pruefliste — 30.07.2026):
+   Neue Fotos gehen als {pendingId} in den Record (Messpunkt-Strings als
+   'idbfoto:<pid>'), das Bild liegt in der geteilten IndexedDB. Der Record
+   bleibt damit auch OFFLINE klein — kein localStorage-Quota-Kollaps mehr
+   («Speicher voll» nach wenigen Fotos). Ohne IndexedDB (_sdQ null) bleibt
+   der bisherige dataUrl-Weg; Altdaten mit dataUrl bleiben lesbar. */
+var _sdQ = (typeof GemaFotoQueue !== 'undefined' && GemaFotoQueue.verfuegbar()) ? GemaFotoQueue.scope('schaden') : null;
+function _sdImgSrc(b){ return _sdQ ? _sdQ.src(b) : ((b && (b.url || b.dataUrl)) || ''); }
+/* Messpunkt-Foto (String: url, dataUrl-Altdaten oder 'idbfoto:<pid>') */
+function _sdMessFotoSrc(s){ return _sdQ ? _sdQ.srcStr(s) : (s || ''); }
 function _sdCollectFotoObjects(s){
   var out = [];
   function add(arr){ if(Array.isArray(arr)) arr.forEach(function(f){ if(f && typeof f === 'object') out.push(f); }); }
@@ -1139,12 +1149,16 @@ function _sdUploadFotosToStorage(){
   var tasks = [];
   schaeden.forEach(function(s){
     _sdCollectFotoObjects(s).forEach(function(f){
-      if(f && !f.url && typeof f.dataUrl === 'string' && f.dataUrl.indexOf('data:image') === 0) tasks.push({ kind:'obj', f:f });
+      if(!f || f.url) return;
+      if(typeof f.dataUrl === 'string' && f.dataUrl.indexOf('data:image') === 0) tasks.push({ kind:'obj', f:f });
+      else if(_sdQ && f.pendingId && _sdQ.get(f.pendingId)) tasks.push({ kind:'obj', f:f, pid:f.pendingId });
     });
     if(s.trocknung && Array.isArray(s.trocknung.messpunkte)){
       s.trocknung.messpunkte.forEach(function(mp){
         (mp.messungen || []).forEach(function(m){
-          if(m && typeof m.foto === 'string' && m.foto.indexOf('data:image') === 0) tasks.push({ kind:'mess', m:m });
+          if(!m || typeof m.foto !== 'string') return;
+          if(m.foto.indexOf('data:image') === 0) tasks.push({ kind:'mess', m:m });
+          else if(_sdQ && m.foto.indexOf('idbfoto:') === 0 && _sdQ.get(m.foto.slice(8))) tasks.push({ kind:'mess', m:m, pid:m.foto.slice(8) });
         });
       });
     }
@@ -1153,20 +1167,26 @@ function _sdUploadFotosToStorage(){
   return tasks.reduce(function(p, t){
     return p.then(function(){
       if(_sdStorageDisabled) return;
-      var src = t.kind === 'obj' ? t.f.dataUrl : t.m.foto;
+      var src = t.pid ? _sdQ.get(t.pid) : (t.kind === 'obj' ? t.f.dataUrl : t.m.foto);
       if(typeof src !== 'string' || src.indexOf('data:image') !== 0) return;
       return window.GemaStorage.uploadDataUrl(src, 'schaden/' + orgId).then(function(res){
         if(res && res.url){
           _sdStorageOkOnce = true;
-          if(t.kind === 'obj'){ t.f.url = res.url; delete t.f.dataUrl; }
+          if(t.kind === 'obj'){ t.f.url = res.url; delete t.f.dataUrl; delete t.f.pendingId; }
           else { t.m.foto = res.url; }
+          if(t.pid) _sdQ.del(t.pid);   // lokales Original mit entfernen
         }
       }).catch(function(e){
-        if(!_sdStorageOkOnce){ _sdStorageDisabled = true; console.warn('[Schadensbericht] Storage-Upload nicht moeglich — Base64-Fallback:', e && e.message); }
+        if(!_sdStorageOkOnce){ _sdStorageDisabled = true; console.warn('[Schadensbericht] Storage-Upload nicht moeglich — Foto wartet lokal:', e && e.message); }
       });
     });
   }, Promise.resolve());
 }
+/* Netz zurück → Session-Sperre lösen + wartende Fotos hochladen und speichern */
+window.addEventListener('online', function(){
+  _sdStorageDisabled = false;
+  try { sdSave(); } catch(e){}
+});
 
 // ── STORAGE ── Per-Record in Supabase (data_key='schaden:<id>')
 var _sdSyncHintShownAt = 0;
@@ -1223,6 +1243,43 @@ function sdLoad() {
   } catch(e) {
     schaeden = [];
   }
+}
+
+// ── ORG-SICHTBARKEIT (Leak-Fix 30.07.2026) ──
+// bindCollection laedt die GANZE Collection — ohne die (manuell auszurollenden)
+// org-gescopten RLS-v2-Policies kommen damit auch Schadensberichte FREMDER Orgs
+// in den Cache. Die Anzeige filtert deshalb defensiv client-seitig (dieselbe
+// Regel wie GemaObjekte.effektiveOrgId): orgId des Records → sonst Org des
+// Erstellers → sonst nur der Ersteller selbst. GEMA-Admin sieht alles.
+// KRITISCH: NIE das schaeden-Array selbst filtern — _sdPersistSchaeden difft
+// das VOLLE Array gegen den Cache; herausgefilterte fremde Records wuerden als
+// Loeschung interpretiert und aus der Cloud entfernt (if_werkzeug-Falle).
+function _sdEffOrg(s) {
+  if (!s) return null;
+  if (s.orgId) return s.orgId;
+  var cid = s.erstelltVon && s.erstelltVon.userId;
+  if (cid && typeof GemaAuth !== 'undefined' && GemaAuth.getUsers) {
+    try {
+      var us = GemaAuth.getUsers() || [];
+      for (var i = 0; i < us.length; i++) {
+        if (us[i] && us[i].id === cid) return us[i].orgId || null;
+      }
+    } catch(e) {}
+  }
+  return null;
+}
+function _sdSichtbar(s) {
+  try {
+    var u = _sdGetUser();
+    if (!u) return true; // Boot-Race: Auth gated die Seite ohnehin
+    if (typeof GemaAuth !== 'undefined' && GemaAuth.isAdmin && GemaAuth.isAdmin()) return true;
+    var eff = _sdEffOrg(s);
+    if (!eff) return !!(s && s.erstelltVon && s.erstelltVon.userId === u.id);
+    return eff === (u.orgId || '');
+  } catch(e) { return true; }
+}
+function sdVisible() {
+  return (schaeden || []).filter(_sdSichtbar);
 }
 
 // ── OBJEKT HELPERS ──
@@ -1507,9 +1564,10 @@ function sdSyncSearch(el) {
 
 // ── STATS ──
 function sdUpdateStats() {
-  var total = schaeden.length;
+  var vis = sdVisible();
+  var total = vis.length;
   var analyse = 0, trocknung = 0, abschluss = 0;
-  schaeden.forEach(function(s) {
+  vis.forEach(function(s) {
     if (s.phase === 'erfasst' || s.phase === 'analyse') analyse++;
     else if (s.phase === 'trocknung') trocknung++;
     else if (s.phase === 'abschluss') abschluss++;
@@ -1524,7 +1582,7 @@ function sdUpdateStats() {
 function sdRenderList() {
   sdUpdateStats();
   var q = (document.getElementById('searchInp').value || '').toLowerCase().trim();
-  var filtered = schaeden.filter(function(s) {
+  var filtered = sdVisible().filter(function(s) {
     if (currentFilter === 'analyse' && s.phase !== 'erfasst' && s.phase !== 'analyse') return false;
     if (currentFilter === 'trocknung' && s.phase !== 'trocknung') return false;
     if (currentFilter === 'abschluss' && s.phase !== 'abschluss') return false;
@@ -1839,6 +1897,17 @@ function sdDelete(id) {
       });
   weiter.then(function(ok){
     if(!ok) return;
+    /* wartende Offline-Fotos des Berichts aus der IndexedDB-Queue raeumen */
+    if(s && _sdQ){
+      try{
+        _sdCollectFotoObjects(s).forEach(function(f){ if(f && f.pendingId) _sdQ.del(f.pendingId); });
+        if(s.trocknung && Array.isArray(s.trocknung.messpunkte)){
+          s.trocknung.messpunkte.forEach(function(mp){ (mp.messungen||[]).forEach(function(m){
+            if(m && typeof m.foto==='string' && m.foto.indexOf('idbfoto:')===0) _sdQ.del(m.foto.slice(8));
+          }); });
+        }
+      }catch(e){}
+    }
     schaeden = schaeden.filter(function(x) { return x.id !== id; });
     sdSave();
     if (detailId === id) sdCloseDetail();
@@ -1865,6 +1934,11 @@ function sdGetById(id) {
 function sdOpenDetail(id) {
   var s = sdGetById(id);
   if (!s) return;
+  // Org-Guard: Deep-Link (?id=) darf keinen fremden Bericht oeffnen
+  if (!_sdSichtbar(s)) {
+    if (typeof GemaDialog !== 'undefined') GemaDialog.alert({ title: 'Kein Zugriff', message: 'Dieser Schadensbericht gehört zu einer anderen Organisation.' });
+    return;
+  }
   detailId = id;
   // Gleichzeitig-Bearbeiten-Warnung: Lock pro SCHADEN (Datensatz) — die
   // Detailansicht IST die Bearbeitungsflaeche (jede Eingabe speichert).
@@ -2026,7 +2100,26 @@ function sdRenderErfassung(s, canEdit) {
   h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">';
   h += '<div class="sum-card"><div class="sum-row"><span class="lbl">Typ</span><span class="val">' + esc((TYPEN[s.typ] || {}).label || s.typ) + '</span></div></div>';
   h += '<div class="sum-card"><div class="sum-row"><span class="lbl">Datum</span><span class="val">' + sdFmtDate(s.erstelltAm) + '</span></div></div>';
-  h += '<div class="sum-card"><div class="sum-row"><span class="lbl">Objekt</span><span class="val">' + esc(sdObjektName(s.objektId)) + '</span></div></div>';
+  // Objekt-Zuordnung nachträglich änderbar (Feedback 30.07.2026): der Schaden
+  // wandert mitsamt allen Phasen/Fotos zum gewählten Objekt — Anzeige,
+  // Filter und Exporte folgen der objektId automatisch.
+  h += '<div class="sum-card"><div class="sum-row"><span class="lbl">Objekt</span>';
+  if (canEdit) {
+    var _objs = sdGetObjekte();
+    var _curIn = _objs.some(function(o){ return o.id === s.objektId; });
+    h += '<select class="val" id="erf_objekt_' + s.id + '" onchange="sdObjektWechsel(\'' + s.id + '\',this.value)" style="max-width:60%;padding:6px 8px;border:1.5px solid var(--brd2);border-radius:8px;font-size:12.5px;font-family:var(--sans);background:var(--bg2);color:var(--txt)" title="Objekt-Zuordnung ändern — der Schaden wechselt zum gewählten Objekt">';
+    // Bestehender Wert immer darstellbar — auch wenn das Objekt nicht mehr
+    // aktiv ist (⚠-Option, Muster pm_objekte: kein stilles Leeren).
+    if (s.objektId && !_curIn) h += '<option value="' + esc(s.objektId) + '" selected>⚠ ' + esc(sdObjektName(s.objektId)) + '</option>';
+    h += _objs.map(function(o){
+      var nm = (typeof GemaObjekte !== 'undefined' && GemaObjekte.displayName ? GemaObjekte.displayName(o) : '') || o.name || o.bezeichnung || o.id;
+      return '<option value="' + esc(o.id) + '"' + (o.id === s.objektId ? ' selected' : '') + '>' + esc(nm) + '</option>';
+    }).join('');
+    h += '</select>';
+  } else {
+    h += '<span class="val">' + esc(sdObjektName(s.objektId)) + '</span>';
+  }
+  h += '</div></div>';
   h += '<div class="sum-card"><div class="sum-row"><span class="lbl">Erstellt von</span><span class="val">' + esc(s.erstelltVon ? s.erstelltVon.name : '—') + '</span></div></div>';
   h += '</div>';
 
@@ -2495,7 +2588,7 @@ function _sdMpCardHtml(s, mp, editable, canEdit, phase){
         h += '<span class="sd-ref-pill">Referenz</span>';
         h += '<span style="font-weight:800">' + m.wert + ' ' + esc(m.einheit || 'Digits') + '</span>';
         h += '<span style="color:var(--mut)">' + sdFmtDate(m.datum) + '</span>';
-        if(m.foto) h += '<button type="button" onclick="sdOpenLightbox(\'' + esc(m.foto) + '\')" title="Foto-Beleg" style="border:0;padding:0;background:none;cursor:pointer"><img src="' + m.foto + '" alt="" style="width:26px;height:26px;object-fit:cover;border-radius:5px;border:1.5px solid var(--brd2);display:block"></button>';
+        if(m.foto) h += '<button type="button" onclick="sdOpenLightbox(\'' + esc(_sdMessFotoSrc(m.foto)) + '\')" title="Foto-Beleg" style="border:0;padding:0;background:none;cursor:pointer"><img src="' + _sdMessFotoSrc(m.foto) + '" alt="" style="width:26px;height:26px;object-fit:cover;border-radius:5px;border:1.5px solid var(--brd2);display:block"></button>';
         if(canEdit) h += '<button class="btn-del-icon" title="Messung löschen" style="margin-left:auto" onclick="sdDelMessung(\'' + s.id + '\',\'' + mp.id + '\',' + mIdx + ')">✕</button>';
         h += '</div>';
       });
@@ -2526,7 +2619,7 @@ function _sdMpCardHtml(s, mp, editable, canEdit, phase){
           var unit = m.einheit || 'Digits';
           h += '<tr><td>' + sdFmtDate(m.datum) + (m.referenz ? ' <span class="sd-ref-pill">Referenz</span>' : '') + '</td><td style="font-weight:800">' + m.wert + ' ' + esc(unit) + '</td>';
           h += '<td style="width:60px">';
-          if(m.foto) h += '<button type="button" onclick="sdOpenLightbox(\'' + esc(m.foto) + '\')" title="Foto-Beleg ansehen" style="border:0;padding:0;background:none;cursor:pointer"><img src="' + m.foto + '" alt="" style="width:36px;height:36px;object-fit:cover;border-radius:6px;border:1.5px solid var(--brd2);display:block"></button>';
+          if(m.foto) h += '<button type="button" onclick="sdOpenLightbox(\'' + esc(_sdMessFotoSrc(m.foto)) + '\')" title="Foto-Beleg ansehen" style="border:0;padding:0;background:none;cursor:pointer"><img src="' + _sdMessFotoSrc(m.foto) + '" alt="" style="width:36px;height:36px;object-fit:cover;border-radius:6px;border:1.5px solid var(--brd2);display:block"></button>';
           else h += '<span style="font-size:11px;color:var(--mut)">—</span>';
           h += '</td><td style="text-align:right;white-space:nowrap;width:32px;padding-right:0">';
           if(canEdit) h += '<button class="btn-del-icon" title="Messung löschen" onclick="sdDelMessung(\'' + s.id + '\',\'' + mp.id + '\',' + mi + ')">✕</button>';
@@ -3236,7 +3329,8 @@ function sdAddMessung() {
     datum: document.getElementById('messDate').value || sdToday(),
     wert: parseFloat(val),
     einheit: 'Digits',
-    foto: _messPhotoBuf || null
+    /* Foto-Beleg offline-fest: 'idbfoto:<pid>' statt Base64 im Record */
+    foto: _messPhotoBuf ? (_sdQ ? 'idbfoto:' + _sdQ.put(_messPhotoBuf) : _messPhotoBuf) : null
   };
   // Referenz-Flag NUR setzen wenn angehakt (additiv — Berichte ohne das
   // Feld bleiben identisch, alte Leser ignorieren es).
@@ -3257,7 +3351,8 @@ function sdDelMessung(id, mpId, idx) {
     if (s.trocknung.messpunkte[i].id === mpId) { mp = s.trocknung.messpunkte[i]; break; }
   }
   if (!mp) return;
-  mp.messungen.splice(idx, 1);
+  var mWeg = mp.messungen.splice(idx, 1)[0];
+  if (mWeg && _sdQ && typeof mWeg.foto === 'string' && mWeg.foto.indexOf('idbfoto:') === 0) _sdQ.del(mWeg.foto.slice(8));
   sdSave();
   sdRenderDetail(s);
 }
@@ -3602,6 +3697,35 @@ function sdErfRemRaum(schadenId, idx){
   });
 }
 window.sdErfRemRaum = sdErfRemRaum;
+
+// Objekt-Zuordnung eines bestehenden Schadens wechseln (Feedback 30.07.2026).
+// Der Schaden ist danach dem neuen Objekt zugeordnet — Liste, Detail,
+// Exporte und der Objekt-Lösch-Scan folgen der objektId automatisch.
+// Leeren ist nicht erlaubt (die Objekt-Zuordnung ist Pflicht, wie bei der
+// Erfassung) — die Auswahl springt dann auf den gespeicherten Stand zurück.
+function sdObjektWechsel(schadenId, objektId){
+  var s = sdGetById(schadenId); if(!s || !_sdCanEdit()) return;
+  objektId = objektId || '';
+  if(objektId === (s.objektId || '')) return;
+  if(!objektId){
+    GemaDialog.alert({ title:'Objekt erforderlich', message:'Jeder Schaden braucht eine Objekt-Zuordnung — bitte ein Objekt wählen.' });
+    try { sdRenderDetail(s); } catch(e){}
+    return;
+  }
+  var neuName = sdObjektName(objektId);
+  GemaDialog.confirm({
+    title: 'Objekt wechseln',
+    message: 'Diesen Schaden dem Objekt «' + neuName + '» zuordnen? Alle Phasen, Fotos und Messwerte bleiben erhalten und wandern mit.',
+    confirmLabel: 'Zuordnen'
+  }).then(function(ok){
+    if(!ok){ try { sdRenderDetail(s); } catch(e){} return; }
+    s.objektId = objektId;
+    sdSave();
+    try { sdRenderDetail(s); } catch(e){}
+    try { sdRenderList(); } catch(e){}
+  });
+}
+window.sdObjektWechsel = sdObjektWechsel;
 
 // Setzt im Trocknungs-Modul (gema_trocknung_v1) das Geraet auf
 // 'im_einsatz' und verknuepft es mit dem Schaden — analog zu
@@ -3981,12 +4105,15 @@ function sdStorePhoto(schadenId, phase, dataUrl, kommentar, imBericht, raum) {
   var s = sdGetById(schadenId); if (!s) return;
   var photo = {
     id: 'ph_' + Date.now(),
-    dataUrl: dataUrl,
     kommentar: kommentar || '',
     imBericht: imBericht !== false,
     erstelltAm: sdToday(),
     phase: phase
   };
+  /* Offline-fest: Bild in die IndexedDB-Queue, Record trägt nur pendingId —
+     der Save-Upload-Lauf lagert es in den Bucket aus, sobald online. */
+  if (_sdQ) photo.pendingId = _sdQ.put(dataUrl);
+  else photo.dataUrl = dataUrl;
   // Bereichszuordnung nur setzen, wenn vorhanden (additiv — Altfotos ohne
   // Feld bleiben «ohne Bereich»).
   if (raum) photo.raum = raum;
@@ -4008,9 +4135,11 @@ function sdDelPhoto(schadenId, phase, idx) {
   GemaDialog.confirm({title:'Foto löschen', message:'Foto wirklich entfernen?', confirmLabel:'Löschen', danger:true}).then(function(ok){
     if(!ok) return;
     var s = sdGetById(schadenId); if (!s) return;
-    if (phase === 'analyse' && s.zustandsanalyse) s.zustandsanalyse.fotos.splice(idx, 1);
-    else if (phase === 'trocknung' && s.trocknung) s.trocknung.fotos.splice(idx, 1);
-    else if (phase === 'abschluss' && s.abschluss) s.abschluss.fotos.splice(idx, 1);
+    var weg = null;
+    if (phase === 'analyse' && s.zustandsanalyse) weg = s.zustandsanalyse.fotos.splice(idx, 1)[0];
+    else if (phase === 'trocknung' && s.trocknung) weg = s.trocknung.fotos.splice(idx, 1)[0];
+    else if (phase === 'abschluss' && s.abschluss) weg = s.abschluss.fotos.splice(idx, 1)[0];
+    if (weg && weg.pendingId && _sdQ) _sdQ.del(weg.pendingId);   // lokales Original mit entfernen
     sdSave();
     sdRenderDetail(s);
   });
@@ -4392,6 +4521,9 @@ window.sdConfirmPhasePicker = sdConfirmPhasePicker;
 
 function sdExportHtmlPrint(id){
   var s = sdGetById(id); if(!s) return;
+  // Wartende Offline-Fotos (pendingId/idbfoto:) fuer den Export aus der
+  // IndexedDB-Queue materialisieren — der Record selbst bleibt klein.
+  if(_sdQ) s = _sdQ.materialize(s);
   if(typeof window.GemaSchadenPDF === 'undefined' || !window.GemaSchadenPDF.exportPrint){
     GemaDialog.alert({title:'Fehler', message:'PDF-Helper (gema_schaden_pdf.js) nicht geladen.'});
     return;
@@ -4423,6 +4555,7 @@ window.sdExportHtmlPrint = sdExportHtmlPrint;
 // ══════════════════════════════════════
 function sdExportPdf(id){
   var s=sdGetById(id); if(!s) return;
+  if(_sdQ) s=_sdQ.materialize(s);   // wartende Offline-Fotos einbetten
   _sdEnsureJsPDF().then(function(){
     if(!(window.jspdf && window.jspdf.jsPDF)){alert('PDF-Bibliothek nicht verfügbar.');return;}
     return _sdRehydrateFotosForExport(s).then(function(_rehyd){
@@ -5097,6 +5230,7 @@ function _sdGetLogoDims(org){
 // ══════════════════════════════════════
 function sdExportWord(id) {
   var s = sdGetById(id); if (!s) return;
+  if(_sdQ) s = _sdQ.materialize(s);   // wartende Offline-Fotos einbetten
   var content = sdBuildReportHtml(s);
   var html = '<!DOCTYPE html><html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">';
   html += '<head><meta charset="utf-8"><title>Schadensbericht</title>';

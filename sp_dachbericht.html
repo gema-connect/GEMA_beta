@@ -448,6 +448,7 @@ body{margin:0;font-family:'DM Sans',system-ui,sans-serif;background:var(--bg);co
 <script src="gema_mobile_menu.js"></script>
 <script src="gema_claude.js"></script>
 <script src="gema_storage.js"></script>
+<script src="gema_fotoqueue.js"></script>
 <script src="gema_dachbericht_pdf.js"></script>
 
 <script>
@@ -697,8 +698,19 @@ function persist(){
   // (Fallback, wenn Storage nicht konfiguriert/erreichbar ist).
   return _uploadBilderToStorage().then(_ensureDataFitsCloud).then(_persistNow);
 }
-// Liefert die anzeigbare Bildquelle: Storage-URL bevorzugt, sonst Base64.
-function _bildSrc(b){ return (b && (b.url || b.dataUrl)) || ''; }
+/* Netz zurueck → Session-Sperre loesen + wartende Bilder hochladen */
+window.addEventListener('online', function(){
+  _spStorageDisabled = false;
+  try { persist(); } catch(e){}
+});
+// Offline-Foto-Warteschlange (IndexedDB, Kanon pm_pruefliste — 30.07.2026):
+// neue Bilder gehen als {pendingId} in den Record, das Base64 liegt in der
+// geteilten IndexedDB (gema_fotoqueue.js) → der Record bleibt auch OFFLINE
+// klein, kein localStorage-Quota-Kollaps mehr. Ohne IndexedDB (_spQ null)
+// bleibt der bisherige dataUrl-Weg; Altdaten mit dataUrl bleiben lesbar.
+var _spQ = (typeof GemaFotoQueue !== 'undefined' && GemaFotoQueue.verfuegbar()) ? GemaFotoQueue.scope('dach') : null;
+// Liefert die anzeigbare Bildquelle: Storage-URL bevorzugt, sonst Queue/Base64.
+function _bildSrc(b){ return _spQ ? _spQ.src(b) : ((b && (b.url || b.dataUrl)) || ''); }
 // Laedt alle noch als Base64 vorliegenden Bilder in den Storage-Bucket und
 // ersetzt dataUrl durch url. Bei Erfolg wird der riesige Base64-String aus
 // dem Record entfernt → Record bleibt klein. Schlaegt der Upload fehl
@@ -713,10 +725,18 @@ function _uploadBilderToStorage(){
   }
   var u = _getUser();
   var orgId = (u && u.orgId) ? String(u.orgId).replace(/[^a-zA-Z0-9_-]/g,'') : 'org';
-  // Alle Base64-Bilder ueber alle Berichte einsammeln
+  // Alle Base64-Bilder (Altdaten) UND wartende Queue-Bilder einsammeln
   var pending = [];
   _data.forEach(function(r){
     _collectBilder(r).forEach(function(b){ pending.push(b); });
+    if(_spQ){
+      (function walkPend(rec){
+        function add(arr){ if(Array.isArray(arr)) arr.forEach(function(b){ if(b && !b.url && b.pendingId && _spQ.get(b.pendingId)) pending.push(b); }); }
+        if(rec && rec.dachuebersicht) add(rec.dachuebersicht.bilder);
+        (rec && rec.kapitel||[]).forEach(function(k){ add(k.bilder); (k.unterkapitel||[]).forEach(function(uk){ add(uk.bilder); }); });
+        if(rec && rec.nachbaranschluesse) add(rec.nachbaranschluesse.bilder);
+      })(r);
+    }
   });
   if(!pending.length) return Promise.resolve();
   // Sequentiell hochladen (schont Verbindung; meist nur 1 neues Bild)
@@ -724,10 +744,16 @@ function _uploadBilderToStorage(){
     return p.then(function(){
       if(_spStorageDisabled) return;
       // Nochmal pruefen: evtl. zwischenzeitlich migriert
-      if(!b || b.url || typeof b.dataUrl !== 'string' || b.dataUrl.indexOf('data:image') !== 0) return;
-      return window.GemaStorage.uploadDataUrl(b.dataUrl, 'dach/' + orgId)
+      if(!b || b.url) return;
+      var src = (typeof b.dataUrl === 'string' && b.dataUrl.indexOf('data:image') === 0) ? b.dataUrl
+              : (b.pendingId && _spQ ? _spQ.get(b.pendingId) : '');
+      if(typeof src !== 'string' || src.indexOf('data:image') !== 0) return;
+      return window.GemaStorage.uploadDataUrl(src, 'dach/' + orgId)
         .then(function(res){
-          if(res && res.url){ b.url = res.url; delete b.dataUrl; _spStorageOkOnce = true; }
+          if(res && res.url){
+            if(b.pendingId && _spQ) _spQ.del(b.pendingId);
+            b.url = res.url; delete b.dataUrl; delete b.pendingId; _spStorageOkOnce = true;
+          }
         })
         .catch(function(e){
           // Wenn noch nie ein Upload geklappt hat, ist der Bucket vermutlich
@@ -1945,7 +1971,11 @@ function _pushBilder(rid, scope, kid, ukid, items){
   var supportsHauptbild = (scope === 'uebersicht' || scope === 'kapitel' || scope === 'nachbar');
   items.forEach(function(it){
     var hasMain = arr.some(function(b){ return b.hauptbild; });
-    arr.push({ dataUrl: it.dataUrl, kommentar: it.kommentar || '', imBericht: true, hauptbild: supportsHauptbild && !hasMain });
+    var bild = { kommentar: it.kommentar || '', imBericht: true, hauptbild: supportsHauptbild && !hasMain };
+    /* Offline-fest: Bild in die IndexedDB-Queue, Record traegt nur pendingId */
+    if(_spQ) bild.pendingId = _spQ.put(it.dataUrl);
+    else bild.dataUrl = it.dataUrl;
+    arr.push(bild);
   });
   upsert(r); renderDetail(r);
 }
@@ -2028,7 +2058,8 @@ function delGridImage(rid, scope, kid, ukid, idx){
     if(!ok) return;
     var r = getById(rid); if(!r) return;
     var arr = _resolveBilderArray(r, scope, kid, ukid); if(!arr) return;
-    arr.splice(idx, 1);
+    var weg = arr.splice(idx, 1)[0];
+    if(weg && weg.pendingId && _spQ) _spQ.del(weg.pendingId);   // lokales Original mit entfernen
     upsert(r); renderDetail(r);
   });
 }
@@ -2200,6 +2231,7 @@ function exportPdf(id){
       objektAdresse = parts.join(', ');
     }
   }
+  if(_spQ) r = _spQ.materialize(r);   // wartende Offline-Bilder einbetten
   window.GemaDachberichtPDF.exportPrint(r, {
     org: org, user: user,
     objektName: objName, objektAdresse: objektAdresse,
@@ -2226,6 +2258,17 @@ function delReport(id){
     : GemaDialog.confirm({title:'Bericht löschen', message:'Bericht inkl. aller Bilder unwiderruflich löschen?', danger:true, confirmLabel:'Löschen'});
   weiter.then(function(ok){
     if(!ok) return;
+    /* wartende Offline-Bilder des Berichts aus der IndexedDB-Queue raeumen */
+    if(r && _spQ){
+      try{
+        (function walk(o){
+          if(!o || typeof o !== 'object') return;
+          if(Array.isArray(o)){ o.forEach(walk); return; }
+          if(o.pendingId && !o.url) _spQ.del(o.pendingId);
+          Object.keys(o).forEach(function(k){ walk(o[k]); });
+        })(r);
+      }catch(e){}
+    }
     removeById(id);
     closeDetail();
     // Dateien best-effort hinterher (Record ist bereits weg)
