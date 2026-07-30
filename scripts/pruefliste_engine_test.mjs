@@ -84,14 +84,49 @@ eq('gesamt gut', E.prBegehungBewertung([{ antwort: 'x', bewertung: 'gut' }]).ges
 eq('gesamt nicht_bewertet (nur offen)', E.prBegehungBewertung([{ antwort: null }]).gesamt, 'nicht_bewertet');
 eq('leere Liste total 0', E.prBegehungBewertung([]).total, 0);
 // nicht_vorhanden zählt NIE als schlecht — auch Altdaten mit gespeicherter
-// Bewertung «schlecht» werden in der Aggregation zu nicht_bewertet normalisiert
+// Bewertung «schlecht» werden in der Aggregation neutralisiert; seit dem
+// Prüfbericht-Feedback 30.07.2026 zählen sie als eigene Kategorie «entfaellt»
 const zNv = E.prBegehungBewertung([
   { antwort: 'nicht_vorhanden', antworttyp: 'vorhanden_nb', bewertung: 'schlecht' },
   { antwort: 'vorhanden', antworttyp: 'vorhanden_nb', bewertung: 'gut' }
 ]);
-eq('nicht_vorhanden (Altdaten schlecht) → nicht_bewertet', zNv.schlecht, 0);
-eq('nicht_vorhanden zählt als nicht_bewertet', zNv.nicht_bewertet, 1);
+eq('nicht_vorhanden (Altdaten schlecht) → nicht schlecht', zNv.schlecht, 0);
+eq('nicht_vorhanden zählt als entfaellt', zNv.entfaellt, 1);
 eq('gesamt bleibt gut trotz nicht_vorhanden', zNv.gesamt, 'gut');
+
+console.log('— KPI-Zahlen gehen IMMER auf (Prüfbericht-Feedback 30.07.2026) —');
+// Bericht 1 (BEG-2026-011): 7 Punkte — Anzeige zeigte nur 4 («die Zahlen stimmen nicht»)
+const zB1 = E.prBegehungBewertung([
+  { antwort: 'keine', antworttyp: 'geruch' },                                   // beantwortet, Zustand offen
+  { antwort: 'vorhanden', antworttyp: 'vorhanden_nb', bewertung: 'gut' },       // Fettabscheider
+  { antwort: null, antworttyp: 'zahl' },                                        // Hausanschluss offen
+  { antwort: 'nicht_vorhanden', antworttyp: 'vorhanden_nb' },                   // Hebeanlage → entfällt
+  { antwort: 'nb', antworttyp: 'vorhanden_nb' },                                // Rückstauklappe → entfällt
+  { antwort: 'vorhanden', antworttyp: 'vorhanden_nb', bewertung: 'gut' },       // Schlammsammler
+  { antwort: null, antworttyp: 'auffaellig' }                                   // Grundleitung offen
+]);
+eq('B1: gut 2', zB1.gut, 2);
+eq('B1: entfällt 2', zB1.entfaellt, 2);
+eq('B1: offen 2', zB1.offen, 2);
+eq('B1: nicht bewertet 1 (beantwortet ohne Zustand)', zB1.nicht_bewertet, 1);
+t('B1: Invariante gut+mässig+schlecht+entfällt+nicht_bewertet+offen = total',
+  zB1.gut + zB1.maessig + zB1.schlecht + zB1.entfaellt + zB1.nicht_bewertet + zB1.offen === zB1.total);
+// Bericht 2 (BEG-2026-012): Zustand OHNE Antwort (Hausanschluss «schlecht» bei
+// leerer Antwort) wurde früher als «offen» verschluckt — der Zustand zählt.
+const zB2 = E.prBegehungBewertung([{ antwort: null, antworttyp: 'zahl', bewertung: 'schlecht' }]);
+eq('B2: Zustand ohne Antwort zählt beim Zustand', zB2.schlecht, 1);
+eq('B2: … und nicht als offen', zB2.offen, 0);
+eq('B2: gesamt schlecht', zB2.gesamt, 'schlecht');
+
+console.log('— «nicht beurteilbar» bei auffaellig + zahl/text (30.07.2026) —');
+t('auffaellig hat 3 Optionen (nb ergänzt)', E.PR_ANTWORTTYPEN.auffaellig.optionen.length === 3);
+eq('auffaellig nb → nicht_bewertet', E.prAutoBewertung('auffaellig', 'nb'), 'nicht_bewertet');
+t('auffaellig nb → Zustand entfällt', E.prZustandEntfaellt({ antworttyp: 'auffaellig', antwort: 'nb' }));
+t('auffaellig-Bestand unangetastet (keine/vorhanden zuerst)',
+  E.PR_ANTWORTTYPEN.auffaellig.optionen[0].v === 'keine' && E.PR_ANTWORTTYPEN.auffaellig.optionen[1].v === 'vorhanden');
+eq('zahl nb → Label «nicht beurteilbar»', E.prAntwortLabel('zahl', 'nb'), 'nicht beurteilbar');
+eq('text nb → Label «nicht beurteilbar»', E.prAntwortLabel('text', 'nb'), 'nicht beurteilbar');
+t('zahl nb → Zustand entfällt', E.prZustandEntfaellt({ antworttyp: 'zahl', antwort: 'nb' }));
 
 console.log('— Normalisierung + Ähnlichkeit (Duplikat, item 6) —');
 eq('Umlaute → ae/oe/ue', E.prNorm('Prüfung Öl Ärger'), 'pruefung oel aerger');

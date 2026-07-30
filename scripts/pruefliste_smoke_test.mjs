@@ -130,10 +130,33 @@ try {
   });
   ok('Zahl-Punkt vorhanden (Warmwassertemperatur)', zi.pi >= 0);
   /* Seit Feedback 29.07.2026 ist der Zustand ÜBERALL eine Chip-Auswahl:
-     3 Inline-Chips neben der Eingabe + 3 im 📝-Panel (statt Dropdown). */
+     3 Inline-Chips neben der Eingabe + 3 im 📝-Panel (statt Dropdown);
+     seit 30.07.2026 zusätzlich der Chip «nicht beurteilbar» inline. */
   const chips = await page.$$eval('#pkt_' + zi.ai + '_' + zi.pi + ' .ans .ans-btn', els => els.length);
-  ok('Zustand-Chips beim Zahl-Punkt (inline + Panel, kein Dropdown)', chips === 6);
+  ok('Zustand-Chips beim Zahl-Punkt (inline + nb + Panel, kein Dropdown)', chips === 7);
   ok('kein Zustand-Dropdown mehr im Panel', !(await page.$('#more_' + zi.ai + '_' + zi.pi + ' select')));
+  /* «nicht beurteilbar» bei Zahl-Punkten (Prüfbericht-Feedback 30.07.2026):
+     Toggle → Zustand entfällt, Eingabefeld gesperrt; erneuter Klick löst. */
+  await page.evaluate(z => window.prSetAntwortNb(z.ai, z.pi), zi);
+  const nbAn = await page.evaluate(z => {
+    const p = window._prHooks.cached(window._prHooks.POOLS.BEG)[0].anlagen[z.ai].punkte[z.pi];
+    const inp = document.querySelector('#pkt_' + z.ai + '_' + z.pi + ' .ans input');
+    const chip = document.querySelector('#pkt_' + z.ai + '_' + z.pi + ' .pkt-sub .bw-chip');
+    return { antwort: p.antwort, feldZu: !!(inp && inp.disabled), chip: chip ? chip.textContent : '' };
+  }, zi);
+  ok('nb-Chip setzt antwort=nb', nbAn.antwort === 'nb');
+  ok('Zahlenfeld ist bei nb gesperrt', nbAn.feldZu);
+  ok('Kopf-Chip zeigt «entfällt»', /entfällt/.test(nbAn.chip));
+  await page.evaluate(z => window.prSetAntwortNb(z.ai, z.pi), zi);
+  const nbAus = await page.evaluate(z => {
+    const p = window._prHooks.cached(window._prHooks.POOLS.BEG)[0].anlagen[z.ai].punkte[z.pi];
+    const inp = document.querySelector('#pkt_' + z.ai + '_' + z.pi + ' .ans input');
+    return { antwort: p.antwort, feldAuf: !!(inp && !inp.disabled) };
+  }, zi);
+  ok('erneuter Klick löst nb wieder', nbAus.antwort === null && nbAus.feldAuf);
+  /* Zustand-KPI: 5 Kacheln inkl. «entfällt» (Feedback 30.07.2026) */
+  const kpi = await page.$$eval('.bwkpi .b span', els => els.map(e => e.textContent));
+  ok('Zustand-Karte hat 5 Kacheln inkl. «entfällt»', kpi.length === 5 && kpi.indexOf('entfällt') >= 0);
   await page.evaluate(z => { window.prTogglePkt(z.ai, z.pi); window.prSetBewertung(z.ai, z.pi, 'schlecht'); }, zi);
   const zp = await page.evaluate(z => window._prHooks.cached(window._prHooks.POOLS.BEG)[0].anlagen[z.ai].punkte[z.pi], zi);
   ok('Bewertung schlecht + Empfehlung vorbefüllt', zp.bewertung === 'schlecht' && !!zp.empfehlung);
