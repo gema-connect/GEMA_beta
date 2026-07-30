@@ -165,9 +165,12 @@ async function run() {
     await page.evaluate(() => window.prSetBewertung(0, 0, 'maessig'));
     ok(await page.evaluate(() => window.prCurrent().anlagen[0].punkte[0].bewertung) === 'maessig',
        'manuell gewählter Zustand wird übernommen');
-    // Auswahl-Reihenfolge im Select: «nicht bewertet» zuerst
-    const optFirst = await page.locator('.pkt-more select').first().locator('option').first().getAttribute('value');
-    ok(optFirst === 'nicht_bewertet', '«nicht bewertet» steht als erste Option');
+    // Seit Feedback 29.07.2026 ist der Zustand eine Chip-Auswahl (kein
+    // Dropdown mehr); «nicht bewertet» = kein Chip aktiv, erreichbar über
+    // erneuten Klick auf den aktiven Chip.
+    ok(await page.locator('.pkt-more select').count() === 0, 'kein Zustand-Dropdown mehr (Chips)');
+    ok(await page.evaluate(() => { window.prSetBewertung(0, 0, 'nicht_bewertet'); return window.prCurrent().anlagen[0].punkte[0].bewertung; }) === 'nicht_bewertet',
+       'Chips: zurück auf «nicht bewertet»');
 
     // (6) Foto: Kamera + Mediathek
     await page.evaluate(() => window.prTogglePkt(0, 0));

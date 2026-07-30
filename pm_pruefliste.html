@@ -205,6 +205,15 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important}
 .pkt-more.open{display:block}
 .pkt-more label{display:block;font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;color:var(--mut);margin:8px 0 4px}
 .pkt-more select,.pkt-more textarea{width:100%;padding:9px 10px;border:1.5px solid var(--brd2);border-radius:9px;font-size:13.5px;background:var(--sur);outline:none}
+/* Empfehlungs-Vorlagen als wählbare Chips (Feedback 29.07.2026) */
+.empf-chips{display:flex;flex-wrap:wrap;gap:6px;margin:2px 0 6px}
+.empf-chip{padding:7px 11px;border-radius:9px;border:1.5px solid var(--brd2);background:var(--sur);font-size:12.5px;font-weight:600;color:var(--txt2);cursor:pointer;text-align:left;line-height:1.35;max-width:100%}
+.empf-chip.on{border-color:var(--grn);background:#f0fdf4;color:#15803d}
+/* Bauteil-Felder einzeln wählbar (Feedback 29.07.2026, Prüfpunkt-Editoren) */
+.btsel{display:flex;flex-wrap:wrap;gap:8px}
+.btchk{display:flex;align-items:center;gap:7px;padding:8px 12px;border:1.5px solid var(--brd2);border-radius:9px;background:var(--sur);font-size:13px;font-weight:600;color:var(--txt2);cursor:pointer}
+.btchk input{width:17px;height:17px;accent-color:var(--acc);margin:0}
+.btchk:has(input:checked){border-color:var(--acc);background:#ecfeff}
 .pkt-more textarea{min-height:54px;resize:vertical;line-height:1.4}
 .fotos{display:flex;gap:7px;flex-wrap:wrap;margin-top:6px}
 .foto{position:relative;width:64px;height:64px;border-radius:9px;overflow:hidden;border:1.5px solid var(--brd);background:#000}
@@ -391,8 +400,12 @@ var PR_ANTWORTTYPEN = {
     { v:'sichtbar',       l:'sichtbar',       bewertung:'gut' },
     { v:'nicht_sichtbar', l:'nicht sichtbar', bewertung:'nicht_bewertet' },
     { v:'ka',             l:'k.A.',           bewertung:'nicht_bewertet' } ] },
+  /* skala:'intensitaet' — der Zustand heisst hier tief/mittel/hoch statt
+     gut/mässig/schlecht (Feedback 29.07.2026: ein Geruch ist nicht «gut»,
+     seine Intensität ist tief/mittel/hoch). Intern bleiben die Werte
+     gut/maessig/schlecht — Aggregation, Ampel und Altdaten unverändert. */
   geruch: { label:'Geruchsemission: feststellbar / keine Auffälligkeiten', kurz:'Geruch', kind:'select',
-    pruefart:true, optionen:[
+    pruefart:true, skala:'intensitaet', optionen:[
     { v:'keine',         l:'keine Auffälligkeiten', bewertung:'gut' },
     { v:'feststellbar',  l:'feststellbar',          bewertung:'schlecht' },
     { v:'nb',            l:'nicht beurteilbar',     bewertung:'nicht_bewertet' } ] },
@@ -461,6 +474,96 @@ var PR_BEWERTUNGEN = {
 /* Zustands-Auswahl im Editor: «nicht bewertet» steht ZUERST — der Zustand wird
    nie automatisch gesetzt (Feedback 25.07.2026), das Feld startet also leer. */
 var PR_BEWERTUNG_REIHE = ['nicht_bewertet','gut','maessig','schlecht'];
+
+/* Zustands-Skalen (Feedback 29.07.2026): die WERTE bleiben überall
+   gut/maessig/schlecht — nur die BESCHRIFTUNG folgt dem Antworttyp
+   (skala:'intensitaet' → tief/mittel/hoch, z.B. Geruchsemission). */
+var PR_ZUSTAND_SKALEN = {
+  standard:    { gut:'gut',  maessig:'mässig', schlecht:'schlecht', nicht_bewertet:'nicht bewertet' },
+  intensitaet: { gut:'tief', maessig:'mittel', schlecht:'hoch',     nicht_bewertet:'nicht bewertet' }
+};
+function prZustandSkala(antworttyp){
+  var t=PR_ANTWORTTYPEN[antworttyp];
+  return (t && t.skala && PR_ZUSTAND_SKALEN[t.skala]) || null;
+}
+/** Anzeige-Label eines Zustands, antworttyp-abhängig (null-sicher). */
+function prZustandLabel(antworttyp, bw){
+  var sk=prZustandSkala(antworttyp);
+  if(sk && sk[bw]) return sk[bw];
+  return (PR_BEWERTUNGEN[bw]||PR_BEWERTUNGEN.nicht_bewertet).label;
+}
+
+/* Bauteil-Felder EINZELN wählbar (Feedback 29.07.2026): `bauteilFelder` =
+   {hersteller:true,…} am Punkt; Legacy `bauteil:true` ohne das Objekt = alle
+   vier (Bestandsschutz). Resolver liefert die aktiven Feld-IDs in fixer
+   Reihenfolge. */
+var PR_BAUTEIL_FELDER = [
+  { id:'hersteller', label:'Hersteller' },
+  { id:'typ',        label:'Typ' },
+  { id:'baujahr',    label:'Baujahr' },
+  { id:'material',   label:'Material' }
+];
+function prBauteilFelder(def){
+  def=def||{};
+  var f=def.bauteilFelder;
+  if(f && typeof f==='object'){
+    return PR_BAUTEIL_FELDER.map(function(x){return x.id;}).filter(function(id){ return !!f[id]; });
+  }
+  if(def.bauteil) return PR_BAUTEIL_FELDER.map(function(x){return x.id;});
+  return [];
+}
+
+/* Empfehlungs-Vorlagen: EINE pro Zeile — in der Begehung einzeln wählbar
+   (Feedback 29.07.2026). Gleiche Split-Regel wie die Bericht-Auflistung. */
+function prEmpfItems(e){
+  return String(e||'').split(/\n+/).map(function(s){ return s.replace(/^[-•*]\s*/,'').trim(); }).filter(Boolean);
+}
+
+/* Vorlagen-Änderungen in OFFENE Berichte nachziehen (Feedback 29.07.2026).
+   anlage.punkte wird gegen die aktuelle effektive Standardliste gemergt:
+   – neue aktive Punkte werden ANGEHÄNGT (unbeantwortet),
+   – bestehende (Match über punktId) bekommen die Definitions-Felder
+     nachgezogen (Bezeichnung, Untergruppe, Pflicht, Empfehlungs-Vorlage,
+     Bauteil-Flags; Antworttyp NUR solange unbeantwortet),
+   – Nutzer-Daten (Antwort, Zustand, Bemerkung, eigene Empfehlung, Fotos)
+     bleiben IMMER unangetastet; individuelle Punkte (quelle 'begehung')
+     ebenso; entfernte/deaktivierte Punkte werden NIE gelöscht.
+   Abgeschlossene Begehungen bleiben Snapshot — der Aufrufer ruft die
+   Funktion nur für offene. Rückgabe {neu, aktualisiert}. */
+function prSyncPunkte(anlage, effektiv){
+  var res={neu:0, aktualisiert:0};
+  if(!anlage) return res;
+  anlage.punkte=anlage.punkte||[];
+  var byId={};
+  anlage.punkte.forEach(function(r){ if(r && r.punktId) byId[r.punktId]=r; });
+  (effektiv||[]).forEach(function(p){
+    var row=byId[p.id];
+    if(!row){
+      anlage.punkte.push({ key:'pk_sync_'+p.id, punktId:p.id, quelle:p.quelle||'global', individuell:false,
+        bezeichnung:p.bezeichnung, untergruppe:p.untergruppe||'', antworttyp:p.antworttyp||'ja_nein_nb', pflicht:!!p.pflicht,
+        standardbewertung:p.standardbewertung||'schlecht', empfehlungVorlage:p.empfehlung||'',
+        bauteil:!!p.bauteil, bauteilFelder:p.bauteilFelder||null,
+        antwort:null, bewertung:'nicht_bewertet', bemerkung:'', empfehlung:'', fotos:[] });
+      res.neu++;
+      return;
+    }
+    if(row.individuell) return;                       // in der Begehung angepasst → nie überschreiben
+    var vorher=JSON.stringify([row.bezeichnung,row.untergruppe,row.pflicht,row.standardbewertung,row.empfehlungVorlage,row.bauteil,row.bauteilFelder,row.antworttyp]);
+    row.bezeichnung=p.bezeichnung;
+    row.untergruppe=p.untergruppe||'';
+    row.pflicht=!!p.pflicht;
+    row.standardbewertung=p.standardbewertung||'schlecht';
+    row.empfehlungVorlage=p.empfehlung||'';
+    row.bauteil=!!p.bauteil;
+    row.bauteilFelder=p.bauteilFelder||null;
+    var unbeantwortet = (row.antwort===undefined||row.antwort===null||row.antwort==='')
+      && (row.bewertung==null||row.bewertung==='nicht_bewertet');
+    if(unbeantwortet) row.antworttyp=p.antworttyp||'ja_nein_nb';
+    var nachher=JSON.stringify([row.bezeichnung,row.untergruppe,row.pflicht,row.standardbewertung,row.empfehlungVorlage,row.bauteil,row.bauteilFelder,row.antworttyp]);
+    if(vorher!==nachher) res.aktualisiert++;
+  });
+  return res;
+}
 
 /* Objekttyp der Begehung (Feedback 25.07.2026) — gilt für Stammdaten- UND
    freie Objekte; «sonstiges» blendet ein Freitextfeld ein. */
@@ -660,7 +763,10 @@ var _prEngine = { PR_ANTWORTTYPEN:PR_ANTWORTTYPEN, PR_ANTWORTTYP_DEFAULT:PR_ANTW
   prFreieAdresse:prFreieAdresse,
   PR_PRUEFARTEN:PR_PRUEFARTEN, PR_HERSTELLER:PR_HERSTELLER, PR_MATERIALIEN:PR_MATERIALIEN,
   PR_NUTZUNGEN:PR_NUTZUNGEN, prNutzungLabel:prNutzungLabel, prNutzungenText:prNutzungenText,
-  PR_ARTEN:PR_ARTEN, prArtLabel:prArtLabel, PR_ZUSTAND_ENTFAELLT:PR_ZUSTAND_ENTFAELLT };
+  PR_ARTEN:PR_ARTEN, prArtLabel:prArtLabel, PR_ZUSTAND_ENTFAELLT:PR_ZUSTAND_ENTFAELLT,
+  PR_ZUSTAND_SKALEN:PR_ZUSTAND_SKALEN, prZustandSkala:prZustandSkala, prZustandLabel:prZustandLabel,
+  PR_BAUTEIL_FELDER:PR_BAUTEIL_FELDER, prBauteilFelder:prBauteilFelder,
+  prEmpfItems:prEmpfItems, prSyncPunkte:prSyncPunkte };
 if(typeof window!=='undefined') window._prEngine = _prEngine;
 if(typeof module!=='undefined' && module.exports) module.exports = _prEngine;
 /*ENGINE-END*/
@@ -946,7 +1052,27 @@ window.prNeu=function(){
   openEditor();
 };
 window.prOpen=function(id){ var b=begById(id); if(!b){ toast('Nicht gefunden'); return; } _cur=JSON.parse(JSON.stringify(b)); openEditor(); };
+/* Vorlagen-Änderungen in OFFENE Berichte nachziehen (Feedback 29.07.2026):
+   beim Öffnen einer offenen Begehung wird jede Anlage gegen die aktuelle
+   effektive Standardliste gemergt — neue Punkte kommen dazu, geänderte
+   Definitionen (Bezeichnung, Empfehlungs-Vorlage, Bauteil-Felder …) werden
+   nachgezogen; Antworten/Fotos/eigene Empfehlungen bleiben unangetastet.
+   Abgeschlossene Begehungen bleiben Snapshot. */
+function syncOffeneBegehung(){
+  if(!_cur || _cur.status==='abgeschlossen') return;
+  var neu=0, akt=0;
+  (_cur.anlagen||[]).forEach(function(a){
+    var r=prSyncPunkte(a, effektivePunkte(a.anlagenart, _cur.objektId));
+    neu+=r.neu; akt+=r.aktualisiert;
+  });
+  if(neu||akt){
+    saveBeg(_cur);
+    var teile=[]; if(neu) teile.push(neu+' Punkt'+(neu>1?'e':'')+' ergänzt'); if(akt) teile.push(akt+' aktualisiert');
+    toast('Standardliste: '+teile.join(' · '));
+  }
+}
 function openEditor(){
+  try{ syncOffeneBegehung(); }catch(e){}
   // Gleichzeitig-Bearbeiten-Warnung: Lock pro BEGEHUNG (Datensatz) — nur
   // solange sie offen ist; eine abgeschlossene Begehung wird nicht mehr
   // bearbeitet. prCloseEditor loest den Lock wieder.
@@ -1080,12 +1206,13 @@ function renderEditor(){
   $id('edFt').innerHTML=ft;
 }
 function bwChip(bw){ var b=PR_BEWERTUNGEN[bw]||PR_BEWERTUNGEN.nicht_bewertet; return '<span class="bw-chip bw-'+bw+'">'+esc(b.label)+'</span>'; }
-/* Zahl/Text haben keine Antwort→Zustands-Zuordnung — Zustand direkt als
-   1-Klick-Chips neben der Eingabe (erneuter Klick = zurück auf nicht bewertet). */
-function bwInlineBtns(ai,pi,bw,abg){
+/* Zustand als 1-Klick-Chips (erneuter Klick = zurück auf nicht bewertet) —
+   seit Feedback 29.07.2026 ÜBERALL statt des Dropdowns; Beschriftung folgt
+   der Skala des Antworttyps (Geruch: tief/mittel/hoch). */
+function bwInlineBtns(ai,pi,bw,dis,antworttyp){
   return ['gut','maessig','schlecht'].map(function(k){
     var on=(bw===k);
-    return '<button class="ans-btn'+(on?' on on-'+k:'')+'" '+(abg?'disabled':'')+' title="Zustand" onclick="prSetBewertung('+ai+','+pi+',\''+(on?'nicht_bewertet':k)+'\')">'+esc(PR_BEWERTUNGEN[k].label)+'</button>';
+    return '<button class="ans-btn'+(on?' on on-'+k:'')+'" '+(dis?'disabled':'')+' title="Zustand" onclick="prSetBewertung('+ai+','+pi+',\''+(on?'nicht_bewertet':k)+'\')">'+esc(prZustandLabel(antworttyp,k))+'</button>';
   }).join('');
 }
 
@@ -1110,7 +1237,7 @@ function renderPunkt(a, ai, p, pi, abg){
   var t=PR_ANTWORTTYPEN[p.antworttyp]||PR_ANTWORTTYPEN[PR_ANTWORTTYP_DEFAULT];
   var entf=prZustandEntfaellt(p);   // nicht vorhanden → Zustand entfällt (grau, gesperrt)
   var bw=entf?'nicht_bewertet':(p.bewertung||'nicht_bewertet');
-  var bwLbl=entf?'entfällt':((PR_BEWERTUNGEN[bw]||{}).label||'—');
+  var bwLbl=entf?'entfällt':(bw==='nicht_bewertet'?'nicht bewertet':prZustandLabel(p.antworttyp,bw));
   var qClass='q-'+(p.quelle||'global');
   var qLbl={global:'Standard',org:'Firma',objekt:'Objekt',begehung:'individuell'}[p.quelle||'global'];
   var fotoN=(p.fotos||[]).length;
@@ -1133,10 +1260,10 @@ function renderPunkt(a, ai, p, pi, abg){
     });
   } else if(t.kind==='zahl'){
     h+='<input class="numin" type="text" inputmode="decimal" '+(abg?'disabled':'')+' placeholder="0.0" value="'+esc(p.antwort==null?'':p.antwort)+'" onblur="fixLeadingZero(this)" onchange="prSetAntwortRaw('+ai+','+pi+',this.value)">';
-    h+=bwInlineBtns(ai,pi,bw,abg);
+    h+=bwInlineBtns(ai,pi,bw,abg,p.antworttyp);
   } else {
     h+='<input class="txtin" type="text" '+(abg?'disabled':'')+' placeholder="Eingabe…" value="'+esc(p.antwort==null?'':p.antwort)+'" onchange="prSetAntwortRaw('+ai+','+pi+',this.value)">';
-    h+=bwInlineBtns(ai,pi,bw,abg);
+    h+=bwInlineBtns(ai,pi,bw,abg,p.antworttyp);
   }
   /* Prüfart (nur bei Antworttypen mit pruefart:true, z.B. Geruchsemission) */
   if(t.pruefart){
@@ -1153,31 +1280,43 @@ function renderPunkt(a, ai, p, pi, abg){
   /* Mehr (Zustand/Bemerkung/Empfehlung/Foto) */
   var openCls = p._open?'open':'';
   h+='<div class="pkt-more '+openCls+'" id="more_'+ai+'_'+pi+'">';
-  /* Bauteil-Angaben (Feedback 28.07.2026) — nur bei Punkten mit bauteil:true */
-  if(p.bauteil){
+  /* Bauteil-Angaben — Felder EINZELN pro Punkt wählbar (Feedback 29.07.2026);
+     Legacy bauteil:true ohne bauteilFelder = alle vier. */
+  var btf=prBauteilFelder(p);
+  if(btf.length){
+    var btInp={
+      hersteller:'<div class="fld"><label>Hersteller</label><input type="text" list="prHerstellerList" '+(abg?'disabled':'')+' placeholder="z.B. Kessel" value="'+esc(p.hersteller||'')+'" onchange="prPktField('+ai+','+pi+',\'hersteller\',this.value)"></div>',
+      typ:'<div class="fld"><label>Typ</label><input type="text" '+(abg?'disabled':'')+' placeholder="Typenbezeichnung" value="'+esc(p.typ||'')+'" onchange="prPktField('+ai+','+pi+',\'typ\',this.value)"></div>',
+      /* Baujahr frei beschreibbar — Jahre als Vorschlag, Freitext für «ca. 1985» */
+      baujahr:'<div class="fld"><label>Baujahr</label><input type="text" list="prJahrList" '+(abg?'disabled':'')+' placeholder="z.B. 1998 oder «ca. 1985»" value="'+esc(p.baujahr||'')+'" onchange="prPktField('+ai+','+pi+',\'baujahr\',this.value)"></div>',
+      material:'<div class="fld"><label>Material</label><input type="text" list="prMaterialList" '+(abg?'disabled':'')+' placeholder="z.B. Gusseisen" value="'+esc(p.material||'')+'" onchange="prPktField('+ai+','+pi+',\'material\',this.value)"></div>'
+    };
     h+='<div class="bauteil"><div class="bt-hd">🔩 Bauteil</div>';
-    h+='<div class="fld-row"><div class="fld"><label>Hersteller</label>'
-      +'<input type="text" list="prHerstellerList" '+(abg?'disabled':'')+' placeholder="z.B. Kessel" value="'+esc(p.hersteller||'')+'" onchange="prPktField('+ai+','+pi+',\'hersteller\',this.value)"></div>'
-      +'<div class="fld"><label>Typ</label>'
-      +'<input type="text" '+(abg?'disabled':'')+' placeholder="Typenbezeichnung" value="'+esc(p.typ||'')+'" onchange="prPktField('+ai+','+pi+',\'typ\',this.value)"></div></div>';
-    /* Baujahr frei beschreibbar (Feedback 28.07.2026) — Jahre als Vorschlag,
-       Freitext für Angaben wie «ca. 1985» oder «unbekannt» */
-    h+='<div class="fld-row"><div class="fld"><label>Baujahr</label>'
-      +'<input type="text" list="prJahrList" '+(abg?'disabled':'')+' placeholder="z.B. 1998 oder «ca. 1985»" value="'+esc(p.baujahr||'')+'" onchange="prPktField('+ai+','+pi+',\'baujahr\',this.value)"></div>'
-      +'<div class="fld"><label>Material</label>'
-      +'<input type="text" list="prMaterialList" '+(abg?'disabled':'')+' placeholder="z.B. Gusseisen" value="'+esc(p.material||'')+'" onchange="prPktField('+ai+','+pi+',\'material\',this.value)"></div></div>';
+    for(var bi=0;bi<btf.length;bi+=2){
+      h+='<div class="fld-row">'+btInp[btf[bi]]+(btf[bi+1]?btInp[btf[bi+1]]:'')+'</div>';
+    }
     h+='</div>';
   }
-  h+='<label>Zustand</label><select '+((abg||entf)?'disabled':'')+' onchange="prSetBewertung('+ai+','+pi+',this.value)">'
-    + PR_BEWERTUNG_REIHE.map(function(k){
-        var lbl = (k==='nicht_bewertet') ? '— nicht bewertet —' : PR_BEWERTUNGEN[k].label;
-        return '<option value="'+k+'" '+(bw===k?'selected':'')+'>'+esc(lbl)+'</option>';
-      }).join('') +'</select>';
+  /* Zustand als Auswahl-Chips statt Dropdown (Feedback 29.07.2026) —
+     Beschriftung folgt der Skala des Antworttyps (Geruch: tief/mittel/hoch). */
+  h+='<label>Zustand</label><div class="ans" style="margin:2px 0 4px">'+bwInlineBtns(ai,pi,bw,abg||entf,p.antworttyp)+'</div>';
   if(entf) h+='<div style="font-size:11px;color:var(--mut);margin-top:3px">'
     +esc(prAntwortLabel(p.antworttyp,p.antwort)||'Nicht beurteilbar')
     +' — der Zustand entfällt und ist nicht bearbeitbar.</div>';
   h+='<label>Bemerkung</label><textarea '+(abg?'disabled':'')+' placeholder="Beobachtung / Bemerkung…" onchange="prPktField('+ai+','+pi+',\'bemerkung\',this.value)">'+esc(p.bemerkung||'')+'</textarea>';
-  h+='<label>Empfehlung</label><textarea '+(abg?'disabled':'')+' placeholder="Empfohlene Massnahme…" onchange="prPktField('+ai+','+pi+',\'empfehlung\',this.value)">'+esc(p.empfehlung||'')+'</textarea>';
+  h+='<label>Empfehlung</label>';
+  /* Empfehlungs-Vorlagen des Punkts (eine pro Zeile) als wählbare Chips —
+     Klick übernimmt/entfernt die Zeile im Empfehlungs-Feld (Feedback
+     29.07.2026 «mehrere einzelne Empfehlungen, beim Bearbeiten wählbar»). */
+  var empfV=prEmpfItems(p.empfehlungVorlage);
+  if(empfV.length && !abg){
+    var empfAkt=prEmpfItems(p.empfehlung);
+    h+='<div class="empf-chips">'+empfV.map(function(txt,vi){
+      var on=empfAkt.indexOf(txt)>=0;
+      return '<button type="button" class="empf-chip'+(on?' on':'')+'" title="'+(on?'Empfehlung entfernen':'Empfehlung übernehmen')+'" onclick="prEmpfToggle('+ai+','+pi+','+vi+')">'+(on?'✓ ':'＋ ')+esc(txt)+'</button>';
+    }).join('')+'</div>';
+  }
+  h+='<textarea '+(abg?'disabled':'')+' placeholder="Empfohlene Massnahme…" onchange="prPktField('+ai+','+pi+',\'empfehlung\',this.value)">'+esc(p.empfehlung||'')+'</textarea>';
   h+='<label>Fotos</label><div class="fotos" id="fotos_'+ai+'_'+pi+'">'+ (p.fotos||[]).map(function(f,fi){
       var src=imgSrc(f);
       return '<div class="foto'+(fotoWartet(f)?' wartet':'')+'">'
@@ -1307,6 +1446,7 @@ window.prAddAnlage=function(art){
     return { key:uid('pk'), punktId:p.id, quelle:p.quelle||'global', individuell:false,
       bezeichnung:p.bezeichnung, untergruppe:p.untergruppe||'', antworttyp:p.antworttyp||'ja_nein_nb', pflicht:!!p.pflicht,
       standardbewertung:p.standardbewertung||'schlecht', empfehlungVorlage:p.empfehlung||'',
+      bauteil:!!p.bauteil, bauteilFelder:p.bauteilFelder||null,
       antwort:null, bewertung:'nicht_bewertet', bemerkung:'', empfehlung:'', fotos:[] };
   });
   _cur.anlagen.push({ id:uid('anl'), anlagenart:art, name:'', standort:'', notiz:'', punkte:punkte });
@@ -1339,6 +1479,17 @@ window.prSetAntwortRaw=function(ai,pi,v){
 };
 window.prSetBewertung=function(ai,pi,v){ if(!_cur)return; var p=_cur.anlagen[ai].punkte[pi]; if(prZustandEntfaellt(p))return; p.bewertung=v; if(prIstNegativ(v) && !p.empfehlung && p.empfehlungVorlage) p.empfehlung=p.empfehlungVorlage; saveBeg(_cur); refreshPunkt(ai,pi); };
 window.prPktField=function(ai,pi,f,v){ if(!_cur)return; _cur.anlagen[ai].punkte[pi][f]=v; touch(); };
+/* Empfehlungs-Vorlage (Zeile vi) ins Empfehlungs-Feld übernehmen bzw. wieder
+   entfernen — mehrere Vorlagen kombinierbar, Freitext bleibt erhalten. */
+window.prEmpfToggle=function(ai,pi,vi){
+  if(!_cur)return; var p=_cur.anlagen[ai].punkte[pi];
+  var txt=prEmpfItems(p.empfehlungVorlage)[vi]; if(!txt) return;
+  var akt=prEmpfItems(p.empfehlung);
+  var ix=akt.indexOf(txt);
+  if(ix>=0) akt.splice(ix,1); else akt.push(txt);
+  p.empfehlung=akt.join('\n');
+  saveBeg(_cur); refreshPunkt(ai,pi);
+};
 window.prDelPunkt=function(ai,pi){ if(!_cur)return; _cur.anlagen[ai].punkte.splice(pi,1); saveBeg(_cur); renderEditor(); };
 function refreshPunkt(ai,pi){
   var p=_cur.anlagen[ai].punkte[pi]; p._open=true;
@@ -1384,7 +1535,12 @@ function prPickFiles(quelle, multiple, cb){
 }
 window.prAddFoto=function(ai,pi,quelle){
   _photoTarget={ai:ai,pi:pi};
-  prPickFiles(quelle||'kamera', quelle==='galerie', function(files){
+  /* multiple auf BEIDEN Wegen (Feedback 29.07.2026 «mehrere Fotos auf
+     einmal»): die Mediathek (🖼) zeigt die Mehrfachauswahl, und auch der
+     📷-Weg erlaubt sie überall dort, wo statt der Kamera ein Dateidialog
+     erscheint (Desktop/iPad mit Dateiwahl); die echte Kamera bleibt
+     naturgemäss Einzelbild — capture ignoriert multiple. */
+  prPickFiles(quelle||'kamera', true, function(files){
     /* seriell, damit die Reihenfolge der Auswahl erhalten bleibt */
     (function next(i){
       if(i>=files.length) return;
@@ -1560,8 +1716,8 @@ window.prAddPktOpen=function(ai){
   h+='<div class="fld-row"><div class="fld"><label>Anlagenart</label><select id="apArt">'+arts.map(function(x){ return '<option value="'+esc(x.id)+'" '+(x.id===a.anlagenart?'selected':'')+'>'+esc(x.label)+'</option>'; }).join('')+'</select></div>'
     +'<div class="fld"><label>Untergruppe / Bauteil</label><input type="text" id="apUnter" placeholder="optional"></div></div>';
   h+='<div class="fld"><label>Antworttyp</label><select id="apTyp">'+Object.keys(PR_ANTWORTTYPEN).map(function(k){ return '<option value="'+k+'" '+(k===PR_ANTWORTTYP_DEFAULT?'selected':'')+'>'+esc(PR_ANTWORTTYPEN[k].label)+'</option>'; }).join('')+'</select></div>';
-  h+='<div class="fld"><label>Bauteil-Angaben</label><select id="apBauteil"><option value="0" selected>Nein</option><option value="1" >Ja — Hersteller / Typ / Baujahr / Material erfassen</option></select></div>';
-  h+='<div class="fld"><label>Empfehlung (Vorlage, optional)</label><textarea id="apEmpf" placeholder="z.B. Leitungsführung durch eine Fachperson prüfen."></textarea></div>';
+  h+=bauteilCheckboxHtml('apBt_', null);
+  h+='<div class="fld"><label>Empfehlung (Vorlage, optional) <span style="font-weight:600;color:var(--mut)">— eine pro Zeile, einzeln wählbar</span></label><textarea id="apEmpf" placeholder="z.B. Leitungsführung durch eine Fachperson prüfen."></textarea></div>';
   h+='<div class="fld"><label>Bemerkung (optional, zu dieser Begehung)</label><textarea id="apBem" placeholder="Beobachtung vor Ort…"></textarea></div>';
   h+='<div class="fld"><label>Verwendung</label><div class="radio-list" id="apScope">'
     +'<label class="on"><input type="radio" name="apScope" value="begehung" checked onchange="prAddScopeChg()"><div><b>Nur für diese Begehung</b><div style="font-size:11.5px;color:var(--mut);font-weight:600">Einmalig, nicht gespeichert.</div></div></label>';
@@ -1626,6 +1782,7 @@ window.prAddUseExisting=function(pid){
     key:uid('pk'), punktId:p.id, quelle:quelle, individuell:false,
     bezeichnung:p.bezeichnung, untergruppe:p.untergruppe||'', antworttyp:p.antworttyp||'ja_nein_nb', pflicht:!!p.pflicht,
     standardbewertung:p.standardbewertung||'schlecht', empfehlungVorlage:p.empfehlung||'',
+    bauteil:!!p.bauteil, bauteilFelder:p.bauteilFelder||null,
     antwort:null, bewertung:'nicht_bewertet', bemerkung:'', empfehlung:'', fotos:[] });
   prAddPktClose();
 };
@@ -1641,14 +1798,14 @@ window.prAddPktSave=function(){
   if(!bez){ toast('Bezeichnung fehlt'); $id('apBez').focus(); return; }
   var art=$id('apArt').value, unter=($id('apUnter').value||'').trim(), typ=$id('apTyp').value, empf=($id('apEmpf').value||'').trim();
   var bem=($id('apBem')?$id('apBem').value:'').trim();
-  var btl=($id('apBauteil')||{}).value==='1';
+  var btl=bauteilCollect('apBt_');
   var jetzt=new Date().toISOString();
 
   // Änderungsvorschlag zu einem bestehenden Standardpunkt (Duplikat-Flow)
   if(_addPktAnpassung){
     var ap=_addPktAnpassung;
     var av={ id:uid('prstd'), scope:ap.scope, orgId:myOrgId(), bezeichnung:bez, anlagenart:art, untergruppe:unter, antworttyp:typ,
-      pflicht:false, bauteil:btl, standardbewertung:'schlecht', empfehlung:empf, aktiv:true, reihenfolge:9999,
+      pflicht:false, bauteil:btl.bauteil, bauteilFelder:btl.bauteilFelder, standardbewertung:'schlecht', empfehlung:empf, aktiv:true, reihenfolge:9999,
       status:'vorschlag', aenderungZu:{id:ap.id, bezeichnung:ap.bezeichnung},
       vorschlagVon:{userId:(me()||{}).id||'',name:myName()}, vorschlagFuer:ap.scope,
       ersteller:{userId:(me()||{}).id||'',name:myName()}, erstelltAm:jetzt, version:1,
@@ -1657,7 +1814,7 @@ window.prAddPktSave=function(){
     notifyVorschlag(av);
     addPunktZeile(_addPktAnlage, {
       key:uid('pk'), punktId:ap.id, quelle:'begehung', individuell:true, _open:!!bem,
-      bezeichnung:bez, untergruppe:unter, antworttyp:typ, pflicht:false, bauteil:btl,
+      bezeichnung:bez, untergruppe:unter, antworttyp:typ, pflicht:false, bauteil:btl.bauteil, bauteilFelder:btl.bauteilFelder,
       standardbewertung:'schlecht', empfehlungVorlage:empf,
       antwort:null, bewertung:'nicht_bewertet', bemerkung:bem, empfehlung:'', fotos:[] });
     prAddPktClose();
@@ -1670,13 +1827,13 @@ window.prAddPktSave=function(){
   // Speicherziel anlegen
   if(scope==='objekt'){
     var rec={ id:uid('probj'), orgId:myOrgId(), objektId:_cur.objektId, objektName:_cur.objektName, bezeichnung:bez, anlagenart:art,
-      untergruppe:unter, antworttyp:typ, empfehlung:empf, standardbewertung:'schlecht', aktiv:true, bauteil:btl,
+      untergruppe:unter, antworttyp:typ, empfehlung:empf, standardbewertung:'schlecht', aktiv:true, bauteil:btl.bauteil, bauteilFelder:btl.bauteilFelder,
       ersteller:{userId:(me()||{}).id||'',name:myName()}, erstelltAm:jetzt };
     saveRec(OBJ_POOL,OBJ_PF,rec); punktId=rec.id;
     toast('Objekt-Prüfpunkt gespeichert');
   } else if(scope==='org' || scope==='global'){
     var v={ id:uid('prstd'), scope:scope, orgId:myOrgId(), bezeichnung:bez, anlagenart:art, untergruppe:unter, antworttyp:typ,
-      pflicht:false, bauteil:btl, standardbewertung:'schlecht', empfehlung:empf, aktiv:true, reihenfolge:9999,
+      pflicht:false, bauteil:btl.bauteil, bauteilFelder:btl.bauteilFelder, standardbewertung:'schlecht', empfehlung:empf, aktiv:true, reihenfolge:9999,
       status:'vorschlag', vorschlagVon:{userId:(me()||{}).id||'',name:myName()}, vorschlagFuer:scope,
       ersteller:{userId:(me()||{}).id||'',name:myName()}, erstelltAm:jetzt, version:1,
       log:[{alt:'',neu:bez,von:myName(),am:jetzt,grund:'Vorschlag erstellt',status:'vorschlag'}] };
@@ -1687,7 +1844,7 @@ window.prAddPktSave=function(){
 
   addPunktZeile(_addPktAnlage, {
     key:uid('pk'), punktId:punktId, quelle:(scope==='objekt'?'objekt':'begehung'), individuell:true, _open:!!bem,
-    bezeichnung:bez, untergruppe:unter, antworttyp:typ, pflicht:false, bauteil:btl,
+    bezeichnung:bez, untergruppe:unter, antworttyp:typ, pflicht:false, bauteil:btl.bauteil, bauteilFelder:btl.bauteilFelder,
     standardbewertung:'schlecht', empfehlungVorlage:empf,
     antwort:null, bewertung:'nicht_bewertet', bemerkung:bem, empfehlung:'', fotos:[] });
   prAddPktClose();
@@ -1800,6 +1957,22 @@ function stdRow(p, scope, canM, canSuper, ovr){
 }
 
 /* Prüfpunkt-Editor (Modal) */
+/* Bauteil-Felder-Checkboxen — GETEILT von allen drei Prüfpunkt-Editoren
+   (Verwaltung, Vorschlag, «Prüfpunkt ergänzen»); eine Wahrheit für Markup
+   und Collector (Feedback 29.07.2026 «Hersteller / Jahr etc. einzeln»). */
+function bauteilCheckboxHtml(prefix, def){
+  var an=prBauteilFelder(def||{});
+  return '<div class="fld"><label>Bauteil-Angaben <span style="font-weight:600;color:var(--mut)">— einzeln wählbar</span></label>'
+    +'<div class="btsel">'+PR_BAUTEIL_FELDER.map(function(f){
+      return '<label class="btchk"><input type="checkbox" id="'+prefix+f.id+'" '+(an.indexOf(f.id)>=0?'checked':'')+'> '+esc(f.label)+'</label>';
+    }).join('')+'</div></div>';
+}
+function bauteilCollect(prefix){
+  var o={}, any=false;
+  PR_BAUTEIL_FELDER.forEach(function(f){ var el=$id(prefix+f.id); if(el&&el.checked){ o[f.id]=true; any=true; } });
+  return { bauteil:any, bauteilFelder:any?o:null };
+}
+
 var _pkEdit=null;
 window.prPkNew=function(){
   _pkEdit={ id:uid('prstd'), scope:'org', orgId:myOrgId(), bezeichnung:'', anlagenart:(prAnlagenarten()[0]||{}).id||'allgemein', untergruppe:'',
@@ -1825,7 +1998,7 @@ function openPkEditor(title){
   h+='<div class="fld"><label>Empfehlung (Vorlage)</label><textarea id="pkEmpf">'+esc(p.empfehlung||'')+'</textarea></div>';
   h+='<div class="fld-row"><div class="fld"><label>Reihenfolge</label><input type="text" inputmode="numeric" id="pkReih" value="'+esc(p.reihenfolge||0)+'"></div>'
     +'<div class="fld"><label>Pflichtfeld</label><select id="pkPflicht"><option value="0" '+(!p.pflicht?'selected':'')+'>Nein</option><option value="1" '+(p.pflicht?'selected':'')+'>Ja</option></select></div></div>';
-  h+='<div class="fld"><label>Bauteil-Angaben</label><select id="pkBauteil"><option value="0" '+(!p.bauteil?'selected':'')+'>Nein</option><option value="1" '+(p.bauteil?'selected':'')+'>Ja — Hersteller / Typ / Baujahr / Material erfassen</option></select></div>';
+  h+=bauteilCheckboxHtml('pkBt_', p);
   if(_pkEdit._new){
     h+='<div class="fld"><label>Ebene</label><select id="pkScope"><option value="org">Firmen-Standardliste</option>'+(canSuper?'<option value="global">GEMA-Standardliste (global)</option>':'')+'</select></div>';
   }
@@ -1840,10 +2013,12 @@ window.prPkSave=function(){
   var neuBez=($id('pkBez').value||'').trim(); if(!neuBez){ toast('Bezeichnung fehlt'); return; }
   var alt = p._new? '' : (p.bezeichnung||'');
   var scope = p._new ? ($id('pkScope')?$id('pkScope').value:'org') : p.scope;
+  var bt=bauteilCollect('pkBt_');
   var rec={ id:p.id, scope:scope, orgId:(scope==='global'?null:myOrgId()),
     bezeichnung:neuBez, anlagenart:$id('pkArt').value, untergruppe:($id('pkUnter').value||'').trim(),
     antworttyp:$id('pkTyp').value, pflicht:$id('pkPflicht').value==='1', standardbewertung:$id('pkStdBw').value,
     empfehlung:($id('pkEmpf').value||'').trim(), aktiv:p.aktiv!==false, reihenfolge:parseInt($id('pkReih').value,10)||0,
+    bauteil:bt.bauteil, bauteilFelder:bt.bauteilFelder,
     status:'aktiv', ersteller:p.ersteller||{userId:(me()||{}).id||'',name:myName()}, erstelltAm:p.erstelltAm||new Date().toISOString(),
     geaendertAm:new Date().toISOString(), version:(p.version||1)+(p._new?0:1), log:(p.log||[]).slice(0,60) };
   rec.log.unshift({ alt:alt, neu:neuBez, von:myName(), am:new Date().toISOString(), grund:(p._new?'Erstellt':'Bearbeitet'), status:'aktiv' });
@@ -1998,8 +2173,8 @@ function openPkEditorVorschlag(){
     +'<div class="fld"><label>Untergruppe</label><input type="text" id="pkUnter" value="'+esc(p.untergruppe||'')+'"></div></div>';
   h+='<div class="fld-row"><div class="fld"><label>Antworttyp</label><select id="pkTyp">'+Object.keys(PR_ANTWORTTYPEN).map(function(k){return '<option value="'+k+'" '+(k===p.antworttyp?'selected':'')+'>'+esc(PR_ANTWORTTYPEN[k].label)+'</option>';}).join('')+'</select></div>'
     +'<div class="fld"><label>Pflichtfeld</label><select id="pkPflicht"><option value="0" '+(!p.pflicht?'selected':'')+'>Nein</option><option value="1" '+(p.pflicht?'selected':'')+'>Ja</option></select></div></div>';
-  h+='<div class="fld"><label>Bauteil-Angaben</label><select id="pkBauteil"><option value="0" '+(!p.bauteil?'selected':'')+'>Nein</option><option value="1" '+(p.bauteil?'selected':'')+'>Ja — Hersteller / Typ / Baujahr / Material erfassen</option></select></div>';
-  h+='<div class="fld"><label>Standardempfehlung ergänzen</label><textarea id="pkEmpf">'+esc(p.empfehlung||'')+'</textarea></div>';
+  h+=bauteilCheckboxHtml('pkBt_', p);
+  h+='<div class="fld"><label>Standardempfehlung ergänzen <span style="font-weight:600;color:var(--mut)">— eine pro Zeile, in der Begehung einzeln wählbar</span></label><textarea id="pkEmpf">'+esc(p.empfehlung||'')+'</textarea></div>';
   $id('pkEditBody').innerHTML=h;
   $id('pkEditFt').innerHTML='<button class="btn ghost" onclick="prPkClose()">Abbrechen</button><button class="btn" onclick="prVSaveOnly()">Speichern</button><button class="btn grn" onclick="prVSaveApprove()">✓ Freigeben</button>';
   $id('pkEditBg').classList.add('open');
@@ -2008,7 +2183,9 @@ function collectVorschlag(){
   var p=_pkEdit;
   p.bezeichnung=($id('pkBez').value||'').trim();
   p.anlagenart=$id('pkArt').value; p.untergruppe=($id('pkUnter').value||'').trim();
-  p.antworttyp=$id('pkTyp').value; p.pflicht=$id('pkPflicht').value==='1'; p.bauteil=$id('pkBauteil').value==='1'; p.empfehlung=($id('pkEmpf').value||'').trim();
+  p.antworttyp=$id('pkTyp').value; p.pflicht=$id('pkPflicht').value==='1';
+  var bt=bauteilCollect('pkBt_'); p.bauteil=bt.bauteil; p.bauteilFelder=bt.bauteilFelder;
+  p.empfehlung=($id('pkEmpf').value||'').trim();
   p.geaendertAm=new Date().toISOString();
   return p;
 }
@@ -2135,10 +2312,9 @@ function prBrand(){
   }
   return { acc:'#0e7490', deep:'#155e75', forest:'#0f172a', tint:'#ecfeff' };
 }
-/* Empfehlung → Liste: mehrere Zeilen/Punkte werden als <ul> gerendert. */
-function empfItems(e){
-  return String(e||'').split(/\n+/).map(function(s){ return s.replace(/^[-•*]\s*/,'').trim(); }).filter(Boolean);
-}
+/* Empfehlung → Liste: mehrere Zeilen/Punkte werden als <ul> gerendert.
+   EINE Split-Regel für Bericht UND Auswahl-Chips (prEmpfItems, Engine). */
+function empfItems(e){ return prEmpfItems(e); }
 function empfHtml(e){
   var items=empfItems(e);
   if(!items.length) return '';
@@ -2146,6 +2322,17 @@ function empfHtml(e){
   return '<div class="empf"><b>Empfehlungen:</b><ul>'+items.map(function(x){ return '<li>'+esc(x)+'</li>'; }).join('')+'</ul></div>';
 }
 window.prBericht=function(){ var b=_cur; if(!b) return; printBericht(b); };
+/* «✎ Bearbeiten» aus dem Bericht-Druckfenster (Feedback 29.07.2026): führt
+   DIREKT in den Bearbeitungsmodus — eine abgeschlossene Begehung wird dafür
+   in einem Schritt wieder geöffnet (Ergänzungen vornehmen und speichern). */
+window.prBerichtBearbeiten=function(){
+  if(!_cur) return;
+  if(_cur.status==='abgeschlossen'){
+    _cur.status='offen'; delete _cur.abgeschlossenAm; saveBeg(_cur);
+    toast('Begehung wieder geöffnet — Ergänzungen möglich');
+  }
+  openEditor();
+};
 function printBericht(b){
   var o=org(); var orgName=(o&&o.name)||''; var logo=''; try{ logo=(o&&(o.logoVector||o.logo))||''; }catch(e){}
   var adr='';
@@ -2191,12 +2378,17 @@ function printBericht(b){
     +'p,li,.empf{orphans:3;widows:3}'
     +'table.pk tr.fotorow>td{padding:4px 8px 10px;border-bottom:1.5px solid #e2e2e2}'
     +'table.pk tr.fotorow.many{break-inside:auto}'
-    +'.pgrid{display:grid;grid-template-columns:1fr 1fr;gap:4mm}'
-    +'.pgrid img{width:100%;height:58mm;object-fit:cover;border:1px solid #ccc;border-radius:6px;break-inside:avoid}'
+    /* Bilder AUTOMATISCH angepasst (Feedback 29.07.2026): Höhe folgt dem
+       Seitenverhältnis (kein Beschnitt, kein Riesen-Weissraum bei Logos/
+       Diagrammen), gedeckelt auf 85mm; align-items:start verhindert, dass
+       das Grid ein niedriges Bild auf die Zeilenhöhe streckt. */
+    +'.pgrid{display:grid;grid-template-columns:1fr 1fr;gap:4mm;align-items:start}'
+    +'.pgrid img{width:100%;height:auto;max-height:85mm;object-fit:contain;object-position:left top;border:1px solid #ccc;border-radius:6px;break-inside:avoid;background:#fff}'
     +'.no-print{position:fixed;top:10px;right:10px;display:flex;gap:8px;z-index:50}.no-print button{padding:9px 16px;border-radius:9px;border:1.5px solid #ccc;background:#fff;font-weight:700;cursor:pointer;font-family:inherit}'
     +'.no-print button.fbb{border-color:#dc2626;color:#dc2626}.no-print button[disabled]{opacity:.6;cursor:default}'
     +'@media print{.no-print{display:none!important}}</style></head><body>';
   h+='<div class="no-print"><button onclick="window.print()">🖨 Drucken / Als PDF speichern</button>'
+    +'<button onclick="gemaBerichtBearbeiten()">✎ Bearbeiten</button>'
     +'<button class="fbb" onclick="gemaBerichtFeedback()">🔴 Feedback</button>'
     +'<button onclick="window.close()">Schliessen</button></div>';
   h+='<div class="top"><div class="abs"><strong>'+E(orgName||'GEMA')+'</strong>'+(adr?'<br>'+E(adr):'')+'</div>'
@@ -2236,7 +2428,8 @@ function printBericht(b){
     (a.punkte||[]).forEach(function(p){
       var entf=prZustandEntfaellt(p);
       var bwk=entf?'nicht_bewertet':(p.bewertung||'nicht_bewertet');
-      var bwLbl=entf?'entfällt':((PR_BEWERTUNGEN[bwk]||{}).label||'—');
+      /* Zustands-Label folgt der Skala des Antworttyps (Geruch: tief/mittel/hoch) */
+      var bwLbl=entf?'entfällt':(bwk==='nicht_bewertet'?'nicht bewertet':prZustandLabel(p.antworttyp,bwk));
       var hatFotos=(p.fotos||[]).some(function(f){ return !!imgSrc(f); });
       var bem='';
       if(p.bemerkung) bem+=E(p.bemerkung);
@@ -2291,6 +2484,13 @@ function printBericht(b){
   h+='<script>(function(){'
     +'var CDN='+JSON.stringify((window.GemaFeedback&&GemaFeedback.H2C_CDN)||'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js')+';'
     +'var busy=false;'
+    /* ✎ Bearbeiten: direkt aus dem Bericht in den Bearbeitungsmodus (Feedback
+       29.07.2026) — eine abgeschlossene Begehung wird dabei wieder geöffnet. */
+    +'window.gemaBerichtBearbeiten=function(){'
+      +'var o=null;try{o=window.opener&&!window.opener.closed&&window.opener.prBerichtBearbeiten?window.opener:null;}catch(e){}'
+      +'if(!o){alert("Das GEMA-Fenster ist geschlossen — bitte dort bearbeiten.");return;}'
+      +'try{o.prBerichtBearbeiten();o.focus();window.close();}catch(e){}'
+    +'};'
     +'function opener(){try{return window.opener&&!window.opener.closed&&window.opener.GemaFeedback?window.opener:null;}catch(e){return null;}}'
     +'function send(img){var o=opener();if(!o){alert("Das GEMA-Fenster ist geschlossen — Feedback bitte dort geben.");return;}'
       +'try{o.GemaFeedback.startWithImage(img||"");o.focus();}catch(e){alert("Feedback konnte nicht geöffnet werden.");}}'
@@ -2377,6 +2577,7 @@ window._prHooks={ begVisible:begVisible, stdGlobalMerged:stdGlobalMerged, stdOrg
   vorschlaege:vorschlaegeVisible, saveRec:saveRec, delRec:delRec, cached:cached, POOLS:{STD:STD_POOL,OVR:OVR_POOL,OBJ:OBJ_POOL,BEG:BEG_POOL},
   rechte:function(){ return {begehung:prCanBegehung(),manage:prCanManageOrg(),super:prIsSuper()}; }, render:render, nextNr:nextNr,
   aktuelle:function(){ return _cur; }, refreshTitelbild:refreshTitelbild,
+  renderEditor:renderEditor, saveBegC:function(){ saveBeg(_cur); }, syncOffene:syncOffeneBegehung,
   imgSrc:imgSrc, fotoQ:_fotoQAll, fotoUpload:prFotoUpload };
 /* Kurzzugriff auf die offene Begehung (Tests + Titelbild-Refresh) */
 window.prCurrent=function(){ return _cur; };
