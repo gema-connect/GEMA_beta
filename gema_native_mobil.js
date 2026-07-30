@@ -126,6 +126,20 @@
       'display:flex;align-items:center;justify-content:center;pointer-events:auto;cursor:pointer;-webkit-tap-highlight-color:transparent}' +
       '.gn .gn-back-c svg{width:21px;height:21px;stroke:var(--gn-accent);fill:none}' +
       '.gn .gn-back-c:active,.gn .gn-back:active{transform:scale(.92)}' +
+      /* ── Benutzeravatar + Konto-/Einstellungs-Menü (zentral injiziert) ──
+         Die .g-nav mit Profil-Badge und ⚙️ ist im Native-Modus ausgeblendet —
+         ohne diesen Avatar gäbe es auf einem Modul-Screen KEINEN Weg zu
+         Profil/Einstellungen/Abmelden (Feedback 30.07.2026 «Benutzeravatar
+         fehlt und Menü für Einstellungen auch im Workspace»). */
+      '.gn .gn-avatar{overflow:hidden;cursor:pointer;-webkit-tap-highlight-color:transparent;border:none;padding:0;font-family:inherit}' +
+      '.gn .gn-avatar img{width:100%;height:100%;object-fit:cover;display:block}' +
+      '.gn .gn-avatar:active{transform:scale(.93)}' +
+      /* In der Modul-Toolbar so hoch wie die Icon-Buttons (38px) */
+      '.gn .gn-toolbar .gn-avatar{width:38px;height:38px;font-size:13px;align-self:flex-end}' +
+      '.gn .gn-konto-hd{display:flex;align-items:center;gap:12px;padding:2px 16px 16px}' +
+      '.gn .gn-konto-hd .gn-avatar{width:52px;height:52px;font-size:17px;pointer-events:none}' +
+      '.gn .gn-konto-nm{font:800 17px var(--gn-font);letter-spacing:-.3px}' +
+      '.gn .gn-konto-rl{font-size:13px;color:var(--gn-ink-2);margin-top:2px}' +
       /* ── Natives Autocomplete (Vorschlags-Liste im Formularfluss) ── */
       '.gn .gn-ac{display:none;margin-top:6px;background:var(--gn-card);border:1px solid var(--gn-hair);border-radius:12px;' +
       'box-shadow:var(--gn-shadow-card);overflow:hidden;max-height:226px;overflow-y:auto;scrollbar-width:none}' +
@@ -163,8 +177,14 @@
     location.href = 'index.html';
   }
   var SVG_BACK = '<svg viewBox="0 0 24 24" fill="none" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>';
+  /* data-gn-noback am Toolbar-/Kompakt-Element: Screens, die die WURZEL sind
+     (eigene Startseite der Rolle — z.B. die Workspace-Übersicht beim
+     Projektleiter), bekommen keine Zurück-Taste. Sie zeigte dort auf
+     index.html, von wo der Rollen-Redirect sofort zurückwarf — ein Knopf,
+     der nichts tut, ist schlimmer als keiner. */
   function injectBack(root) {
     var tb = root.querySelector('.gn-toolbar');
+    if (tb && tb.hasAttribute('data-gn-noback')) tb = null;
     if (tb && !tb.querySelector('[data-gn-back]')) {
       var b = document.createElement('button');
       b.className = 'gn-icon-btn gn-back';
@@ -174,6 +194,7 @@
       tb.insertBefore(b, tb.firstChild);
     }
     var cp = root.querySelector('[data-gn-compact]');
+    if (cp && cp.hasAttribute('data-gn-noback')) cp = null;
     if (cp && !cp.querySelector('[data-gn-back]')) {
       var c = document.createElement('button');
       c.className = 'gn-back-c';
@@ -217,6 +238,64 @@
     else head.insertBefore(img, head.firstChild);
   }
 
+  /* ── Benutzeravatar + Konto-Menü ────────────────────────────────────
+     Auf dem Startbildschirm bringt index.html einen .gn-avatar mit; auf allen
+     übrigen Screens wird er in die Toolbar injiziert. In BEIDEN Fällen öffnet
+     er das Konto-Sheet (Profil/Einstellungen/Verwaltung/Abmelden) — vorher
+     navigierte der Home-Avatar direkt nach sys_profil und auf einem Modul-
+     Screen gab es gar keinen Zugang. Das Bild kommt aus user.avatar (bzw.
+     user.profile.avatar) — dasselbe Feld, das GemaAvatar/sys_profil schreiben;
+     gema_avatar.js wird dafür bewusst NICHT geladen (nur ein Feld-Lesen). */
+  function meUser() { try { return (typeof GemaAuth !== 'undefined' && GemaAuth.getCurrentUser) ? GemaAuth.getCurrentUser() : null; } catch (e) { return null; } }
+  function meName(u) {
+    u = u || meUser(); if (!u) return '';
+    return (u.profile && (u.profile.person || u.profile.name)) || u.name || u.username || '';
+  }
+  function meAvatar(u) { u = u || meUser(); return (u && (u.avatar || (u.profile && u.profile.avatar))) || ''; }
+  function meInitialen(u) {
+    var p = String(meName(u) || '').trim().split(/\s+/).filter(Boolean);
+    if (!p.length) return 'GE';
+    if (p.length === 1) return p[0].substring(0, 2).toUpperCase();
+    return (p[0].charAt(0) + p[p.length - 1].charAt(0)).toUpperCase();
+  }
+  function meRolle(u) {
+    u = u || meUser(); if (!u || !u.roleIds || !u.roleIds.length) return '';
+    try {
+      var rs = (GemaAuth.getRoles && GemaAuth.getRoles()) || [];
+      var n = u.roleIds.map(function (id) { var r = rs.find(function (x) { return x && x.id === id; }); return (r && r.name) || ''; }).filter(Boolean);
+      if (!n.length) return '';
+      return n[0] + (n.length > 1 ? ' +' + (n.length - 1) : '');
+    } catch (e) { return ''; }
+  }
+  /* Inhalt des Avatar-Knopfes: Foto wenn hinterlegt, sonst Initialen. */
+  function avatarInner(u) {
+    var src = meAvatar(u);
+    return src ? '<img src="' + esc(src) + '" alt="">' : esc(meInitialen(u));
+  }
+  function injectAvatar(root) {
+    var u = meUser(); if (!u) return;                 // ohne Session kein Konto-Knopf
+    // Bewusst eng: NUR Kopf/Toolbar — ein Avatar in einer Liste (.gn-avatars /
+    // .gn-ava-sm bei Terminen) darf nie zum Konto-Knopf werden.
+    var ex = root.querySelector('.gn-header > .gn-avatar, .gn-toolbar > .gn-avatar');
+    if (ex) {
+      // Home-Screen: bestehenden Avatar übernehmen (Foto + Konto-Menü statt
+      // Direkt-Navigation nach sys_profil).
+      ex.removeAttribute('data-nat-href');
+      ex.setAttribute('data-gn-konto', '');
+      ex.title = 'Konto & Einstellungen';
+      ex.innerHTML = avatarInner(u);
+      return;
+    }
+    var tb = root.querySelector('.gn-toolbar');
+    if (!tb) return;                                  // Screen ohne Toolbar (z.B. reines Sheet)
+    var b = document.createElement('button');
+    b.className = 'gn-avatar';
+    b.setAttribute('data-gn-konto', '');
+    b.title = 'Konto & Einstellungen';
+    b.innerHTML = avatarInner(u);
+    tb.appendChild(b);                                // rechts, nach Titel + Icon-Buttons
+  }
+
   /* ── Bottom-Navbar auf JEDEM nativen Screen ─────────────────────────
      Mitteilungen und Chat sitzen sonst in der .g-nav, die die Native-
      Ansicht ausblendet — ohne diese Leiste wären sie auf allen Modul-
@@ -230,6 +309,18 @@
     var p = (location.pathname || '').split('/').pop() || '';
     return p === '' || p === 'index.html';
   }
+  /* Ziel des «Übersicht»-Knopfs: die eigene Startseite der Rolle. Steht man
+     schon dort, führt er zur jeweils anderen Übersicht — aber NUR wenn die
+     für diese Rolle erreichbar ist. Ein Projektleiter startet im Workspace
+     und wird von index.html zurückgeworfen; dort entfällt der Knopf ganz,
+     statt einen Reload auf derselben Seite zu machen. */
+  function hubZiel() {
+    var lp = 'index.html';
+    try { if (typeof GemaAuth !== 'undefined' && GemaAuth.getLandingPage) lp = GemaAuth.getLandingPage() || 'index.html'; } catch (e) {}
+    var cur = (location.pathname || '').split('/').pop() || 'index.html';
+    if (cur !== lp) return lp;
+    return lp === 'index.html' ? 'sys_workspace.html' : '';
+  }
   function unreadCount() { try { return GemaNotify.getUnreadCount() || 0; } catch (e) { return 0; } }
   /* Der «＋»-Knopf ist die Haupt-Aktion des Screens und gehört auf dem
      Handy an den Daumen — nicht oben rechts in die Toolbar (User-Entscheid
@@ -241,7 +332,7 @@
     // doppelt injizieren.
     if (root.querySelector('.gn-navbar')) return;
     var n = unreadCount();
-    var ziel = istHome() ? 'sys_workspace.html' : 'index.html';
+    var ziel = hubZiel();
     var bar = document.createElement('div');
     // Beide Klassen: .gn-pill trägt das bestehende Aussehen aus dem Kit,
     // .gn-navbar markiert die zentral injizierte Leiste.
@@ -251,8 +342,9 @@
       + (n ? '<i class="gn-pill-dot">' + (n > 99 ? '99+' : n) + '</i>' : '') + '</button>'
       + '<button class="gn-pill-btn" data-nat-chat title="Chat">' + SVG_CHAT + '</button>'
       + (plus ? '<button class="gn-pill-btn gn-pill-btn--plus" data-nat-nav-plus title="' + esc(plus.title || 'Neu') + '">' + SVG_PLUS + '</button>' : '')
-      + '<button class="gn-pill-btn gn-pill-btn--primary" data-nat-nav-home title="' + (istHome() ? 'Workspace' : 'Übersicht') + '">' + SVG_RASTER + '</button>';
-    bar.querySelector('[data-nat-nav-home]').addEventListener('click', function () { location.href = ziel; });
+      + (ziel ? '<button class="gn-pill-btn gn-pill-btn--primary" data-nat-nav-home title="' + (ziel === 'sys_workspace.html' ? 'Workspace' : 'Übersicht') + '">' + SVG_RASTER + '</button>' : '');
+    var hb = bar.querySelector('[data-nat-nav-home]');
+    if (hb) hb.addEventListener('click', function () { location.href = ziel; });
     root.appendChild(bar);
   }
   /* Glocke und Chat aus der ausgeblendeten .g-nav bedienbar machen.
@@ -275,6 +367,11 @@
       if (e.target.closest('[data-nat-nav-plus]')) {
         e.stopPropagation();
         if (root.__gnPlusOpen) root.__gnPlusOpen();
+        return;
+      }
+      if (e.target.closest('[data-gn-konto]')) {
+        e.stopPropagation();
+        if (root.__gnKontoOpen) root.__gnKontoOpen();
       }
     });
   }
@@ -314,6 +411,7 @@
         try { opts.render(root); } catch (e) { console.warn('[GemaNativeMobil] render:', e && e.message); }
         try { injectBack(root); } catch (e) {}
         try { injectLogo(root); } catch (e) {}
+        try { injectAvatar(root); } catch (e) {}
         try { injectNavbar(root, opts.plus); wireNavbar(root); } catch (e) {}
         root.__gnInit = false;
         if (window.GemaNative) { try { GemaNative.init(root); } catch (e) {} }
@@ -355,6 +453,54 @@
       });
     }
     root.__gnPlusOpen = openPlus;
+
+    /* Konto & Einstellungen — das Menü hinter dem Avatar. Ersetzt im Native-
+       Modus die ausgeblendete .g-nav (Profil-Badge, ⚙️, 👥 Admin, Abmelden).
+       Die App-Ansicht (nativ ⇄ klassisch) stellt man in sys_profil um — hier
+       nur der Weg dorthin, KEIN Direkt-Umschalter (User-Entscheid 26.07.2026). */
+    function kontoZiele() {
+      var u = meUser(), z = [];
+      z.push({ label: '👤 Profil & Einstellungen', hint: 'Name, Bild, App-Ansicht, Benachrichtigungen', href: 'sys_profil.html' });
+      var admin = false, orgAdmin = false;
+      try { admin = !!(u && u.roleIds && u.roleIds.indexOf('role_admin') >= 0); } catch (e) {}
+      try {
+        var o = GemaAuth.getCurrentOrg && GemaAuth.getCurrentOrg();
+        orgAdmin = !!(o && o.admins && u && o.admins.indexOf(u.id) >= 0);
+      } catch (e) {}
+      if (admin || orgAdmin) z.push({ label: '🏢 Firmendaten', hint: 'Adresse, Logo, Berichts-Farben', href: 'sys_unternehmen.html' });
+      if (admin) z.push({ label: '👥 Benutzer & Rollen', hint: 'Konten, Organisationen, Rechte', href: 'sys_admin.html' });
+      z.push({ label: '💳 Abos & Preise', hint: 'Leistungsumfang und Konditionen', href: 'sys_preise.html' });
+      z.push({ label: '🔴 Feedback senden', fn: function () { try { if (typeof GemaFeedback !== 'undefined' && GemaFeedback.start) GemaFeedback.start(); } catch (e) {} } });
+      z.push({ label: '🚪 Abmelden', danger: true, fn: function () {
+        try { if (typeof GemaAuth !== 'undefined' && GemaAuth.logout) { GemaAuth.logout(); return; } } catch (e) {}
+        location.href = 'sys_login.html';
+      } });
+      return z;
+    }
+    function openKonto() {
+      var u = meUser(); if (!u) return;
+      var z = kontoZiele(), rl = meRolle(u);
+      var html =
+        '<div class="gn-konto-hd"><span class="gn-avatar">' + avatarInner(u) + '</span>'
+        + '<span><span class="gn-konto-nm" style="display:block">' + esc(meName(u) || 'Benutzer') + '</span>'
+        + (rl ? '<span class="gn-konto-rl">' + esc(rl) + '</span>' : '') + '</span></div>'
+        + '<div class="gn-list">' + z.map(function (x, i) {
+          return '<button class="gn-select" data-gn-konto-i="' + i + '"'
+            + (x.danger ? ' style="color:var(--gn-danger)"' : '') + '><span class="k">' + esc(x.label)
+            + (x.hint ? '<small style="display:block;font-weight:400;color:var(--gn-ink-3)">' + esc(x.hint) + '</small>' : '')
+            + '</span><span class="v">›</span></button>';
+        }).join('') + '</div>';
+      var sh = sheet({ title: 'Konto', html: html });
+      if (!sh) return;
+      sh.addEventListener('click', function (e) {
+        var b = e.target.closest && e.target.closest('[data-gn-konto-i]'); if (!b) return;
+        var it = z[parseInt(b.getAttribute('data-gn-konto-i'), 10)]; if (!it) return;
+        if (it.href) { location.href = it.href; return; }
+        closeSheet();
+        setTimeout(function () { try { if (it.fn) it.fn(); } catch (err) {} }, 420);
+      });
+    }
+    root.__gnKontoOpen = openKonto;
 
     var rt = null;
     window.addEventListener('resize', function () {

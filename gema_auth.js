@@ -1182,6 +1182,19 @@
   var thisFileLower=thisFile.toLowerCase().replace('.html','');
   function _isSkip(){return thisFileLower==='sys_login';}
   function _isLoginOnly(){return ['index','sb_index','pm_ausschreibung','ab_index','sys_admin','sys_profil','sys_preise','sys_beta','sys_lieferant_dashboard','sys_garagist_dashboard','sys_workspace','sys_unternehmen',''].indexOf(thisFileLower)>=0;}
+  /* Persönliche Konto-Seiten: der Rollen-Redirect gilt NUR für Hub-/Landing-
+     Seiten, NICHT für Seiten, die jemand bewusst aufruft. Vorher sprang jeder
+     Aufruf von sys_profil bei einem Projektleiter (Landing = sys_workspace)
+     sofort in den Workspace zurück — die EIGENEN Einstellungen (Profilbild,
+     App-Ansicht, Benachrichtigungen) waren damit für alle Nicht-GEMA-Admins
+     unerreichbar (Feedback 30.07.2026 «Menü für Einstellungen»); in
+     notify_prefs_gating_test war das als Quirk umschifft.
+     sys_admin bleibt bewusst DRAUSSEN — die Seite hat keinen eigenen harten
+     Zugriffs-Guard, der Redirect ist dort die Schutzschicht. sys_unternehmen
+     darf rein, weil es sich selbst guardet (GemaAuth.isOrgAdmin → «Nur
+     Unternehmens-Admins»). Neue Seite hier nur aufnehmen, wenn sie entweder
+     für JEDEN offen ist oder einen eigenen In-Page-Guard hat. */
+  var _KONTO_SEITEN=['sys_profil','sys_preise','sys_beta','sys_unternehmen'];
 
   // ── Rollenspezifische Zielseite ─────────────────────────────────
   function _getRedirectForUser(u){
@@ -1299,7 +1312,7 @@
           var roleDest=_getRedirectForUser(user);
           var curPage=thisFileLower||'index';
           var destPage=roleDest.replace('.html','').toLowerCase();
-          if(!_isAdmin(user)&&destPage!==curPage&&destPage!=='index'){
+          if(!_isAdmin(user)&&destPage!==curPage&&destPage!=='index'&&_KONTO_SEITEN.indexOf(curPage)<0){
             // Chat-Deep-Link (?chat=<threadId>, gema_chat.js) über den
             // Rollen-Redirect hinweg erhalten — sonst verpufft der Klick
             // auf eine Chat-Benachrichtigung auf der Modulübersicht.
@@ -2020,6 +2033,16 @@
     },
 
     // ── Unternehmens-Verwaltung ──
+    /* Eigene Startseite der Rolle (Landing nach dem Login). Nötig, damit die
+       Navigation nicht in eine Sackgasse zeigt: ein Projektleiter startet im
+       Workspace und wird von index.html dorthin zurückgeworfen — ein
+       «Übersicht»-Knopf auf index.html wäre für ihn ein No-Op. */
+    getLandingPage:function(user){
+      var u=user||w.GemaAuth.getCurrentUser();
+      if(!u)return'index.html';
+      if(_isAdmin(u))return'index.html';
+      return _getRedirectForUser(u);
+    },
     isOrgAdmin:function(userId){
       var user=userId?(_getUsers()||[]).find(function(u){return u.id===userId;}):w.GemaAuth.getCurrentUser();
       if(!user)return false;

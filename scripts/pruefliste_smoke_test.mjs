@@ -129,8 +129,11 @@ try {
     return { ai, pi: b.anlagen[ai].punkte.findIndex(p => p.antworttyp === 'zahl') };
   });
   ok('Zahl-Punkt vorhanden (Warmwassertemperatur)', zi.pi >= 0);
+  /* Seit Feedback 29.07.2026 ist der Zustand ÜBERALL eine Chip-Auswahl:
+     3 Inline-Chips neben der Eingabe + 3 im 📝-Panel (statt Dropdown). */
   const chips = await page.$$eval('#pkt_' + zi.ai + '_' + zi.pi + ' .ans .ans-btn', els => els.length);
-  ok('3 Inline-Bewertungs-Chips beim Zahl-Punkt', chips === 3);
+  ok('Zustand-Chips beim Zahl-Punkt (inline + Panel, kein Dropdown)', chips === 6);
+  ok('kein Zustand-Dropdown mehr im Panel', !(await page.$('#more_' + zi.ai + '_' + zi.pi + ' select')));
   await page.evaluate(z => { window.prTogglePkt(z.ai, z.pi); window.prSetBewertung(z.ai, z.pi, 'schlecht'); }, zi);
   const zp = await page.evaluate(z => window._prHooks.cached(window._prHooks.POOLS.BEG)[0].anlagen[z.ai].punkte[z.pi], zi);
   ok('Bewertung schlecht + Empfehlung vorbefüllt', zp.bewertung === 'schlecht' && !!zp.empfehlung);
@@ -150,7 +153,7 @@ try {
   vp = await page.evaluate(v => window._prHooks.cached(window._prHooks.POOLS.BEG)[0].anlagen[v.ai].punkte[v.pi], vi);
   ok('nicht vorhanden → Zustand NICHT schlecht (nicht_bewertet)', vp.bewertung === 'nicht_bewertet');
   ok('Chip zeigt «entfällt» (grau)', (await page.$eval('#pkt_' + vi.ai + '_' + vi.pi + ' .bw-chip', el => el.textContent.trim())) === 'entfällt');
-  ok('Zustand-Select gesperrt', await page.$eval('#more_' + vi.ai + '_' + vi.pi + ' select', el => el.disabled));
+  ok('Zustand-Chips gesperrt (entfällt)', await page.$$eval('#more_' + vi.ai + '_' + vi.pi + ' .ans-btn', els => els.length > 0 && els.every(el => el.disabled)));
   await page.evaluate(v => window.prSetBewertung(v.ai, v.pi, 'schlecht'), vi);
   vp = await page.evaluate(v => window._prHooks.cached(window._prHooks.POOLS.BEG)[0].anlagen[v.ai].punkte[v.pi], vi);
   ok('prSetBewertung wird ignoriert (nicht bearbeitbar)', vp.bewertung === 'nicht_bewertet');

@@ -8,9 +8,10 @@
 //   Layer 2 (Playwright): Sichtbarkeits-Matrix pro Rolle + DOM-Check des Panels
 //     + Selbstheilung über bereits erhaltene Notifikationen + sys_profil.
 //
-// Hinweis Rollen-Redirect: reine Planer werden von sys_profil/index nach
-// sys_workspace geleitet (_getRedirectForUser-Default) — die Planer-Matrix
-// wird deshalb auf sys_workspace gemessen, der sys_profil-Positivfall mit Admin.
+// Hinweis Rollen-Redirect: sys_profil ist seit 30.07.2026 vom Redirect
+// ausgenommen (_KONTO_SEITEN in gema_auth) — die Messorte hier bleiben aber
+// unverändert (Planer-Matrix auf sys_workspace, sys_profil-Positivfall mit
+// Admin), sie prüfen die Sichtbarkeits-Logik, nicht den Redirect.
 //
 // Aufruf: CHROME=<chromium> node scripts/notify_prefs_gating_test.mjs
 import { chromium } from 'playwright-core';

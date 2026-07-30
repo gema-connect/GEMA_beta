@@ -114,6 +114,84 @@ console.log('■ Native Eimer-Navigation (iPhone 390px)');
   await ctx.close();
 }
 
+// ── 1b) Benutzeravatar + Konto-/Einstellungs-Menü (Feedback 30.07.2026) ──
+console.log('■ Benutzeravatar + Konto-Menü');
+{
+  const { ctx, page, errs } = await phoneCtx();
+  await page.goto(BASE + '/sys_workspace.html', { waitUntil: 'domcontentloaded' });
+  await page.waitForSelector('.gn--page', { timeout: 12000 });
+  await page.waitForTimeout(1400);
+  ok('Avatar in der Workspace-Toolbar injiziert', await page.evaluate(() => !!document.querySelector('.gn-toolbar > .gn-avatar[data-gn-konto]')));
+  ok('Avatar zeigt Initialen (kein Bild hinterlegt)', (await page.textContent('.gn-toolbar > .gn-avatar')).trim().length >= 1);
+  // Die Übersicht IST die Startseite des Projektleiters → keine Zurück-Taste
+  // (sie zeigte auf index.html, von wo der Rollen-Redirect zurückwirft) und
+  // kein «Übersicht»-Knopf in der Navbar, der nur neu laden würde.
+  ok('Übersicht = Wurzel: keine Zurück-Taste', await page.evaluate(() =>
+    !document.querySelector('.gn--page [data-gn-back]') && !document.querySelector('.gn--page [data-nat-home]')));
+  ok('kein toter «Übersicht»-Knopf in der Navbar', await page.evaluate(() =>
+    !document.querySelector('.gn-navbar [data-nat-nav-home]')));
+
+  // Konto-Sheet öffnen
+  await page.evaluate(() => document.querySelector('[data-gn-konto]').click());
+  await page.waitForSelector('.gn-sheet [data-gn-konto-i]', { timeout: 6000 });
+  const kt = await page.textContent('.gn-sheet');
+  ok('Konto-Sheet zeigt Profil & Einstellungen', kt.includes('Profil & Einstellungen'));
+  ok('Konto-Sheet zeigt Abmelden', kt.includes('Abmelden'));
+  ok('Konto-Sheet nennt die App-Ansicht als Einstellung', kt.includes('App-Ansicht'));
+  ok('Konto-Sheet zeigt Benutzername', kt.includes('Test User') || kt.includes('Benutzer'));
+  ok('Profil-Zeile zielt auf sys_profil.html', await page.evaluate(() => {
+    const b = [...document.querySelectorAll('[data-gn-konto-i]')][0];
+    return !!b && b.textContent.indexOf('Profil') >= 0;
+  }));
+  await page.evaluate(() => { const b = [...document.querySelectorAll('[data-gn-konto-i]')][0]; if (b) b.click(); });
+  await page.waitForTimeout(700);
+  ok('Profil-Zeile navigiert nach sys_profil', page.url().includes('sys_profil'));
+  ok('keine pageerrors', errs.length === 0, errs.join(' | '));
+  await ctx.close();
+}
+
+// ── 1c) Hinterlegtes Profilbild erscheint als <img> ──
+{
+  const s = seed(['role_planer']);
+  const us = JSON.parse(JSON.stringify(s.gema_users_v1));
+  us[0].avatar = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+  const { ctx, page } = await phoneCtx({ gema_users_v1: us });
+  await page.goto(BASE + '/sys_workspace.html', { waitUntil: 'domcontentloaded' });
+  await page.waitForSelector('.gn-toolbar > .gn-avatar', { timeout: 12000 });
+  await page.waitForTimeout(600);
+  ok('Profilbild wird im Avatar gezeigt', await page.evaluate(() =>
+    !!document.querySelector('.gn-toolbar > .gn-avatar img[src^="data:image"]')));
+  await ctx.close();
+}
+
+// ── 1d) Home-Screen (Rolle mit Landing index) — Avatar öffnet dasselbe Menü ──
+{
+  // role_dozent landet auf index.html (role_planer würde nach sys_workspace
+  // umgeleitet und hätte gar keinen Home-Screen).
+  const { ctx, page } = await phoneCtx(seed(['role_dozent']));
+  await page.goto(BASE + '/index.html', { waitUntil: 'domcontentloaded' });
+  await page.waitForSelector('.gn--page .gn-header', { timeout: 12000 });
+  await page.waitForTimeout(1400);
+  ok('Home-Avatar öffnet das Konto-Menü statt direkt zu navigieren', await page.evaluate(() => {
+    const a = document.querySelector('.gn-header > .gn-avatar');
+    return !!a && a.hasAttribute('data-gn-konto') && !a.hasAttribute('data-nat-href');
+  }));
+  await page.evaluate(() => document.querySelector('.gn-header > .gn-avatar').click());
+  await page.waitForTimeout(500);
+  ok('Home: Konto-Sheet öffnet', !!(await page.$('.gn-sheet [data-gn-konto-i]')));
+  await ctx.close();
+}
+
+// ── 1e) Der Rollen-Redirect sperrt die eigenen Einstellungen nicht mehr aus ──
+console.log('■ sys_profil für Nicht-Admins erreichbar');
+{
+  const { ctx, page } = await phoneCtx();
+  await page.goto(BASE + '/sys_profil.html', { waitUntil: 'domcontentloaded' });
+  await page.waitForTimeout(1600);
+  ok('Planer bleibt auf sys_profil (kein Rückwurf in den Workspace)', page.url().includes('sys_profil'));
+  await ctx.close();
+}
+
 // ── 2) Coachmarks: auf dem Phone still, auf dem Desktop unverändert ──
 console.log('■ Coachmark-Tour');
 {
