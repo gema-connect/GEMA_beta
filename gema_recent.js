@@ -79,6 +79,7 @@
     'sb_fluessiggas':'Flüssiggas LPG',
     'sb_grobauslegung':'Grobauslegung',
     'sb_grundleitungen':'Grundleitungen',
+    'sb_kreisprofil':'Hydraulik Kreisprofil',
     'sb_index':'Sanitärberechnungen',
     'sb_laengenausdehnung':'Längenausdehnung',
     'sb_lu_tabelle':'LU-Tabelle & Spitzenvolumenstrom',

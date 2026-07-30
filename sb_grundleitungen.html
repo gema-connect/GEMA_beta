@@ -574,7 +574,7 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important}
 .gl-res .qtot{font-weight:800;color:var(--text)}
 .gl-res tr.anschluss td{background:#fef2f2}
 .gl-res tr.anschluss td:first-child{border-left:3px solid #dc2626}
-.gl-res .an-tag{display:inline-block;font-size:9.5px;font-weight:800;color:#dc2626;background:#fff;border:1px solid #fecaca;border-radius:6px;padding:1px 6px;margin-left:6px;white-space:nowrap}
+.gl-res .an-tag,.glkp-name .an-tag{display:inline-block;font-size:9.5px;font-weight:800;color:#dc2626;background:#fff;border:1px solid #fecaca;border-radius:6px;padding:1px 6px;margin-left:6px;white-space:nowrap}
 .gl-res .hinw{font-size:10.5px;color:var(--amber);font-weight:600;line-height:1.35}
 .gl-res .hinw.err{color:var(--red)}
 .gl-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:14px}
@@ -587,6 +587,27 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important}
 .gl-warnbox.show{display:block}
 .frml-block{margin-top:10px;padding:9px 13px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;font-size:11px;color:var(--muted);line-height:1.7}
 .frml-block b{color:var(--text2);font-weight:700}
+
+/* Kreisprofil Anschlussleitung */
+.glkp-panel{display:flex;gap:18px;align-items:stretch;flex-wrap:wrap;border:1.5px solid var(--border);border-radius:12px;padding:14px 16px;background:var(--surface2)}
+.glkp-panel + .glkp-panel{margin-top:12px}
+.glkp-svg{flex:0 0 auto}
+.glkp-svg svg{display:block}
+.glkp-info{flex:1 1 260px;min-width:240px;display:flex;flex-direction:column;gap:6px}
+.glkp-name{font-size:13px;font-weight:800;color:var(--text);cursor:pointer}
+.glkp-name:hover{text-decoration:underline}
+.glkp-pill{display:inline-block;align-self:flex-start;padding:3px 12px;border-radius:999px;font-size:11px;font-weight:800;border:1.5px solid}
+.glkp-pill.ok{background:#dcfce7;border-color:#86efac;color:#15803d}
+.glkp-pill.gross{background:#ffedd5;border-color:#fdba74;color:#b45309}
+.glkp-pill.zu_klein{background:#fee2e2;border-color:#fca5a5;color:#b91c1c}
+.glkp-pill.einstau{background:#fee2e2;border-color:#fca5a5;color:#7f1d1d}
+.glkp-vals{display:grid;grid-template-columns:repeat(auto-fit,minmax(108px,1fr));gap:6px 12px;font-size:11.5px;color:var(--text2);font-variant-numeric:tabular-nums}
+.glkp-vals .l{font-size:9.5px;font-weight:700;color:var(--muted);display:block}
+.glkp-vals b{font-size:13px;color:var(--text)}
+.glkp-hint{font-size:11px;color:var(--muted);line-height:1.5}
+.glkp-link{font-size:11px;font-weight:700;color:#0e7490;text-decoration:none;align-self:flex-start}
+.glkp-link:hover{text-decoration:underline}
+@media(max-width:640px){.glkp-panel{gap:10px}.glkp-svg{margin:0 auto}}
 
 /* Schema */
 #glSchema svg{display:block;width:100%;height:auto}
@@ -806,6 +827,20 @@ tr.gl-puls td{animation:glPuls 1.1s ease-out 2;background:#fffbeb!important}
         <b>Q<sub>ww</sub> = K·√(ΣDU)</b> — Spitzenabfluss Schmutzwasser (EN 12056-2) &nbsp;·&nbsp;
         <b>Q<sub>tot</sub> = max(Q<sub>ww</sub>, DU<sub>max</sub>) + Q<sub>c</sub> + Q<sub>r</sub></b> — Dauerverbraucher und Regenwasser werden 1:1 addiert, Regen ggf. auf den Drosselabfluss der Retention begrenzt &nbsp;·&nbsp;
         <b>Q<sub>max</sub> = Q<sub>voll</sub>(Prandtl-Colebrook, k<sub>b</sub>) · Teilfüllungsverhältnis(h/d)</b> — Kapazität beim Bemessungs-Füllgrad (Schmutzwasser h/d = 0.5, Regen-/Mischwasser h/d = 0.7), v am Bemessungs-Füllgrad
+      </div>
+    </div>
+  </div>
+
+  <!-- KREISPROFIL DER ANSCHLUSSLEITUNG(EN) → HSK -->
+  <div class="g-card" id="glKreisCard" style="display:none">
+    <div class="g-card-hd"><h2>◔ Kreisprofil Anschlussleitung → HSK</h2></div>
+    <div class="g-card-bd">
+      <div id="glKreisHost"></div>
+      <div class="frml-block">
+        <b>Betriebs-Füllstand h/d aus Q<sub>tot</sub> = Q<sub>voll</sub>·Teilfüllungsverhältnis(h/d)</b>
+        — per Bisektion invertiert, gleiche Hydraulik wie die Kapazitätsrechnung (Prandtl-Colebrook × Teilfüllung) &nbsp;·&nbsp;
+        <b>Beurteilung der Dimension</b>
+        — Füllstand über dem Bemessungs-Füllgrad = DN zu klein · Q über dem Kurvenscheitel (h/d ≈ 0.94) = Einstau · kleinerer Katalog-DN würde genügen = DN grösser als nötig
       </div>
     </div>
   </div>
@@ -1056,6 +1091,31 @@ function glCalcNetz(state){
   A.forEach(function(a){ if(a&&a.id) resolve(a.id); });
   var roots=A.filter(function(a){ return a&&a.id&&!byId[a.ziel]; }).map(function(a){ return a.id; });
   return {res:res, roots:roots, verwaiste:verwaiste, cfg:cfg, K:K};
+}
+/* Kreisprofil: Betriebs-Füllstand h/d bei Q — invertiert Qvoll·Teilfüllungsverhältnis(t)
+   per Bisektion auf dem steigenden Ast (dieselbe Hydraulik wie glQmax — eine Wahrheit).
+   Über dem Kurvenscheitel (h/d ≈ 0.94, Q/Qvoll ≈ 1.076) staut die Leitung ein. */
+function glFuellstand(qLs, diMm, gefPct, kbMm){
+  var q=glNum(qLs), voll=glVollfuellung(diMm,gefPct,kbMm);
+  if(!(q>0) || !(voll.q>0)) return null;
+  var tPeak=0.94, fPeak=0;
+  for(var t=0.85;t<=0.999;t+=0.0025){ var f=glTeilfuellung(t).q; if(f>fPeak){ fPeak=f; tPeak=t; } }
+  var qPeak=fPeak*voll.q;
+  if(q>qPeak+1e-9) return {ueber:true, t:1, h:glNum(diMm), v:voll.v, q:q, qPeak:qPeak, qVoll:voll.q, vVoll:voll.v};
+  var lo=0, hi=tPeak;
+  for(var i=0;i<60;i++){ var mid=(lo+hi)/2; if(glTeilfuellung(mid).q*voll.q < q) lo=mid; else hi=mid; }
+  var tf=(lo+hi)/2, teil=glTeilfuellung(tf);
+  return {ueber:false, t:tf, h:glNum(diMm)*tf, v:voll.v*teil.v, q:q, qPeak:qPeak, qVoll:voll.q, vVoll:voll.v};
+}
+/* Beurteilung der Anschlussleitung (r = glCalcNetz-Resultat des Root-Abschnitts):
+   zu_klein konsistent mit dem «DN zu klein»-Hinweis (Auslastung > 100 % am Bemessungs-
+   Füllgrad); gross = ein kleinerer Katalog-DN würde alle Vorgaben erfüllen (dnMind < dnEff). */
+function glKreisStatus(r, fs){
+  if(!fs || !r || !(r.qtot>0)) return 'leer';
+  if(fs.ueber) return 'einstau';
+  if(r.auslastung>1+1e-9) return 'zu_klein';
+  if((r.dnEff||0)>(r.dnMind||0)+1e-9) return 'gross';
+  return 'ok';
 }
 /*ENGINE-END*/
 
@@ -1446,6 +1506,9 @@ function glRecalc(){
   var wb=el('glWarn');
   if(wb){ wb.innerHTML=warn.join('<br>'); wb.className='gl-warnbox'+(warn.length?' show':''); }
 
+  // Kreisprofil der Anschlussleitung(en) → HSK
+  try{ glKreisRender(calc, ord, byId); }catch(e){ console.warn('Kreisprofil:',e); }
+
   // Schema (eigener Script-Block — Cross-Block-Regel: window-Hook, geguardet)
   try{ if(typeof window._glSchemaDraw==='function') window._glSchemaDraw({state:state, calc:calc, ord:ord}); }catch(e){ console.warn('Schema:',e); }
 }
@@ -1459,6 +1522,99 @@ function glFokus(ziel){
   setTimeout(function(){ row.classList.remove('gl-puls'); },2400);
 }
 window.glFokus=glFokus;
+
+// ══════════════════════════════════════════════════════════════════════
+// KREISPROFIL DER ANSCHLUSSLEITUNG(EN) → HSK (Feedback 30.07.2026)
+// Nur die Root-Abschnitte: Rohr-Querschnitt mit Betriebs-Füllstand (glFuellstand),
+// Bemessungs-Füllgrad-Linie und Beurteilung in Ordnung / DN zu klein / DN grösser
+// als nötig / Einstau — aktualisiert sich mit jedem glRecalc (Dimension wechseln,
+// Gefälle/Einleitungen ändern). NUR literale Hex-/rgba-Farben (GemaPDF-Regel).
+// ══════════════════════════════════════════════════════════════════════
+var GLKP_STATUS={
+  ok:      {lbl:'✓ in Ordnung',                       wasser:'rgba(56,189,248,.55)', linie:'#0284c7'},
+  gross:   {lbl:'DN grösser als nötig',               wasser:'rgba(56,189,248,.45)', linie:'#0284c7'},
+  zu_klein:{lbl:'DN zu klein',                        wasser:'rgba(220,38,38,.30)',  linie:'#b91c1c'},
+  einstau: {lbl:'Einstau — Kapazität überschritten',  wasser:'rgba(220,38,38,.36)',  linie:'#7f1d1d'}
+};
+function glKreisWasser(cx,cy,R,t,fill,linie){
+  if(!(t>0)) return '';
+  if(t>=1) return '<circle cx="'+cx+'" cy="'+cy+'" r="'+R+'" fill="'+fill+'"/>';
+  var yW=cy+R-2*R*t, d=yW-cy, hc=Math.sqrt(Math.max(0,R*R-d*d)), laf=t>0.5?1:0;
+  return '<path d="M '+(cx-hc).toFixed(1)+' '+yW.toFixed(1)
+    +' A '+R+' '+R+' 0 '+laf+' 0 '+(cx+hc).toFixed(1)+' '+yW.toFixed(1)+' Z" fill="'+fill+'"/>'
+    +'<line x1="'+(cx-hc).toFixed(1)+'" y1="'+yW.toFixed(1)+'" x2="'+(cx+hc).toFixed(1)+'" y2="'+yW.toFixed(1)+'" stroke="'+linie+'" stroke-width="1.6"/>';
+}
+function glKreisSvg(r, fs, st){
+  var sc=GLKP_STATUS[st]||GLKP_STATUS.ok;
+  var W=286, H=206, cx=96, cy=94, Ro=78, Ri=70;
+  var s='<svg viewBox="0 0 '+W+' '+H+'" width="'+W+'" height="'+H+'" xmlns="http://www.w3.org/2000/svg" font-family="DM Sans,sans-serif">';
+  // Rohrwand + Innenraum
+  s+='<circle cx="'+cx+'" cy="'+cy+'" r="'+Ro+'" fill="#e2e8f0" stroke="#64748b" stroke-width="2"/>';
+  s+='<circle cx="'+cx+'" cy="'+cy+'" r="'+Ri+'" fill="#ffffff" stroke="#94a3b8" stroke-width="1.2"/>';
+  // Wasser
+  s+=glKreisWasser(cx,cy,Ri,fs.t,sc.wasser,sc.linie);
+  // Einstau-Marker (Überdruck am Scheitel)
+  if(st==='einstau'){
+    s+='<path d="M '+(cx-14)+' '+(cy-Ro-8)+' l 7 -9 l 7 9 Z" fill="#b91c1c"/>';
+    s+='<path d="M '+(cx+2)+' '+(cy-Ro-8)+' l 7 -9 l 7 9 Z" fill="#b91c1c"/>';
+  }
+  // Bemessungs-Füllgrad (gestrichelt, amber) — Linie bis zur Pegel-Skala rechts
+  var yB=cy+Ri-2*Ri*r.fuellgrad;
+  s+='<line x1="'+(cx-Ri-6)+'" y1="'+yB.toFixed(1)+'" x2="'+(cx+Ro+30)+'" y2="'+yB.toFixed(1)+'" stroke="#d97706" stroke-width="1.4" stroke-dasharray="5 4"/>';
+  // Betriebs-Pegel-Zeiger rechts (Wasserlinie → Skala)
+  var yW=cy+Ri-2*Ri*Math.min(fs.t,1);
+  var lblOffB=(Math.abs(yW-yB)<14)?-4:3.5;   // Kollision: Bemessungs-Label weicht nach oben aus
+  s+='<line x1="'+(cx+Ro)+'" y1="'+yW.toFixed(1)+'" x2="'+(cx+Ro+30)+'" y2="'+yW.toFixed(1)+'" stroke="'+sc.linie+'" stroke-width="1.8"/>';
+  s+='<text x="'+(cx+Ro+34)+'" y="'+(yW+3.5).toFixed(1)+'" font-size="10.5" font-weight="800" fill="'+sc.linie+'">h/d '+Math.round(fs.t*100)+' %</text>';
+  s+='<text x="'+(cx+Ro+34)+'" y="'+(yB+lblOffB).toFixed(1)+'" font-size="8.5" font-weight="700" fill="#d97706">Bemessung '+Math.round(r.fuellgrad*100)+' %</text>';
+  // DN-Beschriftung unter dem Rohr
+  s+='<text x="'+cx+'" y="'+(cy+Ro+22)+'" text-anchor="middle" font-size="10.5" font-weight="700" fill="#475569">DN '+(r.dnEff||'–')+' · D<tspan font-size="7.5" dy="2">i</tspan><tspan dy="-2"> '+fmt(r.di,1)+' mm</tspan></text>';
+  s+='</svg>';
+  return s;
+}
+function glKreisRender(calc, ord, byId){
+  var card=el('glKreisCard'), host=el('glKreisHost');
+  if(!card||!host) return;
+  var roots=(ord.roots||[]).filter(function(id){ var r=calc.res[id]; return r && r.qtot>0; });
+  if(!roots.length){ card.style.display='none'; host.innerHTML=''; return; }
+  card.style.display='';
+  host.innerHTML=roots.map(function(id){
+    var a=byId[id]||{}, r=calc.res[id];
+    var name='<div class="glkp-name" onclick="glFokus(\'a:'+esc(id)+'\')">'+esc(a.name||id)+' <span class="an-tag">Anschlussleitung → HSK</span></div>';
+    var fs=(r.gef>0 && r.di>0)?glFuellstand(r.qtot, r.di, r.gef, calc.cfg.kb):null;
+    if(!fs){
+      return '<div class="glkp-panel"><div class="glkp-info">'+name
+        +'<div class="glkp-hint">'+(r.gef>0?'Kein DN aufgelöst.':'Gefälle erfassen, um den Füllstand des Kreisprofils zu berechnen.')
+        +' Q<sub>tot</sub> = '+fmt(r.qtot,2)+' l/s.</div></div></div>';
+    }
+    var st=glKreisStatus(r, fs), sc=GLKP_STATUS[st]||GLKP_STATUS.ok;
+    var hint='';
+    if(st==='ok')       hint='Betriebs-Füllstand unter dem Bemessungs-Füllgrad h/d = '+Math.round(r.fuellgrad*100)+' % ('+GL_MEDIA[r.medium]+').';
+    if(st==='gross')    hint='Ein kleinerer Katalog-DN würde genügen: mind. DN '+(r.dnMind||'–')+' — gewählt ist DN '+(r.dnEff||'–')+'.';
+    if(st==='zu_klein') hint='Füllstand über dem Bemessungs-Füllgrad h/d = '+Math.round(r.fuellgrad*100)+' % — nächst grösseren DN wählen (mind. DN '+(r.dnMind||'–')+').';
+    if(st==='einstau')  hint='Q<sub>tot</sub> übersteigt die Kapazität des Rohrs (Scheitel '+fmt(fs.qPeak,2)+' l/s) — die Leitung staut ein.';
+    var link='sb_kreisprofil.html?q='+encodeURIComponent(fmtN(r.qtot))+'&gef='+encodeURIComponent(fmtN(r.gef))
+      +'&kb='+encodeURIComponent(fmtN(calc.cfg.kb))+'&di='+encodeURIComponent(fmtN(r.di));
+    return '<div class="glkp-panel">'
+      +'<div class="glkp-svg">'+glKreisSvg(r, fs, st)+'</div>'
+      +'<div class="glkp-info">'+name
+      +'<span class="glkp-pill '+st+'">'+sc.lbl+'</span>'
+      +'<div class="glkp-vals">'
+        +'<span><span class="l">Q<sub>tot</sub></span><b>'+fmt(r.qtot,2)+'</b> l/s</span>'
+        +'<span><span class="l">Q<sub>max</sub> (h/d '+Math.round(r.fuellgrad*100)+' %)</span><b>'+fmt(r.qmax,2)+'</b> l/s</span>'
+        +'<span><span class="l">Auslastung</span><b>'+Math.round(r.auslastung*100)+'</b> %</span>'
+        +'<span><span class="l">Füllstand h/d</span><b>'+(fs.ueber?'> 100':Math.round(fs.t*100))+'</b> %</span>'
+        +'<span><span class="l">Füllhöhe h<sub>T</sub></span><b>'+(fs.ueber?'—':fmt(fs.h,0))+'</b> mm</span>'
+        +'<span><span class="l">v Betrieb</span><b>'+fmt(fs.v,2)+'</b> m/s</span>'
+        +'<span><span class="l">Gefälle</span><b>'+fmt(r.gef,1)+'</b> %</span>'
+        +'<span><span class="l">Q<sub>voll</sub></span><b>'+fmt(fs.qVoll,2)+'</b> l/s</span>'
+      +'</div>'
+      +'<div class="glkp-hint">'+hint+'</div>'
+      +'<a class="glkp-link no-print" href="'+link+'" title="Detailberechnung mit Teilfüllungstabelle im Modul Hydraulik Kreisprofil öffnen">↗ Detailberechnung im Kreisprofil-Modul</a>'
+      +'</div></div>';
+  }).join('');
+}
+function fmtN(x){ return String(Math.round(x*1000)/1000); }
 
 // ══════════════════════════════════════════════════════════════════════
 // VERKNÜPFUNGEN — DU-Zusammenstellung + Niederschlag (defensive Cross-Modul-Reads)
