@@ -28,6 +28,7 @@
     'hz_heizlast':'Heizlast aus Verbrauch',
     'hz_heizungsleitungen':'Heizungsleitungen',
     'hz_waermegruppen':'Wärmegruppen SIA 384',
+    'hz_waermepumpe':'Wärmepumpe / JAZ',
     'if_fahrzeug':'Fahrzeugmanagement',
     'if_trocknung':'Trocknungsgeräte',
     'if_wareneingang':'Wareneingang',
