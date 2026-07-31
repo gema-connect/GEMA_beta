@@ -219,6 +219,7 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important}
 .foto{position:relative;width:64px;height:64px;border-radius:9px;overflow:hidden;border:1.5px solid var(--brd);background:#000}
 .foto img{width:100%;height:100%;object-fit:cover;cursor:pointer}
 .foto .fx{position:absolute;top:2px;right:2px;width:20px;height:20px;border-radius:6px;border:none;background:rgba(0,0,0,.6);color:#fff;font-size:11px;cursor:pointer;line-height:1}
+.foto .fx.fshare{right:auto;left:2px;background:rgba(29,78,216,.75)}
 /* Foto wartet noch auf den Bucket (offline aufgenommen) */
 .foto.wartet{border-color:#f59e0b}
 .foto .foto-wait{position:absolute;left:2px;bottom:2px;background:rgba(245,158,11,.94);color:#fff;font-size:10px;border-radius:5px;padding:1px 4px;line-height:1.35}
@@ -612,6 +613,7 @@ var PR_OBJEKTTYPEN = [
   { id:'wgh',        label:'Wohn- und Geschäftshaus' },
   { id:'schulhaus',  label:'Schulhaus' },
   { id:'restaurant', label:'Restaurant' },
+  { id:'takeaway',   label:'Take-Away' },
   { id:'buero',      label:'Bürogebäude' },
   { id:'hotel',      label:'Hotel' },
   { id:'gewerbe',    label:'Gewerbe- / Industriebau' },
@@ -1368,12 +1370,28 @@ function renderPunkt(a, ai, p, pi, abg){
   /* Mehr (Zustand/Bemerkung/Empfehlung/Foto) */
   var openCls = p._open?'open':'';
   h+='<div class="pkt-more '+openCls+'" id="more_'+ai+'_'+pi+'">';
+  /* Standort mit Freifeld pro Prüfpunkt (Feedback 31.07.2026, Tim Löhrer) —
+     seit dem Wegfall des Anlagen-Standorts lebt der Ort am Punkt selbst. */
+  h+='<div class="fld-row"><div class="fld"><label>Standort</label><input type="text" '+(abg?'disabled':'')+' placeholder="z.B. UG Waschküche" value="'+esc(p.standort||'')+'" onchange="prPktField('+ai+','+pi+',\'standort\',this.value)"></div></div>';
   /* Bauteil-Angaben — Felder EINZELN pro Punkt wählbar (Feedback 29.07.2026);
      Legacy bauteil:true ohne bauteilFelder = alle vier. */
   var btf=prBauteilFelder(p);
   if(btf.length){
     var btInp={
-      hersteller:'<div class="fld"><label>Hersteller</label><input type="text" list="prHerstellerList" '+(abg?'disabled':'')+' placeholder="z.B. Kessel" value="'+esc(p.hersteller||'')+'" onchange="prPktField('+ai+','+pi+',\'hersteller\',this.value)"></div>',
+      /* Hersteller als Auswahl + «andere …» → freies Textfeld (Feedback
+         31.07.2026, Tim Löhrer — die reine datalist wirkte auf dem iPad wie
+         eine geschlossene Liste ohne Weg zur freien Eingabe). */
+      hersteller:(function(){
+        var hv=String(p.hersteller||'');
+        var inList=!hv||PR_HERSTELLER.indexOf(hv)>=0;
+        var selVal=hv?(inList?hv:'__frei'):'';
+        var o='<div class="fld"><label>Hersteller</label><select '+(abg?'disabled':'')+' onchange="prPktHersteller('+ai+','+pi+',this)">';
+        o+='<option value=""'+(selVal===''?' selected':'')+'>— wählen —</option>';
+        PR_HERSTELLER.forEach(function(hn){o+='<option value="'+esc(hn)+'"'+(selVal===hn?' selected':'')+'>'+esc(hn)+'</option>';});
+        o+='<option value="__frei"'+(selVal==='__frei'?' selected':'')+'>andere …</option></select>';
+        o+='<input type="text" id="herFrei_'+ai+'_'+pi+'" '+(abg?'disabled':'')+' placeholder="Hersteller frei eingeben" value="'+(inList?'':esc(hv))+'" style="margin-top:4px;display:'+(selVal==='__frei'?'':'none')+'" onchange="prPktField('+ai+','+pi+',\'hersteller\',this.value)">';
+        return o+'</div>';
+      })(),
       typ:'<div class="fld"><label>Typ</label><input type="text" '+(abg?'disabled':'')+' placeholder="Typenbezeichnung" value="'+esc(p.typ||'')+'" onchange="prPktField('+ai+','+pi+',\'typ\',this.value)"></div>',
       /* Baujahr frei beschreibbar — Jahre als Vorschlag, Freitext für «ca. 1985» */
       baujahr:'<div class="fld"><label>Baujahr</label><input type="text" list="prJahrList" '+(abg?'disabled':'')+' placeholder="z.B. 1998 oder «ca. 1985»" value="'+esc(p.baujahr||'')+'" onchange="prPktField('+ai+','+pi+',\'baujahr\',this.value)"></div>',
@@ -1411,6 +1429,7 @@ function renderPunkt(a, ai, p, pi, abg){
       return '<div class="foto'+(fotoWartet(f)?' wartet':'')+'">'
         + (src ? '<img src="'+esc(src)+'" onclick="prLightbox(this.src)">' : '<div class="foto-fehlt" title="Dieses Foto wurde auf einem anderen Gerät aufgenommen und ist dort noch nicht hochgeladen.">📷</div>')
         + (fotoWartet(f)?'<span class="foto-wait" title="Foto liegt noch auf diesem Gerät und wird hochgeladen, sobald wieder Verbindung besteht">⏳</span>':'')
+        + (src?'<button class="fx fshare" title="Auf dem Gerät sichern / teilen — auf dem Handy landet das Foto über «Bild sichern» in den Fotos" onclick="prFotoTeilen('+ai+','+pi+','+fi+')">📤</button>':'')
         + (abg?'':'<button class="fx" onclick="prDelFoto('+ai+','+pi+','+fi+')">✕</button>')+'</div>'; }).join('')
     + (abg?'':'<button class="icobtn" style="width:64px;height:64px" title="Foto aufnehmen" onclick="prAddFoto('+ai+','+pi+',\'kamera\')">📷</button>'
             +'<button class="icobtn" style="width:64px;height:64px" title="Aus Mediathek wählen (mehrere möglich)" onclick="prAddFoto('+ai+','+pi+',\'galerie\')">🖼</button>') +'</div>';
@@ -1585,6 +1604,20 @@ window.prSetAntwortNb=function(ai,pi){
 };
 window.prSetBewertung=function(ai,pi,v){ if(!_cur)return; var p=_cur.anlagen[ai].punkte[pi]; if(prZustandEntfaellt(p))return; p.bewertung=v; if(prIstNegativ(v) && !p.empfehlung && p.empfehlungVorlage) p.empfehlung=p.empfehlungVorlage; saveBeg(_cur); refreshPunkt(ai,pi); };
 window.prPktField=function(ai,pi,f,v){ if(!_cur)return; _cur.anlagen[ai].punkte[pi][f]=v; touch(); };
+/* Hersteller-Auswahl: Listenwert direkt übernehmen; «andere …» blendet das
+   freie Textfeld ein (gespeichert wird erst die Eingabe — kein Re-Render,
+   sonst wäre der Fokus weg, Fokus-Regel). */
+window.prPktHersteller=function(ai,pi,sel){
+  if(!_cur)return;
+  var frei=document.getElementById('herFrei_'+ai+'_'+pi);
+  if(sel.value==='__frei'){
+    if(frei){ frei.style.display=''; try{ frei.focus(); }catch(e){} }
+    return;
+  }
+  if(frei){ frei.style.display='none'; frei.value=''; }
+  _cur.anlagen[ai].punkte[pi].hersteller=sel.value;
+  touch();
+};
 /* Empfehlungs-Vorlage (Zeile vi) ins Empfehlungs-Feld übernehmen bzw. wieder
    entfernen — mehrere Vorlagen kombinierbar, Freitext bleibt erhalten. */
 window.prEmpfToggle=function(ai,pi,vi){
@@ -1877,6 +1910,27 @@ window.prTitelbildDel=function(){
     if(!ok||!_cur) return;
     if(_cur.titelbild&&_cur.titelbild.pendingId) _fotoQDel(_cur.titelbild.pendingId);
     delete _cur.titelbild; saveBeg(_cur); refreshTitelbild();
+  });
+};
+/* Foto aufs Gerät sichern (Feedback 31.07.2026 Sandro: «Fotos … soll es auf
+   dem Handy bei Fotos speichern») — der Browser kann NICHT direkt in die
+   Foto-Mediathek schreiben; der Weg ist das System-Share-Sheet (Web Share
+   Level 2 mit Datei → iOS/Android «Bild sichern»), Fallback = Download. */
+window.prFotoTeilen=function(ai,pi,fi){
+  if(!_cur)return;
+  var f=((_cur.anlagen[ai]||{}).punkte[pi]||{}).fotos; f=f&&f[fi]; if(!f)return;
+  var src=imgSrc(f); if(!src)return;
+  fetch(src).then(function(r){return r.blob();}).then(function(bl){
+    var file=new File([bl],'pruefpunkt_foto_'+(fi+1)+'.jpg',{type:bl.type||'image/jpeg'});
+    if(navigator.canShare&&navigator.canShare({files:[file]})&&navigator.share){
+      return navigator.share({files:[file],title:'Prüfpunkt-Foto'}).catch(function(){});
+    }
+    var a=document.createElement('a');
+    a.href=URL.createObjectURL(bl); a.download=file.name;
+    document.body.appendChild(a); a.click();
+    setTimeout(function(){ try{URL.revokeObjectURL(a.href);}catch(e){} a.remove(); },400);
+  }).catch(function(){
+    try{ GemaDialog.alert({title:'Foto sichern',message:'Das Foto konnte nicht geladen werden — bitte Verbindung prüfen.'}); }catch(e){}
   });
 };
 window.prDelFoto=function(ai,pi,fi){
@@ -2804,6 +2858,8 @@ function printBericht(b){
       if(p.material)   btTeile.push('Material '+E(p.material));
       if(p.wartung)    btTeile.push('Wartung/Ersatz '+E(p.wartung));
       var btZeile = btTeile.length ? '<br><span class="btz">🔩 '+btTeile.join(' · ')+'</span>' : '';
+      /* Standort-Freifeld des Punkts (Feedback 31.07.2026) */
+      if(p.standort) btZeile='<br><span class="btz">📍 '+E(p.standort)+'</span>'+btZeile;
       /* Prüfart (z.B. Geruchsemission: Nasal / Messgerät) */
       var paLbl='';
       (PR_PRUEFARTEN||[]).forEach(function(o){ if(o.v===p.pruefart) paLbl=o.l; });

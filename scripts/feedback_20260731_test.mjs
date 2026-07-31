@@ -366,6 +366,106 @@ ok(back.rows.some(n => /AUL Winter Basel/.test(n)), 'Zurückwechseln stellt die 
 ok(back.tziel === '21' && back.mode === 'ziel', 'Auslegungs-Eingaben der Anlage wiederhergestellt (Ziel-t 21, Modus ziel)');
 ok(hErr.length === 0, 'h,x: keine JS-Fehler' + (hErr.length ? ': ' + hErr[0] : ''));
 
+// ============================================================
+// Teil 4 — Prüfliste (pm_pruefliste.html): Objekttyp «Take-Away» nach
+// Restaurant, Standort-Freifeld pro Prüfpunkt (inkl. Bericht), Hersteller
+// als Auswahl mit «andere …» → freies Textfeld, Foto-Sichern-Knopf (Share).
+// ============================================================
+console.log('\n— Prüfliste —');
+const { page: pp } = await newPage(browser, seed(['role_planer']));
+const pErr = [];
+pp.on('pageerror', e => pErr.push(String(e)));
+await pp.goto(BASE + '/pm_pruefliste.html', { waitUntil: 'domcontentloaded' });
+await pp.waitForFunction(() => window._prHooks && typeof neueBegehung === 'function', null, { timeout: 15000 }).catch(() => {});
+await pp.waitForTimeout(800);
+
+// Begehung anlegen (echte API: prNeu + prAddAnlage), Punkt auf Bauteil stellen
+await pp.evaluate(() => { prNeu(); });
+await pp.waitForTimeout(400);
+await pp.evaluate(() => { prAddAnlage('gas'); });
+await pp.waitForTimeout(300);
+const prChips = await pp.evaluate(() => {
+  const btns = [...document.querySelectorAll('#eObjTypChips button')].map(b => b.textContent.trim());
+  const iR = btns.indexOf('Restaurant');
+  return { iR, next: btns[iR + 1] || '' };
+});
+ok(prChips.iR >= 0 && prChips.next === 'Take-Away', 'Objekttyp-Chips: «Take-Away» direkt nach «Restaurant»');
+await pp.evaluate(() => {
+  const p0 = _prHooks.aktuelle().anlagen[0].punkte[0];
+  p0.bauteil = true; p0.bauteilFelder = null;
+  p0.fotos = [{ dataUrl: 'data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==' }];
+  _prHooks.renderEditor();
+});
+await pp.waitForTimeout(300);
+await pp.evaluate(() => { prTogglePkt(0, 0); });
+await pp.waitForTimeout(200);
+
+const prPanel = await pp.evaluate(() => {
+  const more = document.querySelector('.pkt-more');
+  const herSel = more ? [...more.querySelectorAll('select')].find(sel => [...sel.options].some(o => o.value === '__frei')) : null;
+  const frei = document.querySelector('[id^="herFrei_"]');
+  return {
+    standortInp: !!(more && [...more.querySelectorAll('.fld label')].find(l => l.textContent === 'Standort')),
+    herSelDa: !!herSel,
+    herAndere: herSel ? [...herSel.options].some(o => o.value === '__frei' && /andere/.test(o.textContent)) : false,
+    herFreiHidden: frei ? frei.style.display === 'none' : null,
+    shareBtn: !!document.querySelector('.foto .fx.fshare')
+  };
+});
+ok(prPanel.standortInp, 'Standort-Freifeld im Prüfpunkt-Panel');
+ok(prPanel.herSelDa && prPanel.herAndere, 'Hersteller als Auswahl mit «andere …»');
+ok(prPanel.herFreiHidden === true, 'Freitextfeld startet versteckt');
+ok(prPanel.shareBtn, 'Foto-Sichern/Teilen-Knopf (📤) am Foto');
+
+// Listenwert wählen → direkt gespeichert; dann «andere …» → Freitext
+await pp.evaluate(() => {
+  const herSel = [...document.querySelectorAll('.pkt-more select')].find(sel => [...sel.options].some(o => o.value === '__frei'));
+  herSel.value = 'Biral'; prPktHersteller(0, 0, herSel);
+});
+ok((await pp.evaluate(() => _prHooks.aktuelle().anlagen[0].punkte[0].hersteller)) === 'Biral', 'Listen-Hersteller direkt gespeichert');
+await pp.evaluate(() => {
+  const herSel = [...document.querySelectorAll('.pkt-more select')].find(sel => [...sel.options].some(o => o.value === '__frei'));
+  herSel.value = '__frei'; prPktHersteller(0, 0, herSel);
+});
+ok(await pp.evaluate(() => document.querySelector('[id^="herFrei_"]').style.display !== 'none'), '«andere …» blendet das Freitextfeld ein');
+await pp.evaluate(() => {
+  const inp = document.querySelector('[id^="herFrei_"]');
+  inp.value = 'Spezialpumpen AG';
+  inp.dispatchEvent(new Event('change', { bubbles: true }));
+  const st = [...document.querySelectorAll('.pkt-more .fld')].find(f => f.querySelector('label') && f.querySelector('label').textContent === 'Standort').querySelector('input');
+  st.value = 'UG Waschküche';
+  st.dispatchEvent(new Event('change', { bubbles: true }));
+});
+const prSaved = await pp.evaluate(() => {
+  const p0 = _prHooks.aktuelle().anlagen[0].punkte[0];
+  return { her: p0.hersteller, standort: p0.standort };
+});
+ok(prSaved.her === 'Spezialpumpen AG', 'freier Hersteller gespeichert');
+ok(prSaved.standort === 'UG Waschküche', 'Standort gespeichert');
+
+// Bericht: 📍-Standort-Zeile + freier Hersteller (Druckfenster-Mock)
+const prBerHtml = await pp.evaluate(() => {
+  let html = '';
+  const _o = window.open;
+  window.open = () => ({ document: { write: s => { html += s; }, close() { }, title: '' }, focus() { }, print() { }, onload: null });
+  try { prBericht(); } catch (e) { html += '<!--ERR ' + e.message + '-->'; }
+  window.open = _o;
+  return html;
+});
+ok(/📍 UG Waschküche/.test(prBerHtml), 'Bericht zeigt die 📍-Standort-Zeile');
+ok(/Hersteller Spezialpumpen AG/.test(prBerHtml), 'Bericht zeigt den freien Hersteller');
+
+// Re-Render: «andere …» + Wert bleiben sichtbar
+await pp.evaluate(() => { _prHooks.renderEditor(); prTogglePkt(0, 0); });
+await pp.waitForTimeout(200);
+const prRe = await pp.evaluate(() => {
+  const herSel = [...document.querySelectorAll('.pkt-more select')].find(sel => [...sel.options].some(o => o.value === '__frei'));
+  const frei = document.querySelector('[id^="herFrei_"]');
+  return { sel: herSel ? herSel.value : '', frei: frei ? frei.value : '', vis: frei ? frei.style.display !== 'none' : false };
+});
+ok(prRe.sel === '__frei' && prRe.frei === 'Spezialpumpen AG' && prRe.vis, 'Re-Render: freier Hersteller bleibt («andere …» + Wert)');
+ok(pErr.length === 0, 'Prüfliste: keine JS-Fehler' + (pErr.length ? ': ' + pErr[0] : ''));
+
 await browser.close();
 srv.close();
 console.log(`\n${pass}/${pass + fail} Checks bestanden${fail ? ' — ' + fail + ' FEHLER' : ''}`);
