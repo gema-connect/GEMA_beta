@@ -82,7 +82,8 @@ console.log('■ Tank-SVG — Aufbau + Grössenverhältnis');
     };
   });
   ok(!!z, 'Simulation-SVG gerendert');
-  ok(z.txt.includes('Reinwassertank') && z.txt.includes('Osmose-') && z.txt.includes('Verbrau-'), 'Beschriftungen Tank/Zulauf/Ablauf');
+  // Feedback 31.07.2026: «Verbraucher» in EINER Zeile (vorher «Verbrau-»/«cher»)
+  ok(z.txt.includes('Reinwassertank') && z.txt.includes('Osmose-') && z.txt.includes('Verbraucher'), 'Beschriftungen Tank/Zulauf/Ablauf (Verbraucher einzeilig)');
   ok(z.txt.includes('Tankgrösse') && z.txt.includes('Reserve 50 l'), 'Marker-Linien Tankgrösse + Reserve beschriftet');
   const expH = 450 / z.cap * 280;
   ok(Math.abs(z.h450 - expH) < 1.5, 'Wasserhöhe proportional (450 l → ' + z.h450.toFixed(1) + ' px ≈ ' + expH.toFixed(1) + ')');

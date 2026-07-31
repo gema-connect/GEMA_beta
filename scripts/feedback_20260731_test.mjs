@@ -196,6 +196,72 @@ ok(ves.diagBad === 0, 'Vessel: alle Bezugslinien gerade');
 
 ok(errors.length === 0, 'Keine JS-Fehler' + (errors.length ? ': ' + errors[0] : ''));
 
+// ============================================================
+// Teil 2 — Osmose (sa_osmose.html): 24-h-Tabelle mit «Zeit»-Kopf +
+// zweizeiligen 00.00–01.00-Fenstern OHNE Schiebe-Balken, Tank-Simulation
+// breiter mit einzeiliger Verbraucher-Beschriftung + gestaffelten
+// Marker-Labels bei kleinen Werten, Sektionen einklappbar.
+// ============================================================
+console.log('\n— Osmose —');
+const { page: op } = await newPage(browser, seed(['role_planer']));
+const oErr = [];
+op.on('pageerror', e => oErr.push(String(e)));
+await op.goto(BASE + '/sa_osmose.html', { waitUntil: 'domcontentloaded' });
+await op.waitForTimeout(1500);
+await op.evaluate(() => {
+  const set = (id, v) => { const el = document.getElementById(id); if (el){ el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); } };
+  set('c_flow_0', '250'); set('c_hours_0', '8');
+  set('anlageLeistung', '150'); set('tankSelected', '100');
+  recalc();
+});
+await op.waitForTimeout(500);
+await op.evaluate(() => { document.getElementById('otOptTank').value = '2500'; otOptChanged(); });
+await op.waitForTimeout(400);
+
+const osm = await op.evaluate(() => {
+  const wrap = document.querySelector('.ot-wrap');
+  const zh = document.querySelectorAll('#otTbl .ot-zh');
+  const svg = document.querySelector('#otSimWrap svg');
+  const txts = svg ? [...svg.querySelectorAll('text')].map(t => t.textContent) : [];
+  // Marker-Labels (Tankgrösse/gewählt/Reserve) — y-Abstände der Text-Labels
+  const marks = svg ? [...svg.querySelectorAll('text')].filter(t => /Tankgrösse|Reserve|gewählt/.test(t.textContent))
+    .map(t => parseFloat(t.getAttribute('y'))).sort((a, b) => a - b) : [];
+  let minGap = 999;
+  for (let i = 1; i < marks.length; i++) minGap = Math.min(minGap, marks[i] - marks[i - 1]);
+  const vb = svg ? svg.getAttribute('viewBox') : '';
+  const tankRect = svg ? [...svg.querySelectorAll('rect')].find(r => r.getAttribute('stroke') === '#111827') : null;
+  return {
+    scroll: wrap ? (wrap.scrollWidth - wrap.clientWidth) : -1,
+    zhCount: zh.length, zh0: zh[0] ? zh[0].textContent : '', zh23: zh[23] ? zh[23].textContent : '',
+    zhTwoLine: zh[0] ? zh[0].innerHTML.includes('<br>') : false,
+    zeitLbl: !!([...document.querySelectorAll('#otTbl thead th')].find(t => t.textContent.trim() === 'Zeit')),
+    einzeilig: txts.includes('Verbraucher') && !txts.includes('Verbrau-'),
+    markCount: marks.length, minGap,
+    tankW: tankRect ? parseFloat(tankRect.getAttribute('width')) : 0,
+    folds: document.querySelectorAll('.g-section-hd.osm-foldhd').length
+  };
+});
+ok(osm.scroll === 0, '24-h-Tabelle ohne horizontalen Schiebe-Balken (Overflow ' + osm.scroll + 'px)');
+ok(osm.zeitLbl, 'Kopfzeile trägt die Beschriftung «Zeit»');
+ok(osm.zhCount === 24 && osm.zhTwoLine, '24 zweizeilige Stundenfenster-Köpfe');
+ok(osm.zh0 === '00.00–01.00' && osm.zh23 === '23.00–24.00', 'Fenster-Angabe 00.00–01.00 … 23.00–24.00');
+ok(osm.einzeilig, 'Tank-Sim: «Verbraucher» in einer Zeile');
+ok(osm.tankW >= 240, 'Tank breiter dargestellt (' + osm.tankW + 'px)');
+ok(osm.markCount === 3 && osm.minGap >= 11, 'Marker-Labels gestaffelt (kleine Werte, minGap ' + osm.minGap.toFixed(1) + 'px)');
+ok(osm.folds >= 3, 'Sektionen einklappbar: ' + osm.folds);
+
+const osmFold = await op.evaluate(() => {
+  const sec = document.querySelector('.g-section');
+  const hd = sec.querySelector('.g-section-hd');
+  hd.click();
+  const zu = sec.classList.contains('osm-zu');
+  const st = JSON.parse(localStorage.getItem('gema_osm_fold_v1') || '{}');
+  hd.click();
+  return { zu, stored: Object.keys(st).length === 1, offen: !sec.classList.contains('osm-zu') };
+});
+ok(osmFold.zu && osmFold.stored && osmFold.offen, 'Fold: zu → localStorage → wieder offen');
+ok(oErr.length === 0, 'Osmose: keine JS-Fehler' + (oErr.length ? ': ' + oErr[0] : ''));
+
 await browser.close();
 srv.close();
 console.log(`\n${pass}/${pass + fail} Checks bestanden${fail ? ' — ' + fail + ' FEHLER' : ''}`);
