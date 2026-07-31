@@ -313,17 +313,75 @@
 
   /**
    * Gesamtvolumenstrom (Hausanschluss-Dimensionierung).
-   * max(KW, WW) + Summe aller anderen Medien.
+   * Seit Feedback Sandro 31.07.2026 («Belastung Hausanschlussleitung muss
+   * sich auf die Gesamt-LU beziehen»): W3 Diagramm 1 über die GESAMT-LU
+   * aller Apparate (Gleichzeitigkeit über den ganzen Anschluss, inkl.
+   * Apparate auf alternativen Netzen EW/OW/RW/GW) + Spezial-/Dauer-
+   * verbraucher ALLER Medien 1:1.
+   * EINE WAHRHEIT mit calc() → qHausanschluss in sb_lu_tabelle.html —
+   * bei Änderungen dort IMMER hier nachziehen.
+   * (Früher: max(KW, WW) + Summe der übrigen Medien-Spitzenströme — das
+   * unterschätzte die Gleichzeitigkeit über den Gesamtanschluss nicht,
+   * sondern summierte die W3-reduzierten Teilströme.)
    */
   function getHausanschluss(objektId) {
-    var s = getSummary(objektId);
-    var qKw = s.kw ? s.kw.flow_ls : 0;
-    var qWw = s.ww ? s.ww.flow_ls : 0;
-    var qOther = 0;
-    Object.keys(s).forEach(function(k) {
-      if (k !== 'kw' && k !== 'ww') qOther += s[k].flow_ls;
+    var state = _load(objektId);
+    if (!state) return 0;
+    var deviceLU = _getDeviceLU(state);
+
+    // Leitungsnetz des Apparats → Berechnungsmedium (wie sb_lu_tabelle)
+    var NETZ_ZU_MEDIUM = { enthaertet: 'bw', osmose: 'ow', regenwasser: 'gw', grauwasser: 'grau' };
+
+    // Gesamt-LU + Stückzahl über ALLE Apparate; LU je Medium für die Kurvenwahl
+    var luTotal = 0, totalUnits = 0;
+    var mediaLU = {};
+    (state.devices || []).forEach(function(r) {
+      if (!r.deviceName) return;
+      var qty = Math.max(0, Number(r.qty) || 0);
+      if (qty <= 0) return;
+      var d = deviceLU[r.deviceName];
+      if (!d) return;
+      var luTot = ((d.lu_kw || 0) + (d.lu_ww || 0) + (d.lu_nd || 0)) * qty;
+      luTotal += luTot;
+      totalUnits += qty;
+      var altMed = NETZ_ZU_MEDIUM[r.medium || 'trinkwasser'];
+      if (altMed) {
+        mediaLU[altMed] = (mediaLU[altMed] || 0) + luTot;
+      } else {
+        if (d.lu_kw > 0) mediaLU.kw = (mediaLU.kw || 0) + d.lu_kw * qty;
+        if (d.lu_ww > 0) mediaLU.ww = (mediaLU.ww || 0) + d.lu_ww * qty;
+        if (d.lu_nd > 0) mediaLU.nd = (mediaLU.nd || 0) + d.lu_nd * qty;
+      }
     });
-    return Math.max(qKw, qWw) + qOther;
+
+    // Spezial + Dauer aller Medien 1:1
+    var qOther = 0;
+    ['special', 'dauer'].forEach(function(listKey) {
+      (state[listKey] || []).forEach(function(r) {
+        var qty = Math.max(0, Number(r.qty) || 0);
+        qOther += _rowFlowLs(r) * qty;
+      });
+    });
+
+    // Kurvenwahl: grösster wirksamer Einzel-LU über die Medien mit LU
+    // (identisch grHA in sb_lu_tabelle calc())
+    var stMax = state.maxLU || {};
+    var grHA = 0;
+    Object.keys(mediaLU).forEach(function(mid) {
+      if (mediaLU[mid] > 0) grHA = Math.max(grHA, stMax[mid] || _defaultMaxLU(mid));
+    });
+    if (!grHA) grHA = 3;
+
+    // Einzelapparat-Regel (wie _qMed): genau 1 Apparat ohne weitere
+    // Verbraucher → direkt LU/10; sonst W3 (deckt LU≤3 → /10 mit ab)
+    var luFlow;
+    if (totalUnits === 1 && !(qOther > 0)) {
+      luFlow = luTotal / 10;
+    } else {
+      luFlow = _qDiagramm1(luTotal, grHA);
+    }
+
+    return luFlow + qOther;
   }
 
   /**

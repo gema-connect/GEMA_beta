@@ -106,10 +106,16 @@ const browser = await chromium.launch({ executablePath: CHROME, args: ['--no-san
   const exHead = await page.evaluate(() => document.querySelector('.kpi-ex-head').textContent.replace(/\s+/g, ' ').trim());
   ok(exHead.indexOf('Grösster LU') >= 0, 'Spaltenkopf «Grösster LU» über den Kurven-Buttons');
   ok(exHead.indexOf('100 %') >= 0 && exHead.indexOf('Red. W3') >= 0, 'Spaltenköpfe «100 %» und «Red. W3»');
-  // Feedback 30.07.2026: Buttons stehen LINKS beim Label, die Spalte
-  // «Grösster LU» zeigt den gewählten/effektiven Wert (Transparenz).
-  ok(await page.evaluate(() => !!document.querySelector('#kpiMain .g-result-row.ex .g-result-lbl .maxlu-inline')),
-    'Grösster-LU-Buttons links beim Label (Feedback 30.07.2026)');
+  // Feedback 31.07.2026: Formel + 3/5/Auto-Buttons stehen in EIGENEN, sauber
+  // ausgerichteten Spalten; die Spalte «Grösster LU» zeigt weiterhin den
+  // gewählten/effektiven Wert (Transparenz), die LU je Medium ist als eigene
+  // Spalte aus der Aufteilung integriert.
+  ok(await page.evaluate(() => !!document.querySelector('#kpiMain .g-result-row.ex .maxlu-btncol .maxlu-inline')),
+    'Grösster-LU-Buttons in eigener Spalte (Feedback 31.07.2026)');
+  ok(await page.evaluate(() => !!document.querySelector('#kpiMain .g-result-row.ex .frml-col .frml')),
+    'Formel-Chip in eigener Spalte (Feedback 31.07.2026)');
+  ok(await page.evaluate(() => /\d+ LU/.test((document.querySelector('#kpiMain .g-result-row.ex .lu-med-col .lu-med-val')||{}).textContent||'')),
+    'LU je Medium als Spalte in den Hauptwerten (Feedback 31.07.2026)');
   ok(await page.evaluate(() => /\d+ LU/.test((document.querySelector('#kpiMain .g-result-row.ex .maxlu-col .glu-val')||{}).textContent||'')),
     'Spalte «Grösster LU» zeigt den gewählten Wert (z.B. «3 LU»)');
   // OW-Verbraucher anlegen → Label «Osmose (OW)» (alter Admin-Override verworfen)
