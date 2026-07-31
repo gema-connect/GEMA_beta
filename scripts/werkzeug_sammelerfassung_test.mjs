@@ -298,10 +298,20 @@ try {
   });
   ok(kofVm.open, 'Koffer-Tap öffnet das klassische Detail');
   ok(kofVm.z >= 10600, 'Detail liegt über dem Native-Screen (z ' + kofVm.z + ')');
-  // Inhalt-Editor MUSS über dem Detail liegen — vorher lag er dahinter
+  // «🧰 Inhalt»-Button IM Detail (Feedback 31.07.2026): er lebte nur auf der
+  // Desktop-Karte — in der nativen Ansicht gab es damit KEINEN Weg zum
+  // Inhalt-Editor. Jetzt trägt die Detailansicht eine Koffer-Box mit Button.
+  const kofBox = await pn.evaluate(() => {
+    const b = document.getElementById('vm_kofferBox');
+    const btn = b && b.querySelector('button[onclick*="openKofferInhalt"]');
+    return { box: !!b, btn: !!btn, txt: b ? b.textContent : '' };
+  });
+  ok(kofBox.box && kofBox.btn, 'Detailansicht zeigt Koffer-Box mit «🧰 Inhalt»-Button');
+  ok(/0 Teile/.test(kofBox.txt) && /Noch leer/.test(kofBox.txt), 'Box nennt den Füllstand («0 Teile · Noch leer»)');
+  // Inhalt-Editor öffnet ÜBER dem Detail — vorher lag er dahinter
   // (.modal-bg wurde im Native-Modus auf 10600 gehoben, der dynamische
   // _wzModalOverlay blieb bei 10500 → «Koffer kann nicht befüllt werden»)
-  await pn.evaluate(() => window.openKofferInhalt('t_1650000000000'));
+  await pn.evaluate(() => { document.querySelector('#vm_kofferBox button[onclick*="openKofferInhalt"]').click(); });
   await pn.waitForTimeout(250);
   const lay = await pn.evaluate(() => {
     const ov = document.getElementById('_wzModalOverlay');
@@ -323,7 +333,16 @@ try {
   });
   ok(inhalt.n === 1, 'Werkzeug liegt im Koffer (kofferInhalt: 1)');
   ok(inhalt.editor && inhalt.zeigt, 'Editor neu gerendert und zeigt «1 Teil»');
+  // Schliessen → zurück in die Detailansicht, 🧰-Box mit AKTUELLEM Zähler
   await pn.evaluate(() => window._wzKofferInhaltClose());
+  await pn.waitForTimeout(200);
+  const nachClose = await pn.evaluate(() => {
+    const vm = document.getElementById('viewModal');
+    const b = document.getElementById('vm_kofferBox');
+    return { open: !!vm && !vm.classList.contains('hidden'), txt: b ? b.textContent : '' };
+  });
+  ok(nachClose.open, 'Schliessen des Editors führt zurück in die Koffer-Detailansicht');
+  ok(/1 Teil/.test(nachClose.txt) && !/Noch leer/.test(nachClose.txt), '🧰-Box aufgefrischt («1 Teil» statt «Noch leer»)');
   ok(errsN.length === 0, 'keine pageerrors (Native) ' + (errsN.length ? '— ' + errsN.join(' | ').slice(0, 140) : ''));
   await ctx2.close();
 
