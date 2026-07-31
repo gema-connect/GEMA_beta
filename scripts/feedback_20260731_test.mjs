@@ -262,6 +262,110 @@ const osmFold = await op.evaluate(() => {
 ok(osmFold.zu && osmFold.stored && osmFold.offen, 'Fold: zu → localStorage → wieder offen');
 ok(oErr.length === 0, 'Osmose: keine JS-Fehler' + (oErr.length ? ': ' + oErr[0] : ''));
 
+// ============================================================
+// Teil 3 — h,x-Diagramm (lt_hx_diagramm.html), Feedback Christoph Grolimund:
+// Klimastationen SIA 2028 (Ort setzt Höhe, Winter-/Sommer-Auslegungszustand
+// einfügbar — Basel −13 °C / 90 % aus Tab. 6), Volumenstrom raus aus den
+// Parametern (je Auslegung eigener V̇), Ziel-Temperatur-Modus für Erhitzer/
+// Kühler (nur ZUL-t ohne Feuchte), mehrere Anlagen (244.1 / 244.2 …).
+// ============================================================
+console.log('\n— h,x-Diagramm —');
+const { page: hp } = await newPage(browser, seed(['role_planer']));
+const hErr = [];
+hp.on('pageerror', e => hErr.push(String(e)));
+await hp.goto(BASE + '/lt_hx_diagramm.html', { waitUntil: 'domcontentloaded' });
+await hp.waitForFunction(() => typeof axRecalc === 'function' && window._hxLast && _hxLast.punkte.length >= 1, null, { timeout: 15000 });
+await hp.waitForTimeout(400);
+
+// Parameter: kein Volumenstrom mehr, Klimastation vorhanden
+const hxStruct = await hp.evaluate(() => {
+  const paramCard = [...document.querySelectorAll('.g-card')].find(c => {
+    const h = c.querySelector('.g-card-hd h2');
+    return h && /Parameter/.test(h.textContent);
+  });
+  return {
+    vdotInParam: paramCard ? !!paramCard.querySelector('#hx_vdot') : null,
+    vdotDa: !!document.getElementById('hx_vdot'),
+    station: !!document.getElementById('hx_station'),
+    stationOpts: (document.getElementById('hx_station') || { options: [] }).options.length,
+    anlBar: !!document.getElementById('hxAnlSel'),
+    zielLe: !!document.querySelector('#ax_le_mode option[value="ziel"]'),
+    zielLk: !!document.querySelector('#ax_lk_mode option[value="ziel"]')
+  };
+});
+ok(hxStruct.vdotInParam === false && hxStruct.vdotDa, 'Volumenstrom raus aus «Parameter» (lebt in der Prozess-Auswertung)');
+ok(hxStruct.station && hxStruct.stationOpts >= 30, 'Klimastationen-Auswahl (SIA 2028): ' + (hxStruct.stationOpts - 1) + ' Orte');
+ok(hxStruct.anlBar, 'Anlagen-Leiste vorhanden');
+ok(hxStruct.zielLe && hxStruct.zielLk, 'Ziel-Temperatur-Modus in Erhitzer + Kühler');
+
+// Station Basel: Höhe setzen verlangt eine ECHTE Benutzer-Wahl (isTrusted —
+// der AutoSave-Restore darf eine manuell angepasste Höhe nie überschreiben).
+// CDP-Tastatur-Eingaben sind trusted: Select fokussieren + «b» tippen wählt
+// Basel-Binningen und feuert ein echtes change-Event.
+await hp.focus('#hx_station');
+await hp.keyboard.press('b');
+await hp.waitForTimeout(250);
+const basel = await hp.evaluate(() => ({
+  hoehe: document.getElementById('hx_hoehe').value,
+  btnW: (document.getElementById('hx_btn_winter') || {}).textContent || '',
+  rowVis: (document.getElementById('hx_station_row') || {}).style.display !== 'none'
+}));
+ok(basel.hoehe === '316', 'Ort wählen setzt die Höhe (Basel 316 müM)');
+ok(basel.rowVis && /−?-?13 °C \/ 90 %/.test(basel.btnW.replace('−', '-')), 'Winter-Button zeigt SIA-2028-Tab.-6-Wert: ' + basel.btnW);
+await hp.evaluate(() => hxStationEinfuegen('winter'));
+await hp.evaluate(() => hxStationEinfuegen('sommer'));
+const pts = await hp.evaluate(() => hxRows.map(r => ({ n: r.name, w1: r.w1, w2: r.w2 })));
+const wPt = pts.find(r => /AUL Winter Basel/.test(r.n));
+const sPt = pts.find(r => /AUL Sommer Basel/.test(r.n));
+ok(!!wPt && wPt.w1 === '-13' && wPt.w2 === '90', 'Winter-Auslegungszustand eingefügt (−13 °C / 90 %)');
+ok(!!sPt && sPt.w1 === '32' && sPt.w2 === '40', 'Sommer-Auslegungszustand eingefügt (Richtwert 32 °C / 40 %)');
+
+// Ziel-Temperatur-Modus: AUL Winter → 21 °C, nur t — Leistung berechnet
+await hp.click('.ax-tab[data-ax="le"]');
+const iW = pts.findIndex(r => /AUL Winter Basel/.test(r.n));
+await hp.selectOption('#ax_le_p1', String(iW));
+await hp.selectOption('#ax_le_mode', 'ziel');
+await hp.evaluate(() => {
+  const v = document.getElementById('ax_le_v'); v.value = '3000'; v.dispatchEvent(new Event('input', { bubbles: true }));
+  const t = document.getElementById('ax_le_tziel'); t.value = '21'; t.dispatchEvent(new Event('input', { bubbles: true }));
+});
+await hp.waitForTimeout(150);
+const ziel = await hp.evaluate(() => ({
+  phi: document.getElementById('ax_out_le_phi').textContent,
+  t2: document.getElementById('ax_out_le_t2').textContent,
+  eng: (function(){ const s1 = _hxLast.punkte[document.getElementById('ax_le_p1').value|0]; return axRegisterZiel(s1, 21, 3000 * s1.rho, _hxLast.p).phi; })()
+}));
+ok(/kW/.test(ziel.phi) && Math.abs(parseFloat(ziel.phi) - ziel.eng) < 0.01, 'Ziel-t: Leistung = Engine (' + ziel.phi + ')');
+ok(/21\.0 °C/.test(ziel.t2), 'Zustand nach = Ziel-Temperatur, Feuchte berechnet: ' + ziel.t2);
+
+// Mehrere Anlagen: neue Anlage → leerer Stand, zurückwechseln → alter Stand
+await hp.evaluate(() => {
+  // GemaDialog.prompt stubben (Testumgebung)
+  window.GemaDialog = window.GemaDialog || {};
+  GemaDialog.prompt = function(){ return Promise.resolve('244.2 Abluftanlage'); };
+  hxAnlNeu();
+});
+await hp.waitForTimeout(400);
+const anl2 = await hp.evaluate(() => ({
+  n: _hxAnlHooks.state().list.length,
+  aktivName: _hxAnlHooks.state().list.find(a => a.id === _hxAnlHooks.state().aktiv).name,
+  rows: hxRows.length,
+  selOpts: document.getElementById('hxAnlSel').options.length
+}));
+ok(anl2.n === 2 && anl2.selOpts === 2, 'Neue Anlage angelegt (2 in der Auswahl)');
+ok(anl2.aktivName === '244.2 Abluftanlage', 'Anlage trägt den Namen «244.2 Abluftanlage»');
+ok(anl2.rows === 1, 'Neue Anlage startet mit leerem Stand (1 Default-Luftzustand)');
+await hp.evaluate(() => { hxAnlSwitch(_hxAnlHooks.state().list[0].id); });
+await hp.waitForTimeout(400);
+const back = await hp.evaluate(() => ({
+  rows: hxRows.map(r => r.name),
+  tziel: document.getElementById('ax_le_tziel').value,
+  mode: document.getElementById('ax_le_mode').value
+}));
+ok(back.rows.some(n => /AUL Winter Basel/.test(n)), 'Zurückwechseln stellt die Luftzustände wieder her');
+ok(back.tziel === '21' && back.mode === 'ziel', 'Auslegungs-Eingaben der Anlage wiederhergestellt (Ziel-t 21, Modus ziel)');
+ok(hErr.length === 0, 'h,x: keine JS-Fehler' + (hErr.length ? ': ' + hErr[0] : ''));
+
 await browser.close();
 srv.close();
 console.log(`\n${pass}/${pass + fail} Checks bestanden${fail ? ' — ' + fail + ' FEHLER' : ''}`);
