@@ -74,6 +74,14 @@
       'html.gn-native-on .modal-bg{z-index:10600!important}' +
       /* if_fahrzeug nutzt .modal-overlay (z-index 500 — läge UNTER dem Screen) */
       'html.gn-native-on .modal-overlay{z-index:10600!important}' +
+      /* if_werkzeug: dynamische Dialoge (#_wzModalOverlay, inline z-index
+         10500 — Koffer-Inhalt/-Form, Ausleihe, Prüf-Dialoge) öffnen auf dem
+         Desktop ÜBER den klassischen Modals (500). Die .modal-bg-Anhebung
+         auf 10600 drehte die Ordnung im Native-Modus um: der Inhalt-Editor
+         lag HINTER dem offenen Koffer-Detail — «Koffer kann nicht befüllt
+         werden». Anhebung stellt die Desktop-Schichtung wieder her (unter
+         AC-Drop 11500, QR-Scanner 12000, GemaDialog 12800). */
+      'html.gn-native-on #_wzModalOverlay{z-index:10700!important}' +
       /* Native Bottom-Sheet (Formular-Layer) — z-index über dem Screen-Inhalt.
          .gn-sheet aus dem Kit hat height:80%; hier passt es sich dem Inhalt an. */
       '.gn .gn-sheet.gn-sheet--form{height:auto;max-height:92%}' +

@@ -54,6 +54,7 @@ const TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpYXQiOjQwMDAwMDAwMDAsImV4
 // (t_<ts>-IDs — Basis der newest-first-Sortierung in beiden Ansichten)
 const TOOL_ALT = { id: 't_1600000000000', name: 'Altes Werkzeug', cat: 'maschine', orgId: 'org_t', bought: '2020-09-13', berichte: [], elecHistory: [], leiterHistory: [], ersatzAnfragen: [] };
 const TOOL_NEU = { id: 't_1700000000000', name: 'Neueres Werkzeug', cat: 'handwerkzeug', orgId: 'org_t', bought: '2023-11-14', berichte: [], elecHistory: [], leiterHistory: [], ersatzAnfragen: [] };
+const KOFFER = { id: 't_1650000000000', name: 'Servicekoffer', cat: 'koffer', istKoffer: true, kofferInhalt: [], orgId: 'org_t', berichte: [], elecHistory: [], leiterHistory: [], ersatzAnfragen: [] };
 
 const ORGS = [{ id: 'org_t', name: 'T AG', kategorie: 'sanitaerplaner', kategorien: ['sanitaerplaner'], admins: ['u_mag'], active: true }];
 const USERS = [
@@ -61,12 +62,12 @@ const USERS = [
   { id: 'u_mon', username: 'mon@t.ch', name: 'Monteur Max', roleIds: ['role_monteur'], orgId: 'org_t', active: true, profile: { email: 'mon@t.ch' } }
 ];
 
-function seedFor(userId) {
+function seedFor(userId, mitKoffer) {
   return {
     gema_orgs_v1: ORGS,
     gema_users_v1: USERS,
     gema_session_v1: { token: TOKEN, userId, expires: FUTURE },
-    gema_werkzeug: [TOOL_ALT, TOOL_NEU],
+    gema_werkzeug: mitKoffer ? [TOOL_ALT, TOOL_NEU, KOFFER] : [TOOL_ALT, TOOL_NEU],
     gema_coachmarks_done_if_werkzeug_v1: '1'
   };
 }
@@ -85,14 +86,14 @@ async function newWzPage(userId, opts) {
       // die Bestand-Werkzeuge müssen deshalb als Cloud-Rows kommen
       if (route.request().method() === 'GET' && u.indexOf('module_key=eq.werkzeugmanagement') >= 0) {
         return route.fulfill({ contentType: 'application/json', body: JSON.stringify(
-          [TOOL_ALT, TOOL_NEU].map(t => ({ data_key: 'tool:' + t.id, payload: { data: t, _lm: '2026-07-10T08:00:00Z' } }))
+          (opts.koffer ? [TOOL_ALT, TOOL_NEU, KOFFER] : [TOOL_ALT, TOOL_NEU]).map(t => ({ data_key: 'tool:' + t.id, payload: { data: t, _lm: '2026-07-10T08:00:00Z' } }))
         ) });
       }
       return route.fulfill({ contentType: 'application/json', body: route.request().method() === 'GET' ? '[]' : '{}' });
     }
     return route.abort();
   });
-  await ctx.addInitScript(s => { for (const [k, v] of Object.entries(s)) localStorage.setItem(k, typeof v === 'string' ? v : JSON.stringify(v)); }, seedFor(userId));
+  await ctx.addInitScript(s => { for (const [k, v] of Object.entries(s)) localStorage.setItem(k, typeof v === 'string' ? v : JSON.stringify(v)); }, seedFor(userId, !!opts.koffer));
   const page = await ctx.newPage();
   const errs = []; page.on('pageerror', e => errs.push(e.message));
   await page.goto(BASE + '/if_werkzeug.html', { waitUntil: 'domcontentloaded' });
@@ -258,10 +259,10 @@ try {
 
   // ───────────────────────── Native (Phone): Magazinerin ─────────────────────────
   console.log('— D) Native: neueste zuoberst + Pull-to-Refresh —');
-  const { ctx: ctx2, page: pn, errs: errsN } = await newWzPage('u_mag', { phone: true });
+  const { ctx: ctx2, page: pn, errs: errsN } = await newWzPage('u_mag', { phone: true, koffer: true });
   await pn.waitForSelector('[data-nat-list] .gn-row', { timeout: 9000 });
   const natOrder = await pn.evaluate(() => Array.from(document.querySelectorAll('[data-nat-list] .gn-row')).map(r => r.getAttribute('data-nat-id')));
-  ok(natOrder[0] === 't_1700000000000' && natOrder[1] === 't_1600000000000', 'Native Liste: neuestes Werkzeug zuoberst — ' + natOrder.join(', '));
+  ok(natOrder.join(',') === 't_1700000000000,t_1650000000000,t_1600000000000', 'Native Liste: neuestes Werkzeug zuoberst (inkl. Koffer einsortiert) — ' + natOrder.join(', '));
   const ptr = await pn.evaluate(() => {
     const el = document.querySelector('[data-gn-ptr]');
     return { da: !!el, scroll: el && el.hasAttribute('data-gn-scroll'), spinner: !!document.querySelector('.gn-ptr-spinner'), hook: el && typeof el.__gnRefresh === 'function' };
@@ -286,6 +287,43 @@ try {
   await pn.mouse.up();
   await pn.waitForFunction(() => window.__ptrHit === true, null, { timeout: 4000 }).catch(() => {});
   ok(await pn.evaluate(() => window.__ptrHit === true), 'Zug-Geste (80px nach unten) löst den Refresh aus');
+
+  console.log('— D2) Native: Koffer befüllen (Regression 31.07.2026) —');
+  // Koffer-Tap → klassisches Detail (Koffer-Funktionen) über dem Screen
+  await pn.evaluate(() => { document.querySelector('[data-nat-id="t_1650000000000"]').click(); });
+  await pn.waitForTimeout(400);
+  const kofVm = await pn.evaluate(() => {
+    const vm = document.getElementById('viewModal');
+    return { open: !!vm && !vm.classList.contains('hidden'), z: vm ? parseInt(getComputedStyle(vm).zIndex, 10) : 0 };
+  });
+  ok(kofVm.open, 'Koffer-Tap öffnet das klassische Detail');
+  ok(kofVm.z >= 10600, 'Detail liegt über dem Native-Screen (z ' + kofVm.z + ')');
+  // Inhalt-Editor MUSS über dem Detail liegen — vorher lag er dahinter
+  // (.modal-bg wurde im Native-Modus auf 10600 gehoben, der dynamische
+  // _wzModalOverlay blieb bei 10500 → «Koffer kann nicht befüllt werden»)
+  await pn.evaluate(() => window.openKofferInhalt('t_1650000000000'));
+  await pn.waitForTimeout(250);
+  const lay = await pn.evaluate(() => {
+    const ov = document.getElementById('_wzModalOverlay');
+    const vm = document.getElementById('viewModal');
+    return { ov: !!ov, search: !!document.getElementById('kofSearch'),
+      zOv: ov ? parseInt(getComputedStyle(ov).zIndex, 10) : 0, zVm: vm ? parseInt(getComputedStyle(vm).zIndex, 10) : 0 };
+  });
+  ok(lay.ov && lay.search, 'Inhalt-Editor gerendert (Suche + Sammelscan)');
+  ok(lay.zOv > lay.zVm, 'Inhalt-Editor liegt ÜBER dem Koffer-Detail (z ' + lay.zOv + ' > ' + lay.zVm + ') — Koffer befüllbar');
+  // Befüllen über die Suche: erster Treffer → «+»
+  await pn.evaluate(() => window._wzKofferSearch('t_1650000000000'));
+  const addOk = await pn.evaluate(() => { const b = document.querySelector('#kofSearchRes button'); if (!b) return false; b.click(); return true; });
+  ok(addOk, 'Suchtreffer mit «+»-Button vorhanden');
+  await pn.waitForTimeout(400);
+  const inhalt = await pn.evaluate(() => {
+    const k = window.getFiltered().find(t => t.id === 't_1650000000000');
+    const ov = document.getElementById('_wzModalOverlay');
+    return { n: (k && k.kofferInhalt || []).length, editor: !!ov, zeigt: ov ? ov.textContent.indexOf('1 Teil') >= 0 : false };
+  });
+  ok(inhalt.n === 1, 'Werkzeug liegt im Koffer (kofferInhalt: 1)');
+  ok(inhalt.editor && inhalt.zeigt, 'Editor neu gerendert und zeigt «1 Teil»');
+  await pn.evaluate(() => window._wzKofferInhaltClose());
   ok(errsN.length === 0, 'keine pageerrors (Native) ' + (errsN.length ? '— ' + errsN.join(' | ').slice(0, 140) : ''));
   await ctx2.close();
 
