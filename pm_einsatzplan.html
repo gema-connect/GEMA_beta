@@ -230,6 +230,7 @@ table.board{border-collapse:collapse;width:100%;min-width:1000px}
       <button class="btn" onclick="epNav(1)">›</button>
     </div>
     <span class="week-lbl" id="periodLbl"></span>
+    <span id="grpFilterWrap"></span>
     <span style="flex:1"></span>
     <button class="btn pri" id="btnNeu" onclick="epNeu()" style="display:none">＋ Termin</button>
     <button class="btn" id="btnSet" onclick="epOpenSettings()" style="display:none" title="Einstellungen">⚙️</button>
@@ -347,6 +348,14 @@ table.board{border-collapse:collapse;width:100%;min-width:1000px}
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           <button class="btn" type="button" style="min-height:38px" onclick="fgRowAdd('ep_fgRows')">＋ Grund</button>
           <button class="btn" type="button" style="min-height:38px" onclick="fgVorlagenEinfuegen()" title="Typische Gründe als Startliste einfügen">↺ Beispiele einfügen</button>
+        </div>
+      </div>
+      <div class="fld"><label>Monteur-Gruppen (Arbeitsgattung)</label>
+        <div style="font-size:11.5px;color:var(--mut);margin-bottom:6px">Frei definierbare Gruppen wie <b>Servicemonteur, Sanitärmonteur, Spengler</b> — pro Gruppe über 👥 die Personen zuordnen (eine Person darf in mehreren Gruppen sein). In der Plantafel lässt sich danach eine Gruppe einblenden («Sanitär einblenden» → nur diese Monteure sichtbar). Liste gilt firmenweit.</div>
+        <div id="ep_grRows"></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn" type="button" style="min-height:38px" onclick="grRowAdd('ep_grRows')">＋ Gruppe</button>
+          <button class="btn" type="button" style="min-height:38px" onclick="grVorlagenEinfuegen()" title="Typische Gruppen als Startliste einfügen">↺ Beispiele einfügen</button>
         </div>
       </div>
       <div class="fld"><label>Einplanbare Personen</label>
@@ -638,6 +647,139 @@ function fgRowsCollect(hostId){
   return out;
 }
 
+// ═══════════════════════════════════════════════════════════
+// MONTEUR-GRUPPEN / ARBEITSGATTUNG (Feedback 31.07.2026)
+// org.settings.einsatzplan.gruppen     = [{id:'gr_<slug>', label}]
+// org.settings.einsatzplan.userGruppen = {userId:[gruppenIds]}  (Mehrfach)
+// Frei definierbare Gruppen (Servicemonteur, Sanitärmonteur, Spengler …) —
+// die Zuordnung passiert pro GRUPPE über den 👥-Personen-Picker im Editor;
+// der Filter in der Plantafel blendet dann nur die Personen (und in der
+// Monatsansicht die Termine) der gewählten Gruppe ein. Der Filter ist reine
+// ANZEIGE: Auswahl-Dropdowns (Termin-Modal, Zuweisungen) bleiben ungefiltert.
+// ═══════════════════════════════════════════════════════════
+var GR_VORLAGEN=[
+  {label:'Servicemonteur'},
+  {label:'Sanitärmonteur'},
+  {label:'Heizungsmonteur'},
+  {label:'Spengler'},
+  {label:'Lehrling'}
+];
+function grListe(){
+  var org=epOrg();
+  var l=(org&&org.settings&&org.settings.einsatzplan&&org.settings.einsatzplan.gruppen)||[];
+  if(!Array.isArray(l))return [];
+  return l.filter(function(g){return g&&g.id&&g.label;}).map(function(g){
+    return {id:String(g.id),label:String(g.label)};
+  });
+}
+function grById(id){if(!id)return null;var l=grListe();for(var i=0;i<l.length;i++){if(l[i].id===id)return l[i];}return null;}
+function grUserMap(){
+  var org=epOrg();
+  var m=(org&&org.settings&&org.settings.einsatzplan&&org.settings.einsatzplan.userGruppen)||{};
+  if(!m||typeof m!=='object'||Array.isArray(m))return {};
+  return m;
+}
+function grVon(uid){
+  var a=grUserMap()[uid];
+  return Array.isArray(a)?a.filter(Boolean).map(String):[];
+}
+// ── Editor (⚙️): eine Zeile pro Gruppe mit 👥-Personen-Picker ──
+var _grUsers=[];   // Org-Personen fürs Picker-Panel (in epOpenSettings gesetzt)
+function grRowHtml(g,userIds){
+  g=g||{};userIds=userIds||[];
+  var sel={};userIds.forEach(function(id){sel[id]=1;});
+  var picker=_grUsers.map(function(x){
+    var std=(x.roleIds||[]).some(function(r){return r==='role_monteur'||r==='role_spengler';});
+    return '<label style="display:flex;align-items:center;gap:8px;padding:6px 4px;font-size:13px;font-weight:600">'
+      +'<input type="checkbox" class="gr-u" data-uid="'+esc(x.id)+'" style="width:19px;height:19px" '+(sel[x.id]?'checked':'')+' onchange="grPickCount(this)"/>'
+      +esc(x.name||x.username)+(std?' <span style="font-size:10px;color:var(--mut2)">(Monteur/Spengler)</span>':'')+'</label>';
+  }).join('')||'<div style="font-size:12px;color:var(--mut);padding:6px 4px">Keine Personen in der Firma.</div>';
+  return '<div class="gr-row" data-id="'+esc(g.id||'')+'" style="border:1px solid var(--brd);border-radius:10px;padding:6px 8px;margin-bottom:6px">'
+    +'<div style="display:flex;gap:8px;align-items:center">'
+    +'<input type="text" class="gr-label" value="'+esc(g.label||'')+'" placeholder="z.B. Sanitärmonteur" style="flex:1;min-width:0;padding:9px 11px;border:1.5px solid var(--brd2);border-radius:9px;font-size:13.5px"/>'
+    +'<button type="button" class="gr-pick-btn" onclick="grPickToggle(this)" title="Personen dieser Gruppe zuordnen" style="min-height:34px;padding:0 12px;border-radius:9px;border:1px solid var(--brd2);background:var(--sur);font-weight:800;font-size:12.5px;cursor:pointer;flex-shrink:0">👥 '+userIds.length+'</button>'
+    +'<button type="button" onclick="this.closest(\'.gr-row\').remove()" title="Gruppe entfernen (Personen bleiben unverändert, der Filter kennt die Gruppe danach nicht mehr)" style="width:34px;height:34px;border-radius:9px;border:1px solid var(--brd2);background:var(--sur);color:var(--red);font-weight:900;cursor:pointer;flex-shrink:0">✕</button>'
+    +'</div>'
+    +'<div class="gr-pick" style="display:none;border-top:1px dashed var(--brd);margin-top:6px;padding-top:4px;max-height:180px;overflow-y:auto">'+picker+'</div>'
+    +'</div>';
+}
+function grRowAdd(hostId,vorlage,userIds){
+  var host=document.getElementById(hostId);
+  var tmp=document.createElement('div');
+  tmp.innerHTML=grRowHtml(vorlage||{},userIds||[]);
+  host.appendChild(tmp.firstChild);
+  if(!vorlage){var inp=host.lastChild.querySelector('.gr-label');if(inp)inp.focus();}
+}
+function grVorlagenEinfuegen(){
+  var host=document.getElementById('ep_grRows');
+  var vorhandene={};
+  host.querySelectorAll('.gr-label').forEach(function(i){vorhandene[i.value.trim().toLowerCase()]=1;});
+  GR_VORLAGEN.forEach(function(v){if(!vorhandene[v.label.toLowerCase()])grRowAdd('ep_grRows',v);});
+}
+function grPickToggle(btn){
+  var p=btn.closest('.gr-row').querySelector('.gr-pick');
+  p.style.display=(p.style.display==='none'?'':'none');
+}
+function grPickCount(cb){
+  var row=cb.closest('.gr-row');
+  var n=row.querySelectorAll('.gr-u:checked').length;
+  var btn=row.querySelector('.gr-pick-btn');
+  if(btn)btn.textContent='👥 '+n;
+}
+// Collect → {list:[{id,label}], map:{userId:[gruppenIds]}} — IDs bleiben beim
+// Umbenennen stabil (data-id, Muster Besonderheiten/Arbeitsbereiche)
+function grRowsCollect(hostId){
+  var list=[],map={},taken={};
+  var rows=document.querySelectorAll('#'+hostId+' .gr-row');
+  rows.forEach(function(row){var id=row.getAttribute('data-id');if(id)taken[id]=1;});
+  rows.forEach(function(row){
+    var label=row.querySelector('.gr-label').value.trim();
+    if(!label)return;
+    var id=row.getAttribute('data-id')||bsSlug(label,taken).replace(/^bs_/,'gr_');
+    list.push({id:id,label:label});
+    row.querySelectorAll('.gr-u:checked').forEach(function(cb){
+      var uid=cb.getAttribute('data-uid');
+      (map[uid]=map[uid]||[]).push(id);
+    });
+  });
+  return {list:list,map:map};
+}
+// ── Gruppen-Filter der Plantafel (pro Gerät gespeichert) ──
+// KRITISCH: eine (noch) unbekannte gespeicherte Gruppe wird nur fürs RENDERN
+// wie «Alle» behandelt — die Wahl wird NIE zurückgesetzt (Regel Pool-Filter).
+var _grpFilter=(function(){try{return localStorage.getItem('gema_ep_grpfilter_v1')||'';}catch(e){return '';}})();
+function epGrpFilterSet(v){
+  _grpFilter=v;
+  try{localStorage.setItem('gema_ep_grpfilter_v1',v);}catch(e){}
+  epRender();
+}
+function epGrpFilterEff(){
+  if(!_grpFilter)return '';
+  if(_grpFilter==='__ohne')return '__ohne';
+  return grById(_grpFilter)?_grpFilter:'';
+}
+function epGrpMatch(uid){
+  var f=epGrpFilterEff();
+  if(!f)return true;
+  var g=grVon(uid);
+  if(f==='__ohne')return g.length===0;
+  return g.indexOf(f)>=0;
+}
+// Termin-Variante: Termine OHNE Monteur werden nie still ausgeblendet
+function epGrpEvMatch(e){
+  if(!e||!e.monteurUserId)return true;
+  return epGrpMatch(e.monteurUserId);
+}
+function grFilterHtml(){
+  var l=grListe();if(!l.length)return '';
+  var f=_grpFilter;
+  return '<select id="epGrpFilter" onchange="epGrpFilterSet(this.value)" title="Nur eine Monteur-Gruppe einblenden" style="min-height:38px;padding:0 10px;border:1.5px solid var(--brd2);border-radius:10px;font-size:13px;font-weight:700;background:var(--sur);max-width:200px">'
+    +'<option value="">👥 Alle Gruppen</option>'
+    +l.map(function(g){return '<option value="'+esc(g.id)+'"'+(f===g.id?' selected':'')+'>'+esc(g.label)+'</option>';}).join('')
+    +'<option value="__ohne"'+(f==='__ohne'?' selected':'')+'>– ohne Gruppe –</option>'
+    +'</select>';
+}
+
 // Anzeige-Helfer: Text-Zeile (Woche/Monat-Tooltip) + volle Pills (Tag/Meine Woche)
 function bsVon(ev){return (ev&&ev.besonderheiten||[]).map(bsById).filter(Boolean);}
 // Freitext-Besonderheiten DIREKT am Termin (ev.besonderheitenFrei = ['…']) —
@@ -925,6 +1067,9 @@ function epRender(){
     var mo=monday(_anker);
     lbl.textContent='KW '+KW(mo)+' · '+dfmt(mo)+' – '+dfmtLong(addD(mo,6));
   }
+  // Gruppen-Filter (nur wenn Gruppen definiert sind; wirkt auf Woche + Monat)
+  var gw=document.getElementById('grpFilterWrap');
+  if(gw)gw.innerHTML=(_view==='woche'||_view==='monat')?grFilterHtml():'';
   var w=document.getElementById('viewWrap');
   if(_view==='woche')w.innerHTML=epRenderWoche();
   else if(_view==='monat')w.innerHTML=epRenderMonat();
@@ -939,7 +1084,7 @@ function epRenderWoche(){
   var s=epSettings();
   var mo=monday(_anker);
   var tage=[];for(var i=0;i<7;i++){if(!s.wochenende&&i>=5)continue;tage.push(addD(mo,i));}
-  var pers=epPersonen();
+  var pers=epPersonen().filter(function(p){return epGrpMatch(p.id);});
   var evs=epAll();
   var t=today();
   var span=s.tagBis-s.tagVon;
@@ -959,7 +1104,11 @@ function epRenderWoche(){
     var last=evs.filter(function(e){return e.monteurUserId===p.id;}).length;
     return '<tr><td class="mn">'+esc(p.name||p.username)+'<div class="mn-sub">'+last+' Einsätze total</div></td>'+cells+'</tr>';
   }).join('');
-  if(!pers.length)rows='<tr><td colspan="'+(tage.length+1)+'"><div class="empty">Keine einplanbaren Personen — Monteure in der Benutzerverwaltung anlegen oder unter ⚙️ Personen wählen.</div></td></tr>';
+  if(!pers.length)rows='<tr><td colspan="'+(tage.length+1)+'"><div class="empty">'
+    +(epGrpFilterEff()
+      ?'Keine Personen in der Gruppe «'+esc(epGrpFilterEff()==='__ohne'?'ohne Gruppe':(grById(epGrpFilterEff())||{}).label||'')+'» — Zuordnung unter ⚙️ Monteur-Gruppen, Filter oben auf «Alle Gruppen» stellen.'
+      :'Keine einplanbaren Personen — Monteure in der Benutzerverwaltung anlegen oder unter ⚙️ Personen wählen.')
+    +'</div></td></tr>';
   var side=epRenderSide();
   return '<div class="layout'+(_epSideZu&&epCanPlan()?' side-min':'')+'"><div class="board-wrap"><table class="board"><thead>'+head+'</thead><tbody>'+rows+'</tbody></table></div>'+side+'</div>';
 }
@@ -1173,7 +1322,7 @@ function epRenderMonat(){
     var day=addD(start,i);
     var dd=parse(day);
     var out=dd.getMonth()!==mon;
-    var dayEvs=evs.filter(function(e){return epCovers(e,day);});
+    var dayEvs=evs.filter(function(e){return epCovers(e,day)&&epGrpEvMatch(e);});
     var dots=dayEvs.slice(0,4).map(function(e){
       var b=abById(e.bereichId);
       var besTxt=bsTextListe(e).join(' · ');
@@ -1186,7 +1335,8 @@ function epRenderMonat(){
   return '<div class="month"><div class="month-grid">'+WD.map(function(w){return '<div class="mh">'+w+'</div>';}).join('')+cells+'</div></div>';
 }
 function epDayOpen(day){
-  var evs=epAll().filter(function(e){return epCovers(e,day);});
+  // Tages-Modal folgt dem Gruppen-Filter der Monatsansicht (gleiche Sicht)
+  var evs=epAll().filter(function(e){return epCovers(e,day)&&epGrpEvMatch(e);});
   evs.sort(function(a,b){return String(a.monteurName||'').localeCompare(String(b.monteurName||''));});
   document.getElementById('dayTitle').textContent=WD[(parse(day).getDay()+6)%7]+', '+dfmtLong(day);
   document.getElementById('dayBody').innerHTML=(evs.length?evs.map(function(e){
@@ -1997,6 +2147,13 @@ function epOpenSettings(){
   document.getElementById('ep_abRows').innerHTML=abListe().map(abRowHtml).join('');
   document.getElementById('ep_bsRows').innerHTML=bsListe().map(bsRowHtml).join('');
   document.getElementById('ep_fgRows').innerHTML=fgListe().map(fgRowHtml).join('');
+  // Monteur-Gruppen: pro Gruppe die zugeordneten Personen (userGruppen invertiert)
+  _grUsers=org;
+  var ugm=grUserMap();
+  document.getElementById('ep_grRows').innerHTML=grListe().map(function(g){
+    var uids=Object.keys(ugm).filter(function(uid){return (ugm[uid]||[]).indexOf(g.id)>=0;});
+    return grRowHtml(g,uids);
+  }).join('');
   // Arbeitszeit-Fenster der Stunden-Tafel
   var vonSel=document.getElementById('setTagVon'),bisSel=document.getElementById('setTagBis');
   var vh='';for(var h=4;h<=12;h++)vh+='<option value="'+h+'"'+(h===s.tagVon?' selected':'')+'>'+(h<10?'0':'')+h+':00</option>';
@@ -2021,7 +2178,11 @@ function epSetSave(){
     var tv=parseInt(document.getElementById('setTagVon').value,10),tb=parseInt(document.getElementById('setTagBis').value,10);
     if(!(tv>=0&&tv<=22))tv=6;
     if(!(tb>tv&&tb<=24))tb=18;
-    settings.einsatzplan={raster:_setRaster,wochenende:_setWe,userIds:ids,besonderheiten:bsRowsCollect('ep_bsRows'),folgegruende:fgRowsCollect('ep_fgRows'),tagVon:tv,tagBis:tb};
+    var gr=grRowsCollect('ep_grRows');
+    // Merge statt Ersetzen: künftige einsatzplan-Keys anderer Features
+    // überleben einen Save aus diesem Modal
+    var alt=(settings.einsatzplan&&typeof settings.einsatzplan==='object')?settings.einsatzplan:{};
+    settings.einsatzplan=Object.assign({},alt,{raster:_setRaster,wochenende:_setWe,userIds:ids,besonderheiten:bsRowsCollect('ep_bsRows'),folgegruende:fgRowsCollect('ep_fgRows'),tagVon:tv,tagBis:tb,gruppen:gr.list,userGruppen:gr.map});
     // Arbeitsbereiche liegen TOP-LEVEL in org.settings (geteilt mit dem ERP)
     settings.arbeitsbereiche=abRowsCollect('ep_abRows');
     GemaAuth.updateOrgSettings(org.id,settings);
