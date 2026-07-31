@@ -288,6 +288,31 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
 .dlg-card{background:#fff;border-radius:14px;padding:24px;max-width:520px;width:100%;max-height:85vh;overflow-y:auto;box-shadow:0 20px 60px -10px rgba(0,0,0,.3)}
 .hint strong{color:var(--txt2)}
 
+/* Sammelerfassung (Desktop): Tabelle mit 📌-Vorgabe-Zeile */
+.sml-card{max-width:min(1280px,96vw);width:96vw;max-height:92vh;display:flex;flex-direction:column;overflow:hidden}
+.sml-body{margin-top:10px;overflow:auto;flex:1;min-height:180px;border:1px solid #e2e8f0;border-radius:10px;background:#fff}
+.sml-tbl{border-collapse:separate;border-spacing:0;width:100%}
+.sml-tbl thead tr:first-child th{position:sticky;top:0;z-index:3;background:#f8fafc;font-size:10.5px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.02em;text-align:left;padding:0 8px;height:34px;box-sizing:border-box;border-bottom:1px solid #e2e8f0;white-space:nowrap}
+.sml-tbl thead tr.sml-fixrow th{position:sticky;top:34px;z-index:3;background:#fffbeb;padding:5px 6px;border-bottom:2px solid #fcd34d;font-weight:400;text-align:left}
+.sml-fixcell{display:flex;align-items:center;gap:4px}
+.sml-fixcell .sml-pin{font-size:11px;flex-shrink:0}
+.sml-fixrow .sml-inp{background:#fffdf5;border-color:#fcd34d}
+.sml-tbl tbody td{padding:4px 6px;border-bottom:1px solid #eef1f6;vertical-align:top}
+.sml-inp{width:100%;min-width:0;padding:7px 9px;border:1.5px solid #d6dce8;border-radius:7px;font-size:13.5px;font-family:inherit;box-sizing:border-box;background:#fff}
+.sml-inp:focus{outline:none;border-color:var(--plan-bd,#93c5fd)}
+.sml-inp::placeholder{color:#cbd5e1}
+.sml-delth{width:34px}
+.sml-del{border:none;background:transparent;color:#94a3b8;cursor:pointer;font-size:13px;padding:5px 7px;border-radius:6px;font-family:inherit}
+.sml-del:hover{background:#fef2f2;color:#dc2626}
+tr.sml-err td{background:#fef2f2}
+.sml-cols{position:relative;display:inline-block}
+.sml-cols summary{list-style:none;cursor:pointer;display:inline-flex}
+.sml-cols summary::-webkit-details-marker{display:none}
+.sml-colmenu{position:absolute;right:0;top:calc(100% + 6px);background:#fff;border:1.5px solid #c8cfdf;border-radius:10px;box-shadow:0 12px 32px rgba(15,23,42,.18);padding:10px 12px;z-index:60;display:flex;flex-direction:column;gap:6px;min-width:220px;max-height:320px;overflow:auto}
+.sml-colmenu label{display:flex;align-items:center;gap:8px;font-size:12.5px;color:#334155;cursor:pointer;white-space:nowrap;font-weight:500}
+.sml-colmenu label input{accent-color:#16a34a;width:15px;height:15px}
+.sml-hiddeninfo{font-size:11.5px;color:#92400e;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:6px 10px;margin-top:8px}
+
 /* Autocomplete */
 /* z-index 11500: ueber _wzShowModal (10500) — Autocompletes laufen auch in
    dynamischen Dialogen (Koffer-Form, Zuweisung, Sammel-Bearbeitung); unter
@@ -538,6 +563,7 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
       <input type="text" id="searchInp" placeholder="Bezeichnung, Hersteller, Serien-Nr., Monteur …" oninput="renderList()">
     </div>
     <button class="nbtn primary" id="btnAddTool" onclick="openAdd()">+ Gerät hinzufügen</button>
+    <button class="nbtn" id="btnSammel" onclick="_wzSammelOpen()" title="Mehrere Werkzeuge in einer Tabelle erfassen — Vorgaben gelten für alle Zeilen" style="display:none;background:#f0fdf4;color:#15803d;border-color:#bbf7d0">📋 Sammelerfassung</button>
     <button class="nbtn" id="btnBulkMode" onclick="_wzToggleBulkMode()" title="Mehrere Werkzeuge auswählen und gemeinsam bearbeiten" style="display:none;background:#eff6ff;color:#1d4ed8;border-color:#bfdbfe">☑ Auswählen</button>
     <button class="nbtn" id="btnInventur" onclick="_wzOpenInventurModal()" title="Inventur-Lauf starten oder fortsetzen" style="display:none;background:#f0fdf4;color:#15803d;border-color:#bbf7d0">📋 Inventur</button>
     <button class="nbtn" id="btnWzSammel" onclick="_wzOpenSammelAusleihe()" title="Mehrere Werkzeuge scannen und auf einmal ausleihen" style="background:#fefce8;color:#92400e;border-color:#fde68a">🔄 Ausleihen</button>
@@ -1512,6 +1538,405 @@ function _wzBulkApplyEdit(changes,ziele){
   var msg=ziele.length+' Werkzeug'+(ziele.length!==1?'e':'')+' aktualisiert'+(zuwSkipped?' ('+zuwSkipped+' mit ausstehender Einbuchung: Zuweisung übersprungen)':'');
   if(typeof showToast==='function')showToast(msg);
 }
+
+// ══════════════════════════════════════════════════════════════
+// SAMMELERFASSUNG (Desktop) — mehrere Werkzeuge in EINER Tabelle
+// erfassen. 📌-Vorgabe-Zeile: Werte gelten für ALLE Zeilen ohne
+// eigenen Wert (interne Kennung zählt hoch, wenn die Vorgabe auf
+// eine Zahl endet). Spalten sind ausblendbar (pro Gerät gemerkt);
+// ausgeblendete Vorgaben wirken weiter und werden ausgewiesen.
+// Zeilen leben NUR im DOM (Fokus-Regel: nie die Liste neu bauen).
+// ══════════════════════════════════════════════════════════════
+var SML_COLS=[
+  {id:'name',    lbl:'Bezeichnung *',   w:190, req:true, ac:'name',    ph:'z.B. Bohrhammer'},
+  {id:'cat',     lbl:'Kategorie *',     w:150, req:true, typ:'cat'},
+  {id:'brand',   lbl:'Hersteller',      w:125, ac:'brand',   ph:'z.B. Hilti'},
+  {id:'model',   lbl:'Modell / Typ',    w:125, ac:'model',   ph:'z.B. TE 30'},
+  {id:'serial',  lbl:'Serien-Nr.',      w:125, nofix:true,   ph:'pro Gerät'},
+  {id:'intern',  lbl:'Interne Kennung', w:125, ph:'z.B. WZ-014',
+    fixTitle:'Endet die Vorgabe auf eine Zahl, zählt sie pro Gerät automatisch hoch (WZ-014 → WZ-015 …). Eigene Werte in der Zeile haben Vorrang.'},
+  {id:'bought',  lbl:'Kaufdatum *',     w:140, req:true, typ:'date'},
+  {id:'warranty',lbl:'Garantie bis',    w:140, typ:'date', hid:true, fixTitle:'Leer = automatisch Kaufdatum + 24 Monate (wie die Einzelerfassung)'},
+  {id:'supplier',lbl:'Lieferant',       w:135, ac:'supplier', hid:true, ph:'z.B. Engel'},
+  {id:'notes',   lbl:'Standort / Notiz',w:145, ac:'standort', hid:true, ph:'z.B. Lager EG'},
+  {id:'zuw',     lbl:'Zuweisung',       w:175, typ:'zuw'},
+  {id:'service', lbl:'Service (Mt.)',   w:105, typ:'num', hid:true, ph:'Mt.', fixTitle:'Intervall in Monaten — aktiviert die Service-/Wartungsprüfung'},
+  {id:'elec',    lbl:'Elektro NIV (Mt.)',w:115, typ:'num', hid:true, ph:'Mt.', fixTitle:'Intervall in Monaten — aktiviert die Elektroprüfung (NIV)'}
+];
+var _SML_COLS_LS='gema_wz_sml_cols_v1';
+var _smlRowSeq=0;
+function _smlVisibleCols(){
+  var def=SML_COLS.filter(function(c){return !c.hid;}).map(function(c){return c.id;});
+  try{
+    var arr=JSON.parse(localStorage.getItem(_SML_COLS_LS)||'null');
+    if(!Array.isArray(arr)||!arr.length) return def;
+    var set={}; arr.forEach(function(id){set[id]=true;});
+    set.name=true; // Bezeichnung ist Pflicht und nie ausblendbar
+    var vis=SML_COLS.filter(function(c){return set[c.id];}).map(function(c){return c.id;});
+    return vis.length?vis:def;
+  }catch(e){ return def; }
+}
+function _smlPersonen(){
+  var out=[];
+  try{
+    var me=_wzGetUser()||{};
+    (GemaAuth.getUsers()||[]).forEach(function(u){
+      if(!u.active)return;
+      if(me.orgId&&u.orgId!==me.orgId&&!_wzIsAdmin())return;
+      if(!(u.roleIds&&(u.roleIds.indexOf('role_monteur')>=0||u.roleIds.indexOf('role_unternehmer')>=0||u.roleIds.indexOf('role_magaziner')>=0)))return;
+      out.push(u);
+    });
+  }catch(e){}
+  return out;
+}
+function _smlZuwSelect(id,dataCol){
+  var o='<option value="">— keine —</option>';
+  _smlPersonen().forEach(function(p){ o+='<option value="u:'+esc(p.id)+'">👤 '+esc(p.name||p.username)+'</option>'; });
+  o+='<option value="p:">📍 Platz / Standort …</option>';
+  return '<select id="'+id+'" class="sml-inp"'+(dataCol?' data-smlrowcol="zuw"':'')+' onchange="_wzSmlZuwChange(this)">'+o+'</select>'
+    +'<input id="'+id+'_platz" class="sml-inp"'+(dataCol?' data-smlrowcol="zuw_platz"':'')+' placeholder="z.B. Lager Halle B" style="display:none;margin-top:4px">';
+}
+function _smlCatOptions(){
+  var o='<option value="">—</option>';
+  _wzGetActiveCats().forEach(function(c){ if(c.id==='koffer')return; o+='<option value="'+esc(c.id)+'">'+(c.icon||'')+' '+esc(c.label)+'</option>'; });
+  return o;
+}
+function _smlCellInput(c,ri){
+  var id='sml_r'+ri+'_'+c.id;
+  if(c.typ==='cat') return '<select id="'+id+'" class="sml-inp" data-smlrowcol="cat">'+_smlCatOptions()+'</select>';
+  if(c.typ==='zuw') return _smlZuwSelect(id,true);
+  if(c.typ==='date') return '<input id="'+id+'" type="date" class="sml-inp" data-smlrowcol="'+c.id+'">';
+  if(c.typ==='num') return '<input id="'+id+'" type="text" inputmode="numeric" class="sml-inp" data-smlrowcol="'+c.id+'" placeholder="'+esc(c.ph||'')+'">';
+  return '<input id="'+id+'" type="text" class="sml-inp" data-smlrowcol="'+c.id+'" placeholder="'+esc(c.ph||'')+'"'+(c.id==='name'?' autocomplete="off"':'')+'>';
+}
+function _smlFixCell(c){
+  if(c.nofix) return '<span style="color:#cbd5e1;font-size:12px" title="Serien-Nummern sind pro Gerät eindeutig — keine Vorgabe möglich">—</span>';
+  var id='sml_fix_'+c.id, inner;
+  if(c.typ==='cat') inner='<select id="'+id+'" class="sml-inp">'+_smlCatOptions()+'</select>';
+  else if(c.typ==='zuw') inner=_smlZuwSelect(id,false);
+  else if(c.typ==='date') inner='<input id="'+id+'" type="date" class="sml-inp">';
+  else if(c.typ==='num') inner='<input id="'+id+'" type="text" inputmode="numeric" class="sml-inp" placeholder="'+esc(c.ph||'')+'">';
+  else inner='<input id="'+id+'" type="text" class="sml-inp" placeholder="Vorgabe …">';
+  return '<div class="sml-fixcell"'+(c.fixTitle?' title="'+esc(c.fixTitle)+'"':'')+'><span class="sml-pin">📌</span><div style="flex:1;min-width:0">'+inner+'</div></div>';
+}
+window._wzSmlZuwChange=function(sel){
+  var pi=document.getElementById(sel.id+'_platz');
+  if(pi)pi.style.display=(sel.value==='p:')?'':'none';
+  _smlSyncVorgaben();
+};
+window._wzSammelOpen=function(){
+  if(!_wzCanEdit()){alert('Keine Berechtigung — nur Magaziner/Admin dürfen Geräte erfassen.');return;}
+  _smlRowSeq=0;
+  var vis=_smlVisibleCols();
+  var colMenu=SML_COLS.map(function(c){
+    var chk=vis.indexOf(c.id)>=0;
+    return '<label><input type="checkbox" data-smlcolchk="'+esc(c.id)+'"'+(chk?' checked':'')+(c.id==='name'?' disabled':'')+'> '+esc(c.lbl)+'</label>';
+  }).join('');
+  var head=SML_COLS.map(function(c){ return '<th data-smlcol="'+c.id+'" style="min-width:'+c.w+'px">'+esc(c.lbl)+'</th>'; }).join('');
+  var fix=SML_COLS.map(function(c){ return '<th data-smlcol="'+c.id+'">'+_smlFixCell(c)+'</th>'; }).join('');
+  var html='<div class="dlg-card sml-card">'
+    +'<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">'
+    +'<h3 style="margin:0;font-size:17px;font-weight:800;color:#166534">📋 Sammelerfassung</h3>'
+    +'<span style="font-size:11.5px;color:#94a3b8">📌-Vorgaben gelten für alle Zeilen ohne eigenen Wert</span>'
+    +'<span style="margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
+      +'<details class="sml-cols" id="smlColsDd"><summary class="nbtn" style="background:#f8fafc">⚙ Spalten</summary>'
+        +'<div class="sml-colmenu" id="smlColMenu">'+colMenu
+        +'<button onclick="_wzSmlColsReset()" style="margin-top:4px;padding:6px 10px;border-radius:7px;border:1px solid #c8cfdf;background:#fff;color:#334155;cursor:pointer;font-family:inherit;font-size:12px;font-weight:600">↺ Standard-Spalten</button></div></details>'
+      +'<button class="nbtn" onclick="_wzSmlAddRows(1)">＋ 1 Zeile</button>'
+      +'<button class="nbtn" onclick="_wzSmlAddRows(5)">＋ 5 Zeilen</button>'
+    +'</span></div>'
+    +'<div id="smlHiddenInfo" class="sml-hiddeninfo" style="display:none"></div>'
+    +'<div class="sml-body"><table class="sml-tbl" id="smlTable">'
+    +'<thead><tr>'+head+'<th class="sml-delth"></th></tr>'
+    +'<tr class="sml-fixrow">'+fix+'<th class="sml-delth"></th></tr></thead>'
+    +'<tbody id="smlTbody"></tbody>'
+    +'</table></div>'
+    +'<div class="dlg-row" style="align-items:center;margin-top:12px">'
+    +'<span id="smlCount" style="margin-right:auto;font-size:12.5px;color:#64748b;font-weight:600"></span>'
+    +'<button onclick="_wzCloseModal()" class="dlg-cancel">Abbrechen</button>'
+    +'<button id="smlSaveBtn" onclick="_wzSammelSave()" style="padding:9px 18px;border-radius:8px;border:none;background:#16a34a;color:#fff;cursor:pointer;font-weight:700;font-family:inherit">✓ Erfassen</button>'
+    +'</div></div>';
+  _wzShowModal(html);
+  // Vorgabe-Defaults wie die Einzelerfassung: Kaufdatum = heute
+  var fb=document.getElementById('sml_fix_bought'); if(fb&&!fb.value)fb.value=today();
+  // Vorgabe-Änderung → Platzhalter/Zähler/Info nachführen
+  var fr=document.querySelector('#smlTable .sml-fixrow');
+  if(fr)fr.addEventListener('input',_smlSyncVorgaben);
+  if(fr)fr.addEventListener('change',_smlSyncVorgaben);
+  // Spalten-Menü: Toggle anwenden + merken; Klick daneben schliesst
+  var menu=document.getElementById('smlColMenu');
+  if(menu)menu.addEventListener('change',function(e){
+    if(!e.target.getAttribute||!e.target.getAttribute('data-smlcolchk'))return;
+    var ids=[];
+    menu.querySelectorAll('[data-smlcolchk]').forEach(function(cb){ if(cb.checked)ids.push(cb.getAttribute('data-smlcolchk')); });
+    try{localStorage.setItem(_SML_COLS_LS,JSON.stringify(ids));}catch(err){}
+    _smlApplyColVis();_smlSyncVorgaben();
+  });
+  var ov=document.getElementById('_wzModalOverlay');
+  if(ov)ov.addEventListener('click',function(e){
+    var dd=document.getElementById('smlColsDd');
+    if(dd&&dd.hasAttribute('open')&&!(e.target.closest&&e.target.closest('.sml-cols')))dd.removeAttribute('open');
+  });
+  _wzSmlAddRows(5);
+  _smlSyncVorgaben();
+};
+window._wzSmlColsReset=function(){
+  try{localStorage.removeItem(_SML_COLS_LS);}catch(e){}
+  var vis=_smlVisibleCols();
+  document.querySelectorAll('#smlColMenu [data-smlcolchk]').forEach(function(cb){
+    cb.checked=vis.indexOf(cb.getAttribute('data-smlcolchk'))>=0;
+  });
+  _smlApplyColVis();_smlSyncVorgaben();
+};
+function _smlApplyColVis(){
+  var vis=_smlVisibleCols();
+  document.querySelectorAll('#smlTable [data-smlcol]').forEach(function(el){
+    el.style.display=(vis.indexOf(el.getAttribute('data-smlcol'))>=0)?'':'none';
+  });
+}
+window._wzSmlAddRows=function(n){
+  var tb=document.getElementById('smlTbody');if(!tb)return;
+  for(var k=0;k<n;k++){
+    var ri=++_smlRowSeq;
+    var tr=document.createElement('tr');
+    tr.className='sml-row';tr.setAttribute('data-ri',ri);
+    tr.innerHTML=SML_COLS.map(function(c){ return '<td data-smlcol="'+c.id+'">'+_smlCellInput(c,ri)+'</td>'; }).join('')
+      +'<td class="sml-delth"><button class="sml-del" title="Zeile entfernen" onclick="_wzSmlDelRow(this)">✕</button></td>';
+    tb.appendChild(tr);
+    _smlWireRow(tr,ri);
+  }
+  _smlApplyColVis();_smlSyncVorgaben();
+};
+window._wzSmlDelRow=function(btn){
+  var tr=btn.closest('tr');if(tr)tr.remove();
+  _smlSyncVorgaben();
+};
+function _smlWireRow(tr,ri){
+  // Geteilte Vorschlags-Quellen (wie Einzelformular + native Sheets);
+  // Hersteller/Modell kreuzfiltern über den EFFEKTIVEN Namen (Zeile→Vorgabe)
+  function v(id){var e=document.getElementById(id);return e?e.value:'';}
+  _wzInitAC('sml_r'+ri+'_name',_wzNameSuggestions,function(item){
+    try{
+      var sel=document.getElementById('sml_r'+ri+'_cat');
+      if(sel&&!sel.value&&item&&item.value){
+        var nm=item.value.toLowerCase();
+        var match=_wzGetKatalogEntries().filter(function(e){return (e.name||'').toLowerCase()===nm&&e.cat;});
+        var cat=_wzMostFrequent(match,function(e){return e.cat;});
+        if(cat&&sel.querySelector('option[value="'+cat+'"]'))sel.value=cat;
+      }
+    }catch(e){}
+    _smlSyncVorgaben();
+  });
+  _wzInitAC('sml_r'+ri+'_brand',function(q){return _wzBrandSuggestions(q,v('sml_r'+ri+'_name')||_smlFixVal('name'));},null);
+  _wzInitAC('sml_r'+ri+'_model',function(q){return _wzModelSuggestions(q,v('sml_r'+ri+'_name')||_smlFixVal('name'),v('sml_r'+ri+'_brand')||_smlFixVal('brand'));},null);
+  _wzInitAC('sml_r'+ri+'_supplier',_wzSupplierSuggestions,null);
+  _wzInitAC('sml_r'+ri+'_notes',_wzStandortSuggestions,null);
+  tr.addEventListener('input',function(e){
+    var t=e.target;
+    // Spreadsheet-Gefühl: Tippen in der Bezeichnung der LETZTEN Zeile
+    // hängt automatisch eine neue Zeile an (kein Rebuild — Fokus bleibt)
+    if(t.getAttribute&&t.getAttribute('data-smlrowcol')==='name'&&t.value.trim()&&!tr.nextElementSibling)_wzSmlAddRows(1);
+    _smlSyncVorgaben();
+  });
+  tr.addEventListener('keydown',function(e){
+    if(e.key!=='Enter'||e.defaultPrevented)return;   // AC-Enter hat Vorrang
+    var t=e.target;
+    if(!t.getAttribute||t.tagName==='SELECT')return;
+    var col=t.getAttribute('data-smlrowcol');if(!col)return;
+    e.preventDefault();
+    var next=tr.nextElementSibling;
+    if(!next){_wzSmlAddRows(1);next=tr.nextElementSibling;}
+    var ni=next&&next.querySelector('[data-smlrowcol="'+col+'"]');
+    if(ni&&ni.offsetParent!==null)ni.focus();
+  });
+}
+function _smlFixVal(colId){
+  var el=document.getElementById('sml_fix_'+colId);
+  if(!el)return '';
+  if(colId==='zuw'){
+    var zv=el.value||'';
+    if(zv==='p:'){var p=document.getElementById('sml_fix_zuw_platz');var pt=p?p.value.trim():'';return pt?('p:'+pt):'';}
+    return zv;
+  }
+  return (el.value||'').trim();
+}
+function _smlRowData(tr){
+  var d={};
+  SML_COLS.forEach(function(c){
+    var el=tr.querySelector('[data-smlrowcol="'+c.id+'"]');
+    if(!el){d[c.id]='';return;}
+    if(c.id==='zuw'){
+      var zv=el.value||'';
+      if(zv==='p:'){var p=tr.querySelector('[data-smlrowcol="zuw_platz"]');var pt=p?p.value.trim():'';zv=pt?('p:'+pt):'';}
+      d.zuw=zv;
+    }else d[c.id]=(el.value||'').trim();
+  });
+  return d;
+}
+function _smlRows(){return Array.prototype.slice.call(document.querySelectorAll('#smlTbody tr.sml-row'));}
+function _smlRowCounts(d){
+  var own=SML_COLS.some(function(c){return d[c.id];});
+  return own||!!_smlFixVal('name');
+}
+function _smlZuwLabel(zv){
+  if(!zv)return '';
+  if(zv.indexOf('p:')===0)return '📍 '+zv.slice(2);
+  if(zv.indexOf('u:')===0){
+    try{var p=(GemaAuth.getUsers()||[]).find(function(x){return x.id===zv.slice(2);});return '👤 '+((p&&(p.name||p.username))||zv.slice(2));}catch(e){return zv;}
+  }
+  return zv;
+}
+// Vorgaben in die Zeilen spiegeln (Platzhalter/Optionstexte), interne
+// Kennung hochzählen (Vorschau = exakt der spätere Speicherwert),
+// ausgeblendete Vorgaben ausweisen, Zähler + Button nachführen.
+function _smlSyncVorgaben(){
+  var rows=_smlRows(),vis=_smlVisibleCols();
+  var internFix=_smlFixVal('intern');
+  var m=internFix?/^(.*?)(\d+)$/.exec(internFix):null;
+  var counter=m?parseInt(m[2],10):null,pad=m?m[2].length:0,prefix=m?m[1]:'';
+  var count=0;
+  rows.forEach(function(tr){
+    var d=_smlRowData(tr);
+    var counts=_smlRowCounts(d);
+    if(counts)count++;
+    SML_COLS.forEach(function(c){
+      if(c.nofix)return;
+      var el=tr.querySelector('[data-smlrowcol="'+c.id+'"]');
+      if(!el)return;
+      var fv=_smlFixVal(c.id);
+      if(c.typ==='cat'||c.typ==='zuw'){
+        var first=el.options&&el.options[0];
+        if(first)first.textContent=fv?('📌 '+(c.typ==='cat'?(function(){var cd=_wzGetActiveCats().find(function(x){return x.id===fv;});return (cd&&cd.label)||fv;})():_smlZuwLabel(fv).replace(/^([👤📍] )/,''))):(c.typ==='zuw'?'— keine —':'—');
+      }else if(c.id==='intern'){
+        if(!el.value.trim()&&internFix&&counts){
+          if(m){el.placeholder='📌 '+prefix+String(counter).padStart(pad,'0');counter++;}
+          else el.placeholder='📌 '+internFix;
+        }else el.placeholder=internFix?('📌 '+internFix):(c.ph||'');
+      }else{
+        el.placeholder=fv?('📌 '+fv):(c.ph||'');
+      }
+    });
+  });
+  // Ausgeblendete Spalten mit aktiver Vorgabe ausweisen — nichts wirkt still
+  var hidden=[];
+  SML_COLS.forEach(function(c){
+    if(c.nofix||vis.indexOf(c.id)>=0)return;
+    var fv=_smlFixVal(c.id);
+    if(!fv)return;
+    var lbl=fv;
+    if(c.typ==='cat'){var cd=_wzGetActiveCats().find(function(x){return x.id===fv;});lbl=(cd&&cd.label)||fv;}
+    if(c.typ==='zuw')lbl=_smlZuwLabel(fv);
+    if(c.typ==='date')lbl=fmt(fv);
+    hidden.push(c.lbl.replace(' *','')+': '+lbl);
+  });
+  var info=document.getElementById('smlHiddenInfo');
+  if(info){
+    info.style.display=hidden.length?'':'none';
+    info.textContent=hidden.length?('📌 Ausgeblendete Vorgaben wirken weiter — '+hidden.join(' · ')):'';
+  }
+  var cEl=document.getElementById('smlCount');
+  if(cEl)cEl.textContent=count?(count+' von '+rows.length+' Zeile'+(rows.length!==1?'n':'')+' wird'+(count!==1?'en':'')+' erfasst'):'Zeilen ausfüllen — oder eine Bezeichnung als 📌-Vorgabe setzen';
+  var btn=document.getElementById('smlSaveBtn');
+  if(btn){
+    btn.textContent='✓ '+(count?count+' ':'')+'Werkzeug'+(count!==1?'e':'')+' erfassen';
+    btn.disabled=!count;
+    btn.style.opacity=count?'1':'.45';
+    btn.style.cursor=count?'pointer':'not-allowed';
+  }
+}
+window._wzSammelSave=function(){
+  if(!_wzCanEdit()){alert('Keine Berechtigung — nur Magaziner/Admin dürfen Geräte erfassen.');return;}
+  var me=_wzGetUser()||{};
+  var internFix=_smlFixVal('intern');
+  var m=internFix?/^(.*?)(\d+)$/.exec(internFix):null;
+  var counter=m?parseInt(m[2],10):null,pad=m?m[2].length:0,prefix=m?m[1]:'';
+  var rows=_smlRows(),items=[],fehler=[];
+  rows.forEach(function(tr,idx){
+    tr.classList.remove('sml-err');
+    var d=_smlRowData(tr);
+    if(!_smlRowCounts(d))return;   // leere Zeile ohne Namens-Vorgabe → überspringen
+    var eff={};
+    SML_COLS.forEach(function(c){ eff[c.id]=d[c.id]||(c.nofix?'':_smlFixVal(c.id)); });
+    if(!d.intern&&internFix){
+      if(m){eff.intern=prefix+String(counter).padStart(pad,'0');counter++;}
+      else eff.intern=internFix;
+    }
+    var miss=[];
+    if(!eff.name)miss.push('Bezeichnung');
+    if(!eff.cat)miss.push('Kategorie');
+    if(!eff.bought)miss.push('Kaufdatum');
+    if(miss.length){fehler.push('Zeile '+(idx+1)+': '+miss.join(', ')+' fehlt');tr.classList.add('sml-err');return;}
+    items.push(eff);
+  });
+  if(fehler.length){
+    GemaDialog.alert({title:'Angaben fehlen',message:fehler.join('\n')+'\n\nWert in der Zeile ergänzen oder als 📌-Vorgabe setzen (Pflicht: Bezeichnung, Kategorie, Kaufdatum).'});
+    return;
+  }
+  if(!items.length){
+    GemaDialog.alert({title:'Nichts zu erfassen',message:'Mindestens eine Zeile ausfüllen — oder eine Bezeichnung als 📌-Vorgabe setzen.'});
+    return;
+  }
+  // IDs: Zeile 1 bekommt den höchsten Timestamp → die Liste (neueste
+  // zuoberst) zeigt die Werkzeuge in Erfassungs-Reihenfolge. Kollisions-
+  // Guard gegen bestehende t_<ts>-IDs.
+  var base=Date.now();
+  while(tools.some(function(t){return /^t_\d+$/.test(t.id||'')&&(+t.id.slice(2))>=base&&(+t.id.slice(2))<base+items.length;}))base+=items.length;
+  var heute=today();
+  var zuwNotify={};
+  items.forEach(function(eff,i){
+    var srvIv=parseInt(eff.service,10)||0;
+    var elecIv=parseInt(eff.elec,10)||0;
+    var zuwObj=null;
+    if(eff.zuw&&eff.zuw.indexOf('u:')===0){
+      var uid=eff.zuw.slice(2),p=null;
+      try{p=(GemaAuth.getUsers()||[]).find(function(x){return x.id===uid;});}catch(e){}
+      var pname=(p&&(p.name||p.username))||uid;
+      zuwObj={typ:'user',userId:uid,name:pname,seit:heute};
+      if(!zuwNotify[uid])zuwNotify[uid]={name:pname,count:0,namen:[]};
+      zuwNotify[uid].count++;zuwNotify[uid].namen.push(eff.name);
+    }else if(eff.zuw&&eff.zuw.indexOf('p:')===0){
+      var platz=eff.zuw.slice(2);
+      zuwObj={typ:'platz',platz:platz,name:platz,seit:heute};
+    }
+    var tool={
+      id:'t_'+(base+(items.length-1-i)),
+      name:eff.name,cat:eff.cat,
+      orgId:me.orgId||'',
+      internKennung:eff.intern||'',
+      brand:eff.brand||'',model:eff.model||'',
+      supplier:eff.supplier||'',supplierId:'',
+      bought:eff.bought,
+      warranty:eff.warranty||addMonths(eff.bought,24),
+      serial:eff.serial||'',
+      notes:eff.notes||'',
+      lifecycleStatus:'aktiv',
+      hasService:srvIv>0,serviceInterval:srvIv>0?srvIv:12,lastService:null,
+      hasElec:elecIv>0,elecInterval:elecIv>0?elecIv:12,lastElec:null,
+      elecHistory:[],
+      hasLeiter:false,leiterInterval:12,lastLeiter:null,leiterHistory:[],
+      kaufbeleg:null,
+      zugewiesenAn:zuwObj,
+      berichte:[],pruefAnfrage:null,ersatzAnfragen:[],ausgeliehenAn:null,
+      bildUrl:'',katalogProduktId:'',einbuchung:null
+    };
+    tools.unshift(tool);
+    _wzActLog('erfasst','Sammelerfassung: Werkzeug erfasst'+(tool.cat?' · '+tool.cat:''),tool);
+  });
+  // EINE Sammel-Notifikation pro Person statt einer pro Gerät
+  // (Muster Sammel-Bearbeitung)
+  Object.keys(zuwNotify).forEach(function(uid){
+    var z=zuwNotify[uid];
+    _wzRememberAssignee(z.name);
+    if(typeof GemaNotify!=='undefined'){
+      GemaNotify.push({eventKey:'werkzeug_zuweisung',empfaengerUserId:uid,modul:'werkzeug',typ:'info',
+        titel:z.count+' Werkzeug'+(z.count!==1?'e':'')+' zugewiesen',
+        text:z.namen.slice(0,3).join(', ')+(z.count>3?' …':''),
+        link:'if_werkzeug.html'});
+    }
+  });
+  save();renderList();_wzCloseModal();
+  if(typeof showToast==='function')showToast(items.length+' Werkzeug'+(items.length!==1?'e':'')+' erfasst');
+};
 let _wzAdvFilter={};
 
 function _wzGetMyTools(list){
@@ -2819,6 +3244,19 @@ function _wzSyncSearch(el){
 // ──────────────────────────────────────
 function _wzLockScroll(){document.body.classList.add('modal-open');}
 function _wzUnlockScroll(){document.body.classList.remove('modal-open');}
+// Dezente Bestätigung unten mittig. Die typeof-Guards an den Aufrufstellen
+// (Sammel-Bearbeitung, Einstellungen, NFC-Log …) erwarteten diese Funktion
+// seit jeher — ohne sie blieb jede Sammel-Aktion stumm. z-index 12600:
+// über _wzShowModal (10500) und QR-Scanner (12000), unter GemaDialog (12800).
+function showToast(msg){
+  try{
+    var el=document.createElement('div');
+    el.textContent=msg;
+    el.style.cssText='position:fixed;left:50%;bottom:calc(28px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:rgba(15,23,42,.92);color:#fff;padding:10px 18px;border-radius:10px;font:600 13.5px "DM Sans",system-ui,sans-serif;z-index:12600;max-width:86vw;text-align:center;pointer-events:none;box-shadow:0 8px 24px rgba(15,23,42,.35)';
+    document.body.appendChild(el);
+    setTimeout(function(){try{el.remove();}catch(e){}},2400);
+  }catch(e){}
+}
 // Gleichzeitig-Bearbeiten-Warnung: der Lock gilt EINEM Werkzeug (Datensatz),
 // nie dem Modul — er entsteht nur beim Oeffnen des Bearbeiten-Formulars und
 // wird beim Schliessen wieder geloest. Neuerfassung lockt nichts (es gibt
@@ -7259,6 +7697,8 @@ try{
   if(btnAdvFilter && canEdit) btnAdvFilter.style.display='';
   var btnBulk=document.getElementById('btnBulkMode');
   if(btnBulk && canEdit) btnBulk.style.display='';
+  var btnSml=document.getElementById('btnSammel');
+  if(btnSml && canEdit) btnSml.style.display='';
   var btnSettings=document.getElementById('btnWzSettings');
   if(btnSettings && canEdit) btnSettings.style.display='';
   var btnActLog=document.getElementById('btnWzActLog');
@@ -7346,7 +7786,10 @@ try{
       // Nicht-Editoren sehen nur dir zugewiesene/ausgeliehene Geräte — die
       // native Handy-Ansicht zeigte vorher versehentlich den ganzen Bestand.
       var base=(typeof _wzIsMonteurView==='function'&&_wzIsMonteurView())?_wzGetMyTools(tools||[]):(tools||[]);
-      return base.filter(function(t){ var lc=t.lifecycleStatus||'aktiv'; return lc!=='ausgemustert'&&lc!=='verkauft'; });
+      // Neueste zuoberst — dieselbe Sortierung wie die klassische Liste
+      // (getFiltered); filter() liefert eine Kopie, sort() mutiert tools nie.
+      return base.filter(function(t){ var lc=t.lifecycleStatus||'aktiv'; return lc!=='ausgemustert'&&lc!=='verkauft'; })
+        .sort(function(a,b){ return _wzCreatedTs(b)-_wzCreatedTs(a); });
     }catch(e){ return []; }
   }
   function natWd(t){ try{ return worstDays(t); }catch(e){ return null; } }
@@ -7418,6 +7861,19 @@ try{
     });
     return '<div class="gn-chipbar" data-nat-cats>'+html+'</div>';
   }
+  // Pull-to-Refresh: frischer Cloud-Pull (bindCollection = Re-Pull-Muster)
+  // → load() → renderList() (gewrappt → nat.refresh() zeichnet den Screen neu).
+  // Fehler lassen den Spinner nie hängen (catch → Promise resolved trotzdem).
+  function natRefresh(){
+    var p=null;
+    try{
+      if(window.GemaSync&&GemaSync.bindCollection) p=GemaSync.bindCollection('werkzeugmanagement','gema_werkzeug','tool:','id');
+    }catch(e){}
+    return Promise.resolve(p).catch(function(){}).then(function(){
+      try{ load(); }catch(e){}
+      try{ window.renderList(); }catch(e){}
+    });
+  }
   function render(root){
     var ts=natTools();
     var pruef=ts.filter(function(t){ var wd=natWd(t); return wd!==null&&wd<=30; }).length;
@@ -7425,7 +7881,8 @@ try{
     var advN=natAdvCount();
     root.innerHTML=
       '<div class="gn-compact" data-gn-compact><b>Werkzeug</b></div>'
-      +'<div class="gn-screen" data-gn-scroll>'
+      +'<div class="gn-ptr-spinner"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.9-6.6"/><path d="M21 3v5h-5"/></svg></div>'
+      +'<div class="gn-screen" data-gn-scroll data-gn-ptr>'
         +'<div class="gn-toolbar">'
           +'<div class="gn-large-title"><h1>Werkzeug</h1><p>'+ts.length+' Geräte · '+pruef+' Prüfungen fällig</p></div>'          +'<button class="gn-icon-btn" data-nat-filter title="Erweiterte Filter"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M7 12h10M10 18h4"/></svg>'+(advN?'<span class="gn-dot">'+advN+'</span>':'')+'</button>'
           +'<button class="gn-icon-btn" data-nat-scan title="QR scannen"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><path d="M14 14h3v3M20 14v6M17 20h3"/></svg></button>'
@@ -7480,6 +7937,10 @@ try{
         else if(act==='defekt') openDefektSheet(id);
       }catch(err){} },60);
     });
+    // Pull-to-Refresh-Hook (GemaNative.init bindet die Geste nach jedem
+    // Render neu ans frische Element — der Hook muss deshalb hier mit)
+    var ptr=root.querySelector('[data-gn-ptr]');
+    if(ptr) ptr.__gnRefresh=natRefresh;
   }
 
   /* ── Sheet-Bausteine ── */

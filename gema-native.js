@@ -134,18 +134,30 @@
       });
     }
 
-    /* ---- Pull-to-Refresh ---- */
+    /* ---- Pull-to-Refresh ----
+       Touch-Events statt Pointer-Events (KRITISCH): Beim Runterziehen an
+       scrollTop 0 übernimmt der Browser die Geste (Overscroll/Rubber-Band)
+       und feuert pointercancel — die Pointer-Variante brach damit auf
+       echten Geräten sofort ab. touchmove ist non-passiv registriert und
+       ruft preventDefault NUR während eines aktiven Zugs nach unten; die
+       normale Scroll-Geste (hochwischen / Liste nicht oben) bleibt nativ.
+       Maus-Fallback für Desktop-Demos; Hook: list.__gnRefresh = () => Promise. */
     all(app, "[data-gn-ptr]").forEach(function (list) {
       var host = list.parentElement;
       var spin = host.querySelector(".gn-ptr-spinner");
-      var sy = null, dy = 0, busy = false;
-      on(list, "pointerdown", function (e) { if (list.scrollTop > 2 || busy) return; sy = e.clientY; dy = 0; list.style.transition = "none"; });
-      on(list, "pointermove", function (e) {
-        if (sy == null) return; dy = e.clientY - sy;
-        if (dy < 0) { sy = null; list.style.transition = "transform .25s"; list.style.transform = ""; return; }
+      var sy = null, dy = 0, busy = false, mode = null;
+      var start = function (y, m) {
+        if (list.scrollTop > 2 || busy || sy != null) return;
+        sy = y; dy = 0; mode = m; list.style.transition = "none";
+      };
+      var move = function (y) {
+        if (sy == null) return false;
+        dy = y - sy;
+        if (dy < 0) { sy = null; mode = null; list.style.transition = "transform .25s"; list.style.transform = ""; return false; }
         var p = Math.min(dy, 90); list.style.transform = "translateY(" + p + "px)";
         if (spin) { spin.style.opacity = Math.min(1, p / 55); spin.querySelector("svg").style.transform = "rotate(" + (p * 3) + "deg)"; }
-      });
+        return dy > 6;   // ab hier gehört die Geste uns (preventDefault)
+      };
       var end = function () {
         if (sy == null) return; list.style.transition = "transform .25s";
         if (dy > 55) {
@@ -155,9 +167,19 @@
           var hook = list.__gnRefresh ? list.__gnRefresh() : null;
           if (hook && hook.then) hook.then(done, done); else setTimeout(done, 900);
         } else { list.style.transform = ""; if (spin) spin.style.opacity = "0"; }
-        sy = null;
+        sy = null; mode = null;
       };
-      on(list, "pointerup", end); on(list, "pointerleave", end);
+      list.addEventListener("touchstart", function (e) { start(e.touches[0].clientY, "t"); }, { passive: true });
+      list.addEventListener("touchmove", function (e) {
+        if (mode !== "t") return;
+        if (move(e.touches[0].clientY) && e.cancelable) e.preventDefault();
+      }, { passive: false });
+      on(list, "touchend", end); on(list, "touchcancel", end);
+      // Maus (Desktop): nur wenn keine Touch-Geste läuft
+      on(list, "mousedown", function (e) { if (mode !== "t") start(e.clientY, "m"); });
+      on(list, "mousemove", function (e) { if (mode === "m") move(e.clientY); });
+      on(list, "mouseup", function () { if (mode === "m") end(); });
+      on(list, "mouseleave", function () { if (mode === "m") end(); });
     });
   }
 
