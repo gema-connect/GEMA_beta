@@ -2,11 +2,13 @@
 /* Enthärtung — Multistrang: Playwright-Smoke
  * Deckt ab: Excel-Beispielwerte im UI (ohne Stränge — implizite Einzel-Zeilen-
  * Stränge liefern dieselben Totale), Strang anlegen über das Zeilen-Dropdown
- * (HW-Vorbelegung = kleinste Zeilen-Härte, Härte-Feld gesperrt, «→ Strang»-
- * Tag), Zusammenstellungs-Karte mit Strang-KPIs, Gesamt-Gleichzeitigkeit
- * (V'E < konservative Summe bei 2 LU-Strängen), Umbenennen/HW ändern/Löschen,
- * Anlagenschema-SVG (Werte + Chip-Klick springt zum Feld) und Persistenz-
- * Roundtrip über das hidden Textarea (#enth_straenge, zk_rows-Muster).
+ * (HW-Vorbelegung = kleinste Zeilen-Härte; seit Feedback 31.07.2026: Härte-Feld
+ * BLOCKIERT + Strang-HW übernommen, «über Enthärter»-Spalte zeigt den V'E-WERT
+ * des Strangs, die Strang-Karte hängt AUSKLAPPBAR unter der letzten Zeile des
+ * Strangs in der Tabelle), Gesamt-Gleichzeitigkeit (V'E < konservative Summe
+ * bei 2 LU-Strängen), Umbenennen/HW ändern/Löschen, Anlagenschema-SVG (Werte +
+ * Chip-Klick springt zum Feld) und Persistenz-Roundtrip über das hidden
+ * Textarea (#enth_straenge, zk_rows-Muster).
  * Ausführen: CHROME=<chromium> node scripts/enthaertung_multistrang_smoke_test.mjs (aus scripts/)
  */
 import { chromium } from 'playwright-core';
@@ -68,30 +70,47 @@ console.log('■ Strang anlegen über das Zeilen-Dropdown');
     vLocked: document.getElementById('v_A').readOnly,
     vClass: document.getElementById('v_A').classList.contains('v-strang'),
     vEdit: document.getElementById('v_A').classList.contains('v-strang-edit'),
-    vStrang: document.getElementById('v_A').dataset.strang || '',
-    veTag: document.getElementById('ve_A').textContent
+    vVal: document.getElementById('v_A').value,
+    veTag: document.getElementById('ve_A').textContent.trim()
   }));
   ok(s1.n === 1 && s1.name === 'Strang 1', 'Strang 1 angelegt («＋ Neuer Strang …»)');
   ok(s1.zu === '1', 'Zeile A dem Strang zugeordnet');
   ok(s1.hw === '10', 'HW-Vorbelegung = kleinste Zeilen-Härte (10 °fH)');
-  // Feedback 28.07.2026: die Härte einer zugeordneten Zeile ist NICHT mehr
-  // gesperrt — sie bleibt editierbar und schreibt die Härte des Strangs.
-  ok(!s1.vLocked && !s1.vClass && s1.vEdit && s1.vStrang === '1',
-     'Härte-Feld der Zeile editierbar und auf den Strang verdrahtet');
-  ok(s1.veTag.includes('Strang 1'), '«über Enthärter»-Zelle zeigt «→ Strang 1»');
+  // Feedback 31.07.2026: die Härte einer zugeordneten Zeile ist BLOCKIERT,
+  // der Strang-Wert wird automatisch übernommen (eine Wahrheit pro Strang).
+  ok(s1.vLocked && s1.vClass && !s1.vEdit && s1.vVal === '10',
+     'Härte-Feld der Zeile blockiert + Strang-HW übernommen (10)');
+  // Feedback 31.07.2026: die letzte Spalte zeigt den V'E-VOLUMENSTROM des
+  // Strangs (die Strang-Angabe stünde doppelt — sie steht in der Strang-Spalte).
+  ok(s1.veTag === '0.67', '«über Enthärter»-Zelle zeigt den Strang-V’E (0.67)');
   ok((await txt('ve_total_ls')).startsWith('0.86'), 'Totale unverändert (gleiches Modell)');
 
+  // Feedback 31.07.2026: die Strang-Karte hängt AUSKLAPPBAR direkt unter der
+  // letzten Zeile ihres Strangs in der Tabelle (nicht mehr separat in #esList).
   const card = await page.evaluate(() => {
-    const c = document.querySelector('#esList .es-card');
+    const trA = document.querySelector('tr[data-row="A"]');
+    const next = trA.nextElementSibling;
+    const c = next && next.classList.contains('es-strang-tr') ? next.querySelector('.es-card') : null;
+    if (!c) return null;
     const k = [...c.querySelectorAll('.es-kpi b')].map(b => b.textContent);
-    return { kpis: k, hwInp: c.querySelector('input[id^="es_hw_"]').value, badge: document.getElementById('esCount').textContent };
+    return { kpis: k, hwInp: c.querySelector('input[id^="es_hw_"]').value,
+             badge: document.getElementById('esCount').textContent,
+             inList: document.querySelectorAll('#esList .es-card').length };
   });
+  ok(!!card, 'Strang-Karte hängt direkt unter Zeile A in der Tabelle');
+  ok(card.inList === 0, 'keine Karte mehr separat in #esList');
   ok(card.badge === '1', 'Zähler-Badge = 1');
   ok(card.kpis[1] === '0.903 l/s', 'Karte: Q W3 = 0.903 l/s');
   ok(card.kpis[4] === '0.671 l/s', "Karte: V'E = 0.671 l/s");
   ok(card.kpis[5] === '0.232 l/s', 'Karte: Umgehung = 0.232 l/s');
   ok(card.kpis[7] === '2.61 mol/d', 'Karte: CB = 2.61 mol/d');
   ok(card.hwInp === '10', 'HW-Feld in der Karte = 10');
+  // zuklappen → nur Kopfzeile; wieder aufklappen
+  await page.evaluate(() => esCardToggle('1'));
+  ok(await page.evaluate(() => document.querySelector('tr.es-strang-tr[data-sid="1"] .es-card .es-kpi') === null
+       && !!document.querySelector('tr.es-strang-tr[data-sid="1"] .es-card .es-name')),
+     'Karte zuklappbar (nur Kopfzeile bleibt)');
+  await page.evaluate(() => esCardToggle('1'));
 }
 
 console.log('■ Zweiter Strang (Gegenosmose, HW 0) + Ohne-Strang-Ausweis');
@@ -102,9 +121,9 @@ console.log('■ Zweiter Strang (Gegenosmose, HW 0) + Ohne-Strang-Ausweis');
     sel.value = '__new__';
     sel.dispatchEvent(new Event('change', { bubbles: true }));
   });
-  const s2 = await page.evaluate(() => ({ hw: esState.straenge[1].hw, cards: document.querySelectorAll('#esList .es-card').length }));
+  const s2 = await page.evaluate(() => ({ hw: esState.straenge[1].hw, cards: document.querySelectorAll('tr.es-strang-tr .es-card').length }));
   ok(s2.hw === '0', 'HW-Vorbelegung Strang 2 = 0 °fH (Zeilen-Härte der Gegenosmose)');
-  ok(s2.cards === 2, 'zwei Strang-Karten');
+  ok(s2.cards === 2, 'zwei Strang-Karten (in der Tabelle)');
   ok(!(await page.evaluate(() => document.getElementById('esList').textContent.includes('Ohne Strang'))), 'kein «Ohne Strang» mehr (alles zugeordnet)');
   ok((await txt('ve_total_ls')).startsWith('0.86'), "V'E total weiterhin 0.86 l/s");
 }
@@ -127,7 +146,8 @@ console.log('■ Gesamt-Gleichzeitigkeit sichtbar (2 LU-Stränge)');
   ok((await txt('qd_ges')).startsWith('1.21'), 'QD gesamt über W3(96 LU) + Direktlast');
   await page.evaluate(() => { esDelete('3'); });   // Strang 3 wieder weg
   await setInp('#lu_C', '');
-  await setInp('#n_C', '');   // LU löschen lässt den abgeleiteten l/s-Wert im (wieder editierbaren) Feld stehen — wie im UI sichtbar
+  // Feedback 31.07.2026: LU löschen löscht den abgeleiteten l/s-Wert MIT
+  ok(await page.evaluate(() => document.getElementById('n_C').value) === '', 'LU gelöscht → abgeleiteter l/s-Wert der Zeile geleert');
   await setInp('#v_C', '');
 }
 
@@ -136,8 +156,9 @@ console.log('■ Umbenennen · HW ändern · Schema');
   await page.evaluate(() => esRename('1', 'Strang Ost'));
   ok(await page.evaluate(() => document.querySelector('select.strangSel[data-c="A"] option[value="1"]').textContent) === 'Strang Ost', 'Dropdown führt den neuen Namen');
   await page.evaluate(() => esSetHw('1', '15'));
-  const umg = await page.evaluate(() => [...document.querySelectorAll('#esList .es-card')][0].querySelectorAll('.es-kpi b')[5].textContent);
+  const umg = await page.evaluate(() => document.querySelector('tr.es-strang-tr[data-sid="1"] .es-card').querySelectorAll('.es-kpi b')[5].textContent);
   ok(umg === '0.347 l/s', 'HW 15 °fH → Umgehung des Strangs steigt (0.347 l/s)');
+  ok(await page.evaluate(() => document.getElementById('v_A').value) === '15', 'Zeilen-Härtefeld folgt der Strang-HW (15 übernommen)');
   await page.evaluate(() => esSetHw('1', '10'));
 
   const svg = await page.evaluate(() => {
@@ -165,9 +186,11 @@ console.log('■ Persistenz-Roundtrip (#enth_straenge)');
   const ta = await page.evaluate(() => JSON.parse(document.getElementById('enth_straenge').value));
   ok(ta && ta.str.length === 2 && ta.zu.A === '1' && ta.zu.B === '2', 'Textarea trägt Stränge + Zuordnungen');
   ok(ta.str[0].name === 'Strang Ost' && ta.str[0].hw === '10', 'Name + HW persistiert');
-  // Restore simulieren (AutoSave-Kette): fremder Stand → change-Event
+  // Restore simulieren (AutoSave-Kette): fremder Stand → change-Event.
+  // hw '10' — die Strang-HW wird seit Feedback 31.07.2026 in die Zeile
+  // ÜBERNOMMEN; mit 10 bleiben die Excel-Totale der Folge-Checks gültig.
   await page.evaluate(() => {
-    const st = { str: [{ id: '7', name: 'Restore-Strang', hw: '12' }], zu: { A: '7' }, seq: 7 };
+    const st = { str: [{ id: '7', name: 'Restore-Strang', hw: '10' }], zu: { A: '7' }, seq: 7 };
     const el = document.getElementById('enth_straenge');
     el.value = JSON.stringify(st);
     el.dispatchEvent(new Event('change', { bubbles: true }));
@@ -176,7 +199,7 @@ console.log('■ Persistenz-Roundtrip (#enth_straenge)');
     n: esState.straenge.length, name: esState.straenge[0].name,
     selA: document.querySelector('select.strangSel[data-c="A"]').value,
     selB: document.querySelector('select.strangSel[data-c="B"]').value,
-    card: document.querySelector('#esList .es-name') && document.querySelector('#esList .es-name').value
+    card: document.querySelector('.es-card .es-name') && document.querySelector('.es-card .es-name').value
   }));
   ok(re.n === 1 && re.name === 'Restore-Strang', 'Restore ersetzt den Strang-Stand');
   ok(re.selA === '7' && re.selB === '', 'Zeilen-Dropdowns folgen dem Restore (B wieder frei)');
