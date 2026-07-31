@@ -5,8 +5,11 @@
 //     📌-Vorgabe-Zeile (gilt für alle Zeilen ohne eigenen Wert), Spalten
 //     ein-/ausblendbar + pro Gerät gemerkt (gema_wz_sml_cols_v1, ↺ Standard),
 //     Live-Zähler am Speichern-Button, Auto-Zeile beim Tippen in der letzten
-//     Zeile, interne Kennung zählt hoch (WZ-014 → WZ-015 …, eigene Werte
-//     verbrauchen keinen Zähler), ausgeblendete Vorgaben werden ausgewiesen.
+//     Zeile, interne Kennung gilt 1:1 (Feedback 31.07.2026 — KEIN Hochzählen),
+//     DATUM-Vorgaben werden sichtbar in die Zeilen gespiegelt (type=date kann
+//     keinen Platzhalter zeigen; eigene Eingabe löst die Spiegelung, gespiegelte
+//     Werte zählen nicht als «ausgefüllt»), ausgeblendete Vorgaben ausgewiesen,
+//     Fenster nutzt die volle Bildschirmbreite (Dropdowns lesbar).
 //  B) Validierung: Zeile mit Werten aber ohne effektive Bezeichnung/Kategorie/
 //     Kaufdatum → Fehlerdialog mit Zeilennummer, nichts wird gespeichert.
 //  C) Save-Pipeline: orgId gestempelt, Vorgaben angewendet, Garantie-Default
@@ -72,7 +75,7 @@ const browser = await chromium.launch({ executablePath: CHROME });
 
 async function newWzPage(userId, opts) {
   opts = opts || {};
-  const ctx = await browser.newContext(opts.phone ? { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15' } : {});
+  const ctx = await browser.newContext(opts.phone ? { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15' } : (opts.viewport ? { viewport: opts.viewport } : {}));
   await ctx.route('**/*', route => {
     const u = route.request().url();
     if (u.startsWith(BASE)) return route.continue();
@@ -101,7 +104,7 @@ async function newWzPage(userId, opts) {
 try {
   // ───────────────────────── Desktop: Magazinerin ─────────────────────────
   console.log('— A) Sammelerfassung: Modal, Spalten, Vorgaben —');
-  const { ctx: ctx1, page, errs } = await newWzPage('u_mag');
+  const { ctx: ctx1, page, errs } = await newWzPage('u_mag', { viewport: { width: 1720, height: 900 } });
 
   ok(await page.evaluate(() => document.getElementById('btnSammel') && document.getElementById('btnSammel').style.display !== 'none'),
     'Toolbar-Button «📋 Sammelerfassung» sichtbar (Magazinerin)');
@@ -110,6 +113,44 @@ try {
   await page.waitForSelector('#smlTable', { timeout: 4000 });
   ok(await page.evaluate(() => document.querySelectorAll('#smlTbody tr.sml-row').length) === 5, 'startet mit 5 leeren Zeilen');
   ok(await page.evaluate(() => document.getElementById('sml_fix_bought').value) === HEUTE, 'Vorgabe Kaufdatum = heute (wie Einzelerfassung)');
+  const breite = await page.evaluate(() => ({
+    card: document.querySelector('.sml-card').offsetWidth,
+    catSel: document.querySelector('#smlTbody tr.sml-row [data-smlrowcol="cat"]').offsetWidth
+  }));
+  ok(breite.card >= 1600, 'Fenster nutzt die volle Breite (' + breite.card + 'px bei 1720er-Screen)');
+  ok(breite.catSel >= 170, 'Kategorie-Dropdown lesbar breit (' + breite.catSel + 'px)');
+  // Datum-Vorgabe wird SICHTBAR in die Zeilen gespiegelt (type=date kann
+  // keinen Platzhalter zeigen — die Vorgabe wirkte sonst «nicht übernommen»)
+  const mirror0 = await page.evaluate(() => {
+    const el = document.querySelector('#smlTbody tr.sml-row [data-smlrowcol="bought"]');
+    return { val: el.value, fromfix: el.getAttribute('data-fromfix') };
+  });
+  ok(mirror0.val === HEUTE && mirror0.fromfix === '1', 'Kaufdatum-Vorgabe sichtbar in der Zeile gespiegelt (data-fromfix)');
+  await page.evaluate(() => {
+    const f = document.getElementById('sml_fix_bought');
+    f.value = '2026-05-04'; f.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  ok(await page.evaluate(() => document.querySelector('#smlTbody tr.sml-row [data-smlrowcol="bought"]').value) === '2026-05-04',
+    'geänderte Datum-Vorgabe zieht in allen Zeilen nach');
+  ok(await page.evaluate(() => document.getElementById('smlSaveBtn').disabled) === true,
+    'gespiegelte Datum-Werte zählen NICHT als ausgefüllte Zeile (Button bleibt deaktiviert)');
+  await page.evaluate(() => {
+    const el = document.querySelectorAll('#smlTbody tr.sml-row')[1].querySelector('[data-smlrowcol="bought"]');
+    el.value = '2026-01-15'; el.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  await page.evaluate(() => {
+    const f = document.getElementById('sml_fix_bought');
+    f.value = '2026-06-01'; f.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  const mirror1 = await page.evaluate(() => Array.from(document.querySelectorAll('#smlTbody tr.sml-row')).slice(0, 2).map(tr => tr.querySelector('[data-smlrowcol="bought"]').value));
+  ok(mirror1[0] === '2026-06-01' && mirror1[1] === '2026-01-15', 'eigene Zeilen-Eingabe hat Vorrang und übersteht Vorgabe-Änderungen');
+  await page.evaluate(() => {
+    // zurück auf den Ausgangszustand für die Folge-Checks
+    const el = document.querySelectorAll('#smlTbody tr.sml-row')[1].querySelector('[data-smlrowcol="bought"]');
+    el.value = ''; el.dispatchEvent(new Event('change', { bubbles: true }));
+    const f = document.getElementById('sml_fix_bought');
+    f.value = new Date().toISOString().slice(0, 10); f.dispatchEvent(new Event('change', { bubbles: true }));
+  });
 
   const colState = await page.evaluate(() => {
     const vis = id => document.querySelector('#smlTable thead th[data-smlcol="' + id + '"]').style.display !== 'none';
@@ -169,8 +210,8 @@ try {
     const z = document.getElementById('sml_fix_zuw'); z.value = 'u:u_mon'; z.dispatchEvent(new Event('change', { bubbles: true }));
   });
   const internPh = await page.evaluate(() => Array.from(document.querySelectorAll('#smlTbody tr.sml-row')).slice(0, 2).map(tr => tr.querySelector('[data-smlrowcol="intern"]').placeholder));
-  ok(internPh[0] === '📌 WZ-014' && internPh[1] === '📌 WZ-015', 'Kennung-Vorschau zählt hoch (WZ-014, WZ-015) — ' + internPh.join(' / '));
-  // Zeile 2 setzt eine EIGENE Kennung → verbraucht keinen Zähler
+  ok(internPh[0] === '📌 WZ-014' && internPh[1] === '📌 WZ-014', 'Kennung-Vorgabe gilt 1:1 — KEIN Hochzählen (' + internPh.join(' / ') + ')');
+  // Zeile 2 setzt eine EIGENE Kennung → hat Vorrang vor der Vorgabe
   await setRow(1, 'intern', 'EIGEN-1');
 
   // Validierung: Zeile 3 nur mit Hersteller (keine effektive Bezeichnung)
@@ -202,7 +243,7 @@ try {
   ok(!!akku && akku.cat === 'maschine' && akku.orgId === 'org_t', 'Vorgabe-Kategorie + orgId gestempelt');
   ok(akku.bought === HEUTE, 'Vorgabe-Kaufdatum (heute) angewendet');
   ok(!!akku.warranty && akku.warranty > HEUTE, 'Garantie-Default Kauf + 24 Monate gesetzt (' + akku.warranty + ')');
-  ok(akku.intern === 'WZ-014' && flex.intern === 'EIGEN-1', 'Kennung: Zeile 1 aus Vorgabe (WZ-014), Zeile 2 eigener Wert (EIGEN-1)');
+  ok(akku.intern === 'WZ-014' && flex.intern === 'EIGEN-1', 'Kennung: Zeile 1 = Vorgabe 1:1 (WZ-014), Zeile 2 eigener Wert (EIGEN-1)');
   ok(akku.zuw && akku.zuw.typ === 'user' && akku.zuw.userId === 'u_mon' && akku.zuw.seit === HEUTE, 'Zuweisung typ user an Monteur, seit heute');
   ok(akku.hasService === false, 'ohne Service-Vorgabe keine Prüfung aktiviert');
   const idsOrder = await page.evaluate(() => window.getFiltered().map(t => t.name));
