@@ -570,6 +570,11 @@ function prSyncPunkte(anlage, effektiv){
   anlage.punkte.forEach(function(r){ if(r && r.punktId) (byId[r.punktId]=byId[r.punktId]||[]).push(r); });
   (effektiv||[]).forEach(function(p){
     var rows=byId[p.id];
+    /* Firmen-Anpassung eines GEMA-Punkts (basisId): bestehende Zeilen offener
+       Begehungen laufen unter der GEMA-Id weiter — ohne dieses Match würde die
+       Anpassung als NEUER Punkt angehängt und die alte Zeile bliebe stehen
+       (Duplikat). Die Zeile behält ihre punktId, bekommt aber die Felder. */
+    if((!rows || !rows.length) && p.basisId) rows=byId[p.basisId];
     if(!rows || !rows.length){
       anlage.punkte.push({ key:'pk_sync_'+p.id, punktId:p.id, quelle:p.quelle||'global', individuell:false,
         bezeichnung:p.bezeichnung, untergruppe:p.untergruppe||'', antworttyp:p.antworttyp||'ja_nein_nb', pflicht:!!p.pflicht,
@@ -736,7 +741,15 @@ function prEffektivePunkte(anlagenart, ctx){
   var overrides = ctx.overrides || {};
   function aktiv(p){ return p.aktiv!==false && p.status!=='vorschlag' && p.status!=='abgelehnt'; }
   function passt(p){ return p.anlagenart===anlagenart && aktiv(p) && overrides[p.id]==null; }
-  var glob = (ctx.global||[]).filter(passt);
+  /* Firmen-Anpassung eines GEMA-Punkts (org-Record mit basisId, 31.07.2026):
+     unterdrückt das GEMA-Original per ID — unabhängig von Namensgleichheit
+     und Anlagenart (Umbenennen/Umkategorisieren bricht die Ersetzung nicht).
+     Bewusst auch bei DEAKTIVIERTER Anpassung: deaktiviert = Punkt für die
+     Firma aus; das GEMA-Original kommt nur über das ENTFERNEN der Anpassung
+     zurück (prPkResetAnpassung). */
+  var basis = {};
+  (ctx.org||[]).forEach(function(p){ if(p && p.basisId && p.status!=='vorschlag' && p.status!=='abgelehnt') basis[p.basisId]=1; });
+  var glob = (ctx.global||[]).filter(function(p){ return passt(p) && !basis[p.id]; });
   var org  = (ctx.org||[]).filter(passt);
   var obj  = (ctx.objekt||[]).filter(function(p){ return p.anlagenart===anlagenart && aktiv(p) && p.objektId===ctx.objektId; });
   var seen = {}, out = [];
@@ -2152,40 +2165,60 @@ function renderStandardliste(){
 
   var glob=stdGlobalMerged().filter(function(p){ return p.status!=='vorschlag'; });
   var orgP=stdOrgAll().filter(function(p){ return p.status!=='vorschlag' && p.status!=='abgelehnt'; });
+  /* Firmen-Anpassungen von GEMA-Punkten (basisId → org-Record) */
+  var anp={}; orgP.forEach(function(p){ if(p.basisId) anp[p.basisId]=p; });
   if(_stdArtFilter){ glob=glob.filter(function(p){return p.anlagenart===_stdArtFilter;}); orgP=orgP.filter(function(p){return p.anlagenart===_stdArtFilter;}); }
   function sortP(a,b){ return (a.reihenfolge||0)-(b.reihenfolge||0) || prNorm(a.bezeichnung).localeCompare(prNorm(b.bezeichnung)); }
   glob.sort(sortP); orgP.sort(sortP);
 
   if(orgP.length){
     h+='<div class="subhd">🏢 Firmen-Standardpunkte</div>';
-    orgP.forEach(function(p){ h+=stdRow(p,'org',canM,canSuper,ovr); });
+    orgP.forEach(function(p){ h+=stdRow(p,'org',canM,canSuper,ovr,anp); });
   }
   h+='<div class="subhd">🌐 GEMA-Standardpunkte</div>';
+  if(canM&&!canSuper) h+='<div class="mini" style="display:block;margin:0 0 8px;color:var(--mut)">✏️ passt einen GEMA-Punkt für deine Firma an — der Standard bleibt für andere Organisationen unverändert, «↺» stellt ihn wieder her.</div>';
   if(!glob.length) h+='<div class="empty">Keine Punkte.</div>';
-  glob.forEach(function(p){ h+=stdRow(p,'global',canM,canSuper,ovr); });
+  glob.forEach(function(p){ h+=stdRow(p,'global',canM,canSuper,ovr,anp); });
   el.innerHTML=h;
 }
 window.prStdArtF=function(v){ _stdArtFilter=v; renderStandardliste(); };
-function stdRow(p, scope, canM, canSuper, ovr){
+function stdRow(p, scope, canM, canSuper, ovr, anp){
+  anp=anp||{};
   var t=PR_ANTWORTTYPEN[p.antworttyp]||{};
-  var deaktiviert = (p.aktiv===false) || (scope==='global' && ovr[p.id]);
-  var canEditThis = scope==='global' ? canSuper : canM;
+  var angepasst = scope==='global' && anp[p.id];                 // Firmen-Anpassung ersetzt diesen GEMA-Punkt
+  var istAnpassung = scope==='org' && p.basisId;                 // dieser Org-Punkt IST eine Anpassung
+  var deaktiviert = (p.aktiv===false) || (scope==='global' && ovr[p.id]) || !!angepasst;
+  // Org-Manager (auch ohne Super-Admin) dürfen GEMA-Punkte anpassen —
+  // prPkEdit legt dafür eine Firmen-Kopie mit basisId an (31.07.2026)
+  var canEditThis = scope==='global' ? (canSuper||canM) : canM;
   var h='<div class="vrow'+(deaktiviert?' inaktiv':'')+'"><div class="vt">';
   h+='<div class="vn">'+(p.pflicht?'<span class="pflicht-star">*</span> ':'')+esc(p.bezeichnung)+'</div>';
   h+='<div class="vs"><span class="mini">'+esc(prArt(p.anlagenart).label)+'</span>'+(p.untergruppe?'<span class="mini">'+esc(p.untergruppe)+'</span>':'')
     +'<span class="mini">'+esc(t.kurz||p.antworttyp)+'</span>'
     +(p._default?'<span class="mini">GEMA-Basis</span>':'')
-    +(deaktiviert?'<span class="mini" style="background:#fee2e2;color:#b91c1c">Inaktiv'+(scope==='global'&&ovr[p.id]?' (Firma)':'')+'</span>':'')
+    +(angepasst?'<span class="mini" style="background:#fef3c7;color:#92400e">✎ durch Firma angepasst</span>':'')
+    +(istAnpassung?'<span class="mini" style="background:#fef3c7;color:#92400e">✎ Anpassung eines GEMA-Punkts</span>':'')
+    +(deaktiviert&&!angepasst?'<span class="mini" style="background:#fee2e2;color:#b91c1c">Inaktiv'+(scope==='global'&&ovr[p.id]?' (Firma)':'')+'</span>':'')
     +'</div></div><div class="vtools">';
   if(canEditThis){
-    h+='<button class="btn sm" onclick="prPkEdit(\''+esc(p.id)+'\',\''+scope+'\')">✏️</button>';
+    h+='<button class="btn sm" onclick="prPkEdit(\''+esc(p.id)+'\',\''+scope+'\')" title="'+(scope==='global'&&!canSuper?'Für die eigene Firma anpassen':'Bearbeiten')+'">✏️</button>';
     h+='<button class="btn sm" onclick="prPkLog(\''+esc(p.id)+'\',\''+scope+'\')" title="Änderungsprotokoll">🕘</button>';
     if(scope==='global'){
-      h+='<button class="btn sm" onclick="prPkToggleGlobal(\''+esc(p.id)+'\')">'+(p.aktiv===false?'Aktiv':'Inaktiv')+'</button>';
-      h+='<button class="btn sm red" onclick="prPkDelGlobal(\''+esc(p.id)+'\')">🗑</button>';
+      if(angepasst){
+        h+='<button class="btn sm" onclick="prPkResetAnpassung(\''+esc(p.id)+'\')" title="Firmen-Anpassung entfernen — der GEMA-Standard gilt wieder">↺ Anpassung entfernen</button>';
+      } else if(canSuper){
+        h+='<button class="btn sm" onclick="prPkToggleGlobal(\''+esc(p.id)+'\')">'+(p.aktiv===false?'Aktiv':'Inaktiv')+'</button>';
+        h+='<button class="btn sm red" onclick="prPkDelGlobal(\''+esc(p.id)+'\')">🗑</button>';
+      } else {
+        h+='<button class="btn sm" onclick="prPkHideForOrg(\''+esc(p.id)+'\')">'+(ovr[p.id]?'Einblenden':'Für Firma ausblenden')+'</button>';
+      }
     } else {
       h+='<button class="btn sm" onclick="prPkToggleOrg(\''+esc(p.id)+'\')">'+(p.aktiv===false?'Aktiv':'Inaktiv')+'</button>';
-      h+='<button class="btn sm red" onclick="prPkDelOrg(\''+esc(p.id)+'\')">🗑</button>';
+      if(istAnpassung){
+        h+='<button class="btn sm" onclick="prPkResetAnpassung(\''+esc(p.basisId)+'\')" title="Anpassung entfernen — der GEMA-Standardpunkt gilt wieder">↺</button>';
+      } else {
+        h+='<button class="btn sm red" onclick="prPkDelOrg(\''+esc(p.id)+'\')">🗑</button>';
+      }
     }
   } else if(canM && scope==='global'){
     // Org-Manager darf globalen Punkt für die eigene Firma ausblenden
@@ -2220,6 +2253,23 @@ window.prPkNew=function(){
   openPkEditor('Neuer Prüfpunkt');
 };
 window.prPkEdit=function(id,scope){
+  /* Org-Manager (ohne Super-Admin) auf einem GEMA-Punkt: die Bearbeitung
+     legt eine FIRMEN-Anpassung an (org-Record mit basisId — ersetzt das
+     Original nur für die eigene Org). Existiert schon eine Anpassung,
+     wird DIESE weiterbearbeitet (nie eine zweite Kopie). */
+  if(scope==='global' && !prIsSuper()){
+    var anp=stdOrgAll().filter(function(x){ return x.basisId===id && x.status!=='vorschlag' && x.status!=='abgelehnt'; })[0];
+    if(anp){
+      _pkEdit=JSON.parse(JSON.stringify(anp)); _pkEdit.scope='org'; _pkEdit._new=false;
+      openPkEditor('Firmen-Anpassung bearbeiten');
+      return;
+    }
+    var g=stdGlobalMerged().filter(function(x){return x.id===id;})[0]; if(!g){ toast('Nicht gefunden'); return; }
+    _pkEdit=JSON.parse(JSON.stringify(g)); delete _pkEdit._default;
+    _pkEdit._anpassenVon=id; _pkEdit.scope='org'; _pkEdit._new=false;
+    openPkEditor('GEMA-Punkt für Firma anpassen');
+    return;
+  }
   var src = scope==='global'? stdGlobalMerged() : stdOrgAll();
   var p=src.filter(function(x){return x.id===id;})[0]; if(!p){ toast('Nicht gefunden'); return; }
   _pkEdit=JSON.parse(JSON.stringify(p)); _pkEdit.scope=scope; _pkEdit._new=false;
@@ -2241,6 +2291,9 @@ function openPkEditor(title){
   if(_pkEdit._new){
     h+='<div class="fld"><label>Ebene</label><select id="pkScope"><option value="org">Firmen-Standardliste</option>'+(canSuper?'<option value="global">GEMA-Standardliste (global)</option>':'')+'</select></div>';
   }
+  if(p._anpassenVon||p.basisId){
+    h+='<div style="margin-top:6px;padding:9px 12px;background:#fef3c7;border:1px solid #fde68a;border-radius:9px;font-size:12px;color:#92400e">✎ Diese Anpassung gilt nur für deine Firma — der GEMA-Standardpunkt bleibt für andere Organisationen unverändert. «↺» in der Standardliste stellt das Original wieder her.</div>';
+  }
   $id('pkEditBody').innerHTML=h;
   var ft='<button class="btn ghost" onclick="prPkClose()">Abbrechen</button><button class="btn pri" onclick="prPkSave()">Speichern</button>';
   $id('pkEditFt').innerHTML=ft;
@@ -2253,16 +2306,36 @@ window.prPkSave=function(){
   var alt = p._new? '' : (p.bezeichnung||'');
   var scope = p._new ? ($id('pkScope')?$id('pkScope').value:'org') : p.scope;
   var bt=bauteilCollect('pkBt_');
-  var rec={ id:p.id, scope:scope, orgId:(scope==='global'?null:myOrgId()),
+  /* Firmen-Anpassung eines GEMA-Punkts: NEUE Org-Record-Id (KRITISCH — der
+     STD-Pool ist über die Record-Id gekeyt; ein Save unter der GEMA-Id würde
+     den GLOBALEN Punkt für alle Firmen überschreiben) + basisId-Verknüpfung.
+     Beim Weiterbearbeiten einer bestehenden Anpassung bleibt basisId erhalten. */
+  var anpNeu = !!p._anpassenVon;
+  var recId = anpNeu ? uid('prstd') : p.id;
+  var basisId = p._anpassenVon || p.basisId || null;
+  var rec={ id:recId, scope:(anpNeu?'org':scope), orgId:((anpNeu||scope!=='global')?myOrgId():null),
     bezeichnung:neuBez, anlagenart:$id('pkArt').value, untergruppe:($id('pkUnter').value||'').trim(),
     antworttyp:$id('pkTyp').value, pflicht:$id('pkPflicht').value==='1', standardbewertung:$id('pkStdBw').value,
     empfehlung:($id('pkEmpf').value||'').trim(), aktiv:p.aktiv!==false, reihenfolge:parseInt($id('pkReih').value,10)||0,
     bauteil:bt.bauteil, bauteilFelder:bt.bauteilFelder,
-    status:'aktiv', ersteller:p.ersteller||{userId:(me()||{}).id||'',name:myName()}, erstelltAm:p.erstelltAm||new Date().toISOString(),
-    geaendertAm:new Date().toISOString(), version:(p.version||1)+(p._new?0:1), log:(p.log||[]).slice(0,60) };
-  rec.log.unshift({ alt:alt, neu:neuBez, von:myName(), am:new Date().toISOString(), grund:(p._new?'Erstellt':'Bearbeitet'), status:'aktiv' });
+    status:'aktiv', ersteller:(anpNeu?{userId:(me()||{}).id||'',name:myName()}:(p.ersteller||{userId:(me()||{}).id||'',name:myName()})), erstelltAm:(anpNeu?new Date().toISOString():(p.erstelltAm||new Date().toISOString())),
+    geaendertAm:new Date().toISOString(), version:(anpNeu?1:(p.version||1)+(p._new?0:1)), log:(anpNeu?[]:(p.log||[]).slice(0,60)) };
+  if(basisId) rec.basisId=basisId;
+  rec.log.unshift({ alt:alt, neu:neuBez, von:myName(), am:new Date().toISOString(), grund:(anpNeu?'GEMA-Punkt für Firma angepasst':(p._new?'Erstellt':'Bearbeitet')), status:'aktiv' });
   saveRec(STD_POOL,STD_PF,rec);
-  prPkClose(); renderStandardliste(); toast('Gespeichert');
+  prPkClose(); renderStandardliste(); toast(anpNeu?'Firmen-Anpassung gespeichert':'Gespeichert');
+};
+/* Firmen-Anpassung entfernen → der GEMA-Standardpunkt gilt wieder unverändert */
+window.prPkResetAnpassung=function(basisId){
+  var anp=stdOrgAll().filter(function(x){ return x.basisId===basisId && x.status!=='vorschlag' && x.status!=='abgelehnt'; })[0];
+  if(!anp){ toast('Keine Anpassung gefunden'); return; }
+  GemaDialog.confirm({ title:'Anpassung entfernen',
+    message:'Die Firmen-Anpassung «'+anp.bezeichnung+'» wird entfernt — der GEMA-Standardpunkt gilt für deine Firma wieder unverändert. Bereits erstellte Berichte bleiben unangetastet.',
+    confirmLabel:'Entfernen', danger:true }).then(function(ok){
+    if(!ok)return;
+    delRec(STD_POOL,STD_PF,anp.id);
+    renderStandardliste(); toast('GEMA-Standard wiederhergestellt');
+  });
 };
 window.prPkToggleOrg=function(id){
   var p=stdOrgAll().filter(function(x){return x.id===id;})[0]; if(!p) return;

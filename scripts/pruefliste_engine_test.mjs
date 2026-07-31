@@ -187,5 +187,43 @@ t('Vorschlag-Status nicht in effektiver Liste', eff3.length === 0);
 const eff4 = E.prEffektivePunkte('heizung', { global: glob, org: orgP, objekt: objP, overrides: {}, objektId: 'OBJ1' });
 t('andere Anlagenart → leer', eff4.length === 0);
 
+console.log('— Firmen-Anpassung eines GEMA-Punkts (basisId, 31.07.2026) —');
+// Org-Anpassung ersetzt das GEMA-Original per ID — auch bei UMBENENNUNG
+// (Namens-Dedup allein würde dann beide zeigen)
+const anpOrg = [
+  { id: 'oa1', scope: 'org', orgId: 'X', basisId: 'g2', bezeichnung: 'Korrosion + Beschichtung prüfen', anlagenart: 'gas', untergruppe: '', aktiv: true, status: 'aktiv', reihenfolge: 10 }
+];
+const effA = E.prEffektivePunkte('gas', { global: glob, org: anpOrg, objekt: [], overrides: {}, objektId: '' });
+t('Anpassung ersetzt das GEMA-Original (g2 weg)', !effA.some(p => p.id === 'g2'));
+t('Anpassung selbst in der Liste (umbenannt)', effA.some(p => p.id === 'oa1' && p.bezeichnung === 'Korrosion + Beschichtung prüfen' && p.quelle === 'org'));
+t('übrige GEMA-Punkte unberührt (g1 bleibt)', effA.some(p => p.id === 'g1'));
+// deaktivierte Anpassung = Punkt bewusst aus → GEMA-Original kommt NICHT zurück
+const anpInaktiv = [{ id: 'oa1', scope: 'org', orgId: 'X', basisId: 'g2', bezeichnung: 'Korrosion + Beschichtung prüfen', anlagenart: 'gas', aktiv: false, status: 'aktiv', reihenfolge: 10 }];
+const effB = E.prEffektivePunkte('gas', { global: glob, org: anpInaktiv, objekt: [], overrides: {}, objektId: '' });
+t('deaktivierte Anpassung: weder Original noch Anpassung', !effB.some(p => p.id === 'g2') && !effB.some(p => p.id === 'oa1'));
+// Anpassung mit GEÄNDERTER Anlagenart unterdrückt das Original trotzdem
+const anpArt = [{ id: 'oa2', scope: 'org', orgId: 'X', basisId: 'g2', bezeichnung: 'Korrosion (Heizung)', anlagenart: 'heizung', aktiv: true, status: 'aktiv', reihenfolge: 10 }];
+const effC = E.prEffektivePunkte('gas', { global: glob, org: anpArt, objekt: [], overrides: {}, objektId: '' });
+t('umkategorisierte Anpassung: Original in alter Anlagenart weg', !effC.some(p => p.id === 'g2'));
+const effC2 = E.prEffektivePunkte('heizung', { global: glob, org: anpArt, objekt: [], overrides: {}, objektId: '' });
+t('umkategorisierte Anpassung erscheint in der neuen Anlagenart', effC2.some(p => p.id === 'oa2'));
+// Entfernen der Anpassung (Record weg) → GEMA-Original wieder da
+const effD = E.prEffektivePunkte('gas', { global: glob, org: [], objekt: [], overrides: {}, objektId: '' });
+t('ohne Anpassungs-Record: GEMA-Original wieder in der Liste', effD.some(p => p.id === 'g2'));
+
+console.log('— prSyncPunkte: Anpassung erreicht offene Begehungen ohne Duplikat —');
+const anlage = { punkte: [
+  { key: 'k1', punktId: 'g2', bezeichnung: 'Gasleitungen frei von Korrosion?', untergruppe: '', antworttyp: 'auffaellig', pflicht: false, standardbewertung: 'schlecht', empfehlungVorlage: '', bauteil: false, bauteilFelder: null, antwort: null, bewertung: 'nicht_bewertet', bemerkung: '', empfehlung: '', fotos: [] }
+] };
+const effSync = [{ id: 'oa1', basisId: 'g2', quelle: 'org', bezeichnung: 'Korrosion + Beschichtung prüfen', untergruppe: 'Leitungen', antworttyp: 'zustand', pflicht: true, standardbewertung: 'schlecht', empfehlung: 'Neu beschichten.', bauteil: false, bauteilFelder: null }];
+const resSync = E.prSyncPunkte(anlage, effSync);
+t('KEIN Duplikat angehängt (Zeile via basisId gefunden)', anlage.punkte.length === 1 && resSync.neu === 0);
+t('Felder der Anpassung nachgezogen', anlage.punkte[0].bezeichnung === 'Korrosion + Beschichtung prüfen' && anlage.punkte[0].pflicht === true && resSync.aktualisiert === 1);
+t('Zeile behält ihre punktId (GEMA-Id)', anlage.punkte[0].punktId === 'g2');
+// Neue Begehung (keine bestehende Zeile): Anpassung wird normal angehängt
+const anlage2 = { punkte: [] };
+const resSync2 = E.prSyncPunkte(anlage2, effSync);
+t('ohne bestehende Zeile: Anpassung wird angehängt', resSync2.neu === 1 && anlage2.punkte[0].punktId === 'oa1');
+
 console.log('\n' + (fail ? ('✗ ' + fail + ' von ' + n + ' fehlgeschlagen') : ('✓ Alle ' + n + ' Checks bestanden')));
 process.exit(fail ? 1 : 0);
