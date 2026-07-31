@@ -169,6 +169,16 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important}
 /* MODAL BACKDROP */
 .modal-bg{position:fixed;inset:0;z-index:500;background:rgba(8,20,40,.6);backdrop-filter:blur(7px);display:flex;align-items:flex-start;justify-content:center;padding:20px;overflow-y:auto}
 .modal-bg.hidden{display:none}
+
+/* INLINE-AUSWAHL-PANEL (Feedback 31.07.2026, Sandro: «Die Auswahl der Apparate
+   nicht in einem Pop-Up sondern im ausklappbaren Fenster») — der Raum-/Apparate-
+   Wizard klappt direkt in der Räume-Karte auf statt als Overlay. Die inneren
+   Bausteine (.modal-hd/.stepper/.modal-body/.modal-ft) bleiben 1:1 dieselben,
+   nur der Container ist ein normaler Karten-Block statt position:fixed. */
+.wiz-inline{border:1.5px solid var(--blue-bd);border-radius:16px;background:var(--sur);box-shadow:var(--sh);overflow:hidden;margin-bottom:12px;scroll-margin-top:calc(72px + 12px + env(safe-area-inset-top,0px));animation:wIn .18s ease}
+.wiz-inline.hidden{display:none}
+.wiz-inline .modal-body{max-height:min(560px,58vh)}
+@keyframes wIn{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
 .modal{background:var(--sur);border-radius:20px;width:100%;max-width:860px;box-shadow:var(--sh-lg);margin:auto;display:flex;flex-direction:column;animation:mIn .22s cubic-bezier(.16,1,.3,1);max-height:90vh}
 @keyframes mIn{from{opacity:0;transform:translateY(16px) scale(.97)}to{opacity:1;transform:none}}
 .modal-hd{padding:16px 20px;border-bottom:1px solid var(--brd);display:flex;align-items:center;gap:12px;flex-shrink:0}
@@ -243,7 +253,7 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important}
 .hint{font-size:11.5px;color:var(--mut2);padding:7px 11px;background:var(--bg2);border-radius:8px;border:1px solid var(--brd);line-height:1.5;margin-top:8px}
 .divider{height:1px;background:var(--brd);margin:13px 0}
 
-@media print{.g-nav,.ri-actions,.nbtn,.modal-bg{display:none!important}.card{box-shadow:none;border:1px solid #ccc}}
+@media print{.g-nav,.ri-actions,.nbtn,.modal-bg,.wiz-inline{display:none!important}.card{box-shadow:none;border:1px solid #ccc}}
 
   /* ── Nav Breadcrumb ── */
   .g-nav{position:sticky;top:0;z-index:200;background:rgba(255,255,255,.94);backdrop-filter:blur(14px) saturate(1.4);border-bottom:1px solid var(--border,#e5e7eb);box-shadow:0 1px 4px rgba(0,0,0,.05);}
@@ -411,6 +421,31 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important}
           <button class="nbtn primary" onclick="openWizardAdd()">+ Raum</button>
         </div>
         <div class="g-section-bd" style="padding:12px">
+          <!-- Apparate-Auswahl als aufklappbares Panel (Feedback 31.07.2026):
+               gleiche Schritte/IDs wie der frühere Wizard-Dialog, nur inline. -->
+          <div class="wiz-inline hidden" id="wizardInline">
+            <div class="modal-hd">
+              <div class="modal-hd-ic" id="wiz_ic">🏷️</div>
+              <div>
+                <div class="modal-hd-title" id="wiz_title">Raum hinzufügen</div>
+                <div class="modal-hd-sub">Klicke direkt auf einen Schritt oder nutze Weiter/Zurück.</div>
+              </div>
+              <div style="margin-left:auto;display:flex;align-items:center;gap:8px">
+                <span style="font-size:11.5px;color:var(--mut);font-family:var(--mono)" id="stepTag">1/6</span>
+                <button class="modal-close" onclick="closeWizard()" title="Schliessen">✕</button>
+              </div>
+            </div>
+            <div class="stepper" id="stepper"></div>
+            <div class="modal-body" id="modalBody"></div>
+            <div class="modal-ft">
+              <div class="modal-ft-hint" id="ftHint">Raumtyp, Stockwerk und Stückzahl definieren.</div>
+              <div class="modal-ft-actions">
+                <button class="mft-btn" id="btnBack" style="visibility:hidden">← Zurück</button>
+                <button class="mft-btn save" id="btnSaveNow">✓ Speichern</button>
+                <button class="mft-btn primary" id="btnNext">Weiter →</button>
+              </div>
+            </div>
+          </div>
           <div class="room-list" id="roomList">
             <div class="empty-state">
               <div class="ei">🏠</div>
@@ -429,7 +464,7 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important}
         </div>
         <div class="g-section-bd">
           <div style="font-size:12.5px;color:var(--txt2);line-height:1.7">
-            • Im Dialog direkt auf einen Schritt klicken, um zu springen<br>
+            • Im Auswahl-Panel direkt auf einen Schritt klicken, um zu springen<br>
             • <strong>Speichern</strong> jederzeit möglich – nicht angepasste Schritte bleiben auf Standardwerten<br>
             • <strong>Stückzahl</strong> × Apparat-Anzahl = Endmenge in der Liste<br>
             • Standards unter ⚙️ einrichten für neue Räume
@@ -472,32 +507,8 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important}
   </div><!-- /main-layout -->
 </div><!-- /pg -->
 
-<!-- ══════════════ WIZARD MODAL ══════════════ -->
-<div class="modal-bg hidden" id="wizardModal">
-  <div class="modal">
-    <div class="modal-hd">
-      <div class="modal-hd-ic" id="wiz_ic">🏷️</div>
-      <div>
-        <div class="modal-hd-title" id="wiz_title">Raum hinzufügen</div>
-        <div class="modal-hd-sub">Klicke direkt auf einen Schritt oder nutze Weiter/Zurück.</div>
-      </div>
-      <div style="margin-left:auto;display:flex;align-items:center;gap:8px">
-        <span style="font-size:11.5px;color:var(--mut);font-family:var(--mono)" id="stepTag">1/6</span>
-        <button class="modal-close" onclick="closeWizard()">✕</button>
-      </div>
-    </div>
-    <div class="stepper" id="stepper"></div>
-    <div class="modal-body" id="modalBody"></div>
-    <div class="modal-ft">
-      <div class="modal-ft-hint" id="ftHint">Raumtyp, Stockwerk und Stückzahl definieren.</div>
-      <div class="modal-ft-actions">
-        <button class="mft-btn" id="btnBack" style="visibility:hidden">← Zurück</button>
-        <button class="mft-btn save" id="btnSaveNow">✓ Speichern</button>
-        <button class="mft-btn primary" id="btnNext">Weiter →</button>
-      </div>
-    </div>
-  </div>
-</div>
+<!-- Der frühere Wizard-Pop-Up-Dialog ist entfallen — die Auswahl lebt als
+     Inline-Panel #wizardInline in der Räume-Karte (Feedback 31.07.2026). -->
 
 <!-- SETTINGS MODAL -->
 <div class="modal-bg hidden" id="settingsModal">
@@ -752,8 +763,8 @@ if($('btnNext'))$('btnNext').addEventListener('click',()=>{
 if($('btnSaveNow'))$('btnSaveNow').addEventListener('click',saveWizard);
 }catch(e){console.warn('Bind error:',e);}
 
-// close on backdrop click
-try{['wizardModal','settingsModal'].forEach(id=>{var el=$(id);if(el)el.addEventListener('click',e=>{if(e.target===e.currentTarget){if(id==='wizardModal')closeWizard();else closeSettings();}});});}catch(e){}
+// close on backdrop click (nur noch Settings — der Wizard ist ein Inline-Panel)
+try{var _smEl=$('settingsModal');if(_smEl)_smEl.addEventListener('click',e=>{if(e.target===e.currentTarget)closeSettings();});}catch(e){}
 
 // ── ROOM TYPE → STEPS ──
 /* ── Freie Apparate-Auswahl (Feedback 28.07.2026) ───────────────────────
@@ -836,11 +847,19 @@ function applyRoomDefaults(d){
 }
 
 // ── OPEN/CLOSE WIZARD ──
+/* Inline-Panel statt Pop-Up (Feedback 31.07.2026): einblenden + in Sicht
+   scrollen — beim ✏️ einer weiter unten stehenden Raum-Zeile stünde das
+   Panel sonst über dem Viewport (scroll-margin-top deckt die sticky Nav). */
+function wizShow(){
+  var el=$('wizardInline'); if(!el) return;
+  el.classList.remove('hidden');
+  try{ el.scrollIntoView({behavior:'smooth',block:'start'}); }catch(e){}
+}
 window.openWizardAdd = () => {
   wizard.open=true;wizard.mode='add';wizard.editId=null;wizard.step=0;wizard.draft=newDraft();
   wizard.steps=stepsFor(wizard.draft.roomType);
   $('wiz_title').textContent='Raum hinzufügen';
-  $('wizardModal').classList.remove('hidden');renderWiz();
+  wizShow();renderWiz();
 };
 /* Apparate ohne Raum wählen (Feedback 30.07.2026): startet den Wizard direkt
    bei den Apparaten — alle Apparate-Gruppen sind AUS, man aktiviert nur, was
@@ -853,16 +872,16 @@ window.openWizardOhneRaum = () => {
   wizard.draft=d;
   wizard.steps=stepsFor('Ohne Raum');
   $('wiz_title').textContent='Apparate ohne Raum';
-  $('wizardModal').classList.remove('hidden');renderWiz();
+  wizShow();renderWiz();
 };
 function openWizardEdit(room){
   wizard.open=true;wizard.mode='edit';wizard.editId=room.id;wizard.step=0;
   wizard.draft=normDraft(JSON.parse(JSON.stringify(room)));
   wizard.steps=stepsFor(wizard.draft.roomType);
   $('wiz_title').textContent='Raum bearbeiten';
-  $('wizardModal').classList.remove('hidden');renderWiz();
+  wizShow();renderWiz();
 }
-function closeWizard(){$('wizardModal').classList.add('hidden');wizard.open=false;wizard.draft=null;}
+function closeWizard(){var el=$('wizardInline');if(el)el.classList.add('hidden');wizard.open=false;wizard.draft=null;}
 window.closeWizard = closeWizard;
 function saveWizard(){
   if(!wizard.draft)return;

@@ -514,6 +514,73 @@ const ws2 = await wp.evaluate(() => ({
 ok(!ws2.eimer8 && /3 mehr/.test(ws2.btn), 'Zweiter Klick klappt wieder zu');
 ok(wErr.length === 0, 'Workspace: keine JS-Fehler' + (wErr.length ? ': ' + wErr[0] : ''));
 
+// ============================================================
+// Teil 6 — Apparateliste (sb_apparateliste.html), Sandro: «Die Auswahl
+// der Apparate nicht in einem Pop-Up sondern im ausklappbaren Fenster».
+// Der Wizard läuft als Inline-Panel in der Räume-Karte statt als Overlay.
+// ============================================================
+console.log('\n— Apparateliste —');
+const { page: ap } = await newPage(browser, seed(['role_planer']));
+const aErr = [];
+ap.on('pageerror', e => aErr.push(String(e)));
+await ap.goto(BASE + '/sb_apparateliste.html', { waitUntil: 'domcontentloaded' });
+await ap.waitForFunction(() => typeof window.openWizardAdd === 'function' && window._apHooks, null, { timeout: 15000 });
+await ap.waitForTimeout(400);
+
+const ap0 = await ap.evaluate(() => {
+  const inline = document.getElementById('wizardInline');
+  const sec = inline && inline.closest('.g-section');
+  return {
+    keinModal: !document.getElementById('wizardModal'),
+    inline: !!inline,
+    inRaumKarte: !!(sec && sec.querySelector('#roomList')),
+    hidden: !!(inline && inline.classList.contains('hidden'))
+  };
+});
+ok(ap0.keinModal && ap0.inline, 'Pop-Up-Overlay entfernt, Inline-Panel #wizardInline vorhanden');
+ok(ap0.inRaumKarte, 'Panel liegt IN der Räume-Karte (gleiche Karte wie #roomList)');
+ok(ap0.hidden, 'Panel startet zugeklappt');
+
+await ap.evaluate(() => window.openWizardAdd());
+await ap.waitForTimeout(300);
+const ap1 = await ap.evaluate(() => {
+  const el = document.getElementById('wizardInline');
+  const cs = getComputedStyle(el);
+  return {
+    sichtbar: !el.classList.contains('hidden') && cs.display !== 'none',
+    position: cs.position,
+    schritte: document.querySelectorAll('#stepper .step-btn').length,
+    basis: (document.getElementById('modalBody').textContent || '').indexOf('Ausbaustandard') >= 0
+  };
+});
+ok(ap1.sichtbar, '«+ Raum» klappt das Panel auf');
+ok(ap1.position === 'static', 'Panel ist Teil des Seitenflusses (position:static, kein fixed-Overlay)');
+ok(ap1.schritte >= 5 && ap1.basis, 'Stepper + Basis-Schritt rendern im Panel (' + ap1.schritte + ' Schritte)');
+
+// Speichern schliesst das Panel und legt den Raum an
+await ap.click('#btnSaveNow');
+await ap.waitForTimeout(300);
+const ap2 = await ap.evaluate(() => ({
+  zu: document.getElementById('wizardInline').classList.contains('hidden'),
+  rooms: window._apHooks.getState().rooms.length
+}));
+ok(ap2.zu && ap2.rooms === 1, 'Speichern: Panel zu, Raum in der Liste');
+
+// ✏️ Bearbeiten öffnet dasselbe Panel wieder (Titel «Raum bearbeiten»)
+await ap.evaluate(() => document.querySelector('#roomList [data-edit]').click());
+await ap.waitForTimeout(300);
+const ap3 = await ap.evaluate(() => ({
+  auf: !document.getElementById('wizardInline').classList.contains('hidden'),
+  titel: document.getElementById('wiz_title').textContent
+}));
+ok(ap3.auf && /bearbeiten/i.test(ap3.titel), '✏️ öffnet das Panel im Bearbeiten-Modus');
+
+// Escape klappt zu
+await ap.keyboard.press('Escape');
+await ap.waitForTimeout(200);
+ok(await ap.evaluate(() => document.getElementById('wizardInline').classList.contains('hidden')), 'Escape klappt das Panel zu');
+ok(aErr.length === 0, 'Apparateliste: keine JS-Fehler' + (aErr.length ? ': ' + aErr[0] : ''));
+
 await browser.close();
 srv.close();
 console.log(`\n${pass}/${pass + fail} Checks bestanden${fail ? ' — ' + fail + ' FEHLER' : ''}`);
