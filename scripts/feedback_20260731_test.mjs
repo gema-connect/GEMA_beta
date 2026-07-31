@@ -466,6 +466,54 @@ const prRe = await pp.evaluate(() => {
 ok(prRe.sel === '__frei' && prRe.frei === 'Spezialpumpen AG' && prRe.vis, 'Re-Render: freier Hersteller bleibt («andere …» + Wert)');
 ok(pErr.length === 0, 'Prüfliste: keine JS-Fehler' + (pErr.length ? ': ' + pErr[0] : ''));
 
+// ============================================================
+// Teil 5 — Workspace (sys_workspace.html), Bug Tim Löhrer: «5 mehr»
+// klappte nicht auf (Zustand lag auf weggeworfenen DOM-Knoten).
+// ============================================================
+console.log('\n— Workspace —');
+const wsSeed = seed(['role_planer']);
+wsSeed['gema_coachmarks_done_sys_workspace_v2'] = '1';
+const { page: wp } = await newPage(browser, wsSeed);
+const wErr = [];
+wp.on('pageerror', e => wErr.push(String(e)));
+await wp.goto(BASE + '/sys_workspace.html', { waitUntil: 'domcontentloaded' });
+await wp.waitForFunction(() => window._wsHooks && typeof _wsToggleExpand === 'function', null, { timeout: 15000 });
+await wp.waitForTimeout(600);
+// 8 persönliche Eimer direkt in den Seiten-State (nach dem Cloud-Pull —
+// ein Seed im Cache würde vom leeren bindCollection-Ergebnis überschrieben)
+await wp.evaluate(() => {
+  const uid = (window.GemaAuth && GemaAuth.getCurrentUser() || {}).id || 'u_test';
+  const arr = _wsHooks.buckets();
+  for (let i = 0; i < 8; i++) arr.push({
+    id: 'fb31_b' + i, name: 'Eimer ' + (i + 1), type: 'private', ownerType: 'personal',
+    createdBy: uid, accessControl: {}, members: [], modules: [], activity: [], beteiligte: [], notes: [], createdAt: 1
+  });
+  _wsToggleExpand('__render'); _wsToggleExpand('__render');   // rendert die Sidebar neu, Zustand neutral
+});
+await wp.waitForSelector('#wsPersonal .ws-more-btn', { timeout: 8000 });
+
+const ws0 = await wp.evaluate(() => ({
+  btn: (document.querySelector('#wsPersonal .ws-more-btn') || {}).textContent || '',
+  eimer8: !![...document.querySelectorAll('#wsPersonal *')].find(el => el.textContent.trim() === 'Eimer 8')
+}));
+ok(/3 mehr/.test(ws0.btn) && !ws0.eimer8, 'Knopf zeigt «… 3 mehr» (8 Eimer, 5 sichtbar)');
+await wp.click('#wsPersonal .ws-more-btn');
+await wp.waitForTimeout(250);
+const ws1 = await wp.evaluate(() => ({
+  btn: (document.querySelector('#wsPersonal .ws-more-btn') || {}).textContent || '',
+  eimer8: !![...document.querySelectorAll('#wsPersonal *')].find(el => el.textContent.trim() === 'Eimer 8')
+}));
+ok(ws1.eimer8, 'Klick klappt auf — alle 8 Eimer sichtbar');
+ok(/weniger anzeigen/.test(ws1.btn), 'Knopf wird zu «… weniger anzeigen»');
+await wp.click('#wsPersonal .ws-more-btn');
+await wp.waitForTimeout(250);
+const ws2 = await wp.evaluate(() => ({
+  btn: (document.querySelector('#wsPersonal .ws-more-btn') || {}).textContent || '',
+  eimer8: !![...document.querySelectorAll('#wsPersonal *')].find(el => el.textContent.trim() === 'Eimer 8')
+}));
+ok(!ws2.eimer8 && /3 mehr/.test(ws2.btn), 'Zweiter Klick klappt wieder zu');
+ok(wErr.length === 0, 'Workspace: keine JS-Fehler' + (wErr.length ? ': ' + wErr[0] : ''));
+
 await browser.close();
 srv.close();
 console.log(`\n${pass}/${pass + fail} Checks bestanden${fail ? ' — ' + fail + ' FEHLER' : ''}`);

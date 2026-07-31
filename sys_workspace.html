@@ -1864,10 +1864,13 @@ input::placeholder{color:#cbd5e1}
   }
   window._wsSetOrg=function(id){activeOrg=id;render();};
 
-  var _expandPersonal=false, _expandShared=false;
+  /* «… N mehr» aufklappen (Bugfix Feedback 31.07.2026, Tim Löhrer): der
+     Zustand lebt in einer PERSISTENTEN Map pro Liste — der frühere Code
+     schrieb `_exp` auf das DOM-Element (wird beim Re-Render weggeworfen)
+     und las `_expanded` von einem frischen Filter-Array → Klick tat nichts. */
+  var _wsExpand={};
   window._wsToggleExpand=function(which){
-    if(which==='personal')_expandPersonal=!_expandPersonal;
-    else _expandShared=!_expandShared;
+    _wsExpand[which]=!_wsExpand[which];
     renderSidebar();
   };
 
@@ -1886,18 +1889,19 @@ input::placeholder{color:#cbd5e1}
     };
     orgBuckets=filterOrg(orgBuckets);
 
-    function renderList(list,emptyText){
-      var vis=list.slice(0,list._expanded?999:5);
+    function renderList(list,emptyText,which){
+      var exp=!!_wsExpand[which];
+      var vis=exp?list:list.slice(0,5);
       var html=vis.length?vis.map(bucketRowHtml).join(''):'<div class="ws-empty-hint">'+emptyText+'</div>';
-      if(list.length>5)html+='<button style="font-size:12px;color:var(--ink-3);padding:6px 10px;text-align:left;border-radius:var(--r-sm);width:100%" onclick="this.parentElement._exp=!this.parentElement._exp;render()" onmouseover="this.style.background=\'#F4F5F7\'" onmouseout="this.style.background=\'none\'">'+(list.length>5?'… '+(list.length-5)+' mehr':'')+'</button>';
+      if(list.length>5)html+='<button class="ws-more-btn" style="font-size:12px;color:var(--ink-3);padding:6px 10px;text-align:left;border-radius:var(--r-sm);width:100%;border:none;background:none;cursor:pointer" onclick="_wsToggleExpand(\''+which+'\')" onmouseover="this.style.background=\'#F4F5F7\'" onmouseout="this.style.background=\'none\'">'+(exp?'… weniger anzeigen':'… '+(list.length-5)+' mehr')+'</button>';
       return html;
     }
     var lbl=document.getElementById('wsOrgLabel');if(lbl)lbl.textContent=orgName;
-    document.getElementById('wsOrgBuckets').innerHTML=renderList(orgBuckets,'Keine Org-Eimer');
-    document.getElementById('wsPersonal').innerHTML=renderList(personal,'Keine persönlichen Eimer');
+    document.getElementById('wsOrgBuckets').innerHTML=renderList(orgBuckets,'Keine Org-Eimer','org');
+    document.getElementById('wsPersonal').innerHTML=renderList(personal,'Keine persönlichen Eimer','personal');
     var guestEl=document.getElementById('wsGuestBuckets');
     var guestSec=document.getElementById('wsGuestSection');
-    if(guestEl)guestEl.innerHTML=renderList(guest,'');
+    if(guestEl)guestEl.innerHTML=renderList(guest,'','guest');
     if(guestSec)guestSec.style.display=guest.length?'':'none';
     var sBtn=document.getElementById('wsSettingsBtn');
     if(sBtn)sBtn.classList.toggle('active',_showSettings);
