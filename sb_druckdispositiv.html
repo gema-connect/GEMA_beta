@@ -257,16 +257,16 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important}
 <script defer src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script>
 function fixLeadingZero(el){
-  // Komma-tauglich (diese Seite zeigt Werte mit Komma an): «.5» → «0.5»,
-  // «,5» → «0,5» — ein Komma-Dezimal wird NIE zu einer Ganzzahl gekappt.
+  // Komma-tauglich in der EINGABE («,5» wird verstanden), Anzeige normalisiert
+  // auf PUNKT (Feedback 30.07.2026 «Punkt anstelle Komma») — ein Komma-Dezimal
+  // wird NIE zu einer Ganzzahl gekappt.
   var v=el.value.trim();
   if(!v)return;
-  var hadComma=v.indexOf(',')>=0;
   var v2=v.replace(',','.');
   if(v2.charAt(0)==='.')v2='0'+v2;
   else if(v2.charAt(0)==='-'&&v2.charAt(1)==='.')v2='-0'+v2.substring(1);
   var n=parseFloat(v2);
-  if(isFinite(n))el.value=hadComma?String(n).replace('.',','):String(n);
+  if(isFinite(n))el.value=String(n);
 }
 </script>
 <script src="gema_db.js"></script>
@@ -410,6 +410,50 @@ function fixLeadingZero(el){
           <label>Druckverlust Hauszuleitung<br><span class="lbl-hint">Q<sub>HA</sub> aus der <a href="sb_lu_tabelle.html" style="color:var(--acc,#2563eb);text-decoration:none">→ LU-Zusammenstellung</a></span></label>
           <div class="input-row"><input id="dvHauszuleitung" type="text" inputmode="decimal" placeholder="0" oninput="recalc()" onblur="fixLeadingZero(this)"/><span class="unit unit-bar">bar</span></div>
         </div>
+        <!-- Inline-Teilstrecken-Rechner (Feedback 30.07.2026): Druckverlust der
+             Hauszuleitung direkt hier berechnen, Q aus der LU-Zusammenstellung -->
+        <div style="margin:2px 0 8px"><button type="button" class="g-btn sm no-print" id="ddTsToggleBtn" onclick="window._ddTsToggle&&window._ddTsToggle()">🧮 Hauszuleitung berechnen (Teilstrecke)</button></div>
+        <div id="ddTsPanel" class="no-print" style="display:none;margin:0 0 10px;padding:12px;border:1.5px solid var(--brd);border-radius:10px;background:var(--sur2)">
+          <div class="fg">
+            <label>Volumenstrom Q<br><span class="lbl-hint">Belastung Hausanschlussleitung</span></label>
+            <div class="input-row"><input id="ddTsQ" type="text" inputmode="decimal" placeholder="0" oninput="window._ddTsCalc&&window._ddTsCalc()" onblur="fixLeadingZero(this)"/><span class="unit">l/s</span></div>
+          </div>
+          <div style="margin:2px 0 8px"><button type="button" class="g-btn sm" onclick="window._ddTsLuQ&&window._ddTsLuQ()">⬇ Wert aus der LU-Zusammenstellung</button></div>
+          <div class="dd-src" id="ddTsQSrc" style="display:none"></div>
+          <div class="fg">
+            <label>Rohr / Innendurchmesser d<sub>i</sub></label>
+            <div class="input-row"><select id="ddTsRohr" class="unit schw-mode" style="cursor:pointer;border-radius:10px;border-left:1.5px solid var(--brd2);width:240px" onchange="window._ddTsRohrPick&&window._ddTsRohrPick(event)">
+              <option value="">— Rohr wählen (di) —</option>
+              <option value="26.2">PE 100 d32 SDR11 (di 26.2 mm)</option>
+              <option value="32.6">PE 100 d40 SDR11 (di 32.6 mm)</option>
+              <option value="40.8">PE 100 d50 SDR11 (di 40.8 mm)</option>
+              <option value="51.4">PE 100 d63 SDR11 (di 51.4 mm)</option>
+              <option value="61.4">PE 100 d75 SDR11 (di 61.4 mm)</option>
+              <option value="frei">Eigene Angabe …</option>
+            </select></div>
+          </div>
+          <div class="fg">
+            <label>Innendurchmesser d<sub>i</sub></label>
+            <div class="input-row"><input id="ddTsDi" type="text" inputmode="decimal" placeholder="0" oninput="window._ddTsCalc&&window._ddTsCalc()" onblur="fixLeadingZero(this)"/><span class="unit">mm</span></div>
+          </div>
+          <div class="fg">
+            <label>Länge L</label>
+            <div class="input-row"><input id="ddTsL" type="text" inputmode="decimal" placeholder="0" oninput="window._ddTsCalc&&window._ddTsCalc()" onblur="fixLeadingZero(this)"/><span class="unit">m</span></div>
+          </div>
+          <div class="fg">
+            <label>Rauhigkeit k</label>
+            <div class="input-row"><input id="ddTsK" type="text" inputmode="decimal" placeholder="0.01" oninput="window._ddTsCalc&&window._ddTsCalc()" onblur="fixLeadingZero(this)"/><span class="unit">mm</span></div>
+          </div>
+          <div class="fg">
+            <label>Einzelwiderstände ζΣ<br><span class="lbl-hint">Bögen, Einführung, Absperrorgane</span></label>
+            <div class="input-row"><input id="ddTsZeta" type="text" inputmode="decimal" placeholder="0" oninput="window._ddTsCalc&&window._ddTsCalc()" onblur="fixLeadingZero(this)"/><span class="unit">–</span></div>
+          </div>
+          <div class="sec-results" style="margin-top:8px">
+            <div class="sec-row"><span class="sec-row-lbl">Fliessgeschwindigkeit v</span><span><span class="sec-row-val" id="ddTsV">—</span><span class="sec-row-unit">m/s</span></span></div>
+            <div class="sec-row"><span class="sec-row-lbl">Druckverlust Δp (Rohr + ζ)</span><span><span class="sec-row-val" id="ddTsDp">—</span><span class="sec-row-unit unit-bar-txt">bar</span></span></div>
+          </div>
+          <div style="margin-top:9px"><button type="button" class="g-btn sm" onclick="window._ddTsApply&&window._ddTsApply()">→ als Druckverlust Hauszuleitung übernehmen</button></div>
+        </div>
         <div class="fg">
           <label>Druckverlust Wasserzähler<br><span class="lbl-hint">Angabe Wasserwerk bzw. Zähler-Datenblatt (Hersteller)</span></label>
           <div class="input-row"><input id="dvWasserzaehler" type="text" inputmode="decimal" placeholder="0" oninput="recalc()" onblur="fixLeadingZero(this)"/><span class="unit unit-bar">bar</span></div>
@@ -446,9 +490,11 @@ function fixLeadingZero(el){
         </div>
         <div class="dd-rd-hint" id="ddRdHinweis"></div>
         <div class="fg">
-          <label>Volumenstrom Druckminderer<br><span class="lbl-hint">Q für die Diagramm-Auswertung · <a href="#" onclick="return window._ddLuQ&&window._ddLuQ()" style="color:var(--acc,#2563eb);text-decoration:none">⬇ aus der LU-Zusammenstellung</a></span></label>
+          <label>Volumenstrom Druckminderer<br><span class="lbl-hint">Q für die Diagramm-Auswertung</span></label>
           <div class="input-row"><input id="qDruckminderer" type="text" inputmode="decimal" placeholder="0" oninput="recalc()" onblur="fixLeadingZero(this)"/><span class="unit">l/s</span></div>
         </div>
+        <!-- Gleiche Darstellung wie «⬇ Wert aus der Enthärtung» (Feedback 30.07.2026) -->
+        <div style="margin:2px 0 8px"><button type="button" class="g-btn sm no-print" onclick="return window._ddLuQ&&window._ddLuQ()">⬇ Wert aus der LU-Zusammenstellung</button></div>
         <div class="dd-src" id="ddQSrc" style="display:none"></div>
         <div class="fg">
           <label>Druckverlust Druckminderer</label>
@@ -490,6 +536,8 @@ function fixLeadingZero(el){
           <label>Druckverlust Installation<br><span class="lbl-hint"><a href="sb_druckverlust.html" style="color:var(--acc,#2563eb);text-decoration:none">→ Wert aus der Druckverlustberechnung</a></span></label>
           <div class="input-row"><input id="dvInstallation" type="text" inputmode="decimal" placeholder="0" oninput="recalc()" onblur="fixLeadingZero(this)"/><span class="unit unit-bar">bar</span></div>
         </div>
+        <!-- Zur Verfügung stehender Druckverlust auch OBEN sichtbar (Feedback 30.07.2026) -->
+        <div class="dd-dh-info" id="ddReserveInfo"></div>
       </div>
     </div>
   </div>
@@ -626,7 +674,8 @@ const UNIT_F = { bar:1, kPa:100, mbar:1000, Pa:100000 };   // Faktor ab bar
 const UNIT_DEC = { bar:2, kPa:1, mbar:1, Pa:0 };            // Anzeige-Dezimalen
 const toBar  = v => v / (UNIT_F[currentUnit]||1);
 const fromBar= v => v * (UNIT_F[currentUnit]||1);
-const fmt    = v => (typeof v==='number'&&!isNaN(v)) ? v.toFixed(UNIT_DEC[currentUnit] ?? 2).replace('.',',') : '—';
+// Anzeige mit PUNKT als Dezimaltrennzeichen (Feedback 30.07.2026 «Punkt anstelle Komma»)
+const fmt    = v => (typeof v==='number'&&!isNaN(v)) ? v.toFixed(UNIT_DEC[currentUnit] ?? 2) : '—';
 const inp    = id => toBar(pn(document.getElementById(id)?.value));
 const inpM   = id => pn(document.getElementById(id)?.value);
 
@@ -650,7 +699,7 @@ const setUnit = unit => {
     if(id==='schwankungReserve' && (document.getElementById('schwankungReserveMode')?.value==='pct')) return;
     const vBar = pn(el.value) / UNIT_F[currentUnit];
     const nv = vBar * UNIT_F[unit];
-    el.value = String(Math.round(nv * Math.pow(10, UNIT_DEC[unit])) / Math.pow(10, UNIT_DEC[unit])).replace('.',',');
+    el.value = String(Math.round(nv * Math.pow(10, UNIT_DEC[unit])) / Math.pow(10, UNIT_DEC[unit]));
   });
   currentUnit = unit;
   const us = document.getElementById('unitSel'); if(us) us.value = unit;
@@ -726,7 +775,7 @@ const recalc = () => {
       String(document.getElementById('hVerteilbatterie')?.value||'').trim() !== '';
     if(beideH && isFinite(hoehendiff)){
       dhInfo.className = 'dd-dh-info' + (hoehendiff < 0 ? ' neg' : '');
-      dhInfo.innerHTML = 'Δh <b>' + String(Math.round(hoehendiff*10)/10).replace('.',',') + ' m</b> → statischer Druck <b>' +
+      dhInfo.innerHTML = 'Δh <b>' + String(Math.round(hoehendiff*10)/10) + ' m</b> → statischer Druck <b>' +
         fmt(fromBar(statisch)) + ' ' + currentUnit + '</b>' +
         (hoehendiff < 0 ? ' — Reservoir liegt nicht über der Verteilbatterie' : '');
       dhInfo.style.display = 'block';   // KRITISCH: '' fällt auf die CSS-Basis display:none zurück
@@ -754,13 +803,13 @@ const recalc = () => {
     if(dmBedarf && dmBedarf.typ==='dea' && deaVorgesehen){
       rdHint.className = 'dd-rd-hint deaok';
       rdHint.innerHTML = '✓ <b>Druckerhöhung vorgesehen</b> — die Druckerhöhungsanlage hebt den Druck vom Betriebsdruck nach Wasserzähler (' +
-        fmt(fromBar(betrieb)) + ' ' + currentUnit + ') auf den gewählten Ruhedruck (' + fmt(fromBar(rdDM)) + ' ' + currentUnit + '), Anhebung ' +
+        fmt(fromBar(betrieb)) + ' ' + currentUnit + ') auf den gewählten Ruhedruck (' + fmt(fromBar(rdDM)) + ' ' + currentUnit + '), Erhöhung ' +
         fmt(fromBar(dmBedarf.diff)) + ' ' + currentUnit + '.';
       rdHint.style.display = 'block';
     } else if(dmBedarf && dmBedarf.typ==='dea'){
       rdHint.className = 'dd-rd-hint dea';
       rdHint.innerHTML = '⚠ <b>Druckerhöhung nötig</b> — der gewählte Ruhedruck (' + fmt(fromBar(rdDM)) + ' ' + currentUnit +
-        ') liegt über dem Betriebsdruck nach Wasserzähler (' + fmt(fromBar(betrieb)) + ' ' + currentUnit + '). Erforderliche Anhebung ' +
+        ') liegt über dem Betriebsdruck nach Wasserzähler (' + fmt(fromBar(betrieb)) + ' ' + currentUnit + '). Erforderliche Erhöhung ' +
         fmt(fromBar(dmBedarf.diff)) + ' ' + currentUnit + ' → Druckerhöhungsanlage vorsehen (oben «Ja» wählen).';
       rdHint.style.display = 'block';
     } else if(dmBedarf && dmBedarf.typ==='dm'){
@@ -781,13 +830,30 @@ const recalc = () => {
       dmRow.className = 'sec-row ' + (dmBedarf.typ==='dea' && deaVorgesehen ? 'deaok' : dmBedarf.typ);
       if(dmLbl) dmLbl.textContent = dmBedarf.typ==='dea'
         ? (deaVorgesehen
-            ? '✓ Druckerhöhung vorgesehen — Anhebung Betriebsdruck nach WZ → Ruhedruck'
+            ? '✓ Druckerhöhung vorgesehen — Erhöhung Betriebsdruck nach WZ → Ruhedruck'
             : '⚠ Druckerhöhung nötig — Ruhedruck über Betriebsdruck nach WZ')
         : 'Druckminderer nötig — Reduktion Betriebsdruck → Ruhedruck';
       if(dmVal) dmVal.textContent = fmt(fromBar(dmBedarf.diff));
       dmRow.style.display = '';
     } else {
       dmRow.style.display = 'none';
+    }
+  }
+
+  // Zur Verfügung stehender Druckverlust direkt beim Feld «Druckverlust
+  // Installation» (Feedback 30.07.2026 «soll oben auch sichtbar sein»):
+  // Reserve über dem Mindestfliessdruck + bereits erfasster Δp-Installation
+  // = Budget, das die Installation insgesamt verbrauchen darf.
+  const resInfo = document.getElementById('ddReserveInfo');
+  if(resInfo){
+    if(isFinite(maxDV) && basis > 0){
+      const verf = maxDV + dvInst;
+      resInfo.className = 'dd-dh-info' + (maxDV < 0 ? ' neg' : '');
+      resInfo.innerHTML = 'Zur Verfügung stehender Druckverlust: <b>' + fmt(fromBar(verf)) + ' ' + currentUnit + '</b>' +
+        (dvInst > 0 ? ' — erfasst ' + fmt(fromBar(dvInst)) + ', Rest ' + fmt(fromBar(maxDV)) + ' ' + currentUnit : '');
+      resInfo.style.display = 'block';
+    } else {
+      resInfo.style.display = 'none';
     }
   }
 
@@ -1041,6 +1107,106 @@ window._ddEnthUebernehmen = function(){
     _ddSrcSet(id==='qDruckminderer' ? 'ddQSrc' : id==='dvDruckminderer' ? 'ddDmSrc' : 'ddNbSrc', '');
   });
 });
+/* ── Feld-zu-Feld springen (Feedback 30.07.2026): Enter oder Pfeil-unten
+   fokussiert das nächste sichtbare Eingabefeld, Pfeil-oben das vorherige.
+   Selects bleiben unangetastet (Pfeiltasten ändern dort die Auswahl). ── */
+document.addEventListener('keydown', function(e){
+  if(e.key!=='Enter' && e.key!=='ArrowDown' && e.key!=='ArrowUp') return;
+  var t = e.target;
+  if(!t || t.tagName!=='INPUT') return;
+  var ty = (t.type||'text').toLowerCase();
+  if(ty==='checkbox'||ty==='radio'||ty==='hidden'||ty==='file') return;
+  if(!t.closest('.pg')) return;
+  var all = Array.prototype.slice.call(document.querySelectorAll('.pg input')).filter(function(el){
+    var et=(el.type||'text').toLowerCase();
+    if(et==='checkbox'||et==='radio'||et==='hidden'||et==='file') return false;
+    if(el.disabled||el.readOnly) return false;
+    return el.offsetParent!==null;
+  });
+  var i = all.indexOf(t);
+  if(i<0) return;
+  var nx = (e.key==='ArrowUp') ? all[i-1] : all[i+1];
+  if(!nx) return;
+  e.preventDefault();
+  try{ nx.focus(); if(nx.select) nx.select(); }catch(err){}
+});
+
+/* ── Inline-Teilstrecken-Rechner Hauszuleitung (Feedback 30.07.2026):
+   Druckverlust EINER Teilstrecke direkt im Modul rechnen — Q aus der
+   LU-Zusammenstellung (Belastung Hausanschlussleitung), Rohr/di, Länge,
+   Rauhigkeit, ζΣ. Darcy-Weisbach mit Swamee-Jain (10 °C: ρ 999.7, ν 1.31e-6). */
+window._ddTsDpBar = NaN;
+window._ddTsToggle = function(){
+  const p = document.getElementById('ddTsPanel');
+  if(!p) return;
+  const zu = p.style.display === 'none';
+  p.style.display = zu ? '' : 'none';
+  if(zu) window._ddTsCalc();
+};
+window._ddTsLuQ = function(){
+  const oid = _ddObjektId();
+  if(!oid){
+    try{ GemaDialog.alert({ title:'Kein Projekt gewählt', message:'Für die Übernahme aus der LU-Zusammenstellung muss oben ein Objekt gewählt sein.' }); }catch(e){}
+    return;
+  }
+  let q = 0;
+  try { q = (typeof GemaLU!=='undefined' && GemaLU.getHausanschluss) ? (GemaLU.getHausanschluss(oid)||0) : 0; } catch(e){ q = 0; }
+  const src = document.getElementById('ddTsQSrc');
+  if(!(q > 0)){
+    if(src){ src.className='dd-src warn'; src.innerHTML='Keine Verbraucher in der LU-Zusammenstellung dieses Projekts gefunden — Q manuell erfassen.'; src.style.display=''; }
+    return;
+  }
+  const el = document.getElementById('ddTsQ');
+  if(el) el.value = String(Math.round(q*1000)/1000);
+  if(src){ src.className='dd-src'; src.innerHTML='⬇ Belastung Hausanschlussleitung aus der LU-Zusammenstellung übernommen — anpassbar.'; src.style.display=''; }
+  window._ddTsCalc();
+};
+window._ddTsRohrPick = function(ev){
+  const sel = document.getElementById('ddTsRohr');
+  if(!sel) return;
+  // Programmatischer Restore (AutoSave) darf einen von Hand erfassten di nie überschreiben
+  if(ev && ev.isTrusted === false){ window._ddTsCalc(); return; }
+  if(sel.value && sel.value !== 'frei'){
+    const di = document.getElementById('ddTsDi');
+    if(di) di.value = sel.value;
+  }
+  window._ddTsCalc();
+};
+window._ddTsCalc = function(){
+  const q  = pn(document.getElementById('ddTsQ')?.value);
+  const di = pn(document.getElementById('ddTsDi')?.value);
+  const L  = pn(document.getElementById('ddTsL')?.value);
+  const kEl = document.getElementById('ddTsK');
+  const k  = (kEl && kEl.value.trim() !== '') ? pn(kEl.value) : 0.01;
+  const zeta = pn(document.getElementById('ddTsZeta')?.value);
+  const vEl = document.getElementById('ddTsV'), dpEl = document.getElementById('ddTsDp');
+  window._ddTsDpBar = NaN;
+  if(!(q > 0) || !(di > 0)){ if(vEl) vEl.textContent='—'; if(dpEl) dpEl.textContent='—'; return; }
+  const dm = di/1000, A = Math.PI/4*dm*dm;
+  const v = (q/1000)/A;
+  const rho = 999.7, nu = 1.31e-6;
+  const Re = v*dm/nu;
+  let lam;
+  if(Re < 2320) lam = 64/Math.max(Re, 1);
+  else { const kd = (k/1000)/dm; lam = 0.25/Math.pow(Math.log10(kd/3.7 + 5.74/Math.pow(Re, 0.9)), 2); }
+  const dpPa = lam*(L/dm)*(rho/2)*v*v + zeta*(rho/2)*v*v;
+  const dpBar = dpPa/1e5;
+  window._ddTsDpBar = dpBar;
+  if(vEl)  vEl.textContent = v.toFixed(2);
+  if(dpEl) dpEl.textContent = fmt(fromBar(dpBar));
+};
+window._ddTsApply = function(){
+  const dp = window._ddTsDpBar;
+  if(!isFinite(dp)){ toast('Zuerst Q, di und Länge erfassen'); return; }
+  const el = document.getElementById('dvHauszuleitung');
+  if(el){
+    const dec = (UNIT_DEC[currentUnit] ?? 2) + 1;
+    el.value = String(Math.round(fromBar(dp)*Math.pow(10, dec))/Math.pow(10, dec));
+  }
+  recalc();
+  toast('Druckverlust Hauszuleitung übernommen');
+};
+
 // Einheit aus AutoSave wiederherstellen (Hidden-Feld unitSel)
 document.addEventListener('change', function(e){
   if(e.target && e.target.id === 'unitSel' && e.target.value && e.target.value !== currentUnit) setUnit(e.target.value);
@@ -1067,7 +1233,7 @@ GemaFeedback.init('druckdispositiv', 'Druckdispositiv');
     ok:'#16a34a', warn:'#d97706', crit:'#dc2626',
     terrain:'#a8a29e', geb:'#eef1f6', gebBrd:'#8b8fa3' };
   function fmtP(v){ return (typeof v==='number' && isFinite(v)) ? (fmt(fromBar(v)) + ' ' + currentUnit) : '—'; }
-  function fmtM(m){ return String(Math.round(m*10)/10).replace('.',','); }
+  function fmtM(m){ return String(Math.round(m*10)/10); }
   function fliessFarbe(v){ return !isFinite(v) ? C.mut2 : v<1 ? C.crit : v<1.5 ? C.ok : C.warn; }
   function fliessText(v){ return !isFinite(v) ? '' : v<1 ? 'Zu tief' : v<1.5 ? 'Gemäss Norm' : 'Erhöht'; }
   function ruheFarbe(v){ return !isFinite(v) ? C.mut2 : v>5 ? C.crit : C.ok; }

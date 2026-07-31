@@ -35,20 +35,20 @@ await page.waitForTimeout(200);
 {
   const t = await svgText();
   ok(await page.evaluate(() => document.getElementById('ddSchemaHint').style.display === 'none'), 'Hinweis verschwindet mit Daten');
-  ok(t.indexOf('Δh 95 m → 9,32 bar') >= 0, 'Δh-Massband: 95 m → 9,32 bar');
-  ok(t.indexOf('Betrieb nach WZ: 8,47 bar') >= 0, 'Betriebsdruck-Chip 8,47 bar (9,32 − 0,5 − 0,35)');
-  ok(t.indexOf('DM → 4,00 bar') >= 0, 'Druckminderer-Chip mit Einstelldruck');
-  ok(t.indexOf('NB −0,20 bar') >= 0, 'Nachbehandlungs-Chip');
-  ok(t.indexOf('1,78 bar · Erhöht') >= 0, 'Fliessdruck-Kasten 1,78 bar · Erhöht');
-  ok(t.indexOf('Ruhe 4,20 bar') >= 0, 'tiefste Stelle Ruhe 4,20 bar (4 + 2 m Höhe)');
+  ok(t.indexOf('Δh 95 m → 9.32 bar') >= 0, 'Δh-Massband: 95 m → 9.32 bar');
+  ok(t.indexOf('Betrieb nach WZ: 8.47 bar') >= 0, 'Betriebsdruck-Chip 8.47 bar (9.32 − 0.5 − 0.35)');
+  ok(t.indexOf('DM → 4.00 bar') >= 0, 'Druckminderer-Chip mit Einstelldruck');
+  ok(t.indexOf('NB −0.20 bar') >= 0, 'Nachbehandlungs-Chip');
+  ok(t.indexOf('1.78 bar · Erhöht') >= 0, 'Fliessdruck-Kasten 1.78 bar · Erhöht');
+  ok(t.indexOf('Ruhe 4.20 bar') >= 0, 'tiefste Stelle Ruhe 4.20 bar (4 + 2 m Höhe)');
   // Feedback 25.07.2026: Geschosse alle 2.8 m (statt gleichmässiger Teilung),
   // oberste Kante = exakte Höhe (12.4 m → 2.8/5.6/8.4/11.2/12.4)
-  ok(t.indexOf('+2,8 m') >= 0 && t.indexOf('Ruhe 3,73 bar') >= 0, 'Geschossraster alle 2.8 m mit Ruhedruck je Ebene');
-  ok(t.indexOf('+12,4 m') >= 0, 'oberstes Geschoss = exakte Höhe (+12,4 m)');
-  ok(t.indexOf('Δp Inst −0,80 bar') >= 0, 'Installations-Verlust-Chip');
+  ok(t.indexOf('+2.8 m') >= 0 && t.indexOf('Ruhe 3.73 bar') >= 0, 'Geschossraster alle 2.8 m mit Ruhedruck je Ebene');
+  ok(t.indexOf('+12.4 m') >= 0, 'oberstes Geschoss = exakte Höhe (+12.4 m)');
+  ok(t.indexOf('Δp Inst −0.80 bar') >= 0, 'Installations-Verlust-Chip');
   ok((await noteText()).indexOf('Massstab-Bruch') >= 0, 'Massstab-Bruch-Hinweis bei 95 m Differenz');
   // Feedback 25.07.2026: Fliessdruck-Kasten-Text untereinander (3 Zeilen)
-  ok(t.indexOf('FLIESSDRUCK') >= 0 && t.indexOf('HÖCHSTE ENTNAHMESTELLE (+12,4 M)') >= 0, 'Fliessdruck-Kasten mit gestapeltem Text');
+  ok(t.indexOf('FLIESSDRUCK') >= 0 && t.indexOf('HÖCHSTE ENTNAHMESTELLE (+12.4 M)') >= 0, 'Fliessdruck-Kasten mit gestapeltem Text');
   // Feedback 25.07.2026: WZ/NB/DM sind IM (breiteren) Gebäude dargestellt
   const stationenImHaus = await page.evaluate(() => {
     const svg = document.getElementById('ddSchema');
@@ -75,7 +75,7 @@ await page.waitForTimeout(200);
   const farben = await page.evaluate(() => {
     const svg = document.getElementById('ddSchema');
     const box = [...svg.querySelectorAll('rect')].find(r => (r.getAttribute('stroke') || '') === '#d97706');
-    const ruhe = [...svg.querySelectorAll('text')].find(x => x.textContent.indexOf('Ruhe 4,20') === 0);
+    const ruhe = [...svg.querySelectorAll('text')].find(x => x.textContent.indexOf('Ruhe 4.20') === 0);
     return { warnBox: !!box, ruheFill: ruhe && ruhe.getAttribute('fill') };
   });
   ok(farben.warnBox, 'Fliessdruck-Kasten trägt Warn-Farbe (≥ 1.5 bar erhöht)');
@@ -98,11 +98,11 @@ console.log('■ Norm-Umschlag: DM tiefer → Fliessdruck-Bewertung folgt');
   await page.fill('#ruhedruckDM', '3.5');
   await page.waitForTimeout(150);
   let t = await svgText();
-  ok(t.indexOf('1,28 bar · Gemäss Norm') >= 0, 'DM 3,5 → Fliessdruck 1,28 bar · Gemäss Norm');
+  ok(t.indexOf('1.28 bar · Gemäss Norm') >= 0, 'DM 3.5 → Fliessdruck 1.28 bar · Gemäss Norm');
   await page.fill('#ruhedruckDM', '3.2');
   await page.waitForTimeout(150);
   t = await svgText();
-  ok(t.indexOf('0,98 bar · Zu tief') >= 0, 'DM 3,2 → Fliessdruck 0,98 bar · Zu tief (< 1 bar)');
+  ok(t.indexOf('0.98 bar · Zu tief') >= 0, 'DM 3.2 → Fliessdruck 0.98 bar · Zu tief (< 1 bar)');
   await page.fill('#ruhedruckDM', '4');
 }
 
@@ -138,10 +138,10 @@ console.log('■ Netz-Modus (Direktangabe)');
   await page.waitForTimeout(200);
   const t = await svgText();
   ok(t.indexOf('Netzanschluss') >= 0 && t.indexOf('Reservoir') < 0, 'Linke Seite wird zum Netzanschluss (kein Reservoir)');
-  ok(t.indexOf('Versorgungsdruck 4,20 bar') >= 0, 'Versorgungsdruck-Chip');
-  ok(t.indexOf('Höhengewinn +1,5 m → +0,15 bar') >= 0, 'Höhengewinn-Chip mit bar-Umrechnung');
-  ok(t.indexOf('Schwankung −0,30 bar') >= 0, 'Schwankungs-Chip');
-  ok(t.indexOf('Betrieb nach WZ: 3,20 bar') >= 0, 'Betriebsdruck im Netz-Modus (4,2 + 0,147 − 0,3 − 0,5 − 0,35)');
+  ok(t.indexOf('Versorgungsdruck 4.20 bar') >= 0, 'Versorgungsdruck-Chip');
+  ok(t.indexOf('Höhengewinn +1.5 m → +0.15 bar') >= 0, 'Höhengewinn-Chip mit bar-Umrechnung');
+  ok(t.indexOf('Schwankung −0.30 bar') >= 0, 'Schwankungs-Chip');
+  ok(t.indexOf('Betrieb nach WZ: 3.20 bar') >= 0, 'Betriebsdruck im Netz-Modus (4.2 + 0.147 − 0.3 − 0.5 − 0.35)');
   ok((await noteText()).indexOf('Direktangabe') >= 0, 'Netz-Notiz («Terrain schematisch»)');
 }
 
@@ -167,8 +167,8 @@ console.log('■ Feedback 25.07.2026: UGs, Ruhedruck-Hinweise, Δh-Zeile, Eingab
   await page.fill('#hTiefste', '6');
   await page.waitForTimeout(200);
   let t = await svgText();
-  ok(t.indexOf('−2,8 m') >= 0 && t.indexOf('Ruhe 4,27 bar') >= 0, 'UG-Zonen alle 2.8 m nach unten mit Ruhedruck (−2,8 m → 4,27 bar)');
-  ok(t.indexOf('(−6 m)') >= 0 && t.indexOf('Ruhe 4,59 bar') >= 0, 'tiefste Stelle im untersten UG (Ruhe 4 + 6 m = 4,59 bar)');
+  ok(t.indexOf('−2.8 m') >= 0 && t.indexOf('Ruhe 4.27 bar') >= 0, 'UG-Zonen alle 2.8 m nach unten mit Ruhedruck (−2.8 m → 4.27 bar)');
+  ok(t.indexOf('(−6 m)') >= 0 && t.indexOf('Ruhe 4.59 bar') >= 0, 'tiefste Stelle im untersten UG (Ruhe 4 + 6 m = 4.59 bar)');
   await page.fill('#hTiefste', '2');
   await page.waitForTimeout(150);
 
@@ -177,7 +177,7 @@ console.log('■ Feedback 25.07.2026: UGs, Ruhedruck-Hinweise, Δh-Zeile, Eingab
     const el = document.getElementById('ddDhInfo');
     return { sichtbar: el && el.style.display !== 'none', txt: el ? el.textContent : '' };
   });
-  ok(dhInfo.sichtbar && dhInfo.txt.indexOf('95 m') >= 0 && dhInfo.txt.indexOf('9,32 bar') >= 0, 'Δh-Zeile unter den Höhenfeldern (95 m → 9,32 bar)');
+  ok(dhInfo.sichtbar && dhInfo.txt.indexOf('95 m') >= 0 && dhInfo.txt.indexOf('9.32 bar') >= 0, 'Δh-Zeile unter den Höhenfeldern (95 m → 9.32 bar)');
 
   // Label «Ruhedruck» ohne «nach Druckminderer» (DM nicht zwingend)
   const lblTxt = await page.evaluate(() => {
@@ -188,7 +188,7 @@ console.log('■ Feedback 25.07.2026: UGs, Ruhedruck-Hinweise, Δh-Zeile, Eingab
   });
   ok(lblTxt === 'Ruhedruck', 'Feld-Label heisst «Ruhedruck» (nicht «nach Druckminderer»)');
 
-  // Druckminderer nötig: Betriebsdruck (8,47) > gewählter Ruhedruck (4)
+  // Druckminderer nötig: Betriebsdruck (8.47) > gewählter Ruhedruck (4)
   const hintDm = await page.evaluate(() => {
     const el = document.getElementById('ddRdHinweis');
     const row = document.getElementById('ddDmBedarf');
@@ -198,7 +198,7 @@ console.log('■ Feedback 25.07.2026: UGs, Ruhedruck-Hinweise, Δh-Zeile, Eingab
   ok(hintDm.cls.indexOf('dm') >= 0 && hintDm.txt.indexOf('Druckminderer nötig') >= 0, 'Hinweis «Druckminderer nötig» (Betriebsdruck über Ruhedruck)');
   ok(hintDm.rowSichtbar && hintDm.rowTxt.indexOf('Druckminderer nötig') >= 0, 'Zwischenwerte-Zeile «Druckminderer nötig»');
 
-  // Druckerhöhung nötig: gewählter Ruhedruck (10) über Betriebsdruck (8,47)
+  // Druckerhöhung nötig: gewählter Ruhedruck (10) über Betriebsdruck (8.47)
   await page.fill('#ruhedruckDM', '10');
   await page.waitForTimeout(150);
   const hintDea = await page.evaluate(() => {
@@ -214,10 +214,10 @@ console.log('■ Feedback 25.07.2026: UGs, Ruhedruck-Hinweise, Δh-Zeile, Eingab
   await page.fill('#schwankungNetz', '.5');
   await page.evaluate(() => { const el = document.getElementById('schwankungNetz'); el.dispatchEvent(new Event('blur')); if (typeof fixLeadingZero === 'function') fixLeadingZero(el); });
   ok(await page.evaluate(() => document.getElementById('schwankungNetz').value) === '0.5', '«.5» wird beim Verlassen zu «0.5»');
-  // Komma-Eingabe bleibt Komma («,5» → «0,5» — nie zu Ganzzahl gekappt)
+  // Komma-Eingabe bleibt Komma («,5» → «0.5» — nie zu Ganzzahl gekappt)
   await page.fill('#schwankungNetz', '2,5');
   await page.evaluate(() => { const el = document.getElementById('schwankungNetz'); if (typeof fixLeadingZero === 'function') fixLeadingZero(el); });
-  ok(await page.evaluate(() => document.getElementById('schwankungNetz').value) === '2,5', '«2,5» bleibt beim Verlassen «2,5» (Komma-Dezimal erhalten)');
+  ok(await page.evaluate(() => document.getElementById('schwankungNetz').value) === '2.5', '«2,5» wird beim Verlassen zu «2.5» (Punkt statt Komma)');
   await page.fill('#schwankungNetz', '');
 
   // «+ weitere Position»-Button + Einheiten-Chips im Standard-Look (Klassen definiert)
