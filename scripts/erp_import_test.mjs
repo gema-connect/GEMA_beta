@@ -161,10 +161,10 @@ t('Zeile ohne Adresse wird als Fehler markiert',
 
 console.log('\n═══ A6 — Abschnitte & Kopfzeile ═══');
 eq('5 Abschnitte registriert', I.SEKTIONEN.length, 5);
-eq('Objekte + Adressen + Offerten + Aufträge sind bereit',
-  I.SEKTIONEN.filter(x => x.bereit).map(x => x.id), ['objekte', 'adressen', 'offerten', 'auftraege']);
-eq('Nur die Rechnungen warten noch auf den Export',
-  I.SEKTIONEN.filter(x => !x.bereit).map(x => x.id), ['rechnungen']);
+eq('Alle 5 Abschnitte sind bereit',
+  I.SEKTIONEN.filter(x => x.bereit).map(x => x.id), ['objekte', 'adressen', 'offerten', 'auftraege', 'rechnungen']);
+eq('Kein Abschnitt wartet mehr auf einen Export',
+  I.SEKTIONEN.filter(x => !x.bereit).map(x => x.id), []);
 t('Jeder bereite Abschnitt hat Felder',
   I.SEKTIONEN.filter(x => x.bereit).every(x => Array.isArray(x.felder) && x.felder.length));
 eq('Kopfzeile = erste Zeile mit ≥2 Werten', I.findeKopfzeile([[''], ['', ''], ['id', 'strasse']]), 2);

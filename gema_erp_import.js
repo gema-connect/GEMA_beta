@@ -165,6 +165,73 @@ function auftragStatus(text){
   return hit?{status:hit.status,erkannt:true}:{status:'offen',erkannt:false};
 }
 
+/* Rechnungs-Bearbeitungsstatus des Altsystems → GEMA
+   (entwurf | gestellt | bezahlt | storniert).
+
+   Der Export führt KEINE Zahlungsinformation — «Versandt» heisst gestellt,
+   nicht bezahlt. Ein Beleg mit Nummer und ESR-Referenz ist ausgestellt,
+   darum ist «gestellt» auch der Default für Unbekanntes (mit Hinweis). */
+var RECHNUNG_STATUS=[
+  {re:/^\s*(entwurf|erfasst|in\s*bearbeitung|nicht\s*versandt|vorbereitet)/i, status:'entwurf'},
+  {re:/storniert|annulliert|gutgeschrieben|gutschrift/i,                      status:'storniert'},
+  {re:/bezahlt|beglichen|ausgeglichen|saldiert/i,                             status:'bezahlt'},
+  {re:/versandt|verschickt|gedruckt|gestellt|gemahnt|mahnung|offen/i,          status:'gestellt'}
+];
+function rechnungStatus(text){
+  var t=s(text);
+  if(!t)return {status:'gestellt',erkannt:false};
+  var hit=RECHNUNG_STATUS.find(function(x){return x.re.test(t);});
+  return hit?{status:hit.status,erkannt:true}:{status:'gestellt',erkannt:false};
+}
+
+/* Rechnungs-TYP des Altsystems → GEMA `rechnungsArt`.
+   KRITISCH — die importierte Schlussrechnung trägt den TATSÄCHLICH
+   fakturierten Betrag; `erpSchlussPositionen` (Auftragspositionen minus
+   Akonti) darf beim Import NIE laufen, sonst würde der Beleg neu gerechnet. */
+var RECHNUNG_ART=[
+  {re:/schluss|final|end(ab)?rechnung/i,               art:'schluss'},
+  {re:/akonto|abschlag|anzahlung|vorauszahlung/i,      art:'akonto'},
+  {re:/teil(rechnung|betrag)?|zwischenrechnung/i,      art:'teil'},
+  {re:/gutschrift|storno/i,                            art:'einzel'}
+];
+function rechnungArt(text){
+  var t=s(text);
+  if(!t)return {art:'einzel',erkannt:false};
+  var hit=RECHNUNG_ART.find(function(x){return x.re.test(t);});
+  return hit?{art:hit.art,erkannt:true}:{art:'einzel',erkannt:false};
+}
+
+/* Gültige 27-stellige ESR-/QR-Referenz? (Mod10 rekursiv, wie erpMod10)
+   Nur eine gültige Referenz darf in den QR-Code eines Nachdrucks — sonst
+   entstünde ein unbezahlbarer Einzahlungsschein. */
+function mod10(ref){
+  var tab=[0,9,4,6,8,2,7,1,3,5],c=0;
+  String(ref).replace(/\D/g,'').split('').forEach(function(z){c=tab[(c+parseInt(z,10))%10];});
+  return (10-c)%10;
+}
+function esrGueltig(ref){
+  var d=String(ref||'').replace(/\D/g,'');
+  return d.length===27&&mod10(d.slice(0,26))===parseInt(d.slice(26),10);
+}
+/* Tage zur Zahlungsfrist. Belegt ist einzig «01» = 30 Tage netto aus dem
+   Beispiel-Export; alles andere fällt bewusst auf den Firmen-Standard
+   zurück, statt eine Zuordnung zu erfinden. */
+/* ISO-Datum + n Tage → ISO-Datum (UTC-Arithmetik, sommerzeit-fest). */
+function addTage(iso,tage){
+  var m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(s(iso));
+  if(!m)return s(iso);
+  var d=new Date(Date.UTC(+m[1],+m[2]-1,+m[3]));
+  d.setUTCDate(d.getUTCDate()+(parseInt(tage,10)||0));
+  return d.toISOString().slice(0,10);
+}
+function fristTage(zahlbed,standard){
+  var t=s(zahlbed);
+  var m=/(\d+)\s*tag/i.exec(t);
+  if(m)return parseInt(m[1],10);
+  if(/^0*1$/.test(t))return 30;
+  return standard;
+}
+
 function spalteZuIndex(ref){
   var m=/^([A-Z]+)/.exec(ref||'');if(!m)return 0;
   var n=0,t=m[1];
@@ -513,8 +580,46 @@ var SEKTIONEN=[
     {id:'wohnTel',    label:'Wohnung — Telefon', alias:['wohntel','bewohnertel']}
   ]
 },
-{ id:'rechnungen', label:'Rechnungen', ic:'🧾', bereit:false,
-  info:'Wartet auf den Export aus dem Altsystem — inkl. Zahlungen, Akonto-/Teilrechnungen und offener Beträge.' }
+{
+  id:'rechnungen', label:'Rechnungen', ic:'🧾', bereit:true,
+  info:'Rechnungs-Kopfdaten mit Beträgen, Rechnungsart (Schluss-/Akonto-/Teilrechnung), ESR-Referenz und der Verknüpfung zum Auftrag. Der Export führt KEINE Zahlungsinformation — die Rechnungen entstehen als «gestellt»; im letzten Schritt lässt sich ein Stichtag setzen, ab dem ältere Belege als bezahlt gelten.',
+  felder:[
+    {id:'extId',      label:'ID im Altsystem', hint:'Für den Wiederholungs-Import (keine Dubletten)', alias:['id','rechnungid','rechnungsid']},
+    {id:'nr',         label:'Rechnungs-Nr.', pflicht:true, alias:['rechnungnr','rechnungsnr','rechnungsnummer','belegnr','nr','nummer']},
+    {id:'auftragNr',  label:'Auftrags-Nr.', hint:'Verknüpft die Rechnung mit dem bereits importierten Auftrag', alias:['rapportnr','auftragnr','auftragsnr','auftragsnummer']},
+    {id:'datum',      label:'Rechnungsdatum', alias:['datum','rechnungsdatum','belegdatum']},
+    {id:'titel',      label:'Betrifft / Betreff', alias:['betrifft','betreff','betrmemo','projekt','memo','titel']},
+    {id:'arbeit',     label:'Arbeit', hint:'Arbeitsart des Altsystems — wird als Vermerk übernommen', alias:['arbeit','arbeitsart']},
+    {id:'art',        label:'Rechnungsart', hint:'Schluss-/Akonto-/Teilrechnung', alias:['typtext','rechnungstyp','rechnungsart','belegart','art']},
+    {id:'status',     label:'Bearbeitungsstatus', hint:'z.B. Versandt / Entwurf / Storniert', alias:['typtext1','bearbstatus','status','zustand']},
+    {id:'nettoBetrag',label:'Betrag exkl. MwSt', hint:'Massgebend für die Sammelposition', alias:['exmwstbetrag','nettobetrag','netto','betragexklmwst']},
+    {id:'mwstBetrag', label:'MwSt-Betrag', hint:'Daraus wird der MwSt-Satz je Beleg gerechnet', alias:['mwstbetrag','mehrwertsteuer']},
+    {id:'bruttoBetrag',label:'Betrag inkl. MwSt', alias:['rbetrag','bruttobetrag','brutto','total','betrag']},
+    {id:'mwstCode',   label:'MwSt-Code', hint:'Nur als Vermerk — der Satz kommt aus den Beträgen', alias:['mwstcode','ustcode']},
+    {id:'esrRef',     label:'ESR- / QR-Referenz', hint:'Wird für den Nachdruck übernommen, damit die Zahlung zugeordnet werden kann', alias:['esrref','esr','qrreferenz','referenznr']},
+    {id:'zahlbed',    label:'Zahlungsbedingung', hint:'Bestimmt die Zahlungsfrist; unbekannt = Firmen-Standard', alias:['zahlbedid','zahlungsbedingung','zahlbed','kondition']},
+    {id:'ausgefuehrt',label:'Ausgeführt', hint:'Leistungsdatum/-zeitraum aus dem Altsystem (Freitext)', alias:['ausgef','ausgefuehrt','leistungsdatum','ausfuehrung']},
+    {id:'versandtAm', label:'Versandt am', alias:['postinfodate','versandtam','versandt','druckdatum']},
+    {id:'printInfo',  label:'Druck-Vermerk', alias:['printinfo','druckinfo']},
+    {id:'kundeName',  label:'Kunde / Firma', alias:['name1','kunde','firma','adressname']},
+    {id:'korrName',   label:'Korrespondenz-Name', alias:['korrname','korrespondenzname']},
+    {id:'anschrift',  label:'Anschrift-Block (Freitext)', hint:'Rechnungsadresse — wird automatisch zerlegt', alias:['anschrift','adressblock','rechnungsadresse']},
+    {id:'adrId',      label:'Adress-ID im Altsystem', hint:'Nur als Vermerk am Beleg', alias:['adrid','adressid','adressnr']},
+    {id:'sachb',      label:'Sachbearbeiter', alias:['sachbname','sachbearbeiter','sachb','sb','bearbeiter']},
+    {id:'abteilung',  label:'Abteilung', hint:'Wird zum GEMA-Arbeitsbereich', alias:['abtname','abteilung','bereich','gewerk','sparte']},
+    {id:'strasse',    label:'Objekt: Strasse / Nr.', hint:'Verknüpft die Rechnung mit dem Objekt', alias:['strasse','str','objektstrasse']},
+    {id:'strasse2',   label:'Objekt: Adresszusatz', alias:['strasse2','adresszusatz','zusatz']},
+    {id:'plz',        label:'Objekt: PLZ', alias:['plz','postleitzahl']},
+    {id:'ort',        label:'Objekt: Ort', alias:['ort','stadt']},
+    {id:'egid',       label:'Objekt: EGID', alias:['egid']},
+    {id:'egrid',      label:'Objekt: EGRID', alias:['egrid']},
+    {id:'ref1',       label:'Externe Referenz 1', alias:['extref1','ref1','referenz1']},
+    {id:'ref2',       label:'Externe Referenz 2', alias:['extref2','ref2','referenz2']},
+    {id:'besteller',  label:'Besteller', hint:'Wird als Bezugsperson am Objekt hinterlegt', alias:['besteller','auftraggeber']},
+    {id:'wohnung',    label:'Wohnung', alias:['wohnung','stockwerk']},
+    {id:'wohnStandort',label:'Wohnung — Name / Standort', hint:'Wird als Bezugsperson «Bewohner» hinterlegt', alias:['wohnstandort','bewohner']}
+  ]
+}
 ];
 function sektion(id){return SEKTIONEN.find(function(x){return x.id===id;})||null;}
 
@@ -596,6 +701,40 @@ function normalisiereZeile(row,map,sekId){
       ref1:g('ref1'), ref2:g('ref2'), wohnung:g('wohnung')
     };
   }
+  if(sekId==='rechnungen'){
+    var rst=rechnungStatus(g('status'));
+    var rart=rechnungArt(g('art'));
+    var rnetto=parseBetrag(g('nettoBetrag'));
+    var rmwst=parseBetrag(g('mwstBetrag'));
+    var rbrutto=parseBetrag(g('bruttoBetrag'));
+    if(rnetto==null&&rbrutto!=null&&rmwst!=null)rnetto=Math.round((rbrutto-rmwst)*100)/100;
+    if(rmwst==null&&rbrutto!=null&&rnetto!=null)rmwst=Math.round((rbrutto-rnetto)*100)/100;
+    if(rbrutto==null&&rnetto!=null&&rmwst!=null)rbrutto=Math.round((rnetto+rmwst)*100)/100;
+    var rsatz=null;
+    if(rnetto&&rmwst!=null&&rnetto>0)rsatz=Math.round(rmwst/rnetto*1000)/10;
+    var radr=parseAnschrift(g('anschrift')).zahler||null;
+    var rkunde=Object.assign({firma:'',kontakt:'',strasse:'',plz:'',ort:''},radr||{});
+    if(!rkunde.firma)rkunde.firma=g('kundeName')||g('korrName');
+    var rpers=[];
+    if(s(g('besteller')))rpers.push({name:g('besteller'),typ:'besteller'});
+    if(s(g('wohnStandort')))rpers.push({name:g('wohnStandort'),wohnung:g('wohnung'),typ:'bewohner'});
+    return {
+      extId:g('extId'), nr:g('nr'), auftragNr:g('auftragNr'),
+      datum:parseDatum(g('datum')),
+      titel:g('titel')||g('arbeit'), arbeit:g('arbeit'),
+      artText:g('art'), art:rart.art, artErkannt:rart.erkannt,
+      statusText:g('status'), status:rst.status, statusErkannt:rst.erkannt,
+      netto:rnetto, mwst:rmwst, brutto:rbrutto, mwstPct:rsatz, mwstCode:g('mwstCode'),
+      esrRef:g('esrRef'), esrOk:esrGueltig(g('esrRef')),
+      zahlbed:g('zahlbed'), ausgefuehrt:g('ausgefuehrt'),
+      versandtAm:g('versandtAm'), printInfo:g('printInfo'),
+      kunde:rkunde, kundeName:g('kundeName')||rkunde.firma, adrId:g('adrId'),
+      sachb:g('sachb'), abteilung:g('abteilung'),
+      objekt:{strasse:g('strasse'), strasse2:g('strasse2'), plz:g('plz'), ort:g('ort'),
+              egid:g('egid'), egrid:g('egrid')},
+      ref1:g('ref1'), ref2:g('ref2'), wohnung:g('wohnung'), personen:rpers
+    };
+  }
   if(sekId==='auftraege'){
     var ast=auftragStatus(g('status'));
     var aadr=parseAnschrift(g('anschrift')).zahler||null;
@@ -674,6 +813,17 @@ function pruefe(z,sekId){
     if(!s(z.objekt&&z.objekt.strasse))hin.push({typ:'info',text:'Ohne Objekt-Adresse — keine Projekt-Verknüpfung.'});
     if(z.mwstPct!=null&&z.mwstPct>0&&Math.abs(z.mwstPct-8.1)>0.15&&Math.abs(z.mwstPct-7.7)>0.15)
       hin.push({typ:'warn',text:'Ungewöhnlicher MwSt-Satz '+z.mwstPct+' % — bitte prüfen.'});
+  }else if(sekId==='rechnungen'){
+    if(!s(z.nr))hin.push({typ:'fehler',text:'Keine Rechnungs-Nr. — Zeile wird übersprungen.'});
+    if(!s(z.kunde&&z.kunde.firma))hin.push({typ:'warn',text:'Kein Kunde erkannt.'});
+    if(z.netto==null)hin.push({typ:'warn',text:'Kein Betrag — die Rechnung entsteht ohne Position.'});
+    if(!z.artErkannt&&s(z.artText))hin.push({typ:'warn',text:'Rechnungsart «'+s(z.artText)+'» unbekannt → Einzelrechnung.'});
+    if(!z.statusErkannt&&s(z.statusText))hin.push({typ:'warn',text:'Status «'+s(z.statusText)+'» unbekannt → «gestellt».'});
+    if(z.mwstPct!=null&&z.mwstPct>0&&Math.abs(z.mwstPct-8.1)>0.15&&Math.abs(z.mwstPct-7.7)>0.15)
+      hin.push({typ:'warn',text:'Ungewöhnlicher MwSt-Satz '+z.mwstPct+' % — bitte prüfen.'});
+    if(s(z.auftragNr))hin.push({typ:'info',text:'Wird mit Auftrag '+s(z.auftragNr)+' verknüpft (sofern importiert).'});
+    else hin.push({typ:'info',text:'Keine Auftrags-Nr. — die Rechnung steht für sich.'});
+    if(s(z.esrRef)&&!z.esrOk)hin.push({typ:'warn',text:'ESR-Referenz ungültig (Prüfziffer) — GEMA erzeugt für den Nachdruck eine eigene.'});
   }else if(sekId==='auftraege'){
     if(!s(z.nr))hin.push({typ:'fehler',text:'Keine Auftrags-Nr. — Zeile wird übersprungen.'});
     if(!s(z.kunde&&z.kunde.firma))hin.push({typ:'warn',text:'Kein Kunde erkannt.'});
@@ -820,6 +970,8 @@ function vorbereiten(opts){
     .forEach(function(d){bekannt[dokSchluessel('offerte',d)]=d;});
   if(sekId==='auftraege')bestehendeDocs().filter(function(d){return d.typ==='auftrag';})
     .forEach(function(d){bekannt[dokSchluessel('auftrag',d)]=d;});
+  if(sekId==='rechnungen')bestehendeDocs().filter(function(d){return d.typ==='rechnung';})
+    .forEach(function(d){bekannt[dokSchluessel('rechnung',d)]=d;});
   var adrGesehen={};
   rows.forEach(function(row,i){
     var z=normalisiereZeile(row,map,sekId);
@@ -856,6 +1008,10 @@ function vorbereiten(opts){
       var ak=dokSchluessel('auftrag',z);
       if(bekannt[ak]){aktion='aktualisiert';stats.aktualisiert++;}
       else{stats.neu++;bekannt[ak]={};}
+    }else if(sekId==='rechnungen'){
+      var rk=dokSchluessel('rechnung',z);
+      if(bekannt[rk]){aktion='aktualisiert';stats.aktualisiert++;}
+      else{stats.neu++;bekannt[rk]={};}
     }else{
       aktion='neu';stats.neu++;
     }
@@ -950,6 +1106,111 @@ function objektFuerBeleg(oa,kd,personen,orgId,report,opts){
   return GemaObjekte.upsertObjekt(o).then(function(){
     if(neu)report.objekteNeu=(report.objekteNeu||0)+1;
     return o;
+  });
+}
+
+/* Schreibt EINE Rechnung als echtes GEMA-Dokument.
+
+   Der Export führt den fakturierten Betrag, aber keine Positionen — es
+   entsteht EINE Sammelposition mit dem Nettobetrag (Muster Offerte). Bei
+   einer Schlussrechnung wird `erpSchlussPositionen` bewusst NICHT gerechnet:
+   der importierte Betrag IST der fakturierte, er darf nicht neu hergeleitet
+   werden.
+
+   Zahlungen bringt der Export nicht mit. Die Rechnung entsteht als
+   «gestellt»; `opts.bezahltVor` (Stichtag, vom Nutzer im letzten Schritt
+   gesetzt) markiert ältere Belege als bezahlt — bewusst eine EXPLIZITE
+   Entscheidung, keine stille Annahme. */
+function rechnungSchreiben(z,adrCtx,report,opts){
+  opts=opts||{};
+  var u=null;try{u=GemaAuth.getCurrentUser();}catch(e){}
+  var orgId=u?u.orgId:'';
+  var docs=bestehendeDocs();
+  var alt=docs.filter(function(d){return d.typ==='rechnung';})
+    .find(function(d){return dokSchluessel('rechnung',d)===dokSchluessel('rechnung',z);})||null;
+  var auf=null;
+  if(s(z.auftragNr)){
+    var an=norm(z.auftragNr);
+    auf=docs.find(function(d){return d.typ==='auftrag'&&norm(d.nr)===an;})||null;
+    if(!auf)report.auftragFehlt=(report.auftragFehlt||0)+1;
+  }
+
+  var kundeP=Promise.resolve(null);
+  if(s(z.kunde&&z.kunde.firma))kundeP=adresseSichern(Object.assign({},z.kunde),adrCtx);
+  return kundeP.then(function(kd){
+    return objektFuerBeleg(z.objekt,kd,z.personen,orgId,report,opts).then(function(obj){
+      // Der Rechnungs-Export führt keinen Sachbearbeiter — er kommt vom
+      // verknüpften Auftrag (Muster erpSbNeu), sonst bleibt er leer und
+      // `erpSb` fällt auf den Ersteller zurück.
+      var sb=s(z.sachb)?findeSachbearbeiter(z.sachb):(auf&&auf.sachbearbeiter)||null;
+      var bereichId=findeBereich(z.abteilung);
+      var doc=alt?Object.assign({},alt):{
+        id:uid('doc'), typ:'rechnung', orgId:orgId,
+        positionen:[], rabattPct:0, schluss:[], zahlungen:[], verknuepfung:{},
+        erstelltVon:{userId:u?u.id:'',name:u?u.name:''}, erstelltAm:jetzt()
+      };
+      function fuelle(f,v){if(s(v)&&!s(doc[f]))doc[f]=s(v);}
+      fuelle('nr',z.nr);
+      fuelle('datum',z.datum);
+      fuelle('titel',z.titel);
+      if(!doc.extId)doc.extId=z.extId;
+      if(!doc.rechnungsArt)doc.rechnungsArt=z.art;
+      if(!doc.bereichId&&bereichId)doc.bereichId=bereichId;
+      if(!doc.sachbearbeiter&&sb)doc.sachbearbeiter=sb;
+      if(doc.mwstPct==null&&z.mwstPct!=null&&z.mwstPct>0)doc.mwstPct=z.mwstPct;
+      if(kd&&!doc.kundeId){doc.kundeId=kd.id;doc.kundeSnapshot=GemaAdressen.snapshot(kd);}
+      if(obj&&!doc.objektId){doc.objektId=obj.id;doc.objektName=obj.name||'';}
+      if(s(z.ref1)&&!s(doc.externeRef1))doc.externeRef1=s(z.ref1);
+      if(s(z.ref2)&&!s(doc.externeRef2))doc.externeRef2=s(z.ref2);
+      if(s(z.wohnung)&&!s(doc.wohnung))doc.wohnung=s(z.wohnung);
+      // Zahlungsfrist: aus der Zahlungsbedingung, sonst Firmen-Standard.
+      if(!s(doc.frist)&&s(doc.datum)){
+        var std=30;
+        try{var os=(GemaAuth.getCurrentOrg()||{}).settings||{};std=(os.erp&&os.erp.fristTage)||30;}catch(e){}
+        doc.frist=addTage(doc.datum,fristTage(z.zahlbed,std));
+      }
+      // Vermerke — alles, wofür GEMA kein eigenes Feld führt.
+      if(s(z.arbeit)&&!s(doc.importArbeit))doc.importArbeit=s(z.arbeit);
+      if(s(z.artText)&&!s(doc.importArtText))doc.importArtText=s(z.artText);
+      if(s(z.statusText)&&!s(doc.importStatusText))doc.importStatusText=s(z.statusText);
+      if(s(z.ausgefuehrt)&&!s(doc.importAusgefuehrt))doc.importAusgefuehrt=s(z.ausgefuehrt);
+      if(s(z.versandtAm)&&!s(doc.importVersandtAm))doc.importVersandtAm=s(z.versandtAm);
+      if(s(z.printInfo)&&!s(doc.importPrintInfo))doc.importPrintInfo=s(z.printInfo);
+      if(s(z.mwstCode)&&!s(doc.importMwstCode))doc.importMwstCode=s(z.mwstCode);
+      if(s(z.zahlbed)&&!s(doc.importZahlbed))doc.importZahlbed=s(z.zahlbed);
+      if(s(z.adrId)&&!s(doc.importAdrId))doc.importAdrId=s(z.adrId);
+      // ESR-Referenz: nur eine GÜLTIGE wandert in den Nachdruck-QR
+      // (erpRefFuer prüft sie nochmals), der Rohwert bleibt in jedem Fall.
+      if(s(z.esrRef)&&!s(doc.importEsrRefRoh))doc.importEsrRefRoh=s(z.esrRef);
+      if(z.esrOk&&!s(doc.importEsrRef))doc.importEsrRef=s(z.esrRef).replace(/\D/g,'');
+      if(auf&&!(doc.verknuepfung&&doc.verknuepfung.auftragId)){
+        doc.verknuepfung=doc.verknuepfung||{};
+        doc.verknuepfung.auftragId=auf.id;
+        // Die Offerte hängt am Auftrag — die Kette bleibt damit vollständig.
+        if(auf.verknuepfung&&auf.verknuepfung.offerteId)doc.verknuepfung.offerteId=auf.verknuepfung.offerteId;
+      }
+      if(!doc.positionen.length&&z.netto!=null){
+        doc.positionen=[{
+          id:uid('p'), art:'frei',
+          bez:'Übernahme aus dem Altsystem — Rechnung '+s(z.nr)+(s(z.titel)?'<br>'+s(z.titel):''),
+          menge:1, einheit:'Psch', ep:z.netto
+        }];
+        doc.importSumme={netto:z.netto,mwst:z.mwst,brutto:z.brutto,satz:z.mwstPct};
+      }
+      // Status ZULETZT — der Stichtag darf den Export-Status übersteuern.
+      if(!doc.status){
+        doc.status=z.status;
+        if(z.status==='gestellt'&&s(opts.bezahltVor)&&s(doc.datum)&&String(doc.datum)<String(opts.bezahltVor)){
+          doc.status='bezahlt';
+          doc.zahlungen=[{datum:doc.datum,betrag:(z.brutto!=null?z.brutto:z.netto)||0,
+                          bemerkung:'Übernahme aus dem Altsystem (Stichtag-Regel)'}];
+          report.alsBezahlt=(report.alsBezahlt||0)+1;
+        }
+      }
+      doc.quelle=doc.quelle||{typ:'import',system:opts.quelleName||'ERP-Migration',am:jetzt(),extId:z.extId};
+      doc.updatedAt=jetzt();
+      return dokSichern(doc).then(function(){if(alt)report.aktualisiert++;else report.neu++;});
+    });
   });
 }
 
@@ -1135,6 +1396,9 @@ function ausfuehren(plan,opts){
       if(sekId==='auftraege')return auftragSchreiben(z.ziel,adrCtx,report,opts).catch(function(e){
         report.fehler.push({zeile:z.nr,text:(e&&e.message)||String(e)});
       });
+      if(sekId==='rechnungen')return rechnungSchreiben(z.ziel,adrCtx,report,opts).catch(function(e){
+        report.fehler.push({zeile:z.nr,text:(e&&e.message)||String(e)});
+      });
       // ── Objekte ──
       var z2=z.ziel;
       var slotKeys=Object.keys(z2.slots||{});
@@ -1206,10 +1470,60 @@ function ausfuehren(plan,opts){
       });
     });
   });
+  if(sekId==='rechnungen'&&opts.auftragErgaenzen!==false)kette=kette.then(function(){
+    return auftraegeAusRechnungen(report,opts);
+  });
   return kette.then(function(){
     report.adressen=adrCtx.neu;
     return report;
   });
+}
+
+/* Nachlauf des Rechnungs-Imports: LEERE Aufträge mit dem fakturierten Betrag
+   ergänzen.
+
+   Warum nötig: Der Auftrags-Export führt keine Beträge. Konnte der Auftrag
+   seine Positionen nicht aus einer Offerte übernehmen (Offerte gar nicht im
+   Export, oder gar keine Offerte), steht er auf 0 — die Rechnung darauf lässt
+   ihn dann als «überverrechnet» erscheinen. Der Betrag stammt NICHT aus einer
+   Schätzung, sondern aus den tatsächlich importierten Rechnungen dieses
+   Auftrags (Summe, deckt damit auch Akonto + Schluss ab).
+
+   Läuft ERST NACH allen Rechnungen (sonst wüsste die erste nichts von der
+   zweiten) und rührt einen Auftrag mit Positionen NIE an. */
+function auftraegeAusRechnungen(report,opts){
+  var pool=dokPool();
+  var u=null;try{u=GemaAuth.getCurrentUser();}catch(e){}
+  var summe={};
+  pool.forEach(function(d){
+    if(!d||d.typ!=='rechnung')return;
+    if(u&&d.orgId!==u.orgId)return;
+    if(d.status==='storniert')return;
+    var aid=d.verknuepfung&&d.verknuepfung.auftragId;
+    if(!aid)return;
+    var netto=0;
+    (d.positionen||[]).forEach(function(p){
+      if(p&&p.art==='frei')netto+=(parseFloat(p.ep)||0)*(parseFloat(p.menge)||0);
+    });
+    if(netto>0)summe[aid]=(summe[aid]||0)+netto;
+  });
+  var kette=Promise.resolve();
+  Object.keys(summe).forEach(function(aid){
+    var a=pool.find(function(x){return x.id===aid&&x.typ==='auftrag';});
+    if(!a||(a.positionen||[]).length)return;
+    kette=kette.then(function(){
+      var doc=Object.assign({},a);
+      doc.positionen=[{
+        id:uid('p'), art:'frei',
+        bez:'Übernahme aus dem Altsystem — verrechnet gemäss Rechnung(en)'+(s(doc.nr)?' zu Auftrag '+s(doc.nr):''),
+        menge:1, einheit:'Psch', ep:Math.round(summe[aid]*100)/100
+      }];
+      doc.updatedAt=jetzt();
+      report.auftragBetrag=(report.auftragBetrag||0)+1;
+      return dokSichern(doc);
+    });
+  });
+  return kette;
 }
 
 window.GemaErpImport={
@@ -1221,6 +1535,8 @@ window.GemaErpImport={
   vorbereiten:vorbereiten, ausfuehren:ausfuehren,
   parseDatum:parseDatum, parseBetrag:parseBetrag,
   offertStatus:offertStatus, auftragStatus:auftragStatus,
+  rechnungStatus:rechnungStatus, rechnungArt:rechnungArt,
+  esrGueltig:esrGueltig, fristTage:fristTage, addTage:addTage,
   objektSchluessel:objektSchluessel,
   // Engine-Exports für Node-Tests
   serialZuDatum:serialZuDatum, istDatumFmt:istDatumFmt, entescape:entescape,

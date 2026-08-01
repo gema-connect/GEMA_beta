@@ -898,12 +898,26 @@ function erpQrReferenz(nr){
   var base=digits.slice(-26).padStart(26,'0');
   return base+String(erpMod10(base));
 }
+/* Referenz einer Rechnung — eine aus dem Altsystem ÜBERNOMMENE Referenz hat
+   Vorrang vor der neu generierten.
+
+   Grund: Der Kunde hat den Einzahlungsschein mit der alten Referenz; das
+   Buchhaltungssystem ordnet den Zahlungseingang darüber zu. Würde ein
+   Nachdruck in GEMA eine andere Referenz tragen, liefe die Zahlung ins Leere.
+   Übernommen wird sie NUR, wenn sie eine echte 27-stellige ESR-Referenz mit
+   korrekter Mod10-Prüfziffer ist — sonst entstünde ein unbezahlbarer QR-Code
+   (der Rohwert bleibt als Vermerk am Beleg erhalten). */
+function erpRefFuer(d){
+  var alt=String((d&&d.importEsrRef)||'').replace(/\D/g,'');
+  if(alt.length===27&&erpMod10(alt.slice(0,26))===parseInt(alt.slice(26),10))return alt;
+  return erpQrReferenz(d?d.nr:'');
+}
 // SPC-Payload (Swiss Payments Code v2.0). s = {iban, qrIban, name, strasse, plz, ort}
 function erpQrPayload(rech,s,totals){
   var useQrr=!!(s.qrIban&&String(s.qrIban).trim());
   var iban=String(useQrr?s.qrIban:s.iban||'').replace(/\s/g,'');
   var k=rech.kundeSnapshot||{};
-  var ref=useQrr?erpQrReferenz(rech.nr):'';
+  var ref=useQrr?erpRefFuer(rech):'';
   var lines=[
     'SPC','0200','1',
     iban,
@@ -5250,6 +5264,8 @@ function erpMigRender(){
       ? '<th>Nr.</th><th>Datum</th><th>Projekt / Betreff</th><th>Kunde</th><th>Objekt</th><th>Betrag</th><th>Status</th><th>Sachb. / Abt.</th>'
       : _mig.sekId==='auftraege'
       ? '<th>Nr.</th><th>Datum</th><th>Betrifft</th><th>Kunde</th><th>Objekt</th><th>Status</th><th>Offerte</th><th>Rechnung</th><th>🔑</th><th>Sachb. / Abt.</th>'
+      : _mig.sekId==='rechnungen'
+      ? '<th>Nr.</th><th>Datum</th><th>Betrifft</th><th>Kunde</th><th>Auftrag</th><th>Art</th><th>Betrag</th><th>Status</th><th>Referenz</th><th>Sachb. / Abt.</th>'
       : '<th>Kd-Nr.</th><th>Name</th><th>Adresse</th><th>Kontakt</th><th>Typ</th>')
     +'<th>Hinweis</th></tr></thead><tbody>';
   zz.forEach(function(z){
@@ -5287,6 +5303,19 @@ function erpMigRender(){
         +'<td>'+esc(t.offertNr||'—')+'</td><td>'+esc(t.rechnungNr||'—')+'</td>'
         +'<td>'+(t.schluessel&&t.schluessel.code?esc(t.schluessel.code):'—')+'</td>'
         +'<td>'+esc([t.sachb,t.abteilung].filter(Boolean).join(' · ')||'—')+'</td>';
+    }else if(_mig.sekId==='rechnungen'){
+      var rArt={einzel:'Rechnung',akonto:'Akonto',teil:'Teil',schluss:'Schluss'}[t.art]||t.art;
+      var rSt={entwurf:'Entwurf',gestellt:'Gestellt',bezahlt:'Bezahlt',storniert:'Storniert'}[t.status]||t.status;
+      var rBet=t.netto!=null?('<b>'+t.netto.toFixed(2)+'</b>'+(t.mwstPct!=null?' <span style="color:var(--mut)">+'+t.mwstPct+'%</span>':'')):'—';
+      h3+='<td><b>'+esc(t.nr||'—')+'</b></td><td>'+esc(t.datum||'—')+'</td>'
+        +'<td>'+esc((t.titel||'').slice(0,60))+(t.ausgefuehrt?'<br><span style="color:var(--mut);font-size:11px">Ausgeführt: '+esc(t.ausgefuehrt)+'</span>':'')+'</td>'
+        +'<td>'+esc(t.kunde&&t.kunde.firma||'—')+'</td>'
+        +'<td>'+esc(t.auftragNr||'—')+'</td>'
+        +'<td>'+esc(rArt)+(t.artErkannt?'':' <span style="color:var(--amber)">?</span>')+'</td>'
+        +'<td style="text-align:right;white-space:nowrap">'+rBet+'</td>'
+        +'<td>'+esc(rSt)+(t.statusErkannt?'':' <span style="color:var(--amber)">?</span>')+'</td>'
+        +'<td style="font-size:11px">'+(t.esrRef?(t.esrOk?'✓ ESR':'<span style="color:var(--amber)">⚠ ungültig</span>'):'—')+'</td>'
+        +'<td>'+esc([t.sachb,t.abteilung].filter(Boolean).join(' · ')||'—')+'</td>';
     }else{
       h3+='<td>'+esc(t.nr||'—')+'</td><td>'+esc(t.firma||[t.name,t.vorname].filter(Boolean).join(' '))+'</td>'
         +'<td>'+esc([t.strasse,[t.plz,t.ort].filter(Boolean).join(' ')].filter(Boolean).join(', '))+'</td>'
@@ -5317,6 +5346,31 @@ function erpMigRender(){
       +'Positionen aus der verknüpften Offerte übernehmen</label>'
       +'<span style="color:var(--mut)">'+mOff+' mit Offert-Nr.</span></div>'
       +'<div style="font-size:11.5px;color:var(--mut);margin-top:6px">Der Export führt keine Beträge — ohne verknüpfte Offerte entsteht der Auftrag ohne Positionen. Die Beträge kommen mit dem Rechnungs-Import.</div>';
+  }
+  if(_mig.sekId==='rechnungen'){
+    var ok=plan.zeilen.filter(function(x){return x.aktion!=='fehler';});
+    var rSum=ok.reduce(function(a,x){return a+(x.ziel.netto||0);},0);
+    var mAuf=ok.filter(function(x){return String(x.ziel.auftragNr||'').trim();}).length;
+    // Wie viele stünden ohne Stichtag als «überfällig» in der Liste?
+    var ft=(erpSettings().fristTage)||30;
+    var grenze=new Date(Date.now()-ft*864e5).toISOString().slice(0,10);
+    var mFaellig=ok.filter(function(x){return x.ziel.status==='gestellt'&&x.ziel.datum&&x.ziel.datum<grenze;}).length;
+    h3+='<div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center;margin-top:11px;font-size:12.5px">'
+      +'<label style="display:flex;align-items:center;gap:7px;cursor:pointer"><input type="checkbox" id="migOptObj"'
+      +(_mig.optObjekte===false?'':' checked')+' onchange="_mig.optObjekte=this.checked" style="width:15px;height:15px"/>'
+      +'Fehlende Objekte automatisch anlegen</label>'
+      +'<label style="display:flex;align-items:center;gap:7px;cursor:pointer"><input type="checkbox" id="migOptAufBetrag"'
+      +(_mig.optAufBetrag===false?'':' checked')+' onchange="_mig.optAufBetrag=this.checked" style="width:15px;height:15px"/>'
+      +'Leere Aufträge mit dem verrechneten Betrag ergänzen</label>'
+      +'<span style="color:var(--mut)">'+mAuf+' mit Auftrags-Nr. · Summe netto: <b>CHF '+rSum.toFixed(2)+'</b></span></div>'
+      +'<div style="margin-top:9px;padding:9px 11px;background:var(--tint);border-radius:9px;font-size:12.5px">'
+      +'<b>Zahlungen:</b> Der Export enthält keine Zahlungsinformation — die Rechnungen entstehen als «gestellt».'
+      +(mFaellig?' <b style="color:var(--amber)">'+mFaellig+'</b> davon würden damit als überfällig erscheinen.':'')
+      +'<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:7px">'
+      +'<label for="migBezVor">Als <b>bezahlt</b> übernehmen, wenn das Rechnungsdatum vor diesem Tag liegt:</label>'
+      +'<input type="date" id="migBezVor" value="'+esc(_mig.bezahltVor||'')+'" onchange="_mig.bezahltVor=this.value;erpMigRender()"'
+      +' style="padding:5px 8px;border:1.5px solid var(--brd2);border-radius:8px;font-family:inherit;font-size:12.5px"/>'
+      +'<span style="color:var(--mut)">leer = alle bleiben gestellt</span></div></div>';
   }
   h3+='<div id="migProg" style="font-size:12.5px;color:var(--mut);margin-top:11px"></div>';
   b.innerHTML=h3;
@@ -5373,6 +5427,8 @@ function erpMigStart(){
     quelleName:'ERP-Migration',
     objekteAnlegen:_mig.optObjekte!==false,
     posAusOfferte:_mig.optPos!==false,
+    bezahltVor:_mig.bezahltVor||'',
+    auftragErgaenzen:_mig.optAufBetrag!==false,
     onFortschritt:function(i,n){if(prog)prog.textContent='Übernehme '+i+' von '+n+' …';}
   }).then(function(rep){
     if(prog)prog.innerHTML='<b style="color:var(--grn)">✓ Fertig</b>';
@@ -5380,7 +5436,10 @@ function erpMigStart(){
     if(rep.adressen)txt+=', <b>'+rep.adressen+'</b> Adressen erstellt';
     if(rep.objekteNeu)txt+=', <b>'+rep.objekteNeu+'</b> Objekte angelegt';
     if(rep.posUebernommen)txt+=', <b>'+rep.posUebernommen+'</b> × Positionen aus der Offerte übernommen';
+    if(rep.alsBezahlt)txt+=', <b>'+rep.alsBezahlt+'</b> als bezahlt übernommen (Stichtag)';
+    if(rep.auftragBetrag)txt+=', <b>'+rep.auftragBetrag+'</b> leere Aufträge mit dem verrechneten Betrag ergänzt';
     if(rep.offerteFehlt)txt+='<br><span style="color:var(--amber)">'+rep.offerteFehlt+' × die angegebene Offerte war nicht gefunden — bitte zuerst die Offerten importieren.</span>';
+    if(rep.auftragFehlt)txt+='<br><span style="color:var(--amber)">'+rep.auftragFehlt+' × der angegebene Auftrag war nicht gefunden — bitte zuerst die Aufträge importieren.</span>';
     if(rep.uebersprungen)txt+=', '+rep.uebersprungen+' übersprungen';
     if(rep.fehler.length)txt+='<br><span style="color:var(--red)">'+rep.fehler.length+' Zeilen mit Fehler: '
       +esc(rep.fehler.slice(0,3).map(function(f){return 'Zeile '+f.zeile+' — '+f.text;}).join(' · '))+'</span>';
@@ -5646,7 +5705,7 @@ function erpPdf(){
   if(d.typ==='rechnung'&&(s.iban||s.qrIban)){
     var payload=erpQrPayload(d,s,t);
     var useQrr=!!(s.qrIban&&String(s.qrIban).trim());
-    var ref=useQrr?erpQrReferenz(d.nr):'';
+    var ref=useQrr?erpRefFuer(d):'';
     var refFmt=ref?ref.replace(/(\d{2})(\d{5})(\d{5})(\d{5})(\d{5})(\d{5})/,'$1 $2 $3 $4 $5 $6'):'';
     b+='<div class="sheet pb qrpage"><h2>Zahlung — Rechnung '+esc(d.nr||'')+'</h2>'
       +'<div class="betragbox">'
