@@ -90,10 +90,11 @@ const schema1 = await page.evaluate(() => {
   };
 });
 ok(schema1.has, 'VFD-Schema gezeichnet');
-ok(schema1.pumps === 2, 'Default 2 Pumpen (Kreise): ' + schema1.pumps);
-ok(schema1.label === '2', 'Beschriftung «· 2 Pumpen»: ' + schema1.label);
+// Feedback 01.08.2026 (Sandro): Standard ist EINE Pumpe — vorher 2.
+ok(schema1.pumps === 1, 'Default 1 Pumpe (Kreise): ' + schema1.pumps);
+ok(schema1.label === '1', 'Beschriftung «· 1 Pumpe»: ' + schema1.label);
 ok(schema1.exp, 'Expansionsgefäss dargestellt');
-ok(schema1.rv >= 2, 'Rückflussverhinderer-Dreiecke (gefüllt): ' + schema1.rv);
+ok(schema1.rv >= 1, 'Rückflussverhinderer-Dreiecke (gefüllt): ' + schema1.rv);
 ok(!schema1.downLeg && schema1.upLeg, 'Verteilung geht NACH OBEN (kein Boden-Umweg)');
 ok(schema1.raster28, 'Geschosse im 2.8-m-Raster beschriftet');
 

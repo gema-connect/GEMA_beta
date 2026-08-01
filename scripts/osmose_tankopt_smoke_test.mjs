@@ -64,7 +64,9 @@ console.log('■ Offline-Fall — Profil aktiv, Auto-Verteilen, Warnungen');
   await page.evaluate(() => otVerteileBedarf(document.querySelector('#otTbl tr[data-key]').getAttribute('data-key')));
   const b = await page.evaluate(() => {
     const tr = document.querySelector('#otTbl tr[data-key]');
-    const vals = [...tr.querySelectorAll('input[data-kind="b"]')].map(i => i.value);
+    const key = tr.getAttribute('data-key');
+    const raster = document.querySelector('#otTbl tr.ot-hrow[data-hkey="' + key + '"]');
+    const vals = [...raster.querySelectorAll('input[data-kind="b"]')].map(i => i.value);
     return { h6: vals[6], h9: vals[9], h10: vals[10], sum: tr.querySelector('[data-sum]').textContent, pill: tr.querySelector('[data-warn]').textContent };
   });
   ok(b.h6 === '200' && b.h9 === '200' && b.h10 === '', 'Auto-Verteilen Bedarf: 06–09 je 200 l, danach leer');
@@ -82,7 +84,7 @@ console.log('■ Offline-Fall — Profil aktiv, Auto-Verteilen, Warnungen');
   ok(p.kpi.includes('good'), 'Differenz-KPI grün');
 
   // Füllstand ohne Startfüllung: Defizit → rote «zu wenig»-Zellen
-  ok(await page.evaluate(() => document.querySelectorAll('#otTbl td.ot-low').length) > 0, 'Füllstand-Warnzellen (< 50 l Reserve) vorhanden');
+  ok(await page.evaluate(() => document.querySelectorAll('#otTbl .ot-low').length) > 0, 'Füllstand-Warnzellen (< 50 l Reserve) vorhanden');
   ok(await page.evaluate(() => document.getElementById('otMinHint').textContent).then(t => t.includes('450')), 'min. erforderlich = 450 l (max. Defizit 400 + 50 Reserve)');
 }
 

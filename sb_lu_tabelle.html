@@ -294,6 +294,10 @@ body {
   font-size: 13px;
 }
 .g-result-row:last-child { border-bottom: 0; }
+/* Einzel-Position unter einer Σ-Zeile (Spezial-/Dauerverbraucher mit
+   erfasster Bezeichnung, Feedback 01.08.2026) — dezenter als die Σ-Zeile. */
+.g-result-row.sub { padding: 5px 0; font-size: 12.5px; border-bottom-style: dashed; }
+.g-result-row.sub .g-result-val { font-weight: 500; }
 .g-result-lbl { color: var(--muted); flex: 1; min-width:0; }
 .g-result-row .frml { display:inline; margin:0; flex-shrink:0; }
 .g-result-val { font-family: var(--mono); font-weight: 600; color: var(--text); white-space: nowrap; text-align:right; min-width:80px; flex-shrink:0; }
@@ -521,6 +525,14 @@ body {
 .redu-name{font-weight:700;color:#374151;flex:1;min-width:0}
 .redu-vals{font-family:var(--mono);font-size:11.5px;color:#6b7280;white-space:nowrap}
 .redu-pct{font-weight:800;white-space:nowrap}
+/* Zweite Reduktions-Zeile: Total inkl. Spezial-/Dauerverbraucher
+   (Feedback 01.08.2026 — «falls Dauer- oder Spez-Belastungen dran hängen
+   soll dies addiert werden und eine zweite Prozent-Korrektur erstellt
+   werden»). Nur sichtbar, wenn 1:1-Zuschläge existieren. */
+.redu-sub{display:flex;align-items:baseline;gap:8px;font-size:11.5px;padding-left:2px}
+.redu-sub .redu-name{font-weight:600;color:#6b7280}
+.redu-sub .redu-vals{font-size:11px}
+.redu-sub .redu-pct{font-weight:700}
 .redu-track{position:relative;height:16px;border-radius:6px;background:#eef1f7;border:1px solid #e2e7f0;overflow:hidden}
 .redu-track .b100{position:absolute;left:0;top:0;bottom:0;background:#d7deeb;border-radius:5px}
 .redu-track .bred{position:absolute;left:0;top:0;bottom:0;border-radius:5px}
@@ -1826,10 +1838,26 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
       // Spezial- und Dauerverbraucher separat ausweisen (Feedback 28.07.2026)
       const qSpezAll = Object.values(obj.media).reduce((a,m)=>a+(m.special||0), 0);
       const qDauerAll = Object.values(obj.media).reduce((a,m)=>a+(m.dauer||0), 0);
-      if (qSpezAll > 0) itemsSplit.push({ title:"Spezielle Apparate \u2013 \u03a3", hint:"1:1 addiert (keine Diagramm-Berechnung)",
-        value: fmtFlow(qSpezAll,2), unit:fu, cls:"", frml:"\u03a3Q<sub>s</sub>" });
-      if (qDauerAll > 0) itemsSplit.push({ title:"Dauerverbraucher \u2013 \u03a3", hint:"1:1 addiert (>15 min)",
-        value: fmtFlow(qDauerAll,2), unit:fu, cls:"", frml:"\u03a3Q<sub>d</sub>" });
+      /* Feedback 01.08.2026 (Sandro): Die erfasste BEZEICHNUNG des Apparats
+         wird \u00fcbernommen und die Zeile tr\u00e4gt die Farbe seines Mediums \u2014
+         unter der \u03a3-Zeile steht damit, WAS da 1:1 addiert wird. Zeilen ohne
+         Bezeichnung fallen auf den Medium-Namen zur\u00fcck. */
+      const _zuschlagZeilen = (list, gesamt, sumTitle, sumFrml, hint) => {
+        if (!(gesamt > 0)) return;
+        itemsSplit.push({ title:sumTitle, hint:hint, value: fmtFlow(gesamt,2), unit:fu, cls:"", frml:sumFrml });
+        list.forEach(s => {
+          const n = clampNum(s.qty,0,1e6);
+          const q = _flowToLs(s) * n;
+          if (!(q > 0)) return;
+          const mInfo = MEDIA_MAP.get(s.medium) || {label:s.medium};
+          const name = (s.label || '').trim() || mInfo.label;
+          itemsSplit.push({ title: name + (n > 1 ? ' \u00d7 ' + fmt(n,0) : ''),
+            hint: mInfo.label, mid: s.medium, sub:true,
+            value: fmtFlow(q, 2), unit:fu, cls:"", frml:"" });
+        });
+      };
+      _zuschlagZeilen(state.special, qSpezAll, "Spezielle Apparate \u2013 \u03a3", "\u03a3Q<sub>s</sub>", "1:1 addiert (keine Diagramm-Berechnung)");
+      _zuschlagZeilen(state.dauer, qDauerAll, "Dauerverbraucher \u2013 \u03a3", "\u03a3Q<sub>d</sub>", "1:1 addiert (>15 min)");
       const specialUnits = state.special.reduce((a,s) => a + (s.label || s.flow > 0 ? clampNum(s.qty,0,1e6) : 0), 0);
       const dauerUnits = state.dauer.reduce((a,s) => a + (s.label || s.flow > 0 ? clampNum(s.qty,0,1e6) : 0), 0);
       itemsSplit.push({ title:"Apparate aktiv", hint:"LU-Apparate + Spezial + Dauer", value: String(obj.totalUnits + specialUnits + dauerUnits), unit:"Stk.", cls:"", frml:"" });
@@ -1844,8 +1872,13 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
          die alten kw/ww/nd-Klassen bleiben als Fallback für Altaufrufer. */
       const col = MED_COLORS[it.mid] || MED_COLORS[it.cls] || '';
       const frmlHtml = it.frml ? '<span class="frml" style="display:inline;margin:0;">'+it.frml+'</span>' : '';
-      return '<div class="g-result-row">'+
-        '<span class="g-result-lbl">'+it.title+'</span>'+
+      /* it.sub = benannte Einzel-Position unter einer Σ-Zeile (Spezial-/
+         Dauerverbraucher, Feedback 01.08.2026): eingerückt, in Medium-Farbe. */
+      const lbl = it.sub
+        ? '<span class="g-result-lbl" style="padding-left:16px;font-weight:600'+(col?';color:'+col:'')+'"'+(it.hint?' title="'+escapeHtml(it.hint)+'"':'')+'>'+escapeHtml(it.title)+'</span>'
+        : '<span class="g-result-lbl">'+it.title+'</span>';
+      return '<div class="g-result-row'+(it.sub?' sub':'')+'">'+
+        lbl+
         frmlHtml+
         '<span class="g-result-val"'+(col?' style="color:'+col+'"':'')+'>'+escapeHtml(it.value)+(it.unit ? ' '+escapeHtml(it.unit) : '')+'</span>'+
       '</div>';
@@ -1901,7 +1934,8 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
         if (v100 <= 0) continue;
         const mInfo = MEDIA_MAP.get(mid) || {label:mid};
         rows.push({ name:mInfo.label, v100:v100, vRed:m.total, color:REDU_COLORS[mid]||'#475569',
-                    spez:m.special||0, dauer:m.dauer||0 });
+                    spez:m.special||0, dauer:m.dauer||0,
+                    lu100:m.luRaw||0, luRed:m.luFlow||0 });
       }
       // Ohne LU-Anteil gibt es keine Reduktion — Karte ausblenden
       const anyReduction = rows.some(r => r.vRed < r.v100 - 1e-9);
@@ -1909,7 +1943,8 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
       const sum100 = rows.reduce((a,r)=>a+r.v100,0);
       const sumRed = rows.reduce((a,r)=>a+r.vRed,0);
       rows.push({ name:'Summe alle Medien', v100:sum100, vRed:sumRed, color:'#0f172a',
-                  spez: rows.reduce((a,r)=>a+r.spez,0), dauer: rows.reduce((a,r)=>a+r.dauer,0) });
+                  spez: rows.reduce((a,r)=>a+r.spez,0), dauer: rows.reduce((a,r)=>a+r.dauer,0),
+                  lu100: rows.reduce((a,r)=>a+r.lu100,0), luRed: rows.reduce((a,r)=>a+r.luRed,0) });
       const maxV = Math.max(...rows.map(r=>r.v100), 1e-9);
       const fu = flowUnit();
       // Feedback 28.07.2026: Spezial- und Dauerverbraucher als eigene Segmente
@@ -1922,17 +1957,33 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
         const wLu = qLu / maxV * 100, wSp = r.spez / maxV * 100, wDa = r.dauer / maxV * 100;
         if (r.spez > 0) anySpez = true;
         if (r.dauer > 0) anyDauer = true;
-        const pct = r.v100 > 0 ? (1 - r.vRed / r.v100) * 100 : 0;
-        const pctTxt = pct > 0.05 ? '−' + fmt(pct,0) + ' %' : '±0 %';
-        const pctColor = pct > 0.05 ? '#16a34a' : '#6b7280';
+        /* Feedback 01.08.2026 (Sandro): ZWEI Prozent-Korrekturen ausweisen —
+           (1) die reine LU-Reduktion nach W3 (ΣLU/10 → reduziert) und
+           (2) das Total inkl. der 1:1 addierten Spezial-/Dauerlasten.
+           Zeile 2 erscheint nur, wenn solche Lasten überhaupt dranhängen;
+           sie fällt zwangsläufig kleiner aus, weil die Zuschläge ungekürzt
+           in beide Seiten eingehen. */
+        // Zweizeilig nur, wenn BEIDES existiert: ein LU-Anteil (sonst gibt es
+        // keine W3-Reduktion) UND 1:1-Zuschläge (sonst wären beide Zeilen gleich).
+        const zuschlag = (r.lu100 > 0 && (r.spez + r.dauer) > 0) ? (r.spez + r.dauer) : 0;
+        const pctOf = (v100, vRed) => v100 > 0 ? (1 - vRed / v100) * 100 : 0;
+        const pctTxtOf = p => p > 0.05 ? '−' + fmt(p,0) + ' %' : '±0 %';
+        const pctColOf = p => p > 0.05 ? '#16a34a' : '#6b7280';
+        const pctLu = pctOf(r.lu100, r.luRed);
+        const pctTot = pctOf(r.v100, r.vRed);
+        const zeile = (cls, name, v100, vRed, pct) =>
+          '<div class="'+cls+'">'+
+            '<span class="redu-name">'+escapeHtml(name)+'</span>'+
+            '<span class="redu-vals">'+fmtFlow(v100,2)+' → '+fmtFlow(vRed,2)+' '+escapeHtml(fu)+'</span>'+
+            '<span class="redu-pct" style="color:'+pctColOf(pct)+'">'+pctTxtOf(pct)+'</span>'+
+          '</div>';
         const seg = (w, col, titel) => w > 0.01
           ? '<span class="bseg" style="width:'+w.toFixed(2)+'%;background:'+col+'" title="'+escapeHtml(titel)+'"></span>' : '';
         return '<div class="redu-row">'+
-          '<div class="redu-top">'+
-            '<span class="redu-name">'+escapeHtml(r.name)+'</span>'+
-            '<span class="redu-vals">'+fmtFlow(r.v100,2)+' → '+fmtFlow(r.vRed,2)+' '+escapeHtml(fu)+'</span>'+
-            '<span class="redu-pct" style="color:'+pctColor+'">'+pctTxt+'</span>'+
-          '</div>'+
+          zeile('redu-top', r.name + (zuschlag > 0 ? ' — LU' : ''), (zuschlag > 0 ? r.lu100 : r.v100), (zuschlag > 0 ? r.luRed : r.vRed), (zuschlag > 0 ? pctLu : pctTot))+
+          (zuschlag > 0
+            ? zeile('redu-top redu-sub', 'inkl. Spezial / Dauer (1:1)', r.v100, r.vRed, pctTot)
+            : '')+
           '<div class="redu-track">'+
             '<span class="b100" style="width:'+w100.toFixed(2)+'%"></span>'+
             '<span class="bstack">'+
