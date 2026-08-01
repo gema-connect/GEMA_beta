@@ -558,9 +558,19 @@ table.obj-table thead tr{cursor:context-menu}
         </div>
       </div>
 
-      <!-- STEP 4: Beteiligte -->
+      <!-- STEP 4: Adressen & Beteiligte -->
       <div class="wz-page" id="objWz4" style="display:none">
-        <div style="font-size:12px;color:var(--mut);margin-bottom:12px">Erfassen Sie optional die beteiligten Firmen am Projekt.</div>
+        <div style="font-size:13px;font-weight:800;margin:0 0 3px">Adressen</div>
+        <div style="font-size:12px;color:var(--mut);margin-bottom:10px">Aus dem Adressstamm — «Zahlbar durch» wird beim Erstellen einer Rechnung automatisch als Empfänger vorgeschlagen.</div>
+        <div id="objAdrSlots" style="display:flex;flex-direction:column;gap:7px;margin-bottom:18px"></div>
+
+        <div style="font-size:13px;font-weight:800;margin:0 0 3px">Bezugspersonen</div>
+        <div style="font-size:12px;color:var(--mut);margin-bottom:10px">Personen rund um dieses Objekt (Bewohner, Hauswart, Besteller, Schlüssel …) — mit Mehrfach-Typ.</div>
+        <div id="objBpList" style="display:flex;flex-direction:column;gap:6px;margin-bottom:9px"></div>
+        <button type="button" class="btn btn-ghost btn-xs" onclick="_objBpAdd()">+ Bezugsperson hinzufügen</button>
+
+        <div style="font-size:13px;font-weight:800;margin:20px 0 3px">Beteiligte Firmen</div>
+        <div style="font-size:12px;color:var(--mut);margin-bottom:10px">Freie Projektbeteiligte (Architekt, Bauherrschaft, Unternehmer …) — ohne Adressstamm.</div>
         <div id="objBeteiligteList" style="display:flex;flex-direction:column;gap:6px;margin-bottom:10px"></div>
         <button type="button" class="btn btn-ghost btn-xs" onclick="_objAddBeteiligter()">+ Beteiligten hinzufügen</button>
         <div id="objBeteiligteBody"></div>
@@ -649,6 +659,7 @@ function fixLeadingZero(el){var v=el.value.trim();if(!v)return;if(v.charAt(0)===
 <script src="gema_feedback.js"></script><script src="gema_notify.js"></script><script src="gema_notify_ui.js"></script><script src="gema_chat.js"></script>
 <script src="gema_autosave.js"></script>
 <script src="gema_adresse.js"></script>
+<script src="gema_erp_adressen.js"></script>
 <script>
 (async()=>{
 if(typeof _GemaDB!=='undefined'){try{await _GemaDB.init('objekte',['gema_objekte_v1']);}catch(e){console.warn('GemaDB:',e);}}
@@ -1624,12 +1635,21 @@ function _objRenderBeteiligte(){
   el.innerHTML=_objBeteiligte.map(function(b,i){
     return '<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--brd);border-radius:8px;background:var(--sur)">'
       +'<span style="font-size:11px;font-weight:700;color:var(--acc);min-width:100px">'+esc((_beteiligteRollen.find(function(r){return r.id===b.rolle;})||{label:b.rolle}).label)+'</span>'
-      +'<input value="'+esc(b.firma)+'" placeholder="Firmenname" oninput="_objBeteiligte['+i+'].firma=this.value" style="flex:1;padding:5px 8px;border:1px solid var(--brd2);border-radius:6px;font-size:12px;font-family:inherit;min-width:0"/>'
-      +'<input value="'+esc(b.person||'')+'" placeholder="Kontaktperson" oninput="_objBeteiligte['+i+'].person=this.value" style="width:120px;padding:5px 8px;border:1px solid var(--brd2);border-radius:6px;font-size:12px;font-family:inherit"/>'
-      +'<button onclick="_objBeteiligte.splice('+i+',1);_objRenderBeteiligte()" style="border:none;background:none;cursor:pointer;color:var(--mut);font-size:14px">✕</button>'
+      +'<input value="'+esc(b.firma)+'" placeholder="Firmenname" oninput="_objBetSet('+i+',\'firma\',this.value)" style="flex:1;padding:5px 8px;border:1px solid var(--brd2);border-radius:6px;font-size:12px;font-family:inherit;min-width:0"/>'
+      +'<input value="'+esc(b.person||'')+'" placeholder="Kontaktperson" oninput="_objBetSet('+i+',\'person\',this.value)" style="width:120px;padding:5px 8px;border:1px solid var(--brd2);border-radius:6px;font-size:12px;font-family:inherit"/>'
+      +'<button onclick="_objBetDel('+i+')" style="border:none;background:none;cursor:pointer;color:var(--mut);font-size:14px">✕</button>'
       +'</div>';
   }).join('');
 }
+// KRITISCH — das Modul ist eine async-IIFE: Inline-Handler (onclick/oninput)
+// lösen NUR gegen window auf. Zustand darf deshalb nie direkt aus dem Markup
+// heraus angefasst werden, sondern immer über eine exportierte Funktion —
+// eine Alias-Variable auf window würde bei jedem `_objBeteiligte=[]` (neues
+// Objekt öffnen) ins Leere zeigen.
+function _objBetSet(i,feld,wert){if(_objBeteiligte[i])_objBeteiligte[i][feld]=wert;}
+function _objBetDel(i){_objBeteiligte.splice(i,1);_objRenderBeteiligte();}
+window._objBetSet=_objBetSet;window._objBetDel=_objBetDel;
+
 function _objAddBeteiligter(){
   var opts=_beteiligteRollen.map(function(r){return '<option value="'+r.id+'">'+esc(r.label)+'</option>';}).join('');
   var rolle=prompt('Rolle wählen:\n'+_beteiligteRollen.map(function(r,i){return(i+1)+'. '+r.label;}).join('\n')+'\n\nNummer eingeben:');
@@ -1640,6 +1660,106 @@ function _objAddBeteiligter(){
   _objBeteiligte.push({rolle:r.id,firma:'',person:''});
   _objRenderBeteiligte();
 }
+// ═══════════════════════════════════════════════════════════
+// OBJEKT-ADRESSEN — drei feste Slots aus dem Adressstamm
+// «Zahlbar durch» = Rechnungsempfänger, «Korrespondenzadresse» = abweichende
+// Zustelladresse (c/o), «Eigentümer» = Eigentümerschaft. Gespeichert wird die
+// Adress-ID PLUS eine Momentaufnahme (snapshot), damit das Objekt lesbar
+// bleibt, wenn die Adresse später umbenannt oder gelöscht wird.
+// ═══════════════════════════════════════════════════════════
+var _objAdrSlots={}, _objBp=[];
+
+function _objAdrVerfuegbar(){
+  try{ return (typeof GemaAdressen!=='undefined')?GemaAdressen.list():[]; }catch(e){ return []; }
+}
+function _objRenderAdrSlots(){
+  var el=$('objAdrSlots');if(!el)return;
+  var slots=(typeof GemaAdressen!=='undefined')?GemaAdressen.SLOTS:[];
+  if(!slots.length){el.innerHTML='<div style="font-size:12px;color:var(--mut)">Adressstamm nicht geladen.</div>';return;}
+  var alle=_objAdrVerfuegbar();
+  alle.sort(function(a,b){return GemaAdressen.anzeigeName(a).localeCompare(GemaAdressen.anzeigeName(b),'de');});
+  el.innerHTML=slots.map(function(sl){
+    var cur=_objAdrSlots[sl.id]||null;
+    var opts='<option value="">— keine —</option>'+alle.map(function(a){
+      return '<option value="'+esc(a.id)+'"'+(cur&&cur.adressId===a.id?' selected':'')+'>'
+        +(a.nr?esc(a.nr)+' · ':'')+esc(GemaAdressen.anzeigeName(a))+(a.ort?' · '+esc(a.ort):'')+'</option>';
+    }).join('');
+    // Adresse aus einem Import, die (noch) nicht im Stamm liegt: als Snapshot
+    // anzeigen statt still zu verwerfen.
+    var verwaist=cur&&cur.adressId&&!alle.some(function(a){return a.id===cur.adressId;});
+    var snap=cur&&cur.snapshot?cur.snapshot:null;
+    var info=snap?[snap.firma,snap.kontakt,[snap.strasse,[snap.plz,snap.ort].filter(Boolean).join(' ')].filter(Boolean).join(', ')].filter(Boolean).join(' · '):'';
+    return '<div style="display:flex;align-items:center;gap:8px;padding:9px 11px;border:1px solid var(--brd);border-radius:8px;background:var(--sur);flex-wrap:wrap">'
+      +'<span style="font-size:11.5px;font-weight:700;color:var(--acc);min-width:150px">'+sl.ic+' '+esc(sl.label)+'</span>'
+      +'<select onchange="_objAdrSet(\''+sl.id+'\',this.value)" style="flex:1;min-width:190px;padding:5px 8px;border:1px solid var(--brd2);border-radius:6px;font-size:12px;font-family:inherit">'+opts+'</select>'
+      +(verwaist?'<span style="font-size:11px;color:#92400e;background:#fffbeb;border:1px solid #fde68a;border-radius:5px;padding:2px 7px">⚠ nicht im Adressstamm</span>':'')
+      +(info?'<div style="flex-basis:100%;font-size:11.5px;color:var(--mut);padding-left:158px">'+esc(info)+'</div>':'')
+      +'</div>';
+  }).join('')
+  +'<div style="font-size:11.5px;color:var(--mut)">Fehlt eine Adresse? Im ERP unter <b>👥 Adressen</b> erfassen — sie steht danach hier zur Auswahl.</div>';
+}
+function _objAdrSet(slotId,adressId){
+  if(!adressId){delete _objAdrSlots[slotId];_objRenderAdrSlots();return;}
+  var a=_objAdrVerfuegbar().find(function(x){return x.id===adressId;});
+  if(!a)return;
+  _objAdrSlots[slotId]={adressId:a.id,nr:a.nr||'',snapshot:GemaAdressen.snapshot(a)};
+  _objRenderAdrSlots();
+}
+window._objAdrSet=_objAdrSet;
+
+// ── Bezugspersonen (Mehrfach-Typ, wie im abzulösenden ERP) ─────────────
+function _objBpTypen(){
+  try{ return (typeof GemaAdressen!=='undefined')?GemaAdressen.typen():[]; }catch(e){ return []; }
+}
+function _objRenderBp(){
+  var el=$('objBpList');if(!el)return;
+  if(!_objBp.length){el.innerHTML='<div style="font-size:12px;color:var(--mut);padding:4px 0">Keine Bezugspersonen erfasst.</div>';return;}
+  var typen=_objBpTypen();
+  el.innerHTML=_objBp.map(function(b,i){
+    var chips=typen.map(function(tp){
+      var an=(b.typen||[]).indexOf(tp.id)>=0;
+      return '<button type="button" onclick="_objBpTyp('+i+',\''+esc(tp.id)+'\')" style="border:1px solid '+(an?'var(--acc)':'var(--brd2)')+';background:'+(an?'var(--acc)':'transparent')+';color:'+(an?'#fff':'var(--mut)')+';border-radius:20px;padding:2px 9px;font-size:10.5px;font-weight:700;cursor:pointer;font-family:inherit">'+esc(tp.label)+'</button>';
+    }).join('');
+    function inp(feld,ph,br){
+      return '<input value="'+esc(b[feld]||'')+'" placeholder="'+ph+'" oninput="_objBpSet('+i+',\''+feld+'\',this.value)" style="'+(br||'flex:1')+';padding:5px 8px;border:1px solid var(--brd2);border-radius:6px;font-size:12px;font-family:inherit;min-width:0"/>';
+    }
+    return '<div style="padding:9px 11px;border:1px solid var(--brd);border-radius:8px;background:var(--sur)">'
+      +'<div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;flex-wrap:wrap">'
+        +inp('anrede','Anrede','width:78px;flex:none')+inp('vorname','Vorname')+inp('name','Name')
+        +'<button type="button" onclick="_objBpDel('+i+')" title="Entfernen" style="border:none;background:none;cursor:pointer;color:var(--mut);font-size:15px;flex:none">✕</button>'
+      +'</div>'
+      +'<div style="display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap">'
+        +inp('tel','Telefon')+inp('natel','Natel')+inp('email','E-Mail')+inp('wohnung','Wohnung','width:120px;flex:none')
+      +'</div>'
+      +'<div style="display:flex;flex-wrap:wrap;gap:4px">'+chips+'</div>'
+      +'</div>';
+  }).join('');
+}
+function _objBpAdd(){
+  _objBp.push({id:'bp_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,6),
+    anrede:'',vorname:'',name:'',typen:[],tel:'',natel:'',email:'',wohnung:'',bemerkung:''});
+  _objRenderBp();
+}
+function _objBpTyp(i,typId){
+  var b=_objBp[i];if(!b)return;
+  b.typen=b.typen||[];
+  var k=b.typen.indexOf(typId);
+  if(k>=0)b.typen.splice(k,1);else b.typen.push(typId);
+  _objRenderBp();
+}
+function _objBpSet(i,feld,wert){if(_objBp[i])_objBp[i][feld]=wert;}
+function _objBpDel(i){_objBp.splice(i,1);_objRenderBp();}
+window._objBpAdd=_objBpAdd;window._objBpTyp=_objBpTyp;
+window._objBpSet=_objBpSet;window._objBpDel=_objBpDel;
+// Test-Hooks (das Modul ist eine async-IIFE — sonst von aussen unerreichbar)
+window._objAdrHooks={
+  slots:function(){return _objAdrSlots;},
+  bp:function(){return _objBp;},
+  beteiligte:function(){return _objBeteiligte;},
+  renderSlots:function(){_objRenderAdrSlots();},
+  renderBp:function(){_objRenderBp();}
+};
+
 function _objGetBeteiligte(){return _objBeteiligte.filter(function(b){return b.firma;});}
 window._objAddBeteiligter=_objAddBeteiligter;
 
@@ -1699,15 +1819,17 @@ function openObjektModal(editId){
     // Object.assign statt Feld-Picking: unbekannte Zusatzfelder eines
     // Beteiligten überleben den Edit-Roundtrip (nichts still verwerfen).
     _objBeteiligte=(o.beteiligte||[]).map(function(b){return Object.assign({},b,{person:b.person||''});});
+    _objAdrSlots=Object.assign({},o.adressen||{});
+    _objBp=(o.bezugspersonen||[]).map(function(b){return Object.assign({},b);});
   } else {
-    _objBeteiligte=[];
+    _objBeteiligte=[];_objAdrSlots={};_objBp=[];
     ['objName','objStrasse','objPlz','objOrt','objGemeinde','objKanton','objNotizen','objProjektnummer','objRevision'].forEach(id=>{if($(id))$(id).value='';});
     $('objBauvorhaben').value='Neubau';$('objStatus').value='aktiv';$('objAktivePhase').value='';
     // Übergeordnetes Objekt standardmässig «Kein» (User-Vorgabe 23.07.2026 —
     // ein neues Objekt ist per Default eigenständig, kein Sub-Objekt des aktiven).
     if($('objParentId'))$('objParentId').value='';
   }
-  _objRenderBeteiligte();
+  _objRenderBeteiligte();_objRenderAdrSlots();_objRenderBp();
   _objWzGo(1);
   try{ _objAdrInit(); }catch(e){}   // idempotent — Sicherheitsnetz
   openModal('objModal');
@@ -1740,6 +1862,21 @@ window._objAdrInit=_objAdrInit;
 if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',_objAdrInit);
 else _objAdrInit();
 
+// Adressstamm laden — die Objekt-Adress-Slots wählen daraus. Der Pool gehört
+// dem ERP-Modul; hier wird er nur GELESEN (kein Schreibzugriff auf Adressen).
+// Nach dem Cloud-Pull werden offene Slot-Selects neu gezeichnet, damit eine
+// gerade erst erfasste Adresse ohne Reload erscheint.
+(function(){
+  function bind(){
+    if(typeof GemaAdressen==='undefined'||!GemaAdressen.bind)return;
+    GemaAdressen.bind().then(function(){
+      try{ if(document.getElementById('objAdrSlots'))_objRenderAdrSlots(); }catch(e){}
+    },function(){});
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',bind);
+  else bind();
+})();
+
 // Select-Wert lesen, ohne beim Bearbeiten still zu löschen: liefert das
 // Select leer, obwohl ein Wert gespeichert ist UND dessen Option gar nicht
 // existiert (Select konnte den Wert nie darstellen — Userliste/Objekte noch
@@ -1769,7 +1906,9 @@ function saveObjekt(){
     projektLeiterId:_objSelKeep('objProjektLeiterId',prev&&prev.projektLeiterId),
     abteilungsLeiterId:_objSelKeep('objAbteilungsLeiterId',prev&&prev.abteilungsLeiterId),
     teamUserIds:(_teamChipState||[]).slice(),
-    beteiligte:_objGetBeteiligte()};
+    beteiligte:_objGetBeteiligte(),
+    adressen:_objAdrSlots,
+    bezugspersonen:_objBp.filter(function(b){return (b.name||'').trim()||(b.vorname||'').trim();})};
   // Auth-Kontext frisch auflösen: wurde die Session beim Seitenstart noch
   // nicht aufgelöst, blieb `_currentOrgId` null — das Objekt bekam dann KEINEN
   // Org-Stempel und war für die ganze Firma unsichtbar (nur GEMA-Admins sahen
