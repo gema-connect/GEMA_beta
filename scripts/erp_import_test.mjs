@@ -161,10 +161,12 @@ t('Zeile ohne Adresse wird als Fehler markiert',
 
 console.log('\n═══ A6 — Abschnitte & Kopfzeile ═══');
 eq('5 Abschnitte registriert', I.SEKTIONEN.length, 5);
-eq('Objekte + Adressen sind bereit',
-  I.SEKTIONEN.filter(x => x.bereit).map(x => x.id), ['objekte', 'adressen']);
-eq('Offerten/Aufträge/Rechnungen vorbereitet',
-  I.SEKTIONEN.filter(x => !x.bereit).map(x => x.id), ['offerten', 'auftraege', 'rechnungen']);
+eq('Objekte + Adressen + Offerten sind bereit',
+  I.SEKTIONEN.filter(x => x.bereit).map(x => x.id), ['objekte', 'adressen', 'offerten']);
+eq('Aufträge/Rechnungen warten auf den Export',
+  I.SEKTIONEN.filter(x => !x.bereit).map(x => x.id), ['auftraege', 'rechnungen']);
+t('Jeder bereite Abschnitt hat Felder',
+  I.SEKTIONEN.filter(x => x.bereit).every(x => Array.isArray(x.felder) && x.felder.length));
 eq('Kopfzeile = erste Zeile mit ≥2 Werten', I.findeKopfzeile([[''], ['', ''], ['id', 'strasse']]), 2);
 eq('Datum-Serial 45000 → ISO', I.serialZuDatum(45000), '2023-03-15');
 t('Datumsformat 14 erkannt', I.istDatumFmt(14, null));
@@ -188,6 +190,79 @@ eq('Typen werden vereinigt', r4.rec.typen, ['mieter']);
 // Ohne Nummer greift die Namens-/Adress-Erkennung
 const r5 = A.upsertVonImport({ firma: 'Immobilien Basel-Stadt' }, { bestand });
 eq('Ohne Kundennummer + andere Adresse → neu (keine Falsch-Verschmelzung)', r5.aktion, 'neu');
+
+console.log('\n═══ A7b — Offerten: Parser & Status ═══');
+eq('Datum dd.mm.yyyy → ISO', I.parseDatum('28.11.2025'), '2025-11-28');
+eq('Datum mit einstelligen Teilen', I.parseDatum('2.1.2025'), '2025-01-02');
+eq('Datum zweistelliges Jahr', I.parseDatum('02.10.25'), '2025-10-02');
+eq('ISO bleibt ISO', I.parseDatum('2025-1-5'), '2025-01-05');
+eq('Excel-Serial als Datum', I.parseDatum('45000'), '2023-03-15');
+eq('Leeres Datum', I.parseDatum(''), '');
+eq('Unlesbares Datum', I.parseDatum('irgendwas'), '');
+eq('Betrag 7872.80', I.parseBetrag('7872.80'), 7872.8);
+eq('Betrag mit Apostroph', I.parseBetrag("1'234.50"), 1234.5);
+eq('Betrag deutsch 1.234,50', I.parseBetrag('1.234,50'), 1234.5);
+eq('Betrag englisch 1,234.50', I.parseBetrag('1,234.50'), 1234.5);
+eq('Betrag mit CHF', I.parseBetrag('CHF 1234.50'), 1234.5);
+eq('Betrag 0.00 ist nicht null', I.parseBetrag('0.00'), 0);
+eq('Leerer Betrag → null', I.parseBetrag(''), null);
+eq('Zuschlag → angenommen', I.offertStatus('Zuschlag').status, 'angenommen');
+eq('Absage → abgelehnt', I.offertStatus('Absage').status, 'abgelehnt');
+eq('Offen → versendet', I.offertStatus('Offen').status, 'versendet');
+t('Unbekannter Status wird als solcher gemeldet', I.offertStatus('Wiedervorlage').erkannt === false);
+eq('… und landet auf versendet', I.offertStatus('Wiedervorlage').status, 'versendet');
+
+const OFF_HEAD = ['Id', 'anschrift', 'offert_nr', 'strasse', 'strasse2', 'plz', 'ort', 'egrid', 'egid',
+  'name1', 'korr_name', 'banrede', 'sachb_name', 'obetrag', 'mwstbetrag', 'zbetrag', 'datum', 'rdatum',
+  'typ_text', 'mwstbetrag_1', 'exmwstbetrag', 'betrmemo', 'rapport_nr', 'abt_name', 'wohnung', 'wohn_standort'];
+const omap = I.erkenneMapping(OFF_HEAD, 'offerten');
+eq('offert_nr → Offert-Nr.', omap.nr, 2);
+eq('betrmemo → Projekt/Betreff', omap.titel, 21);
+eq('typ_text → Status', omap.status, 18);
+eq('exmwstbetrag → Netto', omap.nettoBetrag, 20);
+eq('obetrag → Brutto', omap.bruttoBetrag, 13);
+eq('abt_name → Abteilung', omap.abteilung, 23);
+eq('sachb_name → Sachbearbeiter', omap.sachb, 12);
+eq('rapport_nr → Referenz 1', omap.ref1, 22);
+t('Objekt-Adresse getrennt vom Kunden erkannt', omap.strasse === 3 && omap.plz === 5);
+const oz = I.normalisiereZeile(
+  ['9802', 'Immobilien Basel-Stadt\nHellring 7\n4125 Riehen\n', '2025.0887', 'Hellring 7', '', '4125', 'Riehen',
+   '', '', 'Immobilien Basel-Stadt', '', '', 'Jäggi', '7872.80', '589.90', '0.00', '28.11.2025', '',
+   'Zuschlag', '589.90', '7282.90', 'Wasserschaden', '9235', 'Spenglerei', '', ''], omap, 'offerten');
+eq('Netto', oz.netto, 7282.9);
+eq('MwSt', oz.mwst, 589.9);
+eq('Brutto', oz.brutto, 7872.8);
+eq('MwSt-Satz aus dem Beleg gerechnet', oz.mwstPct, 8.1);
+eq('Kunde aus dem Anschrift-Block', oz.kunde.firma, 'Immobilien Basel-Stadt');
+eq('Objekt-Adresse getrennt gehalten', [oz.objekt.strasse, oz.objekt.plz], ['Hellring 7', '4125']);
+eq('Keine Fehler', I.pruefe(oz, 'offerten').filter(h => h.typ === 'fehler').length, 0);
+// Summen gegenseitig herleiten
+const oz2 = I.normalisiereZeile(['1', '', 'X-1', '', '', '', '', '', '', 'A', '', '', '', '108.10', '8.10', '', '', '', '', '', '', '', '', '', '', ''], omap, 'offerten');
+eq('Netto aus Brutto − MwSt hergeleitet', oz2.netto, 100);
+// Ungewöhnlicher Satz warnt, 7.7 % und 8.1 % nicht
+const warnt = (satz) => {
+  const z = { nr: 'X', kunde: { firma: 'A' }, netto: 100, objekt: { strasse: 'W' }, statusText: '', statusErkannt: true, mwstPct: satz };
+  return I.pruefe(z, 'offerten').some(h => /MwSt-Satz/.test(h.text));
+};
+t('8.1 % warnt nicht', !warnt(8.1));
+t('7.7 % (Altsatz) warnt nicht', !warnt(7.7));
+t('5 % warnt', warnt(5));
+eq('Offerte ohne Nummer ist ein Fehler',
+  I.pruefe({ nr: '', kunde: {}, objekt: {} }, 'offerten').filter(h => h.typ === 'fehler').length, 1);
+
+console.log('\n═══ A7c — Aufruf-Konvention updateOrgSettings ═══');
+// KRITISCH: updateOrgSettings(orgId, settings) gibt bei fehlender orgId still
+// `false` zurück — ein Aufruf mit nur EINEM Argument speichert nie.
+{
+  const dateien = ['gema_erp_import.js', 'gema_erp_adressen.js'];
+  let falsch = 0;
+  dateien.forEach(d => {
+    const src = fs.readFileSync(path.join(ROOT, d), 'utf8');
+    const treffer = src.match(/updateOrgSettings\(([^)]*)\)/g) || [];
+    treffer.forEach(x => { if (x.indexOf(',') < 0) falsch++; });
+  });
+  t('updateOrgSettings wird überall mit orgId aufgerufen', falsch === 0);
+}
 
 console.log('\n═══ A8 — CSV/TSV-Fallback ═══');
 const csv = I.parseCsv('id;strasse;plz;ort\n4984;"Hellring 7";4125;Riehen\n');

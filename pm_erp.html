@@ -3979,10 +3979,23 @@ function erpAnbKey(ev){
   }
 }
 function erpAnbNameInput(v){
-  var kat=(typeof GemaDataSelect!=='undefined'&&GemaDataSelect.katalog)?GemaDataSelect.katalog(''):[];
-  var m=kat.find(function(x){return x.name.toLowerCase()===String(v||'').trim().toLowerCase();});
   var ii=document.getElementById('anb_id');
-  if(m&&ii&&!ii.value.trim())ii.value=m.id;
+  if(!ii||ii.value.trim())return;                    // von Hand gesetzte ID nie überschreiben
+  if(typeof GemaDataSelect==='undefined'||!GemaDataSelect.katalog)return;
+  var q=String(v||'').trim();
+  if(q.length<3)return;
+  var kat=GemaDataSelect.katalog('');
+  var m=kat.find(function(x){return x.name.toLowerCase()===q.toLowerCase();});
+  // Im Katalog stehen die vollen Firmennamen («Geberit Vertriebs AG») —
+  // getippt wird aber der geläufige Kurzname («Geberit»). Deshalb nach dem
+  // exakten Treffer eine Suche; sie füllt die ID NUR bei GENAU EINEM Treffer
+  // (bei mehreren wäre jede Wahl geraten — dann bleibt das Feld leer und der
+  // Nutzer nimmt die Trefferliste oben).
+  if(!m){
+    var hits=GemaDataSelect.katalog(q);
+    if(hits.length===1)m=hits[0];
+  }
+  if(m)ii.value=m.id;
 }
 function erpAnbClose(){document.getElementById('erpAnbModal').classList.remove('open');}
 function erpAnbSave(){
@@ -5191,8 +5204,17 @@ function erpMigRender(){
           return '<option value="'+i+'"'+(i===_mig.kopfIdx?' selected':'')+'>Zeile '+(i+1)+': '+esc(r.filter(Boolean).slice(0,4).join(' | ').slice(0,60))+'</option>';}).join('')
       +'</select></div>'
       +'<div style="font-size:12px;color:var(--mut);padding-bottom:9px">'+Math.max(0,bl.rows.length-_mig.kopfIdx-1)+' Datenzeilen erkannt</div></div>'
-      +'<div style="font-size:12px;color:var(--mut);margin:4px 0 11px">Die Zuordnung wurde automatisch erkannt — bitte kurz kontrollieren und bei Bedarf korrigieren.</div>'
-      +'<div class="mig-map">';
+      +'<div style="font-size:12px;color:var(--mut);margin:4px 0 11px">Die Zuordnung wurde automatisch erkannt — bitte kurz kontrollieren und bei Bedarf korrigieren.</div>';
+    // Nicht zugeordnete Spalten benennen — was nicht importiert wird, soll
+    // sichtbar sein und nicht stillschweigend verschwinden.
+    var belegt={};Object.keys(_mig.mapping).forEach(function(k){belegt[_mig.mapping[k]]=1;});
+    var offen=kopf.map(function(h,i){return belegt[i]?null:(h||('Spalte '+(i+1)));}).filter(Boolean);
+    if(offen.length){
+      h+='<div style="font-size:11.5px;color:#92400e;background:#fffbeb;border:1px solid #fde68a;border-radius:7px;padding:7px 10px;margin-bottom:11px">'
+        +'<b>'+offen.length+' Spalte'+(offen.length>1?'n werden':' wird')+' nicht importiert:</b> '+esc(offen.join(', '))
+        +' — bei Bedarf oben einem Feld zuordnen.</div>';
+    }
+    h+='<div class="mig-map">';
     sek.felder.forEach(function(fd){
       var cur=_mig.mapping[fd.id];
       h+='<div class="r"><label>'+esc(fd.label)+(fd.pflicht?' <span style="color:var(--red)">*</span>':'')
@@ -5224,6 +5246,8 @@ function erpMigRender(){
   h3+='<div class="mig-scroll"><table class="mig-tab"><thead><tr><th class="num">#</th><th>Aktion</th>'
     +(_mig.sekId==='objekte'
       ? '<th>Objekt</th><th>Adresse</th><th>Zahlbar durch</th><th>Weitere Slots</th><th>Bezugspersonen</th>'
+      : _mig.sekId==='offerten'
+      ? '<th>Nr.</th><th>Datum</th><th>Projekt / Betreff</th><th>Kunde</th><th>Objekt</th><th>Betrag</th><th>Status</th><th>Sachb. / Abt.</th>'
       : '<th>Kd-Nr.</th><th>Name</th><th>Adresse</th><th>Kontakt</th><th>Typ</th>')
     +'<th>Hinweis</th></tr></thead><tbody>';
   zz.forEach(function(z){
@@ -5240,6 +5264,16 @@ function erpMigRender(){
       h3+='<td>'+esc(t.name||'')+'</td><td>'+esc([t.strasse,[t.plz,t.ort].filter(Boolean).join(' ')].filter(Boolean).join(', '))+'</td>'
         +'<td>'+esc(za)+'</td><td>'+wt+'</td>'
         +'<td>'+(t.personen.length?esc(t.personen.map(function(p){return [p.vorname,p.name].filter(Boolean).join(' ')+(p.typLabel?' ('+p.typLabel+')':'');}).join(', ')):'—')+'</td>';
+    }else if(_mig.sekId==='offerten'){
+      var stLbl={entwurf:'Entwurf',versendet:'Versendet',angenommen:'Zuschlag',abgelehnt:'Absage'}[t.status]||t.status;
+      var betrag=t.netto!=null?('<b>'+t.netto.toFixed(2)+'</b>'+(t.mwstPct!=null?' <span style="color:var(--mut)">+'+t.mwstPct+'%</span>':'')):'—';
+      h3+='<td><b>'+esc(t.nr||'—')+'</b></td><td>'+esc(t.datum||'—')+'</td>'
+        +'<td>'+esc((t.titel||'').slice(0,60))+'</td>'
+        +'<td>'+esc(t.kunde&&t.kunde.firma||'—')+'</td>'
+        +'<td>'+esc([t.objekt.strasse,t.objekt.ort].filter(Boolean).join(', ')||'—')+'</td>'
+        +'<td style="text-align:right;white-space:nowrap">'+betrag+'</td>'
+        +'<td>'+esc(stLbl)+(t.statusErkannt?'':' <span style="color:var(--amber)">?</span>')+'</td>'
+        +'<td>'+esc([t.sachb,t.abteilung].filter(Boolean).join(' · ')||'—')+'</td>';
     }else{
       h3+='<td>'+esc(t.nr||'—')+'</td><td>'+esc(t.firma||[t.name,t.vorname].filter(Boolean).join(' '))+'</td>'
         +'<td>'+esc([t.strasse,[t.plz,t.ort].filter(Boolean).join(' ')].filter(Boolean).join(', '))+'</td>'
@@ -5250,6 +5284,15 @@ function erpMigRender(){
   h3+='</tbody></table></div>';
   if(plan.zeilen.length>zz.length)
     h3+='<div style="font-size:11.5px;color:var(--mut);margin-top:7px">Vorschau zeigt die ersten '+zz.length+' von '+plan.zeilen.length+' Zeilen — übernommen werden alle.</div>';
+  if(_mig.sekId==='offerten'){
+    var sum=plan.zeilen.filter(function(x){return x.aktion!=='fehler'&&x.ziel.netto!=null;})
+      .reduce(function(a,x){return a+x.ziel.netto;},0);
+    h3+='<div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center;margin-top:11px;font-size:12.5px">'
+      +'<label style="display:flex;align-items:center;gap:7px;cursor:pointer"><input type="checkbox" id="migOptObj"'
+      +(_mig.optObjekte===false?'':' checked')+' onchange="_mig.optObjekte=this.checked" style="width:15px;height:15px"/>'
+      +'Fehlende Objekte automatisch anlegen</label>'
+      +'<span style="color:var(--mut)">Summe netto: <b>CHF '+sum.toFixed(2)+'</b></span></div>';
+  }
   h3+='<div id="migProg" style="font-size:12.5px;color:var(--mut);margin-top:11px"></div>';
   b.innerHTML=h3;
   var anzahl=plan.zeilen.filter(function(z){return z.aktion!=='fehler';}).length;
@@ -5303,11 +5346,13 @@ function erpMigStart(){
   var prog=document.getElementById('migProg');
   GemaErpImport.ausfuehren(_mig.plan,{
     quelleName:'ERP-Migration',
+    objekteAnlegen:_mig.optObjekte!==false,
     onFortschritt:function(i,n){if(prog)prog.textContent='Übernehme '+i+' von '+n+' …';}
   }).then(function(rep){
     if(prog)prog.innerHTML='<b style="color:var(--grn)">✓ Fertig</b>';
     var txt='<b>'+rep.neu+'</b> neu angelegt, <b>'+rep.aktualisiert+'</b> ergänzt';
     if(rep.adressen)txt+=', <b>'+rep.adressen+'</b> Adressen erstellt';
+    if(rep.objekteNeu)txt+=', <b>'+rep.objekteNeu+'</b> Objekte angelegt';
     if(rep.uebersprungen)txt+=', '+rep.uebersprungen+' übersprungen';
     if(rep.fehler.length)txt+='<br><span style="color:var(--red)">'+rep.fehler.length+' Zeilen mit Fehler: '
       +esc(rep.fehler.slice(0,3).map(function(f){return 'Zeile '+f.zeile+' — '+f.text;}).join(' · '))+'</span>';

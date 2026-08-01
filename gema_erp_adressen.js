@@ -149,9 +149,20 @@ function snapshot(a){
 function dedupeKey(a){
   var n=normalize(a);
   if(n.nr)return 'nr:'+n.nr.toLowerCase();
-  var k=[anzeigeName(n),n.plz,n.strasse].join('|').toLowerCase()
+  return softKey(n);
+}
+/* Weicher Schlüssel — IGNORIERT die Kundennummer bewusst.
+
+   KRITISCH für den Abgleich über mehrere Exporte hinweg: der Objekt-Export
+   bringt Kundennummern mit, der Offert-Export NICHT. Ohne diesen zweiten
+   Schlüssel entstünde für dieselbe Firma an derselben Adresse ein zweiter
+   Datensatz, sobald sie einmal mit und einmal ohne Nummer geliefert wird.
+   Name + PLZ + Strasse bleiben trennscharf genug, damit dieselbe Firma an
+   ZWEI Liegenschaften (eigene Kundennummer je Objekt) getrennt bleibt. */
+function softKey(a){
+  var n=normalize(a);
+  return 'x:'+[anzeigeName(n),n.plz,n.strasse].join('|').toLowerCase()
     .replace(/[^a-z0-9|]+/g,'');
-  return 'x:'+k;
 }
 
 /* Nächste freie Kundennummer: max(numerische Nummern)+1, min. 1.
@@ -269,9 +280,13 @@ function saveTypen(liste){
   var clean=typenAus(liste);
   try{
     var o=GemaAuth.getCurrentOrg&&GemaAuth.getCurrentOrg();
-    var erp=Object.assign({},(o&&o.settings&&o.settings.erp)||{});
+    if(!o||!o.id)return Promise.reject(new Error('Keine Firma aufgelöst'));
+    var erp=Object.assign({},(o.settings&&o.settings.erp)||{});
     erp.adressTypen=clean;
-    return GemaAuth.updateOrgSettings({erp:erp});
+    // KRITISCH: updateOrgSettings(orgId, settings) — orgId ist das ERSTE
+    // Argument (sonst findet die Funktion die Org nicht und gibt still
+    // `false` zurück; die Typen wären nie gespeichert worden).
+    return Promise.resolve(GemaAuth.updateOrgSettings(o.id,{erp:erp}));
   }catch(e){return Promise.reject(e);}
 }
 /* Typ nach Label auflösen bzw. anlegen — der Import bringt Typen als
@@ -308,6 +323,13 @@ function upsertVonImport(roh,opts){
   if(!treffer){
     var k=dedupeKey(neu);
     treffer=bestand.find(function(x){return dedupeKey(x)===k;})||null;
+  }
+  // Letzte Stufe: Abgleich OHNE Kundennummer (siehe softKey) — findet die
+  // Adresse auch dann, wenn ein Export sie mit und ein anderer sie ohne
+  // Nummer liefert. Nur bei belastbarem Schlüssel (Name + PLZ vorhanden).
+  if(!treffer&&!neu.nr&&neu.plz&&anzeigeName(neu)){
+    var sk=softKey(neu);
+    treffer=bestand.find(function(x){return softKey(x)===sk;})||null;
   }
   if(!treffer)return {aktion:'neu',rec:neu};
   var merged=Object.assign({},treffer);
@@ -348,7 +370,7 @@ window.GemaAdressen={
   upsertVonImport:upsertVonImport,
   // Engine (DOM-frei, auch für Node-Tests exportiert)
   normalize:normalize, anzeigeName:anzeigeName, zeilen:zeilen, snapshot:snapshot,
-  istPerson:istPerson, dedupeKey:dedupeKey, nextNrAus:nextNrAus, passt:passt,
+  istPerson:istPerson, dedupeKey:dedupeKey, softKey:softKey, nextNrAus:nextNrAus, passt:passt,
   typenAus:typenAus, slug:slug
 };
 
