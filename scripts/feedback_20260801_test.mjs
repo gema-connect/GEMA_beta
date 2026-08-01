@@ -279,6 +279,112 @@ async function open(datei, opts) {
   await ctx.close();
 }
 
+// ── Saugpumpe ────────────────────────────────────────────────────────────
+console.log('\n■ Saugpumpe — eigene Karten, 2 NK, Schema');
+{
+  const { page, errors, ctx } = await open('sb_saugpumpe.html');
+  const karten = await page.$$eval('.g-card > .g-card-hd h2', n => n.map(x => x.textContent.trim()));
+  ok(karten.filter(t => /^[1-6]/.test(t)).length === 6, 'die 6 Eingabe-Sektionen sind eigene Karten');
+  ok(await page.$$eval('.g-card-hd.sp-foldhd', n => n.length) >= 6, 'alle Karten einklappbar');
+  // Einklappen persistiert pro Gerät und liegt NIE im AutoSave-Snapshot
+  await page.evaluate(() => document.querySelectorAll('.g-card-hd.sp-foldhd')[0].click());
+  await page.waitForTimeout(200);
+  const st = await page.evaluate(() => ({
+    zu: document.querySelectorAll('.g-card.sp-zu').length,
+    ls: localStorage.getItem('gema_sg_fold_v1') || '',
+    save: JSON.stringify(localStorage).indexOf('gema_sg_fold_v1') >= 0
+  }));
+  ok(st.zu === 1 && st.ls.length > 2, 'Fold-Zustand pro Gerät gespeichert');
+  const werte = await page.evaluate(() => ['sg_out_hf', 'sg_out_hv', 'sg_out_hb2', 'sg_out_hf2', 'sg_out_hv2']
+    .map(i => (document.getElementById(i) || {}).textContent || ''));
+  ok(werte.every(v => /^-?[\d’']*\d\.\d{2}\s/.test(v.trim())), '2 Nachkommastellen in den Ergebnissen (' + werte.join(' | ') + ')');
+  const sgTexte = await page.evaluate(() => Array.from(document.querySelectorAll('#sgSchema text')).map(t => t.textContent));
+  ok(sgTexte.some(t => /Druckverlust Saugleitung/.test(t)), 'Legende nennt «Druckverlust Saugleitung» statt «Reibung»');
+  ok(sgTexte.includes('Absperrventil') && sgTexte.includes('Saugleitung'), 'Schema: Saugleitung + Absperrventil beschriftet');
+  ok(sgTexte.some(t => /zur Anlage/.test(t)) && sgTexte.includes('Pumpe'), 'Schema: Pumpe + Druckleitung «zur Anlage»');
+  // T/ρ-Chip steht NEBEN dem Becken (Feedback: grüner Pfeil), nicht mehr darin
+  const chipX = await page.evaluate(() => {
+    const g = Array.from(document.querySelectorAll('#sgSchema g[data-sgziel="sg_t"] rect'))[0];
+    return g ? parseFloat(g.getAttribute('x')) : -1;
+  });
+  ok(chipX > 302, 'Wasserwerte-Chip liegt rechts neben dem Becken (x=' + chipX + ')');
+  ok(errors.length === 0, 'keine JS-Fehler in sb_saugpumpe (' + errors.slice(0, 2).join(' | ') + ')');
+  await ctx.close();
+}
+
+// ── Druckanstieg ─────────────────────────────────────────────────────────
+console.log('\n■ Druckanstieg — eigene Karten, Rohrsystem-Wahl, 2 NK');
+{
+  const { page, errors, ctx } = await open('sb_druckanstieg.html');
+  const karten = await page.$$eval('.g-card > .g-card-hd h2', n => n.map(x => x.textContent.trim()));
+  ok(karten.filter(t => /^[1-5]/.test(t)).length === 5, 'die 5 Eingabe-Sektionen sind eigene Karten');
+  ok(await page.$$eval('.g-card-hd.sp-foldhd', n => n.length) >= 5, 'alle Karten einklappbar');
+  // Rohrsystem-Katalog kommt aus gema_rohrsysteme.js — dieselbe Tabelle wie im Druckverlust
+  const sysN = await page.$$eval('#sp_sys option', n => n.length);
+  ok(sysN >= 10, 'Rohrsystem-Auswahl aus dem Druckverlust-Katalog (' + sysN + ' Systeme)');
+  ok(await page.evaluate(() => typeof window.GemaRohre === 'object' && GemaRohre.SYSTEMS.length > 10), 'GemaRohre als geteilte Wahrheit geladen');
+  const dim0 = await page.$eval('#sp_out_di', e => e.textContent);
+  ok(/^\d+\.\d{2}\s*mm/.test(dim0), 'Innen-ø aus der Rohrtabelle mit 2 NK (' + dim0 + ')');
+  // Systemwechsel: Dimensionen + α folgen dem Werkstoff
+  await page.selectOption('#sp_sys', 'pe10');
+  await page.waitForTimeout(250);
+  const nach = await page.evaluate(() => ({
+    dims: document.querySelectorAll('#sp_dim option').length,
+    alpha: document.getElementById('sp_alpha').value,
+    di: document.getElementById('sp_out_di').textContent
+  }));
+  ok(nach.dims > 3 && nach.di !== dim0, 'Dimensionsliste + di folgen dem gewählten System');
+  ok(parseFloat(nach.alpha) > 100, 'α wird aus dem Werkstoff vorbelegt (Kunststoff ' + nach.alpha + ')');
+  await page.selectOption('#sp_sys', 'mapress');
+  await page.waitForTimeout(250);
+  ok(parseFloat(await page.$eval('#sp_alpha', e => e.value)) === 16.5, 'α zurück auf Edelstahl 16.5');
+  const res = await page.evaluate(() => ['sp_out_phgeo', 'sp_out_dt', 'sp_out_dp', 'sp_out_pmax', 'sp_out_psv', 'sp_kpi_dp']
+    .map(i => (document.getElementById(i) || {}).textContent || ''));
+  ok(res.every(v => /\d\.\d{2}(\s|$)/.test(v)), '2 Nachkommastellen in allen Ergebnissen (' + res.join(' | ') + ')');
+  const klein = await page.$eval('#sp_out_dv', e => e.textContent);
+  ok(/cm³/.test(klein) && /\d\.\d{2}/.test(klein), 'Volumenänderung in cm³ statt Exponent (' + klein + ')');
+  ok(errors.length === 0, 'keine JS-Fehler in sb_druckanstieg (' + errors.slice(0, 2).join(' | ') + ')');
+  await ctx.close();
+}
+
+// ── Frischwasserstation ──────────────────────────────────────────────────
+console.log('\n■ Frischwasserstation — einklappbar, 2 NK, Visualisierung');
+{
+  const { page, errors, ctx } = await open('sa_frischwasserstation.html');
+  ok(await page.$$eval('.g-card-hd.fw-foldhd', n => n.length) >= 6, 'alle Karten einklappbar');
+  await page.evaluate(() => document.querySelectorAll('.g-card-hd.fw-foldhd')[0].click());
+  await page.waitForTimeout(200);
+  ok(await page.evaluate(() => document.querySelectorAll('.g-card.fw-zu').length === 1
+     && (localStorage.getItem('gema_fw_fold_v1') || '').length > 2), 'Fold-Zustand pro Gerät gespeichert');
+  ok(await page.$$eval('#fwSchema svg', n => n.length) === 1, 'Anlagenschema gezeichnet');
+  // Daten erfassen → Werte erscheinen im Schema
+  await page.evaluate(() => {
+    const i = document.querySelector('#fwNutzBody input[data-k="n"]');
+    if (i) { i.value = '4'; i.dispatchEvent(new Event('input', { bubbles: true })); }
+    const b = document.querySelector('#fwWhgBody');
+    if (b) { const s = b.querySelectorAll('input');
+      if (s[0]) { s[0].value = '6'; s[0].dispatchEvent(new Event('input', { bubbles: true })); }
+      if (s[2]) { s[2].value = '1'; s[2].dispatchEvent(new Event('input', { bubbles: true })); } }
+  });
+  await page.waitForTimeout(400);
+  const txt = await page.evaluate(() => Array.from(document.querySelectorAll('#fwSchema text')).map(t => t.textContent));
+  ok(txt.some(t => /Frischwasserstation/.test(t)) && txt.some(t => /Plattenwärmetauscher/.test(t)), 'Schema zeigt die Station');
+  ok(txt.some(t => /Speicher/.test(t)) && txt.some(t => /Ladepumpe/.test(t)), 'Primärseite mit Speicher + Ladepumpe');
+  ok(txt.some(t => /^Warmwasser \d/.test(t)) && txt.some(t => /^Kaltwasser \d/.test(t)), 'KW/WW-Temperaturen im Schema');
+  ok(txt.some(t => /Leistung \d+\.\d{2} kW/.test(t)), 'Leistung im Schema mit 2 NK');
+  ok(!/var\(--/.test(await page.evaluate(() => document.getElementById('fwSchema').innerHTML)), 'Schema nutzt nur literale Farben (GemaPDF-Regel)');
+  // Zirkulation erscheint erst mit Wert
+  ok(!txt.some(t => /Zirkulation/.test(t)), 'Zirkulation ohne Wert nicht gezeichnet');
+  await page.evaluate(() => { const z = document.getElementById('fw_zirkV'); z.value = '250'; z.dispatchEvent(new Event('input', { bubbles: true })); });
+  await page.waitForTimeout(300);
+  ok(await page.evaluate(() => Array.from(document.querySelectorAll('#fwSchema text')).some(t => /Zirkulation \d/.test(t.textContent))), 'Zirkulation erscheint mit erfasstem Wert');
+  const kpi = await page.evaluate(() => ['fw_kpi_v', 'fw_kpi_p', 'fw_out_zTotal', 'fw_out_pfws', 'fw_out_vWW']
+    .map(i => (document.getElementById(i) || {}).textContent || ''));
+  ok(kpi.every(v => /\d\.\d{2}/.test(v)), '2 Nachkommastellen in KPI + Ergebnis (' + kpi.join(' | ') + ')');
+  ok(errors.length === 0, 'keine JS-Fehler in sa_frischwasserstation (' + errors.slice(0, 2).join(' | ') + ')');
+  await ctx.close();
+}
+
 console.log('\n' + pass + '/' + (pass + fail) + ' Checks bestanden');
 await browser.close();
 server.close();

@@ -34,7 +34,10 @@ console.log('■ Statik');
   ok('dd: Fold-Karten (dd-foldhd) + Print-Schutz', dd.includes('dd-foldhd') && /print[^}]*card-bd[^}]*display:block/s.test(dd));
   const dv = SRC('sb_druckverlust.html');
   ok('dv: fmt mit Tausender-Apostroph', dv.includes('(\\d{3})+(?!\\d)'));
-  ok('dv: dimAuswahl filtert Legacy-Dimensionen', dv.includes('function dimAuswahl') && dv.includes('legacy'));
+  // Der Rohrsystem-Katalog liegt seit 08/2026 in gema_rohrsysteme.js (geteilt
+  // mit sb_druckanstieg) — der Legacy-Filter wird dort geprüft.
+  const rs = SRC('gema_rohrsysteme.js');
+  ok('dv: dimAuswahl filtert Legacy-Dimensionen', dv.includes('function dimAuswahl') && rs.includes('legacy'));
   ok('dv: Gross-Overlay für Armaturen-Diagramme', dv.includes('armDiagGross') && dv.includes('zoom-in'));
   const hz = SRC('hz_heizungsleitungen.html');
   ok('hz: Einheiten-Helfer (HL_DUNITS/hlPF/hlHeF)', hz.includes('HL_DUNITS') && hz.includes('function hlPF') && hz.includes('function hlHeF'));
