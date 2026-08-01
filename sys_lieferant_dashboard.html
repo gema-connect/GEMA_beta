@@ -108,6 +108,10 @@ textarea.fc{resize:vertical;min-height:60px;line-height:1.5}
 .verify-box label strong{color:var(--txt)}
 
 /* Grp headers */
+/* Produkt-Editor als eigene Seite: Angaben pro Anlage sauber gegliedert,
+   Gruppen durch Trennstriche abgesetzt (Feedback 01.08.2026) */
+.pe-grp{padding-bottom:4px}
+.pe-grp-sep{border-top:1px solid var(--brd);margin-top:18px;padding-top:4px}
 .grp-hd{font-size:12px;font-weight:800;color:var(--acc);text-transform:uppercase;letter-spacing:.08em;padding:8px 0 6px;border-bottom:1.5px solid var(--acc-bg);margin-bottom:8px;margin-top:16px}
 .grp-hd:first-child{margin-top:0}
 
@@ -136,6 +140,10 @@ textarea.fc{resize:vertical;min-height:60px;line-height:1.5}
     <div class="g-nav-right">
       <button class="g-nav-btn" onclick="switchToTab('mitarbeiter')" id="navMitarbeiter" style="display:none">👥 Mitarbeiter</button>
       <button class="gema-feedback-btn no-print" onclick="if(typeof GemaFeedback!=='undefined')GemaFeedback.start()">🔴 Feedback</button>
+      <!-- Feedback 01.08.2026 (Hans Brunner): «abmelden button fehlt» — das
+           Dashboard hat keine Modul-Navigation, ohne Knopf gibt es keinen Weg
+           aus dem Konto. -->
+      <button class="g-nav-btn no-print" id="navLogout" onclick="_liefLogout()" title="Abmelden">🚪 Abmelden</button>
     </div>
   </div>
 </nav>
@@ -154,6 +162,11 @@ textarea.fc{resize:vertical;min-height:60px;line-height:1.5}
     ⚠ Ihr Konto ist deaktiviert. Ihre Produkte sind für Planer und Unternehmer nicht sichtbar und Sie können keine Offertanfragen empfangen. Bitte kontaktieren Sie GEMA.
   </div>
 
+  <!-- Hero (schlank) ganz oben, darunter «So funktioniert's», dann die KPIs
+       (Feedback 01.08.2026 Hans Brunner) -->
+  <div id="welcomeCard"></div>
+  <div style="margin:12px 0 14px"><button class="btn btn-s btn-sm" onclick="openLiefTutorial()">🎓 So funktioniert's</button></div>
+
   <!-- KPIs -->
   <div class="kpi-row" id="kpis"></div>
 
@@ -162,9 +175,7 @@ textarea.fc{resize:vertical;min-height:60px;line-height:1.5}
 
   <!-- Tab: Übersicht -->
   <div class="tab-body active" id="tb-uebersicht">
-    <div style="margin-bottom:12px"><button class="btn btn-s btn-sm" onclick="openLiefTutorial()">🎓 So funktioniert's</button></div>
-    <div id="welcomeCard"></div>
-    <div class="card" style="margin-top:16px">
+    <div class="card" style="margin-top:0">
       <div class="card-hd"><h3>Letzte Offertanfragen</h3></div>
       <div class="card-bd" id="recentOA"></div>
     </div>
@@ -187,6 +198,10 @@ textarea.fc{resize:vertical;min-height:60px;line-height:1.5}
         <option value="nicht_verifiziert">Nicht verifiziert</option>
       </select>
       <div style="flex:1"></div>
+      <!-- Feedback 01.08.2026 (Hans Brunner): Vorlage herunterladen, offline
+           ausfüllen, mehrere Anlagen auf einmal importieren. -->
+      <button class="btn btn-s" id="btnXlsVorlage" onclick="_liefXlsVorlageOpen()" title="Vorlage je Anlagentyp herunterladen">📥 Excel-Vorlage</button>
+      <button class="btn btn-s" id="btnXlsImport" onclick="_liefXlsImportOpen()" title="Ausgefüllte Vorlage importieren">📤 Excel-Import</button>
       <button class="btn btn-p" id="btnNewProd" onclick="openProdEditor(null)">+ Neues Produkt</button>
     </div>
     <div class="card"><div id="prodList" style="min-height:80px"></div></div>
@@ -321,6 +336,23 @@ textarea.fc{resize:vertical;min-height:60px;line-height:1.5}
           <div class="fg"><label class="fl">Kanton</label><input class="fc" id="pKanton"/></div>
         </div>
         <div class="fg"><label class="fl">Beschreibung (max. 500 Zeichen)</label><textarea class="fc" id="pBeschreibung" rows="3" maxlength="500"></textarea></div>
+        <!-- Firmenlogo (Feedback 01.08.2026 Hans Brunner: «Soll Logo von
+             Lieferant zeigen. Lieferant soll Logo in Firmeneinstellungen
+             hochladen können (nur Org-Admin)») — landet in org.logoVector /
+             org.logo und wird damit automatisch von der Navigation, den
+             Etiketten und den Print-PDFs genutzt. -->
+        <div class="fg" id="pLogoBox"><label class="fl">Firmenlogo</label>
+          <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+            <div style="width:132px;height:60px;border:1.5px dashed var(--brd2);border-radius:10px;display:flex;align-items:center;justify-content:center;background:#fff;overflow:hidden;flex-shrink:0">
+              <img id="pLogoImg" alt="" style="display:none;max-width:120px;max-height:52px;object-fit:contain">
+              <span id="pLogoPh" style="font-size:11px;color:var(--mut)">kein Logo</span>
+            </div>
+            <input type="file" id="pLogoFile" accept="image/*,.svg" style="display:none" onchange="_liefLogoUpload(event)">
+            <button class="btn btn-s btn-sm" id="pLogoBtn" onclick="document.getElementById('pLogoFile').click()">📎 Hochladen</button>
+            <button class="btn btn-g btn-sm" id="pLogoDel" style="display:none" onclick="_liefLogoRemove()">✕ Entfernen</button>
+          </div>
+          <div style="font-size:11px;color:var(--mut);margin-top:5px" id="pLogoHint">SVG bevorzugt (bleibt gestochen scharf), sonst PNG/JPG · max. 2 MB. Erscheint in der Navigation und auf Ihren Dokumenten.</div>
+        </div>
         <div class="fg"><label class="fl">Lieferanten-Kategorien</label>
           <div id="pKategorien" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px"></div>
           <div style="font-size:11px;color:var(--mut);margin-top:4px">Wählen Sie die Bereiche, in denen Ihr Unternehmen tätig ist.</div>
@@ -332,14 +364,19 @@ textarea.fc{resize:vertical;min-height:60px;line-height:1.5}
 </div>
 
 <!-- Produkt-Editor Modal -->
-<div id="prodEditorOverlay" style="display:none;position:fixed;inset:0;z-index:300;background:rgba(0,0,0,.5);backdrop-filter:blur(4px)">
-  <div style="position:absolute;right:0;top:0;bottom:0;width:680px;max-width:100%;background:var(--sur);overflow-y:auto;box-shadow:-8px 0 30px rgba(0,0,0,.12)">
-    <div style="display:flex;align-items:center;gap:10px;padding:16px 24px;border-bottom:1.5px solid var(--brd);position:sticky;top:0;background:var(--sur);z-index:10">
+<!-- Produkt-Editor als EIGENE Seite statt Seitenleiste (Feedback 01.08.2026
+     Hans Brunner: «Soll nicht Seitenleiste öffnen, sondern Vollbild, also
+     eigene Seite. Gliedere die Angaben sauber pro Anlage und füge Trennstriche
+     ein.») — Vollbild-Layer über dem Dashboard, Inhalt auf 1000 px zentriert. -->
+<div id="prodEditorOverlay" style="display:none;position:fixed;inset:0;z-index:300;background:var(--bg,#f4f6fb);overflow-y:auto">
+  <div style="min-height:100%;background:var(--bg,#f4f6fb)">
+    <div style="display:flex;align-items:center;gap:10px;padding:14px 24px;border-bottom:1.5px solid var(--brd);position:sticky;top:0;background:var(--sur);z-index:10;box-shadow:0 1px 3px rgba(15,23,42,.06)">
+      <button class="btn btn-g btn-sm" onclick="closeProdEditor()">‹ Zurück</button>
       <h2 style="flex:1;font-size:18px;font-weight:800" id="peTitle">Produkt</h2>
       <span id="peBadge"></span>
-      <button class="btn btn-g btn-sm" onclick="closeProdEditor()">✕</button>
+      <button class="btn btn-g btn-sm" onclick="closeProdEditor()" title="Schliessen">✕</button>
     </div>
-    <div style="padding:24px">
+    <div style="padding:24px;max-width:1000px;margin:0 auto">
       <div class="g2">
         <div class="fg"><label class="fl">Kategorie</label>
           <select class="fc" id="peKat" onchange="renderPeFelder()"></select></div>
@@ -657,6 +694,46 @@ function _initWithLief(){
   }
 }
 
+/* Hat der Lieferant diese Kategorie im Firmenprofil gewählt?
+   Leeres Profil (noch nie gespeichert) = alles sichtbar (Bestandsschutz);
+   Prüfer ohne Lieferanten-Datensatz ebenfalls. Ein role_admin (Vorschau)
+   sieht immer alles. */
+function _liefHatKat(ids){
+  try{
+    var u=GemaAuth.getCurrentUser();
+    if(u&&(u.roleIds||[]).indexOf('role_admin')>=0) return true;
+  }catch(e){}
+  if(!_lief) return true;
+  var kats=_lief.lieferantKategorien;
+  if(!Array.isArray(kats)||!kats.length) return true;
+  var norm=kats.map(function(k){ return (typeof GemaProdukte!=='undefined'&&GemaProdukte.normKatId)?GemaProdukte.normKatId(k):k; });
+  var want=Array.isArray(ids)?ids:[ids];
+  return want.some(function(id){ return norm.indexOf(id)>=0; });
+}
+/* Firmenlogo des Lieferanten (Feedback 01.08.2026 «Soll Logo von Lieferant
+   zeigen») — Vektor bevorzugt, wie in allen anderen Logo-Konsumenten. */
+function _liefLogoSrc(){
+  try{
+    // Zuerst der Org-Datensatz aus getOrgs() (den schreibt saveOrgs), dann der
+    // gecachte getCurrentOrg — beide streng über die eigene orgId, damit nie
+    // ein fremdes Logo erscheint (Muster «bwt aqua»-Bug).
+    var me=GemaAuth.getCurrentUser&&GemaAuth.getCurrentUser();
+    var oid=(me&&me.orgId)||'';
+    if(oid){
+      var o=(GemaAuth.getOrgs()||[]).filter(function(x){return x.id===oid;})[0];
+      if(o&&(o.logoVector||o.logo)) return o.logoVector||o.logo;
+    }
+    var org=GemaAuth.getCurrentOrg&&GemaAuth.getCurrentOrg();
+    if(org&&oid&&org.id===oid&&(org.logoVector||org.logo)) return org.logoVector||org.logo;
+  }catch(e){}
+  return '';
+}
+function _liefLogout(){
+  GemaDialog.confirm({title:'Abmelden',message:'Möchten Sie sich vom GEMA-Konto abmelden?',confirmLabel:'Abmelden'})
+    .then(function(ok){ if(!ok)return; try{GemaAuth.logout();}catch(e){} location.href='sys_login.html'; });
+}
+window._liefLogout=_liefLogout;
+
 function setupTabs(){
   // Dynamische Tabs je nach Rolle und Lieferanten-Typ:
   //   Anlagenlieferant → Produkte, Offertanfragen (Berechnungen), Rohrsysteme
@@ -680,9 +757,15 @@ function setupTabs(){
   if(isAnlagen){
     tabs.push({id:'anfragen',label:'Offertanfragen',show:true,badge:'oaBadge'});
     tabs.push({id:'bestellungen',label:'🛒 Bestellungen',show:true,badge:'bestBadge'});
-    tabs.push({id:'rohrsysteme',label:'Rohrsysteme & Armaturen',show:true});
+    // Feedback 01.08.2026 (Hans Brunner): «Diese Kategorien müssen vom Org-Admin
+    // angewählt werden, erst dann sollen die passenden Tabs eingeblendet werden
+    // (z.B. liefert BWT keine Armaturen).» Der Tab folgt darum der im
+    // Firmenprofil gewählten Lieferanten-Kategorie. Bestandsschutz: wer noch
+    // GAR keine Kategorie gewählt hat, sieht weiterhin alles — sonst
+    // verschwänden bestehenden Profilen kommentarlos ihre Tabs.
+    if(_liefHatKat('rohrsysteme')) tabs.push({id:'rohrsysteme',label:'Rohrsysteme & Armaturen',show:true});
   }
-  if(isPruefer||isLief){
+  if((isPruefer||isLief) && _liefHatKat(['werkzeuge','elektropruefung','leiterpruefung','servicepruefung'])){
     tabs.push({id:'werkzeuge',label:'🔧 Werkzeuge',show:true});
   }
   // Mitarbeiter-Tab für alle Lieferanten sichtbar (bearbeiten nur Org-Admin)
@@ -864,14 +947,19 @@ function getMyAnfragen(status){
 function renderUebersicht(){
   var aboTyp = (_lief.abo||{}).typ || 'basis';
   var aboStatus = (_lief.abo||{}).status || 'aktiv';
+  // Schlanker Hero — eine Zeile Name/Firma, die Pills rechts daneben
+  var logo = _liefLogoSrc();
   document.getElementById('welcomeCard').innerHTML =
-    '<div style="background:linear-gradient(135deg,#1e3a5f,#0c4a2e);border-radius:var(--r-lg);padding:32px;color:#fff">' +
-      '<div style="font-size:24px;font-weight:800;margin-bottom:8px">Willkommen, '+E(_lief.kontaktPerson||_lief.firma)+'</div>' +
-      '<div style="font-size:14px;opacity:.8;margin-bottom:16px">'+E(_lief.firma)+' · '+E((_lief.adresse||{}).ort||'')+'</div>' +
-      '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
-        '<span style="background:rgba(255,255,255,.15);padding:4px 12px;border-radius:8px;font-size:12px;font-weight:700">Abo: '+aboTyp.charAt(0).toUpperCase()+aboTyp.slice(1)+'</span>' +
-        '<span style="background:rgba(255,255,255,.15);padding:4px 12px;border-radius:8px;font-size:12px;font-weight:700">Status: '+aboStatus+'</span>' +
-        ((_lief.premium||{}).aktiv?'<span style="background:#f59e0b;padding:4px 12px;border-radius:8px;font-size:12px;font-weight:700">★ Premium</span>':'') +
+    '<div style="background:linear-gradient(135deg,#1e3a5f,#0c4a2e);border-radius:var(--r-lg);padding:14px 20px;color:#fff;display:flex;align-items:center;gap:14px;flex-wrap:wrap">' +
+      (logo?'<img src="'+E(logo)+'" alt="" style="height:34px;max-width:150px;object-fit:contain;background:#fff;border-radius:8px;padding:4px 8px;flex-shrink:0">':'') +
+      '<div style="min-width:0;flex:1">' +
+        '<div style="font-size:16.5px;font-weight:800;line-height:1.25">Willkommen, '+E(_lief.kontaktPerson||_lief.firma)+'</div>' +
+        '<div style="font-size:12.5px;opacity:.82">'+E(_lief.firma)+' · '+E((_lief.adresse||{}).ort||'')+'</div>' +
+      '</div>' +
+      '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
+        '<span style="background:rgba(255,255,255,.15);padding:3px 10px;border-radius:8px;font-size:11.5px;font-weight:700">Abo: '+aboTyp.charAt(0).toUpperCase()+aboTyp.slice(1)+'</span>' +
+        '<span style="background:rgba(255,255,255,.15);padding:3px 10px;border-radius:8px;font-size:11.5px;font-weight:700">Status: '+aboStatus+'</span>' +
+        ((_lief.premium||{}).aktiv?'<span style="background:#f59e0b;padding:3px 10px;border-radius:8px;font-size:11.5px;font-weight:700">★ Premium</span>':'') +
       '</div>' +
     '</div>';
 
@@ -971,8 +1059,8 @@ function renderPeFelder(){
   var gruppen = [];
   felder.forEach(function(f){ var g=f.gruppe||'Allgemein'; if(gruppen.indexOf(g)<0) gruppen.push(g); });
   var html = '';
-  gruppen.forEach(function(g){
-    html += '<div class="grp-hd">'+E(g)+'</div><div class="g2">';
+  gruppen.forEach(function(g,gi){
+    html += '<section class="pe-grp'+(gi?' pe-grp-sep':'')+'"><div class="grp-hd">'+E(g)+'</div><div class="g2">';
     felder.filter(function(f){return (f.gruppe||'Allgemein')===g;}).forEach(function(f){
       var val = _editProd ? ((_editProd.daten||{})[f.id]||'') : '';
       if(f.typ==='select'){
@@ -998,7 +1086,7 @@ function renderPeFelder(){
         html += '<div class="fg"><label class="fl">'+E(f.label)+(f.pflicht?' *':'')+'</label>'+inpWrapped+'</div>';
       }
     });
-    html += '</div>';
+    html += '</div></section>';
   });
   document.getElementById('peFelder').innerHTML = html;
 }
@@ -2674,10 +2762,55 @@ function renderLiefUsers(){
 
 function _liefInviteUser(){
   if(_liefBlockedInaktiv())return;
-  var email=prompt('E-Mail des neuen Mitarbeiters:');if(!email)return;
-  var name=prompt('Name:','');
+  /* Feedback 01.08.2026 (Hans Brunner): «Es fragt via Chrome-Dialog nach Mail.
+     Soll ein eigener Dialog sein, wie bei der Benutzererfassung.» — eigenes
+     Modal mit beiden Feldern statt zwei nativer prompt(). */
+  _liefInviteOpen();
+}
+function _liefInviteOpen(){
+  var ov=document.getElementById('liefInviteOv');
+  if(!ov){
+    ov=document.createElement('div');
+    ov.id='liefInviteOv';
+    ov.style.cssText='position:fixed;inset:0;z-index:400;background:rgba(15,23,42,.5);backdrop-filter:blur(3px);display:flex;align-items:center;justify-content:center;padding:20px';
+    ov.innerHTML='<div style="background:var(--sur);border-radius:16px;max-width:440px;width:100%;box-shadow:0 24px 64px rgba(0,0,0,.24)">'
+      +'<div style="padding:16px 20px;border-bottom:1.5px solid var(--brd);display:flex;align-items:center;gap:10px">'
+        +'<h2 style="flex:1;font-size:16px;font-weight:800">👥 Mitarbeiter einladen</h2>'
+        +'<button class="btn btn-g btn-sm" onclick="_liefInviteClose()">✕</button></div>'
+      +'<div style="padding:20px">'
+        +'<div class="fg"><label class="fl">E-Mail *</label><input class="fc" type="email" id="liefInvMail" placeholder="name@firma.ch" autocomplete="off"></div>'
+        +'<div class="fg"><label class="fl">Name</label><input class="fc" type="text" id="liefInvName" placeholder="Vorname Nachname" autocomplete="off"></div>'
+        +'<div id="liefInvErr" style="display:none;margin-top:4px;font-size:12px;font-weight:700;color:#dc2626"></div>'
+        +'<p style="margin-top:10px;font-size:11.5px;color:var(--mut);line-height:1.5">Die eingeladene Person startet schreibgeschützt («nur Lesen»). Die passende Rolle weisen Sie danach über 🔑 Rollen zu.</p>'
+      +'</div>'
+      +'<div style="padding:12px 20px;border-top:1px solid var(--brd);display:flex;justify-content:flex-end;gap:8px">'
+        +'<button class="btn btn-g btn-sm" onclick="_liefInviteClose()">Abbrechen</button>'
+        +'<button class="btn btn-p btn-sm" onclick="_liefInviteSave()">✉ Einladung senden</button></div>'
+      +'</div>';
+    document.body.appendChild(ov);
+    ov.addEventListener('click',function(e){ if(e.target===ov)_liefInviteClose(); });
+    ov.addEventListener('keydown',function(e){ if(e.key==='Escape')_liefInviteClose(); if(e.key==='Enter'&&e.target.tagName==='INPUT')_liefInviteSave(); });
+  }
+  ov.style.display='flex';
+  document.getElementById('liefInvMail').value='';
+  document.getElementById('liefInvName').value='';
+  document.getElementById('liefInvErr').style.display='none';
+  setTimeout(function(){ var m=document.getElementById('liefInvMail'); if(m)m.focus(); },40);
+}
+function _liefInviteClose(){ var ov=document.getElementById('liefInviteOv'); if(ov)ov.style.display='none'; }
+function _liefInviteFehler(txt){
+  var e=document.getElementById('liefInvErr');
+  if(e){ e.textContent=txt; e.style.display='block'; }
+}
+function _liefInviteSave(){
+  if(_liefBlockedInaktiv())return;
+  var email=(document.getElementById('liefInvMail')||{}).value||'';
+  var name=(document.getElementById('liefInvName')||{}).value||'';
+  email=email.trim();
+  if(!email){ _liefInviteFehler('Bitte eine E-Mail-Adresse eingeben.'); return; }
+  if(!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)){ _liefInviteFehler('Diese E-Mail-Adresse sieht nicht gültig aus.'); return; }
   try{
-    var result=GemaAuth.inviteLieferant({email:email,firma:_lief.firma,person:name||'',orgId:_lief.orgId,lieferantId:_lief.id,eingeladenVon:(GemaAuth.getCurrentUser()||{}).name||''});
+    var result=GemaAuth.inviteLieferant({email:email,firma:_lief.firma,person:(name||'').trim(),orgId:_lief.orgId,lieferantId:_lief.id,eingeladenVon:(GemaAuth.getCurrentUser()||{}).name||''});
     var users=GemaAuth.getUsers()||[];
     var u=users.find(function(x){return x.id===result.user.id;});
     if(u){
@@ -2693,10 +2826,14 @@ function _liefInviteUser(){
       u.roleIds=[(_liefIsProduktLief()&&!_liefIsAnlagenLief())?'role_produktlieferant_intern':'role_lieferant_intern'];
       GemaAuth.saveUsers(users);
     }
+    _liefInviteClose();
     toast('✉ Einladung gesendet — Rolle über 🔑 Rollen zuweisen');
     renderLiefUsers();
-  }catch(e){alert('Fehler: '+e.message);}
+  }catch(e){ _liefInviteFehler('Einladung fehlgeschlagen: '+(e&&e.message?e.message:e)); }
 }
+window._liefInviteOpen=_liefInviteOpen;
+window._liefInviteClose=_liefInviteClose;
+window._liefInviteSave=_liefInviteSave;
 
 function _liefEditRoles(userId){
   var users=GemaAuth.getUsers()||[];
@@ -2767,6 +2904,7 @@ function fillProfil(){
   document.getElementById('pOrt').value = a.ort||'';
   document.getElementById('pKanton').value = a.kanton||'';
   document.getElementById('pBeschreibung').value = _lief.beschreibung||'';
+  _liefLogoRender();
   // Kategorien-Chips rendern
   var katEl=document.getElementById('pKategorien');
   if(katEl&&typeof GemaProdukte!=='undefined'&&GemaProdukte.LIEF_KATEGORIEN){
@@ -2777,6 +2915,374 @@ function fillProfil(){
     }).join('');
   }
 }
+/* ── Firmenlogo (nur Org-Admin) ────────────────────────────────────────
+   Schreibt org.logoVector (SVG-Original) + org.logo (JPEG-Raster) — dieselben
+   Felder wie der Logo-Upload in sys_admin, damit Navigation, Etiketten und
+   Print-PDFs es unverändert nutzen. */
+function _liefCanLogo(){
+  try{
+    var me=GemaAuth.getCurrentUser();
+    if(me&&(me.roleIds||[]).indexOf('role_admin')>=0) return true;
+    return !!(GemaAuth.isOrgAdmin&&me&&GemaAuth.isOrgAdmin(me.id)&&me.orgId&&_lief&&me.orgId===_lief.orgId);
+  }catch(e){ return false; }
+}
+function _liefLogoRender(){
+  var img=document.getElementById('pLogoImg'), ph=document.getElementById('pLogoPh');
+  var del=document.getElementById('pLogoDel'), btn=document.getElementById('pLogoBtn');
+  var hint=document.getElementById('pLogoHint');
+  if(!img) return;
+  var src=_liefLogoSrc();
+  if(src){ img.src=src; img.style.display='block'; if(ph)ph.style.display='none'; }
+  else { img.style.display='none'; if(ph)ph.style.display=''; }
+  var darf=_liefCanLogo();
+  if(btn) btn.style.display=darf?'':'none';
+  if(del) del.style.display=(darf&&src)?'':'none';
+  if(hint&&!darf) hint.textContent='Nur der Unternehmens-Admin kann das Logo ändern.';
+}
+function _liefLogoSpeichern(vector, raster){
+  var me=null, org=null;
+  try{ me=GemaAuth.getCurrentUser(); org=GemaAuth.getCurrentOrg&&GemaAuth.getCurrentOrg(); }catch(e){}
+  if(!org){ toast('⚠ Keine Firma zugeordnet — Logo kann nicht gespeichert werden','error'); return; }
+  var orgs=[];try{orgs=GemaAuth.getOrgs()||[];}catch(e){}
+  var o=orgs.filter(function(x){return x.id===org.id;})[0];
+  if(!o){ toast('⚠ Firma nicht gefunden','error'); return; }
+  o.logoVector=vector||''; o.logo=raster||'';
+  Promise.resolve(GemaAuth.saveOrgs(orgs)).then(function(r){
+    if(r&&r.ok===false){ toast('⚠ '+(r.error||'Speichern abgelehnt'),'error'); return; }
+    _liefLogoRender();
+    try{ renderUebersicht(); }catch(e){}
+    toast(vector||raster?'✓ Logo gespeichert':'Logo entfernt');
+  });
+}
+function _liefLogoRemove(){
+  if(!_liefCanLogo()){ toast('Nur der Unternehmens-Admin kann das Logo ändern.','error'); return; }
+  _liefLogoSpeichern('','');
+}
+function _liefLogoRaster(img,cb){
+  try{
+    var c=document.createElement('canvas'), max=1000;
+    var w=img.naturalWidth||img.width, h=img.naturalHeight||img.height;
+    if(!w||!h){cb(null);return;}
+    if(w>max||h>max){ if(w>h){h=Math.round(h*(max/w));w=max;} else {w=Math.round(w*(max/h));h=max;} }
+    c.width=w;c.height=h;
+    var x=c.getContext('2d');
+    x.imageSmoothingEnabled=true;x.imageSmoothingQuality='high';
+    x.fillStyle='#ffffff';x.fillRect(0,0,w,h);
+    x.drawImage(img,0,0,w,h);
+    var q=0.85,out=c.toDataURL('image/jpeg',q);
+    while(out.length>280000&&q>0.4){ q-=0.1; out=c.toDataURL('image/jpeg',q); }
+    cb(out.length>280000?null:out);
+  }catch(e){ cb(null); }
+}
+function _liefLogoUpload(ev){
+  if(!_liefCanLogo()){ toast('Nur der Unternehmens-Admin kann das Logo ändern.','error'); return; }
+  var file=ev.target.files&&ev.target.files[0]; if(!file) return;
+  ev.target.value='';
+  if(file.size>2097152){ toast('⚠ Datei zu gross (max. 2 MB)','error'); return; }
+  var isSvg=/svg/i.test(file.type)||/\.svg$/i.test(file.name||'');
+  if(isSvg){
+    var tr=new FileReader();
+    tr.onload=function(te){
+      var txt=String(te.target.result||'');
+      try{
+        if(!/<svg[^>]*\swidth\s*=/i.test(txt)){
+          var vb=txt.match(/<svg[^>]*\sviewBox\s*=\s*["']\s*[\d.+-]+[\s,]+[\d.+-]+[\s,]+([\d.]+)[\s,]+([\d.]+)/i);
+          if(vb) txt=txt.replace(/<svg/i,'<svg width="'+vb[1]+'" height="'+vb[2]+'"');
+        }
+      }catch(e){}
+      var url='data:image/svg+xml;base64,'+btoa(unescape(encodeURIComponent(txt)));
+      var im=new Image();
+      im.onload=function(){ _liefLogoRaster(im,function(jpg){ _liefLogoSpeichern(url,jpg||''); }); };
+      im.onerror=function(){ toast('⚠ SVG konnte nicht gelesen werden','error'); };
+      im.src=url;
+    };
+    tr.readAsText(file); return;
+  }
+  var rd=new FileReader();
+  rd.onload=function(e2){
+    var im=new Image();
+    im.onload=function(){ _liefLogoRaster(im,function(jpg){
+      if(!jpg){ toast('⚠ Logo konnte nicht komprimiert werden','error'); return; }
+      _liefLogoSpeichern('',jpg);
+    }); };
+    im.onerror=function(){ toast('⚠ Bild konnte nicht geladen werden','error'); };
+    im.src=e2.target.result;
+  };
+  rd.readAsDataURL(file);
+}
+window._liefLogoUpload=_liefLogoUpload;
+window._liefLogoRemove=_liefLogoRemove;
+
+
+/* ══════════════════════════════════════════════════════════════════════
+   Excel-Vorlage & -Import (Feedback 01.08.2026, Hans Brunner)
+   ──────────────────────────────────────────────────────────────────────
+   «Vorlage als Download, Anlagentyp per Checkbox mehrfach wählbar, pro
+    Anlagentyp eine Datei mit den passenden Spalten und Titeln — der
+    Lieferant füllt aus und importiert danach mehrere Anlagen. Der Import
+    soll prüfen, ob die Titel geändert wurden, und eine Meldung machen.»
+
+   Format: CSV mit Semikolon + UTF-8-BOM — das ist der GEMA-Kanon für
+   «Excel-Export» (öffnet auf CH/DE-Systemen direkt in Excel) und läuft
+   OHNE externe Bibliothek, also auch offline. Die Spalten kommen 1:1 aus
+   den Kategorie-Schemata (GemaProdukte.KATEGORIEN) — eine Wahrheit; neue
+   Felder erscheinen automatisch in Vorlage UND Import.
+   ══════════════════════════════════════════════════════════════════════ */
+var _XLS_SEP = ';';
+/* Spalten einer Kategorie: Serie/Modell zuerst, dann die Schema-Felder.
+   Die Kopfzeile trägt die LESBAREN Titel (+ Einheit), die Zuordnung läuft
+   über die normalisierte Form — so überlebt der Import Gross-/Kleinschrift
+   und zusätzliche Leerzeichen, meldet aber echte Umbenennungen. */
+function _xlsSpalten(katId){
+  var kat = (typeof GemaProdukte!=='undefined') ? GemaProdukte.getKategorie(katId) : null;
+  if(!kat) return [];
+  var out = [];
+  (kat.felder||[]).forEach(function(f){
+    out.push({ id:f.id, titel:f.label + (f.einheit?(' ['+f.einheit+']'):''), typ:f.typ,
+               pflicht:!!f.pflicht, optionen:f.optionen||null });
+  });
+  return out;
+}
+function _xlsNorm(t){ return String(t==null?'':t).toLowerCase().replace(/\s+/g,' ').trim(); }
+function _xlsCell(v){
+  var t = String(v==null?'':v);
+  return /[";\n\r]/.test(t) ? '"'+t.replace(/"/g,'""')+'"' : t;
+}
+function _xlsDownload(name, text){
+  var blob = new Blob(['﻿'+text], {type:'text/csv;charset=utf-8'});
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  document.body.appendChild(a); a.click();
+  setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); }, 400);
+}
+function _xlsDateiname(katId, label){
+  return 'GEMA_Vorlage_' + String(label||katId).replace(/[^A-Za-z0-9äöüÄÖÜ]+/g,'_').replace(/^_+|_+$/g,'') + '.csv';
+}
+/* Eine Vorlage je Kategorie: Kopfzeile + eine Hinweiszeile + eine Beispielzeile
+   mit den erlaubten Auswahlwerten, damit klar ist, was hineingehört. */
+function _xlsVorlageText(katId){
+  var sp = _xlsSpalten(katId);
+  var kopf = sp.map(function(c){ return _xlsCell(c.titel); }).join(_XLS_SEP);
+  var hinweis = sp.map(function(c){
+    if(c.optionen && c.optionen.length) return _xlsCell(c.optionen.join(' | '));
+    if(c.typ==='number') return _xlsCell('Zahl');
+    if(c.typ==='checkbox') return _xlsCell('ja | nein');
+    return _xlsCell(c.pflicht?'Pflichtfeld':'');
+  }).join(_XLS_SEP);
+  return kopf + '\r\n' + hinweis + '\r\n';
+}
+function _liefXlsKats(){
+  // Nur Kategorien anbieten, die der Lieferant im Firmenprofil führt —
+  // ohne Wahl (Bestandsschutz) alle.
+  var alle = (typeof GemaProdukte!=='undefined' && GemaProdukte.KATEGORIEN) ? GemaProdukte.KATEGORIEN : {};
+  var ids = Object.keys(alle);
+  var eigene = (_lief && Array.isArray(_lief.lieferantKategorien)) ? _lief.lieferantKategorien.map(function(k){
+    return (GemaProdukte.normKatId?GemaProdukte.normKatId(k):k);
+  }) : [];
+  if(eigene.length) ids = ids.filter(function(id){ return eigene.indexOf(id)>=0; });
+  return ids.map(function(id){
+    var k=alle[id]||{};
+    return { id:id, label:((k.icon?k.icon+' ':'')+(k.name||k.label||id)) };
+  })
+            .sort(function(a,b){ return a.label.localeCompare(b.label,'de'); });
+}
+function _liefXlsVorlageOpen(){
+  var kats = _liefXlsKats();
+  if(!kats.length){ GemaDialog.alert({title:'Keine Anlagentypen', message:'Wählen Sie im Firmenprofil zuerst Ihre Lieferanten-Kategorien.'}); return; }
+  var ov = document.getElementById('xlsVorlageOv');
+  if(ov) ov.remove();
+  ov = document.createElement('div');
+  ov.id = 'xlsVorlageOv';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:400;background:rgba(15,23,42,.5);backdrop-filter:blur(3px);display:flex;align-items:center;justify-content:center;padding:20px';
+  ov.innerHTML = '<div style="background:var(--sur);border-radius:16px;max-width:560px;width:100%;max-height:84vh;display:flex;flex-direction:column;box-shadow:0 24px 64px rgba(0,0,0,.24)">'
+    + '<div style="padding:16px 20px;border-bottom:1.5px solid var(--brd);display:flex;align-items:center;gap:10px">'
+      + '<h2 style="flex:1;font-size:16px;font-weight:800">📥 Excel-Vorlage herunterladen</h2>'
+      + '<button class="btn btn-g btn-sm" onclick="_liefXlsClose(\'xlsVorlageOv\')">✕</button></div>'
+    + '<div style="padding:16px 20px;overflow-y:auto">'
+      + '<p style="font-size:12.5px;color:var(--mut);line-height:1.55;margin-bottom:12px">Wählen Sie die Anlagentypen — pro Typ wird eine eigene Datei mit den passenden Spalten und Titeln erzeugt. Füllen Sie die Daten darin aus und importieren Sie danach mehrere Anlagen auf einmal.</p>'
+      + '<div style="display:flex;gap:8px;margin-bottom:10px"><button class="btn btn-g btn-sm" onclick="_liefXlsAlle(true)">Alle wählen</button><button class="btn btn-g btn-sm" onclick="_liefXlsAlle(false)">Keine</button></div>'
+      + '<div id="xlsKatList" style="display:flex;flex-direction:column;gap:2px">'
+      + kats.map(function(k){
+          return '<label style="display:flex;align-items:center;gap:9px;padding:7px 8px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600">'
+            + '<input type="checkbox" class="xls-kat" value="'+E(k.id)+'" style="width:16px;height:16px;accent-color:var(--acc)"> '+E(k.label)
+            + ' <span style="margin-left:auto;font-size:11px;color:var(--mut);font-weight:600">'+_xlsSpalten(k.id).length+' Spalten</span></label>';
+        }).join('')
+      + '</div></div>'
+    + '<div style="padding:12px 20px;border-top:1px solid var(--brd);display:flex;justify-content:flex-end;gap:8px">'
+      + '<button class="btn btn-g btn-sm" onclick="_liefXlsClose(\'xlsVorlageOv\')">Abbrechen</button>'
+      + '<button class="btn btn-p btn-sm" onclick="_liefXlsVorlageDownload()">⬇ Herunterladen</button></div>'
+    + '</div>';
+  document.body.appendChild(ov);
+  ov.addEventListener('click', function(e){ if(e.target===ov) _liefXlsClose('xlsVorlageOv'); });
+}
+function _liefXlsClose(id){ var ov=document.getElementById(id); if(ov) ov.remove(); }
+function _liefXlsAlle(an){ document.querySelectorAll('#xlsKatList .xls-kat').forEach(function(c){ c.checked=!!an; }); }
+function _liefXlsVorlageDownload(){
+  var sel = Array.prototype.slice.call(document.querySelectorAll('#xlsKatList .xls-kat:checked')).map(function(c){ return c.value; });
+  if(!sel.length){ toast('Bitte mindestens einen Anlagentyp wählen','error'); return; }
+  var alle = GemaProdukte.KATEGORIEN||{};
+  sel.forEach(function(id, i){
+    // Browser drosseln mehrere Downloads — leicht versetzt auslösen.
+    setTimeout(function(){ _xlsDownload(_xlsDateiname(id,(alle[id]||{}).name||(alle[id]||{}).label), _xlsVorlageText(id)); }, i*250);
+  });
+  _liefXlsClose('xlsVorlageOv');
+  toast('⬇ '+sel.length+' Vorlage'+(sel.length>1?'n':'')+' heruntergeladen');
+}
+/* CSV parsen (Semikolon/Komma/Tab automatisch), Quotes + "" beachten. */
+function _xlsParse(text){
+  text = String(text||'').replace(/^﻿/,'');
+  var erste = (text.split(/\r?\n/)[0]||'');
+  var sep = ';';
+  [';',',','\t'].forEach(function(c){ if(erste.split(c).length > erste.split(sep).length) sep=c; });
+  var rows=[], row=[], cur='', q=false;
+  for(var i=0;i<text.length;i++){
+    var ch=text[i];
+    if(q){
+      if(ch==='"'){ if(text[i+1]==='"'){ cur+='"'; i++; } else q=false; }
+      else cur+=ch;
+    } else if(ch==='"'){ q=true; }
+    else if(ch===sep){ row.push(cur); cur=''; }
+    else if(ch==='\n'){ row.push(cur); rows.push(row); row=[]; cur=''; }
+    else if(ch!=='\r'){ cur+=ch; }
+  }
+  if(cur!==''||row.length){ row.push(cur); rows.push(row); }
+  return rows.filter(function(r){ return r.some(function(c){ return String(c).trim()!==''; }); });
+}
+/* Kopfzeile gegen das Schema prüfen — Kern des Feedbacks («soll prüfen, ob
+   die Titel geändert wurden»). Liefert Zuordnung + gefundene Abweichungen. */
+function _xlsPruefeKopf(katId, kopf){
+  var sp = _xlsSpalten(katId);
+  var norm = kopf.map(_xlsNorm);
+  var map = {}, fehlend = [], unbekannt = [];
+  sp.forEach(function(c){
+    var idx = norm.indexOf(_xlsNorm(c.titel));
+    if(idx < 0){
+      // Zweite Chance: nur das Label ohne Einheit
+      idx = norm.indexOf(_xlsNorm(c.titel.replace(/\s*\[[^\]]*\]\s*$/,'')));
+    }
+    if(idx >= 0) map[c.id] = idx; else fehlend.push(c);
+  });
+  var belegt = Object.keys(map).map(function(k){ return map[k]; });
+  norm.forEach(function(t,i){ if(t && belegt.indexOf(i)<0) unbekannt.push(kopf[i]); });
+  return { map:map, fehlend:fehlend, unbekannt:unbekannt, spalten:sp };
+}
+function _liefXlsImportOpen(){
+  if(!_liefCanEditProdukte()){ toast('Keine Berechtigung zum Erfassen von Produkten','error'); return; }
+  if(_liefBlockedInaktiv()) return;
+  var kats = _liefXlsKats();
+  var ov = document.getElementById('xlsImportOv');
+  if(ov) ov.remove();
+  ov = document.createElement('div');
+  ov.id = 'xlsImportOv';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:400;background:rgba(15,23,42,.5);backdrop-filter:blur(3px);display:flex;align-items:center;justify-content:center;padding:20px';
+  ov.innerHTML = '<div style="background:var(--sur);border-radius:16px;max-width:640px;width:100%;max-height:86vh;display:flex;flex-direction:column;box-shadow:0 24px 64px rgba(0,0,0,.24)">'
+    + '<div style="padding:16px 20px;border-bottom:1.5px solid var(--brd);display:flex;align-items:center;gap:10px">'
+      + '<h2 style="flex:1;font-size:16px;font-weight:800">📤 Excel-Import</h2>'
+      + '<button class="btn btn-g btn-sm" onclick="_liefXlsClose(\'xlsImportOv\')">✕</button></div>'
+    + '<div style="padding:16px 20px;overflow-y:auto">'
+      + '<div class="fg"><label class="fl">Anlagentyp</label><select class="fc" id="xlsImpKat">'
+        + kats.map(function(k){ return '<option value="'+E(k.id)+'">'+E(k.label)+'</option>'; }).join('')
+      + '</select></div>'
+      + '<div class="fg"><label class="fl">Ausgefüllte Vorlage (.csv)</label>'
+        + '<input type="file" class="fc" id="xlsImpFile" accept=".csv,.txt" onchange="_liefXlsPruefen()" style="padding:6px;font-size:12px"></div>'
+      + '<div id="xlsImpReport" style="font-size:12.5px;line-height:1.55"></div>'
+    + '</div>'
+    + '<div style="padding:12px 20px;border-top:1px solid var(--brd);display:flex;justify-content:flex-end;gap:8px">'
+      + '<button class="btn btn-g btn-sm" onclick="_liefXlsClose(\'xlsImportOv\')">Abbrechen</button>'
+      + '<button class="btn btn-p btn-sm" id="xlsImpBtn" onclick="_liefXlsImportieren()" disabled>⬆ Importieren</button></div>'
+    + '</div>';
+  document.body.appendChild(ov);
+  ov.addEventListener('click', function(e){ if(e.target===ov) _liefXlsClose('xlsImportOv'); });
+}
+var _xlsImpDaten = null;
+function _liefXlsPruefen(){
+  var f = (document.getElementById('xlsImpFile')||{}).files;
+  var rep = document.getElementById('xlsImpReport');
+  var btn = document.getElementById('xlsImpBtn');
+  _xlsImpDaten = null;
+  if(btn) btn.disabled = true;
+  if(!f || !f[0]){ if(rep) rep.innerHTML=''; return; }
+  var rd = new FileReader();
+  rd.onload = function(ev){
+    var katId = (document.getElementById('xlsImpKat')||{}).value;
+    var rows = _xlsParse(String(ev.target.result||''));
+    if(rows.length < 2){ rep.innerHTML = '<div style="color:#dc2626;font-weight:700">⚠ Die Datei enthält keine Datenzeilen.</div>'; return; }
+    var pr = _xlsPruefeKopf(katId, rows[0]);
+    var html = '';
+    if(pr.fehlend.length){
+      html += '<div style="background:#fef2f2;border:1.5px solid #fecaca;border-radius:10px;padding:11px 13px;margin-bottom:10px">'
+        + '<b style="color:#b91c1c">⚠ Spaltentitel geändert oder fehlend</b><div style="margin-top:5px;color:#7f1d1d">Diese Spalten wurden nicht gefunden: '
+        + pr.fehlend.map(function(c){ return '«'+E(c.titel)+'»'; }).join(', ')
+        + '.<br>Bitte die Titel der Vorlage unverändert lassen — sonst können die Daten nicht zugeordnet werden.</div></div>';
+    }
+    if(pr.unbekannt.length){
+      html += '<div style="background:#fffbeb;border:1.5px solid #fde68a;border-radius:10px;padding:11px 13px;margin-bottom:10px">'
+        + '<b style="color:#b45309">Zusätzliche Spalten werden ignoriert</b><div style="margin-top:4px;color:#78350f">'
+        + pr.unbekannt.map(function(t){ return '«'+E(t)+'»'; }).join(', ') + '</div></div>';
+    }
+    // Hinweiszeile der Vorlage überspringen (enthält keine echten Daten)
+    var daten = rows.slice(1).filter(function(r, i){
+      if(i>0) return true;
+      var t = r.map(_xlsNorm).join(' ');
+      return !/pflichtfeld|zahl|ja \| nein/.test(t) || r.some(function(c){ return String(c).trim().length>25; });
+    });
+    var pflicht = pr.spalten.filter(function(c){ return c.pflicht && pr.map[c.id]!=null; });
+    var gut = [], schlecht = [];
+    daten.forEach(function(r, i){
+      var obj = {}, fehlt = [];
+      pr.spalten.forEach(function(c){
+        var idx = pr.map[c.id];
+        if(idx==null) return;
+        var v = String(r[idx]==null?'':r[idx]).trim();
+        if(v!=='') obj[c.id] = (c.typ==='number') ? (parseFloat(v.replace(/'/g,'').replace(',','.')) || 0) : v;
+      });
+      pflicht.forEach(function(c){ if(obj[c.id]==null||obj[c.id]==='') fehlt.push(c.titel); });
+      if(!obj.modell && !obj.serie) return;            // komplett leere Zeile
+      if(fehlt.length) schlecht.push({ zeile:i+2, fehlt:fehlt });
+      else gut.push(obj);
+    });
+    if(schlecht.length){
+      html += '<div style="background:#fef2f2;border:1.5px solid #fecaca;border-radius:10px;padding:11px 13px;margin-bottom:10px">'
+        + '<b style="color:#b91c1c">⚠ '+schlecht.length+' Zeile(n) unvollständig</b><div style="margin-top:4px;color:#7f1d1d">'
+        + schlecht.slice(0,5).map(function(x){ return 'Zeile '+x.zeile+': '+E(x.fehlt.join(', ')); }).join('<br>')
+        + (schlecht.length>5?'<br>…':'') + '</div></div>';
+    }
+    if(gut.length && !pr.fehlend.length){
+      html += '<div style="background:#ecfdf5;border:1.5px solid #6ee7b7;border-radius:10px;padding:11px 13px">'
+        + '<b style="color:#047857">✓ '+gut.length+' Anlage(n) bereit zum Import</b></div>';
+      _xlsImpDaten = { katId:katId, zeilen:gut };
+      if(btn) btn.disabled = false;
+    } else if(!gut.length){
+      html += '<div style="color:var(--mut)">Keine importierbaren Zeilen gefunden.</div>';
+    }
+    rep.innerHTML = html;
+  };
+  rd.readAsText(f[0], 'utf-8');
+}
+function _liefXlsImportieren(){
+  if(!_xlsImpDaten || !_xlsImpDaten.zeilen.length) return;
+  if(!_liefCanEditProdukte() || _liefBlockedInaktiv()) return;
+  var n = 0, fehler = 0;
+  _xlsImpDaten.zeilen.forEach(function(daten){
+    try{
+      GemaProdukte.createProdukt({ lieferantId:_lief.id, kategorie:_xlsImpDaten.katId, daten:daten, status:'entwurf' });
+      n++;
+    }catch(e){ fehler++; }
+  });
+  _liefXlsClose('xlsImportOv');
+  renderAll();
+  toast(fehler ? ('✓ '+n+' importiert · '+fehler+' fehlgeschlagen') : ('✓ '+n+' Anlage(n) als Entwurf importiert'));
+}
+window._liefXlsVorlageOpen=_liefXlsVorlageOpen;
+window._liefXlsVorlageDownload=_liefXlsVorlageDownload;
+window._liefXlsImportOpen=_liefXlsImportOpen;
+window._liefXlsPruefen=_liefXlsPruefen;
+window._liefXlsImportieren=_liefXlsImportieren;
+window._liefXlsClose=_liefXlsClose;
+window._liefXlsAlle=_liefXlsAlle;
+window._xlsHooks={spalten:_xlsSpalten,vorlage:_xlsVorlageText,parse:_xlsParse,pruefeKopf:_xlsPruefeKopf,kats:_liefXlsKats};
+
 function _toggleLiefKat(katId){
   if(!_lief)return;
   var kats=_lief.lieferantKategorien||[];
@@ -2784,6 +3290,7 @@ function _toggleLiefKat(katId){
   if(idx>=0)kats.splice(idx,1);else kats.push(katId);
   _lief.lieferantKategorien=kats;
   GemaProdukte.updateLieferant(_lief.id,{lieferantKategorien:kats});
+  try{ var akt=document.querySelector('.tab.active'); var id=akt&&akt.dataset.tab; setupTabs(); if(id)switchToTab(id); }catch(e){}
   fillProfil();
 }
 

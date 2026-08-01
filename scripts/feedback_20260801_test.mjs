@@ -461,6 +461,106 @@ console.log('\n■ Druckverlust — eindeutige Formstück-Icons');
   await ctx.close();
 }
 
+// ── Lieferanten-Dashboard (Hans Brunner, 7 Punkte) ───────────────────────
+console.log('\n■ Lieferanten-Dashboard');
+{
+  const { page, errors, ctx } = await open('sys_lieferant_dashboard.html', { seed: seed(['role_lieferant']), wait: 2200 });
+  // #1 Abmelden
+  ok(await page.$$eval('#navLogout', n => n.length) === 1, 'Abmelden-Knopf in der Navigation');
+  // #2 Hero oben (schlank) → So funktioniert's → KPIs
+  const reihe = await page.evaluate(() => Array.from(document.querySelector('.g-page').children).map(c => c.id || c.className));
+  const iHero = reihe.indexOf('welcomeCard'), iKpi = reihe.indexOf('kpis'), iTabs = reihe.indexOf('mainTabs');
+  ok(iHero >= 0 && iHero < iKpi && iKpi < iTabs, 'Reihenfolge Hero → KPIs → Tabs (' + reihe.slice(0, 5).join(' / ') + ')');
+  ok(await page.evaluate(() => {
+    const h = document.querySelector('#welcomeCard > div');
+    return !!h && h.getBoundingClientRect().height < 110;      // schlank statt 32px-Padding-Block
+  }), 'Hero ist schlank');
+  ok(await page.evaluate(() => {
+    const btn = Array.from(document.querySelectorAll('.g-page button')).find(b => /So funktioniert/.test(b.textContent));
+    if (!btn) return false;
+    const kpi = document.getElementById('kpis');
+    return btn.compareDocumentPosition(kpi) & Node.DOCUMENT_POSITION_FOLLOWING;   // Knopf VOR den KPIs
+  }), '«So funktioniert\'s» steht zwischen Hero und KPIs');
+  // #4 Tabs folgen den Firmenprofil-Kategorien
+  const t1 = await page.evaluate(() => { _lief.lieferantKategorien = ['enthaertung', 'osmose']; setupTabs(); return Array.from(document.querySelectorAll('.tab')).map(x => x.textContent.trim()); });
+  ok(!t1.some(t => /Rohrsysteme/.test(t)) && !t1.some(t => /Werkzeuge/.test(t)), 'ohne passende Kategorie kein Rohrsystem-/Werkzeug-Tab');
+  const t2 = await page.evaluate(() => { _lief.lieferantKategorien = ['enthaertung', 'rohrsysteme', 'werkzeuge']; setupTabs(); return Array.from(document.querySelectorAll('.tab')).map(x => x.textContent.trim()); });
+  ok(t2.some(t => /Rohrsysteme/.test(t)) && t2.some(t => /Werkzeuge/.test(t)), 'mit gewählter Kategorie erscheinen die Tabs');
+  const t3 = await page.evaluate(() => { _lief.lieferantKategorien = []; setupTabs(); return Array.from(document.querySelectorAll('.tab')).map(x => x.textContent.trim()); });
+  ok(t3.some(t => /Rohrsysteme/.test(t)), 'Bestandsschutz: ohne jede Kategorie bleibt alles sichtbar');
+  // #5 Produkt-Editor als eigene Seite (nicht Seitenleiste)
+  const ed = await page.evaluate(() => {
+    const ov = document.getElementById('prodEditorOverlay');
+    const inner = ov.firstElementChild;
+    return { pos: getComputedStyle(inner).position, zurueck: /Zurück/.test(ov.textContent) };
+  });
+  ok(ed.pos !== 'absolute' && ed.zurueck, 'Produkt-Editor ist Vollbild-Seite mit «‹ Zurück»');
+  ok(await page.evaluate(() => {
+    document.getElementById('peKat').innerHTML = '<option value="enthaertung">x</option>';
+    renderPeFelder();
+    return document.querySelectorAll('#peFelder .pe-grp').length > 1
+        && document.querySelectorAll('#peFelder .pe-grp-sep').length >= 1;
+  }), 'Angaben pro Anlage gegliedert, Gruppen durch Trennstrich abgesetzt');
+  // #6 eigener Einladungs-Dialog statt window.prompt
+  ok(await page.evaluate(() => {
+    let promptCalled = false;
+    const orig = window.prompt; window.prompt = () => { promptCalled = true; return null; };
+    _liefInviteOpen();
+    window.prompt = orig;
+    const ov = document.getElementById('liefInviteOv');
+    return !promptCalled && !!ov && ov.style.display !== 'none'
+        && !!document.getElementById('liefInvMail') && !!document.getElementById('liefInvName');
+  }), 'Mitarbeiter-Einladung nutzt einen eigenen Dialog (kein window.prompt)');
+  ok(await page.evaluate(() => {
+    document.getElementById('liefInvMail').value = 'keine-mail';
+    _liefInviteSave();
+    const e = document.getElementById('liefInvErr');
+    return e.style.display !== 'none' && /gültig/i.test(e.textContent);
+  }), 'Dialog prüft die E-Mail-Adresse');
+  await page.evaluate(() => _liefInviteClose());
+  // #7 Logo-Upload im Firmenprofil (nur Org-Admin)
+  ok(await page.$$eval('#pLogoBox', n => n.length) === 1, 'Firmenprofil hat ein Logo-Feld');
+  // Über den ECHTEN Speicherpfad (getOrgs liefert Kopien — nur saveOrgs wirkt)
+  ok(await page.evaluate(async () => {
+    await Promise.resolve(_liefLogoSpeichern('', 'data:image/jpeg;base64,AAA'));
+    await new Promise(r => setTimeout(r, 250));
+    const img = document.getElementById('pLogoImg');
+    return img.style.display === 'block' && !!document.querySelector('#welcomeCard img');
+  }), 'hochgeladenes Logo erscheint in Vorschau und Hero');
+  ok(await page.evaluate(() => {
+    // Fremde Org darf NIE durchschlagen (Muster «bwt aqua»-Bug)
+    const me = GemaAuth.getCurrentUser();
+    return _liefLogoSrc() === ((GemaAuth.getOrgs() || []).filter(o => o.id === me.orgId)[0] || {}).logo;
+  }), 'Logo kommt streng aus der eigenen Firma');
+  // #3 Excel-Vorlage + Import
+  await page.evaluate(() => { _lief.lieferantKategorien = ['enthaertung', 'osmose']; _liefXlsVorlageOpen(); });
+  await page.waitForTimeout(250);
+  const vk = await page.$$eval('#xlsKatList label', n => n.map(x => x.textContent.trim()));
+  ok(vk.length === 2 && vk.every(t => /Spalten/.test(t)), 'Vorlage-Dialog listet die Anlagentypen mit Checkbox (' + vk.length + ')');
+  ok(await page.$$eval('#xlsKatList input.xls-kat', n => n.length) === 2, 'Mehrfachauswahl per Checkbox');
+  const vt = await page.evaluate(() => {
+    const kopf = _xlsHooks.vorlage('enthaertung').split('\r\n')[0];
+    return { kopf: kopf, spalten: kopf.split(';').length, schema: _xlsHooks.spalten('enthaertung').length };
+  });
+  ok(vt.spalten === vt.schema && vt.spalten > 10, 'Vorlage trägt alle Schema-Spalten als Titel (' + vt.spalten + ')');
+  ok(/Typenbezeichnung|Serie/.test(vt.kopf) && /\[/.test(vt.kopf), 'Titel sind lesbar und tragen die Einheit');
+  await page.evaluate(() => _liefXlsClose('xlsVorlageOv'));
+  // Kopfzeilen-Prüfung: geänderte Titel werden gemeldet
+  const pruef = await page.evaluate(() => {
+    const sp = _xlsHooks.spalten('enthaertung').map(c => c.titel);
+    const ok = _xlsHooks.pruefeKopf('enthaertung', sp);
+    const bad = _xlsHooks.pruefeKopf('enthaertung', sp.map((t, i) => i === 1 ? 'Umbenannt' : t).concat(['Extra']));
+    const lax = _xlsHooks.pruefeKopf('enthaertung', sp.map(t => '  ' + t.toUpperCase() + ' '));
+    return { okF: ok.fehlend.length, badF: bad.fehlend.length, badU: bad.unbekannt.length, laxF: lax.fehlend.length };
+  });
+  ok(pruef.okF === 0, 'unveränderte Vorlage wird vollständig zugeordnet');
+  ok(pruef.badF === 1 && pruef.badU === 2, 'geänderter Titel wird als fehlend, Zusatzspalten als unbekannt gemeldet');
+  ok(pruef.laxF === 0, 'Gross-/Kleinschrift und Leerzeichen brechen den Import nicht');
+  ok(await page.evaluate(() => JSON.stringify(_xlsHooks.parse('a;b;c\r\n1;"zwei;drei";3')) === '[["a","b","c"],["1","zwei;drei","3"]]'), 'CSV-Parser beachtet Quotes und Trennzeichen');
+  ok(errors.length === 0, 'keine JS-Fehler im Lieferanten-Dashboard (' + errors.slice(0, 2).join(' | ') + ')');
+  await ctx.close();
+}
+
 console.log('\n' + pass + '/' + (pass + fail) + ' Checks bestanden');
 await browser.close();
 server.close();
