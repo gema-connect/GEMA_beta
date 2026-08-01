@@ -147,6 +147,24 @@ function offertStatus(text){
   return hit?{status:hit.status,erkannt:true}:{status:'versendet',erkannt:false};
 }
 
+/* Auftrags-Status des Altsystems → GEMA (offen | in_arbeit | abgeschlossen).
+
+   KRITISCH — die REIHENFOLGE der Regeln entscheidet: «Nicht begonnen» enthält
+   das Wort «begonnen» und liefe sonst in die in_arbeit-Regel. Der Originaltext
+   bleibt am Beleg erhalten (`importStatusText`), damit nichts verloren geht;
+   unbekannte Werte landen auf «offen» und werden in der Vorschau gemeldet. */
+var AUFTRAG_STATUS=[
+  {re:/nicht\s*(begonnen|gestartet|angefangen)|^\s*(offen|neu|erfasst|geplant|pendent|bereit)/i, status:'offen'},
+  {re:/erledigt|abgeschlossen|beendet|fertig|abgerechnet|verrechnet|storniert|annulliert|abgebrochen/i, status:'abgeschlossen'},
+  {re:/in\s*arbeit|angefangen|begonnen|laufend|unterwegs|ausf(ü|ue)hrung|teilweise/i, status:'in_arbeit'}
+];
+function auftragStatus(text){
+  var t=s(text);
+  if(!t)return {status:'offen',erkannt:false};
+  var hit=AUFTRAG_STATUS.find(function(x){return x.re.test(t);});
+  return hit?{status:hit.status,erkannt:true}:{status:'offen',erkannt:false};
+}
+
 function spalteZuIndex(ref){
   var m=/^([A-Z]+)/.exec(ref||'');if(!m)return 0;
   var n=0,t=m[1];
@@ -318,17 +336,25 @@ var BLOCK_LABEL=[
 ];
 function parseAdressBlock(zeilen){
   var l=(zeilen||[]).map(s).filter(Boolean);
-  var out={firma:'',kontakt:'',strasse:'',plz:'',ort:''};
+  var out={firma:'',kontakt:'',strasse:'',strasse2:'',plz:'',ort:''};
   if(!l.length)return out;
   var last=l[l.length-1];
   var m=/^([A-Z]{0,3}[- ]?\d{4,6})\s+(.+)$/.exec(last);
   if(m){out.plz=s(m[1]);out.ort=s(m[2]);l.pop();}
+  // Postfach zuerst abtrennen: steht es zwischen Strasse und PLZ, wäre es
+  // sonst als «Strasse» gelesen worden und die echte Strasse landete im
+  // Kontaktfeld (kommt im Auftrags-Export real vor).
+  var pf='';
+  if(l.length&&/^(postfach|case\s*postale|casella\s*postale|p\.?\s?o\.?\s?box)\b/i.test(l[l.length-1]))pf=l.pop();
   if(l.length){
-    // Strasse = letzte verbleibende Zeile, wenn sie eine Hausnummer trägt
-    // oder mehr als eine Zeile übrig ist.
     var cand=l[l.length-1];
-    if(l.length>1||/\d/.test(cand)){out.strasse=cand;l.pop();}
+    // Eine Strasse trägt praktisch immer eine Hausnummer. Ohne Ziffer wird
+    // die Zeile nur dann zur Strasse, wenn es kein Postfach gibt und noch
+    // eine weitere Zeile übrig bleibt (sonst schluckte sie z.B. «c/o …»).
+    if(/\d/.test(cand)||(!pf&&l.length>1)){out.strasse=cand;l.pop();}
   }
+  // Nur-Postfach-Adresse: das Postfach IST die Zustellzeile.
+  if(pf){ if(out.strasse)out.strasse2=pf; else out.strasse=pf; }
   if(l.length){out.firma=l[0];}
   if(l.length>1)out.kontakt=l.slice(1).join(', ');
   return out;
@@ -452,8 +478,41 @@ var SEKTIONEN=[
     {id:'wohnung',    label:'Wohnung / Standort', alias:['wohnung','wohnstandort','stockwerk']}
   ]
 },
-{ id:'auftraege',  label:'Aufträge',   ic:'📋', bereit:false,
-  info:'Wartet auf den Export aus dem Altsystem — inkl. Verknüpfung zur Offerte und dem Fakturierungsstand.' },
+{
+  id:'auftraege', label:'Aufträge', ic:'📋', bereit:true,
+  info:'Auftrags-Kopfdaten mit Status, Schlüssel/Zutritt und den Verknüpfungen zu Offerte und Rechnung. Kunde und Objekt werden automatisch verknüpft. Der Export führt keine Beträge — auf Wunsch werden die Positionen der verknüpften Offerte übernommen.',
+  felder:[
+    {id:'extId',      label:'ID im Altsystem', hint:'Für den Wiederholungs-Import (keine Dubletten)', alias:['id','auftragid','auftragsid']},
+    {id:'nr',         label:'Auftrags-Nr.', pflicht:true, hint:'Im Beispiel-Export «rapport_nr»', alias:['rapportnr','auftragnr','auftragsnr','auftragsnummer','nummer','nr','belegnr']},
+    {id:'datum',      label:'Bestelldatum', alias:['bestdatum','datum','auftragsdatum','erstelltam']},
+    {id:'titel',      label:'Betrifft / Betreff', hint:'Wird zum Auftrags-Titel', alias:['betrifft','betreff','betrmemo','memo','bezeichnung','titel']},
+    {id:'arbeit',     label:'Arbeit', hint:'Art der Arbeit im Altsystem (z.B. Hauptauftrag) — wird als Vermerk übernommen', alias:['arbeit','arbeitsart','auftragsart']},
+    {id:'status',     label:'Auftragsstatus', hint:'z.B. Nicht begonnen / In Arbeit / Erledigt', alias:['astatustext','auftragsstatus','status','zustand']},
+    {id:'rechnStatus',label:'Rechnungsstatus', hint:'Nur als Vermerk — GEMA rechnet den Fakturierungsstand aus den Rechnungen', alias:['rstatustext','rechnungsstatus','fakturastatus']},
+    {id:'offertNr',   label:'Offert-Nr.', hint:'Verknüpft den Auftrag mit der bereits importierten Offerte', alias:['offertnr','offertnummer','offerte']},
+    {id:'rechnungNr', label:'Rechnungs-Nr.', hint:'Wird vermerkt — der spätere Rechnungs-Import knüpft daran an', alias:['rechnungnr','rechnungsnr','rechnungsnummer']},
+    {id:'bemerkung',  label:'Bemerkung', alias:['bemerkung','bemerkungen','notiz','notizen']},
+    {id:'kundeName',  label:'Kunde / Firma', alias:['name1','kunde','firma','adressname']},
+    {id:'korrName',   label:'Korrespondenz-Name', alias:['korrname','korrespondenzname']},
+    {id:'anschrift',  label:'Anschrift-Block (Freitext)', hint:'Rechnungsadresse — wird automatisch zerlegt', alias:['anschrift','adressblock','rechnungsadresse']},
+    {id:'tel',        label:'Telefon Kunde', alias:['telefon','tel']},
+    {id:'sachb',      label:'Sachbearbeiter', hint:'Wird über den Namen einer Person der Firma zugeordnet', alias:['sachbname','sachbearbeiter','sachb','sb','bearbeiter']},
+    {id:'abteilung',  label:'Abteilung', hint:'Wird zum GEMA-Arbeitsbereich (Sanitär, Spenglerei …)', alias:['abtname','abteilung','bereich','gewerk','sparte']},
+    {id:'strasse',    label:'Objekt: Strasse / Nr.', hint:'Verknüpft den Auftrag mit dem Objekt', alias:['strasse','str','objektstrasse']},
+    {id:'strasse2',   label:'Objekt: Adresszusatz', alias:['strasse2','adresszusatz','zusatz']},
+    {id:'plz',        label:'Objekt: PLZ', alias:['plz','postleitzahl']},
+    {id:'ort',        label:'Objekt: Ort', alias:['ort','stadt']},
+    {id:'egid',       label:'Objekt: EGID', alias:['egid']},
+    {id:'egrid',      label:'Objekt: EGRID', alias:['egrid']},
+    {id:'schluessel', label:'Schlüssel / Zutritt', hint:'Schlüsselcode — erscheint beim Monteur im Termin', alias:['schlussel','schluessel','schlusselcode','zutritt','safe']},
+    {id:'schluesselTel',label:'Schlüssel — Telefon / bei wem', alias:['schlutel','schluesseltel','schlusseltel']},
+    {id:'besteller',  label:'Besteller', hint:'Wird als Bezugsperson am Objekt hinterlegt', alias:['besteller','bestellt','auftraggeber']},
+    {id:'bestellerTel',label:'Besteller — Telefon', alias:['besttel','bestellertel']},
+    {id:'wohnung',    label:'Wohnung', alias:['wohnung','stockwerk']},
+    {id:'wohnStandort',label:'Wohnung — Name / Standort', hint:'Wird als Bezugsperson «Bewohner» hinterlegt', alias:['wohnstandort','bewohner']},
+    {id:'wohnTel',    label:'Wohnung — Telefon', alias:['wohntel','bewohnertel']}
+  ]
+},
 { id:'rechnungen', label:'Rechnungen', ic:'🧾', bereit:false,
   info:'Wartet auf den Export aus dem Altsystem — inkl. Zahlungen, Akonto-/Teilrechnungen und offener Beträge.' }
 ];
@@ -537,6 +596,33 @@ function normalisiereZeile(row,map,sekId){
       ref1:g('ref1'), ref2:g('ref2'), wohnung:g('wohnung')
     };
   }
+  if(sekId==='auftraege'){
+    var ast=auftragStatus(g('status'));
+    var aadr=parseAnschrift(g('anschrift')).zahler||null;
+    var akunde=Object.assign({firma:'',kontakt:'',strasse:'',plz:'',ort:''},aadr||{});
+    if(!akunde.firma)akunde.firma=g('kundeName')||g('korrName');
+    if(g('tel'))akunde.tel=g('tel');
+    // Bezugspersonen, die der Auftrag mitbringt (Besteller / Bewohner) —
+    // sie gehören ans OBJEKT, nicht in den Adressstamm.
+    var apers=[];
+    if(s(g('besteller')))apers.push({name:g('besteller'),tel:g('bestellerTel'),typ:'besteller'});
+    if(s(g('wohnStandort'))||s(g('wohnTel')))
+      apers.push({name:g('wohnStandort')||g('wohnung'),tel:g('wohnTel'),wohnung:g('wohnung'),typ:'bewohner'});
+    return {
+      extId:g('extId'), nr:g('nr'), datum:parseDatum(g('datum')),
+      titel:g('titel')||g('arbeit'), arbeit:g('arbeit'),
+      statusText:g('status'), status:ast.status, statusErkannt:ast.erkannt,
+      rechnStatus:g('rechnStatus'),
+      offertNr:g('offertNr'), rechnungNr:g('rechnungNr'),
+      bemerkung:g('bemerkung'),
+      kunde:akunde, kundeName:g('kundeName')||akunde.firma,
+      sachb:g('sachb'), abteilung:g('abteilung'),
+      objekt:{strasse:g('strasse'), strasse2:g('strasse2'), plz:g('plz'), ort:g('ort'),
+              egid:g('egid'), egrid:g('egrid')},
+      schluessel:{code:g('schluessel'), info:g('schluesselTel')},
+      wohnung:g('wohnung'), personen:apers
+    };
+  }
   // objekte
   var bloecke=parseAnschrift(g('anschrift'));
   var slots={};
@@ -588,6 +674,14 @@ function pruefe(z,sekId){
     if(!s(z.objekt&&z.objekt.strasse))hin.push({typ:'info',text:'Ohne Objekt-Adresse — keine Projekt-Verknüpfung.'});
     if(z.mwstPct!=null&&z.mwstPct>0&&Math.abs(z.mwstPct-8.1)>0.15&&Math.abs(z.mwstPct-7.7)>0.15)
       hin.push({typ:'warn',text:'Ungewöhnlicher MwSt-Satz '+z.mwstPct+' % — bitte prüfen.'});
+  }else if(sekId==='auftraege'){
+    if(!s(z.nr))hin.push({typ:'fehler',text:'Keine Auftrags-Nr. — Zeile wird übersprungen.'});
+    if(!s(z.kunde&&z.kunde.firma))hin.push({typ:'warn',text:'Kein Kunde erkannt.'});
+    if(!z.statusErkannt&&s(z.statusText))hin.push({typ:'warn',text:'Auftragsstatus «'+s(z.statusText)+'» unbekannt → «offen».'});
+    if(!s(z.objekt&&z.objekt.strasse))hin.push({typ:'info',text:'Ohne Objekt-Adresse — keine Projekt-Verknüpfung.'});
+    if(s(z.offertNr))hin.push({typ:'info',text:'Wird mit Offerte '+s(z.offertNr)+' verknüpft (sofern importiert).'});
+    else hin.push({typ:'info',text:'Keine Offerte verknüpft — der Auftrag entsteht ohne Positionen.'});
+    if(s(z.rechnungNr))hin.push({typ:'info',text:'Rechnung '+s(z.rechnungNr)+' wird vermerkt (für den Rechnungs-Import).'});
   }else if(sekId==='adressen'){
     if(!s(z.firma)&&!s(z.name))hin.push({typ:'fehler',text:'Weder Firma noch Name — Zeile wird übersprungen.'});
     if(!s(z.nr))hin.push({typ:'warn',text:'Keine Kundennummer — Verknüpfung zu Objekten nur über Name + PLZ.'});
@@ -645,10 +739,7 @@ var DOK_POOL='gema_erp_dok_pool_v1', DOK_PREFIX='erpdok:';
 function bestehendeDocs(){
   try{
     var u=(typeof GemaAuth!=='undefined'&&GemaAuth.getCurrentUser)?GemaAuth.getCurrentUser():null;
-    var arr=[];
-    if(typeof GemaSync!=='undefined'&&GemaSync.getCached)arr=GemaSync.getCached(DOK_POOL)||[];
-    if(!arr.length){var r=localStorage.getItem(DOK_POOL);if(r)arr=JSON.parse(r)||[];}
-    return arr.filter(function(d){return d&&(!u||d.orgId===u.orgId);});
+    return dokPool().filter(function(d){return d&&(!u||d.orgId===u.orgId);});
   }catch(e){return [];}
 }
 function dokSchluessel(typ,d){
@@ -727,6 +818,8 @@ function vorbereiten(opts){
   bestand.forEach(function(o){bekannt[objektSchluessel(o)]=o;});
   if(sekId==='offerten')bestehendeDocs().filter(function(d){return d.typ==='offerte';})
     .forEach(function(d){bekannt[dokSchluessel('offerte',d)]=d;});
+  if(sekId==='auftraege')bestehendeDocs().filter(function(d){return d.typ==='auftrag';})
+    .forEach(function(d){bekannt[dokSchluessel('auftrag',d)]=d;});
   var adrGesehen={};
   rows.forEach(function(row,i){
     var z=normalisiereZeile(row,map,sekId);
@@ -759,6 +852,10 @@ function vorbereiten(opts){
       var dk=dokSchluessel('offerte',z);
       if(bekannt[dk]){aktion='aktualisiert';stats.aktualisiert++;}
       else{stats.neu++;bekannt[dk]={};}
+    }else if(sekId==='auftraege'){
+      var ak=dokSchluessel('auftrag',z);
+      if(bekannt[ak]){aktion='aktualisiert';stats.aktualisiert++;}
+      else{stats.neu++;bekannt[ak]={};}
     }else{
       aktion='neu';stats.neu++;
     }
@@ -791,6 +888,155 @@ function adresseSichern(roh,ctx){
   });
 }
 
+/* Pool-Zugriff für Belege — bewusst bei JEDEM Aufruf frisch gelesen: der
+   Auftrags-Import schreibt zwei Dokumente hintereinander (Auftrag + die
+   verknüpfte Offerte) und die zweite Schreibung muss die erste sehen. */
+function dokPool(){
+  var pool=[];
+  try{
+    if(typeof GemaSync!=='undefined'&&GemaSync.getCached)pool=GemaSync.getCached(DOK_POOL)||[];
+    if(!pool.length){var r=localStorage.getItem(DOK_POOL);if(r)pool=JSON.parse(r)||[];}
+  }catch(e){}
+  return pool.slice();
+}
+function dokSichern(doc){
+  var pool=dokPool();
+  var i=pool.findIndex(function(x){return x.id===doc.id;});
+  if(i>=0)pool[i]=doc;else pool.push(doc);
+  try{localStorage.setItem(DOK_POOL,JSON.stringify(pool));}catch(e){}
+  var p=(typeof GemaSync!=='undefined'&&GemaSync.saveRecord)
+    ? GemaSync.saveRecord('erp',DOK_PREFIX+doc.id,doc) : Promise.resolve();
+  return p.then(function(){return doc;},function(){return doc;});
+}
+
+/* Objekt zu einem Beleg auflösen: vorhandenes über Strasse + PLZ finden,
+   sonst (auf Wunsch) anlegen. Bringt der Beleg Bezugspersonen mit — beim
+   Auftrag Besteller und Bewohner —, werden sie am Objekt ERGÄNZT (Dedupe
+   über Name + Vorname); Bestehendes wird nie überschrieben. */
+function objektFuerBeleg(oa,kd,personen,orgId,report,opts){
+  oa=oa||{};opts=opts||{};
+  if(!s(oa.strasse)&&!s(oa.plz))return Promise.resolve(null);
+  var found=findeObjekt(oa,bestehendeObjekte());
+  var neu=!found;
+  if(neu&&opts.objekteAnlegen===false)return Promise.resolve(null);
+  var o=found?Object.assign({},found):{
+    id:uid('obj'), orgId:orgId,
+    name:[s(oa.strasse),s(oa.strasse2)].filter(Boolean).join(' · ')||[s(oa.plz),s(oa.ort)].filter(Boolean).join(' '),
+    strasse:s(oa.strasse), adresszusatz:s(oa.strasse2), plz:s(oa.plz), ort:s(oa.ort),
+    egid:s(oa.egid), egrid:s(oa.egrid),
+    bauvorhaben:'Umbau', status:'aktiv', beteiligte:[], bezugspersonen:[],
+    adressen:kd?{zahler:{adressId:kd.id,nr:kd.nr||'',snapshot:GemaAdressen.snapshot(kd)}}:{},
+    quelle:{typ:'import',system:opts.quelleName||'ERP-Migration',am:jetzt()},
+    createdAt:jetzt()
+  };
+  var neuePers=(personen||[]).filter(function(p){return s(p.name);});
+  if(!neu&&!neuePers.length)return Promise.resolve(found);
+  if(neuePers.length){
+    var bp=(o.bezugspersonen||[]).slice();
+    neuePers.forEach(function(p){
+      var da=bp.some(function(x){
+        return norm(x.name)===norm(p.name)&&norm(x.vorname)===norm(p.vorname||'');
+      });
+      if(da)return;
+      bp.push({
+        id:uid('bp'), anrede:'', vorname:'', name:s(p.name),
+        typen:p.typ?[p.typ]:[], tel:s(p.tel), natel:'', email:'',
+        wohnung:s(p.wohnung||''), bemerkung:''
+      });
+    });
+    o.bezugspersonen=bp;
+  }
+  o.updatedAt=jetzt();
+  return GemaObjekte.upsertObjekt(o).then(function(){
+    if(neu)report.objekteNeu=(report.objekteNeu||0)+1;
+    return o;
+  });
+}
+
+/* Schreibt EINEN Auftrag als echtes GEMA-Dokument.
+
+   Der Export führt KEINE Beträge — auf Wunsch (Default) werden die Positionen
+   der über `offert_nr` verknüpften Offerte übernommen, sonst entsteht der
+   Auftrag ohne Positionen und die Beträge kommen mit dem Rechnungs-Import.
+   Die Verknüpfung wird BEIDSEITIG gesetzt (wie «Auftrag erstellen» im ERP). */
+function auftragSchreiben(z,adrCtx,report,opts){
+  opts=opts||{};
+  var u=null;try{u=GemaAuth.getCurrentUser();}catch(e){}
+  var orgId=u?u.orgId:'';
+  var docs=bestehendeDocs();
+  var alt=docs.filter(function(d){return d.typ==='auftrag';})
+    .find(function(d){return dokSchluessel('auftrag',d)===dokSchluessel('auftrag',z);})||null;
+  var off=null;
+  if(s(z.offertNr)){
+    var on=norm(z.offertNr);
+    off=docs.find(function(d){return d.typ==='offerte'&&norm(d.nr)===on;})||null;
+    if(!off)report.offerteFehlt=(report.offerteFehlt||0)+1;
+  }
+
+  var kundeP=Promise.resolve(null);
+  if(s(z.kunde&&z.kunde.firma))kundeP=adresseSichern(Object.assign({},z.kunde),adrCtx);
+  return kundeP.then(function(kd){
+    return objektFuerBeleg(z.objekt,kd,z.personen,orgId,report,opts).then(function(obj){
+      var sb=findeSachbearbeiter(z.sachb);
+      var bereichId=findeBereich(z.abteilung);
+      var doc=alt?Object.assign({},alt):{
+        id:uid('doc'), typ:'auftrag', orgId:orgId,
+        positionen:[], rabattPct:0, schluss:[], zahlungen:[], verknuepfung:{},
+        erstelltVon:{userId:u?u.id:'',name:u?u.name:''}, erstelltAm:jetzt()
+      };
+      function fuelle(f,v){if(s(v)&&!s(doc[f]))doc[f]=s(v);}
+      fuelle('nr',z.nr);
+      fuelle('datum',z.datum);
+      fuelle('titel',z.titel);
+      if(!doc.extId)doc.extId=z.extId;
+      if(!doc.status)doc.status=z.status;
+      if(!doc.bereichId&&bereichId)doc.bereichId=bereichId;
+      if(!doc.sachbearbeiter&&sb)doc.sachbearbeiter=sb;
+      if(kd&&!doc.kundeId){doc.kundeId=kd.id;doc.kundeSnapshot=GemaAdressen.snapshot(kd);}
+      if(obj&&!doc.objektId){doc.objektId=obj.id;doc.objektName=obj.name||'';}
+      // Schlüssel/Zutritt ist ein GEMA-eigenes Feld — es speist die Termine.
+      if(s(z.schluessel&&z.schluessel.code)&&!(doc.schluessel&&s(doc.schluessel.code)))
+        doc.schluessel={code:s(z.schluessel.code),info:s(z.schluessel.info)};
+      if(s(z.wohnung)&&!s(doc.wohnung))doc.wohnung=s(z.wohnung);
+      // Alles, was GEMA nicht als eigenes Feld führt, bleibt als Vermerk am
+      // Beleg erhalten — nichts aus dem Altsystem verschwindet stillschweigend.
+      if(s(z.arbeit)&&!s(doc.importArbeit))doc.importArbeit=s(z.arbeit);
+      if(s(z.statusText)&&!s(doc.importStatusText))doc.importStatusText=s(z.statusText);
+      if(s(z.rechnStatus)&&!s(doc.importRechnungsstatus))doc.importRechnungsstatus=s(z.rechnStatus);
+      if(s(z.rechnungNr)&&!s(doc.importRechnungNr))doc.importRechnungNr=s(z.rechnungNr);
+      if(s(z.bemerkung)&&!s(doc.notiz))doc.notiz=s(z.bemerkung);
+      if(off&&!(doc.verknuepfung&&doc.verknuepfung.offerteId)){
+        doc.verknuepfung=doc.verknuepfung||{};
+        doc.verknuepfung.offerteId=off.id;
+      }
+      // Positionen NUR bei einem noch leeren Auftrag aus der Offerte holen —
+      // ein bereits erfasstes Leistungsverzeichnis bleibt unangetastet.
+      if(off&&opts.posAusOfferte!==false&&!doc.positionen.length&&(off.positionen||[]).length){
+        doc.positionen=JSON.parse(JSON.stringify(off.positionen));
+        doc.schluss=JSON.parse(JSON.stringify(off.schluss||[]));
+        if(doc.rabattPct==null||!doc.rabattPct)doc.rabattPct=off.rabattPct||0;
+        if(doc.mwstPct==null&&off.mwstPct!=null)doc.mwstPct=off.mwstPct;
+        if(!doc.posCols&&off.posCols)doc.posCols=off.posCols.slice();
+        report.posUebernommen=(report.posUebernommen||0)+1;
+      }
+      doc.quelle=doc.quelle||{typ:'import',system:opts.quelleName||'ERP-Migration',am:jetzt(),extId:z.extId};
+      doc.updatedAt=jetzt();
+      return dokSichern(doc).then(function(){
+        if(alt)report.aktualisiert++;else report.neu++;
+        // Gegenrichtung: die Offerte zeigt auf den Auftrag (wie erpZuAuftrag).
+        if(!off)return;
+        var akt=dokPool().find(function(x){return x.id===off.id;})||off;
+        if(akt.verknuepfung&&akt.verknuepfung.auftragId)return;
+        var o2=Object.assign({},akt);
+        o2.verknuepfung=Object.assign({},o2.verknuepfung||{});
+        o2.verknuepfung.auftragId=doc.id;
+        o2.updatedAt=jetzt();
+        return dokSichern(o2);
+      });
+    });
+  });
+}
+
 /* Schreibt EINE Offerte als echtes GEMA-Dokument.
 
    Kunde und Objekt werden dabei aufgelöst bzw. angelegt. Enthält der Export
@@ -814,27 +1060,7 @@ function offerteSchreiben(z,adrCtx,report,opts){
   }
   return kundeP.then(function(kd){
     // 2) Objekt — verknüpfen, sonst (auf Wunsch) anlegen
-    var objP=Promise.resolve(null);
-    var oa=z.objekt||{};
-    if(s(oa.strasse)||s(oa.plz)){
-      var liste=bestehendeObjekte();
-      var found=findeObjekt(oa,liste);
-      if(found)objP=Promise.resolve(found);
-      else if(opts.objekteAnlegen!==false){
-        var neuObj={
-          id:uid('obj'), orgId:orgId,
-          name:[s(oa.strasse),s(oa.strasse2)].filter(Boolean).join(' · ')||[s(oa.plz),s(oa.ort)].filter(Boolean).join(' '),
-          strasse:s(oa.strasse), adresszusatz:s(oa.strasse2), plz:s(oa.plz), ort:s(oa.ort),
-          egid:s(oa.egid), egrid:s(oa.egrid),
-          bauvorhaben:'Umbau', status:'aktiv', beteiligte:[], bezugspersonen:[],
-          adressen:kd?{zahler:{adressId:kd.id,nr:kd.nr||'',snapshot:GemaAdressen.snapshot(kd)}}:{},
-          quelle:{typ:'import',system:opts.quelleName||'ERP-Migration',am:jetzt()},
-          createdAt:jetzt(), updatedAt:jetzt()
-        };
-        objP=GemaObjekte.upsertObjekt(neuObj).then(function(){report.objekteNeu=(report.objekteNeu||0)+1;return neuObj;});
-      }
-    }
-    return objP.then(function(obj){
+    return objektFuerBeleg(z.objekt,kd,null,orgId,report,opts).then(function(obj){
       var sb=findeSachbearbeiter(z.sachb);
       var bereichId=findeBereich(z.abteilung);
       var doc=alt?Object.assign({},alt):{
@@ -871,19 +1097,7 @@ function offerteSchreiben(z,adrCtx,report,opts){
       }
       doc.quelle=doc.quelle||{typ:'import',system:opts.quelleName||'ERP-Migration',am:jetzt(),extId:z.extId};
       doc.updatedAt=jetzt();
-      var pool=[];
-      try{
-        if(typeof GemaSync!=='undefined'&&GemaSync.getCached)pool=GemaSync.getCached(DOK_POOL)||[];
-        if(!pool.length){var r=localStorage.getItem(DOK_POOL);if(r)pool=JSON.parse(r)||[];}
-      }catch(e){}
-      pool=pool.slice();
-      var i=pool.findIndex(function(x){return x.id===doc.id;});
-      if(i>=0)pool[i]=doc;else pool.push(doc);
-      try{localStorage.setItem(DOK_POOL,JSON.stringify(pool));}catch(e){}
-      var p=(typeof GemaSync!=='undefined'&&GemaSync.saveRecord)
-        ? GemaSync.saveRecord('erp',DOK_PREFIX+doc.id,doc) : Promise.resolve();
-      return p.then(function(){if(alt)report.aktualisiert++;else report.neu++;},
-                    function(){if(alt)report.aktualisiert++;else report.neu++;});
+      return dokSichern(doc).then(function(){if(alt)report.aktualisiert++;else report.neu++;});
     });
   });
 }
@@ -918,6 +1132,9 @@ function ausfuehren(plan,opts){
         });
       }
       if(sekId==='offerten')return offerteSchreiben(z.ziel,adrCtx,report,opts);
+      if(sekId==='auftraege')return auftragSchreiben(z.ziel,adrCtx,report,opts).catch(function(e){
+        report.fehler.push({zeile:z.nr,text:(e&&e.message)||String(e)});
+      });
       // ── Objekte ──
       var z2=z.ziel;
       var slotKeys=Object.keys(z2.slots||{});
@@ -1002,7 +1219,8 @@ window.GemaErpImport={
   pruefe:pruefe, findeKopfzeile:findeKopfzeile,
   parseAnschrift:parseAnschrift, parseAdressBlock:parseAdressBlock,
   vorbereiten:vorbereiten, ausfuehren:ausfuehren,
-  parseDatum:parseDatum, parseBetrag:parseBetrag, offertStatus:offertStatus,
+  parseDatum:parseDatum, parseBetrag:parseBetrag,
+  offertStatus:offertStatus, auftragStatus:auftragStatus,
   objektSchluessel:objektSchluessel,
   // Engine-Exports für Node-Tests
   serialZuDatum:serialZuDatum, istDatumFmt:istDatumFmt, entescape:entescape,

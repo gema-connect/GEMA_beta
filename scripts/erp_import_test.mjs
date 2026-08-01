@@ -161,10 +161,10 @@ t('Zeile ohne Adresse wird als Fehler markiert',
 
 console.log('\n═══ A6 — Abschnitte & Kopfzeile ═══');
 eq('5 Abschnitte registriert', I.SEKTIONEN.length, 5);
-eq('Objekte + Adressen + Offerten sind bereit',
-  I.SEKTIONEN.filter(x => x.bereit).map(x => x.id), ['objekte', 'adressen', 'offerten']);
-eq('Aufträge/Rechnungen warten auf den Export',
-  I.SEKTIONEN.filter(x => !x.bereit).map(x => x.id), ['auftraege', 'rechnungen']);
+eq('Objekte + Adressen + Offerten + Aufträge sind bereit',
+  I.SEKTIONEN.filter(x => x.bereit).map(x => x.id), ['objekte', 'adressen', 'offerten', 'auftraege']);
+eq('Nur die Rechnungen warten noch auf den Export',
+  I.SEKTIONEN.filter(x => !x.bereit).map(x => x.id), ['rechnungen']);
 t('Jeder bereite Abschnitt hat Felder',
   I.SEKTIONEN.filter(x => x.bereit).every(x => Array.isArray(x.felder) && x.felder.length));
 eq('Kopfzeile = erste Zeile mit ≥2 Werten', I.findeKopfzeile([[''], ['', ''], ['id', 'strasse']]), 2);
@@ -190,6 +190,40 @@ eq('Typen werden vereinigt', r4.rec.typen, ['mieter']);
 // Ohne Nummer greift die Namens-/Adress-Erkennung
 const r5 = A.upsertVonImport({ firma: 'Immobilien Basel-Stadt' }, { bestand });
 eq('Ohne Kundennummer + andere Adresse → neu (keine Falsch-Verschmelzung)', r5.aktion, 'neu');
+
+console.log('\n═══ A7a — Adress-Dedupe über Zeilenumbrüche der Quelle ═══');
+// Derselbe Kunde, nur anders auf die Zeilen des Anschrift-Blocks verteilt:
+// einmal alles auf der Firmenzeile, einmal Abteilung auf der Kontaktzeile.
+const bestand2 = [A.normalize({
+  id: 'kd_2', firma: 'Immobilien Basel-Stadt Liegenschaften FV',
+  strasse: 'Fischmarkt 10', plz: '4001', ort: 'Basel'
+})];
+const s1 = A.upsertVonImport({
+  firma: 'Immobilien Basel-Stadt', kontakt: 'Liegenschaften FV',
+  strasse: 'Fischmarkt 10', strasse2: 'Postfach', plz: '4001', ort: 'Basel'
+}, { bestand: bestand2 });
+eq('Firma+Abteilung auf zwei Zeilen = dieselbe Adresse', s1.aktion, 'aktualisiert');
+eq('Postfach wird ergänzt', s1.rec.strasse2, 'Postfach');
+eq('Abteilung wird NICHT als Kontakt gedoppelt', s1.rec.kontakt, '');
+// Gegenprobe 1: gleiche Adresse, aber ECHT andere Kontaktperson → eigener Datensatz
+const s2 = A.upsertVonImport({
+  firma: 'Immobilien Basel-Stadt', kontakt: 'Herr Meier',
+  strasse: 'Fischmarkt 10', plz: '4001', ort: 'Basel'
+}, { bestand: bestand2 });
+eq('Andere Kontaktperson → neu (keine Falsch-Verschmelzung)', s2.aktion, 'neu');
+// Gegenprobe 2: gleicher Gesamtname, aber andere Strasse → eigener Datensatz
+const s3 = A.upsertVonImport({
+  firma: 'Immobilien Basel-Stadt', kontakt: 'Liegenschaften FV',
+  strasse: 'Anderweg 5', plz: '4001', ort: 'Basel'
+}, { bestand: bestand2 });
+eq('Andere Strasse → neu', s3.aktion, 'neu');
+// Gegenprobe 3: ein bereits erfasster Kontakt wird NIE entfernt
+const bestand3 = [A.normalize({
+  id: 'kd_3', firma: 'Meier Bau AG', kontakt: 'Meier',
+  strasse: 'Weg 1', plz: '3000', ort: 'Bern'
+})];
+const s4 = A.upsertVonImport({ firma: 'Meier Bau AG Meier', strasse: 'Weg 1', plz: '3000', ort: 'Bern' }, { bestand: bestand3 });
+eq('Gepflegter Kontakt bleibt erhalten', s4.rec.kontakt, 'Meier');
 
 console.log('\n═══ A7b — Offerten: Parser & Status ═══');
 eq('Datum dd.mm.yyyy → ISO', I.parseDatum('28.11.2025'), '2025-11-28');

@@ -164,6 +164,25 @@ function softKey(a){
   return 'x:'+[anzeigeName(n),n.plz,n.strasse].join('|').toLowerCase()
     .replace(/[^a-z0-9|]+/g,'');
 }
+/* Nur Buchstaben+Ziffern — für Vergleiche, die Zeilenumbrüche und
+   Schreibweisen der Quelle ignorieren sollen. */
+function alnum(v){return s(v).toLowerCase().replace(/[^a-z0-9]+/g,'');}
+/* Zweitschlüssel für den Import: Firma UND Kontaktzeile ZUSAMMENGENOMMEN.
+
+   Der Anschrift-Block der Altsysteme ist Freitext — ob eine Abteilung auf der
+   Firmen- oder auf der Kontaktzeile landet, entscheidet allein der
+   Zeilenumbruch in der Quelle: «Immobilien Basel-Stadt Liegenschaften FV» auf
+   EINER Zeile vs. auf ZWEI Zeilen ist derselbe Kunde. Ohne diesen Schlüssel
+   entstünden dafür zwei Adress-Datensätze.
+
+   Bewusst KEIN unscharfer Vergleich (kein Präfix, keine Ähnlichkeit): nur
+   exakte Gleichheit des zusammengesetzten Namens bei gleicher Strasse UND
+   gleicher PLZ. Zwei verschiedene Kontaktpersonen an derselben Adresse
+   bleiben damit zwei Adressen. */
+function softKey2(a){
+  var n=normalize(a);
+  return 'y:'+[alnum(anzeigeName(n)+' '+n.kontakt),alnum(n.plz),alnum(n.strasse)].join('|');
+}
 
 /* Nächste freie Kundennummer: max(numerische Nummern)+1, min. 1.
    Nicht-numerische Nummern (z.B. «K-2024-A») werden ignoriert — der
@@ -330,12 +349,23 @@ function upsertVonImport(roh,opts){
   if(!treffer&&!neu.nr&&neu.plz&&anzeigeName(neu)){
     var sk=softKey(neu);
     treffer=bestand.find(function(x){return softKey(x)===sk;})||null;
+    // … und dieselbe Adresse auch dann, wenn die Quelle Firma und Abteilung
+    // unterschiedlich auf die Zeilen verteilt hat (siehe softKey2).
+    if(!treffer&&neu.strasse){
+      var sk2=softKey2(neu);
+      treffer=bestand.find(function(x){return softKey2(x)===sk2;})||null;
+    }
   }
   if(!treffer)return {aktion:'neu',rec:neu};
   var merged=Object.assign({},treffer);
   ['anrede','vorname','name','kontakt','strasse','strasse2','plz','ort','land',
    'email','tel','natel','wohnung','bemerkungen','nr','extId'].forEach(function(f){
-    if(!s(merged[f])&&s(neu[f]))merged[f]=neu[f];
+    if(s(merged[f])||!s(neu[f]))return;
+    // Kontaktzeile nicht doppeln: steht die Abteilung bereits im Firmennamen
+    // (Zeilenumbruch-Artefakt der Quelle), bringt sie als Kontakt nichts.
+    // Bewusst nur NICHT SETZEN — ein bereits erfasster Kontakt bleibt immer.
+    if(f==='kontakt'&&alnum(merged.firma).indexOf(alnum(neu.kontakt))>=0)return;
+    merged[f]=neu[f];
   });
   if(opts.ueberschreiben){
     ['strasse','strasse2','plz','ort','email','tel','natel'].forEach(function(f){
@@ -370,7 +400,8 @@ window.GemaAdressen={
   upsertVonImport:upsertVonImport,
   // Engine (DOM-frei, auch für Node-Tests exportiert)
   normalize:normalize, anzeigeName:anzeigeName, zeilen:zeilen, snapshot:snapshot,
-  istPerson:istPerson, dedupeKey:dedupeKey, softKey:softKey, nextNrAus:nextNrAus, passt:passt,
+  istPerson:istPerson, dedupeKey:dedupeKey, softKey:softKey, softKey2:softKey2,
+  nextNrAus:nextNrAus, passt:passt,
   typenAus:typenAus, slug:slug
 };
 

@@ -5248,6 +5248,8 @@ function erpMigRender(){
       ? '<th>Objekt</th><th>Adresse</th><th>Zahlbar durch</th><th>Weitere Slots</th><th>Bezugspersonen</th>'
       : _mig.sekId==='offerten'
       ? '<th>Nr.</th><th>Datum</th><th>Projekt / Betreff</th><th>Kunde</th><th>Objekt</th><th>Betrag</th><th>Status</th><th>Sachb. / Abt.</th>'
+      : _mig.sekId==='auftraege'
+      ? '<th>Nr.</th><th>Datum</th><th>Betrifft</th><th>Kunde</th><th>Objekt</th><th>Status</th><th>Offerte</th><th>Rechnung</th><th>🔑</th><th>Sachb. / Abt.</th>'
       : '<th>Kd-Nr.</th><th>Name</th><th>Adresse</th><th>Kontakt</th><th>Typ</th>')
     +'<th>Hinweis</th></tr></thead><tbody>';
   zz.forEach(function(z){
@@ -5274,6 +5276,17 @@ function erpMigRender(){
         +'<td style="text-align:right;white-space:nowrap">'+betrag+'</td>'
         +'<td>'+esc(stLbl)+(t.statusErkannt?'':' <span style="color:var(--amber)">?</span>')+'</td>'
         +'<td>'+esc([t.sachb,t.abteilung].filter(Boolean).join(' · ')||'—')+'</td>';
+    }else if(_mig.sekId==='auftraege'){
+      var aLbl={offen:'Offen',in_arbeit:'In Arbeit',abgeschlossen:'Abgeschlossen'}[t.status]||t.status;
+      h3+='<td><b>'+esc(t.nr||'—')+'</b></td><td>'+esc(t.datum||'—')+'</td>'
+        +'<td>'+esc((t.titel||'').slice(0,60))+(t.arbeit&&t.arbeit!==t.titel?'<br><span style="color:var(--mut);font-size:11px">'+esc(t.arbeit)+'</span>':'')+'</td>'
+        +'<td>'+esc(t.kunde&&t.kunde.firma||'—')+'</td>'
+        +'<td>'+esc([t.objekt.strasse,t.objekt.ort].filter(Boolean).join(', ')||'—')+'</td>'
+        +'<td>'+esc(aLbl)+(t.statusErkannt?'':' <span style="color:var(--amber)">?</span>')
+        +(t.rechnStatus?'<br><span style="color:var(--mut);font-size:11px">'+esc(t.rechnStatus)+'</span>':'')+'</td>'
+        +'<td>'+esc(t.offertNr||'—')+'</td><td>'+esc(t.rechnungNr||'—')+'</td>'
+        +'<td>'+(t.schluessel&&t.schluessel.code?esc(t.schluessel.code):'—')+'</td>'
+        +'<td>'+esc([t.sachb,t.abteilung].filter(Boolean).join(' · ')||'—')+'</td>';
     }else{
       h3+='<td>'+esc(t.nr||'—')+'</td><td>'+esc(t.firma||[t.name,t.vorname].filter(Boolean).join(' '))+'</td>'
         +'<td>'+esc([t.strasse,[t.plz,t.ort].filter(Boolean).join(' ')].filter(Boolean).join(', '))+'</td>'
@@ -5292,6 +5305,18 @@ function erpMigRender(){
       +(_mig.optObjekte===false?'':' checked')+' onchange="_mig.optObjekte=this.checked" style="width:15px;height:15px"/>'
       +'Fehlende Objekte automatisch anlegen</label>'
       +'<span style="color:var(--mut)">Summe netto: <b>CHF '+sum.toFixed(2)+'</b></span></div>';
+  }
+  if(_mig.sekId==='auftraege'){
+    var mOff=plan.zeilen.filter(function(x){return x.aktion!=='fehler'&&String(x.ziel.offertNr||'').trim();}).length;
+    h3+='<div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center;margin-top:11px;font-size:12.5px">'
+      +'<label style="display:flex;align-items:center;gap:7px;cursor:pointer"><input type="checkbox" id="migOptObj"'
+      +(_mig.optObjekte===false?'':' checked')+' onchange="_mig.optObjekte=this.checked" style="width:15px;height:15px"/>'
+      +'Fehlende Objekte automatisch anlegen</label>'
+      +'<label style="display:flex;align-items:center;gap:7px;cursor:pointer"><input type="checkbox" id="migOptPos"'
+      +(_mig.optPos===false?'':' checked')+' onchange="_mig.optPos=this.checked" style="width:15px;height:15px"/>'
+      +'Positionen aus der verknüpften Offerte übernehmen</label>'
+      +'<span style="color:var(--mut)">'+mOff+' mit Offert-Nr.</span></div>'
+      +'<div style="font-size:11.5px;color:var(--mut);margin-top:6px">Der Export führt keine Beträge — ohne verknüpfte Offerte entsteht der Auftrag ohne Positionen. Die Beträge kommen mit dem Rechnungs-Import.</div>';
   }
   h3+='<div id="migProg" style="font-size:12.5px;color:var(--mut);margin-top:11px"></div>';
   b.innerHTML=h3;
@@ -5347,12 +5372,15 @@ function erpMigStart(){
   GemaErpImport.ausfuehren(_mig.plan,{
     quelleName:'ERP-Migration',
     objekteAnlegen:_mig.optObjekte!==false,
+    posAusOfferte:_mig.optPos!==false,
     onFortschritt:function(i,n){if(prog)prog.textContent='Übernehme '+i+' von '+n+' …';}
   }).then(function(rep){
     if(prog)prog.innerHTML='<b style="color:var(--grn)">✓ Fertig</b>';
     var txt='<b>'+rep.neu+'</b> neu angelegt, <b>'+rep.aktualisiert+'</b> ergänzt';
     if(rep.adressen)txt+=', <b>'+rep.adressen+'</b> Adressen erstellt';
     if(rep.objekteNeu)txt+=', <b>'+rep.objekteNeu+'</b> Objekte angelegt';
+    if(rep.posUebernommen)txt+=', <b>'+rep.posUebernommen+'</b> × Positionen aus der Offerte übernommen';
+    if(rep.offerteFehlt)txt+='<br><span style="color:var(--amber)">'+rep.offerteFehlt+' × die angegebene Offerte war nicht gefunden — bitte zuerst die Offerten importieren.</span>';
     if(rep.uebersprungen)txt+=', '+rep.uebersprungen+' übersprungen';
     if(rep.fehler.length)txt+='<br><span style="color:var(--red)">'+rep.fehler.length+' Zeilen mit Fehler: '
       +esc(rep.fehler.slice(0,3).map(function(f){return 'Zeile '+f.zeile+' — '+f.text;}).join(' · '))+'</span>';

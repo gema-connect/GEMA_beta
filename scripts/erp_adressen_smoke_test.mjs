@@ -128,7 +128,7 @@ console.log('\n═══ 4 — Migration: Assistent ═══');
 await page.click('#mtabs .mtab:has-text("Migration")');
 const karten = await page.$$eval('.mig-card', e => e.map(x => x.className));
 eq('5 Abschnitts-Karten', karten.length, 5);
-eq('2 Abschnitte warten noch auf den Export', karten.filter(c => /aus/.test(c)).length, 2);
+eq('1 Abschnitt wartet noch auf den Export', karten.filter(c => /aus/.test(c)).length, 1);
 await page.click('.mig-card:has-text("Objekte")');
 await page.waitForSelector('#migModal.open');
 await page.setInputFiles('#migFile', XLSX);
