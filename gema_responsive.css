@@ -18,6 +18,13 @@ body.gema-modal-open{
   /* left/right auf 0, sodass Inhalte im Viewport bleiben */
   left:0;right:0;
 }
+/* Sanfte Sperre (alles ausser iOS): overflow-y:hidden friert die Seite ein,
+   OHNE die Scroll-Position anzufassen — beim Schliessen muss darum auch
+   nichts zurueckgescrollt werden, es bewegt sich schlicht nichts.
+   MUSS auf <html> stehen: html/body tragen overflow-x:clip (Abschnitt 13),
+   damit propagiert body-overflow NICHT mehr auf den Viewport.
+   overflow-x bleibt clip — nur die vertikale Achse wird gesperrt. */
+html.gema-modal-soft{ overflow-y:hidden !important; }
 
 /* ── GemaDialog (gema_dialog.js) ─ Alert/Confirm/Prompt im GEMA-Style
    .gema-dlg-bg ist der Overlay — MUSS zuoberst liegen (12800): ueber den
@@ -1854,4 +1861,84 @@ input[type="checkbox"], input[type="radio"] {
     padding: 4px 10px !important;
     font-size: 10.5px !important;
   }
+}
+
+/* ── 17. DATUMS- & ZEITFELDER (iOS/Android): nie über den Rand ──
+   Native Datumsfelder haben auf iOS/WebKit eine EIGENE Mindestbreite und
+   ignorieren width:100%; ihre inneren Teile bringen zusätzlich Padding mit
+   und zentrieren den Wert. Steht so ein Feld in einem Flex-/Grid-Container
+   (Standard in jedem Dialog), kann der Container wegen min-width:auto nicht
+   unter die Inhalts-Mindestbreite schrumpfen — das Feld ragt aus dem Dialog
+   und schiebt sich über das Nachbarfeld.
+   Rezept 1:1 aus if_werkzeug (dort seinerzeit von Hand gelöst), hier
+   ZENTRAL für alle ~70 Seiten mit Datumsfeldern. Regel für neue Dialoge:
+   nichts tun — das greift automatisch.
+
+   ZWEI SCHICHTEN, bewusst getrennt:
+   (a) Struktur (global) — box-sizing/max-width/min-width am Feld und
+       min-width:0 am Container. Verhindert den Überlauf und ist überall
+       unschädlich (Desktop-Geometrie nachgemessen: identisch).
+   (b) WebKit-Innenleben (NUR Touch) — appearance:none + Padding-Resets der
+       Shadow-Teile. Das ist die eigentliche iOS-Kur, ändert aber bei
+       Feldern mit height:auto (.pf input[type=date] in ~40 Rechenmodulen,
+       sv_service, pm_besprechung) die Höhe um 1–2 px; am Desktop stünde das
+       Datumsfeld dann minim tiefer als das Textfeld daneben. Der Fehler ist
+       ein Mobile-Fehler — die Kur gehört dorthin. */
+input[type="date"],
+input[type="datetime-local"],
+input[type="month"],
+input[type="time"],
+input[type="week"] {
+  box-sizing: border-box;
+  max-width: 100%;
+  min-width: 0;
+}
+/* Der Container eines Datumsfeldes muss schrumpfen dürfen. Flex-/Grid-Kinder
+   haben min-width:auto = Inhalts-Mindestbreite; genau daran hängt der
+   Überlauf. :where() hält die Spezifität bei 0 — eine bewusste Seiten-Regel
+   gewinnt weiterhin. (Für Nicht-Flex-Boxen ist min-width:0 ein No-Op.) */
+:where(*:has(> input[type="date"]),
+       *:has(> input[type="datetime-local"]),
+       *:has(> input[type="month"]),
+       *:has(> input[type="time"]),
+       *:has(> input[type="week"])) { min-width: 0; }
+
+@media (hover: none) and (pointer: coarse) {
+  input[type="date"],
+  input[type="datetime-local"],
+  input[type="month"],
+  input[type="time"],
+  input[type="week"] {
+    -webkit-appearance: none;
+    appearance: none;
+  }
+  /* Wert linksbündig statt zentriert (der zentrierte Wert lief über den
+     rechten Rand) und Padding der Shadow-Teile raus (Breite). */
+  input[type="date"]::-webkit-date-and-time-value,
+  input[type="datetime-local"]::-webkit-date-and-time-value,
+  input[type="month"]::-webkit-date-and-time-value,
+  input[type="time"]::-webkit-date-and-time-value,
+  input[type="week"]::-webkit-date-and-time-value { text-align: left; }
+  input[type="date"]::-webkit-datetime-edit,
+  input[type="datetime-local"]::-webkit-datetime-edit,
+  input[type="month"]::-webkit-datetime-edit,
+  input[type="time"]::-webkit-datetime-edit,
+  input[type="week"]::-webkit-datetime-edit { padding: 0; }
+  input[type="date"]::-webkit-datetime-edit-fields-wrapper,
+  input[type="datetime-local"]::-webkit-datetime-edit-fields-wrapper,
+  input[type="month"]::-webkit-datetime-edit-fields-wrapper,
+  input[type="time"]::-webkit-datetime-edit-fields-wrapper,
+  input[type="week"]::-webkit-datetime-edit-fields-wrapper { padding: 0; }
+  input::-webkit-datetime-edit-text,
+  input::-webkit-datetime-edit-day-field,
+  input::-webkit-datetime-edit-month-field,
+  input::-webkit-datetime-edit-year-field,
+  input::-webkit-datetime-edit-hour-field,
+  input::-webkit-datetime-edit-minute-field,
+  input::-webkit-datetime-edit-ampm-field { padding: 0; }
+  input[type="date"]::-webkit-inner-spin-button,
+  input[type="datetime-local"]::-webkit-inner-spin-button,
+  input[type="month"]::-webkit-inner-spin-button,
+  input[type="time"]::-webkit-inner-spin-button,
+  input[type="week"]::-webkit-inner-spin-button { height: auto; }
 }

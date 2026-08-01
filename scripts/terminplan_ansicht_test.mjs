@@ -73,6 +73,11 @@ const errors = [];
 page.on('pageerror', e => errors.push(e.message));
 await page.goto(BASE + '/pm_terminplan.html', { waitUntil: 'domcontentloaded' });
 await page.waitForFunction(() => typeof Gantt !== 'undefined' && window._tpHooks && window._tpHooks.gantt !== undefined, null, { timeout: 15000 });
+/* Standard-Tab ist seit dem Wochenraster-Umbau «📆 Terminplan»; diese Suite
+   prüft die Gantt-Ansicht — also bewusst dorthin schalten. renderAll zeichnet
+   nur den AKTIVEN Tab, sonst blieben die Bars nach jedem Edit stale. */
+await page.click('.tab-btn[data-tab="gantt"]');
+await page.waitForTimeout(400);
 
 async function addTask(name, start, dauer) {
   await page.fill('#taskName', name);
@@ -257,7 +262,8 @@ console.log('— H) Meilenstein + Projektstart-Knopf —');
 
   await page.evaluate(() => { window._tpHooks.scroller().scrollLeft = 1200; });
   await page.waitForTimeout(150);
-  await page.click('.gtb-btn');
+  // Eindeutig: seit dem Wochenraster gibt es mehrere .gtb-btn auf der Seite
+  await page.click('#tab-gantt .gtb-btn[onclick*="goToProjektStart"]');
   await page.waitForTimeout(400);
   const s2 = await snap();
   ok(await page.$eval('#windowStart', el => el.value) === '2026-10-01', '⌖ Projektstart setzt den Fenster-Start auf den Projektstart');
