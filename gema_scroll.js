@@ -46,41 +46,89 @@
   }
 
   // ── 2) Body-Scroll-Lock fuer Modals ──────────────────────────────
+  /* Zwei Verfahren, bewusst getrennt:
+   *
+   *  (a) SANFT (Desktop, Android, alles ausser iOS) — overflow-y:hidden auf
+   *      <html>. Die Scroll-Position bleibt dabei UNVERAENDERT: beim Oeffnen
+   *      bewegt sich nichts, beim Schliessen ist nichts wiederherzustellen.
+   *      Das ist der Normalfall und das gewuenschte Verhalten («Dialog auf,
+   *      Dialog zu — die Seite steht einfach still»).
+   *
+   *  (b) FIXED (nur iOS Safari) — dort ignoriert die Engine overflow:hidden
+   *      auf dem Scroll-Container, nur position:fixed friert zuverlaessig
+   *      ein. Preis: das Dokument steht waehrend des Locks real auf 0 und
+   *      muss beim Schliessen zurueckgesetzt werden.
+   *
+   *  KRITISCH beim Zurueckscrollen (b): mehrere Module setzen
+   *  `html{scroll-behavior:smooth}` (if_werkzeug, if_fahrzeug, ab_*, …).
+   *  Ein blosses scrollTo() wird dadurch ANIMIERT — man sah die Seite nach
+   *  dem Schliessen sichtbar von oben zurueckfahren. _instantScrollTo()
+   *  schaltet das Smooth-Verhalten fuer diesen einen Sprung ab.
+   */
   var _scrollY = 0;
   var _lockCount = 0;
+  var _padSaved = null;
+  var _usedFixed = false;
+
+  var _iOS = (function() {
+    try {
+      var ua = w.navigator.userAgent || '';
+      if (/iP(ad|hone|od)/.test(ua)) return true;
+      // iPadOS meldet sich seit 13 als "MacIntel" mit Touch
+      return w.navigator.platform === 'MacIntel' && (w.navigator.maxTouchPoints || 0) > 1;
+    } catch (e) { return false; }
+  })();
+
+  function _instantScrollTo(y) {
+    var de = document.documentElement;
+    var prev = de.style.scrollBehavior;
+    de.style.scrollBehavior = 'auto';
+    w.scrollTo(0, y);
+    de.style.scrollBehavior = prev;
+  }
 
   function _lock() {
     _lockCount++;
     if (_lockCount > 1) return;
     _scrollY = w.scrollY || w.pageYOffset || 0;
-    var b = document.body;
-    // iOS Safari ignoriert overflow:hidden auf body; position:fixed
-    // mit negativem top friert die Seite zuverlaessig ein. Position
-    // wird im unlock() wiederhergestellt.
-    b.style.top = '-' + _scrollY + 'px';
-    b.classList.add('gema-modal-open');
+    var b = document.body, de = document.documentElement;
+    if (_iOS) {
+      _usedFixed = true;
+      b.style.top = '-' + _scrollY + 'px';
+      b.classList.add('gema-modal-open');
+    } else {
+      _usedFixed = false;
+      // Scrollbalken-Breite ausgleichen, sonst rutscht der Inhalt beim
+      // Sperren um ~15px nach rechts (sichtbarer Sprung am Desktop).
+      var sw = w.innerWidth - de.clientWidth;
+      if (sw > 0) {
+        _padSaved = b.style.paddingRight;
+        var cur = parseFloat(w.getComputedStyle(b).paddingRight) || 0;
+        b.style.paddingRight = (cur + sw) + 'px';
+      }
+      de.classList.add('gema-modal-soft');
+    }
+  }
+  function _release() {
+    var b = document.body, de = document.documentElement;
+    var wasFixed = _usedFixed || b.classList.contains('gema-modal-open');
+    b.classList.remove('gema-modal-open');
+    de.classList.remove('gema-modal-soft');
+    b.style.top = '';
+    if (_padSaved !== null) { b.style.paddingRight = _padSaved; _padSaved = null; }
+    _usedFixed = false;
+    // Nur der fixed-Weg hat die Seite real bewegt — nur dort zurueckspringen.
+    if (wasFixed) _instantScrollTo(_scrollY);
   }
   function _unlock() {
     if (_lockCount <= 0) return;
     _lockCount--;
     if (_lockCount > 0) return;
-    var b = document.body;
-    b.classList.remove('gema-modal-open');
-    b.style.top = '';
-    w.scrollTo(0, _scrollY);
+    _release();
   }
   function _reset() {
-    var b = document.body;
-    // War der Body tatsaechlich gelockt (position:fixed)? Dann MUSS die
-    // Scroll-Position wiederhergestellt werden — sonst springt die Seite
-    // nach oben (position:fixed hatte sie visuell auf 0 gesetzt). Der
-    // Auto-Hook ruft _reset() beim Modal-Schliessen; ohne dieses scrollTo
-    // landete man nach QR-/Detail-Dialog immer am Seitenanfang.
-    var wasLocked = _lockCount > 0 || b.classList.contains('gema-modal-open');
     _lockCount = 0;
-    b.classList.remove('gema-modal-open');
-    b.style.top = '';
-    if (wasLocked) w.scrollTo(0, _scrollY);
+    _release();
   }
 
   w.GemaScroll = {

@@ -676,7 +676,7 @@ function renderLiefModal(l){
     var m=num(p.menge),e=num(p.eingegangenMenge);
     var recCtrls=ed?(
         '<div style="display:flex;gap:5px;align-items:center;justify-content:flex-end;flex-wrap:wrap">'
-        +'<input class="cell mini" inputmode="numeric" value="'+e+'" onchange="weSetEingang(\''+l.id+'\',\''+p.id+'\',this.value)" title="eingegangene Menge">'
+        +'<input class="cell mini we-eing" inputmode="numeric" value="'+e+'" onchange="weSetEingang(\''+l.id+'\',\''+p.id+'\',this.value)" title="eingegangene Menge">'
         +'<span class="mut" style="font-size:11px">/ '+m+'</span>'
         +'<button class="btn sm" onclick="weInc(\''+l.id+'\',\''+p.id+'\',1)" title="+1">＋1</button>'
         +'<button class="btn sm" onclick="weComplete(\''+l.id+'\',\''+p.id+'\')" title="komplett erhalten">✓ voll</button>'
@@ -684,12 +684,12 @@ function renderLiefModal(l){
       ):(e+' / '+m);
     var lag=isLagerProj(p.projekt);
     var projLine=p.projekt?'<br><span class="mut" style="font-size:11px">'+(lag?'📦':'📍')+' '+E(projName(p.projekt))+'</span>':'';
-    return '<tr>'
+    return '<tr data-pid="'+E(p.id)+'">'
       +'<td><strong>'+E(p.posNr||(i+1))+'</strong></td>'
       +'<td>'+E(p.artikelNr||'—')+'</td>'
       +'<td><strong>'+E(p.bezeichnung||'—')+'</strong>'+projLine+'</td>'
       +'<td class="num">'+recCtrls+'</td>'
-      +'<td>'+statusBadge(st)+'</td>'
+      +'<td class="we-st">'+statusBadge(st)+'</td>'
       +'<td class="num">'+(lag?'<span class="chip" title="Lager — keine Etikette">📦</span>':'<button class="btn sm" onclick="wePrintPos(\''+l.id+'\',\''+p.id+'\')" title="Etiketten dieser Position">🏷</button>')+'</td>'
       +'</tr>';
   }).join('');
@@ -698,7 +698,7 @@ function renderLiefModal(l){
     +infoCol('Lieferant',E(l.lieferantFirma||'—'))
     +infoCol('Bestell-Nr',E(l.bestellnummer||'—'))
     +infoCol('Bestelldatum',fD(l.bestelldatum||l.importDatum))
-    +infoCol('Status',statusBadge(liefStatus(l)))
+    +infoCol('Status','<span id="weLiefStatus">'+statusBadge(liefStatus(l))+'</span>')
     +'</div>';
   if(l.notiz)head+='<div class="infobox">📝 '+E(l.notiz)+'</div>';
   if(l.offerteId){
@@ -734,9 +734,28 @@ function _updatePos(liefId,posId,fn){
   saveRec(POOL_L,PREFIX_L,l);
   return l;
 }
-window.weSetEingang=function(liefId,posId,v){var l=_updatePos(liefId,posId,function(p){var m=num(p.menge);p.eingegangenMenge=Math.min(m||999999,Math.max(0,num(v)));});if(l){renderLiefModal(l);renderUeber();}};
-window.weInc=function(liefId,posId,d){var l=_updatePos(liefId,posId,function(p){var m=num(p.menge);p.eingegangenMenge=Math.min(m||999999,num(p.eingegangenMenge)+d);});if(l){renderLiefModal(l);renderUeber();}};
-window.weComplete=function(liefId,posId){var l=_updatePos(liefId,posId,function(p){p.eingegangenMenge=num(p.menge);});if(l){renderLiefModal(l);renderUeber();toast('Position komplett erhalten');}};
+/* Nur die betroffene Zeile nachzeichnen — NIE den ganzen Dialog neu bauen.
+   renderLiefModal() ersetzt das komplette Modal-Markup; beim Abhaken sprang
+   der Wareneingang dadurch bei jedem Klick zurueck an den Listenanfang
+   (gleiches Muster wie paintCells in sb_lu_tabelle / der Fokus-Fix in
+   sb_druckverlust). Aktualisiert werden: Mengenfeld, Status der Zeile und
+   der Gesamtstatus im Kopf. Faellt die Zeile nicht auf (Dialog inzwischen
+   zu oder neu aufgebaut), wird auf den Voll-Render zurueckgefallen. */
+function wePaintPos(l,posId){
+  var host=$('weModalHost');if(!host)return false;
+  var tr=host.querySelector('tr[data-pid="'+posId+'"]');if(!tr)return false;
+  var p=(l.positionen||[]).find(function(x){return x.id===posId;});if(!p)return false;
+  var e=num(p.eingegangenMenge);
+  var inp=tr.querySelector('.we-eing');
+  // Ein fokussiertes Feld NICHT ueberschreiben (Cursor/Eingabe des Nutzers)
+  if(inp&&document.activeElement!==inp)inp.value=e;
+  var st=tr.querySelector('.we-st');if(st)st.innerHTML=statusBadge(posStatus(p));
+  var ls=host.querySelector('#weLiefStatus');if(ls)ls.innerHTML=statusBadge(liefStatus(l));
+  return true;
+}
+window.weSetEingang=function(liefId,posId,v){var l=_updatePos(liefId,posId,function(p){var m=num(p.menge);p.eingegangenMenge=Math.min(m||999999,Math.max(0,num(v)));});if(l){if(!wePaintPos(l,posId))renderLiefModal(l);renderUeber();}};
+window.weInc=function(liefId,posId,d){var l=_updatePos(liefId,posId,function(p){var m=num(p.menge);p.eingegangenMenge=Math.min(m||999999,num(p.eingegangenMenge)+d);});if(l){if(!wePaintPos(l,posId))renderLiefModal(l);renderUeber();}};
+window.weComplete=function(liefId,posId){var l=_updatePos(liefId,posId,function(p){p.eingegangenMenge=num(p.menge);});if(l){if(!wePaintPos(l,posId))renderLiefModal(l);renderUeber();toast('Position komplett erhalten');}};
 window.weReceiveAll=function(liefId){
   GemaDialog.confirm({title:'Wareneingang',message:'Alle Positionen dieser Lieferung als vollständig eingegangen markieren?',confirmLabel:'Ja, alles eingegangen'}).then(function(ok){
     if(!ok)return;var l=liefById(liefId);if(!l)return;
