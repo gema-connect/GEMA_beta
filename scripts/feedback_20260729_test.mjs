@@ -190,18 +190,22 @@ console.log('■ h,x-Diagramm — Karten einklappbar');
   const { ctx, page, errs } = await seite('lt_hx_diagramm.html', () => !!document.querySelector('.g-card-hd.hx-foldhd'));
   const karten = await page.locator('.g-card-hd.hx-foldhd').count();
   ok(karten >= 6, 'alle Karten sind einklappbar (' + karten + ')');
-  ok(await page.locator('.g-card').first().locator('.g-card-bd').isVisible(), 'Karten starten offen');
+  // seit Feedback 31.07.2026 steht die (bewusst nicht einklappbare)
+  // Anlagen-Leiste als erste Karte — geprüft wird die erste FALTBARE Karte
+  const foldCard = page.locator('.g-card:has(> .g-card-hd.hx-foldhd)').first();
+  ok(await foldCard.locator('.g-card-bd').isVisible(), 'Karten starten offen');
   await page.locator('.g-card-hd.hx-foldhd').first().click();
   await page.waitForTimeout(150);
-  ok(!(await page.locator('.g-card').first().locator('.g-card-bd').isVisible()), 'Klick auf den Kopf klappt zu');
-  ok(await page.locator('.g-card').first().locator('.hx-fold-cx').textContent() === '▸', 'Chevron zeigt den Zustand');
+  ok(!(await foldCard.locator('.g-card-bd').isVisible()), 'Klick auf den Kopf klappt zu');
+  ok(await foldCard.locator('.hx-fold-cx').textContent() === '▸', 'Chevron zeigt den Zustand');
   await page.reload({ waitUntil: 'domcontentloaded' });
   await page.waitForSelector('.g-card-hd.hx-foldhd', { timeout: 12000 });
   await page.waitForTimeout(500);
-  ok(!(await page.locator('.g-card').first().locator('.g-card-bd').isVisible()), 'Zustand überlebt den Reload (pro Gerät)');
+  const foldCard2 = page.locator('.g-card:has(> .g-card-hd.hx-foldhd)').first();
+  ok(!(await foldCard2.locator('.g-card-bd').isVisible()), 'Zustand überlebt den Reload (pro Gerät)');
   await page.locator('.g-card-hd.hx-foldhd').first().click();
   await page.waitForTimeout(150);
-  ok(await page.locator('.g-card').first().locator('.g-card-bd').isVisible(), 'wieder aufklappbar');
+  ok(await foldCard2.locator('.g-card-bd').isVisible(), 'wieder aufklappbar');
   ok(await page.evaluate(() => {
     const snap = JSON.parse(localStorage.getItem('gema_hx_diagramm') || '{}');
     return Object.keys(snap).every(k => !/fold/i.test(k));

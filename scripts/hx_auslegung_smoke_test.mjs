@@ -82,17 +82,33 @@ console.log('■ Mischen + Übernahme');
   await setInp('#ax_mi_tziel', '');
 }
 
-console.log('■ Lufterhitzer (3 Modi)');
+console.log('■ Lufterhitzer (4 Modi)');
 {
   await page.click('.ax-tab[data-ax="le"]');
-  await setInp('#hx_vdot', 3000);
+  // Feedback 31.07.2026: KEIN globaler Parameter-V̇ mehr — leerer
+  // Auslegungs-Volumenstrom rechnet NICHT (ZUL/ABL nicht immer gleich)
+  ok((await txt('#ax_out_le_phi')) === '–', 'Ohne Auslegungs-V̇ keine Leistung (kein globaler Fallback)');
+  await setInp('#ax_le_v', 3000);
   const phiTxt = await txt('#ax_out_le_phi');   // Modus «Leistung»: AUL → ZUL (Default 0/1)
   const phiEng = await page.evaluate(() => {
     const s1 = _hxLast.punkte[0], s2 = _hxLast.punkte[1];
     return axRegister(s1, s2, 3000 * s1.rho).phi;
   });
   ok(Math.abs(num(phiTxt) - phiEng) < 0.01, 'Heizleistung AUL→ZUL = Engine (' + phiEng.toFixed(2) + ' kW)');
-  ok((await txt('#ax_out_le_m')).indexOf('kg/h') > 0, 'Massenstrom aus globalem V̇ (leer = Parameter)');
+  ok((await txt('#ax_out_le_m')).indexOf('kg/h') > 0, 'Massenstrom aus dem Auslegungs-V̇');
+  // Modus «Ziel-Temperatur» (Feedback 31.07.2026: nur ZUL-t, ohne Feuchte)
+  await page.selectOption('#ax_le_mode', 'ziel');
+  ok(await page.$eval('#ax_le_row_tziel', el => el.style.display !== 'none'), 'Ziel-t-Eingabe sichtbar');
+  ok(await page.$eval('#ax_le_row_p2', el => el.style.display === 'none'), 'Punkt-nach-Zeile im Ziel-Modus ausgeblendet');
+  await setInp('#ax_le_tziel', 21);
+  const zielEng = await page.evaluate(() => {
+    const s1 = _hxLast.punkte[0];
+    return axRegisterZiel(s1, 21, 3000 * s1.rho, _hxLast.p).phi;
+  });
+  ok(Math.abs(num(await txt('#ax_out_le_phi')) - zielEng) < 0.01, 'Ziel-t 21 °C → Leistung = Engine (' + zielEng.toFixed(2) + ' kW)');
+  ok(/21\.0 °C/.test(await txt('#ax_out_le_t2')), 'Zustand nach = Zieltemperatur (x konstant, φ berechnet)');
+  ok(await page.$eval('#ax_btn_le', b => !b.disabled), 'Übernehmen-Button im Ziel-Modus aktiv');
+  await setInp('#ax_le_tziel', '');
   // Modus «Zustand nach»
   await page.selectOption('#ax_le_mode', 'nach');
   ok(await page.$eval('#ax_le_row_p2', el => el.style.display === 'none'), 'Punkt-nach-Zeile im Modus «nach» ausgeblendet');
@@ -115,6 +131,7 @@ console.log('■ Lufterhitzer (3 Modi)');
 console.log('■ Luftkühler + Kaltwasser');
 {
   await page.click('.ax-tab[data-ax="lk"]');
+  await setInp('#ax_lk_v', 3000);   // eigener Auslegungs-V̇ (kein globaler Fallback mehr)
   // warmen feuchten + kühlen Punkt anlegen
   await page.evaluate(() => {
     hxRows.push({ name: 'Sommer', combo: 't_phi', w1: '32', w2: '60' });
@@ -138,6 +155,7 @@ console.log('■ Luftkühler + Kaltwasser');
 console.log('■ Wärmerückgewinnung');
 {
   await page.click('.ax-tab[data-ax="wrg"]');
+  await setInp('#ax_wrg_vaul', 3000);   // eigener Auslegungs-V̇
   await page.selectOption('#ax_wrg_paul', '0');   // AUL −8/90
   const iAbl = await page.evaluate(() => hxRows.findIndex(r => r.name === 'ZUL'));
   await page.selectOption('#ax_wrg_pabl', String(iAbl));
@@ -168,6 +186,7 @@ console.log('■ Wärmerückgewinnung');
 console.log('■ Befeuchtung adiabat + Abschlämmung');
 {
   await page.click('.ax-tab[data-ax="bef"]');
+  await setInp('#ax_bef_v', 3000);   // eigener Auslegungs-V̇
   await page.selectOption('#ax_bef_art', 'adiabat');
   const iSommer = await page.evaluate(() => hxRows.findIndex(r => r.name === 'Sommer'));
   await page.selectOption('#ax_bef_p1', String(iSommer));
@@ -195,6 +214,7 @@ console.log('■ Befeuchtung adiabat + Abschlämmung');
 console.log('■ Ventilator');
 {
   await page.click('.ax-tab[data-ax="ven"]');
+  await setInp('#ax_ven_v', 3000);   // eigener Auslegungs-V̇
   await setInp('#ax_ven_dp', 1200);
   const pv = num(await txt('#ax_out_ven_p'));
   ok(Math.abs(pv - 3000 * 1200 / (0.65 * 3.6e6)) < 0.01, 'Pven = V̇·Δp/(η·3.6·10⁶) = ' + pv + ' kW');

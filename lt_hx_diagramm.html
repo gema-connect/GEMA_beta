@@ -570,6 +570,8 @@ table.hx{border-collapse:collapse;width:100%;font-size:12.5px}
 .ax-take{margin-top:10px;font-family:var(--sans);font-size:12px;font-weight:700;padding:8px 14px;border-radius:10px;border:1.5px dashed #0284c7;background:#f0f9ff;color:#0369a1;cursor:pointer;width:100%;transition:.12s}
 .ax-take:hover{background:#e0f2fe}
 .ax-take:disabled{opacity:.45;cursor:not-allowed}
+.ax-take.slim{width:auto;margin:0}
+.hx-anlsel{padding:6px 10px;border:1.5px solid var(--border2);border-radius:10px;font-size:12.5px;font-weight:600;font-family:inherit;color:var(--text);background:var(--bg2);outline:none;max-width:280px}
 @media print{.ax-tabs,.ax-take{display:none!important}}
 </style>
 
@@ -636,11 +638,29 @@ table.hx{border-collapse:collapse;width:100%;font-size:12.5px}
 </div>
 
 <div id="pdfArea">
+
+<!-- Anlagen-Verwaltung (Feedback 31.07.2026 Christoph Grolimund: «Erfassung
+     mehrere Anlagen? 244.1 … 244.2 …») — mehrere Anlagen pro Objekt, jede mit
+     eigenem kompletten Stand (Luftzustände + Parameter + Auslegungen).
+     Zustand als JSON im hidden #hx_anlagen (AutoSave, Muster #hx_rows). -->
+<div class="g-card" style="margin-bottom:14px">
+  <div class="g-card-bd" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:12px 18px">
+    <span style="font-size:12.5px;font-weight:800;color:var(--text)">🏭 Anlage</span>
+    <select class="hx-anlsel" id="hxAnlSel" onchange="hxAnlSwitch(this.value)"></select>
+    <button type="button" class="ax-take slim" onclick="hxAnlNeu()">＋ Neue Anlage</button>
+    <button type="button" class="ax-take slim" onclick="hxAnlUmbenennen()">✎ Umbenennen</button>
+    <button type="button" class="ax-take slim" id="hxAnlDelBtn" onclick="hxAnlLoeschen()">🗑</button>
+    <span class="lbl-hint" style="margin-left:auto">z.B. 244.1 Zuluftanlage · 244.2 Abluftanlage — jede Anlage hat ihre eigenen Luftzustände + Auslegungen</span>
+  </div>
+</div>
+
 <div class="g-main-grid">
   <div class="g-card">
     <div class="g-card-hd"><h2>Parameter</h2></div>
     <div class="g-card-bd">
-<div class="fg"><div class="fg-lbl">Höhe über Meer<br><span class="lbl-hint">Luftdruck über barometrische Höhenformel (Referenz Seven-Air: 540 m ü. M.)</span></div><input class="fg-inp" onblur="fixLeadingZero(this)" id="hx_hoehe" type="text" inputmode="decimal" value="540" oninput="hxRecalc()"/><span class="fg-unit">müM</span></div><div class="fg"><div class="fg-lbl">Luftdruck-Override<br><span class="lbl-hint">0 = automatisch aus der Höhe</span></div><input class="fg-inp" onblur="fixLeadingZero(this)" id="hx_druck" type="text" inputmode="decimal" value="0" oninput="hxRecalc()"/><span class="fg-unit">mbar</span></div><div class="fg"><div class="fg-lbl">Volumenstrom<br><span class="lbl-hint">für Prozessleistungen · 0 = keine Leistungsberechnung</span></div><input class="fg-inp" onblur="fixLeadingZero(this)" id="hx_vdot" type="text" inputmode="decimal" value="0" oninput="hxRecalc()"/><span class="fg-unit">m³/h</span></div>
+<div class="fg"><div class="fg-lbl">Klimastation (SIA 2028)<br><span class="lbl-hint">Ort wählen → Höhe wird gesetzt · Auslegungszustände Winter/Sommer einfügbar</span></div><select class="fg-sel" id="hx_station" onchange="hxStationPick(true)"><option value="">— Ort wählen —</option></select></div>
+<div class="fg" id="hx_station_row" style="display:none"><div class="fg-lbl">Auslegungszustand<br><span class="lbl-hint" id="hx_station_hint">Winter: SIA 2028 Tab. 6 (1-Stundenwert) / 90 % rF · Sommer: Richtwert — nach dem Einfügen anpassbar</span></div><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><button type="button" class="ax-take slim" id="hx_btn_winter" onclick="hxStationEinfuegen('winter')">＋ Winter</button><button type="button" class="ax-take slim" id="hx_btn_sommer" onclick="hxStationEinfuegen('sommer')">＋ Sommer</button></div></div>
+<div class="fg"><div class="fg-lbl">Höhe über Meer<br><span class="lbl-hint">Luftdruck über barometrische Höhenformel (Referenz Seven-Air: 540 m ü. M.)</span></div><input class="fg-inp" onblur="fixLeadingZero(this)" id="hx_hoehe" type="text" inputmode="decimal" value="540" oninput="hxRecalc()"/><span class="fg-unit">müM</span></div><div class="fg"><div class="fg-lbl">Luftdruck-Override<br><span class="lbl-hint">0 = automatisch aus der Höhe</span></div><input class="fg-inp" onblur="fixLeadingZero(this)" id="hx_druck" type="text" inputmode="decimal" value="0" oninput="hxRecalc()"/><span class="fg-unit">mbar</span></div>
       <div class="fg">
         <div class="fg-lbl">Prozesslinie zeichnen<br><span class="lbl-hint">Punkte in Tabellenreihenfolge verbinden</span></div>
         <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:600;cursor:pointer">
@@ -693,6 +713,10 @@ table.hx{border-collapse:collapse;width:100%;font-size:12.5px}
 <div class="g-card" style="margin-top:14px">
   <div class="g-card-hd"><h2>Prozess-Auswertung</h2></div>
   <div class="g-card-bd">
+    <!-- Volumenstrom lebt HIER (Feedback 31.07.2026: aus den Parametern
+         entfernt — ZUL/ABL sind nicht immer gleich, die Auslegungen führen
+         ihren eigenen V̇; dieser gilt nur für die Prozesskette unten) -->
+    <div class="fg"><div class="fg-lbl">Volumenstrom Prozesskette<br><span class="lbl-hint">nur für diese Auswertung · 0 = keine Leistungsberechnung</span></div><input class="fg-inp" onblur="fixLeadingZero(this)" id="hx_vdot" type="text" inputmode="decimal" value="0" oninput="hxRecalc()"/><span class="fg-unit">m³/h</span></div>
     <div class="hx-wrap">
       <table class="hx">
         <thead><tr>
@@ -703,14 +727,14 @@ table.hx{border-collapse:collapse;width:100%;font-size:12.5px}
         <tbody id="hxProzBody"></tbody>
       </table>
     </div>
-    <div class="hx-note">💡 Prozesse laufen in Tabellenreihenfolge der Luftzustände (z.B. Aussenluft → WRG → Heizregister → Zuluft). <b>P = ṁ·Δh</b> (positiv = Heizen), <b>Wasser = ṁ·Δx</b> (positiv = Befeuchten). Volumenstrom oben eintragen.</div>
+    <div class="hx-note">💡 Prozesse laufen in Tabellenreihenfolge der Luftzustände (z.B. Aussenluft → WRG → Heizregister → Zuluft). <b>P = ṁ·Δh</b> (positiv = Heizen), <b>Wasser = ṁ·Δx</b> (positiv = Befeuchten). Volumenstrom oben in dieser Karte eintragen.</div>
   </div>
 </div>
 
 <div class="g-card" style="margin-top:14px">
   <div class="g-card-hd"><h2>Auslegungen Lüftungskomponenten</h2></div>
   <div class="g-card-bd">
-    <div class="hx-note" style="margin:0 0 12px">💡 Auslegungsrechnungen auf Basis der oben erfassten <b>Luftzustände</b>: Punkt(e) wählen, Volumenstrom eintragen, Ergebnis ablesen. Berechnete Zustände (Mischpunkt, nach Register, nach WRG …) lassen sich per Klick <b>als Luftzustand übernehmen</b> und erscheinen in Tabelle + Diagramm.</div>
+    <div class="hx-note" style="margin:0 0 12px">💡 Auslegungsrechnungen auf Basis der oben erfassten <b>Luftzustände</b>: Punkt(e) wählen, Volumenstrom je Auslegung eintragen (ZUL/ABL nicht immer gleich), Ergebnis ablesen. Berechnete Zustände (Mischpunkt, nach Register, nach WRG …) lassen sich per Klick <b>als Luftzustand übernehmen</b> und erscheinen in Tabelle + Diagramm.</div>
     <div class="ax-tabs">
       <button type="button" class="ax-tab" data-ax="misch" onclick="axShowTab('misch')">🌀 Mischen</button>
       <button type="button" class="ax-tab" data-ax="le" onclick="axShowTab('le')">🔥 Lufterhitzer</button>
@@ -767,12 +791,14 @@ table.hx{border-collapse:collapse;width:100%;font-size:12.5px}
         <div>
           <div class="fg"><div class="fg-lbl">Gesucht</div><select class="fg-sel" id="ax_le_mode">
             <option value="phi">Heizleistung (beide Zustände bekannt)</option>
+            <option value="ziel">Zuluft-Temperatur vorgeben (nur t — Leistung berechnen)</option>
             <option value="nach">Zustand nach Register (Leistung bekannt)</option>
             <option value="vdot">Volumenstrom (Leistung + Zustände bekannt)</option>
           </select></div>
-          <div class="fg"><div class="fg-lbl">Luft vor Erhitzer</div><select class="fg-sel" id="ax_le_p1"></select></div>
+          <div class="fg"><div class="fg-lbl">Luft vor Erhitzer<br><span class="lbl-hint">je nach Anlage: nach WRG oder Aussenluft</span></div><select class="fg-sel" id="ax_le_p1"></select></div>
           <div class="fg" id="ax_le_row_p2"><div class="fg-lbl">Luft nach Erhitzer</div><select class="fg-sel" id="ax_le_p2"></select></div>
-          <div class="fg" id="ax_le_row_v"><div class="fg-lbl">Volumenstrom<br><span class="lbl-hint">leer = Volumenstrom aus «Parameter»</span></div><input class="fg-inp" onblur="fixLeadingZero(this)" id="ax_le_v" type="text" inputmode="decimal" placeholder="0"/><span class="fg-unit">m³/h</span></div>
+          <div class="fg" id="ax_le_row_tziel" style="display:none"><div class="fg-lbl">Zuluft-Temperatur<br><span class="lbl-hint">ohne Feuchte — Erwärmung bei x = konstant, Rest wird berechnet</span></div><input class="fg-inp" onblur="fixLeadingZero(this)" id="ax_le_tziel" type="text" inputmode="decimal" placeholder="z.B. 21"/><span class="fg-unit">°C</span></div>
+          <div class="fg" id="ax_le_row_v"><div class="fg-lbl">Volumenstrom<br><span class="lbl-hint">Volumenstrom dieser Auslegung</span></div><input class="fg-inp" onblur="fixLeadingZero(this)" id="ax_le_v" type="text" inputmode="decimal" placeholder="0"/><span class="fg-unit">m³/h</span></div>
           <div class="fg" id="ax_le_row_phi"><div class="fg-lbl">Heizleistung Φ<sub>LE</sub></div><input class="fg-inp" onblur="fixLeadingZero(this)" id="ax_le_phi" type="text" inputmode="decimal" placeholder="0"/><span class="fg-unit">kW</span></div>
         </div>
         <div>
@@ -796,12 +822,14 @@ table.hx{border-collapse:collapse;width:100%;font-size:12.5px}
         <div>
           <div class="fg"><div class="fg-lbl">Gesucht</div><select class="fg-sel" id="ax_lk_mode">
             <option value="phi">Kühlleistung (beide Zustände bekannt)</option>
+            <option value="ziel">Zuluft-Temperatur vorgeben (nur t — Leistung berechnen)</option>
             <option value="nach">Zustand nach Register (Leistung bekannt, trocken)</option>
             <option value="vdot">Volumenstrom (Leistung + Zustände bekannt)</option>
           </select></div>
-          <div class="fg"><div class="fg-lbl">Luft vor Kühler</div><select class="fg-sel" id="ax_lk_p1"></select></div>
+          <div class="fg"><div class="fg-lbl">Luft vor Kühler<br><span class="lbl-hint">je nach Anlage: nach WRG oder Aussenluft</span></div><select class="fg-sel" id="ax_lk_p1"></select></div>
           <div class="fg" id="ax_lk_row_p2"><div class="fg-lbl">Luft nach Kühler</div><select class="fg-sel" id="ax_lk_p2"></select></div>
-          <div class="fg" id="ax_lk_row_v"><div class="fg-lbl">Volumenstrom<br><span class="lbl-hint">leer = Volumenstrom aus «Parameter»</span></div><input class="fg-inp" onblur="fixLeadingZero(this)" id="ax_lk_v" type="text" inputmode="decimal" placeholder="0"/><span class="fg-unit">m³/h</span></div>
+          <div class="fg" id="ax_lk_row_tziel" style="display:none"><div class="fg-lbl">Zuluft-Temperatur<br><span class="lbl-hint">ohne Feuchte — trockene Kühlung bei x = konstant, Rest wird berechnet</span></div><input class="fg-inp" onblur="fixLeadingZero(this)" id="ax_lk_tziel" type="text" inputmode="decimal" placeholder="z.B. 16"/><span class="fg-unit">°C</span></div>
+          <div class="fg" id="ax_lk_row_v"><div class="fg-lbl">Volumenstrom<br><span class="lbl-hint">Volumenstrom dieser Auslegung</span></div><input class="fg-inp" onblur="fixLeadingZero(this)" id="ax_lk_v" type="text" inputmode="decimal" placeholder="0"/><span class="fg-unit">m³/h</span></div>
           <div class="fg" id="ax_lk_row_phi"><div class="fg-lbl">Kühlleistung Φ<sub>LK</sub></div><input class="fg-inp" onblur="fixLeadingZero(this)" id="ax_lk_phi" type="text" inputmode="decimal" placeholder="0"/><span class="fg-unit">kW</span></div>
         </div>
         <div>
@@ -848,7 +876,7 @@ table.hx{border-collapse:collapse;width:100%;font-size:12.5px}
           <div class="fg"><div class="fg-lbl">Aussenluft ein (AUL 1)</div><select class="fg-sel" id="ax_wrg_paul"></select></div>
           <div class="fg"><div class="fg-lbl">Abluft ein (ABL 1)</div><select class="fg-sel" id="ax_wrg_pabl"></select></div>
           <div class="fg" id="ax_wrg_row_p2"><div class="fg-lbl">Aussenluft nach WRG (AUL 2)</div><select class="fg-sel" id="ax_wrg_paul2"></select></div>
-          <div class="fg"><div class="fg-lbl">Volumenstrom Aussenluft<br><span class="lbl-hint">leer = Volumenstrom aus «Parameter»</span></div><input class="fg-inp" onblur="fixLeadingZero(this)" id="ax_wrg_vaul" type="text" inputmode="decimal" placeholder="0"/><span class="fg-unit">m³/h</span></div>
+          <div class="fg"><div class="fg-lbl">Volumenstrom Aussenluft<br><span class="lbl-hint">Volumenstrom dieser Auslegung</span></div><input class="fg-inp" onblur="fixLeadingZero(this)" id="ax_wrg_vaul" type="text" inputmode="decimal" placeholder="0"/><span class="fg-unit">m³/h</span></div>
           <div class="fg"><div class="fg-lbl">Volumenstrom Abluft<br><span class="lbl-hint">leer = wie Aussenluft</span></div><input class="fg-inp" onblur="fixLeadingZero(this)" id="ax_wrg_vabl" type="text" inputmode="decimal" placeholder="0"/><span class="fg-unit">m³/h</span></div>
           <div class="fg" id="ax_wrg_row_eta"><div class="fg-lbl">Rückwärmzahl ηθ</div><input class="fg-inp" onblur="fixLeadingZero(this)" id="ax_wrg_etat" type="text" inputmode="decimal" value="75"/><span class="fg-unit">%</span></div>
           <div class="fg" id="ax_wrg_row_etax"><div class="fg-lbl">Feuchte-Übertragung ηx<br><span class="lbl-hint">0 = nur sensibel (Platten-WT/KVS) · Rotor mit Sorption &gt; 0</span></div><input class="fg-inp" onblur="fixLeadingZero(this)" id="ax_wrg_etax" type="text" inputmode="decimal" value="0"/><span class="fg-unit">%</span></div>
@@ -891,7 +919,7 @@ table.hx{border-collapse:collapse;width:100%;font-size:12.5px}
           <div class="fg" id="ax_bef_row_p2a"><div class="fg-lbl">Luft nach Befeuchter</div><select class="fg-sel" id="ax_bef_p2a"></select></div>
           <div class="fg" id="ax_bef_row_md"><div class="fg-lbl">Dampfmenge ṁDampf</div><input class="fg-inp" onblur="fixLeadingZero(this)" id="ax_bef_md" type="text" inputmode="decimal" placeholder="0"/><span class="fg-unit">kg/h</span></div>
           <div class="fg" id="ax_bef_row_eta"><div class="fg-lbl">Befeuchter-Wirkungsgrad ηBef</div><input class="fg-inp" onblur="fixLeadingZero(this)" id="ax_bef_eta" type="text" inputmode="decimal" value="85"/><span class="fg-unit">%</span></div>
-          <div class="fg"><div class="fg-lbl">Volumenstrom<br><span class="lbl-hint">leer = Volumenstrom aus «Parameter»</span></div><input class="fg-inp" onblur="fixLeadingZero(this)" id="ax_bef_v" type="text" inputmode="decimal" placeholder="0"/><span class="fg-unit">m³/h</span></div>
+          <div class="fg"><div class="fg-lbl">Volumenstrom<br><span class="lbl-hint">Volumenstrom dieser Auslegung</span></div><input class="fg-inp" onblur="fixLeadingZero(this)" id="ax_bef_v" type="text" inputmode="decimal" placeholder="0"/><span class="fg-unit">m³/h</span></div>
         </div>
         <div>
           <div class="g-result-list">
@@ -941,7 +969,7 @@ table.hx{border-collapse:collapse;width:100%;font-size:12.5px}
             <option value="p">Ventilatorleistung bekannt</option>
           </select></div>
           <div class="fg"><div class="fg-lbl">Luft vor Ventilator<br><span class="lbl-hint">für Dichte + Übernahme · leer = ρ 1.20 kg/m³</span></div><select class="fg-sel" id="ax_ven_p1"></select></div>
-          <div class="fg"><div class="fg-lbl">Volumenstrom<br><span class="lbl-hint">leer = Volumenstrom aus «Parameter»</span></div><input class="fg-inp" onblur="fixLeadingZero(this)" id="ax_ven_v" type="text" inputmode="decimal" placeholder="0"/><span class="fg-unit">m³/h</span></div>
+          <div class="fg"><div class="fg-lbl">Volumenstrom<br><span class="lbl-hint">Volumenstrom dieser Auslegung</span></div><input class="fg-inp" onblur="fixLeadingZero(this)" id="ax_ven_v" type="text" inputmode="decimal" placeholder="0"/><span class="fg-unit">m³/h</span></div>
           <div class="fg" id="ax_ven_row_dp"><div class="fg-lbl">Gesamt-Druckverlust Δp<sub>ges</sub></div><input class="fg-inp" onblur="fixLeadingZero(this)" id="ax_ven_dp" type="text" inputmode="decimal" placeholder="z.B. 1200"/><span class="fg-unit">Pa</span></div>
           <div class="fg" id="ax_ven_row_eta"><div class="fg-lbl">Ventilator-Wirkungsgrad ηven</div><input class="fg-inp" onblur="fixLeadingZero(this)" id="ax_ven_eta" type="text" inputmode="decimal" value="65"/><span class="fg-unit">%</span></div>
           <div class="fg" id="ax_ven_row_p"><div class="fg-lbl">Ventilatorleistung Pven</div><input class="fg-inp" onblur="fixLeadingZero(this)" id="ax_ven_p" type="text" inputmode="decimal" placeholder="0"/><span class="fg-unit">kW</span></div>
@@ -1141,6 +1169,15 @@ function axRegisterNach(s1,phi,mdot,p){
   var st=axState(hxTfromHX(s1.h+phi*3600/mdot,s1.x),s1.x,p);
   if(st)st.dTheta=st.t-s1.t;
   return st;
+}
+// Ziel-Temperatur vorgegeben (Feedback 31.07.2026: nur ZUL-t eingeben, ohne
+// Feuchte) — Zustand nach bei x = konstant, Leistung Φ = ṁ·Δh/3600 [kW]
+function axRegisterZiel(s1,tziel,mdot,p){
+  if(!s1||!isFinite(tziel)||!(mdot>0))return null;
+  var st=axState(tziel,s1.x,p);
+  if(!st)return null;
+  st.dTheta=st.t-s1.t;
+  return {state:st,dTheta:st.dTheta,dh:st.h-s1.h,phi:mdot*(st.h-s1.h)/3600};
 }
 // Erforderlicher Massenstrom [kg/h] für Φ zwischen zwei Zuständen
 function axRegisterMdot(s1,s2,phi){
@@ -1522,7 +1559,9 @@ function axPt(id){
   return null;
 }
 function axIdx(id){var el=document.getElementById(id);return el&&el.value!==''?parseInt(el.value,10):-1;}
-function axFlow(id){var v=hxNum(id);return v>0?v:hxNum('hx_vdot');}
+// Feedback 31.07.2026: KEIN Fallback mehr auf einen globalen Parameter-V̇ —
+// ZUL/ABL sind nicht immer gleich, jede Auslegung erfasst ihren Volumenstrom selbst.
+function axFlow(id){return hxNum(id);}
 function axSel(id){var el=document.getElementById(id);return el?el.value:'';}
 function axVis(id,show){var el=document.getElementById(id);if(el)el.style.display=show?'':'none';}
 function axShowTab(key,silent){
@@ -1585,8 +1624,9 @@ function axRecalc(){
   // — Lufterhitzer —
   (function(){
     var mode=axSel('ax_le_mode')||'phi';
-    axVis('ax_le_row_p2',mode!=='nach');axVis('ax_le_row_v',mode!=='vdot');axVis('ax_le_row_phi',mode!=='phi');
-    axVis('ax_le_r_phi',mode==='phi');axVis('ax_le_r_t2',mode==='nach');axVis('ax_le_r_vreq',mode==='vdot');
+    axVis('ax_le_row_p2',mode!=='nach'&&mode!=='ziel');axVis('ax_le_row_v',mode!=='vdot');axVis('ax_le_row_phi',mode==='nach'||mode==='vdot');
+    axVis('ax_le_row_tziel',mode==='ziel');
+    axVis('ax_le_r_phi',mode==='phi'||mode==='ziel');axVis('ax_le_r_t2',mode==='nach'||mode==='ziel');axVis('ax_le_r_vreq',mode==='vdot');
     var s1=axPt('ax_le_p1'),s2=axPt('ax_le_p2');
     var v=axFlow('ax_le_v'),phiIn=hxNum('ax_le_phi');
     var m=s1&&v>0?v*s1.rho:0,warn=false;
@@ -1596,6 +1636,15 @@ function axRecalc(){
       warn=!!(r&&r.dh<-1e-6);
       hxSet('ax_out_le_d',r?F(r.dTheta,1)+' K / '+F(r.dh,2)+' kJ/kg':'–');
       hxSet('ax_out_le_phi',r&&r.dh>0?F(r.phi,2)+' kW':'–');
+    } else if(mode==='ziel'){
+      // Feedback 31.07.2026: nur die ZUL-Temperatur eingeben (ohne Feuchte) —
+      // Start je nach Anlage «nach WRG» oder Aussenluft, Rest wird berechnet.
+      var rz=(s1&&m>0)?axRegisterZiel(s1,hxNum('ax_le_tziel'),m,p):null;
+      warn=!!(rz&&rz.dh<-1e-6);
+      hxSet('ax_out_le_d',rz?F(rz.dTheta,1)+' K / '+F(rz.dh,2)+' kJ/kg':'–');
+      hxSet('ax_out_le_phi',rz&&rz.dh>0?F(rz.phi,2)+' kW':'–');
+      hxSet('ax_out_le_t2',rz?F(rz.state.t,1)+' °C / '+F(Math.min(rz.state.phi,100),1)+' % rF':'–');
+      if(rz&&rz.dh>0)_axRes.le={state:rz.state,name:'nach Erhitzer',at:axIdx('ax_le_p1')+1};
     } else if(mode==='nach'){
       var st=(s1&&m>0&&phiIn>0)?axRegisterNach(s1,phiIn,m,p):null;
       hxSet('ax_out_le_d',st?F(st.dTheta,1)+' K / '+F(st.h-s1.h,2)+' kJ/kg':'–');
@@ -1610,20 +1659,31 @@ function axRecalc(){
     }
     axVis('ax_warn_le',warn);
     var b=document.getElementById('ax_btn_le');
-    if(b){b.style.display=mode==='nach'?'':'none';b.disabled=!_axRes.le;}
+    if(b){b.style.display=(mode==='nach'||mode==='ziel')?'':'none';b.disabled=!_axRes.le;}
   })();
 
   // — Luftkühler —
   (function(){
     var mode=axSel('ax_lk_mode')||'phi';
-    axVis('ax_lk_row_p2',mode!=='nach');axVis('ax_lk_row_v',mode!=='vdot');axVis('ax_lk_row_phi',mode!=='phi');
-    axVis('ax_lk_r_phi',mode==='phi');axVis('ax_lk_r_art',mode==='phi');axVis('ax_lk_r_sens',mode==='phi');
-    axVis('ax_lk_r_kond',mode==='phi');axVis('ax_lk_r_t2',mode==='nach');axVis('ax_lk_r_vreq',mode==='vdot');
+    axVis('ax_lk_row_p2',mode!=='nach'&&mode!=='ziel');axVis('ax_lk_row_v',mode!=='vdot');axVis('ax_lk_row_phi',mode==='nach'||mode==='vdot');
+    axVis('ax_lk_row_tziel',mode==='ziel');
+    axVis('ax_lk_r_phi',mode==='phi'||mode==='ziel');axVis('ax_lk_r_art',mode==='phi');axVis('ax_lk_r_sens',mode==='phi');
+    axVis('ax_lk_r_kond',mode==='phi');axVis('ax_lk_r_t2',mode==='nach'||mode==='ziel');axVis('ax_lk_r_vreq',mode==='vdot');
     var s1=axPt('ax_lk_p1'),s2=axPt('ax_lk_p2');
     var v=axFlow('ax_lk_v'),phiIn=hxNum('ax_lk_phi');
     var m=s1&&v>0?v*s1.rho:0,phiK=0,warn=false,warnTd=false;
     hxSet('ax_out_lk_m',m>0&&mode!=='vdot'?F(m,0)+' kg/h ('+F(v,0)+' m³/h)':'–');
-    if(mode==='phi'){
+    if(mode==='ziel'){
+      // Feedback 31.07.2026: nur die ZUL-Temperatur eingeben (ohne Feuchte)
+      var rz=(s1&&m>0)?axRegisterZiel(s1,hxNum('ax_lk_tziel'),m,p):null;
+      warn=!!(rz&&rz.dh>1e-6);
+      warnTd=!!(rz&&s1&&rz.state.t<s1.td);
+      phiK=rz&&rz.dh<0?-rz.phi:0;
+      hxSet('ax_out_lk_d',rz?F(rz.dTheta,1)+' K / '+F(rz.dh,2)+' kJ/kg':'–');
+      hxSet('ax_out_lk_phi',phiK>0?F(phiK,2)+' kW':'–');
+      hxSet('ax_out_lk_t2',rz?F(rz.state.t,1)+' °C / '+F(Math.min(rz.state.phi,100),1)+' % rF':'–');
+      if(rz&&rz.dh<0)_axRes.lk={state:rz.state,name:'nach Kühler',at:axIdx('ax_lk_p1')+1};
+    } else if(mode==='phi'){
       var r=(s1&&s2&&m>0)?axRegister(s1,s2,m):null;
       warn=!!(r&&r.dh>1e-6);
       phiK=r&&r.phi<0?-r.phi:0;
@@ -1649,7 +1709,7 @@ function axRecalc(){
     }
     axVis('ax_warn_lk',warn);axVis('ax_warn_lk_td',warnTd);
     var b=document.getElementById('ax_btn_lk');
-    if(b){b.style.display=mode==='nach'?'':'none';b.disabled=!_axRes.lk;}
+    if(b){b.style.display=(mode==='nach'||mode==='ziel')?'':'none';b.disabled=!_axRes.lk;}
     var kw=phiK>0?axKaltwasser(phiK,hxNum('ax_lk_tvl'),hxNum('ax_lk_trl')):null;
     hxSet('ax_out_lk_mw',kw?F(kw.mW,0)+' kg/h ('+F(kw.lMin,1)+' l/min)':'–');
     hxSet('ax_out_lk_t0',kw?F(kw.theta0,1)+' °C':'–');
@@ -1811,8 +1871,192 @@ document.addEventListener('DOMContentLoaded',function(){
   axShowTab((document.getElementById('ax_tab')||{value:'misch'}).value||'misch',true);
   setTimeout(axSnapshotLoad,700);setTimeout(axSnapshotLoad,1800);setTimeout(axSnapshotLoad,3500);
 });
+
+// ── Klimastationen SIA 2028 (Feedback 31.07.2026 Christoph Grolimund) ──
+// Ort wählen setzt die Höhe (müM, MeteoSchweiz-Stationshöhen); für die
+// Auslegung WRG/Lufterhitzer lässt sich der Winter-Auslegungszustand als
+// Luftzustand einfügen: tw1h = 1-Stundenwert nach SIA 2028 Tab. 6 (wo
+// vorliegend — Basel −13 / Buchs −14 aus dem Feedback), sonst die
+// Norm-Aussentemperatur Heizfall (tn, dieselbe Quelle wie hz_waermepumpe);
+// rF Winter 90 %. Sommer = Richtwert 32 °C / 40 % — alle Werte sind nach
+// dem Einfügen als normaler Luftzustand anpassbar.
+var HX_KLIMA=[
+  {n:'Adelboden',h:1327,tn:-10},{n:'Altdorf',h:438,tn:-6},{n:'Basel-Binningen',h:316,tn:-7,tw1h:-13},
+  {n:'Bern-Liebefeld',h:565,tn:-7},{n:'Buchs-Aarau',h:387,tn:-7,tw1h:-14},{n:'Chur',h:556,tn:-7},
+  {n:'Davos',h:1594,tn:-13},{n:'Disentis',h:1197,tn:-10},{n:'Engelberg',h:1036,tn:-11},
+  {n:'Genève-Cointrin',h:420,tn:-4},{n:'Glarus',h:517,tn:-8},{n:'Grosser St. Bernhard',h:2472,tn:-15},
+  {n:'Güttingen',h:440,tn:-7},{n:'La Chaux-de-Fonds',h:1018,tn:-10},{n:'Locarno-Monti',h:366,tn:-1},
+  {n:'Lugano',h:273,tn:-1},{n:'Luzern',h:454,tn:-6},{n:'Magadino',h:203,tn:-3},
+  {n:'Montana',h:1508,tn:-10},{n:'Neuchâtel',h:485,tn:-5},{n:'Payerne',h:490,tn:-7},
+  {n:'Robbia',h:1078,tn:-8},{n:'Samedan',h:1708,tn:-18},{n:'San Bernardino',h:1639,tn:-11},
+  {n:'St. Gallen',h:775,tn:-9},{n:'Schaffhausen',h:438,tn:-8},{n:'Scuol',h:1303,tn:-12},
+  {n:'Sion',h:482,tn:-6},{n:'Vaduz',h:457,tn:-8},{n:'Wynau',h:422,tn:-7},
+  {n:'Zermatt',h:1638,tn:-11},{n:'Zürich SMA',h:556,tn:-8}
+];
+var HX_SOMMER={t:32,phi:40};
+function hxKlimaBy(name){for(var i=0;i<HX_KLIMA.length;i++)if(HX_KLIMA[i].n===name)return HX_KLIMA[i];return null;}
+function hxKlimaWinterT(st){return st?(isFinite(st.tw1h)?st.tw1h:st.tn):NaN;}
+function hxStationUi(){
+  var sel=document.getElementById('hx_station');if(!sel)return;
+  var st=hxKlimaBy(sel.value);
+  var row=document.getElementById('hx_station_row');
+  if(row)row.style.display=st?'':'none';
+  if(!st)return;
+  var tw=hxKlimaWinterT(st);
+  var bw=document.getElementById('hx_btn_winter');
+  if(bw)bw.textContent='＋ Winter '+tw+' °C / 90 %';
+  var bs=document.getElementById('hx_btn_sommer');
+  if(bs)bs.textContent='＋ Sommer '+HX_SOMMER.t+' °C / '+HX_SOMMER.phi+' %';
+  var hint=document.getElementById('hx_station_hint');
+  if(hint)hint.textContent=st.n+' · '+st.h+' müM — Winter: '+(isFinite(st.tw1h)?'SIA 2028 Tab. 6 (1-Stundenwert)':'Norm-Aussentemperatur Heizfall (Tab.-6-Wert ggf. anpassen)')+' / 90 % rF · Sommer: Richtwert';
+}
+window.hxStationPick=function(){hxStationUi();};
+window.hxStationEinfuegen=function(fall){
+  var sel=document.getElementById('hx_station');
+  var st=hxKlimaBy(sel?sel.value:'');if(!st)return;
+  var kurz=st.n.split(/[ -]/)[0];
+  var t=fall==='sommer'?HX_SOMMER.t:hxKlimaWinterT(st);
+  var phi=fall==='sommer'?HX_SOMMER.phi:90;
+  hxRows.push({name:'AUL '+(fall==='sommer'?'Sommer':'Winter')+' '+kurz,combo:'t_phi',w1:String(t),w2:String(phi)});
+  hxRenderTable();hxPersist();hxRecalc();
+};
+// Station wählen setzt die Höhe — NUR bei echter Benutzer-Wahl (isTrusted;
+// der AutoSave-Restore stellt das Select wieder her und darf eine manuell
+// angepasste Höhe nie überschreiben — Muster ehSetUnit/hlCalc)
+document.addEventListener('change',function(e){
+  if(!e.target||e.target.id!=='hx_station')return;
+  hxStationUi();
+  var st=hxKlimaBy(e.target.value);
+  if(st&&e.isTrusted){
+    var hEl=document.getElementById('hx_hoehe');
+    if(hEl){hEl.value=String(st.h);hxRecalc();}
+  }
+},true);
+document.addEventListener('DOMContentLoaded',function(){
+  var sel=document.getElementById('hx_station');
+  if(sel&&sel.options.length<=1){
+    HX_KLIMA.forEach(function(st){
+      var o=document.createElement('option');o.value=st.n;o.textContent=st.n+' ('+st.h+' müM)';sel.appendChild(o);
+    });
+  }
+  setTimeout(hxStationUi,900);setTimeout(hxStationUi,2000);
+});
+
+// ── Mehrere Anlagen pro Objekt (Feedback 31.07.2026: «244.1 … 244.2 …») ──
+// Jede Anlage hält den KOMPLETTEN Stand (Luftzustände + Parameter +
+// Auslegungen) — die aktive lebt im DOM, inaktive als Feld-Snapshots im
+// hidden #hx_anlagen (AutoSave-persistiert pro Objekt, Muster #hx_rows).
+var HXA={aktiv:'a1',list:[{id:'a1',name:'Anlage 1'}],snaps:{}};
+var _hxAnlDefaults=null;
+function hxAnlFelder(){
+  var out={};
+  document.querySelectorAll('input[id],select[id],textarea[id]').forEach(function(el){
+    var id=el.id||'';
+    if(!/^(hx_|ax_)/.test(id)||id==='hx_anlagen')return;
+    out[id]=(el.type==='checkbox')?!!el.checked:el.value;
+  });
+  return out;
+}
+function hxAnlApply(f){
+  if(!f)return;
+  function pass(selectsOnly){
+    Object.keys(f).forEach(function(id){
+      var el=document.getElementById(id);if(!el)return;
+      if(selectsOnly&&el.tagName!=='SELECT')return;
+      if(el.type==='checkbox')el.checked=!!f[id];
+      else el.value=f[id]==null?'':String(f[id]);
+    });
+  }
+  pass(false);
+  // Punktetabelle aus dem Snapshot-hx_rows restaurieren (change-Listener)
+  var ta=document.getElementById('hx_rows');
+  if(ta){ta.dispatchEvent(new Event('change',{bubbles:true}));}
+  // Selects nochmals — hxRecalc baut die Punkt-Optionen erst nach dem Restore
+  pass(true);
+  _axTouched=true;_axWant=null;
+  axShowTab((document.getElementById('ax_tab')||{value:'misch'}).value||'misch',true);
+  hxRecalc();axRecalc();
+}
+function hxAnlPersist(){
+  var ta=document.getElementById('hx_anlagen');if(!ta)return;
+  _hxInternal=true;
+  try{
+    ta.value=JSON.stringify(HXA);
+    ta.dispatchEvent(new Event('change',{bubbles:true}));
+  }catch(e){}
+  _hxInternal=false;
+}
+function hxAnlRenderSel(){
+  var sel=document.getElementById('hxAnlSel');if(!sel)return;
+  sel.innerHTML=HXA.list.map(function(a){
+    return '<option value="'+hxEsc(a.id)+'"'+(a.id===HXA.aktiv?' selected':'')+'>'+hxEsc(a.name)+'</option>';
+  }).join('');
+  var del=document.getElementById('hxAnlDelBtn');
+  if(del)del.disabled=HXA.list.length<=1;
+}
+window.hxAnlSwitch=function(id){
+  if(!id||id===HXA.aktiv)return;
+  var ziel=HXA.list.find(function(a){return a.id===id;});if(!ziel)return;
+  HXA.snaps[HXA.aktiv]=hxAnlFelder();
+  HXA.aktiv=id;
+  hxAnlApply(HXA.snaps[id]||null);
+  hxAnlPersist();hxAnlRenderSel();
+};
+window.hxAnlNeu=function(){
+  GemaDialog.prompt({title:'Neue Anlage',message:'Bezeichnung der Anlage (z.B. 244.2 Abluftanlage):',defaultValue:'Anlage '+(HXA.list.length+1)}).then(function(name){
+    if(name===null)return;
+    HXA.snaps[HXA.aktiv]=hxAnlFelder();
+    var id='a'+Date.now().toString(36);
+    HXA.list.push({id:id,name:(name||'Anlage '+(HXA.list.length+1)).trim()||('Anlage '+(HXA.list.length+1))});
+    HXA.aktiv=id;
+    // Neue Anlage startet leer — Höhe/Station/Druck bleiben (gleiches Gebäude)
+    var keep={hx_hoehe:1,hx_druck:1,hx_station:1,hx_linie:1};
+    var frisch={};
+    Object.keys(_hxAnlDefaults||{}).forEach(function(k){if(!keep[k])frisch[k]=_hxAnlDefaults[k];});
+    hxAnlApply(frisch);
+    hxRows=[hxDefaultRow(0)];hxRenderTable();hxPersist();hxRecalc();
+    hxAnlPersist();hxAnlRenderSel();
+  });
+};
+window.hxAnlUmbenennen=function(){
+  var a=HXA.list.find(function(x){return x.id===HXA.aktiv;});if(!a)return;
+  GemaDialog.prompt({title:'Anlage umbenennen',defaultValue:a.name}).then(function(name){
+    if(name===null||!String(name).trim())return;
+    a.name=String(name).trim();
+    hxAnlPersist();hxAnlRenderSel();
+  });
+};
+window.hxAnlLoeschen=function(){
+  if(HXA.list.length<=1)return;
+  var a=HXA.list.find(function(x){return x.id===HXA.aktiv;});
+  GemaDialog.confirm({title:'Anlage löschen',message:'Anlage «'+(a?a.name:'')+'» mit allen Luftzuständen und Auslegungen löschen?',confirmLabel:'Löschen',danger:true}).then(function(ok){
+    if(!ok)return;
+    HXA.list=HXA.list.filter(function(x){return x.id!==HXA.aktiv;});
+    delete HXA.snaps[HXA.aktiv];
+    HXA.aktiv=HXA.list[0].id;
+    hxAnlApply(HXA.snaps[HXA.aktiv]||null);
+    hxAnlPersist();hxAnlRenderSel();
+  });
+};
+document.addEventListener('DOMContentLoaded',function(){
+  _hxAnlDefaults=hxAnlFelder();
+  var ta=document.getElementById('hx_anlagen');
+  function restore(){
+    if(_hxInternal)return;
+    try{
+      var st=JSON.parse(ta.value||'');
+      if(st&&Array.isArray(st.list)&&st.list.length){HXA=st;if(!HXA.snaps)HXA.snaps={};}
+      else{HXA={aktiv:'a1',list:[{id:'a1',name:'Anlage 1'}],snaps:{}};}
+    }catch(e){HXA={aktiv:'a1',list:[{id:'a1',name:'Anlage 1'}],snaps:{}};}
+    hxAnlRenderSel();
+  }
+  if(ta){ta.addEventListener('input',restore);ta.addEventListener('change',restore);}
+  hxAnlRenderSel();
+});
+window._hxAnlHooks={state:function(){return HXA;},felder:hxAnlFelder,klima:HX_KLIMA,winterT:hxKlimaWinterT};
 </script>
 <textarea id="hx_rows" style="display:none"></textarea>
+<textarea id="hx_anlagen" style="display:none"></textarea>
 
 
 <!-- Anlagen-Wahl (Produktkatalog) + Offertanfrage für Lüftungsgeräte -->

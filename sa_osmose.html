@@ -369,6 +369,13 @@ body {
   border: 1px solid var(--border); border-radius: var(--r) var(--r) 0 0;
   border-bottom: 2px solid var(--accent-bd);
 }
+/* Einklappbare Sektionen (Feedback 31.07.2026) — Zustand pro Gerät,
+   NIE im AutoSave; Print zeigt eingeklappte Sektionen wieder */
+.g-section-hd.osm-foldhd{cursor:pointer;user-select:none}
+.osm-fold-cx{font-size:11px;color:var(--muted);width:14px;flex-shrink:0;display:inline-flex;justify-content:center}
+.g-section.osm-zu .g-section-bd{display:none}
+.g-section.osm-zu .g-section-hd{border-radius:var(--r)}
+@media print{.g-section.osm-zu .g-section-bd{display:block!important}}
 .g-section-num {
   width: 24px; height: 24px; border-radius: 50%; background: var(--accent);
   color: #fff; font-size: 11px; font-weight: 900; display: flex; align-items: center; justify-content: center; flex-shrink: 0;
@@ -513,17 +520,25 @@ body {
 input::placeholder,textarea::placeholder{color:#cbd5e1!important}
 /* ── Tankoptimierung (24-h-Profil) ── */
 .ot-wrap{overflow-x:auto;border:1px solid var(--line,#e2e8f0);border-radius:10px}
-.ot-tbl{border-collapse:collapse;font-size:11px;min-width:1280px;width:100%}
-.ot-tbl th,.ot-tbl td{border-bottom:1px solid #eef1f6;border-right:1px solid #f1f4f9;padding:3px 4px;text-align:center;white-space:nowrap}
+/* 24-h-Tabelle OHNE horizontalen Schiebe-Balken (Feedback 31.07.2026):
+   table-layout:fixed teilt die Restbreite gleichmässig auf die 24 Stunden-
+   Spalten auf — .ot-wrap-Scroll bleibt nur als Sicherheitsnetz für Phones. */
+.ot-tbl{border-collapse:collapse;font-size:11px;width:100%;table-layout:fixed}
+.ot-tbl th,.ot-tbl td{border-bottom:1px solid #eef1f6;border-right:1px solid #f1f4f9;padding:3px 2px;text-align:center;white-space:nowrap;overflow:hidden}
 .ot-tbl thead th{background:#f8fafc;font-weight:800;color:#475569;font-size:10px}
-.ot-tbl .ot-lead{position:sticky;left:0;background:#fff;text-align:left;min-width:160px;max-width:200px;z-index:2;box-shadow:2px 0 0 #eef1f6}
+.ot-tbl .ot-lead{position:sticky;left:0;background:#fff;text-align:left;width:122px;z-index:2;box-shadow:2px 0 0 #eef1f6;white-space:normal;overflow-wrap:break-word}
 .ot-tbl thead .ot-lead{background:#f8fafc;z-index:3}
-.ot-h{width:44px;border:1px solid #d7dde8;border-radius:6px;padding:3px 3px;font-size:11px;text-align:right;font-family:inherit;background:#fff}
+.ot-abth{width:52px}
+.ot-sumth{width:74px}
+.ot-stath{width:54px}
+.ot-tbl thead th.ot-zh{font-size:7.5px;line-height:1.25;padding:2px 0;font-weight:700;letter-spacing:0}
+.ot-tbl td[data-warn],.ot-tbl td[data-pwarn]{white-space:normal}
+.ot-h{width:100%;min-width:0;box-sizing:border-box;border:1px solid #d7dde8;border-radius:5px;padding:3px 1px;font-size:10.5px;text-align:right;font-family:inherit;background:#fff}
 .ot-h:focus{outline:none;border-color:#1d4ed8}
 .ot-h.warn{border-color:#dc2626;background:#fef2f2}
-.ot-ab{width:38px;border:1px solid #d7dde8;border-radius:6px;padding:3px 3px;font-size:11px;text-align:right;font-family:inherit}
+.ot-ab{width:24px;border:1px solid #d7dde8;border-radius:5px;padding:3px 1px;font-size:10.5px;text-align:right;font-family:inherit}
 .ot-sub{font-size:10px;color:#64748b;font-weight:600}
-.ot-fill{font-weight:700;color:#0f172a;font-size:10.5px}
+.ot-tbl td.ot-fill{font-weight:700;color:#0f172a;font-size:9px;letter-spacing:-.2px;padding:3px 1px}
 td.ot-low{background:#fee2e2;color:#b91c1c;font-weight:800}
 td.ot-over{background:#fef3c7;color:#92400e;font-weight:800}
 .ot-pill{display:inline-block;padding:1px 8px;border-radius:99px;font-size:10px;font-weight:800}
@@ -1336,9 +1351,16 @@ function fixLeadingZero(el){
 
     function otBuildTable(cons){
       var t = document.getElementById('otTbl'); if(!t) return;
-      var h = '<thead><tr><th class="ot-lead">Verbraucher</th><th class="no-print" title="Startstunde für Auto-Verteilen">ab h</th>';
-      for(var i = 0; i < 24; i++) h += '<th>' + String(i).padStart(2, '0') + '</th>';
-      h += '<th>Σ / Soll [l]</th><th>Status</th></tr></thead><tbody>';
+      // Kopf zweizeilig (Feedback 31.07.2026): Beschriftung «Zeit», je Spalte
+      // das Stundenfenster «00.00 –01.00» — statt der blossen Stundenzahl.
+      var h = '<thead><tr><th class="ot-lead" rowspan="2">Verbraucher</th><th class="no-print ot-abth" rowspan="2" title="Startstunde für Auto-Verteilen">ab h</th>';
+      h += '<th colspan="24">Zeit</th><th class="ot-sumth" rowspan="2">Σ / Soll [l]</th><th class="ot-stath" rowspan="2">Status</th></tr><tr>';
+      for(var i = 0; i < 24; i++){
+        var z0 = String(i).padStart(2, '0'), z1 = String((i + 1) % 24 || 24).padStart(2, '0');
+        if(i === 23) z1 = '24';
+        h += '<th class="ot-zh" title="' + z0 + '.00–' + z1 + '.00 Uhr">' + z0 + '.00<br>–' + z1 + '.00</th>';
+      }
+      h += '</tr></thead><tbody>';
       cons.forEach(function(c, ci){
         var arr = otArr(c.key);
         h += '<tr data-key="' + otEsc(c.key) + '"><td class="ot-lead"><b>' + otEsc(c.name || ('Verbraucher ' + (ci + 1))) + '</b><div class="ot-sub" data-sub></div></td>';
@@ -1351,7 +1373,7 @@ function fixLeadingZero(el){
       h += '<tr><td class="ot-lead"><b>Total Permeatbedarf</b><div class="ot-sub">Liter je Stunde</div></td><td class="no-print"></td>';
       for(var b = 0; b < 24; b++) h += '<td class="ot-sub" data-bh="' + b + '"></td>';
       h += '<td class="ot-sub" data-bsum></td><td></td></tr>';
-      h += '<tr class="ot-prodrow"><td class="ot-lead"><b>Permeatproduktion</b><div class="ot-sub">Liter je Stunde</div></td>';
+      h += '<tr class="ot-prodrow"><td class="ot-lead"><b>Permeat&shy;produktion</b><div class="ot-sub">Liter je Stunde</div></td>';
       h += '<td class="no-print"><input class="ot-ab" type="text" inputmode="numeric" id="otAbProd" value="' + (OT.abProd != null ? OT.abProd : 6) + '" onchange="otAbProdChanged(this)"/> <button class="ot-btn" type="button" title="Anlageleistung × Laufzeit ab Startstunde einfüllen" onclick="otVerteileProd()">⇆</button></td>';
       for(var p = 0; p < 24; p++) h += '<td><input class="ot-h" type="text" inputmode="decimal" data-kind="p" data-h="' + p + '" value="' + (OT.prod[p] ? otRound(OT.prod[p]) : '') + '" oninput="otCellInput(this)" onblur="fixLeadingZero(this)"/></td>';
       h += '<td class="ot-sub" data-psum></td><td data-pwarn></td></tr>';
@@ -1562,7 +1584,8 @@ function fixLeadingZero(el){
     // innerHTML-Rebuild. Füllstand zwischen den Stundenwerten linear
     // interpoliert (osmSimLevel, ENGINE).
     var SIM = { t: 7, playing: false, raf: 0, last: 0, data: null, built: '' };
-    var OTS = { X: 240, W: 170, TOP: 46, BOT: 326 };
+    /* Tank breiter (Feedback 31.07.2026) — W 170 → 260, viewBox 680 */
+    var OTS = { X: 200, W: 260, TOP: 46, BOT: 326 };
     function otSimCap(d){ return Math.max(d.tank, d.tankSel || 0, d.maxStand * 1.02, 1); }
     function otSimY(d, v){
       var cap = otSimCap(d);
@@ -1593,7 +1616,7 @@ function fixLeadingZero(el){
       if(SIM.built === sig && wrap.querySelector('svg')) return;
       SIM.built = sig;
       var X = OTS.X, W = OTS.W, T = OTS.TOP, B = OTS.BOT;
-      var s = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 366" width="640" style="max-width:100%">';
+      var s = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 366" width="680" style="max-width:100%">';
       s += '<defs>' +
         '<marker id="otSimArrT" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 Z" fill="#0d9488"/></marker>' +
         '<marker id="otSimArrB" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 Z" fill="#2563eb"/></marker>' +
@@ -1607,39 +1630,54 @@ function fixLeadingZero(el){
         '<text x="52" y="113" font-size="9.5" font-weight="800" fill="#0f766e" text-anchor="middle" font-family="DM Sans, sans-serif">Anlage</text>' +
         '<text data-sim="prodTxt" x="' + ((86 + X) / 2) + '" y="96" font-size="11" font-weight="800" fill="#0d9488" text-anchor="middle" font-family="DM Sans, sans-serif"></text>' +
       '</g>';
-      // Ablauf: Tank → Verbraucher (aktiv, wenn die Stunde Bedarf hat)
+      // Ablauf: Tank → Verbraucher (aktiv, wenn die Stunde Bedarf hat) —
+      // Beschriftung in EINER Zeile (Feedback 31.07.2026)
       s += '<g data-sim="bedGrp">' +
-        '<line x1="' + (X + W) + '" y1="300" x2="556" y2="300" stroke="#2563eb" stroke-width="3" stroke-linecap="round" marker-end="url(#otSimArrB)"/>' +
-        '<rect x="560" y="280" width="68" height="40" rx="8" fill="#eff6ff" stroke="#2563eb" stroke-width="1.5"/>' +
-        '<text x="594" y="297" font-size="9.5" font-weight="800" fill="#1d4ed8" text-anchor="middle" font-family="DM Sans, sans-serif">Verbrau-</text>' +
-        '<text x="594" y="309" font-size="9.5" font-weight="800" fill="#1d4ed8" text-anchor="middle" font-family="DM Sans, sans-serif">cher</text>' +
-        '<text data-sim="bedTxt" x="' + (X + W + (556 - X - W) / 2) + '" y="292" font-size="11" font-weight="800" fill="#2563eb" text-anchor="middle" font-family="DM Sans, sans-serif"></text>' +
+        '<line x1="' + (X + W) + '" y1="300" x2="576" y2="300" stroke="#2563eb" stroke-width="3" stroke-linecap="round" marker-end="url(#otSimArrB)"/>' +
+        '<rect x="580" y="284" width="88" height="32" rx="8" fill="#eff6ff" stroke="#2563eb" stroke-width="1.5"/>' +
+        '<text x="624" y="304" font-size="9.5" font-weight="800" fill="#1d4ed8" text-anchor="middle" font-family="DM Sans, sans-serif">Verbraucher</text>' +
+        '<text data-sim="bedTxt" x="' + (X + W + (576 - X - W) / 2) + '" y="292" font-size="11" font-weight="800" fill="#2563eb" text-anchor="middle" font-family="DM Sans, sans-serif"></text>' +
       '</g>';
       // Wasser + Behälter
       s += '<rect data-sim="water" x="' + (X + 2) + '" y="' + B + '" width="' + (W - 4) + '" height="0" fill="#93c5fd"/>';
       s += '<line data-sim="surface" x1="' + (X + 2) + '" y1="' + B + '" x2="' + (X + W - 2) + '" y2="' + B + '" stroke="#2563eb" stroke-width="2.4"/>';
       s += '<rect x="' + X + '" y="' + T + '" width="' + W + '" height="' + (B - T) + '" rx="10" fill="none" stroke="#111827" stroke-width="2.6"/>';
       s += '<text x="' + (X + W / 2) + '" y="' + (T - 10) + '" font-size="11.5" font-weight="800" fill="#111827" text-anchor="middle" font-family="DM Sans, sans-serif">Reinwassertank</text>';
-      // Marker-Linien (Label links, damit rechts Platz für den Füllstand-Chip bleibt)
+      // Marker-Linien (Label links, damit rechts Platz für den Füllstand-Chip
+      // bleibt). Kollisions-Ausweichen (Feedback 31.07.2026 «Darstellung mit
+      // sehr kleinen Werten optimieren»): liegen Linien nah beieinander
+      // (z.B. gewählt 100 l + Reserve 50 l auf einer 2'500-l-Skala), werden
+      // die Labels gestaffelt und mit einem kurzen Verbinder an ihre Linie
+      // geführt — Muster Pegel-Skala sb_kreisprofil.
+      var marks = [];
       function mk(v, col, label, dash){
-        if(!(v > 0) || v > cap * 1.001) return '';
-        var y = otSimY(d, v);
-        return '<line x1="' + X + '" y1="' + y + '" x2="' + (X + W) + '" y2="' + y + '" stroke="' + col + '" stroke-width="1.4" stroke-dasharray="' + (dash || '6 4') + '"/>' +
-               '<text x="' + (X - 8) + '" y="' + (y + 3.5) + '" font-size="9.5" font-weight="700" fill="' + col + '" text-anchor="end" font-family="DM Sans, sans-serif">' + label + '</text>';
+        if(!(v > 0) || v > cap * 1.001) return;
+        marks.push({ y: otSimY(d, v), col: col, label: label, dash: dash || '6 4' });
       }
-      s += mk(d.tank, '#d97706', 'Tankgrösse ' + formatNumber(d.tank, 0) + ' l');
-      s += mk(50, '#dc2626', 'Reserve 50 l', '3 3');
-      if(d.tankSel > 0 && Math.abs(d.tankSel - d.tank) > 0.5) s += mk(d.tankSel, '#64748b', 'gewählt ' + formatNumber(d.tankSel, 0) + ' l', '2 3');
+      mk(d.tank, '#d97706', 'Tankgrösse ' + formatNumber(d.tank, 0) + ' l');
+      mk(50, '#dc2626', 'Reserve 50 l', '3 3');
+      if(d.tankSel > 0 && Math.abs(d.tankSel - d.tank) > 0.5) mk(d.tankSel, '#64748b', 'gewählt ' + formatNumber(d.tankSel, 0) + ' l', '2 3');
+      marks.sort(function(a, b){ return a.y - b.y; });
+      var lastLy = -999;
+      marks.forEach(function(m){
+        m.ly = Math.max(m.y, lastLy + 12);
+        lastLy = m.ly;
+      });
+      marks.forEach(function(m){
+        s += '<line x1="' + X + '" y1="' + m.y + '" x2="' + (X + W) + '" y2="' + m.y + '" stroke="' + m.col + '" stroke-width="1.4" stroke-dasharray="' + m.dash + '"/>';
+        if(Math.abs(m.ly - m.y) > 4) s += '<line x1="' + (X - 6) + '" y1="' + m.ly + '" x2="' + X + '" y2="' + m.y + '" stroke="' + m.col + '" stroke-width="1"/>';
+        s += '<text x="' + (X - 8) + '" y="' + (m.ly + 3.5) + '" font-size="9.5" font-weight="700" fill="' + m.col + '" text-anchor="end" font-family="DM Sans, sans-serif">' + m.label + '</text>';
+      });
       // Füllstand-Chip (folgt der Wasseroberfläche, via transform)
       s += '<g data-sim="lvlGrp" transform="translate(0,' + B + ')">' +
-        '<rect x="' + (X + W + 8) + '" y="-10" width="118" height="20" rx="10" fill="#ffffff" stroke="#2563eb" stroke-width="1.2"/>' +
-        '<text data-sim="lvlTxt" x="' + (X + W + 67) + '" y="4" font-size="10.5" font-weight="800" fill="#1d4ed8" text-anchor="middle" font-family="DM Sans, sans-serif"></text>' +
+        '<rect x="' + (X + W + 8) + '" y="-10" width="104" height="20" rx="10" fill="#ffffff" stroke="#2563eb" stroke-width="1.2"/>' +
+        '<text data-sim="lvlTxt" x="' + (X + W + 60) + '" y="4" font-size="10.5" font-weight="800" fill="#1d4ed8" text-anchor="middle" font-family="DM Sans, sans-serif"></text>' +
       '</g>';
       // Uhr + Tag/Nacht + Status-Pill
       s += '<text data-sim="clock" x="20" y="30" font-size="20" font-weight="800" fill="#0f172a" font-family="DM Sans, sans-serif" style="font-variant-numeric:tabular-nums">07:00</text>';
       s += '<text data-sim="day" x="92" y="30" font-size="15" font-family="DM Sans, sans-serif">☀️</text>';
-      s += '<g><rect data-sim="pillBg" x="452" y="14" width="176" height="22" rx="11" fill="#f0fdf4" stroke="#16a34a" stroke-width="1.4"/>' +
-        '<text data-sim="pillTxt" x="540" y="29" font-size="10.5" font-weight="800" fill="#16a34a" text-anchor="middle" font-family="DM Sans, sans-serif">Füllstand i.O.</text></g>';
+      s += '<g><rect data-sim="pillBg" x="492" y="14" width="176" height="22" rx="11" fill="#f0fdf4" stroke="#16a34a" stroke-width="1.4"/>' +
+        '<text data-sim="pillTxt" x="580" y="29" font-size="10.5" font-weight="800" fill="#16a34a" text-anchor="middle" font-family="DM Sans, sans-serif">Füllstand i.O.</text></g>';
       s += '</svg>';
       wrap.innerHTML = s;
     }
@@ -2338,5 +2376,48 @@ document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('osmo
 <link rel="stylesheet" href="gema_anlagenwahl.css"/>
 <script src="gema_scroll.js"></script>
 <script src="gema_mobile_menu.js"></script>
+<script>
+(function(){
+  /* Alle Sektionen einklappbar (Feedback 31.07.2026, Standard-Muster) —
+     datengetrieben über .g-section mit .g-section-hd + .g-section-bd,
+     Schlüssel aus dem Titel; Zustand pro Gerät (localStorage), NIE im
+     AutoSave; @media print zeigt alles (CSS .osm-zu). */
+  var KEY = 'gema_osm_fold_v1';
+  function loadSt(){ try { return JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch(e){ return {}; } }
+  function saveSt(st){ try { localStorage.setItem(KEY, JSON.stringify(st)); } catch(e){} }
+  function slug(t){ return String(t || '').toLowerCase().replace(/[^a-z0-9äöü]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 40) || 'sektion'; }
+  function boot(){
+    var st = loadSt();
+    document.querySelectorAll('.g-section').forEach(function(sec){
+      var hd = sec.querySelector(':scope > .g-section-hd');
+      var bd = sec.querySelector(':scope > .g-section-bd');
+      if (!hd || !bd || hd.classList.contains('osm-foldhd')) return;
+      var title = hd.querySelector('.g-section-title');
+      var key = slug(title ? title.textContent : '');
+      hd.classList.add('osm-foldhd');
+      var cx = document.createElement('span');
+      cx.className = 'osm-fold-cx no-print';
+      cx.textContent = '▾';
+      hd.insertBefore(cx, hd.firstChild);
+      function apply(zu){
+        sec.classList.toggle('osm-zu', !!zu);
+        cx.textContent = zu ? '▸' : '▾';
+      }
+      apply(!!st[key]);
+      hd.addEventListener('click', function(ev){
+        if (ev.target.closest('button, a, input, select, textarea, label')) return;
+        var zu = !sec.classList.contains('osm-zu');
+        apply(zu);
+        var s2 = loadSt();
+        if (zu) s2[key] = 1; else delete s2[key];
+        saveSt(s2);
+        /* Beim Aufklappen neu rechnen — Canvas/Sim zeichnen nur sichtbar sauber */
+        if (!zu){ try { if (typeof recalc === 'function') recalc(); } catch(e){} }
+      });
+    });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
+})();
+</script>
 </body>
 </html>
