@@ -159,7 +159,9 @@ input,select,button{font-family:var(--sans)}
   background:var(--sur);border:1.5px solid var(--brd);transition:.12s;min-height:44px}
 .fit-card:hover{border-color:var(--blue-bd)}
 .fit-card.active{background:var(--blue-bg);border-color:var(--blue-bd)}
-.fit-card .fc-ic{font-size:15px;line-height:1}
+.fit-card .fc-ic{font-size:15px;line-height:1;display:inline-flex;align-items:center}
+.fit-card .fc-ic svg,.fit-mini svg{display:block;flex-shrink:0}
+.fit-mini svg{width:14px;height:14px}
 .fit-card .fc-img{width:30px;height:30px;border-radius:5px;object-fit:contain;background:#fff;border:1px solid var(--brd)}
 .fit-card .fc-txt{display:flex;flex-direction:column;line-height:1.25;min-width:0}
 .fit-card .fc-n{font-size:12px;font-weight:700;color:var(--txt2);white-space:nowrap}
@@ -558,18 +560,67 @@ function dimLabel(dim){ return GemaRohre.dimLabel(dim);
 // Jedes Fitting kann ein optionales `img` Feld haben (URL/base64)
 // das vom Lieferanten hochgeladen wird und im Chip angezeigt wird.
 // ═══════════════════════════════════════════════════════════
-const FITTING_ICONS = {
-  'Bogen 90°':'↩️', 'Bogen 45°':'↪', 'Winkel 90°':'↩️', 'Winkel 45°':'↪',
-  'T-Stück':'⊤', 'T-Stück Durchgang':'⊤', 'T-Stück Abzweiger':'⊤', 'T-Stück Abzweig':'⊤',
-  'Reduktion':'▷', 'Muffe':'═', 'Kupplung':'○',
-  'Anschlusswinkel':'⤵', 'Anschlussdose':'⊛',
-  'Verteiler':'┤', 'Rohrabbiegung':'⤾',
-};
-function fitIcon(name){
-  for(const[k,v] of Object.entries(FITTING_ICONS)){
-    if(name.toLowerCase().includes(k.toLowerCase())) return v;
+/* ── Formstück-Piktogramme ──────────────────────────────────────────────
+   Feedback 01.08.2026 (Sandro): «Noch eindeutigere Icons wählen». Die alten
+   Unicode-Zeichen waren teils IDENTISCH (T-Stück Durchgang und Abzweiger
+   beide «⊤») und Emojis rendern je nach Gerät anders. Ersetzt durch kleine
+   Inline-SVG-Piktogramme, die das Formstück wirklich zeigen: die Leitung
+   dick, der markierte Weg (Durchgang bzw. Abzweig) in Akzentfarbe.
+   NUR literale Hex-Farben (GemaPDF-Regel). */
+const FIT_SVG = (function(){
+  function svg(inner){
+    return '<svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true" focusable="false">'
+      + '<g fill="none" stroke="#334155" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">'
+      + inner + '</g></svg>';
   }
-  return '🔧';
+  var A = '#2563eb';                                  // hervorgehobener Weg
+  return {
+    bogen90:  svg('<path d="M4 20 H12 A8 8 0 0 0 20 12 V4"/>'),
+    bogen45:  svg('<path d="M4 20 H10 L20 10 V4"/>'),
+    /* Durchgang vs. Abzweig unterscheiden sich NICHT nur durch die Farbe —
+       der gerechnete Weg ist zusätzlich dicker und trägt einen Richtungspfeil
+       (auf 17 px ist eine reine Farbunterscheidung zu schwach). */
+    tDurch:   svg('<path d="M12 13 V21" stroke="#94a3b8" stroke-width="2.4"/>'
+                + '<path d="M3 12 H19" stroke="'+A+'" stroke-width="4"/>'
+                + '<path d="M15 8 L20 12 L15 16" stroke="'+A+'" stroke-width="3" fill="none"/>'),
+    tAbzweig: svg('<path d="M3 10 H21" stroke="#94a3b8" stroke-width="2.4"/>'
+                + '<path d="M12 10 V15" stroke="'+A+'" stroke-width="4"/>'
+                + '<path d="M8 15 L12 21 L16 15" stroke="'+A+'" stroke-width="3" fill="none"/>'),
+    tStueck:  svg('<path d="M3 12 H21"/><path d="M12 12 V21"/>'),
+    reduktion:svg('<path d="M2 8 H9 L16 5 V19 L9 16 H2"/>'),
+    muffe:    svg('<path d="M2 12 H22"/><path d="M8 7 V17"/><path d="M16 7 V17"/>'),
+    kupplung: svg('<path d="M2 12 H22"/><rect x="8" y="6" width="8" height="12" rx="2"/>'),
+    winkel:   svg('<path d="M4 20 V10 L14 10 H20"/>'),
+    dose:     svg('<path d="M12 3 V10"/><circle cx="12" cy="15" r="5"/>'),
+    verteiler:svg('<path d="M6 3 V21"/><path d="M6 7 H20"/><path d="M6 17 H20"/>'),
+    abbiegung:svg('<path d="M4 20 H10 A10 10 0 0 0 20 10"/><path d="M20 5 V10 H15"/>'),
+    ventil:   svg('<path d="M2 12 H6"/><path d="M18 12 H22"/><path d="M6 6 L6 18 L12 12 Z" fill="#ffffff"/><path d="M18 6 L18 18 L12 12 Z" fill="#ffffff"/><path d="M12 12 V5"/><path d="M8 5 H16"/>'),
+    generisch:svg('<path d="M2 12 H22"/><path d="M9 8 V16"/><path d="M15 8 V16"/>')
+  };
+})();
+/* Reihenfolge = Priorität: spezifischere Begriffe zuerst (ein «T-Stück
+   Abzweiger» darf nie auf «T-Stück» fallen). */
+const FITTING_ICONS = [
+  ['durchgang', 'tDurch'], ['vereinig', 'tDurch'],
+  ['abzweiger', 'tAbzweig'], ['abzweig', 'tAbzweig'],
+  ['t-stück', 'tStueck'],
+  ['bogen 90', 'bogen90'], ['winkel 90', 'bogen90'], ['bogen 45', 'bogen45'], ['winkel 45', 'bogen45'],
+  ['bogen', 'bogen90'],
+  ['anschlusswinkel', 'winkel'], ['anschlussdose', 'dose'], ['armaturenanschluss', 'ventil'],
+  ['reduktion', 'reduktion'], ['übergang', 'reduktion'], ['muffe', 'muffe'], ['kupplung', 'kupplung'],
+  ['verteiler', 'verteiler'], ['rohrabbiegung', 'abbiegung'],
+  ['ventil', 'ventil'], ['hahn', 'ventil'], ['schieber', 'ventil']
+];
+/* KRITISCH: Die Katalog-Namen tragen Klammern («T-Stück (Durchgang)») —
+   ein Substring-Vergleich auf «t-stück durchgang» geht dort ins Leere und
+   BEIDE T-Stücke fielen auf dasselbe neutrale Symbol zurück. Darum werden
+   Satzzeichen vor dem Vergleich zu Leerzeichen normalisiert. */
+function fitIcon(name){
+  var n = String(name || '').toLowerCase().replace(/[^a-zäöüß0-9°]+/g, ' ').trim();
+  for (var i = 0; i < FITTING_ICONS.length; i++){
+    if (n.includes(FITTING_ICONS[i][0])) return FIT_SVG[FITTING_ICONS[i][1]];
+  }
+  return FIT_SVG.generisch;
 }
 
 /* Formstück-Katalog einer Zeile. Im Sammel-System (Nussbaum/JRG) folgt er dem
@@ -1196,7 +1247,7 @@ function render(){
     } else {
       const miniChips=[
         ...fitActive.map(([name,cnt])=>`<span class="fit-mini"><b>${cnt}×</b> ${fitIcon(name)} ${name}</span>`),
-        ...armActive.map(([id,cnt])=>{const a=typeof GemaArmaturen!=='undefined'?GemaArmaturen.getById(id):null;const kvs=typeof GemaArmaturen!=='undefined'?GemaArmaturen.getKvs(id,row.dimDn):0;return `<span class="fit-mini"><b>${cnt}×</b> 🔧 ${a?a.name:id}${kvs>0?' <i style="font-weight:600">kvs '+kvs+'</i>':''}</span>`;}),
+        ...armActive.map(([id,cnt])=>{const a=typeof GemaArmaturen!=='undefined'?GemaArmaturen.getById(id):null;const kvs=typeof GemaArmaturen!=='undefined'?GemaArmaturen.getKvs(id,row.dimDn):0;return `<span class="fit-mini"><b>${cnt}×</b> ${FIT_SVG.ventil} ${a?a.name:id}${kvs>0?' <i style="font-weight:600">kvs '+kvs+'</i>':''}</span>`;}),
         ...manuActive.map(m=>`<span class="fit-mini"><b>✍</b> ${m.name||'Manuell'} · ${fmt(parseFloat(m.dp)||0,2)} kPa</span>`)
       ].join('');
       fitSection=`

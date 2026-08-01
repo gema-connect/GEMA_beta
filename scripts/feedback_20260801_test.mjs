@@ -385,6 +385,82 @@ console.log('\n■ Frischwasserstation — einklappbar, 2 NK, Visualisierung');
   await ctx.close();
 }
 
+// ── DU-Zusammenstellung ──────────────────────────────────────────────────
+console.log('\n■ DU-Zusammenstellung — Reduktionsübersicht, freie Namen, einklappbar');
+{
+  const { page, errors, ctx } = await open('sb_du_zusammenstellung.html');
+  // (3) alle Gruppen + Ergebnis-Karten einklappbar
+  ok(await page.$$eval('.tbl-card-hd.du-foldhd', n => n.length) >= 5, 'Apparate-Gruppen einklappbar');
+  ok(await page.$$eval('.du-foldable', n => n.length) >= 2, 'Ergebnis-Karten einklappbar');
+  await page.click('#grp_g200 .tbl-card-hd');
+  await page.waitForTimeout(200);
+  ok(await page.evaluate(() => document.getElementById('grp_g200').classList.contains('du-zu')
+     && JSON.parse(localStorage.getItem('gema_du_fold_v1') || '{}').g200 === 1), 'Fold-Zustand pro Gerät gespeichert');
+  await page.click('#grp_g200 .tbl-card-hd');
+  await page.waitForTimeout(200);
+  // (2) Bezeichnungen der variablen Apparate frei beschreibbar
+  ok(await page.$$eval('.ap-name-input', n => n.length) >= 3, 'variable Apparate haben ein Bezeichnungs-Feld');
+  await page.fill('#nam_WMGEW', 'Grossküchen-Spüler');
+  await page.waitForTimeout(300);
+  const nam = await page.evaluate(() => ({
+    fokus: document.activeElement && document.activeElement.id,
+    gespeichert: (JSON.parse(_GemaDB.c[Object.keys(_GemaDB.c)[0]] || '{}').varName || {}).WMGEW || ''
+  }));
+  ok(nam.gespeichert === 'Grossküchen-Spüler', 'eigene Bezeichnung wird gespeichert');
+  ok(nam.fokus === 'nam_WMGEW', 'Fokus bleibt beim Tippen im Feld (Liste wird nicht neu gebaut)');
+  // (1) Reduktionsübersicht wie in der LU-Berechnung
+  ok(await page.$eval('#duReduCard', e => e.style.display === 'none'), 'Reduktionsübersicht bleibt ohne Apparate weg');
+  await page.evaluate(() => { setQty('WC', 4); setQty('WT', 6); });
+  await page.waitForTimeout(300);
+  const r1 = await page.evaluate(() => ({
+    sicht: document.getElementById('duReduCard').style.display !== 'none',
+    txt: document.getElementById('duReduBody').textContent.replace(/\s+/g, ' '),
+    segs: Array.from(document.querySelectorAll('#duReduBody .bseg')).length
+  }));
+  ok(r1.sicht && r1.segs === 1, 'Reduktionsübersicht erscheint mit erfassten Apparaten');
+  ok(/→/.test(r1.txt) && /−\s?\d+\.\d\s?%/.test(r1.txt), '100 % → reduziert mit Prozent-Angabe (' + r1.txt.slice(0, 60) + ')');
+  await page.evaluate(() => { const q = document.getElementById('qc1'); q.value = '0.8'; q.dispatchEvent(new Event('input', { bubbles: true })); });
+  await page.waitForTimeout(300);
+  const r2 = await page.evaluate(() => ({
+    txt: document.getElementById('duReduBody').textContent.replace(/\s+/g, ' '),
+    segs: Array.from(document.querySelectorAll('#duReduBody .bseg')).map(x => x.style.width),
+    stack: !!document.querySelector('#duReduBody .bstack')
+  }));
+  ok(/Dauerabflüsse/.test(r2.txt) && r2.segs.length === 3, 'zweite Zeile inkl. Dauerabflüsse Qc (1:1)');
+  ok(r2.segs.every(w => /%$/.test(w) && parseFloat(w) > 0), 'gestapelte Segmente haben echte Breiten (' + r2.segs.join(' | ') + ')');
+  ok(errors.length === 0, 'keine JS-Fehler in sb_du_zusammenstellung (' + errors.slice(0, 2).join(' | ') + ')');
+  await ctx.close();
+}
+
+// ── Druckverlust: eindeutige Formstück-Icons ─────────────────────────────
+console.log('\n■ Druckverlust — eindeutige Formstück-Icons');
+{
+  const { page, errors, ctx } = await open('sb_druckverlust.html');
+  const ic = await page.evaluate(() => {
+    const f = n => fitIcon(n);
+    return {
+      durch: f('T-Stück (Durchgang)'), abzw: f('T-Stück (Abzweig)'),
+      bogen90: f('Bogen 90°'), bogen45: f('Bogen 45°'),
+      muffe: f('Muffe'), kupplung: f('Kupplung'), fallback: f('Unbekanntes Teil')
+    };
+  });
+  ok(ic.durch !== ic.abzw, 'T-Stück Durchgang und Abzweig haben UNTERSCHIEDLICHE Icons');
+  ok(Object.values(ic).every(v => /^<svg/.test(v)), 'alle Icons sind Piktogramme (SVG statt Emoji/Unicode)');
+  ok(ic.bogen90 !== ic.bogen45 && ic.muffe !== ic.kupplung, 'auch ähnliche Formstücke sind unterscheidbar');
+  ok(!/[\u{1F300}-\u{1FAFF}]/u.test(ic.durch + ic.bogen90 + ic.fallback), 'keine Emojis mehr in den Icons');
+  // Klammern in den Katalog-Namen dürfen das Matching nicht aushebeln
+  ok(await page.evaluate(() => fitIcon('T-Stück (Durchgang)') === fitIcon('T-Stück Durchgang')), 'Namen mit und ohne Klammern liefern dasselbe Icon');
+  // Im gerenderten Formstück-Katalog stehen die SVG wirklich drin
+  await page.evaluate(() => { const c = document.querySelector('.ts-card'); const rid = c && c.getAttribute('data-row'); if (rid) { _tsOpenMap[rid] = true; render(); } });
+  await page.waitForTimeout(300);
+  await page.evaluate(() => { const t = document.querySelector('[data-fittoggle]'); if (t) t.click(); });
+  await page.waitForTimeout(300);
+  const n = await page.$$eval('.fit-card .fc-ic svg', x => x.length);
+  ok(n >= 5, 'Formstück-Karten zeigen die Piktogramme (' + n + ')');
+  ok(errors.length === 0, 'keine JS-Fehler in sb_druckverlust (' + errors.slice(0, 2).join(' | ') + ')');
+  await ctx.close();
+}
+
 console.log('\n' + pass + '/' + (pass + fail) + ' Checks bestanden');
 await browser.close();
 server.close();

@@ -127,6 +127,35 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important}
 .ap-result-unit{font-size:10.5px;color:var(--muted2);margin-left:2px;}
 /* Variable DU rows */
 .ap-table .ap-du-input-cell{padding:5px 10px 5px 18px;text-align:left;}
+/* Frei beschreibbare Bezeichnung der variablen Apparate (Feedback 01.08.2026) */
+.ap-name-input{width:100%;max-width:340px;padding:6px 9px;border:1.5px solid var(--border2);border-radius:8px;
+  font-size:13.5px;font-weight:600;color:var(--text);background:#fff;outline:none;transition:.15s;}
+.ap-name-input:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(37,99,235,.12);}
+.ap-name-input::placeholder{color:#cbd5e1;font-weight:500;}
+/* Reduktions-Diagramm (100 % vs. reduziert nach EN 12056-2) — Muster LU-Tabelle */
+/* Einklappbare Gruppen + Ergebnis-Karten (Feedback 01.08.2026) */
+.tbl-card-hd.du-foldhd{cursor:pointer;user-select:none}
+.du-fold-cx{font-size:11px;color:var(--muted);width:13px;flex-shrink:0;display:inline-flex;justify-content:center;margin-right:2px}
+.tbl-card.du-zu > table{display:none}
+.formula-card.du-zu > .formula-body,.check-card.du-zu > #checkRows,.kpi-card.du-zu > .kpi-stack{display:none}
+@media print{.tbl-card.du-zu > table,.formula-card.du-zu > .formula-body,.check-card.du-zu > #checkRows,.kpi-card.du-zu > .kpi-stack{display:revert!important}.du-fold-cx{display:none}}
+.redu-row{display:flex;flex-direction:column;gap:4px;padding:9px 0;border-bottom:1px solid var(--border)}
+.redu-row:last-child{border-bottom:0}
+.redu-top{display:flex;align-items:baseline;gap:8px;font-size:12.5px}
+.redu-name{font-weight:700;color:#374151;flex:1;min-width:0}
+.redu-vals{font-family:var(--mono);font-size:11.5px;color:#6b7280;white-space:nowrap}
+.redu-pct{font-weight:800;white-space:nowrap}
+.redu-sub{display:flex;align-items:baseline;gap:8px;font-size:11.5px;padding-left:2px}
+.redu-sub .redu-name{font-weight:600;color:#6b7280}
+.redu-sub .redu-vals{font-size:11px}
+.redu-track{position:relative;height:17px;border-radius:6px;background:#eef1f7;border:1px solid #e2e7f0;overflow:hidden}
+.redu-track .b100{position:absolute;left:0;top:0;bottom:0;background:#d7deeb;border-radius:5px}
+/* KRITISCH: right:0 — ein absoluter Flex-Container ohne Breite ist shrink-to-fit,
+   die %-Segmente kollabieren sonst auf 0 (Falle aus der LU-Tabelle, 30.07.2026). */
+.redu-track .bstack{position:absolute;left:0;right:0;top:0;bottom:0;display:flex;border-radius:5px;overflow:hidden}
+.redu-track .bstack .bseg{display:block;height:100%}
+.redu-legend{display:flex;flex-wrap:wrap;gap:12px;margin-top:9px;font-size:11px;color:#6b7280}
+.redu-legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px}
 .ap-du-input{width:75px;padding:6px 8px;border:1.5px solid var(--border2);border-radius:8px;font-family:var(--mono);font-size:13px;font-weight:600;text-align:right;outline:none;transition:.15s;font-variant-numeric:tabular-nums;}
 .ap-du-input:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(37,99,235,.1);}
 /* Subtotal row */
@@ -501,6 +530,14 @@ function fixLeadingZero(el){
         </div>
       </div>
 
+      <!-- Reduktionsübersicht (Feedback 01.08.2026: «Reduktionsübersicht gleich
+           wie bei LU-Berechnung») — 100 % (Σ DU) gegen den nach EN 12056-2
+           reduzierten Schmutzwasserabfluss, Dauerabflüsse 1:1 als zweite Zeile. -->
+      <div class="formula-card" id="duReduCard" style="display:none">
+        <div class="formula-title">📉 Reduktion nach EN 12056-2</div>
+        <div class="formula-body" id="duReduBody"></div>
+      </div>
+
       <!-- Formula -->
       <div class="formula-card">
         <div class="formula-title">📐 Rechenweg EN 12056-2</div>
@@ -618,6 +655,13 @@ const GROUPS = [
 // State: quantities per item, variable DU values
 let qty = {};       // id → count
 let varDU = {};     // id → du value
+/* Eigene Bezeichnungen der variablen Apparate (Feedback 01.08.2026 «Felder
+   sollen frei sein um rein zu schreiben»). Leer = Katalog-Bezeichnung; der
+   Katalog bleibt damit die Vorgabe, gespeicherte Stände ohne das Feld sind
+   unverändert. */
+let varName = {};   // id → eigene Bezeichnung
+function itemName(it){ var v=varName[it.id]; return (v!=null && String(v).trim()!=='') ? v : it.name; }
+function escAttr(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];}); }
 let K = 0.5;
 let viewMode = 'all';
 var _sk = (typeof GemaObjekte!=='undefined') ? GemaObjekte.storageKey('gema_du') : 'gema_du';
@@ -640,13 +684,13 @@ function renderGroups() {
         allUsed.push({it, grp, n, du, total: du * n});
       }
     }
-    allUsed.sort((a, b) => a.it.name.localeCompare(b.it.name, 'de'));
+    allUsed.sort((a, b) => itemName(a.it).localeCompare(itemName(b.it), 'de'));
     if (allUsed.length) {
       const grandTotal = allUsed.reduce((s, x) => s + x.total, 0);
       html += `<div class="tbl-card"><div class="tbl-card-hd"><div class="tbl-card-hd-left"><span class="tbl-card-label">Eingetragene Apparate (A–Z)</span></div><span class="tbl-card-count">${allUsed.length} Positionen</span></div>
       <table class="ap-table"><thead><tr><th style="width:38%">Apparat</th><th style="width:12%">Kürzel</th><th style="width:14%">DU [l/s]</th><th class="center" style="width:18%">Anzahl</th><th class="right" style="width:18%">Total [l/s]</th></tr></thead><tbody>`;
       for (const x of allUsed) {
-        html += `<tr class="has-value"><td class="ap-name">${x.it.name}</td><td class="ap-kuerzel">${x.it.kuerzel}</td><td class="ap-du-val">${x.du.toFixed(1)}</td>
+        html += `<tr class="has-value"><td class="ap-name">${escAttr(itemName(x.it))}</td><td class="ap-kuerzel">${x.it.kuerzel}</td><td class="ap-du-val">${x.du.toFixed(1)}</td>
         <td class="ap-qty-cell"><div class="ap-qty-wrap"><button class="qty-btn" onclick="adjustQty('${x.it.id}',-1)">−</button><input class="ap-qty" type="text" inputmode="decimal" value="${x.n}" oninput="setQty('${x.it.id}',+this.value)" id="qty_${x.it.id}" onblur="fixLeadingZero(this)"><button class="qty-btn" onclick="adjustQty('${x.it.id}',+1)">+</button></div></td>
         <td class="ap-result-cell"><span class="ap-result" id="res_${x.it.id}">${x.total.toFixed(2)}</span><span class="ap-result-unit">l/s</span></td></tr>`;
       }
@@ -671,9 +715,11 @@ function renderGroups() {
       return s + du * n;
     }, 0);
 
-    html += `<div class="tbl-card" id="grp_${grp.id}">
-      <div class="tbl-card-hd">
+    const zu = duFoldZu(grp.id);
+    html += `<div class="tbl-card${zu ? ' du-zu' : ''}" id="grp_${grp.id}">
+      <div class="tbl-card-hd du-foldhd" onclick="duGrpToggle('${grp.id}')" title="Gruppe ein-/ausklappen">
         <div class="tbl-card-hd-left">
+          <span class="du-fold-cx no-print" id="grp_cx_${grp.id}">${zu ? '▸' : '▾'}</span>
           <span class="du-badge ${grp.duClass}">${grp.variable ? 'l/s direkt' : 'DU = '+grp.du.toFixed(1)+' l/s'}</span>
           <span class="tbl-card-label">${grp.label}</span>
         </div>
@@ -700,7 +746,8 @@ function renderGroups() {
 
       if (grp.variable) {
         html += `<tr class="${hasVal ? 'has-value' : ''}" id="row_${it.id}">
-          <td class="ap-name">${it.name}</td>
+          <td class="ap-name"><input class="ap-name-input" type="text" value="${escAttr(itemName(it))}"
+            placeholder="Bezeichnung" oninput="setItemName('${it.id}',this.value)" id="nam_${it.id}"></td>
           <td class="ap-kuerzel">${it.kuerzel}</td>
           <td class="ap-du-input-cell">
             <input class="ap-du-input" type="text" inputmode="decimal" value="${varDU[it.id] || ''}"
@@ -718,7 +765,7 @@ function renderGroups() {
         </tr>`;
       } else {
         html += `<tr class="${hasVal ? 'has-value' : ''}" id="row_${it.id}">
-          <td class="ap-name">${it.name}</td>
+          <td class="ap-name">${escAttr(itemName(it))}</td>
           <td class="ap-kuerzel">${it.kuerzel}</td>
           <td class="ap-du-val">${it.du.toFixed(1)}</td>
           <td class="ap-qty-cell">
@@ -781,6 +828,13 @@ function adjustQty(id, delta) {
   if (el) el.value = qty[id] || '';
   updateRowDisplay(id);
   calc();
+  save();
+}
+
+/* Fokus-Regel: die Bezeichnung wird nur gespeichert, die Liste NIE neu
+   gebaut — sonst verliert das Feld nach jedem Zeichen den Fokus. */
+function setItemName(id, val) {
+  if (String(val).trim() === '') delete varName[id]; else varName[id] = val;
   save();
 }
 
@@ -924,8 +978,61 @@ function calc() {
   setT('fv_dumax', f2(duMax)+' l/s');
   setT('fv_qtot',  f2(qtot)+' l/s');
 
+  // Reduktionsübersicht (Muster LU-Tabelle)
+  renderReduChart(qzu, qww, duMax, qc, qtot);
+
   // Checks
   renderChecks(qzu, qww, duMax, qc, qtot);
+}
+
+/* ── Reduktionsübersicht (Feedback 01.08.2026) ────────────────────────────
+   Gleiche Lesart wie die LU-Karte «Reduktion nach W3»: der helle Balken ist
+   der Wert bei 100 % Gleichzeitigkeit (Σ DU × n), der farbige der nach
+   EN 12056-2 reduzierte Abfluss. Zweite Zeile: die Dauerabflüsse Qc zählen
+   1:1 dazu — genau wie Spezial-/Dauerverbraucher in der LU-Tabelle.
+   NUR literale Hex-Farben (GemaPDF-Regel). */
+function renderReduChart(qzu, qww, duMax, qc, qtot) {
+  const card = document.getElementById('duReduCard');
+  const body = document.getElementById('duReduBody');
+  if (!card || !body) return;
+  // Ohne echte Reduktion (nichts erfasst) bleibt die Karte weg.
+  if (!(qzu > 0)) { card.style.display = 'none'; return; }
+  const f2 = v => v.toFixed(2);
+  const qbase = Math.max(qww, duMax);
+  const pct = qzu > 0 ? Math.max(0, (1 - qbase / qzu) * 100) : 0;
+  const massg = (duMax > qww) ? 'DU<sub>max</sub>' : 'Q<sub>ww</sub>';
+  const COL = { red: '#2563eb', dauer: '#15803d' };
+  let html = '';
+  html += '<div class="redu-row">'
+    + '<div class="redu-top"><span class="redu-name">Schmutzwasserabfluss — ' + massg + ' massgebend</span>'
+    + '<span class="redu-vals">' + f2(qzu) + ' → ' + f2(qbase) + ' l/s</span>'
+    + '<span class="redu-pct" style="color:' + COL.red + '">− ' + pct.toFixed(1) + ' %</span></div>'
+    + '<div class="redu-track" title="hell = 100 % Gleichzeitigkeit (Σ DU × n) · farbig = reduziert nach EN 12056-2">'
+    + '<div class="b100" style="width:100%"></div>'
+    + '<div class="bstack"><span class="bseg" style="width:' + (qzu > 0 ? (qbase / qzu * 100) : 0).toFixed(2) + '%;background:' + COL.red + '"></span></div>'
+    + '</div></div>';
+  if (qc > 0) {
+    const pctG = qzu + qc > 0 ? Math.max(0, (1 - qtot / (qzu + qc)) * 100) : 0;
+    const g100 = qzu + qc;
+    html += '<div class="redu-row">'
+      + '<div class="redu-top"><span class="redu-name">inkl. Dauerabflüsse Q<sub>c</sub> (1:1)</span>'
+      + '<span class="redu-vals">' + f2(g100) + ' → ' + f2(qtot) + ' l/s</span>'
+      + '<span class="redu-pct" style="color:' + COL.dauer + '">− ' + pctG.toFixed(1) + ' %</span></div>'
+      + '<div class="redu-track" title="Dauerabflüsse werden nie reduziert — sie zählen voll dazu">'
+      + '<div class="b100" style="width:100%"></div>'
+      + '<div class="bstack">'
+      + '<span class="bseg" style="width:' + (qbase / g100 * 100).toFixed(2) + '%;background:' + COL.red + '"></span>'
+      + '<span class="bseg" style="width:' + (qc / g100 * 100).toFixed(2) + '%;background:' + COL.dauer + '"></span>'
+      + '</div></div></div>';
+    html += '<div class="redu-legend"><span><i style="background:#d7deeb"></i>100 % Gleichzeitigkeit</span>'
+      + '<span><i style="background:' + COL.red + '"></i>reduziert (EN 12056-2)</span>'
+      + '<span><i style="background:' + COL.dauer + '"></i>Dauerabflüsse Q<sub>c</sub> (1:1)</span></div>';
+  } else {
+    html += '<div class="redu-legend"><span><i style="background:#d7deeb"></i>100 % Gleichzeitigkeit (Σ DU × n)</span>'
+      + '<span><i style="background:' + COL.red + '"></i>reduziert nach EN 12056-2</span></div>';
+  }
+  body.innerHTML = html;
+  card.style.display = '';
 }
 
 function renderChecks(qzu, qww, duMax, qc, qtot) {
@@ -967,6 +1074,47 @@ function renderChecks(qzu, qww, duMax, qc, qtot) {
   ).join('');
 }
 
+/* ── Karten einklappen (Feedback 01.08.2026 «Alle Felder einklappbar
+   machen») — Zustand pro Gerät in localStorage, NIE im gespeicherten
+   Berechnungsstand; @media print zeigt alles. Die Apparate-Gruppen werden
+   bei jedem renderGroups() neu gebaut, darum trägt das Markup den Zustand
+   selbst (duFoldZu). ────────────────────────────────────────────────── */
+const DU_FOLD_KEY = 'gema_du_fold_v1';
+function duFoldSt(){ try { return JSON.parse(localStorage.getItem(DU_FOLD_KEY) || '{}') || {}; } catch(e){ return {}; } }
+function duFoldSave(st){ try { localStorage.setItem(DU_FOLD_KEY, JSON.stringify(st)); } catch(e){} }
+function duFoldZu(key){ return !!duFoldSt()[key]; }
+function duFoldSet(key, zu){ const st = duFoldSt(); if (zu) st[key] = 1; else delete st[key]; duFoldSave(st); }
+function duGrpToggle(id){
+  const card = document.getElementById('grp_' + id);
+  if (!card) return;
+  const zu = !card.classList.contains('du-zu');
+  card.classList.toggle('du-zu', zu);
+  const cx = document.getElementById('grp_cx_' + id);
+  if (cx) cx.textContent = zu ? '▸' : '▾';
+  duFoldSet(id, zu);
+}
+/* Ergebnis-Karten (statisches Markup) — Kopf einmalig klickbar machen. */
+function duFoldInitStatic(){
+  document.querySelectorAll('.result-panel .formula-card, .result-panel .check-card, .result-panel .kpi-card').forEach(function(card){
+    if (card.classList.contains('du-foldable')) return;
+    const hd = card.querySelector('.formula-title, .kpi-card-title, h2, h3');
+    if (!hd) return;
+    card.classList.add('du-foldable');
+    const key = 'res_' + (hd.textContent || '').toLowerCase().replace(/[^a-z0-9äöü]+/g, '_').slice(0, 30);
+    const cx = document.createElement('span');
+    cx.className = 'du-fold-cx no-print';
+    hd.insertBefore(cx, hd.firstChild);
+    function apply(zu){ card.classList.toggle('du-zu', !!zu); cx.textContent = zu ? '▸' : '▾'; }
+    apply(duFoldZu(key));
+    hd.style.cursor = 'pointer';
+    hd.addEventListener('click', function(ev){
+      if (ev.target.closest('button, a, input, select, textarea, label')) return;
+      const zu = !card.classList.contains('du-zu');
+      apply(zu); duFoldSet(key, zu);
+    });
+  });
+}
+
 // ══════════════════════════════════════════════════════════════════════
 // PERSIST
 // ══════════════════════════════════════════════════════════════════════
@@ -996,7 +1144,7 @@ function save() {
   const tQc = (parseFloat(qc.qc1) || 0) + (parseFloat(qc.qc2) || 0) + (parseFloat(qc.qc3) || 0);
   const tQww = K * Math.sqrt(tQzu);
   const totals = { qzu: tQzu, duMax: tDuMax, qww: tQww, qc: tQc, qtot: Math.max(tQww, tDuMax) + tQc, k: K };
-  try { if(typeof _GemaDB!=='undefined') _GemaDB.save(_sk, JSON.stringify({qty, varDU, K, meta, qc, totals})); } catch(e){}
+  try { if(typeof _GemaDB!=='undefined') _GemaDB.save(_sk, JSON.stringify({qty, varDU, varName, K, meta, qc, totals})); } catch(e){}
 }
 
 function loadSaved() {
@@ -1006,6 +1154,7 @@ function loadSaved() {
     if (!d) return;
     if (d.qty) qty = d.qty;
     if (d.varDU) varDU = d.varDU;
+    if (d.varName) varName = d.varName;
     if (d.K) {
       K = d.K;
       document.querySelectorAll('input[name=kval]').forEach(r => { r.checked = parseFloat(r.value) === K; });
@@ -1048,6 +1197,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('metaDatum').value = new Date().toISOString().split('T')[0];
   loadSaved();
   renderGroups();
+  duFoldInitStatic();
   calc();
 });
 
