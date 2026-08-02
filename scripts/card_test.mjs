@@ -368,5 +368,64 @@ t('Stufe 1 ist von aussen nicht aufblasbar',
 t('sys_card.html meldet «Kontakt gespeichert»', /event:'contact_saved'/.test(cardHtml));
 t('Editor zeigt den Trichter', /GemaCard\.api\('funnel'/.test(edHtml) && /id="funBox"/.test(edHtml));
 
+/* ══ I — Darstellung & ehrliche Fehler ══════════════════════════════ */
+console.log('\n— I: Darstellung & Fehlermeldungen —');
+
+// Ohne gema_responsive.css faellt das Mobile-Menue (.gema-menu-panel liegt
+// dort) in den Textfluss — die Seite sah auf dem iPhone zerlegt aus.
+const CARD_SEITEN = ['sys_card.html', 'sys_card_editor.html', 'sys_kontakte.html', 'sys_card_reports.html'];
+CARD_SEITEN.forEach(function (f) {
+  const h = R(f);
+  t(f + ' bindet gema_responsive.css ein', /<link rel="stylesheet" href="gema_responsive\.css"\/>/.test(h));
+  t(f + ' laedt es NACH dem eigenen <style> (Kaskade)',
+    h.lastIndexOf('</style>') < h.indexOf('gema_responsive.css'));
+  t(f + ' bindet es im <head> ein', h.indexOf('gema_responsive.css') < h.indexOf('</head>'));
+});
+t('gema_responsive.css enthaelt die Mobile-Menue-Stile',
+  /\.gema-menu-panel\s*\{/.test(R('gema_responsive.css')));
+
+// Der Server hat geantwortet → nie die Verbindung beschuldigen.
+const cardjs = R('netlify/functions/_card.js');
+t('_card erkennt eine fehlende Tabelle', /function istFehlendeTabelle/.test(cardjs)
+  && /PGRST205/.test(cardjs) && /42P01/.test(cardjs));
+t('_card erkennt einen fehlenden Bucket', /function istFehlenderBucket/.test(cardjs));
+t('sb\(\) haengt Status und Rohtext an den Fehler', /err\.status = res\.status; err\.body = t;/.test(cardjs));
+t('fehlerAntwort nennt die noetige Migration',
+  /gema_card_v1\.sql/.test(cardjs) && /setup: true/.test(cardjs));
+
+['card-api', 'card-claim', 'card-invite', 'card-public', 'card-report', 'card-vcard'].forEach(function (fn) {
+  t(fn + ' meldet den echten Grund statt «Aktion fehlgeschlagen»',
+    /C\.fehlerAntwort\(/.test(R('netlify/functions/' + fn + '.js')));
+});
+
+const ed = R('sys_card_editor.html');
+t('Editor unterscheidet Server-Antwort von Netzfehler',
+  /ladeFehler\(r\.data\)/.test(ed) && /ladeFehler\(null\)/.test(ed));
+t('Editor zeigt die Einrichtungs-Anleitung bei setup:true', /d&&d\.setup/.test(ed));
+// Vorher hiess es pauschal «Internetverbindung pruefen» — auch wenn der
+// Server geantwortet und einen Grund geliefert hatte.
+t('Editor beschuldigt die Verbindung nur ohne Server-Antwort',
+  ed.split('Internetverbindung').length - 1 === 1);
+['sys_kontakte.html', 'sys_card_reports.html'].forEach(function (f) {
+  const h = R(f);
+  t(f + ' prueft den Status, statt eine leere Liste zu zeigen', /r\.status!==200\|\|!r\.data/.test(h));
+  t(f + ' hat den Einrichtungs-Hinweis', /d&&d\.setup/.test(h));
+});
+t('sys_card.html benennt fehlende Einrichtung eigens', /r\.data&&r\.data\.setup/.test(R('sys_card.html')));
+
+// QR in den Einstellungen — zwischen Avatar und App-Installation.
+const pro = R('sys_profil.html');
+t('sys_profil bindet gema_card.js ein', /<script src="gema_card\.js"><\/script>/.test(pro));
+t('sys_profil hat die Karten-Sektion', /id="cardQrCard"/.test(pro) && /renderCardQr\(\)/.test(pro));
+t('QR-Sektion steht zwischen Avatar und App-Installation',
+  pro.indexOf('id="avatarFile"') < pro.indexOf('id="cardQrCard"')
+  && pro.indexOf('id="cardQrCard"') < pro.indexOf('id="pwaInstallBtn"'));
+t('QR-Sektion nur mit Karten-Recht', /can\('read','visitenkarte'\)/.test(pro));
+t('Einstellungen legen ungefragt KEINE Karte an', /'me', \{anlegen:false\}/.test(pro));
+t('QR laesst sich gross zeigen', /function cardQrGross/.test(pro));
+t('sys_profil escapt vollstaendig (&<>"\')',
+  /replace\(\/>\/g,'&gt;'\).*replace\(\/"\/g,'&quot;'\).*replace\(\/'\/g,'&#039;'\)/s.test(pro));
+
+
 console.log('\n' + (fail === 0 ? `✅ ${n}/${n} Tests grün` : `❌ ${fail}/${n} Tests rot`));
 process.exit(fail === 0 ? 0 : 1);

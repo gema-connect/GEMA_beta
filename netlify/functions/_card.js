@@ -55,7 +55,11 @@ async function sb(pathQs, opts) {
   }));
   if (!res.ok) {
     const t = await res.text().catch(() => '');
-    throw new Error('Supabase ' + res.status + ': ' + t.slice(0, 200));
+    // Status und Rohtext MUESSEN mit: nur daran laesst sich spaeter
+    // «Tabelle fehlt» von «Server kaputt» unterscheiden.
+    const err = new Error('Supabase ' + res.status + ': ' + t.slice(0, 200));
+    err.status = res.status; err.body = t;
+    throw err;
   }
   const txt = await res.text();
   return txt ? JSON.parse(txt) : null;
@@ -78,7 +82,11 @@ async function sbCount(table, qs) {
   const res = await fetch(SB_URL + '/rest/v1/' + table + '?' + qs + '&select=id&limit=1', {
     headers: Object.assign(sbHeaders(), { 'Prefer': 'count=exact' })
   });
-  if (!res.ok) throw new Error('Supabase ' + res.status);
+  if (!res.ok) {
+    const t = await res.text().catch(() => '');
+    const err = new Error('Supabase ' + res.status); err.status = res.status; err.body = t;
+    throw err;
+  }
   const cr = res.headers.get('content-range') || '';      // z.B. «0-0/1234»
   const m = /\/(\d+)$/.exec(cr);
   return m ? parseInt(m[1], 10) : null;
@@ -250,6 +258,42 @@ async function logEvent(ev) {
   } catch (e) { /* egal */ }
 }
 
+/* ── Fehler einordnen ─────────────────────────────────────────────────
+   Ein pauschales «Aktion fehlgeschlagen» schickt den Nutzer auf die
+   falsche Faehrte — er prueft sein WLAN, waehrend in Wahrheit die
+   einmalige SQL-Migration fehlt. Der haeufigste Startfehler bekommt
+   darum eine eigene, umsetzbare Meldung.
+   ────────────────────────────────────────────────────────────────── */
+function istFehlendeTabelle(e) {
+  const s = String((e && (e.body || e.message)) || '');
+  // PostgREST meldet das je nach Version unterschiedlich.
+  return /PGRST205|PGRST106|42P01|Could not find the table|relation .* does not exist/i.test(s);
+}
+function istFehlenderBucket(e) {
+  const s = String((e && (e.body || e.message)) || '');
+  return /Bucket not found|bucket_not_found/i.test(s);
+}
+function fehlerAntwort(e, wo) {
+  console.error('[' + wo + ']', (e && e.message) || e);
+  if (istFehlendeTabelle(e)) {
+    return resp(503, {
+      error: 'Die GEMA Card ist auf diesem Server noch nicht eingerichtet.',
+      detail: 'Die Datenbank-Tabellen fehlen. Ein Administrator muss supabase/gema_card_v1.sql '
+        + 'einmalig im Supabase-SQL-Editor ausführen.',
+      setup: true
+    });
+  }
+  if (istFehlenderBucket(e)) {
+    return resp(503, {
+      error: 'Der Bilder-Speicher fehlt.',
+      detail: 'Der private Bucket «card-photos» ist nicht angelegt — er entsteht mit '
+        + 'supabase/gema_card_v1.sql.',
+      setup: true
+    });
+  }
+  return resp(502, { error: 'Aktion fehlgeschlagen' });
+}
+
 /* ── Rate-Limit ──────────────────────────────────────────────────────── */
 // Zwei Stufen, bewusst getrennt:
 //  • memLimit   — Sliding Window IM Lambda-Container. Kostet keinen
@@ -363,6 +407,7 @@ module.exports = {
   fieldsPublic, feldOeffentlich, sanitizePublic,
   clientIp, uaHash, logEvent, EVENTS_OK,
   memLimit, dbLimit,
+  istFehlendeTabelle, istFehlenderBucket, fehlerAntwort,
   PROFILE_COLS, profilBySlug, profilById, profilByUser, profilByMail, profilByClaimToken,
   notify, gemaUser
 };

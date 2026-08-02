@@ -217,7 +217,6 @@ exports.handler = async function (event) {
     if (body.action === 'erinnerung') return await actionErinnerung(body, user, event);
     return C.resp(400, { error: 'Unbekannte action' });
   } catch (e) {
-    console.error('[card-invite]', e);
-    return C.resp(502, { error: 'Aktion fehlgeschlagen' });
+    return C.fehlerAntwort(e, 'card-invite');
   }
 };

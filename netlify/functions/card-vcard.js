@@ -173,6 +173,8 @@ exports.handler = async function (event) {
       body: vcf
     };
   } catch (e) {
+    if (C.istFehlendeTabelle(e)) return C.fehlerAntwort(e, 'card-vcard');
+    console.error('[card-vcard]', e && e.message);
     return C.resp(502, { error: 'vCard konnte nicht erzeugt werden' });
   }
 };
