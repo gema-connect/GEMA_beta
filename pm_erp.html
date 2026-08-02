@@ -621,6 +621,9 @@ table.pos{border-collapse:collapse;width:100%;font-size:13px}
         <div class="fld"><label>E-Mail</label><input id="k_email" type="email"/></div>
         <div class="fld" style="max-width:160px"><label>Wohnung</label><input id="k_wohnung" type="text" placeholder="z.B. 3. OG links"/></div>
       </div>
+      <div class="fld-row">
+        <div class="fld"><label>Zahlungsbedingung <span style="font-weight:500;color:var(--mut)">— gilt für alle Rechnungen an diesen Kunden</span></label><select id="k_zahlbed"></select></div>
+      </div>
       <div class="fld"><label>Bemerkungen</label><textarea id="k_bem" rows="2"></textarea></div>
     </div>
     <div class="modal-ft">
@@ -705,6 +708,14 @@ table.pos{border-collapse:collapse;width:100%;font-size:13px}
       <div id="s_abRows"></div>
       <button class="btn" type="button" style="width:auto" onclick="abRowAdd('s_abRows')">＋ Arbeitsbereich</button>
       <div style="font-size:11px;color:var(--mut);margin:6px 0 12px">Individuell benannte Bereiche mit Farbe (z.B. Sanitär, Sanitärservice, Heizung). Die Zuweisung passiert bereits bei der Offerte und wird auf Auftrag und Einsatzplan-Termin vererbt — die Termine im Kalender erscheinen in der Bereichsfarbe. Die Liste gilt firmenweit (auch im Einsatzplan editierbar).</div>
+      <div style="font-size:11px;font-weight:800;text-transform:uppercase;color:var(--mut);margin:14px 0 6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">Zahlungsbedingungen<button type="button" class="btn" style="min-height:26px;padding:3px 9px;font-size:11.5px" onclick="erpZbDefaults()">↺ Standard</button></div>
+      <div id="s_zbRows"></div>
+      <button class="btn" type="button" style="width:auto" onclick="erpZbRowAdd('s_zbRows')">＋ Zahlungsbedingung</button>
+      <div style="font-size:11px;color:var(--mut);margin:6px 0 12px">Werden pro Kunde hinterlegt und fliessen von dort in jede Rechnung — das «Zahlbar bis» rechnet sich daraus. Im Beleg jederzeit übersteuerbar. Leere Liste = die Zahlungsfrist oben gilt für alle.</div>
+      <div style="font-size:11px;font-weight:800;text-transform:uppercase;color:var(--mut);margin:14px 0 6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">Arten der Arbeit<button type="button" class="btn" style="min-height:26px;padding:3px 9px;font-size:11.5px" onclick="erpAaDefaults()">↺ Standard</button></div>
+      <div id="s_aaRows"></div>
+      <button class="btn" type="button" style="width:auto" onclick="erpAaRowAdd('s_aaRows')">＋ Art der Arbeit</button>
+      <div style="font-size:11px;color:var(--mut);margin:6px 0 12px">Die Auswahl im Beleg-Kopf (Hauptauftrag, Service, Reparatur, Garantie …). Aus dem Altsystem übernommene Arbeitsarten bleiben am Beleg erhalten, auch wenn sie hier nicht stehen.</div>
       <div style="font-size:11px;font-weight:800;text-transform:uppercase;color:var(--mut);margin:14px 0 6px">Spalten im Dokument (Positionen)</div>
       <div id="s_posCols" style="display:flex;flex-wrap:wrap;gap:8px 16px;margin-bottom:6px"></div>
       <div style="font-size:11px;color:var(--mut);margin:0 0 12px">Gilt für Offerte, Auftragsbestätigung und Rechnung — im Editor UND im Druck. «Bezeichnung» ist immer dabei und wird umso breiter, je weniger Spalten angezeigt werden. Pro Dokument übersteuerbar: Rechtsklick auf die Kopfzeile der Positionen. Hinweis: die Rabatt-Spalte blendet sich im Editor automatisch ein, sobald eine Position einen Rabatt trägt — im Druck steckt der Rabatt ohnehin im Betrag.</div>
@@ -1109,6 +1120,280 @@ function erpOrg(){try{return GemaAuth.getCurrentOrg();}catch(e){return null;}}
 // Vorgabetexte pro Dokumenttyp — schon ab Werk gefüllt, in den ⚙️-Einstellungen
 // überschreibbar. Sind Einleitung/Schluss/Konditionen leer, greifen diese Defaults,
 // damit Offerte/Rechnung von Anfang an einen sinnvollen Text tragen.
+/* Zahlungsbedingungen — EINMAL am Kunden gepflegt, der Beleg erbt sie.
+
+   Vorher gab es genau EINE Zahl für die ganze Firma (`fristTage`). Kunden
+   haben aber unterschiedliche Konditionen; das jedes Mal von Hand in die
+   Rechnung zu schreiben ist die Doppelpflege, die wir loswerden wollen.
+   Reihenfolge: Beleg → Kunde → Firmen-Standard, jederzeit im Beleg änderbar. */
+var ERP_ZAHLBED_DEFAULT=[
+  {id:'netto30', label:'30 Tage netto',                 tage:30},
+  {id:'netto20', label:'20 Tage netto',                 tage:20},
+  {id:'netto10', label:'10 Tage netto',                 tage:10},
+  {id:'sk2_10',  label:'10 Tage 2 % Skonto, 30 netto',  tage:30, skontoPct:2, skontoTage:10},
+  {id:'sofort',  label:'Sofort netto',                  tage:0}
+];
+function erpZahlbedListe(){
+  var s=(erpOrg()||{}).settings||{};
+  var l=(s.erp&&s.erp.zahlbed)||null;
+  return (Array.isArray(l)&&l.length)?l:ERP_ZAHLBED_DEFAULT;
+}
+function erpZahlbedById(id){
+  if(!id)return null;
+  return erpZahlbedListe().find(function(z){return z.id===id;})||null;
+}
+/* Zeilen-Editor der Zahlungsbedingungen (⚙️-Einstellungen).
+   Muster abRowHtml: die id bleibt beim Umbenennen stabil (`data-id`) —
+   sonst verlören alle Kunden und Belege ihre Zuordnung, sobald jemand
+   «30 Tage netto» in «30 Tage» umbenennt. */
+function erpZbRowHtml(z){
+  z=z||{};
+  var num=function(cls,v,ph,titel,w){
+    return '<input type="text" inputmode="numeric" class="'+cls+'" value="'+esc(v===0||v?String(v):'')+'" placeholder="'+ph+'" title="'+titel+'" style="width:'+w+'px;padding:9px 8px;border:1.5px solid var(--brd2);border-radius:9px;font-size:13.5px;text-align:center;flex-shrink:0"/>';
+  };
+  return '<div class="zb-row" data-id="'+esc(z.id||'')+'" style="display:flex;gap:8px;align-items:center;margin-bottom:6px;flex-wrap:wrap">'
+    +'<input type="text" class="zb-label" value="'+esc(z.label||'')+'" placeholder="z.B. 30 Tage netto" style="flex:1;min-width:150px;padding:9px 11px;border:1.5px solid var(--brd2);border-radius:9px;font-size:13.5px"/>'
+    +num('zb-tage',z.tage,'30','Zahlungsfrist in Tagen',62)
+    +'<span style="font-size:11.5px;color:var(--mut);flex-shrink:0">Tage</span>'
+    +num('zb-skpct',z.skontoPct,'—','Skonto in % (leer = kein Skonto)',56)
+    +'<span style="font-size:11.5px;color:var(--mut);flex-shrink:0">% Skonto in</span>'
+    +num('zb-sktage',z.skontoTage,'—','Skonto-Frist in Tagen',56)
+    +'<span style="font-size:11.5px;color:var(--mut);flex-shrink:0">Tagen</span>'
+    +'<button type="button" onclick="this.closest(\'.zb-row\').remove()" title="Entfernen (bereits zugewiesene Belege behalten ihre Frist)" style="width:34px;height:34px;border-radius:9px;border:1px solid var(--brd2);background:var(--sur);color:var(--red);font-weight:900;cursor:pointer;flex-shrink:0">✕</button>'
+    +'</div>';
+}
+function erpZbRowAdd(hostId){
+  var host=document.getElementById(hostId);
+  var tmp=document.createElement('div');
+  tmp.innerHTML=erpZbRowHtml({tage:30});
+  host.appendChild(tmp.firstChild);
+  var inp=host.lastChild.querySelector('.zb-label');
+  if(inp)inp.focus();
+}
+function erpZbDefaults(){
+  var h=document.getElementById('s_zbRows');
+  if(h)h.innerHTML=ERP_ZAHLBED_DEFAULT.map(erpZbRowHtml).join('');
+  toast('↺ Standard eingesetzt — mit «Speichern» übernehmen');
+}
+function erpZbRowsCollect(hostId){
+  var out=[],taken={};
+  var rows=document.querySelectorAll('#'+hostId+' .zb-row');
+  rows.forEach(function(r){var id=r.getAttribute('data-id');if(id)taken[id]=1;});
+  rows.forEach(function(row){
+    var label=row.querySelector('.zb-label').value.trim();
+    if(!label)return;
+    var tage=parseInt(row.querySelector('.zb-tage').value,10);
+    var rec={id:row.getAttribute('data-id')||_erpSlug('zb',label,taken),label:label,tage:isNaN(tage)?0:Math.max(0,tage)};
+    var sp=erpNum(row.querySelector('.zb-skpct').value),stg=parseInt(row.querySelector('.zb-sktage').value,10);
+    if(sp>0){rec.skontoPct=sp;rec.skontoTage=isNaN(stg)?rec.tage:Math.max(0,stg);}
+    out.push(rec);
+  });
+  return out;
+}
+/* Arten der Arbeit — reine Bezeichnungsliste (der Beleg speichert den Text). */
+function erpAaRowHtml(a){
+  return '<div class="aa-row" style="display:flex;gap:8px;align-items:center;margin-bottom:6px">'
+    +'<input type="text" class="aa-name" value="'+esc(a||'')+'" placeholder="z.B. Hauptauftrag, Service, Reparatur" style="flex:1;min-width:0;padding:9px 11px;border:1.5px solid var(--brd2);border-radius:9px;font-size:13.5px"/>'
+    +'<button type="button" onclick="this.closest(\'.aa-row\').remove()" title="Entfernen (bestehende Belege behalten ihre Arbeitsart)" style="width:34px;height:34px;border-radius:9px;border:1px solid var(--brd2);background:var(--sur);color:var(--red);font-weight:900;cursor:pointer;flex-shrink:0">✕</button>'
+    +'</div>';
+}
+function erpAaRowAdd(hostId){
+  var host=document.getElementById(hostId);
+  var tmp=document.createElement('div');
+  tmp.innerHTML=erpAaRowHtml('');
+  host.appendChild(tmp.firstChild);
+  var inp=host.lastChild.querySelector('.aa-name');
+  if(inp)inp.focus();
+}
+function erpAaDefaults(){
+  var h=document.getElementById('s_aaRows');
+  if(h)h.innerHTML=ERP_ARBEITSARTEN.map(erpAaRowHtml).join('');
+  toast('↺ Standard eingesetzt — mit «Speichern» übernehmen');
+}
+function erpAaRowsCollect(hostId){
+  var out=[],seen={};
+  document.querySelectorAll('#'+hostId+' .aa-row').forEach(function(row){
+    var v=row.querySelector('.aa-name').value.trim();
+    if(!v||seen[v.toLowerCase()])return;
+    seen[v.toLowerCase()]=1;out.push(v);
+  });
+  return out;
+}
+/* Stabile Slug-ID aus einem Namen (Muster abSlug, mit freiem Präfix). */
+function _erpSlug(prefix,name,taken){
+  var s=prefix+'_'+String(name).toLowerCase()
+    .replace(/ä/g,'ae').replace(/ö/g,'oe').replace(/ü/g,'ue').replace(/é|è|ê/g,'e')
+    .replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'').slice(0,24);
+  if(s===prefix+'_'||s===prefix)s=prefix+'_1';
+  var b=s,i=2;
+  while(taken[s])s=b+'_'+(i++);
+  taken[s]=1;
+  return s;
+}
+/* Wirksame Zahlungsbedingung eines Belegs: eigene Wahl → Kunde → keine
+   (dann gilt der Firmen-Standard `fristTage`). */
+function erpZahlbedFuer(d){
+  var z=erpZahlbedById(d&&d.zahlbedId);
+  if(z)return z;
+  var k=null;
+  try{k=(d&&d.kundeId)?erpKunden().find(function(x){return x.id===d.kundeId;}):null;}catch(e){}
+  return k?erpZahlbedById(k.zahlbedId):null;
+}
+/* Dateien am Beleg — Plan, Foto, Lieferschein, Gegenofferte …
+
+   Muster der Kreditoren-Belege: Bilder werden verkleinert, PDFs roh
+   übernommen; ausgelagert wird IMMER nach GemaStorage, Base64 bleibt nur
+   Notnagel (sonst sprengt ein PDF den Record). */
+var _erpDokFileInp=null;
+function erpDateiPick(){
+  if(!cur||!erpEditable())return;
+  if(_erpDokFileInp){try{_erpDokFileInp.remove();}catch(e){}}
+  // File-Input MUSS im DOM hängen (iOS-GC-Muster) — sonst feuert change nie
+  var inp=document.createElement('input');
+  inp.type='file';inp.accept='image/*,application/pdf';inp.multiple=true;
+  inp.style.cssText='position:fixed;left:-9999px;top:0';
+  document.body.appendChild(inp);_erpDokFileInp=inp;
+  inp.onchange=function(){
+    var fls=Array.prototype.slice.call(inp.files||[]);
+    try{inp.remove();}catch(e){}_erpDokFileInp=null;
+    if(!fls.length)return;
+    var kette=Promise.resolve();
+    fls.forEach(function(fl){
+      kette=kette.then(function(){
+        if(fl.type==='application/pdf'||/\.pdf$/i.test(fl.name||'')){
+          if(fl.size>8*1024*1024){GemaDialog.alert({title:'Datei zu gross',message:esc(fl.name)+' — PDF bis 8 MB.'});return;}
+          return new Promise(function(res){
+            var rd=new FileReader();
+            rd.onload=function(){erpDateiStore(rd.result,fl.name,'application/pdf').then(res,res);};
+            rd.onerror=function(){toast('«'+fl.name+'» konnte nicht gelesen werden');res();};
+            rd.readAsDataURL(fl);
+          });
+        }
+        return erpResizeImage(fl,1600).then(function(du){return erpDateiStore(du,fl.name,'image/jpeg');})
+          .catch(function(){toast('«'+fl.name+'» konnte nicht gelesen werden');});
+      });
+    });
+    kette.then(function(){erpSaveCur(true);erpOpenEditor();});
+  };
+  inp.click();
+}
+function erpDateiStore(dataUrl,name,mime){
+  var u=erpUser();
+  var p=(typeof GemaStorage!=='undefined'&&GemaStorage.uploadDataUrl)
+    ? GemaStorage.uploadDataUrl(dataUrl,'erp/'+(u?u.orgId:'org')+'/dokumente').then(function(r){return {url:r.url};}).catch(function(){return {dataUrl:dataUrl};})
+    : Promise.resolve({dataUrl:dataUrl});
+  return p.then(function(res){
+    cur.dateien=cur.dateien||[];
+    cur.dateien.push(Object.assign({id:uid(),name:name||'Datei',mime:mime||'',am:new Date().toISOString(),von:u?u.name:''},res));
+    erpVerlauf(cur,'Datei angehängt: '+(name||'Datei'));
+  });
+}
+function erpDateiOeffnen(id){
+  var f=((cur&&cur.dateien)||[]).find(function(x){return x.id===id;});
+  if(!f)return;
+  var src=f.url||f.dataUrl;if(!src)return;
+  window.open(src,'_blank');
+}
+function erpDateiDel(id){
+  if(!cur||!erpEditable())return;
+  var f=(cur.dateien||[]).find(function(x){return x.id===id;});if(!f)return;
+  GemaDialog.confirm({title:'Datei entfernen',message:'«'+(f.name||'Datei')+'» vom Beleg entfernen?',confirmLabel:'Entfernen',danger:true}).then(function(ok){
+    if(!ok)return;
+    cur.dateien=(cur.dateien||[]).filter(function(x){return x.id!==id;});
+    erpVerlauf(cur,'Datei entfernt: '+(f.name||'Datei'));
+    erpSaveCur(true);erpOpenEditor();
+  });
+}
+function erpDateienHtml(d,editable){
+  var fs=d.dateien||[];
+  if(!fs.length&&!editable)return '';
+  var ic=function(f){return /pdf/i.test(f.mime||f.name||'')?'📄':'🖼';};
+  return '<div class="fld"><label>Dateien <span style="font-weight:500;color:var(--mut)">— Plan, Foto, Lieferschein …</span></label>'
+    +'<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">'
+    +fs.map(function(f){
+      return '<span class="badge" style="background:#fff;border:1px solid var(--brd2);color:inherit;font-weight:600;gap:6px">'
+        +'<a href="javascript:void(0)" onclick="erpDateiOeffnen(\''+f.id+'\')" title="Öffnen">'+ic(f)+' '+esc(f.name)+'</a>'
+        +(editable?'<a href="javascript:void(0)" onclick="erpDateiDel(\''+f.id+'\')" title="Entfernen" style="color:var(--red);font-weight:800">✕</a>':'')
+        +'</span>';
+    }).join('')
+    +(editable?'<button type="button" class="btn ghost" style="min-height:30px;padding:4px 10px;font-size:12px" onclick="erpDateiPick()">＋ Datei</button>':'')
+    +'</div></div>';
+}
+/* Art der Arbeit — ersetzt das Freitextfeld «Arbeit» des Altsystems.
+
+   Dort gab es DREI Textfelder (Arbeit · Betrifft · Projekt), die in der Praxis
+   fast immer dasselbe enthielten. GEMA führt: Titel (= Betrifft), eine
+   AUSWAHL für die Art und das verknüpfte Objekt (= Projekt). Die Liste ist
+   pro Firma erweiterbar; ein importierter Freitext bleibt als Zusatz-Option
+   erhalten, damit nichts verloren geht. */
+var ERP_ARBEITSARTEN=['Hauptauftrag','Service','Reparatur','Garantie','Regie','Wartung','Notfall'];
+function erpArbeitsarten(){
+  var s=(erpOrg()||{}).settings||{};
+  var l=(s.erp&&s.erp.arbeitsarten)||null;
+  return (Array.isArray(l)&&l.length)?l:ERP_ARBEITSARTEN;
+}
+/* Anlage aus dem Service-Modul (Anlagenregister sv_service).
+
+   Das Altsystem führt nur eine lose «Anlagen-Nr.». GEMA hat das Register
+   bereits — der Beleg verweist darauf, statt die Anlagendaten ein zweites Mal
+   zu führen. Auswahl bewusst auf die Anlagen des gewählten OBJEKTS
+   eingeschränkt (das ist praktisch immer die richtige Menge und spart die
+   Suche); ohne Objekt sind alle Anlagen der Firma wählbar. */
+function erpAnlagen(objektId){
+  var u=erpUser(),arr=[];
+  try{
+    if(typeof GemaSync!=='undefined'&&GemaSync.getCached)arr=GemaSync.getCached('gema_sv_anlagen_pool_v1')||[];
+    if(!arr.length){var r=localStorage.getItem('gema_sv_anlagen_pool_v1');if(r)arr=JSON.parse(r)||[];}
+  }catch(e){}
+  arr=arr.filter(function(a){return a&&(!u||a.orgId===u.orgId);});
+  if(objektId){
+    var imObjekt=arr.filter(function(a){return a.objektId===objektId;});
+    if(imObjekt.length)return imObjekt;
+  }
+  return arr;
+}
+function erpAnlageById(id){
+  if(!id)return null;
+  return erpAnlagen('').find(function(a){return a.id===id;})||null;
+}
+function erpAnlageWahl(id){
+  if(!cur)return;
+  cur.anlageId=id||'';
+  var a=erpAnlageById(id);
+  // Momentaufnahme mitführen: der Beleg bleibt lesbar, auch wenn die Anlage
+  // später umbenannt oder ausgemustert wird (Muster kundeSnapshot).
+  cur.anlageSnapshot=a?{name:a.name,hersteller:a.hersteller,modell:a.modell,serienNr:a.serienNr,standort:a.standort}:null;
+  erpSaveCur(true);erpOpenEditor();
+}
+function erpAnlageHtml(d,dis){
+  var liste=erpAnlagen(d.objektId);
+  var snap=d.anlageSnapshot||null;
+  if(!liste.length&&!d.anlageId)return '';
+  var opts='<option value="">– keine –</option>'+liste.map(function(a){
+    var t=[a.name,a.hersteller,a.serienNr].filter(Boolean).join(' · ');
+    return '<option value="'+esc(a.id)+'"'+(a.id===d.anlageId?' selected':'')+'>'+esc(t)+'</option>';
+  }).join('');
+  // Anlage aus einem anderen Objekt / gelöscht: als Option erhalten, nie still verlieren
+  if(d.anlageId&&!liste.some(function(a){return a.id===d.anlageId;}))
+    opts+='<option value="'+esc(d.anlageId)+'" selected>⚠ '+esc((snap&&snap.name)||d.anlageId)+'</option>';
+  return '<div class="fld"><label>Anlage <span style="font-weight:500;color:var(--mut)">— aus dem Service-Register</span></label>'
+    +'<div style="display:flex;gap:6px"><select style="flex:1"'+dis+' onchange="erpAnlageWahl(this.value)">'+opts+'</select>'
+    +(d.anlageId?'<a class="btn ghost" style="min-height:38px;display:inline-flex;align-items:center;padding:0 11px" href="sv_service.html?anlage='+encodeURIComponent(d.anlageId)+'" target="_blank" title="Anlage im Service-Modul öffnen">↗</a>':'')
+    +'</div></div>';
+}
+/* Beschriftung der Leer-Option: sie sagt, WAS ohne eigene Wahl gilt —
+   die Kondition des Kunden oder der Firmen-Standard. */
+function erpZahlbedKundeHint(d){
+  var k=null;
+  try{k=(d&&d.kundeId)?erpKunden().find(function(x){return x.id===d.kundeId;}):null;}catch(e){}
+  var z=k?erpZahlbedById(k.zahlbedId):null;
+  if(z)return '– vom Kunden: '+z.label+' –';
+  return '– Firmen-Standard: '+erpSettings().fristTage+' Tage –';
+}
+function erpFristTage(d){
+  var z=erpZahlbedFuer(d);
+  return z?(z.tage||0):erpSettings().fristTage;
+}
 var ERP_TXT_DEFAULTS={
   txtOfferteIntro:'Sehr geehrte Damen und Herren\n\nWir danken für Ihre Anfrage und unterbreiten Ihnen gerne folgende Offerte:',
   txtOfferte:'Wir freuen uns, wenn wir die offerierten Arbeiten für Sie ausführen dürfen, und stehen Ihnen für Rückfragen jederzeit gerne zur Verfügung.',
@@ -2351,7 +2636,7 @@ function erpNeu(typ,vorlage){
     sachbearbeiter:erpSbNeu(null),
     datum:today(),
     gueltigBis:typ==='offerte'?addDays(today(),30):'',
-    frist:typ==='rechnung'?addDays(today(),s.fristTage):'',
+    frist:'',   // wird nach der Kundenwahl aus dessen Zahlungsbedingung gesetzt
     status:typ==='auftrag'?'offen':'entwurf',
     positionen:[],rabattPct:0,schluss:[],mwstPct:s.mwstPct,
     einleitung:typ==='rechnung'?s.txtRechnungIntro:(typ==='offerte'?s.txtOfferteIntro:s.txtAuftragIntro),
@@ -2551,7 +2836,8 @@ function erpOpenEditor(){
     h+='<div class="infobox '+(f.restNetto<=0.05&&f.auftragNetto>0?'ok':'warn')+'"><b>💰 Fakturierung:</b> CHF '+chf(f.verrechnetNetto)+' von CHF '+chf(f.auftragNetto)+' verrechnet (netto)'
       +'<div class="fakt-bar"><div style="width:'+Math.round(f.pct)+'%"></div></div>'
       +'<span style="font-size:12px">Rest: <b>CHF '+chf(Math.max(0,f.restNetto))+'</b>'
-      +(f.rechnungen.length?' · '+f.rechnungen.map(function(r){return '<a href="javascript:void(0)" onclick="erpSaveCur(true);erpOpen(\''+r.id+'\')">'+esc(r.nr)+'</a>';}).join(', '):'')
+      // Die Rechnungen selbst stehen als klickbare Kette direkt darüber —
+      // hier bewusst nur noch die Beträge, keine zweite Linkliste.
       +'</span></div>';
   }
   if(d.typ==='rechnung'&&s!=='entwurf'){
@@ -2562,6 +2848,9 @@ function erpOpenEditor(){
   }
 
   var dis=editable?'':' disabled';
+  // Vermerke aus dem Altsystem + Verlauf — beides nur EIN Klick, kein Tab.
+  h+=erpVermerkeHtml(d);
+
   // ── Kopf ──
   var kunden=erpKunden();
   h+='<div class="sec" id="secGrund"'+((_erpGrunddatenOffen||!editable)?'':' style="display:none"')+'><div class="sec-hd"><h3>'+TYP[d.typ].ic+' Grunddaten</h3>'+(editable?'<button class="btn" style="margin-left:auto;min-height:26px;padding:2px 10px;font-size:11.5px" onclick="erpGrunddatenToggle()">▲ Einklappen</button>':'')+'</div><div class="sec-bd">'
@@ -2575,10 +2864,27 @@ function erpOpenEditor(){
     +'</div></div>'
     +'<div class="fld"><label>Projekt / Objekt</label>'+erpObjComboHtml(d,editable)+'</div></div>'
     +'<div id="erpObjBet"></div>'
+    +'<div class="fld-row">'
     +'<div class="fld"><label>Titel / Betreff</label><input type="text" value="'+esc(d.titel||'')+'" placeholder="z.B. Sanitärinstallation Neubau MFH"'+dis+' oninput="cur.titel=this.value;erpTouch()"/></div>'
+    +'<div class="fld" style="max-width:210px"><label>Art der Arbeit</label><select'+dis+' onchange="cur.arbeitsart=this.value;erpTouch()">'
+    +'<option value="">– keine –</option>'
+    +erpArbeitsarten().map(function(a){return '<option value="'+esc(a)+'"'+(a===(d.arbeitsart||'')?' selected':'')+'>'+esc(a)+'</option>';}).join('')
+    +(d.arbeitsart&&erpArbeitsarten().indexOf(d.arbeitsart)<0?'<option value="'+esc(d.arbeitsart)+'" selected>'+esc(d.arbeitsart)+'</option>':'')
+    +'</select></div></div>'
+    +erpAnlageHtml(d,dis)
+    +erpDateienHtml(d,editable)
+    +'<div class="fld-row">'
+    +'<div class="fld"><label>Externe Referenz 1 <span style="font-weight:500;color:var(--mut)">— z.B. Bestellnummer des Kunden</span></label><input type="text" value="'+esc(d.externeRef1||'')+'"'+dis+' oninput="cur.externeRef1=this.value;erpTouch()"/></div>'
+    +'<div class="fld"><label>Externe Referenz 2</label><input type="text" value="'+esc(d.externeRef2||'')+'"'+dis+' oninput="cur.externeRef2=this.value;erpTouch()"/></div>'
+    +'</div>'
     +'<div class="fld-row3">'
     +'<div class="fld"><label>Datum</label><input type="date" value="'+esc(d.datum||'')+'"'+dis+' onchange="cur.datum=this.value;erpTouch()"/></div>'
     +(d.typ==='offerte'?'<div class="fld"><label>Gültig bis</label><input type="date" value="'+esc(d.gueltigBis||'')+'"'+dis+' onchange="cur.gueltigBis=this.value;erpTouch()"/></div>':'')
+    +(d.typ==='rechnung'?'<div class="fld"><label>An Buchhaltung <span style="font-weight:500;color:var(--mut)">— beim Stellen automatisch</span></label><input type="date" value="'+esc(d.buchhaltungAm||'')+'"'+dis+' onchange="cur.buchhaltungAm=this.value;erpTouch()"/></div>':'')
+    +(d.typ==='rechnung'?'<div class="fld"><label>Zahlungsbedingung</label><select'+dis+' onchange="erpZahlbedWahl(this.value)">'
+      +'<option value="">'+esc(erpZahlbedKundeHint(d))+'</option>'
+      +erpZahlbedListe().map(function(z){return '<option value="'+esc(z.id)+'"'+(z.id===d.zahlbedId?' selected':'')+'>'+esc(z.label)+'</option>';}).join('')
+      +'</select></div>':'')
     +(d.typ==='rechnung'?'<div class="fld"><label>Zahlbar bis</label><input type="date" value="'+esc(d.frist||'')+'"'+dis+' onchange="cur.frist=this.value;erpTouch()"/></div>':'')
     +(function(){
       var bl=abListe();
@@ -2672,14 +2978,122 @@ function erpOpenEditor(){
   document.getElementById('edOv').classList.add('open');
   document.getElementById('edOv').querySelector('.ov-bd').scrollTop=0;
 }
+/* Die GANZE Beleg-Kette zu einem Dokument — in BEIDE Richtungen.
+
+   Die gespeicherten Verknüpfungen zeigen nur in eine Richtung (die Rechnung
+   kennt ihren Auftrag, der Auftrag seine Rechnungen NICHT). Die Kette wird
+   deshalb bei jedem Rendern GERECHNET statt gespeichert: der Auftrag ist der
+   Dreh- und Angelpunkt, Offerte und Rechnungen hängen daran. Damit sieht man
+   von JEDEM Beleg aus dasselbe vollständige Bild — auch von der Offerte aus
+   die längst gestellten Rechnungen.
+
+   `cur` kann ungespeicherte Änderungen tragen und wird darum über den
+   Pool-Stand gelegt (Muster der Fakturierungs-Box). */
+/* Vermerke aus dem Altsystem — beim Import gespeichert, hier erstmals lesbar.
+
+   Bewusst als zugeklappte EINE Zeile: sie betrifft nur migrierte Belege und
+   soll den Kopf im Alltag nicht zumüllen. Reine Anzeige — GEMA führt diese
+   Angaben in eigenen Feldern; die Vermerke sind der Beleg dafür, was im
+   Altsystem stand. */
+var _ERP_VERMERKE=[
+  ['importArbeit',          'Arbeit'],
+  ['importArtText',         'Belegart (Altsystem)'],
+  ['importStatusText',      'Status (Altsystem)'],
+  ['importRechnungsstatus', 'Rechnungsstatus'],
+  ['importAusgefuehrt',     'Ausgeführt'],
+  ['importVersandtAm',      'Versandt am'],
+  ['importRechnungNr',      'Rechnungs-Nr.'],
+  ['importZahlbed',         'Zahlungsbedingung'],
+  ['importMwstCode',        'MwSt-Code'],
+  ['importEsrRefRoh',       'ESR-Referenz'],
+  ['importAdrId',           'Adress-ID'],
+  ['importPrintInfo',       'Druck-Vermerk']
+];
+var _erpVermerkeOffen=false;
+function erpVermerkeToggle(){
+  _erpVermerkeOffen=!_erpVermerkeOffen;
+  var b=document.getElementById('edVermerkeBd');
+  var c=document.getElementById('edVermerkeCar');
+  if(b)b.style.display=_erpVermerkeOffen?'':'none';
+  if(c)c.textContent=_erpVermerkeOffen?'▾':'▸';
+}
+function erpVermerkeHtml(d){
+  var zeilen=_ERP_VERMERKE.filter(function(v){return String(d[v[0]]||'').trim();})
+    .map(function(v){return '<div><span style="color:var(--mut)">'+v[1]+':</span> <b>'+esc(d[v[0]])+'</b></div>';});
+  var q=d.quelle&&d.quelle.typ==='import'?d.quelle:null;
+  if(q)zeilen.push('<div><span style="color:var(--mut)">Übernommen am:</span> <b>'+esc(String(q.am||'').slice(0,10))+'</b>'+(q.extId?' <span style="color:var(--mut)">(ID '+esc(q.extId)+')</span>':'')+'</div>');
+  if(d.importSumme)zeilen.push('<div><span style="color:var(--mut)">Betrag im Altsystem:</span> <b>CHF '+chf(d.importSumme.brutto||0)+'</b> <span style="color:var(--mut)">(netto '+chf(d.importSumme.netto||0)+')</span></div>');
+  var hist=erpVerlaufHtml(d);
+  if(!zeilen.length&&!hist)return '';
+  var h='<div class="infobox" style="background:var(--tint);border:1.5px solid var(--brd2);color:inherit">'
+    +'<div style="display:flex;align-items:center;gap:8px;cursor:pointer" onclick="erpVermerkeToggle()">'
+    +'<span id="edVermerkeCar">'+(_erpVermerkeOffen?'▾':'▸')+'</span>'
+    +'<b>'+(zeilen.length?'📎 Aus dem Altsystem':'🕘 Verlauf')+'</b>'
+    +'<span style="color:var(--mut);font-size:12px">'
+    +(zeilen.length?zeilen.length+' Angabe'+(zeilen.length===1?'':'n'):'')
+    +(zeilen.length&&hist?' · ':'')+(hist?(d.verlauf||[]).length+' Ereignis'+((d.verlauf||[]).length===1?'':'se'):'')
+    +'</span></div>'
+    +'<div id="edVermerkeBd"'+(_erpVermerkeOffen?'':' style="display:none"')+'>';
+  if(zeilen.length)h+='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:4px 18px;margin-top:9px;font-size:12.5px">'+zeilen.join('')+'</div>';
+  if(hist)h+=hist;
+  return h+'</div></div>';
+}
+/* Beleg-Verlauf — schreibt sich selbst (Muster der Kreditoren).
+   Kein Handeintrag, kein Tab: was passiert, steht hier. */
+function erpVerlauf(d,text){
+  if(!d||!text)return;
+  var u=erpUser();
+  (d.verlauf=d.verlauf||[]).push({am:new Date().toISOString(),von:u?u.name:'',text:String(text)});
+  if(d.verlauf.length>60)d.verlauf=d.verlauf.slice(-60);
+}
+function erpVerlaufHtml(d){
+  var v=(d&&d.verlauf)||[];
+  if(!v.length)return '';
+  return '<div style="margin-top:10px;border-top:1px solid var(--brd2);padding-top:8px">'
+    +'<div style="font-weight:700;font-size:12px;margin-bottom:5px">🕘 Verlauf</div>'
+    +v.slice(-12).reverse().map(function(x){
+      return '<div style="font-size:12px;display:flex;gap:8px"><span style="color:var(--mut);white-space:nowrap">'
+        +esc(dfmt(String(x.am).slice(0,10)))+'</span><span>'+esc(x.text)+'</span>'
+        +(x.von?'<span style="color:var(--mut);margin-left:auto;white-space:nowrap">'+esc(x.von)+'</span>':'')+'</div>';
+    }).join('')+'</div>';
+}
+
+function erpKette(d,all){
+  all=(all||poolRead(DOK_POOL)).filter(function(x){return x.id!==d.id;}).concat([d]);
+  var byId=function(id){return id?all.find(function(x){return x.id===id;})||null:null;};
+  var vk=d.verknuepfung||{};
+  var auftrag=d.typ==='auftrag'?d:byId(vk.auftragId);
+  var offerte=d.typ==='offerte'?d:byId((auftrag&&auftrag.verknuepfung&&auftrag.verknuepfung.offerteId)||vk.offerteId);
+  // Der Auftrag kennt seine Rechnungen nicht — sie zeigen auf IHN.
+  var rechnungen=auftrag?all.filter(function(x){
+    return x.typ==='rechnung'&&x.verknuepfung&&x.verknuepfung.auftragId===auftrag.id;
+  }):(d.typ==='rechnung'?[d]:[]);
+  rechnungen.sort(function(a,b){return String(a.nr||'').localeCompare(String(b.nr||''));});
+  return {offerte:offerte,auftrag:auftrag,rechnungen:rechnungen,all:all};
+}
 function erpChainHtml(d){
-  var all=poolRead(DOK_POOL);
-  function link(x){return '<a href="javascript:void(0)" onclick="erpSaveCur(true);erpOpen(\''+x.id+'\')">'+TYP[x.typ].ic+' '+esc(x.nr)+'</a>';}
-  var parts=[];
-  if(d.typ==='offerte'&&d.verknuepfung&&d.verknuepfung.auftragId){var a=all.find(function(x){return x.id===d.verknuepfung.auftragId;});if(a)parts.push('Daraus entstanden: '+link(a));}
-  if(d.typ==='auftrag'&&d.verknuepfung&&d.verknuepfung.offerteId){var o=all.find(function(x){return x.id===d.verknuepfung.offerteId;});if(o)parts.push('Basiert auf: '+link(o));}
-  if(d.typ==='rechnung'&&d.verknuepfung&&d.verknuepfung.auftragId){var a2=all.find(function(x){return x.id===d.verknuepfung.auftragId;});if(a2)parts.push('Gehört zu: '+link(a2));}
-  return parts.length?('🔗 '+parts.join(' · ')):'';
+  var k=erpKette(d);
+  var glieder=[];
+  function glied(x){
+    if(!x)return '';
+    var st=erpStatusOf(x), si=ST[st]||ST.entwurf;
+    var lbl=TYP[x.typ].ic+' '+esc(x.nr||'—');
+    var chip='<span class="badge" style="background:'+si.bg+';color:'+si.c+';border:1px solid '+si.bd+';margin-left:5px;padding:1px 7px;font-size:10px">'+esc(si.n)+'</span>';
+    if(x.id===d.id)return '<b style="text-decoration:underline">'+lbl+'</b>'+chip;
+    return '<a href="javascript:void(0)" onclick="erpSaveCur(true);erpOpen(\''+x.id+'\')">'+lbl+'</a>'+chip;
+  }
+  if(k.offerte)glieder.push(glied(k.offerte));
+  if(k.auftrag)glieder.push(glied(k.auftrag));
+  if(k.rechnungen.length)glieder.push(k.rechnungen.map(glied).join(' &nbsp;·&nbsp; '));
+  // Ein einzelner Beleg ohne jede Verknüpfung braucht keine Ketten-Zeile.
+  if(glieder.length<2)return '';
+  var extra='';
+  if(k.auftrag){
+    var f=erpAuftragFakt(k.all,k.auftrag.id);
+    if(f.auftragNetto>0)extra='<span style="margin-left:auto;white-space:nowrap;font-weight:700">'+Math.round(f.pct)+' % verrechnet</span>';
+  }
+  return '<div style="display:flex;align-items:center;gap:9px;flex-wrap:wrap"><span>🔗</span>'
+    +glieder.join('<span style="opacity:.5">→</span>')+extra+'</div>';
 }
 
 // ── Positionen rendern ──
@@ -3353,7 +3767,9 @@ function erpCtxShow(e,items){
 // ── Karten-Menü (Dokument-Liste + Erfolg-Tab) ──
 function erpCtxStatus(id,st,msg){
   var d=poolRead(DOK_POOL).find(function(x){return x.id===id;});if(!d)return;
+  var vorher=d.status;
   d.status=st;
+  if(vorher!==st)erpVerlauf(d,'Status: '+((ST[vorher]||{}).n||vorher)+' → '+((ST[st]||{}).n||st));
   poolSave(DOK_POOL,DOK_PREFIX,d);
   toast(msg||('Status: '+st));
   erpRenderAll();
@@ -4562,6 +4978,7 @@ function erpRenderFooter(){
 // Legacy — Speichern läuft automatisch; nur noch Sofort-Flush für Alt-Aufrufer.
 function erpDoSave(){erpSaveCur(true);erpRenderAll();erpRenderFooter();}
 function erpStatus(st,msg){
+  if(cur.status!==st)erpVerlauf(cur,'Status: '+((ST[cur.status]||{}).n||cur.status)+' → '+((ST[st]||{}).n||st));
   cur.status=st;
   erpSaveCur(true);
   toast(msg||('Status: '+st));
@@ -4613,8 +5030,10 @@ function erpZuAuftrag(){
     verknuepfung:{offerteId:off.id},zahlungen:[],
     erstelltVon:{userId:u?u.id:'',name:u?u.name:''},erstelltAm:new Date().toISOString()
   };
+  erpVerlauf(auftrag,'Aus Offerte '+(off.nr||'')+' erstellt');
   poolSave(DOK_POOL,DOK_PREFIX,auftrag);
   off.verknuepfung=off.verknuepfung||{};off.verknuepfung.auftragId=auftrag.id;
+  erpVerlauf(off,'Auftrag '+auftrag.nr+' daraus erstellt');
   poolSave(DOK_POOL,DOK_PREFIX,off);
   toast('📋 Auftrag '+auftrag.nr+' erstellt');
   erpOpen(auftrag.id);
@@ -4631,15 +5050,23 @@ function _erpNeueRechnung(auftrag,art,positionen,titelZusatz){
     kundeId:auftrag.kundeId,kundeSnapshot:auftrag.kundeSnapshot,bereichId:auftrag.bereichId||'',
     zustellSnapshot:auftrag.zustellSnapshot?JSON.parse(JSON.stringify(auftrag.zustellSnapshot)):null,
     sachbearbeiter:erpSbNeu(auftrag),
-    datum:today(),frist:addDays(today(),s.fristTage),status:'entwurf',
+    datum:today(),frist:'',status:'entwurf',
     positionen:positionen,rabattPct:0,schluss:schluss,mwstPct:auftrag.mwstPct!=null?auftrag.mwstPct:s.mwstPct,
     posCols:auftrag.posCols?auftrag.posCols.slice():undefined,
     einleitung:s.txtRechnungIntro||'',schlusstext:s.txtRechnung,
     verknuepfung:{auftragId:auftrag.id,offerteId:auftrag.verknuepfung?auftrag.verknuepfung.offerteId:undefined},
+    zahlbedId:auftrag.zahlbedId||'',
     rechnungsArt:art,zahlungen:[],
     erstelltVon:{userId:u?u.id:'',name:u?u.name:''},erstelltAm:new Date().toISOString()
   };
+  if(!re.zahlbedId){var kk=null;try{kk=erpKunden().find(function(x){return x.id===re.kundeId;});}catch(e){}if(kk&&kk.zahlbedId)re.zahlbedId=kk.zahlbedId;}
+  re.frist=addDays(re.datum,erpFristTage(re));
+  var artN={akonto:'Akontorechnung',teil:'Teilrechnung',schluss:'Schlussrechnung'}[art]||'Rechnung';
+  erpVerlauf(re,'Aus Auftrag '+(auftrag.nr||'')+' erstellt ('+artN+')');
   poolSave(DOK_POOL,DOK_PREFIX,re);
+  // Gegenrichtung: der Auftrag protokolliert die Rechnung, die aus ihm entstand.
+  erpVerlauf(auftrag,artN+' '+re.nr+' erstellt');
+  poolSave(DOK_POOL,DOK_PREFIX,auftrag);
   return re;
 }
 function erpAkonto(){
@@ -4705,7 +5132,12 @@ function erpRechnungStellen(){
   GemaDialog.confirm({title:'Rechnung stellen',message:'Rechnung '+cur.nr+' über CHF '+chf(erpDocTotals(cur).brutto)+' stellen? Danach ist sie nicht mehr editierbar.'+warn,confirmLabel:'Rechnung stellen'}).then(function(ok){
     if(!ok)return;
     cur.status='gestellt';
-    if(!cur.frist)cur.frist=addDays(today(),s.fristTage);
+    if(!cur.frist)cur.frist=addDays(cur.datum||today(),erpFristTage(cur));
+    erpVerlauf(cur,'Rechnung gestellt über CHF '+chf(erpDocTotals(cur).brutto)+' — fällig am '+dfmt(cur.frist));
+    // «An die Buchhaltung übergeben» — EIN Datum statt einer zweiten
+    // Status-Achse wie im Altsystem. Setzt sich beim Stellen selbst und
+    // bleibt im Kopf jederzeit korrigierbar.
+    if(!cur.buchhaltungAm)cur.buchhaltungAm=today();
     // Verknüpfte Regierapporte als verrechnet markieren
     (cur.positionen||[]).forEach(function(p){
       if(p.art!=='regie'||!p.regieRapportId)return;
@@ -4732,6 +5164,7 @@ function erpZahlung(){
     cur.zahlungen=cur.zahlungen||[];
     cur.zahlungen.push({datum:today(),betrag:Math.round(b*100)/100});
     var neu=bez+b;
+    erpVerlauf(cur,'Zahlung CHF '+chf(Math.round(b*100)/100)+' erfasst'+(neu>=t.brutto-0.05?' — vollständig bezahlt':' — offen: CHF '+chf(t.brutto-neu)));
     if(neu>=t.brutto-0.05){cur.status='gestellt';toast('✅ Vollständig bezahlt');}
     else toast('💵 Teilzahlung erfasst — offen: CHF '+chf(t.brutto-neu));
     erpSaveCur(true);
@@ -4742,6 +5175,7 @@ function erpStornieren(){
   GemaDialog.confirm({title:'Rechnung stornieren',message:cur.nr+' stornieren? Sie zählt danach nicht mehr zur Fakturierung des Auftrags.',confirmLabel:'Stornieren',danger:true}).then(function(ok){
     if(!ok)return;
     cur.status='storniert';
+    erpVerlauf(cur,'Rechnung storniert');
     erpSaveCur(true);
     erpOpenEditor();
   });
@@ -4804,6 +5238,9 @@ function erpPickLoad(mode){
 // KUNDEN
 // ═══════════════════════════════════════════════════════════
 var _kundeEditId=null,_kundeAusEditor=false;
+/* Zähler der Dialog-Öffnungen. Ein noch laufender Cloud-Save darf nur den
+   Dialog schliessen, aus dem er gestartet wurde — siehe erpKundeSave. */
+var _kundeGen=0;
 // ── Objekt-Wahl im Editor: Beteiligte direkt sichtbar (Request 1) ──
 // Nach der Objektwahl erscheinen die Objekt-Beteiligten unter dem Kunde-Feld
 // als 1-Klick-Rechnungsempfänger — ohne Umweg über den «＋ Kunde»-Dialog.
@@ -4889,23 +5326,97 @@ function erpObjektWahl(id){
   cur.objektId=id;
   var oo=null;try{oo=erpObjekte().find(function(x){return x.id===id;});}catch(e){}
   cur.objektName=oo?(oo.name+(oo.ort?' · '+oo.ort:'')):(id?cur.objektName:'');
+  // Die Adress-Slots des Objekts speisen den Beleg — aber nur in LEERE Felder;
+  // eine bereits getroffene Wahl wird nie stillschweigend überschrieben.
+  var r=erpObjAdressenUebernehmen(oo,false);
   erpTouch();
+  if(r.kunde||r.zustell){
+    erpOpenEditor();   // Kunde-Select + Zustellbox müssen neu gezeichnet werden
+    toast('✓ '+(r.kunde?'Rechnungsempfänger':'')+(r.kunde&&r.zustell?' und ':'')+(r.zustell?'Zustelladresse':'')+' aus dem Objekt übernommen');
+    return;
+  }
   erpRenderObjBet();
+}
+/* Adress-Slots des Objekts (Zahlbar durch · Korrespondenz) auf den Beleg.
+
+   GEMA-Kernprinzip: die Adresse wird EINMAL am Objekt gepflegt und fliesst von
+   dort in jeden Beleg. `force` ist die bewusste Nachübernahme per Knopf —
+   ohne `force` werden nur leere Felder gefüllt. Der Eigentümer-Slot bleibt
+   aussen vor: er ist keine Rechnungs- und keine Zustelladresse. */
+function erpObjAdressenUebernehmen(oo,force){
+  var res={kunde:false,zustell:false};
+  if(!cur||!oo||!oo.adressen)return res;
+  var z=oo.adressen.zahler;
+  if(z&&z.snapshot&&z.snapshot.firma&&(force||!cur.kundeId)){
+    cur.kundeId=z.adressId||'';
+    cur.kundeSnapshot=JSON.parse(JSON.stringify(z.snapshot));
+    res.kunde=true;
+    // Die Zahlungsbedingung hängt am Kunden — sie muss auch dann mitkommen,
+    // wenn der Kunde über den Objekt-Slot statt über das Kunden-Feld kommt.
+    var kd=null;try{kd=cur.kundeId?erpKunden().find(function(x){return x.id===cur.kundeId;}):null;}catch(e){}
+    if(kd&&kd.zahlbedId&&!cur.zahlbedId)cur.zahlbedId=kd.zahlbedId;
+    if(cur.typ==='rechnung'&&cur.status==='entwurf')cur.frist=addDays(cur.datum||today(),erpFristTage(cur));
+  }
+  var k=oo.adressen.korrespondenz;
+  if(k&&k.snapshot&&k.snapshot.firma&&(force||!cur.zustellSnapshot)){
+    cur.zustellSnapshot=JSON.parse(JSON.stringify(k.snapshot));
+    res.zustell=true;
+  }
+  return res;
+}
+function erpObjAdressenNachziehen(){
+  var oo=null;try{oo=erpObjekte().find(function(x){return x.id===(cur&&cur.objektId);});}catch(e){}
+  if(!oo)return;
+  var r=erpObjAdressenUebernehmen(oo,true);
+  if(!r.kunde&&!r.zustell){toast('Keine Adressen am Objekt hinterlegt');return;}
+  erpSaveCur(true);erpOpenEditor();
+  toast('✓ Adressen aus dem Objekt übernommen');
 }
 function erpRenderObjBet(){
   var box=document.getElementById('erpObjBet');if(!box)return;
-  if(!cur||!erpEditable()||!cur.objektId){box.innerHTML='';return;}
+  if(!cur||!cur.objektId){box.innerHTML='';return;}
+  var oo=null;try{oo=erpObjekte().find(function(x){return x.id===cur.objektId;});}catch(e){}
+  var editable=erpEditable();
+  var teile=[];
+
+  // 1) Bezugspersonen des Objekts — LESEN, nicht pflegen. Erfasst werden sie
+  //    am Objekt; hier stehen sie nur, damit der Monteur/Sachbearbeiter sie
+  //    beim Beleg zur Hand hat (keine zweite Pflegestelle).
+  var bp=(oo&&oo.bezugspersonen)||[];
+  if(bp.length){
+    var ICO={besteller:'👤',bewohner:'🏠',hauswart:'🔧',mieter:'🏠',eigentuemer:'🔑'};
+    teile.push('<div style="margin-bottom:6px"><span style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:var(--acc)">Bezugspersonen</span> '
+      +bp.slice(0,6).map(function(p){
+        var typ=(p.typen||[])[0]||'';
+        var lbl=typ&&typeof GemaAdressen!=='undefined'?(GemaAdressen.typLabel(typ)||typ):typ;
+        var nm=[p.vorname,p.name].filter(Boolean).join(' ')||'—';
+        return '<span class="badge" style="background:#fff;border:1px solid var(--brd2);color:inherit;margin:2px 3px 0 0;font-weight:600">'
+          +(ICO[typ]||'👥')+' '+esc(nm)+(lbl?' <span style="color:var(--mut);font-weight:500">'+esc(lbl)+'</span>':'')
+          +(p.tel||p.natel?' <span style="color:var(--mut);font-weight:500">'+esc(p.tel||p.natel)+'</span>':'')+'</span>';
+      }).join('')
+      +(bp.length>6?' <span style="color:var(--mut);font-size:11.5px">+'+(bp.length-6)+'</span>':'')
+      +' <a href="pm_objekte.html?objekt='+encodeURIComponent(cur.objektId)+'" target="_blank" style="font-size:11.5px">am Objekt pflegen ↗</a></div>');
+  }
+
+  // 2) Adressen des Objekts nachziehen (nur wenn welche hinterlegt sind und
+  //    der Beleg schon eine eigene Wahl trägt — sonst hat die Objektwahl sie
+  //    bereits automatisch übernommen).
+  var slots=(oo&&oo.adressen)||{};
+  var hatSlots=!!((slots.zahler&&slots.zahler.snapshot&&slots.zahler.snapshot.firma)||(slots.korrespondenz&&slots.korrespondenz.snapshot&&slots.korrespondenz.snapshot.firma));
+  if(editable&&hatSlots)
+    teile.push('<button type="button" class="btn ghost" style="min-height:30px;padding:4px 10px;font-size:12px" onclick="erpObjAdressenNachziehen()">⬇ Adressen aus dem Objekt übernehmen</button>');
+
+  // 3) Beteiligte als Rechnungsempfänger (bestehend)
   var bets=[];try{bets=(typeof GemaObjekte!=='undefined')?(GemaObjekte.getBeteiligte(cur.objektId)||[]):[];}catch(e){}
-  if(!bets.length){box.innerHTML='';return;}
   window._erpObjBets=bets;
-  box.innerHTML='<div style="background:var(--acc-bg);border:1px solid var(--acc-bd);border-radius:11px;padding:9px 12px;margin-bottom:12px">'
-    +'<div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:var(--acc);margin-bottom:7px">👥 Beteiligte des Objekts — als Rechnungsempfänger übernehmen</div>'
-    +'<div style="display:flex;flex-wrap:wrap;gap:6px">'
-    +bets.slice(0,8).map(function(b,i){
-      var nm=b.firma||b.name||'—';
-      return '<button type="button" class="btn ghost" style="min-height:32px;padding:5px 11px;font-size:12.5px" onclick="erpBetAlsKunde('+i+')">👤 '+esc(nm)+(b.rolle?' <span style="font-size:10px;color:var(--mut2)">('+esc(b.rolle)+')</span>':'')+'</button>';
-    }).join('')
-    +'</div></div>';
+  if(editable&&bets.length)
+    teile.push('<div style="margin-top:6px"><span style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:var(--acc)">Beteiligte als Rechnungsempfänger</span><div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:5px">'
+      +bets.slice(0,8).map(function(b,i){
+        var nm=b.firma||b.name||'—';
+        return '<button type="button" class="btn ghost" style="min-height:30px;padding:4px 10px;font-size:12px" onclick="erpBetAlsKunde('+i+')">👤 '+esc(nm)+(b.rolle?' <span style="font-size:10px;color:var(--mut2)">('+esc(b.rolle)+')</span>':'')+'</button>';
+      }).join('')+'</div></div>');
+
+  box.innerHTML=teile.length?('<div style="background:var(--acc-bg);border:1px solid var(--acc-bd);border-radius:11px;padding:9px 12px;margin-bottom:12px">'+teile.join('')+'</div>'):'';
 }
 function erpBetAlsKunde(i){
   var b=(window._erpObjBets||[])[i];if(!b||!cur)return;
@@ -4929,6 +5440,17 @@ function erpKundeWahl(id){
   cur.kundeId=id;
   var k=erpKunden().find(function(x){return x.id===id;});
   cur.kundeSnapshot=k?{firma:k.firma,kontakt:k.kontakt,strasse:k.strasse,plz:k.plz,ort:k.ort,email:k.email}:null;
+  // Zahlungsbedingung des Kunden erben — nur, solange am Beleg keine eigene
+  // Wahl steht (eine bewusste Abweichung wird nie überschrieben).
+  if(k&&k.zahlbedId&&!cur.zahlbedId)cur.zahlbedId=k.zahlbedId;
+  if(cur.typ==='rechnung'&&cur.status==='entwurf')cur.frist=addDays(cur.datum||today(),erpFristTage(cur));
+  erpSaveCur(true);erpOpenEditor();
+}
+/* Zahlungsbedingung am Beleg ändern → Frist neu rechnen (solange Entwurf). */
+function erpZahlbedWahl(id){
+  if(!cur)return;
+  cur.zahlbedId=id||'';
+  if(cur.typ==='rechnung'&&cur.status==='entwurf')cur.frist=addDays(cur.datum||today(),erpFristTage(cur));
   erpSaveCur(true);erpOpenEditor();
 }
 // Adress-Autocomplete (swisstopo) für die Adressfelder der Dialoge.
@@ -5045,13 +5567,16 @@ function _adrFormFuellen(a){
   a=a||{};
   _AK.forEach(function(f){var el=document.getElementById('k_'+f);if(el)el.value=a[f]||'';});
   var b=document.getElementById('k_bem');if(b)b.value=a.bemerkungen||'';
+  var zb=document.getElementById('k_zahlbed');
+  if(zb)zb.innerHTML='<option value="">– Firmen-Standard: '+erpSettings().fristTage+' Tage –</option>'
+    +erpZahlbedListe().map(function(z){return '<option value="'+esc(z.id)+'"'+(z.id===(a.zahlbedId||'')?' selected':'')+'>'+esc(z.label)+'</option>';}).join('');
   _adrTypenBox(a.typen||[]);
   var d=document.getElementById('k_delBtn');
   if(d)d.style.display=(a.id&&erpCanEdit())?'':'none';
 }
 
 function erpKundeNeu(ausEditor){
-  _kundeEditId=null;_kundeAusEditor=!!ausEditor;
+  _kundeEditId=null;_kundeAusEditor=!!ausEditor;_kundeGen++;
   document.getElementById('kundeTitle').textContent='➕ Neue Adresse';
   _adrFormFuellen({});
   document.getElementById('k_nr').placeholder='automatisch ('+GemaAdressen.nextNr()+')';
@@ -5090,7 +5615,7 @@ function erpKundeAusBet(i){
 }
 function erpKundeEdit(id){
   var k=erpKunden().find(function(x){return x.id===id;});if(!k)return;
-  _kundeEditId=id;_kundeAusEditor=false;
+  _kundeEditId=id;_kundeAusEditor=false;_kundeGen++;
   document.getElementById('kundeTitle').textContent='✏️ '+GemaAdressen.anzeigeName(k);
   document.getElementById('kundeBetHint').innerHTML='';
   _adrFormFuellen(k);
@@ -5106,7 +5631,8 @@ function erpKundeSave(){
     id:_kundeEditId||undefined,
     orgId:(alt&&alt.orgId)||(erpUser()?erpUser().orgId:''),
     typen:_adrTypenLesen(),
-    bemerkungen:document.getElementById('k_bem').value.trim()
+    bemerkungen:document.getElementById('k_bem').value.trim(),
+    zahlbedId:(document.getElementById('k_zahlbed')||{}).value||''
   });
   _AK.forEach(function(f){var el=document.getElementById('k_'+f);if(el)k[f]=el.value.trim();});
   // Handelsregister-Bezug nur mitspeichern, solange der Name unverändert
@@ -5117,8 +5643,13 @@ function erpKundeSave(){
           rechtsform:hr.rechtsform||'',rechtsformKurz:hr.rechtsformKurz||'',sitz:hr.sitz||'',
           status:hr.status||'',aktiv:hr.aktiv!==false,zefixUrl:hr.zefixUrl||''};
   }else if(!hr){delete k.hr;}
+  // Der Cloud-Save läuft asynchron — bis er zurückkommt, kann der Benutzer
+  // längst den nächsten Dialog geöffnet haben («Speichern» → sofort
+  // «＋ Neue Adresse»). Der Schluss-Handler darf dann NICHT den frisch
+  // geöffneten Dialog zumachen; darum merkt er sich, welcher Dialog gemeint war.
+  var gen=++_kundeGen;
   GemaAdressen.save(k).then(function(rec){
-    document.getElementById('kundeModal').classList.remove('open');
+    if(gen===_kundeGen)document.getElementById('kundeModal').classList.remove('open');
     toast('✓ Adresse gespeichert');
     if(_kundeAusEditor&&cur){
       cur.kundeId=rec.id;cur.kundeSnapshot=GemaAdressen.snapshot(rec);
@@ -5133,8 +5664,9 @@ function erpAdrDel(){
     message:'«'+GemaAdressen.anzeigeName(k)+'» wirklich löschen?\n\nBereits erstellte Dokumente behalten ihre Adresse (sie ist dort als Momentaufnahme gespeichert).'
   }).then(function(ok){
     if(!ok)return;
+    var gen=++_kundeGen;
     GemaAdressen.del(_kundeEditId).then(function(){
-      document.getElementById('kundeModal').classList.remove('open');
+      if(gen===_kundeGen)document.getElementById('kundeModal').classList.remove('open');
       toast('✓ Adresse gelöscht');erpRenderAll();
     });
   });
@@ -5470,6 +6002,8 @@ function erpOpenSettings(){
   document.getElementById('s_mwstnr').value=s.mwstNr;
   document.getElementById('s_kosten').value=s.kostenFaktorPct||'';
   document.getElementById('s_abRows').innerHTML=abListe().map(abRowHtml).join('');
+  document.getElementById('s_zbRows').innerHTML=erpZahlbedListe().map(erpZbRowHtml).join('');
+  document.getElementById('s_aaRows').innerHTML=erpArbeitsarten().map(erpAaRowHtml).join('');
   // Spalten im Dokument (Firmen-Standard)
   (function(){
     var an=erpPosColsOrg();
@@ -5523,7 +6057,11 @@ function erpSetSave(){
         var ids=[].slice.call(document.querySelectorAll('#s_posCols .s-poscol'))
           .filter(function(cb){return cb.checked;}).map(function(cb){return cb.getAttribute('data-col');});
         return _erpPosColsNorm(ids)||ERP_POSCOLS_DEFAULT.slice();
-      })()
+      })(),
+      // Leere Liste NICHT speichern — dann greifen wieder die Vorgaben
+      // (gleiche Semantik wie bei den Standardtexten).
+      zahlbed:erpZbRowsCollect('s_zbRows'),
+      arbeitsarten:erpAaRowsCollect('s_aaRows')
     };
     // Arbeitsbereiche liegen TOP-LEVEL in org.settings (geteilt mit dem Einsatzplan)
     settings.arbeitsbereiche=abRowsCollect('s_abRows');

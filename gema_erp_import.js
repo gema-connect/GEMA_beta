@@ -1171,6 +1171,7 @@ function rechnungSchreiben(z,adrCtx,report,opts){
       }
       // Vermerke — alles, wofür GEMA kein eigenes Feld führt.
       if(s(z.arbeit)&&!s(doc.importArbeit))doc.importArbeit=s(z.arbeit);
+      if(s(z.arbeit)&&!s(doc.arbeitsart))doc.arbeitsart=s(z.arbeit);
       if(s(z.artText)&&!s(doc.importArtText))doc.importArtText=s(z.artText);
       if(s(z.statusText)&&!s(doc.importStatusText))doc.importStatusText=s(z.statusText);
       if(s(z.ausgefuehrt)&&!s(doc.importAusgefuehrt))doc.importAusgefuehrt=s(z.ausgefuehrt);
@@ -1178,6 +1179,10 @@ function rechnungSchreiben(z,adrCtx,report,opts){
       if(s(z.printInfo)&&!s(doc.importPrintInfo))doc.importPrintInfo=s(z.printInfo);
       if(s(z.mwstCode)&&!s(doc.importMwstCode))doc.importMwstCode=s(z.mwstCode);
       if(s(z.zahlbed)&&!s(doc.importZahlbed))doc.importZahlbed=s(z.zahlbed);
+      // «01» = 30 Tage netto ist aus dem Beispiel-Export belegt — nur dieser
+      // eine Fall wird auf die GEMA-Kondition gemappt, alles andere bleibt
+      // Vermerk (keine erfundene Zuordnung).
+      if(!s(doc.zahlbedId)&&fristTage(z.zahlbed,0)===30)doc.zahlbedId='netto30';
       if(s(z.adrId)&&!s(doc.importAdrId))doc.importAdrId=s(z.adrId);
       // ESR-Referenz: nur eine GÜLTIGE wandert in den Nachdruck-QR
       // (erpRefFuer prüft sie nochmals), der Rohwert bleibt in jedem Fall.
@@ -1262,6 +1267,7 @@ function auftragSchreiben(z,adrCtx,report,opts){
       // Alles, was GEMA nicht als eigenes Feld führt, bleibt als Vermerk am
       // Beleg erhalten — nichts aus dem Altsystem verschwindet stillschweigend.
       if(s(z.arbeit)&&!s(doc.importArbeit))doc.importArbeit=s(z.arbeit);
+      if(s(z.arbeit)&&!s(doc.arbeitsart))doc.arbeitsart=s(z.arbeit);
       if(s(z.statusText)&&!s(doc.importStatusText))doc.importStatusText=s(z.statusText);
       if(s(z.rechnStatus)&&!s(doc.importRechnungsstatus))doc.importRechnungsstatus=s(z.rechnStatus);
       if(s(z.rechnungNr)&&!s(doc.importRechnungNr))doc.importRechnungNr=s(z.rechnungNr);
