@@ -411,6 +411,22 @@ table.obj-table thead tr{cursor:context-menu}
       <h3>Noch keine Beteiligten</h3>
       <p>Erstelle zuerst ein Objekt, dann füge Beteiligte hinzu.</p>
     </div>
+
+    <!-- ══ GEMA Card: Personen mit lebender Kontaktkarte ══
+         Bewusst NEBEN der Firmen-Tabelle oben und nicht darin: dort
+         stehen Firmen mit Freitext-Kontakten, hier Personen, deren
+         Kontaktdaten LIVE aus ihrer eigenen Karte kommen und sich
+         mitaktualisieren, wenn sie die Firma wechseln.
+         Sichtbar nur mit gewähltem Objekt (die Zuordnung ist immer
+         projektbezogen) und nur für Rollen, die Beteiligte pflegen dürfen. -->
+    <div id="cardBetPanel" style="display:none;margin-top:22px">
+      <div class="toolbar">
+        <div class="toolbar-title">📇 Personen mit GEMA Card</div>
+        <button class="btn btn-primary btn-sm" onclick="cardBetEinladen()">+ Person einladen</button>
+        <button class="btn btn-ghost btn-sm" onclick="cardBetScan()">📷 Karte scannen</button>
+      </div>
+      <div class="card" id="cardBetBox" style="padding:14px 16px"></div>
+    </div>
   </div>
 
   <!-- TAB: BERECHNUNGEN -->
@@ -660,6 +676,8 @@ function fixLeadingZero(el){var v=el.value.trim();if(!v)return;if(v.charAt(0)===
 <script src="gema_autosave.js"></script>
 <script src="gema_adresse.js"></script>
 <script src="gema_erp_adressen.js"></script>
+<script src="gema_card.js"></script>
+<script src="gema_qr_scanner.js"></script>
 <script>
 (async()=>{
 if(typeof _GemaDB!=='undefined'){try{await _GemaDB.init('objekte',['gema_objekte_v1']);}catch(e){console.warn('GemaDB:',e);}}
@@ -2558,6 +2576,7 @@ function renderBeteiligte(){
   if(rolleFilter)list=list.filter(b=>b.rolle===rolleFilter);
   $('betTitle').textContent=`${list.length} Beteiligte${list.length!==1?'r':''}`;
   $('badgeBet').textContent=_mem.beteiligte.length;
+  cardBetRender();   // GEMA-Card-Panel folgt demselben Objekt-Filter
   if(!list.length){$('betBody').innerHTML='';$('betEmpty').style.display='';return;}
   $('betEmpty').style.display='none';
   $('betBody').innerHTML=list.map(b=>{
@@ -2592,6 +2611,221 @@ function renderBeteiligte(){
   }).join('');
 }
 window.renderBeteiligte=renderBeteiligte;
+
+/* ══════════════════════════════════════════════════════════════════════
+   GEMA Card — Beteiligten-Widget (UMSETZUNG_GEMA_Card.md §2.3 / §6.4)
+
+   Zeigt die Personen, deren Kontaktdaten LIVE aus ihrer eigenen Karte
+   kommen. Wer noch kein GEMA-Konto hat, bekommt ein Schattenprofil und
+   einen Übernahme-Link — GEMA versendet keine Mails, der Link wird
+   deshalb zum Weitergeben angeboten (Muster Freigabe-Link in
+   pm_revisionsunterlagen).
+
+   KRITISCH: pm_objekte ist eine async-IIFE — jede Funktion, die aus
+   einem Inline-onclick gerufen wird, MUSS an window hängen.
+   ══════════════════════════════════════════════════════════════════════ */
+var _cardBetCache={};   // objektId → Liste (verhindert Flackern beim Re-Render)
+
+function cardBetDarf(){
+  // Beteiligte pflegen dürfen dieselben Rollen wie im Firmen-Bereich —
+  // Gratis-Konten (role_free) ausdrücklich nicht.
+  try{
+    if(typeof GemaAuth==='undefined')return false;
+    if(GemaAuth.isFreeUser&&GemaAuth.isFreeUser())return false;
+    return GemaAuth.can('write','objekte')||GemaAuth.can('admin','objekte');
+  }catch(e){return false;}
+}
+function cardBetObjekt(){ return ($('betObjFilter')&&$('betObjFilter').value)||''; }
+
+window.cardBetRender=function(){
+  const panel=$('cardBetPanel');
+  if(!panel)return;
+  const oid=cardBetObjekt();
+  // Ohne gewähltes Objekt gibt es keine Zuordnung — Panel bleibt weg.
+  if(!oid||!cardBetDarf()||typeof GemaCard==='undefined'){panel.style.display='none';return;}
+  panel.style.display='';
+  const box=$('cardBetBox');
+  if(_cardBetCache[oid])cardBetPaint(_cardBetCache[oid]);
+  else box.innerHTML='<div style="font-size:12px;color:var(--mut,#64748b)">Wird geladen…</div>';
+  GemaCard.api('beteiligt_list',{projektId:oid}).then(r=>{
+    if(cardBetObjekt()!==oid)return;               // Filter inzwischen gewechselt
+    if(r.status!==200){box.innerHTML='<div style="font-size:12px;color:var(--mut,#64748b)">Nicht erreichbar.</div>';return;}
+    _cardBetCache[oid]=(r.data&&r.data.beteiligte)||[];
+    cardBetPaint(_cardBetCache[oid]);
+  }).catch(()=>{box.innerHTML='<div style="font-size:12px;color:var(--mut,#64748b)">Nicht erreichbar.</div>';});
+};
+
+function cardBetPaint(list){
+  const box=$('cardBetBox');
+  if(!box)return;
+  if(!list.length){
+    box.innerHTML='<div style="font-size:12.5px;color:var(--mut,#64748b);line-height:1.6">'
+      +'Noch niemand mit Kontaktkarte zugeordnet.<br/>'
+      +'<b>+ Person einladen</b> legt eine Karte an und liefert einen Übernahme-Link zum Weitergeben — '
+      +'die Person pflegt ihre Daten danach selbst, und dieses Projekt sieht immer den aktuellen Stand.</div>';
+    return;
+  }
+  const LBL={architekt:'Architekt',bauherr:'Bauherrschaft',pl:'Projektleitung',planer:'Planer',
+             monteur:'Monteur',lieferant:'Lieferant',sonstige:'Sonstige'};
+  box.innerHTML=list.map(p=>{
+    const kontakt=[p.phone,p.email].filter(Boolean).join(' · ');
+    const badge=p.status==='invited'
+      ? '<span style="font-size:10px;font-weight:800;padding:2px 7px;border-radius:9px;background:#fffbeb;color:#d97706;border:1px solid #fde68a">eingeladen</span>'
+      : '<span style="font-size:10px;font-weight:800;padding:2px 7px;border-radius:9px;background:#f0fdf4;color:#16a34a;border:1px solid #bbf7d0">aktiv</span>';
+    return `<div style="display:flex;align-items:center;gap:11px;padding:10px 0;border-bottom:1px solid var(--brd,#e2e7f0);flex-wrap:wrap">
+      <div style="flex:1;min-width:170px">
+        <div style="font-size:13.5px;font-weight:700">${esc(p.display_name)} ${badge}</div>
+        <div style="font-size:11.5px;color:var(--mut,#64748b)">${esc(LBL[p.rolle]||p.rolle)}${kontakt?' · '+esc(kontakt):''}</div>
+      </div>
+      <div style="display:flex;gap:5px;flex-wrap:wrap">
+        <a class="btn btn-ghost btn-xs" href="/p/${encodeURIComponent(p.slug)}" target="_blank" rel="noopener" title="Karte ansehen">📇</a>
+        ${p.claim_offen?`<button class="btn btn-ghost btn-xs" onclick="cardBetErinnern('${esc(p.slug)}')" title="Übernahme-Link erneut holen">🔗 Link</button>`:''}
+        <button class="btn btn-ghost btn-xs" onclick="cardBetEntfernen('${esc(p.slug)}','${esc(p.display_name)}')" title="Aus Projekt entfernen">✕</button>
+      </div></div>`;
+  }).join('');
+}
+
+/* Minimal-Modal für das Widget — bewusst eigenständig, damit die
+   bestehenden Objekt-Modals unberührt bleiben. z-index über .modal-bg
+   (900) und unter GemaDialog (12800). */
+function _cardModal(titel,innerHtml,okLabel,onOk){
+  const alt=document.getElementById('_cardModalBg'); if(alt)alt.remove();
+  const bg=document.createElement('div');
+  bg.id='_cardModalBg';
+  bg.style.cssText='position:fixed;inset:0;background:rgba(15,23,42,.5);z-index:11000;'
+    +'display:flex;align-items:center;justify-content:center;padding:16px';
+  bg.innerHTML='<div style="background:#fff;border-radius:18px;max-width:440px;width:100%;'
+    +'max-height:86vh;overflow-y:auto;box-shadow:0 18px 48px rgba(15,23,42,.28)">'
+    +'<div style="padding:16px 18px;border-bottom:1.5px solid #e2e7f0;display:flex;align-items:center;gap:10px">'
+      +'<h3 style="flex:1;font-size:15px;font-weight:800;margin:0">'+esc(titel)+'</h3>'
+      +'<button id="_cmX" style="border:none;background:none;font-size:19px;cursor:pointer;color:#64748b">✕</button></div>'
+    +'<div style="padding:18px" id="_cmBody">'+innerHtml+'</div>'
+    +'<div style="padding:0 18px 18px;display:flex;gap:9px;justify-content:flex-end">'
+      +'<button class="btn btn-ghost btn-sm" id="_cmC">Abbrechen</button>'
+      +'<button class="btn btn-primary btn-sm" id="_cmOk">'+esc(okLabel)+'</button></div></div>';
+  document.body.appendChild(bg);
+  const close=()=>bg.remove();
+  bg.querySelector('#_cmX').onclick=close;
+  bg.querySelector('#_cmC').onclick=close;
+  bg.onclick=e=>{if(e.target===bg)close();};
+  bg.querySelector('#_cmOk').onclick=()=>onOk(close,bg.querySelector('#_cmOk'));
+  return {close:close,el:bg};
+}
+const _cmRow=(lbl,inner)=>'<div style="display:flex;flex-direction:column;gap:6px;margin-bottom:13px">'
+  +'<label style="font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#334155">'+lbl+'</label>'+inner+'</div>';
+const _cmInp='style="padding:10px 12px;border:1.5px solid #cdd4e4;border-radius:10px;font-size:15px;width:100%;outline:none;font-family:inherit"';
+
+/* Einladen: Name + Mail + Rolle → Schattenprofil + Übernahme-Link.
+   GEMA verschickt keine Mails — der Link wird zum Weitergeben angezeigt. */
+window.cardBetEinladen=function(){
+  const oid=cardBetObjekt();
+  if(!oid){GemaDialog.alert({title:'Objekt wählen',message:'Bitte oben zuerst ein Objekt auswählen.'});return;}
+  const rollen=(GemaCard.ROLLEN||[]).map(r=>`<option value="${r.id}">${esc(r.label)}</option>`).join('');
+  const m=_cardModal('Person einladen',
+    '<div style="font-size:12.5px;color:#64748b;line-height:1.55;margin-bottom:14px">'
+      +'Es werden nur <b>Name und E-Mail</b> gespeichert. Die Person erhält einen Link, mit dem sie ihre '
+      +'Kontaktkarte kostenlos übernimmt und danach selbst pflegt.</div>'
+    +_cmRow('Name *','<input id="cbName" maxlength="120" placeholder="Vorname Nachname" '+_cmInp+'/>')
+    +_cmRow('E-Mail *','<input id="cbMail" type="email" maxlength="120" placeholder="name@firma.ch" '+_cmInp+'/>')
+    +_cmRow('Rolle im Projekt','<select id="cbRolle" '+_cmInp+'>'+rollen+'</select>')
+    +'<div id="cbMsg" style="font-size:12.5px;margin-top:8px"></div>',
+    'Einladen', function(close,okBtn){
+      const name=$('cbName').value.trim(), mail=$('cbMail').value.trim();
+      if(!name){$('cbMsg').innerHTML='<span style="color:#dc2626">Bitte den Namen angeben.</span>';return;}
+      if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(mail)){$('cbMsg').innerHTML='<span style="color:#dc2626">Bitte eine gültige E-Mail angeben.</span>';return;}
+      okBtn.disabled=true;$('cbMsg').textContent='Wird angelegt…';
+      GemaCard.call('card-invite','POST',{action:'einladen',projektId:oid,name:name,email:mail,
+        rolle:$('cbRolle').value}).then(r=>{
+        okBtn.disabled=false;
+        if(r.status!==200||!r.data||!r.data.ok){
+          $('cbMsg').innerHTML='<span style="color:#dc2626">'+esc((r.data&&r.data.error)||'Einladen fehlgeschlagen.')+'</span>';
+          return;
+        }
+        delete _cardBetCache[oid];cardBetRender();close();
+        if(r.data.hatKonto)GemaDialog.alert({title:'Hinzugefügt',
+          message:name+' hat bereits ein GEMA-Konto und wurde benachrichtigt.'});
+        else cardBetLinkZeigen(name,r.data.claimLink,r.data.einladungstext);
+      }).catch(()=>{okBtn.disabled=false;$('cbMsg').innerHTML='<span style="color:#dc2626">Keine Verbindung.</span>';});
+    });
+  setTimeout(()=>{const n=$('cbName');if(n)n.focus();},60);
+  return m;
+};
+
+/* Der Übernahme-Link zum Weitergeben (kein Mailversand in GEMA). */
+function cardBetLinkZeigen(name,link,text){
+  if(!link)return;
+  _cardModal('Übernahme-Link für '+name,
+    '<div style="font-size:12.5px;color:#64748b;line-height:1.55;margin-bottom:12px">'
+      +'GEMA verschickt keine E-Mails. Sende <b>'+esc(name)+'</b> diesen Link — damit übernimmt die Person '
+      +'ihre Karte und pflegt die Daten danach selbst.</div>'
+    +'<div style="display:flex;gap:8px;align-items:center;background:#edf0f7;border:1.5px solid #e2e7f0;'
+      +'border-radius:10px;padding:9px 11px;margin-bottom:12px">'
+      +'<code style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px">'+esc(link)+'</code></div>'
+    +'<div style="display:flex;gap:8px;flex-wrap:wrap">'
+      +'<button class="btn btn-ghost btn-sm" id="cbCopyL">🔗 Link kopieren</button>'
+      +'<button class="btn btn-ghost btn-sm" id="cbCopyT">📝 Text kopieren</button>'
+      +'<a class="btn btn-ghost btn-sm" id="cbMailto" href="#">✉️ E-Mail öffnen</a></div>'
+    +'<div id="cbMsg3" style="font-size:12.5px;margin-top:10px;color:#16a34a"></div>',
+    'Fertig', function(close){close();});
+  const ok=m=>{const e=$('cbMsg3');if(e)e.textContent=m;};
+  $('cbCopyL').onclick=()=>GemaCard.kopieren(link).then(()=>ok('✓ Link kopiert'));
+  $('cbCopyT').onclick=()=>GemaCard.kopieren(text||link).then(()=>ok('✓ Text kopiert'));
+  $('cbMailto').setAttribute('href','mailto:?subject='
+    +encodeURIComponent('Deine Kontaktkarte für unser Projekt')+'&body='+encodeURIComponent(text||link));
+}
+
+/* Übernahme-Link erneut holen (Erinnerung, max. 1× pro 7 Tage). */
+window.cardBetErinnern=function(slug){
+  const oid=cardBetObjekt();
+  const p=(_cardBetCache[oid]||[]).find(x=>x.slug===slug);
+  GemaCard.call('card-invite','POST',{action:'erinnerung',projektId:oid,slug:slug}).then(r=>{
+    if(r.status===200&&r.data&&r.data.ok)cardBetLinkZeigen((p&&p.display_name)||'die Person',r.data.claimLink,'');
+    else GemaDialog.alert({title:'Nicht möglich',message:(r.data&&r.data.error)||'Bitte später erneut versuchen.'});
+  }).catch(()=>GemaDialog.alert({title:'Keine Verbindung',message:'Bitte Internetverbindung prüfen.'}));
+};
+
+window.cardBetEntfernen=function(slug,name){
+  const oid=cardBetObjekt();
+  GemaDialog.confirm({title:'Aus Projekt entfernen',
+    message:`${name} nicht mehr als Beteiligte:n in diesem Projekt führen? Die Kontaktkarte der Person bleibt bestehen.`,
+    confirmLabel:'Entfernen',danger:true}).then(ok=>{
+    if(!ok)return;
+    GemaCard.api('beteiligt_del',{projektId:oid,slug:slug}).then(()=>{
+      delete _cardBetCache[oid];cardBetRender();
+    });
+  });
+};
+
+window.cardBetScan=function(){
+  // In-App-Scanner (Konzept §6.3): umgeht den Safari-Blindfleck, weil die
+  // Session hier garantiert vorhanden ist.
+  if(typeof GemaQR==='undefined'||!GemaQR.scan){
+    GemaDialog.alert({title:'Scanner nicht verfügbar',
+      message:'Der QR-Scanner konnte nicht geladen werden. Alternativ die Person über «+ Person einladen» erfassen.'});
+    return;
+  }
+  GemaQR.scan(function(text){
+    // liest BEIDE QR-Modi: die Karten-URL und die eingebettete vCard,
+    // deren URL:-Feld denselben Link trägt (Konzept §6.4).
+    const slug=GemaCard.slugAusScan(text);
+    if(!slug){GemaDialog.alert({title:'Kein GEMA-Card-Code',message:'Dieser QR-Code gehört nicht zu einer GEMA Card.'});return;}
+    cardBetRolleWaehlen(slug,true);
+  });
+};
+function cardBetRolleWaehlen(slug,viaScan){
+  const oid=cardBetObjekt();
+  if(!oid){GemaDialog.alert({title:'Objekt wählen',message:'Bitte oben zuerst ein Objekt auswählen.'});return;}
+  const rollen=(GemaCard.ROLLEN||[]).map(r=>`<option value="${r.id}">${esc(r.label)}</option>`).join('');
+  _cardModal('Als Beteiligter hinzufügen',
+    `<div class="frm-row"><label>Rolle im Projekt</label><select class="frm-inp" id="cbRolle2">${rollen}</select></div>
+     <div id="cbMsg2" style="font-size:12.5px;margin-top:8px"></div>`,
+    'Hinzufügen', function(close){
+      GemaCard.api('beteiligt_add',{projektId:oid,slug:slug,rolle:$('cbRolle2').value,viaScan:!!viaScan}).then(r=>{
+        if(r.status===200&&r.data&&r.data.ok){delete _cardBetCache[oid];close();cardBetRender();}
+        else $('cbMsg2').innerHTML='<span style="color:#dc2626">'+esc((r.data&&r.data.error)||'Fehlgeschlagen.')+'</span>';
+      });
+    });
+}
 
 // Kontext-Chat mit einem Beteiligten (GemaChat) — Bezug: das Objekt.
 window.betChat=function(betId){

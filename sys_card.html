@@ -1,0 +1,568 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8"/>
+<meta name="theme-color" content="#0f172a"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
+<meta name="mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<meta name="apple-mobile-web-app-title" content="GEMA"/>
+<meta name="robots" content="noindex,nofollow"/>
+<title>Kontaktkarte – GEMA</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
+<style>
+/* ══════════════════════════════════════════════════════════════════════
+   Öffentliche GEMA-Kartenseite (/p/<slug>).
+
+   KRITISCH — diese Seite bindet gema_auth.js BEWUSST NICHT ein:
+   gema_auth.js leitet jeden Aufruf ohne Session auf sys_login.html um
+   (nur sys_login ist ausgenommen). Besucher haben aber kein Login — sie
+   scannen einen QR-Code. Die Seite erkennt eine Session deshalb passiv
+   aus dem localStorage (same-origin) und laedt die Daten serverseitig
+   gefiltert aus card-public.js.
+
+   Ladezeit-Ziel < 1 s (Konzept §6.1): alles Kritische steht inline,
+   das Profilbild kommt lazy, kein Framework, keine Bibliothek.
+   ══════════════════════════════════════════════════════════════════════ */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#f4f6fb;--sur:#fff;--sur2:#f8faff;--brd:#e2e7f0;--brd2:#cdd4e4;
+  --txt:#111827;--txt2:#374151;--mut:#6b7280;--mut2:#9ca3af;
+  --accent:#1e3a5f;--forest:#0c4a2e;--navy:#0f172a;
+  --blue:#2563eb;--blue-bg:#eff4ff;--blue-bd:#bfcfff;
+  --grn:#16a34a;--grn-bg:#f0fdf4;--grn-bd:#bbf7d0;
+  --amb:#d97706;--amb-bg:#fffbeb;--amb-bd:#fde68a;
+  --red:#dc2626;--red-bg:#fef2f2;--red-bd:#fecaca;
+  --sans:"DM Sans",ui-sans-serif,system-ui,-apple-system,sans-serif;
+}
+body{font-family:var(--sans);background:var(--bg);color:var(--txt);min-height:100vh;
+  -webkit-tap-highlight-color:transparent}
+.hidden{display:none!important}
+
+/* ── Karte ── */
+.wrap{max-width:520px;margin:0 auto;padding:calc(18px + env(safe-area-inset-top,0px)) 16px 40px}
+.card{background:var(--sur);border-radius:20px;overflow:hidden;
+  box-shadow:0 10px 34px rgba(15,23,42,.13);border:1px solid var(--brd)}
+.chd{position:relative;background:linear-gradient(135deg,#0f172a 0%,#1e3a5f 55%,#0c4a2e 100%);
+  color:#fff;padding:26px 22px 62px;text-align:center;overflow:hidden}
+.chd::after{content:'';position:absolute;inset:0;opacity:.28;pointer-events:none;
+  background:radial-gradient(circle at 22% 12%,rgba(255,255,255,.22),transparent 46%),
+             radial-gradient(circle at 82% 78%,rgba(12,74,46,.5),transparent 52%)}
+.brandline{position:relative;z-index:1;font-size:10px;font-weight:800;letter-spacing:.16em;
+  text-transform:uppercase;opacity:.75}
+.avatar{position:absolute;left:50%;bottom:-44px;transform:translateX(-50%);width:104px;height:104px;
+  border-radius:50%;border:4px solid #fff;background:#e8edf6;object-fit:cover;z-index:2;
+  box-shadow:0 6px 18px rgba(15,23,42,.22)}
+.avatar-ini{display:flex;align-items:center;justify-content:center;font-size:36px;font-weight:800;
+  color:#1e3a5f;font-family:var(--sans)}
+.cbd{padding:56px 22px 22px;text-align:center}
+.nm{font-size:23px;font-weight:800;letter-spacing:-.3px;line-height:1.2}
+.rt{font-size:13.5px;font-weight:600;color:var(--accent);margin-top:4px}
+.co{font-size:13.5px;color:var(--mut);margin-top:2px}
+.upd{font-size:11px;color:var(--mut2);margin-top:12px}
+
+/* ── Kontaktzeilen ── */
+.rows{margin-top:18px;border-top:1px solid var(--brd);text-align:left}
+.row{display:flex;align-items:center;gap:13px;padding:13px 4px;border-bottom:1px solid var(--brd);
+  color:inherit;text-decoration:none}
+.row:last-child{border-bottom:none}
+.row-ic{width:36px;height:36px;flex:none;border-radius:10px;background:var(--blue-bg);
+  display:flex;align-items:center;justify-content:center;font-size:16px}
+.row-tx{flex:1;min-width:0}
+.row-lb{font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--mut2)}
+.row-vl{font-size:14.5px;font-weight:600;word-break:break-word}
+a.row:active{background:var(--sur2)}
+
+/* ── Buttons ── */
+.acts{padding:0 22px 22px;display:flex;flex-direction:column;gap:9px}
+.btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;
+  padding:15px 18px;border-radius:14px;font-size:15px;font-weight:700;font-family:var(--sans);
+  border:1.5px solid transparent;cursor:pointer;text-decoration:none;transition:transform .08s}
+.btn:active{transform:scale(.975)}
+.btn-pri{background:linear-gradient(135deg,#0f172a,#1e3a5f 60%,#0c4a2e);color:#fff;
+  box-shadow:0 6px 18px rgba(15,23,42,.2)}
+.btn-sec{background:var(--sur);color:var(--txt2);border-color:var(--brd2)}
+.btn-gh{background:transparent;color:var(--mut);font-weight:600;font-size:13.5px;padding:10px}
+.hint-dl{font-size:11.5px;color:var(--mut);text-align:center;margin-top:-3px;line-height:1.45}
+
+/* ── CTA / Banner ── */
+.cta{margin-top:16px;background:var(--sur);border:1.5px solid var(--brd);border-radius:18px;
+  padding:20px 20px 18px;text-align:center}
+.cta h2{font-size:16px;font-weight:800;letter-spacing:-.2px}
+.cta p{font-size:13px;color:var(--mut);margin:6px 0 14px;line-height:1.5}
+.banner{margin-bottom:14px;border-radius:16px;padding:15px 17px;font-size:13px;line-height:1.5}
+.banner b{display:block;font-size:14px;margin-bottom:3px}
+.banner-claim{background:var(--amb-bg);border:1.5px solid var(--amb-bd);color:#78350f}
+.banner-own{background:var(--grn-bg);border:1.5px solid var(--grn-bd);color:#14532d}
+.banner .btn{margin-top:11px}
+.mini{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:12px}
+.mini a{font-size:12px;color:var(--mut);text-decoration:underline;cursor:pointer}
+
+/* ── Zustände ── */
+.ld{max-width:520px;margin:80px auto;text-align:center;color:var(--mut);font-size:13px}
+.err{max-width:480px;margin:70px auto;text-align:center;padding:34px 24px;background:var(--sur);
+  border:1.5px solid var(--brd);border-radius:20px}
+.err .ic{font-size:46px;margin-bottom:10px}
+.err h2{font-size:18px;font-weight:800;margin-bottom:6px}
+.err p{font-size:13.5px;color:var(--mut);line-height:1.5}
+
+/* ── Bottom-Sheet (eingeloggte Besucher) ── */
+.sh-bg{position:fixed;inset:0;background:rgba(15,23,42,.5);z-index:900;display:none;
+  align-items:flex-end;justify-content:center}
+.sh-bg.on{display:flex}
+.sh{background:var(--sur);width:100%;max-width:520px;border-radius:22px 22px 0 0;
+  padding:10px 18px calc(20px + env(safe-area-inset-bottom,0px));max-height:82vh;overflow-y:auto;
+  animation:shup .22s cubic-bezier(.32,.72,0,1)}
+@keyframes shup{from{transform:translateY(100%)}to{transform:translateY(0)}}
+.sh-grab{width:38px;height:4px;border-radius:2px;background:var(--brd2);margin:0 auto 14px}
+.sh h3{font-size:15px;font-weight:800;margin-bottom:3px}
+.sh .sub{font-size:12.5px;color:var(--mut);margin-bottom:14px}
+.sh-item{display:flex;align-items:center;gap:12px;width:100%;padding:14px 12px;border-radius:13px;
+  border:1.5px solid var(--brd);background:var(--sur);margin-bottom:8px;cursor:pointer;
+  font-family:var(--sans);font-size:14.5px;font-weight:650;color:var(--txt);text-align:left;
+  text-decoration:none}
+.sh-item:active{background:var(--sur2)}
+.sh-item .ic{font-size:19px;width:26px;text-align:center;flex:none}
+.sh-item .sub2{display:block;font-size:11.5px;font-weight:500;color:var(--mut);margin-top:1px}
+.fld{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+.fld label{font-size:11.5px;font-weight:700;color:var(--txt2);text-transform:uppercase;letter-spacing:.06em}
+.inp,select.inp{padding:12px 13px;border:1.5px solid var(--brd2);border-radius:11px;font-size:16px;
+  font-family:var(--sans);width:100%;outline:none;background:var(--sur);color:var(--txt)}
+.inp:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(37,99,235,.1)}
+.inp::placeholder{color:#cbd5e1}
+textarea.inp{min-height:74px;resize:vertical}
+.msg{margin-top:10px;font-size:12.5px;font-weight:700;border-radius:10px;padding:9px 12px;display:none}
+.msg.ok{display:block;background:var(--grn-bg);color:var(--grn);border:1px solid var(--grn-bd)}
+.msg.fail{display:block;background:var(--red-bg);color:var(--red);border:1px solid var(--red-bd)}
+.foot{max-width:520px;margin:0 auto;padding:4px 16px 30px;font-size:10.5px;color:var(--mut2);text-align:center;line-height:1.6}
+@media (max-width:380px){.nm{font-size:20px}.avatar{width:92px;height:92px;bottom:-38px}.cbd{padding-top:50px}}
+</style>
+</head>
+<body>
+
+<div class="ld" id="stLoad">
+  <svg width="38" height="38" viewBox="0 0 40 40" aria-hidden="true"><circle cx="20" cy="20" r="16" fill="none" stroke="#e2e7f0" stroke-width="5"/><path d="M20 4 a16 16 0 0 1 16 16" fill="none" stroke="#1e3a5f" stroke-width="5" stroke-linecap="round"><animateTransform attributeName="transform" type="rotate" from="0 20 20" to="360 20 20" dur="0.9s" repeatCount="indefinite"/></path></svg>
+  <div style="margin-top:10px">Karte wird geladen…</div>
+</div>
+
+<div class="err hidden" id="stErr">
+  <div class="ic">🔒</div>
+  <h2 id="errT">Karte nicht gefunden</h2>
+  <p id="errP">Dieser Link ist ungültig oder die Karte wurde entfernt.</p>
+</div>
+
+<main class="wrap hidden" id="stMain">
+  <div id="banners"></div>
+
+  <div class="card">
+    <div class="chd">
+      <div class="brandline">GEMA Kontaktkarte</div>
+      <div id="avaSlot"></div>
+    </div>
+    <div class="cbd">
+      <div class="nm" id="cName">—</div>
+      <div class="rt hidden" id="cRole"></div>
+      <div class="co hidden" id="cComp"></div>
+      <div class="rows" id="cRows"></div>
+      <div class="upd" id="cUpd"></div>
+    </div>
+    <div class="acts">
+      <a class="btn btn-pri" id="btnVcf" href="#">📇 Kontakt speichern</a>
+      <div class="hint-dl hidden" id="hintAndroid">Die Datei landet im Download-Ordner — antippen und «Kontakte» wählen.</div>
+      <a class="btn btn-sec hidden" id="btnTel" href="#">📞 Direkt anrufen</a>
+      <button class="btn btn-sec hidden" id="btnMehr">⋯ Weitere Aktionen</button>
+    </div>
+  </div>
+
+  <div class="cta hidden" id="ctaAnon">
+    <h2>Eigene GEMA-Karte erstellen</h2>
+    <p>Kostenlos, in 60 Sekunden. Ein QR-Code, der immer deine aktuellen Kontaktdaten zeigt — auch nach einem Firmenwechsel.</p>
+    <button class="btn btn-pri" id="ctaNeu">✨ Karte erstellen – gratis</button>
+    <div class="mini">
+      <a id="lnkLogin">Schon bei GEMA? Anmelden</a>
+    </div>
+  </div>
+
+  <div class="mini" style="margin-top:14px">
+    <a id="lnkReport">Daten nicht mehr aktuell? Melden</a>
+  </div>
+</main>
+
+<div class="foot" id="foot"></div>
+
+<!-- Bottom-Sheet -->
+<div class="sh-bg" id="shBg">
+  <div class="sh" id="shBox"></div>
+</div>
+
+<script>
+(function(){
+  'use strict';
+  /* ── Basis ─────────────────────────────────────────────────────────── */
+  var P=new URLSearchParams(location.search);
+  var slug=(P.get('u')||P.get('slug')||'').trim().replace(/\.html?$/i,'');
+  var claim=(P.get('claim')||'').trim();
+  var $=function(id){return document.getElementById(id);};
+  function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;');}
+  var karte=null, me=null;
+
+  /* ── Session passiv erkennen (KEIN gema_auth.js, siehe Kopf) ────────
+     Konzept §7: Die Erkennung loest NIE automatisch etwas aus. Falsch
+     erkannt heisst «ein Tap mehr», nie «kaputt». Der Kamera-Scan oeffnet
+     auf iOS immer Safari — war der Nutzer in der PWA eingeloggt, gibt es
+     hier keine Session und er sieht die ANON-Ansicht. Dafuer steht der
+     «Schon bei GEMA? Anmelden»-Link bereit. */
+  function session(){
+    try{
+      var s=JSON.parse(localStorage.getItem('gema_session_v1')||'null');
+      if(!s||!s.userId)return null;
+      if(s.expires&&new Date(s.expires).getTime()<Date.now())return null;
+      var u=null;
+      try{
+        var users=JSON.parse(localStorage.getItem('gema_users_v1')||'[]');
+        u=users.find(function(x){return x&&x.id===s.userId;})||null;
+      }catch(e){}
+      return {userId:s.userId,token:s.token||'',name:(u&&(u.name||u.username))||'',
+              roleIds:(u&&u.roleIds)||[],user:u};
+    }catch(e){return null;}
+  }
+  function darfBeteiligte(){
+    // Beteiligte hinzufuegen ist ORG/ADMIN vorbehalten (Konzept §2.3).
+    // role_free darf Kontakte sammeln, aber keine Projekte bestuecken.
+    if(!me)return false;
+    var r=me.roleIds||[];
+    if(r.indexOf('role_admin')>=0)return true;
+    return r.length>0 && r.indexOf('role_free')<0;
+  }
+  var istAndroid=/Android/i.test(navigator.userAgent);
+
+  /* ── API ───────────────────────────────────────────────────────────── */
+  // /api/-Redirect zuerst; ist die Route nicht deployed, auf den
+  // Functions-Pfad ausweichen (Muster sys_goodel_ansicht.html).
+  function api(name,method,payload,auth){
+    var pfade=['/api/'+name,'/.netlify/functions/'+name];
+    var i=0;
+    function next(){
+      var url=pfade[i];
+      var opt={method:method,headers:{}};
+      if(method==='GET'){
+        var qs=Object.keys(payload||{}).filter(function(k){return payload[k]!=null&&payload[k]!=='';})
+          .map(function(k){return encodeURIComponent(k)+'='+encodeURIComponent(payload[k]);}).join('&');
+        if(qs)url+='?'+qs;
+      }else{
+        opt.headers['Content-Type']='application/json';
+        opt.body=JSON.stringify(payload||{});
+      }
+      if(auth&&me&&me.token)opt.headers['Authorization']='Bearer '+me.token;
+      return fetch(url,opt).then(function(r){
+        return r.text().then(function(t){
+          var d=null;try{d=t?JSON.parse(t):null;}catch(e){}
+          if(d===null&&i<pfade.length-1){i++;return next();}
+          return{status:r.status,data:d};
+        });
+      }).catch(function(e){
+        if(i<pfade.length-1){i++;return next();}
+        throw e;
+      });
+    }
+    return next();
+  }
+
+  function show(state){
+    $('stLoad').classList.toggle('hidden',state!=='load');
+    $('stErr').classList.toggle('hidden',state!=='err');
+    $('stMain').classList.toggle('hidden',state!=='main');
+  }
+  function fail(t,p){$('errT').textContent=t;$('errP').textContent=p;show('err');}
+
+  /* ── Rendern ───────────────────────────────────────────────────────── */
+  function initialen(n){
+    var t=String(n||'').trim().split(/\s+/).filter(Boolean);
+    if(!t.length)return'?';
+    return((t[0][0]||'')+(t.length>1?(t[t.length-1][0]||''):'')).toUpperCase();
+  }
+  function zeile(ic,label,wert,href){
+    var inner='<div class="row-ic">'+ic+'</div><div class="row-tx">'
+      +'<div class="row-lb">'+esc(label)+'</div><div class="row-vl">'+esc(wert)+'</div></div>';
+    return href?'<a class="row" href="'+esc(href)+'">'+inner+'</a>':'<div class="row">'+inner+'</div>';
+  }
+  function fmtDatum(iso){
+    if(!iso)return'';
+    var d=new Date(iso);if(isNaN(d.getTime()))return'';
+    var p=function(n){return String(n).padStart(2,'0');};
+    return p(d.getDate())+'.'+p(d.getMonth()+1)+'.'+d.getFullYear();
+  }
+
+  function render(){
+    var k=karte;
+    document.title=(k.display_name||'Kontaktkarte')+' – GEMA';
+
+    // Avatar erst NACH dem Text (lazy) — der Name soll sofort stehen.
+    $('avaSlot').innerHTML = k.hat_foto
+      ? '<img class="avatar" alt="" loading="lazy" decoding="async" src="/api/card-photo?slug='+encodeURIComponent(k.slug)+'"'
+        +' onerror="this.replaceWith(Object.assign(document.createElement(\'div\'),{className:\'avatar avatar-ini\',textContent:'+JSON.stringify(initialen(k.display_name))+'}))"/>'
+      : '<div class="avatar avatar-ini">'+esc(initialen(k.display_name))+'</div>';
+
+    $('cName').textContent=k.display_name||'—';
+    $('cRole').textContent=k.role_title||'';
+    $('cRole').classList.toggle('hidden',!k.role_title);
+    $('cComp').textContent=k.company||'';
+    $('cComp').classList.toggle('hidden',!k.company);
+
+    var rows='';
+    if(k.phone)        rows+=zeile('📱','Mobile',k.phone,'tel:'+k.phone.replace(/\s/g,''));
+    if(k.phone_office) rows+=zeile('☎️','Geschäft',k.phone_office,'tel:'+k.phone_office.replace(/\s/g,''));
+    if(k.email)        rows+=zeile('✉️','E-Mail',k.email,'mailto:'+k.email);
+    if(k.website)      rows+=zeile('🌐','Web',k.website.replace(/^https?:\/\//,''),/^https?:/.test(k.website)?k.website:'https://'+k.website);
+    if(k.address||k.city){
+      var adr=[k.address,[k.zip,k.city].filter(Boolean).join(' ')].filter(Boolean).join(', ');
+      rows+=zeile('📍','Adresse',adr,'https://www.google.com/maps/search/?api=1&query='+encodeURIComponent(adr));
+    }
+    $('cRows').innerHTML=rows;
+    $('cRows').classList.toggle('hidden',!rows);
+    $('cUpd').textContent=k.updated_at?('Zuletzt aktualisiert: '+fmtDatum(k.updated_at)):'';
+
+    // ── Primäraktion: vCard. Genau EIN Tap (Konzept: max. 3 Taps
+    //    Scan → gespeicherter Kontakt).
+    $('btnVcf').setAttribute('href','/v/'+encodeURIComponent(k.slug)+'.vcf');
+    $('hintAndroid').classList.toggle('hidden',!istAndroid);
+    // Notausgang, falls der Datei-Import scheitert
+    if(k.phone){
+      $('btnTel').setAttribute('href','tel:'+k.phone.replace(/\s/g,''));
+      $('btnTel').classList.remove('hidden');
+    }
+
+    // ── Banner ──
+    var b='';
+    var eigene = me && k.user_id_ist_ich;
+    if(k.claim_moeglich){
+      b+='<div class="banner banner-claim"><b>👋 Das bist du?</b>'
+        +'Diese Karte wurde für dich angelegt. Übernimm sie — dann gehören dir Link und QR-Code, und du hältst die Daten selbst aktuell.'
+        +'<button class="btn btn-pri" id="btnClaim">Karte übernehmen – gratis</button></div>';
+    } else if(eigene){
+      b+='<div class="banner banner-own"><b>✓ Das ist deine Karte</b>'
+        +'So sehen andere sie. Änderungen wirken sofort — auch bei allen, die deinen Kontakt schon gespeichert haben.'
+        +'<a class="btn btn-sec" href="sys_card_editor.html">✏️ Karte bearbeiten</a></div>';
+    }
+    $('banners').innerHTML=b;
+    if($('btnClaim'))$('btnClaim').addEventListener('click',function(){
+      // Eingeloggt: die Karte wird direkt mit dem Konto verknüpft.
+      // Sonst: Konto anlegen (der Claim-Token ist der Nachweis).
+      me?claimMitKonto():sheetKonto('claim');
+    });
+
+    // ── ANON vs. eingeloggt ──
+    if(me){
+      $('ctaAnon').classList.add('hidden');
+      if(!eigene)$('btnMehr').classList.remove('hidden');
+    }else{
+      $('ctaAnon').classList.toggle('hidden',!!k.claim_moeglich);
+    }
+    $('lnkLogin').setAttribute('href','sys_login.html?r='+encodeURIComponent(location.pathname+location.search));
+    $('foot').innerHTML='Bereitgestellt über GEMA — du siehst ausschliesslich diese eine Kontaktkarte.'
+      +(me?'':'<br/>Angemeldet? Dann kannst du '+esc(k.display_name||'diese Person')+' direkt einem Projekt zuordnen.');
+    show('main');
+  }
+
+  /* ── Bottom-Sheet ──────────────────────────────────────────────────── */
+  function sheet(html){$('shBox').innerHTML='<div class="sh-grab"></div>'+html;$('shBg').classList.add('on');}
+  function closeSheet(){$('shBg').classList.remove('on');}
+  $('shBg').addEventListener('click',function(e){if(e.target===$('shBg'))closeSheet();});
+  document.addEventListener('keydown',function(e){if(e.key==='Escape')closeSheet();});
+
+  function sheetAktionen(){
+    var h='<h3>'+esc(karte.display_name)+'</h3><div class="sub">Angemeldet als '+esc(me.name||'—')+'</div>'
+      +'<a class="sh-item" href="/v/'+encodeURIComponent(karte.slug)+'.vcf"><span class="ic">📇</span><span>Kontakt speichern<span class="sub2">Als vCard ins Adressbuch</span></span></a>'
+      +'<button class="sh-item" id="aKontakt"><span class="ic">📒</span><span>In Kontaktbuch speichern<span class="sub2">Bleibt automatisch aktuell</span></span></button>';
+    if(darfBeteiligte()){
+      h+='<button class="sh-item" id="aBeteiligt"><span class="ic">🏗</span><span>Als Beteiligter hinzufügen<span class="sub2">Einem Projekt zuordnen</span></span></button>';
+    }
+    h+='<div class="msg" id="shMsg"></div>';
+    sheet(h);
+    $('aKontakt').addEventListener('click',kontaktSpeichern);
+    if($('aBeteiligt'))$('aBeteiligt').addEventListener('click',sheetBeteiligt);
+  }
+  function shMsg(kind,text){
+    var m=$('shMsg');if(!m)return;
+    m.className='msg '+(kind||'');m.textContent=text||'';
+  }
+
+  function kontaktSpeichern(){
+    shMsg('','Wird gespeichert…');
+    api('card-api','POST',{action:'kontakt_add',slug:karte.slug},true).then(function(r){
+      if(r.status===200&&r.data&&r.data.ok){
+        shMsg('ok','✅ In deinem Kontaktbuch gespeichert.');
+        setTimeout(closeSheet,1200);
+      }else if(r.status===401){
+        shMsg('fail','Bitte neu anmelden.');
+      }else shMsg('fail',(r.data&&r.data.error)||'Speichern fehlgeschlagen.');
+    }).catch(function(){shMsg('fail','Keine Verbindung.');});
+  }
+
+  function sheetBeteiligt(){
+    sheet('<h3>Als Beteiligter hinzufügen</h3><div class="sub">'+esc(karte.display_name)+' einem Projekt zuordnen</div>'
+      +'<div class="ld" style="margin:22px auto"><svg width="30" height="30" viewBox="0 0 40 40"><circle cx="20" cy="20" r="16" fill="none" stroke="#e2e7f0" stroke-width="5"/><path d="M20 4 a16 16 0 0 1 16 16" fill="none" stroke="#1e3a5f" stroke-width="5" stroke-linecap="round"><animateTransform attributeName="transform" type="rotate" from="0 20 20" to="360 20 20" dur="0.9s" repeatCount="indefinite"/></path></svg></div>');
+    api('card-api','GET',{action:'projekte'},true).then(function(r){
+      var prj=(r.data&&r.data.projekte)||[];
+      if(!prj.length){
+        sheet('<h3>Kein Projekt gefunden</h3><div class="sub">Lege zuerst ein Projekt an, dann kannst du Beteiligte zuordnen.</div>'
+          +'<a class="sh-item" href="pm_objekte.html"><span class="ic">🏗</span><span>Projekte öffnen</span></a>');
+        return;
+      }
+      var opt=prj.map(function(p){return '<option value="'+esc(p.id)+'">'+esc(p.label)+'</option>';}).join('');
+      var rollen=[['architekt','Architekt'],['bauherr','Bauherrschaft'],['pl','Projektleitung'],
+                  ['planer','Planer'],['monteur','Monteur'],['lieferant','Lieferant'],['sonstige','Sonstige']];
+      sheet('<h3>Als Beteiligter hinzufügen</h3><div class="sub">'+esc(karte.display_name)+'</div>'
+        +'<div class="fld"><label>Projekt</label><select class="inp" id="bpPrj">'+opt+'</select></div>'
+        +'<div class="fld"><label>Rolle im Projekt</label><select class="inp" id="bpRolle">'
+        +rollen.map(function(r){return '<option value="'+r[0]+'">'+r[1]+'</option>';}).join('')+'</select></div>'
+        +'<button class="btn btn-pri" id="bpSave">Hinzufügen</button><div class="msg" id="shMsg"></div>');
+      $('bpSave').addEventListener('click',function(){
+        $('bpSave').disabled=true;shMsg('','Wird gespeichert…');
+        api('card-api','POST',{action:'beteiligt_add',slug:karte.slug,
+          projektId:$('bpPrj').value,rolle:$('bpRolle').value},true).then(function(r2){
+          $('bpSave').disabled=false;
+          if(r2.status===200&&r2.data&&r2.data.ok){
+            shMsg('ok','✅ Zum Projekt hinzugefügt.');setTimeout(closeSheet,1300);
+          }else shMsg('fail',(r2.data&&r2.data.error)||'Hinzufügen fehlgeschlagen.');
+        }).catch(function(){$('bpSave').disabled=false;shMsg('fail','Keine Verbindung.');});
+      });
+    }).catch(function(){
+      sheet('<h3>Nicht erreichbar</h3><div class="sub">Die Projektliste konnte nicht geladen werden.</div>');
+    });
+  }
+
+  /* ── Meldung «Daten nicht aktuell» ─────────────────────────────────── */
+  var GRUENDE=[['firma_gewechselt','Firma gewechselt'],['nummer_falsch','Telefonnummer stimmt nicht'],
+               ['mail_falsch','E-Mail stimmt nicht'],['person_unbekannt','Person unbekannt'],['sonstiges','Sonstiges']];
+  function sheetReport(){
+    sheet('<h3>Daten nicht mehr aktuell?</h3>'
+      +'<div class="sub">Die Meldung geht an '+esc(karte.display_name||'die Person')+'. Es wird nichts automatisch geändert.</div>'
+      +'<div class="fld"><label>Was stimmt nicht?</label><select class="inp" id="rpGrund">'
+      +GRUENDE.map(function(g){return '<option value="'+g[0]+'">'+g[1]+'</option>';}).join('')+'</select></div>'
+      +'<div class="fld"><label>Details (optional)</label><textarea class="inp" id="rpDetail" maxlength="500" placeholder="z.B. neue Nummer, neue Firma …"></textarea></div>'
+      +'<div class="fld"><label>Deine E-Mail (optional)</label><input class="inp" id="rpMail" type="email" maxlength="120" placeholder="für eine Rückmeldung"/></div>'
+      +'<button class="btn btn-pri" id="rpSend">Meldung senden</button><div class="msg" id="shMsg"></div>');
+    $('rpSend').addEventListener('click',function(){
+      $('rpSend').disabled=true;shMsg('','Wird gesendet…');
+      api('card-report','POST',{slug:karte.slug,reason:$('rpGrund').value,
+        detail:$('rpDetail').value,mail:$('rpMail').value}).then(function(r){
+        $('rpSend').disabled=false;
+        if(r.status===200&&r.data&&r.data.ok){shMsg('ok','✅ Danke! Die Meldung ist raus.');setTimeout(closeSheet,1500);}
+        else shMsg('fail',(r.data&&r.data.error)||'Senden fehlgeschlagen.');
+      }).catch(function(){$('rpSend').disabled=false;shMsg('fail','Keine Verbindung.');});
+    });
+  }
+
+  /* ── Karte übernehmen / Gratis-Konto ───────────────────────────────
+     Läuft BEWUSST hier auf der öffentlichen Seite und nicht im Editor:
+     der Editor bindet gema_auth.js ein und wirft jeden ohne Session auf
+     die Login-Seite — genau die Person, die hier ein Konto anlegen will.
+     Kein Magic Link (GEMA hat keinen Mailversand): beim Claim ist der
+     Token aus dem Link der Nachweis, bei der Registrierung E-Mail +
+     Passwort in einem Schritt. Siehe Kopf von card-claim.js. */
+  function claimMitKonto(){
+    sheet('<h3>Karte übernehmen</h3><div class="sub">Wird mit deinem Konto verknüpft…</div>');
+    api('card-claim','POST',{action:'claim',token:claim},true).then(function(r){
+      if(r.status===200&&r.data&&r.data.ok){
+        try{localStorage.setItem('gema_card_mine_v1',JSON.stringify({userId:me.userId,slug:(r.data.karte&&r.data.karte.slug)||''}));}catch(e){}
+        location.href='sys_card_editor.html?willkommen=1';
+      }else{
+        sheet('<h3>Übernahme nicht möglich</h3><div class="sub">'+esc((r.data&&r.data.error)||'Bitte später erneut versuchen.')+'</div>');
+      }
+    }).catch(function(){sheet('<h3>Keine Verbindung</h3><div class="sub">Bitte Internetverbindung prüfen.</div>');});
+  }
+
+  function sheetKonto(modus){
+    var istClaim=modus==='claim';
+    sheet('<h3>'+(istClaim?'Karte übernehmen':'Eigene GEMA-Karte erstellen')+'</h3>'
+      +'<div class="sub">'+(istClaim
+        ? 'Danach gehören dir Link und QR-Code — du hältst die Daten selbst aktuell.'
+        : 'Kostenlos. Nur Name und E-Mail sind nötig, alles andere später.')+'</div>'
+      +'<div class="fld"><label>Name *</label><input class="inp" id="kkName" maxlength="120" autocomplete="name" placeholder="Vorname Nachname" value="'
+        +esc(istClaim&&karte?(karte.display_name||''):'')+'"/></div>'
+      +'<div class="fld"><label>E-Mail *</label><input class="inp" id="kkMail" type="email" maxlength="120" autocomplete="email" placeholder="name@firma.ch" value="'
+        +esc(istClaim&&karte?(karte.email||''):'')+'"/></div>'
+      +'<div class="fld"><label>Passwort * <span style="font-weight:500;text-transform:none;letter-spacing:0;color:var(--mut2)">(mind. 8 Zeichen)</span></label>'
+        +'<input class="inp" id="kkPw" type="password" minlength="8" maxlength="120" autocomplete="new-password"/></div>'
+      +'<button class="btn btn-pri" id="kkSave">'+(istClaim?'Karte übernehmen':'Karte erstellen')+'</button>'
+      +'<div class="msg" id="shMsg"></div>'
+      +'<div class="mini" style="margin-top:12px"><a href="sys_login.html?r='+esc(encodeURIComponent(location.pathname+location.search))+'">Ich habe schon ein GEMA-Konto</a></div>');
+    $('kkSave').addEventListener('click',function(){
+      var name=$('kkName').value.trim(), mail=$('kkMail').value.trim(), pw=$('kkPw').value;
+      if(!name){shMsg('fail','Bitte den Namen angeben.');$('kkName').focus();return;}
+      if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(mail)){shMsg('fail','Bitte eine gültige E-Mail angeben.');$('kkMail').focus();return;}
+      if(pw.length<8){shMsg('fail','Das Passwort braucht mindestens 8 Zeichen.');$('kkPw').focus();return;}
+      $('kkSave').disabled=true;shMsg('','Wird angelegt…');
+      var payload=istClaim?{action:'claim',token:claim,name:name,email:mail,password:pw}
+                          :{action:'register',name:name,email:mail,password:pw};
+      api('card-claim','POST',payload).then(function(r){
+        $('kkSave').disabled=false;
+        if(r.status===200&&r.data&&r.data.ok&&r.data.token){
+          // Session genau wie gema_auth.loginAsync ablegen, damit die
+          // Weiterleitung in den Editor sofort angemeldet ankommt.
+          try{
+            localStorage.setItem('gema_session_v1',JSON.stringify({
+              userId:r.data.user.id,expires:r.data.exp,token:r.data.token,tokenExp:r.data.exp,remember:true}));
+            var us=JSON.parse(localStorage.getItem('gema_users_v1')||'[]');
+            if(!us.find(function(x){return x&&x.id===r.data.user.id;}))us.push(r.data.user);
+            localStorage.setItem('gema_users_v1',JSON.stringify(us));
+            localStorage.setItem('gema_card_mine_v1',JSON.stringify({userId:r.data.user.id,slug:(r.data.karte&&r.data.karte.slug)||''}));
+          }catch(e){}
+          shMsg('ok','✅ Fertig! Deine Karte ist bereit.');
+          setTimeout(function(){location.href='sys_card_editor.html?willkommen=1';},700);
+        }else if(r.data&&r.data.anmelden){
+          shMsg('fail',r.data.error);
+        }else{
+          shMsg('fail',(r.data&&r.data.error)||'Anlegen fehlgeschlagen — bitte erneut versuchen.');
+        }
+      }).catch(function(){$('kkSave').disabled=false;shMsg('fail','Keine Verbindung.');});
+    });
+  }
+
+  /* ── Events ────────────────────────────────────────────────────────── */
+  $('ctaNeu').addEventListener('click',function(){sheetKonto('neu');});
+  $('btnMehr').addEventListener('click',sheetAktionen);
+  $('lnkReport').addEventListener('click',function(e){e.preventDefault();if(karte)sheetReport();});
+  // «Kontakt gespeichert» ist nicht messbar (der Download passiert im
+  // Browser) — der Klick auf die Primäraktion ist der beste Proxy.
+  $('btnVcf').addEventListener('click',function(){
+    try{api('card-report','POST',{slug:karte.slug,event:'contact_saved'});}catch(e){}
+  });
+
+  /* ── Laden ─────────────────────────────────────────────────────────── */
+  me=session();
+  if(!slug&&!claim){fail('Link unvollständig','Diesem Link fehlt die Kartenkennung.');}
+  else{
+    api('card-public','GET',{slug:slug,claim:claim}).then(function(r){
+      if(r.status===200&&r.data&&r.data.karte){
+        karte=r.data.karte;
+        if(!slug)slug=karte.slug;
+        // Ist es die eigene Karte? Nur clientseitige Anzeige-Entscheidung
+        // (Bearbeiten-Button); der Editor prüft die Berechtigung selbst.
+        karte.user_id_ist_ich = !!(me&&karte.slug&&meineSlugs().indexOf(karte.slug)>=0);
+        render();
+      }
+      else if(r.status===404)fail('Karte nicht gefunden','Dieser Link ist ungültig oder die Karte wurde entfernt.');
+      else if(r.status===400)fail('Link ungültig','Der Aufruf enthält keine gültige Kartenkennung.');
+      else if(r.status===429)fail('Zu viele Anfragen','Bitte einen Moment warten und die Seite neu laden.');
+      else fail('Nicht erreichbar','Die Karte konnte nicht geladen werden. Bitte später erneut versuchen.');
+    }).catch(function(){fail('Nicht erreichbar','Keine Verbindung zum Server. Bitte Internetverbindung prüfen.');});
+  }
+  // Der Editor merkt sich den eigenen Slug lokal, damit die öffentliche
+  // Seite den «Karte bearbeiten»-Button ohne API-Aufruf zeigen kann.
+  function meineSlugs(){
+    try{
+      var v=JSON.parse(localStorage.getItem('gema_card_mine_v1')||'null');
+      if(!v)return[];
+      if(Array.isArray(v))return v;
+      return v.userId===(me&&me.userId)&&v.slug?[v.slug]:[];
+    }catch(e){return[];}
+  }
+})();
+</script>
+</body>
+</html>

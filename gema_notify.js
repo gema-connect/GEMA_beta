@@ -471,6 +471,26 @@
       label:'Prüflisten-Vorschlag abgelehnt',
       modul:'pruefliste',
       defaultOn:true
+    },
+    card_meldung: {
+      label:'Hinweis zu meiner Kontaktkarte',
+      modul:'visitenkarte',
+      defaultOn:true
+    },
+    card_claim: {
+      label:'Eingeladene Person hat ihre Karte übernommen',
+      modul:'visitenkarte',
+      defaultOn:true
+    },
+    card_projekt_beteiligt: {
+      label:'Einem Projekt als Beteiligte:r zugeordnet',
+      modul:'visitenkarte',
+      defaultOn:true
+    },
+    card_firmenwechsel: {
+      label:'Firmenangaben der Karte entfernt',
+      modul:'visitenkarte',
+      defaultOn:true
     }
   };
 

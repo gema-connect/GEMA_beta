@@ -43,4 +43,40 @@ function requireAuth(event) {
   return verifyJwt(a.replace(/^Bearer\s+/i, ''));
 }
 
-module.exports = { verifyJwt, requireAuth, timingSafeEq };
+/* ── Token ausstellen + Passwort-Hash ───────────────────────────────────
+ * Kanonische Implementierung ist gema-auth.js (dort inline). Hier
+ * bereitgestellt fuer Functions, die ebenfalls Konten anlegen duerfen —
+ * aktuell card-claim.js (GEMA Card: Karte uebernehmen / Gratis-Konto).
+ * Die Claim-Form MUSS mit gema-auth.js identisch bleiben, sonst passt das
+ * Token nicht zu den Supabase-RLS-Policies (role=authenticated).
+ */
+const TOKEN_DAYS = parseInt(process.env.GEMA_TOKEN_DAYS || '30', 10) || 30;
+
+function signJwt(claims) {
+  if (!JWT_SECRET) throw new Error('GEMA_JWT_SECRET fehlt');
+  const header = b64url(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
+  const payload = b64url(JSON.stringify(claims));
+  const sig = crypto.createHmac('sha256', JWT_SECRET).update(header + '.' + payload).digest();
+  return header + '.' + payload + '.' + b64url(sig);
+}
+function mintToken(user) {
+  const now = Math.floor(Date.now() / 1000);
+  const isAdmin = Array.isArray(user.roleIds) && user.roleIds.indexOf('role_admin') >= 0;
+  return {
+    token: signJwt({
+      iss: 'gema', role: 'authenticated', sub: String(user.id),
+      uid: String(user.id), org: String(user.orgId || ''), adm: isAdmin ? '1' : '0',
+      iat: now, exp: now + TOKEN_DAYS * 86400
+    }),
+    exp: new Date((now + TOKEN_DAYS * 86400) * 1000).toISOString()
+  };
+}
+// Passwoerter liegen ausschliesslich in geschuetzten cred:-Records
+// (keine RLS-Policy → nur der Service-Key kommt heran).
+function scryptHash(secret) {
+  const salt = crypto.randomBytes(16).toString('hex');
+  return 'scrypt$' + salt + '$' + crypto.scryptSync(secret, salt, 32).toString('hex');
+}
+function looksLikeDjb2(v) { return typeof v === 'string' && /^gh_[0-9a-f]+_\d+$/.test(v); }
+
+module.exports = { verifyJwt, requireAuth, timingSafeEq, signJwt, mintToken, scryptHash, looksLikeDjb2, TOKEN_DAYS };
