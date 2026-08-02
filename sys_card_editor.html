@@ -98,11 +98,6 @@ input,select,button,textarea{font-family:var(--sans)}
 .qrcard{text-align:center}
 .qrbox{display:inline-flex;padding:14px;background:#fff;border:1.5px solid var(--brd);border-radius:var(--r);margin-bottom:12px;position:relative}
 .qrbox img,.qrbox canvas{display:block}
-.qrseg{display:inline-flex;background:var(--bg2);border:1.5px solid var(--brd);border-radius:999px;padding:3px;gap:3px;margin-bottom:12px}
-.qrseg button{border:0;background:transparent;border-radius:999px;padding:6px 13px;font:inherit;font-size:12.5px;
-  font-weight:700;color:var(--txt2);cursor:pointer;white-space:nowrap;touch-action:manipulation}
-.qrseg button.on{background:#fff;color:var(--acc);box-shadow:0 1px 3px rgba(15,23,42,.14)}
-.qrmodus-hint{font-size:12px;color:var(--txt2);line-height:1.5;margin:0 0 12px}
 
 /* «Scan mich» — Vollbild */
 .scanfs{position:fixed;inset:0;z-index:11200;background:#fff;display:none;flex-direction:column;
@@ -273,16 +268,11 @@ input,select,button,textarea{font-family:var(--sans)}
         <div class="card qrcard">
           <div class="card-hd"><h2>📱 QR-Code &amp; Link</h2></div>
           <div class="card-bd">
-            <div class="qrseg" id="qrSeg" role="group" aria-label="QR-Modus">
-              <button type="button" data-modus="kontakt">Kontakt-QR</button>
-              <button type="button" data-modus="gema">GEMA-QR</button>
-            </div>
             <div class="qrbox" id="qrBox"></div>
-            <p class="qrmodus-hint" id="qrHint"></p>
             <div class="linkbox"><code id="lnkTxt"></code>
               <button class="btn btn-sec btn-sm" id="btnCopy" title="Link kopieren">Kopieren</button></div>
-            <p class="hint" style="margin-bottom:12px">Dieser Link gehört <b>dir</b> — er bleibt gleich, auch wenn du die Firma wechselst.
-              Wer deinen Kontakt gespeichert hat, kommt darüber immer zur aktuellen Karte.</p>
+            <p class="hint" style="margin-bottom:12px">Der Code führt auf deine Karte — <b>immer der aktuelle Stand</b>, mit Bild.
+              Der Link gehört <b>dir</b> und bleibt gleich, auch wenn du die Firma wechselst.</p>
             <div class="btnrow" style="justify-content:center">
               <button class="btn btn-pri btn-sm" id="btnScanMich">🔍 Scan mich</button>
               <button class="btn btn-sec btn-sm" id="btnTeilen">📤 Teilen</button>
@@ -379,30 +369,9 @@ input,select,button,textarea{font-family:var(--sans)}
     if(GemaCard.nfcMoeglich())$('btnNfc').classList.remove('hidden');
     bannerRender();
   }
-  /* ── QR-Modus (Konzept §6.4) ──────────────────────────────────────────
-     Zwei Codes, zwei Jobs. Default ist der Kontakt-QR: auf der Baustelle
-     zeigt die Kamera sofort «Kontakt sichern», ganz ohne Netz — null
-     Reibung. Der GEMA-QR ist der lebendige Zeiger (immer aktuell, mit
-     Beteiligten-Flow und Statistik) und gehört auf Druck und E-Mail.
-     Die Wahl ist reine Geräte-UI und liegt darum NICHT im Profil. */
-  var QR_MODUS_KEY='gema_card_qrmodus_v1';
-  function qrModus(){
-    try{var m=localStorage.getItem(QR_MODUS_KEY);if(m==='gema'||m==='kontakt')return m;}catch(e){}
-    return 'kontakt';
-  }
-  var QR_HINT={
-    kontakt:'Kamera scannt → <b>Kontakt sichern</b>, sofort und ohne Internet. Dein Kartenlink liegt im gespeicherten Kontakt — Änderungen an deinen Daten holt man sich jederzeit darüber ab.',
-    gema:'Öffnet deine Karte im Browser — <b>immer der aktuelle Stand</b>. Diesen Code auf Druck, Kleber und in die E-Mail-Signatur; eingeloggte Scanner landen direkt im Beteiligten-Flow.'
-  };
   function qrRender(){
     if(!karte||!karte.slug)return;
-    var m=qrModus();
-    [].forEach.call($('qrSeg').querySelectorAll('button'),function(b){
-      b.classList.toggle('on',b.getAttribute('data-modus')===m);
-      b.setAttribute('aria-pressed',b.getAttribute('data-modus')===m?'true':'false');
-    });
-    $('qrHint').innerHTML=QR_HINT[m];
-    GemaCard.qr($('qrBox'),karte,190,{modus:m}).catch(function(){
+    GemaCard.qr($('qrBox'),karte,190).catch(function(){
       $('qrBox').innerHTML='<div class="hint" style="padding:22px 8px">QR-Code nicht verfügbar (offline).</div>';
     });
   }
@@ -580,31 +549,24 @@ input,select,button,textarea{font-family:var(--sans)}
       if(a==='kopiert')status('saved','✓ Link kopiert');
     });
   });
-  $('qrSeg').addEventListener('click',function(e){
-    var b=e.target.closest('button[data-modus]');if(!b)return;
-    try{localStorage.setItem(QR_MODUS_KEY,b.getAttribute('data-modus'));}catch(err){}
-    qrRender();
-  });
   $('btnQrDl').addEventListener('click',function(){
-    var m=qrModus();
-    GemaCard.qrDataUrl(karte,512,{modus:m}).then(function(url){
+    GemaCard.qrDataUrl(karte,512).then(function(url){
       if(!url)throw new Error('leer');
       var a=document.createElement('a');
-      a.href=url;a.download='GEMA_Card_'+(m==='kontakt'?'Kontakt_':'')+karte.slug+'.png';
+      a.href=url;a.download='GEMA_Card_'+karte.slug+'.png';
       document.body.appendChild(a);a.click();a.remove();
     }).catch(function(){GemaDialog.alert({title:'QR-Code nicht verfügbar',message:'Die QR-Bibliothek konnte nicht geladen werden (offline?).'});});
   });
 
   /* «Scan mich» — Handy hinhalten statt Link diktieren (Konzept §5.1) */
   function scanFsAuf(){
-    var m=qrModus();
     $('scanFsName').textContent=karte.display_name||'GEMA Card';
-    $('scanFsSub').textContent=m==='kontakt'?'Scannen und Kontakt sichern':'Scannen und Karte öffnen';
+    $('scanFsSub').textContent='Scannen und Karte öffnen';
     $('scanFs').classList.add('on');
     if(window.GemaScroll&&GemaScroll.lock)GemaScroll.lock();
     // Gross genug, dass es auch quer über den Tisch noch scannt.
     var px=Math.max(220,Math.min(420,Math.floor(Math.min(window.innerWidth,window.innerHeight)*0.62)));
-    GemaCard.qr($('scanFsQr'),karte,px,{modus:m}).catch(function(){
+    GemaCard.qr($('scanFsQr'),karte,px).catch(function(){
       $('scanFsQr').innerHTML='<div class="hint" style="padding:24px">QR-Code nicht verfügbar (offline).</div>';
     });
   }

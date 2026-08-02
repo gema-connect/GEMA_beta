@@ -26,10 +26,18 @@ const GRUND_TEXT = {
   sonstiges: 'Sonstiges'
 };
 const MAX_PRO_STUNDE = 5;
-// Von aussen darf NUR gemeldet werden, was der Besucher wirklich tut.
-// Ohne Whitelist koennte jeder beliebige Event-Namen in card_events
-// schreiben und damit die Funnel-Auswertung (§9) unbrauchbar machen.
-const EVENTS_OEFFENTLICH = ['contact_saved', 'scan'];
+// Von aussen darf NUR gemeldet werden, was der Besucher wirklich tut und
+// was der Server nicht selbst sehen kann. Ohne Whitelist koennte jeder
+// beliebige Event-Namen in card_events schreiben und damit die
+// Funnel-Auswertung (§9) unbrauchbar machen.
+//
+// 'contact_saved' ist die EINZIGE Ausnahme: der vCard-Download passiert im
+// Browser und ist nicht beobachtbar, der Klick auf die Primaeraktion ist
+// der beste Naeherungswert. Alles andere loggt der Server selbst —
+// 'view' beim Ausliefern der Karte, 'scan' aus dem In-App-Scanner
+// (card-api, JWT-gated). Damit ist Stufe 1 des Trichters von aussen
+// nicht aufblasbar.
+const EVENTS_OEFFENTLICH = ['contact_saved'];
 
 exports.handler = async function (event) {
   if (event.httpMethod === 'OPTIONS') return C.preflight();

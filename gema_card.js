@@ -12,8 +12,7 @@
  *   api, apiPublic,            Function-Aufrufe (mit/ohne Token)
  *   kartenUrl, vcardUrl, fotoUrl,
  *   qr, qrDataUrl,             QR-Code (qrcodejs, lazy vom CDN)
- *   qrPayload, vcardMinimal,   zwei QR-Modi (Konzept §6.4)
- *   slugAusScan,               Slug aus gescanntem QR-Inhalt (URL oder vCard)
+ *   slugAusScan,               Slug aus einem gescannten Code
  *   bildVerkleinern,           Canvas-Resize → {gross, klein}
  *   nfcSchreiben, nfcMoeglich,
  *   teilen, kopieren,
@@ -91,28 +90,23 @@
   }
 
   /* ══ QR-Code ════════════════════════════════════════════════════════
-     ZWEI MODI (Konzept §6.4) — sie erledigen unterschiedliche Jobs:
+     EIN Modus: im QR steht die URL /p/<slug>, sonst nichts (~45 Byte).
 
-       'gema'    URL /p/<slug>  (~45 Bytes)
-                 Sehr robuster QR, immer aktuell, voll trackbar, und für
-                 eingeloggte Scanner öffnet sich der Beteiligten-Flow.
-                 Für Druck, NFC und E-Mail-Signatur.
+     Das Konzept (§6.4) sah daneben einen «Kontakt-QR» vor, der die vCard
+     direkt im Code trägt — die Kamera zeigt dann ohne Netz sofort
+     «Kontakt sichern». Bewusst NICHT gebaut (Entscheid 08/2026):
 
-       'kontakt' vCard direkt im QR (~250–400 Bytes)
-                 NULL Reibung: die Kamera von iOS und Android zeigt sofort
-                 «Kontakt sichern», ganz ohne Netz. Dafür eingefroren beim
-                 Erzeugen und ohne Tracking — das Betriebssystem fängt den
-                 Scan ab, die Seite wird nie geladen.
+       · Internet ist heute eine geringe Hürde; Bild, aktuelle Firma und
+         der Beteiligten-Flow sind mehr wert als der eingesparte Ladeschritt.
+       · Die eingebettete vCard wäre ein Schnappschuss und würde ohne
+         Zutun veralten.
+       · Ein Scan, den das Betriebssystem abfängt, lädt die Seite nie —
+         er taucht in keiner Statistik auf. Mit nur einem Modus ist der
+         Trichter (§9) vollständig statt halb blind.
 
-     DER TRICK (Konzept §6.4.2): die eingebettete vCard trägt IMMER
-     URL: und NOTE: mit dem Kartenlink. Der Kontakt landet sofort im
-     Adressbuch — mit dem GEMA-Link dauerhaft drin. Der Loop geht nicht
-     verloren, er wandert ins Adressbuch.
-
-     Default in der App ist 'kontakt': der Baustellen-Moment ist laut und
-     schnell, null Reibung gewinnt. Für eingeloggte Nutzer ist ohnehin der
-     In-App-Scanner der Primärweg — und der liest BEIDE Varianten
-     (slugAusScan zieht den Slug auch aus dem URL:-Feld der vCard).
+     Weil der Code so klein bleibt, rechnet er mit Fehlerkorrektur H
+     (30 % Redundanz) — nur deshalb verträgt er die GEMA-Marke in der
+     Mitte, ohne unlesbar zu werden.
      ══════════════════════════════════════════════════════════════════ */
   var _qrP = null;
   function qrLib() {
@@ -129,83 +123,35 @@
   }
 
   /**
-   * Minimal-vCard für den Kontakt-QR (Konzept §6.4, Vorlage ~250 Bytes).
-   * BEWUSST ohne Foto und ohne Adresse: ein eingebettetes Bild würde den
-   * QR so dicht machen, dass er auf der Baustelle nicht mehr zuverlässig
-   * scannt. Die vollständige vCard (mit PHOTO) liefert /v/<slug>.vcf.
-   * Respektiert dieselben fields_public-Schalter wie der Server.
-   */
-  function vcardMinimal(k, url) {
-    if (!k) return '';
-    var fp = k.fields_public || {};
-    var esc = function (v) {
-      return String(v == null ? '' : v).replace(/\\/g, '\\\\').replace(/;/g, '\\;')
-        .replace(/,/g, '\\,').replace(/\r?\n/g, '\\n');
-    };
-    var L = ['BEGIN:VCARD', 'VERSION:3.0'];
-    var ln = k.last_name || (k.first_name ? '' : (k.display_name || ''));
-    L.push('N:' + esc(ln) + ';' + esc(k.first_name || '') + ';;;');
-    L.push('FN:' + esc(k.display_name || 'Kontakt'));
-    if (k.company && fp.company) L.push('ORG:' + esc(k.company));
-    if (k.role_title) L.push('TITLE:' + esc(k.role_title));
-    if (k.phone && fp.phone) L.push('TEL;TYPE=CELL:' + esc(k.phone));
-    if (k.phone_office && fp.phone_office) L.push('TEL;TYPE=WORK:' + esc(k.phone_office));
-    if (k.email && fp.email) L.push('EMAIL:' + esc(k.email));
-    // URL + NOTE sind NICHT optional — sie sind der Loop.
-    L.push('URL:' + url);
-    L.push('NOTE:' + esc('Digitale Karte & Projekte: ' + url.replace(/^https?:\/\//, '')));
-    L.push('END:VCARD');
-    return L.join('\r\n') + '\r\n';
-  }
-
-  /** QR-Nutzlast für einen Modus. modus: 'gema' | 'kontakt' */
-  function qrPayload(karte, modus) {
-    var url = kartenUrl(karte.slug);
-    return modus === 'kontakt' ? vcardMinimal(karte, url) : url;
-  }
-
-  /**
-   * Slug aus einem gescannten Code lesen — akzeptiert BEIDE QR-Modi:
-   * die URL /p/<slug> und den vCard-Text, dessen URL:-Feld dieselbe
-   * Adresse trägt. Damit funktioniert der In-App-Scanner unabhängig
-   * davon, welchen QR die Gegenseite gerade zeigt.
+   * Slug aus einem gescannten Code lesen.
+   * Sucht die Kartenadresse IRGENDWO im Text — damit funktioniert der
+   * In-App-Scanner auch, wenn der Link in etwas anderem steckt (eine
+   * fremde vCard mit URL:-Feld, eine kopierte Signatur, ein NFC-Tag).
    */
   function slugAusScan(text) {
     var m = /\/p\/([1-9A-HJ-NP-Za-km-z]{6,24})/.exec(String(text || ''));
     return m ? m[1] : '';
   }
 
-  // Logo-Overlay nur bei genug Redundanz: der URL-QR ist winzig und
-  // verträgt Fehlerkorrektur H (30 %) mühelos. Der Kontakt-QR ist mit
-  // ~300 Bytes deutlich dichter — dort wird NICHT überlagert und mit
-  // Stufe M gerechnet, damit er auf der Baustelle sicher scannt.
-  function qrStufe(QR, modus) { return modus === 'kontakt' ? QR.CorrectLevel.M : QR.CorrectLevel.H; }
-
-  function _renderQr(host, text, size, stufe) {
-    return qrLib().then(function (QR) {
-      host.innerHTML = '';
-      new QR(host, {
-        text: text, width: size, height: size,
-        colorDark: '#0f172a', colorLight: '#ffffff', correctLevel: stufe
-      });
-      return QR;
-    });
+  function _payload(textOderKarte) {
+    return (typeof textOderKarte === 'string') ? textOderKarte : kartenUrl(textOderKarte.slug);
   }
 
   /**
    * QR in einen Container zeichnen.
-   * opts = {modus:'gema'|'kontakt', logo:true, size:200}
+   * opts = {logo:false} unterdrückt die Marke in der Mitte.
    */
   function qr(el, textOderKarte, size, opts) {
     opts = opts || {};
-    var modus = opts.modus || 'gema';
-    var text = (typeof textOderKarte === 'string') ? textOderKarte : qrPayload(textOderKarte, modus);
+    var text = _payload(textOderKarte);
     var px = size || 200;
     return qrLib().then(function (QR) {
-      return _renderQr(el, text, px, qrStufe(QR, modus));
-    }).then(function () {
-      // GEMA-Marke in der Mitte (Konzept §5.1) — nur beim URL-QR.
-      if (opts.logo !== false && modus !== 'kontakt') _logoOverlay(el, px);
+      el.innerHTML = '';
+      new QR(el, {
+        text: text, width: px, height: px,
+        colorDark: '#0f172a', colorLight: '#ffffff', correctLevel: QR.CorrectLevel.H
+      });
+      if (opts.logo !== false) _logoOverlay(el, px);
       return true;
     });
   }
@@ -232,10 +178,8 @@
   }
 
   /** QR als PNG-DataURL (für Download / Druck). */
-  function qrDataUrl(textOderKarte, size, opts) {
-    opts = opts || {};
-    var modus = opts.modus || 'gema';
-    var text = (typeof textOderKarte === 'string') ? textOderKarte : qrPayload(textOderKarte, modus);
+  function qrDataUrl(textOderKarte, size) {
+    var text = _payload(textOderKarte);
     var px = size || 512;
     return qrLib().then(function (QR) {
       var tmp = document.createElement('div');
@@ -243,7 +187,7 @@
       document.body.appendChild(tmp);
       new QR(tmp, {
         text: text, width: px, height: px,
-        colorDark: '#0f172a', colorLight: '#ffffff', correctLevel: qrStufe(QR, modus)
+        colorDark: '#0f172a', colorLight: '#ffffff', correctLevel: QR.CorrectLevel.H
       });
       // qrcodejs rendert je nach Browser Canvas ODER <img>
       var out = '';
@@ -369,7 +313,7 @@
     api: api, apiPublic: apiPublic, call: call,
     kartenUrl: kartenUrl, vcardUrl: vcardUrl, fotoUrl: fotoUrl,
     qr: qr, qrDataUrl: qrDataUrl,
-    vcardMinimal: vcardMinimal, qrPayload: qrPayload, slugAusScan: slugAusScan,
+    slugAusScan: slugAusScan,
     bildVerkleinern: bildVerkleinern,
     nfcMoeglich: nfcMoeglich, nfcSchreiben: nfcSchreiben,
     teilen: teilen, kopieren: kopieren,

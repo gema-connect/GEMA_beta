@@ -170,6 +170,16 @@ A.projekte = async function (body, user) {
 };
 
 /* ── Kontaktbuch ─────────────────────────────────────────────────────── */
+/**
+ * Der In-App-Scanner laedt die oeffentliche Kartenseite NICHT — er springt
+ * direkt in «Kontakt speichern» bzw. «Beteiligte:n hinzufuegen». Ohne
+ * eigenes Signal fehlte diesen Faellen die Funnel-Stufe 1, waehrend die
+ * spaeteren Stufen zaehlen: die Quoten koennten ueber 100 % steigen.
+ */
+async function scanGemeldet(body, p, user) {
+  if (body.viaScan) await C.logEvent({ slug: p.slug, event: 'scan', refUser: user.id });
+}
+
 A.kontakt_add = async function (body, user) {
   const p = await C.profilBySlug(s(body.slug, 30));
   if (!p) return C.resp(404, { error: 'Karte nicht gefunden' });
@@ -177,6 +187,7 @@ A.kontakt_add = async function (body, user) {
   await C.sbInsert('card_contacts', {
     owner_user_id: user.id, profile_id: p.id, note: s(body.notiz, 300) || null
   }, { upsert: true, onConflict: 'owner_user_id,profile_id' });
+  await scanGemeldet(body, p, user);
   await C.logEvent({ slug: p.slug, event: 'contact_saved', refUser: user.id });
   return C.resp(200, { ok: true });
 };
@@ -225,6 +236,7 @@ A.beteiligt_add = async function (body, user) {
     status: p.user_id ? 'active' : 'invited',
     org_id: user.orgId || null, invited_by: user.id
   }, { upsert: true, onConflict: 'project_id,profile_id' });
+  await scanGemeldet(body, p, user);
   await C.logEvent({ slug: p.slug, event: 'join_project', projectId: projektId, refUser: user.id });
   if (p.user_id && p.user_id !== user.id) {
     await C.notify({

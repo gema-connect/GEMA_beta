@@ -283,58 +283,45 @@ t('sys_card.html bindet gema_auth.js NICHT ein', !/<script src="gema_auth\.js"/.
 t('sys_card.html bindet gema_sync.js NICHT ein', !/<script src="gema_sync\.js"/.test(cardHtml));
 t('sys_card.html erkennt die Session passiv aus dem localStorage', /gema_session_v1/.test(cardHtml));
 
-/* ══ G — Zwei QR-Modi (Konzept §6.4) ════════════════════════════════ */
-console.log('\n— G: QR-Modi —');
+/* ══ G — QR (ein Modus) ═════════════════════════════════════════════ */
+console.log('\n— G: QR —');
 
 // gema_card.js ist ein Browser-IIFE — ein Mini-window genügt, weil die
 // geprüften Funktionen weder DOM noch Netz anfassen.
 const winStub = { location: { origin: 'https://gema.ch' } };
 new Function('window', R('gema_card.js') + '\nreturn window;')(winStub);
 const GC = winStub.GemaCard;
-t('gema_card.js exportiert die QR-Modus-Helfer',
-  GC && typeof GC.qrPayload === 'function' && typeof GC.vcardMinimal === 'function'
-    && typeof GC.slugAusScan === 'function');
+const gcSrc = R('gema_card.js');
 
-const kQr = {
-  slug: 'Ab3xK9mZq7', display_name: 'Anna Meier', first_name: 'Anna', last_name: 'Meier',
-  company: 'Meier AG', role_title: 'Sanitärplanerin', phone: '+41 79 111 22 33',
-  phone_office: '+41 61 000 00 00', email: 'anna@meier.ch',
-  fields_public: { company: true, phone: true, email: true, phone_office: false, address: false }
-};
-const vMin = GC.vcardMinimal(kQr, GC.kartenUrl(kQr.slug));
-t('Kontakt-QR trägt eine gültige vCard', /^BEGIN:VCARD\r\nVERSION:3\.0\r\n/.test(vMin) && /END:VCARD\r\n$/.test(vMin));
-// DER Trick aus §6.4.2: der Loop wandert ins Adressbuch mit.
-t('Kontakt-QR trägt IMMER den Kartenlink (URL + NOTE)',
-  vMin.includes('URL:https://gema.ch/p/Ab3xK9mZq7') && /\nNOTE:[^\r\n]*gema\.ch\/p\/Ab3xK9mZq7/.test(vMin));
-t('Kontakt-QR respektiert fields_public (Büronummer aus)',
-  vMin.includes('+41 79 111 22 33') && !vMin.includes('+41 61 000 00 00'));
-t('Kontakt-QR trägt kein PHOTO (Dichte)', !/PHOTO/.test(vMin));
-t('Kontakt-QR trägt kein ADR (Dichte)', !/\nADR/.test(vMin));
-t('Kontakt-QR bleibt scanbar klein (< 400 Byte)', Buffer.byteLength(vMin, 'utf8') < 400,
-  Buffer.byteLength(vMin, 'utf8') + ' Byte');
-t('GEMA-QR ist nur die URL', GC.qrPayload(kQr, 'gema') === 'https://gema.ch/p/Ab3xK9mZq7');
-t('qrPayload ohne Modus ist der GEMA-QR (bewusster Default der Bibliothek)',
-  GC.qrPayload(kQr) === GC.qrPayload(kQr, 'gema'));
+t('gema_card.js exportiert kartenUrl + Scan-Parser',
+  GC && typeof GC.kartenUrl === 'function' && typeof GC.slugAusScan === 'function');
+t('Im QR steht nur die Kartenadresse',
+  GC.kartenUrl('Ab3xK9mZq7') === 'https://gema.ch/p/Ab3xK9mZq7');
 
-// Der In-App-Scanner MUSS beide Codes lesen — sonst hängt der Loop davon
-// ab, welchen QR die Gegenseite gerade zeigt.
-t('slugAusScan liest den GEMA-QR', GC.slugAusScan('https://gema.ch/p/Ab3xK9mZq7') === 'Ab3xK9mZq7');
-t('slugAusScan liest den Kontakt-QR (URL: in der vCard)', GC.slugAusScan(vMin) === 'Ab3xK9mZq7');
-t('slugAusScan weist Fremdcodes ab', GC.slugAusScan('https://example.com/x') === ''
-  && GC.slugAusScan('') === '' && GC.slugAusScan(null) === '');
+// Entscheid 08/2026: der «Kontakt-QR» (vCard im Code) ist bewusst NICHT
+// gebaut. Er wäre ein Schnappschuss und für die Statistik unsichtbar.
+t('kein zweiter QR-Modus mehr im Client',
+  !/qrPayload|vcardMinimal|qrStufe/.test(gcSrc) && !/modus/.test(gcSrc));
+t('der Entscheid ist im Code begründet, nicht nur entfernt',
+  /Kontakt-QR/.test(gcSrc) && /Entscheid 08\/2026/.test(gcSrc));
+t('QR rechnet immer mit Fehlerkorrektur H',
+  (gcSrc.match(/CorrectLevel\.H/g) || []).length === 2 && !/CorrectLevel\.M/.test(gcSrc));
+t('die GEMA-Marke sitzt in der QR-Mitte (§5.1)',
+  /opts\.logo !== false\) _logoOverlay/.test(gcSrc));
 
 const edHtml = R('sys_card_editor.html');
-t('Editor lässt zwischen beiden Modi umschalten',
-  /data-modus="kontakt"/.test(edHtml) && /data-modus="gema"/.test(edHtml));
-t('Editor startet im Kontakt-QR (null Reibung auf der Baustelle)',
-  /return 'kontakt';/.test(edHtml));
-t('Editor hat die «Scan mich»-Vollbildansicht (§5.1)', /id="scanFs"/.test(edHtml) && /btnScanMich/.test(edHtml));
-t('gema_card.js legt die GEMA-Marke nur in den robusten URL-QR',
-  /modus !== 'kontakt'\) _logoOverlay/.test(R('gema_card.js')));
-t('Kontakt-QR rechnet mit niedrigerer Fehlerkorrektur (Dichte)',
-  /modus === 'kontakt' \? QR\.CorrectLevel\.M : QR\.CorrectLevel\.H/.test(R('gema_card.js')));
-// Die Scanner dürfen den Slug nicht mehr selbst aus der URL schnitzen —
-// sonst liest einer von beiden den Kontakt-QR nicht.
+t('Editor hat keinen Modus-Umschalter mehr',
+  !/data-modus|qrSeg|qrModus|QR_MODUS_KEY/.test(edHtml));
+t('Editor hat die «Scan mich»-Vollbildansicht (§5.1)',
+  /id="scanFs"/.test(edHtml) && /btnScanMich/.test(edHtml));
+
+// Der Scan-Parser bleibt tolerant: er findet die Adresse auch, wenn sie in
+// etwas anderem steckt (fremde vCard, kopierte Signatur, NFC-Tag).
+t('slugAusScan liest die Kartenadresse', GC.slugAusScan('https://gema.ch/p/Ab3xK9mZq7') === 'Ab3xK9mZq7');
+t('slugAusScan findet die Adresse auch eingebettet',
+  GC.slugAusScan('BEGIN:VCARD\r\nURL:https://gema.ch/p/Ab3xK9mZq7\r\nEND:VCARD') === 'Ab3xK9mZq7');
+t('slugAusScan weist Fremdcodes ab', GC.slugAusScan('https://example.com/x') === ''
+  && GC.slugAusScan('') === '' && GC.slugAusScan(null) === '');
 t('pm_objekte nutzt den geteilten Scan-Parser', /GemaCard\.slugAusScan\(text\)/.test(R('pm_objekte.html')));
 t('sys_kontakte nutzt den geteilten Scan-Parser', /GemaCard\.slugAusScan\(text\)/.test(R('sys_kontakte.html')));
 
@@ -345,10 +332,16 @@ const ccard = R('netlify/functions/_card.js');
 t('Funnel hat genau die fünf Stufen des Konzepts',
   FN.map(s => s.id).join('>') === 'scan>vcard>claim_start>claim_done>join_project',
   FN.map(s => s.id).join('>'));
-// view (Server) und scan (Client) sind dieselbe Frage — getrennt gezählt
-// wäre jede Quote darunter falsch.
+// Zwei Wege führen zu «Karte geöffnet»: die öffentliche Seite (view, vom
+// Server geloggt) und der In-App-Scanner, der die Seite gar nicht lädt
+// (scan, aus card-api). Getrennt gezählt wäre jede Quote darunter falsch —
+// ohne den Scan-Weg könnten die späteren Stufen sogar über 100 % steigen.
 t('Stufe 1 fasst view und scan zusammen',
   FN[0].events.includes('view') && FN[0].events.includes('scan'));
+t('der In-App-Scanner meldet Stufe 1 mit', /async function scanGemeldet/.test(capi)
+  && (capi.match(/await scanGemeldet\(body, p, user\);/g) || []).length === 2);
+t('pm_objekte meldet den Scan', /viaScan:!!viaScan/.test(R('pm_objekte.html')));
+t('sys_kontakte meldet den Scan', /viaScan:true/.test(R('sys_kontakte.html')));
 t('Stufe 2 fasst vcard-Download und Client-Meldung zusammen',
   FN[1].events.includes('vcard') && FN[1].events.includes('contact_saved'));
 t('Jede Funnel-Stufe hat ein Label für die Oberfläche', FN.every(s => s.label && s.label.length > 3));
@@ -366,9 +359,12 @@ t('_card.sbCount liest die echte Gesamtzahl aus Content-Range',
   /Prefer': 'count=exact'/.test(ccard) && /content-range/.test(ccard));
 t('_card.sbCount liefert null statt einer falschen 0', /return m \? parseInt\(m\[1\], 10\) : null;/.test(ccard));
 // Ohne Whitelist könnte jeder beliebige Event-Namen einkippen und die
-// Auswertung damit wertlos machen.
+// Auswertung damit wertlos machen. Stufe 1 ist von aussen gar nicht
+// meldbar — sie kommt ausschliesslich vom Server.
 t('card-report nimmt nur bekannte Funnel-Events an',
   /EVENTS_OEFFENTLICH\.indexOf\(String\(body\.event\)\) < 0/.test(crep));
+t('Stufe 1 ist von aussen nicht aufblasbar',
+  /const EVENTS_OEFFENTLICH = \['contact_saved'\];/.test(crep));
 t('sys_card.html meldet «Kontakt gespeichert»', /event:'contact_saved'/.test(cardHtml));
 t('Editor zeigt den Trichter', /GemaCard\.api\('funnel'/.test(edHtml) && /id="funBox"/.test(edHtml));
 
