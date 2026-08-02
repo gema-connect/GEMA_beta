@@ -150,6 +150,8 @@ A.foto = async function (body, user) {
     await C.storagePut(pfadG, gross.buf, gross.typ);
     await C.storagePut(pfadK, klein.buf, klein.typ);
   } catch (e) {
+    if (C.istFehlenderBucket(e) || C.istFehlendeTabelle(e)) return C.fehlerAntwort(e, 'card-api foto');
+    console.error('[card-api foto]', e && e.message);
     return C.resp(502, { error: 'Bild konnte nicht gespeichert werden' });
   }
   await C.sbUpdate('card_profiles', 'id=eq.' + C.q(p.id), { photo_path: pfadG, photo_vcard_path: pfadK });
@@ -460,8 +462,7 @@ exports.handler = async function (event) {
   try {
     return await fn(body, user);
   } catch (e) {
-    console.error('[card-api]', body.action, e);
-    return C.resp(502, { error: 'Aktion fehlgeschlagen' });
+    return C.fehlerAntwort(e, 'card-api ' + body.action);
   }
 };
 

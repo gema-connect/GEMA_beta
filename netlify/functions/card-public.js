@@ -65,6 +65,8 @@ exports.handler = async function (event) {
     // Aenderung im Editor muss sofort sichtbar sein (Grundprinzip 2).
     return C.resp(200, { karte: out });
   } catch (e) {
+    if (C.istFehlendeTabelle(e)) return C.fehlerAntwort(e, 'card-public');
+    console.error('[card-public]', e && e.message);
     return C.resp(502, { error: 'Karte konnte nicht geladen werden' });
   }
 };

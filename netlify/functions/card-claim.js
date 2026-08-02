@@ -286,7 +286,6 @@ exports.handler = async function (event) {
     if (body.action === 'register') return await actionRegister(body, event);
     return C.resp(400, { error: 'Unbekannte action' });
   } catch (e) {
-    console.error('[card-claim]', e);
-    return C.resp(502, { error: 'Aktion fehlgeschlagen' });
+    return C.fehlerAntwort(e, 'card-claim');
   }
 };

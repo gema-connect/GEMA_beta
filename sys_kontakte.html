@@ -78,6 +78,7 @@ input,select,button,textarea{font-family:var(--sans)}
 .ld{text-align:center;padding:60px 20px;color:var(--mut);font-size:13px}
 .hidden{display:none!important}
 </style>
+<link rel="stylesheet" href="gema_responsive.css"/>
 </head>
 <body>
 <nav class="g-nav">
@@ -173,14 +174,32 @@ input,select,button,textarea{font-family:var(--sans)}
     }).join('');
   }
 
+  /* Server hat geantwortet → seinen Grund zeigen; nur ein echter
+     Netzfehler darf die Verbindung beschuldigen. Ein leeres Ergebnis
+     wegen fehlender Einrichtung als «nichts vorhanden» darzustellen
+     waere die zweite Unwahrheit. */
+  function ladeFehler(d){
+    var t=d&&d.error, det=d&&d.detail, box=$('stLoad');
+    box.classList.remove('hidden');
+    if(d&&d.setup){
+      box.innerHTML='<div style="max-width:520px;margin:0 auto;text-align:left;background:var(--amb-bg);'
+        +'border:1.5px solid var(--amb-bd);border-radius:14px;padding:14px 16px;font-size:13px;line-height:1.6;color:#78350f">'
+        +'<b style="display:block;font-size:13.5px;margin-bottom:3px">⚙️ '+esc(t||'Noch nicht eingerichtet')+'</b>'
+        +esc(det||'')+'</div>';
+      return;
+    }
+    box.innerHTML='<p style="font-size:13px;color:#64748b">'
+      +(t?esc(t):'Nicht erreichbar — bitte Internetverbindung prüfen.')
+      +(det?'<br>'+esc(det):'')+'</p>';
+  }
+
   function laden(){
     GemaCard.api('kontakt_list',{}).then(function(r){
       if(r.status===401){location.href='sys_login.html?r='+encodeURIComponent(location.pathname);return;}
-      alle=(r.data&&r.data.kontakte)||[];
+      if(r.status!==200||!r.data){ladeFehler(r.data);return;}
+      alle=r.data.kontakte||[];
       render();
-    }).catch(function(){
-      $('stLoad').innerHTML='<p style="font-size:13px;color:#64748b">Nicht erreichbar — bitte Internetverbindung prüfen.</p>';
-    });
+    }).catch(function(){ ladeFehler(null); });
   }
 
   $('kkSuche').addEventListener('input',render);

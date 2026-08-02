@@ -95,6 +95,8 @@ exports.handler = async function (event) {
     }
     return C.resp(200, { ok: true });
   } catch (e) {
+    if (C.istFehlendeTabelle(e)) return C.fehlerAntwort(e, 'card-report');
+    console.error('[card-report]', e && e.message);
     return C.resp(502, { error: 'Meldung konnte nicht gespeichert werden' });
   }
 };

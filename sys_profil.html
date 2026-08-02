@@ -15,6 +15,7 @@
 <script src="gema_recent.js"></script>
 <script src="gema_pwa.js"></script>
 <script src="gema_avatar.js"></script>
+<script src="gema_card.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700;9..40,800;9..40,900&display=swap" rel="stylesheet">
 <style>
 :root{--bg:#f4f6fb;--bg2:#edf0f7;--sur:#fff;--brd:#e2e7f0;--brd2:#cdd4e4;--txt:#0f172a;--txt2:#334155;--mut:#64748b;--mut2:#94a3b8;--acc:#2563eb;--acc-dk:#1d4ed8;--acc-bg:#eff6ff;--grn:#16a34a;--grn-bg:#f0fdf4;--red:#dc2626;--red-bg:#fef2f2;--r:14px;--r-sm:10px;--r-lg:20px;--sh:0 4px 16px rgba(0,0,0,.08);--sh-sm:0 1px 4px rgba(0,0,0,.06);--sans:"DM Sans",ui-sans-serif,system-ui,sans-serif}
@@ -97,6 +98,19 @@ input,select,button,textarea{font-family:var(--sans)}
       <div class="page-title" id="userName">—</div>
       <div class="page-sub" id="userRole" style="margin-bottom:6px">—</div>
       <button class="btn btn-sm" type="button" onclick="document.getElementById('avatarFile').click()" style="font-size:11.5px;padding:5px 10px">📷 Profilbild ändern</button>
+    </div>
+  </div>
+
+  <!-- GEMA CARD — direkt unter dem Avatar, damit der eigene QR ohne Umweg
+       greifbar ist. Wird nur gezeigt, wenn die Rolle die Karte hat. -->
+  <div class="card" id="cardQrCard" style="display:none">
+    <div class="card-hd"><span class="ic">📇</span><h3>Meine GEMA Card</h3>
+      <a class="btn btn-sm" href="sys_card_editor.html"
+         style="margin-left:auto;white-space:nowrap">Bearbeiten ›</a></div>
+    <div class="card-body">
+      <div id="cardQrBody" style="display:flex;gap:18px;align-items:center;flex-wrap:wrap">
+        <div style="font-size:12.5px;color:var(--mut)">Wird geladen…</div>
+      </div>
     </div>
   </div>
 
@@ -387,7 +401,8 @@ function renderOrgInfo(){
     (abt?'<div style="margin-top:8px;font-size:12px"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:'+(abt.farbe||'#6b7280')+';margin-right:4px"></span>Abteilung: <strong>'+E(abt.name)+'</strong></div>':'')+
     (isAdmin?'<div style="margin-top:12px"><a href="sys_unternehmen.html" style="font-size:12px;font-weight:700;color:#2563eb;text-decoration:none">🏢 Unternehmen verwalten →</a></div>':'');
 }
-function E(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;');}
+function E(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;')
+  .replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;');}
 
 var _tt;
 function toast(m){var el=document.getElementById('toast');el.textContent=m;el.classList.add('show');clearTimeout(_tt);_tt=setTimeout(function(){el.classList.remove('show');},2500);}
@@ -490,9 +505,117 @@ function installPWA(){
 }
 window.installPWA = installPWA;
 
+// ── GEMA Card: eigener QR direkt in den Einstellungen ───────────────
+// Zweck ist die Abkuerzung: den eigenen Code herzeigen, ohne erst ins
+// Kartenmodul zu navigieren. Tippen zeigt ihn gross — das ist der
+// Moment, in dem man das Handy hinhaelt.
+function renderCardQr(){
+  var card = document.getElementById('cardQrCard');
+  if(!card || typeof GemaCard === 'undefined') return;
+  // Rollen ohne Karte sehen die Sektion gar nicht.
+  try{ if(typeof GemaAuth !== 'undefined' && GemaAuth.can && !GemaAuth.can('read','visitenkarte')) return; }catch(e){}
+  card.style.display = '';
+  var body = document.getElementById('cardQrBody');
+
+  function malen(slug, name){
+    var url = GemaCard.kartenUrl(slug);
+    body.innerHTML =
+      '<div id="cardQrBox" title="Gross anzeigen" tabindex="0" role="button"'
+      + ' aria-label="QR-Code gross anzeigen"'
+      + ' style="padding:10px;background:#fff;border:1.5px solid var(--brd);border-radius:12px;'
+      + 'cursor:zoom-in;flex-shrink:0;position:relative"></div>'
+      + '<div style="flex:1;min-width:190px;display:flex;flex-direction:column;gap:8px">'
+      + '<div style="font-size:13px;color:var(--txt2);line-height:1.5">Dein Code führt immer auf'
+      + ' den <b>aktuellen</b> Stand deiner Karte — auch nach einem Firmenwechsel.</div>'
+      + '<code style="font-size:12px;color:var(--mut);font-family:ui-monospace,monospace;'
+      + 'word-break:break-all">' + E(url.replace(/^https?:\/\//,'')) + '</code>'
+      + '<div style="display:flex;gap:8px;flex-wrap:wrap">'
+      + '<button class="btn btn-sm" type="button" onclick="cardQrGross()">🔍 Gross zeigen</button>'
+      + '<a class="btn btn-sm" href="' + E('/p/' + encodeURIComponent(slug)) + '" target="_blank" rel="noopener">Karte ansehen ›</a>'
+      + '</div></div>';
+    GemaCard.qr(document.getElementById('cardQrBox'), {slug:slug}, 118).catch(function(){
+      document.getElementById('cardQrBox').innerHTML =
+        '<div style="width:118px;height:118px;display:flex;align-items:center;justify-content:center;'
+        + 'font-size:11.5px;color:var(--mut2);text-align:center;line-height:1.4">QR-Code<br>nicht verfügbar</div>';
+    });
+    document.getElementById('cardQrBox').addEventListener('click', cardQrGross);
+    document.getElementById('cardQrBox').addEventListener('keydown', function(e){
+      if(e.key === 'Enter' || e.key === ' '){ e.preventDefault(); cardQrGross(); }
+    });
+    window._cardQrSlug = slug; window._cardQrName = name || '';
+  }
+
+  function ohneKarte(txt){
+    body.innerHTML = '<div style="font-size:13px;color:var(--txt2);line-height:1.55;flex:1;min-width:200px">'
+      + E(txt) + '</div>'
+      + '<a class="btn btn-primary btn-sm" href="sys_card_editor.html" style="white-space:nowrap">Karte einrichten</a>';
+  }
+
+  // Den zuletzt bekannten Slug sofort zeichnen (kein Warten auf den
+  // Server), danach gegen die Wahrheit abgleichen.
+  var lokal = GemaCard.meinSlug && GemaCard.meinSlug();
+  if(lokal) malen(lokal, '');
+
+  GemaCard.api('me', {anlegen:false}).then(function(r){
+    if(r.status === 401) return;
+    if(r.status !== 200 || !r.data){
+      if(!lokal) ohneKarte((r.data && r.data.error)
+        || 'Die Karte ist gerade nicht erreichbar.');
+      return;
+    }
+    var k = r.data.karte;
+    if(!k || !k.slug){ ohneKarte('Du hast noch keine Karte. Sie ist in einer Minute eingerichtet.'); return; }
+    if(k.slug !== lokal) malen(k.slug, k.display_name);
+  }).catch(function(){
+    if(!lokal) ohneKarte('Die Karte ist gerade nicht erreichbar — bitte Verbindung prüfen.');
+  });
+}
+
+// Vollbild: Handy hinhalten statt Link diktieren.
+function cardQrGross(){
+  var slug = window._cardQrSlug; if(!slug) return;
+  var bg = document.getElementById('cardQrFs');
+  if(!bg){
+    bg = document.createElement('div');
+    bg.id = 'cardQrFs';
+    bg.style.cssText = 'position:fixed;inset:0;z-index:11200;background:#fff;display:flex;'
+      + 'flex-direction:column;align-items:center;justify-content:center;gap:18px;'
+      + 'padding:calc(20px + env(safe-area-inset-top,0px)) 20px calc(20px + env(safe-area-inset-bottom,0px))';
+    bg.innerHTML = '<button type="button" aria-label="Schliessen" id="cardQrFsX" style="position:absolute;'
+      + 'top:calc(14px + env(safe-area-inset-top,0px));right:14px;width:42px;height:42px;border-radius:50%;'
+      + 'border:1.5px solid var(--brd);background:#fff;font-size:19px;color:var(--txt2);cursor:pointer;'
+      + 'display:flex;align-items:center;justify-content:center">✕</button>'
+      + '<div id="cardQrFsBox" style="padding:18px;background:#fff;border-radius:20px;'
+      + 'box-shadow:0 8px 40px rgba(15,23,42,.16);position:relative"></div>'
+      + '<div style="text-align:center"><div id="cardQrFsName" style="font-size:22px;font-weight:800;'
+      + 'line-height:1.25"></div><div style="font-size:14px;color:var(--txt2);margin-top:3px">'
+      + 'Scannen und Karte öffnen</div></div>';
+    document.body.appendChild(bg);
+    bg.addEventListener('click', function(e){ if(e.target === bg) cardQrFsZu(); });
+    document.getElementById('cardQrFsX').addEventListener('click', cardQrFsZu);
+    document.addEventListener('keydown', function(e){
+      if(e.key === 'Escape' && document.getElementById('cardQrFs')) cardQrFsZu();
+    });
+  }
+  document.getElementById('cardQrFsName').textContent = window._cardQrName || 'Meine GEMA Card';
+  bg.style.display = 'flex';
+  if(window.GemaScroll && GemaScroll.lock) GemaScroll.lock();
+  var px = Math.max(220, Math.min(420, Math.floor(Math.min(window.innerWidth, window.innerHeight) * 0.62)));
+  GemaCard.qr(document.getElementById('cardQrFsBox'), {slug:slug}, px).catch(function(){});
+}
+function cardQrFsZu(){
+  var bg = document.getElementById('cardQrFs'); if(!bg) return;
+  bg.style.display = 'none';
+  document.getElementById('cardQrFsBox').innerHTML = '';
+  if(window.GemaScroll && GemaScroll.unlock) GemaScroll.unlock();
+}
+window.cardQrGross = cardQrGross;
+
+
 document.addEventListener('DOMContentLoaded', function(){
   init();renderBKPDefaultTree();renderOrgInfo();
   renderPwaState();
+  renderCardQr();
   if(typeof GemaPWA !== 'undefined'){
     GemaPWA.onChange(renderPwaState);
   }
