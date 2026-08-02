@@ -59,7 +59,8 @@ for (const f of files) {
     'ab_index.html': 'Ausbildung',
     'index.html#hei': 'Heizung & Wärmeerzeugung',
     'index.html#lueft': 'Lüftung & Klimatisierung',
-    'index.html#brand': 'Brandschutz & Sprinkler'
+    'index.html#brand': 'Brandschutz & Sprinkler',
+    'index.html#lief': 'Lieferanten'
   };
   for (const [target, label] of Object.entries(canon)) {
     const re = new RegExp('<a[^>]*href="' + target.replace(/[.#]/g, '\\$&') + '"[^>]*>([^<]*)</a>', 'g');

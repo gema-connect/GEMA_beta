@@ -61,7 +61,8 @@ ok(fmOk, 'jede Modul-ID (ausser Hubs) in GemaAuth.FILE_MAP');
  'pm_ausschreibungsunterlagen', 'pm_schnellausschreibung', 'pm_goodel',
  'hy_legionellen', 'hy_spuelmanager', 'sv_service',
  'sd_schadensbericht', 'if_trocknung', 'sp_dachbericht',
- 'if_wareneingang', 'if_arbeitskleider', 'iv_immobilien'
+ 'if_wareneingang', 'if_arbeitskleider', 'iv_immobilien',
+ 'sys_lieferant_dashboard'
 ].forEach(id => ok(ids.indexOf(id) >= 0, 'Modul im Katalog: ' + id));
 // Jede cat existiert in MODULE_CATS
 const catRe = /\{id:'([a-z]+)',label:'([^']+)',icon:'[a-z-]+'\}/g;
