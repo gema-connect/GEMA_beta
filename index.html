@@ -529,6 +529,7 @@ body {
 <div class="filter-bar">
   <div class="filter-inner">
     <button class="filter-btn fav-filter-btn" data-filter="fav" id="favFilterBtn" style="display:none">⭐ Favoriten <span class="count" id="cnt-fav">0</span></button>
+    <button class="filter-btn" data-filter="card">📇 GEMA Card <span class="count">2</span></button>
     <button class="filter-btn" data-filter="plan">📋 Projektmanagement <span class="count" id="cnt-plan">15</span></button>
     <button class="filter-btn" data-filter="san">💧 Sanitär <span class="count" id="cnt-san">2</span></button>
     <button class="filter-btn" data-filter="hei">🔥 Heizung <span class="count">2</span></button>
@@ -578,6 +579,54 @@ body {
   <!-- ═══════════════════════════════
        KATEGORIE: PLANUNG & MANAGEMENT
   ═══════════════════════════════ -->
+  <!-- ══ GEMA Card ══ Steht bewusst zuoberst: für Gratis-Konten (role_free)
+       ist die eigene Karte das zentrale Element des Dashboards. -->
+  <section class="cat-section" data-cat="card" id="card">
+    <div class="cat-header">
+      <div class="cat-icon-wrap" style="background:rgba(8,145,178,.10);color:#0891b2">📇</div>
+      <div>
+        <div class="cat-label" style="color:#0891b2">Kontakte & Netzwerk</div>
+        <div class="cat-title-text">GEMA Card</div>
+      </div>
+      <span class="cat-count-badge" style="background:rgba(8,145,178,.12);color:#0891b2">2 Module</span>
+    </div>
+    <div class="mod-grid">
+
+      <a class="mod-card" href="sys_card_editor.html" data-module="visitenkarte">
+        <div class="accent-line" style="background:linear-gradient(135deg,#0891b2,#22d3ee)"></div>
+        <div class="mod-card-top">
+          <div class="mod-icon-box" style="background:#ecfeff;border:1.5px solid #a5f3fc">📇</div>
+          <div class="mod-badges"><span class="badge new">Neu</span></div>
+        </div>
+        <div class="mod-body">
+          <div class="mod-title">Meine Karte</div>
+          <div class="mod-desc"><ul class="mod-pts"><li>QR-Code und Link, die dir gehören — auch nach dem Firmenwechsel</li><li>Kontakt speichern als vCard, immer mit aktuellen Daten</li><li>Selbst bestimmen, welche Angaben öffentlich sind</li></ul></div>
+        </div>
+        <div class="mod-footer">
+          <div class="mod-norms"><span class="mod-norm">vCard 3.0</span><span class="mod-norm">NFC</span></div>
+          <span class="mod-arrow">→</span>
+        </div>
+      </a>
+
+      <a class="mod-card" href="sys_kontakte.html" data-module="kontakte">
+        <div class="accent-line" style="background:linear-gradient(135deg,#0891b2,#22d3ee)"></div>
+        <div class="mod-card-top">
+          <div class="mod-icon-box" style="background:#ecfeff;border:1.5px solid #a5f3fc">📒</div>
+          <div class="mod-badges"><span class="badge new">Neu</span></div>
+        </div>
+        <div class="mod-body">
+          <div class="mod-title">Kontaktbuch</div>
+          <div class="mod-desc"><ul class="mod-pts"><li>Gescannte Karten an einem Ort gesammelt</li><li>Kontaktdaten aktualisieren sich von selbst</li><li>Direkt anrufen, mailen oder als vCard sichern</li></ul></div>
+        </div>
+        <div class="mod-footer">
+          <div class="mod-norms"><span class="mod-norm">Live verknüpft</span></div>
+          <span class="mod-arrow">→</span>
+        </div>
+      </a>
+
+    </div>
+  </section>
+
   <section class="cat-section" data-cat="plan" id="plan">
     <div class="cat-header">
       <div class="cat-icon-wrap ico-plan">📋</div>
@@ -1867,6 +1916,27 @@ function filterModules() {
     'fettabscheider','oelabscheider','schlammsammler','abwasserhebeanlage'];
   var hasAnySanit=SANIT_KEYS.some(function(k){return GemaAuth.can('read',k);});
 
+  // GEMA Card: Gratis-Konto? Dann Fachmodule sperren statt verstecken.
+  var _freeUser=(typeof GemaAuth.isFreeUser==='function')&&GemaAuth.isFreeUser(user);
+  function _lockCard(card){
+    card.classList.add('disabled');
+    card.setAttribute('data-perm-locked','1');
+    card.removeAttribute('href');
+    card.setAttribute('title','Mit einem GEMA-Vollzugang verfügbar');
+    var b=card.querySelector('.mod-badges');
+    if(b) b.innerHTML='<span class="badge" style="background:#f1f5f9;color:#64748b;border:1px solid #e2e8f0">🔒 Vollzugang</span>';
+    var a=card.querySelector('.mod-arrow');
+    if(a) a.textContent='🔒';
+    card.addEventListener('click',function(e){
+      e.preventDefault();
+      if(typeof GemaDialog!=='undefined'){
+        GemaDialog.alert({title:'Mit GEMA-Vollzugang',
+          message:'Dieses Modul gehört zum Vollzugang. Dein Gratis-Konto umfasst die eigene GEMA Card, '
+            +'das Kontaktbuch und die Projekte, in denen du als Beteiligte:r geführt wirst.'});
+      }
+    });
+  }
+
   // Alle Karten durchgehen
   document.querySelectorAll('.mod-card[data-module]').forEach(function(card){
     var key=card.getAttribute('data-module');
@@ -1878,7 +1948,15 @@ function filterModules() {
     } else {
       show=GemaAuth.can('read',key);
     }
-    if(!show){ card.style.display='none'; card.setAttribute('data-perm-hidden','1'); }
+    if(!show){
+      // GEMA Card §2.2: Gratis-Konten (role_free) sehen die Fachmodule
+      // als GESPERRTE Kacheln statt gar nicht — das zeigt den Wert eines
+      // Vollzugangs, statt eine fast leere Übersicht zu hinterlassen.
+      // Der Klick ist unterbunden; die harte Sperre bleibt der
+      // Permission-Check beim Öffnen des Moduls selbst.
+      if(_freeUser){ _lockCard(card); return; }
+      card.style.display='none'; card.setAttribute('data-perm-hidden','1');
+    }
   });
 
   // Leere Kategorien ausblenden + Zähler aktualisieren

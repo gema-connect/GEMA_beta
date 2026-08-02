@@ -346,6 +346,8 @@
     {key:'lieferantenverwaltung',   label:'Lieferantenverwaltung',     cat:'System'},
     {key:'produktkatalog',          label:'Produktkatalog',            cat:'System'},
     {key:'workspace',               label:'Workspace',                 cat:'System'},
+    {key:'visitenkarte',            label:'GEMA Card',                 cat:'System'},
+    {key:'kontakte',                label:'Kontaktbuch',               cat:'System'},
   ];
 
   // ── Filename → Modul-Key ──────────────────────────────────────────
@@ -376,6 +378,11 @@
     'pm_crbx':'crbx_offertvergleich','pm_schnellausschreibung':'schnellausschreibung','pm_bestellungen':'bestellungen','pm_revisionsunterlagen':'revisionsunterlagen','pm_behoerden_formulare':'behoerden_formulare','pm_plaene':'plaene','pm_planablage':'planablage','pm_regierapport':'regierapport','pm_erp':'erp','pm_einsatzplan':'einsatzplan','pm_pruefliste':'pruefliste',
     'sys_lieferanten':'lieferantenverwaltung','sys_produktkatalog':'produktkatalog',
     'sys_workspace':'workspace',
+    // GEMA Card. sys_card.html steht BEWUSST nicht hier — die oeffentliche
+    // Kartenseite bindet gema_auth.js gar nicht ein (Besucher haben kein
+    // Login) und erkennt eine Session nur passiv aus dem localStorage.
+    'sys_card_editor':'visitenkarte','sys_card_reports':'visitenkarte',
+    'sys_kontakte':'kontakte',
   };
 
   // ── Schule: Berechnungs-Kategorien (Klassen-Freischaltung) ─────────
@@ -490,7 +497,34 @@
       var p=_somePerms(['klassen','pruefungen'],true,false,false);
       p['quiz']={read:true,write:true,admin:false};
       return p;})()},
+    // ── GEMA Card: Gratis-Konto ──
+    // Entsteht beim Erstellen einer Karte bzw. beim Uebernehmen eines
+    // Schattenprofils (UMSETZUNG_GEMA_Card.md §0.3: «Karte erstellen =
+    // Free-Account erstellen»). Darf NUR die eigene Karte, das Kontaktbuch
+    // und die Projekte lesen, in denen die Person als Beteiligte gefuehrt
+    // wird — keine Fachmodule, keine eigenen Projekte (objekte ist bewusst
+    // read-only, das ist der Upsell-Punkt). Die Fachmodul-Kacheln bleiben
+    // auf index.html sichtbar, aber gesperrt (Wert zeigen statt verstecken).
+    {id:'role_free',name:'GEMA Card (gratis)',color:'#0891b2',permissions:(function(){
+      var p=_somePerms(['visitenkarte','kontakte'],true,true,true);
+      p['objekte']={read:true,write:false,admin:false};
+      return p;})()},
   ];
+
+  // ── GEMA Card: gehört zur PERSON, nicht zum Gewerk ────────────────
+  // Die eigene Kontaktkarte und das Kontaktbuch soll JEDES Login haben —
+  // gerade der Monteur auf der Baustelle tauscht Kontakte. Die Fach-Rollen
+  // oben bauen ihre Rechte teils mit _somePerms auf; die neuen Modul-Keys
+  // stünden dort sonst auf «kein Zugriff». Ein Admin kann den Zugriff im
+  // Rolleneditor weiterhin entziehen: _mergeWithDefaults ergänzt beim
+  // Cloud-Load nur FEHLENDE Keys und überschreibt nie einen gespeicherten
+  // Wert — eine bewusste Entziehung bleibt also bestehen.
+  DEFAULT_ROLES.forEach(function(r){
+    ['visitenkarte','kontakte'].forEach(function(k){
+      var p=r.permissions&&r.permissions[k];
+      if(!p||(!p.read&&!p.write))r.permissions[k]={read:true,write:true,admin:false};
+    });
+  });
 
   // ── Default Org + User ─────────────────────────────────────────────
   var DEFAULT_ORGS = [{
@@ -785,6 +819,22 @@
           _writeLocalCache(STORAGE_ROLES, rolesI);
         }
         try{localStorage.setItem(MIGFLAG_IMMO,'1');}catch(e){}
+      }
+    } catch(e) {}
+    // ── Migration: Rolle role_free (GEMA Card, Gratis-Konto) ──
+    // Wird einmalig in bestehende Installationen nachgezogen; die neuen
+    // Modul-Keys visitenkarte/kontakte ergaenzt _mergeWithDefaults beim
+    // Cloud-Pull ohnehin bei allen Rollen mit Default-Pendant.
+    try {
+      var MIGFLAG_FREE='gema_auth_card_free_v1';
+      if(!localStorage.getItem(MIGFLAG_FREE)){
+        var rolesF=_getRoles()||[];
+        if(!rolesF.find(function(r){return r.id==='role_free';})){
+          var defF=DEFAULT_ROLES.find(function(r){return r.id==='role_free';});
+          if(defF)rolesF.push(defF);
+          _writeLocalCache(STORAGE_ROLES, rolesF);
+        }
+        try{localStorage.setItem(MIGFLAG_FREE,'1');}catch(e){}
       }
     } catch(e) {}
 
@@ -1213,7 +1263,17 @@
     if(u.roleIds.indexOf('role_student')>=0)return'ab_klassen.html';
     if(u.roleIds.indexOf('role_magaziner')>=0)return'index.html';
     if(u.roleIds.indexOf('role_monteur')>=0)return'index.html';
+    // GEMA Card (gratis): Modulübersicht ist das Free-Dashboard — eigene
+    // Karte + Kontaktbuch oben, Fachmodule als gesperrte Kacheln darunter.
+    // NICHT sys_workspace: darauf hat role_free bewusst keine Permission,
+    // der Redirect liefe sonst direkt in den «Kein Zugriff»-Screen.
+    if(u.roleIds.indexOf('role_free')>=0)return'index.html';
     return'sys_workspace.html';
+  }
+  // Gratis-Konto? (Fachmodule gesperrt, Karte + Kontaktbuch offen)
+  function _isFreeUser(u){
+    u=u||(w.GemaAuth&&w.GemaAuth.getCurrentUser&&w.GemaAuth.getCurrentUser())||null;
+    return !!(u&&u.roleIds&&u.roleIds.indexOf('role_free')>=0&&u.roleIds.indexOf('role_admin')<0);
   }
 
   // ── GEMA Secure v1: Gleitendes Sitzungsfenster («angemeldet bleiben») ──
@@ -1949,6 +2009,7 @@
 
     // Rollenspezifische Weiterleitung nach Login/Aktivierung
     getRedirectForUser:_getRedirectForUser,
+    isFreeUser:_isFreeUser,
 
     // Prüfe ob User Login-Light ist
     isLoginLight:function(user){

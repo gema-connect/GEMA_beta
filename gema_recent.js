@@ -103,10 +103,14 @@
     'sys_produktkatalog':'Produktkatalog',
     'sys_profil':'Profil & Einstellungen',
     'sys_unternehmen':'Unternehmen verwalten',
-    'sys_workspace':'Workspace'
+    'sys_workspace':'Workspace',
+    'sys_card':'GEMA Card',
+    'sys_card_editor':'Meine GEMA Card',
+    'sys_card_reports':'Hinweise zur Karte',
+    'sys_kontakte':'Kontaktbuch'
   };
 
-  var SKIP=['sys_login'];
+  var SKIP=['sys_login','sys_card'];
 
   function _key(){
     return(location.pathname.split('/').pop()||'index').replace('.html','').toLowerCase();

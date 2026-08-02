@@ -794,6 +794,12 @@ function saveUser(){
       return;
     }
     if(idx>=0){
+      // GEMA Card §6.8: verlaesst die Person die Firma (Org-Wechsel oder
+      // Deaktivierung), werden auf ihrer Kontaktkarte NUR die Firmenfelder
+      // geleert — persoenliche Angaben, Slug und QR-Code bleiben, damit im
+      // Adressbuch Gespeicherte weiter zur richtigen Karte kommen.
+      var _orgWeg = (String(users[idx].orgId||'')!==String(orgId||'')) || (users[idx].active!==false && active===false);
+      if(_orgWeg) _cardOrgAustritt(users[idx].id);
       users[idx].username=username;
       users[idx].name=name||username;
       if(!users[idx].profile)users[idx].profile={};
@@ -826,6 +832,19 @@ function saveUser(){
     renderUsers();
     toast('✓ Benutzer gespeichert');
   });
+}
+/* GEMA Card: Firmenfelder der Kontaktkarte leeren (Konzept §6.8).
+   Best-effort und bewusst fire-and-forget — schlaegt es fehl, darf das
+   den Benutzer-Save nie blockieren. Die Function prueft die Berechtigung
+   selbst (GEMA-Admin oder Org-Admin der betroffenen Firma). */
+function _cardOrgAustritt(userId){
+  try{
+    var tok=(GemaAuth.getToken&&GemaAuth.getToken())||'';
+    if(!tok||!userId)return;
+    fetch('/api/card-api',{method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':'Bearer '+tok},
+      body:JSON.stringify({action:'org_austritt',userId:userId})}).catch(function(){});
+  }catch(e){}
 }
 // Speichern-Knopf waehrend des Cloud-Saves sperren (Doppelklick-Schutz).
 function _saveUserPending(on){

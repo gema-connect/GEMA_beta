@@ -281,7 +281,8 @@
     abos:'💳 Abos & Preise',
     chat:'💬 Chat',
     schule:'🎓 Schule & Klassen',
-    pruefliste:'📋 Prüfliste'
+    pruefliste:'📋 Prüfliste',
+    visitenkarte:'📇 GEMA Card'
   };
   function _modulLabel(key){
     if(!key)return 'Weitere';
@@ -331,7 +332,8 @@
     abos:{immer:true},
     chat:{immer:true},
     schule:{mods:['klassen','pruefungen']},
-    pruefliste:{mods:['pruefliste']}
+    pruefliste:{mods:['pruefliste']},
+    visitenkarte:{mods:['visitenkarte']}
   };
   function _gruppeSichtbar(mod, empfangeneGruppen){
     try{

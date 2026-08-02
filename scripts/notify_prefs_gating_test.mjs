@@ -88,12 +88,12 @@ console.log('■ Layer 2 — Sichtbarkeits-Matrix pro Rolle');
   await r.ctx.close();
 
   r = await visibleGroups(['role_monteur'], 'index.html');
-  eqSet('Monteur: nur seine 15 Gruppen (kein Fahrzeug/Ausschreibung/Bestellungen …)', r.groups,
-    ['werkzeug','trocknung','schadensbericht','regierapport','einsatzplan','goodel','abnahme','legionellen','spuelmanager','arbeitskleider','service','stundenerfassung','planablage','abos','chat']);
+  eqSet('Monteur: nur seine 16 Gruppen (kein Fahrzeug/Ausschreibung/Bestellungen …)', r.groups,
+    ['werkzeug','trocknung','schadensbericht','regierapport','einsatzplan','goodel','abnahme','legionellen','spuelmanager','arbeitskleider','service','stundenerfassung','planablage','abos','chat','visitenkarte']);
   await r.ctx.close();
 
   r = await visibleGroups(['role_garagist'], 'sys_garagist_dashboard.html');
-  eqSet('Garagist: nur Fahrzeug + Abos + Chat', r.groups, ['fahrzeug','abos','chat']);
+  eqSet('Garagist: nur Fahrzeug + Abos + Chat + eigene Karte', r.groups, ['fahrzeug','abos','chat','visitenkarte']);
   await r.ctx.close();
 
   r = await visibleGroups(['role_student'], 'ab_klassen.html');
@@ -134,7 +134,7 @@ console.log('■ Layer 2 — Panel-DOM (Monteur) + Hinweiszeile');
   ok(!txt.includes('Ausschreibung & Vergabe'), 'Panel zeigt KEINE Ausschreibungs-Gruppe');
   ok(await page.$('#gnPrefHint') != null, 'Hinweiszeile «nur Module mit Zugriff» vorhanden');
   const sektionen = await page.$$eval('#gnPrefList > div', els => els.filter(e => e.id !== 'gnPrefHint').length);
-  ok(sektionen === 15, 'genau 15 Gruppen-Sektionen gerendert (' + sektionen + ')');
+  ok(sektionen === 16, 'genau 16 Gruppen-Sektionen gerendert (' + sektionen + ')');
   await ctx.close();
 }
 
@@ -146,7 +146,7 @@ console.log('■ Layer 2 — Admin-Panel unverändert (alle Gruppen, keine Hinwe
   await page.evaluate(() => _gnHooks.openSettings());
   await page.waitForSelector('#gnSettingsOverlay', { timeout: 5000 });
   const sektionen = await page.$$eval('#gnPrefList > div', els => els.filter(e => e.id !== 'gnPrefHint').length);
-  ok(sektionen === 26, 'Admin: alle 26 Gruppen-Sektionen (' + sektionen + ')');
+  ok(sektionen === 27, 'Admin: alle 27 Gruppen-Sektionen (' + sektionen + ')');
   ok(await page.$('#gnPrefHint') == null, 'keine Hinweiszeile, wenn nichts ausgeblendet ist');
   await ctx.close();
 }
