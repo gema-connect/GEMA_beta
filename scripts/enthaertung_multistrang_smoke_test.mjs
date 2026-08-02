@@ -100,9 +100,9 @@ console.log('■ Strang anlegen über das Zeilen-Dropdown');
   ok(!!card, 'Strang-Karte hängt direkt unter Zeile A in der Tabelle');
   ok(card.inList === 0, 'keine Karte mehr separat in #esList');
   ok(card.badge === '1', 'Zähler-Badge = 1');
-  ok(card.kpis[1] === '0.903 l/s', 'Karte: Q W3 = 0.903 l/s');
-  ok(card.kpis[4] === '0.671 l/s', "Karte: V'E = 0.671 l/s");
-  ok(card.kpis[5] === '0.232 l/s', 'Karte: Umgehung = 0.232 l/s');
+  ok(card.kpis[1] === '0.9 l/s', 'Karte: Q W3 = 0.9 l/s (2 NK seit Feedback 01.08.2026)');
+  ok(card.kpis[4] === '0.67 l/s', "Karte: V'E = 0.67 l/s (2 NK)");
+  ok(card.kpis[5] === '0.23 l/s', 'Karte: Umgehung = 0.23 l/s (2 NK)');
   ok(card.kpis[7] === '2.61 mol/d', 'Karte: CB = 2.61 mol/d');
   ok(card.hwInp === '10', 'HW-Feld in der Karte = 10');
   // zuklappen → nur Kopfzeile; wieder aufklappen
@@ -157,7 +157,7 @@ console.log('■ Umbenennen · HW ändern · Schema');
   ok(await page.evaluate(() => document.querySelector('select.strangSel[data-c="A"] option[value="1"]').textContent) === 'Strang Ost', 'Dropdown führt den neuen Namen');
   await page.evaluate(() => esSetHw('1', '15'));
   const umg = await page.evaluate(() => document.querySelector('tr.es-strang-tr[data-sid="1"] .es-card').querySelectorAll('.es-kpi b')[5].textContent);
-  ok(umg === '0.347 l/s', 'HW 15 °fH → Umgehung des Strangs steigt (0.347 l/s)');
+  ok(umg === '0.35 l/s', 'HW 15 °fH → Umgehung des Strangs steigt (0.35 l/s, 2 NK)');
   ok(await page.evaluate(() => document.getElementById('v_A').value) === '15', 'Zeilen-Härtefeld folgt der Strang-HW (15 übernommen)');
   await page.evaluate(() => esSetHw('1', '10'));
 

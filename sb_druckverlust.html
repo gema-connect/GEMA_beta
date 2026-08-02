@@ -159,7 +159,9 @@ input,select,button{font-family:var(--sans)}
   background:var(--sur);border:1.5px solid var(--brd);transition:.12s;min-height:44px}
 .fit-card:hover{border-color:var(--blue-bd)}
 .fit-card.active{background:var(--blue-bg);border-color:var(--blue-bd)}
-.fit-card .fc-ic{font-size:15px;line-height:1}
+.fit-card .fc-ic{font-size:15px;line-height:1;display:inline-flex;align-items:center}
+.fit-card .fc-ic svg,.fit-mini svg{display:block;flex-shrink:0}
+.fit-mini svg{width:14px;height:14px}
 .fit-card .fc-img{width:30px;height:30px;border-radius:5px;object-fit:contain;background:#fff;border:1px solid var(--brd)}
 .fit-card .fc-txt{display:flex;flex-direction:column;line-height:1.25;min-width:0}
 .fit-card .fc-n{font-size:12px;font-weight:700;color:var(--txt2);white-space:nowrap}
@@ -384,6 +386,7 @@ function fixLeadingZero(el){
 <script src="gema_varianten.js"></script>
 <script src="gema_pdf.js"></script>
 <script src="gema_autosave.js"></script>
+<script src="gema_rohrsysteme.js"></script>
 <script src="gema_armaturen_api.js"></script>
 <script src="gema_armaturen_picker.js"></script>
 <script src="gema_dialog.js"></script>
@@ -541,100 +544,15 @@ function fixLeadingZero(el){
 // Status: 'verifiziert' = Lieferant hat Daten geprüft und bestätigt
 //         'nicht_verifiziert' = GEMA-Daten aus Datenblättern, nicht vom Lieferant bestätigt
 // ═══════════════════════════════════════════════════════════
-const SYSTEMS = [
-  {id:'mapress',       name:'Geberit Mapress',      material:'Edelstahl', k:0.0015, lieferant:'Geberit AG', status:'verifiziert',
-   dims:[{dn:'15x1.0',di:13.0},{dn:'18x1.0',di:16.0},{dn:'22x1.2',di:19.6},{dn:'28x1.2',di:25.6},{dn:'35x1.5',di:32.0},{dn:'42x1.5',di:39.0},{dn:'54x1.5',di:51.0},{dn:'76.1x2.0',di:72.1},{dn:'88.9x2.0',di:84.9},{dn:'108x2.0',di:104.0}]},
-  {id:'mepla',       name:'Geberit Mepla',        lieferant:'Geberit AG', status:'verifiziert',         material:'Mehrschicht', k:0.007,
-   dims:[{dn:'16x2.25',di:11.5},{dn:'20x2.50',di:15.0},{dn:'26x3.00',di:20.0},{dn:'32x3.00',di:26.0},{dn:'40x3.50',di:33.0},{dn:'50x4.00',di:42.0},{dn:'63x4.50',di:54.0},{dn:'75x4.70',di:65.6}]},
-  {id:'pushfit',     name:'Geberit PushFit',      lieferant:'Geberit AG', status:'verifiziert',       material:'Mehrschicht', k:0.007,
-   dims:[{dn:'16x2.0',di:12.0},{dn:'20x2.0',di:16.0},{dn:'25x2.5',di:20.0}]},
-  {id:'flowfit',     name:'Geberit FlowFit',      lieferant:'Geberit AG', status:'verifiziert',       material:'Mehrschicht', k:0.007,
-   dims:[{dn:'16x2.0',di:12.0},{dn:'20x2.0',di:16.0},{dn:'25x2.5',di:20.0},{dn:'32x3.0',di:26.4},{dn:'40x3.0',di:34.0},{dn:'50x3.8',di:42.4},{dn:'63x4.0',di:55.0},{dn:'75x4.6',di:65.8}]},
-  {id:'instaflex_k',   name:'+GF+ Instaflex (Klemm)', material:'Mehrschicht', k:0.007,
-   dims:[{dn:'16x2.0',di:11.6},{dn:'20x2.0',di:14.4},{dn:'25x2.5',di:20.4},{dn:'32x3.0',di:26.2}]},
-  {id:'instaflex_s',   name:'+GF+ Instaflex (Schweiss)', material:'Mehrschicht', k:0.007,
-   dims:[{dn:'16x2.2',di:11.6},{dn:'20x2.8',di:14.4},{dn:'25x2.3',di:20.4},{dn:'32x2.9',di:26.2},{dn:'40x3.7',di:32.6},{dn:'50x4.6',di:40.8},{dn:'63x6.3',di:50.4},{dn:'75x6.8',di:61.4},{dn:'90x8.2',di:73.6},{dn:'110x10.0',di:90.0}]},
-  {id:'sanipex',       name:'JRG Sanipex Classic',   material:'Mehrschicht', k:0.007,
-   dims:[{dn:'12x1.7',di:8.6},{dn:'16x2.2',di:11.6},{dn:'20x2.8',di:14.4},{dn:'25x3.5',di:18.0},{dn:'32x4.4',di:23.2},{dn:'40x5.5',di:29.0},{dn:'50x6.9',di:36.2},{dn:'63x8.7',di:45.6}]},
-  {id:'sanipex_mt',    name:'JRG Sanipex MT®',       material:'Mehrschicht', k:0.007,
-   dims:[{dn:'16x2.25',di:11.5},{dn:'20x2.50',di:15.0},{dn:'26x3.00',di:20.0},{dn:'32x3.00',di:26.0},{dn:'40x3.50',di:33.0},{dn:'50x4.00',di:42.0},{dn:'63x4.50',di:54.0}]},
-  {id:'optipress',     name:'RN Optipress',         lieferant:'R. Nussbaum AG', status:'verifiziert',          material:'Edelstahl 1.4521', k:0.0015,
-   dims:[{dn:'15x1.0',di:13.0},{dn:'18x1.0',di:16.0},{dn:'22x1.2',di:19.6},{dn:'28x1.2',di:25.6},{dn:'35x1.5',di:32.0},{dn:'42x1.5',di:39.0},{dn:'54x1.5',di:51.0},{dn:'64x2.0',di:60.0},{dn:'76.1x2.0',di:72.1},{dn:'88.9x2.0',di:84.9},{dn:'108x2.0',di:104.0}]},
-  /* Optiflex gibt es bis 25 mm (Feedback 29.07.2026 Sandro) — grössere
-     Dimensionen laufen bei Nussbaum über Optipress. Die früheren 32–63er
-     bleiben als legacy auflösbar (gespeicherte Berechnungen), erscheinen
-     aber in keiner Auswahl mehr. */
-  {id:'optiflex',      name:'RN Optiflex',          lieferant:'R. Nussbaum AG', status:'verifiziert',           material:'Mehrschicht', k:0.007,
-   /* 16x3.8 (di 8.4) = das «12er»-Rohr für Einzelzapfstellen/Ausstossleitungen
-      (Feedback Sandro 31.07.2026 «Bei R. Nussbaum fehlt das 12mm Rohr resp.
-      16mm × 3.8mm Rohr»). */
-   dims:[{dn:'16x3.8',di:8.4},{dn:'16x2.2',di:11.6},{dn:'20x2.8',di:14.4},{dn:'25x2.7',di:19.6},
-         {dn:'32x3.2',di:25.6,legacy:true},{dn:'40x3.5',di:33.0,legacy:true},{dn:'50x4.00',di:42.0,legacy:true},{dn:'63x4.50',di:54.0,legacy:true}]},
-  {id:'kupfer',        name:'Kupfer',               lieferant:'—', status:'verifiziert',                material:'Cu', k:0.0015,
-   dims:[{dn:'12x1.0',di:10.0},{dn:'15x1.0',di:13.0},{dn:'18x1.0',di:16.0},{dn:'22x1.0',di:20.0},{dn:'28x1.5',di:25.0},{dn:'35x1.5',di:32.0},{dn:'42x1.5',di:39.0},{dn:'54x2.0',di:50.0},{dn:'76.1x2.0',di:72.1}]},
-  {id:'stahl',         name:'Stahl verzinkt',       lieferant:'—', status:'verifiziert',        material:'Stahl', k:0.15,
-   dims:[{dn:'1/2"',di:16.0},{dn:'3/4"',di:21.6},{dn:'1"',di:27.2},{dn:'5/4"',di:35.9},{dn:'1½"',di:41.8},{dn:'2"',di:53.0},{dn:'2½"',di:68.8},{dn:'3"',di:80.8},{dn:'4"',di:105.3}]},
-  {id:'pe10',          name:'PE-Druckrohr PN10',    lieferant:'—', status:'verifiziert',     material:'PE', k:0.007,
-   dims:[{dn:'20x2.9',di:14.2},{dn:'25x2.9',di:19.2},{dn:'32x2.9',di:26.2},{dn:'40x2.9',di:34.2},{dn:'50x3.0',di:44.0},{dn:'63x3.8',di:55.4},{dn:'75x4.5',di:66.0},{dn:'90x5.4',di:79.2},{dn:'110x6.6',di:96.8}]},
-  {id:'pe16',          name:'PE-Druckrohr PN16',    lieferant:'—', status:'verifiziert',     material:'PE', k:0.007,
-   dims:[{dn:'20x2.9',di:14.2},{dn:'25x2.9',di:19.2},{dn:'32x2.9',di:26.2},{dn:'40x3.7',di:32.6},{dn:'50x4.6',di:40.8},{dn:'63x5.8',di:51.4},{dn:'75x6.8',di:61.4},{dn:'90x8.2',di:73.6},{dn:'110x10.0',di:90.0}]},
-];
-
-/* ══ Zusammengefasste Lieferanten-Systeme (Feedback 28.07.2026) ═══════════
-   «RN Optipress und Optiflex in Nussbaum zusammenfassen. Wenn die Teilstücke
-   dimensioniert werden, sollen alle Dimensionen wählbar sein. JRG identisch.»
-   Ein Eintrag pro Lieferant; jede Dimension trägt ihre HERKUNFT (Fabrikat)
-   und deren Rauhigkeit k — Edelstahl (0.0015) und Mehrschicht (0.007)
-   unterscheiden sich, darum k PRO DIMENSION statt pro System.
-   Die Einzelsysteme bleiben in SYSTEMS (hidden) — gespeicherte Berechnungen
-   und der Formstück-Katalog laufen unverändert weiter. */
-const MERGED_SYSTEMS = [
-  /* Reihenfolge der teile = Reihenfolge in der Dimensions-Auswahl (Feedback
-     29.07.2026: «Optiflex zuerst und dann Optipress von klein nach gross»). */
-  { id:'nussbaum', name:'R. Nussbaum (Optipress + Optiflex)', lieferant:'R. Nussbaum AG',
-    status:'verifiziert', material:'Edelstahl / Mehrschicht', teile:['optiflex','optipress'] },
-  { id:'jrg',      name:'JRG Sanipex (Classic + MT®)',         lieferant:'Georg Fischer JRG AG',
-    status:'verifiziert', material:'Mehrschicht',              teile:['sanipex','sanipex_mt'] }
-];
-(function buildMergedSystems(){
-  MERGED_SYSTEMS.forEach(function(m){
-    var dims = [], k0 = null;
-    m.teile.forEach(function(tid, gi){
-      var t = SYSTEMS.find(function(s){ return s.id===tid; });
-      if(!t) return;
-      t.hidden = true;                       // nicht mehr einzeln in der Auswahl
-      if(k0===null) k0 = t.k;
-      // Kurzname des Fabrikats: «RN Optipress» → «Optipress»
-      var kurz = t.name.replace(/^(RN|JRG|Geberit|\+GF\+)\s+/,'');
-      t.dims.forEach(function(d){
-        // gleiche Bezeichnung UND gleicher Innendurchmesser → nur einmal führen
-        if(dims.some(function(x){ return x.dn===d.dn && Math.abs(x.di-d.di)<0.05; })) return;
-        dims.push({ dn:d.dn, di:d.di, k:t.k, src:t.id, srcName:kurz, grp:gi, legacy:d.legacy||undefined });
-      });
-    });
-    /* Sortierung: nach Fabrikat gruppiert (teile-Reihenfolge), innerhalb der
-       Gruppe klein → gross. Legacy-Dimensionen ans Ende ihrer Gruppe — sie
-       tauchen nur bei Alt-Berechnungen auf (dimAuswahl filtert sie). */
-    dims.sort(function(a,b){ return (a.grp-b.grp) || ((a.legacy?1:0)-(b.legacy?1:0)) || (a.di-b.di); });
-    SYSTEMS.push({ id:m.id, name:m.name, lieferant:m.lieferant, status:m.status,
-                   material:m.material, k:k0==null?0.007:k0, merged:true, dims:dims });
-  });
-})();
-/** Wählbare Dimensionen eines Systems — legacy nur, wenn die Zeile sie
-    bereits nutzt (Bestandsschutz gespeicherter Berechnungen). */
-function dimAuswahl(sys, aktDn){
-  if(!sys) return [];
-  return sys.dims.filter(function(d){ return !d.legacy || d.dn===aktDn; });
-}
-/** Systeme für die Auswahl (ohne die in Sammel-Systemen aufgegangenen Fabrikate). */
-function sysAuswahl(){ return SYSTEMS.filter(function(s){ return !s.hidden; }); }
-/** Beschriftung einer Dimension — im Sammel-System mit Herkunft. */
-function dimLabel(dim){
-  if(!dim) return '';
-  // im Sammel-System kompakter, damit das Fabrikat sichtbar bleibt
-  return dim.srcName
-    ? dim.dn + ' (' + dim.di + ') · ' + dim.srcName
-    : dim.dn + ' (di ' + dim.di + ' mm)';
+/* Der Katalog liegt seit 08/2026 in gema_rohrsysteme.js — sb_druckanstieg
+   nutzt DIESELBE Tabelle (Feedback 01.08.2026 «Hersteller und Rohrmaterial
+   aus Druckverlust übernehmen»). Hier nur noch die lokalen Aliase, damit
+   alle bestehenden Aufrufstellen unverändert bleiben. */
+const SYSTEMS        = GemaRohre.SYSTEMS;
+const MERGED_SYSTEMS = GemaRohre.MERGED_SYSTEMS;
+function dimAuswahl(sys, aktDn){ return GemaRohre.dimAuswahl(sys, aktDn); }
+function sysAuswahl(){ return GemaRohre.sysAuswahl(); }
+function dimLabel(dim){ return GemaRohre.dimLabel(dim);
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -642,18 +560,67 @@ function dimLabel(dim){
 // Jedes Fitting kann ein optionales `img` Feld haben (URL/base64)
 // das vom Lieferanten hochgeladen wird und im Chip angezeigt wird.
 // ═══════════════════════════════════════════════════════════
-const FITTING_ICONS = {
-  'Bogen 90°':'↩️', 'Bogen 45°':'↪', 'Winkel 90°':'↩️', 'Winkel 45°':'↪',
-  'T-Stück':'⊤', 'T-Stück Durchgang':'⊤', 'T-Stück Abzweiger':'⊤', 'T-Stück Abzweig':'⊤',
-  'Reduktion':'▷', 'Muffe':'═', 'Kupplung':'○',
-  'Anschlusswinkel':'⤵', 'Anschlussdose':'⊛',
-  'Verteiler':'┤', 'Rohrabbiegung':'⤾',
-};
-function fitIcon(name){
-  for(const[k,v] of Object.entries(FITTING_ICONS)){
-    if(name.toLowerCase().includes(k.toLowerCase())) return v;
+/* ── Formstück-Piktogramme ──────────────────────────────────────────────
+   Feedback 01.08.2026 (Sandro): «Noch eindeutigere Icons wählen». Die alten
+   Unicode-Zeichen waren teils IDENTISCH (T-Stück Durchgang und Abzweiger
+   beide «⊤») und Emojis rendern je nach Gerät anders. Ersetzt durch kleine
+   Inline-SVG-Piktogramme, die das Formstück wirklich zeigen: die Leitung
+   dick, der markierte Weg (Durchgang bzw. Abzweig) in Akzentfarbe.
+   NUR literale Hex-Farben (GemaPDF-Regel). */
+const FIT_SVG = (function(){
+  function svg(inner){
+    return '<svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true" focusable="false">'
+      + '<g fill="none" stroke="#334155" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">'
+      + inner + '</g></svg>';
   }
-  return '🔧';
+  var A = '#2563eb';                                  // hervorgehobener Weg
+  return {
+    bogen90:  svg('<path d="M4 20 H12 A8 8 0 0 0 20 12 V4"/>'),
+    bogen45:  svg('<path d="M4 20 H10 L20 10 V4"/>'),
+    /* Durchgang vs. Abzweig unterscheiden sich NICHT nur durch die Farbe —
+       der gerechnete Weg ist zusätzlich dicker und trägt einen Richtungspfeil
+       (auf 17 px ist eine reine Farbunterscheidung zu schwach). */
+    tDurch:   svg('<path d="M12 13 V21" stroke="#94a3b8" stroke-width="2.4"/>'
+                + '<path d="M3 12 H19" stroke="'+A+'" stroke-width="4"/>'
+                + '<path d="M15 8 L20 12 L15 16" stroke="'+A+'" stroke-width="3" fill="none"/>'),
+    tAbzweig: svg('<path d="M3 10 H21" stroke="#94a3b8" stroke-width="2.4"/>'
+                + '<path d="M12 10 V15" stroke="'+A+'" stroke-width="4"/>'
+                + '<path d="M8 15 L12 21 L16 15" stroke="'+A+'" stroke-width="3" fill="none"/>'),
+    tStueck:  svg('<path d="M3 12 H21"/><path d="M12 12 V21"/>'),
+    reduktion:svg('<path d="M2 8 H9 L16 5 V19 L9 16 H2"/>'),
+    muffe:    svg('<path d="M2 12 H22"/><path d="M8 7 V17"/><path d="M16 7 V17"/>'),
+    kupplung: svg('<path d="M2 12 H22"/><rect x="8" y="6" width="8" height="12" rx="2"/>'),
+    winkel:   svg('<path d="M4 20 V10 L14 10 H20"/>'),
+    dose:     svg('<path d="M12 3 V10"/><circle cx="12" cy="15" r="5"/>'),
+    verteiler:svg('<path d="M6 3 V21"/><path d="M6 7 H20"/><path d="M6 17 H20"/>'),
+    abbiegung:svg('<path d="M4 20 H10 A10 10 0 0 0 20 10"/><path d="M20 5 V10 H15"/>'),
+    ventil:   svg('<path d="M2 12 H6"/><path d="M18 12 H22"/><path d="M6 6 L6 18 L12 12 Z" fill="#ffffff"/><path d="M18 6 L18 18 L12 12 Z" fill="#ffffff"/><path d="M12 12 V5"/><path d="M8 5 H16"/>'),
+    generisch:svg('<path d="M2 12 H22"/><path d="M9 8 V16"/><path d="M15 8 V16"/>')
+  };
+})();
+/* Reihenfolge = Priorität: spezifischere Begriffe zuerst (ein «T-Stück
+   Abzweiger» darf nie auf «T-Stück» fallen). */
+const FITTING_ICONS = [
+  ['durchgang', 'tDurch'], ['vereinig', 'tDurch'],
+  ['abzweiger', 'tAbzweig'], ['abzweig', 'tAbzweig'],
+  ['t-stück', 'tStueck'],
+  ['bogen 90', 'bogen90'], ['winkel 90', 'bogen90'], ['bogen 45', 'bogen45'], ['winkel 45', 'bogen45'],
+  ['bogen', 'bogen90'],
+  ['anschlusswinkel', 'winkel'], ['anschlussdose', 'dose'], ['armaturenanschluss', 'ventil'],
+  ['reduktion', 'reduktion'], ['übergang', 'reduktion'], ['muffe', 'muffe'], ['kupplung', 'kupplung'],
+  ['verteiler', 'verteiler'], ['rohrabbiegung', 'abbiegung'],
+  ['ventil', 'ventil'], ['hahn', 'ventil'], ['schieber', 'ventil']
+];
+/* KRITISCH: Die Katalog-Namen tragen Klammern («T-Stück (Durchgang)») —
+   ein Substring-Vergleich auf «t-stück durchgang» geht dort ins Leere und
+   BEIDE T-Stücke fielen auf dasselbe neutrale Symbol zurück. Darum werden
+   Satzzeichen vor dem Vergleich zu Leerzeichen normalisiert. */
+function fitIcon(name){
+  var n = String(name || '').toLowerCase().replace(/[^a-zäöüß0-9°]+/g, ' ').trim();
+  for (var i = 0; i < FITTING_ICONS.length; i++){
+    if (n.includes(FITTING_ICONS[i][0])) return FIT_SVG[FITTING_ICONS[i][1]];
+  }
+  return FIT_SVG.generisch;
 }
 
 /* Formstück-Katalog einer Zeile. Im Sammel-System (Nussbaum/JRG) folgt er dem
@@ -1280,7 +1247,7 @@ function render(){
     } else {
       const miniChips=[
         ...fitActive.map(([name,cnt])=>`<span class="fit-mini"><b>${cnt}×</b> ${fitIcon(name)} ${name}</span>`),
-        ...armActive.map(([id,cnt])=>{const a=typeof GemaArmaturen!=='undefined'?GemaArmaturen.getById(id):null;const kvs=typeof GemaArmaturen!=='undefined'?GemaArmaturen.getKvs(id,row.dimDn):0;return `<span class="fit-mini"><b>${cnt}×</b> 🔧 ${a?a.name:id}${kvs>0?' <i style="font-weight:600">kvs '+kvs+'</i>':''}</span>`;}),
+        ...armActive.map(([id,cnt])=>{const a=typeof GemaArmaturen!=='undefined'?GemaArmaturen.getById(id):null;const kvs=typeof GemaArmaturen!=='undefined'?GemaArmaturen.getKvs(id,row.dimDn):0;return `<span class="fit-mini"><b>${cnt}×</b> ${FIT_SVG.ventil} ${a?a.name:id}${kvs>0?' <i style="font-weight:600">kvs '+kvs+'</i>':''}</span>`;}),
         ...manuActive.map(m=>`<span class="fit-mini"><b>✍</b> ${m.name||'Manuell'} · ${fmt(parseFloat(m.dp)||0,2)} kPa</span>`)
       ].join('');
       fitSection=`

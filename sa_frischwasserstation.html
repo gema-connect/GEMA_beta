@@ -541,6 +541,16 @@ table.fw{border-collapse:collapse;width:100%;font-size:12.5px}
 .fw input[type=checkbox]{width:17px;height:17px;accent-color:var(--accent)}
 .fw-add{margin-top:8px;padding:7px 14px;border-radius:8px;border:1.5px dashed var(--border2);background:none;color:var(--muted);font-weight:700;font-size:12px;cursor:pointer;font-family:var(--sans)}
 .fw-add:hover{border-color:var(--accent);color:var(--accent)}
+/* Einklappbare Karten + Schema-Puls (Feedback 01.08.2026) */
+.g-card-hd{gap:8px}
+.g-card-hd h2{margin-right:auto}
+.g-card-hd.fw-foldhd{cursor:pointer;user-select:none}
+.fw-fold-cx{font-size:11px;color:var(--muted);width:14px;flex-shrink:0;display:inline-flex;justify-content:center}
+.g-card.fw-zu .g-card-bd{display:none}
+@media print{.g-card.fw-zu .g-card-bd{display:block!important}}
+.fw-puls{animation:fwPuls 1.4s ease-out}
+@keyframes fwPuls{0%{box-shadow:0 0 0 0 rgba(37,99,235,.45)}100%{box-shadow:0 0 0 12px rgba(37,99,235,0)}}
+#fwSchema svg{width:100%;height:auto;display:block}
 .fw-tot{display:flex;gap:18px;flex-wrap:wrap;margin-top:10px;padding:10px 14px;background:var(--surface2);border:1.5px solid var(--border);border-radius:10px;font-size:12.5px}
 .fw-tot b{font-variant-numeric:tabular-nums}
 .fw-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:14px}
@@ -661,6 +671,14 @@ table.fw{border-collapse:collapse;width:100%;font-size:12.5px}
           <div class="g-result-row"><span class="g-result-lbl">Leistung Frischwasserstation</span><span class="g-result-val big" id="fw_out_pfws">–</span></div>
         </div>
         <div class="warn-box" id="fw_msg" style="display:none"></div>
+      </div>
+    </div>
+    <!-- Anlagenschema (Feedback 01.08.2026 «Visualisierung darstellen») -->
+    <div class="g-card" id="fwSchemaCard">
+      <div class="g-card-hd"><h2>📊 Anlagenschema</h2><span style="font-size:11px;color:var(--muted)">Durchlaufprinzip · Werte aus der Berechnung</span></div>
+      <div class="g-card-bd">
+        <div id="fwSchema" style="width:100%"></div>
+        <div id="fwSchemaNote" class="g-hint" style="margin-top:8px"></div>
       </div>
     </div>
     <div class="g-card">
@@ -1180,7 +1198,7 @@ function fwCalc(){
   var zirkV=fwNum('fw_zirkV'),zirkDt=fwNum('fw_zirkDt');
   var tZirk=tww-zirkDt;
   res.tZirk=tZirk;
-  if(zirkV>0&&tZirk<52)res.warn.push('Temperatur Zirkulation '+fwFmt(tZirk,1)+' °C — Vorsicht, mind. 52 °C einhalten.');
+  if(zirkV>0&&tZirk<52)res.warn.push('Temperatur Zirkulation '+fwFmt(tZirk,2)+' °C — Vorsicht, mind. 52 °C einhalten.');
   var mZirk=((zirkV/60)/60/1000)*fwDichte(tZirk); // kg/s (Excel Z184)
   res.pRed=zirkV>0?mZirk*FW_CP*zirkDt:0;
   var vGew=fwNum('fw_vGewaehlt');
@@ -1238,9 +1256,9 @@ function fwRenderCalc(res){
   // Zeilenwerte
   document.querySelectorAll('#fwNutzBody tr').forEach(function(tr){
     var o=res.nutz[parseInt(tr.dataset.i,10)]||{};
-    tr.querySelector('[data-c="x"]').textContent=o.x?fwFmt(o.x,1):'–';
-    tr.querySelector('[data-c="z"]').textContent=o.z?fwFmt(o.z,0):'–';
-    tr.querySelector('[data-c="kwh"]').textContent=o.z?fwFmt(o.kwh,1):'–';
+    tr.querySelector('[data-c="x"]').textContent=o.x?fwFmt(o.x,2):'–';
+    tr.querySelector('[data-c="z"]').textContent=o.z?fwFmt(o.z,2):'–';
+    tr.querySelector('[data-c="kwh"]').textContent=o.z?fwFmt(o.kwh,2):'–';
   });
   document.querySelectorAll('#fwWhgBody tr').forEach(function(tr){
     var i=parseInt(tr.dataset.i,10);
@@ -1248,59 +1266,61 @@ function fwRenderCalc(res){
     tr.querySelector('[data-c="du"]').textContent=fwFmt(o.du,0);
     tr.querySelector('[data-c="wa"]').textContent=fwFmt(o.wa,0);
     var n=parseFloat(row.whg)||0,anf=parseFloat(row.anf)||0;
-    tr.querySelector('[data-c="pers"]').textContent=(n>0&&anf>0)?fwFmt(fwgPersProWhg(anf)*n,1):'–';
+    tr.querySelector('[data-c="pers"]').textContent=(n>0&&anf>0)?fwFmt(fwgPersProWhg(anf)*n,2):'–';
   });
   ['gastro','spez'].forEach(function(kind){
     document.querySelectorAll((kind==='gastro'?'#fwGastroBody':'#fwSpezBody')+' tr').forEach(function(tr){
       var r=fwState[kind][parseInt(tr.dataset.i,10)]||{};
       var tot=(parseFloat(r.lmin)||0)*(parseFloat(r.n)||0);
-      tr.querySelector('[data-c="tot"]').textContent=tot?fwFmt(tot,1):'–';
+      tr.querySelector('[data-c="tot"]').textContent=tot?fwFmt(tot,2):'–';
     });
   });
-  setTxt('fw_out_nutzTotal',fwFmt(res.nutzTotal,0));
-  setTxt('fw_out_nutzKwh',fwFmt(res.nutzKwh,1));
-  setTxt('fw_out_tagesbedarf',res.tagesbedarf>0?fwFmt(res.tagesbedarf,0)+' l/d':'–');
+  setTxt('fw_out_nutzTotal',fwFmt(res.nutzTotal,2));
+  setTxt('fw_out_nutzKwh',fwFmt(res.nutzKwh,2));
+  setTxt('fw_out_tagesbedarf',res.tagesbedarf>0?fwFmt(res.tagesbedarf,2)+' l/d':'–');
   setTxt('fw_out_duschen',fwFmt(res.duschen,0));
   setTxt('fw_out_wannen',fwFmt(res.wannen,0));
   var persTot=0;fwState.whg.forEach(function(r){var n=parseFloat(r.whg)||0,anf=parseFloat(r.anf)||0;if(n>0&&anf>0)persTot+=fwgPersProWhg(anf)*n;});
-  setTxt('fw_out_pers',persTot>0?fwFmt(persTot,1):'–');
-  setTxt('fw_out_v100',fwFmt(res.v100,1)+' l/min');
+  setTxt('fw_out_pers',persTot>0?fwFmt(persTot,2):'–');
+  setTxt('fw_out_v100',fwFmt(res.v100,2)+' l/min');
   setTxt('fw_out_gzVorschlag',res.gzVorschlag?fwFmt(res.gzVorschlag,2):'–');
-  setTxt('fw_out_umrech',res.umrech?fwFmt(res.umrech,1)+' l/min':'–');
-  setTxt('fw_out_vMisch',fwFmt(res.vMisch,1)+' l/min');
-  setTxt('fw_out_wwAnteil',fwFmt(res.wwAnteil*100,0)+' %');
-  setTxt('fw_out_vWW',fwFmt(res.vWW,1)+' l/min');
-  setTxt('fw_out_gastro100',fwFmt(res.gastro.t100,1));
-  setTxt('fw_out_gastroSel',fwFmt(res.gastro.sel,1));
-  setTxt('fw_out_gastroGz',res.gastro.t100>0?fwFmt(res.gastro.gz*100,0)+' %':'–');
-  setTxt('fw_out_spez100',fwFmt(res.spez.t100,1));
-  setTxt('fw_out_spezSel',fwFmt(res.spez.sel,1));
+  setTxt('fw_out_umrech',res.umrech?fwFmt(res.umrech,2)+' l/min':'–');
+  setTxt('fw_out_vMisch',fwFmt(res.vMisch,2)+' l/min');
+  setTxt('fw_out_wwAnteil',fwFmt(res.wwAnteil*100,2)+' %');
+  setTxt('fw_out_vWW',fwFmt(res.vWW,2)+' l/min');
+  setTxt('fw_out_gastro100',fwFmt(res.gastro.t100,2));
+  setTxt('fw_out_gastroSel',fwFmt(res.gastro.sel,2));
+  setTxt('fw_out_gastroGz',res.gastro.t100>0?fwFmt(res.gastro.gz*100,2)+' %':'–');
+  setTxt('fw_out_spez100',fwFmt(res.spez.t100,2));
+  setTxt('fw_out_spezSel',fwFmt(res.spez.sel,2));
   // Zusammenstellung + Leistung
-  setTxt('fw_out_zWohn',fwFmt(res.vWW,1)+' l/min');
-  setTxt('fw_out_zGastro',fwFmt(res.gastro.sel,1)+' l/min');
-  setTxt('fw_out_zSpez',fwFmt(res.spez.sel,1)+' l/min');
-  setTxt('fw_out_zTotal',res.total>0?fwFmt(res.total,1)+' l/min ('+fwFmt(res.total/60,2)+' l/s)':'–');
-  setTxt('fw_out_tzirk',fwFmt(res.tZirk,1)+' °C');
+  setTxt('fw_out_zWohn',fwFmt(res.vWW,2)+' l/min');
+  setTxt('fw_out_zGastro',fwFmt(res.gastro.sel,2)+' l/min');
+  setTxt('fw_out_zSpez',fwFmt(res.spez.sel,2)+' l/min');
+  setTxt('fw_out_zTotal',res.total>0?fwFmt(res.total,2)+' l/min ('+fwFmt(res.total/60,2)+' l/s)':'–');
+  setTxt('fw_out_tzirk',fwFmt(res.tZirk,2)+' °C');
   setTxt('fw_out_pred',fwFmt(res.pRed,2)+' kW');
-  setTxt('fw_out_vMass',fwFmt(res.vMass,1)+' l/min');
+  setTxt('fw_out_vMass',fwFmt(res.vMass,2)+' l/min');
   setTxt('fw_out_rho',fwFmt(res.rho,2)+' kg/m³');
-  setTxt('fw_out_m',fwFmt(res.m,3)+' kg/s');
-  setTxt('fw_out_ptheor',fwFmt(res.pTheor,1)+' kW');
-  setTxt('fw_out_ptheor2',fwFmt(res.pTheor,1)+' kW');
+  setTxt('fw_out_m',fwFmt(res.m,2)+' kg/s');
+  setTxt('fw_out_ptheor',fwFmt(res.pTheor,2)+' kW');
+  setTxt('fw_out_ptheor2',fwFmt(res.pTheor,2)+' kW');
   setTxt('fw_out_pzirk',fwFmt(res.pRed,2)+' kW');
-  setTxt('fw_out_pfws',res.pFws>0?fwFmt(res.pFws,1)+' kW':'–');
-  setTxt('fw_out_pfws2',res.pFws>0?fwFmt(res.pFws,1)+' kW':'–');
+  setTxt('fw_out_pfws',res.pFws>0?fwFmt(res.pFws,2)+' kW':'–');
+  setTxt('fw_out_pfws2',res.pFws>0?fwFmt(res.pFws,2)+' kW':'–');
   // KPIs
-  setTxt('fw_kpi_v',res.total>0?fwFmt(res.total,0)+' l/min':'–');
+  setTxt('fw_kpi_v',res.total>0?fwFmt(res.total,2)+' l/min':'–');
   setTxt('fw_kpi_v_sub',res.total>0?fwFmt(res.total/60,2)+' l/s':'l/min · l/s');
-  setTxt('fw_kpi_p',res.pFws>0?fwFmt(res.pFws,0)+' kW':'–');
-  setTxt('fw_kpi_p_sub','netto (theor. '+fwFmt(res.pTheor,0)+' kW)');
-  setTxt('fw_kpi_tb',res.tagesbedarf>0?fwFmt(res.tagesbedarf,0):'–');
-  setTxt('fw_kpi_ww',fwFmt(fwNum('fw_tww'),0));
+  setTxt('fw_kpi_p',res.pFws>0?fwFmt(res.pFws,2)+' kW':'–');
+  setTxt('fw_kpi_p_sub','netto (theor. '+fwFmt(res.pTheor,2)+' kW)');
+  setTxt('fw_kpi_tb',res.tagesbedarf>0?fwFmt(res.tagesbedarf,2):'–');
+  setTxt('fw_kpi_ww',fwFmt(fwNum('fw_tww'),2));
   var msg=document.getElementById('fw_msg');
   if(res.warn.length){msg.style.display='';msg.innerHTML='⚠ '+res.warn.map(fwEsc).join('<br>⚠ ');}
   else msg.style.display='none';
   _fwLast=res;
+  // Schema liegt in einem EIGENEN Script-Block (Cross-Block-Scope-Regel)
+  if(window._fwSchemaDraw)try{window._fwSchemaDraw(res);}catch(e){}
 }
 
 // ── Events / Persistenz (Pattern wie sb_zirkulation: hidden Textarea + AutoSave) ──
@@ -1590,6 +1610,144 @@ document.addEventListener('DOMContentLoaded', function(){
 })();</script>
 <script>
 document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('frischwasserstation', 'Frischwasserstation');});
+</script>
+<script>
+/* ════════════════════════════════════════════════════════════════════════
+   Anlagenschema Frischwasserstation (Feedback 01.08.2026 «Visualisierung
+   darstellen») — eigener Script-Block, Aufruf geguardet aus fwRenderCalc
+   über window._fwSchemaDraw (Cross-Block-Scope-Regel).
+   NUR literale Hex-Farben (GemaPDF/html2canvas-Regel).
+   Bild: Kaltwasser → Plattenwärmetauscher (Durchlaufprinzip) → Warmwasser,
+   primärseitig Speicher/Wärmeerzeuger mit Ladepumpe, dazu die Zirkulation.
+   ════════════════════════════════════════════════════════════════════════ */
+(function(){
+  function fmt(x,d){if(x==null||!isFinite(x))return '–';return x.toLocaleString('de-CH',{minimumFractionDigits:d,maximumFractionDigits:d});}
+  function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+  function num(id){var e=document.getElementById(id);if(!e)return 0;var v=parseFloat(String(e.value).replace(',','.'));return isFinite(v)?v:0;}
+  window._fwZielKlick=function(id){
+    var el=document.getElementById(id); if(!el)return;
+    try{el.scrollIntoView({behavior:'smooth',block:'center'});}catch(e){}
+    try{el.focus({preventScroll:true});}catch(e){}
+    el.classList.remove('fw-puls');void el.offsetWidth;el.classList.add('fw-puls');
+    setTimeout(function(){el.classList.remove('fw-puls');},1600);
+  };
+  document.addEventListener('click',function(e){
+    var g=e.target&&e.target.closest?e.target.closest('#fwSchema [data-fwziel]'):null;
+    if(g)window._fwZielKlick(g.getAttribute('data-fwziel'));
+  });
+  function chip(x,y,txt,ziel,fill,stroke,col){
+    var w=Math.round(String(txt).length*6.1)+18;
+    return '<g'+(ziel?' data-fwziel="'+ziel+'" style="cursor:pointer"':'')+'>'
+      +'<rect x="'+x+'" y="'+(y-14)+'" width="'+w+'" height="21" rx="10.5" fill="'+(fill||'#ffffff')+'" stroke="'+(stroke||'#cbd5e1')+'" stroke-width="1.2"/>'
+      +'<text x="'+(x+w/2)+'" y="'+(y+1)+'" text-anchor="middle" font-size="10.5" font-weight="700" fill="'+(col||'#334155')+'">'+esc(txt)+'</text></g>';
+  }
+  function pfeil(x,y,dir,col){
+    return dir==='r' ? '<path d="M'+x+' '+(y-6)+' l11 6 -11 6 z" fill="'+col+'"/>'
+                     : '<path d="M'+x+' '+(y-6)+' l-11 6 11 6 z" fill="'+col+'"/>';
+  }
+  window._fwSchemaDraw=function(res){
+    var host=document.getElementById('fwSchema'), note=document.getElementById('fwSchemaNote');
+    if(!host)return;
+    var tww=num('fw_tww'), tkw=num('fw_tkw'), dtAuf=num('fw_dtAuf'), zirkV=num('fw_zirkV');
+    var total=res?res.total:0, pFws=res?res.pFws:0, pTheor=res?res.pTheor:0, vMass=res?res.vMass:0;
+    /* Layout wie im Anlagenschema üblich: PRIMÄR links (Speicher + Ladepumpe),
+       SEKUNDÄR rechts (Trinkwasser) — Gegenstrom, damit sich keine Leitung
+       kreuzt: Warmwasser oben raus, Kaltwasser unten rein. */
+    var W=900,H=352;
+    var xT=392, wT=120, yT=72, hT=196;            // Wärmetauscher
+    var yWW=yT+26, yKW=yT+hT-26;                  // Sekundär: oben WW, unten KW
+    var xR=858;
+    var s='';
+    // ── Sekundärseite (Trinkwasser) rechts ──
+    s+='<text x="'+(xT+wT+8)+'" y="42" font-size="11.5" font-weight="800" fill="#0f172a">Trinkwasser (sekundär, Durchlaufprinzip)</text>';
+    s+='<line x1="'+(xT+wT)+'" y1="'+yWW+'" x2="'+xR+'" y2="'+yWW+'" stroke="#dc2626" stroke-width="5"/>';
+    s+=pfeil(xR-26,yWW,'r','#dc2626');
+    s+=chip(xT+wT+16,yWW-16,'Warmwasser '+fmt(tww,2)+' °C','fw_tww','#fef2f2','#fca5a5','#b91c1c');
+    s+='<line x1="'+(xT+wT)+'" y1="'+yKW+'" x2="'+xR+'" y2="'+yKW+'" stroke="#2563eb" stroke-width="5"/>';
+    s+=pfeil(xT+wT+30,yKW,'l','#2563eb');
+    s+=chip(xT+wT+46,yKW+30,'Kaltwasser '+fmt(tkw,2)+' °C','fw_tkw','#eff6ff','#93c5fd','#1d4ed8');
+    // ── Wärmetauscher ──
+    s+='<rect x="'+xT+'" y="'+yT+'" width="'+wT+'" height="'+hT+'" rx="8" fill="#ffffff" stroke="#0f172a" stroke-width="3"/>';
+    for(var i=0;i<7;i++){
+      var xx=xT+17+i*((wT-34)/6);
+      s+='<line x1="'+xx.toFixed(1)+'" y1="'+(yT+14)+'" x2="'+xx.toFixed(1)+'" y2="'+(yT+hT-14)+'" stroke="#cbd5e1" stroke-width="2.6"/>';
+    }
+    s+='<text x="'+(xT+wT/2)+'" y="'+(yT+hT+22)+'" text-anchor="middle" font-size="11.5" font-weight="800" fill="#0f172a">Frischwasserstation</text>';
+    s+='<text x="'+(xT+wT/2)+'" y="'+(yT+hT+36)+'" text-anchor="middle" font-size="10" fill="#64748b">Plattenwärmetauscher</text>';
+    // ── Primärseite links: Speicher / Wärmeerzeuger ──
+    var xS=96,wS=118,yS=72,hS=196;
+    s+='<text x="'+xS+'" y="42" font-size="11.5" font-weight="800" fill="#9a3412">Wärmequelle (primär)</text>';
+    s+='<rect x="'+xS+'" y="'+yS+'" width="'+wS+'" height="'+hS+'" rx="12" fill="#fff7ed" stroke="#c2410c" stroke-width="2.6"/>';
+    s+='<text x="'+(xS+wS/2)+'" y="'+(yS+hS/2-6)+'" text-anchor="middle" font-size="11" font-weight="800" fill="#9a3412">Speicher /</text>';
+    s+='<text x="'+(xS+wS/2)+'" y="'+(yS+hS/2+10)+'" text-anchor="middle" font-size="11" font-weight="800" fill="#9a3412">Wärmeerzeuger</text>';
+    var yPV=yWW, yPR=yKW;                          // Gegenstrom: VL oben, RL unten
+    s+='<line x1="'+(xS+wS)+'" y1="'+yPV+'" x2="'+xT+'" y2="'+yPV+'" stroke="#ea580c" stroke-width="4"/>';
+    s+=pfeil(xT-28,yPV,'r','#ea580c');
+    s+='<line x1="'+xT+'" y1="'+yPR+'" x2="'+(xS+wS)+'" y2="'+yPR+'" stroke="#f59e0b" stroke-width="4" stroke-dasharray="8 5"/>';
+    s+=pfeil(xS+wS+28,yPR,'l','#f59e0b');
+    s+='<text x="'+((xS+wS+xT)/2)+'" y="'+(yPR+18)+'" text-anchor="middle" font-size="9.5" fill="#b45309">Primär-Rücklauf</text>';
+    // Ladepumpe im Primär-Vorlauf
+    var xP=(xS+wS+xT)/2;
+    s+='<circle cx="'+xP+'" cy="'+yPV+'" r="13" fill="#ffffff" stroke="#ea580c" stroke-width="2.6"/>';
+    s+='<path d="M'+(xP-5)+' '+(yPV-6)+' L'+(xP+8)+' '+yPV+' L'+(xP-5)+' '+(yPV+6)+' Z" fill="#ea580c"/>';
+    s+='<text x="'+xP+'" y="'+(yPV-20)+'" text-anchor="middle" font-size="9.5" fill="#9a3412">Ladepumpe</text>';
+    // ── Zirkulation (nur wenn erfasst) — rechts unterhalb, kreuzungsfrei ──
+    if(zirkV>0){
+      /* Der Zirkulations-Rücklauf aus dem Gebäude kommt am Kaltwasser-Eintritt
+         zurück — als senkrechte Verbindung ganz rechts, damit sich nichts kreuzt. */
+      var xZ=xR-40, yZm=(yWW+yKW)/2;
+      s+='<line x1="'+xZ+'" y1="'+yWW+'" x2="'+xZ+'" y2="'+yKW+'" stroke="#7c3aed" stroke-width="3" stroke-dasharray="7 5"/>';
+      s+='<path d="M'+(xZ-6)+' '+(yZm-8)+' l12 0 -6 12 z" fill="#7c3aed"/>';
+      s+=chip(xT+wT+58,yZm+1,'Zirkulation '+fmt(zirkV,2)+' l/h · '+fmt(res?res.tZirk:0,2)+' °C','fw_zirkV','#f5f3ff','#c4b5fd','#6d28d9');
+    }
+    // ── Kennwerte-Chips unten ──
+    s+=chip(xS,H-22,'ΔT Aufheizung '+fmt(dtAuf,2)+' K','fw_dtAuf','#fff7ed','#fdba74','#c2410c');
+    s+=chip(xT-32,H-22,'Leistung '+fmt(pFws,2)+' kW','fw_dtAuf','#ecfdf5','#6ee7b7','#047857');
+    s+=chip(xT+wT+96,H-22,'V̇ '+fmt(total,2)+' l/min · '+fmt(total/60,2)+' l/s',null,'#ffffff','#cbd5e1','#334155');
+    host.innerHTML='<svg viewBox="0 0 '+W+' '+H+'" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Anlagenschema Frischwasserstation">'+s+'</svg>';
+    if(note){
+      note.textContent = (pFws>0)
+        ? 'Das Trinkwasser wird im Durchlauf von '+fmt(tkw,2)+' °C auf '+fmt(tww,2)+' °C erwärmt — massgebender Volumenstrom '+fmt(vMass,2)+' l/min, theoretische Leistung '+fmt(pTheor,2)+' kW, nach Abzug der Zirkulation '+fmt(pFws,2)+' kW. Chips sind klickbar und führen zum Eingabefeld.'
+        : 'Erfasse Nutzungseinheiten bzw. Zapfstellen — Volumenstrom und Leistung erscheinen dann im Schema. Chips sind klickbar und führen zum Eingabefeld.';
+    }
+  };
+})();
+</script>
+<script>
+(function(){
+  /* Alle Karten einklappbar (Feedback 01.08.2026 «Alle Felder Einklappbar
+     machen») — datengetrieben über ALLE .g-card mit .g-card-hd + .g-card-bd,
+     Schlüssel aus dem Titel. Zustand pro Gerät in localStorage, NIE im
+     AutoSave-Snapshot; @media print zeigt alles. */
+  var KEY='gema_fw_fold_v1';
+  function loadSt(){ try{return JSON.parse(localStorage.getItem(KEY)||'{}')||{};}catch(e){return {};} }
+  function saveSt(st){ try{localStorage.setItem(KEY,JSON.stringify(st));}catch(e){} }
+  function slug(t){ return String(t||'').toLowerCase().replace(/[^a-z0-9äöü]+/g,'_').replace(/^_+|_+$/g,'').slice(0,40)||'karte'; }
+  function boot(){
+    var st=loadSt();
+    document.querySelectorAll('.g-page .g-card, .g-main-grid .g-card').forEach(function(card){
+      var hd=card.querySelector(':scope > .g-card-hd');
+      var bd=card.querySelector(':scope > .g-card-bd');
+      if(!hd||!bd||hd.classList.contains('fw-foldhd')) return;
+      var title=hd.querySelector('h2, h3');
+      var key=slug(title?title.textContent:'');
+      hd.classList.add('fw-foldhd');
+      var cx=document.createElement('span');
+      cx.className='fw-fold-cx no-print'; cx.textContent='▾';
+      hd.insertBefore(cx,hd.firstChild);
+      function apply(zu){ card.classList.toggle('fw-zu',!!zu); cx.textContent=zu?'▸':'▾'; }
+      apply(!!st[key]);
+      hd.addEventListener('click',function(ev){
+        if(ev.target.closest('button, a, input, select, textarea, label')) return;
+        var zu=!card.classList.contains('fw-zu');
+        apply(zu);
+        var s2=loadSt(); if(zu)s2[key]=1; else delete s2[key]; saveSt(s2);
+        if(!zu){ try{ if(window.fwRecalc) fwRecalc(); }catch(e){} }
+      });
+    });
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot); else boot();
+})();
 </script>
 <script src="gema_scroll.js"></script>
 <script src="gema_mobile_menu.js"></script>

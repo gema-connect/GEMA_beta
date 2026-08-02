@@ -90,10 +90,11 @@ const schema1 = await page.evaluate(() => {
   };
 });
 ok(schema1.has, 'VFD-Schema gezeichnet');
-ok(schema1.pumps === 2, 'Default 2 Pumpen (Kreise): ' + schema1.pumps);
-ok(schema1.label === '2', 'Beschriftung «· 2 Pumpen»: ' + schema1.label);
+// Feedback 01.08.2026 (Sandro): Standard ist EINE Pumpe — vorher 2.
+ok(schema1.pumps === 1, 'Default 1 Pumpe (Kreise): ' + schema1.pumps);
+ok(schema1.label === '1', 'Beschriftung «· 1 Pumpe»: ' + schema1.label);
 ok(schema1.exp, 'Expansionsgefäss dargestellt');
-ok(schema1.rv >= 2, 'Rückflussverhinderer-Dreiecke (gefüllt): ' + schema1.rv);
+ok(schema1.rv >= 1, 'Rückflussverhinderer-Dreiecke (gefüllt): ' + schema1.rv);
 ok(!schema1.downLeg && schema1.upLeg, 'Verteilung geht NACH OBEN (kein Boden-Umweg)');
 ok(schema1.raster28, 'Geschosse im 2.8-m-Raster beschriftet');
 
@@ -235,6 +236,15 @@ const osm = await op.evaluate(() => {
     zhCount: zh.length, zh0: zh[0] ? zh[0].textContent : '', zh23: zh[23] ? zh[23].textContent : '',
     zhTwoLine: zh[0] ? zh[0].innerHTML.includes('<br>') : false,
     zeitLbl: !!([...document.querySelectorAll('#otTbl thead th')].find(t => t.textContent.trim() === 'Zeit')),
+    // Ab Feedback 01.08.2026 steht das Stundenraster UNTER dem Verbraucher
+    // (spart Breite) — die Stundenfenster-Beschriftung wanderte in die Zellen.
+    hcells: document.querySelectorAll('#otTbl .ot-hrow .ot-hcell').length,
+    hrows: document.querySelectorAll('#otTbl tr.ot-hrow').length,
+    hkeyRows: document.querySelectorAll('#otTbl tr.ot-hrow[data-hkey]').length,
+    consRows: document.querySelectorAll('#otTbl tbody tr[data-key]').length,
+    hlbl0: (document.querySelector('#otTbl .ot-hrow .ot-hcell .ot-hlbl') || {}).textContent || '',
+    htitle0: (document.querySelector('#otTbl .ot-hrow .ot-hcell') || {}).title || '',
+    htitle23: (document.querySelectorAll('#otTbl .ot-hrow .ot-hcell')[23] || {}).title || '',
     einzeilig: txts.includes('Verbraucher') && !txts.includes('Verbrau-'),
     markCount: marks.length, minGap,
     tankW: tankRect ? parseFloat(tankRect.getAttribute('width')) : 0,
@@ -242,9 +252,14 @@ const osm = await op.evaluate(() => {
   };
 });
 ok(osm.scroll === 0, '24-h-Tabelle ohne horizontalen Schiebe-Balken (Overflow ' + osm.scroll + 'px)');
-ok(osm.zeitLbl, 'Kopfzeile trägt die Beschriftung «Zeit»');
-ok(osm.zhCount === 24 && osm.zhTwoLine, '24 zweizeilige Stundenfenster-Köpfe');
-ok(osm.zh0 === '00.00–01.00' && osm.zh23 === '23.00–24.00', 'Fenster-Angabe 00.00–01.00 … 23.00–24.00');
+/* Das zweizeilige «Zeit»-Kopfband vom 31.07. ist am 01.08.2026 dem Wunsch
+   «die zeitliche Verteilung soll unter dem Verbraucher dargestellt werden»
+   gewichen — die Absicht (jede Stunde beschriftet, kein Schiebe-Balken)
+   gilt weiter und wird hier am neuen Raster geprüft. */
+ok(osm.hrows > 0 && osm.hcells === osm.hrows * 24 && osm.hkeyRows === osm.consRows,
+   'je Verbraucher ein 24-Stunden-Raster unter der Zeile (' + osm.hkeyRows + '/' + osm.consRows + ' Verbraucher, ' + osm.hrows + ' Raster à 24)');
+ok(osm.hlbl0 === '00', 'jede Stunde ist beschriftet');
+ok(osm.htitle0 === '00.00–01.00' && osm.htitle23 === '23.00–24.00', 'Fenster-Angabe 00.00–01.00 … 23.00–24.00 als Tooltip');
 ok(osm.einzeilig, 'Tank-Sim: «Verbraucher» in einer Zeile');
 ok(osm.tankW >= 240, 'Tank breiter dargestellt (' + osm.tankW + 'px)');
 ok(osm.markCount === 3 && osm.minGap >= 11, 'Marker-Labels gestaffelt (kleine Werte, minGap ' + osm.minGap.toFixed(1) + 'px)');
