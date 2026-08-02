@@ -78,8 +78,19 @@ create table if not exists public.card_profiles (
   claimed_at    timestamptz,
   created_by    text,                       -- User-ID, der das Schattenprofil anlegte
   updated_at    timestamptz not null default now(),
+  -- Firmenfarben fuer den Kartenkopf: {"primary":"#..","secondary":"#.."}
+  -- aus org.settings.pdfFarben — dieselbe Quelle wie die Berichts-PDFs, damit
+  -- eine Firma ihre Farbe nur EINMAL pflegt. Leer/NULL = GEMA-Farben.
+  -- Bewusst denormalisiert: die oeffentliche Karte ist der meistgetroffene
+  -- Endpoint, sie soll dafuer keine zwei Zusatz-Abfragen (user → org) machen.
+  -- Gehoert zur Firma → wird beim Austritt mitgeleert (org_austritt).
+  brand         jsonb,
   created_at    timestamptz not null default now()
 );
+-- Nachziehen fuer Installationen, die vor der brand-Spalte angelegt wurden:
+-- «create table if not exists» ergaenzt KEINE Spalten. Damit bleibt diese
+-- Datei als Ganzes wiederholt ausfuehrbar.
+alter table public.card_profiles add column if not exists brand jsonb;
 create index if not exists card_profiles_user_id_idx on public.card_profiles (user_id);
 -- Dedupe-Index: «gleiche Mail = dieselbe Person» (Konzept §6.4/§6.5).
 create index if not exists card_profiles_email_idx   on public.card_profiles (lower(email));
