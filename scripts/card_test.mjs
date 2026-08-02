@@ -426,6 +426,44 @@ t('QR laesst sich gross zeigen', /function cardQrGross/.test(pro));
 t('sys_profil escapt vollstaendig (&<>"\')',
   /replace\(\/>\/g,'&gt;'\).*replace\(\/"\/g,'&quot;'\).*replace\(\/'\/g,'&#039;'\)/s.test(pro));
 
+/* ══ J — Kurz-URLs: der Slug MUSS aus dem Pfad kommen ═══════════════ */
+console.log('\n— J: Kurz-URLs /p/ /c/ /v/ —');
+
+// Der erste echte QR-Scan lief in «Link unvollstaendig»: /p/<slug> ist ein
+// Netlify-Rewrite mit status=200, der Browser behaelt die URL /p/<slug> und
+// die Query aus dem `to` (?u=:splat) erreicht den Client NIE.
+t('/p/ und /c/ sind status-200-Rewrites (URL bleibt stehen)',
+  /from = "\/p\/\*"[\s\S]{0,120}status = 200/.test(toml)
+  && /from = "\/c\/\*"[\s\S]{0,120}status = 200/.test(toml));
+t('sys_card.html liest den Slug aus dem Pfad', /\^\\\/p\\\/\(\[\^\\\/\?#\]\+\)/.test(cardHtml));
+t('sys_card.html liest den Claim-Token aus dem Pfad', /\^\\\/c\\\/\(\[\^\\\/\?#\]\+\)/.test(cardHtml));
+t('Der Query-Weg bleibt zusaetzlich gueltig', /P\.get\('u'\)\|\|P\.get\('slug'\)/.test(cardHtml));
+
+// Verhalten nachrechnen — mit derselben Logik wie in der Seite.
+(function () {
+  const m = /var P=new URLSearchParams\(location\.search\);([\s\S]*?)var \$=function/.exec(cardHtml);
+  t('Parse-Block in sys_card.html gefunden', !!m);
+  if (!m) return;
+  const fn = new Function('location', 'URLSearchParams',
+    'var P=new URLSearchParams(location.search);' + m[1] + 'return {slug:slug,claim:claim};');
+  const parse = (pathname, search) => fn({ pathname, search }, URLSearchParams);
+  t('/p/<slug> liefert den Slug', parse('/p/7Xk2mQpL9a', '').slug === '7Xk2mQpL9a');
+  t('/c/<token> liefert den Token', parse('/c/abc123def456', '').claim === 'abc123def456');
+  t('sys_card.html?u=… funktioniert weiterhin',
+    parse('/sys_card.html', '?u=7Xk2mQpL9a').slug === '7Xk2mQpL9a');
+  t('Query gewinnt vor dem Pfad', parse('/p/ausPfad', '?u=ausQuery').slug === 'ausQuery');
+  t('/p/ ohne Slug bleibt leer (echter Fehlerfall)', parse('/p/', '').slug === '');
+})();
+
+// Die vCard muss bei JEDEM Abruf frisch sein (Konzept §5) — /v/ traegt keine
+// Endung und fiel sonst in den Cache-First-Zweig des Service-Workers.
+t('SW haelt die vCard vom Cache fern',
+  sw.includes('if (/^\\/v\\/[^/]+$/.test(cardPfad)) { event.respondWith(fetch(event.request)); return; }'));
+t('SW behandelt /p/ und /c/ als Network-First',
+  sw.includes('/^\\/(p|c)\\/[^/]+$/.test(cardPfad)'));
+t('SW prueft nur same-origin (CDN-Pfade mit /p/ fallen nicht hinein)',
+  sw.includes('u.origin === self.location.origin'));
+t('SW cacht keine POSTs der Karten-API', sw.includes("event.request.method === 'GET'"));
 
 console.log('\n' + (fail === 0 ? `✅ ${n}/${n} Tests grün` : `❌ ${fail}/${n} Tests rot`));
 process.exit(fail === 0 ? 0 : 1);

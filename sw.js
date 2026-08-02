@@ -1,5 +1,5 @@
 /* GEMA Service Worker — Offline Cache + Push Vorbereitung */
-var CACHE_NAME = 'gema-v440';
+var CACHE_NAME = 'gema-v441';
 var CACHE_FILES = [
   '/', '/index.html', '/sb_index.html',
   '/sa_enthaertung.html', '/sa_osmose.html', '/sa_fettabscheider.html',
@@ -74,6 +74,27 @@ self.addEventListener('fetch', function(event) {
         if (r.ok) { var c = r.clone(); caches.open(CACHE_NAME).then(function(cache) { cache.put(event.request, c); }); }
         return r;
       }).catch(function() { return caches.match(event.request); })
+    );
+    return;
+  }
+  // GEMA-Card-Kurz-URLs: /p/<slug> /c/<token> /v/<slug>.vcf tragen keine
+  // Dateiendung und fielen sonst in den Cache-First-Zweig unten.
+  // NUR same-origin pruefen — eine CDN-URL mit /p/-Segment darf nicht
+  // hineinfallen.
+  var cardPfad = '';
+  try { var u = new URL(url); if (u.origin === self.location.origin) cardPfad = u.pathname; } catch (e) { }
+  // Die vCard MUSS bei jedem Abruf frisch sein (Konzept §5: nie gecacht) →
+  // reines Netzwerk, kein Cache-Fallback.
+  if (/^\/v\/[^/]+$/.test(cardPfad)) { event.respondWith(fetch(event.request)); return; }
+  // Karten-Shell + Claim-Einstieg: Network-First wie jede HTML-Seite; ohne
+  // diesen Zweig legte der SW pro gescanntem Slug einen Cache-Eintrag an.
+  if (/^\/(p|c)\/[^/]+$/.test(cardPfad) || cardPfad.indexOf('/api/card-') === 0) {
+    var cardGet = event.request.method === 'GET';   // POST nie in den Cache
+    event.respondWith(
+      fetch(event.request).then(function(r) {
+        if (r.ok && cardGet) { var c = r.clone(); caches.open(CACHE_NAME).then(function(cache) { cache.put(event.request, c); }); }
+        return r;
+      }).catch(function() { return cardGet ? caches.match(event.request) : Promise.reject(); })
     );
     return;
   }
