@@ -2570,7 +2570,7 @@ Umsetzung nach `UMSETZUNG_GEMA_Card.md` (Konzept `KONZEPT_Card_Beteiligte.md`). 
 | `/v/<slug>.vcf` | `card-vcard` — vCard, bei jedem Abruf frisch |
 | `/c/<token>` | `sys_card.html?claim=` — Karte übernehmen |
 
-Functions: **öffentlich (kein JWT)** `card-public` (Karte per exaktem Slug, Whitelist, 60/min/IP) · `card-vcard` · `card-photo` · `card-claim` (Claim + Gratis-Registrierung) · `card-report` (Meldung + Funnel-Events, 5/h/IP persistent). **JWT-gated** `card-api` (eigene Karte, Kontaktbuch, Beteiligte, Meldungen, `org_austritt`) · `card-invite` (Schattenprofil + Einladung). Geteilte Bausteine in `netlify/functions/_card.js`; Token-Ausstellung/scrypt in `_jwt.js` (Claim-Form identisch mit gema-auth.js, sonst passt das Token nicht zu den RLS-Policies). **Jeder öffentliche Endpoint trägt im Kopf den Kommentarblock «ÖFFENTLICHER ENDPOINT – KEIN JWT. Feld-Whitelist zwingend.»** — der Drift-Guard prüft das.
+Functions: **öffentlich (kein JWT)** `card-public` (Karte per exaktem Slug, Whitelist, 60/min/IP) · `card-vcard` · `card-photo` · `card-claim` (Claim + Gratis-Registrierung) · `card-report` (Meldung + Funnel-Events, 5/h/IP persistent). **JWT-gated** `card-api` (eigene Karte, Kontaktbuch, Beteiligte, Meldungen, `funnel`, `org_austritt`) · `card-invite` (Schattenprofil + Einladung). Geteilte Bausteine in `netlify/functions/_card.js`; Token-Ausstellung/scrypt in `_jwt.js` (Claim-Form identisch mit gema-auth.js, sonst passt das Token nicht zu den RLS-Policies). **Jeder öffentliche Endpoint trägt im Kopf den Kommentarblock «ÖFFENTLICHER ENDPOINT – KEIN JWT. Feld-Whitelist zwingend.»** — der Drift-Guard prüft das.
 
 Seiten: `sys_card.html` (öffentlich) · `sys_card_editor.html` (Meine Karte) · `sys_kontakte.html` (Kontaktbuch) · `sys_card_reports.html` (Hinweise) · Shared-Client `gema_card.js`.
 
@@ -2606,6 +2606,34 @@ Sobald ein Mailversand existiert, kann genau derselbe Token gemailt werden — d
 
 `field_origin` markiert jedes Feld als `personal` oder `org`. Nimmt ein Admin jemanden aus der Firma (Org-Wechsel oder Deaktivierung in sys_admin), ruft `_cardOrgAustritt` die Aktion `org_austritt` — sie leert NUR die `org`-Felder; persönliche Angaben, **Slug und QR-Code bleiben**, damit im Adressbuch Gespeicherte weiter zur richtigen Karte kommen. Ein von Hand geändertes Feld verliert im Editor automatisch die `org`-Herkunft (wer es selbst pflegt, soll es behalten).
 
+### Zwei QR-Modi (§6.4) — «Kontakt-QR» ⇄ «GEMA-QR»
+
+Ein QR, zwei völlig verschiedene Jobs — darum sind es zwei (Umschalter im Editor, `gema_card.js`: `qrPayload(karte, modus)`):
+
+| | **Kontakt-QR** (Default) | **GEMA-QR** |
+|---|---|---|
+| Inhalt | vCard direkt im Code (~250–400 B) | URL `/p/<slug>` (~45 B) |
+| Kamera zeigt | «Kontakt sichern» — **ohne Netz** | Karte öffnet sich im Browser |
+| Aktualität | eingefroren beim Erzeugen | immer der aktuelle Stand |
+| Messbar | nein (das OS fängt den Scan ab) | ja (Funnel) |
+| Wofür | Baustelle, Handy hinhalten | Druck, Kleber, E-Mail-Signatur, NFC |
+
+**Default ist der Kontakt-QR** — der Baustellen-Moment ist laut und schnell, null Reibung gewinnt. **DER TRICK (§6.4.2):** die eingebettete vCard trägt IMMER `URL:` **und** `NOTE:` mit dem Kartenlink — der Loop geht nicht verloren, er wandert ins Adressbuch. `vcardMinimal` lässt bewusst PHOTO und ADR weg (Dichte) und respektiert dieselben `fields_public`-Schalter wie der Server; die volle vCard mit Bild liefert weiterhin `/v/<slug>.vcf`.
+
+**Fehlerkorrektur folgt dem Modus:** URL-QR mit Stufe H (30 % Redundanz) trägt die **GEMA-Marke in der Mitte** (§5.1, DOM-Overlay — ein fehlgeschlagenes Overlay kann den Code nie kaputtmachen); der dichtere Kontakt-QR rechnet mit M und bleibt unüberlagert.
+
+**Der In-App-Scanner MUSS beide lesen** — sonst hängt der Loop davon ab, welchen Code die Gegenseite gerade zeigt. `GemaCard.slugAusScan(text)` zieht den Slug aus der URL **und** aus dem `URL:`-Feld der gescannten vCard; pm_objekte und sys_kontakte nutzen ausschliesslich diesen geteilten Parser (keine eigenen Regexe mehr). Dazu **«🔍 Scan mich»** (Vollbild-QR, 62 % der kürzeren Viewport-Kante) — Handy hinhalten statt Link diktieren.
+
+### Funnel / KPI (§9)
+
+`card-api?action=funnel&tage=7|30|90|0` liefert fünf Stufen: **Karte geöffnet → Kontakt gespeichert → «Das bin ich» getippt → Karte übernommen → In Projekt aufgenommen**. Sichtbar als Karte «📊 Wirkung» im Editor; die Prozente beziehen sich IMMER auf Stufe 1, damit man sieht, WO Leute abspringen. `role_admin` bekommt zusätzlich die Systemzahlen — bewusst als reine Zählung ohne Slug-Bezug (eine Liste «wer wurde wie oft gescannt» wäre ein Bewegungsprofil über fremde Personen).
+
+Zwei Fallen, beide gelöst:
+- **Stufe 1 fasst `view`+`scan` zusammen, Stufe 2 `vcard`+`contact_saved`.** `view` loggt der Server beim Ausliefern, `contact_saved` meldet der Client beim Klick auf die Primäraktion (der Download selbst ist nicht messbar). Getrennt gezählt wäre jede Quote darunter falsch.
+- **Gezählt wird über den `Content-Range`-Header (`C.sbCount`), NIE über `rows.length`.** PostgREST deckelt jede Antwort auf db-max-rows (1000) — wer die Zeilen lädt und zählt, bekommt ab Zeile 1001 stillschweigend eine falsche Zahl. `sbCount` liefert `null` statt einer falschen 0.
+
+`card-report` nimmt von aussen nur Events aus `EVENTS_OEFFENTLICH` (`contact_saved`, `scan`) an — ohne Whitelist könnte jeder beliebige Namen in `card_events` kippen und die Auswertung wertlos machen.
+
 ### Beteiligten-Widget (pm_objekte.html)
 
 Eigenes Panel «📇 Personen mit GEMA Card» im Beteiligte-Tab, bewusst NEBEN der bestehenden Firmen-Tabelle: dort stehen Firmen mit Freitext-Kontakten, hier Personen, deren Daten LIVE aus ihrer Karte kommen. Sichtbar nur mit gewähltem Objekt und für Rollen, die Beteiligte pflegen dürfen. Einladen (Name/Mail/Rolle → Link), Scannen (In-App-Scanner), Rolle, Entfernen, Erinnerung (max. 1× / 7 Tage). **KRITISCH — pm_objekte ist eine async-IIFE:** jede aus einem Inline-`onclick` gerufene Funktion MUSS an `window` hängen.
@@ -2616,11 +2644,11 @@ Der Kamera-Scan öffnet auf iOS immer Safari — war der Nutzer in der PWA oder 
 
 ### Registriert
 
-gema_auth (MODULES `visitenkarte` + `kontakte` cat System, FILE_MAP `sys_card_editor`/`sys_card_reports`/`sys_kontakte`; **`sys_card` bewusst NICHT** — die öffentliche Seite hat kein Auth), gema_notify (4 `card_*`-Keys), gema_notify_ui (MODUL_LABELS «📇 GEMA Card» + MODUL_ZUGRIFF `{mods:['visitenkarte']}` → 27 Gruppen, Monteur 16), index.html (eigene Kategorie «GEMA Card» zuoberst + Filter-Knopf), sw.js (v437), gema_recent (Labels; `sys_card` in SKIP — es ist die Karte einer FREMDEN Person), netlify.toml (3 Kurz-Routen + 6 API-Redirects). Rollen-Golden regeneriert: 31 Rollen × 83 Module, dabei **0 unbeabsichtigte Rechteänderungen** (nur die zwei neuen Keys + role_free kamen dazu).
+gema_auth (MODULES `visitenkarte` + `kontakte` cat System, FILE_MAP `sys_card_editor`/`sys_card_reports`/`sys_kontakte`; **`sys_card` bewusst NICHT** — die öffentliche Seite hat kein Auth), gema_notify (4 `card_*`-Keys), gema_notify_ui (MODUL_LABELS «📇 GEMA Card» + MODUL_ZUGRIFF `{mods:['visitenkarte']}` → 27 Gruppen, Monteur 16), index.html (eigene Kategorie «GEMA Card» zuoberst + Filter-Knopf), sw.js (v438), gema_recent (Labels; `sys_card` in SKIP — es ist die Karte einer FREMDEN Person), netlify.toml (3 Kurz-Routen + 6 API-Redirects). Rollen-Golden regeneriert: 31 Rollen × 83 Module, dabei **0 unbeabsichtigte Rechteänderungen** (nur die zwei neuen Keys + role_free kamen dazu).
 
 **ENV (Netlify):** `SUPABASE_SERVICE_KEY`, `GEMA_JWT_SECRET` (beide bereits für gema-auth nötig), optional `GEMA_SITE_URL` (sonst `URL`/Host-Header — bestimmt die Links in vCard und Einladung) und `GEMA_CARD_REGISTRATION_OPEN`.
 
-**Tests:** `node scripts/card_test.mjs` (150 Checks, kein Browser nötig — vCard-Format/Faltung/Whitelist/Escaping, Feld-Whitelist inkl. Leak-Gegenproben, Slug-Format + 3000er-Kollisionsprobe, SQL-Zugriffsmodell, Registrierung in allen Katalogen, Warn-Kommentare + fail-closed der Endpoints, Meldegründe zwischen Function und beiden Oberflächen synchron).
+**Tests:** `node scripts/card_test.mjs` (182 Checks, kein Browser nötig — vCard-Format/Faltung/Whitelist/Escaping, Feld-Whitelist inkl. Leak-Gegenproben, Slug-Format + 3000er-Kollisionsprobe, SQL-Zugriffsmodell, Registrierung in allen Katalogen, Warn-Kommentare + fail-closed der Endpoints, Meldegründe zwischen Function und beiden Oberflächen synchron, **beide QR-Modi** inkl. URL-im-Kontakt-QR/Dichte/Scan-Parser-Roundtrip, **Funnel** inkl. Count-Header statt `rows.length`). `gema_card.js` wird dafür mit einem Mini-`window` geladen (`new Function('window', …)`) — deshalb liest `basis()` `w.location.origin` statt des globalen `location`.
 
 ---
 
@@ -3273,6 +3301,7 @@ UI-Anbindung:
 | `gema_auth.js` | Auth, Rollen, Orgs, Permissions, Cloud-Recovery |
 | `gema_aushang.js` | **Aushang (Mieter-Mitteilung, A4-Poster)** — `GemaAushang.open({vorlageId?,gespeichert?,datum?,datumBis?,von?,bis?,objektName?,onSave})` öffnet den Dialog (Vorlage/Titel/Text/Zusatz/Kontakt, Pflicht Datum + Zeit von–bis), `print(data)` das Druckfenster, `vorlagen()` die wirksame Liste (6 Defaults: Wasser/Strom/Heizung/Boiler/Filter/Allgemein, überlagert von `org.settings.aushang.vorlagen` — «💾 Als Vorlage speichern» überschreibt/ergänzt org-weit). Siehe Abschnitt «Aushang (Mieter-Mitteilung)». Konsumenten: pm_erp, pm_einsatzplan, sv_service |
 | `gema_autosave.js` | Auto-Save in Berechnungsmodulen |
+| `gema_card.js` | **GEMA Card — geteilter Client** (`window.GemaCard`). Function-Aufrufe (`api`/`call` mit Token, `apiPublic` ohne — beide mit `/api/`→`/.netlify/functions/`-Fallback), URLs (`kartenUrl`/`vcardUrl`/`fotoUrl`), **zwei QR-Modi** (`qr(el, karte, px, {modus:'kontakt'\|'gema', logo})`, `qrDataUrl`, `qrPayload`, `vcardMinimal` — siehe «Zwei QR-Modi»), **`slugAusScan(text)`** (liest den Slug aus BEIDEN Codes — der einzige erlaubte Scan-Parser, keine eigenen Regexe in den Modulen), `bildVerkleinern` (Canvas → `{gross, klein}`, zwei Grössen weil es serverseitig keine Bildbibliothek gibt), `nfcSchreiben`/`nfcMoeglich`, `teilen`/`kopieren`, `merkeSlug`/`meinSlug`. `basis()` liest bewusst `w.location.origin` (nicht global `location`) — nur so lässt sich die Datei im Node-Test mit einem Mini-`window` laden. |
 | `gema_chat.js` | **GEMA-weiter Kontext-Chat** (`window.GemaChat`, WhatsApp-Layout). `start({userId?|email?|lieferantId?, kontext:{typ,refId,label,url,urlExtern?}, text?})` startet einen Chat mit klickbarem Bezug-Chip (Ausschreibung/Offertanfrage/Bestellung/Objekt); Threads per-Record cross-org (`chat:`/`chatread:`, Nachrichten `chatmsg:<threadId>_` via Prefix-loadCollection — NIE persistCollection), Anzeigebild aus dem Profil, Notify `chat_nachricht` (30-min-Throttle) mit `?chat=`-Deep-Link. Siehe Abschnitt «Kontext-Chat». |
 | `gema_bestellungen_api.js` | **Bestellprozess für Anlagen** (`window.GemaBest`): per-Record-Pool `best:`, Nummernkreis `BST-JJJJ-NNN` pro Org, Status-Übergänge `create/bestaetigen/ablehnen/geliefertMelden/empfangBestaetigen/stornieren` (je mit Verlauf + Notifikation), `bind()`/`getForOrg()`/`getForLieferant()`, `badgeHtml`/`fmtChf`. Konsumenten: pm_bestellungen, pm_ausschreibungsunterlagen (Gewinner-Sektion), sys_lieferant_dashboard (🛒-Tab). |
 | `gema_bkp_katalog.js` | **Standard-BKP-Katalog (CRB Baukostenplan)** als geteilte Referenz: `window.GemaBKP = {KOMPLETT, flat(), level(id), byId(id)}` — 349 Einträge, 1:1 aus `BKP_KOMPLETT` (pm_ausschreibungsunterlagen) generiert, reduziert auf `{id,titel,kinder}` (die Ausschreibungs-Metadaten modulKey/istLieferung/lizenz bleiben dort). Ebene aus der Nummer: 1-stellig=0 · 2-stellig=1 · 3-stellig=2 · mit Punkt (254.0)=3. Konsument: pm_erp (BKP-Titel in Offerten). |

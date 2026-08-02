@@ -283,5 +283,94 @@ t('sys_card.html bindet gema_auth.js NICHT ein', !/<script src="gema_auth\.js"/.
 t('sys_card.html bindet gema_sync.js NICHT ein', !/<script src="gema_sync\.js"/.test(cardHtml));
 t('sys_card.html erkennt die Session passiv aus dem localStorage', /gema_session_v1/.test(cardHtml));
 
+/* ══ G — Zwei QR-Modi (Konzept §6.4) ════════════════════════════════ */
+console.log('\n— G: QR-Modi —');
+
+// gema_card.js ist ein Browser-IIFE — ein Mini-window genügt, weil die
+// geprüften Funktionen weder DOM noch Netz anfassen.
+const winStub = { location: { origin: 'https://gema.ch' } };
+new Function('window', R('gema_card.js') + '\nreturn window;')(winStub);
+const GC = winStub.GemaCard;
+t('gema_card.js exportiert die QR-Modus-Helfer',
+  GC && typeof GC.qrPayload === 'function' && typeof GC.vcardMinimal === 'function'
+    && typeof GC.slugAusScan === 'function');
+
+const kQr = {
+  slug: 'Ab3xK9mZq7', display_name: 'Anna Meier', first_name: 'Anna', last_name: 'Meier',
+  company: 'Meier AG', role_title: 'Sanitärplanerin', phone: '+41 79 111 22 33',
+  phone_office: '+41 61 000 00 00', email: 'anna@meier.ch',
+  fields_public: { company: true, phone: true, email: true, phone_office: false, address: false }
+};
+const vMin = GC.vcardMinimal(kQr, GC.kartenUrl(kQr.slug));
+t('Kontakt-QR trägt eine gültige vCard', /^BEGIN:VCARD\r\nVERSION:3\.0\r\n/.test(vMin) && /END:VCARD\r\n$/.test(vMin));
+// DER Trick aus §6.4.2: der Loop wandert ins Adressbuch mit.
+t('Kontakt-QR trägt IMMER den Kartenlink (URL + NOTE)',
+  vMin.includes('URL:https://gema.ch/p/Ab3xK9mZq7') && /\nNOTE:[^\r\n]*gema\.ch\/p\/Ab3xK9mZq7/.test(vMin));
+t('Kontakt-QR respektiert fields_public (Büronummer aus)',
+  vMin.includes('+41 79 111 22 33') && !vMin.includes('+41 61 000 00 00'));
+t('Kontakt-QR trägt kein PHOTO (Dichte)', !/PHOTO/.test(vMin));
+t('Kontakt-QR trägt kein ADR (Dichte)', !/\nADR/.test(vMin));
+t('Kontakt-QR bleibt scanbar klein (< 400 Byte)', Buffer.byteLength(vMin, 'utf8') < 400,
+  Buffer.byteLength(vMin, 'utf8') + ' Byte');
+t('GEMA-QR ist nur die URL', GC.qrPayload(kQr, 'gema') === 'https://gema.ch/p/Ab3xK9mZq7');
+t('qrPayload ohne Modus ist der GEMA-QR (bewusster Default der Bibliothek)',
+  GC.qrPayload(kQr) === GC.qrPayload(kQr, 'gema'));
+
+// Der In-App-Scanner MUSS beide Codes lesen — sonst hängt der Loop davon
+// ab, welchen QR die Gegenseite gerade zeigt.
+t('slugAusScan liest den GEMA-QR', GC.slugAusScan('https://gema.ch/p/Ab3xK9mZq7') === 'Ab3xK9mZq7');
+t('slugAusScan liest den Kontakt-QR (URL: in der vCard)', GC.slugAusScan(vMin) === 'Ab3xK9mZq7');
+t('slugAusScan weist Fremdcodes ab', GC.slugAusScan('https://example.com/x') === ''
+  && GC.slugAusScan('') === '' && GC.slugAusScan(null) === '');
+
+const edHtml = R('sys_card_editor.html');
+t('Editor lässt zwischen beiden Modi umschalten',
+  /data-modus="kontakt"/.test(edHtml) && /data-modus="gema"/.test(edHtml));
+t('Editor startet im Kontakt-QR (null Reibung auf der Baustelle)',
+  /return 'kontakt';/.test(edHtml));
+t('Editor hat die «Scan mich»-Vollbildansicht (§5.1)', /id="scanFs"/.test(edHtml) && /btnScanMich/.test(edHtml));
+t('gema_card.js legt die GEMA-Marke nur in den robusten URL-QR',
+  /modus !== 'kontakt'\) _logoOverlay/.test(R('gema_card.js')));
+t('Kontakt-QR rechnet mit niedrigerer Fehlerkorrektur (Dichte)',
+  /modus === 'kontakt' \? QR\.CorrectLevel\.M : QR\.CorrectLevel\.H/.test(R('gema_card.js')));
+// Die Scanner dürfen den Slug nicht mehr selbst aus der URL schnitzen —
+// sonst liest einer von beiden den Kontakt-QR nicht.
+t('pm_objekte nutzt den geteilten Scan-Parser', /GemaCard\.slugAusScan\(text\)/.test(R('pm_objekte.html')));
+t('sys_kontakte nutzt den geteilten Scan-Parser', /GemaCard\.slugAusScan\(text\)/.test(R('sys_kontakte.html')));
+
+/* ══ H — Funnel / KPI (Konzept §9) ══════════════════════════════════ */
+console.log('\n— H: Funnel —');
+const FN = require('../netlify/functions/card-api.js')._intern.FUNNEL;
+const ccard = R('netlify/functions/_card.js');
+t('Funnel hat genau die fünf Stufen des Konzepts',
+  FN.map(s => s.id).join('>') === 'scan>vcard>claim_start>claim_done>join_project',
+  FN.map(s => s.id).join('>'));
+// view (Server) und scan (Client) sind dieselbe Frage — getrennt gezählt
+// wäre jede Quote darunter falsch.
+t('Stufe 1 fasst view und scan zusammen',
+  FN[0].events.includes('view') && FN[0].events.includes('scan'));
+t('Stufe 2 fasst vcard-Download und Client-Meldung zusammen',
+  FN[1].events.includes('vcard') && FN[1].events.includes('contact_saved'));
+t('Jede Funnel-Stufe hat ein Label für die Oberfläche', FN.every(s => s.label && s.label.length > 3));
+t('card-api: funnel ist eine eigene Aktion', /^A\.funnel = /m.test(capi));
+t('card-api: Systemzahlen nur für role_admin',
+  /roleIds\.indexOf\('role_admin'\) >= 0/.test(capi) && /const system = admin \? await zaehle/.test(capi));
+t('card-api: die eigene Auswertung ist auf den eigenen Slug gefiltert',
+  /profile_slug=eq\.' \+ C\.q\(p\.slug\)/.test(capi));
+// PostgREST liefert hoechstens db-max-rows (1000) Zeilen aus — wer die
+// Zeilen laedt und `.length` zaehlt, bekommt ab 1001 stillschweigend eine
+// falsche Zahl. Der Funnel MUSS ueber den Count-Header gehen.
+t('card-api zählt über den Count-Header, nicht über geladene Zeilen',
+  /C\.sbCount\('card_events'/.test(capi) && !/sbSelect\('card_events'/.test(capi));
+t('_card.sbCount liest die echte Gesamtzahl aus Content-Range',
+  /Prefer': 'count=exact'/.test(ccard) && /content-range/.test(ccard));
+t('_card.sbCount liefert null statt einer falschen 0', /return m \? parseInt\(m\[1\], 10\) : null;/.test(ccard));
+// Ohne Whitelist könnte jeder beliebige Event-Namen einkippen und die
+// Auswertung damit wertlos machen.
+t('card-report nimmt nur bekannte Funnel-Events an',
+  /EVENTS_OEFFENTLICH\.indexOf\(String\(body\.event\)\) < 0/.test(crep));
+t('sys_card.html meldet «Kontakt gespeichert»', /event:'contact_saved'/.test(cardHtml));
+t('Editor zeigt den Trichter', /GemaCard\.api\('funnel'/.test(edHtml) && /id="funBox"/.test(edHtml));
+
 console.log('\n' + (fail === 0 ? `✅ ${n}/${n} Tests grün` : `❌ ${fail}/${n} Tests rot`));
 process.exit(fail === 0 ? 0 : 1);

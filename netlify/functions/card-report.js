@@ -26,6 +26,10 @@ const GRUND_TEXT = {
   sonstiges: 'Sonstiges'
 };
 const MAX_PRO_STUNDE = 5;
+// Von aussen darf NUR gemeldet werden, was der Besucher wirklich tut.
+// Ohne Whitelist koennte jeder beliebige Event-Namen in card_events
+// schreiben und damit die Funnel-Auswertung (§9) unbrauchbar machen.
+const EVENTS_OEFFENTLICH = ['contact_saved', 'scan'];
 
 exports.handler = async function (event) {
   if (event.httpMethod === 'OPTIONS') return C.preflight();
@@ -41,6 +45,7 @@ exports.handler = async function (event) {
 
   /* ── Reines Funnel-Event (kein Missbrauchspotenzial, weiches Limit) ── */
   if (body.event) {
+    if (EVENTS_OEFFENTLICH.indexOf(String(body.event)) < 0) return C.resp(400, { error: 'Unbekanntes Event' });
     if (!C.memLimit('ev', C.clientIp(event), 30, 60000)) return C.resp(200, { ok: true });
     await C.logEvent({ slug: slug, event: String(body.event), uaHash: hash });
     return C.resp(200, { ok: true });

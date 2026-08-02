@@ -63,6 +63,26 @@ async function sb(pathQs, opts) {
 function q(s) { return encodeURIComponent(String(s == null ? '' : s)); }
 
 async function sbSelect(table, qs) { return (await sb(table + '?' + qs)) || []; }
+
+/**
+ * Zeilen ZAEHLEN statt laden.
+ *
+ * KRITISCH: PostgREST deckelt jede Antwort auf db-max-rows (Hosted-Default
+ * 1000). Wer zaehlen will, indem er die Zeilen laedt und `.length` nimmt,
+ * bekommt ab Zeile 1001 stillschweigend eine falsche Zahl. `Prefer:
+ * count=exact` liefert die echte Gesamtzahl im Content-Range-Header —
+ * unabhaengig davon, wie viele Zeilen wirklich uebertragen werden.
+ * Rueckgabe null = Zahl nicht ermittelbar (nie als 0 ausgeben!).
+ */
+async function sbCount(table, qs) {
+  const res = await fetch(SB_URL + '/rest/v1/' + table + '?' + qs + '&select=id&limit=1', {
+    headers: Object.assign(sbHeaders(), { 'Prefer': 'count=exact' })
+  });
+  if (!res.ok) throw new Error('Supabase ' + res.status);
+  const cr = res.headers.get('content-range') || '';      // z.B. «0-0/1234»
+  const m = /\/(\d+)$/.exec(cr);
+  return m ? parseInt(m[1], 10) : null;
+}
 async function sbInsert(table, rows, opts) {
   return await sb(table + ((opts && opts.onConflict) ? '?on_conflict=' + q(opts.onConflict) : ''), {
     method: 'POST',
@@ -336,7 +356,7 @@ async function gemaUser(userId) {
 module.exports = {
   SB_URL, SERVICE_KEY, BUCKET,
   CORS, resp, preflight, configured,
-  sb, sbSelect, sbInsert, sbUpdate, sbDelete, q,
+  sb, sbSelect, sbCount, sbInsert, sbUpdate, sbDelete, q,
   storageGet, storagePut, storageDelete,
   slugNeu, slugOk, slugFrei, tokenNeu, tokenOk,
   FELDER_IMMER, FELDER_OPTIONAL, FIELDS_PUBLIC_DEFAULT,

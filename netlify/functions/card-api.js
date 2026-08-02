@@ -21,6 +21,7 @@
  *     meine_projekte  Projekte, in denen ICH Beteiligter bin
  *     reports         offene Meldungen zur eigenen Karte
  *     report_erledigt Meldung abhaken
+ *     funnel          Trichter scan→vcard→claim→projekt (§9)
  *     org_austritt    Firmenfelder loeschen (Konzept §6.8)
  *
  * Auch hier gilt die Feld-Whitelist: fremde Karten kommen ausschliesslich
@@ -327,6 +328,61 @@ A.report_erledigt = async function (body, user) {
   return C.resp(200, { ok: true });
 };
 
+/* ══ Funnel / KPI (Konzept §9) ═══════════════════════════════════════
+   Die Kette, die zaehlt: scan → vcard → claim_start → claim_done →
+   join_project. Jede Stufe misst genau EINE Frage:
+
+     scan          Wie oft wurde die Karte ueberhaupt geoeffnet?
+     vcard         Wie viele davon haben den Kontakt gespeichert?
+     claim_start   Wie viele haben «Das bin ich» angetippt?
+     claim_done    Wie viele haben die Karte wirklich uebernommen?
+     join_project  Wie viele sind danach in einem Projekt gelandet?
+
+   'scan' ist eine ZUSAMMENFASSUNG aus view+scan: card-public loggt beim
+   Ausliefern 'view', der Client meldet zusaetzlich 'scan', wenn er den
+   Aufruf einem QR zuordnen kann. Fuer die Trichter-Frage «wie oft
+   geoeffnet» sind das dieselbe Stufe — getrennt gezaehlt waere die
+   Quote schlicht falsch.
+   ═══════════════════════════════════════════════════════════════════ */
+const FUNNEL = [
+  { id: 'scan', label: 'Karte geöffnet', events: ['view', 'scan'] },
+  { id: 'vcard', label: 'Kontakt gespeichert', events: ['vcard', 'contact_saved'] },
+  { id: 'claim_start', label: '«Das bin ich» getippt', events: ['claim_start'] },
+  { id: 'claim_done', label: 'Karte übernommen', events: ['claim_done'] },
+  { id: 'join_project', label: 'In Projekt aufgenommen', events: ['join_project'] }
+];
+const FUNNEL_TAGE = { 7: 7, 30: 30, 90: 90, 0: 0 };   // 0 = seit Beginn
+
+/**
+ * funnel — Trichter fuer die EIGENE Karte; role_admin sieht zusaetzlich
+ * das ganze System. Der Systemwert ist bewusst eine reine Zaehlung ohne
+ * Slug-Bezug: eine Liste «wer wurde wie oft gescannt» waere ein
+ * Bewegungsprofil ueber fremde Personen und hat hier nichts zu suchen.
+ */
+A.funnel = async function (body, user) {
+  const tage = FUNNEL_TAGE[String(parseInt(body.tage, 10) || 30)] != null
+    ? (parseInt(body.tage, 10) || 30) : 30;
+  const seit = tage > 0 ? new Date(Date.now() - tage * 86400000).toISOString() : '';
+  const zeitFilter = seit ? '&created_at=gte.' + encodeURIComponent(seit) : '';
+  const admin = Array.isArray(user.roleIds) && user.roleIds.indexOf('role_admin') >= 0;
+
+  // Gezaehlt wird ueber den Content-Range-Header, NICHT ueber die Laenge
+  // geladener Zeilen: PostgREST liefert hoechstens db-max-rows (1000)
+  // Zeilen aus, `.length` waere ab da stillschweigend falsch.
+  async function zaehle(extra) {
+    return await Promise.all(FUNNEL.map(async function (st) {
+      const inList = st.events.map(function (e) { return C.q(e); }).join(',');
+      const c = await C.sbCount('card_events', 'event=in.(' + inList + ')' + zeitFilter + extra);
+      return { id: st.id, label: st.label, wert: c == null ? 0 : c };
+    }));
+  }
+
+  const p = await C.profilByUser(user.id);
+  const meine = p ? await zaehle('&profile_slug=eq.' + C.q(p.slug)) : null;
+  const system = admin ? await zaehle('') : null;
+  return C.resp(200, { tage: tage, slug: p ? p.slug : '', meine: meine, system: system, admin: admin });
+};
+
 /**
  * org_austritt — Firmenfelder loeschen (Konzept §6.8).
  * Wird gerufen, wenn ein Org-Admin jemanden aus der Firma nimmt.
@@ -397,4 +453,4 @@ exports.handler = async function (event) {
   }
 };
 
-exports._intern = { ROLLEN, SAVE_FELDER };
+exports._intern = { ROLLEN, SAVE_FELDER, FUNNEL };
