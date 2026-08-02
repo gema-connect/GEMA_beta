@@ -343,6 +343,7 @@
     {key:'wareneingang',            label:'Wareneingang',              cat:'Infrastruktur'},
     {key:'arbeitskleider',          label:'Arbeitskleider',            cat:'Infrastruktur'},
     {key:'immobilien',              label:'Immobilienverwaltung',      cat:'Immobilien'},
+    {key:'lieferant_dashboard',     label:'Lieferanten-Dashboard',     cat:'Lieferanten'},
     {key:'lieferantenverwaltung',   label:'Lieferantenverwaltung',     cat:'System'},
     {key:'produktkatalog',          label:'Produktkatalog',            cat:'System'},
     {key:'workspace',               label:'Workspace',                 cat:'System'},
@@ -375,6 +376,7 @@
     'if_trocknung':'trocknungsgeraete','if_wareneingang':'wareneingang','if_arbeitskleider':'arbeitskleider','iv_immobilien':'immobilien',
     'pm_crbx':'crbx_offertvergleich','pm_schnellausschreibung':'schnellausschreibung','pm_bestellungen':'bestellungen','pm_revisionsunterlagen':'revisionsunterlagen','pm_behoerden_formulare':'behoerden_formulare','pm_plaene':'plaene','pm_planablage':'planablage','pm_regierapport':'regierapport','pm_erp':'erp','pm_einsatzplan':'einsatzplan','pm_pruefliste':'pruefliste',
     'sys_lieferanten':'lieferantenverwaltung','sys_produktkatalog':'produktkatalog',
+    'sys_lieferant_dashboard':'lieferant_dashboard',
     'sys_workspace':'workspace',
   };
 
@@ -382,6 +384,55 @@
   // Module dieser Kategorien können Dozenten pro Klasse für Studierende
   // freischalten (harte Sperre, siehe _studentModAllowed weiter unten).
   var CALC_CATS=['Sanitärberechnungen','Heizungsberechnungen','Lüftungsberechnungen','Brandschutz'];
+
+  // ── Lieferanten: Sortiment → Berechnungsmodule ────────────────────
+  // Ein Lieferant soll die Berechnung sehen, fuer die er die Anlage
+  // liefert — damit er selbst pruefen kann, ob die Auslegung zu seinem
+  // Produkt passt. Schluessel = Produkt-/Firmenkategorie-ID (KATEGORIEN
+  // bzw. LIEF_KATEGORIEN in gema_produktkatalog_api.js, Alt-IDs via
+  // _liefNormKat), Wert = Liste der MODULES-Keys.
+  //
+  // Diese Map lebt BEWUSST hier und nicht im Produktkatalog: gema_auth.js
+  // ist auf JEDER Seite geladen und muss synchron entscheiden koennen —
+  // gema_produktkatalog_api.js ist es nicht. Konsumenten lesen sie ueber
+  // GemaAuth.getLieferantKatModule().
+  //
+  // BEI EINER NEUEN ANLAGEN-KATEGORIE HIER NACHFUEHREN — sonst bekommt
+  // der Lieferant die zugehoerige Berechnung nie zu sehen.
+  var LIEF_KAT_MODUL = {
+    enthaertung:           ['enthaertungsanlage'],
+    osmose:                ['osmose'],
+    druckerhoehung:        ['druckerhoehung'],
+    zirkulation:           ['zirkulation'],
+    zirkulationspumpe:     ['zirkulation'],
+    saugpumpe:             ['saugpumpe'],
+    sicherheitsventil:     ['druckanstieg'],
+    ausdehnungsgefaess:    ['ausdehnungsgefaess'],
+    heizungspumpe:         ['heizungsleitungen'],
+    // Waermeerzeuger speisen drei Auslegungen (Leistung, Heizlast, JAZ)
+    waermeerzeuger:        ['waermegruppen','heizlast_verbrauch','waermepumpe'],
+    lueftungsgeraet:       ['hx_diagramm'],
+    fluessiggasanlage:     ['fluessiggas'],
+    gasloeschanlage:       ['gasloeschung'],
+    fettabscheider:        ['fettabscheider'],
+    oelabscheider:         ['oelabscheider'],
+    schlammsammler:        ['schlammsammler'],
+    hebeanlage:            ['abwasserhebeanlage'],
+    frischwasserstation:   ['frischwasserstation'],
+    thermische_solaranlage:['thermische_solaranlage'],
+    warmwasser_boiler:     ['warmwasser_sia385'],
+    // Rohre/Armaturen fliessen als Rechenwerte in die Druckberechnungen
+    rohrsysteme:           ['druckverlust','druckanstieg'],
+    rohrsystem:            ['druckverlust','druckanstieg'],
+    armaturen:             ['druckverlust'],
+    'formstücke':          ['druckverlust']
+    // werkzeuge / elektropruefung / leiterpruefung / servicepruefung /
+    // fahrzeuge haben bewusst KEINE Berechnung (Werkzeug-/Fahrzeugsicht).
+  };
+  // Alt-IDs der Firmenprofil-Kategorien (Spiegel von normKatId im Katalog)
+  var _LIEF_KAT_ALIAS={abwasserhebeanlage:'hebeanlage',solaranlage:'thermische_solaranlage'};
+  function _liefNormKat(id){var k=String(id||'');return _LIEF_KAT_ALIAS[k]||k;}
+
   var _calcKeysMemo=null;
   function _calcKeySet(){
     if(_calcKeysMemo)return _calcKeysMemo;
@@ -407,10 +458,10 @@
 
   var DEFAULT_ROLES = [
     {id:'role_admin',name:'Administrator',color:'#1d4ed8',permissions:_allPerms(true,true,true)},
-    {id:'role_planer',name:'Sanitärplaner',color:'#16a34a',gewerke:['sanitaer'],permissions:(function(){var p=_allPerms(true,true,false);p['werkzeugmanagement']={read:true,write:false,admin:false};p['objekte']={read:true,write:true,admin:true};return p;})()},
-    {id:'role_hlkk_planer',name:'Heizungsplaner',color:'#dc2626',gewerke:['hlkk'],permissions:(function(){var p=_allPerms(true,true,false);p['werkzeugmanagement']={read:true,write:false,admin:false};p['objekte']={read:true,write:true,admin:true};return p;})()},
-    {id:'role_lueftung_planer',name:'Lüftungsplaner',color:'#2563eb',gewerke:['lueftung'],permissions:(function(){var p=_allPerms(true,true,false);p['werkzeugmanagement']={read:true,write:false,admin:false};p['objekte']={read:true,write:true,admin:true};return p;})()},
-    {id:'role_elektro_planer',name:'Elektroplaner',color:'#d97706',gewerke:['elektro'],permissions:(function(){var p=_allPerms(true,true,false);p['werkzeugmanagement']={read:true,write:false,admin:false};p['objekte']={read:true,write:true,admin:true};return p;})()},
+    {id:'role_planer',name:'Sanitärplaner',color:'#16a34a',gewerke:['sanitaer'],permissions:(function(){var p=_allPerms(true,true,false);p['werkzeugmanagement']={read:true,write:false,admin:false};p['objekte']={read:true,write:true,admin:true};p['lieferant_dashboard']={read:false,write:false,admin:false};return p;})()},
+    {id:'role_hlkk_planer',name:'Heizungsplaner',color:'#dc2626',gewerke:['hlkk'],permissions:(function(){var p=_allPerms(true,true,false);p['werkzeugmanagement']={read:true,write:false,admin:false};p['objekte']={read:true,write:true,admin:true};p['lieferant_dashboard']={read:false,write:false,admin:false};return p;})()},
+    {id:'role_lueftung_planer',name:'Lüftungsplaner',color:'#2563eb',gewerke:['lueftung'],permissions:(function(){var p=_allPerms(true,true,false);p['werkzeugmanagement']={read:true,write:false,admin:false};p['objekte']={read:true,write:true,admin:true};p['lieferant_dashboard']={read:false,write:false,admin:false};return p;})()},
+    {id:'role_elektro_planer',name:'Elektroplaner',color:'#d97706',gewerke:['elektro'],permissions:(function(){var p=_allPerms(true,true,false);p['werkzeugmanagement']={read:true,write:false,admin:false};p['objekte']={read:true,write:true,admin:true};p['lieferant_dashboard']={read:false,write:false,admin:false};return p;})()},
     {id:'role_spengler',name:'Spengler',color:'#0891b2',gewerke:['spenglerei'],permissions:(function(){var p=_somePerms(['dachbericht','objekte','baustellencheckliste','werkzeugmanagement'],true,true,false);p['goodel']={read:true,write:true,admin:false};p['dachbericht']={read:true,write:true,admin:true};p['objekte']={read:true,write:true,admin:true};p['regierapport']={read:true,write:true,admin:false};p['einsatzplan']={read:true,write:false,admin:false};p['abnahme_sia']={read:true,write:false,admin:false};p['stundenerfassung']={read:true,write:true,admin:false};p['arbeitskleider']={read:true,write:false,admin:false};p['planablage']={read:true,write:false,admin:false};return p;})()},
     {id:'role_architekt',name:'Architekt / GP',color:'#7c3aed',permissions:(function(){var p=_somePerms(['terminplan','besprechungsprotokoll','objekte','abnahme_sia'],true,false,false);p['goodel']={read:true,write:true,admin:false};p['regierapport']={read:true,write:true,admin:false};p['revisionsunterlagen']={read:true,write:false,admin:false};p['behoerden_formulare']={read:true,write:true,admin:false};p['plaene']={read:true,write:true,admin:false};p['planablage']={read:true,write:true,admin:false};return p;})()},
     {id:'role_unternehmer',name:'Unternehmer',color:'#d97706',permissions:(function(){var p=_somePerms(['terminplan','abnahme_sia','werkzeugmanagement','baustellencheckliste','ausschreibungsunterlagen','crbx_offertvergleich','schnellausschreibung','bestellungen'],true,true,false);p['goodel']={read:true,write:true,admin:false};p['legionellen']={read:true,write:true,admin:false};p['spuelmanager']={read:true,write:true,admin:false};p['revisionsunterlagen']={read:true,write:true,admin:false};p['immobilien']={read:true,write:true,admin:false};p['erp']={read:true,write:true,admin:false};p['planablage']={read:true,write:true,admin:false};return p;})()},
@@ -422,27 +473,27 @@
     // Maschinen fuers Werkzeugmanagement — KEINE Verifizierung.
     // Beide kombinierbar mit role_leiterpruefer (z.B. Produktlieferant,
     // der auch EKAS-Leiterpruefungen macht).
-    {id:'role_lieferant',name:'Anlagenlieferant',color:'#16a34a',permissions:_somePerms(['ausschreibungsunterlagen','produktkatalog'],true,true,false)},
+    {id:'role_lieferant',name:'Anlagenlieferant',color:'#16a34a',permissions:_somePerms(['ausschreibungsunterlagen','produktkatalog','lieferant_dashboard'],true,true,false)},
     // Unterrollen (feinere Rechte innerhalb einer Lieferanten-Org).
     // Der Org-Admin (role_lieferant_admin oder Legacy role_lieferant) vergibt
     // sie im Lieferanten-Dashboard. Die Modul-Permission gibt nur Dashboard-
     // Zugang frei; die FEINE Abgrenzung (erfassen/verifizieren/Offerten)
     // passiert im Dashboard via roleId-Helfer.
-    {id:'role_lieferant_admin',   name:'Anlagenlieferant · Admin',         color:'#15803d', permissions:_somePerms(['ausschreibungsunterlagen','produktkatalog'],true,true,false)},
-    {id:'role_lieferant_produkte',name:'Anlagenlieferant · Produktpflege', color:'#16a34a', permissions:_somePerms(['produktkatalog'],true,true,false)},
-    {id:'role_lieferant_verify',  name:'Anlagenlieferant · Verifizierung', color:'#0891b2', permissions:_somePerms(['produktkatalog'],true,true,false)},
-    {id:'role_lieferant_offerten',name:'Anlagenlieferant · Offerten',      color:'#7c3aed', permissions:_somePerms(['ausschreibungsunterlagen','produktkatalog'],true,true,false)},
-    {id:'role_lieferant_intern',  name:'Anlagenlieferant · Intern (nur Lesen)', color:'#64748b', permissions:_somePerms(['produktkatalog'],true,false,false)},
+    {id:'role_lieferant_admin',   name:'Anlagenlieferant · Admin',         color:'#15803d', permissions:_somePerms(['ausschreibungsunterlagen','produktkatalog','lieferant_dashboard'],true,true,false)},
+    {id:'role_lieferant_produkte',name:'Anlagenlieferant · Produktpflege', color:'#16a34a', permissions:_somePerms(['produktkatalog','lieferant_dashboard'],true,true,false)},
+    {id:'role_lieferant_verify',  name:'Anlagenlieferant · Verifizierung', color:'#0891b2', permissions:_somePerms(['produktkatalog','lieferant_dashboard'],true,true,false)},
+    {id:'role_lieferant_offerten',name:'Anlagenlieferant · Offerten',      color:'#7c3aed', permissions:_somePerms(['ausschreibungsunterlagen','produktkatalog','lieferant_dashboard'],true,true,false)},
+    {id:'role_lieferant_intern',  name:'Anlagenlieferant · Intern (nur Lesen)', color:'#64748b', permissions:_somePerms(['produktkatalog','lieferant_dashboard'],true,false,false)},
     // Produktlieferant (Werkzeugmanagement) — keine Verifizierungs-Unterrolle
-    {id:'role_produktlieferant_admin',   name:'Produktlieferant · Admin',         color:'#b45309', permissions:_somePerms(['produktkatalog'],true,true,false)},
-    {id:'role_produktlieferant_produkte',name:'Produktlieferant · Produktpflege', color:'#d97706', permissions:_somePerms(['produktkatalog'],true,true,false)},
-    {id:'role_produktlieferant_offerten',name:'Produktlieferant · Offerten',      color:'#9333ea', permissions:_somePerms(['produktkatalog'],true,true,false)},
-    {id:'role_produktlieferant_intern',  name:'Produktlieferant · Intern (nur Lesen)', color:'#64748b', permissions:_somePerms(['produktkatalog'],true,false,false)},
-    {id:'role_pruefer',name:'Prüfer',color:'#0891b2',permissions:_somePerms(['werkzeugmanagement','fahrzeugmanagement'],true,true,false)},
+    {id:'role_produktlieferant_admin',   name:'Produktlieferant · Admin',         color:'#b45309', permissions:_somePerms(['produktkatalog','lieferant_dashboard'],true,true,false)},
+    {id:'role_produktlieferant_produkte',name:'Produktlieferant · Produktpflege', color:'#d97706', permissions:_somePerms(['produktkatalog','lieferant_dashboard'],true,true,false)},
+    {id:'role_produktlieferant_offerten',name:'Produktlieferant · Offerten',      color:'#9333ea', permissions:_somePerms(['produktkatalog','lieferant_dashboard'],true,true,false)},
+    {id:'role_produktlieferant_intern',  name:'Produktlieferant · Intern (nur Lesen)', color:'#64748b', permissions:_somePerms(['produktkatalog','lieferant_dashboard'],true,false,false)},
+    {id:'role_pruefer',name:'Prüfer',color:'#0891b2',permissions:_somePerms(['werkzeugmanagement','fahrzeugmanagement','lieferant_dashboard'],true,true,false)},
     // Leiternpruefer (EKAS): externe Fachperson fuer Leiterpruefungen.
     // Kombinierbar mit Produktlieferant-Rollen (derselbe Account kann
     // Werkzeuge liefern UND Leitern pruefen).
-    {id:'role_leiterpruefer',name:'Leiternprüfer (EKAS)',color:'#0e7490',permissions:_somePerms(['werkzeugmanagement'],true,true,false)},
+    {id:'role_leiterpruefer',name:'Leiternprüfer (EKAS)',color:'#0e7490',permissions:_somePerms(['werkzeugmanagement','lieferant_dashboard'],true,true,false)},
     // Garagist: externe Werkstatt mit eigener Org. Kunden-Firmen verknuepfen
     // einzelne Fahrzeuge mit dem Garagist-Account. Sieht nur diese Fahrzeuge,
     // darf km, Service, MFK, Reifen pflegen und Service-Historie ergaenzen.
@@ -468,7 +519,7 @@
     // aber nichts selbst aendern oder zuweisen. Sieht Werkzeuge der
     // eigenen Organisation.
     {id:'role_monteur',name:'Monteur',color:'#64748b',permissions:(function(){var p=_somePerms(['werkzeugmanagement','baustellencheckliste'],true,false,false);p['goodel']={read:true,write:true,admin:false};p['schadensbericht']={read:true,write:true,admin:false};p['trocknungsgeraete']={read:true,write:false,admin:false};p['regierapport']={read:true,write:true,admin:false};p['objekte']={read:true,write:false,admin:false};p['einsatzplan']={read:true,write:false,admin:false};p['abnahme_sia']={read:true,write:false,admin:false};p['legionellen']={read:true,write:true,admin:false};p['spuelmanager']={read:true,write:true,admin:false};p['service']={read:true,write:true,admin:false};p['stundenerfassung']={read:true,write:true,admin:false};p['arbeitskleider']={read:true,write:false,admin:false};p['planablage']={read:true,write:false,admin:false};return p;})()},
-    {id:'role_abteilungsleiter',name:'Abteilungsleiter',color:'#6d28d9',permissions:(function(){var p=_allPerms(true,true,false);p['werkzeugmanagement']={read:true,write:true,admin:false};p['objekte']={read:true,write:true,admin:true};return p;})()},
+    {id:'role_abteilungsleiter',name:'Abteilungsleiter',color:'#6d28d9',permissions:(function(){var p=_allPerms(true,true,false);p['werkzeugmanagement']={read:true,write:true,admin:false};p['objekte']={read:true,write:true,admin:true};p['lieferant_dashboard']={read:false,write:false,admin:false};return p;})()},
     {id:'role_bauherrschaft',name:'Bauherrschaft',color:'#0284c7',permissions:(function(){var p=_somePerms(['objekte','terminplan','kostenkontrolle','besprechungsprotokoll','abnahme_sia'],true,false,false);p['goodel']={read:true,write:true,admin:false};p['regierapport']={read:true,write:true,admin:false};p['revisionsunterlagen']={read:true,write:false,admin:false};p['planablage']={read:true,write:false,admin:false};return p;})()},
     {id:'role_behoerde',name:'Behörde',color:'#475569',permissions:_somePerms(['w12','objekte','legionellen'],true,false,false)},
     // ── Schule (Org-Kategorie 'schule') ──
@@ -909,6 +960,101 @@
       cb(!!mods[mkey]||!!(exams[mkey]&&Date.now()<exams[mkey]));
     }).catch(function(){cb(false);});
   }
+  // ── Lieferanten: Berechnungs-Freischaltung nach Sortiment ─────────
+  // Ein Lieferant, der eine Enthaertungsanlage im Katalog fuehrt, soll die
+  // Enthaertungs-BERECHNUNG oeffnen und selbst durchrechnen koennen — nur so
+  // sieht er, ob die Auslegung zu seinem Produkt passt. Die Freischaltung
+  // ist rein ADDITIV (erweitert nie-erlaubte Module) und leitet sich aus
+  // ZWEI Quellen ab (User-Entscheid, Vereinigung):
+  //   (a) den erfassten PRODUKTEN seines Katalogs (produkt.kategorie)
+  //   (b) den Kategorien seines FIRMENPROFILS (lieferant.lieferantKategorien)
+  // (b) greift schon, bevor das erste Produkt erfasst ist.
+  //
+  // Muster wie das Studierenden-Gating: synchroner Cache + async Nachpruefung.
+  // Fail-CLOSED — ohne Cache bleibt das Modul zu, der Init prueft dann nach
+  // und laedt die Seite bei einem Treffer neu.
+  var LIEF_MOD_CACHE_KEY='gema_lief_mods_v1';
+  var LIEF_MOD_TTL=12*3600*1000; // Cache-Alter, ab dem im Hintergrund erneuert wird
+  function _isLieferantUser(user){
+    if(!user||!user.roleIds)return false;
+    return user.roleIds.some(function(r){
+      return typeof r==='string'&&(r.indexOf('role_lieferant')===0||r.indexOf('role_produktlieferant')===0);
+    });
+  }
+  function _liefModCache(user){
+    try{
+      var raw=localStorage.getItem(LIEF_MOD_CACHE_KEY);
+      if(!raw)return null;
+      var c=JSON.parse(raw);
+      if(!c||c.userId!==user.id)return null;
+      return c;
+    }catch(e){return null;}
+  }
+  function _liefModAllowed(user,mkey){
+    if(!mkey||!_isLieferantUser(user))return false;
+    if(!_calcKeySet()[mkey])return false;   // nur Berechnungsmodule
+    var c=_liefModCache(user);
+    return !!(c&&c.mods&&c.mods.indexOf(mkey)>=0);
+  }
+  // Kategorien → Modul-Keys (dedupliziert, nur existierende MODULES-Keys —
+  // ein Tippfehler in LIEF_KAT_MODUL schaltet so nie ein Phantom-Modul frei)
+  var _liefKnownMemo=null;
+  function _liefKnownKeys(){
+    if(_liefKnownMemo)return _liefKnownMemo;
+    _liefKnownMemo={};MODULES.forEach(function(m){_liefKnownMemo[m.key]=1;});
+    return _liefKnownMemo;
+  }
+  function _liefModsAusKats(kats){
+    var out={},known=_liefKnownKeys();
+    (kats||[]).forEach(function(k){
+      (LIEF_KAT_MODUL[_liefNormKat(k)]||[]).forEach(function(mk){if(known[mk])out[mk]=1;});
+    });
+    return Object.keys(out);
+  }
+  // Async-Nachpruefung: Lieferanten-Profil + Produkte frisch aus der Cloud.
+  // Die Zuordnung User → Lieferant laeuft ueber user.lieferantId (kanonisch),
+  // Fallback ueber die Org (Muster findMyLieferant im Dashboard).
+  function _liefModsRefresh(user,cb){
+    cb=cb||function(){};
+    if(!_isLieferantUser(user)){cb([]);return;}
+    if(typeof w.GemaSync==='undefined'||!w.GemaSync.loadCollection){cb(null);return;}
+    var meOrg=user.orgId||'';
+    w.GemaSync.loadCollection('produktkatalog','lieferant:').then(function(rows){
+      // EMPTY-READ-GUARD (KRITISCH, gleiche Falle wie beim users/orgs-Cache):
+      // Eine LEERE Collection ist kein Beweis dafuer, dass der Lieferant kein
+      // Sortiment hat — sie kommt genauso bei Offline, noch nicht geladener
+      // Cloud oder RLS-Ablehnung (HTTP 200 + []). Den bestehenden Cache in dem
+      // Fall zu leeren, wuerde dem Lieferanten seine Berechnungen unter den
+      // Fuessen wegziehen. Also: nichts anfassen, spaeter erneut versuchen.
+      if(!rows||!rows.length){cb(null);return;}
+      var meine={},kats={};
+      rows.forEach(function(r){
+        var l=r&&r.data;if(!l||!l.id)return;
+        var treffer=(user.lieferantId&&l.id===user.lieferantId)
+          ||(!user.lieferantId&&meOrg&&meOrg!=='org_default'&&l.orgId===meOrg);
+        if(!treffer)return;
+        meine[l.id]=1;
+        (l.lieferantKategorien||[]).forEach(function(k){kats[_liefNormKat(k)]=1;});
+      });
+      // Records da, aber keiner gehoert mir → echtes «kein Profil» (schreiben)
+      if(!Object.keys(meine).length){_liefModsWrite(user,[]);cb([]);return;}
+      return w.GemaSync.loadCollection('produktkatalog','produkt:').then(function(prows){
+        (prows||[]).forEach(function(r){
+          var p=r&&r.data;
+          if(p&&p.kategorie&&meine[p.lieferantId])kats[_liefNormKat(p.kategorie)]=1;
+        });
+        var mods=_liefModsAusKats(Object.keys(kats));
+        _liefModsWrite(user,mods);
+        cb(mods);
+      });
+    }).catch(function(){cb(null);});
+  }
+  function _liefModsWrite(user,mods){
+    try{
+      localStorage.setItem(LIEF_MOD_CACHE_KEY,JSON.stringify({userId:user.id,mods:mods||[],ts:Date.now()}));
+    }catch(e){}
+  }
+
   // Ist der AKTUELLE Session-User ein Admin? (für den _switchUser-Guard)
   function _sessionUserIsAdmin(){
     var s=_getSession();if(!s)return false;
@@ -1185,7 +1331,11 @@
   var thisFile=location.pathname.split('/').pop()||'';
   var thisFileLower=thisFile.toLowerCase().replace('.html','');
   function _isSkip(){return thisFileLower==='sys_login';}
-  function _isLoginOnly(){return ['index','sb_index','pm_ausschreibung','ab_index','sys_admin','sys_profil','sys_preise','sys_beta','sys_lieferant_dashboard','sys_garagist_dashboard','sys_workspace','sys_unternehmen',''].indexOf(thisFileLower)>=0;}
+  // sys_lieferant_dashboard ist seit 08/2026 ein normales MODUL (FILE_MAP →
+  // 'lieferant_dashboard') und steht darum NICHT mehr in dieser Liste: es
+  // laeuft ueber die Modul-Permission wie jede andere Modulseite (Rollen ohne
+  // Recht sehen den «Kein Zugriff»-Screen statt der Seite).
+  function _isLoginOnly(){return ['index','sb_index','pm_ausschreibung','ab_index','sys_admin','sys_profil','sys_preise','sys_beta','sys_garagist_dashboard','sys_workspace','sys_unternehmen',''].indexOf(thisFileLower)>=0;}
   /* Persönliche Konto-Seiten: der Rollen-Redirect gilt NUR für Hub-/Landing-
      Seiten, NICHT für Seiten, die jemand bewusst aufruft. Vorher sprang jeder
      Aufruf von sys_profil bei einem Projektleiter (Landing = sys_workspace)
@@ -1203,9 +1353,11 @@
   // ── Rollenspezifische Zielseite ─────────────────────────────────
   function _getRedirectForUser(u){
     if(!u||!u.roleIds)return'sys_workspace.html';
-    // Anlagen-/Produktlieferant + alle Unterrollen, Pruefer + Leiternpruefer
-    if(u.roleIds.some(function(r){return typeof r==='string'&&(r.indexOf('role_lieferant')===0||r.indexOf('role_produktlieferant')===0);}))return'sys_lieferant_dashboard.html';
-    if(u.roleIds.indexOf('role_pruefer')>=0||u.roleIds.indexOf('role_leiterpruefer')>=0)return'sys_lieferant_dashboard.html';
+    // Lieferanten (Anlagen + Produkt), Pruefer und Leiternpruefer starten
+    // seit 08/2026 im WORKSPACE wie alle anderen — ihr Dashboard ist ein
+    // normales Modul, das sie sich dort in einen Eimer legen (User-Entscheid:
+    // «alle starten gleich, nur die verfuegbaren Module unterscheiden sich»).
+    // Sie fallen darum bewusst auf den sys_workspace-Default am Ende durch.
     if(u.roleIds.indexOf('role_garagist')>=0)return'sys_garagist_dashboard.html';
     // Schule: Dozent landet auf der Modulübersicht (freies Arbeiten mit den
     // Berechnungsmodulen), Studierende hart auf ihrem Klassen-Portal.
@@ -1339,6 +1491,10 @@
           if(!perms.read&&_studentModAllowed(user,mkey)){
             perms={read:true,write:true,admin:false};
           }
+          // Lieferanten: Berechnungen des eigenen Sortiments (additiv)
+          if(!perms.read&&_liefModAllowed(user,mkey)){
+            perms={read:true,write:true,admin:false};
+          }
           if(!_isAdmin(user)&&!perms.read){
             // Studierende fail-closed + async Nachprüfung: hat der Dozent
             // das Modul gerade erst freigeschaltet, ist der lokale Cache
@@ -1347,11 +1503,25 @@
             if(_studRetry){
               _studentModsRefresh(user,mkey,function(ok){if(ok)location.reload();});
             }
+            // Lieferanten gleiches Muster: hat er die Anlage gerade erst
+            // erfasst (oder auf einem anderen Geraet), ist der lokale Cache
+            // alt → Katalog frisch laden und bei Treffer neu laden.
+            var _liefRetry=!_studRetry&&_isLieferantUser(user)&&_calcKeySet()[mkey];
+            if(_liefRetry){
+              _liefModsRefresh(user,function(mods){
+                if(mods&&mods.indexOf(mkey)>=0)location.reload();
+              });
+            }
             _unblock();
             document.addEventListener('DOMContentLoaded',function(){
               var hint=_studRetry?'Dieses Modul ist für deine Klasse (noch) nicht freigeschaltet.':'Sie haben keine Berechtigung für dieses Modul.';
               var back=_studRetry?'ab_klassen.html':'index.html';
               var backLabel=_studRetry?'← Zu meinen Klassen':'← Zurück zur Übersicht';
+              if(_liefRetry){
+                hint='Diese Berechnung gehört zu einem Sortiment, das Sie (noch) nicht führen. Erfassen Sie eine passende Anlage oder haken Sie die Kategorie im Firmenprofil an — dann steht Ihnen die Berechnung offen.';
+                back='sys_lieferant_dashboard.html';
+                backLabel='← Zum Lieferanten-Dashboard';
+              }
               document.body.innerHTML='<div style="display:flex;align-items:center;justify-content:center;height:100vh;font-family:system-ui"><div style="text-align:center"><div style="font-size:48px">🔒</div><h2 style="margin:16px 0 8px">Kein Zugriff</h2><p style="color:#6b7280">'+hint+'</p><a href="'+back+'" style="display:inline-block;margin-top:16px;padding:10px 24px;background:#1d4ed8;color:#fff;border-radius:8px;text-decoration:none;font-weight:700">'+backLabel+'</a></div></div>';
             });
           } else {
@@ -1369,6 +1539,16 @@
               _autoFillBearbeiter(user);
               _enhanceObjektDropdown();
             });
+          }
+        }
+        // Lieferanten: Sortiment-Cache im Hintergrund frisch halten, damit
+        // Modulübersicht und Workspace-Picker die richtigen Berechnungs-
+        // Kacheln zeigen. Gedrosselt ueber LIEF_MOD_TTL — der Erst-Lauf
+        // (kein Cache) laeuft immer, danach hoechstens alle 12h.
+        if(_isLieferantUser(user)){
+          var _lc=_liefModCache(user);
+          if(!_lc||(Date.now()-(_lc.ts||0))>LIEF_MOD_TTL){
+            setTimeout(function(){_liefModsRefresh(user,function(){});},1500);
           }
         }
       }
@@ -1415,6 +1595,41 @@
     getModules:function(){return MODULES;},
     getFileMap:function(){return FILE_MAP;},
     getCalcCats:function(){return CALC_CATS.slice();},
+    // ── Lieferanten: Berechnungen des eigenen Sortiments ──
+    // Kanonische Map Produkt-/Firmenkategorie → Berechnungsmodule.
+    getLieferantKatModule:function(){
+      var out={};Object.keys(LIEF_KAT_MODUL).forEach(function(k){out[k]=LIEF_KAT_MODUL[k].slice();});
+      return out;
+    },
+    // Modul-Keys, die dem eingeloggten Lieferanten aktuell offen stehen
+    // (aus dem Cache — synchron, fuer Kachel-Rendering).
+    getLieferantModule:function(user){
+      var u=user||w.GemaAuth.getCurrentUser();
+      if(!u||!_isLieferantUser(u))return [];
+      var c=_liefModCache(u);
+      return (c&&c.mods)?c.mods.slice():[];
+    },
+    // Sortiment-Cache neu aufbauen (Promise mit den Modul-Keys). Aufrufen,
+    // wenn sich Produkte oder Firmenkategorien geaendert haben.
+    refreshLieferantModule:function(user){
+      var u=user||w.GemaAuth.getCurrentUser();
+      return new Promise(function(res){
+        if(!u){res([]);return;}
+        _liefModsRefresh(u,function(mods){res(mods||[]);});
+      });
+    },
+    // Sortiment-Cache DIREKT aus bekannten Kategorien setzen. Das Dashboard
+    // hat sein Lieferanten-Profil samt Produkten bereits aufgeloest (inkl.
+    // Auto-Provisionierung) — es kennt die Wahrheit besser als ein zweiter
+    // Cloud-Roundtrip und meldet sie hier. Liefert die Modul-Keys.
+    setLieferantModuleAusKategorien:function(kats,user){
+      var u=user||w.GemaAuth.getCurrentUser();
+      if(!u||!_isLieferantUser(u))return [];
+      var mods=_liefModsAusKats(kats||[]);
+      _liefModsWrite(u,mods);
+      return mods;
+    },
+    isLieferantUser:function(user){return _isLieferantUser(user||w.GemaAuth.getCurrentUser());},
     getOrgs:_getOrgs,
     getOrgCats:_getOrgCats,
     getKategorieGruppe:_kategorieGruppe,
@@ -1484,6 +1699,10 @@
       // Schule: Klassen-Freischaltung für Studierende (read+write additiv —
       // damit zeigen auch index/sb_index genau die freigeschalteten Kacheln)
       if((action==='read'||action==='write')&&_studentModAllowed(user,key))return true;
+      // Lieferanten: Berechnungen ihres Sortiments (read+write — ohne write
+      // koennte er nichts durchrechnen, AutoSave wuerde nicht speichern).
+      // Die Berechnungen landen in seiner EIGENEN Org.
+      if((action==='read'||action==='write')&&_liefModAllowed(user,key))return true;
       return false;
     },
     // KEIN client-seitiger Login mehr (Sicherheits-Bereinigung 27.07.2026).
