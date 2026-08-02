@@ -99,7 +99,13 @@ await page.evaluate(() => { const single = [].find.call(document.querySelectorAl
 await page.waitForTimeout(80);
 await page.evaluate(() => { document.getElementById('eq_menge').value = '1'; erpQtyConfirm(); });
 await page.waitForTimeout(80);
-ok(await page.evaluate(() => { const p = cur.positionen[cur.positionen.length - 1]; return p && p.bez === 'Einzelartikel WC'; }), 'P6: Kurz-Modus fügt den Produktnamen ein');
+// Der Beschrieb trägt seit _dsPosBez zusätzlich die Artikelnummer auf einer
+// eigenen Zeile — geprüft wird deshalb die Semantik: im Kurz-Modus steht der
+// Produktname drin und NICHT der ausführliche Text.
+ok(await page.evaluate(() => {
+  const p = cur.positionen[cur.positionen.length - 1];
+  return p && /Einzelartikel WC/.test(p.bez) && !/Absenkautomatik/.test(p.bez);
+}), 'P6: Kurz-Modus fügt den Produktnamen ein (ohne Langtext)');
 
 console.log('■ P12 — Ausführungs-Dialog ohne Preis');
 await page.evaluate(() => { const g = document.querySelector('#dsRes_1900 .side-art[data-dsgroup]'); erpArtGoEl(g); });

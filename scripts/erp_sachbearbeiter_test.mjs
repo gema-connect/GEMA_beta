@@ -82,12 +82,28 @@ console.log('■ ERP: Sachbearbeiter-Default + Vererbung');
     const f = document.getElementById('fSb');
     return !!f && f.innerHTML.indexOf('Petra Muster') >= 0;
   }), 'Toolbar: Sachbearbeiter-Filter mit beiden Personen');
-  ok(await page.evaluate(() => document.getElementById('docList').innerHTML.indexOf('👔 Petra Muster') >= 0), 'Karte zeigt 👔 Sachbearbeiter');
+  // Die Dokumentliste ist seit dem Spalten-Umbau standardmässig eine TABELLE
+  // (_erpDocView='liste'). «Sachbearbeiter» ist dort eine ZUSCHALTBARE Spalte
+  // (bewusst nicht im schlanken Standard-Satz) — geprüft wird deshalb, dass
+  // sie sich einblenden lässt und dann den Namen zeigt.
+  ok(await page.evaluate(() => {
+    erpColToggle('sb');
+    const drin = document.getElementById('docList').textContent.indexOf('Petra Muster') >= 0;
+    erpColToggle('sb');
+    return drin;
+  }), 'Listenansicht: Sachbearbeiter-Spalte zuschaltbar und befüllt');
+  ok(await page.evaluate(() => {
+    erpSetDocView('karten');
+    const h = document.getElementById('docList').innerHTML;
+    erpSetDocView('liste');
+    return h.indexOf('👔 Petra Muster') >= 0;
+  }), 'Karte zeigt 👔 Sachbearbeiter');
   {
     const n = await page.evaluate(() => {
       document.getElementById('fSb').value = 'user_petra';
       erpRenderList();
-      return document.querySelectorAll('#docList .card, #docList .drow').length;
+      // Zeilen in beiden Ansichten zählen (Tabelle ODER Karten)
+      return document.querySelectorAll('#docList .card, #docList .drow, #docList table.dtbl tbody tr').length;
     });
     ok(n === 1, 'Filter auf Petra: nur ihre Offerte (' + n + ' Eintrag)');
     await page.evaluate(() => { document.getElementById('fSb').value = ''; erpRenderList(); });
