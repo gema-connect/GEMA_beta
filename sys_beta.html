@@ -174,8 +174,12 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important;opacity:1}
 .comment-item.ci-erledigt{opacity:.55;background:var(--bg2)}
 .comment-item.ci-erledigt .comment-text{text-decoration:line-through}
 .cb-counts{display:inline-flex;gap:4px;margin-left:2px}
-.cb-c-open{background:var(--red);color:#fff;font-size:9px;font-weight:800;padding:1px 5px;border-radius:9px;line-height:1.5}
-.cb-c-done{background:var(--grn);color:#fff;font-size:9px;font-weight:800;padding:1px 5px;border-radius:9px;line-height:1.5}
+.cb-c-open,.cb-c-arbeit,.cb-c-done{color:#fff;font-size:9px;font-weight:800;padding:1px 5px;border-radius:9px;line-height:1.5}
+.cb-c-open{background:var(--red)}
+/* «In Arbeit» ist kein offener Punkt mehr — gelb wie der Status-Wähler am
+   Kommentar, damit die Modul-Zeile denselben Ampel-Code spricht. */
+.cb-c-arbeit{background:var(--amb)}
+.cb-c-done{background:var(--grn)}
 .comment-input-row{padding:8px 12px;border-top:1px solid var(--brd);display:flex;gap:6px;align-items:flex-end;background:var(--sur2)}
 .comment-inp-wrap{flex:1;display:flex;flex-direction:column;gap:5px}
 .comment-type-sel{padding:4px 8px;border:1.5px solid var(--brd2);border-radius:7px;font-size:11.5px;font-weight:700;background:var(--bg2);color:var(--txt2);outline:none;min-height:28px;cursor:pointer}
@@ -868,12 +872,7 @@ const buildRow = (m, isSub) => {
     <td class="mod-td">
       <div class="comment-area">
         <button class="comment-toggle" onclick="toggleFbPanel('${m.id}')">
-          💬 ${cCount > 0 ? (()=>{
-            const oc=countOpenComments(m.id), dc=cCount-oc;
-            if(oc>0&&dc>0) return '<span class="cb-counts"><span class="cb-c-open">'+oc+'</span><span class="cb-c-done">'+dc+'</span></span>';
-            if(oc>0) return '<span class="cb-counts"><span class="cb-c-open">'+oc+'</span></span>';
-            return '<span class="cb-counts"><span class="cb-c-done">'+dc+' ✓</span></span>';
-          })() : 'Kommentar hinzufügen'}
+          💬 ${commentBadgeHtml(m.id, cCount)}
         </button>
       </div>
     </td>`;
@@ -1162,33 +1161,38 @@ const refreshCommentUI = (id) => {
   if (row) {
     const btn = row.querySelector('.comment-toggle');
     const cnt = totalComments(id);
-    const openCnt = countOpenComments(id);
-    const doneCnt = cnt - openCnt;
-    if (btn) {
-      if (cnt > 0) {
-        let badge = `<span class="comment-count-badge">${cnt}</span>`;
-        if (openCnt > 0 && doneCnt > 0) {
-          badge = `<span class="cb-counts"><span class="cb-c-open">${openCnt}</span><span class="cb-c-done">${doneCnt}</span></span>`;
-        } else if (openCnt > 0) {
-          badge = `<span class="cb-counts"><span class="cb-c-open">${openCnt}</span></span>`;
-        } else {
-          badge = `<span class="cb-counts"><span class="cb-c-done">${doneCnt} ✓</span></span>`;
-        }
-        btn.innerHTML = `💬 ${badge}`;
-      } else {
-        btn.innerHTML = '💬 Kommentar hinzufügen';
-      }
-    }
+    if (btn) btn.innerHTML = `💬 ${commentBadgeHtml(id, cnt)}`;
     row.dataset.hasComments = cnt > 0 ? '1' : '0';
   }
 };
 
-// Count open (non-erledigt) comments
-const countOpenComments = (id) => {
+// Kommentare eines Moduls nach Status zählen — EINE Wahrheit für die
+// Modul-Zeile (Zähler-Badges) und den Filter. Das Badge-Markup baut
+// `commentBadgeHtml` daraus; so können die beiden Render-Stellen
+// (buildRow + refreshCommentUI) nicht auseinanderlaufen.
+const countByStatus = (id) => {
   const ms = mState(id);
-  const manual = (ms.comments || []).filter(c => (c.cStatus||'offen') !== 'erledigt').length;
-  const fb = getFeedback(id).filter(c => (c.cStatus||'offen') !== 'erledigt').length;
-  return manual + fb;
+  const out = {offen:0, bearbeitung:0, erledigt:0};
+  const zaehle = c => { const s = c.cStatus||'offen'; out[out.hasOwnProperty(s)?s:'offen']++; };
+  (ms.comments || []).forEach(zaehle);
+  getFeedback(id).forEach(zaehle);
+  return out;
+};
+// Count open (non-erledigt) comments — bleibt die Grundlage des Filters
+// «Offene Kommentare»: in Arbeit ist noch nicht erledigt.
+const countOpenComments = (id) => {
+  const c = countByStatus(id);
+  return c.offen + c.bearbeitung;
+};
+// Zähler-Badges der Modul-Zeile: rot = offen · gelb = in Arbeit · grün = erledigt.
+const commentBadgeHtml = (id, total) => {
+  if (!total) return 'Kommentar hinzufügen';
+  const c = countByStatus(id);
+  const teile = [];
+  if (c.offen)       teile.push('<span class="cb-c-open" title="offen">'+c.offen+'</span>');
+  if (c.bearbeitung) teile.push('<span class="cb-c-arbeit" title="in Arbeit">'+c.bearbeitung+'</span>');
+  if (c.erledigt)    teile.push('<span class="cb-c-done" title="erledigt">'+c.erledigt+(c.offen||c.bearbeitung?'':' ✓')+'</span>');
+  return '<span class="cb-counts">'+(teile.join('') || '<span class="comment-count-badge">'+total+'</span>')+'</span>';
 };
 
 // ── FILTER / SEARCH ───────────────────────────────────────────

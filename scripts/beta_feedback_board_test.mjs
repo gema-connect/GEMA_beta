@@ -95,6 +95,19 @@ await page.evaluate(() => fbBulkStatus('bearbeitung'));
   ok(st.lu.join() === 'bearbeitung,bearbeitung' && st.dd.join() === 'bearbeitung', 'Bulk setzt alle 3 Punkte auf «In Arbeit» (beide Module gespeichert)');
   ok(st.sel === 0 && !st.bar, 'Auswahl geleert, Leiste verschwindet');
 }
+// «In Arbeit» ist auf Modulebene GELB, nicht rot — rot bleibt den wirklich
+// offenen Punkten vorbehalten (sonst sieht ein Modul, an dem gerade
+// gearbeitet wird, gleich dringend aus wie ein unangetastetes).
+{
+  const b = await page.evaluate(() => {
+    const btn = document.querySelector('tr[data-id=lu_tabelle] .comment-toggle');
+    const a = btn.querySelector('.cb-c-arbeit');
+    return { arbeit: a && a.textContent, gelb: a && getComputedStyle(a).backgroundColor, rot: !!btn.querySelector('.cb-c-open') };
+  });
+  ok(b.arbeit === '2', 'Modul-Zeile zählt die 2 Punkte «In Arbeit» separat');
+  ok(b.gelb === 'rgb(217, 119, 6)', 'und zeigt sie GELB (--amb) statt rot' + (b.gelb ? ' — ist ' + b.gelb : ''));
+  ok(!b.rot, 'Kein roter Offen-Zähler mehr, sobald nichts mehr offen ist');
+}
 // Bulk erneut: alle auf erledigt → Zähler-Badge grün
 await page.evaluate(() => { fbSelAll('lu_tabelle'); fbBulkStatus('erledigt'); });
 ok(await page.evaluate(() => JSON.parse(_GemaDB.c['feedback_lu_tabelle']).every(e => e.cStatus === 'erledigt')), 'Zweiter Bulk-Lauf: beide Punkte erledigt');
@@ -161,6 +174,33 @@ ok(await page.evaluate(() => document.body.classList.contains('beta-mine-only'))
 await page.evaluate(() => document.querySelector('.fb[data-f="all"]').click());
 ok(await page.evaluate(() => !document.body.classList.contains('beta-mine-only')
   && document.querySelector('tr[data-id=druckdispositiv]').style.display !== 'none'), 'Filter «Alle» → beta-mine-only weg, fremde Module wieder sichtbar');
+
+// Alle drei Status gleichzeitig: rot · gelb · grün nebeneinander.
+// Steht bewusst zuletzt — der Block setzt die Kommentare des Moduls neu.
+console.log('■ Ampel auf Modulebene: offen · in Arbeit · erledigt');
+{
+  const drei = await page.evaluate(() => {
+    // Zustand vollständig neu setzen (nicht den gewachsenen weiterverwenden),
+    // damit der Check unabhängig von den Schritten davor ist.
+    _GemaDB.c['feedback_lu_tabelle'] = JSON.stringify([
+      { type: 'fehler', author: 'Robin', text: 'noch offen', ts: '17.07.26, 08:00', cStatus: 'offen' },
+      { type: 'kommentar', author: 'Robin', text: 'wird bearbeitet', ts: '17.07.26, 08:05', cStatus: 'bearbeitung' }
+    ]);
+    mState('lu_tabelle').comments = [{ id: 'x1', text: 'fertig', author: 'T', ts: Date.now(), cStatus: 'erledigt' }];
+    renderAll();
+    const btn = document.querySelector('tr[data-id=lu_tabelle] .comment-toggle');
+    return {
+      o: (btn.querySelector('.cb-c-open') || {}).textContent,
+      a: (btn.querySelector('.cb-c-arbeit') || {}).textContent,
+      d: (btn.querySelector('.cb-c-done') || {}).textContent,
+      filter: countOpenComments('lu_tabelle')
+    };
+  });
+  ok(drei.o === '1' && drei.a === '1' && drei.d === '1', 'Alle drei Status nebeneinander (1 offen · 1 in Arbeit · 1 erledigt)');
+  // Der Filter «Offene Kommentare» zählt weiterhin beides — in Arbeit ist
+  // noch nicht erledigt, nur eben nicht mehr rot.
+  ok(drei.filter === 2, 'Filter «Offene Kommentare» zählt «In Arbeit» weiterhin mit');
+}
 
 ok(errors.length === 0, 'Keine JS-Fehler' + (errors.length ? ' — ' + errors[0] : ''));
 
