@@ -140,9 +140,10 @@ exports.handler = async function (event) {
     return C.resp(429, { error: 'Zu viele Anfragen — bitte kurz warten.' });
   }
 
-  // Der Redirect liefert den Splat inkl. Endung: «abc123XyZ9.vcf»
-  const qs = event.queryStringParameters || {};
-  const slug = String(qs.slug || '').trim().replace(/\.vcf$/i, '');
+  // Der Redirect liefert den Splat inkl. Endung: «abc123XyZ9.vcf» — und
+  // je nach Plattform gar nicht (siehe C.slugAusEvent), darum auch aus dem
+  // Pfad lesen.
+  const slug = C.slugAusEvent(event, 'v').replace(/\.vcf$/i, '');
   if (!C.slugOk(slug)) return C.resp(400, { error: 'Ungültiger Link' });
 
   try {

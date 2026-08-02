@@ -465,5 +465,94 @@ t('SW prueft nur same-origin (CDN-Pfade mit /p/ fallen nicht hinein)',
   sw.includes('u.origin === self.location.origin'));
 t('SW cacht keine POSTs der Karten-API', sw.includes("event.request.method === 'GET'"));
 
+/* ══ K — Kartenkopf: Firmenfarben + nicht abgeschnittenes Foto ══════ */
+console.log('\n— K: Kartenkopf (Foto, Firmenfarben) —');
+
+// Der Avatar ragt mit bottom:-44px bewusst aus dem Kopf; ein overflow:hidden
+// auf .chd schnitt ihn unten ab (Praxisbefund am ersten echten Scan).
+const chd = /\.chd\{[\s\S]*?\}/.exec(cardHtml);
+t('.chd-Regel gefunden', !!chd);
+t('.chd schneidet den Avatar NICHT mehr ab (kein overflow:hidden)',
+  !!chd && !/overflow\s*:\s*hidden/.test(chd[0]));
+t('Der Kopf-Verlauf ist ueber Variablen steuerbar',
+  !!chd && /--hd1:/.test(chd[0]) && /var\(--hd1\)/.test(chd[0]));
+t('Ohne Firmenfarbe bleiben die GEMA-Toene', !!chd && /--hd1:#0f172a/.test(chd[0]));
+t('Auch die Deko-Ecke folgt der Marke', /radial-gradient\([^)]*var\(--hd3\)/.test(cardHtml));
+t('sys_card.html faerbt den Kopf aus karte.brand',
+  /function brandAnwenden/.test(cardHtml) && /brandAnwenden\(k\.brand\)/.test(cardHtml));
+
+// Weisse Schrift auf dem Kopf → die Firmenfarbe muss abgedunkelt werden.
+(function () {
+  const m = /function hexRgb\(h\)\{[\s\S]*?function dunkelFuerWeiss\(hex,ziel\)\{[\s\S]*?\n  \}/.exec(cardHtml);
+  t('Kontrast-Helfer in sys_card.html gefunden', !!m);
+  if (!m) return;
+  const H = new Function(m[0] + '; return {dunkelFuerWeiss:dunkelFuerWeiss,hexRgb:hexRgb,kontrastWeiss:kontrastWeiss};')();
+  const pruef = (hex) => {
+    const d = H.dunkelFuerWeiss(hex, 5.5);
+    return d && H.kontrastWeiss(H.hexRgb(d)) >= 5.5;
+  };
+  t('Knallgelb wird lesbar abgedunkelt', pruef('#f5c518'));
+  t('Reines Gelb wird lesbar abgedunkelt', pruef('#ffff00'));
+  t('Weiss als Firmenfarbe bleibt lesbar', pruef('#ffffff'));
+  t('Eine bereits dunkle Farbe bleibt unveraendert',
+    H.dunkelFuerWeiss('#1e3a5f', 5.5) === '#1e3a5f');
+  t('Unsinn ergibt keine Farbe (Kopf bleibt GEMA)',
+    H.dunkelFuerWeiss('nope', 5.5) === null);
+})();
+
+// Der Server liefert NUR zwei geprüfte Hex-Werte — nie ein Settings-Objekt.
+t('brand ist eine Spalte von card_profiles', /brand\s+jsonb/.test(sql));
+t('brand wird auch in bestehenden Installationen nachgezogen',
+  /alter table public\.card_profiles add column if not exists brand jsonb;/.test(sql));
+t('brand wird mitgelesen', /field_origin,brand,/.test(ccard));
+t('brand steht in der oeffentlichen Sicht', /brand: markeOeffentlich\(p\.brand\)/.test(ccard));
+t('Nur echte Hex-Werte gehen raus', C.markeOeffentlich({ primary: '#1e3a5f' }).primary === '#1e3a5f');
+t('Sekundaerfarbe optional', !('secondary' in C.markeOeffentlich({ primary: '#1e3a5f' })));
+t('Kein CSS-Einschleusen ueber die Farbe',
+  C.markeOeffentlich({ primary: 'red;background:url(x)' }) === null
+  && C.markeOeffentlich({ primary: '#fff' }) === null
+  && C.markeOeffentlich({ primary: '#1e3a5f', secondary: 'javascript:alert(1)' }).secondary === undefined);
+t('Kein Durchreichen fremder Settings-Felder',
+  JSON.stringify(C.markeOeffentlich({ primary: '#1e3a5f', geheim: 'x' })) === '{"primary":"#1e3a5f"}');
+t('Ohne Firmenfarbe kommt null', C.markeOeffentlich(null) === null && C.markeOeffentlich({}) === null);
+t('Die Farbe kommt aus org.settings.pdfFarben', /settings && org\.settings\.pdfFarben/.test(capi));
+t('Farbwechsel der Firma greift beim Oeffnen des Editors', /const marke = await orgMarke\(user\)/.test(capi));
+t('Beim Firmenaustritt wird die Farbe geleert', /if \(p\.brand\) patch\.brand = null;/.test(capi));
+
+/* ══ L — vCard: «Kontakt speichern» ═════════════════════════════════ */
+console.log('\n— L: vCard-Abruf —');
+
+// /v/<slug>.vcf ist derselbe Rewrite-Fall wie /p/ — das ?slug=:splat kam
+// nicht an, die Function sah einen leeren Slug: «Ungültiger Link».
+t('card-vcard liest den Slug pfad-tolerant', /C\.slugAusEvent\(event, 'v'\)/.test(R('netlify/functions/card-vcard.js')));
+t('Query hat weiterhin Vorrang',
+  C.slugAusEvent({ queryStringParameters: { slug: 'ausQuery' }, path: '/v/ausPfad.vcf' }, 'v') === 'ausQuery');
+t('Ohne Query kommt der Slug aus event.path',
+  C.slugAusEvent({ path: '/v/7Xk2mQpL9a.vcf' }, 'v') === '7Xk2mQpL9a.vcf');
+t('Ohne Query und ohne path hilft rawUrl',
+  C.slugAusEvent({ rawUrl: 'https://gema.ch/v/7Xk2mQpL9a.vcf' }, 'v') === '7Xk2mQpL9a.vcf');
+t('.vcf wird abgeschnitten und der Slug ist gueltig',
+  C.slugOk(C.slugAusEvent({ path: '/v/7Xk2mQpL9a.vcf' }, 'v').replace(/\.vcf$/i, '')));
+t('Leerer Aufruf bleibt ungueltig (echter Fehlerfall)',
+  C.slugAusEvent({ path: '/v/' }, 'v') === '' && !C.slugOk(''));
+// «UngÃ¼ltiger Link» im Screenshot: die JSON-Antwort trug kein charset.
+// Der Code fragt jetzt die Spalte «brand» ab. Laeuft die Migration noch
+// nicht, muss die Meldung sagen, was zu tun ist — statt «Aktion fehlgeschlagen».
+t('Eine fehlende Spalte wird als Einrichtungsfall erkannt',
+  C.istFehlendeSpalte({ body: '{"code":"42703","message":"column card_profiles.brand does not exist"}' })
+  && C.istFehlendeSpalte({ body: 'PGRST204' }));
+t('Eine fehlende Spalte ist KEINE fehlende Tabelle',
+  !C.istFehlendeTabelle({ body: 'column card_profiles.brand does not exist' }));
+(function () {
+  const a = C.fehlerAntwort({ body: '42703 column card_profiles.brand does not exist' }, 'test');
+  const d = JSON.parse(a.body);
+  t('Sie nennt die Migrationsdatei', a.statusCode === 503 && d.setup === true
+    && /gema_card_v1\.sql/.test(d.detail));
+})();
+t('JSON-Antworten deklarieren UTF-8 (keine Mojibake)',
+  /'Content-Type': 'application\/json; charset=utf-8'/.test(ccard));
+t('Umlaut ueberlebt die Antwort',
+  Buffer.from(JSON.parse(C.resp(400, { error: 'Ungültiger Link' }).body).error, 'utf8').toString('utf8') === 'Ungültiger Link');
+
 console.log('\n' + (fail === 0 ? `✅ ${n}/${n} Tests grün` : `❌ ${fail}/${n} Tests rot`));
 process.exit(fail === 0 ? 0 : 1);

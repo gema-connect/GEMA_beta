@@ -65,6 +65,19 @@ async function projektErlaubt(user, projektId) {
 }
 
 /* ── Eigene Karte ────────────────────────────────────────────────────── */
+/* Firmenfarben aus org.settings.pdfFarben — dieselbe Quelle wie die
+   Berichts-PDFs (CLAUDE.md «Firmenfarben-Branding»). Fehlt die Org oder die
+   Farbe, kommt null zurueck und die Karte bleibt bei den GEMA-Farben. */
+async function orgMarke(user) {
+  if (!user || !user.orgId) return null;
+  try {
+    const rows = await C.sb('gema_data?module_key=eq.auth&data_key=eq.'
+      + C.q('org:' + user.orgId) + '&select=payload');
+    const org = rows && rows[0] && rows[0].payload && rows[0].payload.data;
+    return C.markeOeffentlich(org && org.settings && org.settings.pdfFarben);
+  } catch (e) { return null; }
+}
+
 async function meineKarte(user, anlegenWennFehlt) {
   let p = await C.profilByUser(user.id);
   if (p || !anlegenWennFehlt) return p;
@@ -81,6 +94,7 @@ async function meineKarte(user, anlegenWennFehlt) {
     email: mail || null,
     phone: (user.profile && user.profile.telefon) || null,
     claimed_at: new Date().toISOString(),
+    brand: await orgMarke(user),
     field_origin: { email: 'org' }
   }, { returning: true });
   return (rows && rows[0]) ? await C.profilById(rows[0].id) : null;
@@ -90,8 +104,15 @@ async function meineKarte(user, anlegenWennFehlt) {
 const A = {};
 
 A.me = async function (body, user) {
-  const p = await meineKarte(user, body.anlegen !== false);
+  let p = await meineKarte(user, body.anlegen !== false);
   if (!p) return C.resp(200, { karte: null });
+  // Farbwechsel der Firma soll ohne Zutun des Nutzers greifen — beim Oeffnen
+  // des Editors abgleichen (nicht im oeffentlichen Pfad, der bleibt schlank).
+  const marke = await orgMarke(user);
+  if (JSON.stringify(marke || null) !== JSON.stringify(C.markeOeffentlich(p.brand) || null)) {
+    const rows = await C.sbUpdate('card_profiles', 'id=eq.' + C.q(p.id), { brand: marke });
+    p = (rows && rows[0]) ? rows[0] : p;
+  }
   const offen = await C.sbSelect('card_reports', 'profile_slug=eq.' + C.q(p.slug) + '&resolved_at=is.null&select=id');
   return C.resp(200, { karte: C.sanitizePublic(p, { voll: true }), meldungen: offen.length });
 };
@@ -420,6 +441,8 @@ A.org_austritt = async function (body, user) {
   const fo = p.field_origin || {};
   const patch = {};
   SAVE_FELDER.forEach(function (f) { if (fo[f] === 'org') patch[f] = null; });
+  // Die Firmenfarben gehoeren der Firma — beim Austritt weg (Slug/QR bleiben).
+  if (p.brand) patch.brand = null;
   if (!Object.keys(patch).length) return C.resp(200, { ok: true, geleert: 0 });
   patch.field_origin = Object.keys(fo).reduce(function (acc, k) { if (fo[k] !== 'org') acc[k] = fo[k]; return acc; }, {});
   await C.sbUpdate('card_profiles', 'id=eq.' + C.q(p.id), patch);

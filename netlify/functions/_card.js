@@ -32,7 +32,9 @@ const CORS = {
 function resp(status, obj, extraHeaders) {
   return {
     statusCode: status,
-    headers: Object.assign({ 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }, CORS, extraHeaders || {}),
+    // charset=utf-8 ist PFLICHT — ohne raet der Browser latin-1 und aus
+    // «Ungültiger Link» wird «UngÃ¼ltiger Link».
+    headers: Object.assign({ 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }, CORS, extraHeaders || {}),
     body: JSON.stringify(obj)
   };
 }
@@ -153,6 +155,23 @@ function slugNeu(len) {
   return out;
 }
 function slugOk(s) { return typeof s === 'string' && /^[1-9A-HJ-NP-Za-km-z]{6,24}$/.test(s); }
+
+/* Slug eines Kurz-URL-Aufrufs: Query zuerst, dann der PFAD.
+   KRITISCH — /v/<slug>.vcf ist ein Netlify-Rewrite; das `?slug=:splat` aus
+   dem `to` kam im Praxistest NICHT an, die Function sah einen leeren Slug
+   und antwortete «Ungueltiger Link» (derselbe Grund, weshalb /p/<slug>
+   clientseitig aus dem Pfad gelesen werden muss). event.path bzw. rawUrl
+   tragen den originalen Pfad und sind die verlaessliche Quelle. */
+function slugAusEvent(event, ordner) {
+  const qs = (event && event.queryStringParameters) || {};
+  let s = String(qs.slug || '').trim();
+  if (!s) {
+    const re = new RegExp('/' + ordner + '/([^/?#]+)');
+    const m = re.exec(String((event && event.path) || '')) || re.exec(String((event && event.rawUrl) || ''));
+    if (m) { try { s = decodeURIComponent(m[1]); } catch (e) { s = m[1]; } }
+  }
+  return s.trim();
+}
 function tokenNeu() { return crypto.randomBytes(24).toString('hex'); }   // 48 hex, wie rev-share/goodel
 function tokenOk(t) { return typeof t === 'string' && /^[a-f0-9]{32,64}$/.test(t); }
 
@@ -196,6 +215,18 @@ function feldOeffentlich(p, feld) {
  *
  * opts.voll = true  → Inhaber/Admin sieht alles (Editor, eigene Karte)
  */
+/* Nur die zwei Farbwerte durchlassen — nie ein ganzes Settings-Objekt.
+   Beide muessen echte Hex-Farben sein, sonst faellt die Seite auf GEMA
+   zurueck (ein fremder String darf nie in einen CSS-Wert wandern). */
+const HEX = /^#[0-9a-fA-F]{6}$/;
+function markeOeffentlich(b) {
+  if (!b || typeof b !== 'object') return null;
+  const prim = String(b.primary || '').trim();
+  if (!HEX.test(prim)) return null;
+  const sec = String(b.secondary || '').trim();
+  return HEX.test(sec) ? { primary: prim, secondary: sec } : { primary: prim };
+}
+
 function sanitizePublic(p, opts) {
   if (!p) return null;
   const voll = !!(opts && opts.voll);
@@ -209,7 +240,11 @@ function sanitizePublic(p, opts) {
     updated_at: p.updated_at || null,
     // Schattenprofil = noch niemand hat die Karte uebernommen. Das Frontend
     // blendet daraufhin das «Das bist du?»-Banner ein (Konzept §2.1).
-    schatten: !p.user_id
+    schatten: !p.user_id,
+    // Firmenfarben des Kartenkopfs. Kein Personendatum — die Farbe steht
+    // ohnehin auf jedem Briefkopf der Firma; die Karte soll aussehen wie
+    // das Unternehmen. Fehlt sie, zeichnet die Seite die GEMA-Farben.
+    brand: markeOeffentlich(p.brand)
   };
   FELDER_OPTIONAL.forEach(function (f) {
     if (voll || feldOeffentlich(p, f)) { if (p[f]) out[f] = p[f]; }
@@ -273,6 +308,14 @@ function istFehlenderBucket(e) {
   const s = String((e && (e.body || e.message)) || '');
   return /Bucket not found|bucket_not_found/i.test(s);
 }
+/* Eine fehlende SPALTE ist ein eigener Fall: die Tabelle ist da, aber aelter
+   als der Code (z.B. card_profiles ohne «brand»). Ohne diese Erkennung kaeme
+   ein nichtssagendes «Aktion fehlgeschlagen» — dabei genuegt es, dieselbe
+   Migrationsdatei erneut auszufuehren (sie ist idempotent). */
+function istFehlendeSpalte(e) {
+  const s = String((e && (e.body || e.message)) || '');
+  return /PGRST204|42703|column .* does not exist|Could not find the '[^']+' column/i.test(s);
+}
 function fehlerAntwort(e, wo) {
   console.error('[' + wo + ']', (e && e.message) || e);
   if (istFehlendeTabelle(e)) {
@@ -280,6 +323,15 @@ function fehlerAntwort(e, wo) {
       error: 'Die GEMA Card ist auf diesem Server noch nicht eingerichtet.',
       detail: 'Die Datenbank-Tabellen fehlen. Ein Administrator muss supabase/gema_card_v1.sql '
         + 'einmalig im Supabase-SQL-Editor ausführen.',
+      setup: true
+    });
+  }
+  if (istFehlendeSpalte(e)) {
+    return resp(503, {
+      error: 'Die Datenbank ist aelter als diese GEMA-Version.',
+      detail: 'Einer Karten-Tabelle fehlt eine Spalte. supabase/gema_card_v1.sql '
+        + 'einmal erneut im Supabase-SQL-Editor ausfuehren — die Datei ist '
+        + 'wiederholbar und aendert bestehende Daten nicht.',
       setup: true
     });
   }
@@ -334,7 +386,7 @@ async function dbLimit(eventName, hash, maxN, windowMs) {
 /* ── Profile laden ───────────────────────────────────────────────────── */
 const PROFILE_COLS = 'id,user_id,slug,display_name,first_name,last_name,company,company_uid,role_title,'
   + 'phone,phone_office,email,website,address,zip,city,photo_path,photo_vcard_path,fields_public,'
-  + 'field_origin,claim_token,claimed_at,created_by,updated_at,created_at';
+  + 'field_origin,brand,claim_token,claimed_at,created_by,updated_at,created_at';
 
 // EXAKTER Slug-Match — kein LIKE, keine Suche, kein Listing (Konzept §8).
 async function profilBySlug(slug) {
@@ -402,12 +454,12 @@ module.exports = {
   CORS, resp, preflight, configured,
   sb, sbSelect, sbCount, sbInsert, sbUpdate, sbDelete, q,
   storageGet, storagePut, storageDelete,
-  slugNeu, slugOk, slugFrei, tokenNeu, tokenOk,
+  slugNeu, slugOk, slugAusEvent, slugFrei, tokenNeu, tokenOk,
   FELDER_IMMER, FELDER_OPTIONAL, FIELDS_PUBLIC_DEFAULT,
-  fieldsPublic, feldOeffentlich, sanitizePublic,
+  fieldsPublic, feldOeffentlich, sanitizePublic, markeOeffentlich,
   clientIp, uaHash, logEvent, EVENTS_OK,
   memLimit, dbLimit,
-  istFehlendeTabelle, istFehlenderBucket, fehlerAntwort,
+  istFehlendeTabelle, istFehlendeSpalte, istFehlenderBucket, fehlerAntwort,
   PROFILE_COLS, profilBySlug, profilById, profilByUser, profilByMail, profilByClaimToken,
   notify, gemaUser
 };

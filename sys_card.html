@@ -46,11 +46,19 @@ body{font-family:var(--sans);background:var(--bg);color:var(--txt);min-height:10
 .wrap{max-width:520px;margin:0 auto;padding:calc(18px + env(safe-area-inset-top,0px)) 16px 40px}
 .card{background:var(--sur);border-radius:20px;overflow:hidden;
   box-shadow:0 10px 34px rgba(15,23,42,.13);border:1px solid var(--brd)}
-.chd{position:relative;background:linear-gradient(135deg,#0f172a 0%,#1e3a5f 55%,#0c4a2e 100%);
-  color:#fff;padding:26px 22px 62px;text-align:center;overflow:hidden}
+/* KEIN overflow:hidden — der Avatar ragt mit bottom:-44px bewusst aus dem
+   Kopf heraus und wurde davon unten abgeschnitten. Die runden Ecken macht
+   ohnehin .card (overflow:hidden + border-radius), und das ::after liegt
+   mit inset:0 exakt auf dem Kopf, kann also gar nicht ueberlaufen.
+   Die Farben kommen aus --hd1/--hd2/--hd3: per Vorgabe GEMA (Navy→Forest),
+   bei hinterlegten Firmenfarben setzt brandAnwenden() sie um. */
+.chd{position:relative;
+  --hd1:#0f172a; --hd2:#1e3a5f; --hd3:#0c4a2e;
+  background:linear-gradient(135deg,var(--hd1) 0%,var(--hd2) 55%,var(--hd3) 100%);
+  color:#fff;padding:26px 22px 62px;text-align:center}
 .chd::after{content:'';position:absolute;inset:0;opacity:.28;pointer-events:none;
   background:radial-gradient(circle at 22% 12%,rgba(255,255,255,.22),transparent 46%),
-             radial-gradient(circle at 82% 78%,rgba(12,74,46,.5),transparent 52%)}
+             radial-gradient(circle at 82% 78%,var(--hd3),transparent 52%)}
 .brandline{position:relative;z-index:1;font-size:10px;font-weight:800;letter-spacing:.16em;
   text-transform:uppercase;opacity:.75}
 .avatar{position:absolute;left:50%;bottom:-44px;transform:translateX(-50%);width:104px;height:104px;
@@ -308,9 +316,50 @@ textarea.inp{min-height:74px;resize:vertical}
     return p(d.getDate())+'.'+p(d.getMonth()+1)+'.'+d.getFullYear();
   }
 
+  /* ── Firmenfarben im Kartenkopf ─────────────────────────────────────
+     Quelle ist org.settings.pdfFarben (dieselbe wie die Berichts-PDFs), vom
+     Server als karte.brand geliefert. Auf dem Kopf steht WEISSE Schrift —
+     eine helle Firmenfarbe waere darauf unlesbar. Darum derselbe
+     Kontrastschutz wie in gema_schaden_pdf.js: die Farbe wird Richtung
+     Schwarz skaliert (Hue bleibt), bis der Kontrast gegen Weiss reicht.
+     Ohne (gueltige) Farbe bleiben die GEMA-Toene aus dem CSS stehen. */
+  function hexRgb(h){
+    h=String(h||'').trim().replace(/^#/,'');
+    if(!/^[0-9a-fA-F]{6}$/.test(h))return null;
+    return {r:parseInt(h.slice(0,2),16),g:parseInt(h.slice(2,4),16),b:parseInt(h.slice(4,6),16)};
+  }
+  function rgbHex(r,g,b){function h(n){n=Math.max(0,Math.min(255,Math.round(n)));return (n<16?'0':'')+n.toString(16);}
+    return '#'+h(r)+h(g)+h(b);}
+  function kontrastWeiss(c){
+    var a=[c.r,c.g,c.b].map(function(v){v/=255;return v<=0.03928?v/12.92:Math.pow((v+0.055)/1.055,2.4);});
+    return 1.05/(0.2126*a[0]+0.7152*a[1]+0.0722*a[2]+0.05);
+  }
+  function dunkelFuerWeiss(hex,ziel){
+    var c=hexRgb(hex); if(!c)return null;
+    if(kontrastWeiss(c)>=ziel)return rgbHex(c.r,c.g,c.b);
+    for(var f=1;f>0;){f-=0.025;
+      var d={r:c.r*f,g:c.g*f,b:c.b*f};
+      if(kontrastWeiss(d)>=ziel)return rgbHex(d.r,d.g,d.b);}
+    return '#1f2933';
+  }
+  function brandAnwenden(b){
+    if(!b||!b.primary)return;
+    var prim=dunkelFuerWeiss(b.primary,5.5);          // Text + Icons liegen darauf
+    if(!prim)return;
+    var tief=dunkelFuerWeiss(b.primary,9)||prim;      // dunkler Anfang des Verlaufs
+    var zweit=b.secondary?(dunkelFuerWeiss(b.secondary,5.5)||tief):tief;
+    var hd=document.querySelector('.chd'); if(!hd)return;
+    hd.style.setProperty('--hd1',tief);
+    hd.style.setProperty('--hd2',prim);
+    hd.style.setProperty('--hd3',zweit);
+    var m=document.querySelector('meta[name="theme-color"]');
+    if(m)m.setAttribute('content',tief);
+  }
+
   function render(){
     var k=karte;
     document.title=(k.display_name||'Kontaktkarte')+' – GEMA';
+    brandAnwenden(k.brand);
 
     // Avatar erst NACH dem Text (lazy) — der Name soll sofort stehen.
     $('avaSlot').innerHTML = k.hat_foto
