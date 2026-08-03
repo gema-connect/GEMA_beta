@@ -550,3 +550,81 @@ G.EL_POLE=EL_POLE; G.EL_ANLAUF=EL_ANLAUF;
 G.elAnlaufart=elAnlaufart; G.elPole=elPole; G.elMss=elMss; G.elMotorEta=elMotorEta;
 G.elNennstrom=elNennstrom; G.elScheinleistung=elScheinleistung; G.elNennmoment=elNennmoment;
 })();
+
+/* ══════════════════════════════════════════════════════════════════════════
+   ANHANG — Ladeinfrastruktur (E-Mobilität)
+   ══════════════════════════════════════════════════════════════════════════
+   Ergänzt window.GemaElektro; ändert KEINE bestehenden Werte.
+   Konsument: el_leistungsbedarf (Karte «Ladeinfrastruktur»).
+
+   Quellen
+     · IEC 61851-1        Mindest-Ladestrom Modus 3 = 6 A je Phase
+     · IEC 62196-2        Steckervorrichtung Typ 2, 32 A
+     · SN 411000 (NIN) 7.22 / IEC 60364-7-722  Stromkreise für E-Fahrzeuge
+     · IEC 62955          Fehlerstrom-Schutzeinrichtung mit 6-mA-DC-Erkennung
+   ══════════════════════════════════════════════════════════════════════════ */
+(function(){
+var G = window.GemaElektro; if(!G) return;
+
+/* Mindest-Ladestrom je Phase nach IEC 61851-1 (Modus 3). Darunter bricht
+   der Ladevorgang ab — der Wert ist NICHT «3.7 kW», das wäre 16 A 1~. */
+var EL_EVSE_IMIN = 6;
+
+/* Übliche Ladepunkt-Leistungen. `ph` = Phasenzahl, `iNenn` = Nennstrom je
+   Phase; die Leistung ergibt sich daraus und ist hier nur Beschriftung. */
+var EL_EVSE_STUFEN = [
+  { id:'3.7',  kw:3.7,  ph:1, iNenn:16, name:'3.7 kW — 1~ 16 A' },
+  { id:'7.4',  kw:7.4,  ph:1, iNenn:32, name:'7.4 kW — 1~ 32 A' },
+  { id:'11',   kw:11,   ph:3, iNenn:16, name:'11 kW — 3~ 16 A' },
+  { id:'22',   kw:22,   ph:3, iNenn:32, name:'22 kW — 3~ 32 A' },
+  { id:'frei', kw:null, ph:3, iNenn:null, name:'eigener Wert' }
+];
+
+/* Lastmanagement. `drosselt` = die Leistung je Ladepunkt wird reduziert,
+   `gzWirkt` = der Gleichzeitigkeitsfaktor bestimmt die Zahl der aktiven
+   Ladepunkte (beim dynamischen LM regelt die Anlage selbst). */
+var EL_LM = [
+  { id:'ohne',     name:'kein Lastmanagement', drosselt:false, gzWirkt:true,
+    hinweis:'Jeder Ladepunkt kann jederzeit seine volle Leistung ziehen. Der Anschluss muss die angenommene Gleichzeitigkeit tragen — bei mehreren Ladepunkten ist das selten wirtschaftlich und selten zulässig.' },
+  { id:'statisch', name:'statisches Lastmanagement', drosselt:true, gzWirkt:true,
+    hinweis:'Feste Leistungsgrenze je Ladepunkt. Einfach aufzubauen, nutzt den Anschluss aber schlecht aus, weil die Grenze auch dann gilt, wenn nur ein Fahrzeug lädt.' },
+  { id:'dyn',      name:'dynamisches Lastmanagement', drosselt:true, gzWirkt:false,
+    hinweis:'Die Anlage verteilt die freie Leistung laufend auf die aktiven Ladevorgänge und schaltet Ladepunkte in eine Warteschlange, sobald der Mindest-Ladestrom unterschritten würde. Nutzt den Anschluss am besten aus.' }
+];
+
+/** Ladepunkt-Stufe nach id. */
+function elEvseStufe(id){
+  for(var i = 0; i < EL_EVSE_STUFEN.length; i++)
+    if(EL_EVSE_STUFEN[i].id === String(id)) return EL_EVSE_STUFEN[i];
+  return null;
+}
+/** Lastmanagement-Art nach id (Fallback: dynamisch). */
+function elLm(id){
+  for(var i = 0; i < EL_LM.length; i++) if(EL_LM[i].id === String(id)) return EL_LM[i];
+  return EL_LM[2];
+}
+/** Aussenleiter-Erdspannung eines Systems: 3~ 400 V → 230 V, 1~ bleibt. */
+function elULN(u, phasen){
+  var U = Number(u);
+  if(!(U > 0)) return null;
+  return (Number(phasen) === 3) ? U / Math.sqrt(3) : U;
+}
+/** Leistung [kW] aus Strom: 1~ P = U_LN·I, 3~ P = √3·U_LL·I. */
+function elLeistungAusStrom(i, u, phasen){
+  var I = Number(i), U = Number(u);
+  if(!(I > 0) || !(U > 0)) return null;
+  var f = (Number(phasen) === 3) ? Math.sqrt(3) : 1;
+  return f * U * I / 1000;
+}
+/** Strom [A] aus Leistung — Gegenstück zu elLeistungAusStrom. */
+function elStromAusLeistung(pkw, u, phasen){
+  var P = Number(pkw), U = Number(u);
+  if(!(P > 0) || !(U > 0)) return null;
+  var f = (Number(phasen) === 3) ? Math.sqrt(3) : 1;
+  return P * 1000 / (f * U);
+}
+
+G.EL_EVSE_IMIN=EL_EVSE_IMIN; G.EL_EVSE_STUFEN=EL_EVSE_STUFEN; G.EL_LM=EL_LM;
+G.elEvseStufe=elEvseStufe; G.elLm=elLm; G.elULN=elULN;
+G.elLeistungAusStrom=elLeistungAusStrom; G.elStromAusLeistung=elStromAusLeistung;
+})();
