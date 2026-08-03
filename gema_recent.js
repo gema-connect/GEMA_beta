@@ -18,6 +18,7 @@
     'ab_quiz':'Quiz & Lernkarten',
     'ab_sephir':'SEPHIR Bildungsbericht',
     'br_gasloeschung':'Gaslöschanlagen N2/Novec',
+    'br_brandlast':'Brandlast Fluchtweg',
     'br_vkf_formular':'VKF-Formular',
     'br_vkf_formulare':'VKF-Formulare Sprinkler',
     'el_index':'Elektroberechnungen',
