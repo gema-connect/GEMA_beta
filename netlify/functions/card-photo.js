@@ -51,9 +51,19 @@ exports.handler = async function (event) {
   try {
     const p = await C.profilBySlug(slug);
     if (!p) return leer();
-    const pfad = (qs.v === 'klein' && p.photo_vcard_path) ? p.photo_vcard_path : (p.photo_path || p.photo_vcard_path);
-    if (!pfad) return leer();
-    const f = await C.storageGet(pfad);
+    // Gewuenschte Fassung zuerst, die andere als Rueckfall — ein einzelnes
+    // unlesbares Objekt im Bucket darf die Karte nicht bildlos lassen
+    // (gleiche Kette wie fotoLaden in card-vcard).
+    const reihe = qs.v === 'klein'
+      ? [p.photo_vcard_path, p.photo_path]
+      : [p.photo_path, p.photo_vcard_path];
+    let f = null;
+    for (const pfad of reihe) {
+      if (!pfad) continue;
+      f = await C.storageGet(pfad);
+      if (f && f.buf && f.buf.length) break;
+      f = null;
+    }
     if (!f) return leer();
     return {
       statusCode: 200,

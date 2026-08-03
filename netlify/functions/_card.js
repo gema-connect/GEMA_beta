@@ -112,27 +112,41 @@ async function sbDelete(table, qs) {
 }
 
 /* ── Storage (privater Bucket card-photos) ───────────────────────────── */
+/**
+ * Storage authentifiziert ANDERS als PostgREST: der Objekt-Endpoint prueft
+ * den `Authorization: Bearer`-Header, ein blosser `apikey` genuegt ihm
+ * NICHT. Bei einem Legacy-service_role-JWT faellt das nicht auf (sbHeaders
+ * setzt beides), bei einem neuen `sb_secret_`-Key aber sehr wohl — dann
+ * antwortet Storage 401 und jedes Bild verschwindet lautlos (die
+ * Kartenseite liefert ein leeres GIF, die vCard gar kein PHOTO).
+ * Deshalb hier IMMER Bearer, unabhaengig vom Key-Format.
+ */
+function storageHeaders(extra) {
+  return Object.assign({ 'apikey': SERVICE_KEY, 'Authorization': 'Bearer ' + SERVICE_KEY }, extra || {});
+}
+function storageUrl(path) {
+  return SB_URL + '/storage/v1/object/' + BUCKET + '/' + String(path).split('/').map(encodeURIComponent).join('/');
+}
 async function storageGet(path) {
-  const res = await fetch(SB_URL + '/storage/v1/object/' + BUCKET + '/' + String(path).split('/').map(encodeURIComponent).join('/'), {
-    headers: sbHeaders()
-  });
-  if (!res.ok) return null;
+  const res = await fetch(storageUrl(path), { headers: storageHeaders() });
+  if (!res.ok) {
+    // Der Grund MUSS sichtbar sein — ein fehlendes Bild ist sonst nicht von
+    // einem Rechte-/Bucket-Problem zu unterscheiden.
+    console.warn('[card storage] GET ' + res.status + ' ' + path);
+    return null;
+  }
   const buf = Buffer.from(await res.arrayBuffer());
   return { buf: buf, type: res.headers.get('content-type') || 'image/jpeg' };
 }
 async function storagePut(path, buf, contentType) {
-  const url = SB_URL + '/storage/v1/object/' + BUCKET + '/' + String(path).split('/').map(encodeURIComponent).join('/');
-  const h = sbHeaders({ 'Content-Type': contentType || 'image/jpeg' });
-  h['x-upsert'] = 'true';
-  const res = await fetch(url, { method: 'POST', headers: h, body: buf });
+  const h = storageHeaders({ 'Content-Type': contentType || 'image/jpeg', 'x-upsert': 'true' });
+  const res = await fetch(storageUrl(path), { method: 'POST', headers: h, body: buf });
   if (!res.ok) { const t = await res.text().catch(() => ''); throw new Error('Storage ' + res.status + ': ' + t.slice(0, 160)); }
   return true;
 }
 async function storageDelete(path) {
   try {
-    await fetch(SB_URL + '/storage/v1/object/' + BUCKET + '/' + String(path).split('/').map(encodeURIComponent).join('/'), {
-      method: 'DELETE', headers: sbHeaders()
-    });
+    await fetch(storageUrl(path), { method: 'DELETE', headers: storageHeaders() });
   } catch (e) { /* best-effort */ }
 }
 

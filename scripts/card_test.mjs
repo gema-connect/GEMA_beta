@@ -554,5 +554,77 @@ t('JSON-Antworten deklarieren UTF-8 (keine Mojibake)',
 t('Umlaut ueberlebt die Antwort',
   Buffer.from(JSON.parse(C.resp(400, { error: 'Ungültiger Link' }).body).error, 'utf8').toString('utf8') === 'Ungültiger Link');
 
+/* ══ M — Foto im gespeicherten Kontakt ══════════════════════════════ */
+console.log('\n— M: Foto in der vCard —');
+
+// Bugreport 03.08.2026: «Bild der Kontaktkarte wird nicht im Kontakt
+// mitgeneriert.» Ursache war die Kombination aus EINEM Versuch (nur
+// photo_vcard_path, kein Rueckfall) und einer 40-KB-Grenze, die das
+// 512-px-Anzeigebild regelmaessig riss. Beides ist unsichtbar gescheitert.
+const mkBuf = (kb) => ({ buf: Buffer.alloc(kb * 1024, 0xAB), type: 'image/jpeg' });
+const profFoto = { photo_vcard_path: 'p/1/foto_s.jpg', photo_path: 'p/1/foto.jpg' };
+
+t('Limit deckt das 512-px-Anzeigebild ab (40 KB war zu knapp)',
+  V.FOTO_MAX_BYTES >= 128 * 1024, V.FOTO_MAX_BYTES + ' Bytes');
+
+await (async function () {
+  // Normalfall: die kleine Fassung gewinnt (kleinste vCard, beste Kompatibilität)
+  const a = await V.fotoLaden(profFoto, async (pf) => mkBuf(pf.includes('_s') ? 14 : 70));
+  t('Normalfall: die kleine Fassung wird eingebettet', !!a && a.pfad === 'p/1/foto_s.jpg');
+
+  // Die kleine Fassung fehlt im Bucket → Anzeigebild statt gar nichts
+  const b = await V.fotoLaden(profFoto, async (pf) => (pf.includes('_s') ? null : mkBuf(70)));
+  t('Kleine Fassung fehlt → Rückfall auf das Anzeigebild', !!b && b.pfad === 'p/1/foto.jpg');
+
+  // Der Abruf wirft (Netz/Storage kurz weg) → ebenfalls Rückfall
+  const c = await V.fotoLaden(profFoto, async (pf) => {
+    if (pf.includes('_s')) throw new Error('Storage 500');
+    return mkBuf(70);
+  });
+  t('Fehler beim Laden → Rückfall statt Aufgabe', !!c && c.pfad === 'p/1/foto.jpg');
+
+  // Kleine Fassung ist in Wahrheit das grosse Bild (klein-Upload fiel auf
+  // gross zurück) → 70 KB müssen durchgehen, früher flog es raus
+  const d = await V.fotoLaden(profFoto, async () => mkBuf(70));
+  t('70 KB werden eingebettet (früher stillschweigend verworfen)', !!d);
+
+  // Absurd grosses Bild auf beiden Pfaden → bewusst kein Foto
+  const e = await V.fotoLaden(profFoto, async () => mkBuf(900));
+  t('Absurd grosses Bild wird weiterhin abgewiesen', e === null);
+
+  // Kein Bild hinterlegt → null, ohne Storage-Abruf
+  let abrufe = 0;
+  const f = await V.fotoLaden({}, async () => { abrufe++; return mkBuf(10); });
+  t('Ohne hinterlegtes Bild kein Storage-Abruf', f === null && abrufe === 0);
+
+  // Beide Spalten zeigen auf dieselbe Datei → nur EIN Abruf
+  abrufe = 0;
+  await V.fotoLaden({ photo_path: 'p/1/foto.jpg', photo_vcard_path: 'p/1/foto.jpg' },
+    async () => { abrufe++; return null; });
+  t('Identische Pfade werden nur einmal abgerufen', abrufe === 1, abrufe + ' Abrufe');
+
+  // Das geladene Foto landet auch wirklich in der Karte
+  const g = await V.fotoLaden(profFoto, async () => mkBuf(2));
+  const vcfF = V.buildVCard(profil, { basis: 'https://x.ch', fotoB64: g.b64, fotoTyp: g.typ });
+  t('PHOTO landet in der erzeugten vCard',
+    vcfF.includes('PHOTO;ENCODING=b;TYPE=JPEG:')
+    && vcfF.replace(/\r\n /g, '').includes(g.b64));
+})();
+
+// Die Kartenseite darf aus demselben Grund nicht bildlos bleiben
+const cphoto = R('netlify/functions/card-photo.js');
+t('card-photo probiert beide Fassungen', /for \(const pfad of reihe\)/.test(cphoto));
+
+// Storage prüft den Authorization-Header — ein blosser apikey genügt ihm
+// nicht. Mit einem neuen sb_secret_-Key (kein JWT) setzte sbHeaders() kein
+// Bearer: Storage hätte 401 geantwortet und JEDES Bild wäre lautlos weg.
+t('Storage-Aufrufe senden IMMER Bearer (auch für sb_secret_-Keys)',
+  /'Authorization': 'Bearer ' \+ SERVICE_KEY/.test(ccard.split('storageHeaders')[1] || ''));
+t('Storage nutzt eigene Header, nicht die PostgREST-Header',
+  /function storageGet[\s\S]{0,200}storageHeaders\(\)/.test(ccard)
+  && !/function storageGet[\s\S]{0,200}sbHeaders\(\)/.test(ccard));
+t('Ein fehlgeschlagener Storage-Abruf wird protokolliert',
+  /\[card storage\] GET/.test(ccard));
+
 console.log('\n' + (fail === 0 ? `✅ ${n}/${n} Tests grün` : `❌ ${fail}/${n} Tests rot`));
 process.exit(fail === 0 ? 0 : 1);

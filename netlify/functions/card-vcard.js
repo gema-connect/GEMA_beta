@@ -22,11 +22,22 @@
 const C = require('./_card');
 
 const LIMIT_PRO_MIN = 60;
-// Obergrenze fuer das eingebettete Bild. Die kleine vCard-Fassung
-// (photo_vcard_path) liegt bei ~15 KB; faellt sie aus und nur das
-// Anzeigebild existiert, wird es bis zu dieser Groesse noch eingebettet.
-// Darueber lieber GAR KEIN Bild als eine vCard, die Clients ablehnen.
-const FOTO_MAX_BYTES = 40 * 1024;
+/**
+ * Obergrenze fuer das eingebettete Bild.
+ *
+ * KRITISCH — die Grenze war 40 KB und hat das Foto in der Praxis
+ * verschluckt: die kleine vCard-Fassung liegt zwar bei ~15 KB, das
+ * Anzeigebild (512 px, q 0.85) aber bei 40–90 KB. Sobald die kleine
+ * Fassung fehlte (Altbestand, Merge aus einem Duplikat, fehlgeschlagener
+ * Teil-Upload) fiel die Kette auf das Anzeigebild zurueck — und genau das
+ * lag ueber der Grenze. Ergebnis: Foto auf der Karte sichtbar, im
+ * gespeicherten Kontakt fehlt es, ohne jede Meldung.
+ *
+ * 256 KB deckt beide Fassungen sicher ab (base64 ≈ 341 KB, unkritisch
+ * fuer iOS/Android/Outlook und weit unter dem Netlify-Antwortlimit) und
+ * weist nur noch wirklich absurde Bilder ab.
+ */
+const FOTO_MAX_BYTES = 256 * 1024;
 
 /* ── vCard-Bausteine ─────────────────────────────────────────────────── */
 // RFC 2426: \ ; , und Zeilenumbrueche im Wert maskieren.
@@ -118,17 +129,40 @@ function buildVCard(p, opts) {
   return L.map(fold).join('\r\n') + '\r\n';
 }
 
-/* ── Foto laden (best-effort — nie den ganzen Abruf scheitern lassen) ── */
-async function fotoLaden(p) {
-  const pfad = p.photo_vcard_path || p.photo_path;
-  if (!pfad) return null;
-  try {
-    const f = await C.storageGet(pfad);
-    if (!f || !f.buf || !f.buf.length) return null;
-    if (f.buf.length > FOTO_MAX_BYTES) return null;
+/**
+ * Foto laden (best-effort — nie den ganzen Abruf scheitern lassen).
+ *
+ * KANDIDATEN-KETTE statt EINEM Versuch: zuerst die kleine vCard-Fassung
+ * (~15 KB, von Adressbuechern am zuverlaessigsten akzeptiert), danach das
+ * Anzeigebild. Vorher wurde genau EIN Pfad gewaehlt und bei jedem Problem
+ * aufgegeben — ein fehlendes/unlesbares `foto_s.jpg` liess den Kontakt
+ * dauerhaft ohne Bild, obwohl das Anzeigebild daneben lag und auf der
+ * Kartenseite einwandfrei erschien.
+ *
+ * `laden` ist injizierbar, damit der Drift-Guard die Kette ohne Netz
+ * pruefen kann.
+ */
+async function fotoLaden(p, laden) {
+  const get = laden || C.storageGet;
+  const kandidaten = [];
+  [p.photo_vcard_path, p.photo_path].forEach(function (pfad) {
+    if (pfad && kandidaten.indexOf(pfad) < 0) kandidaten.push(pfad);
+  });
+  if (!kandidaten.length) return null;
+
+  const gruende = [];
+  for (const pfad of kandidaten) {
+    let f = null;
+    try { f = await get(pfad); } catch (e) { f = null; }
+    if (!f || !f.buf || !f.buf.length) { gruende.push(pfad + ': nicht ladbar'); continue; }
+    if (f.buf.length > FOTO_MAX_BYTES) { gruende.push(pfad + ': ' + Math.round(f.buf.length / 1024) + ' KB > Limit'); continue; }
     const typ = /png/i.test(f.type) ? 'PNG' : 'JPEG';
-    return { b64: f.buf.toString('base64'), typ: typ };
-  } catch (e) { return null; }
+    return { b64: f.buf.toString('base64'), typ: typ, pfad: pfad };
+  }
+  // Nie wieder still: wenn ein Bild hinterlegt ist, aber keines in die
+  // vCard kommt, MUSS der Grund im Log stehen.
+  console.warn('[card-vcard] kein Foto eingebettet —', gruende.join(' | '));
+  return null;
 }
 
 exports.handler = async function (event) {
@@ -180,5 +214,5 @@ exports.handler = async function (event) {
   }
 };
 
-// Fuer den Drift-Guard (scripts/card_vcard_test.mjs) exportiert.
-exports._intern = { buildVCard, fold, esc, dateiname, rev };
+// Fuer den Drift-Guard (scripts/card_test.mjs) exportiert.
+exports._intern = { buildVCard, fold, esc, dateiname, rev, fotoLaden, FOTO_MAX_BYTES };
