@@ -158,6 +158,50 @@ console.log('■ B · Spalten in der Offerte einstellbar');
   await page.evaluate(() => erpPosColToggle('bez'));
   ok((await kopf(page)).indexOf('Bezeichnung') >= 0, 'Bezeichnung ist Pflichtspalte');
 
+  /* Feedback 03.08.2026: «Quelle muss auch ausblendbar sein» — sie ist reines
+     Editor-Chrome (wird nie gedruckt) und kostet darum auch keine Textbreite. */
+  ok((await kopf(page)).indexOf('Quelle') >= 0, 'Quelle ist standardmässig da');
+  const bezVorQ = await page.evaluate(() => erpPosBezMm(erpPosColsPdf(cur)));
+  await page.evaluate(() => erpPosColToggle('quelle'));
+  await page.waitForTimeout(150);
+  ok((await kopf(page)).indexOf('Quelle') < 0, 'Quelle ausgeblendet');
+  ok(await page.evaluate(() => erpPosBezMm(erpPosColsPdf(cur))) === bezVorQ,
+    'die Bezeichnung wird dadurch NICHT breiter — Quelle wurde nie gedruckt');
+  const konsistentQ = await page.evaluate(() => {
+    const n = document.querySelectorAll('#posHead th').length;
+    return Array.from(document.querySelectorAll('#posBody tr')).every(tr => {
+      let c = 0; Array.from(tr.children).forEach(td => { c += parseInt(td.getAttribute('colspan') || '1', 10); });
+      return c === n;
+    });
+  });
+  ok(konsistentQ, 'Titel-/Text-/Rabatt-/Umbruchzeilen bleiben ohne Quelle konsistent');
+  ok(await page.evaluate(() => erpPosColsPdf(cur).indexOf('quelle') < 0 && erpPosColsFor({}).indexOf('quelle') >= 0),
+    'Quelle steht im Standard, aber nie in den Druck-Spalten');
+  // Das Bild hängt am 📷 in der Quelle-Spalte — ohne sie muss es einen Weg geben
+  const bildImMenu = await page.evaluate(() => {
+    const tr = [...document.querySelectorAll('#posBody tr')].find(t => (t.textContent || '').indexOf('Waschtisch') >= 0);
+    tr.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 80, clientY: 80 }));
+    const txt = (document.getElementById('erpCtxMenu') || {}).textContent || '';
+    const m = document.getElementById('erpCtxMenu'); if (m) m.remove();
+    return txt;
+  });
+  ok(/Bild zur Position/.test(bildImMenu), 'Bild bleibt über das Rechtsklick-Menü erreichbar');
+  await page.evaluate(() => erpPosColToggle('quelle'));   // wieder einblenden
+  await page.waitForTimeout(120);
+
+  /* Feedback 03.08.2026: «Preis bei EP auch mit 806.00» */
+  const epTxt = await page.evaluate(() => {
+    const tr = [...document.querySelectorAll('#posBody tr')].find(t => (t.textContent || '').indexOf('Waschtisch') >= 0);
+    return [...tr.querySelectorAll('.pcell.num')].map(c => c.textContent.trim());
+  });
+  ok(epTxt.indexOf('450.00') >= 0, 'EP zeigt die Rappen (' + epTxt.join(' | ') + ')');
+  ok(await page.evaluate(() => {
+    erpCellEdit('p1', 'ep');
+    const v = (document.querySelector('#posBody input[data-edit]') || {}).value;
+    erpCellCommit();
+    return v === '450';
+  }), '… das Eingabefeld behält den Rohwert (kein Formatieren beim Tippen)');
+
   // Druck: Kopf + Zeilen folgen derselben Wahl
   const pdf = await page.evaluate(() => {
     let html = '';
@@ -180,7 +224,8 @@ console.log('■ B · Spalten in der Offerte einstellbar');
   // Firmen-Standard aus den Einstellungen
   await page.evaluate(() => { erpPosColsDocReset(); erpOpenSettings(); });
   await page.waitForTimeout(200);
-  ok(await page.locator('#s_posCols .s-poscol').count() === 7, 'Einstellungen listen alle Spalten');
+  ok(await page.locator('#s_posCols .s-poscol').count() === 8, 'Einstellungen listen alle Spalten');
+  ok(await page.locator('#s_posCols .s-poscol[data-col="quelle"]').count() === 1, '… inkl. der Quelle-Spalte');
   ok(await page.locator('#s_posCols .s-poscol[data-col="bez"][disabled]').count() === 1, 'Bezeichnung in den Einstellungen fix angehakt');
   await page.evaluate(() => { document.querySelector('#s_posCols .s-poscol[data-col="posnr"]').checked = false; erpSetSave(); });
   await page.waitForTimeout(300);

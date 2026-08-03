@@ -53,7 +53,54 @@ await page.waitForTimeout(60);
 ok(await page.evaluate(() => !!document.querySelector('#posBody .rich-ed[contenteditable="true"]')), 'Doppelklick öffnet contenteditable');
 // Die Werkzeuge sitzen FEST in der Aktionsleiste oben (neben Vorlagen/PDF) —
 // nicht mehr als Leiste in der Tabellenzelle.
-ok(await page.evaluate(() => { const b = document.querySelector('#edFt #edRich'); return b && b.querySelectorAll('.rb').length >= 4 && b.querySelectorAll('.rb-col').length >= 3 && !!b.querySelector('.rb-sel'); }), 'Werkzeug-Leiste oben hat Fett/Kursiv/Unterstr./Zurücksetzen + Farben + Grösse');
+ok(await page.evaluate(() => { const b = document.querySelector('#edFt #edRich'); return b && b.querySelectorAll('.rb').length >= 4 && b.querySelectorAll('.rb-col').length >= 3 && !!b.querySelector('.rb-size'); }), 'Werkzeug-Leiste oben hat Fett/Kursiv/Unterstr./Zurücksetzen + Farben + Grösse');
+// Feedback 03.08.2026: Grösse als Stepper ▼ Box ▲ statt Dropdown; Schwarz zuerst
+ok(await page.evaluate(() => !document.querySelector('#edRich select')), 'kein Grössen-Dropdown mehr');
+ok(await page.evaluate(() => {
+  const b = document.querySelector('#edRich'), stp = b.querySelectorAll('.rb-stp');
+  if (stp.length !== 2) return false;
+  const kids = [...b.children], iBox = kids.indexOf(b.querySelector('.rb-size'));
+  return kids.indexOf(stp[0]) === iBox - 1 && kids.indexOf(stp[1]) === iBox + 1
+    && /▼/.test(stp[0].textContent) && /▲/.test(stp[1].textContent);
+}), 'Reihenfolge ▼ · Grössen-Box · ▲');
+ok(await page.evaluate(() => {
+  const c = document.querySelectorAll('#edRich .rb-col')[0];
+  const bg = c.getAttribute('style') || '';
+  return /#000000|rgb\(0,\s*0,\s*0\)/.test(bg);
+}), 'Schwarz steht an erster Stelle');
+// Stepper wirkt auf die Markierung — und die Box zeigt die Grösse an
+const grAn = await page.evaluate(async () => {
+  const ed = document.querySelector('#posBody .rich-ed');
+  ed.focus();
+  const r = document.createRange(); r.selectNodeContents(ed);
+  const s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+  erpRichSaveSel();
+  const vorher = document.getElementById('rbSize').value;
+  erpRichSizeStep(1);
+  await new Promise(r2 => setTimeout(r2, 60));
+  return { vorher: vorher, nachher: document.getElementById('rbSize').value, html: cur.positionen[0].bez };
+});
+ok(parseFloat(grAn.nachher) > parseFloat(grAn.vorher), '▲ vergrössert (' + grAn.vorher + ' → ' + grAn.nachher + ' pt)');
+ok(/font-size:\s*\d+(\.\d+)?pt/.test(grAn.html), 'die Grösse landet als pt im gespeicherten Beschrieb');
+const grAb = await page.evaluate(async () => {
+  erpRichSizeStep(-1);
+  await new Promise(r2 => setTimeout(r2, 60));
+  return document.getElementById('rbSize').value;
+});
+ok(parseFloat(grAb) < parseFloat(grAn.nachher), '▼ verkleinert wieder (' + grAn.nachher + ' → ' + grAb + ' pt)');
+// Die Box zeigt die DRUCK-Grösse: das Bearbeitungsfeld hat dieselbe Schrift
+// wie die Anzeige-Zelle und die PDF-Tabelle (9.5 pt), nicht die Bildschirm-px.
+ok(await page.evaluate(() => {
+  const ed = document.querySelector('#posBody .rich-ed'), pc = document.querySelector('#posBody .pcell.bezflex');
+  const a = parseFloat(getComputedStyle(ed).fontSize);
+  const soll = 9.5 * 96 / 72;
+  return Math.abs(a - soll) < 0.2 && (!pc || Math.abs(a - parseFloat(getComputedStyle(pc).fontSize)) < 0.2);
+}), 'Bearbeitungsfeld schreibt in der Druckschrift (9.5 pt)');
+ok(await page.evaluate(async () => {
+  erpRichSizeSet('14');
+  await new Promise(r2 => setTimeout(r2, 60));
+  return /font-size:\s*14pt/.test(cur.positionen[0].bez);
+}), 'Wert direkt in die Box tippen wirkt');
 ok(await page.evaluate(() => !document.querySelector('#posBody .rich-bar')), 'keine Werkzeug-Leiste mehr in der Zelle');
 ok(await page.evaluate(() => {
   const ft = document.getElementById('edFt'), g = document.getElementById('edRich');
