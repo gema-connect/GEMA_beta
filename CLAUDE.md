@@ -360,7 +360,7 @@ Kategorie-Präfix + Kleinschreibung. **Keine Umlaute in Dateinamen** (ä→ae, �
 | `ab_` | Ausbildung | `ab_index.html` |
 | `sys_` | System | `sys_settings.html` |
 
-Hauptseite: `index.html`. Hub-Seiten: `sb_index.html`, `pm_ausschreibung.html`, `ab_index.html`.
+Hauptseite: `index.html`. Hub-Seiten: `sb_index.html`, `el_index.html`, `pm_ausschreibung.html`, `ab_index.html`.
 
 ### Modulübersicht
 
@@ -599,6 +599,42 @@ Mollier-h,x-Diagramm nach der Seven-Air-Vorlage (950 mbar / 540 m ü.M.). **Neue
 - Persistenz: AutoSave `hx_diagramm` + Punkte-Tabelle im hidden `#hx_rows`.
 - Anlagenwahl + Offertanfrage: **neue Produktkategorie `KATEGORIEN.lueftungsgeraet`** (Monobloc: Volumenstrom, WRG-Typ/Rückwärmzahl, Heiz-/Kühlregister, Befeuchter, SFP; matchFn auf Volumenstrom ≥ Bedarf ideal ≤ 1.6×) + `LIEF_KATEGORIEN` + bkpMap `244.0`. Payload: `volumenstrom`, `heizleistung`, `kuehlleistung`, `befeuchtung`, `hoehe` — Projektwerte, nie Datenblatt-Werte.
 - Registriert in gema_auth (MODULES `hx_diagramm`, cat **Lüftungsberechnungen**, FILE_MAP `lt_hx_diagramm`), sb_index (Gruppe Lüftung, Hero 27 Module/6 Kategorien), sw.js.
+
+### Elektroberechnungen (el_) — Ausgangslage & paralleles Arbeiten
+
+Eigener Bereich mit Hub **`el_index.html`** (Kategorie «Elektroberechnungen», Gold-Akzent `#ca8a04` wie die Elektro-Sektion auf index.html; Breadcrumb-Kanon der Module: `el_index.html` ⇒ «Elektroberechnungen»). Angelegt 08/2026 als **Baukasten**, damit mehrere Berechnungen parallel — in getrennten Chats/Branches — entstehen können, ohne sich in geteilten Dateien zu behindern.
+
+**Drei geteilte Bausteine (NIE pro Modul duplizieren):**
+- **`gema_elektro.js`** = Fachbasis aller el_-Module (Muster `gema_rohrsysteme.js`, DOM-frei, Node-testbar): `EL_MATERIAL` (Cu 56 = Rechenwert IEC 60228 · Cu 58 = Literaturwert reines Kupfer · Al 36), `elKappa(matId,tempC)`, `EL_TEMP_STUFEN`, `EL_QUERSCHNITTE`, `EL_SYSTEME` (fU/fP je ein-/dreiphasig), `EL_SICHERUNGEN`, `elNaechsterQuerschnitt/-Sicherung`, `elNum/elFmt/elRunden`. **κ ist temperaturabhängig** — κ₂₀ rechnet den Spannungsfall rund 20 % zu günstig; jede Leitungsberechnung geht über `elKappa`, nie über eine feste Zahl. `elNaechsterQuerschnitt` liefert **`null`** über der Reihe (kein stiller Deckel — das Modul MUSS das melden). Neue Elektro-Fachdaten (Verlegearten, Häufungsfaktoren, Sicherungskennlinien) kommen HIERHIN, mit Quellenangabe.
+- **`el_base.css`** = gemeinsames Design (Nav, Hero, Projekt-Leiste, Fold-Karten `.el-card`, Felder `.g-inp-group`, Ergebnis-Zeilen `.el-res` + `.frml`, Ampel `.ok/.warn/.err`, Tabellen, Druck). **Einbau-Reihenfolge ist Pflicht**: `el_base.css` → modul-eigenes `<style>` → `gema_responsive.css` ZULETZT. Modul-CSS ergänzt nur, was zusätzlich nötig ist.
+- **`scripts/el_geruest_gen.mjs`** = Generator für neue Modul-Gerüste (`node scripts/el_geruest_gen.mjs [el_name] [--force]`). Erzeugt Nav nach Kanon (Logo 1:1 aus der Referenzseite — `nav_uniform_test` verlangt GENAU eine Logo-Variante), PWA-Metas, Objekt-Bezug, AutoSave, Fold, Schrittprinzip Eingabe → Berechnung → Ergebnis und den `/*ENGINE-START*/`-Block. Bestehende Dateien werden ohne `--force` nie überschrieben.
+
+**Konfliktfreies Parallel-Arbeiten (der Grund für den Aufbau):** Alle geteilten Dateien sind für die geplanten Module **vorab** nachgeführt — `gema_auth.js` (MODULES + FILE_MAP + `_isLoginOnly` für den Hub), `index.html`, `el_index.html`, `sw.js`, `gema_recent.js`, `sys_workspace.html` (MODULE_CATS `elektro` + MODULES + `_WS_STATUS_CFG` + Icon `zap`), `scripts/workspace_module_test.mjs`, `scripts/nav_uniform_test.mjs`, `scripts/rolematrix_golden.json`. **Ein Chat, der ein bestehendes Gerüst ausbaut, fasst davon NICHTS an** und arbeitet ausschliesslich in: seiner `el_<modul>.html`, seinen eigenen Test-Dateien (`scripts/<modul>_engine_test.mjs` / `_smoke_test.mjs`) und seinem eigenen CLAUDE.md-Unterabschnitt weiter unten. Ergänzungen an `gema_elektro.js` (neue Fachdaten) sind erlaubt, aber nur ANHÄNGEN — nie bestehende Werte ändern.
+**Namensraum:** jedes Modul hat einen eigenen JS-Präfix (`sf` Spannungsfall · `bl` Belastbarkeit · `kz` Kurzschluss · `lb` Leistungsbedarf · `bt` Beleuchtung · `pv` Photovoltaik). Funktionen/Variablen heissen `<präfix>Calc`, `<präfix>Recalc`, `<präfix>_feldId` — damit kollidiert nichts, wenn zwei Module später zusammengeführt werden.
+
+**Drift-Guard `scripts/elektro_basis_test.mjs`** (206 Checks, gehört ALLEN Modulen — einzelne Chats ändern ihn NICHT, ausser beim Eintragen eines neuen Moduls in die `MODULE`-Liste): Teil A prüft `gema_elektro.js` gegen unabhängig gerechnete Werte (κ-Kette, Querschnitts-/Sicherungsreihe inkl. null-Fall, Referenzauslegung 400 V/2.5 mm²/16 A/100 m mit Gegenprobe `P = 3·I²·R`, Zahlen-Helfer), Teil B die Registrierung jedes Moduls in ALLEN geteilten Dateien plus den Aufbau-Kanon (kein `type="number"` am Feld, `fixLeadingZero`, ENGINE-Block, Objekt-Bezug, AutoSave-Name, Fold NICHT im AutoSave-Snapshot, Cascade-Reihenfolge), Teil C den Boot jeder Seite im Browser (keine pageerrors, Karten, Fold-Persistenz, Kein-Zugriff für den Monteur). Ohne playwright-core wird Teil C mit Hinweis übersprungen, nie still.
+
+**NEUES el_-Modul anlegen** (Reihenfolge): `MODULE` in `scripts/el_geruest_gen.mjs` ergänzen → Generator laufen lassen → Registrierung in den 9 geteilten Dateien oben → `MODULE` in `scripts/elektro_basis_test.mjs` ergänzen → Rollen-Golden neu erzeugen (Datei löschen, `rolematrix_test` einmal laufen lassen) → Guards grün. Die Planer-Rollen bekommen das Modul automatisch (`_allPerms` iteriert MODULES), der Elektroplaner ist damit ohne Zusatzarbeit berechtigt.
+
+**Hub-Verhalten (bewusst, nicht geändert):** `el_index` steht wie `sb_index`/`ab_index` in `_isLoginOnly`. Rollen mit eigener Landing-Page (Planer → sys_workspace) werden vom Rollen-Redirect dorthin geschickt — der Arbeitsweg führt über die Modul-Kacheln auf index.html bzw. den Workspace-Eimer, nicht über den Hub. Der Drift-Guard hält dieses Verhalten explizit fest.
+
+#### el_spannungsfall — Spannungsfall & Verlustleistung
+*(Gerüst — Fachlogik folgt.)* Umsetzung nach NIN / SN EN 60364-5-52. **Beim Ausbau zu klären** (Befunde aus der Vorlagen-Analyse): κ bei Betriebstemperatur statt κ₂₀ · cos φ/Reaktanz oder ausdrücklicher «rein ohmsch»-Vermerk · Bedarf über 630 mm² melden statt Empfehlung verschweigen · Auslastungsfaktor bei der Kostenrechnung · Hinweis, dass der Spannungsfall die **Strombelastbarkeit nicht ersetzt** · NIN-Ziffer für parallele Leiter gegen die aktuelle Ausgabe verifizieren.
+
+#### el_belastbarkeit — Strombelastbarkeit & Kabelwahl
+*(Gerüst — Fachlogik folgt.)* Verlegearten, Häufung, Umgebungstemperatur nach NIN 5.2.3. Tabellen gehören in `gema_elektro.js` (`EL_VERLEGEARTEN` o.ä.), nicht ins Modul.
+
+#### el_kurzschluss — Kurzschluss & Abschaltbedingung
+*(Gerüst — Fachlogik folgt.)* Schleifenimpedanz, Ik am Leitungsende, Nachweis der Abschaltzeit nach NIN 4.1.1 / SN EN 60364-4-41.
+
+#### el_leistungsbedarf — Anschlussleistung & Gleichzeitigkeit
+*(Gerüst — Fachlogik folgt.)* Verbrauchergruppen, Gleichzeitigkeitsfaktoren, Bemessungsstrom für Zuleitung und Zähler.
+
+#### el_beleuchtung — Beleuchtungsberechnung
+*(Gerüst — Fachlogik folgt.)* Wirkungsgradverfahren nach SN EN 12464-1 (Raumindex, Wartungsfaktor, Leuchtenzahl, Leistungsdichte).
+
+#### el_photovoltaik — Photovoltaik: Ertrag & Eigenverbrauch
+*(Gerüst — Fachlogik folgt.)* Jahresertrag aus Fläche/Neigung/Ausrichtung, Eigenverbrauchsanteil, Wirtschaftlichkeit.
 
 ### Flüssiggas LPG (sb_fluessiggas.html) — erste Gas-Berechnung
 
