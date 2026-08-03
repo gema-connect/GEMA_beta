@@ -123,8 +123,12 @@ console.log('■ Zulauf/Ablauf-Aktivierung je Stunde');
 console.log('■ Slider + Uhrzeit + Play/Pause');
 {
   await page.evaluate(() => otSimScrub('13.5'));
-  ok(await page.evaluate(() => document.getElementById('otSimZeit').textContent) === '13:30', 'Scrub auf 13.5 → Uhrzeit 13:30');
-  ok(await page.evaluate(() => document.querySelector('#otSimWrap [data-sim="clock"]').textContent) === '13:30', 'Uhr im SVG folgt');
+  /* Feedback 03.08.2026 (Sandro) «Zeitangabe nach oben schieben»: Die Uhr steht
+     in der KOPFZEILE (#otSimZeit, Zahl + Tag/Nacht-Symbol) — im SVG gibt es
+     keine zweite Uhr mehr. */
+  ok(await page.evaluate(() => document.getElementById('otSimZeit').textContent).then(t => t.startsWith('13:30')), 'Scrub auf 13.5 → Uhrzeit 13:30');
+  ok(await page.evaluate(() => document.getElementById('otSimTag').textContent) === '☀️', 'Tag/Nacht-Symbol in der Kopfzeile (13:30 = Tag)');
+  ok(await page.evaluate(() => !document.querySelector('#otSimWrap [data-sim="clock"]')), 'keine Uhr mehr im Schema');
   await page.evaluate(() => otSimToggle());
   ok(await page.evaluate(() => _otSimHooks.state().playing === true), 'Play gestartet');
   ok(await page.evaluate(() => document.getElementById('otSimPlayBtn').textContent.includes('Pause')), 'Button zeigt Pause');
