@@ -300,6 +300,17 @@
     {key:'heizlast_verbrauch',      label:'Heizlast aus Verbrauch',    cat:'Heizungsberechnungen'},
     {key:'waermepumpe',             label:'Wärmepumpe / JAZ',          cat:'Heizungsberechnungen'},
     {key:'hx_diagramm',             label:'h,x-Diagramm',              cat:'Lüftungsberechnungen'},
+    /* ── Elektroberechnungen (el_) ────────────────────────────────────────
+       Hub el_index.html. Fachbasis für alle: gema_elektro.js.
+       NEUES el_-Modul: Zeile hier ergänzen UND in FILE_MAP — dann laufen
+       Permission-Gating und der Workspace-Picker automatisch mit. */
+    {key:'spannungsfall',           label:'Spannungsfall & Verlustleistung', cat:'Elektroberechnungen'},
+    {key:'belastbarkeit',           label:'Strombelastbarkeit',        cat:'Elektroberechnungen'},
+    {key:'kurzschluss',             label:'Kurzschluss & Abschaltung', cat:'Elektroberechnungen'},
+    {key:'leistungsbedarf',         label:'Anschlussleistung',         cat:'Elektroberechnungen'},
+    {key:'beleuchtung',             label:'Beleuchtungsberechnung',    cat:'Elektroberechnungen'},
+    {key:'photovoltaik',            label:'Photovoltaik',              cat:'Elektroberechnungen'},
+    {key:'elektroangaben',          label:'Elektroangaben HLKS',       cat:'Elektroberechnungen'},
     {key:'objekte',                 label:'Objekte & Beteiligte',      cat:'Projektmanagement'},
     {key:'terminplan',              label:'Terminplan',                cat:'Projektmanagement'},
     {key:'besprechungsprotokoll',   label:'Besprechungsprotokoll',     cat:'Projektmanagement'},
@@ -322,7 +333,6 @@
     {key:'pruefliste',              label:'Prüfliste',                 cat:'Projektmanagement'},
     {key:'stundenerfassung',        label:'Stundenerfassung',          cat:'Projektmanagement'},
     {key:'apparateliste',           label:'Apparateliste',             cat:'Projektmanagement'},
-    {key:'elektroangaben',          label:'Elektroangaben',            cat:'Projektmanagement'},
     {key:'berufsschule',            label:'Berufsschule',              cat:'Ausbildung'},
     {key:'sephir',                  label:'SEPHIR Handlungskompetenzen', cat:'Ausbildung'},
     {key:'quiz',                    label:'Quiz',                      cat:'Ausbildung'},
@@ -367,6 +377,9 @@
     'pm_abnahme':'abnahme_sia','pm_baustelle':'baustellencheckliste',
     'pm_ausschreibungsunterlagen':'ausschreibungsunterlagen','sb_apparateliste':'apparateliste',
     'el_angaben':'elektroangaben',
+    'el_spannungsfall':'spannungsfall','el_belastbarkeit':'belastbarkeit',
+    'el_kurzschluss':'kurzschluss','el_leistungsbedarf':'leistungsbedarf',
+    'el_beleuchtung':'beleuchtung','el_photovoltaik':'photovoltaik',
     'ab_berufsschule':'berufsschule','hy_spuelmanager':'spuelmanager','hy_w12':'w12','hy_legionellen':'legionellen','sv_service':'service','pm_stunden':'stundenerfassung',
     'if_werkzeug':'werkzeugmanagement','if_fahrzeug':'fahrzeugmanagement',
     'br_vkf_formulare':'vkf_formulare','br_gasloeschung':'gasloeschung','br_vkf_formular':'vkf_formular',
@@ -1385,7 +1398,7 @@
   // 'lieferant_dashboard') und steht darum NICHT mehr in dieser Liste: es
   // laeuft ueber die Modul-Permission wie jede andere Modulseite (Rollen ohne
   // Recht sehen den «Kein Zugriff»-Screen statt der Seite).
-  function _isLoginOnly(){return ['index','sb_index','pm_ausschreibung','ab_index','sys_admin','sys_profil','sys_preise','sys_beta','sys_garagist_dashboard','sys_workspace','sys_unternehmen',''].indexOf(thisFileLower)>=0;}
+  function _isLoginOnly(){return ['index','sb_index','el_index','pm_ausschreibung','ab_index','sys_admin','sys_profil','sys_preise','sys_beta','sys_garagist_dashboard','sys_workspace','sys_unternehmen',''].indexOf(thisFileLower)>=0;}
   /* Persönliche Konto-Seiten: der Rollen-Redirect gilt NUR für Hub-/Landing-
      Seiten, NICHT für Seiten, die jemand bewusst aufruft. Vorher sprang jeder
      Aufruf von sys_profil bei einem Projektleiter (Landing = sys_workspace)
