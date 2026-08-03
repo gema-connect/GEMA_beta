@@ -56,6 +56,8 @@ ok(fmOk, 'jede Modul-ID (ausser Hubs) in GemaAuth.FILE_MAP');
  'sb_fluessiggas', 'sb_druckverlust_erdgas', 'sb_druckverlust_medizinalgas',
  'hz_ausdehnungsgefaess', 'hz_heizungsleitungen', 'hz_waermegruppen', 'hz_heizlast',
  'lt_hx_diagramm', 'br_gasloeschung', 'br_vkf_formulare',
+ 'el_spannungsfall', 'el_belastbarkeit', 'el_kurzschluss', 'el_leistungsbedarf',
+ 'el_beleuchtung', 'el_photovoltaik', 'el_angaben',
  'pm_erp', 'pm_einsatzplan', 'pm_stunden', 'pm_regierapport', 'pm_bestellungen',
  'pm_revisionsunterlagen', 'pm_behoerden_formulare', 'pm_plaene', 'pm_planablage',
  'pm_ausschreibungsunterlagen', 'pm_schnellausschreibung', 'pm_goodel',
