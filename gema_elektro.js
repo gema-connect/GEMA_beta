@@ -75,6 +75,34 @@ var EL_SYSTEME = [
 /* Nennströme Überstrom-Schutzeinrichtungen [A] (IEC 60269 / 60898-Reihe). */
 var EL_SICHERUNGEN = [6,10,13,16,20,25,32,40,50,63,80,100,125,160,200,250,315,400];
 
+/* ── Induktiver Blindwiderstandsbelag X' [mΩ/m] ─────────────────────────
+   Richtwerte für Niederspannungskabel und -leitungen bis 1 kV bei 50 Hz.
+   1 mΩ/m = 1 Ω/km — die in Datenblättern übliche Einheit.
+
+   WARUM das hier steht und nicht in einem Modul: X' ist Kabel-Grunddaten und
+   wird von mehreren Berechnungen gebraucht (Spannungsfall UND Schleifen-
+   impedanz beim Kurzschluss).
+
+   WARUM es überhaupt gebraucht wird: der Widerstandsbelag sinkt mit
+   wachsendem Querschnitt, X' bleibt praktisch konstant. Bei 2.5 mm² Cu ist
+   X' rund 0.4 % von R', bei 150 mm² schon rund 56 % — ein rein ohmsch
+   gerechneter Spannungsfall ist dort deutlich zu klein. Erst ab ca. 50 mm²
+   lohnt die Berücksichtigung, darunter ist sie Zierde.
+
+   RICHTWERTE — das Kabeldatenblatt geht immer vor. Bei einadrigen Leitern
+   hängt X' stark vom Leiterabstand ab; die beiden Einadrig-Werte sind
+   Anhaltspunkte für «gebündelt» bzw. «ein Kabeldurchmesser Abstand». */
+var EL_REAKTANZ = [
+  {id:'aus',    x:0,    label:'vernachlässigen (rein ohmsch)'},
+  {id:'mehr',   x:0.08, label:'Mehraderkabel — 0.08 mΩ/m'},
+  {id:'einbue', x:0.09, label:'Einadrig gebündelt — 0.09 mΩ/m'},
+  {id:'einabs', x:0.15, label:'Einadrig mit Abstand — 0.15 mΩ/m'}
+];
+
+/* Ab diesem Querschnitt [mm²] ist der induktive Anteil nicht mehr
+   vernachlässigbar — Module sollen dort einen Hinweis zeigen. */
+var EL_REAKTANZ_AB_MM2 = 50;
+
 /* ── Zugriff ────────────────────────────────────────────────────────── */
 function elMaterial(id){
   for(var i=0;i<EL_MATERIAL.length;i++){ if(EL_MATERIAL[i].id===id) return EL_MATERIAL[i]; }
@@ -101,6 +129,12 @@ function elNaechsterQuerschnitt(a){
   if(!isFinite(v) || v <= 0) return null;
   for(var i=0;i<EL_QUERSCHNITTE.length;i++){ if(EL_QUERSCHNITTE[i] >= v) return EL_QUERSCHNITTE[i]; }
   return null;
+}
+
+/** Reaktanzbelag-Eintrag zur id — Default «vernachlässigen». */
+function elReaktanz(id){
+  for(var i=0;i<EL_REAKTANZ.length;i++){ if(EL_REAKTANZ[i].id===id) return EL_REAKTANZ[i]; }
+  return EL_REAKTANZ[0];
 }
 
 /** Nächstgrösserer Sicherungs-Nennstrom — null, wenn die Reihe nicht reicht. */
@@ -144,7 +178,8 @@ window.GemaElektro = {
   EL_MATERIAL:EL_MATERIAL, EL_TEMP_STUFEN:EL_TEMP_STUFEN,
   EL_QUERSCHNITTE:EL_QUERSCHNITTE, EL_SYSTEME:EL_SYSTEME,
   EL_SICHERUNGEN:EL_SICHERUNGEN,
-  elMaterial:elMaterial, elSystem:elSystem, elKappa:elKappa,
+  EL_REAKTANZ:EL_REAKTANZ, EL_REAKTANZ_AB_MM2:EL_REAKTANZ_AB_MM2,
+  elMaterial:elMaterial, elSystem:elSystem, elKappa:elKappa, elReaktanz:elReaktanz,
   elNaechsterQuerschnitt:elNaechsterQuerschnitt,
   elNaechsteSicherung:elNaechsteSicherung,
   elNum:elNum, elFmt:elFmt, elRunden:elRunden

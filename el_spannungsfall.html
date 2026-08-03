@@ -21,6 +21,20 @@
    Modul zusätzlich braucht (eigene Tabellen, Schema-SVG, Spezialzeilen).
    SVG-Schemata: ausschliesslich literale Hex-Farben — var() rastert
    GemaPDF/html2canvas falsch. */
+
+/* Zwischenüberschrift innerhalb einer Karte (Netz / Last / Leitung / Grenzwert). */
+.el-sub{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.6px;
+  color:var(--el-dk);margin:14px 0 8px;padding-bottom:5px;border-bottom:1.5px solid var(--el-bd)}
+.el-card-bd > .el-sub:first-child{margin-top:0}
+
+/* Ampelfarben in der Kennzahlen-Leiste — dieselbe Semantik wie .el-status. */
+.sum-item b.ok{color:var(--grn)}
+.sum-item b.warn{color:var(--amber)}
+.sum-item b.err{color:var(--red)}
+
+/* Vergleichstabelle: die gewählte Zeile hervorheben, ohne die Zebra-Optik
+   der Basis zu überschreiben. */
+.el-tbl td:first-child{white-space:nowrap}
 </style>
 <script src="gema_db.js"></script>
 <script src="gema_feedback.js"></script><script src="gema_notify.js"></script><script src="gema_notify_ui.js"></script><script src="gema_chat.js"></script>
@@ -62,11 +76,15 @@
     </div>
   </div>
 
-  <!-- Kennzahlen-Leiste: die 2–4 wichtigsten Ergebnisse, live nachgeführt -->
+  <!-- Kennzahlen-Leiste: die wichtigsten Ergebnisse, live nachgeführt -->
   <div class="sum-bar" id="sfSumBar">
-    <span class="sum-item">Ergebnis <b class="hl" id="sf_sum1">—</b></span>
+    <span class="sum-item">Spannungsfall <b class="hl" id="sf_sumDu">—</b></span>
     <span class="sum-sep"></span>
-    <span class="sum-item">Kontrolle <b id="sf_sum2">—</b></span>
+    <span class="sum-item">am Verbraucher <b id="sf_sumUv">—</b></span>
+    <span class="sum-sep"></span>
+    <span class="sum-item">Verlustleistung <b id="sf_sumPv">—</b></span>
+    <span class="sum-sep"></span>
+    <span class="sum-item">Querschnitt min. <b id="sf_sumAmin">—</b></span>
   </div>
 
   <!-- PROJEKT-LEISTE — Objektbezug (AutoSave speichert pro Objekt/Phase) -->
@@ -87,37 +105,97 @@
     <div class="pf"><label>Datum</label><input type="date" id="metaDatum"></div>
   </div>
 
-  <!-- ═══ GERÜST-BANNER — beim Ausbau des Moduls ERSATZLOS ENTFERNEN ═══ -->
-  <div class="el-stub" id="sfStub">
-    <b>Gerüst — die Berechnung fehlt noch.</b><br>
-    Aufbau, Registrierung und Persistenz stehen; einzutragen sind die Eingabefelder
-    (Karte 1), die Fachlogik im <code>/*ENGINE-START*/</code>-Block und die Ergebnis-Zeilen
-    (Karte 3). Alle Elektro-Grunddaten — Leitermaterial, κ bei Betriebstemperatur,
-    Querschnittsreihe, Netzsysteme — kommen aus <code>gema_elektro.js</code> und werden
-    hier NICHT neu definiert.
-  </div>
-
   <!-- ═══ 1. EINGABE ═══ -->
   <div class="el-card" data-fold="eingabe">
     <div class="el-card-hd" onclick="sfFold(this)">
       <span class="el-cx">▸</span>
       <span class="el-secnum">1</span>
       <span class="el-card-tt">Eingabe</span>
-      <span class="el-card-sub">Angaben zur Anlage</span>
+      <span class="el-card-sub">Netz, Last und Leitung</span>
     </div>
     <div class="el-card-bd">
+
+      <div class="el-sub">Netz</div>
       <div class="el-grid">
-        <!-- MUSTER — freistehende Zahlenfelder IMMER type="text" +
-             inputmode="decimal" + fixLeadingZero + angeschlossene Einheit.
-             NIE type="number". -->
         <div class="fg">
-          <label>Beispielwert</label>
+          <label>Netzsystem</label>
+          <select id="sf_system" onchange="sfSysChanged(event)"></select>
+          <div class="fg-hint">Bestimmt den Faktor im Spannungsfall (2 bzw. √3).</div>
+        </div>
+        <div class="fg">
+          <label>Nennspannung U</label>
           <div class="g-inp-group">
-            <input class="g-inp" id="sf_beispiel" type="text" inputmode="decimal"
-                   value="16" placeholder="0.0" onblur="fixLeadingZero(this)" oninput="sfRecalc()"/>
+            <input class="g-inp" id="sf_u" type="text" inputmode="decimal" value="400"
+                   placeholder="0.0" onblur="fixLeadingZero(this)" oninput="sfRecalc()"/>
+            <span class="g-inp-unit">V</span>
+          </div>
+          <div class="fg-hint">Folgt dem Netzsystem, bleibt überschreibbar.</div>
+        </div>
+      </div>
+
+      <div class="el-sub">Last</div>
+      <div class="el-grid">
+        <div class="fg">
+          <label>Lastangabe über</label>
+          <select id="sf_modus" onchange="sfRecalc()">
+            <option value="strom">Strom I [A]</option>
+            <option value="leistung">Wirkleistung P [kW]</option>
+          </select>
+        </div>
+        <div class="fg" id="sf_wrapStrom">
+          <label>Betriebsstrom I<sub>b</sub></label>
+          <div class="g-inp-group">
+            <input class="g-inp" id="sf_strom" type="text" inputmode="decimal" value="16"
+                   placeholder="0.0" onblur="fixLeadingZero(this)" oninput="sfRecalc()"/>
             <span class="g-inp-unit">A</span>
           </div>
-          <div class="fg-hint">Kurzer Hinweis, woher der Wert kommt.</div>
+          <div class="fg-hint">Tatsächlicher Betriebsstrom, nicht der Sicherungs-Nennstrom.</div>
+        </div>
+        <div class="fg" id="sf_wrapLeistung" style="display:none">
+          <label>Wirkleistung P</label>
+          <div class="g-inp-group">
+            <input class="g-inp" id="sf_leistung" type="text" inputmode="decimal" value="10"
+                   placeholder="0.0" onblur="fixLeadingZero(this)" oninput="sfRecalc()"/>
+            <span class="g-inp-unit">kW</span>
+          </div>
+          <div class="fg-hint">Der Strom wird daraus gerechnet — siehe Karte 2.</div>
+        </div>
+        <div class="fg">
+          <label>Leistungsfaktor cos φ</label>
+          <div class="g-inp-group">
+            <input class="g-inp" id="sf_cos" type="text" inputmode="decimal" value="1"
+                   placeholder="0.0" onblur="fixLeadingZero(this)" oninput="sfRecalc()"/>
+            <span class="g-inp-unit">–</span>
+          </div>
+          <div class="fg-hint">1.00 ohmsch · 0.85–0.90 Motoren · 0.95 gemischt.</div>
+        </div>
+      </div>
+
+      <div class="el-sub">Leitung</div>
+      <div class="el-grid">
+        <div class="fg">
+          <label>Einfache Leitungslänge L</label>
+          <div class="g-inp-group">
+            <input class="g-inp" id="sf_laenge" type="text" inputmode="decimal" value="100"
+                   placeholder="0.0" onblur="fixLeadingZero(this)" oninput="sfRecalc()"/>
+            <span class="g-inp-unit">m</span>
+          </div>
+          <div class="fg-hint">Einfach messen — der Rückleiter steckt im Faktor.</div>
+        </div>
+        <div class="fg">
+          <label>Querschnitt A je Leiter</label>
+          <select id="sf_querschnitt" onchange="sfRecalc()"></select>
+          <div class="fg-hint">Genormte Reihe nach IEC 60228.</div>
+        </div>
+        <div class="fg">
+          <label>Parallele Leiter je Phase</label>
+          <select id="sf_parallel" onchange="sfRecalc()">
+            <option value="1">1 (Standard)</option>
+            <option value="2">2 parallel</option>
+            <option value="3">3 parallel</option>
+            <option value="4">4 parallel</option>
+          </select>
+          <div class="fg-hint">Teilt Widerstand und Reaktanz — Bedingungen unten beachten.</div>
         </div>
         <div class="fg">
           <label>Leitermaterial</label>
@@ -129,7 +207,37 @@
           <select id="sf_temp" onchange="sfRecalc()"></select>
           <div class="fg-hint">κ sinkt mit der Temperatur — 20 °C rechnet zu günstig.</div>
         </div>
+        <div class="fg">
+          <label>Reaktanzbelag X′</label>
+          <select id="sf_xbelag" onchange="sfRecalc()"></select>
+          <div class="fg-hint">Ab ca. 50 mm² nicht mehr vernachlässigbar.</div>
+        </div>
       </div>
+
+      <div class="el-sub">Grenzwert</div>
+      <div class="el-grid">
+        <div class="fg">
+          <label>Grenzwert nach</label>
+          <select id="sf_grenz" onchange="sfGrenzChanged(event)">
+            <option value="3">Öffentliches Netz · Beleuchtung — 3 %</option>
+            <option value="5" selected>Öffentliches Netz · übrige Verbraucher — 5 %</option>
+            <option value="6">Eigene Trafostation · Beleuchtung — 6 %</option>
+            <option value="8">Eigene Trafostation · übrige Verbraucher — 8 %</option>
+            <option value="frei">Eigener Wert / Vorgabe VNB</option>
+          </select>
+          <div class="fg-hint">Richtwerte aus SN EN 60364-5-52, Anhang G.</div>
+        </div>
+        <div class="fg">
+          <label>Max. zulässiger Spannungsfall</label>
+          <div class="g-inp-group">
+            <input class="g-inp" id="sf_maxdu" type="text" inputmode="decimal" value="5"
+                   placeholder="0.0" onblur="fixLeadingZero(this)" oninput="sfRecalc()"/>
+            <span class="g-inp-unit">%</span>
+          </div>
+          <div class="fg-hint">Immer überschreibbar — massgebend ist die Vorgabe des Netzbetreibers.</div>
+        </div>
+      </div>
+
     </div>
   </div>
 
@@ -147,8 +255,41 @@
           <span class="frml">κ(t) = κ₂₀ / (1 + α · (t − 20))</span></div>
         <div class="el-res-val" id="sf_kappa">—</div>
       </div>
+      <div class="el-res" id="sf_rowStrom">
+        <div class="el-res-lbl">Betriebsstrom aus der Leistung
+          <span class="frml" id="sf_frmlStrom">I = P / (√3 · U · cos φ)</span></div>
+        <div class="el-res-val" id="sf_strombw">—</div>
+      </div>
+      <div class="el-res">
+        <div class="el-res-lbl">Widerstandsbelag je Leiter
+          <span class="frml">R′ = 1 / (κ · A)</span></div>
+        <div class="el-res-val" id="sf_rbelag">—</div>
+      </div>
+      <div class="el-res">
+        <div class="el-res-lbl">Wirksamer Leitungswiderstand
+          <span class="frml">R<sub>w</sub> = f<sub>P</sub> · L / (κ · A · n)</span></div>
+        <div class="el-res-val" id="sf_rw">—</div>
+      </div>
+      <div class="el-res">
+        <div class="el-res-lbl">Ohmscher Anteil des Spannungsfalls
+          <span class="frml">ΔU<sub>R</sub> = f<sub>U</sub> · I · L · cos φ / (κ · A · n)</span></div>
+        <div class="el-res-val" id="sf_duR">—</div>
+      </div>
+      <div class="el-res">
+        <div class="el-res-lbl">Induktiver Anteil des Spannungsfalls
+          <span class="frml">ΔU<sub>X</sub> = f<sub>U</sub> · I · L · X′ · sin φ / n</span></div>
+        <div class="el-res-val" id="sf_duX">—</div>
+      </div>
       <div class="frml-block" id="sf_legende">
-        Formel-Legende — die Chips müssen dem Code entsprechen.
+        <b>f<sub>U</sub></b> Spannungsfall-Faktor: 2 einphasig (Hin- und Rückleiter) · √3 dreiphasig ·
+        <b>f<sub>P</sub></b> Verlust-Faktor: 2 einphasig · 3 dreiphasig (drei stromführende Leiter) ·
+        <b>κ</b> Leitfähigkeit bei Betriebstemperatur [m/(Ω·mm²)] ·
+        <b>A</b> Querschnitt je Leiter [mm²] · <b>n</b> parallele Leiter je Phase ·
+        <b>X′</b> Reaktanzbelag je Leiter [Ω/m] · <b>L</b> einfache Leitungslänge [m].
+        Gerechnet wird der Längsspannungsfall
+        ΔU = f<sub>U</sub> · I · L · (R′ · cos φ + X′ · sin φ) / n — der Querspannungsfall
+        (Phasendrehung) bleibt unberücksichtigt, er ist bei Niederspannungsleitungen
+        vernachlässigbar klein.
       </div>
     </div>
   </div>
@@ -159,15 +300,135 @@
       <span class="el-cx">▸</span>
       <span class="el-secnum">3</span>
       <span class="el-card-tt">Ergebnis</span>
-      <span class="el-card-sub">Bewertung</span>
+      <span class="el-card-sub">Spannungsfall, Verluste, Mindestquerschnitt</span>
     </div>
     <div class="el-card-bd">
       <div class="el-res">
-        <div class="el-res-lbl">Hauptergebnis</div>
-        <div class="el-res-val hl" id="sf_hauptwert">—</div>
+        <div class="el-res-lbl">Spannungsfall ΔU
+          <span class="frml">ΔU = f<sub>U</sub> · I · L · (R′ · cos φ + X′ · sin φ) / n</span></div>
+        <div class="el-res-val hl" id="sf_du">—</div>
       </div>
+      <div class="el-res">
+        <div class="el-res-lbl">Spannungsfall bezogen auf U
+          <span class="frml">ΔU% = ΔU / U · 100</span></div>
+        <div class="el-res-val hl" id="sf_duproz">—</div>
+      </div>
+      <div class="el-bar" id="sf_bar"><i style="width:0%"></i></div>
+      <div class="el-res" style="margin-top:6px">
+        <div class="el-res-lbl">Spannung am Verbraucher
+          <span class="frml">U<sub>V</sub> = U − ΔU</span></div>
+        <div class="el-res-val" id="sf_uv">—</div>
+      </div>
+      <div class="el-res">
+        <div class="el-res-lbl">Verlustleistung der Leitung
+          <span class="frml">P<sub>v</sub> = I² · R<sub>w</sub></span></div>
+        <div class="el-res-val" id="sf_pv">—</div>
+      </div>
+      <div class="el-res">
+        <div class="el-res-lbl">Verlustanteil an der übertragenen Leistung
+          <span class="frml">P<sub>v</sub> / P<sub>nutz</sub> · 100</span></div>
+        <div class="el-res-val" id="sf_pvanteil">—</div>
+      </div>
+      <div class="el-res">
+        <div class="el-res-lbl">Rechnerisch nötiger Querschnitt
+          <span class="frml">A<sub>min</sub> = cos φ / (κ · (ΔU<sub>zul</sub> · n / (f<sub>U</sub> · I · L) − X′ · sin φ))</span></div>
+        <div class="el-res-val" id="sf_amin">—</div>
+      </div>
+      <div class="el-res">
+        <div class="el-res-lbl">Nächster genormter Querschnitt</div>
+        <div class="el-res-val" id="sf_anorm">—</div>
+      </div>
+
       <div class="el-status ok" id="sf_status" style="margin-top:12px">
         Noch keine Berechnung.
+      </div>
+
+      <div class="el-hint" id="sf_hinweise" style="margin-top:10px;display:none"></div>
+
+      <div class="el-sub" style="margin-top:16px">Querschnitte im Vergleich</div>
+      <div class="el-scroll">
+        <table class="el-tbl">
+          <thead><tr>
+            <th>A [mm²]</th><th>ΔU [V]</th><th>ΔU [%]</th>
+            <th>U<sub>V</sub> [V]</th><th>P<sub>v</sub> [W]</th><th>Beurteilung</th>
+          </tr></thead>
+          <tbody id="sf_varTbody"><tr><td colspan="6" class="el-note">Noch keine Berechnung.</td></tr></tbody>
+        </table>
+      </div>
+      <div class="el-note" style="margin-top:8px">
+        Alle Zeilen mit denselben Randbedingungen (Last, Länge, Material, Temperatur,
+        parallele Leiter). <b>Der Spannungsfall ersetzt die Strombelastbarkeit nicht</b> —
+        ein Querschnitt, der hier grün ist, kann thermisch trotzdem zu klein sein.
+        Belastbarkeit, Verlegeart und Häufung gehören in die
+        <a href="el_belastbarkeit.html">Strombelastbarkeit</a>, die Abschaltbedingung in den
+        <a href="el_kurzschluss.html">Kurzschluss-Nachweis</a>.
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ 4. VERLUSTKOSTEN ═══ -->
+  <div class="el-card" data-fold="kosten">
+    <div class="el-card-hd" onclick="sfFold(this)">
+      <span class="el-cx">▸</span>
+      <span class="el-secnum">4</span>
+      <span class="el-card-tt">Verlustkosten</span>
+      <span class="el-card-sub">Energieverlust pro Jahr</span>
+    </div>
+    <div class="el-card-bd">
+      <div class="el-grid">
+        <div class="fg">
+          <label>Betriebsstunden</label>
+          <div class="g-inp-group">
+            <input class="g-inp" id="sf_stunden" type="text" inputmode="decimal" value="2000"
+                   placeholder="0.0" onblur="fixLeadingZero(this)" oninput="sfRecalc()"/>
+            <span class="g-inp-unit">h/a</span>
+          </div>
+          <div class="fg-hint">Einschichtbetrieb ≈ 2’000 · Dauerbetrieb 8’760.</div>
+        </div>
+        <div class="fg">
+          <label>Mittlere Auslastung</label>
+          <div class="g-inp-group">
+            <input class="g-inp" id="sf_auslastung" type="text" inputmode="decimal" value="100"
+                   placeholder="0.0" onblur="fixLeadingZero(this)" oninput="sfRecalc()"/>
+            <span class="g-inp-unit">%</span>
+          </div>
+          <div class="fg-hint">Mittlerer Strom bezogen auf I<sub>b</sub> oben.</div>
+        </div>
+        <div class="fg">
+          <label>Energiepreis</label>
+          <div class="g-inp-group">
+            <input class="g-inp" id="sf_preis" type="text" inputmode="decimal" value="0.25"
+                   placeholder="0.0" onblur="fixLeadingZero(this)" oninput="sfRecalc()"/>
+            <span class="g-inp-unit">CHF/kWh</span>
+          </div>
+          <div class="fg-hint">Arbeitspreis inkl. Netznutzung und Abgaben.</div>
+        </div>
+      </div>
+
+      <div class="el-res" style="margin-top:10px">
+        <div class="el-res-lbl">Verlustleistung bei mittlerer Auslastung
+          <span class="frml">P<sub>v</sub>(b) = b² · P<sub>v</sub></span></div>
+        <div class="el-res-val" id="sf_pvmittel">—</div>
+      </div>
+      <div class="el-res">
+        <div class="el-res-lbl">Energieverlust pro Jahr
+          <span class="frml">W<sub>v</sub> = P<sub>v</sub>(b) · h</span></div>
+        <div class="el-res-val" id="sf_wv">—</div>
+      </div>
+      <div class="el-res">
+        <div class="el-res-lbl">Kosten pro Jahr
+          <span class="frml">K = W<sub>v</sub> · Preis</span></div>
+        <div class="el-res-val hl" id="sf_kosten">—</div>
+      </div>
+
+      <div class="frml-block">
+        <b>Warum b² und nicht b:</b> die Verluste steigen mit dem Quadrat des Stroms.
+        Eine Leitung, die im Mittel mit der halben Last läuft, verursacht nur einen
+        Viertel der Verluste — mit einem linearen Auslastungsfaktor läge die Rechnung
+        um das Doppelte daneben. Der Ansatz nimmt einen über die Betriebszeit
+        konstanten mittleren Strom an; bei stark schwankender Last ist der reale
+        Verlust höher (der Mittelwert der Quadrate ist grösser als das Quadrat des
+        Mittelwerts).
       </div>
     </div>
   </div>
@@ -186,15 +447,131 @@
 
    Rückgabe: ein Objekt mit allen Werten, die die Oberfläche anzeigt.
    Grenzwert-Überschreitungen als Feld melden (nie still abschneiden). */
+/* Ein Leitungsstück mit gegebenem Querschnitt durchrechnen.
+   Getrennt von sfCalc, damit die Vergleichstabelle dieselbe Rechnung nutzt
+   und nicht auseinanderlaufen kann. */
+function sfLeitung(A, ctx){
+  if(!(A > 0) || !(ctx.kappa > 0)){
+    return {a:A, rBelag:0, rw:0, duR:0, duX:0, du:0, duProz:0, uv:ctx.u, pv:0};
+  }
+  var rBelag = 1 / (ctx.kappa * A);                 // Ω/m je Leiter
+  var duR = ctx.fU * ctx.i * ctx.l * rBelag * ctx.cos / ctx.n;
+  var duX = ctx.fU * ctx.i * ctx.l * ctx.xs  * ctx.sin / ctx.n;
+  var du  = duR + duX;
+  var rw  = ctx.fP * ctx.l / (ctx.kappa * A * ctx.n);
+  return {
+    a: A, rBelag: rBelag, rw: rw,
+    duR: duR, duX: duX, du: du,
+    duProz: ctx.u > 0 ? du / ctx.u * 100 : 0,
+    uv: ctx.u - du,
+    pv: ctx.i * ctx.i * rw
+  };
+}
+
+/* Rechenkern. inp: {systemId,u,modus,strom,leistung,cosPhi,laenge,querschnitt,
+   parallel,material,temp,xBelag,maxDu,stunden,auslastung,preis} */
 function sfCalc(inp){
   var E = (typeof GemaElektro!=='undefined') ? GemaElektro : null;
-  var kappa = E ? E.elKappa(inp.material, inp.temp) : 56;
+  if(!E) return {status:'leer', meldung:'Fachbasis gema_elektro.js nicht geladen.', hinweise:[], varianten:[]};
 
-  // TODO: Fachlogik dieses Moduls
+  var sys   = E.elSystem(inp.systemId);
+  var fL    = (sys.leiter >= 3) ? Math.sqrt(3) : 1;   // Leistungsfaktor im Netz
+  var u     = inp.u > 0 ? inp.u : sys.u;
+  var kappa = E.elKappa(inp.material, inp.temp);
+  var cos   = (inp.cosPhi > 0 && inp.cosPhi <= 1) ? inp.cosPhi : 1;
+  var sin   = Math.sqrt(Math.max(0, 1 - cos * cos));
+  var n     = inp.parallel >= 1 ? Math.round(inp.parallel) : 1;
+  var A     = inp.querschnitt;
+  var l     = inp.laenge;
+  var xs    = (inp.xBelag > 0 ? inp.xBelag : 0) / 1000;   // mΩ/m → Ω/m
+
+  /* Strom: entweder direkt oder aus der Wirkleistung. */
+  var ausLeistung = (inp.modus === 'leistung');
+  var i = ausLeistung
+        ? ((u > 0 && cos > 0) ? (inp.leistung * 1000) / (fL * u * cos) : 0)
+        : (inp.strom > 0 ? inp.strom : 0);
+
+  var ctx = {kappa:kappa, u:u, cos:cos, sin:sin, n:n, l:l, xs:xs,
+             fU:sys.fU, fP:sys.fP, i:i};
+  var r = sfLeitung(A, ctx);
+
+  /* Verlustanteil an der übertragenen Wirkleistung. */
+  var pNutz = fL * u * i * cos;
+  var pvAnteil = pNutz > 0 ? r.pv / pNutz * 100 : null;
+
+  /* Mindestquerschnitt.
+     ΔU_zul = fU·I·L·(cos/(κ·A·n) + X'·sin/n)  nach A aufgelöst:
+       A = cos / (κ · (ΔU_zul·n/(fU·I·L) − X'·sin))
+     Wird der Nenner ≤ 0, überschreitet allein der induktive Anteil den
+     Grenzwert — dann hilft KEIN Querschnitt mehr, nur mehr parallele
+     Leiter oder eine kürzere Leitung. Dieser Fall wird gemeldet. */
+  var duZulV = u * inp.maxDu / 100;
+  var aMin = null, aNorm = null, reaktanzSperre = false;
+  if(i > 0 && l > 0 && duZulV > 0 && kappa > 0){
+    var nenner = (duZulV * n) / (sys.fU * i * l) - xs * sin;
+    if(nenner <= 0) reaktanzSperre = true;
+    else {
+      aMin  = cos / (kappa * nenner);
+      aNorm = E.elNaechsterQuerschnitt(aMin);   // null = Reihe reicht nicht
+    }
+  }
+
+  /* Verlustkosten. Die Verluste gehen mit dem QUADRAT des Stroms — ein
+     linearer Auslastungsfaktor läge um den Faktor b daneben. */
+  var b  = (inp.auslastung > 0 ? inp.auslastung : 0) / 100;
+  var pvMittel = r.pv * b * b;
+  var wv = pvMittel / 1000 * (inp.stunden > 0 ? inp.stunden : 0);   // kWh/a
+  var kosten = wv * (inp.preis > 0 ? inp.preis : 0);
+
+  /* Bewertung. */
+  var status = 'ok';
+  if(!(i > 0) || !(l > 0) || !(A > 0)) status = 'leer';
+  else if(r.duProz > inp.maxDu)        status = 'err';
+  else if(r.duProz > inp.maxDu * 0.9)  status = 'warn';
+
+  /* Hinweise — jede Vereinfachung, die das Ergebnis schönt, wird genannt. */
+  var hinweise = [];
+  if(xs === 0 && A >= (E.EL_REAKTANZ_AB_MM2 || 50))
+    hinweise.push('Ab ' + (E.EL_REAKTANZ_AB_MM2 || 50) + ' mm² ist der induktive Anteil nicht mehr '
+      + 'vernachlässigbar. Ohne Reaktanzbelag rechnet das Ergebnis zu günstig — X′ oben wählen.');
+  if(xs === 0 && cos < 0.99)
+    hinweise.push('cos φ unter 1.00 senkt den ohmschen Anteil, der induktive Anteil fehlt aber '
+      + 'in der Rechnung. Bei induktiver Last gehören beide zusammen — X′ oben wählen.');
+  if(n > 1)
+    hinweise.push('Parallele Leiter: Widerstand und Reaktanz sind durch ' + n + ' geteilt. Das gilt nur '
+      + 'bei gleichem Material, gleichem Querschnitt, gleicher Länge und gleicher Verlegung — sonst '
+      + 'teilt sich der Strom ungleich. Die Bedingungen für parallele Leiter sind in der aktuellen '
+      + 'NIN-Ausgabe zu prüfen (Ziffer hier bewusst nicht zitiert).');
+  if(reaktanzSperre)
+    hinweise.push('Allein der induktive Spannungsfall überschreitet den Grenzwert. Ein grösserer '
+      + 'Querschnitt hilft nicht mehr — nötig sind mehr parallele Leiter, eine kürzere Leitung '
+      + 'oder eine Kompensation.');
+  if(aMin !== null && aNorm === null)
+    hinweise.push('Der rechnerisch nötige Querschnitt liegt über 630 mm² — die genormte Reihe reicht '
+      + 'nicht aus. Nötig sind parallele Leiter, eine kürzere Leitung oder eine höhere Spannung.');
+  if(inp.temp <= 20)
+    hinweise.push('Gerechnet bei 20 °C. Im Betrieb erwärmt sich der Leiter; bei 70 °C sinkt κ um rund '
+      + '20 % und der Spannungsfall steigt entsprechend. Für die Auslegung ist die '
+      + 'Betriebstemperatur massgebend.');
+
+  /* Vergleichstabelle über die ganze genormte Reihe. */
+  var varianten = E.EL_QUERSCHNITTE.map(function(q){
+    var v = sfLeitung(q, ctx);
+    v.erfuellt = v.duProz <= inp.maxDu;
+    v.gewaehlt = (q === A);
+    v.empfohlen = (aNorm !== null && q === aNorm);
+    return v;
+  });
+
   return {
-    kappa: kappa,
-    hauptwert: null,
-    status: 'leer'   // 'ok' | 'warn' | 'err' | 'leer'
+    kappa: kappa, system: sys, u: u, cos: cos, sin: sin, n: n,
+    fL: fL, ausLeistung: ausLeistung, strom: i,
+    rBelag: r.rBelag, rw: r.rw,
+    duR: r.duR, duX: r.duX, du: r.du, duProz: r.duProz, uv: r.uv,
+    pv: r.pv, pNutz: pNutz, pvAnteil: pvAnteil,
+    duZulV: duZulV, aMin: aMin, aNorm: aNorm, reaktanzSperre: reaktanzSperre,
+    pvMittel: pvMittel, wv: wv, kosten: kosten,
+    status: status, hinweise: hinweise, varianten: varianten
   };
 }
 /*ENGINE-END*/
@@ -233,18 +610,49 @@ function sfFoldInit(){
 function sfFillSelects(){
   var E = (typeof GemaElektro!=='undefined') ? GemaElektro : null;
   if(!E) return;
+  var opt = function(id, html){
+    var el = document.getElementById(id);
+    if(el && !el.options.length) el.innerHTML = html;
+  };
+  opt('sf_system', E.EL_SYSTEME.map(function(s){
+    return '<option value="'+s.id+'"'+(s.id==='3p400'?' selected':'')+'>'+s.label+'</option>';
+  }).join(''));
+  opt('sf_material', E.EL_MATERIAL.map(function(m){
+    return '<option value="'+m.id+'">'+m.name+' — κ₂₀ '+m.kappa20+' m/(Ω·mm²)</option>';
+  }).join(''));
+  opt('sf_temp', E.EL_TEMP_STUFEN.map(function(s){
+    return '<option value="'+s.t+'"'+(s.t===70?' selected':'')+'>'+s.label+'</option>';
+  }).join(''));
+  opt('sf_querschnitt', E.EL_QUERSCHNITTE.map(function(q){
+    return '<option value="'+q+'"'+(q===2.5?' selected':'')+'>'+q+' mm²</option>';
+  }).join(''));
+  opt('sf_xbelag', E.EL_REAKTANZ.map(function(x){
+    return '<option value="'+x.x+'">'+x.label+'</option>';
+  }).join(''));
+  var mh = document.getElementById('sf_matHint');
   var mat = document.getElementById('sf_material');
-  if(mat && !mat.options.length){
-    mat.innerHTML = E.EL_MATERIAL.map(function(m){
-      return '<option value="'+m.id+'">'+m.name+' — κ₂₀ '+m.kappa20+' m/(Ω·mm²)</option>';
-    }).join('');
+  if(mh && mat) mh.textContent = E.elMaterial(mat.value).hinweis;
+}
+
+/* Netzsystem gewechselt → Nennspannung nachführen, aber NUR bei einer echten
+   Benutzer-Wahl. Der AutoSave-Restore setzt Selects programmatisch; würde er
+   hier durchgreifen, überschriebe er eine gespeicherte eigene Spannung. */
+function sfSysChanged(ev){
+  if(ev && ev.isTrusted){
+    var E = (typeof GemaElektro!=='undefined') ? GemaElektro : null;
+    var sel = document.getElementById('sf_system');
+    var uf  = document.getElementById('sf_u');
+    if(E && sel && uf) uf.value = String(E.elSystem(sel.value).u);
   }
-  var tmp = document.getElementById('sf_temp');
-  if(tmp && !tmp.options.length){
-    tmp.innerHTML = E.EL_TEMP_STUFEN.map(function(s){
-      return '<option value="'+s.t+'"'+(s.t===70?' selected':'')+'>'+s.label+'</option>';
-    }).join('');
-  }
+  sfRecalc();
+}
+
+/* Grenzwert-Vorwahl → Prozentfeld setzen (gleiche isTrusted-Regel). */
+function sfGrenzChanged(ev){
+  var sel = document.getElementById('sf_grenz');
+  var f   = document.getElementById('sf_maxdu');
+  if(ev && ev.isTrusted && sel && f && sel.value !== 'frei') f.value = sel.value;
+  sfRecalc();
 }
 
 function sfRead(){
@@ -252,31 +660,145 @@ function sfRead(){
   var num = E ? E.elNum : function(v){ return parseFloat(String(v).replace(',','.')) || 0; };
   var g = function(id){ var e = document.getElementById(id); return e ? e.value : ''; };
   return {
-    beispiel: num(g('sf_beispiel')),
-    material: g('sf_material') || 'cu',
-    temp:     num(g('sf_temp')) || 20
+    systemId:    g('sf_system') || '3p400',
+    u:           num(g('sf_u')),
+    modus:       g('sf_modus') || 'strom',
+    strom:       num(g('sf_strom')),
+    leistung:    num(g('sf_leistung')),
+    cosPhi:      num(g('sf_cos')),
+    laenge:      num(g('sf_laenge')),
+    querschnitt: num(g('sf_querschnitt')),
+    parallel:    num(g('sf_parallel')) || 1,
+    material:    g('sf_material') || 'cu',
+    temp:        num(g('sf_temp')) || 20,
+    xBelag:      num(g('sf_xbelag')),
+    maxDu:       num(g('sf_maxdu')) || 5,
+    stunden:     num(g('sf_stunden')),
+    auslastung:  num(g('sf_auslastung')),
+    preis:       num(g('sf_preis'))
   };
 }
+
+var SF_STATUS_TEXT = {
+  ok:   'Spannungsfall eingehalten.',
+  warn: 'Knapp eingehalten — wenig Reserve für Leitungsverlängerungen oder Lastzuwachs.',
+  err:  'Spannungsfall überschritten.',
+  leer: 'Bitte Strom bzw. Leistung, Länge und Querschnitt erfassen.'
+};
 
 function sfRecalc(){
   var E = (typeof GemaElektro!=='undefined') ? GemaElektro : null;
   var fmt = E ? E.elFmt : function(v,d){ return Number(v).toFixed(d===undefined?2:d); };
-  var r;
-  try{ r = sfCalc(sfRead()); }catch(e){ console.warn('sfCalc:', e); return; }
+  var inp, r;
+  try{ inp = sfRead(); r = sfCalc(inp); }catch(e){ console.warn('sfCalc:', e); return; }
 
-  var set = function(id, txt){ var el = document.getElementById(id); if(el) el.textContent = txt; };
-  set('sf_kappa', fmt(r.kappa, 2) + ' m/(Ω·mm²)');
-  set('sf_hauptwert', r.hauptwert === null ? '—' : fmt(r.hauptwert, 2));
+  var set  = function(id, txt){ var el = document.getElementById(id); if(el) el.textContent = txt; };
+  var show = function(id, an){ var el = document.getElementById(id); if(el) el.style.display = an ? '' : 'none'; };
+  var leer = (r.status === 'leer');
 
+  /* Eingabe-Sichtbarkeit: Strom ODER Leistung */
+  show('sf_wrapStrom',    !r.ausLeistung);
+  show('sf_wrapLeistung',  r.ausLeistung);
+  show('sf_rowStrom',      r.ausLeistung);
+  set('sf_frmlStrom', r.fL > 1 ? 'I = P / (√3 · U · cos φ)' : 'I = P / (U · cos φ)');
+
+  /* Karte 2 — Zwischenwerte */
+  set('sf_kappa',   fmt(r.kappa, 2) + ' m/(Ω·mm²)');
+  set('sf_strombw', fmt(r.strom, 2) + ' A');
+  set('sf_rbelag',  fmt(r.rBelag * 1000, 4) + ' Ω/km');
+  set('sf_rw',      fmt(r.rw, 4) + ' Ω');
+  set('sf_duR',     fmt(r.duR, 2) + ' V');
+  set('sf_duX',     r.duX > 0 ? fmt(r.duX, 2) + ' V' : '0.00 V — nicht berücksichtigt');
+
+  /* Karte 3 — Ergebnis */
+  set('sf_du',      leer ? '—' : fmt(r.du, 2) + ' V');
+  set('sf_duproz',  leer ? '—' : fmt(r.duProz, 2) + ' %');
+  set('sf_uv',      leer ? '—' : fmt(r.uv, 1) + ' V');
+  set('sf_pv',      leer ? '—' : fmt(r.pv, 1) + ' W');
+  set('sf_pvanteil', (leer || r.pvAnteil === null) ? '—' : fmt(r.pvAnteil, 2) + ' %');
+
+  var duEl = document.getElementById('sf_duproz');
+  if(duEl) duEl.className = 'el-res-val hl ' + (leer ? '' : r.status);
+
+  /* Balken: Ausnutzung des Grenzwerts */
+  var bar = document.getElementById('sf_bar');
+  if(bar){
+    var anteil = leer ? 0 : Math.min(100, r.duProz / (inp.maxDu || 5) * 100);
+    bar.className = 'el-bar ' + (leer ? '' : (r.status === 'ok' ? '' : r.status));
+    var inner = bar.querySelector('i');
+    if(inner) inner.style.width = anteil.toFixed(1) + '%';
+  }
+
+  /* Mindestquerschnitt — «kein stiller Deckel» */
+  if(r.reaktanzSperre){
+    set('sf_amin',  'kein Querschnitt reicht');
+    set('sf_anorm', 'mehr parallele Leiter nötig');
+  } else if(r.aMin === null){
+    set('sf_amin',  '—');
+    set('sf_anorm', '—');
+  } else {
+    set('sf_amin',  fmt(r.aMin, 2) + ' mm²');
+    set('sf_anorm', r.aNorm === null ? 'über 630 mm² — Reihe reicht nicht' : fmt(r.aNorm, 1) + ' mm²');
+  }
+  var anEl = document.getElementById('sf_anorm');
+  if(anEl) anEl.className = 'el-res-val' + ((r.reaktanzSperre || (r.aMin !== null && r.aNorm === null)) ? ' err' : '');
+
+  /* Status */
   var st = document.getElementById('sf_status');
   if(st){
-    st.className = 'el-status ' + (r.status === 'leer' ? 'ok' : r.status);
-    st.textContent = r.status === 'leer'
-      ? 'Noch keine Berechnung — die Fachlogik fehlt.'
-      : 'Ergebnis liegt vor.';
+    st.className = 'el-status ' + (leer ? 'ok' : r.status);
+    var txt = SF_STATUS_TEXT[r.status] || '';
+    if(!leer) txt += ' ΔU = ' + fmt(r.duProz, 2) + ' % von zulässigen ' + fmt(inp.maxDu, 2)
+                   + ' % (' + fmt(r.duZulV, 1) + ' V).';
+    st.textContent = txt;
   }
-  set('sf_sum1', r.hauptwert === null ? '—' : fmt(r.hauptwert, 2));
-  set('sf_sum2', fmt(r.kappa, 1));
+
+  /* Hinweise */
+  var hw = document.getElementById('sf_hinweise');
+  if(hw){
+    hw.style.display = r.hinweise.length ? 'block' : 'none';
+    hw.innerHTML = r.hinweise.map(function(h){ return '• ' + sfEsc(h); }).join('<br>');
+  }
+
+  /* Vergleichstabelle */
+  var tb = document.getElementById('sf_varTbody');
+  if(tb){
+    if(leer){
+      tb.innerHTML = '<tr><td colspan="6" class="el-note">Noch keine Berechnung.</td></tr>';
+    } else {
+      tb.innerHTML = r.varianten.map(function(v){
+        var marke = v.gewaehlt ? ' ◀ gewählt' : (v.empfohlen ? ' ◀ Minimum' : '');
+        return '<tr'+(v.gewaehlt?' style="font-weight:800"':'')+'>'
+          + '<td>' + fmt(v.a, 1) + marke + '</td>'
+          + '<td>' + fmt(v.du, 2) + '</td>'
+          + '<td>' + fmt(v.duProz, 2) + '</td>'
+          + '<td>' + fmt(v.uv, 1) + '</td>'
+          + '<td>' + fmt(v.pv, 1) + '</td>'
+          + '<td>' + (v.erfuellt ? '✓ eingehalten' : '✕ überschritten') + '</td></tr>';
+      }).join('');
+    }
+  }
+
+  /* Karte 4 — Verlustkosten */
+  set('sf_pvmittel', leer ? '—' : fmt(r.pvMittel, 1) + ' W');
+  set('sf_wv',       leer ? '—' : fmt(r.wv, 1) + ' kWh/a');
+  set('sf_kosten',   leer ? '—' : 'CHF ' + fmt(r.kosten, 2) + '/a');
+
+  /* Kennzahlen-Leiste */
+  set('sf_sumDu',   leer ? '—' : fmt(r.duProz, 2) + ' %');
+  set('sf_sumUv',   leer ? '—' : fmt(r.uv, 1) + ' V');
+  set('sf_sumPv',   leer ? '—' : fmt(r.pv, 0) + ' W');
+  set('sf_sumAmin', r.reaktanzSperre ? 'n/a'
+                  : (r.aMin === null ? '—'
+                  : (r.aNorm === null ? '> 630 mm²' : fmt(r.aNorm, 1) + ' mm²')));
+  var sd = document.getElementById('sf_sumDu');
+  if(sd) sd.className = leer ? 'hl' : ('hl ' + r.status);
+}
+
+function sfEsc(s){
+  return String(s == null ? '' : s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
 
 document.addEventListener('DOMContentLoaded', function(){
