@@ -150,3 +150,147 @@ window.GemaElektro = {
   elNum:elNum, elFmt:elFmt, elRunden:elRunden
 };
 })();
+
+/* ════════════════════════════════════════════════════════════════════════
+   ERGÄNZUNG — Leistungsbedarf & Bemessungsstrom  (für el_leistungsbedarf)
+   ════════════════════════════════════════════════════════════════════════
+   ANHÄNGEND geschrieben (eigener IIFE am Dateiende, erweitert das bestehende
+   window.GemaElektro) — so kollidiert der Block nicht mit den übrigen el_-
+   Modulen, die parallel an derselben Datei arbeiten. Bestehende Werte
+   werden NICHT verändert.
+
+   HERKUNFT DER WERTE — sauber getrennt, weil das im Streitfall zählt:
+     · EL_GZ_EN61439 ist ein NORMWERT (EN 61439-1 Tab. 101).
+     · EL_VERBRAUCHER_KAT sind ERFAHRUNGS-/RICHTWERTE aus der Praxis der
+       Gebäudetechnik, KEINE Normvorgaben. Massgebend sind die Vorgaben des
+       Netzbetreibers bzw. des Projekts. Deshalb trägt jeder Eintrag das
+       Feld `richtwert:true`, und das Modul weist es sichtbar aus und lässt
+       jeden Wert überschreiben.
+   ════════════════════════════════════════════════════════════════════════ */
+(function(){
+if(!window.GemaElektro) return;
+var G = window.GemaElektro;
+
+/* ── Gleichzeitigkeit nach Anzahl Hauptstromkreise ──────────────────────
+   EN 61439-1 Tabelle 101 (früher DIN EN 60439-1 Tab. 1) — Belastungs-
+   annahme für Schaltgerätekombinationen, wenn keine genaueren Angaben
+   vorliegen. Gilt für die GESAMTE Verteilung, nicht je Verbrauchergruppe. */
+var EL_GZ_EN61439 = [
+  {ab:1,  bis:1,        f:1.00, label:'1 Stromkreis'},
+  {ab:2,  bis:3,        f:0.90, label:'2 und 3 Stromkreise'},
+  {ab:4,  bis:5,        f:0.80, label:'4 und 5 Stromkreise'},
+  {ab:6,  bis:9,        f:0.70, label:'6 bis 9 Stromkreise'},
+  {ab:10, bis:Infinity, f:0.60, label:'10 und mehr Stromkreise'}
+];
+
+/* ── Verbraucher-Richtwerte (KEINE Normwerte) ───────────────────────────
+   cosPhi = Leistungsfaktor bei Nennlast · g = Gleichzeitigkeitsfaktor
+   phase  = übliche Anschlussart (1 = L+N, 3 = Drehstrom)
+   Alle drei Angaben sind im Modul überschreibbar. */
+var EL_VERBRAUCHER_KAT = [
+  {id:'beleuchtung',  name:'Beleuchtung (LED / allgemein)', cosPhi:0.95, g:1.00, phase:1, richtwert:true},
+  {id:'steckdosen',   name:'Steckdosen allgemein',          cosPhi:0.95, g:0.30, phase:1, richtwert:true},
+  {id:'kochherd',     name:'Kochherd / Steamer',            cosPhi:1.00, g:0.70, phase:3, richtwert:true},
+  {id:'haushalt',     name:'Haushaltgeräte (WM/TU/GS)',     cosPhi:0.95, g:0.60, phase:1, richtwert:true},
+  {id:'warmwasser',   name:'Warmwasserspeicher',            cosPhi:1.00, g:1.00, phase:3, richtwert:true},
+  {id:'waermepumpe',  name:'Wärmepumpe',                    cosPhi:0.85, g:1.00, phase:3, richtwert:true},
+  {id:'elektroheiz',  name:'Elektro-Direktheizung',         cosPhi:1.00, g:1.00, phase:3, richtwert:true},
+  {id:'lueftung',     name:'Lüftung / Ventilatoren',        cosPhi:0.85, g:0.80, phase:3, richtwert:true},
+  {id:'klima',        name:'Klima / Kälte',                 cosPhi:0.85, g:0.80, phase:3, richtwert:true},
+  {id:'motor',        name:'Motoren allgemein',             cosPhi:0.85, g:0.70, phase:3, richtwert:true},
+  {id:'ladestation',  name:'Ladestation Elektrofahrzeug',   cosPhi:0.98, g:0.60, phase:3, richtwert:true},
+  {id:'edv',          name:'EDV / Serverraum',              cosPhi:0.95, g:0.70, phase:1, richtwert:true},
+  {id:'kueche',       name:'Gewerbeküche',                  cosPhi:0.95, g:0.60, phase:3, richtwert:true},
+  {id:'sonstiges',    name:'Sonstiges',                     cosPhi:0.90, g:1.00, phase:3, richtwert:true}
+];
+
+function elVerbraucherKat(id){
+  for(var i=0;i<EL_VERBRAUCHER_KAT.length;i++){ if(EL_VERBRAUCHER_KAT[i].id===id) return EL_VERBRAUCHER_KAT[i]; }
+  return EL_VERBRAUCHER_KAT[EL_VERBRAUCHER_KAT.length-1];
+}
+
+/** Gleichzeitigkeitsfaktor nach EN 61439-1 — null bei ungültiger Anzahl. */
+function elGzEn61439(n){
+  var k = Math.round(Number(n));
+  if(!isFinite(k) || k < 1) return null;
+  for(var i=0;i<EL_GZ_EN61439.length;i++){
+    if(k >= EL_GZ_EN61439[i].ab && k <= EL_GZ_EN61439[i].bis) return EL_GZ_EN61439[i].f;
+  }
+  return null;
+}
+
+/* ── Leistungsdreieck ───────────────────────────────────────────────────
+   S = P / cos φ        Scheinleistung
+   Q = P · tan φ        Blindleistung (induktiv, wie in der Gebäudetechnik
+                        üblich — kapazitive Lasten müsste man vorzeichen-
+                        richtig erfassen; das Modul weist das aus)
+   tan φ aus cos φ:  tan φ = √(1 − cos²φ) / cos φ  */
+function elScheinleistung(p, cosPhi){
+  var c = Number(cosPhi);
+  if(!isFinite(c) || c <= 0 || c > 1) return null;
+  return Number(p) / c;
+}
+function elBlindleistung(p, cosPhi){
+  var c = Number(cosPhi);
+  if(!isFinite(c) || c <= 0 || c > 1) return null;
+  return Number(p) * Math.sqrt(1 - c*c) / c;
+}
+
+/* Faktor der Wechselstromleistung: P = f · U · I · cos φ
+   einphasig f = 1 (U = Leiter-Neutralleiter)
+   dreiphasig f = √3 (U = Leiter-Leiter, symmetrische Last)
+   BEWUSST NICHT EL_SYSTEME.fP — das ist der Faktor der Verlustleistung
+   (I²R über die stromführenden Leiter) und hätte hier den Wert 3. */
+function elAcFaktor(sysId){ return sysId === '1p230' ? 1 : Math.sqrt(3); }
+
+/** Strom aus Scheinleistung: I = S / (f · U). S in VA, Rückgabe in A. */
+function elStromAusS(sVA, sysId){
+  var sys = G.elSystem(sysId);
+  var n = Number(sVA);
+  if(!isFinite(n) || n < 0) return null;
+  return n / (elAcFaktor(sys.id) * sys.u);
+}
+
+/* ── Ohmsches Gesetz / Leistung (Gleichstrom bzw. rein ohmsche Last) ────
+   Aus GENAU ZWEI der vier Grössen U, I, R, P folgen die beiden anderen.
+   Rückgabe {u,i,r,p,fehler}. `fehler`:
+     'zu_wenig'  weniger als zwei Angaben
+     'zu_viel'   mehr als zwei (welche gilt, entscheidet nicht die Funktion)
+     'ungueltig' Division durch null / negative Wurzel                     */
+function elOhm(bek){
+  bek = bek || {};
+  var have = {};
+  ['u','i','r','p'].forEach(function(k){
+    var v = Number(bek[k]);
+    if(bek[k] !== undefined && bek[k] !== null && bek[k] !== '' && isFinite(v)) have[k] = v;
+  });
+  var keys = Object.keys(have);
+  if(keys.length < 2) return {u:null,i:null,r:null,p:null,fehler:'zu_wenig'};
+  if(keys.length > 2) return {u:null,i:null,r:null,p:null,fehler:'zu_viel'};
+
+  var u = have.u, i = have.i, r = have.r, p = have.p, s = keys.sort().join('');
+  try{
+    if(s === 'iu'){ r = i !== 0 ? u/i : null; p = u*i; }
+    else if(s === 'ru'){ if(r === 0) return {u:null,i:null,r:null,p:null,fehler:'ungueltig'}; i = u/r; p = u*u/r; }
+    else if(s === 'pu'){ if(u === 0) return {u:null,i:null,r:null,p:null,fehler:'ungueltig'}; i = p/u; r = p !== 0 ? u*u/p : null; }
+    else if(s === 'ir'){ u = i*r; p = i*i*r; }
+    else if(s === 'ip'){ if(i === 0) return {u:null,i:null,r:null,p:null,fehler:'ungueltig'}; u = p/i; r = p/(i*i); }
+    else if(s === 'pr'){ if(p < 0 || r < 0) return {u:null,i:null,r:null,p:null,fehler:'ungueltig'};
+                         u = Math.sqrt(p*r); i = r !== 0 ? Math.sqrt(p/r) : null; }
+  }catch(e){ return {u:null,i:null,r:null,p:null,fehler:'ungueltig'}; }
+
+  var alle = [u,i,r,p];
+  for(var k2=0;k2<alle.length;k2++){ if(alle[k2] !== null && !isFinite(alle[k2])) return {u:null,i:null,r:null,p:null,fehler:'ungueltig'}; }
+  return {u:u, i:i, r:r, p:p, fehler:null};
+}
+
+window.GemaElektro.EL_GZ_EN61439      = EL_GZ_EN61439;
+window.GemaElektro.EL_VERBRAUCHER_KAT = EL_VERBRAUCHER_KAT;
+window.GemaElektro.elVerbraucherKat   = elVerbraucherKat;
+window.GemaElektro.elGzEn61439        = elGzEn61439;
+window.GemaElektro.elScheinleistung   = elScheinleistung;
+window.GemaElektro.elBlindleistung    = elBlindleistung;
+window.GemaElektro.elAcFaktor         = elAcFaktor;
+window.GemaElektro.elStromAusS        = elStromAusS;
+window.GemaElektro.elOhm              = elOhm;
+})();

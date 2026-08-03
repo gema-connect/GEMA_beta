@@ -18,9 +18,54 @@
 <style>
 /* ── Modul-eigenes CSS ───────────────────────────────────────────────────
    Die gemeinsame Optik kommt aus el_base.css. Hier NUR ergänzen, was dieses
-   Modul zusätzlich braucht (eigene Tabellen, Schema-SVG, Spezialzeilen).
-   SVG-Schemata: ausschliesslich literale Hex-Farben — var() rastert
-   GemaPDF/html2canvas falsch. */
+   Modul zusätzlich braucht. */
+
+/* Neutraler Status: es ist noch nichts erfasst, was einen Nachweis trüge.
+   Grün wäre eine Aussage, die niemand geprüft hat. */
+.el-status.info{background:var(--blue-bg);border-color:var(--blue-bd);color:#1e40af}
+
+/* KRITISCH — .el-res-lbl ist ein Flex-Container mit gap: JEDES direkte
+   Inline-Element wird dort zur eigenen Spalte. Ein <sub> im Label erschiene
+   als «I  B» statt «I_B». Der Beschriftungstext steht deshalb in einem
+   eigenen <span>. (Gleiche Falle wie .pcell in pm_erp.) */
+.el-res-lbl>span:not(.frml){display:inline}
+
+/* Verbraucher-Tabelle: Eingabezellen kompakt, Rechenwerte rechtsbündig. */
+.lb-tbl input,.lb-tbl select{padding:5px 7px;border:1.5px solid var(--brd2);border-radius:7px;
+  font-size:12.5px;background:var(--sur);color:var(--txt);outline:none;width:100%}
+.lb-tbl input:focus,.lb-tbl select:focus{border-color:var(--el)}
+.lb-tbl td.num,.lb-tbl th.num{text-align:right;white-space:nowrap}
+.lb-tbl td.calc{font-weight:800;color:var(--txt2)}
+.lb-w-bez{min-width:150px}
+.lb-w-kat{min-width:170px}
+.lb-w-n{width:74px}
+.lb-w-p{width:96px}
+.lb-w-cos{width:80px}
+.lb-w-ph{width:112px}
+.lb-w-g{width:80px}
+.lb-del{width:34px;height:30px;border-radius:7px;border:1px solid var(--red-bd);
+  background:var(--red-bg);color:var(--red);font-size:14px;font-weight:900;cursor:pointer;line-height:1}
+.lb-del:hover{background:#fee2e2}
+.lb-add{padding:7px 13px;border-radius:8px;border:1.5px solid var(--el);background:var(--el);
+  color:#fff;font-size:12px;font-weight:800;cursor:pointer;margin-top:10px}
+.lb-add:hover{background:var(--el-dk)}
+.lb-rw{display:inline-block;padding:1px 6px;border-radius:5px;background:var(--amber-bg);
+  border:1px solid var(--amber-bd);color:#92400e;font-size:9.5px;font-weight:900;
+  letter-spacing:.3px;text-transform:uppercase;margin-left:6px;white-space:nowrap}
+
+/* Meldungen — Datenlücken und Vorbehalte nie still verschlucken. */
+.lb-msg{margin-top:10px;display:flex;flex-direction:column;gap:6px}
+.lb-msg .m{padding:7px 11px;border-radius:8px;font-size:11.5px;line-height:1.55;border:1.5px solid}
+.lb-msg .m.err{background:var(--red-bg);border-color:var(--red-bd);color:#991b1b}
+.lb-msg .m.warn{background:var(--amber-bg);border-color:var(--amber-bd);color:#92400e}
+.lb-msg .m.info{background:var(--blue-bg);border-color:var(--blue-bd);color:#1e40af}
+
+/* Umrechnungs-Hilfe */
+.lb-modes{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:12px}
+.lb-mode{padding:6px 13px;border-radius:8px;border:1.5px solid var(--brd2);background:var(--sur);
+  color:var(--txt2);font-size:12px;font-weight:700;cursor:pointer}
+.lb-mode.on{background:var(--el);border-color:var(--el);color:#fff;font-weight:800}
+.lb-ok{color:var(--grn);font-weight:900}
 </style>
 <script src="gema_db.js"></script>
 <script src="gema_feedback.js"></script><script src="gema_notify.js"></script><script src="gema_notify_ui.js"></script><script src="gema_chat.js"></script>
@@ -56,7 +101,7 @@
       <div class="gema-hero-ic">📊</div>
       <div>
         <div class="gema-hero-title">Anschlussleistung & Gleichzeitigkeit</div>
-        <div class="gema-hero-norm" title="Berechnungsgrundlage">📖 NIN 3.1 / SIA 2056</div>
+        <div class="gema-hero-norm" title="Berechnungsgrundlage">📖 EN 61439-1 Tab. 101 · Bemessungsstrom nach NIN</div>
         <div class="gema-hero-sub">Installierte Leistung, Gleichzeitigkeitsfaktoren und Bemessungsstrom</div>
       </div>
     </div>
@@ -64,9 +109,11 @@
 
   <!-- Kennzahlen-Leiste: die 2–4 wichtigsten Ergebnisse, live nachgeführt -->
   <div class="sum-bar" id="lbSumBar">
-    <span class="sum-item">Ergebnis <b class="hl" id="lb_sum1">—</b></span>
+    <span class="sum-item">Bemessungsstrom I<sub>B</sub> <b class="hl" id="lb_sum1">—</b></span>
     <span class="sum-sep"></span>
-    <span class="sum-item">Kontrolle <b id="lb_sum2">—</b></span>
+    <span class="sum-item">Bedarfsleistung <b id="lb_sum2">—</b></span>
+    <span class="sum-sep"></span>
+    <span class="sum-item">Nennstrom <b id="lb_sum3">—</b></span>
   </div>
 
   <!-- PROJEKT-LEISTE — Objektbezug (AutoSave speichert pro Objekt/Phase) -->
@@ -87,49 +134,79 @@
     <div class="pf"><label>Datum</label><input type="date" id="metaDatum"></div>
   </div>
 
-  <!-- ═══ GERÜST-BANNER — beim Ausbau des Moduls ERSATZLOS ENTFERNEN ═══ -->
-  <div class="el-stub" id="lbStub">
-    <b>Gerüst — die Berechnung fehlt noch.</b><br>
-    Aufbau, Registrierung und Persistenz stehen; einzutragen sind die Eingabefelder
-    (Karte 1), die Fachlogik im <code>/*ENGINE-START*/</code>-Block und die Ergebnis-Zeilen
-    (Karte 3). Alle Elektro-Grunddaten — Leitermaterial, κ bei Betriebstemperatur,
-    Querschnittsreihe, Netzsysteme — kommen aus <code>gema_elektro.js</code> und werden
-    hier NICHT neu definiert.
-  </div>
-
   <!-- ═══ 1. EINGABE ═══ -->
   <div class="el-card" data-fold="eingabe">
     <div class="el-card-hd" onclick="lbFold(this)">
       <span class="el-cx">▸</span>
       <span class="el-secnum">1</span>
-      <span class="el-card-tt">Eingabe</span>
-      <span class="el-card-sub">Angaben zur Anlage</span>
+      <span class="el-card-tt">Verbraucher</span>
+      <span class="el-card-sub">Installierte Leistung und Gleichzeitigkeit</span>
     </div>
     <div class="el-card-bd">
-      <div class="el-grid">
-        <!-- MUSTER — freistehende Zahlenfelder IMMER type="text" +
-             inputmode="decimal" + fixLeadingZero + angeschlossene Einheit.
-             NIE type="number". -->
+
+      <div class="el-grid" style="margin-bottom:14px">
         <div class="fg">
-          <label>Beispielwert</label>
+          <label>Netzsystem</label>
+          <select id="lb_system" onchange="lbRecalc()"></select>
+          <div class="fg-hint">Bezugsspannung der Zuleitung. Einphasige Verbraucher rechnen intern immer mit 230 V (L–N).</div>
+        </div>
+        <div class="fg">
+          <label>Reserve für Erweiterungen</label>
           <div class="g-inp-group">
-            <input class="g-inp" id="lb_beispiel" type="text" inputmode="decimal"
-                   value="16" placeholder="0.0" onblur="fixLeadingZero(this)" oninput="lbRecalc()"/>
-            <span class="g-inp-unit">A</span>
+            <input class="g-inp" id="lb_reserve" type="text" inputmode="decimal"
+                   value="0" placeholder="0" onblur="fixLeadingZero(this)" oninput="lbRecalc()"/>
+            <span class="g-inp-unit">%</span>
           </div>
-          <div class="fg-hint">Kurzer Hinweis, woher der Wert kommt.</div>
+          <div class="fg-hint">Bewusster Zuschlag auf den Bemessungsstrom. Standard 0 — nichts wird unterstellt.</div>
         </div>
         <div class="fg">
-          <label>Leitermaterial</label>
-          <select id="lb_material" onchange="lbRecalc()"></select>
-          <div class="fg-hint" id="lb_matHint"></div>
-        </div>
-        <div class="fg">
-          <label>Betriebstemperatur Leiter</label>
-          <select id="lb_temp" onchange="lbRecalc()"></select>
-          <div class="fg-hint">κ sinkt mit der Temperatur — 20 °C rechnet zu günstig.</div>
+          <label>Aufteilung der einphasigen Lasten</label>
+          <select id="lb_verteilung" onchange="lbRecalc()">
+            <option value="ideal">gleichmässig auf L1/L2/L3 verteilt</option>
+            <option value="worst">ungünstigster Fall — alle auf einer Phase</option>
+          </select>
+          <div class="fg-hint">Beide Werte werden gerechnet; die Wahl bestimmt, welcher massgebend ist.</div>
         </div>
       </div>
+
+      <div class="el-scroll">
+        <table class="el-tbl lb-tbl">
+          <thead>
+            <tr>
+              <th class="lb-w-bez">Bezeichnung</th>
+              <th class="lb-w-kat">Kategorie</th>
+              <th class="lb-w-n num">Anzahl</th>
+              <th class="lb-w-p num">P je Stück</th>
+              <th class="lb-w-cos num">cos φ</th>
+              <th class="lb-w-ph">Anschluss</th>
+              <th class="lb-w-g num">g</th>
+              <th class="num">P inst.</th>
+              <th class="num">P Bedarf</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="lb_tblBody"></tbody>
+          <tfoot>
+            <tr>
+              <td colspan="7">Total</td>
+              <td class="num" id="lb_sumInst">—</td>
+              <td class="num" id="lb_sumBed">—</td>
+              <td></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+      <button class="lb-add" onclick="lbAddRow()">＋ Verbraucher</button>
+
+      <div class="el-hint" style="margin-top:12px">
+        <b>Woher die Vorgaben stammen:</b> cos φ und der Gleichzeitigkeitsfaktor g einer Kategorie
+        sind <b>Erfahrungswerte aus der Praxis, keine Normvorgaben</b> — sie sind als
+        <span class="lb-rw">Richtwert</span> markiert und in jeder Zeile überschreibbar. Massgebend
+        sind die Vorgaben des Netzbetreibers bzw. des Projekts. Normativ hinterlegt ist allein die
+        Gleichzeitigkeit nach EN 61439-1 (Karte 2, als Gegenprobe).
+      </div>
+      <!-- Zeilen-Zustand für AutoSave (Muster #zk_rows) -->
+      <textarea id="lb_rows" style="display:none"></textarea>
     </div>
   </div>
 
@@ -139,16 +216,70 @@
       <span class="el-cx">▸</span>
       <span class="el-secnum">2</span>
       <span class="el-card-tt">Berechnung</span>
-      <span class="el-card-sub">Zwischenwerte</span>
+      <span class="el-card-sub">Leistungsdreieck und Strom je Phase</span>
     </div>
     <div class="el-card-bd">
+
       <div class="el-res">
-        <div class="el-res-lbl">Leitfähigkeit bei Betriebstemperatur
-          <span class="frml">κ(t) = κ₂₀ / (1 + α · (t − 20))</span></div>
-        <div class="el-res-val" id="lb_kappa">—</div>
+        <div class="el-res-lbl"><span>Installierte Wirkleistung</span>
+          <span class="frml">P<sub>inst</sub> = Σ (n · P)</span></div>
+        <div class="el-res-val" id="lb_pInst">—</div>
       </div>
+
+      <div class="el-res">
+        <div class="el-res-lbl"><span>Bedarfsleistung nach Gleichzeitigkeit</span>
+          <span class="frml">P<sub>bed</sub> = Σ (n · P · g)</span></div>
+        <div class="el-res-val" id="lb_pBed">—</div>
+      </div>
+
+      <div class="el-res">
+        <div class="el-res-lbl"><span>Blindleistung</span>
+          <span class="frml">Q = Σ (P<sub>i</sub> · tan φ<sub>i</sub>)</span></div>
+        <div class="el-res-val" id="lb_qBed">—</div>
+      </div>
+
+      <div class="el-res">
+        <div class="el-res-lbl"><span>Scheinleistung</span>
+          <span class="frml">S = √(P² + Q²)</span></div>
+        <div class="el-res-val" id="lb_sBed">—</div>
+      </div>
+
+      <div class="el-res">
+        <div class="el-res-lbl"><span>Resultierender Leistungsfaktor</span>
+          <span class="frml">cos φ = P / S</span></div>
+        <div class="el-res-val" id="lb_cosRes">—</div>
+      </div>
+
+      <div class="el-res">
+        <div class="el-res-lbl"><span>Strom bei gleichmässiger Verteilung</span>
+          <span class="frml">I = S / (√3 · U)</span></div>
+        <div class="el-res-val" id="lb_iSym">—</div>
+      </div>
+
+      <div class="el-res">
+        <div class="el-res-lbl"><span>Strom in der höchstbelasteten Phase</span>
+          <span class="frml">I = (S<sub>3ph</sub>/3 + S<sub>1ph</sub>) / U<sub>LN</sub></span></div>
+        <div class="el-res-val" id="lb_iWorst">—</div>
+      </div>
+
+      <div class="el-res">
+        <div class="el-res-lbl"><span>Gegenprobe Gleichzeitigkeit</span>
+          <span class="frml">EN 61439-1 Tab. 101</span></div>
+        <div class="el-res-val" id="lb_gzNorm">—</div>
+      </div>
+
       <div class="frml-block" id="lb_legende">
-        Formel-Legende — die Chips müssen dem Code entsprechen.
+        <b>Gleichzeitigkeit</b> je Zeile: nur ein Teil der installierten Leistung tritt gleichzeitig
+        auf. Die Faktoren der Kategorien sind Erfahrungswerte; EN 61439-1 Tab. 101 liefert daneben
+        einen Wert allein aus der <b>Anzahl Stromkreise</b> (2–3 → 0.90 · 4–5 → 0.80 · 6–9 → 0.70 ·
+        ab 10 → 0.60) — als Gegenprobe, nicht als Ersatz.<br>
+        <b>Leistungsdreieck</b>: Wirk- und Blindleistung werden getrennt summiert und erst dann
+        zur Scheinleistung zusammengesetzt. Ein blosses Addieren der Scheinleistungen läge zu hoch.
+        Angenommen sind <b>induktive</b> Lasten (tan φ ≥ 0) — kapazitive müssten vorzeichenrichtig
+        erfasst werden.<br>
+        <b>Strom je Phase</b>: dreiphasige Lasten belasten alle drei Phasen gleich, einphasige nur
+        eine. Deshalb zeigt das Modul beide Fälle — gleichmässig verteilt und ungünstigst.
+        U<sub>LN</sub> = U/√3 bei Drehstrom.
       </div>
     </div>
   </div>
@@ -159,16 +290,142 @@
       <span class="el-cx">▸</span>
       <span class="el-secnum">3</span>
       <span class="el-card-tt">Ergebnis</span>
-      <span class="el-card-sub">Bewertung</span>
+      <span class="el-card-sub">Bemessungsstrom und Anschluss</span>
     </div>
     <div class="el-card-bd">
+
       <div class="el-res">
-        <div class="el-res-lbl">Hauptergebnis</div>
+        <div class="el-res-lbl"><span>Bemessungsstrom I<sub>B</sub> der Zuleitung</span>
+          <span class="frml" id="lb_frmlIb">massgebende Phase · inkl. Reserve</span></div>
         <div class="el-res-val hl" id="lb_hauptwert">—</div>
       </div>
-      <div class="el-status ok" id="lb_status" style="margin-top:12px">
-        Noch keine Berechnung.
+
+      <div class="el-res">
+        <div class="el-res-lbl"><span>Nächster Nennstrom der Schutzeinrichtung</span>
+          <span class="frml">Reihe IEC 60269 / 60898</span></div>
+        <div class="el-res-val" id="lb_inNenn">—</div>
       </div>
+
+      <div class="el-res">
+        <div class="el-res-lbl"><span>Anschlussleistung bei diesem Nennstrom</span>
+          <span class="frml">S = √3 · U · I<sub>n</sub></span></div>
+        <div class="el-res-val" id="lb_sAnschluss">—</div>
+      </div>
+
+      <div class="el-status info" id="lb_status" style="margin-top:12px">
+        Noch keine Verbraucher erfasst.
+      </div>
+      <div class="lb-msg" id="lb_meldungen"></div>
+
+      <div class="el-note" style="margin-top:10px">
+        Der Bemessungsstrom ist die <b>Ausgangsgrösse</b> für die Zuleitung — er ersetzt weder den
+        Nachweis der <b>Strombelastbarkeit</b> (Querschnitt, Verlegeart, Häufung) noch die Prüfung
+        des <b>Spannungsfalls</b>. Beides sind eigene Berechnungen.
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ 4. UMRECHNUNGS-HILFE ═══ -->
+  <div class="el-card" data-fold="umrechnung">
+    <div class="el-card-hd" onclick="lbFold(this)">
+      <span class="el-cx">▸</span>
+      <span class="el-secnum">4</span>
+      <span class="el-card-tt">Umrechnungs-Hilfe</span>
+      <span class="el-card-sub">Typenschild → Leistung · Ohmsches Gesetz</span>
+    </div>
+    <div class="el-card-bd">
+
+      <div class="el-note" style="margin-bottom:12px">
+        Typenschilder nennen oft Strom statt Leistung. Hier lässt sich beides umrechnen und als
+        Verbraucher in die Liste übernehmen.
+      </div>
+
+      <div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--mut);margin-bottom:7px">
+        Wechselstrom — Leistung aus Strom
+      </div>
+      <div class="el-grid">
+        <div class="fg">
+          <label>Anschluss</label>
+          <select id="lb_acPh" onchange="lbAcCalc()">
+            <option value="1">einphasig 230 V (L + N)</option>
+            <option value="3" selected>dreiphasig 400 V (L1–L3)</option>
+          </select>
+        </div>
+        <div class="fg">
+          <label>Spannung U</label>
+          <div class="g-inp-group">
+            <input class="g-inp" id="lb_acU" type="text" inputmode="decimal" value="400"
+                   placeholder="400" onblur="fixLeadingZero(this)" oninput="lbAcCalc()"/>
+            <span class="g-inp-unit">V</span>
+          </div>
+        </div>
+        <div class="fg">
+          <label>Strom I</label>
+          <div class="g-inp-group">
+            <input class="g-inp" id="lb_acI" type="text" inputmode="decimal" value="16"
+                   placeholder="16" onblur="fixLeadingZero(this)" oninput="lbAcCalc()"/>
+            <span class="g-inp-unit">A</span>
+          </div>
+        </div>
+        <div class="fg">
+          <label>Leistungsfaktor cos φ</label>
+          <div class="g-inp-group">
+            <input class="g-inp" id="lb_acCos" type="text" inputmode="decimal" value="0.9"
+                   placeholder="0.9" onblur="fixLeadingZero(this)" oninput="lbAcCalc()"/>
+            <span class="g-inp-unit">–</span>
+          </div>
+        </div>
+      </div>
+
+      <div style="margin-top:10px">
+        <div class="el-res">
+          <div class="el-res-lbl"><span>Scheinleistung S</span>
+            <span class="frml">S = f · U · I &nbsp;(f = 1 bzw. √3)</span></div>
+          <div class="el-res-val" id="lb_acS">—</div>
+        </div>
+        <div class="el-res">
+          <div class="el-res-lbl"><span>Wirkleistung P</span>
+            <span class="frml">P = S · cos φ</span></div>
+          <div class="el-res-val hl" id="lb_acP">—</div>
+        </div>
+        <div class="el-res">
+          <div class="el-res-lbl"><span>Blindleistung Q</span>
+            <span class="frml">Q = √(S² − P²)</span></div>
+          <div class="el-res-val" id="lb_acQ">—</div>
+        </div>
+        <div class="el-res">
+          <div class="el-res-lbl"><span>Phasenwinkel φ</span>
+            <span class="frml">φ = arccos(cos φ)</span></div>
+          <div class="el-res-val" id="lb_acPhi">—</div>
+        </div>
+      </div>
+      <button class="lb-add" id="lb_acUeber" onclick="lbAcUebernehmen()">➕ Als Verbraucher übernehmen</button>
+      <div class="lb-msg" id="lb_acMsg"></div>
+
+      <div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--mut);margin:18px 0 7px">
+        Ohmsches Gesetz — Gleichstrom bzw. rein ohmsche Last
+      </div>
+      <div class="lb-modes" id="lb_ohmModes">
+        <button class="lb-mode on" data-ohm="U" onclick="lbOhmMode('U')">Spannung U</button>
+        <button class="lb-mode" data-ohm="I" onclick="lbOhmMode('I')">Strom I</button>
+        <button class="lb-mode" data-ohm="R" onclick="lbOhmMode('R')">Widerstand R</button>
+        <button class="lb-mode" data-ohm="P" onclick="lbOhmMode('P')">Leistung P</button>
+        <!-- gesuchte Grösse persistieren (AutoSave sammelt input[id]) -->
+        <input type="hidden" id="lb_ohmSel" value="U"/>
+      </div>
+      <div class="el-grid" id="lb_ohmGrid"></div>
+      <div style="margin-top:10px">
+        <div class="el-res">
+          <div class="el-res-lbl"><span>Gesuchte Grösse</span>
+            <span class="frml" id="lb_ohmFrml">—</span></div>
+          <div class="el-res-val hl" id="lb_ohmWert">—</div>
+        </div>
+        <div class="el-res">
+          <div class="el-res-lbl"><span>Vollständiger Satz U · I · R · P</span></div>
+          <div class="el-res-val" id="lb_ohmAlle">—</div>
+        </div>
+      </div>
+      <div class="lb-msg" id="lb_ohmMsg"></div>
     </div>
   </div>
 
@@ -177,25 +434,183 @@
 <script>
 /*ENGINE-START*/
 /* ── Rechenkern — DOM-FREI ───────────────────────────────────────────────
-   Hier gehört die gesamte Fachlogik hinein: keine getElementById, kein
-   innerHTML. Nur so lässt sich der Kern in Node gegen unabhängig gerechnete
-   Werte testen (scripts/leistungsbedarf_engine_test.mjs).
+   Gesamte Fachlogik: keine getElementById, kein innerHTML. Nur so lässt sich
+   der Kern in Node gegen unabhängig gerechnete Werte prüfen
+   (scripts/leistungsbedarf_engine_test.mjs).
 
-   Grunddaten kommen aus GemaElektro — Material, κ(t), Querschnittsreihe,
-   Netzsysteme und Zahlen-Helfer NIE hier duplizieren.
+   Kataloge, Gleichzeitigkeit, Leistungsdreieck, Ohmsches Gesetz und die
+   Sicherungsreihe kommen aus GemaElektro und werden hier NICHT dupliziert.
 
-   Rückgabe: ein Objekt mit allen Werten, die die Oberfläche anzeigt.
-   Grenzwert-Überschreitungen als Feld melden (nie still abschneiden). */
+   Rechenkette
+     P_inst = Σ (n · P)                      installierte Wirkleistung
+     P_bed  = Σ (n · P · g)                  nach Gleichzeitigkeit
+     Q_bed  = Σ (n · P · g · tan φ)          Blindleistung, induktiv
+     S_bed  = √(P_bed² + Q_bed²)             Scheinleistung
+     cos φ  = P_bed / S_bed                  resultierender Leistungsfaktor
+
+   Strom je Phase — bewusst zwei Fälle, weil einphasige Lasten nur EINE
+   Phase belasten:
+     gleichmässig  I = S_ges / (√3 · U)                      = S_ges/(3·U_LN)
+     ungünstigst   I = (S_3ph/3 + S_1ph) / U_LN
+   Die Ströme werden arithmetisch addiert (nicht vektoriell) — das liegt auf
+   der sicheren Seite und wird im Modul als Annahme ausgewiesen.
+
+   Jede Datenlücke wird als Meldung zurückgegeben, nie stillschweigend durch
+   einen Ersatzwert überdeckt. */
 function lbCalc(inp){
   var E = (typeof GemaElektro!=='undefined') ? GemaElektro : null;
-  var kappa = E ? E.elKappa(inp.material, inp.temp) : 56;
-
-  // TODO: Fachlogik dieses Moduls
-  return {
-    kappa: kappa,
-    hauptwert: null,
-    status: 'leer'   // 'ok' | 'warn' | 'err' | 'leer'
+  var R = {
+    zeilen:[], pInst:0, pBed:0, qBed:0, sBed:0, cosRes:null,
+    pInst1:0, pInst3:0, sBed1:0, sBed3:0,
+    iSym:null, iWorst:null, iMass:null, iMitReserve:null,
+    reserve:0, verteilung:'ideal', uLL:400, uLN:230,
+    gzNorm:null, gzEff:null, nKreise:0,
+    inNenn:null, sAnschluss:null,
+    status:'leer', meldungen:[]
   };
+  if(!E || !E.elScheinleistung) return R;
+
+  var melde = function(t, txt){ R.meldungen.push({typ:t, text:txt}); };
+  var num = E.elNum;
+
+  var sys = E.elSystem(inp.system);
+  R.uLL = sys.u;
+  /* Einphasige Verbraucher hängen an Leiter–Neutralleiter. Bei Drehstrom ist
+     das U/√3, im 230-V-Netz ist es die Systemspannung selbst. */
+  R.uLN = sys.id === '1p230' ? sys.u : sys.u / Math.sqrt(3);
+  R.reserve = Math.max(0, num(inp.reserve));
+  R.verteilung = inp.verteilung === 'worst' ? 'worst' : 'ideal';
+
+  var zeilen = Array.isArray(inp.zeilen) ? inp.zeilen : [];
+
+  for(var i=0;i<zeilen.length;i++){
+    var z = zeilen[i] || {};
+    var kat = E.elVerbraucherKat(z.kat);
+    var n   = Math.max(0, num(z.anzahl));
+    var pE  = num(z.p);                       // kW je Stück
+    var cos = z.cos === '' || z.cos === undefined || z.cos === null ? kat.cosPhi : num(z.cos);
+    var g   = z.g   === '' || z.g   === undefined || z.g   === null ? kat.g      : num(z.g);
+    var ph  = String(z.phase) === '1' ? 1 : 3;
+
+    var zeile = {
+      idx:i, bez:z.bez || '', kat:kat.id, katName:kat.name,
+      anzahl:n, p:pE, cos:cos, g:g, phase:ph,
+      pInst:0, pBed:0, qBed:0, sBed:0, fehler:null
+    };
+
+    if(cos <= 0 || cos > 1){
+      zeile.fehler = 'cos';
+      melde('err', 'Zeile ' + (i+1) + (z.bez ? ' («' + z.bez + '»)' : '') +
+                   ': cos φ muss zwischen 0 und 1 liegen — «' + z.cos + '» ist ungültig. ' +
+                   'Die Zeile fliesst NICHT in die Summen ein.');
+      R.zeilen.push(zeile);
+      continue;
+    }
+    if(g < 0 || g > 1){
+      zeile.fehler = 'g';
+      melde('err', 'Zeile ' + (i+1) + (z.bez ? ' («' + z.bez + '»)' : '') +
+                   ': der Gleichzeitigkeitsfaktor muss zwischen 0 und 1 liegen. ' +
+                   'Die Zeile fliesst NICHT in die Summen ein.');
+      R.zeilen.push(zeile);
+      continue;
+    }
+
+    zeile.pInst = n * pE;
+    zeile.pBed  = n * pE * g;
+    zeile.qBed  = E.elBlindleistung(zeile.pBed, cos);
+    zeile.sBed  = E.elScheinleistung(zeile.pBed, cos);
+
+    R.pInst += zeile.pInst;
+    R.pBed  += zeile.pBed;
+    R.qBed  += zeile.qBed;
+    if(ph === 1){ R.pInst1 += zeile.pInst; R.sBed1 += zeile.sBed; }
+    else        { R.pInst3 += zeile.pInst; R.sBed3 += zeile.sBed; }
+    if(n > 0 && pE > 0) R.nKreise += Math.round(n);
+
+    R.zeilen.push(zeile);
+  }
+
+  /* Leistungsdreieck über die Summen — Wirk- und Blindleistung getrennt
+     summieren und ERST DANN zusammensetzen. */
+  R.sBed   = Math.sqrt(R.pBed*R.pBed + R.qBed*R.qBed);
+  R.cosRes = R.sBed > 0 ? R.pBed / R.sBed : null;
+  R.gzEff  = R.pInst > 0 ? R.pBed / R.pInst : null;
+
+  /* KRITISCH — ein Fehler wiegt schwerer als «noch nichts erfasst».
+     Besteht die Anlage nur aus ungültigen Zeilen, ist P_inst zwar 0, aber
+     der Status muss «err» bleiben: sonst meldete die Oberfläche neutral
+     «noch keine Leistung erfasst» und die Fehlermeldung ginge unter. */
+  if(R.pInst <= 0){
+    R.status = R.meldungen.some(function(m){ return m.typ === 'err'; }) ? 'err' : 'leer';
+    return R;
+  }
+
+  /* Strom je Phase — S in kVA, U in V ⇒ ·1000 für Ampere. */
+  R.iSym   = R.sBed * 1000 / (Math.sqrt(3) * R.uLL);
+  R.iWorst = (R.sBed3 / 3 + R.sBed1) * 1000 / R.uLN;
+  R.iMass  = R.verteilung === 'worst' ? R.iWorst : R.iSym;
+  R.iMitReserve = R.iMass * (1 + R.reserve / 100);
+
+  /* Gegenprobe: Gleichzeitigkeit allein aus der Anzahl Stromkreise. */
+  R.gzNorm = E.elGzEn61439(R.nKreise);
+  if(R.gzNorm !== null && R.gzEff !== null && R.gzEff > R.gzNorm + 1e-9){
+    melde('info', 'Die erfasste Gleichzeitigkeit (' + (Math.round(R.gzEff*100)/100) +
+                  ') liegt über dem Wert nach EN 61439-1 für ' + R.nKreise + ' Stromkreise (' +
+                  R.gzNorm.toFixed(2) + '). Das ist zulässig und konservativ — der Normwert ist ' +
+                  'nur eine Annahme, wenn keine genaueren Angaben vorliegen.');
+  }
+
+  /* Schutzeinrichtung */
+  R.inNenn = E.elNaechsteSicherung(R.iMitReserve);
+  if(R.inNenn === null){
+    melde('warn', 'Zu einem Bemessungsstrom von ' + (Math.round(R.iMitReserve*10)/10) +
+                  ' A ist in der hinterlegten Reihe (bis ' +
+                  E.EL_SICHERUNGEN[E.EL_SICHERUNGEN.length-1] + ' A) kein Nennstrom vorhanden. ' +
+                  'Der Anschluss ist gesondert auszulegen (Trafostation, parallele Abgänge).');
+  } else {
+    R.sAnschluss = Math.sqrt(3) * R.uLL * R.inNenn / 1000;   // kVA
+  }
+
+  /* Hinweise, die man in der Praxis braucht */
+  if(R.sBed1 > 0 && R.verteilung === 'ideal' && R.iWorst > R.iSym * 1.05){
+    melde('info', 'Einphasige Lasten sind erfasst. Bei ungünstiger Aufteilung stiege der Strom in ' +
+                  'einer Phase auf ' + (Math.round(R.iWorst*10)/10) + ' A statt ' +
+                  (Math.round(R.iSym*10)/10) + ' A. Die Aufteilung auf L1/L2/L3 ist beim ' +
+                  'Erstellen des Verteilers nachzuweisen.');
+  }
+  if(R.cosRes !== null && R.cosRes < 0.9){
+    melde('warn', 'Der resultierende Leistungsfaktor liegt bei ' + (Math.round(R.cosRes*100)/100) +
+                  '. Viele Netzbetreiber verlangen mindestens 0.90 — eine Blindstrom-Kompensation ' +
+                  'ist zu prüfen.');
+  }
+  if(R.reserve === 0){
+    melde('info', 'Es ist keine Reserve eingerechnet. Der Wert entspricht exakt dem heutigen ' +
+                  'Bedarf — für spätere Erweiterungen bewusst einen Zuschlag setzen.');
+  }
+
+  var hatErr = R.meldungen.some(function(m){ return m.typ === 'err'; });
+  if(hatErr) R.status = 'err';
+  else if(R.meldungen.some(function(m){ return m.typ === 'warn'; })) R.status = 'warn';
+  else R.status = 'ok';
+  return R;
+}
+
+/* Wechselstrom aus dem Typenschild: S = f · U · I, P = S · cos φ.
+   f = 1 einphasig · √3 dreiphasig. Rückgabe in W/VA/var und Grad. */
+function lbAc(inp){
+  var E = (typeof GemaElektro!=='undefined') ? GemaElektro : null;
+  var out = {s:null, p:null, q:null, phi:null, sinPhi:null, fehler:null};
+  if(!E) return out;
+  var u = E.elNum(inp.u), i = E.elNum(inp.i), cos = E.elNum(inp.cos);
+  var f = inp.phase === 1 || inp.phase === '1' ? 1 : Math.sqrt(3);
+  if(u <= 0 || i <= 0){ out.fehler = 'unvollstaendig'; return out; }
+  if(cos <= 0 || cos > 1){ out.fehler = 'cos'; return out; }
+  out.s = f * u * i;
+  out.p = out.s * cos;
+  out.q = Math.sqrt(Math.max(0, out.s*out.s - out.p*out.p));
+  out.phi = Math.acos(cos) * 180 / Math.PI;
+  out.sinPhi = Math.sin(Math.acos(cos));
+  return out;
 }
 /*ENGINE-END*/
 
@@ -230,31 +645,142 @@ function lbFoldInit(){
   });
 }
 
-function lbFillSelects(){
+function lbEsc(s){
+  return String(s==null?'':s).replace(/[&<>"']/g, function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+  });
+}
+
+/* ── Zeilen-Zustand ────────────────────────────────────────────────────── */
+var lbZeilen = [];
+
+function lbNeueZeile(vorlage){
+  var z = {bez:'', kat:'steckdosen', anzahl:'1', p:'', cos:'', g:'', phase:'1'};
+  if(vorlage) for(var k in vorlage){ if(vorlage.hasOwnProperty(k)) z[k] = vorlage[k]; }
+  return z;
+}
+
+/* Persist: kompletter Zeilen-Zustand als JSON im hidden Textarea, damit
+   GemaAutoSave ihn pro Objekt speichert (Muster #zk_rows). */
+function lbPersist(){
+  var ta = document.getElementById('lb_rows');
+  if(!ta) return;
+  var neu = JSON.stringify({z:lbZeilen});
+  if(ta.value === neu) return;
+  ta.value = neu;
+  try{ ta.dispatchEvent(new Event('change', {bubbles:true})); }catch(e){}
+}
+
+function lbSysOptions(){
   var E = (typeof GemaElektro!=='undefined') ? GemaElektro : null;
-  if(!E) return;
-  var mat = document.getElementById('lb_material');
-  if(mat && !mat.options.length){
-    mat.innerHTML = E.EL_MATERIAL.map(function(m){
-      return '<option value="'+m.id+'">'+m.name+' — κ₂₀ '+m.kappa20+' m/(Ω·mm²)</option>';
-    }).join('');
-  }
-  var tmp = document.getElementById('lb_temp');
-  if(tmp && !tmp.options.length){
-    tmp.innerHTML = E.EL_TEMP_STUFEN.map(function(s){
-      return '<option value="'+s.t+'"'+(s.t===70?' selected':'')+'>'+s.label+'</option>';
-    }).join('');
-  }
+  var sel = document.getElementById('lb_system');
+  if(!E || !sel || sel.options.length) return;
+  sel.innerHTML = E.EL_SYSTEME.map(function(s){
+    return '<option value="'+s.id+'"'+(s.id==='3p400'?' selected':'')+'>'+lbEsc(s.label)+'</option>';
+  }).join('');
+}
+
+function lbKatOptions(sel){
+  var E = (typeof GemaElektro!=='undefined') ? GemaElektro : null;
+  if(!E) return '';
+  return E.EL_VERBRAUCHER_KAT.map(function(k){
+    return '<option value="'+k.id+'"'+(k.id===sel?' selected':'')+'>'+lbEsc(k.name)+'</option>';
+  }).join('');
+}
+
+/* Volle Liste NEU bauen — NUR beim Hinzufügen/Entfernen einer Zeile.
+   Bei jedem Tastendruck die Liste neu zu bauen würde den Fokus reissen
+   (GEMA-Regel für Zeilen-Tabellen). */
+function lbRenderRows(){
+  var tb = document.getElementById('lb_tblBody');
+  if(!tb) return;
+  var E = (typeof GemaElektro!=='undefined') ? GemaElektro : null;
+  tb.innerHTML = lbZeilen.map(function(z, i){
+    var kat = E ? E.elVerbraucherKat(z.kat) : {cosPhi:0.9, g:1, phase:3};
+    return '<tr data-i="'+i+'">' +
+      '<td><input type="text" class="lb-bez" value="'+lbEsc(z.bez)+'" placeholder="z.B. Küche EG" ' +
+        'oninput="lbSet('+i+',\'bez\',this.value)"/></td>' +
+      '<td><select onchange="lbKatWechsel('+i+',this.value)">'+lbKatOptions(z.kat)+'</select></td>' +
+      '<td><input type="text" inputmode="decimal" value="'+lbEsc(z.anzahl)+'" placeholder="1" ' +
+        'onblur="fixLeadingZero(this)" oninput="lbSet('+i+',\'anzahl\',this.value)"/></td>' +
+      '<td><input type="text" inputmode="decimal" value="'+lbEsc(z.p)+'" placeholder="kW" ' +
+        'onblur="fixLeadingZero(this)" oninput="lbSet('+i+',\'p\',this.value)"/></td>' +
+      '<td><input type="text" inputmode="decimal" value="'+lbEsc(z.cos)+'" placeholder="'+kat.cosPhi.toFixed(2)+'" ' +
+        'onblur="fixLeadingZero(this)" oninput="lbSet('+i+',\'cos\',this.value)"/></td>' +
+      '<td><select onchange="lbSet('+i+',\'phase\',this.value)">' +
+        '<option value="1"'+(String(z.phase)==='1'?' selected':'')+'>1-phasig</option>' +
+        '<option value="3"'+(String(z.phase)!=='1'?' selected':'')+'>3-phasig</option></select></td>' +
+      '<td><input type="text" inputmode="decimal" value="'+lbEsc(z.g)+'" placeholder="'+kat.g.toFixed(2)+'" ' +
+        'onblur="fixLeadingZero(this)" oninput="lbSet('+i+',\'g\',this.value)"/></td>' +
+      '<td class="num calc" data-c="pInst">—</td>' +
+      '<td class="num calc" data-c="pBed">—</td>' +
+      '<td><button class="lb-del" title="Zeile entfernen" onclick="lbDelRow('+i+')">✕</button></td>' +
+    '</tr>';
+  }).join('');
+  lbRecalc();
+}
+
+/* Nur die Rechenzellen nachziehen — kein Neuaufbau, kein Fokusverlust. */
+function lbPaintRows(r){
+  var E = (typeof GemaElektro!=='undefined') ? GemaElektro : null;
+  var fmt = E ? E.elFmt : function(v,d){ return Number(v).toFixed(d||2); };
+  var tb = document.getElementById('lb_tblBody');
+  if(!tb) return;
+  r.zeilen.forEach(function(z){
+    var tr = tb.querySelector('tr[data-i="'+z.idx+'"]');
+    if(!tr) return;
+    var ci = tr.querySelector('[data-c="pInst"]');
+    var cb = tr.querySelector('[data-c="pBed"]');
+    if(z.fehler){
+      if(ci) ci.textContent = '—';
+      if(cb) cb.textContent = 'ungültig';
+      tr.style.background = 'var(--red-bg)';
+    } else {
+      if(ci) ci.textContent = fmt(z.pInst, 2) + ' kW';
+      if(cb) cb.textContent = fmt(z.pBed, 2) + ' kW';
+      tr.style.background = '';
+    }
+  });
+}
+
+function lbSet(i, feld, wert){
+  if(!lbZeilen[i]) return;
+  lbZeilen[i][feld] = wert;
+  lbPersist();
+  lbRecalc();          // rechnet + malt nur die Zellen, baut die Liste NICHT neu
+}
+/* Kategoriewechsel setzt die Richtwerte NEU — deshalb hier ein Neuaufbau
+   (der Nutzer hat gerade ein Dropdown bedient, der Fokus ist nicht in einem
+   Textfeld). Eigene Werte bleiben erhalten, wenn sie erfasst waren. */
+function lbKatWechsel(i, katId){
+  if(!lbZeilen[i]) return;
+  var E = (typeof GemaElektro!=='undefined') ? GemaElektro : null;
+  var kat = E ? E.elVerbraucherKat(katId) : null;
+  lbZeilen[i].kat = katId;
+  if(kat) lbZeilen[i].phase = String(kat.phase);
+  lbPersist();
+  lbRenderRows();
+}
+function lbAddRow(vorlage){
+  var letzte = lbZeilen[lbZeilen.length-1];
+  lbZeilen.push(lbNeueZeile(vorlage || (letzte ? {kat:letzte.kat, phase:letzte.phase} : null)));
+  lbPersist();
+  lbRenderRows();
+}
+function lbDelRow(i){
+  lbZeilen.splice(i, 1);
+  if(!lbZeilen.length) lbZeilen.push(lbNeueZeile());
+  lbPersist();
+  lbRenderRows();
 }
 
 function lbRead(){
-  var E = (typeof GemaElektro!=='undefined') ? GemaElektro : null;
-  var num = E ? E.elNum : function(v){ return parseFloat(String(v).replace(',','.')) || 0; };
   var g = function(id){ var e = document.getElementById(id); return e ? e.value : ''; };
   return {
-    beispiel: num(g('lb_beispiel')),
-    material: g('lb_material') || 'cu',
-    temp:     num(g('lb_temp')) || 20
+    system:      g('lb_system') || '3p400',
+    reserve:     g('lb_reserve'),
+    verteilung:  g('lb_verteilung') || 'ideal',
+    zeilen:      lbZeilen
   };
 }
 
@@ -265,27 +791,289 @@ function lbRecalc(){
   try{ r = lbCalc(lbRead()); }catch(e){ console.warn('lbCalc:', e); return; }
 
   var set = function(id, txt){ var el = document.getElementById(id); if(el) el.textContent = txt; };
-  set('lb_kappa', fmt(r.kappa, 2) + ' m/(Ω·mm²)');
-  set('lb_hauptwert', r.hauptwert === null ? '—' : fmt(r.hauptwert, 2));
+  lbPaintRows(r);
+
+  set('lb_sumInst', fmt(r.pInst, 2) + ' kW');
+  set('lb_sumBed',  fmt(r.pBed, 2) + ' kW');
+
+  set('lb_pInst',  fmt(r.pInst, 2) + ' kW');
+  set('lb_pBed',   fmt(r.pBed, 2) + ' kW' + (r.gzEff !== null ? '  (g = ' + fmt(r.gzEff, 2) + ')' : ''));
+  set('lb_qBed',   fmt(r.qBed, 2) + ' kvar');
+  set('lb_sBed',   fmt(r.sBed, 2) + ' kVA');
+  set('lb_cosRes', r.cosRes === null ? '—' : fmt(r.cosRes, 3));
+  set('lb_iSym',   r.iSym === null ? '—' : fmt(r.iSym, 1) + ' A');
+  set('lb_iWorst', r.iWorst === null ? '—' : fmt(r.iWorst, 1) + ' A');
+  set('lb_gzNorm', r.gzNorm === null
+      ? (r.nKreise ? 'nicht hinterlegt' : '—')
+      : fmt(r.gzNorm, 2) + '  (' + r.nKreise + ' Stromkreise)');
+
+  set('lb_hauptwert', r.iMitReserve === null ? '—' : fmt(r.iMitReserve, 1) + ' A');
+  var fi = document.getElementById('lb_frmlIb');
+  if(fi) fi.textContent = (r.verteilung === 'worst' ? 'ungünstigste Phase' : 'gleichmässig verteilt') +
+                          (r.reserve > 0 ? ' · + ' + fmt(r.reserve, 0) + ' % Reserve' : ' · ohne Reserve');
+  set('lb_inNenn', r.inNenn === null
+      ? (r.iMitReserve === null ? '—' : 'über der Reihe')
+      : fmt(r.inNenn, 0) + ' A');
+  set('lb_sAnschluss', r.sAnschluss === null ? '—' : fmt(r.sAnschluss, 1) + ' kVA');
 
   var st = document.getElementById('lb_status');
   if(st){
-    st.className = 'el-status ' + (r.status === 'leer' ? 'ok' : r.status);
-    st.textContent = r.status === 'leer'
-      ? 'Noch keine Berechnung — die Fachlogik fehlt.'
-      : 'Ergebnis liegt vor.';
+    var klasse = {ok:'ok', warn:'warn', err:'err', leer:'info'}[r.status] || 'info';
+    st.className = 'el-status ' + klasse;
+    if(r.status === 'leer'){
+      st.textContent = 'Noch keine Leistung erfasst — Verbraucher mit Anzahl und kW eintragen.';
+    } else if(r.status === 'err'){
+      st.textContent = '✕ Es sind ungültige Zeilen erfasst — siehe Meldungen unten. Die Summen ' +
+                       'enthalten diese Zeilen NICHT.';
+    } else {
+      st.textContent = (r.status === 'warn' ? '⚠ ' : '✓ ') +
+        'Bedarfsleistung ' + fmt(r.pBed, 2) + ' kW bei cos φ ' + fmt(r.cosRes, 2) +
+        ' ⇒ Bemessungsstrom ' + fmt(r.iMitReserve, 1) + ' A' +
+        (r.inNenn !== null ? ', nächster Nennstrom ' + fmt(r.inNenn, 0) + ' A.' : '.');
+    }
   }
-  set('lb_sum1', r.hauptwert === null ? '—' : fmt(r.hauptwert, 2));
-  set('lb_sum2', fmt(r.kappa, 1));
+
+  var mv = document.getElementById('lb_meldungen');
+  if(mv){
+    mv.innerHTML = r.meldungen.map(function(m){
+      return '<div class="m ' + m.typ + '">' + lbEsc(m.text) + '</div>';
+    }).join('');
+  }
+
+  set('lb_sum1', r.iMitReserve === null ? '—' : fmt(r.iMitReserve, 1) + ' A');
+  set('lb_sum2', r.pBed > 0 ? fmt(r.pBed, 2) + ' kW' : '—');
+  set('lb_sum3', r.inNenn === null ? '—' : fmt(r.inNenn, 0) + ' A');
+}
+
+/* ── Umrechnungs-Hilfe: Wechselstrom ───────────────────────────────────── */
+function lbAcCalc(){
+  var E = (typeof GemaElektro!=='undefined') ? GemaElektro : null;
+  var fmt = E ? E.elFmt : function(v,d){ return Number(v).toFixed(d===undefined?2:d); };
+  var g = function(id){ var e = document.getElementById(id); return e ? e.value : ''; };
+  var ph = g('lb_acPh') === '1' ? 1 : 3;
+
+  /* Die Spannung folgt der Anschlussart, solange der Nutzer sie nicht
+     selbst angefasst hat — 400 V einphasig wäre ein stiller Fehler. */
+  var uEl = document.getElementById('lb_acU');
+  if(uEl && !uEl.dataset.touched) uEl.value = ph === 1 ? '230' : '400';
+
+  var r = lbAc({u:g('lb_acU'), i:g('lb_acI'), cos:g('lb_acCos'), phase:ph});
+  var set = function(id, txt){ var el = document.getElementById(id); if(el) el.textContent = txt; };
+  var kW = function(w, e){ return Math.abs(w) >= 1000 ? fmt(w/1000, 2) + ' k' + e : fmt(w, 0) + ' ' + e; };
+
+  var msg = document.getElementById('lb_acMsg');
+  var btn = document.getElementById('lb_acUeber');
+  if(r.fehler){
+    set('lb_acS','—'); set('lb_acP','—'); set('lb_acQ','—'); set('lb_acPhi','—');
+    if(btn) btn.disabled = true;
+    if(msg) msg.innerHTML = r.fehler === 'cos'
+      ? '<div class="m err">cos φ muss zwischen 0 und 1 liegen.</div>'
+      : '<div class="m info">Spannung und Strom erfassen.</div>';
+    return;
+  }
+  set('lb_acS', kW(r.s, 'VA'));
+  set('lb_acP', kW(r.p, 'W'));
+  set('lb_acQ', kW(r.q, 'var'));
+  set('lb_acPhi', fmt(r.phi, 1) + '°  (sin φ ' + fmt(r.sinPhi, 3) + ')');
+  if(btn) btn.disabled = false;
+  if(msg) msg.innerHTML = '';
+}
+function lbAcUebernehmen(){
+  var E = (typeof GemaElektro!=='undefined') ? GemaElektro : null;
+  var g = function(id){ var e = document.getElementById(id); return e ? e.value : ''; };
+  var ph = g('lb_acPh') === '1' ? 1 : 3;
+  var r = lbAc({u:g('lb_acU'), i:g('lb_acI'), cos:g('lb_acCos'), phase:ph});
+  var msg = document.getElementById('lb_acMsg');
+  if(r.fehler || r.p === null){
+    if(msg) msg.innerHTML = '<div class="m err">Zuerst eine gültige Umrechnung erfassen.</div>';
+    return;
+  }
+  lbZeilen.push(lbNeueZeile({
+    bez:  'aus Typenschild ' + (E ? E.elFmt(E.elNum(g('lb_acI')),1) : g('lb_acI')) + ' A',
+    kat:  'sonstiges',
+    anzahl: '1',
+    p:    String(Math.round(r.p/1000*1000)/1000),   // kW, 3 Nachkommastellen
+    cos:  String(E ? E.elNum(g('lb_acCos')) : g('lb_acCos')),
+    g:    '1',
+    phase: String(ph)
+  }));
+  lbPersist();
+  lbRenderRows();
+  if(msg) msg.innerHTML = '<div class="m info">Übernommen: ' +
+    (E ? E.elFmt(r.p/1000, 3) : (r.p/1000).toFixed(3)) +
+    ' kW als neue Zeile. Kategorie und Gleichzeitigkeit dort noch anpassen.</div>';
+}
+
+/* ── Umrechnungs-Hilfe: Ohmsches Gesetz ────────────────────────────────── */
+var LB_OHM = {
+  U:{frml:'U = R · I',  felder:[{id:'lb_ohmI', k:'i', lbl:'Strom I',      u:'A', v:'10'},
+                                {id:'lb_ohmR', k:'r', lbl:'Widerstand R', u:'Ω', v:'23'}]},
+  I:{frml:'I = U / R',  felder:[{id:'lb_ohmU', k:'u', lbl:'Spannung U',   u:'V', v:'230'},
+                                {id:'lb_ohmR', k:'r', lbl:'Widerstand R', u:'Ω', v:'23'}]},
+  R:{frml:'R = U / I',  felder:[{id:'lb_ohmU', k:'u', lbl:'Spannung U',   u:'V', v:'230'},
+                                {id:'lb_ohmI', k:'i', lbl:'Strom I',      u:'A', v:'10'}]},
+  P:{frml:'P = U · I',  felder:[{id:'lb_ohmU', k:'u', lbl:'Spannung U',   u:'V', v:'230'},
+                                {id:'lb_ohmI', k:'i', lbl:'Strom I',      u:'A', v:'10'}]}
+};
+var lbOhmGesucht = 'U';
+
+function lbOhmMode(m){
+  if(!LB_OHM[m]) return;
+  lbOhmGesucht = m;
+  document.querySelectorAll('#lb_ohmModes .lb-mode').forEach(function(b){
+    b.classList.toggle('on', b.getAttribute('data-ohm') === m);
+  });
+  var hidden = document.getElementById('lb_ohmSel');
+  if(hidden && hidden.value !== m){
+    hidden.value = m;
+    try{ hidden.dispatchEvent(new Event('change', {bubbles:true})); }catch(e){}
+  }
+  lbOhmBuild();
+  lbOhmCalc();
+}
+function lbOhmBuild(){
+  var grid = document.getElementById('lb_ohmGrid');
+  if(!grid) return;
+  var alt = {};
+  grid.querySelectorAll('input').forEach(function(i){ alt[i.id] = i.value; });
+  grid.innerHTML = LB_OHM[lbOhmGesucht].felder.map(function(f){
+    var v = alt[f.id] !== undefined ? alt[f.id] : f.v;
+    return '<div class="fg"><label>'+f.lbl+'</label><div class="g-inp-group">' +
+      '<input class="g-inp" id="'+f.id+'" type="text" inputmode="decimal" value="'+lbEsc(v)+'" ' +
+      'placeholder="'+f.v+'" onblur="fixLeadingZero(this)" oninput="lbOhmCalc()"/>' +
+      '<span class="g-inp-unit">'+f.u+'</span></div></div>';
+  }).join('');
+}
+function lbOhmCalc(){
+  var E = (typeof GemaElektro!=='undefined') ? GemaElektro : null;
+  var fmt = E ? E.elFmt : function(v,d){ return Number(v).toFixed(d===undefined?2:d); };
+  var set = function(id, txt){ var el = document.getElementById(id); if(el) el.textContent = txt; };
+  var def = LB_OHM[lbOhmGesucht];
+  set('lb_ohmFrml', def.frml);
+
+  var bek = {}, fehlt = false;
+  def.felder.forEach(function(f){
+    var el = document.getElementById(f.id);
+    var v = el ? el.value.trim() : '';
+    if(v === ''){ fehlt = true; return; }
+    bek[f.k] = E ? E.elNum(v) : parseFloat(v.replace(',','.'));
+  });
+  var msg = document.getElementById('lb_ohmMsg');
+  if(fehlt){
+    set('lb_ohmWert','—'); set('lb_ohmAlle','—');
+    if(msg) msg.innerHTML = '<div class="m info">Beide Werte erfassen.</div>';
+    return;
+  }
+  var r = E && E.elOhm ? E.elOhm(bek) : {fehler:'ungueltig'};
+  if(r.fehler){
+    set('lb_ohmWert','—'); set('lb_ohmAlle','—');
+    if(msg) msg.innerHTML = '<div class="m err">Mit diesen Werten lässt sich nicht rechnen ' +
+      '(Division durch null oder negativer Wert).</div>';
+    return;
+  }
+  var EH = {u:'V', i:'A', r:'Ω', p:'W'};
+  var k = lbOhmGesucht.toLowerCase();
+  /* Auch OHNE Fehlerkennung kann die gesuchte Grösse unbestimmt sein — etwa
+     R bei I = 0 (P ist dort weiterhin gültig, R nicht). Ein blosser
+     Gedankenstrich wäre ein stiller Deckel: der Grund muss dastehen. */
+  if(r[k] === null){
+    var warum = (k === 'r' && r.i === 0) ? 'Bei I = 0 A lässt sich R nicht bestimmen (Division durch null).'
+              : (k === 'r' && r.p === 0) ? 'Ohne Leistung lässt sich R nicht bestimmen (Division durch null).'
+              : 'Diese Grösse lässt sich aus den erfassten Werten nicht bestimmen (Division durch null).';
+    set('lb_ohmWert', '—');
+    if(msg) msg.innerHTML = '<div class="m err">' + lbEsc(warum) + '</div>';
+  } else {
+    if(msg) msg.innerHTML = '';
+    set('lb_ohmWert', fmt(r[k], 2) + ' ' + EH[k]);
+  }
+  set('lb_ohmAlle', ['u','i','r','p'].map(function(x){
+    return r[x] === null ? x.toUpperCase() + ' —' : fmt(r[x], 2) + ' ' + EH[x];
+  }).join('  ·  '));
+}
+
+/* ── Snapshot-Fallback (KRITISCH) ────────────────────────────────────────
+   GemaAutoSave macht einen Initial-Restore NUR, wenn ein Objekt gewählt ist
+   (`if (sel && sel.value)` in init). Ohne gewähltes Objekt läuft die Seite
+   auf dem Basis-Key `gema_leistungsbedarf` — dort käme ein gespeicherter
+   Stand nie zurück. Darum liest das Modul den Snapshot verzögert selbst nach
+   (Muster glSnapshotLoad / rlSnapshotLoad: 700/1800/3500 ms).
+   `_lbTouched` schützt eine laufende Eingabe: sobald jemand SELBST etwas
+   ändert (isTrusted), rührt der Fallback nichts mehr an. */
+var _lbTouched = false;
+function lbSnapshotLoad(){
+  if(_lbTouched) return;
+  try{
+    var base = 'gema_leistungsbedarf', key = base;
+    if(typeof GemaObjekte!=='undefined' && GemaObjekte.storageKey) key = GemaObjekte.storageKey(base) || base;
+    var raw = localStorage.getItem(key) || localStorage.getItem(base);
+    if(!raw) return;
+    var snap = JSON.parse(raw);
+    if(!snap || typeof snap !== 'object') return;
+
+    var geaendert = false;
+    Object.keys(snap).forEach(function(id){
+      if(id.charAt(0) === '_' || id === 'lb_rows' || !/^lb_/.test(id)) return;
+      var el = document.getElementById(id);
+      if(!el) return;
+      var v = snap[id] != null ? String(snap[id]) : '';
+      if(el.value !== v){ el.value = v; geaendert = true; }
+    });
+    if(snap.lb_ohmSel && LB_OHM[snap.lb_ohmSel] && snap.lb_ohmSel !== lbOhmGesucht){
+      lbOhmMode(snap.lb_ohmSel); geaendert = true;
+    }
+    if(snap.lb_rows){
+      var st = JSON.parse(snap.lb_rows);
+      if(st && Array.isArray(st.z) && JSON.stringify({z:lbZeilen}) !== snap.lb_rows){
+        lbZeilen = st.z.length ? st.z : [lbNeueZeile()];
+        var ta = document.getElementById('lb_rows');
+        if(ta) ta.value = snap.lb_rows;
+        lbRenderRows();
+        geaendert = false;   // lbRenderRows hat bereits gerechnet
+      }
+    }
+    if(geaendert){ lbRecalc(); lbAcCalc(); lbOhmCalc(); }
+  }catch(e){}
+}
+
+/* AutoSave restauriert das Textarea programmatisch — dann Zeilen übernehmen. */
+function lbRowsAusTextarea(){
+  var ta = document.getElementById('lb_rows');
+  if(!ta || !ta.value) return;
+  try{
+    var st = JSON.parse(ta.value);
+    if(st && Array.isArray(st.z) && JSON.stringify({z:lbZeilen}) !== ta.value){
+      lbZeilen = st.z.length ? st.z : [lbNeueZeile()];
+      lbRenderRows();
+    }
+  }catch(e){}
 }
 
 document.addEventListener('DOMContentLoaded', function(){
   lbFoldInit();
-  lbFillSelects();
-  lbRecalc();
+  lbSysOptions();
+  lbZeilen = [lbNeueZeile({kat:'beleuchtung', phase:'1'})];
+  lbRenderRows();
+  lbPersist();            // Persist-Guard: sonst friert ein früher Snapshot eine leere Liste ein
+  lbOhmBuild();
+  lbOhmCalc();
+  lbAcCalc();
+  setTimeout(lbSnapshotLoad, 700);
+  setTimeout(lbSnapshotLoad, 1800);
+  setTimeout(lbSnapshotLoad, 3500);
 });
-/* AutoSave-Restore setzt Werte programmatisch — danach neu rechnen. */
-window.addEventListener('gema-autosave-restored', function(){ lbRecalc(); });
+
+/* Eigene Eingabe sperrt den Fallback ab (nur echte Benutzer-Events). */
+document.addEventListener('input', function(e){
+  if(e.isTrusted && e.target && (/^lb_/.test(e.target.id||'') || e.target.closest('#lb_tblBody'))) _lbTouched = true;
+}, true);
+document.addEventListener('change', function(e){
+  if(e.isTrusted && e.target && (/^lb_/.test(e.target.id||'') || e.target.closest('#lb_tblBody'))) _lbTouched = true;
+  if(e.target && e.target.id === 'lb_rows') lbRowsAusTextarea();
+  if(e.target && e.target.id === 'lb_acU') e.target.dataset.touched = '1';
+}, true);
+window.addEventListener('gema-objekt-changed', function(){
+  setTimeout(function(){ lbRowsAusTextarea(); lbRecalc(); }, 250);
+});
 </script>
 
 <script>
