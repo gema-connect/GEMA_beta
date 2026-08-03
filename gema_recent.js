@@ -29,6 +29,7 @@
     'el_beleuchtung':'Beleuchtungsberechnung',
     'el_photovoltaik':'Photovoltaik',
     'el_potenzialausgleich':'Potenzialausgleich & Schutzleiter',
+    'el_poe':'PoE — Leistung & RP-Kategorie',
     'hy_legionellen':'Hygienemanagement',
     'hy_spuelmanager':'Spülmanager',
     'hy_w12':'Selbstkontrolle W12',

@@ -1,5 +1,5 @@
 /* GEMA Service Worker — Offline Cache + Push Vorbereitung */
-var CACHE_NAME = 'gema-v448';
+var CACHE_NAME = 'gema-v449';
 var CACHE_FILES = [
   '/', '/index.html', '/sb_index.html',
   '/sa_enthaertung.html', '/sa_osmose.html', '/sa_fettabscheider.html',
@@ -21,7 +21,7 @@ var CACHE_FILES = [
   '/sys_preise.html', '/sys_abos.html', '/sys_beta.html', '/sys_workspace.html', '/sys_unternehmen.html',
   '/sys_card.html', '/sys_card_editor.html', '/sys_card_reports.html', '/sys_kontakte.html', '/gema_card.js',
   '/br_vkf_formulare.html', '/br_vkf_formular.html', '/br_gasloeschung.html',
-  '/el_index.html', '/el_angaben.html', '/el_spannungsfall.html', '/el_belastbarkeit.html', '/el_kurzschluss.html', '/el_leistungsbedarf.html', '/el_beleuchtung.html', '/el_photovoltaik.html', '/el_potenzialausgleich.html', '/el_base.css', '/gema_elektro.js',
+  '/el_index.html', '/el_angaben.html', '/el_spannungsfall.html', '/el_belastbarkeit.html', '/el_kurzschluss.html', '/el_leistungsbedarf.html', '/el_beleuchtung.html', '/el_photovoltaik.html', '/el_potenzialausgleich.html', '/el_poe.html', '/el_base.css', '/gema_elektro.js',
   '/if_fahrzeug.html', '/if_werkzeug.html', '/if_trocknung.html', '/if_wareneingang.html', '/if_arbeitskleider.html', '/iv_immobilien.html', '/sd_schadensbericht.html', '/sp_dachbericht.html',
   '/pm_goodel.html', '/pm_schnellausschreibung.html', '/pm_crbx.html', '/pm_regierapport.html', '/pm_erp.html', '/pm_einsatzplan.html', '/pm_stunden.html', '/pm_bestellungen.html', '/pm_revisionsunterlagen.html', '/pm_behoerden_formulare.html', '/pm_plaene.html', '/pm_planablage.html', '/pm_pruefliste.html',
   '/gema_sync.js', '/gema_auth.js', '/gema_db.js', '/gema_feedback.js', '/gema_autosave.js',

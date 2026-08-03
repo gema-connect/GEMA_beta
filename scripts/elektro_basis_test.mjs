@@ -42,7 +42,8 @@ const MODULE = [
   { datei: 'el_leistungsbedarf', key: 'leistungsbedarf', praefix: 'lb' },
   { datei: 'el_beleuchtung',     key: 'beleuchtung',     praefix: 'bt' },
   { datei: 'el_photovoltaik',    key: 'photovoltaik',    praefix: 'pv' },
-  { datei: 'el_potenzialausgleich', key: 'potenzialausgleich', praefix: 'pa' }
+  { datei: 'el_potenzialausgleich', key: 'potenzialausgleich', praefix: 'pa' },
+  { datei: 'el_poe',             key: 'poe',             praefix: 'po' }
 ];
 
 /* ══ TEIL A — gema_elektro.js (DOM-frei) ═══════════════════════════════ */
