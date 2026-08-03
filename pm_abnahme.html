@@ -287,12 +287,37 @@ canvas.sig{width:100%;height:150px;background:#fff;display:block;touch-action:no
 /* Protocol Selector */
 .proto-sel{display:flex;align-items:center;gap:8px;margin-bottom:10px;padding:10px 14px;background:var(--sur);border:1.5px solid var(--brd);border-radius:10px;box-shadow:var(--sh-sm)}
 .proto-sel-label{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--mut);flex-shrink:0}
-.proto-sel-dd{flex:1;padding:6px 10px;border:1.5px solid var(--brd2);border-radius:8px;font-size:13px;font-weight:600;color:var(--txt);background:var(--bg2);outline:none;min-width:0}
-.proto-sel-dd:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(29,78,216,.1)}
+.proto-sel-cur{flex:1;display:flex;align-items:center;gap:8px;padding:7px 12px;border:1.5px solid var(--brd2);border-radius:8px;font-size:13px;font-weight:700;color:var(--txt);background:var(--bg2);outline:none;min-width:0;cursor:pointer;text-align:left;font-family:inherit}
+.proto-sel-cur:hover{border-color:var(--blue);background:var(--sur)}
+.proto-sel-cur .pc-txt{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.proto-sel-cur .pc-sub{display:block;font-size:11px;font-weight:600;color:var(--mut);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:1px}
+.proto-sel-cur .pc-ic{flex-shrink:0;font-size:14px}
+.proto-sel-cur .pc-hint{flex-shrink:0;font-size:11px;font-weight:700;color:var(--blue)}
+/* Dialog-Buttons (Protokoll-Wahl + Suchen) — waren vorher ungestylte
+   Browser-Buttons; die Protokoll-Wahl ist jetzt ein Alltagsweg. */
+.btn{padding:8px 14px;border-radius:8px;border:1.5px solid var(--brd2);background:var(--sur);color:var(--txt2);font-size:12.5px;font-weight:700;cursor:pointer;font-family:inherit;transition:.15s}
+.btn:hover{background:var(--bg2);border-color:var(--mut2)}
+.btn.primary{background:var(--blue);border-color:var(--blue);color:#fff}
+.btn.primary:hover{filter:brightness(.94);background:var(--blue)}
+.proto-wrap{display:flex;align-items:stretch;gap:8px;margin-bottom:10px}
+.proto-row{flex:1;min-width:0;display:block;text-align:left;font-family:inherit;border:1.5px solid #e2e8f0;background:#fff;border-radius:10px;padding:12px 14px;cursor:pointer;transition:.12s}
+.proto-row:hover{border-color:var(--blue);background:#f8fafc}
+.proto-row.akt{border-color:#bbf7d0;background:#f0fdf4;cursor:default}
+.proto-ren{flex-shrink:0;width:40px;border:1.5px solid #e2e8f0;background:#fff;border-radius:10px;cursor:pointer;font-size:14px;font-family:inherit;transition:.12s}
+.proto-ren:hover{border-color:var(--blue);background:#f8fafc}
 .proto-sel-btn{padding:5px 12px;border-radius:8px;border:1.5px solid var(--brd2);background:var(--sur);color:var(--txt2);font-size:12px;font-weight:700;cursor:pointer;transition:.15s;white-space:nowrap;font-family:inherit}
 .proto-sel-btn:hover{background:var(--bg2)}
 .proto-sel-del{color:var(--mut2);font-size:11px;padding:5px 8px}
 .proto-sel-del:hover{color:var(--red,#dc2626);background:var(--red-bg,#fef2f2);border-color:var(--red-bd,#fecaca)}
+/* Phone: der Wahl-Knopf bekommt eine eigene Zeile — nebeneinander blieb vom
+   Protokoll-Namen nur «P…» übrig, und genau der ist die Entscheidungshilfe. */
+@media (max-width:640px){
+  .proto-sel{flex-wrap:wrap;gap:6px;padding:9px 11px}
+  .proto-sel-label{order:1;flex:1}
+  .proto-sel-del{order:2}
+  #protoFindBtn{order:3}
+  .proto-sel-cur{order:4;flex:1 1 100%;padding:8px 11px}
+}
 /* Objekt Combo */
 .obj-combo{display:flex;flex-direction:column;gap:4px}
 .obj-combo-row{display:flex;gap:6px;align-items:center}
@@ -386,8 +411,10 @@ canvas.sig{width:100%;height:150px;background:#fff;display:block;touch-action:no
   <!-- PROTOCOL SELECTOR -->
   <div class="proto-sel" id="protoSel">
     <div class="proto-sel-label">Protokoll</div>
-    <select class="proto-sel-dd" id="protoSelect" onchange="switchProtocol()"></select>
-    <button class="proto-sel-btn" onclick="newProtocol()">+ Neu</button>
+    <!-- Bewusste Wahl statt Dropdown: der Knopf zeigt das AKTIVE Protokoll und
+         öffnet die Auswahl. Ein «+ Neu» direkt neben einem Dropdown wurde zu
+         oft versehentlich getroffen — Neuanlegen steht jetzt IM Dialog. -->
+    <button class="proto-sel-cur" id="protoPickBtn" onclick="abProtoWaehlen()" title="Protokoll auswählen oder ein neues anlegen"></button>
     <button class="proto-sel-btn proto-sel-del" id="protoDelBtn" onclick="deleteProtocol()">🗑</button>
     <button class="proto-sel-btn" id="protoFindBtn" onclick="abProtokolleSuchen()" title="Protokolle dieser Firma suchen — auch solche, die einem anderen Projekt/einer anderen Phase zugeordnet sind">🔍 Suchen</button>
   </div>
@@ -1123,6 +1150,11 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
 
     // Render Mängel
     renderMaengel(visible, hideDone);
+
+    // Der Protokoll-Knopf beschriftet sich aus dem Kopf (Arbeitsgattung,
+    // geprüfter Teil, Datum) — er muss jeder Änderung folgen, sonst wählt man
+    // später anhand einer veralteten Beschriftung.
+    renderProtocolSelector();
 
     // Auto-Save-Chokepoint: jede Button-Aktion (Status, Typ, Zeilen, Fotos …)
     // rendert neu → Änderung landet debounced in der Cloud.
@@ -2231,13 +2263,54 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
     };
   }
 
+  /* Stammdaten eines Protokolls = alles, was PROJEKT und BETEILIGTE
+     beschreibt. Ein zweites Protokoll fürs selbe Projekt (nächster Bauteil,
+     nächste Etappe) soll diesen Kopf nicht erneut abtippen müssen.
+     Bewusst NICHT dabei: geprüfter Teil, Ergebnis, Entscheid, Bemerkungen,
+     Checkliste, Mängel, Anhänge, Datum — und vor allem KEINE Unterschriften.
+     Die gehören zur einzelnen Abnahme; sie mitzukopieren wäre eine
+     Fälschung. */
+  const AB_STAMM_FELDER=['bauobjekt','bauobjektTeile',
+    'bauherr','bauherrName','bauherrFirma',
+    'bauleitung','bauleitungName','bauleitungFirma','_bauleitungId',
+    'unternehmer','unternehmerName','unternehmerFirma','_unternehmerId',
+    'weitereBeteiligte','arbeitsgattung','vertragVom','ort',
+    'protokollArt','artFrei','geprueftTyp','objekttypen','objekttyp','objekttypFrei','nutzungen','nutzungFrei',
+    'garantieJahre','fristMaengel'];
+  function _abStammUebernehmen(ziel,quelle){
+    if(!ziel||!quelle||!quelle.abnahme) return 0;
+    var n=0;
+    AB_STAMM_FELDER.forEach(function(k){
+      var v=quelle.abnahme[k];
+      if(v==null||v===''||(Array.isArray(v)&&!v.length)) return;
+      ziel.abnahme[k]=(v&&typeof v==='object')?JSON.parse(JSON.stringify(v)):v;
+      n++;
+    });
+    if(quelle._objektId) ziel._objektId=quelle._objektId;
+    if(quelle.maengelMeta&&quelle.maengelMeta.pruefer&&ziel.maengelMeta) ziel.maengelMeta.pruefer=quelle.maengelMeta.pruefer;
+    return n;
+  }
+  // Quelle für die Stammdaten: das aktive Protokoll, sonst das zuletzt
+  // erfasste mit Inhalt — ein leeres Protokoll vererbt nichts.
+  function _abStammQuelle(){
+    var akt=protocols.find(function(p){ return p.id===activeProtocolId; });
+    if(akt&&akt.state&&String((akt.state.abnahme||{}).bauobjekt||'').trim()) return akt;
+    for(var i=protocols.length-1;i>=0;i--){
+      var p=protocols[i];
+      if(p&&p.state&&String((p.state.abnahme||{}).bauobjekt||'').trim()) return p;
+    }
+    return null;
+  }
+
   function newProtocol(){
     // Aktuelles Protokoll SYNCHRON snapshotten + sichern, bevor gewechselt wird
     _abSnapActive();
     persistAll();
+    var quelle=_abStammQuelle();
     var nr=protocols.length+1;
     var name='Protokoll '+nr;
     var p={id:uid(), name:name, createdAt:new Date().toISOString(), state:_defaultState()};
+    var uebernommen=_abStammUebernehmen(p.state,quelle&&quelle.state);
     protocols.push(p);
     _abLockRelease();
     activeProtocolId=p.id;
@@ -2245,19 +2318,24 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
     _abActiveSave();
     persistAll();
     renderProtocolSelector();
+    populateObjektDropdown();
     render(); initSignatures();
-    toast('+ Neues Protokoll erstellt');
+    toast(uebernommen?'+ Neues Protokoll — Stammdaten übernommen':'+ Neues Protokoll erstellt');
   }
   window.newProtocol=newProtocol;
 
-  function switchProtocol(){
-    var sel=$('protoSelect');
-    if(!sel||sel.value===activeProtocolId) return;
+  // Wechsel NUR mit ausdrücklicher id (aus dem Auswahl-Dialog). Früher las die
+  // Funktion ohne Argument den Wert eines Dropdowns — ein Streifschuss dort
+  // wechselte das Protokoll, ohne dass es jemand wollte.
+  function switchProtocol(id){
+    var ziel=String(id||'');
+    if(!ziel||ziel===activeProtocolId) return;
+    if(!protocols.find(function(p){ return p.id===ziel; })) return;
     // Aktuelles Protokoll SYNCHRON snapshotten + sichern, bevor gewechselt wird
     _abSnapActive();
     persistAll();
     _abLockRelease();
-    activeProtocolId=sel.value;
+    activeProtocolId=ziel;
     var active=protocols.find(p=>p.id===activeProtocolId);
     if(active){
       state=active.state;
@@ -2270,6 +2348,55 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
     render(); initSignatures();
   }
   window.switchProtocol=switchProtocol;
+
+  /* Protokoll-Auswahl als Dialog (Feedback 03.08.2026): «man soll via Button
+     das entsprechende Protokoll bewusst auswählen, da sonst oft ein neues
+     erstellt wird oder man im falschen schreibt.» Jede Zeile zeigt genug,
+     um das richtige zu erkennen — Datum, geprüfter Teil, Ergebnis, Mängel. */
+  function _abProtoZeile(p,i){
+    var a=(p.state&&p.state.abnahme)||{};
+    var akt=p.id===activeProtocolId;
+    var items=(p.state&&Array.isArray(p.state.items))?p.state.items:[];
+    var dat=a.datum||(p.createdAt?new Date(p.createdAt).toLocaleDateString('de-CH'):'');
+    var kopf=[a.arbeitsgattung||'',a.gepruefterTeil||''].filter(Boolean).join(' · ');
+    var meta=[];
+    if(dat) meta.push('📅 '+dat);
+    if(a.ergebnis) meta.push('Ergebnis: '+a.ergebnis);
+    meta.push(items.length?(items.length+' Mängel/Pendenzen'):'keine Mängel erfasst');
+    var sig=0; try{ sig=Object.keys(a.sig||{}).filter(function(k){ return (a.sig[k]||{}).dataUrl; }).length; }catch(e){}
+    if(sig) meta.push(sig+' Unterschriften');
+    // Umbenennen liegt NEBEN der Zeile, nicht darin: ein Button im Button ist
+    // ungültiges Markup und der Browser zerlegt ihn.
+    return '<div class="proto-wrap">'
+      +'<button type="button" class="proto-row'+(akt?' akt':'')+'" data-pid="'+esc(p.id)+'"'+(akt?'':' onclick="abProtoPick(\''+p.id+'\')"')+'>'
+      +'<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">'
+        +'<b style="font-size:13.5px;color:#0f172a">'+esc(p.name||('Protokoll '+(i+1)))+'</b>'
+        +(akt?'<span style="font-size:10.5px;font-weight:800;color:#15803d;background:#dcfce7;border-radius:6px;padding:2px 7px">geöffnet</span>':'')
+      +'</div>'
+      +(kopf?'<div style="font-size:12.5px;color:#334155;margin-top:3px">'+esc(kopf)+'</div>':'')
+      +(a.bauobjekt?'<div style="font-size:12px;color:#475569;margin-top:2px">🏗 '+esc(a.bauobjekt)+'</div>':'')
+      +'<div style="font-size:11.5px;color:#64748b;margin-top:4px">'+esc(meta.join(' · '))+'</div>'
+      +'</button>'
+      +'<button type="button" class="proto-ren" title="Protokoll umbenennen" onclick="renameProtocol(\''+p.id+'\')">✏️</button>'
+      +'</div>';
+  }
+  function abProtoWaehlen(){
+    _abSnapActive();
+    var q=_abStammQuelle();
+    _abShowSuchModal('<h3 style="margin:0 0 4px;font-size:17px;font-weight:800">📜 Protokoll auswählen</h3>'
+      +'<div style="font-size:12px;color:#64748b;margin-bottom:12px">Das gewählte Protokoll wird geöffnet — es wird nichts neu angelegt.</div>'
+      +'<div style="max-height:52vh;overflow-y:auto;padding-right:4px">'+protocols.map(_abProtoZeile).join('')+'</div>'
+      +'<div style="border-top:1px solid #e2e8f0;margin-top:14px;padding-top:14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">'
+        +'<button class="btn primary" style="font-size:12.5px;padding:8px 14px" onclick="abProtoNeu()">＋ Neues Protokoll</button>'
+        +'<span style="font-size:11.5px;color:#64748b;flex:1;min-width:180px">'
+          +(q?'Bauobjekt, Beteiligte und Arbeitsgattung werden übernommen — Ergebnis, Mängel und Unterschriften nicht.':'Es sind noch keine Stammdaten erfasst, die übernommen werden könnten.')
+        +'</span>'
+        +'<button class="btn" onclick="_abCloseSuchModal()">Schliessen</button>'
+      +'</div>');
+  }
+  window.abProtoWaehlen=abProtoWaehlen;
+  window.abProtoPick=function(id){ _abCloseSuchModal(); switchProtocol(id); };
+  window.abProtoNeu=function(){ _abCloseSuchModal(); newProtocol(); };
 
   function deleteProtocol(){
     if(protocols.length<=1){ toast('Letztes Protokoll kann nicht gelöscht werden'); return; }
@@ -2491,11 +2618,22 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
   window._abScopeLesbar=_abScopeLesbar;
   window._abInhalt=_abInhalt;
 
-  function renameProtocol(){
-    var active=protocols.find(p=>p.id===activeProtocolId);
-    if(!active) return;
-    var name=prompt('Protokoll umbenennen:',active.name);
-    if(name&&name.trim()){ active.name=name.trim(); persistAll(); renderProtocolSelector(); }
+  // Aus dem Auswahl-Dialog erreichbar: «Protokoll 1/2/3» sagt beim Wählen
+  // wenig — ein sprechender Name macht die bewusste Wahl eindeutig.
+  function renameProtocol(id){
+    var p=protocols.find(function(x){ return x.id===(id||activeProtocolId); });
+    if(!p) return;
+    var uebernehmen=function(name){
+      if(name==null||!String(name).trim()) return;
+      p.name=String(name).trim();
+      persistAll(); renderProtocolSelector();
+      var card=document.getElementById('abSuchCard');
+      if(card&&/Protokoll auswählen/.test(card.textContent||'')) abProtoWaehlen();   // Liste nachziehen
+    };
+    if(typeof GemaDialog!=='undefined'&&GemaDialog.prompt)
+      GemaDialog.prompt({title:'Protokoll umbenennen',message:'Ein sprechender Name («Steigzone A», «2. OG Nord») macht die Auswahl eindeutig.',defaultValue:p.name||''})
+        .then(function(v){ uebernehmen(v); });
+    else uebernehmen(prompt('Protokoll umbenennen:',p.name));
   }
   window.renameProtocol=renameProtocol;
 
@@ -2759,16 +2897,34 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
   // früheren Wrapper `_origSetTab` auf sich selbst zeigen → endlose Rekursion
   // (RangeError) bei jedem Tab-Klick (Mängelliste/Prüfliste waren tot).
 
+  // Zeigt das GEÖFFNETE Protokoll — der Knopf ist die Anzeige, nicht die
+  // Auswahl; gewechselt wird bewusst über den Dialog (abProtoWaehlen).
   function renderProtocolSelector(){
-    var sel=$('protoSelect');
-    if(!sel) return;
-    sel.innerHTML=protocols.map(function(p){
-      var gattung=(p.state&&p.state.abnahme&&p.state.abnahme.arbeitsgattung)||'';
-      var datum=p.createdAt?new Date(p.createdAt).toLocaleDateString('de-CH'):'';
-      var label=gattung?gattung+' ('+datum+')':(p.name||'Protokoll')+' ('+datum+')';
-      return '<option value="'+p.id+'"'+(p.id===activeProtocolId?' selected':'')+'>'+esc(label)+'</option>';
-    }).join('');
-    $('protoDelBtn').style.display=protocols.length>1?'':'none';
+    var btn=$('protoPickBtn');
+    var del=$('protoDelBtn');
+    if(del) del.style.display=protocols.length>1?'':'none';
+    if(!btn) return;
+    var p=protocols.find(function(x){ return x.id===activeProtocolId; })||protocols[0];
+    // Beim AKTIVEN Protokoll den LIVE-Stand lesen: _abSnapActive() ersetzt
+    // protocols[i].state durch eine tiefe KOPIE und bricht damit die Referenz —
+    // p.state wäre danach der Stand vom letzten Snapshot, nicht der getippte.
+    var st=(p&&p.id===activeProtocolId)?state:(p&&p.state);
+    var a=(st&&st.abnahme)||{};
+    var titel=(p&&p.name)||'Protokoll';
+    var sub=[a.arbeitsgattung||'',a.gepruefterTeil||''].filter(Boolean).join(' · ');
+    if(!sub) sub=a.bauobjekt||'';
+    var dat=a.datum||((p&&p.createdAt)?new Date(p.createdAt).toLocaleDateString('de-CH'):'');
+    if(dat) sub=sub?(sub+' · '+dat):dat;
+    var anz=protocols.length;
+    btn.innerHTML='<span class="pc-ic">📜</span>'
+      +'<span style="min-width:0;flex:1">'
+        +'<span class="pc-txt">'+esc(titel)+'</span>'
+        +'<span class="pc-sub">'+esc(sub||'noch keine Angaben erfasst')+'</span>'
+      +'</span>'
+      +'<span class="pc-hint">'+(anz>1?(anz+' Protokolle · wechseln'):'wählen')+' ▾</span>';
+    btn.title=anz>1
+      ? 'Protokoll wechseln oder ein neues anlegen ('+anz+' vorhanden)'
+      : 'Protokoll auswählen oder ein neues anlegen';
   }
 
   $safe('resetBtn').addEventListener('click',()=>{
@@ -3854,6 +4010,7 @@ typeof _GemaDB!=='undefined'?_GemaDB.init('abnahme', [...new Set(['gema_abnahme_
   window._abRenderTeilnehmer=abRenderTeilnehmer;
   window._abRenderTasks=abRenderTasks;
   window._abActiveProtoId=function(){return activeProtocolId;};
+  window._abProtokolle=function(){return protocols;};
 
   // ── Cloud-Pull der Protokoll-/Freigabe-/Mängellisten-Pools (non-blocking) ──
   if(typeof GemaSync!=='undefined'&&GemaSync.bindCollection){

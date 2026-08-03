@@ -284,8 +284,134 @@ ok(/Installationshöhe Vorwandelement/.test(nachVorlage.erste), 'die bekannten P
 const nochmal = await page.evaluate(() => { window.abBeispielPunkte(); const st = window._abState(); return st.items.length; });
 ok(nochmal === 10, 'erneutes Einfügen hängt an, überschreibt nie (' + nochmal + ')');
 
+// ── E) Bewusste Protokoll-Wahl + Stammdaten-Übernahme ────────────────────
+// Feedback 03.08.2026: «man soll via Button das entsprechende Protokoll
+// bewusst auswählen, da sonst oft ein neues erstellt wird oder man im
+// falschen schreibt» — ein «+ Neu» direkt neben einem Dropdown wurde zu oft
+// versehentlich getroffen. Und: ein zweites Protokoll fürs selbe Projekt
+// soll den Kopf nicht erneut abtippen müssen.
+console.log('— E) Protokoll-Wahl über den Dialog + Stammdaten-Übernahme —');
+await page.close();
+({ page, errs } = await neueSeite());
+await page.waitForTimeout(700);
+
+// Erstes Protokoll mit vollem Kopf, einem Mangel, Ergebnis und Unterschrift
+await page.evaluate(() => {
+  const st = window._abState();
+  Object.assign(st.abnahme, {
+    bauobjekt: 'Neubau Sonnhalde, Sonnweg 3, 4000 Basel',
+    bauherrName: 'Meier Hans', bauherrFirma: 'Bau AG',
+    bauleitungName: 'Weber Anna', bauleitungFirma: 'Planer GmbH',
+    unternehmerName: 'Koch Peter', unternehmerFirma: 'Sanitär Koch',
+    arbeitsgattung: '250 Sanitäranlagen', ort: 'Basel',
+    weitereBeteiligte: [{ funktion: 'Fachbauleitung', name: 'Suter', firma: 'FBL AG' }],
+    gepruefterTeil: 'Steigzone A', ergebnis: 'unwesentliche', entscheid: 'abgenommen',
+    sig: { unternehmer: { dataUrl: 'data:image/png;base64,iVBORw0KGgo=', name: 'Koch Peter' } }
+  });
+  st.items = [window._abCreateItem({ mangel: 'Rohrschelle fehlt' })];
+  window._abRender();
+});
+await page.waitForTimeout(300);
+
+ok(await page.evaluate(() => !!document.getElementById('protoPickBtn')), 'Protokoll-Wahl ist ein Knopf (kein Dropdown)');
+ok(await page.evaluate(() => !document.getElementById('protoSelect')), 'das versehentlich treffbare Dropdown existiert nicht mehr');
+const knopfTxt = await page.evaluate(() => (document.getElementById('protoPickBtn') || {}).textContent || '');
+ok(/250 Sanitäranlagen/.test(knopfTxt), 'der Knopf zeigt das GEÖFFNETE Protokoll (' + knopfTxt.trim().slice(0, 60) + ')');
+
+// Dialog öffnen — er zeigt das aktive Protokoll und legt NICHTS an
+const vorherId = await page.evaluate(() => window._abActiveProtoId());
+await page.evaluate(() => window.abProtoWaehlen());
+await page.waitForTimeout(250);
+const dlg = await page.evaluate(id => {
+  const bg = document.getElementById('abSuchBg');
+  const rows = [...document.querySelectorAll('#abSuchCard .proto-row')];
+  return {
+    offen: !!bg && bg.style.display !== 'none',
+    zeilen: rows.length,
+    aktMark: rows.filter(r => r.classList.contains('akt')).length,
+    aktIstAktiv: rows.some(r => r.classList.contains('akt') && r.dataset.pid === id),
+    text: (document.getElementById('abSuchCard') || {}).textContent || ''
+  };
+}, vorherId);
+ok(dlg.offen, 'Klick auf den Knopf öffnet den Auswahl-Dialog');
+ok(dlg.zeilen >= 1 && dlg.aktMark === 1 && dlg.aktIstAktiv, 'der Dialog listet die Protokolle, das offene ist markiert');
+ok(/Neues Protokoll/.test(dlg.text), 'Neu anlegen steht IM Dialog (nicht mehr neben dem Wahl-Element)');
+ok(/übernommen/.test(dlg.text), 'der Dialog sagt, was beim Neuanlegen übernommen wird');
+
+// Neues Protokoll fürs selbe Projekt
+await page.evaluate(() => window.abProtoNeu());
+await page.waitForTimeout(600);
+const neu = await page.evaluate(() => {
+  const st = window._abState(), a = st.abnahme || {};
+  return {
+    id: window._abActiveProtoId(),
+    name: (document.querySelector('#protoPickBtn .pc-txt') || {}).textContent || '',
+    bauobjekt: a.bauobjekt || '', bauherrName: a.bauherrName || '', bauherrFirma: a.bauherrFirma || '',
+    bauleitungName: a.bauleitungName || '', unternehmerFirma: a.unternehmerFirma || '',
+    gattung: a.arbeitsgattung || '', ort: a.ort || '',
+    weitere: Array.isArray(a.weitereBeteiligte) ? a.weitereBeteiligte.length : 0,
+    // bewusst NICHT übernommen:
+    teil: a.gepruefterTeil || '', ergebnis: a.ergebnis || '', entscheid: a.entscheid || '',
+    sig: Object.keys(a.sig || {}).filter(k => (a.sig[k] || {}).dataUrl).length,
+    items: Array.isArray(st.items) ? st.items.length : -1,
+    anzahl: (window._abProtokolle ? window._abProtokolle().length : 0),
+    dlgZu: !document.getElementById('abSuchBg') || document.getElementById('abSuchBg').style.display === 'none'
+  };
+});
+ok(neu.id !== vorherId, 'das neue Protokoll ist geöffnet');
+ok(neu.dlgZu, 'der Dialog schliesst sich nach der Wahl');
+ok(neu.bauobjekt === 'Neubau Sonnhalde, Sonnweg 3, 4000 Basel', 'Bauobjekt übernommen');
+ok(neu.bauherrName === 'Meier Hans' && neu.bauherrFirma === 'Bau AG', 'Bauherr (Name + Firma) übernommen');
+ok(neu.bauleitungName === 'Weber Anna' && neu.unternehmerFirma === 'Sanitär Koch', 'Bauleitung + Unternehmer übernommen');
+ok(neu.gattung === '250 Sanitäranlagen' && neu.ort === 'Basel', 'Arbeitsgattung + Ort übernommen');
+ok(neu.weitere === 1, 'weitere Beteiligte übernommen');
+ok(neu.items === 0, 'Mängel werden NICHT übernommen (' + neu.items + ')');
+ok(!neu.ergebnis && !neu.entscheid && !neu.teil, 'Ergebnis/Entscheid/geprüfter Teil bleiben leer — das ist die neue Abnahme');
+ok(neu.sig === 0, 'Unterschriften werden NIE mitkopiert (wäre eine Fälschung)');
+ok(neu.name === 'Protokoll ' + neu.anzahl, 'der Knopf zeigt jetzt das neue Protokoll («' + neu.name + '»)');
+
+// Zurückwechseln über den Dialog — das alte Protokoll ist unverändert
+await page.evaluate(() => window.abProtoWaehlen());
+await page.waitForTimeout(250);
+const zeilenJetzt = await page.evaluate(() => document.querySelectorAll('#abSuchCard .proto-row').length);
+ok(zeilenJetzt === dlg.zeilen + 1, 'das neue Protokoll steht mit zur Wahl (' + zeilenJetzt + ')');
+const zurueck = await page.evaluate(async (alt) => {
+  const ziel = document.querySelector('#abSuchCard .proto-row[data-pid="' + alt + '"]');
+  if (!ziel) return null;
+  ziel.click();
+  await new Promise(r => setTimeout(r, 500));
+  const st = window._abState();
+  const s = (st.abnahme || {}).sig || {};
+  return { id: window._abActiveProtoId(), items: st.items.length, sig: Object.keys(s).filter(k => (s[k] || {}).dataUrl).length };
+}, vorherId);
+ok(zurueck && zurueck.id === vorherId, 'Klick auf eine Zeile öffnet genau dieses Protokoll');
+// Umbenennen: «Protokoll 1/2/3» sagt beim Wählen wenig
+const umbenannt = await page.evaluate(async id => {
+  window.renameProtocol(id);
+  await new Promise(r => setTimeout(r, 250));
+  const inp = document.getElementById('_gdInput');
+  if (!inp) return { fehlt: true };
+  inp.value = 'Steigzone A';
+  inp.dispatchEvent(new Event('input', { bubbles: true }));
+  const okBtn = document.querySelector('.gema-dlg-btn[data-act="ok"]');
+  if (!okBtn) return { fehlt: true };
+  okBtn.click();
+  await new Promise(r => setTimeout(r, 350));
+  const p = window._abProtokolle().find(x => x.id === id);
+  return { name: p && p.name, knopf: (document.querySelector('#protoPickBtn .pc-txt') || {}).textContent || '' };
+}, vorherId);
+ok(umbenannt && umbenannt.name === 'Steigzone A', 'Protokoll umbenennen über den Dialog (' + (umbenannt && (umbenannt.name || 'kein Prompt')) + ')');
+ok(umbenannt && umbenannt.knopf === 'Steigzone A', 'der Knopf übernimmt den neuen Namen');
+ok(zurueck && zurueck.items === 1, 'das erste Protokoll hat seinen Mangel behalten');
+ok(zurueck && zurueck.sig === 1, 'und seine Unterschrift');
+ok(errs.length === 0, 'keine pageerrors bei Wahl/Neuanlage (' + errs.slice(0, 2).join(' | ') + ')');
+
 console.log('— C) Statische Absicherung —');
 const src = await readFile(join(ROOT, 'pm_abnahme.html'), 'utf8');
+ok(/AB_STAMM_FELDER/.test(src) && /function _abStammUebernehmen/.test(src), 'Stammdaten-Whitelist als Helfer');
+ok(!/AB_STAMM_FELDER\s*=\s*\[[^\]]*'sig'/.test(src), '«sig» steht NICHT in der Stammdaten-Whitelist');
+ok(!/\bid="protoSelect"/.test(src), 'kein Protokoll-Dropdown mehr im Markup');
+ok(/function switchProtocol\(id\)\{\s*var ziel=String\(id\|\|''\)/.test(src.replace(/\/\/[^\n]*\n/g, '')), 'switchProtocol wechselt nur mit ausdrücklicher id');
 ok(/function _abScopeKey\(\)/.test(src), 'STORAGE_KEY wird über _abScopeKey() berechnet (friert nicht ein)');
 ok(!/const\s+STORAGE_KEY/.test(src), 'STORAGE_KEY ist nicht mehr const');
 ok(/scopeKey:p\._scope\|\|STORAGE_KEY/.test(src), 'scopeKey hängt am Protokoll, nicht am globalen Schlüssel');
