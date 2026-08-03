@@ -426,3 +426,127 @@ G.elIsolation=elIsolation; G.elVerlegearten=elVerlegearten; G.elVerlegeart=elVer
 G.elSchutz=elSchutz; G.elIzTabelle=elIzTabelle; G.elIz=elIz;
 G.elKorrTemp=elKorrTemp; G.elHaeufung=elHaeufung; G.elHaeufungAnzahl=elHaeufungAnzahl;
 })();
+
+/* ════════════════════════════════════════════════════════════════════════
+   ANHANG — Motoren & Anlauf (el_leistungsbedarf)
+   ════════════════════════════════════════════════════════════════════════
+   Eigener Block hinter der Basis-IIFE: ERGÄNZT window.GemaElektro, ändert
+   keine bestehende Zeile.
+
+   Die Iz-Tabellen für die Querschnittswahl liegen bereits im Anhang
+   «Strombelastbarkeit» (EL_IZ / elIz) — hier NICHT nochmals anlegen. Genau
+   das ist der Grund für die geteilte Fachbasis: eine Wahrheit je Tabelle.
+
+   ── ANNAHME-EHRLICHKEIT ───────────────────────────────────────────────
+   Die Anlauf-Kennwerte eines Motors stehen auf seinem TYPENSCHILD bzw. im
+   Datenblatt (I_A/I_N, M_A/M_N, Nenndrehzahl, cos φ, η). Die Werte hier
+   sind Erfahrungs-VORGABEN für die Vorprojektierung; jede lässt sich im
+   Modul übersteuern und wird dort als «Vorgabe» oder «eigener Wert»
+   ausgewiesen. Sie sind KEINE Normwerte.
+   ════════════════════════════════════════════════════════════════════════ */
+(function(){
+var G = window.GemaElektro; if(!G) return;
+
+/* Motorschutzschalter — Nenngrössen gängiger Baureihen [A].
+   Die Nenngrösse bezeichnet das obere Ende des Einstellbereichs; für den
+   Leitungsschutz zählt der EINGESTELLTE Wert (= Motor-Nennstrom). */
+var EL_MSS = [0.4,0.63,1,1.6,2.5,4,6.3,10,13,16,20,25,32,40,50,63,80,100,125];
+
+/* Wirkungsgrad IE3, 4-polig, 50 Hz — Mindestwirkungsgrade nach
+   (EU) 2019/1781; in der Schweiz über die Energieverordnung (EnV) seit
+   01.07.2021 verbindlich. Vorgabe für die Vorprojektierung; der Wert des
+   konkreten Motors steht auf dem Typenschild. */
+var EL_MOTOR_IE3 = {0.37:0.779,0.55:0.81,0.75:0.825,1.1:0.841,1.5:0.853,
+  2.2:0.867,3:0.877,4:0.886,5.5:0.896,7.5:0.904,11:0.914,15:0.921,
+  18.5:0.926,22:0.93,30:0.936,37:0.939,45:0.942,55:0.946,75:0.95};
+
+/* Übliche Normleistungen [kW] (IEC 60072 / Herstellerreihen). */
+var EL_MOTOR_PN = [0.37,0.55,0.75,1.1,1.5,2.2,3,4,5.5,7.5,11,15,18.5,22,30,37,45,55,75];
+
+/* Polzahl → Synchrondrehzahl bei 50 Hz; `nTyp` = übliche Nenndrehzahl
+   (Synchrondrehzahl abzüglich Schlupf) als Vorgabe. */
+var EL_POLE = [
+  {p:2, nSync:3000, nTyp:2900, label:'2-polig — ca. 2900 1/min'},
+  {p:4, nSync:1500, nTyp:1450, label:'4-polig — ca. 1450 1/min'},
+  {p:6, nSync:1000, nTyp:960,  label:'6-polig — ca. 960 1/min'},
+  {p:8, nSync:750,  nTyp:730,  label:'8-polig — ca. 730 1/min'}
+];
+
+/* Anlaufarten.
+   `fStrom`     Vorgabe I_A/I_N (Datenblattwert des Motors geht vor)
+   `teiler`     Verhältnis zum Direktanlauf — Stern-Dreieck zieht in der
+                Sternstufe exakt 1/3 von Strom UND Moment. Deshalb wird der
+                Stern-Wert AUS dem Direktfaktor gerechnet und nicht fest
+                hinterlegt: ändert jemand I_A/I_N auf den Datenblattwert,
+                wandert die Sternstufe mit.
+   `fMoment`    Vorgabe M_A/M_N-Anteil gegenüber dem Direktanlauf
+   `einstellbar` true = Strom und Moment kommen aus der Projektierung des
+                Geräts, nicht aus einer Formel (Sanftanlauf, Umrichter).   */
+var EL_ANLAUF = [
+  {id:'direkt', name:'Direktanlauf', teiler:1, fStrom:6, fMoment:1, einstellbar:false,
+   zeit:'0.5–3 s',
+   hinweis:'5–7 × I_N. Einfachste Lösung; die Netzrückwirkung begrenzt sie in der Praxis auf kleinere Motoren.'},
+  {id:'stern',  name:'Stern-Dreieck', teiler:3, fStrom:2, fMoment:1/3, einstellbar:false,
+   zeit:'0.5–3 s je Stufe',
+   hinweis:'Sternstufe: Strom UND Moment auf 1/3 des Direktanlaufs. Nur bei Lasten, die mit rund einem Drittel des Moments anlaufen.'},
+  {id:'sanft',  name:'Sanftanlaufgerät', teiler:1, fStrom:3, fMoment:0.5, einstellbar:true,
+   zeit:'3–30 s (eingestellt)',
+   hinweis:'Strom- und Momentverlauf werden am Gerät eingestellt — die Werte hier sind Richtwerte, massgebend ist die Projektierung.'},
+  {id:'umr',    name:'Frequenzumrichter', teiler:1, fStrom:1.2, fMoment:1.5, einstellbar:true,
+   zeit:'1–30 s (eingestellt)',
+   hinweis:'Anlauf mit geführter Frequenz: kleiner Anlaufstrom bei vollem Moment. Werte kommen aus der Umrichter-Projektierung.'}
+];
+
+/* ── Zugriff ─────────────────────────────────────────────────────────── */
+function elAnlaufart(id){
+  for(var i=0;i<EL_ANLAUF.length;i++){ if(EL_ANLAUF[i].id===id) return EL_ANLAUF[i]; }
+  return EL_ANLAUF[0];
+}
+function elPole(p){
+  for(var i=0;i<EL_POLE.length;i++){ if(EL_POLE[i].p===Number(p)) return EL_POLE[i]; }
+  return EL_POLE[1];
+}
+/** Nächstgrössere Motorschutzschalter-Nenngrösse — null über der Reihe.
+ *  Der Aufrufer MUSS null behandeln (kein stiller Deckel). */
+function elMss(i){
+  var v = Number(i);
+  if(!isFinite(v) || v <= 0) return null;
+  for(var k=0;k<EL_MSS.length;k++){ if(EL_MSS[k] >= v) return EL_MSS[k]; }
+  return null;
+}
+/** IE3-Wirkungsgrad zur Normleistung — null, wenn die Leistung nicht in der
+ *  Reihe steht (dann muss der Wert vom Typenschild kommen). */
+function elMotorEta(pkw){
+  var v = EL_MOTOR_IE3[Number(pkw)];
+  return (v === undefined) ? null : v;
+}
+/** Nennstrom eines Verbrauchers.
+ *  dreiphasig: I = P / (√3 · U · cosφ · η) · 1000
+ *  einphasig : I = P / (U · cosφ · η) · 1000
+ *  η gilt für Motoren (aufgenommene Leistung > Wellenleistung); bei einem
+ *  ohmschen Verbraucher ist η = 1. */
+function elNennstrom(pkw, u, cosphi, eta, phasen){
+  var P = Number(pkw), U = Number(u), c = Number(cosphi), e = Number(eta);
+  if(!(P > 0) || !(U > 0) || !(c > 0) || !(e > 0)) return null;
+  var f = (Number(phasen) === 3) ? Math.sqrt(3) : 1;
+  return P * 1000 / (f * U * c * e);
+}
+/** Scheinleistung [kVA] aus Strom und Spannung. */
+function elScheinleistung(i, u, phasen){
+  var I = Number(i), U = Number(u);
+  if(!(I > 0) || !(U > 0)) return null;
+  var f = (Number(phasen) === 3) ? Math.sqrt(3) : 1;
+  return f * U * I / 1000;
+}
+/** Nennmoment [Nm] aus Wellenleistung und Drehzahl: M = 9550 · P[kW] / n. */
+function elNennmoment(pkw, n){
+  var P = Number(pkw), N = Number(n);
+  if(!(P > 0) || !(N > 0)) return null;
+  return 9550 * P / N;
+}
+
+G.EL_MSS=EL_MSS; G.EL_MOTOR_IE3=EL_MOTOR_IE3; G.EL_MOTOR_PN=EL_MOTOR_PN;
+G.EL_POLE=EL_POLE; G.EL_ANLAUF=EL_ANLAUF;
+G.elAnlaufart=elAnlaufart; G.elPole=elPole; G.elMss=elMss; G.elMotorEta=elMotorEta;
+G.elNennstrom=elNennstrom; G.elScheinleistung=elScheinleistung; G.elNennmoment=elNennmoment;
+})();
