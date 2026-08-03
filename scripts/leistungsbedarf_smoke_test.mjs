@@ -9,8 +9,9 @@
      C  Anlaufart wirkt — Stern-Dreieck koppelt an den Direktfaktor
      D  Summe, Zuleitung und Anlauf-Spannungsfall
      E  Grenzen werden angezeigt statt verschwiegen
-     F  Persistenz über einen Reload (GemaAutoSave + Snapshot-Fallback)
-     G  Kein Zugriff für role_monteur
+     F  Ladeinfrastruktur (E-Mobilität)
+     G  Persistenz über einen Reload (GemaAutoSave + Snapshot-Fallback)
+     H  Kein Zugriff für role_monteur
 
    Ohne playwright-core/Chromium bricht der Test mit Hinweis ab — nie still.
    ════════════════════════════════════════════════════════════════════════ */
@@ -71,8 +72,8 @@ console.log('── A: Boot & Aufbau ──');
   const { page, ctx, fehler } = await oeffne();
   ok(fehler.length === 0, 'keine pageerrors — ' + fehler.join(' | '));
   ok(await page.locator('.el-stub').count() === 0, 'Gerüst-Banner ist entfernt');
-  ok(await page.locator('.el-card').count() === 5, '5 Schritt-Karten');
-  for (const f of ['netz', 'verbraucher', 'anschluss', 'anlauf', 'ergebnis'])
+  ok(await page.locator('.el-card').count() === 6, '6 Schritt-Karten');
+  for (const f of ['netz', 'verbraucher', 'anschluss', 'anlauf', 'evse', 'ergebnis'])
     ok(await page.locator('.el-card[data-fold="' + f + '"]').count() === 1, 'Karte «' + f + '» vorhanden');
 
   ok(await page.locator('input[type="number"]').count() === 0, 'kein einziges type="number" (GEMA-Kanon)');
@@ -213,12 +214,106 @@ console.log('\n── E: kein stiller Deckel ──');
   await ctx.close();
 }
 
-/* ══ F — Persistenz über einen Reload ════════════════════════════════ */
-console.log('\n── F: Persistenz ──');
+/* ══ F — Ladeinfrastruktur ═══════════════════════════════════════════ */
+console.log('\n── F: Ladeinfrastruktur ──');
+{
+  const { page, ctx, fehler } = await oeffne();
+  ok(!(await page.locator('#lb_evBody').isVisible()), 'die Ladeinfrastruktur ist zunächst aus');
+  await page.check('#lb_evAktiv');
+  await page.waitForTimeout(260);
+  ok(await page.locator('#lb_evBody').isVisible(), 'der Schalter blendet sie ein');
+
+  /* Vorgabe 125 A Haus / 63 A UV / 4 × 11 kW / dynamisch, Reserve leer:
+     P_Haus = √3·400·125/1000 = 86.60 kW,  P_UV = √3·400·63/1000 = 43.65 kW
+     → Budget 43.65 kW (die Vorsicherung begrenzt), je Ladepunkt 10.91 kW
+     «11 kW» sind 16 A dreiphasig = 11.09 kW bei 400 V — die Stufe rechnet
+     aus dem Nennstrom, nicht aus der gerundeten Beschriftung.             */
+  enthaelt(await txt(page, '#lb_ev_pLade'), '43.65', 'freie Leistung 43.65 kW');
+  enthaelt(await txt(page, '#lb_ev_pLade'), 'Vorsicherung', 'die Begrenzung wird benannt');
+  enthaelt(await txt(page, '#lb_ev_pJe'), '10.91', 'je Ladepunkt 10.91 kW');
+  enthaelt(await txt(page, '#lb_ev_pJe'), 'gedrosselt', 'die Drosselung wird ausgewiesen');
+  enthaelt(await txt(page, '#lb_ev_nAktiv'), '4 von 4', 'alle vier laden gleichzeitig');
+  enthaelt(await txt(page, '#lb_ev_ausl'), '100.0', 'Auslastung 100 %');
+  enthaelt(await txt(page, '#lb_ev_pMin'), '4.16', 'Mindest-Ladeleistung 4.16 kW = 6 A dreiphasig');
+  enthaelt(await txt(page, '#lb_ev_ltg'), 'mm²', 'Querschnitt der Ladepunkt-Zuleitung');
+  enthaelt(await txt(page, '#lb_ev_ltg'), 'kh', 'Temperatur- und Häufungsfaktor stehen dabei');
+  enthaelt(await txt(page, '#lb_ev_e'), '436.5', 'Energie 4 × 10.91 kW × 10 h = 436.5 kWh/Tag');
+  enthaelt(await txt(page, '#lb_meldungen'), 'IEC 62955', 'der RCD-Hinweis erscheint');
+
+  /* Reserve aus der Verbraucherliste übernehmen (Daten einmal erfassen). */
+  await page.click('#lb_ev_resBtn');
+  await page.waitForTimeout(260);
+  const res = parseFloat(await page.inputValue('#lb_ev_reserve'));
+  ok(Math.abs(res - 7.5) < 0.01, 'die Reserve übernimmt den Gebäudebedarf 7.50 kW (erhalten ' + res + ')');
+
+  /* PV/Batterie erhöhen das Leistungsbudget NICHT. */
+  await setzeFeld(page, '#lb_ev_pv', '20');
+  enthaelt(await txt(page, '#lb_ev_pLade'), '43.65', 'das Budget bleibt trotz PV bei 43.65 kW');
+  enthaelt(await txt(page, '#lb_ev_pLade'), 'nicht in der Auslegung', 'PV erscheint nur als Zusatz');
+  enthaelt(await txt(page, '#lb_meldungen'), 'erhöhen die Anschlussleistung NICHT',
+           'und wird ausdrücklich nicht ins Budget gerechnet');
+  await setzeFeld(page, '#lb_ev_pv', '');
+
+  /* Vorsicherung grösser als der Hausanschluss ist unzulässig. */
+  await setzeFeld(page, '#lb_ev_uvA', '160');
+  enthaelt(await txt(page, '#lb_meldungen'), 'grösser als der Hausanschluss', 'unzulässige Staffelung wird gemeldet');
+  await setzeFeld(page, '#lb_ev_uvA', '16');
+
+  /* 16 A UV = 11.09 kW: für vier Ladepunkte reicht der Mindest-Ladestrom
+     nicht → das dynamische Lastmanagement reiht zwei in die Warteschlange. */
+  enthaelt(await txt(page, '#lb_ev_nAktiv'), '2 von 4', 'nur zwei Ladepunkte können laden');
+  enthaelt(await txt(page, '#lb_ev_nAktiv'), '2 warten', 'die übrigen warten');
+  enthaelt(await txt(page, '#lb_meldungen'), 'warten', 'die Warteschlange wird gemeldet');
+  await setzeFeld(page, '#lb_ev_uvA', '63');
+
+  /* Ohne Lastmanagement zieht jeder Ladepunkt jederzeit die volle Leistung. */
+  await page.selectOption('#lb_ev_lm', 'ohne');
+  await page.waitForTimeout(220);
+  enthaelt(await txt(page, '#lb_ev_pJe'), '11.09 kW von 11.09 kW', 'ohne Lastmanagement wird nicht gedrosselt');
+  enthaelt(await txt(page, '#lb_meldungen'), 'keine technische Begrenzung',
+           'die Gleichzeitigkeit wird als Annahme entlarvt');
+  ok(!(await page.locator('#lb_ev_g').isDisabled()), 'ohne LM wirkt der Gleichzeitigkeitsfaktor');
+  await page.selectOption('#lb_ev_lm', 'dyn');
+  await page.waitForTimeout(220);
+  ok(await page.locator('#lb_ev_g').isDisabled(), 'beim dynamischen LM ist der Faktor ausgegraut');
+
+  /* Einphasige Ladepunkte: 7.4 kW = 32 A auf einem Aussenleiter → Schieflast. */
+  await page.selectOption('#lb_ev_stufe', '7.4');
+  await page.waitForTimeout(240);
+  enthaelt(await txt(page, '#lb_ev_i'), '1~', 'einphasiger Ladepunkt erkannt');
+  enthaelt(await txt(page, '#lb_meldungen'), 'Schieflast', 'die Schieflast über 16 A wird gemeldet');
+  enthaelt(await txt(page, '#lb_ev_pMin'), '1.39', 'einphasig sinkt die Mindest-Ladeleistung auf 1.39 kW');
+
+  /* Eigener Wert blendet die Zusatzfelder ein. */
+  await page.selectOption('#lb_ev_stufe', 'frei');
+  await page.waitForTimeout(200);
+  ok(await page.locator('#lb_ev_freiWrap').isVisible(), 'bei «eigener Wert» erscheint das Leistungsfeld');
+  await setzeFeld(page, '#lb_ev_lpKW', '11');
+  enthaelt(await txt(page, '#lb_ev_pJe'), '11.00 kW', 'der eigene Wert wird gerechnet');
+
+  /* Ein reiner Ladepark hat keine Verbraucherliste — trotzdem muss gerechnet werden. */
+  await page.selectOption('#lb_ev_stufe', '11');
+  await page.waitForTimeout(200);
+  await page.click('#lb_rowsBody tr.lb-hd .lb-del');
+  await page.waitForTimeout(300);
+  ok(await page.locator('#lb_rowsBody tr.lb-hd').count() === 0, 'die Verbraucherliste ist leer');
+  enthaelt(await txt(page, '#lb_ev_pJe'), 'kW', 'die Ladeinfrastruktur rechnet auch ohne Verbraucher');
+  enthaelt(await txt(page, '#lb_status'), 'Ladeinfrastruktur', 'der Status sagt, was noch fehlt');
+  ok(fehler.length === 0, 'keine pageerrors — ' + fehler.join(' | '));
+  await ctx.close();
+}
+
+/* ══ G — Persistenz über einen Reload ════════════════════════════════ */
+console.log('\n── G: Persistenz ──');
 {
   const { page, ctx } = await oeffne();
   await setzeFeld(page, '#lb_laenge', '42');
   await setzeFeld(page, '#lb_gGlobal', '0.8');
+  await page.check('#lb_evAktiv');
+  await page.waitForTimeout(220);
+  await setzeFeld(page, '#lb_ev_uvA', '50');
+  await page.selectOption('#lb_ev_lm', 'statisch');
+  await page.waitForTimeout(200);
   await page.click('.lb-add button >> nth=1');            // ＋ Verbraucher
   await page.waitForTimeout(200);
   const bez = page.locator('#lb_rowsBody tr.lb-hd').nth(1).locator('input').first();
@@ -236,6 +331,11 @@ console.log('\n── F: Persistenz ──');
   ok(await page.locator('#lb_rowsBody tr.lb-hd').nth(1).locator('input').first().inputValue()
      === 'Beleuchtung EG', 'die Bezeichnung der zweiten Zeile überlebt den Reload');
   enthaelt(await txt(page, '#lb_ib'), 'A', 'nach dem Reload wird sofort wieder gerechnet');
+  ok(await page.isChecked('#lb_evAktiv'), 'die Ladeinfrastruktur ist nach dem Reload wieder eingeschaltet');
+  ok(await page.locator('#lb_evBody').isVisible(), 'und ihre Karte ist wieder aufgeklappt');
+  ok(await page.inputValue('#lb_ev_uvA') === '50', 'die Vorsicherung überlebt den Reload');
+  ok(await page.inputValue('#lb_ev_lm') === 'statisch', 'das Lastmanagement überlebt den Reload');
+  enthaelt(await txt(page, '#lb_ev_pJe'), 'kW', 'und die Ladeinfrastruktur rechnet sofort wieder');
 
   /* Der Fold-Zustand ist Geräte-UI und darf NIE im AutoSave-Schnappschuss liegen. */
   const snap = await page.evaluate(() => localStorage.getItem('gema_leistungsbedarf') || '');
@@ -250,8 +350,8 @@ console.log('\n── F: Persistenz ──');
   await ctx.close();
 }
 
-/* ══ G — Kein Zugriff ════════════════════════════════════════════════ */
-console.log('\n── G: Kein Zugriff für role_monteur ──');
+/* ══ H — Kein Zugriff ════════════════════════════════════════════════ */
+console.log('\n── H: Kein Zugriff für role_monteur ──');
 {
   const { page, ctx } = await oeffne(['role_monteur']);
   const body = (await page.textContent('body')) || '';

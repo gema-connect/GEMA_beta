@@ -14,6 +14,8 @@
    Teil 5  Summierung, Gleichzeitigkeit, Zuleitung
    Teil 6  Anlauf der Zuleitung + Spannungsfall (κ bei Betriebstemperatur)
    Teil 7  Grenzen werden GEMELDET, nicht stillschweigend gedeckelt
+   Teil 8  Ladeinfrastruktur — Budget, Lastmanagement, Mindest-Ladestrom
+   Teil 9  Ladeinfrastruktur — Zuleitung, Schieflast, PV/Batterie
    ════════════════════════════════════════════════════════════════════════ */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -318,6 +320,173 @@ ok(r.status === 'leer' && r.summe === null, 'ohne Verbraucher kein Ergebnis');
 r = lbCalc(mit({ verlegeart:'D', tUmg:25, rows:[allg()] }));
 ok(r.verlege.erd === true, 'Verlegeart D ist als Erdverlegung erkannt');
 nah(r.kTemp.f, 0.95, 1e-9, '25 °C Erdreich → 0.95');
+
+/* ══ TEIL 8 — Ladeinfrastruktur: Budget und Lastmanagement ═══════════ */
+console.log('\n── Teil 8: Ladeinfrastruktur ──');
+
+/* Von Hand gerechnet:
+   P = √3 · 400 · I / 1000  →  125 A = 86.6025 kW,  63 A = 43.6474 kW
+   Mindest-Ladeleistung 3~ = √3 · 400 · 6 / 1000 = 4.1569 kW
+   Mindest-Ladeleistung 1~ = (400/√3) · 6 / 1000 = 1.3856 kW              */
+const P = (i, u = 400) => Math.sqrt(3) * u * i / 1000;
+const PMIN3 = P(6);
+const PMIN1 = (400 / Math.sqrt(3)) * 6 / 1000;
+const ev = o => Object.assign({ aktiv:true, hausA:'125', uvA:'63', reserveKW:'', n:'4',
+  stufe:'11', lpKW:'', lpPh:'3', lm:'dyn', g:'0.7', nBuendel:'', laenge:'', duMax:'4',
+  pvKW:'', batKW:'', hop:'10', evKWh100:'18' }, o || {});
+const mitEv = (o, rows) => mit({ rows: rows || [], evse: ev(o) });
+
+/* Grundfall: die Vorsicherung begrenzt, dynamisches Lastmanagement drosselt. */
+r = lbCalc(mitEv());
+let x = r.evse;
+ok(x !== null, 'die Ladeinfrastruktur wird gerechnet');
+nah(x.pHaus, P(125), 1e-9, 'P_Haus = 86.60 kW');
+nah(x.pUV,   P(63),  1e-9, 'P_UV = 43.65 kW');
+nah(x.pLade, P(63),  1e-9, 'Budget = 43.65 kW');
+ok(x.begrenztDurch.indexOf('Vorsicherung') >= 0, 'die Vorsicherung ist die Begrenzung');
+nah(x.pMin, PMIN3, 1e-9, 'Mindest-Ladeleistung 3~ = 4.157 kW (6 A, NICHT 3.7 kW)');
+ok(x.nAktiv === 4 && x.nWartend === 0, 'alle vier Ladepunkte laden');
+nah(x.pJe, P(63) / 4, 1e-9, 'je Ladepunkt 10.91 kW');
+ok(x.gedrosselt === true, 'die Drosselung wird ausgewiesen');
+nah(x.iJe, (P(63) / 4) * 1000 / (Math.sqrt(3) * 400), 1e-9, 'Strom je Ladepunkt 15.75 A');
+nah(x.iPhase, 4 * x.iJe, 1e-9, 'dreiphasig belastet jeder Ladepunkt jede Phase voll');
+nah(x.ausl, 100, 1e-6, 'Auslastung genau 100 % — das Budget IST die Vorsicherung');
+nah(x.eTag, 4 * (P(63) / 4) * 10, 1e-9, 'Energie 436.5 kWh/Tag');
+nah(x.kmJe, (x.eTag / 4) / 18 * 100, 1e-9, 'Reichweite aus kWh/100 km');
+ok(r.meldungen.some(m => m.typ === 'info' && m.text.indexOf('62955') >= 0),
+   'der RCD-Hinweis nach IEC 62955 steht immer dabei');
+
+/* Der Hausanschluss abzüglich Gebäude kann die schärfere Grenze sein. */
+r = lbCalc(mitEv({ uvA:'160', hausA:'160', reserveKW:'80' }));
+x = r.evse;
+nah(x.pFrei, P(160) - 80, 1e-9, 'frei = P_Haus − Reserve');
+nah(x.pLade, P(160) - 80, 1e-9, 'jetzt begrenzt das Gebäude');
+ok(x.begrenztDurch.indexOf('Hausanschluss') >= 0, 'und das wird benannt');
+
+/* Vorsicherung grösser als der Hausanschluss ist unzulässig. */
+r = lbCalc(mitEv({ uvA:'160' }));
+ok(hatTyp(r, 'err') && enthaelt(r, 'grösser als der Hausanschluss'),
+   'unzulässige Staffelung der Vorsicherungen wird gemeldet');
+
+/* Dynamisches LM reiht ein, sobald der Mindest-Ladestrom nicht mehr reicht.
+   16 A UV = 11.0851 kW; 11.0851/4 = 2.77 kW < 4.157 kW
+   → floor(11.0851 / 4.1569) = 2 Ladepunkte, je 5.5426 kW                 */
+r = lbCalc(mitEv({ uvA:'16' }));
+x = r.evse;
+ok(x.nAktiv === 2 && x.nWartend === 2, 'zwei laden, zwei warten');
+nah(x.pJe, P(16) / 2, 1e-9, 'je Ladepunkt 5.54 kW');
+ok(x.pJe >= x.pMin, 'und bleibt über dem Mindest-Ladestrom');
+ok(hatTyp(r, 'warn') && enthaelt(r, 'warten'), 'die Warteschlange wird gemeldet');
+
+/* Reicht es nicht einmal für einen Ladepunkt, wird das gesagt. */
+r = lbCalc(mitEv({ uvA:'', hausA:'125', reserveKW:'84' }));
+x = r.evse;
+ok(x.nAktiv === 0 && hatTyp(r, 'err') && enthaelt(r, 'nicht einmal für EINEN'),
+   'zu wenig für einen einzigen Ladepunkt → Fehler, keine erfundene Zahl');
+
+/* Statisches LM: fester Gleichzeitigkeitsfaktor, Drosselung auf diese Zahl.
+   4 × 0.7 = 2.8 → 3 gleichzeitig, je min(11; 43.6474/3 = 14.55) = 11 kW    */
+r = lbCalc(mitEv({ lm:'statisch' }));
+x = r.evse;
+ok(x.nAktiv === 3 && x.nWartend === 1, 'statisches LM: drei gleichzeitig');
+nah(x.pJe, P(16), 1e-9, 'die Drosselung greift erst, wenn das Budget kleiner ist');
+r = lbCalc(mitEv({ lm:'statisch', uvA:'40' }));
+nah(r.evse.pJe, P(40) / 3, 1e-9, 'kleineres Budget → gedrosselt auf 9.24 kW');
+
+/* Ohne LM wird NICHT gedrosselt — der Anschluss müsste die Spitze tragen. */
+r = lbCalc(mitEv({ lm:'ohne' }));
+x = r.evse;
+nah(x.pJe, P(16), 1e-9, 'ohne Lastmanagement volle Leistung je Ladepunkt');
+ok(x.gedrosselt === false, 'und keine Drosselung');
+ok(hatTyp(r, 'warn') && enthaelt(r, 'keine technische Begrenzung'),
+   'die Gleichzeitigkeit wird als blosse Annahme benannt');
+
+/* Überlastung wird gemeldet, nicht gedeckelt. */
+r = lbCalc(mitEv({ lm:'ohne', g:'1', uvA:'25' }));
+ok(r.evse.ausl > 100 && hatTyp(r, 'err') && enthaelt(r, 'nicht ausführbar'),
+   'Überlastung des Anschlusses → Fehler');
+
+/* ══ TEIL 9 — Zuleitung, Schieflast, PV/Batterie ═════════════════════ */
+console.log('\n── Teil 9: Zuleitung, Schieflast, PV ──');
+
+/* Einphasig: 7.4 kW an 230.94 V = 32.04 A → Schieflast über 16 A.
+   Vier einphasige Ladepunkte verteilen sich auf drei Aussenleiter:
+   ceil(4/3) = 2 Ladepunkte je Phase.                                      */
+r = lbCalc(mitEv({ stufe:'7.4' }));
+x = r.evse;
+ok(x.ph === 1, '7.4 kW ist einphasig');
+nah(x.uLp, 400 / Math.sqrt(3), 1e-9, 'Bezugsspannung 230.94 V');
+nah(x.pMin, PMIN1, 1e-9, 'Mindest-Ladeleistung einphasig 1.386 kW');
+ok(x.iLp === 32, 'Nennstrom 32 A — aus der Stufe, nicht aus der gerundeten kW-Angabe');
+nah(x.pLp, 32 * (400 / Math.sqrt(3)) / 1000, 1e-9, 'daraus 7.39 kW bei 230.94 V');
+nah(x.iPhase, Math.ceil(4 / 3) * x.iJe, 1e-9, 'zwei Ladepunkte je Aussenleiter');
+ok(hatTyp(r, 'warn') && enthaelt(r, 'Schieflast'), 'die Schieflast über 16 A wird gemeldet');
+r = lbCalc(mitEv({ stufe:'3.7' }));
+ok(r.evse.iLp === 16 && !enthaelt(r, 'Schieflast'),
+   '«3.7 kW» sind exakt 16 A und lösen keine Schieflast-Meldung aus');
+
+/* Querschnitt: 11 kW = 15.88 A → Sicherung 16 A. Vier Kreise im Bündel
+   (Häufung min(NIN 0.70; IEC 0.65) = 0.65), Luft 30 °C → k_ϑ = 1.00.
+   Erforderlich Iz,Tab ≥ 16 / 0.65 = 24.6 A → mehradrig C: 4 mm² (32 A).   */
+r = lbCalc(mitEv());
+x = r.evse;
+ok(x.ltg.in === 16, 'Sicherung des Ladepunkts 16 A');
+nah(x.haeuf.f, 0.65, 1e-9, 'Häufung bei 4 Kreisen = 0.65 (der kleinere der beiden Werte)');
+ok(x.nBuendel === 4, 'ohne eigene Angabe zählt die Zahl der Ladepunkte');
+ok(x.ltg.A === 4, 'Querschnitt 4 mm²');
+nah(x.ltg.iz, 32 * 1 * 0.65, 1e-9, 'wirksames Iz = 20.8 A ≥ 16 A');
+/* Ohne Häufung wäre 2.5 mm² (24 A) gegangen — die Häufung ist nicht kosmetisch. */
+/* Ein einzelner Kreis braucht rechnerisch nur 1.5 mm² (Iz 17.5 ≥ 16 A) —
+   knapp, aber normgerecht; der vollständige Schutznachweis (I₂ ≤ 1.45·Iz)
+   gehört ins Modul Strombelastbarkeit, worauf die Karte auch hinweist. */
+r = lbCalc(mitEv({ nBuendel:'1' }));
+ok(r.evse.ltg.A === 1.5 && r.evse.haeuf.f === 1,
+   'ohne Häufung genügt rechnerisch 1.5 mm² — die Häufung ist nicht kosmetisch');
+
+/* Spannungsfall zum entferntesten Ladepunkt, κ bei Betriebstemperatur:
+   ΔU = √3 · 15.8771 · 60 / (46.803176 · 4) = 8.8135 V = 2.20 %            */
+r = lbCalc(mitEv({ laenge:'60' }));
+x = r.evse;
+const ILP = 16;
+nah(x.ltg.du, Math.sqrt(3) * ILP * 60 / (KAPPA * 4), 1e-6, 'ΔU = 8.81 V');
+nah(x.ltg.duProz, x.ltg.du / 400 * 100, 1e-9, 'ΔU = 2.20 %');
+ok(x.ltg.ok === true, 'unter dem Richtwert von 4 %');
+ok(Math.abs(x.ltg.du - (Math.sqrt(3) * ILP * 60 / (56 * 4))) > 1,
+   'es wird nicht mit κ₂₀ gerechnet');
+r = lbCalc(mitEv({ laenge:'160' }));
+ok(r.evse.ltg.ok === false && hatTyp(r, 'warn') && enthaelt(r, 'Spannungsfall zum entferntesten'),
+   'über dem Richtwert wird gewarnt');
+
+/* PV und Batterie erhöhen das LEISTUNGSBUDGET nicht — nur die Energie. */
+r = lbCalc(mitEv({ pvKW:'20', batKW:'10' }));
+x = r.evse;
+nah(x.pLade, P(63), 1e-9, 'das Budget bleibt bei 43.65 kW');
+nah(x.pZusatz, 30, 1e-9, 'PV + Batterie werden separat ausgewiesen');
+nah(x.eZusatz, 30 * 10, 1e-9, 'als Energie-Beitrag von 300 kWh/Tag');
+ok(hatTyp(r, 'warn') && enthaelt(r, 'erhöhen die Anschlussleistung NICHT'),
+   'und das wird ausdrücklich gesagt');
+ok(lbCalc(mitEv({ pvKW:'20', batKW:'10' })).evse.nAktiv
+   === lbCalc(mitEv()).evse.nAktiv, 'PV ändert die Zahl der Ladepunkte nicht');
+
+/* Keine Reserve trotz erfasster Verbraucher → Hinweis. */
+r = lbCalc(mitEv({}, [motor({})]));
+ok(hatTyp(r, 'warn') && enthaelt(r, 'keine Reserve gesetzt'),
+   'fehlende Gebäudereserve wird gemeldet');
+r = lbCalc(mitEv({ reserveKW:'7.5' }, [motor({})]));
+ok(!enthaelt(r, 'keine Reserve gesetzt'), 'mit gesetzter Reserve verschwindet der Hinweis');
+
+/* Ein reiner Ladepark hat keine Verbraucherliste. */
+r = lbCalc(mitEv({}, []));
+ok(r.summe === null && r.evse !== null && r.status !== 'leer',
+   'ohne Verbraucher wird die Ladeinfrastruktur trotzdem gerechnet');
+/* Und ohne eingeschaltete Ladeinfrastruktur bleibt alles wie vorher. */
+r = lbCalc(mit({ rows:[] }));
+ok(r.evse === null && r.status === 'leer', 'ausgeschaltet ändert sie nichts');
+
+/* Fehlende Pflichtangaben werden benannt. */
+r = lbCalc(mitEv({ hausA:'', uvA:'' }));
+ok(r.evse.pLade === null && hatTyp(r, 'err') && enthaelt(r, 'fehlen Angaben'),
+   'ohne Anschlussdaten kein Ergebnis, aber eine Meldung');
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
