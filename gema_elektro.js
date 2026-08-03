@@ -150,3 +150,167 @@ window.GemaElektro = {
   elNum:elNum, elFmt:elFmt, elRunden:elRunden
 };
 })();
+
+/* ════════════════════════════════════════════════════════════════════════
+   ERGÄNZUNG — Strombelastbarkeit Iz  (Verbraucher: el_belastbarkeit)
+   ════════════════════════════════════════════════════════════════════════
+   ANHÄNGEND geschrieben (eigener IIFE am Dateiende, erweitert das bestehende
+   window.GemaElektro): so kollidiert der Block nicht mit den übrigen el_-
+   Modulen, die parallel an derselben Datei arbeiten. Bestehende Werte
+   werden NICHT verändert.
+
+   GÜLTIGKEITSBEREICH der hinterlegten Tabellen — bewusst eng, und im Modul
+   sichtbar ausgewiesen (nichts davon still unterstellen):
+     · Leitermaterial KUPFER. Für Aluminium sind KEINE Werte hinterlegt.
+     · 3 belastete Leiter (Drehstrom, symmetrisch belastet).
+     · Verlegeart E (Mehrleiterkabel auf perforierter Kabelbahn) und
+       F (einadrige Kabel im Dreieck auf perforierter Kabelbahn).
+     · Querschnitte 25 – 300 mm².
+     · Basiswerte bei 30 °C Umgebungstemperatur (Luft).
+   Andere Verlegearten (A1/A2/B1/B2/C), Aluminium und Querschnitte unter
+   25 mm² gehören zu einer späteren Ergänzung — sie hier zu «schätzen» wäre
+   bei einer Sicherheitsberechnung nicht vertretbar.
+   ════════════════════════════════════════════════════════════════════════ */
+(function(){
+if(!window.GemaElektro) return;
+var G = window.GemaElektro;
+
+/* ── Verlegearten ───────────────────────────────────────────────────────
+   Einadrige Kabel im Dreieck (F) geben Wärme besser ab als ein Mehrleiter-
+   kabel (E) — gleiche Querschnitte tragen dort mehr Strom. */
+var EL_VERLEGEARTEN = [
+  {id:'F', kurz:'F', label:'F — Einadrige im Dreieck auf perforierter Kabelbahn',
+   hinweis:'Drei Einzelleiter im Dreiecksverband, berührend'},
+  {id:'E', kurz:'E', label:'E — Mehrleiterkabel auf perforierter Kabelbahn',
+   hinweis:'Ein mehradriges Kabel, frei in Luft auf der Trasse'}
+];
+
+/* ── Strombelastbarkeit Iz [A] bei 30 °C, Cu, 3 belastete Leiter ────────
+   Quellen: NIN 2025 Ziff. 5.2.3 / SN EN 60364-5-52 (PVC 70 °C, XLPE 90 °C);
+            CFW PowerCable® Z1+S, Datenblatt cfw.ch V1.3-2024 (90 °C).
+   tmax = höchstzulässige Leitertemperatur im Dauerbetrieb — sie steuert die
+   Umgebungstemperatur-Korrektur (elIzTempFaktor). */
+var EL_KABELTYPEN = [
+  {id:'xlpe', name:'XLPE / VPE Cu 90 °C', tmax:90,
+   hinweis:'z.B. N2XH, NHXHX, CH-N1Z1Z1 — Standard für grosse Zuleitungen',
+   iz:{
+     E:{25:127,35:158,50:192,70:246,95:298,120:346,150:399,185:456,240:538,300:621},
+     F:{25:135,35:169,50:207,70:268,95:328,120:383,150:444,185:510,240:607,300:703}
+   }},
+  {id:'pvc', name:'PVC Cu 70 °C', tmax:70,
+   hinweis:'z.B. NYY-J, NYM-J, CH-N1VV — klassisch, Leitertemperatur 70 °C',
+   iz:{
+     E:{25:101,35:126,50:153,70:196,95:238,120:276,150:319,185:364,240:430,300:497},
+     F:{25:110,35:137,50:167,70:216,95:264,120:308,150:356,185:409,240:485,300:561}
+   }},
+  {id:'cfw', name:'CFW PowerCable® Z1+S 90 °C', tmax:90,
+   hinweis:'halogenfrei, EMV, symmetrisch verseilt — Herstellerangabe cfw.ch',
+   /* Der Hersteller publiziert nur Mehrleiter-Werte. Für den Dreiecksverband
+      werden bewusst DIESELBEN Werte gefahren (konservative Unterschätzung)
+      statt einen Zuschlag zu erfinden — im Modul als Vermerk ausgewiesen. */
+   iz:{
+     E:{25:138,35:171,50:208,70:263,95:323,120:376,150:432,185:499,240:591,300:678},
+     F:{25:138,35:171,50:208,70:263,95:323,120:376,150:432,185:499,240:591,300:678}
+   }}
+];
+
+/* ── Häufung ────────────────────────────────────────────────────────────
+   NIN 2025 Tabelle 22 Zeile 4 / SN EN 60364-5-52: einlagig auf einer
+   gelochten Kabelwanne, berührend. Schlüssel = Anzahl gehäufter Stromkreise
+   (die eigenen parallelen Kreise zählen mit).
+   KRITISCH: über 4 Kreisen ist KEIN Wert hinterlegt. elIzHaeufung liefert
+   dort null — der Aufrufer MUSS das melden. Ein Rückfall auf 1.00 wäre
+   nicht nur still, sondern GEFÄHRLICH: er läge über dem Wert für 4 Kreise. */
+var EL_HAEUFUNG = {1:1.00, 2:0.90, 3:0.80, 4:0.75};
+var EL_HAEUFUNG_MAX = 4;
+
+/* Konventioneller Auslösestrom I2 der Schutzeinrichtung als Vielfaches von
+   In — massgebend für die zweite Bedingung I2 ≤ 1.45 · Iz.
+     · Leitungsschutzschalter EN 60898 / EN 60947-2: I2 = 1.45 · In
+       ⇒ die Bedingung ist erfüllt, sobald In ≤ Iz.
+     · Schmelzsicherung gG nach IEC 60269 (Nennstrom > 16 A): I2 = 1.6 · In
+       ⇒ es braucht In ≤ 1.45/1.6 · Iz = 0.906 · Iz — der Klassiker, der
+         in der Praxis gerne übersehen wird. */
+var EL_SCHUTZORGANE = [
+  {id:'ls', name:'Leitungsschutzschalter (EN 60898 / 60947-2)', k2:1.45,
+   hinweis:'I₂ = 1.45 · Iₙ — Bedingung 2 ist mit Iₙ ≤ I_z automatisch erfüllt'},
+  {id:'gg', name:'Schmelzsicherung gG (IEC 60269, Iₙ > 16 A)', k2:1.60,
+   hinweis:'I₂ = 1.6 · Iₙ — verlangt Iₙ ≤ 0.906 · I_z'}
+];
+
+function elKabeltyp(id){
+  for(var i=0;i<EL_KABELTYPEN.length;i++){ if(EL_KABELTYPEN[i].id===id) return EL_KABELTYPEN[i]; }
+  return EL_KABELTYPEN[0];
+}
+function elSchutzorgan(id){
+  for(var i=0;i<EL_SCHUTZORGANE.length;i++){ if(EL_SCHUTZORGANE[i].id===id) return EL_SCHUTZORGANE[i]; }
+  return EL_SCHUTZORGANE[0];
+}
+
+/** Querschnitte, für die zu diesem Kabeltyp/dieser Verlegeart Werte vorliegen. */
+function elIzQuerschnitte(typId, verlegeart){
+  var t = elKabeltyp(typId);
+  var tab = t.iz[verlegeart] || t.iz.E;
+  return Object.keys(tab).map(Number).sort(function(a,b){ return a-b; });
+}
+
+/** Tabellen-Basiswert Iz₃₀ [A] — null, wenn nichts hinterlegt ist. */
+function elIzBasis(typId, verlegeart, q){
+  var t = elKabeltyp(typId);
+  var tab = t.iz[verlegeart];
+  if(!tab) return null;
+  var v = tab[Number(q)];
+  return (typeof v === 'number') ? v : null;
+}
+
+/** Umgebungstemperatur-Korrektur.
+ *  f_θ = √((θ_max − θ_u) / (θ_max − 30))
+ *  Das ist die Grundlage, aus der die Tabellenwerte der SN EN 60364-5-52
+ *  (Tab. B.52.14) gerundet hervorgehen — Gegenprobe PVC 70 °C bei 40 °C:
+ *  √(30/40) = 0.866 → Tabelle 0.87; XLPE 90 °C bei 55 °C: √(35/60) = 0.764
+ *  → Tabelle 0.76. Rechnen statt Runden hält die Kette nachvollziehbar.
+ *  θ_u ≥ θ_max ⇒ 0 (Leitung darf dort nicht belastet werden). */
+function elIzTempFaktor(tmax, tempU){
+  var tm = Number(tmax), tu = Number(tempU);
+  if(!isFinite(tm) || !isFinite(tu)) return 1;
+  if(tm <= 30) return 1;
+  if(tu >= tm) return 0;
+  return Math.sqrt((tm - tu) / (tm - 30));
+}
+
+/** Häufungsfaktor — null über EL_HAEUFUNG_MAX (kein stiller Deckel). */
+function elIzHaeufung(n){
+  var k = Math.round(Number(n));
+  if(!isFinite(k) || k < 1) return null;
+  var f = EL_HAEUFUNG[k];
+  return (typeof f === 'number') ? f : null;
+}
+
+/** Zulässige Dauerbelastung EINES Stromkreises:
+ *  I_z = I_z,30 · f_θ · f_h        [A]
+ *  Rückgabe {iz, iz0, fTemp, fHaeuf, fehler} — `fehler` benennt die Lücke,
+ *  statt still einen Ersatzwert zu liefern. */
+function elIz(typId, verlegeart, q, tempU, nHaeuf){
+  var t   = elKabeltyp(typId);
+  var iz0 = elIzBasis(typId, verlegeart, q);
+  var fT  = elIzTempFaktor(t.tmax, tempU);
+  var fH  = elIzHaeufung(nHaeuf);
+  if(iz0 === null) return {iz:null, iz0:null, fTemp:fT, fHaeuf:fH, tmax:t.tmax, fehler:'kein_tabellenwert'};
+  if(fH === null)  return {iz:null, iz0:iz0,  fTemp:fT, fHaeuf:null, tmax:t.tmax, fehler:'haeufung_unbekannt'};
+  if(fT === 0)     return {iz:0,    iz0:iz0,  fTemp:0,  fHaeuf:fH,   tmax:t.tmax, fehler:'umgebung_zu_warm'};
+  return {iz: iz0 * fT * fH, iz0:iz0, fTemp:fT, fHaeuf:fH, tmax:t.tmax, fehler:null};
+}
+
+window.GemaElektro.EL_VERLEGEARTEN  = EL_VERLEGEARTEN;
+window.GemaElektro.EL_KABELTYPEN    = EL_KABELTYPEN;
+window.GemaElektro.EL_HAEUFUNG      = EL_HAEUFUNG;
+window.GemaElektro.EL_HAEUFUNG_MAX  = EL_HAEUFUNG_MAX;
+window.GemaElektro.EL_SCHUTZORGANE  = EL_SCHUTZORGANE;
+window.GemaElektro.elKabeltyp       = elKabeltyp;
+window.GemaElektro.elSchutzorgan    = elSchutzorgan;
+window.GemaElektro.elIzQuerschnitte = elIzQuerschnitte;
+window.GemaElektro.elIzBasis        = elIzBasis;
+window.GemaElektro.elIzTempFaktor   = elIzTempFaktor;
+window.GemaElektro.elIzHaeufung     = elIzHaeufung;
+window.GemaElektro.elIz             = elIz;
+})();

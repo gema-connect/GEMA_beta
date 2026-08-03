@@ -18,9 +18,45 @@
 <style>
 /* ── Modul-eigenes CSS ───────────────────────────────────────────────────
    Die gemeinsame Optik kommt aus el_base.css. Hier NUR ergänzen, was dieses
-   Modul zusätzlich braucht (eigene Tabellen, Schema-SVG, Spezialzeilen).
-   SVG-Schemata: ausschliesslich literale Hex-Farben — var() rastert
-   GemaPDF/html2canvas falsch. */
+   Modul zusätzlich braucht. */
+
+/* Neutraler Status: Iz steht, der Nachweis fehlt mangels Betriebsstrom.
+   Grün wäre hier eine Aussage, die noch niemand geprüft hat. */
+.el-status.info{background:var(--blue-bg);border-color:var(--blue-bd);color:#1e40af}
+
+/* Nachweis-Zeilen: Marke vor dem Wert, damit die Bedingungen auf einen Blick
+   lesbar sind (✓ erfüllt · ✕ verletzt · – nicht prüfbar).
+   Kein margin-right — .el-res-lbl ist ein Flex-Container und setzt den
+   Abstand bereits über gap. */
+.bl-mark{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;
+  border-radius:5px;font-size:11px;font-weight:900;flex-shrink:0}
+
+/* KRITISCH — .el-res-lbl ist ein Flex-Container: JEDES direkte Inline-Element
+   wird dort zur eigenen Spalte und bekommt den 7px-gap ab. Ein <sub> im
+   Label erschiene damit als «I  z,30» statt «I_z,30». Der Beschriftungstext
+   steht deshalb in einem eigenen <span>; nur Marke, Text und Formel-Chip
+   sind Flex-Items. (Gleiche Falle wie .pcell in pm_erp.) */
+.el-res-lbl>span:not(.frml):not(.bl-mark){display:inline}
+.bl-mark.ok{background:var(--grn-bg);color:var(--grn);border:1px solid var(--grn-bd)}
+.bl-mark.err{background:var(--red-bg);color:var(--red);border:1px solid var(--red-bd)}
+.bl-mark.na{background:var(--bg2);color:var(--mut2);border:1px solid var(--brd)}
+
+/* Meldungsliste (Datenlücken, Randbereiche) — nie still verschlucken. */
+.bl-msg{margin-top:10px;display:flex;flex-direction:column;gap:6px}
+.bl-msg .m{padding:7px 11px;border-radius:8px;font-size:11.5px;line-height:1.55;border:1.5px solid}
+.bl-msg .m.err{background:var(--red-bg);border-color:var(--red-bd);color:#991b1b}
+.bl-msg .m.warn{background:var(--amber-bg);border-color:var(--amber-bd);color:#92400e}
+.bl-msg .m.info{background:var(--blue-bg);border-color:var(--blue-bd);color:#1e40af}
+
+/* Kabelwahl-Tabelle: gewählter Querschnitt und kleinster passender markiert. */
+.el-tbl tr.bl-akt td{background:var(--el-bg);font-weight:800}
+.el-tbl tr.bl-vor td{box-shadow:inset 3px 0 0 var(--grn)}
+.bl-tag{display:inline-block;padding:1px 6px;border-radius:5px;font-size:9.5px;font-weight:900;
+  letter-spacing:.3px;text-transform:uppercase;margin-left:6px;white-space:nowrap}
+.bl-tag.akt{background:var(--el-bd);color:#713f12}
+.bl-tag.vor{background:var(--grn-bd);color:#065f46}
+.bl-ja{color:var(--grn);font-weight:900}
+.bl-nein{color:var(--mut2);font-weight:700}
 </style>
 <script src="gema_db.js"></script>
 <script src="gema_feedback.js"></script><script src="gema_notify.js"></script><script src="gema_notify_ui.js"></script><script src="gema_chat.js"></script>
@@ -56,17 +92,19 @@
       <div class="gema-hero-ic">🔌</div>
       <div>
         <div class="gema-hero-title">Strombelastbarkeit & Kabelwahl</div>
-        <div class="gema-hero-norm" title="Berechnungsgrundlage">📖 NIN 5.2.3 / SN EN 60364-5-52</div>
-        <div class="gema-hero-sub">Zulässige Dauerbelastung nach Verlegeart, Häufung und Umgebungstemperatur</div>
+        <div class="gema-hero-norm" title="Berechnungsgrundlage">📖 NIN 5.2.3 / SN EN 60364-5-52 · Nachweis nach NIN 4.3.3</div>
+        <div class="gema-hero-sub">Zulässige Dauerbelastung nach Verlegeart, Häufung und Umgebungstemperatur — mit Nachweis I<sub>B</sub> ≤ I<sub>n</sub> ≤ I<sub>z</sub></div>
       </div>
     </div>
   </div>
 
-  <!-- Kennzahlen-Leiste: die 2–4 wichtigsten Ergebnisse, live nachgeführt -->
+  <!-- Kennzahlen-Leiste: die wichtigsten Ergebnisse, live nachgeführt -->
   <div class="sum-bar" id="blSumBar">
-    <span class="sum-item">Ergebnis <b class="hl" id="bl_sum1">—</b></span>
+    <span class="sum-item">I<sub>z</sub> gesamt <b class="hl" id="bl_sum1">—</b></span>
     <span class="sum-sep"></span>
-    <span class="sum-item">Kontrolle <b id="bl_sum2">—</b></span>
+    <span class="sum-item">Auslastung <b id="bl_sum2">—</b></span>
+    <span class="sum-sep"></span>
+    <span class="sum-item">Nachweis <b id="bl_sum3">—</b></span>
   </div>
 
   <!-- PROJEKT-LEISTE — Objektbezug (AutoSave speichert pro Objekt/Phase) -->
@@ -87,48 +125,87 @@
     <div class="pf"><label>Datum</label><input type="date" id="metaDatum"></div>
   </div>
 
-  <!-- ═══ GERÜST-BANNER — beim Ausbau des Moduls ERSATZLOS ENTFERNEN ═══ -->
-  <div class="el-stub" id="blStub">
-    <b>Gerüst — die Berechnung fehlt noch.</b><br>
-    Aufbau, Registrierung und Persistenz stehen; einzutragen sind die Eingabefelder
-    (Karte 1), die Fachlogik im <code>/*ENGINE-START*/</code>-Block und die Ergebnis-Zeilen
-    (Karte 3). Alle Elektro-Grunddaten — Leitermaterial, κ bei Betriebstemperatur,
-    Querschnittsreihe, Netzsysteme — kommen aus <code>gema_elektro.js</code> und werden
-    hier NICHT neu definiert.
-  </div>
-
   <!-- ═══ 1. EINGABE ═══ -->
   <div class="el-card" data-fold="eingabe">
     <div class="el-card-hd" onclick="blFold(this)">
       <span class="el-cx">▸</span>
       <span class="el-secnum">1</span>
       <span class="el-card-tt">Eingabe</span>
-      <span class="el-card-sub">Angaben zur Anlage</span>
+      <span class="el-card-sub">Kabel, Verlegung und Absicherung</span>
     </div>
     <div class="el-card-bd">
       <div class="el-grid">
-        <!-- MUSTER — freistehende Zahlenfelder IMMER type="text" +
-             inputmode="decimal" + fixLeadingZero + angeschlossene Einheit.
-             NIE type="number". -->
+
         <div class="fg">
-          <label>Beispielwert</label>
+          <label>Kabeltyp / Isolation</label>
+          <select id="bl_typ" onchange="blRecalc()"></select>
+          <div class="fg-hint" id="bl_typHint"></div>
+        </div>
+
+        <div class="fg">
+          <label>Verlegeart</label>
+          <select id="bl_verlegeart" onchange="blRecalc()"></select>
+          <div class="fg-hint" id="bl_vaHint"></div>
+        </div>
+
+        <div class="fg">
+          <label>Querschnitt je Aussenleiter</label>
+          <select id="bl_q" onchange="blRecalc()"></select>
+          <div class="fg-hint">Hinterlegt sind 25 – 300 mm² Kupfer (Zuleitungsbereich).</div>
+        </div>
+
+        <div class="fg">
+          <label>Parallele Leiter je Aussenleiter</label>
+          <select id="bl_npar" onchange="blRecalc()"></select>
+          <div class="fg-hint">Mehrere Kabel derselben Zuleitung — I<sub>z</sub> addiert sich.</div>
+        </div>
+
+        <div class="fg">
+          <label>Gehäufte Stromkreise auf der Trasse</label>
+          <select id="bl_nhaeuf" onchange="blRecalc()"></select>
+          <div class="fg-hint">Alle nebeneinander liegenden Kreise, die eigenen parallelen eingerechnet.</div>
+        </div>
+
+        <div class="fg">
+          <label>Umgebungstemperatur</label>
           <div class="g-inp-group">
-            <input class="g-inp" id="bl_beispiel" type="text" inputmode="decimal"
-                   value="16" placeholder="0.0" onblur="fixLeadingZero(this)" oninput="blRecalc()"/>
+            <input class="g-inp" id="bl_tempU" type="text" inputmode="decimal"
+                   value="30" placeholder="30" onblur="fixLeadingZero(this)" oninput="blRecalc()"/>
+            <span class="g-inp-unit">°C</span>
+          </div>
+          <div class="fg-hint">Luft am Verlegeort. Die Tabellenwerte gelten bei 30 °C.</div>
+        </div>
+
+        <div class="fg">
+          <label>Betriebsstrom I<sub>B</sub></label>
+          <div class="g-inp-group">
+            <input class="g-inp" id="bl_ib" type="text" inputmode="decimal"
+                   value="" placeholder="z.B. 250" onblur="fixLeadingZero(this)" oninput="blRecalc()"/>
             <span class="g-inp-unit">A</span>
           </div>
-          <div class="fg-hint">Kurzer Hinweis, woher der Wert kommt.</div>
+          <div class="fg-hint">Leer lassen, wenn nur I<sub>z</sub> gesucht ist — dann entfällt der Nachweis.</div>
         </div>
+
         <div class="fg">
-          <label>Leitermaterial</label>
-          <select id="bl_material" onchange="blRecalc()"></select>
-          <div class="fg-hint" id="bl_matHint"></div>
+          <label>Schutzeinrichtung</label>
+          <select id="bl_schutz" onchange="blRecalc()"></select>
+          <div class="fg-hint" id="bl_schutzHint"></div>
         </div>
+
         <div class="fg">
-          <label>Betriebstemperatur Leiter</label>
-          <select id="bl_temp" onchange="blRecalc()"></select>
-          <div class="fg-hint">κ sinkt mit der Temperatur — 20 °C rechnet zu günstig.</div>
+          <label>Nennstrom I<sub>n</sub></label>
+          <select id="bl_in" onchange="blRecalc()"></select>
+          <div class="fg-hint">«Automatisch» wählt den nächstgrösseren Nennstrom über I<sub>B</sub>.</div>
         </div>
+
+      </div>
+
+      <div class="el-hint" style="margin-top:12px">
+        <b>Gültigkeitsbereich der hinterlegten Tabellen:</b> Kupferleiter · 3 belastete Leiter
+        (Drehstrom, symmetrisch) · Verlegeart E oder F auf perforierter Kabelbahn · 25 – 300 mm² ·
+        Basiswerte bei 30 °C. Für Aluminium, andere Verlegearten (A1/A2/B1/B2/C) und Querschnitte
+        unter 25 mm² sind <b>keine</b> Werte hinterlegt — das Modul rechnet solche Fälle nicht
+        stillschweigend mit.
       </div>
     </div>
   </div>
@@ -139,16 +216,51 @@
       <span class="el-cx">▸</span>
       <span class="el-secnum">2</span>
       <span class="el-card-tt">Berechnung</span>
-      <span class="el-card-sub">Zwischenwerte</span>
+      <span class="el-card-sub">Tabellenwert und Korrekturfaktoren</span>
     </div>
     <div class="el-card-bd">
+
       <div class="el-res">
-        <div class="el-res-lbl">Leitfähigkeit bei Betriebstemperatur
-          <span class="frml">κ(t) = κ₂₀ / (1 + α · (t − 20))</span></div>
-        <div class="el-res-val" id="bl_kappa">—</div>
+        <div class="el-res-lbl"><span>Tabellenwert I<sub>z,30</sub> bei 30 °C</span>
+          <span class="frml" id="bl_frmlIz0">Tabelle: Typ · Verlegeart · Querschnitt</span></div>
+        <div class="el-res-val" id="bl_iz0">—</div>
       </div>
+
+      <div class="el-res">
+        <div class="el-res-lbl"><span>Korrektur Umgebungstemperatur f<sub>θ</sub></span>
+          <span class="frml">f<sub>θ</sub> = √((θ<sub>max</sub> − θ<sub>u</sub>) / (θ<sub>max</sub> − 30))</span></div>
+        <div class="el-res-val" id="bl_ftemp">—</div>
+      </div>
+
+      <div class="el-res">
+        <div class="el-res-lbl"><span>Korrektur Häufung f<sub>h</sub></span>
+          <span class="frml">NIN 2025 Tab. 22 Z. 4</span></div>
+        <div class="el-res-val" id="bl_fhaeuf">—</div>
+      </div>
+
+      <div class="el-res">
+        <div class="el-res-lbl"><span>Belastbarkeit je Stromkreis</span>
+          <span class="frml">I<sub>z</sub> = I<sub>z,30</sub> · f<sub>θ</sub> · f<sub>h</sub></span></div>
+        <div class="el-res-val" id="bl_izKreis">—</div>
+      </div>
+
+      <div class="el-res">
+        <div class="el-res-lbl"><span>Belastbarkeit gesamt</span>
+          <span class="frml">I<sub>z,ges</sub> = n<sub>par</sub> · I<sub>z</sub></span></div>
+        <div class="el-res-val hl" id="bl_izGes">—</div>
+      </div>
+
       <div class="frml-block" id="bl_legende">
-        Formel-Legende — die Chips müssen dem Code entsprechen.
+        <b>I<sub>z,30</sub></b> Tabellenwert der zulässigen Dauerbelastung bei 30 °C Umgebung,
+        Cu, 3 belastete Leiter (NIN 5.2.3 / SN EN 60364-5-52; CFW-Werte aus dem Herstellerdatenblatt).<br>
+        <b>f<sub>θ</sub></b> Umgebungstemperatur-Korrektur, gerechnet statt der Tabelle entnommen —
+        θ<sub>max</sub> ist die höchstzulässige Leitertemperatur (PVC 70 °C, XLPE/CFW 90 °C).
+        Gegenprobe: PVC bei 40 °C ergibt 0.866, die Norm-Tabelle nennt 0.87.<br>
+        <b>f<sub>h</sub></b> Häufung einlagig auf gelochter Kabelwanne, berührend — hinterlegt für
+        1 bis 4 Stromkreise. Darüber liegt <b>kein</b> Wert vor; das Modul meldet das, statt auf 1.00
+        zurückzufallen (das wäre günstiger als bei 4 Kreisen).<br>
+        <b>n<sub>par</sub></b> parallele Leiter je Aussenleiter. Die Häufung wirkt auf jeden
+        einzelnen Kreis, die Summe der Belastbarkeiten auf die Zuleitung.
       </div>
     </div>
   </div>
@@ -158,16 +270,82 @@
     <div class="el-card-hd" onclick="blFold(this)">
       <span class="el-cx">▸</span>
       <span class="el-secnum">3</span>
-      <span class="el-card-tt">Ergebnis</span>
-      <span class="el-card-sub">Bewertung</span>
+      <span class="el-card-tt">Ergebnis &amp; Nachweis</span>
+      <span class="el-card-sub">Schutz bei Überlast nach NIN 4.3.3</span>
     </div>
     <div class="el-card-bd">
+
       <div class="el-res">
-        <div class="el-res-lbl">Hauptergebnis</div>
+        <div class="el-res-lbl"><span>Zulässige Dauerbelastung der Zuleitung</span></div>
         <div class="el-res-val hl" id="bl_hauptwert">—</div>
       </div>
-      <div class="el-status ok" id="bl_status" style="margin-top:12px">
+
+      <div class="el-res">
+        <div class="el-res-lbl"><span>Gewählter Nennstrom I<sub>n</sub></span></div>
+        <div class="el-res-val" id="bl_inNenn">—</div>
+      </div>
+
+      <div class="el-res">
+        <div class="el-res-lbl"><span class="bl-mark na" id="bl_m1">–</span><span>Bedingung 1 — Überlastschutz</span>
+          <span class="frml">I<sub>B</sub> ≤ I<sub>n</sub> ≤ I<sub>z,ges</sub></span></div>
+        <div class="el-res-val" id="bl_b1">—</div>
+      </div>
+
+      <div class="el-res">
+        <div class="el-res-lbl"><span class="bl-mark na" id="bl_m2">–</span><span>Bedingung 2 — Auslösestrom</span>
+          <span class="frml">I<sub>2</sub> = k<sub>2</sub> · I<sub>n</sub> ≤ 1.45 · I<sub>z,ges</sub></span></div>
+        <div class="el-res-val" id="bl_b2">—</div>
+      </div>
+
+      <div class="el-res">
+        <div class="el-res-lbl"><span>Auslastung durch den Betriebsstrom</span>
+          <span class="frml">I<sub>B</sub> / I<sub>z,ges</sub></span></div>
+        <div class="el-res-val" id="bl_auslastung">—</div>
+      </div>
+      <div class="el-bar" id="bl_bar"><i style="width:0%"></i></div>
+
+      <div class="el-res" style="margin-top:6px">
+        <div class="el-res-lbl"><span>Kleinster ausreichender Querschnitt</span>
+          <span class="frml">Reihe 25 – 300 mm², beide Bedingungen erfüllt</span></div>
+        <div class="el-res-val" id="bl_vorschlag">—</div>
+      </div>
+
+      <div class="el-status info" id="bl_status" style="margin-top:12px">
         Noch keine Berechnung.
+      </div>
+      <div class="bl-msg" id="bl_meldungen"></div>
+    </div>
+  </div>
+
+  <!-- ═══ 4. KABELWAHL ═══ -->
+  <div class="el-card" data-fold="kabelwahl">
+    <div class="el-card-hd" onclick="blFold(this)">
+      <span class="el-cx">▸</span>
+      <span class="el-secnum">4</span>
+      <span class="el-card-tt">Kabelwahl</span>
+      <span class="el-card-sub">Alle Querschnitte unter den gewählten Bedingungen</span>
+    </div>
+    <div class="el-card-bd">
+      <div class="el-scroll">
+        <table class="el-tbl" id="bl_tbl">
+          <thead>
+            <tr>
+              <th>Querschnitt</th>
+              <th>I<sub>z,30</sub></th>
+              <th>I<sub>z</sub> je Kreis</th>
+              <th>I<sub>z,ges</sub></th>
+              <th>Auslastung</th>
+              <th>Nachweis</th>
+            </tr>
+          </thead>
+          <tbody id="bl_tblBody"></tbody>
+        </table>
+      </div>
+      <div class="el-note" style="margin-top:9px">
+        Die Tabelle rechnet mit demselben Kabeltyp, derselben Verlegeart, Häufung und
+        Umgebungstemperatur wie oben — sie zeigt nur die Wirkung des Querschnitts.
+        Der Spannungsfall ist <b>nicht</b> Teil dieses Nachweises und kann einen grösseren
+        Querschnitt verlangen als die Strombelastbarkeit.
       </div>
     </div>
   </div>
@@ -177,25 +355,205 @@
 <script>
 /*ENGINE-START*/
 /* ── Rechenkern — DOM-FREI ───────────────────────────────────────────────
-   Hier gehört die gesamte Fachlogik hinein: keine getElementById, kein
-   innerHTML. Nur so lässt sich der Kern in Node gegen unabhängig gerechnete
-   Werte testen (scripts/belastbarkeit_engine_test.mjs).
+   Gesamte Fachlogik: keine getElementById, kein innerHTML. Nur so lässt sich
+   der Kern in Node gegen unabhängig gerechnete Werte prüfen
+   (scripts/belastbarkeit_engine_test.mjs).
 
-   Grunddaten kommen aus GemaElektro — Material, κ(t), Querschnittsreihe,
-   Netzsysteme und Zahlen-Helfer NIE hier duplizieren.
+   Tabellen, Korrekturfaktoren und Sicherungsreihe kommen aus GemaElektro und
+   werden hier NICHT dupliziert.
 
-   Rückgabe: ein Objekt mit allen Werten, die die Oberfläche anzeigt.
-   Grenzwert-Überschreitungen als Feld melden (nie still abschneiden). */
+   Rechenkette
+     I_z,30   Tabellenwert (Typ · Verlegeart · Querschnitt), 30 °C, Cu, 3 Leiter
+     f_θ      = √((θmax − θu)/(θmax − 30))
+     f_h      Häufung, NIN 2025 Tab. 22 Z. 4  (nur 1–4 Kreise hinterlegt)
+     I_z      = I_z,30 · f_θ · f_h            je Stromkreis
+     I_z,ges  = n_par · I_z                   ganze Zuleitung
+
+   Nachweis Überlastschutz (NIN 4.3.3 / SN EN 60364-4-43)
+     (1) I_B ≤ I_n ≤ I_z,ges
+     (2) I_2 = k₂ · I_n ≤ 1.45 · I_z,ges
+         k₂ = 1.45 bei Leitungsschutzschaltern → (2) folgt aus (1)
+         k₂ = 1.60 bei gG-Schmelzsicherungen  → verlangt I_n ≤ 0.906 · I_z,ges
+
+   Jede Datenlücke wird als Meldung zurückgegeben, nie stillschweigend durch
+   einen Ersatzwert überdeckt. */
 function blCalc(inp){
   var E = (typeof GemaElektro!=='undefined') ? GemaElektro : null;
-  var kappa = E ? E.elKappa(inp.material, inp.temp) : 56;
-
-  // TODO: Fachlogik dieses Moduls
-  return {
-    kappa: kappa,
-    hauptwert: null,
-    status: 'leer'   // 'ok' | 'warn' | 'err' | 'leer'
+  var R = {
+    iz0:null, tmax:null, fTemp:null, fHaeuf:null, izKreis:null, izGes:null,
+    nPar:1, nHaeuf:1, ib:0, inNenn:null, inAuto:null, k2:null, i2:null, i2Max:null,
+    b1:null, b2:null, auslastung:null, vorschlagQ:null, tabelle:[],
+    status:'leer', meldungen:[]
   };
+  if(!E || !E.elIz) return R;
+
+  var melde = function(t, txt){ R.meldungen.push({typ:t, text:txt}); };
+
+  var typ    = E.elKabeltyp(inp.typ);
+  var va     = inp.verlegeart === 'E' ? 'E' : 'F';
+  var q      = Number(inp.q) || 0;
+  var nPar   = Math.max(1, Math.round(Number(inp.nPar) || 1));
+  var nHaeuf = Math.max(1, Math.round(Number(inp.nHaeuf) || nPar));
+  var tempU  = Number(inp.tempU);
+  if(!isFinite(tempU)) tempU = 30;
+  var ib     = Math.max(0, Number(inp.ib) || 0);
+  var schutz = E.elSchutzorgan(inp.schutz);
+
+  R.nPar = nPar; R.nHaeuf = nHaeuf; R.ib = ib; R.tmax = typ.tmax; R.k2 = schutz.k2;
+
+  /* Die eigenen parallelen Kreise häufen sich gegenseitig — weniger als
+     n_par gehäufte Kreise gibt es physikalisch nicht. */
+  if(nHaeuf < nPar){
+    nHaeuf = nPar;
+    R.nHaeuf = nPar;
+    melde('warn', 'Bei ' + nPar + ' parallelen Kreisen sind mindestens ' + nPar +
+                  ' Kreise gehäuft — die Häufung wurde entsprechend angehoben.');
+  }
+
+  var iz = E.elIz(typ.id, va, q, tempU, nHaeuf);
+  R.iz0 = iz.iz0; R.fTemp = iz.fTemp; R.fHaeuf = iz.fHaeuf;
+
+  if(iz.fehler === 'kein_tabellenwert'){
+    melde('err', 'Für ' + typ.name + ' in Verlegeart ' + va + ' ist zu ' + q +
+                 ' mm² kein Tabellenwert hinterlegt. Bitte einen Querschnitt der ' +
+                 'hinterlegten Reihe wählen.');
+    R.status = 'err';
+    return R;
+  }
+  if(iz.fehler === 'haeufung_unbekannt'){
+    melde('err', 'Für ' + nHaeuf + ' gehäufte Stromkreise ist kein Häufungsfaktor ' +
+                 'hinterlegt (NIN 2025 Tab. 22 Z. 4 deckt hier 1 bis ' + E.EL_HAEUFUNG_MAX +
+                 ' Kreise ab). Der Wert wird NICHT auf 1.00 gesetzt — das läge über dem ' +
+                 'Faktor für 4 Kreise. Häufung bitte der Norm entnehmen oder die Kreise ' +
+                 'auf mehrere Trassen verteilen.');
+    R.status = 'err';
+    return R;
+  }
+  if(iz.fehler === 'umgebung_zu_warm'){
+    melde('err', 'Die Umgebungstemperatur von ' + tempU + ' °C erreicht oder übersteigt die ' +
+                 'zulässige Leitertemperatur von ' + typ.tmax + ' °C. Das Kabel darf dort ' +
+                 'nicht belastet werden.');
+    R.izKreis = 0; R.izGes = 0; R.status = 'err';
+    return R;
+  }
+
+  R.izKreis = iz.iz;
+  R.izGes   = iz.iz * nPar;
+
+  /* Randbereiche der Norm-Tabelle ausweisen, statt sie zu verschweigen. */
+  if(tempU < 10){
+    melde('warn', 'Die Tabelle der Temperaturfaktoren beginnt bei 10 °C. Unter 10 °C wird ' +
+                  'die Formel weitergerechnet — das Ergebnis liegt ausserhalb des ' +
+                  'tabellierten Bereichs.');
+  }
+  if(typ.tmax === 70 && tempU > 55){
+    melde('warn', 'Für PVC ist der Temperaturfaktor bis 55 °C tabelliert; ' + tempU +
+                  ' °C liegt darüber.');
+  }
+  if(typ.tmax === 90 && tempU > 80){
+    melde('warn', 'Für 90-°C-Isolation ist der Temperaturfaktor bis 80 °C tabelliert; ' +
+                  tempU + ' °C liegt darüber.');
+  }
+  if(typ.id === 'cfw' && va === 'F'){
+    melde('info', 'Der Hersteller publiziert für das CFW-Kabel nur Mehrleiter-Werte. Für den ' +
+                  'Dreiecksverband wird bewusst derselbe Wert gerechnet — das unterschätzt die ' +
+                  'Belastbarkeit eher, als sie zu überschätzen.');
+  }
+  if(nPar > 1 && q < 70){
+    melde('warn', 'NIN 5.2.3.7: bei nicht verseilter Parallelschaltung wird für Kupfer ' +
+                  'mindestens 70 mm² verlangt (Aluminium 95 mm²). Der gewählte Querschnitt ' +
+                  'von ' + q + ' mm² liegt darunter.');
+  }
+
+  /* ── Nennstrom bestimmen ─────────────────────────────────────────────── */
+  if(ib > 0){
+    R.inAuto = E.elNaechsteSicherung(ib);
+    if(R.inAuto === null){
+      melde('warn', 'Zu einem Betriebsstrom von ' + ib + ' A ist in der hinterlegten Reihe ' +
+                    '(bis ' + E.EL_SICHERUNGEN[E.EL_SICHERUNGEN.length-1] + ' A) kein ' +
+                    'Nennstrom vorhanden. Nennstrom bitte von Hand wählen.');
+    }
+  }
+  if(inp.inWahl === 'auto' || inp.inWahl === '' || inp.inWahl === undefined || inp.inWahl === null){
+    R.inNenn = R.inAuto;
+  } else {
+    var iw = Number(inp.inWahl);
+    R.inNenn = isFinite(iw) && iw > 0 ? iw : null;
+  }
+
+  /* ── Nachweis ────────────────────────────────────────────────────────── */
+  if(R.inNenn !== null){
+    R.i2    = schutz.k2 * R.inNenn;
+    R.i2Max = 1.45 * R.izGes;
+    R.b1    = (ib <= R.inNenn) && (R.inNenn <= R.izGes);
+    R.b2    = R.i2 <= R.i2Max + 1e-9;
+
+    if(ib > 0 && ib > R.inNenn){
+      melde('err', 'Der Betriebsstrom ' + ib + ' A liegt über dem Nennstrom ' + R.inNenn +
+                   ' A — die Schutzeinrichtung würde im Normalbetrieb auslösen.');
+    }
+    if(R.inNenn > R.izGes){
+      melde('err', 'Bedingung 1 verletzt: der Nennstrom ' + R.inNenn + ' A liegt über der ' +
+                   'zulässigen Dauerbelastung von ' + (Math.round(R.izGes*10)/10) + ' A. ' +
+                   'Die Leitung ist nicht gegen Überlast geschützt.');
+    }
+    if(!R.b2){
+      melde('err', 'Bedingung 2 verletzt: I₂ = ' + (Math.round(R.i2*10)/10) + ' A liegt über ' +
+                   '1.45 · I_z,ges = ' + (Math.round(R.i2Max*10)/10) + ' A. Bei ' +
+                   schutz.name + ' braucht es einen kleineren Nennstrom oder einen ' +
+                   'grösseren Querschnitt.');
+    }
+    if(schutz.id === 'gg' && R.inNenn <= 16){
+      melde('info', 'Der Faktor I₂ = 1.6 · Iₙ gilt für gG-Sicherungen über 16 A. Bei ' +
+                    'kleineren Nennströmen ist der Faktor grösser — dieser Bereich ist hier ' +
+                    'nicht hinterlegt.');
+    }
+  } else if(ib > 0){
+    melde('info', 'Ohne Nennstrom lässt sich der Überlastschutz nicht nachweisen.');
+  }
+
+  if(ib > 0 && R.izGes > 0) R.auslastung = ib / R.izGes;
+
+  /* ── Kabelwahl-Tabelle + kleinster ausreichender Querschnitt ─────────── */
+  var reihe = E.elIzQuerschnitte(typ.id, va);
+  for(var i=0;i<reihe.length;i++){
+    var qi  = reihe[i];
+    var izi = E.elIz(typ.id, va, qi, tempU, nHaeuf);
+    if(izi.iz === null) continue;
+    var gesi = izi.iz * nPar;
+    var passt = null;
+    if(R.inNenn !== null){
+      passt = (R.inNenn <= gesi) && (schutz.k2 * R.inNenn <= 1.45 * gesi + 1e-9);
+      if(passt && R.vorschlagQ === null) R.vorschlagQ = qi;
+    }
+    R.tabelle.push({
+      q: qi, iz0: izi.iz0, iz: izi.iz, izGes: gesi,
+      auslastung: (ib > 0 && gesi > 0) ? ib / gesi : null,
+      passt: passt, aktuell: qi === q
+    });
+  }
+  if(R.inNenn !== null && R.vorschlagQ === null){
+    melde('err', 'Unter diesen Bedingungen reicht auch der grösste hinterlegte Querschnitt ' +
+                 '(' + reihe[reihe.length-1] + ' mm²) für ' + R.inNenn + ' A nicht aus. ' +
+                 'Parallele Leiter erhöhen oder die Häufung entschärfen.');
+  }
+
+  /* ── Ampel ───────────────────────────────────────────────────────────── */
+  var hatErr = R.meldungen.some(function(m){ return m.typ === 'err'; });
+  if(hatErr){
+    R.status = 'err';
+  } else if(R.inNenn === null){
+    R.status = 'nurIz';
+  } else if(R.auslastung !== null && R.auslastung > 0.90){
+    R.status = 'warn';
+    melde('warn', 'Die Leitung ist zu ' + Math.round(R.auslastung*100) + ' % ausgelastet — ' +
+                  'wenig Reserve für spätere Erweiterungen.');
+  } else if(R.meldungen.some(function(m){ return m.typ === 'warn'; })){
+    R.status = 'warn';
+  } else {
+    R.status = 'ok';
+  }
+  return R;
 }
 /*ENGINE-END*/
 
@@ -230,20 +588,64 @@ function blFoldInit(){
   });
 }
 
+function blEsc(s){
+  return String(s==null?'':s).replace(/[&<>"']/g, function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+  });
+}
+
 function blFillSelects(){
   var E = (typeof GemaElektro!=='undefined') ? GemaElektro : null;
-  if(!E) return;
-  var mat = document.getElementById('bl_material');
-  if(mat && !mat.options.length){
-    mat.innerHTML = E.EL_MATERIAL.map(function(m){
-      return '<option value="'+m.id+'">'+m.name+' — κ₂₀ '+m.kappa20+' m/(Ω·mm²)</option>';
+  if(!E || !E.EL_KABELTYPEN) return;
+
+  var typ = document.getElementById('bl_typ');
+  if(typ && !typ.options.length){
+    typ.innerHTML = E.EL_KABELTYPEN.map(function(t){
+      return '<option value="'+t.id+'">'+blEsc(t.name)+'</option>';
     }).join('');
   }
-  var tmp = document.getElementById('bl_temp');
-  if(tmp && !tmp.options.length){
-    tmp.innerHTML = E.EL_TEMP_STUFEN.map(function(s){
-      return '<option value="'+s.t+'"'+(s.t===70?' selected':'')+'>'+s.label+'</option>';
+  var va = document.getElementById('bl_verlegeart');
+  if(va && !va.options.length){
+    va.innerHTML = E.EL_VERLEGEARTEN.map(function(v){
+      return '<option value="'+v.id+'">'+blEsc(v.label)+'</option>';
     }).join('');
+  }
+  var q = document.getElementById('bl_q');
+  if(q && !q.options.length){
+    /* Alle hinterlegten Typen führen dieselbe Querschnittsreihe. */
+    q.innerHTML = E.elIzQuerschnitte('xlpe','F').map(function(v){
+      return '<option value="'+v+'"'+(v===95?' selected':'')+'>'+v+' mm²</option>';
+    }).join('');
+  }
+  var np = document.getElementById('bl_npar');
+  if(np && !np.options.length){
+    np.innerHTML = [1,2,3,4].map(function(n){
+      return '<option value="'+n+'">'+n+(n===1?' (einfach)':' parallel')+'</option>';
+    }).join('');
+  }
+  var nh = document.getElementById('bl_nhaeuf');
+  if(nh && !nh.options.length){
+    var opts = [];
+    for(var k=1;k<=E.EL_HAEUFUNG_MAX;k++){
+      opts.push('<option value="'+k+'">'+k+' Stromkreis'+(k===1?'':'e')+
+                ' · Faktor '+E.EL_HAEUFUNG[k].toFixed(2)+'</option>');
+    }
+    /* Bewusst wählbar, obwohl kein Faktor hinterlegt ist: der Fall kommt in
+       der Praxis vor und muss eine Meldung erzeugen, statt unmöglich zu sein. */
+    opts.push('<option value="'+(E.EL_HAEUFUNG_MAX+1)+'">mehr als '+E.EL_HAEUFUNG_MAX+
+              ' — kein Faktor hinterlegt</option>');
+    nh.innerHTML = opts.join('');
+  }
+  var sch = document.getElementById('bl_schutz');
+  if(sch && !sch.options.length){
+    sch.innerHTML = E.EL_SCHUTZORGANE.map(function(s){
+      return '<option value="'+s.id+'">'+blEsc(s.name)+'</option>';
+    }).join('');
+  }
+  var inn = document.getElementById('bl_in');
+  if(inn && !inn.options.length){
+    inn.innerHTML = '<option value="auto">automatisch (nächstgrösser zu I_B)</option>' +
+      E.EL_SICHERUNGEN.map(function(a){ return '<option value="'+a+'">'+a+' A</option>'; }).join('');
   }
 }
 
@@ -252,9 +654,15 @@ function blRead(){
   var num = E ? E.elNum : function(v){ return parseFloat(String(v).replace(',','.')) || 0; };
   var g = function(id){ var e = document.getElementById(id); return e ? e.value : ''; };
   return {
-    beispiel: num(g('bl_beispiel')),
-    material: g('bl_material') || 'cu',
-    temp:     num(g('bl_temp')) || 20
+    typ:        g('bl_typ') || 'xlpe',
+    verlegeart: g('bl_verlegeart') || 'F',
+    q:          num(g('bl_q')),
+    nPar:       num(g('bl_npar')) || 1,
+    nHaeuf:     num(g('bl_nhaeuf')) || 1,
+    tempU:      g('bl_tempU') === '' ? 30 : num(g('bl_tempU')),
+    ib:         num(g('bl_ib')),
+    schutz:     g('bl_schutz') || 'ls',
+    inWahl:     g('bl_in') || 'auto'
   };
 }
 
@@ -265,27 +673,168 @@ function blRecalc(){
   try{ r = blCalc(blRead()); }catch(e){ console.warn('blCalc:', e); return; }
 
   var set = function(id, txt){ var el = document.getElementById(id); if(el) el.textContent = txt; };
-  set('bl_kappa', fmt(r.kappa, 2) + ' m/(Ω·mm²)');
-  set('bl_hauptwert', r.hauptwert === null ? '—' : fmt(r.hauptwert, 2));
+  var A   = function(v, d){ return v === null || v === undefined ? '—' : fmt(v, d===undefined?1:d) + ' A'; };
 
+  /* Feld-Hinweise aus der Fachbasis */
+  if(E && E.elKabeltyp){
+    var t = E.elKabeltyp(blRead().typ);
+    set('bl_typHint', t.hinweis + ' · zulässige Leitertemperatur ' + t.tmax + ' °C');
+    var vaId = blRead().verlegeart;
+    var vaDef = (E.EL_VERLEGEARTEN || []).filter(function(v){ return v.id === vaId; })[0];
+    set('bl_vaHint', vaDef ? vaDef.hinweis : '');
+    var sDef = E.elSchutzorgan(blRead().schutz);
+    set('bl_schutzHint', sDef.hinweis);
+    var fi = document.getElementById('bl_frmlIz0');
+    if(fi) fi.textContent = 'Tabelle ' + t.name + ' · Verlegeart ' + vaId;
+  }
+
+  /* Karte 2 */
+  set('bl_iz0',     r.iz0 === null ? '—' : fmt(r.iz0, 0) + ' A');
+  set('bl_ftemp',   r.fTemp === null ? '—' : fmt(r.fTemp, 3));
+  set('bl_fhaeuf',  r.fHaeuf === null ? 'nicht hinterlegt' : fmt(r.fHaeuf, 2));
+  set('bl_izKreis', A(r.izKreis));
+  set('bl_izGes',   A(r.izGes));
+
+  /* Karte 3 */
+  set('bl_hauptwert', A(r.izGes));
+  set('bl_inNenn',    r.inNenn === null ? '—' : fmt(r.inNenn, 0) + ' A' +
+                      (r.inAuto !== null && String(document.getElementById('bl_in')?.value) === 'auto'
+                        ? ' (automatisch)' : ''));
+
+  var mark = function(id, v){
+    var el = document.getElementById(id);
+    if(!el) return;
+    el.className = 'bl-mark ' + (v === null ? 'na' : (v ? 'ok' : 'err'));
+    el.textContent = v === null ? '–' : (v ? '✓' : '✕');
+  };
+  mark('bl_m1', r.b1);
+  mark('bl_m2', r.b2);
+
+  set('bl_b1', r.inNenn === null ? 'nicht prüfbar'
+    : fmt(r.ib,1) + ' A ≤ ' + fmt(r.inNenn,0) + ' A ≤ ' + fmt(r.izGes,1) + ' A');
+  set('bl_b2', r.inNenn === null ? 'nicht prüfbar'
+    : fmt(r.i2,1) + ' A ≤ ' + fmt(r.i2Max,1) + ' A');
+
+  set('bl_auslastung', r.auslastung === null ? '—' : fmt(r.auslastung*100, 1) + ' %');
+  var bar = document.getElementById('bl_bar');
+  if(bar){
+    var p = r.auslastung === null ? 0 : Math.min(100, r.auslastung*100);
+    bar.className = 'el-bar' + (r.auslastung === null ? ''
+      : (r.auslastung > 1 ? ' err' : (r.auslastung > 0.9 ? ' warn' : '')));
+    bar.firstElementChild.style.width = p.toFixed(1) + '%';
+  }
+  set('bl_vorschlag', r.vorschlagQ === null
+    ? (r.inNenn === null ? '—' : 'kein Querschnitt der Reihe reicht')
+    : r.vorschlagQ + ' mm²');
+
+  /* Status-Ampel */
   var st = document.getElementById('bl_status');
   if(st){
-    st.className = 'el-status ' + (r.status === 'leer' ? 'ok' : r.status);
-    st.textContent = r.status === 'leer'
-      ? 'Noch keine Berechnung — die Fachlogik fehlt.'
-      : 'Ergebnis liegt vor.';
+    var klasse = {ok:'ok', warn:'warn', err:'err', nurIz:'info', leer:'info'}[r.status] || 'info';
+    st.className = 'el-status ' + klasse;
+    if(r.status === 'leer'){
+      st.textContent = 'Bitte Kabeltyp, Verlegeart und Querschnitt wählen.';
+    } else if(r.status === 'nurIz'){
+      st.textContent = 'I_z,ges = ' + fmt(r.izGes,1) + ' A. Für den Nachweis des Überlastschutzes ' +
+                       'einen Betriebsstrom I_B erfassen oder einen Nennstrom wählen.';
+    } else if(r.status === 'err'){
+      st.textContent = '✕ Der Nachweis ist nicht erfüllt — siehe Meldungen unten.';
+    } else if(r.status === 'warn'){
+      st.textContent = '⚠ Nachweis erfüllt, aber mit Vorbehalt — siehe Meldungen unten.';
+    } else {
+      st.textContent = '✓ Überlastschutz nachgewiesen: I_B ' + fmt(r.ib,1) + ' A ≤ I_n ' +
+                       fmt(r.inNenn,0) + ' A ≤ I_z,ges ' + fmt(r.izGes,1) + ' A · Auslastung ' +
+                       fmt((r.auslastung||0)*100,1) + ' %.';
+    }
   }
-  set('bl_sum1', r.hauptwert === null ? '—' : fmt(r.hauptwert, 2));
-  set('bl_sum2', fmt(r.kappa, 1));
+
+  /* Meldungen */
+  var mv = document.getElementById('bl_meldungen');
+  if(mv){
+    mv.innerHTML = r.meldungen.map(function(m){
+      return '<div class="m ' + m.typ + '">' + blEsc(m.text) + '</div>';
+    }).join('');
+  }
+
+  /* Karte 4 — Kabelwahl */
+  var tb = document.getElementById('bl_tblBody');
+  if(tb){
+    tb.innerHTML = r.tabelle.map(function(z){
+      var tags = (z.aktuell ? '<span class="bl-tag akt">gewählt</span>' : '') +
+                 (z.q === r.vorschlagQ ? '<span class="bl-tag vor">kleinster</span>' : '');
+      var nw = z.passt === null ? '<span class="bl-nein">–</span>'
+             : (z.passt ? '<span class="bl-ja">✓ passt</span>'
+                        : '<span class="bl-nein">zu klein</span>');
+      return '<tr class="' + (z.aktuell ? 'bl-akt ' : '') + (z.q === r.vorschlagQ ? 'bl-vor' : '') + '">' +
+        '<td>' + z.q + ' mm²' + tags + '</td>' +
+        '<td>' + fmt(z.iz0, 0) + ' A</td>' +
+        '<td>' + fmt(z.iz, 1) + ' A</td>' +
+        '<td>' + fmt(z.izGes, 1) + ' A</td>' +
+        '<td>' + (z.auslastung === null ? '—' : fmt(z.auslastung*100, 1) + ' %') + '</td>' +
+        '<td>' + nw + '</td></tr>';
+    }).join('') || '<tr><td colspan="6" style="color:var(--mut2)">Keine Tabellenwerte für diese Kombination.</td></tr>';
+  }
+
+  /* Kennzahlen-Leiste */
+  set('bl_sum1', A(r.izGes));
+  set('bl_sum2', r.auslastung === null ? '—' : fmt(r.auslastung*100, 0) + ' %');
+  set('bl_sum3', r.status === 'ok' ? '✓ erfüllt'
+              : r.status === 'warn' ? '⚠ mit Vorbehalt'
+              : r.status === 'err' ? '✕ nicht erfüllt' : '—');
+}
+
+/* ── Snapshot-Fallback (KRITISCH) ────────────────────────────────────────
+   GemaAutoSave macht einen Initial-Restore NUR, wenn ein Objekt gewählt ist
+   (`if (sel && sel.value)` in init). Ohne gewähltes Objekt läuft die Seite
+   auf dem Basis-Key `gema_belastbarkeit` — dort käme ein gespeicherter Stand
+   nie zurück. Darum liest dieses Modul den Snapshot verzögert selbst aus dem
+   localStorage nach (Muster glSnapshotLoad / rlSnapshotLoad in den
+   Sanitärmodulen: 700/1800/3500 ms, damit AutoSave und der Cloud-Pull ihre
+   Chance zuerst haben).
+
+   `_blTouched` schützt vor dem Überschreiben einer laufenden Eingabe: sobald
+   jemand SELBST etwas ändert (isTrusted — programmatische Events zählen
+   nicht), rührt der Fallback nichts mehr an. */
+var _blTouched = false;
+function blSnapshotLoad(){
+  if(_blTouched) return;
+  try{
+    var base = 'gema_belastbarkeit', key = base;
+    if(typeof GemaObjekte!=='undefined' && GemaObjekte.storageKey) key = GemaObjekte.storageKey(base) || base;
+    var raw = localStorage.getItem(key) || localStorage.getItem(base);
+    if(!raw) return;
+    var snap = JSON.parse(raw);
+    if(!snap || typeof snap !== 'object') return;
+    var geaendert = false;
+    Object.keys(snap).forEach(function(id){
+      if(id.charAt(0) === '_' || !/^bl_/.test(id)) return;
+      var el = document.getElementById(id);
+      if(!el) return;
+      var v = snap[id] != null ? String(snap[id]) : '';
+      if(el.value !== v){ el.value = v; geaendert = true; }
+    });
+    if(geaendert) blRecalc();
+  }catch(e){}
 }
 
 document.addEventListener('DOMContentLoaded', function(){
   blFoldInit();
   blFillSelects();
   blRecalc();
+  setTimeout(blSnapshotLoad, 700);
+  setTimeout(blSnapshotLoad, 1800);
+  setTimeout(blSnapshotLoad, 3500);
 });
-/* AutoSave-Restore setzt Werte programmatisch — danach neu rechnen. */
-window.addEventListener('gema-autosave-restored', function(){ blRecalc(); });
+/* Eigene Eingabe sperrt den Fallback ab (nur echte Benutzer-Events). */
+document.addEventListener('input', function(e){
+  if(e.isTrusted && e.target && /^bl_/.test(e.target.id||'')) _blTouched = true;
+}, true);
+document.addEventListener('change', function(e){
+  if(e.isTrusted && e.target && /^bl_/.test(e.target.id||'')) _blTouched = true;
+}, true);
+/* Objektwechsel: AutoSave restauriert dort selbst und feuert pro Feld
+   input/change — die oninput/onchange-Handler rechnen dann neu. */
+window.addEventListener('gema-objekt-changed', function(){ setTimeout(blRecalc, 250); });
 </script>
 
 <script>
@@ -302,7 +851,7 @@ window.addEventListener('gema-autosave-restored', function(){ blRecalc(); });
     if(!sel) return;
     var objs=GemaObjekte.getAll();
     var activeId=GemaObjekte.getActiveId();
-    sel.innerHTML='<option value="">\u2013 Objekt w\u00e4hlen \u2013</option>'+
+    sel.innerHTML='<option value="">– Objekt wählen –</option>'+
       objs.map(function(o){return '<option value="'+o.id+'"'+(o.id===activeId?' selected':'')+'>'+
         _escHtml(GemaObjekte.displayName(o))+'</option>';}).join('');
     var savedOid=_prevObjektId;
