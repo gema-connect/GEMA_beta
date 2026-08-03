@@ -21,6 +21,49 @@
    Modul zusätzlich braucht (eigene Tabellen, Schema-SVG, Spezialzeilen).
    SVG-Schemata: ausschliesslich literale Hex-Farben — var() rastert
    GemaPDF/html2canvas falsch. */
+
+/* Untergruppe innerhalb einer Karte */
+.lb-grp{margin-top:14px;padding-top:12px;border-top:1px dashed var(--brd2)}
+.lb-grp:first-child{margin-top:0;padding-top:0;border-top:none}
+.lb-grp-tt{font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.5px;
+  color:var(--el-dk);margin-bottom:9px;display:flex;align-items:center;gap:6px}
+
+/* Verbraucher-Tabelle. Die Eingabefelder sitzen IN den Zellen — die
+   Ergebnisspalten zieht lbRecalc einzeln nach, die Liste wird beim Tippen
+   NIE neu gebaut (sonst verliert das Feld den Fokus). */
+.lb-tbl td input,.lb-tbl td select{width:100%;padding:5px 7px;border:1.5px solid var(--brd2);
+  border-radius:7px;font-size:12.5px;background:var(--sur);color:var(--txt);outline:none}
+.lb-tbl td input:focus,.lb-tbl td select:focus{border-color:var(--el)}
+.lb-tbl td.num{text-align:right;font-variant-numeric:tabular-nums;font-weight:700;white-space:nowrap}
+.lb-tbl th.num{text-align:right}
+.lb-w-bez{min-width:150px}
+.lb-w-typ{min-width:180px}
+.lb-w-z{width:94px}
+.lb-del{width:34px;height:30px;border-radius:7px;border:1px solid var(--red-bd);
+  background:var(--red-bg);color:#991b1b;font-size:14px;cursor:pointer;line-height:1}
+.lb-del:hover{background:#fee2e2}
+.lb-add{margin-top:10px;padding:7px 13px;border-radius:8px;border:1.5px solid var(--el);
+  background:var(--el-bg);color:var(--el-dk);font-size:12px;font-weight:800;cursor:pointer}
+.lb-add:hover{background:var(--el-bg2)}
+
+/* Ergebnis-Kacheln */
+.lb-proof{display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:10px;margin-top:12px}
+.lb-pf{padding:11px 13px;border-radius:9px;border:1.5px solid var(--brd);background:var(--sur2)}
+.lb-pf.ok{background:var(--grn-bg);border-color:var(--grn-bd)}
+.lb-pf.warn{background:var(--amber-bg);border-color:var(--amber-bd)}
+.lb-pf.err{background:var(--red-bg);border-color:var(--red-bd)}
+.lb-pf-tt{font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:.4px;color:var(--mut)}
+.lb-pf-val{font-size:16px;font-weight:900;margin-top:3px}
+.lb-pf-sub{font-size:10.5px;color:var(--mut);font-weight:600;margin-top:3px;line-height:1.5}
+.lb-pf.ok .lb-pf-val{color:#065f46}
+.lb-pf.warn .lb-pf-val{color:#92400e}
+.lb-pf.err .lb-pf-val{color:#991b1b}
+
+.lb-annahmen{margin:0;padding-left:16px}
+.lb-annahmen li{margin:3px 0}
+#lbDreieck{width:100%;height:auto;display:block}
+/* Zeilen-JSON — AutoSave erfasst das Feld über die id, sichtbar ist es nicht. */
+#lb_rows{display:none}
 </style>
 <script src="gema_db.js"></script>
 <script src="gema_feedback.js"></script><script src="gema_notify.js"></script><script src="gema_notify_ui.js"></script><script src="gema_chat.js"></script>
@@ -64,9 +107,11 @@
 
   <!-- Kennzahlen-Leiste: die 2–4 wichtigsten Ergebnisse, live nachgeführt -->
   <div class="sum-bar" id="lbSumBar">
-    <span class="sum-item">Ergebnis <b class="hl" id="lb_sum1">—</b></span>
+    <span class="sum-item">Bezogene Leistung <b class="hl" id="lb_sum1">—</b></span>
     <span class="sum-sep"></span>
-    <span class="sum-item">Kontrolle <b id="lb_sum2">—</b></span>
+    <span class="sum-item">Bemessungsstrom <b id="lb_sum2">—</b></span>
+    <span class="sum-sep"></span>
+    <span class="sum-item">cos φ <b id="lb_sum3">—</b></span>
   </div>
 
   <!-- PROJEKT-LEISTE — Objektbezug (AutoSave speichert pro Objekt/Phase) -->
@@ -87,49 +132,109 @@
     <div class="pf"><label>Datum</label><input type="date" id="metaDatum"></div>
   </div>
 
-  <!-- ═══ GERÜST-BANNER — beim Ausbau des Moduls ERSATZLOS ENTFERNEN ═══ -->
-  <div class="el-stub" id="lbStub">
-    <b>Gerüst — die Berechnung fehlt noch.</b><br>
-    Aufbau, Registrierung und Persistenz stehen; einzutragen sind die Eingabefelder
-    (Karte 1), die Fachlogik im <code>/*ENGINE-START*/</code>-Block und die Ergebnis-Zeilen
-    (Karte 3). Alle Elektro-Grunddaten — Leitermaterial, κ bei Betriebstemperatur,
-    Querschnittsreihe, Netzsysteme — kommen aus <code>gema_elektro.js</code> und werden
-    hier NICHT neu definiert.
-  </div>
-
   <!-- ═══ 1. EINGABE ═══ -->
   <div class="el-card" data-fold="eingabe">
     <div class="el-card-hd" onclick="lbFold(this)">
       <span class="el-cx">▸</span>
       <span class="el-secnum">1</span>
       <span class="el-card-tt">Eingabe</span>
-      <span class="el-card-sub">Angaben zur Anlage</span>
+      <span class="el-card-sub">Netz · Verbrauchergruppen · Kompensation</span>
     </div>
     <div class="el-card-bd">
-      <div class="el-grid">
-        <!-- MUSTER — freistehende Zahlenfelder IMMER type="text" +
-             inputmode="decimal" + fixLeadingZero + angeschlossene Einheit.
-             NIE type="number". -->
-        <div class="fg">
-          <label>Beispielwert</label>
-          <div class="g-inp-group">
-            <input class="g-inp" id="lb_beispiel" type="text" inputmode="decimal"
-                   value="16" placeholder="0.0" onblur="fixLeadingZero(this)" oninput="lbRecalc()"/>
-            <span class="g-inp-unit">A</span>
+
+      <!-- ── 1a Netz ────────────────────────────────────────────────── -->
+      <div class="lb-grp">
+        <div class="lb-grp-tt">⚡ Netz</div>
+        <div class="el-grid">
+          <div class="fg">
+            <label>Netzsystem</label>
+            <select id="lb_netz" onchange="lbRecalc()"></select>
+            <div class="fg-hint">Bestimmt, ob der Bemessungsstrom über √3 gerechnet wird.</div>
           </div>
-          <div class="fg-hint">Kurzer Hinweis, woher der Wert kommt.</div>
-        </div>
-        <div class="fg">
-          <label>Leitermaterial</label>
-          <select id="lb_material" onchange="lbRecalc()"></select>
-          <div class="fg-hint" id="lb_matHint"></div>
-        </div>
-        <div class="fg">
-          <label>Betriebstemperatur Leiter</label>
-          <select id="lb_temp" onchange="lbRecalc()"></select>
-          <div class="fg-hint">κ sinkt mit der Temperatur — 20 °C rechnet zu günstig.</div>
         </div>
       </div>
+
+      <!-- ── 1b Verbrauchergruppen ──────────────────────────────────── -->
+      <div class="lb-grp">
+        <div class="lb-grp-tt">🔢 Verbrauchergruppen</div>
+        <div class="el-scroll">
+          <table class="el-tbl lb-tbl">
+            <thead>
+              <tr>
+                <th class="lb-w-bez">Bezeichnung</th>
+                <th class="lb-w-typ">Verbrauchertyp</th>
+                <th class="lb-w-z num">P<sub>inst</sub> [kW]</th>
+                <th class="lb-w-z num">g [–]</th>
+                <th class="lb-w-z num">cos φ</th>
+                <th class="num">P<sub>b</sub> [kW]</th>
+                <th class="num">Q<sub>b</sub> [kvar]</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="lbRows"></tbody>
+            <tfoot>
+              <tr>
+                <td colspan="2"><b>Total</b></td>
+                <td class="num" id="lb_tPinst">—</td>
+                <td class="num">—</td>
+                <td class="num" id="lb_tCos">—</td>
+                <td class="num" id="lb_tPb">—</td>
+                <td class="num" id="lb_tQb">—</td>
+                <td></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+        <button class="lb-add" onclick="lbAddRow()">＋ Verbrauchergruppe</button>
+        <div class="el-hint" style="margin-top:10px">
+          <b>g und cos φ sind Richtwerte, keine Normvorgabe.</b> Der Gleichzeitigkeitsfaktor
+          hängt stark von Nutzung, Gebäudetyp und Belegung ab und ist projektbezogen
+          festzulegen (NIN 3.1 / SIA 2056). Der Verbrauchertyp setzt nur einen Startwert —
+          beide Spalten bleiben frei überschreibbar.
+        </div>
+        <!-- Zeilen-JSON: AutoSave erfasst das Feld über die id (Muster #zk_rows). -->
+        <textarea id="lb_rows"></textarea>
+      </div>
+
+      <!-- ── 1c Kompensation ────────────────────────────────────────── -->
+      <div class="lb-grp">
+        <div class="lb-grp-tt">🔋 Blindleistungskompensation</div>
+        <div class="el-grid">
+          <div class="fg">
+            <label>Ziel-cos φ</label>
+            <div class="g-inp-group">
+              <input class="g-inp" id="lb_cosZiel" type="text" inputmode="decimal"
+                     value="0.95" placeholder="0.95" onblur="fixLeadingZero(this)" oninput="lbRecalc()"/>
+              <span class="g-inp-unit">–</span>
+            </div>
+            <div class="fg-hint">Üblich 0.92–0.95. Genau 1.0 wird bewusst nicht angestrebt.</div>
+          </div>
+          <div class="fg">
+            <label>Stufengrösse Kondensator</label>
+            <div class="g-inp-group">
+              <input class="g-inp" id="lb_stufe" type="text" inputmode="decimal"
+                     value="12.5" placeholder="leer = ungestuft" onblur="fixLeadingZero(this)" oninput="lbRecalc()"/>
+              <span class="g-inp-unit">kvar</span>
+            </div>
+            <div class="fg-hint">Aufrunden auf ganze Stufen kann überkompensieren.</div>
+          </div>
+          <div class="fg">
+            <label>Anteil nichtlinearer Last</label>
+            <div class="g-inp-group">
+              <input class="g-inp" id="lb_nichtlinear" type="text" inputmode="decimal"
+                     value="15" placeholder="0" onblur="fixLeadingZero(this)" oninput="lbRecalc()"/>
+              <span class="g-inp-unit">%</span>
+            </div>
+            <div class="fg-hint">Frequenzumrichter, LED-Treiber, EDV, Ladestationen.</div>
+          </div>
+          <div class="fg">
+            <label>Verdrosselung</label>
+            <select id="lb_verdrosselung" onchange="lbRecalc()"></select>
+            <div class="fg-hint">Bestimmt die Resonanzfrequenz der Anlage.</div>
+          </div>
+        </div>
+      </div>
+
     </div>
   </div>
 
@@ -139,16 +244,44 @@
       <span class="el-cx">▸</span>
       <span class="el-secnum">2</span>
       <span class="el-card-tt">Berechnung</span>
-      <span class="el-card-sub">Zwischenwerte</span>
+      <span class="el-card-sub">Anschlussleistung und Bemessungsstrom</span>
     </div>
     <div class="el-card-bd">
       <div class="el-res">
-        <div class="el-res-lbl">Leitfähigkeit bei Betriebstemperatur
-          <span class="frml">κ(t) = κ₂₀ / (1 + α · (t − 20))</span></div>
-        <div class="el-res-val" id="lb_kappa">—</div>
+        <div class="el-res-lbl">Installierte Leistung Σ P<sub>inst</sub></div>
+        <div class="el-res-val" id="lb_pInst">—</div>
       </div>
-      <div class="frml-block" id="lb_legende">
-        Formel-Legende — die Chips müssen dem Code entsprechen.
+      <div class="el-res">
+        <div class="el-res-lbl">Bezogene Wirkleistung Σ P<sub>b</sub>
+          <span class="frml">P<sub>b</sub> = Σ (P<sub>inst</sub> · g)</span></div>
+        <div class="el-res-val" id="lb_pB">—</div>
+      </div>
+      <div class="el-res">
+        <div class="el-res-lbl">Blindleistung Σ Q<sub>b</sub>
+          <span class="frml">Q = P<sub>b</sub> · tan φ</span></div>
+        <div class="el-res-val" id="lb_qB">—</div>
+      </div>
+      <div class="el-res">
+        <div class="el-res-lbl">Scheinleistung S
+          <span class="frml">S = √(P<sub>b</sub>² + Q<sub>b</sub>²)</span></div>
+        <div class="el-res-val" id="lb_sB">—</div>
+      </div>
+      <div class="el-res">
+        <div class="el-res-lbl">Mittlerer Leistungsfaktor
+          <span class="frml">cos φ = P<sub>b</sub> / S</span></div>
+        <div class="el-res-val" id="lb_cosGes">—</div>
+      </div>
+      <div class="el-res">
+        <div class="el-res-lbl">Bemessungsstrom I<sub>b</sub>
+          <span class="frml" id="lb_frmlI">I<sub>b</sub> = S / (√3 · U<sub>n</sub>)</span></div>
+        <div class="el-res-val hl" id="lb_iB">—</div>
+      </div>
+      <div class="frml-block">
+        <b>P<sub>inst</sub></b> installierte Leistung je Gruppe · <b>g</b> Gleichzeitigkeitsfaktor ·
+        <b>P<sub>b</sub></b> gleichzeitig bezogene Wirkleistung · <b>Q</b> Blindleistung ·
+        <b>S</b> Scheinleistung · <b>U<sub>n</sub></b> Netznennspannung.
+        Wirk- und Blindleistung werden getrennt summiert und erst dann zu S zusammengezogen —
+        die Scheinleistungen der Gruppen dürfen NICHT addiert werden.
       </div>
     </div>
   </div>
@@ -159,15 +292,133 @@
       <span class="el-cx">▸</span>
       <span class="el-secnum">3</span>
       <span class="el-card-tt">Ergebnis</span>
-      <span class="el-card-sub">Bewertung</span>
+      <span class="el-card-sub">Kompensation, Strom und Zuleitung</span>
     </div>
     <div class="el-card-bd">
+
       <div class="el-res">
-        <div class="el-res-lbl">Hauptergebnis</div>
-        <div class="el-res-val hl" id="lb_hauptwert">—</div>
+        <div class="el-res-lbl">Kompensationsleistung Q<sub>C</sub>
+          <span class="frml">Q<sub>C</sub> = P<sub>b</sub> · (tan φ₁ − tan φ₂)</span></div>
+        <div class="el-res-val hl" id="lb_qC">—</div>
       </div>
+      <div class="el-res">
+        <div class="el-res-lbl">Scheinleistung vorher → nachher</div>
+        <div class="el-res-val" id="lb_sVgl">—</div>
+      </div>
+      <div class="el-res">
+        <div class="el-res-lbl">Bemessungsstrom vorher → nachher</div>
+        <div class="el-res-val" id="lb_iVgl">—</div>
+      </div>
+      <div class="el-res">
+        <div class="el-res-lbl">Stromreduzierung ΔI</div>
+        <div class="el-res-val hl" id="lb_dI">—</div>
+      </div>
+
+      <div class="lb-proof">
+        <div class="lb-pf" id="lb_pfStufen">
+          <div class="lb-pf-tt">Kondensator-Stufen</div>
+          <div class="lb-pf-val" id="lb_pfStufenVal">—</div>
+          <div class="lb-pf-sub" id="lb_pfStufenSub">bei der gewählten Stufengrösse</div>
+        </div>
+        <div class="lb-pf" id="lb_pfSich">
+          <div class="lb-pf-tt">Vorsicherung Zuleitung</div>
+          <div class="lb-pf-val" id="lb_pfSichVal">—</div>
+          <div class="lb-pf-sub" id="lb_pfSichSub">nächster Nennstrom über I<sub>b</sub></div>
+        </div>
+        <div class="lb-pf" id="lb_pfRes">
+          <div class="lb-pf-tt">Resonanzfrequenz</div>
+          <div class="lb-pf-val" id="lb_pfResVal">—</div>
+          <div class="lb-pf-sub" id="lb_pfResSub">Verdrosselung gegen Oberschwingungen</div>
+        </div>
+      </div>
+
       <div class="el-status ok" id="lb_status" style="margin-top:12px">
         Noch keine Berechnung.
+      </div>
+
+      <div class="el-hint" id="lb_annahmenBox" style="margin-top:12px">
+        <b>Annahmen und Abgrenzungen dieser Berechnung</b>
+        <ul class="lb-annahmen" id="lb_annahmen"></ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ 4. LEISTUNGSDREIECK ═══ -->
+  <div class="el-card" data-fold="dreieck">
+    <div class="el-card-hd" onclick="lbFold(this)">
+      <span class="el-cx">▸</span>
+      <span class="el-secnum">4</span>
+      <span class="el-card-tt">Leistungsdreieck</span>
+      <span class="el-card-sub">Wirk-, Blind- und Scheinleistung vor und nach der Kompensation</span>
+    </div>
+    <div class="el-card-bd">
+      <div class="el-scroll"><svg id="lbDreieck" viewBox="0 0 860 330"
+        preserveAspectRatio="xMidYMid meet" role="img"
+        aria-label="Leistungsdreieck vor und nach der Kompensation"></svg></div>
+      <div class="el-note" style="margin-top:8px">
+        Die Wirkleistung P bleibt gleich — die Kompensation verkürzt nur den Blindanteil und
+        damit die Scheinleistung. Der Winkel φ zwischen P und S ist der Leistungsfaktor.
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ 5. WIRTSCHAFTLICHKEIT ═══ -->
+  <div class="el-card" data-fold="kosten">
+    <div class="el-card-hd" onclick="lbFold(this)">
+      <span class="el-cx">▸</span>
+      <span class="el-secnum">5</span>
+      <span class="el-card-tt">Wirtschaftlichkeit</span>
+      <span class="el-card-sub">Geringere Verluste in der Zuleitung</span>
+    </div>
+    <div class="el-card-bd">
+      <div class="el-grid">
+        <div class="fg">
+          <label>Zuleitungsverluste vor Kompensation</label>
+          <div class="g-inp-group">
+            <input class="g-inp" id="lb_verlAnteil" type="text" inputmode="decimal"
+                   value="2" placeholder="0" onblur="fixLeadingZero(this)" oninput="lbRecalc()"/>
+            <span class="g-inp-unit">% von P<sub>b</sub></span>
+          </div>
+          <div class="fg-hint">Annahme — der reale Wert folgt aus Länge und Querschnitt
+            der Zuleitung (Modul Spannungsfall).</div>
+        </div>
+        <div class="fg">
+          <label>Betriebsstunden</label>
+          <div class="g-inp-group">
+            <input class="g-inp" id="lb_stunden" type="text" inputmode="decimal"
+                   value="2000" placeholder="0" onblur="fixLeadingZero(this)" oninput="lbRecalc()"/>
+            <span class="g-inp-unit">h/a</span>
+          </div>
+        </div>
+        <div class="fg">
+          <label>Strompreis</label>
+          <div class="g-inp-group">
+            <input class="g-inp" id="lb_preis" type="text" inputmode="decimal"
+                   value="0.28" placeholder="0.00" onblur="fixLeadingZero(this)" oninput="lbRecalc()"/>
+            <span class="g-inp-unit">CHF/kWh</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="el-res" style="margin-top:12px">
+        <div class="el-res-lbl">Verlustleistung vorher → nachher
+          <span class="frml">P<sub>V2</sub> = P<sub>V1</sub> · (I₂ / I₁)²</span></div>
+        <div class="el-res-val" id="lb_pV">—</div>
+      </div>
+      <div class="el-res">
+        <div class="el-res-lbl">Eingesparte Energie</div>
+        <div class="el-res-val" id="lb_energie">—</div>
+      </div>
+      <div class="el-res">
+        <div class="el-res-lbl">Eingesparte Kosten</div>
+        <div class="el-res-val hl" id="lb_kosten">—</div>
+      </div>
+
+      <div class="el-hint" style="margin-top:12px">
+        Gerechnet ist <b>nur die geringere Verlustwärme in der Zuleitung</b>. In der Praxis ist
+        meist die <b>Blindarbeits-Verrechnung des Netzbetreibers</b> der grössere Posten —
+        sie ist tarifabhängig und hier bewusst nicht beziffert. Die Kompensation spart zudem
+        keine Wirkarbeit der Verbraucher, sie entlastet nur Zuleitung, Trafo und Zähler.
       </div>
     </div>
   </div>
@@ -177,24 +428,231 @@
 <script>
 /*ENGINE-START*/
 /* ── Rechenkern — DOM-FREI ───────────────────────────────────────────────
-   Hier gehört die gesamte Fachlogik hinein: keine getElementById, kein
-   innerHTML. Nur so lässt sich der Kern in Node gegen unabhängig gerechnete
-   Werte testen (scripts/leistungsbedarf_engine_test.mjs).
+   Anschlussleistung mit Gleichzeitigkeit, Bemessungsstrom und Blind-
+   leistungskompensation (NIN 3.1 / SIA 2056).
 
-   Grunddaten kommen aus GemaElektro — Material, κ(t), Querschnittsreihe,
-   Netzsysteme und Zahlen-Helfer NIE hier duplizieren.
+   Kette: je Gruppe P_b = P_inst · g und Q = P_b · tan φ. Wirk- und
+   Blindleistung werden GETRENNT summiert und erst dann zu S zusammen-
+   gezogen — die Scheinleistungen der Gruppen zu addieren wäre falsch,
+   weil sie unterschiedliche Phasenlagen haben.
 
-   Rückgabe: ein Objekt mit allen Werten, die die Oberfläche anzeigt.
-   Grenzwert-Überschreitungen als Feld melden (nie still abschneiden). */
+   Aus S folgt der Bemessungsstrom, aus dem Verhältnis P/S der mittlere
+   Leistungsfaktor, und daraus die nötige Kompensationsleistung.
+
+   Bewusst anders als in der Vorlage:
+   • Beurteilt wird der VORHANDENE cos φ, nicht der eingestellte Zielwert.
+     Ein schlechter Zielwert ist keine Diagnose der Anlage.
+   • Q_C wird nie negativ ausgegeben: liegt der Zielwert unter dem Ist-
+     Wert, ist keine Kompensation nötig und das wird gesagt.
+   • Der Verlustanteil der Zuleitung ist eine Eingabe, keine fest
+     verdrahtete Annahme — die Einsparung hängt vollständig daran.
+   • Kondensatoren gibt es nur in ganzen Stufen; das Aufrunden kann
+     überkompensieren, darum wird mit dem TATSÄCHLICH erreichten Zustand
+     weitergerechnet und die Überkompensation gemeldet.
+
+   Grunddaten (Netzsysteme, Sicherungsreihe, Zahlen-Helfer) kommen aus
+   GemaElektro und werden hier NIE dupliziert.
+
+   Rückgabe: alle Werte der Oberfläche plus `hinweise` — Annahmen und
+   Grenzfälle werden gemeldet, nie stillschweigend abgeschnitten. */
+
+/* Verbrauchertypen — Startwerte, KEINE Normtabelle.
+   cos φ sind übliche Praxiswerte (ohmsche Last 1.0, Motoren rund 0.8,
+   unkompensierte Leuchtstofflampen rund 0.5). Die Gleichzeitigkeits-
+   faktoren sind Richtwerte und projektbezogen festzulegen — sie stehen
+   deshalb bewusst hier im Modul und nicht in der geteilten Fachbasis
+   gema_elektro.js, die andere Module als Wahrheit lesen. */
+var LB_TYPEN = [
+  {id:'frei',   name:'Eigene Angabe',                  cos:0.90, g:1.00},
+  {id:'belled', name:'Beleuchtung LED',                cos:0.95, g:1.00},
+  {id:'bells',  name:'Leuchtstofflampen unkompensiert',cos:0.50, g:1.00},
+  {id:'steck',  name:'Steckdosen allgemein',           cos:0.90, g:0.30},
+  {id:'herd',   name:'Kochherd / Backofen',            cos:1.00, g:0.60},
+  {id:'ww',     name:'Warmwasser-Speicher',            cos:1.00, g:1.00},
+  {id:'wp',     name:'Wärmepumpe',                     cos:0.85, g:1.00},
+  {id:'lueft',  name:'Lüftung / Ventilatoren',         cos:0.80, g:0.80},
+  {id:'motor',  name:'Motoren allgemein',              cos:0.80, g:0.70},
+  {id:'kaelte', name:'Kälte / Klima',                  cos:0.85, g:0.80},
+  {id:'edv',    name:'EDV / Serverraum',               cos:0.95, g:0.80},
+  {id:'emob',   name:'Ladestation E-Mobilität',        cos:0.98, g:0.50}
+];
+function lbTyp(id){
+  for(var i=0;i<LB_TYPEN.length;i++){ if(LB_TYPEN[i].id===id) return LB_TYPEN[i]; }
+  return LB_TYPEN[0];
+}
+
+/* Verdrosselungsgrade. Die Resonanzfrequenz f_r = f_N / √p ist exakt;
+   die Zuordnung zum Anteil nichtlinearer Last ist ein Praxis-Richtwert
+   und ersetzt bei grossen Anlagen die Oberschwingungsmessung nicht. */
+var LB_VERDROSSELUNG = [
+  {id:'p0',    label:'unverdrosselt',      p:0},
+  {id:'p567',  label:'verdrosselt 5.67 %', p:5.67},
+  {id:'p7',    label:'verdrosselt 7 %',    p:7},
+  {id:'p14',   label:'verdrosselt 14 %',   p:14}
+];
+function lbVerdrosselung(id){
+  for(var i=0;i<LB_VERDROSSELUNG.length;i++){ if(LB_VERDROSSELUNG[i].id===id) return LB_VERDROSSELUNG[i]; }
+  return LB_VERDROSSELUNG[0];
+}
+
+/** tan φ aus cos φ — geklemmt, damit cos φ = 0 nicht ins Unendliche läuft. */
+function lbTanPhi(cos){
+  var c = Number(cos);
+  if(!isFinite(c) || c <= 0) c = 0.01;
+  if(c > 1) c = 1;
+  return Math.tan(Math.acos(c));
+}
+
 function lbCalc(inp){
-  var E = (typeof GemaElektro!=='undefined') ? GemaElektro : null;
-  var kappa = E ? E.elKappa(inp.material, inp.temp) : 56;
+  var E  = (typeof GemaElektro!=='undefined') ? GemaElektro : null;
+  var S3 = Math.sqrt(3);
+  var hinweise = [];
 
-  // TODO: Fachlogik dieses Moduls
+  var sys = E ? E.elSystem(inp.netz) : {u:400, leiter:3};
+  var un  = sys.u;
+  var dreiphasig = (sys.leiter === 3);
+  /* Bezugsspannung des Bemessungsstroms: dreiphasig über die Aussenleiter-
+     spannung und √3, einphasig direkt über die Strangspannung. */
+  var nenner = dreiphasig ? (S3 * un) : un;
+
+  /* ── Verbrauchergruppen ──────────────────────────────────────────── */
+  var gruppen = Array.isArray(inp.gruppen) ? inp.gruppen : [];
+  var zeilen = [], pInst = 0, pB = 0, qB = 0;
+  for(var i=0;i<gruppen.length;i++){
+    var g   = gruppen[i] || {};
+    var p   = Number(g.p) > 0 ? Number(g.p) : 0;
+    var gz  = (Number(g.g) >= 0) ? Number(g.g) : 1;
+    var cos = Number(g.cos) > 0 ? Math.min(Number(g.cos), 1) : 0.9;
+    var pb  = p * gz;
+    var qb  = pb * lbTanPhi(cos);
+    zeilen.push({ pb:pb, qb:qb, sb:(cos > 0 ? pb/cos : 0) });
+    pInst += p;  pB += pb;  qB += qb;
+  }
+  var leer = !(pB > 0);
+
+  /* S aus den GETRENNT summierten Komponenten — nicht aus Σ S der Gruppen. */
+  var sB     = Math.sqrt(pB*pB + qB*qB);
+  var cosGes = sB > 0 ? pB/sB : null;
+  var iB     = sB > 0 ? sB*1000/nenner : null;
+
+  /* ── Kompensation ───────────────────────────────────────────────────
+     tan φ₁ direkt aus Q/P (nicht über acos(cos φ) — das ist derselbe
+     Wert ohne den Umweg über die Umkehrfunktion). */
+  var cosZiel = Number(inp.cosZiel) > 0 ? Math.min(Number(inp.cosZiel), 1) : 0.95;
+  var tan1 = pB > 0 ? qB/pB : 0;
+  var tan2 = lbTanPhi(cosZiel);
+  var qC   = pB * (tan1 - tan2);
+  var noetig = qC > 0;
+  if(!noetig){
+    qC = 0;
+    if(!leer) hinweise.push({typ:'info', text:'Der vorhandene Leistungsfaktor erreicht den '
+      + 'Zielwert bereits — es ist keine Kompensation nötig.'});
+  }
+
+  /* Kondensatoren gibt es nur in ganzen Stufen. */
+  var stufe = Number(inp.stufe) > 0 ? Number(inp.stufe) : 0;
+  var nStufen = null, qCist = qC;
+  if(noetig && stufe > 0){
+    nStufen = Math.ceil(qC/stufe);
+    qCist   = nStufen * stufe;
+  }
+
+  /* Zustand NACH der Kompensation — mit der tatsächlich installierten
+     Leistung, nicht mit dem rechnerischen Idealwert. */
+  var q2    = qB - qCist;
+  var s2    = Math.sqrt(pB*pB + q2*q2);
+  var cos2  = s2 > 0 ? pB/s2 : null;
+  var i2    = s2 > 0 ? s2*1000/nenner : null;
+  var kapazitiv = (q2 < -1e-9);
+  var dI    = (iB !== null && i2 !== null) ? (iB - i2) : null;
+  var dIpct = (dI !== null && iB > 0) ? (dI/iB*100) : null;
+
+  if(kapazitiv){
+    hinweise.push({typ:'warn', text:'Die aufgerundete Stufung überkompensiert die Anlage — '
+      + 'sie wird kapazitiv. Netzbetreiber verrechnen auch kapazitive Blindarbeit; zudem '
+      + 'steigt die Resonanzgefahr. Kleinere Stufen wählen oder eine Stufe weniger schalten.'});
+  }
+  if(cosZiel >= 0.999 && noetig){
+    hinweise.push({typ:'warn', text:'Ziel-cos φ = 1.0 wird in der Praxis nicht angestrebt: '
+      + 'bei Teillast kippt die Anlage ins Kapazitive und die Resonanzgefahr steigt. '
+      + 'Üblich sind 0.92 bis 0.95.'});
+  }
+
+  /* ── Vorsicherung ───────────────────────────────────────────────────
+     Nur die Strom-Seite. Ob die Zuleitung diesen Nennstrom auch tragen
+     darf, entscheidet die Strombelastbarkeit — siehe Hinweis unten. */
+  var sichVor  = (E && iB  !== null) ? E.elNaechsteSicherung(iB) : null;
+  var sichNach = (E && i2  !== null) ? E.elNaechsteSicherung(i2) : null;
+  if(iB !== null && sichVor === null){
+    hinweise.push({typ:'err', text:'Der Bemessungsstrom liegt über dem grössten Nennstrom '
+      + 'der hinterlegten Reihe — die Zuleitung ist keine Standard-Absicherung mehr und '
+      + 'muss gesondert ausgelegt werden.'});
+  }
+
+  /* ── Resonanzfrequenz ───────────────────────────────────────────────
+     f_r = f_N / √p — exakt aus dem Verdrosselungsgrad. */
+  var vd = lbVerdrosselung(inp.verdrosselung);
+  var fRes = vd.p > 0 ? 50/Math.sqrt(vd.p/100) : null;
+  var ordnung = fRes !== null ? fRes/50 : null;
+  var nl = Number(inp.nichtlinear) > 0 ? Number(inp.nichtlinear) : 0;
+  var verdrosselungPasst = true;
+  if(noetig || qCist > 0){
+    if(nl >= 10 && vd.p === 0){
+      verdrosselungPasst = false;
+      hinweise.push({typ:'warn', text:'Bei rund ' + nl + ' % nichtlinearer Last sollten die '
+        + 'Kondensatoren verdrosselt werden. Unverdrosselt kann die Anlage mit der '
+        + 'Netzinduktivität in Resonanz geraten und die Kondensatoren überlasten.'});
+    }
+    if(nl >= 25){
+      hinweise.push({typ:'warn', text:'Über rund 25 % nichtlinearer Last reicht die Faustregel '
+        + 'nicht mehr — Oberschwingungen messen und die Anlage darauf auslegen.'});
+    }
+  }
+
+  /* ── Wirtschaftlichkeit ─────────────────────────────────────────────
+     Die Verluste steigen quadratisch mit dem Strom: P_V2 = P_V1·(I₂/I₁)².
+     Der Verlustanteil ist eine EINGABE — die ganze Einsparung hängt daran. */
+  var verlAnteil = Number(inp.verlAnteil) >= 0 ? Number(inp.verlAnteil) : 0;
+  var pV1 = pB * verlAnteil/100;
+  var pV2 = (iB > 0 && i2 !== null) ? pV1 * Math.pow(i2/iB, 2) : pV1;
+  var dPV = Math.max(pV1 - pV2, 0);
+  var stunden = Number(inp.stunden) > 0 ? Number(inp.stunden) : 0;
+  var preis   = Number(inp.preis)   > 0 ? Number(inp.preis)   : 0;
+  var energie = dPV * stunden;
+  var kosten  = energie * preis;
+
+  /* ── Bewertung: beurteilt wird der VORHANDENE cos φ ─────────────── */
+  var status = 'leer';
+  if(!leer && cosGes !== null){
+    if(cosGes >= 0.95)      status = 'ok';
+    else if(cosGes >= 0.90) status = 'ok';
+    else if(cosGes >= 0.80) status = 'warn';
+    else                    status = 'err';
+    if(kapazitiv || !verdrosselungPasst) status = 'warn';
+  }
+
+  /* Abgrenzungen, die immer gelten. */
+  hinweise.push({typ:'info', text:'Die Gleichzeitigkeitsfaktoren sind Richtwerte und ersetzen '
+    + 'die projektbezogene Festlegung nicht (NIN 3.1 / SIA 2056).'});
+  hinweise.push({typ:'info', text:'Der Bemessungsstrom sagt nur, welchen Nennstrom die '
+    + 'Vorsicherung braucht. Ob die Zuleitung ihn tragen darf, entscheidet die '
+    + 'Strombelastbarkeit nach Verlegeart und Häufung — siehe '
+    + '<a href="el_belastbarkeit.html">Strombelastbarkeit &amp; Kabelwahl</a>.'});
+  hinweise.push({typ:'info', text:'Die Kompensation entlastet nur den Teil der Anlage '
+    + '<i>vor</i> der Kondensatorbatterie — Trafo, Zähler und Zuleitung. In den '
+    + 'Endstromkreisen dahinter fliesst unverändert derselbe Strom.'});
+
   return {
-    kappa: kappa,
-    hauptwert: null,
-    status: 'leer'   // 'ok' | 'warn' | 'err' | 'leer'
+    un:un, dreiphasig:dreiphasig, zeilen:zeilen,
+    pInst:pInst, pB:pB, qB:qB, sB:sB, cosGes:cosGes, iB:iB,
+    cosZiel:cosZiel, tan1:tan1, tan2:tan2,
+    qC:qC, noetig:noetig, stufe:stufe, nStufen:nStufen, qCist:qCist,
+    q2:q2, s2:s2, cos2:cos2, i2:i2, kapazitiv:kapazitiv,
+    dI:dI, dIpct:dIpct,
+    sichVor:sichVor, sichNach:sichNach,
+    verdrosselung:vd, fRes:fRes, ordnung:ordnung, verdrosselungPasst:verdrosselungPasst,
+    pV1:pV1, pV2:pV2, dPV:dPV, energie:energie, kosten:kosten,
+    leer:leer, status:status, hinweise:hinweise
   };
 }
 /*ENGINE-END*/
@@ -232,19 +690,123 @@ function lbFoldInit(){
 
 function lbFillSelects(){
   var E = (typeof GemaElektro!=='undefined') ? GemaElektro : null;
-  if(!E) return;
-  var mat = document.getElementById('lb_material');
-  if(mat && !mat.options.length){
-    mat.innerHTML = E.EL_MATERIAL.map(function(m){
-      return '<option value="'+m.id+'">'+m.name+' — κ₂₀ '+m.kappa20+' m/(Ω·mm²)</option>';
-    }).join('');
+  var opt = function(id, html){
+    var el = document.getElementById(id);
+    if(el && !el.options.length) el.innerHTML = html;
+  };
+  if(E) opt('lb_netz', E.EL_SYSTEME.map(function(s){
+    return '<option value="'+s.id+'"'+(s.id==='3p400'?' selected':'')+'>'+s.label+'</option>'; }).join(''));
+  opt('lb_verdrosselung', LB_VERDROSSELUNG.map(function(v){
+    return '<option value="'+v.id+'">'+v.label+'</option>'; }).join(''));
+}
+
+/* ── Verbrauchergruppen ──────────────────────────────────────────────────
+   Der Zustand lebt in lbState und wird als JSON im versteckten #lb_rows
+   gespiegelt — AutoSave erfasst das Feld über die id (Muster #zk_rows). */
+var lbState = { gruppen: [], seq: 0 };
+var _lbRowsAngewandt = null;
+
+function lbNeueGruppe(typId){
+  var t = lbTyp(typId || 'frei');
+  lbState.seq++;
+  return { id:'g'+lbState.seq, bez:'', typ:t.id, p:'', g:t.g, cos:t.cos };
+}
+
+function lbPersist(){
+  var el = document.getElementById('lb_rows');
+  if(!el) return;
+  var json = JSON.stringify({ gruppen: lbState.gruppen, seq: lbState.seq });
+  el.value = json;
+  _lbRowsAngewandt = json;
+}
+
+/* Sync-Check: der Snapshot-Fallback und der AutoSave-Restore setzen den
+   Textarea-Wert direkt. Weicht er vom zuletzt selbst geschriebenen JSON ab,
+   ist er von aussen gekommen und die Liste wird neu aufgebaut. Beim Tippen
+   stimmen beide überein — die Liste bleibt dann stehen (Fokus-Regel). */
+function lbSyncVonInput(){
+  var el = document.getElementById('lb_rows');
+  if(!el) return false;
+  var roh = el.value || '';
+  if(roh === _lbRowsAngewandt) return false;
+  var daten = null;
+  try{ daten = JSON.parse(roh || 'null'); }catch(e){ return false; }
+  if(!daten || !Array.isArray(daten.gruppen)) return false;
+  lbState.gruppen = daten.gruppen;
+  lbState.seq = Number(daten.seq) || daten.gruppen.length;
+  _lbRowsAngewandt = roh;
+  lbRenderRows();
+  return true;
+}
+
+function lbTypOptions(sel){
+  return LB_TYPEN.map(function(t){
+    return '<option value="'+t.id+'"'+(t.id===sel?' selected':'')+'>'+t.name+'</option>';
+  }).join('');
+}
+
+function lbRenderRows(){
+  var host = document.getElementById('lbRows');
+  if(!host) return;
+  if(!lbState.gruppen.length){
+    host.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--mut2);padding:14px">'
+      + 'Noch keine Verbrauchergruppe erfasst.</td></tr>';
+    return;
   }
-  var tmp = document.getElementById('lb_temp');
-  if(tmp && !tmp.options.length){
-    tmp.innerHTML = E.EL_TEMP_STUFEN.map(function(s){
-      return '<option value="'+s.t+'"'+(s.t===70?' selected':'')+'>'+s.label+'</option>';
-    }).join('');
-  }
+  host.innerHTML = lbState.gruppen.map(function(g, i){
+    return '<tr data-row="'+i+'">'
+      + '<td><input type="text" value="'+lbEsc(g.bez)+'" placeholder="z.B. Küche"'
+        + ' oninput="lbSet('+i+',\'bez\',this.value)"/></td>'
+      + '<td><select onchange="lbTypWahl('+i+',this.value)">'+lbTypOptions(g.typ)+'</select></td>'
+      + '<td><input type="text" inputmode="decimal" value="'+lbEsc(g.p)+'" placeholder="0.0"'
+        + ' onblur="fixLeadingZero(this)" oninput="lbSet('+i+',\'p\',this.value)"/></td>'
+      + '<td><input type="text" inputmode="decimal" value="'+lbEsc(g.g)+'" placeholder="1.0"'
+        + ' onblur="fixLeadingZero(this)" oninput="lbSet('+i+',\'g\',this.value)"/></td>'
+      + '<td><input type="text" inputmode="decimal" value="'+lbEsc(g.cos)+'" placeholder="0.90"'
+        + ' onblur="fixLeadingZero(this)" oninput="lbSet('+i+',\'cos\',this.value)"/></td>'
+      + '<td class="num" data-pb>—</td>'
+      + '<td class="num" data-qb>—</td>'
+      + '<td><button class="lb-del" title="Gruppe entfernen" onclick="lbDelRow('+i+')">🗑</button></td>'
+      + '</tr>';
+  }).join('');
+}
+
+function lbEsc(s){
+  return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+/* KRITISCH — Fokus-Regel: beim Tippen wird die Liste NIE neu gebaut.
+   lbSet schreibt nur in den Zustand und lässt lbRecalc die Ergebniszellen
+   nachziehen (Muster paintCells in sb_lu_tabelle). */
+function lbSet(i, feld, wert){
+  if(!lbState.gruppen[i]) return;
+  lbState.gruppen[i][feld] = wert;
+  lbPersist();
+  lbRecalc();
+}
+function lbTypWahl(i, typId){
+  var g = lbState.gruppen[i];
+  if(!g) return;
+  var t = lbTyp(typId);
+  g.typ = t.id;
+  /* Startwerte übernehmen — der Typ ist ein Vorschlag, kein Zwang. */
+  if(t.id !== 'frei'){ g.g = t.g; g.cos = t.cos; }
+  lbPersist();
+  lbRenderRows();      // Zeile ändert Werte in zwei Feldern → Neuaufbau ok
+  lbRecalc();
+}
+function lbAddRow(){
+  lbState.gruppen.push(lbNeueGruppe('frei'));
+  lbPersist();
+  lbRenderRows();
+  lbRecalc();
+}
+function lbDelRow(i){
+  lbState.gruppen.splice(i, 1);
+  lbPersist();
+  lbRenderRows();
+  lbRecalc();
 }
 
 function lbRead(){
@@ -252,31 +814,236 @@ function lbRead(){
   var num = E ? E.elNum : function(v){ return parseFloat(String(v).replace(',','.')) || 0; };
   var g = function(id){ var e = document.getElementById(id); return e ? e.value : ''; };
   return {
-    beispiel: num(g('lb_beispiel')),
-    material: g('lb_material') || 'cu',
-    temp:     num(g('lb_temp')) || 20
+    netz:          g('lb_netz') || '3p400',
+    gruppen:       lbState.gruppen.map(function(x){
+                     return { p:num(x.p), g:num(x.g), cos:num(x.cos) }; }),
+    cosZiel:       num(g('lb_cosZiel')),
+    stufe:         num(g('lb_stufe')),
+    nichtlinear:   num(g('lb_nichtlinear')),
+    verdrosselung: g('lb_verdrosselung') || 'p0',
+    verlAnteil:    num(g('lb_verlAnteil')),
+    stunden:       num(g('lb_stunden')),
+    preis:         num(g('lb_preis'))
   };
 }
 
 function lbRecalc(){
-  var E = (typeof GemaElektro!=='undefined') ? GemaElektro : null;
+  var E   = (typeof GemaElektro!=='undefined') ? GemaElektro : null;
   var fmt = E ? E.elFmt : function(v,d){ return Number(v).toFixed(d===undefined?2:d); };
+  lbSyncVonInput();
+
+  var inp = lbRead();
   var r;
-  try{ r = lbCalc(lbRead()); }catch(e){ console.warn('lbCalc:', e); return; }
+  try{ r = lbCalc(inp); }catch(e){ console.warn('lbCalc:', e); return; }
 
-  var set = function(id, txt){ var el = document.getElementById(id); if(el) el.textContent = txt; };
-  set('lb_kappa', fmt(r.kappa, 2) + ' m/(Ω·mm²)');
-  set('lb_hauptwert', r.hauptwert === null ? '—' : fmt(r.hauptwert, 2));
+  var set  = function(id, txt){ var el = document.getElementById(id); if(el) el.textContent = txt; };
+  var setH = function(id, html){ var el = document.getElementById(id); if(el) el.innerHTML = html; };
 
+  /* Ergebniszellen der Tabelle einzeln nachziehen — kein Neuaufbau. */
+  var host = document.getElementById('lbRows');
+  if(host){
+    r.zeilen.forEach(function(z, i){
+      var tr = host.querySelector('tr[data-row="'+i+'"]');
+      if(!tr) return;
+      var cPb = tr.querySelector('[data-pb]'), cQb = tr.querySelector('[data-qb]');
+      if(cPb) cPb.textContent = fmt(z.pb, 2);
+      if(cQb) cQb.textContent = fmt(z.qb, 2);
+    });
+  }
+  set('lb_tPinst', fmt(r.pInst, 2));
+  set('lb_tPb',    fmt(r.pB, 2));
+  set('lb_tQb',    fmt(r.qB, 2));
+  set('lb_tCos',   r.cosGes === null ? '—' : fmt(r.cosGes, 3));
+
+  /* Karte 2 */
+  set('lb_pInst', fmt(r.pInst, 2) + ' kW');
+  set('lb_pB',    fmt(r.pB, 2) + ' kW');
+  set('lb_qB',    fmt(r.qB, 2) + ' kvar');
+  set('lb_sB',    fmt(r.sB, 2) + ' kVA');
+  set('lb_cosGes', r.cosGes === null ? '—' : fmt(r.cosGes, 3));
+  set('lb_iB',    r.iB === null ? '—' : fmt(r.iB, 1) + ' A');
+  setH('lb_frmlI', r.dreiphasig
+    ? 'I<sub>b</sub> = S / (√3 · U<sub>n</sub>)'
+    : 'I<sub>b</sub> = S / U<sub>n</sub>');
+
+  /* Karte 3 */
+  set('lb_qC', r.noetig ? fmt(r.qC, 2) + ' kvar' : '0.00 kvar');
+  setH('lb_sVgl', r.leer ? '—'
+    : fmt(r.sB,2) + ' kVA <span style="color:#64748b">→</span> ' + fmt(r.s2,2) + ' kVA');
+  setH('lb_iVgl', r.iB === null ? '—'
+    : fmt(r.iB,1) + ' A <span style="color:#64748b">→</span> ' + fmt(r.i2,1) + ' A');
+  set('lb_dI', r.dI === null || r.dI <= 0 ? '—'
+    : '− ' + fmt(r.dI, 1) + ' A  (' + fmt(r.dIpct, 1) + ' %)');
+  set('lb_sum1', r.leer ? '—' : fmt(r.pB, 1) + ' kW');
+  set('lb_sum2', r.iB === null ? '—' : fmt(r.iB, 1) + ' A');
+  set('lb_sum3', r.cosGes === null ? '—' : fmt(r.cosGes, 3));
+
+  /* Kachel Stufen */
+  var pfS = document.getElementById('lb_pfStufen');
+  if(!r.noetig){
+    if(pfS) pfS.className = 'lb-pf';
+    set('lb_pfStufenVal', 'keine nötig');
+    setH('lb_pfStufenSub', 'Der Zielwert ist bereits erreicht.');
+  } else if(r.nStufen === null){
+    if(pfS) pfS.className = 'lb-pf';
+    set('lb_pfStufenVal', fmt(r.qC, 2) + ' kvar');
+    setH('lb_pfStufenSub', 'ungestuft gerechnet — Stufengrösse eintragen für die Stückzahl');
+  } else {
+    if(pfS) pfS.className = 'lb-pf ' + (r.kapazitiv ? 'warn' : 'ok');
+    set('lb_pfStufenVal', r.nStufen + ' × ' + fmt(r.stufe, 1) + ' kvar');
+    setH('lb_pfStufenSub', 'installiert ' + fmt(r.qCist, 2) + ' kvar für ' + fmt(r.qC, 2)
+      + ' kvar Bedarf' + (r.kapazitiv ? ' — überkompensiert' : '')
+      + '<br>erreichter cos φ ' + (r.cos2 === null ? '—' : fmt(r.cos2, 3)));
+  }
+
+  /* Kachel Vorsicherung */
+  var pfSi = document.getElementById('lb_pfSich');
+  if(r.sichVor === null){
+    if(pfSi) pfSi.className = 'lb-pf' + (r.iB !== null ? ' err' : '');
+    set('lb_pfSichVal', r.iB === null ? '—' : 'über der Reihe');
+    setH('lb_pfSichSub', r.iB === null ? 'Verbrauchergruppen erfassen.'
+      : 'Der Bemessungsstrom übersteigt den grössten hinterlegten Nennstrom.');
+  } else {
+    var kleiner = (r.sichNach !== null && r.sichNach < r.sichVor);
+    if(pfSi) pfSi.className = 'lb-pf ' + (kleiner ? 'ok' : '');
+    set('lb_pfSichVal', r.sichVor + ' A' + (kleiner ? ' → ' + r.sichNach + ' A' : ''));
+    setH('lb_pfSichSub', kleiner
+      ? 'Die Kompensation erlaubt eine Stufe kleiner — Strombelastbarkeit trotzdem prüfen.'
+      : 'nächster Nennstrom über I<sub>b</sub> ' + fmt(r.iB, 1) + ' A');
+  }
+
+  /* Kachel Resonanz */
+  var pfR = document.getElementById('lb_pfRes');
+  if(r.fRes === null){
+    if(pfR) pfR.className = 'lb-pf' + (r.verdrosselungPasst ? '' : ' warn');
+    set('lb_pfResVal', 'unverdrosselt');
+    setH('lb_pfResSub', r.verdrosselungPasst
+      ? 'Bei geringem Oberschwingungsanteil zulässig.'
+      : 'Bei diesem Anteil nichtlinearer Last nicht empfohlen.');
+  } else {
+    if(pfR) pfR.className = 'lb-pf ok';
+    set('lb_pfResVal', fmt(r.fRes, 0) + ' Hz');
+    setH('lb_pfResSub', 'entspricht der ' + fmt(r.ordnung, 2) + '. Ordnung — liegt damit '
+      + 'unter der 5. Harmonischen (250 Hz)');
+  }
+
+  /* Karte 5 */
+  setH('lb_pV', r.leer ? '—'
+    : fmt(r.pV1, 3) + ' kW <span style="color:#64748b">→</span> ' + fmt(r.pV2, 3) + ' kW');
+  set('lb_energie', r.energie > 0 ? fmt(r.energie, 0) + ' kWh/a' : '—');
+  set('lb_kosten',  r.kosten  > 0 ? fmt(r.kosten, 0) + ' CHF/a' : '—');
+
+  /* Gesamtstatus — beurteilt wird der VORHANDENE cos φ */
   var st = document.getElementById('lb_status');
   if(st){
-    st.className = 'el-status ' + (r.status === 'leer' ? 'ok' : r.status);
-    st.textContent = r.status === 'leer'
-      ? 'Noch keine Berechnung — die Fachlogik fehlt.'
-      : 'Ergebnis liegt vor.';
+    st.className = 'el-status ' + (r.status === 'leer' ? 'warn' : r.status);
+    if(r.status === 'leer'){
+      st.innerHTML = '<b>Noch keine Verbrauchergruppe erfasst.</b> Ohne installierte Leistung '
+        + 'gibt es keinen Bemessungsstrom und keine Kompensation.';
+    } else if(r.kapazitiv){
+      st.innerHTML = '<b>⚠ Überkompensiert.</b> Die gewählte Stufung liefert mehr Blindleistung '
+        + 'als die Anlage bezieht — die Anlage wird kapazitiv.';
+    } else if(!r.verdrosselungPasst){
+      st.innerHTML = '<b>⚠ Verdrosselung prüfen.</b> Der Anteil nichtlinearer Last spricht '
+        + 'gegen eine unverdrosselte Kondensatorbatterie.';
+    } else if(r.status === 'err'){
+      st.innerHTML = '<b>✕ cos φ = ' + fmt(r.cosGes,3) + ' — deutlich zu tief.</b> Die Anlage '
+        + 'zieht mehr Blind- als Wirkleistung; Zuleitung und Trafo sind unnötig belastet. '
+        + 'Kompensation auf ' + fmt(r.cosZiel,2) + ' bringt ' + fmt(r.dI,1) + ' A weniger Strom.';
+    } else if(r.status === 'warn'){
+      st.innerHTML = '<b>⚠ cos φ = ' + fmt(r.cosGes,3) + ' — Kompensation empfohlen.</b> '
+        + 'Netzbetreiber verrechnen Blindarbeit üblicherweise unterhalb von cos φ 0.9. '
+        + 'Nötig sind ' + fmt(r.qC,2) + ' kvar.';
+    } else if(r.noetig){
+      st.innerHTML = '<b>✓ cos φ = ' + fmt(r.cosGes,3) + ' — bereits im üblichen Bereich.</b> '
+        + 'Für den Zielwert ' + fmt(r.cosZiel,2) + ' wären ' + fmt(r.qC,2) + ' kvar nötig; '
+        + 'der Strom sinkt dadurch um ' + fmt(r.dI,1) + ' A.';
+    } else {
+      st.innerHTML = '<b>✓ cos φ = ' + fmt(r.cosGes,3) + ' — keine Kompensation nötig.</b> '
+        + 'Der vorhandene Leistungsfaktor erreicht den Zielwert bereits.';
+    }
   }
-  set('lb_sum1', r.hauptwert === null ? '—' : fmt(r.hauptwert, 2));
-  set('lb_sum2', fmt(r.kappa, 1));
+
+  /* Annahmen sichtbar machen */
+  setH('lb_annahmen', r.hinweise.map(function(h){
+    var farbe = h.typ === 'warn' ? '#92400e' : (h.typ === 'err' ? '#991b1b' : '');
+    return '<li'+(farbe ? ' style="color:'+farbe+';font-weight:700"' : '')+'>' + h.text + '</li>';
+  }).join(''));
+
+  lbDreieckDraw(r);
+}
+
+/* ── Leistungsdreieck ────────────────────────────────────────────────────
+   NUR literale Hex-Farben — var() rastert GemaPDF/html2canvas falsch. */
+function lbDreieckDraw(r){
+  var svg = document.getElementById('lbDreieck');
+  if(!svg) return;
+  var E   = (typeof GemaElektro!=='undefined') ? GemaElektro : null;
+  var fmt = E ? E.elFmt : function(v,d){ return Number(v).toFixed(d===undefined?2:d); };
+  var esc = function(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); };
+
+  if(r.leer){
+    svg.innerHTML = '<rect x="0" y="0" width="860" height="330" fill="#ffffff"/>'
+      + '<text x="430" y="170" text-anchor="middle" font-family="DM Sans,sans-serif"'
+      + ' font-size="14" fill="#94a3b8">Verbrauchergruppen erfassen — dann erscheint das'
+      + ' Leistungsdreieck.</text>';
+    return;
+  }
+
+  /* Massstab: die längere der beiden Seiten füllt die Zeichenfläche. */
+  var x0 = 90, y0 = 258, maxB = 560, maxH = 190;
+  var qMax = Math.max(Math.abs(r.qB), Math.abs(r.q2), 1e-9);
+  var sk   = Math.min(maxB / Math.max(r.pB, 1e-9), maxH / qMax);
+  var pPx  = r.pB * sk;
+  var q1Px = r.qB * sk;
+  var q2Px = r.q2 * sk;
+
+  var p = [];
+  p.push('<rect x="0" y="0" width="860" height="330" fill="#ffffff"/>');
+
+  /* Wirkleistung P — gemeinsame Grundlinie */
+  p.push('<line x1="'+x0+'" y1="'+y0+'" x2="'+(x0+pPx)+'" y2="'+y0+'" stroke="#059669" stroke-width="4"/>');
+  p.push('<text x="'+(x0+pPx/2)+'" y="'+(y0+22)+'" text-anchor="middle" font-family="DM Sans,sans-serif"'
+    + ' font-size="12.5" font-weight="800" fill="#059669">P = '+esc(fmt(r.pB,2))+' kW</text>');
+
+  /* Dreieck VORHER */
+  p.push('<line x1="'+(x0+pPx)+'" y1="'+y0+'" x2="'+(x0+pPx)+'" y2="'+(y0-q1Px)+'" stroke="#d97706" stroke-width="3"/>');
+  p.push('<line x1="'+x0+'" y1="'+y0+'" x2="'+(x0+pPx)+'" y2="'+(y0-q1Px)+'" stroke="#b45309" stroke-width="3" stroke-dasharray="7 4"/>');
+  p.push('<text x="'+(x0+pPx+10)+'" y="'+(y0-q1Px/2)+'" font-family="DM Sans,sans-serif"'
+    + ' font-size="11.5" font-weight="700" fill="#b45309">Q₁ = '+esc(fmt(r.qB,2))+' kvar</text>');
+  p.push('<text x="'+(x0+pPx*0.42)+'" y="'+(y0-q1Px*0.55-8)+'" font-family="DM Sans,sans-serif"'
+    + ' font-size="11.5" font-weight="800" fill="#b45309">S₁ = '+esc(fmt(r.sB,2))+' kVA</text>');
+
+  /* Dreieck NACHHER */
+  if(Math.abs(r.q2 - r.qB) > 1e-9){
+    p.push('<line x1="'+x0+'" y1="'+y0+'" x2="'+(x0+pPx)+'" y2="'+(y0-q2Px)+'" stroke="#1d4ed8" stroke-width="3"/>');
+    p.push('<text x="'+(x0+pPx*0.42)+'" y="'+(y0-q2Px*0.55+16)+'" font-family="DM Sans,sans-serif"'
+      + ' font-size="11.5" font-weight="800" fill="#1d4ed8">S₂ = '+esc(fmt(r.s2,2))+' kVA</text>');
+    /* Kompensationsleistung als Strecke zwischen den beiden Spitzen */
+    p.push('<line x1="'+(x0+pPx)+'" y1="'+(y0-q1Px)+'" x2="'+(x0+pPx)+'" y2="'+(y0-q2Px)+'"'
+      + ' stroke="#7c3aed" stroke-width="7" stroke-linecap="round" opacity="0.85"/>');
+    /* Tiefstellung als tspan — für «C» gibt es kein Unicode-Subscript wie ₁/₂. */
+    p.push('<text x="'+(x0+pPx+10)+'" y="'+(y0-(q1Px+q2Px)/2+4)+'" font-family="DM Sans,sans-serif"'
+      + ' font-size="12" font-weight="800" fill="#7c3aed">Q<tspan font-size="9" dy="3">C, inst</tspan>'
+      + '<tspan dy="-3"> = '+esc(fmt(r.qCist,2))+' kvar</tspan></text>');
+    if(Math.abs(r.q2) > 1e-9){
+      p.push('<text x="'+(x0+pPx+10)+'" y="'+(y0-q2Px/2+16)+'" font-family="DM Sans,sans-serif"'
+        + ' font-size="11.5" font-weight="700" fill="#1d4ed8">Q₂ = '+esc(fmt(r.q2,2))+' kvar</text>');
+    }
+  }
+
+  /* Winkel φ am Ursprung */
+  p.push('<text x="'+(x0+14)+'" y="'+(y0-10)+'" font-family="DM Sans,sans-serif"'
+    + ' font-size="12" font-weight="800" fill="#111827">φ</text>');
+
+  /* Kopfzeile mit den Leistungsfaktoren */
+  p.push('<text x="20" y="26" font-family="DM Sans,sans-serif" font-size="12.5" font-weight="800" fill="#b45309">'
+    + 'vorher  cos φ = '+esc(r.cosGes===null?'—':fmt(r.cosGes,3))+'</text>');
+  if(r.cos2 !== null && Math.abs(r.q2 - r.qB) > 1e-9){
+    p.push('<text x="230" y="26" font-family="DM Sans,sans-serif" font-size="12.5" font-weight="800" fill="#1d4ed8">'
+      + 'nachher  cos φ = '+esc(fmt(r.cos2,3))+(r.kapazitiv?' (kapazitiv)':'')+'</text>');
+  }
+  svg.innerHTML = p.join('');
 }
 
 /* ── Snapshot-Fallback (KRITISCH) ────────────────────────────────────────
@@ -318,9 +1085,34 @@ function lbSnapshotLoad(){
   if(gesetzt) lbRecalc();
 }
 
+/* Boot-Seed der Verbrauchertabelle. Der Default wird SOFORT persistiert —
+   sonst friert ein AutoSave-Speichern vor der ersten Eingabe (z.B. beim
+   Objektwechsel) eine leere Tabelle ein. Der Snapshot-Fallback darf über
+   diesen unveränderten Seed hinweg restaurieren. */
+function lbInitRows(){
+  var el = document.getElementById('lb_rows');
+  if(el && el.value && lbSyncVonInput()) return;
+  if(!lbState.gruppen.length){
+    lbState.gruppen = [
+      lbNeueGruppe('belled'),
+      lbNeueGruppe('steck'),
+      lbNeueGruppe('motor')
+    ];
+    lbState.gruppen[0].bez = 'Beleuchtung';
+    lbState.gruppen[0].p   = 12;
+    lbState.gruppen[1].bez = 'Steckdosen';
+    lbState.gruppen[1].p   = 40;
+    lbState.gruppen[2].bez = 'Motoren Werkstatt';
+    lbState.gruppen[2].p   = 55;
+  }
+  lbPersist();
+  lbRenderRows();
+}
+
 document.addEventListener('DOMContentLoaded', function(){
   lbFoldInit();
   lbFillSelects();
+  lbInitRows();
   lbRecalc();
   /* Gestaffelt, weil der Objekt-Bezug und der Cloud-Pull später eintreffen. */
   setTimeout(lbSnapshotLoad, 700);
