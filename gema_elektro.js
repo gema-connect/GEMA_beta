@@ -111,6 +111,48 @@ function elNaechsteSicherung(i){
   return null;
 }
 
+/* ── Schutzleiter & Potenzialausgleich ──────────────────────────────────
+   Regeln nach SN EN 60364-5-54 (NIN Kapitel 5.4). Sie werden von mehreren
+   Modulen gebraucht (Potenzialausgleich, Kurzschluss/Abschaltbedingung),
+   darum liegen sie hier und nicht in einem einzelnen Modul.
+
+   Die Zahlenwerte sind die etablierten Stufen der Norm. Die Norm-ZIFFER wird
+   bewusst nicht zitiert — sie ändert zwischen den Ausgaben; das Modul nennt
+   die Regel und fordert zur Prüfung der geltenden Ausgabe auf.
+
+   Schutzleiter-Stufen (gleiches Material wie der Aussenleiter):
+     S ≤ 16 mm²        → S_PE = S
+     16 < S ≤ 35 mm²   → S_PE = 16 mm²
+     S > 35 mm²        → S_PE = S / 2                                     */
+function elPeQuerschnitt(sAussen){
+  var s = Number(sAussen);
+  if(!isFinite(s) || s <= 0) return 0;
+  if(s <= 16) return s;
+  if(s <= 35) return 16;
+  return s / 2;
+}
+
+/** Materialgleichwertiger Querschnitt: gleicher Leitwert wie `sCu` in Kupfer.
+ *  Aluminium braucht rund den Faktor 56/36 ≈ 1.56. */
+function elGleichwertigerQuerschnitt(sCu, matZiel){
+  var s = Number(sCu);
+  if(!isFinite(s) || s <= 0) return 0;
+  var cu = elMaterial('cu').kappa20;
+  var z  = elMaterial(matZiel).kappa20;
+  return s * cu / z;
+}
+
+/* Mindest-/Höchstquerschnitte für Potenzialausgleichsleiter [mm² Cu].
+   `geschuetzt` = mechanisch geschützt verlegt.
+   Der Deckel beim Hauptpotenzialausgleich ist eine Regel-Grenze («in der
+   Regel nicht grösser als …») — eine bewusst grössere Ausführung bleibt
+   zulässig, das Modul weist die Kappung darum aus statt sie zu verschweigen. */
+var EL_PA_MIN = {
+  hpa: { min: 6, minBlitzschutz: 10, max: 16 },  // Hauptpotenzialausgleich
+  opa: { geschuetzt: 2.5, offen: 4 },            // zusätzlicher Potenzialausgleich
+  fe:  { min: 4 }                                // Funktionserdung
+};
+
 /* ── Zahlen ─────────────────────────────────────────────────────────────
    elNum: Eingabetext → Zahl. Komma als Dezimaltrennzeichen und Tausender-
    Apostrophe sind in der Schweiz üblich und dürfen die Rechnung nie
@@ -144,9 +186,12 @@ window.GemaElektro = {
   EL_MATERIAL:EL_MATERIAL, EL_TEMP_STUFEN:EL_TEMP_STUFEN,
   EL_QUERSCHNITTE:EL_QUERSCHNITTE, EL_SYSTEME:EL_SYSTEME,
   EL_SICHERUNGEN:EL_SICHERUNGEN,
+  EL_PA_MIN:EL_PA_MIN,
   elMaterial:elMaterial, elSystem:elSystem, elKappa:elKappa,
   elNaechsterQuerschnitt:elNaechsterQuerschnitt,
   elNaechsteSicherung:elNaechsteSicherung,
+  elPeQuerschnitt:elPeQuerschnitt,
+  elGleichwertigerQuerschnitt:elGleichwertigerQuerschnitt,
   elNum:elNum, elFmt:elFmt, elRunden:elRunden
 };
 })();

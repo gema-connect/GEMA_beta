@@ -41,7 +41,8 @@ const MODULE = [
   { datei: 'el_kurzschluss',     key: 'kurzschluss',     praefix: 'kz' },
   { datei: 'el_leistungsbedarf', key: 'leistungsbedarf', praefix: 'lb' },
   { datei: 'el_beleuchtung',     key: 'beleuchtung',     praefix: 'bt' },
-  { datei: 'el_photovoltaik',    key: 'photovoltaik',    praefix: 'pv' }
+  { datei: 'el_photovoltaik',    key: 'photovoltaik',    praefix: 'pv' },
+  { datei: 'el_potenzialausgleich', key: 'potenzialausgleich', praefix: 'pa' }
 ];
 
 /* ══ TEIL A — gema_elektro.js (DOM-frei) ═══════════════════════════════ */
@@ -204,7 +205,11 @@ if (pw) {
   {
     const { page, ctx, fehler } = await seite('el_index.html', ['role_admin']);
     ok(fehler.length === 0, 'el_index: keine pageerrors — ' + fehler.join(' | '));
-    ok(await page.locator('.mod').count() === 7, 'el_index: 7 Modul-Kacheln');
+    /* Kachelzahl aus der Modul-Liste ableiten statt hart schreiben — sonst
+       fällt der Guard bei jedem neuen Modul auf eine reine Zahl.
+       +1 = el_angaben (Koordinationsmodul, nicht aus dem Gerüst-Generator). */
+    const kachelSoll = MODULE.length + 1;
+    ok(await page.locator('.mod').count() === kachelSoll, 'el_index: ' + kachelSoll + ' Modul-Kacheln');
     const dreier = await page.$$eval('.mod .mod-pts', ls => ls.every(l => l.children.length === 3));
     ok(dreier, 'el_index: jede Kachel hat GENAU 3 Stichpunkte (Kachel-Kanon)');
     await page.fill('#searchInp', 'kurzschluss');
