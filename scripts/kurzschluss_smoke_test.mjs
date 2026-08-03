@@ -54,7 +54,7 @@ try {
     const { ctx, page, fehler } = await oeffne();
     t('keine pageerrors — ' + fehler.join(' | '), fehler.length === 0);
     t('Gerüst-Banner ist entfernt', await page.locator('.el-stub').count() === 0);
-    t('vier Schritt-Karten', await page.locator('.el-card').count() === 4);
+    t('fünf Schritt-Karten', await page.locator('.el-card').count() === 5);
     t('Hero vorhanden', await page.locator('.gema-hero-title').count() === 1);
     t('Objekt-Bezug vorhanden', await page.locator('#metaObjektDropdown').count() === 1);
     t('GemaElektro geladen',
@@ -65,8 +65,11 @@ try {
       await page.locator('#kz_querschnitt option').count() === 19);
     t('Material-Select aus EL_MATERIAL (3 Werte)',
       await page.locator('#kz_material option').count() === 3);
-    t('Schutz-Select: 3 LS-Typen + manuell',
-      await page.locator('#kz_schutzTyp option').count() === 4);
+    /* B/C/D (IEC 60898-1) + K (IEC 60947-2) + Z (herstellerspezifisch) + manuell */
+    t('Schutz-Select: 5 LS-Typen + manuell',
+      await page.locator('#kz_schutzTyp option').count() === 6);
+    t('Select für das Gerät davor ist gleich bestückt',
+      await page.locator('#kz_vorTyp option').count() === 6);
     await ctx.close();
   }
 
@@ -263,6 +266,111 @@ try {
     const { ctx, page } = await oeffne(['role_planer']);
     t('Sanitärplaner hat ebenfalls Zugriff (_allPerms)',
       await page.locator('#kz_ikMax').count() === 1);
+    await ctx.close();
+  }
+
+  /* ══ Selektivität & Backup ═════════════════════════════════════════ */
+  console.log('— Selektivität & Backup —');
+  {
+    const { ctx, page, fehler } = await oeffne();
+
+    /* Ohne Gerät davor bleibt die Karte leer statt etwas zu behaupten. */
+    t('ohne Gerät davor: erklärender Leerzustand',
+      await page.locator('#kz_selLeer').isVisible());
+    t('ohne Gerät davor: keine Auswertung sichtbar',
+      !(await page.locator('#kz_selBody').isVisible()));
+
+    /* C 63 A davor über C 32 A danach — I5 danach 320 A > I4 davor 315 A. */
+    await page.fill('#kz_inVor', '63');
+    await page.waitForTimeout(120);
+    t('Auswertung erscheint', await page.locator('#kz_selBody').isVisible());
+    t('Auslösebereich danach 160 A … 320 A',
+      /160\s*A\s*…\s*320\s*A/.test(await page.textContent('#kz_selNach')));
+    t('Auslösebereich davor 315 A … 630 A',
+      /315\s*A\s*…\s*630\s*A/.test(await page.textContent('#kz_selVor')));
+    t('Kurzschlussbereich überschneidet sich',
+      (await page.textContent('#kz_pfKsVal')).includes('überschneidet'));
+    t('Staffelgrenze = I4 davor (315 A)',
+      (await page.textContent('#kz_selGrenze')).includes('315'));
+    t('Quelle wird als rechnerisch ausgewiesen',
+      (await page.textContent('#kz_selQuelle')).includes('rechnerisch'));
+    t('Nennstromverhältnis 1 : 1.97',
+      (await page.textContent('#kz_selVerh')).includes('1.97'));
+    t('nicht selektiv gemeldet',
+      (await page.textContent('#kz_selStatus')).includes('Nicht selektiv'));
+    t('und ausdrücklich als kein Sicherheitsmangel eingeordnet',
+      (await page.textContent('#kz_selStatus')).includes('Kein Sicherheitsmangel'));
+    t('der Gesamtstatus warnt, verurteilt aber nicht',
+      (await page.getAttribute('#kz_status', 'class')).includes('warn'));
+
+    /* Bänder werden gezeichnet und liegen auf einer gemeinsamen Skala. */
+    const breite = await page.evaluate(() => ({
+      n: document.getElementById('kz_bandNach').style.width,
+      v: document.getElementById('kz_bandVor').style.width
+    }));
+    t('beide Auslösebänder haben eine Breite',
+      /%$/.test(breite.n) && /%$/.test(breite.v) && parseFloat(breite.n) > 0);
+
+    /* Katalogwert hebt die Grenze — der geprüfte Wert gewinnt. */
+    await page.fill('#kz_is', '6');
+    await page.waitForTimeout(120);
+    t('Katalogwert wird als Quelle ausgewiesen',
+      (await page.textContent('#kz_selQuelle')).includes('Koordinationstabelle'));
+    t('mit Katalogwert selektiv',
+      (await page.textContent('#kz_selStatus')).includes('Selektiv bei diesem'));
+    await page.fill('#kz_is', '');
+
+    /* Backup deckt ein zu kleines I_cn — dafür gibt es die Kaskadierung. */
+    await page.fill('#kz_icn', '3');
+    await page.waitForTimeout(120);
+    t('ohne Backup ist I_cn 3 kA zu klein',
+      (await page.textContent('#kz_pfIcnVal')).includes('zu klein'));
+    await page.fill('#kz_iBackup', '25');
+    await page.waitForTimeout(120);
+    t('mit Backup läuft der Nachweis über die Kombination',
+      (await page.textContent('#kz_pfIcnVal')).includes('Backup'));
+    t('Backup-Kachel meldet geschützt',
+      (await page.textContent('#kz_pfBackVal')).includes('geschützt'));
+    t('der Verzicht auf I_cn ≥ I_k max wird in den Annahmen begründet',
+      (await page.textContent('#kz_annahmen')).includes('Backup-Kombination'));
+
+    /* Backup-Grenze unter I_k max: auch die Kombination trägt dann nicht. */
+    await page.fill('#kz_iBackup', '2');
+    await page.waitForTimeout(120);
+    t('Backup-Grenze unter I_k max ⇒ überschritten',
+      (await page.textContent('#kz_pfBackVal')).includes('überschritten'));
+    t('und der Gesamtstatus fällt durch',
+      (await page.getAttribute('#kz_status', 'class')).includes('err'));
+
+    /* Schmelzsicherung davor: Nennstrom-Feld weg, Ansprechstrom-Feld da. */
+    await page.selectOption('#kz_vorTyp', 'manuell');
+    await page.waitForTimeout(120);
+    t('bei «anderes Gerät» erscheint das Ansprechstrom-Feld',
+      await page.locator('#kzVorIaBox').isVisible());
+    await page.fill('#kz_iaVor', '900');
+    await page.waitForTimeout(120);
+    t('abgelesener Ansprechstrom wird zur Staffelgrenze',
+      (await page.textContent('#kz_selGrenze')).includes('900'));
+    t('ohne Auslöseband bleibt der Überlastvergleich offen',
+      (await page.textContent('#kz_pfUeberVal')) === '—');
+
+    t('keine pageerrors — ' + fehler.join(' | '), fehler.length === 0);
+    await ctx.close();
+  }
+
+  /* Die neuen Felder überleben den Reload über denselben Snapshot-Pfad. */
+  console.log('— Persistenz der Selektivitäts-Eingaben —');
+  {
+    const { ctx, page } = await oeffne();
+    t('kein Objekt gewählt — es greift der Snapshot-Fallback',
+      (await page.inputValue('#metaObjektDropdown')) === '');
+    await page.fill('#kz_inVor', '80');
+    await page.fill('#kz_iBackup', '15');
+    await page.waitForTimeout(1400);
+    await page.reload({ waitUntil: 'networkidle' });
+    await page.waitForTimeout(4200);
+    t('I_n davor überlebt den Reload', (await page.inputValue('#kz_inVor')) === '80');
+    t('Backup-Grenze überlebt den Reload', (await page.inputValue('#kz_iBackup')) === '15');
     await ctx.close();
   }
 

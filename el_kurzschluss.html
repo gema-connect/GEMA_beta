@@ -27,6 +27,18 @@
 .kz-grp:first-child{margin-top:0;padding-top:0;border-top:none}
 .kz-grp-tt{font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.5px;
   color:var(--el-dk);margin-bottom:9px;display:flex;align-items:center;gap:6px}
+.kz-opt{font-size:9.5px;font-weight:800;letter-spacing:.3px;color:var(--mut2);
+  background:var(--bg2);border:1px solid var(--brd);border-radius:5px;padding:1px 6px}
+
+/* Auslösebereiche der beiden Geräte als Band über einer gemeinsamen Skala */
+.kz-band{margin-top:10px}
+.kz-band-row{display:flex;align-items:center;gap:9px;margin-top:7px}
+.kz-band-lbl{flex:0 0 132px;font-size:11px;font-weight:800;color:var(--el-dk)}
+.kz-band-tr{position:relative;flex:1;height:16px;border-radius:5px;background:var(--bg2);
+  border:1px solid var(--brd);overflow:hidden}
+.kz-band-tr>i{position:absolute;top:0;bottom:0;display:block}
+.kz-band-sc{display:flex;justify-content:space-between;margin-top:5px;padding-left:141px;
+  font-size:10px;color:var(--mut2);font-weight:700}
 
 /* Zeile «Wert = Ergebnis» mit R/X-Aufteilung */
 .kz-rx{font-size:10.5px;color:var(--mut2);font-weight:600;white-space:nowrap}
@@ -322,8 +334,65 @@
                      value="6" placeholder="leer = nicht geprüft" onblur="fixLeadingZero(this)" oninput="kzRecalc()"/>
               <span class="g-inp-unit">kA</span>
             </div>
-            <div class="fg-hint">Muss mindestens I<sub>k max</sub> erreichen.</div>
+            <div class="fg-hint">Muss mindestens I<sub>k max</sub> erreichen — ausser eine
+              geprüfte Backup-Kombination deckt es ab (siehe unten).</div>
           </div>
+        </div>
+      </div>
+
+      <!-- ── 1d Vorgeschaltetes Schutzorgan ─────────────────────────────
+           Optional. Leer = nur der Nachweis oben, keine Selektivitätsaussage. -->
+      <div class="kz-grp">
+        <div class="kz-grp-tt">🪜 Vorgeschaltetes Schutzorgan <span class="kz-opt">optional</span></div>
+        <div class="el-grid">
+          <div class="fg">
+            <label>Gerät davor</label>
+            <select id="kz_vorTyp" onchange="kzRecalc()"></select>
+            <div class="fg-hint">Bestimmt die Staffelung der Auslösebereiche.</div>
+          </div>
+          <div class="fg">
+            <label>Nennstrom I<sub>n</sub> davor</label>
+            <div class="g-inp-group">
+              <input class="g-inp" id="kz_inVor" type="text" inputmode="decimal"
+                     value="" placeholder="leer = nicht geprüft" onblur="fixLeadingZero(this)" oninput="kzRecalc()"/>
+              <span class="g-inp-unit">A</span>
+            </div>
+          </div>
+          <div class="fg" id="kzVorIaBox" style="display:none">
+            <label>Ansprechstrom des Geräts davor</label>
+            <div class="g-inp-group">
+              <input class="g-inp" id="kz_iaVor" type="text" inputmode="decimal"
+                     value="" placeholder="0.0" onblur="fixLeadingZero(this)" oninput="kzRecalc()"/>
+              <span class="g-inp-unit">A</span>
+            </div>
+            <div class="fg-hint">Strom, ab dem das Gerät davor sicher anspricht — aus der
+              Hersteller-Kennlinie.</div>
+          </div>
+          <div class="fg">
+            <label>Selektivitätsgrenzstrom I<sub>s</sub></label>
+            <div class="g-inp-group">
+              <input class="g-inp" id="kz_is" type="text" inputmode="decimal"
+                     value="" placeholder="leer = nur rechnerisch" onblur="fixLeadingZero(this)" oninput="kzRecalc()"/>
+              <span class="g-inp-unit">kA</span>
+            </div>
+            <div class="fg-hint">Aus der Koordinationstabelle des Herstellers. Ohne diesen Wert
+              zeigt GEMA nur die rechnerische Untergrenze.</div>
+          </div>
+          <div class="fg">
+            <label>Backup-Schutz bis</label>
+            <div class="g-inp-group">
+              <input class="g-inp" id="kz_iBackup" type="text" inputmode="decimal"
+                     value="" placeholder="leer = kein Backup" onblur="fixLeadingZero(this)" oninput="kzRecalc()"/>
+              <span class="g-inp-unit">kA</span>
+            </div>
+            <div class="fg-hint">Geprüfte Kombination nach IEC 60947-2 (Kaskadierung). Nur mit
+              diesem Wert darf I<sub>cn</sub> unter I<sub>k max</sub> liegen.</div>
+          </div>
+        </div>
+        <div class="el-note" style="margin-top:8px">
+          I<sub>s</sub> und die Backup-Grenze sind <b>geprüfte Herstellerwerte</b> und lassen sich
+          nicht berechnen — GEMA führt dafür bewusst keine eigene Tabelle. Beide stehen in der
+          Koordinationstabelle zur konkreten Gerätepaarung.
         </div>
       </div>
 
@@ -453,11 +522,107 @@
     </div>
   </div>
 
-  <!-- ═══ 4. SCHEMA ═══ -->
-  <div class="el-card" data-fold="schema">
+  <!-- ═══ 4. SELEKTIVITÄT & BACKUP ═══ -->
+  <div class="el-card" data-fold="selektiv">
     <div class="el-card-hd" onclick="kzFold(this)">
       <span class="el-cx">▸</span>
       <span class="el-secnum">4</span>
+      <span class="el-card-tt">Selektivität &amp; Backup-Schutz</span>
+      <span class="el-card-sub">Staffelung zum vorgeschalteten Gerät</span>
+    </div>
+    <div class="el-card-bd">
+
+      <div class="el-hint" id="kz_selLeer">
+        Kein vorgeschaltetes Schutzorgan erfasst — trag es in Schritt 1 ein, um die
+        Staffelung zu prüfen.
+      </div>
+
+      <div id="kz_selBody" style="display:none">
+
+        <!-- Auslösebereiche beider Geräte auf gemeinsamer Skala -->
+        <div class="kz-band">
+          <div class="kz-band-row">
+            <div class="kz-band-lbl" id="kz_bandVorLbl">davor</div>
+            <div class="kz-band-tr"><i id="kz_bandVor"></i></div>
+          </div>
+          <div class="kz-band-row">
+            <div class="kz-band-lbl" id="kz_bandNachLbl">danach</div>
+            <div class="kz-band-tr"><i id="kz_bandNach"></i></div>
+          </div>
+          <div class="kz-band-sc">
+            <span>0 A</span><span id="kz_bandMax">—</span>
+          </div>
+        </div>
+        <div class="el-note" style="margin-top:7px">
+          Der farbige Balken ist der Bereich zwischen I<sub>4</sub> (Ansprechen möglich) und
+          I<sub>5</sub> (garantierte Auslösung). Selektiv ist die Staffelung, solange der
+          Balken danach links vom Balken davor endet.
+        </div>
+
+        <div class="el-res" style="margin-top:12px">
+          <div class="el-res-lbl">Auslösebereich danach
+            <span class="frml">I<sub>4</sub> … I<sub>5</sub> = I<sub>n</sub> · Bandgrenzen</span></div>
+          <div class="el-res-val" id="kz_selNach">—</div>
+        </div>
+        <div class="el-res">
+          <div class="el-res-lbl">Auslösebereich davor</div>
+          <div class="el-res-val" id="kz_selVor">—</div>
+        </div>
+        <div class="el-res">
+          <div class="el-res-lbl">Selektiv bis
+            <span class="frml" id="kz_selQuelle">I<sub>4</sub> davor</span></div>
+          <div class="el-res-val hl" id="kz_selGrenze">—</div>
+        </div>
+        <div class="el-res">
+          <div class="el-res-lbl">Staffelung der Nennströme
+            <span class="frml">I<sub>n</sub> davor / I<sub>n</sub> danach</span></div>
+          <div class="el-res-val" id="kz_selVerh">—</div>
+        </div>
+
+        <div class="kz-proof" style="margin-top:12px">
+          <div class="kz-pf" id="kz_pfUeber">
+            <div class="kz-pf-tt">Überlastbereich</div>
+            <div class="kz-pf-val" id="kz_pfUeberVal">—</div>
+            <div class="kz-pf-sub">I<sub>nf</sub> davor &gt; I<sub>2</sub> danach</div>
+          </div>
+          <div class="kz-pf" id="kz_pfKs">
+            <div class="kz-pf-tt">Kurzschlussbereich</div>
+            <div class="kz-pf-val" id="kz_pfKsVal">—</div>
+            <div class="kz-pf-sub">I<sub>5</sub> danach &lt; I<sub>4</sub> davor</div>
+          </div>
+          <div class="kz-pf" id="kz_pfBack">
+            <div class="kz-pf-tt">Backup-Schutz</div>
+            <div class="kz-pf-val" id="kz_pfBackVal">—</div>
+            <div class="kz-pf-sub" id="kz_pfBackSub">I<sub>k max</sub> ≤ geprüfte Grenze</div>
+          </div>
+        </div>
+
+        <div class="el-status ok" id="kz_selStatus" style="margin-top:12px">—</div>
+      </div>
+
+      <div class="el-hint" style="margin-top:12px">
+        <b>Was diese Karte nicht beurteilt</b>
+        <ul class="kz-annahmen">
+          <li>Fehlende Selektivität ist <b>kein Sicherheitsmangel</b> — der Fehler wird
+            abgeschaltet, es fällt nur mehr Anlage aus als nötig. Sie stuft den Gesamtstatus
+            darum nie auf «nicht erfüllt».</li>
+          <li>Oberhalb der Staffelgrenze entscheidet die <b>Energiebegrenzung</b> des schnelleren
+            Geräts. Diese Werte sind gemessen und stehen nur in der Koordinationstabelle des
+            Herstellers — GEMA rechnet sie nicht und erfindet sie nicht.</li>
+          <li>Backup-Schutz und Selektivität sind <b>unabhängig</b>: eine Kombination kann
+            backup-geschützt und trotzdem unselektiv sein.</li>
+          <li>Nicht geprüft werden Zeitselektivität über Kurzzeitverzögerung, gerichtete
+            Staffelung und die Selektivität gegenüber einer Fehlerstrom-Schutzeinrichtung.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ 5. SCHEMA ═══ -->
+  <div class="el-card" data-fold="schema">
+    <div class="el-card-hd" onclick="kzFold(this)">
+      <span class="el-cx">▸</span>
+      <span class="el-secnum">5</span>
       <span class="el-card-tt">Schema</span>
       <span class="el-card-sub">Impedanzkette bis zum Fehlerort</span>
     </div>
@@ -501,6 +666,112 @@
 
    Rückgabe: alle Werte der Oberfläche plus `hinweise` — Vereinfachungen
    und Grenzfälle werden gemeldet, nie stillschweigend abgeschnitten. */
+/* Auslösebereich EINES Geräts. `i4` = untere Bandgrenze (darunter spricht die
+   magnetische Auslösung sicher nicht an), `i5` = obere (ab hier garantierte
+   Auslösung < 0.1 s). Dazwischen liegt der undefinierte Bereich. `inf`/`i2`
+   sind die konventionellen Ströme des thermischen Zweigs.
+   `iaFest` deckt Geräte ohne GEMA-Kennlinie ab (Schmelzsicherung): dort zählt
+   der abgelesene Ansprechstrom, ein Band gibt es nicht. */
+function kzBand(typ, iN, iaFest, E){
+  if(iaFest > 0) return {i4:iaFest, i5:iaFest, inf:null, i2:null, ls:null, fest:true};
+  if(!(iN > 0)) return null;
+  var ls = E ? E.elLsTyp(typ) : null;
+  if(!ls) return null;
+  return {
+    i4: iN * (ls.faktorMin || ls.faktor),
+    i5: iN * ls.faktor,
+    inf: ls.inf ? iN * ls.inf : null,
+    i2:  ls.i2  ? iN * ls.i2  : null,
+    ls: ls, fest:false
+  };
+}
+
+/* ── Selektivität und Backup-Schutz — DOM-frei ───────────────────────────
+   Zwei getrennte Fragen, die oft verwechselt werden:
+
+   • SELEKTIVITÄT: Löst bei einem Fehler NUR das nachgelagerte Gerät aus?
+     Rechenbar ist allein die Staffelung der Auslösebereiche — vollselektiv
+     bis zu dem Strom, ab dem das vorgelagerte Gerät überhaupt anspricht
+     (I4 davor). Oberhalb entscheidet die Energiebegrenzung des schnelleren
+     Geräts; das steht NUR in der Koordinationstabelle des Herstellers und
+     lässt sich nicht herleiten. Ohne Katalogwert liefert GEMA deshalb die
+     rechnerische UNTERGRENZE und sagt das auch — eine erfundene Tabelle
+     wäre in einem Schutznachweis schlimmer als eine ehrliche Handeingabe.
+
+   • BACKUP-SCHUTZ (Kaskadierung, IEC 60947-2): Begrenzt das vorgelagerte
+     Gerät den Durchlassstrom so weit, dass das nachgelagerte den Fehler
+     übersteht? Ist das geprüft, DARF I_cn unter I_k max liegen — genau
+     dafür gibt es die Kombination. Eine eigenständige I_cn ≥ I_k-max-Prüfung
+     wäre hier falsch und meldete einen Mangel, wo keiner ist.
+
+   Selektivität und Backup sind unabhängig: eine Kombination kann
+   backup-geschützt und trotzdem nicht selektiv sein. */
+function kzSelektivitaet(inp, ikMax, E){
+  var nach = kzBand(inp.schutzTyp, inp.inSchutz, inp.iaManuell, E);
+  var vor  = kzBand(inp.vorTyp,    inp.inVor,    inp.iaVor,     E);
+
+  var iS      = inp.isKat   > 0 ? inp.isKat   * 1000 : null;   // kA → A
+  var iBackup = inp.iBackup > 0 ? inp.iBackup * 1000 : null;
+
+  var r = {
+    nach:nach, vor:vor, aktiv:false,
+    thermischOk:null, magnetOk:null,
+    grenzeRechnerisch:null, grenze:null, grenzeQuelle:'',
+    selektiv:null, verhaeltnis:null,
+    iBackup:iBackup, backupOk:null, backupAktiv:false,
+    hinweise:[]
+  };
+  if(!vor || !nach) return r;
+  r.aktiv = true;
+
+  /* Überlastbereich: das Gerät davor darf bei dem Strom, bei dem das
+     nachgelagerte sicher auslöst, noch nicht auslösen. */
+  if(vor.inf !== null && nach.i2 !== null){
+    r.thermischOk = (vor.inf > nach.i2);
+  }
+  if(inp.inVor > 0 && inp.inSchutz > 0) r.verhaeltnis = inp.inVor / inp.inSchutz;
+
+  /* Kurzschlussbereich: garantierte Auslösung des nachgelagerten Geräts
+     MUSS unter dem Ansprechen des vorgelagerten liegen. */
+  r.magnetOk = (nach.i5 < vor.i4);
+  r.grenzeRechnerisch = vor.i4;
+
+  if(iS !== null){
+    r.grenze = iS;
+    r.grenzeQuelle = 'katalog';
+    if(iS < r.grenzeRechnerisch){
+      r.hinweise.push('Der Katalogwert I<sub>s</sub> liegt unter der rechnerischen '
+        + 'Staffelgrenze. Gerechnet wird mit dem Katalogwert — er ist geprüft, die '
+        + 'Bandgrenzen sind nur die theoretische Untergrenze.');
+    }
+  } else {
+    r.grenze = r.grenzeRechnerisch;
+    r.grenzeQuelle = 'rechnerisch';
+    r.hinweise.push('Ohne Katalogwert zeigt GEMA die rechnerische Untergrenze — den Strom, '
+      + 'ab dem das vorgelagerte Gerät anspricht. Durch Energiebegrenzung liegt die '
+      + 'tatsächliche Selektivitätsgrenze meist höher; belegen lässt sie sich nur mit der '
+      + 'Koordinationstabelle.');
+  }
+  if(ikMax !== null && r.grenze > 0) r.selektiv = (ikMax <= r.grenze);
+
+  if(iBackup !== null){
+    r.backupAktiv = true;
+    if(ikMax !== null) r.backupOk = (ikMax <= iBackup);
+  }
+
+  if(vor.fest){
+    r.hinweise.push('Für das vorgelagerte Gerät wurde der Ansprechstrom von Hand erfasst. '
+      + 'Ein Auslöseband gibt es damit nicht — die Staffelung wird gegen diesen einen Wert '
+      + 'geprüft.');
+  }
+  if(nach.ls && vor.ls && nach.ls.norm !== vor.ls.norm){
+    r.hinweise.push('Die beiden Geräte folgen unterschiedlichen Normen ('
+      + vor.ls.norm + ' davor, ' + nach.ls.norm + ' danach). Die konventionellen Ströme des '
+      + 'thermischen Zweigs sind damit nicht direkt vergleichbar.');
+  }
+  return r;
+}
+
 function kzCalc(inp){
   var E  = (typeof GemaElektro!=='undefined') ? GemaElektro : null;
   var S3 = Math.sqrt(3);
@@ -644,15 +915,38 @@ function kzCalc(inp){
     }
   }
 
-  /* ── Schaltvermögen ──────────────────────────────────────────────── */
-  var icnOk = null;
-  if(inp.icn > 0 && ikMax !== null) icnOk = (inp.icn*1000 >= ikMax);
+  /* ── Selektivität & Backup-Schutz ────────────────────────────────── */
+  var sel = kzSelektivitaet(inp, ikMax, E);
+
+  /* ── Schaltvermögen ──────────────────────────────────────────────────
+     Mit geprüfter Backup-Kombination läuft der Nachweis über sie, nicht
+     über das nackte I_cn — sonst meldete das Modul einen Mangel, wo die
+     Kaskadierung genau dafür da ist. */
+  var icnOk = null, icnUeberBackup = false;
+  if(sel.backupAktiv && sel.backupOk === true){
+    icnOk = true;
+    icnUeberBackup = true;
+    if(inp.icn > 0 && ikMax !== null && inp.icn*1000 < ikMax){
+      hinweise.push('I<sub>cn</sub> des Geräts liegt unter I<sub>k max</sub> — zulässig, weil '
+        + 'die Backup-Kombination bis ' + (sel.iBackup/1000).toFixed(1) + ' kA geprüft ist. '
+        + 'Der Nachweis hängt damit an dieser Paarung: wird das vorgelagerte Gerät getauscht, '
+        + 'ist er hinfällig.');
+    }
+  } else if(sel.backupAktiv && sel.backupOk === false){
+    icnOk = false;
+  } else if(inp.icn > 0 && ikMax !== null){
+    icnOk = (inp.icn*1000 >= ikMax);
+  }
 
   /* ── Bewertung ───────────────────────────────────────────────────── */
   var status = 'leer';
   if(!(speiseFehlt || leitungFehlt)){
     if(erfuellt === false || icnOk === false)      status = 'err';
     else if(erfuellt === true && reserve < 1.1)    status = 'warn';
+    /* Fehlende Selektivität ist KEIN Sicherheitsmangel — der Fehler wird
+       abgeschaltet, nur greift die Anlage weiter zurück als nötig. Sie
+       stuft den Status deshalb auf «warn», nie auf «err». */
+    else if(erfuellt === true && sel.selektiv === false) status = 'warn';
     else if(erfuellt === true)                     status = 'ok';
     else                                           status = 'leer';
   }
@@ -688,9 +982,10 @@ function kzCalc(inp){
     ikMax:ikMax, ikMin:ikMin,
     ia:ia, zZul:zZul, erfuellt:erfuellt, reserve:reserve,
     lMax:lMax, lMaxGrund:lMaxGrund,
-    icnOk:icnOk,
+    icnOk:icnOk, icnUeberBackup:icnUeberBackup,
+    sel:sel,
     speiseFehlt:speiseFehlt, leitungFehlt:leitungFehlt,
-    status:status, hinweise:hinweise
+    status:status, hinweise:hinweise.concat(sel.hinweise)
   };
 }
 /*ENGINE-END*/
@@ -750,6 +1045,9 @@ function kzFillSelects(){
   }).join('') + '<option value="manuell">Anderes Gerät — I_a von Hand</option>');
   opt('kz_tAbschalt', E.EL_ABSCHALTZEIT.map(function(t){
     return '<option value="'+t.id+'">'+t.label+'</option>'; }).join(''));
+  opt('kz_vorTyp', E.EL_LS_TYPEN.map(function(t){
+    return '<option value="'+t.id+'"'+(t.id==='C'?' selected':'')+'>Leitungsschutzschalter '+t.label+'</option>';
+  }).join('') + '<option value="manuell">Schmelzsicherung / anderes Gerät</option>');
 
   var mh = document.getElementById('kz_matHint');
   var m  = document.getElementById('kz_material');
@@ -782,7 +1080,13 @@ function kzRead(){
     inSchutz:    num(g('kz_in')),
     iaManuell:   num(g('kz_iaManuell')),
     tAbschalt:   g('kz_tAbschalt') || 't04',
-    icn:         num(g('kz_icn'))
+    icn:         num(g('kz_icn')),
+    /* Vorgeschaltetes Gerät — alles optional, leer = keine Selektivitätsaussage */
+    vorTyp:      g('kz_vorTyp') || 'C',
+    inVor:       num(g('kz_inVor')),
+    iaVor:       num(g('kz_iaVor')),
+    isKat:       num(g('kz_is')),
+    iBackup:     num(g('kz_iBackup'))
   };
 }
 
@@ -792,8 +1096,11 @@ function kzSyncFelder(inp){
   vis('kzTrafoBox', inp.speiseModus !== 'ik');
   vis('kzIkBox',    inp.speiseModus === 'ik');
   vis('kzIaBox',    inp.schutzTyp   === 'manuell');
+  vis('kzVorIaBox', inp.vorTyp      === 'manuell');
   var inFg = document.getElementById('kz_in');
   if(inFg && inFg.closest('.fg')) inFg.closest('.fg').style.display = (inp.schutzTyp === 'manuell') ? 'none' : '';
+  var vorFg = document.getElementById('kz_inVor');
+  if(vorFg && vorFg.closest('.fg')) vorFg.closest('.fg').style.display = (inp.vorTyp === 'manuell') ? 'none' : '';
 }
 
 function kzRecalc(){
@@ -888,11 +1195,19 @@ function kzRecalc(){
     if(pfIcn) pfIcn.className = 'kz-pf';
     set('kz_pfIcnVal', '—');
     setH('kz_pfIcnSub', 'I<sub>cn</sub> des Geräts eintragen, um zu prüfen.');
+  } else if(r.icnUeberBackup){
+    if(pfIcn) pfIcn.className = 'kz-pf ok';
+    set('kz_pfIcnVal', 'über Backup gedeckt');
+    setH('kz_pfIcnSub', 'geprüfte Kombination bis ' + fmt(r.sel.iBackup/1000,1)
+      + ' kA — I<sub>cn</sub> darf darunter liegen');
   } else {
     if(pfIcn) pfIcn.className = 'kz-pf ' + (r.icnOk ? 'ok' : 'err');
     set('kz_pfIcnVal', r.icnOk ? 'ausreichend' : 'zu klein');
-    setH('kz_pfIcnSub', 'I<sub>cn</sub> ' + fmt(inp.icn,1) + ' kA ' + (r.icnOk ? '≥' : '<')
-      + ' I<sub>k max</sub> ' + fmt(r.ikMax/1000,2) + ' kA');
+    setH('kz_pfIcnSub', (r.sel.backupAktiv && r.sel.backupOk === false)
+      ? 'I<sub>k max</sub> ' + fmt(r.ikMax/1000,2) + ' kA über der Backup-Grenze '
+        + fmt(r.sel.iBackup/1000,1) + ' kA'
+      : 'I<sub>cn</sub> ' + fmt(inp.icn,1) + ' kA ' + (r.icnOk ? '≥' : '<')
+        + ' I<sub>k max</sub> ' + fmt(r.ikMax/1000,2) + ' kA');
   }
 
   /* Gesamtstatus */
@@ -913,10 +1228,14 @@ function kzRecalc(){
               + 'Leitung, flinkere Kennlinie oder eine Fehlerstrom-Schutzeinrichtung. ' : '')
         + (r.icnOk === false
             ? 'Zusätzlich liegt I<sub>k max</sub> über dem Schaltvermögen des Geräts.' : '');
-    } else if(r.status === 'warn'){
+    } else if(r.status === 'warn' && r.reserve !== null && r.reserve < 1.1){
       st.innerHTML = '<b>⚠ Abschaltbedingung nur knapp erfüllt.</b> I<sub>k min</sub> liegt '
         + 'weniger als 10 % über I<sub>a</sub>. Toleranzen von Leitungslänge, Temperatur und '
         + 'Gerät können den Nachweis kippen — Reserve schaffen oder nachmessen.';
+    } else if(r.status === 'warn'){
+      st.innerHTML = '<b>⚠ Abschaltung erfüllt, Selektivität nicht.</b> Der Fehler wird '
+        + 'abgeschaltet — aber das vorgeschaltete Gerät spricht mit an, es fällt also mehr '
+        + 'Anlage aus als nötig. Kein Sicherheitsmangel, siehe Schritt 4.';
     } else {
       st.innerHTML = '<b>✓ Abschaltbedingung erfüllt.</b> I<sub>k min</sub> liegt um den Faktor '
         + fmt(r.reserve,2) + ' über I<sub>a</sub>; die Abschaltung innerhalb ' + zeit
@@ -928,7 +1247,110 @@ function kzRecalc(){
   /* Annahmen sichtbar machen */
   setH('kz_annahmen', r.hinweise.map(function(h){ return '<li>' + h + '</li>'; }).join(''));
 
+  kzSelDraw(r, inp, fmt);
   kzSchemaDraw(r, inp);
+}
+
+/* ── Karte 4: Selektivität & Backup ─────────────────────────────────────── */
+function kzSelDraw(r, inp, fmt){
+  var s    = r.sel;
+  var set  = function(id, txt){ var el = document.getElementById(id); if(el) el.textContent = txt; };
+  var setH = function(id, html){ var el = document.getElementById(id); if(el) el.innerHTML = html; };
+  var vis  = function(id, an){ var e = document.getElementById(id); if(e) e.style.display = an ? '' : 'none'; };
+  var amp  = function(v){ return v >= 1000 ? fmt(v/1000, 2) + ' kA' : fmt(v, 0) + ' A'; };
+
+  vis('kz_selLeer', !s.aktiv);
+  vis('kz_selBody',  s.aktiv);
+  if(!s.aktiv) return;
+
+  /* Gemeinsame Skala: das grössere der beiden Bänder bestimmt das Ende. */
+  var skala = Math.max(s.vor.i5, s.nach.i5) * 1.15;
+  var band  = function(id, b, farbe){
+    var el = document.getElementById(id);
+    if(!el) return;
+    var l = (b.i4 / skala) * 100;
+    var w = Math.max(((b.i5 - b.i4) / skala) * 100, 1.2);
+    el.style.left  = l.toFixed(2) + '%';
+    el.style.width = w.toFixed(2) + '%';
+    el.style.background = farbe;
+  };
+  band('kz_bandNach', s.nach, '#ca8a04');
+  band('kz_bandVor',  s.vor,  '#7c3aed');
+  set('kz_bandMax', amp(skala));
+
+  var name = function(b, iN){
+    if(b.fest) return 'Ansprechstrom ' + amp(b.i4);
+    return b.ls.id + ' ' + fmt(iN, 0) + ' A';
+  };
+  set('kz_bandNachLbl', 'danach · ' + name(s.nach, inp.inSchutz));
+  set('kz_bandVorLbl',  'davor · '  + name(s.vor,  inp.inVor));
+
+  setH('kz_selNach', s.nach.fest ? amp(s.nach.i4)
+    : amp(s.nach.i4) + ' … ' + amp(s.nach.i5));
+  setH('kz_selVor',  s.vor.fest  ? amp(s.vor.i4)
+    : amp(s.vor.i4)  + ' … ' + amp(s.vor.i5));
+  set('kz_selGrenze', amp(s.grenze));
+  setH('kz_selQuelle', s.grenzeQuelle === 'katalog'
+    ? 'I<sub>s</sub> aus der Koordinationstabelle'
+    : 'rechnerisch: I<sub>4</sub> davor');
+  set('kz_selVerh', s.verhaeltnis !== null ? '1 : ' + fmt(s.verhaeltnis, 2) : '—');
+
+  /* Überlastbereich */
+  var pfU = document.getElementById('kz_pfUeber');
+  if(s.thermischOk === null){
+    if(pfU) pfU.className = 'kz-pf';
+    set('kz_pfUeberVal', '—');
+  } else {
+    if(pfU) pfU.className = 'kz-pf ' + (s.thermischOk ? 'ok' : 'warn');
+    set('kz_pfUeberVal', s.thermischOk ? 'gestaffelt' : 'überschneidet');
+  }
+
+  /* Kurzschlussbereich */
+  var pfK = document.getElementById('kz_pfKs');
+  if(pfK) pfK.className = 'kz-pf ' + (s.magnetOk ? 'ok' : 'warn');
+  set('kz_pfKsVal', s.magnetOk ? 'gestaffelt' : 'überschneidet');
+
+  /* Backup */
+  var pfB = document.getElementById('kz_pfBack');
+  if(!s.backupAktiv){
+    if(pfB) pfB.className = 'kz-pf';
+    set('kz_pfBackVal', 'nicht erfasst');
+    setH('kz_pfBackSub', 'ohne diesen Wert muss I<sub>cn</sub> ≥ I<sub>k max</sub> sein');
+  } else if(s.backupOk === null){
+    if(pfB) pfB.className = 'kz-pf';
+    set('kz_pfBackVal', '—');
+    setH('kz_pfBackSub', 'I<sub>k max</sub> fehlt');
+  } else {
+    if(pfB) pfB.className = 'kz-pf ' + (s.backupOk ? 'ok' : 'err');
+    set('kz_pfBackVal', s.backupOk ? 'geschützt' : 'überschritten');
+    setH('kz_pfBackSub', 'I<sub>k max</sub> ' + fmt(r.ikMax/1000,2) + ' kA '
+      + (s.backupOk ? '≤' : '>') + ' ' + fmt(s.iBackup/1000,1) + ' kA');
+  }
+
+  /* Bewertung der Staffelung */
+  var st = document.getElementById('kz_selStatus');
+  if(!st) return;
+  if(s.selektiv === null){
+    st.className = 'el-status warn';
+    st.innerHTML = '<b>I<sub>k max</sub> fehlt.</b> Erfasse Speisung und Leitung, um die '
+      + 'Staffelung gegen den tatsächlichen Kurzschlussstrom zu prüfen.';
+  } else if(s.selektiv){
+    st.className = 'el-status ok';
+    st.innerHTML = '<b>✓ Selektiv bei diesem Fehlerstrom.</b> I<sub>k max</sub> '
+      + fmt(r.ikMax/1000,2) + ' kA liegt unter der Staffelgrenze ' + amp(s.grenze)
+      + ' — bei einem Fehler am Leitungsende löst nur das nachgelagerte Gerät aus'
+      + (s.grenzeQuelle === 'rechnerisch'
+          ? '. Belegt ist das über die Bandgrenzen; die Koordinationstabelle weist meist eine '
+            + 'höhere Grenze aus.' : '.');
+  } else {
+    st.className = 'el-status warn';
+    st.innerHTML = '<b>⚠ Nicht selektiv.</b> I<sub>k max</sub> ' + fmt(r.ikMax/1000,2)
+      + ' kA übersteigt die Staffelgrenze ' + amp(s.grenze) + ' — beide Geräte können '
+      + 'gemeinsam auslösen. Abhilfe: grösserer Nennstrom oder trägere Kennlinie davor, '
+      + 'ein selektiver Hauptleitungsschutzschalter, oder den geprüften I<sub>s</sub> aus der '
+      + 'Koordinationstabelle eintragen. <b>Kein Sicherheitsmangel</b> — abgeschaltet wird '
+      + 'in jedem Fall.';
+  }
 }
 
 /* ── Schema: Impedanzkette bis zum Fehlerort ─────────────────────────────

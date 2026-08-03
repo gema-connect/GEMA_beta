@@ -130,10 +130,31 @@ var EL_C_FAKTOR = [
    garantiert. Mit der unteren Grenze zu rechnen wäre für den Nachweis der
    Abschaltbedingung nicht zulässig. Auslösung erfolgt dann < 0.1 s, womit
    sowohl die 0.4-s- als auch die 5-s-Anforderung erfüllt ist. */
+/* `faktor` = OBERE Bandgrenze (I5) — nur dort löst das Gerät garantiert aus,
+   nur damit ist ein Abschaltnachweis zulässig. `faktorMin` = untere Grenze
+   (I4): darunter spricht die magnetische Auslösung sicher NICHT an; dazwischen
+   liegt der undefinierte Bereich (Auslösung möglich, nicht garantiert). Beide
+   Grenzen zusammen ergeben die Selektivitäts-Staffelung.
+   `inf`/`i2` = konventioneller Nicht-Auslöse- bzw. Auslösestrom des
+   thermischen Zweigs. Sie hängen an der NORM, nicht am Typ:
+   IEC 60898-1 Tab. 6 → 1.13 / 1.45 · In (Hausinstallation),
+   IEC 60947-2 → 1.05 / 1.30 · In (Industrieschalter). */
 var EL_LS_TYPEN = [
-  {id:'B', label:'B — magnetisch 3…5 × In',   faktor:5},
-  {id:'C', label:'C — magnetisch 5…10 × In',  faktor:10},
-  {id:'D', label:'D — magnetisch 10…20 × In', faktor:20}
+  {id:'B', label:'B — magnetisch 3…5 × In',   faktor:5,  faktorMin:3,
+   norm:'IEC 60898-1', inf:1.13, i2:1.45,
+   einsatz:'Ohmsche Lasten, Beleuchtung, Steckdosen'},
+  {id:'C', label:'C — magnetisch 5…10 × In',  faktor:10, faktorMin:5,
+   norm:'IEC 60898-1', inf:1.13, i2:1.45,
+   einsatz:'Allgemein, kleine Motoren, Transformatoren'},
+  {id:'D', label:'D — magnetisch 10…20 × In', faktor:20, faktorMin:10,
+   norm:'IEC 60898-1', inf:1.13, i2:1.45,
+   einsatz:'Motoren, grosse Transformatoren, Schweissgeräte'},
+  {id:'K', label:'K — magnetisch 8…14 × In',  faktor:14, faktorMin:8,
+   norm:'IEC 60947-2', inf:1.05, i2:1.30,
+   einsatz:'Industrieschalter, induktive Lasten'},
+  {id:'Z', label:'Z — magnetisch 2…3 × In',   faktor:3,  faktorMin:2,
+   norm:'herstellerspezifisch', inf:1.05, i2:1.30,
+   einsatz:'Halbleiter, empfindliche Elektronik'}
 ];
 
 /* Zulässige Abschaltzeit im TN-System (SN EN 60364-4-41, Tab. 41.1 für
