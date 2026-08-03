@@ -94,10 +94,13 @@ console.log('■ Vorschlag + Übernahme');
   ok(await page.evaluate(() => document.getElementById('otOptTank').value) === '450', 'Vorschlag übernimmt 450 l als optimierte Tankgrösse');
   ok(await page.evaluate(() => document.querySelectorAll('#otTbl td.ot-low').length) === 0, 'mit 450 l Startfüllung keine «zu wenig»-Zellen mehr');
   ok(await page.evaluate(() => document.querySelectorAll('#otTbl td.ot-over').length) === 0, 'kein Überlauf (Produktion folgt dem Bedarf)');
-  await page.evaluate(() => otUebernehmen());
-  ok(await page.evaluate(() => document.getElementById('tankSelected').value) === '450', 'Übernahme schreibt 450 in «Gewählte Tankgrösse»');
-  ok(await page.evaluate(() => document.getElementById('vnSelected').textContent).then(t => t.includes('450')), 'Ergebnis-Karte zeigt den gewählten Tank');
-  ok(await page.evaluate(() => document.getElementById('otTankVergleich').textContent).then(t => t.includes('deckt')), 'Vergleichstext: gewählte Grösse deckt die optimierte');
+  /* Feedback 03.08.2026 (Sandro): Das Feld «Gewählte Tankgrösse» samt
+     Übernahme-Knopf und Ergebnis-KPI ist ENTFALLEN — die optimierte
+     Tankgrösse (#otOptTank) ist die eine Wahrheit. */
+  ok(await page.evaluate(() => !document.getElementById('tankSelected')), 'Feld «Gewählte Tankgrösse» entfernt');
+  ok(await page.evaluate(() => !document.getElementById('vnSelected')), 'KPI «Gewählter Tank» entfernt');
+  ok(await page.evaluate(() => typeof window.otUebernehmen === 'undefined'), 'Übernahme-Knopf entfernt');
+  ok(await page.evaluate(() => document.getElementById('otTankVergleich').textContent).then(t => t.includes('deckt den Bedarf')), 'Vergleichstext: Tankgrösse deckt den Bedarf');
 }
 
 console.log('■ Produktions-Warnung (Stundenwert > VA)');

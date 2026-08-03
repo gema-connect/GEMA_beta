@@ -833,7 +833,7 @@ function fixLeadingZero(el){
       <!-- Spezielle Apparate -->
       <div class="g-card">
         <div class="g-card-hd">
-          <h2>Spezielle Apparate (&lt;15 min)</h2>
+          <h2>Spezielle Apparate</h2>
           <button class="g-btn sm" id="btnAddSpecial">+ Spezieller Apparat</button>
         </div>
         <div class="g-card-bd">
@@ -1556,7 +1556,14 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
         remove.className = "iconBtn"; remove.title = "Entfernen"; remove.textContent = "\u2715";
         remove.disabled = arr.length <= 1;
 
-        label.addEventListener("input", (e) => { state[stateKey][idx].label = e.target.value || ""; });
+        /* Feedback 03.08.2026 (Sandro) «Name von oben übernehmen»: Die
+           Aufteilung listet die Einzel-Position unter der Σ-Zeile mit der
+           erfassten Bezeichnung (Fallback Medium-Name). Ohne calcAndRender
+           blieb dort der Fallback stehen, bis irgendetwas anderes eine
+           Neuberechnung auslöste — die Bezeichnung schien nicht anzukommen.
+           calcAndRender() baut die Zeilen NICHT neu (nur KPIs) → fokus-sicher
+           beim Tippen, gleiches Muster wie der flow-Handler unten. */
+        label.addEventListener("input", (e) => { state[stateKey][idx].label = e.target.value || ""; calcAndRender(); });
         qty.addEventListener("input", (e) => { state[stateKey][idx].qty = clampNum(e.target.value, 0, 1e6); calcAndRender(); });
         flow.addEventListener("input", (e) => { state[stateKey][idx].flow = clampNum(String(e.target.value).replace(',','.'), 0, 1e6); calcAndRender(); });
         remove.addEventListener("click", () => {
@@ -1948,8 +1955,14 @@ try{if(typeof _GemaDB!=='undefined')await Promise.race([_GemaDB.init('lu_tabelle
       const maxV = Math.max(...rows.map(r=>r.v100), 1e-9);
       const fu = flowUnit();
       // Feedback 28.07.2026: Spezial- und Dauerverbraucher als eigene Segmente
-      // im reduzierten Balken sichtbar machen (andere Grüntöne).
-      const C_SPEZ = '#22c55e', C_DAUER = '#15803d';
+      // im reduzierten Balken sichtbar machen.
+      /* Feedback 03.08.2026 (Sandro): NICHT in Grüntönen — Grün ist die Farbe
+         des Mediums Kaltwasser (MED_COLORS.kw #16a34a), die Segmente waren
+         vom KW-Balken nicht zu unterscheiden. Magenta hell/dunkel wird von
+         KEINEM Medium belegt (kw grün · ww rot · nd blau · bw violett ·
+         ow teal · gw cyan · grau/frei slate) und hebt die 1:1 addierten
+         Zuschläge damit eindeutig ab. */
+      const C_SPEZ = '#e879f9', C_DAUER = '#a21caf';
       let anySpez = false, anyDauer = false;
       host.innerHTML = rows.map(r => {
         const w100 = Math.max(2, r.v100 / maxV * 100);

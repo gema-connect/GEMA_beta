@@ -543,11 +543,14 @@ input::placeholder,textarea::placeholder{color:#cbd5e1!important}
 .ot-tbl tr.ot-hrow > td{padding:2px 8px 8px;border-right:0;background:#fcfdff}
 .ot-grid{display:grid;grid-template-columns:repeat(24,minmax(0,1fr));gap:3px}
 .ot-hcell{display:flex;flex-direction:column;align-items:stretch;gap:1px;min-width:0}
-.ot-hlbl{font-size:8px;font-weight:700;color:#94a3b8;text-align:center;letter-spacing:-.2px}
+/* Stundenfenster zweizeilig am Feld (Feedback 03.08.2026) */
+.ot-hlbl{font-size:7px;line-height:1.15;font-weight:700;color:#94a3b8;text-align:center;letter-spacing:-.3px}
 .ot-ro{display:block;text-align:center;font-size:9.5px;padding:3px 1px;border-radius:5px}
 span.ot-fill{font-weight:700;color:#0f172a}
 span.ot-low{background:#fee2e2;color:#b91c1c;font-weight:800}
 span.ot-over{background:#fef3c7;color:#92400e;font-weight:800}
+/* Werte im zulässigen Band grün (Feedback 03.08.2026) */
+span.ot-good{background:#dcfce7;color:#15803d;font-weight:800}
 @media (max-width:820px){ .ot-grid{grid-template-columns:repeat(12,minmax(0,1fr))} }
 .ot-tbl td[data-warn],.ot-tbl td[data-pwarn]{white-space:normal}
 .ot-h{width:100%;min-width:0;box-sizing:border-box;border:1px solid #d7dde8;border-radius:5px;padding:3px 1px;font-size:10.5px;text-align:right;font-family:inherit;background:#fff}
@@ -561,8 +564,14 @@ td.ot-over{background:#fef3c7;color:#92400e;font-weight:800}
 .ot-pill{display:inline-block;padding:1px 8px;border-radius:99px;font-size:10px;font-weight:800}
 .ot-pill.ok{background:#dcfce7;color:#15803d}
 .ot-pill.bad{background:#fee2e2;color:#b91c1c}
-.ot-prodrow td{background:#eff6ff}
-.ot-prodrow .ot-lead{background:#eff6ff!important}
+/* Abschnitts-Zeilen farbig abgesetzt (Feedback 03.08.2026) — je eigene Tönung
+   plus Farbbalken links an der Lead-Spalte. */
+.ot-prodrow td{background:#e0edff}
+.ot-prodrow .ot-lead{background:#e0edff!important;box-shadow:inset 3px 0 0 #2563eb,2px 0 0 #eef1f6}
+.ot-sumrow td{background:#eef2f7}
+.ot-sumrow .ot-lead{background:#eef2f7!important;box-shadow:inset 3px 0 0 #64748b,2px 0 0 #eef1f6}
+.ot-fillrow td{background:#e6f7ec}
+.ot-fillrow .ot-lead{background:#e6f7ec!important;box-shadow:inset 3px 0 0 #16a34a,2px 0 0 #eef1f6}
 .ot-kpis{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px}
 .ot-kpi{flex:1 1 150px;border:1px solid var(--line,#e2e8f0);border-radius:10px;padding:8px 12px;background:#fff}
 /* Abspiel-Tempo der Tagesablauf-Simulation (Feedback 01.08.2026) */
@@ -745,13 +754,35 @@ function fixLeadingZero(el){
         </div>
         <div class="g-section-bd">
           <div class="g-grid-2">
+            <!-- Feedback 03.08.2026 (Sandro): «Es soll möglich sein, dass man
+                 eine Osmoseanlage in Serie auslegen kann.» Zweistufige
+                 Permeatstaffelung — das Permeat der 1. Stufe ist Zulauf der
+                 2. Stufe. Gesamtausbeute φ_ges = φ₁ · φ₂ (Konzentrat beider
+                 Stufen wird verworfen, wie in der Handskizze ohne Rück-
+                 führung); der Weichwasserbedarf steigt entsprechend. -->
             <div class="g-field">
-              <label class="g-label">Permeatausbeute φ</label>
+              <label class="g-label">Ausführung</label>
+              <select class="g-inp" id="stufen" onchange="recalc()">
+                <option value="1">Einzelanlage (einstufig)</option>
+                <option value="2">Doppelanlage in Serie (zweistufig)</option>
+              </select>
+              <span class="g-hint">In Serie: 2. Stufe entsalzt das Permeat der 1. Stufe nach</span>
+            </div>
+            <div class="g-field">
+              <label class="g-label"><span id="phiLbl">Permeatausbeute φ</span></label>
               <div class="g-inp-group">
                 <input class="g-inp" type="text" inputmode="decimal" id="phi" value="75" oninput="recalc()" onblur="fixLeadingZero(this)"/>
                 <span class="g-inp-unit">%</span>
               </div>
               <span class="g-hint">Typisch 70–80 % bei RO-Anlagen</span>
+            </div>
+            <div class="g-field" id="phi2Field" style="display:none">
+              <label class="g-label">Permeatausbeute φ₂ (2. Stufe)</label>
+              <div class="g-inp-group">
+                <input class="g-inp" type="text" inputmode="decimal" id="phi2" placeholder="wie Stufe 1" oninput="recalc()" onblur="fixLeadingZero(this)"/>
+                <span class="g-inp-unit">%</span>
+              </div>
+              <span class="g-hint">Leer = wie Stufe 1 · Gesamt φ<sub>ges</sub> = φ₁ · φ₂</span>
             </div>
             <div class="g-field">
               <label class="g-label">Anlageleistung VA</label>
@@ -761,14 +792,10 @@ function fixLeadingZero(el){
               </div>
               <span class="g-hint">Aus Datenblatt Anlage — Leistung bei 10 °C Wassertemperatur</span>
             </div>
-            <div class="g-field">
-              <label class="g-label">Gewählte Tankgrösse</label>
-              <div class="g-inp-group">
-                <input class="g-inp" type="text" inputmode="decimal" id="tankSelected" placeholder="optional" oninput="recalc()" onblur="fixLeadingZero(this)"/>
-                <span class="g-inp-unit">l</span>
-              </div>
-              <span class="g-hint">Optional – für Tankplausibilität</span>
-            </div>
+            <!-- Feedback 03.08.2026 (Sandro) «Feld löschen»: Die «Gewählte
+                 Tankgrösse» ist entfallen — massgebend ist die optimierte
+                 Tankgrösse aus der 24-h-Optimierung (Startfüllung), eine
+                 zweite, davon unabhängige Zahl stiftete nur Verwirrung. -->
             <div class="g-field">
               <label class="g-label">Ziel-Betriebszeit</label>
               <div class="g-inp-group">
@@ -848,7 +875,7 @@ function fixLeadingZero(el){
             <div class="g-result-row">
               <span class="g-result-lbl">Volumenstrom Weichwasser VW<a href="sa_enthaertung.html" class="os-uebertrag" title="Das Weichwasser der Osmose wird in der Enthärtungsanlage vorenthärtet — der Wert fliesst dorthin über.">→ Übertrag in Enthärtungsanlage</a></span>
               <span class="g-result-val big" id="vwLh">0</span>
-<span class="frml">V̇<sub>W</sub> = V̇<sub>O</sub> / φ − V̇<sub>O</sub>&nbsp;&nbsp;φ = Recovery [%]</span>
+<span class="frml">V̇<sub>W</sub> = V̇<sub>O</sub> / φ&nbsp;&nbsp;φ = Permeatausbeute (bei Serie φ<sub>ges</sub> = φ₁·φ₂)</span>
             </div>
             <div class="g-result-row">
               <span class="g-result-lbl">Volumenstrom Weichwasser VW in l/s</span>
@@ -876,11 +903,6 @@ function fixLeadingZero(el){
               <div class="g-kpi blue">
                 <div class="g-kpi-label">Erf. Nutzvolumen VN</div>
                 <div class="g-kpi-val" id="vnRequired">0</div>
-                <div class="g-kpi-unit">l</div>
-              </div>
-              <div class="g-kpi">
-                <div class="g-kpi-label">Gewählter Tank</div>
-                <div class="g-kpi-val" id="vnSelected">0</div>
                 <div class="g-kpi-unit">l</div>
               </div>
             </div>
@@ -915,9 +937,12 @@ function fixLeadingZero(el){
       </div>
       <div class="g-hint" id="otOnlineHint" style="display:none;margin:0">
         ✅ Online-Anlage möglich (Anlageleistung ≥ Spitzenbedarf) — eine Tankoptimierung ist nicht zwingend.
-        Sie wird aktiv, sobald ein Reinwassertank zwingend ist (V̇<sub>B</sub> ≥ V<sub>A</sub>) oder eine Tankgrösse erfasst wird.
+        Sie wird aktiv, sobald ein Reinwassertank zwingend ist (V̇<sub>B</sub> ≥ V<sub>A</sub>).
+        <!-- Auch im Online-Fall muss man das Profil durchrechnen können
+             (Feedback 03.08.2026: der frühere Weg lief über das entfallene
+             Feld «Gewählte Tankgrösse»). -->
         <div style="margin-top:8px">
-          <button class="g-btn sm no-print" type="button" onclick="otTankErfassen()">→ Tankgrösse erfassen &amp; Profil öffnen</button>
+          <button class="g-btn sm no-print" type="button" onclick="otProfilOeffnen()">→ 24-h-Profil trotzdem öffnen</button>
         </div>
       </div>
       <div id="otBody" style="display:none">
@@ -950,7 +975,6 @@ function fixLeadingZero(el){
               <span class="g-inp-unit">l</span>
             </div>
           </div>
-          <button class="g-btn sm no-print" type="button" onclick="otUebernehmen()">→ als gewählte Tankgrösse übernehmen</button>
           <div class="g-hint" id="otTankVergleich" style="margin-left:auto"></div>
         </div>
         <div style="margin-top:14px">
@@ -968,7 +992,10 @@ function fixLeadingZero(el){
               <button type="button" class="ot-tempo-btn active" data-ot-tempo="5" onclick="otSimTempo(5)">5×</button>
             </span>
             <input type="range" class="ot-sim-slider no-print" min="0" max="24" step="0.05" value="7" oninput="otSimScrub(this.value)" style="flex:1;min-width:160px;max-width:420px;accent-color:#2563eb"/>
-            <span style="font-size:13px;font-weight:800;color:#0f172a;font-variant-numeric:tabular-nums" id="otSimZeit">07:00</span>
+            <!-- Feedback 03.08.2026 (Sandro) «Zeitangabe nach oben schieben»:
+                 Die Uhr steht jetzt gross in der Kopfzeile (mit Tag/Nacht-
+                 Symbol) statt im Schema — dort nahm sie Zeichenfläche weg. -->
+            <span style="display:inline-flex;align-items:center;gap:6px;font-size:19px;font-weight:800;color:#0f172a;font-variant-numeric:tabular-nums" id="otSimZeit">07:00<span id="otSimTag" style="font-size:15px">☀️</span></span>
           </div>
           <div id="otSimWrap" style="overflow-x:auto"></div>
         </div>
@@ -1168,10 +1195,25 @@ function fixLeadingZero(el){
     function recalc() {
         const phiPercent = parseNumber(document.getElementById("phi").value);
         const va = parseNumber(document.getElementById("va").value);
-        const tankSelectedInput = parseNumber(document.getElementById("tankSelected").value);
         const targetHours = parseNumber(document.getElementById("targetHours").value);
 
-        const phiFactor = phiPercent > 0 ? phiPercent / 100.0 : 0;
+        /* Ausführung ein-/zweistufig (Feedback 03.08.2026). Bei der Serie
+           läuft das Permeat der 1. Stufe durch die 2. — massgebend für den
+           Weichwasserbedarf ist die GESAMT-Ausbeute φ_ges = φ₁ · φ₂.
+           Die Permeatmenge (V_O) selbst bleibt der Bedarf der Verbraucher. */
+        const stufen = (document.getElementById("stufen") || {}).value === '2' ? 2 : 1;
+        const phi2Raw = parseNumber((document.getElementById("phi2") || {}).value);
+        const phi2Percent = (stufen === 2) ? (phi2Raw > 0 ? phi2Raw : phiPercent) : 0;
+        const phi2Field = document.getElementById("phi2Field");
+        if (phi2Field) phi2Field.style.display = (stufen === 2) ? '' : 'none';
+        const phiLbl = document.getElementById("phiLbl");
+        if (phiLbl) phiLbl.textContent = (stufen === 2) ? 'Permeatausbeute φ₁ (1. Stufe)' : 'Permeatausbeute φ';
+
+        const phi1Factor = phiPercent > 0 ? phiPercent / 100.0 : 0;
+        const phiFactor = (stufen === 2 && phi2Percent > 0)
+          ? phi1Factor * (phi2Percent / 100.0)
+          : phi1Factor;
+        const phiGesPercent = phiFactor * 100.0;
 
         // Verbraucher durchgehen
         const tbody = document.getElementById("consumerBody");
@@ -1239,7 +1281,7 @@ function fixLeadingZero(el){
 
         // Osmosewasserbedarf inkl. Konzentrat (analog AC74):
         // AC74 = AC38 + (AC38/100)*(100 - S63)
-        const osmoPlusConc = dailyDemand + (dailyDemand / 100.0) * (100.0 - phiPercent);
+        const osmoPlusConc = dailyDemand + (dailyDemand / 100.0) * (100.0 - phiGesPercent);
 
         // Tankvolumen (AC78)
         // AC78 = IF(AC24>AC42, ((AC24-AC42)*AC38/AC24)*1.05, 0)
@@ -1249,17 +1291,13 @@ function fixLeadingZero(el){
             vnRequired = ((vb - va) * dailyDemand / vb) * 1.05;
         }
 
-        // Gewählte Tankgrösse
-        const vnSelected = tankSelectedInput;
-
-        let vnStatus = "Keine Tankgrösse eingegeben.";
-        if (vnSelected > 0 && vnRequired > 0) {
-            if (vnSelected >= vnRequired) {
-                vnStatus = "Tankgrösse ist ausreichend (≥ berechnetem Nutzvolumen).";
-            } else {
-                vnStatus = "Tankgrösse ist kleiner als das berechnete Nutzvolumen – prüfen!";
-            }
-        } else if (vnSelected > 0 && vnRequired === 0) {
+        /* Feedback 03.08.2026: ohne «gewählte Tankgrösse» beschreibt der
+           Hinweis nur noch, OB ein Tank nötig ist — die Grösse selbst legt
+           die 24-h-Optimierung fest (Startfüllung um 00:00). */
+        let vnStatus = "Verbraucher und Anlageleistung erfassen.";
+        if (vnRequired > 0) {
+            vnStatus = "Tank erforderlich – Grösse in der 24-h-Tankoptimierung festlegen.";
+        } else if (va > 0 && vb > 0) {
             vnStatus = "Bei aktueller Konstellation ist theoretisch kein Tank zwingend erforderlich (VB ≤ VA).";
         }
 
@@ -1286,10 +1324,17 @@ function fixLeadingZero(el){
         document.getElementById("vwLh").textContent = formatNumber(vwLh, 1);
         document.getElementById("vwLs").textContent = formatNumber(vwLs, 3);
         document.getElementById("osmoPlusConc").textContent = formatNumber(osmoPlusConc, 1);
-        document.getElementById("phiDisplay").textContent = phiFactor ? formatNumber(phiFactor, 3) : "0";
+        /* Bei der Serie steht die Gesamt-Ausbeute samt Herleitung (Feedback
+           03.08.2026) — sonst wäre nicht erkennbar, dass hier φ₁ · φ₂ wirkt. */
+        document.getElementById("phiDisplay").textContent = phiFactor
+          ? (formatNumber(phiFactor, 3) + (stufen === 2
+              ? '  (' + formatNumber(phiPercent, 0) + ' % × ' + formatNumber(phi2Percent, 0) + ' % = ' + formatNumber(phiGesPercent, 1) + ' %)'
+              : ''))
+          : "0";
+        var phiLblEl = document.querySelector('#phiDisplay')?.closest('.g-result-row')?.querySelector('.g-result-lbl');
+        if (phiLblEl) phiLblEl.textContent = (stufen === 2) ? 'Permeatausbeute φ gesamt (Faktor)' : 'Permeatausbeute φ (Faktor)';
 
         document.getElementById("vnRequired").textContent = formatNumber(vnRequired, 1);
-        document.getElementById("vnSelected").textContent = formatNumber(vnSelected, 1);
         document.getElementById("vnStatusText").textContent = vnStatus;
 
         // Excel-Checks AC49/AC51: Reinwassertank zwingend + Online-Anlage
@@ -1304,11 +1349,11 @@ function fixLeadingZero(el){
         // 24-h-Tankoptimierung nachziehen (Sichtbarkeit + Neuberechnung)
         try {
           tankoptSync({ vb: vb, va: va, hours: hours, dailyDemand: dailyDemand,
-                        tankSelected: tankSelectedInput, producedPerDay: producedPerDay });
+                        producedPerDay: producedPerDay, stufen: stufen });
         } catch(e) {}
 
         // Produktkatalog: show Anlagen-Wahl if valid
-        if(typeof window._pkAfterRecalc==='function') window._pkAfterRecalc(voLh, phiPercent);
+        if(typeof window._pkAfterRecalc==='function') window._pkAfterRecalc(voLh, phiGesPercent);
 
         // Cross-Modul-API: Output an GemaOsmose schreiben, damit
         // Folge-Module (sa_enthaertung, sb_grobauslegung) Permeat +
@@ -1330,7 +1375,7 @@ function fixLeadingZero(el){
             GemaOsmose.save(_osmOid, {
               permeat_lh: voLh,
               weichwasser_lh: vwLh,
-              recovery_pct: phiPercent,
+              recovery_pct: phiGesPercent,
               phi_factor: phiFactor
             });
           }
@@ -1345,6 +1390,9 @@ function fixLeadingZero(el){
     var OT = { bedarf: {}, ab: {}, prod: [], abProd: 6, optTank: '' };
     (function(){ for(var i = 0; i < 24; i++) OT.prod.push(0); })();
     var _otInternal = false, _otTouched = false, _otSig = null, _otCtx = null;
+    /* Geräte-UI: der Nutzer hat das Profil im Online-Fall bewusst aufgeklappt
+       (Feedback 03.08.2026) — NICHT im AutoSave-Snapshot, wie alle Fold-Zustände. */
+    var _otForceOpen = false;
 
     function otEsc(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
     function otKey(name, idx){ var n = String(name || '').trim().toLowerCase(); return n ? ('n:' + n) : ('i:' + idx); }
@@ -1374,9 +1422,13 @@ function fixLeadingZero(el){
       _otCtx = ctx;
       var sec = document.getElementById('tankoptSection'); if(!sec) return;
       var anyData = (ctx.va > 0) || (ctx.vb > 0) || (ctx.dailyDemand > 0);
-      // Sichtbarkeits-Regel (User-Entscheid): automatisch bei Offline/Tank —
-      // Tank zwingend (VB >= VA) ODER eine Tankgrösse ist erfasst.
-      var relevant = (ctx.va > 0 && ctx.vb > 0 && ctx.vb >= ctx.va) || (ctx.tankSelected > 0);
+      /* Sichtbarkeits-Regel (User-Entscheid): automatisch, sobald ein Tank
+         zwingend ist (VB >= VA). Der frühere zweite Auslöser «eine gewählte
+         Tankgrösse ist erfasst» ist mit dem Feld entfallen (03.08.2026);
+         stattdessen öffnet auch eine bereits erfasste optimierte Tankgrösse
+         das Profil — sonst käme man an einen begonnenen Stand nicht mehr heran. */
+      var optTankErfasst = parseNumber((document.getElementById('otOptTank') || {}).value) > 0;
+      var relevant = (ctx.va > 0 && ctx.vb > 0 && ctx.vb >= ctx.va) || optTankErfasst || _otForceOpen;
       // Sektion bleibt IMMER sichtbar (Feedback 28.07.2026: sie war ohne Daten
       // komplett ausgeblendet und darum unauffindbar) — nur der Inhalt wechselt.
       sec.style.display = '';
@@ -1401,10 +1453,13 @@ function fixLeadingZero(el){
       function stundenRaster(zellen, hkey){
         var g = '<tr class="ot-hrow"' + (hkey ? ' data-hkey="' + hkey + '"' : '') + '><td colspan="4"><div class="ot-grid">';
         for(var i = 0; i < 24; i++){
-          // Stundenfenster als Tooltip (Feedback 31.07.2026 «00.00–01.00 …
-          // 23.00–24.00») — im Raster steht nur die Stunde, sonst wird es zu breit.
-          var fenster = String(i).padStart(2, '0') + '.00–' + String(i + 1).padStart(2, '0') + '.00';
-          g += '<div class="ot-hcell" title="' + fenster + '"><span class="ot-hlbl">' + String(i).padStart(2, '0') + '</span>' + zellen(i) + '</div>';
+          /* Feedback 03.08.2026 (Sandro) «Zeitangaben pro Feld angeben:
+             00.00-01.00 / …»: Das Fenster steht jetzt AM FELD statt nur im
+             Tooltip — zweizeilig (Von-/Bis-Zeit untereinander), sonst passen
+             24 Fenster nicht nebeneinander. */
+          var von = String(i).padStart(2, '0') + '.00';
+          var bis = String(i + 1).padStart(2, '0') + '.00';
+          g += '<div class="ot-hcell" title="' + von + '–' + bis + ' Uhr"><span class="ot-hlbl">' + von + '–<br>' + bis + '</span>' + zellen(i) + '</div>';
         }
         return g + '</div></td></tr>';
       }
@@ -1421,7 +1476,11 @@ function fixLeadingZero(el){
           return '<input class="ot-h" type="text" inputmode="decimal" data-kind="b" data-key="' + key + '" data-h="' + hh + '" value="' + (arr[hh] ? otRound(arr[hh]) : '') + '" oninput="otCellInput(this)" onblur="fixLeadingZero(this)"/>';
         }, key);
       });
-      h += '<tr><td class="ot-lead"><b>Total Permeatbedarf</b><div class="ot-sub">Liter je Stunde</div></td><td class="no-print"></td>' +
+      /* Feedback 03.08.2026 (Sandro) «Balken farblich abheben»: Die drei
+         Auswertungs-Zeilen tragen je eine eigene Farbe (Bedarf grau · Produktion
+         blau · Füllstand grün) samt farbigem Balken links — die Abschnitte sind
+         damit auch im langen Raster sofort auseinanderzuhalten. */
+      h += '<tr class="ot-sumrow"><td class="ot-lead"><b>Total Permeatbedarf</b><div class="ot-sub">Liter je Stunde</div></td><td class="no-print"></td>' +
            '<td class="ot-sub" data-bsum></td><td></td></tr>';
       h += stundenRaster(function(hh){ return '<span class="ot-ro ot-sub" data-bh="' + hh + '"></span>'; });
       h += '<tr class="ot-prodrow"><td class="ot-lead"><b>Permeatproduktion</b><div class="ot-sub">Liter je Stunde</div></td>' +
@@ -1430,7 +1489,7 @@ function fixLeadingZero(el){
       h += stundenRaster(function(hh){
         return '<input class="ot-h" type="text" inputmode="decimal" data-kind="p" data-h="' + hh + '" value="' + (OT.prod[hh] ? otRound(OT.prod[hh]) : '') + '" oninput="otCellInput(this)" onblur="fixLeadingZero(this)"/>';
       });
-      h += '<tr><td class="ot-lead"><b>Tankfüllstand</b><div class="ot-sub">Liter am Stundenende</div></td><td class="no-print"></td><td></td><td></td></tr>';
+      h += '<tr class="ot-fillrow"><td class="ot-lead"><b>Tankfüllstand</b><div class="ot-sub">Liter am Stundenende</div></td><td class="no-print"></td><td></td><td></td></tr>';
       h += stundenRaster(function(hh){ return '<span class="ot-ro ot-fill" data-f="' + hh + '"></span>'; });
       h += '</tbody>';
       t.innerHTML = h;
@@ -1482,20 +1541,18 @@ function fixLeadingZero(el){
       if(el){ el.value = Math.ceil(min); }
       window.otOptChanged();
     };
-    window.otUebernehmen = function(){
-      var v = parseNumber((document.getElementById('otOptTank') || {}).value);
-      if(v <= 0) return;
-      var el = document.getElementById('tankSelected');
-      if(el){ el.value = String(v); }
+    /* otUebernehmen/otTankErfassen sind mit dem Feld «Gewählte Tankgrösse»
+       entfallen (Feedback 03.08.2026) — die optimierte Tankgrösse in
+       #otOptTank ist die eine Wahrheit. Ersatz für den Weg «Profil im
+       Online-Fall öffnen»: der Nutzer klappt es bewusst auf. */
+    window.otProfilOeffnen = function(){
+      _otForceOpen = true;
       recalc();
-    };
-    // Feedback 28.07.2026: aus dem «Online möglich»-Hinweis direkt ins Tankfeld
-    // springen — das Profil öffnet, sobald eine Tankgrösse erfasst ist.
-    window.otTankErfassen = function(){
-      var el = document.getElementById('tankSelected');
-      if(!el) return;
-      try { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch(e){ el.scrollIntoView(); }
-      el.focus(); el.select && el.select();
+      var el = document.getElementById('otOptTank');
+      if(el){
+        try { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch(e){ el.scrollIntoView(); }
+        el.focus(); el.select && el.select();
+      }
     };
 
     function otUpdate(){
@@ -1556,15 +1613,22 @@ function fixLeadingZero(el){
       var pwarnEl = document.querySelector('#otTbl [data-pwarn]');
       if(pwarnEl) pwarnEl.innerHTML = (prodSum > produzierbar + 0.5) ? '<span class="ot-pill bad">zu viel</span>' : '';
 
-      // Füllstand-Zeile: rot < 50 l Reserve («zu wenig»), amber > Tankgrösse
+      /* Füllstand-Zeile: rot < 50 l Reserve («zu wenig»), amber > Tankgrösse.
+         Feedback 03.08.2026 (Sandro) «Wenn Werte i.O. dann grün»: alles
+         dazwischen wird jetzt GRÜN ausgewiesen — man sieht auf einen Blick,
+         dass der Tank über den ganzen Tag im zulässigen Band bleibt. Grün
+         gibt es nur bei erfasster Tankgrösse (sonst ist nichts beurteilbar). */
       for(var f = 0; f < 24; f++){
         var fc = document.querySelector('#otTbl [data-f="' + f + '"]');
         if(!fc) continue;
         var val = prof.fuellstand[f];
+        var low = val < 50;
+        var over = startTank > 0 && val > startTank + 0.5;
         fc.textContent = formatNumber(val, 0);
-        fc.classList.toggle('ot-low', val < 50);
-        fc.classList.toggle('ot-over', startTank > 0 && val > startTank + 0.5);
-        fc.title = val < 50 ? 'zu wenig (Reserve 50 l unterschritten)' : (startTank > 0 && val > startTank + 0.5 ? 'zu viel — Tank läuft über' : '');
+        fc.classList.toggle('ot-low', low);
+        fc.classList.toggle('ot-over', over);
+        fc.classList.toggle('ot-good', !low && !over && startTank > 0);
+        fc.title = low ? 'zu wenig (Reserve 50 l unterschritten)' : (over ? 'zu viel — Tank läuft über' : (startTank > 0 ? 'i.O. (zwischen Reserve und Tankgrösse)' : ''));
       }
 
       // Vorschlag + Vergleich mit gewählter Tankgrösse
@@ -1575,22 +1639,18 @@ function fixLeadingZero(el){
          Volumen er einsparen kann, ohne die 50-l-Reserve zu verletzen. */
       var reduEl = document.getElementById('otReduHint');
       if(reduEl){
-        var basis = startTank > 0 ? startTank : ctx.tankSelected;
-        var diff = (basis > 0 && min > 0) ? basis - min : 0;
+        var diff = (startTank > 0 && min > 0) ? startTank - min : 0;
         reduEl.textContent = diff > 0.5
           ? '↓ Reduktion möglich: −' + formatNumber(diff, 0) + ' l (auf ' + formatNumber(min, 0) + ' l)'
           : '';
       }
+      /* Vergleich mit der «gewählten Tankgrösse» ist entfallen (03.08.2026) —
+         stattdessen steht hier, ob die erfasste Grösse den Bedarf deckt. */
       var vgl = document.getElementById('otTankVergleich');
       if(vgl){
-        if(ctx.tankSelected > 0 && startTank > 0){
-          vgl.textContent = 'Gewählte Tankgrösse: ' + formatNumber(ctx.tankSelected, 0) + ' l — ' +
-            (ctx.tankSelected >= startTank ? 'deckt die optimierte Grösse ✓' : 'kleiner als optimiert (' + formatNumber(startTank, 0) + ' l)!');
-        } else if(ctx.tankSelected > 0){
-          vgl.textContent = 'Gewählte Tankgrösse: ' + formatNumber(ctx.tankSelected, 0) + ' l';
-        } else {
-          vgl.textContent = '';
-        }
+        vgl.textContent = (startTank > 0 && min > 0)
+          ? (startTank >= min ? 'Tankgrösse deckt den Bedarf ✓' : 'Tankgrösse kleiner als erforderlich (' + formatNumber(min, 0) + ' l)!')
+          : '';
       }
       otDrawCanvas(prof, startTank);
       otSimSetData(prof, startTank, min);
@@ -1662,7 +1722,12 @@ function fixLeadingZero(el){
     var SIM = { t: 7, playing: false, raf: 0, last: 0, data: null, built: '' };
     /* Tank breiter (Feedback 31.07.2026) — W 170 → 260, viewBox 680 */
     var OTS = { X: 200, W: 260, TOP: 46, BOT: 326 };
-    function otSimCap(d){ return Math.max(d.tank, d.tankSel || 0, d.maxStand * 1.02, 1); }
+    /* Feedback 03.08.2026 (Sandro) «Tankgrösse immer 10 % grösser»: Der
+       gezeichnete Behälter ist bewusst höher als die Tankgrösse — die
+       Überlauf-Grenze liegt damit IM Bild und darüber bleibt sichtbar Luft
+       (dort sitzt der Überlauf). Ein voller Tank füllte den Behälter vorher
+       randvoll, der Überlauf hätte keinen Platz gehabt. */
+    function otSimCap(d){ return Math.max(d.tank * 1.1, d.maxStand * 1.02, 1); }
     function otSimY(d, v){
       var cap = otSimCap(d);
       var y = OTS.BOT - Math.max(0, Math.min(v, cap)) / cap * (OTS.BOT - OTS.TOP);
@@ -1672,7 +1737,7 @@ function fixLeadingZero(el){
       var ctx = _otCtx || {};
       SIM.data = (startTank > 0) ? {
         fuell: prof.fuellstand.slice(), bedarfH: prof.bedarfH.slice(), prod: OT.prod.slice(),
-        start: startTank, tank: startTank, tankSel: ctx.tankSelected || 0,
+        start: startTank, tank: startTank, stufen: ctx.stufen === 2 ? 2 : 1,
         min: min, maxStand: prof.maxStand
       } : null;
       otSimBuild();
@@ -1688,11 +1753,16 @@ function fixLeadingZero(el){
         return;
       }
       var cap = otSimCap(d);
-      var sig = [cap, d.tank, d.tankSel].join('|');
+      var sig = [cap, d.tank, d.stufen].join('|');
       if(SIM.built === sig && wrap.querySelector('svg')) return;
       SIM.built = sig;
       var X = OTS.X, W = OTS.W, T = OTS.TOP, B = OTS.BOT;
-      var s = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="-150 0 830 366" width="830" style="max-width:100%">';
+      /* Doppelanlage in Serie (Feedback 03.08.2026): die 2. Stufe wird LINKS
+         angebaut — die viewBox beginnt weiter links, alles ab x = 16 (Modul der
+         letzten Stufe, Permeatleitung, Tank) bleibt unverändert an seinem Platz. */
+      var zwei = d.stufen === 2;
+      var vbX = zwei ? -300 : -150, vbW = zwei ? 980 : 830;
+      var s = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="' + vbX + ' 0 ' + vbW + ' 366" width="' + vbW + '" style="max-width:100%">';
       s += '<defs>' +
         '<marker id="otSimArrT" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 Z" fill="#0d9488"/></marker>' +
         '<marker id="otSimArrB" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 Z" fill="#2563eb"/></marker>' +
@@ -1703,39 +1773,67 @@ function fixLeadingZero(el){
       /* Feedback 01.08.2026 (Sandro): die Osmoseanlage wird KOMPLETT gezeichnet
          (Hochdruckpumpe + Membranmodul + Konzentrat-Abgang) und der Zulauf
          kommt sichtbar als Weichwasser aus der Enthärtungsanlage. */
+      /* Weichwasser-Zulauf — bei der Serie 150 px weiter links (dort steht die
+         1. Stufe), sonst unverändert an seinem Platz. */
+      var zuX = zwei ? -292 : -142;
       s += '<g>' +
-        '<line x1="-142" y1="104" x2="-38" y2="104" stroke="#16a34a" stroke-width="3" stroke-linecap="round" marker-end="url(#otSimArrW)"/>' +
-        '<text x="-142" y="94" font-size="9.5" font-weight="800" fill="#15803d" font-family="DM Sans, sans-serif">Weichwasser</text>' +
-        '<text x="-142" y="122" font-size="9" font-weight="700" fill="#16a34a" font-family="DM Sans, sans-serif">von der Enthärtung</text>' +
+        '<line x1="' + zuX + '" y1="104" x2="' + (zuX + 104) + '" y2="104" stroke="#16a34a" stroke-width="3" stroke-linecap="round" marker-end="url(#otSimArrW)"/>' +
+        '<text x="' + zuX + '" y="94" font-size="9.5" font-weight="800" fill="#15803d" font-family="DM Sans, sans-serif">Weichwasser</text>' +
+        '<text x="' + zuX + '" y="122" font-size="9" font-weight="700" fill="#16a34a" font-family="DM Sans, sans-serif">von der Enthärtung</text>' +
       '</g>';
-      s += '<g>' +
-        // Hochdruckpumpe vor dem Modul
-        '<circle cx="-22" cy="104" r="13" fill="#ffffff" stroke="#0d9488" stroke-width="2.2"/>' +
-        '<path d="M -28 110 L -16 110 L -22 95 Z" fill="#0d9488"/>' +
-        '<line x1="-9" y1="104" x2="16" y2="104" stroke="#0d9488" stroke-width="3" stroke-linecap="round"/>' +
-        // Membranmodul (Druckrohr mit Membranwicklung)
-        '<rect x="16" y="82" width="92" height="44" rx="12" fill="#f0fdfa" stroke="#0d9488" stroke-width="2"/>' +
-        '<line x1="40" y1="82" x2="40" y2="126" stroke="#99f6e4" stroke-width="2"/>' +
-        '<line x1="58" y1="82" x2="58" y2="126" stroke="#99f6e4" stroke-width="2"/>' +
-        '<line x1="76" y1="82" x2="76" y2="126" stroke="#99f6e4" stroke-width="2"/>' +
-        '<line x1="94" y1="82" x2="94" y2="126" stroke="#99f6e4" stroke-width="2"/>' +
-        '<text x="62" y="72" font-size="9.5" font-weight="800" fill="#0f766e" text-anchor="middle" font-family="DM Sans, sans-serif">Osmose-Anlage</text>' +
-        // Konzentrat-Abgang nach unten
-        '<line x1="94" y1="126" x2="94" y2="150" stroke="#94a3b8" stroke-width="2.4" stroke-linecap="round"/>' +
-        '<text x="99" y="152" font-size="8.5" font-weight="700" fill="#64748b" font-family="DM Sans, sans-serif">Konzentrat</text>' +
-      '</g>';
-      // Permeat zum Tank — nur dieser Strom wird gedimmt, wenn die Stunde nicht produziert
+      /* EINE Stufe = Hochdruckpumpe + Membranmodul + Konzentrat-Abgang
+         (Feedback 01.08.2026). Bei der Serie wird derselbe Baustein zweimal
+         gezeichnet; das Permeat der 1. Stufe ist Zulauf der 2. (Feedback
+         03.08.2026 «Doppelanlage in Serie gemäss Anhang»). mx = linke Kante
+         des Membranmoduls, die Pumpe sitzt 38 px davor. */
+      function stufe(mx, titel){
+        var px = mx - 38;                              // Pumpen-Mittelpunkt
+        return '<g>' +
+          '<circle cx="' + px + '" cy="104" r="13" fill="#ffffff" stroke="#0d9488" stroke-width="2.2"/>' +
+          '<path d="M ' + (px - 6) + ' 96 L ' + (px - 6) + ' 112 L ' + (px + 10) + ' 104 Z" fill="#0d9488"/>' +
+          '<line x1="' + (px + 13) + '" y1="104" x2="' + mx + '" y2="104" stroke="#0d9488" stroke-width="3" stroke-linecap="round"/>' +
+          // Membranmodul (Druckrohr mit Membranwicklung)
+          '<rect x="' + mx + '" y="82" width="92" height="44" rx="12" fill="#f0fdfa" stroke="#0d9488" stroke-width="2"/>' +
+          '<line x1="' + (mx + 24) + '" y1="82" x2="' + (mx + 24) + '" y2="126" stroke="#99f6e4" stroke-width="2"/>' +
+          '<line x1="' + (mx + 42) + '" y1="82" x2="' + (mx + 42) + '" y2="126" stroke="#99f6e4" stroke-width="2"/>' +
+          '<line x1="' + (mx + 60) + '" y1="82" x2="' + (mx + 60) + '" y2="126" stroke="#99f6e4" stroke-width="2"/>' +
+          '<line x1="' + (mx + 78) + '" y1="82" x2="' + (mx + 78) + '" y2="126" stroke="#99f6e4" stroke-width="2"/>' +
+          '<text x="' + (mx + 46) + '" y="72" font-size="9.5" font-weight="800" fill="#0f766e" text-anchor="middle" font-family="DM Sans, sans-serif">' + titel + '</text>' +
+          // Konzentrat-Abgang nach unten
+          '<line x1="' + (mx + 78) + '" y1="126" x2="' + (mx + 78) + '" y2="150" stroke="#94a3b8" stroke-width="2.4" stroke-linecap="round"/>' +
+          '<text x="' + (mx + 83) + '" y="152" font-size="8.5" font-weight="700" fill="#64748b" font-family="DM Sans, sans-serif">Konzentrat</text>' +
+        '</g>';
+      }
+      if(zwei){
+        s += stufe(-134, 'Stufe 1');
+        // Permeat der 1. Stufe → Zulauf der 2. Stufe
+        s += '<line x1="-42" y1="104" x2="-35" y2="104" stroke="#0d9488" stroke-width="3" stroke-linecap="round"/>';
+        s += '<text x="-38" y="132" font-size="8" font-weight="700" fill="#0f766e" text-anchor="middle" font-family="DM Sans, sans-serif">Permeat</text>';
+        s += stufe(16, 'Stufe 2');
+        s += '<text x="-59" y="46" font-size="9.5" font-weight="800" fill="#0f766e" text-anchor="middle" font-family="DM Sans, sans-serif">Osmose-Anlage · Doppelanlage in Serie</text>';
+      } else {
+        s += stufe(16, 'Osmose-Anlage');
+      }
+      /* Permeat zum Tank — nur dieser Strom wird gedimmt, wenn die Stunde nicht
+         produziert. Die Leitung ist seit Feedback 03.08.2026 als «Permeat»
+         beschriftet (Gegenstück zum «Konzentrat»-Abgang); der Literwert der
+         laufenden Stunde steht darüber. */
       s += '<g data-sim="prodGrp">' +
         '<line x1="108" y1="104" x2="' + (X - 4) + '" y2="104" stroke="#0d9488" stroke-width="3" stroke-linecap="round" marker-end="url(#otSimArrT)"/>' +
         '<text data-sim="prodTxt" x="' + ((108 + X) / 2) + '" y="96" font-size="11" font-weight="800" fill="#0d9488" text-anchor="middle" font-family="DM Sans, sans-serif"></text>' +
       '</g>';
+      /* Die Leitungs-Beschriftung steht AUSSERHALB der prodGrp — sie soll auch
+         in einer Stunde ohne Produktion lesbar bleiben (gedimmt wird nur der
+         Strom selbst). */
+      s += '<text x="' + ((108 + X) / 2) + '" y="120" font-size="8.5" font-weight="700" fill="#0f766e" text-anchor="middle" font-family="DM Sans, sans-serif">Permeat</text>';
       // Ablauf: Tank → Verbraucher (aktiv, wenn die Stunde Bedarf hat) —
       // Beschriftung in EINER Zeile (Feedback 31.07.2026)
       s += '<g data-sim="bedGrp">' +
         '<line x1="' + (X + W) + '" y1="300" x2="576" y2="300" stroke="#2563eb" stroke-width="3" stroke-linecap="round" marker-end="url(#otSimArrB)"/>' +
-        // Druckerhöhungspumpe nach dem Tank (Feedback 01.08.2026)
+        // Druckerhöhungspumpe nach dem Tank (Feedback 01.08.2026) —
+        // Dreieck in Fliessrichtung nach rechts (Feedback 03.08.2026)
         '<circle cx="' + (X + W + 34) + '" cy="300" r="13" fill="#ffffff" stroke="#2563eb" stroke-width="2.2"/>' +
-        '<path d="M ' + (X + W + 28) + ' 306 L ' + (X + W + 40) + ' 306 L ' + (X + W + 34) + ' 291 Z" fill="#2563eb"/>' +
+        '<path d="M ' + (X + W + 28) + ' 292 L ' + (X + W + 28) + ' 308 L ' + (X + W + 44) + ' 300 Z" fill="#2563eb"/>' +
         '<text x="' + (X + W + 34) + '" y="330" font-size="8.5" font-weight="700" fill="#1d4ed8" text-anchor="middle" font-family="DM Sans, sans-serif">Druckerhöhung</text>' +
         '<rect x="580" y="284" width="88" height="32" rx="8" fill="#eff6ff" stroke="#2563eb" stroke-width="1.5"/>' +
         '<text x="624" y="304" font-size="9.5" font-weight="800" fill="#1d4ed8" text-anchor="middle" font-family="DM Sans, sans-serif">Verbraucher</text>' +
@@ -1757,9 +1855,10 @@ function fixLeadingZero(el){
         if(!(v > 0) || v > cap * 1.001) return;
         marks.push({ y: otSimY(d, v), col: col, label: label, dash: dash || '6 4' });
       }
+      /* «gewählt … l» ist mit dem Feld «Gewählte Tankgrösse» entfallen
+         (Feedback 03.08.2026 «Wert löschen, braucht es nicht»). */
       mk(d.tank, '#d97706', 'Tankgrösse ' + formatNumber(d.tank, 0) + ' l');
       mk(50, '#dc2626', 'Reserve 50 l', '3 3');
-      if(d.tankSel > 0 && Math.abs(d.tankSel - d.tank) > 0.5) mk(d.tankSel, '#64748b', 'gewählt ' + formatNumber(d.tankSel, 0) + ' l', '2 3');
       marks.sort(function(a, b){ return a.y - b.y; });
       var lastLy = -999;
       marks.forEach(function(m){
@@ -1771,14 +1870,27 @@ function fixLeadingZero(el){
         if(Math.abs(m.ly - m.y) > 4) s += '<line x1="' + (X - 6) + '" y1="' + m.ly + '" x2="' + X + '" y2="' + m.y + '" stroke="' + m.col + '" stroke-width="1"/>';
         s += '<text x="' + (X - 8) + '" y="' + (m.ly + 3.5) + '" font-size="9.5" font-weight="700" fill="' + m.col + '" text-anchor="end" font-family="DM Sans, sans-serif">' + m.label + '</text>';
       });
+      /* Überlauf (Feedback 03.08.2026, Sandro «Überlauf darstellen»): sitzt auf
+         der Tankgrösse = Überlauf-Grenze und führt rechts aus dem Behälter
+         nach unten in den Ablauf. Der 10-%-Kopfraum (otSimCap) hält ihn
+         sichtbar unter der Behälter-Oberkante. */
+      /* Abgang GANZ OBEN am Behälter (nicht auf der Tankgrösse-Linie): dort
+         sitzt ein Überlauf real, und er gerät nicht unter den Füllstand-Chip,
+         der bei vollem Tank genau auf der Überlauf-Grenze liegt. */
+      var ueY = OTS.TOP + 12;
+      var ueX = X + W + 120;                                     // rechts am Füllstand-Chip vorbei
+      s += '<g>' +
+        '<path d="M ' + (X + W) + ' ' + ueY + ' H ' + ueX + ' V ' + (ueY + 34) + '" fill="none" stroke="#0891b2" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>' +
+        '<path d="M ' + (ueX - 5) + ' ' + (ueY + 26) + ' L ' + ueX + ' ' + (ueY + 38) + ' L ' + (ueX + 5) + ' ' + (ueY + 26) + ' Z" fill="#0891b2"/>' +
+        '<text x="' + (ueX + 8) + '" y="' + (ueY + 4) + '" font-size="8.5" font-weight="700" fill="#0e7490" font-family="DM Sans, sans-serif">Überlauf</text>' +
+      '</g>';
       // Füllstand-Chip (folgt der Wasseroberfläche, via transform)
       s += '<g data-sim="lvlGrp" transform="translate(0,' + B + ')">' +
         '<rect x="' + (X + W + 8) + '" y="-10" width="104" height="20" rx="10" fill="#ffffff" stroke="#2563eb" stroke-width="1.2"/>' +
         '<text data-sim="lvlTxt" x="' + (X + W + 60) + '" y="4" font-size="10.5" font-weight="800" fill="#1d4ed8" text-anchor="middle" font-family="DM Sans, sans-serif"></text>' +
       '</g>';
-      // Uhr + Tag/Nacht + Status-Pill
-      s += '<text data-sim="clock" x="20" y="30" font-size="20" font-weight="800" fill="#0f172a" font-family="DM Sans, sans-serif" style="font-variant-numeric:tabular-nums">07:00</text>';
-      s += '<text data-sim="day" x="92" y="30" font-size="15" font-family="DM Sans, sans-serif">☀️</text>';
+      /* Uhr + Tag/Nacht stehen seit Feedback 03.08.2026 in der Kopfzeile
+         (#otSimZeit / #otSimTag) — im Bild bleibt nur die Status-Pill. */
       s += '<g><rect data-sim="pillBg" x="492" y="14" width="176" height="22" rx="11" fill="#f0fdf4" stroke="#16a34a" stroke-width="1.4"/>' +
         '<text data-sim="pillTxt" x="580" y="29" font-size="10.5" font-weight="800" fill="#16a34a" text-anchor="middle" font-family="DM Sans, sans-serif">Füllstand i.O.</text></g>';
       s += '</svg>';
@@ -1794,7 +1906,15 @@ function fixLeadingZero(el){
       var hh = tEnd ? 23 : Math.floor(SIM.t) % 24;
       var mm = tEnd ? 0 : Math.floor((SIM.t % 1) * 60);
       var clockTxt = tEnd ? '24:00' : (String(hh).padStart(2, '0') + ':' + String(mm).padStart(2, '0'));
-      if(zeit) zeit.textContent = clockTxt;
+      /* Uhr in der KOPFZEILE nachführen (Feedback 03.08.2026) — die Zahl steht
+         als Textknoten vor dem Tag/Nacht-Symbol, damit das Symbol erhalten
+         bleibt; Fallback textContent, falls das Markup älter ist. */
+      if(zeit){
+        if(zeit.firstChild && zeit.firstChild.nodeType === 3) zeit.firstChild.nodeValue = clockTxt;
+        else zeit.textContent = clockTxt;
+      }
+      var tagEl = document.getElementById('otSimTag');
+      if(tagEl) tagEl.textContent = (hh >= 6 && hh < 21) ? '☀️' : '🌙';
       if(slider && Math.abs(parseFloat(slider.value) - SIM.t) > 0.06) slider.value = String(SIM.t);
       var wrap = document.getElementById('otSimWrap');
       var d = SIM.data;
@@ -1825,8 +1945,6 @@ function fixLeadingZero(el){
       var pt = q('prodTxt'); if(pt) pt.textContent = prodH > 0 ? '+' + formatNumber(prodH, 0) + ' l/h' : '';
       var bg2 = q('bedGrp'); if(bg2) bg2.setAttribute('opacity', bedH > 0 ? '1' : '0.28');
       var bt = q('bedTxt'); if(bt) bt.textContent = bedH > 0 ? '−' + formatNumber(bedH, 0) + ' l/h' : '';
-      var ck = q('clock'); if(ck) ck.textContent = clockTxt;
-      var dy = q('day'); if(dy) dy.textContent = (hh >= 6 && hh < 21) ? '☀️' : '🌙';
       var pb = q('pillBg'), px = q('pillTxt');
       if(pb && px){
         var st = low ? ['#fef2f2', '#dc2626', 'Reserve unterschritten!'] :

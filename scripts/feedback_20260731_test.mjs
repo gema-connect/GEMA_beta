@@ -106,18 +106,25 @@ const schema3 = await page.evaluate(() => {
   return {
     pumps: (html.match(/stroke="#1d4ed8" stroke-width="2\.5"/g) || []).length,
     label: (html.match(/Druckerhöhungsanlage · (\d) Pumpen?/) || [])[1],
-    fBadges: (html.match(/>~f</g) || []).length
+    // Feedback 03.08.2026: das «~f»-Badge heisst jetzt «FU» (Frequenzumrichter)
+    fBadges: (html.match(/>FU</g) || []).length
   };
 });
 ok(schema3.pumps === 3 && schema3.label === '3', 'np-Wahl 3 → 3 Pumpen im Schema');
-ok(schema3.fBadges === 3, 'Jede Pumpe mit ~f-Badge: ' + schema3.fBadges);
+ok(schema3.fBadges === 3, 'Jede Pumpe mit FU-Kästchen: ' + schema3.fBadges);
 
-// ---- Gerade Bezugslinien: alle dashed 3-3-Linien im Schema sind senkrecht (x1==x2)
+/* ---- Gerade Bezugslinien: keine SCHRÄGEN Linien im Schema. Senkrecht
+   (x1==x2) war bis 01.08.2026 die einzige Form; seit dem Δh-Chip rechts im
+   Gebäude (Feedback 03.08.2026 «Beschriftung weiter nach rechts schieben»)
+   gibt es zusätzlich eine waagrechte Leaderlinie (y1==y2) — beides ist
+   orthogonal, verboten bleibt allein die Schräge. */
 const straight = await page.evaluate(() => {
   const svg = document.querySelector('#deSchemaVfd svg');
   const bad = [];
   svg.querySelectorAll('line[stroke-dasharray="3 3"]').forEach(l => {
-    if (l.getAttribute('x1') !== l.getAttribute('x2')) bad.push(l.outerHTML.slice(0, 90));
+    const senkrecht = l.getAttribute('x1') === l.getAttribute('x2');
+    const waagrecht = l.getAttribute('y1') === l.getAttribute('y2');
+    if (!senkrecht && !waagrecht) bad.push(l.outerHTML.slice(0, 90));
   });
   return bad;
 });
@@ -186,7 +193,8 @@ const ves = await page.evaluate(() => {
     pumps: (html.match(/stroke="#1d4ed8" stroke-width="2\.5"/g) || []).length,
     upLeg: /x1="676" y1="284" x2="676" y2="\d/.test(html),
     kessel: html.includes('Windkessel'),
-    diagBad: [...document.querySelectorAll('#deSchemaVes svg line[stroke-dasharray="3 3"]')].filter(l => l.getAttribute('x1') !== l.getAttribute('x2')).length
+    diagBad: [...document.querySelectorAll('#deSchemaVes svg line[stroke-dasharray="3 3"]')]
+      .filter(l => l.getAttribute('x1') !== l.getAttribute('x2') && l.getAttribute('y1') !== l.getAttribute('y2')).length
   };
 });
 ok(/^\d+\.\d{2}$/.test(ves.vz) && /^\d+\.\d{2}$/.test(ves.k), 'Vessel: VZ/K mit 2 Dezimalstellen: ' + ves.vz + ' / ' + ves.k);
@@ -212,8 +220,11 @@ await op.waitForTimeout(1500);
 await op.evaluate(() => {
   const set = (id, v) => { const el = document.getElementById(id); if (el){ el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); } };
   set('c_flow_0', '250'); set('c_hours_0', '8');
-  set('anlageLeistung', '150'); set('tankSelected', '100');
+  /* Feedback 03.08.2026: «Gewählte Tankgrösse» ist entfallen — das Profil
+     öffnet sich, sobald ein Tank zwingend ist bzw. bewusst aufgeklappt wird. */
+  set('anlageLeistung', '150');
   recalc();
+  if (typeof otProfilOeffnen === 'function') otProfilOeffnen();
 });
 await op.waitForTimeout(500);
 await op.evaluate(() => { document.getElementById('otOptTank').value = '2500'; otOptChanged(); });
@@ -258,11 +269,15 @@ ok(osm.scroll === 0, '24-h-Tabelle ohne horizontalen Schiebe-Balken (Overflow ' 
    gilt weiter und wird hier am neuen Raster geprüft. */
 ok(osm.hrows > 0 && osm.hcells === osm.hrows * 24 && osm.hkeyRows === osm.consRows,
    'je Verbraucher ein 24-Stunden-Raster unter der Zeile (' + osm.hkeyRows + '/' + osm.consRows + ' Verbraucher, ' + osm.hrows + ' Raster à 24)');
-ok(osm.hlbl0 === '00', 'jede Stunde ist beschriftet');
-ok(osm.htitle0 === '00.00–01.00' && osm.htitle23 === '23.00–24.00', 'Fenster-Angabe 00.00–01.00 … 23.00–24.00 als Tooltip');
+/* Feedback 03.08.2026 (Sandro) «Zeitangaben pro Feld angeben: 00.00-01.00»:
+   Das Fenster steht jetzt AM FELD (zweizeilig), nicht mehr nur im Tooltip. */
+ok(osm.hlbl0.replace(/\s/g, '') === '00.00–01.00', 'jede Stunde mit vollem Fenster beschriftet: ' + osm.hlbl0);
+ok(osm.htitle0 === '00.00–01.00 Uhr' && osm.htitle23 === '23.00–24.00 Uhr', 'Fenster-Angabe zusätzlich als Tooltip');
 ok(osm.einzeilig, 'Tank-Sim: «Verbraucher» in einer Zeile');
 ok(osm.tankW >= 240, 'Tank breiter dargestellt (' + osm.tankW + 'px)');
-ok(osm.markCount === 3 && osm.minGap >= 11, 'Marker-Labels gestaffelt (kleine Werte, minGap ' + osm.minGap.toFixed(1) + 'px)');
+/* Nur noch ZWEI Marker: «gewählt … l» ist mit dem Feld «Gewählte Tankgrösse»
+   entfallen (Feedback 03.08.2026). Die Staffelungs-Regel gilt unverändert. */
+ok(osm.markCount === 2 && osm.minGap >= 11, 'Marker-Labels gestaffelt (Tankgrösse + Reserve, minGap ' + osm.minGap.toFixed(1) + 'px)');
 ok(osm.folds >= 3, 'Sektionen einklappbar: ' + osm.folds);
 
 const osmFold = await op.evaluate(() => {
