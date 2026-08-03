@@ -161,6 +161,10 @@ for (const m of MODULE) {
   }
   /* Fold-Zustand gehört NIE in den AutoSave-Snapshot */
   ok(src.indexOf('gema_el_fold_v1') >= 0, f + ': Fold-Zustand in gema_el_fold_v1 (Geräte-UI)');
+  /* Ohne gewähltes Objekt macht GemaAutoSave KEINEN Initial-Restore — ohne
+     Snapshot-Fallback wären die Eingaben nach einem Reload weg. */
+  ok(new RegExp(m.praefix + 'SnapshotLoad').test(src), f + ': Snapshot-Fallback vorhanden');
+  ok(/isTrusted/.test(src), f + ': Snapshot-Fallback respektiert echte Eingaben (isTrusted)');
   /* Namensraum: jedes Modul hat seinen eigenen Präfix */
   ok(new RegExp('function ' + m.praefix + 'Calc\\(').test(src), f + ': Engine-Funktion ' + m.praefix + 'Calc');
 }

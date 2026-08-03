@@ -347,13 +347,57 @@ function ${P}Recalc(){
   set('${P}_sum2', fmt(r.kappa, 1));
 }
 
+/* ── Snapshot-Fallback (KRITISCH) ────────────────────────────────────────
+   GemaAutoSave stellt beim Seitenstart NUR wieder her, wenn ein Objekt
+   gewählt ist («Initial load for current object»). Wer ohne Projektbezug
+   rechnet — freies Objekt, schnelle Kontrollrechnung — verlöre seine
+   Eingaben sonst bei jedem Reload, obwohl sie gespeichert sind.
+   Darum lesen wir den Snapshot direkt aus dem Speicher nach, solange der
+   Benutzer nichts angefasst hat (Muster glSnapshotLoad in sb_grundleitungen).
+   \`e.isTrusted\` unterscheidet echte Eingaben von programmatischen. */
+var _${P}Touched = false;
+document.addEventListener('input',  function(e){ if(e.isTrusted) _${P}Touched = true; }, true);
+document.addEventListener('change', function(e){ if(e.isTrusted) _${P}Touched = true; }, true);
+
+function ${P}SnapshotKey(){
+  var sel = document.getElementById('metaObjektDropdown');
+  var basis = 'gema_${m.datei.replace('el_','')}';
+  if(!sel || !sel.value) return basis;
+  try{
+    if(typeof GemaObjekte !== 'undefined' && GemaObjekte.storageKey) return GemaObjekte.storageKey(basis);
+  }catch(e){}
+  return basis + '__' + sel.value;
+}
+
+function ${P}SnapshotLoad(){
+  if(_${P}Touched) return;
+  var daten;
+  try{ daten = JSON.parse(localStorage.getItem(${P}SnapshotKey()) || 'null'); }catch(e){ return; }
+  if(!daten) return;
+  var gesetzt = false;
+  Object.keys(daten).forEach(function(id){
+    if(id.charAt(0) === '_') return;              // _ts u.ä. sind Metadaten
+    if(id.indexOf('${P}_') !== 0) return;         // nur die Felder dieses Moduls
+    var el = document.getElementById(id);
+    if(!el || el.value === daten[id]) return;
+    el.value = daten[id];
+    gesetzt = true;
+  });
+  if(gesetzt) ${P}Recalc();
+}
+
 document.addEventListener('DOMContentLoaded', function(){
   ${P}FoldInit();
   ${P}FillSelects();
   ${P}Recalc();
+  /* Gestaffelt, weil der Objekt-Bezug und der Cloud-Pull später eintreffen. */
+  setTimeout(${P}SnapshotLoad, 700);
+  setTimeout(${P}SnapshotLoad, 1800);
+  setTimeout(${P}SnapshotLoad, 3500);
 });
 /* AutoSave-Restore setzt Werte programmatisch — danach neu rechnen. */
-window.addEventListener('gema-autosave-restored', function(){ ${P}Recalc(); });
+window.addEventListener('gema-autosave-restored', function(){ ${P}FillSelects(); ${P}Recalc(); });
+window.addEventListener('gema-objekte-loaded', function(){ setTimeout(${P}SnapshotLoad, 300); });
 <\/script>
 
 <script>
