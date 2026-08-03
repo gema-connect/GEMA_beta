@@ -109,43 +109,76 @@ let { out, errs } = await pdfMit(null);
 ok(errs.length === 0, 'PDF-Erzeugung ohne pageerror (' + errs.slice(0, 2).join(' | ') + ')');
 ok(out.calls.length > 40, 'PDF wurde wirklich gezeichnet (' + out.calls.length + ' Aufrufe)');
 
-const fills = out.calls.filter(c => c.n === 'setFillColor').map(c => c.a.join(','));
 const rects = out.calls.filter(c => c.n === 'rect');
-ok(rects.some(r => r.a[1] === 0 && r.a[3] === 9), 'Farbband am Kopf des Deckblatts');
-ok(fills.length > 10, 'Farbband ist ein Verlauf (viele Farbschritte: ' + fills.length + ')');
+// Feedback 03.08.2026: KEIN Verlaufsbalken mehr auf dem Deckblatt.
+ok(!rects.some(r => r.a[1] === 0 && r.a[3] === 9), 'kein Primär→Sekundär-Farbband mehr am Kopf');
 ok(out.calls.some(c => c.n === 'addImage' && String(c.a[1]) === 'JPEG' && c.a[2] > 400), 'Firmenlogo oben rechts eingebettet');
 
 const texte = out.calls.filter(c => c.n === 'text').map(c => String(c.a[0])).join(' | ');
 ok(/MUSTER HAUSTECHNIK AG/.test(texte), 'Firmenname als Eyebrow über dem Titel');
-ok(/PRÜFUNGS-PROTOKOLL/.test(texte), 'Abschnitts-Band «Prüfungs-Protokoll»');
-ok(/MÄNGEL- & PENDENZENLISTE/.test(texte), 'Abschnitts-Band «Mängel- & Pendenzenliste»');
-ok(/UNTERSCHRIFTEN/.test(texte), 'Abschnitts-Band «Unterschriften»');
+// Abschnitts-Titel: Klartext statt Versalien im gefüllten Band
+ok(/Prüfungs-Protokoll/.test(texte) && !/PRÜFUNGS-PROTOKOLL/.test(texte), 'Abschnitts-Titel «Prüfungs-Protokoll» als Text, nicht als Band');
+ok(/Mängel- & Pendenzenliste/.test(texte), 'Abschnitts-Titel «Mängel- & Pendenzenliste»');
+ok(!/UNTERSCHRIFTEN/.test(texte), 'kein Unterschriften-Band mehr (Spalten auf Seite 1)');
 ok(/Fortschritt: 0 \/ 1 erledigt \(0 %\)/.test(texte), 'Fortschritts-Kachel mit Prozentwert');
 ok(/Seite 1 \/ /.test(texte), 'Fusszeile mit Seitenzahl');
 ok(/Muster Haustechnik AG · Musterweg 4, 4000 Basel/.test(texte), 'Fusszeile nennt Firma + Adresse');
 ok(out.calls.filter(c => c.n === 'setPage').length >= 2, 'Kopf-/Fusszeile wird auf JEDE Seite gezogen');
 
 ok(out.tables.length >= 2, 'Checklisten- UND Mängel-Tabelle gezeichnet (' + out.tables.length + ')');
-ok(out.tables.every(t => t.alternateRowStyles && t.alternateRowStyles.fillColor), 'jede Tabelle hat einen Zebra-Tint');
-ok(out.tables.every(t => !(t.headStyles.fillColor[0] === 29 && t.headStyles.fillColor[1] === 78 && t.headStyles.fillColor[2] === 216)),
+ok(out.tables.every(t => !t.alternateRowStyles), 'kein Zebra mehr — die Tabellen folgen dem gedruckten Formular');
+ok(out.tables.every(t => !(t.headStyles.fillColor && t.headStyles.fillColor[0] === 29 && t.headStyles.fillColor[1] === 78 && t.headStyles.fillColor[2] === 216)),
    'kein hart codiertes Blau [29,78,216] mehr in den Tabellenköpfen');
+
+console.log('— Anordnung wie das gedruckte Formular —');
+// Unterschriften auf Seite 1: vier Spalten, VOR dem ersten addPage
+const bisSeite2 = out.calls.slice(0, out.calls.findIndex(c => c.n === 'addPage') + 1 || out.calls.length);
+const sigTxt = bisSeite2.filter(c => c.n === 'text').map(c => String(c.a[0]));
+['Der Unternehmer', 'Der Bauherr', 'Die Bauleitung', 'Die Fachbauleitung'].forEach(l =>
+  ok(sigTxt.indexOf(l) >= 0, 'Unterschriften-Spalte «' + l + '» auf Seite 1'));
+const sigX = bisSeite2.filter(c => c.n === 'text' && /^(Der|Die) /.test(String(c.a[0]))).map(c => c.a[1]);
+ok(new Set(sigX).size === 4 && Math.max(...sigX) > 300, 'die vier Unterschriften stehen NEBENEINANDER (x: ' + sigX.join(', ') + ')');
+ok(sigTxt.indexOf('Ort, Datum:') >= 0, 'Ort/Datum steht über den Unterschriften');
+// Kopfblock als Label/Wert-Raster: Labels an M, Werte an derselben x-Position
+const lblX = bisSeite2.filter(c => c.n === 'text' && /^(Bauobjekt|Bauherr|Bauleitung|Unternehmer|Arbeitsgattung):$/.test(String(c.a[0])));
+ok(lblX.length >= 5 && new Set(lblX.map(c => c.a[1])).size === 1, 'Beteiligte als Label-Spalte (sauber untereinander)');
+// Ankreuzzeile statt rohem Schlüsselwort
+ok(/Zutreffendes ankreuzen/.test(texte) && /unwesentliche Mängel/.test(texte), 'Ergebnis als Ankreuzzeile');
+ok(!/Ergebnis: *unwesentliche/.test(texte), 'kein rohes «Ergebnis: unwesentliche» mehr');
+// Checkliste auf EIGENER Seite: zwischen Unterschriften und Checklisten-Tabelle liegt ein addPage
+const iSig = out.calls.findIndex(c => c.n === 'text' && String(c.a[0]) === 'Der Unternehmer');
+const iChk = out.calls.findIndex(c => c.n === 'text' && /^Checkliste zur Kontrolle/.test(String(c.a[0])));
+ok(iSig >= 0 && iChk > iSig, 'Checkliste kommt NACH den Unterschriften');
+ok(out.calls.slice(iSig, iChk).some(c => c.n === 'addPage'), 'Checkliste steht auf einer eigenen Seite');
+ok(/Legende Checkliste/.test(texte), 'Legende als eigener Block «Legende Checkliste»');
+// Kleines Foto in der Mängelzeile (Feedback 03.08.2026)
+const mTab = out.tables[out.tables.length - 1];
+ok(mTab.head[0].indexOf('Foto') >= 0, 'Mängelliste hat eine Foto-Spalte');
+// Die Callbacks überleben die JSON-Serialisierung aus dem Browser nicht —
+// sie werden weiter unten statisch am Quelltext geprüft.
+ok(mTab.body[0].length === mTab.head[0].length, 'Kopf und Zeilen haben gleich viele Spalten');
+ok(Object.keys(mTab.columnStyles).reduce((s, k) => s + mTab.columnStyles[k].cellWidth, 0) <= 515,
+   'Spaltenbreiten passen in die Textbreite');
+const chkTab = out.tables[0];
+ok(chkTab.head[0][0] === '' && chkTab.body[0][0] === '•', 'Checkliste: Aufzählungspunkt in eigener Spalte (Hängeeinzug)');
 
 console.log('— Mit Firmenfarben: Marke schlägt durch —');
 ({ out, errs } = await pdfMit({ primary: '#7c3aed', secondary: '#0891b2' }));
 ok(errs.length === 0, 'PDF mit Branding ohne pageerror');
-const kopf = out.tables[0].headStyles.fillColor;
-ok(kopf[0] === 124 && kopf[1] === 58 && kopf[2] === 237, 'Tabellenkopf trägt die Firmen-Primärfarbe (' + kopf.join(',') + ')');
-const zebra = out.tables[0].alternateRowStyles.fillColor;
-ok(zebra[0] > 230 && zebra[1] > 225 && zebra[2] > 245, 'Zebra ist ein heller Ton DERSELBEN Farbe (' + zebra.join(',') + ')');
-const bandFills = out.calls.filter(c => c.n === 'setFillColor').map(c => c.a.join(','));
-ok(bandFills.indexOf('124,58,237') >= 0, 'Abschnitts-Bänder in der Firmenfarbe');
-ok(bandFills.some(f => /^8,145,178/.test(f)) || bandFills.some(f => f.split(',').map(Number)[2] > 150),
-   'Sekundärfarbe fliesst als Verlauf-Ende ins Farbband');
+// Titel tragen die Primärfarbe (setTextColor vor dem Abschnitts-Titel)
+const txtFarben = out.calls.filter(c => c.n === 'setTextColor').map(c => c.a.join(','));
+ok(txtFarben.indexOf('124,58,237') >= 0, 'Abschnitts-Titel in der Firmen-Primärfarbe');
+// Die Sekundärfarbe darf NIRGENDS mehr auftauchen (weder als Fläche noch als Text)
+const alleFarben = out.calls.filter(c => /^set(Fill|Text|Draw)Color$/.test(c.n)).map(c => c.a.join(','));
+ok(alleFarben.indexOf('8,145,178') < 0, 'Sekundärfarbe wird gar nicht mehr verwendet (kein Fade)');
+const mkopf = out.tables[out.tables.length - 1].headStyles;
+ok(mkopf.textColor && mkopf.textColor[0] === 124, 'Tabellenkopf: Text in der Primärfarbe');
+ok(mkopf.fillColor && mkopf.fillColor[0] > 230, 'Tabellenkopf: nur ein heller Ton als Fläche (' + mkopf.fillColor.join(',') + ')');
 
 console.log('— Kontrastschutz: helle Marke wird nie 1:1 verwendet —');
 ({ out, errs } = await pdfMit({ primary: '#f5c518' }));   // helles Gelb
-const gelbKopf = out.tables[0].headStyles.fillColor;
-ok(!(gelbKopf[0] === 245 && gelbKopf[1] === 197 && gelbKopf[2] === 24), 'helles Gelb landet NICHT roh im Tabellenkopf');
+const gelbKopf = out.tables[out.tables.length - 1].headStyles.textColor;
+ok(!(gelbKopf[0] === 245 && gelbKopf[1] === 197 && gelbKopf[2] === 24), 'helles Gelb landet NICHT roh als Textfarbe');
 const lum = 0.2126 * Math.pow(gelbKopf[0] / 255, 2.2) + 0.7152 * Math.pow(gelbKopf[1] / 255, 2.2) + 0.0722 * Math.pow(gelbKopf[2] / 255, 2.2);
 ok(1.05 / (lum + 0.05) >= 4.0, 'abgedunkelte Marke ist gegen Weiss lesbar (Kontrast ' + (1.05 / (lum + 0.05)).toFixed(1) + ':1)');
 ok(gelbKopf[0] > gelbKopf[2], 'der Farbton (Gold) bleibt erhalten');
@@ -153,8 +186,15 @@ ok(gelbKopf[0] > gelbKopf[2], 'der Farbton (Gold) bleibt erhalten');
 console.log('— Statische Absicherung —');
 const src = await readFile(join(ROOT, 'pm_abnahme.html'), 'utf8');
 ok(/function _abBrand/.test(src), '_abBrand liest org.settings.pdfFarben');
-ok(/function _abCoverBar/.test(src) && /function _abBand/.test(src), 'Farbband + Abschnitts-Bänder als Helfer');
+ok(/function _abBand/.test(src) && !/function _abCoverBar/.test(src), 'Abschnitts-Titel als Helfer, Verlaufsbalken entfernt');
+ok(!/pf\.secondary/.test(src), 'die Sekundärfarbe wird nicht mehr ausgewertet');
 ok(/function _abKopfFuss/.test(src), 'Kopf-/Fusszeile als Helfer');
+ok(/function _abMetaZeile/.test(src), 'Label/Wert-Raster als Helfer');
+ok(/function _abBox/.test(src) && /latin1/.test(src), 'Ankreuzkästchen werden GEZEICHNET (jsPDF-Fonts sind latin1)');
+ok(/function _abThumb/.test(src) && /function _abFotoDataUrl/.test(src), 'Vorschaubild + EINE Foto-Auflösungskette als Helfer');
+ok(/didDrawCell:d=>\{[\s\S]{0,400}addImage/.test(src), 'das Vorschaubild wird in die Foto-Zelle gezeichnet');
+ok(/didParseCell:d=>\{[\s\S]{0,200}minCellHeight/.test(src), 'die Zeilenhöhe wird VOR der Berechnung reserviert');
+ok(/_abThumb\(src,AB_THUMB\*3\)/.test(src), 'das Foto wird für die Zelle verkleinert (kein Vollbild im PDF)');
 ok(!/fillColor:\[29,78,216\]/.test(src), 'kein hart codiertes Blau mehr im Quelltext');
 
 console.log('\n' + (fail ? '❌' : '✅') + '  ' + pass + ' bestanden, ' + fail + ' fehlgeschlagen');
