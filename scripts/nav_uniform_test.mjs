@@ -55,6 +55,7 @@ for (const f of files) {
   // Breadcrumb-Label-Kanon je Ziel
   const canon = {
     'sb_index.html': 'Sanitärberechnungen',
+    'el_index.html': 'Elektroberechnungen',
     'pm_ausschreibung.html': 'Planung & Management',
     'ab_index.html': 'Ausbildung',
     'index.html#hei': 'Heizung & Wärmeerzeugung',

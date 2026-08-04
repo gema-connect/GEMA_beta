@@ -1,0 +1,1687 @@
+<!doctype html>
+<html lang="de">
+<head>
+<script src="gema_sync.js"></script>
+<script src="gema_auth.js"></script>
+<script src="gema_recent.js"></script>
+<meta charset="utf-8"/>
+<meta name="theme-color" content="#0f172a"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
+<meta name="mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<meta name="apple-mobile-web-app-title" content="GEMA"/>
+<title>GEMA – Kurzschluss & Abschaltbedingung</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,600;9..40,700;9..40,800;9..40,900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="el_base.css"/>
+<style>
+/* ── Modul-eigenes CSS ───────────────────────────────────────────────────
+   Die gemeinsame Optik kommt aus el_base.css. Hier NUR ergänzen, was dieses
+   Modul zusätzlich braucht (eigene Tabellen, Schema-SVG, Spezialzeilen).
+   SVG-Schemata: ausschliesslich literale Hex-Farben — var() rastert
+   GemaPDF/html2canvas falsch. */
+
+/* Untergruppe innerhalb einer Karte (Netz / Leitung / Schutz) */
+.kz-grp{margin-top:14px;padding-top:12px;border-top:1px dashed var(--brd2)}
+.kz-grp:first-child{margin-top:0;padding-top:0;border-top:none}
+.kz-grp-tt{font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.5px;
+  color:var(--el-dk);margin-bottom:9px;display:flex;align-items:center;gap:6px}
+.kz-opt{font-size:9.5px;font-weight:800;letter-spacing:.3px;color:var(--mut2);
+  background:var(--bg2);border:1px solid var(--brd);border-radius:5px;padding:1px 6px}
+
+/* Auslösebereiche der beiden Geräte als Band über einer gemeinsamen Skala */
+.kz-band{margin-top:10px}
+.kz-band-row{display:flex;align-items:center;gap:9px;margin-top:7px}
+.kz-band-lbl{flex:0 0 132px;font-size:11px;font-weight:800;color:var(--el-dk)}
+.kz-band-tr{position:relative;flex:1;height:16px;border-radius:5px;background:var(--bg2);
+  border:1px solid var(--brd);overflow:hidden}
+.kz-band-tr>i{position:absolute;top:0;bottom:0;display:block}
+.kz-band-sc{display:flex;justify-content:space-between;margin-top:5px;padding-left:141px;
+  font-size:10px;color:var(--mut2);font-weight:700}
+
+/* Zeile «Wert = Ergebnis» mit R/X-Aufteilung */
+.kz-rx{font-size:10.5px;color:var(--mut2);font-weight:600;white-space:nowrap}
+
+/* Impedanz-Anteile: Balken zeigt, welches Glied die Schleife dominiert */
+.kz-share{display:flex;height:13px;border-radius:5px;overflow:hidden;
+  border:1px solid var(--brd);background:var(--bg2);margin-top:6px}
+.kz-share>i{display:block;height:100%}
+.kz-leg{display:flex;gap:12px;flex-wrap:wrap;margin-top:7px}
+.kz-leg span{display:inline-flex;align-items:center;gap:5px;font-size:10.5px;
+  color:var(--mut);font-weight:700}
+.kz-leg i{width:10px;height:10px;border-radius:3px;display:inline-block}
+
+/* Nachweis-Kacheln (Abschaltbedingung / Schaltvermögen) */
+.kz-proof{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px;margin-top:12px}
+.kz-pf{padding:11px 13px;border-radius:9px;border:1.5px solid var(--brd);background:var(--sur2)}
+.kz-pf.ok{background:var(--grn-bg);border-color:var(--grn-bd)}
+.kz-pf.warn{background:var(--amber-bg);border-color:var(--amber-bd)}
+.kz-pf.err{background:var(--red-bg);border-color:var(--red-bd)}
+.kz-pf-tt{font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:.4px;color:var(--mut)}
+.kz-pf-val{font-size:16px;font-weight:900;margin-top:3px}
+.kz-pf-sub{font-size:10.5px;color:var(--mut);font-weight:600;margin-top:3px;line-height:1.5}
+.kz-pf.ok .kz-pf-val{color:#065f46}
+.kz-pf.warn .kz-pf-val{color:#92400e}
+.kz-pf.err .kz-pf-val{color:#991b1b}
+
+/* Annahmen-Liste — Vereinfachungen müssen sichtbar sein, nicht versteckt */
+.kz-annahmen{margin:0;padding-left:16px}
+.kz-annahmen li{margin:3px 0}
+
+#kzSchema{width:100%;height:auto;display:block}
+</style>
+<script src="gema_db.js"></script>
+<script src="gema_feedback.js"></script><script src="gema_notify.js"></script><script src="gema_notify_ui.js"></script><script src="gema_chat.js"></script>
+<script src="gema_objekte_api.js"></script>
+<script src="gema_pdf.js"></script>
+<script src="gema_autosave.js"></script>
+<script src="gema_elektro.js"></script>
+<script src="gema_dialog.js"></script>
+<link rel="stylesheet" href="gema_responsive.css"/>
+</head>
+<body>
+<nav class="g-nav">
+  <div class="g-nav-inner">
+    <a class="g-nav-logo" href="index.html">
+      <div class="g-nav-mark"><svg xmlns="http://www.w3.org/2000/svg" viewBox="80 196 415 175" height="28" preserveAspectRatio="xMidYMid meet"><defs><clipPath id="gn_c1"><path d="M 29 17 L 145 17 L 145 151 L 29 151 Z" clip-rule="nonzero"/></clipPath><clipPath id="gn_c2"><path d="M 58.367188 0.613281 L 173.855469 67.289062 L 116.105469 167.3125 L 0.621094 100.636719 Z" clip-rule="nonzero"/></clipPath><clipPath id="gn_c3"><path d="M 73 47.414062 L 123.597656 47.414062 L 123.597656 98 L 73 98 Z" clip-rule="nonzero"/></clipPath><clipPath id="gn_c4"><rect x="0" width="174" y="0" height="168"/></clipPath></defs><g transform="matrix(1,0,0,1,83,199)"><g clip-path="url(#gn_c4)"><g clip-path="url(#gn_c1)"><g clip-path="url(#gn_c2)"><path fill="#000" d="M 144.929688 50.640625 L 144.929688 117.292969 L 87.207031 150.617188 L 29.484375 117.292969 L 29.484375 50.640625 L 87.207031 17.3125 Z" fill-opacity="1" fill-rule="nonzero"/></g></g></g><path fill="#fff" d="M 98.042969 73.117188 C 96.210938 71.285156 93.945312 69.882812 91.488281 69.070312 C 85.503906 75.054688 85.019531 75.28125 84.257812 77.097656 C 90.328125 76.699219 95.191406 82.253906 93.839844 88.324219 C 93.011719 92.078125 84.535156 99.5 76.90625 107.300781 C 73.34375 110.933594 67.460938 110.898438 63.863281 107.300781 C 60.265625 103.703125 60.265625 97.855469 63.863281 94.257812 L 71.992188 86.128906 C 70.988281 82.390625 71.214844 78.445312 72.476562 74.933594 L 57.203125 90.210938 C 50.664062 96.75 50.664062 107.40625 57.203125 113.960938 C 63.757812 120.515625 74.378906 120.515625 80.953125 113.960938 L 98.042969 96.871094 C 104.550781 90.363281 104.652344 79.726562 98.042969 73.117188 Z"/><g clip-path="url(#gn_c3)"><path fill="#fff" d="M 118.835938 76.078125 C 122.003906 72.910156 123.75 68.691406 123.75 64.210938 C 123.75 54.9375 116.242188 47.414062 106.953125 47.414062 C 102.472656 47.414062 98.253906 49.160156 95.085938 52.324219 C 90.8125 56.597656 82.269531 65.144531 77.996094 69.417969 C 71.507812 75.902344 71.371094 86.542969 77.996094 93.167969 C 79.828125 95 82.09375 96.402344 84.550781 97.214844 C 90.503906 91.265625 91.019531 91.023438 91.78125 89.1875 C 89.152344 89.363281 86.574219 88.410156 84.671875 86.507812 C 81.039062 82.875 81.109375 77.027344 84.671875 73.464844 C 87.855469 70.28125 95.882812 62.253906 99.132812 59.003906 C 102.734375 55.402344 108.578125 55.386719 112.179688 59.003906 C 115.777344 62.601562 115.777344 68.449219 112.179688 72.046875 L 104.046875 80.175781 C 105.066406 84.015625 104.824219 87.890625 103.5625 91.367188 Z"/></g></g></g><g fill="#000" fill-opacity="1"><g transform="translate(243.214799,313.539633)"><path d="M 62.46875 -35.8125 L 62.46875 -21.9375 C 60.8125 -14.34375 57.191406 -8.59375 51.609375 -4.6875 C 46.035156 -0.789062 39.8125 1.15625 32.9375 1.15625 C 24.3125 1.15625 16.960938 -2.070312 10.890625 -8.53125 C 4.816406 -14.988281 1.78125 -22.789062 1.78125 -31.9375 C 1.78125 -41.226562 4.75 -49.078125 10.6875 -55.484375 C 16.632812 -61.890625 24.050781 -65.09375 32.9375 -65.09375 C 43.320312 -65.09375 51.535156 -61.453125 57.578125 -54.171875 L 48.046875 -43.703125 C 44.640625 -49.179688 39.890625 -51.921875 33.796875 -51.921875 C 29.296875 -51.921875 25.457031 -49.96875 22.28125 -46.0625 C 19.101562 -42.164062 17.515625 -37.457031 17.515625 -31.9375 C 17.515625 -26.507812 19.101562 -21.867188 22.28125 -18.015625 C 25.457031 -14.171875 29.296875 -12.25 33.796875 -12.25 C 37.515625 -12.25 40.753906 -13.367188 43.515625 -15.609375 C 46.273438 -17.859375 47.65625 -20.84375 47.65625 -24.5625 L 32.9375 -24.5625 L 32.9375 -35.8125 Z"/></g></g><g fill="#000" fill-opacity="1"><g transform="translate(307.462326,313.539633)"><path d="M 41.234375 -63.9375 L 41.234375 -51.15625 L 19.21875 -51.15625 L 19.21875 -38.4375 L 40.296875 -38.4375 L 40.296875 -25.65625 L 19.21875 -25.65625 L 19.21875 -12.78125 L 41.234375 -12.78125 L 41.234375 0 L 4.65625 0 L 4.65625 -63.9375 Z"/></g></g><g fill="#000" fill-opacity="1"><g transform="translate(352.412344,313.539633)"><path d="M 57.5 0 L 54.484375 -37.890625 L 54.09375 -37.890625 L 41 -0.390625 L 32.3125 -0.390625 L 19.21875 -37.890625 L 18.828125 -37.890625 L 15.8125 0 L 1.234375 0 L 6.96875 -63.9375 L 22.46875 -63.9375 L 36.65625 -27.046875 L 50.84375 -63.9375 L 66.34375 -63.9375 L 72.078125 0 Z"/></g></g><g fill="#000" fill-opacity="1"><g transform="translate(425.727374,313.539633)"><path d="M 37.125 -63.9375 L 62.9375 0 L 47.28125 0 L 42.546875 -12.78125 L 18.21875 -12.78125 L 13.484375 0 L -2.171875 0 L 23.640625 -63.9375 Z M 37.59375 -25.578125 L 30.453125 -44.171875 L 30.296875 -44.171875 L 23.171875 -25.578125 Z"/></g></g></svg></div>
+    </a>
+    <div class="g-nav-bc">
+      <a class="bc-cat" href="el_index.html">Elektroberechnungen</a><span class="bc-sep">›</span>
+      <span class="bc-cur">Kurzschluss</span>
+    </div>
+    <div class="g-nav-right">
+      <button class="g-nav-btn no-print" onclick="GemaPDF.export({title:'Kurzschluss',color:'#ca8a04'})">📄 PDF</button>
+      <button class="g-nav-btn no-print" onclick="window.print()">🖨 Drucken</button>
+      <button class="gema-feedback-btn no-print" onclick="GemaFeedback.start()">🔴 Feedback</button>
+    </div>
+  </div>
+</nav>
+
+<div class="pg">
+
+  <div class="gema-hero">
+    <div class="gema-hero-in">
+      <div class="gema-hero-ic">🛡️</div>
+      <div>
+        <div class="gema-hero-title">Kurzschluss & Abschaltbedingung</div>
+        <div class="gema-hero-norm" title="Berechnungsgrundlage">📖 NIN 4.1.1 / SN EN 60364-4-41</div>
+        <div class="gema-hero-sub">Schleifenimpedanz, Kurzschlussstrom und Nachweis der Abschaltzeit</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Kennzahlen-Leiste: die 2–4 wichtigsten Ergebnisse, live nachgeführt -->
+  <div class="sum-bar" id="kzSumBar">
+    <span class="sum-item">I<sub>k max</sub> <b class="hl" id="kz_sum1">—</b></span>
+    <span class="sum-sep"></span>
+    <span class="sum-item">I<sub>k min</sub> <b id="kz_sum2">—</b></span>
+    <span class="sum-sep"></span>
+    <span class="sum-item">Abschaltbedingung <b id="kz_sum3">—</b></span>
+  </div>
+
+  <!-- PROJEKT-LEISTE — Objektbezug (AutoSave speichert pro Objekt/Phase) -->
+  <div class="project-bar">
+    <div class="pf"><label>Objekt <a href="pm_objekte.html" title="Neues Objekt anlegen" style="margin-left:6px;margin-right:auto;width:16px;height:16px;border-radius:4px;background:#ca8a04;color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:14px;font-weight:400;text-decoration:none!important;line-height:0;flex-shrink:0;padding:0;vertical-align:middle;font-family:Arial,sans-serif">+</a><button class="obj-combo-toggle" id="objComboBtn" onclick="toggleObjektInput()">Freies Objekt</button></label>
+      <div class="obj-combo">
+        <div class="obj-combo-row" id="objComboSelect">
+          <select id="metaObjektDropdown" onchange="onObjektSelect()">
+            <option value="">– Objekt wählen –</option>
+          </select>
+        </div>
+        <div class="obj-combo-row" id="objComboManual" style="display:none">
+          <input type="text" id="metaProjekt" placeholder="z.B. MFH Musterstrasse 12, Basel"/>
+        </div>
+      </div>
+    </div>
+    <div class="pf"><label>Bearbeiter</label><input type="text" id="metaBearbeiter" placeholder="Name"></div>
+    <div class="pf"><label>Datum</label><input type="date" id="metaDatum"></div>
+  </div>
+
+  <!-- ═══ 1. EINGABE ═══ -->
+  <div class="el-card" data-fold="eingabe">
+    <div class="el-card-hd" onclick="kzFold(this)">
+      <span class="el-cx">▸</span>
+      <span class="el-secnum">1</span>
+      <span class="el-card-tt">Eingabe</span>
+      <span class="el-card-sub">Speisung · Leitung · Schutzeinrichtung</span>
+    </div>
+    <div class="el-card-bd">
+
+      <!-- ── 1a Netz & Speisung ─────────────────────────────────────── -->
+      <div class="kz-grp">
+        <div class="kz-grp-tt">⚡ Netz &amp; Speisung</div>
+        <div class="el-grid">
+          <div class="fg">
+            <label>Netzsystem</label>
+            <select id="kz_netz" onchange="kzRecalc()"></select>
+            <div class="fg-hint" id="kz_netzHint">U<sub>0</sub> = Nennspannung gegen Erde.</div>
+          </div>
+          <div class="fg">
+            <label>Spannungsfaktor c</label>
+            <select id="kz_cfaktor" onchange="kzRecalc()"></select>
+            <div class="fg-hint">c<sub>max</sub> für I<sub>k max</sub>, c<sub>min</sub> für I<sub>k min</sub> (IEC 60909-0 Tab. 1).</div>
+          </div>
+          <div class="fg">
+            <label>Speisung erfassen als</label>
+            <select id="kz_speise" onchange="kzRecalc()">
+              <option value="trafo">Transformator (Kennwerte)</option>
+              <option value="ik">Ik″ am Speisepunkt bekannt</option>
+            </select>
+            <div class="fg-hint">Der Netzbetreiber meldet meist I<sub>k</sub> am Hausanschluss.</div>
+          </div>
+        </div>
+
+        <div class="el-grid" id="kzTrafoBox" style="margin-top:12px">
+          <div class="fg">
+            <label>Bemessungsleistung Trafo</label>
+            <div class="g-inp-group">
+              <input class="g-inp" id="kz_sTrafo" type="text" inputmode="decimal"
+                     value="630" placeholder="0.0" onblur="fixLeadingZero(this)" oninput="kzRecalc()"/>
+              <span class="g-inp-unit">kVA</span>
+            </div>
+          </div>
+          <div class="fg">
+            <label>Kurzschlussspannung u<sub>k</sub></label>
+            <div class="g-inp-group">
+              <input class="g-inp" id="kz_uk" type="text" inputmode="decimal"
+                     value="4" placeholder="0.0" onblur="fixLeadingZero(this)" oninput="kzRecalc()"/>
+              <span class="g-inp-unit">%</span>
+            </div>
+            <div class="fg-hint">Vom Typenschild.</div>
+          </div>
+          <div class="fg">
+            <label>Kurzschlussverluste P<sub>k</sub></label>
+            <div class="g-inp-group">
+              <input class="g-inp" id="kz_pk" type="text" inputmode="decimal"
+                     value="6500" placeholder="leer = rein induktiv" onblur="fixLeadingZero(this)" oninput="kzRecalc()"/>
+              <span class="g-inp-unit">W</span>
+            </div>
+            <div class="fg-hint">Leer lassen → Trafo wird rein induktiv angesetzt.</div>
+          </div>
+          <div class="fg">
+            <label>Trafos parallel</label>
+            <div class="g-inp-group">
+              <input class="g-inp" id="kz_nTrafo" type="text" inputmode="decimal"
+                     value="1" placeholder="1" onblur="fixLeadingZero(this)" oninput="kzRecalc()"/>
+              <span class="g-inp-unit">Stk</span>
+            </div>
+            <div class="fg-hint">Gleiche Typen: Z<sub>T</sub> teilt sich durch die Anzahl.</div>
+          </div>
+          <div class="fg">
+            <label>Kurzschlussleistung Netz S<sub>k</sub>″</label>
+            <div class="g-inp-group">
+              <input class="g-inp" id="kz_skQ" type="text" inputmode="decimal"
+                     value="250" placeholder="leer = vernachlässigt" onblur="fixLeadingZero(this)" oninput="kzRecalc()"/>
+              <span class="g-inp-unit">MVA</span>
+            </div>
+            <div class="fg-hint">Vorgelagertes Mittelspannungsnetz — beim EW erfragen.</div>
+          </div>
+          <!-- Betriebskennwerte des Transformators. Sie gehen NICHT in die
+               Fehlerschleife ein — sie beantworten, was der Trafo im Normal-
+               betrieb liefert (Ströme, Übersetzung, Auslastung). -->
+          <div class="fg">
+            <label>Oberspannung U<sub>1N</sub></label>
+            <div class="g-inp-group">
+              <input class="g-inp" id="kz_u1" type="text" inputmode="decimal"
+                     value="16000" placeholder="leer = keine Übersetzung" onblur="fixLeadingZero(this)" oninput="kzRecalc()"/>
+              <span class="g-inp-unit">V</span>
+            </div>
+            <div class="fg-hint">Nur für Übersetzung und Primärstrom.</div>
+          </div>
+          <div class="fg">
+            <label>Bemessungs-Unterspannung U<sub>2N</sub></label>
+            <div class="g-inp-group">
+              <input class="g-inp" id="kz_u2n" type="text" inputmode="decimal"
+                     value="400" placeholder="0.0" onblur="fixLeadingZero(this)" oninput="kzRecalc()"/>
+              <span class="g-inp-unit">V</span>
+            </div>
+            <div class="fg-hint">Viele Verteiltransformatoren sind mit 420 V im Leerlauf
+              bemessen, damit unter Last 400 V ankommen — dann hier 420 eintragen.</div>
+          </div>
+          <div class="fg">
+            <label>Leerlaufstrom i<sub>0</sub></label>
+            <div class="g-inp-group">
+              <input class="g-inp" id="kz_i0" type="text" inputmode="decimal"
+                     value="1.5" placeholder="leer = nicht ausgewiesen" onblur="fixLeadingZero(this)" oninput="kzRecalc()"/>
+              <span class="g-inp-unit">%</span>
+            </div>
+            <div class="fg-hint">In % des primären Nennstroms — vom Typenschild.</div>
+          </div>
+          <div class="fg">
+            <label>Auslastung</label>
+            <div class="g-inp-group">
+              <input class="g-inp" id="kz_last" type="text" inputmode="decimal"
+                     value="80" placeholder="0.0" onblur="fixLeadingZero(this)" oninput="kzRecalc()"/>
+              <span class="g-inp-unit">%</span>
+            </div>
+            <div class="fg-hint">Bezogen auf die Bemessungsleistung.</div>
+          </div>
+        </div>
+
+        <div class="el-grid" id="kzIkBox" style="margin-top:12px;display:none">
+          <div class="fg">
+            <label>I<sub>k</sub>″ am Speisepunkt</label>
+            <div class="g-inp-group">
+              <input class="g-inp" id="kz_ikSpeise" type="text" inputmode="decimal"
+                     value="10" placeholder="0.0" onblur="fixLeadingZero(this)" oninput="kzRecalc()"/>
+              <span class="g-inp-unit">kA</span>
+            </div>
+            <div class="fg-hint">Dreipolig, wie vom Netzbetreiber gemeldet.</div>
+          </div>
+          <div class="fg">
+            <label>Verhältnis R/X der Speisung</label>
+            <div class="g-inp-group">
+              <input class="g-inp" id="kz_rxSpeise" type="text" inputmode="decimal"
+                     value="0.1" placeholder="0.1" onblur="fixLeadingZero(this)" oninput="kzRecalc()"/>
+              <span class="g-inp-unit">–</span>
+            </div>
+            <div class="fg-hint">Aus I<sub>k</sub> allein nicht ableitbar — 0.1 gilt trafonah,
+              weiter entfernt steigt der Wert.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── 1b Leitung ─────────────────────────────────────────────── -->
+      <div class="kz-grp">
+        <div class="kz-grp-tt">🔌 Leitung bis zum Fehlerort</div>
+        <div class="el-grid">
+          <div class="fg">
+            <label>Länge</label>
+            <div class="g-inp-group">
+              <input class="g-inp" id="kz_laenge" type="text" inputmode="decimal"
+                     value="50" placeholder="0.0" onblur="fixLeadingZero(this)" oninput="kzRecalc()"/>
+              <span class="g-inp-unit">m</span>
+            </div>
+            <div class="fg-hint">Einfache Trassee-Länge, nicht Hin- und Rückweg.</div>
+          </div>
+          <div class="fg">
+            <label>Querschnitt Aussenleiter</label>
+            <select id="kz_querschnitt" onchange="kzRecalc()"></select>
+          </div>
+          <div class="fg">
+            <label>Querschnitt PE bzw. N</label>
+            <select id="kz_qPE" onchange="kzRecalc()"></select>
+            <div class="fg-hint">Rückleiter der Fehlerschleife. Gesamt-Querschnitt eintragen.</div>
+          </div>
+          <div class="fg">
+            <label>Leitermaterial</label>
+            <select id="kz_material" onchange="kzRecalc()"></select>
+            <div class="fg-hint" id="kz_matHint"></div>
+          </div>
+          <div class="fg">
+            <label>Aussenleiter parallel</label>
+            <div class="g-inp-group">
+              <input class="g-inp" id="kz_nPar" type="text" inputmode="decimal"
+                     value="1" placeholder="1" onblur="fixLeadingZero(this)" oninput="kzRecalc()"/>
+              <span class="g-inp-unit">Stk</span>
+            </div>
+          </div>
+          <div class="fg">
+            <label>Reaktanzbelag x′</label>
+            <div class="g-inp-group">
+              <input class="g-inp" id="kz_xBelag" type="text" inputmode="decimal"
+                     value="0.08" placeholder="0.08" onblur="fixLeadingZero(this)" oninput="kzRecalc()"/>
+              <span class="g-inp-unit">mΩ/m</span>
+            </div>
+            <div class="fg-hint">Richtwert Kabel 0.08 mΩ/m; unter 16 mm² kaum wirksam.</div>
+          </div>
+          <div class="fg">
+            <label>Leitertemperatur für I<sub>k min</sub></label>
+            <select id="kz_temp" onchange="kzRecalc()"></select>
+            <div class="fg-hint">I<sub>k max</sub> rechnet fest mit 20 °C (kalt = grösster Strom),
+              I<sub>k min</sub> mit diesem Wert.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── 1c Schutz & Nachweis ───────────────────────────────────── -->
+      <div class="kz-grp">
+        <div class="kz-grp-tt">🛡️ Schutzeinrichtung &amp; Nachweis</div>
+        <div class="el-grid">
+          <div class="fg">
+            <label>Schutzeinrichtung</label>
+            <select id="kz_schutzTyp" onchange="kzRecalc()"></select>
+            <div class="fg-hint">Gerechnet wird mit der oberen Bandgrenze — nur dort löst
+              der Schalter garantiert aus.</div>
+          </div>
+          <div class="fg">
+            <label>Nennstrom I<sub>n</sub></label>
+            <div class="g-inp-group">
+              <input class="g-inp" id="kz_in" type="text" inputmode="decimal"
+                     value="32" placeholder="0.0" onblur="fixLeadingZero(this)" oninput="kzRecalc()"/>
+              <span class="g-inp-unit">A</span>
+            </div>
+          </div>
+          <div class="fg" id="kzIaBox" style="display:none">
+            <label>Abschaltstrom I<sub>a</sub> (abgelesen)</label>
+            <div class="g-inp-group">
+              <input class="g-inp" id="kz_iaManuell" type="text" inputmode="decimal"
+                     value="" placeholder="0.0" onblur="fixLeadingZero(this)" oninput="kzRecalc()"/>
+              <span class="g-inp-unit">A</span>
+            </div>
+            <div class="fg-hint">Für Schmelzsicherungen aus der Hersteller-Kennlinie bei der
+              geforderten Abschaltzeit ablesen.</div>
+          </div>
+          <div class="fg">
+            <label>Geforderte Abschaltzeit</label>
+            <select id="kz_tAbschalt" onchange="kzRecalc()"></select>
+          </div>
+          <div class="fg">
+            <label>Schaltvermögen I<sub>cn</sub> des Geräts</label>
+            <div class="g-inp-group">
+              <input class="g-inp" id="kz_icn" type="text" inputmode="decimal"
+                     value="6" placeholder="leer = nicht geprüft" onblur="fixLeadingZero(this)" oninput="kzRecalc()"/>
+              <span class="g-inp-unit">kA</span>
+            </div>
+            <div class="fg-hint">Muss mindestens I<sub>k max</sub> erreichen — ausser eine
+              geprüfte Backup-Kombination deckt es ab (siehe unten).</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── 1d Vorgeschaltetes Schutzorgan ─────────────────────────────
+           Optional. Leer = nur der Nachweis oben, keine Selektivitätsaussage. -->
+      <div class="kz-grp">
+        <div class="kz-grp-tt">🪜 Vorgeschaltetes Schutzorgan <span class="kz-opt">optional</span></div>
+        <div class="el-grid">
+          <div class="fg">
+            <label>Gerät davor</label>
+            <select id="kz_vorTyp" onchange="kzRecalc()"></select>
+            <div class="fg-hint">Bestimmt die Staffelung der Auslösebereiche.</div>
+          </div>
+          <div class="fg">
+            <label>Nennstrom I<sub>n</sub> davor</label>
+            <div class="g-inp-group">
+              <input class="g-inp" id="kz_inVor" type="text" inputmode="decimal"
+                     value="" placeholder="leer = nicht geprüft" onblur="fixLeadingZero(this)" oninput="kzRecalc()"/>
+              <span class="g-inp-unit">A</span>
+            </div>
+          </div>
+          <div class="fg" id="kzVorIaBox" style="display:none">
+            <label>Ansprechstrom des Geräts davor</label>
+            <div class="g-inp-group">
+              <input class="g-inp" id="kz_iaVor" type="text" inputmode="decimal"
+                     value="" placeholder="0.0" onblur="fixLeadingZero(this)" oninput="kzRecalc()"/>
+              <span class="g-inp-unit">A</span>
+            </div>
+            <div class="fg-hint">Strom, ab dem das Gerät davor sicher anspricht — aus der
+              Hersteller-Kennlinie.</div>
+          </div>
+          <div class="fg">
+            <label>Selektivitätsgrenzstrom I<sub>s</sub></label>
+            <div class="g-inp-group">
+              <input class="g-inp" id="kz_is" type="text" inputmode="decimal"
+                     value="" placeholder="leer = nur rechnerisch" onblur="fixLeadingZero(this)" oninput="kzRecalc()"/>
+              <span class="g-inp-unit">kA</span>
+            </div>
+            <div class="fg-hint">Aus der Koordinationstabelle des Herstellers. Ohne diesen Wert
+              zeigt GEMA nur die rechnerische Untergrenze.</div>
+          </div>
+          <div class="fg">
+            <label>Backup-Schutz bis</label>
+            <div class="g-inp-group">
+              <input class="g-inp" id="kz_iBackup" type="text" inputmode="decimal"
+                     value="" placeholder="leer = kein Backup" onblur="fixLeadingZero(this)" oninput="kzRecalc()"/>
+              <span class="g-inp-unit">kA</span>
+            </div>
+            <div class="fg-hint">Geprüfte Kombination nach IEC 60947-2 (Kaskadierung). Nur mit
+              diesem Wert darf I<sub>cn</sub> unter I<sub>k max</sub> liegen.</div>
+          </div>
+        </div>
+        <div class="el-note" style="margin-top:8px">
+          I<sub>s</sub> und die Backup-Grenze sind <b>geprüfte Herstellerwerte</b> und lassen sich
+          nicht berechnen — GEMA führt dafür bewusst keine eigene Tabelle. Beide stehen in der
+          Koordinationstabelle zur konkreten Gerätepaarung.
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ═══ 2. BERECHNUNG ═══ -->
+  <div class="el-card" data-fold="berechnung">
+    <div class="el-card-hd" onclick="kzFold(this)">
+      <span class="el-cx">▸</span>
+      <span class="el-secnum">2</span>
+      <span class="el-card-tt">Berechnung</span>
+      <span class="el-card-sub">Impedanzen der Fehlerschleife</span>
+    </div>
+    <div class="el-card-bd">
+
+      <div class="el-res">
+        <div class="el-res-lbl">Leitfähigkeit κ — kalt (20 °C) für I<sub>k max</sub>
+          <span class="frml">κ(t) = κ₂₀ / (1 + α · (t − 20))</span></div>
+        <div class="el-res-val" id="kz_kappaKalt">—</div>
+      </div>
+      <div class="el-res">
+        <div class="el-res-lbl">Leitfähigkeit κ — warm für I<sub>k min</sub></div>
+        <div class="el-res-val" id="kz_kappaWarm">—</div>
+      </div>
+      <div class="el-res">
+        <div class="el-res-lbl">Netzimpedanz Z<sub>Q</sub>
+          <span class="frml">Z<sub>Q</sub> = c<sub>max</sub> · U<sub>n</sub>² / S<sub>k</sub>″</span></div>
+        <div class="el-res-val" id="kz_zQ">—</div>
+        <div class="kz-rx" id="kz_zQrx">—</div>
+      </div>
+      <div class="el-res">
+        <div class="el-res-lbl">Transformator Z<sub>T</sub>
+          <span class="frml">Z<sub>T</sub> = u<sub>k</sub>/100 · U<sub>n</sub>² / S<sub>rT</sub></span>
+          <span class="frml">R<sub>T</sub> = P<sub>k</sub> · U<sub>n</sub>² / S<sub>rT</sub>²</span></div>
+        <div class="el-res-val" id="kz_zT">—</div>
+        <div class="kz-rx" id="kz_zTrx">—</div>
+      </div>
+      <!-- ── Betriebskennwerte des Transformators ─────────────────────
+           Sie gehören NICHT zur Fehlerschleife, sondern beantworten die
+           andere Hälfte der Frage: was liefert der Trafo im Normalbetrieb.
+           Nur sichtbar, wenn die Speisung als Transformator erfasst ist. -->
+      <div id="kzTrafoKwBox" style="margin-top:14px">
+        <div class="kz-grp-tt" style="margin-bottom:4px">🔌 Transformator im Betrieb</div>
+        <div class="el-res">
+          <div class="el-res-lbl">Übersetzungsverhältnis
+            <span class="frml">ü = U<sub>1N</sub> / U<sub>2N</sub></span></div>
+          <div class="el-res-val" id="kz_ue">—</div>
+        </div>
+        <div class="el-res">
+          <div class="el-res-lbl">Nennstrom primär
+            <span class="frml">I<sub>1N</sub> = S<sub>rT</sub> / (√3 · U<sub>1N</sub>)</span></div>
+          <div class="el-res-val" id="kz_i1n">—</div>
+        </div>
+        <div class="el-res">
+          <div class="el-res-lbl">Nennstrom sekundär
+            <span class="frml">I<sub>2N</sub> = S<sub>rT</sub> / (√3 · U<sub>2N</sub>)</span></div>
+          <div class="el-res-val hl" id="kz_i2n">—</div>
+        </div>
+        <div class="el-res">
+          <div class="el-res-lbl">Leerlaufstrom
+            <span class="frml">I<sub>0</sub> = i<sub>0</sub> · I<sub>1N</sub></span></div>
+          <div class="el-res-val" id="kz_i0res">—</div>
+        </div>
+        <div class="el-res">
+          <div class="el-res-lbl">Laststrom sekundär
+            <span class="frml">I<sub>Last</sub> = Auslastung · I<sub>2N</sub></span></div>
+          <div class="el-res-val" id="kz_ilast">—</div>
+        </div>
+        <div class="el-res">
+          <div class="el-res-lbl">Kurzschlussstrom an den Klemmen (Kennwert)
+            <span class="frml">I<sub>k,Klemmen</sub> = I<sub>2N</sub> / u<sub>k</sub></span></div>
+          <div class="el-res-val" id="kz_ikKlemmen">—</div>
+        </div>
+        <div class="el-note" id="kz_trafoKwNote" style="margin-top:6px"></div>
+      </div>
+
+      <div class="el-res">
+        <div class="el-res-lbl">Leitung, Aussenleiter kalt
+          <span class="frml">R = L / (κ · A · n)</span>
+          <span class="frml">X = x′ · L / n</span></div>
+        <div class="el-res-val" id="kz_zLeitung">—</div>
+        <div class="kz-rx" id="kz_zLrx">—</div>
+      </div>
+      <div class="el-res">
+        <div class="el-res-lbl">Fehlerschleife warm (Hin- + Rückleiter)
+          <span class="frml">Z<sub>S</sub> = √(ΣR² + ΣX²)</span></div>
+        <div class="el-res-val" id="kz_zSchleife">—</div>
+        <div class="kz-rx" id="kz_zSrx">—</div>
+      </div>
+
+      <div style="margin-top:12px">
+        <div class="kz-grp-tt" style="margin-bottom:4px">Anteile an der Fehlerschleife</div>
+        <div class="kz-share" id="kz_share"></div>
+        <div class="kz-leg">
+          <span><i style="background:#0284c7"></i>Netz</span>
+          <span><i style="background:#7c3aed"></i>Transformator</span>
+          <span><i style="background:#ca8a04"></i>Leitung</span>
+        </div>
+      </div>
+
+      <div class="frml-block">
+        <b>κ</b> Leitfähigkeit [m/(Ω·mm²)] · <b>A</b> Querschnitt [mm²] · <b>L</b> Länge [m] ·
+        <b>n</b> parallele Leiter · <b>x′</b> Reaktanzbelag [mΩ/m] ·
+        <b>U<sub>n</sub></b> Netznennspannung · <b>U<sub>0</sub></b> Spannung gegen Erde ·
+        <b>c</b> Spannungsfaktor nach IEC 60909-0.
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ 3. ERGEBNIS ═══ -->
+  <div class="el-card" data-fold="ergebnis">
+    <div class="el-card-hd" onclick="kzFold(this)">
+      <span class="el-cx">▸</span>
+      <span class="el-secnum">3</span>
+      <span class="el-card-tt">Ergebnis</span>
+      <span class="el-card-sub">Kurzschlussströme und Nachweis</span>
+    </div>
+    <div class="el-card-bd">
+
+      <div class="el-res">
+        <div class="el-res-lbl">Grösster Kurzschlussstrom I<sub>k max</sub>
+          <span class="frml" id="kz_frmlMax">I<sub>k</sub> = c<sub>max</sub> · U<sub>n</sub> / (√3 · Z)</span></div>
+        <div class="el-res-val hl" id="kz_ikMax">—</div>
+      </div>
+      <div class="el-res">
+        <div class="el-res-lbl">Kleinster Kurzschlussstrom I<sub>k min</sub> am Leitungsende
+          <span class="frml">I<sub>k min</sub> = c<sub>min</sub> · U<sub>0</sub> / Z<sub>S</sub></span></div>
+        <div class="el-res-val hl" id="kz_ikMin">—</div>
+      </div>
+      <div class="el-res">
+        <div class="el-res-lbl">Z gesamt (Weg des grössten Stroms)</div>
+        <div class="el-res-val" id="kz_zGesamt">—</div>
+      </div>
+      <div class="el-res">
+        <div class="el-res-lbl">Z Leitung (Aussenleiter, kalt)</div>
+        <div class="el-res-val" id="kz_zLeitung2">—</div>
+      </div>
+
+      <div class="kz-proof">
+        <div class="kz-pf" id="kz_pfAb">
+          <div class="kz-pf-tt">Abschaltbedingung</div>
+          <div class="kz-pf-val" id="kz_pfAbVal">—</div>
+          <div class="kz-pf-sub" id="kz_pfAbSub">I<sub>k min</sub> ≥ I<sub>a</sub></div>
+        </div>
+        <div class="kz-pf" id="kz_pfLen">
+          <div class="kz-pf-tt">Maximale Leitungslänge</div>
+          <div class="kz-pf-val" id="kz_pfLenVal">—</div>
+          <div class="kz-pf-sub" id="kz_pfLenSub">bis die Abschaltbedingung kippt</div>
+        </div>
+        <div class="kz-pf" id="kz_pfIcn">
+          <div class="kz-pf-tt">Schaltvermögen</div>
+          <div class="kz-pf-val" id="kz_pfIcnVal">—</div>
+          <div class="kz-pf-sub" id="kz_pfIcnSub">I<sub>cn</sub> ≥ I<sub>k max</sub></div>
+        </div>
+      </div>
+
+      <div class="el-status ok" id="kz_status" style="margin-top:12px">
+        Noch keine Berechnung.
+      </div>
+
+      <div class="el-hint" id="kz_annahmenBox" style="margin-top:12px">
+        <b>Annahmen und Vereinfachungen dieser Berechnung</b>
+        <ul class="kz-annahmen" id="kz_annahmen"></ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ 4. SELEKTIVITÄT & BACKUP ═══ -->
+  <div class="el-card" data-fold="selektiv">
+    <div class="el-card-hd" onclick="kzFold(this)">
+      <span class="el-cx">▸</span>
+      <span class="el-secnum">4</span>
+      <span class="el-card-tt">Selektivität &amp; Backup-Schutz</span>
+      <span class="el-card-sub">Staffelung zum vorgeschalteten Gerät</span>
+    </div>
+    <div class="el-card-bd">
+
+      <div class="el-hint" id="kz_selLeer">
+        Kein vorgeschaltetes Schutzorgan erfasst — trag es in Schritt 1 ein, um die
+        Staffelung zu prüfen.
+      </div>
+
+      <div id="kz_selBody" style="display:none">
+
+        <!-- Auslösebereiche beider Geräte auf gemeinsamer Skala -->
+        <div class="kz-band">
+          <div class="kz-band-row">
+            <div class="kz-band-lbl" id="kz_bandVorLbl">davor</div>
+            <div class="kz-band-tr"><i id="kz_bandVor"></i></div>
+          </div>
+          <div class="kz-band-row">
+            <div class="kz-band-lbl" id="kz_bandNachLbl">danach</div>
+            <div class="kz-band-tr"><i id="kz_bandNach"></i></div>
+          </div>
+          <div class="kz-band-sc">
+            <span>0 A</span><span id="kz_bandMax">—</span>
+          </div>
+        </div>
+        <div class="el-note" style="margin-top:7px">
+          Der farbige Balken ist der Bereich zwischen I<sub>4</sub> (Ansprechen möglich) und
+          I<sub>5</sub> (garantierte Auslösung). Selektiv ist die Staffelung, solange der
+          Balken danach links vom Balken davor endet.
+        </div>
+
+        <div class="el-res" style="margin-top:12px">
+          <div class="el-res-lbl">Auslösebereich danach
+            <span class="frml">I<sub>4</sub> … I<sub>5</sub> = I<sub>n</sub> · Bandgrenzen</span></div>
+          <div class="el-res-val" id="kz_selNach">—</div>
+        </div>
+        <div class="el-res">
+          <div class="el-res-lbl">Auslösebereich davor</div>
+          <div class="el-res-val" id="kz_selVor">—</div>
+        </div>
+        <div class="el-res">
+          <div class="el-res-lbl">Selektiv bis
+            <span class="frml" id="kz_selQuelle">I<sub>4</sub> davor</span></div>
+          <div class="el-res-val hl" id="kz_selGrenze">—</div>
+        </div>
+        <div class="el-res">
+          <div class="el-res-lbl">Staffelung der Nennströme
+            <span class="frml">I<sub>n</sub> davor / I<sub>n</sub> danach</span></div>
+          <div class="el-res-val" id="kz_selVerh">—</div>
+        </div>
+
+        <div class="kz-proof" style="margin-top:12px">
+          <div class="kz-pf" id="kz_pfUeber">
+            <div class="kz-pf-tt">Überlastbereich</div>
+            <div class="kz-pf-val" id="kz_pfUeberVal">—</div>
+            <div class="kz-pf-sub">I<sub>nf</sub> davor &gt; I<sub>2</sub> danach</div>
+          </div>
+          <div class="kz-pf" id="kz_pfKs">
+            <div class="kz-pf-tt">Kurzschlussbereich</div>
+            <div class="kz-pf-val" id="kz_pfKsVal">—</div>
+            <div class="kz-pf-sub">I<sub>5</sub> danach &lt; I<sub>4</sub> davor</div>
+          </div>
+          <div class="kz-pf" id="kz_pfBack">
+            <div class="kz-pf-tt">Backup-Schutz</div>
+            <div class="kz-pf-val" id="kz_pfBackVal">—</div>
+            <div class="kz-pf-sub" id="kz_pfBackSub">I<sub>k max</sub> ≤ geprüfte Grenze</div>
+          </div>
+        </div>
+
+        <div class="el-status ok" id="kz_selStatus" style="margin-top:12px">—</div>
+      </div>
+
+      <div class="el-hint" style="margin-top:12px">
+        <b>Was diese Karte nicht beurteilt</b>
+        <ul class="kz-annahmen">
+          <li>Fehlende Selektivität ist <b>kein Sicherheitsmangel</b> — der Fehler wird
+            abgeschaltet, es fällt nur mehr Anlage aus als nötig. Sie stuft den Gesamtstatus
+            darum nie auf «nicht erfüllt».</li>
+          <li>Oberhalb der Staffelgrenze entscheidet die <b>Energiebegrenzung</b> des schnelleren
+            Geräts. Diese Werte sind gemessen und stehen nur in der Koordinationstabelle des
+            Herstellers — GEMA rechnet sie nicht und erfindet sie nicht.</li>
+          <li>Backup-Schutz und Selektivität sind <b>unabhängig</b>: eine Kombination kann
+            backup-geschützt und trotzdem unselektiv sein.</li>
+          <li>Nicht geprüft werden Zeitselektivität über Kurzzeitverzögerung, gerichtete
+            Staffelung und die Selektivität gegenüber einer Fehlerstrom-Schutzeinrichtung.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ 5. SCHEMA ═══ -->
+  <div class="el-card" data-fold="schema">
+    <div class="el-card-hd" onclick="kzFold(this)">
+      <span class="el-cx">▸</span>
+      <span class="el-secnum">5</span>
+      <span class="el-card-tt">Schema</span>
+      <span class="el-card-sub">Impedanzkette bis zum Fehlerort</span>
+    </div>
+    <div class="el-card-bd">
+      <div class="el-scroll"><svg id="kzSchema" viewBox="0 0 860 200"
+        preserveAspectRatio="xMidYMid meet" role="img"
+        aria-label="Impedanzkette von der Speisung bis zum Fehlerort"></svg></div>
+      <div class="el-note" style="margin-top:8px">
+        Die Werte unter den Blöcken sind die Beträge der jeweiligen Impedanz in der
+        warmen Fehlerschleife — also der Weg, über den I<sub>k min</sub> fliesst.
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+/*ENGINE-START*/
+/* ── Rechenkern — DOM-FREI ───────────────────────────────────────────────
+   Kurzschlussstrom am Leitungsende nach dem Impedanzverfahren
+   (IEC 60909-0) und Nachweis der Abschaltbedingung im TN-System
+   (SN EN 60364-4-41 / NIN 4.1.1).
+
+   Zwei Betrachtungen, bewusst mit UNTERSCHIEDLICHEN Annahmen:
+
+   • I_k max — grösster Strom, massgebend fürs Schaltvermögen.
+     Leiter KALT (20 °C, kleinster Widerstand → grösster Strom) und c_max.
+     Hier wäre κ bei Betriebstemperatur die FALSCHE, weil zu günstige Wahl:
+     sie würde I_k max zu klein rechnen und ein zu schwaches Gerät zulassen.
+
+   • I_k min — kleinster Strom, massgebend für die Abschaltbedingung.
+     Leiter WARM (κ über elKappa) und c_min. Mit κ₂₀ käme ein rund 20 %
+     zu hoher Strom heraus und die Abschaltung wäre nur auf dem Papier
+     nachgewiesen.
+
+   Alle Impedanzen werden komplex (R und X getrennt) addiert und erst am
+   Schluss zum Betrag zusammengezogen — skalares Addieren überschätzt Z.
+
+   Grunddaten (Material, κ(t), Querschnittsreihe, Netzsysteme, c-Faktoren,
+   LS-Kennlinien) kommen aus GemaElektro und werden hier NIE dupliziert.
+
+   Rückgabe: alle Werte der Oberfläche plus `hinweise` — Vereinfachungen
+   und Grenzfälle werden gemeldet, nie stillschweigend abgeschnitten. */
+/* Auslösebereich EINES Geräts. `i4` = untere Bandgrenze (darunter spricht die
+   magnetische Auslösung sicher nicht an), `i5` = obere (ab hier garantierte
+   Auslösung < 0.1 s). Dazwischen liegt der undefinierte Bereich. `inf`/`i2`
+   sind die konventionellen Ströme des thermischen Zweigs.
+   `iaFest` deckt Geräte ohne GEMA-Kennlinie ab (Schmelzsicherung): dort zählt
+   der abgelesene Ansprechstrom, ein Band gibt es nicht. */
+function kzBand(typ, iN, iaFest, E){
+  if(iaFest > 0) return {i4:iaFest, i5:iaFest, inf:null, i2:null, ls:null, fest:true};
+  if(!(iN > 0)) return null;
+  var ls = E ? E.elLsTyp(typ) : null;
+  if(!ls) return null;
+  return {
+    i4: iN * (ls.faktorMin || ls.faktor),
+    i5: iN * ls.faktor,
+    inf: ls.inf ? iN * ls.inf : null,
+    i2:  ls.i2  ? iN * ls.i2  : null,
+    ls: ls, fest:false
+  };
+}
+
+/* ── Selektivität und Backup-Schutz — DOM-frei ───────────────────────────
+   Zwei getrennte Fragen, die oft verwechselt werden:
+
+   • SELEKTIVITÄT: Löst bei einem Fehler NUR das nachgelagerte Gerät aus?
+     Rechenbar ist allein die Staffelung der Auslösebereiche — vollselektiv
+     bis zu dem Strom, ab dem das vorgelagerte Gerät überhaupt anspricht
+     (I4 davor). Oberhalb entscheidet die Energiebegrenzung des schnelleren
+     Geräts; das steht NUR in der Koordinationstabelle des Herstellers und
+     lässt sich nicht herleiten. Ohne Katalogwert liefert GEMA deshalb die
+     rechnerische UNTERGRENZE und sagt das auch — eine erfundene Tabelle
+     wäre in einem Schutznachweis schlimmer als eine ehrliche Handeingabe.
+
+   • BACKUP-SCHUTZ (Kaskadierung, IEC 60947-2): Begrenzt das vorgelagerte
+     Gerät den Durchlassstrom so weit, dass das nachgelagerte den Fehler
+     übersteht? Ist das geprüft, DARF I_cn unter I_k max liegen — genau
+     dafür gibt es die Kombination. Eine eigenständige I_cn ≥ I_k-max-Prüfung
+     wäre hier falsch und meldete einen Mangel, wo keiner ist.
+
+   Selektivität und Backup sind unabhängig: eine Kombination kann
+   backup-geschützt und trotzdem nicht selektiv sein. */
+function kzSelektivitaet(inp, ikMax, E){
+  var nach = kzBand(inp.schutzTyp, inp.inSchutz, inp.iaManuell, E);
+  var vor  = kzBand(inp.vorTyp,    inp.inVor,    inp.iaVor,     E);
+
+  var iS      = inp.isKat   > 0 ? inp.isKat   * 1000 : null;   // kA → A
+  var iBackup = inp.iBackup > 0 ? inp.iBackup * 1000 : null;
+
+  var r = {
+    nach:nach, vor:vor, aktiv:false,
+    thermischOk:null, magnetOk:null,
+    grenzeRechnerisch:null, grenze:null, grenzeQuelle:'',
+    selektiv:null, verhaeltnis:null,
+    iBackup:iBackup, backupOk:null, backupAktiv:false,
+    hinweise:[]
+  };
+  if(!vor || !nach) return r;
+  r.aktiv = true;
+
+  /* Überlastbereich: das Gerät davor darf bei dem Strom, bei dem das
+     nachgelagerte sicher auslöst, noch nicht auslösen. */
+  if(vor.inf !== null && nach.i2 !== null){
+    r.thermischOk = (vor.inf > nach.i2);
+  }
+  if(inp.inVor > 0 && inp.inSchutz > 0) r.verhaeltnis = inp.inVor / inp.inSchutz;
+
+  /* Kurzschlussbereich: garantierte Auslösung des nachgelagerten Geräts
+     MUSS unter dem Ansprechen des vorgelagerten liegen. */
+  r.magnetOk = (nach.i5 < vor.i4);
+  r.grenzeRechnerisch = vor.i4;
+
+  if(iS !== null){
+    r.grenze = iS;
+    r.grenzeQuelle = 'katalog';
+    if(iS < r.grenzeRechnerisch){
+      r.hinweise.push('Der Katalogwert I<sub>s</sub> liegt unter der rechnerischen '
+        + 'Staffelgrenze. Gerechnet wird mit dem Katalogwert — er ist geprüft, die '
+        + 'Bandgrenzen sind nur die theoretische Untergrenze.');
+    }
+  } else {
+    r.grenze = r.grenzeRechnerisch;
+    r.grenzeQuelle = 'rechnerisch';
+    r.hinweise.push('Ohne Katalogwert zeigt GEMA die rechnerische Untergrenze — den Strom, '
+      + 'ab dem das vorgelagerte Gerät anspricht. Durch Energiebegrenzung liegt die '
+      + 'tatsächliche Selektivitätsgrenze meist höher; belegen lässt sie sich nur mit der '
+      + 'Koordinationstabelle.');
+  }
+  if(ikMax !== null && r.grenze > 0) r.selektiv = (ikMax <= r.grenze);
+
+  if(iBackup !== null){
+    r.backupAktiv = true;
+    if(ikMax !== null) r.backupOk = (ikMax <= iBackup);
+  }
+
+  if(vor.fest){
+    r.hinweise.push('Für das vorgelagerte Gerät wurde der Ansprechstrom von Hand erfasst. '
+      + 'Ein Auslöseband gibt es damit nicht — die Staffelung wird gegen diesen einen Wert '
+      + 'geprüft.');
+  }
+  if(nach.ls && vor.ls && nach.ls.norm !== vor.ls.norm){
+    r.hinweise.push('Die beiden Geräte folgen unterschiedlichen Normen ('
+      + vor.ls.norm + ' davor, ' + nach.ls.norm + ' danach). Die konventionellen Ströme des '
+      + 'thermischen Zweigs sind damit nicht direkt vergleichbar.');
+  }
+  return r;
+}
+
+/* ── Betriebskennwerte des Transformators ──────────────────────────────
+   Die Fehlerschleife oben braucht vom Trafo nur die Impedanz. Ein Planer
+   will aber auch wissen, was das Gerät im NORMALBETRIEB liefert: welche
+   Ströme fliessen, wie ist die Übersetzung, wie weit ist es ausgelastet.
+   Das rechnet dieser Block — er greift NICHT in die Kurzschlussrechnung ein.
+
+   Bezugsspannung: I_2N ist auf die BEMESSUNGS-Unterspannung U_2N bezogen
+   (Typenschild), nicht auf die Netznennspannung. Bei Verteiltransformatoren
+   sind das oft 420 V im Leerlauf, damit unter Last 400 V anstehen — mit
+   400 V gerechnet fiele I_2N rund 5 % zu gross aus.
+
+   Fehlt eine Angabe, bleibt der zugehörige Wert null statt 0 — die
+   Oberfläche zeigt dann «—» und behauptet keine Zahl, die es nicht gibt. */
+function kzTrafoKennwerte(inp){
+  var S3 = Math.sqrt(3);
+  var s  = (inp.sTrafo > 0 ? inp.sTrafo : 0) * 1000;      // kVA → VA
+  var n  = inp.nTrafo >= 1 ? Math.round(inp.nTrafo) : 1;
+  var u1 = inp.u1  > 0 ? inp.u1  : 0;
+  var u2 = inp.u2n > 0 ? inp.u2n : 0;
+
+  var r = { u2n:u2, n:n, ue:null, i1n:null, i2n:null, i2nGes:null,
+            i0:null, iLast:null, ikKlemmen:null, ikKlemmenGes:null };
+  if(!(s > 0)) return r;
+
+  if(u1 > 0 && u2 > 0) r.ue = u1 / u2;
+  if(u1 > 0){
+    r.i1n = s / (S3 * u1);
+    if(inp.i0 > 0) r.i0 = inp.i0 / 100 * r.i1n;           // i0 in % von I_1N
+  }
+  if(u2 > 0){
+    r.i2n    = s / (S3 * u2);
+    r.i2nGes = r.i2n * n;
+    if(inp.last > 0) r.iLast = r.i2n * n * (inp.last / 100);
+    /* Klemmen-Kurzschlussstrom des Trafos allein: I_2N / u_k.
+       Bewusst OHNE Spannungsfaktor c, ohne vorgelagertes Netz und ohne R_T —
+       das ist der Kennwert vom Typenschild, nicht der Rechenwert nach
+       IEC 60909. Beide werden in der Oberfläche gegenübergestellt. */
+    if(inp.uk > 0){
+      r.ikKlemmen    = r.i2n / (inp.uk / 100);
+      r.ikKlemmenGes = r.ikKlemmen * n;
+    }
+  }
+  return r;
+}
+
+function kzCalc(inp){
+  var E  = (typeof GemaElektro!=='undefined') ? GemaElektro : null;
+  var S3 = Math.sqrt(3);
+  var hinweise = [];
+
+  /* ── Netz und Spannungen ─────────────────────────────────────────── */
+  var sys = E ? E.elSystem(inp.netz) : {u:400, leiter:3};
+  var un  = sys.u;
+  /* U0 = Nennspannung gegen Erde (SN EN 60364-4-41 Tab. 41.1). Im
+     400-V-Netz ist das der Normwert 230 V — nicht 400/√3 = 230.9 V; der
+     kleinere Normwert liegt auf der sicheren Seite. */
+  var u0  = (sys.leiter === 3) ? 230 : sys.u;
+  /* Bezugsspannung der SPEISUNG: Z_Q und Z_T sind Impedanzen je Strang und
+     werden über die AUSSENLEITERSPANNUNG des speisenden Netzes gerechnet.
+     Auch ein einphasiger Endstromkreis hängt an einem 400/230-V-Netz
+     (IEC 60038) — mit 230 V gerechnet käme eine viel zu kleine Trafo-
+     impedanz und damit ein zu grosser Kurzschlussstrom heraus. */
+  var unT = (sys.leiter === 3) ? un : 400;
+  var cF  = E ? E.elCFaktor(inp.cFaktor) : {cMax:1.10, cMin:0.95};
+  var cMax = cF.cMax, cMin = cF.cMin;
+
+  /* ── Leitfähigkeit: kalt für I_k max, warm für I_k min ───────────── */
+  var kKalt = E ? E.elKappa(inp.material, 20)          : 56;
+  var kWarm = E ? E.elKappa(inp.material, inp.tempMin) : 56;
+
+  /* ── Vorimpedanz der Speisung ────────────────────────────────────── */
+  var rQ=0, xQ=0, rT=0, xT=0, speiseFehlt=false;
+
+  if(inp.speiseModus === 'ik'){
+    var ikSp = inp.ikSpeise * 1000;                    // kA → A
+    if(ikSp > 0){
+      /* Umkehrung der dreipoligen Kurzschlussformel — der Netzbetreiber
+         meldet I_k″ dreipolig. Ergebnis ist die Strangimpedanz, die in
+         beiden Schleifen (3-polig und L-N/L-PE) einmal auftritt. */
+      var zV = cMax * unT / (S3 * ikSp);
+      var rx = inp.rxSpeise > 0 ? inp.rxSpeise : 0.1;
+      xT = zV / Math.sqrt(1 + rx*rx);
+      rT = rx * xT;
+      hinweise.push('Speisung aus I<sub>k</sub>″ zurückgerechnet. Die Aufteilung in R und X '
+        + 'lässt sich daraus nicht ableiten — gerechnet mit R/X = ' + rx
+        + '. Trafonah ist das plausibel, mit langer Zuleitung steigt der Wert.');
+    } else { speiseFehlt = true; }
+
+  } else {
+    /* Vorgelagertes Netz — optional. */
+    var skQ = inp.skQ * 1e6;                           // MVA → VA
+    if(skQ > 0){
+      var zQ0 = cMax * unT*unT / skQ;
+      /* R_Q/X_Q = 0.1 für Hochspannungseinspeisungen (IEC 60909-0). */
+      xQ = zQ0 / Math.sqrt(1.01);
+      rQ = 0.1 * xQ;
+    } else {
+      hinweise.push('Vorgelagertes Netz nicht erfasst (S<sub>k</sub>″ leer): Z fällt damit '
+        + 'minim zu klein aus — I<sub>k max</sub> zu hoch, I<sub>k min</sub> zu günstig. '
+        + 'Bei knapper Abschaltbedingung den Wert beim Netzbetreiber erfragen.');
+    }
+    /* Transformator */
+    var sT = inp.sTrafo * 1000;                        // kVA → VA
+    var n  = inp.nTrafo >= 1 ? Math.round(inp.nTrafo) : 1;
+    if(sT > 0 && inp.uk > 0){
+      var zT0 = (inp.uk/100) * unT*unT / sT;
+      var rT0 = 0;
+      if(inp.pk > 0){
+        rT0 = inp.pk * unT*unT / (sT*sT);              // aus P_k = 3·I_rT²·R_T
+        if(rT0 >= zT0){
+          hinweise.push('P<sub>k</sub> passt nicht zu u<sub>k</sub> (R<sub>T</sub> ≥ Z<sub>T</sub>) — '
+            + 'die Kupferverluste wurden verworfen und der Trafo rein induktiv gerechnet. '
+            + 'Typenschild prüfen.');
+          rT0 = 0;
+        }
+      } else {
+        hinweise.push('Ohne P<sub>k</sub> wird der Transformator rein induktiv angesetzt '
+          + '(R<sub>T</sub> = 0). Für I<sub>k min</sub> ist das unkritisch, weil die Leitung '
+          + 'dominiert.');
+      }
+      var xT0 = Math.sqrt(Math.max(zT0*zT0 - rT0*rT0, 0));
+      rT = rT0 / n;  xT = xT0 / n;
+    } else { speiseFehlt = true; }
+  }
+
+  /* ── Leitung ─────────────────────────────────────────────────────── */
+  var L   = inp.laenge, A = inp.querschnitt;
+  var nP  = inp.nPar >= 1 ? Math.round(inp.nPar) : 1;
+  var aPE = inp.qPE > 0 ? inp.qPE : A;
+  var xs  = (inp.xBelag > 0 ? inp.xBelag : 0) / 1000;  // mΩ/m → Ω/m
+  var leitungFehlt = !(L > 0 && A > 0);
+
+  var rL20 = leitungFehlt ? 0 : L / (kKalt * A * nP);  // Aussenleiter kalt
+  var rLw  = leitungFehlt ? 0 : L / (kWarm * A * nP);  // Aussenleiter warm
+  var rRk  = leitungFehlt ? 0 : L / (kKalt * aPE);     // Rückleiter kalt
+  var rRw  = leitungFehlt ? 0 : L / (kWarm * aPE);     // Rückleiter warm
+  var xL   = leitungFehlt ? 0 : xs * L / nP;
+  var xR   = leitungFehlt ? 0 : xs * L;
+  var zLeitung = Math.sqrt(rL20*rL20 + xL*xL);         // «Z Leitung»
+
+  /* ── I_k max ─────────────────────────────────────────────────────────
+     Dreiphasig: dreipoliger Kurzschluss — nur der Aussenleiter liegt in
+     der Schleife. Einphasig: der Fehler läuft über L und N, also Hin- und
+     Rückleiter. */
+  var rK, xK;
+  if(sys.leiter === 3){ rK = rQ + rT + rL20;        xK = xQ + xT + xL; }
+  else                { rK = rQ + rT + rL20 + rRk;  xK = xQ + xT + xL + xR; }
+  var zGesamt = Math.sqrt(rK*rK + xK*xK);
+  var ikMax = zGesamt > 0
+    ? ((sys.leiter === 3) ? cMax*un/(S3*zGesamt) : cMax*u0/zGesamt)
+    : null;
+
+  /* ── I_k min: Fehlerschleife L-PE (bzw. L-N) am Leitungsende, warm ── */
+  var rS = rQ + rT + rLw + rRw;
+  var xS = xQ + xT + xL + xR;
+  var zSchleife = Math.sqrt(rS*rS + xS*xS);
+  var ikMin = zSchleife > 0 ? cMin*u0/zSchleife : null;
+
+  /* ── Abschaltbedingung ───────────────────────────────────────────── */
+  var ia = null;
+  if(inp.schutzTyp === 'manuell'){
+    if(inp.iaManuell > 0) ia = inp.iaManuell;
+  } else {
+    var ls = E ? E.elLsTyp(inp.schutzTyp) : null;
+    if(ls && inp.inSchutz > 0) ia = ls.faktor * inp.inSchutz;
+  }
+  var zZul    = (ia > 0) ? cMin*u0/ia : null;
+  var erfuellt = (ia > 0 && ikMin !== null) ? (ikMin >= ia) : null;
+  var reserve  = (ia > 0 && ikMin !== null && ia > 0) ? (ikMin/ia) : null;
+
+  /* ── Maximal zulässige Leitungslänge ─────────────────────────────────
+     Z_S(L) = √((R₀ + a·L)² + (X₀ + b·L)²) = Z_zul  →  quadratisch in L. */
+  var lMax = null, lMaxGrund = '';
+  if(zZul !== null && A > 0 && kWarm > 0){
+    var a  = (1/kWarm) * (1/(A*nP) + 1/aPE);           // Ω je m Schleife
+    var b  = xs * (1/nP + 1);
+    var R0 = rQ + rT, X0 = xQ + xT;
+    var qa = a*a + b*b;
+    var qb = 2*(R0*a + X0*b);
+    var qc = R0*R0 + X0*X0 - zZul*zZul;
+    if(qc >= 0){
+      lMax = 0;
+      lMaxGrund = 'speisung';                          // schon ohne Leitung zu hoch
+    } else if(qa > 0){
+      lMax = (-qb + Math.sqrt(qb*qb - 4*qa*qc)) / (2*qa);
+    }
+  }
+
+  /* ── Selektivität & Backup-Schutz ────────────────────────────────── */
+  var sel = kzSelektivitaet(inp, ikMax, E);
+
+  /* ── Schaltvermögen ──────────────────────────────────────────────────
+     Mit geprüfter Backup-Kombination läuft der Nachweis über sie, nicht
+     über das nackte I_cn — sonst meldete das Modul einen Mangel, wo die
+     Kaskadierung genau dafür da ist. */
+  var icnOk = null, icnUeberBackup = false;
+  if(sel.backupAktiv && sel.backupOk === true){
+    icnOk = true;
+    icnUeberBackup = true;
+    if(inp.icn > 0 && ikMax !== null && inp.icn*1000 < ikMax){
+      hinweise.push('I<sub>cn</sub> des Geräts liegt unter I<sub>k max</sub> — zulässig, weil '
+        + 'die Backup-Kombination bis ' + (sel.iBackup/1000).toFixed(1) + ' kA geprüft ist. '
+        + 'Der Nachweis hängt damit an dieser Paarung: wird das vorgelagerte Gerät getauscht, '
+        + 'ist er hinfällig.');
+    }
+  } else if(sel.backupAktiv && sel.backupOk === false){
+    icnOk = false;
+  } else if(inp.icn > 0 && ikMax !== null){
+    icnOk = (inp.icn*1000 >= ikMax);
+  }
+
+  /* ── Bewertung ───────────────────────────────────────────────────── */
+  var status = 'leer';
+  if(!(speiseFehlt || leitungFehlt)){
+    if(erfuellt === false || icnOk === false)      status = 'err';
+    else if(erfuellt === true && reserve < 1.1)    status = 'warn';
+    /* Fehlende Selektivität ist KEIN Sicherheitsmangel — der Fehler wird
+       abgeschaltet, nur greift die Anlage weiter zurück als nötig. Sie
+       stuft den Status deshalb auf «warn», nie auf «err». */
+    else if(erfuellt === true && sel.selektiv === false) status = 'warn';
+    else if(erfuellt === true)                     status = 'ok';
+    else                                           status = 'leer';
+  }
+
+  if(sys.leiter !== 3){
+    hinweise.push('Einphasiger Stromkreis: Netz- und Trafoimpedanz sind Strangwerte und '
+      + 'werden auf die Aussenleiterspannung 400 V des speisenden Netzes bezogen (IEC 60038). '
+      + 'Bei einem echten Einphasen-Transformator ist die Speisung stattdessen über '
+      + 'I<sub>k</sub>″ zu erfassen.');
+  }
+
+  /* Vereinfachungen, die immer gelten — sie gehören sichtbar ins UI. */
+  hinweise.push('Der Nachweis läuft über die Schleifenimpedanz (Verfahren der '
+    + 'SN EN 60364-4-41). Für den einpoligen Fehler wird vereinfacht mit der '
+    + 'Mitimpedanz des Transformators gerechnet; bei Dyn-Schaltgruppen liegt die '
+    + 'Nullimpedanz nahe daran, bei anderen Schaltgruppen kann sie abweichen.');
+  hinweise.push('Gilt für das TN-System. Im TT-System bestimmt der Erdungswiderstand '
+    + 'die Schleife — dort ist eine Fehlerstrom-Schutzeinrichtung nachzuweisen, nicht I<sub>k</sub>.');
+
+  /* Betriebskennwerte des Transformators — nur bei Speisung «Trafo»
+     sinnvoll; bei bekanntem I_k″ ist der Trafo gar nicht erfasst. */
+  var trafoKw = (inp.speiseModus === 'ik') ? null : kzTrafoKennwerte(inp);
+  if(trafoKw && trafoKw.i2n && inp.u2n > 0 && Math.abs(inp.u2n - unT) > 1){
+    hinweise.push('Die Bemessungs-Unterspannung U<sub>2N</sub> = ' + inp.u2n + ' V weicht von '
+      + 'der Netznennspannung ' + unT + ' V ab. Das ist bei Verteiltransformatoren normal. '
+      + 'I<sub>2N</sub> und I<sub>Last</sub> rechnen mit U<sub>2N</sub>, die Kurzschlussrechnung '
+      + 'weiterhin mit ' + unT + ' V — so verlangt es IEC 60909-0, der Spannungsfaktor c '
+      + 'deckt die Abweichung ab.');
+  }
+
+  return {
+    trafoKw: trafoKw,
+    un:un, u0:u0, cMax:cMax, cMin:cMin, leiter:sys.leiter,
+    kappaKalt:kKalt, kappaWarm:kWarm,
+    rQ:rQ, xQ:xQ, zQ:Math.sqrt(rQ*rQ + xQ*xQ),
+    rT:rT, xT:xT, zT:Math.sqrt(rT*rT + xT*xT),
+    rL20:rL20, xL:xL, zLeitung:zLeitung,
+    /* Anteil der LEITUNG an der warmen Schleife (Hin- + Rückleiter) —
+       eigenständig gerechnet, nicht als Z_S minus Vorimpedanz: die Summe
+       ist vektoriell, eine Subtraktion der Beträge wäre falsch. */
+    rLtgS:(rLw + rRw), xLtgS:(xL + xR),
+    zLtgS: Math.sqrt((rLw+rRw)*(rLw+rRw) + (xL+xR)*(xL+xR)),
+    rS:rS, xS:xS, zSchleife:zSchleife,
+    rK:rK, xK:xK, zGesamt:zGesamt,
+    ikMax:ikMax, ikMin:ikMin,
+    ia:ia, zZul:zZul, erfuellt:erfuellt, reserve:reserve,
+    lMax:lMax, lMaxGrund:lMaxGrund,
+    icnOk:icnOk, icnUeberBackup:icnUeberBackup,
+    sel:sel,
+    speiseFehlt:speiseFehlt, leitungFehlt:leitungFehlt,
+    status:status, hinweise:hinweise.concat(sel.hinweise)
+  };
+}
+/*ENGINE-END*/
+
+/* ── Oberfläche ─────────────────────────────────────────────────────────── */
+function fixLeadingZero(el){
+  var v = el.value.trim();
+  if(v === '') return;
+  v = v.replace(',', '.');
+  if(/^\./.test(v)) v = '0' + v;
+  if(/^-\./.test(v)) v = '-0' + v.slice(1);
+  var n = parseFloat(v);
+  el.value = isFinite(n) ? String(n) : '';
+}
+
+/* Fold: Zustand pro Gerät, NIE im AutoSave-Snapshot (Geräte-UI). */
+var kzFOLD_KEY = 'gema_el_fold_v1';
+function kzFoldState(){
+  try{ return JSON.parse(localStorage.getItem(kzFOLD_KEY) || '{}'); }catch(e){ return {}; }
+}
+function kzFold(hd){
+  var card = hd.closest('.el-card');
+  if(!card) return;
+  card.classList.toggle('zu');
+  var st = kzFoldState();
+  st['el_kurzschluss.' + (card.getAttribute('data-fold')||'')] = card.classList.contains('zu');
+  try{ localStorage.setItem(kzFOLD_KEY, JSON.stringify(st)); }catch(e){}
+}
+function kzFoldInit(){
+  var st = kzFoldState();
+  document.querySelectorAll('.el-card[data-fold]').forEach(function(c){
+    if(st['el_kurzschluss.' + c.getAttribute('data-fold')]) c.classList.add('zu');
+  });
+}
+
+function kzFillSelects(){
+  var E = (typeof GemaElektro!=='undefined') ? GemaElektro : null;
+  if(!E) return;
+  var opt = function(id, html){
+    var el = document.getElementById(id);
+    if(el && !el.options.length) el.innerHTML = html;
+  };
+  opt('kz_netz', E.EL_SYSTEME.map(function(s){
+    return '<option value="'+s.id+'"'+(s.id==='3p400'?' selected':'')+'>'+s.label+'</option>'; }).join(''));
+  opt('kz_cfaktor', E.EL_C_FAKTOR.map(function(c){
+    return '<option value="'+c.id+'">'+c.label+'</option>'; }).join(''));
+  opt('kz_material', E.EL_MATERIAL.map(function(m){
+    return '<option value="'+m.id+'">'+m.name+' — κ₂₀ '+m.kappa20+' m/(Ω·mm²)</option>'; }).join(''));
+  opt('kz_temp', E.EL_TEMP_STUFEN.map(function(s){
+    return '<option value="'+s.t+'"'+(s.t===70?' selected':'')+'>'+s.label+'</option>'; }).join(''));
+  opt('kz_querschnitt', E.EL_QUERSCHNITTE.map(function(a){
+    return '<option value="'+a+'"'+(a===16?' selected':'')+'>'+a+' mm²</option>'; }).join(''));
+  opt('kz_qPE', '<option value="">wie Aussenleiter</option>' + E.EL_QUERSCHNITTE.map(function(a){
+    return '<option value="'+a+'">'+a+' mm²</option>'; }).join(''));
+  opt('kz_schutzTyp', E.EL_LS_TYPEN.map(function(t){
+    return '<option value="'+t.id+'"'+(t.id==='C'?' selected':'')+'>Leitungsschutzschalter '+t.label+'</option>';
+  }).join('') + '<option value="manuell">Anderes Gerät — I_a von Hand</option>');
+  opt('kz_tAbschalt', E.EL_ABSCHALTZEIT.map(function(t){
+    return '<option value="'+t.id+'">'+t.label+'</option>'; }).join(''));
+  opt('kz_vorTyp', E.EL_LS_TYPEN.map(function(t){
+    return '<option value="'+t.id+'"'+(t.id==='C'?' selected':'')+'>Leitungsschutzschalter '+t.label+'</option>';
+  }).join('') + '<option value="manuell">Schmelzsicherung / anderes Gerät</option>');
+
+  var mh = document.getElementById('kz_matHint');
+  var m  = document.getElementById('kz_material');
+  if(mh && m) mh.textContent = E.elMaterial(m.value).hinweis || '';
+}
+
+function kzRead(){
+  var E = (typeof GemaElektro!=='undefined') ? GemaElektro : null;
+  var num = E ? E.elNum : function(v){ return parseFloat(String(v).replace(',','.')) || 0; };
+  var g = function(id){ var e = document.getElementById(id); return e ? e.value : ''; };
+  return {
+    netz:        g('kz_netz') || '3p400',
+    cFaktor:     g('kz_cfaktor') || 'c110',
+    speiseModus: g('kz_speise') || 'trafo',
+    sTrafo:      num(g('kz_sTrafo')),
+    uk:          num(g('kz_uk')),
+    pk:          num(g('kz_pk')),
+    nTrafo:      num(g('kz_nTrafo')) || 1,
+    skQ:         num(g('kz_skQ')),
+    /* Betriebskennwerte — gehen nicht in die Fehlerschleife ein. */
+    u1:          num(g('kz_u1')),
+    u2n:         num(g('kz_u2n')),
+    i0:          num(g('kz_i0')),
+    last:        num(g('kz_last')),
+    ikSpeise:    num(g('kz_ikSpeise')),
+    rxSpeise:    num(g('kz_rxSpeise')),
+    laenge:      num(g('kz_laenge')),
+    querschnitt: num(g('kz_querschnitt')),
+    qPE:         num(g('kz_qPE')),
+    material:    g('kz_material') || 'cu',
+    nPar:        num(g('kz_nPar')) || 1,
+    xBelag:      num(g('kz_xBelag')),
+    tempMin:     num(g('kz_temp')) || 70,
+    schutzTyp:   g('kz_schutzTyp') || 'C',
+    inSchutz:    num(g('kz_in')),
+    iaManuell:   num(g('kz_iaManuell')),
+    tAbschalt:   g('kz_tAbschalt') || 't04',
+    icn:         num(g('kz_icn')),
+    /* Vorgeschaltetes Gerät — alles optional, leer = keine Selektivitätsaussage */
+    vorTyp:      g('kz_vorTyp') || 'C',
+    inVor:       num(g('kz_inVor')),
+    iaVor:       num(g('kz_iaVor')),
+    isKat:       num(g('kz_is')),
+    iBackup:     num(g('kz_iBackup'))
+  };
+}
+
+/* Sichtbarkeit der Eingabe-Gruppen — abhängig von den Auswahlen. */
+function kzSyncFelder(inp){
+  var vis = function(id, an){ var e = document.getElementById(id); if(e) e.style.display = an ? '' : 'none'; };
+  vis('kzTrafoBox',   inp.speiseModus !== 'ik');
+  vis('kzTrafoKwBox', inp.speiseModus !== 'ik');
+  vis('kzIkBox',      inp.speiseModus === 'ik');
+  vis('kzIaBox',    inp.schutzTyp   === 'manuell');
+  vis('kzVorIaBox', inp.vorTyp      === 'manuell');
+  var inFg = document.getElementById('kz_in');
+  if(inFg && inFg.closest('.fg')) inFg.closest('.fg').style.display = (inp.schutzTyp === 'manuell') ? 'none' : '';
+  var vorFg = document.getElementById('kz_inVor');
+  if(vorFg && vorFg.closest('.fg')) vorFg.closest('.fg').style.display = (inp.vorTyp === 'manuell') ? 'none' : '';
+}
+
+function kzRecalc(){
+  var E   = (typeof GemaElektro!=='undefined') ? GemaElektro : null;
+  var fmt = E ? E.elFmt : function(v,d){ return Number(v).toFixed(d===undefined?2:d); };
+  var inp = kzRead();
+  kzSyncFelder(inp);
+
+  var r;
+  try{ r = kzCalc(inp); }catch(e){ console.warn('kzCalc:', e); return; }
+
+  var set  = function(id, txt){ var el = document.getElementById(id); if(el) el.textContent = txt; };
+  var setH = function(id, html){ var el = document.getElementById(id); if(el) el.innerHTML = html; };
+  var ohm  = function(v){ return fmt(v, 4) + ' Ω'; };
+  var rx   = function(rr, xx){ return 'R ' + fmt(rr,4) + ' Ω · X ' + fmt(xx,4) + ' Ω'; };
+
+  /* Zwischenwerte */
+  set('kz_kappaKalt', fmt(r.kappaKalt, 2) + ' m/(Ω·mm²)');
+  set('kz_kappaWarm', fmt(r.kappaWarm, 2) + ' m/(Ω·mm²)');
+  set('kz_zQ', ohm(r.zQ));   set('kz_zQrx', rx(r.rQ, r.xQ));
+  set('kz_zT', ohm(r.zT));   set('kz_zTrx', rx(r.rT, r.xT));
+  set('kz_zLeitung', ohm(r.zLeitung));  set('kz_zLrx', rx(r.rL20, r.xL));
+  set('kz_zSchleife', ohm(r.zSchleife)); set('kz_zSrx', rx(r.rS, r.xS));
+
+  /* Betriebskennwerte des Transformators. Fehlt eine Angabe, steht «—» —
+     lieber kein Wert als eine erfundene Null. */
+  var tw = r.trafoKw;
+  var amp = function(v, dez){ return (v === null || v === undefined) ? '—' : fmt(v, dez) + ' A'; };
+  if(tw){
+    set('kz_ue',   tw.ue === null ? '—' : fmt(tw.ue, 1) + ' : 1');
+    set('kz_i1n',  amp(tw.i1n, 2));
+    set('kz_i2n',  tw.i2n === null ? '—'
+        : fmt(tw.i2n, 1) + ' A' + (tw.n > 1 ? '  (je Trafo · ' + fmt(tw.i2nGes, 1) + ' A gesamt)' : ''));
+    set('kz_i0res', amp(tw.i0, 2));
+    set('kz_ilast', tw.iLast === null ? '—'
+        : fmt(tw.iLast, 1) + ' A' + (tw.i2nGes ? '  (' + fmt(tw.iLast / tw.i2nGes * 100, 0) + ' % von I₂N)' : ''));
+    set('kz_ikKlemmen', tw.ikKlemmenGes === null ? '—'
+        : fmt(tw.ikKlemmenGes / 1000, 3) + ' kA');
+    /* Den Kennwert gegen den Rechenwert stellen — sonst wirken zwei
+       verschiedene Kurzschlussströme auf derselben Seite widersprüchlich. */
+    var note = document.getElementById('kz_trafoKwNote');
+    if(note){
+      note.innerHTML = (tw.ikKlemmenGes === null) ? ''
+        : 'I<sub>k,Klemmen</sub> ist der Kennwert des Transformators allein — ohne '
+        + 'Spannungsfaktor c, ohne vorgelagertes Netz und ohne R<sub>T</sub>. Der '
+        + 'Rechenwert nach IEC 60909 unten (I<sub>k max</sub> = ' + fmt(r.ikMax/1000, 2)
+        + ' kA) berücksichtigt alles drei und ist für die Auslegung massgebend.';
+    }
+  }
+
+  /* Anteile an der Fehlerschleife — je eigenständig gerechneter Betrag.
+     Die Beträge summieren sich nicht exakt auf Z_S (vektorielle Addition);
+     als Orientierung, welches Glied dominiert, ist das der ehrliche Weg. */
+  var teile = [
+    {v: r.zQ,    f:'#0284c7'},
+    {v: r.zT,    f:'#7c3aed'},
+    {v: r.zLtgS, f:'#ca8a04'}
+  ];
+  var tot = teile.reduce(function(s,t){ return s + t.v; }, 0);
+  setH('kz_share', tot > 0
+    ? teile.map(function(t){ return '<i style="width:'+(100*t.v/tot).toFixed(2)+'%;background:'+t.f+'"></i>'; }).join('')
+    : '');
+
+  /* Ergebnisse */
+  setH('kz_frmlMax', r.leiter === 3
+    ? 'I<sub>k max</sub> = c<sub>max</sub> · U<sub>n</sub> / (√3 · Z)'
+    : 'I<sub>k max</sub> = c<sub>max</sub> · U<sub>0</sub> / Z');
+  set('kz_ikMax', r.ikMax === null ? '—' : fmt(r.ikMax/1000, 2) + ' kA');
+  set('kz_ikMin', r.ikMin === null ? '—' : fmt(r.ikMin, 0) + ' A');
+  set('kz_zGesamt', ohm(r.zGesamt));
+  set('kz_zLeitung2', ohm(r.zLeitung));
+  set('kz_sum1', r.ikMax === null ? '—' : fmt(r.ikMax/1000, 2) + ' kA');
+  set('kz_sum2', r.ikMin === null ? '—' : fmt(r.ikMin, 0) + ' A');
+
+  /* Nachweis Abschaltbedingung */
+  var pfAb = document.getElementById('kz_pfAb');
+  if(r.ia === null || r.ikMin === null){
+    if(pfAb) pfAb.className = 'kz-pf';
+    set('kz_pfAbVal', '—');
+    setH('kz_pfAbSub', r.ia === null
+      ? 'Nennstrom bzw. I<sub>a</sub> der Schutzeinrichtung fehlt.'
+      : 'Eingaben unvollständig.');
+    set('kz_sum3', '—');
+  } else {
+    var kl = r.erfuellt ? (r.reserve < 1.1 ? 'warn' : 'ok') : 'err';
+    if(pfAb) pfAb.className = 'kz-pf ' + kl;
+    set('kz_pfAbVal', r.erfuellt ? (r.reserve < 1.1 ? 'knapp erfüllt' : 'erfüllt') : 'nicht erfüllt');
+    setH('kz_pfAbSub',
+      'I<sub>k min</sub> ' + fmt(r.ikMin,0) + ' A ' + (r.erfuellt ? '≥' : '<') + ' I<sub>a</sub> ' + fmt(r.ia,0) + ' A'
+      + ' · Faktor ' + fmt(r.reserve,2)
+      + '<br>Z<sub>S</sub> ' + fmt(r.zSchleife,4) + ' Ω ' + (r.erfuellt ? '≤' : '>')
+      + ' Z<sub>zul</sub> ' + fmt(r.zZul,4) + ' Ω');
+    set('kz_sum3', r.erfuellt ? (r.reserve < 1.1 ? '⚠ knapp' : '✓ erfüllt') : '✕ nicht erfüllt');
+  }
+
+  /* Maximale Leitungslänge */
+  var pfLen = document.getElementById('kz_pfLen');
+  if(r.lMax === null){
+    if(pfLen) pfLen.className = 'kz-pf';
+    set('kz_pfLenVal', '—');
+    setH('kz_pfLenSub', 'Erst mit Schutzeinrichtung und Querschnitt berechenbar.');
+  } else if(r.lMaxGrund === 'speisung'){
+    if(pfLen) pfLen.className = 'kz-pf err';
+    set('kz_pfLenVal', '0 m');
+    setH('kz_pfLenSub', 'Schon die Speisung überschreitet Z<sub>zul</sub> — die Abschaltbedingung '
+      + 'ist mit dieser Schutzeinrichtung auf keiner Länge erfüllbar.');
+  } else {
+    var eng = r.lMax < inp.laenge;
+    if(pfLen) pfLen.className = 'kz-pf ' + (eng ? 'err' : 'ok');
+    set('kz_pfLenVal', fmt(r.lMax, 1) + ' m');
+    setH('kz_pfLenSub', 'bei ' + fmt(inp.querschnitt,1) + ' mm² und I<sub>a</sub> '
+      + (r.ia ? fmt(r.ia,0) : '—') + ' A · erfasst sind ' + fmt(inp.laenge,1) + ' m');
+  }
+
+  /* Schaltvermögen */
+  var pfIcn = document.getElementById('kz_pfIcn');
+  if(r.icnOk === null){
+    if(pfIcn) pfIcn.className = 'kz-pf';
+    set('kz_pfIcnVal', '—');
+    setH('kz_pfIcnSub', 'I<sub>cn</sub> des Geräts eintragen, um zu prüfen.');
+  } else if(r.icnUeberBackup){
+    if(pfIcn) pfIcn.className = 'kz-pf ok';
+    set('kz_pfIcnVal', 'über Backup gedeckt');
+    setH('kz_pfIcnSub', 'geprüfte Kombination bis ' + fmt(r.sel.iBackup/1000,1)
+      + ' kA — I<sub>cn</sub> darf darunter liegen');
+  } else {
+    if(pfIcn) pfIcn.className = 'kz-pf ' + (r.icnOk ? 'ok' : 'err');
+    set('kz_pfIcnVal', r.icnOk ? 'ausreichend' : 'zu klein');
+    setH('kz_pfIcnSub', (r.sel.backupAktiv && r.sel.backupOk === false)
+      ? 'I<sub>k max</sub> ' + fmt(r.ikMax/1000,2) + ' kA über der Backup-Grenze '
+        + fmt(r.sel.iBackup/1000,1) + ' kA'
+      : 'I<sub>cn</sub> ' + fmt(inp.icn,1) + ' kA ' + (r.icnOk ? '≥' : '<')
+        + ' I<sub>k max</sub> ' + fmt(r.ikMax/1000,2) + ' kA');
+  }
+
+  /* Gesamtstatus */
+  var st = document.getElementById('kz_status');
+  if(st){
+    var zeit = (E ? E.elAbschaltzeit(inp.tAbschalt).t : 0.4);
+    st.className = 'el-status ' + (r.status === 'leer' ? 'warn' : r.status);
+    if(r.status === 'leer'){
+      st.innerHTML = '<b>Eingaben unvollständig.</b> '
+        + (r.speiseFehlt ? 'Speisung (Trafo bzw. I<sub>k</sub>″ am Speisepunkt) fehlt. ' : '')
+        + (r.leitungFehlt ? 'Länge und Querschnitt der Leitung fehlen. ' : '')
+        + (r.ia === null ? 'Schutzeinrichtung fehlt.' : '');
+    } else if(r.status === 'err'){
+      st.innerHTML = '<b>✕ Nachweis nicht erbracht.</b> '
+        + (r.erfuellt === false
+            ? 'I<sub>k min</sub> erreicht den Abschaltstrom nicht — die Abschaltung innerhalb '
+              + zeit + ' s ist nicht sichergestellt. Abhilfe: grösserer Querschnitt, kürzere '
+              + 'Leitung, flinkere Kennlinie oder eine Fehlerstrom-Schutzeinrichtung. ' : '')
+        + (r.icnOk === false
+            ? 'Zusätzlich liegt I<sub>k max</sub> über dem Schaltvermögen des Geräts.' : '');
+    } else if(r.status === 'warn' && r.reserve !== null && r.reserve < 1.1){
+      st.innerHTML = '<b>⚠ Abschaltbedingung nur knapp erfüllt.</b> I<sub>k min</sub> liegt '
+        + 'weniger als 10 % über I<sub>a</sub>. Toleranzen von Leitungslänge, Temperatur und '
+        + 'Gerät können den Nachweis kippen — Reserve schaffen oder nachmessen.';
+    } else if(r.status === 'warn'){
+      st.innerHTML = '<b>⚠ Abschaltung erfüllt, Selektivität nicht.</b> Der Fehler wird '
+        + 'abgeschaltet — aber das vorgeschaltete Gerät spricht mit an, es fällt also mehr '
+        + 'Anlage aus als nötig. Kein Sicherheitsmangel, siehe Schritt 4.';
+    } else {
+      st.innerHTML = '<b>✓ Abschaltbedingung erfüllt.</b> I<sub>k min</sub> liegt um den Faktor '
+        + fmt(r.reserve,2) + ' über I<sub>a</sub>; die Abschaltung innerhalb ' + zeit
+        + ' s ist damit nachgewiesen'
+        + (r.icnOk === true ? ' und das Schaltvermögen reicht für I<sub>k max</sub>.' : '.');
+    }
+  }
+
+  /* Annahmen sichtbar machen */
+  setH('kz_annahmen', r.hinweise.map(function(h){ return '<li>' + h + '</li>'; }).join(''));
+
+  kzSelDraw(r, inp, fmt);
+  kzSchemaDraw(r, inp);
+}
+
+/* ── Karte 4: Selektivität & Backup ─────────────────────────────────────── */
+function kzSelDraw(r, inp, fmt){
+  var s    = r.sel;
+  var set  = function(id, txt){ var el = document.getElementById(id); if(el) el.textContent = txt; };
+  var setH = function(id, html){ var el = document.getElementById(id); if(el) el.innerHTML = html; };
+  var vis  = function(id, an){ var e = document.getElementById(id); if(e) e.style.display = an ? '' : 'none'; };
+  var amp  = function(v){ return v >= 1000 ? fmt(v/1000, 2) + ' kA' : fmt(v, 0) + ' A'; };
+
+  vis('kz_selLeer', !s.aktiv);
+  vis('kz_selBody',  s.aktiv);
+  if(!s.aktiv) return;
+
+  /* Gemeinsame Skala: das grössere der beiden Bänder bestimmt das Ende. */
+  var skala = Math.max(s.vor.i5, s.nach.i5) * 1.15;
+  var band  = function(id, b, farbe){
+    var el = document.getElementById(id);
+    if(!el) return;
+    var l = (b.i4 / skala) * 100;
+    var w = Math.max(((b.i5 - b.i4) / skala) * 100, 1.2);
+    el.style.left  = l.toFixed(2) + '%';
+    el.style.width = w.toFixed(2) + '%';
+    el.style.background = farbe;
+  };
+  band('kz_bandNach', s.nach, '#ca8a04');
+  band('kz_bandVor',  s.vor,  '#7c3aed');
+  set('kz_bandMax', amp(skala));
+
+  var name = function(b, iN){
+    if(b.fest) return 'Ansprechstrom ' + amp(b.i4);
+    return b.ls.id + ' ' + fmt(iN, 0) + ' A';
+  };
+  set('kz_bandNachLbl', 'danach · ' + name(s.nach, inp.inSchutz));
+  set('kz_bandVorLbl',  'davor · '  + name(s.vor,  inp.inVor));
+
+  setH('kz_selNach', s.nach.fest ? amp(s.nach.i4)
+    : amp(s.nach.i4) + ' … ' + amp(s.nach.i5));
+  setH('kz_selVor',  s.vor.fest  ? amp(s.vor.i4)
+    : amp(s.vor.i4)  + ' … ' + amp(s.vor.i5));
+  set('kz_selGrenze', amp(s.grenze));
+  setH('kz_selQuelle', s.grenzeQuelle === 'katalog'
+    ? 'I<sub>s</sub> aus der Koordinationstabelle'
+    : 'rechnerisch: I<sub>4</sub> davor');
+  set('kz_selVerh', s.verhaeltnis !== null ? '1 : ' + fmt(s.verhaeltnis, 2) : '—');
+
+  /* Überlastbereich */
+  var pfU = document.getElementById('kz_pfUeber');
+  if(s.thermischOk === null){
+    if(pfU) pfU.className = 'kz-pf';
+    set('kz_pfUeberVal', '—');
+  } else {
+    if(pfU) pfU.className = 'kz-pf ' + (s.thermischOk ? 'ok' : 'warn');
+    set('kz_pfUeberVal', s.thermischOk ? 'gestaffelt' : 'überschneidet');
+  }
+
+  /* Kurzschlussbereich */
+  var pfK = document.getElementById('kz_pfKs');
+  if(pfK) pfK.className = 'kz-pf ' + (s.magnetOk ? 'ok' : 'warn');
+  set('kz_pfKsVal', s.magnetOk ? 'gestaffelt' : 'überschneidet');
+
+  /* Backup */
+  var pfB = document.getElementById('kz_pfBack');
+  if(!s.backupAktiv){
+    if(pfB) pfB.className = 'kz-pf';
+    set('kz_pfBackVal', 'nicht erfasst');
+    setH('kz_pfBackSub', 'ohne diesen Wert muss I<sub>cn</sub> ≥ I<sub>k max</sub> sein');
+  } else if(s.backupOk === null){
+    if(pfB) pfB.className = 'kz-pf';
+    set('kz_pfBackVal', '—');
+    setH('kz_pfBackSub', 'I<sub>k max</sub> fehlt');
+  } else {
+    if(pfB) pfB.className = 'kz-pf ' + (s.backupOk ? 'ok' : 'err');
+    set('kz_pfBackVal', s.backupOk ? 'geschützt' : 'überschritten');
+    setH('kz_pfBackSub', 'I<sub>k max</sub> ' + fmt(r.ikMax/1000,2) + ' kA '
+      + (s.backupOk ? '≤' : '>') + ' ' + fmt(s.iBackup/1000,1) + ' kA');
+  }
+
+  /* Bewertung der Staffelung */
+  var st = document.getElementById('kz_selStatus');
+  if(!st) return;
+  if(s.selektiv === null){
+    st.className = 'el-status warn';
+    st.innerHTML = '<b>I<sub>k max</sub> fehlt.</b> Erfasse Speisung und Leitung, um die '
+      + 'Staffelung gegen den tatsächlichen Kurzschlussstrom zu prüfen.';
+  } else if(s.selektiv){
+    st.className = 'el-status ok';
+    st.innerHTML = '<b>✓ Selektiv bei diesem Fehlerstrom.</b> I<sub>k max</sub> '
+      + fmt(r.ikMax/1000,2) + ' kA liegt unter der Staffelgrenze ' + amp(s.grenze)
+      + ' — bei einem Fehler am Leitungsende löst nur das nachgelagerte Gerät aus'
+      + (s.grenzeQuelle === 'rechnerisch'
+          ? '. Belegt ist das über die Bandgrenzen; die Koordinationstabelle weist meist eine '
+            + 'höhere Grenze aus.' : '.');
+  } else {
+    st.className = 'el-status warn';
+    st.innerHTML = '<b>⚠ Nicht selektiv.</b> I<sub>k max</sub> ' + fmt(r.ikMax/1000,2)
+      + ' kA übersteigt die Staffelgrenze ' + amp(s.grenze) + ' — beide Geräte können '
+      + 'gemeinsam auslösen. Abhilfe: grösserer Nennstrom oder trägere Kennlinie davor, '
+      + 'ein selektiver Hauptleitungsschutzschalter, oder den geprüften I<sub>s</sub> aus der '
+      + 'Koordinationstabelle eintragen. <b>Kein Sicherheitsmangel</b> — abgeschaltet wird '
+      + 'in jedem Fall.';
+  }
+}
+
+/* ── Schema: Impedanzkette bis zum Fehlerort ─────────────────────────────
+   NUR literale Hex-Farben — var() rastert GemaPDF/html2canvas falsch. */
+function kzSchemaDraw(r, inp){
+  var svg = document.getElementById('kzSchema');
+  if(!svg) return;
+  var E   = (typeof GemaElektro!=='undefined') ? GemaElektro : null;
+  var fmt = E ? E.elFmt : function(v,d){ return Number(v).toFixed(d===undefined?2:d); };
+  var esc = function(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); };
+
+  /* Tiefgestellte Zeichen im SVG über tspan — Unicode-Subscripts fehlen in
+     vielen Schriften und «S_k» mit Unterstrich sieht nach Quelltext aus. */
+  var sub = function(basis, tief, rest){
+    return esc(basis) + '<tspan dy="4" font-size="9">' + esc(tief) + '</tspan>'
+         + '<tspan dy="-4">' + esc(rest || '') + '</tspan>';
+  };
+  var zQ = r.zQ, zT = r.zT, zS = r.zLtgS;
+  var speiseIk = (inp.speiseModus === 'ik');
+
+  /* Blöcke links nach rechts auslegen — im Modus «I_k″ bekannt» entfällt
+     der getrennte Netz-Block, die Speisung steckt dann in EINER Impedanz. */
+  var bloecke = [];
+  if(!speiseIk) bloecke.push({w:150, f:'#0284c7', t:'Netz', s:sub('S','k','″'), z:zQ});
+  bloecke.push({w:150, f:'#7c3aed',
+    t: speiseIk ? 'Speisepunkt' : 'Transformator',
+    s: speiseIk ? ('aus ' + sub('I','k','″')) : (sub('u','k',' / ') + sub('P','k','')), z:zT});
+  bloecke.push({w:210, f:'#ca8a04', t:'Leitung',
+    s: esc(fmt(inp.laenge,0)+' m · '+fmt(inp.querschnitt,1)+' mm²'), z:zS});
+  var cx = 20;
+  bloecke.forEach(function(b){ b.x = cx; cx += b.w + 30; });
+
+  var y = 44, h = 54, mid = y + h/2;
+  var p = [];
+  p.push('<rect x="0" y="0" width="860" height="200" fill="#ffffff"/>');
+
+  var letzterRand = 0;
+  bloecke.forEach(function(b, i){
+    if(i > 0) p.push('<line x1="'+letzterRand+'" y1="'+mid+'" x2="'+b.x+'" y2="'+mid+'" stroke="#94a3b8" stroke-width="2.5"/>');
+    p.push('<rect x="'+b.x+'" y="'+y+'" width="'+b.w+'" height="'+h+'" rx="9" fill="'+b.f+'"/>');
+    p.push('<text x="'+(b.x+b.w/2)+'" y="'+(y+22)+'" text-anchor="middle" font-family="DM Sans,sans-serif" font-size="14" font-weight="800" fill="#ffffff">'+esc(b.t)+'</text>');
+    /* b.s ist bereits escaptes Markup (tspan-Subscripts) — nicht erneut escapen. */
+    p.push('<text x="'+(b.x+b.w/2)+'" y="'+(y+40)+'" text-anchor="middle" font-family="DM Sans,sans-serif" font-size="11" fill="#e5e7eb">'+b.s+'</text>');
+    p.push('<text x="'+(b.x+b.w/2)+'" y="'+(y+h+22)+'" text-anchor="middle" font-family="DM Sans,sans-serif" font-size="12.5" font-weight="800" fill="#111827">'+esc(fmt(b.z,4))+' Ω</text>');
+    letzterRand = b.x + b.w;
+  });
+
+  /* Fehlerort */
+  var fx = letzterRand + 60;
+  p.push('<line x1="'+letzterRand+'" y1="'+mid+'" x2="'+(fx-14)+'" y2="'+mid+'" stroke="#94a3b8" stroke-width="2.5"/>');
+  p.push('<path d="M '+(fx-4)+' '+(mid-26)+' L '+(fx-16)+' '+(mid+2)+' L '+(fx-5)+' '+(mid+2)+' L '+(fx-14)+' '+(mid+26)+' L '+(fx+8)+' '+(mid-4)+' L '+(fx-3)+' '+(mid-4)+' Z" fill="#dc2626"/>');
+  p.push('<text x="'+(fx-3)+'" y="'+(y+h+22)+'" text-anchor="middle" font-family="DM Sans,sans-serif" font-size="12.5" font-weight="800" fill="#dc2626">Fehlerort</text>');
+
+  /* Summenzeile */
+  p.push('<line x1="20" y1="150" x2="840" y2="150" stroke="#e2e7f0" stroke-width="1"/>');
+  p.push('<text x="20" y="172" font-family="DM Sans,sans-serif" font-size="12.5" font-weight="800" fill="#111827">'
+    + sub('Z','S',' (warm) = ' + fmt(r.zSchleife,4) + ' Ω') + '</text>');
+  p.push('<text x="20" y="190" font-family="DM Sans,sans-serif" font-size="11.5" fill="#64748b">'
+    + sub('I','k min',' = ' + (r.ikMin === null ? '—' : fmt(r.ikMin,0) + ' A') + '   ·   ')
+    + sub('I','k max',' = ' + (r.ikMax === null ? '—' : fmt(r.ikMax/1000,2) + ' kA')) + '</text>');
+
+  svg.innerHTML = p.join('');
+}
+
+/* ── Wiederherstellung OHNE gewähltes Objekt ─────────────────────────────
+   GemaAutoSave stellt beim Laden nur wieder her, wenn ein Objekt gewählt
+   ist (init() steigt über #metaObjektDropdown.value ein). Ohne Objektbezug
+   — «Freies Objekt» — schreibt es zwar in den Basis-Key, liest ihn aber nie
+   zurück: der erfasste Stand wäre nach jedem Reload weg. Gleicher Fallback
+   wie in sb_grundleitungen/sb_regenwasserrechner: verzögert nachlesen,
+   solange der Benutzer nichts angefasst hat (`_kzTouched` über isTrusted —
+   programmatische Restores dürfen die Sperre nicht auslösen). */
+var _kzTouched = false, _kzRestored = false;
+
+function kzSnapshotKey(){
+  var basis = 'gema_kurzschluss';
+  if(typeof GemaObjekte !== 'undefined' && GemaObjekte.storageKey){
+    try{ return GemaObjekte.storageKey(basis); }catch(e){}
+  }
+  return basis;
+}
+function kzSnapshotLoad(){
+  if(_kzTouched || _kzRestored) return;
+  var st;
+  try{ st = JSON.parse(localStorage.getItem(kzSnapshotKey()) || 'null'); }catch(e){ return; }
+  if(!st || typeof st !== 'object') return;
+  var traf = false;
+  Object.keys(st).forEach(function(id){
+    if(id.indexOf('kz_') !== 0) return;          // nur eigene Felder anfassen
+    var el = document.getElementById(id);
+    if(!el) return;
+    el.value = st[id] != null ? st[id] : '';
+    traf = true;
+  });
+  if(traf){ _kzRestored = true; kzRecalc(); }
+}
+
+document.addEventListener('DOMContentLoaded', function(){
+  kzFoldInit();
+  kzFillSelects();
+  kzRecalc();
+  ['input','change'].forEach(function(ev){
+    document.addEventListener(ev, function(e){ if(e && e.isTrusted) _kzTouched = true; }, true);
+  });
+  setTimeout(kzSnapshotLoad, 700);
+  setTimeout(kzSnapshotLoad, 1800);
+  setTimeout(kzSnapshotLoad, 3500);
+});
+/* AutoSave-Restore setzt Werte programmatisch — danach neu rechnen. */
+window.addEventListener('gema-autosave-restored', function(){ kzRecalc(); });
+</script>
+
+<script>
+// ── PROJECT META (auto-save) ──
+(function(){
+  var MK='gema_meta_'+location.pathname.split('/').pop().replace('.html','');
+  function saveMeta(){try{var oid=document.getElementById('metaObjektDropdown')?.value||'';localStorage.setItem(MK,JSON.stringify({p:document.getElementById('metaProjekt')?.value||'',b:document.getElementById('metaBearbeiter')?.value||'',d:document.getElementById('metaDatum')?.value||'',oid:oid}));}catch(e){}}
+  function loadMeta(){try{var d=JSON.parse(localStorage.getItem(MK));if(d){if(document.getElementById('metaProjekt'))document.getElementById('metaProjekt').value=d.p||'';if(document.getElementById('metaBearbeiter'))document.getElementById('metaBearbeiter').value=d.b||'';if(document.getElementById('metaDatum'))document.getElementById('metaDatum').value=d.d||'';if(d.oid&&document.getElementById('metaObjektDropdown')){document.getElementById('metaObjektDropdown').value=d.oid;_prevObjektId=d.oid;}}}catch(e){}if(!document.getElementById('metaDatum')?.value){var el=document.getElementById('metaDatum');if(el)el.value=new Date().toISOString().slice(0,10);}}
+  var _prevObjektId='';
+  function _escHtml(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+  function populateObjektDropdown(){
+    if(typeof GemaObjekte==='undefined') return;
+    var sel=document.getElementById('metaObjektDropdown');
+    if(!sel) return;
+    var objs=GemaObjekte.getAll();
+    var activeId=GemaObjekte.getActiveId();
+    sel.innerHTML='<option value="">\u2013 Objekt w\u00e4hlen \u2013</option>'+
+      objs.map(function(o){return '<option value="'+o.id+'"'+(o.id===activeId?' selected':'')+'>'+
+        _escHtml(GemaObjekte.displayName(o))+'</option>';}).join('');
+    var savedOid=_prevObjektId;
+    if(savedOid && objs.find(function(o){return o.id===savedOid;})){
+      sel.value=savedOid;
+    } else if(activeId && !document.getElementById('metaProjekt').value){
+      sel.value=activeId;_prevObjektId=activeId;onObjektSelect();
+    }
+  }
+  function onObjektSelect(){
+    var sel=document.getElementById('metaObjektDropdown');
+    var inp=document.getElementById('metaProjekt');
+    if(!sel||!inp) return;
+    if(sel.value && typeof GemaObjekte!=='undefined'){
+      var o=GemaObjekte.getAll().find(function(x){return x.id===sel.value;});
+      if(o){var parts=[o.name];if(o.strasse)parts.push(o.strasse);if(o.plz||o.ort)parts.push([o.plz,o.ort].filter(Boolean).join(' '));inp.value=parts.join(', ');}
+    } else { inp.value=''; }
+    _prevObjektId=sel.value;saveMeta();
+  }
+  function toggleObjektInput(forceManual){
+    var isManual=typeof forceManual==='boolean'?forceManual:document.getElementById('objComboManual').style.display==='none';
+    document.getElementById('objComboSelect').style.display=isManual?'none':'flex';
+    document.getElementById('objComboManual').style.display=isManual?'flex':'none';
+    document.getElementById('objComboBtn').textContent=isManual?'Stammdaten':'Freies Objekt';
+    if(!isManual) populateObjektDropdown();
+  }
+  window.onObjektSelect=onObjektSelect;
+  window.toggleObjektInput=toggleObjektInput;
+  window.populateObjektDropdown=populateObjektDropdown;
+  document.addEventListener('DOMContentLoaded',function(){loadMeta();populateObjektDropdown();if(typeof GemaAutoSave!=='undefined') GemaAutoSave.init('kurzschluss');});
+  window.addEventListener('gema-objekte-loaded',function(){populateObjektDropdown();if(typeof GemaAutoSave!=='undefined') GemaAutoSave.init('kurzschluss');});
+  ['metaProjekt','metaBearbeiter','metaDatum'].forEach(function(id){var el=document.getElementById(id);if(el)el.addEventListener('input',saveMeta);});
+})();</script>
+<script>
+document.addEventListener('DOMContentLoaded', function(){GemaFeedback.init('kurzschluss', 'Kurzschluss & Abschaltbedingung');});
+</script>
+<script src="gema_scroll.js"></script>
+<script src="gema_mobile_menu.js"></script>
+</body></html>
