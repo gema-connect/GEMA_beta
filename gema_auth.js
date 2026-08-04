@@ -556,7 +556,9 @@
       ['quiz','berufsschule','sephir'].forEach(function(k){p[k]={read:true,write:true,admin:false};});
       p['objekte']={read:true,write:true,admin:false};
       return p;})()},
-    // Studierende: NUR Klassen-Portal + Prüfungen. Berechnungsmodule
+    // Studierende: Klassen-Portal + Prüfungen + WORKSPACE (Landing seit
+    // 08/2026 — dort liegen die auto-provisionierten Klassen-/Übungs-Eimer,
+    // eigene/private Eimer sind erwünscht). Berechnungsmodule
     // ausschliesslich über die Klassen-Freischaltung des Dozenten
     // (harte Sperre — _studentModAllowed prüft den Klassen-Cache).
     // Eigene Prüfungs-Abgaben schreiben sie als eigene sabg:-Records,
@@ -564,6 +566,7 @@
     {id:'role_student',name:'Studierende',color:'#0ea5e9',permissions:(function(){
       var p=_somePerms(['klassen','pruefungen'],true,false,false);
       p['quiz']={read:true,write:true,admin:false};
+      p['workspace']={read:true,write:true,admin:false};
       return p;})()},
     // ── GEMA Card: Gratis-Konto ──
     // Entsteht beim Erstellen einer Karte bzw. beim Uebernehmen eines
@@ -588,6 +591,17 @@
   // Cloud-Load nur FEHLENDE Keys und überschreibt nie einen gespeicherten
   // Wert — eine bewusste Entziehung bleibt also bestehen.
   DEFAULT_ROLES.forEach(function(r){
+    // AUSNAHME Studierende (User-Entscheid 08/2026): GEMA Card ist für
+    // Studierenden-Konten NICHT verfügbar — weder Karte noch Kontaktbuch,
+    // auch nicht in den Einstellungen sichtbar (sys_profil gated die
+    // QR-Karte auf can('read','visitenkarte'), das Notify-Panel über
+    // MODUL_ZUGRIFF). Serverseitig lehnt card-api role_student zusätzlich
+    // hart ab (Defense-in-Depth — die UI-Sperre allein wäre umgehbar).
+    if(r.id==='role_student'){
+      r.permissions['visitenkarte']={read:false,write:false,admin:false};
+      r.permissions['kontakte']={read:false,write:false,admin:false};
+      return;
+    }
     ['visitenkarte','kontakte'].forEach(function(k){
       var p=r.permissions&&r.permissions[k];
       if(!p||(!p.read&&!p.write))r.permissions[k]={read:true,write:true,admin:false};
@@ -1427,9 +1441,12 @@
     // Sie fallen darum bewusst auf den sys_workspace-Default am Ende durch.
     if(u.roleIds.indexOf('role_garagist')>=0)return'sys_garagist_dashboard.html';
     // Schule: Dozent landet auf der Modulübersicht (freies Arbeiten mit den
-    // Berechnungsmodulen), Studierende hart auf ihrem Klassen-Portal.
+    // Berechnungsmodulen), Studierende im WORKSPACE (User-Entscheid 08/2026):
+    // dort liegen ihre auto-provisionierten Eimer — der hervorgehobene
+    // Klassen-Eimer (Modul ab_klassen) und der Übungs-Eimer mit den vom
+    // Dozenten freigeschalteten Modulen (sys_workspace._wsStudentProvision).
     if(u.roleIds.indexOf('role_dozent')>=0)return'index.html';
-    if(u.roleIds.indexOf('role_student')>=0)return'ab_klassen.html';
+    if(u.roleIds.indexOf('role_student')>=0)return'sys_workspace.html';
     if(u.roleIds.indexOf('role_magaziner')>=0)return'index.html';
     if(u.roleIds.indexOf('role_monteur')>=0)return'index.html';
     // GEMA Card (gratis): Modulübersicht ist das Free-Dashboard — eigene
@@ -1592,8 +1609,8 @@
             _unblock();
             document.addEventListener('DOMContentLoaded',function(){
               var hint=_studRetry?'Dieses Modul ist für deine Klasse (noch) nicht freigeschaltet.':'Sie haben keine Berechtigung für dieses Modul.';
-              var back=_studRetry?'ab_klassen.html':'index.html';
-              var backLabel=_studRetry?'← Zu meinen Klassen':'← Zurück zur Übersicht';
+              var back=_studRetry?'sys_workspace.html':'index.html';
+              var backLabel=_studRetry?'← Zum Workspace':'← Zurück zur Übersicht';
               if(_liefRetry){
                 hint='Diese Berechnung gehört zu einem Sortiment, das Sie (noch) nicht führen. Erfassen Sie eine passende Anlage oder haken Sie die Kategorie im Firmenprofil an — dann steht Ihnen die Berechnung offen.';
                 back='sys_lieferant_dashboard.html';

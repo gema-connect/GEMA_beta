@@ -481,6 +481,10 @@ exports.handler = async function (event) {
   // Token traegt nur uid/org/adm, Rollen und Profil koennten veraltet sein.
   const user = await C.gemaUser(claims.uid);
   if (!user || user.active === false) return C.resp(401, { error: 'Konto inaktiv' });
+  // Studierenden-Konten haben KEINE GEMA Card (Schul-Pilotkonten sind keine
+  // Berufskontakte; die UI blendet alles aus, der Server ist die harte Grenze).
+  if ((user.roleIds || []).indexOf('role_student') >= 0)
+    return C.resp(403, { error: 'GEMA Card ist für Studierenden-Konten nicht verfügbar.' });
 
   try {
     return await fn(body, user);

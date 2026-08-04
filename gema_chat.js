@@ -38,7 +38,7 @@
   var NOTIF_LOCK='gema_chat_notif_lock_v1';
   var NOTIF_THROTTLE_MS=30*60*1000;
   var META_POLL_MS=45000, MSG_POLL_MS=10000;
-  var KONTEXT_ICON={offertanfrage:'📨',ausschreibung:'📋',bestellung:'🛒',objekt:'🏢',regierapport:'📝',abnahme:'✅',frei:'💬'};
+  var KONTEXT_ICON={offertanfrage:'📨',ausschreibung:'📋',bestellung:'🛒',objekt:'🏢',regierapport:'📝',abnahme:'✅',klasse:'🎓',frei:'💬'};
   var SENDER_COLORS=['#e11d48','#7c3aed','#0284c7','#d97706','#16a34a','#0891b2','#c026d3','#4f46e5'];
 
   // ── Pure Helpers (Node-testbar via GemaChat._pure) ──────────────────
@@ -245,6 +245,9 @@
     return (thread.teilnehmer||[]).filter(function(p){return p.userId!==mid;});
   }
   function _threadTitle(thread){
+    // Gruppen (z.B. Klassen-Chat) tragen einen festen Titel — die
+    // Teilnehmerliste wäre bei 20 Studierenden unlesbar.
+    if(thread&&thread.titel)return thread.titel;
     var o=_others(thread);
     if(!o.length)return 'Ich';
     if(o.length===1)return o[0].name;
@@ -263,6 +266,12 @@
     return '<span style="'+base+'background:'+col+';color:#fff;font-size:'+Math.max(10,Math.round(size*0.4))+'px;font-weight:800">'+_esc(ini.toUpperCase())+'</span>';
   }
   function _threadAvatar(thread,size){
+    // Gruppen-Avatar: fester Kreis mit dem Kontext-Symbol (🎓 Klasse …)
+    // statt des Zwei-Personen-Stapels — die Gruppe ist EIN Gesprächsraum.
+    if(thread&&thread.gruppe){
+      var gic=KONTEXT_ICON[(thread.kontext&&thread.kontext.typ)||'']||'👥';
+      return '<span style="width:'+size+'px;height:'+size+'px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;background:'+_senderColor(thread.id)+';font-size:'+Math.round(size*0.5)+'px">'+gic+'</span>';
+    }
     var o=_others(thread);
     if(o.length===1)return _avatarHtml(_userById(o[0].userId),o[0],size);
     if(!o.length)return _avatarHtml(_me(),null,size);
@@ -404,6 +413,71 @@
     _openThread(thread.id);
     return thread.id;
   }
+  // ── Gruppen-Chat (z.B. Klassen-Chat Dozent + Studierende) ────────────
+  // ensureGruppe legt einen Gruppen-Thread mit STABILER, deterministischer
+  // ID an bzw. synct die Mitgliederliste nach. KRITISCH — warum nicht
+  // start(): dessen Thread-Key hängt an den sortierten userIds; tritt ein
+  // Studierender der Klasse bei, änderte sich der Key und es entstünde ein
+  // NEUER Thread (alle bisherigen Nachrichten wären verwaist). Hier ist der
+  // Key fix ('grp|<gruppeId>'), die Mitglieder wandern MIT dem Thread.
+  // Die deterministische ID ('chtgrp_<gruppeId>') macht den Aufruf
+  // idempotent — laufen die Clients mehrerer Mitglieder gleichzeitig,
+  // upserted saveRecord immer denselben Record (kein Duplikat).
+  // Läuft im Hintergrund (Boot ab_klassen/sys_workspace) und öffnet NIE
+  // das Panel. Mitglieder-Änderungen (Beitritt/Entfernen) kommen beim
+  // nächsten ensure-Lauf irgendeines Mitglieds an — eventual consistent.
+  function ensureGruppe(opts){
+    opts=opts||{};
+    var me=_me();
+    if(!me||!opts.gruppeId)return null;
+    var ids={};ids[me.id]=1;
+    (opts.userIds||[]).forEach(function(id){
+      var u=_userById(id);
+      if(id&&(!u||u.active!==false))ids[id]=1;   // unbekannte IDs behalten (User-Pool evtl. noch nicht geladen)
+    });
+    var soll=Object.keys(ids).sort();
+    if(soll.length<2)return null;                 // Gruppe braucht mind. 2 Personen
+    var tid='chtgrp_'+String(opts.gruppeId).replace(/[^a-zA-Z0-9_-]/g,'');
+    var thread=_threadById(tid);
+    var titel=String(opts.titel||'Gruppe').slice(0,80);
+    if(!thread){
+      thread={id:tid,key:'grp|'+opts.gruppeId,gruppe:true,titel:titel,
+        teilnehmerIds:soll,
+        teilnehmer:soll.map(function(id){var u=_userById(id);return u?_snap(u):{userId:id,name:'?',firma:'',rolle:''};}),
+        kontext:opts.kontext?{
+          typ:opts.kontext.typ||'frei',refId:opts.kontext.refId||'',
+          label:String(opts.kontext.label||'').slice(0,120),
+          url:opts.kontext.url||'',urlExtern:opts.kontext.urlExtern||opts.kontext.url||''
+        }:null,
+        erstelltVon:me.id,erstelltAm:_now(),letzte:null,updatedAt:_now()};
+      _saveThreadLocal(thread);
+      if(w.GemaSync)GemaSync.saveRecord(MK,TH_PREFIX+tid,thread).catch(function(){});
+      _renderBadge();
+      if(ST.open&&ST.view==='list')_renderList();
+      return tid;
+    }
+    // Mitglieder-/Titel-Sync — NUR bei echter Änderung speichern (sonst
+    // erzeugte jeder Boot jedes Mitglieds einen Cloud-Write). updatedAt
+    // bleibt dabei unangetastet: ein reiner Mitglieder-Sync darf den
+    // Thread in der Liste nicht nach oben schieben.
+    var ist=(thread.teilnehmerIds||[]).slice().sort();
+    var dirty=ist.join(',')!==soll.join(',')||(titel&&thread.titel!==titel);
+    if(dirty){
+      var alteSnaps={};(thread.teilnehmer||[]).forEach(function(p){alteSnaps[p.userId]=p;});
+      thread.teilnehmerIds=soll;
+      thread.teilnehmer=soll.map(function(id){
+        var u=_userById(id);
+        return u?_snap(u):(alteSnaps[id]||{userId:id,name:'?',firma:'',rolle:''});
+      });
+      thread.titel=titel;
+      thread.gruppe=true;
+      _saveThreadLocal(thread);
+      if(w.GemaSync)GemaSync.saveRecord(MK,TH_PREFIX+tid,thread).catch(function(){});
+      if(ST.open&&ST.view==='list')_renderList();
+    }
+    return tid;
+  }
+
   function _alert(msg){
     if(w.GemaDialog&&GemaDialog.alert)GemaDialog.alert({title:'Chat',message:msg});
     else alert(msg);
@@ -737,7 +811,7 @@
   }
 
   w.GemaChat={
-    start:start, open:open, close:close, toggle:toggle,
+    start:start, ensureGruppe:ensureGruppe, open:open, close:close, toggle:toggle,
     unreadCount:function(){return _unreadThreads().length;},
     _pure:{threadKey:_threadKey,fmtHM:_fmtHM,dayLabel:_dayLabel,listTime:_listTime,threadUnread:_threadUnread,linkify:_linkify,esc:_esc,senderColor:_senderColor},
     _debug:function(){return {booted:ST.booted,open:ST.open,view:ST.view,threadId:ST.threadId,threads:_myThreads().length,me:(_me()||{}).id||null};}

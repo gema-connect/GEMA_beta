@@ -74,17 +74,17 @@ async function visibleGroups(roleIds, page_, extraSeed) {
   return { ctx, page, groups };
 }
 
-// Alle 26 Laufzeit-Gruppen (EVENT_KEYS; «objekte» kommt nur in Demo-Seeds vor)
-const ALLE = ['ausschreibung','werkzeug','fahrzeug','lu','schadensbericht','trocknung','produktkatalog','bestellungen','erp','regierapport','einsatzplan','goodel','abnahme','legionellen','spuelmanager','immobilien','arbeitskleider','service','stundenerfassung','revisionsunterlagen','behoerden_formulare','planablage','abos','chat','schule','pruefliste'];
+// Alle 27 Laufzeit-Gruppen (EVENT_KEYS; «objekte» kommt nur in Demo-Seeds vor)
+const ALLE = ['ausschreibung','werkzeug','fahrzeug','lu','schadensbericht','trocknung','produktkatalog','bestellungen','erp','regierapport','einsatzplan','goodel','abnahme','legionellen','spuelmanager','immobilien','arbeitskleider','service','stundenerfassung','revisionsunterlagen','behoerden_formulare','planablage','abos','chat','schule','pruefliste','visitenkarte'];
 
 console.log('■ Layer 2 — Sichtbarkeits-Matrix pro Rolle');
 {
   let r = await visibleGroups(['role_admin'], 'index.html');
-  eqSet('Admin sieht alle 26 Gruppen', r.groups, ALLE);
+  eqSet('Admin sieht alle 27 Gruppen', r.groups, ALLE);
   await r.ctx.close();
 
   r = await visibleGroups(['role_planer'], 'sys_workspace.html');
-  eqSet('Planer sieht alle 26 Gruppen (Vollzugang)', r.groups, ALLE);
+  eqSet('Planer sieht alle 27 Gruppen (Vollzugang)', r.groups, ALLE);
   await r.ctx.close();
 
   r = await visibleGroups(['role_monteur'], 'index.html');
@@ -97,17 +97,18 @@ console.log('■ Layer 2 — Sichtbarkeits-Matrix pro Rolle');
   await r.ctx.close();
 
   r = await visibleGroups(['role_student'], 'ab_klassen.html');
-  eqSet('Studierende: nur Schule + Abos + Chat', r.groups, ['schule','abos','chat']);
+  // Studierende OHNE GEMA Card (User-Entscheid 08/2026): keine visitenkarte-Gruppe
+  eqSet('Studierende: nur Schule + Abos + Chat (KEINE Karte)', r.groups, ['schule','abos','chat']);
   await r.ctx.close();
 
   r = await visibleGroups(['role_lieferant'], 'sys_lieferant_dashboard.html');
   eqSet('Anlagenlieferant: Dashboard-Scope (OA/Werkzeug/Bestellungen/Revision/Ausschreibung)', r.groups,
-    ['ausschreibung','produktkatalog','werkzeug','bestellungen','revisionsunterlagen','abos','chat']);
+    ['ausschreibung','produktkatalog','werkzeug','bestellungen','revisionsunterlagen','abos','chat','visitenkarte']);
   await r.ctx.close();
 
   r = await visibleGroups(['role_bauherrschaft'], 'sys_workspace.html');
   eqSet('Bauherrschaft: Freigabe-Scope inkl. Vergabeantrag (roles-Ausnahme)', r.groups,
-    ['ausschreibung','regierapport','goodel','abnahme','revisionsunterlagen','planablage','abos','chat']);
+    ['ausschreibung','regierapport','goodel','abnahme','revisionsunterlagen','planablage','abos','chat','visitenkarte']);
   await r.ctx.close();
 }
 
