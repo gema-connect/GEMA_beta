@@ -360,7 +360,7 @@ Kategorie-Präfix + Kleinschreibung. **Keine Umlaute in Dateinamen** (ä→ae, �
 | `ab_` | Ausbildung | `ab_index.html` |
 | `sys_` | System | `sys_settings.html` |
 
-Hauptseite: `index.html`. Hub-Seiten: `sb_index.html`, `pm_ausschreibung.html`, `ab_index.html`.
+Hauptseite: `index.html`. Hub-Seiten: `sb_index.html`, `el_index.html`, `pm_ausschreibung.html`, `ab_index.html`.
 
 ### Modulübersicht
 
@@ -599,6 +599,69 @@ Mollier-h,x-Diagramm nach der Seven-Air-Vorlage (950 mbar / 540 m ü.M.). **Neue
 - Persistenz: AutoSave `hx_diagramm` + Punkte-Tabelle im hidden `#hx_rows`.
 - Anlagenwahl + Offertanfrage: **neue Produktkategorie `KATEGORIEN.lueftungsgeraet`** (Monobloc: Volumenstrom, WRG-Typ/Rückwärmzahl, Heiz-/Kühlregister, Befeuchter, SFP; matchFn auf Volumenstrom ≥ Bedarf ideal ≤ 1.6×) + `LIEF_KATEGORIEN` + bkpMap `244.0`. Payload: `volumenstrom`, `heizleistung`, `kuehlleistung`, `befeuchtung`, `hoehe` — Projektwerte, nie Datenblatt-Werte.
 - Registriert in gema_auth (MODULES `hx_diagramm`, cat **Lüftungsberechnungen**, FILE_MAP `lt_hx_diagramm`), sb_index (Gruppe Lüftung, Hero 27 Module/6 Kategorien), sw.js.
+
+### Elektroberechnungen (el_) — Ausgangslage & paralleles Arbeiten
+
+Eigener Bereich mit Hub **`el_index.html`** (Kategorie «Elektroberechnungen», Gold-Akzent `#ca8a04` wie die Elektro-Sektion auf index.html; Breadcrumb-Kanon der Module: `el_index.html` ⇒ «Elektroberechnungen»). Angelegt 08/2026 als **Baukasten**, damit mehrere Berechnungen parallel — in getrennten Chats/Branches — entstehen können, ohne sich in geteilten Dateien zu behindern.
+
+**Drei geteilte Bausteine (NIE pro Modul duplizieren):**
+- **`gema_elektro.js`** = Fachbasis aller el_-Module (Muster `gema_rohrsysteme.js`, DOM-frei, Node-testbar): `EL_MATERIAL` (Cu 56 = Rechenwert IEC 60228 · Cu 58 = Literaturwert reines Kupfer · Al 36), `elKappa(matId,tempC)`, `EL_TEMP_STUFEN`, `EL_QUERSCHNITTE`, `EL_SYSTEME` (fU/fP je ein-/dreiphasig), `EL_SICHERUNGEN`, `elNaechsterQuerschnitt/-Sicherung`, `elNum/elFmt/elRunden`. **κ ist temperaturabhängig** — κ₂₀ rechnet den Spannungsfall rund 20 % zu günstig; jede Leitungsberechnung geht über `elKappa`, nie über eine feste Zahl. `elNaechsterQuerschnitt` liefert **`null`** über der Reihe (kein stiller Deckel — das Modul MUSS das melden). Neue Elektro-Fachdaten (Verlegearten, Häufungsfaktoren, Sicherungskennlinien) kommen HIERHIN, mit Quellenangabe.
+- **`el_base.css`** = gemeinsames Design (Nav, Hero, Projekt-Leiste, Fold-Karten `.el-card`, Felder `.g-inp-group`, Ergebnis-Zeilen `.el-res` + `.frml`, Ampel `.ok/.warn/.err`, Tabellen, Druck). **Einbau-Reihenfolge ist Pflicht**: `el_base.css` → modul-eigenes `<style>` → `gema_responsive.css` ZULETZT. Modul-CSS ergänzt nur, was zusätzlich nötig ist.
+- **`scripts/el_geruest_gen.mjs`** = Generator für neue Modul-Gerüste (`node scripts/el_geruest_gen.mjs [el_name] [--force]`). Erzeugt Nav nach Kanon (Logo 1:1 aus der Referenzseite — `nav_uniform_test` verlangt GENAU eine Logo-Variante), PWA-Metas, Objekt-Bezug, AutoSave, Fold, Schrittprinzip Eingabe → Berechnung → Ergebnis und den `/*ENGINE-START*/`-Block. Bestehende Dateien werden ohne `--force` nie überschrieben.
+
+**Konfliktfreies Parallel-Arbeiten (der Grund für den Aufbau):** Alle geteilten Dateien sind für die geplanten Module **vorab** nachgeführt — `gema_auth.js` (MODULES + FILE_MAP + `_isLoginOnly` für den Hub), `index.html`, `el_index.html`, `sw.js`, `gema_recent.js`, `sys_workspace.html` (MODULE_CATS `elektro` + MODULES + `_WS_STATUS_CFG` + Icon `zap`), `scripts/workspace_module_test.mjs`, `scripts/nav_uniform_test.mjs`, `scripts/rolematrix_golden.json`. **Ein Chat, der ein bestehendes Gerüst ausbaut, fasst davon NICHTS an** und arbeitet ausschliesslich in: seiner `el_<modul>.html`, seinen eigenen Test-Dateien (`scripts/<modul>_engine_test.mjs` / `_smoke_test.mjs`) und seinem eigenen CLAUDE.md-Unterabschnitt weiter unten. Ergänzungen an `gema_elektro.js` (neue Fachdaten) sind erlaubt, aber nur ANHÄNGEN — nie bestehende Werte ändern.
+**Namensraum:** jedes Modul hat einen eigenen JS-Präfix (`sf` Spannungsfall · `bl` Belastbarkeit · `kz` Kurzschluss · `pa` Potenzialausgleich · `lb` Leistungsbedarf · `bt` Beleuchtung · `pv` Photovoltaik). Funktionen/Variablen heissen `<präfix>Calc`, `<präfix>Recalc`, `<präfix>_feldId` — damit kollidiert nichts, wenn zwei Module später zusammengeführt werden.
+
+**Snapshot-Fallback ist Pflicht (KRITISCH):** GemaAutoSave restauriert beim Seitenstart NUR bei gewähltem Objekt. Jedes el_-Modul braucht darum den `<präfix>SnapshotLoad`-Fallback (700/1800/3500 ms, `isTrusted`-Guard) — er steckt im Gerüst-Generator und wird pro Modul geprüft. Ohne ihn verliert eine Berechnung ohne Projektbezug bei jedem Reload alle Eingaben.
+
+**Drift-Guard `scripts/elektro_basis_test.mjs`** (246 Checks, gehört ALLEN Modulen — einzelne Chats ändern ihn NICHT, ausser beim Eintragen eines neuen Moduls in die `MODULE`-Liste): Teil A prüft `gema_elektro.js` gegen unabhängig gerechnete Werte (κ-Kette, Querschnitts-/Sicherungsreihe inkl. null-Fall, Referenzauslegung 400 V/2.5 mm²/16 A/100 m mit Gegenprobe `P = 3·I²·R`, Zahlen-Helfer), Teil B die Registrierung jedes Moduls in ALLEN geteilten Dateien plus den Aufbau-Kanon (kein `type="number"` am Feld, `fixLeadingZero`, ENGINE-Block, Objekt-Bezug, AutoSave-Name, Fold NICHT im AutoSave-Snapshot, Cascade-Reihenfolge), Teil C den Boot jeder Seite im Browser (keine pageerrors, Karten, Fold-Persistenz, Kein-Zugriff für den Monteur). Ohne playwright-core wird Teil C mit Hinweis übersprungen, nie still.
+
+**NEUES el_-Modul anlegen** (Reihenfolge): `MODULE` in `scripts/el_geruest_gen.mjs` ergänzen → Generator laufen lassen → Registrierung in den 9 geteilten Dateien oben → `MODULE` in `scripts/elektro_basis_test.mjs` ergänzen → Rollen-Golden neu erzeugen (Datei löschen, `rolematrix_test` einmal laufen lassen) → Guards grün. Die Planer-Rollen bekommen das Modul automatisch (`_allPerms` iteriert MODULES), der Elektroplaner ist damit ohne Zusatzarbeit berechtigt.
+
+**Hub-Verhalten (bewusst, nicht geändert):** `el_index` steht wie `sb_index`/`ab_index` in `_isLoginOnly`. Rollen mit eigener Landing-Page (Planer → sys_workspace) werden vom Rollen-Redirect dorthin geschickt — der Arbeitsweg führt über die Modul-Kacheln auf index.html bzw. den Workspace-Eimer, nicht über den Hub. Der Drift-Guard hält dieses Verhalten explizit fest.
+
+#### el_spannungsfall — Spannungsfall & Verlustleistung (fertig)
+
+Erstes ausgebautes Elektro-Modul und damit das **Vorbild für die übrigen fünf**. Fünf Karten im Schrittprinzip: ① Leitung & Belastung · ② Berechnung (Zwischenwerte) · ③ Ergebnis & Beurteilung · ④ Schema · ⑤ Energie & Kosten. Präfix `sf`, AutoSave `spannungsfall`, Engine im `/*ENGINE-START*/`-Block.
+
+- **Formeln** (rein ohmsch, Faktoren aus `GemaElektro.EL_SYSTEME`): `ΔU = f_U · I · L · cos φ / (κ · A_eff)` · `P_V = f_P · I² · L / (κ · A_eff)` · `R = f_R · L / (κ · A_eff)` — f_U 2 bzw. √3, f_P 2 bzw. 3, f_R 2 (einphasige Schleife) bzw. 1 (eine Ader). Die **Formel-Chips folgen dem gewählten System** (`sf_duFrml`/`sf_pvFrml`/`sf_rFrml` werden in `sfRecalc` umgeschrieben) und das R-Label wechselt zwischen «Schleifenwiderstand» und «Widerstand einer Ader» — ein fester Chip würde bei Systemwechsel lügen. Gegenprobe `P_V = f_P · I² · R / f_R` ist im Engine-Test verankert.
+- **κ bei Betriebstemperatur** (Default 70 °C) statt κ₂₀ — bei 20 °C erscheint ein Warnhinweis, dass die Rechnung rund 20 % zu günstig ausfällt.
+- **Kein stiller Deckel**: liegt der erforderliche Querschnitt über der Normreihe, liefert `elNaechsterQuerschnitt` null und das Modul meldet «auch der grösste genormte Querschnitt reicht nicht» (`ueberReihe`), statt die Empfehlungs-Box einfach wegzulassen.
+- **Hinweis-Kette** (`res.hinweise`, Typen info/warn/err): Reaktanz ab 50 mm² · κ₂₀-Warnung · Parallelschaltung unter 70 mm² Cu bzw. 95 mm² Al · **immer** der Hinweis, dass der Spannungsfall die Strombelastbarkeit NICHT ersetzt, mit Link auf `el_belastbarkeit.html`. Die NIN-Ziffer für parallele Leiter ist bewusst NICHT zitiert — der Text nennt die Regel und fordert zur Prüfung der geltenden Ausgabe auf.
+- **Auslastungsfaktor** in der Kostenrechnung: die Verluste steigen quadratisch mit dem Strom, `E = P_V · t · (Auslastung/100)² / 1000`. 100 % bleibt der ungünstigste Fall (Dauervollast) — die frühere Vorlage rechnete ausschliesslich damit.
+- **Querschnitts-Vorschlag** mit «Übernehmen»-Knopf (`sfUebernehmen`), nur bei überschrittenem Grenzwert und nur wenn der Vorschlag grösser ist als der aktuelle Querschnitt.
+- **Schema** (`sfSchema`): Einspeisung → Leitung → Verbraucher, Strichstärke nach A_eff, Farbe nach Ampel, Restspannung beim Verbraucher. NUR literale Hex-Farben.
+- **Snapshot-Fallback `sfSnapshotLoad` (KRITISCH, gilt für ALLE el_-Module)**: GemaAutoSave stellt beim Seitenstart nur wieder her, wenn ein Objekt gewählt ist («Initial load for current object» in `init`). Ohne Projektbezug — freies Objekt, schnelle Kontrollrechnung — waren die Eingaben nach jedem Reload weg, obwohl sie gespeichert wurden. Der Fallback liest den Snapshot bei 700/1800/3500 ms direkt aus dem Speicher nach, solange `_sfTouched` (gesetzt über `e.isTrusted`) falsch ist. **Im Gerüst-Generator enthalten**, der Drift-Guard prüft ihn pro Modul.
+- Tests: `scripts/spannungsfall_engine_test.mjs` (68 Checks, Node — Referenzfall 400 V/2.5 mm²/16 A/100 m mit ΔU 19.11 V, P 529.66 W, L_max 62.79 m; Rückprobe «bei L = L_max trifft Δu genau den Grenzwert», einphasige Gegenprobe 31.3 m, Temperatur-, Parallel-, cos-φ-, Ampel- und Kostenfälle) + `scripts/spannungsfall_smoke_test.mjs` (57 Checks, Playwright — Rechenkette, Ampel, Vorschlag inkl. Übernahme, Systemwechsel, Schema-Farben, Fold, Persistenz über Reload, Leer-Zustand, Kein-Zugriff).
+
+#### el_potenzialausgleich — Potenzialausgleich & Schutzleiter (fertig)
+
+Querschnitte für Schutzleiter, Haupt- und zusätzlichen Potenzialausgleich sowie Funktionserdung. Fünf Karten: ① Eingabe · ② Berechnung (Herleitung Schritt für Schritt) · ③ Ergebnis · ④ Schema · ⑤ Anderer Leiterwerkstoff. Präfix `pa`, AutoSave `potenzialausgleich`, Engine im `/*ENGINE-START*/`-Block.
+
+- **Tabellenmethode, KEIN thermischer Nachweis (KRITISCH)**: Die Querschnitte folgen den Stufenregeln des Schutzleiters und den Mindestquerschnitten des Potenzialausgleichs. Die adiabatische Rechnung über den Kurzschlussstrom (`k·√t`) gehört bewusst NICHT hierher — dafür ist `el_kurzschluss` zuständig. **κ(t) spielt hier keine Rolle**, die Betriebstemperatur wird darum gar nicht erst abgefragt (das Gerüst hatte sie als Muster drin; sie ist entfernt).
+- **Regeln** (`paCalc`): **PE** gestuft `S ≤ 16 → S` · `16 < S ≤ 35 → 16` · `S > 35 → S/2` (Stufung in `GemaElektro.elPeQuerschnitt`, liefert den ROHWERT — das Aufrunden auf die Normreihe macht das Modul). **HPA** `max(½·S_PEN ; S_min)` mit `S_min` 6 mm² bzw. **10 mm² bei äusserem Blitzschutz**. **ÖPA** `max(½·S_PE ; S_min)` mit `S_min` 4 mm² ungeschützt / 2.5 mm² mechanisch geschützt, **nie grösser als der HPA**. **FE** `max(4 ; S_HPA)`. Jeder Rohwert wird über `elNaechsterQuerschnitt` auf die Normreihe aufgerundet.
+- **Der HPA-Deckel ist eine Regel-Grenze, keine Schranke**: über 16 mm² wird der Wert ausgewiesen (`hpaGekappt`), der rechnerische Wert bleibt in `hpaReihe` sichtbar und Status/Hinweis nennen beides samt der Zulässigkeit einer grösseren Ausführung. **Nie still kappen** — dieselbe Regel wie beim Querschnitts-Deckel in el_spannungsfall.
+- **Grenzwerte in `gema_elektro.js`**: `EL_PA_MIN = {hpa:{min:6,minBlitzschutz:10,max:16}, opa:{geschuetzt:2.5,offen:4}, fe:{min:4}}` — dort und NICHT im Modul.
+- **Keine freien Zahlenfelder**: Querschnitte sind eine Normreihe und werden gewählt (`<select>` aus `EL_QUERSCHNITTE`), nicht getippt. Darum steht in dieser Datei bewusst kein `fixLeadingZero` — es wäre toter Code; der Drift-Guard verlangt es nur, wenn `inputmode="decimal"`-Felder vorhanden sind.
+- **Werkstoff-Umrechnung** (`paWerkstoff`, Karte 5): gleicher Leitwert über `S_x = S_Cu · κ_Cu / κ_x` (`GemaElektro.elGleichwertigerQuerschnitt`), Ergebnis auf die Normreihe aufgerundet. Abgedeckt sind die Werkstoffe aus `EL_MATERIAL` (Cu, Al) — **kein Stahl**, dafür fehlt ein belegter κ-Wert. Mechanische Festigkeit und Korrosionsschutz sind nicht Teil der Rechnung und werden im Text so gesagt.
+- **Snapshot-Fallback `paSnapshotLoad`** wie in allen el_-Modulen — hier zusätzlich mit **Checkbox-Zweig**: GemaAutoSave speichert `input[type=checkbox]` als **Boolean**, ein `el.value = daten[id]` setzt am Kontrollkästchen nichts. Jedes el_-Modul mit Checkbox muss diesen Zweig haben.
+- **Schema** (`paSchema`): Hauptpotenzialausgleichsschiene mit Erder/Wasser/Gas/Heizung (Blitzschutz-Anschluss nur bei gesetztem Haken), Hauptzuleitung, Verteiler → Betriebsmittel mit PE, und der ÖPA in Bad/Küche — alle Leitungen mit den berechneten Querschnitten beschriftet. NUR literale Hex-Farben.
+- Tests: `scripts/potenzialausgleich_engine_test.mjs` (96 Checks, Node — alle drei PE-Stufen inkl. der Grenzen 16/35, HPA-Mindestwert/Blitzschutz/Kappung, ÖPA-Deckel und Verlegeart, FE, Referenzfall PEN 16 + S 16 → HPA 10 / ÖPA 10 / PE 16 / FE 10, Monotonie über die ganze Reihe, «alle Ergebnisse liegen in der Normreihe» über 361 Kombinationen, Leitwert-Gegenprobe der Al-Umrechnung, Grenzfall über der Reihe) + `scripts/potenzialausgleich_smoke_test.mjs` (76 Checks, Playwright — Rechenkette, Herleitungs-Zeilen, Blitzschutz-Schalter, Kappungs-Warnung, ÖPA-Begrenzung, Werkstoff-Tabelle, Schema inkl. Blitzschutz-Anschluss, Fold, Persistenz über Reload OHNE Projektbezug inkl. Checkbox, Fold nicht im Snapshot, Kein-Zugriff).
+
+#### el_belastbarkeit — Strombelastbarkeit & Kabelwahl
+*(Gerüst — Fachlogik folgt.)* Verlegearten, Häufung, Umgebungstemperatur nach NIN 5.2.3. Tabellen gehören in `gema_elektro.js` (`EL_VERLEGEARTEN` o.ä.), nicht ins Modul.
+
+#### el_kurzschluss — Kurzschluss & Abschaltbedingung
+*(Gerüst — Fachlogik folgt.)* Schleifenimpedanz, Ik am Leitungsende, Nachweis der Abschaltzeit nach NIN 4.1.1 / SN EN 60364-4-41.
+
+#### el_leistungsbedarf — Anschlussleistung & Gleichzeitigkeit
+*(Gerüst — Fachlogik folgt.)* Verbrauchergruppen, Gleichzeitigkeitsfaktoren, Bemessungsstrom für Zuleitung und Zähler.
+
+#### el_beleuchtung — Beleuchtungsberechnung
+*(Gerüst — Fachlogik folgt.)* Wirkungsgradverfahren nach SN EN 12464-1 (Raumindex, Wartungsfaktor, Leuchtenzahl, Leistungsdichte).
+
+#### el_photovoltaik — Photovoltaik: Ertrag & Eigenverbrauch
+*(Gerüst — Fachlogik folgt.)* Jahresertrag aus Fläche/Neigung/Ausrichtung, Eigenverbrauchsanteil, Wirtschaftlichkeit.
 
 ### Flüssiggas LPG (sb_fluessiggas.html) — erste Gas-Berechnung
 
