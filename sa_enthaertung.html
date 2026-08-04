@@ -532,6 +532,10 @@ select.strangSel.zu{border-color:rgba(37,99,235,.55);background:rgba(37,99,235,.
   font-size:11.5px;font-weight:700;color:var(--muted);cursor:pointer;transition:.15s;white-space:nowrap}
 .eh-seg button:hover{color:var(--text)}
 .eh-seg button.active{background:var(--surface);color:var(--accent);box-shadow:var(--shadow-sm)}
+.g-result-val.accent{color:var(--accent)}
+.eh-salz{margin-top:14px;padding-top:14px;border-top:1px dashed var(--border)}
+.eh-salz-hd{display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap}
+.eh-salz-t{font-size:12px;font-weight:800;color:var(--text2)}
 /* ── Härtegrad-Farbskala (sehr weich gelb → sehr hart rot) ── */
 input.eh-h1{background:#fefce8!important;border-color:#fde68a!important;color:#854d0e!important;font-weight:700}
 input.eh-h2{background:#fef9c3!important;border-color:#fcd34d!important;color:#854d0e!important;font-weight:700}
@@ -816,15 +820,13 @@ function fixLeadingZero(el){
           <div class="g-warn" id="enthHwWarn" style="display:none;margin-bottom:12px"></div>
           <p class="g-hint" style="margin-bottom:12px;">💡 <b>LU-Spalte:</b> Leistungseinheiten eintragen → der l/s-Wert wird automatisch nach SVGW W3 Diagramm 1 berechnet (grösster Einzel-LU 3/5 pro Zeile wählbar) und das l/s-Feld gesperrt. «+ manuell» wird 1:1 addiert (Dauerlast).<br>Dauerverbraucher und Gegenosmoseanlage laufen ohne LU direkt über l/s; für die Gegenosmoseanlage ist die Härte in der Regel 0 °fH → standardmässig als 0 angenommen.<br><b>Strang-Spalte:</b> Zeilen einem Strang zuordnen («＋ Neuer Strang …») — der Strang wertet W3 über seine LU-Summe aus und mischt auf EINE Weichwasserhärte (Aufhärteventil pro Strang).</p>
 
-          <!-- Zusammenstellung nach Strängen (Multistrang) -->
-          <div id="strangZus" style="margin-bottom:14px;">
-            <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
-              <span style="font-size:12px;font-weight:800;color:var(--text2);">Zusammenstellung nach Strängen</span>
-              <span class="g-badge blue" id="esCount">0</span>
-              <button type="button" class="g-btn sm no-print" style="margin-left:auto" onclick="esAddStrangBtn()">＋ Strang</button>
-            </div>
-            <div id="esList"></div>
-          </div>
+          <!-- Strang-Karten hängen unter ihren Zeilen in der Tabelle; hier
+               landen nur Stränge OHNE zugeordnete Zeile (sonst wären sie
+               unerreichbar) und der «Ohne Strang»-Hinweis. Die frühere
+               Sammel-Sektion «Zusammenstellung nach Strängen» samt
+               «＋ Strang»-Knopf ist entfallen (Feedback 04.08.2026) — ein
+               Strang entsteht ausschliesslich über die Strang-Spalte. -->
+          <div id="esList" style="margin-bottom:14px;"></div>
           <textarea id="enth_straenge" style="display:none"></textarea>
 
           <div class="g-result-list">
@@ -916,20 +918,55 @@ function fixLeadingZero(el){
               </div>
               <span class="g-hint">AB129 · z.B. 0.55–0.60 Fr./kg</span>
             </div>
-            <div class="g-field">
-              <label class="g-label">Gewähltes Regenerationsintervall</label>
-              <div class="g-inp-group">
-                <input class="g-inp" type="text" inputmode="decimal" id="reg_days_chosen" placeholder="z.B. 3" oninput="recalc()" onblur="fixLeadingZero(this)"/>
-                <span class="g-inp-unit">d</span>
-              </div>
-              <span class="g-hint">AB105 · optimal 2–4 Tage, max. 7</span>
-            </div>
           </div>
           <div class="g-result-list">
-            <div class="g-result-row"><span class="g-result-lbl">Regenerationsintervall theoretisch</span><span class="g-result-val" id="reg_days_calc">–</span><span class="frml">T<sub>Reg</sub> = C<sub>B</sub> / (V<sub>E</sub> × H<sub>R</sub>)&nbsp;&nbsp;[h]</span></div>
+            <div class="g-result-row"><span class="g-result-lbl">Regenerationsintervall</span><span class="g-result-val accent" id="reg_days_calc">–</span><span class="frml">T<sub>Reg</sub> = C<sub>B</sub> / (V<sub>E</sub> × H<sub>R</sub>)&nbsp;&nbsp;[h]</span></div>
             <div class="g-result-row"><span class="g-result-lbl">Salz pro mol</span><span class="g-result-val" id="salt_per_mol">–</span></div>
             <div class="g-result-row"><span class="g-result-lbl">Salzverbrauch pro Jahr mS</span><span class="g-result-val" id="salt_per_year">–</span><span class="frml">m<sub>S,Jahr</sub> = n<sub>Reg/Jahr</sub> × m<sub>Salz/Reg</sub>&nbsp;&nbsp;[kg/a]</span></div>
             <div class="g-result-row"><span class="g-result-lbl">Betriebskosten Salz/Jahr BK</span><span class="g-result-val big" id="salt_cost_year">–</span><span class="frml">BK = m<sub>S,Jahr</sub> × Salzpreis&nbsp;&nbsp;[CHF/a]</span></div>
+          </div>
+
+          <!-- Salzvorrat: Salzbehälter (Säcke) ODER Soleanlage (Soletank) -->
+          <div class="eh-salz">
+            <div class="eh-salz-hd">
+              <span class="eh-salz-t">Salzvorrat</span>
+              <div class="eh-seg" id="ehSalzSeg">
+                <button type="button" data-sv="behaelter" onclick="ehSetSalzsystem('behaelter')">Salzbehälter</button>
+                <button type="button" data-sv="sole" onclick="ehSetSalzsystem('sole')">Soleanlage</button>
+              </div>
+              <input type="hidden" id="enth_salzsystem" value="behaelter"/>
+            </div>
+
+            <div id="ehSalzBehaelter">
+              <div class="g-field" style="max-width:340px">
+                <label class="g-label">Verpackungsgrösse</label>
+                <div class="eh-seg" id="ehSackSeg">
+                  <button type="button" data-sg="10" onclick="ehSetSackgroesse('10')">10 kg</button>
+                  <button type="button" data-sg="25" onclick="ehSetSackgroesse('25')">25 kg</button>
+                </div>
+                <input type="hidden" id="enth_sackgroesse" value="25"/>
+                <span class="g-hint">Handelsübliche Gebinde — bestimmt die Anzahl Säcke</span>
+              </div>
+              <div class="g-result-list">
+                <div class="g-result-row"><span class="g-result-lbl">Salzsäcke pro Jahr</span><span class="g-result-val accent" id="salt_saecke">–</span><span class="frml">n<sub>Sack</sub> = m<sub>S,Jahr</sub> / m<sub>Sack</sub></span></div>
+                <div class="g-result-row"><span class="g-result-lbl">Salzsäcke pro Regeneration</span><span class="g-result-val" id="salt_saecke_reg">–</span></div>
+              </div>
+            </div>
+
+            <div id="ehSalzSole" style="display:none">
+              <div class="g-field" style="max-width:340px">
+                <label class="g-label">Grösse Soletank</label>
+                <div class="g-inp-group">
+                  <input class="g-inp" type="text" inputmode="decimal" id="enth_soletank" placeholder="z.B. 500" oninput="recalc()" onblur="fixLeadingZero(this)"/>
+                  <span class="g-inp-unit">l</span>
+                </div>
+                <span class="g-hint">Nutzvolumen der Soleanlage — Herstellerangabe</span>
+              </div>
+              <div class="g-result-list">
+                <div class="g-result-row"><span class="g-result-lbl">Salzvorrat im Tank (gesättigte Sole ≈ 0.26 kg/l)</span><span class="g-result-val" id="sole_salz">–</span></div>
+                <div class="g-result-row"><span class="g-result-lbl">Reicht für</span><span class="g-result-val accent" id="sole_reicht">–</span></div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -1108,7 +1145,12 @@ if (typeof window !== 'undefined') { window.enthW3 = enthW3; window.enthMultistr
     }
     function esAddStrang() {
         _esIdCounter++;
-        var s = { id: String(_esIdCounter), name: 'Strang ' + _esIdCounter, hw: '', pers: '', lpp: '', tvz: [] };
+        // Name wird AUTOMATISCH vergeben und zählt lückenlos 1, 2, 3 … — die
+        // ID bleibt davon getrennt hochgezählt, damit die Zuordnung der
+        // Zeilen nach dem Löschen eines Strangs nicht verrutscht.
+        var nr = esState.straenge.length + 1;
+        while (esState.straenge.some(function (x) { return x.name === 'Strang ' + nr; })) nr++;
+        var s = { id: String(_esIdCounter), name: 'Strang ' + nr, hw: '', pers: '', lpp: '', tvz: [] };
         esState.straenge.push(s);
         return s;
     }
@@ -1141,7 +1183,6 @@ if (typeof window !== 'undefined') { window.enthW3 = enthW3; window.enthMultistr
         recalc();
     }
     window.esRowSelChange = esRowSelChange;
-    window.esAddStrangBtn = function () { esAddStrang(); esFillRowSelects(); esPersist(); recalc(); };
     window.esRename = function (id, name) {
         var s = esState.straenge.find(function (x) { return x.id === String(id); });
         if (!s) return;
@@ -1358,8 +1399,6 @@ if (typeof window !== 'undefined') { window.enthW3 = enthW3; window.enthMultistr
     }
     function esRenderZus(eng, defs) {
         var list = document.getElementById('esList');
-        var badge = document.getElementById('esCount');
-        if (badge) badge.textContent = String(esState.straenge.length);
         if (!list) return;
         // Fokus retten — recalc rendert die Karten bei jeder Eingabe neu.
         // Karten leben jetzt in der Tabelle UND in #esList → dokumentweit suchen.
@@ -1397,11 +1436,8 @@ if (typeof window !== 'undefined') { window.enthW3 = enthW3; window.enthMultistr
         if (ohne.length) {
             listHtml += '<div class="es-ohne">Ohne Strang (je Zeile eigener Strang): ' + ohne.map(function (x) { return _esEsc(x.name); }).join(' · ') + '</div>';
         }
-        if (!esState.straenge.length && !ohne.length) {
-            listHtml = '<div class="es-ohne">Noch keine Stränge — Zeilen über die Strang-Spalte zuordnen («＋ Neuer Strang …»). Ohne Stränge zählt jede Zeile als eigener Strang (Verhalten wie bisher).</div>';
-        } else if (!listHtml && esState.straenge.length) {
-            listHtml = '<div class="es-ohne no-print">Die Strang-Karten stehen direkt unter den zugeordneten Zeilen in der Tabelle.</div>';
-        }
+        // Kein Sammel-Hinweis mehr, wenn alle Karten in der Tabelle hängen
+        // (Feedback 04.08.2026) — die Karten stehen ja sichtbar dort.
         list.innerHTML = listHtml;
         if (focusKey) {
             var el = document.querySelector('.es-card [data-esfocus="' + focusKey + '"]');
@@ -1525,6 +1561,77 @@ if (typeof window !== 'undefined') { window.enthW3 = enthW3; window.enthMultistr
         });
         document.querySelectorAll('[data-hunit-lbl]').forEach(function (el) { el.textContent = lbl; });
     }
+    /* ── Salzvorrat: Salzbehälter (Säcke) ODER Soleanlage (Soletank) ──
+       Feedback 04.08.2026 (Sandro): beim Salzbehälter wird die Verpackungs-
+       grösse gewählt (10/25 kg) und daraus die Anzahl Säcke gerechnet; bei
+       der Soleanlage steht stattdessen die Grösse des Soletanks. Beide
+       Wahlen liegen in Hidden-Inputs (AutoSave-persistiert, Muster
+       #enth_hunit) — nach einem Restore stellt ehSyncSalzUI() die Optik her. */
+    var EH_SOLE_KG_PRO_L = 0.26;   // gesättigte Sole ≈ 26 % NaCl (≈ 0.26 kg/l)
+    function ehSalzsystem() {
+        var el = document.getElementById('enth_salzsystem');
+        return (el && el.value === 'sole') ? 'sole' : 'behaelter';
+    }
+    function ehSackgroesse() {
+        var el = document.getElementById('enth_sackgroesse');
+        var v = parseFloat(el ? el.value : '');
+        return isFinite(v) && v > 0 ? v : 25;
+    }
+    /** Segmente + Sichtbarkeit an die gespeicherte Wahl angleichen. */
+    function ehSyncSalzUI() {
+        var sys = ehSalzsystem(), sg = String(ehSackgroesse());
+        var s1 = document.getElementById('ehSalzSeg');
+        if (s1) s1.querySelectorAll('button').forEach(function (b) {
+            b.classList.toggle('active', b.getAttribute('data-sv') === sys);
+        });
+        var s2 = document.getElementById('ehSackSeg');
+        if (s2) s2.querySelectorAll('button').forEach(function (b) {
+            b.classList.toggle('active', b.getAttribute('data-sg') === sg);
+        });
+        var beh = document.getElementById('ehSalzBehaelter'), sol = document.getElementById('ehSalzSole');
+        if (beh) beh.style.display = (sys === 'behaelter') ? '' : 'none';
+        if (sol) sol.style.display = (sys === 'sole') ? '' : 'none';
+    }
+    /** Ergebnisse des Salzvorrats aus dem Jahres-/Regenerationsbedarf. */
+    function ehSalzvorrat(saltYear, saltReg, regDays) {
+        ehSyncSalzUI();
+        var setT = function (id, txt) { var el = document.getElementById(id); if (el) el.textContent = txt; };
+        var sack = ehSackgroesse();
+        // Salzbehälter: Anzahl Säcke = Salzbedarf / Verpackungsgrösse.
+        // Gezeigt wird die aufgerundete Zahl (halbe Säcke kauft niemand) mit
+        // dem exakten Quotienten daneben — nie still runden.
+        if (saltYear != null && sack > 0) {
+            var exakt = saltYear / sack;
+            setT('salt_saecke', Math.ceil(exakt) + ' Säcke à ' + sack + ' kg  (' + round(exakt, 1) + ')');
+        } else setT('salt_saecke', '–');
+        if (saltReg != null && sack > 0) {
+            setT('salt_saecke_reg', round(saltReg / sack, 2) + ' Säcke  (' + round(saltReg, 1) + ' kg)');
+        } else setT('salt_saecke_reg', '–');
+        // Soleanlage: Salzvorrat im Tank und wie lange er reicht
+        var tank = getNumber('enth_soletank');
+        var vorrat = (tank != null && tank > 0) ? tank * EH_SOLE_KG_PRO_L : null;
+        setT('sole_salz', vorrat != null ? round(vorrat, 1) + ' kg' : '–');
+        if (vorrat != null && saltYear != null && saltYear > 0) {
+            var tage = vorrat / saltYear * 365;
+            var regs = (saltReg != null && saltReg > 0) ? Math.floor(vorrat / saltReg) : null;
+            setT('sole_reicht', round(tage, 0) + ' Tage' + (regs != null ? '  ·  ' + regs + ' Regenerationen' : ''));
+        } else setT('sole_reicht', '–');
+    }
+    window.ehSetSalzsystem = function (sys) {
+        var el = document.getElementById('enth_salzsystem');
+        if (!el || ehSalzsystem() === sys) { ehSyncSalzUI(); return; }
+        el.value = (sys === 'sole') ? 'sole' : 'behaelter';
+        try { el.dispatchEvent(new Event('change', { bubbles: true })); } catch (e) {}
+        recalc();
+    };
+    window.ehSetSackgroesse = function (kg) {
+        var el = document.getElementById('enth_sackgroesse');
+        if (!el) return;
+        el.value = String(kg);
+        try { el.dispatchEvent(new Event('change', { bubbles: true })); } catch (e) {}
+        recalc();
+    };
+
     /** Einheit wechseln — erfasste Werte umrechnen, damit die Härte gleich bleibt. */
     window.ehSetUnit = function (u) {
         if (!EH_UNITS[u]) return;
@@ -1945,7 +2052,6 @@ if (typeof window !== 'undefined') { window.enthW3 = enthW3; window.enthMultistr
         const CA_mol = getNumber('ca_mol');        // AB101
         const salt_reg = getNumber('salt_per_reg'); // AB107
         const salt_price = getNumber('salt_price'); // AB129
-        const reg_days_chosen = getNumber('reg_days_chosen'); // AB105 (nur Anzeige)
 
         let reg_days_calc = null;
         let salt_per_mol = null;
@@ -1980,6 +2086,9 @@ if (typeof window !== 'undefined') { window.enthW3 = enthW3; window.enthMultistr
             salt_year != null ? fmtCH(salt_year, 1) + " kg/a" : "–";
         document.getElementById('salt_cost_year').textContent =
             salt_cost != null ? fmtCH(salt_cost, 1) + " Fr./a" : "–";
+
+        // Salzvorrat: Säcke (Salzbehälter) bzw. Soletank (Soleanlage)
+        try { ehSalzvorrat(salt_year, salt_reg, reg_days_calc); } catch (e) {}
 
         // Härtefelder nach ihrem Wert einfärben (sehr weich gelb → sehr hart rot)
         try { ehPaintAll(); } catch (e) {}

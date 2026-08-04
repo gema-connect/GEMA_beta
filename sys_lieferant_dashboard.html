@@ -1051,6 +1051,23 @@ function _liefKatsFuerModul(key){
   });
   return out;
 }
+// Kategorien, die aus ERFASSTEN PRODUKTEN stammen (ohne die reinen
+// Firmenprofil-Haken). Feedback 04.08.2026 (Hans Brunner): «wie kann man
+// keine Produkte haben, aber Berechnungen sind freigeschaltet?» — die
+// Freischaltung ist die VEREINIGUNG aus Produkten UND Firmenprofil-
+// Kategorien; ohne diese Unterscheidung wirkt eine offene Berechnung ohne
+// Produkt wie ein Fehler. Die Karte weist die Herkunft darum je Kachel aus.
+function _liefKatsAusProdukten(){
+  var s={},norm=function(x){ try{ return GemaProdukte.normKatId?GemaProdukte.normKatId(x):x; }catch(e){ return x; } };
+  try{ getMyProdukte().forEach(function(p){ if(p&&p.kategorie) s[norm(p.kategorie)]=1; }); }catch(e){}
+  return s;
+}
+// true = das Modul ist (auch) durch ein erfasstes Produkt freigeschaltet
+function _liefModulAusProdukt(key){
+  var map={},prod=_liefKatsAusProdukten();
+  try{ map=(GemaAuth.getLieferantKatModule&&GemaAuth.getLieferantKatModule())||{}; }catch(e){}
+  return Object.keys(prod).some(function(k){ return (map[k]||[]).indexOf(key)>=0; });
+}
 // Kategorien aus Firmenprofil + erfassten Produkten (normalisiert)
 function _liefMeineKategorien(){
   var s={},norm=function(x){ try{ return GemaProdukte.normKatId?GemaProdukte.normKatId(x):x; }catch(e){ return x; } };
@@ -1077,18 +1094,22 @@ function renderMeineBerechnungen(){
     return;
   }
   mods.sort(function(a,b){ return _liefModLabel(a).localeCompare(_liefModLabel(b),'de'); });
+  var ausProfil=mods.filter(function(k){ return !_liefModulAusProdukt(k); }).length;
   host.innerHTML=
     '<p style="color:var(--mut);font-size:12.5px;margin:0 0 10px">Diese Berechnungen stehen Ihnen offen, weil Sie die passenden Anlagen führen. Sie können sie vollständig durchrechnen und prüfen, ob die Auslegung zu Ihren Produkten passt.</p>'+
+    (ausProfil?'<p style="color:var(--mut);font-size:12.5px;margin:-4px 0 10px">Freigeschaltet wird über <b>zwei</b> Wege: die Kategorien Ihrer erfassten <b>Produkte</b> <i>und</i> die im <b>Firmenprofil</b> angehakten Sortimente. Deshalb kann eine Berechnung offen sein, bevor Sie ein einziges Produkt erfasst haben — die Herkunft steht auf jeder Kachel.</p>':'')+
     '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px">'+
     mods.map(function(k){
       var href=_liefModHref(k); if(!href)return '';
       var kats=_liefKatsFuerModul(k);
-      return '<a href="'+E(href)+'" style="display:flex;align-items:center;gap:10px;padding:11px 13px;border:1.5px solid var(--brd);border-radius:10px;text-decoration:none;background:var(--bg2);transition:.15s" '+
+      var vonProdukt=_liefModulAusProdukt(k);
+      var herkunft=(kats.length?kats.join(' · ')+' · ':'')+(vonProdukt?'aus Ihren Produkten':'aus dem Firmenprofil');
+      return '<a href="'+E(href)+'" title="'+E(vonProdukt?'Freigeschaltet durch ein erfasstes Produkt dieser Kategorie.':'Freigeschaltet durch die im Firmenprofil angehakte Kategorie — dafür braucht es kein erfasstes Produkt.')+'" style="display:flex;align-items:center;gap:10px;padding:11px 13px;border:1.5px solid var(--brd);border-radius:10px;text-decoration:none;background:var(--bg2);transition:.15s" '+
         'onmouseover="this.style.borderColor=\'#16a34a\'" onmouseout="this.style.borderColor=\'\'">'+
         '<span style="font-size:19px;flex-shrink:0">'+(_BER_ICON[k]||'🧮')+'</span>'+
         '<span style="min-width:0">'+
           '<span style="display:block;font-size:13px;font-weight:700;color:var(--txt)">'+E(_liefModLabel(k))+'</span>'+
-          (kats.length?'<span style="display:block;font-size:11px;color:var(--mut);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+E(kats.join(' · '))+'</span>':'')+
+          '<span style="display:block;font-size:11px;color:var(--mut);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+E(herkunft)+'</span>'+
         '</span></a>';
     }).join('')+'</div>';
 }
