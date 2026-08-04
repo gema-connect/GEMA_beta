@@ -314,21 +314,39 @@ window.klBeitreten=function(code){
 };
 
 // ── Detail ───────────────────────────────────────────────────────────
+// Selbstheilung (KRITISCH): Verschwindet die geöffnete Klasse aus dem
+// lokalen Pool (z.B. weil ein verspäteter Cloud-Snapshot ihn überschrieben
+// hat), liefen früher ALLE Handler über `klasseById(_openId) → null` still
+// ins Leere — Name tippen und Module anhaken sah funktionierend aus,
+// gespeichert wurde nichts. klAktuell() hält deshalb die zuletzt bekannte
+// Fassung als Schnappschuss; fehlt die Klasse im Pool, wird auf ihr
+// weitergearbeitet und das nächste saveKlasse legt sie wieder in
+// Pool + Cloud (Eingaben gehen NIE mehr still verloren).
+var _openSnap=null;
+function klAktuell(){
+  var k=S.klasseById(_openId);
+  if(k){_openSnap=k;return k;}          // LIVE-Referenz: Handler mutieren + speichern sofort —
+  if(_openSnap&&_openSnap.id===_openId) // der Schnappschuss trägt damit immer den letzten Stand
+    return _openSnap;                   // (eine Kopie verlöre bei ZWEI Heilungen die erste Änderung).
+  return null;
+}
 window.klOpen=function(id){
   _openId=id;
+  _openSnap=null;
   document.getElementById('klOv').classList.add('open');
   document.body.style.overflow='hidden';
   renderDetail();
 };
 window.klClose=function(){
   _openId=null;
+  _openSnap=null;
   document.getElementById('klOv').classList.remove('open');
   document.body.style.overflow='';
   try{history.replaceState(null,'',location.pathname);}catch(e){}
   renderList();
 };
 function renderDetail(){
-  var k=S.klasseById(_openId);
+  var k=klAktuell();
   var body=document.getElementById('ovBody');
   if(!k){body.innerHTML='<div class="empty">Klasse nicht gefunden.</div>';return;}
   document.getElementById('ovTitle').textContent=k.name;
@@ -458,7 +476,7 @@ function detailStudentHtml(k){
 
 // ── Aktionen: Stammdaten / Code / Studierende ────────────────────────
 window.klStammSave=function(){
-  var k=S.klasseById(_openId);if(!k)return;
+  var k=klAktuell();if(!k)return;
   var name=document.getElementById('klName').value.trim();
   var lg=document.getElementById('klLehrgang').value.trim();
   if(name===k.name&&lg===(k.lehrgang||''))return;
@@ -468,13 +486,13 @@ window.klStammSave=function(){
   document.getElementById('ovTitle').textContent=k.name;
 };
 window.klArchiv=function(on){
-  var k=S.klasseById(_openId);if(!k)return;
+  var k=klAktuell();if(!k)return;
   k.archiviert=!!on;
   S.saveKlasse(k).catch(function(){});
   renderDetail();
 };
 window.klLoeschen=function(){
-  var k=S.klasseById(_openId);if(!k)return;
+  var k=klAktuell();if(!k)return;
   GemaDialog.confirm({title:'Klasse löschen',message:'Klasse «'+k.name+'» endgültig löschen? Lernmittel dieser Klasse werden ebenfalls gelöscht. Prüfungen bleiben im Prüfungs-Cockpit erhalten.',confirmLabel:'Löschen',danger:true}).then(function(ok){
     if(!ok)return;
     S.materialForKlasse(k.id).forEach(function(m){S.deleteMaterial(m.id);});
@@ -483,7 +501,7 @@ window.klLoeschen=function(){
   });
 };
 window.klCodeNeu=function(){
-  var k=S.klasseById(_openId);if(!k)return;
+  var k=klAktuell();if(!k)return;
   GemaDialog.confirm({title:'Neuen Code erzeugen',message:'Der bisherige Klassencode wird ungültig — bereits beigetretene Studierende bleiben in der Klasse. Fortfahren?',confirmLabel:'Neuer Code'}).then(function(ok){
     if(!ok)return;
     k.code=S.codeNeu();
@@ -497,16 +515,16 @@ function copyText(t,msg){
   else window.prompt('Manuell kopieren:',t);
 }
 window.klCopyCode=function(){
-  var k=S.klasseById(_openId);if(!k)return;
+  var k=klAktuell();if(!k)return;
   copyText(k.code||'','Klassencode «'+k.code+'» in die Zwischenablage kopiert.');
 };
 window.klCopyLink=function(){
-  var k=S.klasseById(_openId);if(!k)return;
+  var k=klAktuell();if(!k)return;
   var link=location.origin+location.pathname.replace(/[^\/]*$/,'')+'sys_login.html?klasse='+encodeURIComponent(k.code||'');
   copyText(link,'Einladungslink kopiert — per E-Mail oder Chat an die Studierenden senden.');
 };
 window.klStudWeg=function(sid){
-  var k=S.klasseById(_openId);if(!k)return;
+  var k=klAktuell();if(!k)return;
   GemaDialog.confirm({title:'Aus Klasse entfernen',message:'Studierende(n) aus der Klasse entfernen? Das GEMA-Konto bleibt bestehen.',confirmLabel:'Entfernen',danger:true}).then(function(ok){
     if(!ok)return;
     k.studentIds=(k.studentIds||[]).filter(function(x){return x!==sid;});
@@ -531,7 +549,7 @@ function bindModulChecks(k){
   }).join('');
   host.querySelectorAll('input[data-modkey]').forEach(function(inp){
     inp.addEventListener('change',function(){
-      var kk=S.klasseById(_openId);if(!kk)return;
+      var kk=klAktuell();if(!kk)return;
       var key=inp.getAttribute('data-modkey');
       kk.module=kk.module||[];
       if(inp.checked){if(kk.module.indexOf(key)<0)kk.module.push(key);}
@@ -544,7 +562,7 @@ function bindModulChecks(k){
 
 // ── Lernmittel ───────────────────────────────────────────────────────
 window.matNeu=function(){
-  var k=S.klasseById(_openId);if(!k)return;
+  var k=klAktuell();if(!k)return;
   var inp=document.createElement('input');
   inp.type='file';
   inp.accept='image/*,application/pdf';
@@ -566,7 +584,7 @@ window.matNeu=function(){
   inp.click();
 };
 window.matLinkNeu=function(){
-  var k=S.klasseById(_openId);if(!k)return;
+  var k=klAktuell();if(!k)return;
   GemaDialog.prompt({title:'Link hinzufügen',placeholder:'https://…',defaultValue:'https://'}).then(function(url){
     if(url===null)return;
     url=String(url).trim();
