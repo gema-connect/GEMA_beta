@@ -967,6 +967,67 @@
   }
   _initPhaseInjector();
 
+  // ── Bearbeiter gehört zur PERSON, nicht zum Gerät ───────────
+  // (Feedback 04.08.2026: «komisch dass hier Admin steht, obwohl ich als
+  // Student angemeldet bin — ist in anderen Modulen auch so».)
+  // Die 43 Berechnungsmodule cachen Projekt/Bearbeiter/Datum je Modul in
+  // localStorage['gema_meta_<datei>'] — geräteweit und OHNE Benutzerbezug.
+  // Auf einem geteilten Gerät (Schulung, Testgerät, Familien-iPad) erbte
+  // damit jeder folgende Benutzer den Bearbeiter des vorherigen. Zwei
+  // Schichten, beide zentral (kein Eingriff in die 43 Modul-Dateien):
+  //   (1) _metaUserGuard läuft beim SCRIPT-LADEN (vor dem loadMeta() der
+  //       Module im DOMContentLoaded) und verwirft beim Benutzerwechsel
+  //       NUR den Bearbeiter-Teil der gema_meta_-Caches. Projekt/Datum
+  //       bleiben — die sind nicht personenbezogen.
+  //   (2) _metaBearbeiterPrefill füllt ein LEERES Feld mit dem Namen der
+  //       eingeloggten Person. Es überschreibt NIE einen vorhandenen Wert:
+  //       steht im Projekt-Snapshot ein Bearbeiter, gehört er zum Dokument
+  //       und bleibt stehen (auch «Admin», wenn der Admin es erfasst hat).
+  var META_USER_KEY = 'gema_meta_user_v1';
+  function _metaCurUser(){
+    try { if (typeof GemaAuth !== 'undefined' && GemaAuth.getCurrentUser) return GemaAuth.getCurrentUser(); } catch(e) {}
+    return null;
+  }
+  function _metaUserGuard(){
+    try {
+      var u = _metaCurUser();
+      if (!u || !u.id) return;
+      if (localStorage.getItem(META_USER_KEY) === u.id) return;
+      for (var i = localStorage.length - 1; i >= 0; i--) {
+        var k = localStorage.key(i);
+        if (!k || k.indexOf('gema_meta_') !== 0) continue;
+        try {
+          var d = JSON.parse(localStorage.getItem(k));
+          if (d && typeof d === 'object' && d.b) { delete d.b; localStorage.setItem(k, JSON.stringify(d)); }
+        } catch(e) {}
+      }
+      localStorage.setItem(META_USER_KEY, u.id);
+    } catch(e) {}
+  }
+  _metaUserGuard();
+  function _metaBearbeiterPrefill(){
+    try {
+      var el = document.getElementById('metaBearbeiter');
+      if (!el || (el.value || '').trim()) return;
+      var u = _metaCurUser();
+      if (!u) return;
+      var name = (u.name || '').trim() || ((u.vorname || '') + ' ' + (u.nachname || '')).trim() || u.username || '';
+      if (!name) return;
+      el.value = name;
+      // input → die Module speichern ihren Meta-Cache; change → AutoSave
+      try { el.dispatchEvent(new Event('input', {bubbles:true})); } catch(e) {}
+      try { el.dispatchEvent(new Event('change', {bubbles:true})); } catch(e) {}
+    } catch(e) {}
+  }
+  // Mehrfach versetzt: nach dem loadMeta der Module UND nach dem
+  // AutoSave-Restore (der kommt aus der Cloud und damit verzögert).
+  try {
+    var _metaKick = function(){ [300, 1200, 2600].forEach(function(ms){ setTimeout(_metaBearbeiterPrefill, ms); }); };
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', _metaKick);
+    else _metaKick();
+    w.addEventListener('gema-objekt-changed', function(){ setTimeout(_metaBearbeiterPrefill, 600); });
+  } catch(e) {}
+
   // ── Zuordnungs-Pill (P04) ───────────────────────────────────
   // Injiziert einen kleinen Status-Chip in die .project-bar:
   //  • Grün/gedeckt: «📋 Zugeordnet zu: <Objekt>»

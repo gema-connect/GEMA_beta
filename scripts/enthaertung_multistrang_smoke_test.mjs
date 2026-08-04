@@ -94,12 +94,15 @@ console.log('■ Strang anlegen über das Zeilen-Dropdown');
     if (!c) return null;
     const k = [...c.querySelectorAll('.es-kpi b')].map(b => b.textContent);
     return { kpis: k, hwInp: c.querySelector('input[id^="es_hw_"]').value,
-             badge: document.getElementById('esCount').textContent,
+             sammelSektion: !!document.getElementById('strangZus'),
              inList: document.querySelectorAll('#esList .es-card').length };
   });
   ok(!!card, 'Strang-Karte hängt direkt unter Zeile A in der Tabelle');
   ok(card.inList === 0, 'keine Karte mehr separat in #esList');
-  ok(card.badge === '1', 'Zähler-Badge = 1');
+  // Feedback 04.08.2026: die Sammel-Sektion «Zusammenstellung nach Strängen»
+  // (samt «＋ Strang»-Knopf und Zähler-Badge) ist entfallen — ein Strang
+  // entsteht nur noch über die Strang-Spalte der Zeile.
+  ok(card.sammelSektion === false, 'keine Sammel-Sektion «Zusammenstellung nach Strängen» mehr');
   ok(card.kpis[1] === '0.9 l/s', 'Karte: Q W3 = 0.9 l/s (2 NK seit Feedback 01.08.2026)');
   ok(card.kpis[4] === '0.67 l/s', "Karte: V'E = 0.67 l/s (2 NK)");
   ok(card.kpis[5] === '0.23 l/s', 'Karte: Umgehung = 0.23 l/s (2 NK)');
