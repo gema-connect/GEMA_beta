@@ -217,6 +217,46 @@
             </div>
             <div class="fg-hint">Vorgelagertes Mittelspannungsnetz — beim EW erfragen.</div>
           </div>
+          <!-- Betriebskennwerte des Transformators. Sie gehen NICHT in die
+               Fehlerschleife ein — sie beantworten, was der Trafo im Normal-
+               betrieb liefert (Ströme, Übersetzung, Auslastung). -->
+          <div class="fg">
+            <label>Oberspannung U<sub>1N</sub></label>
+            <div class="g-inp-group">
+              <input class="g-inp" id="kz_u1" type="text" inputmode="decimal"
+                     value="16000" placeholder="leer = keine Übersetzung" onblur="fixLeadingZero(this)" oninput="kzRecalc()"/>
+              <span class="g-inp-unit">V</span>
+            </div>
+            <div class="fg-hint">Nur für Übersetzung und Primärstrom.</div>
+          </div>
+          <div class="fg">
+            <label>Bemessungs-Unterspannung U<sub>2N</sub></label>
+            <div class="g-inp-group">
+              <input class="g-inp" id="kz_u2n" type="text" inputmode="decimal"
+                     value="400" placeholder="0.0" onblur="fixLeadingZero(this)" oninput="kzRecalc()"/>
+              <span class="g-inp-unit">V</span>
+            </div>
+            <div class="fg-hint">Viele Verteiltransformatoren sind mit 420 V im Leerlauf
+              bemessen, damit unter Last 400 V ankommen — dann hier 420 eintragen.</div>
+          </div>
+          <div class="fg">
+            <label>Leerlaufstrom i<sub>0</sub></label>
+            <div class="g-inp-group">
+              <input class="g-inp" id="kz_i0" type="text" inputmode="decimal"
+                     value="1.5" placeholder="leer = nicht ausgewiesen" onblur="fixLeadingZero(this)" oninput="kzRecalc()"/>
+              <span class="g-inp-unit">%</span>
+            </div>
+            <div class="fg-hint">In % des primären Nennstroms — vom Typenschild.</div>
+          </div>
+          <div class="fg">
+            <label>Auslastung</label>
+            <div class="g-inp-group">
+              <input class="g-inp" id="kz_last" type="text" inputmode="decimal"
+                     value="80" placeholder="0.0" onblur="fixLeadingZero(this)" oninput="kzRecalc()"/>
+              <span class="g-inp-unit">%</span>
+            </div>
+            <div class="fg-hint">Bezogen auf die Bemessungsleistung.</div>
+          </div>
         </div>
 
         <div class="el-grid" id="kzIkBox" style="margin-top:12px;display:none">
@@ -431,6 +471,45 @@
         <div class="el-res-val" id="kz_zT">—</div>
         <div class="kz-rx" id="kz_zTrx">—</div>
       </div>
+      <!-- ── Betriebskennwerte des Transformators ─────────────────────
+           Sie gehören NICHT zur Fehlerschleife, sondern beantworten die
+           andere Hälfte der Frage: was liefert der Trafo im Normalbetrieb.
+           Nur sichtbar, wenn die Speisung als Transformator erfasst ist. -->
+      <div id="kzTrafoKwBox" style="margin-top:14px">
+        <div class="kz-grp-tt" style="margin-bottom:4px">🔌 Transformator im Betrieb</div>
+        <div class="el-res">
+          <div class="el-res-lbl">Übersetzungsverhältnis
+            <span class="frml">ü = U<sub>1N</sub> / U<sub>2N</sub></span></div>
+          <div class="el-res-val" id="kz_ue">—</div>
+        </div>
+        <div class="el-res">
+          <div class="el-res-lbl">Nennstrom primär
+            <span class="frml">I<sub>1N</sub> = S<sub>rT</sub> / (√3 · U<sub>1N</sub>)</span></div>
+          <div class="el-res-val" id="kz_i1n">—</div>
+        </div>
+        <div class="el-res">
+          <div class="el-res-lbl">Nennstrom sekundär
+            <span class="frml">I<sub>2N</sub> = S<sub>rT</sub> / (√3 · U<sub>2N</sub>)</span></div>
+          <div class="el-res-val hl" id="kz_i2n">—</div>
+        </div>
+        <div class="el-res">
+          <div class="el-res-lbl">Leerlaufstrom
+            <span class="frml">I<sub>0</sub> = i<sub>0</sub> · I<sub>1N</sub></span></div>
+          <div class="el-res-val" id="kz_i0res">—</div>
+        </div>
+        <div class="el-res">
+          <div class="el-res-lbl">Laststrom sekundär
+            <span class="frml">I<sub>Last</sub> = Auslastung · I<sub>2N</sub></span></div>
+          <div class="el-res-val" id="kz_ilast">—</div>
+        </div>
+        <div class="el-res">
+          <div class="el-res-lbl">Kurzschlussstrom an den Klemmen (Kennwert)
+            <span class="frml">I<sub>k,Klemmen</sub> = I<sub>2N</sub> / u<sub>k</sub></span></div>
+          <div class="el-res-val" id="kz_ikKlemmen">—</div>
+        </div>
+        <div class="el-note" id="kz_trafoKwNote" style="margin-top:6px"></div>
+      </div>
+
       <div class="el-res">
         <div class="el-res-lbl">Leitung, Aussenleiter kalt
           <span class="frml">R = L / (κ · A · n)</span>
@@ -772,6 +851,51 @@ function kzSelektivitaet(inp, ikMax, E){
   return r;
 }
 
+/* ── Betriebskennwerte des Transformators ──────────────────────────────
+   Die Fehlerschleife oben braucht vom Trafo nur die Impedanz. Ein Planer
+   will aber auch wissen, was das Gerät im NORMALBETRIEB liefert: welche
+   Ströme fliessen, wie ist die Übersetzung, wie weit ist es ausgelastet.
+   Das rechnet dieser Block — er greift NICHT in die Kurzschlussrechnung ein.
+
+   Bezugsspannung: I_2N ist auf die BEMESSUNGS-Unterspannung U_2N bezogen
+   (Typenschild), nicht auf die Netznennspannung. Bei Verteiltransformatoren
+   sind das oft 420 V im Leerlauf, damit unter Last 400 V anstehen — mit
+   400 V gerechnet fiele I_2N rund 5 % zu gross aus.
+
+   Fehlt eine Angabe, bleibt der zugehörige Wert null statt 0 — die
+   Oberfläche zeigt dann «—» und behauptet keine Zahl, die es nicht gibt. */
+function kzTrafoKennwerte(inp){
+  var S3 = Math.sqrt(3);
+  var s  = (inp.sTrafo > 0 ? inp.sTrafo : 0) * 1000;      // kVA → VA
+  var n  = inp.nTrafo >= 1 ? Math.round(inp.nTrafo) : 1;
+  var u1 = inp.u1  > 0 ? inp.u1  : 0;
+  var u2 = inp.u2n > 0 ? inp.u2n : 0;
+
+  var r = { u2n:u2, n:n, ue:null, i1n:null, i2n:null, i2nGes:null,
+            i0:null, iLast:null, ikKlemmen:null, ikKlemmenGes:null };
+  if(!(s > 0)) return r;
+
+  if(u1 > 0 && u2 > 0) r.ue = u1 / u2;
+  if(u1 > 0){
+    r.i1n = s / (S3 * u1);
+    if(inp.i0 > 0) r.i0 = inp.i0 / 100 * r.i1n;           // i0 in % von I_1N
+  }
+  if(u2 > 0){
+    r.i2n    = s / (S3 * u2);
+    r.i2nGes = r.i2n * n;
+    if(inp.last > 0) r.iLast = r.i2n * n * (inp.last / 100);
+    /* Klemmen-Kurzschlussstrom des Trafos allein: I_2N / u_k.
+       Bewusst OHNE Spannungsfaktor c, ohne vorgelagertes Netz und ohne R_T —
+       das ist der Kennwert vom Typenschild, nicht der Rechenwert nach
+       IEC 60909. Beide werden in der Oberfläche gegenübergestellt. */
+    if(inp.uk > 0){
+      r.ikKlemmen    = r.i2n / (inp.uk / 100);
+      r.ikKlemmenGes = r.ikKlemmen * n;
+    }
+  }
+  return r;
+}
+
 function kzCalc(inp){
   var E  = (typeof GemaElektro!=='undefined') ? GemaElektro : null;
   var S3 = Math.sqrt(3);
@@ -966,7 +1090,19 @@ function kzCalc(inp){
   hinweise.push('Gilt für das TN-System. Im TT-System bestimmt der Erdungswiderstand '
     + 'die Schleife — dort ist eine Fehlerstrom-Schutzeinrichtung nachzuweisen, nicht I<sub>k</sub>.');
 
+  /* Betriebskennwerte des Transformators — nur bei Speisung «Trafo»
+     sinnvoll; bei bekanntem I_k″ ist der Trafo gar nicht erfasst. */
+  var trafoKw = (inp.speiseModus === 'ik') ? null : kzTrafoKennwerte(inp);
+  if(trafoKw && trafoKw.i2n && inp.u2n > 0 && Math.abs(inp.u2n - unT) > 1){
+    hinweise.push('Die Bemessungs-Unterspannung U<sub>2N</sub> = ' + inp.u2n + ' V weicht von '
+      + 'der Netznennspannung ' + unT + ' V ab. Das ist bei Verteiltransformatoren normal. '
+      + 'I<sub>2N</sub> und I<sub>Last</sub> rechnen mit U<sub>2N</sub>, die Kurzschlussrechnung '
+      + 'weiterhin mit ' + unT + ' V — so verlangt es IEC 60909-0, der Spannungsfaktor c '
+      + 'deckt die Abweichung ab.');
+  }
+
   return {
+    trafoKw: trafoKw,
     un:un, u0:u0, cMax:cMax, cMin:cMin, leiter:sys.leiter,
     kappaKalt:kKalt, kappaWarm:kWarm,
     rQ:rQ, xQ:xQ, zQ:Math.sqrt(rQ*rQ + xQ*xQ),
@@ -1067,6 +1203,11 @@ function kzRead(){
     pk:          num(g('kz_pk')),
     nTrafo:      num(g('kz_nTrafo')) || 1,
     skQ:         num(g('kz_skQ')),
+    /* Betriebskennwerte — gehen nicht in die Fehlerschleife ein. */
+    u1:          num(g('kz_u1')),
+    u2n:         num(g('kz_u2n')),
+    i0:          num(g('kz_i0')),
+    last:        num(g('kz_last')),
     ikSpeise:    num(g('kz_ikSpeise')),
     rxSpeise:    num(g('kz_rxSpeise')),
     laenge:      num(g('kz_laenge')),
@@ -1093,8 +1234,9 @@ function kzRead(){
 /* Sichtbarkeit der Eingabe-Gruppen — abhängig von den Auswahlen. */
 function kzSyncFelder(inp){
   var vis = function(id, an){ var e = document.getElementById(id); if(e) e.style.display = an ? '' : 'none'; };
-  vis('kzTrafoBox', inp.speiseModus !== 'ik');
-  vis('kzIkBox',    inp.speiseModus === 'ik');
+  vis('kzTrafoBox',   inp.speiseModus !== 'ik');
+  vis('kzTrafoKwBox', inp.speiseModus !== 'ik');
+  vis('kzIkBox',      inp.speiseModus === 'ik');
   vis('kzIaBox',    inp.schutzTyp   === 'manuell');
   vis('kzVorIaBox', inp.vorTyp      === 'manuell');
   var inFg = document.getElementById('kz_in');
@@ -1124,6 +1266,32 @@ function kzRecalc(){
   set('kz_zT', ohm(r.zT));   set('kz_zTrx', rx(r.rT, r.xT));
   set('kz_zLeitung', ohm(r.zLeitung));  set('kz_zLrx', rx(r.rL20, r.xL));
   set('kz_zSchleife', ohm(r.zSchleife)); set('kz_zSrx', rx(r.rS, r.xS));
+
+  /* Betriebskennwerte des Transformators. Fehlt eine Angabe, steht «—» —
+     lieber kein Wert als eine erfundene Null. */
+  var tw = r.trafoKw;
+  var amp = function(v, dez){ return (v === null || v === undefined) ? '—' : fmt(v, dez) + ' A'; };
+  if(tw){
+    set('kz_ue',   tw.ue === null ? '—' : fmt(tw.ue, 1) + ' : 1');
+    set('kz_i1n',  amp(tw.i1n, 2));
+    set('kz_i2n',  tw.i2n === null ? '—'
+        : fmt(tw.i2n, 1) + ' A' + (tw.n > 1 ? '  (je Trafo · ' + fmt(tw.i2nGes, 1) + ' A gesamt)' : ''));
+    set('kz_i0res', amp(tw.i0, 2));
+    set('kz_ilast', tw.iLast === null ? '—'
+        : fmt(tw.iLast, 1) + ' A' + (tw.i2nGes ? '  (' + fmt(tw.iLast / tw.i2nGes * 100, 0) + ' % von I₂N)' : ''));
+    set('kz_ikKlemmen', tw.ikKlemmenGes === null ? '—'
+        : fmt(tw.ikKlemmenGes / 1000, 3) + ' kA');
+    /* Den Kennwert gegen den Rechenwert stellen — sonst wirken zwei
+       verschiedene Kurzschlussströme auf derselben Seite widersprüchlich. */
+    var note = document.getElementById('kz_trafoKwNote');
+    if(note){
+      note.innerHTML = (tw.ikKlemmenGes === null) ? ''
+        : 'I<sub>k,Klemmen</sub> ist der Kennwert des Transformators allein — ohne '
+        + 'Spannungsfaktor c, ohne vorgelagertes Netz und ohne R<sub>T</sub>. Der '
+        + 'Rechenwert nach IEC 60909 unten (I<sub>k max</sub> = ' + fmt(r.ikMax/1000, 2)
+        + ' kA) berücksichtigt alles drei und ist für die Auslegung massgebend.';
+    }
+  }
 
   /* Anteile an der Fehlerschleife — je eigenständig gerechneter Betrag.
      Die Beträge summieren sich nicht exakt auf Z_S (vektorielle Addition);
