@@ -95,9 +95,7 @@
    *
    * pathHint: optionaler Pfad-Praefix (z.B. 'dach/<orgId>').
    */
-  function uploadDataUrl(dataUrl, pathHint){
-    var s=_sb();
-    if(!s || !s.SB_URL || !s.SB_KEY) return Promise.reject(new Error('Storage nicht konfiguriert'));
+  function uploadDataUrl(dataUrl, pathHint, opts){
     var isImage = typeof dataUrl === 'string' && dataUrl.indexOf('data:image') === 0;
     var isPdf   = typeof dataUrl === 'string' && dataUrl.indexOf('data:application/pdf') === 0;
     if(!isImage && !isPdf){
@@ -105,33 +103,99 @@
     }
     var parsed = _dataUrlToBlob(dataUrl);
     if(!parsed) return Promise.reject(new Error('Data-URL nicht lesbar'));
+    return _uploadBlob(parsed.blob, parsed.ext, parsed.mime, pathHint, opts);
+  }
+
+  /**
+   * Laedt eine DATEI (File/Blob) direkt in den Bucket — ohne den
+   * Base64-Umweg von uploadDataUrl. Liefert Promise<{url, path}>.
+   *
+   * KRITISCH fuer grosse Dateien: uploadDataUrl liest die Datei erst als
+   * Data-URL ein (Base64 ist ~33 % groesser), dekodiert sie mit atob in
+   * einen String und kopiert sie Byte fuer Byte in ein Uint8Array. Ein
+   * 7-MB-PDF belegt so kurzzeitig gegen 30 MB und braucht auf einem
+   * Tablet spuerbar Zeit — auf mobilem Safari reicht das, damit der
+   * Upload scheitert oder der Nutzer laengst aufgegeben hat. Eine File
+   * IST bereits ein Blob und kann unveraendert gesendet werden.
+   *
+   * opts.onProgress(pct, geladen, total) — nur hier verfuegbar (XHR);
+   * fetch kennt keinen Upload-Fortschritt.
+   * opts.maxMb — Groessen-Guard (Default 12).
+   */
+  function uploadFile(file, pathHint, opts){
+    if(!file || typeof file.size !== 'number') return Promise.reject(new Error('Keine Datei'));
+    var mime = file.type || 'application/octet-stream';
+    var ext = _extFor(mime, file.name);
+    return _uploadBlob(file, ext, mime, pathHint, opts);
+  }
+
+  function _extFor(mime, name){
+    mime = String(mime||'');
+    if(mime.indexOf('pdf')>=0) return 'pdf';
+    if(mime.indexOf('png')>=0) return 'png';
+    if(mime.indexOf('webp')>=0) return 'webp';
+    if(mime.indexOf('gif')>=0) return 'gif';
+    if(mime.indexOf('image/')===0) return 'jpg';
+    var m = /\.([a-zA-Z0-9]{1,5})$/.exec(String(name||''));
+    return m ? m[1].toLowerCase() : 'bin';
+  }
+
+  // Gemeinsamer Kern von uploadDataUrl und uploadFile.
+  function _uploadBlob(blob, ext, mime, pathHint, opts){
+    opts = opts || {};
+    var s=_sb();
+    if(!s || !s.SB_URL || !s.SB_KEY) return Promise.reject(new Error('Storage nicht konfiguriert'));
+    if(!blob) return Promise.reject(new Error('Keine Daten'));
     // Groessen-Guard: schuetzt Bucket + Bandbreite vor Ausreissern.
-    if(parsed.blob && parsed.blob.size > 12*1024*1024){
-      return Promise.reject(new Error('Bild zu gross fuer Upload (max. 12 MB)'));
+    var maxMb = opts.maxMb || 12;
+    if(blob.size > maxMb*1024*1024){
+      return Promise.reject(new Error('Datei zu gross fuer Upload (max. ' + maxMb + ' MB)'));
     }
     var prefix = (pathHint || 'misc').replace(/[^a-zA-Z0-9_\/-]/g,'').replace(/\/{2,}/g,'/').replace(/^\/+|\/+$/g,'');
     if(!prefix) prefix = 'misc'; // Hint bestand nur aus Sonderzeichen
-    var path = prefix + '/' + _rand() + '.' + parsed.ext;
+    var path = prefix + '/' + _rand() + '.' + ext;
     var url = s.SB_URL + '/storage/v1/object/' + BUCKET + '/' + path;
-    return fetch(url, {
-      method: 'POST',
-      headers: {
-        'apikey': s.SB_KEY,
-        'Authorization': 'Bearer ' + ((s.getAuthToken && s.getAuthToken()) || s.SB_KEY),
-        'Content-Type': parsed.mime,
-        'cache-control': 'max-age=3600'
-      },
-      body: parsed.blob
-    }).then(function(r){
-      if(!r.ok){
+    var tok = (s.getAuthToken && s.getAuthToken()) || s.SB_KEY;
+    var isPdf = String(mime).indexOf('pdf') >= 0;
+
+    return new Promise(function(resolve, reject){
+      var xhr = new XMLHttpRequest();
+      xhr.open('POST', url, true);
+      xhr.setRequestHeader('apikey', s.SB_KEY);
+      xhr.setRequestHeader('Authorization', 'Bearer ' + tok);
+      xhr.setRequestHeader('Content-Type', mime);
+      xhr.setRequestHeader('cache-control', 'max-age=3600');
+      if(xhr.upload && typeof opts.onProgress === 'function'){
+        xhr.upload.onprogress = function(ev){
+          if(ev.lengthComputable){
+            var pct = Math.max(0, Math.min(100, Math.round(ev.loaded/ev.total*100)));
+            try{ opts.onProgress(pct, ev.loaded, ev.total); }catch(e){}
+          }
+        };
+      }
+      xhr.onload = function(){
+        if(xhr.status >= 200 && xhr.status < 300){ resolve(true); return; }
         // Supabase-Fehlertext mitliefern (z.B. {"error":"Bucket not found"}
         // oder RLS-Hinweis) — sonst sieht man nur den HTTP-Code.
-        return r.text().then(function(t){
-          var detail = '';
-          try{ var j = JSON.parse(t); detail = j.message || j.error || j.msg || ''; }catch(e){ detail = (t||'').slice(0,200); }
-          throw new Error('Upload HTTP ' + r.status + (detail ? ' — ' + detail : ''));
-        }, function(){ throw new Error('Upload HTTP ' + r.status); });
-      }
+        var detail = '';
+        try{ var j = JSON.parse(xhr.responseText||''); detail = j.message || j.error || j.msg || ''; }
+        catch(e){ detail = (xhr.responseText||'').slice(0,200); }
+        // Das Groessenlimit setzt der Bucket im Supabase-Dashboard — der
+        // Klartext hilft mehr als «HTTP 413».
+        if(xhr.status === 413 || /exceeded|maximum allowed size|too large|payload/i.test(detail)){
+          reject(new Error('Datei zu gross fuer den Bucket — Limit im Supabase-Dashboard (Storage → gema-fotos → Settings) erhoehen.'));
+          return;
+        }
+        reject(new Error('Upload HTTP ' + xhr.status + (detail ? ' — ' + detail : '')));
+      };
+      xhr.onerror = function(){ reject(new Error('Upload fehlgeschlagen (Netzwerk)')); };
+      xhr.onabort = function(){ reject(new Error('Upload abgebrochen')); };
+      if(typeof opts.onXhr === 'function'){ try{ opts.onXhr(xhr); }catch(e){} }
+      xhr.send(blob);
+    }).then(function(){
+      // Fortschritt steht bei 100 %, aber die Datei muss auch wirklich
+      // oeffentlich ladbar sein (Bucket public + Policy).
+      if(typeof opts.onProgress === 'function'){ try{ opts.onProgress(100, blob.size, blob.size); }catch(e){} }
       var pub = publicUrl(path);
       var verify = isPdf ? _verifyFetchable(pub) : _verifyLoadable(pub);
       return verify.then(function(ok){

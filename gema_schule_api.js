@@ -761,6 +761,10 @@
     });
   }
   // → Promise<{name,type,size,url?|dataUrl?}> — url wenn Storage-Upload klappt
+  // opts.onProgress(pct, phase) — phase: 'upload' | 'pruefen' | 'fertig'.
+  // Der Aufrufer bekommt damit eine echte Fortschrittsanzeige; bei einem
+  // mehrere MB grossen Skript dauert der Upload sonst gefuehlt ewig ohne
+  // jede Rueckmeldung.
   function uploadDatei(file,pfad,opts){
     opts=opts||{};
     var isImg=/^image\//.test(file.type);
@@ -768,20 +772,36 @@
     if(!isImg&&!isPdf)return Promise.reject(new Error('Nur Bilder und PDF sind möglich (Excel etc. bitte als PDF exportieren).'));
     var maxMb=opts.maxMb||10;
     if(file.size>maxMb*1024*1024)return Promise.reject(new Error('Datei zu gross (max. '+maxMb+' MB).'));
+    var meta={name:file.name,type:isPdf?'application/pdf':'image/jpeg',size:file.size};
+    var melde=function(pct,phase){ if(typeof opts.onProgress==='function'){try{opts.onProgress(pct,phase);}catch(e){}} };
+    var stor=(typeof w.GemaStorage!=='undefined')?w.GemaStorage:null;
+    var uploadOpts={maxMb:maxMb,onProgress:function(pct){melde(pct,pct>=100?'pruefen':'upload');}};
+
+    // PDF: DIREKT als Datei hochladen. uploadDataUrl wuerde die Datei erst
+    // als Base64 einlesen (+33 % Groesse) und Byte fuer Byte zurueck-
+    // dekodieren — bei einem 7-MB-Skript dauert das auf einem Tablet
+    // spuerbar und kostet ein Vielfaches an Speicher, ohne jeden Nutzen.
+    if(isPdf&&stor&&stor.uploadFile){
+      melde(0,'upload');
+      return stor.uploadFile(file,pfad,uploadOpts).then(function(r){
+        meta.url=r.url;melde(100,'fertig');return meta;
+      });
+    }
+    // Bild: verkleinern (dafuer braucht das Canvas die Data-URL), dann hoch.
     return _fileToDataUrl(file).then(function(dataUrl){
       return isImg?_resizeImage(dataUrl,opts.maxPx||1600,0.85):dataUrl;
     }).then(function(dataUrl){
-      var meta={name:file.name,type:isPdf?'application/pdf':'image/jpeg',size:file.size};
-      if(typeof w.GemaStorage!=='undefined'&&w.GemaStorage.uploadDataUrl){
-        return w.GemaStorage.uploadDataUrl(dataUrl,pfad).then(function(r){
-          meta.url=r.url;return meta;
-        }).catch(function(){
+      if(stor&&stor.uploadDataUrl){
+        melde(0,'upload');
+        return stor.uploadDataUrl(dataUrl,pfad,uploadOpts).then(function(r){
+          meta.url=r.url;melde(100,'fertig');return meta;
+        }).catch(function(e){
           // Fallback Base64 nur, wenn der Record dadurch nicht explodiert
-          if(dataUrl.length<=2.5*1024*1024){meta.dataUrl=dataUrl;return meta;}
-          throw new Error('Upload fehlgeschlagen und Datei zu gross für Fallback.');
+          if(dataUrl.length<=2.5*1024*1024){meta.dataUrl=dataUrl;melde(100,'fertig');return meta;}
+          throw new Error((e&&e.message)?e.message:'Upload fehlgeschlagen und Datei zu gross für Fallback.');
         });
       }
-      if(dataUrl.length<=2.5*1024*1024){meta.dataUrl=dataUrl;return meta;}
+      if(dataUrl.length<=2.5*1024*1024){meta.dataUrl=dataUrl;melde(100,'fertig');return meta;}
       return Promise.reject(new Error('Cloud-Speicher nicht verfügbar.'));
     });
   }

@@ -162,6 +162,18 @@ textarea.inp{min-height:74px;resize:vertical}
   .ov-body{padding:14px 14px 90px}
   .code-big{font-size:22px;letter-spacing:4px;padding:8px 14px}
 }
+/* Upload-Fortschritt (Lernmittel) — ein mehrere MB grosses Skript laedt
+   spuerbar lange; ohne Rueckmeldung wirkt die Seite eingefroren. */
+.up-bg{position:fixed;inset:0;z-index:12000;background:rgba(15,23,42,.45);backdrop-filter:blur(3px);display:flex;align-items:center;justify-content:center;padding:20px}
+.up-card{background:var(--sur);border-radius:var(--r-lg);box-shadow:var(--sh);padding:22px 24px;width:100%;max-width:380px}
+.up-t{font-size:15px;font-weight:800;color:var(--txt);margin-bottom:4px}
+.up-f{font-size:12.5px;color:var(--mut);margin-bottom:14px;word-break:break-word}
+.up-track{height:8px;border-radius:99px;background:var(--sur2);border:1px solid var(--brd);overflow:hidden}
+.up-fill{height:100%;width:0%;background:linear-gradient(90deg,var(--teal),var(--grn));border-radius:99px;transition:width .18s ease}
+.up-fill.unbestimmt{width:35%;animation:upSlide 1.1s ease-in-out infinite}
+@keyframes upSlide{0%{margin-left:-35%}100%{margin-left:100%}}
+.up-s{display:flex;justify-content:space-between;align-items:center;margin-top:9px;font-size:12.5px;color:var(--mut)}
+.up-pct{font-weight:800;color:var(--teal);font-variant-numeric:tabular-nums}
 </style>
 <link rel="stylesheet" href="gema_responsive.css"/>
 </head>
@@ -216,6 +228,16 @@ textarea.inp{min-height:74px;resize:vertical}
     <span class="badge grey" id="ovBadge" style="display:none">Archiviert</span>
   </div>
   <div class="ov-body" id="ovBody"></div>
+</div>
+
+<!-- ═══════ Upload-Fortschritt ═══════ -->
+<div class="up-bg" id="upOv" style="display:none">
+  <div class="up-card">
+    <div class="up-t" id="upTitel">Lernmittel wird hochgeladen …</div>
+    <div class="up-f" id="upDatei"></div>
+    <div class="up-track"><div class="up-fill" id="upFill"></div></div>
+    <div class="up-s"><span id="upPhase">Wird übertragen …</span><span class="up-pct" id="upPct">0 %</span></div>
+  </div>
 </div>
 
 <script src="gema_db.js"></script>
@@ -561,25 +583,75 @@ function bindModulChecks(k){
 }
 
 // ── Lernmittel ───────────────────────────────────────────────────────
+// Fortschrittsanzeige: der Upload eines mehrere MB grossen Skripts dauert
+// spuerbar; ohne Rueckmeldung wirkt die Seite eingefroren und man klickt
+// ein zweites Mal.
+function upMb(b){return (b/1048576).toFixed(1).replace('.',',')+' MB';}
+function upOpen(f){
+  document.getElementById('upDatei').textContent=f.name+' · '+upMb(f.size);
+  upSet(0,'upload');
+  document.getElementById('upOv').style.display='flex';
+}
+function upSet(pct,phase){
+  var fill=document.getElementById('upFill'),p=document.getElementById('upPct'),ph=document.getElementById('upPhase');
+  if(!fill)return;
+  if(phase==='pruefen'||phase==='fertig'){
+    // Nach dem Senden prueft GemaStorage, ob die Datei oeffentlich ladbar
+    // ist — das dauert nochmals einen Moment und ist kein Stillstand.
+    fill.classList.remove('unbestimmt');fill.style.width='100%';
+    p.textContent='100 %';
+    ph.textContent=(phase==='fertig')?'Fertig':'Wird geprüft …';
+    return;
+  }
+  fill.classList.remove('unbestimmt');
+  fill.style.width=pct+'%';
+  p.textContent=pct+' %';
+  ph.textContent='Wird übertragen …';
+}
+function upVerkleinern(){
+  // Bilder werden vor dem Upload verkleinert — dafuer gibt es keinen
+  // Prozentwert, darum ein laufender Balken statt einer Luege.
+  var fill=document.getElementById('upFill');
+  if(!fill)return;
+  fill.classList.add('unbestimmt');fill.style.width='';
+  document.getElementById('upPct').textContent='';
+  document.getElementById('upPhase').textContent='Bild wird verkleinert …';
+}
+function upClose(){var o=document.getElementById('upOv');if(o)o.style.display='none';}
+window._upHooks={open:upOpen,set:upSet,verkleinern:upVerkleinern,close:upClose};
+
 window.matNeu=function(){
   var k=klAktuell();if(!k)return;
   var inp=document.createElement('input');
   inp.type='file';
   inp.accept='image/*,application/pdf';
+  // KRITISCH: Der Input MUSS im DOM haengen. WebKit raeumt einen losgeloesten
+  // Input weg, waehrend der Dateidialog offen ist — das change-Event kommt
+  // dann nie und die Auswahl verschwindet kommentarlos (iOS-GC-Regel).
+  inp.style.display='none';
+  document.body.appendChild(inp);
+  var weg=function(){try{inp.remove();}catch(e){}};
   inp.onchange=function(){
     var f=inp.files&&inp.files[0];
-    if(!f)return;
+    if(!f){weg();return;}
     GemaDialog.prompt({title:'Lernmittel-Titel',placeholder:'z.B. Skript Kaltwasser Kapitel 3',defaultValue:f.name.replace(/\.[^.]+$/,'')}).then(function(titel){
+      weg();
       if(titel===null)return;
-      S.uploadDatei(f,'schule/'+(k.orgId||'org')+'/lernmittel',{maxMb:10}).then(function(meta){
+      upOpen(f);
+      // Bild: bis der Upload startet laeuft das Verkleinern — dafuer gibt
+      // es keinen Prozentwert, also erst ein unbestimmter Balken.
+      if(/^image\//.test(f.type))upVerkleinern();
+      S.uploadDatei(f,'schule/'+(k.orgId||'org')+'/lernmittel',{maxMb:10,onProgress:upSet}).then(function(meta){
         var m={klasseId:k.id,titel:titel||f.name,beschreibung:'',datei:meta};
         S.saveMaterial(m).catch(function(){});
         S.notifyKlasse(k,{eventKey:'schule_lernmittel_neu',typ:'info',titel:'Neues Lernmittel: '+(titel||f.name),text:'In der Klasse «'+k.name+'» wurde ein neues Lernmittel bereitgestellt.',link:'ab_klassen.html?k='+k.id});
+        upClose();
         renderDetail();
       }).catch(function(e){
+        upClose();
         GemaDialog.alert({title:'Upload fehlgeschlagen',message:e&&e.message?e.message:'Bitte erneut versuchen.'});
       });
-    });
+    },function(){weg();});
   };
   inp.click();
 };

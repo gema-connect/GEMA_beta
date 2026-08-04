@@ -53,8 +53,15 @@ console.log('— A) Function storage-delete: Sicherheitsgrenzen —');
 
   const toml = readFileSync(join(ROOT, 'netlify.toml'), 'utf8');
   ok(toml.includes('/api/storage-delete'), 'netlify.toml: Redirect eingetragen');
+  // Cache-Version NICHT auf eine feste Zahl festnageln — sie wandert bei
+  // jeder Dateiaenderung irgendwo im Repo weiter und der Test schlug sonst
+  // bei voellig unbeteiligten Aenderungen fehl (war auf v369 gepinnt,
+  // waehrend sw.js laengst bei v451 stand). Geprueft gehoert, dass es eine
+  // Version gibt und dass gema_storage.js ausgeliefert wird.
   const sw = readFileSync(join(ROOT, 'sw.js'), 'utf8');
-  ok(sw.includes("'gema-v369'"), 'sw.js: Cache-Version v369');
+  ok(/CACHE_NAME\s*=\s*'gema-v\d+'/.test(sw), 'sw.js: Cache-Version gesetzt',
+    (sw.match(/CACHE_NAME\s*=\s*'([^']+)'/) || [])[1]);
+  ok(sw.includes('gema_storage.js'), 'sw.js: gema_storage.js im Cache');
 }
 
 // ── Server + Mocks ───────────────────────────────────────────────
