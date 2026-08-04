@@ -205,5 +205,63 @@ const K58 = 58, A = 2.5, I = 16, L = 100;
   ok(isFinite(l.kappa), 'κ steht auch im Leer-Fall zur Verfügung');
 }
 
+/* ── Reaktanz (Reaktanzbelag X' aus dem Datenblatt) ──────────────────────
+   Von Hand nachgerechnet, 3p400 · I 100 A · L 200 m · A 70 mm² · κ 58 ·
+   cos φ 0.8 (⇒ sin φ 0.6) · X' 0.08 mΩ/m = 0.00008 Ω/m:
+     ΔU_R = √3 · 100 · 200 · 0.8 / (58 · 70)      = 6.825816 V
+     ΔU_X = √3 · 100 · 200 · 0.00008 · 0.6        = 1.662769 V
+     ΔU   = 8.488585 V  →  2.122146 %
+   X' hängt am KABELAUFBAU, nicht am Querschnitt — deshalb wird nur durch
+   die Zahl paralleler Leiter geteilt, nie durch κ·A. */
+{
+  const x = { ...basis, quer: 70, laenge: 200, strom: 100, cosPhi: 0.8, xBelag: 0.08, grenz: 3 };
+  const r = sfCalc(x);
+  ok(r.mitX === true, 'Reaktanz wird als aktiv gemeldet');
+  nah(r.sinPhi, 0.6, 1e-12, 'sin φ aus cos φ 0.8');
+  nah(r.dUR, 6.825815990419222, 1e-9, 'ohmscher Anteil');
+  nah(r.dUX, 1.6627687752661222, 1e-9, 'induktiver Anteil');
+  nah(r.dU,  8.488584765685344, 1e-9, 'Spannungsfall gesamt');
+  nah(r.dUPct, 2.122146191421336, 1e-9, 'Spannungsfall in Prozent');
+  nah(r.lMax, 282.73264227764724, 1e-6, 'maximale Länge mit Reaktanz');
+  nah(r.reqA, 46.2219630132774, 1e-6, 'erforderlicher Querschnitt mit Reaktanz');
+  ok(r.empfQ === 50, 'Vorschlag 50 mm² — ist ' + r.empfQ);
+
+  /* Ohne X' muss exakt das alte Ergebnis herauskommen — kein Verhaltenswechsel
+     für bestehende Berechnungen. */
+  const ohne = sfCalc({ ...x, xBelag: 0 });
+  ok(ohne.mitX === false, 'ohne Angabe rein ohmsch');
+  nah(ohne.dUX, 0, 1e-12, 'kein induktiver Anteil');
+  nah(ohne.dU, ohne.dUR, 1e-12, 'ΔU ist der ohmsche Anteil');
+  nah(ohne.dU, 6.825815990419222, 1e-9, 'identisch zur Rechnung ohne Reaktanz');
+  ok(ohne.dU < r.dU, 'Reaktanz vergrössert den Spannungsfall');
+
+  /* cos φ = 1 ⇒ sin φ = 0: der Belag darf sich dann NICHT auswirken. */
+  const ohmsch = sfCalc({ ...x, cosPhi: 1 });
+  nah(ohmsch.dUX, 0, 1e-12, 'bei cos φ = 1 kein induktiver Anteil');
+  ok(ohmsch.hinweise.some(h => /sin φ = 0/.test(h.text)), 'und das wird gesagt');
+
+  /* Parallele Leiter teilen auch den Reaktanzbelag. */
+  const par = sfCalc({ ...x, parallel: 2 });
+  nah(par.dUX, r.dUX / 2, 1e-12, 'zwei parallele Leiter halbieren den induktiven Anteil');
+
+  /* KEIN STILLER DECKEL: frisst der induktive Anteil das Budget allein auf,
+     hilft kein Querschnitt mehr — das muss gemeldet werden.
+     Bei L 600 m und 1 % Grenzwert: ΔU_X 4.9883 V > 4.00 V zulässig. */
+  const eng = sfCalc({ ...x, laenge: 600, grenz: 1 });
+  nah(eng.dUX, 4.988306325798366, 1e-9, 'induktiver Anteil über dem Budget');
+  ok(eng.xUeberBudget === true, 'die Ausweglosigkeit wird als Flag gemeldet');
+  ok(eng.reqA === 0 && eng.empfQ === null, 'es wird KEIN Querschnitt erfunden');
+  ok(eng.hinweise.some(h => h.typ === 'err' && /hilft hier NICHT/.test(h.text)),
+     'und im Klartext erklärt');
+
+  /* Der 50-mm²-Hinweis verschwindet, sobald die Reaktanz wirklich gerechnet wird. */
+  const gross = sfCalc({ ...basis, quer: 95, xBelag: 0.08, cosPhi: 0.8 });
+  ok(!gross.hinweise.some(h => /nur den ohmschen Anteil/.test(h.text)),
+     'mit Reaktanzbelag entfällt die Ohmsch-Warnung');
+  const grossOhne = sfCalc({ ...basis, quer: 95, cosPhi: 0.8 });
+  ok(grossOhne.hinweise.some(h => /nur den ohmschen Anteil/.test(h.text)),
+     'ohne Reaktanzbelag bleibt sie stehen');
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

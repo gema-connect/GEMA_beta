@@ -176,7 +176,18 @@
             <input class="g-inp" id="sf_cosphi" type="text" inputmode="decimal" value="1" placeholder="1.0" onblur="fixLeadingZero(this)" oninput="sfRecalc()"/>
             <span class="g-inp-unit">–</span>
           </div>
-          <div class="fg-hint">1.0 = rein ohmsch. Die Reaktanz der Leitung bleibt unberücksichtigt.</div>
+          <div class="fg-hint">1.0 = rein ohmsch. Bei cos φ = 1 wirkt sich ein Reaktanzbelag nicht aus.</div>
+        </div>
+
+        <div class="fg">
+          <label>Reaktanzbelag <span class="sym">X&#8242;</span></label>
+          <div class="g-inp-group">
+            <input class="g-inp" id="sf_xbelag" type="text" inputmode="decimal" value="" placeholder="leer = rein ohmsch" onblur="fixLeadingZero(this)" oninput="sfRecalc()"/>
+            <span class="g-inp-unit">mΩ/m</span>
+          </div>
+          <div class="fg-hint">Je Leiter, aus dem Kabel-Datenblatt. Leer = rein ohmsch gerechnet.
+            Der Wert hängt am Kabelaufbau, nicht am Querschnitt — ab rund 50 mm² und bei langen
+            Leitungen ist er nicht mehr vernachlässigbar (Grössenordnung 0.07–0.10 mΩ/m).</div>
         </div>
 
         <div class="fg">
@@ -247,6 +258,11 @@
         <div class="el-res-lbl">Spannungsfall ΔU
           <span class="frml" id="sf_duFrml">ΔU = √3 · I · L · cos φ / (κ · A<sub>eff</sub>)</span></div>
         <div class="el-res-val" id="sf_du">—</div>
+      </div>
+      <div class="el-res" id="sf_rowAnteil" style="display:none">
+        <div class="el-res-lbl">davon ohmsch / induktiv
+          <span class="frml">ΔU<sub>X</sub> = f<sub>U</sub> · I · L · X&#8242;/n · sin φ</span></div>
+        <div class="el-res-val" id="sf_anteil">—</div>
       </div>
 
       <div class="el-res">
@@ -375,9 +391,12 @@
                                                     dreiphasig 1 (eine Ader)
    Gegenprobe der Faktoren: P_V = f_P · I² · R / f_R (im Engine-Test geprüft).
 
-   BEWUSSTE GRENZE — die Reaktanz der Leitung ist NICHT berücksichtigt. Ab
-   rund 50 mm² und bei langen Leitungen liegt der reale Spannungsfall höher;
-   das Ergebnis weist ausdrücklich darauf hin.
+   REAKTANZ: mit einem Reaktanzbelag X' [mΩ/m] aus dem Kabel-Datenblatt
+   rechnet die Engine den induktiven Anteil mit —
+     ΔU = f_U · I · L · (cos φ / (κ · A_eff)  +  X'/n · sin φ)
+   Ohne X' bleibt es bei der rein ohmschen Betrachtung; ab rund 50 mm² und
+   bei langen Leitungen liegt der reale Spannungsfall dann höher, worauf das
+   Ergebnis ausdrücklich hinweist.
 
    Diese Berechnung ersetzt die Prüfung der Strombelastbarkeit NICHT: ein
    Querschnitt kann den Spannungsfall einhalten und thermisch trotzdem
@@ -408,17 +427,42 @@ function sfCalc(inp){
   res.leer = false;
 
   var nenner = kappa * aEff;
-  res.dU    = sys.fU * I * L * cosPhi / nenner;
+
+  /* Induktiver Anteil. X' ist ein Belag JE LEITER [mΩ/m] aus dem Datenblatt —
+     er hängt am Kabelaufbau, nicht am Querschnitt, und wird darum nur durch
+     die Zahl paralleler Leiter geteilt (nicht durch κ·A). Ohne Angabe bleibt
+     die Rechnung rein ohmsch. */
+  var sinPhi = Math.sqrt(Math.max(0, 1 - cosPhi * cosPhi));
+  var xs = (Number(inp.xBelag) > 0 ? Number(inp.xBelag) : 0) / 1000;   // mΩ/m → Ω/m
+  res.xBelag = xs * 1000;
+  res.sinPhi = sinPhi;
+  res.mitX   = xs > 0;
+
+  res.dUR   = sys.fU * I * L * cosPhi / nenner;
+  res.dUX   = sys.fU * I * L * xs * sinPhi / n;
+  res.dU    = res.dUR + res.dUX;
   res.dUPct = sys.u > 0 ? res.dU / sys.u * 100 : 0;
   res.pV    = sys.fP * I * I * L / nenner;
   res.r     = fR * L / nenner;
+  res.x     = xs * L / n;
 
   var duZul = sys.u * grenz / 100;
   res.duZul = duZul;
-  res.lMax  = duZul > 0 ? duZul * nenner / (sys.fU * I * cosPhi) : 0;
 
-  /* Erforderlicher Querschnitt JE LEITER, damit der Grenzwert hält */
-  res.reqA  = duZul > 0 ? (sys.fU * I * L * cosPhi / (kappa * duZul)) / n : 0;
+  /* Maximale Länge: beide Anteile wachsen linear mit L, also lässt sich
+     durch die Summe der Beläge teilen. */
+  var proMeter = sys.fU * I * (cosPhi / nenner + xs * sinPhi / n);
+  res.lMax = (duZul > 0 && proMeter > 0) ? duZul / proMeter : 0;
+
+  /* Erforderlicher Querschnitt JE LEITER, damit der Grenzwert hält. Der
+     induktive Anteil hängt NICHT am Querschnitt — er muss zuerst abgezogen
+     werden. Frisst er das Budget allein schon auf, hilft KEIN Querschnitt
+     mehr; das wird gemeldet statt eine Zahl zu erfinden. */
+  var duRest = duZul - res.dUX;
+  res.duRestOhmsch = duRest;
+  res.xUeberBudget = (duZul > 0 && res.dUX > 0 && duRest <= 0);
+  res.reqA  = (duZul > 0 && duRest > 0)
+            ? (sys.fU * I * L * cosPhi / (kappa * duRest)) / n : 0;
   res.empfQ = E ? E.elNaechsterQuerschnitt(res.reqA) : null;
   /* KEIN stiller Deckel: Bedarf über der Normreihe wird gemeldet. */
   res.ueberReihe = res.reqA > 0 && res.empfQ === null;
@@ -451,8 +495,14 @@ function sfCalc(inp){
   if(Number(inp.temp) <= 20){
     hinweise.push({typ:'warn', text:'Gerechnet bei 20 °C. Unter Last erwärmt sich der Leiter (PVC bis 70 °C, EPR/VPE bis 90 °C), die Leitfähigkeit sinkt um rund 20 % — der reale Spannungsfall liegt entsprechend höher.'});
   }
-  if(aEff >= 50){
-    hinweise.push({typ:'warn', text:'Ab rund 50 mm² ist die Reaktanz der Leitung nicht mehr vernachlässigbar. Diese Berechnung erfasst nur den ohmschen Anteil — der reale Spannungsfall liegt höher.'});
+  if(aEff >= 50 && !res.mitX){
+    hinweise.push({typ:'warn', text:'Ab rund 50 mm² ist die Reaktanz der Leitung nicht mehr vernachlässigbar. Ohne Reaktanzbelag erfasst diese Berechnung nur den ohmschen Anteil — der reale Spannungsfall liegt höher. Der Wert steht als X\u2032 im Kabel-Datenblatt.'});
+  }
+  if(res.mitX && cosPhi >= 1){
+    hinweise.push({typ:'info', text:'Bei cos φ = 1 ist sin φ = 0 — der Reaktanzbelag wirkt sich nicht aus. Er zählt erst bei induktiver Last.'});
+  }
+  if(res.xUeberBudget){
+    hinweise.push({typ:'err', text:'Der induktive Anteil allein überschreitet bereits den zulässigen Spannungsfall. Ein grösserer Querschnitt hilft hier NICHT — der Reaktanzbelag hängt am Kabelaufbau, nicht am Querschnitt. Kürzere Leitung, höhere Spannung oder Kompensation prüfen.'});
   }
   if(n > 1){
     var minQ = (inp.material === 'al') ? 95 : 70;
@@ -541,6 +591,7 @@ function sfRead(){
     material: g('sf_material') || 'cu',
     temp:     num(g('sf_temp')) || 20,
     cosPhi:   num(g('sf_cosphi')),
+    xBelag:   num(g('sf_xbelag')),
     grenz:    num(g('sf_grenz')),
     hTag:     num(g('sf_hTag')),
     tage:     num(g('sf_tage')),
@@ -622,7 +673,9 @@ function sfRecalc(){
   var fU = r.einphasig ? '2' : '√3';
   var fP = r.einphasig ? '2' : '3';
   var el;
-  if((el = document.getElementById('sf_duFrml'))) el.innerHTML = 'ΔU = ' + fU + ' · I · L · cos φ / (κ · A<sub>eff</sub>)';
+  if((el = document.getElementById('sf_duFrml'))) el.innerHTML = r.mitX
+    ? 'ΔU = ' + fU + ' · I · L · (cos φ / (κ · A<sub>eff</sub>) + X&#8242;/n · sin φ)'
+    : 'ΔU = ' + fU + ' · I · L · cos φ / (κ · A<sub>eff</sub>)';
   if((el = document.getElementById('sf_pvFrml'))) el.innerHTML = 'P<sub>V</sub> = ' + fP + ' · I² · L / (κ · A<sub>eff</sub>)';
   if((el = document.getElementById('sf_rFrml'))) el.innerHTML = r.einphasig ? 'R = 2 · L / (κ · A<sub>eff</sub>)' : 'R = L / (κ · A<sub>eff</sub>)';
   set('sf_rLbl', r.einphasig ? 'Schleifenwiderstand (hin + zurück)' : 'Widerstand einer Ader');
@@ -634,6 +687,7 @@ function sfRecalc(){
   if(r.leer){
     ['sf_r','sf_du','sf_pv','sf_lmax','sf_hGesamt','sf_energie','sf_kosten',
      'sf_sumDu','sf_sumPv','sf_sumKosten'].forEach(function(id){ set(id, strich); });
+    if((el = document.getElementById('sf_rowAnteil'))) el.style.display = 'none';
     set('sf_duPct', strich, 'el-res-val hl');
     set('sf_sumDuV', '');
     if((el = document.getElementById('sf_status'))){
@@ -650,6 +704,14 @@ function sfRecalc(){
 
   set('sf_r', fmt(r.r, 4) + ' Ω');
   set('sf_du', fmt(r.dU, 2) + ' V');
+  /* Aufteilung nur zeigen, wenn ein Reaktanzbelag erfasst ist — sonst wäre
+     eine Zeile «induktiv 0.00 V» nur Rauschen. */
+  var rowA = document.getElementById('sf_rowAnteil');
+  if(rowA){
+    rowA.style.display = r.mitX ? '' : 'none';
+    if(r.mitX) set('sf_anteil', fmt(r.dUR, 2) + ' V ohmsch + ' + fmt(r.dUX, 2)
+      + ' V induktiv (X\u2032 ' + fmt(r.xBelag, 3) + ' mΩ/m, sin φ ' + fmt(r.sinPhi, 3) + ')');
+  }
   set('sf_duPct', fmt(r.dUPct, 2) + ' %', 'el-res-val hl ' + r.ampel);
   set('sf_pv', fmt(r.pV, 2) + ' W');
   set('sf_lmax', fmt(r.lMax, 1) + ' m');

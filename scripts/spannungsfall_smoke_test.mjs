@@ -194,6 +194,57 @@ ok((await txt(page, '#sf_sumKosten')).includes('CHF'), 'Kennzahl Kosten gesetzt'
   await page.fill('#sf_strom', '16');
   await page.waitForTimeout(300);
 }
+/* ══ Reaktanzbelag ═══════════════════════════════════════════════════
+   3p400 · 100 A · 200 m · 70 mm² · κ 58 · cos φ 0.8 · X' 0.08 mΩ/m
+     ohmsch 6.83 V + induktiv 1.66 V = 8.49 V                          */
+{
+  /* ALLE Felder setzen — vorherige Blöcke haben Material und Temperatur
+     verstellt, und κ geht direkt in den ohmschen Anteil ein. */
+  await page.selectOption('#sf_system', '3p400');
+  await page.selectOption('#sf_material', 'cu58');
+  await page.selectOption('#sf_temp', '20');
+  await page.selectOption('#sf_parallel', '1');
+  await page.fill('#sf_strom', '100');
+  await page.fill('#sf_laenge', '200');
+  await page.selectOption('#sf_quer', '70');
+  await page.fill('#sf_cosphi', '0.8');
+  await page.selectOption('#sf_grenz', '3');
+  await page.waitForTimeout(150);
+  const ohne = parseFloat((await txt(page, '#sf_du')).replace(/[^\d.]/g, ''));
+  ok(await page.locator('#sf_rowAnteil').isVisible() === false,
+     'ohne X′ keine Aufteilungs-Zeile');
+  ok((await txt(page, '#sf_duFrml')).indexOf('sin') === -1, 'Formel-Chip ohne induktiven Term');
+
+  await page.fill('#sf_xbelag', '0.08');
+  await page.waitForTimeout(150);
+  ok(await page.locator('#sf_rowAnteil').isVisible() === true, 'Aufteilung erscheint');
+  const mit = parseFloat((await txt(page, '#sf_du')).replace(/[^\d.]/g, ''));
+  ok(Math.abs(mit - 8.49) < 0.02, 'ΔU 8.49 V mit Reaktanz — ist ' + mit);
+  ok(mit > ohne, 'Reaktanz vergrössert den Spannungsfall — ' + ohne + ' → ' + mit);
+  const a = await txt(page, '#sf_anteil');
+  ok(/6\.83 V ohmsch/.test(a), 'ohmscher Anteil beziffert — ist ' + a);
+  ok(/1\.66 V induktiv/.test(a), 'induktiver Anteil beziffert');
+  ok(a.indexOf('&#') === -1, 'keine rohen HTML-Entities in der Anzeige');
+  ok((await txt(page, '#sf_duFrml')).indexOf('sin φ') >= 0,
+     'Formel-Chip nennt den induktiven Term');
+
+  /* KEIN stiller Deckel: frisst der induktive Anteil das Budget auf,
+     hilft kein Querschnitt mehr — das muss dastehen. */
+  await page.fill('#sf_laenge', '600');
+  await page.selectOption('#sf_grenz', '1');
+  await page.waitForTimeout(150);
+  ok(/hilft hier NICHT/.test(await txt(page, '#sf_hinweise')),
+     'ausweglose Lage wird im Klartext gemeldet');
+  ok((await txt(page, '#sf_empf')).indexOf('mm²') === -1,
+     'es wird kein Querschnitt erfunden');
+
+  /* Ausgangszustand für die folgenden Prüfungen wiederherstellen. */
+  await page.fill('#sf_xbelag', '');
+  await page.fill('#sf_laenge', '200');
+  await page.selectOption('#sf_grenz', '3');
+  await page.waitForTimeout(150);
+}
+
 await ctx.close();
 
 /* ══ Zugriffsschutz ══════════════════════════════════════════════════ */
