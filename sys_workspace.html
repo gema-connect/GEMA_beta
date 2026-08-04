@@ -80,6 +80,12 @@ input::placeholder{color:#cbd5e1}
 .ws-bucket-row.active{background:#EDF1F7;color:var(--navy);font-weight:500}
 .ws-bucket-row__icon{display:inline-flex;flex-shrink:0}
 .ws-bucket-row__name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* Studenten-Auto-Eimer: der Klassen-Eimer ist hervorgehoben (Tint + Kante),
+   der Übungs-Eimer hängt eingerückt DIREKT darunter (übergeordnet/untergeordnet) */
+.ws-bucket-row--klasse{background:linear-gradient(90deg,#eef4ff,#f7faff);border:1px solid #d8e4f8;font-weight:600}
+.ws-bucket-row--klasse:hover{background:linear-gradient(90deg,#e4eeff,#f0f6ff)}
+.ws-bucket-row--klasse.active{background:linear-gradient(90deg,#dfeaff,#eef4ff);color:var(--navy)}
+.ws-bucket-row--uebung{margin-left:16px;width:calc(100% - 16px)}
 /* Rechtsklick-Kontextmenü (Eimer) */
 .ws-ctx{position:fixed;z-index:9500;background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:0 12px 40px rgba(15,23,42,.18);padding:6px;min-width:210px}
 .ws-ctx button{display:flex;align-items:center;gap:9px;width:100%;padding:9px 12px;border:none;background:none;border-radius:8px;font-size:13px;color:var(--ink);cursor:pointer;text-align:left;font-family:inherit;transition:background var(--t)}
@@ -445,6 +451,10 @@ input::placeholder{color:#cbd5e1}
   <aside class="ws-sidebar" id="wsSidebar" style="width:280px">
     <div class="ws-user" id="wsUser"></div>
     <div class="ws-org-section" id="wsOrgSection"></div>
+    <div class="ws-section" id="wsKlasseSection" style="display:none">
+      <div class="ws-section-head"><span class="ws-label">Meine Klasse</span></div>
+      <div class="ws-bucket-list" id="wsKlasseBuckets"></div>
+    </div>
     <div class="ws-section">
       <div class="ws-section-head"><span class="ws-label" id="wsOrgLabel">Organisation</span><button class="ws-icon-btn" onclick="_wsOpenNewModal()" title="Neuer Eimer"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg></button></div>
       <div class="ws-bucket-list" id="wsOrgBuckets"></div>
@@ -486,6 +496,10 @@ input::placeholder{color:#cbd5e1}
   <button class="ws-drawer-close" onclick="_wsToggleDrawer(false)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
   <div class="ws-user" id="wsUserDrawer"></div>
   <div class="ws-org-section" id="wsOrgSectionDrawer"></div>
+  <div class="ws-section" id="wsKlasseDrawerSection" style="display:none">
+    <div class="ws-section-head"><span class="ws-label">Meine Klasse</span></div>
+    <div class="ws-bucket-list" id="wsKlasseDrawer"></div>
+  </div>
   <div class="ws-section">
     <div class="ws-section-head"><span class="ws-label" id="wsOrgLabelDrawer">Organisation</span></div>
     <div class="ws-bucket-list" id="wsOrgDrawer"></div>
@@ -598,6 +612,7 @@ input::placeholder{color:#cbd5e1}
     {id:'spengler',label:'Spenglerei',icon:'home'},
     {id:'infra',label:'Infrastruktur',icon:'settings'},
     {id:'immo',label:'Immobilien',icon:'home'},
+    {id:'ausbildung',label:'Ausbildung',icon:'grad'},
     {id:'lief',label:'Lieferanten',icon:'box'}
   ];
   var MODULES=[
@@ -693,6 +708,9 @@ input::placeholder{color:#cbd5e1}
     {id:'if_arbeitskleider',name:'Arbeitskleider',icon:'shirt',desc:'Kleiderbudget pro Mitarbeiter',href:'if_arbeitskleider.html',cat:'infra'},
     // ── Immobilien ──
     {id:'iv_immobilien',name:'Immobilienverwaltung',icon:'home',desc:'Liegenschaften + Handwerker-Aufträge',href:'iv_immobilien.html',cat:'immo'},
+    // ── Ausbildung ──
+    {id:'ab_klassen',name:'Meine Klasse',icon:'grad',desc:'Klassen-Portal: Lernmittel, Module, Prüfungen',href:'ab_klassen.html',cat:'ausbildung'},
+    {id:'ab_pruefung_live',name:'Prüfungen',icon:'check',desc:'Prüfungen lösen (Runner mit Countdown)',href:'ab_pruefung_live.html',cat:'ausbildung'},
     // ── Lieferanten ──
     {id:'sys_lieferant_dashboard',name:'Lieferanten-Dashboard',icon:'box',desc:'Produkte, Offertanfragen, Bestellungen',href:'sys_lieferant_dashboard.html',cat:'lief'}
   ];
@@ -1290,6 +1308,7 @@ input::placeholder{color:#cbd5e1}
   // ── Delete Bucket ──
   window._wsConfirmDelete=function(id){
     var b=buckets.find(function(x){return x.id===id;});if(!b)return;
+    if(b.autoTyp){toast('Dieser Eimer wird automatisch von deiner Klasse verwaltet','lock');return;}
     var body='<p class="ws-confirm-text">Eimer „'+esc(b.name)+'“ wirklich löschen? Alle Module und Notizen gehen verloren.</p>'
       +'<div class="ws-form-actions"><button class="ws-btn ws-btn-ghost" onclick="_wsCloseModal()">Abbrechen</button>'
       +'<button class="ws-btn ws-btn-danger" onclick="_wsDoDelete(\''+id+'\')">Löschen</button></div>';
@@ -1359,6 +1378,7 @@ input::placeholder{color:#cbd5e1}
     var txt=(el.innerText||'').trim();
     var b=buckets.find(function(x){return x.id===activeTab;});if(!b)return;
     el.classList.remove('editing');
+    if(b.autoTyp){el.innerText=b.name;toast('Der Name folgt deiner Klasse','lock');return;}
     if(txt&&txt!==b.name){b.name=txt;save();renderSidebar();toast('Name aktualisiert','pencil');}
     else{el.innerText=b.name;}
   };
@@ -1394,14 +1414,20 @@ input::placeholder{color:#cbd5e1}
   document.addEventListener('scroll',_wsCtxClose,true);
   window._wsCtxBucket=function(ev,id){
     var b=buckets.find(function(x){return x.id===id;});if(!b)return true;
-    return _wsCtxShow(ev,[
+    var items=[
       {ic:'bucket',label:'Öffnen',fn:function(){_wsOpen(id);}},
-      {ic:'plus',label:'Modul hinzufügen',fn:function(){_wsOpen(id);window._wsOpenModulePicker();}},
-      {ic:'pencil',label:'Umbenennen',fn:function(){window._wsCtxRename(id);}},
-      {ic:'note',label:'Duplizieren',fn:function(){window._wsDuplicateBucket(id);}},
-      {sep:true},
-      {ic:'x',label:'Löschen',danger:true,fn:function(){window._wsConfirmDelete(id);}}
-    ]);
+      {ic:'plus',label:'Modul hinzufügen',fn:function(){_wsOpen(id);window._wsOpenModulePicker();}}
+    ];
+    // Auto-Eimer der Studierenden (Klasse/Übung) sind fest verwaltet: der
+    // Name folgt der Klasse bzw. der Org-Adresse, und Löschen würde sie der
+    // nächste Boot ohnehin neu anlegen — die destruktiven Aktionen entfallen.
+    if(!b.autoTyp){
+      items.push({ic:'pencil',label:'Umbenennen',fn:function(){window._wsCtxRename(id);}});
+      items.push({ic:'note',label:'Duplizieren',fn:function(){window._wsDuplicateBucket(id);}});
+      items.push({sep:true});
+      items.push({ic:'x',label:'Löschen',danger:true,fn:function(){window._wsConfirmDelete(id);}});
+    }
+    return _wsCtxShow(ev,items);
   };
 
   // Umbenennen via Kontextmenü (auch für nicht-aktive Eimer)
@@ -1433,6 +1459,9 @@ input::placeholder{color:#cbd5e1}
     copy.id='ws_'+Date.now();
     copy.name=b.name+' (Kopie)';
     copy.objektId=null;
+    // Eine Kopie eines Auto-Eimers ist ein NORMALER Eimer (sonst würde sie
+    // in der Klassen-Sektion landen und von der Provisionierung angefasst).
+    delete copy.autoTyp; delete copy.autoKlasseId;
     copy.createdAt=new Date().toISOString();
     var cu=_curUser();
     if(cu&&cu.id)copy.createdBy=cu.id;
@@ -1899,14 +1928,36 @@ input::placeholder{color:#cbd5e1}
     renderSidebar();
   };
 
+  // Partition der sichtbaren Eimer: die Auto-Eimer der Studierenden (Klasse +
+  // zugehörige Übung) wandern in eine EIGENE, oberste Sektion — Reihenfolge
+  // Klassen-Eimer zuerst, direkt darunter sein Übungs-Eimer (autoKlasseId).
+  // Sie fallen dafür aus «Meine Eimer» heraus (sonst stünden sie doppelt).
+  function _wsPartition(visible){
+    var oid=_curOrgId();
+    var autoK=visible.filter(function(b){return b.autoTyp==='klasse';});
+    var autoU=visible.filter(function(b){return b.autoTyp==='uebung';});
+    var klasse=[];
+    autoK.forEach(function(k){
+      klasse.push(k);
+      autoU.forEach(function(u){ if(u.autoKlasseId===k.autoKlasseId) klasse.push(u); });
+    });
+    autoU.forEach(function(u){ if(klasse.indexOf(u)<0) klasse.push(u); });
+    return {
+      klasse:klasse,
+      org:visible.filter(function(b){return b.ownerType==='org'&&b.ownerOrgId===oid&&!b.autoTyp;}),
+      personal:visible.filter(function(b){return b.ownerType==='personal'&&!b.autoTyp;}),
+      guest:visible.filter(function(b){return _isGuestBucket(b)&&!b.autoTyp;})
+    };
+  }
+
   function renderSidebar(){
     var visible=buckets.filter(_canSeeBucket);
-    var oid=_curOrgId();
+    var parts=_wsPartition(visible);
     var orgName='Organisation';
     try{var co=_getOrgs()[0];if(co)orgName=co.name;}catch(e){}
-    var orgBuckets=visible.filter(function(b){return b.ownerType==='org'&&b.ownerOrgId===oid;});
-    var personal=visible.filter(function(b){return b.ownerType==='personal';});
-    var guest=visible.filter(function(b){return _isGuestBucket(b);});
+    var orgBuckets=parts.org;
+    var personal=parts.personal;
+    var guest=parts.guest;
 
     var filterOrg=function(list){
       if(activeOrg==='all')return list;
@@ -1922,6 +1973,10 @@ input::placeholder{color:#cbd5e1}
       return html;
     }
     var lbl=document.getElementById('wsOrgLabel');if(lbl)lbl.textContent=orgName;
+    var kEl=document.getElementById('wsKlasseBuckets');
+    var kSec=document.getElementById('wsKlasseSection');
+    if(kEl)kEl.innerHTML=parts.klasse.map(bucketRowHtml).join('');
+    if(kSec)kSec.style.display=parts.klasse.length?'':'none';
     document.getElementById('wsOrgBuckets').innerHTML=renderList(orgBuckets,'Keine Org-Eimer','org');
     document.getElementById('wsPersonal').innerHTML=renderList(personal,'Keine persönlichen Eimer','personal');
     var guestEl=document.getElementById('wsGuestBuckets');
@@ -1932,10 +1987,15 @@ input::placeholder{color:#cbd5e1}
     if(sBtn)sBtn.classList.toggle('active',_showSettings);
   }
 
+  function _wsAutoRowClass(b){
+    if(b.autoTyp==='klasse')return ' ws-bucket-row--klasse';
+    if(b.autoTyp==='uebung')return ' ws-bucket-row--uebung';
+    return '';
+  }
   function bucketRowHtml(b){
     var isActive=activeTab===b.id;
     var isOpen=openTabs.indexOf(b.id)>=0;
-    return '<button class="ws-bucket-row'+(isActive?' active':'')+'" onclick="_wsOpen(\''+b.id+'\')" oncontextmenu="return _wsCtxBucket(event,\''+b.id+'\')" style="'+(isOpen?'':'')+'position:relative">'
+    return '<button class="ws-bucket-row'+(isActive?' active':'')+_wsAutoRowClass(b)+'" onclick="_wsOpen(\''+b.id+'\')" oncontextmenu="return _wsCtxBucket(event,\''+b.id+'\')" style="'+(isOpen?'':'')+'position:relative">'
       +(isOpen?'<span style="position:absolute;left:2px;top:50%;transform:translateY(-50%);width:3px;height:14px;border-radius:2px;background:var(--gradient)"></span>':'')
       +'<span class="ws-bucket-row__icon">'+typeIcon(b.type)+'</span>'
       +'<span class="ws-bucket-row__name">'+esc(b.name)+'</span>'
@@ -2191,19 +2251,21 @@ input::placeholder{color:#cbd5e1}
   };
   function renderDrawer(){
     var visible=buckets.filter(_canSeeBucket);
-    var oid=_curOrgId();
+    var parts=_wsPartition(visible);
     var orgName='Organisation';try{var co=_getOrgs()[0];if(co)orgName=co.name;}catch(e){}
-    var orgB=visible.filter(function(b){return b.ownerType==='org'&&b.ownerOrgId===oid;});
-    var persB=visible.filter(function(b){return b.ownerType==='personal';});
-    var guestB=visible.filter(function(b){return _isGuestBucket(b);});
+    var orgB=parts.org;
+    var persB=parts.personal;
+    var guestB=parts.guest;
     function drawerRow(b){
-      return '<button class="ws-bucket-row'+(activeTab===b.id?' active':'')+'" onclick="_wsOpen(\''+b.id+'\');_wsToggleDrawer(false)" oncontextmenu="return _wsCtxBucket(event,\''+b.id+'\')">'
+      return '<button class="ws-bucket-row'+(activeTab===b.id?' active':'')+_wsAutoRowClass(b)+'" onclick="_wsOpen(\''+b.id+'\');_wsToggleDrawer(false)" oncontextmenu="return _wsCtxBucket(event,\''+b.id+'\')">'
         +'<span class="ws-bucket-row__icon">'+typeIcon(b.type)+'</span>'
         +'<span class="ws-bucket-row__name">'+esc(b.name)+'</span></button>';
     }
     document.getElementById('wsUserDrawer').innerHTML=document.getElementById('wsUser').innerHTML;
     document.getElementById('wsOrgSectionDrawer').innerHTML=document.getElementById('wsOrgSection').innerHTML;
     var dl=document.getElementById('wsOrgLabelDrawer');if(dl)dl.textContent=orgName;
+    var kd=document.getElementById('wsKlasseDrawer');if(kd)kd.innerHTML=parts.klasse.map(drawerRow).join('');
+    var ks=document.getElementById('wsKlasseDrawerSection');if(ks)ks.style.display=parts.klasse.length?'':'none';
     document.getElementById('wsOrgDrawer').innerHTML=orgB.length?orgB.map(drawerRow).join(''):'<div class="ws-empty-hint">Keine Org-Eimer</div>';
     document.getElementById('wsPersonalDrawer').innerHTML=persB.length?persB.map(drawerRow).join(''):'<div class="ws-empty-hint">Keine persönlichen Eimer</div>';
     var gd=document.getElementById('wsGuestDrawer');if(gd)gd.innerHTML=guestB.map(drawerRow).join('');
@@ -2739,12 +2801,156 @@ input::placeholder{color:#cbd5e1}
     });
   }
 
+  // ── Studenten-Provisionierung: Klassen- + Übungs-Eimer automatisch ──
+  // Studierende landen per Rollen-Redirect IM Workspace (gema_auth). Pro
+  // Klasse entstehen ZWEI persönliche Auto-Eimer — PRO STUDENT, nicht
+  // geteilt: die Berechnungsmodule speichern per Objekt, ein geteilter
+  // Eimer liesse die Studierenden gegenseitig ihre Übungs-Berechnungen
+  // überschreiben. (a) Der hervorgehobene KLASSEN-Eimer (Name = Klassen-
+  // name, Modul «Meine Klasse» fix drin) und (b) direkt darunter der
+  // ÜBUNGS-Eimer (Name = Adresse der Schul-Org, Module = die vom Dozenten
+  // freigeschalteten Berechnungsmodule — ADD-ONLY nachgeführt, selbst
+  // Entferntes kommt wieder, Entzogenes wird NIE gelöscht [Datenerhalt])
+  // mit eigenem Auto-Objekt, damit jede Berechnung ihren Projekt-Kontext
+  // hat. Dazu die Klassen-Chatgruppe (alle Studierenden + Dozenten).
+  function _wsIsStudent(){
+    var u=_curUser();
+    return !!(u&&u.roleIds&&u.roleIds.indexOf('role_student')>=0&&u.roleIds.indexOf('role_admin')<0);
+  }
+  function _wsOrgAdresse(){
+    try{
+      var o=(typeof GemaAuth!=='undefined'&&GemaAuth.getCurrentOrg&&GemaAuth.getCurrentOrg())||null;
+      if(!o)return {name:'Übungsobjekt',strasse:'',plz:'',ort:''};
+      var a=o.adresse||{};
+      var label=[a.strasse,[a.plz,a.ort].filter(Boolean).join(' ')].filter(Boolean).join(', ');
+      return {name:label||o.name||'Übungsobjekt',strasse:a.strasse||'',plz:a.plz||'',ort:a.ort||''};
+    }catch(e){ return {name:'Übungsobjekt',strasse:'',plz:'',ort:''}; }
+  }
+  // Klassen-Modul-KEYS (z.B. 'lu_tabelle') → Workspace-Datei-IDs
+  // (z.B. 'sb_lu_tabelle') über die umgedrehte FILE_MAP; nur Dateien,
+  // die es im MODULES-Katalog wirklich gibt.
+  function _wsModKeyToFileId(key){
+    try{
+      var fm=(typeof GemaAuth!=='undefined'&&GemaAuth.getFileMap&&GemaAuth.getFileMap())||{};
+      var hit=null;
+      Object.keys(fm).forEach(function(file){
+        if(hit||fm[file]!==key)return;
+        if(MODULES.some(function(m){return m.id===file;}))hit=file;
+      });
+      return hit;
+    }catch(e){ return null; }
+  }
+  function _wsEnsureKlassenBuckets(k,u){
+    var changed=false;
+    var now=new Date().toISOString();
+    // (a) Klassen-Eimer — hervorgehoben, trägt das Klassen-Portal
+    var aid='ws_kl_'+k.id+'_'+u.id;
+    var a=buckets.find(function(x){return x.id===aid;});
+    if(!a){
+      a={id:aid,name:k.name||'Meine Klasse',type:'training',ownerType:'personal',ownerOrgId:null,
+        createdBy:u.id,autoTyp:'klasse',autoKlasseId:k.id,
+        accessControl:{orgVisible:false,invitedUsers:[],revokedUsers:[]},
+        org:'',members:[],modules:[{mod:'ab_klassen',status:'offen'}],
+        activity:[{who:'GEMA',text:'Klassen-Eimer automatisch angelegt',when:'gerade eben'}],
+        beteiligte:[],notes:[],objektId:null,createdAt:now};
+      buckets.push(a);changed=true;
+    }else{
+      if(k.name&&a.name!==k.name){a.name=k.name;changed=true;}
+      if(!a.modules.some(function(m){return m.mod==='ab_klassen';})){a.modules.unshift({mod:'ab_klassen',status:'offen'});changed=true;}
+      if(a.autoKlasseId!==k.id){a.autoKlasseId=k.id;changed=true;}
+    }
+    // (b) Übungs-Eimer — Adresse der Schul-Org + freigeschaltete Module
+    var adr=_wsOrgAdresse();
+    var bid='ws_ue_'+k.id+'_'+u.id;
+    var b=buckets.find(function(x){return x.id===bid;});
+    if(!b){
+      b={id:bid,name:adr.name,type:'training',ownerType:'personal',ownerOrgId:null,
+        createdBy:u.id,autoTyp:'uebung',autoKlasseId:k.id,
+        accessControl:{orgVisible:false,invitedUsers:[],revokedUsers:[]},
+        org:'',members:[],modules:[],
+        activity:[{who:'GEMA',text:'Übungs-Eimer automatisch angelegt',when:'gerade eben'}],
+        beteiligte:[],notes:[],objektId:null,createdAt:now};
+      buckets.push(b);changed=true;
+    }
+    (k.module||[]).forEach(function(key){
+      var fid=_wsModKeyToFileId(key);
+      if(!fid)return;
+      if(b.modules.some(function(m){return m.mod===fid;}))return;
+      b.modules.push({mod:fid,status:'offen'});changed=true;
+    });
+    // Auto-Objekt MIT der Org-Adresse (nicht die leere _wsEnsureObjekt-
+    // Vorlage) — die Übungs-Berechnungen laufen auf diesem Objekt.
+    if(!b.objektId){
+      var objId='obj_ws_'+b.id;
+      var newObj={id:objId,name:adr.name,strasse:adr.strasse,plz:adr.plz,ort:adr.ort,
+        bauvorhaben:'Übung',status:'aktiv',orgId:u.orgId||'org_default',
+        erstelltVon:u.id,createdAt:now};
+      try{
+        var raw=localStorage.getItem('gema_objekte_v1');
+        var data=raw?JSON.parse(raw):{objekte:[],beteiligte:[],activeObjektId:null};
+        if(!data.objekte.find(function(o){return o.id===objId;})){
+          data.objekte.push(newObj);
+          localStorage.setItem('gema_objekte_v1',JSON.stringify(data));
+        }
+        if(typeof GemaObjekte!=='undefined'&&GemaObjekte.upsertObjekt)GemaObjekte.upsertObjekt(newObj);
+      }catch(e){}
+      b.objektId=objId;changed=true;
+    }
+    return changed;
+  }
+  function _wsStudentProvision(){
+    if(!_wsIsStudent())return;
+    var u=_curUser();if(!u)return;
+    var fertig=function(klassen){
+      try{
+        var meine=(klassen||[]).filter(function(k){
+          return k&&k.id&&!k.archiviert&&Array.isArray(k.studentIds)&&k.studentIds.indexOf(u.id)>=0;
+        });
+        if(!meine.length)return;
+        var changed=false;
+        meine.forEach(function(k){ if(_wsEnsureKlassenBuckets(k,u))changed=true; });
+        if(changed){ save(); render(); try{ if(window._wsNatRefresh)window._wsNatRefresh(); }catch(e){} }
+        // Beim ersten Einstieg direkt im Klassen-Eimer landen
+        if(!openTabs.length){
+          var erster=buckets.find(function(x){return x.id==='ws_kl_'+meine[0].id+'_'+u.id;});
+          if(erster)window._wsOpen(erster.id);
+        }
+        // Klassen-Chatgruppe (idempotent — stabile Thread-ID pro Klasse)
+        meine.forEach(function(k){
+          try{
+            if(typeof GemaChat!=='undefined'&&GemaChat.ensureGruppe)
+              GemaChat.ensureGruppe({gruppeId:'klasse_'+k.id,titel:k.name,
+                userIds:(k.dozentIds||[]).concat(k.studentIds||[]),
+                kontext:{typ:'klasse',refId:k.id,label:k.name,url:'ab_klassen.html?k='+k.id}});
+          }catch(e){}
+        });
+      }catch(e){}
+    };
+    var cacheRead=function(){
+      try{
+        var arr=(typeof GemaSync!=='undefined'&&GemaSync.getCached&&GemaSync.getCached('gema_schule_klassen_pool_v1'))||null;
+        if(!Array.isArray(arr)||!arr.length){
+          var r=localStorage.getItem('gema_schule_klassen_pool_v1');
+          arr=r?JSON.parse(r):[];
+        }
+        return Array.isArray(arr)?arr:[];
+      }catch(e){ return []; }
+    };
+    if(typeof GemaSync!=='undefined'&&GemaSync.bindCollection){
+      GemaSync.bindCollection('schule','gema_schule_klassen_pool_v1','sklasse:','id')
+        .then(function(rows){ fertig(Array.isArray(rows)&&rows.length?rows:cacheRead()); })
+        .catch(function(){ fertig(cacheRead()); });
+    }else{
+      fertig(cacheRead());
+    }
+  }
+
   // ── Init ──
   // Stale-while-revalidate: sofort aus dem Pool-Cache rendern, danach
   // Cloud-Pull (bindCollection) + einmalige Legacy-Blob-Migration.
   load();loadTabs();render();
   (function(){
-    if(typeof GemaSync==='undefined'||!GemaSync.bindCollection) return;
+    if(typeof GemaSync==='undefined'||!GemaSync.bindCollection){ _wsStudentProvision(); return; }
     GemaSync.bindCollection(MK, POOL, PF, 'id').then(function(){
       // Ungespeicherte lokale Änderung unterwegs? Dann den frischen Stand
       // nicht adoptieren (der Push läuft gleich; nächster Boot pullt neu).
@@ -2754,11 +2960,15 @@ input::placeholder{color:#cbd5e1}
       // asynchronen Pull/der Migration explizit auffrischen, sonst bleibt
       // die Eimer-Liste dort bis zur nächsten Interaktion leer.
       try{ if(window._wsNatRefresh) window._wsNatRefresh(); }catch(e){}
-    }).catch(function(){});
+      // Studierende: Auto-Eimer NACH dem Pool-Pull anlegen (sonst würde ein
+      // frisch angelegter Eimer gegen den noch leeren Cache doppelt geprüft).
+      _wsStudentProvision();
+    }).catch(function(){ _wsStudentProvision(); });
   })();
   // Test-/Cross-Modul-Hooks (Leser in index.html/pm_objekte + Native-Screen)
   window._wsHooks={ pool:_poolRead, canSee:_canSeeBucket, buckets:function(){return buckets;},
     save:save, flush:_saveFlush, migrate:_migrateLegacy, load:function(){load();render();},
+    studentProvision:function(){_wsStudentProvision();}, partition:_wsPartition,
     templates:{load:function(){return loadTemplates();}, save:function(t){saveTemplates(t);}} };
   initResize('wsResizeSidebar','wsSidebar','left');
   initResize('wsResizeNotes','wsNotesCol','right');

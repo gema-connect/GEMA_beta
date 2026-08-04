@@ -257,6 +257,20 @@ function me(){return (typeof GemaAuth!=='undefined'&&GemaAuth.getCurrentUser())|
 function canEdit(){return typeof GemaAuth!=='undefined'&&GemaAuth.can('write','klassen');}
 function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 
+// ── Klassen-Chatgruppe (alle Studierenden + Dozenten) ────────────────
+// Stabile Thread-ID pro Klasse (chtgrp_klasse_<id>): Mitglieder-Änderungen
+// synchronisieren den BESTEHENDEN Thread (Nachrichten bleiben), ein
+// zweiter Aufruf legt nie einen zweiten an (idempotent). Läuft beim Boot
+// (Dozent UND Studierende), beim Beitritt und beim Entfernen.
+function klChatSync(k){
+  try{
+    if(typeof GemaChat==='undefined'||!GemaChat.ensureGruppe||!k||!k.id)return;
+    GemaChat.ensureGruppe({gruppeId:'klasse_'+k.id,titel:k.name,
+      userIds:(k.dozentIds||[]).concat(k.studentIds||[]),
+      kontext:{typ:'klasse',refId:k.id,label:k.name,url:'ab_klassen.html?k='+k.id}});
+  }catch(e){}
+}
+
 // ── Liste ────────────────────────────────────────────────────────────
 function renderHero(){
   var kl=S.meineKlassen().filter(function(k){return !k.archiviert;});
@@ -328,6 +342,7 @@ window.klBeitreten=function(code){
       S.saveKlasse(k).catch(function(){});
       S.notifyDozenten(k,{eventKey:'schule_klasse_beitritt',typ:'info',titel:'Neues Klassenmitglied',text:(u.name||u.username)+' ist der Klasse «'+k.name+'» beigetreten.',link:'ab_klassen.html?k='+k.id});
       S.refreshStudentMods();
+      klChatSync(k);
       renderList();
     });
   };
@@ -551,6 +566,7 @@ window.klStudWeg=function(sid){
     if(!ok)return;
     k.studentIds=(k.studentIds||[]).filter(function(x){return x!==sid;});
     S.saveKlasse(k).catch(function(){});
+    klChatSync(k);
     renderDetail();
   });
 };
@@ -694,6 +710,8 @@ document.addEventListener('DOMContentLoaded',function(){
     renderList();
     if(_openId)renderDetail();
     S.scanErinnerungen();
+    // Klassen-Chatgruppen anlegen/nachführen (Dozent UND Studierende)
+    try{S.meineKlassen().filter(function(k){return !k.archiviert;}).forEach(klChatSync);}catch(e){}
     // Deep-Link ?k=<klasseId>
     try{
       var params=new URLSearchParams(location.search);

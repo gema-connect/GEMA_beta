@@ -116,11 +116,14 @@ okv(MODKEYS.every(k => matrix['role_admin'][k] === 'rwa'), 'role_admin: read+wri
 {
   const st = matrix['role_student'];
   const stAllowed = MODKEYS.filter(k => st[k] !== '-').sort();
-  /* visitenkarte/kontakte gehören zur PERSON, nicht zum Gewerk — der
-     Nachzug-Loop hinter DEFAULT_ROLES gibt sie JEDER Rolle (GEMA Card).
+  /* Studierende: Klassen-Portal + Prüfungen + Quiz + WORKSPACE (Landing
+     seit 08/2026 — dort liegen die Auto-Eimer «Meine Klasse»/Übung).
+     GEMA Card ist für Studierende bewusst GESPERRT (User-Entscheid
+     08/2026): der Nachzug-Loop hinter DEFAULT_ROLES nimmt role_student
+     explizit aus, card-api lehnt zusätzlich serverseitig mit 403 ab.
      Das Studenten-Gating betrifft nur die Berechnungsmodule. */
-  okv(stAllowed.join(',') === ['klassen', 'kontakte', 'pruefungen', 'quiz', 'visitenkarte'].sort().join(','),
-    'role_student: ohne Klassen-Cache nur klassen/pruefungen/quiz (+ Card) — ist [' + stAllowed.join(',') + ']');
+  okv(stAllowed.join(',') === ['klassen', 'pruefungen', 'quiz', 'workspace'].sort().join(','),
+    'role_student: ohne Klassen-Cache nur klassen/pruefungen/quiz/workspace (KEINE Card) — ist [' + stAllowed.join(',') + ']');
 }
 ['role_lieferant_intern', 'role_produktlieferant_intern'].forEach(r => {
   okv(matrix[r]['produktkatalog'] === 'r', r + ': produktkatalog nur lesen (r)');
